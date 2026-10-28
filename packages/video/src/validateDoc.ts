@@ -1,13 +1,6 @@
 /**
- * 문서 구조 검증 (SCENARIO.md §5.13 (I)).
- *
- * 디스크에서 읽은 JSON 은 믿을 수 없다 — 스키마가 움직였을 수도, 손으로 고치다
- * 깨졌을 수도, 다른 버전이 쓴 것일 수도 있다. 타입 단언 하나로 통과시키면 그
- * 어긋남이 렌더 한참 뒤에 엉뚱한 자리에서 터진다.
- *
- * `resolveTimeline` 이 **의미**(앵커가 말이 되는가)를 보는 반면 여기서는 **구조**
- * (모양이 문서인가)만 본다. 둘을 합치지 않는 이유는 구조가 깨진 문서에 의미 검사를
- * 돌리면 오류가 폭포처럼 쏟아져 진짜 원인이 묻히기 때문이다.
+ * 문서 구조 검증(§5.13 (I)) — 디스크 JSON 은 믿지 않는다(타입 단언으로 넘기면 렌더 한참 뒤 엉뚱한 자리에서 터진다).
+ * 의미 검사(`resolveTimeline`)와 합치지 않는다 — 구조가 깨진 문서에 의미 검사를 돌리면 오류가 쏟아져 원인이 묻힌다.
  */
 
 import { VIDEO_MAX_ITEMS, VIDEO_SCHEMA_VERSION } from './constants.js';
@@ -130,12 +123,7 @@ function validateItemMotion(item: Record<string, unknown>, where: string, errors
   }
 }
 
-/**
- * 값이 문서인지 검사한다.
- *
- * 통과하면 그 값을 `VideoDoc` 으로 쓸 수 있다. 실패하면 무엇이 왜 아닌지를 전부
- * 모아 돌려준다(첫 오류에서 멈추지 않는 이유 — 고칠 사람이 한 번에 다 보게).
- */
+/** 첫 오류에서 멈추지 않고 전부 모아 돌려준다(고칠 사람이 한 번에 다 보게). */
 export function validateDoc(value: unknown): ValidateResult {
   const errors: string[] = [];
 

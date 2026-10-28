@@ -1,17 +1,7 @@
 /**
- * §9 슬라이스 스코프 × 전선 증분 — **두 최적화가 겹치는 자리의 회귀 테스트.**
- *
- * 왜 따로 있나: 슬라이스 스코프는 스냅샷에서 필드를 **통째로 지운다**. 그 자리는 v3.89 증분
- * (`broadcastBus.lastSentSlices`)이 기준점을 들고 있는 자리와 정확히 겹친다. 잘못 맞물리면
- * 증상이 **조용한 값 유실**이다 — 범위에 다시 들어온 슬라이스가 "안 바뀜"으로 잡혀 영영
- * 도착하지 않거나, 옛 기준점 위에 새 증분이 얹혀 틀린 맵이 복원된다.
- *
- * 그래서 여기서 못 박는 것은 둘이다:
- *  ① 뺐다가 다시 넣으면 **전량으로 한 번 가고** 그 뒤부터 증분이 붙는다(유실 없음).
- *  ② 그 왕복을 클라와 **같은 규칙**으로 풀면 서버가 아는 값과 한 글자도 다르지 않다.
- *
- * ⚠ 이 테스트가 성립하는 전제는 "모든 창에 **같은 페이로드 한 벌**이 나간다"이다 —
- *   그래서 세 스코프 축이 전부 창별이 아니라 합집합이다(`sliceScope.ts` 함정 ①).
+ * §9 슬라이스 스코프 × 전선 증분 회귀. 스코프가 지운 필드가 증분 기준점(`broadcastBus.lastSentSlices`)과 겹쳐, 어긋나면 값이 조용히 사라진다.
+ * 다시 넣으면 전량으로 한 번 가고 그 뒤 증분이 붙어야 하며, 클라 규칙으로 풀면 서버 값과 같아야 한다.
+ * ⚠ 전제: 모든 창에 같은 페이로드 한 벌 — 그래서 스코프 축은 창별이 아니라 합집합이다(`sliceScope.ts` 함정 ①).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
@@ -52,10 +42,7 @@ function makeManager(): { manager: ProjectGraphManager; name: string } {
 const report = (agentId: string, id: string): AgentReport =>
   ({ id, agentId, did: 'did ' + id, userActions: [], createdAt: Date.now() } as unknown as AgentReport);
 
-/**
- * 클라이언트 한 벌을 흉내낸다 — `useWebSocket.materializeSnapshot` 과 **같은 순서·같은 규칙**이다.
- * (증분 풀기 → 범위로 빠진 슬라이스 이어받기). 순서가 뒤집히면 실제 클라도 같이 틀린다.
- */
+/** 클라 흉내 — `useWebSocket.materializeSnapshot` 과 같은 순서(증분 풀기 → 빠진 슬라이스 이어받기). 뒤집히면 실제 클라도 틀린다. */
 class FakeClient {
   private shadow: Record<string, Record<string, unknown>> = {};
   private lastWire: Record<string, unknown> | null = null;

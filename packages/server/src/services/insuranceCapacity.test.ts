@@ -11,20 +11,9 @@ import type { ProjectInsuranceLedger, RetentionSettings } from '@vibisual/shared
 import { InsuranceVault } from './insuranceVault.js';
 import { InsuranceLedgerService } from './insuranceLedger.js';
 
-// SCENARIO.md §5.26 (H) / §3.2.3 — 컨텍스트 보험 저장고의 **용량 회수**.
-//
-// 이 시험이 지키는 것은 하나다: **줄을 버리면 그 바이트도 버린다.**
-//
-// 상한 다섯 축은 처음부터 다 있었는데 걷어 내는 자리가 실제로는 돌지 않았다. 줄을 자르는
-// `trimPreimages` 는 blob 을 안 건드렸고, blob 을 걷는 `pruneOrphans` 는 ① 아무도 부르지 않는
-// `applyRetention` ② 예산(256MB) 초과 분기 안에만 있었다. 그래서 사본 줄이 상한 500 을 지키는
-// 동안 디스크 blob 은 513개까지 자랐고 그중 **177개(22.5MB)가 아무도 가리키지 않는 고아**였다
-// (실측 2026-09-09 · 금고 76MB). 미러 쪽은 걷어 내는 자리가 아예 없었다.
+// §5.26 (H) / §3.2.3 — **줄을 버리면 그 바이트도 버린다.** 실측(2026-09-09): 사본 줄 상한 500 인데 blob 513개 중 177개(22.5MB)가 고아였다(회수가 예산 초과 때만 돌았다). 미러도 본다.
 
-// 사본 상한(500줄)을 실제로 넘겨 봐야 하는 시험은 작은 파일 쓰기를 수백 번 한다. 개발기 Windows 에서는
-// 3초 남짓인데 GitHub 의 windows-latest 러너는 작은 파일 I/O 가 훨씬 느려 같은 시험이 44.6초가 걸렸고
-// 기본 제한(30초)을 넘겨 떨어졌다(2026-09-13 CI · ubuntu·macos 는 통과). 한 줄당 비용은 일정해
-// 코드가 느려진 것이 아니다 — 판정은 그대로 두고 이 시험들에만 넉넉한 제한을 준다.
+// 상한을 넘기는 시험은 작은 파일 쓰기가 수백 번이라 windows-latest 러너에서 44.6초(2026-09-13 CI) — 코드가 아니라 러너 I/O 라 이 시험만 제한을 늘린다.
 const CAP_WALK_TIMEOUT_MS = 180_000;
 
 const PROJECT = 'demo';
@@ -106,7 +95,7 @@ function addPreimage(body: string): void {
 /** 파생 칸은 `restore` 가 안 읽지만 타입이 요구한다 — 0 으로 채워 모양만 맞춘다. */
 const EMPTY_COUNTS = { markers: 0, preimages: 0, vaultBytes: 0, failedCompacts: 0, restorable: 0 };
 
-/** 마커·사본이 없는 원장 — 옛 판본이 남긴 "색인은 비었는데 바이트는 남은" 상태를 세운다. */
+/** 마커·사본이 없는 원장 — "색인은 비었는데 바이트는 남은" 상태를 세운다. */
 function emptyLedger(retiredMarkers = 0): ProjectInsuranceLedger {
   return {
     projectName: PROJECT,
@@ -161,7 +150,7 @@ describe('§5.26 (H) 캡에 밀려난 줄의 바이트를 그 자리에서 회�
     const led = ledger.full(PROJECT);
     expect(led?.preimages.length).toBe(cap);
     expect(led?.retired?.preimages).toBe(5);
-    // 종전에는 줄만 잘리고 디스크는 그대로라 여기서 `cap + 5` 가 나왔다 — 그 차이가 곧 고아다.
+    // 줄만 자르고 바이트를 남기면 여기서 `cap + 5` 가 나온다 — 그 차이가 고아다.
     expect(blobsOnDisk().size).toBe(cap);
     expect(blobsOnDisk()).toEqual(referencedShas());
     expect(led?.retired?.bytes).toBeGreaterThan(0);
@@ -240,7 +229,7 @@ describe('§5.26 (H) 보존 한 바퀴 — 부팅 정리가 부르는 그 길', 
     ledger.mirrorFor(m.id, PROJECT);
     expect(mirrorsOnDisk().has('gone')).toBe(true);
 
-    // 마커가 사라진 원장(= 옛 판본이 남긴 상태)을 세우고 한 바퀴 돌린다.
+    // 마커가 사라진 원장을 세우고 한 바퀴 돌린다.
     const fresh = makeLedger();
     fresh.restore(emptyLedger(1));
     fresh.applyRetention();

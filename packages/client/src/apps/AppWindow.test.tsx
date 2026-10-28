@@ -356,9 +356,7 @@ describe('project-scoped internal app windows', () => {
     expect(useAppWindowsStore.getState().windows).toEqual([windowA, windowB]);
   });
 
-  // §5.13 (S-10) ⑧~⑩ — 사용자 지시(2026-10-11): "왼쪽 벽에 붙으면 가상의 창이 나오게, IDE 창이랑 똑같이".
-  //   앱을 최대화한 단일 모니터에서 커서는 왼쪽 벽(clientX 0)에 막힌다 — 거기서 잠깐 버티면 IDE 창처럼 선이
-  //   뜨고 본체는 숨는다. 끄는 동안 앱 화면은 다시 그리지 않는다(IDE (H-6) ② 와 같은 까닭).
+  // §5.13 (S-10) — 최대화한 단일 모니터에서 왼쪽 벽(clientX 0)에 잠깐 버티면 IDE 창처럼 선이 뜨고 본체가 숨는다(그동안 앱 화면은 다시 그리지 않는다).
   it('shows the outline at the left wall after a short hold, like the IDE window, without re-rendering the app screen', () => {
     vi.useFakeTimers();
     // 위 `window` 흉내는 진짜 시계를 쥐고 있다 — 버팀 시계가 가짜 시계로 돌게 갈아 끼운다.
@@ -400,9 +398,7 @@ describe('project-scoped internal app windows', () => {
     expect(mocks.hostRenders).toBe(rendersBefore);
   });
 
-  // §5.13 (S-11) — 사용자 보고: 영상 스튜디오 창이 "IDE 창처럼 드래그해도 안 움직인다". 앱은 머리줄을 창 타이틀바의 빈
-  //   자리에 **포털**로 그리는데, React 이벤트는 React 트리를 따르므로 그 위의 누름이 타이틀바 손잡이에 닿지 않았다.
-  //   창 틀이 그 자리에서 네이티브로 받아 같은 손잡이에 넘긴다 — 끌기·밖으로 빼기·두 번 눌러 최대화가 모두 같다.
+  // §5.13 (S-11) — 머리줄은 포털이라 React 이벤트가 타이틀바 손잡이에 닿지 않는다 — 창 틀이 네이티브로 받아 끌기·밖으로 빼기·두 번 눌러 최대화가 같게 된다.
   const pressInHeader = (target: unknown = { closest: () => null }) => ({
     button: 0, clientX: 300, clientY: 120, screenX: 300, screenY: 120, target, preventDefault: vi.fn(),
   });

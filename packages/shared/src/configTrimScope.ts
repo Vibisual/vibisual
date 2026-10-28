@@ -1,12 +1,4 @@
-/**
- * §5.3 #10-5 — 설정 덜어내기(Config Trim) **범위·저장 계약**.
- *
- * 오케스트라(`orchestraScope.ts`)와 자동 목표(`autoGoalScope.ts`)의 스위치 수학을 그대로 따른다.
- * 다른 점은 단 하나 — 여기는 **3단**이다: `프로젝트 전체` · `에이전트` · `이 세션만`.
- *
- * 세 단 모두 3상(`true` 켬 / `false` 끔 / 없음 = 윗단 물려받기)이고, 아무것도 안 정하면 **끔**이다.
- * 기본이 끔이라 사용자가 켜기 전에는 이 기능이 스폰 경로에 아예 닿지 않는다.
- */
+/** §5.3 #10-5 — 덜어내기 범위·저장 계약. `orchestraScope.ts` 의 스위치 수학을 따르되 3단(프로젝트·에이전트·세션), 각 3상(켬/끔/물려받기). 기본 끔 — 켜기 전엔 스폰 경로에 닿지 않는다. */
 
 import type {
   ConfigTrimExclusion,
@@ -54,10 +46,7 @@ function own(map: Record<string, boolean> | undefined, id: string | undefined): 
   return typeof v === 'boolean' ? v : null;
 }
 
-/**
- * 이 턴에 설정 덜어내기가 켜져 있는가 — **좁은 단이 이긴다**.
- * 세션 -> 에이전트 -> 프로젝트 차례로 보고, 아무 단도 정하지 않았으면 끔이다.
- */
+/** 좁은 단이 이긴다(세션 → 에이전트 → 프로젝트, 미정이면 끔). */
 export function resolveConfigTrimEnabled(
   settings: ConfigTrimSettings | undefined,
   ids?: ConfigTrimScopeIds,
@@ -119,10 +108,7 @@ export function capConfigTrimMap(
   return out;
 }
 
-/**
- * 스위치 한 칸을 바꾼 **새 설정**을 돌려준다 — `enabled === null` 이면 그 칸을 지운다(윗단 물려받기).
- * 켬/끔은 이 함수 하나로만 바뀐다(patch 로도 바꾸면 두 창구가 같은 칸을 덮는다).
- */
+/** 스위치 한 칸을 바꾼 새 설정(`null` = 그 칸을 지워 물려받기). 켬/끔은 이 함수로만 — patch 도 바꾸면 두 창구가 같은 칸을 덮는다. */
 export function withConfigTrimScope(
   settings: ConfigTrimSettings | undefined,
   scope: ConfigTrimScope,
@@ -191,13 +177,7 @@ export type ConfigTrimSettingsPatchResult =
   | { ok: true; settings: ConfigTrimSettings }
   | { ok: false; field: string };
 
-/**
- * 설정 patch 를 적용한다 — **보낸 칸만** 바뀐다(부분 페이로드가 나머지를 지우지 않게).
- *
- * - 값 `null` 또는 빈 배열 = 그 칸을 지운다.
- * - 켬/끔 칸은 여기서 받지 않는다 — 스위치는 `withConfigTrimScope` 한 길로만 바뀐다.
- * - 모양이 어긋난 값은 조용히 버리지 않고 그 칸 이름으로 실패한다(REST 400).
- */
+/** patch — 보낸 칸만 바뀐다(`null`·빈 배열 = 지움). 켬/끔은 받지 않는다(`withConfigTrimScope` 한 길). 모양이 틀린 값은 그 칸 이름으로 실패한다(REST 400). */
 export function applyConfigTrimSettingsPatch(
   current: ConfigTrimSettings,
   patch: unknown,

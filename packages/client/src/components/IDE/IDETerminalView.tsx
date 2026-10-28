@@ -37,27 +37,14 @@ import { placeCanvasMenu } from '../BubbleMap/canvasMenuPlacement.js';
 import { terminalRailOverlays } from './ideResponsive.js';
 import { followVisibleViewport, viewportMaxHeight, visibleViewport } from './popupPlacement.js';
 
-// §4 v2.63 — 임베디드 인터랙티브 터미널 뷰. (편의성 보강 v2.65)
-//
-// `AgentConfig.executionMode === 'interactive-terminal'` 인 커스텀 에이전트의 IDE 메인 영역에
-// 기존 채팅 스트림 대신 이 xterm.js 터미널이 렌더된다(IDEMainArea 분기). 더블클릭 → 셸+claude
-// prefill PTY(desktop main terminalManager)에 붙어 사용자가 직접 모는 인터랙티브 세션.
-//
-// 터미널 I/O 는 graphStore/WS 가 아니라 transport(§4 v3.33)로 흐른다: 데스크톱 = shell-state 전용
-// IPC(`window.api.terminal.*`), 모바일 웹 접속(§4 v3.16) = `/ws` 브리지(LAN 한정, 외부 접속은 차단).
-// 둘 다 없는 환경에서만 안내 폴백을 표시한다.
-//
-// v2.65 편의성: ① 프로젝트 톤 완전 ANSI 팔레트 테마, ② 복사/붙여넣기(우클릭 메뉴 + Ctrl+C/V·
-// Ctrl+Shift+C/V), ③ Ctrl+F 인앱 검색, ④ 출력 속 URL 클릭, ⑤ Ctrl +/-/0 폰트 확대·축소(localStorage 보존).
+// §4 — 임베디드 인터랙티브 터미널 뷰(`executionMode === 'interactive-terminal'`, `IDEMainArea` 분기). 셸+claude prefill PTY 에 붙는다.
+// I/O 는 transport 로 — 데스크톱 IPC(`window.api.terminal.*`)·모바일 `/ws` 브리지(LAN 한정). 둘 다 없을 때만 안내 폴백.
 
 interface IDETerminalViewProps {
   agentId: string;
   /** 세션(탭) id — null = 메인 탭. 탭마다 독립 PTY(termId=term:agentId:session)로 "+"=새 cmd 터미널. */
   sessionId: string | null;
-  /**
-   * §4 (CMD ⑤) — 이 뷰가 그리는 pane. 단일 pane 은 `'0'`(= termId 에 접미사 없음, 종전과 동일).
-   * 분할 시 `term:<agentId>:<session>#<paneId>` 로 **PTY 가 pane 마다 따로** 뜬다.
-   */
+  /** §4 (CMD ⑤) — 그리는 pane. 단일은 `'0'`(접미사 없음), 분할은 `term:<agentId>:<session>#<paneId>` 로 PTY 가 pane 마다 뜬다. */
   paneId?: string;
   /** §4 (⑤) — 이 pane 을 좌우/상하로 쪼갠다. 없으면 우클릭 메뉴에 항목이 뜨지 않는다. */
   onSplit?: (paneId: string, dir: 'row' | 'column') => void;
@@ -80,20 +67,12 @@ function clampFont(n: number): number {
   return Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, Math.round(n)));
 }
 
-// 호스트가 실제로 화면에 측정 가능한 크기를 가질 때만 true.
-// xterm 의 fit()/resize 는 0 크기(숨겨진 탭·미배치) 상태에서 호출하면 내부 RenderService 의
-// dimensions 가 비어, 이후 write/scroll 시 Viewport.syncScrollArea 가 undefined.dimensions 로 터진다.
-// → fit 류는 반드시 이 가드를 통과할 때만 수행한다.
+// 측정 가능한 크기일 때만 true. 0 크기(숨은 탭)에서 fit/resize 하면 RenderService dimensions 가 비어 이후 `Viewport.syncScrollArea` 가 터진다 — fit 류는 이 가드 뒤에서만.
 function hostMeasurable(el: HTMLElement | null): el is HTMLElement {
   return !!el && el.clientWidth > 0 && el.clientHeight > 0 && el.isConnected;
 }
 
-// §4 (CMD) — 글꼴이 뒤늦게 실린 뒤 xterm 이 **셀 폭을 다시 재게** 만든다.
-//
-// xterm 의 CharSizeService 는 `fontFamily`/`fontSize` 옵션이 **바뀔 때만** 다시 잰다(5.5.0 확인:
-// 셀 폭 측정은 open() 1회 · 화면비 변경 · 이 두 옵션 변경뿐이고, `document.fonts` 는 보지 않는다).
-// 그런데 옵션은 값이 실제로 달라질 때만 변경을 알리므로 **같은 값 재대입은 조용히 무시된다** —
-// 그래서 한 번 다른 값을 거쳐 되돌린다. 같은 실행 흐름 안이라 중간 값이 화면에 드러나지 않는다.
+// §4 (CMD) — 글꼴이 늦게 실린 뒤 셀 폭을 다시 재게 한다. xterm(5.5.0)은 `fontFamily`/`fontSize` 가 바뀔 때만 재고 같은 값 재대입은 무시해 다른 값을 거쳐 되돌린다.
 function remeasureCells(term: Terminal): void {
   term.options.fontFamily = `${TERMINAL_FONT_STACK}, monospace`;
   term.options.fontFamily = TERMINAL_FONT_STACK;
@@ -109,23 +88,10 @@ function readStoredFontSize(): number {
   }
 }
 
-// §4 (CMD) — 터미널 팔레트. 종전에는 tailwind 400 번대를 손으로 골라 세웠는데, 그 색들은 서로
-// 어울리라고 만든 조합이 아니라 한 화면에 여럿이 뜨면 채도가 제각각으로 튀었다(빨강·초록·보라가
-// 저마다 제일 밝다고 우긴다). 지금은 **터미널용으로 대비까지 맞춰 검증된 스킴**(Catppuccin Mocha,
-// MIT — 색값 사용 자유)의 ANSI 16색을 그대로 쓴다. 색을 새로 발명하지 않는 것이 요점이다.
-//
-// 배경만 스킴 기본(#1e1e2e)이 아니라 한 단 어두운 crust(#11111b)를 쓴다 — IDE 본문(gray-950)
-// 위에 얹히는 패널이라 본문보다 밝으면 터미널이 붕 떠 보인다.
-//
-// §4 앱 테마 — 이 색표는 이제 **테마의 `terminal.*` 토큰**이다(shared `APP_THEME_TOKEN_SPECS` 기본값 = 위
-// Mocha 그대로, 라이트 테마 = Catppuccin Latte). 아래 컴포넌트가 `useXtermTheme()` 으로 받아 쓴다.
+// §4 (CMD) — 팔레트는 Catppuccin Mocha(MIT, 색값 자유) ANSI 16색 그대로 — 손으로 고른 색은 채도가 튄다. 배경만 한 단 어두운 crust(#11111b) — 본문(gray-950)보다 밝으면 붕 떠 보인다.
+// 테마의 `terminal.*` 토큰(`APP_THEME_TOKEN_SPECS`, 라이트 = Latte)이며 `useXtermTheme()` 으로 받는다.
 
-/**
- * §4 (CMD) — 행간. 글꼴 크기와 달리 이 값은 사용자가 만지는 축이 아니라 **판독성의 기본선**이라
- * 상수로 둔다. 1.0(xterm 기본)은 줄이 위아래로 맞붙어 로그가 벽처럼 보이고, 반대로 1.6 을 넘기면
- * 한 화면에 들어가는 줄이 눈에 띄게 줄어 CLI 가 그리는 상자가 세로로 늘어진다. 1.38 은 같은 일을
- * 하는 화면(herdr.dev 의 터미널 목업)에서 실측한 값이다.
- */
+/** §4 (CMD) — 행간 1.38(실측 기본선). 1.0 은 줄이 맞붙고 1.6 을 넘으면 CLI 상자가 세로로 늘어진다. */
 const TERMINAL_LINE_HEIGHT = 1.38;
 
 // 글꼴 스택은 로그인 화면의 터미널 연출과 **같은 값을 써야** 해서 공용 모듈에 둔다.
@@ -152,7 +118,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
   const scrollbackRef = useRef(scrollbackLines);
   scrollbackRef.current = scrollbackLines;
 
-  // §4 v3.33 — 데스크톱(window.api.terminal IPC) / 모바일(/ws 브리지) 공통 transport. 모듈 참조라 stable.
+  // §4 — 데스크톱 IPC·모바일 `/ws` 공통 transport(모듈 참조라 안정).
   const transport = useMemo(() => getTerminalTransport(), []);
 
   // xterm 인스턴스/애드온 — effect 밖(메뉴·검색바·폰트 버튼 핸들러)에서 조작하려고 ref 로 보관.
@@ -179,7 +145,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
   const fontSizeRef = useRef<number>(typeof window !== 'undefined' ? readStoredFontSize() : FONT_SIZE_DEFAULT);
 
   const [fontSize, setFontSize] = useState<number>(fontSizeRef.current);
-  // §4 v2.89 — CMD 카드(작업 신고/질문/검수/목록). 마커 줄은 터미널에서 숨기고, 카드는 우측 DOM 패널이 렌더.
+  // §4 — CMD 카드(신고/질문/검수/목록). 마커 줄은 숨기고 카드는 우측 DOM 패널이 그린다.
   const [cards, setCards] = useState<TerminalCard[]>([]);
   // §4 (CMD) — pane 이름표에 쓰는 값들. 창을 여럿 쪼개 놓으면 **어느 창이 무엇인지**가 화면에
   //   전혀 없었다(경계선 한 줄이 전부라 넷으로 나누면 어디가 어디인지 세어 봐야 했다).
@@ -225,7 +191,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
     openWebSearch(term.getSelection());
   }, []);
 
-  // §4 v2.89 — CMD 질문 카드 "즉시 전송": 프롬프트를 터미널 PTY 에 prefill(newline ❌ — 사람이 Enter, ToS 인루프).
+  // §4 — CMD 질문 카드 "즉시 전송": PTY 에 prefill 만(줄바꿈 ❌ — Enter 는 사람이, ToS 인루프).
   const sendPromptToTerminal = useCallback((prompt: string) => {
     if (!transport) return;
     void transport.write(termId, prompt);
@@ -284,13 +250,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
   // 툴팁 안의 키도 레지스트리에서 — 재매핑하면 이 문구가 함께 바뀐다.
   const findTitle = useTitleWithBinding(t('ide.terminal.find'), 'terminal.find');
 
-  /**
-   * 이 키가 **이 터미널**의 것인가.
-   *
-   * 화면에 터미널이 여럿(분할·여러 세션) 뜨므로, 등록만 해 두면 뒤에 마운트된 터미널이 앞의
-   * 키를 가져간다. 이벤트가 난 자리가 내 host 안일 때만 받는다 — 판정 근거가 DOM 이라
-   * "지금 어느 터미널이 활성인가"라는 별도 상태를 둘 필요가 없다.
-   */
+  /** 이 터미널의 키인가 — 이벤트 자리가 내 host 안일 때만 받는다(아니면 뒤에 마운트된 터미널이 키를 가져간다). */
   const isMine = useCallback((e: KeyboardEvent): boolean => {
     const host = hostRef.current;
     return !!host && e.target instanceof Node && host.contains(e.target);
@@ -393,11 +353,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
 
     term.open(host);
 
-    // §4 (CMD) — GPU 렌더러. 기본 DOM 렌더러는 글자마다 span 을 쌓아 긴 출력에서 느려지는데,
-    // 그보다 중요한 건 위 `customGlyphs` 가 **DOM 에서는 아예 동작하지 않는다**는 점이다. 그대로
-    // 두면 행간을 키운 순간 CLI 가 그리는 상자의 세로선이 줄마다 끊어져 보인다.
-    // GPU 를 못 잡는 환경(원격 데스크톱·구형 드라이버·가상머신)에서는 생성이나 컨텍스트 확보가
-    // 실패하는데, 그때는 조용히 DOM 렌더러로 남는다 — 화면이 안 뜨는 것보다 흐린 편이 낫다.
+    // §4 (CMD) — GPU 렌더러. `customGlyphs` 는 DOM 렌더러에서 안 돌아 행간을 키우면 상자 세로선이 끊긴다. GPU 가 없으면(원격·구형·VM) 조용히 DOM 으로 남는다.
     try {
       const webgl = new WebglAddon();
       // 컨텍스트를 잃으면(드라이버 재시작·GPU 전환) 애드온을 버리고 DOM 으로 되돌아간다.
@@ -415,18 +371,12 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
     //   동봉 글꼴은 font-display: swap 이라 지금 재면 OS 폴백(좁은 글꼴)의 폭으로 열 수가 잡히고,
     //   그 값이 그대로 셸에 실려 가 줄이 창을 넘어간다(ensureTerminalFonts 주석).
 
-    // ⚠ 복붙·검색·폰트 단축키는 여기 없다 — §6 레지스트리(`useCommand`)가 창 capture 단계에서
-    //   먼저 판정하고, 우리 것이면 `stopPropagation()` 으로 삼켜 xterm 에 닿지 않게 한다.
-    //   그래서 `attachCustomKeyEventHandler` 로 한 벌 더 볼 필요가 없다(두 벌이면 재매핑이
-    //   한쪽에만 반영돼 "설정은 바뀌었는데 터미널만 옛 키"가 된다).
+    // ⚠ 복붙·검색·글꼴 단축키는 §6 레지스트리(`useCommand`)가 capture 에서 삼킨다 — `attachCustomKeyEventHandler` 로 두 벌 두지 마라(재매핑이 한쪽만 바뀐다).
 
-    // §4 v2.89 — CMD 카드 스니퍼. PTY 출력 중 `::VIBISUAL-CARD::{…}` 마커 줄을 **터미널에서 숨기고**(feed 가
-    //   그 줄을 뺀 문자열을 돌려줌 → claude TUI 무간섭), 파싱한 카드는 onCard 로 받아 우측 DOM 패널이 렌더.
-    //   reattach replay 는 onReset 으로 패널을 비운 뒤 buffer 의 마커로 카드를 재구성한다.
+    // §4 — 카드 스니퍼. `feed` 가 `::VIBISUAL-CARD::{…}` 줄을 빼고 돌려줘 TUI 에 간섭하지 않는다. replay 는 `onReset` 으로 비운 뒤 버퍼 마커로 다시 세운다.
     const sniffer = new TerminalCardSniffer({
       onCard: (card) => { if (!disposed) setCards((prev) => [...prev, card]); },
-      // §7.11 v2.29 — iframe 신고: 표시 카드가 아니라 서버 프리뷰 버블 트리거. 서버가 agentId 로 세션을 찾아
-      //   그 URL 로 iframe 위성을 만든다(정규식 추측 대체). 실패해도 조용히 무시(표시 전용).
+      // §7.11 — iframe 신고는 카드가 아니라 서버 프리뷰 버블 트리거(서버가 agentId 로 위성을 만든다). 실패는 조용히 무시.
       onIframe: (url) => {
         if (disposed) return;
         void fetch('/api/agent-iframe', {
@@ -494,16 +444,8 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
       void transport.write(termId, data);
     });
 
-    // 리사이즈 — xterm fit 과 PTY resize 를 **항상 함께, 리사이즈가 멎은 뒤 1회만**(트레일링 디바운스)
-    // 적용한다.
-    //   • 함께: xterm cols/rows 와 PTY cols/rows 가 어긋나면 claude REPL 의 하단 입력 박스 커서 계산이
-    //     틀려 박스가 조각나며 깨진다. 그래서 fit 으로 xterm 크기를 잡은 직후 같은 값으로 PTY 도 맞춘다.
-    //   • 1회만: 드래그 중 매 픽셀 SIGWINCH 를 쏘면 claude 가 프레임을 다시 그려 누적되므로, 멈춘 최종
-    //     크기에서만 한 번 통지한다. (재마운트 replay 덧쌓임은 main 의 clear-before-replay 가 따로 막음.)
-    //   드래그 도중에는 xterm 이 마지막으로 동기화된 크기를 유지하다가, 멈추면 새 크기로 한 번에 맞춰진다.
-    //   • §4 (CMD ③) — 리사이즈 1회 = ConPTY 화면 전체 리페인트 1벌이다. 여기서 횟수를 줄이는 것과
-    //     main 의 `shouldBufferPtyChunk` 가 그 리페인트를 링버퍼에서 걸러 내는 것은 **한 쌍** —
-    //     둘 중 하나만 되돌리면 재부착 replay 에 같은 배너가 다시 쌓인다.
+    // 리사이즈 — fit 과 PTY resize 를 함께, 멎은 뒤 1회만. 어긋나면 claude REPL 입력 박스가 깨지고, 매 픽셀 SIGWINCH 면 다시 그린 프레임이 쌓인다.
+    // §4 (CMD ③) — 리사이즈 1회 = ConPTY 전체 리페인트. 이 횟수 줄이기와 main 의 `shouldBufferPtyChunk` 는 한 쌍 — 하나만 되돌리면 replay 에 배너가 쌓인다.
     let lastCols = term.cols;
     let lastRows = term.rows;
     let resizeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -529,10 +471,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
     scheduleSizeSyncRef.current = scheduleSizeSync;
     const ro = new ResizeObserver(() => { scheduleSizeSync(); });
 
-    // §4 (CMD) — PTY 부착. **글꼴이 실린 뒤에** 크기를 재고, 그 크기로 셸을 띄운다.
-    //   여기서 재는 값이 곧 PTY 의 cols/rows 이므로 리사이즈 감시의 기준선(lastCols/lastRows)도
-    //   같은 자리에서 맞춘다 — 어긋나면 부착 직후 같은 크기로 한 번 더 통지해 ConPTY 가 화면을
-    //   통째로 다시 그린다(그 리페인트가 셸 입력줄에 채워 둔 prefill 을 새 폭으로 재배치하며 깨뜨린다).
+    // §4 (CMD) — 글꼴이 실린 뒤 크기를 재 셸을 띄우고, 기준선(`lastCols`/`lastRows`)도 여기서 맞춘다 — 어긋나면 부착 직후 재통지로 ConPTY 리페인트가 prefill 을 깨뜨린다.
     const attachPty = (): void => {
       if (disposed) return;
       // 측정에 성공했을 때만 크기를 싣는다 — 미측정(숨은 탭·미배치)이면 생략해 **재부착 PTY 를
@@ -541,7 +480,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
       const initialSize = measured ? { cols: term.cols, rows: term.rows } : {};
       lastCols = term.cols;
       lastRows = term.rows;
-      // 셸+claude prefill PTY 생성. §4 v3.33 — 외부(인터넷) 접속은 서버가 셸을 막고 external-blocked 회신.
+      // 셸+claude prefill PTY 생성. §4 — 외부 접속이면 서버가 막고 external-blocked 로 답한다.
       void transport.create({ termId, cwd: cwd ?? '', config, ...initialSize, scrollbackLines: scrollbackRef.current }).then((r) => {
         if (r.ok || disposed) return;
         const msg = r.error === 'external-blocked'
@@ -569,9 +508,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
     term.focus();
 
     return () => {
-      // §4 v2.63 — **PTY 는 kill 하지 않는다**. IDE 닫기/탭 전환은 컴포넌트만 unmount 하고
-      // 메인 프로세스의 PTY 는 살려둔다 → 다시 열면 reattach + scrollback replay 로 세션 보존.
-      // 진짜 종료(탭 명시 닫기)는 IDETabBar 가 api.terminal.kill 로, 앱/창 종료는 main 이 일괄 정리.
+      // §4 — 여기서 PTY 를 kill 하지 않는다(닫기·탭 전환은 unmount 만, 다시 열면 replay). 종료는 탭 명시 닫기(`IDETabBar`)와 앱 종료(main)뿐.
       disposed = true; // 이후 도착하는 write/resize/fit 콜백이 dispose 된 터미널을 건드리지 않게.
       clearInterval(stateTimer);
       trackerRef.current = null;
@@ -593,11 +530,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, sessionId, paneId]);
 
-  // 검색어 변경 시 라이브 하이라이트(다음 매치로 이동).
-  // §4 (CMD ③ QA) — scrollback 설정을 **이미 떠 있는 터미널에도** 반영한다. 종전에는 생성 시점
-  //   값만 쓰여, 옵션창에서 늘려도 "새로 여는 터미널부터"라 지금 보고 있는 창에서는 아무 일도
-  //   일어나지 않았다(설정을 바꾼 사용자가 고장으로 읽는 자리). PTY 링버퍼 쪽은 다음 부착에서
-  //   맞춰지므로 여기서는 xterm 만 즉시 올린다.
+  // §4 (CMD ③) — scrollback 설정을 떠 있는 터미널에도 바로 반영한다(PTY 링버퍼는 다음 부착 때).
   useEffect(() => {
     const term = termRef.current;
     if (term) term.options.scrollback = scrollbackLines;
@@ -630,9 +563,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
     setMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
-  // 메뉴를 연 뒤 **실제 크기**를 재어 보이는 화면 안으로 접는다(`IDEContextMenuPanel` 과 같은 규칙). 종전에는
-  //   어림 상수(200×220)로 접어 분할·확대·닫기 항목이 붙거나 글자가 긴 언어에서 아래가 잘렸고, 폰 가상 키보드가
-  //   줄인 화면(시각 뷰포트)도 몰랐다. 화면보다 길면 메뉴 안에서 스크롤한다.
+  // 메뉴를 연 뒤 실제 크기로 보이는 화면(시각 뷰포트) 안에 접는다(`IDEContextMenuPanel` 과 같은 규칙) — 어림 상수면 아래가 잘린다.
   useLayoutEffect(() => {
     const el = menuRef.current;
     if (!menu || !el) return;
@@ -656,7 +587,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-vb-terminal">
-      {/* §4 v2.63 — 권한 경계 고지 + v2.65 폰트/검색 컨트롤. */}
+      {/* §4 — 권한 경계 고지 + 글꼴·검색 컨트롤. */}
       <div className="flex items-center gap-1.5 border-b border-gray-800/80 bg-vb-terminal px-3 py-1">
         <svg className="h-3 w-3 shrink-0 text-teal-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="2.5" y="4" width="19" height="16" rx="2" />
@@ -738,17 +669,8 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
               </span>
             </>
           )}
-          {/* §4 (CMD) — `min-w-0` 이 **이 칸의 존재 이유의 절반**이다. 가로 flex 항목의 기본
-              `min-width:auto` 는 **콘텐츠 최소폭**으로 풀리는데, xterm 은 `.xterm-screen` 에
-              `width: <cols x 셀폭>px` 를 **인라인으로 박는다** — 즉 이 칸의 최소폭이 "지금 터미널
-              폭"으로 고정된다. 그러면 창을 좁히거나 옆에 카드 레일(360px)이 서도 이 칸은 줄지 못하고
-              **터미널이 창 밖으로 밀려 나간다.** 게다가 줄지 않으니 아래 ResizeObserver 가 볼 크기
-              변화 자체가 없어(호스트 폭이 그대로다) 다시 재는 일도 영영 일어나지 않는다.
-              더 나쁜 것은 그 상태에서 fit 이 한 번 돌면 **폭이 한 칸씩 늘어난다**(호스트가 옛 화면
-              폭에 고정돼 있어 fit 이 그 값을 다시 available width 로 읽는다 — 헤드리스 실측:
-              900→500px 로 좁혔을 때 cols 123→124, 화면 오른쪽 끝이 창 밖 892px). `min-w-0` 하나로
-              바닥이 0 이 되어 칸이 창을 따라 줄고, 그 변화를 ResizeObserver 가 받아 다시 맞춘다.
-              (같은 함정의 다른 자리: previewViewportEscape.test.ts 의 `<main>`) */}
+          {/* §4 (CMD) — `min-w-0` 을 빼지 마라. xterm 이 `.xterm-screen` 에 폭을 인라인으로 박아 `min-width:auto` 면 칸이 줄지 못한다 —
+             터미널이 창 밖으로 밀리고 ResizeObserver 도 못 보며 fit 마다 한 칸씩 는다(헤드리스 실측: 900→500px 에 cols 123→124). 같은 함정: `previewViewportEscape.test.ts`. */}
           <div
             className="relative min-h-0 min-w-0 flex-1"
             onFocus={() => setFocused(true)}

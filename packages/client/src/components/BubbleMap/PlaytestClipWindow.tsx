@@ -11,14 +11,8 @@ import { useCapturePlaytest, useCapturePlaytestStore, type PlaytestClip } from '
 import { registerCaptureWindow, type CaptureWindowHandle } from './captureWindowManager.js';
 import { clampRange, clipFileName, formatClipDuration, formatClipTime, type ClipRange } from './playtestClip.js';
 
-// §5.9 플레이테스트 클립 창(§7.21) — 녹화를 멈추면 뜨는 앱 내부 창.
-//
-// 창 거동(가운데 팝업 → 드래그 이동 → 리사이즈 → 최대화)은 캡처 창·기억 라이브러리와 **같은 훅**
-// (`useFloatingWindow`)을 쓴다. z-order·Escape 도 캡처 창과 같은 매니저를 쓰므로 여러 창이 떠 있어도
-// 클릭한 창이 앞으로 오고 Escape 는 맨 위 하나만 닫는다.
-//
-// 하는 일은 하나다 — **되돌려 보고, 구간을 좁히고, 그 구간의 프레임을 에이전트 입력창에 붙인다.**
-// 자동 전송 ❌(§5.17 (B) 와 같은 규칙): 무엇이 잘못됐는지는 사용자가 문장으로 얹어 직접 보낸다.
+// §5.9 플레이테스트 클립 창(§7.21) — 되돌려 보고, 구간을 좁혀, 그 프레임을 에이전트 입력창에 붙인다. 자동 전송 ❌(§5.17 (B)).
+// 창 거동은 `useFloatingWindow`, z-order·Escape 는 캡처 창 매니저(Escape 는 맨 위 하나만).
 
 export interface PlaytestClipWindowProps {
   captureBubbleId: string;
@@ -150,10 +144,8 @@ export const PlaytestClipWindow = memo(function PlaytestClipWindow({
     setPlayheadMs(ms);
   }, []);
 
-  // ── 구간 손잡이 ─────────────────────────────────────────────────────────────
-  // 포인터 이벤트라 마우스·손가락·펜이 같은 길이다(종전 mousedown 전용이라 폰에서는 손잡이가 안 움직였다).
-  //   누른 손잡이가 포인터를 붙잡아(`setPointerCapture`) 손이 띠 밖으로 나가도 따라오고, 손잡이는 `touch-none` 이라
-  //   창 본문의 세로 스크롤이 그 손짓을 가져가지 않는다. 두 번째 손가락은 끌던 손잡이를 흔들지 않는다.
+  // 구간 손잡이는 포인터 이벤트다(마우스 전용이면 폰에서 안 움직인다). `setPointerCapture` 로 띠 밖까지 따라오고 `touch-none` 으로 본문 스크롤에 안 뺏긴다.
+  // 두 번째 손가락은 무시한다.
   const trackRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<'start' | 'end' | null>(null);
   const dragPointerRef = useRef<number | null>(null);
@@ -560,10 +552,7 @@ export const PlaytestClipWindow = memo(function PlaytestClipWindow({
   );
 });
 
-/**
- * 열려 있는 클립 창 전부. **캔버스(BubbleMap) 자리에서 렌더한다** — 캡처 노드 안에서 그리면
- * 버블이 뷰포트 밖으로 나가 컬링되는 순간(§4 v3.71) 보고 있던 창이 함께 사라진다.
- */
+/** 캔버스(BubbleMap) 자리에서 렌더한다 — 캡처 노드 안이면 버블이 컬링될 때(§4) 창이 함께 사라진다. */
 export function PlaytestClipWindows(): React.JSX.Element | null {
   const openClipId = useCapturePlaytestStore((s) => s.openClipId);
   const openClip = useCapturePlaytestStore((s) => s.openClip);

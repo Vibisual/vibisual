@@ -23,24 +23,11 @@ import { useEditorFind, type EditorFindMemory } from './useEditorFind.js';
 import { useEditorLineCommands } from './useEditorLineCommands.js';
 
 /**
- * CodeEditor.tsx — §5.5 #17-27 v4.87 실제로 타이핑하는 편집 표면.
- *
- * 색이 입혀진 `<pre>` 위에 **투명한 `<textarea>`** 를 겹친다(§5.5 #17-27 ⑤) — 캐럿·선택·IME·
- * 되돌리기는 브라우저의 것을 그대로 쓰고, 우리는 그 아래에 같은 글자를 색만 다르게 한 벌 더 그린다.
- * 두 층은 **같은 글꼴·행간·패딩**을 써야 한 글자라도 어긋나지 않으므로, 그 값들은 아래 상수 한 곳에서
- * 나온다(양쪽에 따로 적으면 언젠가 반드시 어긋난다).
- *
- * §5.5 #17-27 ⑲ — 찾기·바꾸기·줄 번호로 가기·줄 편집 명령은 VS Code 와 같은 키로 산다(사용자 지시 —
- * "기존 편집 툴들처럼 … 단축키랑 동일하게"). 키는 단축키 표(`shared/keymap.ts` editor 묶음)가 정하고,
- * 상태는 `useEditorFind`·`useEditorLineCommands` 가, 계산은 순수 함수(`editorFind.ts`·`editorLineOps.ts`)가 쥔다.
- * 이 파일은 그 셋을 본문에 잇고, 찾은 자리를 `<pre>` 층에 칠한다.
+ * CodeEditor.tsx — §5.5 #17-27 편집 표면: 색 입힌 `<pre>` 위에 투명 `<textarea>`(⑤ — 캐럿·IME·되돌리기는 브라우저 것). 두 층의 글꼴·행간·패딩은 아래 상수 한 곳에서.
+ * ⑲ 찾기·줄 편집 키는 VS Code 와 같다 — 키 `shared/keymap.ts`, 상태 `useEditorFind`·`useEditorLineCommands`, 계산 `editorFind.ts`·`editorLineOps.ts`.
  */
 
-/**
- * 두 층이 공유하는 글자 배치 — 여기만 고치면 본문·줄번호가 함께 따라온다.
- * 탭 폭(`[tab-size:4]`)은 `EDITOR_TAB_SIZE` 와 같아야 한다(VS Code 기본값 — 브라우저 기본 8 은 탭으로
- * 들여쓴 언리얼 소스를 두 배로 벌려 그린다). 두 층이 같은 값을 쓰므로 캐럿은 어긋나지 않는다.
- */
+/** 두 층 공유 글자 배치(여기만 고친다). `[tab-size:4]` 는 `EDITOR_TAB_SIZE` 와 같아야 한다(브라우저 기본 8 은 탭 들여쓰기를 두 배로 벌린다). */
 const LAYER_TEXT = 'font-mono text-[13px] leading-[19px] [tab-size:4]';
 const LAYER_PAD = 'px-3 py-2';
 /**
@@ -85,10 +72,7 @@ interface CodeEditorProps {
   readOnly: boolean;
   onChange: (next: string) => void;
   onSave: () => void;
-  /**
-   * §5.5 #17-20 ⑩ v4.94 — 이 파일에 찍힌 중단점 줄 번호(1-based).
-   * 없으면 gutter 는 종전 그대로 번호만 그린다(디버그를 안 쓰는 사용자에게 달라지는 것 ❌).
-   */
+  /** §5.5 #17-20 ⑩ — 중단점 줄 번호(1-based). 없으면 gutter 는 번호만. */
   breakpointLines?: ReadonlySet<number>;
   /** 줄 번호를 눌렀을 때. 없으면 gutter 는 클릭 대상이 아니다. */
   onToggleBreakpoint?: (line: number) => void;
@@ -96,18 +80,11 @@ interface CodeEditorProps {
   stoppedLine?: number | null;
   /** 줄 번호 칸의 툴팁(i18n 문자열은 부모가 넘긴다 — 이 컴포넌트는 순수 표시). */
   toggleBreakpointTitle?: string;
-  /**
-   * §5.5 #17-27 ⑨ v4.97 — 본문 우클릭 메뉴 항목을 만들어 주는 부모 콜백.
-   * 편집 조작(잘라내기·붙여넣기·되돌리기)은 textarea 를 쥔 이 컴포넌트만 할 수 있으므로
-   * **조작 묶음을 넘겨 주고**, 라벨·저장 같은 바깥 항목은 부모가 얹는다. 없으면 우클릭은 무동작.
-   */
+  /** §5.5 #17-27 ⑨ — 본문 우클릭 메뉴를 만드는 부모 콜백. 편집 조작은 textarea 를 쥔 이쪽만 해서 묶음으로 넘기고 바깥 항목은 부모가 얹는다. 없으면 무동작. */
   buildBodyMenu?: (ctx: CodeEditorBodyMenuContext) => ContextMenuItem[];
   /** §5.5 #17-27 ⑨ — 줄 번호 칸 우클릭 메뉴 항목(그 줄 번호와 본문을 넘긴다). */
   buildGutterMenu?: (line: number, lineText: string) => ContextMenuItem[];
-  /**
-   * §5.5 #17-27 ⑪ — [추종] 이 방금 고쳐진 줄들. 있으면 그 줄이 보이도록 **부드럽게 스크롤**하고
-   * 그동안 그 줄들이 잠깐 강조된다. 없으면(=평소) 이 컴포넌트는 종전과 완전히 같다.
-   */
+  /** §5.5 #17-27 ⑪ — [추종] 이 방금 고친 줄들 — 있으면 그 줄로 부드럽게 스크롤하고 잠깐 강조한다. */
   followRange?: FollowRange | null;
   /**
    * 같은 범위가 다시 와도 한 번 더 움직여야 하므로, **신호마다 달라지는 값**을 함께 받는다
@@ -336,13 +313,7 @@ export const CodeEditor = memo(function CodeEditor({
     gutter.scrollTop = scroller.scrollTop;
   }, []);
 
-  /**
-   * §5.5 #17-27 ⑬ (g) — 사용자가 눌러 온 줄의 머리에 캐럿을 둔다.
-   *
-   * 초점은 스크롤을 일으키지 않게 준다(`preventScroll` — 자리는 아래 스크롤이 정한다). 터치 화면에서는
-   * 초점을 주지 않는다 — 화면 자판이 솟아 방금 데려온 그 줄을 가린다. 캐럿 자리만 옮겨 두면 손가락으로
-   * 누르는 순간 거기서 시작한다.
-   */
+  /** §5.5 #17-27 ⑬ (g) — 눌러 온 줄 머리에 캐럿(`preventScroll`). 터치에선 초점을 안 준다 — 화면 자판이 그 줄을 가린다. */
   const placeCaretAtLine = useCallback((line: number): void => {
     const el = textareaRef.current;
     if (!el || isInputComposing(el)) return;
@@ -354,12 +325,8 @@ export const CodeEditor = memo(function CodeEditor({
   }, []);
 
   /**
-   * §5.5 #17-27 ⑪ — 방금 고쳐진 줄로 부드럽게 스크롤한다.
-   *
-   * 모든 줄을 그대로 그리는 편집창이라(가상 리스트 ❌) 위치는 **줄 번호 × 행간**으로 바로 나온다.
-   * 목적지를 화면 위쪽 1/3 에 두는 이유는, 고쳐진 줄 **아래로 이어지는 코드**가 함께 보여야
-   * 무엇이 바뀐 것인지 읽히기 때문이다. `prefers-reduced-motion` 이면 미끄러지지 않고 즉시 옮긴다.
-   * ⑬ (g) 본문 링크·오류 줄도 같은 길로 온다 — 그때는(`followFocus`) 캐럿까지 그 줄에 둔다.
+   * §5.5 #17-27 ⑪ — 고친 줄로 부드럽게 스크롤(가상 리스트가 아니라 줄 번호 × 행간). 목적지는 위쪽 1/3 — 아래 코드가 보여야 바뀐 것이 읽힌다.
+   * reduced-motion 이면 즉시. ⑬ (g) 링크·오류 줄도 같은 길(`followFocus` 면 캐럿까지).
    */
   useLayoutEffect(() => {
     const scroller = scrollRef.current;
@@ -445,7 +412,7 @@ export const CodeEditor = memo(function CodeEditor({
   const findRef = useRef(find);
   findRef.current = find;
 
-  // ─── §5.5 #17-27 ⑨ v4.97 우클릭 ────────────────────────────────────────────
+  // §5.5 #17-27 ⑨ 우클릭
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
   /** 우클릭한 순간의 선택 범위 — 메뉴 버튼을 누르면 초점이 옮겨가므로 되돌려 놓고 조작한다. */
   const menuSelection = useRef<{ start: number; end: number; value: string; field: HTMLTextAreaElement | null }>({ start: 0, end: 0, value: '', field: null });
@@ -461,11 +428,7 @@ export const CodeEditor = memo(function CodeEditor({
     return el;
   }, []);
 
-  /**
-   * 선택 범위를 주어진 글자로 갈아 끼운다.
-   * `insertText` 로 넣어야 브라우저의 되돌리기 기록이 끊기지 않는다 — 값을 통째로 갈아 끼우면
-   * 그 한 걸음을 Ctrl+Z 가 잃는다. 지원하지 않는 환경에서만 직접 계산으로 물러선다.
-   */
+  /** 선택을 갈아 끼운다 — `insertText` 여야 Ctrl+Z 기록이 안 끊긴다. 안 되는 환경에서만 직접 계산. */
   const replaceSelection = useCallback((insert: string): void => {
     const el = focusWithSelection();
     if (!el || readOnly) return;
@@ -574,11 +537,8 @@ export const CodeEditor = memo(function CodeEditor({
     const el = e.currentTarget;
     const native = e.nativeEvent;
 
-    // §5.5 #17-27 ⑲ Enter — 줄바꿈과 함께 지금 줄의 들여쓰기를 잇는다(여는 괄호 뒤면 한 단계 더).
-    //   판정은 보내는 칸들과 한 벌이다(`decideEnterKey`). 한글 조합을 끝낸 직후의 진짜 Enter 는 여기까지 온다
-    //   (`IME_ENTER_OWNER`) — 그래야 한글 주석 뒤 첫 Enter 도 들여쓰기를 잇는다. 다만 이 칸에서는 줄바꿈이
-    //   **바라는 결과**라, 입력기가 먹은 키(`imeCommit` — 일본어·중국어 변환 확정)는 보내는 칸처럼 막지 않고
-    //   입력기·브라우저에게 그대로 둔다(종전 textarea 와 같다). Shift+Enter(`newline`)도 같은 줄바꿈이다.
+    // §5.5 #17-27 ⑲ Enter — 줄바꿈 + 들여쓰기 잇기(여는 괄호 뒤면 한 단계 더). 판정은 보내는 칸과 한 벌(`decideEnterKey`), 한글 조합 직후 Enter 도 온다(`IME_ENTER_OWNER`).
+    // 입력기가 먹은 키(`imeCommit`)는 막지 않는다 — 여기선 줄바꿈이 바라는 결과다.
     if (e.key === 'Enter') {
       const outcome = decideEnterKey({
         key: e.key, shiftKey: e.shiftKey, chordKey: false, imeConsumed: isImeConsumedKey(native), slashMatchCount: 0,
@@ -610,12 +570,7 @@ export const CodeEditor = memo(function CodeEditor({
     }
   };
 
-  /**
-   * 저장 — 키는 §6 레지스트리가 정한다(`editor.save`).
-   *
-   * **내 textarea 안에서 난 키만** 받는다. 분할 편집기처럼 편집창이 둘 이상 떠 있을 때
-   * 등록만 해 두면 나중에 마운트된 쪽이 가져가 **엉뚱한 파일이 저장된다**.
-   */
+  /** 저장(§6 `editor.save`) — 내 textarea 의 키만 받는다(편집창이 여럿이면 나중 마운트가 가져가 엉뚱한 파일이 저장된다). */
   useCommand('editor.save', (e) => {
     if (e.target !== textareaRef.current) return false;
     onSave();
@@ -623,11 +578,7 @@ export const CodeEditor = memo(function CodeEditor({
 
   return (
     <div ref={rootRef} className="relative flex min-h-0 flex-1 overflow-hidden bg-gray-950">
-      {/*
-        줄 번호 = 중단점 gutter (§5.5 #17-20 ⑩ v4.94).
-        새 레이아웃을 얹은 것이 아니라 **이미 줄 단위로 그리던 요소**에 클릭 하나를 준 것이다 —
-        그래서 두 층(본문·번호)의 행간 계약은 그대로다.
-      */}
+      {/* 줄 번호 = 중단점 gutter(§5.5 #17-20 ⑩) — 클릭만 준 것이라 두 층 행간 계약은 그대로다. */}
       <div ref={gutterRef} className={`${GUTTER_CLASS} overflow-hidden`}>
         <div className={`${LAYER_TEXT} ${LAYER_PAD} pl-0 pr-2`}>
           {lines.map((_, i) => {

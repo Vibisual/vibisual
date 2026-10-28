@@ -1,8 +1,4 @@
-/**
- * §5.11 v3.88 — 클라이언트 기여 배럴.
- *
- * 플러그인 추가 시 여기에 한 줄. 호스트(`client/src/plugins/host.tsx`)는 이 배열만 보고 슬롯을 채운다.
- */
+/** §5.11 — 클라이언트 기여 배럴. 플러그인 추가 시 여기에 한 줄 — 호스트(`client/src/plugins/host.tsx`)는 이 배열만 보고 슬롯을 채운다. */
 import type { PluginClientModule } from './types.js';
 import { lethalTrifectaClient } from './lethal-trifecta/client/index.js';
 import { leastPrivilegeClient } from './least-privilege/index.js';

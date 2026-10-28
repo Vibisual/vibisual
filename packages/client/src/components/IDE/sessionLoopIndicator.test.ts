@@ -2,13 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { SessionLoop } from '@vibisual/shared';
 import { serializeRunningLoops, parseRunningLoops } from './sessionLoopIndicator.js';
 
-/**
- * §5.5 #17-11 ⑩ v5.02 — 세션 탭의 반복 루프 표시 산식 회귀.
- *
- * 고정하는 약속: ① 아이콘은 `enabled` 인 탭에만 뜬다(끄면 그 자리에서 사라진다),
- * ② 같은 상태면 같은 문자열이 나온다(값이 안 바뀌었는데 탭바가 다시 그려지지 않게),
- * ③ 왕복(직렬화→파싱)이 진행 표기를 그대로 보존한다(툴팁의 `완료/목표`).
- */
+/** §5.5 #17-11 ⑩ — 루프 아이콘은 `enabled` 탭에만, 같은 상태면 같은 문자열, 직렬화 왕복이 진행(`완료/목표`)을 보존하는가. */
 
 function loop(over: Partial<SessionLoop> = {}): SessionLoop {
   return {

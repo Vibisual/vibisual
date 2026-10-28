@@ -1,19 +1,6 @@
 /**
- * §9 — **전선 부피 예산의 집행.** 개별 최적화가 아니라 그 최적화가 무너지지 않게 하는 장치다.
- *
- * 왜 있나: 2026-09-02 라운드에서 키맵 941KB 의 참조 유지율이 **0%** 였던 것을 고쳐 전선을
- * 1,184KB → 408.9KB 로 줄였다. 그런데 그 최적화는 **다음에 슬라이스를 추가하는 사람이 규약을
- * 모르면 그 자리에서 원위치한다** — `GraphSnapshot` 에 `Record<string, Something[]>` 한 줄을
- * 더하는 데는 아무 관문이 없고, 그 슬라이스는 조용히 매 16~250ms 마다 통째로 전선을 탄다.
- * 지금까지 그것을 알아채는 유일한 방법이 "느려졌다"는 사용자 신고였다.
- *
- * 그래서 이 파일이 세 가지를 **빌드에서** 막는다:
- *  ① 새 키맵 슬라이스는 `DELTA_SLICE_KEYS` 에 들거나 아래 예외표에 **이유와 함께** 등재돼야 한다.
- *  ② 아무것도 안 바뀐 스냅샷은 키맵을 한 개도 전선에 올리지 않는다(증분이 실제로 걸리는지).
- *  ③ 참조를 못 지켜 증분을 못 붙이는 슬라이스(`unstable`)는 **개수가 늘지 않는다** — 빚이 쌓이지 않게.
- *
- * 이 집행 방식은 `typographyFloor.test.ts`(12px 하한)·`stores/snapshotSliceIdentity.test.ts`
- * (`apply*` 참조 안정성)와 같은 계열이다. 규약을 문서에만 적으면 반년 뒤 같은 대화를 다시 한다.
+ * §9 — 전선 부피 예산 집행. 새 키맵 슬라이스가 규약을 모르고 들어오면 16~250ms 마다 통째로 전선을 탄다 — 빌드에서 막는다:
+ * 새 슬라이스는 `DELTA_SLICE_KEYS` 또는 예외표(이유 포함) · 안 바뀐 스냅샷은 키맵 0개 · `unstable` 개수는 늘지 않는다.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
@@ -30,18 +17,8 @@ vi.mock('./services/appState.js', async (importOriginal) => {
   return { ...actual, appStateAddOpenProject: () => false };
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 예외표 — 증분을 타지 **않는** 키맵 슬라이스와 그 이유.
-//
-// 새 슬라이스를 `GraphSnapshot` 에 더하면 이 표에 한 줄을 넣어야 테스트가 통과한다.
-// 그 한 줄을 쓰는 동안 "이게 전선에서 얼마나 무거운가"를 한 번 생각하게 되는 것이 목적이다.
-//
-// 사유 코드:
-//  · `scoped`   — 프로젝트/폴더 스코프가 이미 범위를 좁힌다(§9 스코프드 스냅샷). 증분은 이중 방어.
-//  · `small`    — 항목이 짧아(수십~수백 바이트) 증분의 `changed` 사본이 이득을 못 넘긴다.
-//  · `volatile` — 사실상 매 틱 바뀌므로 증분이 늘 "과반 변경"으로 전량 회귀한다.
-//  · `unstable` — **증분을 붙이고 싶지만 참조를 못 지킨다.** 고쳐야 할 빚이고 개수 상한이 걸려 있다.
-// ─────────────────────────────────────────────────────────────────────────────
+// 예외표 — 증분을 타지 않는 키맵 슬라이스와 이유. 새 슬라이스는 여기 한 줄이 있어야 통과한다(전선 무게를 한 번 생각하게).
+// `scoped` 스코프가 이미 좁힘 · `small` 짧아 `changed` 사본이 이득을 못 넘김 · `volatile` 매 틱 바뀜 · `unstable` 참조를 못 지키는 빚(개수 상한).
 type ExemptReason = 'scoped' | 'small' | 'volatile' | 'unstable';
 
 const WIRE_BUDGET_EXEMPT: Record<string, { reason: ExemptReason; note: string }> = {
@@ -72,10 +49,7 @@ const WIRE_BUDGET_EXEMPT: Record<string, { reason: ExemptReason; note: string }>
     reason: 'small',
     note: '§5.3 #12-3 사람이 손으로 거는 자물쇠 — 항목은 경로 한 줄, 프로젝트당 상한 PATH_LOCK_MAX_PER_PROJECT',
   },
-  // 값이 `number[]` 라 스칼라 자동 면제를 못 받지만, 그 배열은 **길이가 고정**이다 —
-  //   `heatQuantileSamples` 가 노드 수와 무관하게 `HEAT_QUANTILE_BINS + 1`(=33) 칸으로 접는다.
-  //   즉 이 슬라이스 자체가 "값 전체를 전선에 싣지 않으려고" 이미 접어 둔 자리라, 증분을 붙여도
-  //   `changed` 사본만 한 벌 더 든다(매니저가 매 스냅샷마다 새 `{}` 를 지어 참조도 안 지킨다).
+  // `number[]` 라 자동 면제가 안 되지만 길이 고정(`HEAT_QUANTILE_BINS + 1` = 33칸)이라 증분은 `changed` 사본만 늘린다(매 스냅샷 새 `{}` 라 참조도 안 지킨다).
   readCountQuantilesByProject: {
     reason: 'small',
     note: '프로젝트당 33칸으로 접힌 분포 표본 — readCountMaxByProject(스칼라 면제)와 한 쌍이고 §9 ④ 로 항상 전량',
@@ -132,10 +106,8 @@ const report = (agentId: string, id: string): AgentReport =>
   ({ id, agentId, did: 'did ' + id, userActions: [], createdAt: Date.now() } as unknown as AgentReport);
 
 /**
- * `GraphSnapshot` 선언에서 **키맵 슬라이스**(`Record<string, 무거울 수 있는 값>`)를 뽑는다.
- *
- * 값이 `string`/`number`/`boolean` 인 것은 키 수만큼 늘어도 한 줄이 짧아 자동 면제다
- * (그래도 `nodeProjects` 처럼 키가 수천 개면 목록에 넣을 수 있다 — 면제는 하한이지 금지가 아니다).
+ * `GraphSnapshot` 선언에서 키맵 슬라이스(`Record<string, 무거울 수 있는 값>`)를 뽑는다.
+ * 값이 `string`/`number`/`boolean` 이면 자동 면제(키가 수천 개인 `nodeProjects` 처럼 목록에 넣을 수는 있다 — 면제는 하한이지 금지가 아니다).
  */
 function keyedSliceFieldsOfSnapshot(): string[] {
   const typesPath = fileURLToPath(new URL('../../shared/src/types.ts', import.meta.url));

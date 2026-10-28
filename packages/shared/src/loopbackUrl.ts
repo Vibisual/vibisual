@@ -1,14 +1,7 @@
 /**
- * 루프백(내 기계) 주소 판정 SSOT — §7.11 감지 폴백과 "눌러서 프리뷰" 손잡이가 함께 쓴다.
- *
- * 한 서버를 가리키는 이름은 여럿이다: `localhost` · `127.0.0.1` · `[::1]` · `0.0.0.0`.
- * 그런데 **어느 이름으로 부르느냐에 따라 실제로 붙느냐가 갈린다** — Vite 는 Windows 에서
- * `localhost` 로 열면 IPv6(`::1`) 에만 바인딩되므로 `127.0.0.1` 로는 ECONNREFUSED 다.
- * 그래서 "살아있는지" 를 물을 때는 **한 이름으로 묻고 아니라고 답하면 안 된다** — 별칭을
- * 차례로 물어야 한다(`loopbackUrlVariants`).
- *
- * shared 라 브라우저에서도 로드된다 — `node:` 모듈·`process` 를 읽지 않는 순수 함수만 둔다
- * (pathCase.ts 머리말과 같은 규약). 실제 probe(TCP/HTTP)는 서버 `processChecker` 의 일이다.
+ * 루프백 주소 판정 — §7.11 감지 폴백과 "눌러서 프리뷰"가 함께 쓴다. 같은 서버도 이름에 따라 붙느냐가 갈린다
+ * (Windows Vite 는 `localhost` 로 열면 `::1` 만 — `127.0.0.1` 은 ECONNREFUSED) — 살아 있는지는 별칭을 차례로 물어야 한다(`loopbackUrlVariants`).
+ * 브라우저에서도 로드되는 순수 함수만(`node:`·`process` ❌). 실제 probe 는 서버 `processChecker` 몫.
  */
 
 /** 물어볼 순서대로의 루프백 호스트 별칭. `localhost` 가 먼저인 이유는 브라우저·Node 둘 다
@@ -40,13 +33,7 @@ export function isLoopbackPreviewUrl(rawUrl: string): boolean {
   return parseLoopbackUrl(rawUrl) !== null;
 }
 
-/**
- * 같은 서버를 가리키는 **별칭 주소들**을 물어볼 순서대로. 경로·쿼리·해시는 그대로 보존한다.
- *
- * 원본이 이미 별칭 중 하나면 그것을 맨 앞에 둔다 — 사용자가 누른 그 주소가 살아 있으면
- * 굳이 다른 이름으로 바꿔 보여 줄 이유가 없다. `0.0.0.0`(모든 인터페이스에 바인딩)은
- * **접속용 주소가 아니므로** 원본을 앞에 두지 않고 별칭만 돌려준다.
- */
+/** 같은 서버의 별칭 주소들을 물을 순서대로(경로·쿼리·해시 보존). 원본이 별칭이면 맨 앞, 단 `0.0.0.0` 은 접속용이 아니라 별칭만. */
 export function loopbackUrlVariants(rawUrl: string): string[] {
   const parsed = parseLoopbackUrl(rawUrl);
   if (!parsed) return [];
@@ -64,13 +51,8 @@ export function loopbackUrlVariants(rawUrl: string): string[] {
 }
 
 /**
- * §7.11 감지 폴백 — 임의의 텍스트(Bash 출력·명령어)에서 **루프백 URL 을 통째로** 긁는다.
- *
- * 기존 `extractAllPortsFromLog` 는 포트 **숫자**만 뽑아 `http://localhost:{포트}` 를 합성했다.
- * 그건 background 셸의 output 파일에만 붙는 데다 경로를 잃는다. 이쪽은 URL 모양 그대로를
- * 잡으므로 **경로가 있는 주소**(`http://localhost:8080/index.html`)를 그대로 살릴 수 있고,
- * foreground 명령의 출력에도 쓸 수 있다. 진짜인지는 호출부의 probe 게이트가 판정한다 —
- * 여기서는 모양만 본다(넓게 잡고 probe 로 거른다, §7.11 v2.24 와 같은 규율).
+ * §7.11 감지 폴백 — 텍스트에서 루프백 URL 을 통째로 긁는다(포트만 뽑는 `extractAllPortsFromLog` 와 달리 경로를 살리고 foreground 출력에도 쓴다).
+ * 모양만 본다 — 진짜인지는 호출부 probe 게이트가 거른다.
  */
 export function extractLoopbackUrls(text: string, limit = 12): string[] {
   if (!text) return [];
@@ -121,21 +103,9 @@ export function serverRootUrl(rawUrl: string): string | null {
 }
 
 /**
- * §7.11 — **프리뷰로 열 주소**를 정한다. 주운 주소 그대로일 수도, 그 서버의 정문일 수도 있다.
- *
- * 감지 폴백(`extractLoopbackUrls`)은 Bash 명령어·출력에 스친 주소를 **통째로** 줍는다. 그래서
- * `curl http://127.0.0.1:3456/api/backtest/state` 한 줄이면 그 **API 경로**가 그대로 프리뷰 주소가
- * 됐다(사용자 보고: "iframe 버블인데 계속 `/api/backtest/state` 로 연결돼 이상한 곳으로 빠진다").
- * 그 주소가 서버라는 것은 맞지만 — 포트는 확실히 서버다 — **그 경로가 페이지라는 뜻은 아니다.**
- * 에이전트가 물어본 API 는 그 에이전트의 관심사이지 사람이 볼 화면이 아니다.
- *
- * 그렇다고 경로를 늘 버릴 수는 없다. §7.11 v2.29 가 경로를 살린 이유가 있다 — `/game.html`
- * 처럼 **그 경로가 곧 보려던 페이지**인 경우가 있고, 그때 루트로 접으면 사용자가 원한 화면이
- * 안 열린다. 그래서 **응답이 스스로 말하게 한다**: `Content-Type` 이 문서면 경로를 살리고,
- * 아니면(JSON·이미지·텍스트) 같은 서버의 정문으로 접는다. 헤더가 아예 없는 서버는 종전대로
- * 경로를 살리되, 확장자가 확실히 페이지가 아닌 것만 접는다(모르면 건드리지 않는다).
- *
- * 순수 함수다 — 실제로 정문이 응답하는지 확인하는 것은 호출부(`resolvePreviewUrl`)의 몫이다.
+ * §7.11 — 프리뷰로 열 주소: 주운 그대로이거나 그 서버의 정문. 스친 주소를 통째로 주우므로 `curl …/api/…` 이면 API 경로가 열린다 —
+ * 그렇다고 늘 버리면 `/game.html` 같은 페이지가 안 열린다. 그래서 `Content-Type` 이 문서면 경로를 살리고 아니면 정문으로 접는다.
+ * 헤더가 없으면 살리되 확실히 페이지가 아닌 확장자만 접는다. 순수 함수 — 정문 응답 확인은 `resolvePreviewUrl` 몫.
  */
 export function previewUrlForServer(rawUrl: string, contentType?: string | null): string {
   let url: URL;

@@ -1,9 +1,4 @@
-/**
- * §5.11 v3.97 — 에이전틱 엔지니어링(Agentic Engineering): 감독과 검증을 갖춘 운용인가.
- *
- * "AI 로 코딩한다"와 "에이전트를 운용한다"의 차이가 여기 있다 — 전문가의 기본 워크플로가 되었지만,
- * **더 많은 감독과 검토를 곁들여서**라는 단서가 붙는다. 이 카드는 그 단서가 실제로 붙어 있는지를 센다. 표시 전용.
- */
+/** §5.11 — 에이전틱 엔지니어링(Agentic Engineering): 감독과 검토가 실제로 붙어 있는지 센다. 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import { toneIfActive } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

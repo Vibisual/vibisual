@@ -77,7 +77,7 @@ describe('agent bubble visibility', () => {
   });
 });
 
-describe('§5.4 #36 (H) — PATCH 전에 떠난 스냅샷이 누른 값을 되돌리지 않는다(2026-10-18 [연결선 보이기] 깜빡임)', () => {
+describe('§5.4 #36 (H) — PATCH 전에 떠난 스냅샷이 누른 값을 되돌리지 않는다([연결선 보이기] 깜빡임)', () => {
   it('[연결선 보이기] 직후 옛 스냅샷이 와도 선은 숨김으로 돌아가지 않고, 서버가 받아들이면 붙들기를 놓는다', async () => {
     const answer = deferPatch();
     useGraphStore.getState().setAgentLinkView('owner', { hidden: false });

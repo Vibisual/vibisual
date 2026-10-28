@@ -474,10 +474,7 @@ describe('Alt inspector DOM target selection', () => {
   });
 });
 
-/**
- * §5.4 #15 (C) — 그린 화면(캔버스에 그린 영상 미리보기 같은 것)은 브라우저가 판 하나만 안다. 판을 그린 쪽이 공급자로 안쪽을 답하면
- * 인스펙터는 판이 아니라 그 자리의 것을 집는다(사용자 보고 — "알트 누르면 화면 전부가 선택돼", 같은 지시 세 번).
- */
+/** §5.4 #15 (C) — 그린 화면은 브라우저가 판 하나만 안다 — 그린 쪽이 공급자로 안쪽을 답하면 인스펙터가 판 전체가 아니라 그 자리의 것을 집는다. */
 describe('Alt inspector inside a drawn surface (pick providers)', () => {
   const part: InspectorPickLevel = { rect: { x: 5, y: 2, width: 40, height: 10 }, label: 'intro › subtitle', text: 'Vibisual · Vibistudio', clipboard: 'clip:subtitle' };
   const item: InspectorPickLevel = { rect: { x: 0, y: 0, width: 100, height: 30 }, label: 'intro (scene:title)', text: '제목', clipboard: 'clip:intro' };

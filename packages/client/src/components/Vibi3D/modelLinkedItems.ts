@@ -3,12 +3,8 @@ import type { AppLinkedItem, AppLinkedItemsReader } from '../../apps/registry.js
 import { workflowRequest } from './vibi3dWorkflow.js';
 
 /**
- * §5.4 #36 (H) ③ · §5.1 #2-1 (F) 앱별 — Vibi3D 노드 아래 **단계 구슬**. 구슬 하나가 단계 하나다: 번호 + **그 단계의 대표 캡처
- * 한 장**(구슬 안 그림 — 구슬을 늘어놓으면 모델이 자라는 과정이 된다). 나머지 캡처는 구슬 툴팁·편집기의 몫이다(종전에는 캡처마다
- * 구슬이 하나씩이라 단계 넷에 구슬이 열몇 개였다).
- *
- * - 지금 만지는 단계(`run.activeStageId`)는 숨 쉰다 · 제안을 기다리는 단계(`mode === 'candidate'`, `run.candidateId`)는 점선 테
- *   구슬(사람이 고를 차례 — `proposed`), 끝난 단계는 채운 구슬(`done`).
+ * §5.4 #36 (H) ③ · §5.1 #2-1 (F) — Vibi3D 노드 아래 단계 구슬: 번호 + 대표 캡처 한 장(캡처마다 구슬 ❌ — 나머지는 툴팁·편집기).
+ * 지금 단계(`run.activeStageId`) 숨 쉼 · 제안 대기(`mode === 'candidate'`) 점선 `proposed` · 끝 `done`.
  */
 const VIEW_RANK: Readonly<Record<string, number>> = { lit: 0, ao: 1, clay: 2, wire: 3 };
 

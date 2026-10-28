@@ -13,13 +13,7 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { ShelfItemGlyph } from '../BubbleMap/shelfIcons.js';
 import { exportShelfFile, pickShelfFile } from '../BubbleMap/shelfTransfer.js';
 
-/**
- * §5.20 / §7.18 — 스크립트 선반 패널.
- *
- * 선반 버블 더블클릭으로 열리는 전체 화면 오버레이(§7.14 `SpecBoardPanel` 과 같은 골격).
- * 캔버스는 누르는 자리이고 여기는 **짜는 자리**다 — 항목을 만들고 고치고 순서를 바꾸고,
- * 마지막 실행 결과를 그 줄 아래에서 읽는다. 실행 결과는 전부 서버 값이다(§3.1).
- */
+/** §5.20 / §7.18 — 스크립트 선반(짜는 자리: 항목·순서·마지막 결과). 실행 결과는 서버 값(§3.1). */
 
 function CloseGlyph(): React.JSX.Element {
   return (

@@ -1,16 +1,13 @@
 /**
- * §5.1 #2-1 (A) — 파일 버블의 **얼굴**을 화면 쪽에서 정한다.
- *
- * 종류(영상·사진·소리·3D·코드…)는 shared `fileFaceKindOf` 한 곳이 정하고, 여기서는 그 위에 화면만 아는 두 가지를 얹는다:
- *  - **어느 앱이 굽고 여는가** — 그 확장자를 받겠다고 선언한 앱(`thumbnailAppFor` — 레지스트리, 코어는 앱 이름을 모른다).
- *    색도 그 앱의 것이라 앱 노드와 파일 버블이 한 가족으로 읽힌다. 선언한 앱이 없으면 종류 기본색(`FILE_FACE_STYLES`).
- *  - **미리보기를 구울 자리** — 열린 프로젝트 루트 안이면 가장 긴 루트에서 자른 상대 경로(`projectRelativePath` — 플랫폼
- *    규칙, 멀티플랫폼 1축). 루트 밖이면 **지금 탭의 프로젝트 + 절대경로**다(2026-10-21 — 미디어 창구는 루트 밖이라도 그 파일이
- *    지금 버블로 떠 있으면 읽기를 연다. 화면에 없는 임의 경로는 여전히 막힌다).
+ * §5.1 #2-1 (A) — 파일 버블의 얼굴을 화면 쪽에서 정한다. 종류는 shared `fileFaceKindOf` 가 정하고, 여기서는 화면만 아는 두 가지를 얹는다:
+ *  - 어느 앱이 굽고 여는가 — 그 확장자를 선언한 앱(`thumbnailAppFor` — 레지스트리, 코어는 앱 이름을 모른다). 색도 그 앱의 것, 없으면 종류 기본색(`FILE_FACE_STYLES`).
+ *  - 미리보기를 구울 자리 — 프로젝트 루트 안이면 가장 긴 루트에서 자른 상대 경로(`projectRelativePath` — 멀티플랫폼 1축), 밖이면 지금 탭의 프로젝트 + 절대경로.
+ *    미디어 창구는 루트 밖이라도 지금 버블로 떠 있는 파일만 읽기를 연다(화면에 없는 임의 경로는 막힌다).
  */
-import type { BubbleData, FileFaceFamily, FileFaceKind } from '@vibisual/shared';
+import type { BubbleData, EditorPaneFileKind, FileFaceFamily, FileFaceKind } from '@vibisual/shared';
 import {
-  FILE_FACE_STYLES, fileFaceFamilyOf, fileFaceKindOf, isMediaFaceKind, normalizePathShape, projectRelativePath, resolveWorkspaceOpen,
+  FILE_FACE_STYLES, editorPaneKindOf, fileFaceFamilyOf, fileFaceKindOf, isMediaFaceKind, normalizePathShape, projectRelativePath,
+  resolveWorkspaceOpen,
 } from '@vibisual/shared';
 
 import { thumbnailAppFor } from '../apps/appLinkedItems.js';
@@ -110,21 +107,44 @@ export function fileFaceOpensInApp(face: FileFace | null, target: FileMediaTarge
   return target.outside !== true || getInternalApp(face.appId)?.viewsOutsideFiles === true;
 }
 
-/** 미디어 얼굴을 더블클릭했을 때 여는 곳 — 그 앱 · 변환해서 우리 앱 · OS 연결 프로그램. */
-export type FileFaceOpenRoute = 'app' | 'convert' | 'external';
+/** 파일 버블을 더블클릭했을 때 여는 곳. */
+export type FileFaceOpenPlan =
+  /** 그 확장자를 받는 앱의 앱 안 창(영상 · 소리 · 3D · 그림). */
+  | { readonly route: 'app'; readonly appId: string }
+  /** 우리 엔진이 그대로 못 읽는 영상·소리 — 변환해서 우리 앱으로(§5.13 (R-8)). */
+  | { readonly route: 'convert' }
+  /** 파일 창 — IDE [오른쪽에 표시] 판과 같은 판(코드 편집기 · 웹 페이지 · 그림 · PDF)을 IDE 밖에 따로 세운 창(§5.5 #17-27 ⑳). */
+  | { readonly route: 'pane'; readonly pane: EditorPaneFileKind }
+  /** 우리 앱이 그리지 않는 것(압축 · 글꼴 · 오피스 · 디자인 원본 …) — OS 연결 프로그램. */
+  | { readonly route: 'external' };
 
 /**
- * §5.1 #2-1 (A) — 미디어 얼굴은 **보여 주는 자리**라 더블클릭은 그 파일을 연다(폴더·묶음 안으로 들어가지 않는다 — 2026-10-22).
- * 우리 앱 안에서 여는 것이 먼저다: 받는 앱이 있으면 그 앱(`fileFaceOpensInApp`), 우리 엔진이 그대로 못 읽는 영상·소리는
- * 변환해서 우리 앱으로(§5.13 (R-8) — IDE 탐색기와 같은 갈림길 `resolveWorkspaceOpen`). 변환물은 그 프로젝트에 놓이므로
- * 프로젝트 안 파일만 변환한다. 그 밖(우리 앱이 그리지 않는 원본 · 프로젝트 밖 영상·소리·3D)은 OS 연결 프로그램이다 —
- * 편집창 갈래는 IDE 창이 떠 있어야 열려 캔버스에서는 아무 일도 일어나지 않는다. 미디어 얼굴에만 부른다.
+ * 이 파일이 파일 창의 **어느 판**으로 열리는가 — 더블클릭(`fileFaceOpenPlan`)과 툴팁이 같은 답을 본다. 판정은 IDE 판과 같은
+ * 한 벌(`editorPaneKindOf` — 탐색기·[파일 열기] 목록이 쓰는 그것)이고, 하나만 더 거른다: 우리 앱이 그리지 않는 **미디어 원본**
+ * (veg · y4m …)은 글자로 열면 이진 안내 한 줄뿐이라 판으로 보내지 않는다(연결 프로그램).
  */
-export function fileFaceOpenRoute(face: FileFace | null, target: FileMediaTarget | null): FileFaceOpenRoute {
-  if (fileFaceOpensInApp(face, target)) return 'app';
-  if (target === null || target.outside === true) return 'external';
-  const plan = resolveWorkspaceOpen({ relPath: target.rel, kind: 'file', apps: workspaceOpenClaims() });
-  return plan.action === 'convert' ? 'convert' : 'external';
+export function fileFacePaneKind(face: FileFace | null, filePath: string): EditorPaneFileKind | null {
+  const pane = editorPaneKindOf(filePath, workspaceOpenClaims());
+  if (pane === 'code' && face !== null && face.media) return null;
+  return pane;
+}
+
+/**
+ * §5.1 #2-1 (A) — 파일 버블 더블클릭은 그 파일을 앱 안에서 연다. 위성·원 둘레·묶음 안 모두 같고, 그 파일의 폴더·묶음 안으로 들어가지 않는다.
+ * 순서: 받는 앱(`fileFaceOpensInApp` — 프로젝트 밖은 보기 전용 앱만) → 그대로 못 읽는 영상·소리는 변환해서 우리 앱으로(§5.13 (R-8) — 프로젝트 안 파일만)
+ * → 파일 창의 판(코드 · 웹 페이지 · 그림 · PDF — 프로젝트 밖 글 파일도 보기로) → 그 밖만 OS 연결 프로그램. 갈림은 IDE 탐색기와 같은 `resolveWorkspaceOpen` 위에 선다.
+ * `target` 이 없으면(지금 탭의 프로젝트를 모른다) 창의 주인이 없어 연결 프로그램이다.
+ */
+export function fileFaceOpenPlan(face: FileFace | null, target: FileMediaTarget | null, filePath: string): FileFaceOpenPlan {
+  if (face !== null && face.appId !== null && fileFaceOpensInApp(face, target)) return { route: 'app', appId: face.appId };
+  if (target === null) return { route: 'external' };
+  const inside = target.outside !== true;
+  const relPath = inside ? target.rel : filePath;
+  if (resolveWorkspaceOpen({ relPath, kind: 'file', apps: workspaceOpenClaims() }).action === 'convert') {
+    return inside ? { route: 'convert' } : { route: 'external' };
+  }
+  const pane = fileFacePaneKind(face, relPath);
+  return pane !== null ? { route: 'pane', pane } : { route: 'external' };
 }
 
 /** 미리보기 판본 — 수정 시각(없으면 크기). 같은 이름으로 다시 만들면 다시 굽는다. */

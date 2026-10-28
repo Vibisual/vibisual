@@ -4,13 +4,8 @@ import { pointOnOrbitToward, rectBorderDistance, refLinkPath } from './agentCard
 import { RefDock, RefTether } from './RefTether.js';
 
 /**
- * §5.4 #36 (B) — 궤도 위성에서 끄는 위성줄의 **미리보기**. 화면 좌표에 고정된 SVG 한 장이다.
- *
- * Task Edge 미리보기(`TaskEdgeDragPreview`)와 같은 방식 — 가상 노드를 만들어 React Flow 엣지로 그리면
- * 측정 타이밍이 엇갈려 손을 늦게 따라온다. 여기서는 출발 원(원 중심·궤도 반지름)과 손 위치만 알면 된다.
- * 줄은 위성이 아니라 **원 둘레에서 손 쪽으로** 나간다(확정 줄과 같은 문법). 손 아래가 앱 노드면 줄 끝이 그 노드
- * 테두리에 붙고 구슬이 흐른다 — "놓으면 여기 이어진다"를 놓기 전에 보여 준다. 모양은 확정 줄과 **같은 조각**
- * (`RefTether`)·같은 곡선 함수라 놓는 순간 튀지 않는다.
+ * §5.4 #36 (B) — 위성줄 끌기 미리보기: 화면 고정 SVG 한 장(가상 노드 + RF 엣지는 측정이 엇갈려 손을 늦게 따른다).
+ * 확정 줄과 같은 `RefTether`·같은 곡선이라 놓는 순간 튀지 않는다.
  */
 export function RefLinkDragPreview(): React.JSX.Element | null {
   const drag = useRefLinkDragStore((s) => s.drag);

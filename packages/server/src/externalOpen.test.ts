@@ -8,15 +8,8 @@ import {
   LINUX_BROWSER_BINARIES,
 } from '@vibisual/shared';
 
-// shared 의 순수 판정 로직은 server 테스트에서 검증한다(pathCase.test.ts·updateDelivery.test.ts 선례).
-//
-// 이 파일의 존재 이유: 우리에게는 mac·linux 실기가 없다. 판정 함수가 `process.platform` 을
-// 직접 읽지 않고 **인자로 받게** 만든 덕분에 Windows 개발기 한 대에서 세 OS 를 전부 잰다
-// (CLAUDE.md 멀티플랫폼 규칙).
-//
-// 이 규칙이 지키는 실측 사실(2026-08-31, WSL2 Ubuntu + WSLg 설치본): 브라우저가 한 개도 없는
-// 배포판에서 `shell.openExternal` 은 **2ms 만에 resolve** 했고 그 뒤 xdg-open 이 16종을 전부
-// not found 로 흘렸다. 그래서 리눅스에서는 프라미스가 아니라 탐침으로 판정해야 한다.
+// shared 의 순수 판정은 server 테스트에서 검증한다. 판정 함수가 `process.platform` 대신 인자를 받아 Windows 한 대에서 세 OS 를 잰다.
+// 실측(2026-08-31, WSL2 Ubuntu + WSLg): 브라우저가 없는 배포판에서 `shell.openExternal` 은 2ms 만에 resolve 하고 xdg-open 은 16종 전부 not found — 리눅스는 프라미스가 아니라 탐침으로 판정한다.
 
 describe('needsBrowserProbe — 어느 OS 에서 사전 탐침이 필요한가', () => {
   it('리눅스만 탐침이 필요하다 (openExternal 의 프라미스를 믿을 수 없는 유일한 플랫폼)', () => {
@@ -117,12 +110,8 @@ describe('LINUX_BROWSER_BINARIES — xdg-open 의 generic 탐색 목록', () => 
 });
 
 /**
- * §보안 감사 2026-09-09 — `shell.openExternal` 스킴 허용 목록.
- *
- * 그 함수는 브라우저를 여는 함수가 아니라 **OS 프로토콜 핸들러를 그대로 부르는** 함수다.
- * 이 길로 들어오는 주소는 우리가 만들지 않는다 — 에이전트가 흘린 마크다운 링크, 훅이 등록한
- * 카드, 내부 앱 화면의 `window.open` 이 전부 한 곳(`openExternalWithNotice`)으로 모인다.
- * 즉 이 PC 안의 다른 프로그램이 쓴 문자열이 그대로 핸들러 인자가 되던 자리다.
+ * 보안 — `shell.openExternal` 스킴 허용 목록. 그 함수는 브라우저가 아니라 OS 프로토콜 핸들러를 그대로 부른다.
+ * 들어오는 주소(에이전트 마크다운 링크·훅 카드·내부 앱 `window.open`)는 우리가 만든 것이 아니다 — 전부 `openExternalWithNotice` 한 곳으로 모인다.
  */
 describe('isAllowedExternalUrl — 바깥으로 넘겨도 되는 주소인가', () => {
   it('웹·메일 주소만 통과한다', () => {

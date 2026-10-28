@@ -21,13 +21,8 @@ export interface CommentBoxNodeData {
 }
 
 /**
- * 언리얼 블프 스타일 Comment Box 커스텀 노드.
- * React Flow 의 기본 드래그/선택/리사이즈 훅에 올라타고, 배경 레이어에 깔림(zIndex 낮게).
- *
- * 동작 요약:
- * - 더블클릭 시 텍스트 인라인 편집. Enter 저장, Escape 취소.
- * - 줌아웃(LOD) 시 상단 외부에 풍선(pill) 라벨 표시 — 스크린 고정 사이즈로 가독성 유지.
- * - 자식 버블 동반 이동/membership 갱신은 BubbleMap 의 onNodeDrag/onNodeDragStop 에서 처리.
+ * Comment Box 노드 — React Flow 기본 드래그/선택/리사이즈에 올라타 배경 레이어(낮은 zIndex)에 깔린다. 줌아웃 시 화면 고정 크기 pill 라벨.
+ * 자식 동반 이동·membership 갱신은 BubbleMap 의 onNodeDrag/onNodeDragStop 몫.
  */
 export const CommentBoxNode = memo(function CommentBoxNode({
   data,
@@ -87,11 +82,7 @@ export const CommentBoxNode = memo(function CommentBoxNode({
     setDraft(d.text);
   }, [d.text]);
 
-  /**
-   * 선택 — 상단 헤더에서만(본문 클릭은 선택을 트리거하지 않는다). 에이전트(IDE) 버블과 **같은
-   * 상태기계 한 벌**(`bubbleSelectGesture`)이라, 더블클릭으로 글을 고칠 때 1타의 선택이 함께
-   * 발동하지 않는다.
-   */
+  /** 선택은 헤더에서만. `bubbleSelectGesture` 라 더블클릭으로 글을 고칠 때 1타 선택이 함께 발동하지 않는다. */
   const gesture = useBubbleSelectGesture({
     doubleClickable: true,
     select: () => selectCommentBox(d.commentBoxId),
@@ -190,10 +181,7 @@ export const CommentBoxNode = memo(function CommentBoxNode({
         onResizeStart={handleResizeStart}
         onResize={handleResize}
         onResizeEnd={handleResizeEnd}
-        // 시각 요소는 모두 투명 — 박스 자체 테두리(border) 가 이미 가이드 역할.
-        // 단, hit area 는 살아있어야 외곽 어디서든 잡고 리사이즈 가능. 4변(line) 은 borderWidth
-        // 로 hit 영역만 확보하고 색은 transparent. 4코너(handle) 는 background/border 만 투명화.
-        // 루트 div 가 pointerEvents:'none' 이라 자식인 line/handle 도 명시적으로 'auto' 가 필요.
+        // 시각은 투명(박스 테두리가 가이드)이되 hit area 는 살려 외곽 어디서든 리사이즈된다. 루트가 pointerEvents:'none' 이라 line/handle 에 'auto' 가 필요하다.
         lineStyle={{ borderColor: 'transparent', borderWidth: 6, pointerEvents: 'auto' }}
         handleStyle={{ background: 'transparent', border: 'none', width: 12, height: 12, pointerEvents: 'auto' }}
       />

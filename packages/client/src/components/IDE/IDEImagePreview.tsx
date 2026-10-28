@@ -2,13 +2,7 @@ import React, { memo, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { useTranslation } from 'react-i18next';
 import type { WorkspaceImageStatus } from './useWorkspaceImage.js';
 
-/**
- * IDEImagePreview.tsx — §5.5 #17-27 ⑭ 편집창 본문 자리에 서는 **그림 한 장**.
- *
- * `CodeEditor` 와 형제다 — 같은 자리에 둘 중 하나만 선다(문서가 이미지면 이쪽). 바탕은 바둑판이라
- * 투명 PNG 의 알파가 눈에 보이고, 그림을 누르면 주석 팝업(#17-25)이 열린다 — 첨부 썸네일과 같은
- * 손버릇이라 사용자가 새로 배울 것이 없다.
- */
+/** IDEImagePreview.tsx — §5.5 #17-27 ⑭ 편집창 본문의 그림 한 장(`CodeEditor` 자리). 바둑판 바탕(알파가 보이게), 누르면 주석 팝업(#17-25). */
 
 interface IDEImagePreviewProps {
   url: string | null;

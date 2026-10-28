@@ -1,9 +1,6 @@
 /**
- * §5.1 #2-1 (F) — **앱 작업물 귀속**(서버). 앱과 연결해 한 일의 파일에 `appWork` 꼬리표가 붙는지 고정한다.
- *
- * 2026-10-19 사용자 사진: Vibi3D 모델링 중인데 그 작업이 쓴 `artifacts/vibi3d-korean-corner/*` 가 하나도 앱 노드에 묶이지
- * 않았다(노드는 `ref` 만 · 쓴 파일은 전부 코드·데이터·문서). 지난번 구현은 가짜 `teaser.*` 입력으로만 시험했다 — 여기서는
- * **그 사진의 실제 모양**(경로·노드 모양·명령 본문의 노드 id·다른 에이전트와 나눠 쓰는 `artifacts` 폴더)을 그대로 픽스처로 쓴다.
+ * §5.1 #2-1 (F) — 앱과 연결해 한 일의 파일에 `appWork` 꼬리표가 붙는가. 가짜 입력이 아니라 실제 모양(앱 작업이 쓴 `artifacts/vibi3d-korean-corner/` 파일,
+ * 노드는 `ref` 만, 본문에 노드 id 가 든 명령, 다른 에이전트와 나눠 쓰는 `artifacts` 폴더)을 픽스처로 쓴다 — 그 모양에서 하나도 안 묶이던 것을 재현한다.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
@@ -38,8 +35,8 @@ function writeFile(rel: string[], body = 'x'): string {
 }
 
 /**
- * `linked: false` 면 앱 노드가 에이전트를 잇지 않은 캔버스다 — 2026-10-21 부터 이어진 동안 쓴 파일은 앱 노드 없는 명령에도
- * 꼬리표가 붙으므로(§5.1 #2-1 (F) ①), "명령만으로 귀속" · "기능 이전의 캔버스" 를 보는 시험은 잇지 않은 채로 쓴다.
+ * `linked: false` = 앱 노드가 에이전트를 잇지 않은 캔버스. 이어진 동안엔 앱 노드 없는 명령도 꼬리표가 붙으므로(§5.1 #2-1 (F) ①)
+ * 명령만으로 귀속·기능 이전 캔버스 시험은 잇지 않고 쓴다.
  */
 function setup(opts: { linked?: boolean } = {}): {
   graph: ProjectGraph;
@@ -122,7 +119,6 @@ describe('§5.1 #2-1 (F) ① — 실시간 귀속', () => {
     expect(nodeByLabel(graph, projectName, 'upgrade.mjs')?.appWork?.[appId]).toBeDefined();
   });
 
-  // 2026-10-21 사용자 지시 — "말풍선에 해당 앱을 연결한 순간 앱과 연관성있는 애들만". 이어진 동안 쓴 파일은 그 앱의 작업물이다.
   it('이어진 동안 IDE 로 시킨 일(앱 노드 없는 명령 · 앞 앱 명령 없음)도 이어진 앱 노드의 작업물이다', () => {
     const { graph, projectName, queues, agent, sessionKey, appId } = setup();
     mockSubs({ id: 'sub-a', parentAgentId: agent.id, sessionId: 'cli-a' });

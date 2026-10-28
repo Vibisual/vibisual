@@ -3,12 +3,7 @@ import { resolveUpdateFeed, updateFeedFileName } from '@vibisual/shared';
 
 // shared 의 순수 판정 로직은 server 테스트에서 검증한다(updateDelivery.test.ts 선례).
 
-/**
- * 업데이트 피드는 "다음에 무엇을 설치할지"를 정하는 채널이라, 여기서 잘못 고르면 대가가
- * 업데이트 실패(가벼움)부터 엉뚱한 것을 설치(무거움)까지 벌어진다. 그래서 판정을 순수
- * 함수로 떼어 두고 네 가지 실패 모양을 전부 여기서 잠근다 — 실기(세 OS · 죽은 프록시)를
- * 갖추지 않고도 재는 유일한 방법이다.
- */
+/** 업데이트 피드 판정을 순수 함수로 떼어 네 실패 모양을 잠근다 — 잘못 고르면 엉뚱한 것을 설치한다(세 OS·죽은 프록시 실기 없이 재는 유일한 방법). */
 describe('resolveUpdateFeed — 기본은 GitHub, 프록시는 조건이 맞을 때만', () => {
   it('비어 있으면 아무것도 하지 않는다 (배포 전 기본값 = 오늘 동작 그대로)', () => {
     expect(resolveUpdateFeed({})).toEqual({ kind: 'default', reason: 'not-configured' });

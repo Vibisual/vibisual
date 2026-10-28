@@ -1,14 +1,6 @@
 /**
- * §5.4 #14-3 — **동작 중인 에이전트가 있는 프로젝트 탭을 닫을 때의 판정.**
- *
- * 탭 × 는 종전에 아무것도 묻지 않고 바로 닫았다. 그런데 프로젝트 탭을 닫으면 그 인스턴스가
- * 통째로 내려가므로(§9 `unload-project`), 그 안에서 돌던 세션은 **화면에서 사라지기만 하고
- * 자식 프로세스는 남는다** — 사용자는 멈춘 줄 알고, 메모리는 계속 물려 있다. 그래서 도는 것이
- * 있으면 한 번 묻는다. **도는 것이 없으면 종전 그대로 즉시 닫힌다**(신호 도배 방지 — §5.5 #17-8
- * IDE 세션 탭 확인 팝업과 같은 규율).
- *
- * 판정을 순수 함수로 떼어 둔 이유는 `resolveTabReorder`·`overlayCloseIntent` 선례와 같다 —
- * DOM 없이 단위 테스트로 고정할 수 있어야 "닫히지 않는다/묻지 않는다"가 회귀로 잡힌다.
+ * §5.4 #14-3 — 도는 에이전트가 있는 프로젝트 탭 닫기 판정(순수 함수 — DOM 없이 고정). 닫으면 인스턴스가 내려가(§9 `unload-project`)
+ * 세션은 화면에서만 사라지고 자식 프로세스는 남으므로 도는 것이 있으면 묻는다. 없으면 즉시 닫는다(§5.5 #17-8 과 같은 규율).
  */
 
 /** 닫으려는 탭 하나. TabBar 의 `TabItem` 을 이 모양으로 접어서 넘긴다. */
@@ -34,13 +26,7 @@ export interface TabCloseIntent {
   runningSessions: number;
 }
 
-/**
- * 닫기 대상 목록에서 확인이 필요한지 가른다.
- *
- * `runningCount` 는 **서버 집계가 SSOT**(§3.1)인 탭 배지의 분자를 그대로 받는다 — 여기서 다시
- * 세지 않는다. 음수·NaN 같은 이상값은 0 으로 접는다(옛 스냅샷이 섞여 들어와도 "돌고 있다"고
- * 거짓말하지 않게).
- */
+/** 확인이 필요한지 가른다. `runningCount` 는 탭 배지 분자(서버 SSOT, §3.1) 그대로 — 음수·NaN 은 0 으로 접는다. */
 export function resolveTabCloseIntent(targets: readonly TabCloseTarget[]): TabCloseIntent {
   const running = targets
     .map((t, index) => ({ t, index, running: normalizeRunning(t.runningCount) }))
@@ -51,13 +37,7 @@ export function resolveTabCloseIntent(targets: readonly TabCloseTarget[]): TabCl
   return { needsConfirm: running.length > 0, running, runningSessions };
 }
 
-/**
- * [닫기] 가 중지 요청을 보낼 **프로젝트 id 목록**(중복 제거, 원래 순서).
- *
- * iframe 탭은 에이전트를 갖지 않으므로 빠진다. "모든 에이전트 강제 종료" 를 켠 경우에도 요청
- * 자체는 프로젝트 하나를 타고 나가므로(라우트가 `:name` 을 받는다) 이 목록의 **첫 항목**이
- * 그 통로가 된다 — 스코프는 body 의 `scope` 가 정한다.
- */
+/** [닫기] 가 중지 요청을 보낼 프로젝트 id(중복 제거, 순서 유지, iframe 제외). 전체 강제 종료도 라우트가 `:name` 을 받아 첫 항목을 통로로 쓴다 — 범위는 body `scope`. */
 export function stopTargetProjectIds(targets: readonly TabCloseTarget[]): string[] {
   const out: string[] = [];
   const seen = new Set<string>();

@@ -1,7 +1,4 @@
-/**
- * §4 앱 테마 — 창 색을 OS 에 넘기는 판정(세 OS). 플랫폼을 인자로 받으므로 Windows 개발기에서도
- * mac·linux 가지가 돈다(멀티플랫폼 규칙).
- */
+/** §4 앱 테마 — 창 색을 OS 에 넘기는 판정(세 OS). 플랫폼을 인자로 받아 Windows 개발기에서도 mac·linux 가지가 돈다. */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_APP_THEME_ID, appThemeChrome, resolveAppTheme } from '@vibisual/shared';
 import { FALLBACK_APP_THEME_CHROME, titleBarOverlayFor } from './themeChromePolicy';

@@ -1,12 +1,5 @@
-// §5.5 #17-34 — IDE **창 안**의 화면 분할(멀티뷰) 트리와 그 연산.
-//
-// 어휘를 먼저 못 박는다. **창(pane)** 은 §5.5 #17-1 이 다루는 IDE 오버레이 그 자체(캔버스 위에 뜨고
-// 네 변에 도킹되는 것)이고, 여기서 다루는 **칸(cell)** 은 그 창 **안쪽**을 세로/가로로 가른 한 조각이다.
-// 두 축은 서로를 모른다 — 창을 셋 띄우든 하나를 셋으로 가르든 각자 자기 축에서만 셈한다.
-//
-// 이 파일은 DOM 도 React 도 만지지 않는다. 트리(무엇이 어디에 있는가)와 그 변형(끼우기·닫기·비율)만
-// 답하고, 좌표→어느 변인가 판정은 `splitDrop.ts` 가 맡는다(`tabPushGeom`·`floatingWindowGeom` 선례 —
-// 기하를 컴포넌트 안에서 계산하면 회귀를 시험으로 못 잡는다).
+// §5.5 #17-34 — IDE 창 안 분할(멀티뷰) 트리와 연산(DOM·React 없음). 창(pane, §5.5 #17-1 오버레이)과 칸(cell, 창 안 조각)은 서로를 모르고 각자 센다.
+// 좌표 → 어느 변 판정은 `splitDrop.ts`.
 
 /** 가지가 자식을 늘어놓는 방향. `row` = 좌우로 나란히, `col` = 위아래로 포갬. */
 export type SplitAxis = 'row' | 'col';
@@ -22,11 +15,7 @@ export const IDE_SPLIT = {
   minCellRatio: 0.12,
   /** 칸 사이 손잡이 두께(px). 도킹 손잡이(#17-1)와 같은 굵기라 손맛이 이어진다. */
   splitterPx: 4,
-  /**
-   * 손잡이의 **잡히는 폭**을 양옆으로 넓히는 여유(px). 보이는 것은 4px 그대로지만 실제로 집히는
-   * 띠는 `4 + 2×pad` 다 — 4px 짜리 표적을 정확히 겨누게 하는 것은 눈에 안 보이는 마찰이고
-   * (피츠의 법칙), 사용자는 "손잡이가 잘 안 잡힌다"로만 느낀다.
-   */
+  /** 손잡이의 잡히는 폭을 양옆으로 넓히는 여유(px) — 보이는 것은 4px, 집히는 띠는 `4 + 2×pad`. */
   splitterHitPadPx: 6,
   /**
    * 칸이 **글자를 담을 수 있는** 최소 폭·높이(px). 비율 하한(`minCellRatio`)만으로는 못 막는다 —
@@ -106,11 +95,8 @@ export function cellIdForSession(node: SplitNode, sessionId: string | null): str
 }
 
 /**
- * 대상 칸 없이 나눌 때(탭 우클릭 [오른쪽으로·아래로 나누기]) 기준 칸이 **이미 그 세션을 보여 주는가**.
- * 기준 칸은 초점 칸(없으면 첫 칸)이고, 아직 안 나뉜 창이면 창 전체 = 창의 활성 세션이다.
- * 참이면 어느 쪽으로 나눠도 같은 세션이 두 칸에 뜨는 제자리라 스토어(`dropSessionOnIDECell`)가 아무 일도
- * 하지 않는다 — 메뉴는 이 판정으로 항목을 미리 흐리게 하고 드래그와 같은 말("같은 탭")을 한다.
- * 두 판정이 같은 답을 내는지는 `ideSplits.test.ts` 가 지킨다.
+ * 대상 칸 없이 나눌 때(탭 우클릭 [나누기]) 기준 칸(초점 칸 → 첫 칸 → 창의 활성 세션)이 이미 그 세션을 보여 주는가 — 참이면 스토어가 아무것도 안 하므로
+ * 메뉴가 미리 흐린다(드래그와 같은 판정, `ideSplits.test.ts`).
  */
 export function splitAnchorShowsSession(
   layout: SplitNode | null,
@@ -320,10 +306,7 @@ export function moveSplitter(layout: SplitNode, branchId: string, index: number,
   return { ...layout, children: layout.children.map((c) => moveSplitter(c, branchId, index, deltaRatio)) };
 }
 
-/**
- * 고르게 나눈 비율 — 손잡이 더블클릭(균등 분배)의 값.
- * `normalizeSizes` 가 빈 배열을 이미 고르게 펴 주지만, 부르는 쪽에서 뜻이 읽히도록 이름을 준다.
- */
+/** 균등 분배 비율(손잡이 더블클릭). */
 export function evenSplitSizes(count: number): number[] {
   return normalizeSizes([], count);
 }

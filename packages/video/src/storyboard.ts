@@ -1,20 +1,8 @@
 /**
- * 콘티 → 타임라인 (SCENARIO.md §5.13 (Q)).
- *
- * 캔버스에 그려 둔 스토리보드 한 벌을 이 앱의 문서로 **옮기는** 순수 함수다. 문서를
- * 직접 쓰지 않고 §5.13 (G) 편집 연산 배열만 만든다 — 그래야 낙관적 잠금·검증·진단이
- * 평소 경로 그대로 걸리고, 이 파일은 파일 시스템도 네트워크도 모른 채 남는다.
- *
- * 지키는 것 셋:
- *
- * 1. **컷의 좌표계는 320×180 고정.** 프리셋은 *출력* 판형이지 스케치 판형이 아니다.
- *    옮길 때 그 상자를 출력 화면 안으로 담아(contain) 배치하고 좌표만 비례로 옮긴다.
- * 2. **스탬프 SVG 를 복제하지 않는다.** 스탬프는 카탈로그 기본 치수를 가진 라벨 도형으로
- *    내린다. 복제하면 보드와 영상에 같은 그림이 두 벌 생기고, 그 순간부터 어긋나기 시작한다.
- * 3. **컷 하나 = 장면 하나** (§5.13 (V) 37-4). 컷마다 장면(`sb-<frameId>`)을 세우고 그 컷의 아이템은 `{ chapter }` 앵커 +
- *    `chapterId` 로 묶는다 — 스튜디오의 장면 구슬 줄·기획 카드가 콘티를 그대로 받고, 장면 순서를 바꾸면 그림이 따라간다.
- *    자막 큐는 스키마상 절대 시각이라(§5.13 (D) `CaptionCue.start/end`) 장면 시작과 같은 값으로 적는다 — 장면이 겹치지 않고
- *    차례로 서므로 처음에는 둘이 같고, 스튜디오에서 장면을 옮기면 편집 경로(`withCaptionTimingOps`)가 큐를 함께 민다.
+ * 콘티 → 타임라인(§5.13 (Q)) — 편집 연산만 만든다(낙관적 잠금·검증·진단이 평소 경로로 걸리게). 컷 좌표계는 320×180 고정(프리셋은 출력 판형) —
+ * 출력 화면에 담아(contain) 비례로 옮긴다. 스탬프 SVG 는 복제하지 않고 카탈로그 치수의 라벨 도형으로 내린다(두 벌은 어긋난다).
+ * 컷 하나 = 장면 하나(§5.13 (V) 37-4) — 아이템은 `sb-<frameId>` 장면에 `{ chapter }` 앵커 + `chapterId` 로 묶고, 자막 큐(절대 시각)는 장면 시작 값으로 적는다
+ * (장면을 옮기면 `withCaptionTimingOps` 가 큐를 함께 민다).
  */
 
 import type { ContiElement, ContiFrame, StoryboardPreset } from '@vibisual/shared';
@@ -32,7 +20,7 @@ import type { TimeAnchor, VideoChapter, VideoDoc, VideoDocOp, VideoItem } from '
 const VB_W = CONTI_DEFAULTS.viewBoxWidth;
 const VB_H = CONTI_DEFAULTS.viewBoxHeight;
 
-/** 콘티 디자인 토큰(§5.3 #28 v1.61)과 같은 값. 보드와 영상의 톤을 하나로 둔다. */
+/** 콘티 디자인 토큰(§5.3 #28)과 같은 값 — 보드와 영상의 톤을 하나로 둔다. */
 const COLOR_CANVAS = '#0F1117';
 const COLOR_PANEL = '#242833';
 const COLOR_EDGE = 'rgba(255,255,255,0.10)';
@@ -62,13 +50,7 @@ export interface StoryboardLayout {
   readonly actionFontSize: number;
 }
 
-/**
- * 프리셋 하나의 배치를 정한다.
- *
- * 세 판형이 다른 것은 **판넬을 어디에 두고 행동을 어떻게 보여 주느냐**뿐이다.
- * 가로는 판넬이 화면을 채우고 행동은 자막으로, 세로는 판넬이 가운데 띠로,
- * 웹툰은 판넬을 위에 두고 아래에 행동을 인쇄한다.
- */
+/** 세 판형은 판넬 자리와 행동 표시만 다르다 — 가로는 판넬이 화면을 채우고 행동은 자막, 세로는 판넬이 가운데 띠, 웹툰은 판넬 위·행동 글 아래. */
 export function storyboardLayout(preset: StoryboardPreset): StoryboardLayout {
   const W = preset.output.width;
   const H = preset.output.height;
@@ -116,12 +98,7 @@ export interface StoryboardBuildArgs {
   readonly title: string;
 }
 
-/**
- * 컷들을 편집 연산 배열로 옮긴다.
- *
- * 트랙은 새로 만들지 않는다 — 빈 문서가 이미 `visual`/`audio`/`caption` 셋을 갖고
- * 나오므로(`createEmptyDoc`) 거기에 얹기만 하면 사람이 나중에 쓰던 트랙 구성이 흔들리지 않는다.
- */
+/** 트랙은 새로 만들지 않는다 — 빈 문서(`createEmptyDoc`)의 `visual`/`audio`/`caption` 에 얹어야 사람이 쓰던 트랙 구성이 흔들리지 않는다. */
 export function buildStoryboardOps(args: StoryboardBuildArgs): VideoDocOp[] {
   const { frames, preset } = args;
   const layout = storyboardLayout(preset);
@@ -271,12 +248,7 @@ export function buildStoryboardOps(args: StoryboardBuildArgs): VideoDocOp[] {
   return ops;
 }
 
-/**
- * 컷들을 문서 한 벌로 만든다.
- *
- * 서버·테스트가 "이 콘티는 어떤 영상이 되나"를 파일 없이 물어볼 수 있게 하는 자리다.
- * 실제 저장은 언제나 REST 패치 경로로 간다.
- */
+/** 서버·시험이 콘티가 어떤 영상이 되는지 파일 없이 보는 자리 — 실제 저장은 언제나 REST 패치 경로로 간다. */
 export function buildStoryboardDoc(args: StoryboardBuildArgs & { docId: string; now?: number }): VideoDoc {
   const empty = createEmptyDoc(args.docId, args.title, args.now ?? Date.now());
   const result = applyPatch(empty, { baseVersion: empty.version, ops: buildStoryboardOps(args) });
@@ -304,11 +276,7 @@ function num(v: unknown, fallback: number): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 }
 
-/**
- * 콘티 element 하나를 아이템 0~2개로 옮긴다.
- *
- * 라벨이 붙은 도형은 도형 + 글자 두 아이템이 된다(보드의 SVG 가 `<rect>`+`<text>` 인 것과 같다).
- */
+/** 라벨 붙은 도형은 도형 + 글자 두 아이템이 된다(보드 SVG 의 `<rect>`+`<text>` 와 같다). */
 function mapElement(
   el: ContiElement,
   layout: StoryboardLayout,

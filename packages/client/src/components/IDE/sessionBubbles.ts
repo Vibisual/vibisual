@@ -1,16 +1,7 @@
 /**
- * sessionBubbles.ts — §5.5 #17-50 [버블]: 대화 칸의 **도구 호출** → 이 세션만의 버블 모델(순수 함수).
- *
- * 캔버스(§2.1)는 프로젝트 전체의 지도라 한 세션이 무엇을 만졌는지가 다른 세션·지난 일과 섞이고, TTL·확인
- * dismiss·묶음(§2.4 · §5.4 #36)이 지나면 사라진다. 여기서는 프로젝트 그래프를 **한 칸도 빌려 오지 않고**
- * 그 칸이 보여 주는 스트림 이벤트만 읽어 "이 세션이 무엇을 읽고 썼나"를 다시 세운다.
- *
- * 판정은 캔버스와 **같은 함수**를 쓴다 — 셸 읽기·쓰기 경로(`extractBashReadTargets`·`extractBashWritePaths`),
- * 명령 앱(`detectCommandApps`), 웹 호스트(`webHostFromUrl`), 경로 키(`pathKey`·`isPathWithin`). 두 벌이 되면
- * 캔버스에는 뜨는 파일이 여기서는 안 뜬다(§2.1 #3). 디스크·스토어·DOM 을 보지 않으므로 단위 테스트로 고정한다.
- *
- * 비용: 도구 호출 해석은 이벤트 **객체마다** `WeakMap` 에 들고 있다 — 스트림은 끝에 줄이 붙는 배열이라 매번
- * 전량을 다시 모아도 새 줄만 해석된다(모으기 자체는 단순 합산 O(n)).
+ * §5.5 #17-50 [버블] — 대화 칸의 도구 호출 → 이 세션만의 버블 모델(순수). 프로젝트 그래프를 빌리지 않고 그 칸의 스트림 이벤트만 읽는다
+ * (캔버스 노드 모양으로 옮기는 것은 `sessionCanvasGraph.ts`). 판정은 캔버스와 같은 함수(셸 경로·명령 앱·웹 호스트·`pathKey`) — 두 벌이면 캔버스에 뜨는 파일이 여기선 안 뜬다.
+ * 도구 호출 해석은 이벤트 객체별 `WeakMap` 캐시 — 매번 전량을 모아도 새 줄만 해석된다.
  */
 import {
   BASH_READ_PATH_LIMIT,
@@ -27,6 +18,7 @@ import {
   shellDialectOfTool,
   toNativeDriveShellPath,
   webHostFromUrl,
+  type CommandAppTarget,
   type PlatformName,
   type QueuedCommand,
   type SubAgentStreamEvent,
@@ -102,6 +94,8 @@ export interface SessionAppBubble extends SessionTouch {
   key: string;
   name: string;
   executable?: string;
+  /** 감지 결과 그대로 — 캔버스의 명령 앱 버블과 같은 아이콘(`iconSource` 포함)으로 그린다(§5.5 #17-50 (D)). */
+  target: CommandAppTarget;
   /** 최근 명령(최근 것부터). */
   commands: string[];
 }
@@ -157,7 +151,7 @@ interface ParsedTouch {
 interface ParsedCall {
   touches: ParsedTouch[];
   web: { kind: 'fetch'; host: string; url: string } | { kind: 'search'; query: string } | null;
-  apps: Array<{ id: string; name: string; executable?: string }>;
+  apps: CommandAppTarget[];
   command: string | null;
   task: { description: string; agentType: string | null } | null;
 }
@@ -199,10 +193,8 @@ function str(obj: Record<string, unknown> | null, key: string): string | null {
 }
 
 /**
- * 끝 마디에 확장자가 있으면 파일로 본다 — 디스크를 보지 않으므로 이 한 규칙으로만 가른다.
- * 점 앞에 글자가 있어야 확장자다 — `.github`·`.vscode` 처럼 점으로 **시작만** 하는 이름은 폴더로 읽는다(검색 범위로 오는 것은
- * 대개 그쪽이다). `Makefile` 처럼 확장자 없는 파일도 폴더로 읽힌다 — 이 판정은 검색 범위에만 쓰고, 경로 인자가 확실히
- * 파일인 도구(Read·Edit…)는 타지 않는다.
+ * 끝 마디에 확장자(점 앞에 글자가 있는)가 있으면 파일 — `.github` 은 폴더, `Makefile` 도 폴더로 읽힌다.
+ * 이 판정은 검색 범위에만 쓰고, 경로 인자가 확실히 파일인 도구(Read·Edit…)는 타지 않는다.
  */
 export function looksLikeFilePath(p: string): boolean {
   const last = normalizePathShape(p).split('/').pop() ?? '';
@@ -267,8 +259,7 @@ function parseCall(evt: SubAgentStreamEvent, rootPath: string | null, platform: 
       touch(t.path, t.search && !looksLikeFilePath(t.path) ? 'folder' : 'file', 'read', t.search);
     }
     for (const p of extractBashWritePaths(command, BASH_WRITE_PATH_LIMIT, { platform, dialect })) touch(p, 'file', 'write');
-    const apps = detectCommandApps(command, { ...(rootPath ? { cwd: rootPath } : {}), platform })
-      .map((a) => ({ id: a.id, name: a.name, ...(a.executable ? { executable: a.executable } : {}) }));
+    const apps = detectCommandApps(command, { ...(rootPath ? { cwd: rootPath } : {}), platform });
     return { touches, web: null, apps, command, task: null };
   }
   if (tool === 'WebFetch') {
@@ -361,12 +352,8 @@ function pushRecent(list: string[], value: string, max: number): void {
 }
 
 /**
- * 이 칸의 스트림 → 세션 버블 모델.
- *
- * - **도구 호출(`tool_use`)만** 센다. 결과(`tool_result`)는 그 호출이 끝났는지를 가를 뿐이다(`toolUseId` 짝).
- *   짝 id 가 없는 옛 줄은 끝난 것으로 본다 — 영원히 "도는 중"으로 남는 것보다 낫다.
- * - 중첩 서브에이전트가 한 호출(`nestedUnderToolUseId`)은 그 서브에이전트 버블을 거쳐 닿은 것으로 적는다.
- * - 정렬은 **처음 닿은 순서** — 새 버블은 늘 뒤에 붙고 앞의 것은 자리를 지킨다.
+ * 스트림 → 세션 버블 모델. 도구 호출(`tool_use`)만 세고, 결과는 `toolUseId` 짝으로 끝남만 가린다(짝 id 없는 옛 줄은 끝난 것으로).
+ * 중첩 서브에이전트의 호출(`nestedUnderToolUseId`)은 그 서브에이전트 버블을 거친 것으로. 정렬은 처음 닿은 순서(앞의 것은 자리를 지킨다).
  */
 export function buildSessionBubbles(input: SessionBubbleInput): SessionBubbleModel {
   const { rootPath, platform } = input;
@@ -456,7 +443,7 @@ export function buildSessionBubbles(input: SessionBubbleInput): SessionBubbleMod
         const key = `app:${a.id}`;
         let app = apps.get(key);
         if (!app) {
-          app = { ...newTouch(at, tool, 'write', turnId), key, name: a.name, ...(a.executable ? { executable: a.executable } : {}), commands: [] };
+          app = { ...newTouch(at, tool, 'write', turnId), key, name: a.name, ...(a.executable ? { executable: a.executable } : {}), target: a, commands: [] };
           apps.set(key, app);
         }
         addTouch(app, at, tool, 'write', turnId, pending, viaTaskKey);

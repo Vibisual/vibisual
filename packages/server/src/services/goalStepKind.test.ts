@@ -7,16 +7,7 @@ vi.mock('./userDefaultsService.js', () => ({
 
 const { ProjectGraph } = await import('./projectGraph.js');
 
-/**
- * §5.5 #17-17 ⑪(c)(d)(j) — **단계에 종류를 붙이는 좁은 문**의 회귀 테스트.
- *
- * 이 문이 왜 따로 있는지가 곧 시험할 것이다. 종류를 `setUserGoalSteps` 로 붙이면 목록 **전체**가
- * `authoredBy='user'` 로 박혀, 다음 턴부터 세션은 자기 계획을 한 줄도 못 고친다 — 화면으로는
- * "왜 단계가 안 갱신되지"로만 보이고 원인은 여기다. 그래서 이 문은 `kind` 말고는 아무것도
- * 건드리지 않아야 한다. 특히 **단계의 `updatedAt`** — 무대가 그 값으로 시각 구간을 잘라
- * 아래 칸에 무엇을 펼지 정하므로(⑪(j)), 종류를 고른 것만으로 창이 밀리면 남의 기록이 이 단계의
- * 것으로 보인다.
- */
+/** §5.5 #17-17 ⑪(c)(d)(j) — 종류를 붙이는 좁은 문은 `kind` 만 바꾼다. `setUserGoalSteps` 면 전체가 `authoredBy='user'` 가 돼 세션이 계획을 못 고치고, `updatedAt` 이 밀리면 무대 구간(⑪(j))에 남의 기록이 보인다. */
 
 function graphWithSteps(): {
   graph: InstanceType<typeof ProjectGraph>;

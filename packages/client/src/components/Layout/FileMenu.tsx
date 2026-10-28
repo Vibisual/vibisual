@@ -76,7 +76,6 @@ export function FileMenu(): React.JSX.Element {
             </svg>
             {t('panel.fileMenu.openFolder')}
           </button>
-          {/* §4 v2.42 — Options */}
           <div className="my-1 border-t border-white/[0.05]" />
           <button
             type="button"
@@ -89,7 +88,7 @@ export function FileMenu(): React.JSX.Element {
             </svg>
             {t('panel.fileMenu.options', { defaultValue: 'Options…' })}
           </button>
-          {/* §5.11 v3.88 — Plugins (개별 기능 활성화). Options 와 같은 묶음에 둔다 — 둘 다 "앱을 어떻게 쓸지"의 설정. */}
+          {/* §5.11 — Plugins. Options 와 같은 묶음(둘 다 앱을 어떻게 쓸지의 설정). */}
           <button
             type="button"
             onClick={() => { setOpen(false); setPluginsOpen(true); }}
@@ -100,10 +99,7 @@ export function FileMenu(): React.JSX.Element {
             </svg>
             {t('panel.fileMenu.plugins')}
           </button>
-          {/* §4 — 원격 접속. 종전에는 "Mobile Access"(웹) 와 "Remote Control"(메신저) 두 항목이
-              나란히 있었는데, 둘 다 "폰으로 이 PC 를 만진다"는 같은 일이라 이름만으로는 무엇이
-              무엇인지 알 수 없었다. 한 창 안의 세 칸(폰 브라우저·텔레그램·디스코드)으로 합쳤다.
-              packaged Electron 한정 — 모바일 브라우저에선 window.api 자체가 없다. */}
+          {/* §4 — 원격 접속(폰 브라우저·텔레그램·디스코드를 한 창의 세 칸으로). packaged Electron 한정 — 모바일 브라우저에는 window.api 가 없다. */}
           {isPackagedDesktop() && (
             <button
               type="button"

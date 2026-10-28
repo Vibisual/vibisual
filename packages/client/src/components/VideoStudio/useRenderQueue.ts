@@ -5,10 +5,8 @@ import { STUDIO_APP_ID } from './studioAppId.js';
 import { controlRenderJob, controlRenderQueue, listRenderJobs, type RenderJobAction, type RenderQueueAction, type VideoJob } from './videoApi.js';
 
 /**
- * §5.13 (AA) 42-5 — 이 프로젝트의 **렌더 대기열**을 지켜보고 조작한다(실행은 숨은 일꾼 하나 — (T-4), 줄의 진실은 서버).
- *
- * 주 신호는 서버의 앱 알림(`render-queue` — 상태가 바뀌거나 진행률이 오를 때)이고, 폴링은 안전망이다(도는 것이 있으면 짧게,
- * 없으면 길게 — 40-7 ② 와 같은 규율). 일감이 끝나는 것을 이 창이 보면 `onFinished` 로 알린다(알림 한 줄·노드 담기는 셸이 한다).
+ * §5.13 (AA) 42-5 — 이 프로젝트의 렌더 대기열을 지켜보고 조작한다(실행은 숨은 일꾼 하나 — (T-4), 줄의 진실은 서버).
+ * 주 신호는 서버 앱 알림(`render-queue`), 폴링은 안전망(도는 것이 있으면 짧게, 없으면 길게 — 40-7 ②). 끝나는 것을 보면 `onFinished` 로 알린다(알림·노드 담기는 셸).
  */
 export interface RenderQueueState {
   /** 렌더 일감 — 도는 것 → 기다리는 것(순서) → 끝난 것(최근 먼저). */

@@ -1,18 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
 /**
- * 팝업 닫기 공통 규약의 **집행** — 앞으로 만들 팝업도 자동으로 이 규칙 안에 들어오게 한다.
- *
- * 규약: 팝업 안에서 시작한 제스처는 그 팝업을 닫지 못한다([popupDismiss.ts](./popupDismiss.ts)).
- * 손으로 다시 짜면(백드롭 `onClick={onClose}` / 문서 `mousedown` 리스너) 그 순간 규약 밖으로
- * 나가므로, 새 팝업은 반드시 `useBackdropDismiss` · `useOutsidePressDismiss` 를 쓰게 한다.
- *
- * 소스를 읽지만 `node:fs` 를 쓰지 않는다 — 클라이언트 tsconfig 에는 Node 타입이 없어 테스트가
- * 타입체크에서 막힌다(plugins 쪽 스캔 테스트들이 패키지를 옮겨 간 것과 같은 이유). 대신 Vite 의
- * `import.meta.glob(?raw)` 로 같은 파일들을 문자열로 받는다.
- *
- * 정말 팝업이 아닌 곳(캔버스 노드 본체, 전파만 끊는 스크림, 드래그 취소 리스너)은 아래 예외 표에
- * **이유와 함께** 등록한다 — 예외가 늘면 표가 길어지므로 그 자체가 신호가 된다.
+ * 팝업 닫기 공통 규약의 집행 — 새 팝업도 자동으로 이 규칙 안에 들어오게 한다(규약: [popupDismiss.ts](./popupDismiss.ts)).
+ * 손으로 짜면(백드롭 `onClick={onClose}` / 문서 `mousedown` 리스너) 규약 밖이므로 새 팝업은 반드시 `useBackdropDismiss` · `useOutsidePressDismiss` 를 쓴다.
+ * `node:fs` 대신 Vite `import.meta.glob(?raw)` — 클라이언트 tsconfig 에 Node 타입이 없어 타입체크에서 막힌다.
+ * 팝업이 아닌 곳(캔버스 노드 본체, 전파만 끊는 스크림, 드래그 취소 리스너)은 아래 예외 표에 이유와 함께 등록한다 — 표가 길어지는 것 자체가 신호다.
  */
 
 const tsSources = import.meta.glob('../**/*.ts', { query: '?raw', import: 'default', eager: true });

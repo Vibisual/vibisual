@@ -1,11 +1,6 @@
 /**
- * streamDensity.ts — §5.5 #17-12 표시 밀도 변환(순수 로직).
- *
- * 배경: 스트림이 thinking·도구·본문을 전부 같은 급 상자로 쌓아 "읽을 게 너무 많다"는 문제.
- * 2026 추세(점진적 공개 — 기본은 한 줄 요약, 펼치면 상세)에 맞춰 **표시 직전에** 아이템 배열을 접는다.
- *
- * 표시 계층 전용 — 파싱(streamItems)·스크롤·카드 합류는 건드리지 않는다. 순수 함수라 단위 테스트로 검증한다
- * (streamDensity.test.ts). 밀도는 클라 전용 UI 상태(`graphStore.ideStreamDensity`).
+ * §5.5 #17-12 표시 밀도 변환(순수) — **표시 직전에** 아이템 배열을 접는다(기본은 한 줄 요약, 펼치면 상세).
+ * 표시 계층 전용 — 파싱(streamItems)·스크롤·카드 합류는 건드리지 않는다. 밀도는 클라 UI 상태(`graphStore.ideStreamDensity`).
  */
 import type { StreamDensity } from '@vibisual/shared';
 import { sameStreamItem, isSystemSubtypeChip, type StreamGroup, type StreamItemFull, type StreamPlan } from './streamItems.js';
@@ -13,16 +8,9 @@ import { foldTaskChips } from './taskChips.js';
 import { mergeAdjacentThinkTraces, type ThinkTraceView } from './turnSteps.js';
 
 /**
- * 도구 실행 묶음 — 기본은 "명령 실행됨 ×N" 한 줄 + 최근 도구 한 줄, 펼치면 원래 항목들이 그대로 나온다.
- *
- * §5.5 #17-13 — 종전엔 **같은 도구 이름**끼리만 묶어서, 이름이 바뀌거나(`Bash`→`Read`) 사이에 빈 줄·
- * system 칩이 끼면 런이 끊겨 상자가 사다리처럼 쌓였다. 이제 이름을 가리지 않고 묶고, 사이 잡음은
- * 런 안으로 흡수한다(버리지 않는다 — 펼치면 그대로 보인다).
- *
- * §5.5 #17-16 — 묶음은 **첫 도구부터** 만들어지고(문턱 없음), **진행 중 도구도 이 안에** 들어간다.
- * 종전엔 홑 도구·활성 도구가 묶음 밖 독립 상자로 떴다가 조건이 맞는 순간 묶음으로 빨려 들어가
- * 리스트 높이가 매번 출렁였다(사용자: "사라졌다 나온다 / 스크롤이 들쭉날쭉"). 지금 뭘 하는지는
- * 렌더러가 접힌 상태에서도 그리는 **최근 도구 한 줄**이 담당한다.
+ * 도구 실행 묶음 — 기본은 "명령 실행됨 ×N" + 최근 도구 한 줄, 펼치면 원래 항목 그대로.
+ * §5.5 #17-13 — 이름을 가리지 않고 묶고 사이 잡음(빈 줄·system 칩)은 런 안으로 흡수한다(이름별로 끊으면 상자가 사다리로 쌓인다).
+ * §5.5 #17-16 — 첫 도구부터(문턱 없음), 진행 중 도구도 안에 묶는다 — 밖에 두면 흡수될 때 리스트 높이가 출렁인다.
  */
 export interface StreamToolGroup {
   kind: 'toolgroup';
@@ -57,10 +45,7 @@ export interface SpeechRole {
   id: string;
   /** AI 본문인가 — 아니면 여기서 런이 끊긴다(내 말풍선·카드·오류·계획·그림·도구 묶음·라이브 1줄). */
   text: boolean;
-  /**
-   * 이 말의 **주인**. Sub 탭은 중첩 서브에이전트(`nestedUnderToolUseId`), 메인 탭은 세션(`sessionLabel`).
-   * 주인이 다르면 다른 사람의 말이라 붙여 놓으면 안 된다 — 거기서 런을 끊는다.
-   */
+  /** 이 말의 주인 — Sub 탭은 중첩 서브에이전트(`nestedUnderToolUseId`), 메인 탭은 세션(`sessionLabel`). 주인이 다르면 런을 끊는다. */
   owner?: string | undefined;
 }
 
@@ -68,15 +53,8 @@ export interface SpeechRole {
 export const NO_SPEECH_RUNS: ReadonlyMap<string, SpeechRunPos> = new Map<string, SpeechRunPos>();
 
 /**
- * §5.5 #17-45 — 연달아 온 AI 본문을 **한 발화**로 묶어 각 문단의 자리를 매긴다.
- *
- * 간결에서는 도구 묶음이 배열에서 빠지므로(#17-21 ①) 남는 것은 대부분 AI 본문이 줄줄이 이어진 모양인데,
- * 그 문단마다 같은 말머리 글리프가 하나씩 붙어 왼쪽에 똑같은 상자가 사다리처럼 쌓였다(사용자 스크린샷).
- * 같은 사람이 이어서 하는 말에 문단마다 이름표를 다시 붙이는 셈이라 정보량이 0이고 소음만 남는다.
- * 그래서 **말머리는 런의 첫 문단에만** 달고 나머지는 같은 칼럼에 이어 붙인다.
- *
- * 가상 리스트라 CSS 형제 선택자(`+`)로는 판정할 수 없다 — 화면에 없는 앞 항목은 DOM 에도 없다.
- * 그래서 **항목 배열**로만 판정하는 순수 함수로 둔다(단위 검증 가능).
+ * §5.5 #17-45 — 연달아 온 AI 본문을 한 발화로 묶어 문단마다 자리를 매긴다(말머리는 런의 첫 문단에만).
+ * 가상 리스트라 CSS 형제 선택자(`+`)로는 못 가린다(화면 밖 앞 항목은 DOM 에 없다) — 항목 배열로 판정한다.
  */
 export function speechRunPositions(seq: readonly SpeechRole[]): Map<string, SpeechRunPos> {
   const out = new Map<string, SpeechRunPos>();
@@ -112,11 +90,7 @@ export function sameDisplayItem(a: StreamDisplayItem, b: StreamDisplayItem): boo
   return sameStreamItem(a, b);
 }
 
-/**
- * 묶을 수 있는 도구인가 — §5.5 #17-16 로 **진행 중인 도구도 묶는다**(옛 규칙: 활성 도구 제외).
- * "지금 뭘 하는지 가려지면 안 된다"는 원칙은 렌더러가 접힌 묶음에도 그리는 **최근 도구 한 줄**이 지킨다.
- * 활성 도구를 밖에 두면 그 도구가 끝나는 순간 독립 상자가 묶음으로 흡수되며 화면이 출렁였다.
- */
+/** 묶을 수 있는 도구인가 — §5.5 #17-16 진행 중 도구도 묶는다(밖에 두면 끝나는 순간 묶음으로 흡수되며 화면이 출렁인다). */
 function groupable(item: StreamDisplayItem): item is StreamGroup {
   return item.kind === 'tool';
 }
@@ -165,18 +139,9 @@ function markSupersededPlans(items: StreamItemFull[]): StreamItemFull[] {
 }
 
 /**
- * 밀도에 맞춰 표시 아이템을 만든다.
- * - `raw`  : 아무것도 접지 않는다(원문 그대로).
- * - `standard` : SDK 상태 칩 숨김 + 옛 계획 접기 + 연속 동종 도구 묶기.
- * - `compact`  : 위 전부 + **도구 묶음을 배열에서 아예 뺀다**(§5.5 #17-21 ① / #17-24 ①)
- *                **AI 본문은 하나도 걸러내지 않는다**(§5.5 #17-43) — 간결은 "명령창을 숨기는" 축이지
- *                "말을 골라 주는" 축이 아니다. 묶음이 빠진 자리에서 이어 붙은 사고 자국은 주인별 한 줄로
- *                합친다(§5.5 #17-39 ⑩).
- *
- * §5.5 #17-15 — 사고(thinking)는 밀도 축에서 빠졌다. 파싱 단계가 아이템 자체를 만들지 않으므로
- * 여기서 거를 것도 없다(진행 중 표시는 `thinking-live` 1줄이 전담).
- *
- * 반환 배열의 항목 참조는 변환이 필요 없는 한 입력 그대로다(불필요한 재렌더 방지).
+ * 밀도에 맞춰 표시 아이템을 만든다. `raw` 그대로 · `standard` SDK 상태 칩 숨김 + 옛 계획 접기 + 연속 도구 묶기.
+ * `compact` 위 전부 + 도구 묶음을 배열에서 뺀다(§5.5 #17-21 ①) — AI 본문은 하나도 거르지 않고(#17-43) 이어 붙은 사고 자국은 주인별 한 줄(#17-39 ⑩).
+ * 변환이 없는 항목은 입력 참조 그대로다(재렌더 방지).
  */
 export function applyStreamDensity(items: StreamItemFull[], density: StreamDensity): StreamDisplayItem[] {
   // §5.5 #17-13 ⑤-3 — 작업 칩(시작·끝)은 밀도를 가르기 **전에** 한 줄로 접는다. 밀도 안쪽에 두면
@@ -243,11 +208,8 @@ export function applyStreamDensity(items: StreamItemFull[], density: StreamDensi
     i++;
   }
 
-  // §5.5 #17-21 ① / #17-24 ① — 간결은 **도구 묶음을 진행 중이든 완료든 화면에서 뺀다**
-  //   (무엇을 했는지 볼 사람은 `표준` 으로 올린다). 높이 0 자리표시자로 남기지 않고 **배열에서 제거**해야
-  //   가상 리스트 측정이 흐려지지 않는다.
-  //   단, 런에 흡수됐던 **내용 있는 system 본문**(오류·권한 결정 메시지)은 묶음 밖으로 꺼내 남긴다 —
-  //   그건 사용자가 읽어야 하는 내용이라 묶음과 함께 사라지면 안 된다.
+  // §5.5 #17-21 ① / #17-24 ① — 간결은 도구 묶음을 진행 중이든 완료든 **배열에서 제거**한다(높이 0 자리표시자면 가상 리스트 측정이 흐려진다).
+  // 단, 런에 흡수된 내용 있는 system 본문(오류·권한 결정)은 묶음 밖으로 꺼내 남긴다.
   if (density === 'compact') {
     const compacted: StreamDisplayItem[] = [];
     for (const it of out) {
@@ -259,12 +221,8 @@ export function applyStreamDensity(items: StreamItemFull[], density: StreamDensi
       //   그 한 줄이 간결 화면이 끊임없이 깜빡이던 원인이었다. "지금 뭘 하는지"는 작동하는 내내 떠 있는
       //   라이브 1줄(`thinking-live`)이 대신 알린다 — 실행 내용을 문자 그대로 볼 사람은 `표준` 으로 올린다.
     }
-    // §5.5 #17-43 — 본문은 **하나도 걸러내지 않는다.** 종전 규칙(#17-26 ①)은 턴마다 처음·마지막 본문만
-    //   남겼는데, 그 상한에 걸려 사이의 발견·경고·결정이 함께 잘려 나갔다(사용자: "본문 중에 나한테
-    //   뭔가 알리는 내용은 보여야 한다"). 어휘로 나레이션을 골라내는 대안은 로케일마다 헛돌고 오탐이
-    //   나므로 쓰지 않는다 — 간결이 숨기는 것은 **명령창(도구 묶음)뿐**이고 말은 전부 남는다.
-    // §5.5 #17-39 ⑩ — 묶음이 빠지면 그 사이에 있던 사고 자국끼리 붙는다. 도구마다 짧게 생각하는 모델이면
-    //   `1초 미만 동안 사고함` 이 도구 개수만큼 쌓여 간결이 사다리가 됐다 — 이어 붙은 자국을 주인별 한 줄로.
+    // §5.5 #17-43 — 본문은 **하나도 거르지 않는다**(처음·마지막만 남기면 사이의 경고·결정이 잘리고, 어휘로 고르면 로케일마다 헛돈다).
+    // §5.5 #17-39 ⑩ — 묶음이 빠져 이어 붙은 사고 자국은 주인별 한 줄로 합친다.
     return mergeAdjacentThinkTraces(compacted, readStepTrace, writeStepTrace);
   }
   return out;

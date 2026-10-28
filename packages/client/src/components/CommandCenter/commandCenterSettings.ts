@@ -6,9 +6,8 @@ import { COMMAND_CENTER_SORTS, type CommandCenterSort } from './commandCenterMod
 const STORAGE_KEY = 'vibisual:commandCenter';
 
 /**
- * §5.12 (I) — 저장 포맷 판. 올리면 **그 판에서 바뀐 기본값만** 한 번 다시 적용된다.
- * v2: 정렬 기본값 `recent` → `priority`. 옛 저장본의 `recent` 는 사용자가 고른 값이 아니라
- * 옛 기본값이므로, 판 번호가 없으면 한 번만 새 기본값으로 되돌린다(그 뒤 선택은 그대로 유지).
+ * §5.12 (I) 저장 포맷 판 — 올리면 그 판에서 바뀐 기본값만 한 번 다시 적용된다.
+ * v2: 정렬 기본값 `recent` → `priority`(판 번호 없는 옛 `recent` 는 옛 기본값이라 한 번만 되돌린다).
  */
 const SETTINGS_VERSION = 2;
 
@@ -29,10 +28,7 @@ export interface CommandCenterSettings {
   view: CommandCenterView;
   /** §5.12 (H) — 상세 패널을 쓸지. 끄면 카드만 넓게 본다. */
   detailPane: boolean;
-  /**
-   * §5.12 (A) v4.44 — 특정 프로젝트에 **고정**(표시명). null 이면 메인 창의 활성 프로젝트를
-   * 따라간다(기본). 여기 담기는 값은 store 의 프로젝트 표시명 키다(경로가 아니다).
-   */
+  /** §5.12 (A) — null 이면 메인 창 활성 프로젝트를 따라간다(기본). 값은 프로젝트 **표시명** 키(경로 ❌). */
   pinnedProject: string | null;
   /** 저장 포맷 판(§5.12 (I)). 사용자가 고르는 값이 아니라 마이그레이션 표시용이다. */
   v: number;

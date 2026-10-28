@@ -1,13 +1,9 @@
 import { desktopCapturer } from 'electron';
 import type { CaptureSourceInfo, CaptureSourceKind } from '@vibisual/shared';
 
-// §5.9 화면/프로그램 캡처 — 소스 열거(main 전용).
-//
-// Electron `desktopCapturer.getSources` 는 main 프로세스에서만 호출 가능하다. 렌더러는
-// 이 목록에서 사용자가 고른 소스 id 를 받아 `getUserMedia({video:{mandatory:{chromeMediaSource:
-// 'desktop', chromeMediaSourceId: id}}})` 로 라이브 MediaStream 을 붙인다(렌더러 전용, 서버 무관).
-//
-// 여기서는 NativeImage 썸네일/앱 아이콘을 data URL(PNG)로 직렬화해 IPC 텍스트 와이어로 나른다.
+// §5.9 화면/프로그램 캡처 — 소스 열거(main 전용). `desktopCapturer.getSources` 는 main 에서만 부를 수 있다. 렌더러는 고른 소스 id 로
+// `getUserMedia({video:{mandatory:{chromeMediaSource:'desktop', chromeMediaSourceId: id}}})` 를 붙인다(렌더러 전용, 서버 무관).
+// NativeImage 썸네일/앱 아이콘은 data URL(PNG)로 직렬화해 IPC 텍스트로 나른다.
 
 /** picker 썸네일 해상도 — 그리드 카드에 충분하고 IPC 페이로드가 과하지 않은 절충값. */
 const THUMBNAIL_SIZE = { width: 320, height: 180 };
@@ -16,10 +12,7 @@ function kindOf(id: string): CaptureSourceKind {
   return id.startsWith('screen:') ? 'screen' : 'window';
 }
 
-/**
- * 현재 캡처 가능한 화면·창 목록을 반환한다. 실패하면 빈 배열(렌더러가 "소스 없음"으로 처리).
- * 전체 화면(screen)을 먼저, 개별 창(window)을 뒤에 정렬해 picker 상단에 화면이 오게 한다.
- */
+/** 캡처 가능한 화면·창 목록. 실패하면 빈 배열(렌더러가 "소스 없음"). 화면(screen)을 먼저, 창(window)을 뒤에 — picker 상단에 화면이 온다. */
 export async function listCaptureSources(): Promise<CaptureSourceInfo[]> {
   const sources = await desktopCapturer.getSources({
     types: ['screen', 'window'],

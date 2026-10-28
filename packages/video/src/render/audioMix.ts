@@ -1,22 +1,7 @@
 /**
- * 소리 섞기 (SCENARIO.md §5.13 (E)).
- *
- * 타임라인의 오디오 아이템들을 **하나의 `AudioBuffer`** 로 합친다. 인코더는 프레임과
- * 달리 소리를 구간 단위로 한 번에 받으므로, 렌더 루프 안에서 프레임마다 물어볼 필요가
- * 없다.
- *
- * `OfflineAudioContext` 를 쓰는 이유는 **실시간보다 빠르게** 렌더되기 때문이다. 4분짜리
- * 영상의 소리를 섞는 데 4분을 기다릴 수는 없다.
- *
- * 여기서 처리하는 것: 배치 시각, 트림, 볼륨, 페이드 인·아웃, 음소거 트랙 제외, §5.13 (V) 37-12 덕킹(내레이션 동안 음악을
- * 낮춘다 — `props.role` 이 `voice` 인 구간에서 `music` 을, 곡선은 순수 함수 `duckEnvelope`).
- * 여기서 처리하지 않는 것: 소재 생성(§5.13 (H) — 앱은 소리를 만들지 않는다).
- *
- * §5.13 (Y) 40-2 — ① 실효 이득 0 인 아이템은 받기 전에 빠진다(`audioItemsAt`). ② 소재 소리는 **쓰는 구간만** 조각으로 푼다
- * (`loadRange` — 파일 통째 `decodeAudioData` 는 그 길이 없을 때만). ③ **구간(`range`)** 을 받는다 — 렌더는 처음~끝 한 번,
- * 미리보기는 재생 머리 앞 짧은 창을 이어 섞는다. 창 경계에서 볼륨·페이드·덕킹 곡선을 그 시각의 값으로 이어 거는 순수 함수
- * (`envelopeForWindow`)가 있어, 창을 이어 붙인 소리가 한 번에 섞은 소리와 같다(시험으로 고정). 미리보기와 렌더는 여전히 이 한
- * 함수다(37-12).
+ * §5.13 (E) 소리 섞기 — 오디오 아이템을 `AudioBuffer` 하나로(인코더는 소리를 구간 단위로 받는다). `OfflineAudioContext` 라 실시간보다 빠르다.
+ * (V) 37-12 덕킹은 `duckEnvelope`. (Y) 40-2 — 실효 이득 0 은 받기 전에 빼고(`audioItemsAt`), 소재는 쓰는 구간만 조각으로 푼다(`loadRange`).
+ * `range` 를 받아 미리보기는 짧은 창을 잇는다 — `envelopeForWindow` 로 이어 붙인 소리가 한 번에 섞은 것과 같다(시험 고정). 미리보기와 렌더는 이 한 함수다.
  */
 
 import type { ResolvedItem, ResolvedTimeline, VideoAsset, VideoDoc } from '../types.js';
@@ -64,10 +49,7 @@ export interface EnvelopePoint {
   readonly v: number;
 }
 
-/**
- * 아이템 하나의 볼륨·페이드 곡선(타임라인 초). 페이드를 램프로 거는 이유는, 소리가 딱 끊기면 **팝 잡음**이 생기기 때문이다.
- * 이건 자동 검수가 잡아내는 항목이기도 해서 애초에 만들지 않는 편이 낫다. `playDuration` = 실제로 울리는 길이(소재 끝에서 잘린다).
- */
+/** 페이드를 램프로 거는 것은 딱 끊기면 팝 잡음이 나서다(자동 검수 항목). `playDuration` = 실제로 울리는 길이(소재 끝에서 잘린다). */
 export function gainEnvelope(item: ResolvedItem, playDuration: number): EnvelopePoint[] {
   const props = item.item.props;
   const volume = Math.max(0, num(props, 'volume', 1));
@@ -150,12 +132,7 @@ export function itemWindowSpan(item: ResolvedItem, playDuration: number, winStar
   return { when: s - winStart, from: trimStart + (s - item.start), duration: e - s };
 }
 
-/**
- * 타임라인(또는 그 구간)의 소리를 하나로 섞는다.
- *
- * 오디오 아이템이 없으면 `null` — 그때는 무음 트랙조차 만들지 않는다(빈 오디오 트랙이
- * 붙은 파일은 일부 재생기에서 오히려 문제를 만든다).
- */
+/** 오디오 아이템이 없으면 `null` — 무음 트랙도 만들지 않는다(빈 오디오 트랙은 일부 재생기에서 문제를 만든다). */
 export async function mixAudio(opts: MixAudioOptions): Promise<AudioBuffer | null> {
   opts.signal?.throwIfAborted();
   const { doc, timeline, loader } = opts;
@@ -304,12 +281,7 @@ export async function mixAudio(opts: MixAudioOptions): Promise<AudioBuffer | nul
   }
 }
 
-/**
- * 특정 시각의 소리 크기(0~1).
- *
- * 자동 검수의 "소리가 있어야 하는데 무음" 판정이 쓰는 값이다. 짧은 창의 제곱평균으로
- * 재는 이유는 순간값 하나로는 파형이 0을 지나는 순간을 무음으로 오해하기 때문이다.
- */
+/** 소리 크기(0~1, 자동 검수의 무음 판정용). 짧은 창의 제곱평균으로 잰다 — 순간값은 파형이 0 을 지날 때 무음으로 읽힌다. */
 export function audioLevelAt(buffer: AudioBuffer, t: number, windowSec = 0.05): number {
   if (t < 0 || t >= buffer.duration) return 0;
   const sr = buffer.sampleRate;

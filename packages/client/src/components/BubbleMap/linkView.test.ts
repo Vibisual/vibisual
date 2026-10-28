@@ -16,10 +16,7 @@ import {
 } from './linkView.js';
 import { refLinkPairs } from './agentCard.js';
 
-/**
- * §5.4 #36 (H) — 연결 보기 판정. ① 켜고 끄기 · ② 보기 전환(기본 "연결된 것 위주") · ③ 구슬 줄을 펴는가.
- * 캔버스 선·위성줄·메뉴·앱 노드가 같은 답을 내야 하므로 판정을 한 벌로 고정한다.
- */
+/** §5.4 #36 (H) — 연결 보기 판정(켜고 끄기 · 보기 전환 · 구슬 줄). 선·위성줄·메뉴·앱 노드가 같은 답을 내야 해 한 벌로 고정한다. */
 
 function agent(id: string, extra: Partial<BubbleData> = {}): BubbleData {
   return { id, label: id, bubbleType: 'agent', path: '', status: 'idle', activity: 0, ...extra };
@@ -160,8 +157,8 @@ describe('§5.4 #36 (H) ③ 구슬 줄을 펴는가', () => {
     expect(appNodeShowsLinkedItems({})).toBe(true);
   });
 
-  it('[버블 전부 보기]에서도 편다 — 이어진 에이전트의 보기는 묻지 않는다(2026-10-21 — "전부"에서 접으면 이름이 거짓이 된다)', () => {
-    // 종전에는 이어진 에이전트가 모두 `linkLens: 'files'` 면 접었다. 이제 판정에 에이전트가 들어가지 않는다.
+  it('[버블 전부 보기]에서도 편다 — 이어진 에이전트의 보기는 묻지 않는다("전부"에서 접으면 이름이 거짓이 된다)', () => {
+    // 판정에 에이전트가 없다 — 이어진 에이전트가 모두 `linkLens: 'files'` 여도 접지 않는다.
     expect(appNodeShowsLinkedItems({ linksHidden: false })).toBe(true);
     expect(appNodeShowsLinkedItems.length).toBe(1);
   });

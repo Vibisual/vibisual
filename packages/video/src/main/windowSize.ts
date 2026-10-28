@@ -1,13 +1,7 @@
 /**
- * §5.13 (W) 38-1 — 숨은 창을 **화면보다 크게** 세운다(main 몫).
- *
- * 실측(Electron 31 · Windows · 작업 영역 1707×912 DIP): `new BrowserWindow({ width: 1920, height: 1080, useContentSize })` 는
- * 1707×912 로 줄어들고, `enableLargerThanScreen`·`offscreen:true` 로도 같았다. 그 창을 찍어 문서 크기로 늘이면 가로 영상은 오른쪽·
- * 아래가 잘리고 9:16 은 위 47% 만 남는다. **최대 크기를 연 뒤(`setMaximumSize`) 내용 크기를 다시 주면(`setContentSize`)** 청한
- * 크기 그대로 선다(1920×1080 · 1080×1920 모두 실측).
- *
- * mac 은 `enableLargerThanScreen` 이 같은 일을 한다(창을 만들 때 준다). 그래도 창 관리자가 거절하면(일부 리눅스 창 관리자 —
- * 실기 미확인) 실제 크기를 재서 **맞춤 배율**을 돌려준다 — 렌더 화면이 무대를 그 배율로 줄여 세우므로 잘리지는 않는다.
+ * §5.13 (W) 38-1 — 숨은 창을 화면보다 크게 세운다(main). 실측(Electron 31·Windows): 1920×1080 을 청하면 작업 영역 1707×912 로 줄고
+ * `enableLargerThanScreen`·`offscreen:true` 로도 같다. `setMaximumSize` 뒤 `setContentSize` 를 다시 주면 청한 크기로 선다(1920×1080·1080×1920 실측).
+ * mac 은 `enableLargerThanScreen` 이 같은 일을 한다. 창 관리자가 거절하면(일부 리눅스, 실기 미확인) 맞춤 배율을 돌려줘 줄여 세운다(잘리지 않게).
  */
 import type { BrowserWindow } from 'electron';
 

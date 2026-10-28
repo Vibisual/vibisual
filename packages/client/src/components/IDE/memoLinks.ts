@@ -9,19 +9,8 @@ import {
 } from '@vibisual/shared';
 
 /**
- * memoLinks.ts — §5.5 #17-36 ⑫ 메모 링크의 **순수 계산**(React·DOM 없음).
- *
- * 링크는 본문 오프셋(`start`·`end`, UTF-16 — textarea 의 `selectionStart/End` 와 같은 단위)으로 산다.
- * 그래서 이 파일이 지키는 문장은 셋이다.
- *  ① **글을 고치면 링크가 그 편집만큼 따라 움직인다** — 입력 직전 선택 범위로 편집 하나를 찾고, 그 정보가
- *    없으면 공통 앞부분·뒷부분을 견준다(`diffTextEdit`). 링크마다 옮긴다(`shiftLinkRange`). 안에서 치면 늘고, 경계에서 치면
- *    늘지 않으며(이어 친 글이 링크가 되지 않게), 링크 글자를 다 지우면 링크도 사라진다.
- *  ② **링크끼리는 겹치지 않는다** — 새 범위에 걸면 겹친 옛 링크는 걷힌다(`withMemoLink`).
- *  ③ **가리키는 곳은 서버와 같은 자로 다듬는다** — 걸 때 이미 shared 정화(`sanitizeMemoLinkTarget`)를
- *    지나게 해, 서버가 돌려준 정화본과 글자가 같다(낙관 표시의 왕복 비교가 흔들리지 않는다).
- *
- * 화면(`SessionMemoCard`·`SessionMemoLayer`)은 이 함수들만 부르고 자기 산수를 하지 않는다 —
- * "어디까지가 링크인가"는 눈으로 확인하기 어려워 시험(`memoLinks.test.ts`)이 지킨다.
+ * memoLinks.ts — §5.5 #17-36 ⑫ 메모 링크 순수 계산. 링크는 본문 오프셋(UTF-16, textarea `selectionStart/End` 단위)으로 산다.
+ * ① 편집을 따라 움직인다(`diffTextEdit` → `shiftLinkRange`) ② 겹친 옛 링크는 걷는다(`withMemoLink`) ③ 걸 때 `sanitizeMemoLinkTarget` 을 지나 서버 정화본과 같다(낙관 왕복 비교).
  */
 
 /** 본문 안의 한 토막(시작 포함·끝 제외). */
@@ -79,11 +68,8 @@ function hintedTextEdit(before: string, after: string, hint: TextEditHint): Text
 }
 
 /**
- * 편집 전후 본문에서 **바뀐 한 토막**을 찾는다(같으면 null).
- *
- * 선택 범위가 있으면 먼저 쓴다 — `foo foo` 의 첫 `foo ` 삭제는 문자열 비교만으로 마지막 삭제와
- * 구분할 수 없으며, 잘못 고르면 지운 링크가 남은 낱말로 옮겨 붙는다. 힌트가 없거나 실제 변경과
- * 맞지 않으면 공통 앞부분·뒷부분을 견준다(외부 갱신·IME 조합 등 기존 호출부도 그대로 받는다).
+ * 편집 전후 바뀐 한 토막(같으면 null). 선택 범위 힌트를 먼저 쓴다 — `foo foo` 의 첫 `foo ` 삭제는 비교만으론 끝 삭제와 구분이 안 돼 지운 링크가 남은 낱말로 옮겨 붙는다.
+ * 힌트가 없거나 안 맞으면 공통 앞·뒷부분 비교(외부 갱신·IME 조합).
  */
 export function diffTextEdit(before: string, after: string, hint?: TextEditHint): TextEdit | null {
   if (before === after) return null;
@@ -102,14 +88,8 @@ export function diffTextEdit(before: string, after: string, hint?: TextEditHint)
 }
 
 /**
- * 범위 하나를 편집 하나만큼 옮긴다. 범위가 사라져야 하면 null.
- *
- *  - 편집이 범위 **앞**이면 통째로 민다 / **뒤**면 그대로.
- *  - 범위의 **경계에 끼운** 글자(순수 삽입)는 범위에 들지 않는다 — 시작 경계면 범위가 밀리고, 끝 경계면
- *    그대로다. 링크 끝에 이어 친 낱말까지 링크가 되면 사용자는 링크를 다시 잘라야 한다.
- *  - 범위 **안**에서 고치면 그만큼 늘고 준다.
- *  - 범위를 **통째로 덮는** 편집(지우기·갈아 치우기)이면 사라진다 — 링크가 붙어 있던 글자가 없어졌다.
- *  - 한쪽 끝에 걸치면 남는 쪽만 남는다.
+ * 범위를 편집만큼 옮긴다(사라지면 null). 앞이면 밀고 뒤면 그대로, 안이면 늘고 줄며, 통째로 덮이면 사라지고, 한끝에 걸치면 남는 쪽만.
+ * 경계에 끼운 글자는 범위 밖이다 — 이어 친 낱말이 링크가 되면 다시 잘라야 한다.
  */
 export function shiftLinkRange(range: TextRange, edit: TextEdit): TextRange | null {
   const { at, removed, inserted } = edit;
@@ -368,11 +348,7 @@ export function memoLinkTargetText(target: SessionMemoLinkTarget, liveSessionLab
 
 // ─── 파일 고르기 목록 ───
 
-/**
- * 파일 고르기 창이 갈래 넷(코드·웹 페이지·그림·PDF)으로 받아 온 목록을 **한 목록**으로 — 경로가 같으면
- * 하나만, 최근 고친 것부터(시각이 같거나 없으면 경로 순 — 받는 순서가 흔들려도 같은 답이 나오게).
- * 갈래를 가르는 것은 ⑱ 의 빈 탭 사정이고, 링크는 무엇이든 가리킬 수 있다.
- */
+/** 파일 고르기 갈래 넷(코드·웹·그림·PDF) 목록을 하나로 — 경로 중복 제거, 최근 고친 순(같거나 없으면 경로 순 — 받는 순서와 무관하게 같은 답). 링크는 무엇이든 가리킨다. */
 export function mergeLinkFileEntries(lists: readonly (readonly WorkspaceEntry[])[]): WorkspaceEntry[] {
   const byPath = new Map<string, WorkspaceEntry>();
   for (const list of lists) {
@@ -396,11 +372,7 @@ export interface MemoLinkInk {
   pending: string;
 }
 
-/**
- * 종이 밝기에 맞춘 링크 잉크. 메모 종이는 사용자가 고른 **데이터 색**이라(②) 테마 토큰으로 못 정한다 —
- * 글자색을 정한 것과 같은 판정(`memoSurface` 의 밝은 판 여부)으로 고른다. 밝은 판에 옅은 파랑을 얹으면
- * 밑줄이 녹아 사라지고, 어두운 판에 짙은 파랑을 얹으면 같은 일이 반대로 일어난다.
- */
+/** 링크 잉크 — 종이는 사용자가 고른 데이터 색(②)이라 테마 토큰 ❌, 글자색과 같은 `memoSurface` 밝기 판정으로 고른다(어긋나면 밑줄이 녹는다). */
 export function memoLinkInk(lightPaper: boolean): MemoLinkInk {
   return lightPaper
     ? { line: '#0369A1', fill: 'rgba(3, 105, 161, 0.12)', activeFill: 'rgba(3, 105, 161, 0.24)', pending: '#B45309' }

@@ -8,10 +8,7 @@ const Z = 100_500;
 
 const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code';
 
-/**
- * §5.7 #23-1 v1.59 — Claude Code 버전 업데이트 게이트 모달.
- * `addCommand` 가 outdated 감지 시 자동으로 띄움. 사용자 결정까지 명령 발사 보류.
- */
+/** §5.7 #23-1 — Claude Code 버전 게이트. outdated 면 `addCommand` 가 띄우고 고를 때까지 명령을 보류한다. */
 export function ClaudeVersionGate(): React.JSX.Element | null {
   const { t } = useTranslation();
   const open = useGraphStore((s) => s.claudeVersionModalOpen);
@@ -51,7 +48,9 @@ export function ClaudeVersionGate(): React.JSX.Element | null {
   const installFailed = progress?.status === 'error';
   const installDone = progress?.status === 'done';
 
-  const canAutoInstall = info.source === 'path';
+  // §4 (앱 전용 엔진) — 앱 전용 사본('managed')과 공식 인스톨러 위치('native')도 서버가 갱신한다
+  //   (앱 전용 = 받아 점검 후 전환 · native = `<bin> update`). 확장 번들 · 판정 불가만 안내로 떨어진다.
+  const canAutoInstall = info.source === 'path' || info.source === 'native' || info.source === 'managed';
 
   return createPortal(
     <>
@@ -196,9 +195,7 @@ export function ClaudeVersionGate(): React.JSX.Element | null {
                 {t('panel.claudeVersionGate.keep', { defaultValue: 'Keep current' })}
               </button>
 
-              {/* §5.7 #23-1 v1.77 — 자동설치 불가 source 는 죽은(비활성) Update 버튼을
-                  남기지 않는다(거짓 어포던스). path=동작하는 Update,
-                  vscode-extension=동작하는 Marketplace 버튼, unknown=주 버튼 없음. */}
+              {/* §5.7 #23-1 — 자동설치 불가 source 에 죽은 Update 버튼을 남기지 않는다(거짓 어포던스). vscode-extension 은 Marketplace, unknown 은 주 버튼 없음. */}
               {canAutoInstall ? (
                 <button
                   type="button"

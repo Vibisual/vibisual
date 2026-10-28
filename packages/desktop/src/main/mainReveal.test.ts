@@ -1,9 +1,7 @@
 /**
- * §3.7 · §9 「시작 화면(스플래시)」 ④ 본체 창 공개 — **스플래시는 본체가 실제로 화면에 나온 뒤에 걷는다.**
- *
- * Windows 는 본체 창의 첫 프레임들을 DWM 가림 뒤에서 흘려 보낸다(처음 보이는 창의 첫 장이 흰색이다 — `windowCloak.ts`).
- * 그래서 보인(`show`) 순간과 화면에 나온 순간이 다르다. 그 사이에 스플래시를 걷으면 바탕화면이 번쩍이고, "본체 창을 보였다"
- * 기록도 실제보다 이르게 찍힌다. 판정 자체(`decideMainReveal`)는 `splashPolicy.test.ts` 가 표로 지킨다.
+ * §3.7 · §9 「시작 화면(스플래시)」 ④ — 스플래시는 본체가 실제로 화면에 나온 뒤에 걷는다.
+ * Windows 는 첫 프레임을 DWM 가림 뒤에서 흘려(`windowCloak.ts`) `show` 와 화면에 나온 때가 다르다 — 그 사이에 걷으면 바탕화면이 번쩍인다.
+ * 판정 자체(`decideMainReveal`)는 `splashPolicy.test.ts`.
  */
 import { EventEmitter } from 'node:events';
 import type { BrowserWindow } from 'electron';

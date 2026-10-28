@@ -119,12 +119,8 @@ export function radialLayout(
 }
 
 /**
- * §5.23 — 큰 원(`radialLayout`)에 세울 항목. 웹 버블(`WEB_ORBIT_TYPES`)은 뺀다.
- *
- * 그 원의 반지름은 개수에 비례해 자란다. 자료조사 한 번에 호스트 수십 곳이 거기 들면 원이 물리 상자를
- * 넘고, 물리 클램프가 함께 선 항목까지 상자 벽에 눌러 사각 테두리가 된다. 메인 캔버스·폴더 안의 새 버블은
- * 이 원이 아니라 주인 둘레 등장 영역에서 첫 자리를 받는다(§5.1 #2-2 `spawnZoneSeating.ts` — 종전의
- * 무작위 첫 자리 `findNonCollidingPosition` 도 그 규칙으로 대체됐다).
+ * §5.23 — 큰 원(`radialLayout`)에 세울 항목. 웹 버블(`WEB_ORBIT_TYPES`)은 뺀다 — 원 반지름이 개수에 비례해 자라, 호스트 수십 곳이 들면 물리 상자를
+ * 넘고 클램프가 함께 선 항목까지 벽에 눌러 사각 테두리가 된다. 새 버블의 첫 자리는 이 원이 아니라 주인 둘레 등장 영역이 준다(§5.1 #2-2 `spawnZoneSeating.ts`).
  */
 export function radialItemsOf(items: readonly BubbleData[]): BubbleData[] {
   return items.filter((b) => !WEB_ORBIT_TYPES.has(b.bubbleType));

@@ -11,8 +11,7 @@ import { memoLatest } from './studioMemo.js';
 import { __resetStudioIdleForTest } from './studioIdle.js';
 
 /**
- * §5.13 (Y) 40-5 ①③④ — 재생하는 동안 **스튜디오가 다시 그려지지 않는다**. 종전에는 재생 머리 상태가 120ms 마다 올라 셸 전체(대화 ·
- * 장면 구슬 · 값 카드)가 다시 그려졌다. 이제 프레임마다 가는 것은 시계뿐이고, 재생 머리 선은 렌더 없이 `transform` 만 바꾼다.
+ * §5.13 (Y) 40-5 ①③④ — 재생하는 동안 스튜디오가 다시 그려지지 않는다: 프레임마다 가는 것은 시계뿐이고 재생 머리 선은 렌더 없이 `transform` 만 바꾼다.
  * React Profiler 로 실제 커밋 수를 센다.
  */
 

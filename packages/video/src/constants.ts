@@ -1,18 +1,8 @@
-/**
- * Vibistudio 상수 (SCENARIO.md §5.13 §3.3 하드코딩 금지).
- *
- * 숫자를 코드 안에 흩어 놓지 않는다 — 값을 바꿔야 할 때 어디를 고쳐야 하는지가
- * 한 곳에서 보여야 한다.
- */
+/** §5.13 상수 — §3.3 하드코딩 금지. */
 
 /**
- * 문서 스키마 버전. 올릴 때는 로드 시 마이그레이션을 함께 넣는다(§5.13 (I)).
- *
- * 2 — §5.13 (T-1) `composition` 아이템·소재 종류. 1 → 2 는 모양이 그대로라 마이그레이션이 없다(옛 문서는 그대로 읽힌다).
- * 올리는 이유는 옛 앱이 composition 이 든 문서를 "모르는 종류"로 조용히 버리지 않고 "앱을 업데이트하세요"로 말하게 하려는 것.
- *
- * 3 — §5.13 (V) 37-4 장면 층(`chapters`·`chapterId`·`{chapter}` 앵커) + (T-8) 표지 앵커(`{cue,item}`) + 갈래(`variantId`)
- * + 문서 `style`. 2 → 3 도 더하기만이라 마이그레이션이 없다(옛 문서는 그대로 읽힌다).
+ * 문서 스키마 버전. 올릴 때는 로드 시 마이그레이션도 넣는다(§5.13 (I)) — 옛 앱이 모르는 것을 조용히 버리지 않고 "앱을 업데이트하세요"로 말하게.
+ * 2 = (T-1) `composition`. 3 = (V) 37-4 장면 층·(T-8) 표지 앵커·갈래(`variantId`)·문서 `style`. 둘 다 더하기만이라 마이그레이션이 없다.
  */
 export const VIDEO_SCHEMA_VERSION = 3;
 
@@ -39,13 +29,7 @@ export const VIDEO_REVIEW_DIR = 'video/review';
 export const DEFAULT_VIDEO_SIZE = { width: 1920, height: 1080 } as const;
 export const DEFAULT_VIDEO_FPS = 30;
 
-/**
- * 렌더 백엔드 우선순위(§5.13 (F)).
- *
- * 앞에서부터 써 보고 못 쓰면 다음으로 내려간다. `html-in-canvas` 가 CSS 충실도와
- * GPU 속도를 동시에 주지만 오리진 트라이얼 단계라, 폴백이 없으면 API 가 흔들리는
- * 날 앱이 통째로 멈춘다.
- */
+/** §5.13 (F) — 앞에서부터 써 보고 못 쓰면 내려간다. `html-in-canvas` 는 오리진 트라이얼이라 폴백이 없으면 API 가 흔들리는 날 앱이 멈춘다. */
 export const RENDER_BACKEND_ORDER = ['html-in-canvas', 'offscreen-capture', 'canvas2d'] as const;
 export type RenderBackendId = (typeof RENDER_BACKEND_ORDER)[number];
 
@@ -70,12 +54,7 @@ export const RENDER_CACHE_MAX_ENTRIES = 2000;
 export const STORYBOARD_VISUAL_TRACK = 'visual';
 export const STORYBOARD_CAPTION_TRACK = 'caption';
 
-/**
- * 콘티에서 옮겨 온 아이템 수 상한.
- *
- * `VIDEO_MAX_ITEMS`(문서 전체 상한)보다 훨씬 낮게 잡는다 — 컷 16장 × 스탬프 십수 개는
- * 수백 개면 충분하고, 그보다 많이 나오면 콘티 쪽이 깨진 것이라 옮기기를 멈추는 편이 낫다.
- */
+/** `VIDEO_MAX_ITEMS` 보다 훨씬 낮다 — 컷 16장 × 스탬프 십수 개면 수백 개로 충분하고, 넘으면 콘티가 깨진 것이라 옮기기를 멈춘다. */
 export const STORYBOARD_MAX_ITEMS = 1200;
 
 /** 판넬 바깥 여백 — 출력 짧은 변 대비 비율. */

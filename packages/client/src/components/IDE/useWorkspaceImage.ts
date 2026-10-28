@@ -1,14 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { workspaceMediaQuery } from '../../utils/workspaceMedia.js';
+
 /**
- * useWorkspaceImage.ts — §5.5 #17-27 ⑭ 워크스페이스 이미지 한 장을 **이 document 의 blob URL** 로.
- *
- * `<img src="/api/workspace-image?…">` 를 곧장 걸지 않는 이유는 패키징된 앱 때문이다 — 렌더러의
- * `fetch` 는 IPC 로 우회되지만 `<img>` 가 스스로 내는 요청은 그 패치를 타지 않아 같은 경로가
- * 조용히 실패한다. 첨부 썸네일(`attachmentThumb.ts`)이 이미 같은 이유로 blob 을 만들고 있으므로
- * **그 규약을 그대로 쓴다**(새 전송 계층 발명 ❌).
- *
- * `token` 은 디스크 수정 시각이다 — 주석을 저장해 파일이 바뀌면 이 값이 달라지고, 그때 다시 받는다.
+ * §5.5 #17-27 ⑭ 워크스페이스 이미지 → 이 document 의 blob URL(`attachmentThumb.ts` 와 같은 규약). `<img src="/api/…">` 를 곧장 걸지 않는다 —
+ * 패키징 앱에서 `<img>` 요청은 IPC 패치를 안 타 조용히 실패한다. `token` 은 디스크 수정 시각 — 바뀌면 다시 받는다.
  */
 
 const API_BASE = '';
@@ -40,8 +36,10 @@ export function useWorkspaceImage(
     }
     let cancelled = false;
     setState({ scope, url: null, status: 'loading' });
+    // ⑥ — 이 창의 루트 밖 파일 탭은 열쇠가 절대경로다(캔버스 파일 버블에서 열었다). 그 파일의 폴더 + 이름으로 푼다(편집창 읽기와 같은 도우미).
+    const query = workspaceMediaQuery(root, relPath);
     const url =
-      `${API_BASE}/api/workspace-image?root=${encodeURIComponent(root)}&path=${encodeURIComponent(relPath)}`;
+      `${API_BASE}/api/workspace-image?root=${encodeURIComponent(query.root)}&path=${encodeURIComponent(query.path)}`;
     void (async () => {
       try {
         const res = await fetch(url);

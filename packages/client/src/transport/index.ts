@@ -1,9 +1,5 @@
-// Transport adapter — SCENARIO.md §3.7.
-//
-// Stage 4 wiring (v1.93). Two surfaces:
-//   1. `installPackagedTransport()` (in ./install-packaged-transport) — global
-//      monkey-patch on fetch + WebSocket. Imported once from main.tsx so all
-//      existing call sites are covered without per-file edits.
+// Transport adapter — SCENARIO.md §3.7. Two surfaces:
+//   1. `installPackagedTransport()` — global fetch + WebSocket monkey-patch, imported once from main.tsx.
 //   2. This file's exports — an explicit adapter for new code that wants to
 //      be aware of packaged mode without going through the global override.
 

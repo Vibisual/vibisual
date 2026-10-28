@@ -1,15 +1,6 @@
 /**
- * hookFires.ts — §5.5 #17-32 ⑤: "방금 이 훅이 울렸다" 를 몇 초 동안 들고 있는 런타임 스토어.
- *
- * `debugSessions`·`runSessions` 와 같은 결의 **비영속 스토어**다 — 발동은 순간의 사건이라
- * 체크포인트·localStorage 어디에도 남지 않는다(앱을 껐다 켜면 아무것도 켜져 있지 않은 게 맞다).
- *
- * 축은 **세션별**이다(사용자 명시 — 통합 목록 ❌). 서버가 실어 보낸 `agentId`/`subAgentId` 를
- * 그대로 들고 있다가, 화면이 자기 에이전트·자기 탭 것만 골라 쓴다.
- *
- * 어느 훅 줄에 불이 켜질지는 여기서 정하지 않는다 — 발동 신호는 (이벤트 · 도구) 두 값뿐이고,
- * 그걸 훅 줄의 `matcher` 와 맞춰 보는 일은 shared 의 `hookMatcherMatches` 가 한다. 이 스토어는
- * "언제 무엇이 울렸나" 만 들고 있으면 된다.
+ * §5.5 #17-32 ⑤ — "방금 이 훅이 울렸다"를 몇 초 드는 비영속 스토어. 축은 **세션별**(통합 목록 ❌) — 화면이 자기 에이전트·탭 것만 고른다.
+ * 어느 훅 줄에 불이 켜질지는 shared `hookMatcherMatches` 가 정한다 — 여기는 "언제 무엇이 울렸나"만.
  */
 import { create } from 'zustand';
 import type { HookFiredPayload } from '@vibisual/shared';
@@ -68,13 +59,7 @@ function fireKey(f: HookFiredPayload): string {
   return `${f.agentId ?? ''}|${f.subAgentId ?? ''}|${f.event}|${f.toolName ?? ''}`;
 }
 
-/**
- * 이 발동이 **지금 보고 있는 세션의 것**인가.
- *
- * 서버가 탭(sub)까지 알아내지 못하는 세션도 있다(외부 에디터가 띄운 훅 세션은 탭이 없다).
- * 그때는 에이전트 단위까지만 좁힌다 — 정확도를 조금 잃는 편이, 알 수 없다는 이유로 불을
- * 아예 안 켜서 기능이 죽은 것처럼 보이는 것보다 낫다.
- */
+/** 이 발동이 **지금 보는 세션의 것**인가. 탭(sub)을 모르는 세션(외부 에디터의 훅 세션)은 에이전트 단위까지만 좁힌다(아예 안 켜는 것보다 낫다). */
 export function fireBelongsToSession(
   fire: HookFiredPayload,
   agentId: string | null,

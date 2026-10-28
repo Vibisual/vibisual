@@ -1,16 +1,6 @@
 /**
- * **진단 로그의 정상상태 침묵** 회귀 테스트 (`debugLog.ts` 용량 규약).
- *
- * `readAliveSessionIds` 는 훅 에이전트 버블의 생성·소멸 타임라인을 남긴다. 규약은 "직전과
- * 달라졌을 때만 기록한다" 인데, 종전 지문은 `JSON.stringify(scan)` **전체**였다.
- * `~/.claude/sessions/` 에는 몇 초 살다 사라지는 CLI 세션(리플렉션·훅 워커 등)이 끊임없이
- * 들락거리고, 그것들은 `entrypoint!=='vscode'` 라 **애초에 버블이 될 수 없는데도** 목록에 들고
- * 나는 것만으로 지문을 바꿨다.
- *
- * 실측(2026-08-31): 2초마다 약 2.5KB 전량 덤프 — 최근 2,000줄 중 344줄이 이 태그 하나였고,
- * 로그가 3일 만에 2MB 회전 상한에 닿아 정작 봐야 할 `removeAgent`·`pollOnce.remove` 가 묻혔다.
- *
- * 계약: **버블 후보(vscode 진입점)의 상태가 바뀔 때만 지문이 달라진다.**
+ * 진단 로그 정상상태 침묵(`debugLog.ts` — 달라졌을 때만 기록): `readAliveSessionIds` 지문은 버블 후보(vscode 진입점)가 바뀔 때만 달라진다.
+ * 몇 초 살다 사라지는 비-vscode CLI 세션까지 지문에 넣으면 2초마다 약 2.5KB 가 쌓여 3일 만에 2MB 회전 상한에 닿고 `removeAgent` 같은 줄이 묻힌다(실측 2026-08-31).
  */
 import { describe, it, expect } from 'vitest';
 import { aliveDiagSignature } from './sessionDiscovery.js';

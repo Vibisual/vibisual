@@ -1,11 +1,6 @@
 /**
- * ProjectGraphManager — per-project ProjectGraph 인스턴스 라우팅 파사드
- *
- * 현재 싱글턴 ProjectGraph의 공개 API를 그대로 노출하면서,
- * 내부적으로 cwd별 독립 인스턴스를 관리한다.
- * consumers는 `projectGraph` → `graphManager` 교체만으로 마이그레이션 가능.
- *
- * TODO: task edges를 ProjectGraph → Manager 레벨로 이동
+ * ProjectGraphManager — 싱글턴 ProjectGraph 의 공개 API 그대로, 안에서 cwd 별 인스턴스로 라우팅하는 파사드.
+ * TODO: task edges 를 ProjectGraph → Manager 레벨로 이동
  */
 
 import path from 'node:path';
@@ -114,7 +109,8 @@ import { normalizePathLocks } from '@vibisual/shared';
 import type { PathLock, PathLockTarget } from '@vibisual/shared';
 // §5.4 #36 (C) — 결과 전달 경로 판정(루트 안 · 상대 경로화). 플랫폼은 인자로 넘긴다.
 import { isAppBubbleId, projectRelativePath } from '@vibisual/shared';
-import { appStateAddOpenProject, loadAppState } from './appState.js';
+import { appStateAddOpenProject, loadAppState, publicAppState } from './appState.js';
+import { apiCreditService } from './apiCreditService.js';
 import { diagnosticService } from './diagnosticService.js';
 import { modelRegistryService } from './modelRegistryService.js';
 import { getEngineState } from './localEngineService.js';
@@ -129,19 +125,17 @@ import { HOST_PLATFORM, isWithinRoot, pathKey } from './pathKey.js';
 
 // ─── 유틸 ───
 
-/** 경로 정규화 (슬래시 통일, trailing slash 제거, **대소문자를 실제로 무시하는 FS 에서만** 소문자)
- *  — projectGraph.ts 의 `normalize` 와 반드시 같은 규칙. 인스턴스/스텁 Map 키다.
- *  linux 에서 무조건 접으면 케이스만 다른 두 워크트리·프로젝트가 한 인스턴스로 뭉개져
- *  한쪽 등록이 다른 쪽을 에러 없이 덮어쓴다. */
+/**
+ * projectGraph.ts 의 `normalize` 와 반드시 같은 규칙(인스턴스·스텁 Map 키). 대소문자는 실제로 무시하는 FS 에서만 접는다
+ * — linux 에서 접으면 케이스만 다른 두 프로젝트가 한 인스턴스로 뭉개져 서로 덮어쓴다.
+ */
 function normalize(filePath: string): string {
   return pathKey(filePath);
 }
 
 /**
- * §3.2.1-4 (v3.03) — 로드 실패로 read-only 격리된 프로젝트(또는 디스크에 미하이드레이트 데이터가
- * 실재하는 경로)에 대해 `registerProject` 가 빈 인스턴스 생성을 거부할 때 던지는 에러.
- * 빈 인스턴스가 멀쩡한 디스크 checkpoint 를 빈 그래프로 덮어쓰는 손실 경로를 끊는다.
- * 호출처는 이 에러를 잡아 해당 이벤트를 드롭한다.
+ * §3.2.1-4 — read-only 격리(또는 미하이드레이트 디스크 데이터가 있는) 경로에서 `registerProject` 가 빈 인스턴스 생성을 거부할 때 던진다
+ * — 빈 그래프가 디스크 checkpoint 를 덮는 손실을 끊는다. 호출처는 그 이벤트를 드롭한다.
  */
 export class ReadOnlyProjectError extends Error {
   constructor(public readonly projectPath: string) {
@@ -150,12 +144,7 @@ export class ReadOnlyProjectError extends Error {
   }
 }
 
-/**
- * 프로젝트 루트 해석.
- * cwd에서 위로 올라가며 아래 마커 중 하나를 찾으면 그 폴더를 프로젝트 루트로 간주.
- * 모노레포 서브패키지(packages/shared 등)의 세션이 별도 탭으로 뜨는 걸 방지.
- * 마커 없으면 cwd 그대로 반환.
- */
+/** cwd 에서 위로 올라가 아래 마커가 있는 폴더를 루트로 본다(없으면 cwd) — 모노레포 서브패키지 세션이 별도 탭으로 뜨지 않게. */
 const PROJECT_ROOT_MARKERS = [
   'pnpm-workspace.yaml',
   'lerna.json',
@@ -165,9 +154,8 @@ const PROJECT_ROOT_MARKERS = [
 ];
 
 /**
- * 루트를 **무엇으로** 찾았는가 — `none` 은 "위로 끝까지 올라가도 표식이 없어 cwd 를 그대로 돌려줬다"는 뜻이다.
- * 훅 라우팅(`resolveHookProjectRoot`)이 이 구분으로 "열린 프로젝트의 평범한 하위 폴더"를 가려낸다 —
- * 그 경우 cwd 그대로를 루트로 삼으면 사용자 폴더 안에 유령 프로젝트가 선다(§3.5).
+ * `none` = 끝까지 올라가도 표식이 없어 cwd 를 그대로 돌려줬다. `resolveHookProjectRoot` 가 이걸로 열린 프로젝트의 평범한 하위 폴더를 가려낸다
+ * (cwd 를 루트로 삼으면 유령 프로젝트가 선다, §3.5).
  */
 export type ProjectRootVia = 'worktree' | 'marker' | 'none';
 
@@ -182,12 +170,8 @@ export function resolveProjectRootInfo(cwd: string): { root: string; via: Projec
     return { root: cwd.slice(0, wtMatch[1]!.length), via: 'worktree' };
   }
 
-  // git-linked 워크트리(임의 위치) → 부모 메인 워크트리로 라우팅.
-  // Claude Code `--isolation worktree` 는 워크트리를 `.claude/worktrees/` 밖 임의 위치에 만들 수 있어
-  // 위 경로 패턴을 벗어난다. 이 경우 부모로 승격하지 않으면 매니저가 워크트리 경로로 별도 top-level
-  // 인스턴스(name=basename=`agent-<hex>`)를 만들어, 루트 노드 1개짜리 유령 프로젝트가 저장 순회에
-  // 남아 checkpoint 덮어쓰기 가드 경고를 반복 유발한다(SSOT §5.7 #26 — 워크트리는 부모 캔버스에
-  // 흡수, 별도 탭/프로젝트 금지). resolveGitWorktreeParent 는 cwd 단위 캐시라 첫 1회만 git 호출.
+  // git-linked 워크트리(임의 위치) → 부모로 라우팅. `--isolation worktree` 는 `.claude/worktrees/` 밖에도 만들어 경로 패턴으로는 못 잡는다
+  // — 놓치면 `agent-<hex>` 유령 인스턴스가 저장 순회에 남아 덮어쓰기 가드 경고를 반복한다(§5.7 #26). resolveGitWorktreeParent 는 cwd 캐시라 git 은 첫 1회만.
   const gitWt = resolveGitWorktreeParent(normalize(cwd));
   if (gitWt) return { root: gitWt.parentPath, via: 'worktree' };
 
@@ -211,20 +195,10 @@ function resolveProjectRoot(cwd: string): string {
 }
 
 /**
- * §3.5 — 훅이 들고 온 cwd 를 **어느 프로젝트 루트에** 붙일지 정한다(순수 함수 — 판정만, 등록은 하지 않는다).
- *
- * 표식 탐색(`resolveProjectRootInfo`)만으로 정하면 **표식이 없는 프로젝트**(예: `.git` 없는 폴더를 연 경우)의
- * 하위 폴더가 그 자신을 루트로 삼는다. 그러면 세션이 `cd research/x` 한 번 했을 뿐인데 그 폴더에 새 인스턴스·
- * 새 탭·`.vibisual/save` 가 생기고(실측: 사용자 폴더 안의 유령 프로젝트), 그 세션의 이벤트가 전부 거기로 간다.
- *
- * 그래서 **이미 열려 있는 프로젝트(`knownRoots`)** 를 먼저 본다.
- *  ① 표식 루트가 곧 열린 프로젝트면 그대로.
- *  ② cwd 를 품은 열린 프로젝트가 없으면 종전 그대로(표식 루트).
- *  ③ 표식이 없었으면(`none`) cwd 를 품은 **가장 깊은** 열린 프로젝트 — 평범한 하위 폴더는 그 프로젝트의 일부다.
- *  ④ 표식 루트가 열린 프로젝트보다 **위**에 있으면(모노레포의 하위 패키지를 프로젝트로 연 경우) 열린 쪽.
- *  ⑤ 그 밖(열린 프로젝트 **안**의 독립 저장소·워크트리)은 종전 그대로 표식 루트 — 자기 탭을 갖던 동작을 바꾸지 않는다.
- *
- * 경로 비교는 `isWithinRoot`/`pathKey` 규칙 하나로 한다(대소문자는 그 OS 가 실제로 무시할 때만 접는다 — 세 OS 공통).
+ * §3.5 — 훅 cwd 를 어느 열린 프로젝트에 붙일지(순수 판정). 표식 탐색만 쓰면 표식 없는 프로젝트의 하위 폴더(`cd research/x`)가 유령 인스턴스·탭이 된다(실측). `knownRoots` 를 먼저 본다:
+ * ① 표식 루트가 열린 프로젝트면 그대로 ② cwd 를 품은 열린 프로젝트가 없으면 표식 루트 ③ 표식 없음(`none`)이면 cwd 를 품은 가장 깊은 열린 프로젝트
+ * ④ 표식 루트가 열린 프로젝트보다 위(모노레포 하위 패키지를 연 경우)면 열린 쪽 ⑤ 그 밖(안의 독립 저장소·워크트리)은 표식 루트.
+ * 경로 비교는 `isWithinRoot`/`pathKey` 하나로(대소문자는 OS 가 실제로 무시할 때만 접는다).
  */
 export function pickHookProjectRoot(
   found: { root: string; via: ProjectRootVia },
@@ -291,13 +265,7 @@ function emptySnapshot(): GraphSnapshot {
   };
 }
 
-/**
- * 두 스냅샷을 병합. 배열은 이어붙이고, Record는 Object.assign으로 합친다.
- *
- * 프로젝트를 둘 이상 연 사용자에겐 **모든 방송 스냅샷이 이 함수를 통과**한다. 여기서 빠진
- * 필드는 서버에 멀쩡히 있어도 화면에는 영영 안 나타나므로, 새 필드를 추가하면 여기도 함께
- * 손대야 한다(테스트에서 직접 부르려고 export 한다).
- */
+/** 배열은 이어붙이고 Record 는 Object.assign. 다중 프로젝트의 모든 방송이 여기를 지나므로 **새 필드는 여기도 추가**해야 화면에 나온다(시험용 export). */
 export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
   const activeCount = a.activeAgentCount + b.activeAgentCount;
   // 어느 한 쪽이라도 working이면 working, 아니면 a 기준
@@ -326,8 +294,8 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
     commandQueues: { ...a.commandQueues, ...b.commandQueues },
     completedCommands: { ...a.completedCommands, ...b.completedCommands },
     subAgents: { ...a.subAgents, ...b.subAgents },
-    // §5.5 #17-9 v3.51 — subAgentManager 가 싱글턴이라 양쪽이 같은 값을 들고 온다. agentId 1차 키
-    //   단순 spread 로 충분(b 우선). 양쪽 다 없으면 필드 자체를 생략 → 클라에서 아이콘 자동 소멸.
+    // §5.5 #17-9 — subAgentManager 가 싱글턴이라 양쪽 값이 같다 → agentId 키 spread(b 우선).
+    //   양쪽 다 없으면 필드를 생략해 클라 아이콘이 사라진다.
     runningSubagentTasks: (() => {
       const av = a.runningSubagentTasks;
       const bv = b.runningSubagentTasks;
@@ -357,7 +325,7 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
     worktreeProjects: { ...(a.worktreeProjects ?? {}), ...(b.worktreeProjects ?? {}) },
     uiLocale: a.uiLocale ?? b.uiLocale,
     stubProjects: { ...(a.stubProjects ?? {}), ...(b.stubProjects ?? {}) },
-    // v1.45 — Comment Box 합치기 (id 기준 dedup, 같은 id 면 b 우선 — 최근 인스턴스가 권위)
+    // Comment Box — id 기준 dedup, 같은 id 면 b(최근 인스턴스) 우선.
     commentBoxes: (() => {
       const map = new Map<string, CommentBox>();
       for (const c of a.commentBoxes ?? []) map.set(c.id, c);
@@ -371,7 +339,7 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
       for (const c of b.captureBubbles ?? []) map.set(c.id, c);
       return Array.from(map.values());
     })(),
-    // §5.14 v4.62 — 플레이 버블도 같은 규칙(위 앱 버블이 이 자리를 빠뜨려 사라졌던 전례를 따른다).
+    // §5.14 — 플레이 버블도 같은 규칙(빠뜨리면 다중 프로젝트에서 사라진다).
     playBubbles: (() => {
       const map = new Map<string, PlayBubble>();
       for (const c of a.playBubbles ?? []) map.set(c.id, c);
@@ -425,16 +393,16 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
       for (const c of b.auditLogs ?? []) map.set(c.projectName, c);
       return Array.from(map.values());
     })(),
-    // §5.13 v4.45 — 내부 앱 버블도 같은 규칙. 여기서 빠뜨리면 프로젝트를 둘 이상 연 순간
-    // 앱 버블이 방송 스냅샷에서 통째로 사라진다(서버엔 만들어졌는데 캔버스에 안 뜬다).
+    // §5.13 — 내부 앱 버블도 같은 규칙. 빠뜨리면 다중 프로젝트에서
+    // 앱 버블이 방송에서 사라진다.
     appBubbles: (() => {
       const map = new Map<string, AppBubble>();
       for (const c of a.appBubbles ?? []) map.set(c.id, c);
       for (const c of b.appBubbles ?? []) map.set(c.id, c);
       return Array.from(map.values());
     })(),
-    // §5.5 #17-20 ⑩ v4.94 — 중단점은 projectName 1차 키라 단순 spread 로 안전하다(b 우선).
-    // 여기서 빠뜨리면 프로젝트를 둘 이상 연 순간 중단점이 방송에서 통째로 사라진다.
+    // §5.5 #17-20 ⑩ — 중단점은 projectName 키라 spread 로 안전(b 우선).
+    // 빠뜨리면 다중 프로젝트에서 사라진다.
     debugBreakpoints: (() => {
       const merged = { ...(a.debugBreakpoints ?? {}), ...(b.debugBreakpoints ?? {}) };
       return Object.keys(merged).length > 0 ? merged : undefined;
@@ -444,15 +412,16 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
     // §5.3 #12-3 — 자물쇠도 프로젝트 이름 키다. 빠뜨리면 프로젝트를 둘 이상 연 순간 글리프·메뉴가
     //   "안 잠김"으로 보인다(집행은 서버가 하므로 계속 묻는데 화면만 거짓말을 한다).
     pathLocks: { ...(a.pathLocks ?? {}), ...(b.pathLocks ?? {}) },
-    // v1.47 — 콘티 합치기 (contiId 키로 dedup, b 우선)
     contis: { ...(a.contis ?? {}), ...(b.contis ?? {}) },
-    // §4 v1.50 — 도구 시간/컴팩션 카운트는 sessionId 키로 dedup (b 우선). rateLimits 는 글로벌.
+    // §4 — 도구 시간·컴팩션 수는 sessionId 키(b 우선). rateLimits 는 글로벌.
     recentToolDurations: { ...(a.recentToolDurations ?? {}), ...(b.recentToolDurations ?? {}) },
     compactCounts: { ...(a.compactCounts ?? {}), ...(b.compactCounts ?? {}) },
     rateLimits: b.rateLimits ?? a.rateLimits,
     claudeUsage: b.claudeUsage ?? a.claudeUsage,
-    // §4 v4.82 — 로그인 상태도 글로벌 1건(계정은 머신 단위).
+    // §4 — 로그인 상태도 글로벌 1건(계정은 머신 단위).
     claudeAuth: b.claudeAuth ?? a.claudeAuth,
+    // §4 API 크레딧 — 글로벌 1건(설정·장부는 머신 단위).
+    apiCredits: b.apiCredits ?? a.apiCredits,
     // §4 (첫 실행 설치 온보딩) — CLI 설치 판정도 글로벌 1건(설치는 기기 단위).
     claudeSetup: b.claudeSetup ?? a.claudeSetup,
     // §5.25 — 코덱스 상태 셋도 같은 규칙(글로벌 1건).
@@ -462,31 +431,30 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
     codexModels: b.codexModels ?? a.codexModels,
     codexInventory: b.codexInventory ?? a.codexInventory,
     codexReviews: b.codexReviews ?? a.codexReviews,
-    // §5.5 #17-4 v2.36 — 스킬 사용 카운트는 projectName 1차 키 → 단순 spread 안전.
-    // 같은 projectName 이 양쪽에 들어올 가능성 ❌ (각 ProjectGraph 가 primary 하나).
+    // §5.5 #17-4 — projectName 키라 spread 로 안전하다
+    // (인스턴스마다 primary 하나라 키가 겹치지 않는다).
     skillUsageCounts: (() => {
       const av = a.skillUsageCounts;
       const bv = b.skillUsageCounts;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
-    // §5.3 #10-2 v2.37 — Auto Agent 요약 (agentId/sessionId 키, b 우선). 단일 인스턴스면 그대로 통과.
+    // §5.3 #10-2 — Auto Agent 요약(agentId/sessionId 키, b 우선).
     autoAgentSummaries: (() => {
       const av = a.autoAgentSummaries;
       const bv = b.autoAgentSummaries;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
-    // §5.3 #10-3 v4.98 — 검증 런 (autoAgentId 1차 키 → 단순 spread 안전, b 우선).
-    //   ⚠ 이 병합을 빠뜨리면 **여러 프로젝트를 동시에 열었을 때만** 런이 사라진다
-    //   (단일 프로젝트 테스트로는 안 잡힌다 — appBubbles 에서 실제로 겪은 사고).
+    // §5.3 #10-3 — 검증 런(autoAgentId 키, b 우선).
+    //   빠뜨리면 다중 프로젝트에서만 런이 사라진다 — 단일 프로젝트 시험으론 안 잡힌다.
     autoAgentRuns: (() => {
       const av = a.autoAgentRuns;
       const bv = b.autoAgentRuns;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
-    // §4 v2.52 — 에이전트 작업 신고 (agentId 1차 키 → 단순 spread 안전, b 우선).
+    // §4 — 에이전트 작업 신고(agentId 키, b 우선).
     agentReports: (() => {
       const av = a.agentReports;
       const bv = b.agentReports;
@@ -501,44 +469,44 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
-        // §4 v2.60 — 에이전트 질문 카드 (agentReports 와 동형).
+        // §4 — 에이전트 질문 카드(agentReports 와 동형).
     agentQuestions: (() => {
       const av = a.agentQuestions;
       const bv = b.agentQuestions;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
-    // §4 v2.70 — 에이전트 검수 요청 카드 (agentReports 와 동형).
+    // §4 — 에이전트 검수 요청 카드(agentReports 와 동형).
     agentReviews: (() => {
       const av = a.agentReviews;
       const bv = b.agentReviews;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
-    // §4 v2.84 — 에이전트 번호 목록 정렬 카드 (agentReports 와 동형).
+    // §4 — 에이전트 번호 목록 정렬 카드(agentReports 와 동형).
     agentLists: (() => {
       const av = a.agentLists;
       const bv = b.agentLists;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
-    // §4 v3.21 — 에이전트 피드백 (agentReports 와 동형).
+    // §4 — 에이전트 피드백(agentReports 와 동형).
     agentFeedbacks: (() => {
       const av = a.agentFeedbacks;
       const bv = b.agentFeedbacks;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
-    // §5.5 #17-11 v3.79 — 세션 루프는 subAgentId 1차 키(세션 단위로 유일) → 단순 spread 안전, b 우선.
-    //   여기 빠지면 프로젝트를 2개 이상 열었을 때 병합 순간 루프 설정이 통째로 사라진다.
+    // §5.5 #17-11 — 세션 루프(subAgentId 키, b 우선).
+    //   빠지면 다중 프로젝트 병합 때 루프 설정이 사라진다.
     sessionLoops: (() => {
       const av = a.sessionLoops;
       const bv = b.sessionLoops;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
-    // §5.5 #17-17 v4.46 — 세션 목표도 subAgentId 1차 키(루프와 동형). 여기 빠지면 프로젝트를
-    //   2개 이상 열었을 때 병합 순간 목표·퍼센트가 통째로 사라진다(v3.70 brain 과 같은 결함).
+    // §5.5 #17-17 — 세션 목표(subAgentId 키). 빠지면 다중 프로젝트
+    //   병합 때 목표·퍼센트가 사라진다.
     sessionGoals: (() => {
       const av = a.sessionGoals;
       const bv = b.sessionGoals;
@@ -574,9 +542,8 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
         })
         .slice(0, GOAL_ACTION_MAX);
     })(),
-    // §5.10 — 자동 목표 요약은 projectName 1차 키(skillUsageCounts 와 동형) → 단순 spread 안전.
-    //   **이 칸이 빠져 있으면** 프로젝트를 2개 이상 열었을 때 병합 순간 요약이 통째로 사라져,
-    //   절차 파일이 디스크에 그대로 있는데도 점검 카드가 "0개"로 보인다(브레인이 v3.70 에 겪은 결함).
+    // §5.10 — 자동 목표 요약(projectName 키).
+    //   빠지면 다중 프로젝트에서 절차 파일이 있는데도 점검 카드가 "0개"로 보인다.
     autoGoal: (() => {
       const av = a.autoGoal;
       const bv = b.autoGoal;
@@ -598,10 +565,8 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
-    // §5.5 #17-28 — 주입원 오버라이드는 층이 셋이라 **한 겹 안쪽까지** 합쳐야 한다.
-    //   겉만 spread 하면 나중 스냅샷의 `projects`/`agents`/`sessions` 가 앞 것을 통째로 덮어
-    //   프로젝트를 2개 이상 열었을 때 한쪽의 껐던 설정이 사라진다(위 두 카드가 겪은 결함).
-    //   **층을 늘렸으면 여기도 늘려야 한다** — 빠뜨린 층은 두 번째 프로젝트를 여는 순간 조용히 증발한다.
+    // §5.5 #17-28 — 주입원 오버라이드는 층이 셋이라 한 겹 안쪽(`projects`/`agents`/`sessions`)까지 합친다.
+    //   겉만 spread 하면 다중 프로젝트에서 한쪽의 껐던 설정이 사라진다. **층을 늘리면 여기도 늘린다.**
     contextOverrides: (() => {
       const av = a.contextOverrides;
       const bv = b.contextOverrides;
@@ -616,7 +581,7 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
   };
 }
 
-// ─── v1.63 전역 유일 표시명 (식별=path, 이름=표시) ───
+// 전역 유일 표시명(식별=path, 이름=표시)
 
 /** projectId 정규화 — appState.normPath / projectGraph.normalize 와 동일 semantics.
  *  대소문자는 그 플랫폼이 실제로 무시할 때만 접는다(linux 는 접지 않는다). */
@@ -711,7 +676,7 @@ function relabelSubSnapshot(snap: GraphSnapshot, from: string, to: string): Grap
     shelfBubbles: snap.shelfBubbles?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
     costMaps: snap.costMaps?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
     auditLogs: snap.auditLogs?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
-    // §5.5 #17-4 v2.36 — projectName 1차 키 relabel.
+    // §5.5 #17-4 — projectName 1차 키 relabel.
     skillUsageCounts: renameKey(snap.skillUsageCounts),
     // §5.10 — 자동 목표 요약도 projectName 1차 키라 함께 relabel 해야
     //   클라(activeProject 키 조회)가 같은 이름으로 찾을 수 있다.
@@ -733,13 +698,13 @@ export class ProjectGraphManager {
    *  커스텀 에이전트 sessionId. 같은 sessionId 를 매 스냅샷마다 재경고하지 않도록 1회만 로깅. */
   private warnedHiddenCustomAgents = new Set<string>();
 
-  /** §4 v1.50 — Claude.ai 한도 사용률 (글로벌 1건). 외부 statusline 스크립트가 푸시. */
+  /** §4 — Claude.ai 한도 사용률(글로벌 1건, 외부 statusline 스크립트가 푸시). */
   private globalRateLimits?: RateLimitInfo;
 
-  /** §4 v3.62 — Claude 앱 `/usage` 와 같은 원천(OAuth)의 사용량 (글로벌 1건). */
+  /** §4 — Claude 앱 `/usage` 와 같은 원천(OAuth)의 사용량(글로벌 1건). */
   private globalClaudeUsage?: ClaudeUsageInfo;
 
-  /** §4 v4.82 — Claude 계정 로그인 상태 (글로벌 1건, `claude auth status`). */
+  /** §4 — Claude 계정 로그인 상태(글로벌 1건, `claude auth status`). */
   private globalClaudeAuth?: ClaudeAuthStatus;
 
   /** §4 (첫 실행 설치 온보딩) — `claude` CLI 설치 판정 (글로벌 1건, 기기 단위). */
@@ -756,12 +721,8 @@ export class ProjectGraphManager {
   private stubs = new Map<string, ProjectMetaSnapshot>();
 
   /**
-   * §5.3 #12-3 — 메모리에 없는(stub) 프로젝트의 자물쇠. 키 = stub 키(정규화 경로).
-   *
-   * 탭이 열려 있어도 오래 쓰지 않으면 인스턴스가 내려간다(유휴 해제). 그 동안 자물쇠가 집행에서 빠지면
-   * 다른 탭의 에이전트나 사용자 에디터의 세션이 잠긴 파일을 그대로 연다. 그래서 내릴 때 넘겨받고,
-   * 부팅 뒤 아직 한 번도 안 올라온 탭은 처음 물을 때 `identity.json` 에서 읽는다(체크포인트보다 훨씬 작다).
-   * **유효한 것은 지금 stub 인 키뿐**이다 — 올라오면 인스턴스가 정본이고 이 칸은 읽히지 않는다.
+   * §5.3 #12-3 — stub 프로젝트의 자물쇠(키 = 정규화 경로). 유휴 해제 중에도 집행에서 빠지면 다른 세션이 잠긴 파일을 연다
+   * — 내릴 때 넘겨받고, 부팅 뒤 안 올라온 탭은 처음 물을 때 `identity.json` 에서 읽는다. 올라오면 인스턴스가 정본이라 이 칸은 안 읽힌다.
    */
   private stubPathLocks = new Map<string, { name: string; locks: PathLock[] }>();
 
@@ -800,11 +761,8 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §5.11 v4.65 — 플러그인 호스트가 주입하는 **집행 실측**(projectPath → pluginId → 값 한 벌).
-   *
-   * 스냅샷 브로드캐스트 지점이 스무 곳이 넘어 호출부마다 얹으면 반드시 어딘가 빠진다(빠진 곳으로 온
-   * 스냅샷은 클라에서 값이 사라진 것으로 읽힌다). 그래서 `gitDirty` 와 같은 provider 방식으로 **한 곳에서**
-   * 채운다 — 그래프는 플러그인을 모르는 상태로 남고, 호스트가 자기 값을 넣는다.
+   * §5.11 — 플러그인 집행 실측(projectPath → pluginId → 값). 방송 지점이 스무 곳이 넘어 호출부마다 얹으면 빠진다
+   * — `gitDirty` 처럼 provider 로 한 곳에서 채운다(그래프는 플러그인을 모른다).
    */
   private pluginFactsProvider: (() => Record<string, Record<string, import('@vibisual/shared').PluginFactMap>> | undefined) | null = null;
 
@@ -851,10 +809,7 @@ export class ProjectGraphManager {
     return cwd ? (this.instances.get(cwd) ?? null) : null;
   }
 
-  /**
-   * §3.5 — 이 세션 키의 버블을 **실제로 가진** 인스턴스. 둘 이상이면 커스텀 버블을 가진 쪽(= 주인)이 이긴다.
-   * 라우팅 표(`sessionRouting`)는 휘발성 캐시라 비거나 틀릴 수 있다 — 버블이 있는 곳이 사실이다.
-   */
+  /** §3.5 — 이 세션 키의 버블을 실제로 가진 인스턴스(둘 이상이면 커스텀 버블 주인). `sessionRouting` 은 휘발성 캐시라 틀릴 수 있다 — 버블이 있는 곳이 사실이다. */
   private findSessionHolder(sessionId: string): { key: string; inst: ProjectGraph } | null {
     let first: { key: string; inst: ProjectGraph } | null = null;
     for (const [key, inst] of this.instances) {
@@ -867,9 +822,8 @@ export class ProjectGraphManager {
   }
 
   /**
-   * 이 세션 키를 `self` 말고 **다른 인스턴스도** 쥐고 있는가 — 인스턴스가 공유 맵(명령 큐·완료 이력)을
-   * 지워도 되는지 묻는 술어다(`ProjectGraph.setSessionHeldElsewhere`). 그 맵들은 세션 키 하나로 전 프로젝트가
-   * 같이 쓰므로, 한 인스턴스가 자기 사본을 치운다고 주인의 큐까지 지우면 안 된다.
+   * 다른 인스턴스도 이 세션 키를 쥐었나(`setSessionHeldElsewhere`) — 공유 맵(명령 큐·완료 이력)은 전 프로젝트가 한 키로 쓰므로,
+   * 제 사본을 치운다고 주인의 큐까지 지우면 안 된다.
    */
   private isSessionHeldByOtherInstance(sessionId: string, self: ProjectGraph): boolean {
     for (const inst of this.instances.values()) {
@@ -892,8 +846,8 @@ export class ProjectGraphManager {
     for (const inst of this.instances.values()) {
       if (inst.getProjectByName(name)) return inst;
     }
-    // v1.63: 클라가 전역 유일화된 **표시명**(예: "client (other)") 이나 **path** 를 보낼 수
-    // 있다. raw name 직매칭 실패 시 path/display-name 으로 한 번 더 해소(단일 chokepoint).
+    // 클라는 전역 유일 표시명("client (other)")이나 path 를 보낼 수 있다 —
+    // raw name 이 안 맞으면 여기서 한 번 더 해소한다(단일 chokepoint).
     const resolved = this.resolveProjectRef(name);
     if (resolved) return this.getInstanceByPath(resolved.path);
     return null;
@@ -922,27 +876,15 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §4 (첫 실행 온보딩) — **인스턴스가 없을 때도 사는 UI 언어.**
-   *
-   * 종전에는 언어가 인스턴스(=프로젝트)에만 있었다. 그런데 온보딩 창(설치·로그인·폴더)은
-   * **프로젝트가 하나도 없는 상태**에서 뜨므로, 거기서 한국어를 골라도 `setUiLocale` 이
-   * 0개 인스턴스를 돌아 아무 데도 안 남았다. 그러다 폴더를 고르는 순간 새 인스턴스가
-   * 기본값 `'en'` 으로 서고 그 값이 스냅샷으로 밀려와 **방금 고른 언어를 영어로 되돌렸다**.
-   * 그래서 매니저가 런타임 값을 하나 들고, 새로 서는 인스턴스에 씨앗으로 넘긴다.
-   *
-   * ⚠ 영속 SSOT 는 종전대로 `ProjectCheckpoint.uiLocale`(프로젝트별)이다 — 이 값은 그것을
-   *   **대체하지 않고**, 아직 자기 값이 없는 인스턴스에만 실린다(`restoreFromCheckpoint` 는
-   *   저장된 값이 있으면 그것을 쓴다).
+   * §4 온보딩 — 인스턴스가 없을 때도 사는 UI 언어. 온보딩 창은 프로젝트가 없을 때 뜨므로, 인스턴스에만 두면 고른 언어가 사라지고 첫 인스턴스의 `'en'` 이 되돌린다
+   * — 매니저가 들고 새 인스턴스에 씨앗으로 준다. 영속 SSOT 는 `ProjectCheckpoint.uiLocale` 이고, 이 값은 자기 값이 없는 인스턴스에만 실린다.
    */
   private uiLocale: UiLocale = DEFAULT_UI_LOCALE;
 
   /** §2.1 (B) — 최상위 외부 폴더 예산의 씨앗. 새로 서는 인스턴스가 이 값을 물려받는다. */
   private externalTopBudget: number = EXTERNAL_TOP_BUDGET_DEFAULT;
 
-  /**
-   * §5.23 웹 버블 묶기의 씨앗. 새로 서는 인스턴스가 이 값을 물려받는다. 씨앗은 **묶지 않음**이고, 앱이 부팅 때
-   * 저장값(없으면 `WEB_GROUP_DEFAULTS` — 켬)을 밀어 넣는다.
-   */
+  /** §5.23 웹 버블 묶기 씨앗(새 인스턴스가 물려받는다). 기본은 **묶지 않음**, 앱이 부팅 때 저장값(없으면 `WEB_GROUP_DEFAULTS` — 켬)을 넣는다. */
   private webGroup: WebGroupSettings = { ...WEB_GROUP_OFF };
 
   getUiLocale(): UiLocale {
@@ -961,21 +903,13 @@ export class ProjectGraphManager {
     return changed || seedChanged;
   }
 
-  /**
-   * §2.1 (B) — 최상위 외부 폴더 **예산**을 살아 있는 모든 인스턴스에 먹인다.
-   *
-   * 씨앗을 여기에 남기는 이유는 `setUiLocale` 과 같다 — 인스턴스가 아직 하나도 없거나 나중에
-   * hydrate 되는 프로젝트가 있어서, 여기 남기지 않으면 그 탭만 기본값으로 돌아간다.
-   */
+  /** §2.1 (B) — 외부 폴더 예산을 모든 인스턴스에 먹이고 씨앗으로도 남긴다(`setUiLocale` 과 같은 이유 — 나중에 hydrate 되는 탭만 기본값이 되지 않게). */
   setExternalTopBudget(budget: number): void {
     this.externalTopBudget = budget;
     for (const inst of this.instances.values()) inst.setExternalTopBudget(budget);
   }
 
-  /**
-   * §5.23 웹 버블 묶기 설정을 살아 있는 모든 인스턴스에 먹인다. 씨앗을 남기는 이유는 `setExternalTopBudget` 과
-   * 같다 — 나중에 hydrate 되는 탭만 호스트마다 버블 하나로 돌아가면 같은 앱 안에서 보기가 갈린다.
-   */
+  /** §5.23 — 묶기 설정을 모든 인스턴스에 먹이고 씨앗으로 남긴다(나중에 hydrate 되는 탭만 호스트별 버블로 갈리지 않게). */
   setWebGroupSettings(settings: WebGroupSettings): void {
     this.webGroup = normalizeWebGroupSettings(settings);
     for (const inst of this.instances.values()) inst.setWebGroupSettings(this.webGroup);
@@ -1007,18 +941,11 @@ export class ProjectGraphManager {
     // §5.1 #2-1 (C) — 내용 언급을 다 읽어 별자리 근거가 바뀌면 화면을 다시 민다(16ms 디바운스 — 새 타이머 ❌).
     //   함수로 넘긴다: 콜백은 나중에 주입될 수 있다(`setOnMutated`).
     inst.setOnAsyncChange(() => this.mutatedCallback?.());
-    // §3.5 — 위 세 맵은 전 인스턴스가 **같은 객체**를 쓴다. 한 인스턴스가 제 버블을 치울 때 같은 세션 키를
-    //   다른 인스턴스가 아직 쥐고 있으면 그 줄은 남겨야 한다(주인의 큐·이력을 남이 지우는 사고 — 실측 2026-09-30).
+    // §3.5 — 위 세 맵은 전 인스턴스 공유 객체다. 같은 세션 키를 다른 인스턴스가 쥐고 있으면 그 줄은 남긴다
+    //   (아니면 주인의 큐·이력을 남이 지운다 — 실측 2026-09-30).
     inst.setSessionHeldElsewhere((sessionId) => this.isSessionHeldByOtherInstance(sessionId, inst));
-    // §7.11 (프로젝트 격리) — iframe 위성 생성·생사 경로가 "이 포트의 서버가 남의 프로젝트
-    //   것인가"를 물으려면 **사용자가 열어 둔 프로젝트 전부**를 알아야 한다. 값이 아니라
-    //   함수로 넘긴다: 이 인스턴스는 아직 `instances` 에 들어가기 전이라, 값으로 주면 늘
-    //   자기 자신도 빠진 낡은 목록이 박힌다.
-    //   **`instances` 만으로는 부족하다** — 인스턴스는 그 탭이 실제로 hydrate 된 뒤에야 생기고,
-    //   앱을 막 켠 직후에는 대개 활성 탭 하나뿐이다. 그 창에서 감지가 돌면 "다른 프로젝트가
-    //   하나도 없다"로 읽혀 격리 문이 아예 서지 않는다(사용자 체감: 껐다 켤 때마다 남의 서버가
-    //   되살아난다). `openProjects`(AppState SSOT)는 hydrate 여부와 무관하게 열린 탭 전부를
-    //   들고 있으므로 둘을 합집합으로 본다.
+    // §7.11 (프로젝트 격리) — "이 포트 서버가 남의 것인가"는 열린 프로젝트 전부를 알아야 한다. 값이 아니라 함수로 준다(이 인스턴스는 아직 `instances` 밖이다).
+    //   `instances` 만으론 부족하다(막 켠 직후엔 hydrate 된 탭 하나뿐이라 격리가 안 선다) — hydrate 와 무관한 `openProjects`(AppState SSOT)와 합집합.
     inst.setKnownProjectRootsProvider(() => {
       const roots = new Set<string>(this.instances.keys());
       for (const p of loadAppState().openProjects) roots.add(p);
@@ -1086,12 +1013,8 @@ export class ProjectGraphManager {
     return { instanceCount: this.instances.size, instances };
   }
 
-  // ─── Stub/Hydrate/Unload lifecycle ───
-  //
-  // v1.63: stub 맵·hydrate 경로는 **projectId(정규화 path)** 키. 과거 raw name 키였으나
-  // 같은 basename 다른 경로 프로젝트 2개가 openProjects 에 동시에 있으면 2번째
-  // registerStub 가 1번째를 덮어써 부팅 시 한 프로젝트가 통째로 소실됐다(§3.5).
-  // 외부 인자(name|path ref)는 stubRefToKey 로 해소 — 클라/구코드 후방호환.
+  // Stub/Hydrate/Unload lifecycle — 키는 projectId(정규화 path). raw name 키면 같은 basename 다른 경로 둘이 열릴 때
+  // registerStub 가 덮어써 부팅 때 한 프로젝트가 사라진다(§3.5). 외부 인자(name|path)는 stubRefToKey 로 해소한다.
 
   /** ref(path 우선, raw name 폴백) → 정규화 path 키. */
   private stubRefToKey(ref: string): string | null {
@@ -1196,12 +1119,8 @@ export class ProjectGraphManager {
       return stub ? { ok: false, reason: 'not-hydrated' } : { ok: false, reason: 'not-found' };
     }
     const rawName = resolved?.rawName ?? ref;
-    // §5.4 #14 v1.34 — **사용자가 × 로 닫은 프로젝트는 강등 대상이 아니다.**
-    //   탭 닫기는 `DELETE /api/projects/:name`(hide + stub 제거) 뒤에 클라의 `unload-project` 가
-    //   이어지는 2단 흐름이라, 여기서 stub 으로 되돌리면 방금 닫은 탭이 그대로 되살아난다
-    //   (증상: "× 를 한 번 눌러선 안 닫히고 두 번 눌러야 닫힌다"). 닫힘 SSOT 는 hidden 이므로
-    //   hidden 이면 stub 을 남기지 않고, 남아 있던 stub 도 함께 지운다. 사용자가 닫지 않은
-    //   배경 탭의 **유휴 해제**는 종전대로 stub 을 남긴다 — 안 그러면 열어 둔 탭이 저절로 사라진다.
+    // §5.4 #14 — × 로 닫은(hidden) 프로젝트는 stub 으로 강등하지 않고 남은 stub 도 지운다 — 닫기 2단 흐름(`DELETE` → `unload-project`)에서 되살아나 두 번 눌러야 닫힌다.
+    //   닫지 않은 배경 탭의 유휴 해제는 stub 을 남긴다(아니면 탭이 사라진다).
     const closedByUser = inst.isProjectHidden(rawName) || this.hiddenProjects.has(rawName);
 
     try {
@@ -1282,19 +1201,15 @@ export class ProjectGraphManager {
     return Object.fromEntries(this.stubs);
   }
 
-  /**
-   * stub 맵에서 특정 프로젝트 제거 — DELETE /api/projects/:name 후 탭이 stub으로 남는 걸 방지.
-   * 인스턴스가 있으면(hydrated) 이 함수로는 건드리지 않음. 실제 제거 시 true.
-   */
+  /** DELETE /api/projects/:name 뒤 탭이 stub 으로 남지 않게 지운다. hydrated 인스턴스는 건드리지 않는다. 지웠으면 true. */
   removeStubFromMap(ref: string): boolean {
     const key = this.stubRefToKey(ref);
     return key ? this.stubs.delete(key) : false;
   }
 
   /**
-   * §3.2.1-4 (v3.03) — stub 을 read-only 로 표시(부팅 hydrate load 실패 격리).
-   * 제거하지 않으므로 디스크 데이터가 보존되고, 다음 부팅/registerProject 에서 백업 복구를 재시도한다.
-   * 빈 인스턴스 생성을 막는 신호. 실제 표시 시 true.
+   * §3.2.1-4 — hydrate 가 실패한 stub 을 read-only 로 표시한다(빈 인스턴스 생성을 막는 신호, 표시했으면 true).
+   * 지우지 않아야 디스크가 남아 다음 부팅·registerProject 가 백업 복구를 다시 시도한다.
    */
   markStubReadOnly(ref: string, reason: 'load-error'): boolean {
     const key = this.stubRefToKey(ref);
@@ -1320,9 +1235,8 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §3.2.1-4 (v3.03) 2차 안전망 — rootCwd 가 아직 hydrate 안 됐는데 디스크에 영속 데이터가
-   * 실재하는가(`.vibisual/save` 의 checkpoint/identity 또는 그 `.bak1`). true 면 빈 인스턴스로
-   * 덮어쓰기 직전 상태 → registerProject 가 hydrate 재시도 후 실패 시 생성을 거부한다.
+   * §3.2.1-4 2차 안전망 — 아직 hydrate 안 된 rootCwd 의 디스크에 영속 데이터(`.vibisual/save` checkpoint/identity·`.bak1`)가 있나.
+   * true 면 registerProject 가 hydrate 를 다시 시도하고 실패하면 생성을 거부한다.
    */
   hasUnhydratedDiskData(rootCwd: string): boolean {
     if (this.getInstanceByPath(rootCwd)) return false; // 이미 hydrate 됨 — 보호 불필요
@@ -1347,12 +1261,7 @@ export class ProjectGraphManager {
     return null;
   }
 
-  /**
-   * v1.63: 프로젝트 참조를 canonical {path, rawName} 으로 해소.
-   * 클라는 projectId(path)를 보내는 게 표준 — 표시명이 등록 시점 raw name(basename)과
-   * 다를 수 있어(전역 유일화) 이름으로는 hideProject/stub 조회가 빗나간다.
-   * path 우선 매칭, 실패 시 raw name / stub key 폴백(후방호환).
-   */
+  /** {path, rawName} 으로 해소한다. 표시명은 전역 유일화로 raw name 과 다를 수 있어 path 를 먼저 맞추고, 실패하면 raw name·stub key(후방호환). */
   resolveProjectRef(ref: string): { path: string; rawName: string } | null {
     if (!ref) return null;
     const k = normalize(ref);
@@ -1394,15 +1303,8 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §5.4 #14-3 — 탭 닫기 확인 팝업의 [닫기] 가 중지할 **에이전트 버블 id 목록**.
-   *
-   * `ref` 는 클라가 보내는 projectId(경로) 또는 표시명이며, 해소는 `resolveProjectRef` 한 곳을
-   * 그대로 탄다(닫기 `DELETE /api/projects/:name` 과 **같은 해소 규칙** — 두 벌이 되면 "닫히는
-   * 프로젝트"와 "멈추는 프로젝트"가 갈린다). `ref === null` 이면 **모든 인스턴스**(팝업의
-   * "모든 에이전트 강제 종료" 옵션).
-   *
-   * 단위는 **인스턴스**다 — 워크트리 하위 프로젝트는 그 탭의 캔버스 안에 사는 버블이고(§5.7 #26),
-   * 탭을 닫으면 인스턴스가 통째로 내려가므로 그 안의 자식도 같이 회수돼야 한다.
+   * §5.4 #14-3 — 탭 닫기 [닫기]가 멈출 에이전트 id. `ref` 는 닫기와 같은 `resolveProjectRef` 로 푼다(규칙이 둘이면 닫는 것과 멈추는 것이 갈린다).
+   * `null` = 모든 인스턴스. 단위는 인스턴스 — 그 안의 워크트리 자식도 함께 회수한다(§5.7 #26).
    */
   listAgentIdsForProject(ref: string | null): string[] {
     const out: string[] = [];
@@ -1435,11 +1337,8 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §3.5 — **훅이 알려 준 cwd** 로 등록한다(SessionStart·도구 이벤트의 자동 등록 문).
-   *
-   * 사용자가 폴더를 직접 여는 `registerProject` 와 다른 점은 하나다 — 이미 열린 프로젝트의 평범한 하위
-   * 폴더면 그 프로젝트로 붙인다(`pickHookProjectRoot`). 사용자가 고른 폴더는 그 자체가 프로젝트여야 하므로
-   * 이 규칙을 `registerProject` 에 넣지 않는다(열린 부모 안의 하위 폴더를 따로 여는 길이 막힌다).
+   * §3.5 — 훅 cwd 로 등록: 열린 프로젝트의 평범한 하위 폴더면 그 프로젝트로 붙인다(`pickHookProjectRoot`).
+   * 사용자가 고른 폴더용 `registerProject` 에는 넣지 않는다 — 열린 부모 안의 하위 폴더를 따로 여는 길이 막힌다.
    */
   registerProjectForHookCwd(cwd: string): ProjectInfo {
     return this.registerProjectAtRoot(this.resolveHookProjectRoot(cwd), cwd);
@@ -1450,10 +1349,7 @@ export class ProjectGraphManager {
     return pickHookProjectRoot(resolveProjectRootInfo(cwd), cwd, this.listOpenProjectRoots());
   }
 
-  /**
-   * 지금 열려 있는 최상위 프로젝트 루트 — hydrate 된 인스턴스 + 아직 안 깬 stub.
-   * 워크트리는 뺀다(부모 캔버스 안의 버블이지 탭이 아니다 — §5.7 #26). 경로는 원래 모양을 돌려준다.
-   */
+  /** 열린 최상위 루트(hydrate 인스턴스 + stub). 워크트리는 탭이 아니라 뺀다(§5.7 #26). 경로는 원래 모양. */
   private listOpenProjectRoots(): string[] {
     const out: string[] = [];
     const seen = new Set<string>();
@@ -1475,12 +1371,12 @@ export class ProjectGraphManager {
     return out;
   }
 
-  /** 이미 정해진 루트로 등록한다 — 루트를 다시 해석하지 않는다(호출자가 정한 루트를 표식 탐색이 뒤집지 않게). */
+  /** 정해진 루트로 등록 — 다시 해석하지 않는다(표식 탐색이 호출자의 루트를 뒤집지 않게). */
   private registerProjectAtRoot(rootCwd: string, cwd: string): ProjectInfo {
     const key = normalize(rootCwd);
     let inst = this.instances.get(key);
     if (!inst) {
-      // v1.63: stub 조회/hydrate 는 path(rootCwd) 기준 — 이름 충돌 무관.
+      // stub 조회·hydrate 는 path 기준(이름 충돌 무관).
       if (this.isStubbed(rootCwd)) {
         const wasReadOnly = this.isReadOnly(rootCwd);
         logger.info(`ProjectGraphManager: auto-hydrating stub for cwd "${rootCwd}"${wasReadOnly ? ' [read-only retry]' : ''}`);
@@ -1489,16 +1385,16 @@ export class ProjectGraphManager {
           const hydratedInst = this.instances.get(key);
           if (hydratedInst) return hydratedInst.registerProject(rootCwd);
         } else if (wasReadOnly || this.hasUnhydratedDiskData(rootCwd)) {
-          // §3.2.1-4 (v3.03) — 디스크에 영속 데이터가 실재하는데 hydrate 실패. 빈 인스턴스로
-          // 덮어쓰면 손실이므로 read-only 유지 + 생성 거부. 호출처가 이벤트를 드롭한다.
+          // §3.2.1-4 — 디스크 데이터가 있는데 hydrate 실패: 빈 인스턴스로 덮지 않게
+          // read-only + 생성 거부(호출처가 이벤트를 드롭한다).
           this.markStubReadOnly(rootCwd, 'load-error');
           throw new ReadOnlyProjectError(rootCwd);
         } else {
           logger.warn(`ProjectGraphManager: auto-hydrate failed for "${rootCwd}" (${result.reason}) — creating fresh instance`);
         }
       } else if (this.hasUnhydratedDiskData(rootCwd)) {
-        // §3.2.1-4 (v3.03) 2차 안전망 — stub 은 없는데 디스크 데이터가 실재(과거 stub 이 제거됐던
-        // 사고 경로). stub 재등록 후 hydrate 시도, 실패 시 read-only 격리 + 빈 인스턴스 거부.
+        // §3.2.1-4 2차 안전망 — stub 없이 디스크 데이터만 있으면 stub 을 다시 올려 hydrate,
+        // 실패하면 read-only + 거부.
         const metas = discoverProjectMetas([rootCwd]);
         const meta = metas.find((m) => normalize(m.project.path) === key);
         if (meta) {
@@ -1521,11 +1417,10 @@ export class ProjectGraphManager {
       }
     }
     const info = inst.registerProject(rootCwd);
-    // AppState SSOT: top-level 프로젝트가 새로 등록되면 openProjects에 추가.
-    // worktree는 부모 캔버스 내 버블이라 탭으로 노출 안 함 → 스킵 (SSOT §5.7 #26).
-    // hook 이벤트로 자동 등록된 경우에도 이 경로를 타므로 feedback_boot_no_autoload 규칙 준수.
+    // top-level 프로젝트만 openProjects 에 넣는다(워크트리는 부모 캔버스 버블, §5.7 #26).
+    // hook 자동 등록도 이 경로를 탄다.
     if (!info.parentProjectPath) {
-      // v1.63: 식별 = info.path(projectId). info.name 은 표시명 캐시로만 전달.
+      // 식별은 info.path, info.name 은 표시명 캐시.
       const added = appStateAddOpenProject(info.path, info.name);
       if (added) logger.info(`AppState: openProjects += ${info.path} ("${info.name}")`);
     }
@@ -1539,15 +1434,9 @@ export class ProjectGraphManager {
     let routedBy = inst ? 'session-routing' : 'cwd-lookup';
 
     /*
-     * §3.5 — **이 세션의 버블을 이미 가진 프로젝트가 주인이다.** cwd 는 그 다음이다.
-     *
-     * 라우팅 표는 휘발성이다 — 탭 유휴 해제(`unloadProject`)가 그 인스턴스를 가리키던 줄을 지우고, 커스텀
-     * 버블 세션(`custom-…`, 라우트가 소유자 태그로 바꿔 쓴 키)은 애초에 첫 도구 이벤트 전까지 줄이 없다.
-     * 그 빈자리에서 cwd 만 보고 정하면 세션이 `cd` 해 둔 하위 폴더가 새 프로젝트가 된다. 실측(2026-09-30):
-     * 커스텀 세션 하나가 하위 폴더(`research/…`)에서 재개되자 그 폴더에 유령 인스턴스가 서고, 거기 찍힌
-     * 훅 버블을 생존 판정이 2초마다 지웠다 — 지울 때마다 **전 프로젝트 공유** 명령 큐·완료 이력이 함께
-     * 지워져 입력이 몇 초 안에 사라지고 이력 32건을 잃었다(명령 접수도 유령의 훅 버블을 보고 403 으로 거절).
-     * 버블을 가진 곳이 이미 있으면 그리로 보내고 표를 그쪽으로 고친다(이미 잘못 고정된 줄도 여기서 풀린다).
+     * §3.5 — **세션의 버블을 이미 가진 프로젝트가 주인**, cwd 는 그다음이다.
+     * 라우팅 표는 휘발성(유휴 해제가 지우고 `custom-…` 세션은 첫 도구 이벤트 전엔 없다)이라 cwd 만 보면 `cd` 한 하위 폴더가 유령 프로젝트가 된다.
+     * 실측(2026-09-30): 그 유령의 훅 버블을 2초마다 지우며 공유 명령 큐·이력까지 지워 이력 32건을 잃었다. 버블 주인이 있으면 그리로 보내고 표를 고친다.
      */
     if (!inst || !inst.getAgentBySession(payload.session_id)) {
       const holder = this.findSessionHolder(payload.session_id);
@@ -1575,7 +1464,7 @@ export class ProjectGraphManager {
           this.registerProjectAtRoot(rootCwd, payload.cwd);
         } catch (e) {
           if (e instanceof ReadOnlyProjectError) {
-            // §3.2.1-4 (v3.03) — read-only 격리 프로젝트. 빈 인스턴스로 디스크를 덮어쓰지 않도록 이벤트 드롭.
+            // §3.2.1-4 — read-only 격리 프로젝트: 디스크를 덮지 않게 이벤트를 버린다.
             logger.warn(`processHookEvent: dropping event for read-only isolated project (${payload.cwd})`);
             return null;
           }
@@ -1591,10 +1480,8 @@ export class ProjectGraphManager {
       dbg('manager.processHookEvent.noInstance', { sessionId: payload.session_id, cwd: payload.cwd, tool: payload.tool_name });
       return null;
     }
-    // v4.67 — 이 기록의 진단 가치는 **라우팅**(이 세션의 이벤트가 어느 인스턴스로 가는가)에 있지
-    // 개별 도구 호출에 있지 않다. 훅 이벤트마다 남기면 로그가 무한히 자라므로(실측 2위),
-    // 세션별 라우팅 결과가 달라졌을 때만 남긴다. 오라우팅·인스턴스 이동은 signature 가 바뀌어
-    // 반드시 기록되고, 같은 곳으로 계속 가는 정상 반복만 침묵한다.
+    // 진단 가치는 라우팅에 있다 — 이벤트마다 남기면 로그가 무한히 자라므로(실측 2위) 세션별 라우팅이 바뀔 때만 남긴다
+    // (오라우팅·이동은 signature 가 바뀌어 반드시 남는다).
     dbgOnChange(
       `manager.route:${payload.session_id}`,
       `${payload.cwd}|${routedBy}|${inst.getRoot()}`,
@@ -1652,8 +1539,7 @@ export class ProjectGraphManager {
     }
   }
 
-  /** §4 v1.49 — Notification 서브타입 시각 신호 (awaiting_permission).
-   *  v1.73 — `awaiting_input`(모래시계) 제거. */
+  /** §4 — Notification 서브타입 시각 신호(awaiting_permission). */
   setAgentNotificationStatus(
     sessionId: string,
     status: 'awaiting_permission',
@@ -1665,7 +1551,7 @@ export class ProjectGraphManager {
     }
   }
 
-  /** §4 v1.50 — PostToolUse `duration_ms` 적재. 세션 소속 인스턴스에 위임. */
+  /** §4 — PostToolUse `duration_ms` 적재(세션 소속 인스턴스에 위임). */
   recordToolDuration(sessionId: string, tool: string, durationMs: number): void {
     const inst = this.getInstanceForSession(sessionId);
     if (inst) { inst.recordToolDuration(sessionId, tool, durationMs); return; }
@@ -1685,21 +1571,21 @@ export class ProjectGraphManager {
     return inst ? inst.recordProviderFileEdit(sessionId, filePath, edit) : false;
   }
 
-  /** §4 v1.50 — PreCompact 카운터 증가. */
+  /** §4 — PreCompact 카운터. */
   recordCompact(sessionId: string): void {
     const inst = this.getInstanceForSession(sessionId);
     if (inst) { inst.recordCompact(sessionId); return; }
     for (const i of this.instances.values()) i.recordCompact(sessionId);
   }
 
-  /** §5.5 #17-4 v2.36 — 명령 텍스트에서 `/skill-name` 매칭마다 사용 카운트 증분. */
+  /** §5.5 #17-4 — 명령 텍스트의 `/skill-name` 매칭마다 사용 카운트 증분. */
   recordSkillUsageFromCommandText(sessionId: string, text: string): void {
     const inst = this.getInstanceForSession(sessionId);
     if (inst) { inst.recordSkillUsageFromCommandText(text); return; }
     // fallback: 어디에도 매핑 안 되면 무시 (orphan session — 보통 발생 안 함)
   }
 
-  /** §4 v1.50 — Claude.ai 한도 사용률 갱신 (글로벌, statusline 외부 푸시). */
+  /** §4 — Claude.ai 한도 사용률 갱신(글로벌, statusline 외부 푸시). */
   setRateLimits(info: Partial<Omit<RateLimitInfo, 'updatedAt'>>): void {
     this.globalRateLimits = {
       ...this.globalRateLimits,
@@ -1712,7 +1598,7 @@ export class ProjectGraphManager {
     return this.globalRateLimits;
   }
 
-  /** §4 v3.62 — Claude 사용량(OAuth 직접 조회) 갱신. 서비스가 정규화한 값을 그대로 보관. */
+  /** §4 — Claude 사용량(OAuth 직접 조회) 갱신 — 서비스가 정규화한 값 그대로. */
   setClaudeUsage(info: ClaudeUsageInfo): void {
     this.globalClaudeUsage = info;
   }
@@ -1721,7 +1607,7 @@ export class ProjectGraphManager {
     return this.globalClaudeUsage;
   }
 
-  /** §4 v4.82 — Claude 로그인 상태 갱신(claudeAuthService 가 판정한 값 그대로 보관). */
+  /** §4 — Claude 로그인 상태 갱신(claudeAuthService 판정값 그대로). */
   setClaudeAuth(status: ClaudeAuthStatus): void {
     this.globalClaudeAuth = status;
   }
@@ -1839,26 +1725,16 @@ export class ProjectGraphManager {
   // ─── 라우팅: 프로젝트 이름 기반 ───
 
   /**
-   * §4 (첫 실행 온보딩) ③ — 사용자가 연 프로젝트 폴더가 **하나라도** 있는가.
-   *
-   * 판정 기준은 탭바에 뜨는 것과 같아야 한다(`getVisibleTopLevelProjects` = 스냅샷의
-   * `visibleProjects`). 워크트리는 부모 탭 안에서만 보이므로 "폴더를 골랐다"의 근거가 아니고,
-   * × 로 닫은 탭도 사용자에게는 없는 것이다 — 그 상태에서 버블을 만들면 보이지도 않는 탭에
-   * 매인 에이전트가 생겨 "만들었는데 아무 일도 안 일어났다"가 된다.
+   * §4 온보딩 ③ — 연 프로젝트 폴더가 하나라도 있나. 기준은 탭바(`getVisibleTopLevelProjects`)와 같다 — 워크트리·× 로 닫은 탭은 세지 않는다
+   * (안 보이는 탭에 에이전트가 매이면 "만들었는데 아무 일도 없다").
    */
   hasOpenProject(): boolean {
     return this.getVisibleTopLevelProjects().length > 0;
   }
 
   /**
-   * 커스텀 에이전트 생성 위임.
-   *
-   * ⚠ 인스턴스가 없으면(= 폴더를 한 번도 고르지 않았으면) **`null`** 이다. 예전에는 이 자리에서
-   *   `registerProject(process.cwd())` 로 "임시 등록"을 했는데, Finder 로 띄운 mac 앱의
-   *   `process.cwd()` 는 `/` 라 `path.basename('/') === ''` → **이름이 빈 프로젝트 탭**과
-   *   **파일시스템 루트에 매인 에이전트**가 조용히 생겼다(사용자 눈에는 "폴더를 고른 적도 없는데
-   *   빈 것이 생성됐다"). 임시로 지어낸 작업 폴더는 어떤 경우에도 사용자가 그은 선이 아니다 —
-   *   여기서는 만들지 않고, 부른 쪽이 폴더 선택으로 되돌린다(§4 온보딩 ③).
+   * 인스턴스가 없으면 `null`. `registerProject(process.cwd())` 로 임시 등록하지 마라 — Finder 로 띄운 mac 앱은 cwd 가 `/` 라
+   * 이름 빈 탭과 루트에 매인 에이전트가 생긴다. 부른 쪽이 폴더 선택으로 되돌린다(§4 온보딩 ③).
    */
   createCustomAgent(
     label: string,
@@ -1874,10 +1750,8 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §5.3 #10-4 — `createCustomAgent` 가 **이 이름으로** 만들 때 에이전트가 들어갈 프로젝트 뿌리.
-   * 라우팅은 바로 위와 한 벌이다(이름이 없거나 못 찾으면 주 인스턴스). 인스턴스가 없으면 null.
-   * 오케스트라 멤버 생성이 "런과 같은 프로젝트인가"를 **만들기 전에** 재는 데 쓴다 — 만든 뒤에 재면
-   * 거절할 때 이미 버블이 생겨 있다.
+   * §5.3 #10-4 — `createCustomAgent` 가 이 이름으로 만들 때의 프로젝트 뿌리(라우팅은 위와 한 벌, 인스턴스 없으면 null).
+   * 오케스트라 멤버가 "런과 같은 프로젝트인가"를 만들기 전에 잰다 — 뒤에 재면 거절 때 버블이 이미 있다.
    */
   getCustomAgentTargetRoot(projectName?: string | null): string | null {
     const inst = projectName
@@ -1886,8 +1760,10 @@ export class ProjectGraphManager {
     return inst?.getRoot() ?? null;
   }
 
-  /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 위임. createCustomAgent 와 동일한 인스턴스 라우팅
-   *  (인스턴스가 없으면 `null` — 임시 등록 ❌, 사유는 바로 위 머리말). */
+  /**
+   * §5.3 #10-2 — Auto Agent 메타 버블 생성. 라우팅은 createCustomAgent 와 같다
+   *  (인스턴스 없으면 `null`, 임시 등록 ❌).
+   */
   createAutoAgent(
     label: string,
     position?: { x: number; y: number },
@@ -1900,7 +1776,7 @@ export class ProjectGraphManager {
     return inst.createAutoAgent(label, position, projectName);
   }
 
-  /** §5.3 #10-2 v2.37 — auto-agent sessionId 로 인스턴스 검색해 요약 메타 조회 */
+  /** §5.3 #10-2 — auto-agent sessionId 로 요약 메타 조회. */
   getAutoAgentSummary(autoAgentSessionId: string): import('@vibisual/shared').AutoAgentSummary | null {
     for (const inst of this.instances.values()) {
       const s = inst.getAutoAgentSummary(autoAgentSessionId);
@@ -1909,7 +1785,7 @@ export class ProjectGraphManager {
     return null;
   }
 
-  /** §5.3 #10-2 v2.37 — 요약 메타 부분 갱신 */
+  /** §5.3 #10-2 — 요약 메타 부분 갱신. */
   updateAutoAgentSummary(
     autoAgentSessionId: string,
     patch: Partial<import('@vibisual/shared').AutoAgentSummary>,
@@ -1921,14 +1797,13 @@ export class ProjectGraphManager {
     return null;
   }
 
-  /** §5.3 #10-2 v2.37 — 어느 인스턴스가 이 auto-agent 를 소유하는지 조회 (projectName 조회용) */
+  /** §5.3 #10-2 — 이 auto-agent 를 소유한 인스턴스(projectName 조회용). */
   findInstanceByAutoAgentSession(autoAgentSessionId: string): ProjectGraph | null {
     for (const inst of this.instances.values()) {
       if (inst.getAutoAgentSummary(autoAgentSessionId)) return inst;
     }
-    // v2.46 — summary 맵이 비어도(체크포인트 복원·인스턴스 재하이드레이션으로 ephemeral 요약 유실)
-    // auto 버블이 살아있으면 그 인스턴스를 반환. 버블이 SSOT, 요약은 파생물 → 버블 기준 판정.
-    // (processRequest 는 요약이 없으면 새로 만들므로 안전.)
+    // 요약 맵이 비어도(복원·재하이드레이션으로 휘발) auto 버블이 살아 있으면 그 인스턴스 — 버블이 SSOT 다
+    // (processRequest 는 요약이 없으면 새로 만든다).
     for (const inst of this.instances.values()) {
       const bubble = inst.getAgentBySession(autoAgentSessionId);
       if (bubble && bubble.bubbleType === 'auto') return inst;
@@ -1936,10 +1811,8 @@ export class ProjectGraphManager {
     return null;
   }
 
-  // ── §5.3 #10-3 v4.98 — 검증 런 위임 ────────────────────────────────────────
-  //
-  // 런은 auto-agent 를 소유한 인스턴스에 산다. 인스턴스를 가로질러 찾는 이유는
-  // 프로젝트가 여럿 열려 있을 수 있기 때문이며, 판정(ok/verified)은 전부 ProjectGraph 가 한다.
+  // §5.3 #10-3 — 검증 런 위임
+  // 런은 auto-agent 소유 인스턴스에 살고 판정(ok/verified)은 전부 ProjectGraph 가 한다.
 
   /** 전체 auto-agent 요약 맵 (모든 인스턴스 합산) */
   getAutoAgentSummaries(): Record<string, import('@vibisual/shared').AutoAgentSummary> {
@@ -2051,22 +1924,15 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §9 "저장은 바뀐 프로젝트만" — `toProjectCheckpoint(name)` 이 읽어 갈 **그 인스턴스**의 변경 카운터.
-   * 인스턴스를 못 찾으면 `null` → 호출자는 보수적으로 "저장 필요"로 취급해야 한다(판정 실패가
-   * 조용한 미저장이 되면 안 된다).
+   * §9 — `toProjectCheckpoint(name)` 이 읽을 그 인스턴스의 변경 카운터. `null`(못 찾음)이면 호출자는 "저장 필요"로 본다
+   * — 판정 실패가 조용한 미저장이 되면 안 된다.
    */
   getProjectMutationVersion(name: string): number | null {
     const inst = this.getInstanceByName(name) ?? this.primaryInstance();
     return inst ? inst.getMutationVersion() : null;
   }
 
-  /**
-   * §9 — **저장 대상 프로젝트의 인스턴스만** seq 를 올린다.
-   *
-   * 종전 `incrementSeq()` 는 저장할 때마다 열린 인스턴스 전부의 seq 를 올렸는데, `seq` 는 체크포인트
-   * 본문에 실리므로 **아무것도 안 바뀐 프로젝트도 직렬화 결과가 매번 달라져** `SaveScheduler` 의
-   * 지문 비교(변경 없으면 디스크 쓰기 생략)가 무력화됐다. 저장하는 것만 올리면 그 비교가 실제로 산다.
-   */
+  /** §9 — 저장할 프로젝트의 seq 만 올린다. `seq` 가 본문에 실려, 전부 올리면 안 바뀐 프로젝트도 매번 달라져 `SaveScheduler` 지문 비교(쓰기 생략)가 죽는다. */
   incrementSeqForProjects(names: string[]): void {
     const bumped = new Set<ProjectGraph>();
     for (const name of names) {
@@ -2091,10 +1957,7 @@ export class ProjectGraphManager {
     return this.findInstanceByAgentId(agentId)?.getAgentConfig(agentId);
   }
 
-  /**
-   * §4 v2.52 — 에이전트 작업 신고 적재. report.agentId 소속 인스턴스로 라우팅.
-   * 인스턴스를 못 찾으면(미등록) primary 폴백. 반환값으로 성공 여부 전달.
-   */
+  /** §4 — 작업 신고 적재. agentId 소속 인스턴스로, 없으면 primary 폴백. */
   addAgentReport(report: import('@vibisual/shared').AgentReport): boolean {
     const inst = this.findInstanceByAgentId(report.agentId) ?? this.primaryInstance();
     if (!inst) return false;
@@ -2118,7 +1981,7 @@ export class ProjectGraphManager {
     return inst ? inst.getAgentMemos(agentId) : [];
   }
 
-  /** §4 v2.60 — 에이전트 질문 카드 적재. report.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
+  /** §4 — 질문 카드 적재(addAgentReport 와 동형 라우팅). */
   addAgentQuestions(q: import('@vibisual/shared').AgentQuestions): boolean {
     const inst = this.findInstanceByAgentId(q.agentId) ?? this.primaryInstance();
     if (!inst) return false;
@@ -2126,7 +1989,7 @@ export class ProjectGraphManager {
     return true;
   }
 
-  /** §4 v2.70 — 에이전트 검수 요청 카드 적재. review.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
+  /** §4 — 검수 요청 카드 적재(addAgentReport 와 동형 라우팅). */
   addAgentReview(review: import('@vibisual/shared').AgentReview): boolean {
     const inst = this.findInstanceByAgentId(review.agentId) ?? this.primaryInstance();
     if (!inst) return false;
@@ -2134,7 +1997,7 @@ export class ProjectGraphManager {
     return true;
   }
 
-  /** §4 v2.84 — 에이전트 번호 목록 정렬 카드 적재. list.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
+  /** §4 — 번호 목록 정렬 카드 적재(addAgentReport 와 동형 라우팅). */
   addAgentList(list: import('@vibisual/shared').AgentList): boolean {
     const inst = this.findInstanceByAgentId(list.agentId) ?? this.primaryInstance();
     if (!inst) return false;
@@ -2142,14 +2005,14 @@ export class ProjectGraphManager {
     return true;
   }
 
-  /** §7.11 v2.29 — 에이전트 서버 iframe 신고. agentId 소속 인스턴스로 라우팅 후 해당 세션에 위성 생성. */
+  /** §7.11 — 에이전트 서버 iframe 신고. agentId 소속 인스턴스의 그 세션에 위성을 만든다. */
   reportAgentIframe(agentId: string, url: string): boolean {
     const inst = this.findInstanceByAgentId(agentId);
     if (!inst) return false;
     return inst.reportIframeFromAgent(agentId, url);
   }
 
-  /** §4 v3.21 — 에이전트 피드백 upsert. feedback.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
+  /** §4 — 피드백 upsert(addAgentReport 와 동형 라우팅). */
   setAgentFeedback(feedback: import('@vibisual/shared').AgentFeedback): boolean {
     const inst = this.findInstanceByAgentId(feedback.agentId) ?? this.primaryInstance();
     if (!inst) return false;
@@ -2157,23 +2020,21 @@ export class ProjectGraphManager {
     return true;
   }
 
-  /** §4 v3.21 — 에이전트 피드백 철회 (해당 target 의 기존 평가 제거). */
+  /** §4 — 피드백 철회(그 target 의 기존 평가 제거). */
   removeAgentFeedback(agentId: string, targetType: string, targetId: string): boolean {
     const inst = this.findInstanceByAgentId(agentId) ?? this.primaryInstance();
     if (!inst) return false;
     return inst.removeAgentFeedback(agentId, targetType, targetId);
   }
 
-  /** §4 v3.21 — 한 에이전트의 피드백 목록 (스폰 다이제스트 주입/distill 용). */
+  /** §4 — 한 에이전트의 피드백 목록(스폰 다이제스트 주입·distill 용). */
   getAgentFeedbacksForAgent(agentId: string): import('@vibisual/shared').AgentFeedback[] {
     const inst = this.findInstanceByAgentId(agentId);
     return inst ? inst.getAgentFeedbacksForAgent(agentId) : [];
   }
 
-  // ─── §5.5 #17-11 v3.79 — 세션 반복 실행(루프) ───
-  //
-  // 키가 subAgentId(세션 탭)라 agentId 로 인스턴스를 찾을 수 없는 조회(getSessionLoop 등)는
-  // 인스턴스를 순회한다 — 루프 수는 열린 탭 수 수준이라 순회 비용이 무의미하다.
+  // §5.5 #17-11 — 세션 루프
+  // subAgentId 키라 agentId 로 인스턴스를 못 찾는 조회는 순회한다(열린 탭 수 수준).
 
   /** 세션 탭 하나의 루프 설정. */
   getSessionLoop(subAgentId: string): import('@vibisual/shared').SessionLoop | undefined {
@@ -2294,10 +2155,8 @@ export class ProjectGraphManager {
     return removed;
   }
 
-  // ─── §5.5 #17-35 ⑨ — 시연(재현 절차) ───
-  //
-  // 검증 이력과 같은 라우팅 규약. 다만 **지워진 레코드를 돌려주는** 경로가 있다 — 그 시연의 프레임
-  // 폴더를 실제로 지우는 것은 서버(index.ts)이기 때문이다(그래프 클래스는 디스크를 만지지 않는다).
+  // §5.5 #17-35 ⑨ — 시연
+  // 검증 이력과 같은 라우팅이되 지워진 레코드를 돌려준다 — 프레임 폴더는 서버(index.ts)가 지운다(그래프는 디스크를 안 만진다).
 
   /** 세션 탭 하나의 시연 목록(최신 우선). */
   getVerificationDemos(subAgentId: string): import('@vibisual/shared').VerificationDemo[] {
@@ -2354,10 +2213,8 @@ export class ProjectGraphManager {
     return removed;
   }
 
-  // ─── §5.5 #17-28 — 컨텍스트 주입원 오버라이드 ───
-  //
-  // 주입 게이트가 **매 턴** 부르는 자리라 조회는 싸야 한다. 인스턴스 순회는 열린 프로젝트 수(보통 1~3)
-  // 수준이고 각 인스턴스 조회는 메모리 맵 읽기뿐이라 파일 접근이 없다.
+  // §5.5 #17-28 — 컨텍스트 주입원 오버라이드
+  // 주입 게이트가 매 턴 부르므로 싸야 한다(인스턴스 1~3개 순회 + 메모리 맵 읽기, 파일 접근 없음).
 
   /** 오버라이드 설정. 소유 인스턴스(에이전트 기준)로 라우팅, 없으면 primary. */
   setContextOverride(
@@ -2417,10 +2274,8 @@ export class ProjectGraphManager {
     return out;
   }
 
-  // ─── §5.5 #17-17 v4.46 — 세션 목표(Goal) ───
-  //
-  // 키가 subAgentId(세션 탭)라 agentId 로 인스턴스를 찾을 수 없는 조회는 루프와 동일하게 순회한다
-  // (목표 수는 열린 탭 수 수준이라 순회 비용이 무의미하다).
+  // §5.5 #17-17 — 세션 목표
+  // subAgentId 키라 루프처럼 순회한다.
 
   /** 세션 탭 하나의 목표. */
   getSessionGoal(subAgentId: string): import('@vibisual/shared').SessionGoal | undefined {
@@ -2446,11 +2301,7 @@ export class ProjectGraphManager {
     return inst.setSessionGoal(input);
   }
 
-  /**
-   * §5.5 #17-17 v4.50 — 세션이 세운 `TodoWrite` 계획을 그 세션의 목표 창으로 옮긴다.
-   * 목표가 없으면 그 순간 만들고, 있으면 체크리스트를 계획에 맞춰 갱신한다.
-   * 키가 subAgentId 라 소유 인스턴스를 찾아 라우팅한다(없으면 agentId 기준 인스턴스).
-   */
+  /** §5.5 #17-17 — `TodoWrite` 계획을 그 세션의 목표로 옮긴다(없으면 만들고 있으면 체크리스트를 맞춘다). 소유 인스턴스로, 없으면 agentId 기준. */
   syncSessionGoalFromPlan(
     subAgentId: string,
     input: {
@@ -2466,10 +2317,7 @@ export class ProjectGraphManager {
     return inst ? inst.syncSessionGoalFromPlan(subAgentId, input) : undefined;
   }
 
-  /**
-   * §5.5 #17-17 ⑨ v4.59 — 명령이 세션 탭으로 발사되는 순간 목표 카드를 세운다(계획 대기 ❌).
-   * 라우팅 규칙은 계획 경로와 동일 — 이미 목표를 가진 인스턴스가 있으면 그쪽, 없으면 agentId 기준.
-   */
+  /** §5.5 #17-17 ⑨ — 명령이 발사되는 순간 목표 카드를 세운다(계획을 기다리지 않는다). 라우팅은 계획 경로와 같다. */
   seedSessionGoalFromCommand(
     subAgentId: string,
     input: { agentId: string; command: string },
@@ -2541,11 +2389,7 @@ export class ProjectGraphManager {
     return undefined;
   }
 
-  /**
-   * ⑪(a)(b) — 종류 카드 생성·수정.
-   *
-   * 종류는 **프로젝트 한 벌**이라 세션 탭 키가 없다 — 지금 보고 있는 프로젝트(primary)에 만든다.
-   */
+  /** ⑪(a)(b) — 종류는 프로젝트 한 벌(세션 키 없음)이라 지금 보는 프로젝트(primary)에 만든다. */
   upsertVisualKind(input: {
     key: string;
     label?: string;
@@ -2562,12 +2406,7 @@ export class ProjectGraphManager {
     return inst ? inst.upsertVisualKind(input) : undefined;
   }
 
-  /**
-   * (i) — 주입 블록이 실을 지금 있는 종류 키 목록(휴지통 제외).
-   *
-   * 종류는 프로젝트 한 벌이므로 그 세션을 담은 인스턴스의 것을 돌려준다 — primary 가 아니라도
-   * 그 세션이 보는 지도는 자기 프로젝트의 카드로 그려지기 때문이다.
-   */
+  /** (i) — 주입 블록의 종류 키(휴지통 제외). 그 세션을 담은 인스턴스 것 — primary 가 아니어도 그 세션의 지도는 자기 프로젝트 카드로 그려진다. */
   getVisualKindKeysForSession(subAgentId: string): string[] {
     for (const inst of this.instances.values()) {
       if (!inst.getSessionGoal(subAgentId)) continue;
@@ -2586,13 +2425,7 @@ export class ProjectGraphManager {
     return undefined;
   }
 
-  /**
-   * §5.5 #17-17 ⑫(b) — 팔레트 한 칸 고정·해제.
-   *
-   * 종류 카드와 달리 **지금 보고 있는 프로젝트 한 곳**에만 건다 — 팔레트는 그 프로젝트에서 배운
-   * 것이라(`skillUsageCounts` 부터가 프로젝트별이다) 다른 인스턴스에 같은 id 를 꽂으면 거기서는
-   * 아무 카드도 가리키지 않는 유령 고정이 된다.
-   */
+  /** §5.5 #17-17 ⑫(b) — 팔레트 고정은 지금 보는 프로젝트 한 곳에만 건다 — 팔레트는 프로젝트별로 배운 것이라 다른 인스턴스에 꽂으면 유령 고정이 된다. */
   setGoalActionPinned(id: string, pinned: boolean): boolean {
     const primary = this.primaryInstance();
     return primary ? primary.setGoalActionPinned(id, pinned) : false;
@@ -2738,12 +2571,10 @@ export class ProjectGraphManager {
     logger.warn(`ProjectGraphManager.setDisappear: node not found id="${nodeId}"`);
   }
 
-  /** preserve-pin 토글 (§2.4 v1.28). null=대상 없음, boolean=토글 후 값. */
+  /** preserve-pin 토글(§2.4). null=대상 없음, boolean=토글 후 값. */
   togglePreservePinned(nodeId: string): boolean | null {
-    // §7.11 v2.4 — hasAgentId/hasNodeId 가드 제거: iframe 위성(persistSatellites)은
-    // agent 도 node 도 아니라 그 가드에서 걸러져 토글이 닿지 못했다. 인스턴스
-    // togglePreservePinned 가 nodes/agents/persistSatellites 를 모두 뒤지고 미발견 시
-    // null 을 부작용 없이 반환하므로, 비매칭 인스턴스 호출은 안전한 no-op 이다.
+    // §7.11 — hasAgentId/hasNodeId 가드를 두지 않는다: iframe 위성(persistSatellites)은 agent·node 가 아니라 막힌다.
+    // 인스턴스 쪽이 셋을 다 뒤지고 못 찾으면 부작용 없이 null 이라 전부 불러도 안전하다.
     for (const inst of this.instances.values()) {
       const result = inst.togglePreservePinned(nodeId);
       if (result !== null) return result;
@@ -2751,7 +2582,7 @@ export class ProjectGraphManager {
     return null;
   }
 
-  /** preserve-pin 여부 조회 (§2.4 v1.28). 대상 없으면 false. */
+  /** preserve-pin 여부(§2.4). 대상 없으면 false. */
   isPreservePinned(nodeId: string): boolean {
     for (const inst of this.instances.values()) {
       if (inst.isPreservePinnedById(nodeId)) return true;
@@ -2823,18 +2654,8 @@ export class ProjectGraphManager {
   }
 
   /**
-   * **노드 키의 프로젝트 소속을 먼저 확정한다** — "첫 non-null 인스턴스가 이긴다" 루프의 해독제.
-   *
-   * 노드 키(`docs`, `packages/client`)는 프로젝트 루트 기준 **상대 경로**라 이름만으로는 어느
-   * 프로젝트 것인지 알 수 없다. 두 프로젝트가 똑같이 `docs` 를 가지면 먼저 등록된 쪽이 답해
-   * 다른 프로젝트의 디스크 트리가 패널에 그려진다(`open-node-file` 이 `absolutePath` 를 함께
-   * 받는 것과 같은 이유). 그래서 라우팅 힌트를 순서대로 본다:
-   *
-   *  ① `absolutePath` — 클라가 스냅샷에서 그대로 들고 온 값. 그 경로를 품는 인스턴스 루트 중
-   *     **가장 깊은 것**이 이긴다(워크트리가 부모 프로젝트보다 우선).
-   *  ② 이름이 박힌 루트 키(`__root__:<프로젝트>`) — 이름으로 인스턴스를 찍는다.
-   *
-   * 둘 다 없으면 `null` → 호출자는 종전대로 전 인스턴스를 훑는다(단일 프로젝트에선 같은 답).
+   * 노드 키의 소속을 먼저 정한다 — "첫 non-null 인스턴스가 이긴다"의 해독제. 노드 키(`docs`)는 루트 기준 상대 경로라 두 프로젝트가 다 가지면 먼저 등록된 쪽이 답한다.
+   * 힌트 순서: ① `absolutePath` 를 품는 가장 깊은 루트(워크트리 우선) ② `__root__:<프로젝트>` 의 이름. 둘 다 없으면 `null` → 호출자가 전부 훑는다.
    */
   private instanceForNodePath(nodePath: string, absolutePath?: string | null): ProjectGraph | null {
     if (typeof absolutePath === 'string' && absolutePath.length > 0) {
@@ -2920,10 +2741,7 @@ export class ProjectGraphManager {
   }
 
   /** 전체 프로젝트 목록 집계 */
-  /**
-   * §3.2.3 — 보존 정책 정리를 모든 인스턴스에 돌리기 위한 접근자.
-   * 읽기 전용 순회 용도이며, 인스턴스 자체를 밖에서 보관하지 말 것(unload 시 유령 참조가 된다).
-   */
+  /** §3.2.3 — 보존 정리용 읽기 전용 순회. 인스턴스를 밖에 보관하지 마라(unload 뒤 유령 참조). */
   getInstancesForRetention(): ProjectGraph[] {
     return Array.from(this.instances.values());
   }
@@ -2947,10 +2765,10 @@ export class ProjectGraphManager {
     return [...new Set(names)];
   }
 
-  /** 탭으로 노출되는(=하이드레이트 + top-level + 비hidden) 프로젝트 목록.
-   *  스냅샷 빌더의 `visibleProjects`(projectGraph: `!hiddenProjects.has` + `!parentProjectPath`)와
-   *  동일 기준 — `openProjects` 재조정에 사용. hidden 판정은 **인스턴스 SSOT**(`inst.isProjectHidden`)
-   *  로 일원화한다(Manager 의 `hiddenProjects` 는 휘발성이라 재시작 후 비어 있음). */
+  /**
+   * 탭으로 보이는(hydrate · top-level · 비hidden) 프로젝트 — 스냅샷 `visibleProjects` 와 같은 기준(`openProjects` 재조정용).
+   * hidden 은 인스턴스 SSOT 로 본다(Manager 의 `hiddenProjects` 는 재시작하면 빈다).
+   */
   getVisibleTopLevelProjects(): ProjectInfo[] {
     const out: ProjectInfo[] = [];
     for (const [key, inst] of this.instances) {
@@ -2970,12 +2788,7 @@ export class ProjectGraphManager {
   }
 
   /** 첫 번째 인스턴스의 루트 경로 */
-  /**
-   * §5.11 v4.65 — 지금 떠 있는 인스턴스들의 루트 경로 목록(중복 제거).
-   *
-   * 스냅샷 provider 가 프로젝트 목록을 알아야 하는데, 그 자리에서 `getSnapshot()` 을 부르면 **자기 자신을
-   * 다시 부르는 셈**이라 쓸 수 없다. 그래서 스냅샷을 만들지 않고 루트만 모아 준다.
-   */
+  /** §5.11 — 떠 있는 인스턴스 루트(중복 제거). provider 안에서 `getSnapshot()` 을 부르면 자기 재호출이라 루트만 모은다. */
   getProjectRoots(): string[] {
     const out = new Set<string>();
     for (const inst of this.instances.values()) {
@@ -3015,22 +2828,19 @@ export class ProjectGraphManager {
     return /\/\.claude\/worktrees\/[^/]+\/?$/.test(key);
   }
 
-  /** 인스턴스가 워크트리(부모에 흡수돼야 함)인지 — orphan/유령 감지용.
-   *  (1) key 가 `.claude/worktrees/` 경로 패턴이거나(기존),
-   *  (2) 인스턴스 루트(key 경로)에 등록된 ProjectInfo 가 `parentProjectPath` 를 가진
-   *      git-linked 워크트리(임의 위치, `--isolation worktree` 산출물)면 true.
-   *  resolveProjectRoot(A-1 확장)이 신규 생성을 막지만, 확장 전 런타임에 생성된 인스턴스와
-   *  git 해석 성공분(name=`agent-<hex>`)을 저장 순회·스냅샷에서 함께 제외한다. */
+  /**
+   * 워크트리 인스턴스인가(부모에 흡수돼야 함) — `.claude/worktrees/` 경로 패턴이거나, 루트 ProjectInfo 에 `parentProjectPath` 가 있는
+   * git-linked 워크트리(`--isolation worktree`). 이미 생긴 것(`agent-<hex>`)을 저장 순회·스냅샷에서 뺀다.
+   */
   private isWorktreeInstance(key: string, inst: ProjectGraph): boolean {
     if (this.isWorktreeInstanceKey(key)) return true;
     return !!inst.getProjectInfoByPath(key)?.parentProjectPath;
   }
 
-  /** 잘못된 인스턴스에 저장된 TaskEdge 를 소스 에이전트 프로젝트의 인스턴스로 이관.
-   *  과거 `createTaskEdge` 가 무조건 primaryInstance 로 라우팅하던 버그로 worktree 가 primary 일
-   *  때 Vibisual 엣지가 worktree 인스턴스에 쌓이거나 그 반대가 발생함 → 해당 프로젝트의 scoped
-   *  checkpoint 필터에서 탈락 → 저장 유실. 기동 시 한 번 호출해 위치를 바로잡는다.
-   *  반환: 이관된 엣지 수. */
+  /**
+   * 엉뚱한 인스턴스(worktree↔primary)에 든 TaskEdge 를 소스 에이전트 쪽으로 옮긴다(기동 시 한 번)
+   * — 그대로면 scoped checkpoint 필터에서 빠져 저장이 유실된다. 반환: 옮긴 수.
+   */
   reassignMisroutedTaskEdges(): number {
     let moved = 0;
     for (const [, inst] of this.instances) {
@@ -3071,46 +2881,27 @@ export class ProjectGraphManager {
     return removed;
   }
 
-  // ─── §9 스코프드 스냅샷 구독 ─────────────────────────────────────────────────
-  //
-  // 창(renderer webContents · 모바일 소켓)마다 "지금 내가 그리는 프로젝트"를 선언하고, 서버는
-  // 그 **합집합**만 무거운 슬라이스에 싣는다. 실측(2026-08-19 · 열린 탭 7개 · 보는 탭 1개):
-  // 브로드캐스트 3.31MB 중 2.68MB(81%)가 아무도 안 보는 프로젝트 몫이었다.
-  //
-  // ⚠ **아무도 선언하지 않았으면 전부 보낸다.** 침묵(구버전 클라·부팅 직후·선언 전 첫 스냅샷)이
-  //   축소로 해석되면 화면이 빈 채로 굳는다 — 최적화가 기능을 이기지 않게 하는 안전 기본값.
+  // §9 스코프드 스냅샷 구독 — 창마다 "지금 그리는 프로젝트"를 선언하고 그 합집합만 무거운 슬라이스에 싣는다
+  // (실측 2026-08-19: 탭 7개 중 1개를 볼 때 3.31MB 중 81% 가 안 보는 몫).
+  // **아무도 선언하지 않았으면 전부** — 침묵을 축소로 읽으면 화면이 빈 채로 굳는다.
   /** 클라이언트(창) → 그 창이 필요한 프로젝트 표시명 집합. 키는 conn 객체 자체(창 정체성). */
   private clientScopes = new Map<object, Set<string>>();
 
   /**
-   * §9 폴더 스코프 — 창 → 그 창이 열어 둔 폴더의 내비 경로(노드 id) 집합.
-   *
-   * 값이 `null` 인 항목은 **"이 창은 폴더 축을 선언하지 않았다"**(구버전 클라)는 뜻이고,
-   * 그런 창이 하나라도 있으면 합집합은 통째로 `null`(= 전량)이 된다 — `getEffectiveFolderScope`.
-   * 프로젝트 축과 달리 "빈 배열"과 "미선언"이 **다른 뜻**이라 별도 맵으로 둔다
-   * (빈 배열 = "나는 지금 폴더 밖(메인 뷰)이다" — 좁혀도 되는 유효한 선언).
+   * §9 폴더 스코프 — 창 → 연 폴더의 내비 경로. `null` = 폴더 축 미선언(구버전 클라)이고 하나라도 있으면 합집합 전체가 `null`(전량).
+   * 빈 배열(메인 뷰, 좁혀도 됨)과 뜻이 달라 별도 맵이다.
    */
   private clientFolderScopes = new Map<object, Set<string> | null>();
 
   /**
-   * §9 슬라이스 스코프 — 창 → 그 창이 **지금 읽고 있는 슬라이스 묶음**(`SliceScopeGroup`).
-   *
-   * 폴더 축과 같은 모양이고 같은 이유로 별도 맵이다 — `null` 은 **"이 창은 슬라이스 축을
-   * 선언하지 않았다"**(구버전 클라 · 자기가 무엇을 읽는지 말할 수 없는 창)이고, 그런 창이
-   * 하나라도 있으면 합집합은 통째로 `null`(= 전량)이 된다. 빈 집합은 "스코프 대상 슬라이스를
-   * 하나도 안 읽는다"는 **유효한 선언**이라 좁혀도 된다.
-   *
-   * ⚠ **창별로 다른 슬라이스를 보내면 안 된다.** `broadcastBus.lastSentSlices` 가 모듈 전역
-   *   기준점 하나라, 창마다 페이로드가 갈리면 증분이 틀린 값을 복원한다(`sliceScope.ts` 함정 ①).
-   *   그래서 여기서 만드는 것은 항상 **합집합 한 벌**이다.
+   * §9 슬라이스 스코프 — 창 → 읽는 슬라이스 묶음. `null`(미선언)이 하나라도 있으면 전량, 빈 집합은 좁혀도 되는 선언.
+   * **창별로 다른 슬라이스를 보내지 마라** — `broadcastBus.lastSentSlices` 가 전역 기준점 하나라 증분이 틀린 값을 복원한다(`sliceScope.ts` 함정 ①). 늘 합집합 한 벌.
    */
   private clientSliceScopes = new Map<object, Set<SliceScopeGroup> | null>();
 
   /**
-   * §9 「창이 뜬 직후의 메인 스레드」 ① — 이 세션에서 아직 아무 창도 범위를 선언하지 않은 **부팅 구간**에
-   * 브로드캐스트가 싣는 프로젝트(마지막으로 보던 프로젝트의 경로). 위 "아무도 선언하지 않았으면 전부"의 부팅 예외다:
-   * 그 구간의 스냅샷(부팅 직후의 방송·첫 연결)이 열린 프로젝트 전부를 대화 기록 재파싱까지 하며 지어, 창이 막 뜬
-   * 그 순간 메인 스레드를 붙잡았다(그동안 창이 제목줄로 안 움직였다). 첫 선언이 오면 물러나고 다시 오지 않는다.
+   * §9 「창이 뜬 직후의 메인 스레드」 ① — 아직 아무 창도 선언하지 않은 부팅 구간에만 싣는 프로젝트(마지막으로 보던 것).
+   * 그 구간에 전부를 대화 기록 재파싱까지 하며 지으면 창이 뜬 순간 메인 스레드가 막힌다. 첫 선언이 오면 물러난다.
    */
   private bootViewPath: string | null = null;
   /** 이 세션에서 한 창이라도 범위를 선언했는가 — 그 뒤의 침묵은 종전 규칙(전량)이다. */
@@ -3124,12 +2915,8 @@ export class ProjectGraphManager {
   private autoHydrateFailed = new Set<string>();
 
   /**
-   * §9 — 한 창의 구독 범위를 갱신한다. 빈 배열도 유효한 선언("나는 지금 아무것도 안 본다").
-   *
-   * 선언은 곧 "지금 이걸 본다"는 신호이므로 두 가지를 함께 한다:
-   *  · 유휴 해제 타이머의 기준 시각(`lastInScopeAt`)을 지금으로 당긴다.
-   *  · 그 프로젝트가 stub(=내려가 있음)이면 **자동으로 다시 올린다** — §9 "탭을 클릭하면
-   *    되살아난다"의 실행 지점이다(사용자가 [불러오기]를 한 번 더 누르게 하지 않는다).
+   * §9 — 한 창의 범위 갱신(빈 배열도 유효). 선언 = "지금 본다"라 유휴 기준 시각(`lastInScopeAt`)을 당기고,
+   * stub 이면 자동으로 다시 올린다(§9 "탭을 누르면 되살아난다").
    */
   setClientProjectScope(client: object, projects: string[], folders?: string[], slices?: string[]): void {
     const names = projects.filter((p) => typeof p === 'string' && p.length > 0);
@@ -3167,16 +2954,9 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §9 배경 탭 유휴 해제 — 아무 창도 안 보고 있고, 아무 일도 하지 않으며, 마지막으로 본 지
-   * `idleMs` 가 지난 프로젝트를 stub 으로 내려놓는다(`unloadProject` = 저장 후 메모리 해제).
-   *
-   * 안 내리는 경우(하나라도 걸리면 그대로 둔다):
-   *  · `idleMs <= 0` — 사용자가 이 정리를 껐다(§3.2.3 "0 = 무제한" 규약).
-   *  · **선언한 창이 하나도 없다** — 무엇을 보고 있는지 알 수 없으면 아무것도 내리지 않는다.
-   *  · 지금 어떤 창의 구독 범위 안이다 / 일하는 것이 있다(`hasRunningWork`).
-   *  · 마지막 활동 또는 마지막으로 본 시각이 아직 `idleMs` 안이다.
-   *
-   * @returns 내려놓은 프로젝트 표시명 목록(호출자가 로그·브로드캐스트에 쓴다)
+   * §9 배경 탭 유휴 해제 — 안 보고·일 없고·`idleMs` 가 지난 프로젝트를 stub 으로 내린다(`unloadProject`).
+   * `idleMs <= 0`(무제한) · 선언한 창이 없음 · 어떤 창의 범위 안 · `hasRunningWork` 면 내리지 않는다.
+   * @returns 내린 프로젝트 표시명
    */
   sweepIdleBackgroundProjects(idleMs: number): string[] {
     if (idleMs <= 0) return [];
@@ -3222,25 +3002,16 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §9 슬라이스 스코프 — 지금 유효한 슬라이스 범위(모든 창 선언의 **합집합**).
-   * `null` 이면 "제한 없음" — 호출자는 모든 슬라이스를 실어야 한다.
-   *
-   * 판정은 `resolveSliceShipSet` 한 곳이 한다(규칙 단일 소유). `null` 이 되는 두 경우는 폴더 축과
-   * 똑같이 **좁히면 화면이 깨지는** 상황이다: 선언한 창이 하나도 없거나, 슬라이스 축을 모르는
-   * 창이 하나라도 붙어 있거나.
+   * §9 — 슬라이스 범위 합집합, `null` = 전부 싣는다. 판정은 `resolveSliceShipSet` 한 곳.
+   * 선언한 창이 없거나 축을 모르는 창이 있으면 `null` — 좁히면 화면이 깨진다.
    */
   getEffectiveSliceScope(): ReadonlySet<ScopableSliceKey> | null {
     return resolveSliceShipSet(this.clientSliceScopes.values());
   }
 
   /**
-   * §9 폴더 스코프 — 지금 유효한 폴더 범위(모든 창 선언의 합집합).
-   * `null` 이면 "제한 없음" — 호출자는 폴더 슬라이스를 전량으로 실어야 한다.
-   *
-   * `null` 이 되는 경우는 둘이고, 둘 다 **좁히면 화면이 깨지는** 상황이다.
-   *  · 선언한 창이 하나도 없다(부팅 직후 · 구버전 클라만 붙어 있음).
-   *  · 폴더 축을 모르는 창이 **하나라도** 있다 — 그 창은 자기가 연 폴더를 말할 방법이 없으므로,
-   *    좁히면 그 창의 폴더 내부가 영영 빈 채로 남는다. 한 창의 침묵이 전체를 전량으로 되돌린다.
+   * §9 — 폴더 범위 합집합, `null` = 전량. 선언한 창이 없거나 폴더 축을 모르는 창이 하나라도 있으면 `null`
+   * — 그 창은 연 폴더를 말할 수 없어 좁히면 폴더 안이 영영 빈다.
    */
   getEffectiveFolderScope(): Set<string> | null {
     if (this.clientFolderScopes.size === 0) return null;
@@ -3266,13 +3037,8 @@ export class ProjectGraphManager {
   }
 
   /**
-   * 탭으로 보이는(비-worktree · 비-hidden) 인스턴스 목록.
-   *
-   * v1.34: hidden 판정은 ProjectGraph 인스턴스 SSOT 기준 (체크포인트에 저장되는 쪽).
-   * Manager 의 hiddenProjects 는 휘발성이라 서버 재시작 후 빈 채로 복원됨 → 인스턴스 조회로 일원화.
-   *
-   * §9 — 스냅샷과 배경 탭 유휴 해제가 **같은 목록**을 봐야 "화면에 있는 것"과 "내려도 되는 것"의
-   * 기준이 갈리지 않는다. 그래서 한 곳에서만 만든다.
+   * 탭으로 보이는(비-worktree · 비-hidden) 인스턴스. hidden 은 인스턴스 SSOT 로 본다(Manager 쪽은 재시작하면 빈다).
+   * 스냅샷과 유휴 해제가 이 한 목록을 써야 "보이는 것"과 "내려도 되는 것"이 갈리지 않는다(§9).
    */
   private visibleInstanceList(): ProjectGraph[] {
     return [...this.instances.entries()]
@@ -3312,12 +3078,8 @@ export class ProjectGraphManager {
   }
 
   /**
-   * **서버 내부용 전체 스냅샷** — 구독 범위를 적용하지 않는다.
-   *
-   * ⚠ 이 구분이 §9 스코프드 구독의 안전선이다. REST 라우트·명령 dispatch·로그 스트리머 같은
-   *   내부 소비처가 범위로 좁혀진 스냅샷에서 무언가를 찾으면, 배경 프로젝트의 에이전트를
-   *   "없다"고 판정한다(= 최적화가 아니라 기능 손상). 좁히는 것은 **전선으로 나가는 것**뿐이므로
-   *   범위는 `getBroadcastSnapshot()` 에만 적용한다.
+   * 서버 내부용 전체 스냅샷 — 범위를 적용하지 않는다. REST·dispatch·로그 스트리머가 좁힌 스냅샷을 보면 배경 프로젝트의 에이전트가 "없다"가 된다
+   * — 범위는 `getBroadcastSnapshot()` 에만(§9).
    */
   getSnapshot(): GraphSnapshot {
     return this.buildSnapshot(null, null, null);
@@ -3335,18 +3097,14 @@ export class ProjectGraphManager {
     );
   }
 
-  /**
-   * §9 「창이 뜬 직후의 메인 스레드」 ① — 부팅 구간에 실을 프로젝트(마지막으로 보던 것)를 정한다.
-   * 경로를 받는다(`AppState.lastActiveProject`). 빈 값이면 부팅 구간도 종전대로 전량이다.
-   */
+  /** §9 ① — 부팅 구간 프로젝트(`AppState.lastActiveProject` 경로). 빈 값이면 부팅 구간도 전량. */
   setBootViewProject(projectPath: string | null | undefined): void {
     this.bootViewPath = typeof projectPath === 'string' && projectPath.length > 0 ? projectPath : null;
   }
 
   /**
-   * 부팅 구간의 브로드캐스트 범위 — 아직 아무 창도 선언하지 않았을 때만 쓴다. 범위 판정과 **같은 표시명**을
-   * 돌려준다(`instanceDisplayNames`). 그 경로의 인스턴스를 못 찾으면(닫혔다·아직 stub) `null` = 종전대로 전량 —
-   * 판정 실패가 빈 화면이 되면 안 된다. 배경 탭 유휴 해제는 이 범위를 보지 않는다(`getEffectiveProjectScope` 그대로).
+   * 부팅 구간 범위 — 범위 판정과 같은 표시명(`instanceDisplayNames`). 인스턴스를 못 찾으면 `null`(전량) — 판정 실패가 빈 화면이 되면 안 된다.
+   * 유휴 해제는 이 범위를 안 본다.
    */
   private getBootViewScope(): Set<string> | null {
     if (this.scopeEverDeclared || this.bootViewPath === null) return null;
@@ -3369,9 +3127,9 @@ export class ProjectGraphManager {
   ): GraphSnapshot {
     const visibleInstances = this.visibleInstanceList();
 
-    // B 진단(§3.2.2) — 라이브 스냅샷은 visibleInstances(비-worktree · 비-hidden)만 병합하므로,
-    //   커스텀 에이전트가 worktree/hidden 인스턴스에 얹혀 있으면 "작업 중 버블이 사라진" 것처럼 보인다
-    //   (사용자 보고 증상). 그런 유령 위치를 발견하면 sessionId 당 1회 경고해 실제 발화 위치를 확정한다.
+    // §3.2.2 진단 — 라이브 스냅샷은 visibleInstances 만 병합하므로
+    //   커스텀 에이전트가 worktree/hidden 인스턴스에 얹히면 버블이 사라져 보인다.
+    //   그런 위치를 sessionId 당 1회 경고한다.
     {
       const visibleSet = new Set(visibleInstances);
       for (const [key, inst] of this.instances) {
@@ -3389,9 +3147,8 @@ export class ProjectGraphManager {
       }
     }
 
-    // v1.63: 식별=path, 이름=표시. 같은 basename 다른 경로 동시 hydrate 시 mergeSnapshots
-    // 의 이름 키 충돌로 한 프로젝트가 소실되던 버그(§3.5) — 머지 전에 인스턴스별로
-    // 전역 유일 표시명으로 relabel 하면 이름 키 맵(projects/agentProjects/…)이 충돌-프리.
+    // 머지 전에 인스턴스마다 전역 유일 표시명으로 relabel 한다 — 아니면 같은 basename 다른 경로 둘이
+    // 이름 키 맵에서 충돌해 하나가 사라진다(§3.5).
     const stubMetaRaw = this.getStubProjects();
     const idItems: { id: string; name: string; path: string }[] = [];
     const instProj = new Map<ProjectGraph, { id: string; raw: string }>();
@@ -3553,10 +3310,8 @@ export class ProjectGraphManager {
       };
     }
 
-    // §9 — **이 스냅샷에 실제로 적용한 범위를 그대로 되돌려 준다.**
-    //   클라가 "탭을 옮겨 아직 안 온 것"과 "원래 비어 있는 프로젝트"를 구분할 유일한 근거다 —
-    //   둘 다 화면에서는 똑같이 빈 캔버스라, 이 한 줄이 없으면 느린 회선에서 전자가 후자로 읽힌다.
-    //   범위를 적용하지 않았으면(= 전량) 싣지 않는다(구버전 클라에게도 종전과 같은 스냅샷).
+    // §9 — 실제로 적용한 범위를 되돌려 준다. 클라가 "아직 안 온 것"과 "원래 빈 프로젝트"(둘 다 빈 캔버스)를 가르는 유일한 근거다.
+    //   전량이면 싣지 않는다.
     if (scope !== null) {
       snapshot = { ...snapshot, scopedProjects: [...scope] };
     }
@@ -3591,9 +3346,8 @@ export class ProjectGraphManager {
       }
     }
 
-    // §5.11 v4.65 — 플러그인 집행 실측. **인스턴스 병합이 끝난 뒤** 얹는다(프로젝트 키가 이미 들어 있는
-    //   값이라 병합 대상이 아니며, 여기서 넣으면 `mergeSnapshots` 에 필드를 빠뜨려 다중 프로젝트에서만
-    //   조용히 사라지는 부류의 사고가 원천적으로 생기지 않는다).
+    // §5.11 — 플러그인 실측은 병합 뒤에 얹는다(이미 프로젝트 키가 든 값이라
+    //   `mergeSnapshots` 에 넣을 필요가 없고, 빠뜨릴 자리도 안 생긴다).
     if (this.pluginFactsProvider) {
       const facts = this.pluginFactsProvider();
       if (facts && Object.keys(facts).length > 0) {
@@ -3610,9 +3364,8 @@ export class ProjectGraphManager {
       }
     }
 
-    // stub 프로젝트 합성 — v1.63: 충돌 판정은 **경로(projectId)** 기준. 같은 경로가
-    // hydrated 면 그 stub 은 동일 프로젝트라 drop(hydrated 우선). 같은 basename·다른 경로는
-    // 충돌이 아니라 둘 다 노출(위 displayNames 로 유일화). stub 키·project.name 도 표시명으로 통일.
+    // stub 합성 — 충돌은 경로로 판정. 같은 경로가 hydrated 면 stub 은 버리고, 같은 basename·다른 경로는 둘 다 노출(displayNames 로 유일화).
+    // stub 키·project.name 도 표시명.
     const stubMap: Record<string, ProjectMetaSnapshot> = {};
     for (const meta of Object.values(stubMetaRaw)) {
       const id = normPathId(meta.project.path);
@@ -3626,19 +3379,23 @@ export class ProjectGraphManager {
     snapshot = { ...snapshot, stubProjects: stubMap };
 
     // AppState 주입 — 탭 라이프사이클 (Pin/Default/LastActive/openProjects) SSOT.
-    snapshot = { ...snapshot, appState: loadAppState() };
+    // §4 API 크레딧 — 키가 든 칸은 밖으로 내보내지 않는다(`publicAppState`).
+    snapshot = { ...snapshot, appState: publicAppState(loadAppState()) };
 
-    // §4 v1.50 — 글로벌 rateLimits 주입 (사용자 단위, 프로젝트 무관)
+    // §4 — 글로벌 rateLimits 주입(사용자 단위, 프로젝트 무관).
     if (this.globalRateLimits) {
       snapshot = { ...snapshot, rateLimits: this.globalRateLimits };
     }
 
-    // §4 v3.62 — 글로벌 Claude 사용량(OAuth 직접 조회) 주입. 한도는 사용자 단위라 프로젝트 무관.
+    // §4 — 글로벌 Claude 사용량(OAuth) 주입. 한도는 사용자 단위라 프로젝트 무관.
     if (this.globalClaudeUsage) {
       snapshot = { ...snapshot, claudeUsage: this.globalClaudeUsage };
     }
 
-    // §4 v4.82 — 글로벌 Claude 로그인 상태 주입. 계정도 머신 단위라 프로젝트 무관.
+    // §4 API 크레딧 — 설정·장부·지금 경로. 머신 단위 1건이고 키 본문은 없다(`getState` 가 끝 4자리만 싣는다).
+    snapshot = { ...snapshot, apiCredits: apiCreditService.getState() };
+
+    // §4 — 글로벌 Claude 로그인 상태 주입(계정은 머신 단위).
     if (this.globalClaudeAuth) {
       snapshot = { ...snapshot, claudeAuth: this.globalClaudeAuth };
     }
@@ -3668,13 +3425,13 @@ export class ProjectGraphManager {
       snapshot = { ...snapshot, codexHooks: this.globalCodexHooks };
     }
 
-    // §4 v1.98 — 글로벌 진단 에러 로그 주입 (프로젝트 무관, 런타임 캐시)
+    // §4 — 글로벌 진단 에러 로그 주입(런타임 캐시).
     const diagLog = diagnosticService.getLog();
     if (diagLog.length > 0) {
       snapshot = { ...snapshot, diagnosticLog: diagLog };
     }
 
-    // §4 v2.38 — 모델 레지스트리 주입 (클라 AgentConfigPopup 버전 sub-드롭다운 데이터)
+    // §4 — 모델 레지스트리 주입(AgentConfigPopup 버전 sub-드롭다운 데이터).
     snapshot = { ...snapshot, modelRegistry: modelRegistryService.getRegistry() };
 
     // §5.19 — 로컬 LLM 상태 주입(엔진 설치 여부 + 받아 둔 모델 + 진행 중 내려받기).
@@ -3690,18 +3447,12 @@ export class ProjectGraphManager {
       },
     };
 
-    // §4 v2.42 — 사용자 글로벌 옵션 주입 (Options 창 데이터)
+    // §4 — 사용자 글로벌 옵션 주입(Options 창 데이터).
     snapshot = { ...snapshot, userDefaults: userDefaultsService.get() };
 
-    // §9 슬라이스 스코프 — **조립이 전부 끝난 뒤 여기 한 곳에서만** 범위 밖 슬라이스를 지운다.
-    //   위쪽 주입 지점마다 조금씩 빼면 한 곳만 빠져도 그 슬라이스가 조용히 계속 실리거나(최적화
-    //   무효) 조용히 사라진다(기능 손상). 제거 지점이 하나면 그 사고가 생길 자리가 없다.
-    //
-    //   ⚠ 지우는 대상은 `SCOPABLE_SLICE_KEYS` 뿐이다 — 전역 집계·탭 표시·캔버스 골격은 그 목록에
-    //   들어갈 수 없으므로(`sliceScope.ts` 의 두 표가 컴파일 타임에 배타적이다) 여기서 실수로
-    //   빠질 방법이 없다. 범위를 적용했으면 **실은 목록을 그대로 되돌려 준다** — 클라가 "빈 것"과
-    //   "아직 안 온 것"을 가르는 유일한 근거이고, 그것이 없으면 클라의 `?? {}` 폴백이 걸려
-    //   사용자 눈에는 데이터가 날아간 것으로 보인다.
+    // §9 — 범위 밖 슬라이스는 조립이 끝난 뒤 여기 한 곳에서만 지운다(주입 지점마다 빼면 하나만 빠져도 계속 실리거나 사라진다).
+    //   대상은 `SCOPABLE_SLICE_KEYS` 뿐 — 전역 집계·탭·캔버스 골격은 들 수 없다(`sliceScope.ts` 두 표가 컴파일 타임에 배타).
+    //   적용했으면 실은 목록을 되돌려 준다 — 없으면 클라의 `?? {}` 폴백이 데이터 소실로 보인다.
     if (sliceScope !== null) {
       const stripped = stripScopedOutSlices(snapshot, sliceScope);
       snapshot = { ...stripped.snapshot, scopedSlices: stripped.scopedSlices };
@@ -3780,7 +3531,7 @@ export class ProjectGraphManager {
     return result;
   }
 
-  /** §7.11 v2.22 — 모든 인스턴스에서 ServerEntry id 의 owning session 정보 lookup. */
+  /** §7.11 — ServerEntry id 의 owning session 을 전 인스턴스에서 찾는다. */
   findServerOwnerSession(serverId: string): { sessionId: string; cwd: string | undefined } | null {
     for (const inst of this.instances.values()) {
       const found = inst.findServerOwnerSession(serverId);
@@ -3789,11 +3540,7 @@ export class ProjectGraphManager {
     return null;
   }
 
-  /**
-   * §7.11 포트 인계 — 포트 인계: 신고 전용 entry 의 기동 명령을 OS 에서 읽어 승격한다.
-   * 인스턴스를 순회하되 **성공한 첫 인스턴스에서 멈춘다** — 같은 serverId 는 한 곳에만 있고,
-   * 전부 돌면 없는 곳에서 헛되이 포트를 조회한다.
-   */
+  /** §7.11 포트 인계 — 신고 전용 entry 의 기동 명령을 OS 에서 읽어 승격한다. 성공한 첫 인스턴스에서 멈춘다(serverId 는 한 곳에만 있다). */
   async takeoverServerEntry(serverId: string): Promise<boolean> {
     for (const inst of this.instances.values()) {
       if (await inst.takeoverServerEntry(serverId)) return true;
@@ -3801,10 +3548,7 @@ export class ProjectGraphManager {
     return false;
   }
 
-  /**
-   * §7.11 / §3.5 — Stop/Restart 가 그 서버의 무엇을 죽여도 되는가(주소 호스트 · 남의 프로젝트 여부).
-   * 그 entry 를 가진 인스턴스가 답한다. 어디에도 없으면 null(호출부는 종전대로 포트 전체).
-   */
+  /** §7.11 / §3.5 — Stop/Restart 가 죽여도 되는 범위(주소 호스트·남의 프로젝트 여부). 아무도 없으면 null(호출부는 포트 전체). */
   async serverControlScope(serverId: string): Promise<{ host?: string; foreign: boolean } | null> {
     for (const inst of this.instances.values()) {
       const scope = await inst.serverControlScope(serverId);
@@ -3814,10 +3558,8 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §7.11 / §3.5 — 열어 둔 프리뷰 탭이 그 주소를 지금 보여 줘도 되는가. 그 탭을 **연 프로젝트**의
-   * 인스턴스가 답한다 — 경로(대표 프로젝트 → 그 인스턴스가 그리는 하위 프로젝트) → 이름 순으로 찾고,
-   * 프로젝트를 모르는 탭(옛 닫은 탭 항목)은 그 위성을 가진 인스턴스. 어디에도 없으면 `show`
-   * (판정 불가로 막지 않는다).
+   * §7.11 / §3.5 — 열어 둔 프리뷰 탭이 그 주소를 보여도 되나 — 그 탭을 연 프로젝트(경로 → 이름 순, 모르면 위성 주인)의 인스턴스가 답한다.
+   * 아무도 없으면 `show`(판정 불가로 막지 않는다).
    */
   async checkIframeTab(projectRef: string | null, satelliteId: string | null, url: string): Promise<IframeTabVerdict> {
     let inst: ProjectGraph | null = null;
@@ -3833,7 +3575,7 @@ export class ProjectGraphManager {
     return inst.checkIframeTab(satelliteId, url);
   }
 
-  /** §7.11 v2.23 — respawn 직후 owning-shell 분리 (모든 인스턴스에 idempotent 전파). */
+  /** §7.11 — respawn 직후 owning-shell 분리(전 인스턴스에 idempotent). */
   noteIframeRespawnedByServerId(serverId: string): boolean {
     let changed = false;
     for (const inst of this.instances.values()) {
@@ -3842,7 +3584,7 @@ export class ProjectGraphManager {
     return changed;
   }
 
-  /** /api/stop-server 호출 시 iframe 위성 iframeAlive=false 즉시 플립 (§7.11 v1.29) */
+  /** /api/stop-server 때 iframe 위성 iframeAlive=false 를 즉시 플립(§7.11). */
   markIframeStoppedByServerId(serverId: string): boolean {
     let changed = false;
     for (const inst of this.instances.values()) {
@@ -3858,7 +3600,7 @@ export class ProjectGraphManager {
     return false;
   }
 
-  /** §5.3 #12-1 v1.91 — 권한 승인 대기 진입/해제 (모든 인스턴스에 idempotent 전파). */
+  /** §5.3 #12-1 — 권한 승인 대기 진입·해제(전 인스턴스에 idempotent). */
   setPermissionWaiting(agentId: string, waiting: boolean): void {
     for (const inst of this.instances.values()) {
       inst.setPermissionWaiting(agentId, waiting);
@@ -3894,7 +3636,7 @@ export class ProjectGraphManager {
     return null;
   }
 
-  /** Task Edge 생성. SSOT §3.5 프로젝트 독립성 + §5.7 #26 worktree 독립 세션 — 소스/타겟이 다른 프로젝트면 거부. v1.18 고급 옵션 지원. */
+  /** Task Edge 생성 — 소스/타겟이 다른 프로젝트면 거부(§3.5 프로젝트 독립성 · §5.7 #26 worktree 독립 세션). */
   createTaskEdge(
     sourceAgentId: string,
     targetAgentId: string,
@@ -3936,9 +3678,9 @@ export class ProjectGraphManager {
       const edge = inst.createTaskEdge(sourceAgentId, targetAgentId, command, forwardMode, templateId, options);
       // 자동 자매 엣지 자기 자신은 추가 동기화 트리거 ❌ (무한 재귀 방지)
       if (edge.bundleRole !== 'auto-artifact' && edge.bundleRole !== 'auto-rework') {
-        // v1.32 — returnFormat='both' + kind='command' 이면 artifact 자매 엣지 생성
+        // returnFormat='both' + kind='command' 이면 artifact 자매 엣지.
         inst.syncBundleForReturnFormat(edge.id);
-        // v1.54 — kind='critique' + critiqueAuthority='force-rework' 이면 auto-rework 자매 엣지 생성
+        // kind='critique' + critiqueAuthority='force-rework' 이면 auto-rework 자매 엣지.
         inst.syncReworkBundleForCritique(edge.id);
       }
       return edge;
@@ -3974,7 +3716,6 @@ export class ProjectGraphManager {
     return edge;
   }
 
-  /** Task Edge 업데이트. v1.18: 고급 옵션 전부 갱신 가능. */
   updateTaskEdge(
     id: string,
     updates: {
@@ -3999,11 +3740,11 @@ export class ProjectGraphManager {
       const result = inst.updateTaskEdge(id, updates);
       if (result) {
         const isPrimary = (result.bundleRole ?? 'primary') === 'primary';
-        // v1.32 — returnFormat 또는 kind 변경 시 artifact 번들 동기화 (primary 엣지 기준으로만)
+        // returnFormat·kind 가 바뀌면 artifact 번들 동기화(primary 엣지에서만).
         if (isPrimary && (updates.returnFormat !== undefined || updates.kind !== undefined)) {
           inst.syncBundleForReturnFormat(result.id);
         }
-        // v1.54 — kind 또는 critiqueAuthority 변경 시 auto-rework 번들 동기화 (primary 엣지 기준으로만)
+        // kind·critiqueAuthority 가 바뀌면 auto-rework 번들 동기화(primary 엣지에서만).
         if (isPrimary && (updates.kind !== undefined || updates.critiqueAuthority !== undefined)) {
           inst.syncReworkBundleForCritique(result.id);
         }
@@ -4031,7 +3772,7 @@ export class ProjectGraphManager {
     return edge;
   }
 
-  /** Task Edge 삭제. v1.32 — 번들에 속한 엣지면 자매도 함께 제거. */
+  /** 번들에 속한 엣지면 자매도 함께 지운다. */
   deleteTaskEdge(id: string): boolean {
     for (const inst of this.instances.values()) {
       if (inst.deleteTaskEdgeCascade(id)) return true;
@@ -4039,7 +3780,6 @@ export class ProjectGraphManager {
     return this.taskEdges.delete(id);
   }
 
-  /** v1.32 — edgeId → edge 조회 (dispatch/result 경로용) */
   getTaskEdge(id: string): TaskEdge | undefined {
     for (const inst of this.instances.values()) {
       const edge = inst.getTaskEdge(id);
@@ -4048,7 +3788,6 @@ export class ProjectGraphManager {
     return this.taskEdges.get(id);
   }
 
-  /** v1.32 — 같은 번들의 artifact 자매 엣지 조회 */
   getBundleArtifact(primaryEdgeId: string): TaskEdge | undefined {
     for (const inst of this.instances.values()) {
       const a = inst.getBundleArtifact(primaryEdgeId);
@@ -4057,7 +3796,6 @@ export class ProjectGraphManager {
     return undefined;
   }
 
-  /** v1.54 — 같은 번들의 auto-rework 자매 엣지 조회 */
   getBundleAutoRework(primaryEdgeId: string): TaskEdge | undefined {
     for (const inst of this.instances.values()) {
       const a = inst.getBundleAutoRework(primaryEdgeId);
@@ -4066,7 +3804,7 @@ export class ProjectGraphManager {
     return undefined;
   }
 
-  /** v1.32 — 소스 에이전트 outbound 엣지 (시스템 프롬프트 주입용) */
+  /** 소스 에이전트 outbound 엣지(시스템 프롬프트 주입용). */
   getOutboundTaskEdges(sourceAgentId: string): TaskEdge[] {
     const out: TaskEdge[] = [];
     for (const inst of this.instances.values()) out.push(...inst.getOutboundTaskEdges(sourceAgentId));
@@ -4105,7 +3843,7 @@ export class ProjectGraphManager {
     return result;
   }
 
-  /** v1.55 — `targetAgentId === agentId` 인 critique primary 엣지 조회 (타겟 완료 시 watcher 발사용) */
+  /** `targetAgentId === agentId` 인 critique primary 엣지(타겟 완료 시 watcher 발사용). */
   getIncomingCritiqueEdges(targetAgentId: string): TaskEdge[] {
     const result: TaskEdge[] = [];
     for (const inst of this.instances.values()) {
@@ -4123,7 +3861,6 @@ export class ProjectGraphManager {
     return result;
   }
 
-  /** v1.55 — critique 사이클 카운터 조정 */
   bumpCritiqueReworkCount(edgeId: string, mode: 'reset' | 'increment'): number {
     for (const inst of this.instances.values()) {
       if (inst.getTaskEdge(edgeId)) return inst.bumpCritiqueReworkCount(edgeId, mode);
@@ -4135,7 +3872,7 @@ export class ProjectGraphManager {
     return edge.reworkCount;
   }
 
-  /** v1.55 — critique 강등 (force-rework → comment-only) + 자매 auto-rework 엣지 동기 제거 */
+  /** critique 강등(force-rework → comment-only) + 자매 auto-rework 엣지 제거. */
   downgradeCritiqueAuthority(edgeId: string): TaskEdge | undefined {
     for (const inst of this.instances.values()) {
       if (inst.getTaskEdge(edgeId)) {
@@ -4147,7 +3884,7 @@ export class ProjectGraphManager {
     return undefined;
   }
 
-  // ─── Comment Box (v1.45) — 프로젝트별 인스턴스에 저장 ───
+  // Comment Box — 프로젝트별 인스턴스에 저장
 
   /** 지정 projectName 소속 인스턴스에 Comment Box 생성. 인스턴스 없으면 primary 폴백. */
   createCommentBox(input: {
@@ -4207,7 +3944,7 @@ export class ProjectGraphManager {
     return out;
   }
 
-  // ─── §5.5 #17-20 ⑩ v4.94 공통 디버그 층 — 중단점 ─────────────────────────
+  // §5.5 #17-20 ⑩ 공통 디버그 층 — 중단점
 
   /** 그 프로젝트에 찍힌 중단점(인스턴스가 없으면 빈 배열). */
   getDebugBreakpoints(projectName: string): DebugBreakpoint[] {
@@ -4239,13 +3976,8 @@ export class ProjectGraphManager {
   // ─── §5.10 자동 목표 — 프로젝트별 설정 (정독과 같은 규약: 키는 **경로**다) ───
 
   /**
-   * **지목한 경로가 지금 열려 있는 프로젝트인가** — 맞으면 그 인스턴스의 정본 루트, 아니면 `null`.
-   *
-   * 자동 목표 REST 는 경로를 **문자열로** 받고, 저장고는 그 폴더 안(`.vibisual/skills/`)에 있다.
-   * 빗장이 없으면 아무 경로나 적어 남의 폴더에 든 절차 목록·본문을 읽어 갈 수 있다 — 폐기된 브레인이
-   * `resolveBrainQueryProject` 로 닫아 두던 자리다(OWASP LLM08 · 저장고 경계). 저장고가 바뀌었다고
-   * 구멍까지 물려받지 않는다. 쓰기 창구(`scope`·`dismiss`)는 `setAutoGoalSettings` 가 이미 같은
-   * 판정으로 404 를 내므로, 여기서 막을 것은 **읽기와 삭제** 셋이다.
+   * 지목한 경로가 열린 프로젝트면 정본 루트, 아니면 `null`. 자동 목표 REST 는 경로를 문자열로 받으므로 이 빗장이 없으면 남의 폴더 `.vibisual/skills/` 를 읽어 간다(OWASP LLM08).
+   * 쓰기(`scope`·`dismiss`)는 `setAutoGoalSettings` 가 이미 404 — 여기선 읽기·삭제 셋을 막는다.
    */
   resolveAutoGoalRoot(projectPath: string): string | null {
     const loaded: string[] = [];
@@ -4282,10 +4014,7 @@ export class ProjectGraphManager {
     return inst.setOrchestraSettings(projectPath, settings);
   }
 
-  /**
-   * 그 에이전트가 속한 프로젝트 뿌리 — 오케스트라 설정·런의 키. 못 찾으면 null.
-   * 클라가 보내는 표시명이 아니라 **그 에이전트를 가진 인스턴스**로 정한다(이름 충돌·활성 프로젝트 오염 무관).
-   */
+  /** 오케스트라 설정·런의 키 — 표시명이 아니라 그 에이전트를 가진 인스턴스로 정한다(이름 충돌·활성 프로젝트 오염 무관). 못 찾으면 null. */
   getOrchestraRootForAgent(agentId: string): string | null {
     return this.findInstanceByAgentId(agentId)?.getRoot() ?? null;
   }
@@ -4335,10 +4064,7 @@ export class ProjectGraphManager {
     return inst.setConfigTrimSettings(projectPath, settings);
   }
 
-  /**
-   * 그 에이전트가 속한 프로젝트 뿌리 — 설정 덜어내기 설정·기록의 키. 못 찾으면 null.
-   * 표시명이 아니라 **그 에이전트를 가진 인스턴스**로 정한다(이름 충돌·활성 프로젝트 오염 무관).
-   */
+  /** 설정 덜어내기 설정·기록의 키 — 위와 같이 그 에이전트를 가진 인스턴스로 정한다. 못 찾으면 null. */
   getConfigTrimRootForAgent(agentId: string): string | null {
     return this.findInstanceByAgentId(agentId)?.getRoot() ?? null;
   }
@@ -4356,12 +4082,7 @@ export class ProjectGraphManager {
     return true;
   }
 
-  /**
-   * 되풀이 분석에 넣을 재료 — **그 프로젝트 것만.**
-   *
-   * 여러 프로젝트를 합친 스냅샷을 쓰면 옆 프로젝트에서 친 명령이 이 프로젝트의 "되풀이"로 세어져
-   * 엉뚱한 스킬이 생긴다(§3.5 프로젝트 격리). 인스턴스가 없으면 빈 재료 — 분석은 그냥 0건이다.
-   */
+  /** 되풀이 분석 재료는 그 프로젝트 것만 — 합친 스냅샷이면 옆 프로젝트 명령이 "되풀이"로 세어져 엉뚱한 스킬이 생긴다(§3.5). 인스턴스가 없으면 빈 재료. */
   getAutoGoalMaterial(projectPath: string): {
     bashHistory: Record<string, import('@vibisual/shared').BashEntry[]>;
     sessionGoals: Record<string, import('@vibisual/shared').SessionGoal>;
@@ -4369,12 +4090,7 @@ export class ProjectGraphManager {
     return this.getInstanceByPath(projectPath)?.getAutoGoalMaterial() ?? { bashHistory: {}, sessionGoals: {} };
   }
 
-  /**
-   * §5.11 정독 게이트 — 스냅샷에 실을 **세션별 정독 상태**.
-   *
-   * `pluginFacts` 와 같은 provider 방식이다. 스냅샷 방송 지점이 스무 곳이 넘어 호출부마다 얹으면
-   * 반드시 어딘가 빠지고, 빠진 곳으로 온 스냅샷은 클라에서 "값이 사라진 것"으로 읽힌다.
-   */
+  /** §5.11 정독 게이트 — 세션별 정독 상태. `pluginFacts` 와 같은 provider 방식(방송 지점마다 얹으면 어딘가 빠진다). */
   private specReadingProvider: (() => Record<string, SpecReadingState> | undefined) | null = null;
 
   setSpecReadingProvider(fn: () => Record<string, SpecReadingState> | undefined): void {
@@ -4384,7 +4100,7 @@ export class ProjectGraphManager {
   // ─── §5.9 화면/프로그램 캡처 버블 — 프로젝트별 인스턴스에 저장 ───
 
   /** 지정 projectName 소속 인스턴스에 캡처 버블 생성. 인스턴스 없으면 primary 폴백. */
-  // ─── §5.13 v4.45 내부 앱 버블 위임 ───
+  // §5.13 내부 앱 버블 위임
 
   createAppBubble(input: {
     /** §5.4 #36 (F) — 클라가 지은 id(낙관 생성). 형식이 맞고 **어느 프로젝트에도 없을 때만** 쓴다. */
@@ -4409,11 +4125,8 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §5.4 #36 (C) — 결과 전달. 에이전트가 만든 파일을 그 앱 노드에 담는다.
-   *
-   * **프로젝트 안의 존재하는 파일만** 받는다 — 루트 밖·루트 자신·없는 파일·폴더는 거절한다.
-   * 안팎 판정은 `pathKey` 규칙(`projectRelativePath` — win·mac 은 대소문자를 접고 linux 는 보존)이고,
-   * 저장하는 상대 경로는 입력의 대소문자 그대로다(멀티플랫폼 1축).
+   * §5.4 #36 (C) — 결과 전달: 프로젝트 안의 존재하는 파일만 받는다(루트 밖·루트 자신·없음·폴더는 거절).
+   * 안팎은 `pathKey` 규칙(`projectRelativePath`)으로 보고, 저장 경로는 입력 대소문자 그대로.
    */
   setAppBubbleOutput(
     id: string,
@@ -4443,10 +4156,7 @@ export class ProjectGraphManager {
     return { ok: false, error: 'not-found' };
   }
 
-  /**
-   * §5.13 (L) — 노드에 앱의 **작업 문서 열쇠**(`ref`)를 묶는다(결과 전달 창구의 두 번째 갈래). 앱이 짓는 id 라 뜻은 모르고,
-   * 경로·스크립트가 섞이지 않은 안전한 모양만 받는다. 못 찾거나 모양이 틀리면 false.
-   */
+  /** §5.13 (L) — 노드에 앱 작업 문서 열쇠(`ref`)를 묶는다. 뜻은 몰라도 경로·스크립트가 섞이지 않은 모양만 받는다. 못 찾거나 틀리면 false. */
   setAppBubbleRef(id: string, ref: string): boolean {
     if (!/^[A-Za-z0-9_.:-]{1,200}$/.test(ref)) return false;
     return this.updateAppBubble(id, { ref }) !== null;
@@ -4477,10 +4187,7 @@ export class ProjectGraphManager {
     return { ok: false, reason: notEligible ? 'not-eligible' : 'not-found' };
   }
 
-  /**
-   * §5.4 #36 (H) ①-2 — 에이전트의 연결된 버블 고정/풀기. 풀 때 실행 중이 아니면 그 인스턴스가 그 자리에서 걷는다
-   * (`purged` = 즉시 제거된 버블 id). 그 에이전트를 가진 인스턴스를 찾아 맡긴다.
-   */
+  /** §5.4 #36 (H) ①-2 — 연결된 버블 고정/풀기. 풀 때 실행 중이 아니면 그 자리에서 걷는다(`purged` = 걷은 id). */
   setAgentLinksPinned(
     nodeId: string,
     pinned: boolean,
@@ -4504,6 +4211,29 @@ export class ProjectGraphManager {
       if (result.ok || result.reason !== 'not-found') return result;
     }
     return { ok: false, reason: 'not-found' };
+  }
+
+  /** §5.1 #2-1 (B) — 묶음의 이번 턴 장부. 한 에이전트가 여러 프로젝트를 만지면 장부가 인스턴스마다 생겨 전 인스턴스에서 같이 열고 닫는다. 하나라도 비웠으면 true. */
+  beginAgentTurn(agentId: string, busy: boolean): boolean {
+    let changed = false;
+    for (const inst of this.instances.values()) if (inst.beginAgentTurn(agentId, busy)) changed = true;
+    return changed;
+  }
+
+  beginAgentPromptTurn(agentId: string, ownerSubId?: string): boolean {
+    let changed = false;
+    for (const inst of this.instances.values()) if (inst.beginAgentPromptTurn(agentId, ownerSubId)) changed = true;
+    return changed;
+  }
+
+  endAgentPromptTurn(agentId: string): void {
+    for (const inst of this.instances.values()) inst.endAgentPromptTurn(agentId);
+  }
+
+  acknowledgeAgentTurn(agentId: string): boolean {
+    let changed = false;
+    for (const inst of this.instances.values()) if (inst.acknowledgeAgentTurn(agentId)) changed = true;
+    return changed;
   }
 
   /** 모든 인스턴스를 훑어 id 로 찾는다(어느 프로젝트 것인지 호출부가 모를 수 있다). */
@@ -4587,7 +4317,7 @@ export class ProjectGraphManager {
     return out;
   }
 
-  // ─── §5.14 v4.62 — 플레이 버블 위임 ───
+  // §5.14 — 플레이 버블 위임
 
   createPlayBubble(input: {
     projectName: string;
@@ -4844,10 +4574,7 @@ export class ProjectGraphManager {
     return out;
   }
 
-  /**
-   * 이 에이전트가 어느 랩의 어느 변형인지 — 전 인스턴스를 훑는다.
-   * 변형 카드는 워크트리 인스턴스 소속이고 랩 표지는 부모 인스턴스에 있으므로 한쪽만 봐선 못 찾는다.
-   */
+  /** 변형 카드는 워크트리 인스턴스, 랩 표지는 부모 인스턴스에 있어 전 인스턴스를 훑는다. */
   findLabVariantByAgent(agentId: string): { run: LabRun; variant: LabVariant } | undefined {
     for (const inst of this.instances.values()) {
       const hit = inst.findLabVariantByAgent(agentId);
@@ -4858,10 +4585,7 @@ export class ProjectGraphManager {
 
   // ─── §5.22 — 권한·감사 경계 위임 ───
 
-  /**
-   * 승인 창구가 원장에 먼저 적는 줄. 그 프로젝트를 든 인스턴스를 찾지 못하면
-   * 에이전트를 든 인스턴스로 되짚는다(워크트리 이름이 표시명과 어긋나는 자리).
-   */
+  /** 그 프로젝트 인스턴스를 못 찾으면 에이전트를 든 인스턴스로 되짚는다(워크트리 이름이 표시명과 어긋나는 자리). */
   recordAuditCall(input: AuditRecordInput): string | null {
     const inst = this.getInstanceByName(input.projectName)
       ?? (input.agentId ? this.instanceForAgent(input.agentId) : null)
@@ -4870,12 +4594,7 @@ export class ProjectGraphManager {
     return inst.recordAuditCall(input);
   }
 
-  /**
-   * §5.22 `outside` — 이 호출이 머물러야 할 경계(프로젝트 루트 + 세션 cwd).
-   *
-   * 인스턴스를 못 찾아도 **cwd 하나만이라도** 돌려준다 — 워크트리 인스턴스가 아직 안 선
-   * 첫 호출에서 경계가 통째로 비면 그동안의 호출은 `outside` 판정을 아예 못 받는다.
-   */
+  /** §5.22 `outside` 경계. 인스턴스를 못 찾아도 cwd 는 돌려준다 — 워크트리 인스턴스가 서기 전 첫 호출들이 판정에서 빠지지 않게. */
   getAuditRoots(projectName: string, cwd?: string | null): string[] {
     const inst = this.getInstanceByName(projectName) ?? this.primaryInstance();
     if (inst) return inst.getAuditRoots(projectName, cwd ?? null);
@@ -4916,10 +4635,7 @@ export class ProjectGraphManager {
     return inst.setAuditBoundary(projectName, patch);
   }
 
-  /**
-   * §3.2.3 — 보존 설정이 바뀐 직후 **전 인스턴스**의 원장에 새 상한을 적용한다.
-   * 한 인스턴스라도 잘렸으면 true(호출부가 브로드캐스트·저장을 결정한다).
-   */
+  /** §3.2.3 — 보존 설정이 바뀌면 전 인스턴스 원장에 새 상한을 건다. 하나라도 잘렸으면 true. */
   applyAuditRetention(): boolean {
     let changed = false;
     for (const inst of this.instances.values()) {
@@ -4939,10 +4655,7 @@ export class ProjectGraphManager {
 
   // ─── §5.3 #12-3 — 자물쇠 ───
 
-  /**
-   * 열려 있는 **모든** 프로젝트의 자물쇠(원래 이름 키). 집행이 쓴다 — 경로는 프로젝트를 가리지 않으므로
-   * 다른 탭이 건 자물쇠도 이 호출을 붙잡는다. 메모리에 없는(stub) 탭도 넣는다(`stubPathLocks`).
-   */
+  /** 열린 모든 프로젝트의 자물쇠(원래 이름 키) — 경로는 프로젝트를 가리지 않아 다른 탭의 자물쇠도 집행한다. stub 탭도 넣는다(`stubPathLocks`). */
   getAllPathLocks(): Record<string, PathLock[]> {
     const out: Record<string, PathLock[]> = {};
     for (const inst of this.instances.values()) Object.assign(out, inst.getPathLocksByProject());
@@ -4984,10 +4697,7 @@ export class ProjectGraphManager {
     return inst ? { inst, rawName: resolved.rawName } : null;
   }
 
-  /**
-   * 자물쇠를 걸고(`lock`)·푼다(`unlock` — id). 그 탭이 내려가 있으면 먼저 올린다 — 정본은 인스턴스이고
-   * 저장도 그 길(체크포인트 + identity)로만 간다. 찾을 수 없는 프로젝트면 `null`.
-   */
+  /** 탭이 내려가 있으면 먼저 올린다 — 정본은 인스턴스이고 저장도 그 길(체크포인트 + identity)로만. 못 찾으면 `null`. */
   updatePathLocks(
     projectRef: string,
     lock: readonly PathLockTarget[],
@@ -5021,12 +4731,7 @@ export class ProjectGraphManager {
     for (const i of this.instances.values()) i.noteTeammates(sessionId, names);
   }
 
-  /**
-   * §5.26 (B) 1단계 — 압축 직전 마커. **처음으로 마커를 만든 인스턴스가 임자다.**
-   *
-   * 세션 소속을 알면 그쪽만 부른다. 모를 때 전부에게 시도하는 것은, 프로젝트를 못 짚는
-   * 인스턴스는 `null` 을 돌려주고 조용히 지나가기 때문이다(중복 기록이 생기지 않는다).
-   */
+  /** §5.26 (B) 1단계 — 압축 직전 마커, 처음 만든 인스턴스가 임자다. 소속을 모르면 전부에게 시도해도 된다 — 프로젝트를 못 짚는 인스턴스는 `null` 로 지나간다. */
   recordCompactMarker(input: Parameters<ProjectGraph['recordCompactMarker']>[0]): CompactMarker | null {
     const inst = this.getInstanceForSession(input.sessionId);
     if (inst) return inst.recordCompactMarker(input);
@@ -5076,13 +4781,7 @@ export class ProjectGraphManager {
     return false;
   }
 
-  /**
-   * §5.26 (D) — `PostCompact` 도착을 그 세션의 마커에 새긴다.
-   *
-   * 세션이 어느 프로젝트에 있는지 훅 경로는 모르므로 **찾을 때까지** 인스턴스를 돈다. 첫 성공에서
-   * 멈추는 이유: 한 세션은 한 프로젝트에만 있고, 계속 돌면 같은 세션 id 를 가진 다른 프로젝트의
-   * 마커까지 건드린다(§5.26 은 세션 id 를 프로젝트 사이에서 유일하다고 보지 않는다).
-   */
+  /** §5.26 (D) — `PostCompact` 를 그 세션 마커에 새긴다. 첫 성공에서 멈춘다 — 세션 id 는 프로젝트 사이에서 유일하지 않아 계속 돌면 남의 마커까지 건드린다. */
   notePostCompact(sessionId: string, now?: number): boolean {
     for (const inst of this.instances.values()) {
       if (inst.notePostCompact(sessionId, now)) return true;
@@ -5160,12 +4859,8 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §5.26 (F)(b) — 이 세션에 `/compact` 를 **보냈다**고 적어 둔다.
-   *
-   * 세션에서 인스턴스를 되짚는 길이 따로 없어 **전 인스턴스에 적는다**(`restoreInsuranceFile` 이
-   * 쓰는 그 패턴). 판정은 그 세션을 실제로 감시하는 인스턴스에서만 일어나므로
-   * (`getCompactWatch` 가 자기 `agents` 만 돈다) 나머지에 남는 키는 어느 판정에도 쓰이지 않고,
-   * 키 개수는 인스턴스마다 걸린 상한이 그대로 막는다(§3.2.4 G축).
+   * §5.26 (F)(b) — `/compact` 보냄을 전 인스턴스에 적는다(세션→인스턴스 역조회가 없다, `restoreInsuranceFile` 과 같은 패턴).
+   * 판정은 감시하는 인스턴스만 하고(`getCompactWatch`) 남는 키는 인스턴스별 상한이 막는다(§3.2.4 G축).
    */
   markCompactSent(sessionId: string, at: number = Date.now()): void {
     for (const inst of this.instances.values()) inst.markCompactSent(sessionId, at);
@@ -5288,10 +4983,7 @@ export class ProjectGraphManager {
     return out;
   }
 
-  /**
-   * 이 에이전트가 지금 어느 선반 줄의 프롬프트를 처리 중인지 — 전 인스턴스를 훑는다.
-   * 선반은 부모 인스턴스에 있고 카드는 워크트리 인스턴스일 수 있으므로 한쪽만 봐선 못 찾는다.
-   */
+  /** 선반은 부모, 카드는 워크트리 인스턴스일 수 있어 전 인스턴스를 훑는다. */
   findShelfItemByAgent(agentId: string): { bubble: ShelfBubble; item: ShelfItem } | undefined {
     for (const inst of this.instances.values()) {
       const hit = inst.findShelfItemByAgent(agentId);
@@ -5327,12 +5019,7 @@ export class ProjectGraphManager {
   }
 
 
-  /**
-   * §5.14 4단 계단 ③ — 이 프로젝트에서 **실제로 떠 있던** 명령들.
-   *
-   * 탐지기가 가장 세게 믿는 근거라, 여기서 주는 목록이 곧 "에이전트가 한 번 켜 준 것을
-   * 우리가 기억한다"는 약속이다. `runningServers`(죽은 entry 도 보존된다)를 그대로 읽는다.
-   */
+  /** §5.14 4단 계단 ③ — 실제로 떠 있던 명령들(탐지기가 가장 세게 믿는 근거). `runningServers` 는 죽은 entry 도 보존한다. */
   getObservedServerCommands(projectName: string): { command: string; port?: number }[] {
     const inst = this.getInstanceByName(projectName);
     if (!inst) return [];
@@ -5347,7 +5034,7 @@ export class ProjectGraphManager {
     return out;
   }
 
-  // ─── §5.3 #28 v1.47 — 콘티 위임 ───
+  // §5.3 #28 — 콘티 위임
 
   /** agentId 기준으로 인스턴스 찾기. 헬퍼: agent 가 어느 ProjectGraph 에 속하는지. */
   private getInstanceByAgentId(agentId: string): ProjectGraph | null {
@@ -5417,7 +5104,7 @@ export class ProjectGraphManager {
     return inst?.deleteContiFrame(contiId, frameIndex) ?? false;
   }
 
-  /** §5.3 #28 v1.59 — 콘티 frame 순서 변경. */
+  /** §5.3 #28 — 콘티 frame 순서 변경. */
   moveContiFrame(contiId: string, fromIndex: number, toIndex: number): boolean {
     const inst = this.getInstanceByContiId(contiId);
     return inst?.moveContiFrame(contiId, fromIndex, toIndex) ?? false;
@@ -5451,10 +5138,7 @@ export class ProjectGraphManager {
     return inst?.findContiElement(contiId, frameId, elementId) ?? null;
   }
 
-  /**
-   * §5.3 #28 (L) v1.58 — 콘티 frames 통째 교체 (수정 케이스).
-   * 콘티가 속한 인스턴스를 찾아 위임.
-   */
+  /** §5.3 #28 (L) — 콘티 frames 통째 교체(수정). 콘티가 속한 인스턴스에 위임. */
   updateContiFrames(contiId: string, frames: ContiFrame[], title?: string): Conti | null {
     const inst = this.getInstanceByContiId(contiId);
     return inst?.updateContiFrames(contiId, frames, title) ?? null;
@@ -5472,30 +5156,27 @@ export class ProjectGraphManager {
     return inst?.setContiRenderLink(contiId, link) ?? null;
   }
 
-  /** §5.3 #28 (L) v1.58 — 인플라이트 콘티 작업 조회. */
+  /** §5.3 #28 (L) — 진행 중인 콘티 작업 조회. */
   getActiveContiWork(agentId: string): ActiveContiWork | undefined {
     const inst = this.getInstanceByAgentId(agentId);
     return inst?.getActiveContiWork(agentId);
   }
 
-  /**
-   * §5.3 #28 (L) v1.58 — 콘티 작업 시작 (workId 발급).
-   * 에이전트가 속한 인스턴스에 트래커 항목 등록. 이미 있으면 기존 반환.
-   */
+  /** §5.3 #28 (L) — 콘티 작업 시작(workId 발급). 이미 있으면 그것을 돌려준다. */
   startContiWork(agentId: string, source: ContiWorkSource): ActiveContiWork | null {
     const inst = this.getInstanceByAgentId(agentId);
     if (!inst) return null;
     return inst.startContiWork(agentId, source);
   }
 
-  /** §5.3 #28 (L) v1.58 — 사용자 명시 새 콘티 트리거 — 기존 트래커 항목 폐기 후 새 workId. */
+  /** §5.3 #28 (L) — 사용자가 명시한 새 콘티 — 기존 트래커 항목을 버리고 새 workId. */
   resetContiWork(agentId: string, source: ContiWorkSource): ActiveContiWork | null {
     const inst = this.getInstanceByAgentId(agentId);
     if (!inst) return null;
     return inst.resetContiWork(agentId, source);
   }
 
-  /** §5.3 #28 (L) v1.58 — 첫 응답으로 만들어진 Conti 의 id 를 트래커에 머지. */
+  /** §5.3 #28 (L) — 첫 응답으로 만든 Conti 의 id 를 트래커에 머지. */
   attachContiIdToWork(agentId: string, contiId: string): boolean {
     const inst = this.getInstanceByAgentId(agentId);
     return inst?.attachContiIdToWork(agentId, contiId) ?? false;
@@ -5517,11 +5198,7 @@ export class ProjectGraphManager {
     return undefined;
   }
 
-  /**
-   * agentId → 소속 프로젝트의 디스크 path. 어느 인스턴스가 소유하든 찾는다.
-   * 스킬 목록처럼 "이 에이전트가 속한 프로젝트" 가 권위 기준일 때 사용 — 클라가 보내는
-   * 표시명에 의존하지 않아 활성 프로젝트 오염·이름 충돌·미해소에 영향받지 않는다.
-   */
+  /** agentId → 소속 프로젝트 디스크 path. 스킬 목록처럼 소속이 권위일 때 쓴다 — 클라 표시명에 기대지 않아 활성 프로젝트 오염·이름 충돌과 무관하다. */
   getProjectPathForAgent(agentId: string): string | null {
     for (const inst of this.instances.values()) {
       const p = inst.getAgentProjectPath(agentId);
@@ -5539,7 +5216,7 @@ export class ProjectGraphManager {
     return null;
   }
 
-  /** §5.10 v3.49 — 에이전트가 최근 참조한 파일 경로(피드 related 랭킹 ctx.files, best-effort). 없으면 빈 배열. */
+  /** §5.10 — 최근 참조 파일(피드 related 랭킹 ctx.files, best-effort). 없으면 빈 배열. */
   getAgentRecentFiles(agentId: string): string[] {
     for (const inst of this.instances.values()) {
       const files = inst.getFileRefsForAgent(agentId);
@@ -5595,8 +5272,8 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §5.21 — 열려 있는 모든 인스턴스의 비용·토큰 지도를 한 번 훑는다. 하나라도 바뀌면 true.
-   * 모델 단가는 런타임 레지스트리가 SSOT 라 호출부가 넘긴다(§4 v2.38).
+   * §5.21 — 모든 인스턴스의 비용·토큰 지도를 훑는다(바뀌면 true).
+   * 단가는 런타임 레지스트리가 SSOT 라 호출부가 넘긴다.
    */
   sweepCostMaps(registry: ModelRegistry | null, now: number = Date.now()): boolean {
     let changed = false;
@@ -5642,10 +5319,7 @@ export class ProjectGraphManager {
   // §5.10 — 구 "지난 커스텀 에이전트 복구"(listRecoverableCustomAgents/restoreCustomAgent)는
   //   휴지통(trash) 이 후신이 되어 제거됨. 크래시 소실 복원은 §3.2.2 mergeIdentityIntoCheckpoint 가 부팅 시 담당.
 
-  /**
-   * v1.6 SCENARIO §5.7 #24: SessionStart 훅 시점에 cwd 일치하는 dormant 에이전트를 모두 복원.
-   * 모든 인스턴스에 위임 — 복원된 sessionId 목록 평탄화 반환.
-   */
+  /** §5.7 #24 — SessionStart 때 cwd 가 같은 dormant 에이전트를 전 인스턴스에서 복원하고 sessionId 를 모아 돌려준다. */
   restoreDormantForCwd(cwd: string): string[] {
     const restored: string[] = [];
     for (const inst of this.instances.values()) {

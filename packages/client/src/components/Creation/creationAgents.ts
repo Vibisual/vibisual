@@ -1,10 +1,7 @@
 import { isReadOnlyHookAgent, type BubbleData, type ProjectInfo } from '@vibisual/shared';
 import { sameClientPath } from '../../utils/platform.js';
 
-/**
- * Agents that may receive a creation request for this project: our own (custom) agents only — hook bubbles are
- * read-only and trashed agents are gone. Shared by every creation app (§5.13 (R-10)).
- */
+/** Our own (custom) agents only — hook bubbles are read-only and trashed agents are gone (§5.13 (R-10)). */
 export function creationProjectAgents(
   agents: BubbleData[],
   agentProjects: Record<string, string>,

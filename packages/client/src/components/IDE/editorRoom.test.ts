@@ -1,10 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { growSpanRight, shrinkSpanBack } from '@vibisual/shared';
 
-/**
- * §5.5 #17-27 ①-1 — 편집창이 열릴 때 창을 오른쪽으로 넓히고 닫으면 되돌리는 가로 자리 계산.
- * 앱 안의 떠 있는 창과 독립 OS 창(main)이 이 둘을 함께 쓰므로, 여기서 한 번 고정해 두면 두 자리가 같이 선다.
- */
+/** §5.5 #17-27 ①-1 — 편집창이 열리면 창을 오른쪽으로 넓히고 닫으면 되돌리는 계산(떠 있는 창과 독립 OS 창이 함께 쓴다). */
 
 describe('growSpanRight', () => {
   const screen = { x: 0, w: 1920 };

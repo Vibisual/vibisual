@@ -1,27 +1,9 @@
 /**
- * §4 v2.38 — 동적 모델 레지스트리.
- *
- * 부팅 시 (1) shared `MODEL_SEED_ENTRIES` 로드 → (2) `ANTHROPIC_API_KEY` 가 있으면
- * `GET https://api.anthropic.com/v1/models` 호출 → (3) id prefix 로 family 추론·머지 →
- * (4) 패밀리별 `createdAt desc` 정렬 → 첫 entry `isLatestOfFamily=true` 셋.
- *
- * 캐시: `~/.vibisual/model-registry.json` (`MODEL_REGISTRY_API_TTL_MS`). 부팅 시 캐시가 유효하면 페치 생략.
- *
- * §4 (상태바 모델 칸 ③) — **목록은 저절로 최신이어야 한다.** 종전에는 위 흐름이 부팅 1회뿐이라 앱을
- * 켜 둔 채 새 모델이 나오면 재시작 전까지 몰랐고, 키가 없는 사용자(구독 로그인 대다수)는 시드가
- * 목록의 전부였다. 이제 셋이 더 붙는다 — 모두 법적 안전선 안의 출처다(문서 HTML 긁기·실행본 문자열 ❌).
- *  - `refreshIfDue()` — 기존 20초 비용 스윕이 부른다. API 는 TTL 이 지났을 때만, 실행본은 바뀌었을 때만.
- *  - `refreshNow()` — 모델 창을 열 때 한 번 더 확인(API 는 하한 안이면 건너뜀).
- *  - `noteObservedModel()` — 자기 PC 대화록에 **실제 API 응답으로 찍힌** 모델 ID 를 배운다(`source: 'observed'`).
- *
- * v1.96 에서 `@anthropic-ai/sdk` 가 제거됐으므로 raw `fetch` (node 20+ 글로벌) 사용.
- * `ANTHROPIC_API_KEY` 미설정 시 sourceMix='seed-only' 로 시드(+관측)만 반환.
- *
- * 콜사이트:
- * - `projectGraphManager.getSnapshot()` → `snapshot.modelRegistry`
- * - `subAgentManager.buildConfigArgs()` → `resolveAliasToLatest('opus', registry)` 로 alias 해소
- * - `sessionDiscovery.readContextInfo()` → `noteObservedModel(lastModel)` (한도를 묻던 그 자리가 배운다)
- * - REST `GET /api/models` · `POST /api/models/refresh` → 클라 즉시 페치(WS 도착 전 빈 화면 방지)
+ * §4 — 동적 모델 레지스트리: 시드 → (`ANTHROPIC_API_KEY` 가 있으면) `/v1/models` 머지 → 패밀리별 latest.
+ * 캐시 `~/.vibisual/model-registry.json`(TTL 안이면 페치 생략). SDK 없이 raw `fetch`. 키가 없으면 sourceMix='seed-only'(시드+관측).
+ * §4 (상태바 모델 칸 ③) — 목록은 저절로 최신이어야 한다(출처는 법적 안전선 안만 — HTML 긁기·실행본 문자열 ❌):
+ * `refreshIfDue()` 20초 스윕 · `refreshNow()` 모델 창 열 때 · `noteObservedModel()` 대화록 관측.
+ * 콜사이트: `getSnapshot()` · `buildConfigArgs()`(alias 해소) · `readContextInfo()`(관측) · `GET /api/models`·`POST /api/models/refresh`.
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -41,7 +23,7 @@ import {
   type ModelRegistryEntry,
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
-import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { claudeSpawnEnv, getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { buildCliInvocation } from './claudeCliRun.js';
 import {
   EFFORT_PROBE_SENTINEL,
@@ -51,11 +33,7 @@ import {
   planEffortProbeCandidates,
 } from './effortLevelProbe.js';
 
-/**
- * §4 v2.77 — 패밀리 화이트리스트 해제로 잡힐 수 있는 **비모델** 토큰의 패밀리명.
- * `/v1/models` 응답에 섞여 오는 비모델 id 가 가짜 패밀리로 새지 않게 거른다.
- * (모델 패밀리는 opus/sonnet/haiku/fable/mythos … 처럼 제품 라인명. 'code' 는 CLI 패키지명.)
- */
+/** §4 — 패밀리 화이트리스트가 없어 `/v1/models` 의 비모델 id 가 가짜 패밀리로 새지 않게 거르는 이름('code' 는 CLI 패키지명). */
 const NON_MODEL_FAMILIES = new Set<string>(['code', 'cli', 'agent']);
 
 const CACHE_DIR = path.join(os.homedir(), '.vibisual');
@@ -108,13 +86,7 @@ interface ApiResponse {
   data?: ApiModelEntry[];
 }
 
-/**
- * `/v1/models` 응답 한 건 → 레지스트리 entry. 패밀리를 못 읽거나 모델이 아닌 것(`claude-code-…`)은 `null`.
- *
- * **순수 함수로 떼어 둔 이유**: 이 매핑이 조용히 한 필드를 안 읽으면 화면에는 폴백값이 그럴듯하게
- * 계속 뜨고 아무도 모른다(컨텍스트를 안 읽어 Fable 게이지가 5배 일찍 찼던 자리가 정확히 그것이다).
- * 네트워크·API 키 없이 단위 테스트로 고정할 수 있어야 한다.
- */
+/** `/v1/models` 한 건 → entry(패밀리를 못 읽거나 `claude-code-…` 면 `null`). 순수 함수로 둬 시험한다 — 필드를 조용히 빠뜨리면 폴백값이 그럴듯하게 뜬다. */
 export function mapApiModelEntry(m: ApiModelEntry): ModelRegistryEntry | null {
   const family = parseFamilyFromFullId(m.id);
   if (!family || NON_MODEL_FAMILIES.has(family)) return null;
@@ -133,13 +105,7 @@ export function mapApiModelEntry(m: ApiModelEntry): ModelRegistryEntry | null {
   };
 }
 
-/**
- * 공개 문서 시드 + `/v1/models` entries 머지 (id 기준).
- *
- * 필드마다 `api ?? seed` 인 이유: API 가 그 필드를 **안 준 것**과 **비운 것**을 구분하지 않고 덮으면,
- * 응답에 없는 필드 하나 때문에 시드가 갖고 있던 정확한 값이 지워진다. 가격(`pricing`)은 API 가
- * 아예 주지 않으므로 항상 시드/패밀리 디폴트가 살아남는다.
- */
+/** 시드 + `/v1/models` 머지(id 기준). 필드마다 `api ?? seed` — 응답에 없는 필드가 시드 값을 지우지 않게. `pricing` 은 API 가 주지 않아 늘 시드다. */
 export function mergeSeedAndApiEntries(apiEntries: readonly ModelRegistryEntry[]): ModelRegistryEntry[] {
   const byId = new Map<string, ModelRegistryEntry>();
   for (const seed of MODEL_SEED_ENTRIES) byId.set(seed.id, { ...seed });
@@ -160,13 +126,7 @@ export function mergeSeedAndApiEntries(apiEntries: readonly ModelRegistryEntry[]
   return [...byId.values()];
 }
 
-/**
- * §4 (상태바 모델 칸 ③(다)) — 대화록의 `message.model` 원문 → 레지스트리가 배울 풀ID. 배울 것이 아니면 `null`.
- *
- * 정규화(`normalizeModelId` — 날짜 꼬리·`[1m]` 변형 제거) 뒤 **정규 모양**이고 모델 패밀리일 때만 통과한다.
- * 대화록에는 모델이 아닌 값(`<synthetic>`)과 옛 명명이 섞여 오므로, 여기서 떨어뜨리지 않으면 드롭다운이
- * 판 번호를 읽을 수 없는 항목으로 어지러워진다.
- */
+/** §4 (상태바 모델 칸 ③(다)) — 대화록 `message.model` → 배울 풀ID 또는 `null`. 정규화(`normalizeModelId`) 뒤 정규 모양의 모델 패밀리만(`<synthetic>`·옛 명명 제외). */
 export function normalizeObservedModelId(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const id = normalizeModelId(raw.trim());
@@ -176,12 +136,7 @@ export function normalizeObservedModelId(raw: unknown): string | null {
   return id;
 }
 
-/**
- * §4 (상태바 모델 칸 ③(다)) — 관측분을 시드+API 결과 위에 얹는다.
- *
- * **이미 아는 ID 는 건드리지 않는다** — 시드·API 쪽이 더 많이 안다(가격·컨텍스트·표시명). 관측은
- * "이런 모델이 실제로 있다"는 사실 하나만 보탠다.
- */
+/** §4 (상태바 모델 칸 ③(다)) — 관측분을 얹는다. 시드·API 가 아는 ID 는 건드리지 않는다(그쪽이 더 많이 안다). */
 export function mergeObservedEntries(
   base: readonly ModelRegistryEntry[],
   observed: readonly ModelRegistryEntry[],
@@ -215,12 +170,8 @@ export interface ApiRefreshClock {
 }
 
 /**
- * §4 (상태바 모델 칸 ③(나)) — 지금 `/v1/models` 를 부를 차례인가.
- *
- * - `periodic`(20초 스윕): 성공한 결과가 `MODEL_REGISTRY_API_TTL_MS` 보다 낡았을 때만. 방금 실패했으면
- *   `MODEL_REGISTRY_RETRY_MS` 를 기다린다 — 네트워크가 끊긴 PC 에서 20초마다 두드리지 않게.
- * - `manual`(모델 창 열기): 마지막 시도가 `MODEL_REGISTRY_MANUAL_REFRESH_FLOOR_MS` 보다 오래됐으면.
- *   창을 연달아 열고 닫아도 API 는 그 간격 안에서 한 번이다.
+ * §4 (상태바 모델 칸 ③(나)) — `/v1/models` 를 부를 차례인가. `periodic`: 성공이 TTL 보다 낡았을 때만, 실패 뒤엔 `MODEL_REGISTRY_RETRY_MS` 를 기다린다.
+ * `manual`(모델 창): 마지막 시도가 `MODEL_REGISTRY_MANUAL_REFRESH_FLOOR_MS` 보다 오래됐을 때만.
  */
 export function isApiRefreshDue(clock: ApiRefreshClock, mode: 'periodic' | 'manual'): boolean {
   if (!clock.hasKey) return false;
@@ -283,12 +234,7 @@ class ModelRegistryService {
     };
   }
 
-  /**
-   * §4 — 설치된 `claude --help` 를 실행해 `--effort` 가 받아들이는 등급 목록을 파싱.
-   *
-   * 모델 raw-scan 과 같은 "0 하드코딩 · CLI 진실" 철학. CLI 가 새 등급을 추가/제거하면 코드 수정 없이 반영된다.
-   * 실패(미발견/타임아웃/파싱불가) 시 undefined → 클라 `listEffortLevels` 가 `AVAILABLE_EFFORT_LEVELS` 로 폴백.
-   */
+  /** §4 — `claude --help` 에서 `--effort` 등급을 파싱한다(하드코딩 없음). 실패면 undefined → 클라가 `AVAILABLE_EFFORT_LEVELS` 로 폴백. */
   private async scanEffortLevelsFromCli(): Promise<string[] | undefined> {
     let binPath: string | undefined;
     try {
@@ -318,15 +264,9 @@ class ModelRegistryService {
   }
 
   /**
-   * §4 — 도움말에 없는 effort 등급 후보를 **설치본에 직접 물어** 수락되는 것만 돌려준다.
-   *
-   * 순서가 곧 안전장치다. **보정 먼저** — 무효값(`EFFORT_PROBE_SENTINEL`)이 거절당하는 것을 확인해야
-   * "경고가 없다"를 "수락했다"로 읽을 수 있다. 값 검증을 하지 않는 판올림에서는 무효값도 조용히
-   * 지나가므로 그때는 후보를 통째로 버린다(모르는 것을 수락으로 넘겨짚지 않는다).
-   *
-   * probe 는 `--effort <값> --version` 이다 — 세션도 네트워크도 타지 않고 즉시 끝나며,
-   * 값 검증은 그보다 먼저 돌아 경고가 출력에 남는다(실측 2.1.259). 순차 실행이라 부팅 때
-   * 자식이 몰리지 않고, 후보가 없으면(=도움말이 이미 다 적었으면) **한 번도 뜨지 않는다.**
+   * §4 — 도움말에 없는 effort 후보를 설치본에 물어 수락되는 것만 낸다.
+   * 보정 먼저 — 무효값(`EFFORT_PROBE_SENTINEL`)이 거절돼야 "경고 없음"을 수락으로 읽는다(값 검증이 없는 판이면 후보를 버린다).
+   * probe `--effort <값> --version` 은 세션·네트워크 없이 끝나고 값 검증이 먼저 돈다(실측 2.1.259). 순차 실행, 후보가 없으면 띄우지 않는다.
    */
   private async probeExtraEffortLevels(binPath: string, helpLevels: readonly string[]): Promise<string[]> {
     const candidates = planEffortProbeCandidates(helpLevels, EFFORT_LEVEL_PROBE_CANDIDATES);
@@ -347,12 +287,7 @@ class ModelRegistryService {
     return accepted;
   }
 
-  /**
-   * CLI 를 인자 그대로 한 번 띄우고 stdout+stderr 를 합쳐 돌려준다(실패·타임아웃이면 빈 문자열).
-   *
-   * `--help`(등급 목록)와 `--effort <값> --version`(값 수락 여부) 두 probe 가 **같은 창구**를 쓴다 —
-   * 갈라 두면 셸 경유·타임아웃·spawn 실패 처리를 한쪽만 고치는 날이 온다.
-   */
+  /** CLI 를 한 번 띄워 stdout+stderr 를 돌려준다(실패·타임아웃이면 빈 문자열). 두 probe 가 이 창구를 함께 쓴다 — 가르면 한쪽만 고쳐진다. */
   private runCliCapture(binPath: string, args: readonly string[]): Promise<string> {
     return new Promise<string>((resolve) => {
       let done = false;
@@ -368,6 +303,8 @@ class ModelRegistryService {
           shell: invocation.shell,
           windowsHide: true,
           stdio: ['ignore', 'pipe', 'pipe'],
+          // §4 (앱 전용 엔진) ⑤ — 앱 전용 실행본이면 엔진 자체 갱신을 끈다.
+          env: claudeSpawnEnv(process.env, binPath),
         });
       } catch {
         return finish('');
@@ -381,11 +318,8 @@ class ModelRegistryService {
   }
 
   /**
-   * §4 (상태바 모델 칸 ③) — 지금 쓰는 `claude` 실행본의 정체. **경로 + 수정 시각**.
-   *
-   * 확장 자동 갱신은 새 판을 **다른 폴더**에 풀고, 공식 인스톨러는 같은 런처 경로 뒤의 실체를 바꾼다 —
-   * 경로만 보면 뒤엣것을, 판 번호를 물으면 매번 자식을 띄워야 한다. 수정 시각은 `stat` 한 번이라
-   * 20초 스윕에서 불러도 싸다. 못 찾으면 빈 문자열(= "실행본 없음"도 하나의 정체다).
+   * §4 (상태바 모델 칸 ③) — `claude` 실행본의 정체 = 경로 + 수정 시각(못 찾으면 빈 문자열). 확장 갱신은 폴더를, 공식 인스톨러는 같은 경로 뒤 실체를 바꾼다
+   * — 판 번호를 물으면 매번 자식을 띄우지만 `stat` 은 싸다.
    */
   private async currentBinIdentity(): Promise<string> {
     let binPath: string | undefined;
@@ -415,24 +349,12 @@ class ModelRegistryService {
     return JSON.stringify(this.cliEffortLevels ?? null) !== before;
   }
 
-  /**
-   * `claude-<family>-A[-B]` 의 (A,B) 숫자 파싱. 비교 시 큰 게 신규. minor 없으면 0.
-   * 패밀리 내 latest 결정에 사용. §4 v2.77 — shared `parseModelSemver` 위임(클라와 규칙 일치).
-   */
+  /** `claude-<family>-A[-B]` 의 (A,B), minor 없으면 0 — shared `parseModelSemver` 에 맡긴다(클라와 같은 규칙). */
   private parseSemverPair(id: string): [number, number] {
     return parseModelSemver(id);
   }
 
-  /**
-   * 패밀리별 latest 표시.
-   * semver(`A-B`) 비교를 1순위로. createdAt(API) 2순위. source 3순위(api > seed > observed). id 4순위.
-   * `claude-opus-5` 처럼 판올림이 높은 쪽이 자동으로 latest 가 되도록.
-   *
-   * §4 v2.77 — 패밀리 목록을 entries 에서 동적 수집(opus/sonnet/haiku 하드코딩 제거) → 신규 패밀리(fable/mythos)도
-   * 각자 latest 가 셋됨.
-   * §4 (상태바 모델 칸 ③(다)) — 관측으로 들어온 **더 높은 판**은 시드를 기다리지 않고 latest 가 된다.
-   * 같은 판이면 더 많이 아는 출처(api > seed)가 이긴다.
-   */
+  /** 패밀리별 latest — semver > createdAt > source(api > seed > observed) > id. 패밀리 목록은 entries 에서 모으고, 관측된 더 높은 판은 시드를 기다리지 않고 latest 가 된다. */
   private markLatestOfFamily(entries: ModelRegistryEntry[]): void {
     const families = [...new Set(entries.map((e) => e.family).filter(Boolean))];
     for (const e of entries) e.isLatestOfFamily = false;
@@ -481,11 +403,8 @@ class ModelRegistryService {
   }
 
   /**
-   * 부팅 시 호출 — (1) 캐시 hit 시 사용, (2) 아니면 `/v1/models` fetch + 머지, (3) 실패 시 시드만 유지.
-   * fetch 는 비동기 — 호출자(서버 부트 시퀀스)는 await 없이 시작 가능. 완료 시 listener push.
-   *
-   * CLI 가 새로 깔렸을 때(`reprimeClaudeDerivedCaches`)도 이것을 부른다. 주기·수동 확인이 돌고 있으면
-   * **그 뒤에 이어서** 돈다(합치지 않는다) — 이쪽은 "처음부터 다시 긁는다"는 뜻이라 건너뛰면 안 된다.
+   * 부팅 시: 캐시 → 아니면 `/v1/models` 머지 → 실패면 시드만(await 없이 시작, 끝나면 listener push). CLI 재설치(`reprimeClaudeDerivedCaches`)도 부른다 —
+   * 돌고 있는 확인과 합치지 않고 뒤에 잇는다(처음부터 다시 긁는 것이라 건너뛰면 안 된다).
    */
   refreshIfStale(): Promise<void> {
     return this.runSerialized(() => this.refreshIfStaleCore());
@@ -563,12 +482,7 @@ class ModelRegistryService {
     }
   }
 
-  /**
-   * §4 (상태바 모델 칸 ③(나)) — **주기 확인.** 기존 20초 비용 스윕이 기다리지 않고 부른다.
-   *
-   * 할 일이 없으면 `stat` 한 번으로 끝난다: 실행본이 그대로면 `--help` 를 안 띄우고, API 는
-   * `isApiRefreshDue` 가 허락할 때만 부른다. 바뀐 것이 있을 때만 방송한다(20초마다 스냅샷을 흔들지 않게).
-   */
+  /** §4 (상태바 모델 칸 ③(나)) — 주기 확인(20초 스윕). 실행본이 그대로면 `--help` 를 안 띄우고 API 는 `isApiRefreshDue` 일 때만. 바뀐 것이 있을 때만 방송한다. */
   refreshIfDue(): Promise<void> {
     return this.runCoalesced(() => this.refreshCore('periodic'));
   }
@@ -635,14 +549,8 @@ class ModelRegistryService {
   }
 
   /**
-   * §4 (상태바 모델 칸 ③(다)) — **대화록에서 본 모델 ID 를 배운다.**
-   *
-   * `readContextInfo` 가 세션마다 마지막 모델의 한도를 레지스트리에 묻는 바로 그 자리에서 부른다 — 그
-   * 모델은 이 PC 에서 **실제 API 응답으로 돌아온** 것이라(합성 응답은 `<synthetic>` 이라 모양에서 걸러진다)
-   * 가짜가 없다. 스냅샷마다 불리므로 이미 본 원문은 Set 조회 한 번으로 끝난다.
-   *
-   * 시드·API 가 이미 아는 ID 는 더하지 않는다. 새 ID 면 레지스트리를 다시 짜고(패밀리 latest 재산정),
-   * 방송·저장은 한 박자 미룬다 — 이 호출은 스냅샷 조립 **안**이라 곧장 방송하면 조립 중에 또 조립이 돈다.
+   * §4 (상태바 모델 칸 ③(다)) — 대화록에서 본 모델 ID 를 배운다(`readContextInfo` 의 한도 조회 자리 — 실제 API 응답이라 가짜가 없다). 이미 본 원문은 Set 으로 거른다.
+   * 새 ID 면 레지스트리를 다시 짜되 방송·저장은 미룬다 — 스냅샷 조립 안이라 곧장 방송하면 조립 중에 또 조립이 돈다.
    */
   noteObservedModel(raw: unknown): void {
     if (typeof raw !== 'string' || raw.length === 0) return;

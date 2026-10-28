@@ -1,24 +1,8 @@
 /**
- * §5.5 #17-31 — "지금 이 프로젝트에서 쓸 수 있는 MCP" 인벤토리 + 켜고 끄기.
- *
- * #17-20 ⑥(`mcpConfigService`)은 **우리가 아는 프리셋 4종**을 스폰 인자에 실어 주는 축이고,
- * 여기는 그보다 넓다 — 사용자가 `claude mcp add` 로 직접 붙인 것까지 포함해 **Claude Code 의
- * 실제 설정을 매번 읽어** 한 목록으로 세운다. 우리 나름의 "켜짐" 개념을 새로 만들지 않는 것이
- * 이 모듈의 유일한 규율이다(화면과 실제가 갈리면 토글은 거짓말이 된다).
- *
- * 읽는 곳:
- *   - `~/.claude.json` 최상위 `mcpServers`             → 글로벌(user) 범위
- *   - `~/.claude.json` `projects[<경로>].mcpServers`    → 로컬(이 프로젝트) 범위
- *   - `<루트>/.mcp.json`                                → 프로젝트 범위(레포 자산 — 읽기만)
- *   - `MCP_SERVER_PRESETS`                              → 프리셋(#17-20 ⑥)
- *
- * 켜짐/꺼짐 판정(CLI 실행본 실측):
- *   - `~/.claude.json` `projects[<경로>].disabledMcpServers` → **범위 무관** 끔 목록(= `/mcp disable`)
- *   - `.mcp.json` 승인축 `enabledMcpjsonServers`/`disabledMcpjsonServers`/`enableAllProjectMcpServers`
- *   - `settings.json` 계열의 `deniedMcpServers` → 정책 차단(우리가 풀지 않는다)
- *
- * 쓰는 곳은 **`~/.claude.json` 의 그 프로젝트 엔트리 하나뿐**이다(§5.5 #17-31 ④).
- * 디스크가 SSOT 라 상태를 들지 않는다 — 캐시·broadcast·checkpoint 미관여.
+ * §5.5 #17-31 — 이 프로젝트에서 쓸 수 있는 MCP 인벤토리 + 켜고 끄기. Claude Code 실제 설정을 매번 읽는다 — 우리만의 "켜짐"을 만들지 않는다.
+ * 읽기: `~/.claude.json` `mcpServers`(user)·`projects[<경로>].mcpServers`(로컬) · `<루트>/.mcp.json`(읽기만) · `MCP_SERVER_PRESETS`.
+ * 꺼짐: `projects[<경로>].disabledMcpServers`(범위 무관) · `.mcp.json` 승인축(`enabledMcpjsonServers` 등) · `deniedMcpServers`(정책 — 풀지 않는다).
+ * 쓰기는 `~/.claude.json` 그 프로젝트 엔트리뿐(§5.5 #17-31 ④). 디스크가 SSOT — 캐시·broadcast·checkpoint 없음.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -91,23 +75,12 @@ function managedSettingsPath(): string {
   return '/etc/claude-code/managed-settings.json';
 }
 
-/**
- * 경로 비교용 정규화 — 구분자·끝 구분자를 지우고 **그 플랫폼이 실제로 무시할 때만** 대소문자를 접는다.
- *
- * 종전엔 무조건 `.toLowerCase()` 였다. Linux 는 대소문자를 가리는 파일시스템이라
- * `~/Work/App` 과 `~/work/app` 이 한 키로 뭉개져 **다른 프로젝트의 MCP 설정이 섞였다**
- * (그 상태로 토글하면 남의 프로젝트 `disabledMcpServers` 를 고친다). 정책은 `pathKey` 한 곳에서만.
- */
+/** 경로 비교용 정규화 — 구분자를 지우고 대소문자는 `pathKey` 규칙대로(무조건 접으면 Linux 에서 남의 프로젝트 설정을 고친다). */
 function normalizePathKey(p: string): string {
   return pathKey(p);
 }
 
-/**
- * `~/.claude.json` 의 `projects` 에서 이 프로젝트를 가리키는 **모든** 키.
- *
- * 실측상 같은 폴더가 `C:/…` 와 `C:\…` 두 표기로 함께 들어 있다. 한쪽만 보면 있는 서버가
- * 없다고 나오고, 한쪽만 고치면 토글이 없던 일이 된다.
- */
+/** 이 프로젝트를 가리키는 **모든** `projects` 키 — 실측상 `C:/…`·`C:\…` 두 표기가 함께 있어 한쪽만 보면 토글이 어긋난다. */
 function findProjectKeys(projects: Record<string, unknown>, projectPath: string): string[] {
   const want = normalizePathKey(projectPath);
   return Object.keys(projects).filter((k) => normalizePathKey(k) === want);
@@ -128,14 +101,7 @@ function detectTransport(def: RawServerDef): McpServerTransport {
   return typeof def.url === 'string' && def.url.length > 0 ? 'http' : 'stdio';
 }
 
-/**
- * 실행 파일이 이 컴퓨터에 있는가.
- *
- * 종전엔 `process.env['PATH']` 만 훑었다. Finder/Dock 으로 띄운 macOS 앱의 PATH 는
- * `/usr/bin:/bin:/usr/sbin:/sbin` 넉 줄뿐이라, Homebrew·nvm·pipx 로 깐 `npx`·`uvx`·`docker` 가
- * **전부 `missing-command`** 로 찍혔다 — 화면은 멀쩡히 돌아갈 MCP 서버들을 "실행 파일 없음"으로
- * 줄줄이 세운다. `binLocator` 가 보강된 PATH + 알려진 설치 위치를 함께 본다(PATHEXT 포함).
- */
+/** 실행 파일이 있는가 — `binLocator`(보강 PATH + 알려진 설치 위치). PATH 만 보면 macOS 앱에서 Homebrew·nvm·pipx 의 `npx`·`uvx` 가 `missing-command` 로 찍힌다. */
 function commandExists(command: string, memo: Map<string, boolean>): boolean {
   const cached = memo.get(command);
   if (cached !== undefined) return cached;
@@ -235,13 +201,7 @@ function toEntry(
   };
 }
 
-/**
- * 그 서버를 실제로 쓰기까지 남은 일. **읽어서** 판정한다(추측을 확신처럼 굴지 않는다).
- *
- * "적용은 다음 세션부터" 는 여기 넣지 않는다 — 모든 꺼진 줄에 똑같이 붙어 패널 발치의 안내와
- * 같은 말을 N번 반복하게 되고, 호박색 줄은 "손볼 게 있다" 는 뜻이라 꺼 둔 줄에 오해를 만든다.
- * 그 한마디는 패널 발치에서 **한 번만** 한다(#17-31 ⑤).
- */
+/** 쓰기까지 남은 일 — 읽어서 판정한다. "적용은 다음 세션부터"는 줄마다 넣지 않고 패널 발치에서 한 번만 한다(#17-31 ⑤). */
 function buildRequirements(
   def: RawServerDef,
   transport: McpServerTransport,
@@ -379,12 +339,7 @@ function setInList(entry: Record<string, unknown>, key: string, name: string, pr
   else entry[key] = next;
 }
 
-/**
- * 켜기/끄기 — 쓰는 곳은 `~/.claude.json` 의 그 프로젝트 엔트리 하나뿐이다(§5.5 #17-31 ④).
- *
- * `.mcp.json`·`.claude/settings*.json` 은 읽기만 한다. 파싱이 안 되거나 최상위가 객체가 아니면
- * **쓰지 않는다** — 남의 상태 파일을 망가뜨리는 것보다 토글이 안 되는 편이 낫다.
- */
+/** 켜기/끄기 — 쓰기는 `~/.claude.json` 그 프로젝트 엔트리뿐(§5.5 #17-31 ④). 파싱이 안 되거나 최상위가 객체가 아니면 쓰지 않는다(남의 파일을 망가뜨리지 않게). */
 export function setMcpServerEnabled(
   projectPath: string,
   scope: McpServerScope,

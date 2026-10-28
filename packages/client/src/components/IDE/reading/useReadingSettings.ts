@@ -4,14 +4,8 @@ import { detectFontAvailability, resolveReadingFontStack } from './readingFonts.
 import { resolveReading, type ResolvedReading } from './readingModel.js';
 
 /**
- * §5.5 — 읽기 설정을 실제 화면에 먹이는 훅.
- *
- * 값은 `document.documentElement` 의 CSS 커스텀 프로퍼티로 나가고, 폭 안은 `data-ide-layout`
- * 속성으로 나간다. 그래야 index.css 한 곳이 그리드·탈출·타이포그래피를 전부 맡고 컴포넌트는
- * 인라인 스타일을 들지 않는다(코딩 규칙: 인라인 스타일 금지).
- *
- * 뷰포트 폭을 상태로 들고 있는 이유는 **모바일 자동 변형** 때문이다 — 창을 좁히면 폭 제한이
- * 스스로 풀려야 하므로 resize 를 따라간다.
+ * §5.5 — 읽기 설정을 화면에 먹이는 훅. 값은 `document.documentElement` 의 CSS 변수로, 폭 상태는 `data-ide-layout` 으로 나간다(index.css 가 다 맡고 인라인 스타일 ❌).
+ * 뷰포트 폭은 모바일 자동 변형 때문에 resize 를 따라간다.
  */
 export function useReadingSettings(): ResolvedReading & { fontAvailability: Record<string, boolean> } {
   const reading = useGraphStore((s) => s.ideReading);

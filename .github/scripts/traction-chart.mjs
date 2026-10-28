@@ -1,20 +1,5 @@
-// 별 성장 곡선 — traction.csv 를 읽어 README 에 붙일 SVG 를 그린다.
-//
-// ⚠️ 왜 star-history.com 임베드가 아닌지(2026-08-31):
-//    그쪽 이미지를 README 에 박으면 우리 README 를 여는 **모든 사람의 IP 가 3자 서버로
-//    간다.** 우리 PRIVACY.md 는 "아무것도 수집하지 않는다"고 공개 선언해 두었는데,
-//    그 문장 옆에 3자 추적 픽셀을 놓는 셈이라 앞뒤가 맞지 않는다. 같은 그림을
-//    우리 CSV 로 직접 그리면 그 문제가 통째로 사라진다 — 데이터가 이미 우리 손에 있다.
-//
-// ⚠️ 왜 두 벌(light/dark)인지: GitHub 은 README 이미지를 camo 로 프록시해서 내보낸다.
-//    그 안에서는 SVG 의 `prefers-color-scheme` 이 보는 사람의 테마를 따라가지 못한다.
-//    테마를 따르게 하는 방법은 `<picture>` + `media` 로 **파일 자체를 갈라 주는 것**뿐이다.
-//    그래서 한 벌을 자동 반전시키지 않고, 어두운 배경에 맞는 값을 따로 골라 두 벌을 낸다.
-//
-// 색은 눈으로 고르지 않았다 — dataviz 검증기(6종 검사)를 실제 렌더 표면인
-// GitHub README 배경(라이트 #ffffff · 다크 #0d1117)에 대고 돌려 통과한 값이다.
-// 단일 계열이라 범례는 없고(제목이 계열명이다), 값은 끝점 하나만 직접 붙인다.
-//
+// 별 성장 곡선 SVG(README 용). ⚠️ star-history.com 임베드 ❌ — 보는 사람 IP 가 제3자로 가 PRIVACY.md("아무것도 수집하지 않는다")와 어긋난다.
+// ⚠️ light/dark 두 벌 — camo 프록시 안에선 SVG `prefers-color-scheme` 이 안 먹어 `<picture>` + `media` 로 가른다. 색은 dataviz 검증기를 README 배경에 대고 통과한 값.
 // 사용법: node .github/scripts/traction-chart.mjs <csv 디렉터리>
 
 import fs from 'node:fs';
@@ -81,11 +66,7 @@ function readSeries() {
   return out.sort((a, b) => a.t - b.t);
 }
 
-/**
- * 눈금은 **간격**부터 고른다. 최대값을 4로 나누면 `188 / 375 / 563` 같은 수가 나오는데,
- * 축 눈금은 읽으라고 있는 것이지 정확하라고 있는 것이 아니다 — 1/2/5 사다리에서
- * 간격을 고르고 상단을 거기에 맞춰 올린다. 별 수는 정수라 간격도 정수로 내린다.
- */
+/** 눈금은 1/2/5 사다리로 간격부터 고른다(최대값/4 는 `188 / 375 / 563` 이 된다). 별 수라 간격은 정수. */
 function niceTicks(max) {
   const rough = Math.max(max, 1) / 4;
   const base = 10 ** Math.floor(Math.log10(rough));
@@ -97,13 +78,7 @@ function niceTicks(max) {
 const fmt = (n) => Number(n).toLocaleString('en-US');
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/**
- * 점이 하나뿐이면 **곡선이라는 것이 아직 존재하지 않는다.** 억지로 선을 긋는 것도,
- * 오늘 값을 크게 박는 것도 둘 다 틀렸다 — 이 그림의 주제는 "몇 개인가"가 아니라
- * "어떻게 늘었는가"이고, 그 답이 아직 없다는 게 사실이기 때문이다.
- * 그래서 숫자 대신 조용한 한 줄만 둔다. 내일 두 번째 값이 찍히면 자동으로 선이 된다.
- * (오늘의 별 수 자체는 배지와 저장소 헤더에 이미 있다. 여기서 반복할 이유가 없다.)
- */
+/** 점이 하나면 곡선이 없다 — 조용한 한 줄만 둔다(두 번째 값부터 선이 된다). */
 const PLACEHOLDER_H = 132;
 
 function renderPlaceholder(theme, series) {

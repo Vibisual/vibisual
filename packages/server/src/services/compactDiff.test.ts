@@ -10,11 +10,8 @@ import {
   hasNotCarried,
 } from './compactDiff.js';
 
-// SCENARIO.md §5.26 (D)(E) — 압축 전후 대조 + 복원 브리핑.
-//
-// **판정에 모델이 없다.** 그래서 이 시험이 지키는 것은 정확도가 아니라 **정직함**이다:
-// 요약이 다른 말로 옮겼을 뿐인데 "안 실렸다"고 적으면 사용자는 없는 손실을 복구하려 든다.
-// 그래서 판정은 "실린 쪽"으로 기울어야 한다.
+// §5.26 (D)(E) — 압축 전후 대조 + 복원 브리핑. 판정에 모델이 없어 이 시험이 지키는 것은 정확도가 아니라 정직함이다 —
+// 요약이 바꿔 말했을 뿐인데 "안 실렸다"고 적으면 없는 손실을 복구하려 든다. 판정은 "실린 쪽"으로 기울어야 한다.
 
 function ws(over: Partial<CompactWorkingSet> = {}): CompactWorkingSet {
   return { ...emptyWorkingSet(), ...over };

@@ -1,9 +1,4 @@
-/**
- * §5.13 (AA) 42-5·42-6 — 렌더 대기열의 판정(파일·시계·소켓 없이 일감 객체만 본다).
- *
- * 서버 몫(`VideoService`)이 이 함수들로 줄을 고르고 · 사람의 조작을 적용하고 · 파일에 적을 기록을 만들고 · 껐다 켠 뒤 되살린다.
- * 판정을 여기 모아 두는 이유는 시험이다 — 예약 시각·멈춤·순서·되살리기는 시계와 파일 없이 고정해야 다시 틀리지 않는다.
- */
+/** §5.13 (AA) 42-5·42-6 — 렌더 대기열 판정(일감 객체만 본다 — 예약·멈춤·순서·되살리기를 시계·파일 없이 시험으로 고정하려고). */
 
 import type { RenderOutputSpec, RenderSpec } from '../renderSpec.js';
 
@@ -69,10 +64,7 @@ function settlePause(job: QueueJob, now: number): void {
   job.paused = false;
 }
 
-/**
- * 일감 하나에 조작을 건다. 바뀌었으면 `changed`, 지금 상태에서 뜻이 없으면 `error`(화면은 그대로 둔다). 순서 바꾸기는
- * `reorderJob` 이 맡는다(이웃을 알아야 한다).
- */
+/** 지금 상태에서 뜻이 없는 조작은 `error`(화면은 그대로 둔다). 순서 바꾸기(`move-up`·`move-down`)는 이웃을 알아야 해서 `reorderJob` 이 맡는다. */
 export function applyQueueAction(job: QueueJob, action: QueueAction, now: number): { changed: boolean; error?: string } {
   const terminal = isTerminalStatus(job.status);
   switch (action) {

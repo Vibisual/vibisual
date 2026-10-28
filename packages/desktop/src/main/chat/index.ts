@@ -31,22 +31,11 @@ import { chatStrings, fmt } from './strings';
 import type { ChatStrings } from './strings';
 import type { ChatChannel, ChatInbound } from './types';
 
-// §4 메신저 원격제어 브리지 — 상위 (판올림 번호 발급 대기)
-//
-// 드라이버가 "그 메신저와 말하는 법"을 안다면, 여기는 **누구의 말을 들을지 · 무엇을 내보낼지 ·
-// 그것을 무엇으로 실행할지**를 안다. 판정이 여기 한 곳에 있어야 메신저가 둘이어도 보안이 한 벌이다.
-// (판정의 **규칙 자체**는 `policy.ts` 에 순수 함수로 있고 단위 테스트로 고정돼 있다.)
-//
-// 새 레일을 만들지 않는다는 것이 이 파일의 설계 전부다:
-//   · 하행 = `setBroadcastSink` 팬아웃에서 부르는 `chatBroadcast()` 하나(§9 v3.40 선례 옆).
-//   · 상행 = `mobileAccess.dispatchToExpress` 와 같은 light-my-request `inject` 로 **기존 REST**.
-//            (`/api/commands/:sessionId` · `/api/permission-decide` · `/api/permission-pending`
-//             · `/api/ask-user-question/decide` · `/api/subagents/:agentId/stop-all`)
-//   · **고를 목록만은 예외** = `listChatCommandTargets()`(server 코어의 얇은 주입, `getUiLocale()`
-//     선례). 팬아웃 스냅샷은 §9 스코프드라 **열어 두지 않은 탭의 에이전트가 통째로 빠진다** —
-//     밖에서 폰으로 고르는 목록이 집 PC 의 탭 상태로 달라지면 에이전트가 사라진 것으로 보인다.
-//   · 페어링 = §4 v3.66 QR 티켓과 같은 모양(3분·메모리 전용·per-발신자 밴) + **DM 에서만**.
-//   · 언어 = `GraphSnapshot.uiLocale`(팬아웃으로 이미 오는 값). 별도 조회 레일 ❌.
+// §4 메신저 원격제어 브리지 — 상위. 드라이버가 "그 메신저와 말하는 법"이라면 여기는 누구의 말을 들을지 · 무엇을 내보낼지 · 무엇으로 실행할지를 안다(메신저가 둘이어도 보안이 한 벌; 판정 규칙은 `policy.ts` 순수 함수·단위 시험).
+// 새 레일을 만들지 않는다: 하행 = `setBroadcastSink` 팬아웃에서 부르는 `chatBroadcast()` 하나(§9). 상행 = `mobileAccess.dispatchToExpress` 와 같은 `inject` 로 기존 REST
+//   (`/api/commands/:sessionId` · `/api/permission-decide` · `/api/permission-pending` · `/api/ask-user-question/decide` · `/api/subagents/:agentId/stop-all`).
+//   예외: 고를 목록은 `listChatCommandTargets()`(server 코어 얇은 주입) — 팬아웃 스냅샷은 §9 스코프드라 열지 않은 탭의 에이전트가 빠진다.
+//   페어링 = §4 QR 티켓과 같은 모양(3분·메모리 전용·발신자별 밴) + DM 에서만. 언어 = `GraphSnapshot.uiLocale`(별도 조회 레일 ❌).
 
 interface PersistedChannel {
   enabled: boolean;
@@ -149,11 +138,8 @@ function persistPath(): string {
 }
 
 /**
- * `<file>.tmp` 에 쓰고 fsync 후 rename — §3.2.1-1 원자적 쓰기와 같은 절차.
- *
- * 이 파일에는 **봇 토큰**이 들어 있다. 그래서 두 가지를 함께 지킨다:
- *   ① 쓰는 도중 죽어도 기존 파일이 반파되지 않는다(토큰과 peer 목록이 통째로 날아가지 않게).
- *   ② `mode 0600` — mac/linux 에서 기본 0644 로 떨어지면 같은 기기의 다른 계정이 토큰을 읽는다.
+ * `<file>.tmp` 에 쓰고 fsync 후 rename(§3.2.1-1 원자적 쓰기). 이 파일엔 **봇 토큰**이 있다 — ① 쓰다 죽어도 기존 파일이 반파되지 않게
+ * ② `mode 0600` — mac/linux 기본 0644 면 같은 기기의 다른 계정이 토큰을 읽는다.
  */
 function writeSecretFileSync(filePath: string, data: string): void {
   const tmp = `${filePath}.tmp`;
@@ -317,7 +303,7 @@ export function chatBroadcast(msg: WSMessage): void {
       case 'agent_report':
       case 'agent_questions':
       case 'agent_review':
-        // 본체는 다음 graph_snapshot 에 온다(§4 v2.52 규약) — 그때 한 번만 훑는다.
+        // 본체는 다음 graph_snapshot 에 온다(§4 규약) — 그때 한 번만 훑는다.
         cardsDirty = true;
         break;
       case 'sub_agent_stream':
@@ -449,21 +435,16 @@ function onStreamEvent(event: SubAgentStreamEvent | undefined): void {
       trimLogBuffers(logBuffer);
     }
   }
-  // ② 전송은 `full` 에서만.
-  //    최종 판정은 `sendTo` 의 `canSend` 한 곳이지만, 여기서 **값싼 선판정**을 먼저 한다 —
-  //    스트림은 초당 여러 번 도는 뜨거운 경로라, 기본값(`cards`)에서 어차피 버릴 카드를
-  //    매번 만들고 `agentLabel` 로 에이전트 배열을 훑는 것은 그 자체가 비용이다.
+  // ② 전송은 `full` 에서만. 최종 판정은 `sendTo` 의 `canSend` 지만 여기서 값싼 선판정을 먼저 한다 — 스트림은 초당 여러 번 도는 경로라
+  // 기본값(`cards`)에서 버릴 카드를 만들고 `agentLabel` 로 에이전트 배열을 훑는 것 자체가 비용이다.
   if (persisted.verbosity !== 'full') return;
   const card = streamCard(event, S(), agentLabel(event.parentAgentId));
   if (card) broadcastCard(card);
 }
 
 /**
- * **카드가 한 대화로 나가는 유일한 문.**
- *
- * 전송량 정책과 **채널 on/off** 를 함께 본다(`policy.canSend`). 예전에는 여기서 on/off 를
- * 보지 않아, 사용자가 모달에서 [끄기] 를 눌러도 그 세션 동안 카드가 계속 나갔다 —
- * 드라이버 `stop()` 은 수신만 끊고 `sendCard` 는 REST 라 토큰만 있으면 그대로 갔기 때문이다.
+ * **카드가 한 대화로 나가는 유일한 문.** 전송량 정책과 **채널 on/off** 를 함께 본다(`policy.canSend`) — 드라이버 `stop()` 은 수신만 끊고
+ * `sendCard` 는 REST 라, 여기서 on/off 를 안 보면 [끄기] 뒤에도 토큰만 있으면 카드가 나간다.
  */
 function sendTo(peer: { kind: ChatChannelKind; chatId: string }, card: ChatCard): void {
   if (!canSend({
@@ -488,11 +469,8 @@ function replyTo(peer: { kind: ChatChannelKind; chatId: string }, card: ChatCard
 }
 
 /**
- * 브리지가 다시 붙었다 — 그 사이 쌓인 권한 요청을 다시 민다(§4 ⑧).
- *
- * 이것이 없으면 네트워크가 잠깐 끊긴 사이 온 권한 요청은 폰에서 **영영 못 본다**. 60초 자동
- * 결정이 그대로 흘러가 이 축의 존재 이유가 정확히 무력화되는 자리다. 만료된 것은 broker 가
- * 이미 빼 두었으므로 목록에 오지 않는다(자동 소거).
+ * 브리지가 다시 붙었다 — 그 사이 쌓인 권한 요청을 다시 민다(§4 ⑧). 없으면 잠깐 끊긴 사이 온 요청을 폰에서 영영 못 보고 60초 자동 결정이 흘러간다.
+ * 만료된 것은 broker 가 이미 빼 두어 목록에 오지 않는다.
  */
 async function resendPendingPermissions(kind: ChatChannelKind): Promise<void> {
   if (!persisted.channels[kind].enabled) return;
@@ -521,24 +499,13 @@ function agentLabel(agentId: string): string | undefined {
   return commandableAgents().find((t) => t.agentId === agentId)?.label;
 }
 
-// ─── 3단계 선택 (프로젝트 → 커스텀 에이전트 → 세션) ──────────────────────────
-//
-// 종전에는 `/agents` 한 장이 **모든 프로젝트의** 에이전트를 스무 개까지 섞어서 보여 줬다.
-// 프로젝트가 여럿이면 그 목록은 같은 이름의 에이전트가 나란히 선 채 어느 쪽인지 말하지 않고,
-// 스무 개를 넘기면 뒤는 아예 보이지 않는다. 게다가 세션(= IDE 탭)을 고를 수 없어서 폰에서 보낸
-// 말은 언제나 서버가 정한 정규 세션 하나로만 갔다 — PC 앞에서는 탭을 골라 말하는데 밖에서는
-// 그 축이 없었다. 그래서 좁혀 들어가는 세 칸으로 나눈다.
-//
+// 3단계 선택 (프로젝트 → 커스텀 에이전트 → 세션). 한 장에 모든 프로젝트의 에이전트를 섞으면 같은 이름이 어느 쪽인지 모르고 상한 뒤는 안 보이며,
+// 세션(IDE 탭)을 못 골라 폰의 말이 서버가 정한 정규 세션으로만 간다 — 그래서 좁혀 들어가는 세 칸으로 나눈다.
 // 목록의 원천이 팬아웃 스냅샷이 아니라 `listChatCommandTargets()` 인 이유는 파일 머리 주석 참조.
 
 /**
- * 목록 조회 캐시(`CHAT_TARGETS_TTL_MS`).
- *
- * `listChatCommandTargets()` 는 **범위 미적용 전량 스냅샷**을 만든다 — 고를 목록이 집 PC 의 탭
- * 상태로 달라지지 않으려면 그래야 한다. 그런데 `agentLabel()` 의 폴백이 이 목록을 보므로,
- * 캐시가 없으면 `full` 전송량에서 **스트림 이벤트마다** 전량 스냅샷을 한 번씩 만들게 된다
- * (초당 여러 번 도는 뜨거운 경로다). 사람의 클릭 간격은 이 창보다 훨씬 길어 고르는 흐름에서는
- * 사실상 늘 최신이다.
+ * 목록 조회 캐시(`CHAT_TARGETS_TTL_MS`). `listChatCommandTargets()` 는 범위 미적용 전량 스냅샷을 만드는데 `agentLabel()` 폴백이 이 목록을 보므로,
+ * 캐시가 없으면 `full` 에서 스트림 이벤트마다 전량 스냅샷을 만든다. 사람의 클릭 간격은 이 창보다 훨씬 길어 고르는 흐름엔 사실상 늘 최신이다.
  */
 let targetsCache: { at: number; list: ChatCommandTarget[] } | null = null;
 
@@ -645,11 +612,8 @@ function pickSessionsCard(peer: ChatPeer, target: ChatCommandTarget, s: ChatStri
 }
 
 /**
- * 지금 이 대화가 서 있는 칸에서 **다음에 골라야 할 카드**를 만든다.
- *
- * 세 칸을 따로 부르는 대신 이 한 곳이 "어디까지 골랐나"를 보고 정한다 — 그래서 `/projects`·
- * `/agents`·`/sessions` 가 서로 다른 진입점이어도 사용자는 늘 이어지는 한 흐름을 본다.
- * 프로젝트가 하나뿐이면 **자동으로 채운다**(칸이 하나인 선택은 선택이 아니다).
+ * 이 대화가 서 있는 칸에서 다음에 골라야 할 카드를 만든다 — 한 곳이 "어디까지 골랐나"를 보고 정해 `/projects`·`/agents`·`/sessions` 가
+ * 이어지는 한 흐름이 된다. 프로젝트가 하나뿐이면 자동으로 채운다(칸이 하나인 선택은 선택이 아니다).
  */
 function nextPickCard(peer: ChatPeer, s: ChatStrings, from: 'projects' | 'agents' | 'sessions'): ChatCard {
   const list = commandableAgents();
@@ -696,10 +660,8 @@ function recordPairFailure(key: string): void {
 }
 
 /**
- * 화이트리스트 밖 발신자에게 안내 한 장 — **발신자별 쿨다운 아래에서만**.
- *
- * 침묵이 원칙이지만(§4 ⑤) 여기까지 침묵하면 사용자는 봇이 고장난 줄 안다. 다만 상한이
- * 없으면 그 친절이 곧 무제한 답장이 되어 봇의 존재가 노출되고 메신저 rate limit 이 소진된다.
+ * 화이트리스트 밖 발신자에게 안내 한 장 — **발신자별 쿨다운 아래에서만**. 침묵이 원칙이지만(§4 ⑤) 여기까지 침묵하면 봇이 고장난 줄 안다.
+ * 상한이 없으면 무제한 답장이 되어 봇의 존재가 노출되고 메신저 rate limit 이 소진된다.
  */
 function noticeUnpaired(kind: ChatChannelKind, chatId: string, card: ChatCard): void {
   const key = peerKey(kind, chatId);
@@ -732,8 +694,7 @@ function handlePair(kind: ChatChannelKind, chatId: string, label: string, token:
   const rt = runtime[kind];
   const live = rt.ticket && rt.ticket.expiresAt > Date.now() ? rt.ticket : null;
   if (!live) {
-    // 살아 있는 티켓이 없다 = 지금은 연결을 받지 않는다. 이건 비밀이 아니고, 알려 주지 않으면
-    // 사용자는 "만료됐다"를 알 길이 없다(§4 v3.87 이 QR 만료 안내를 붙인 것과 같은 이유).
+    // 살아 있는 티켓이 없다 = 지금은 연결을 받지 않는다. 비밀이 아니고, 알려 주지 않으면 "만료됐다"를 알 길이 없다(§4 QR 만료 안내와 같은 이유).
     noticeUnpaired(kind, chatId, textCard(s.titleNotPairing, [s.pairNotOpen1, s.pairNotOpen2]));
     return;
   }
@@ -935,12 +896,7 @@ function needTargetCard(s: ChatStrings): ChatCard {
   return pickEntryCard(s.titleNeedTarget, [s.needTarget], s);
 }
 
-/**
- * 겨눔을 그 칸부터 **아래로 함께** 걷는다.
- *
- * 프로젝트를 바꿨는데 에이전트 겨눔이 남아 있으면 화면은 새 프로젝트를 말하면서 명령은 옛
- * 에이전트로 간다 — 사용자가 범위를 오해하는 것이 아니라 **상태가 스스로 어긋난** 자리다.
- */
+/** 겨눔을 그 칸부터 **아래로 함께** 걷는다 — 프로젝트를 바꿨는데 에이전트 겨눔이 남으면 화면은 새 프로젝트를 말하면서 명령은 옛 에이전트로 간다. */
 function clearTarget(peer: ChatPeer, from: 'project' | 'agent' | 'session'): void {
   if (from === 'project') { delete peer.targetProject; delete peer.targetAgentId; delete peer.targetSubAgentId; }
   else if (from === 'agent') { delete peer.targetAgentId; delete peer.targetSubAgentId; }
@@ -949,11 +905,8 @@ function clearTarget(peer: ChatPeer, from: 'project' | 'agent' | 'session'): voi
 }
 
 /**
- * `/status` — §4 v4.46 세션 목표를 그대로 읽는다(진행률을 따로 계산하지 않는다).
- *
- * 목표가 없을 때 종전에는 "목표 없음" 한 줄로 끝났는데, `sessionGoals` 는 §9 슬라이스 스코프의
- * `ideLane` 그룹이라 **IDE 레인을 안 열어 두면 아예 오지 않는다** — 그러면 도는 세션이 있어도
- * 폰에는 늘 "없음"만 뜬다. 그래서 목표가 없으면 범위와 무관한 값(세션 상태·대기 수)으로 답한다.
+ * `/status` — §4 세션 목표를 그대로 읽는다(진행률을 따로 계산하지 않는다). `sessionGoals` 는 §9 슬라이스 스코프의 `ideLane` 그룹이라 IDE 레인을
+ * 안 열어 두면 오지 않는다 — 목표가 없으면 범위와 무관한 값(세션 상태·대기 수)으로 답한다(아니면 도는 세션이 있어도 늘 "없음").
  */
 function statusCard(peer: ChatPeer, s: ChatStrings): ChatCard {
   const agentId = peer.targetAgentId;
@@ -989,12 +942,8 @@ function statusCard(peer: ChatPeer, s: ChatStrings): ChatCard {
 const PICK_PREFIXES = ['pj', 'a', 'sn', 'go'] as const;
 
 /**
- * **선택 흐름으로 들어가는 버튼**(§4 ⑨-(f) ②) — 타이핑이 필요 없는 유일한 손잡이다.
- *
- * 종전에는 세 진입점이 전부 슬래시 명령뿐이었다. 그런데 디스코드 클라이언트는 입력창의 `/`
- * 를 슬래시 명령 피커로 가로채므로 **거기서는 흐름에 들어갈 방법이 없었다** — 선택 흐름
- * 자체는 채널 공통인데 디스코드에서만 닿지 못하던 이유다. 카드에 버튼 하나를 붙이면 폰에서는
- * 아무것도 치지 않고 탭만으로 프로젝트→에이전트→세션에 도달한다(텔레그램도 함께 얻는다).
+ * **선택 흐름으로 들어가는 버튼**(§4 ⑨-(f) ②) — 타이핑이 필요 없는 유일한 손잡이. 디스코드는 입력창의 `/` 를 가로채 슬래시 명령으로는 흐름에 못 들어가므로,
+ * 카드에 버튼 하나를 붙여 탭만으로 프로젝트→에이전트→세션에 닿게 한다(텔레그램도 같이 쓴다).
  */
 const GO_PICK_ACTION = 'go:projects';
 
@@ -1013,12 +962,7 @@ function isPickAction(actionId: string): boolean {
   return PICK_PREFIXES.some((prefix) => actionId.startsWith(`${prefix}:`));
 }
 
-/**
- * 3단계 선택 버튼 — 결정이 아니라 대상 지정이라 pendingActions 를 쓰지 않는다.
- *
- * 고를 때마다 **다음 칸을 바로 띄운다**. 한 번 누를 때마다 다시 명령을 쳐야 하면 세 칸이
- * 세 번의 왕복이 되고, 그건 폰에서 쓰라고 만든 축에서 가장 비싼 비용이다.
- */
+/** 3단계 선택 버튼 — 결정이 아니라 대상 지정이라 pendingActions 를 쓰지 않는다. 고를 때마다 다음 칸을 바로 띄운다(칸마다 명령을 다시 치게 하면 세 번 왕복이다). */
 function handleSelect(peer: ChatPeer, actionId: string): string | null {
   if (!isPickAction(actionId)) return null;
   const s = S();

@@ -12,15 +12,7 @@ import { usePreviewSnip } from '../Preview/usePreviewSnip.js';
 import { PreviewFrames } from '../Preview/PreviewFrames.js';
 import { PreviewControls, PreviewPickPanel } from '../Preview/PreviewControls.js';
 
-/**
- * §5.14 v4.62 — 플레이 프리뷰 버블.
- *
- * 플레이 버튼을 누르면 **그 옆에** 뜨는 라이브 iframe 이다. 버튼과 한 레코드에서 나오지만
- * 캔버스에서는 따로 산다 — 각자 끌고, 각자 크기를 바꾸고, 프리뷰만 닫을 수 있다.
- *
- * 헤더에서만 드래그한다(본체는 iframe 이라 마우스가 그 안의 페이지로 가야 한다 — 여기서
- * 드래그를 허용하면 앱을 조작할 수가 없다).
- */
+/** §5.14 — 플레이 프리뷰(iframe). 버튼과 한 레코드지만 캔버스에선 따로 끌고·크기 바꾸고·닫는다. 헤더에서만 드래그 — 본체 마우스는 페이지 조작 몫. */
 
 export interface PlayPreviewNodeData extends Record<string, unknown> {
   playBubbleId: string;
@@ -32,10 +24,7 @@ export interface PlayPreviewNodeData extends Record<string, unknown> {
   ownerAgentId?: string | undefined;
 }
 
-/**
- * §5.17 (C) — 담당 에이전트 엣지의 끝점. 보이지 않는 점 하나면 충분하다(연결을 **끄는** 손잡이가
- * 아니라 이미 정해진 관계를 그리기 위한 자리라, 크기 1px·투명으로 둔다 — BubbleNode 와 같은 규칙).
- */
+/** §5.17 (C) — 담당 에이전트 엣지의 끝점. 끄는 손잡이가 아니라 1px·투명(BubbleNode 와 같다). */
 const HANDLE_STYLE: React.CSSProperties = {
   left: '50%',
   top: '50%',
@@ -75,13 +64,7 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
   const chosenHere = useGraphStore((s) => s.selectedPlayBubbleId === data.playBubbleId || s.selectIntentId === data.playBubbleId);
   const isSelected = selected === true || chosenHere;
 
-  /**
-   * 선택 — 캔버스 공용 상태기계(`bubbleSelectGesture`) 한 벌. 프리뷰에는 더블클릭 동작이 없어
-   * 지연 없이 손 뗀 자리에서 바로 선택된다. 끌고 간 뒤에는 선택되지 않는다(클릭과 드래그를 가른다).
-   *
-   * ⚠ 캡처 단계로 받는 이유(v4.69)와 헤더의 아이콘 버튼(닫기·새로고침)에서 선택을 건너뛰는
-   * 이유는 그 파일에 함께 적어 두었다.
-   */
+  /** 선택 — 공용 `bubbleSelectGesture`(더블클릭 없음: 바로 선택, 끈 뒤엔 ❌). 캡처 단계·헤더 버튼 건너뛰기의 이유는 그 파일에. */
   // §6 — 고른 묶음은 다른 버블과 같은 칸이다. 프리뷰는 표지와 따로 사는 노드라 묶음에도 따로 든다.
   const canvasSelection = useCanvasNodeSelection(id, data.playBubbleId);
   const gesture = useBubbleSelectGesture({
@@ -139,7 +122,7 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
         previewWidth: params.width,
         previewHeight: params.height,
       });
-      // 저장 직후 도착하는 스냅샷이 방금 옮긴 자리를 덮지 않도록 잠깐 더 잠근다(§5.13 v4.60 규칙).
+      // 저장 직후 스냅샷이 방금 옮긴 자리를 덮지 않게 잠깐 더 잠근다.
       setTimeout(() => setDragLock(data.playBubbleId, false), 300);
     })();
   };
@@ -177,10 +160,7 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
         <Handle type="source" id="src" position={Position.Top} style={HANDLE_STYLE} isConnectable={false} />
         <Handle type="target" id="tgt" position={Position.Top} style={HANDLE_STYLE} isConnectable={false} />
 
-        {/* 헤더 — 여기만 드래그 손잡이다(본체는 페이지 조작에 내준다).
-            버블이 좁으면 `h-7` 고정 높이 + 한 줄 배치가 조작 줄과 [닫기] 를 밖으로 밀어내 잘라 버렸다.
-            `min-h-7` + `flex-wrap` 으로 바꿔 **잘리는 대신 아랫줄로 접히게** 한다(§5.17 — 되돌릴 자리는
-            언제나 화면 안에 있어야 한다). */}
+        {/* 헤더만 드래그 손잡이. `min-h-7` + `flex-wrap` 을 `h-7` 고정으로 되돌리면 좁을 때 [닫기]가 밖으로 밀려 잘린다(§5.17). */}
         <div className="drag-handle flex min-h-7 shrink-0 cursor-grab flex-wrap items-center gap-1.5 border-b px-2 py-0.5" style={{ borderColor: CHROME_BORDER }}>
           <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-400" aria-hidden />
           <span className="min-w-0 flex-1 truncate text-[12px] text-white/70">

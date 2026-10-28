@@ -5,16 +5,7 @@ import type { IDEViewType } from '../../stores/graphStore.js';
 import { useIDEActivityBarStore } from '../../stores/ideActivityBar.js';
 import { ActivityIcon } from './ideActivityIcons.js';
 
-/**
- * §5.5 #16-1 — 활동바 **구성 패널**. 활동바 상단 버튼을 누르면 그 오른쪽에 붙어 열린다.
- *
- * 하는 일은 둘이다 — **무엇을 올려 둘지**(추가/제외)와 **어떤 차례로 둘지**(위/아래).
- * 활동바 자체에서도 길게 눌러 끌면 자리가 바뀌지만, 그 손짓은 **화면에 서 있는 칸**만 옮길 수
- * 있다. 내려놓은 칸을 도로 올리는 자리는 여기뿐이라, 두 목록을 한 화면에 나란히 둔다.
- *
- * **제외는 삭제가 아니다.** 내려놓은 칸은 아래 목록에 그대로 남아 언제든 도로 올라간다 —
- * 그래서 "없어졌다"가 아니라 "접어 뒀다"로 읽힌다.
- */
+/** §5.5 #16-1 — 활동바 구성 패널(올릴 칸 추가/제외 · 차례). 내려놓은 칸을 도로 올리는 곳은 여기뿐이라 두 목록을 나란히 둔다. 제외는 삭제가 아니다(아래 목록에 남는다). */
 export const IDEActivityBarCustomize = memo(function IDEActivityBarCustomize({
   order,
   visible,

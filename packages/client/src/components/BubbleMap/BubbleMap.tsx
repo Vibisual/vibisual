@@ -84,9 +84,7 @@ import { usePhysicsLayout, type ExternalPhysicsNode, type PhysicsGroup, type Phy
 import { useBubbleLayout, useFolderLayout, usePipelineLayout, useInteriorLayout } from '../../hooks/useBubbleLayout.js';
 // §5.1 #2-1 — 파일 얼굴(미디어 더블클릭 열기) · 작업물 별자리(앱 노드 중심 · 버블 밖 부모의 첫 자리).
 import { useConstellationAppHubs } from '../../hooks/useConstellationAppHubs.js';
-import { activeProjectRoot, fileFaceOf, fileFaceOpenRoute, fileMediaTarget } from '../../utils/fileFaceView.js';
-import { openAppWindow } from '../../apps/appWindows.js';
-import { openExternally, openWorkspaceTarget } from '../IDE/openWorkspaceTarget.js';
+import { openFileBubble } from './fileBubbleOpen.js';
 import { useTrashedAgents } from '../../hooks/useTrashedAgents.js';
 import { CanvasContextMenu } from './CanvasContextMenu.js';
 import { canCreateMainViewBubble, isMainCanvasView } from './canvasScope.js';
@@ -134,7 +132,6 @@ import {
 import { LinkFocusHint } from './LinkFocusHint.js';
 import { SelectionFocusFlow } from './SelectionFocusFlow.js';
 import type { LinkSatelliteRef } from './linkedBubbles.js';
-import { folderCandidates, resolveSatelliteFolderId } from './satelliteNavigate.js';
 import { openDomainBubble } from './openDomainBubble.js';
 import { useWebOpenTargetStore } from '../../stores/webOpenTarget.js';
 import { useTranslation } from 'react-i18next';
@@ -143,12 +140,7 @@ import { useTranslation } from 'react-i18next';
 const NO_BUNDLE_MEMBERS: BubbleData[] = [];
 const nodeTypes: NodeTypes = { bubble: CanvasBubbleNode, commentBox: CommentBoxNode, captureNode: CaptureNode, appNode: AppBubbleNode, playNode: PlayNode, playPreviewNode: PlayPreviewNode, specNode: SpecNode, labNode: LabNode, shelfNode: ShelfNode };
 
-/**
- * §5.14 v4.62 — 프리뷰 노드 id(`<recordId>__preview`) → 레코드 id.
- *
- * 플레이 버블은 레코드 하나가 캔버스 노드 둘(버튼·프리뷰)로 그려진다. 드래그·락·PATCH 는
- * 언제나 **레코드 id** 를 키로 써야 프리뷰를 끌었을 때 엉뚱한 곳에 저장되지 않는다.
- */
+/** §5.14 — 프리뷰 노드 id(`<recordId>__preview`) → 레코드 id. 드래그·락·PATCH 는 늘 레코드 id 로(레코드 하나가 노드 둘이다). */
 function playRecordId(nodeId: string): string {
   return nodeId.endsWith('__preview') ? nodeId.slice(0, -'__preview'.length) : nodeId;
 }
@@ -202,36 +194,25 @@ interface BubbleMenuTarget {
   textField?: BubbleMenuTextField;
 }
 
-/** §4 v3.71 — 덮였을 때 캔버스에 씌우는 스타일(참조 고정 — 매 렌더 새 객체 ❌). */
+/** §4 — 덮였을 때 캔버스에 씌우는 스타일(참조 고정 — 매 렌더 새 객체 ❌). */
 const HIDDEN_CANVAS_STYLE: React.CSSProperties = { visibility: 'hidden' };
 
 /** §6 — 빈 묶음(참조 고정 — 비어 있을 때 매 렌더 새 집합을 만들어 헛 렌더를 부르지 않게). */
 const EMPTY_SELECTION: ReadonlySet<string> = new Set();
 
 /**
- * React Flow 의 누적(다중) 선택 키 — **Shift 하나뿐**이다. 모듈 상수인 이유는 매 렌더 새 배열이면 키
- * 리스너가 다시 걸리기 때문.
- *
- * ⚠ 이 값은 사용자가 누르는 "다중 선택 키"가 아니다(2026-10-11, §6). 노드는 박스 선택이 도는 동안만
- * React Flow 가 고를 수 있어서(`flowSelectable`) 클릭으로 고르는 일은 우리 손잡이가 한다 — Ctrl/Cmd 클릭은
- * 버블의 선택 제스처(`toggle`), Shift 클릭은 아래 캔버스 캡처 손잡이다. 여기 남은 뜻은 React Flow 내부
- * 판정(끌기 시작에 남의 선택을 내릴지)뿐인데, Ctrl/Cmd 를 넣으면 무리 끌기(§5.4 #31)를 시작할 때 고른 묶음까지
- * 함께 끌려가므로 넣지 않는다.
+ * React Flow 누적 선택 키 — Shift 하나(모듈 상수: 새 배열이면 키 리스너가 다시 걸린다). 사용자의 다중 선택 키가 아니다 — 클릭 고르기는 우리 손잡이가 한다(§6).
+ * Ctrl/Cmd 를 넣지 마라 — 무리 끌기(§5.4 #31)를 시작할 때 고른 묶음까지 끌려간다.
  */
 const MULTI_SELECT_KEYS = ['Shift'];
 
-/**
- * React Flow 의 노드 고르기 — 박스 선택이 걸쳐 지나간 노드를 모두 든다(`Partial`). 완전히 감싸야만 드는
- * 기본값(`Full`)은 큰 화면 노드·말풍선 카드·궤도까지 그리는 원을 상자에 다 넣기 어려워 "선택이 잘 안 된다"
- * 가 됐다(사용자 보고 2026-10-11).
- */
+/** 박스 선택은 걸친 노드를 모두 든다(`Partial`) — `Full` 이면 큰 화면 노드·말풍선·궤도 원을 상자에 다 넣기 어렵다. */
 const SELECTION_MODE = SelectionMode.Partial;
 
 // ─── 컴포넌트 ───
 
 export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
-  // §4 v3.71 가시성 LOD — 전면 오버레이(IDE 최대화·모달, 기억 피드, 옵션창 등)에 덮여 있으면
-  //   캔버스는 한 픽셀도 안 보인다 → 페인트·애니메이션·물리·주기 flush 를 통째로 멈춘다.
+  // §4 가시성 LOD — 전면 오버레이(IDE 최대화·모달·옵션창 등)에 덮였으면 페인트·애니메이션·물리·주기 flush 를 통째로 멈춘다.
   const covered = useCanvasCovered();
   const allAgents = useGraphStore((s) => s.agents);
   const agentProjects = useGraphStore((s) => s.agentProjects);
@@ -245,7 +226,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const storeSatellites = useGraphStore((s) => s.satellites);
   const satellitePositions = useGraphStore((s) => s.satellitePositions);
   const currentFolderId = useGraphStore((s) => s.currentFolderId);
-  // §5.10 — 휴지통 내부 뷰 상태(currentFolderId 와 독립 축). 기억은 v3.49 피드 오버레이가 담당.
+  // §5.10 — 휴지통 내부 뷰 상태(`currentFolderId` 와 독립 축).
   const interiorView = useGraphStore((s) => s.interiorView);
   const pendingFocus = useGraphStore((s) => s.pendingFocus);
   const focusNodeId = useGraphStore((s) => s.focusNodeId);
@@ -275,8 +256,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     return inProject.filter((a) => !a.trashed);
   }, [allAgents, agentProjects, effectiveAgentProject]);
 
-  // §5.10 — 현재 프로젝트의 버려진(trashed) 커스텀 에이전트 — 휴지통 내부 뷰 콘텐츠.
-  //   v4.84 — 툴바([모두 삭제])와 같은 배열을 봐야 뚜껑·속·삭제 대상이 어긋나지 않아 훅으로 모았다.
+  // §5.10 — 현재 프로젝트의 trashed 커스텀 에이전트. 툴바 [모두 삭제]와 같은 훅이어야 뚜껑·속·삭제 대상이 어긋나지 않는다.
   const trashedAgents = useTrashedAgents();
 
   // 필터된 에이전트 ID Set (엣지 필터용)
@@ -336,7 +316,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   const positionsRef = useRef(new Map<string, XYPosition>());
   const rfRef = useRef<ReactFlowInstance | null>(null);
-  // Comment Box 드래그 시작 시점의 자신 + 자식 초기 위치 스냅샷 (동반 이동 계산용, v1.45)
+  // Comment Box 드래그 시작 때 자신 + 자식 위치 스냅샷(동반 이동 계산용).
   const commentDragStartRef = useRef<{ boxId: string; snapshot: Map<string, XYPosition> } | null>(null);
   // 메인 ReactFlow 컨테이너 scope — debug 모드에서 DebugPanel 이 자체 `.react-flow` 를 렌더하므로
   // document.querySelector('.react-flow') 가 DebugPanel 쪽을 잡는 문제를 피하려고 이 ref 내부에서만 탐색.
@@ -348,15 +328,11 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const flowNodesRef = useRef<Node[]>([]);
   flowNodesRef.current = flowNodes;
 
-  // §5.4 #29 v1.51 — 캔버스 클립보드 훅이 selected=true 엣지/노드 정보를 즉시 읽도록 ref 미러
+  // §5.4 #29 — 캔버스 클립보드 훅이 selected 엣지/노드를 즉시 읽도록 ref 미러.
   const flowEdgesRef = useRef<Edge[]>([]);
   flowEdgesRef.current = edges;
 
-  /**
-   * §6 — store 가 좌표를 쥔 노드(앱·캡처·플레이·스펙·랩·선반)의 **고른 묶음 칸**. 이 노드들은 store 에서 매번
-   * 새로 지어지므로 `selected` 를 노드 객체에 둘 수 없다 — 여기 id 집합으로 들고 있다가 지을 때 칠한다. 손이
-   * 떠나면 사라지는 표시 상태라 영속하지 않는다(§3.2 새 필드 ❌). 일반 버블의 묶음은 종전대로 `flowNodes` 다.
-   */
+  /** §6 — store 노드(앱·캡처·플레이·스펙·랩·선반)의 고른 묶음. 매번 새로 지어져 `selected` 를 객체에 못 두므로 id 집합으로 들고 지을 때 칠한다. 영속 ❌(§3.2). */
   const [storeNodeSelection, setStoreNodeSelection] = useState<ReadonlySet<string>>(EMPTY_SELECTION);
   const storeNodeSelectionRef = useRef(storeNodeSelection);
   storeNodeSelectionRef.current = storeNodeSelection;
@@ -364,9 +340,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const storeNodeIdsRef = useRef<ReadonlySet<string>>(EMPTY_SELECTION);
 
   /**
-   * §6 — React Flow 가 내는 노드 변경의 단일 창구. store 노드의 `select` 변경은 묶음 칸으로, 나머지는 종전대로
-   * 노드 배열로 간다 — 배열에 없는 id 의 변경은 거기서 조용히 버려진다(store 노드를 고를 수 없던 자리).
-   * 박스 선택·클릭 고르기(`useCanvasNodeSelection`)·빈 곳 클릭·끌기 시작의 "남의 선택 내리기"가 전부 이 길이다.
+   * §6 — React Flow 노드 변경의 단일 창구: store 노드의 `select` 는 묶음 칸으로, 나머지는 노드 배열로(배열에 없는 id 의 변경은 조용히 버려진다).
+   * 박스·클릭 고르기·빈 곳 클릭·끌기 시작이 모두 이 길이다.
    */
   const handleNodesChange = useCallback((changes: NodeChange<Node>[]) => {
     const storeIds = storeNodeIdsRef.current;
@@ -378,11 +353,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     onNodesChange(changes);
   }, [onNodesChange]);
 
-  // §4 v3.16 — 모바일(터치 또는 좁은 화면)에선 버블이 크게 보여 "더 작게" 축소가 필요했다.
-  // 그래서 최소 배율만 0.5 → 0.1 로 낮춰 훨씬 더 축소(작게)할 수 있게 한다. 최대 배율(줌인)은
-  // 데스크톱과 동일(2) — 확대는 손대지 않는다(그게 오히려 초기 화면을 크게 만들었음).
-  // 굵은 포인터 감지가 애매한 기기까지 잡도록 좁은 뷰포트 조건도 함께 건다.
-  // 두 훅을 언제나 둘 다 부른다 — `a() || b()` 는 앞이 참일 때 뒤 훅을 건너뛰어 훅 순서가 바뀐다(React 규칙 위반).
+  // §4 — 모바일(굵은 포인터 또는 좁은 뷰포트)은 최소 배율만 0.1 로(최대 2 는 그대로 — 올리면 초기 화면이 커진다).
+  // 두 훅은 늘 둘 다 부른다(`a() || b()` 면 훅 순서가 바뀐다).
   const coarsePointer = useCoarsePointer();
   const narrowViewport = useIsNarrowViewport();
   const mobileZoom = coarsePointer || narrowViewport;
@@ -479,10 +451,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       useGraphStore.getState().endTaskEdgeDrag();
     };
 
-    /**
-     * drag phase의 pointerup 처리 — 유효 타겟이면 확정, 아니면 follow 모드로 전환(취소 X).
-     * SCENARIO v1.16: "무효 드롭은 즉시 취소하지 않고 마우스 follow 유지".
-     */
+    /** drag phase 의 pointerup — 유효 타겟이면 확정, 아니면 follow 모드로(무효 드롭은 즉시 취소하지 않는다). */
     const finishDragRelease = (e: { clientX: number; clientY: number }): void => {
       const drag = useGraphStore.getState().taskEdgeDrag;
       if (!drag) return;
@@ -607,7 +576,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     selectable: false,
     deletable: false,
   })), [failedWorktrees]);
-  // ── Comment Box (v1.45) — 메인 뷰에서만 렌더, 현재 프로젝트만 필터 ──
+  // Comment Box — 메인 뷰에서만, 현재 프로젝트만.
   const allCommentBoxes = useGraphStore((s) => s.commentBoxes);
   const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);
   const scopedCommentBoxes = useMemo<CommentBox[]>(() => {
@@ -645,10 +614,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       // 드래그는 헤더 strip(.comment-box-header) 에서만 시작 — UE 블프 코멘트 패턴.
       // 선택/편집 둘 다 헤더에서만 일어남.
       dragHandle: '.comment-box-header',
-      // React Flow 노드 wrapper(.react-flow__node-commentBox) 자체를 pointerEvents:none
-      // 으로 만들어 본문(body) 빈 영역의 mousedown 이 캔버스 pane 으로 떨어지게 한다.
-      // 헤더·NodeResizer 의 hit-area 는 CommentBoxNode 내부에서 pointerEvents:'auto' 로
-      // 되살리므로 선택/이동/리사이즈 동작은 그대로.
+      // 노드 wrapper(`.react-flow__node-commentBox`)를 pointerEvents:none 으로 — 본문 빈 영역의 mousedown 이 pane 으로 떨어지게.
+      // 헤더·NodeResizer 는 `CommentBoxNode` 안에서 'auto' 로 되살린다.
       style: { pointerEvents: 'none' },
       // "뒤에 깔리는" 효과는 DOM 렌더 순서로만 — displayNodes 에서 commentBox 를 먼저 push
       // → 같은 zIndex(=0) 일 때 후순위(버블) 가 위로 그려지고, hit-test 도 자연스럽게 버블 우선.
@@ -667,7 +634,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   // §5.9 핀 고정("항상 위") — prefs.pinned 인 캡처 버블만 높은 zIndex 로 다른 버블 위에 올린다.
   const capturePrefsMap = useCapturePrefsStore((s) => s.prefs);
-  // ── §5.13 v4.45 내부 앱 버블 — 메인 뷰에서만, 현재 프로젝트만 ──
+  // §5.13 내부 앱 버블 — 메인 뷰에서만, 현재 프로젝트만.
   const storedAppBubbles = useGraphStore((s) => s.appBubbles);
   const cardTaskEntries = useCardTaskStore((s) => s.entries);
   const cardHistoryAgentIds = agents.filter((agent) => isAgentCardForm(agent)).map((agent) => agent.id).sort().join('|');
@@ -690,13 +657,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       ? allAppBubbles.filter((b) => b.projectName === activeProject)
       : allAppBubbles;
     return scoped.map((b) => {
-      // §5.13 (M) v4.60 — 크기는 앱 선언(defaultSize)을 따른다. 모양이 앱마다 다르므로
-      //   비율도 앱이 정해야 하고(영상 앱은 가로 프레임), 정한 적 없는 버블의 저장값은 생성 시점의
-      //   선언값일 뿐이다(v4.60 이전 것은 옛 정사각 200×200).
-      // §5.4 #36 (F) — 에이전트에 이어졌거나 결과를 담은 노드는 명패가 아니라 **화면**(screenSize)이다.
-      //   형태는 저장값이 아니라 파생 — 판정은 `appNodeForm` 한 벌(잇기·끊기의 가운데 지키기도 같은 함수).
-      // §5.4 #36 (G) — 리사이즈가 생겼다. 사용자가 **지금 형태에서** 크기를 정했으면(`sizedForm`) 저장값이
-      //   이긴다 — 판정은 `appNodeSize` 한 벌이라 옛 버블은 그대로 선언 크기다(위 ⚠ 를 이 칸으로 풀었다).
+      // §5.13 (M) — 크기는 앱 선언(defaultSize), 정한 적 없는 버블의 저장값은 생성 때 선언값일 뿐(옛 것은 200×200). §5.4 #36 (F) — 이어졌거나 결과를 담으면 화면(screenSize).
+      // 형태는 파생(`appNodeForm`), 크기는 `appNodeSize` 한 벌 — 지금 형태에서 정했으면(`sizedForm`) 저장값이 이긴다.
       const form = appNodeForm(b);
       const size = appNodeSize(getInternalApp(b.appId), form, b);
       return {
@@ -726,13 +688,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           width: size.width,
           height: size.height,
         },
-        // §6 — `selected` 는 **고른 묶음** 칸이다(우측 패널이 보는 store 한 칸 `selectedAppBubbleId` 와 따로).
-        //   종전에는 그 한 칸을 여기 칠하고 `selectable:false` 로 막아, 박스 선택·Shift·Ctrl 이 이 노드를 건너뛰었다
-        //   (사용자 보고 — "새로 만든 버블들이 선택이 잘 안 된다"). 이제 묶음은 `handleNodesChange` 가 받는다
-        //   (flowNodes 밖 노드의 select change 가 버려지던 v4.61 의 함정을 그 창구가 메운다). React Flow 가
-        //   고를 수 있는지는 박스 선택 중에만 켜진다(`flowSelectable` — `SelectionFocusFlow`).
-        // `measured` — 크기를 우리가 정하니 실측과 같다. 없으면 노드를 다시 지을 때마다 React Flow 가 실측을
-        //   잊고, 실측 없는 노드는 어떤 박스에도 "안에 있다"로 셈한다(@xyflow `getNodesInside` 의 첫 그리기 규칙).
+        // §6 — `selected` 는 고른 묶음(`selectedAppBubbleId` 와 따로), 변경은 `handleNodesChange` 가 받는다. React Flow 가 고르는 건 박스 선택 중뿐(`flowSelectable`).
+        // `measured` 를 빼지 마라 — 다시 지을 때마다 실측을 잊고, 실측 없는 노드는 어느 박스에도 "안"으로 셈한다(@xyflow `getNodesInside`).
         selected: storeNodeSelection.has(b.id),
         measured: { width: size.width, height: size.height },
         draggable: true,
@@ -768,7 +725,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     } as Node));
   }, [scopedCaptureBubbles, storeNodeSelection, capturePrefsMap]);
 
-  // ── §5.14 v4.62 플레이 버블 — 버튼 + (켜져 있으면) 그 옆 프리뷰. 메인 뷰·현재 프로젝트만 ──
+  // §5.14 플레이 버블 — 버튼 + (켜져 있으면) 옆 프리뷰. 메인 뷰·현재 프로젝트만.
   const allPlayBubbles = useGraphStore((s) => s.playBubbles);
   const selectedPlayBubbleId = useGraphStore((s) => s.selectedPlayBubbleId);
   const playNodes = useMemo<Node[]>(() => {
@@ -991,11 +948,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const displayNodesRef = useRef<Node[]>(displayNodes);
   displayNodesRef.current = displayNodes;
 
-  /**
-   * §6 — 지금 그려진 store 노드 id. 고를 수 있는 것은 이들뿐이고(`handleNodesChange` 가 이 집합으로 가른다),
-   * 화면에서 사라진 노드(지워짐·다른 탭·폴더 안·디버그 끔)는 묶음 칸에서도 걷는다 — 남겨 두면 같은 id 가
-   * 돌아왔을 때 묻지도 않고 골라진 채 나타난다.
-   */
+  /** §6 — 지금 그려진 store 노드 id(고를 수 있는 건 이들뿐). 사라진 노드는 묶음에서도 걷는다 — 남기면 같은 id 가 돌아올 때 골라진 채 나타난다. */
   const storeNodeIdKey = useMemo(
     () => [...captureBubbleNodes, ...appBubbleNodes, ...playNodes, ...specNodes, ...labNodes, ...shelfNodes]
       .map((n) => n.id).join('\n'),
@@ -1012,10 +965,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     });
   }, [storeNodeIdKey]);
 
-  /**
-   * §6 — 지금 고른 묶음 전부(일반 버블 + store 노드 + 선). `Delete`·묶음 우클릭 메뉴가 같은 목록을 본다 —
-   * 각자 모으면 한쪽만 store 노드를 빠뜨린다(그러면 "고른 것 중 몇 개만 지워졌다"가 된다).
-   */
+  /** §6 — 고른 묶음 전부(일반 버블 + store 노드 + 선). `Delete`·묶음 메뉴가 같은 목록을 본다(각자 모으면 한쪽이 store 노드를 빠뜨린다). */
   const selectedCanvasItems = useCallback((): { nodes: Node[]; edges: Edge[] } => {
     const storeSel = storeNodeSelectionRef.current;
     const hidden = hiddenBubbleIdsRef.current;
@@ -1027,20 +977,9 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, []);
 
   /**
-   * 선택 채널 조정 — 두 채널이 동시에 선택을 들고 있지 않게 지킨다.
-   *
-   * 규칙과 근거는 `canvasSelectionChannel.ts` 한 곳에 적어 뒀다. 요지는 이렇다: React Flow 는
-   * 드래그할 때 `selectable` 을 보지 않고 **`selected` 인 draggable 노드를 전부 함께 끌고 간다.**
-   * 앱·캡처·플레이·스펙·랩·선반 버블과 메모 상자는 `selectable:false` + store 선택이라, 일반
-   * 버블을 클릭해 네이티브 선택이 켜진 상태에서 이들을 클릭하면 **두 선택이 나란히 살아남아
-   * 하나만 끌어도 둘이 같이 움직였다**(사용자 보고 — 동시 선택한 적이 없는데 같이 움직임).
-   *
-   * 여기서 반대편 채널을 내려 주면 드래그가 시작되기 전에 선택이 하나로 정리된다.
-   *
-   * §6 (2026-10-11) — 이제 store 노드도 묶음(`selected`)에 든다(`storeNodeSelection`). 그래서 "네이티브 쪽"은
-   * 일반 버블·선 **그리고 store 노드 묶음**이다 — 메모 상자를 눌렀는데 묶음에 든 앱 노드가 남아 있으면 그것이
-   * 메모 상자와 함께 끌려간다(위 사고와 같은 꼴). 내릴 때는 **방금 store 칸이 고른 그 노드만** 묶음에 남긴다 —
-   * 보통 클릭은 "묶음을 그 하나로"와 "그 노드의 패널"을 함께 거는데, 둘이 다른 렌더에 실려 도착할 수 있다.
+   * 선택 채널 조정(규칙은 `canvasSelectionChannel.ts`) — React Flow 는 드래그 때 `selectable` 을 안 보고 `selected` 인 draggable 을 전부 끈다.
+   * 두 채널이 함께 들면 하나만 끌어도 둘이 움직인다. 네이티브 쪽 = 일반 버블·선 + store 노드 묶음.
+   * 내릴 때 방금 store 칸이 고른 노드만 묶음에 남긴다("묶음을 그 하나로"와 "패널"이 다른 렌더에 올 수 있다).
    */
   const selectedTaskEdgeId = useGraphStore((s) => s.selectedTaskEdgeId);
   const storeSelectedElementId = selectedCommentBoxId ?? selectedCaptureBubbleId ?? selectedAppBubbleId
@@ -1091,7 +1030,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       .map((b) => ({ id: b.id, x: b.x, y: b.y, width: b.width, height: b.height }));
   }, []);
 
-  // §5.13 v4.45 — 내부 앱 버블 생성. 어떤 앱인지는 레지스트리 id 로만 알고,
+  // §5.13 — 내부 앱 버블 생성. 어떤 앱인지는 레지스트리 id 로만 알고,
 
   //   기본 크기도 그 선언에서 가져온다 — 앱이 늘어도 이 함수는 그대로다.
 
@@ -1126,13 +1065,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     setCapturePicker({ canvasX, canvasY });
   }, []);
 
-  /**
-   * §5.14 v4.62 — 플레이 버블 생성.
-   *
-   * 서버가 만드는 즉시 실행법을 탐지해 붙여 준다(4단 계단 1~3단) — 놓자마자 누를 수 있는 것이
-   * 이 기능의 요점이라, 사용자에게 먼저 무엇을 실행할지 묻지 않는다. 못 찾으면 버튼이
-   * "실행법 모름"으로 뜨고, 그때 누르면 탐지 → 에이전트 위임으로 이어진다.
-   */
+  /** §5.14 — 플레이 버블 생성. 실행법은 서버가 탐지해 붙인다(묻지 않는다 — 놓자마자 누를 수 있게). 못 찾으면 "실행법 모름" → 누르면 탐지 → 에이전트 위임. */
   const handleCreatePlay = useCallback((canvasX: number, canvasY: number) => {
     const store = useGraphStore.getState();
     // §5.7 #26 — 메인 뷰 전용 버블이다. 폴더·워크트리 안에서 만들면 지금 화면에는 그려지지 않고
@@ -1146,10 +1079,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     });
   }, []);
 
-  /**
-   * §5.15 — 스펙 보드 생성. 놓자마자 보드를 열어 본문부터 쓰게 한다 — 빈 표지만 놓고
-   * 어디를 눌러야 쓸 수 있는지 찾게 만들면 그 스펙은 영영 비어 있는다.
-   */
+  /** §5.15 — 스펙 보드 생성. 놓자마자 보드를 열어 본문부터 쓰게 한다(빈 표지만 놓으면 영영 비어 있는다). */
   const handleCreateSpec = useCallback((canvasX: number, canvasY: number) => {
     const store = useGraphStore.getState();
     // §5.7 #26 — 메인 뷰 전용 버블이다. 폴더·워크트리 안에서 만들면 지금 화면에는 그려지지 않고
@@ -1166,10 +1096,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     })();
   }, []);
 
-  /**
-   * §5.18 — 에이전트 랩 생성. 놓자마자 패널을 열어 과제부터 쓰게 한다 — 빈 표지만 놓으면
-   * 어디를 눌러야 하는지 찾다가 그 랩은 영영 비어 있는다(스펙 보드와 같은 판단).
-   */
+  /** §5.18 — 에이전트 랩 생성. 놓자마자 패널을 열어 과제부터 쓰게 한다(스펙 보드와 같다). */
   const handleCreateLab = useCallback((canvasX: number, canvasY: number) => {
     const store = useGraphStore.getState();
     // §5.7 #26 — 메인 뷰 전용 버블이다. 폴더·워크트리 안에서 만들면 지금 화면에는 그려지지 않고
@@ -1186,10 +1113,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     })();
   }, []);
 
-  /**
-   * §5.20 — 스크립트 선반 생성. 놓자마자 패널을 열어 첫 항목을 올리게 한다 — 빈 선반만 놓으면
-   *   어디를 눌러야 하는지 찾다가 그 선반은 영영 비어 있는다(스펙·랩과 같은 판단).
-   */
+  /** §5.20 — 스크립트 선반 생성. 놓자마자 패널을 열어 첫 항목을 올리게 한다(스펙·랩과 같다). */
   const handleCreateShelf = useCallback((canvasX: number, canvasY: number) => {
     const store = useGraphStore.getState();
     // §5.7 #26 — 메인 뷰 전용 버블이다. 폴더·워크트리 안에서 만들면 지금 화면에는 그려지지 않고
@@ -1221,11 +1145,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   //   패턴 · 캡처 클립 창도 같은 이유로 여기서 그린다).
   const [bubbleMenu, setBubbleMenu] = useState<BubbleMenuTarget | null>(null);
 
-  /**
-   * §5.4 #36 (A) — 에이전트를 말풍선 ↔ 버블로 바꾼다. **원 중심을 지킨 채** 바꾼다 — 버블이 있던 자리에 원이
-   * 그대로 남고 말풍선만 왼쪽으로 펴진다(되돌릴 때는 원 중심에 버블이 선다). 노드 좌표는 좌상단이라 그대로 두면
-   * 원이 옆으로 튄다. 좌표는 기존 위치 저장 경로(`positionsRef` → 주기 flush)가 그대로 영속한다(새 저장 경로 ❌).
-   */
+  /** §5.4 #36 (A) — 말풍선 ↔ 버블 전환은 원 중심을 지킨다(좌표가 좌상단이라 그대로면 원이 튄다). 영속은 기존 위치 경로(`positionsRef` → 주기 flush). */
   const applyAgentForm = useCallback((nodeId: string, form: 'card' | 'bubble') => {
     const node = flowNodesRef.current.find((n) => n.id === nodeId);
     if (node) {
@@ -1250,13 +1170,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     useGraphStore.getState().setAgentForm(nodeId, form);
   }, [setFlowNodes]);
 
-  /**
-   * 메뉴의 대상을 **여는 순간** 확정한다 — 메뉴가 열린 뒤 선택이 바뀌어도 눌렀을 때 지워지는 것은
-   * 그때 본 그것이어야 한다. 규칙은 탐색기·파인더와 같다.
-   *   · 묶음 상자 위에서 불렀으면(`nodeId === null`) → 고른 것 전부
-   *   · 고른 것 안의 버블 위에서 불렀고 여럿이면 → 고른 것 전부
-   *   · 고르지 않은 버블 위에서 불렀으면 → **그 하나만**(남의 묶음을 지우지 않는다)
-   */
+  /** 메뉴 대상은 여는 순간 확정(탐색기 규칙): 묶음 상자 위·고른 것 안의 버블 위면 고른 것 전부, 고르지 않은 버블 위면 그 하나만. */
   const openBubbleMenuAt = useCallback((
     nodeId: string | null,
     screenX: number,
@@ -1284,8 +1198,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     if (groupOnly) return false;
     const one = flowNodesRef.current.find((nd) => nd.id === nodeId);
     if (!one) return false;
-    // §5.4 #36 (A) — 우클릭은 무엇도 곧바로 바꾸지 않는다(2026-10-10 사용자 지시). 형태 전환은 이 메뉴의
-    //   맨 아래 한 줄이다([말풍선으로 전환] ↔ 같은 자리 [버블로 되돌리기]) — `BubbleContextMenu` 가 낸다.
+    // §5.4 #36 (A) — 우클릭은 아무것도 곧바로 바꾸지 않는다. 형태 전환은 이 메뉴 맨 아래 한 줄이다(`BubbleContextMenu`).
     setBubbleMenu({ nodes: [one], edges: [], screenX, screenY });
     return true;
   }, [selectedCanvasItems]);
@@ -1302,15 +1215,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, [openBubbleMenuAt]);
   const closeBubbleMenu = useCallback(() => setBubbleMenu(null), []);
 
-  /**
-   * 묶음 상자(`.react-flow__nodesselection-rect`) 위 우클릭. **이 손잡이가 없으면 지우려던 손이
-   * 만들기 목록을 받는다** — 그 상자는 `pointer-events: all` 로 묶인 버블을 통째로 가려서, 우클릭이
-   * 버블에 닿지 못하고 빈 곳 메뉴로 샜다(2026-09-11 사용자 보고).
-   *
-   * §6 (2026-10-11) — 그 상자는 이제 그리지 않는다(`index.css` `.vibisual-canvas`) — 고른 것은 노드마다의 고리가
-   * 말하고, 상자가 버블을 덮어 그 안의 클릭·더블클릭을 삼키던 자리였다. 이 손잡이는 상자가 어떤 길로든 다시
-   * 서는 날을 위한 그물로 남는다(묶음 우클릭은 이제 묶음 안 버블 위에서 연다).
-   */
+  /** 묶음 상자 위 우클릭 — 상자가 `pointer-events: all` 로 버블을 가려, 이게 없으면 빈 곳 메뉴로 샌다. 상자는 지금 안 그리지만(`index.css`) 다시 설 날을 위한 그물이다. */
   const handleSelectionContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     openBubbleMenuAt(null, e.clientX, e.clientY);
@@ -1365,9 +1270,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     openCanvasMenuAt(e.clientX, e.clientY, e.target);
   }, [openCanvasMenuAt]);
 
-  // §4 v3.16 — 터치엔 우클릭이 없어 폰에선 이 "생성 메뉴"에 닿을 수 없었다. 롱프레스로 대체.
-  //   ⚠ 이 손짓은 컨테이너 전체에서 받는다 — 캔버스인지 아닌지는 `openCanvasMenuAt` 이 가린다.
-  //   (폰에서 IDE 글자를 꾹 눌러 선택하려던 손짓이 이 메뉴를 열던 사고를 그 판정이 막는다.)
+  // §4 — 터치엔 우클릭이 없어 생성 메뉴는 롱프레스. 컨테이너 전체에서 받으므로 캔버스인지는 `openCanvasMenuAt` 이 가린다(IDE 글자를 꾹 눌러도 안 열리게).
   const canvasLongPress = useLongPress(openCanvasMenuAt);
   // §5.4 #34 — 버블·노드 위 길게 누르기 = 그 버블의 우클릭 메뉴(iOS 처럼 길게 눌러도 contextmenu 가 없는 브라우저).
   //   노드 래퍼의 d3-drag 가 버블 단계 터치를 삼키므로 **캡처 단계**로 받는다 — 빈 곳 길은 위 `canvasLongPress` 그대로.
@@ -1408,10 +1311,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     }).catch(() => {});
   }, [buildPositionPayload]);
 
-  // ── 물리 대상 확장 — 캔버스에 보이는 사각 요소(메모·캡처·앱·플레이)도 물리 바디로 태운다 ──
-  // 이들은 flowNodes(useNodesState) 밖의 store 기반 노드라 좌표를 setFlowNodes 로 되돌릴 수 없다.
-  // 그래서 이동 결과를 applyPhysicsMoves 콜백으로 받아 각 store 에 낙관 반영하고, 물리가 정착
-  // (슬립)하는 시점에 요소당 한 번만 PATCH 로 영속화한다(매 프레임 저장 폭주 방지).
+  // 물리 대상 확장 — 사각 요소(메모·캡처·앱·플레이)도 물리 바디. store 노드라 이동은 `applyPhysicsMoves` 로 낙관 반영하고, 정착(슬립) 때 요소당 한 번 PATCH.
   const physicsKindById = useMemo(() => {
     const map = new Map<string, PhysicsExternalKind>();
     for (const n of commentBoxNodes) map.set(n.id, 'comment');
@@ -1458,12 +1358,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     pushRects(labNodes, 'panel');
     pushRects(shelfNodes, 'panel');
 
-    // 워크트리 생성 **실패 표식**은 물리에 태우지 않는다 — 2.2초 떴다 사라지는 알림이라,
-    // 그 잠깐 때문에 사용자가 정리해 둔 배치를 밀어 놓고 가면 안 된다.
-    //
-    // (v4.70 은 옛 `Creating...` 대기 버블을 "되돌릴 store 가 없으니 밀리지 않는 고정 장애물"로
-    //  실었는데, 그 자리에 태어나는 것이 하필 **자기 후임**인 진짜 워크트리 버블이라 후임만
-    //  옆으로 튀었다. 그 대기 버블 자체가 폐기됐으므로 규약도 여기서 끝난다.)
+    // 워크트리 생성 실패 표식은 물리에 태우지 않는다 — 2.2초 떴다 사라지는 알림이 정리해 둔 배치를 밀면 안 된다.
     return out;
   }, [commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, specNodes, labNodes, shelfNodes, scopedCommentBoxes, capturePrefsMap]);
   /**
@@ -1506,9 +1401,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, [physicsKindById]);
 
   /**
-   * 물리로 옮겨진 사각 요소를 서버에 반영하고 락을 푼다. 물리가 정착(슬립)했을 때가 기본이지만,
-   * 캔버스가 덮여 rAF 가 멈추면 슬립 콜백이 오지 않으므로 주기 flush·덮임 시점에서도 부른다
-   * (안 그러면 드래그 락이 켜진 채로 남아 서버 스냅샷이 영영 반영되지 않는다).
+   * 물리로 옮긴 사각 요소를 저장하고 락을 푼다. 슬립 때가 기본이지만 덮여 rAF 가 멈추면 슬립이 안 오므로 주기 flush·덮임 때도 부른다
+   * (안 그러면 락이 남아 스냅샷이 영영 안 든다).
    */
   const flushPhysicsExternals = useCallback(() => {
     const moved = Array.from(physicsMovedRef.current.entries());
@@ -1590,16 +1484,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     flowNodes, setFlowNodes, satelliteLinks, handlePhysicsSettle, true, physicsExternals, applyPhysicsMoves,
   );
 
-  // §5.4 #29 v1.51 — 캔버스 클립보드 (Ctrl/Cmd+C / Ctrl/Cmd+V)
+  // §5.4 #29 — 캔버스 클립보드(Ctrl/Cmd+C·V).
   const { t } = useTranslation();
 
   // ─── §5.4 #36 (B) 연결 — 위성줄 그리기 · 궤도 위성 놓기 판정 · 꽃잎 고르기 ───
 
-  /**
-   * §5.4 #36 (H) — 연결 보기 판정 재료(① 선을 감춘 에이전트 · ② 활동 선을 흐릴 "연결된 것 위주" 에이전트).
-   * 판정은 `linkView.ts` 한 벌이다. 재료는 **지문이 바뀔 때만** 새로 쓴다 — 앱 노드는 끄는 매 프레임 store 좌표가 바뀌는데,
-   * 그때마다 새 집합을 내면 선 목록이 매 프레임 다시 지어진다.
-   */
+  /** §5.4 #36 (H) — 연결 보기 판정 재료(① 감춘 에이전트 · ② 흐릴 에이전트, `linkView.ts`). 지문이 바뀔 때만 새로 — 앱 노드를 끄는 매 프레임 선 목록을 다시 짓지 않게. */
   const linkSetsNow = useMemo(
     () => linkViewSets(agents, allAppBubbles, activeProject),
     [agents, allAppBubbles, activeProject],
@@ -1607,11 +1497,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const linkSetsKey = linkViewKey(linkSetsNow);
   const linkSets = useMemo(() => linkSetsNow, [linkSetsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /**
-   * 위성줄은 **연결 지문이 바뀔 때만** 다시 짓는다. 앱 노드는 드래그 중 매 프레임 store 좌표가 바뀌므로
-   * 배열째 의존하면 끄는 동안 줄이 매 프레임 새로 만들어진다(줄의 모양은 React Flow 가 노드 좌표로 따로 그린다).
-   * 메인 뷰·현재 프로젝트만 — 앱 노드가 그려지는 자리와 같은 규칙이다. §5.4 #36 (H) ① — 감춘 줄은 만들지 않는다.
-   */
+  /** 위성줄은 연결 지문이 바뀔 때만 다시 짓는다(배열째면 끄는 매 프레임). 메인 뷰·현재 프로젝트만, 감춘 줄(§5.4 #36 (H) ①)은 안 만든다. */
   const refPairsKey = useMemo(() => {
     if (currentFolderId !== null || interiorView !== null) return '';
     return refLinkPairsKey(refLinkPairs(allAppBubbles, agentIds, activeProject, linkSets.hidden));
@@ -1632,9 +1518,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     }));
   }, [refPairsKey]); // eslint-disable-line react-hooks/exhaustive-deps
   /**
-   * React Flow 에 넘기는 선 — 활동·위성·Task Edge(`edges` 상태) + 위성줄. 위성줄은 선택·삭제 채널에 섞지 않는다.
-   * §5.4 #36 (H) — 연결 보기는 **여기서만** 입힌다(감출 선은 `hidden`, 흐릴 선은 불투명도). `edges` 상태는 그대로라
-   * 폴더 버블의 생존·고른 것·#31 무리 판정은 감춘 선도 그대로 본다 — "연결은 그대로, 안 보이게만".
+   * React Flow 에 넘기는 선 = `edges` 상태 + 위성줄(선택·삭제 채널엔 안 섞는다). §5.4 #36 (H) 연결 보기는 여기서만 입힌다(`hidden`·불투명도) —
+   * `edges` 는 그대로라 생존·선택·#31 무리 판정은 감춘 선도 본다.
    */
   const displayEdges = useMemo(() => {
     const shown = applyLinkViewToEdges(edges, linkSets);
@@ -1647,11 +1532,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const closeRefBloom = useCallback(() => setRefBloom(null), []);
 
   /**
-   * 위성을 놓았다. 판정은 화면을 아는 여기서 한다(위성을 쥔 말풍선은 React Flow 의 잎이라 다른 노드를 모른다).
-   *  - 문턱을 못 넘었다 = **누름** → 원 오른쪽에 꽃, 새 노드는 원 오른쪽에 차례로(위아래로 쌓인다).
-   *  - 앱 노드 위 → 그 노드에 잇는다.
-   *  - 빈 캔버스 → 놓은 자리에 꽃(끌어온 방향 앞쪽으로 핀다), 새 노드는 놓은 자리.
-   *  - 그 밖(다른 버블·창 위) → 아무 일도 없다(취소).
+   * 위성을 놓았다(판정은 화면을 아는 여기서 — 말풍선은 다른 노드를 모른다): 문턱 미만 누름 → 원 오른쪽에 꽃 · 앱 노드 위 → 잇는다 ·
+   * 빈 캔버스 → 놓은 자리에 꽃 · 그 밖 → 취소.
    */
   const finishRefLinkDrag = useCallback((drag: RefLinkDrag, clientX: number, clientY: number) => {
     const rf = rfRef.current;
@@ -1740,10 +1622,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     };
   }, [finishRefLinkDrag]);
 
-  /**
-   * §5.4 #36 (F) — 방금 세운 노드가 화면 밖으로 삐져 섰으면 카메라를 **모자란 만큼만** 밀어 들인다(줌은 그대로).
-   * 이미 다 보이면 움직이지 않는다 — 고를 때마다 화면이 출렁이면 그게 더 거슬린다.
-   */
+  /** §5.4 #36 (F) — 방금 세운 노드가 화면 밖으로 삐졌으면 카메라를 모자란 만큼만 민다(줌 그대로). 다 보이면 움직이지 않는다. */
   const revealFlowRect = useCallback((rect: { x: number; y: number; width: number; height: number }) => {
     const rf = rfRef.current;
     const box = rfContainerRef.current?.getBoundingClientRect();
@@ -1754,11 +1633,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     void rf.setViewport({ x: vp.x + shift.dx, y: vp.y + shift.dy, zoom: vp.zoom }, { duration: REF_BLOOM.revealMs });
   }, []);
 
-  /**
-   * 꽃잎을 골랐다 — 그 에이전트를 참조한 채 태어나는 앱 노드를 만든다(`POST /api/app-bubbles`,
-   * `linkedAgentIds` 한 칸 — 새 REST ❌). 크기는 앱 선언에서. 앱 이름을 묻지 않는다(§5.13 (P-4)).
-   * §5.4 #36 (F) — 이으며 태어나므로 처음부터 **화면**이고, 고르는 순간 선다(store 낙관 생성 — 서버 왕복을 기다리지 않는다).
-   */
+  /** 꽃잎을 골랐다 — 그 에이전트를 참조한 앱 노드를 만든다(`POST /api/app-bubbles` + `linkedAgentIds`). 처음부터 화면이고 store 낙관 생성으로 바로 선다(§5.4 #36 (F)). */
   const handleCreateLinkedApp = useCallback((appId: string) => {
     const bloom = refBloomRef.current;
     const store = useGraphStore.getState();
@@ -1826,7 +1701,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     messages: clipboardMessages,
   });
 
-  // §5.4 #30 v2.66 — 버블 북마크 / 단축키 점프 (Alt+숫자 지정, 숫자 점프).
+  // §5.4 #30 — 버블 북마크(Alt+숫자 지정, 숫자로 점프).
   const bookmarkMessages = useMemo(() => ({
     assigned: (slot: string, label: string) =>
       t('canvas.bookmark.assigned', { slot, label, defaultValue: 'Bookmark {{slot}} → {{label}}' }),
@@ -1866,18 +1741,17 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     agentEdges: filteredEdges,
     satellites: storeSatellites,
     satellitePositions,
+    // §5.1 #2-1 (B) — 캔버스의 폴더 위성 묶음은 지금 턴의 것만 담는다.
+    openTurnOnly: true,
   });
 
-  // §5.3 #28 v1.47 — customMode='conti' 인 에이전트마다 conti 버블 위성 합성.
-  // 단일 클릭 = 선택 → DetailPanel 의 ContiHistoryDetail 분기 (id prefix=conti-bubble-).
-  // 더블 클릭 = 가장 최근 conti 의 ContiBoardPanel 오픈 (handleNodeDoubleClick 분기).
+  // §5.3 #28 — customMode='conti' 에이전트마다 conti 위성 합성(클릭 = `ContiHistoryDetail`, id prefix `conti-bubble-` · 더블클릭 = 최근 `ContiBoardPanel`).
   const storeContis = useGraphStore((s) => s.contis);
   const storeAgentConfigs = useGraphStore((s) => s.agentConfigs);
   const contiSatellites = useMemo<Record<string, BubbleData[]>>(() => {
     const out: Record<string, BubbleData[]> = {};
     for (const agent of agents) {
-      // §5.3 #28 v1.47 — 콘티 위성은 사용자가 직접 만든 커스텀 에이전트(`customCreated`) 한정.
-      // Hook 에이전트(VSCode 자동 생성)에는 customMode 부착 ❌ (서버에서도 가드).
+      // §5.3 #28 — 콘티 위성은 커스텀 에이전트(`customCreated`)만. Hook 에이전트엔 customMode ❌(서버도 막는다).
       if (!agent.customCreated) continue;
       const cfg = storeAgentConfigs[agent.id];
       if (cfg?.customMode !== 'conti') continue;
@@ -1906,19 +1780,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     return out;
   }, [storeSatellites, contiSatellites]);
 
-  /*
-   * §5.10 — **메모리(Brain) 버블은 캔버스에서 걷혔다.**
-   *
-   * 사용자 지시(전면 개편): "기억·메모리·브레인 이런 거 다 버리고 자동 목표라는 이름으로."
-   * 그 버블이 열던 화면(기억 라이브러리)은 폐기됐고, 살아남은 일 — 되풀이한 절차를 스킬로 굳히는
-   * 것 — 은 IDE `목표` 뷰의 자동 목표 블록으로 옮겨 갔다.
-   *
-   * **버블이 아닌 이유**는 #17-44 가 정독을 활동바에 둔 것과 같다: 이 정보는 지금 열어 둔 세션·
-   * 프로젝트의 것이라 캔버스의 전역 좌표가 아니라 IDE 의 축에 속한다.
-   *
-   * 휴지통(`trash`)은 그대로 남는다 — 커스텀 에이전트 휴지통은 기억과 무관한 기능이고,
-   * §5.10 (J) 도 "휴지통은 무관하므로 그대로"라고 이미 못 박았다.
-   */
+  /* §5.10 — 메모리(Brain) 버블은 캔버스에 두지 않는다(자동 목표는 IDE `목표` 뷰 몫). 휴지통(`trash`)은 무관해 남는다(§5.10 (J)). */
   const residentBubbles = useMemo<BubbleData[]>(() => {
     if (!activeProject) return [];
     const trash: BubbleData = {
@@ -1948,14 +1810,16 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     appHubs: constellationAppHubs,
     // §5.1 #2-1 (B) — 최상위 파일 묶음(프로젝트 루트)의 이름. `activeProject` 는 표시명이다.
     rootLabel: activeProject,
+    // §5.1 #2-1 (B) — 캔버스의 폴더 위성 묶음은 지금 턴의 것만 담는다.
+    openTurnOnly: true,
   });
 
-  // §5.1 #2-1 (B) — 묶음 안의 구성 파일. 들어온 순간의 id 로 스토어에서 찾고(그 사이 사라진 것은 빠진다), 같은 폴더 묶음은
-  //   범위로 받은 그 폴더의 같은 종류 파일까지 세운다 — 위성 상한으로 사라졌던 사용한 파일이 여기서 보인다(2026-10-22).
+  // §5.1 #2-1 (B) — 묶음 안의 구성 파일. 들어온 순간의 id 로 찾고(사라진 것은 빠진다), 같은 폴더 묶음은 그 폴더 아래 모든 깊이의 같은 종류까지(`storeSatellites`).
+  // 구성 밖은 서버가 아직 확인 안 한 턴의 것으로 표시한 파일만(`openTurnOnly`).
   const bundleMembers = useMemo(() => {
     if (interiorView?.kind !== 'bundle') return NO_BUNDLE_MEMBERS;
-    return bundleInteriorMembers(interiorView, nodeMap, storeChildren);
-  }, [interiorView, nodeMap, storeChildren]);
+    return bundleInteriorMembers(interiorView, nodeMap, storeChildren, storeSatellites, { openTurnOnly: true });
+  }, [interiorView, nodeMap, storeChildren, storeSatellites]);
 
   // §5.10 — 내부 뷰 데이터(휴지통: 버려진 에이전트 나열 · 묶음 안: 구성 파일).
   const interiorViewData = useInteriorLayout({
@@ -1999,11 +1863,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     return computeAngularOffsets(Object.values(storeTaskEdges), flowNodes, parallelOffsetById);
   }, [flowNodes, storeTaskEdges, currentFolderId, parallelOffsetById]);
 
-  /**
-   * popup preview 엣지 offset — "이 엣지가 이미 존재한다고 가정" 하고 실엣지들과 함께
-   * 오프셋을 다시 계산한 뒤 synthetic edge 몫만 뽑는다. 실엣지 오프셋은 그대로 유지하므로
-   * 미리보기만 살짝 비키는 형태가 되고, Connect 시점 재계산에서 자연스럽게 자리 잡는다.
-   */
+  /** 미리보기 엣지 offset — 이 엣지가 있다고 치고 실엣지와 함께 다시 계산해 그 몫만 뽑는다(실엣지는 그대로, Connect 때 재계산으로 자리 잡는다). */
   const PREVIEW_EDGE_ID = '__preview__';
   const previewOffsets = useMemo(() => {
     if (!taskEdgePopup) return null;
@@ -2264,7 +2124,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
             parallelOffset: parallelOffsetById.get(te.id) ?? 0,
             targetAngularOffset: angularOffsetById.get(te.id) ?? 0,
           },
-          animated: false, // v1.33 — status 기반 시각 전이 OFF. 엣지 애니메이션 고정 비활성.
+          animated: false, // status 기반 엣지 애니메이션은 쓰지 않는다.
           focusable: true,
           interactionWidth: 15,
         };
@@ -2272,11 +2132,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       : [];
 
     setEdges([...viewData.flowEdges, ...playOwnerEdges, ...taskFlowEdges]);
-    // angularOffsetById 는 의도적으로 deps 에서 제외한다. flowNodes(노드 위치)에 의존하므로
-    // 드래그·물리 이동 중 매 프레임 새 Map 이 되는데, 이 effect 는 노드/엣지 "구조" 를 재구축한다.
-    // deps 에 두면 드래그 매 프레임 전체 노드가 재구축돼 BubbleNode memo 가 깨지고 버블이 커서를
-    // 늦게 따라온다. 각도 오프셋의 라이브 변화는 바로 아래 별도 effect(엣지 targetAngularOffset 패치)가
-    // 담당하므로 여기서 재실행할 필요가 없다.
+    // `angularOffsetById` 는 일부러 deps 에서 뺀다 — 드래그·물리 중 매 프레임 새 Map 이라, 넣으면 매 프레임 전체 노드가 재구축돼 BubbleNode memo 가 깨진다.
+    // 각도 변화는 아래 별도 effect 가 맡는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewData, currentFolderId, interiorView, satellitePositions, setFlowNodes, setEdges, activeProject, canvasProjectId, canvasDataReady, viewKey, viewMemory, restoreViewport, cancelRestore, pauseAndReset, storeTaskEdges, parallelOffsetById, taskEdgePreview, allPlayBubbles]);
 
@@ -2312,9 +2169,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const handleNodeDoubleClick = useCallback((event: React.MouseEvent, node: Node) => {
     const data = node.data as unknown as BubbleData;
     const store = useGraphStore.getState();
-    // §5.1 #2-1 (B) · §5.4 #14-5 (B) — 들어가는 더블클릭은 그 순간의 화면(위치·줌)을 확정해 기억한다(손으로 옮긴 화면과 같은
-    //   대접). 나오면 그 화면으로 돌아온다 — 2026-10-21 사용자 지시 "묶음 버블은 안으로 들어갔다가 나오면 처음 들어간 위치에서
-    //   나와야해". 기억은 지금 화면 열쇠에만 앉는다(`rememberViewport` 가 열쇠·준비를 대조한다).
+    // §5.1 #2-1 (B) · §5.4 #14-5 (B) — 들어가는 더블클릭은 그 순간의 화면(위치·줌)을 기억해, 나오면 그 화면으로 돌아온다(`rememberViewport` 가 열쇠를 대조).
     const rememberHere = (): void => {
       const flow = rfRef.current;
       if (flow) rememberViewport(event.nativeEvent, flow.getViewport());
@@ -2348,21 +2203,15 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       return;
     }
     if (data.id === '__pipeline_parent__') { store.goBack(); return; }
-    // §5.12 (A) v4.43 — 프로젝트 root(home) 버블 더블클릭 → 지휘통제실 창(프로젝트별 1창).
-    // 같은 프로젝트를 다시 더블클릭하면 main 이 기존 창을 focus 한다(중복 창 ❌).
+    // §5.12 (A) — root(home) 버블 더블클릭 → 지휘통제실 창(프로젝트별 1창, 다시 누르면 main 이 기존 창을 focus).
     if (data.bubbleType === 'root') {
       const projectId = store.nodeProjects[data.id] ?? store.activeProject;
       if (!projectId) return;
       void window.api?.command?.open({ projectId });
       return;
     }
-    // §2.1 #5 v1.55 — 외부 폴더 버블은 "에이전트가 프로젝트 밖에서 실제로 만진 위치" 를 가리킨다.
-    // 안으로 들어가 봐야 그 위성 파일은 이미 이 캔버스에 함께 떠 있으므로, 더블클릭은 SSOT 대로
-    // **OS 탐색기에서 그 절대경로** 를 연다(§7.10 폴더 열기 인프라 재사용 — 새 레일 ❌).
-    //
-    // 단, 접합 트리(§2.1 #5)가 생긴 뒤로는 외부 폴더도 **하위 외부 폴더를 가질 수 있다**.
-    // 그때는 안에 볼 것이 있으므로 내부 폴더와 똑같이 드릴다운한다 — 그러지 않으면 부모 밑으로
-    // 묶인 폴더들이 영영 열리지 않아, 묶은 것이 곧 숨긴 것이 된다.
+    // §2.1 #5 — 외부 폴더 더블클릭은 OS 탐색기에서 그 절대경로를 연다(위성은 이미 캔버스에 있다).
+    // 하위 외부 폴더(접합 트리)가 있으면 드릴다운한다 — 안 그러면 묶인 폴더가 영영 안 열린다.
     if (data.bubbleType === 'external_folder') {
       const hasSubFolders = (store.children[data.id] ?? [])
         .some((c) => c.bubbleType === 'external_folder' || c.bubbleType === 'internal_folder');
@@ -2389,34 +2238,14 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       store.enterFolder(data.id);
       return;
     }
-    // Hook 부모 에이전트 더블클릭 → 내부 진입 (비활성화: 플랫 캔버스 유지)
-    // if (data.bubbleType === 'agent' && data.isParentAgent) {
-    //   store.enterFolder(data.id);
-    //   return;
-    // }
-    // §5.1 #2-1 (A) — 미디어 얼굴은 **보여 주는 자리**다 — 누르면 그 파일을 우리 앱 안에서 연다(2026-10-22 사용자 지시
-    //   "기존파일은 클릭하면 해당 위치로 이동하는게 맞는데 지금 이 신설한 것은 해당 파일이 우리 앱안에셔 열리게 만드는게 목적").
-    //   어디서 여는지는 `fileFaceOpenRoute` 한 곳이 정한다: 굽는 앱이 곧 여는 앱(같은 문 `openAppWindow` — 앱 안 창 · 프로젝트
-    //   밖은 보기 전용 앱만) → 우리 엔진이 그대로 못 읽는 영상·소리는 변환해서 우리 앱으로(§5.13 (R-8) — IDE 탐색기와 같은
-    //   `openWorkspaceTarget` · 변환해 둔 것이 있으면 바로, 없으면 변환 창) → 그 밖은 OS 연결 프로그램. 그 파일의 폴더·묶음
-    //   안으로 들어가지 않는다 — 위치로 가는 것은 아래 종전 길(미디어가 아닌 위성 → 그 파일의 폴더)뿐이다.
+    // Hook 부모 에이전트 더블클릭은 안으로 들어가지 않는다(플랫 캔버스).
+    // §5.1 #2-1 (A) — 파일 버블 더블클릭은 그 파일을 앱 안에서 연다(폴더·묶음 안으로 ❌). 어디서 열지는 `openFileBubble` 한 벌
+    // (§5.5 #17-50 과 같은 길, 파일 창은 §5.5 #17-27 ⑳).
     if (data.bubbleType === 'file') {
-      const face = fileFaceOf(data);
-      if (face !== null && face.media) {
-        const target = fileMediaTarget(data.absolutePath, Object.values(store.projects).map((p) => p.path), activeProjectRoot(store));
-        const route = fileFaceOpenRoute(face, target);
-        if (route === 'app' && face.appId !== null && target !== null
-          && openAppWindow({ appId: face.appId, projectId: target.root, file: target.rel })) return;
-        if (route === 'convert' && target !== null && data.absolutePath) {
-          // 실행 여부를 싣지 않으므로 실행 갈래로 가지 않는다 — 실행 실패 안내 문구는 쓰일 일이 없다.
-          void openWorkspaceTarget({ relPath: target.rel, absPath: data.absolutePath, kind: 'file' }, target.root, '');
-          return;
-        }
-        if (data.absolutePath) void openExternally(data.absolutePath);
-        return;
-      }
+      openFileBubble(data);
+      return;
     }
-    // §5.3 #28 v1.47 — 콘티 버블 더블클릭 → 가장 최근 콘티의 보드 오픈
+    // §5.3 #28 v1.47 — 콘티 버블 더블클릭 → 가장 최근 콘티의 보드를 연다. (이 줄 머리는 mediaDoubleClickOpensFile.test 의 자르는 표지다)
     if (data.bubbleType === 'conti') {
       const agentId = data.path.startsWith('__conti__:') ? data.path.slice('__conti__:'.length) : null;
       if (!agentId) return;
@@ -2431,10 +2260,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     }
     // 에이전트 더블클릭 → IDE 오버레이 (Hook=read-only, Custom=interactive)
     if (data.bubbleType === 'agent') {
-      // §6 v2.74 — completed 에이전트는 더블클릭(IDE 열어 확인)도 "확인"이므로
-      // 싱글 클릭(BubbleNode.performSelect)과 동일하게 확인 dismiss(idle 전환 +
-      // 전유 file/folder 소멸)를 함께 발동. fire-and-forget, 실패 무시.
-      // 싱글 클릭보다 좁은 조건인 이유는 `agentDismiss` 주석에 있다(잔상은 걷지 않고 열어 본다).
+      // §6 — completed 에이전트를 IDE 로 여는 것도 확인이라 싱글 클릭처럼 dismiss 한다(fire-and-forget). 조건이 더 좁은 이유는 `agentDismiss` 주석.
       if (shouldDismissOnOpen(data.status)) {
         fetch(`/api/dismiss-agent`, {
           method: 'POST',
@@ -2442,11 +2268,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           body: JSON.stringify({ agentId: data.id }),
         }).catch(() => {});
       }
-      // §5.5 #17-1 (판올림 번호 발급 대기) — 캔버스에서 여는 것은 **새 창**이다. 이미 창이 떠 있어도
-      //   그 자리를 갈아 끼우지 않고 하나 더 세워, 두 에이전트를 나란히 붙여 볼 수 있게 한다
-      //   (이미 그 에이전트의 창이 있으면 새로 만들지 않고 앞으로 올린다 — 스토어가 판정).
-      //   ⚠ 폰·좁은 화면은 예외다 — 거기서 IDE 는 화면을 가득 채우므로 창이 여럿이면 서로를
-      //   완전히 덮기만 하고 "나란히 본다"가 성립하지 않는다. 그때는 종전대로 자리를 재사용한다.
+      // §5.5 #17-1 — 캔버스에서 여는 IDE 는 새 창(나란히 보게; 그 에이전트 창이 있으면 앞으로). 폰·좁은 화면은 자리를 재사용한다(가득 채워 서로 덮기만 한다).
       useGraphStore.getState().openIDEOverlay(data.id, { pane: isNarrowViewportNow() ? 'reuse' : 'new' });
       return;
     }
@@ -2470,37 +2292,14 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       });
       return;
     }
-    // 위성 파일 더블클릭 → 파일이 있는 폴더 내부로 진입.
-    // 판정은 `satelliteNavigate` 한 곳 — 내부/외부 위성이 같은 규칙으로 움직여야 한다
-    // (외부는 노드 키에 `__ext__` 가 붙어 폴더의 `path` 와 절대 안 맞는다 · 자세한 것은 그 파일).
-    if (node.id.startsWith('sat-')) {
-      const { children: allChildren, topFolders: tops } = useGraphStore.getState();
-      const folderId = resolveSatelliteFolderId(data, folderCandidates(tops, allChildren));
-      if (folderId) {
-        rememberHere();
-        store.enterFolderDeep(folderId);
-      }
-      return;
-    }
-    // §5.1 #2-1 (B) — 묶음 안의 구성 파일은 미디어뿐이라 위 미디어 갈래(우리 앱 · 변환 · OS 연결 프로그램)에서 끝난다. 종전처럼 묶음에서
-    //   나와 그 폴더로 들어가면 그 폴더의 같은 종류가 다시 묶음으로 서 "누르면 묶음처럼 동작"이 된다(2026-10-22 사용자 지시).
+    // §5.1 #2-1 (A) — 위성 더블클릭은 그 폴더로 들어가지 않는다(파일은 위 갈래가 열고, Ghost 는 아무 일 없다). 폴더로 가는 길은 폴더 버블 더블클릭과 경로 표시뿐.
   }, [rememberViewport]);
 
   // 선택 + dismiss는 BubbleNode의 pointerDown에서 처리 (click보다 확실)
 
   /**
-   * Comment Box 멤버십 단일 진실 함수.
-   * 박스 하나의 정식 childNodeIds 를 "공간 포함 + 부모 규칙" 으로 한 번에 계산하고
-   * 변경이 있을 때만 PATCH. 박스 자식이 바뀔 수 있는 모든 시점(박스 드래그/리사이즈,
-   * 일반 버블 드래그, 박스 생성)에서 이 함수만 호출하면 된다.
-   *
-   * 규칙:
-   *  (a) 후보 = 영역 안에 들어와 있는 비-코멘트박스 노드 전부.
-   *  (b) 부모 규칙 — 위성(file/bash/ghost/iframe 으로 store.satellites 에 들어있는 것)은
-   *      부모(에이전트/폴더) 가 함께 후보에 들어 있을 때만 자식. 부모 없는 위성은 제거.
-   *
-   * PATCH payload 에 x/y/width/height 도 같이 실어 idempotent 하게 — 박스 드롭 직후
-   * 다른 PATCH 와 순서가 뒤바뀌어도 서버 최종 상태가 항상 일치(=박스 튐 제거).
+   * Comment Box 멤버십의 단일 진실 — 박스 자식이 바뀔 수 있는 모든 시점에 이것만 부른다(바뀐 때만 PATCH). 후보 = 영역 안 노드, 위성은 부모도 후보일 때만 자식.
+   * PATCH 에 x/y/width/height 도 실어 멱등하게 — 다른 PATCH 와 순서가 바뀌어도 서버 최종 상태가 같다(박스 튐 방지).
    */
   const recomputeBoxMembership = useCallback((boxId: string) => {
     const store = useGraphStore.getState();
@@ -2561,10 +2360,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     const noChange = prev.length === finalChildNodeIds.length
       && finalChildNodeIds.every((id) => prevSet.has(id));
 
-    // 박스에서 빠지는 위성은 부모 옆 궤도 위치로 텔레포트 — 단, 부모도 함께 빠진 경우만.
-    // 사용자가 위성만 박스 밖으로 직접 끌어낸 경우엔 사용자가 놓은 위치 존중(텔레포트 ❌).
-    // 부모가 박스를 떠나 위성이 고아가 된 경우, 박스 안에 갇혀 있던 위성이 부모 옆으로
-    // 자연스럽게 따라가도록 위치 보정. 물리 엔진(스프링)이 이어서 궤도 안정화.
+    // 박스에서 빠지는 위성은 부모도 함께 빠졌을 때만 부모 옆 궤도로 옮긴다(위성만 끌어냈으면 놓은 자리 그대로). 이후 궤도는 물리가 잡는다.
     const teleports: { id: string; x: number; y: number }[] = [];
     if (removed.length > 0) {
       for (const id of removed) {
@@ -2628,19 +2424,11 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     recomputeAllBoxesRef.current = recomputeAllBoxesInActiveProject;
   }, [recomputeAllBoxesInActiveProject]);
 
-  // ─── §5.4 #33 버블 정리 ───
-  //
-  // 물리(`usePhysicsLayout`)는 **겹치지 않게** 밀어낼 뿐 어디에 놓을지는 말하지 않는다. 그래서
-  // 오래 쓴 캔버스는 겹치지는 않지만 아무 뜻도 없는 배치로 굳는다. 이 버튼이 정하는 것이 그 "뜻" —
-  // 도는 것이 가운데, 손이 가야 하는 것이 그다음, 쉬는 것과 폴더가 바깥(`TIDY_BAND_ORDER`).
-  //
-  // **좌표를 우리가 직접 몰아간다** — 계산한 자리로 순간이동시키면 무엇이 어디로 갔는지 눈이 따라갈
-  // 수 없어서 "정리됐다"가 아니라 "화면이 바뀌었다"로 읽힌다. 가는 동안 물리는 재우고(`pauseFor`),
-  // 도착하면 깨워(`wake`) 남은 겹침만 물리에게 넘긴다. 지름의 자(`heatScale`)는 위 동기화 effect 와 함께 쓴다.
+  // §5.4 #33 버블 정리 — 물리는 겹침만 밀고 자리는 정하지 않는다. 자리 순서는 `TIDY_BAND_ORDER`. 순간이동 ❌ — 좌표를 몰아가야 눈이 따라간다.
+  // 가는 동안 물리는 재우고(`pauseFor`) 도착하면 깨워(`wake`) 남은 겹침만 넘긴다. `heatScale` 은 동기화 effect 와 함께 쓴다.
   /**
-   * §5.4 #33 (I-2) `heat` 기준이 잴 축 — **§5.24 히트맵이 쥔 그 축**이다(`useHeatScale` 은
-   * 히트맵이 꺼져 있으면 `undefined` 라 여기서 쓸 수 없다; 정렬은 히트맵과 무관하게 돌아야 한다).
-   * 축을 여기서 또 고르게 하면 같은 사실을 말하는 곳이 둘이 되어 한쪽만 고쳐진다.
+   * §5.4 #33 (I-2) `heat` 기준의 축은 §5.24 히트맵의 그 축이다(`useHeatScale` 은 히트맵이 꺼지면 `undefined` 라 못 쓴다).
+   * 여기서 따로 고르게 하지 마라 — 같은 사실을 말하는 곳이 둘이 된다.
    */
   const tidyHeatAxis = useGraphStore((s) => s.heatAxis);
   const globalFileSizeRange = useGraphStore((s) => s.fileSizeRange);
@@ -2675,14 +2463,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       : diameter / 2
   ), []);
 
-  /**
-   * 지금 화면에서 정리 대상이 되는 버블.
-   *
-   * 빼는 것 셋 — ① `type!=='bubble'`(앱·플레이·스펙·랩·선반·캡처·메모는 store 가 좌표를 쥔 창이라
-   * 저마다 드래그 락 + PATCH 한 쌍이 필요하다, §5.4 #31 (F) 와 같은 이유) ② 탐색 손잡이·안 그리는
-   * 타입(`tidyBandOf` 가 `null`) ③ **메모 상자에 담긴 버블** — 사용자가 손으로 묶어 둔 것이라
-   * 밖으로 끌어내면 그 묶음이 그대로 풀린다(멤버십 재계산이 자식을 통째로 뺀다).
-   */
+  /** 정리할 버블. 빼는 것 — ① `type!=='bubble'`(store 좌표 창, §5.4 #31 (F)) ② `tidyBandOf` 가 `null` ③ 메모 상자에 담긴 버블(끌어내면 묶음이 풀린다). */
   const collectTidyTargets = useCallback((sort: TidySort): {
     items: TidyItem[];
     sats: TidySatellite[];
@@ -2972,13 +2753,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     clearLinkHover(node.id);
   }, []);
 
-  /**
-   * 수식 키(Ctrl/Cmd) 홀드 감시.
-   *
-   * 판정은 **`ctrlKey || metaKey`** 다 — mac 은 Cmd, win/linux 는 Ctrl 이 같은 자리를 맡는다
-   * (멀티플랫폼 단축키 축). 키를 누른 그 순간 이미 버블 위에 마우스가 있으면 `mouseenter` 가
-   * 다시 오지 않으므로, 여기서 `hoveredNodeRef` 를 보고 그 자리에서 미리보기를 켠다.
-   */
+  /** 수식 키 홀드 감시 — `ctrlKey || metaKey`. 누를 때 이미 버블 위면 `mouseenter` 가 다시 안 오므로 `hoveredNodeRef` 로 바로 미리보기를 켠다. */
   useEffect(() => {
     const sync = (e: KeyboardEvent): void => {
       const held = e.ctrlKey || e.metaKey;
@@ -3004,11 +2779,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     };
   }, [grabLinkGroup]);
 
-  /**
-   * 보던 화면이 바뀌면 무리를 놓는다 — 폴더로 들어가거나, 내부 뷰를 열거나, 탭을 옮기면
-   * 무리 안의 버블이 화면에서 통째로 빠진다. 그대로 두면 아무것도 없는 캔버스가 흐려진 채
-   * 남는다(중심 버블이 없으니 `mouseleave` 로도 안 걷힌다).
-   */
+  /** 보던 화면(폴더·내부 뷰·탭)이 바뀌면 무리를 놓는다 — 안 그러면 빈 캔버스가 흐려진 채 남는다(중심 버블이 없어 `mouseleave` 로도 안 걷힌다). */
   useEffect(() => {
     clearLinkFocus();
     hoveredNodeRef.current = null;
@@ -3016,11 +2787,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, [currentFolderId, activeProject, interiorView]);
 
   /**
-   * §6 — 묶음으로 **함께 끌리는 동료**(손에 잡힌 노드 말고)의 한 쌍. React Flow 는 고른 노드를 전부 함께 끄는데,
-   * ① 버블 동료는 물리 바디에 "잡혀 있다"를 알려야 하고(안 그러면 자석·바운드가 매 틱 끌어당겨 묶음이 흔들린다),
-   * ② store 노드(앱·캡처·플레이·스펙·랩·선반) 동료는 그 좌표 변경이 `flowNodes` 밖이라 버려지므로(v4.60 함정)
-   * 매 프레임 store 에 넣고 드래그 락 + 놓을 때 PATCH 한 쌍을 같이 걸어야 따라온다. 손에 잡힌 노드는 종전
-   * 경로(자석 맞춤·메모 동반 이동 등)가 그대로 맡는다 — 동료는 단순 평행 이동만 한다(묶음이 찢어지지 않게).
+   * §6 — 묶음으로 함께 끌리는 동료의 락 한 쌍: 버블 동료는 물리에 잡혀 있음을 알리고(안 그러면 묶음이 흔들린다),
+   * store 노드 동료는 매 프레임 store 에 넣고 락 + 놓을 때 PATCH(`flowNodes` 밖 변경은 버려진다). 동료는 평행 이동만 — 자석·메모 동반 이동은 잡힌 노드만.
    */
   const groupMateLock = useCallback((n: Node, locked: boolean): void => {
     const st = useGraphStore.getState();
@@ -3152,12 +2920,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       // 드래그 락 ON — WS snapshot 이 도중에 와도 박스 geometry 가 옛 값으로 덮어써지는 것 방지.
       store.setCommentBoxDragLock(node.id, true);
 
-      // 드래그 직전 멤버십 정리 — orphan 위성(부모가 박스 멤버 아닌 위성) 은 함께 이동시키지 않는다.
-      // store 의 box.childNodeIds 자체는 dragStop 의 recompute 가 정리. 여기선 이번 드래그 한정으로
-      // 동반 이동 대상에서 제외.
-      // 위성→부모 매핑은 store.satellites + 현재 뷰의 satInfosRef 를 모두 합쳐 빌드(둘 중
-      // 하나에만 들어있는 경우 대비). bubbleType 가 SATELLITE_TYPES 인데 부모 매핑이 없는
-      // 경우는 보수적으로 orphan 으로 간주해 movable 에서 제외(안전망).
+      // 드래그 직전 — orphan 위성(부모가 박스 멤버가 아님)은 이번 동반 이동에서 뺀다. 매핑은 `store.satellites` + `satInfosRef` 를 합치고, 부모를 못 찾은 위성은 orphan 으로 본다.
       const parentByChildId = new Map<string, string>();
       for (const [pid, sats] of Object.entries(store.satellites)) {
         for (const s of sats) parentByChildId.set(s.id, pid);
@@ -3224,29 +2987,23 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       }
     }
 
-    // §5.13 앱 버블 드래그 중 — 매 프레임 store 에 낙관 반영해야 손을 따라온다.
-    // 앱 버블은 flowNodes(useNodesState) 가 아니라 store(appBubbles) 에서 position 을 받는 노드라,
-    // React Flow 가 controlled 모드에서 흘려보내는 position change 는 onNodesChange(=flowNodes 전용)
-    // 에서 그냥 버려진다. 여기서 좌표를 넣어 주지 않으면 드래그 내내 제자리에 있다가 손을 뗄 때
-    // (dragStop) 한 번에 순간이동해 "둔하다"고 느껴진다. CommentBox·CaptureBubble 과 같은 규칙.
+    // §5.13 앱 버블 드래그 중 — 매 프레임 store 에 낙관 반영한다. store 노드라 React Flow 의 position change 는 버려져, 안 넣으면 dragStop 에 순간이동한다.
     if (node.type === 'appNode') {
       useGraphStore.getState().patchAppBubbleLocal(node.id, { x: node.position.x, y: node.position.y });
       return;
     }
 
-    // §5.14 플레이 버블 드래그 중 — store 기반 노드라 매 프레임 낙관 반영해야 손을 따라온다
-    //   (v4.60 앱 버블에서 겪은 "둔한 드래그"와 같은 원인 — controlled React Flow 는
-    //    flowNodes 밖 노드의 position change 를 조용히 버린다).
+    // §5.14 플레이 버블 드래그 중 — store 기반 노드라 매 프레임 낙관 반영해야 손을 따라온다(앱 버블과 같은 원인).
     if (node.type === 'playNode') {
       useGraphStore.getState().patchPlayBubbleLocal(node.id, { x: node.position.x, y: node.position.y });
       return;
     }
-    // §5.15 스펙 버블 — store 기반 노드라 매 프레임 낙관 반영이 있어야 손을 따라온다(v4.60 함정).
+    // §5.15 스펙 버블 — store 기반 노드라 매 프레임 낙관 반영이 있어야 손을 따라온다.
     if (node.type === 'specNode') {
       useGraphStore.getState().patchSpecDocLocal(node.id, { x: node.position.x, y: node.position.y });
       return;
     }
-    // §5.18 랩 버블 — store 기반 노드는 난관 patch 와 드래그 락이 한 쌍(v4.60 함정).
+    // §5.18 랩 버블 — store 기반 노드는 낙관 patch 와 드래그 락이 한 쌍.
     if (node.type === 'labNode') {
       useGraphStore.getState().patchLabRunLocal(node.id, { x: node.position.x, y: node.position.y });
       return;
@@ -3264,11 +3021,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       return;
     }
 
-    // §5.9 캡처 버블 드래그 중 — 이어 붙이기 자석으로 좌표를 보정한 뒤 로컬 낙관 반영(단독 이동).
-    // 화면 버블 2~3개를 듀얼 모니터처럼 쓰려면 손으로 대충 놓아도 변이 딱 붙어야 한다. 보정된
-    // 위치를 store 에 넣으면 노드 position prop 이 그 값으로 흘러가 렌더도 붙은 자리에서 따라온다
-    // (React Flow 는 매 프레임 포인터 기준으로 다시 계산하므로 누적 드리프트는 생기지 않는다).
-    // Alt 를 누르고 있으면 자석을 끈다 — 1px 미세 조정용 탈출구(도구 관행).
+    // §5.9 캡처 버블 드래그 중 — 이어 붙이기 자석으로 보정한 좌표를 낙관 반영(대충 놓아도 변이 붙게). Alt 를 쥐면 자석을 끈다.
     if (node.type === 'captureNode') {
       const store = useGraphStore.getState();
       const self = store.captureBubbles.find((b) => b.id === node.id);
@@ -3332,10 +3085,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       }
     }
 
-    // §5.4 #31 — 무리 동반 이동 종료. 물리 dragging 마킹을 풀어 다시 물리 관할로 돌려보내고,
-    //   강조는 수식 키를 아직 쥐고 있으면 미리보기로 내려앉는다(연달아 옮기는 손을 끊지 않게).
-    //   최종 좌표 저장은 이 함수 맨 끝의 `flushPositionsFetch()` 한 곳이 맡는다 — 동반 이동분도
-    //   이미 `flowNodes` 에 들어가 있어 같은 payload 로 함께 나간다.
+    // §5.4 #31 — 무리 동반 이동 종료: 물리 마킹을 풀고, 수식 키를 쥐었으면 강조는 미리보기로. 저장은 맨 끝 `flushPositionsFetch()` 하나(동반분도 `flowNodes` 에 있다).
     if (linkDragRef.current !== null) {
       for (const id of linkDragRef.current.snapshot.keys()) {
         if (id !== node.id) onSatelliteDragStop(id);
@@ -3344,7 +3094,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       releaseLinkGrab();
     }
 
-    // §5.13 v4.45 — 앱 버블 드래그 종료. 화면을 먼저 옮기고 서버에 알린다(왕복을 기다리지 않게).
+    // §5.13 — 앱 버블 드래그 종료. 화면을 먼저 옮기고 서버에 알린다(왕복을 기다리지 않게).
     if (node.type === 'appNode') {
       const store = useGraphStore.getState();
       const pos = { x: node.position.x, y: node.position.y };
@@ -3492,10 +3242,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       //     setFlowNodes commit 후 flowNodesRef 가 최신이도록 다음 프레임에 호출.
       requestAnimationFrame(() => recomputeBoxMembership(node.id));
     } else {
-      // 일반 버블 드롭 → 활성 프로젝트의 모든 Comment Box 멤버십 재계산.
-      // setFlowNodes commit 이 끝난 다음 프레임에 호출해야 flowNodesRef 가 최신 위치를 반영
-      // (특히 방금 박스 밖으로 끌어낸 부모의 위치). 즉시 호출하면 stale position 으로 판정해
-      // "부모도 안에 있음" 으로 잘못 판단 → 위성이 박스에 남는 버그 발생.
+      // 일반 버블 드롭 → 모든 Comment Box 멤버십 재계산은 다음 프레임에 — 즉시 부르면 옛 위치로 끌어낸 부모를 안에 있다고 봐 위성이 박스에 남는다.
       requestAnimationFrame(() => recomputeAllBoxesInActiveProject());
     }
 
@@ -3503,10 +3250,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     flushPositionsFetch();
   }, [onSatelliteDragStop, flushPositionsFetch, recomputeAllBoxesInActiveProject, setFlowNodes, recomputeBoxMembership, groupMateCommit]);
 
-  // ─── Comment Box 크기 변화 감지 → 멤버십 자동 재계산 ───
-  // 리사이즈 시 새 크기 기준으로 자식 목록을 다시 계산. 차원(width/height) 만 디펜드 —
-  // 위치(x/y)는 자식과 함께 이동하므로 영향 없음. 디바운스로 라이브 리사이즈 매 프레임
-  // PATCH 폭주 방지.
+  // Comment Box 크기가 바뀌면 멤버십을 다시 센다(width/height 만, 디바운스).
   const commentDimsSig = useMemo(
     () => scopedCommentBoxes.map((b) => `${b.id}:${Math.round(b.width)}:${Math.round(b.height)}`).join('|'),
     [scopedCommentBoxes],
@@ -3525,17 +3269,9 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     useGraphStore.getState().clearFocus();
   }, [pendingFocus, canvasDataReady, viewKey, restoreViewport, viewData]);
 
-  // 특정 버블로 공간 점프 — 렌더된 flowNodes에 존재할 때만 centering.
-  // 뷰 전환(goToMain 등)이 선행되는 경우를 위해 flowNodes 변화도 watch.
-  //
-  // §5.5 #17-1 — 가운데를 잡는 것은 **두 프레임 뒤**다. 점프를 부르는 쪽은 대개 같은 순간에 IDE
-  //   창을 접거나 닫는다(창 접기 · 버블 북마크 점프의 closeIDEOverlay). 그러면 App 의 도크 여백이
-  //   걷히며 캔버스 컨테이너가 그만큼 넓어지는데, setCenter 는 ReactFlow 가 **재 둔 크기**로
-  //   중심을 계산하므로 그 전에 부르면 사라진 도크 폭의 절반만큼 버블이 옆으로 밀린다(§5.5 #17-6
-  //   v2.83 에서 fitView 가 같은 함정에 빠졌다). 한 프레임으로는 모자라다 — rAF 콜백은 그 프레임의
-  //   ResizeObserver 보다 **먼저** 돌아 아직 옛 크기를 본다.
-  //   요청은 종전대로 **즉시 소비**한다(clearFocusNode) — 예약을 물고 있는 동안 flowNodes 가
-  //   바뀌면(물리 엔진은 매 프레임 바꾼다) 이펙트가 다시 돌아 예약을 계속 미루기 때문이다.
+  // 버블로 점프 — 렌더된 flowNodes 에 있을 때만(뷰 전환이 앞서도 되게 flowNodes 변화도 본다). §5.5 #17-1 — 두 프레임 뒤에 가운데 잡는다:
+  // 같은 순간 IDE 창을 접어 도크 여백이 걷히는데 setCenter 는 재 둔 크기로 계산한다(한 프레임이면 rAF 가 ResizeObserver 보다 먼저 돈다).
+  // 요청은 즉시 소비한다(`clearFocusNode`) — 물고 있으면 물리가 매 프레임 바꿔 예약이 계속 밀린다.
   const focusRafRef = useRef<{ outer: number; inner: number }>({ outer: 0, inner: 0 });
   useEffect(() => () => {
     cancelAnimationFrame(focusRafRef.current.outer);
@@ -3564,11 +3300,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     });
   }, [focusNodeId, flowNodes, canvasDataReady, viewKey, cancelRestore, viewMemory, activeProject, currentFolderId, interiorView]);
 
-  // §5.4 #34 — 고른 것 지우기(단일 + Shift 다중 공용). **어떤 키인지는 여기서 정하지 않는다** —
-  //   §5.24 #32 레지스트리(`canvas.deleteSelection`)가 정하고, 그 한 벌이 스코프·입력칸 회피·IME
-  //   조합·모디파이어 판정을 함께 맡는다. 종전에는 이 자리가 옛 window 리스너라 `Backspace` 까지
-  //   받았고 스코프가 없어, **IDE 창·팝업 안에서 누른 지우기가 캔버스의 버블을 휴지통으로 보냈다**
-  //   (2026-09-11 실측 — 도는 에이전트가 사라졌고 사용자는 누른 적이 없었다).
+  // §5.4 #34 — 고른 것 지우기. 키는 §5.24 #32 레지스트리(`canvas.deleteSelection`)가 정한다(스코프·입력칸·IME·모디파이어).
+  // window 리스너로 되돌리지 마라 — IDE·팝업 안의 지우기가 캔버스 버블을 휴지통으로 보낸다(2026-09-11 실측).
   const handleDelete = useCallback((e: KeyboardEvent): boolean | void => {
     const target = e.target as HTMLElement | null;
     // 아래 둘은 스코프로 갈리지 않는다 — 같은 `canvas` 스코프 안에 있으면서 자기 키를 쓰는
@@ -3585,9 +3318,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     const storeNodeOnly = selectedFlowNodes.length === 1 && selectedFlowEdges.length === 0
       && selectedFlowNodes[0]!.type !== 'bubble';
 
-    // §5.10 v4.84 — 휴지통 내부의 Delete = 영구 삭제(확인 팝업 경유, 단일·Shift 다중 공용).
-    //   아래 일반 경로로 내려가면 이미 버려진 에이전트를 다시 "휴지통 이동" 시키려다 실패해
-    //   버블만 화면에서 사라지고 identity·기억 카드·스트림 파일은 디스크에 남는다.
+    // §5.10 — 휴지통 안의 Delete = 영구 삭제(확인 팝업). 일반 경로로 가면 버블만 사라지고 identity·기억 카드·스트림 파일이 디스크에 남는다.
     if (state.interiorView?.kind === 'trash') {
       // §5.4 #34 — 추림은 우클릭 메뉴와 **같은 한 벌**이다(둘이 각자 세면 한쪽이 빠진다).
       const ids = planSelectionDelete(selectedFlowNodes, [], state.nodeMap, { inTrashView: true }).purgeIds;
@@ -3601,10 +3332,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
     // 다중(2개 이상) 선택이 있으면 일괄 삭제 경로
     if (selectedFlowNodes.length + selectedFlowEdges.length > 1 || storeNodeOnly) {
-      // §5.4 #34 — 무엇을 담고 무엇을 뺄지도, 어떻게 보낼지도 **묶음 우클릭 메뉴와 한 벌**이다.
-      //   일괄에는 한 번의 스냅샷으로 지울 수 있는 것만 담는다(워크트리는 가드 다이얼로그가 있어
-      //   단건만, 골격은 애초에 대상이 아니다). 개별 DELETE 를 N 번 쏘면 서버가 스냅샷을 N 번
-      //   브로드캐스트해 버블이 여러 번 나눠 사라지므로 배치 창구 하나로 보낸다.
+      // §5.4 #34 — 추림·전송은 묶음 우클릭 메뉴와 한 벌. 일괄엔 한 스냅샷으로 지울 것만(워크트리는 단건). 배치 창구 하나로 — DELETE 를 N 번 쏘면 버블이 나눠 사라진다.
       runSelectionDelete(
         planSelectionDelete(selectedFlowNodes, selectedFlowEdges, state.nodeMap, { inTrashView: false }),
         selectionDeleteRunnerOf(state),
@@ -3669,8 +3397,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       || hiddenBubbleIdsRef.current.has(`sat-${fallbackNodeId}`)) return;
     const node = state.nodeMap[fallbackNodeId];
     if (!node) return;
-    // §5.4 #34 — 판정도 실행도 `bubbleDeleteAction` 한 곳이다(버블 우클릭 메뉴가 같은 함수를 쓴다).
-    //   워크트리 전용 흐름(§5.7 #26 v1.20)·휴지통 영구 삭제(§5.10 v4.84)도 그 안에서 갈린다.
+    // §5.4 #34 — 판정·실행은 `bubbleDeleteAction` 한 곳(우클릭 메뉴와 같은 함수). 워크트리 흐름(§5.7 #26)·휴지통 영구 삭제(§5.10)도 그 안에서 갈린다.
     runBubbleDelete(fallbackNodeId, node.label, bubbleDeleteAction(node, { inTrashView: false }), {
       requestTrashPurge: state.requestTrashPurge,
       requestWorktreeDelete: state.requestWorktreeDelete,
@@ -3679,7 +3406,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, [selectedCanvasItems]);
   useCommand('canvas.deleteSelection', handleDelete);
 
-  // v1.45 — C 키 → 현재 다중 선택된 버블들을 감싸는 Comment Box 생성 (언리얼 블프 스타일)
+  // C 키 → 다중 선택된 버블을 감싸는 Comment Box 생성(언리얼 블루프린트식).
   useEffect(() => {
     function handleCreateComment(e: KeyboardEvent): void {
       if (e.code !== COMMENT_BOX_DEFAULTS.CREATE_HOTKEY) return;
@@ -3710,10 +3437,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, []);
 
 
-  // 탭 전환 / 페이지 닫기: 언로드 시에도 전송 보장. navigator.sendBeacon 은 http(s) 에서만 동작하고
-  // 패키지 앱(file:// 로 renderer 로드)에서는 "Beacons are only supported over HTTP(S)" 로 throw 한다.
-  // → http(s) 일 때만 beacon, 그 외(file://)는 keepalive fetch 로 fallback(패키지 transport 가 가로채
-  //   loopback 서버로 라우팅). 어떤 경우든 예외가 새어 나가 visibilitychange 핸들러를 깨지 않게 try.
+  // 언로드 때도 보낸다. sendBeacon 은 http(s) 전용이라 패키지 앱(file://)에선 throw — 그땐 keepalive fetch(패키지 transport 가 loopback 으로 보낸다).
+  // 예외가 visibilitychange 핸들러를 깨지 않게 try.
   const flushPositionsBeacon = useCallback(() => {
     const body = buildPositionPayload();
     if (!body) return;
@@ -3739,9 +3464,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     const handleUnload = (): void => { flushPositionsBeacon(); };
     document.addEventListener('visibilitychange', handleVisChange);
     window.addEventListener('beforeunload', handleUnload);
-    // §4 v3.71 — 덮여 있는 동안엔 주기 flush 를 걸지 않는다. 캔버스가 안 보이면 드래그·리사이즈 같은
-    //   사용자 조작도, 물리 이동도 일어나지 않아 보낼 변경분 자체가 없다. 대신 덮이는 그 순간 1회
-    //   flush 해서 직전까지의 좌표는 남긴다(해제되면 아래 setInterval 이 다시 걸린다).
+    // §4 — 덮인 동안엔 주기 flush 를 걸지 않는다(조작·물리가 없어 보낼 것이 없다). 덮이는 순간 한 번 flush 해 직전 좌표를 남긴다.
     if (covered) {
       flushPositionsFetch();
       flushPhysicsExternals();
@@ -3762,14 +3485,9 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, [flushPositionsFetch, flushPositionsBeacon, flushPhysicsExternals, covered]);
 
   /**
-   * §6 — **Shift 클릭 = 그 노드를 묶음에 넣고 빼기.** 박스 선택 키도 Shift 라, React Flow 의 Pane 이 버블 위
-   * Shift 누름을 박스 선택 시작으로 가져간다(캡처 단계에서 전파를 끊는다 — 버블의 선택 제스처는 그 누름을
-   * 영영 못 받는다). 그래서 Shift 클릭은 "SSOT 에는 다중 선택이라 적혀 있는데 눌러도 아무 일이 없는" 손짓이었다.
-   *
-   * 그보다 바깥인 여기(React 캡처는 바깥부터 돈다)에서 누름을 기억했다가 문턱(5px) 안에서 떼면 그 노드를
-   * 뒤집는다. 문턱 안의 작은 흔들림은 Pane 에 넘기지 않는다 — Shift 를 쥔 Pane 은 0px 부터 박스 선택을 시작하며
-   * 고른 것을 통째로 비우기 때문이다. 문턱을 넘으면 손을 뗀다 — 그때부터는 종전대로 박스 선택이다(시작점은
-   * Pane 이 누른 자리로 이미 잡아 두었다). 버블 안의 버튼·입력칸과 묶음에 들 수 없는 노드는 건드리지 않는다.
+   * §6 — Shift 클릭 = 묶음에 넣고 빼기. Pane 이 캡처 단계에서 Shift 누름을 박스 선택으로 가져가므로, 더 바깥인 여기서 누름을 기억했다가 5px 안에서 떼면 뒤집는다.
+   * 문턱 안 흔들림은 Pane 에 넘기지 않는다(Shift 쥔 Pane 은 0px 부터 박스 선택을 시작하며 고른 것을 비운다). 넘으면 박스 선택에 맡긴다.
+   * 버튼·입력칸·묶음에 못 드는 노드는 건드리지 않는다.
    */
   const shiftPressRef = useRef<{ id: string; x: number; y: number; pointerId: number } | null>(null);
   const handleShiftPressCapture = useCallback((e: React.PointerEvent) => {
@@ -3862,7 +3580,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         onNodeMouseEnter={handleNodeMouseEnter}
         onNodeMouseLeave={handleNodeMouseLeave}
         proOptions={{ hideAttribution: true }}
-        // §4 v3.71 — 뷰포트 밖 노드·엣지는 아예 렌더하지 않는다(React Flow 표준 컬링).
+        // §4 — 뷰포트 밖 노드·엣지는 렌더하지 않는다(React Flow 컬링).
         onlyRenderVisibleElements={CANVAS_LOD.CULL_OFFSCREEN}
         // 덮여 있으면 페인트만 끈다. display:none·언마운트 ❌ — 레이아웃이 살아 있어야
         // 노드 실측(measured)·handleBounds 가 유지되어 다시 보일 때 엣지가 엉뚱한 데서 출발하지 않는다.
@@ -3946,15 +3664,13 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         onClose={() => setCapturePicker(null)}
         onPick={handleCapturePick}
       />
-      {/* §5.9 플레이테스트 클립 창(§7.21) — 캡처 노드가 아니라 여기서 그린다. 노드 안에서 그리면
-          버블이 뷰포트 밖으로 나가 컬링되는 순간(§4 v3.71) 보고 있던 창이 함께 사라진다. */}
+      {/* §5.9 플레이테스트 클립 창(§7.21) — 노드 안이 아니라 여기서 그린다(버블이 컬링되면 보던 창도 사라진다). */}
       <PlaytestClipWindows />
       {/* 드래그 프리뷰 — 스크린 좌표계 SVG 오버레이 (화살표 포함, 마우스 커서 추적) */}
       <TaskEdgeDragPreview rfRef={rfRef} rfContainerRef={rfContainerRef} flowNodes={flowNodes} />
       {/* §5.4 #36 (B) — 궤도 위성에서 끄는 위성줄 미리보기(같은 그리기 조각·곡선 함수 — 놓는 순간 모양이 튀지 않게). */}
       <RefLinkDragPreview />
-      {/* §5.4 #29 v1.51 — 캔버스 클립보드/북마크 토스트 (Ctrl/Cmd+C·V, Alt+숫자, 숫자).
-          IDE 오버레이(z-50) 위로 보이도록 body 포털 + fixed z-[70] (§5.4 #30 v2.73). */}
+      {/* §5.4 #29 — 캔버스 클립보드/북마크 토스트. IDE 오버레이(z-50) 위로 보이게 body 포털 + fixed z-[70](§5.4 #30). */}
       {canvasToast && createPortal(
         <div
           className={`pointer-events-none fixed left-1/2 top-14 z-[70] -translate-x-1/2 rounded-md border px-3 py-1.5 text-xs font-medium shadow-lg ${
@@ -4014,11 +3730,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 });
 
 /**
- * 디버그 모드 토글 / 메인 캔버스 컨테이너 리사이즈 시 React Flow 내부 노드 측정치
- * (handleBounds) 가 stale 해져 Task Edge 가 엉뚱한 곳에서 출발하는 현상을 막기 위해,
- * 변화 후 한 프레임 기다렸다가 모든 agent 노드를 강제로 재측정시킨다.
- * useUpdateNodeInternals 는 ReactFlow context 내부에서만 호출 가능하므로 ReactFlow 의
- * 자식으로 마운트된다.
+ * 디버그 토글·컨테이너 리사이즈 뒤 한 프레임 기다려 agent 노드를 다시 재게 한다(handleBounds 가 낡으면 Task Edge 가 엉뚱한 데서 나간다).
+ * `useUpdateNodeInternals` 때문에 ReactFlow 자식으로 둔다.
  */
 function DebugResizeRefresher({ flowNodes, debugMode }: { flowNodes: Node[]; debugMode: boolean }): null {
   const updateNodeInternals = useUpdateNodeInternals();

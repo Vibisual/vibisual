@@ -1,37 +1,9 @@
 /**
- * Vibisual 업데이트 피드 프록시 (Cloudflare Worker).
- *
- * ## 무엇을 하나
- *
- *   GET/HEAD  /latest.yml · /latest-mac.yml · /latest-linux.yml
- *       GitHub 최신 릴리스의 같은 파일을 그대로 넘겨준다. **이 요청 하나가 "돌고 있는 설치 하나"** 다.
- *
- *   GET       /<설치 파일 이름>            (예: Vibisual-0.1.22-setup.exe, ….dmg, ….blockmap)
- *       GitHub 릴리스 자산으로 302. 파일은 우리 대역폭을 지나가지 않고, 자산 다운로드 수는
- *       종전대로 GitHub 에 남는다(CI 를 걷어낸 뒤라 그 숫자는 이제 사용자 것만 센다).
- *
- *   GET       /stats
- *       날짜별 집계(JSON). 개별 기록은 나오지 않는다.
- *
- * ## 왜 두는가
- *
- * 데스크톱 앱에서 "쓰는 사람이 몇인가"를 재는 업계 통상 경로가 업데이트 확인 요청 로그다.
- * 앱은 어차피 4시간마다 새 버전을 묻는다(`UPDATE_CHECK_INTERVAL_MS`) — 새로 수집을
- * 시작하는 것이 아니라, **이미 오는 요청을 우리가 받는가 GitHub 이 받는가**의 차이뿐이다.
- * GitHub 이 받으면 우리에게 남는 것은 `latest.yml` 다운로드 수 한 줄이라 1대인지 여럿인지
- * 가릴 수 없다(실측 2026-09-07: 두 달간 하루 4~7회로 평평 — 상시 켜 둔 1대의 4시간 주기와
- * 구분되지 않는다).
- *
- * ## 개인정보를 어떻게 다루나 — 이 설계가 PRIVACY.md 의 약속이다
- *
- * 1. **IP 를 저장하지 않는다.** 하루치 소금(`HASH_SALT` + 그날 날짜)을 섞어 SHA-256 으로
- *    접은 16자만 남긴다. 소금에 날짜가 들어가므로 **어제와 오늘의 같은 사람을 이을 수 없다**
- *    (Plausible 등이 쓰는 회전 소금 방식).
- * 2. **계정·쿠키·기기 식별자가 없다.** 앱은 아무것도 보내지 않는다 — 우리가 보는 것은
- *    HTTP 요청에 원래 실려 오는 것(IP·User-Agent)뿐이다.
- * 3. **35일 뒤 자동 소멸.** KV 항목마다 TTL 이 걸려 있어 지우는 것을 사람이 기억할 필요가 없다.
- * 4. **본문·경로에 개인 정보가 없다.** 쿼리스트링은 읽지도 기록하지도 않는다.
- * 5. **끄면 그냥 프록시다.** `HASH_SALT` 를 안 넣으면 계수 없이 넘겨주기만 한다.
+ * Vibisual 업데이트 피드 프록시(Cloudflare Worker).
+ * - `GET/HEAD /latest.yml`·`/latest-mac.yml`·`/latest-linux.yml` — GitHub 최신 릴리스의 같은 파일을 넘긴다(요청 하나 = 돌고 있는 설치 하나).
+ * - `GET /<설치 파일 이름>` — 릴리스 자산으로 302(대역폭은 GitHub, 자산 다운로드 수도 GitHub 에 남는다) · `GET /stats` — 날짜별 집계만.
+ * 앱은 어차피 4시간마다 묻는다(`UPDATE_CHECK_INTERVAL_MS`) — 새 수집이 아니다. GitHub 직행이면 `latest.yml` 다운로드 수뿐이라 1대인지 여럿인지 못 가린다.
+ * 개인정보(PRIVACY.md 의 약속): IP 는 하루치 소금(`HASH_SALT`+그날 날짜)으로 접은 SHA-256 16자만 · 계정·쿠키·기기 식별자 없음 · KV TTL 35일 · 쿼리스트링 미기록 · `HASH_SALT` 가 없으면 계수 없이 프록시만.
  */
 
 const OWNER = 'Vibisual';
@@ -72,13 +44,7 @@ async function visitorKey(request, salt, date) {
     .join('');
 }
 
-/**
- * 그날 그 방문자를 한 번만 기록한다.
- *
- * KV 는 같은 키에 다시 써도 결과가 같지만(경합 없음) **쓰기 횟수는 그대로 소모된다** —
- * 무료 한도가 하루 1,000회라 4시간 주기 × 설치 수만큼 쓰면 금방 닿는다. 그래서 엣지 캐시로
- * 한 겹 막는다: 오늘 이미 썼으면 KV 를 건드리지 않는다.
- */
+/** 방문자를 하루 한 번만 기록한다 — KV 쓰기는 같은 값이어도 소모된다(무료 하루 1,000회). 오늘 이미 썼으면 엣지 캐시가 막는다. */
 async function recordVisit(request, env, ctx, platform) {
   if (!env.HASH_SALT || !env.VISITS) return;
   const date = utcDate(Date.now());
@@ -101,15 +67,8 @@ async function recordVisit(request, env, ctx, platform) {
 }
 
 /**
- * 사이트 방문·내려받기 클릭 계수 (`GET|POST /px?e=view|download`).
- *
- * 왜 Cloudflare Web Analytics 같은 것을 안 붙였나 — 사이트(`vibisual-site`)는 웹폰트도
- * react 도 **직접 서빙한다.** 방문자 IP 가 제3자로 나가지 않게 하려고 일부러 그렇게 지었고,
- * 그 원칙을 지키면서 조회수를 세려면 받는 쪽이 우리여야 한다. 그래서 여기다.
- *
- * 세는 방식은 업데이트 확인과 **완전히 같다**(하루치 소금 → 16자 → 35일 TTL). 받는 값은
- * `e` 하나뿐이고 그것도 두 낱말 중 하나다 — 경로·리퍼러·쿼리를 읽지 않으므로 "무엇을 읽었나"가
- * 남을 여지가 없다. 사이트가 이 주소를 모르면(스크립트의 상수가 비어 있으면) 요청 자체가 없다.
+ * 사이트 방문·내려받기 클릭 계수(`/px?e=view|download`) — 사이트가 방문자 IP 를 제3자로 안 보내므로 세는 쪽도 우리다.
+ * 업데이트 확인과 같은 방식(하루치 소금 → 16자 → 35일 TTL)이고 `e` 만 읽는다(경로·리퍼러·쿼리 ❌).
  */
 const PX_EVENTS = new Set(['view', 'download']);
 

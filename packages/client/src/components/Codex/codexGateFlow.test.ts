@@ -1,10 +1,4 @@
-/**
- * §5.25 (D)(E) — 코덱스 게이트 발화 판정 고정 시험.
- *
- * 클로드 게이트와 **다른 축이 하나** 있고, 그것이 이 파일의 요점이다: 코덱스 창은 코덱스를 고른
- * 적 있는 사람에게만 저절로 뜬다. 이 규칙이 무너지면 코덱스를 모르는 사용자 화면에 설치 창이
- * 하나 더 생긴다.
- */
+/** §5.25 (D)(E) — 코덱스 게이트 발화 판정: 코덱스를 고른 적 있는 사람에게만 저절로 뜬다. */
 import { describe, it, expect } from 'vitest';
 import type { CodexAuthStatus, CodexSetupState, EngineChoice } from '@vibisual/shared';
 import {

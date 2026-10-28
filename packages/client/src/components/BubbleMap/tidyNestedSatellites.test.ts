@@ -1,9 +1,4 @@
-/**
- * §5.1 #2-1 (B) · §5.4 #33 (F) — 정리가 **위성의 위성**(별자리)까지 다시 거는가(`computeTidySatellitesNested`).
- *
- * 고정하는 것: ① 중심(폴더의 파일 위성)이 먼저 폴더 둘레에 앉고 ② 그 위성은 중심이 앉은 자리 둘레에 걸린다
- * ③ 부모가 끝내 정리 대상이 아닌 위성(앱 노드 둘레)은 손대지 않는다.
- */
+/** §5.1 #2-1 (B) · §5.4 #33 (F) — 정리가 위성의 위성까지 거는가: 중심이 먼저 폴더 둘레에, 그 위성은 중심 둘레에, 앱 노드 둘레는 그대로. */
 import { describe, it, expect } from 'vitest';
 import { PHYSICS_MAGNET_GAP, SATELLITE_ORBIT_GAP } from '@vibisual/shared';
 import { computeTidySatellites, computeTidySatellitesNested, type TidyParentSeat } from './tidyLayout.js';
@@ -36,10 +31,7 @@ describe('computeTidySatellitesNested — 별자리까지 두 바퀴', () => {
   });
 });
 
-/**
- * §5.1 #2-2 (J) — 정리도 등장 영역과 같은 틈으로 건다: 한 고리에 선 위성은 크기가 달라도 부모 테두리와의 틈이 같고(가장 큰 것의
- * 반경에 다 같이 서지 않는다), 달을 거느린 묶음은 몸집으로 앉아 제 달이 부모를 파고들지 않는다.
- */
+/** §5.1 #2-2 (J) — 한 고리의 위성은 크기가 달라도 부모 테두리와 틈이 같고, 묶음은 몸집으로 앉아 달이 부모를 파고들지 않는다. */
 describe('computeTidySatellites — 위성 틈(§5.1 #2-2 (J))', () => {
   const parents = new Map<string, TidyParentSeat>([['folder', { cx: 0, cy: 0, diameter: 180, bandIndex: 0 }]]);
 

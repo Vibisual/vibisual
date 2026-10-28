@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 /**
- * 앱 안의 떠 있는 창은 폰 폭·터치 기기에서 **화면 전체로 고정**한다(`useFloatingWindowFullScreenLock` — hooks/useIsMobile.ts).
- *
- * 훅(`useFloatingWindow`)에는 잠금(`lockFullScreen`)이 처음부터 있었는데 **켠 창이 하나도 없었다**(2026-10-17).
- * 그래서 폰에서는 320px 하한 창에 앱 화면(스튜디오·이미지·3D)이 짓눌렸고, 터치 기기에서는 창 끌기·크기 조절이
- * 마우스 이벤트라 손가락으로 옮길 수 없었다. 새 창이 이 한 줄을 빠뜨리면 그대로 되풀이되므로 소스로 못 박는다.
- *
- * `node:fs` 대신 `import.meta.glob(?raw)` — 클라이언트 tsconfig 에는 Node 타입이 없다(`typographyFloor.test.ts` 와 같은 제약).
+ * 앱 안의 떠 있는 창은 폰 폭·터치 기기에서 화면 전체로 고정한다(`useFloatingWindowFullScreenLock` — hooks/useIsMobile.ts).
+ * `lockFullScreen` 을 빠뜨린 창은 폰에서 320px 하한 창에 앱 화면이 짓눌리고, 터치에서는 끌기·크기 조절이 마우스 이벤트라 손가락으로 옮길 수 없다 — 그래서 소스로 못 박는다.
+ * `node:fs` 대신 `import.meta.glob(?raw)` — 클라이언트 tsconfig 에 Node 타입이 없다(`typographyFloor.test.ts` 와 같은 제약).
  */
 const sources = import.meta.glob('../**/*.tsx', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 

@@ -1,21 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { DEFAULT_AGENT_CONFIG, type AgentConfig, type QueuedCommand, type SubAgentStreamEvent } from '@vibisual/shared';
 
-/**
- * §5.5 #17-12 ③-7 — **실패 사유는 자기 엔진의 이름과 함께 간다.**
- *
- * 사유 코드는 엔진 중립이다(`cli`·`spawn`·`exit` 은 클로드도 코덱스도 낸다). 그런데 화면 문장은
- * `Claude CLI` 를 글자로 박고 있어서, GPT 버블이 한도로 멈춘 자리에 **"Claude CLI 가 실패를
- * 알렸습니다"** 가 떴다(2026-09-22 사용자 보고). §5.25 (J) 에서 GPT 버블 아래에 `opus` 가 뜬 것과
- * 같은 부류 — **남의 이름**이다.
- *
- * 여기서 못박는 것은 둘이다:
- *  ① 사유에 `engine` 이 실리고 스트림 봉투가 `[code@engine]` 으로 나간다(모르면 비워 둔다).
- *  ② §2.4 한도 정지는 실패 경로로 들어와도 **`usageLimit` 이라는 제 이름**으로 불린다 —
- *     클로드는 exit 0 으로 끝나 `completed` 가 되는데(§5.5 #17-12 ③-6), 코덱스는 같은 사건을
- *     `{"type":"error"}` 로 신고해(§5.25 (F)) 실패로 들어오기 때문이다. 같은 사건이 엔진마다
- *     다른 말로 불리면 안 된다.
- */
+/** §5.5 #17-12 ③-7 — 실패 사유가 자기 엔진 이름을 단다(`[code@engine]`, 모르면 비움). 코덱스 한도 `{"type":"error"}` 도 `usageLimit` 으로 불린다(§5.25 (F)). */
 
 const { SubAgentManager } = await import('./subAgentManager.js');
 

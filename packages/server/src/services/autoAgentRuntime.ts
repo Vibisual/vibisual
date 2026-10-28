@@ -1,13 +1,6 @@
 /**
- * §5.3 #10-2 v2.45 — Auto Agent 런타임 (하네스 빌더 전환).
- *
- * 사용자 자연어 요청 1건을 받아 → auto-agent 버블 자신의 AgentConfig 를 "하네스 빌더" 설정으로 바꾸고
- * (rules = buildHarnessBuilderRules), 사용자 원본 요청을 자기 세션에 enqueue → 기존 processNextCommand
- * 스폰 경로가 빌더를 띄운다. 빌더(스폰된 Claude)는 loopback REST API 를 curl 로 호출해 커스텀 에이전트
- * 군 + Task Edge 하네스를 자율 구축하고 엔트리 노드에 사용자 요청을 forward.
- *
- * v2.37 의 휴리스틱 프리셋 spawn 은 폐기됐고, v3.72 에서 그 잔재(토폴로지 선택·명확화 질문 생성)도 제거했다.
- * 남은 휴리스틱은 `analyzeComplexity` 하나 — `AutoAgentSummary.complexity` 배지(정보 표시)에만 쓰인다.
+ * §5.3 #10-2 — Auto Agent 런타임: 요청 1건 → auto-agent 자신의 AgentConfig 를 하네스 빌더 설정으로 바꾸고 요청을 자기 세션에 enqueue(기존 processNextCommand 가 스폰).
+ * 빌더는 loopback REST 로 커스텀 에이전트 군 + Task Edge 하네스를 짓고 엔트리 노드에 요청을 넘긴다. `analyzeComplexity` 는 요약 배지에만 쓴다.
  */
 
 import { logger } from '../logger.js';
@@ -27,12 +20,7 @@ import {
 } from '@vibisual/shared';
 import type { ProjectGraphManager } from './projectGraphManager.js';
 
-// ─── 복잡도 휴리스틱 (요약 배지·빌더 참고용 — v2.45부터 spawn 분기에는 미사용) ───
-
-/**
- * 사용자 요청 1줄 → low/medium/high.
- * v2.45: 더 이상 토폴로지 분기에 쓰이지 않고, AutoAgentSummary.complexity 배지(정보 표시)로만 활용.
- */
+/** 요청 1줄 → low/medium/high. `AutoAgentSummary.complexity` 배지(정보 표시)에만 쓴다 — spawn 분기에는 안 쓴다. */
 export function analyzeComplexity(message: string): AutoAgentComplexity {
   const text = message.trim();
   const lower = text.toLowerCase();
@@ -83,11 +71,6 @@ export interface AutoAgentRuntimeDeps {
 export class AutoAgentRuntime {
   constructor(private readonly deps: AutoAgentRuntimeDeps) {}
 
-  /**
-   * 사용자 메시지 1건을 받아 하네스 빌더를 기동한다.
-   * 1) auto-agent 버블 자신의 AgentConfig 를 빌더 설정(rules=하네스 빌더 프롬프트)으로 set.
-   * 2) 사용자 원본 요청을 auto-agent 자기 세션에 enqueue → 기존 processNextCommand 가 빌더를 스폰.
-   */
   processRequest(autoAgentSessionId: string, message: string): AutoAgentSummary {
     const inst = this.deps.graphManager.findInstanceByAutoAgentSession(autoAgentSessionId);
     if (!inst) {
@@ -131,8 +114,7 @@ export class AutoAgentRuntime {
     };
     this.deps.setAgentConfig(autoBubble.id, builderConfig);
 
-    // §5.3 #10-3 v4.98 — 요청 1건 = 검증 런 1개. Summary 는 autoAgentId 키라 새 요청이
-    //   이전 기록을 덮으므로, 증거·예산은 런에 두고 Summary 에는 포인터만 남긴다.
+    // §5.3 #10-3 — 요청 1건 = 검증 런 1개. Summary 는 autoAgentId 키라 새 요청이 덮으므로 증거·예산은 런에, Summary 엔 포인터만.
     const run = inst.createAutoAgentRun({ autoAgentId: autoAgentSessionId, userRequest: message });
 
     const summary: AutoAgentSummary = {
@@ -168,11 +150,7 @@ export class AutoAgentRuntime {
     return summary;
   }
 
-  /**
-   * asking 단계에서 사용자가 답을 보냈을 때 호출(레거시 엔드포인트 호환).
-   * v2.45: 빌더가 AskUserQuestion 으로 직접 인터뷰하므로 asking 단계는 발생하지 않음.
-   * 답이 들어오면 답을 기록하고 원본 요청으로 빌더를 (재)기동한다.
-   */
+  /** 레거시 asking 엔드포인트 호환 — 빌더가 AskUserQuestion 으로 직접 묻기 때문에 실제로는 생기지 않는다. 답을 기록하고 원본 요청으로 빌더를 (재)기동한다. */
   resumeWithAnswers(
     autoAgentSessionId: string,
     answers: { questionIndex: number; selectedLabels: string[]; note?: string }[],
@@ -213,11 +191,8 @@ export class AutoAgentRuntime {
     if (!inst) return null;
     const truncated = finalText ? finalText.slice(0, 200).trim() : undefined;
 
-    // §5.3 #10-3 v4.98 — **빌더 완료 ≠ 작업 완료.**
-    //   종전에는 여기서 곧바로 `completed` 로 갔다. 그 초록 배지는 "빌더가 하네스를 다 짰다"는
-    //   뜻인데 화면에는 "완료"로 보였고, 워커가 시작도 하기 전에 완료가 뜨는 원인이었다.
-    //   이제 열려 있는 검증 런이 있으면 `running` 까지만 간다 — `completed` 는 그 런이
-    //   증거와 함께 닫힐 때(`handleRunClosed`)만.
+    // §5.3 #10-3 — 빌더 완료 ≠ 작업 완료. 열린 검증 런이 있으면 `running` 까지만 — `completed` 는 그 런이 증거와 함께 닫힐 때(`handleRunClosed`)만
+    // (아니면 워커가 시작하기도 전에 "완료"가 뜬다).
     const activeRun = inst.getActiveAutoAgentRun(autoAgentSessionId);
     const updated = inst.updateAutoAgentSummary(autoAgentSessionId, {
       phase: activeRun ? 'running' : 'completed',
@@ -231,13 +206,7 @@ export class AutoAgentRuntime {
     return updated;
   }
 
-  /**
-   * §5.3 #10-3 v4.98 — 검증 런이 닫혔을 때 auto-agent 표시 상태를 맞춘다.
-   *
-   * `verified`(통과 증거 있음) → `completed`(초록).
-   * `escalated`(예산 소진·증거 없음 등) → `error`(빨강) + 사유 표시. 자율 루프가 스스로 끝내지
-   * 못했다는 뜻이므로 초록으로 칠하지 않는다 — 그게 종전 화면의 거짓말이었다.
-   */
+  /** §5.3 #10-3 — 런이 닫히면: `verified` → `completed`(초록), `escalated`(예산 소진·증거 없음) → `error`(빨강) + 사유. 스스로 못 끝낸 런을 초록으로 칠하지 않는다. */
   handleRunClosed(autoAgentSessionId: string, status: string, escalation?: string): AutoAgentSummary | null {
     const inst = this.deps.graphManager.findInstanceByAutoAgentSession(autoAgentSessionId);
     if (!inst) return null;

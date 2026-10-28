@@ -1,13 +1,4 @@
-/**
- * popOutRecovery.test.ts — §5.5 #17-6 (H-10) **밖으로 빼는 손짓이 실패한 판**의 소스 계약.
- *
- * 앱 안 IDE 창을 밖으로 빼는 길(`popOutToWindow`)은 **앱 안 창을 먼저 닫는다** — 같은 IDE 가 두
- * 곳에 뜨면 어느 쪽이 진짜인지 알 수 없기 때문이다. 그래서 창을 세우는 쪽이 실패하면 IDE 는
- * 밖에도 안에도 없다(사용자에게는 통째로 사라진 것이다). 빠르게 오갈 때 실제로 그 판이 났다 —
- * 닫히는 중인 창을 다시 쓰려다 `Object has been destroyed` 로 약속이 깨졌다.
- *
- * 이 파일은 창을 띄우지 않고 그 계약만 고정한다(클라 테스트에는 DOM 이 없다 — `vitest.config.ts`).
- */
+/** §5.5 #17-6 (H-10) — 밖으로 빼기가 실패해도 IDE 가 통째로 사라지지 않는가(`popOutToWindow` 는 앱 안 창을 먼저 닫는다 — 닫히는 중인 창을 다시 쓰면 `Object has been destroyed`). */
 import { describe, expect, it } from 'vitest';
 
 const sources = import.meta.glob('./*.tsx', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;

@@ -235,11 +235,7 @@ describe('confirmed completion reuse', () => {
     expect(failed.skill.failureCount).toBe(1);
   });
 
-  /*
-   * §5.10 (R)ⓓ — 강등이 완료 기록까지 지우던 때는 강등 방아쇠(근거 파일이 바뀜)와 재사용 성립
-   * 조건(입력 파일이 그대로)이 같은 축이라 서로를 배제해, 파일이 늘 바뀌는 저장소에서는 생략 창이
-   * 사실상 열리지 않았다. 근거·입력·산출물은 서로 다른 축이고, 여기서 그 셋이 갈려 있음을 고정한다.
-   */
+  /* §5.10 (R)ⓓ — 강등해도 완료 기록은 남는다. 지우면 강등 방아쇠(근거 바뀜)와 재사용 조건(입력 그대로)이 서로를 배제해 생략 창이 열리지 않는다. */
   it('keeps completion records through demotion so re-approval reopens the reuse window', () => {
     const skill = create(); approve(skill.id); complete(skill.id);
     expect(assess(skill.id).decision).toBe('skip');
@@ -335,13 +331,7 @@ describe('storage and cost boundaries', () => {
 });
 
 
-/*
- * §5.10 (R) 자율 운영 — 사용자 지시 2026-09-23 "에이전트가 스스로 하게 내 선택은 부가적인 옵션".
- *
- * (Q) 도입 뒤 절차가 한 벌도 승격되지 않은 원인 셋을 각각 고정한다: 실릴 자리가 관련도와 무관하게
- * 잘리던 것(ⓑ), 걷을 때가 지난 절차를 아무도 짚어 주지 않던 것(ⓒ), 검토 대기 행에 앞으로 가는
- * 자리가 없던 것(ⓔ).
- */
+/* §5.10 (R) 자율 운영(사람의 선택은 부가 옵션) — 절차가 승격되지 않던 원인 셋: 관련도 무관한 잘림(ⓑ) · 걷을 때 지난 절차를 안 짚음(ⓒ) · 검토 대기 행에 앞으로 갈 자리 없음(ⓔ). */
 describe('autonomous procedure operation', () => {
   const user = { agentId: 'user', subAgentId: 'user' };
 
@@ -356,10 +346,8 @@ describe('autonomous procedure operation', () => {
   });
 
   /*
-   * 멀티플랫폼 ① — 근거 파일 이름은 두 구분자를 **직접** 걷어내고 낱말로 견준다. `path.basename` 에
-   * 맡기면 POSIX 가 `src\graph\renderer.ts` 를 통째로 파일 이름으로 읽어 win 과 답이 갈린다.
-   * 경로를 접지 않으므로 Linux 의 `Feature-X ≠ feature-x` 도 무너지지 않는다. 실기가 없으니
-   * 세 운영체제의 판정을 여기서 값으로 고정한다.
+   * 멀티플랫폼 ① — 근거 파일 이름은 두 구분자를 직접 걷어 낱말로 견준다. `path.basename` 은 POSIX 에서 `src\graph\renderer.ts` 를 통째로 이름으로 읽어
+   * win 과 갈린다. 경로를 접지 않는다(Linux `Feature-X ≠ feature-x`).
    */
   it('reads a backslash evidence path the same as a forward-slash one on every platform', () => {
     const base = create('Unrelated bundle work');

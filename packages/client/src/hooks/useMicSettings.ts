@@ -1,16 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-/**
- * useMicSettings — **§5.5 #17-38 ⑮ "OS 설정 창을 열 수 있는가"를 서버에게 묻는 손잡이.**
- *
- * 판정을 클라이언트가 흉내 내지 않는 이유는 `useVoiceAsr` 와 같다 — 열 수 있는지는 **이 앱이
- * 어떤 형태로 떠 있는가**(데스크톱 앱인가 웹 단독인가)와 **어느 OS 인가**에 달렸고, 그 둘을
- * 아는 것은 서버뿐이다. 화면이 `navigator.platform` 으로 짐작하면 웹 접속 모드에서 **접속한
- * 기기의 OS** 를 보게 되어(폰에서 붙으면 안드로이드) 엉뚱한 안내가 뜬다.
- *
- * 못 물어봤을 때는 `openable=false` 로 둔다 — 눌러도 아무 일이 없는 버튼을 그리는 것보다
- * 글로 안내하는 쪽이 정직하다(⑬ "실패는 사유까지 말한다").
- */
+/** §5.5 #17-38 ⑮ — OS 마이크 설정 창을 열 수 있는지 서버에 묻는다(앱 형태·OS 는 서버만 안다 — `navigator.platform` 은 웹 접속 기기의 OS 를 본다). 못 물어보면 `openable=false`(⑬). */
 export interface MicSettingsHandle {
   /** 이 실행 환경에서 OS 마이크 설정 창을 열 수 있는가. */
   openable: boolean;

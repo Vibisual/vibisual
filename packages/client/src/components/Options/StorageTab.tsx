@@ -14,16 +14,8 @@ import { NumberStepper } from './NumberStepper.js';
 const API_BASE = '';
 
 /**
- * §3.2.3 — 옵션창 Storage 탭. **보존 설정 + 저장소 사용량**을 한 화면에 둔다.
- *
- * 이 화면이 있는 이유는 조사에서 나온 두 반면교사다.
- *  - **Claude Code**: `cleanupPeriodDays` 정책 자체는 옳았는데 **경고·되돌리기·끄는 UI 가 없어**
- *    사용자 반발을 샀다(#59248·#64999). 그래서 여섯 축 전부를 여기서 조절하고 `0`=무제한으로 끌 수 있다.
- *  - **Cursor**: 만료 없이 쌓다가 25~30GB 가 됐고, 그때는 지우면 채팅이 깨져 **손댈 수 없는 상태**였다.
- *    그래서 "지금 어디가 몇 MB 인지"를 상시 볼 수 있어야 한다.
- *
- * 워크트리는 **자동 삭제 대상이 아니다** — 사용자 산출물이 섞일 수 있어 목록으로만 보여 준다
- * (VS Code 가 `workspaceStorage` 고아 정리를 자동화하지 않고 커뮤니티 확장에 맡긴 그 자리).
+ * §3.2.3 — 옵션창 Storage 탭: 보존 설정(여섯 축, `0`=무제한으로 끈다) + 저장소 사용량(어디가 몇 MB 인지 상시).
+ * 워크트리는 자동 삭제하지 않는다 — 사용자 산출물이 섞일 수 있어 목록으로만 보인다.
  */
 
 /** 사람이 읽는 크기. 0 이면 대시(비어 있음을 0B 로 쓰면 오히려 안 읽힌다). */
@@ -35,17 +27,8 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-/**
- * 보존 설정 축의 표시 순서 + 단위. `0` 의 뜻이 축마다 달라 문구를 따로 준다.
- * 감사 원장 축(`auditEntryMaxPerProject`)은 §5.22 타임라인 팝업에도 같은 값이 걸려 있다 —
- * 두 화면이 한 값을 보므로 여기서 고치면 그쪽도 다음에 열 때 따라온다.
- */
-/**
- * 숫자 축만 이 표에 선다 — 그래서 키 타입이 `keyof RetentionSettings` 가 아니라
- * `NumericRetentionKey` 다. §5.26 이 보존 설정에 **스위치 하나**(`insuranceMirror`)를 더하면서
- * 두 종류가 섞였고, 종전 타입 그대로 두면 `RETENTION_LIMITS[key]`(숫자 축만 가진 표)를 인덱스할 수
- * 없다. 스위치는 아래 `SWITCHES` 가 따로 그린다 — 숫자 입력칸으로 그릴 수 없는 값이라 그렇다.
- */
+/** 보존 축의 표시 순서 + 단위(`0` 의 뜻이 축마다 달라 문구를 따로 준다). `auditEntryMaxPerProject` 는 §5.22 타임라인 팝업과 같은 값이다. */
+/** 숫자 축만 선다 — 스위치(§5.26 `insuranceMirror`)가 섞여 키는 `NumericRetentionKey` 다(그래야 `RETENTION_LIMITS[key]` 가 된다). 스위치는 `SWITCHES` 가 그린다. */
 const FIELDS: { key: NumericRetentionKey; unit: 'days' | 'count' | 'seconds' | 'megabytes' }[] = [
   { key: 'fileEditRetentionDays', unit: 'days' },
   { key: 'maxFileEditPaths', unit: 'count' },
@@ -71,10 +54,7 @@ const USAGE_KIND_ORDER: StorageUsageKind[] = [
 ];
 
 interface StorageTabProps {
-  /**
-   * 미저장 여부를 옵션창에 올린다 — 여기서 고친 값도 "저장 안 하고 나가기" 가드에 걸리게 하려면
-   * 창이 이 탭의 dirty 를 알아야 한다(탭을 떠나거나 창이 닫히면 언마운트되므로 그때 `false`).
-   */
+  /** "저장 안 하고 나가기" 가드가 이 탭의 dirty 를 알게 올린다(언마운트 때 `false`). */
   onDirtyChange?: (dirty: boolean) => void;
 }
 

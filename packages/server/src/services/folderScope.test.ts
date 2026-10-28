@@ -1,13 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolveFolderShipSet } from './folderScope.js';
 
-/**
- * §9 폴더 스코프 — **규칙 자체**를 표로 고정한다.
- *
- * 이 규칙이 틀리면 증상은 성능이 아니라 **기능 손상**으로 나온다: 폴더를 열었는데 안이 비어 있다 ·
- * 뒤로 갔더니 상위가 비어 있다 · 경로 표시(breadcrumb)에서 이름이 사라진다. 그래서 "무엇을
- * 빼는가" 만큼 **"무엇은 절대 빼지 않는가"** 를 함께 못 박는다(프로젝트 축이 세운 것과 같은 규율).
- */
+/** §9 폴더 스코프 규칙 표. 틀리면 연 폴더·상위·breadcrumb 이 비는 기능 손상이라 **무엇은 절대 빼지 않는가**도 못 박는다. */
 
 /** `a` 안에 `a1`·`a2`, `a1` 안에 `a1x` — 두 단계짜리 최소 트리. */
 const TREE: Record<string, string[]> = {

@@ -16,21 +16,14 @@ import {
   type Rgb,
 } from './imageEdit.js';
 
-// §5.5 #17-25 ⑦ — 자르기·알파 빼기의 옵션 줄과 자르기 상자.
-//
-// 옵션 줄은 도구 막대 바로 아래 한 줄로, 그 도구를 고른 동안만 뜬다. 상태는 전부 ImageAnnotator 가
-// 들고 있고 여기 컴포넌트는 값과 콜백만 받는다. 계산은 imageEdit.ts(순수 함수)에 있다.
+// §5.5 #17-25 ⑦ — 자르기·알파 빼기 옵션 줄과 자르기 상자. 상태는 `ImageAnnotator`, 계산은 `imageEdit.ts`.
 
 /** 상자 밖을 누르고 이만큼(화면 px) 움직여야 새 상자를 긋는다 — 가벼운 클릭이 상자를 1px 로 줄이지 않게. */
 const NEW_BOX_SLOP_PX = 3;
 
 export type AlphaMode = 'key' | 'fill';
 
-/**
- * 막대 버튼이 초점을 가져가지 않게 한다. 초점 받은 버튼 위의 Enter 는 그 버튼을 한 번 더 누를 뿐이라
- * 창의 Enter(적용)가 닿지 않는다. 대신 지금 초점을 가진 입력은 **놓게** 한다 — 숫자 칸·글자 표시 칸은
- * 초점을 잃을 때 값을 확정하므로, 막대를 누르는 순간 쓰던 값이 버려지지 않는다.
- */
+/** 막대 버튼이 초점을 안 가져가게 한다(초점 받은 버튼의 Enter 는 그 버튼을 또 눌러 창의 Enter(적용)가 안 닿는다). 대신 지금 입력은 놓게 한다 — 칸들은 blur 때 값을 확정한다. */
 export function holdFocus(e: React.MouseEvent): void {
   e.preventDefault();
   const active = document.activeElement;
@@ -94,11 +87,7 @@ interface NumberFieldProps {
   onCommit: (value: number) => void;
 }
 
-/**
- * 정수 칸 하나. 초점이 없을 때는 늘 지금 값(끌기 중에도 따라 바뀐다)을, 치는 동안만 친 글자를 보여 준다.
- * 확정은 초점을 잃을 때 — Enter 는 확정만 하고(적용은 한 번 더 Enter), Esc 는 친 글자를 버린다.
- * ↑↓ 는 1씩(Shift 는 10씩) 바로 바꾼다.
- */
+/** 정수 칸. 치는 동안만 친 글자, 아니면 지금 값. blur 에 확정 — Enter 는 확정만(적용은 한 번 더), Esc 는 버림, ↑↓ 1씩(Shift 10). */
 export function NumberField({ label, value, disabled, onCommit }: NumberFieldProps): React.JSX.Element {
   const [draft, setDraft] = useState<string | null>(null);
   // Esc 로 놓은 blur 는 확정하지 않는다 — blur 가 keydown 안에서 동기로 불려 state 로는 알 수 없다.
@@ -478,11 +467,7 @@ export interface CropOverlayProps {
   onChange: (box: Box) => void;
 }
 
-/**
- * 자르기 상자 — 밖은 어둡게, 안은 3분할 안내선. 손잡이 8개로 크기를, 안쪽 끌기로 위치를 바꾸고
- * 상자 밖에서 끌면 새로 긋는다. 상자가 그림 전체일 때는 안쪽 끌기도 새로 긋기다(옮길 곳이 없다).
- * 좌표는 이미지 natural 픽셀 — 표시 크기가 달라도 저장본과 같은 자리다.
- */
+/** 자르기 상자 — 손잡이 8개 = 크기, 안쪽 끌기 = 위치, 밖 끌기 = 새로 긋기(상자가 그림 전체면 안쪽도 새로 긋기). 좌표는 natural 픽셀(저장본과 같은 자리). */
 export function CropOverlay({ box, natural, shape, ratio, disabled, onChange }: CropOverlayProps): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<CropDragState | null>(null);

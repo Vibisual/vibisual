@@ -10,23 +10,13 @@ directories:
 files:
   - out/**
   - package.json
-# electron-builder's default file walk + pnpm symlinks don't reliably copy the
-# server's dist + node_modules into the package (.gitignore excludes dist; pnpm
-# symlinks confuse the walker). Instead an afterPack hook copies real files
-# (symlinks dereferenced) into the packaged tree after electron-builder finishes
-# its standard work.
+# electron-builder's file walk doesn't reliably copy the server's dist + node_modules (.gitignore excludes dist;
+# pnpm symlinks confuse the walker), so an afterPack hook copies real files (symlinks dereferenced) into the package.
 afterPack: ./build/after-pack.cjs
 
-# 우리 자신의 라이선스·고지를 설치본에 함께 보낸다.
-# 의존성 LICENSE 는 afterPack 이 node_modules 를 실물 복사하며 277개가 따라 들어가는데,
-# 정작 Vibisual 자신의 Apache-2.0 전문과 NOTICE(상표 조항 포함)만 빠져 있었다 — 설치본을
-# 받은 사람이 우리 코드의 라이선스를 확인할 방법이 없다는 뜻이라 재배포 조건이 성립하지 않는다.
-# `resources/LICENSE` · `resources/NOTICE` 로 앉는다(Electron 자신의 LICENSE.electron.txt 와 같은 층).
-# EULA 도 같이 보낸다 — 소스는 Apache-2.0 이지만 "우리가 빌드해 배포하는 설치본"에는 별도
-# 조건(재배포·재포장 금지, 상표, 무보증)이 걸린다. EULA §5 가 이 경로를 직접 가리키므로
-# 셋은 한 덩어리로 움직여야 한다. 설치 중 동의는 아래 nsis 절의 언어 선택 + 사용권 계약 화면이
-# 받는다(2026-10-13 — "oneClick 이라 동의 화면 자리가 없다"던 종전 판단은 틀렸다, 그 절 참고).
-# 배포 페이지·README 고지는 그대로 둔다.
+# 우리 자신의 라이선스·고지·약관을 설치본에 보낸다 — Apache-2.0 전문과 NOTICE(상표 조항)가 없으면 재배포 조건이 성립하지 않는다.
+# `resources/LICENSE` · `resources/NOTICE` 로 앉는다(Electron 의 LICENSE.electron.txt 와 같은 층). EULA 는 배포 설치본의 별도 조건
+# (재배포·재포장 금지, 상표, 무보증)이고 EULA §5 가 이 경로를 가리키므로 셋은 한 덩어리로 움직인다. 설치 중 동의는 아래 nsis 절.
 extraResources:
   - from: ../../LICENSE
     to: LICENSE
@@ -39,17 +29,11 @@ extraResources:
   - from: build/license
     to: legal
 
-# Disable asar packaging entirely. The pnpm symlink layout doesn't play well
-# with electron-builder's asarUnpack matching — better_sqlite3.node ended up
-# inside the asar (dlopen unfriendly) and sqlite-vec's platform DLL was
-# missing. With asar:false everything ships as plain files and the child Node
-# process can dlopen natives directly. Trade-off: marginally larger install
-# footprint, easier-to-inspect app code. Acceptable for current scope.
+# No asar — with the pnpm symlink layout, asarUnpack matching left better_sqlite3.node inside the asar (dlopen
+# unfriendly) and dropped sqlite-vec's platform DLL. Plain files let the child Node process dlopen natives directly.
 asar: false
 
-# Skip electron-builder's default native rebuild (we control it explicitly via
-# @electron/rebuild — npmRebuild would try to use node-gyp against the system
-# Node version, which is exactly the ABI mismatch we're avoiding).
+# Skip electron-builder's native rebuild — we run @electron/rebuild ourselves; npmRebuild would node-gyp against the system Node (ABI mismatch).
 npmRebuild: false
 nodeGypRebuild: false
 buildDependenciesFromSource: false
@@ -59,34 +43,25 @@ win:
     - target: nsis
       arch: [x64]
   icon: resources/icons/icon.ico
-  # signAndEditExecutable=false disables both signing AND rcedit (icon embed). We
-  # turn it off because enabling it triggers a winCodeSign cache download whose 7z
-  # contains macOS symlinks — those fail to extract on Windows without Developer
-  # Mode / admin. Instead, after-pack.cjs invokes rcedit directly to embed the
-  # brand bubble icon into Vibisual.exe, bypassing the cache download entirely.
+  # false disables signing AND rcedit — enabling it downloads a winCodeSign 7z whose macOS symlinks fail to extract
+  # on Windows without Developer Mode / admin. after-pack.cjs runs rcedit directly to embed the icon instead.
   signAndEditExecutable: false
-  # Code signing slot — certificate wiring is deferred (SCENARIO.md §3.7 / task §7).
-  # certificateFile / certificatePassword left unset on purpose.
+  # Code signing slot (SCENARIO.md §3.7) — certificateFile / certificatePassword left unset on purpose.
 
 nsis:
-  # §4 v2.44 — 자동 업데이트가 무인(조용히)으로 돌려면 oneClick 인스톨러가 필요하다.
-  # oneClick:false(조립형 마법사)는 자동 업데이트의 "기존 파일 제거" 단계에서
-  # "Failed to uninstall old application files (2)" 류 에러 + 마법사 노출이 잦다.
-  # oneClick:true + perMachine:false = per-user 무인 설치/업데이트(관리자 권한 불필요).
+  # §4 — 자동 업데이트가 무인으로 돌려면 oneClick 이어야 한다(oneClick:false 는 "Failed to uninstall old application files (2)"
+  # + 마법사 노출이 잦다). perMachine:false = per-user 설치(관리자 권한 불필요).
   oneClick: true
   perMachine: false
   # 새 설치에서 설치 프로그램이 가끔 0xC0000005 로 죽는 electron-builder 24 템플릿 결함을 비껴간다.
   # 까닭·방법은 그 파일 머리말. 지우면 Windows 스모크가 다시 가끔 빨개진다(23회 중 6회였다).
   include: build/installer.nsh
-  # 설치 언어 고르기 → 사용권 계약 동의 (2026-10-13, 사용자 지시 — "다른 시중 앱들처럼", "그 전에 언어를 고르게").
-  # oneClick 이어도 동의 화면은 선다 — oneClick.nsh 가 licensePage 매크로를 넣는다(skipPageIfUpdated 와 함께).
-  # 언어 창은 무인(/S) 설치면 안 뜨고 동의 화면은 업데이트(--updated)면 건너뛰어, 자동 업데이트는 그대로 조용하다.
-  # 동의 화면과 약관 파일 목록은 build/installer.nsh 의 licensePage 가 들고 있다.
+  # 설치 언어 고르기 → 사용권 계약 동의(build/installer.nsh 의 licensePage). oneClick 이어도 oneClick.nsh 가 그 매크로를 넣는다.
+  # 언어 창은 /S 면 안 뜨고 동의 화면은 --updated 면 건너뛰어 자동 업데이트는 조용하다.
   # ⚠️ 약관 파일을 resources/(buildResources)에 license_*.txt 로 두지 마라 — dmg 에도 동의 창이 붙어 맥 자체 업데이트가 멈춘다.
   displayLanguageSelector: true
-  # 앱 UI 로케일 중 NSIS 가 아는 11개. installer.nsh 의 LicenseLangString 과 한 몸이다 — 여기만 늘리면 -WX 로 빌드가 멈춘다.
-  # 맨 앞이 기본 언어다(OS 언어가 목록에 없으면 English). es-419 는 따로 없다 — OS 가 es-MX 등이면 NSIS 가
-  # 주 언어가 같은 Spanish 를 고른다.
+  # 앱 UI 로케일 중 NSIS 가 아는 것. installer.nsh 의 LicenseLangString 과 한 몸이다 — 여기만 늘리면 -WX 로 빌드가 멈춘다.
+  # 맨 앞이 기본 언어(OS 언어가 목록에 없으면 English). es-419 는 따로 없다 — OS 가 es-MX 등이면 NSIS 가 Spanish 를 고른다.
   installerLanguages:
     - en_US
     - ko_KR
@@ -99,71 +74,47 @@ nsis:
     - it_IT
     - id_ID
     - hi_IN
-  # allowToChangeInstallationDirectory 는 oneClick:false 에서만 유효 — 제거.
+  # allowToChangeInstallationDirectory 는 oneClick:false 에서만 유효하다.
   artifactName: ${productName}-${version}-setup.${ext}
-  # Brand bubble — installer wizard window, uninstaller, and Start-menu/Desktop shortcuts
-  # all use the multi-size .ico so Windows renders crisp at every DPI.
+  # Multi-size .ico for installer, uninstaller and shortcuts — crisp at every DPI.
   installerIcon: resources/icons/icon.ico
   uninstallerIcon: resources/icons/icon.ico
   installerHeaderIcon: resources/icons/icon.ico
 
 mac:
-  # ⚠️ 여기에 `arch:` 를 못 박지 마라. 못 박으면 electron-builder 의 arch 계산
-  # (computeArchToTargetNamesMap)이 **CLI 의 `--arm64`/`--x64` 보다 이 목록을 우선**해서,
-  # 아키텍처를 갈라 지으려고 러너를 나눠도 두 잡이 똑같이 두 아키텍처를 다 뽑는다.
-  # 비워 두면 CLI 플래그(릴리스) 또는 호스트 아키텍처(로컬 `dist:mac`)를 따른다 —
-  # 그래야 각 dmg 가 **그 아키텍처에서 설치된 네이티브 모듈**과 짝이 맞는다
-  # (.github/workflows/release.yml 머리말의 koffi 항목 참고).
+  # ⚠️ 여기에 `arch:` 를 못 박지 마라 — computeArchToTargetNamesMap 이 CLI 의 `--arm64`/`--x64` 보다 이 목록을 우선해
+  # 러너를 나눠도 두 잡이 두 아키텍처를 다 뽑는다. 비워 두면 CLI 플래그나 호스트 아키텍처를 따라 그 아키텍처에서 설치된
+  # 네이티브 모듈과 짝이 맞는다(.github/workflows/release.yml 머리말의 koffi 항목).
   target:
-    # ⚠️ `zip` 을 빼지 마라 — dmg 만 두면 자동 업데이트가 조용히 죽는다.
-    # Squirrel.Mac(= electron-updater 의 macOS 백엔드)은 zip 으로만 업데이트를 적용하고,
-    # electron-builder 는 zip 타깃이 있어야 `latest-mac.yml`(업데이트 피드)을 만든다.
-    # 이게 없으면 코드서명을 나중에 붙여도 `checkForUpdates()` 는 계속 실패한다
-    # (2026-08-26 조사 — mac 자동 업데이트가 막힌 원인은 서명 미배선 + 이 항목 두 겹이었다).
+    # ⚠️ `zip` 을 빼지 마라 — Squirrel.Mac 은 zip 으로만 업데이트를 적용하고 electron-builder 는 zip 이 있어야
+    # `latest-mac.yml` 을 만든다. 없으면 서명을 붙여도 `checkForUpdates()` 가 계속 실패한다.
     - dmg
     - zip
-  # Point at a finished .icns rather than letting electron-builder derive one from
-  # icon.png. Its converter (app-builder, Go) panics with "index out of range [-1]"
-  # in icons.doConvertIcon on that path — an upstream bug open since 2018, and the
-  # second thing that blocked mac releases after the 512×512 size check. The .icns
-  # is generated alongside icon.png/.ico by resources/icons/generate-placeholder.mjs,
-  # so regenerate all three together.
+  # A finished .icns — deriving one from icon.png panics app-builder ("index out of range [-1]" in icons.doConvertIcon,
+  # upstream since 2018). resources/icons/generate-placeholder.mjs makes .icns/.png/.ico together — regenerate all three.
   icon: resources/icons/icon.icns
   category: public.app-category.developer-tools
-  # §5.5 #17-38 — 마이크 사용 문구. macOS 는 이 키가 Info.plist 에 없으면 첫
-  # `getUserMedia({audio})` 에서 **앱을 죽인다**(TCC 가 SIGABRT 로 끝낸다) — 거절이 아니라
-  # 즉사라 화면에 사유를 띄울 기회조차 없다. 이 문구는 권한 창에 그대로 보이므로
-  # "언제·왜 쓰는지"를 적는다(애플 심사 기준이기도 하다).
+  # §5.5 #17-38 — 마이크 사용 문구. 이 키가 없으면 macOS 가 첫 `getUserMedia({audio})` 에서 앱을 SIGABRT 로 죽인다(TCC).
+  # 권한 창에 그대로 보이므로 언제·왜 쓰는지를 적는다.
   extendInfo:
     NSMicrophoneUsageDescription: Vibisual uses the microphone only while voice input is switched on, to turn what you say into text in the command box. Nothing is recorded or stored.
 
-# deb/rpm 은 **homepage 가 없으면 포장 단계에서 죽는다**(fpm 의 --url).
-# 이 값은 루트 package.json 에만 있는데 electron-builder 는 앱 디렉터리(packages/desktop)의
-# package.json 만 본다. 리눅스 사정으로 앱 package.json 을 고치는 대신 여기서 얹는다.
+# deb/rpm 은 homepage 가 없으면 포장에서 죽는다(fpm --url) — electron-builder 는 packages/desktop 의 package.json 만 봐 여기서 얹는다.
 extraMetadata:
   homepage: https://github.com/Vibisual/vibisual
 
-# ⚠️ deb·rpm 타깃은 이 파일에 뒤늦게 들어왔고(커밋 a22a0ea) **아직 한 번도 발행된 적이 없다** —
-#    v0.1.14 자산은 AppImage 뿐이다. 실제로 지어 보니 아래 maintainer/artifactName/homepage
-#    세 값이 없어 포장 단계에서 죽었다(2026-08-29 WSL Ubuntu 실측). 셋 다 여기서 못 박아 둔다.
+# ⚠️ deb·rpm 은 maintainer · artifactName · homepage 가 없으면 포장 단계에서 죽는다(2026-08-29 WSL Ubuntu 실측) — 셋 다 여기서 못 박는다.
 linux:
-  # ⚠️ AppImage 만으로는 **받아서 그냥 실행할 수 없다.** AppImage type2 는 `libfuse.so.2` 를
-  # dlopen 하는데 요즘 배포판에는 FUSE 3 만 있다 — Ubuntu 24.04 러너 실측으로
-  # `dlopen(): error loading libfuse.so.2` 즉사를 확인했다(2026-08-28 smoke run #7).
-  # 사용자 눈에는 "받았는데 안 켜진다"이고, 해결책이 "libfuse2 를 apt 로 까세요"라면
-  # 그건 해결이 아니다. **deb/rpm 은 의존성을 패키지 매니저가 알아서 끌어온다** —
-  # 포장을 바꾸는 것이 안내문을 쓰는 것보다 낫다. AppImage 는 그 둘이 안 통하는
-  # 배포판(Arch·NixOS 등)을 위해 남겨 둔다.
+  # ⚠️ AppImage 만으로는 받아서 그냥 실행할 수 없다 — type2 는 `libfuse.so.2` 를 dlopen 하는데 요즘 배포판엔 FUSE 3 만 있다
+  # (2026-08-28 Ubuntu 24.04 러너 실측: `dlopen(): error loading libfuse.so.2`). deb/rpm 은 의존성을 패키지 매니저가 끌어온다.
+  # AppImage 는 deb/rpm 이 안 통하는 배포판(Arch·NixOS 등)용이다.
   target:
     - AppImage
     - deb
     - rpm
-  # ⚠️ 이 줄이 없으면 실행 파일이 `@vibisualdesktop` 이 된다 —
-  # `LinuxPackager` 가 `appInfo.sanitizedName.toLowerCase()` 로 떨어뜨리는데
-  # 그게 package.json 의 `@vibisual/desktop` 에서 나온다(실측: AppRun 이 `/@vibisualdesktop` 를 부른다).
-  # `@` 로 시작하는 이름은 셸에서 다루기 나쁘고 **deb 패키지 이름으로는 아예 불법**이다.
-  # 🔒 이것은 실행 파일·.desktop 항목의 이름만 바꾼다 — `app.getPath('userData')` 는
-  #    `app.getName()`(= package.json 의 name)에서 나오므로 **설정·토큰 경로는 그대로다.**
+  # ⚠️ 없으면 실행 파일이 `@vibisualdesktop` 이 된다(`LinuxPackager` 가 package.json 의 `@vibisual/desktop` 에서 떨어뜨린다) —
+  # `@` 시작 이름은 셸에서 다루기 나쁘고 deb 패키지 이름으로는 불법이다. 실행 파일·.desktop 이름만 바뀌고
+  # `app.getPath('userData')`(= package.json name)는 그대로다.
   executableName: vibisual
   icon: resources/icons/icon.png
   category: Development
@@ -174,18 +125,12 @@ linux:
   desktop:
     StartupWMClass: Vibisual
 
-# deb/rpm 공통 — 패키지 이름은 **소문자 영숫자**여야 한다.
-# electron-builder 의 `linuxPackageName` 은 `@` 로 시작하는 name 을 productName 으로 대체하는데
-# 그 값이 `Vibisual`(대문자 V)이라 dpkg 규칙(`^[a-z0-9][a-z0-9+.-]+$`)에 걸린다. 그래서 못 박는다.
+# 패키지 이름은 소문자여야 한다 — 기본값은 productName `Vibisual` 이라 dpkg 규칙(`^[a-z0-9][a-z0-9+.-]+$`)에 걸린다.
 deb:
   packageName: vibisual
-  # ⚠️ maintainer 가 없으면 포장이 죽는다 — package.json 의 author 가 이메일 없는 문자열이라
-  #    electron-builder 가 Debian 규격의 "이름 <메일>" 을 만들지 못한다. 여기서 못 박는다.
-  #    (개인 주소가 아니라 프로젝트 주소를 쓴다 — 모든 deb 의 control 에 공개로 박힌다.)
+  # maintainer 가 없으면 포장이 죽는다(author 에 이메일이 없다). 개인 주소가 아니라 프로젝트 주소 — 모든 deb 의 control 에 공개로 박힌다.
   maintainer: Vibisual <noreply@vibisual.pro>
-  # ⚠️ 기본 artifactName 은 `${name}` = npm 이름(@vibisual/desktop)이라 슬래시가 경로로 해석돼
-  #    `dist/@vibisual/desktop_0.1.14_amd64.deb` 를 쓰려다 "Parent directory does not exist" 로
-  #    죽는다. Debian 관례대로 packageName 을 쓴다.
+  # 기본 artifactName 은 npm 이름(@vibisual/desktop)의 슬래시가 경로가 돼 "Parent directory does not exist" 로 죽는다.
   artifactName: vibisual_${version}_${arch}.${ext}
   # electron-builder 24 기본 의존성은 ALSA를 빠뜨려 깨끗한 Ubuntu에서 libasound.so.2 로더 오류가 났다.
   # depends는 기본값을 대체하므로 기존 9종도 모두 유지한다. ALSA의 t64 전환 전후 이름을 함께 받는다.
@@ -201,8 +146,7 @@ deb:
     - libsecret-1-0
     - libasound2t64 | libasound2
 
-# rpm 은 **rpmbuild 가 있어야** 지어진다(fpm 이 부른다). release.yml 의 ubuntu-latest 러너에는
-# rpm 4.18 이 기본으로 깔려 있어 그대로 통하고, 손으로 지을 때만 `sudo apt install rpm` 이 필요하다.
+# rpm 은 rpmbuild 가 있어야 지어진다(fpm 이 부른다) — 손으로 지을 때는 `sudo apt install rpm`.
 rpm:
   packageName: vibisual
   # deb 와 같은 이유(위 주석 참고). rpm 관례는 `이름-버전.아키.rpm`.
@@ -220,28 +164,12 @@ rpm:
     - libuuid
     - alsa-lib
 
-# electron-updater feed — SCENARIO.md §4 v2.44 자동 업데이트.
-# 이 publish 설정이 있어야 electron-builder 가 빌드 산출물에 app-update.yml 을 베이킹하고,
-# `--publish always` 빌드 시 setup + latest.yml(+blockmap)을 GitHub Releases 에 업로드한다.
-# main 의 updaterManager(autoUpdater)는 이 피드를 읽어 최신 버전을 감지·다운로드한다.
-# ⚠️ 소스 main 푸시 ≠ 릴리스 — 버전 bump + 릴리스 발행(.github/workflows/release.yml)이 있어야
-#    업데이트가 트리거된다.
+# electron-updater 피드(SCENARIO.md §4) — 이 설정이 있어야 app-update.yml 이 베이킹되고 `--publish always` 가 GitHub Releases 에
+# 올린다. main 의 updaterManager 가 이 피드를 읽는다. main 푸시 ≠ 릴리스 — 버전 bump + 태그(.github/workflows/release.yml).
 publish:
   provider: github
   owner: Vibisual
   repo: vibisual
-  # ⚠️ **draft 로 올린다 — 이 한 줄이 "깨진 설치본은 사용자에게 도달할 수 없다"의 전부다.**
-  #
-  # 업데이터(autoUpdater)가 draft 릴리스를 **읽지 못한다**는 성질을 안전장치로 쓴다. 태그를 밀면
-  # 자산은 draft 로 올라가고 그때까지는 아무에게도 보이지 않는다. `smoke.yml` 이 그 draft 자산을
-  # **실제로 내려받아 설치하고 실행**해 보고, 4종 러너가 전부 통과하고 자산 11종이 다 있을 때만
-  # 그 워크플로의 `publish` 잡이 draft 를 해제한다. **공개는 검증을 통과한 결과이지 시작이 아니다.**
-  #
-  # 종전에는 `release` 였다. 그래서 태그를 미는 순간 공개 발행이 끝나 있었고 "설치가 되는가"는
-  # 그 **뒤에** 쟀다. v0.1.19 의 Windows 인스톨러가 0xC0000005 로 죽은 것을 알았을 때는 자산이
-  # 이미 공개였고 설치본이 그것을 받는 상태였다 — 되돌릴 수 없었다. 결함이 아니라 **순서**가
-  # 원인이었고, 그래서 개별 빌드를 다시 짓는 대신 순서를 바꿨다.
-  #
-  # 🔒 이 값을 `release` 로 되돌리면 그 게이트가 통째로 사라진다. `releasePackaging.test.ts` 가
-  #    되돌림을 CI 에서 실패시킨다.
+  # ⚠️ draft 로 올린다 — 업데이터는 draft 를 읽지 못하므로, `smoke.yml` 이 draft 자산을 실제로 설치·실행해 통과시킨 뒤에야
+  # 그 `publish` 잡이 공개한다. `release` 로 되돌리면 깨진 설치본이 검증 전에 사용자에게 닿는다(`releasePackaging.test.ts` 가 막는다).
   releaseType: draft

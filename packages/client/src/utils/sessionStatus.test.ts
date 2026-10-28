@@ -185,8 +185,7 @@ describe('resolveSessionLiveness — 셸은 무응답 경고를 세우지 않는
   const long = SESSION_NO_RESPONSE_MS * 10;
 
   it('셸만 남은 세션은 아무리 조용해도 stalled 가 아니다 — 조용한 것이 당연한 축이다', () => {
-    // `sort` 는 stdin 이 닫힐 때까지 한 글자도 안 찍는다. 종전에는 이 침묵이 그대로
-    //   "3분째 응답 없음" 경고가 되어, 멀쩡한 명령을 사용자가 끊게 만들었다.
+    // `sort` 는 stdin 이 닫힐 때까지 한 글자도 안 찍는다 — 이 침묵을 "3분째 응답 없음"으로 읽으면 멀쩡한 명령을 끊게 만든다.
     expect(resolveSessionLiveness(inputs({ subStatus: 'idle', backgroundShellCount: 1 }), 1, long))
       .toBe('idle');
   });

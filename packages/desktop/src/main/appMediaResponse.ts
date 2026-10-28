@@ -1,12 +1,8 @@
-// SCENARIO.md §5.13 (Y) 40-1 — 내부 앱 **미디어 파일을 흘려 보낸다**(vibproxy 미디어 갈래). 앱 이름을 모른다.
-//
-// 종전에는 소재 바이트도 다른 요청처럼 `inject` 로 응답 전체를 메모리에 모은 뒤 IPC 로 실었다. 그 과정에서 바이너리를 한 번
-// UTF-8 문자열로 바꾸고(164MB 에 메인 1.5초) base64 로 또 바꿨으며, 끝이 열린 구간(`bytes=N-`)을 끊어도 나머지가 다 건너왔다
-// (실사 하나를 열 때마다 파일 전체). 이제 이 갈래는 Express 를 거치지 않는다 — 앱 서버 몫이 "어느 파일인가"만 답하면
-// (경로 검사는 그쪽 규칙), 여기서 파일을 조각으로 **당겨** 읽는 `ReadableStream` 을 만든다. 받는 쪽이 끊으면 그 자리에서 파일
-// 손잡이를 닫는다(실측: 300KB 만 읽고 끊으면 1MB 조각 셋에서 멈춤). HEAD 는 열지 않고 답한다.
-//
-// 범위 해석·형식·지문은 shared 순수 함수(`parseByteRange` · `mediaContentType` · `mediaEtag`) — 시험은 `appMediaResponse.test.ts`.
+// SCENARIO.md §5.13 (Y) 40-1 — 내부 앱 미디어 파일을 흘려 보낸다(vibproxy 미디어 갈래). 앱 이름을 모른다.
+// 이 갈래는 Express·`inject` 를 거치지 않는다 — `inject` 로 응답 전체를 모아 IPC 로 실으면 바이너리를 UTF-8 문자열로(164MB 에 메인 1.5초), 다시 base64 로 바꾸고
+// 끝이 열린 구간(`bytes=N-`)을 끊어도 나머지가 다 건너온다. 앱 서버 몫이 "어느 파일인가"만 답하면(경로 검사는 그쪽 규칙) 여기서 조각으로 당겨 읽는 `ReadableStream` 을 만든다.
+// 받는 쪽이 끊으면 파일 손잡이를 닫는다(실측: 300KB 만 읽고 끊으면 1MB 조각 셋에서 멈춤). HEAD 는 열지 않고 답한다.
+// 범위 해석·형식·지문은 shared 순수 함수(`parseByteRange`·`mediaContentType`·`mediaEtag`) — 시험은 `appMediaResponse.test.ts`.
 
 import fs from 'node:fs';
 import { APP_MEDIA_STREAM_CHUNK_BYTES, mediaContentType, mediaEtag, parseByteRange } from '@vibisual/shared';

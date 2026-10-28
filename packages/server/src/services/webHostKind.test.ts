@@ -1,11 +1,4 @@
-/**
- * §5.23 웹 버블 묶기 — 사이트(A)와 종류(B) 판정(shared `webHostKind.ts`)을 못 박는다. 러너가 shared 에 없어 여기 둔다.
- *
- *  (A) `webSiteOf` — 끝 두 칸이 사이트, 두 칸 접미사·주인이 다른 호스팅은 한 칸 더. IP·localhost·의사 호스트는 그대로.
- *  (B) `webKindOfHost` — 의사 호스트 → 호스트 표 → 하위 도메인 머리 → 사이트(와 그 위) 표 → 주소 경로 다수결.
- *      모르면 지어내지 않는다(`undefined`).
- *      `webKindOfSite` — 사이트가 표에 있으면 그것, 없으면 구성원 다수결(호스트 표는 사이트에 쓰지 않는다).
- */
+/** §5.23 — 사이트(`webSiteOf`)·종류(`webKindOfHost`·`webKindOfSite`) 판정(shared `webHostKind.ts`) 고정. 모르면 지어내지 않는다(`undefined`). */
 import { describe, it, expect } from 'vitest';
 import { WEB_SEARCH_HOST, webKindOfHost, webKindOfSite, webKindOfUrl, webSiteOf } from '@vibisual/shared';
 

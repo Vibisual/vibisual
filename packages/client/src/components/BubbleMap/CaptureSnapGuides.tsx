@@ -3,11 +3,8 @@ import { CAPTURE_SNAP } from '@vibisual/shared';
 import { useCaptureSnapGuideStore } from '../../stores/captureSnapGuides.js';
 
 /**
- * §5.9 캡처 버블 이어 붙이기 가이드선 — 드래그·리사이즈 중 자석이 걸린 축을 캔버스에 그린다.
- *
- * `ViewportPortal` 안에 그려 캔버스 변환(팬·줌)을 그대로 타므로 좌표를 그대로 쓰면 된다.
- * 선 두께·후광·여유는 줌으로 나눠 화면상 굵기가 일정하게 보이도록 환산한다(줌 아웃에서 실처럼
- * 사라지거나 줌 인에서 굵은 띠가 되지 않게). 스카이=이어 붙임(변이 맞닿음), 바이올렛=정렬.
+ * §5.9 캡처 버블 이어 붙이기 가이드선. `ViewportPortal` 안이라 캔버스 좌표 그대로, 두께·후광·여유는 줌으로 나눠 화면상 굵기를 일정하게 한다.
+ * 스카이=이어 붙임, 바이올렛=정렬.
  */
 export function CaptureSnapGuides(): React.JSX.Element | null {
   const guides = useCaptureSnapGuideStore((s) => s.guides);

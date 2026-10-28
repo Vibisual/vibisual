@@ -1,27 +1,7 @@
 /**
- * **도구 목록 템플릿** — 에이전트 설정 창 "도구" 칸 오른쪽의 선택기가 한 번에 채우는 목록들.
- *
- * **왜 필요한가.** 기본값이 공식 도구 표 전체(`AVAILABLE_AGENT_TOOLS`)라, "읽기만 하는 에이전트"를
- * 만들려면 칩 마흔 개를 하나씩 지워야 했다. 그 사이 하나를 빼먹으면 조용히 쓰기 권한이 남는다.
- *
- * **목록의 근거는 공개 우수 사례다** (2026-09-14 조사 — 추측으로 짓지 않는다):
- *  · 공식 서브에이전트 문서(code.claude.com/docs/en/sub-agents) — 읽기 전용·리뷰어는
- *    `Read, Grep, Glob`, 조사에 명령이 필요하면 `+ Bash`, 조율자는 `Agent, Read, Bash`.
- *    원칙은 **최소 권한** — 그 일에 꼭 필요한 도구만 준다.
- *  · 실사용 사례 모음(dev.to "12 subagents that earn their context") — 리뷰어 Read/Grep/Glob/Bash,
- *    디버거·구현 Read+Edit(+Write/Bash), 문서 Read+Write+Edit, 조율자 Agent+Read.
- *    "쓰기 권한은 꼭 써야 할 때만."
- *
- * **규약.**
- *  1. 목록은 `AVAILABLE_AGENT_TOOLS` 의 부분집합이며 그 순서를 따른다 — `--tools` 를 늘 명시하므로
- *     목록 밖 이름은 그 에이전트에게 존재하지 않는다(§4 CLI 사양 추종 (3)).
- *  2. **셸(`Bash`·`PowerShell`)은 쌍으로 싣는다.** 윈도우 설치본은 PowerShell 을 쓰고 맥·리눅스는
- *     Bash 를 쓴다 — 한쪽만 실으면 같은 템플릿이 OS 에 따라 명령을 못 돌린다.
- *  3. **`ToolSearch` 는 지연 로딩되는 도구(웹·작업 장부·위임)와 함께 싣는다.** 그 도구들은 스키마를
- *     불러와야 부를 수 있는 설치본이 있다 — 빼면 목록엔 있는데 부를 수 없는 도구가 된다. 읽기만 하는
- *     도구(Read·Glob·Grep·LSP)만 있는 템플릿에는 싣지 않는다.
- *  4. 선택 상태는 **저장하지 않는다.** 저장되는 것은 평범한 `tools` 배열뿐이고, 선택기는 그 배열이
- *     어느 템플릿과 같은지로 다시 계산한다 — 저장 필드를 늘리면 3층 해소·diff 표식·PUT 에 새 축이 생긴다.
+ * 도구 목록 템플릿 — "도구" 칸 선택기가 한 번에 채운다(칩을 하나씩 지우다 빠뜨리면 쓰기 권한이 남는다). 근거는 공식 서브에이전트 문서의 최소 권한 구성(2026-09-14 조사).
+ * ① `AVAILABLE_AGENT_TOOLS` 의 부분집합·그 순서(`--tools` 를 늘 명시 — §4 CLI 사양 추종 (3)) ② `Bash`·`PowerShell` 은 쌍으로(OS 마다 셸이 다르다)
+ * ③ `ToolSearch` 는 지연 로딩 도구와 함께(빼면 못 부른다), 읽기 전용 템플릿엔 없음 ④ 선택은 저장하지 않고 `tools` 로 다시 계산한다(저장 필드가 늘면 3층·diff·PUT 에 새 축).
  */
 import { AVAILABLE_AGENT_TOOLS } from './constants.js';
 
@@ -44,10 +24,7 @@ function inCatalogOrder(names: readonly string[]): readonly string[] {
   return AVAILABLE_AGENT_TOOLS.filter((tool) => want.has(tool));
 }
 
-/**
- * 선택기 2번부터의 순서 그대로다. 권한이 좁은 것에서 넓은 것으로 — 마지막은 기본값과 같은 전체 목록이라,
- * 템플릿을 둘러본 뒤 원래대로 돌아가는 길이 한 번의 클릭으로 남는다.
- */
+/** 선택기 2번부터의 순서 — 좁은 권한 → 넓은 권한. 마지막이 기본값과 같은 전체 목록이라 한 번에 되돌아간다. */
 export const AGENT_TOOL_TEMPLATES: readonly AgentToolTemplate[] = [
   // 코드를 읽고 찾기만 한다. 파일 수정·명령 실행 없음 — 공식 문서의 읽기 전용·리뷰어 구성 + LSP(읽기 전용 코드 탐색).
   { id: 'readOnly', tools: inCatalogOrder(['Read', 'Glob', 'Grep', 'LSP']) },
@@ -96,13 +73,8 @@ export function matchAgentToolTemplate(tools: readonly string[]): string | null 
 }
 
 /**
- * 선택기에 **지금 보일 값**.
- *
- * `pick` 은 이번 창에서 사용자가 선택기로 고른 값이다(`undefined` = 아직 안 고름).
- *  · 커스텀을 골랐으면 목록이 우연히 어느 템플릿과 같아져도 커스텀으로 남는다 — 고른 것이 도로 바뀌어
- *    보이면 선택이 먹지 않은 것으로 읽힌다.
- *  · 템플릿을 고른 뒤 칩을 하나라도 고치면 그 템플릿이 아니다 → 목록으로 다시 계산한다.
- *  · 안 골랐으면 목록만 보고 계산한다(창을 열 때 저장된 목록이 어느 템플릿인지 알아본다).
+ * 선택기에 보일 값(`pick` = 이번 창에서 고른 것, `undefined` = 안 고름). 커스텀을 골랐으면 목록이 우연히 같아도 커스텀,
+ * 템플릿을 고른 뒤 칩을 고치면·안 골랐으면 목록으로 다시 계산한다.
  */
 export function resolveAgentToolTemplate(tools: readonly string[], pick: string | undefined): string {
   if (pick === AGENT_TOOL_TEMPLATE_CUSTOM) return AGENT_TOOL_TEMPLATE_CUSTOM;

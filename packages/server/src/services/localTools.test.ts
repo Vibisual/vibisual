@@ -1,13 +1,6 @@
 /**
- * §5.19 (H) 로컬 도구 — 프로젝트 밖으로 못 나가고, 엉뚱한 곳을 고치지 않는다.
- *
- * 이 도구들은 **모델이 시키는 대로** 파일을 연다. 그래서 경계가 코드로 서 있어야 한다 —
- * 프롬프트 한 줄로 홈 디렉터리가 열리면 그건 기능이 아니라 사고다.
- *
- * 조건은 넷 —
- *  **루트 밖은 거절할 것**(`..`·절대경로·링크 전부), **유일하지 않은 앵커로 고치지 말 것**
- *  (조용히 첫 번째를 바꾸면 엉뚱한 코드가 사라진다), **실패를 던지지 말 것**(모델이 읽고
- *  고쳐 쓸 수 있게 결과로 준다), **자를 때는 잘랐다고 말할 것**.
+ * §5.19 (H) 로컬 도구 경계 — 루트 밖은 거절(`..`·절대경로·링크), 유일하지 않은 앵커로 고치지 않는다(첫 번째를 바꾸면 엉뚱한 코드가 사라진다),
+ * 실패는 던지지 않고 결과로 준다(모델이 고쳐 쓴다), 자르면 잘랐다고 말한다.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -51,13 +44,8 @@ describe('resolveInRoot — 프로젝트 밖은 없다', () => {
   });
 
   /**
-   * 루트가 **링크 위에 놓여 있어도** 그 안의 파일은 안이다.
-   *
-   * mac 의 `/tmp`·`/var` 는 `/private/…` 로 가는 링크다. 대상만 realpath 하고 루트는 안 풀면
-   * 루트(`/var/…`)와 대상(`/private/var/…`)이 어긋나 **루트 안의 파일이 전부 거부된다** —
-   * 2026-08-28 CI 에서 mac 러너만 이 파일 8건이 죽고 win 은 초록이었다(win 의 tmp 는 링크가
-   * 아니라서). 개발기 한 대로는 영영 안 보이는 종류라, 여기서 링크를 직접 만들어 세 OS 에서 잰다.
-   * (Windows 는 디렉터리 junction 이라 관리자 권한이 필요 없다.)
+   * 루트가 링크 위(mac `/tmp`·`/var` → `/private/…`)여도 안쪽 파일은 안이다 — 루트를 안 풀면 전부 거부된다(2026-08-28 CI: mac 러너만 8건 실패).
+   * 링크를 직접 만들어 세 OS 에서 잰다(Windows 는 junction 이라 관리자 권한이 필요 없다).
    */
   it('루트가 링크 위에 있어도 안쪽 파일을 연다', () => {
     const linkParent = fs.mkdtempSync(path.join(os.tmpdir(), 'vibi-link-'));
@@ -91,10 +79,8 @@ describe('resolveInRoot — 프로젝트 밖은 없다', () => {
   });
 
   /**
-   * 대소문자를 접을지는 **그 OS 파일시스템이 실제로 무시할 때만**. `platform` 을 인자로 받게
-   * 만든 이유가 이것이다 — 실기 없이 세 OS 를 여기서 전부 잰다(CLAUDE.md 멀티플랫폼 규칙).
-   * 없는 경로를 쓰는 것은 의도적이다: realpath 가 성공하면 Windows 가 디스크의 실제 케이스로
-   * 되돌려 놓아 케이스 판정 자체가 사라진다.
+   * 대소문자는 그 OS 가 실제로 무시할 때만 접는다(`platform` 인자로 세 OS 를 잰다).
+   * 없는 경로는 의도다 — realpath 가 성공하면 Windows 가 실제 케이스로 되돌려 판정이 사라진다.
    */
   it('대소문자 판정은 플랫폼을 따른다', () => {
     const real = fs.realpathSync(root);
@@ -225,13 +211,8 @@ describe('clipToolResult — 자를 때는 잘랐다고 말한다', () => {
 });
 
 /**
- * §5.19 (H) Bash 도구가 물려주는 PATH.
- *
- * 종전에는 `spawn('/bin/sh', ['-c', cmd], { cwd })` 처럼 **env 를 아예 안 넘겼다.** 그러면 셸이
- * 우리 프로세스의 PATH 를 그대로 받는데, Finder/Dock 으로 띄운 macOS 앱의 PATH 는
- * `/usr/bin:/bin:/usr/sbin:/sbin` 넉 줄뿐이다 — 모델이 부른 `git`·`node`·`pnpm`(전부 Homebrew
- * 자리)이 죄다 `command not found` 로 돌아오고, 모델은 그걸 "이 프로젝트엔 그 도구가 없다"로
- * 읽어 엉뚱한 우회를 시작한다. 이제 `augmentedEnv()` 를 명시로 넘긴다.
+ * §5.19 (H) Bash 도구에 `augmentedEnv()` 를 넘긴다 — env 를 안 넘기면 Finder/Dock 으로 띄운 macOS 앱의 최소 PATH 를 받아
+ * Homebrew 의 `git`·`node`·`pnpm` 이 `command not found` 가 되고, 모델은 도구가 없다고 읽어 엉뚱한 우회를 한다.
  */
 describe('Bash 도구의 PATH 보강', () => {
   it('자식 셸이 보는 PATH 가 보강된 PATH 와 같다', async () => {

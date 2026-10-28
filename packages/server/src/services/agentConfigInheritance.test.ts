@@ -4,21 +4,11 @@ import type { AgentConfig, BubbleData, ProjectCheckpoint, UserDefaults } from '@
 import { AGENT_TOOLS_BACKFILL_GEN, AVAILABLE_AGENT_TOOLS, CMD_AGENT_COLOR, DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
 
 /**
- * §4 (설정 3층) — 에이전트 설정이 **에이전트 → 설정 창 → 내장** 순으로 해소되는지 고정한다.
- *
- * 조용히 깨지는 자리가 넷이고, 넷 다 화면에는 정상으로 보인다:
- *
- *  (1) **씨앗으로 되돌아감** — 생성 시점에 전역 기본값을 복사해 넣으면 그 뒤로 설정 창을 고쳐도
- *      이미 있는 버블에 닿지 않는다(판올림 전 동작). 저장분이 "그때의 전역값 한 벌"이라
- *      어느 칸이 사용자의 뜻인지 구분할 데이터가 사라지는 것이 근본 원인이다.
- *  (2) **자동 동기화가 설정을 덮음** — 관측한 모델을 저장분에 써 넣으면서 도구 목록까지
- *      내장 기본으로 되돌리던 자리. 생성은 전역을 넣고 스냅샷은 내장으로 덮어, 설정 창의
- *      도구 선택이 신규 에이전트에서 한 번도 살아남지 못했다(실측 전역 11 · 저장분 22).
- *  (3) **전역 프리셋 백필 누락** — 도구 백필이 에이전트 설정에만 돌아, 판올림 전에 골라 둔
- *      전역 목록이 앞으로 만들 모든 에이전트의 상한이 됐다(실측 11/48). 게다가 씨앗에는
- *      현행 세대 도장이 함께 찍혀 어느 복원에서도 회복되지 않았다.
- *  (4) **구버전 저장분 마이그레이션** — 완성본만 있는 옛 체크포인트를 옮길 때 지금 동작이
- *      바뀌면 안 된다(갈라져 있던 칸은 갈라진 채, 같던 칸은 위층을 따라).
+ * §4 (설정 3층) — 에이전트 설정이 에이전트 → 설정 창 → 내장 순으로 풀리는지 고정한다. 넷 다 화면엔 정상으로 보이며 깨진다:
+ * (1) 생성 때 전역값을 복사해 넣으면 설정 창을 고쳐도 기존 버블에 안 닿는다(어느 칸이 사용자의 뜻인지 데이터가 사라진다).
+ * (2) 관측 모델을 저장분에 쓰면서 도구 목록까지 내장 기본으로 덮으면 설정 창의 도구 선택이 살아남지 못한다.
+ * (3) 도구 백필은 전역 프리셋에도 돈다 — 아니면 옛 전역 목록이 모든 새 에이전트의 상한이 된다(씨앗의 세대 도장 탓에 복원으로도 안 풀린다).
+ * (4) 완성본만 있는 옛 체크포인트 이관은 동작을 바꾸지 않는다(갈라진 칸은 갈라진 채, 같던 칸은 위층을 따라).
  */
 
 /** 이 테스트가 흉내내는 설정 창의 전역 기본값. 실제 `~/.vibisual/user-defaults.json` 은 읽지 않는다. */
@@ -53,7 +43,7 @@ describe('§4 설정 3층 — 안 건드린 칸은 설정 창을 따라간다', 
     // 만들 때는 전역이 비어 있었다 → 내장 기본.
     expect(graph.getAgentConfig(agent.id)?.model).toBe(DEFAULT_AGENT_CONFIG.model);
 
-    // 만든 **뒤에** 설정 창을 고친다. 종전에는 이 시점 이후로 영영 닿지 않았다.
+    // 만든 **뒤에** 설정 창을 고쳐도 기존 버블에 닿아야 한다.
     setGlobalDefaults({ model: 'sonnet', effort: 'high' });
 
     expect(graph.getAgentConfig(agent.id)?.model).toBe('sonnet');
@@ -81,7 +71,7 @@ describe('§4 설정 3층 — 안 건드린 칸은 설정 창을 따라간다', 
     setGlobalDefaults({ model: 'sonnet', permissionMode: 'acceptEdits' });
     const agent = graph.createCustomAgent('Untouched');
 
-    // 종전에는 이 한 번으로 그 시점 전역값 한 벌이 통째로 굳었다.
+    // 완성본을 한 번 저장해도 그 시점 전역값 한 벌이 굳지 않는다(덮어쓴 칸이 비어 있다).
     graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, {}));
 
     expect(graph.getAgentConfigOverrides(agent.id)).toEqual({});
@@ -130,7 +120,7 @@ describe('§4 설정 3층 — 도구 목록', () => {
     setGlobalDefaults({ tools: ['Read', 'Bash'], toolsBackfillGen: AGENT_TOOLS_BACKFILL_GEN });
     const agent = graph.createCustomAgent('Narrow');
 
-    // 종전에는 이 스냅샷이 도구를 내장 전체 목록으로 되돌렸다("tools reset to all").
+    // 스냅샷이 도구를 내장 전체 목록으로 되돌리면 안 된다("tools reset to all").
     graph.getSnapshot();
 
     expect(graph.getAgentConfig(agent.id)?.tools).toEqual(['Read', 'Bash']);
@@ -218,10 +208,8 @@ describe('§4 설정 3층 — 영속화', () => {
 });
 
 /*
- * §4 (설정 3층) — 관측 모델은 **훅 버블에만** 얹힌다. 우리가 띄우는 버블의 모델은 3층이 정하고 관측은
- * 그 결과일 뿐이라, 얹으면 기본값과 같은 모델을 고른 저장이 못 박히지 않은 채 지난 턴의 관측으로 도로
- * 덮인다 — 다시 연 창도 상태바도 스폰(`--model`)도 옛 모델로 남는다(사용자 보고: 전역 기본 opus 인 채
- * 버블을 Fable → Opus 로 바꿔 저장해도 fable 로 돌았다).
+ * §4 (설정 3층) — 관측 모델은 훅 버블에만 얹는다. 우리가 띄운 버블의 모델은 3층이 정하고 관측은 그 결과일 뿐이라, 얹으면 기본값과 같은
+ * 모델을 고른 저장이 지난 턴 관측으로 덮여 창·상태바·스폰(`--model`)이 옛 모델로 남는다(전역 opus 에서 Fable → Opus 로 바꿔도 fable 로 돈다).
  */
 describe('§4 설정 3층 — 관측 모델은 우리가 띄운 버블의 선택을 덮지 않는다', () => {
   /** 스냅샷이 버블에 실측 모델을 실어 동기화하는 한 걸음만 흉내낸다(대화록·sub 없이). */
@@ -346,15 +334,9 @@ describe('§2.2 CMD 버블 색 — 옛 색 이관', () => {
 });
 
 /*
- * §4 (설정 3층) — **반대 방향.** 위 (1)~(4) 가 "위층이 아래로 내려오는가"였다면 이쪽은
- * "아래층이 위층을 끌 수 있는가"다. 3층을 놓고도 아래층이 "이 버블은 안 쓴다"를 말할 방법이
- * 없으면 전역에서 켠 축은 그 버블에서 **영영 못 끈다** — 창은 껐다고 보여 주는데 저장분에는
- * 그 뜻이 없어, 읽는 순간 위층이 도로 얹힌다(사용자 눈에는 "개별 설정이 안 먹는다"로 보인다).
- *
- * 근본 원인은 **미설정을 `undefined` 로 담은 것**이다. `sparsifyAgentConfig` 는 넘어온 객체의
- * 키를 도는데 `undefined` 는 `JSON.stringify` 가 키째 버리므로 그 비교에 **아예 오르지 못한다**.
- * 설정 창이 `null` 로 푼 것과 같은 문제이고(§4 "전역 옵션을 다시 끌 수 없던 것"), 아래층은
- * 그 축의 **미설정 표기**(false · '' · [] · 0)를 명시로 보내 푼다.
+ * §4 (설정 3층) — 반대 방향: 아래층이 위층에서 켠 축을 끌 수 있는가. 끔이 저장분에 안 남으면 읽는 순간 위층이 도로 얹혀 "개별 설정이 안 먹는다".
+ * 미설정을 `undefined` 로 담지 마라 — `sparsifyAgentConfig` 비교에서 `JSON.stringify` 가 키째 버린다. 아래층은 그 축의 미설정 표기
+ * (false · '' · [] · 0)를 명시로 보낸다(설정 창이 `null` 로 푼 것과 같은 문제).
  */
 describe('§4 설정 3층 — 위층이 켠 것을 아래층에서 끌 수 있다', () => {
   it('전역이 켠 스위치를 이 버블에서 끄면 그 끔이 못 박힌다', () => {
@@ -416,8 +398,7 @@ describe('§4 설정 3층 — 위층이 켠 것을 아래층에서 끌 수 있�
     expect(graph.getAgentConfig(agent.id)?.maxBudgetUsd).toBe(0);
   });
 
-  // **켬이 기본**인 축은 방향이 반대다 — 위층이 꺼 둔 것을 아래층에서 켜려면 명시 `true` 가
-  //   저장돼야 한다. 종전에는 그게 undefined 로 접혀 한 번 끈 전역을 버블마다 되살릴 수 없었다.
+  // 켬이 기본인 축은 반대다 — 위층이 끈 것을 아래층에서 켜려면 명시 `true` 가 저장돼야 한다(undefined 로 접히면 버블마다 못 켠다).
   it('전역이 꺼 둔 켬-기본 축을 이 버블에서 다시 켤 수 있다', () => {
     const graph = new ProjectGraph();
     setGlobalDefaults({ thinking: false });
@@ -447,14 +428,9 @@ describe('§4 설정 3층 — 위층이 켠 것을 아래층에서 끌 수 있�
 });
 
 /*
- * §4 (설정 3층) — `PUT /api/agent-config/:agentId` 는 body 로 `AgentConfig` **한 벌을 새로 짓고**
- * `setAgentConfig` 는 저장분을 병합 없이 통째로 갈아치운다. 그래서 그 조립에서 빠진 축은
- * **저장할 때마다 조용히 사라진다** — 화면에는 "켰는데 안 먹는다"로만 보인다.
- *
- * 실제로 `modelVersion`(모델 풀ID 핀) · `includeHookEvents` · `agentDefinitions` · `pluginDirs`
- * 넷이 그렇게 빠져 있었고, 넷 다 스폰부(`subAgentManager`)가 읽는 축이라 설정은 되는데 다음
- * 저장 한 번에 도로 꺼졌다. `askTools` 가 같은 사고를 겪은 뒤 남긴 경고가 그 자리에 있었지만
- * 목록을 지키는 검사가 없어 같은 일이 되풀이됐다 — 이 테스트가 그 목록이다.
+ * §4 (설정 3층) — `PUT /api/agent-config/:agentId` 는 body 로 `AgentConfig` 한 벌을 새로 짓고 `setAgentConfig` 는 병합 없이 갈아치운다.
+ * 그 조립에서 빠진 축은 저장할 때마다 조용히 사라진다("켰는데 안 먹는다" — `modelVersion`·`includeHookEvents`·`agentDefinitions`·`pluginDirs` 가 그랬다).
+ * 이 테스트가 빠지면 안 되는 축 목록이다.
  */
 describe('§4 설정 3층 — PUT 이 비교 대상 축을 하나도 빠뜨리지 않는다', () => {
   /** PUT 핸들러가 짓는 `AgentConfig` 조립 블록만 잘라 온다. */
@@ -478,10 +454,8 @@ describe('§4 설정 3층 — PUT 이 비교 대상 축을 하나도 빠뜨리�
   });
 
   /*
-   * 목록에 있는 것만으로는 모자란다 — 진짜 사고가 난 자리는 **값 정규화**다.
-   * `body.X === true ? true : undefined` 는 창이 보낸 명시 `false` 를 undefined 로 뭉개고,
-   * 그러면 `sparsifyAgentConfig` 비교에 오르지 못해 읽는 순간 위층이 도로 얹힌다. 규약은
-   * 하나다 — **키가 오면 그 값을(빈 값 포함) 받고, 키가 없을 때만 undefined.**
+   * 목록만으로는 모자라고 값 정규화도 지켜야 한다 — `body.X === true ? true : undefined` 는 명시 `false` 를 뭉개 위층이 도로 얹힌다.
+   * 규약: 키가 오면 그 값(빈 값 포함)을 받고, 키가 없을 때만 undefined.
    */
   it('스위치 축은 body 의 명시 false 를 그대로 받는다', () => {
     const block = putConfigBlock();

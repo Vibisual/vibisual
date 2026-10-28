@@ -1,9 +1,4 @@
-/**
- * 첨부 썸네일 URL 해석 단위 테스트.
- *
- * 여기서 URL 이 안 나오면 화면에는 **그냥 아무것도 없다**(오류도 빈칸도 아니라 목록에서 걸러진다).
- * 그래서 조용히 틀리기 쉬운 자리다 — 검증 시연 프레임이 실제로 그렇게 한 장도 안 떴다.
- */
+/** 첨부 썸네일 URL — 안 나오면 오류 없이 목록에서 걸러져 조용히 틀린다. */
 
 import { describe, it, expect } from 'vitest';
 import { basenameOf, buildAttachmentFetchUrl } from './attachmentThumb.js';

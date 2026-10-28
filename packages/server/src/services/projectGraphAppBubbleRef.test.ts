@@ -3,13 +3,7 @@ import { APP_BUBBLE_REF_MAX } from '@vibisual/shared';
 
 import { ProjectGraph } from './projectGraph.js';
 
-/**
- * §5.13 (L)(T-15) ③ — 노드가 가리키는 앱 작업 문서(`ref`)의 갱신.
- *
- * `ref` 는 세 길(브리프가 만든 문서 · 노드에서 연 앱 창이 고른 문서 · 에이전트의 `/output {"ref"}`)로 채워진다.
- * 앱이 해석하는 열쇠라 서버는 뜻을 모르지만, 글자열이 아닌 값이 적히면 앱 창이 깨지고, 부분 PATCH 가 칸을 지우면
- * 노드가 문서를 잃는다 — 그 둘을 못 박는다.
- */
+/** §5.13 (L)(T-15) ③ — 노드의 앱 작업 문서(`ref`) 갱신. 글자열이 아닌 값(앱 창이 깨진다)과 부분 PATCH 의 칸 지우기(노드가 문서를 잃는다)를 막는지 본다. */
 
 type Updates = Parameters<ProjectGraph['updateAppBubble']>[1];
 

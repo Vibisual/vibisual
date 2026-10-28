@@ -25,8 +25,8 @@ import { ReviewMenu } from './ReviewMenu.js';
 import { LazyLibrariesPanel, LazyStyleDrawer, LazyVideoRequestReview, LazyVideoSourcesDrawer } from './studioPanels.js';
 
 /**
- * §5.13 (V) 3·4 라운드 — 셸이 화면 조립에 넘기는 **덧붙임**(`StudioExtras`)을 짓는다: 장면 구슬 메뉴·이음매(37-8) · 검수 표시와 그
- * 메뉴(37-9) · 스타일 서랍(37-10) · 부품 서랍·가져오기 칸(37-11) · 비트 점(37-12) · 그 밖 4라운드 손잡이. 셸은 묶기만 한다.
+ * §5.13 (V) — 셸이 화면 조립에 넘기는 덧붙임(`StudioExtras`)을 짓는다: 장면 구슬 메뉴·이음매(37-8) · 검수 표시와 그 메뉴(37-9) ·
+ * 스타일 서랍(37-10) · 부품 서랍·가져오기 칸(37-11) · 비트 점(37-12) · 그 밖 손잡이. 셸은 묶기만 한다.
  */
 export interface StudioExtrasInputs {
   readonly t: TFunction;

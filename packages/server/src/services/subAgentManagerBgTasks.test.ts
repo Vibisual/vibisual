@@ -2,13 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { SubAgentManager } from './subAgentManager.js';
 
 /**
- * §5.5 #17-9 ⑧ — 백그라운드 서브에이전트 대차대조의 **내려가는 조건**.
- *
- * 이 화면이 답해야 할 질문은 하나다 — "지금 백단에 몇 개 도는가". 그래서 항목이 언제 내려가느냐가
- * 곧 이 기능의 정확도다. ⑦(b) 는 `SubagentStop` 유실을 대비해 `PostToolUse(Task|Agent)` 에도 ↓ 폴백을
- * 뒀는데, 현 CLI 의 `Agent` 도구는 `run_in_background` 가 기본 참이라 **띄우자마자** 접수증을
- * `tool_response` 로 돌려준다 → 그 폴백이 자식이 살아 있는데도 항목을 즉시 내려 활동바가 내내 `(0)`
- * 이었다. 여기서 고정하는 약속: **배경 스폰은 `SubagentStop` 으로만 내려간다.**
+ * §5.5 #17-9 ⑧ — **배경 스폰은 `SubagentStop` 으로만 내려간다.** `Agent` 는 `run_in_background` 가 기본이라
+ * `PostToolUse(Task|Agent)` 는 접수증이다 — 그걸로 내리면 살아 있는 자식이 빠진다.
  */
 
 const PARENT = 'agent-test-1';

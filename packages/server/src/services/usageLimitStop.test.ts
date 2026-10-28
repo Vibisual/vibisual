@@ -1,14 +1,6 @@
 /**
- * §2.4 (한도 정지) — shared `usageLimitStop.ts` 의 판정 고정 시험.
- *
- * 시험 재료는 **실측 원문**이다(`~/.claude/projects` 의 대화록 JSONL 에서 그대로 옮겨 왔다 — 2026-09-09).
- * 이 판정이 틀리는 두 방향이 서로 반대라 둘 다 고정한다:
- *  · 못 알아보면 → 한도로 멎은 세션이 초록 "완료"로 내려앉아 **멈춘 사실이 화면에서 사라진다**(원증상).
- *  · 넘겨짚으면 → 그 문장을 말하는 대화(지금 이 기능을 지시한 프롬프트가 그랬다)까지 한도로 세어
- *    **멀쩡히 도는 세션이 주황이 된다**.
- *
- * shared 에는 러너가 없으므로 서버 쪽에서 돌린다(`bashWritePaths.test.ts` 와 같은 자리).
- * 시각은 인자로 넘긴다 — 함수가 `Date.now()` 를 읽으면 이 시험이 성립하지 않는다.
+ * §2.4 (한도 정지) — shared `usageLimitStop.ts` 판정(재료는 대화록 실측 원문, 2026-09-09 · shared 엔 러너가 없어 여기서 돈다).
+ * 못 알아보면 멎은 세션이 초록 "완료"가 되고, 넘겨짚으면 그 문장을 인용한 대화가 주황이 된다. 시각은 인자로 — `Date.now()` 를 읽으면 시험이 안 된다.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -149,7 +141,7 @@ describe('detectUsageLimitStop — CLI 한 줄에서', () => {
     expect(detectUsageLimitStop(line, NOW)?.kind).toBe('usage');
   });
 
-  it('월 지출 한도 실측 줄(2026-10-22)도 한도다 — 원증상: 초록 "끝남"으로 굳었다', () => {
+  it('월 지출 한도 실측 줄도 한도다 — 놓치면 초록 "끝남"으로 굳는다', () => {
     const stop = detectUsageLimitStop(syntheticLine(SPEND_LIMIT_TEXT, SPEND_LIMIT_QUOTA), NOW);
     expect(stop).toEqual({
       kind: 'session',
@@ -229,7 +221,7 @@ describe('detectUsageLimitStop — CLI 한 줄에서', () => {
       message: { role: 'user', content: [{ type: 'text', text: "You've hit your session limit · resets 10pm (Asia/Seoul)" }] },
     };
     expect(detectUsageLimitStop(line, NOW)).toBeNull();
-    // 월 지출 한도를 고치라는 지시도 그 통지를 그대로 붙여 넣고 시작했다(2026-10-22).
+    // 통지 원문을 그대로 붙여 넣은 프롬프트도 user 줄이라 한도로 세지 않는다.
     const pasted = {
       type: 'user',
       message: { role: 'user', content: [{ type: 'text', text: `${SPEND_LIMIT_TEXT}\n\n이렇게 사용 한도로 중단 되었는데 왜 주황으로 안 나오는 거야` }] },

@@ -7,12 +7,7 @@ import { AgentQuestionCard } from './AgentQuestionCard.js';
 import { AgentReviewCard } from './AgentReviewCard.js';
 import { AgentListCard } from './AgentListCard.js';
 
-// §4 v2.89 — CMD(인터랙티브 터미널) 카드 패널.
-//
-// terminalCardSniffer 가 마커 줄을 숨기며 방출한 TerminalCard 들을 xterm 그리드 **밖** DOM 패널에서
-// 기존 카드 컴포넌트(AgentReportCard/AgentQuestionCard/AgentReviewCard/AgentListCard)로 그대로 렌더한다.
-// 터미널 캔버스를 한 줄도 안 건드리므로 폰트 확대·창 리사이즈로 claude REPL TUI 가 다시 그려져도
-// 카드가 깨지거나 복제되지 않는다(v2.83 인라인 ANSI 박스 방식의 근본 결함 해소).
+// §4 — CMD 카드 패널. 스니퍼가 숨긴 마커 줄의 `TerminalCard` 를 xterm 밖 DOM 에 그린다 — 터미널 안(ANSI 박스)에 그리면 TUI 가 다시 그릴 때 깨진다.
 
 interface IDETerminalCardRailProps {
   cards: TerminalCard[];
@@ -25,9 +20,8 @@ interface IDETerminalCardRailProps {
   /** 패널 비우기. */
   onClear: () => void;
   /**
-   * 터미널 칸이 좁아 레일을 **옆에** 세울 자리가 없다(`terminalRailOverlays`). 그때는 접힌 띠로 시작하고,
-   * 펼치면 터미널 **위에** 뜬다 — 옆에 세우면 레일 360px 이 터미널 본문을 0 까지 누른다.
-   * 띠는 덮는 동안에도 제자리를 지킨다 — 빠지면 터미널 폭이 바뀌어 PTY 가 다시 그려진다(리사이즈 1회 = 화면 한 벌).
+   * 좁은 칸(`terminalRailOverlays`)에선 레일을 접힌 띠로 시작해 펼치면 터미널 위에 뜬다(옆에 세우면 360px 이 터미널을 0 까지 누른다).
+   * 띠는 덮는 동안도 제자리다 — 빠지면 폭이 바뀌어 PTY 가 화면을 다시 그린다.
    */
   overlay?: boolean;
 }

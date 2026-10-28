@@ -2,11 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useGraphStore, selectDockSignature, selectVisibleDockedPanes } from '../../stores/graphStore.js';
 import { computeDockLayout, type DockLayout, type DockedPane, type Viewport } from './ideDockLayout.js';
 
-// §5.5 #17-1 (판올림 번호 발급 대기) — **자리를 비우는 쪽과 그리는 쪽이 같은 산식을 읽는다**는
-// 규약(v2.18 · selectIDEDockVisible)의 네 변 판.
-//
-// 캔버스 여백(App), DetailPanel 좌/우 미러링, 그리고 창들 자신이 전부 이 훅 하나를 부른다.
-// 둘 중 하나만 고치면 "IDE 는 안 그려지는데 캔버스만 잘린 빈 도크"류의 어긋남이 그대로 돌아온다.
+// §5.5 #17-1 — 자리를 비우는 쪽과 그리는 쪽이 같은 산식(이 훅)을 읽는다(App 여백·DetailPanel 미러링·창들).
+// 한쪽만 고치면 IDE 는 없는데 캔버스만 잘린 빈 도크가 생긴다.
 
 /** 지금 뷰포트(px). 창 크기가 바뀌면 도크 자리도 함께 다시 잡힌다. */
 export function useViewportSize(): Viewport {

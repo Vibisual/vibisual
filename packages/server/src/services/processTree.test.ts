@@ -1,14 +1,6 @@
 /**
- * 프로세스 트리 종료의 **멀티플랫폼 회귀 고정**.
- *
- * 배경 — POSIX 의 트리 킬(`killTree`)은 `process.kill(-pid)` 로 프로세스 **그룹**을 죽인다.
- * 그런데 그룹 킬이 성립하려면 자식이 `detached: true` 로 떠서 그룹 리더여야 한다. claude 스폰 경로에
- * `detached` 가 하나도 없던 시절, mac/linux 에서는 `-pid` 가 **항상** ESRCH 로 떨어져 단일 pid 킬로
- * 강등됐고 claude 가 띄운 MCP 서버·worker(손자)가 조용히 살아남았다. 예외도 로그도 안 남는 결함이라
- * 눈으로는 절대 못 잡는다 — 그래서 스폰 옵션 조립을 순수 함수로 빼고 세 플랫폼을 여기서 고정한다.
- *
- * ⚠ 실제로 프로세스를 띄우거나 죽이는 테스트는 만들지 않는다(순수 함수 + 가짜 자식 + 소스 검사만).
- *   트리 종료는 `killTree`·그룹 신호를 주입받아, 가짜 pid 로 남의 프로세스를 건드리지 않는다.
+ * 트리 종료 멀티플랫폼 회귀 고정. POSIX `process.kill(-pid)` 는 자식이 `detached: true` 그룹 리더여야 성립하고, 아니면 ESRCH → 단일 pid 킬로 손자가 조용히 산다.
+ * 실제 프로세스는 띄우지도 죽이지도 않는다(순수 함수 + 가짜 자식 + 소스 검사, 트리 종료는 신호를 주입받는다).
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
@@ -66,10 +58,17 @@ describe('장수명 claude 자식 스폰은 전부 processGroupSpawnOptions 를 
     { file: 'subAgentManager.ts', sites: 1, why: 'claude 본체 execute' },
     { file: 'contiManager.ts', sites: 2, why: 'callClaude + runPatchAgent' },
     { file: 'claudeAgentViewService.ts', sites: 1, why: 'claude --bg 워커' },
-    { file: 'claudeSetupService.ts', sites: 1, why: '네이티브 인스톨러(shell 파이프라인)' },
+    // `claudeSetupService.ts` 는 인스톨러를 띄우지 않아(§4 앱 전용 엔진) 이 목록에 없다 — 아래 별도 검사.
     { file: 'claudeVersionService.ts', sites: 1, why: 'claude update / npm install -g' },
     { file: 'feedbackDistillService.ts', sites: 1, why: 'haiku one-shot 증류' },
   ];
+
+  it('설치 창은 더 이상 인스톨러를 띄우지 않는다 — 앱 전용 받기(§4)는 앱 안에서 받고, 다시 셸 인스톨러를 띄우려면 그룹 옵션부터', () => {
+    // 종전 `curl … | bash` 인스톨러는 손자를 남겨 그룹 킬이 필요했다. 다시 spawn 이 들어오면 이 검사부터 고친다.
+    for (const file of ['claudeSetupService.ts', 'codexSetupService.ts']) {
+      expect(readService(file), `${file} 에 spawn 이 돌아왔다 — 장수명이면 processGroupSpawnOptions 를 거쳐라`).not.toMatch(/\bspawn\(/);
+    }
+  });
 
   for (const { file, sites, why } of LONG_LIVED_SPAWNS) {
     it(`${file} — ${why} (${sites}곳)`, () => {

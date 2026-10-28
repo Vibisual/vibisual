@@ -1,13 +1,4 @@
-/**
- * canvas2d 백엔드 (SCENARIO.md §5.13 (F)).
- *
- * 셋 중 가장 빠르고 가장 확실하다 — 실험 API 도 오프스크린 창도 쓰지 않고 캔버스에
- * 직접 그린다. 대가는 CSS 가 없다는 것이라, 씬은 **등록된 그리기 함수**로 표현한다.
- *
- * 이 백엔드가 있는 이유는 두 가지다. 하나는 대량 반복 컷(같은 틀에 데이터만 바뀌는
- * 영상)에서 가장 빠르기 때문이고, 다른 하나는 **나머지 둘이 모두 막혔을 때 마지막으로
- * 남는 자리**이기 때문이다. 여기까지 못 오면 렌더 자체가 불가능하다.
- */
+/** §5.13 (F) canvas2d — 실험 API·오프스크린 창 없이 직접 그린다(가장 빠르고 확실). CSS 가 없어 씬은 등록된 그리기 함수다. 나머지 둘이 막혔을 때의 마지막 자리. */
 
 import type { DrawOp } from './drawList.js';
 import { buildDrawList } from './drawList.js';
@@ -41,10 +32,7 @@ export interface MediaProvider {
   getFrame(assetId: string, timeInAsset: number, hint?: FrameHint): Promise<CanvasImageSource | null>;
   /** §5.13 (Y) 40-3 ④ — 곧 시작할 실사 아이템의 읽개를 미리 열어 첫 프레임에 세워 둔다(미리보기 전용 · 기다리지 않는다). */
   warmFootage?(requests: readonly FootageWarmRequest[]): void;
-  /**
-   * §5.13 (Z) 41-4 — 재생 중 `<video>` 로 흘려 틀 주소(구간을 끊을 수 있는 진짜 스트림일 때만). 못 주면 null — 그 실사는 종전처럼
-   * 프레임마다 풀어 캔버스에 그린다. 렌더·스틸은 이 길을 쓰지 않는다(정확한 디코드).
-   */
+  /** §5.13 (Z) 41-4 — 재생 중 `<video>` 로 흘려 틀 주소(구간을 끊을 수 있는 진짜 스트림일 때만, 아니면 null). 렌더·스틸은 쓰지 않는다(정확한 디코드). */
   streamUrl?(assetId: string): Promise<string | null>;
   /**
    * App-owned model adapter; all backends pass the same source time and properties. Each call returns its own
@@ -89,13 +77,7 @@ function str(props: Readonly<Record<string, unknown>> | undefined, key: string, 
   return typeof v === 'string' ? v : fallback;
 }
 
-/**
- * 페이드 계수.
- *
- * 아이템마다 `fadeIn`/`fadeOut`(초)만 적어 두면 들어오고 나가는 것이 부드러워진다.
- * 이걸 기본으로 두는 이유는, 없으면 모든 컷이 딱딱 끊겨 "값싸 보이는" 결과가
- * 기본값이 되기 때문이다.
- */
+/** `fadeIn`/`fadeOut`(초) — 없으면 모든 컷이 딱딱 끊겨 값싸 보이는 결과가 기본이 된다. */
 export function fadeFactor(op: DrawOp): number {
   const inSec = num(op.resolved.item.props, 'fadeIn', 0);
   const outSec = num(op.resolved.item.props, 'fadeOut', 0);

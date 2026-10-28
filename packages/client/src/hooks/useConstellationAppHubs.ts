@@ -10,14 +10,8 @@ import type { ConstellationAppHubView } from '../utils/constellationView.js';
 import type { AppWorkPlan } from '../utils/appWorkView.js';
 
 /**
- * §5.1 #2-1 (B) — 메인 캔버스의 **앱 노드 중심**들. 노드마다 그 노드가 선언한 파일(결과 · 지난 결과 · "연결된 것"의 파일 ·
- * 코드 소재)을 절대경로로 펴서 별자리 판정에 넘긴다 — 파일 버블의 `absolutePath` 와 같은 형식이라야 맞춰진다.
- *
- * - "연결된 것"은 **묻지 않고** 보이는 노드가 이미 읽어 둔 것을 빌려 쓴다(`peekAppLinkedItems`). 앱 노드가 화면에 들어와
- *   읽으면 전역 판본이 올라 여기도 다시 짓는다.
- * - 앱 노드는 끄는 동안 매 프레임 좌표가 바뀐다 — 좌표는 지문에서 빼고 **파일·크기·숨김**만 본다(끄는 내내 판정이 다시
- *   돌지 않게). 새 위성의 첫 자리는 BubbleMap 이 그 순간의 좌표로 따로 잡는다.
- * - 끄면(`enabled=false` — 폴더 안·휴지통 안) 빈 목록이다. 앱 노드는 메인에만 그려진다.
+ * §5.1 #2-1 (B) — 메인 캔버스의 **앱 노드 중심**들 — 노드가 선언한 파일을 파일 버블 `absolutePath` 와 같은 절대경로로 펴 별자리 판정에 넘긴다.
+ * "연결된 것"은 묻지 않고 보이는 노드가 읽은 것을 빌린다(`peekAppLinkedItems`). 끄는 동안 좌표가 매 프레임 바뀌어 지문엔 파일·크기·숨김만. `enabled=false` 면 빈 목록.
  */
 const EMPTY: readonly ConstellationAppHubView[] = [];
 

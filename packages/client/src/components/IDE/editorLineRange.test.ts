@@ -1,14 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { clampLineRange, countTextLines, formatLineRef, lineRangeOf, lineStartOffset } from './editorLineRange.js';
 
-/**
- * §5.5 #17-27 ⑬ (g) — "이 파일을 이 줄 범위로 연다"의 순수 계산.
- *
- * 여기서 잡고 싶은 사고는 셋이다.
- *  ⓐ 편집창이 그리는 줄 수와 여기서 세는 줄 수가 어긋나 **한 줄씩 밀린 자리**를 칠하는 것.
- *  ⓑ 파일보다 긴 범위를 그대로 넘겨 **없는 줄**로 스크롤하는 것 — 그때는 열기만 해야 한다.
- *  ⓒ 캐럿이 줄 머리가 아니라 엉뚱한 글자 위치에 서는 것.
- */
+/** §5.5 #17-27 ⑬ (g) — 줄 범위 열기. 잡는 사고: 줄 수가 어긋나 한 줄 밀린 강조 · 없는 줄로 스크롤(열기만 해야 한다) · 줄 머리가 아닌 캐럿. */
 
 describe('lineRangeOf — 모양을 바로 세운다', () => {
   it('한 줄 · 범위', () => {

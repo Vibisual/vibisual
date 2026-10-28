@@ -12,24 +12,9 @@ import { LanguageSwitcher } from '../Layout/LanguageSwitcher.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
 
 /**
- * §4 (첫 실행 온보딩) ③ — 프로젝트 폴더 선택 게이트 + 상단 배너.
- *
- * 온보딩의 **마지막 칸**이다. ①설치 → ②로그인 까지는 앱 안에서 끝났는데 그 다음이 비어 있었다:
- * 폴더를 한 번도 고르지 않은 사람이 캔버스 우클릭 → "커스텀 에이전트" 를 누르면, 서버가
- * `process.cwd()` 를 임시 프로젝트로 등록해 **이름이 빈 탭 하나와 파일시스템 루트에 매인
- * 에이전트**가 조용히 생겼다(Finder 로 띄운 mac 앱의 `process.cwd()` 는 `/`). 사용자 눈에는
- * "폴더를 고른 적도 없는데 빈 것이 생성됐다" 로 보인다.
- *
- * 화면 규칙은 앞 두 칸(`ClaudeSetupGate`)과 **같은 결**로 맞췄다 — 처음 보는 사람이 세 창을
- * 연달아 보는데 규칙이 칸마다 다르면 그때마다 다시 배워야 한다:
- *  - **권장형(차단 ❌)** — [나중에] 로 닫으면 모달만 사라지고 **상단 배너**가 남는다.
- *  - z-index 는 `LoginWindow`(100_600) 보다 **아래** — 순서상 이 창이 마지막이다.
- *  - 무언가를 만들려다 막혀서 열렸으면(`reason==='create-blocked'`) 첫 문장이 그 사정을 말한다.
- *    같은 창인데 왜 떴는지가 안 적히면 "누른 게 안 먹었다" 로 읽힌다.
- *  - 폴더가 생기는 순간 어떤 경로로 열렸든 닫힌다(판정은 `projectFolderGateFlow`).
- *
- * ⚠ 표시 판정은 `projectFolderGateFlow.ts` 에 따로 있다 — `setupGateFlow` 와 같은 이유다
- *   (렌더 없이 검사할 수 있어야 순서 회귀를 한 번에 잡는다).
+ * §4 (온보딩) ③ — 프로젝트 폴더 게이트 + 배너(마지막 칸). 폴더 없이 에이전트를 만들면 서버가 `process.cwd()`(Finder 로 띄운 mac 앱은 `/`)를 임시 프로젝트로
+ * 잡아 빈 탭과 루트에 매인 에이전트가 생긴다. `ClaudeSetupGate` 와 같은 결: 권장형 · z-index 는 `LoginWindow`(100_600) 아래
+ * · `reason==='create-blocked'` 면 첫 문장이 그 사정을 말한다(안 적히면 "누른 게 안 먹었다") · 폴더가 생기면 닫힌다. 판정은 `projectFolderGateFlow.ts`(렌더 없이 시험).
  */
 
 const Z = 100_500; // LoginWindow(100_600) 보다 아래 — 폴더는 로그인 다음 칸이다.
@@ -152,11 +137,7 @@ export function ProjectFolderGate(): React.JSX.Element | null {
   );
 }
 
-/**
- * 권장형 게이트를 [나중에] 로 닫았을 때 남는 상단 배너 — 누르면 게이트가 다시 열린다.
- * `ClaudeSetupBanner` 와 같은 자리·같은 규칙이다(둘이 동시에 뜰 일은 없다 — 순서 판정이
- * 한 번에 한 칸만 내주기 때문).
- */
+/** [나중에] 로 닫으면 남는 배너 — `ClaudeSetupBanner` 와 같은 자리·규칙(순서 판정이 한 칸만 내주므로 동시에 뜨지 않는다). */
 export function ProjectFolderBanner(): React.JSX.Element | null {
   const { t } = useTranslation();
   const projects = useGraphStore((s) => s.projects);

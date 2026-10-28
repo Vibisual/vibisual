@@ -1,16 +1,7 @@
 import { languageSpec, type LanguageSpec, type StringRule, type TokenKind } from './codeLanguages.js';
 import { tokenizeMarkup, tokenizeMarkdown } from './codeHighlightMarkup.js';
 
-/**
- * codeHighlight.ts — §5.5 #17-27 v4.87 내장 편집창의 **문법 강조 토크나이저**(순수 로직).
- *
- * Monaco·CodeMirror·하이라이터 패키지를 들이지 않는다(§5.5 #17-27 ④) — 우리에게 필요한 것은
- * "주석·문자열·숫자·키워드가 눈에 구분되는 것"이고, 그것은 언어 사양 표(`codeLanguages.ts`) +
- * 한 번의 훑기로 충분하다. React·DOM 의존이 없어 `codeHighlight.test.ts` 로 단독 검증한다.
- *
- * 결과는 **줄 단위 토큰 배열**이다 — 편집창이 줄 번호와 함께 그려야 하고, 블록 주석·템플릿
- * 문자열처럼 여러 줄에 걸친 토큰도 줄 경계에서 잘라 줘야 하기 때문이다.
- */
+/** §5.5 #17-27 내장 편집창 문법 강조(순수). 하이라이터 패키지 ❌(④) — 언어 사양 표 + 한 번 훑기. 여러 줄 토큰도 줄 경계에서 잘라 줄 단위로 낸다. */
 
 /** 색을 입힐 최소 단위. */
 export interface CodeToken {
@@ -21,10 +12,7 @@ export interface CodeToken {
 /** 한 줄 = 토큰 배열(줄바꿈 문자는 담지 않는다). */
 export type CodeLine = CodeToken[];
 
-/**
- * 이 길이를 넘는 본문은 강조하지 않고 평문으로 그린다.
- * 편집창은 타이핑마다 다시 훑으므로, 아주 큰 파일에서 강조가 입력 지연으로 바뀌는 것을 막는다.
- */
+/** 이 길이를 넘으면 평문으로 — 편집창은 타이핑마다 다시 훑으므로 큰 파일에서 강조가 입력 지연이 된다. */
 export const MAX_HIGHLIGHT_CHARS = 400_000;
 
 const IDENT_START = /[A-Za-z_$]/;
@@ -178,10 +166,6 @@ function splitIntoLines(tokens: CodeToken[]): CodeLine[] {
   return lines;
 }
 
-/**
- * 본문 + 언어 id → 줄 단위 토큰. 모르는 언어이거나 너무 큰 파일이면 평문 줄로 돌려준다
- * (색이 없을 뿐 화면은 똑같이 그려진다).
- */
 export function highlightCode(text: string, langId: string): CodeLine[] {
   const spec = languageSpec(langId);
   if (langId === 'plain' || text.length > MAX_HIGHLIGHT_CHARS) {

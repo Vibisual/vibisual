@@ -11,13 +11,7 @@ import {
   toggleCodexFavorite,
 } from './codexSkillList.js';
 
-/**
- * §5.25 (M-1) — 코덱스 스킬 칸의 판정.
- *
- * 못 박는 것 넷: ① **즐겨찾기 저장고를 클로드와 나눠 쓰되 서로를 덮지 않는다**(접두), ② 출처가
- * 없는 옛 항목은 `user` 로 읽는다(그 시절 목록은 전부 홈 것이었다), ③ 검색은 이름·설명·플러그인
- * 이름에 걸린다, ④ 즐겨찾기는 출처 그룹에서 빠진다(같은 것을 두 번 그리지 않는다).
- */
+/** §5.25 (M-1) — 코덱스 스킬 칸: 즐겨찾기를 클로드와 접두로 갈라 공유 · 출처 없는 옛 항목은 `user` · 검색은 이름·설명·플러그인 이름 · 즐겨찾기는 출처 그룹에서 빠진다. */
 
 function skill(name: string, over: Partial<CodexSkillEntry> = {}): CodexSkillEntry {
   return { name, path: `/root/${name}`, ...over };

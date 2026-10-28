@@ -18,10 +18,7 @@ import {
 interface Presentation<T> { className: string; rendered: T }
 interface NodePresentation extends Presentation<Node> { selectable: boolean }
 
-/**
- * The focus center, plus the click still waiting out the double-click window. The center lives in
- * state because a waiting click must keep showing whatever was focused before it.
- */
+/** The center lives in state: a click still waiting out the double-click window must keep showing the previous focus. */
 function useSelectionFocusCenter(): { centerId: string | null; pendingId: string | null } {
   const intentId = useGraphStore((state) => state.selectIntentId);
   const selectDeferred = useSyncExternalStore(subscribeSelectDeferred, isSelectDeferred);
@@ -34,10 +31,7 @@ function useSelectionFocusCenter(): { centerId: string | null; pendingId: string
 
 /**
  * Presentation only: never write these classes or derived edge data back to graph/layout state.
- *
- * §6 — `marquee` 가 켜진 동안만 노드를 React Flow 가 "고를 수 있는 것"으로 내보낸다(`flowSelectable`). 클릭은
- * 우리 선택 제스처가 고르고, React Flow 에는 박스 안 노드를 세는 일만 맡긴다 — 그 판정이 우리 규칙(5px 문턱 ·
- * 더블클릭 보류 · Ctrl/Cmd 누적)과 따로 돌아 Ctrl 클릭 묶음을 덮어쓰던 자리다. 이 값도 같은 캐시를 탄다(바뀔 때만 새 객체).
+ * §6 — `marquee` 동안만 노드를 React Flow 에 선택 가능(`flowSelectable`)으로 내보낸다. 상시면 그 판정이 우리 규칙(5px 문턱·더블클릭 보류·Ctrl/Cmd 누적)과 따로 돌아 Ctrl 클릭 묶음을 덮어쓴다.
  */
 export function useSelectionFocus(nodes: Node[], edges: Edge[], marquee = false): { nodes: Node[]; edges: Edge[] } {
   const { centerId, pendingId } = useSelectionFocusCenter();

@@ -9,16 +9,7 @@ import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import type { MemoLinkHost } from './useMemoLinkHost.js';
 import { followVisibleViewport, placeBelowAnchor, visibleViewport } from './popupPlacement.js';
 
-/**
- * MemoLinkBubble.tsx — §5.5 #17-36 ⑫ **링크 상자**. 캐럿이 링크 안에 들어가면 그 글자 아래에 뜬다.
- *
- * 메모 본문은 글을 고치는 칸이라 그냥 클릭은 캐럿이어야 한다(누를 때마다 다른 곳으로 날아가면 링크 글자를
- * 고칠 수가 없다). 그래서 링크를 **따라가는 손**은 둘이다 — 이 상자의 [이동], 그리고 편집기의 손버릇인
- * Ctrl/Cmd+클릭(카드가 받는다). 같은 상자에서 [다시 고르기]·[해제]도 한다(문서 편집기의 링크 상자와 같은 꼴).
- *
- * 상자는 입력칸의 초점을 빼앗지 않는다 — 누름의 기본 동작을 막아 캐럿·선택이 그대로 남고, 상자가 떠 있는
- * 채로 계속 칠 수 있다. 카드의 `overflow-hidden`·드래그 `transform` 에 갇히지 않게 body 로 포털한다.
- */
+/** §5.5 #17-36 ⑫ — 링크 상자. 본문 클릭은 캐럿이라 따라가기는 [이동]·Ctrl/Cmd+클릭뿐. 입력칸 초점을 뺏지 않고, 카드의 overflow·transform 에 갇히지 않게 body 로 포털한다. */
 
 /** 링크 상자·링크 창의 층 — 전역 글자 메뉴(`GlobalTextFieldContextMenu`)와 같은 높이. 모달 위에서도 떠야 한다. */
 export const MEMO_LINK_POPUP_Z = 1_000_000;

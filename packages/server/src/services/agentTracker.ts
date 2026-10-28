@@ -3,7 +3,7 @@ import { broadcast } from '../broadcastBus.js';
 import { graphManager } from './projectGraphManager.js';
 import { logger } from '../logger.js';
 
-/** §9 v3.45 — index.ts 의 디바운스 broadcastSnapshot 주입 지점. 미주입 시 즉시 송신 폴백. */
+/** §9 — index.ts 의 디바운스 broadcastSnapshot 주입 지점. 미주입 시 즉시 송신 폴백. */
 let snapshotScheduler: (() => void) | null = null;
 
 export function setSnapshotScheduler(fn: () => void): void {
@@ -11,8 +11,7 @@ export function setSnapshotScheduler(fn: () => void): void {
 }
 
 function broadcastSnapshot(): void {
-  // §9 v3.45 — Stop/dismiss 가 몰리는 서브에이전트 군 운용 시 즉시 풀 getSnapshot()+
-  // broadcast 가 메인 스레드를 잡지 않도록 디바운스 경로로 위임한다.
+  // §9 — Stop/dismiss 가 몰릴 때 즉시 풀 getSnapshot()+broadcast 가 메인 스레드를 잡지 않도록 디바운스 경로로 넘긴다.
   if (snapshotScheduler) {
     snapshotScheduler();
     return;
@@ -25,15 +24,8 @@ function broadcastSnapshot(): void {
 }
 
 /**
- * 에이전트 상태: idle(대기) → active(파랑) → completed(빨강) → idle(60초 자동 or 클릭)
- * - hook event (PreToolUse/PostToolUse/Notification) → active
- * - Stop 훅 → 즉시 completed (빨강 글로우)
- * - PID 사망 → completed (빨강)
- * - 60초 경과 또는 클릭 → dismiss (idle 복귀 + 연결 노드 idle)
- *
- * 시스템-레벨 0↔1 전이는 v2.10 부터 micro-flap 보호. 같은 에이전트가 turn 사이 마이크로초
- * 동안 0 으로 떨어졌다가 즉시 다음 turn 으로 1 로 돌아오는 정상 흐름이 매번 "all completed →
- * active" 로 흘러나오던 버그 픽스. per-agent 의 빨강 글로우는 즉시 그대로.
+ * 상태: idle → active(훅 이벤트) → completed(Stop 훅·PID 사망, 빨강) → idle(60초 또는 클릭 dismiss, 연결 노드도 idle).
+ * 시스템 단위 0↔1 전이는 micro-flap 보호 — turn 사이 잠깐 0 이 되는 정상 흐름이 "all completed → active" 로 새지 않게(에이전트별 빨강은 즉시).
  */
 export class AgentTracker {
   private activeSessions = new Set<string>();
@@ -82,8 +74,7 @@ export class AgentTracker {
    * @returns 즉시 제거된 전유 file/folder 버블 id 목록(걷을 게 없었으면 빈 배열).
    */
   dismiss(sessionId: string): string[] {
-    // 사용자 확인 dismiss → purgeNodes=true: 그 에이전트가 전유하던 file/folder
-    // 버블을 idle(5분 TTL)이 아니라 즉시 제거 (§2.4 v1.82).
+    // 확인 dismiss 는 purgeNodes=true — 그 에이전트가 전유하던 file/folder 버블을 5분 TTL 없이 즉시 제거(§2.4).
     const purged = graphManager.markAgentIdle(sessionId, true);
     broadcastSnapshot();
     logger.info(`Agent acknowledged → idle + purged ${purged.length} owned file/folder bubble(s) (session: ${sessionId})`);

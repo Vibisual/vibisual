@@ -8,20 +8,10 @@ import {
   encodeExtendedLimits, decodeProcessIdList, decodeJobMessage, baseNameOf,
 } from './winJobLayout.js';
 
-// §5.3 #9-2 (A) — Windows Job Object 백엔드(koffi · kernel32, main 전용).
-//
-// 우리가 띄우는 에이전트 자식(claude·codex·CMD PTY·스크립트 선반)마다 묶음 하나를 만들고 스폰 직후 넣는다.
-// 그러면 그 자식이 낳는 손자는 몇 대를 내려가도 같은 묶음에 든다 — Node(libuv) 기본 묶음은
-// `SILENT_BREAKAWAY_OK` 라 직계 자식만 묶고, Claude Code 도 자기 묶음에 같은 깃발을 걸어 bash 를 놓는다.
-//
-// 실측(2026-10-12, Claude Code 2.1.296 · 같은 서명·오프셋으로 이 파일을 짓기 전에 쟀다):
-//   · Bash 도구가 띄운 bash.exe 3개·conhost.exe·PING.EXE 가 전부 묶음 안이었고 Bash 는 정상 동작했다.
-//   · 묶음을 닫자(KILL_ON_JOB_CLOSE) 2초 안에 트리 전체가 사라졌다.
-//   · 사고를 낸 grep 에 300MB 상한을 걸자 0.1초 만에 `grep: Memory exhausted`(종료 코드 2)로 스스로 끝났고,
-//     통지 포트로 JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT 가 왔다.
-//
-// 바인딩이 실패하면 `null` 을 돌려주고 조용히 물러난다 — 서버의 감시가 목록 뜨기로 받친다(기능이 줄 뿐
-// 실행이 실패하지 않는다). 플랫폼은 인자로 받는다(멀티플랫폼 규칙).
+// §5.3 #9-2 (A) — Windows Job Object 백엔드(koffi · kernel32, main 전용). 에이전트 자식마다 묶음을 만들어 스폰 직후 넣으면 손자까지 든다 —
+// libuv 기본 묶음은 `SILENT_BREAKAWAY_OK` 라 직계만 묶고, Claude Code 도 같은 깃발로 bash 를 놓는다.
+// 실측(2026-10-12, Claude Code 2.1.296): Bash 도구의 자손 전부 묶음 안·정상 동작, KILL_ON_JOB_CLOSE 2초 안 트리 소멸, grep 300MB 상한 0.1초에 종료 + 통지.
+// 바인딩 실패는 `null` — 서버 감시가 받친다.
 
 // ─── kernel32 바인딩(지연 로드, 1회) ───
 
@@ -199,10 +189,7 @@ class WinJobBackend implements ContainmentBackend {
   }
 }
 
-/**
- * Windows 에서만 백엔드를 짓는다. 다른 OS 는 `null`(서버가 종전 detached 그룹 + 감시로 간다).
- * 바인딩이 실패해도 `null` — 감시가 받친다.
- */
+/** Windows 에서만 백엔드를 짓는다. 다른 OS·바인딩 실패는 `null` — 서버가 detached 그룹 + 감시로 받친다. */
 export function createWindowsJobBackend(platform: NodeJS.Platform): ContainmentBackend | null {
   if (platform !== 'win32') return null;
   const api = loadKernel32();

@@ -1,15 +1,4 @@
-/**
- * §5.5 #17-17 ⑫ — **팔레트가 화면까지 닿는가** 회귀.
- *
- * 집계 산식(`goalActions.test.ts`)이 맞아도 배선이 한 곳이라도 비면 팔레트는 빈 서랍이 되는데,
- * 그 실패는 "아직 안 배웠다"와 똑같이 생겨서 눈으로는 못 잡는다. 그래서 세 지점을 못박는다 —
- * 스냅샷에 실리는가 · 고정이 껐다 켜도 사는가 · **프로젝트를 2개 열어도 살아남는가**.
- *
- * 마지막 축이 이 파일을 쓰게 한 이유다: `mergeSnapshots` 는 필드를 **하나하나 적어** 합치므로,
- * 새 필드를 거기 등록하지 않으면 다중 프로젝트에서만 조용히 사라진다(brain·sessionGoals 가
- * 이미 그 결함을 겪었고 주석으로 경고까지 남아 있다). 같은 자리에서 `visualKinds` 가 **실제로
- * 빠져 있던 것**을 이 라운드에 함께 고쳤으므로 그것도 여기서 함께 지킨다.
- */
+/** §5.5 #17-17 ⑫ — 팔레트가 화면까지 닿는가: 스냅샷 · 고정 왕복 · **프로젝트 2개**(`mergeSnapshots` 는 필드를 하나씩 적어, 등록 안 한 필드는 다중 프로젝트에서 사라진다 — `visualKinds` 포함). */
 import { describe, expect, it } from 'vitest';
 import { ProjectGraph } from './projectGraph.js';
 import { mergeSnapshots } from './projectGraphManager.js';

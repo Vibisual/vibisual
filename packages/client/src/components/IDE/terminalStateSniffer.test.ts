@@ -2,11 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { CMD_BLOCKED_IDLE_MS, CMD_IDLE_MS } from '@vibisual/shared';
 import { classifyCmdTerminalTail, TerminalStateTracker } from './terminalStateSniffer.js';
 
-// §4 (CMD 터미널 업그레이드 ①) — 상태 감지기.
-//
-// 여기서 지키려는 것은 두 가지다.
-//  (a) **오탐하지 않는다** — 지나가는 출력 안의 물음표·산문을 "막힘"으로 읽으면 탭 도트가 거짓말한다.
-//  (b) **깜빡이지 않는다** — 조용해진 직후의 애매한 구간에서 상태를 흔들면 도트가 초 단위로 튄다.
+// §4 (CMD 터미널 ①) 상태 감지기 — 지나가는 출력의 물음표를 "막힘"으로 읽지 않고, 조용해진 직후에 상태를 흔들지 않는다.
 
 const ESC = String.fromCharCode(27);
 

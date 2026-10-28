@@ -18,9 +18,8 @@ export interface VideoSourcesDrawerProps {
 }
 
 /**
- * Pinned revisions are the default. Merely opening or refreshing the catalog never changes a scene. A newer revision
- * can be applied to chosen scenes, or kept as it is — the keep decision is recorded on the video's source index (its
- * mirror document) so the notice folds until the source changes again (§5.13 (R-10)).
+ * Pinned revisions are the default; opening or refreshing never changes a scene. A newer revision is applied to chosen scenes or kept —
+ * "keep" is recorded on the source index (mirror document) and folds the notice until the source changes (§5.13 (R-10)).
  */
 export function VideoSourcesDrawer(p: VideoSourcesDrawerProps): React.JSX.Element {
   const { t } = useTranslation();

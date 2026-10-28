@@ -70,7 +70,7 @@ interface PhysicsBody {
   offsetY: number;
   /** 유저가 드래그 중인지 */
   dragging: boolean;
-  /** React Flow 가 DOM 실측을 마쳤는지(§4 v3.71 — 화면 밖 컬링 노드는 실측 전이라 반경이 기본값). */
+  /** React Flow 가 DOM 실측을 마쳤는지(§4 — 화면 밖 컬링 노드는 실측 전이라 반경이 기본값). */
   measured: boolean;
   /** flowNodes 밖(store 기반) 요소인지 — 이동을 콜백으로 내보낸다. */
   external: boolean;
@@ -106,20 +106,12 @@ const REPULSION_STRENGTH = 800;
 const REPULSION_RANGE = 120;
 const DAMPING = 0.88;
 const MAX_VELOCITY = 4;
-/**
- * 부모 버블이 사각 바운딩 박스를 벗어나려 하면 경계에서 클램프 + 약한 안쪽 반발.
- * 박스 크기는 graphStore.layoutBoundsHalfWidth/Height (사용자 조절 가능, §3.3),
- * 중심은 LAYOUT_CENTER_X/Y. 위성은 부모 스프링이 끌어당기므로 직접 클램프하지 않는다.
- */
+/** 부모 버블은 사각 경계(graphStore.layoutBoundsHalfWidth/Height — §3.3, 중심 LAYOUT_CENTER_X/Y)에서 클램프 + 약한 안쪽 반발. 위성은 부모 스프링이 끌므로 클램프하지 않는다. */
 const BOUNDS_BOUNCE = 0.4;
 /** 좌표를 화면(노드/스토어)에 반영하는 최소 변위 — 서브픽셀 떨림으로 리렌더하지 않기 위함. */
 const MIN_DISPLACEMENT = 0.5;
 
-/**
- * §4 v3.71 가시성 LOD — "덮임"(IDE 최대화·모달 등 전면 오버레이)을 `document.hidden` 과 **동급**으로
- * 취급한다. 종전엔 같은 창 안에서 캔버스가 완전히 가려져도 `document.hidden` 은 false 라 물리가 계속
- * 돌았다 — 보이지도 않는 버블을 30fps 로 밀고 `setNodes` 로 리렌더까지 시켰다.
- */
+/** §4 가시성 LOD — "덮임"(IDE 최대화·모달 등 전면 오버레이)을 `document.hidden` 과 **동급**으로 본다(같은 창 안에서 가려지면 `hidden` 은 false 라 안 보이는 버블을 계속 민다). */
 function isCanvasUnseen(): boolean {
   return (typeof document !== 'undefined' && document.hidden) || isCanvasCovered();
 }
@@ -130,11 +122,7 @@ export interface PhysicsHandlers {
   onSatelliteDragStop: (id: string, opts?: { keepDistance?: boolean }) => void;
   /** 뷰 전환 시 물리 일시 정지 → 바디 리셋 */
   pauseAndReset: () => void;
-  /**
-   * §5.4 #33 — 지정한 시간 동안 물리를 재운다. 좌표를 **우리가 직접 몰아가는** 동안(정리 이동)
-   * 물리가 같은 프레임에 반발력을 얹으면 가는 길이 흔들린다. 바디는 그대로 두므로 시간이 지나면
-   * 그 자리에서 자연스럽게 이어 간다(`pauseAndReset` 과 달리 잔여 속도도 건드리지 않는다).
-   */
+  /** §5.4 #33 — 정한 시간 동안 물리를 재운다(좌표를 직접 몰 때 반발력이 길을 흔들지 않게). 바디·잔여 속도는 그대로 둬 그 자리에서 이어 간다(`pauseAndReset` 과 다르다). */
   pauseFor: (ms: number) => void;
   /** 물리 엔진 깨우기 (드래그 등 사용자 인터랙션 시) */
   wake: () => void;
@@ -145,10 +133,7 @@ export function usePhysicsLayout(
   setNodes: React.Dispatch<React.SetStateAction<Node[]>>,
   satelliteEdges: Array<{ source: string; target: string }>,
   onSleep?: () => void,
-  /**
-   * true면 위성 없이도 물리 틱이 돌면서 일반 버블끼리 반발력·경계 클램프가 적용된다.
-   * 캔버스(`BubbleMap`)는 항상 true 를 넘긴다 — 위성 유무는 버블 물리의 조건이 아니다.
-   */
+  /** true 면 위성 없이도 물리 틱이 돈다(반발력·경계 클램프). `BubbleMap` 은 늘 true — 위성 유무는 버블 물리의 조건이 아니다. */
   forceRun: boolean = false,
   /** flowNodes 밖(store 기반)의 사각 요소들 — 캡처·앱·플레이·코멘트 박스. */
   externalNodes: ExternalPhysicsNode[] = [],
@@ -168,11 +153,7 @@ export function usePhysicsLayout(
   const quietFramesRef = useRef(0);
   /** 슬립 상태 — 속도 수렴 시 true, 드래그 시 false */
   const sleepingRef = useRef(false);
-  /**
-   * 외부(store) 요소에 우리가 마지막으로 내보낸 중심 좌표. 스토어 → 노드 → 이 훅으로 되돌아오는
-   * 값이 우리가 쓴 값과 같으면 바디 위치를 다시 덮지 않는다(왕복 지연 때문에 속도가 매 프레임
-   * 초기화되어 밀림이 끊기는 것을 막는다). 다른 주체(드래그·서버 스냅샷)가 옮겼을 때만 받아들인다.
-   */
+  /** 외부(store) 요소에 마지막으로 내보낸 중심 좌표. 되돌아온 값이 같으면 바디를 다시 덮지 않는다(왕복 지연으로 속도가 매 프레임 초기화돼 밀림이 끊긴다). 드래그·서버 스냅샷이 옮겼을 때만 받는다. */
   const lastEmittedRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const onExternalMoveRef = useRef(onExternalMove);
   useEffect(() => { onExternalMoveRef.current = onExternalMove; }, [onExternalMove]);
@@ -180,11 +161,7 @@ export function usePhysicsLayout(
   /** 최신 tick 참조 — rAF 루프가 tick 정체성 변화에 재시작 없이 항상 최신 로직을 부르게 한다. */
   const tickRef = useRef<() => void>(() => {});
 
-  // rAF 루프를 "필요할 때만" 돌린다(모바일 발열 억제 — §4 v3.39). 종전엔 루프가 항상 30fps 로
-  // 돌며 tick 이 슬립 판정만 했는데, 상시 rAF 가 폰 GPU/컴포지터를 재우지 못해 발열의 주원인이었다.
-  // 이제 슬립 수렴 또는 백그라운드(document.hidden = 앱 최소화·탭 전환·폰 화면 꺼짐)면 루프 자체를
-  // 멈추고, wake()·가시성 복귀에서 ensureRunning 이 재점화한다. 시각 동작은 불변(tick 은 원래도
-  // 슬립 시 조기 return 이라 안 움직였다) — CPU/발열만 준다. 데스크톱도 idle 시 이득.
+  // rAF 루프는 필요할 때만 돈다(§4 발열 — 상시 rAF 는 폰 GPU 를 못 재운다). 슬립 수렴·document.hidden 이면 멈추고 wake()·가시성 복귀에서 ensureRunning 이 다시 켠다.
   const ensureRunning = useCallback((): void => {
     if (rafRef.current != null) return;
     if (isCanvasUnseen()) return;
@@ -240,14 +217,9 @@ export function usePhysicsLayout(
   useEffect(() => {
     const existing = bodiesRef.current;
     const newBodies = new Map<string, PhysicsBody>();
-    // §4 v3.71 — 뷰포트 밖 노드 컬링(onlyRenderVisibleElements)을 켠 뒤로는, 화면 밖 버블이 DOM 에
-    //   마운트된 적이 없어 measured 가 비어 있다(반경이 기본값 35 로 남는다). 그 버블이 화면에 들어와
-    //   처음 실측되는 순간 반경이 실제 크기로 점프하므로, 잠들어 있던 엔진을 깨워 겹침을 정리한다.
-    //   깨우는 조건은 "미실측 → 실측" 전이뿐 — 활동에 따른 크기 전이(매 프레임 폭 변화)로는 깨지 않아
-    //   상시 rAF 로 되돌아가지 않는다.
+    // §4 — 컬링된 화면 밖 버블은 measured 가 비어 반경이 기본 35 다. 처음 실측되면 반경이 점프하므로 깨워 겹침을 푼다 — 깨우는 건 "미실측 → 실측" 전이뿐(크기 전이로 깨우면 상시 rAF).
     let measuredArrived = false;
-    // 활동으로 반경이 커진 바디들. 크기 전이 **자체**로는 깨우지 않고(상시 rAF 회귀 방지 — §4 v3.71),
-    // 커진 결과 실제로 이웃과 겹쳐 버린 경우에만 아래에서 1회 깨운다.
+    // 활동으로 반경이 커진 바디들. 크기 전이만으로는 깨우지 않고(상시 rAF 방지), 커져서 실제로 이웃과 겹친 경우에만 아래에서 1회 깨운다.
     const grown: PhysicsBody[] = [];
     // §5.1 #2-1 (B) — 새 부모 둘레 궤도에 다시 걸 위성: 부모가 바뀌었거나(별자리가 섰다·풀렸다) 부모가 버블 밖(앱 노드)이라
     //   지금 자리에서 오프셋을 못 잰 새 위성. 외부 바디까지 다 지은 뒤에 건다(앱 노드 바디는 아래에서 선다).
@@ -500,13 +472,7 @@ export function usePhysicsLayout(
     lastEmittedRef.current.delete(id);
   }, [ensureRunning]);
 
-  /**
-   * 드래그 끝 — 놓은 방향 유지, 거리는 원래 궤도로 복귀.
-   *
-   * `keepDistance` — 놓은 거리를 지킨다(궤도보다 가까우면 궤도로). 정리(§5.4 #33)가 도착한 위성의 오프셋을 다시 잡을 때 쓴다: 정리는
-   * 위성이 많으면 두 겹·세 겹 고리로, 달이 많은 묶음은 넓힌 고리로 앉히는데(§5.1 #2-2 (J)), 궤도로 되돌리면 그 고리가 첫 고리로
-   * 오므라들어 서로 포갠다.
-   */
+  /** 드래그 끝 — 방향 유지, 거리는 궤도로. `keepDistance` 는 놓은 거리를 지킨다 — 정리(§5.4 #33)가 여러 겹·넓힌 고리(§5.1 #2-2 (J))로 앉힌 위성을 궤도로 되돌리면 첫 고리로 포개진다. */
   const onSatelliteDragStop = useCallback((id: string, opts?: { keepDistance?: boolean }) => {
     const body = bodiesRef.current.get(id);
     if (!body) return;
@@ -561,11 +527,7 @@ export function usePhysicsLayout(
     }
     const carriers = all.filter((b) => b.carryIds != null && b.carryIds.length > 0 && b.movable && !b.dragging);
 
-    // 부모로의 복귀 경로가 막힌 위성 검출 — 이 위성들은 이번 프레임 완전 정지.
-    // 조건: 다른 버블 B가 (1) 부모와 이미 최소거리로 붙어 있고(=더 밀 공간 없음)
-    // (2) sat과 parent 사이에 끼어 있고 (3) sat과 충돌권 내에 있음.
-    // 차단된 위성은 스프링·반발력 전부 적용 안 함 → 평형점에서 안 떨림.
-    // 다음 프레임에 블로커가 비키면(혹은 위치가 바뀌면) 차단 해제되어 자연스럽게 복귀 재개.
+    // 복귀 길이 막힌 위성은 이번 프레임 완전 정지(평형점에서 떨지 않게). 막힘 = 다른 버블이 부모와 최소거리로 붙어 있고 · sat 과 parent 사이에 끼고 · sat 과 충돌권 안. 비키면 다음 프레임에 잇는다.
     const frozenSatIds = new Set<string>();
     for (const sat of satellites) {
       if (sat.dragging) continue;
@@ -616,12 +578,8 @@ export function usePhysicsLayout(
       // 안 꺼졌다. 대칭 깨기는 `physicsGeometry.separation` 이 정해진 축으로 결정론적으로 한다.
     }
 
-    // 자석 반발 — 균일 공간 해시 그리드로 O(N²) → O(N) 최적화.
-    // 셀 크기는 두 바디가 상호작용할 수 있는 최대 거리 이상이어야 인접 3×3 셀만
-    // 확인해도 누락 0 보장. 상호작용 최대 거리 = max(REPULSION_RANGE,
-    // 최대치수*2 + MAGNET_GAP). 버블 크기가 가변(NODE_MAX_SIZE까지)이고 사각 창은
-    // 그보다 훨씬 크므로 하드코딩 대신 이번 tick 의 실제 최대 치수로 동적 산출 —
-    // 큰 요소 쌍 겹침 보정 누락(겹쳐도 안 밀려남) 방지.
+    // 자석 반발 — 균일 공간 해시. 셀 ≥ 상호작용 최대 거리 max(REPULSION_RANGE, 최대치수*2 + MAGNET_GAP) 라야 3×3 셀만 봐도 빠짐이 없다.
+    // 최대치수는 이번 tick 실제 값으로(사각 창이 버블보다 훨씬 커 상수면 큰 쌍이 안 밀린다).
     let maxExtent = 0;
     for (const body of all) {
       const ext = extentOf(body);
@@ -667,10 +625,8 @@ export function usePhysicsLayout(
             const sep = separation(a, b, gapBetween(a, b));
 
             if (sep) {
-              // 깊이를 누가 얼마나 나눠 물러나고 얼마나 되튀는지는 `separationResponse` 한 곳이 정한다
-              // — 한쪽만 움직일 수 있으면 그쪽이 전부, 위성은 부모 아닌 바디에게 전부 양보, 물러나지
-              // 않는 쪽은 되튐도 없다. 그 셋 중 하나라도 어기면 매 걸음의 잔여 변위가 상대에게만
-              // 쌓여 지도가 한 방향으로 영원히 흐른다(그 근거는 저쪽 주석에 있다).
+              // 물러남·되튐 배분은 `separationResponse` 한 곳이 정한다(한쪽만 움직이면 그쪽이 전부 · 위성은 부모 아닌 바디에 양보 · 안 물러나는 쪽은 되튐 없음).
+              // 어기면 잔여 변위가 한쪽에 쌓여 지도가 한 방향으로 영원히 흐른다.
               const res = separationResponse(a, b, sep, aMovable, bMovable);
               if (aMovable) { a.x += sep.nx * res.aPush; a.y += sep.ny * res.aPush; a.vx += sep.nx * res.aBounce; a.vy += sep.ny * res.aBounce; }
               if (bMovable) { b.x -= sep.nx * res.bPush; b.y -= sep.ny * res.bPush; b.vx -= sep.nx * res.bBounce; b.vy -= sep.ny * res.bBounce; }
@@ -750,10 +706,7 @@ export function usePhysicsLayout(
       }
     }
 
-    // 이번 걸음에 **가장 많이 움직인 바디**가 얼마나 갔나. 정지 판정과 화면 반영이 같은 값을 본다.
-    //   종전에는 속도의 **합**으로 정지를 판정해서, 바디가 많을수록 합이 커져 전부 사실상 멈춰
-    //   있어도 잠들지 못했다(=상시 rAF). 그리고 스프링은 속도를 거치지 않고 좌표를 직접 옮기므로
-    //   속도로 재면 스프링 복귀가 통째로 "안 움직인 것"이 되어 화면에도 안 그려졌다.
+    // 이번 걸음에 **가장 많이 움직인 바디**의 이동량 — 정지 판정과 화면 반영이 함께 본다. 속도의 합으로 재지 마라 — 바디가 많으면 못 잠들고, 좌표를 직접 옮기는 스프링 복귀가 "안 움직인 것"이 된다.
     let maxMove = 0;
     for (const body of all) {
       if (body.dragging) continue;
@@ -815,8 +768,7 @@ export function usePhysicsLayout(
     // 백그라운드로 갔다가(폰 화면 꺼짐·탭 전환·앱 최소화) 돌아오면 루프 재점화.
     const onVisibility = (): void => { if (!document.hidden) ensureRunning(); };
     document.addEventListener('visibilitychange', onVisibility);
-    // §4 v3.71 — 덮개가 걷히면(IDE 닫힘·축소) 즉시 재점화. 이 구독이 없으면 멈춘 루프를 깨울 사건이
-    //   드래그 같은 사용자 조작뿐이라, 덮여 있는 동안 쌓인 배치가 화면에 반영되지 않는다.
+    // §4 — 덮개가 걷히면 즉시 다시 켠다. 없으면 멈춘 루프를 깨울 것이 드래그뿐이라 덮인 동안의 배치가 반영되지 않는다.
     const unsubCover = subscribeCanvasCovered((nowCovered) => { if (!nowCovered) ensureRunning(); });
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);

@@ -1,11 +1,4 @@
-/**
- * streamItems.test.ts — 증분 파서(IncrementalStreamParser)가 전체 재구축(buildBaseItems)과
- * **항상 동일한 결과**를 내는지 랜덤 시퀀스로 못박는다. Electron 앱 없이 파싱 정확성 검증.
- *
- * 검증 축:
- *  1) 임의 이벤트/명령 시퀀스를 임의 청크로 흘려 넣으며, 매 prefix 마다 증분 == 전체.
- *  2) 폴백 경로 — commands 변경 / 앞쪽 절단(trim) / 세션 교체 시 리셋 후에도 == 전체.
- */
+/** 증분 파서가 전체 재구축(buildBaseItems)과 **항상 같은 결과**를 내는지 랜덤 시퀀스로 고정한다(매 prefix · commands 변경/앞쪽 절단/세션 교체 리셋 뒤). */
 import { describe, it, expect } from 'vitest';
 import type { QueuedCommand, SubAgentStreamEvent, AgentReport, AgentList } from '@vibisual/shared';
 import { buildBaseItems, IncrementalStreamParser, mergeCardsIntoItems, isHiddenSystem, turnOfEvent, dispatchedTurnAnchorsAsc, sameStreamItem, type StreamItemFull, type BaseItemsResult, type StreamCommand, type StreamGroup } from './streamItems.js';
@@ -335,7 +328,7 @@ describe('IncrementalStreamParser === buildBaseItems', () => {
       { id: 'b', subAgentId: 'S', parentAgentId: 'P', timestamp: 101, eventType: 'thinking', content: '생각 중…' },
     ];
     const live = buildBaseItems(thinkingNow, busy);
-    // ⑦ — 도구 사이 안내 문장이 사고로 오고, 큰 Write 입력을 만드는 동안은 줄이 없다. 사고 라벨은 걷었다.
+    // ⑦ — 마지막 이벤트가 사고여도 라벨은 `working` 이다(도구 사이 안내가 사고로 온다).
     expect(live.thinkingLive?.mode).toBe('working');
     const merged = mergeCardsIntoItems(live, busy);
     expect(merged[merged.length - 1]!.kind).toBe('thinking-live');
@@ -403,10 +396,7 @@ describe('IncrementalStreamParser === buildBaseItems', () => {
     expect(idsOf(items)).toEqual(['a', 'cmd-old', 'b']);
   });
 
-  // ─── §5.5 #17-18 ⑥-5 — 앱이 내려갔다 재개한 명령 ───
-  //   2026-08-26 사용자 보고: "강제 종료 후 멈춰있던 에이전트를 다시 열었는데 내가 명령 내린 텍스트가
-  //   아래로 내려와 있다". 재개는 그 명령을 `queued` 로 되돌리므로, "queued = 아직 안 나갔다" 로만
-  //   읽으면 이미 출력을 한참 뱉어 놓은 말풍선이 화면 꼬리로 끌려간다.
+  // §5.5 #17-18 ⑥-5 — 재개는 명령을 `queued` 로 되돌리므로 "queued = 안 나갔다"로 읽으면 출력을 뱉은 말풍선이 꼬리로 끌려간다.
 
   /** 텍스트 런을 끊어 두 출력이 한 말풍선으로 합쳐지지 않게 하는 사이 줄. */
   const sysLine = (id: string, ts: number, content: string): SubAgentStreamEvent =>
@@ -419,7 +409,7 @@ describe('IncrementalStreamParser === buildBaseItems', () => {
       mkCmd({ id: 'resumed', status: 'queued', timestamp: 40, startedAt: 50, restartResumed: true }),
     ];
     const items = mergeCardsIntoItems(buildBaseItems(events, commands), commands);
-    // 종전에는 이 말풍선이 정렬 밖 꼬리로 빠져 자기 출력 **아래**에 섰다.
+    // 재개된 말풍선은 꼬리로 빠지지 않고 자기 출력 위에 선다.
     expect(idsOf(items.filter((i) => i.kind !== 'thinking-live')))
       .toEqual(['cmd-resumed', 'a', 's']);
   });
@@ -673,13 +663,7 @@ describe('isHiddenSystem — 살림성 통지는 항목이 되지 않는다', ()
   });
 });
 
-/**
- * §5.25 (O) — **그림은 말풍선 런에 섞이지 않는다.**
- *
- * 이 자리가 이 기능에서 가장 조용히 깨지는 곳이다. 연속된 `text` 는 한 말풍선으로 합쳐지는데,
- * 그림도 전선에서는 `text` 라 아무 조치 없이 두면 합쳐진다 — 그러면 `imagePath` 가 버려져
- * **그림은 사라지고 파일 이름만 문장 중간에 끼어든다.** 화면은 멀쩡해 보이고 오류도 안 난다.
- */
+/** §5.25 (O) — 그림은 말풍선 런에 섞이지 않는다(전선에선 `text` 라 합쳐지면 `imagePath` 가 버려져 파일 이름만 남는다 — 오류 없이 깨진다). */
 describe('§5.25 (O) 그림은 말풍선에 합쳐지지 않는다', () => {
   const base = { subAgentId: 'S', parentAgentId: 'P' };
   const events: SubAgentStreamEvent[] = [
@@ -734,10 +718,7 @@ describe('§5.25 (O) 그림은 말풍선에 합쳐지지 않는다', () => {
 });
 
 
-// ─── §5.5 #17-12 ③-6 (g) — 멈춘 이유는 그 턴의 꼬리에 선다 ───
-//   2026-09-21 사용자 보고: "이 중지됨 표시가 중지되고 나서 그 아래에 나와야지 왜 내가 쓴 창 아래에
-//   나오는거야". 종전에는 이 낱말이 `CommandBlock` 안에 있었고, 말풍선 자리는 ⑥ 대로 **나간 시각**이라
-//   그 턴의 출력 전부보다 위 — 아직 아무 일도 일어나지 않은 자리에 "중지됨"이 떴다.
+// §5.5 #17-12 ③-6 (g) — 멈춘 이유는 그 턴의 꼬리에 선다(말풍선 안이면 나간 시각 자리라 출력보다 위에 뜬다).
 describe('턴 멈춤 한 줄의 자리', () => {
   const txt = (id: string, ts: number, content: string): SubAgentStreamEvent =>
     ({ id, subAgentId: 'S', parentAgentId: 'P', timestamp: ts, eventType: 'text', content });

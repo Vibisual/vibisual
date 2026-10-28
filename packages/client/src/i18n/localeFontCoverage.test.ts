@@ -1,16 +1,6 @@
 /**
- * §5.5 #17-22 ⑤-3 — **UI 언어의 모든 글자가 앱에 동봉한 글꼴 안에 있는가.**
- *
- * 두부(□)는 화면을 띄워야만 보이는 결함이다. 그것도 리눅스에서만 보인다 — 윈도우·맥은 OS 가
- * CJK·데바나가리 글꼴을 항상 들고 있어 우리 스택이 비어 있어도 조용히 메워 주기 때문이다.
- * 그래서 이 테스트는 **OS 글꼴을 없는 것으로 치고** 동봉본만으로 로케일 문자열을 그릴 수 있는지 센다.
- *
- * 세는 근거는 선언이 아니라 **실물 cmap** 이다 — 다만 woff2 를 여는 쪽은 여기가 아니라
- * `scripts/fetch-reading-fonts.mjs` 다(클라이언트 tsconfig 에는 Node 타입이 없어 테스트가
- * `node:fs`·`node:zlib` 를 못 쓴다 — `typographyFloor.test.ts` 와 같은 제약). 스크립트가 글꼴을
- * 내려받으며 재어 `fonts.coverage.json` 에 적고, 여기서는 그것과 로케일 문자열을 대조한다.
- *
- * 새 로케일을 넣거나 문자열에 새 문자 체계가 섞이면 여기서 먼저 실패한다.
+ * §5.5 #17-22 ⑤-3 — **UI 언어의 모든 글자가 동봉 글꼴 안에 있는가**(OS 글꼴 없이). 두부(□)는 리눅스에서만 보인다 — win·mac 은 OS 글꼴이 메운다.
+ * 근거는 실물 cmap — `scripts/fetch-reading-fonts.mjs` 가 woff2 를 재어 `fonts.coverage.json` 에 적는다(클라 tsconfig 엔 Node 타입이 없어 여기서 못 연다).
  */
 
 import { describe, expect, it } from 'vitest';

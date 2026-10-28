@@ -313,7 +313,7 @@ describe('§5.4 #36 shared 판정 — 서버 검증과 클라 낙관 반영이 �
     expect(isAppBubbleId(id)).toBe(true);
     expect(makeAppBubbleId(0, () => 0.999999999).split('-')[2]).toHaveLength(5); // 1 에 붙어도 여섯 자리로 넘치지 않는다
     expect(APP_BUBBLE_ID_PATTERN.test(makeAppBubbleId())).toBe(true);
-    // 서버가 예전에 지은 모양(꼬리 1~4자)도 같은 형식이다 — 붙여 넣기·복원이 거절되지 않게.
+    // 옛 서버가 지은 모양도 받는다 — 붙여 넣기·복원이 거절되지 않게.
     expect(isAppBubbleId('app-mt150mku-30qw')).toBe(true);
   });
 

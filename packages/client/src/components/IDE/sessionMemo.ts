@@ -9,16 +9,8 @@ import { pickReadableTextColor } from '../../utils/commentBoxStyle.js';
 import { shiftMemoLinks } from './memoLinks.js';
 
 /**
- * sessionMemo.ts — §5.5 #17-36 스티키 메모의 **순수 계산**(React·DOM 없음).
- *
- * 화면(`SessionMemoLayer`/`SessionMemoCard`)은 이 함수들만 부르고 자기 산수를 하지 않는다.
- * 그래야 "판이 좁아지면 메모가 어디로 가는가" 같은 규칙을 단위 테스트로 못 박을 수 있다.
- *
- * 좌표계는 **판(스트림 본문 컨테이너)의 좌상단 기준 px** 이다. 대화와 함께 스크롤되지 않는다.
- *
- * `floatingWindowGeom` 을 빌려 쓰지 않는 이유: 그쪽 규칙은 "창은 화면 밖으로 밀려도 된다(최소
- * 가시량만 남긴다)"인데, 판 안의 메모는 **항상 판 안에 온전히** 있어야 한다(밖은 잘려서 안 보인다).
- * 규칙이 다르므로 함수를 공유하면 둘 중 하나가 반드시 어긋난다.
+ * §5.5 #17-36 스티키 메모의 순수 계산(화면은 자기 산수를 하지 않는다). 좌표는 판(스트림 본문) 좌상단 기준 px, 대화와 함께 스크롤되지 않는다.
+ * `floatingWindowGeom` 을 빌려 쓰지 마라 — 창은 화면 밖으로 밀려도 되지만 메모는 늘 판 안에 온전히 있어야 한다.
  */
 
 /** 메모가 놓이는 판의 크기(px). */
@@ -67,12 +59,7 @@ export function clampMemoRect(memo: SessionMemo, bounds: MemoBounds): SessionMem
   return { ...memo, x, y, w, h };
 }
 
-/**
- * 목록 전체를 판 안으로. 한 장도 안 바뀌었으면 **같은 배열**을 돌려준다.
- *
- * 판 크기를 아직 모르거나(첫 렌더) 화면에서 감춰져 0 이 된 순간에는 **아무것도 하지 않는다** —
- * 그때 접어 버리면 다시 보일 때 모든 메모가 최소 크기로 좌상단에 쌓여 있다.
- */
+/** 목록 전체를 판 안으로(안 바뀌면 같은 배열). 판 크기가 0(첫 렌더·감춰짐)이면 손대지 않는다 — 접으면 다시 보일 때 전부 좌상단에 쌓인다. */
 export function clampMemos(memos: SessionMemo[], bounds: MemoBounds): SessionMemo[] {
   if (bounds.w <= 0 || bounds.h <= 0) return memos;
   let changed = false;
@@ -84,17 +71,7 @@ export function clampMemos(memos: SessionMemo[], bounds: MemoBounds): SessionMem
   return changed ? out : memos;
 }
 
-/**
- * 제목줄에 보일 한 줄. 우선순위는 **사람이 붙인 이름 → 본문 첫 줄 → 라벨** 셋이다.
- *
- * 이름을 별도 필드로 둔 이유: 종전에는 제목이 본문 첫 줄에서 파생돼, 무슨 메모인지 알아보게 하려면
- * 사용자가 **본문 맨 위를 제목처럼 써야** 했다. 접어 두면 그 한 줄이 유일한 단서라 실질적 강제였다.
- * 이제 이름은 이름대로, 본문은 본문대로 쓴다. 그리고 **이름을 지우면 옛 동작 그대로** 본문 첫 줄이
- * 다시 제목이 된다 — "자동으로 되돌리기" 스위치를 따로 만들지 않는 이유가 이것이다.
- *
- * 반환값은 자르지 않은 **전문**이다. 줄이는 것은 화면의 몫이라(폭에 따라 달라진다) CSS 말줄임이
- * 하고, 이 함수는 잘린 글자를 툴팁으로 보여 줄 원본을 그대로 돌려준다.
- */
+/** 제목줄 한 줄 — 붙인 이름 → 본문 첫 줄 → 라벨(이름을 지우면 본문 첫 줄로 돌아가므로 되돌리기 스위치는 없다). 자르지 않은 전문(말줄임은 CSS, 툴팁 원본). */
 export function memoTitle(memo: Pick<SessionMemo, 'name' | 'text'>, fallback: string): string {
   const named = normalizeMemoName(memo.name);
   if (named) return named;
@@ -162,12 +139,7 @@ export function spawnMemo(
   return clampMemoRect(memo, bounds);
 }
 
-/**
- * 맨 앞으로 — **배열 순서가 곧 z-order** 다(뒤에 있을수록 위). 없는 id 면 원본 그대로.
- *
- * 합쳐진 장이면 **묶음 전원이 함께** 올라간다(서로의 상대 순서 = 탭 순서는 그대로). 한 장만
- * 올리면 한 카드의 탭들이 배열 안에서 흩어져, 그 카드가 다른 카드를 **뚫고** 그려진다.
- */
+/** 맨 앞으로 — 배열 순서가 z-order(뒤일수록 위). 합쳐진 장이면 묶음 전원이 탭 순서대로 함께 올라간다(한 장만 올리면 카드가 다른 카드를 뚫고 그려진다). */
 export function raiseMemo(memos: SessionMemo[], id: string): SessionMemo[] {
   const target = memos.find((m) => m.id === id);
   if (!target) return memos;
@@ -292,12 +264,7 @@ export interface MemoCard {
   zIndex: number;
 }
 
-/**
- * 목록 → **카드 목록**. 화면(층)은 장이 아니라 카드를 그린다.
- *
- * 카드의 z 는 **멤버 중 가장 뒤에 있는 것**의 자리다 — 그래야 묶음이 다른 카드를 뚫지 않는다.
- * 멤버가 배열에서 흩어져 있어도(옛 파일·다른 창이 만든 순서) 무너지지 않게 만든 것이 요점이다.
- */
+/** 목록 → 카드 목록. 카드의 z 는 멤버 중 가장 뒤의 자리 — 멤버가 배열에서 흩어져 있어도(옛 파일·다른 창) 다른 카드를 뚫지 않는다. */
 export function memoCards(memos: SessionMemo[]): MemoCard[] {
   const groups = new Map<string, { members: SessionMemo[]; top: number }>();
   memos.forEach((m, i) => {
@@ -322,16 +289,8 @@ function cardMembers(memos: SessionMemo[], memo: SessionMemo): SessionMemo[] {
 }
 
 /**
- * **합치기** — `dragId` 를 `targetId` 의 카드에 붙인다.
- *
- * `wholeCard` 가 참이면 끌어온 **카드 통째로**(카드 헤더를 끌어 다른 카드에 떨어뜨린 경우),
- * 거짓이면 그 **탭 한 장만** 옮긴다(탭을 뽑아 다른 카드에 떨어뜨린 경우). 두 동작을 한 함수로
- * 두는 이유는 결과가 같은 자료 구조이기 때문이다 — 갈라 두면 한쪽만 고치는 날이 온다.
- *
- * 규칙 셋. ① **자리·크기는 받는 쪽 카드가 정한다**(끌어온 것이 그 자리로 빨려 들어간다 —
- * 화면에서 본 그대로다). ② **끌어온 장이 활성 탭이 된다** — 방금까지 보던 것이 합치자마자
- * 사라지면 안 된다. ③ 탭 순서는 **받는 쪽 뒤에 이어 붙인다**(끼워 넣지 않는다 — 어디에 끼울지는
- * 사용자가 지정하지 않았다).
+ * 합치기 — `dragId` 를 `targetId` 카드에 붙인다(`wholeCard` = 카드 통째로, 아니면 탭 한 장 — 결과가 같은 구조라 한 함수).
+ * 자리·크기는 받는 카드가, 끌어온 장이 활성 탭, 탭은 받는 쪽 뒤에 잇는다.
  */
 export function mergeMemos(
   memos: SessionMemo[],
@@ -370,12 +329,7 @@ export function mergeMemos(
   return repairMemoGroups([...memos.filter((m) => !movingIds.has(m.id)), ...joined]);
 }
 
-/**
- * **떼어내기** — 탭 한 장을 묶음에서 빼내 `at` 자리의 혼자 서는 카드로 만든다.
- *
- * 크기는 **떠나온 카드의 크기**를 물려받는다(원래 크기로 되돌리면 화면에서 갑자기 다른 물건이
- * 된다). 남은 묶음이 한 장뿐이면 그 묶음은 저절로 풀린다(정화) — "탭이 하나뿐인 탭 줄"은 없다.
- */
+/** 떼어내기 — 탭 한 장을 `at` 의 혼자 서는 카드로(크기는 떠나온 카드 것). 남은 묶음이 한 장이면 푼다. */
 export function detachMemo(
   memos: SessionMemo[],
   id: string,
@@ -429,12 +383,7 @@ export function resizeMemo(memo: SessionMemo, start: { w: number; h: number }, d
 
 // ─── 겹침 (§5.5 #17-36 ⑨) ───
 
-/**
- * 카드 하나를 **대표하는** 장 — 혼자인 장, 그리고 묶음의 활성 탭. 배열 순서를 그대로 지킨다.
- *
- * 겹침은 장끼리가 아니라 **카드끼리** 재는 것이다. 합쳐진 멤버들은 같은 자리에 포개져 있으므로,
- * 대표를 고르지 않고 재면 한 카드가 자기 자신을 "N장 덮고 있다"고 신고한다.
- */
+/** 카드마다 대표 장(혼자인 장·묶음의 활성 탭). 겹침은 카드끼리 잰다 — 포개진 멤버를 재면 카드가 자기 자신을 덮었다고 센다. */
 export function memoCardAnchors(memos: SessionMemo[]): SessionMemo[] {
   const seen = new Set<string>();
   const out: SessionMemo[] = [];
@@ -466,20 +415,12 @@ export function rectsOverlap(a: MemoRect, b: MemoRect): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
-/**
- * `top` 이 `bottom` 의 **이름을 가리는가**. 겹침 판정의 기준을 넓이가 아니라 **제목줄**로 삼은 것이
- * 이 기능의 핵심 결정이다 — 사용자가 잃는 것은 "본문 몇 픽셀"이 아니라 **그 메모가 거기 있다는 사실**
- * 이기 때문이다. 모서리가 2px 스친 것까지 "겹쳤다"고 배지를 띄우면 배지가 소음이 된다.
- */
+/** `top` 이 `bottom` 의 제목줄을 가리는가 — 겹침 기준은 넓이가 아니라 제목줄(메모가 거기 있다는 사실을 잃는 것이 문제다. 모서리 스침까지 세면 배지가 소음). */
 export function hidesMemoHeader(top: SessionMemo, bottom: SessionMemo): boolean {
   return rectsOverlap(memoShownRect(top), memoHeaderRect(bottom));
 }
 
-/**
- * 각 장이 **자기 밑에 깔아 놓은** 장수(= 이름이 안 보이게 만든 장수). 배열 순서가 곧 z-order 라
- * 뒤에 있는 장이 앞의 장을 덮는다. 배지는 **덮은 쪽**이 단다 — 덮인 쪽은 손이 닿지 않으므로
- * (완전히 가려지면 hover 도 클릭도 못 한다) 그쪽에 손잡이를 달면 영영 못 누른다.
- */
+/** 각 장이 깔아 이름을 가린 장수. 배지는 덮은 쪽이 단다 — 덮인 쪽은 가려져 hover·클릭이 닿지 않는다. */
 export function stackedUnderCounts(memos: SessionMemo[]): Map<string, number> {
   const anchors = memoCardAnchors(memos);
   const out = new Map<string, number>();
@@ -534,11 +475,7 @@ function collides(rect: MemoRect, placed: MemoRect[], strict: boolean): boolean 
   ));
 }
 
-/**
- * 제자리에서 고리를 넓혀 가며 **가장 가까운 빈자리**를 찾는다. 좌상단으로 몰아 다시 쌓는 대신
- * 원래 자리 근처에 두는 것이 의도다 — 사용자가 "왼쪽 위에 둔 것"과 "오른쪽 아래에 둔 것"의
- * 뜻을 [펼치기] 한 번이 지워 버리면 안 된다.
- */
+/** 고리를 넓혀 가장 가까운 빈자리를 찾는다 — 좌상단으로 몰지 않고 원래 자리 근처에(놓아 둔 위치의 뜻을 지키게). */
 function findFreeSpot(
   memo: SessionMemo,
   placed: MemoRect[],
@@ -564,15 +501,7 @@ function findFreeSpot(
   return null;
 }
 
-/**
- * 겹쳐 둔 것을 **떼어 놓는다**. 규칙 셋.
- *  ① **겹치지 않은 장은 손대지 않는다** — 잘 놓아둔 것까지 흩는 정리는 정리가 아니다.
- *  ② **뭉치의 맨 아래 장이 자리를 지킨다** — 위에 얹은 것이 비켜서는 것이 사람의 기대다.
- *  ③ **완전히 떼어 놓을 수 없으면 이름만이라도 보이게** — 판이 좁으면 완전 분리가 불가능하고,
- *     그때 "아무 일도 안 일어남"으로 끝나면 사용자에게는 고장이다. 2차로 제목줄 기준으로 다시 찾는다.
- *
- * 한 장도 안 움직였으면 **같은 배열**을 돌려준다(헛 저장 ❌).
- */
+/** 겹친 것을 떼어 놓는다 — 안 겹친 장은 그대로, 뭉치의 맨 아래 장은 제자리, 판이 좁아 못 떼면 2차로 제목줄만이라도 보이게. 안 움직였으면 같은 배열. */
 export function spreadOverlappingMemos(
   memos: SessionMemo[],
   bounds: MemoBounds,
@@ -615,23 +544,13 @@ export function spreadOverlappingMemos(
   });
 }
 
-/**
- * 배경색에 맞는 글자색 — 밝은 종이면 검정, 어두우면 흰색.
- * `pickReadableTextColor`(코멘트 박스)와 같은 YIQ 근사지만, 이 파일은 클라 IDE 전용이라
- * 그쪽 유틸을 그대로 가져다 쓴다(중복 구현 ❌ — `utils/commentBoxStyle.ts`).
- */
+/** 배경색에 맞는 글자색 — `utils/commentBoxStyle.ts` 의 YIQ 유틸을 그대로 쓴다(중복 구현 ❌). */
 export { pickReadableTextColor };
 
 
 // ─── 종이의 겉모습 (색 × 불투명도) ───
 
-/**
- * 메모가 놓인 바닥색 — IDE 본문(`bg-gray-950`). 합성 결과를 계산할 기준이라 상수로 박아 둔다.
- *
- * 왜 필요한가: 메모는 이제 **반투명 유리판**이라, 사용자가 고른 `color` 는 화면에 그대로 나오지
- * 않는다. 알파 0.3 짜리 밝은 종이는 실제로는 어두운 회색으로 보이는데, 글자색을 `color` 로
- * 판정하면 그 위에 **검은 글씨**를 얹어 아무것도 안 읽힌다. 그래서 판정은 항상 합성 결과로 한다.
- */
+/** 메모가 놓인 바닥색(IDE 본문 `bg-gray-950`) — 메모가 반투명이라 글자색은 `color` 가 아니라 이 위의 합성 결과로 판정한다(밝은 종이도 알파 0.3 이면 어둡다). */
 export const MEMO_BASE_SURFACE = '#030712';
 
 /** 한 장의 실제 불투명도 — 필드가 없으면 기본값(§ 저장은 기본값을 생략한다). */
@@ -692,10 +611,7 @@ export interface MemoSurface {
 /** 거의 불투명하면 `backdrop-filter` 를 걸지 않는다 — 비칠 것이 없는데 합성기만 돌린다. */
 const OPAQUE_ENOUGH = 0.97;
 
-/**
- * 색 + 불투명도 → 화면에 쓸 값들. **순수 함수라 테스트로 못 박을 수 있다** — "투명하게 낮췄더니
- * 글씨가 안 보인다"는 눈으로 잡기 어려운 종류의 실패다.
- */
+/** 색 + 불투명도 → 화면 값(순수 — 투명하게 낮춰 글씨가 안 보이는 실패를 시험으로 잡는다). */
 export function memoSurface(color: string, alpha: number, baseHex: string = MEMO_BASE_SURFACE): MemoSurface {
   const composite = compositeOver(color, alpha, baseHex);
   const text = pickReadableTextColor(composite);

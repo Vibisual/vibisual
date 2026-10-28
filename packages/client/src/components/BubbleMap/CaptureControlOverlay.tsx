@@ -2,14 +2,8 @@ import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CAPTURE_BUBBLE_DEFAULTS } from '@vibisual/shared';
 
-// §5.9 원격 조작 오버레이 — 캔버스 캡처 노드(CaptureNode)와 크게 보기 창(CaptureWindow)이 공유하는 표시층.
-// 마우스 모드 가상 커서 화살표 + 모바일에 없는 특수키 바(클립보드 붙여넣기 포함). 조작 모드가 'off' 면
-// 호출부가 아예 렌더하지 않는다(기본 상태에선 화면에 아무것도 얹히지 않음).
-//
-// v3.56 — 특수키 바를 **접이식 유리 알약**으로 바꿨다. 종전엔 13개 버튼이 본체 하단에 상시 펼쳐져
-// 320×180 기본 버블에서 두세 줄로 접히며 영상의 절반 가까이를 가렸다(조작을 켜는 순간 정작 볼 화면이
-// 사라지는 모순). 이제 평소엔 작은 키보드 알약 하나만 떠 있고, 누르면 한 줄짜리 가로 스크롤 바가
-// 펼쳐진다 — 영상을 가리는 면적이 최소이고, 필요할 때만 손이 닿는다.
+// §5.9 원격 조작 오버레이 — `CaptureNode`·`CaptureWindow` 공용: 마우스 모드 가상 커서 + 특수키 바. 조작 모드 'off' 면 렌더 ❌.
+// 특수키 바는 접이식(펼쳐 두면 기본 버블에서 영상 절반을 가린다).
 
 /** 특수키 바 버튼 정의 — press 로 주입할 정규화 키(+모디파이어). */
 export interface SpecialKeyDef {
@@ -47,10 +41,7 @@ const GLASS: React.CSSProperties = {
 interface Props {
   /** 복제 커서의 표면 기준 px(두 모드 공통). */
   cursorPx: { x: number; y: number } | null;
-  /**
-   * 복제 커서를 그릴 배율(v3.65) — 캔버스가 축소돼 있어도 **진짜 커서와 같은 크기**로 보이게 1/zoom 을
-   * 넘긴다(창은 화면 좌표라 1). 크기가 달라지면 "내 커서"라는 착각이 바로 깨진다.
-   */
+  /** 복제 커서 배율 — 캔버스가 축소돼도 진짜 커서와 같은 크기로 보이게 1/zoom(창은 1). 크기가 다르면 "내 커서" 착각이 깨진다. */
   cursorScale?: number;
   /** 대상 화면/창을 못 찾아 주입이 통하지 않음 — 왜 안 되는지 알려 준다. */
   targetMissing: boolean;
@@ -77,11 +68,8 @@ export const CaptureControlOverlay = memo(function CaptureControlOverlay({
 
   return (
     <>
-      {/* 복제 커서(v3.65) — **진짜 커서는 표면 위에서 숨겨 두고**(cursor:none) 시스템 커서와 같은
-          모양·같은 크기의 대역을 손 위치에 그린다. 클릭을 주입할 때 진짜 커서가 대상 지점으로 잠깐
-          다녀오지만, 사용자 눈에는 자기 커서가 클릭한 자리에 그대로 있는 것으로 보인다.
-          터치 모드=실제 포인터를 1:1 로, 마우스 모드=밀어 옮긴 가상 포인터 자리에.
-          모양을 시스템 커서와 맞춰야 착각이 유지되므로 색·후광·애니메이션을 넣지 않는다. */}
+      {/* 복제 커서 — 표면 위에선 진짜 커서를 숨기고 같은 모양·크기의 대역을 그린다(주입 때 진짜 커서가 다녀와도 제자리로 보인다).
+         색·후광·애니메이션 ❌ — 시스템 커서와 같아야 한다. */}
       {cursorPx && (
         <span
           style={{
@@ -115,10 +103,7 @@ export const CaptureControlOverlay = memo(function CaptureControlOverlay({
         </span>
       )}
 
-      {/* 왜 안 먹는지 — 종전엔 실패해도 조용해서 "클릭이 안 먹는다"로만 보였다(v3.61).
-          대상을 못 찾거나 주입 엔진이 없으면 그 이유를 칩으로 띄운다.
-          폭은 글자만큼(`w-max`)이되 표면 폭에서 양옆 8px 를 넘지 않는다 — `left-1/2` 만으로는 남은 절반 폭에서
-          줄이 꺾여, 좁은 버블·폰에서 긴 사유가 반쪽짜리 기둥이 됐다. 넘치면 가운데 정렬로 줄을 바꾼다. */}
+      {/* 주입이 안 되면 이유를 칩으로 띄운다. 폭은 `w-max` 이되 표면 폭 − 8px 씩 — `left-1/2` 만이면 좁은 버블에서 기둥처럼 꺾인다. */}
       {(targetMissing || injectError) && (
         <div
           className="absolute left-1/2 top-2 z-[4] w-max max-w-[calc(100%-16px)] -translate-x-1/2 rounded-full px-2.5 py-1 text-center text-[12px] font-semibold"
@@ -132,8 +117,7 @@ export const CaptureControlOverlay = memo(function CaptureControlOverlay({
         </div>
       )}
 
-      {/* "커서 안 움직이기"를 켰지만 이 앱은 그 방식을 무시해 커서를 잠깐 빌려 썼다 — 왜 커서가
-          움직였는지 몰라 헤매지 않도록 알려 준다(v3.62). */}
+      {/* "커서 안 움직이기"를 켰는데 대상 앱이 그 방식을 무시해 커서를 빌려 썼다 — 왜 움직였는지 알린다. */}
       {!targetMissing && !injectError && backgroundFallback && (
         <div
           className="absolute left-1/2 top-2 z-[4] w-max max-w-[calc(100%-16px)] -translate-x-1/2 rounded-full px-2.5 py-1 text-center text-[12px] font-semibold"

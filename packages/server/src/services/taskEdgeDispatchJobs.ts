@@ -1,20 +1,7 @@
 /**
- * §5.3 #10-2 (위임 결과 복구) — 위임 엣지 dispatch 작업 장부.
- *
- * dispatch 는 결과를 **HTTP 대기 소켓 하나에만** 넘겼다. 긴 위임 도중 그 연결이 끊기면(`fetch failed`)
- * 자식은 끝까지 일하는데 결과를 다시 받을 길이 없었고, 부르는 쪽이 다시 부르면 같은 일이 새 서브에이전트로
- * 한 번 더 돌았다.
- *
- * 이 모듈이 쥐는 것:
- *  - cmdId 로 상태·결과를 **소켓과 따로** 보관한다 → 끊긴 뒤에도 조회로 회수한다.
- *  - 호출자가 준 요청 키(`requestKey`)가 같으면 **새로 띄우지 않고 기존 작업을 돌려준다** → 재시도가 중복 실행이 되지 않는다.
- *  - 대기는 여럿이 걸 수 있고, 하나를 풀어도(제한시간·연결 끊김) **작업은 그대로**다(`createDispatchWaiterHub`).
- *  - 누가 조회·취소할 수 있는가(`decideDispatchJobAccess`)와 큐를 떠난 명령을 어떤 끝 상태로 적는가(`dispatchOutcomeFromCommand`).
- *
- * 순수 모듈 — 큐·그래프·소켓을 모른다. 배선(등록·조회/취소 라우트·끝 상태 기록)은 index.ts 의 dispatch 핸들러와
- * 명령이 큐를 떠나는 자리들(완료 콜백·중지·좀비 봉합·큐 제거)이 맡는다.
- *
- * **메모리 장부다** — 앱(=서버) 재시작을 넘지 않는다. 보장하는 것은 앱이 살아 있는 동안의 통신 단절 회수까지다.
+ * §5.3 #10-2 — 위임 dispatch 작업 장부. 결과를 소켓에만 넘기면 끊길 때 잃고 재호출이 같은 일을 또 돌린다.
+ * cmdId 로 상태·결과를 소켓과 따로 두고, 같은 `requestKey` 면 기존 작업을 돌려주며, 대기를 풀어도 작업은 그대로다.
+ * 순수 모듈 — 배선은 index.ts. **메모리 장부다** — 앱 재시작을 넘지 않는다.
  */
 
 import { createHash } from 'node:crypto';
@@ -124,12 +111,8 @@ export function isTerminalDispatchJobStatus(status: DispatchJobStatus): status i
 }
 
 /**
- * 누가 이 작업을 보고 끊을 수 있는가 — 한 벌. 이름을 밝혔으면 소스와 같아야 하고,
- * **loopback 으로 들어온 바깥 프로세스는 이름을 밝혀야 한다**(생략으로 우회 ❌). 앱 화면(IPC)은 사용자라 생략해도 된다.
- * 신뢰 경계는 토큰이고 이름은 자기 신고라, 이것은 위조 방지가 아니라 오조회 방지다.
- *
- * 소스가 아닌 이름은 **조회(`purpose: 'read'`)에 한해** 서버가 쥔 위임 관계(`isDelegatedReader`)로만 통과한다 —
- * 취소는 위임되지 않는다.
+ * 조회·취소 권한 한 벌. **loopback 바깥 프로세스는 이름을 밝혀야 한다**(앱 IPC 는 생략 가능). 이름은 자기 신고라 오조회 방지일 뿐이다.
+ * 소스가 아닌 이름은 조회만 위임 관계(`isDelegatedReader`)로 통과한다 — 취소는 위임되지 않는다.
  */
 export function decideDispatchJobAccess(
   sourceAgentId: string,
@@ -179,10 +162,7 @@ export function parseDispatchRequestKey(
   return { ok: true, requestKey };
 }
 
-/**
- * 완료를 기다릴까. `false`·`0`·`no`·`off`(JSON `false`)면 기다리지 않는다. 없거나 모르는 값은 종전 동작(기다림)이다.
- * 앞선 후보(쿼리)가 뒤(본문)를 이긴다.
- */
+/** `false`·`0`·`no`·`off` 면 안 기다리고, 없거나 모르는 값은 기다린다. 앞(쿼리)이 뒤(본문)를 이긴다. */
 export function parseDispatchWait(...candidates: unknown[]): boolean {
   for (const raw of candidates) {
     const value: unknown = Array.isArray(raw) ? raw[0] : raw;

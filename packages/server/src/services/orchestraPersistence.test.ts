@@ -4,13 +4,7 @@ vi.mock('./userDefaultsService.js', () => ({ userDefaultsService: { get: () => (
 const { ProjectGraph } = await import('./projectGraph.js');
 const { broadcast, setBroadcastSink, resetSnapshotDeltaBaseline } = await import('../broadcastBus.js');
 
-/**
- * §5.3 #10-4 — 오케스트라 설정·런의 영속 왕복.
- *
- * 영속 칸은 디스크 포맷(`toProjectCheckpoint`·`toCheckpoint`)·복원(`restoreFromCheckpoint`)·
- * 병합(`mergeFromCheckpoint`) 전부에 있어야 산다 — 하나라도 빠지면 껐다 켜면 켬/끔과 지휘 기록이 사라진다.
- * 여기서는 그 왕복과, 앱이 꺼질 때 돌던 지휘 턴(`conducting`)이 다시 켰을 때 `unreported` 로 닫히는지를 본다.
- */
+/** §5.3 #10-4 — 오케스트라 설정·런의 영속 왕복(디스크 포맷·복원·병합 전부), 꺼질 때 돌던 지휘 턴(`conducting`)이 켜면 `unreported` 로 닫히는가. */
 
 function run(partial: Partial<OrchestraRun>): OrchestraRun {
   return {

@@ -3,14 +3,8 @@ import type { EditorPaneFileKind } from '@vibisual/shared';
 import { useGraphStore, selectIDEPane, selectPaneProjectName, type IDEEditorFile, type IDEOverlayState, type IDEViewType } from '../../stores/graphStore.js';
 import type { EditorLineRange } from './editorLineRange.js';
 
-// §5.5 #17-1 (판올림 번호 발급 대기) — **이 창이 누구인가**를 IDE 컴포넌트 나무에 흘리는 통로.
-//
-// 종전에는 IDE 창이 프로젝트당 하나였으므로 자식들이 전부 `selectIDEOverlay(s)`(= 활성 프로젝트의
-// 슬롯 하나)를 직접 읽어도 문제가 없었다. 창이 여럿이 되는 순간 그 읽기는 **전부 남의 창을 볼 수도
-// 있는** 코드가 된다 — 그래서 자기 슬롯 키를 컨텍스트로 받아 `useIDEPaneValue` 로 읽는다.
-//
-// 컨텍스트 밖(App·DetailPanel·BubbleNode·북마크 훅·오버레이 위젯 창)에서는 `paneKey` 가 null 이라
-// 종전과 **한 줄도 다르지 않게** 활성 프로젝트의 주 창을 본다(선택자 `selectIDEPane` 이 그 폴백을 쥔다).
+// §5.5 #17-1 — 이 창의 슬롯 키를 흘리는 통로(창이 여럿이라 `selectIDEOverlay(s)` 직접 읽기는 남의 창을 본다 — `useIDEPaneValue`).
+// 컨텍스트 밖은 `paneKey` null → 활성 프로젝트 주 창(`selectIDEPane` 폴백).
 
 export interface IDEPaneScope {
   /** 이 창의 슬롯 키. null 이면 컨텍스트 밖 — 활성 프로젝트의 주 창. */
@@ -51,13 +45,7 @@ export function useIDEPaneValue<T>(pick: (pane: IDEOverlayState) => T): T {
   return useGraphStore((s) => pick(selectIDEPane(s, paneKey)));
 }
 
-/**
- * 이 창이 보고 있는 프로젝트 이름 — **그 안 에이전트의 소속 프로젝트**다(§5.7 #26).
- *
- * 창이 앉은 슬롯(`pane.projectId`)이 아니다: 워크트리로 드릴다운해도 슬롯은 부모 탭에 남으므로,
- * 슬롯을 그대로 쓰면 워크트리 버블의 중단점·실행이 워크트리 밖 부모 트리에 매인다.
- * 판정은 `selectPaneProjectName` 한 곳(슬롯·활성 탭 폴백까지 그 안에 있다).
- */
+/** 이 창의 프로젝트 = 안 에이전트의 소속(§5.7 #26), 슬롯(`pane.projectId`)이 아니다 — 워크트리로 드릴다운해도 슬롯은 부모 탭이라 중단점·실행이 부모에 매인다. 판정은 `selectPaneProjectName`. */
 export function useIDEPaneProjectName(): string | null {
   const paneKey = useIDEPaneKey();
   return useGraphStore((s) => selectPaneProjectName(s, paneKey));
@@ -94,12 +82,7 @@ export interface IDEPaneActions {
   close: () => void;
 }
 
-/**
- * **이 창에 매인** IDE 액션들 — 슬롯 키를 자동으로 실어 주므로 호출부는 종전과 같은 모양으로 부른다.
- *
- * 스토어 액션을 직접 집어 쓰면 키를 빠뜨리기 쉽고, 빠뜨리면 조용히 **맨 앞 창**을 고친다
- * (파일이 옆 창에서 열리는 부류의 버그 — 오류도 안 난다). 그래서 창 안에서는 이 묶음만 쓴다.
- */
+/** 이 창에 매인 IDE 액션(슬롯 키 자동). 창 안에서는 이것만 — 스토어 액션 직접 호출은 키를 빠뜨리면 오류 없이 맨 앞 창을 고친다. */
 export function useIDEPaneActions(): IDEPaneActions {
   const paneKey = useIDEPaneKey();
   return useMemo<IDEPaneActions>(() => ({

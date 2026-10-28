@@ -1,19 +1,6 @@
 /**
- * §5.3 #10-5 — **설정 덜어내기** 뷰. IDE 활동바의 제 칸(`data-activity-view="configTrim"`)이 여는 화면.
- *
- * 사용자 지시(2026-09-21): "우리 오케스트라 만들어 둔 것처럼 프로젝트 전체·에이전트·이 세션만 이런 식으로
- * 해서 켜면, 여기에 이 세션이 동작주일 때 **배제시킨 목록**을 보여 주고 **덜어낸 목록**을 보여 주고
- * 작업하게 만들면 되겠네."
- *
- * 화면이 하는 일은 넷이다 — 켜고 끄기(3층) · 덜어낸 목록 · 배제 목록 · 규칙 끄기.
- * **판정은 여기서 하지 않는다**: 층 접기는 shared `configTrimScopeStates`, 덜어낼지 말지는 shared
- * `computeConfigTrim`(규칙 표 한 벌), 저장은 서버 두 창구(`POST /api/config-trim/scope` ·
- * `PUT /api/config-trim/settings`)다. 화면은 돌려받은 **저장된 값**으로 갈아 낀다(낙관적 갱신 ❌).
- *
- * **저장된 설정은 한 글자도 바뀌지 않는다.** 덜어내기는 그 턴의 사본에서만 일어나고, 여기 두 목록은
- * 그 사본이 어떻게 만들어졌는지를 사후에 읽는 것이다 — 그래서 켜기 전과 끈 뒤의 동작은 글자 그대로 같다.
- *
- * 화면 규약은 오케스트라 뷰와 같다 — 스위치는 늘 이 자리 · 12px 하한(§9) · 아이콘은 stroke SVG(이모지 ❌).
+ * §5.3 #10-5 — 설정 덜어내기 뷰: 켜고 끄기(3층) · 덜어낸 목록 · 배제 목록 · 규칙 끄기. 판정은 shared(`configTrimScopeStates`·`computeConfigTrim`),
+ * 저장은 `POST /api/config-trim/scope`·`PUT /api/config-trim/settings` — 돌려받은 저장값으로 갈아 낀다(낙관 ❌). 저장된 설정은 안 바뀐다 — 덜어내기는 그 턴 사본에서만.
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -46,11 +33,7 @@ interface ConfigTrimControl {
   patch: (p: ConfigTrimPatch) => void;
 }
 
-/**
- * 스냅샷의 설정 + 방금 저장하고 돌려받은 설정 중 **더 새것**을 쓴다(`updatedAt`).
- * 이유는 오케스트라 뷰의 같은 훅과 글자 그대로 같다 — 저장 응답은 브로드캐스트보다 먼저 오기도 늦게
- * 오기도 하고, 한쪽만 보면 스위치가 한 박자 옛 값으로 보이거나 다른 창의 변경을 영영 못 본다.
- */
+/** 스냅샷과 방금 돌려받은 설정 중 더 새것(`updatedAt`) — 저장 응답과 브로드캐스트의 순서가 일정하지 않다(오케스트라 뷰와 같다). */
 function useConfigTrimControl(
   rootPath: string | null,
   agentId: string,
@@ -251,11 +234,7 @@ export const IDEConfigTrimView = memo(function IDEConfigTrimView({
   if (engine === null) blocked.push(t('ide.configTrim.blocked.localEngine'));
   if (executionMode === 'interactive-terminal') blocked.push(t('ide.configTrim.blocked.terminal'));
 
-  /*
-   * 목록이 무엇을 보여 줄까 — **이 세션이 동작주인 런이 먼저**다(사용자 지시 그대로).
-   * 그 세션이 아직 한 턴도 안 돌았으면 이 에이전트의 최근 런으로 떨어지고, 그때는 "이 세션 것이
-   * 아니다"를 줄로 적는다 — 남의 턴 목록을 이 세션 것처럼 그리면 그게 가장 나쁜 거짓말이다.
-   */
+  /* 이 세션이 동작주인 런이 먼저. 아직 없으면 에이전트 최근 런으로 떨어지되 "이 세션 것이 아니다"를 적는다. */
   const sortedRuns = useMemo(
     () => [...(runs ?? [])].sort((a, b) => b.startedAt - a.startedAt),
     [runs],
@@ -410,7 +389,7 @@ export const IDEConfigTrimView = memo(function IDEConfigTrimView({
               )}
           </Section>
 
-          {/* ② 배제 목록 — 일부러 손대지 않은 것. 두 목록은 **끝까지 갈라져 있다**(사용자 지시). */}
+          {/* ② 배제 목록 — 일부러 손대지 않은 것(두 목록은 갈라 둔다). */}
           <Section title={t('ide.configTrim.excludedPane.title')} count={excluded.length}>
             <p className="px-0.5 text-[12px] leading-relaxed text-gray-500">{t('ide.configTrim.excludedPane.lead')}</p>
             {excluded.length === 0

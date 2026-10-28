@@ -60,10 +60,7 @@ describe('ProjectGraph Codex cost map wiring', () => {
     expect(graph.toProjectCheckpoint(projectName).costMap?.periods.all.costUsd).toBeCloseTo(map.periods.all.costUsd, 10);
   });
 
-  /*
-   * 원장은 그 세션이 실제로 돈 엔진에서 읽는다(`agentEngineOf`). 종전에는 실행 방식을 안 보고 `cliKind` 를 읽어,
-   * CMD 로 돌렸다 헤드리스로 되돌린 클로드 버블의 세션을 코덱스 기록에서 찾았다 — 그 비용이 통째로 빠졌다.
-   */
+  /* 원장은 세션이 실제로 돈 엔진(`agentEngineOf`)에서 읽는다 — `cliKind` 를 보면 CMD→헤드리스로 되돌린 클로드 세션을 코덱스 기록에서 찾아 비용이 빠진다. */
   it('reads each session from the ledger of the engine it actually ran on', () => {
     const graph = new ProjectGraph();
     const projectName = graph.registerProject(process.cwd()).name;

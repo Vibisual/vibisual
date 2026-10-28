@@ -4,20 +4,9 @@ import { useTranslation } from 'react-i18next';
 import type { ExternalOpenFailure } from '@vibisual/shared';
 
 /**
- * §3.7 — 바깥 브라우저 열기가 실패했을 때 그 사실을 알리는 안내(폴백 ❌).
- *
- * 앱 안의 "브라우저로 열기"는 전부 한 길을 지난다 — `window.open(url,'_blank')` →
- * main `setWindowOpenHandler` → `shell.openExternal`. 그 길은 오랫동안 **실패를 한 번도
- * 말하지 않았다**. 리눅스 설치본에서 로그인 창의 [Open in browser] 를 눌러도 아무 반응이
- * 없던 것이 그 결과다(배포판에 브라우저가 0개면 xdg-open 이 아무것도 못 찾는다).
- *
- * ⚠️ **여기서 대신 열어 주지 않는다(사용자 명시 결정).** 우리가 임의로 고른 창에 OAuth
- * 주소를 넘기는 것은 사용자가 그은 선이 아니다. 할 일은 "안 열렸다"를 말하고 **주소를
- * 손에 쥐여 주는 것**까지다 — 그래서 [복사] 가 안내 안에 함께 있다.
- *
- * **부팅 지점(main.tsx)에서 한 번만 마운트한다** — `InspectorOverlay`·
- * `GlobalTextFieldContextMenu` 와 같은 이유다. 별창·오버레이 창·지휘통제실 창·내부 앱 창
- * 어디서든 링크를 누르고, shell 안쪽에 두면 그 창들에서는 통째로 죽는다.
+ * §3.7 — 바깥 브라우저 열기 실패 안내(폴백 ❌). `window.open` → `setWindowOpenHandler` → `shell.openExternal` 길은 실패를 말하지 않는다
+ * (리눅스에 브라우저가 없으면 xdg-open 이 아무것도 못 찾는다). ⚠️ 대신 열어 주지 않는다(임의 창에 OAuth 주소 ❌) — [복사]로 주소를 건넨다.
+ * 부팅 지점(main.tsx)에서 한 번만 마운트한다 — shell 안이면 별창·오버레이·지휘통제실·내부 앱 창에서 죽는다.
  */
 
 // 온보딩 게이트 중 가장 위(ClaudeSetupGate 100_700)보다도 위 — 그 창들 **안의** 링크가
@@ -31,7 +20,7 @@ export function ExternalOpenNotice(): React.ReactElement | null {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    // 모바일 웹(§4 v3.16)에는 preload 가 없다 — 그 창에서는 조용히 아무것도 하지 않는다.
+    // 모바일 웹(§4)에는 preload 가 없다 — 그 창에서는 조용히 아무것도 하지 않는다.
     const bridge = window.api?.externalOpen;
     if (!bridge) return;
     return bridge.onFailed((payload) => {
@@ -58,9 +47,7 @@ export function ExternalOpenNotice(): React.ReactElement | null {
 
   if (!failure) return null;
 
-  // `blocked-scheme` 은 "못 열었다"가 아니라 **일부러 안 열었다**이다(§보안 감사 2026-09-09) —
-  // 브라우저로 넘길 수 없는 스킴(`file:`·`ms-msdt:` 등)은 OS 프로그램을 여는 문이 되므로
-  // 아예 시도하지 않는다. 그래도 주소는 [복사] 로 손에 쥐여 주는 규약은 그대로다.
+  // `blocked-scheme` 은 일부러 안 연 것이다 — 브라우저로 못 넘기는 스킴(`file:`·`ms-msdt:` 등)은 OS 프로그램을 여는 문이다. 주소는 그래도 [복사]로 건넨다.
   const message =
     failure.reason === 'no-browser'
       ? t('common.externalOpen.noBrowser', {

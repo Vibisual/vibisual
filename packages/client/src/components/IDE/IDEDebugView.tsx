@@ -22,7 +22,7 @@ import {
   stopRun,
   useRunSessions,
 } from '../../stores/runSessions.js';
-// §5.5 #17-20 ⑩⑫ v4.94 — 공통 디버그 층(붙기·풀기·조작판)
+// §5.5 #17-20 ⑩⑫ — 공통 디버그 층(붙기·풀기·조작판)
 import {
   attachDebugSession,
   findSessionByRun,
@@ -36,12 +36,8 @@ import { IDEDebugSessionPanel } from './IDEDebugSessionPanel.js';
 import { ADHOC_RUN_PREFIX } from './runExecutableFile.js';
 
 /**
- * §5.5 #17-20 v4.74 — 활동바 **디버그**가 여는 사이드바.
- *
- * 세 층이 위에서부터 그대로 보인다:
- *   A) 실행 구성 — 사용자의 `launch.json`·`tasks.json`·scripts 를 그대로 읽어 켜고 끈다.
- *   B) 에이전트 디버그 도구 — 남이 만든 MCP 서버를 이 에이전트에 꽂는다(디버거 본체는 안 만든다).
- *   C) 외부 디버거 — 우리가 라이선스상 못 하는 네이티브 디버깅은 설치된 IDE 로 넘긴다.
+ * §5.5 #17-20 — 활동바 디버그 사이드바. A) 실행 구성(`launch.json`·`tasks.json`·scripts 를 그대로 읽어 켜고 끈다)
+ * B) 남이 만든 MCP 디버그 서버를 꽂는다(디버거 본체는 안 만든다) C) 라이선스상 못 하는 네이티브 디버깅은 설치된 IDE 로.
  */
 
 const SOURCE_LABEL_KEY: Record<RunConfigSource, string> = {
@@ -93,10 +89,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
   const [configs, setConfigs] = useState<RunConfig[]>([]);
   const [scanned, setScanned] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  /**
-   * ⑫ — 디버그 모드 토글은 **런타임 스토어**에 산다. 종전에는 이 컴포넌트의 `useState` 라
-   * 사이드바를 다른 항목으로 옮겼다 돌아오면 꺼져 있었다(켠 줄 알고 실행하면 평범하게 떴다).
-   */
+  /** ⑫ — 디버그 모드 토글은 런타임 스토어에 둔다(컴포넌트 state 면 사이드바를 옮겼다 오면 꺼져 있다). */
   const debugMode = useDebugSessions((s) => s.debugModeByAgent[agentId] ?? false);
   const setDebugModeFor = useDebugSessions((s) => s.setDebugMode);
   const setDebugMode = useCallback((on: boolean) => setDebugModeFor(agentId, on), [agentId, setDebugModeFor]);
@@ -157,13 +150,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
     void hydrateDebugState();
   }, []);
 
-  /**
-   * ⑫ 디버그 포트 — **서버에게 비어 있는 자리를 묻는다.**
-   *
-   * 종전에는 우리 실행 세션 안에서만 겹치는지 봐서(`sessions` 순회), 밖에서 이미 9229 를 쓰는
-   * 프로세스가 있으면 그대로 부딪혔다. 실제 리슨 여부는 서버만 볼 수 있고, 상한
-   * (`DEBUG_PORT_SCAN_MAX`)도 그쪽에서 지켜진다. 물어보지 못하면 기본 포트로 간다(예전 동작).
-   */
+  /** ⑫ 디버그 포트 — 빈 자리는 서버에 묻는다(밖의 프로세스가 쓰는 9229 와 상한 `DEBUG_PORT_SCAN_MAX` 는 서버만 안다). 못 물으면 기본 포트. */
   const handleRun = useCallback(
     (runConfig: RunConfig) => {
       if (!config || !rootPath) return;
@@ -279,11 +266,8 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
   );
 
   /**
-   * 언리얼 붙이기 — `-WaitForDebugger` 로 멈춰 선 에디터에 네이티브 디버거를 붙인다.
-   *
-   * 우리가 멈춰 세우는 것이 아니라(⑦ 재배포 불가), 우리가 띄운 프로세스를 남의 디버거에
-   * 넘겨 주는 것이다. 실패 사유는 서버가 준 것을 그대로 화면에 적는다 — "에디터가 안 떠 있다"
-   * 와 "Visual Studio 가 없다" 는 사용자가 해야 할 일이 다르다.
+   * 언리얼 — `-WaitForDebugger` 로 멈춘 에디터에 네이티브 디버거를 붙인다(⑦ 재배포 불가라 남의 디버거에 넘긴다).
+   * 실패 사유는 서버 문구 그대로 적는다(에디터 없음 / Visual Studio 없음은 할 일이 다르다).
    */
   const handleAttachUnreal = useCallback(
     (runId: string) => {
@@ -317,12 +301,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
     [rootPath],
   );
 
-  /**
-   * §5.5 #17-27 ⑬ (h) — **본문에서 눌러 띄운 실행**. 구성 스캔(A층)에 없으므로 그 목록에는 뜨지 않는다.
-   *
-   * 출력 패널을 닫고 나면 되돌아갈 자리가 없어 "돌고 있는데 멈출 손잡이가 없는" 프로세스가 되므로
-   * 여기 따로 세운다 — 새 상태를 만들지 않고 같은 실행 세션 스토어를 접두사로 거른다.
-   */
+  /** §5.5 #17-27 ⑬ (h) — 본문에서 띄운 실행. 구성 목록(A층)에 없어 출력을 닫으면 멈출 손잡이가 사라지므로 여기 세운다(같은 스토어를 접두사로 거름). */
   const adhocRuns = useMemo(
     () =>
       Object.values(sessions)
@@ -399,11 +378,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                   const failed = !!session && session.status === 'exited' && (session.exitCode ?? 0) !== 0;
                   // ⑩ — 이 실행에 붙어 있는 디버그 세션(없으면 null).
                   const debugSession = findSessionByRun(debugSessions, runId);
-                  /**
-                   * ⑫ — "디버거가 붙기를 기다리는 중". `--inspect-brk`·`suspend=y`·`--wait-for-client`
-                   * 는 전부 붙을 때까지 프로세스를 세워 두므로, 붙지 않은 동안 화면은 아무 일도
-                   * 안 일어난 것처럼 보였다. 그 상태를 이제 그대로 적는다.
-                   */
+                  /** ⑫ — 디버거 대기 표시. `--inspect-brk`·`suspend=y`·`--wait-for-client` 는 붙을 때까지 멈춰 있어 표시가 없으면 먹통처럼 보인다. */
                   const waitingForDebugger =
                     running && !!session?.debugMode && session.debugApplied && !debugSession;
                   const attachError = attachErrors[runId];
@@ -413,11 +388,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                         <span className="min-w-0 flex-1 truncate text-[12px] text-gray-200" title={cfg.reason}>
                           {cfg.name}
                         </span>
-                        {/*
-                          ⑫ — `request:'attach'` 구성은 종전에 **버튼만 막혀 있었다**(우리가 띄우지
-                          않으니 실행할 것이 없다는 이유로). 이제 그 구성이 가리키는 포트로 공통
-                          디버그 층이 **진짜로 붙는다** — attach 구성의 본래 뜻이 그것이다.
-                        */}
+                        {/* ⑫ — `request:'attach'` 구성은 띄우지 않고 그 구성의 포트에 공통 디버그 층이 붙는다. */}
                         {cfg.attachOnly && !!cfg.port && !debugSession && (
                           <button
                             type="button"
@@ -511,10 +482,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                               {sentRunIds[runId] ? t('ide.debug.sentToAgent') : t('ide.debug.sendToAgent')}
                             </button>
                           )}
-                          {/*
-                            ⑩⑫ — 공통 디버그 층. 언리얼(delegated)만 빼고 어느 런타임이든 같은
-                            버튼 두 개다: 붙거나(중단점·스텝·변수), 붙지 않고 그냥 진행하거나.
-                          */}
+                          {/* ⑩⑫ — 공통 디버그 층: 언리얼(delegated) 외 모든 런타임에 [붙기] / [그냥 진행]. */}
                           {running && session.debugMode && cfg.runtime !== 'unreal' && !debugSession && (
                             <button
                               type="button"
@@ -670,11 +638,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
             <p className="mt-1 px-1 text-[12px] leading-snug text-gray-600">{t('ide.debug.mcpApplyHint')}</p>
           </section>
 
-          {/*
-            §5.5 #17-20 ⑩ v4.94 — 공통 디버그 층: 어느 런타임을 지금 붙일 수 있는가.
-            **없으면 없다고 적는다**(⑦ 외부 디버거 목록과 같은 규율) — 버튼이 안 먹는 이유를
-            사용자가 화면에서 읽을 수 있어야 한다.
-          */}
+          {/* §5.5 #17-20 ⑩ — 지금 붙일 수 있는 런타임. 없으면 없다고 적는다(⑦ 과 같은 규율 — 버튼이 안 먹는 이유가 보이게). */}
           <section>
             <h3 className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-gray-500">
               {t('ide.debug.adapterTitle')}

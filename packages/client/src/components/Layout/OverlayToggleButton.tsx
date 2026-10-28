@@ -2,11 +2,7 @@ import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 
-// SCENARIO.md §5.5 #17-6 (v2.73) — Header 전역 오버레이 토글.
-//
-// 데스크톱에 떠 있는 모든 오버레이 위젯 창을 한 번에 show/hide(`overlay:set-visible`).
-// 오버레이가 하나도 없으면(=빼낸 버블 없음) 버튼 자체를 숨긴다. dev/web 모드에선 부재.
-// 오버레이는 본체/다른 프로그램 포커스와 무관하게 항상 위에 떠 있고, 이 토글이 유일한 표시 스위치.
+// §5.5 #17-6 — 모든 오버레이 위젯 창을 한 번에 show/hide(`overlay:set-visible`)하는 유일한 표시 스위치. 오버레이가 없으면 숨기고, dev/web 에는 없다.
 
 export function OverlayToggleButton(): React.JSX.Element | null {
   const { t } = useTranslation();

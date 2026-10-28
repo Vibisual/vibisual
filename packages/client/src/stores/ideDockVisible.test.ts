@@ -5,15 +5,8 @@ import { selectVisibleDockedPanes, selectDockSideOccupied, DEFAULT_IDE_OVERLAY }
 import type { IDEOverlayState } from './graphStore.js';
 
 /**
- * §5.5 #17-1 — "붙어 있는 창이 실제로 화면을 차지하는가" 판정.
- *
- * 캔버스를 줄이는 쪽(App `main` 여백 · DetailPanel 좌/우 미러링)과 IDE 를 그리는 쪽
- * (`AgentIDEOverlay` — `nodeMap[agentId]` 가 없으면 `null` 반환)이 **다른 산식**을 쓰면,
- * 슬롯만 도킹으로 남은 상태에서 **IDE 없는 빈 도크**가 캔버스를 가린다(사용자 보고: 북마크
- * 숫자키 점프 뒤 우측 480px 가 빈 칸). 그 배선이 조용히 돌아오지 않도록 여기서 못 박는다.
- *
- * (판올림 번호 발급 대기) 창이 여럿·네 변이 되면서 판정이 한 비트에서 **목록**으로 넓어졌지만,
- * 규약 자체("그려지는 창만 자리를 먹는다")는 그대로여야 한다.
+ * §5.5 #17-1 — **그려지는 창만 자리를 먹는다.** 캔버스를 줄이는 쪽(App `main` 여백 · DetailPanel)과 그리는 쪽(`AgentIDEOverlay`)의 산식이
+ * 다르면 IDE 없는 빈 도크가 캔버스를 가린다(북마크 숫자키 점프 뒤 우측 480px 빈 칸).
  */
 
 const AGENT = 'agent-1';

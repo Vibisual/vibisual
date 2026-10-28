@@ -1,10 +1,4 @@
-/**
- * §5.5 #17-27 ⑱ — [우측 판] 목록 · 빈 탭 · [파일 열기] 의 **자리와 배선**을 소스 규약으로 못 박는다.
- *
- * 클라 시험에는 DOM 이 없으므로 렌더가 아니라 **소스 글자**를 본다(`stageEntry.test.ts` 와 같은 규약).
- * 눈으로만 확인되는 부류라 되돌아가기 쉽다 — 손잡이 자리를 한 칸 옮기거나 빈 탭이 디스크를 읽으러 가는
- * 것은 한 줄이다.
- */
+/** §5.5 #17-27 ⑱ — [우측 판] 목록 · 빈 탭 · [파일 열기] 의 자리와 배선을 소스 글자로 고정한다(DOM 없음). */
 import { describe, expect, it } from 'vitest';
 
 const tsx = import.meta.glob('./*.tsx', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
@@ -27,7 +21,7 @@ describe('(a) 손잡이 — 세션 탭 줄 `+`(새 세션) → 탭 정렬 다음
     expect(src.match(/<IDEPaneLauncherMenu\b/g) ?? []).toHaveLength(1);
   });
 
-  it('스크롤 칸 **밖**에 `+` → 탭 정렬 → 목록 → History 순서로 선다(2026-10-08 사용자 지시)', () => {
+  it('스크롤 칸 **밖**에 `+` → 탭 정렬 → 목록 → History 순서로 선다', () => {
     expect(fixedNewAt, '고정 + 를 못 찾음').toBeGreaterThan(-1);
     expect(sortAt, '정렬 손잡이를 못 찾음').toBeGreaterThan(-1);
     expect(historyAt, 'History 를 못 찾음').toBeGreaterThan(-1);

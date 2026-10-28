@@ -3,10 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { buildModelPickClipboard, modelInspectLevels, storedModelId, type ModelInspectSubject } from './modelInspect.js';
 
-/**
- * §5.4 #15 (C) — 3D 뷰포트(WebGL 캔버스 한 장)를 Alt 인스펙터로 집으면 클릭 선택과 같은 광선 판정으로 그 물체 → 부모들 → 모델
- * 전체를 답한다. three 의 수학(광선·경계 상자·투영)은 WebGL 없이 돈다.
- */
+/** §5.4 #15 (C) — 3D 뷰포트를 Alt 로 집으면 클릭 선택과 같은 광선 판정으로 물체 → 부모들 → 모델을 답한다(WebGL 없이 돈다). */
 
 const SIZE = { width: 800, height: 400 };
 

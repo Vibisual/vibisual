@@ -1,8 +1,5 @@
-// §9 v3.89 — graph_snapshot 키맵 슬라이스 증분 왕복 검증.
-//
-// 이 최적화의 유일한 위험은 "데이터가 조용히 어긋나는 것" 이다(전송량은 줄었는데 클라가 가진 맵이
-// 서버와 달라짐 = 편집 이력이 안 보이거나 지운 게 남음). 그래서 여기서는 diff → apply 를 실제
-// 브로드캐스트 순서대로 이어 붙여 **매 단계 전체 맵이 서버와 일치하는지**만 본다.
+// §9 — graph_snapshot 키맵 슬라이스 증분 왕복: diff → apply 를 브로드캐스트 순서대로 이어 매 단계 클라 맵이 서버와 같은지만 본다
+// (어긋나면 편집 이력이 안 보이거나 지운 것이 남는다 — 이 최적화의 유일한 위험).
 
 import { describe, it, expect } from 'vitest';
 import { diffKeyedSlice, applyKeyedSliceDelta } from '@vibisual/shared';

@@ -3,13 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { docHasCompositions, resolveTimeline } from './resolveTimeline.js';
 import type { VideoAsset, VideoDoc, VideoItem, VideoTrack } from './types.js';
 
-/**
- * §5.13 (T-1) — composition 아이템의 해소 진단과 (T-4) 무대 선택 판정.
- *
- * 컴포지션이 틀린 소재를 가리키면 **그 아이템만** 빠지고 진단이 남아야 한다 — 문서 전체를 거부하면 에이전트가
- * 고칠 길이 사라진다. 그리고 `docHasCompositions` 하나가 미리보기·스틸·렌더의 무대를 가르므로(canvas2d 는 HTML 을
- * 못 그린다) 켜짐·숨김·트랙 종류를 여기서 못 박는다.
- */
+/** §5.13 (T-1)(T-4) — 틀린 소재를 가리킨 composition 은 그 아이템만 빠지고 진단이 남는지, `docHasCompositions` 가 켜짐·숨김·트랙 종류를 맞게 가르는지. */
 
 function track(id: string, kind: VideoTrack['kind'], items: VideoItem[], extra: Partial<VideoTrack> = {}): VideoTrack {
   return { id, kind, items, ...extra };

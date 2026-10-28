@@ -1,26 +1,7 @@
-// §5.4 #14-2 / §5.5 #16-1 (E) — **집어 들어 자리를 옮기는 손짓 한 벌.**
-//
-// 활동바(세로)가 먼저 세운 손맛을 프로젝트 탭·IDE 세션 탭(가로)이 그대로 쓴다. 종전 두 탭바는
-// HTML5 네이티브 DnD 였다 — 살짝만 밀어도 탭이 즉시 "뚝 떨어져" 반투명 유령이 되고, 손에 붙어
-// 오는 것은 탭이 아니라 브라우저가 찍은 스크린샷이며, 놓을 때는 되돌아가는 연출이 한 번 더
-// 끼어든다(사용자 지적: "때서 붙이는 느낌이 너무 어색해"). 그 셋은 전부 네이티브 DnD 가 정하는
-// 것이라 CSS 로는 손댈 수 없다. 그래서 제스처를 통째로 포인터 이벤트로 옮긴다.
-//
-// 이 훅이 책임지는 것 — ① 집어 드는 문(꾹 누르기 · 누른 채 끈 거리), ② 커서에 붙는 고스트의 자리,
-// ③ 중앙선 밀어내기(`tabPushGeom` 재사용), ④ 가장자리 자동 스크롤, ⑤ 끌고 난 직후의 `click` 삼킴,
-// ⑥ `Esc` 되돌리기.
-// **그리지는 않는다** — 고스트의 모양은 줄마다 다르므로(활동바는 40px 글리프, 탭바는 라벨 달린
-// 탭) 호출부가 `ghostRef` 를 단 DOM 을 직접 그린다.
-//
-// **손을 따라가는 것은 창(window)이지 그 항목이 아니다.** 자리가 한 번 갈리면 React 가 그 줄의
-// DOM 노드를 옮기고(`insertBefore` 는 옛 부모에서 먼저 떼어 낸다) 그 찰나에 브라우저가 포인터
-// 캡처를 자동으로 푼다(`lostpointercapture`). 항목에 리스너를 걸면 위아래로 한 번 오간 것만으로
-// 끌던 것이 손에서 사라진다 — §5.5 #16-1 (E) 가 고친 바로 그 문제라 여기서도 같은 규약이다.
-//
-// **집어 드는 문만은 줄마다 고른다(§5.4 #14-2 (F-6)).** 활동바는 꾹 눌러 버틴다(`'longPress'`, 기본 —
-// §5.5 #16-1 (E) 그대로). 두 탭바는 꾹 누르지 않는다(`'drag'`) — 누른 채 `dragStartPx` 를 넘게 끌면
-// 기다림 없이 그 자리에서 들리고, 문턱 안에서 떼면 평소의 클릭이라 탭 선택은 그대로다. 터치만은
-// `'drag'` 여도 꾹 누르기다(`pressActivationFor` — 손가락으로 줄을 넘기는 스크롤을 남긴다).
+// §5.4 #14-2 / §5.5 #16-1 (E) — **집어 들어 자리를 옮기는 손짓 한 벌**(활동바·프로젝트 탭·IDE 세션 탭). 네이티브 DnD 는 쓰지 않는다(유령·스크린샷 고스트를 CSS 로 못 고친다).
+// 맡는 것: 집어 드는 문·고스트 자리·중앙선 밀어내기(`tabPushGeom`)·가장자리 스크롤·끈 직후 `click` 삼킴·`Esc`. 고스트 모양은 호출부가 `ghostRef` 로 그린다.
+// **리스너는 window 에 건다** — 항목에 걸면 자리가 갈릴 때 React 가 DOM 을 옮겨 포인터 캡처가 풀린다.
+// 문은 줄마다(활동바 `'longPress'`, 탭바 `'drag'` — `dragStartPx` 를 넘으면 든다), 터치는 늘 꾹 누르기(`pressActivationFor`).
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react';
 import {
@@ -54,12 +35,7 @@ export interface PointerDragPoint {
   screenY: number;
 }
 
-/**
- * 집어 든 항목 안에서 **잡은 지점**(항목 좌상단 기준 px). 한 판 안에서는 변하지 않는다.
- *
- * 고스트는 이 값을 빼서 손 아래에 붙는다. 줄 밖에서 다른 그림으로 바뀌는 쪽(탭 → 별창의 가상 창,
- * §5.4 #14-1 (H))도 잡은 지점을 여기서 이어 와야 바뀌는 순간 그림이 손 아래에서 튀지 않는다.
- */
+/** 항목 안 **잡은 지점**(좌상단 기준 px, 한 판 동안 불변) — 고스트와 줄 밖에서 바뀌는 그림(별창 가상 창, §5.4 #14-1 (H))이 이 값을 써야 손 아래에서 튀지 않는다. */
 export interface PointerDragGrab {
   readonly x: number;
   readonly y: number;
@@ -74,17 +50,9 @@ export interface PointerDragReorderOptions {
   keyAttribute: string;
   /** 지금 화면에 그려진 순서. 손을 뗐을 때 "바뀐 게 있나"를 이것과 견준다. */
   order: readonly string[];
-  /**
-   * 손을 뗐다. `next` 는 순서가 실제로 달라졌을 때만 배열이고, 제자리면 `null` 이다
-   * (그래도 부른다 — 탭바는 **순서가 그대로여도** 놓은 자리에 따라 별창으로 분리한다).
-   * `key` 는 방금까지 손에 들려 있던 항목 — 이 시점에 `dragKey` 는 이미 비었다.
-   */
+  /** 손을 뗐다. `next` 는 순서가 달라졌을 때만 배열, 제자리면 `null`(그래도 부른다 — 탭바는 놓은 자리로 별창 분리를 정한다). `key` 는 방금 들려 있던 항목(`dragKey` 는 이미 비었다). */
   onCommit: (next: string[] | null, point: PointerDragPoint, key: string) => void;
-  /**
-   * 항목이 손에 들린 순간 — 꾹 누르기가 성립했거나(`'longPress'`), 누른 채 끈 거리가 문턱을
-   * 넘었을 때(`'drag'`). 어느 문으로 들었든 그 뒤의 흐름(고스트·밀어내기·놓기)은 같다.
-   * `grab` 은 그 항목 안에서 잡은 지점이다(줄 밖에서 다른 그림으로 바꿔 그리는 쪽이 이어 쓴다).
-   */
+  /** 항목이 손에 들린 순간 — 꾹 누르기 성립(`'longPress'`) 또는 끈 거리가 문턱을 넘음(`'drag'`). `grab` 은 항목 안에서 잡은 지점. */
   onDragStart?: (key: string, point: PointerDragPoint, grab: PointerDragGrab) => void;
   /** 끄는 동안 매 움직임. 별창 분리 힌트·분할 미리보기처럼 **줄 밖의 일**은 호출부가 판단한다. */
   onDragMove?: (key: string, point: PointerDragPoint, grab: PointerDragGrab) => void;
@@ -92,11 +60,7 @@ export interface PointerDragReorderOptions {
   onCancel?: (key: string) => void;
   /** 여기에 걸리는 곳에서 시작된 누르기는 무시한다(닫기 버튼·이름 편집 입력 등). */
   ignoreSelector?: string;
-  /**
-   * 어느 문으로 집어 드나. 기본 `'longPress'`(꾹 눌러 버틴다 — 활동바).
-   * `'drag'` 는 기다림 없이 누른 채 `dragStartPx` 를 넘게 끌면 든다(두 탭바 — §5.4 #14-2 (F-6)).
-   * 터치는 `'drag'` 여도 꾹 누르기다(`pressActivationFor`).
-   */
+  /** 집어 드는 문 — 기본 `'longPress'`(활동바), `'drag'` 는 `dragStartPx` 를 넘게 끌면 바로 든다(탭바 — §5.4 #14-2 (F-6)). 터치는 늘 꾹 누르기(`pressActivationFor`). */
   activation?: PointerDragActivation;
   /** 길게 누르기 시간(ms). 기본 `POINTER_DRAG.longPressMs`. 꾹 누르기 문에서만 쓰인다. */
   longPressMs?: number;
@@ -115,23 +79,11 @@ export interface PointerDragReorderApi {
   localOrder: string[] | null;
   /** 고스트 DOM 에 달 ref — 자리는 이 훅이 `transform` 으로 준다(프레임마다 리렌더 ❌). */
   ghostRef: MutableRefObject<HTMLDivElement | null>;
-  /**
-   * **집어 든 그 순간 원본이 차지하던 치수.** 끌고 있지 않으면 `null`.
-   *
-   * 고스트가 이걸 그대로 입지 않으면 손에 드는 순간 크기가 튄다 — 원본을 흉내 낸 미니어처는
-   * 안에 든 것(라벨 폭·닫기 버튼 자리·핀/기본/루프 글리프)이 조금만 달라도 폭이 어긋나고,
-   * 그 어긋남은 "뚝 떼서 붙이는" 느낌의 정체 그 자체다(사용자 지적 — 세션 탭이 절반으로 줄었다).
-   * 활동바가 안 어긋났던 것은 원본이 `h-10 w-10` 고정이라 **우연히** 맞았기 때문이지 규율이
-   * 있어서가 아니었다 — 그래서 치수는 흉내 내지 않고 **재서 물려준다**.
-   */
+  /** **집어 든 순간 원본의 치수**(끌지 않으면 `null`) — 고스트가 그대로 입는다. 흉내 낸 미니어처는 라벨·버튼이 조금만 달라도 드는 순간 크기가 튄다. */
   dragSize: { width: number; height: number } | null;
   /** 항목에 다는 유일한 핸들러. 그 뒤의 이동·놓기·취소는 **창**이 받는다. */
   onPointerDown: (e: React.PointerEvent<HTMLElement>, key: string) => void;
-  /**
-   * 이 `click` 을 삼켜야 하는가 — 끌고 난 직후의 클릭은 그 항목을 여는 뜻이 아니다.
-   * 표는 **다음 `pointerdown` 에서 턴다**(줄 밖에서 놓으면 그 `click` 이 아예 오지 않아,
-   * 안 그러면 다음 클릭 한 번이 이유 없이 먹힌다).
-   */
+  /** 끈 직후의 `click` 을 삼켜야 하는가. 표는 다음 `pointerdown` 에서 턴다 — 줄 밖에서 놓으면 그 `click` 이 안 와, 안 털면 다음 클릭이 이유 없이 먹힌다. */
   consumeClick: () => boolean;
   /** 바깥에서 강제로 끝낸다(컨텍스트 메뉴·탭 닫힘 등). 저장하지 않는다. */
   cancel: () => void;
@@ -202,13 +154,7 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
     }
   }, []);
 
-  /**
-   * 지금 화면에 선 항목들의 자리(뷰포트 기준 축 방향 시작·길이).
-   *
-   * `getBoundingClientRect()` 를 쓰지 않는다 — 밀림 재생이 도는 동안 그 값은 **애니메이션 중인
-   * 좌표**라, 그걸로 중앙선을 재면 밀린 항목이 곧바로 되밀리는 떨림이 생긴다. 대신 스크롤·
-   * transform 과 무관한 레이아웃 좌표(`offsetLeft`/`offsetTop`)를 컨테이너의 rect 로 옮긴다.
-   */
+  /** 선 항목들의 자리(뷰포트 기준). `getBoundingClientRect()` 를 쓰지 마라 — 밀림 재생 중엔 애니메이션 좌표라 되밀린다. 레이아웃 좌표(`offsetLeft`/`offsetTop`)를 컨테이너 rect 로 옮긴다. */
   const measureSlots = useCallback((): DragSlot[] => {
     const el = resolveContainer(containerRef.current);
     if (!el) return [];
@@ -303,14 +249,7 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
     };
   }, [stopTracking]);
 
-  /**
-   * 항목을 손에 든다 — 두 문(꾹 누르기 타이머 · 끌기 문턱)이 **같은 입구**로 들어온다.
-   * 입구가 두 벌이면 한쪽에만 치수·캡처가 빠져 문마다 손맛이 갈린다.
-   *
-   * `grabAt` 은 항목 안에서 잡은 지점을 잴 좌표다. 꾹 누르기는 버틴 끝의 자리(떨림만큼 움직였을 수
-   * 있다), 끌기는 **처음 누른 자리**다 — 문턱을 넘은 뒤의 자리로 재면 고스트가 끈 거리만큼 손에서
-   * 뒤처져 붙는다.
-   */
+  /** 두 문(꾹 누르기·끌기 문턱)이 **같은 입구**로 든다(두 벌이면 한쪽에 치수·캡처가 빠진다). `grabAt` — 꾹 누르기는 버틴 끝 자리, 끌기는 **처음 누른 자리**(문턱 뒤로 재면 고스트가 뒤처진다). */
   const beginDrag = useCallback((target: HTMLElement, pointerId: number, key: string, grabAt: { x: number; y: number }): void => {
     // 항목 안에서 잡은 지점을 그대로 물려준다 — 고스트가 손 아래에서 순간이동하지 않게.
     const rect = target.getBoundingClientRect();
@@ -422,10 +361,7 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
     optionsRef.current.onCommit(changed, point, key);
   }, [clearPress, stopTracking, endDrag]);
 
-  /**
-   * 되돌리고 끝낸다 — `Esc` · 브라우저 취소(터치에서 스크롤로 가로챌 때) · 창 포커스 상실.
-   * **벗어나기·자리 바뀜은 여기 없다** — 그 둘이 취소이던 것이 §5.5 #16-1 (E) 가 고친 문제다.
-   */
+  /** 되돌리고 끝낸다 — `Esc` · 브라우저 취소(터치 스크롤이 가로챌 때) · 창 포커스 상실. 벗어나기·자리 바뀜을 취소로 넣지 마라(§5.5 #16-1 (E)). */
   const handleDragCancel = useCallback(() => {
     clearPress();
     stopTracking();
@@ -450,12 +386,8 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
   }, [isDragging, moveGhost]);
 
   /*
-   * 끄는 **동안만** 문서 전체의 성격이 바뀐다(규칙은 `index.css` 의 `body.vib-pointer-drag`).
-   *
-   * 커서가 쥔 손이 되고 지나는 글자가 선택되지 않는 것이 하나, **창 이동 영역(OS 캡션)이 잠깐
-   * 비켜서는** 것이 둘이다. 뒤엣것이 없으면 탭을 헤더 쪽으로 가져가는 순간 손짓이 렌더러에
-   * 도착하지 않아 고스트가 얼어붙고, 거기서 손을 떼면 `pointerup` 마저 오지 않아 끌던 것이 화면에
-   * 남는다(네이티브 DnD 에는 없던 자리 — 그쪽은 OS 드래그 루프였다).
+   * 끄는 **동안만** `body.vib-pointer-drag`(index.css): 쥔 손 커서·선택 없음·**창 이동 영역(OS 캡션)이 비켜선다** —
+   * 마지막이 없으면 헤더 위에서 손짓이 렌더러에 안 와 고스트가 얼고, `pointerup` 도 안 와 끌던 것이 남는다.
    */
   useEffect(() => {
     if (!isDragging || typeof document === 'undefined') return;
@@ -464,13 +396,7 @@ export function usePointerDragReorder(options: PointerDragReorderOptions): Point
     return () => { body.classList.remove(DRAG_BODY_CLASS); };
   }, [isDragging]);
 
-  /*
-   * 가장자리에서 흐르는 동안에도 자리가 계속 갈려야 한다.
-   *
-   * `pointermove` 만으로는 안 된다 — 손을 가장자리에 **대고 멈추면** 이벤트가 끊겨 줄만 흐르고
-   * 순서는 그 자리에 굳는다. 그래서 프레임마다 마지막 커서 자리로 다시 잰다.
-   * 조건은 `isDragging`(boolean) 하나라 끄는 내내 루프가 다시 서지 않는다.
-   */
+  /* 가장자리에서 흐르는 동안에도 자리가 갈려야 한다 — 손을 대고 멈추면 `pointermove` 가 끊기므로 프레임마다 마지막 커서 자리로 다시 잰다. 조건은 `isDragging` 하나라 루프가 다시 서지 않는다. */
   useEffect(() => {
     if (!isDragging) return;
     let raf = 0;

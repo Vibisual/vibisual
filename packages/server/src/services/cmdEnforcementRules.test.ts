@@ -1,13 +1,7 @@
 /**
- * §5.11 v4.65 — **CMD(인터랙티브 터미널) 세션에 집행이 실리는가.**
- *
- * v4.57 이 집행 슬롯을 열고 v4.59 가 111종을 채웠지만, 이 경로는 그동안 집행이 **아예 닿지 않았다**.
- * 헤드리스는 프롬프트를 우리가 조립하므로 거기에 얹으면 끝이지만, CMD 는 사람이 REPL 을 직접 몰기 때문에
- * 우리가 끼어들 자리가 `~/.vibisual/cmd-agents/<agentId>/CLAUDE.md`(+ `--add-dir`) 하나뿐이다.
- * 그래서 rules 와 같은 통로로 넣는다 — 새 채널을 만들지 않는 것이 요점이다.
- *
- * 이 파일이 지키는 것은 "블록이 그 파일에 들어갔는가"이고, "무엇이 블록인가"(켬/끔 판정·프로젝트 격리)는
- * `pluginHost.test.ts` 가 이미 고정한다.
+ * §5.11 — **CMD(인터랙티브 터미널) 세션에 집행이 실리는가.**
+ * 헤드리스는 프롬프트를 우리가 조립하지만 CMD 는 사람이 REPL 을 몰아, 끼어들 자리가 `~/.vibisual/cmd-agents/<agentId>/CLAUDE.md`(+ `--add-dir`) 하나뿐이다 — rules 와 같은 통로로 넣는다(새 채널 ❌).
+ * 여기는 "블록이 그 파일에 들어갔는가"만 본다. "무엇이 블록인가"(켬/끔·프로젝트 격리)는 `pluginHost.test.ts` 가 고정한다.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';

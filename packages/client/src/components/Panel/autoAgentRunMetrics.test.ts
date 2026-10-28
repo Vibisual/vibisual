@@ -1,8 +1,4 @@
-/**
- * §5.3 #10-3 v4.98 — 검증 런 지표 단위 테스트.
- *
- * 이 테스트가 지키는 것은 한 문장이다 — **증거 없는 초록은 없다.**
- */
+/** §5.3 #10-3 — 검증 런 지표 단위 테스트. 증거 없는 초록은 없다. */
 
 import { describe, it, expect } from 'vitest';
 import type { AutoAgentRun, VerificationAttempt } from '@vibisual/shared';

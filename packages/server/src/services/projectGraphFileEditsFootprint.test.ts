@@ -1,14 +1,6 @@
 /**
- * 체크포인트 `activity.fileEdits` 고아 키 회귀 테스트 (v4.67).
- *
- * 배경: 저장 필터는 `projectNodePaths`(= `nodeProjectNames` 유래)를 쓰는데, 노드가 사라져도
- * 이 귀속 기록은 남는다. 반면 화면으로 나가는 `getSnapshot().fileEdits` 는 `this.nodes` 에
- * 노드가 있어야 통과시킨다. 그래서 노드 없는 경로의 편집이 **저장·백업·복원만 되고 UI 엔
- * 영영 도달하지 못하는** 죽은 데이터로 남았다(실측 94키 1.15MB).
- *
- * 이 테스트가 지키는 것은 두 가지다.
- *  - 살아있는 노드의 편집은 종전 그대로 저장된다(= 화면에 보이던 것이 줄지 않는다).
- *  - 노드가 사라진 경로의 편집은 저장되지 않는다(= 죽은 데이터가 쌓이지 않는다).
+ * 체크포인트 `activity.fileEdits` 고아 키: 노드가 사라진 경로의 편집은 저장하지 않는다(화면엔 영영 안 닿는 죽은 데이터 — 실측 94키 1.15MB).
+ * 살아 있는 노드의 편집은 줄지 않는다.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';

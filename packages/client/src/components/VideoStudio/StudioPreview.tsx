@@ -13,10 +13,8 @@ import { memoLatest } from './studioMemo.js';
 import { clampSpan, noteEditorPlacement, type PreviewBounds } from './studioFit.js';
 
 /**
- * §5.13 (V) 37-1·37-6·37-7 — 가운데 **큰 미리보기**. 맞춤(기본)·100%, 안전 영역 겹쳐 보기, 가리키기 테(실버), 메모 핀(번호 원),
- * 글자 제자리 고치기 칸이 같은 문서 좌표로 겹친다. 그림 자체는 셸이 캔버스(기본 씬) 또는 DOM 무대(컴포지션)로 그린다 —
- * 이 부품은 그 둘의 자리와 위에 얹는 것만 맡는다. 무대 안(그림)은 테마와 무관하게 검다 — 그래서 이 칸만 어두운 판에 묶는다
- * (`DARK_THEME_LOCK` — 라이트 테마에서도 영상 위의 핀·테·글자 칸이 영상 위 색 그대로).
+ * §5.13 (V) 37-1·37-6·37-7 — 큰 미리보기: 겹표시(안전 영역·테·핀·글자 칸)가 같은 문서 좌표다. 그림 자체는 셸이 그린다.
+ * 무대는 테마와 무관하게 검어 이 칸만 `DARK_THEME_LOCK`.
  */
 export interface PreviewRing { readonly id: string; readonly rect: HitRect; readonly tone: 'hover' | 'selected' | 'pointed' }
 export interface PreviewPin { readonly id: string; readonly n: number; readonly x: number; readonly y: number; readonly status: string; readonly active?: boolean }
@@ -44,10 +42,7 @@ export interface StudioPreviewProps {
   readonly noteDraft: { readonly x: number; readonly y: number; readonly n: number } | null;
   readonly onNoteCommit: (text: string) => void;
   readonly onNoteCancel: () => void;
-  /**
-   * §5.13 (X) 39-3 — 그림이 서기 전에 띄울 **포스터**(지금 장면의 대표 프레임). 무대는 샌드박스 문서를 불러오는 동안 검은 칸이라,
-   * 그 사이를 이미 구워 둔 그림으로 먼저 채운다. `ready` 가 되면 걷힌다(짧게 흐려지며). 둘 다 없으면 종전 그대로.
-   */
+  /** §5.13 (X) 39-3 — 무대가 첫 그림을 세우기 전의 포스터(대표 프레임 — 샌드박스 문서 로딩 중엔 검은 칸이다). `ready` 면 흐려지며 걷힌다. */
   readonly poster?: string | null;
   readonly ready?: boolean;
   /**
@@ -56,10 +51,7 @@ export interface StudioPreviewProps {
    */
   readonly cold?: boolean;
   readonly posterAt?: (t: number) => string | null;
-  /**
-   * §5.4 #15 (C) — Alt 인스펙터가 그림 안(문서 픽셀)을 물을 때의 답. 그림은 캔버스·무대라 브라우저는 그 위의 조작 판 하나만
-   * 알아, 이것이 없으면 Alt 로 어디를 가리켜도 프레임 전체가 집혔다.
-   */
+  /** §5.4 #15 (C) — Alt 인스펙터의 그림 안(문서 픽셀) 답. 없으면 프레임 전체가 집힌다(캔버스·무대라). */
   readonly inspect?: PreviewInspect;
   /**
    * §5.13 (Y) 40-5 — 재생 중에도 테·핀이 시각을 따라가게: 시계를 굵게 구독해(`usePlayheadSampled`) 그 시각의 테·핀을 묻는다(셸은
@@ -185,11 +177,7 @@ export const StudioPreview = memoLatest(function StudioPreview(p: StudioPreviewP
   );
 }, { fresh: ['overlaysAt', 'posterAt'] });
 
-/**
- * 방금 꽂은 핀(번호 원) + 그 옆의 글 칸. Enter 로 꽂고, Esc·빈 글로 바깥을 누르면 거둔다.
- * 반응형 — `bounds`(미리보기 상자)가 있으면 글 칸이 상자 밖으로 잘려 나가지 않게 폭·자리를 맞춘다(`noteEditorPlacement` — 넓은
- * 상자에서 이미 들어맞는 자리는 종전 `top-3`·`left-3`/`right-3`·`w-64` 와 같다). 상자보다 높으면 글 칸 안에서 스크롤한다.
- */
+/** 방금 꽂은 핀 + 글 칸(Enter 로 꽂고, Esc·빈 글로 바깥을 누르면 거둔다). `bounds` 가 있으면 상자 밖으로 안 잘리게 맞추고(`noteEditorPlacement`), 높으면 안에서 스크롤. */
 function NoteEditor({ draft, left, top, flip, bounds, onCommit, onCancel }: {
   readonly draft: { readonly n: number };
   readonly left: number;

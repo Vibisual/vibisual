@@ -55,9 +55,7 @@ export const ServerList = memo(function ServerList({
   // §7.11 / §3.5 — 다른 프로젝트의 서버라 서버가 손대지 않은 줄(다음 조작에서 걷힌다).
   const [refusedId, setRefusedId] = useState<string | null>(null);
 
-  // id 중복 방어 — 서버 측 dedup이 깨져도 React key 경고 방지.
-  // §7.11 v2.4 — 스냅샷은 죽은 ServerEntry 도 싣는다(IframeServerCard 의 Start/Restart
-  // 매칭용). ServerList 는 §7.11 v2.1 "alive-only" 계약대로 살아있는 서버만 표시한다.
+  // 스냅샷은 죽은 ServerEntry 도 싣지만 ServerList 는 살아 있는 것만(§7.11). Map 으로 id 중복 방어.
   const uniqueServers = Array.from(
     new Map(servers.map((s) => [s.id, s])).values(),
   ).filter((s) => s.alive);

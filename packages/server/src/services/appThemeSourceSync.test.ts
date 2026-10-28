@@ -1,13 +1,6 @@
 /**
- * §4 앱 테마 — 해석기가 들고 있는 값이 **실제로 화면을 칠하는 값과 같은가**를 대조한다.
- *
- * 1. `TAILWIND_DEFAULT_PALETTE`(shared)는 이 앱이 싣는 tailwindcss 의 `theme.css` 와 같아야 한다.
- *    tailwindcss 를 올리면 기본 색이 바뀔 수 있는데, 표가 옛 값으로 남으면 기본 테마가 종전 화면과
- *    미세하게 어긋나고 서버가 칠하는 창 바탕이 화면과 달라진다.
- * 2. client `index.css` 의 `@theme static` 의미 토큰 기본값은 기본 테마를 풀면 나오는 값과 같아야 한다.
- *    엔진이 칠하기 전 첫 화면이 그 값이고, 어긋나면 부팅 순간 한 번 깜빡인다.
- *
- * 둘 다 다른 패키지의 파일이라 Node 에서 도는 서버 시험이 읽는다(클라 시험은 CSS 원문을 못 받는다).
+ * §4 앱 테마 — 해석기 값 = 실제로 칠하는 값: `TAILWIND_DEFAULT_PALETTE` 는 싣는 tailwindcss `theme.css` 와(올리면 기본 색이 바뀐다),
+ * client `index.css` `@theme static` 기본값은 기본 테마를 푼 값과 같아야 한다(어긋나면 부팅 순간 깜빡인다). CSS 원문은 Node 서버 시험만 읽는다.
  */
 import fs from 'node:fs';
 import path from 'node:path';

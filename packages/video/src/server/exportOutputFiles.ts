@@ -35,8 +35,8 @@ export async function writeNewFile(file: string, bytes: Uint8Array | string): Pr
 }
 
 /**
- * Reserve by actually creating files, not merely checking exists. Different video formats can
- * race on the same .srt; on collision remove only this attempt's new files and try the next pair.
+ * Reserve by creating the files, not by checking existence — video formats can race on the same .srt; on collision remove only
+ * this attempt's new files and try the next pair.
  */
 export async function placeNumberedPair(
   dir: string, base: string, ext: string, hasSubtitle: boolean,

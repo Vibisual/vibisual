@@ -1,12 +1,6 @@
 /**
- * 북마크 "이동" 스크롤 유틸 — IDE 출력에서 보관 텍스트(또는 그 항목)로 정확히 이동.
- *
- * 설계 배경(§5.5 #17-7 v2.92): 종전 구현은 공백을 무시한 needle 을 단일 텍스트 노드에서 `indexOf`
- * 하고 `scrollIntoView` 로 옮겨, ① 마크다운으로 쪼개진 노드/공백 차이로 검색 실패(스크롤 무반응),
- * ② `scrollIntoView` 가 바깥 스크롤 조상까지 움직여 엉뚱한 곳으로 튐, ③ 가상화(Virtuoso)로 화면 밖
- * 항목은 DOM 에 없어 못 찾음 — 세 문제가 있었다. 그래서 (a) **출처 항목 id** 로 가상 리스트를 먼저
- * `scrollToIndex` 해 렌더시키고, (b) 컨테이너 한정 수동 스크롤로 중앙 정렬, (c) 보관 텍스트는
- * 공백 정규화 + 노드 경계를 넘는 매칭으로 찾아 하이라이트한다.
+ * 북마크 "이동"(§5.5 #17-7) — ① 출처 항목 id 로 `scrollToIndex`(가상 리스트는 화면 밖이 DOM 에 없다) ② 컨테이너 한정 수동 스크롤
+ * (`scrollIntoView` 는 바깥 조상까지 움직인다) ③ 공백 정규화 + 노드 경계를 넘는 매칭.
  */
 
 interface TextIndex {
@@ -18,11 +12,7 @@ interface TextIndex {
   charOffset: number[];
 }
 
-/**
- * 컨테이너의 모든 텍스트 노드를 훑어 "정규화 문자열 ↔ (노드, offset)" 대응표를 만든다.
- * 마크다운이 bold/link 로 쪼갠 노드 경계를 넘어 매칭하기 위한 공통 토대 —
- * 보관 텍스트 찾기(`findTextRangeInContainer`)와 검색어 찾기(`findAllTextRanges`)가 함께 쓴다.
- */
+/** 정규화 문자열 ↔ (노드, offset) 대응표 — 마크다운이 쪼갠 노드 경계를 넘어 매칭하는 토대(두 찾기 함수 공용). */
 function buildTextIndex(container: HTMLElement): TextIndex {
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
   let normalized = '';
@@ -71,10 +61,6 @@ function rangeFromIndex(index: TextIndex, start: number, len: number): Range | n
   }
 }
 
-/**
- * 컨테이너 안에서 보관 텍스트를 찾아 DOM Range 를 돌려준다. 공백을 정규화(연속 공백 1칸)하고
- * 텍스트 노드 경계를 넘어(마크다운 bold/link 로 쪼개진 경우) 매칭한다. 못 찾으면 null.
- */
 export function findTextRangeInContainer(container: HTMLElement, raw: string): Range | null {
   const target = raw.replace(/\s+/g, ' ').trim();
   if (!target) return null;
@@ -86,15 +72,7 @@ export function findTextRangeInContainer(container: HTMLElement, raw: string): R
   return rangeFromIndex(index, idx, needle.length);
 }
 
-/**
- * 컨테이너 안에서 **검색어의 모든 출현**을 찾아 Range 배열로 돌려준다(문서 순서).
- *
- * `findTextRangeInContainer` 와 갈라 둔 이유(§5.5 #17-7 v3.46): 저쪽은 북마크의 보관 텍스트를 되찾는
- * 용도라 ① 대소문자를 그대로 보고 ② 앞 60자만 쓰고 ③ 첫 하나만 찾는다. 인-페이지 검색은 반대로
- * ① 매칭 판정(`streamSearch.findTextMatches`)이 대소문자를 무시하므로 칠하기도 무시해야 하고
- * (안 그러면 데이터로는 걸렸는데 화면엔 아무것도 안 칠해지는 "이동만 하고 표시 없음" 이 된다)
- * ② 검색어 전체가 needle 이며 ③ 한 항목 안의 여러 출현을 다 보여 줘야 눈으로 훑을 수 있다.
- */
+/** 검색어의 모든 출현(문서 순서). `findTextRangeInContainer`(대소문자 그대로·앞 60자·첫 하나)와 다르다 — 판정(`findTextMatches`)이 대소문자를 무시하므로 칠하기도 무시해야 표시가 맞는다. */
 export function findAllTextRanges(container: HTMLElement, raw: string): Range[] {
   const target = raw.replace(/\s+/g, ' ').trim();
   if (!target) return [];
@@ -127,12 +105,7 @@ export function scrollElementIntoCenter(container: HTMLElement, el: HTMLElement)
   scrollRectIntoCenter(container, el.getBoundingClientRect());
 }
 
-/**
- * 인-페이지 검색 하이라이트 이름 두 벌(index.css 의 `::highlight()` 와 짝).
- *  - `…-find`   : 지금 가 있는 그 자리 — 사용자가 드래그해 고른 것과 같은 **선택** 색으로 칠한다.
- *  - `…-find-all`: 같은 항목 안의 나머지 출현 — 옅게 깔아 "여기 더 있다" 만 알린다.
- * 둘을 갈라 두지 않으면 한 문단에 검색어가 여러 번 나올 때 어디로 이동한 건지 눈으로 구분할 수 없다.
- */
+/** 하이라이트 이름 두 벌(index.css `::highlight()` 와 짝): `-find` 지금 자리(선택 색) · `-find-all` 나머지 출현(옅게) — 하나면 어디로 갔는지 안 보인다. */
 const FIND_HIGHLIGHT_NAME = 'vibisual-find';
 const FIND_ALL_HIGHLIGHT_NAME = 'vibisual-find-all';
 
@@ -150,16 +123,10 @@ export function clearFindHighlight(): void {
 }
 
 /**
- * 검색어가 걸린 자리를 **드래그 선택처럼 칠하고 그 자리로 스크롤**한다 — 인-페이지 검색의 도착 연출.
- *
- * 종전에는 항목(카드) 전체를 화면 중앙으로 옮기고 파란 외곽선만 깜빡였다. 카드가 화면보다 길면
- * 정작 검색어가 든 줄은 화면 밖에 남아, "어디에 걸린 건지" 를 사용자가 다시 눈으로 찾아야 했다.
- * 그래서 ① 검색어의 실제 Range 를 찾아 ② 그 Range 를 중앙에 놓고 ③ 선택 색으로 칠한다.
- *
+ * 검색 도착 — 검색어 Range 를 중앙에 두고 칠한다(항목 중앙 정렬은 긴 카드에서 검색어가 화면 밖에 남는다).
  * @param container 스크롤 컨테이너(가상 리스트의 scroller)
- * @param scope     검색어를 찾을 범위 — 보통 매칭된 항목 엘리먼트. 없으면 컨테이너 전체.
- * @param query     검색어
- * @returns 칠할 자리를 찾았으면 true. false 면 호출부가 종전 폴백(항목 중앙 정렬)으로 넘어간다.
+ * @param scope 검색어를 찾을 범위 — 보통 매칭된 항목. 없으면 컨테이너 전체.
+ * @returns 칠할 자리를 찾았으면 true. false 면 호출부가 항목 중앙 정렬로 폴백한다.
  */
 export function highlightSearchMatches(container: HTMLElement, scope: HTMLElement, query: string): boolean {
   const reg = highlightRegistry();
@@ -177,12 +144,8 @@ export function highlightSearchMatches(container: HTMLElement, scope: HTMLElemen
 }
 
 /**
- * 찾은 range 를 화면에 표시한다.
- *  - `preserveFocus`(인-페이지 검색): **document selection 을 건드리지 않고** CSS Custom Highlight 로 칠한다.
- *    selection 을 본문으로 옮기면 브라우저가 포커스를 쥔 검색 입력창의 caret 을 함께 지워, 한 번 검색한
- *    뒤로는 그 입력창에 이어서 타이핑을 못 한다(사용자 보고: "한번 검색하면 포커싱이 꺼진다").
- *    미지원 환경이면 아무것도 칠하지 않는다 — selection 폴백은 그 포커스 유실을 되살리므로 두지 않는다.
- *  - 그 외(북마크 "이동"): 종전대로 selection 으로 잡아 준다(도착 즉시 복사할 수 있게).
+ * `preserveFocus`(검색): selection 대신 CSS Custom Highlight 로 칠한다 — selection 을 옮기면 검색 입력창 caret 이 지워져 이어 타이핑을 못 한다.
+ * 미지원이면 안 칠한다(selection 폴백 ❌). 북마크 "이동"은 selection(바로 복사하게).
  */
 export function markRange(range: Range, preserveFocus = false): void {
   if (preserveFocus) {
@@ -235,10 +198,7 @@ export function findItemElement(container: HTMLElement, anchorId: string): HTMLE
   }
 }
 
-/**
- * 선택(selection)의 시작 노드에서 위로 올라가 가장 가까운 `[data-stream-item-id]` 의 id 를 찾는다.
- * 북마크 생성 시 출처 항목을 기록하기 위함. 없으면 undefined.
- */
+/** 선택 시작 노드에서 가장 가까운 `[data-stream-item-id]`(북마크 출처 항목). */
 export function resolveAnchorIdFromSelection(): string | undefined {
   const sel = typeof window !== 'undefined' ? window.getSelection() : null;
   const anchor = sel?.anchorNode ?? null;

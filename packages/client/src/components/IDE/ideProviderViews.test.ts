@@ -5,14 +5,7 @@ import {
   fallbackViewForProvider, isViewAllowedForProvider, providerBadgeOf, usesCodexPane,
 } from './ideProviderViews.js';
 
-/**
- * §5.19 (G) · §5.25 (M) — 활동바 항목이 **엔진마다** 무엇이 남는가를 목록으로 못 박는다.
- * 나중에 항목이 하나 늘 때 "이건 어느 엔진에 뜻이 있나"를 여기서 한 번 더 묻게 하는 것이 목적이다.
- *
- * **판정이 `kind` 를 보는 것은 의도다.** 한때 이 파일은 반대로("엔진을 가르지 않는 것이 옳다")
- * 적혀 있었는데, 그것은 로컬 모델에서 참인 문장을 코덱스에 그대로 옮긴 실수였다 — 코덱스에는
- * MCP·스킬·플러그인·훅·규칙 문서가 전부 있고, 감추면 사용자가 자기 것을 우리 창에서 못 본다.
- */
+/** §5.19 (G)·§5.25 (M) — 엔진별 활동바 목록 고정. `kind` 로 가르는 것은 의도다 — 코덱스엔 MCP·스킬·플러그인·훅·규칙 문서가 다 있어 감추면 자기 것을 못 본다. */
 
 const CLAUDE = undefined;
 const LOCAL = 'local-llama';
@@ -24,15 +17,9 @@ const CODEX = 'codex-cli';
 const CLAUDE_ONLY: IDEViewType[] = ['subagents', 'specReading'];
 /** 로컬에는 없지만 **코덱스에는 대응물이 있는** 여섯. 이 배열이 이 회차의 요점이다. */
 const CODEX_HAS_TOO: IDEViewType[] = ['mcp', 'context', 'skills', 'hooks', 'plugins', 'verify'];
-/**
- * §5.3 #10-4 — 우리 기능인데 **지휘 절차가 Bash 로 loopback REST 를 치는 것**이라 로컬 엔진에서는
- * 가로채기가 걸리지 않는 것. 화면은 클로드·코덱스가 같은 것을 쓴다(코덱스 화면으로 갈아 끼울 것이 없다).
- */
+/** §5.3 #10-4 — 지휘가 Bash 로 loopback REST 를 쳐 로컬 엔진에선 가로채기가 안 걸리는 우리 기능(화면은 클로드·코덱스 공용). */
 const CONDUCTING: IDEViewType[] = ['orchestra'];
-/**
- * §5.3 #10-5 — 우리 기능인데 **덜어낼지의 판단이 그 엔진 CLI·모델 원장에 매여 있어** 로컬에는
- * 가로채기가 걸리지 않는 것. 화면은 클로드·코덱스가 같은 것을 쓴다.
- */
+/** §5.3 #10-5 — 덜어낼지 판단이 엔진 CLI·모델 원장에 매여 로컬엔 안 걸리는 우리 기능(화면 공용). */
 const TURN_CONFIG: IDEViewType[] = ['configTrim'];
 
 describe('§5.19 (G) · §5.25 (M) 엔진별 활동바', () => {
@@ -102,7 +89,7 @@ describe('§5.19 (G) · §5.25 (M) 엔진별 활동바', () => {
     expect(fallbackViewForProvider('plugins', LOCAL)).toBe('files');
     expect(fallbackViewForProvider('debug', LOCAL)).toBe('debug');
     expect(fallbackViewForProvider('mcp', CLAUDE)).toBe('mcp');
-    // 코덱스에서는 MCP 가 남으므로 **떨어뜨리지 않는다** — 여기가 뒤집힌 자리다.
+    // 코덱스에서는 MCP 가 남으므로 떨어뜨리지 않는다.
     expect(fallbackViewForProvider('mcp', CODEX)).toBe('mcp');
     expect(fallbackViewForProvider('subagents', CODEX)).toBe('files');
   });
@@ -114,10 +101,7 @@ describe('§5.19 (G) · §5.25 (M) 엔진별 활동바', () => {
   });
 });
 
-/**
- * §5.25 (B) — 하단 상태바 정체 뱃지. **`!!provider` 로 묶으면 코덱스 버블이 `All Model` 이라고
- * 말하고, 눌리면 로컬 모델 설치 창을 연다** — 실제로 그렇게 돼 있던 자리라 여기 못 박는다.
- */
+/** §5.25 (B) — 상태바 정체 뱃지. `!!provider` 로 묶지 마라 — 코덱스 버블이 `All Model` 이라 말하고 로컬 모델 설치 창을 연다. */
 describe('§5.25 (B) 프로바이더 정체 뱃지', () => {
   it('클로드 버블에는 뱃지가 없다', () => {
     expect(providerBadgeOf(undefined)).toBeNull();
@@ -147,27 +131,12 @@ describe('§5.25 (B) 프로바이더 정체 뱃지', () => {
 });
 
 
-/**
- * §5.25 (M) — **입구를 열었으면 그 안이 코덱스 것이어야 한다.**
- *
- * 위 블록은 "코덱스 활동바에 어느 칸이 서는가"를 못 박는다. 그런데 칸이 서는 것과 그 칸이
- * **코덱스 내용을 그리는 것**은 다른 문제다: `CODEX_PROVIDER_VIEWS` 에만 이름을 넣고
- * `IDESidebar` 의 `CODEX_VIEW_MAP` 에 짝을 안 넣으면, 그 칸은 **클로드 목록을 그대로 그린다** —
- * 감추는 거짓말을 고치려다 더 나쁜 거짓말(이 대화에 실리지도 않는 것을 보여 주기)을 하게 된다.
- * `IDECodexViews.tsx` 머리말이 스스로 경고해 둔 사고이고, 그 어긋남을 여기서 잡는다.
- *
- * 컴포넌트를 import 하면 React 트리가 통째로 딸려 오므로(클라 테스트에는 DOM 이 없다)
- * **소스를 문자열로 읽어** 표의 키만 본다 — `popupDismissContract.test.ts` 가 쓰는 방식 그대로다.
- */
+/** §5.25 (M) — 코덱스 칸은 코덱스 화면을 그리는가: `CODEX_PROVIDER_VIEWS` 에 넣고 `IDESidebar` `CODEX_VIEW_MAP` 짝을 빠뜨리면 클로드 목록을 그린다(소스 문자열로 표의 키만 본다). */
 const sidebarSource = import.meta.glob('./IDESidebar.tsx', {
   query: '?raw', import: 'default', eager: true,
 }) as Record<string, string>;
 
-/**
- * 엔진과 무관한 칸 — 우리 기능이거나 폴더라 코덱스도 같은 화면을 쓴다(갈아 끼울 것이 없다).
- * `orchestra` 는 로컬에는 서지 않지만(위 `CONDUCTING`) 코덱스에서는 클로드와 **같은 화면**이라 여기 든다.
- * `configTrim`(위 `TURN_CONFIG`)도 같다 — 덜어내는 대상이 `AgentConfig` 한 벌이라 엔진별로 그릴 것이 갈리지 않는다.
- */
+/** 엔진과 무관한 칸(우리 기능·폴더라 코덱스도 같은 화면). `orchestra`(로컬엔 없음)·`configTrim`(덜 대상이 `AgentConfig` 한 벌)도 코덱스에선 클로드와 같은 화면이라 여기 든다. */
 const ENGINE_NEUTRAL: IDEViewType[] = ['files', 'debug', 'bookmarks', 'goal', 'autoGoal', 'loop', 'context', 'verify', ...CONDUCTING, ...TURN_CONFIG];
 
 describe('§5.25 (M) 코덱스 칸은 코덱스 화면을 그린다', () => {
@@ -217,10 +186,7 @@ describe('§5.25 (M) 코덱스 칸은 코덱스 화면을 그린다', () => {
   });
 });
 
-/*
- * §5.25 (M-1) — 스킬 칸은 공급자가 아니라 **실제로 도는 엔진**을 따른다. Codex CMD 는 공급자 칸이 비어 있고
- * 터미널이 codex 를 띄운다 — 종전에는 클로드 칸을 그려 첫 탭이 엔진과 다르고 둘째 탭은 늘 거절됐다.
- */
+/* §5.25 (M-1) — 스킬 칸은 실제 엔진을 따른다(Codex CMD 는 공급자 칸이 비고 터미널이 codex — 공급자를 따르면 클로드 칸을 그려 거절된다). */
 describe('§5.25 (M-1) usesCodexPane — 스킬 칸은 실제로 도는 엔진', () => {
   it('Codex CMD 의 스킬 칸은 코덱스 칸이다', () => {
     expect(usesCodexPane('skills', CLAUDE, 'codex')).toBe(true);

@@ -4,14 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { AGENT_CARD, REDUCED_MOTION_LOOP_SLOWDOWN, REF_LINK_STYLE } from '@vibisual/shared';
 
 /**
- * §5.4 #31 (K) · #36 (A)(B) — 도는 동안 계속 도는 움직임(활성 선의 흐름 · 말풍선 궤도 · 위성줄 구슬)은
- * 움직임 줄이기에서 **멈추지 않고 느리게** 돈다(원문 계약).
- *
- * 2026-10-22 사용자 보고 — "우리 선들이 커스텀마다 뭔가 움직임이 있었는데 지금 왜 안 움직이고 멈춰 있나".
- * 그 PC 는 OS 애니메이션 효과가 꺼져 있어(`prefers-reduced-motion: reduce`) 세 움직임이 전부 `animation: none` 으로
- * 지워져 있었다. 활성 선은 10-20 선 모양 개편 전까지 React Flow 기본 대시로 그 설정과 무관하게 흘렀다.
- *
- * vitest 는 CSS 를 처리하지 않아(`?raw` 로 읽어도 빈 문자열) 파일로 직접 읽는다.
+ * §5.4 #31 (K) · #36 (A)(B) — 활성 선 흐름·말풍선 궤도·위성줄 구슬은 `prefers-reduced-motion` 에서 멈추지 않고 **느리게** 돈다(`animation: none` ❌).
+ * vitest 는 CSS 를 처리하지 않아(`?raw` 도 빈 문자열) 파일로 직접 읽는다.
  */
 const INDEX_CSS = '../../index.css';
 const EDGE_CSS = './bubbleEdgeAppearance.css';

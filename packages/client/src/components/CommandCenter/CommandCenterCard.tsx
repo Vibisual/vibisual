@@ -7,13 +7,8 @@ import { sessionStopUrl } from '../../hooks/useSessionStop.js';
 import { useAnchoredMenuPlacement } from '../Layout/useAnchoredMenuPlacement.js';
 import { contextLevel, elapsedParts, waitingLevel, type CommandCenterItem } from './commandCenterModel.js';
 
-// SCENARIO.md §5.12 (D)(H) — 카드 한 장 = 세션 한 개. 액션은 **둘뿐**이다:
-//   (1) 그 세션으로 점프(메인 창) — vibisual:command:reveal-in-main
-//   (2) 가지 않고 명령 보내기 — 기존 명령 큐(addCommand → POST /api/commands/:sessionId)
-// 스트림 읽기(미니 IDE)는 이 창에 넣지 않는다(A안 결정, §5.12 (G)).
-//
-// v4.44 (H): 카드는 **선택 가능**해졌다 — 고르면 오른쪽 상세 패널이 근거 원문을 펼친다.
-// 왼쪽 레인 색 띠는 스크롤 중에도 종류를 구분하기 위한 것(글자를 읽지 않아도 보이게).
+// SCENARIO.md §5.12 (D)(H) — 카드 한 장 = 세션 하나. 액션은 둘뿐: 메인 창으로 점프(`vibisual:command:reveal-in-main`) ·
+// 가지 않고 기존 명령 큐로 보내기(`POST /api/commands/:sessionId`). 스트림 읽기는 넣지 않는다(§5.12 (G)).
 
 const LANE_TONE: Record<string, { dot: string; chip: string; strip: string }> = {
   'needs-answer': { dot: 'bg-rose-400', chip: 'bg-rose-500/15 text-rose-200 ring-rose-400/30', strip: 'bg-rose-400/70' },
@@ -135,9 +130,7 @@ export function CommandCenterCard({
 
   const stop = (e: React.MouseEvent): void => e.stopPropagation();
 
-  // §5.12 (D) v4.53 — 카드 아무 데나 더블클릭 = [IDE 로 이동] 버튼과 같은 동작.
-  // 캔버스 버블 더블클릭이 IDE 를 여는 것과 같은 손버릇이라, 작은 화살표 버튼을 조준하지 않아도 된다.
-  // 더블클릭이 남기는 단어 선택 하이라이트는 지워 준다(창이 넘어간 뒤 파란 선택만 남는 것 방지).
+  // §5.12 (D) — 카드 더블클릭 = [IDE 로 이동]. 더블클릭이 남긴 단어 선택은 지운다(창이 넘어간 뒤 파란 선택만 남는다).
   const handleCardDoubleClick = useCallback((e: React.MouseEvent): void => {
     e.preventDefault();
     window.getSelection()?.removeAllRanges();

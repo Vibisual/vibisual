@@ -12,11 +12,7 @@ import { StudioPopover, PopoverItem } from './StudioPopover.js';
 import { StudioIcon } from './studioIcons.js';
 import { ValueControl } from './StudioValueControls.js';
 
-/**
- * §5.13 (V) 37-8 — **장면 구슬 메뉴**와 **이음매(전환) 고르기**. 구슬 메뉴: [이 장면만 AI 에게 다시] · [다른 엔진으로] ·
- * [두 엔진 나란히] · [부품으로 저장] · [나누기](재생 머리에서) · [다음 장면과 합치기] · [장면 지우기]. 이음매: 우리가 쓴 전환 여섯
- * (자르기·녹아들기·밀기·확대·빛 번짐·닦아내기) + 길이(0.2~1.5초) + [비트에 붙이기](음악이 있을 때).
- */
+/** §5.13 (V) 37-8 — 장면 구슬 메뉴와 이음매(전환) 고르기 — 전환 여섯 · 길이 0.2~1.5초 · [비트에 붙이기](음악이 있을 때). */
 export interface ChapterMenuProps {
   readonly anchor: HTMLElement;
   readonly chapter: ResolvedChapter;

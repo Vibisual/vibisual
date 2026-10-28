@@ -25,6 +25,8 @@ import { webFoldTitle } from './webFoldTitle.js';
 import { SELECT_DEFER_MS, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 // §6 — 고른 묶음은 캔버스 한 칸(React Flow `selected`)이다. 클릭이 그 칸을 바꾸는 손잡이.
 import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
+// §5.5 #17-50 — 캔버스 밖 판(IDE 세션 버블 지도)이 이 버블을 빌려 그리면 손짓은 그 판에 알린다.
+import { BUBBLE_HOST_RING, useBubbleHost } from './bubbleHost.js';
 import { shouldDismissOnSelect } from './agentDismiss.js';
 // §5.4 #31 — Ctrl/Cmd 를 쥔 채 에이전트를 잡으면 그 무리만 남고 나머지는 뒤로 물러난다.
 import { useLinkRole, useLinkFocusStore, promoteLinkGrab, releaseLinkGrab } from '../../stores/linkFocus.js';
@@ -41,7 +43,8 @@ import { BubbleSurfaceDetail } from './BubbleSurfaceDetail.js';
 import { BubbleHiddenIndicator } from './BubbleHiddenIndicator.js';
 // §5.1 #2-1 — 파일 얼굴(미디어 렌즈 · 종류 글리프 · 원 아래 이름) · 작업물 별자리(중심 궤도 · 위성 툴팁).
 import { getInternalApp } from '../../apps/registry.js';
-import { fileFaceOf, fileFaceOpensInApp, fileFaceVersion } from '../../utils/fileFaceView.js';
+import { faceSourcePath, fileFaceOf, fileFaceOpensInApp, fileFacePaneKind, fileFaceVersion } from '../../utils/fileFaceView.js';
+import { PANE_KIND_TEXT } from '../IDE/paneKinds.js';
 import type { ConstellationTag } from '../../utils/constellationView.js';
 import { useFileFaceThumbnail } from './useFileFaceThumbnail.js';
 import { FileFaceLens } from './FileFaceLens.js';
@@ -119,7 +122,7 @@ const ICON_PATHS: Record<BubbleIconKind, { viewBox: string; d: string; fill: boo
     d: 'M15 18l-6-6 6-6',
     fill: false,
   },
-  // §5.3 #28 v1.47 — 콘티(스토리보드) 4 frame 격자 아이콘
+  // §5.3 #28 — 콘티(스토리보드) 4칸 격자 아이콘.
   conti: {
     viewBox: '0 0 24 24',
     d: 'M3 4h7v7H3zM14 4h7v7h-7zM3 13h7v7H3zM14 13h7v7h-7z',
@@ -155,7 +158,7 @@ const ICON_PATHS: Record<BubbleIconKind, { viewBox: string; d: string; fill: boo
     d: 'M3 4h18M3 12h18M3 20h18M6 4v8M18 12v8',
     fill: false,
   },
-  // §5.13 v4.45 — Vibistudio 영상 문서. 재생 삼각형이 든 화면.
+  // §5.13 — 영상 문서. 재생 삼각형이 든 화면.
   video: {
     viewBox: '0 0 24 24',
     d: 'M2 6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6zm8 3 5 3-5 3V9z',
@@ -180,14 +183,7 @@ function isBrandIcon(icon: BubbleIconKind): boolean {
   return icon === 'claude' || icon === 'codex';
 }
 
-/**
- * 브랜드 로고는 선으로 그린 아이콘과 시각 무게가 다르다 — 같은 px·같은 흰색이면 혼자 한 덩어리로
- * 튀어 버블의 주인공(라벨)을 눌러 버린다. 그래서 두 곳을 낮춘다.
- *
- * - 크기: 선 아이콘의 0.74 배. 채워진 그림은 같은 변 길이에서 훨씬 넓은 면적을 먹는다.
- * - 농도: 선 아이콘의 채움(0.3 + 또렷한 윤곽)과 라벨(흰색)의 **사이**. 브랜드 로고는 윤곽선을
- *   씌우면 얇은 갈래가 뭉개지므로 stroke 대신 채움 농도만 내려 버블 그라디언트가 비쳐 보이게 한다.
- */
+/** 브랜드 로고는 채운 그림이라 선 아이콘보다 무겁다 — 크기 0.74 배, 농도는 선 아이콘 채움(0.3)과 라벨 사이. 윤곽선 ❌(얇은 갈래가 뭉개진다). */
 const BRAND_ICON_SCALE = 0.74;
 const BRAND_ICON_FILL_OPACITY = 0.55;
 
@@ -317,20 +313,7 @@ const RIGHT_DBLCLICK_MS = 350;
  */
 const WEB_FOLD_CHIP_MAX = 3;
 
-/**
- * §5.10 v3.82 — 주입 연출(림 아크 스윕 + 블룸)이 살아 있는 시간(ms).
- * 두 애니메이션 중 긴 쪽(bloom 1.35s)보다 약간 길게 잡아, 끝난 뒤에도 남아 도는
- * 빈 엘리먼트 없이 정확히 한 번만 재생되고 언마운트되게 한다(종전 4000ms 는
- * `animate-ping` 무한 반복을 시간으로 끊던 값이라 1회 연출엔 과했다).
- */
-
-/** §5.10 v3.82 — 주입 아크가 테두리 바깥을 돌 때 stroke 가 잘리지 않도록 두는 여백(px). */
-/**
- * §5.10 — 이 버블의 우측 더블클릭 대상. null 이면 대상 아님.
- *
- * 종전에는 메모리 버블·커스텀 에이전트가 기억 피드 오버레이를 열었으나 그 축이 폐기돼
- * **휴지통 하나만** 남았다. 남은 제스처는 "안으로 들어간다" 한 뜻이다.
- */
+/** §5.10 — 이 버블의 우측 더블클릭 대상(null = 대상 아님). 휴지통 하나뿐이고 뜻은 "안으로 들어간다". */
 type RightDblTarget = { kind: 'trash' };
 function interiorTargetFor(data: BubbleData): RightDblTarget | null {
   if (data.id === '__trash__') return { kind: 'trash' };
@@ -348,14 +331,10 @@ export const BubbleNode = memo(function BubbleNode({
   // React Flow v12: positionAbsoluteX/Y로 전달
   const xPos = (rest['positionAbsoluteX'] ?? rest['xPos']) as number | undefined;
   const yPos = (rest['positionAbsoluteY'] ?? rest['yPos']) as number | undefined;
-  // §2.2 v2.67 (C안) — Hook 에이전트(외부 캡처, customCreated=false)는 Custom/CMD(#3B82F6)와 같은 파랑
-  //   계열의 더 어둡고 탁한 톤(HOOK_AGENT_STYLE=#1E3A6B)으로 명도만 구분. bubbleType 은 그대로 'agent'.
+  // §2.2 — Hook 에이전트는 Custom/CMD 와 같은 파랑 계열의 어두운 톤(`HOOK_AGENT_STYLE`)으로 명도만 가른다(bubbleType 은 'agent').
   const isHookAgent = data.bubbleType === 'agent' && !data.customCreated;
   const baseStyle = isHookAgent ? HOOK_AGENT_STYLE : BUBBLE_STYLES[data.bubbleType];
-  /**
-   * §5.1 #2-1 (A) — 파일의 얼굴(종류 · 굽는 앱 · 색). 경로가 같으면 같은 객체라 아래 미리보기 일감이 흔들리지 않는다.
-   * 미디어(영상·사진·소리·3D)는 원 안이 렌즈가 되고, 나머지 종류는 종전 배치 그대로 글리프만 바뀐다.
-   */
+  /** §5.1 #2-1 (A) — 파일의 얼굴(종류·굽는 앱·색). 경로가 같으면 같은 객체라 미리보기가 흔들리지 않는다. 미디어는 원 안이 렌즈. */
   const face = useMemo(
     () => fileFaceOf(data),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -367,13 +346,10 @@ export const BubbleNode = memo(function BubbleNode({
   // 에이전트 커스텀 색상 — AgentConfig.color가 있으면 기본 스타일 오버라이드
   const customColor = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.color : undefined);
   const skin = useGraphStore((s) => resolveBubbleSkin(s.bubbleAppearancePending?.bubbleSkin ?? s.userDefaults?.appearance?.bubbleSkin));
-  // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트면 라벨 옆 'CMD' 배지로 구분.
+  // §4 — CMD(인터랙티브 터미널) 에이전트면 'CMD' 배지로 구분.
   const isCmdAgent = useGraphStore((s) => data.bubbleType === 'agent' && s.agentConfigs[data.id]?.executionMode === 'interactive-terminal');
-  // §2.4 v1.67 — 갓 스폰된 커스텀 에이전트 idle empty-state: 라이브 세션 전 빈 하단을 설정 모델명으로 메움.
-  // §5.25 (J) — 주어는 `config.model` 하나가 아니라 **모델 칸 + 엔진 축** 둘이다(엔진을 안 보면
-  //   코덱스 버블이 클로드 기본값 `opus` 를 자기 이름으로 말한다). 판정은 `agentModelLabelOf` 가
-  //   하고, 여기서는 그 둘을 **원시값으로** 집는다 — 객체를 새로 만들어 돌려주면 매 프레임 새
-  //   참조라 무변화에도 리렌더가 돈다(파생 선택자 함정).
+  // §2.4 — idle 하단은 설정 모델명. §5.25 (J) — 모델 칸 + 엔진 축 둘을 본다(아니면 코덱스 버블이 `opus` 라 한다).
+  // 원시값으로 집는다 — 객체를 새로 돌려주면 매번 리렌더된다.
   const configModel = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.model : undefined);
   const configProviderKind = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.provider?.kind : undefined);
   const configProviderModelId = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.provider?.modelId : undefined);
@@ -391,30 +367,16 @@ export const BubbleNode = memo(function BubbleNode({
   const cmdCliModelLabel = isCmdAgent && !resolveCmdCliKind(configCliKind).managed
     ? agentModelLabelOf({ executionMode: 'interactive-terminal', cliKind: configCliKind })
     : null;
-  /**
-   * §5.19 (G) — All Model(로컬 LLM) 버블의 정체. 있으면 아래 모델·문맥·토큰 세 줄이 진실을
-   * 가져올 곳은 클로드 세션이 아니라 이 프로바이더다 — `config.model`(기본값 `opus`)은 로컬 턴이
-   * 읽지도 않는 칸이라 그대로 적으면 버블이 자기 정체를 거짓으로 말한다.
-   */
+  /** §5.19 (G) — All Model 버블의 정체. 있으면 모델·문맥·토큰 줄은 이 프로바이더에서(`config.model` 은 로컬 턴이 안 읽는다). */
   const localProvider = useGraphStore((s) => (data.bubbleType === 'agent' ? localProviderOf(s.agentConfigs[data.id]) : null));
-  /**
-   * §5.25 (J) — 코덱스 버블의 정체. 로컬과 같은 이유로 따로 든다: `config.model`(기본값 `opus`)
-   * 은 코덱스 턴이 읽지도 않는 칸이라, 그대로 적으면 코덱스 버블이 자기를 클로드로 말한다.
-   *
-   * **문맥 상한은 없다** — 코덱스는 왕복마다 쓴 양만 알려 주고 상한은 말해 주지 않는다.
-   * 없는 값을 지어내면 물결이 거짓 비율로 찬다(§5.19 가 로컬에서 상한을 받아 쓴 것과 다른 자리).
-   */
+  /** §5.25 (J) — 코덱스 버블의 정체(`config.model` 은 코덱스 턴이 안 읽는다). 문맥 상한은 없다 — 코덱스는 쓴 양만 준다(지어내면 물결이 거짓 비율로 찬다). */
   const codexProvider = useGraphStore((s) => (data.bubbleType === 'agent' ? codexProviderOf(s.agentConfigs[data.id]) : null));
   const isCodexAgent = codexProvider !== null;
-  // §5.11 v3.88 — 플러그인 배지 슬롯에 넘길 읽기 전용 설정. 에이전트 버블이 아니면 undefined 라 슬롯이 그냥 빈다.
+  // §5.11 — 플러그인 배지 슬롯에 넘길 읽기 전용 설정. 에이전트 버블이 아니면 undefined(슬롯이 빈다).
   const pluginAgentConfig = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id] : undefined);
   /**
-   * §5.15 — 이 에이전트 버블이 스펙에서 나온 작업 카드이고, 그 스펙이 카드 생성 이후
-   * 바뀌었으면 스펙 제목을 돌려준다(아니면 null).
-   *
-   * 서버가 준 두 숫자(`bodyRevision` vs 항목의 `generatedRevision`)의 비교뿐이다 — 판정도
-   * 자동 재생성도 하지 않는다(§5.15). 셀렉터가 **원시값**을 돌려주므로 스냅샷이 흘러도
-   * 실제로 낡음 여부가 바뀔 때만 리렌더한다.
+   * §5.15 — 스펙에서 나온 작업 카드의 스펙이 그 뒤 바뀌었으면 스펙 제목(아니면 null). `bodyRevision` vs `generatedRevision` 비교뿐(자동 재생성 ❌).
+   * 원시값이라 바뀔 때만 리렌더.
    */
   const specStaleTitle = useGraphStore((s) => (
     data.bubbleType === 'agent' ? selectSpecStaleTitle(s, data.id) : null
@@ -467,30 +429,30 @@ export const BubbleNode = memo(function BubbleNode({
   const localRange = (data as Record<string, unknown>)['_localRange'] as { min: number; max: number } | undefined;
   const globalRange = useGraphStore((s) => s.fileSizeRange);
   const range = localRange ?? globalRange;
-  // §5.1 #2-1 — 미디어 얼굴·별자리 중심의 지름 하한도 같은 함수(`calcBubbleSize`)가 읽는다 — 경로·위성 수가 바뀌면 다시 잰다.
-  const size = useMemo(() => calcBubbleSize(data, range, heat), [data.activity, data.status, data.bubbleType, data.childCount, data.fileSize, data.readCount, data.writeCount, data.externalRollupReadCount, data.externalRollupWriteCount, data.absolutePath, data.path, range, heat]); // eslint-disable-line react-hooks/exhaustive-deps
+  // §5.1 #2-1 — 미디어 얼굴·별자리 중심의 지름 하한도 `calcBubbleSize` 가 읽는다(경로·위성 수가 바뀌면 다시 잰다). (B) 묶음 안은 `_usageRange` 로 잰다.
+  const usageRange = (data as Record<string, unknown>)['_usageRange'];
+  const size = useMemo(() => calcBubbleSize(data, range, heat), [data.activity, data.status, data.bubbleType, data.childCount, data.fileSize, data.readCount, data.writeCount, data.externalRollupReadCount, data.externalRollupWriteCount, data.absolutePath, data.path, range, heat, usageRange]); // eslint-disable-line react-hooks/exhaustive-deps
   // 단일 스케일 팩터 — 모든 텍스트/아이콘이 이 비율로 비례 축소/확대
   const ts = size / BUBBLE_TEXT_REF_SIZE;
   const isActive = data.status === 'active';
   const isCompleted = data.status === 'completed';
-  // §4 v1.49 — Notification 시각 신호 (permission 대기). v1.73 — awaiting_input(모래시계) 제거.
+  // §4 — Notification 시각 신호(permission 대기만).
   const isAwaitingPermission = data.status === 'awaiting_permission';
   const isFolder = data.bubbleType === 'internal_folder' || data.bubbleType === 'external_folder';
   const isAgent = data.bubbleType === 'agent';
   const isGhost = data.bubbleType === 'ghost';
   const isIframe = data.bubbleType === 'iframe';
   const isRoot = data.bubbleType === 'root';
-  // §5.5 #17-6 v2.73 — 오버레이 위젯 창 안에서 렌더되는 버블. 시각·드래그·더블클릭은 캔버스와 동일,
-  // 단 "엣지 연결"(테두리 잡고 Task Edge 드래그)만 비활성(연결할 다른 버블이 없는 단독 위젯이라).
-  const overlayMode = (data as Record<string, unknown>)['_overlayMode'] === true;
+  // §5.5 #17-6 — 오버레이 위젯·남의 판(§5.5 #17-50 IDE 세션 지도)의 버블은 Task Edge 연결을 끈다(연결할 버블이 없다).
+  // 남의 판엔 캔버스 묶음·숨김 표식도 없고, 고르기·우클릭은 그 판에 알린다(`bubbleHost.ts`).
+  const host = useBubbleHost();
+  const overlayMode = (data as Record<string, unknown>)['_overlayMode'] === true || host !== null;
   const isBack = data.id === '__root_back__';
   // 더블클릭으로 동작이 있는 버블 — handleNodeDoubleClick(BubbleMap)과 1:1.
   // 이 버블들만 단일선택을 SELECT_DEFER_MS 만큼 늦춘다(나머지는 즉시 선택 유지).
   const isDoubleClickable =
     isAgent || isFolder || isIframe ||
-    // §5.12 (A) v4.43 — 프로젝트 root(home) 더블클릭 = 지휘통제실 창.
-    // 지휘통제실은 desktop 전용(IPC)이라, 열 수 없는 환경(dev/web·모바일)에서는 더블클릭 대상에서
-    // 빼 root 싱글 클릭이 공짜로 SELECT_DEFER_MS 만큼 느려지지 않게 한다.
+    // §5.12 (A) — root 더블클릭 = 지휘통제실 창(desktop IPC 전용). 못 여는 환경에선 더블클릭 대상에서 빼 싱글 클릭이 늦지 않게.
     (isRoot && typeof window !== 'undefined' && !!window.api?.command) ||
     data.bubbleType === 'worktree' ||
     data.bubbleType === 'pipeline' ||
@@ -513,24 +475,20 @@ export const BubbleNode = memo(function BubbleNode({
    */
   const linkRole = useLinkRole(data.id);
   const linkPhase = useLinkFocusStore((s) => s.phase);
-  /**
-   * Ctrl/Cmd 를 쥐고 있는 동안에는 테두리 연결 손짓(Task Edge)을 재운다 — 같은 테두리에서 두
-   * 동작이 경합하면 "무리를 잡으려다 엣지가 그어지는" 일이 생긴다. 수식 키를 쥔 쪽이 명시적이라
-   * 그쪽에 자리를 내준다.
-   */
+  /** Ctrl/Cmd 를 쥔 동안 테두리 연결 손짓(Task Edge)을 재운다 — 무리를 잡으려다 엣지가 그어지지 않게. */
   const linkModifierHeld = useLinkFocusStore((s) => s.modifierHeld);
   const linkVisual = useMemo(() => linkFocusNodeStyle(linkRole, linkPhase), [linkRole, linkPhase]);
 
-  // 선택 하이라이트 링 — store.selectIntentId(클릭 확정 즉시 갱신, DetailPanel 지연과 무관).
-  // selectNode/setSelectIntent 는 'sat-' 프리픽스를 떼고 저장 → 동일 규칙으로 비교.
-  // §9 "버블은 자기 것만 구독한다" — id 를 그대로 구독하면 클릭 한 번에 모든 버블이 다시 그려져
-  // 선택 초점(§5.4 #31 (K))의 페이드가 시작되는 바로 그 프레임을 잡아먹는다. 판정 결과만 받는다.
+  // 선택 링 — `selectIntentId`('sat-' 를 떼고 저장하므로 같게 비교). §9 — 판정 결과만 구독한다
+  // (id 를 받으면 클릭마다 모든 버블이 다시 그려져 §5.4 #31 (K) 페이드 첫 프레임을 먹는다).
   const selectRingId = data.id.startsWith('sat-') ? data.id.slice(4) : data.id;
-  const showSelectRing = useGraphStore((s) => s.selectIntentId !== null && s.selectIntentId === selectRingId);
+  //   §5.5 #17-50 — 남의 판의 버블은 **그 판의 링만** 따른다. 가운데 에이전트처럼 캔버스와 같은 id 여도 캔버스에서 고른 것이
+  //   여기 켜지지 않는다(구독도 하지 않는다 — 판의 링은 노드 데이터 표식이라 그 버블만 다시 그려진다).
+  const canvasRing = useGraphStore((s) => host === null && s.selectIntentId !== null && s.selectIntentId === selectRingId);
+  const showSelectRing = host !== null ? (data as Record<string, unknown>)[BUBBLE_HOST_RING] === true : canvasRing;
   /**
-   * §6 — 고른 묶음(React Flow `selected`)에 든 버블. 보통 클릭은 묶음을 이 버블 하나로 바꾸고, Ctrl/Cmd
-   * 클릭은 넣고 뺀다(Shift 클릭·박스 선택은 캔버스가 같은 칸에 쓴다). 오버레이 위젯은 고르는 자리가 아니다.
-   * 링 id 는 홈 버블(`__root_home__` — 링이 지금 폴더 id 를 쓴다)만 비워 둔다(빼도 링을 내리지 않는다).
+   * §6 — 고른 묶음(`selected`)에 든 버블. 보통 클릭은 묶음을 이 하나로, Ctrl/Cmd 는 넣고 뺀다(Shift·박스는 캔버스가 같은 칸에).
+   * 오버레이 위젯은 못 고른다. 홈 버블(`__root_home__`)은 링 id 를 비운다.
    */
   const inGroup = rest['selected'] === true;
   const canvasSelection = useCanvasNodeSelection(
@@ -566,16 +524,8 @@ export const BubbleNode = memo(function BubbleNode({
     if (selectHideTimer.current) clearTimeout(selectHideTimer.current);
   }, []);
 
-  // 커스텀 에이전트: 표시할 "effective sub" 결정.
-  // 우선순위: (1) 현재 active 인 sub → (2) IDE 오버레이에서 사용자가 선택한 탭 → (3) 서버가 준 default(가장 최근).
-  //  - (1) 이 있으면 동작중 컨텍스트를 실시간 반영
-  //  - 없으면 사용자가 IDE 에서 골라본 sub 로 전환(요구사항: "동작중인게 없을 경우 그 선택한거로 변경")
-  // §5.3 #12-1 — 백단 작업 중임을 말하는 것은 **기존 동작중 이펙트 하나**다(별도 색·배지 ❌).
-  //   서버가 그동안 버블을 `active` 로 유지하므로 위 `isActive` 경로가 그대로 그 일을 한다.
-  // §9 — **자기 것만 구독한다.** 종전엔 `s.subAgents` 맵 통째였다: `loadSnapshot` 의 구조적 공유가
-  //   에이전트 하나의 배열만 새것으로 바꿔도 **맵 자체는 새 참조**가 되므로, 어느 에이전트 하나가
-  //   한 줄을 뱉을 때마다 화면의 **모든 버블**이 리렌더됐다(버블 200개면 200벌). 키 하나만 보면
-  //   구조적 공유가 준 배열 참조가 그대로라 바뀐 그 버블만 깨어난다.
+  // 표시 sub: 지금 active → IDE 에서 고른 탭 → 서버 default. §5.3 #12-1 — 백단 작업 중 표시는 기존 동작중 이펙트 하나(서버가 `active` 로 둔다).
+  // §9 — 자기 키만 구독한다(`s.subAgents` 맵 통째면 구조적 공유에도 맵이 새 참조라, 한 에이전트의 한 줄마다 모든 버블이 리렌더된다).
   const mySubAgents = useGraphStore((s) => s.subAgents[data.id]);
   // §5.5 #17-1 — 창이 여럿이므로 "IDE 의 활성 세션"이 아니라 **이 버블을 띄운 창의** 활성 세션을 본다.
   const ideActiveSessionId = useGraphStore((s) => selectIDEActiveSessionForAgent(s, data.id));
@@ -611,21 +561,12 @@ export const BubbleNode = memo(function BubbleNode({
   const effectiveModelName = effectiveSubOverride
     ? effectiveSubOverride.modelName
     : data.modelName;
-  /**
-   * §5.19 (G) — 버블 하단 모델 한 줄. 로컬 버블의 정체는 **지금 문 모델의 이름**이고, 아직 안
-   * 골랐으면 그 사실 자체가 상태다(작은 원 안에 긴 안내문을 넣을 자리는 없으니 `All Model` 로만
-   * 적는다 — 자세한 안내는 그 버블을 눌렀을 때 뜨는 설치 창이 한다).
-   */
+  /** §5.19 (G) — 하단 모델 한 줄. 로컬 버블은 지금 문 모델 이름, 아직 안 골랐으면 `All Model` 만(긴 안내는 버블을 누르면 뜨는 설치 창 몫). */
   const localModelLabel = localModelLabelOf(localProvider, t('ide.overlay.localLabel', { defaultValue: 'All Model' }));
   const codexModelLabel = codexModelLabelOf(codexProvider, t('ide.overlay.codexLabel', { defaultValue: 'Codex' }));
   /** 클로드 별칭만 접는다(`claude-` 접두·날짜 꼬리) — 로컬 파일명은 그 규칙의 대상이 아니다. */
   const modelLineText = localModelLabel ?? codexModelLabel ?? cmdCliModelLabel ?? (effectiveModelName ? formatModelName(effectiveModelName) : '');
-  /**
-   * §5.25 (J) — **아직 한 턴도 안 돈 버블**의 모델 한 줄. 위 `modelLineText` 는 실측(`data.modelName`)
-   * 을 주어로 삼는데, 첫 턴 전에는 그 값이 없어 설정에서 가져와야 한다. 그 설정 칸(`config.model`)
-   * 이 클로드 전용이고 기본값이 `opus` 라 — 엔진을 안 보면 코덱스 버블이 `opus` 라고 말한다.
-   * 판정은 `agentModelLabelOf` 한 곳이라 엔진이 늘어도 이 줄은 따라온다.
-   */
+  /** §5.25 (J) — 첫 턴 전 모델 한 줄은 설정에서(실측 `data.modelName` 이 없다). `config.model` 은 클로드 전용이라 엔진을 본다 — `agentModelLabelOf` 한 곳. */
   const idleModelText = useMemo(() => {
     const label = agentModelLabelOf(idleModelConfig, {
       codex: t('ide.overlay.codexLabel', { defaultValue: 'Codex' }),
@@ -635,8 +576,7 @@ export const BubbleNode = memo(function BubbleNode({
     // 접기는 클로드 별칭에만 쓴다 — 로컬 파일명·코덱스 slug·CMD 의 CLI 이름은 그 규칙의 대상이 아니다.
     return 'provider' in idleModelConfig || cmdCliModelLabel ? label : formatModelName(label);
   }, [idleModelConfig, cmdCliModelLabel, t]);
-  // 로컬 문맥은 엔진이 왕복마다 돌려준 값이다(클로드 세션의 contextUsed/Max 는 로컬에 없어 종전에는
-  //   물결도 숫자도 영영 비어 있었다). 물결 높이와 아래 숫자가 같은 출처를 봐야 둘이 어긋나지 않는다.
+  // 로컬 문맥은 엔진이 왕복마다 돌려준 값이다(클로드 세션의 contextUsed/Max 는 로컬에 없다). 물결과 숫자가 같은 출처를 봐야 어긋나지 않는다.
   const effectiveContextUsed = localProvider
     ? localProvider.contextUsed
     : codexProvider ? (effectiveSubOverride ? effectiveSubOverride.contextUsed : data.contextUsed ?? codexProvider.contextUsed)
@@ -733,10 +673,7 @@ export const BubbleNode = memo(function BubbleNode({
     setNearBorder(false);
   }, [clearHoverTimer]);
 
-  // 글로벌 연결 모드 — 다른 커스텀 에이전트에서 연결 중일 때만 이 테두리 하이라이트.
-  // Task Edge는 커스텀 에이전트 간(양쪽 customCreated) 연결만 허용하므로
-  // 타겟도 customCreated일 때만 connect 타겟으로 표시.
-  // §7.6 GitStatusCard — root 버블에서만 유효. label = projectName.
+  // 아래 `isConnectTarget` — 다른 커스텀 에이전트에서 연결 중일 때만(Task Edge 는 customCreated 끼리). §7.6 GitStatusCard — root 버블만(label = projectName).
   const gitDirty = useGraphStore((s) => isRoot ? (s.gitDirty[data.label] ?? false) : false);
   const gitRefreshing = useGraphStore((s) => isRoot ? (s.gitRefreshing[data.label] ?? false) : false);
 
@@ -753,6 +690,9 @@ export const BubbleNode = memo(function BubbleNode({
   //   §6 — 고른 묶음도 이 버블 하나로 바꾼다. 패널과 같은 순간(더블클릭 보류가 끝난 뒤)이라, 창을 열려던
   //   더블클릭은 묶음을 건드리지 않는다.
   const performSelect = useCallback((): void => {
+    // §5.5 #17-50 — 남의 판: 캔버스 선택·우측 패널·확인 dismiss 를 건드리지 않는다. 지도에서 가운데 에이전트를
+    //   눌렀다고 캔버스의 그 에이전트가 확인 처리되어 버블이 걷히면 안 된다 — 고른 것은 그 판이 보여 준다.
+    if (host) { host.select(nodeId); return; }
     canvasSelection.replace();
     if (data.id === '__root_home__') {
       const folderId = useGraphStore.getState().currentFolderId;
@@ -771,22 +711,11 @@ export const BubbleNode = memo(function BubbleNode({
         body: JSON.stringify({ agentId: data.id }),
       }).catch(() => {});
     }
-  }, [data.id, data.bubbleType, data.status, canvasSelection]);
+  }, [data.id, data.bubbleType, data.status, canvasSelection, host, nodeId]);
 
   /**
-   * 선택 제스처 — 캔버스 공용 상태기계 한 벌(`bubbleSelectGesture`).
-   *
-   * 이 버블이 그 규칙의 기준이다: 움직임 없이 뗐을 때만 클릭(=선택)으로 인정하고, 더블클릭
-   * 동작이 있는 버블이면 실제 선택을 {@link SELECT_DEFER_MS} 만큼 미뤄 2타를 먼저 확인한다.
-   * 링(`selectIntentId`)은 미루지 않는다 — 손끝 반응과 패널 열림은 별개다.
-   *
-   * `ignore` 가 맡는 두 갈래는 이 버블에만 있는 것이다.
-   *  - **커스텀 에이전트 테두리 누름** → 선택이 아니라 Task Edge 연결 드래그(노드 이동도 막는다).
-   *  - **Back 버블** → 네비게이션 전용이라 선택 대상이 아니다.
-   *
-   * 우클릭은 고르지 않는다 — 우측 패널(DetailPanel)은 왼쪽 클릭 선택에서만 뜬다(§6, 2026-10-11 사용자
-   * 지시). 종전에는 이 버블만 우클릭도 선택으로 쳐서, 메뉴를 열려던 손이 패널을 열고 끝난 에이전트의
-   * 확인 dismiss(§2.4)까지 일으켰다. 메뉴의 대상은 여는 쪽이 `nodeId` 로 넘기므로 선택이 없어도 갈리지 않는다.
+   * 선택 제스처 — 캔버스 공용 상태기계(`bubbleSelectGesture`)의 기준: 움직임 없이 뗐을 때만, 더블클릭 버블은 {@link SELECT_DEFER_MS} 미룬다(링은 안 미룬다).
+   * `ignore`: 커스텀 에이전트 테두리 누름(= Task Edge 드래그) · Back 버블. 우클릭은 고르지 않는다(§6) — 고르면 패널이 뜨고 끝난 에이전트가 dismiss(§2.4)된다.
    */
   const gesture = useBubbleSelectGesture({
     doubleClickable: isDoubleClickable,
@@ -794,6 +723,8 @@ export const BubbleNode = memo(function BubbleNode({
     // §6 — Ctrl/Cmd 클릭은 묶음에 넣고 뺀다(링·우측 패널 ❌). 오버레이 위젯에는 묶음이 없다.
     toggle: overlayMode ? undefined : canvasSelection.toggle,
     setIntent: (active) => {
+      // §5.5 #17-50 — 남의 판의 링은 그 판이 든다(캔버스 링 한 칸을 건드리면 캔버스의 고른 것이 꺼진다).
+      if (host) { host.intent(nodeId, active); return; }
       const store = useGraphStore.getState();
       if (!active) { store.setSelectIntent(null); return; }
       // selectNode/setSelectIntent 는 'sat-' 프리픽스를 떼고 저장 → 링 비교 규칙과 같은 모양으로.
@@ -803,14 +734,8 @@ export const BubbleNode = memo(function BubbleNode({
       store.setSelectIntent(intentId);
     },
     ignore: (e) => {
-      // §5.4 #31 — Ctrl/Cmd 를 쥔 채 에이전트를 누르면 그건 "무리를 잡는" 손짓이다.
-      //   ① 미리보기를 확정으로 올려 누르는 순간 세기가 한 단계 오르게 하고(무리 계산은 이미
-      //      hover 가 해 뒀다 — 이 컴포넌트는 화면에 그려진 엣지 목록을 모른다),
-      //   ② 누름은 그대로 기록한다(§6, 2026-10-11 사용자 지시 — Ctrl 클릭은 다중 선택이다). 끌면 무리 동반
-      //      이동이고, 움직임 없이 떼면 이 버블을 묶음에 넣거나 뺀다 — 링·우측 패널은 켜지 않는다(누적 선택).
-      //   `stopPropagation` 은 하지 않는다 — React Flow 의 노드 드래그가 그대로 살아 있어야
-      //   그 손짓이 곧 동반 이동이 된다. 테두리 판정보다 **앞**에 둔다(수식 키 쪽이 명시적 — Ctrl 을 쥔
-      //   동안 Task Edge 연결 손짓은 잔다).
+      // §5.4 #31 — Ctrl/Cmd 쥔 에이전트 누름 = 무리 잡기: 미리보기를 확정으로 올리고(무리 계산은 hover 몫), 누름은 기록한다(끌면 동반 이동, 그냥 떼면 묶음 토글 — 링·패널 ❌).
+      // `stopPropagation` ❌ — React Flow 드래그가 살아야 동반 이동이 된다. 테두리 판정보다 앞.
       if (isAgent && !overlayMode && linkModifierHeld) {
         promoteLinkGrab(data.id);
         return false;
@@ -828,14 +753,7 @@ export const BubbleNode = memo(function BubbleNode({
     },
   });
 
-  /**
-   * §5.4 #31 — 손을 뗐다. 끌지 않고 누르기만 했다면 확정(`grab`)을 **미리보기로 되돌린다**
-   * (수식 키를 놓았으면 스토어가 알아서 걷는다).
-   *
-   * 끌었을 때는 이 자리에 `pointerup` 이 오지 않을 수 있다(React Flow 의 드래그가 포인터를
-   * 붙잡는다) — 그 경로는 `onNodeDragStop` 이 같은 함수를 부르므로 둘 중 무엇이 먼저 와도
-   * 결과가 같다(멱등).
-   */
+  /** §5.4 #31 — 누르기만 했으면 확정(`grab`)을 미리보기로 되돌린다. 끌었으면 `pointerup` 이 안 올 수 있어 `onNodeDragStop` 도 같은 함수를 부른다(멱등). */
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     gesture.handlers.onPointerUp(e);
     releaseLinkGrab();
@@ -849,11 +767,7 @@ export const BubbleNode = memo(function BubbleNode({
     openTimer.current = setTimeout(() => { setOpening(false); openTimer.current = null; }, 500);
   }, [gesture]);
 
-  // §5.10 — 우측 더블클릭 = 기억(머릿속) 내부 진입.
-  // §5.4 #34 — 그리고 **우클릭 1회 = 이 버블의 메뉴**(휴지통으로 이동·삭제). 둘은 같은 손짓의
-  //   1타·2타라, 우더블클릭 대상인 버블에서는 메뉴를 `RIGHT_DBLCLICK_MS` 만큼 **미뤄** 연다 —
-  //   그 창 안에 2타가 오면 미뤄 둔 메뉴를 접고 기억 화면으로 간다. 대상이 아닌 버블은 기다릴
-  //   이유가 없으므로 즉시 연다. 좌클릭 SELECT_DEFER_MS 상태기계는 건드리지 않는다.
+  // §5.10·§5.4 #34 — 우클릭 1회 = 메뉴, 2회 = 내부 진입. 대상 버블은 메뉴를 `RIGHT_DBLCLICK_MS` 미뤄 연다(2타가 오면 접는다), 아니면 즉시. 좌클릭 상태기계는 안 건드린다.
   const lastRightClickRef = useRef(0);
   const menuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (menuTimerRef.current) clearTimeout(menuTimerRef.current); }, []);
@@ -863,6 +777,9 @@ export const BubbleNode = memo(function BubbleNode({
     // 좌표는 **지금** 뽑는다 — 미뤄서 여는 경로에서는 이벤트가 이미 지나간 뒤에 쓰이기 때문이다.
     const screenX = e.clientX;
     const screenY = e.clientY;
+    // §5.5 #17-50 — 남의 판: 캔버스 버블 메뉴(지우기·잠그기)는 캔버스 노드의 것이다. 그 판에 알리고, 판을 품은 자리
+    //   (IDE 대화 칸의 우클릭 메뉴)로도 올리지 않는다.
+    if (host) { e.stopPropagation(); host.menu(nodeId, screenX, screenY); return; }
     const openMenu = (): void => {
       window.dispatchEvent(
         new CustomEvent<BubbleMenuRequest>(BUBBLE_MENU_EVENT, { detail: { nodeId, screenX, screenY } }),
@@ -887,7 +804,7 @@ export const BubbleNode = memo(function BubbleNode({
     lastRightClickRef.current = now;
     if (menuTimerRef.current) clearTimeout(menuTimerRef.current);
     menuTimerRef.current = setTimeout(() => { menuTimerRef.current = null; openMenu(); }, RIGHT_DBLCLICK_MS);
-  }, [data, gesture, nodeId]);
+  }, [data, gesture, nodeId, host]);
 
   // 모든 버블은 원형 (size = 지름)
   const bubbleWidth = size;
@@ -896,11 +813,7 @@ export const BubbleNode = memo(function BubbleNode({
   // 선택 코로나의 필터 id — 문서 안에서 유일해야 한다(SunCorona).
   const sunFilterId = `sun-${String(nodeId).replace(/[^\w-]/g, '')}`;
 
-  /**
-   * §5.24 — 히트 배지 지오메트리. 자리는 **원의 45° 림 위**다(감싸는 사각형의 모서리에 두면
-   * 원형 버블에서 배지가 림에서 떨어져 허공에 뜬 것처럼 보인다). 히트 버블은 44~150px 로 작아질 수 있어
-   * 하한을 두지 않으면 가장 차가운 버블의 숫자가 판독 불가가 된다.
-   */
+  /** §5.24 — 히트 배지는 원의 45° 림 위(사각 모서리면 허공에 뜬다). 버블이 44px 까지 작아지므로 하한을 둔다. */
   const heatBadgeSize = Math.max(17, Math.round(20 * ts));
   const heatBadgeFont = Math.max(11, Math.round(12 * ts));
   const heatBadgeInset = Math.max(0, Math.round((size / 2) * (1 - Math.SQRT1_2) - heatBadgeSize / 2));
@@ -916,18 +829,8 @@ export const BubbleNode = memo(function BubbleNode({
       : '';
   const surface = bubbleSurface(skin, style.color, style.glow, data.status, { highlighted: !!borderHighlight, creatingError: isCreatingError });
 
-  // §4 v2.63 — 에이전트 종류 구분 배지(라벨 아래): All Model(로컬 LLM) / CMD(인터랙티브 터미널) /
-  //   커스텀(우리가 오케스트레이션) / 훅(Claude Code 이벤트 캡처). 넷 다 같은 위치·타이포로 색만 달라
-  //   한눈에 구분된다. auto 버블(bubbleType='auto')은 고유 별 아이콘이 있어 제외(isAgent=false).
-  //   라벨 텍스트는 **영어 고정** — i18n 미대상(사용자 지정).
-  // §5.19 (G) — All Model 버블은 커스텀 에이전트를 뼈대로 삼지만 **말을 거는 상대가 다르다.**
-  //   여기에 `Custom` 을 달면 캔버스가 정체를 거짓으로 말한다 — 설정 창도 IDE 상태바도 이미
-  //   `All Model` 이라 부르는데 버블만 다른 이름을 쓰면 같은 것이 두 이름으로 불린다.
-  //   본체가 무채색(그레이파이트)이라 배지는 밝은 쪽으로 잡아야 읽힌다(훅의 어두운 슬레이트와 구분).
-  //   §5.25 (B) — 코덱스 버블의 배지는 `Custom` 이 아니라 **Codex** 다. 위 All Model 과 같은 이유로,
-  //   엔진이 다른데 같은 이름을 달면 캔버스가 정체를 거짓으로 말한다(우클릭 메뉴·설정 창·IDE 가
-  //   이미 `Codex` 라 부른다). 그리고 남은 커스텀 에이전트는 실제로 **클로드**가 도는 것이므로
-  //   배지도 `Claude` 라 쓴다 — "Custom" 은 엔진 축이 하나뿐이던 시절의 이름이었다.
+  // §4 — 에이전트 종류 배지(All Model / CMD / Claude·Codex / 훅): 같은 자리·타이포, 색만 다르다. auto 버블 제외. 라벨은 영어 고정(i18n ❌).
+  // §5.19 (G)·§5.25 (B) — 엔진대로 쓴다(`Custom` ❌ — 설정 창·IDE 와 다른 이름이 된다). All Model 본체는 무채색이라 배지는 밝게.
   const agentBadge = localProvider
     ? { text: 'All Model', cls: 'bg-slate-200/25 text-slate-50' }
     : codexProvider
@@ -942,11 +845,7 @@ export const BubbleNode = memo(function BubbleNode({
   // Engine identity is the main badge; hook tracking is a smaller, separate line.
   const showHookLabel = isAgent && !data.customCreated && !isCmdAgent && !localProvider;
 
-  /**
-   * §2.4 버블 타이포 오토핏 ① — 하단 블록을 **그릴 줄의 목록**으로 먼저 세운다.
-   * 예약 높이가 이 목록에서 나오므로, 줄이 1줄이든 5줄이든 중앙 열이 밟히지 않는다.
-   * (종전에는 예약이 고정 3줄치라 4줄째부터 배지·라벨이 모델명 위에 얹혔다.)
-   */
+  /** §2.4 오토핏 ① — 하단 블록을 그릴 줄 목록으로 먼저 세운다. 예약 높이가 이 목록에서 나와 줄이 몇이든 중앙 열이 밟히지 않는다. */
   const bottomLines = useMemo<BubbleBottomLine[]>(() => {
     const px = (n: number, floor: number) => Math.max(floor, Math.round(n * ts));
     const lines: BubbleBottomLine[] = [];
@@ -999,19 +898,11 @@ export const BubbleNode = memo(function BubbleNode({
           mergeGroup: 'status',
         });
       }
-      // 누적 토큰 줄(`입+출` + 공유 표식 `*`)은 버블에서 걷었다 — 되살리지 마라. 세션 누적은
-      //   금세 억 단위로 자라 `973.1M+6.3M *` 처럼 하단에서 가장 긴 줄이 되고, 그 길이 때문에
-      //   오토핏 축약 사다리가 정작 봐야 할 모델명·컨텍스트를 먼저 줄였다. 값 자체는 IDE 상태바
-      //   (`statusBarContext`) · DetailPanel 세션 목록(`panel.subAgent.tokensInOut`) · 사용량
-      //   팝업(`UsagePopup`)에 그대로 있어 캔버스에서 지워도 잃는 정보가 없다.
+      // 누적 토큰 줄은 되살리지 마라 — 억 단위로 길어져 오토핏이 모델명·컨텍스트를 먼저 줄인다(값은 IDE 상태바·DetailPanel·`UsagePopup` 에 있다).
       return lines;
     }
-    // §2.4 v1.67/v1.69 — 라이브 세션 전 에이전트 idle empty-state (커스텀+훅 공통).
-    //   설정에서 모델을 알 수 있으면(커스텀) 모델명도, 없으면(훅) 상태 줄만.
-    // §5.25 (J) — **엔진을 보고 적는다.** 종전에는 이 줄만 `config.model` 을 그대로 썼고,
-    //   그 칸의 기본값이 `opus` 라 **아직 한 턴도 안 돈 코덱스·로컬 버블이 `opus` 로 떴다**
-    //   (사용자 보고 — "GPT 에이전트 버블인데 왜 이름에 opus 가 뜨냐"). 위 활성 경로는 이미
-    //   프로바이더를 보고 있었는데 이 idle 경로만 빠져 있던, 화면마다 따로 판정한 대가다.
+    // §2.4 — 라이브 세션 전 idle 하단: 모델을 알면(커스텀) 모델명도, 아니면(훅) 상태 줄만.
+    // §5.25 (J) — 엔진을 보고 적는다(`config.model` 그대로면 코덱스·로컬이 `opus` 로 뜬다).
     if (isAgent && !isActive && contextRatio === 0 && !isCreatingError) {
       if (idleModelText) {
         lines.push({
@@ -1056,14 +947,10 @@ export const BubbleNode = memo(function BubbleNode({
       return lines;
     }
     if (isFolder) {
-      // §2.1 v1.55 — 외부 폴더는 평탄화로 satellite 만 가지므로 satelliteFileCount 우선.
-      //   내부 폴더는 기존 childCount(직속 하위 폴더 수) 우선.
-      //   §2.1 #5 접합 트리 — 만진 파일이 없는 **접합** 외부 폴더는 위성이 0이다.
-      //   그대로 두면 "0 files" 로 떠서 빈 버블처럼 보이므로 하위 폴더 수로 떨어진다.
+      // §2.1 — 외부 폴더는 `satelliteFileCount`, 내부 폴더는 `childCount` 우선. 만진 파일 없는 접합 외부 폴더는 "0 files" 대신 하위 폴더 수(§2.1 #5).
       const satCount = data.satelliteFileCount ?? 0;
       const isExternalFolder = data.bubbleType === 'external_folder';
-      // §2.1 (A) — 접합은 자기 위성이 0이라 종전에는 **직속 자식 수**로 떨어졌다(`4` 가 25곳을
-      //   대표했다). 그 아래에서 실제로 만진 파일 수가 있으면 그것을 먼저 말한다.
+      // §2.1 (A) — 접합은 그 아래에서 실제로 만진 파일 수가 있으면 그것을 먼저 말한다(직속 자식 수는 아래 전체를 대표하지 못한다).
       const descFiles = data.externalDescendantFiles ?? 0;
       const descFolders = data.externalDescendantFolders ?? 0;
       const count = isExternalFolder
@@ -1141,18 +1028,7 @@ export const BubbleNode = memo(function BubbleNode({
   /** 하단 블록 바닥 여백 — 폴더만 종전 값(8·ts)을 그대로 지킨다(보이던 자리를 옮기지 않는다). */
   const bottomOffset = isFolder ? Math.max(4, Math.round(8 * ts)) : Math.max(3, Math.round(6 * ts));
 
-  /**
-   * §2.4 버블 타이포 오토핏 ② — 배치를 정한다.
-   * 원 안에 다 안 들어가면 간격 밀기 → 줄 병합 요약 → 라벨 가운데 줄임 → 최하 줄 접기 순으로
-   * 내려간다. 접힌 내용은 `foldedText` 로 돌아와 툴팁에 남으므로 정보는 사라지지 않는다.
-   */
-  /**
-   * §2.1 (D) — 알려진 자리면 경로 대신 그 자리의 **이름**을 보여 준다.
-   *
-   * `c--work-my-app` 같은 slug 와 세션 UUID 는 읽을 수 없다.
-   * 서버는 문구가 아니라 **i18n 키**만 실어 보내므로(12개 로케일) 고르는 것은 여기다.
-   * 번역이 없으면 종전 라벨 그대로 — 경로·`absolutePath`·열기 동작은 한 글자도 바뀌지 않는다.
-   */
+  /** §2.1 (D) — 알려진 자리면 경로 대신 그 이름을 보인다(서버는 i18n 키만 보낸다). 번역이 없으면 원래 라벨 — 경로·열기 동작은 그대로. */
   const displayLabel = useMemo(() => {
     if (data.commandApp) return data.commandApp.name;
     // §5.1 #2-1 (F) ⑦ — 연속 번호 묶음의 대표 위성은 묶음 이름과 개수로 말한다(`frame_####.exr ×240`).
@@ -1190,10 +1066,7 @@ export const BubbleNode = memo(function BubbleNode({
     { id: nodeId, bytes: data.fileSize, active: isActive, last: data.lastActivity },
   );
 
-  /**
-   * §5.1 #2-1 — 파일 버블의 툴팁. 이름 · 별자리 이유("무엇과 · 왜" — 판정하지 않은 사실을 단정하지 않는다) · 중심이면 위성 수 ·
-   * 미디어면 더블클릭이 여는 앱. 파일이 아니면 `undefined`(종전 툴팁 규칙 그대로).
-   */
+  /** §5.1 #2-1 — 파일 버블 툴팁: 이름 · 별자리 이유(판정 안 한 것은 단정 ❌) · 중심이면 위성 수 · 미디어면 여는 앱. 파일이 아니면 `undefined`. */
   const fileTitle = useMemo(() => {
     if (face === null) return undefined;
     // 첫 줄은 전체 경로 — 이름은 원 아래·안에 이미 보인다(같은 이름의 파일이 여럿일 때 어느 것인지 가른다).
@@ -1216,14 +1089,17 @@ export const BubbleNode = memo(function BubbleNode({
         ? t('canvas.constellation.groupVia', { hub: constellationTag.hubLabel, reason, via: constellationTag.viaLabel })
         : t('canvas.constellation.group', { hub: constellationTag.hubLabel, reason }));
     }
-    // 실제로 열 수 있는 파일만 앱 열기를 안내한다 — 더블클릭과 같은 판정이다(프로젝트 밖 파일은 보기 전용으로 여는 앱만).
+    // 실제로 열 수 있는 곳만 안내한다 — 더블클릭(`fileFaceOpenPlan`)과 같은 판정이다: 받는 앱(프로젝트 밖 파일은 보기 전용으로
+    //   여는 앱만) → 파일 창의 판(코드 편집기 · 웹 페이지 · 그림 · PDF — 판 이름은 IDE [오른쪽에 표시] 목록의 그 이름을 받아 적는다).
     const appName = face.appId !== null && fileFaceOpensInApp(face, faceTarget) ? getInternalApp(face.appId)?.name : undefined;
+    const paneKind = appName ? null : fileFacePaneKind(face, faceSourcePath(data));
     if (appName) lines.push(t('canvas.fileFace.openIn', { app: appName }));
+    else if (paneKind) lines.push(t('canvas.fileFace.openIn', { app: t(PANE_KIND_TEXT[paneKind].label) }));
     // §5.1 #2-1 (G) ① — 미리보기를 굽지 않은 이유(앱 성능 기준). 파일은 그대로 열린다.
     if (faceBlocked === 'tooLarge') lines.push(t('canvas.fileFace.previewSkippedLarge'));
     return lines.join('\n');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [face, faceTarget, faceBlocked, constellationTag, data.label, data.absolutePath, t]);
+  }, [face, faceTarget, faceBlocked, constellationTag, data.label, data.absolutePath, data.path, data.bubbleType, t]);
   /**
    * §5.23 「더블클릭」 — 웹 버블은 더블클릭이 무엇을 하는지 툴팁이 말한다(어디서 여는지까지 — 옵션에서 바꿀 수 있다).
    * 구독하는 것은 **웹 버블일 때만 그 값**이다 — 나머지 버블은 늘 `null` 이라 설정이 바뀌어도 깨어나지 않는다(§9).
@@ -1302,7 +1178,7 @@ export const BubbleNode = memo(function BubbleNode({
       <Handle type="source" id="src" position={Position.Top} style={HANDLE_STYLE} />
       <Handle type="target" id="tgt" position={Position.Top} style={HANDLE_STYLE} />
 
-      {/* §5.1 #2-1 (B) — 별자리 중심의 궤도는 묶음 버블(`BundleNode`)이 그린다 — 파일은 중심이 되지 않는다(2026-10-21). */}
+      {/* §5.1 #2-1 (B) — 파일은 별자리 중심이 되지 않는다 — 여기서 궤도를 그리지 않는다(묶음은 `BundleNode`). */}
 
       {/* §5.1 #2-1 (F) ⑥ — 앱 작업 위성의 **앱 색 테**. 본체는 종류 색 그대로, 테만 이 작업의 앱 색이다(새 배지 ❌). */}
       {constellationTag?.work ? (
@@ -1352,10 +1228,7 @@ export const BubbleNode = memo(function BubbleNode({
         />
       )}
 
-      {/* §5.24 — 히트 숫자 배지. 램프는 순서만 주고 양은 주지 않아서, 켠 동안은 그 값을 숫자로도 적는다.
-          **칩은 어둡게 두고 글자는 흰색, 히트색은 링·글로우가 맡는다** — 본체와 같은 히트색으로 채우면
-          뜨거운 버블 위에서 배지가 얼룩으로 뭉개지고, 차가운 남색 글자는 어두운 칩 위에서 읽히지 않는다.
-          네 자리부터는 `1.2k` 로 접고(버블 안에서 다섯 글자는 안 읽힌다) 정확한 값은 title 에 남는다. */}
+      {/* §5.24 — 히트 숫자 배지(램프는 순서만 준다). 칩은 어둡게·글자는 흰색·히트색은 링 몫(히트색으로 채우면 뭉개진다). 네 자리부터 `1.2k`, 정확한 값은 title. */}
       {heatBadge && (
         <span
           className={`pointer-events-none absolute z-20 flex items-center justify-center rounded-full font-bold tabular-nums leading-none tracking-tight ${
@@ -1424,8 +1297,7 @@ export const BubbleNode = memo(function BubbleNode({
         </span>
       )}
 
-      {/* §5.11 v3.88 — 플러그인 배지 슬롯. 코어는 "여기에 자리가 있다"만 알고, 무엇이 그려지는지는 모른다.
-          활성 기여가 없으면 호스트가 null 을 돌려 DOM 자체가 안 생긴다. */}
+      {/* §5.11 — 플러그인 배지 슬롯. 코어는 자리만 알고 무엇이 그려지는지 모른다. 활성 기여가 없으면 null 이라 DOM 도 없다. */}
       <PluginBubbleBadgeSlot
         bubbleId={data.id}
         bubbleType={data.bubbleType}
@@ -1460,8 +1332,7 @@ export const BubbleNode = memo(function BubbleNode({
         {isAgent && contextRatio > 0 && (
           <WaveFill ratio={contextRatio} color={style.color} opacity={surface.contextOpacity} />
         )}
-        {/* §2.4 v1.68 — 커스텀 에이전트는 컨텍스트 전엔 물결 ❌, 반투명 배경만(빈 상태).
-            컨텍스트가 쌓이면 위 contextRatio>0 분기의 실측 물결로 자연 등장. */}
+        {/* §2.4 — 커스텀 에이전트는 컨텍스트 전엔 물결 ❌, 반투명 배경만. 쌓이면 위 contextRatio>0 분기의 실측 물결이 뜬다. */}
         {/* §5.7 #26 — 워크트리 생성 연출(불확정 물결) 폐기. 만드는 동안 캔버스엔 아무것도 뜨지 않고
             다 만들어진 실물 버블이 그냥 나타난다. 실패했을 때의 붉은 표식만 남아 있다(아래 배경). */}
 
@@ -1525,11 +1396,7 @@ export const BubbleNode = memo(function BubbleNode({
           )}
         </div>
 
-        {/* §2.4 오토핏 — 하단 블록(에이전트 모델/컨텍스트/상태/토큰 · 폴더 파일 수 · iframe 종류).
-            무엇을 그릴지는 위 `bottomLines` 가 정하고, 바디의 예약(paddingBottom)이 **같은 목록**에서
-            나오므로 줄이 몇이든 중앙 열과 겹치지 않는다. 원 안에 안 들어가면 오토핏이 병합·접기로
-            줄인 뒤 접힌 내용을 이 블록 툴팁에 남긴다 — 글자는 줄어들어도 사라지지 않는다.
-            가로는 그 높이에서의 현(chord) 폭이라 맨 아랫줄이 원 밖으로 삐져나가지 않는다. */}
+        {/* §2.4 오토핏 — 하단 블록. 줄은 `bottomLines`, 바디 예약도 같은 목록이라 겹치지 않는다. 접힌 내용은 이 블록 툴팁, 가로는 그 높이의 현(chord) 폭. */}
         {fit.bottomLines.length > 0 && (
           <div
             className="absolute z-10 flex flex-col items-center"
@@ -1603,10 +1470,7 @@ export const BubbleNode = memo(function BubbleNode({
         />
       )}
 
-      {/* §6 — 고른 묶음에 든 버블의 고리. 코로나는 "지금 고른 하나"의 표시라 묶음에는 이 고리만 쓴다 —
-          여럿을 고를 때 코로나가 버블마다 돌면 비싸고, 무엇이 중심인지도 흐려진다. 코로나가 뜬 버블에는
-          겹쳐 그리지 않는다. 모양은 말풍선 원·앱 노드의 고른 표시와 같은 말(흰 고리 + 제 색 번짐)이고,
-          늘 깔아 두고 투명도만 바꿔 들고 날 때 모두 부드럽다. 클릭은 통과시킨다. */}
+      {/* §6 — 고른 묶음의 고리(코로나는 "고른 하나" 전용 — 버블마다 돌면 비싸고 중심이 흐려진다). 코로나가 뜬 버블엔 안 겹친다. 늘 깔고 투명도만 바꾼다. 클릭 통과. */}
       {!overlayMode && (
         <span
           aria-hidden="true"
@@ -1619,9 +1483,7 @@ export const BubbleNode = memo(function BubbleNode({
         />
       )}
 
-      {/* §4 v1.49 — Notification 시각 신호: awaiting_permission(bell).
-          v1.73 — awaiting_input(모래시계) 전면 제거. 입력 대기는 더 이상 버블에 표시하지 않는다
-          (데몬 단일-세션은 --resume 으로 항상 이어지므로 "대기" 신호가 연속성 끊김으로 보였음). */}
+      {/* §4 — Notification 신호는 awaiting_permission(bell)만. 입력 대기는 표시하지 않는다(--resume 으로 늘 이어져 "대기"가 끊김으로 읽힌다). */}
       {isAwaitingPermission && (
         <div
           className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full border border-amber-300 bg-amber-500/90 text-amber-50 animate-pulse"
@@ -1642,8 +1504,7 @@ export const BubbleNode = memo(function BubbleNode({
         </div>
       )}
 
-      {/* 완료 요약 말풍선 — 임시 비활성화 (사용자 요청 2026-04-19).
-          복구하려면 아래 `false &&`를 제거하면 원상 복귀. */}
+      {/* 완료 요약 말풍선 — 임시로 끔. 아래 `false &&` 를 지우면 되살아난다. */}
       {false && isCompleted && data.summary && (
         <div
           className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 animate-fade-in"
@@ -1676,8 +1537,8 @@ export const BubbleNode = memo(function BubbleNode({
         </div>
       )}
 
-      {/* 에이전트 더블클릭 힌트 */}
-      {isAgent && !isBack && (
+      {/* 에이전트 더블클릭 힌트 — 남의 판(§5.5 #17-50 IDE 세션 지도)에서는 더블클릭이 IDE 를 열지 않는다(이미 IDE 안이다). */}
+      {isAgent && !isBack && host === null && (
         <div className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-700 px-2 py-0.5 text-[12px] text-white opacity-0 transition-opacity group-hover:opacity-100">
           {t('common.bubble.hint.openIDE')}
         </div>

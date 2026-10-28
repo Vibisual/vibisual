@@ -2,12 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ServerEntry } from '@vibisual/shared';
 
 /**
- * §7.11 포트 인계 — **에이전트가 켠 서버를 우리가 넘겨받는다.**
- *
- * v3.85 까지는 신고로만 알게 된 서버(`reportedOnly`)의 Restart/Start 가 영구 disabled 였다
- * (사용자 보고: "이건 iframe 버블인데 왜 재시작 불가야 — 에이전트가 켰더라도 내가 껐다 켰다
- * 할 수 있어야지"). 이제는 그 프로세스가 살아 있는 동안 OS 프로세스 테이블에서 기동 명령을
- * 읽어 승격시킨다. 여기서는 OS 조회 자체는 흉내 내고 **승격 규약**만 고정한다.
+ * §7.11 포트 인계 — 신고로만 안 서버(`reportedOnly`)도 살아 있는 동안 OS 에서 기동 명령을 읽어 승격해 Restart/Start 를 연다.
+ * OS 조회는 흉내 내고 승격 규약만 본다.
  */
 const takeoverPortCommand = vi.hoisted(() => vi.fn());
 vi.mock('./portTakeover.js', () => ({ takeoverPortCommand }));

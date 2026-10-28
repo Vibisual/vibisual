@@ -6,10 +6,7 @@ import { ExportCheck, ExportField, Segmented, SmallButton } from './exportContro
 import { formatClock } from './PreviewControls.js';
 import type { ExportTarget } from './exportTarget.js';
 
-/**
- * §5.13 (AA) 42-3·42-4 — 내보내기 설정 창의 **무엇을**: 대상(이 문서 · 여러 문서) · 범위(전체 · 구간 · 장면 고르기) · 판형(원래 +
- * 다른 판형) · 소리(전체 켬/끔 + 트랙마다 빼기). 구간·장면·트랙은 그 렌더 한 번의 값이라 저장하지 않는다.
- */
+/** §5.13 (AA) 42-3·42-4 — 내보내기 "무엇을"(대상·범위·판형·소리). 구간·장면·트랙은 그 렌더 한 번의 값이라 저장하지 않는다. */
 export interface ExportTargetFormProps {
   readonly target: ExportTarget;
   readonly onTarget: (next: ExportTarget) => void;

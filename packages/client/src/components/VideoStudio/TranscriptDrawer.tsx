@@ -7,11 +7,7 @@ import { formatClock } from './PreviewControls.js';
 import { StudioIcon } from './studioIcons.js';
 import { usePlayheadSampled, type PlayheadClock } from './playheadClock.js';
 
-/**
- * §5.13 (V) 37-13 — **대본 서랍**(자막이 있을 때 레일에 선다). 자막 큐를 문장 목록으로 보이고, 문장을 누르면 그 자리로 간다.
- * 줄을 그어 둔 문장들은 [자르기] 한 번에 잘린다 — 경계는 문장 경계, 잘리는 길이와 새 길이는 **문서에서 계산해** 미리 보인다
- * (`buildCutOps` — 에이전트의 `POST /transcript/cut` 과 같은 함수). 자른 것은 되돌리기·판 기록이 그대로 받는다.
- */
+/** §5.13 (V) 37-13 — 대본 서랍. 줄 그은 문장을 [자르기] 한 번에 자른다 — 길이 계산은 `buildCutOps`(에이전트 `POST /transcript/cut` 과 같은 함수). */
 export interface TranscriptDrawerProps {
   readonly doc: VideoDoc;
   readonly timeline: ResolvedTimeline;

@@ -1,15 +1,7 @@
 /**
- * DiffView — Edit 계열 도구의 "이전 코드 vs 고친 코드" side-by-side 비교 렌더.
- *
- * ToolBlock 이 parseEditToolInput 으로 얻은 ParsedEdit 를 받아, 라인 단위로 정렬된 좌(빨강=이전)/우(초록=이후)
- * 두 열을 그린다. 변경 라인은 단어 단위로 바뀐 토큰만 진하게 강조. MultiEdit 는 여러 hunk 를 순서대로 쌓는다.
- * 순수 diff 계산은 diffTool.ts, 여기선 표시만.
- *
- * §5.5 #17-30 — 여기서 **리뷰 코멘트**도 받는다. 행에 마우스를 올리면(터치에서는 행을 눌러 고르면) [코멘트]
- * 글리프가 뜨고, 누르면 그 행 바로 아래가 입력창으로 펼쳐진다(모달 ❌). 적은 코멘트는 그 행 아래 남아 있다가
- * 상태바의 [리뷰 N건 보내기] 로 **한 명령에 모여** 나간다 — 조립은 `diffCommentPrompt.ts`.
- *
- * 상자가 좁으면(폰 폭·좁힌 창 — `diffStacked`) 좌우 두 열 대신 한 열로 쌓는다(지운 줄 위, 고친 줄 아래).
+ * DiffView — Edit 계열 이전/이후 side-by-side(표시만 — 계산은 diffTool.ts). 바뀐 토큰만 진하게, MultiEdit 는 hunk 를 쌓는다.
+ * §5.5 #17-30 리뷰 코멘트 — 행 호버(터치는 눌러 고름)로 [코멘트], 그 행 아래 입력창(모달 ❌), 상태바 [리뷰 N건 보내기]로 한 명령에(`diffCommentPrompt.ts`).
+ * 좁으면(`diffStacked`) 한 열.
  */
 import { memo, useMemo, useCallback, useRef, useState, Fragment } from 'react';
 import { runEnterKey } from '../../hooks/useEnterSubmit.js';
@@ -84,12 +76,7 @@ function XIcon(): React.JSX.Element {
   );
 }
 
-/**
- * side-by-side 한 행: [번호][마커][이전]  [번호][마커][이후].
- *
- * 좁은 diff(`stacked`)에서는 **한 열**로 쌓는다 — 지운 줄(-)이 위, 고친 줄(+)이 아래, 그대로인 줄은 한 번만
- * (고친 쪽 번호로). 같은 내용·같은 색·같은 단어 강조를 위아래로 옮겨 세울 뿐 버리는 줄은 없다.
- */
+/** 한 행: [번호][마커][이전] [번호][마커][이후]. `stacked` 면 한 열 — 지운 줄 위·고친 줄 아래·그대로인 줄은 한 번(고친 쪽 번호). */
 const DiffRowLine = memo(function DiffRowLine({ row, onComment, commentLabel, stacked = false, touchReveal = false }: {
   row: DiffRow;
   /** §5.5 #17-30 — 있으면 hover 시 [코멘트] 손잡이가 뜬다. 훅 버블(읽기 전용)에서는 넘기지 않는다. */
@@ -97,10 +84,7 @@ const DiffRowLine = memo(function DiffRowLine({ row, onComment, commentLabel, st
   commentLabel?: string | undefined;
   /** 한 열로 쌓아 그린다(좁은 diff). */
   stacked?: boolean;
-  /**
-   * 터치 기기 — hover 가 없으니 행을 **눌러 고른** 동안 [코멘트] 손잡이가 뜬다(행이 초점을 받는다).
-   * 손잡이를 모든 행에 늘 세우면 줄마다 글자 끝을 덮는다. 마우스 기기에서는 행이 초점을 받지 않는다(종전 그대로).
-   */
+  /** 터치 — hover 가 없어 행을 눌러 고른(초점) 동안 [코멘트]가 뜬다(늘 세우면 글자를 덮는다). 마우스에선 행이 초점을 안 받는다. */
   touchReveal?: boolean;
 }): React.JSX.Element {
   const leftFilled = row.left !== null;

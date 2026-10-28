@@ -1,18 +1,6 @@
 /**
- * §5.5 #17-20 ② v4.74 — 실행 구성 스캐너.
- *
- * "이 프로젝트를 어떻게 실행하나" 를 **사용자가 이미 가진 파일**에서 읽는다. 새 설정 포맷을
- * 발명하지 않는 것이 이 모듈의 유일한 규율이다 — VS Code 를 쓰던 사람은 손대지 않고 자기
- * `launch.json` 이 그대로 목록에 뜨는 것을 본다.
- *
- * 출처는 넷 + 하나:
- *   1. `.vscode/launch.json`  — VS Code 디버그 구성(JSONC)
- *   2. `.vscode/tasks.json`   — 빌드/실행 태스크(JSONC)
- *   3. `package.json` scripts — 가장 흔한 실행법
- *   4. `.vibisual/run.json`   — 위 셋으로 표현이 안 될 때 사용자가 직접 쓰는 우리 몫
- *   + §5.14 `playRecipeDetector` 의 탐지 결과(같은 질문에 이미 답하고 있으므로 두 번 만들지 않는다)
- *
- * 디스크가 SSOT 라 상태를 들지 않는다(체크포인트·broadcast 미관여) — 매번 읽어서 만든다.
+ * §5.5 #17-20 ② — 실행 구성 스캐너: 새 포맷을 발명하지 않고 있는 파일을 읽는다 — `.vscode/launch.json`·`tasks.json`(JSONC) · `package.json` scripts
+ * · `.vibisual/run.json` + §5.14 `playRecipeDetector`. 디스크가 SSOT 라 상태를 들지 않는다(체크포인트·broadcast 미관여).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -37,19 +25,8 @@ function readTextFile(file: string): string | null {
   }
 }
 
-/**
- * JSONC(주석 + 후행 쉼표) 관용 파서.
- *
- * `launch.json`·`tasks.json` 은 **VS Code 가 주석을 허용하는 포맷**이고 실제 파일에는 거의 항상
- * 주석이 들어 있다. `JSON.parse` 를 그대로 쓰면 사용자의 진짜 구성이 통째로 "없음" 이 된다.
- * 문자열 안의 `//` 와 이스케이프를 건너뛰며 훑는 상태 기계라 경로(`https://`)를 잘라먹지 않는다.
- */
-/**
- * Unreal Build Tool 이 받는 이 플랫폼의 타깃 이름.
- *
- * UBT 는 OS 이름을 자기 어휘(`Win64`/`Mac`/`Linux`)로 받는다 — `process.platform` 문자열을
- * 그대로 넘기면 빌드가 통째로 실패한다. **플랫폼을 인자로 받아** 세 경우를 다 단위 테스트한다.
- */
+/** JSONC(주석·후행 쉼표) 관용 파서 — VS Code 파일엔 거의 늘 주석이 있다. 문자열 안의 `//`·이스케이프를 건너뛰는 상태 기계라 `https://` 를 자르지 않는다. */
+/** UBT 타깃 이름은 자기 어휘(`Win64`/`Mac`/`Linux`) — `process.platform` 을 그대로 넘기면 빌드가 실패한다. platform 을 인자로 받아 세 경우를 시험한다. */
 export function unrealBuildPlatform(platform: NodeJS.Platform): 'Win64' | 'Mac' | 'Linux' {
   if (platform === 'win32') return 'Win64';
   if (platform === 'darwin') return 'Mac';
@@ -365,17 +342,9 @@ function scanVibisualRunJson(projectPath: string, scanned: string[]): RunConfig[
 }
 
 /**
- * 5 — 언리얼(`*.uproject`). 파일이 아니라 **프로젝트 종류**에서 나오는 유일한 출처다.
- *
- * 언리얼에는 `package.json` 도 `launch.json` 도 없다(있어도 UBT 가 생성해 준 경우뿐이다).
- * 그런데 "이 프로젝트를 어떻게 여는가" 의 답은 `.uproject` 안에 이미 완전하게 적혀 있다 —
- * 그러니 추측이 아니라 **읽어서** 만든다.
- *
- * 엔진은 반드시 `EngineAssociation` 이 가리키는 그 버전이어야 한다(최신 설치본을 고르면
- * 에셋이 상향 변환돼 되돌릴 수 없다). 엔진을 못 찾으면 실행 대신 **못 찾았다는 사실**을
- * 목록에 남긴다 — 빈 목록은 사용자에게 아무것도 말해 주지 않는다.
- *
- * 패키징(쿡·BuildCookRun)은 여기 넣지 않는다. 이 자리는 "디버그로 에디터를 여는 곳" 이다.
+ * 5 — 언리얼(`*.uproject`): 파일이 아니라 프로젝트 종류에서 나오는 유일한 출처라 `.uproject` 를 읽어서 만든다.
+ * 엔진은 반드시 `EngineAssociation` 버전(최신 설치본이면 에셋이 상향 변환돼 되돌릴 수 없다), 못 찾으면 못 찾았다는 항목을 남긴다.
+ * 패키징(BuildCookRun)은 넣지 않는다 — 에디터를 디버그로 여는 자리다.
  */
 function scanUnreal(projectPath: string, scanned: string[]): RunConfig[] {
   const info = inspectUnrealProject(projectPath);

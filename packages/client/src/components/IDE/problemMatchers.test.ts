@@ -2,13 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { matchProblemLine } from '@vibisual/shared';
 
-/**
- * §5.5 #17-20 ⑪ v4.94 — 출력 한 줄에서 문제를 뽑는 공통 매처.
- *
- * 이 표의 값어치는 **한 표가 모든 런타임을 덮는다**는 데 있으므로, 테스트도 언리얼 한 줄만
- * 보지 않고 런타임마다 실제 도구가 내는 모양을 하나씩 세워 둔다. 어느 표에도 안 걸리는 줄이
- * 평문으로 남는지도 함께 못 박는다(모르는 것을 아는 척 칠하지 않는다).
- */
+/** §5.5 #17-20 ⑪ — 공통 매처가 런타임마다 실제 도구의 대표 한 줄을 뽑고, 어느 표에도 안 걸리는 줄은 평문으로 남기는가. */
 describe('matchProblemLine — 런타임별 대표 한 줄', () => {
   it('TypeScript 진단에서 파일·줄·열·심각도를 뽑는다', () => {
     const m = matchProblemLine("src/app.ts(12,5): error TS2304: Cannot find name 'foo'.");

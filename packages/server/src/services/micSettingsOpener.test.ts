@@ -6,15 +6,7 @@ import {
   setMicSettingsOpener,
 } from './micSettingsOpener.js';
 
-/**
- * §5.5 #17-38 ⑮ — **여는 통로가 임의 URI 문이 되지 않는지**를 고정한다.
- *
- * 이 라우트가 위험해지는 길은 하나다: 어디선가 URL 을 받아서 여는 것. 그래서 이 모듈은
- * 주소를 **오직 `micSettingsTarget(platform)` 에서만** 얻고 밖에서 받지 않는다 — 그 성질을
- * 테스트로 못 박아 둔다(페어링된 모바일 기기도 이 라우트에 닿는다).
- *
- * 함께 고정하는 것: 주입이 없을 때(웹 단독 실행) **여는 척하지 않는 것**.
- */
+/** §5.5 #17-38 ⑮ — 여는 통로가 임의 URI 문이 되지 않는가(주소는 `micSettingsTarget(platform)` 에서만). 주입이 없으면 여는 척하지 않는다. */
 
 afterEach(() => {
   setMicSettingsOpener(null);

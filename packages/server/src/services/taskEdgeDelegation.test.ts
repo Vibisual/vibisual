@@ -1,13 +1,6 @@
 /**
- * §5.3 #12 — **위임 엣지가 소스를 무력화하지 않는가.**
- *
- * 이 자리는 화면에도 타입에도 흔적이 없다. 엣지는 초록으로 붙어 있고 설정 창의 Tools 는 48개가
- * 전부 켜져 보이는데, 정작 스폰되는 명령줄만 `--tools ""` 가 된다. 실제로 그렇게 됐다 —
- * 감독(Codex) → 개발(Claude) 편성에서 타겟이 기본값(전체 도구)이라 박탈 합집합이 소스 도구를
- * 통째로 덮었고, 소스는 도구 0개로 한 시간을 돌며 계획만 말했다. Claude 소스의 dispatch
- * 프로토콜이 Bash heredoc curl 이라 **위임조차 불가능**했던 것이 핵심이다.
- *
- * 그래서 여기서는 "값이 저장되는가"가 아니라 **"소스가 손에 무엇을 들고 스폰되는가"** 를 못 박는다.
+ * §5.3 #12 — 저장값이 아니라 **소스가 무엇을 들고 스폰되는가**를 고정한다 — 타겟이 전체 도구면 박탈 합집합이 소스를 `--tools ""` 로 만든다
+ * (화면엔 흔적이 없고, Claude 소스는 위임 수단 Bash 까지 잃는다).
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -48,10 +41,10 @@ describe('resolveEdgeCommandMode — 집행 축은 한 곳에서만 해석된다
       .toBe('shared');
   });
 
-  it('commandMode 미설정(v1.44 이전 저장분)은 delegationPolicy 로만 해석한다 — 후방호환 보존', () => {
+  it('commandMode 미설정(필드가 생기기 전 저장분)은 delegationPolicy 로만 해석한다 — 후방호환 보존', () => {
     expect(resolveEdgeCommandMode({ id: 'e', targetAgentId: 't', delegationPolicy: 'strict' })).toBe('tool-delegation');
     expect(resolveEdgeCommandMode({ id: 'e', targetAgentId: 't', delegationPolicy: 'auto' })).toBe('shared');
-    // delegationPolicy 조차 없으면 기본 'strict' → 'tool-delegation' (v1.37~v1.43 거동)
+    // delegationPolicy 조차 없으면 기본 'strict' → 'tool-delegation'(옛 저장분 거동)
     expect(resolveEdgeCommandMode({ id: 'e', targetAgentId: 't' })).toBe('tool-delegation');
   });
 

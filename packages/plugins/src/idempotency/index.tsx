@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.98 — 멱등성(Idempotency): 재시도 한 번에 결과가 두 배가 되지는 않는가.
- *
- * 에이전트는 실패를 재시도로 때운다. 멱등하지 않은 도구는 재시도 한 번에 데이터가 두 배가 되므로,
- * 2026년에는 모범 사례가 아니라 **기본 요건**으로 취급된다. 이 카드는 재시도 위험이 있는 도구를 쥐고 있는지와
- * 반복 상한이 있는지를 함께 본다. 표시 전용.
- */
+/** §5.11 — 멱등성(Idempotency): 재시도 위험이 있는 도구를 쥐었는지와 반복 상한이 있는지 본다. 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import { effectiveTools } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

@@ -1,11 +1,6 @@
 /**
- * §5.13 (X) 39-5 — 미리보기 무대의 **데우기 판단**(순수 — 시험이 고정한다).
- *
- * 종전 무대는 지금 시각에 보이는 아이템만 세우고 나머지는 그 자리에서 버렸다. 컴포지션 하나는 샌드박스 문서 한 벌이라, 장면이
- * 넘어갈 때마다(재생 중에도, 앞뒤로 훑을 때도) 새 문서를 처음부터 불러왔고 그 사이 화면이 비거나 멈췄다. 이제 무대는
- *  ① 곧 시작할 컴포지션을 미리 열어 첫 시각에 맞춰 두고(보이지 않게)
- *  ② 막 지나간 컴포지션은 버리지 않고 잠시 보관한다(보이지 않게).
- * 수와 시간에 상한이 있어 오래 쉰 것부터 버린다 — 데우기가 메모리를 끝없이 먹지 않는다. 렌더 무대(엄격)는 쓰지 않는다.
+ * §5.13 (X) 39-5 — 미리보기 무대의 데우기 판단(순수). 컴포지션은 샌드박스 문서 한 벌이라 보이는 것만 세우면 장면마다 새로 불러와 화면이 비거나
+ * 멈춘다 — 곧 시작할 것은 미리 열고 막 지나간 것은 잠시 보관한다(보이지 않게, 수·시간 상한). 렌더 무대(엄격)는 쓰지 않는다.
  */
 
 import type { ResolvedTimeline } from '../types.js';
@@ -39,10 +34,7 @@ export function upcomingCompositions(
   return out.slice(0, opts.aheadMax);
 }
 
-/**
- * 보관한 것 중 **버릴 것**. 시간이 지난 것은 버리고, 남은 것이 상한을 넘으면 오래 쉰 것부터 버린다. 곧 쓸 것(`keep` — 미리 연
- * 것)은 셈에도 넣지 않는다. 결과 순서는 버릴 순서다.
- */
+/** 시간이 지난 것 + 상한 초과분(오래 쉰 것부터). `keep`(미리 연 것)은 셈에서 뺀다. 결과 순서 = 버릴 순서. */
 export function parkedToRelease(
   parked: readonly { readonly id: string; readonly parkedAt: number }[],
   now: number,
@@ -62,13 +54,10 @@ export function parkedToRelease(
 }
 
 /**
- * §5.13 (Y) 40-8 ① — 데운·보관한 슬롯을 **어떻게 숨기나**. 실측(Electron 31 = Chromium 126):
- *  - 투명도 0 만으로는 같은 프로세스 프레임(웹·dev)이 쉬지 않았고(rAF 초당 32번), 다른 프로세스 프레임(패키지 앱)은 쉬었지만 다시
- *    보일 때 첫 그림이 약 59ms 늦었다.
- *  - `content-visibility:hidden` 은 두 경우 다 쉬게 하고(rAF 0) 풀면 1~30ms 안에 그린다 — 단 **한 번도 그려지지 않은** 다른
- *    프로세스 프레임에 처음부터 걸면 전혀 쉬지 않는다(초당 128번 — 가시성 판정이 돌지 않는다).
- * 그래서 셋으로 간다: 새로 연 것은 거의 안 보이게(`prime` — 투명도 0.01) 첫 그림을 그리고, 그 뒤 `rest`(content-visibility
- * hidden + 투명도 0)로 쉬며, 컷 `STAGE_WARM_PRIME_FRAMES` 프레임 전에 다시 `prime` 으로 깨운다. 보이는 순간은 무대가 맞춘다.
+ * §5.13 (Y) 40-8 ① — 데운·보관한 슬롯 숨기기. 실측(Electron 31 = Chromium 126): 투명도 0 만으로는 같은 프로세스 프레임(웹·dev)이 안 쉬고(rAF 초당 32번),
+ * 다른 프로세스 프레임(패키지 앱)은 쉬지만 다시 보일 때 첫 그림이 약 59ms 늦다. `content-visibility:hidden` 은 둘 다 쉬고(rAF 0) 1~30ms 안에 다시 그리지만
+ * 한 번도 안 그려진 다른 프로세스 프레임에 처음부터 걸면 안 쉰다(초당 128번). 그래서 `prime`(투명도 0.01)으로 첫 그림 → `rest`(hidden + 투명도 0) →
+ * 컷 `STAGE_WARM_PRIME_FRAMES` 프레임 전 다시 `prime`.
  */
 export type WarmSlotState = 'prime' | 'rest';
 
@@ -92,10 +81,7 @@ export function warmSlotState(opts: { readonly start: number | null; readonly t:
 /** 긴 프레임(50ms 넘는 LoAF)이 이 수만큼 이어지면 앞 데우기를 줄인다(§5.13 (Y) 40-8 ⑤). */
 export const STAGE_WARM_LONG_FRAMES = 3;
 
-/**
- * §5.13 (Y) 40-8 ⑤ — 기기 등급에서 시작한 데우기 수를 **실측 프레임 시간**으로 조절한다. 최근 창(호출부가 정한 길이)에 긴 프레임이
- * `STAGE_WARM_LONG_FRAMES` 이상이면 미리 여는 수와 보관 수를 하나씩 줄인다(0 아래로는 안 간다). 조용하면 기본값 그대로.
- */
+/** §5.13 (Y) 40-8 ⑤ — 기기 등급 기본값을 실측 프레임 시간으로 줄인다. `recentLongFrames` = 최근 창(길이는 호출부가 정한다)의 긴 프레임 수. */
 export function adaptWarm(base: StageWarmOptions, recentLongFrames: number): StageWarmOptions {
   if (recentLongFrames < STAGE_WARM_LONG_FRAMES) return base;
   return { ...base, aheadMax: Math.max(0, base.aheadMax - 1), keepParked: Math.max(0, base.keepParked - 1) };

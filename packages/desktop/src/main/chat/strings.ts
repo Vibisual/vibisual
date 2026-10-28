@@ -1,15 +1,6 @@
-// §4 메신저 원격제어 브리지 — 봇이 폰에서 하는 말 (판올림 번호 발급 대기)
-//
-// **모달만 번역하고 카드를 한 언어로 두면, 그 사용자에게는 기능 전체가 읽을 수 없는 것이 된다.**
-// 모달(`panel.remoteControl.*`)은 12개 로케일이 다 있는데 정작 폰으로 나가는 문구가 한국어
-// 상수였다 — 영어권 사용자가 이 축을 켜면 봇이 한국어로만 말했다.
-//
-// main 프로세스에는 i18n 런타임이 없다(renderer 의 i18next 는 여기서 못 쓴다). 그래서
-// §5.11 v4.58 플러그인 `strings.ts` 선례를 그대로 따른다 — **폴더가 자기 문자열을 들고 있고**,
-// 고를 언어는 새 레일 없이 `GraphSnapshot.uiLocale` 에서 읽는다(chat/index.ts).
-//
-// 자리표시자는 `{이름}` 하나뿐이다(`fmt`). i18next 를 main 으로 끌어오지 않기 위한 선택이고,
-// 복수형이 필요한 문장은 애초에 수를 앞에 두는 형태로 적어 언어별 복수 규칙을 타지 않게 했다.
+// §4 메신저 원격제어 브리지 — 봇이 폰에서 하는 말. 모달만 번역하고 카드를 한 언어로 두면 그 사용자에겐 기능 전체를 읽을 수 없다(모달 `panel.remoteControl.*` 는 12개 로케일).
+// main 에는 i18n 런타임이 없어(renderer 의 i18next 를 못 쓴다) §5.11 플러그인 `strings.ts` 처럼 폴더가 자기 문자열을 들고, 언어는 `GraphSnapshot.uiLocale` 에서 읽는다(chat/index.ts).
+// 자리표시자는 `{이름}` 하나뿐(`fmt`) — 복수형이 필요한 문장은 수를 앞에 두는 형태로 적어 언어별 복수 규칙을 타지 않게 한다.
 
 import { DEFAULT_UI_LOCALE, SUPPORTED_UI_LOCALES } from '@vibisual/shared';
 import type { UiLocale } from '@vibisual/shared';

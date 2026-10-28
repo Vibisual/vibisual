@@ -1,12 +1,9 @@
 /**
- * §5.23 「더블클릭」 · §7.11 — "로컬 프리뷰냐 인터넷 페이지냐" 판정을 못 박는다.
- *
- *  1. shared `isLocalPreviewHost` 는 서버 iframe 프록시의 SSRF 가드(`isAllowedProxyHost`)와 **같은 답**을 낸다 —
- *     어긋나면 클라가 프록시로 보낸 주소를 서버가 403 으로 돌려보내거나, 로컬 화면이 다리 없이 웹뷰로 뜬다.
- *     호스트는 실제 쓰임과 같게 WHATWG `URL` 을 한 번 지나 정규화한 값으로 견준다.
- *  2. `isRemoteWebUrl` — http(s) + 공인 호스트만 인터넷 페이지다. 못 읽는 주소·다른 스킴은 아니다.
- *
- * 러너가 shared 에 없으므로 여기 둔다(`webToolEntry.test.ts` 와 같은 자리).
+ * §5.23 「더블클릭」 · §7.11 — "로컬 프리뷰냐 인터넷 페이지냐" 판정 고정.
+ *  1. shared `isLocalPreviewHost` 는 서버 iframe 프록시 SSRF 가드(`isAllowedProxyHost`)와 **같은 답**이어야 한다 — 어긋나면 프록시가 403 을 주거나
+ *     로컬 화면이 다리 없이 웹뷰로 뜬다. 호스트는 WHATWG `URL` 로 정규화한 값으로 견준다.
+ *  2. `isRemoteWebUrl` — http(s) + 공인 호스트만 인터넷 페이지다(못 읽는 주소·다른 스킴은 아니다).
+ * shared 에 러너가 없어 여기 둔다.
  */
 import { describe, it, expect } from 'vitest';
 import { isHttpUrl, isLocalPreviewHost, isRemoteWebUrl } from '@vibisual/shared';

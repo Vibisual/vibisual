@@ -1,16 +1,6 @@
 /**
- * §4 (CMD 터미널 ⑤) — **경계선 하나를 끌면 split 하나만 움직이는가.**
- *
- * 종전 결함: `IDETerminalPanes` 는 split 노드를 *첫째* 자식의 첫 leaf id 로 식별했다. 그 키는
- * **유일하지 않다** — 잎 `L` 에서 루트로 올라가며 "부모의 children[0] 인 동안" 만나는 조상 split 이
- * 전부 같은 키를 갖는다. 그래서 첫 pane 을 한 번 더 분할한 `row[ col[leaf0, leaf2], leaf1 ]` 에서
- * 바깥 row 와 안쪽 col 이 둘 다 `'0'` 이 되어, **가로 분할선을 끌면 세로 분할선까지 같이 움직였고**
- * 그 비율이 `handleResizeEnd` → `PUT /api/cmd-pane-tree` 로 서버에 저장까지 됐다.
- *
- * 판정 로직 자체(`resizeCmdPane`)의 회귀는 `server/services/cmdPaneTree.test.ts` 가 실제 트리로
- * 잡는다. 여기서 지키는 것은 **클라이언트가 그 규약과 같은 자식을 보고 있는가** 다 — 드래그는
- * DOM pointer 이벤트 위에 살아 클라이언트 테스트에 jsdom 이 없으면(`vitest.config.ts`) 실행할 수
- * 없으므로, 되돌아가면 결함이 그대로 되살아나는 **소스 계약**을 고정한다.
+ * §4 (CMD 터미널 ⑤) — 경계선 하나를 끌면 split 하나만 움직이는지 소스 계약으로 고정한다(드래그는 DOM 이라 못 돌린다).
+ * split 을 첫째 자식의 첫 leaf id 로 식별하면 안 된다 — 중첩 split 이 같은 키를 가져 다른 선도 함께 움직이고 그 비율이 저장된다.
  */
 
 import { describe, expect, it } from 'vitest';

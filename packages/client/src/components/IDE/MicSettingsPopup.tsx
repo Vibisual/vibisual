@@ -6,20 +6,8 @@ import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { shortcutLabel } from '../../utils/platform.js';
 
 /**
- * MicSettingsPopup — **§5.5 #17-38 ⑮ 마이크가 막혔을 때 데려다 주는 판.**
- *
- * ⑥ 은 실패 사유를 갈라 화면이 "할 수 있는 일"을 **말하게** 했다. 이 판은 그 다음 걸음이다 —
- * 그 일을 **하러 가는 문**을 함께 준다. 문장만 정확하고 문이 없으면, 특히 Windows 사용자는
- * 설정 앱을 열어 우리 앱 이름을 찾다가(unpackaged 라 목록에 없다) 되돌아온다.
- *
- * ### 왜 오류 오버레이와 다른 판인가
- * 오버레이(`VoiceInputOverlay`)는 **입력창 위 한 줄**이라 안내 두 줄과 버튼 둘을 넣을 자리가
- * 없고, 넣으면 듣는 줄이 서던 그 레일이 통째로 두꺼워진다(② "겹쳐 그리지 않는다"의 자리를
- * 우리가 먹는다). 그래서 사유는 오버레이가 한 줄로 말하고, **어떻게 푸는지는 이 판**이 맡는다.
- *
- * ### 두 곳에서 같은 판을 쓴다
- * ⓐ 권한·장치로 막혔을 때 [해결 방법] 을 누르면, ⓑ 마이크 버튼을 **우클릭**하면. 같은 물음에
- * 대한 답이라 두 벌로 만들지 않는다 — 두 벌이 되면 한쪽만 고쳐진다.
+ * §5.5 #17-38 ⑮ — 마이크가 막혔을 때 설정으로 데려가는 문(없으면 Windows 에선 설정 앱에서 앱을 못 찾는다 — unpackaged 라 목록에 없다). 오버레이는 사유 한 줄, 푸는 법은 이 판.
+ * 입구 둘([해결 방법]·마이크 우클릭)이 판 하나를 쓴다.
  */
 
 export interface MicSettingsPopupProps {
@@ -30,11 +18,7 @@ export interface MicSettingsPopupProps {
   hintKey: string;
   /** 지금 마이크가 실패한 상태인가 — 머리말이 갈린다(고장 안내 vs 그냥 설정 보기). */
   blocked: boolean;
-  /**
-   * **마이크가 아예 없는 것이 확인됐는가**(입력 장치 0개).
-   * 참이면 본문이 "연결해 주세요"를 먼저 말하고, 설정은 곁들이는 선택지로 내려간다 —
-   * 없는 사람에게 설정부터 들이밀면 이미 켜져 있는 스위치를 보게 된다.
-   */
+  /** 장치 0개가 확인됐나 — 참이면 "연결해 주세요"부터 말한다(설정부터 보이면 이미 켜진 스위치만 본다). */
   noDevice: boolean;
   onOpenSettings: () => void;
   onClose: () => void;
@@ -51,12 +35,7 @@ export interface MicSettingsPopupProps {
   echoUnavailable: boolean;
 }
 
-/**
- * 팝업 안의 켜기/끄기 한 줄. 스위치가 둘이라 모양을 한 곳에 둔다 — 두 벌이 되면 한쪽만 고쳐진다.
- *
- * `role="switch"` + `aria-checked` 로 낸다(체크박스 ❌) — 이 줄은 폼을 제출하는 항목이 아니라
- * **지금 곧바로 켜고 끄는 손잡이**라, 읽어 주는 프로그램이 그렇게 말해야 뜻이 맞는다.
- */
+/** 켜기/끄기 한 줄(스위치 둘이 공유). 체크박스가 아니라 `role="switch"` + `aria-checked` — 곧바로 켜고 끄는 손잡이다. */
 function ToggleRow({
   label, hint, checked, onChange,
 }: {
@@ -102,10 +81,7 @@ export function MicSettingsPopup({
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement | null>(null);
 
-  // 바깥 press 로 닫기 — **공통 규약을 쓴다**(직접 리스너 ❌ · `popupDismissContract` 가 집행한다).
-  //   판 안에서 시작한 press·드래그로는 안 닫히고, 뷰포트 밖 press 도 걸러진다.
-  //   ⚠ `graceMs` 가 이 판에는 특히 필요하다 — 이 판을 **여는 손짓이 우클릭**이라, 그 우클릭에
-  //   뒤이어 오는 이벤트가 곧바로 닫아 열리자마자 사라지는 것처럼 보이는 자리다.
+  // 바깥 press 닫기는 공통 규약(`popupDismissContract`, 직접 리스너 ❌). `graceMs` 를 빼지 마라 — 우클릭으로 열려 뒤따르는 이벤트가 곧바로 닫는다.
   useOutsidePressDismiss({
     enabled: open,
     onDismiss: onClose,
@@ -175,10 +151,7 @@ export function MicSettingsPopup({
         {t(noDevice ? 'ide.mainArea.voiceMicSettingsHiddenNote' : 'ide.mainArea.voiceMicSettingsDeviceNote')}
       </p>
 
-      {/* §5.5 #17-38 ⑰⑱ — 소리를 **어떻게 받을지**와 받아 온 글을 **어떻게 다듬을지**.
-          권한 안내와 같은 판에 두는 이유: 사용자가 마이크에 문제를 느꼈을 때 여는 판이 여기
-          하나이고(우클릭·[해결 방법] 둘 다 이 판으로 온다), 판을 하나 더 만들면 "마이크 관련
-          설정"이 두 곳으로 갈린다. 위쪽 안내와는 구분선으로 가른다 — 저건 고장 안내고 이건 선택이다. */}
+      {/* §5.5 #17-38 ⑰⑱ — 소리 받기·글 다듬기 설정. 마이크 판이 하나라 여기 둔다(두 곳으로 갈리지 않게). */}
       <div className="mt-2.5 border-t border-gray-800 pt-2">
         <ToggleRow
           label={t('ide.mainArea.voiceDenoiseLabel')}

@@ -1,13 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 /**
- * §5.4 #15 (D) — Alt 인스펙터 덮개(강조 상자·말풍선·복사 알림)는 **모든 층 위**에 그려진다.
- *
- * 덮개가 `z-[99999]` 이던 동안 앱 안 창(`CAPTURE_WINDOW_Z_BASE` 1,000,000~)·권한 팝업·스튜디오 팝오버가 그보다 높아, 그 창들
- * 위에서는 무엇을 집는지 보이지 않았다(사용자 보고 — 영상 스튜디오 창에서 Alt 선택이 안 된다, 같은 지시 세 번). 새 층을 더할
- * 때마다 다시 깔리지 않게, 소스에 적힌 모든 z-index 숫자가 덮개보다 낮은지 센다.
- *
- * 소스를 읽지만 `node:fs` 를 쓰지 않는다 — 클라이언트 tsconfig 에는 Node 타입이 없다(`enterKeyOwnerContract.test.ts` 와 같은 방식).
+ * §5.4 #15 (D) — Alt 인스펙터 덮개가 모든 층 위인지: 소스의 모든 z-index 숫자가 덮개보다 낮은지 센다.
+ * `node:fs` 를 쓰지 않는다 — 클라 tsconfig 에 Node 타입이 없다(`enterKeyOwnerContract.test.ts` 와 같은 방식).
  */
 
 const sources = import.meta.glob('../../**/*.{ts,tsx}', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;

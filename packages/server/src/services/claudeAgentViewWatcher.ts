@@ -1,13 +1,7 @@
 /**
- * §5.7 #23-2 v1.60 — Agent View 백그라운드 세션의 JSONL transcript tail watcher.
- *
- * Anthropic supervisor 가 작성하는 `~/.claude/projects/<cwdKey>/<sessionId>.jsonl` 을 chokidar 로 tail.
- * 파일이 append-only 이므로 마지막 읽은 offset 을 들고 있다가 새 chunk 만 읽어 라인 파싱.
- *
- * 책임 분리:
- * - 본 모듈: JSONL 파일 watching + 라인 파싱 + `parseStreamLine` 호출 → 콜백으로 이벤트 전달.
- * - 호출자(subAgentManager): SubAgentStreamEvent 를 WebSocket 으로 push + sub 상태 갱신.
- * - 완료 감지: 별도 `state.json` watcher 로 terminal state 감지(별 모듈로 두지 않고 같은 attach 호출에서 함께 시작).
+ * §5.7 #23-2 — Agent View 백그라운드 세션의 JSONL transcript tail watcher.
+ * supervisor 가 쓰는 `~/.claude/projects/<cwdKey>/<sessionId>.jsonl` 은 append-only 라 읽은 offset 뒤 새 chunk 만 읽어(chokidar) `parseStreamLine` 을 거쳐 콜백으로 넘긴다.
+ * WS push·sub 상태 갱신은 호출자(subAgentManager) 몫. 완료 감지(`state.json` terminal state)도 같은 attach 호출에서 함께 시작한다.
  */
 import { promises as fsp } from 'node:fs';
 import fs from 'node:fs';
@@ -67,12 +61,8 @@ export interface AgentViewAttachOptions {
 const HANDLES = new Map<string, AgentViewWatchHandle>(); // key: short
 
 /**
- * JSONL transcript 한 파일을 tail. 이미 attach 되어 있으면 기존 handle 반환(idempotent).
- *
- * 동작:
- * 1) `skipExisting=false` 일 때 파일이 이미 존재하면 처음부터 끝까지 한 번 읽어 historical 라인 처리.
- * 2) chokidar 로 파일 watch — 'add'/'change' 마다 offset 이후 신규 바이트만 읽어 라인 파싱.
- * 3) `state.json` 을 `STATE_POLL_INTERVAL_MS` 주기로 폴링해 terminal state 감지.
+ * JSONL transcript 한 파일을 tail. 이미 attach 됐으면 기존 handle 을 돌려준다(idempotent).
+ * 1) `skipExisting=false` 이고 파일이 있으면 처음부터 한 번 읽는다. 2) chokidar 'add'/'change' 마다 offset 뒤 신규 바이트만 읽는다. 3) `state.json` 을 `STATE_POLL_INTERVAL_MS` 주기로 폴링해 terminal state 를 감지한다.
  */
 export async function attach(opts: AgentViewAttachOptions): Promise<AgentViewWatchHandle> {
   const existing = HANDLES.get(opts.short);
@@ -130,10 +120,8 @@ export async function attach(opts: AgentViewAttachOptions): Promise<AgentViewWat
             }
             const evs = parseStreamLine(obj, opts.subAgentId, opts.parentAgentId);
             for (const e of evs) events.push(e);
-            // §5.7 #23-2 v1.60 — turn 종료 신호. `--bg` worker 는 turn 끝나도 죽지 않고
-            // 'idle' 로 다음 prompt 대기하므로 state.json 의 terminal state 만 보면 영원히 안 떨어진다.
-            // JSONL 의 `{type:'system', subtype:'turn_duration'}` 가 "이 turn 끝났음" 의 정식 신호 —
-            // 본 라운드의 cmd 마무리 트리거로 사용.
+            // §5.7 #23-2 — turn 종료 신호. `--bg` worker 는 turn 이 끝나도 죽지 않고 'idle' 로 다음 prompt 를 기다려, state.json terminal state 만 보면 영원히 안 끝난다.
+            // JSONL 의 `{type:'system', subtype:'turn_duration'}` 이 "이 turn 끝" 의 정식 신호라 cmd 마무리 트리거로 쓴다.
             if (!handle.terminated && obj['type'] === 'system' && obj['subtype'] === 'turn_duration') {
               handle.terminated = true;
               const real = readJobState(opts.short);
@@ -188,10 +176,7 @@ function pollState(opts: AgentViewAttachOptions): void {
 
 /**
  * 잠정 종료가 취소됐을 때(= turn 이 이어졌을 때) 종료 감지를 되살린다.
- *
- * `turn_duration` / terminal state 를 한 번 보면 `terminated` 가 서서 다시는 안 떨어지는데,
- * 백그라운드 작업 통지가 turn 경계에서 세션을 다시 돌리면 **그 다음 종료를 놓치게 된다**
- * (호출자 `turnSeal` 정책 참조). 되돌린 적이 있으면 `true`.
+ * `turn_duration`/terminal state 를 한 번 보면 `terminated` 가 서는데, 백그라운드 작업 통지가 turn 경계에서 세션을 다시 돌리면 그다음 종료를 놓친다(호출자 `turnSeal` 정책 참조). 되돌렸으면 `true`.
  */
 export function resumeWatch(short: string): boolean {
   const h = HANDLES.get(short);

@@ -55,13 +55,13 @@ export interface SatelliteInfo {
    */
   edgeHidden?: boolean;
   /**
-   * 별자리·묶음의 달 — 첫 고리(부모 반경 + 위성 반경 + 간격인 궤도) 하나에만 앉는다(§5.1 #2-2 (G)). 그 고리는 달 수(`parentSlots`)를
-   * 다 담도록 넓힌다(§5.1 #2-2 (J)).
+   * 앱 노드 별자리의 달 — 첫 고리(부모 반경 + 위성 반경 + 간격인 궤도) 하나에만 앉는다(§5.1 #2-2 (G)). 그 고리는 달 수(`parentSlots`)를
+   * 다 담도록 넓힌다(§5.1 #2-2 (J)). 묶음 버블의 위성은 폴더 위성과 같은 규칙이라 쓰지 않는다(붐비면 바깥 고리).
    */
   orbitSeat?: boolean;
   /**
-   * §5.1 #2-2 (J) — 부모가 거느릴 위성 수. 첫 고리를 이 수만큼 나눠 고르게 둘러싼다 — 폴더는 위성 상한(`maxSatellites` ·
-   * 기본 `DEFAULT_MAX_SATELLITES`), 묶음·앱 노드 별자리는 달 수. 없으면(에이전트 등) 고리가 담을 수 있는 만큼이다.
+   * §5.1 #2-2 (J) — 부모가 거느릴 위성 수. 첫 고리를 이 수만큼 나눠 고르게 둘러싼다 — 폴더는 위성 상한(`maxSatellites` · 기본 `DEFAULT_MAX_SATELLITES`),
+   * 묶음은 설정 없는 폴더와 같은 기본 상한, 앱 노드 별자리는 달 수. 없으면(에이전트 등) 고리가 담을 수 있는 만큼이다.
    */
   parentSlots?: number;
   /**
@@ -89,21 +89,14 @@ export interface SatelliteAnchor {
 // ─── 위성 데이터 수집 ───
 
 /**
- * §2.4 v4.48 — 캔버스에 그리지 않는 위성 타입.
- *
- * **표시 계층 한정**이다. 서버는 그대로 이 위성을 만들고 스냅샷에 실어 보내며
- * (`agent.persistSatellites`), bash 히스토리·running server 기록·bash 훅발
- * iframe 위성 생성·체크포인트 영속은 전부 불변이다. 여기서는 버블과 위성 엣지를
- * 만들지 않을 뿐이라, 다시 보이게 하려면 이 Set 에서 한 줄만 빼면 된다.
+ * §2.4 — 캔버스에 그리지 않는 위성 타입. 표시 계층 한정이다 — 서버는 그대로 만들고 스냅샷에 싣는다(`agent.persistSatellites`).
+ * bash 히스토리·running server 기록·bash 훅발 iframe 위성 생성·체크포인트 영속은 불변이고, 다시 보이게 하려면 이 Set 에서 한 줄만 빼면 된다.
  */
 const HIDDEN_SATELLITE_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>(['bash']);
 
 /**
- * 부모 버블(폴더/에이전트)별 위성 데이터를 추출한다.
- * 위치는 별도로 `placeSatellitePositions`에서 계산.
- *
- * Read: 위성→부모 (파일에서 데이터가 올라옴)
- * Write: 부모→위성 (데이터가 파일로 내려감)
+ * 부모 버블(폴더/에이전트)별 위성 데이터를 추출한다(위치는 `placeSatellitePositions`).
+ * Read: 위성→부모 (파일에서 데이터가 올라옴) · Write: 부모→위성 (데이터가 파일로 내려감)
  */
 export function collectSatellites(
   parents: BubbleData[],
@@ -125,7 +118,7 @@ export function collectSatellites(
       ? parent.maxSatellites ?? DEFAULT_MAX_SATELLITES
       : undefined;
 
-    // 서버가 TTL 필터링 완료 — null 체크 + 중복 제거 + 숨김 타입(§2.4 v4.48) 제외
+    // TTL 필터링은 서버가 끝냈다 — 여기선 null 체크 + 중복 제거 + 숨김 타입(§2.4) 제외
     const aliveFiles = files.filter(
       (f): f is BubbleData =>
         f != null && !seenFileIds.has(f.id) && !HIDDEN_SATELLITE_TYPES.has(f.bubbleType),
@@ -181,12 +174,10 @@ export function collectSatellites(
 // ─── 위성 위치 배치 ───
 
 /**
- * §5.1 #2-2 — 위성 둘레의 격자. 첫 고리는 물리 스프링의 평형점(부모 반경 + 위성 반경 + `SATELLITE_ORBIT_GAP`)이고, 이웃 사이·
- * 고리 사이는 위성 간격(`SATELLITE_RING_SPACING` — 이름 줄을 달고 다니는 위성의 몫)이다(§5.1 #2-2 (J)).
- *
- * 첫 고리는 그 부모가 거느릴 수(`parentSlots`)만큼만 나눈다 — 다 차면 정다각형으로 고르게 둘러싸고, 덜 차면 12시부터 시계 방향의
- * 호다. 고리 하나에만 앉는 달(`orbitSeat` — 묶음·앱 노드 별자리)은 그 수를 다 담도록 고리를 넓힌다(넘칠 바깥 고리가 없다).
- * 정리(§5.4 #33)·물리의 다시 걸기·묶음 궤도 점선이 같은 격자를 본다.
+ * §5.1 #2-2 — 위성 둘레의 격자. 첫 고리는 물리 스프링의 평형점(부모 반경 + 위성 반경 + `SATELLITE_ORBIT_GAP`), 이웃·고리 사이는
+ * 위성 간격(`SATELLITE_RING_SPACING` — 이름 줄을 달고 다니는 위성의 몫)이다(§5.1 #2-2 (J)).
+ * 첫 고리는 부모가 거느릴 수(`parentSlots`)만큼 나눈다 — 다 차면 정다각형, 덜 차면 12시부터 시계 방향의 호. 고리 하나에만 앉는 달(`orbitSeat`)은
+ * 그 수를 다 담도록 고리를 넓힌다(넘칠 바깥 고리가 없다). 정리(§5.4 #33)·물리의 다시 걸기·묶음 궤도 점선이 같은 격자를 본다.
  */
 export function satelliteZoneGrid(sat: Pick<SatelliteInfo, 'parentSlots' | 'orbitSeat'> = {}): ZoneGrid {
   const slots = typeof sat.parentSlots === 'number' && Number.isFinite(sat.parentSlots) && sat.parentSlots >= 1
@@ -252,19 +243,10 @@ function satelliteAnchor(
 }
 
 /**
- * positionsRef 기준으로 **새 위성의 첫 자리**를 정한다(§5.1 #2-2 등장 영역).
- * 유효한 캐시 위치가 있는 위성은 스킵 (물리 엔진이 이동시킨 위치 보존).
- *
- * 일반 위성은 부모 둘레 고리에 12시부터 시계 방향으로 앉고, 부모 둘레 원판이 붐비면(남의 버블까지 센다)
- * 고리를 넓혀 바깥 띠에 앉는다 — 종전의 "부모 둘레 250px 안 무작위"를 대체한다. 별자리 위성은 궤도(고리 0)
- * 에만, 앱 작업 위성은 정해진 각도에 선다. 물리는 이 첫 자리를 스프링 오프셋으로 기억한다.
- *
- * §5.1 #2-2 (J) — 첫 고리는 부모가 거느릴 수만큼 나눠 고르게 둘러싸고(`satelliteZoneGrid`), 달을 거느린 위성(묶음 — `reach`)은
- * 달 궤도까지를 몸으로 앉는다: 부모 테두리에서 틈 하나 밖에 몸집의 테두리가 오고, 장부에도 몸집으로 올라 다른 위성이 그 달 자리를
- * 밟지 않는다(제 달을 앉힐 때의 주인은 제 원 — `core`).
- *
- * `field` 는 그 화면의 등장 영역 장부(`spawnZoneSeating.buildSpawnField`) — 주면 화면의 모든 버블·창을
- * 장애물이자 셀 거리로 보고, 앉힌 위성을 더해 간다. 없으면 이번에 앉힌 위성끼리만 본다(시험·폴백).
+ * positionsRef 기준으로 새 위성의 첫 자리를 정한다(§5.1 #2-2 등장 영역). 유효한 캐시 위치가 있는 위성은 건너뛴다(물리가 옮긴 위치 보존). 물리는 이 첫 자리를 스프링 오프셋으로 기억한다.
+ * 일반 위성은 부모 둘레 고리에 12시부터 시계 방향으로 앉고, 원판이 붐비면(남의 버블까지 센다) 바깥 띠로 넓힌다. 별자리 위성은 궤도(고리 0)에만, 앱 작업 위성은 정해진 각도에 선다.
+ * §5.1 #2-2 (J) — 첫 고리는 거느릴 수만큼 나눈다(`satelliteZoneGrid`). 달을 거느린 위성(`reach`)은 달 궤도까지를 몸으로 앉고 장부에도 몸집으로 올라 남이 그 달 자리를 밟지 않는다(제 달을 앉힐 때의 주인은 제 원 — `core`).
+ * `field` 는 그 화면의 등장 영역 장부(`spawnZoneSeating.buildSpawnField`) — 주면 모든 버블·창을 장애물로 보고 앉힌 위성을 더해 간다. 없으면 이번에 앉힌 위성끼리만(시험·폴백).
  */
 export function placeSatellitePositions(
   sats: SatelliteInfo[],

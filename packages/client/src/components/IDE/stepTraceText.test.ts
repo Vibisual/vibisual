@@ -1,11 +1,4 @@
-/**
- * stepTraceText.test.ts — §5.5 #17-39 자국 문구.
- *
- * 가짜 `t` 를 지어내지 않고 **실제 `en.json` 을 읽어** 보간한다. 그래서 이 테스트는 문구 규칙만이 아니라
- * **키가 로케일 파일에 실제로 있는지**까지 함께 지킨다 — 키를 지우거나 오타를 내면 여기서 먼저 걸린다.
- *
- * ⚠ `packages/client` 에서 실행해야 한다(레포 루트에서 돌리면 glob 이 비어 아래에서 멈춘다).
- */
+/** §5.5 #17-39 자국 문구 — 실제 `en.json` 으로 보간해 키가 있는지까지 본다. ⚠ `packages/client` 에서 실행(루트에선 glob 이 비어 멈춘다). */
 import { describe, it, expect } from 'vitest';
 import { thinkTraceText, writeTraceText, toolElapsedText, toolCallElapsedText, elapsedText, TRACE_SEP, type TranslateFn } from './stepTraceText.js';
 

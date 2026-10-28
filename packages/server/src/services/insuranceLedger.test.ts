@@ -7,13 +7,7 @@ import type { CompactOutcome, RetentionSettings } from '@vibisual/shared';
 import { InsuranceVault } from './insuranceVault.js';
 import { InsuranceLedgerService, extractTeammateNames, foldSessionCounts } from './insuranceLedger.js';
 
-// SCENARIO.md §5.26 — 컨텍스트 보험 저장고 + 원장.
-//
-// 이 시험이 지키는 것은 **"없는데 있다고 적지 않는다"** 하나다(§5.26 (A) 마지막 항목). 사본이
-// 없는데 화면이 "사본 있음"이라고 말하면 사용자는 되돌릴 수 있다고 믿고 그 파일을 덮어쓴다.
-//
-// 저장고는 `resolveSaveDir` 하나로만 바깥과 닿으므로 임시 폴더를 물려 돌린다 — 이 시험은
-// 사용자의 실제 저장 폴더도 `app-state.json` 도 건드리지 않는다.
+// §5.26 — **없는데 있다고 적지 않는다**(§5.26 (A) — "사본 있음"을 믿고 덮어쓴다). 저장고는 `resolveSaveDir` 로만 바깥에 닿아 임시 폴더를 물린다.
 
 const PROJECT = 'demo';
 
@@ -408,11 +402,7 @@ describe('§5.26 (D)(G) attachOutcome vs replaceOutcome — 나중 사실이 이
   });
 });
 
-// ─── §5.26 (I) 세션별 집계 — 상태바 배지가 자기 세션 것만 말하게 하는 근거 ───
-//
-// 사용자 보고(세션 8개짜리 커스텀 버블): 실패 압축 배지 `1` 이 여덟 탭 전부에 뜨고 탭을 넘겨도
-// 안 사라졌다. 상태바가 프로젝트 합계(`counts.failedCompacts`)를 읽고 있었기 때문이다. 이 집계가
-// **전선에 실려야** 화면이 세션을 주어로 삼을 수 있다.
+// §5.26 (I) — 세션별 집계: 프로젝트 합계(`counts.failedCompacts`)로는 실패 배지가 모든 탭에 뜬다.
 
 function failedOutcome(): CompactOutcome {
   return {

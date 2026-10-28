@@ -2,13 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { highlightCode } from './codeHighlight.js';
 import { languageFromPath } from './codeLanguages.js';
 
-/**
- * §5.5 #17-27 v4.87 — 문법 강조 토크나이저 테스트.
- *
- * 지키는 것 — (a) 줄 수가 원문과 정확히 같다(줄 번호가 밀리면 편집창이 통째로 어긋난다),
- * (b) 토큰을 이어 붙이면 원문 그 줄이 그대로 나온다(글자가 사라지지 않는다),
- * (c) 주석·문자열·숫자·키워드가 실제로 갈린다, (d) 모르는 언어는 색 없이 평문.
- */
+/** §5.5 #17-27 — 토크나이저: 줄 수가 원문과 같다(밀리면 편집창이 어긋난다) · 토큰을 이으면 원문 그대로 · 종류가 갈린다 · 모르는 언어는 평문. */
 
 /** 그 줄의 글자를 다시 이어 붙인다 — 손실 여부 검사용. */
 function lineText(line: { text: string }[]): string {

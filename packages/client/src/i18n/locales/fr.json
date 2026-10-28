@@ -66,7 +66,9 @@
       "tooltip": "Session en cours : {{percent}} % de la limite de 5 heures utilisée — cliquez pour les détails",
       "tooltipNoData": "Aucune donnée d'utilisation reçue pour l'instant — cliquez pour les détails",
       "tooltipWaiting": "Récupération de l'utilisation depuis Claude Code — le chiffre s'affichera sous peu",
-      "tooltipCliUnavailable": "Impossible d'exécuter Claude Code pour lire l'utilisation — cliquez pour les détails"
+      "tooltipCliUnavailable": "Impossible d'exécuter Claude Code pour lire l'utilisation — cliquez pour les détails",
+      "creditActive": "Les nouvelles exécutions utilisent les crédits API",
+      "creditBlocked": "Anthropic a refusé les crédits API — les exécutions utilisent votre abonnement"
     },
     "setupBanner": {
       "text": "Claude Code n'est pas installé — les agents ne peuvent pas encore s'exécuter.",
@@ -387,7 +389,8 @@
         "account": "Compte",
         "storage": "Stockage",
         "keyboard": "Clavier",
-        "theme": "Thème"
+        "theme": "Thème",
+        "credits": "Crédits"
       },
       "appearance": {
         "intro": "Personnalisez l'apparence de Vibisual.",
@@ -497,9 +500,6 @@
         "updateAvailable": "Mise à jour disponible",
         "upToDate": "À jour",
         "registryError": "Vérification npm échouée",
-        "installations": "Installations",
-        "auto": "Auto (recommandé)",
-        "autoDesc": "Laisser Vibisual choisir automatiquement",
         "activeBadge": "actif",
         "unknownVer": "inconnu",
         "restartHint": "Sélection enregistrée. Redémarrez Vibisual pour l'appliquer aux agents nouvellement lancés.",
@@ -512,12 +512,51 @@
           "title": "Mises à jour de Claude Code",
           "label": "Maintenir Claude Code à jour automatiquement",
           "onHint": "Vibisual met à jour le CLI vers la dernière version à chaque lancement de l'application.",
-          "offHint": "Les mises à jour automatiques sont désactivées. Utilisez « Mettre à jour maintenant » pour mettre à jour le CLI vous-même.",
+          "offHint": "Les mises à jour automatiques sont désactivées. Utilisez « {{updateNow}} » pour mettre à jour la CLI manuellement.",
           "vscodeNotice": "Le binaire actif provient de l'extension VS Code, que seul le Marketplace peut mettre à jour. Choisissez une autre installation ci-dessus pour laisser Vibisual gérer les mises à jour.",
           "updateNow": "Mettre à jour maintenant",
           "updating": "Mise à jour…",
           "updated": "Mis à jour vers {{version}}",
           "updateFailed": "Échec de la mise à jour"
+        },
+        "sourceManaged": "Géré par l'app",
+        "managed": {
+          "title": "Copie gérée par l'app",
+          "hint": "Vibisual télécharge les nouvelles versions de {{engine}} depuis la source officielle, vérifie que chacune accepte toutes les options qu'utilise Vibisual, puis bascule dessus — au lancement et toutes les 6 heures. Votre connexion et vos paramètres restent partagés.",
+          "inUse": "Utilisée",
+          "latest": "Dernière (officielle)",
+          "previous": "Précédente",
+          "none": "Pas encore téléchargée",
+          "checkedAt": "Dernière vérification : {{time}}",
+          "notChecked": "Aucune vérification pour l'instant",
+          "updating": "Téléchargement et vérification…",
+          "rollback": "Revenir à la version {{version}}",
+          "rollbackFailed": "Impossible de revenir en arrière",
+          "rejected": "Bascule non effectuée — la version {{version}} a rejeté : {{options}}",
+          "deferred": "Non téléchargée — ce PC n'utilise pas encore {{engine}}. Le téléchargement a lieu quand vous l'installez.",
+          "folder": "Dossier",
+          "nextRetry": "Prochaine tentative {{time}}"
+        },
+        "codexAutoUpdate": {
+          "title": "Mises à jour de Codex",
+          "label": "Maintenir Codex à jour automatiquement",
+          "offHint": "Les mises à jour automatiques sont désactivées. Utilisez « {{updateNow}} » pour mettre à jour Codex manuellement."
+        },
+        "chooseBinary": "Binaire à utiliser",
+        "defaultManaged": "Géré par l'app (par défaut · mis à jour automatiquement)",
+        "defaultManagedReady": "Utilise {{version}} — téléchargée depuis la source officielle et activée seulement après avoir passé les vérifications de Vibisual.",
+        "defaultManagedPending": "Pas encore prête — dès qu'elle est téléchargée et vérifiée, Vibisual bascule dessus immédiatement.",
+        "otherInstalls": "Autres installations (secondaires)",
+        "otherInstallsNone": "Aucune autre installation trouvée sur ce PC.",
+        "defaultBadge": "Par défaut",
+        "temporaryBadge": "Temporaire",
+        "codexUserSelected": "Vous avez choisi une autre installation — c'est son éditeur qui la maintient à jour. Les mises à jour gérées par l'app reprennent quand vous revenez au choix par défaut.",
+        "pending": {
+          "downloading": "Préparation de la copie gérée par l'app — téléchargement et vérification en cours…",
+          "failed": "La copie gérée par l'app n'a pas pu être préparée : {{error}}",
+          "retryAt": "Nouvelle tentative automatique à {{time}}.",
+          "tryNow": "Utilisez « {{updateNow}} » ci-dessous pour réessayer maintenant.",
+          "waiting": "La copie gérée par l'app n'est pas encore prête : cette installation est donc utilisée pour l'instant. Le téléchargement se fait automatiquement."
         }
       },
       "agent": {
@@ -817,7 +856,8 @@
         "autoCompactWindow": "Replier la conversation dès qu'elle atteint",
         "autoCompactWindowOff": "Laisser tel que configuré",
         "autoCompactWindowDesc": "Le levier le plus important ici. Mesuré sur trois jours, les sessions se situaient à une médiane de 186k tokens, et tout ce qui dépassait 200k représentait 62 % de toute l'entrée — chaque tour la relit intégralement. Réduire la fenêtre de 400k à 200k a diminué l'entrée de 27 %, et à 100k de 59 %, pour le même travail. Cela ne fait que se resserrer : un agent ou une valeur par défaut déjà plus basse l'emporte. Le repli lui-même est une requête volumineuse, donc le réglage le plus bas n'est pas automatiquement le moins coûteux. Cette fenêtre ne décide que de l'endroit où nous replions entre les commandes ; en pleine tâche, la CLI ne replie que lorsque la fenêtre du modèle est pleine."
-      }
+      },
+      "creditsIntro": "Les crédits Claude proviennent de différents portefeuilles. Chaque page présente un portefeuille : de quoi il s'agit, qui le facture, où le gérer et si Vibisual l'utilise."
     },
     "autoAgent": {
       "title": "Auto Agent",
@@ -2019,7 +2059,134 @@
       "hwDevicesUnknown": "Les accélérateurs sont lus depuis le moteur, ils apparaissent donc une fois celui-ci installé.",
       "hwLoaded": "Chargés en RAM",
       "hwLoadedNone": "Aucun modèle n'est chargé pour le moment.",
-      "hwHint": "All Model n'a aucune limite d'abonnement — ce qu'il vous coûte, c'est ce PC. Les bulles qui hébergent des modèles différents utilisent chacune leur propre RAM, tandis que les bulles qui utilisent le même modèle partagent une seule instance."
+      "hwHint": "All Model n'a aucune limite d'abonnement — ce qu'il vous coûte, c'est ce PC. Les bulles qui hébergent des modèles différents utilisent chacune leur propre RAM, tandis que les bulles qui utilisent le même modèle partagent une seule instance.",
+      "apiCredit": {
+        "title": "Crédits API (Console)",
+        "status": {
+          "off": "Désactivé",
+          "standby": "En veille",
+          "active": "Utilisé",
+          "blocked": "Refusé par Anthropic"
+        },
+        "enable": "Utiliser les crédits API",
+        "enableHint": "Si cette option est désactivée, chaque exécution utilise votre abonnement, comme avant.",
+        "mode": "Utiliser les crédits en premier",
+        "modeHintConsole": "Désactivé : les crédits ne prennent le relais qu'une fois la limite de votre abonnement atteinte. Activé : les crédits d'abord, puis votre abonnement chaque fois qu'Anthropic refuse les crédits.",
+        "autoContinue": "Reprendre automatiquement les exécutions arrêtées",
+        "autoContinueHint": "Lorsqu'une exécution s'arrête à une limite, la reprendre une fois avec l'autre mode de facturation.",
+        "key": "Clé API",
+        "keyPlaceholder": "sk-ant-api03-…",
+        "keySave": "Enregistrer la clé",
+        "keySaved": "Clé enregistrée : {{hint}}",
+        "keyRemove": "Retirer",
+        "keyVerify": "Revérifier",
+        "keyVerified": {
+          "ok": "Vérifiée",
+          "rejected": "Refusée par Anthropic",
+          "unknown": "Pas encore vérifiée"
+        },
+        "keyUnreadable": "Cette clé est illisible sur cet ordinateur. Saisissez-la de nouveau.",
+        "keyProtected": "La clé est stockée dans le stockage sécurisé de votre système d'exploitation.",
+        "keyUnprotected": "Cet ordinateur ne dispose pas de stockage sécurisé pour les clés ; la clé y est donc stockée sans chiffrement.",
+        "keyCreate": "Créer une clé dans la Console",
+        "keyProblem": {
+          "empty": "Collez une clé API.",
+          "notAnthropic": "Ceci ne ressemble pas à une clé API Anthropic. Elle doit commencer par sk-ant-.",
+          "adminKey": "Les clés d'administration ne peuvent pas exécuter de modèles. Créez une clé API classique.",
+          "oauthToken": "Ceci est un jeton de connexion, pas une clé API.",
+          "whitespace": "La clé contient des espaces. Collez-la de nouveau sans espaces."
+        },
+        "keySaveFailed": "Impossible d'enregistrer la clé. Réessayez.",
+        "liveRunsNow": "Exécutions en cours sur les crédits : {{count}}",
+        "reason": {
+          "off": "Les crédits sont désactivés ; toutes les exécutions utilisent donc votre abonnement.",
+          "cloud-provider": "Claude Code sur cet ordinateur est configuré pour un fournisseur cloud : les crédits ne sont donc pas utilisés. Le cloud facture chaque exécution.",
+          "no-key": "Ajoutez une clé API pour utiliser les crédits.",
+          "blocked": "Anthropic a refusé la dernière exécution sur les crédits ; les nouvelles exécutions utilisent donc votre abonnement.",
+          "subscription-ok": "Les exécutions utilisent actuellement votre abonnement. Les crédits prennent le relais lorsqu'il atteint sa limite.",
+          "subscription-exhausted": "La limite de votre abonnement est atteinte ; les nouvelles exécutions utilisent donc les crédits.",
+          "credits-first": "Les nouvelles exécutions utilisent d'abord les crédits."
+        },
+        "subscriptionResets": "réinitialisation de l'abonnement {{time}}",
+        "block": {
+          "balance-empty": "Anthropic a refusé l'exécution sur les crédits : le solde de crédits de votre Console est insuffisant.",
+          "spend-limit": "Anthropic a refusé l'exécution sur les crédits : la limite mensuelle de dépenses de votre Console est atteinte.",
+          "key-invalid": "Anthropic a rejeté la clé API."
+        },
+        "blockRetryAt": "Nouvel essai avec les crédits : {{time}}.",
+        "blockRetry": "Réessayer maintenant",
+        "actionFailed": "Échec de l'opération. Réessayez.",
+        "console": {
+          "title": "Dépenses de ce mois (Console)",
+          "asOf": "Depuis le {{start}} · dernière actualisation : {{time}} · mêmes données que la page Coûts de la Console",
+          "used": "utilisés",
+          "resetsOn": "Réinitialisation le {{date}} (UTC)",
+          "viewSpendLimits": "Voir les limites de dépenses dans la Console",
+          "org": "Organisation : {{name}}",
+          "refresh": "Actualiser",
+          "refreshing": "Actualisation…",
+          "pending": "Lecture de vos dépenses Console…",
+          "limitsNote": "Votre limite de dépenses et votre solde de crédits sont gérés dans la Console, et Anthropic ne propose aucune API publique pour les lire ; Vibisual n'affiche donc aucune limite propre et n'en applique aucune. Lorsque la limite est atteinte ou que le solde est épuisé, Anthropic refuse l'exécution et Vibisual repasse sur votre abonnement.",
+          "needKeyTitle": "Ajoutez une clé admin pour afficher vos dépenses Console",
+          "needKeyBody": "Vibisual lit les dépenses de ce mois via l'Usage and Cost API officielle d'Anthropic, qui nécessite une clé admin (sk-ant-admin01-…). Les administrateurs de l'organisation en créent une sur la page Clés admin de la Console. Les comptes individuels doivent d'abord configurer une organisation dans la Console.",
+          "createAdminKey": "Créer une clé admin dans la Console",
+          "setupOrg": "Configurer une organisation dans la Console",
+          "adminKey": "Clé admin (lecture des dépenses)",
+          "adminKeyPlaceholder": "sk-ant-admin01-…",
+          "adminKeyHint": "Utilisée uniquement pour lire les dépenses — elle ne peut pas exécuter de modèles.",
+          "error": {
+            "auth": "Anthropic a rejeté la clé : ce n'est pas une clé admin, ou elle a expiré. Configurez d'abord une organisation dans la Console, puis créez une clé admin (sk-ant-admin01-…) et ajoutez-la ici.",
+            "forbidden": "Cette clé ne peut pas lire les dépenses. Utilisez une clé admin créée par un administrateur de l'organisation.",
+            "not-found": "Anthropic n'a trouvé aucune donnée de dépenses pour cette clé. Les comptes individuels doivent d'abord configurer une organisation dans la Console.",
+            "rate-limited": "Anthropic a demandé à Vibisual d'attendre avant de lire à nouveau les dépenses. L'actualisation est automatique.",
+            "network": "Impossible de joindre Anthropic. L'actualisation est automatique.",
+            "unreadable": "Cette clé admin ne peut pas être lue sur cet ordinateur. Saisissez-la à nouveau.",
+            "other": "Impossible de lire vos dépenses Console."
+          },
+          "lastValue": "Affichage de la dernière valeur lue."
+        }
+      },
+      "creditPages": {
+        "tabsLabel": "Types de crédits",
+        "billedLabel": "Facturé par",
+        "manageLabel": "Gérer sur",
+        "vibisualLabel": "Dans Vibisual",
+        "subscription": {
+          "tab": "Limites du forfait",
+          "what": "Les limites d'utilisation sur 5 heures et hebdomadaires incluses dans votre forfait Claude Pro ou Max.",
+          "billed": "Votre abonnement claude.ai, à tarif mensuel fixe.",
+          "vibisual": "Utilisé par défaut pour chaque exécution de Claude, en headless comme en CMD."
+        },
+        "personal": {
+          "tab": "Crédits personnels",
+          "what": "L'utilisation supplémentaire sur votre compte claude.ai personnel. Vous l'activez sur claude.ai pour pouvoir continuer à travailler une fois la limite de votre forfait atteinte.",
+          "billed": "Le moyen de paiement associé à votre compte claude.ai.",
+          "vibisual": "Vibisual ne la choisit pas. Si elle est activée, Claude Code l'utilise de lui-même après la limite du forfait. Cette page ne fait que la lire."
+        },
+        "business": {
+          "tab": "Crédits entreprise",
+          "what": "Crédits API de votre organisation Claude Console (platform.claude.com). Le crédit promotionnel mensuel d'un forfait Max ou Team et tout crédit que vous achetez arrivent ici.",
+          "billed": "Déduit du crédit de l'organisation Console. Quand il est épuisé, les exécutions s'arrêtent. Une carte n'est débitée que si vous avez activé le rechargement automatique.",
+          "vibisual": "Quand il est activé, utilisé uniquement pour les exécutions headless (pas pour les bulles CMD ni hook). Par défaut, seulement une fois la limite de votre forfait atteinte."
+        },
+        "cloud": {
+          "tab": "Crédits cloud",
+          "what": "Claude utilisé via Amazon Bedrock, Google Cloud Vertex AI ou Microsoft Foundry.",
+          "billed": "Votre compte cloud. Les crédits personnels et entreprise d'Anthropic ne s'appliquent pas.",
+          "vibisual": "Vibisual suit la configuration de Claude Code sur cet ordinateur. S'il est configuré pour un fournisseur cloud, chaque exécution y est facturée.",
+          "currentLabel": "Claude Code sur cet ordinateur facture",
+          "provider": {
+            "anthropic": "Anthropic directement, et non un fournisseur cloud",
+            "unknown": "Inconnu, car l'état de connexion n'a pas encore été vérifié",
+            "bedrock": "Amazon Bedrock",
+            "vertex": "Google Cloud Vertex AI",
+            "foundry": "Microsoft Foundry"
+          },
+          "activeNote": "Chaque exécution de Claude lancée depuis Vibisual est facturée à ce cloud. Les crédits personnels et entreprise ne sont pas utilisés, et la voie des crédits entreprise reste désactivée.",
+          "inactiveNote": "Claude Code sur cet ordinateur n'est pas configuré pour un fournisseur cloud : aucun crédit cloud n'est donc utilisé. Pour en utiliser un, configurez d'abord Claude Code pour ce fournisseur.",
+          "docs": "Comment exécuter Claude Code sur un fournisseur cloud"
+        }
+      }
     },
     "plugins": {
       "title": "Extensions",
@@ -4714,6 +4881,9 @@
       "runOutput": "Sortie d'exécution",
       "runOutputNone": "Rien n'a encore été exécuté depuis cette bulle."
     },
+    "fileWindow": {
+      "close": "Fermer"
+    },
     "paneOpener": {
       "tabHint": "Choisissez un fichier à afficher ici",
       "scope": "Fichiers {{list}} de ce projet, les plus récemment modifiés en premier",
@@ -5405,6 +5575,7 @@
       "openInPane": "Ouvrir dans le panneau de l'éditeur — {{path}}",
       "openFolder": "Ouvrir le dossier contenant ce fichier — {{path}}",
       "readOnlyLocked": "Ce fichier est verrouillé en lecture seule sur le disque (extraction Perforce, attribut de fichier).",
+      "outsideReadOnly": "Ce fichier est hors du projet : il est en lecture seule.",
       "readOnlyUnlock": "Déverrouiller et enregistrer",
       "readOnlyUnlockHint": "Supprime l'attribut lecture seule, puis enregistre. Le verrou n'est pas rétabli et aucune commande de gestion de versions (p4 edit, …) n'est exécutée.",
       "saveError": {
@@ -5877,7 +6048,8 @@
       "orphaned": "Interrompu lors du redémarrage de l'application",
       "dispatchResult": "Terminé sans avoir reçu le résultat de la tâche déléguée",
       "usageLimit": "Arrêté à la limite d’utilisation",
-      "unknown": "Échec pour une raison inconnue"
+      "unknown": "Échec pour une raison inconnue",
+      "creditCap": "Arrêté au plafond de vos crédits API"
     },
     "turnStop": {
       "cancelled": "Arrêté par vous",
@@ -5907,15 +6079,12 @@
       "viaTask": "Via le sous-agent : {{name}}",
       "external": "Hors du projet",
       "enter": "Entrer dans le dossier",
-      "leave": "Retour à la session",
       "openAddress": "Ouvrir l'adresse",
       "showInConversation": "Afficher dans la conversation",
       "copyAddress": "Copier l'adresse",
       "copyCommand": "Copier la commande",
       "recentQueries": "Recherches récentes",
       "recentCommands": "Commandes récentes",
-      "moreFiles": "Autres fichiers : {{count}} — entrez dans le dossier pour tous les voir",
-      "overflowHint": "Les éléments les moins récemment utilisés, repliés en une seule bulle",
       "centerTotals": "Fichiers {{files}} · Web {{webs}} · Apps {{apps}} · Sous-agents {{tasks}}"
     },
     "density": {

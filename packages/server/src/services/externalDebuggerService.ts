@@ -1,12 +1,7 @@
 /**
- * §5.5 #17-20 ⑦ v4.74 — C층: 외부 디버거 위임.
- *
- * Windows 에서 언리얼 C++ 를 실제로 멈춰 세우는 디버그 엔진(`cppvsdbg`)은 Microsoft 전용이라
- * 우리가 실을 수 없다. **못 하는 것을 흉내 내지 않는다** — 설치돼 있는 Visual Studio·Rider·
- * VS Code 를 찾아 그 프로젝트를 열어 주는 버튼만 둔다.
- *
- * 탐지는 프로세스를 띄우지 않는 방법을 먼저 쓴다(설치 경로 훑기). `vswhere` 만은 예외로
- * 한 번 부르는데, Visual Studio 는 설치 위치가 자유라 경로 추측이 잘 빗나가기 때문이다.
+ * §5.5 #17-20 ⑦ — C층: 외부 디버거 위임. Windows 에서 언리얼 C++ 를 멈추는 엔진(`cppvsdbg`)은 Microsoft 전용이라 실을 수 없다 —
+ * 흉내 내지 않고 설치된 Visual Studio·Rider·VS Code 를 찾아 프로젝트를 열어 주는 버튼만 둔다.
+ * 탐지는 프로세스를 띄우지 않는 경로 훑기가 먼저다. `vswhere` 만 한 번 부른다 — Visual Studio 는 설치 위치가 자유라 추측이 빗나간다.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -82,20 +77,12 @@ function findVisualStudio(): string | null {
 }
 
 /**
- * JetBrains Toolbox 가 채널별 폴더를 만드는 루트 + 그 안에서 실행본까지의 상대 경로.
- *
- * **왜 세 플랫폼 모두 훑어야 하는가**: JetBrains 가 지금 기본으로 미는 배포 창구가 Toolbox 다.
- * 종전엔 Windows 만 채널 폴더를 순회하고 mac/Linux 는 `/Applications/Rider.app`,
- * `/usr/local/bin/rider` 같은 **고정 경로 하나씩**만 봤다 — Toolbox 로 깐 사용자(대다수)는
- * 멀쩡히 설치돼 있는데도 화면에 "설치되어 있지 않음"이 뜬다.
- *
+ * JetBrains Toolbox 채널 폴더 루트 + 실행본까지의 상대 경로. Toolbox 가 기본 배포 창구라 세 플랫폼 모두 훑는다(고정 경로 하나만 보면 Toolbox 설치가 "없음"으로 뜬다).
  * 레이아웃(실측):
  *  - win   `%LOCALAPPDATA%/JetBrains/Toolbox/apps/Rider/<채널>/bin/rider64.exe`
  *  - mac   `~/Library/Application Support/JetBrains/Toolbox/apps/Rider/<채널>/Rider.app/Contents/MacOS/rider`
  *  - linux `~/.local/share/JetBrains/Toolbox/apps/Rider/<채널>/bin/rider.sh`
- *
- * mac 이 한 겹 더 들어가는 이유는 채널 폴더 안에 `.app` **번들**이 통째로 놓이기 때문이다
- * (`.app` 은 폴더라 그 자리를 실행 파일로 spawn 할 수 없다 — `Contents/MacOS/rider` 까지 가야 한다).
+ * mac 은 채널 폴더 안에 `.app` 번들(폴더)이 놓여 spawn 할 수 없으므로 `Contents/MacOS/rider` 까지 간다.
  */
 export function riderToolboxRoots(
   platform: NodeJS.Platform = process.platform,
@@ -132,13 +119,7 @@ export function riderToolboxRoots(
   ];
 }
 
-/**
- * Toolbox 채널 폴더를 훑어 실행본 후보를 모은다.
- *
- * 채널 폴더(`ch-0`, `ch-1`, `Rider-2025.2` …) 아래에 실행본이 바로 있기도 하고, 버전 폴더가
- * **한 겹 더** 들어가기도 한다(Toolbox 판올림마다 달랐다). 두 깊이를 모두 본다 — 한 깊이만
- * 보면 그 시절 레이아웃을 쓰는 설치가 통째로 안 보인다.
- */
+/** Toolbox 채널 폴더(`ch-0`, `ch-1`, `Rider-2025.2` …)를 훑어 실행본 후보를 모은다. 실행본이 채널 바로 아래에도, 버전 폴더 한 겹 아래에도 있어(판마다 달랐다) 두 깊이를 다 본다. */
 export function scanToolboxCandidates(
   platform: NodeJS.Platform = process.platform,
   home: string = os.homedir(),
@@ -214,12 +195,7 @@ function findRider(): string | null {
   return resolveBinary('rider');
 }
 
-/**
- * VS Code — 알려진 설치 경로를 먼저 보고, 없으면 보강된 PATH 의 `code` 런처.
- *
- * mac 에서 `~/Applications` 설치(관리자 권한 없이 깐 경우)와 Linux 의 배포판 패키지 자리를
- * 종전엔 빼먹어서 "설치되어 있지 않음"이 떴다.
- */
+/** VS Code — 알려진 설치 경로를 먼저 보고, 없으면 보강된 PATH 의 `code` 런처. mac `~/Applications`(관리자 권한 없이 깐 경우)와 Linux 배포판 패키지 자리도 본다. */
 function findVsCode(): string | null {
   const home = os.homedir();
   const candidates: string[] = [];
@@ -246,23 +222,14 @@ function findVsCode(): string | null {
 }
 
 /**
- * 언리얼 에디터 — **이 프로젝트가 쓰는 엔진**의 에디터.
- *
- * 예전에는 설치된 `UE_*` 폴더를 정렬해 **최신 하나**를 골랐다. 그건 프로젝트가 어느 엔진에
- * 묶여 있는지 묻지 않은 것이라, 5.3 프로젝트를 5.8 로 여는 사고가 난다(에셋이 상향 변환되고
- * 되돌릴 수 없다). 이제 `.uproject` 의 `EngineAssociation` 을 해석하는 한 곳에 위임한다 —
- * 못 찾으면 최신으로 때우지 않고 **없다고 답한다**.
+ * 언리얼 에디터 — 이 프로젝트가 쓰는 엔진의 에디터. 설치된 `UE_*` 중 최신을 고르지 마라 — 5.3 프로젝트를 5.8 로 열면 에셋이 상향 변환되고 되돌릴 수 없다.
+ * `.uproject` 의 `EngineAssociation` 을 해석하는 한 곳에 맡기고, 못 찾으면 최신으로 때우지 않고 없다고 답한다.
  */
 function findUnrealEditor(projectPath: string): string | null {
   return inspectUnrealProject(projectPath)?.editorExe ?? null;
 }
 
-/**
- * 이 프로젝트에서 쓸 수 있는 외부 디버거 목록.
- *
- * `available=false` 인 항목도 **지우지 않고 함께 돌려준다** — 화면이 "설치되어 있지 않음" 을
- * 그 자리에 적어야 사용자가 "왜 Rider 버튼이 없지?" 로 헤매지 않는다.
- */
+/** 이 프로젝트에서 쓸 수 있는 외부 디버거 목록. `available=false` 도 지우지 않고 돌려준다 — 화면이 그 자리에 "설치되어 있지 않음"을 적어야 버튼이 왜 없는지 헤매지 않는다. */
 export function listExternalDebuggers(projectPath: string): ExternalDebuggerInfo[] {
   const sln = projectPath ? findByExt(projectPath, '.sln') : null;
   const uproject = projectPath ? findByExt(projectPath, '.uproject') : null;
@@ -311,10 +278,7 @@ export function listExternalDebuggers(projectPath: string): ExternalDebuggerInfo
   return out;
 }
 
-/**
- * 고른 외부 도구로 대상을 연다. 우리 프로세스에 매달지 않는다(detached) — 사용자가 Vibisual 을
- * 껐다고 해서 열어 둔 Visual Studio 가 함께 죽으면 안 된다.
- */
+/** 고른 외부 도구로 대상을 연다. 우리 프로세스에 매달지 않는다(detached) — 앱을 꺼도 열어 둔 Visual Studio 가 함께 죽으면 안 된다. */
 export function launchExternalDebugger(
   id: ExternalDebuggerId,
   projectPath: string,

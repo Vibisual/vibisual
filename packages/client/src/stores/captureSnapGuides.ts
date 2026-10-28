@@ -1,11 +1,7 @@
 import { create } from 'zustand';
 import type { SnapGuide } from '../components/BubbleMap/captureSnap.js';
 
-// §5.9 캡처 버블 이어 붙이기 — "지금 어디에 붙는지" 가이드선(비영속, 표시 전용).
-//
-// 자석이 걸린 축을 선으로 보여 주는 값. 쓰는 쪽이 둘이라(드래그는 BubbleMap, 리사이즈는 CaptureNode)
-// prop 으로 내려보내면 두 갈래가 되므로 런타임 스토어 한 곳에 모아 CaptureSnapGuides 가 읽는다
-// (captureBubbleRuntime 과 같은 패턴 — localStorage 미저장, 손을 떼면 비운다).
+// §5.9 — 자석이 걸린 축의 가이드선(비영속, 손을 떼면 비운다). 쓰는 쪽이 둘(BubbleMap 드래그·CaptureNode 리사이즈)이라 스토어 한 곳에 모은다.
 
 interface CaptureSnapGuideState {
   guides: SnapGuide[];

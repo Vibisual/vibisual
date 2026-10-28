@@ -64,13 +64,8 @@ import { ensureStudioMotion, StudioAccentContext } from './studioMotion.js';
 import { buildStudioViewProps, INITIAL_UI, type StudioUiState } from './studioViewProps.js';
 
 /**
- * §5.13 Vibistudio — 스튜디오 창(앱 셸). §5.13 (V) 개편으로 다시 지었다.
- *
- * `#app=vibistudio&mode=main&projectId=…`(앱 안 창·분리된 창 모두)로 뜬다. 데이터는 같은 in-process 서버에 IPC 로 붙는다.
- * 이 파일은 상태 훅을 묶기만 한다 — 문서(`useStudioDoc`) · 재생 · 손 편집(`useStudioEditing`) · 값 손잡이(`useLocalProps`) ·
- * 가리키기·메모(`usePreviewInteraction`·`useStudioNotes`) · AI(`useStudioAgent` + `useStudioConversation` — IDE 스트림을 읽는다) ·
- * 판 기록 · 내보내기 · 단축키. 화면 조립은 `studioViewProps.tsx`, 배치는 `VideoStudioView.tsx`. 스틸·렌더 일감은 숨은 일꾼 창이
- * 처리하고(§5.13 (T-4)) 이 창은 걸고 지켜보기만 한다.
+ * §5.13 (V) — 스튜디오 창(앱 셸, `#app=vibistudio&mode=main&projectId=…`). 상태 훅을 묶기만 한다 — 조립은 `studioViewProps.tsx`, 배치는 `VideoStudioView.tsx`.
+ * 스틸·렌더는 숨은 일꾼 창(§5.13 (T-4))이 하고 이 창은 걸고 지켜본다.
  */
 
 /** 이 앱의 id — 이 문서에 묶인 캔버스 노드를 고를 때 쓴다(레지스트리 항목과 같은 값). */
@@ -272,11 +267,7 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
     canvasQueue.current = queue;
     return () => { queue.dispose(); if (canvasQueue.current === queue) canvasQueue.current = null; };
   }, [drawPreview, released, previewDoc, renderer.media]);
-  /**
-   * 39-6 — 미리보기는 **시계**를 따라 그린다(재생 중 프레임마다 — 화면 전체는 다시 그리지 않는다). 도는 동안 들어온 시각은 마지막
-   * 하나만 남겼다가 그린다. 종전에는 이 효과가 렌더마다 새로 만들어지는 렌더러 묶음을 의존성으로 잡아, **셸이 다시 그려질 때마다**
-   * (스냅샷마다) 미리보기를 한 번 더 그렸다.
-   */
+  /** 39-6 — 미리보기는 시계를 따라 그린다(그리는 중 들어온 시각은 마지막 하나만). 렌더마다 새로 생기는 렌더러 묶음을 의존성으로 잡지 마라 — 스냅샷마다 또 그린다. */
   const requestDraw = useCallback((at: number): Promise<boolean> => {
     const asked = performance.now();
     const drawn = hasCompositions ? stagePreview.seek(at) : canvasQueue.current?.request(at) ?? Promise.resolve(false);

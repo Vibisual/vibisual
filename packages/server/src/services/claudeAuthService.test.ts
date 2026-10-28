@@ -6,8 +6,7 @@ let cliResult: ClaudeCliRunResult = { code: 0, out: '{"loggedIn":true}' };
 vi.mock('./claudeCliRun.js', () => ({ runClaudeCli: () => Promise.resolve(cliResult) }));
 const { parseAuthStatus, claudeAuthService } = await import('./claudeAuthService.js');
 
-// §4 v4.82 — `claude auth status --json` 파싱. CLI 가 배너를 앞에 찍거나 형식을 바꿔도
-// "모름"(null)과 "로그아웃"(loggedIn:false)을 헷갈리지 않는 것이 이 파서의 핵심이다.
+// §4 — `claude auth status --json` 파싱. CLI 가 배너를 앞에 찍거나 형식을 바꿔도 "모름"(null)과 "로그아웃"(loggedIn:false)을 헷갈리지 않는 것이 핵심이다.
 
 const NOW = 1_700_000_000_000;
 

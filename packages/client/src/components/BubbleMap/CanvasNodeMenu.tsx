@@ -4,15 +4,8 @@ import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { MENU_VIEWPORT_MARGIN, placeCanvasMenu } from './canvasMenuPlacement.js';
 
 /**
- * 자기 메뉴를 가진 캔버스 노드(앱·선반·플레이·랩·스펙)의 **우클릭 메뉴 껍데기** — 다섯 노드가 같은 모양을
- * 각자 들고 있던 것을 한 벌로 모았다(모양·닫기 규약은 종전 그대로).
- *
- * 종전 껍데기는 누른 자리(`left`/`top`)에 그대로 앉아, 폰(360~430px)에서 오른쪽·아래로 열리면 항목이
- * 화면 밖으로 잘렸고 스크롤도 없었다. 이제 **화면 안으로 민다** — 자리 잡기는 캔버스 메뉴·버블 메뉴가 쓰는
- * `placeCanvasMenu` 한 벌이고(새 클램프 ❌), 화면보다 길면 안에서 스크롤한다. 데스크톱에서 메뉴가 들어갈
- * 자리라면 좌표는 1px 도 움직이지 않는다(가장자리 8px 여백 안쪽일 때만 민다).
- *
- * 닫기 규약도 종전 그대로다 — 바깥 press(캡처 단계 · 메뉴 안에서 시작한 제스처로는 안 닫힘) · 아무 키.
+ * 자기 메뉴를 가진 캔버스 노드(앱·선반·플레이·랩·스펙)의 우클릭 메뉴 껍데기. 화면 안으로 민다(`placeCanvasMenu` — 가장자리 8px 안쪽일 때만), 길면 스크롤.
+ * 닫기: 바깥 press(캡처 단계 · 안에서 시작한 손짓 ❌) · 아무 키.
  */
 export interface CanvasNodeMenuProps {
   /** 연 자리(화면 좌표). */

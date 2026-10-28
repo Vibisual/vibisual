@@ -1,18 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { isCanvasSurfaceTarget } from './canvasSurface.js';
+import { FOREIGN_FLOW_ATTR, isCanvasSurfaceTarget } from './canvasSurface.js';
 
-/**
- * 캔버스 생성 메뉴 자리 판정 회귀.
- *
- * 고정하는 약속: **React Flow 안에서 시작한 손짓만** 캔버스로 본다. 화면에서는 캔버스를 덮지만
- * DOM 으로는 컨테이너의 자식인 창들(IDE·보드 패널)에서 시작한 터치가 캔버스 메뉴를 열면,
- * 폰에서 글자를 꾹 눌러 선택하려는 손짓이 매번 메뉴에 가로채인다(사용자 보고).
- */
+/** React Flow 안에서 시작한 손짓만 캔버스다 — DOM 상 자식인 창(IDE·보드)의 길게 누르기가 메뉴를 열면 폰에서 글자 선택이 가로채인다. */
 
-/**
- * 조상 클래스 목록으로 만든 가짜 대상. `closest` 의 셈법(콤마로 나눈 후보 중 하나라도 조상에
- * 있으면 그 조상)을 클래스 선택자에 한해 그대로 흉내낸다.
- */
+/** `closest` 셈법(콤마 후보 중 하나라도 조상)을 클래스 선택자에 한해 흉내 낸다. 속성 선택자는 글자 그대로 조상에 넣는다. */
 function targetInside(...ancestorClasses: string[]) {
   const chain = ancestorClasses.map((c) => c.replace(/^\./, ''));
   return {
@@ -56,6 +47,23 @@ describe('isCanvasSurfaceTarget — 캔버스를 덮고 선 창들', () => {
   it('보드 패널·팝업 등 캔버스 밖 어디서도 열리지 않는다', () => {
     expect(isCanvasSurfaceTarget(targetInside('conti-board-panel'))).toBe(false);
     expect(isCanvasSurfaceTarget(targetInside('task-edge-popup'))).toBe(false);
+  });
+});
+
+describe('isCanvasSurfaceTarget — 캔버스 버블을 빌려 그린 남의 판(§5.5 #17-50)', () => {
+  // IDE 세션 버블 지도는 캔버스 노드를 띄우는 React Flow 다 — 그 판도 `.react-flow` 지만 캔버스가 아니다.
+  const foreign = `[${FOREIGN_FLOW_ATTR}]`;
+
+  it('지도의 빈 곳을 우클릭·길게 눌러도 캔버스 만들기 메뉴는 열리지 않는다', () => {
+    expect(isCanvasSurfaceTarget(targetInside('react-flow__pane', 'react-flow', foreign, 'ide-stream-body'))).toBe(false);
+  });
+
+  it('지도의 선 층에서도 열리지 않는다', () => {
+    expect(isCanvasSurfaceTarget(targetInside('react-flow__edges', 'react-flow__viewport', 'react-flow', foreign))).toBe(false);
+  });
+
+  it('표식이 없는 캔버스 판은 종전대로 연다', () => {
+    expect(isCanvasSurfaceTarget(targetInside('react-flow__pane', 'react-flow'))).toBe(true);
   });
 });
 

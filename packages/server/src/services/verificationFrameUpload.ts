@@ -15,19 +15,9 @@ interface VerificationFrameUploadOptions {
   onSaved: () => void;
 }
 
-// multer calls back on the write stream's 'finish', and at that moment the stream's own close has not
-// even been requested — it lands a tick later (measured 0.59ms). Windows opens the file without
-// FILE_SHARE_DELETE, so while that handle lives the frame cannot be removed; if a deletion was already
-// issued against it the entry stays listed as pending and even `lstat` is refused. POSIX unlinks open
-// files outright, which is why none of this is visible anywhere but the Windows runner.
-//
-// The waiting has to be written out here, because neither call will do it. Both `rm` and `rmdir` accept
-// `maxRetries`/`retryDelay` and neither honours them for the errors this path actually raises — measured
-// on this machine, `rm(file, { force: true, maxRetries: 5, retryDelay: 20 })` came back EPERM in 0.2ms
-// (0.4ms with `recursive` added) and `rmdir(dir, { maxRetries: 3, retryDelay: 200 })` came back ENOTEMPTY
-// in 0.1ms. Neither ever slept, so the budget they advertise is one attempt. And the wait must be the
-// awaited kind: a blocking retry holds the event loop, so the stream close it is waiting for can never
-// run — that is why `rmSync` cannot work here at all.
+// multer calls back on 'finish' before the stream's close (a tick later, measured 0.59ms); Windows opens without FILE_SHARE_DELETE, so the frame
+// cannot go until then and a pending deletion even refuses `lstat` (POSIX unlinks open files).
+// `rm`/`rmdir` ignore `maxRetries`/`retryDelay` here (EPERM 0.2ms, ENOTEMPTY 0.1ms), so the wait is written out — and awaited: a blocking retry (`rmSync`) holds the loop and the close never runs.
 const DISCARD_DELAYS = [0, 10, 25, 50, 100, 200, 400, 800];
 
 /** True once the path is gone — removed just now, or already absent. False while something still holds it. */
@@ -52,10 +42,7 @@ async function discardFrame(file: Express.Multer.File, removeEmptyDirectory: boo
     let fileGone = false;
     for (const delay of DISCARD_DELAYS) {
       if (delay > 0) await new Promise<void>((resolve) => { setTimeout(resolve, delay); });
-      // The two steps are attempted independently on purpose. A frame that will not go must not stop the
-      // directory from going: when Windows leaves the frame pending deletion its entry disappears on
-      // close, and only the directory step ever notices. Letting the frame's error escape skipped that
-      // step entirely, which is how a rejected upload kept orphaning its folder on the runner.
+      // Attempted independently on purpose: a frame pending deletion vanishes on close and only the directory step notices — letting its error escape orphans the folder.
       if (!fileGone) fileGone = await gone(async () => { await fs.promises.rm(file.path, { force: true }); });
       if (!removeEmptyDirectory) {
         if (fileGone) return;

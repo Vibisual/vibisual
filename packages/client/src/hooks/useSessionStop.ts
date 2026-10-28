@@ -1,20 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 /**
- * useSessionStop — §5.5 #17-10 중지 동작(세션 스코프)의 단일 창구.
- *
- * §5.5 #17-12 로 하단 상태바("지금 무엇을 하는 중" 줄)에도 [중지]가 생기면서 두 곳을 훅 하나로 묶었고,
- * v4.64 에서 그 상태바 버튼을 없애 지금 호출자는 입력창(TerminalInput) 하나다 — 중지 경로는 계속 여기 한 곳.
- *
- * 범위 규칙은 #17-10 그대로: 세션 탭이면 그 세션만(`stop-session`), 스코프를 좁힐 세션이 없는 메인 탭에서만
- * 에이전트 전체(`stop-all`).
- *
- * ⚠ **응답을 버리지 않는다.** 종전에는 `void fetch(...).catch(() => {})` 로 보내고 1.5초 뒤 무조건
- * 버튼을 되돌렸다. 그래서 서버가 "멈출 것을 하나도 못 찾았다"(`stopped=0 · cancelledQueued=0 ·
- * sealedExecuting=0`)고 답해도 화면에는 **아무 일도 일어나지 않았다** — 사용자는 실행 중이라 적힌
- * 화면을 보며 같은 버튼을 계속 누르는 수밖에 없었다(이 버그의 체감 1순위). 이제 결과를 읽어
- * `nothing`/`failed` 를 돌려주고, `nothing` 이면 **에이전트 전체 강제 마감**(`stop-all`)을 내는
- * 두 번째 손잡이를 연다. 새 API 를 만들지 않는다 — 이미 있는 두 라우트의 조합이다.
+ * §5.5 #17-10 중지(세션 스코프)의 단일 창구 — 세션 탭 `stop-session`, 메인 탭 `stop-all`.
+ * ⚠ **응답을 버리지 않는다** — 멈출 것이 없다는 답(`stopped=0 · cancelledQueued=0 · sealedExecuting=0`)이면 `nothing`(→ `stop-all` 손잡이), 실패면 `failed` 를 돌려준다(새 API 없음).
  */
 
 /** 중지 요청에 서버가 돌려주는 계수. 두 라우트가 이름만 살짝 다르다(`loopStopped` / `loopsStopped`). */
@@ -46,14 +34,7 @@ export type SessionStopOutcome =
   /** 요청 자체가 실패했다(네트워크·5xx). 눌렀는데 아무 일도 없던 종전 화면의 다른 원인. */
   | { kind: 'failed'; status: number | null };
 
-/**
- * 중지 요청 경로 — **중지를 내는 모든 자리가 이 함수를 쓴다.**
- *
- * 커맨드센터(§5.12)가 한때 세션 중지에 `/:subId/stop` 을 직접 불렀는데, 그 라우트는 자식 프로세스만
- * 죽이고 **큐에 남은 명령을 비우지 않아** 다음 명령이 곧바로 다시 나갔다(§5.5 #17-10 이 IDE 에서
- * 고친 "눌러도 안 멈춘다"가 그 창에만 남아 있었다). 게다가 broadcast 도 없고 실행 중이 아니면 409 라,
- * 눌러도 화면이 그대로였다. 경로를 여기 한 곳으로 모아 같은 [중지]가 어디서든 같은 일을 하게 한다.
- */
+/** 중지 요청 경로 — **모든 중지가 이 함수를 쓴다.** `/:subId/stop` 직접 호출 ❌ — 자식만 죽이고 큐를 안 비워 다음 명령이 나가고, broadcast 도 없고 실행 중이 아니면 409 다. */
 export function sessionStopUrl(agentId: string, subAgentId: string | null): string {
   return subAgentId
     ? `/api/subagents/${agentId}/${subAgentId}/stop-session`
@@ -77,10 +58,7 @@ export interface SessionStopHandle {
   forceStop: () => void;
 }
 
-/**
- * 서버 응답 한 벌 → 화면이 말할 결과 하나. **훅 밖의 순수 함수**라 DOM 없이 그대로 시험한다
- * (`sessionRunTruth.test.ts`). 판정이 훅 안에 숨어 있으면 이 네 갈래가 영영 검증되지 않는다.
- */
+/** 서버 응답 → 화면이 말할 결과 하나. 훅 밖 순수 함수라 DOM 없이 시험한다(`sessionRunTruth.test.ts`). */
 export function classifyStopResponse(
   ok: boolean,
   status: number | null,

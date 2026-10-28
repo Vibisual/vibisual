@@ -6,12 +6,8 @@ import { CompositionFrame, playTimeAt, samePlay, type CompositionPlay } from './
 import { HtmlSceneStage } from './htmlStage.js';
 
 /**
- * §5.13 (Z) 41-1·41-2·41-5 — 직통 채널 · 스스로 재생 · 재생 중 무대.
- *
- * ① 런타임이 `loaded{port:true}` 라고 하면 포트를 건네고 그 뒤 요청·답은 포트로만 오간다(창 메시지 = 앱 본체를 거치는 길 ❌).
- * ② 재생 중 컴포지션에는 프레임마다 seek 대신 기준식 하나(`play`)를 보낸다 — 같은 직선이면 다시 보내지 않는다.
- * ③ 재생 중 무대의 seek 는 컴포지션 답을 기다리지 않는다(화면 스레드·본체가 막혀도 재생 시계가 서지 않게).
- * ④ 코드가 바뀐 컴포지션은 새 프레임이 첫 그림을 낼 때까지 옛 프레임이 보인다.
+ * §5.13 (Z) 41-1·41-2·41-5 — ① `loaded{port:true}` 뒤 요청·답은 포트로만 ② 재생 중엔 seek 대신 `play` 기준식(같은 직선이면 다시 안 보낸다)
+ * ③ 재생 중 seek 는 답을 기다리지 않는다 ④ 코드가 바뀐 컴포지션은 새 프레임이 첫 그림을 낼 때까지 옛 프레임이 보인다.
  */
 
 type Message = Record<string, unknown>;

@@ -1,14 +1,4 @@
-/**
- * §5.1 #2-1 (A) — 파일 버블의 **얼굴** 판정(순수).
- *
- * 파일 버블은 오랫동안 무엇을 담았든 같은 보라색 점이었다 — 영상도 코드도 같은 모양이라 캔버스가 "무엇"을 말하지
- * 못했다. 이 모듈은 경로 하나에서 그 파일이 **무엇인지**(영상·사진·소리·3D·코드·데이터·문서·자막·글꼴·기타)를 정하고,
- * 별자리 판정(`constellation.ts`)이 쓰는 이름 조각(줄기·낱말)을 뽑는다.
- *
- * 서버(위성 상한 판정)와 클라(얼굴·별자리 그리기)가 같은 답을 내야 하므로 shared 한 곳에 둔다 — 두 벌이 되면
- * 한쪽만 고쳐져 "서버는 묶어 남겼는데 화면은 따로 그리는" 어긋남이 생긴다(셸 토크나이저를 한 벌로 묶은 것과 같은 규율).
- * 플랫폼·시각을 읽지 않는다 — 경로 비교가 필요한 쪽(`constellation.ts`)이 플랫폼을 인자로 받는다.
- */
+/** §5.1 #2-1 (A) — 파일 버블 얼굴 판정(순수): 경로 → 종류, 별자리용 이름 조각(줄기·낱말). 서버(위성 상한)·클라(그리기)가 같은 답을 내게 shared 에 둔다. */
 
 import {
   CONSTELLATION,
@@ -49,12 +39,7 @@ export function fileBaseName(filePath: string): string {
   return parts[parts.length - 1] ?? '';
 }
 
-/**
- * 소문자 확장자(마침표 포함). 없으면 빈 문자열.
- *
- * 점으로 시작하고 다른 점이 없는 이름(`.env`)은 **이름 전체가 확장자**다 — 그 파일의 정체가 곧 그 이름이기 때문이다
- * (`workspaceFileExt` 는 열기 판정용이라 이런 이름을 확장자 없음으로 본다 — 여기는 종류 판정이라 갈린다).
- */
+/** 소문자 확장자(마침표 포함, 없으면 ''). `.env` 처럼 점 하나로 시작하는 이름은 이름 전체가 확장자다(열기용 `workspaceFileExt` 와 일부러 다르다). */
 export function fileFaceExtOf(filePath: string): string {
   const name = fileBaseName(filePath);
   const dot = name.lastIndexOf('.');
@@ -84,12 +69,7 @@ export function isMediaFaceKind(kind: FileFaceKind): kind is 'video' | 'image' |
   return FILE_FACE_MEDIA_KINDS.has(kind);
 }
 
-/**
- * 이름의 **줄기** — 첫 점 앞(소문자). `teaser.composition.json` → `teaser`. 점으로 시작하는 이름은 줄기가 없다.
- *
- * 소문자로 접는 것은 **뜻의 비교**라서다(같은 작업물인가) — 파일의 정체(같은 파일인가)를 가르는 경로 키가 아니므로
- * 멀티플랫폼 1축(`pathKey`)의 대상이 아니다. 경로 비교는 `constellation.ts` 가 `pathKey` 로 한다.
- */
+/** 이름 줄기 — 첫 점 앞, 소문자(`teaser.composition.json` → `teaser`). 소문자 접기는 뜻 비교라 `pathKey` 대상이 아니다(경로 비교는 `constellation.ts`). */
 export function fileStemOf(filePath: string): string {
   const name = fileBaseName(filePath);
   const dot = name.indexOf('.');

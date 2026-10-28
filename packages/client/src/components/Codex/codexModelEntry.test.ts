@@ -1,10 +1,4 @@
-/**
- * §5.25 (B)(G)(J) — 코덱스 버블 판정 고정 시험.
- *
- * `localModelEntry.test.ts` 와 같은 자리다. 특히 두 규칙을 못박는다:
- *  - 클로드 버블(프로바이더 없음)이 이 판정에 끌려 들어가지 않는다.
- *  - `auth.error`(모름)로는 로그인 창을 세우지 않는다 — 멀쩡히 일하던 사용자를 막지 않기 위함.
- */
+/** §5.25 (B)(G)(J) — 코덱스 버블 판정: 클로드 버블이 끌려 들어가지 않고, `auth.error`(모름)로는 로그인 창을 세우지 않는다. */
 import { describe, it, expect } from 'vitest';
 import type { AgentConfig, CodexAuthStatus, CodexEffectiveConfig, CodexModelEntry, CodexSetupState } from '@vibisual/shared';
 import {

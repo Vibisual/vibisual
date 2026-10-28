@@ -1,20 +1,8 @@
 /**
- * 바깥 브라우저 열기 + 실패 안내 (§3.7).
- *
- * 앱 안의 모든 "브라우저로 열기"는 여기 한 곳을 지난다 — renderer 의
- * `window.open(url,'_blank')` → `setWindowOpenHandler` → 이 함수. 여는 길 자체는
- * 종전 그대로 `shell.openExternal` 하나이고(새 여는 길 ❌), 이 파일이 더하는 것은
- * **실패했을 때 그 사실을 화면에 알리는 것뿐**이다.
- *
- * ⚠️ **폴백은 없다(사용자 명시 결정).** WSL interop(`explorer.exe`)·`wslview`·다른
- * 브라우저를 대신 띄우지 않는다. 우리가 임의로 고른 창에 OAuth 주소를 넘기는 것은
- * 사용자가 그은 선이 아니고, 그 경로는 실기 검증도 불가능하다. 우리 몫은 "안 열렸다"를
- * 말하는 것까지다. 이 주석을 지우고 폴백을 되살리지 마라.
- *
- * ⚠️ 리눅스에서는 `shell.openExternal` 의 프라미스가 거짓말을 한다 — Electron 이
- * `xdg-open` 을 종료를 기다리지 않고 띄우기 때문에 브라우저가 하나도 없어도 2ms 만에
- * resolve 한다(실측 근거는 `@vibisual/shared` 의 `externalOpen.ts` 머리말). 그래서
- * 리눅스에서만 **열어 줄 프로그램이 있는지**를 따로 잰다.
+ * 바깥 브라우저 열기 + 실패 안내(§3.7). 앱 안의 모든 "브라우저로 열기"는 renderer `window.open(url,'_blank')` → `setWindowOpenHandler` → 이 함수를 지난다. 여는 길은 `shell.openExternal` 하나이고(새 여는 길 ❌), 이 파일은 실패 안내만 더한다.
+ * ⚠️ **폴백은 없다** — WSL interop(`explorer.exe`)·`wslview`·다른 브라우저를 대신 띄우지 않는다(임의로 고른 창에 OAuth 주소를 넘기지 않고, 그 경로는 실기 검증도 불가능하다).
+ * 우리 몫은 "안 열렸다"를 말하는 것까지다. 폴백을 되살리지 마라.
+ * ⚠️ 리눅스는 `shell.openExternal` 프라미스가 거짓말을 한다 — `xdg-open` 종료를 안 기다려 브라우저가 없어도 2ms 만에 resolve 한다(실측 근거는 `@vibisual/shared` 의 `externalOpen.ts` 머리말). 그래서 리눅스만 열어 줄 프로그램이 있는지 따로 잰다.
  */
 
 import { accessSync, constants as fsConstants } from 'node:fs';
@@ -139,11 +127,8 @@ function notifyFailure(sender: WebContents | null | undefined, payload: External
 }
 
 /**
- * 바깥 브라우저로 연다. 실패하면 그 사실을 `sender` 창에 알린다(폴백 ❌).
- *
- * **열기는 판정과 무관하게 항상 시도한다** — 탐침이 틀렸을 때(스냅·플랫팩 등 우리가
- * 못 보는 핸들러) 되던 열기를 우리 손으로 막는 쪽이 훨씬 나쁘다. 최악의 경우는
- * "열렸는데 안내도 떴다"이고, 그건 무해하다.
+ * 바깥 브라우저로 연다. 실패하면 `sender` 창에 알린다(폴백 ❌). **열기는 판정과 무관하게 항상 시도한다** — 탐침이 틀렸을 때(스냅·플랫팩 등 못 보는 핸들러)
+ * 되던 열기를 막는 쪽이 훨씬 나쁘다. 최악은 "열렸는데 안내도 떴다"이고 그건 무해하다.
  */
 export function openExternalWithNotice(
   url: string,
@@ -151,15 +136,9 @@ export function openExternalWithNotice(
   /** 화면 안내와 **별개로** 남길 기록이 있는 호출부(예: 업데이터 진단)를 위한 선택 훅. */
   onFailure?: (payload: ExternalOpenFailure) => void,
 ): void {
-  // §보안 감사 2026-09-09 — **열기 전에** 스킴부터 본다.
-  //
-  // `shell.openExternal` 은 브라우저를 여는 함수가 아니라 **OS 프로토콜 핸들러를 그대로 부르는**
-  // 함수다. 그런데 여기 오는 주소는 우리가 만든 것이 아니다 — 에이전트가 흘린 마크다운 링크,
-  // 훅이 등록한 카드, 내부 앱이 그린 화면의 `window.open` 이 전부 이 한 곳으로 모인다. 즉 이 PC
-  // 안의 다른 프로그램·에이전트가 쓴 문자열이 그대로 핸들러 인자가 되던 자리다.
-  //
-  // 막았을 때도 **주소는 손에 쥐여 준다**(안내창의 [복사]) — 이 파일의 규약 그대로, 우리가 대신
-  // 열어 주지도 않고 조용히 삼키지도 않는다.
+  // 보안 — **열기 전에** 스킴부터 본다. `shell.openExternal` 은 브라우저가 아니라 OS 프로토콜 핸들러를 그대로 부르는데, 여기 오는 주소는 에이전트가 흘린 마크다운 링크·
+  // 훅이 등록한 카드·내부 앱 화면의 `window.open` 등 이 PC 의 다른 프로그램이 쓴 문자열이다.
+  // 막았을 때도 주소는 손에 쥐여 준다(안내창의 [복사]) — 대신 열지도, 조용히 삼키지도 않는다.
   if (!isAllowedExternalUrl(url)) {
     console.warn(`[externalOpen] blocked-scheme — ${url}`);
     const blocked: ExternalOpenFailure = { url, reason: 'blocked-scheme' };

@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.97 — 관측 가능성(Observability): "왜 그랬지"를 사후에 재구성할 수 있는가.
- *
- * 에이전트는 비결정적이라, 재현이 안 되는 문제를 로그 없이 고치는 것은 불가능하다. 다만 **관측이 앱을
- * 죽일 수 있다** — 도구 이벤트마다 동기 디스크 쓰기·브로드캐스트를 하면 그 자체가 병목이 된다.
- * 샘플링·디바운스·배치가 기본 장치다. 표시 전용.
- */
+/** §5.11 — 관측 가능성(Observability): "왜 그랬지"를 사후에 재구성할 수 있는가. 관측도 앱을 죽인다 — 도구 이벤트마다 동기 쓰기·브로드캐스트 대신 샘플링·디바운스·배치. 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import { toneIfActive } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

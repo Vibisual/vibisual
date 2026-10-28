@@ -1,9 +1,4 @@
-/**
- * §7.11 / §3.5 — 서버 목록에서 외부 브라우저로 여는 주소도 "우리 서버에 닿는 주소"여야 한다.
- *
- * 한 포트에 주인이 둘이면 `localhost` 는 옆 프로젝트 vite(`[::1]`)에 닿는다. 서버가 가려 둔 iframe 위성 주소
- * (`127.0.0.1`)를 쓰지 않으면, 이 프로젝트의 서버 목록에서 눌렀는데 남의 화면이 열린다.
- */
+/** §7.11 / §3.5 — 외부 브라우저 주소는 iframe 위성 주소(`127.0.0.1`)다(한 포트 두 주인이면 `localhost` 는 옆 vite `[::1]` 로 간다). */
 import { describe, expect, it } from 'vitest';
 import type { BubbleData } from '@vibisual/shared';
 import { serverBrowserUrl } from './serverBrowserUrl.js';

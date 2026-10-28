@@ -1,9 +1,6 @@
 /**
- * §5.5 #17-6 (H-28) — 떼어 낸 IDE 창을 **다른 앱 위에 고정**하는 배선.
- *
- * 렌더(`setPinnedSelf`/`getPinnedSelf`) → preload → ipc → windowManager 네 자리 중 하나라도
- * 이름이 어긋나면 호출은 조용히 `undefined` 로 사라지고, 버튼은 눌리는데 창은 여전히 뒤로
- * 깔린다. 그래서 채널 이름과 등록·해제, 그리고 기억이 사는 자리를 한 번에 고정한다.
+ * §5.5 #17-6 (H-28) — 떼어 낸 IDE 창을 다른 앱 위에 고정하는 배선. 렌더 → preload → ipc → windowManager 중 하나라도 이름이 어긋나면
+ * 호출이 조용히 `undefined` 가 된다 — 채널 이름·등록·해제·기억이 사는 자리를 한 번에 고정한다.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';

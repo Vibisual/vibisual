@@ -21,17 +21,7 @@ import {
   scopeDescKey,
 } from './commandLabels.js';
 
-/**
- * ShortcutOverlay.tsx — **요청했을 때만 뜨는 단축키 판.**
- *
- * "불친절"의 실제 해소 지점이다. 화면에 키캡을 상시로 박으면 디자인이 무너지므로(그게 침범이다),
- * Gmail·Slack·Linear 가 하는 대로 **사용자가 물어볼 때만** 답한다.
- *
- * 보여 주는 것은 `COMMANDS` 표 전체가 아니라 **지금 이 화면에서 실제로 등록돼 있는 것**이다
- * (`liveCommandIds`). 지금 누를 수 없는 키까지 알려 주면 그건 더 불친절하다.
- *
- * 여기서 바로 재매핑도 된다 — 각 줄의 키캡이 `KeyHint` 라 그 자리에서 바꿀 수 있다.
- */
+/** 요청했을 때만 뜨는 단축키 판. 지금 화면에 등록된 것(`liveCommandIds`)만 보인다 — 누를 수 없는 키는 빼고, 줄마다 `KeyHint` 로 재매핑. */
 
 export function ShortcutOverlay(): React.JSX.Element | null {
   const { t } = useTranslation();

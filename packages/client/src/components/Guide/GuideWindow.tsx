@@ -1,11 +1,4 @@
-/**
- * Guide — 기능 안내 / 만든 기능 인벤토리 (읽기 전용).
- *
- * File 메뉴 → Guide 로 열림. OptionsWindow 와 동형 모달 셸(portal + 좌측 카테고리
- * 사이드바 + 우측 패널)을 재사용하되, 입력/저장 없이 SSOT(§5 기능 범위)를 사용자
- * 눈높이로 설명한다. 새 기능을 추가할 때 이 파일의 SECTIONS 에 한 항목을 더하면
- * Guide 와 "만든 것 정리"가 함께 갱신된다.
- */
+/** Guide — 기능 안내 / 만든 기능 인벤토리(읽기 전용, OptionsWindow 와 같은 모달 셸). 새 기능은 SECTIONS 에 한 항목. */
 import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -36,12 +29,7 @@ interface GuideEntry {
 interface GuideSection {
   intro: string;
   entries: GuideEntry[];
-  /**
-   * 글로 설명할 수 없는 부분 — 지금은 §6 단축키 목록 하나다.
-   *
-   * 단축키를 문장으로 적으면 사용자가 키를 바꾼 순간 도움말이 거짓말이 된다. 그래서
-   * 그 절만 **레지스트리가 그리는 실물**로 바꾼다(글은 표가 못 말하는 것만 남는다).
-   */
+  /** 글로 못 적는 부분(§6 단축키) — 문장이면 키를 바꾼 순간 거짓말이라 레지스트리가 그리는 실물로 둔다. */
   extra?: React.ReactNode;
 }
 

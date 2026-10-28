@@ -5,22 +5,13 @@ import type { AppThumbnail } from './registry.js';
 import { DARK_THEME_LOCK } from '../theme/themeLock.js';
 
 /**
- * §5.4 #36 (G) — 앱 위성 화면 안쪽의 **공용 부품 한 벌**.
- *
- * 앱마다 자기 조작을 낸다(재생·돌려 보기·맞춤 — 레지스트리 `canvasFace`). 그 조작이 앉는 자리(아래 조작줄)·단추·
- * 재생 위치 막대·시간 글자·정지 미리보기는 여기 하나를 쓴다 — 앱마다 따로 그리면 같은 캔버스 위에서 단추 크기·간격이
- * 앱마다 갈린다. 코어 파일이라 앱 이름을 모른다.
- *
- * **조작 자리 표식 `FACE_CONTROL`(= `nodrag nopan`)** — React Flow 는 이 표식 위에서 노드를 끌지도 캔버스를 밀지도
- * 않는다. 노드의 선택 손짓·더블클릭 열기도 이 표식 위의 누름은 건너뛴다(`isFaceControlTarget`). 그래서 재생 위치를
- * 끄는 손이 노드를 옮기거나, 단추를 빨리 두 번 누른 것이 편집기를 여는 일이 없다.
+ * §5.4 #36 (G) — 앱 위성 안쪽 공용 부품(조작줄·단추·재생 위치 막대·시간·정지 미리보기) — 앱마다 그리면 단추 크기·간격이 갈린다. 코어라 앱 이름을 모른다.
+ * `FACE_CONTROL`(= `nodrag nopan`) 위에선 React Flow 가 노드를 끌지도 캔버스를 밀지도 않고, 노드 선택·더블클릭 열기도 그 누름을 건너뛴다
+ * (`isFaceControlTarget`) — 재생 위치를 끄는 손이 노드를 옮기거나 단추 연타가 편집기를 열지 않게.
  */
 export const FACE_CONTROL = 'nodrag nopan';
 
-/**
- * React Flow 크기 조절 선·손잡이의 공개 클래스. 이것도 `nodrag` 를 달지만 조작 자리가 아니라 **노드의 가장자리**다 —
- * 크기를 바꾸지 않고 뗀 누름은 클릭(선택)이고, 두 번 누르면 연다(§5.4 #36 (G) "테두리 띠도 노드다").
- */
+/** React Flow 크기 조절 선·손잡이 클래스 — `nodrag` 지만 조작 자리가 아니라 노드 가장자리다(크기를 안 바꾼 누름 = 선택, 두 번 = 열기 — §5.4 #36 (G)). */
 const RESIZE_EDGE_SELECTOR = '.react-flow__resize-control';
 
 /** 조작 자리 위에서 시작한 누름인가(노드의 선택·더블클릭 열기가 건너뛴다). 크기 조절 띠는 조작 자리가 아니다. */
@@ -53,10 +44,7 @@ export function quantizePlayTime(seconds: number): number {
   return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 30) / 30 : 0;
 }
 
-/**
- * `active` 인 동안 매 애니메이션 프레임마다 `onFrame` 을 부른다(재생 중 시계·자동 회전). 꺼지거나 언마운트되면 멈춘다.
- * `timeupdate` 는 초당 4번뿐이라 재생 위치 막대·파형의 재생 줄이 계단처럼 튄다 — 그래서 프레임으로 읽는다.
- */
+/** `active` 인 동안 매 프레임 `onFrame`(꺼지거나 언마운트되면 멈춘다) — `timeupdate` 는 초당 4번뿐이라 재생 막대·파형 줄이 계단처럼 튄다. */
 export function useFrameLoop(active: boolean, onFrame: (dtSec: number) => void): void {
   const frameRef = useRef(onFrame);
   frameRef.current = onFrame;
@@ -75,11 +63,7 @@ export function useFrameLoop(active: boolean, onFrame: (dtSec: number) => void):
   }, [active]);
 }
 
-/**
- * 화면 안쪽 전체 — 결과 자리(위) + 조작줄(아래).
- * §4 앱 테마 — 미디어 무대·조작줄은 어두운 바탕(`bg-black/55` 등)을 전제로 칠해져 있어 **어두운 판을 고정**한다.
- * 노드의 머리줄·테두리(이 바깥)는 테마를 따른다.
- */
+/** 결과 자리(위) + 조작줄(아래). §4 앱 테마 — 미디어 무대·조작줄은 어두운 바탕 전제라 어두운 판을 고정한다(바깥 머리줄·테두리는 테마를 따른다). */
 export function FaceFrame({ children }: { children: ReactNode }): React.JSX.Element {
   return <div {...DARK_THEME_LOCK} className="absolute inset-0 flex flex-col">{children}</div>;
 }
@@ -136,10 +120,7 @@ export function FaceButton({
   );
 }
 
-/**
- * 재생 위치 막대 — 누르고 끌면 그 자리로 간다. 포인터를 붙잡으므로(`setPointerCapture`) 막대 밖으로 손이 나가도 이어진다.
- * 좌표는 화면 사각형으로 재므로 캔버스 확대·축소와 무관하게 맞는다(React Flow 는 transform 으로 키운다).
- */
+/** 재생 위치 막대 — `setPointerCapture` 로 막대 밖에서도 끌기가 이어진다. 좌표는 화면 사각형으로 재므로 캔버스 확대와 무관하다(React Flow 는 transform 으로 키운다). */
 export function FaceSeek({
   value,
   disabled,
@@ -222,10 +203,7 @@ export function FaceNote({ children, title }: { children: ReactNode; title?: str
   );
 }
 
-/**
- * 정지 미리보기 — 코어가 구운 그림·파형, 굽는 중이면 숨 쉬는 아이콘, 못 구웠으면 아이콘.
- * `fit` 을 주면 그림의 담는 법을 그것으로 바꾼다(맞춤 ↔ 채우기 단추). 길이가 있으면 오른쪽 위 모서리 숫자.
- */
+/** 정지 미리보기 — 구운 그림·파형 / 굽는 중이면 숨 쉬는 아이콘 / 못 구웠으면 아이콘. `fit` 은 맞춤 ↔ 채우기, 길이가 있으면 오른쪽 위 숫자. */
 export function FaceStill({
   thumb,
   loading,
@@ -293,10 +271,7 @@ export function FaceCornerBadge({ text }: { text: string }): React.JSX.Element {
 /** 파형 막대와 상자 가장자리 사이. */
 const WAVE_PAD = 6;
 
-/**
- * 파형 — `played`(0~1)를 주면 들은 구간을 앱 색으로 밝게, 남은 구간을 흐리게 그리고 그 경계에 재생 줄을 긋는다.
- * path 두 개라 막대가 몇 개든 DOM 노드는 셋이다.
- */
+/** 파형 — `played`(0~1)를 주면 들은 구간은 앱 색으로 밝게, 남은 구간은 흐리게, 경계에 재생 줄(DOM 노드 셋). */
 export function FaceWave({
   peaks,
   width,

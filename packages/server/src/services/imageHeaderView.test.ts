@@ -1,11 +1,4 @@
-/**
- * §5.13 (R-9) · §5.1 #2-1 (G) ⑧ — 그림 **머리만 읽어** 보기 창·미리보기가 줄여 풀 크기를 정하는 판정(shared `previewPolicy.ts`).
- *
- * 고정하는 것:
- *  ① JPEG 의 EXIF 회전(1~8)을 읽는다 — 리틀·빅 엔디언 둘 다, 회전 태그가 없거나 모양이 틀리면 1.
- *  ② 세운 뒤의 가로×세로 — 5~8 은 가로·세로가 바뀐다(돌아간 사진을 필요보다 크게 풀지 않게).
- *  ③ 움직이는 그림일 수 있는가 — GIF · APNG(acTL) · 움직이는 WebP(VP8X 깃발). 줄여 풀면 첫 장만 남으므로 원본 그대로 그린다.
- */
+/** §5.13 (R-9) · §5.1 #2-1 (G) ⑧ — 그림 머리 판정(shared `previewPolicy.ts`): JPEG EXIF 회전(두 엔디언, 없으면 1) · 5~8 은 가로세로 교환 · GIF·APNG·WebP 움직임은 줄여 풀지 않는다(첫 장만 남는다). */
 import { describe, it, expect } from 'vitest';
 import { imageHeaderAnimated, imageHeaderOrientation, imageHeaderSize, orientedImageSize } from '@vibisual/shared';
 

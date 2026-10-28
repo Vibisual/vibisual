@@ -27,11 +27,9 @@ export interface TitlebarMove {
   /** The hand moved; the window follows the OS cursor. */
   move(): void;
   /**
-   * Main's own beat (§3.7, 2026-10-16). Restoring a maximized window resizes it under the hand, and the
-   * page can lose the gesture right there — its `move` stops coming and the window stayed behind. This
-   * reads the OS cursor itself, like the app-window drag (`appWindowTransfer.ts`). `pressed` is the
-   * physical primary button where the OS can tell (win32): once seen held, a release ends the gesture
-   * even when the page never sees the mouseup. `null` = the OS can't tell; the page decides the end.
+   * Main's own beat (§3.7): reads the OS cursor itself, like `appWindowTransfer.ts` — restoring a maximized window can make the page lose
+   * the gesture. `pressed` = physical primary button where the OS can tell (win32): once seen held, a release ends the gesture even
+   * without the page's mouseup. `null` = the OS can't tell; the page decides the end.
    */
   follow(pressed?: boolean | null): void;
   /** The hand let go. `at` is the renderer-measured drop point (§3.7 ③). */
@@ -39,10 +37,9 @@ export interface TitlebarMove {
   cancel(): void;
 }
 
-/** One gesture, shared by every caller of move-self; coordinates and size are screen DIP.
- * A press that reached the page moves the window itself on every OS. It does not hand the gesture to the
- * native move loop: that handoff reported success once a message was queued, cut this path,
- * and left the window unmoved in the real app (§3.7, 2026-10-12 — see the move-self note in ipc.ts).
+/**
+ * One gesture, shared by every caller of move-self; coordinates and size are screen DIP. The window moves itself on every OS — never
+ * hand off to the native move loop: it reported success on a queued message and left the window unmoved (§3.7, see ipc.ts move-self).
  */
 export function startTitlebarMove(
   win: TitlebarWindow,
@@ -191,10 +188,8 @@ export function startTitlebarMove(
 }
 
 /**
- * Main's own beat for one gesture (§3.7, 2026-10-16): `follow` every `TITLEBAR_FOLLOW_MS` with the
- * physical button, and give up after `TITLEBAR_GESTURE_MAX_MS` so a gesture whose end never arrives
- * cannot chase the cursor forever. The app-window drag runs the same beat. Returns the stop — call it
- * when the gesture is done.
+ * Main's own beat for one gesture (§3.7): `follow` every `TITLEBAR_FOLLOW_MS`, give up after `TITLEBAR_GESTURE_MAX_MS` so a lost
+ * end can't chase the cursor forever. Returns the stop.
  */
 export function followTitlebarMove(drag: TitlebarMove, pressed: () => boolean | null): () => void {
   const beat = setInterval(() => {

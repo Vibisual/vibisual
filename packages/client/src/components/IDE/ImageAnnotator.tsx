@@ -91,15 +91,8 @@ import { putWorkspaceImage } from './workspaceImageSave.js';
 import { copyImageToClipboard, resolveClipboardSurface, type ClipboardScope } from './imageClipboard.js';
 import { imageZoomAction, MAX_IMAGE_ZOOM, MIN_IMAGE_ZOOM, useImageLightboxZoom } from './useImageLightboxZoom.js';
 
-// §5.5 #17-25 v4.80 — 라이트박스 안에서 이미지에 직접 표시하고, 표시가 박힌 PNG 를 그대로 첨부한다.
-//
-// 기본은 `보기`(도구 미선택) — 그때 오버레이는 pointer-events:none 이라 v2.61 의 보기 동작
-// (배경 클릭·Esc·× 닫기)이 한 글자도 바뀌지 않는다. 도구를 고른 사람에게만 캔버스가 열린다.
-// 계산은 전부 imageAnnotate.ts(순수 모듈)에 있고 여기는 입력·표시·저장 배선만 한다.
-//
-// ⑦ — [보기] 옆의 [자르기]·[알파 빼기]는 표시가 아니라 **그림 자체**를 고친다. 그림은 세 겹
-// (바탕 래스터 · 원형 자르기가 구운 표시 · 벡터 주석)이고 편집 한 번이 되돌리기 한 칸이다.
-// 픽셀·상자 계산은 imageEdit.ts, 옵션 줄과 자르기 상자는 ImageEditBars.tsx 에 있다.
+// §5.5 #17-25 — 라이트박스 그림 표시·첨부. 기본 `보기`는 오버레이가 pointer-events:none 이라 보기 동작이 그대로다. 계산은 `imageAnnotate.ts`.
+// ⑦ [자르기]·[알파 빼기]는 그림 자체를 고친다 — 세 겹(바탕·구운 표시·벡터 주석), 편집 한 번 = 되돌리기 한 칸(`imageEdit.ts`·`ImageEditBars.tsx`).
 
 const API_BASE = '';
 
@@ -114,6 +107,8 @@ interface ImageLightboxViewProps {
   /** 입력창이 있는 뷰인가(읽기 전용 Hook 메인 탭이면 false → [내려받기]만). */
   canAttach: boolean;
   onClose: () => void;
+  /** §5.5 #17-27 ⑳ — 겹침 높이(기본 `z-[9999]`). 파일 창 위에서 연 팝업은 그 창보다 한 칸 위여야 한다(아니면 뒤에 깔린다). */
+  zIndex?: number;
   /**
    * §5.13 (R-10) — 편집 결과를 **부른 쪽에 돌려준다**(파일도 첨부도 아니다). 편집 원본 앱이 그 그림을 자기 문서에
    * 넣고, 디스크에는 문서를 저장할 때만 쓴다 — 편집 전에 PNG 를 사용자 폴더에 미리 쓰지 않기 위한 자리.
@@ -190,6 +185,7 @@ export function ImageLightboxView({
   activeSessionId,
   canAttach,
   onClose,
+  zIndex,
   onApplyImage,
 }: ImageLightboxViewProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -219,10 +215,7 @@ export function ImageLightboxView({
   // ⑦ 자르기 — 상자는 도구를 여는 순간 고른 비율로 그림 전체에 잡힌다.
   const [cropBox, setCropBox] = useState<Box | null>(null);
   const [cropAspect, setCropAspect] = useState<CropAspect>('free');
-  /**
-   * 지금 비율이 [원형]이 자유 비율에서 **스스로** 맞춘 1:1 인가. 도구를 나가면 모양은 사각으로 돌아가는데 그 1:1 만 남아,
-   * 다음 사각 자르기가 고른 적 없는 정사각형으로 시작했다. 사용자가 비율을 직접 고르면(1:1 을 다시 눌러도) 그 선택이다.
-   */
+  /** [원형]이 자유 비율에서 스스로 맞춘 1:1 인가 — 없으면 도구를 나간 뒤에도 1:1 이 남아 다음 사각 자르기가 정사각형으로 시작한다. 직접 고른 1:1 은 그대로다. */
   const autoSquareRef = useRef(false);
   const [cropShape, setCropShape] = useState<CropShape>('rect');
   // ⑦ 알파 빼기
@@ -338,12 +331,7 @@ export function ImageLightboxView({
     setDraft(next);
   }, []);
 
-  /**
-   * §5.5 #17-25 ④-2 — 이 런타임이 클립보드에 **그림**을 올릴 수 있는가.
-   *
-   * `null` 이면 버튼이 흐려지고 그 이유를 말한다. 전역을 한 번만 들여다보는 이유는 이 능력이
-   * 창이 사는 동안 바뀌지 않기 때문이다(보안 컨텍스트는 문서 단위로 정해진다).
-   */
+  /** §5.5 #17-25 ④-2 — 클립보드에 그림을 올릴 수 있나(`null` = 버튼 흐림 + 이유). 보안 컨텍스트는 문서 단위라 한 번만 본다. */
   const clipboard = useMemo(
     () => resolveClipboardSurface(globalThis as unknown as ClipboardScope),
     [],
@@ -407,14 +395,8 @@ export function ImageLightboxView({
   }, [history, pendingOp, currentLayerFrame, readBasePixels]);
 
   /**
-   * §5.5 #17-25 ④-2 — **네 번째 나가는 자리: 클립보드.**
-   *
-   * 내려받기(⑤)와 같은 결이라 **주석이 없어도 눌린다** — 그때는 원본 한 장이 그대로 나간다.
-   * 굽기를 `await` 하지 않고 **약속째로** 넘기는 이유는 `imageClipboard.ts` 주석에 있다(쓰기가
-   * 사용자 제스처 안에서 시작돼야 거절되지 않는다).
-   *
-   * 정의가 여기 있는 것은 취향이 아니다 — 키 처리(`keyHandlerRef`)가 렌더 중에 이 함수를 잡으므로
-   * 그보다 뒤에 선언되면 TDZ 로 죽는다. 이 함수가 부르는 `renderExport` 도 같은 이유로 위에 있다.
+   * §5.5 #17-25 ④-2 — 클립보드 내보내기(주석 없으면 원본). 굽기를 `await` 하지 않고 약속째 넘긴다 — 쓰기가 제스처 안에서 시작돼야 한다(`imageClipboard.ts`).
+   * 선언을 아래로 옮기지 마라 — `keyHandlerRef` 가 렌더 중에 잡아 TDZ 로 죽는다(`renderExport` 도).
    */
   const handleCopy = useCallback(async () => {
     if (copying || busyRef.current) return;
@@ -775,13 +757,7 @@ export function ImageLightboxView({
     }
   }, [saving, edited, pendingOp, renderExport, state.attachment, agentId, activeSessionId, agents, uploadAnnotated, updateAttachments, onClose, t]);
 
-  /**
-   * §5.5 #17-25 ④-1 — 세 번째 저장 자리: **그 파일 자체를 덮어쓴다**.
-   *
-   * 첨부 저장(`handleSave`)과 갈라 둔 이유는 목적지가 다르기 때문이다. 규율은 편집창의 텍스트 저장과
-   * 같은 것을 쓴다 — 읽을 때 본 `mtimeMs` 를 함께 보내고, 그 사이 디스크가 바뀌었으면(409) 덮어쓰지
-   * 않고 사용자가 [그래도 저장]을 고르게 한다.
-   */
+  /** §5.5 #17-25 ④-1 — 그 파일을 덮어쓰는 저장. 읽을 때의 `mtimeMs` 를 보내 409 면 덮지 않고 [그래도 저장]을 묻는다(편집창 텍스트 저장과 같은 규율). */
   const handleSaveToFile = useCallback(async (force = false) => {
     const target = state.workspace;
     if (!target || saving || busyRef.current || !target.bakeable || jpegBlocked || !(edited || pendingOp)) return;
@@ -1035,6 +1011,7 @@ export function ImageLightboxView({
       ref={rootRef}
       tabIndex={-1}
       className="vibi-image-lightbox fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-3 bg-black/80 p-6 pt-14 outline-none"
+      style={zIndex !== undefined ? { zIndex } : undefined}
       role="dialog"
       aria-modal="true"
       // §5.24 단축키 스코프 — 이 창은 body 로 portal 되어 IDE 창(`data-ide-overlay`) 밖에 선다. 표식이 없으면 여기서 난 키가
@@ -1423,7 +1400,7 @@ export function ImageLightboxView({
         <span className="mt-1 block">{t('ide.imageAnnotate.zoom.hint')}</span>
       </p>
 
-      {/* v2.94 — 닫기는 Windows 네이티브 타이틀바 오버레이(우상단 ~144×36px)를 피해 top-12. */}
+      {/* 닫기는 Windows 타이틀바 오버레이(우상단 ~144×36px)를 피해 top-12. */}
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); requestClose(); }}
@@ -1465,12 +1442,7 @@ export function ImageLightboxView({
 
 // ─── 부속 ───
 
-/**
- * 지금 화면에 **사용자가 고른 글자**가 있는가 — Ctrl/⌘+C 를 그림 복사로 가로챌지 가르는 판정.
- *
- * 없으면(대개 그렇다) 그 조합은 이 창의 것이고, 있으면 브라우저 기본 동작에 그대로 넘긴다.
- * 선택 API 가 없는 런타임에서는 "고른 글자가 없다"로 본다 — 그림 복사가 막다른 길이 되지 않게.
- */
+/** 고른 글자가 있으면 Ctrl/⌘+C 는 브라우저에, 없으면 그림 복사로 가로챈다. 선택 API 가 없으면 "없음"으로 본다. */
 function hasTextSelection(): boolean {
   if (typeof window === 'undefined' || typeof window.getSelection !== 'function') return false;
   const sel = window.getSelection();

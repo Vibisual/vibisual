@@ -1,15 +1,7 @@
 /**
- * redockCommit.test.ts — §5.5 #17-6 (H-17) **밖의 창이 앱 안으로 들어가는 자리도 뗌 하나다.**
- *
- * (H-12) 는 들어오는 길에 구간을 만들었다 — 앱 안으로 들어온 창은 먼저 윤곽선으로 바뀌고,
- * `REDOCK_DWELL_MS` 를 버텨야 실제로 합쳐졌다. 그런데 그 "버팀이 끝나는 틱"이 **손이 눌린 채로**
- * 창을 바꿨다: 사용자가 앱 위를 지나가기만 해도 창이 들어왔다 나갔다를 되풀이했다(사용자 지시 —
- * "마우스 놓기 전까지 가상의 창 그대로 유지해").
- *
- * 이제 버팀이 끝나면 선이 **밝아지기만** 하고(`stepRedockDwell` 의 `arm`), 실제로 합치는 일은
- * 손을 뗄 때 `finishOverlayFollow` 한 곳에서만 일어난다. 판정 자체는 shared 순수 함수가 쥐므로
- * (`windowDragRegion.test.ts`), 여기서는 **그 규칙을 실제로 그렇게 부르는지**를 소스로 집행한다
- * — `windowManager` 는 electron 에 붙어 있어 여기서 실행할 수 없다(`vitest.config.ts` 의 전제).
+ * §5.5 #17-6 (H-17) — 밖의 창이 앱 안으로 들어가는 자리도 뗌 하나다: 버팀(`REDOCK_DWELL_MS`)이 끝나면 선이 밝아지기만 하고(`arm`),
+ * 합치기는 손을 뗄 때 `finishOverlayFollow` 에서만 — 눌린 채 합치면 앱 위를 지나기만 해도 창이 들락거린다.
+ * 판정은 `windowDragRegion.test.ts`, 여기서는 windowManager 가 실제로 그렇게 부르는지 소스로 집행한다.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';

@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { shortcutLabel } from '../../utils/platform.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import type { QueuedCommand, SubAgent } from '@vibisual/shared';
-// §5.5 #17-18 v4.68 — 덧말 처리 방식(대기/합치기/즉시).
 import { COMMAND_DISPATCH_MODES, DEFAULT_COMMAND_DISPATCH_MODE, displayCommands } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
@@ -29,11 +28,7 @@ interface CommandInputPopupProps {
 
 const MAX_TEXTAREA_HEIGHT = 200;
 
-/**
- * v1.35 — paste 된 이미지 1장의 업로드/미리보기 상태.
- * serverPath 는 업로드 완료 후에만 존재 → submit 시 이 값만 전송.
- * previewUrl 은 로컬 blob URL (언마운트 시 revoke).
- */
+/** paste 이미지 상태. submit 은 업로드 완료 후의 serverPath 만 보낸다. previewUrl 은 blob(언마운트 때 revoke). */
 interface PastedAttachment {
   tempId: string;
   previewUrl: string;
@@ -480,8 +475,7 @@ function DraggableItem({
               {t('panel.commandQueue.newSessionBadge')}
             </span>
           )}
-          {/* §5.5 #17-18 v4.68 — 대기 중인 명령의 처리 방식(대기/합치기/즉시). IDE 대기 줄과 같은 계약 —
-              같은 큐를 두 화면에서 보는데 한쪽에만 컨트롤이 있으면 방식을 바꾸려고 IDE 를 열어야 한다. */}
+          {/* §5.5 #17-18 — 대기 명령 처리 방식. IDE 대기 줄과 같은 계약(한쪽에만 있으면 바꾸러 IDE 를 열어야 한다). */}
           {!isExecuting && cmd.status === 'queued' && (
             <span className="inline-flex items-center gap-0.5 rounded bg-gray-950/60 p-0.5">
               {COMMAND_DISPATCH_MODES.map((m) => {
@@ -507,13 +501,12 @@ function DraggableItem({
               })}
             </span>
           )}
-          {/* §5.5 #17-18 v4.68 — 합치기로 덧말이 함께 실려 나간 명령임을 표시. */}
+          {/* §5.5 #17-18 — 합치기로 덧말이 함께 나간 명령 표시. */}
           {(cmd.mergedCount ?? 0) > 0 && (
             <span className="inline-block rounded bg-blue-500/10 px-1 py-px text-[12px] font-medium text-blue-300/80">
               {t('ide.mainArea.mergedNotice', { count: cmd.mergedCount ?? 0 })}
             </span>
           )}
-          {/* v1.35 — paste 된 이미지 개수 뱃지. 실행 중/대기 중 모두 표시. cleanup 후 archive 엔 잔재 없음. */}
           {cmd.attachments && cmd.attachments.length > 0 && (
             <span className="inline-flex items-center gap-0.5 rounded bg-amber-500/15 px-1 py-px text-[12px] font-medium text-amber-400">
               <svg className="h-2 w-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>

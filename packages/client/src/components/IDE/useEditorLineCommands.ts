@@ -17,13 +17,8 @@ import {
 } from './editorLineOps.js';
 
 /**
- * useEditorLineCommands.ts — §5.5 #17-27 ⑲ 편집창 **줄 편집 단축키**를 레지스트리에 잇는다.
- *
- * 키는 여기서 정하지 않는다 — `shared/keymap.ts` 의 editor 묶음(VS Code 기본값)과 사용자 키맵이 정하고,
- * 이 훅은 `useCommand` 로 듣기만 한다(§5.24 #32 — "표에 한 줄 + useCommand 한 줄"). 계산은 전부
- * 순수 함수(`editorLineOps.ts`)이고, 여기서는 지금 textarea 의 선택을 넘겨 결과를 `commit` 에 맡긴다.
- *
- * 우클릭 메뉴(§5.5 #17-27 ⑨)도 같은 조작을 부른다 — 그래서 조작 묶음(`EditorLineOps`)을 돌려준다.
+ * §5.5 #17-27 ⑲ 줄 편집 단축키 — 키는 `shared/keymap.ts` 가 정하고 여기선 `useCommand` 로 듣기만 한다(§5.24 #32). 계산은 `editorLineOps.ts`.
+ * 우클릭 메뉴(⑨)도 같은 조작을 쓰므로 `EditorLineOps` 를 돌려준다.
  */
 
 /** 줄 편집 조작 — 처리했으면 `true`, 이 편집창이 할 일이 아니면(읽기 전용·주석 기호 없음) `false`. */

@@ -1,13 +1,6 @@
 /**
- * §5.1 #1-1 — **셸로 내린 명령은 어느 문으로 들어와도 같은 길로 잡는다** 추출기 고정 시험(순수 함수).
- *
- * 2026-10-22 감사에서 확인한 빈자리를 시험으로 박아 둔다.
- *  (A) 셸 도구는 `Bash`·`PowerShell` 둘이다.
- *  (B) 셸 껍데기(`bash -lc`·`zsh -lc`·`pwsh -Command`·`-EncodedCommand`·`cmd /c`)는 벗겨서 안을 본다 — 코덱스는 셸 명령을
- *      늘 이 모양으로 낸다(저장된 91건이 전부 이 꼴이었고 경로 0건이었다). 아래 Windows 꼴은 그 저장본의 모양 그대로다.
- *  (E) 추출기가 놓치던 꼴 — 쓰기와 읽기.
- *
- * **플랫폼은 인자로 넘긴다** — 개발기 한 대에서 Windows·macOS·Linux 를 전부 재기 위함이다(멀티플랫폼 규칙).
+ * §5.1 #1-1 — 셸 명령은 어느 문으로 와도 같은 추출: `Bash`·`PowerShell` 둘, 셸 껍데기(`bash -lc`·`pwsh -Command`·`-EncodedCommand`·`cmd /c` 등)는
+ * 벗겨 본다(코덱스는 늘 이 꼴). 아래 Windows 꼴은 실제 저장본 모양이다. 플랫폼은 인자.
  */
 import { describe, it, expect } from 'vitest';
 import {

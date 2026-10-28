@@ -1,11 +1,4 @@
-/**
- * §5.5 #17-13 ⑤-3 — 작업 칩 시작·끝 합치기 회귀 방지.
- *
- * 지키는 것은 셋이다.
- *  ① 한 작업은 화면에서 **한 줄**이다(시작 + 끝 두 줄로 쌓이지 않는다).
- *  ② 합쳐진 줄은 **시작 줄의 id·자리**를 그대로 쓴다(가상 리스트 키가 흔들리면 스크롤이 튄다).
- *  ③ 짝이 없는 것(진행 중인 시작 · 시작이 잘려 나간 끝)은 손대지 않는다.
- */
+/** §5.5 #17-13 ⑤-3 작업 칩: 한 작업은 한 줄 · 합친 줄은 시작 줄 id·자리(키가 흔들리면 스크롤이 튄다) · 짝 없는 것은 그대로. */
 import { describe, it, expect } from 'vitest';
 import { formatSystemChip, parseSystemTaskInfo } from '@vibisual/shared';
 import { foldTaskChips } from './taskChips.js';

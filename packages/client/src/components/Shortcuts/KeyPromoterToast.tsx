@@ -7,15 +7,7 @@ import { useKeyPromoterStore, isPromotable, PROMOTE_TOAST_MS } from '../../store
 import { KeyHint } from './KeyHint.js';
 import { COMMAND_LABEL_EN } from './commandLabels.js';
 
-/**
- * KeyPromoterToast.tsx — **"이건 키로도 됩니다."**
- *
- * 같은 동작을 마우스로 몇 번 반복하면 그 자리에 잠깐 뜬다(§ `stores/keyPromoter.ts` 규율).
- * 화면을 가리지 않도록 우하단 구석에 작게 놓고, 스스로 사라진다.
- *
- * 토스트 안의 키캡도 `KeyHint` 라 **그 자리에서 바꿀 수 있다** — "그 키가 손에 안 맞는다"가
- * 곧 다음 행동으로 이어지게.
- */
+/** "이건 키로도 됩니다" — 마우스로 반복하면 우하단에 잠깐(규율 `stores/keyPromoter.ts`). 키캡은 `KeyHint` 라 바로 바꿀 수 있다. */
 export function KeyPromoterToast(): React.JSX.Element | null {
   const { t } = useTranslation();
   const current = useKeyPromoterStore((s) => s.current);

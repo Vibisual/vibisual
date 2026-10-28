@@ -4,21 +4,8 @@ import { SubAgentManager, isChildStdinWritable } from './subAgentManager.js';
 import { TURN_RESUME_GRACE_MS } from './turnSeal.js';
 
 /**
- * §5.5 #17-18 — **[즉시] 덧말이 대화를 끝내 버리지 않는다.**
- *
- * 실측(2026-08-14 `crash.log` 2건)으로 드러난 사슬은 이랬다 — 그 턴이 이미 `result` 를 냈고 백단 여운
- * 때문에 봉인만 붙들려 있는데도 [즉시] 가 인터럽트를 쏘고, CLI 가 답할 턴이 없어 3초 뒤 하드 킬 폴백이
- * `terminateChildTree`(= **`stdin.end()` 먼저**, 그다음 SIGTERM)로 내려갔다. 그 직후 붙들린 봉인이 만료돼
- * `ready=true` → finalize → `onComplete` → `processNextCommand` 가 **창구가 닫힌 그 자식에게** 다음 턴을
- * 쓰면서 `ERR_STREAM_WRITE_AFTER_END` 가 났다. 그 예외는 `write()` 를 감싼 try/catch 를 지나쳐
- * `uncaughtException` 이 되므로 dispatch 체인이 그 자리에서 끊긴다 — 사용자 화면에서는 **방금 친 덧말이
- * 한 글자도 나가지 않은 채 대화가 끝나고 세션이 멈춘 것**으로 보인다.
- *
- * 여기서 고정하는 약속은 셋이다 —
- *   ① 재사용 판정은 "자식이 장부에 있는가"가 아니라 **"쓸 수 있는 창구인가"** 다.
- *   ② 창구가 닫힌 자식이 남아 있으면 그 턴은 **큐로 되돌린다**(덧말을 잃지 않고, 그 자식의 `close` 가
- *      부르는 다음 차례에서 `--resume` fresh spawn 으로 이어진다).
- *   ③ 봉인만 붙들린 턴에 [즉시] 가 오면 **죽이지 않고 그 봉인을 확정**한다.
+ * §5.5 #17-18 — [즉시] 덧말이 대화를 끝내지 않는다(실측 2026-08-14: 닫힌 stdin 에 쓰다 `ERR_STREAM_WRITE_AFTER_END` → `uncaughtException` → dispatch 끊김).
+ * 고정: 재사용은 쓸 수 있는 창구일 때만 · 창구가 닫힌 자식이면 턴을 큐로 되돌린다 · 봉인만 붙들린 턴의 [즉시] 는 죽이지 않고 봉인을 확정한다.
  */
 
 /** 테스트가 들여다보는 내부 칸만 구조적으로 드러낸다(전체 타입을 흉내 내지 않는다). */

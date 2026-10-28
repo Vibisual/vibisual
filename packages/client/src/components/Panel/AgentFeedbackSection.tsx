@@ -7,13 +7,7 @@ import { ThumbsUpIcon, ThumbsDownIcon } from '../IDE/FeedbackButtons.js';
 
 const API_BASE = '';
 
-/**
- * §4 v3.21 — DetailPanel 에이전트 섹션: 좋아요/싫어요 집계 + "규칙으로 승격".
- *
- * 이 에이전트에 남긴 피드백 up/down 카운트를 보여주고, 싫어요가 있으면 distill(one-shot haiku)로
- * 규칙 문장 제안을 받아 **확인 모달**에서 사용자가 검토·수정 후 승인해야 `AgentConfig.rules` 에
- * append 한다(자동 append 금지 — rulesHistory 로 롤백 가능). 피드백이 없으면 렌더하지 않음.
- */
+/** §4 — 피드백 집계 + "규칙으로 승격": distill(one-shot haiku) 제안을 확인 모달에서 승인해야 `AgentConfig.rules` 에 붙인다(자동 append ❌). */
 export const AgentFeedbackSection = memo(function AgentFeedbackSection({ agentId }: { agentId: string }): React.JSX.Element | null {
   const { t } = useTranslation();
   const feedbacks = useGraphStore((s) => s.agentFeedbacks[agentId]);

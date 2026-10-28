@@ -7,17 +7,7 @@ import {
   type VoiceInputErrorCode,
 } from '@vibisual/shared';
 
-/**
- * §5.5 #17-38 ⑮ 마이크 설정 데려다 주기 — **판정만 따로 고정한다.**
- *
- * 이 기능이 무너지는 자리는 전부 여기다: 엉뚱한 OS 의 설정 주소를 열거나(mac 사용자에게
- * `ms-settings:`), 열 수 없는 판에서 여는 척하거나(linux), 권한으로 풀 수 있는 실패인데
- * 문을 안 열어 주는 것.
- *
- * **실기(mac·linux)가 없으므로 이 테스트가 세 OS 를 확인하는 유일한 길이다** —
- * 그래서 `micSettingsTarget` 은 `process.platform` 을 안에서 읽지 않고 **인자로 받는다**
- * ([docs/rules/multiplatform.md] "플랫폼 분기는 인자로 받는다").
- */
+/** §5.5 #17-38 ⑮ 마이크 설정 판정 — 엉뚱한 OS 주소(mac 에 `ms-settings:`)·linux 에서 여는 척·권한 실패에 문 안 열기를 막는다. 실기가 없어 `micSettingsTarget` 은 플랫폼을 인자로 받는다. */
 
 describe('micSettingsTarget — OS 마다 여는 곳이 다르다', () => {
   it('win32 는 개인 정보 마이크 설정 URI 를 연다', () => {

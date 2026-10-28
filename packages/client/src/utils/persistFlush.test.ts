@@ -1,14 +1,7 @@
 /**
- * persistFlush.test.ts — "종료 직전 400ms 안에 친 글자를 잃지 않는다" 회귀.
- *
- * 초안 저장소들은 타이핑 핫패스를 지키려고 debounce 로 localStorage 에 쓴다. 그래서 **debounce 가
- * 아직 안 터진 상태에서 앱이 닫히면** 그 글자는 없던 것이 된다 — 종전에는 `pagehide`/`beforeunload`
- * 가 그 자리를 메우기로 돼 있었는데, 앱 종료가 `app.exit(0)` 이라 그 이벤트가 뜨지 않았다.
- * 이 파일은 그 자리를 메운 창구(`flushAllPersisted`)가 실제로 저장소까지 밀어 넣는지를 고정한다.
- *
- * ⚠ **DOM 없이 돈다** — 이 패키지에는 jsdom·happy-dom 이 없다(전 테스트가 node 환경이다).
- *   저장소 모듈들은 `typeof window === 'undefined'` 를 스스로 보고 리스너 등록을 건너뛰므로,
- *   저장소만 대역으로 갈아 끼우면 영속 계층은 그대로 검증된다.
+ * "종료 직전 400ms 안에 친 글자를 잃지 않는다" 회귀. 초안 저장소는 debounce 로 localStorage 에 쓰는데, 앱 종료는 `app.exit(0)` 이라
+ * `pagehide`/`beforeunload` 가 뜨지 않는다. 그 자리를 메운 창구(`flushAllPersisted`)가 실제로 저장소까지 밀어 넣는지 고정한다.
+ * ⚠ DOM 없이 돈다(jsdom·happy-dom 없음) — 저장소 모듈은 `typeof window === 'undefined'` 면 리스너 등록을 건너뛰므로 저장소만 대역으로 갈아 끼우면 된다.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
@@ -216,11 +209,8 @@ describe('durable draft flush', () => {
   });
 });
 
-// ─── 실제 저장소와의 종단 회귀 ───
-//
-// 여기가 핵심이다. 위 단위 테스트는 창구만 보지만, 실제로 잃던 것은 **debounce 가 아직 안 터진
-// 초안**이었다. 저장소를 진짜로 import 해서 "쓰고 → 곧바로 종료 flush → 저장소에 있다"를 확인한다.
-// 저장소가 창구에 자기를 올리는 그 한 줄이 빠지면 여기서 잡힌다.
+// 실제 저장소와의 종단 회귀 — 잃던 것은 debounce 가 안 터진 초안이다. 저장소를 진짜로 import 해 "쓰고 → 곧바로 종료 flush → 저장소에 있다"를 본다.
+// 저장소가 창구에 자기를 올리는 한 줄이 빠지면 여기서 잡힌다.
 
 describe('세션 폼 초안(§5.5 ⑬) — debounce 가 안 터진 상태에서 종료해도 남는다', () => {
   it('setDraft 직후 flushAllPersisted() 면 저장소에 앉는다', async () => {
@@ -249,13 +239,8 @@ describe('세션 폼 초안(§5.5 ⑬) — debounce 가 안 터진 상태에서 
   });
 });
 
-// ─── 구조 회귀 — 앞으로 생길 저장소도 자동으로 걸린다 ───
-//
-// 위 두 종단 테스트는 지금 있는 저장소 둘을 본다. 그런데 이 결함의 본질은 **"`beforeunload` 에만
-// 기대면 앱 종료에서는 안 돈다"** 이고, 그건 새로 만드는 저장소에서 똑같이 재발한다.
-// 그래서 소스를 훑어 **`beforeunload` 로 flush 하는 함수는 종료 창구에도 올라와 있어야 한다**를
-// 못 박는다. `node:fs` 는 쓰지 않는다 — 클라이언트 tsconfig 에 Node 타입이 없다
-// (`typographyFloor.test.ts` 와 같은 제약·같은 수법).
+// 구조 회귀 — 앞으로 생길 저장소도 걸린다. 결함의 본질은 "`beforeunload` 에만 기대면 앱 종료에서는 안 돈다"라, 소스를 훑어
+// `beforeunload` 로 flush 하는 함수는 종료 창구에도 올라와 있어야 함을 못 박는다. `node:fs` ❌ — 클라 tsconfig 에 Node 타입이 없다(`typographyFloor.test.ts` 와 같다).
 
 const tsSources = import.meta.glob('../**/*.ts', { query: '?raw', import: 'default', eager: true });
 const tsxSources = import.meta.glob('../**/*.tsx', { query: '?raw', import: 'default', eager: true });

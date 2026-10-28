@@ -3,15 +3,7 @@ import type { FinishedSubagentTask, RunningSubagentTask } from '@vibisual/shared
 import { isBackgroundShellTask } from '@vibisual/shared';
 import { selectSessionTasks, selectSessionFinished, countSessionTasks, countOtherTasks, taskKindKey } from './runningSubagents.js';
 
-/**
- * §5.5 #17-9 ③(a) v4.95 / ⑥ v5.07 — 활동바 항목과 사이드바 뷰가 **같은 수**를 보게 하는 산식 회귀.
- *
- * 고정하는 약속 둘.
- *  ① 항목이 켜지는 조건 = 아래 숫자 = 목록 길이. 셋이 갈리면 v3.51 처럼 "아이콘은 떠 있는데
- *    숫자는 `(0)`, 눌러도 창이 안 뜬다"가 다시 난다.
- *  ② 모집단은 **백단에서 도는 것뿐**이다(v5.03 의 세션 실행 합류는 v5.07 에 철회). 지금 나누고
- *    있는 대화까지 세면 대화 중에는 늘 1건이 잡혀 "백단에 몇 개?"라는 질문이 오염된다.
- */
+/** §5.5 #17-9 ③(a)/⑥ — 활동바 점등 = 숫자 = 목록 길이, 모집단은 백단에서 도는 것뿐(지금 대화 ❌). */
 
 function task(over: Partial<RunningSubagentTask> = {}): RunningSubagentTask {
   return {
@@ -137,15 +129,7 @@ describe('끝난 것은 배지 숫자를 흔들지 않는다', () => {
   });
 });
 
-/**
- * §5.5 #17-9 ⑧ — **이름이 실제와 맞는가.**
- *
- * 이 목록에는 성격이 다른 둘이 섞이는데(모델이 도는 서브에이전트 / 명령만 도는 백그라운드 셸)
- * 종전에는 둘 다 "실행 중 서브에이전트" 한 이름이었다. 그래서 `tail -f` 한 줄이 "내 AI 가 10분째
- * 토큰을 태우는 중"으로 읽혔다(사용자 보고 2026-09-01 · 실측에서 그 tail 은 이미 끝난 패키징 로그를
- * 보고 있었다). 여기서 고정하는 것은 **판정 한 곳**과 **12개 언어 전부에서 두 이름이 갈리는 것**이다 —
- * 한 언어라도 같은 낱말이면 그 언어 사용자에게는 이 구분이 존재하지 않는 것과 같다.
- */
+/** §5.5 #17-9 ⑧ — 서브에이전트와 백그라운드 셸의 판정 한 곳, 그리고 12개 언어 전부에서 두 이름이 갈리는가(`tail -f` 가 토큰 소비로 읽히지 않게). */
 describe('종류 판정 — 서브에이전트인가 셸인가', () => {
   it("스트림 칩(`Bash run_in_background`·`Monitor`)은 셸이다", () => {
     expect(taskKindKey({ origin: 'stream' })).toBe('kindShell');

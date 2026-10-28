@@ -1,14 +1,6 @@
 /**
- * workspaceEntryName.ts — §5.5 #17-19 ⑦ 탐색기가 **새로 만들거나 바꿔 다는 이름**의 판정.
- *
- * 화면(입력창)과 디스크(서버)가 **같은 규칙 하나**를 봐야 한다 — 클라이언트가 통과시킨 이름을
- * 서버가 거절하면 사용자는 "왜 안 되는지 모른 채" 같은 이름을 다시 친다. 그래서 판정은 순수
- * 함수 하나로 shared 에 두고 양쪽이 그것만 부른다.
- *
- * ⚠ 규칙은 **셋 중 가장 좁은 것(Windows)** 을 세 OS 에 똑같이 적용한다. 리눅스에서는 `a:b.txt`
- * 가 만들어지지만 그 저장소를 Windows 에서 체크아웃하는 순간 그 파일은 꺼낼 수 없다 —
- * 만드는 자리에서 막는 것이 그 사람에게도, 그 저장소를 받는 다음 사람에게도 낫다.
- * 플랫폼 분기를 두지 않으므로 `platform` 인자도 없다(어디서 돌아도 같은 답).
+ * §5.5 #17-19 ⑦ 탐색기의 새 이름 판정 — 입력창과 서버가 이 한 함수만 부른다(어긋나면 이유 모를 거절이 된다).
+ * ⚠ 가장 좁은 Windows 규칙을 세 OS 에 건다 — 리눅스에서 만든 `a:b.txt` 는 Windows 체크아웃에서 꺼낼 수 없다. 그래서 `platform` 인자가 없다.
  */
 
 /** 이름을 거절하는 사유 — 화면은 이 값으로 번역문을 고른다(문구를 여기서 만들지 않는다). */
@@ -44,11 +36,7 @@ const RESERVED_BASENAMES = new Set([
 /** Windows 파일명이 받지 않는 글자. 구분자(`/` `\`)는 사유를 따로 주려고 여기서 뺐다. */
 const INVALID_CHARS = new Set(['<', '>', ':', '"', '|', '?', '*']);
 
-/**
- * 이 이름으로 파일·폴더를 만들 수 있는가. 만들 수 있으면 `null`, 아니면 그 사유.
- *
- * 이름 **한 조각**만 받는다(경로 ❌ — 부모 폴더는 호출부가 이미 알고 있다).
- */
+/** 만들 수 있으면 `null`, 아니면 사유. 이름 한 조각만 받는다(경로 ❌). */
 export function workspaceEntryNameError(name: string): WorkspaceEntryNameError | null {
   if (name.length === 0 || name.trim().length === 0) return 'empty';
   if (name.length > WORKSPACE_ENTRY_NAME_MAX) return 'too-long';

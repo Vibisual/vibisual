@@ -1,15 +1,7 @@
 /**
- * webHostKind.ts — §5.23 웹 버블 묶기의 두 판정.
- *
- *  (A) `webSiteOf` — 호스트의 **사이트**(등록 도메인 어림). `docs.github.com` → `github.com`.
- *  (B) `webKindOfHost` · `webKindOfSite` — 호스트·사이트의 **종류**(검색·문서·코드·패키지·질문·표준·글·영상).
- *
- * 표는 전부 §3.3 상수(`WEB_SITE_SUFFIXES` · `WEB_KIND_HOSTS` · `WEB_KIND_SUBDOMAINS` · `WEB_KIND_SITES` ·
- * `WEB_KIND_PATHS`)이고, 여기에는 **어느 근거를 먼저 믿나**의 순서만 있다. 모르면 지어내지 않는다 — 종류가 없으면
- * `undefined` 를 돌려주고, 묶기는 그 단위를 "그 밖의 웹"에 넣는다(§5.23 "모르는 것을 넘겨짚지 않는다").
- *
- * 순수 함수 모듈이다 — 디스크·네트워크·시각에 닿지 않는다. 고정 시험은
- * `packages/server/src/services/webHostKind.test.ts`(러너가 shared 에 없다).
+ * §5.23 웹 버블 묶기의 두 판정 — (A) `webSiteOf` 사이트(등록 도메인 어림) (B) `webKindOfHost`·`webKindOfSite` 종류(검색·문서·코드 등).
+ * 표는 §3.3 상수이고 여기엔 근거를 믿는 순서만 있다. 모르면 지어내지 않고 `undefined` — 묶기가 "그 밖의 웹"에 넣는다.
+ * 순수 함수. 시험은 `packages/server/src/services/webHostKind.test.ts`(shared 에 러너가 없다).
  */
 import {
   WEB_KIND_HOSTS,
@@ -33,8 +25,8 @@ function lookup(table: Readonly<Record<string, WebKind>>, key: string): WebKind 
 }
 
 /**
- * (A) 호스트의 사이트 — 끝 두 칸. 끝 두(세) 칸이 `WEB_SITE_SUFFIXES` 에 있으면 한 칸 더 붙인다
- * (`bbc.co.uk` · 사람마다 다른 `alice.github.io`). IP·`localhost`·한 칸 이름·`web-search` 의사 호스트는 그 자체가 사이트다.
+ * (A) 끝 두 칸. 끝 두(세) 칸이 `WEB_SITE_SUFFIXES` 에 있으면 한 칸 더(`bbc.co.uk`·사람마다 다른 `alice.github.io`).
+ * IP·`localhost`·한 칸 이름·`web-search` 의사 호스트는 그 자체가 사이트다.
  */
 export function webSiteOf(host: string): string {
   const h = normalizeHost(host);
@@ -103,10 +95,8 @@ function majority(kinds: readonly (WebKind | undefined)[]): WebKind | undefined 
 }
 
 /**
- * (B) 호스트 하나의 종류.
- * ① `web-search` 의사 호스트 → 검색 ② 호스트 그대로 표 ③ 하위 도메인 머리 ④ 사이트(와 그 위) 표 ⑤ 읽은 주소의 경로 다수결.
- *
- * @param urls 그 호스트에서 읽은 주소 — **최신이 앞**. 경로 근거가 같은 수로 갈리면 최근 주소를 따른다.
+ * (B) ① `web-search` 의사 호스트 → 검색 ② 호스트 표 ③ 하위 도메인 머리 ④ 사이트(와 그 위) 표 ⑤ 읽은 주소의 경로 다수결.
+ * @param urls 최신이 앞 — 경로 근거가 같은 수로 갈리면 최근 주소를 따른다.
  */
 export function webKindOfHost(host: string, urls: readonly string[] = []): WebKind | undefined {
   const h = normalizeHost(host);

@@ -66,7 +66,9 @@
       "tooltip": "当前会话：已用 5 小时额度的 {{percent}}% — 点击查看详情",
       "tooltipNoData": "尚未收到用量数据 — 点击查看详情",
       "tooltipWaiting": "正在从 Claude Code 获取用量 — 稍后会显示数值",
-      "tooltipCliUnavailable": "无法运行 Claude Code 读取用量 — 点击查看详情"
+      "tooltipCliUnavailable": "无法运行 Claude Code 读取用量 — 点击查看详情",
+      "creditActive": "新运行使用 API 额度",
+      "creditBlocked": "Anthropic 拒绝了 API 额度——运行使用你的订阅"
     },
     "setupBanner": {
       "text": "未安装 Claude Code — Agent 尚无法运行。",
@@ -387,7 +389,8 @@
         "account": "账户",
         "storage": "存储",
         "keyboard": "键盘",
-        "theme": "主题"
+        "theme": "主题",
+        "credits": "额度"
       },
       "appearance": {
         "intro": "个性化 Vibisual 的外观。",
@@ -497,9 +500,6 @@
         "updateAvailable": "有可用更新",
         "upToDate": "已是最新",
         "registryError": "npm 检查失败",
-        "installations": "安装列表",
-        "auto": "自动（推荐）",
-        "autoDesc": "由 Vibisual 自动选择",
         "activeBadge": "使用中",
         "unknownVer": "未知",
         "restartHint": "已保存选择。重启 Vibisual 后将对新派生的 Agent 生效。",
@@ -512,12 +512,51 @@
           "title": "Claude Code 更新",
           "label": "自动保持 Claude Code 为最新版本",
           "onHint": "每次启动应用时，Vibisual 都会将 CLI 更新到最新版本。",
-          "offHint": "自动更新已关闭。请使用“立即更新”手动更新 CLI。",
+          "offHint": "自动更新已关闭。请点击“{{updateNow}}”手动更新 CLI。",
           "vscodeNotice": "当前使用的可执行文件来自 VS Code 扩展，只能通过 Marketplace 更新。请在上方选择其他安装方式，以便由 Vibisual 管理更新。",
           "updateNow": "立即更新",
           "updating": "更新中…",
           "updated": "已更新到 {{version}}",
           "updateFailed": "更新失败"
+        },
+        "sourceManaged": "应用托管",
+        "managed": {
+          "title": "应用托管副本",
+          "hint": "Vibisual 会在启动时以及此后每 6 小时，从官方渠道下载新版 {{engine}}，确认每个版本都支持 Vibisual 用到的所有选项后，再切换到该版本。登录状态和设置仍保持共享。",
+          "inUse": "使用中",
+          "latest": "最新版（官方）",
+          "previous": "上一版本",
+          "none": "尚未下载",
+          "checkedAt": "上次检查：{{time}}",
+          "notChecked": "尚未检查",
+          "updating": "正在下载并检查…",
+          "rollback": "回滚到 {{version}}",
+          "rollbackFailed": "回滚失败",
+          "rejected": "未切换——{{version}} 不支持以下选项：{{options}}",
+          "deferred": "未下载——这台电脑尚未使用 {{engine}}，安装时才会下载。",
+          "folder": "文件夹",
+          "nextRetry": "下次重试 {{time}}"
+        },
+        "codexAutoUpdate": {
+          "title": "Codex 更新",
+          "label": "自动保持 Codex 为最新版本",
+          "offHint": "自动更新已关闭。请点击“{{updateNow}}”手动更新 Codex。"
+        },
+        "chooseBinary": "使用哪个可执行文件",
+        "defaultManaged": "应用托管（默认 · 自动更新）",
+        "defaultManagedReady": "正在使用 {{version}} — 从官方渠道下载，通过 Vibisual 的检查后才会切换。",
+        "defaultManagedPending": "尚未就绪 — 下载并检查完成后，Vibisual 会立即切换到它。",
+        "otherInstalls": "其他安装（备选）",
+        "otherInstallsNone": "这台电脑上没有找到其他安装。",
+        "defaultBadge": "默认",
+        "temporaryBadge": "临时",
+        "codexUserSelected": "已选择其他安装——其更新由提供方负责。切换回默认后，将恢复应用托管更新。",
+        "pending": {
+          "downloading": "正在准备应用托管副本——下载并检查中…",
+          "failed": "无法准备应用托管副本：{{error}}",
+          "retryAt": "将在 {{time}} 自动重试。",
+          "tryNow": "如需立即重试，请点击下方的“{{updateNow}}”。",
+          "waiting": "应用托管副本尚未就绪，因此暂时使用此安装。下载会自动进行。"
         }
       },
       "agent": {
@@ -817,7 +856,8 @@
         "autoCompactWindow": "对话达到该大小后折叠",
         "autoCompactWindowOff": "保持原有设置",
         "autoCompactWindowDesc": "这是这里影响最大的一项设置。经过三天的测量，会话的 Token 中位数为 186k，超过 200k 的部分占全部输入的 62%。每一轮对话都会重新读取这部分内容。在相同工作量下，将窗口从 400k 降到 200k 可减少 27% 的输入，降到 100k 可减少 59%。该设置只会朝更低的方向生效：如果 Agent 或默认值已经更低，则以更低的为准。折叠本身也是一次较大的请求，因此最低的设置并不一定是最省的。该窗口只决定在命令之间何处折叠——任务中途只有模型窗口占满时，CLI 才会折叠。"
-      }
+      },
+      "creditsIntro": "Claude 额度来自不同的钱包。每个页面对应一个钱包：它是什么、由谁计费、在哪里管理，以及 Vibisual 是否使用它。"
     },
     "autoAgent": {
       "title": "Auto Agent",
@@ -2019,7 +2059,134 @@
       "hwDevicesUnknown": "加速器信息读取自引擎，因此只有安装引擎后才会显示。",
       "hwLoaded": "已加载到内存",
       "hwLoadedNone": "当前没有已加载的模型。",
-      "hwHint": "All Model 没有订阅限制——它消耗的是这台电脑的资源。持有不同模型的气泡会分别占用各自的内存，使用同一模型的气泡则共享同一个实例。"
+      "hwHint": "All Model 没有订阅限制——它消耗的是这台电脑的资源。持有不同模型的气泡会分别占用各自的内存，使用同一模型的气泡则共享同一个实例。",
+      "apiCredit": {
+        "title": "API 额度（Console）",
+        "status": {
+          "off": "关闭",
+          "standby": "待命",
+          "active": "使用中",
+          "blocked": "被 Anthropic 拒绝"
+        },
+        "enable": "使用 API 额度",
+        "enableHint": "关闭后，所有运行仍照常使用你的订阅。",
+        "mode": "优先使用额度",
+        "modeHintConsole": "关闭：订阅达到上限后才改用额度。开启：优先使用额度，只要 Anthropic 拒绝额度，就改用订阅。",
+        "autoContinue": "自动继续已停止的运行",
+        "autoContinueHint": "运行因达到上限而停止时，改用另一条计费通道继续一次。",
+        "key": "API 密钥",
+        "keyPlaceholder": "sk-ant-api03-…",
+        "keySave": "保存密钥",
+        "keySaved": "已保存 {{hint}}",
+        "keyRemove": "移除",
+        "keyVerify": "重新检查",
+        "keyVerified": {
+          "ok": "已验证",
+          "rejected": "被 Anthropic 拒绝",
+          "unknown": "尚未检查"
+        },
+        "keyUnreadable": "此密钥无法在这台电脑上读取，请重新输入。",
+        "keyProtected": "密钥保存在操作系统的安全存储中。",
+        "keyUnprotected": "这台电脑没有安全密钥存储，密钥将以未加密形式保存在本机。",
+        "keyCreate": "在 Console 中创建密钥",
+        "keyProblem": {
+          "empty": "请粘贴 API 密钥。",
+          "notAnthropic": "这不像是 Anthropic API 密钥，应以 sk-ant- 开头。",
+          "adminKey": "管理员密钥无法运行模型，请创建普通 API 密钥。",
+          "oauthToken": "这是登录令牌，不是 API 密钥。",
+          "whitespace": "密钥中含有空格，请去掉空格后重新粘贴。"
+        },
+        "keySaveFailed": "密钥保存失败，请重试。",
+        "liveRunsNow": "当前使用额度的运行：{{count}}",
+        "reason": {
+          "off": "额度已关闭，所有运行都使用你的订阅。",
+          "cloud-provider": "这台电脑上的 Claude Code 已设置为使用云服务商，因此不会使用额度。每次运行都由云端计费。",
+          "no-key": "添加 API 密钥后才能使用额度。",
+          "blocked": "Anthropic 拒绝了上一次使用额度的运行，因此新运行使用你的订阅。",
+          "subscription-ok": "当前运行使用你的订阅，订阅达到上限后将改用额度。",
+          "subscription-exhausted": "订阅已达到上限，新运行使用额度。",
+          "credits-first": "新运行优先使用额度。"
+        },
+        "subscriptionResets": "订阅将于 {{time}} 重置",
+        "block": {
+          "balance-empty": "Anthropic 拒绝了这次使用额度的运行：你的 Console 额度余额不足。",
+          "spend-limit": "Anthropic 拒绝了这次使用额度的运行：你的 Console 每月支出已达上限。",
+          "key-invalid": "Anthropic 拒绝了该 API 密钥。"
+        },
+        "blockRetryAt": "{{time}} 将再次尝试使用额度。",
+        "blockRetry": "立即重试",
+        "actionFailed": "操作未成功，请重试。",
+        "console": {
+          "title": "本月支出（Console）",
+          "asOf": "自 {{start}} 起 · 更新于 {{time}} · 数据与 Console 的“费用”页面一致",
+          "used": "已使用",
+          "resetsOn": "{{date}}（UTC）重置",
+          "viewSpendLimits": "在 Console 中查看支出限额",
+          "org": "组织：{{name}}",
+          "refresh": "刷新",
+          "refreshing": "正在刷新…",
+          "pending": "正在读取你的 Console 支出…",
+          "limitsNote": "你的支出上限和额度余额在 Console 中设置，Anthropic 没有提供可读取它们的公开 API，因此 Vibisual 不会显示，也不会强制执行自己的上限。达到上限或余额用尽时，Anthropic 会拒绝这次运行，Vibisual 会切换回你的订阅。",
+          "needKeyTitle": "添加管理员密钥以显示你的 Console 支出",
+          "needKeyBody": "Vibisual 使用 Anthropic 官方的 Usage and Cost API 读取本月支出，该 API 需要管理员密钥（sk-ant-admin01-…）。组织管理员可在 Console 的“管理员密钥”页面创建。个人账户需要先在 Console 中设置组织。",
+          "createAdminKey": "在 Console 中创建管理员密钥",
+          "setupOrg": "在 Console 中设置组织",
+          "adminKey": "管理员密钥（读取支出）",
+          "adminKeyPlaceholder": "sk-ant-admin01-…",
+          "adminKeyHint": "仅用于读取支出——不能用来运行模型。",
+          "error": {
+            "auth": "该密钥不是管理员密钥或已过期，Anthropic 已拒绝。请先在 Console 中设置组织，再创建管理员密钥（sk-ant-admin01-…）并添加到这里。",
+            "forbidden": "该密钥无法读取支出。请使用由组织管理员创建的管理员密钥。",
+            "not-found": "Anthropic 未找到该密钥的支出数据。个人账户需要先在 Console 中设置组织。",
+            "rate-limited": "Anthropic 要求 Vibisual 等待一段时间后再次读取支出。之后会自动刷新。",
+            "network": "无法连接到 Anthropic。稍后会自动刷新。",
+            "unreadable": "无法在这台电脑上读取该管理员密钥。请重新输入。",
+            "other": "无法读取你的 Console 支出。"
+          },
+          "lastValue": "显示的是上次读取的值。"
+        }
+      },
+      "creditPages": {
+        "tabsLabel": "额度类型",
+        "billedLabel": "计费方",
+        "manageLabel": "管理入口",
+        "vibisualLabel": "在 Vibisual 中",
+        "subscription": {
+          "tab": "套餐限额",
+          "what": "Claude Pro 或 Max 套餐包含的 5 小时和每周用量限额。",
+          "billed": "你的 claude.ai 订阅，按月固定收费。",
+          "vibisual": "默认用于每次 Claude 运行，包括 headless 和 CMD。"
+        },
+        "personal": {
+          "tab": "个人额度",
+          "what": "你个人 claude.ai 账户上的额外用量。在 claude.ai 上开启后，达到套餐限额时仍可继续工作。",
+          "billed": "你的 claude.ai 账户上绑定的支付方式。",
+          "vibisual": "Vibisual 不会选择它。如果已开启，Claude Code 会在达到套餐限额后自行使用。此页面仅读取。"
+        },
+        "business": {
+          "tab": "企业额度",
+          "what": "你的 Claude Console（platform.claude.com）组织的 API 额度。Max 或 Team 套餐每月赠送的促销额度，以及你购买的额度，都会进入这里。",
+          "billed": "从 Console 组织的额度中扣除。用完后运行会停止。仅当你开启了自动充值时，才会向银行卡扣费。",
+          "vibisual": "启用后，仅用于 headless 运行（不含 CMD 或 hook 气泡）。默认仅在达到套餐限额后使用。"
+        },
+        "cloud": {
+          "tab": "云端额度",
+          "what": "通过 Amazon Bedrock、Google Cloud Vertex AI 或 Microsoft Foundry 使用的 Claude。",
+          "billed": "你的云账户。来自 Anthropic 的个人额度和企业额度均不适用。",
+          "vibisual": "Vibisual 遵循这台电脑上 Claude Code 的设置。如果设置为云服务商，每次运行都由该云服务商计费。",
+          "currentLabel": "这台电脑上的 Claude Code 的计费方",
+          "provider": {
+            "anthropic": "Anthropic 本身，而非云服务商",
+            "unknown": "未知，因为尚未检查登录状态",
+            "bedrock": "Amazon Bedrock",
+            "vertex": "Google Cloud Vertex AI",
+            "foundry": "Microsoft Foundry"
+          },
+          "activeNote": "Vibisual 发起的每次 Claude 运行都由这个云端计费。不会使用个人额度和企业额度，企业额度路径也保持关闭。",
+          "inactiveNote": "这台电脑上的 Claude Code 未设置为使用云服务商，因此不会使用云端额度。如需使用，请先为该云服务商设置 Claude Code。",
+          "docs": "如何在云服务商上运行 Claude Code"
+        }
+      }
     },
     "plugins": {
       "title": "插件",
@@ -4714,6 +4881,9 @@
       "runOutput": "运行输出",
       "runOutputNone": "尚未从此气泡运行过任何内容。"
     },
+    "fileWindow": {
+      "close": "关闭"
+    },
     "paneOpener": {
       "tabHint": "选择要在此处显示的文件",
       "scope": "本项目中的 {{list}} 文件，最近修改的排在前面",
@@ -5405,6 +5575,7 @@
       "openInPane": "在编辑器面板中打开 — {{path}}",
       "openFolder": "打开此文件所在的文件夹 — {{path}}",
       "readOnlyLocked": "此文件在磁盘上被锁定为只读（Perforce 签出、文件属性）。",
+      "outsideReadOnly": "此文件位于项目之外，只能查看。",
       "readOnlyUnlock": "解除只读并保存",
       "readOnlyUnlockHint": "先清除只读属性再保存。不会恢复锁定，也不会执行任何版本控制命令（p4 edit 等）。",
       "saveError": {
@@ -5877,7 +6048,8 @@
       "orphaned": "应用重启时被中断",
       "dispatchResult": "未收到委派任务的结果即已结束",
       "usageLimit": "已达到用量上限并停止",
-      "unknown": "因未知原因失败"
+      "unknown": "因未知原因失败",
+      "creditCap": "已在 API 额度上限处停止"
     },
     "turnStop": {
       "cancelled": "已由你停止",
@@ -5907,15 +6079,12 @@
       "viaTask": "通过子 Agent：{{name}}",
       "external": "项目之外",
       "enter": "进入文件夹",
-      "leave": "返回会话",
       "openAddress": "打开地址",
       "showInConversation": "在对话中显示",
       "copyAddress": "复制地址",
       "copyCommand": "复制命令",
       "recentQueries": "最近搜索",
       "recentCommands": "最近命令",
-      "moreFiles": "还有 {{count}} 个文件——进入文件夹查看全部",
-      "overflowHint": "最近最少使用的位置，折叠成一个",
       "centerTotals": "文件 {{files}} · 网页 {{webs}} · 应用 {{apps}} · 子 Agent {{tasks}}"
     },
     "density": {

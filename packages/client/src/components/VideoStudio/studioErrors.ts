@@ -1,9 +1,6 @@
 /**
- * §5.13 (V) 37-1 — 오류를 **사람이 읽는 말 한 줄**로 (순수).
- *
- * 종전에는 `String(err)` 원문이 상태줄에 그대로 찍혔다("Error: request failed 504 …"). 이제 원문은 [자세히] 안에 접어 두고
- * 겉에는 갈래별 한 줄을 보인다. 갈래는 원문의 낱말로 고른다 — 서버·전송 층이 던지는 문구가 영문·한국어 섞여 있어 둘 다 본다.
- * 화면 문구는 번역 키(`panel.videoStudio.errors.<kind>`)가 맡는다.
+ * §5.13 (V) 37-1 — 오류를 사람이 읽는 말 한 줄로(순수). 원문은 [자세히] 안에 접고 겉에는 갈래별 한 줄을 보인다.
+ * 갈래는 원문의 낱말로 고른다 — 서버·전송 층 문구가 영문·한국어 섞여 있어 둘 다 본다. 화면 문구는 번역 키(`panel.videoStudio.errors.<kind>`).
  */
 
 import { creationErrorCode } from '../Creation/creationErrors.js';

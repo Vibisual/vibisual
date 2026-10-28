@@ -1,23 +1,8 @@
 /**
- * storageRetention.ts — §3.2.3 보존 정책의 **파일 쪽** 집행 + 저장소 사용량 실측.
- *
- * 체크포인트 안쪽(`fileEdits`·`completedCommands`)은 `projectGraph`/`index` 가 각자 상한을 걸고,
- * 여기는 **디스크에 따로 놓인 파일**(sub-streams jsonl · attachments · 워크트리)을 다룬다.
- *
- * 규칙 셋(§3.2.3):
- *  1. **살아있는 것은 나이와 무관하게 보존** — 화면에 떠 있는 서브에이전트의 스트림 파일은 지우지 않는다.
- *     ⚠ "살아있는" 은 registry 뿐 아니라 **아카이브(탭 닫아 '다시 열기' 목록에 남은 것)** 도 포함한다.
- *     registry 만 보면 목록에는 항목이 보이는데 누르면 빈 화면이 된다(실측 2026-08-19: 아카이브 102개 중
- *     실제로 돌았던 2개가 이미 기록 소실, 91개가 같은 시계 위에 있었다).
- *  2. **참조되는 것은 나이와 무관하게 보존** — 첨부는 나이만으로 지우지 않는다. 체크포인트·활동 이력이
- *     아직 그 파일을 가리키면(위성 파일 노드·완료 명령 썸네일) 남긴다. 삭제 후보는 **고아**뿐이다.
- *     git 이 reachable/unreachable 을 가르는 것과 같은 갈래이며, 참조되는 쪽을 무기한으로 둔다.
- *  3. **되돌릴 수 없는 정리는 사용자가 고른다** — 워크트리는 실측만 하고 자동 삭제하지 않는다.
- *     자동 정리 대상도 곧바로 지우지 않고 **휴지통으로 옮긴 뒤** `trashRetentionDays` 가 지나서야 지운다.
- *  4. **조용히 지우지 않는다** — 무엇을 얼마나 지웠는지 그대로 돌려준다(로그 + 화면 + 휴지통 목록).
- *
- * ⚠ **판단이 서지 않으면 지우지 않는다** — 참조 목록을 읽지 못한 프로젝트(체크포인트 손상·권한)는
- *   첨부를 아예 건드리지 않는다(`hasProjectSaveData` 가 접근 실패를 보수적으로 true 로 두는 것과 같은 태도).
+ * §3.2.3 보존 정책의 파일 쪽(sub-streams·attachments·워크트리) 집행 + 사용량 실측.
+ * ① 살아있는 것은 나이 무관 보존 — 아카이브('다시 열기')도 포함(빼면 눌러도 빈 화면) ② 참조되는 첨부는 보존, 고아만 후보(git reachable 과 같은 갈래)
+ * ③ 되돌릴 수 없는 정리는 사용자가 — 워크트리는 실측만, 자동 정리는 휴지통 경유(`trashRetentionDays`) ④ 조용히 지우지 않는다.
+ * ⚠ 참조 목록을 못 읽은 프로젝트는 첨부를 건드리지 않는다 — 판단이 안 서면 지우지 않는다.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -84,11 +69,7 @@ function measureBackups(fp: string): { bytes: number; files: number } {
   return { bytes, files };
 }
 
-// ─── 휴지통 (§3.2.3 규칙 3) ───
-//
-// 정리는 `unlink` 가 아니라 **이동**이다. 원래 상대 구조를 그대로 보존하므로 복원이 계산으로 끝나고,
-// 휴지통 자체를 훑으면 그것이 곧 "무엇을 지웠는지" 목록이 된다 — 별도 기록 파일을 만들지 않는 이유다
-// (§3.2 "별도 JSON 저장 금지" 를 새 예외 없이 지킨다).
+// 휴지통(§3.2.3 ③) — 정리는 이동이다. 상대 구조를 보존해 복원이 계산이고, 휴지통 자체가 "지운 목록"이라 기록 파일이 없다(§3.2 별도 JSON 금지).
 
 /** 휴지통 루트 — 프로젝트 저장 폴더 안. 저장 폴더와 같은 볼륨이라 `rename` 이 성립한다. */
 const TRASH_SUBDIR = 'trash';
@@ -167,12 +148,7 @@ function pruneEmptyDirsUpTo(startDir: string, stopAt: string): void {
   }
 }
 
-/**
- * 휴지통 목록 — 무엇이 복원 가능한 상태로 남아 있는지. 별도 기록 파일 없이 폴더를 훑어 만든다.
- *
- * `reason` 은 갈래에서 되짚는다(첨부는 참조 0 + 나이 초과, 스트림은 나이 초과) — 기록 파일을 두지
- * 않는 대가로 이 한 칸만 추론이다. 나머지는 전부 파일 자체가 사실이다.
- */
+/** 휴지통 목록 — 폴더를 훑어 만든다. `reason` 만 갈래로 추론(첨부 = 참조 0 + 나이, 스트림 = 나이), 나머지는 파일이 사실이다. */
 export function listTrash(projects: ProjectInfo[]): { entries: RetentionLogEntry[]; totalBytes: number } {
   const entries: RetentionLogEntry[] = [];
   let totalBytes = 0;
@@ -300,14 +276,8 @@ export function pruneTrash(
 // ─── 참조 수집 (§3.2.3 규칙 2) ───
 
 /**
- * 그 프로젝트가 **아직 가리키고 있는 첨부 파일명** 집합. 못 읽으면 `null` — 호출부는 그때 정리를 건너뛴다.
- *
- * 왜 파일명(basename)인가: 같은 파일을 체크포인트는 상대경로(`.vibisual/attachments/…`)로, 완료 명령은
- * 절대경로로 들고 있어 경로 문자열이 한 벌로 맞지 않는다. 파일명은 업로드 때 붙인 UUID 라 충돌이 없고,
- * 혹시 겹쳐도 **더 많이 남기는 쪽**으로만 틀린다(안전한 방향).
- *
- * 왜 JSON.parse 가 아니라 문자열 훑기인가: 필요한 건 "이 이름이 어딘가 나오는가" 뿐이라 파싱은
- * 낭비다(체크포인트 2.5MB + 활동 6.7MB). 부팅 1회라도 파싱 피크를 만들지 않는다.
+ * 아직 참조되는 첨부 파일명(못 읽으면 `null` → 정리 건너뜀). basename 인 이유: 상대·절대경로가 섞여 있고 이름은 업로드 UUID 라
+ * 겹쳐도 더 남기는 쪽으로만 틀린다. 문자열 훑기 — 수 MB 파싱 피크를 만들지 않는다.
  */
 function collectReferencedAttachmentNames(saveDir: string): Set<string> | null {
   const names = new Set<string>();
@@ -356,11 +326,7 @@ export function scanProjectStorage(info: ProjectInfo): ProjectStorageUsage {
   const subStreams = measureDir(path.join(saveDir, 'sub-streams'));
   const trash = measureDir(path.join(saveDir, TRASH_SUBDIR));
   const attachments = measureDir(path.join(vibiDir, 'attachments'));
-  /*
-   * 절차 저장고 — 새 자리와 **옛 브레인 자리를 합쳐** 한 줄로 센다(§5.10 통폐합).
-   * 옛 자리는 아직 읽기 전용으로 읽히므로(`listAutoGoalSkills`) 표에서 빼면 실제로 차지한 용량이
-   * 총합에서 사라진다 — 사용자가 지우지도 않았는데 숫자가 줄면 이 표는 그 순간 거짓말이 된다.
-   */
+  /* 절차 저장고는 새 자리 + 옛 브레인 자리를 합쳐 센다(§5.10) — 옛 자리도 아직 읽히므로 빼면 지우지도 않았는데 총합이 줄어 표가 거짓이 된다. */
   const newSkills = measureDir(path.join(vibiDir, 'skills'));
   const legacySkills = measureDir(path.join(vibiDir, 'brain'));
   const skills = {
@@ -459,12 +425,7 @@ function isLiveStreamFileFresh(liveFile: string, days: number): boolean {
   }
 }
 
-/**
- * 보존 기간이 지난 `sub-streams/<agentId>/<subId>.jsonl` 정리.
- *
- * ⚠ `liveSubAgentIds` 에 든 것은 **나이와 무관하게 보존**한다 — 화면에 떠 있는 대화를 지우면
- *   IDE 를 다시 열었을 때 빈 화면이 된다(§3.2.3 규칙 1, `deleteAgentStreams` 주석과 같은 이유).
- */
+/** 만료 `sub-streams/<agentId>/<subId>.jsonl` 정리. ⚠ `liveSubAgentIds` 는 나이 무관 보존(지우면 IDE 재오픈이 빈 화면 — §3.2.3 ①). */
 export function pruneSubStreams(
   saveDirs: string[],
   protectedSubAgentIds: Set<string>,
@@ -522,18 +483,9 @@ export function pruneSubStreams(
 }
 
 /**
- * 보존 기간이 지난 **고아** 첨부 정리. 명세(`index.ts` 업로드 주석)에는 "완료 후 cleanup" 이 적혀
- * 있었으나 실제 정리 함수가 없어 118파일 6.9MB 가 남아 있었다 — 그 명세를 여기서 이행한다.
- *
- * ⚠ 종전 구현은 두 가지를 함께 틀렸고 그 둘이 겹쳐 **실제 손실 직전까지 갔다**(실측 2026-08-19):
- *  - **살아있음·참조 검사가 없었다** — `liveSubAgentIds` 를 받지도 않아 지금 돌고 있는 세션의 첨부까지
- *    지웠다. 반대편에서 참조하는 쪽은 나이 제한이 없다(위성 파일 노드 89개 · 완료 명령 최고령 37일)
- *    → 읽는 쪽이 파일 쪽보다 멀리 닿아 §3.2.3 의 "소비자에게 no-op" 이 뒤집혔다.
- *  - **세션 폴더 mtime 으로 판정했다** — 손자 파일 추가를 추적하지 못해 살아있는 폴더를 늙은 것으로 봤고,
- *    판정 단위가 폴더라 `rmSync(recursive)` 로 참조 중인 파일까지 함께 날렸다.
- *
- * 사라지는 방식까지 조용했다 — 클라이언트(`attachmentThumb.ts`)는 fetch 실패를 걸러내므로 썸네일이
- * 깨진 아이콘도 없이 없어졌다. 붙여넣은 스크린샷은 클립보드가 사라진 뒤라 이 파일이 유일본이다.
+ * 만료된 고아 첨부 정리. ⚠ 살아있음·참조를 본다 — 참조하는 쪽(위성 노드·완료 명령)은 나이 제한이 없다.
+ * 판정은 파일 mtime — 폴더 mtime 은 손자 추가를 모르고 폴더째 지우면 참조 파일까지 날아간다(실측 2026-08-19 손실 직전).
+ * 클라 썸네일은 실패를 조용히 걸러 사라짐이 안 보이고, 붙여넣은 스크린샷은 이 파일이 유일본이다.
  */
 export function pruneAttachments(
   projects: ProjectInfo[],
@@ -556,9 +508,7 @@ export function pruneAttachments(
     const attachRoot = path.join(info.path, '.vibisual', 'attachments');
     if (!fs.existsSync(attachRoot)) continue;
 
-    // ① 후보를 먼저 모은다 — **파일 단위 mtime**. 종전에는 1단 세션 폴더의 mtime 을 봤는데,
-    //    부모 폴더의 mtime 은 **직속 자식**이 바뀔 때만 갱신되고 손자 파일 추가는 추적하지 않는다
-    //    (`<세션>/<서브>/<파일>` 구조라 실제로 늘 손자다) → 방금 쓴 이미지가 든 폴더도 늙은 것으로 오판됐다.
+    // ① 파일 단위 mtime 으로 후보를 모은다 — 부모 폴더 mtime 은 직속 자식만 반영한다(`<세션>/<서브>/<파일>` 은 늘 손자).
     const candidates: { fp: string; rel: string; size: number; subId: string; name: string }[] = [];
     const walk = (dir: string): void => {
       let items: fs.Dirent[];
@@ -618,11 +568,7 @@ export function pruneAttachments(
   return { removedFiles, freedBytes, keptReferenced, skippedProjects };
 }
 
-/**
- * 파일 쪽 정리를 한 번에 — 부팅 시 1회 + 사용자가 화면에서 [정리] 를 누를 때.
- *
- * 반환값은 그대로 사용자에게 보여 준다(§3.2.3 "조용히 지우지 않는다").
- */
+/** 파일 쪽 정리 한 번(부팅 1회 + [정리]) — 결과는 그대로 보여 준다(조용히 지우지 않는다). */
 export function runStorageCleanup(opts: {
   projects: ProjectInfo[];
   /**

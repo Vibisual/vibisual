@@ -4,10 +4,8 @@ import type { InspectorPickLevel, InspectorPickLevels, InspectorPickPoint } from
 import { firstModelPick, selectionModelBounds } from './modelBounds.js';
 
 /**
- * §5.4 #15 (C) — Alt 인스펙터가 3D 화면 안의 물체를 집는다. 뷰포트는 WebGL 캔버스 한 장이라 브라우저는 판만 안다 — 그래서
- * 클릭 선택과 **같은 광선 판정**(`Raycaster` → 모델 뿌리)으로 커서 아래 물체를 찾고, 그 물체 → 부모들 → 모델 전체를 칸으로
- * 답한다. 상자는 그 물체의 월드 경계 상자를 화면에 투영한 것이다. 복사 글은 받는 AI 가 바로 고칠 수 있게 노드의 안정 id
- * (`userData.vibi3dId` — 명령·원본이 쓰는 id)와 고치는 길(열린 장면의 다리 · 저장된 원본)을 싣는다.
+ * §5.4 #15 (C) — Alt 인스펙터가 3D 물체를 집는다: 클릭 선택과 같은 광선 판정(`Raycaster` → 모델 뿌리)으로 물체 → 부모들 → 모델, 상자는 월드 경계 상자의 투영.
+ * 복사 글엔 안정 id(`userData.vibi3dId`)와 고치는 길(열린 장면 다리 · 저장된 원본)을 싣는다.
  */
 
 export interface ModelInspectScene {

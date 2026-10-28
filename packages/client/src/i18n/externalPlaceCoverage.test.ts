@@ -2,15 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { EXTERNAL_PLACE_PATTERNS, SUPPORTED_UI_LOCALES } from '@vibisual/shared';
 import en from './locales/en.json';
 
-/**
- * §2.1 (D) 읽는 이름 — **사전과 번역이 한 벌인가**를 못박는다.
- *
- * 서버는 문구가 아니라 `externalPlaceKey` 만 실어 보내고(로케일이 12개라 문구를 서버가 고를 수 없다),
- * 화면은 `canvas.externalPlace.<key>` 로 그것을 문장으로 바꾼다. 그래서 두 목록이 어긋나는 순간
- * 이 축은 **조용히 죽는다** — 키가 없으면 `defaultValue: ''` 로 떨어져 종전 라벨로 되돌아가므로
- * 타입도 빌드도 화면도 멀쩡하고, "왜 이 폴더만 이름이 안 바뀌지"로만 보인다.
- * 사전에 자리를 하나 더 넣는 사람이 번역을 잊는 것은 시간 문제라, 그 자리를 여기서 잡는다.
- */
+/** §2.1 (D) — **사전과 번역이 한 벌인가.** 서버는 `externalPlaceKey` 만 보내고 화면이 `canvas.externalPlace.<key>` 로 짓는다 — 키가 없으면 `defaultValue: ''` 로 기존 라벨이 되어 조용히 죽는다. */
 
 type Dict = Record<string, unknown>;
 

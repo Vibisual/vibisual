@@ -12,19 +12,8 @@ import { useKeymapStore } from '../../stores/keymap.js';
 import { clientKeyPlatform } from '../../utils/platform.js';
 
 /**
- * useKeyCapture.ts — **"키를 눌러 보세요" 상태 하나.**
- *
- * 재매핑은 두 곳(힌트 안 · 설정 표)에서 일어나는데 그 둘이 각자 캡처를 구현하면 한쪽만 고쳐져
- * 어긋난다. 그래서 캡처의 규칙은 여기 한 벌이다.
- *
- * ## 캡처 중에는 모든 키를 삼킨다
- * `setKeyCaptureSink` 가 `window` capture 단계에서 keydown 을 통째로 가로챈다. 이게 없으면
- * `Ctrl+S` 를 배정하려는 순간 파일이 저장되고, `Escape` 를 배정하려는 순간 창이 닫힌다.
- *
- * ## 세 가지 손짓
- * - `Escape` — 취소(아무것도 바꾸지 않는다)
- * - `Backspace`(모디파이어 없이) — **해제**(그 명령을 키보드에서 내린다)
- * - 그 외 조합 — 그 자리에서 잡히고, **즉시** 충돌 판정이 붙는다
+ * 키 캡처 상태 한 벌(힌트·설정 표 공용). 캡처 중엔 `setKeyCaptureSink` 가 window capture 단계에서 keydown 을 다 먹는다
+ * — 없으면 `Ctrl+S` 배정 중 저장되고 `Escape` 면 창이 닫힌다. `Escape` 취소 · `Backspace`(모디파이어 없이) 해제 · 그 외는 즉시 충돌 판정.
  */
 
 export interface KeyCaptureState {

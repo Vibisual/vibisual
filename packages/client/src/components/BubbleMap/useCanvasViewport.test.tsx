@@ -147,8 +147,7 @@ describe('useCanvasViewport scheduling', () => {
   });
 
   it('숨긴 노드(숨기기·앱 작업 보기 접기)가 있어도 기다리지 않고 저장 화면을 복원한다', async () => {
-    // 2026-10-21 사용자 지시 "묶음 버블은 안으로 들어갔다가 나오면 처음 들어간 위치에서 나와야해" — 숨긴 노드는 그려지지 않을 뿐
-    //   이미 섰다. 그것이 그려지기를 기다리면 복원이 영영 오지 않아, 나와도 카메라가 묶음 안의 자리에 남았다.
+    // 숨긴 노드도 이미 선 것이다 — 그것이 그려지기를 기다리면 복원이 오지 않아 묶음에서 나와도 카메라가 안에 남는다.
     const h = mount();
     h.rendered = [node(), { id: 'folded', position: { x: 0, y: 0 }, data: {}, hidden: true }];
     h.api.restore(h.key, saved(), ['node', 'folded']);

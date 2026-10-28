@@ -1,14 +1,7 @@
 /**
- * §5.5 #17-20 ⑩ v4.94 — Debug Adapter Protocol 클라이언트.
- *
- * DAP 는 규격 자체가 MIT 라 우리가 클라이언트를 직접 써도 되고, 그러면 **어댑터를 갈아 끼우는
- * 것만으로** 언어가 늘어난다(debugpy·Delve·CodeLLDB·netcoredbg …). 여기서 하는 일은 두 가지뿐:
- *
- *   1. `Content-Length: N\r\n\r\n<json>` 프레이밍을 읽고 쓴다.
- *   2. `seq` 로 요청과 응답을 짝지어 주고, 짝이 없는 것은 이벤트로 올린다.
- *
- * 전송로(stdio 인지 TCP 인지)는 **모른다** — 바이트를 넣어 주는 쪽(`feed`)과 내보내는 쪽
- * (`write`)을 생성자가 받는다. 그래야 같은 클래스가 두 transport 를 다 탄다.
+ * §5.5 #17-20 ⑩ — Debug Adapter Protocol 클라이언트. DAP 규격은 MIT 라 직접 써도 되고, 어댑터만 갈아 끼우면 언어가 는다(debugpy·Delve·CodeLLDB·netcoredbg …).
+ * 하는 일 둘: 1. `Content-Length: N\r\n\r\n<json>` 프레이밍 읽기/쓰기 2. `seq` 로 요청·응답을 짝짓고 짝 없는 것은 이벤트로 올린다.
+ * 전송로(stdio/TCP)는 모른다 — 생성자가 `feed`(넣기)와 `write`(내보내기)를 받아 한 클래스가 두 transport 를 다 탄다.
  */
 import { DEBUG_REQUEST_TIMEOUT_MS } from '@vibisual/shared';
 

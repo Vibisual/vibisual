@@ -1,24 +1,8 @@
-// Vibisual engine bridge — SCENARIO §4 「엔진 다리」.
-//
-// Vibisual 이 띄우는 Claude Code 세션에만 `--plugin-dir` 로 실린다(전역 설치 ❌ — 사용자가 따로 띄운
-// 세션에는 실리지 않는다). 엔진 안에서 턴 시작·끝과 사용량을 보고 Vibisual 서버(루프백)에 알린다.
-//
-// 지키는 것 넷:
-//   1. 관찰만 한다 — 어떤 훅도 사건을 바꾸거나 막지 않고(받은 `next` 의 답을 그대로 돌려준다),
-//      화면에 아무것도 그리지 않는다. 우리 화면은 Vibisual 의 캔버스·IDE 다.
-//      막을 수 있는 자리(`tool.call`·`tool.check`·`turn.step`·`prompt.submit`·`agent.spawn` 등)에는 아예
-//      훅을 걸지 않는다 — 2.1.299 부터 그 자리의 훅이 사건을 넘겨받지 못하거나 답을 돌려주지 못하면 엔진이
-//      그 동작을 거부한다(공식 변경 기록). 선언 파일이 "Observe" 로 적는 사건만 쓴다:
-//      `session.start`·`turn.start`·`turn.complete`·`session.measure`·`session.end`.
-//   2. 사건 훅에서 네트워크를 기다리지 않는다 — 서버가 멎어도 턴이 막히면 안 된다.
-//      사건 훅은 상태만 적고, 보내기는 타이머가 묶어서 한다(`$.http.fetch` 에는 시간 제한이 없다).
-//   3. 신원(주소·토큰·세션)은 Vibisual 이 스폰할 때 넣은 환경변수에서만 읽는다. 없으면(우리가 띄운
-//      세션이 아니면) 아무것도 하지 않는다. 루프백 밖 주소로는 보내지 않는다.
-//   4. 어떤 실패도 밖으로 던지지 않는다 — 다리가 끊겨도 세션은 그대로 돈다.
-//
-// 전선 모양의 정본은 `packages/shared/src/engineBridge.ts` 의 `parseEngineBridgeReport` 다. 이 파일은
-// 엔진이 직접 읽는 ES 모듈이라 그 파일을 import 하지 못한다 — 모양을 바꾸면 둘을 함께 고친다.
-// 엔진이 읽는 모듈이므로 Node API·`require`·`import()` 를 쓰지 않는다.
+// 엔진 다리(SCENARIO §4) — 우리가 띄운 세션에만 `--plugin-dir` 로 실려 턴 시작·끝·사용량을 루프백 서버에 알린다.
+// 1. 관찰만 — 선언 파일이 "Observe" 로 적는 사건만 쓰고 `next` 의 답을 그대로 돌려준다. 막을 수 있는 자리(`tool.call`·`tool.check`·`turn.step`·`prompt.submit`·`agent.spawn`)엔 훅 ❌ — 2.1.299 부터 그 훅이 사건을 못 넘기면 엔진이 동작을 거부한다.
+// 2. 사건 훅은 상태만 적고 보내기는 타이머가 묶는다(`$.http.fetch` 엔 시간 제한이 없다 — 서버가 멎어도 턴이 막히면 안 된다).
+// 3. 신원은 스폰 환경변수에서만(없으면 아무것도 안 한다), 루프백으로만 보낸다. 4. 어떤 실패도 던지지 않는다.
+// 전선 모양 정본은 shared `engineBridge.ts` `parseEngineBridgeReport` — import 못 하니 함께 고친다. 엔진이 읽는 ES 모듈이라 Node API·`require`·`import()` ❌.
 
 const WIRE_VERSION = 1;
 /** 생존 신호 간격. 서버가 답에 `heartbeatMs` 를 실어 바꿀 수 있다. */
@@ -79,11 +63,7 @@ export const register = (on) => {
     if (outbox.length > OUTBOX_MAX) outbox = outbox.slice(outbox.length - OUTBOX_MAX);
   };
 
-  /**
-   * 보내는 순간의 수준 상태 — 가장자리(사건)를 놓쳐도 서버가 이것으로 바로잡는다.
-   * 도는 도구(`toolsInFlight`·`toolInFlight`)는 싣지 않는다 — 그것을 보던 `tool.call` 을 걷었다(위 1번).
-   * 모르는 것을 0 으로 적지 않으려고 칸째 뺀다. 도는 턴 안의 진척은 서버가 대화록 마지막 쓰기로 본다.
-   */
+  /** 보내는 순간의 수준 상태 — 사건을 놓쳐도 서버가 바로잡는다. 도는 도구 수는 칸째 뺀다(`tool.call` 훅이 없어 모르는 값을 0 으로 적지 않게). */
   const snapshot = (now) => {
     const snap = { turnState };
     if (turnState === 'running' && turnStartedAt) snap.turnAgeMs = Math.max(0, now - turnStartedAt);

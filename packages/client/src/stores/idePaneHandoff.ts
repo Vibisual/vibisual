@@ -2,26 +2,10 @@ import { IDE_DOCK_SIDES, type IDEDockSide, type FloatGeom } from '../components/
 import type { IDEEditorFile, IDEOverlayState } from './graphStore.js';
 import { coerceEditorOpenerTab } from './editorOpener.js';
 
-// SCENARIO.md §5.5 #17-6 (H) — **창이 자리를 옮길 때 들고 가는 짐**.
-//
-// 앱 안 IDE 창을 밖으로 꺼내거나 다시 합칠 때, 종전에는 받는 쪽이 `openIDEOverlay` 로 창을
-// **새로** 만들었다. 그 함수는 열어 둔 편집 탭을 비우고(`editorFiles: []`) 뷰를 첫 화면으로
-// 되돌리며 사이드바를 접는다 — 그래서 꺼내고 나면 보던 파일이 전부 닫힌 **다른 창**이 서 있었다.
-// 같은 창이 밖으로 나온 것이 아니라 비슷한 창이 새로 뜬 것이라, 오갈수록 작업 상태를 잃었다.
-//
-// 이 파일이 그 사이를 잇는다: 보내는 쪽이 창의 상태를 **한 덩이로 뜨고**(capture), 받는 쪽이
-// 그것을 창을 세우는 **초기값으로** 쓴다(patch). 열고 나서 덮어쓰지 않고 처음부터 그 값으로
-// 여는 까닭은, 덮어쓰면 첫 프레임에 빈 창이 한 번 보였다가 바뀌기 때문이다.
-//
-// **여기 있는 것은 전부 순수 함수다** — IPC 도 스토어도 만지지 않으므로 창을 띄우지 않고
-// 단위 테스트로 확인할 수 있다(`idePaneHandoff.test.ts`).
+// §5.5 #17-6 (H) — **창이 자리를 옮길 때 들고 가는 짐**(새로 만들면 편집 탭·뷰·사이드바가 초기화된다). 보내는 쪽이 뜨고(capture)
+// 받는 쪽이 **초기값으로** 쓴다(patch) — 열고 나서 덮으면 첫 프레임에 빈 창이 보인다. 전부 순수 함수다.
 
-/**
- * 짐의 모양. IPC(구조적 복제)를 건너므로 **직렬화 가능한 값만** 담는다.
- *
- * `v` 는 판 번호다. 같은 프로세스의 창끼리 주고받으므로 지금은 늘 1 이지만, 짐을 든 채
- * 업데이트가 끼어드는 경우(창은 옛 판, 앱은 새 판)에 조용히 엉키지 않도록 앞에 세워 둔다.
- */
+/** 짐의 모양 — IPC(구조적 복제)를 건너므로 **직렬화 가능한 값만**. `v` 는 형식 판 번호(짐을 든 채 업데이트가 끼어도 안 엉키게). */
 export interface IDEPaneHandoff {
   v: 1;
   agentId: string;
@@ -34,12 +18,7 @@ export interface IDEPaneHandoff {
   /** 열어 둔 편집 탭(왼→오른쪽 순서 그대로). */
   editorFiles: IDEEditorFile[];
   activeEditorPath: string | null;
-  /**
-   * 앱 안에서 **붙어 있던 변**과 그 두께·순서·몫.
-   *
-   * 밖으로 나간 창에서는 쓰이지 않지만(독립 창은 창 자체가 IDE 라 붙을 변이 없다) 그대로 지고
-   * 나간다 — 되돌아왔을 때 **원래 붙어 있던 그 자리로** 돌아가야 "합쳤다"가 되기 때문이다.
-   */
+  /** 앱 안에서 **붙어 있던 변**과 두께·순서·몫. 독립 창에선 안 쓰지만 지고 나간다 — 되돌아오면 원래 그 자리로 돌아가야 한다. */
   dockSide: IDEDockSide | null;
   dockSize: number;
   dockOrder: number;
@@ -97,12 +76,7 @@ function coerceEditorFiles(raw: unknown): IDEEditorFile[] {
   return out;
 }
 
-/**
- * IPC 로 건너온 값을 짐으로 받아들인다 — **모양이 맞는 것만**.
- *
- * 창 사이를 건너온 값이라 우리가 보낸 그대로라는 보장이 없다(구버전 창·중간에 낀 업데이트).
- * 하나라도 어긋나면 통째로 버린다 — 반쯤 맞는 짐으로 창을 세우면 어디가 틀어졌는지 알 수 없다.
- */
+/** IPC 로 건너온 값은 **모양이 맞을 때만** 짐으로 받는다(구버전 창·중간 업데이트) — 하나라도 어긋나면 통째로 버린다. */
 export function coerceIDEPaneHandoff(raw: unknown): IDEPaneHandoff | null {
   if (!raw || typeof raw !== 'object') return null;
   const h = raw as Record<string, unknown>;
@@ -133,13 +107,7 @@ export function coerceIDEPaneHandoff(raw: unknown): IDEPaneHandoff | null {
   };
 }
 
-/**
- * 어디에 세우는 창인가 — 같은 짐이라도 앱 안과 독립 창이 물려받을 것이 다르다.
- *
- * `detached`(독립 창)는 창 자체가 IDE 라 붙을 변도, 창 안 좌표도 뜻이 없다. 그래서 **자리 값은
- * 물려받지 않고 짐 안에만 남겨 둔다** — 되돌아올 때 그 값이 다시 살아나 원래 붙어 있던 변으로
- * 복귀한다. 자리 값을 슬롯에 그대로 심으면 독립 창이 도킹된 창인 척하게 된다.
- */
+/** 어디에 세우는 창인가 — `detached` 는 붙을 변·창 안 좌표가 뜻이 없어 **자리 값을 슬롯에 심지 않고 짐에만 남긴다**(심으면 도킹된 창인 척한다). */
 export type HandoffTarget = 'app' | 'detached';
 
 /** 창을 세울 때 초기값 위에 덮을 조각. 열고 나서 고치지 않고 **처음부터** 이 값으로 연다. */
@@ -165,17 +133,8 @@ export function handoffPanePatch(
     patch.dockOrder = handoff.dockOrder;
     patch.dockSpan = handoff.dockSpan;
     patch.float = handoff.float ? { ...handoff.float } : null;
-    // §5.5 #17-6 (H-26) — **앱으로 합치는 창은 언제나 떠 있는 창으로 선다.**
-    //
-    //   이 갈래는 "밖에 서 있던 창을 앱 안에 들인다" 하나뿐이고(`useOverlayReveal` · 꺼내기 실패
-    //   복구), 그 창은 **밖에서 쓰던 크기를 지고 온다**. 모달은 창이 *없던* 자리에 하나를 세울 때의
-    //   모양이라 그 크기를 `80vw×80vh` 로 부풀려 버린다 — 되돌아온 창이 저절로 확대되던 자리다.
-    //
-    //   종전에는 `dockSide || float` 가 있을 때만 `floating` 으로 하고 아니면 짐의 `openMode` 를
-    //   물려받았다. 그런데 그 값은 **독립 창 슬롯의 것**이라 늘 슬롯을 세울 때의 기본값 `'modal'`
-    //   그대로다 — 독립 창은 `fullWindow` 라 그 필드를 읽지 않아 아무도 고칠 일이 없고, 아래
-    //   `'detached'` 갈래가 자리 값을 심지 않으므로 `dockSide`·`float` 도 함께 비어 있다.
-    //   그래서 그 조건은 왕복해 돌아온 짐에서는 언제나 거짓이었다.
+    // §5.5 #17-6 (H-26) — **앱으로 합치는 창은 언제나 떠 있는 창으로 선다**(모달이면 지고 온 크기를 `80vw×80vh` 로 부풀린다).
+    // 짐의 `openMode` 를 물려받지 마라 — 독립 창 슬롯의 값이라 늘 기본 `'modal'` 이고 `dockSide`·`float` 도 비어 있다.
     patch.openMode = 'floating';
   }
   return patch;

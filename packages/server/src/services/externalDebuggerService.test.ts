@@ -6,11 +6,8 @@ import path from 'node:path';
 import { riderToolboxRoots, scanToolboxCandidates } from './externalDebuggerService.js';
 
 /**
- * §5.5 #17-20 ⑦ — JetBrains 가 지금 기본으로 미는 배포 창구는 **Toolbox** 다.
- *
- * 종전엔 Windows 만 채널 폴더를 순회하고 mac/Linux 는 `/Applications/Rider.app`,
- * `/usr/local/bin/rider` 같은 고정 경로 하나씩만 봤다 — Toolbox 로 깐 사용자는 멀쩡히
- * 설치돼 있는데도 화면에 "설치되어 있지 않음"이 떴다. 세 플랫폼의 레이아웃을 여기서 고정한다.
+ * §5.5 #17-20 ⑦ — JetBrains 기본 배포 창구는 Toolbox 다. mac/Linux 도 고정 경로(`/Applications/Rider.app` 등)가 아니라 채널 폴더를 훑어야
+ * Toolbox 설치가 "설치되어 있지 않음"으로 뜨지 않는다 — 세 플랫폼 레이아웃을 여기서 고정한다.
  */
 
 /** 테스트용 가짜 홈 — 실제 사용자 경로가 아니라 픽스처다. */

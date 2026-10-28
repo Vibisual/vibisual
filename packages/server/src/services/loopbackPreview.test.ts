@@ -1,9 +1,6 @@
 /**
- * §7.11 — "눌러서 프리뷰" + Bash 감지 폴백이 함께 딛는 두 규칙을 고정한다.
- *
- * (1) **어느 이름으로 부르든 같은 서버다** — `localhost` / `127.0.0.1` / `[::1]`.
- *     한 이름만 묻고 접으면 IPv6 전용 서버(Windows 의 Vite 가 그렇다)가 죽은 것으로 판정된다.
- * (2) **텍스트에 찍힌 주소를 그대로 줍는다** — 포트 숫자만 뽑아 root URL 을 합성하면 경로를 잃는다.
+ * §7.11 — 눌러서 프리뷰 + Bash 감지 폴백의 두 규칙. (1) `localhost`·`127.0.0.1`·`[::1]` 은 같은 서버다(한 이름만 물으면 Windows Vite 같은 IPv6 전용이 죽은 것으로 보인다).
+ * (2) 텍스트의 주소를 그대로 줍는다(포트만 뽑아 합성하면 경로를 잃는다).
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import http from 'node:http';
@@ -141,11 +138,7 @@ describe('resolveServingUrl — IPv6 전용 서버', () => {
   });
 });
 
-/**
- * §7.11 — **프리뷰로 열 주소** 판정. 사용자 보고: "iframe 버블인데 계속
- * `http://127.0.0.1:3456/api/backtest/state` 로 연결돼 이상한 곳으로 빠진다."
- * 감지 폴백이 `curl` 명령에 박힌 API 경로를 통째로 주워 프리뷰 주소로 굳힌 자리다.
- */
+/** §7.11 — 프리뷰로 열 주소 판정(`curl` 에 박힌 API 경로를 통째로 주우면 iframe 이 엉뚱한 곳을 연다). */
 describe('previewUrlForServer — 주운 주소를 그대로 열지 않는다', () => {
   it('응답이 문서(html)면 경로를 살린다 — `/game.html` 은 보려던 그 페이지다', () => {
     expect(previewUrlForServer('http://localhost:8080/game.html', 'text/html; charset=utf-8'))

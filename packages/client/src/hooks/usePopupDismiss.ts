@@ -8,17 +8,8 @@ import {
 import type { ViewportSize } from './popupDismiss.js';
 
 /**
- * 팝업 닫기 배선 — **모든 팝업이 이 두 훅 중 하나를 쓴다.**
- *
- * 규약: *팝업 안에서 시작한 제스처는 그 팝업을 닫지 못한다.* 판정 근거는
- * [popupDismiss.ts](./popupDismiss.ts) 주석 참고(백드롭 click 은 press·release 의 공통 조상에
- * 오기 때문에, 패널 안에서 눌러 창 밖까지 끌고 나가면 백드롭 클릭으로 오인된다).
- *
- * - 백드롭(전면 스크림)이 있는 모달   → `useBackdropDismiss`
- * - 백드롭 없이 문서 클릭으로 닫는 메뉴/팝오버 → `useOutsidePressDismiss`
- *
- * 새 팝업을 만들 때도 직접 `onClick={onClose}` 나 `addEventListener('mousedown')` 을 쓰지 말고
- * 이 훅을 쓴다.
+ * 팝업 닫기 배선 — **모든 팝업이 이 두 훅 중 하나를 쓴다**(직접 `onClick={onClose}`·`mousedown` 리스너 ❌). 팝업 안에서 시작한 제스처는 닫지 못한다(`popupDismiss.ts`).
+ * 백드롭 모달 → `useBackdropDismiss` · 문서 클릭으로 닫는 메뉴 → `useOutsidePressDismiss`.
  */
 
 /** click 이벤트가 발생하는 주 버튼. */
@@ -33,17 +24,7 @@ export interface BackdropDismissHandlers<T extends Element> {
   onClick: (e: ReactMouseEvent<T>) => void;
 }
 
-/**
- * 백드롭 요소에 그대로 펼쳐 넣는 닫기 핸들러 한 쌍.
- *
- * ```tsx
- * const backdrop = useBackdropDismiss(onClose);
- * <div className="fixed inset-0 …" {...backdrop}> <Panel /> </div>
- * ```
- *
- * 백드롭 **자신**을 누르고 백드롭 **자신**에서 뗐을 때만 닫는다. 패널 안에서 시작한 드래그(텍스트
- * 선택·슬라이더·스크롤바)는 어디서 끝나든, 창 밖까지 나갔다 와도 닫지 않는다.
- */
+/** 백드롭 요소에 펼치는 닫기 핸들러 한 쌍 — 백드롭 **자신**을 누르고 **자신**에서 뗐을 때만 닫는다(패널 안에서 시작한 드래그는 어디서 끝나든 안 닫는다). */
 export function useBackdropDismiss<T extends Element = HTMLDivElement>(
   onDismiss: () => void,
 ): BackdropDismissHandlers<T> {

@@ -1,11 +1,4 @@
-/**
- * §2.1 — shared `externalFolderView.ts` 고정 시험(요약 · 예산 · 접기 · 이름).
- *
- * 판정은 shared 순수 함수지만 shared 패키지에는 러너가 없으므로 여기서 고정한다
- * (`bashWritePaths.test.ts`·`webToolEntry.test.ts` 와 같은 자리). **플랫폼·시각·홈·임시
- * 디렉터리를 전부 인자로 넘긴다** — 개발기 한 대에서 세 OS 를 다 재기 위함이고, 그것이 이 모듈이
- * `process.platform`·`Date.now()` 를 읽지 않는 이유다(멀티플랫폼 1축).
- */
+/** §2.1 — shared `externalFolderView.ts` 고정 시험(shared 에는 러너가 없다). 플랫폼·시각·홈·임시 디렉터리를 인자로 넘겨 개발기 한 대에서 세 OS 를 잰다. */
 import { describe, it, expect } from 'vitest';
 import {
   EXTERNAL_PROMOTION_HALF_LIFE_MS,

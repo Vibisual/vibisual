@@ -11,9 +11,7 @@ import { isPortAlive, isVibisualLauncherCommand } from './processChecker.js';
 const PORT_REGEX = /(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d{2,5})/;
 const PORT_REGEX_GLOBAL = /(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d{2,5})/g;
 
-/** §7.11 v2.24 — 광역 후보 추출용 정규식 union. 각 매치는 isPortAlive probe 게이트로 자연 정리되므로
- *  광범위하게 잡아도 false positive 가 iframe 으로 승격되지 않는다.
- *  주의: 모두 캡처 그룹 [1] 에 포트 숫자가 들어가야 한다(매처가 가정). */
+/** §7.11 — 광역 후보 정규식(false positive 는 isPortAlive probe 가 걸러 iframe 으로 안 간다). 모두 캡처 그룹 [1] 에 포트 숫자가 있어야 한다(매처가 가정). */
 const LOG_PORT_PATTERNS: readonly RegExp[] = [
   // (a) localhost / 127.0.0.1 / 0.0.0.0 prefix
   /(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d{2,5})/g,
@@ -45,11 +43,8 @@ export function extractPortFromLog(text: string): number | undefined {
 }
 
 /**
- * §7.11 / §3.5 — "그 포트는 **남이** 쓰고 있다"는 줄. 여기에**만** 나온 포트는 우리 서버가 아니다.
- *
- * probe 게이트(`isPortAlive`)는 이 오탐을 못 거른다 — 그 포트는 정말 살아 있기 때문이다(남의 서버로).
- * 실측 문구: Vite `Port 5173 is in use, trying another one...` · Node `EADDRINUSE: address already in use :::8080`
- * · CRA `Something is already running on port 3000.` 프로젝트를 여럿 띄우면 흔히 찍힌다.
+ * §7.11 / §3.5 — "그 포트는 남이 쓴다" 줄. 여기에만 나온 포트는 우리 서버가 아니다(남의 서버로 살아 있어 probe 가 못 거른다).
+ * 실측 문구: Vite `Port 5173 is in use, trying another one...` · Node `EADDRINUSE` · CRA `Something is already running on port 3000.`
  */
 const PORT_IN_USE_LINE = /(?:\bis in use\b|\balready in use\b|\bEADDRINUSE\b|\balready running on\b|\bin use by another\b)/i;
 
@@ -64,12 +59,10 @@ function portsMatchedIn(text: string, into: Set<number>): void {
   }
 }
 
-/** 로그 텍스트에서 listen 포트 전부 추출 (ANSI 제거 후 광역 패턴 union 매칭, unique).
- *  §7.11 v2.24 — 단일 `localhost:N` 정규식만으론 `dummy server on :3999` 같은 흔한 메시지를
- *  못 잡아 LOG_PORT_PATTERNS union 으로 확장. false positive 는 isPortAlive probe 가 정리.
- *  §7.11 / §3.5 — 단, "이미 쓰이고 있다" 줄({@link PORT_IN_USE_LINE})에만 나온 포트는 뺀다 — 그건 남의
- *  서버가 쥔 포트라는 진술이라 probe 를 통과해 남의 프리뷰가 선다. 같은 포트가 다른 줄(우리 서버의
- *  `Local: http://localhost:8080/`)에도 나오면 남긴다(남이 놓은 뒤 우리가 잡은 경우). */
+/**
+ * 로그의 listen 포트 전부(ANSI 제거, 광역 패턴, unique — false positive 는 probe 가 정리, §7.11). "이미 쓰이고 있다" 줄({@link PORT_IN_USE_LINE})에만
+ * 나온 포트는 뺀다 — probe 를 통과해 남의 프리뷰가 선다. 다른 줄(우리 `Local: http://localhost:8080/`)에도 나오면 남긴다(남이 놓은 뒤 우리가 잡은 경우).
+ */
 export function extractAllPortsFromLog(text: string): number[] {
   const clean = stripAnsi(text);
   const seen = new Set<number>();
@@ -162,10 +155,7 @@ export class BackgroundShellWatcher {
         }
       }
 
-      // 2) 미확정 후보를 TCP probe — listen 응답한 포트만 서버로 확정 후 콜백 발사.
-      //    "서버임을 확인하고 리스트에 넣는다"(SCENARIO §7.11 v2.4). netstat/curl 이
-      //    출력한 임시 클라이언트 포트는 listen 이 아니라 probe 에 응답하지 않아 자동 탈락.
-      //    부팅 레이스(배너만 찍히고 아직 accept 전)는 후보로 남아 다음 tick 에서 재확인.
+      // 2) 미확정 후보를 TCP probe — listen 응답한 포트만 확정·콜백(§7.11). netstat/curl 의 임시 클라이언트 포트는 응답이 없어 탈락, 배너만 찍힌 부팅 레이스는 다음 tick 에 재확인.
       for (const port of entry.candidatePorts) {
         if (entry.detectedPorts.has(port)) continue;
         const alive = await isPortAlive(port);
@@ -182,9 +172,7 @@ export class BackgroundShellWatcher {
     }
   }
 
-  /** grace 제거된 위성의 포트를 재감지 허용 — 서버가 같은 포트로 재시작하면 다시 콜백.
-   *  (SCENARIO §7.11 v2.4 — checkIframesAlive 의 grace 자동 제거 경로가 호출.)
-   *  candidatePorts 에는 남겨 두므로 다음 tick 이 재 probe → 살아 있으면 재확정. */
+  /** grace 제거된 위성의 포트를 다시 감지하게 한다 — 같은 포트로 재시작한 서버를 다시 잡는다(§7.11 `checkIframesAlive` 가 부름). candidatePorts 엔 남아 다음 tick 이 다시 probe 한다. */
   forgetPort(shellId: string, port: number): void {
     const entry = this.watches.get(shellId);
     if (!entry) return;
@@ -204,28 +192,15 @@ export class BackgroundShellWatcher {
 }
 
 /**
- * Claude Code 백그라운드 셸 응답에서 shell_id + output 경로 추출.
- *
- * **두 모양을 다 받는다** — 깃발로 띄운 것과, 120초 타임아웃으로 **승격된** 것:
- *   ① `...running in background with ID: bspe49nqf. Output is being written to: <path>`
- *   ② `...did not complete within its 120s timeout and was moved to the background
- *      (ID: bspe49nqf). Output is being written to: <path>`
- * ②는 id 가 **괄호 안**이라, 종전의 `/ID:\s+(\S+?)[.\s]/` 로 잡으면 닫는 괄호가 딸려 와
- * `bspe49nqf)` 가 된다(그 id 로는 어떤 조회도 맞지 않는다). 셸 id 는 하니스가 만드는 짧은
- * 영숫자 토큰이므로 **그 글자만** 받는다.
- *
- * 그리고 출력 파일명이 곧 `<shellId>.output` 이라, **경로에서 얻은 id 를 우선**한다 —
- * 안내문 문구가 또 바뀌어도 이쪽은 흔들리지 않는다.
+ * 셸 응답에서 shell_id + output 경로 추출 — 깃발 모양(`...with ID: bspe49nqf. Output is being written to: <path>`)과 120초 승격 모양
+ * (`...moved to the background (ID: bspe49nqf). Output ...`)을 다 받는다. 승격 모양은 id 가 괄호 안이라 `\S+?` 로 잡으면 `bspe49nqf)` 가 된다 — 영숫자만 받는다.
+ * 출력 파일명이 곧 `<shellId>.output` 이라 경로에서 얻은 id 를 우선한다(안내문 문구가 바뀌어도 안 흔들린다).
  */
 export function parseBackgroundShellResponse(
   text: string,
 ): { shellId: string; outputPath: string } | null {
   const idMatch = text.match(/ID:\s*([A-Za-z0-9_-]+)/);
-  // 현 Claude Code bg 결과는 개행 없는 한 줄:
-  //   "...Output is being written to: <path>.output. You will be notified ..."
-  // `(.+?)(?:\r?\n|$)` 는 개행이 없어 뒤 안내문까지 경로에 흡수한다 → 경로 깨짐.
-  // 하니스 출력 파일은 항상 `<shellId>.output` 이므로 `.output` 에서 끊는다.
-  // 구 포맷(개행 종결 등) 대비 기존 정규식을 폴백으로 유지.
+  // bg 결과는 개행 없는 한 줄이라 `(.+?)(?:\r?\n|$)` 는 뒤 안내문까지 삼킨다 — 출력 파일은 늘 `<shellId>.output` 이므로 거기서 끊고, 옛 정규식은 폴백.
   const pathMatch =
     text.match(/Output is being written to:\s+(.+?\.output)\b/) ??
     text.match(/Output is being written to:\s+(.+?)(?:\r?\n|$)/);
@@ -245,18 +220,9 @@ export interface ActiveBackgroundShell {
 }
 
 /**
- * §9 — 세션 트랜스크립트 스캔의 **증분 상태**.
- *
- * **왜**: 이 스캔은 `SESSION_SCAN_INTERVAL`(10초) sweep 이 **등록된 모든 세션**에 대해 돌린다.
- * 종전 구현은 그때마다 트랜스크립트를 `readFileSync` 로 통째로 읽고 전 줄을 `JSON.parse` 했다.
- * 트랜스크립트는 세션당 8~26MB 까지 자라므로, 이 한 경로가 메인 프로세스 누적 읽기 537GB
- * (디스크 총량 2.3GB 의 약 230배) · CPU 상시 130~160% 의 주범이었다(실측 2026-08-15).
- *
- * 트랜스크립트는 **append-only** 라, 새로 붙은 줄만 같은 순서로 먹이면 결과가 전량 재스캔과
- * 같다. 그래서 파싱 중간 상태(`pending`·`shells`·`killed`)를 그대로 들고 다닌다.
- * 파일이 그대로면(크기·mtime 동일) 디스크를 아예 건드리지 않는다.
- *
- * ⚠ 파일이 **줄어들면** 이어 읽기가 어긋난다(교체·잘림) — 그때는 상태를 버리고 처음부터 다시 읽는다.
+ * §9 — 트랜스크립트 스캔의 증분 상태. 10초 sweep 이 모든 세션에 돌고 트랜스크립트는 세션당 8~26MB 라 통째 읽기 + 전 줄 파싱이 누적 537GB·CPU 130~160% 였다(실측 2026-08-15).
+ * append-only 라 새 줄만 같은 순서로 먹이면 전량과 같다(중간 상태 `pending`·`shells`·`killed` 를 들고 다니고, 크기·mtime 이 같으면 안 읽는다).
+ * ⚠ 파일이 줄면(교체·잘림) 상태를 버리고 처음부터 읽는다.
  */
 interface ShellScanState {
   /** 마지막으로 **줄까지 완결해** 먹인 바이트 오프셋. */
@@ -274,11 +240,7 @@ interface ShellScanState {
   killed: Set<string>;
 }
 
-/**
- * 짝을 기다리는 Bash tool_use 의 상한. **전경 Bash 까지 담기 때문에** 필요하다(⑰).
- * tool_result 는 대개 바로 다음 줄이라 실사용에서는 몇 개를 넘지 않는다 — 답이 영영 안 오는
- * 줄(중단된 턴)만 남고, 그것이 무한정 쌓이지 않도록 오래된 것부터 버린다.
- */
+/** 짝을 기다리는 Bash tool_use 상한 — 전경 Bash 까지 담아서 필요하다(⑰). 답이 영영 안 오는 줄(중단된 턴)이 쌓이지 않게 오래된 것부터 버린다. */
 const PENDING_BASH_MAX = 200;
 
 const scanStates = new Map<string, ShellScanState>();
@@ -289,21 +251,15 @@ function freshScanState(): ShellScanState {
 
 /** 누적 상태에서 지금 살아있는 셸 목록을 뽑는다(종전 함수 말미의 필터와 동일). */
 function activeShellsOf(state: ShellScanState): ActiveBackgroundShell[] {
-  // §7.11 v2.4 — Vibisual 자체 런처 셸(node scripts/runapp.mjs 등)은 제외한다.
-  // 그 output 파일은 실행된 Vibisual 앱 자신의 로그라, 감지가 자기 로그를 되읽어
-  // 모든 포트를 서버로 오등록하는 self-ingestion 루프를 만든다.
+  // §7.11 — 자체 런처 셸(node scripts/runapp.mjs 등)은 뺀다 — 그 output 은 앱 자신의 로그라 자기 로그를 되읽어 모든 포트를 오등록한다.
   return state.shells.filter(
     (s) => !state.killed.has(s.shellId) && !isVibisualLauncherCommand(s.command),
   );
 }
 
 /**
- * §5.3 #9-2 (C-1) — **끊긴 셸까지 포함해** 그 셸의 명령 원문.
- *
- * `scanActiveBackgroundShells` 는 살아 있는 셸만 돌려준다(에이전트가 KillShell 로 끊은 것은 뺀다). 그런데
- * 끊긴 작업의 남은 프로세스를 찾을 때 필요한 것이 바로 그 끊긴 셸의 명령이다 — 상류가 Windows 에서
- * `bash.exe` 만 끊어 그 아래 `grep` 이 고아로 사는 자리(anthropics/claude-code#27273·#76353).
- * 증분 상태를 먼저 최신으로 당긴 뒤 전체 목록에서 찾는다(디스크를 다시 읽지 않는다).
+ * §5.3 #9-2 (C-1) — 끊긴 셸까지 포함한 명령 원문(`scanActiveBackgroundShells` 는 산 셸만 준다). 상류가 Windows 에서 `bash.exe` 만 끊어
+ * 아래 `grep` 이 고아로 사는 것을 찾을 때 쓴다(anthropics/claude-code#27273·#76353). 증분 상태를 먼저 당겨 디스크를 다시 읽지 않는다.
  */
 export function findBackgroundShellCommand(jsonlPath: string, shellId: string): string | undefined {
   scanActiveBackgroundShells(jsonlPath);
@@ -359,14 +315,8 @@ export function scanActiveBackgroundShells(jsonlPath: string): ActiveBackgroundS
         const input = b['input'] as Record<string, unknown> | undefined;
         const uid = typeof b['id'] === 'string' ? b['id'] : '';
 
-        // §5.5 #17-9 ⑰ — **깃발이 아니라 하니스의 답으로 판정한다.**
-        //   종전에는 `run_in_background === true` 인 tool_use 만 담았다. 그런데 전경 Bash 가
-        //   120초 제한을 넘으면 하니스가 **말없이 백그라운드로 옮긴다**, 그리고 그 tool_use 에는
-        //   깃발이 없다(실측: `run_in_background: undefined` + 결과문 "moved to the background").
-        //   그래서 승격된 셸은 이 목록에 통째로 빠졌고, 명령 원문을 못 찾아 조용한 항목
-        //   조사(⑭)의 후보조차 되지 못했다 — 끝 표식도 조사도 없이 영원히 남는 유일한 부류였다.
-        //   여기서는 Bash 호출의 명령문만 들고 있다가, 아래 tool_result 가 **백그라운드 모양으로
-        //   답할 때만** 실제 셸로 등록한다(깃발 ❌, 관측 사실 ⭕).
+        // §5.5 #17-9 ⑰ — 깃발이 아니라 하니스의 답으로 판정한다(승격된 셸은 `run_in_background` 가 없다, 실측). 명령문만 들고 있다가 tool_result 가
+        // 백그라운드 모양으로 답할 때만 셸로 등록한다 — 깃발만 보면 승격 셸이 끝 표식도 조사도 없이 영원히 남는다.
         if (name === 'Bash' && uid) {
           const cmd = typeof input?.['command'] === 'string' ? (input['command'] as string) : '';
           pending.set(uid, { command: cmd, startedAt: ts });

@@ -6,10 +6,7 @@ import { ScrollFade } from '../ScrollFade.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import type { CommandHistoryRow } from './commandAppHistory.js';
 
-/**
- * §5.1 명령 앱 · §7.3 — 목록 위 `마지막 N개만 유지` 체크박스(파일 버블 수정 기록과 같은 규칙 · 2026-10-21 사용자 지시).
- * 켜면 최근 `keep` 개, 끄면 남아 있는 기록 전부(보관 상한은 서버의 별개 축이다).
- */
+/** §5.1 · §7.3 — `마지막 N개만 유지`(파일 버블과 같은 규칙). 끄면 남은 기록 전부(보관 상한은 서버 축). */
 export interface CommandHistoryLimitControl {
   readonly keep: number;
   readonly limited: boolean;

@@ -35,12 +35,10 @@ import { isDeadWorktreeProject, isLiveWorktreeDir, isUnderDeadWorktree, shouldRe
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
 import { pathKey } from './pathKey.js';
 
-// v1.52: 체크포인트 = 각 프로젝트 폴더 안의 `<projectPath>/.vibisual/save/`.
-// SCENARIO §3.2 / §3.5 — Vibisual 레포 안에는 다른 프로젝트의 데이터를 두지 않는다.
-// 워크트리는 워크트리 폴더 자체 안(ProjectInfo.path 가 워크트리 절대경로).
+// §3.2 / §3.5 — 체크포인트는 각 프로젝트 폴더 안 `<projectPath>/.vibisual/save/`(이 레포에 남의 데이터를 두지 않는다). 워크트리는 그 워크트리 폴더 안.
 
 const SAVE_SUBDIR = '.vibisual/save';
-/** §3.2.2 v2.62 — 정체성 데이터 물리 분리 파일명. checkpoint.json 과 같은 save 디렉토리. */
+/** §3.2.2 — 정체성 데이터 분리 파일(같은 save 디렉토리). */
 const IDENTITY_FILENAME = 'identity.json';
 const CHECKPOINT_FILENAME = 'checkpoint.json';
 /**
@@ -49,19 +47,13 @@ const CHECKPOINT_FILENAME = 'checkpoint.json';
  */
 const ACTIVITY_FILENAME = 'activity.json';
 
-// ─── §3.2.1 v2.62 손실 방지 인프라: 원자적 쓰기 + 다세대 백업 + 복구 ───
+// §3.2.1 손실 방지: 원자적 쓰기 + 다세대 백업 + 복구
 
-/**
- * 원자적 파일 쓰기 — `<file>.tmp` 에 쓰고 fsync 후 rename 으로 교체.
- * 쓰는 도중 프로세스 종료·전원 손실에도 기존 파일이 반파되지 않는다(§3.2.1-1).
- * rename 은 같은 디렉토리 내에서 원자적. 디렉토리 fsync 까지 시도(가능한 플랫폼).
- */
+/** 원자적 쓰기 — `.tmp` 에 쓰고 fsync 후 rename(같은 디렉토리 안에서 원자적). 도중 종료·전원 손실에도 반파되지 않는다(§3.2.1-1). 디렉토리 fsync 는 되는 플랫폼에서만. */
 export function atomicWriteFileSync(filePath: string, data: string): void {
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
-    // v3.71 최종 방어선: 죽은 워크트리(`.git` 없음) 안에는 디렉토리를 새로 만들지 않는다.
-    // 이 mkdir 이 "사용자가 지운 워크트리 폴더가 되살아나는" 경로의 실행 지점이었다.
-    // 호출부별 가드(writeCheckpoint 등)를 뚫고 들어온 배경 쓰기(brain 카드 등)까지 여기서 막는다.
+    // 최종 방어선: 죽은 워크트리(`.git` 없음) 안엔 mkdir 하지 않는다 — 지운 워크트리 폴더가 되살아나는 지점이다(가드를 뚫은 배경 쓰기까지 막는다).
     if (isUnderDeadWorktree(filePath)) {
       throw new Error(`refusing to create a directory inside a worktree that git no longer tracks: ${dir}`);
     }
@@ -73,14 +65,8 @@ export function atomicWriteFileSync(filePath: string, data: string): void {
 }
 
 /**
- * §9 "디스크 쓰기는 워커 스레드로" — **체크포인트 3종(core·activity·identity) 전용** 쓰기 창구.
- *
- * 가드(§3.2.1 통째-0·shrink·죽은 워크트리)를 이미 통과한 뒤에만 불린다. 워커가 켜져 있으면
- * 문자열만 넘기고 즉시 돌아오고, 꺼져 있거나 큐가 가득 차면 종전처럼 동기로 쓴다.
- *
- * ⚠ 이 창구는 `atomicWriteFileSync`(범용) 와 **일부러 분리**돼 있다. 범용 쪽까지 비동기로 만들면
- *   "쓴 직후 다시 읽는" 호출자(Brain 카드·훅 설정 등)가 옛 내용을 볼 수 있다. 체크포인트 읽기
- *   경로에는 `flushPendingDiskWritesSync()` 를 걸어 두었으므로 이 3종만 안전하게 미룰 수 있다.
+ * §9 — 체크포인트 3종(core·activity·identity) 전용 쓰기 창구(가드 통과 뒤에만). 워커가 있으면 넘기고 즉시 돌아오고, 없거나 큐가 차면 동기로 쓴다.
+ * ⚠ 범용 `atomicWriteFileSync` 는 비동기로 만들지 마라 — 쓴 직후 읽는 호출자가 옛 내용을 본다(체크포인트 읽기엔 `flushPendingDiskWritesSync()` 가 걸려 있다).
  */
 function atomicWriteCheckpointFile(filePath: string, data: string): void {
   if (queueAtomicWrite(filePath, data)) return;
@@ -88,21 +74,8 @@ function atomicWriteCheckpointFile(filePath: string, data: string): void {
   acknowledgeSynchronousDiskWrite(filePath);
 }
 
-/**
- * 저장 직전 기존 파일을 다세대 백업으로 회전(`<file>.bak1 → .bak2 → ... → .bakN`).
- * 가장 오래된 세대(.bakN)는 폐기, 현재 파일을 .bak1 로 복사(원자 쓰기가 곧 덮어쓸 것이므로
- * 복사 후 보존). 논리적 실수(빈/급감 저장)·사용자 실수의 수동 복구 안전망(§3.2.1-2).
- */
-/**
- * §9 v3.45 — 파일당 최소 회전 간격. 고빈도 저장(전수조사 hook 폭주) 시 저장마다 3세대
- * rename + 전체 복사가 돌면 직전 이벤트와 사실상 동일한 판본 3벌만 남고 I/O 만 태운다.
- * 간격을 두면 .bak1 이 "그 간격만큼 전의 판본"이 되어 손상 복구용 시간 다양성은 오히려 향상.
- *
- * v4.67 — 30초 → 5분. 30초 간격에서는 3세대가 90초 안에 전부 몰려(실측 mtime 이 본체·bak1 동시,
- * bak2·bak3 이 1분 전) "세대"라는 말이 무색했다. 5분이면 .bak1~3 이 각각 5·10·15분 전 판본이 되어
- * 시간 다양성이 실제로 생기고, 8MB 급 체크포인트의 전체 복사 I/O 는 1/10 로 줄어든다.
- * 세대 수(§3.2.1-2)·복구 경로·파일명은 그대로다.
- */
+/** 저장 직전 `.bak1 → … → .bakN` 회전(가장 오래된 것은 버리고 현재 파일을 .bak1 로 복사). 빈/급감 저장·실수를 손으로 되돌리는 안전망(§3.2.1-2). */
+/** §9 — 파일당 최소 회전 간격. 저장마다 돌리면 같은 판본 3벌에 I/O 만 탄다 — 5분이면 .bak1~3 이 5·10·15분 전 판본이 된다(30초는 90초 안에 몰렸다, 실측). */
 const ROTATE_MIN_INTERVAL_MS = 5 * 60_000;
 const lastRotatedAt = new Map<string, number>();
 
@@ -152,8 +125,7 @@ export function loadFromBackups<T>(
 const LEGACY_SAVE_ROOT = path.resolve(process.cwd(), '../../save');
 const LEGACY_FILE = path.join(LEGACY_SAVE_ROOT, 'state.json');
 
-/** ProjectInfo 기반 체크포인트 디렉토리.
- *  v1.52: `<projectPath>/.vibisual/save/`. 워크트리는 워크트리 자체 폴더 안(ProjectInfo.path 가 워크트리 절대경로). */
+/** 체크포인트 디렉토리 `<projectPath>/.vibisual/save/`(워크트리는 그 폴더 안). */
 export function projectDirForInfo(info: ProjectInfo): string {
   // path 가 비어있는 ghost meta 방어 — writeCheckpoint 가드와 같은 기준.
   if (!info?.path) {
@@ -162,11 +134,10 @@ export function projectDirForInfo(info: ProjectInfo): string {
   return path.join(info.path, SAVE_SUBDIR);
 }
 
-/** §3.2.1-4 (v3.63) — 그 경로에 **Vibisual 저장 데이터가 하나라도 있는가**.
- *  `<projectPath>/.vibisual/save/` 에 파일이 1개 이상이면 true(project.json 이 반파돼도
- *  checkpoint/identity/`.bak*` 중 하나만 남아 있으면 복구 대상이므로 파일명은 따지지 않는다).
- *  부팅 청소가 "메타 손상 → 재시도 보존" 과 "애초에 프로젝트가 아니었음 → 제거" 를 가르는 기준.
- *  접근 실패(권한 등)는 **보수적으로 true** — 판단이 서지 않으면 지우지 않는다. */
+/**
+ * §3.2.1-4 — 그 경로의 save 폴더에 파일이 하나라도 있는가(어느 파일이든 복구 근거). 부팅 청소가 "손상 → 보존"과 "프로젝트 아님 → 제거"를 가른다.
+ * 접근 실패는 true — 판단이 안 서면 지우지 않는다.
+ */
 export function hasProjectSaveData(projectPath: string): boolean {
   if (!projectPath) return false;
   const saveDir = path.join(projectPath, SAVE_SUBDIR);
@@ -202,8 +173,7 @@ export interface LegacySavedState {
 
 // ─── 프로젝트 메타 ───
 
-/** §9 v3.45 — project 내용이 같으면 lastSavedAt 만을 위해 이 간격보다 자주 재기록하지 않는다.
- *  lastSavedAt 은 마이그레이션의 "더 새로운 쪽 보존" 비교용이라 초 단위 정밀도가 필요 없다. */
+/** §9 — 내용이 같으면 lastSavedAt 만으로 이 간격보다 자주 다시 쓰지 않는다(그 값은 "더 새로운 쪽" 비교용이라 초 정밀도가 필요 없다). */
 const META_REWRITE_MIN_INTERVAL_MS = 30_000;
 const lastMetaWrite = new Map<string, { projectJson: string; writtenAt: number }>();
 
@@ -212,8 +182,7 @@ function writeMeta(dir: string, project: ProjectInfo): void {
 
   const mp = path.join(dir, 'project.json');
 
-  // §9 v3.45 — 고빈도 저장 경로에서 매번 read+parse+fsync 쓰기가 돌지 않도록,
-  // project 내용 불변 + 최근 기록이면 스킵(내용이 바뀌면 즉시 기록).
+  // §9 — 내용 불변 + 최근 기록이면 건너뛴다(바뀌면 즉시).
   const projectJson = JSON.stringify(project);
   const recent = lastMetaWrite.get(mp);
   if (recent && recent.projectJson === projectJson && Date.now() - recent.writtenAt < META_REWRITE_MIN_INTERVAL_MS) {
@@ -234,19 +203,14 @@ function writeMeta(dir: string, project: ProjectInfo): void {
     } catch { /* 파싱 실패 시 새로 생성 */ }
   }
 
-  // §3.2.1-1 (v3.29): project.json 도 원자적 쓰기. 과거엔 plain writeFileSync 라 크래시가
-  // 쓰기 도중이면 파일이 truncate → discoverProjectMetas 파싱 실패 → 부팅 시 프로젝트 소실로 이어졌다.
+  // §3.2.1-1: project.json 도 원자적으로 — 도중 크래시로 잘리면 부팅 때 프로젝트가 사라진다.
   atomicWriteFileSync(mp, JSON.stringify(meta, null, 2));
   lastMetaWrite.set(mp, { projectJson, writtenAt: Date.now() });
 }
 
 // ─── 체크포인트 ───
 
-/**
- * §3.2.2 v2.62 — 체크포인트에서 정체성(identity) 데이터를 파생한다.
- * 잃으면 안 되는 것만 추린다: customCreated 에이전트 정체성 + agentConfigs + customLabels
- * + sessionCwds + taskEdges + commentBoxes + captureBubbles + contis. 휘발성 런타임 상태는 제외.
- */
+/** §3.2.2 — 잃으면 안 되는 정체성만 추린다(휘발 런타임 상태 제외). */
 function deriveIdentity(cp: ProjectCheckpoint): ProjectIdentity {
   const customAgents: Record<string, BubbleData> = {};
   for (const [sessionId, agent] of Object.entries(cp.graph.agents)) {
@@ -267,7 +231,7 @@ function deriveIdentity(cp: ProjectCheckpoint): ProjectIdentity {
     commentBoxes: cp.commentBoxes ?? [],
     captureBubbles: cp.captureBubbles ?? [],
     appBubbles: cp.appBubbles ?? [],
-    // §5.14 v4.62 — 플레이 버블은 사용자가 놓은 버튼 + 확정한 실행 레시피라 정체성이다.
+    // §5.14 — 플레이 버블(놓은 버튼 + 확정 레시피)은 정체성이다.
     playBubbles: cp.playBubbles ?? [],
     // §5.15 — 스펙 보드는 사람이 쓴 요구사항 문장이라 잃으면 복구할 길이 없다(정체성).
     specDocs: cp.specDocs ?? [],
@@ -276,7 +240,7 @@ function deriveIdentity(cp: ProjectCheckpoint): ProjectIdentity {
     // §5.20 — 선반은 사람이 모아 둔 명령·프롬프트라 코드에서 되살릴 길이 없다(정체성).
     shelfBubbles: cp.shelfBubbles ?? [],
     contis: cp.contis ?? {},
-    // §5.5 #17-17 v4.46 — 세션 목표는 사용자가 직접 쓴 문장이라 잃으면 복구할 길이 없다(정체성).
+    // §5.5 #17-17 — 세션 목표는 사람이 쓴 문장이라 정체성이다.
     sessionGoals: cp.sessionGoals ?? {},
     // §5.5 #17-17 ⑪(h) — 시각 종류 카드. 에이전트가 만든 것이라 잃으면 복구할 길이 없다.
     visualKinds: cp.visualKinds ?? {},
@@ -323,17 +287,10 @@ export function loadIdentityFromDir(saveDir: string): ProjectIdentity | null {
 }
 
 /**
- * §3.2.1-3 v2.63 — 빈/급감 덮어쓰기 거부 가드 (묘비 기반 정밀 구분).
- *
- * 디스크 identity 의 커스텀 에이전트 중, 지금 저장본에서 사라진 것들을 본다:
- *  - 사라진 게 **전부 묘비(deletedSessionIds)로 설명되면** = 사용자 명시 삭제 → 저장 진행(true).
- *  - 묘비로 **설명 안 되는 소멸이 하나라도 있으면** = 복원 실패로 인한 유실 의심 → 보류(false).
- *
- * 이로써 "정상 삭제는 그대로 반영(유령 부활 ❌), 복원 실패는 디스크 보존(원본 파괴 ❌)"이
- * 깔끔히 갈린다. nextIdentity.deletedSessionIds 는 메모리 묘비의 직렬화본. true=저장 진행.
+ * §3.2.1-3 — 묘비 기반 급감 가드: 디스크 identity 에서 사라진 커스텀 에이전트가 전부 묘비로 설명되면 저장(명시 삭제),
+ * 하나라도 아니면 보류(복원 실패 의심) — 유령 부활도 원본 파괴도 막는다.
  */
-/** §9 v3.45 — 세션 내 마지막 기록 identity 캐시(checkpoint 합계 캐시와 동일 취지).
- *  guarded-skip(저장 보류) 시엔 갱신하지 않으므로 디스크 판본이 비교 기준으로 유지된다. */
+/** §9 — 마지막 기록 identity 캐시. 보류(guarded-skip) 땐 갱신하지 않아 디스크 판본이 기준으로 남는다. */
 const lastWrittenIdentityByDir = new Map<string, ProjectIdentity>();
 
 function passesShrinkGuard(saveDir: string, nextIdentity: ProjectIdentity): boolean {
@@ -381,10 +338,7 @@ function countNodes(nodes: Record<string, unknown> | undefined): { nodes: number
   return { nodes: keys.length, rootNodes };
 }
 
-/**
- * §3.2.1-3 (v3.03) — 디스크 checkpoint(없으면 `.bak1`)에서 그래프 합계만 가볍게 읽는다.
- * `loadCheckpointFromPath` 는 매번 info 로그를 찍어 고빈도 저장 경로에 부적합하므로 별도 조용한 reader.
- */
+/** §3.2.1-3 — 디스크(없으면 `.bak1`) 합계만 조용히 읽는다(`loadCheckpointFromPath` 는 매번 로그를 찍는다). */
 function readCheckpointTotalsFromDisk(cpPath: string): CheckpointTotals | null {
   const tryRead = (f: string): CheckpointTotals | null => {
     try {
@@ -401,26 +355,10 @@ function readCheckpointTotalsFromDisk(cpPath: string): CheckpointTotals | null {
 }
 
 /**
- * §3.2.1-3 (v3.03) — checkpoint.json 빈/급감 덮어쓰기 거부 가드.
- * 크래시 후 재시작 시 빈 인스턴스가 멀쩡한 checkpoint 를 빈 그래프로 덮어쓰는 손실을 막는다.
- * 판정은 `graph.agents + graph.nodes` 합계 기준.
- * - (1) 통째-0 가드(1차 활성): 디스크 합계 ≥ MIN_PRIOR 인데 새 저장본 합계 == 0 → 거부.
- * - (2) 급감 비율 가드(기본 비활성): 정상 대량 만료 오탐 위험이 커 상수 토글로만 둔다.
- * 정상 만료는 프로젝트 루트 노드가 남아 통째-0 이 되지 않으므로 오탐하지 않는다.
- *
- * ⚠ (1) 의 "디스크 합계" 는 **루트 노드를 뺀 수**다. 루트 노드는 프로젝트 등록 시 자동 생성되는
- *   골격이라 지킬 사용자 데이터가 아니고, 워크트리 프로젝트는 화면 표현이 부모 캔버스의 워크트리
- *   버블로 옮겨가 자기 소유 버블이 정상적으로 0개가 된다. 이 예외가 없으면 "루트 노드 하나뿐인
- *   디스크 vs 비어 있는 정상 인스턴스" 가 매 저장마다 거부되는데, 거부는 디스크도 아래 합계
- *   캐시도 갱신하지 않으므로 **판정 조건이 그대로 남아 영원히 반복**된다(가드가 자기를 발화시키는
- *   파일을 스스로 보존하는 고착 상태 — 실제로 워크트리 두 개에서 매 저장마다 경고가 쌓였다).
+ * §3.2.1-3 — checkpoint.json 급감 가드: 디스크 합계(agents+nodes) ≥ MIN_PRIOR 인데 새 합계 0 이면 거부(크래시 뒤 빈 인스턴스의 덮어쓰기). 비율 가드는 오탐이 커 토글로만.
+ * ⚠ 디스크 합계는 루트 노드를 뺀 수다 — 넣으면 워크트리(자기 버블 0개가 정상)가 매번 거부되고, 거부는 아무것도 갱신하지 않아 영원히 되풀이된다.
  */
-/**
- * §9 v3.45 — 세션 내 마지막 기록 합계 캐시. 종전엔 매 저장마다 디스크의 checkpoint.json
- * (수 MB)을 통째로 읽어 파싱했는데, 고빈도 저장 경로에서 이 재읽기가 메인 스레드 포화의
- * 한 축이었다. 파일은 이 프로세스만 쓰므로 첫 저장 때 1회 디스크 판독 후 캐시로 대체해도
- * 가드 의미(빈 인스턴스의 덮어쓰기 차단)는 동일하다.
- */
+/** §9 — 마지막 기록 합계 캐시. 이 프로세스만 쓰므로 첫 저장 때 한 번만 디스크를 읽는다(매번 수 MB 를 파싱하면 메인 스레드가 포화된다). */
 const lastWrittenCheckpointTotals = new Map<string, CheckpointTotals>();
 
 function passesCheckpointShrinkGuard(
@@ -457,25 +395,17 @@ function passesCheckpointShrinkGuard(
 }
 
 /**
- * @param preSerialized 호출자가 이미 만들어 둔 **core**(=`splitCheckpointForDisk(cp).core`) 직렬화 결과.
- *   v4.67 — `SaveScheduler.writeIfChanged` 는 "내용 불변" 비교를 위해 한 번 직렬화하는데,
- *   여기서 또 직렬화하면 매 저장마다 같은 문자열을 두 번 만들게 된다(메인 프로세스 = 서버
- *   코어라 그 CPU 가 곧 UI 멈칫). 이미 만든 것을 넘겨받으면 그대로 재사용한다.
- *   생략하면 종전대로 여기서 직렬화하므로 다른 호출부는 손댈 필요가 없다.
- *   ⚠ §3.2.2 activity 분리 이후로는 **전체가 아니라 core** 의 직렬화 결과다.
- * @param opts.skipCore 이력만 바뀌었을 때 `checkpoint.json` 재작성을 건너뛴다(백업 회전까지 아낀다).
- * @param opts.activityJson 호출자가 이미 만들어 둔 `activity.json` 직렬화 결과.
- * @returns 모든 저장이 완료되었거나 워커 큐에 접수되었는지. 실패·거부는 재시도할 수 있게 false.
+ * @param preSerialized 호출자가 이미 만든 core(`splitCheckpointForDisk(cp).core`) 직렬화 — 넘기면 다시 직렬화하지 않는다(전체가 아니라 core).
+ * @param opts.skipCore 이력만 바뀌었으면 `checkpoint.json` 재작성(백업 회전 포함)을 건너뛴다.
+ * @param opts.activityJson 이미 만든 `activity.json` 직렬화.
+ * @returns 저장 완료 또는 워커 큐 접수. 실패·거부는 재시도하게 false.
  */
 export function writeCheckpoint(
   checkpoint: ProjectCheckpoint,
   preSerialized?: string,
   opts?: { skipCore?: boolean; activityJson?: string },
 ): boolean {
-  // Ghost 체크포인트 생성 방지 가드.
-  // project.path 가 비었거나 name 이 placeholder("unknown") 면 저장 거부.
-  // 과거 연쇄 데이터 손실(ghost 메타가 Vibisual 인스턴스 키 선점 → 빈 상태로 덮어쓰기)의 진원지였음.
-  // 정상 프로젝트는 registerProject 시점에 반드시 유효한 path/name 을 갖기에 여기서 걸리지 않는다.
+  // Ghost 방지: path 가 비었거나 name 이 "unknown" 이면 거부 — ghost 메타가 인스턴스 키를 선점해 빈 상태로 덮는 연쇄 손실을 막는다.
   const proj = checkpoint?.project;
   if (!proj || !proj.name || proj.name === 'unknown' || !proj.path) {
     logger.warn(
@@ -484,16 +414,12 @@ export function writeCheckpoint(
     );
     return false;
   }
-  // v1.52: 프로젝트 폴더가 디스크에서 사라졌으면 저장하지 않는다 (orphan ghost 방지).
-  // 예: 사용자가 폴더를 삭제했는데 인메모리 인스턴스가 남아있는 케이스.
+  // 폴더가 지워졌으면(인메모리만 남음) 저장하지 않는다(orphan ghost).
   if (!fs.existsSync(proj.path)) {
     logger.warn(`writeCheckpoint: project path missing on disk: ${proj.path} — skipping write`);
     return false;
   }
-  // v3.71: 워크트리 인스턴스는 "폴더가 있는가" 가 아니라 "아직 살아있는 git 워크트리인가" 로 판정한다.
-  // 저장 경로가 디렉토리를 mkdir 로 만들기 때문에, 이 가드가 없으면 죽은 워크트리 폴더를 사용자가
-  // 지워도 다음 오토세이브가 `.vibisual/save/*` 와 함께 폴더째 되살린다(외부 Claude Code 가 만든
-  // 워크트리, Windows 잠금 파일로 반만 지워진 좀비 폴더가 여기 해당). 일반 프로젝트는 영향 없음.
+  // 워크트리는 폴더 존재가 아니라 살아있는 git 워크트리인지로 본다 — 저장이 mkdir 하므로, 아니면 지운 좀비 워크트리 폴더(Windows 잠금으로 반만 지워진 것 등)를 오토세이브가 되살린다.
   if (isDeadWorktreeProject(proj)) {
     if (shouldReportDeadWorktree(`write:${proj.path}`)) {
       logger.warn(
@@ -509,8 +435,7 @@ export function writeCheckpoint(
 
     const cpPath = path.join(dir, CHECKPOINT_FILENAME);
 
-    // §3.2.1-3 (v3.03) checkpoint.json 통째-0 가드 — 빈 인스턴스가 멀쩡한 디스크를 덮어쓰는 손실 차단.
-    // writeMeta(lastSavedAt 갱신)·백업 롤링보다 먼저 검사해 거부 시 디스크를 일절 건드리지 않는다.
+    // §3.2.1-3 통째-0 가드 — writeMeta·백업 회전보다 먼저, 거부 시 디스크를 건드리지 않는다.
     const cpVerdict = passesCheckpointShrinkGuard(cpPath, checkpoint);
     if (!cpVerdict.ok) {
       logger.warn(
@@ -537,9 +462,7 @@ export function writeCheckpoint(
     if (!opts?.skipCore) {
       rotateBackups(cpPath);
       atomicWriteCheckpointFile(cpPath, preSerialized ?? JSON.stringify(core));
-      // §9 v3.45 — 다음 저장의 shrink guard 는 디스크 재읽기 대신 이 캐시로 비교한다.
-      //   ⚠ 디스크 판독(readCheckpointTotalsFromDisk)과 **같은 모양**이어야 한다 — `rootNodes` 를
-      //   빠뜨리면 캐시 경로에서만 루트 노드가 보호 대상으로 잡혀 판정이 갈린다.
+      // §9 — 다음 가드는 이 캐시로 비교한다. ⚠ `readCheckpointTotalsFromDisk` 와 같은 모양(`rootNodes` 포함)이어야 한다 — 다르면 캐시 경로만 판정이 갈린다.
       lastWrittenCheckpointTotals.set(cpPath, {
         agents: Object.keys(checkpoint.graph?.agents ?? {}).length,
         ...countNodes(checkpoint.graph?.nodes as Record<string, unknown> | undefined),
@@ -568,11 +491,7 @@ export function writeCheckpoint(
   }
 }
 
-// ─── activity.json 분해·병합 (§3.2.2) ───
-//
-// 실측(2026-08-13): `activity` 6.87MB 가 `checkpoint.json` 11.1MB 의 62%. `SaveScheduler` 가
-// 매 저장마다 그 전량을 다시 직렬화·비교하고, 바뀌면 백업 3세대까지 복사했다. 이력과 골격은
-// 바뀌는 시점이 달라서, 나눠 두면 **바뀐 쪽만** 다시 쓰면 된다.
+// activity.json 분해·병합(§3.2.2) — 이력과 골격은 바뀌는 때가 달라 바뀐 쪽만 쓴다(실측 2026-08-13: activity 가 checkpoint 의 62%).
 
 /** `activity.json` 디스크 포맷. ⚠ 저장 시각 같은 "매번 달라지는 값"을 넣으면 변경 감지가 무력해진다. */
 interface ActivityFileData {
@@ -602,12 +521,7 @@ function isValidActivityObj(obj: Record<string, unknown>): boolean {
   return typeof v === 'number' && v >= 1 && typeof obj['activity'] === 'object' && obj['activity'] !== null;
 }
 
-/**
- * `activity.json` 을 읽어 체크포인트에 되붙인다.
- *
- * **하위 호환**: 파일이 없으면(구버전이 저장한 트리) 체크포인트 안의 `activity` 를 그대로 둔다 —
- * 그래야 이번 판올림 전에 저장된 이력이 그대로 보인다. 있으면 그쪽이 권위다(저장은 항상 이쪽으로 하므로).
- */
+/** `activity.json` 을 되붙인다 — 없으면(구버전 트리) 체크포인트 안의 `activity` 를 그대로 두고, 있으면 그쪽이 권위다. */
 function attachActivityFromDisk(cp: ProjectCheckpoint, dir: string): ProjectCheckpoint {
   const fp = path.join(dir, ACTIVITY_FILENAME);
   let data: ActivityFileData | null = null;
@@ -636,18 +550,10 @@ function attachActivityFromDisk(cp: ProjectCheckpoint, dir: string): ProjectChec
   return next;
 }
 
-/**
- * 프로젝트 디렉토리별 마지막으로 디스크에 쓴 activity 의 **지문** — 안 바뀌었으면 다시 쓰지 않는다.
- *
- * §3.2.4 — 종전엔 직렬화 문자열 **전체**를 들고 있었다(실측 activity 6MB, UTF-16 이라 점유 12MB,
- * 프로젝트마다 한 벌). `SaveScheduler` 쪽과 같은 실수가 이 아래 층에도 한 벌 더 있었다.
- */
+/** 디렉토리별 마지막 activity 지문 — 같으면 쓰지 않는다(§3.2.4 — 문자열 전체를 들면 프로젝트마다 12MB). */
 const lastWrittenActivityJson = new Map<string, string>();
 
-/**
- * `activity.json` 저장. **통째-0 가드(§3.2.1-3)는 걸지 않는다** — 이력은 보존 정책(§3.2.3)에 따라
- * 정상적으로 0 이 될 수 있어 가드가 오탐한다. 원자적 쓰기 + 백업 회전은 동급 적용.
- */
+/** 통째-0 가드는 걸지 않는다 — 이력은 보존 정책(§3.2.3)상 정상적으로 0 이 된다. 원자 쓰기·백업 회전은 같게. */
 function writeActivityFile(dir: string, data: ActivityFileData, preSerialized?: string | null): boolean {
   try {
     const json = preSerialized ?? JSON.stringify(data);
@@ -703,19 +609,9 @@ function loadCheckpointFromPath(filePath: string): ProjectCheckpoint | null {
 }
 
 /**
- * 죽은 워크트리에 남은 Vibisual 저장 데이터 정리 (v3.71 — v1.52 noop 에서 부활).
- *
- * v1.52 의 noop 전제는 "워크트리 체크포인트는 워크트리 폴더에 사니 `git worktree remove` 때
- * 함께 사라진다" 였는데, 외부(Claude Code `--isolation worktree`)가 만들고 정리하는 워크트리에서는
- * 성립하지 않는다 — 우리 `.vibisual/` 이 untracked 로 남아 폴더가 살아남는다.
- *
- * 정리 조건(모두 만족해야 지운다):
- *  1. `.claude/worktrees/<wt>` 이 **살아있는 워크트리가 아니다**(`.git` 없음).
- *  2. 그 상태를 **처음 본 뒤 PRUNE_GRACE_MS 가 지났다** — `git worktree add` 진행 중처럼
- *     디렉토리는 생겼는데 `.git` 이 아직 없는 찰나를 오판하지 않기 위한 유예.
- *  3. 그 폴더 안에 우리 `.vibisual` 이 실제로 있다.
- * 지우는 것은 **우리 `.vibisual` 서브트리뿐**이고, 그 결과 폴더가 비면 빈 디렉토리만 rmdir 한다
- * (non-recursive — 사용자/외부 파일이 하나라도 남아 있으면 실패하고 폴더는 그대로 둔다).
+ * 죽은 워크트리에 남은 우리 `.vibisual` 정리(외부가 만든 워크트리는 그것이 untracked 로 남아 폴더가 산다).
+ * 조건: `.git` 없음 + 처음 본 뒤 PRUNE_GRACE_MS 경과(`git worktree add` 찰나 오판 방지) + `.vibisual` 이 실제로 있음.
+ * 지우는 건 `.vibisual` 서브트리뿐, 폴더는 비었을 때만 non-recursive rmdir.
  */
 const PRUNE_MIN_INTERVAL_MS = 60_000;
 /** 죽은 것으로 처음 관측된 뒤 실제 삭제까지의 유예. */
@@ -779,20 +675,17 @@ export function pruneOrphanWorktreeDirs(liveProjects: ProjectInfo[]): number {
 
 // ─── Lazy API ───
 
-/** v1.52: AppState.projectPaths 의 절대경로 목록을 받아 각 프로젝트의 메타만 수집.
- *  - 일반 프로젝트: `<path>/.vibisual/save/{project.json,checkpoint.json}`
- *  - 워크트리: 부모 프로젝트의 git worktree 디렉토리들도 함께 스캔(`<parentPath>/.claude/worktrees/<wt>/.vibisual/save/`).
- *    부모 프로젝트가 openProjects 에 있으면 워크트리도 stub 으로 자동 발견됨(SCENARIO §5.7 #26).
- *  - dedup: 같은 ProjectInfo.path 기준 lastSavedAt 최신 1건만 유지. */
+/**
+ * AppState.projectPaths 의 각 프로젝트 메타를 모은다(`<path>/.vibisual/save/`). 부모의 `.claude/worktrees/<wt>/.vibisual/save/` 도 훑어
+ * 워크트리를 stub 으로 발견한다(§5.7 #26). 같은 path 는 lastSavedAt 최신 1건.
+ */
 export function discoverProjectMetas(projectPaths: string[]): ProjectMetaSnapshot[] {
   // §9 — 워커 큐에 남아 있는 쓰기를 먼저 디스크에 앉힌다. 이 한 줄이 없으면 방금 저장한
   // 내용을 못 본 채 옛 파일을 읽어 복원하는 창이 생긴다(탭 닫고 바로 다시 여는 흐름).
   flushPendingDiskWritesSync();
   const byPath = new Map<string, ProjectMetaSnapshot>();
 
-  /** §3.2.1-4 (v3.29) project.json 이 없거나 손상됐을 때 checkpoint/identity(+백업)에서
-   *  `project`(ProjectInfo) 를 복구한다. 작은 메타 파일 하나가 truncate 됐다고 프로젝트를
-   *  잃지 않도록 하는 자가 치유 경로. path 가 비면 무효로 본다. */
+  /** §3.2.1-4 — project.json 이 없거나 깨졌으면 checkpoint/identity(+백업)에서 ProjectInfo 를 되살린다(path 가 비면 무효). */
   function recoverProjectInfo(saveDir: string): ProjectInfo | null {
     const cpPath = path.join(saveDir, 'checkpoint.json');
     const idPath = path.join(saveDir, IDENTITY_FILENAME);
@@ -813,8 +706,7 @@ export function discoverProjectMetas(projectPaths: string[]): ProjectMetaSnapsho
   function buildSnap(saveDir: string): ProjectMetaSnapshot | null {
     const mp = path.join(saveDir, 'project.json');
     const cpPath = path.join(saveDir, 'checkpoint.json');
-    // v2.62 — checkpoint.json 이 사라졌어도 identity.json(또는 그 백업)이 있으면 발견 대상.
-    // loadCheckpointByMeta 가 identity 골격으로 부활시킨다(§3.2.2).
+    // checkpoint 가 없어도 identity(또는 백업)가 있으면 발견한다 — identity 골격으로 되살린다(§3.2.2).
     const cpAlive = fs.existsSync(cpPath) || fs.existsSync(`${cpPath}.bak1`);
     const idAlive = fs.existsSync(path.join(saveDir, IDENTITY_FILENAME))
       || fs.existsSync(path.join(saveDir, `${IDENTITY_FILENAME}.bak1`));
@@ -848,10 +740,7 @@ export function discoverProjectMetas(projectPaths: string[]): ProjectMetaSnapsho
 
   function upsert(snap: ProjectMetaSnapshot): void {
     const key = snap.project.path.replace(/\\/g, '/');
-    // §4 온보딩 ③ — **이름이 빈 프로젝트는 되살리지 않는다.** 예전에 폴더를 고르기 전 버블을
-    //   만들면 `process.cwd()`(Finder 로 띄운 mac 앱에서는 `/`)가 임시 등록됐고,
-    //   `path.basename('/') === ''` 이라 글자 하나 없는 탭이 남았다. 만드는 쪽은 막았지만,
-    //   그때 이미 저장된 메타를 든 설치본은 다시 켤 때마다 그 탭을 되살린다 — 여기서 고친다.
+    // §4 온보딩 ③ — 이름 빈 프로젝트는 되살리지 않는다(폴더 고르기 전 `process.cwd()` 가 mac Finder 실행에선 `/` 라 `basename` 이 빈 탭이 된다 — 이미 저장된 메타를 고친다).
     if (!snap.project.name) {
       snap = { ...snap, project: { ...snap.project, name: path.basename(key) || key } };
     }
@@ -881,9 +770,7 @@ export function discoverProjectMetas(projectPaths: string[]): ProjectMetaSnapsho
       try {
         for (const wt of fs.readdirSync(wtRoot, { withFileTypes: true })) {
           if (!wt.isDirectory()) continue;
-          // v3.71: 이미 죽은 워크트리(`.git` 없음)의 잔여 저장 데이터는 프로젝트로 되살리지 않는다.
-          // 부팅 때 좀비 폴더가 stub 프로젝트로 다시 등록되던 경로(pruneOrphanWorktreeDirs 가
-          // 유예 후 그 `.vibisual` 을 정리한다).
+          // 죽은 워크트리의 잔여 데이터는 프로젝트로 되살리지 않는다(정리는 pruneOrphanWorktreeDirs).
           if (!isLiveWorktreeDir(path.join(wtRoot, wt.name))) continue;
           const wtSaveDir = path.join(wtRoot, wt.name, SAVE_SUBDIR);
           const wtSnap = buildSnap(wtSaveDir);
@@ -898,14 +785,9 @@ export function discoverProjectMetas(projectPaths: string[]): ProjectMetaSnapsho
   return [...byPath.values()];
 }
 
-/**
- * §3.2.2 v2.62 — checkpoint 에 identity 의 정체성을 보충 병합한다(in-place).
- * checkpoint 가 비거나 일부 손실됐어도 identity.json 의 커스텀 에이전트/설정/엣지를 되살린다.
- * **이미 checkpoint 에 있는 키는 덮어쓰지 않는다**(checkpoint = 더 최신 휘발 상태 포함). 없으면 부활.
- */
+/** §3.2.2 — identity 를 checkpoint 에 보충 병합(in-place). 이미 있는 키는 덮지 않는다(checkpoint 가 더 최신). */
 function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIdentity): void {
-  // §3.2.1-3 v2.63 — 묘비 우선 합산: checkpoint 와 identity 양쪽 삭제 이력 합집합.
-  //   부활 차단 + 다음 저장 왕복에서 묘비 유실 방지.
+  // §3.2.1-3 — 묘비는 양쪽 합집합(부활 차단 + 다음 왕복에서 유실 방지).
   const tombstones = new Set<string>([
     ...(cp.deletedCustomAgentIds ?? []),
     ...(identity.deletedSessionIds ?? []),
@@ -931,10 +813,8 @@ function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIde
       if (!(id in cp.agentConfigs)) cp.agentConfigs[id] = cfg;
     }
   }
-  // §4 (설정 3층) — 갈라진 칸도 같은 규칙으로 보충한다. **체크포인트에 그 필드가 아예 없으면
-  //   보충하지 않는다** — 없음은 "구버전 저장분"이라는 뜻이고, 그때는 복원이 완성본을 대조해
-  //   되만들어야 한다. 여기서 반쪽만 채우면 그 판정이 어긋나 나머지 에이전트가 전부 위층을
-  //   따르는 것으로 접힌다.
+  // §4 (설정 3층) — 체크포인트에 그 필드가 아예 없으면 보충하지 않는다(구버전 저장분 — 복원이 완성본을 대조해야 하는데
+  // 반쪽만 채우면 전부 위층을 따르는 것으로 접힌다).
   if (cp.agentConfigOverrides && identity.agentConfigOverrides) {
     for (const [id, overrides] of Object.entries(identity.agentConfigOverrides)) {
       if (!(id in cp.agentConfigOverrides)) cp.agentConfigOverrides[id] = overrides;
@@ -966,13 +846,13 @@ function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIde
     const seen = new Set(existing.map((b) => b.id));
     cp.captureBubbles = [...existing, ...identity.captureBubbles.filter((b) => !seen.has(b.id))];
   }
-  // §5.13 v4.45 appBubbles 보충 — 같은 규칙(id 기준 합집합).
+  // §5.13 appBubbles 보충 — 같은 규칙(id 기준 합집합).
   if (identity.appBubbles && identity.appBubbles.length > 0) {
     const existing = cp.appBubbles ?? [];
     const seen = new Set(existing.map((b) => b.id));
     cp.appBubbles = [...existing, ...identity.appBubbles.filter((b) => !seen.has(b.id))];
   }
-  // §5.14 v4.62 playBubbles 보충 — 같은 규칙(id 기준 합집합).
+  // §5.14 playBubbles 보충 — 같은 규칙(id 기준 합집합).
   if (identity.playBubbles && identity.playBubbles.length > 0) {
     const existing = cp.playBubbles ?? [];
     const seen = new Set(existing.map((b) => b.id));
@@ -1022,8 +902,7 @@ function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIde
     }
     if (merged.length > 0) cp.pinnedGoalActions = merged;
   }
-  // §5.5 #17-17 v4.46 세션 목표 보충 — checkpoint 에 없는 세션 탭의 목표만 되살린다
-  //   (진행 중인 목표를 디스크 판본이 덮어 되감지 않게 "없는 것만" 규칙 유지).
+  // §5.5 #17-17 — 없는 세션 목표만 되살린다(진행 중인 목표를 되감지 않게).
   if (identity.sessionGoals && Object.keys(identity.sessionGoals).length > 0) {
     cp.sessionGoals = cp.sessionGoals ?? {};
     for (const [subId, goal] of Object.entries(identity.sessionGoals)) {
@@ -1128,16 +1007,7 @@ function buildCheckpointSkeletonFromIdentity(identity: ProjectIdentity): Project
 
 // ─── 스케줄러 ───
 
-/**
- * §3.2.4 — "지난번과 같은 내용인가"를 재는 지문.
- *
- * 종전엔 비교를 위해 **직렬화 문자열 전체**를 프로젝트마다 들고 있었다(checkpoint 2.2MB +
- * activity 6MB, JS 문자열은 UTF-16 이라 실제 점유는 그 두 배). 비교에 필요한 것은 동일성뿐이라
- * 길이 + SHA-1 로 충분하다 — **프로젝트당 수십 MB 가 64바이트가 된다.**
- *
- * 길이를 앞에 붙이는 이유: 해시가 충돌하더라도 길이가 다르면 확실히 걸러진다.
- * (보안 용도가 아니라 변경 감지용이므로 SHA-1 로 충분하고, 네이티브라 직렬화보다 훨씬 싸다.)
- */
+/** §3.2.4 — 변경 감지 지문 = 길이 + SHA-1(직렬화 문자열 전체를 들면 프로젝트당 수십 MB). 길이를 붙여 해시 충돌도 걸러진다(보안 용도 아님). */
 function contentFingerprint(json: string): string {
   return `${json.length}:${crypto.createHash('sha1').update(json).digest('hex')}`;
 }
@@ -1146,22 +1016,8 @@ function contentFingerprint(json: string): string {
 const VOLATILE_STAMP_RE = /"savedAt":\d+/g;
 
 /**
- * 지문 계산 전 **내용과 무관하게 매번 달라지는 값**을 고정한다.
- *
- * `activity.json` 은 처음부터 이 규율을 지켰지만(`ActivityFileData` 에 저장 시각 필드가 없다),
- * `checkpoint.json` 의 core 에는 `savedAt: Date.now()` 가 들어 있다. 그래서 그래프가 한 톨도
- * 안 바뀐 저장에서도 직렬화 결과가 매번 달라졌고, §3.2.4 가 세운 "내용이 같으면 디스크 쓰기를
- * 스킵한다"가 **한 번도 발동하지 못했다**(실측 2026-08-31: 가동 6.1시간 메인 프로세스 누적 쓰기
- * 15.2GB = 2.5GB/h. 저장 1회가 3MB 백업 복사 + 3MB 원자적 쓰기라, 조용한 순간에도 몇 초마다
- * 그 왕복을 지불했다. 서버가 메인 프로세스와 한 몸이라 그 동기 I/O 가 곧 UI 멈칫이다).
- *
- * 2026-08-19 라운드가 같은 이유로 `seq` 를 "저장 대상만 올린다"로 고쳤을 때 `savedAt` 은 함께
- * 잡히지 않았다 — 그래서 지문은 여전히 매번 달라졌다. 여기서 그 짝을 맞춘다.
- *
- * **디스크에 쓰는 값은 손대지 않는다** — 정규화는 비교용 사본에만 적용하므로 파일의 `savedAt` 은
- * 진짜 저장 시각 그대로다. 내용이 안 바뀌어 쓰기를 건너뛴 동안 파일의 `savedAt` 이 과거에
- * 머무는 것은 의도된 결과다(그 값을 읽는 소비자는 서버·클라·desktop 어디에도 없다 —
- * 신선도 판정은 `project.json` 의 `lastSavedAt` 이 따로 맡는다).
+ * 지문 전 `savedAt` 처럼 매번 바뀌는 값을 고정한다 — 없으면 안 바뀐 저장도 지문이 달라 쓰기 생략(§3.2.4)이 발동하지 않는다(실측 2026-08-31: 6.1시간 15.2GB 쓰기).
+ * 비교용 사본에만 적용한다 — 파일의 `savedAt` 은 진짜 시각이고, 건너뛴 동안 과거에 머무는 것은 의도다(신선도는 `lastSavedAt`).
  */
 export function fingerprintSource(json: string): string {
   return json.replace(VOLATILE_STAMP_RE, '"savedAt":0');
@@ -1170,12 +1026,8 @@ export function fingerprintSource(json: string): string {
 /** 체크포인트 저장 스케줄러 */
 export class SaveScheduler {
   /**
-   * 성능: 프로젝트 경로별 마지막으로 디스크에 쓴 체크포인트의 **지문**(§3.2.4 — 종전엔 직렬화
-   * 문자열 전체였다). 내용이 동일하면 디스크 쓰기(원자적 write + 백업 rotate)를 스킵한다.
-   * saveCheckpoint() 는 매 hook 이벤트마다 "모든 프로젝트"를 저장하는데, 활동은 보통 한
-   * 프로젝트에서만 일어나므로 안 바뀐 프로젝트의 반복 디스크 I/O 가 N-1 만큼 제거된다.
-   * 내용이 같을 때만 스킵하므로 debounce 와 달리 영속 유실 위험이 없다(종료 시 미저장분 같은
-   * 창이 존재하지 않음).
+   * §3.2.4 — 경로별 마지막 체크포인트 지문. 같으면 쓰기·백업 회전을 건너뛴다(hook 마다 모든 프로젝트를 저장하므로 N-1 개의 I/O 가 빠진다).
+   * 같을 때만이라 debounce 와 달리 유실 창이 없다.
    */
   private lastWritten = new Map<string, string>();
 
@@ -1211,7 +1063,7 @@ export class SaveScheduler {
     const coreChanged = !key || this.lastWritten.get(key) !== coreFp;
     const activityChanged = !key || this.lastWrittenActivity.get(key) !== activityFp;
     if (!coreChanged && !activityChanged) return; // 양쪽 다 불변 — 디스크 쓰기 스킵
-    // v4.67 — 방금 만든 직렬화 결과를 그대로 넘겨 writeCheckpoint 안의 2차 직렬화를 없앤다.
+    // 직렬화를 넘겨 재직렬화를 피한다.
     const accepted = writeCheckpoint(cp, coreJson, { skipCore: !coreChanged, activityJson });
     // 실패/가드 거부를 저장 완료로 기억하면 같은 내용의 다음 autosave가 영원히 생략된다.
     if (key) {
@@ -1228,13 +1080,12 @@ export class SaveScheduler {
   }
 }
 
-// ─── v1.52 마이그레이션: 구 SAVE_ROOT → 분산 저장 ───
+// 마이그레이션: 구 SAVE_ROOT → 프로젝트별 분산 저장
 
-/** 구 `<Vibisual>/save/<name>/` 및 `<Vibisual>/save/<name>/worktrees/<wt>/` 트리를 스캔하여
- *  각 메타의 `project.path` 기준 `<path>/.vibisual/save/` 로 1회 이전한다.
- *  - 도착지가 이미 존재하면 lastSavedAt 비교 후 더 새로운 쪽 보존.
- *  - 이전 후 구 SAVE_ROOT 는 `<Vibisual>/save.bak-v1.52/` 로 rename (재마이그레이션 방지 + 사용자 안전망).
- *  - 호출자: 서버 부팅 시 `discoverProjectMetas` 직전. */
+/**
+ * 구 `<Vibisual>/save/<name>/`(+`worktrees/<wt>/`) 를 각 `project.path` 의 `.vibisual/save/` 로 1회 옮긴다 — 도착지가 있으면 lastSavedAt 이 새로운 쪽,
+ * 끝나면 구 루트를 `save.bak-v1.52/` 로 rename(재이전 방지). 부팅 때 `discoverProjectMetas` 직전에 부른다.
+ */
 export function migrateLegacySaveRootToProjectDirs(): { moved: number; skipped: number; bakPath: string | null } {
   let moved = 0;
   let skipped = 0;
@@ -1242,8 +1093,7 @@ export function migrateLegacySaveRootToProjectDirs(): { moved: number; skipped: 
 
   if (!fs.existsSync(LEGACY_SAVE_ROOT)) return { moved, skipped, bakPath };
 
-  // 가드: 진짜 프로젝트 데이터(project.json 가진 하위 디렉토리)가 있을 때만 마이그레이션 실행.
-  // 디버그 로그나 잡 파일만 있으면 무한 백업 증식 방지(이미 v1.52 마이그레이션 1회 완료된 환경).
+  // 진짜 프로젝트 데이터(project.json 하위 폴더)가 있을 때만 — 이미 옮긴 환경에서 백업이 무한 증식하지 않게.
   const hasRealProjectData = (() => {
     try {
       for (const d of fs.readdirSync(LEGACY_SAVE_ROOT, { withFileTypes: true })) {
@@ -1334,8 +1184,7 @@ export function migrateLegacySaveRootToProjectDirs(): { moved: number; skipped: 
     logger.error('migrate: scan failed', err);
   }
 
-  // 구 SAVE_ROOT 백업 — 향후 재마이그레이션 방지.
-  // 이미 `<Vibisual>/save.bak-v1.52/` 가 있으면 타임스탬프 suffix 로 충돌 회피.
+  // 재이전 방지 백업 — `save.bak-v1.52/` 가 있으면 타임스탬프를 붙인다.
   try {
     let target = path.join(path.dirname(LEGACY_SAVE_ROOT), 'save.bak-v1.52');
     if (fs.existsSync(target)) {
@@ -1386,9 +1235,7 @@ function setMapToRecord(entries: [string, string[]][]): Record<string, string[]>
   return mapToRecord(entries);
 }
 
-/** 레거시 state.json → ProjectCheckpoint 변환.
- *  v1.52: 구 LEGACY_FILE 경로(`<Vibisual>/save/state.json`)는 `migrateLegacySaveRootToProjectDirs` 가
- *  먼저 save/ 전체를 백업하므로, 부팅 시퀀스상 구 save/ 가 살아있는 동안에만 호출해야 의미가 있다. */
+/** 레거시 state.json 변환 — 구 save/ 가 살아있는 동안(백업으로 옮기기 전)만 의미가 있다. */
 export function migrateLegacy(): ProjectCheckpoint | null {
   try {
     if (!fs.existsSync(LEGACY_FILE)) return null;

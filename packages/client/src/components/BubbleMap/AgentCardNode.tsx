@@ -27,6 +27,7 @@ import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGestu
 import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
 import { shouldDismissOnSelect } from './agentDismiss.js';
 import { isMainCanvasView } from './canvasScope.js';
+import { useBubbleHost } from './bubbleHost.js';
 import { linkFocusNodeStyle } from './linkedBubbles.js';
 import { BRAND_ICON_PATHS } from './brandIconPaths.js';
 import { useAgentCardSend } from './useAgentCardSend.js';
@@ -48,19 +49,9 @@ import {
 } from './agentCard.js';
 
 /**
- * AgentCardNode.tsx — §5.4 #36 (A) **에이전트 말풍선.**
- *
- * 커스텀 에이전트 버블의 우클릭 메뉴 맨 아래 [말풍선으로 전환]을 누르면, 버블이 있던 자리에 **원이 그대로 남고**
- * 그 왼쪽으로 입력 말풍선이 펴진다(우클릭 자체는 아무것도 바꾸지 않는다 — 2026-10-10 사용자 지시). 되돌리기는 이
- * 노드 어디서 우클릭해도 같은 자리의 [버블로 되돌리기]다. 캔버스에서 **바로 말을 거는 자리**다 — IDE 를 열지 않고
- * 한 줄을 보내고, 원의 궤도 위 위성 점을 끌어 우리 앱 노드(영상·소리·3D·이미지)를 위성으로 띄워 잇는다(§5.4 #36 (B)).
- *
- * 읽는 방향이 곧 흐름이다: 말풍선(내 말) → 원(에이전트) → 오른쪽 앱 위성(결과).
- *
- * 노드 타입은 여전히 `bubble` 이다(`CanvasBubbleNode` 가 형태만 갈라 그린다). 그래야 선택·삭제·Task Edge·
- * 더블클릭 IDE·무리 강조가 버블과 **한 벌**로 돈다 — 따로 길을 깔면 버블에서 고친 것이 말풍선에서 샌다.
- *
- * 생김새는 이 앱의 것이다 — 원·궤도·위성(캔버스의 기존 낱말)·Lucide 글리프·우리 상태 색·에이전트 색·앱 색(§5.4 #36 (D)).
+ * §5.4 #36 (A) — 에이전트 말풍선. 우클릭 메뉴 맨 아래 [말풍선으로 전환] ↔ 같은 자리 [버블로 되돌리기](우클릭 자체는 아무것도 바꾸지 않는다).
+ * 원은 제자리, 왼쪽에 입력 말풍선 — IDE 없이 한 줄을 보내고 궤도 위성 점을 끌어 앱 노드를 잇는다(§5.4 #36 (B)).
+ * 노드 타입은 `bubble` 그대로(`CanvasBubbleNode` 가 형태만 가른다) — 선택·삭제·Task Edge·더블클릭 IDE·무리 강조가 버블과 한 벌이어야 고친 것이 새지 않는다.
  */
 
 /** 원 안의 엔진 글리프 — 버블이 쓰는 그 브랜드 로고(같은 정체는 어디서 보든 같은 그림). */
@@ -102,11 +93,7 @@ const LINE_BREAK = '\n';
 
 type CardNodeProps = NodeProps & { data: BubbleData & Record<string, unknown> };
 
-/**
- * 방금 형태를 바꾼 에이전트 — 말풍선이 펴지는 전이는 **바꾼 그 순간에만** 돈다. 캔버스는 화면 밖 노드를 내렸다가
- * 다시 올리므로(§4 v3.71 컬링) 마운트마다 돌리면 팬할 때마다 말풍선이 다시 펴진다.
- * 손이 떠나면 의미 없는 표시 상태라 영속하지 않는다.
- */
+/** 형태를 방금 바꾼 에이전트 — 펴지는 전이는 그 순간에만 돈다(컬링으로 다시 마운트될 때마다 돌면 팬할 때마다 펴진다). 영속 ❌. */
 const formChangedAt = new Map<string, number>();
 
 /** 캔버스가 형태를 바꿀 때 부른다(`BubbleMap.applyAgentForm`). */
@@ -189,11 +176,9 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
       };
     }), [linked, excluded]);
 
-  // ── 보내기 — 기존 큐 하나(§5.12 #2 와 같은 규율 — 새 전송 경로 ❌) ──
-  //   §5.4 #36 (C) 개정 — 앱이 자기 브리프를 선언한 노드(작업 문서)는 그 브리프를 지어 붙인다(문서를 새로 만들었으면
-  //   노드에 묶인다). 초안은 먼저 비운다 — 브리프를 짓는 짧은 왕복 동안 같은 글을 두 번 보내지 않게(전송이 실패하면
-  //   `addCommand` 가 초안을 되돌린다).
-  //   §5.1 #2-1 (F) ① — 이어진 앱 칩을 모두 껐으면 이 명령은 앱 작업이 아니다(서버가 이어진 앱으로 폴백하지 않게 싣는다).
+  // 보내기 — 기존 큐 하나(§5.12 #2). §5.4 #36 (C) — 브리프를 선언한 앱 노드는 브리프를 지어 붙인다.
+  // 초안은 먼저 비운다(왕복 동안 두 번 보내지 않게 — 실패하면 `addCommand` 가 되돌린다).
+  // §5.1 #2-1 (F) ① — 앱 칩을 모두 껐으면 앱 작업이 아니다(서버가 이어진 앱으로 폴백하지 않게 싣는다).
   const { send: sendCurrent, sending, preparationFailed } = useAgentCardSend(agentId, sessionId, draft, outputNodes,
     tasks.projectId ? { projectId: tasks.projectId, ...(activeTask ? { taskId: activeTask.id } : {}) } : undefined,
     linked.length > 0 && outputNodes.length === 0);
@@ -265,8 +250,7 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
     releaseLinkGrab();
   }, [gesture]);
 
-  // ── 우클릭 — 노드 어디서든 #34 메뉴가 열리고, 그 맨 아래가 [버블로 되돌리기]다(§5.4 #36 (A)) ──
-  //   고르지는 않는다 — 우측 패널은 왼쪽 클릭 선택에서만 뜬다(§6, 2026-10-11 사용자 지시). 대상은 `nodeId` 다.
+  // 우클릭 — 노드 어디서든 #34 메뉴, 맨 아래가 [버블로 되돌리기](§5.4 #36 (A)). 고르지는 않는다(§6 — 우측 패널은 왼쪽 클릭 선택만). 대상은 `nodeId`.
   const handleContextMenu = useCallback((e: React.MouseEvent): void => {
     e.preventDefault();
     window.dispatchEvent(new CustomEvent<BubbleMenuRequest>(BUBBLE_MENU_EVENT, {
@@ -274,10 +258,8 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
     }));
   }, [agentId]);
   /**
-   * 입력칸 위 우클릭 — 말풍선은 거의 전부가 입력칸이라, 여기서 전역 글자 메뉴만 뜨면 되돌리는 길이 숨는다.
-   * 그래서 이 칸은 자기 메뉴를 갖는다(`data-text-menu="own"`): 글자 항목을 맨 위에 그대로 두고 그 아래에
-   * 같은 에이전트 메뉴를 잇는다. 선택 범위는 **지금** 떠 둔다(메뉴를 누를 때는 초점이 옮겨가 있을 수 있다).
-   * 글을 치던 손이라 노드를 고르지는 않는다(입력칸 누름은 선택이 아니다 — 위 `ignore` 와 같은 규칙).
+   * 입력칸 위 우클릭은 자기 메뉴(`data-text-menu="own"`) — 글자 항목 아래 에이전트 메뉴를 잇는다(전역 글자 메뉴만 뜨면 되돌리는 길이 숨는다).
+   * 선택 범위는 지금 떠 둔다(누를 때는 초점이 옮겨가 있을 수 있다). 노드는 고르지 않는다.
    */
   const handleFieldContextMenu = useCallback((e: React.MouseEvent<HTMLTextAreaElement>): void => {
     e.preventDefault();
@@ -714,19 +696,17 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
 });
 
 /**
- * 캔버스의 `bubble` 노드 — 형태만 갈라 그린다(§5.4 #36 (A)).
- *
- * 노드 타입을 새로 만들지 않는 이유: 선택·삭제·Task Edge·더블클릭 IDE·무리 강조·체크포인트가 전부
- * `bubble` 타입을 기준으로 돌기 때문이다. 오버레이 위젯(§5.5 #17-6) 안에서는 늘 버블이다(그 창은 말을 거는
- * 자리가 아니라 지켜보는 자리다).
+ * 캔버스의 `bubble` 노드 — 형태만 갈라 그린다(§5.4 #36 (A)). 새 노드 타입 ❌ — 선택·삭제·Task Edge·더블클릭 IDE·무리 강조·체크포인트가 `bubble` 기준이다.
+ * 오버레이 위젯(§5.5 #17-6)·남의 판(`BubbleHostContext`)에서는 늘 버블.
  */
 export const CanvasBubbleNode = memo(function CanvasBubbleNode(props: NodeProps): React.JSX.Element {
   const data = props.data as unknown as BubbleData & Record<string, unknown>;
   // 말풍선은 메인 뷰에서만 — 폴더·워크트리·휴지통 안은 앱 노드도 없고 고르는 자리다(판정은 결과 한 글자만 구독).
   const mainView = useGraphStore((s) => isMainCanvasView(s));
+  const hosted = useBubbleHost() !== null;
   // §5.1 #2-1 (B) — 묶음 버블(화면 전용)은 따로 그린다 — 파일 얼굴을 쓰면 다시 그 파일로 읽힌다.
   if (data.bubbleType === 'bundle') return <BundleNode {...props} />;
-  if (mainView && isAgentCardForm(data) && data['_overlayMode'] !== true) {
+  if (mainView && !hosted && isAgentCardForm(data) && data['_overlayMode'] !== true) {
     return <AgentCardNode {...(props as CardNodeProps)} />;
   }
   return <BubbleNode {...(props as unknown as React.ComponentProps<typeof BubbleNode>)} />;

@@ -1,14 +1,4 @@
-/**
- * shortcutInterpolation.test.ts — **단축키는 번역문에 박지 않는다.**
- *
- * 단축키 라벨은 플랫폼마다 다르다(mac 은 `⌘`). 그런데 `Ctrl+Enter` 같은 글자가 번역문 **안에**
- * 박혀 있으면 코드가 아무리 플랫폼을 봐도 화면은 영영 `Ctrl+…` 로 뜬다. 게다가 그 문장은 로케일
- * 12개에 복제돼 있어 한 곳만 고치면 나머지 11개 언어에서 조용히 어긋난다.
- *
- * 그래서 규약을 이 테스트로 못 박는다: 단축키가 들어가는 문장은 **보간 변수 자리만** 갖고,
- * 실제 글자는 `shortcutLabel()` 이 넣는다. 12개 로케일 전부 같은 변수를 가져야 한다 —
- * 한 로케일에서 변수 이름을 놓치면 그 언어에서만 `{{shortcut}}` 이 날것으로 노출된다.
- */
+/** **단축키는 번역문에 박지 않는다** — 플랫폼마다 달라(mac `⌘`) 박힌 `Ctrl+…` 는 그대로 뜬다. 보간 자리만 두고 `shortcutLabel()` 이 넣는다. 12개 로케일이 같은 변수를 가져야 한다(놓치면 `{{shortcut}}` 이 날것으로). */
 import { describe, it, expect } from 'vitest';
 import { SUPPORTED_UI_LOCALES } from '@vibisual/shared';
 import en from './locales/en.json';

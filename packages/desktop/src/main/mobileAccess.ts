@@ -47,34 +47,11 @@ import {
   type TermKillFrame,
 } from '@vibisual/shared';
 
-// 모바일 웹 접속 모드 — SCENARIO.md §4 v3.16 + v3.20(UPnP 외부 개방).
-//
-// hook loopback 리스너(index.ts)와 별개의 **opt-in** 리스너. 사용자가 File 메뉴에서 켰을 때만
-// 0.0.0.0(LAN)에 바인드하여 renderer 정적 서빙 + /api light-my-request 재디스패치 + /ws
-// WebSocket 브리지를 제공한다. 브라우저에선 window.api 가 없어 transport 어댑터가 native
-// fetch/WebSocket 폴백으로 동작하므로 클라이언트 소스는 무수정(§3.7 v1.93).
-//
-// v3.20 — 외부(인터넷) 접속. 릴레이 서버(비용)·사용자 수동 포트포워딩 요구 대신, 앱이 사용자
-// 공유기에 UPnP IGD 로 포트를 직접 연다(Plex 원격 액세스 방식). 외부 노출은 도청 방지를 위해
-// 자체 서명 HTTPS 로만 뚫고, UPnP 매핑을 그 HTTPS 포트로 연결한다. UPnP 미지원/CGNAT 는
-// 감지해 수동 포트포워딩 안내로 폴백한다.
-//
-// 보안 모델:
-//   - 기본 OFF. LAN·외부 모두 opt-in. 꺼져 있으면 소켓을 하나도 열지 않는다.
-//   - 페어링: 데스크톱 모달의 코드를 폰에서 입력 → HttpOnly 세션 쿠키. 외부가 켜지면 코드가
-//     강한 영숫자 12자로 승격된다(공인망 무차별 대입 내성).
-//   - IP 별 실패 차단: 한 IP 가 MOBILE_PAIR_MAX_ATTEMPTS 회 실패하면 MOBILE_PAIR_BAN_MS 동안
-//     그 IP 만 차단(전역 잠금이 아니라 per-IP — 소유자 lockout·공격자 DoS 동시 방지).
-//   - Host 헤더 IP-리터럴 가드 — DNS rebinding 차단.
-//   - 세션 쿠키는 SameSite=Lax — 교차 출처 POST·서브리소스·스크립트가 API 를 못 친다.
-//     (Strict 가 아닌 이유는 grantSession 주석 참고: QR 스캔 진입이 구조적으로 막힌다.
-//     LAN http 와 외부 https 를 한 쿠키로 공유하므로 Secure 는 붙이지 않는다 — 페어링이 실질 게이트.)
-//
-// v3.66 — QR 페어링. 주소 타이핑 + 코드 입력을 폰 카메라 스캔 한 번으로 대체한다. 인증 모델은
-// 그대로고 **입력 수단만 추가**: 3분짜리 티켓 토큰을 딥링크(MOBILE_QR_PATH?t=…)에 실어 QR 로
-// 그리고, 스캔이 그 URL 을 열면 토큰을 상수시간 비교해 **코드 입력과 똑같은 세션 쿠키**를
-// 발급한 뒤 `/` 로 302 한다. 티켓은 메모리 전용(미영속)이라 앱을 끄면 사라지고, 실패는 코드
-// 입력과 같은 per-IP 밴 카운터를 공유한다.
+// 모바일 웹 접속 모드 — SCENARIO.md §4. hook loopback 리스너와 별개의 opt-in 리스너: 켰을 때만 0.0.0.0 에 바인드해 renderer 정적 서빙 + /api light-my-request 재디스패치 + /ws 브리지를 준다.
+// 외부 접속: 앱이 공유기에 UPnP IGD 로 포트를 연다 — 자체 서명 HTTPS 포트로만 매핑하고, UPnP 미지원/CGNAT 는 수동 포트포워딩 안내로 폴백.
+// 보안: 기본 OFF(꺼지면 소켓 0) · 페어링 코드 → HttpOnly 세션 쿠키(외부가 켜지면 영숫자 12자) · 실패는 per-IP 차단(MOBILE_PAIR_*)
+// · Host IP-리터럴 가드(DNS rebinding) · 쿠키 SameSite=Lax(Strict 면 QR 진입이 막힌다 — grantSession), Secure 없음(LAN http·외부 https 공유).
+// QR 페어링: 3분 메모리 티켓을 딥링크(MOBILE_QR_PATH?t=…)에 싣고 상수시간 비교 뒤 코드 입력과 같은 세션 쿠키를 준다(실패는 같은 per-IP 카운터).
 
 const PERSIST_FILENAME = 'mobile-access.json';
 const TLS_FILENAME = 'mobile-tls.json';
@@ -91,11 +68,8 @@ interface PersistedMobileAccess {
   /** 발급된 세션 토큰들(최신 우선, MOBILE_SESSION_MAX 캡). */
   sessions: string[];
   /**
-   * 수동 포트포워딩 안내를 한 번이라도 띄웠는가 — **끈 뒤에도 남는 뒷정리 표식**.
-   *
-   * UPnP 매핑은 임대가 끝나면 공유기가 스스로 지우지만, 사용자가 손으로 만든 규칙은 우리가
-   * 지울 방법이 없다. 그래서 "안내했다"를 영속해 두었다가 외부를 끈 뒤에 뒷정리를 청한다.
-   * 사용자가 지웠다고 확인할 때만 false 로 돌아간다.
+   * 수동 포트포워딩 안내를 한 번이라도 띄웠는가 — 끈 뒤에도 남는 뒷정리 표식.
+   * 손으로 만든 공유기 규칙은 우리가 지울 수 없어(UPnP 매핑은 임대가 끝나면 사라진다) 외부를 끈 뒤 뒷정리를 청한다. 지웠다고 확인할 때만 false.
    */
   manualForwardAdvised: boolean;
 }
@@ -110,7 +84,7 @@ interface IpAttempt {
   bannedUntil: number;
 }
 
-/** §4 v3.66 — QR 페어링 티켓(메모리 전용). 토큰은 딥링크 URL 로만 밖에 나간다. */
+/** §4 — QR 페어링 티켓(메모리 전용). 토큰은 딥링크 URL 로만 밖에 나간다. */
 interface QrTicket {
   token: string;
   expiresAt: number;
@@ -128,7 +102,7 @@ let pairingCode: string | null = null;
 const pairAttempts = new Map<string, IpAttempt>();
 let starting = false;
 
-// §4 v3.66 QR 페어링 티켓 — 영속하지 않는다(앱 종료 = 소멸).
+// QR 페어링 티켓 — 영속하지 않는다(앱 종료 = 소멸).
 let qrTicket: QrTicket | null = null;
 let qrExpiryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -231,12 +205,8 @@ function newPairingCode(): string {
 }
 
 /**
- * 지금 이 PC 에 붙어 있는 IPv4 주소 전부 — **어댑터 이름을 함께** 들고 나온다.
- *
- * 종전에는 주소만 뽑아 `http://…` 문자열로 만들어 버렸다. 그래서 화면에 닿을 때쯤엔
- * "이 주소가 진짜 랜인지, Tailscale 인지, WSL 인지"를 알 방법이 사라져 있었다 —
- * 그 정보는 여기 `Object.entries` 의 키에만 있고 그다음에는 어디에도 없다.
- * 정체 판정(`buildMobileAddressEntries`)은 이 이름을 먹고 돈다.
+ * 지금 이 PC 의 IPv4 주소 전부 — 어댑터 이름을 함께 들고 나온다. 랜·Tailscale·WSL 을 가르는 정보는 여기 `Object.entries` 의 키에만 있어
+ * 주소만 문자열로 만들면 사라진다. 정체 판정(`buildMobileAddressEntries`)이 이 이름을 먹는다.
  */
 function lanAddressInputs(port: number | null): MobileAddressInput[] {
   if (port === null) return [];
@@ -285,7 +255,7 @@ function computeExternalUrl(): string | null {
   return null;
 }
 
-// ─── §4 v3.66 QR 페어링 티켓 ─────────────────────────────────────────────────
+// §4 — QR 페어링 티켓
 
 function clearQrTicket(): void {
   if (qrExpiryTimer) {
@@ -302,15 +272,9 @@ function liveQrTicket(): QrTicket | null {
 }
 
 /**
- * 티켓 딥링크 — 지금 접속 가능한 모든 주소(인터페이스별 + 외부 https)에 토큰을 붙인다.
- * 주소는 그때그때 계산하므로 외부를 켜거나 끄면 QR 대상 목록도 따라 바뀐다.
- *
- * 대상도 **접속 주소 목록과 같은 판정**을 태운다 — 종전에는 `https` 인지만 보고 "Wi-Fi /
- * 인터넷" 두 갈래로 칩을 그려서, Tailscale 주소도 WSL 주소도 전부 "Wi-Fi" 라고 우겼다.
- *
- * 다만 **순서는 목록과 다르다**(`MOBILE_QR_KIND_ORDER`) — 외부 IP 가 맨 앞이다. 목록은 폰에
- * 직접 쳐 넣는 것이라 "지금 될 가능성"이 먼저지만, QR 은 폰이 어디 있든 찍는 것이라 집
- * 와이파이를 벗어나도 남는 길이 먼저여야 한다. 첫 칸이 곧 기본 선택이다.
+ * 티켓 딥링크 — 지금 접속 가능한 모든 주소(인터페이스별 + 외부 https)에 토큰을 붙인다(그때그때 계산).
+ * 대상도 접속 주소 목록과 같은 판정을 태운다(`https` 여부만 보면 Tailscale·WSL 도 "Wi-Fi" 가 된다).
+ * 순서는 목록과 다르다(`MOBILE_QR_KIND_ORDER`) — 집 와이파이를 벗어나도 남는 외부 IP 가 먼저다. 첫 칸이 기본 선택이다.
  */
 function qrTicketTargets(token: string): MobileAddressEntry[] {
   const query = `${MOBILE_QR_PATH}?${MOBILE_QR_PARAM}=${token}`;
@@ -394,7 +358,7 @@ function normalizeIp(ip: string): string {
 }
 
 /**
- * §4 v3.33 — 이 접속이 **자기 LAN/로컬**에서 온 것인가(= 임베디드 셸 허용 대상).
+ * §4 — 이 접속이 자기 LAN/로컬에서 온 것인가(= 임베디드 셸 허용 대상).
  * 공인 IP(인터넷·UPnP 경유)면 false → 셸 프레임 거부. loopback·사설 IPv4·IPv6 ULA/link-local 은 LAN.
  */
 function isLanClient(ip: string): boolean {
@@ -417,9 +381,8 @@ function isAllowedHost(host: string | undefined): boolean {
 }
 
 /**
- * §4 v3.33 — WS Origin 검사(ttyd `--check-origin` 등가, 심층 방어). 브라우저 WS 핸드셰이크의
- * Origin 이 접속 Host 와 동일 출처인지 확인해 교차 출처 페이지의 소켓 탈취를 막는다(SameSite=Lax
- * 쿠키 위 이중 방어). 비브라우저(Origin 부재)는 통과 — 쿠키·Host 가드가 여전히 게이트.
+ * §4 — WS Origin 검사(심층 방어). 핸드셰이크 Origin 이 접속 Host 와 같은 출처인지 봐 교차 출처 페이지의 소켓 탈취를 막는다
+ * (SameSite=Lax 쿠키 위 이중 방어). Origin 이 없는 비브라우저는 통과 — 쿠키·Host 가드가 여전히 막는다.
  */
 function isSameOriginWs(req: IncomingMessage): boolean {
   const origin = req.headers.origin;
@@ -434,10 +397,7 @@ function isSameOriginWs(req: IncomingMessage): boolean {
 
 // ─── 페어링 페이지 ───────────────────────────────────────────────────────────
 
-/**
- * 페어링 페이지. `qrNote` 는 §4 v3.66 QR 딥링크가 실패했을 때(만료·잘못된 토큰·차단 중)
- * 왜 자동 접속이 안 됐는지 알리고 수기 코드 입력으로 폴백시키는 안내다.
- */
+/** 페어링 페이지. `qrNote` 는 QR 딥링크가 실패했을 때(만료·잘못된 토큰·차단 중) 그 이유를 알리고 수기 코드 입력으로 돌리는 안내다. */
 function pairingPageHtml(locked: boolean, codeLen: number, qrNote: string | null): string {
   const lockedNote = locked
     ? '<p class="err">Too many failed attempts from your device — try again later or regenerate the code on the desktop. / 실패가 누적되어 잠시 차단되었습니다. 잠시 후 다시 시도하거나 데스크톱에서 새 코드를 발급하세요.</p>'
@@ -513,19 +473,10 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 }
 
 /**
- * 페어링 성공 처리 — 세션 토큰을 발급해 영속 목록에 넣고 HttpOnly 쿠키로 심는다.
- * 코드 입력(handlePairRequest)과 QR 딥링크(handleQrRedeem)가 **같은 경로**를 쓴다.
- *
- * §4 v3.87 — `SameSite` 는 반드시 **Lax**. Strict 로 두면 QR 페어링이 구조적으로 깨진다:
- * 쿠키 발급 자체는 되지만, QR 스캔은 **외부 앱(카메라·스캐너·인앱 브라우저)이 시작한 최상위
- * 내비게이션**이라 이어지는 `/` 요청에 브라우저가 Strict 쿠키를 싣지 않는다 → 미인증으로
- * 도착 → 페어링 코드 화면. (코드 입력은 페어링 페이지가 자기 출처에서 fetch 로 받고
- * `location.replace('/')` 로 같은 사이트 안에서 이동해 Strict 조건을 만족했기에 멀쩡했다 —
- * 즉 발급이 아니라 **되돌아오는 길**만 막혔던 것.)
- * Lax 는 최상위 GET 내비게이션에만 쿠키를 허용하고 교차 출처 POST·서브리소스·스크립트
- * 요청은 그대로 막으므로, 실질 방어선(페어링 게이트 · Host IP-리터럴 가드 · WS Origin 검사 ·
- * `/api` 가 전부 POST/WS)은 약해지지 않는다.
- * (LAN http 와 외부 https 를 한 쿠키로 공유하므로 Secure 는 붙이지 않는다.)
+ * 페어링 성공 처리 — 세션 토큰을 발급해 영속 목록에 넣고 HttpOnly 쿠키로 심는다. 코드 입력·QR 딥링크가 같은 경로를 쓴다.
+ * §4 — `SameSite` 는 반드시 Lax. Strict 면 QR 스캔(외부 앱이 시작한 최상위 내비게이션) 뒤의 `/` 요청에 쿠키가 실리지 않아
+ * 미인증으로 도착한다(코드 입력은 같은 사이트 안 이동이라 Strict 에서도 된다). Lax 도 교차 출처 POST·서브리소스·스크립트는 막아
+ * 방어선(페어링 게이트 · Host 가드 · WS Origin 검사 · `/api` 는 POST/WS)은 그대로다. LAN http·외부 https 공유라 Secure 는 붙이지 않는다.
  */
 function grantSession(res: ServerResponse): void {
   const session = randomBytes(24).toString('hex');
@@ -558,8 +509,8 @@ function redirectTo(res: ServerResponse, location: string): void {
 }
 
 /**
- * §4 v3.66 — QR 딥링크(`/mobile/qr?t=…`) 소비. 토큰이 유효하면 코드 입력과 동일한 세션 쿠키를
- * 심고 앱(`/`)으로 302 한다. 실패는 페어링 페이지로 되돌려 수기 입력 폴백을 남긴다.
+ * §4 — QR 딥링크(`/mobile/qr?t=…`) 소비. 토큰이 유효하면 코드 입력과 같은 세션 쿠키를 심고 `/` 로 302,
+ * 실패는 페어링 페이지로 되돌려 수기 입력을 남긴다.
  */
 function handleQrRedeem(req: IncomingMessage, res: ServerResponse): void {
   req.resume();
@@ -597,10 +548,8 @@ function handleQrRedeem(req: IncomingMessage, res: ServerResponse): void {
     console.log(`[mobile-access] QR ticket spent (${ticket.usedCount}/${MOBILE_QR_MAX_USES}) — revoked`);
   }
   grantSession(res);
-  // §4 v3.87 — `?paired=1` 표식을 달아 보낸다. 정상이면 다음 요청이 쿠키를 물고 와 인증되고
-  // handleRequest 가 파라미터를 떼어 `/` 로 한 번 더 보낸다. 그런데도 미인증으로 돌아오면
-  // "브라우저가 쿠키를 저장하지 않았다"가 확정되므로(인앱 브라우저·시크릿 모드) 그 사유를
-  // 페어링 페이지에 띄운다 — 종전엔 설명 없는 코드 화면이라 원인을 알 길이 없었다.
+  // §4 — `?paired=1` 표식을 달아 보낸다. 정상이면 쿠키로 인증되고 handleRequest 가 표식을 떼어 `/` 로 보낸다.
+  // 그래도 미인증이면 브라우저가 쿠키를 저장하지 않은 것(인앱 브라우저·시크릿 모드)이라 그 사유를 페어링 페이지에 띄운다.
   redirectTo(res, '/?paired=1');
   console.log(`[mobile-access] device paired via QR from ${ip}`);
   pushState();
@@ -679,7 +628,7 @@ function rendererRoot(): string {
   return resolve(join(__dirname, '../renderer'));
 }
 
-// §4 v3.28 — 정적 번들 gzip. 텍스트 계열만 압축(이미지·woff2 는 이미 압축돼 gzip 이 역효과).
+// §4 — 정적 번들 gzip. 텍스트 계열만 압축(이미지·woff2 는 이미 압축돼 gzip 이 역효과).
 const GZIP_EXT = new Set(['.html', '.js', '.mjs', '.css', '.svg', '.json', '.txt', '.map', '.wasm', '.ttf']);
 
 // 압축본을 (filePath → {mtime, gzip}) 로 메모리 캐시 — 파일당 1회만 압축하고 이후 재사용해
@@ -768,16 +717,15 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
   const pathname = (req.url ?? '').split('?')[0] ?? '';
   const query = new URLSearchParams((req.url ?? '').split('?')[1] ?? '');
   if (req.method === 'POST' && pathname === '/mobile/pair') { handlePairRequest(req, res); return; }
-  // §4 v3.66 — QR 딥링크. 인증 전에 처리해야 스캔 즉시 세션을 받는다.
-  // §4 v3.87 — 끝 슬래시도 받는다. URL 을 정규화하는 스캐너가 `/mobile/qr/` 로 열면 종전엔
-  // 완전일치에서 탈락해 아무 설명 없이 페어링 코드 화면으로 새어 나갔다.
+  // §4 — QR 딥링크. 인증 전에 처리해야 스캔 즉시 세션을 받는다. 끝 슬래시도 받는다 — URL 을 정규화하는 스캐너가
+  // `/mobile/qr/` 로 열면 완전일치에서 빠져 설명 없이 페어링 코드 화면이 뜬다.
   if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === MOBILE_QR_PATH || pathname === `${MOBILE_QR_PATH}/`)) {
     handleQrRedeem(req, res);
     return;
   }
   if (!isAuthedRequest(req)) {
     if (req.method === 'GET' || req.method === 'HEAD') {
-      // §4 v3.87 — QR 로 세션을 발급받고도 미인증으로 돌아왔다면 쿠키가 저장되지 않은 것이다.
+      // §4 — QR 로 세션을 발급받고도 미인증으로 돌아왔다면 쿠키가 저장되지 않은 것이다.
       const qrNote = query.get('paired') === '1' ? 'cookie' : query.get('qr');
       res.statusCode = 200;
       res.setHeader('content-type', 'text/html; charset=utf-8');
@@ -789,7 +737,7 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
     req.resume();
     return;
   }
-  // §4 v3.87 — 인증된 채로 `?paired=1` 이 남아 있으면 표식을 떼고 깨끗한 `/` 로 보낸다.
+  // §4 — 인증된 채로 `?paired=1` 이 남아 있으면 표식을 떼고 깨끗한 `/` 로 보낸다.
   if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/' && query.get('paired') === '1') {
     redirectTo(res, '/');
     req.resume();
@@ -808,15 +756,9 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
 // ─── WebSocket 브리지 ────────────────────────────────────────────────────────
 
 /**
- * §4 v3.28 — 모바일 전용 WebSocket 서버. `perMessageDeflate` 로 실시간 이벤트 JSON
- * (에이전트 스트림·터미널 출력·graph_snapshot)을 압축 전송해 셀룰러 데이터를 절약한다
- * (텍스트라 통상 5~10배). 브라우저 native WebSocket 이 핸드셰이크에서 자동 협상하므로
- * 클라이언트 무수정. 데스크톱 렌더러는 IPC 경로라 이 소켓을 안 타 성능 무영향.
- * 성능·메모리를 무시할 수준으로 묶기 위해:
- *   - threshold 1024 — 작고 잦은 프레임은 압축을 건너뛴다(압축 CPU 낭비 방지).
- *   - {server,client}NoContextTakeover — 메시지 간 슬라이딩 윈도우를 안 남겨 연결당
- *     메모리를 상한(ws 가 기본 off 였던 이유가 메모리 — 그 리스크를 제거).
- *   - concurrencyLimit — 동시 deflate 작업 상한.
+ * §4 — 모바일 전용 WebSocket 서버. `perMessageDeflate` 로 실시간 JSON 을 압축해 셀룰러 데이터를 아낀다(통상 5~10배, 브라우저가 자동 협상).
+ * 데스크톱 렌더러는 IPC 라 이 소켓을 안 탄다. threshold 1024(작은 프레임은 건너뜀) · {server,client}NoContextTakeover(연결당 메모리 상한
+ * — ws 가 deflate 를 기본 off 로 둔 이유가 메모리다) · concurrencyLimit(동시 deflate 상한).
  */
 function createWss(compression = true): WebSocketServer {
   return createMobileWebSocketServer(compression,
@@ -827,12 +769,12 @@ function bindUpgrade(server: HttpServer | HttpsServer): void {
   server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
     retainTransportErrors(socket, () => socket.destroy());
     const pathname = (req.url ?? '').split('?')[0] ?? '';
-    // §4 v3.33 — Host·인증에 더해 Origin 검사 추가(교차 출처 소켓 탈취 차단).
+    // §4 — Host·인증에 더해 Origin 검사(교차 출처 소켓 탈취 차단).
     if (pathname !== WS_PATH || !isAllowedHost(req.headers.host) || !isSameOriginWs(req) || !isAuthedRequest(req)) {
       socket.destroy();
       return;
     }
-    // §4 v3.33 — 이 접속이 LAN(사설/로컬)인지. 임베디드 셸(term_*)은 LAN 접속에서만 허용한다.
+    // §4 — 임베디드 셸(term_*)은 LAN(사설/로컬) 접속에서만 허용한다.
     const terminalAllowed = isLanClient(clientIp(req));
     wss?.handleUpgrade(req, socket, head, (ws) => {
       const send = createMobileSocketSender(ws,
@@ -846,7 +788,7 @@ function bindUpgrade(server: HttpServer | HttpsServer): void {
         try {
           const msg = JSON.parse(String(raw)) as { type?: string; payload?: unknown };
           if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return;
-          // §4 v3.33 — 터미널 제어 프레임은 out-of-band 분기(그래프 메시지 핸들러 미오염).
+          // §4 — 터미널 제어 프레임은 out-of-band 분기(그래프 메시지 핸들러 미오염).
           if (msg.type.startsWith('term_')) { handleTerminalFrame(ws, terminalAllowed, msg.type, msg.payload); return; }
           handleClientMessage(msg, conn);
         } catch { /* 비 JSON 프레임 무시 */ }
@@ -860,12 +802,8 @@ function bindUpgrade(server: HttpServer | HttpsServer): void {
   });
 }
 
-// ─── §4 v3.33 모바일 임베디드 터미널 (/ws 다중화) ────────────────────────────
-//
-// 데스크톱은 IPC(`vibisual:term:*`)로 PTY 에 붙지만, 모바일 브라우저는 `window.api` 가 없어
-// 그 IPC 가 없다. 그래서 이 `/ws` 소켓에 터미널 프레임을 얹어 나른다(새 소켓/레이어 ❌).
-// 셸은 실제 로컬 프로세스이므로 **LAN 접속(isLanClient)에서만** 생성하고, 외부(공인 IP·UPnP)
-// 접속의 create 는 거부해 `term_unavailable(external)` 로 회신한다(§4 v3.33 보안 게이트).
+// §4 모바일 임베디드 터미널(/ws 다중화) — 모바일 브라우저엔 `vibisual:term:*` IPC 가 없어 이 `/ws` 에 터미널 프레임을 얹는다(새 소켓 ❌).
+// 셸은 실제 로컬 프로세스라 LAN 접속(isLanClient)에서만 만들고, 외부 접속의 create 는 `term_unavailable(external)` 로 거부한다.
 
 let wsSinkSeq = 0;
 const wsSinkIds = new WeakMap<WebSocket, string>();
@@ -913,7 +851,7 @@ function handleTerminalFrame(ws: WebSocket, terminalAllowed: boolean, type: stri
         config: p.config as AgentConfig,
         cols: p.cols,
         rows: p.rows,
-        // §5.5 #17-20 ④ v4.74 — 실행 런처도 모바일에서 같은 PTY 경로를 탄다.
+        // §5.5 #17-20 ④ — 실행 런처도 모바일에서 같은 PTY 경로를 탄다.
         ...(typeof p.command === 'string' ? { command: p.command } : {}),
         ...(typeof p.autoRun === 'boolean' ? { autoRun: p.autoRun } : {}),
         ...(env ? { env } : {}),
@@ -935,8 +873,10 @@ function handleTerminalFrame(ws: WebSocket, terminalAllowed: boolean, type: stri
   }
 }
 
-/** broadcast sink 팬아웃 — index.ts 의 setBroadcastSink 콜백이 renderer 푸시와 함께 호출한다.
- *  §9 v3.40 — sink 가 다중 창 팬아웃용으로 이미 직렬화한 문자열이 있으면 재사용(재직렬화 방지). */
+/**
+ * broadcast sink 팬아웃 — index.ts 의 setBroadcastSink 콜백이 renderer 푸시와 함께 부른다.
+ * §9 — sink 가 이미 직렬화한 문자열이 있으면 재사용한다(재직렬화 방지).
+ */
 export function mobileBroadcast(msg: WSMessage, preSerialized?: string): void {
   if (wsClients.size === 0) return;
   const data = preSerialized ?? JSON.stringify(msg);
@@ -989,11 +929,8 @@ async function listenWithFallback(
 }
 
 /**
- * `server.close()` 는 **이미 열려 있는 연결이 전부 끝나야** 콜백이 온다 — 폰이 붙어 있거나
- * keep-alive 소켓이 살아 있으면 몇 분씩 끌린다(2026-08-27 앱 종료 68초의 원인이자, 그 사이
- * 업데이트 설치기가 파일 교체를 포기해 자동 업데이트가 통째로 실패한 원인). 닫기로 마음먹은
- * 뒤에는 응답을 기다릴 이유가 없으므로 소켓을 먼저 끊는다. node 18.2+ 에만 있는 메서드라
- * 없으면 조용히 건너뛴다(종전 동작으로 되돌아갈 뿐 — 새 실패 경로를 만들지 않는다).
+ * `server.close()` 는 열린 연결이 다 끝나야 콜백이 와 폰·keep-alive 가 있으면 몇 분씩 끌린다(2026-08-27 앱 종료 68초의 원인 —
+ * 그 사이 업데이트 설치기가 파일 교체를 포기했다). 그래서 소켓을 먼저 끊는다. node 18.2+ 메서드라 없으면 조용히 건너뛴다.
  */
 function destroySockets(server: { closeAllConnections?: () => void }): void {
   try { server.closeAllConnections?.(); } catch { /* 이미 닫혔거나 미지원 */ }
@@ -1274,8 +1211,8 @@ export async function disableExternalAccess(): Promise<MobileAccessState> {
 }
 
 /**
- * §4 v3.66 — QR 페어링 티켓 발급. 리스너가 켜져 있을 때만 유효하며, 이미 티켓이 있으면
- * 폐기하고 새로 만든다(화면에 살아 있는 QR 은 항상 한 장). 수명은 MOBILE_QR_TICKET_TTL_MS.
+ * §4 — QR 페어링 티켓 발급. 리스너가 켜져 있을 때만 유효하고, 이미 있으면 폐기하고 새로 만든다(살아 있는 QR 은 늘 한 장).
+ * 수명은 MOBILE_QR_TICKET_TTL_MS.
  */
 export function issueMobileQrTicket(): MobileAccessState {
   if (httpServer) {
@@ -1296,12 +1233,9 @@ export function issueMobileQrTicket(): MobileAccessState {
   return getMobileAccessState();
 }
 
-/** §4 v3.66 — QR 티켓 즉시 폐기(3분을 못 기다릴 때). 이미 페어링된 기기는 그대로 유지된다. */
 /**
- * 뒷정리 확인 — 사용자가 "공유기 규칙을 지웠다"고 알려 온 것. 그때만 표식을 내린다.
- *
- * 외부를 끄는 것으로는 내리지 않는다. 끄는 것은 **우리 쪽 리스너**를 닫는 일이고, 공유기에
- * 손으로 만든 규칙은 그대로 남아 있기 때문이다 — 우리가 지울 수 없으니 사람이 확인해야 한다.
+ * 뒷정리 확인 — 사용자가 공유기 규칙을 지웠다고 알려 올 때만 표식을 내린다.
+ * 외부를 끄는 것으로는 내리지 않는다 — 끄면 우리 리스너만 닫히고 손으로 만든 공유기 규칙은 남는다.
  */
 export function ackManualForwardCleanup(): MobileAccessState {
   if (persisted.manualForwardAdvised) {

@@ -2,17 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ProjectGraph } from './projectGraph.js';
 import { mergeSnapshots } from './projectGraphManager.js';
 
-/**
- * §5.3 #10-3 v4.98 — 검증 런의 **집행 규칙 + 영속 왕복** 회귀 테스트.
- *
- * 이 파일이 지키는 문장은 하나다 — **완료는 서버가 소유한다.**
- * 에이전트가 "통과했다"고 말하는 것과 실제로 통과한 것은 다르며, 그 구분이 무너지면
- * 화면의 초록 배지는 다시 아무것도 보장하지 않는 장식이 된다.
- *
- * 영속은 다섯 지점(선언·스냅샷·프로젝트 체크포인트·복원·병합)을 전부 손대야 하는데,
- * 앞의 둘만 채우면 **화면에는 보이는데 껐다 켜면 사라진다**. 그 실패는 조용해서 사람 눈으로
- * 거의 못 잡으므로 왕복을 테스트로 못 박는다.
- */
+/** §5.3 #10-3 — 검증 런: **완료는 서버가 소유한다**(에이전트의 "통과" 주장 ≠ 실제 통과) + 영속 다섯 지점 왕복. */
 
 const PROJECT_CWD = '/tmp/example-project';
 const AUTO_ID = 'auto-session-1';

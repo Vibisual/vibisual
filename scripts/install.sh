@@ -24,7 +24,6 @@ need() {
   command -v "$1" >/dev/null 2>&1 || die "'$1' is required but was not found on PATH."
 }
 
-# sudo only when we are not already root and it exists.
 sudo_if_needed() {
   if [ "$(id -u)" -eq 0 ]; then
     "$@"

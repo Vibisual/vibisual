@@ -1,13 +1,6 @@
 /**
- * 렌더 백엔드 인터페이스와 선택 규칙 (SCENARIO.md §5.13 (F)).
- *
- * 이 파일은 **순수**하다 — 브라우저 API 를 부르지 않고 "어떤 백엔드를 쓸 것인가"만
- * 정한다. 그래야 선택 규칙을 화면 없이 시험할 수 있고, 서버도 이 타입을 읽을 수 있다.
- *
- * 백엔드를 셋으로 나눈 이유는 하나에 전부 걸 수 없기 때문이다. 가장 좋은 경로
- * (HTML-in-Canvas)가 아직 오리진 트라이얼이라, 그 API 가 흔들리는 날 앱이 통째로
- * 멈추지 않으려면 물러설 자리가 미리 있어야 한다. **그리고 물러섰다는 사실이
- * 사용자에게 보여야 한다** — 조용히 느려지는 것이 가장 나쁜 실패다.
+ * §5.13 (F) 렌더 백엔드 선택 규칙(순수 — 화면 없이 시험되고 서버도 타입을 읽는다). 최선(HTML-in-Canvas)이 오리진 트라이얼이라 물러설 자리가 있어야 하고,
+ * 물러섰다는 사실은 사용자에게 보여야 한다(조용히 느려지는 게 가장 나쁘다).
  */
 
 import { RENDER_BACKEND_ORDER, type RenderBackendId } from '../constants.js';
@@ -37,12 +30,7 @@ export interface RenderSurface {
   readonly height: number;
 }
 
-/**
- * 렌더 백엔드.
- *
- * 계약은 단순하다 — "시각 t 의 화면을 네 캔버스에 그려 놓아라". 그 캔버스를 인코더가
- * 가져간다. 프레임을 어디서 얻든 출구(Mediabunny)는 하나다.
- */
+/** 계약: 시각 t 의 화면을 자기 캔버스에 그려 둔다 — 인코더가 가져간다(출구는 Mediabunny 하나). */
 export interface RenderBackend {
   readonly id: RenderBackendId;
   readonly capabilities: RenderBackendCapabilities;
@@ -79,13 +67,7 @@ export interface BackendSelection {
 
 const NO_REASON = '사용할 수 없습니다.';
 
-/**
- * 쓸 백엔드를 고른다.
- *
- * 사용자가 지정한 것이 있으면 그것을 먼저 보고, 못 쓰면 우선순위대로 내려간다.
- * 하나도 못 쓰면 `null` — 그때는 렌더를 시작하지 않고 이유를 보여 준다(반쯤 된
- * 영상을 내놓는 것보다 낫다).
- */
+/** 지정한 것을 먼저, 못 쓰면 우선순위대로. 하나도 못 쓰면 `null` — 렌더를 시작하지 않고 이유를 보인다(반쯤 된 영상보다 낫다). */
 export function selectRenderBackend(
   probes: readonly BackendProbe[],
   requested?: RenderBackendId,

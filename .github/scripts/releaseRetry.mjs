@@ -1,16 +1,6 @@
-// 스모크가 빨갛게 끝났을 때 **무엇을 다시 지어야 하는가**를 정하는 표. 부작용 없는 순수 모듈이라
-// 단위 테스트로 그대로 검증된다(`packages/server/src/releasePackaging.test.ts`).
-//
-// 왜 필요한가: v0.1.19 의 Windows 설치본이 러너에서 `0xC0000005` 로 죽었다. 같은 자산을 다른
-// 러너에서 다시 재 봐도 똑같이 죽었고(자산 자체가 나쁘다는 뜻), 같은 커밋의 v0.1.18 을 다시 재니
-// 초록이었다 — 즉 **비결정적인 빌드 조립 결함**이고, 고치는 방법은 "다시 짓는다" 하나다.
-// 그런데 그 판단을 사람이 하면 그 사이 릴리스는 멈춰 서 있다. 그래서 표로 만들어 스크립트에 준다.
-//
-// ⚠️ 여기 문자열은 워크플로 파일의 **실제 잡 이름**과 짝이다. 한쪽만 고치면 재시도가 조용히
-//    아무 것도 못 찾고 지나간다 — 그래서 테스트가 양쪽을 함께 붙들고 있다.
-//    · 스모크 잡 이름  : `.github/workflows/smoke.yml`   의 `matrix.include[].label`
-//    · 릴리스 잡 이름  : `.github/workflows/release.yml` 의 `matrix.include[].script`
-//      (GitHub 이 `release (<os>, <script>)` 로 조립한다 — 그래서 script 로 짚으면 유일하다)
+// 스모크 실패 때 무엇을 다시 지을지 정하는 순수 표(`releasePackaging.test.ts`) — 러너에서 죽는 비결정적 조립 결함(예: Windows `0xC0000005`)은 다시 짓기가 유일한 해법이다.
+// ⚠️ 문자열은 실제 잡 이름과 짝이다 — 한쪽만 고치면 재시도가 조용히 아무것도 못 찾는다(시험이 양쪽을 붙든다):
+//   `smoke.yml` 의 `matrix.include[].label` · `release.yml` 의 `matrix.include[].script`(잡 이름 `release (<os>, <script>)` 에서 유일하다)
 
 /** 한 판올림이 도달해야 하는 네 갈래. 순서는 사람이 읽는 순서(빠른 것부터)다. */
 export const PLATFORMS = [
@@ -36,12 +26,7 @@ export function platformForSmokeJob(jobName) {
 
 /**
  * 릴리스 빌드 잡 이름(`release (windows-latest, release:win)`) → 그 잡이 짓던 플랫폼.
- *
- * ⚠️ **script 로 짚는다. runner 로 짚으면 안 된다** — mac 두 잡은 러너가 다르지만(macos-latest ·
- *    macos-15-intel) `macos-latest` 는 `macos-15-intel` 의 부분문자열이 아니어도 이름 조립 규칙이
- *    바뀌면 헷갈릴 여지가 있고, script 는 넷이 완전히 구별된다.
- *    (`release:mac:x64` ⊄ `release:mac:arm64`, `release:win` ⊄ 나머지 — 확인함)
- *
+ * ⚠️ **script 로 짚는다, runner 로 짚지 마라** — 러너 이름은 조립 규칙이 바뀌면 헷갈리고, script 넷은 서로의 부분문자열이 아니다(확인함).
  * @param {string} jobName
  * @returns {(typeof PLATFORMS)[number] | null}
  */
@@ -53,12 +38,8 @@ export function platformForReleaseJob(jobName) {
 }
 
 /**
- * 스모크 런의 잡 목록에서 **다시 지어야 할 플랫폼**을 고른다.
- *
- * `publish` 잡의 실패는 여기서 걸러진다 — 그건 설치본이 나쁘다는 뜻이 아니라 자산이 덜 올라왔거나
- * 발행 자체가 미끄러졌다는 뜻이라, 무엇을 다시 지을지는 이 신호로 정할 수 없다(부르는 쪽이
- * 재검증부터 시도한다).
- *
+ * 스모크 런의 잡 목록에서 **다시 지어야 할 플랫폼**을 고른다. `publish` 잡의 실패는 거른다 — 설치본이 나쁜 게 아니라
+ * 자산이 덜 올라왔거나 발행이 미끄러진 것이라 무엇을 다시 지을지 정할 수 없다(부르는 쪽이 재검증부터 한다).
  * @param {{name:string, conclusion:string|null, status?:string}[]} jobs
  * @returns {(typeof PLATFORMS)[number][]}
  */
@@ -74,12 +55,8 @@ export function platformsToRebuild(jobs) {
 }
 
 /**
- * 한 라운드에서 무엇을 할지. 스모크가 빨간 이유에 따라 갈린다.
- *
- * - 플랫폼 잡이 깨졌다 → 그 플랫폼만 **다시 짓는다**(가장 흔한 경우, v0.1.19 가 이것).
- * - 플랫폼은 다 초록인데 빨갛다 → 발행 잡이 미끄러진 것이다. 다시 짓는 것은 20분이 넘게 드는
- *   일이라, **먼저 재검증만** 한 번 돌려 본다. 그래도 빨가면 그때 전부 다시 짓는다.
- *
+ * 한 라운드에서 무엇을 할지 — 플랫폼 잡이 깨졌으면 그 플랫폼만 **다시 짓는다**(가장 흔하다).
+ * 플랫폼은 다 초록인데 빨가면 발행 잡이 미끄러진 것 — 다시 짓기는 20분이 넘어 **먼저 재검증만** 한 번, 그래도 빨가면 전부 다시 짓는다.
  * @param {{name:string, conclusion:string|null}[]} jobs
  * @param {{reverifyTried?: boolean}} [state]
  * @returns {{kind:'rebuild'|'reverify', platforms:(typeof PLATFORMS)[number][], why:string}}

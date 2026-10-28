@@ -1,14 +1,4 @@
-/**
- * §5.3 #12-4 검증은 시킬 때만 — shared `verificationPolicy.ts` 고정 시험.
- *
- * 판정기는 shared 순수 함수지만 shared 패키지에는 러너가 없어 여기서 고정한다(`pathLock.test.ts` 와 같은 자리).
- * 사용자가 적은 완료 조건을 그대로 옮겼다:
- *  - 단순 수정 요청 → 권한 없음 · 검증 실행 전 거부
- *  - 검증 금지 문구·문서 속 테스트 명령 → 권한 없음
- *  - 관련 테스트 요청 → 관련 테스트만(전체 스위트 ❌)
- *  - 브라우저 검증 요청 → 브라우저 확인만
- *  - 위임은 넓히지 못한다 · 다음 명령으로 승계 ❌
- */
+/** §5.3 #12-4 검증은 시킬 때만 — shared `verificationPolicy.ts` 고정 시험(shared 에 러너가 없어 여기 둔다). */
 import { describe, it, expect } from 'vitest';
 import {
   applyVerificationDecision,

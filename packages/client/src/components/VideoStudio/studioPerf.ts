@@ -2,17 +2,11 @@ import { appTimingAt } from '../../apps/appTiming.js';
 import { studioAudioMemoryBytes } from './studioMedia.js';
 
 /**
- * §5.13 (X) 39-3 · (Y) 40-12 — 스튜디오 **계측**. 단계 표식은 `performance.mark` 로 늘 남긴다(개발 도구 성능 탭·추적 기록에 그대로 —
- * 비용은 사실상 0). 콘솔에서 `__VIBI_PERF__ = true` 로 켜면(스냅샷 계측과 같은 스위치 — 기본 off) 아래를 **한 줄씩** 낸다 —
- * 콘솔에, 그리고 패키지 앱이면 `main-stall.log` 에도(`perf` 줄 — 멈춤 줄과 나란히 읽힌다):
- *
- * - 열기: 앱 여는 누름(`vibisual-app:open:<appId>` — 코어 표식) → 셸 청크 받기 시작·끝 → 셸이 섬 → 문서 → 첫 그림 → 조작 가능.
- * - 재생: 누름 → 첫 움직임, 미리보기 줄 대기(요청 → 그림), 놓친 실사 프레임, 긴 프레임(LoAF — 100ms 넘는 수와 최악 몇 개의
- *   `blockingDuration` · 스크립트 출처).
- * - 메모리: 열기·재생 60초·닫기 때 이 창의 메모리(렌더러 private/resident · Blink 힙)와 앱 전체 프로세스별(GPU 포함 · Windows 는
- *   privateBytes), 그리고 소리 조각 기억.
- *
- * 다음에 "열 때·재생할 때 느리다"는 말이 오면 추측 대신 이 줄부터 본다.
+ * §5.13 (X) 39-3 · (Y) 40-12 — 스튜디오 계측. 단계 표식은 `performance.mark` 로 늘 남긴다(비용 사실상 0). 콘솔에서 `__VIBI_PERF__ = true`
+ * (스냅샷 계측과 같은 스위치, 기본 off)면 아래를 한 줄씩 콘솔과 패키지 앱 `main-stall.log`(`perf` 줄)에 낸다:
+ * - 열기: 여는 누름(`vibisual-app:open:<appId>` — 코어 표식) → 셸 청크 받기 → 셸 → 문서 → 첫 그림 → 조작 가능.
+ * - 재생: 누름 → 첫 움직임, 미리보기 줄 대기, 놓친 실사 프레임, 긴 프레임(LoAF — 100ms 넘는 수·최악 몇 개의 `blockingDuration`·스크립트 출처).
+ * - 메모리: 열기·재생 60초·닫기 때 이 창(렌더러 private/resident·Blink 힙)과 앱 프로세스별(GPU 포함, Windows 는 privateBytes), 소리 조각 기억.
  */
 const PREFIX = 'vibistudio:';
 const MiB = 1024 * 1024;

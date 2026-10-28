@@ -30,20 +30,8 @@ import {
 } from '../../utils/sessionStatus.js';
 import { resolveAgentRunSummary, type AgentRunSummary } from './headerAgentCounts.js';
 
-// §5.5 #17-1 (판올림 번호 발급 대기) — **도크가 화면을 채워도 늘 닿는 자리**.
-//
-// 창을 네 변에 붙이면 캔버스가 그만큼 줄어든다. 그런데 "새 창을 연다"와 "에이전트 설정을 연다"의
-// 진입로가 **캔버스에서 버블을 누르는 것 하나뿐**이라, 창 두엇만 붙여도 그 두 가지에 손이 닿지
-// 않는 상태가 생긴다(사용자 지적: "커스텀 화면이 가득 찬 경우 새 버블을 어떻게 뜨게 하지?").
-//
-// 헤더는 `z-[100]` 이라 어떤 도크도 가리지 못한다 — 그래서 그 두 진입로를 여기 하나로 모은다.
-// 목록은 캔버스와 **같은 산식**(`selectCanvasAgentBubbles`)을 읽는다(두 곳이 갈라지면 안 된다).
-//
-// (판올림 번호 발급 대기) **헤더의 입구는 하나다.** 종전에는 같은 것을 가리키는 버튼이 헤더에 둘
-// 서 있었다 — 이 메뉴의 창 아이콘 트리거와, 그 옆의 에이전트 상태 배지(`0/36`, 좌클릭 = 지휘통제실).
-// 이제 **배지가 이 메뉴의 트리거**이고(창 아이콘 버튼 폐지), 지휘통제실은 메뉴 맨 아래 항목으로
-// 들어온다(§5.12 (A) 트리거 ②). 에이전트가 없어 배지가 안 뜨는 프로젝트에서도 **버블이 사라진 창**은
-// 남을 수 있으므로, 그때만 트리거가 종전 창 아이콘 모양으로 되돌아간다 — 그 창을 닫을 자리가 여기뿐이다.
+// §5.5 #17-1 — 도크가 화면을 채워도 늘 닿는 헤더(`z-[100]`)에 새 창·에이전트 설정 입구를 모은다. 목록은 캔버스와 같은 `selectCanvasAgentBubbles`.
+// 입구는 하나 — 에이전트 배지가 트리거이고 지휘통제실은 맨 아래 항목(§5.12 (A) ②). 배지가 없어도 버블 잃은 창이 남으면 창 아이콘 트리거가 선다(닫을 자리).
 
 const EMPTY_AGENTS: BubbleData[] = [];
 const EMPTY_PANES: IDEOverlayState[] = [];
@@ -55,10 +43,7 @@ const EMPTY_TASKS: Record<string, RunningSubagentTask[]> = {};
 const EMPTY_ACK: Record<string, true> = {};
 const EMPTY_GLOW: Record<string, SessionFocusGlow> = {};
 
-/**
- * 배지 색 신호 — 좌측 dot 한 점이 전담하고 글자는 항상 같은 중성 톤(§3.7 v2.15 규약 그대로,
- * 배지가 이 메뉴의 트리거가 되면서 자리만 `Header` 에서 옮겨 왔다).
- */
+/** 배지 색은 좌측 dot 하나가 전담하고 글자는 늘 중성 톤(§3.7). */
 export type AgentDotState = 'idle' | 'completed' | 'active' | 'limited';
 
 const BADGE_DOT: Record<AgentDotState, string> = {
@@ -72,11 +57,8 @@ const BADGE_DOT: Record<AgentDotState, string> = {
 
 interface IDEWindowsMenuProps {
   /**
-   * 에이전트 배지 상태 — `null` 이면 이 프로젝트에 셀 에이전트가 없다는 뜻이라 트리거가 종전
-   * 창 아이콘으로 되돌아간다(버블이 사라진 창을 닫을 자리는 남아 있어야 한다).
-   *
-   * ⚠ 배지 재료는 **원시값으로만** 받는다. 객체나 ReactNode 로 받으면 `Header` 가 스냅샷마다
-   *   새 참조를 만들어 아래 `memo` 가 통째로 무력해진다(닫힌 메뉴가 매 스냅샷 다시 그려진다).
+   * `null` = 셀 에이전트가 없다 → 트리거가 창 아이콘이 된다(버블 잃은 창을 닫을 자리).
+   * ⚠ 원시값으로만 받는다 — 객체·ReactNode 면 `Header` 가 스냅샷마다 새 참조를 만들어 `memo` 가 무력해진다.
    */
   badgeState: AgentDotState | null;
   /** 지금 돌고 있는 세션 수 — 배지의 분자. */
@@ -99,10 +81,7 @@ interface WindowRow {
    * 창 유무와는 다른 축이다: 창이 없어도 도는 에이전트가 있고, 창만 띄워 둔 채 조용한 것도 있다.
    */
   run: AgentRunSummary;
-  /**
-   * (판올림 번호 발급 대기) 이 버블의 세션 중 **방금 눌러 들어간 자국** — 있으면 그 색이 줄에도
-   * 남는다. 줄의 색은 버블 단위이고 자국은 세션 단위라, 그 버블의 세션들 중 **가장 최근 자국**을 쓴다.
-   */
+  /** 이 버블 세션들 중 가장 최근의 눌러 들어간 자국 — 있으면 그 색이 줄에도 남는다. */
   glow: SessionFocusGlow | undefined;
 }
 
@@ -110,13 +89,7 @@ function sideLabelKey(side: IDEDockSide): string {
   return `header.ideWindows.side.${side}`;
 }
 
-/**
- * (판올림 번호 발급 대기) **레이아웃 프리셋**(언리얼 Window ▸ 레이아웃 관용).
- *
- * 창을 서넛 띄우면 겹쳐 쌓여 아래 것을 찾을 수 없고, 하나씩 끌어 맞추는 데 시간이 든다.
- * 여기서 한 번에 늘어놓거나(바둑판·계단식) 한 칸에 모은다(탭·좌우). 실행은 스토어 액션 하나
- * (`applyIDEWindowLayout`)가 맡고 이 표는 **무엇을 보여 줄지**만 정한다.
- */
+/** 레이아웃 프리셋(바둑판·계단식·탭·좌우). 실행은 스토어 `applyIDEWindowLayout` 이 맡고 이 표는 보일 것만 정한다. */
 const LAYOUT_ITEMS: ReadonlyArray<{ kind: IDEWindowLayoutKind; icon: React.JSX.Element }> = [
   {
     kind: 'tile',
@@ -179,8 +152,7 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
   const [open, setOpen] = useState(false);
   const [configAgentId, setConfigAgentId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  // §4 v3.16 — 목록은 트리거 오른쪽 변에 맞춰 펼치되 **화면 안으로 당긴다**(`useAnchoredMenuPlacement`).
-  //   폰에서는 배지가 헤더 아래 펼친 묶음 가운데쯤에 서서, 종전 `right-0 w-72` 는 왼쪽 가장자리 밖으로 나갔다.
+  // §4 — 목록은 트리거 오른쪽 변에 맞춰 펼치되 화면 안으로 당긴다(`useAnchoredMenuPlacement` — 폰에서 `right-0` 고정이면 밖으로 나간다).
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
   useAnchoredMenuPlacement(open, triggerRef, dropdownRef, 'end');
@@ -254,12 +226,7 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
         run: resolveAgentRunSummary(agent, runSrc),
         glow: glowOf(agent.id),
       }));
-    // §2.4 (한도 정지) — **멈춘 줄이 맨 위다.** 창이 떠 있는지보다 급하다: 한도로 끊기면 여러 개가
-    //   한꺼번에 멎는데, 그것들이 목록 아래에 흩어져 있으면 무엇을 다시 돌려야 하는지 셀 수가 없다
-    //   (사용자 지시 — "상단에 멈춘 애들 우선적으로 표시"). 멈춘 것이 없으면 아래 순서는 종전 그대로다.
-    // 그다음이 창이 있는 것(맨 앞 창이 위) — 지금 보고 있는 것이 목록에서도 위에 있어야 한다.
-    // 창이 없는 것들 사이에서는 **도는 것이 먼저**다 — 에이전트가 열댓 개면 도는 줄이 목록
-    //   한참 아래에 묻혀, 배지가 "4개 실행 중"이라고 말해도 그 넷을 찾을 수 없다.
+    // 정렬: §2.4 한도로 멈춘 줄(무엇을 다시 돌릴지 보이게) → 창 있는 것(맨 앞 창이 위) → 창 없는 것 중 도는 것 → 나머지.
     return list.sort((a, b) => {
       const byLimited = (b.run.state === 'limited' ? 1 : 0) - (a.run.state === 'limited' ? 1 : 0);
       if (byLimited !== 0) return byLimited;
@@ -272,48 +239,23 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
     subAgents, queuedCommands, runningSubagentTasks, acknowledgedSubAgents, sessionFocusGlow,
   ]);
 
-  // 슬롯은 살아 있는데 버블이 사라진 창 — 화면에는 아무것도 안 뜨는데 슬롯만 남아, 종전에는
-  //   목록에도 안 나와 **닫을 방법이 없었다**(배지 숫자만 올랐다). 여기서 직접 닫게 한다.
-  //
-  // ⚠ 이 목록을 셀렉터로 **직접 구독하면 안 된다.** zustand v5 의 `useStore` 는 고른 값을 메모하지
-  //   않고 `selector(getState())` 를 그대로 `useSyncExternalStore` 의 스냅샷으로 넘긴다. 그런데
-  //   `selectOrphanIDEPanes` 는 호출마다 **새 배열**을 만든다(빈 배열도 새 리터럴이다) — React 는
-  //   매 커밋 뒤 스냅샷을 다시 읽어 이전 값과 `Object.is` 로 견주므로 "스토어가 또 바뀌었다"가
-  //   영원히 참이 되고, 강제 리렌더가 중첩 갱신 한도를 넘겨 예외가 난다. 전역 에러 경계가 없어
-  //   그 예외는 루트를 통째로 내린다 — 메뉴를 여는 순간 화면 전체가 사라졌다.
-  //   그래서 구독은 참조가 안정적인 스토어 필드만 하고, 배열은 위 `rows` 와 같이 `useMemo` 로 만든다.
+  // 버블이 사라졌는데 슬롯만 남은 창 — 화면에 안 뜨므로 여기서 닫게 한다.
+  // ⚠ 셀렉터로 직접 구독하지 마라 — zustand v5 는 고른 값을 메모하지 않는데 `selectOrphanIDEPanes` 는 매번 새 배열이라 무한 리렌더 예외로 루트가 내려간다.
+  // 구독은 안정적인 스토어 필드만, 배열은 `useMemo` 로 만든다.
   const nodeMap = useGraphStore((s) => (open ? s.nodeMap : EMPTY_NODE_MAP));
   const orphans = useMemo<IDEOverlayState[]>(
     () => (open ? selectOrphanIDEPanes({ ideOverlays, activeProject, nodeMap }) : EMPTY_PANES),
     [open, ideOverlays, activeProject, nodeMap],
   );
 
-  /**
-   * (판올림 번호 발급 대기) 레이아웃 프리셋 — 실행은 스토어 액션 하나가 맡는다.
-   * 메뉴는 **닫지 않는다**: 바둑판으로 봤다가 계단식으로 바꾸는 식으로 이어 눌러 보게 된다.
-   */
+  /** 레이아웃 프리셋 — 메뉴는 닫지 않는다(이어 눌러 비교한다). */
   const applyLayout = useCallback((kind: IDEWindowLayoutKind) => {
     useGraphStore.getState().applyIDEWindowLayout(kind, viewport);
   }, [viewport]);
 
   /**
-   * 목록의 줄을 누른다 — **창이 있으면 그 하나만 남기고 본다**(§5.5 #17-1 판올림 번호 발급 대기).
-   *
-   * 종전에는 창이 있어도 `openIDEOverlay` 로 **앞으로 올리기만** 했다. 그런데 창을 서넛 띄워
-   * 두면 겹쳐 쌓이므로, 목록에서 하나를 눌러도 그 창은 다른 창들 사이에 그대로 묻혀 "눌렀는데
-   * 아무 일도 안 일어난" 화면이 된다(사용자 지시 — "여러개가 떠있는 경우 … 다른 창들은
-   * 내려놓기 하고 해당 창에 포커싱해 화면도 가운데로"). 이제 다른 창은 **접고**(닫지 않는다 —
-   * 되돌릴 수 있어야 한다) 이 창만 펴서 앞에 세우며, 캔버스 카메라도 그 버블로 간다.
-   *
-   * 창이 아직 없는 줄은 종전대로 **새 창**이다(접을 다른 창이 있어도, 없던 창을 여는 것은
-   * "하나만 남기고 본다"와 다른 손짓이라 남의 배치를 건드리지 않는다).
-   *
-   * (판올림 번호 발급 대기) **그리고 그 색이 가리키는 세션이 창에 서 있어야 한다.** 종전에는 어느
-   * 색을 눌러도 창이 **마지막에 보던 세션**으로 열렸다 — 주황 줄을 눌러도 조용한 세션이 떠서, 멈춘
-   * 자리를 탭에서 다시 손으로 찾아야 했다(사용자 지시 — "각 색별로 저 버튼을 클릭한 경우 그 세션이
-   * 열려 있어야지"). 이제 줄의 색을 낸 `resolveAgentRunSummary` 가 **그 색을 만든 세션 중 가장 최근
-   * 것**(`focusSessionId`)까지 함께 돌려주고, 이 클릭이 그것을 창에 세운다. 회색(조용함) 줄은
-   * `focusSessionId` 가 `null` 이라 종전 그대로 **마지막에 보던 세션**이 뜬다 — 버블 더블클릭과 같은 답.
+   * 줄을 누른다(§5.5 #17-1). 창이 있으면 다른 창은 접고(닫지 않는다) 이 창만 펴서 앞에 세우고 카메라도 옮긴다 — 앞으로만 올리면 겹친 창에 묻힌다.
+   * 창이 없으면 새 창(남의 배치는 안 건드린다). 창에는 그 색을 만든 세션(`focusSessionId`)을 세우고, `null`(회색)이면 마지막에 보던 세션이다.
    */
   const openWindow = useCallback((
     agentId: string,
@@ -325,12 +267,8 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
     //   바로 걷히므로, 걷힌 뒤에 찍으면 무슨 색이었는지 알 길이 없다(`focusSessionId` 를 미리
     //   받아 두는 것과 같은 이유). 회색 줄은 남길 것이 없어 액션 쪽에서 조용히 무시한다.
     if (focusSessionId) useGraphStore.getState().markSessionFocusGlow(focusSessionId, rowState);
-    // §2.4 (한도 정지) — 줄을 누르는 것은 "이 에이전트를 보러 간다"이므로, 그 버블에 달린 멈춘
-    //   세션의 주황불도 이 손짓으로 확인된다(세션 탭을 눌렀을 때와 같은 규율 · §5.5 #17-47).
-    //   창을 열면 활성 세션 하나는 `setIDEActiveSession` 이 따로 걷지만, 그 버블의 **나머지**
-    //   멈춘 세션은 그 길로 닿지 않는다 — 그래서 여기서 버블 단위로 함께 걷는다.
-    //   ⚠ `focusSessionId` 는 이 걷기 **전에** 이미 정해져 있어야 한다(주황 표식을 걷고 나서 다시
-    //     고르면 방금 지운 근거로 아무것도 못 찾는다). 그래서 줄을 그릴 때 계산해 인자로 받는다.
+    // §2.4 — 줄을 누르면 그 버블의 멈춘 세션 주황불을 버블 단위로 걷는다(§5.5 #17-47 — `setIDEActiveSession` 은 활성 하나만 걷는다).
+    // ⚠ `focusSessionId` 는 걷기 전에 정해져야 한다(걷은 뒤엔 근거가 없다) — 그래서 줄을 그릴 때 계산해 받는다.
     useGraphStore.getState().acknowledgeUsageLimit({ agentIds: [agentId] });
     // 그새 사라진 세션에는 세우지 않는다(`openIDEOverlay` 의 `exists` 규율과 같은 감각).
     const liveSession = focusSessionId
@@ -346,10 +284,8 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
         after.setIDEActiveSession(liveSession, target.paneKey);
       }
     } else {
-      // 창이 없는 줄은 새 창이다. 세울 세션은 여는 길에 **실어** 보낸다(§5.5 #17-6 (H-27) ⑦) —
-      //   `openIDEOverlay` 는 새 창이 설 자리(주 창 · 새 팬 · LRU 재사용)를 스스로 고르므로 세우는 것도
-      //   그 길이 그 창에 한다. 밖으로 꺼낸 IDE 로 흘러가면 **그 창이** 이 세션으로 서고, 프로바이더
-      //   설치 창이 대신 뜬 경우에는 세울 창이 없으니 조용히 넘어간다.
+      // 창이 없는 줄은 새 창 — 세울 세션은 `openIDEOverlay` 에 실어 보낸다(§5.5 #17-6 (H-27) ⑦). 설 자리를 그 길이 고르므로 세우기도 그 길이 한다
+      // (밖의 IDE 로 가면 그 창이 서고, 설치 창이 대신 뜨면 넘어간다).
       useGraphStore.getState().openIDEOverlay(agentId, {
         pane: 'new',
         ...(liveSession ? { focus: { sessionId: liveSession } } : {}),
@@ -462,10 +398,7 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
                 } · ${pane ? t('header.ideWindows.soloFocus') : t('header.ideWindows.openNew')}`}
                 className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-1 text-left"
               >
-                {/* 도트는 **실행 상태**다 — 세션 탭·사이드바와 같은 표(`SESSION_STATUS_DOT`)를 쓴다.
-                    종전에는 이 자리가 "창이 떠 있는가"를 세션 도트와 같은 파랑으로 그려, 도는 중인데
-                    창이 없는 에이전트는 불이 꺼진 것으로 보였다. 창 유무는 오른쪽 상태 낱말
-                    (`stateLabel`)과 접기/닫기 손잡이가 이미 말한다. */}
+                {/* 도트는 실행 상태(`SESSION_STATUS_DOT`) — 창 유무를 그리면 창 없이 도는 에이전트가 꺼져 보인다. 창 유무는 `stateLabel`·손잡이가 말한다. */}
                 <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${sessionDotClass(run.state, glow, Date.now())}`} />
                 <span className="min-w-0 flex-1 truncate text-[12px] text-gray-200">{agent.label}</span>
                 {/* 도는 세션 수 — 배지의 분자를 이 줄로 쪼갠 것이다(합이 배지와 같아야 한다).

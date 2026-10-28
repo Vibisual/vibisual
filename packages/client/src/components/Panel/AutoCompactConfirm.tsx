@@ -4,23 +4,9 @@ import { AUTOCOMPACT_COST_SAMPLE } from '@vibisual/shared';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 /**
- * §4 (CLI 사양 추종) — **압축을 켜기 전에 한 번 멈춰 세우는 확인 팝업** (2026-09-02 사용자 지시).
- *
- * 압축은 공짜 정리가 아니다. `/compact` 는 대화 전체를 모델에 다시 먹여 요약을 만드는 **별도의
- * 모델 호출 1회**라, 접을 때마다 입력·출력 토큰과 플랜 사용량을 쓴다. 그래서 기본을 꺼짐으로
- * 내리고(`DEFAULT_AUTOCOMPACT`), 켜는 것은 이 팝업을 거친 명시 선택으로만 되게 했다.
- *
- * 규약 넷:
- *  1. **켜는 방향에만 관문을 둔다.** 끄기는 확인 없이 즉시 — 돈이 나가는 쪽만 막는다.
- *  2. **끄고 다시 켤 때마다 매번 뜬다.** "봤음"을 기억하지 않는다 — 켤 때마다 비용이 나가는
- *     축이라 "언제 켜졌는지 몰랐다"가 생기면 안 된다.
- *  3. **켜진 값 사이의 이동(400k → 500k)에는 뜨지 않는다.** 이미 켜져 있다는 사실을 사용자가
- *     알고 있고, 매번 막으면 경고가 소음이 되어 읽히지 않는다.
- *  4. **양쪽을 다 적는다** — 켜면 무엇을 내는가 + 끄면 무엇을 잃는가. 한쪽만 적으면 그것은
- *     경고가 아니라 유도다.
- *
- * 설정 창(`OptionsWindow`)과 에이전트 설정 창(`AgentConfigPopup`)이 **같은 컴포넌트**를 쓴다 —
- * 두 벌로 두면 한쪽만 고쳐져 문구가 어긋난다.
+ * §4 — 압축을 켜기 전 확인. `/compact` 는 별도 모델 호출이라 접을 때마다 토큰을 쓴다 — 기본 꺼짐(`DEFAULT_AUTOCOMPACT`).
+ * 규약: 켜는 방향에만 · 켤 때마다 매번(기억 ❌) · 켜진 값 사이 이동엔 안 뜬다 · 켜면 얻는 것과 끄면 잃는 것을 둘 다 적는다.
+ * `OptionsWindow`·`AgentConfigPopup` 공용(두 벌이면 문구가 어긋난다).
  */
 export type AutoCompactConfirmKind = 'window' | 'agentSelf';
 
@@ -69,10 +55,7 @@ export function AutoCompactConfirm({
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4"
-      // 백드롭 닫기는 공통 규약(`useBackdropDismiss`)으로 — 누른 곳도 뗀 곳도 백드롭 자신일 때만
-      //   닫히므로, 카드 안에서 시작한 드래그가 우연히 백드롭 위에서 끝나도 취소되지 않는다.
-      //   `stopPropagation` 은 그 앞에 둔다: 뒤 창(설정 창·에이전트 창)의 백드롭까지 같은 클릭으로
-      //   함께 닫히는 것을 막는다(TaskEdgePopup 의 중첩 팝업과 같은 형태).
+      // `stopPropagation` 을 먼저 — 뒤 창의 백드롭까지 같은 클릭으로 닫히지 않게. 닫기 판정은 `useBackdropDismiss`(카드 안에서 시작한 드래그 ❌).
       onMouseDown={(e) => { e.stopPropagation(); backdrop.onMouseDown(e); }}
       onClick={(e) => { e.stopPropagation(); backdrop.onClick(e); }}
       role="dialog"
@@ -124,7 +107,7 @@ export function AutoCompactConfirm({
           </div>
         </div>
 
-        {/* ② 끄면 무엇을 잃는가 — 사용자 지시: "안 접는 경우 설명도 적어둬". */}
+        {/* ② 끄면 무엇을 잃는가. */}
         <div className="mb-3 rounded border border-gray-700 bg-gray-950/60 p-2.5">
           <div className="mb-1 text-[12px] font-medium text-gray-300">
             {t('panel.agentConfig.autoCompact.confirm.offHeading')}

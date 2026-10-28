@@ -2,9 +2,8 @@ import type { InspectorPickLevel, InspectorPickLevels, InspectorPickPoint } from
 import type { ImageDocument, ImageLayer } from '../Creation/imageSource.js';
 
 /**
- * §5.4 #15 (C) — Alt 인스펙터가 그림 앱 안을 집는다. 편집기 무대는 레이어를 SVG 로 그려(속 HTML — React 가 모르는 요소)
- * 브라우저가 집은 도형만으로는 "어느 원본의 어느 레이어"인지 알 수 없었고, 보기 화면은 그림이 손짓을 받지 않아(`pointer-events:none`)
- * 무대가 통째로 집혔다. 그래서 문서로 답한다 — 레이어는 안정 id·자리·글을, 그림은 파일과 픽셀 좌표를 싣는다.
+ * §5.4 #15 (C) — 그림 앱 안을 문서로 답한다(레이어 = 안정 id·자리·글, 그림 = 파일·픽셀 좌표)
+ * — 편집기는 SVG 도형만 집히고, 보기 화면은 `pointer-events:none` 이라 무대가 통째로 집히기 때문이다.
  */
 
 export interface ImageInspectContext {

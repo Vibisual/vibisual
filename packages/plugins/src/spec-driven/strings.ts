@@ -1,13 +1,4 @@
-/**
- * spec-driven — 이 플러그인의 문자열 전량 (§5.11 v4.58 자립 규약).
- *
- * 종전에는 `packages/client/src/i18n/locales/*.json` 안에 있었다. 그래서 폴더를 복사해도 화면에는
- * 번역 키가 그대로 노출됐다 — **폴더가 자기 문자열을 안 들고 있었기 때문**이다. 이제 여기에 산다.
- * 호스트는 `panel.plugins.specDriven` 지붕 아래로 병합한다(키 네임스페이스는 6개 규칙 그대로).
- *
- * 정독 게이트에서 `level`·`check` 가 통째로 바뀌었다. 종전 키(`signals`·`rules`·`plan`)는 곁신호를
- * 세던 시절의 것이고, 그 셋은 기획을 실제로 읽었는지와 아무 상관이 없어서 남겨 둘 이유가 없다.
- */
+/** 이 플러그인의 문자열 전량(§5.11 자립 규약) — 호스트가 `panel.plugins.specDriven` 아래로 병합한다(키 네임스페이스 6개 규칙 그대로). */
 export const strings = {
   "en": {
     "desc": "A versioned specification becomes the source of truth, and implementation, tests and docs derive from it. Once the spec removes ambiguity the agent works as a fast typist rather than a decision maker.",

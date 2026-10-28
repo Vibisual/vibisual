@@ -1,13 +1,5 @@
-// §5.9 v3.34 — 캡처 버블 "앱 내부 멀티 윈도우" z-order + Escape(최상단만) 관리.
-//
-// 여러 캡처 창(CaptureWindow)이 document.body 로 portal 되어 동시에 뜰 수 있다(버블마다 하나).
-// 이 모듈이 창들 사이의 두 가지 공유 관심사를 담당한다.
-//   1) z-order — 클릭(mousedown)한 창을 맨 앞으로 올린다(bringToFront). 각 창의 로컬 zIndex state 는
-//      여기서 발급한 단조 증가 z 값을 반영한다.
-//   2) Escape — 어느 창에 포커스가 있든 Escape 는 "가장 앞(z 최대)" 창 하나만 닫는다. 각 창이 제
-//      Escape 리스너를 붙이면 여러 개가 동시에 닫혀 버리므로, 전역 리스너 하나로 최상단만 닫는다.
-//
-// 순수 스택 로직(등록/최상단/앞으로)은 window 바인딩과 분리해 단위 테스트 가능하게 두었다.
+// §5.9 — 캡처 창들의 z-order(mousedown 한 창을 단조 증가 z 로 앞으로)와 Escape(z 최대 하나만 — 창마다 리스너면 한꺼번에 닫혀 전역 하나로).
+// 순수 스택은 window 바인딩과 분리해 시험한다.
 
 import { selectShellImmersive, useProjectImmersionStore } from '../../stores/projectImmersion.js';
 
@@ -52,10 +44,18 @@ export function closeTopCaptureWindow(): boolean {
   return true;
 }
 
+/** §5.5 #17-27 ⑳ — 파일 창의 Esc 는 그 편집기 것이다. 파일 창은 이 스택 대상이 아니라 여기서 걸러야 뒤에 선 다른 창이 닫히지 않는다. */
+export function escBelongsToFileWindow(target: unknown): boolean {
+  const el = target as { closest?: unknown } | null | undefined;
+  if (!el || typeof el.closest !== 'function') return false;
+  return !!(el.closest as (selector: string) => unknown).call(el, '[data-file-window]');
+}
+
 function handleEsc(ev: KeyboardEvent): void {
   if (ev.key !== 'Escape') return;
   // This listener can predate immersion. Let the project shell restore its layout first.
   if (selectShellImmersive(useProjectImmersionStore.getState())) return;
+  if (escBelongsToFileWindow(ev.target)) return;
   // 이 누름으로 비동기 확인 팝업이 열릴 수 있다. 같은 window의 다른 캡처 리스너도 멈춰야
   // 팝업을 연 Escape가 뒤에 있던 편집창/메뉴까지 닫지 않는다.
   if (closeTopCaptureWindow()) {
@@ -89,10 +89,7 @@ export interface CaptureWindowHandle {
   release: () => void;
 }
 
-/**
- * 캡처 창을 매니저에 등록한다. 첫 등록 시 전역 Escape 리스너를 붙이고, 마지막 창이 release 되면 뗀다.
- * @param close 이 창을 닫는 콜백(Escape 로 최상단이 이 창일 때 호출).
- */
+/** 첫 등록에 전역 Escape 리스너를 붙이고 마지막 release 에 뗀다. */
 export function registerCaptureWindow(close: () => void, isVisible: () => boolean = () => true): CaptureWindowHandle {
   const uid = ++uidSeq;
   const initialZ = ++zSeq;

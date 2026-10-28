@@ -4,15 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 /**
- * §4 (실행본 자가 복구) — 앱이 도는 중에 `claude` 실행본이 **앱 밖에서** 바뀌는 경우를 다룬다.
- *
- * 실제 사고(2026-08-19): VS Code 가 확장을 `anthropic.claude-code-2.1.234-…` → `…-2.1.235-…` 로
- * 갈아치우며 옛 폴더를 통째로 지웠는데, 지연 캐시가 죽은 경로를 계속 돌려줘 모든 spawn 이
- * `ENOENT`(Windows libuv `-4058`) 로 죽었다. 앱을 껐다 켜기 전에는 복구되지 않았다.
- *
- * 홈 디렉터리는 mock 없이 갈아끼운다 — `os.homedir()` 는 Windows 에서 `USERPROFILE`,
- * POSIX 에서 `HOME` 환경변수를 먼저 본다. 그래야 `vi.mock('node:os')` 호이스팅 함정을 피하면서
- * 실제 파일시스템 위에서 "폴더가 사라졌다"를 그대로 재현할 수 있다.
+ * §4 (실행본 자가 복구) — 앱이 도는 중에 `claude` 실행본이 **앱 밖에서** 바뀌는 경우.
+ * 실측(2026-08-19): VS Code 가 확장을 `…-2.1.234-…` → `…-2.1.235-…` 로 갈며 옛 폴더를 지우자, 지연 캐시가 죽은 경로를 돌려줘 모든 spawn 이 `ENOENT`(Windows libuv `-4058`)로 죽고 재시작 전까지 복구되지 않았다.
+ * 홈은 mock 없이 환경변수로 갈아 끼운다(`os.homedir()` 는 win `USERPROFILE`, POSIX `HOME` 을 먼저 본다) — `vi.mock('node:os')` 호이스팅 함정을 피하고 실제 파일시스템에서 "폴더가 사라졌다"를 재현한다.
  */
 
 const IS_WIN = process.platform === 'win32';
@@ -119,7 +113,7 @@ describe('getClaudeBin — 확장 자동 갱신 추종', () => {
     const newBin = makeExtensionBin('2.1.235');
     removeExtension('2.1.234');
 
-    // 종전에는 캐시가 죽은 경로를 계속 돌려줘 여기서 spawn ENOENT 가 났다.
+    // 캐시가 죽은 경로를 돌려주면 여기서 spawn ENOENT 가 난다.
     expect(mod.getClaudeBin()).toEqual({ binPath: newBin, source: 'vscode-extension' });
   });
 
@@ -131,7 +125,7 @@ describe('getClaudeBin — 확장 자동 갱신 추종', () => {
     const newBin = makeExtensionBin('2.1.288');
     markObsolete(['2.1.285']);
 
-    // 종전에는 옛 파일이 그대로 있어 캐시가 2.1.285 를 계속 돌려줬다(VS Code 를 다시 켤 때까지).
+    // 옛 파일이 남아 있어도 `.obsolete` 를 봐야 한다 — 안 보면 VS Code 를 다시 켤 때까지 2.1.285 를 돌려준다.
     expect(mod.getClaudeBin()).toEqual({ binPath: newBin, source: 'vscode-extension' });
   });
 
@@ -232,7 +226,7 @@ describe('resolveClaudeBin — override 승계', () => {
     const written: string[] = [];
     mod.setClaudeBinOverrideWriter((p) => written.push(p));
 
-    // 종전에는 옛 파일이 살아 있다는 이유로 override 를 그대로 써, 사용자가 고른 확장이 갱신돼도 옛 버전에 묶였다.
+    // 옛 파일이 살아 있어도 폐기 표시된 override 는 승계한다 — 아니면 고른 확장이 갱신돼도 옛 버전에 묶인다.
     expect(mod.resolveClaudeBin()).toEqual({ binPath: newBin, source: 'vscode-extension' });
     expect(written).toEqual([newBin]);
   });

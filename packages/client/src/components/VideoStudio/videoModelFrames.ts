@@ -5,11 +5,9 @@ import { applyStudioEnvironment, releaseStudioEnvironment, renderStudioView } fr
 import type { VideoModelScene } from './videoModelScene.js';
 
 /**
- * §5.13 (Y) 40-4 — 영상의 3D 그리기(three.js · 스튜디오 조명). **모델 소재가 있을 때만** 공급자가 `import()` 로 불러온다.
- *
- * 종전에는 이 클래스가 `videoMediaProvider.ts` 안에 있어 three.js 와 모델 해독기(약 2MB)가 스튜디오의 정적 청크에 묶였고, 모델이
- * 없는 모션그래픽 문서도 그 2MB 를 해석한 뒤에야 화면이 섰다(설치본 실측 — 정적 사슬 2.78MB 중 74%). 시험(`studioChunkGuard`)이
- * 스튜디오·렌더·일꾼 셸의 정적 import 닫힘에 three 가 다시 들어오지 못하게 지킨다.
+ * §5.13 (Y) 40-4 — 영상의 3D 그리기(three.js · 스튜디오 조명). 모델 소재가 있을 때만 공급자가 `import()` 로 불러온다.
+ * `videoMediaProvider.ts` 에 정적으로 두면 three.js 와 모델 해독기(약 2MB)가 정적 청크에 묶여 모델 없는 문서도 그 2MB 를 해석한 뒤에야 화면이 선다(설치본 실측 — 정적 사슬 2.78MB 중 74%).
+ * 시험(`studioChunkGuard`)이 스튜디오·렌더·일꾼 셸의 정적 import 닫힘에 three 가 다시 들어오지 못하게 지킨다.
  */
 
 type AnyCanvas = HTMLCanvasElement | OffscreenCanvas;
@@ -24,9 +22,9 @@ const defaultCanvas: CanvasFactory = (width, height) => {
 };
 
 /**
- * Renders model frames on one WebGL renderer and copies each result into a canvas of its own **in the same
- * synchronous step** — the next model render can no longer paint over a frame its caller has not drawn yet
- * (two models visible at one time used to show the second model twice). A lost GL context is dropped and rebuilt.
+ * Renders model frames on one WebGL renderer and copies each result into a canvas of its own in the same synchronous step —
+ * otherwise the next model render paints over a frame its caller has not drawn yet (two visible models show the second one twice).
+ * A lost GL context is dropped and rebuilt.
  */
 export class ModelFrameRenderer {
   private renderer: THREE.WebGLRenderer | null = null;

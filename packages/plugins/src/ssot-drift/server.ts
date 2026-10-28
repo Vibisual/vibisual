@@ -1,14 +1,6 @@
 /**
- * ssot-drift — **이 카드의 REST 창구** (§5.11 자립 규약 ⑥).
- *
- * v4.67 에서 이 세 경로는 호스트 코어(`server/src/services/pluginHost.ts`)에 손으로 붙어 있었다. 동작은
- * 멀쩡했지만 자립 규약이 클라이언트에서만 지켜지는 상태였다 — 이 폴더를 다른 앱에 복사하면 카드·문자열·
- * 집행은 따라가는데 **서버 쪽만 남았다.** 서버 기여 배럴(`server.ts`)이 존재한 이유가 정확히 그것을
- * 막는 것이었는데, 첫 사례부터 배럴을 우회했다.
- *
- * 그래서 경로·응답을 **한 글자도 바꾸지 않고** 자리만 여기로 옮긴다. 프레임워크(express)도 `node:fs` 도
- * 여기 없다 — 호스트가 `PluginServerHost` 로 탐침·원자적 쓰기·캐시 무효화만 건네고, 경로 정규화와
- * 루트 이탈 차단은 호스트가 한 번만 한다(§5.11 "슬롯 경유만").
+ * ssot-drift — 이 카드의 REST 창구(§5.11 자립 규약 ⑥). express·`node:fs` 없이 호스트가 `PluginServerHost` 로 탐침·원자적 쓰기·캐시 무효화만 건넨다.
+ * 경로 정규화·루트 이탈 차단은 호스트가 한 번만 한다(§5.11 "슬롯 경유만").
  */
 import type {
   PluginPromptContext,
@@ -55,12 +47,7 @@ function configJson(doc: string | null, current: SsotConfig): string {
 
 const noProject: PluginRouteResponse = { status: 400, body: { ok: false, error: 'no project' } };
 
-/**
- * 새 SSOT 문서의 뼈대.
- *
- * **빈 파일을 만들어 주면 안 된다** — 그것이 v4.67 이 고친 문제(빈 문서가 SSOT 로 인정되던 것)를 우리가
- * 직접 만드는 꼴이다. 그래서 절 구조와 `Change Log` 를 함께 넣어 "만들자마자 내용 있음"으로 시작한다.
- */
+/** 새 SSOT 문서의 뼈대 — 빈 파일을 만들지 않는다(빈 문서는 SSOT 로 치지 않는다). 절 구조와 `Change Log` 를 넣는다. */
 export function ssotDocTemplate(projectName: string, locale: string): string {
   const today = new Date().toISOString().slice(0, 10);
   if (locale.startsWith('ko')) {
@@ -177,12 +164,7 @@ export const routes: readonly PluginRoute[] = [
     },
   },
 
-  /**
-   * 문서가 없는 프로젝트에 **뼈대를 만들어 주고 그것을 지정**한다.
-   *
-   * 이미 파일이 있으면 덮어쓰지 않는다 — 사용자의 기획서를 우리가 지우는 일은 어떤 경우에도 없어야 한다.
-   * 그 경우엔 만들지 않고 지정만 한다(= "기존에 있다면 사용자가 지정" 쪽 경로).
-   */
+  /** 문서가 없으면 뼈대를 만들어 지정한다. 이미 파일이 있으면 **덮어쓰지 않고** 지정만 — 사용자의 기획서를 지우는 일은 어떤 경우에도 없어야 한다. */
   {
     method: 'post',
     path: 'create-doc',

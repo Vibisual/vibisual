@@ -12,17 +12,8 @@ import type { WorkspaceEol, WorkspaceFileContent, WorkspaceFileSaveResult } from
 import { resolveWorkspacePath } from './workspaceExplorer.js';
 
 /**
- * §5.5 #17-27 v4.87 — IDE 내장 편집창의 디스크 창구(파일 한 개 읽기·쓰기).
- *
- * 탐색기(`workspaceExplorer.ts`)가 "폴더 한 겹"을 담당하듯 여기는 "파일 한 개"만 담당한다.
- * 경로 가드는 새로 만들지 않고 탐색기의 `resolveWorkspacePath` 를 그대로 쓴다 — 두 개의 가드는
- * 언젠가 서로 어긋나고, 어긋난 쪽이 곧 구멍이 된다.
- *
- * 여기서 쓰는 파일은 **사용자의 소스 파일**이라 §3.2.1 체크포인트 창구(원자적 쓰기·백업)를 타지 않는다 —
- * 그 인프라는 우리가 소유한 상태 파일을 위한 것이고, 남의 파일에 `.bak` 을 흩뿌릴 자리가 아니다.
- * 대신 `mtimeMs` + 원본 바이트 지문으로 외부 변경을 대조하고, 같은 폴더의 임시 파일을 완성한 뒤 교체한다.
- *
- * 상태 없는 순수 조회/쓰기라 클래스가 아니라 함수 둘로 둔다.
+ * §5.5 #17-27 — 내장 편집창의 파일 한 개 읽기·쓰기. 가드는 탐색기의 `resolveWorkspacePath`(둘이면 어긋난 쪽이 구멍).
+ * 사용자 소스라 §3.2.1 체크포인트 창구(원자적 쓰기·`.bak`)를 타지 않는다 — `mtimeMs` + 바이트 지문으로 외부 변경을 대조하고 같은 폴더 임시 파일로 교체한다.
  */
 
 /** 이진 판정에 훑는 앞부분 길이(bytes) — NUL 이 이 안에 없으면 텍스트로 취급한다. */
@@ -97,12 +88,7 @@ function isPermissionError(err: unknown): boolean {
   return typeof code === 'string' && READ_ONLY_ERROR_CODES.has(code);
 }
 
-/**
- * §5.5 #17-27 ⑫ — 이 파일이 **디스크 쪽에서 잠겨 있는가**(파일은 있는데 쓸 수 없음).
- *
- * 윈도우에서 `W_OK` 는 읽기 전용 속성(`FILE_ATTRIBUTE_READONLY`)을 보므로 Perforce 가 걸어 둔 잠금이
- * 그대로 잡힌다. ACL 까지는 못 재지만, 못 잰 경우는 저장 시도가 `readonly` 로 갈라 답한다.
- */
+/** §5.5 #17-27 ⑫ — 디스크 쪽 잠금인가. 윈도우 `W_OK` 는 읽기 전용 속성을 봐 Perforce 잠금이 잡힌다. ACL 은 못 재고, 그때는 저장이 `readonly` 로 답한다. */
 export function isReadOnlyFile(abs: string): boolean {
   try {
     fs.accessSync(abs, fs.constants.W_OK);
@@ -112,12 +98,7 @@ export function isReadOnlyFile(abs: string): boolean {
   }
 }
 
-/**
- * §5.5 #17-27 ⑫ — 읽기 전용 잠금을 푼다(쓰기 비트를 켠다). 성공 여부만 돌려준다.
- *
- * 버전 관리 명령(`p4 edit` 등)은 **실행하지 않는다** — 우리 권한은 파일 속성 한 비트까지이고,
- * 체크아웃 여부는 사용자·에이전트의 판단이다.
- */
+/** §5.5 #17-27 ⑫ — 읽기 전용 비트를 푼다. `p4 edit` 같은 버전 관리 명령은 돌리지 않는다(체크아웃은 사용자·에이전트 판단). */
 function clearReadOnlyBit(abs: string, mode: number): boolean {
   try {
     fs.chmodSync(abs, mode | OWNER_WRITE);
@@ -202,12 +183,8 @@ export function readWorkspaceFile(
 }
 
 /**
- * 파일을 덮어쓴다. `baseMtimeMs` 는 **클라이언트가 읽을 때 본 수정 시각**이라,
- * 그 사이 디스크가 바뀌었으면(에이전트가 같은 파일을 고쳤을 때가 바로 이 경우다) `conflict` 로 거절한다.
- * 사용자가 화면에서 "그래도 저장" 을 고르면 `baseMtimeMs <= 0` 으로 다시 보내 대조를 건너뛴다.
- *
- * §5.5 #17-27 ⑫ — 디스크가 잠근 파일(Perforce 체크아웃 전 파일 등)은 `readonly` 로 갈라 답하고,
- * 사용자가 [읽기 전용 해제하고 저장] 을 고르면 `clearReadOnly` 로 다시 와 쓰기 비트를 켠 뒤 저장한다.
+ * 덮어쓴다. `baseMtimeMs`(읽을 때 본 시각)와 디스크가 다르면 `conflict`, "그래도 저장"은 `baseMtimeMs <= 0`.
+ * §5.5 #17-27 ⑫ — 잠긴 파일은 `readonly`, [읽기 전용 해제하고 저장] 이면 `clearReadOnly` 로 비트를 켜고 저장한다.
  */
 export function writeWorkspaceFile(
   root: string,
@@ -261,14 +238,8 @@ export function writeWorkspaceFile(
 }
 
 /**
- * §5.5 #17-27 ⑭ — 미리보기에 실을 **이미지 바이트 한 장**.
- *
- * 텍스트 창구(`readWorkspaceFile`)와 갈라 두는 이유는 돌려주는 것이 글자가 아니라 버퍼이고,
- * 상한도 다르기 때문이다(`WORKSPACE_IMAGE_MAX_BYTES`). 경로 가드는 같은 `resolveWorkspacePath`
- * 하나를 그대로 쓴다 — 두 개의 가드는 언젠가 서로 어긋나고, 어긋난 쪽이 곧 구멍이 된다.
- *
- * 잘라 보내지 않는다 — 잘린 이미지는 그리다 만 그림이라 보여 줄 값이 없다. 상한을 넘으면 null 로
- * 답해 화면이 종전 안내(`이진 파일 — 읽기 전용`)로 떨어지게 한다.
+ * §5.5 #17-27 ⑭ — 미리보기용 이미지 바이트. 상한(`WORKSPACE_IMAGE_MAX_BYTES`)이 달라 텍스트 창구와 가르고, 가드는 같은 `resolveWorkspacePath`.
+ * 잘라 보내지 않는다 — 상한을 넘으면 null(화면은 `이진 파일 — 읽기 전용` 안내).
  */
 export function readWorkspaceImage(
   root: string,
@@ -300,15 +271,8 @@ export function readWorkspaceImage(
 }
 
 /**
- * §5.5 #17-25 ④-1 — 주석을 구운 이미지로 **그 파일을 덮어쓴다**.
- *
- * 규율은 텍스트 저장과 같은 것을 쓴다 — 읽을 때 본 `mtimeMs` 가 디스크와 다르면 `conflict` 로 거절하고
- * (그 사이 에이전트가 같은 파일을 고쳤을 수 있다), 사용자가 "그래도 저장" 을 고르면 `baseMtimeMs <= 0`
- * 으로 다시 와 대조를 건너뛴다. 다른 점은 두 가지다:
- *
- * - **형식을 바꿔 쓰지 않는다** — `canvas.toBlob` 이 굽지 못하는 확장자(svg·gif·ico·bmp·avif)는
- *   `unsupported` 로 거절한다. 조용히 PNG 를 써 넣으면 확장자와 내용이 어긋난 파일이 남는다.
- * - **줄바꿈·BOM 규약이 없다** — 바이트를 그대로 쓴다.
+ * §5.5 #17-25 ④-1 — 주석을 구운 이미지로 덮어쓴다(mtime 대조는 텍스트와 같다). 줄바꿈·BOM 없이 바이트 그대로.
+ * `canvas.toBlob` 이 못 굽는 확장자(svg·gif·ico·bmp·avif)는 `unsupported` — 조용히 PNG 를 쓰면 확장자·내용이 어긋난다.
  */
 export function writeWorkspaceImage(
   root: string,

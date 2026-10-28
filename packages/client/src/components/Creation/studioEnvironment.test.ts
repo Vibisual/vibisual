@@ -2,10 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { STUDIO_LIGHT, applyStudioEnvironment, releaseStudioEnvironment, studioEnvironment } from './studioLighting.js';
 
-/**
- * §5.13 (R-10) item 11 — metals reflect the studio room: every view's scene gets the prefiltered RoomEnvironment
- * (without it a 0.9-metalness gold renders as dark brown). PMREM needs WebGL, so it is replaced by a recorder here.
- */
+/** §5.13 (R-10) item 11 — every view's scene gets the prefiltered RoomEnvironment (metals reflect it). PMREM needs WebGL, so a recorder replaces it here. */
 const pmrem = vi.hoisted(() => ({ made: 0, texture: null as unknown, target: null as unknown }));
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();

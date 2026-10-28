@@ -5,14 +5,9 @@ import { DEBUG_ADAPTERS } from '@vibisual/shared';
 import { listDebugAdapters, commandFingerprint } from './adapterProbe.js';
 
 /**
- * §5.5 #17-20 ⑩ — 어댑터 탐지는 종전에 `where`/`which` 한 번이었다.
- *
- * 그 둘은 **우리 프로세스의 PATH** 만 본다. Finder 로 띄운 macOS 앱의 PATH 는
- * `/usr/bin:/bin:/usr/sbin:/sbin` 넉 줄뿐이라 `~/go/bin/dlv`·`~/.cargo/bin/codelldb`·
- * Homebrew 의 `debugpy` 가 **깔려 있어도 전부 "없음"** 으로 나왔다. 이제 `binLocator` 가
- * 보강된 PATH + 알려진 설치 위치를 함께 본다.
- *
- * 이 파일은 **실제 PC 상태에 의존하지 않는 불변식**만 고정한다(어느 개발기에서 돌려도 같아야 한다).
+ * §5.5 #17-20 ⑩ — 어댑터 탐지에 `where`/`which` 를 쓰지 않는다 — 우리 프로세스 PATH 만 보는데, Finder 로 띄운 macOS 앱은 `/usr/bin:/bin:/usr/sbin:/sbin` 뿐이라
+ * `~/go/bin/dlv`·`~/.cargo/bin/codelldb`·Homebrew `debugpy` 가 깔려 있어도 "없음"이 된다. `binLocator` 가 보강된 PATH + 알려진 설치 위치를 본다.
+ * 이 파일은 실제 PC 상태에 의존하지 않는 불변식만 고정한다(어느 개발기에서도 같아야 한다).
  */
 
 describe('listDebugAdapters', () => {

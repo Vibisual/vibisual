@@ -1,12 +1,5 @@
-// §4 v3.33 — 모바일 웹 접속 임베디드 터미널 브리지.
-//
-// 데스크톱은 `window.api.terminal` (Electron IPC)로 PTY 에 붙지만, 모바일 브라우저엔 그 API 가
-// 없다. 대신 앱이 이미 열어둔 `/ws` WebSocket(useWebSocket)에 터미널 프레임을 다중화해 나른다.
-// 이 싱글턴이 (a) useWebSocket 이 등록한 sender 로 제어 프레임(term_create/write/resize/kill)을
-// 보내고, (b) 서버가 보낸 term_data/term_exit/term_ack/term_unavailable 프레임을 리스너로 분배한다.
-//
-// `getWsTerminalTransport()` 는 `PackagedTerminalApi` 와 같은 모양이라 IDETerminalView 가
-// 데스크톱 IPC 와 동일한 인터페이스로 사용한다(호출부 분기 최소화).
+// §4 — 모바일 웹 터미널 브리지: 모바일 브라우저엔 `window.api.terminal` 이 없어 열어 둔 `/ws` 에 터미널 프레임(term_*)을 다중화한다.
+// `getWsTerminalTransport()` 는 `PackagedTerminalApi` 와 같은 모양이다(IDETerminalView 가 한 인터페이스로 쓴다).
 
 import type { PackagedTerminalApi } from './install-packaged-transport.js';
 

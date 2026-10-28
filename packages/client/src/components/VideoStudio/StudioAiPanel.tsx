@@ -11,11 +11,7 @@ import { StudioSteps } from './StudioSteps.js';
 import { StudioComposer, type StudioComposerProps } from './StudioComposer.js';
 import { useStudioConversation, type StudioChatLine } from './useStudioConversation.js';
 
-/**
- * §5.13 (V) 37-1 — 오른쪽 **AI 패널**. 위: 엔진 칩 + 에이전트 이름 + 지금 하는 일(어느 장면을 만지는지). 그 아래 고른 것이 있으면
- * 값 카드(37-5). 가운데: 대화(내 말 / AI 의 말 — IDE 스트림을 읽는다) + "이번에 바뀐 것" 카드. 아래: 입력창 + 칩 + 제안 칩.
- * 전체 대화는 [IDE 에서 보기].
- */
+/** §5.13 (V) 37-1 — 오른쪽 AI 패널(엔진 칩·지금 하는 일 · 값 카드 37-5 · 대화 — IDE 스트림을 읽는다 · 입력창). */
 export interface StudioAiPanelProps {
   readonly collapsed: boolean;
   readonly onToggleCollapsed: () => void;

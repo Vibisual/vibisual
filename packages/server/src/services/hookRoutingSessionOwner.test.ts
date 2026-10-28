@@ -14,21 +14,8 @@ vi.mock('./appState.js', async (importOriginal) => {
 });
 
 /**
- * §3.5 — **훅 이벤트는 그 세션의 버블을 가진 프로젝트로 간다.** cwd 는 그 다음이다.
- *
- * 실측(2026-09-30): `.git` 없는 폴더를 프로젝트로 연 사용자의 커스텀 세션이 하위 폴더(`research/…`)
- * 로 `cd` 한 채 재개되자, 라우팅 표가 비어 있던 그 순간 cwd 만 보고 그 하위 폴더에 **새 인스턴스**(유령
- * 탭 + 사용자 폴더 안 `.vibisual/save`)가 섰다. 그 뒤 그 세션의 이벤트가 전부 유령으로 갔고, 유령은 커스텀
- * 키로 **훅 버블**을 찍었으며, 생존 판정이 그 버블을 2초마다 지웠다 — 지울 때마다 **전 프로젝트 공유**
- * 명령 큐·완료 이력이 함께 지워져 입력이 몇 초 안에 사라지고 이력 32건을 잃었다. 명령 접수도 유령의
- * 훅 버블을 보고 "읽기 전용"(403)으로 거절했다. 여섯 시간 동안 1,171 회 돌았다.
- *
- * 이 파일이 못 박는 것:
- *  ① 표식 없는 하위 폴더 cwd 는 열린 프로젝트로 간다(세 OS 판정 표 포함).
- *  ② 커스텀 세션 이벤트는 새 프로젝트를 세우지 않고 주인 버블에 붙는다.
- *  ③ 이미 유령에 고정된 라우팅도 다음 이벤트·조회에서 주인으로 풀린다.
- *  ④ 같은 세션 키를 다른 인스턴스가 쥐고 있으면 공유 큐·이력을 지우지 않는다.
- *  ⑤ 커스텀 합성 키로는 훅 버블을 찍지 않고 생존 판정에도 넣지 않는다.
+ * §3.5 — **훅 이벤트는 그 세션의 버블을 가진 프로젝트로 간다**(cwd 는 그다음). 실측(2026-09-30): 하위 폴더 cwd 로 유령 인스턴스가 서자 그 훅 버블이 지워질 때마다 공유 큐·이력이 지워졌다.
+ * ① 표식 없는 하위 폴더는 열린 프로젝트로(세 OS) ② 커스텀 세션은 주인 버블로 ③ 유령 고정 라우팅도 풀린다 ④ 남이 쥔 세션 키면 공유 큐·이력을 안 지운다 ⑤ 커스텀 합성 키로 훅 버블·생존 판정 ❌.
  */
 
 const tmpDirs: string[] = [];
@@ -214,7 +201,7 @@ describe('§3.5 훅 라우팅 — 세션 주인 우선 · 하위 폴더 승격',
     const agent = manager.createCustomAgent('Claude Agent 2', undefined, info.name)!;
     const key = agent.path;
 
-    // 옛 판본이 해 둔 고정: 이 세션 → 유령 인스턴스.
+    // 이미 고정된 라우팅: 이 세션 → 유령 인스턴스.
     const ghostKey = pathKey(ghost.path, process.platform);
     expect(internals(manager).instances.has(ghostKey)).toBe(true);
     internals(manager).sessionRouting.set(key, ghostKey);
@@ -259,7 +246,7 @@ describe('§3.5 공유 명령 맵 — 남의 큐·이력을 지우지 않는다'
     const sessionId = 'cccccccc-2222-4333-8444-555555555555';
     manager.processHookEvent(bashEvent(sessionId, a));
     const [instA, instB] = [...internals(manager).instances.values()];
-    // 같은 키의 사본이 B 에도 생긴 상태(옛 판본의 유령이 만들던 모양).
+    // 같은 키의 사본이 B 에도 생긴 상태(유령이 만들던 모양).
     instB!.processHookEvent(bashEvent(sessionId, b));
     expect(instA!.getAgentBySession(sessionId)).not.toBeNull();
     expect(instB!.getAgentBySession(sessionId)).not.toBeNull();
@@ -306,7 +293,7 @@ describe('§3.5 커스텀 합성 키 — 훅 버블로 찍지 않는다', () => 
     const agent = manager.createCustomAgent('Claude Agent 2', undefined, info.name)!;
     const ghostInst = internals(manager).instances.get(pathKey(ghost.path, process.platform))!;
 
-    // 라우팅을 건너뛰고 유령 인스턴스에 직접 넣어도(옛 판본이 고정해 둔 길) 사본이 서지 않는다.
+    // 라우팅을 건너뛰고 유령 인스턴스에 직접 넣어도 사본이 서지 않는다.
     expect(ghostInst.processHookEvent(bashEvent(agent.path, sub))).toBeNull();
     expect(ghostInst.getAgentBySession(agent.path)).toBeNull();
   });

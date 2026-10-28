@@ -1,10 +1,6 @@
 /**
- * §5.5 #17-22 ① — [읽기] 패널이 **IDE 창 안에** 다 들어오는 자리의 순수 판정.
- *
- * 패널은 상단 바 버튼 칸에 붙는 `absolute` 상자라, 버튼 오른쪽에 붙여 두기만 하면 좁은 창(떼어 낸
- * 창·좌우 도크·작은 떠 있는 창)에서 왼쪽으로 삐져나간다. IDE 창은 `overflow-hidden` 이라 삐져나간
- * 만큼이 그대로 잘린다 — 그래서 경계는 뷰포트가 아니라 **IDE 창 ∩ 뷰포트**다.
- * 화면이 판정을 들고 있으면 DOM 없는 테스트로 고정할 수 없어 여기로 뺐다.
+ * §5.5 #17-22 ① — [읽기] 패널이 IDE 창 안에 다 드는 자리(순수 판정). IDE 창이 `overflow-hidden` 이라 좁은 창에서 삐져나간 만큼 잘린다 —
+ * 경계는 뷰포트가 아니라 IDE 창 ∩ 뷰포트다.
  */
 import type { ViewportSize } from '../../../hooks/popupDismiss.js';
 import type { PopupAnchorRect } from '../../Panel/modelSectionView.js';
@@ -46,10 +42,7 @@ export function visibleBounds(rect: PopupAnchorRect | null, viewport: ViewportSi
   };
 }
 
-/**
- * 버튼 칸 아래에 붙는 패널 자리. 가로는 버튼 오른쪽 변에 맞추는 것이 기본이고(종전 `right-0`),
- * 그대로 두면 창 밖으로 나가는 쪽이 있을 때만 창 안으로 밀어 넣는다. 폭은 창이 좁으면 창에 맞춰 준다.
- */
+/** 버튼 칸 아래 패널 자리 — 가로는 버튼 오른쪽 변에 맞추고, 창 밖으로 나갈 때만 안으로 민다. 창이 좁으면 폭도 창에 맞춘다. */
 export function placeReadingPanel(
   anchor: PopupAnchorRect,
   bounds: PopupAnchorRect,

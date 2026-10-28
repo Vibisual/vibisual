@@ -2,41 +2,17 @@ import { isBackgroundShellTask } from '@vibisual/shared';
 import type { FinishedSubagentTask, RunningSubagentTask } from '@vibisual/shared';
 
 /**
- * §5.5 #17-9 ③(a) v4.95 / ⑥ v5.07 — "실행 중 서브에이전트" 산식 한 벌.
- *
- * 활동바 항목(점등·아래 숫자)과 사이드바 뷰(목록·머리말)가 **반드시 같은 수**를 봐야 한다.
- * v3.51 은 나타남을 에이전트 전체 개수로, 배지를 세션 필터 결과로 계산해 두 산식이 갈렸고,
- * 그 틈에서 **"아이콘은 있는데 배지는 `(0)`"** 상태가 났다(눌러도 목록이 비어 창이 열리자마자
- * 닫히니 "눌러도 아무것도 안 뜬다"로 보였다). 산식을 여기 한 곳에 두고 양쪽이 함께 쓴다.
- *
- * 범위 규칙: **세션 탭이 선택돼 있으면 그 탭이 띄운 것만**, 메인 탭(null)이면 그 에이전트 전부.
- * 소유 탭이 미상(`subAgentId` 없음)인 항목은 어느 탭 것이라고 단정할 수 없으므로 세션 탭 목록에
- * 넣지 않는다 — 대신 `countOtherTasks` 로 "다른 곳에서 N개 더" 라고만 알린다.
- *
- * **모집단은 하나 — 백단에서 도는 것뿐이다**(⑥ v5.07). v5.03 ④(a) 는 세션 탭 자신의 실행
- * (`sub.status==='active'` = 지금 사용자와 나누고 있는 대화)까지 합쳐 셌는데, 그러면 대화가
- * 도는 동안 늘 1건이 잡혀 이 화면이 답해야 할 단 하나의 질문("백단에 몇 개?")이 오염된다.
- * 지금 하는 대화는 바로 옆 스트림이 이미 보여 주므로 여기서는 세지 않는다.
+ * §5.5 #17-9 ③(a)/⑥ — "실행 중 서브에이전트" 산식 한 벌. 활동바(점등·숫자)와 사이드바 뷰가 함께 써야 "아이콘은 있는데 `(0)`"이 안 난다.
+ * 범위: 세션 탭이면 그 탭이 띄운 것만, 메인 탭(null)이면 전부. 소유 탭 미상(`subAgentId` 없음)은 세션 탭에 넣지 않고 `countOtherTasks` 로만 알린다.
+ * 모집단은 백단에서 도는 것뿐 — 세션 자신의 실행(`sub.status==='active'`)은 세지 않는다(대화 중엔 늘 1건이 잡힌다).
  */
 
 const EMPTY: RunningSubagentTask[] = [];
 
 /**
- * 이 항목이 **AI 자식**인가 **셸**인가 — 목록의 종류 칩이 쓰는 판정 한 곳.
- *
- * 이 목록에는 비용도 끊는 방법도 다른 둘이 섞인다. `Task`/`Agent` 로 띄운 서브에이전트는 모델이
- * 돌아 토큰을 쓰고 그것을 띄운 에이전트가 `TaskStop` 으로 끊는다. `Bash run_in_background`·`Monitor`
- * 로 띄운 셸은 명령이 돌 뿐이라 토큰을 안 쓰고 `KillShell` 로 끊는다. 종전에는 둘 다 "실행 중
- * 서브에이전트" 한 이름으로 묶여 있어서 `tail -f` 한 줄이 **"내 AI 가 10분째 토큰을 태우는 중"**
- * 으로 읽혔다(사용자 보고). 판정 근거는 서버가 이미 싣고 있던 `origin` 하나뿐이다 — 새 수집 경로 ❌.
- *
- * 미지정은 `'hook'` 취급(§5.5 #17-9 `RunningSubagentTask.origin` 규약) — 옛 항목과 호환된다.
- *
- * §5.5 #17-9 ⑰ — 판정은 **실행 축과 같은 술어**(`isBackgroundShellTask`)로 한다. 종전에는 이 함수가
- * `origin === 'stream'` 만 봐서, 백그라운드 자식 **안에서** 다시 스폰된 모델 자식(스트림으로 오지만
- * `subagentType` 이 붙는다)을 "셸"로 적었다 — 그 칩은 "토큰을 안 씁니다"라고 말하는데 실제로는 태우는
- * 중이었다. 무엇보다 같은 낱말의 판정이 두 벌이면, 세션을 붙드는 쪽과 화면이 적는 쪽이 서로 다른
- * 항목을 가리키게 된다. 그것이 이 라운드 전체가 고치고 있는 결함이다.
+ * AI 자식인가 셸인가 — 종류 칩의 판정 한 곳. 서브에이전트(`Task`/`Agent`)는 토큰을 쓰고 `TaskStop`, 셸(`Bash run_in_background`·`Monitor`)은 `KillShell`.
+ * 근거는 서버가 싣는 `origin`(미지정 = `'hook'`). §5.5 #17-9 ⑰ — 실행 축과 같은 술어 `isBackgroundShellTask` 를 쓴다
+ * (`origin === 'stream'` 만 보면 백그라운드 자식 안에서 스폰된 모델 자식을 셸로 적고, 두 벌이면 붙드는 쪽과 화면이 갈린다).
  */
 export function taskKindKey(
   task: Pick<RunningSubagentTask, 'origin' | 'subagentType'>,
@@ -65,12 +41,7 @@ export function countSessionTasks(
 
 const EMPTY_FINISHED: FinishedSubagentTask[] = [];
 
-/**
- * §5.5 #17-9 ⑦(b) — "방금 끝난 것" 도 **같은 범위 규칙**으로 거른다(도는 것과 다른 잣대를 쓰면
- * 같은 화면에서 두 구역의 소속이 어긋난다). 소유 탭 미상 항목은 세션 탭에서 제외하는 것도 동일하다.
- *
- * 개수 산식(`countSessionTasks`)에는 **관여하지 않는다** — ⑦(c) 활동바 점등·배지는 도는 것만 센다.
- */
+/** §5.5 #17-9 ⑦(b) — "방금 끝난 것"도 같은 범위 규칙으로 거른다(잣대가 다르면 두 구역 소속이 어긋난다). 개수 산식에는 넣지 않는다(⑦(c)). */
 export function selectSessionFinished(
   all: FinishedSubagentTask[] | undefined,
   activeSessionId: string | null,

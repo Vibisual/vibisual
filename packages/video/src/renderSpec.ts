@@ -1,7 +1,4 @@
-/**
- * §5.13 (AA) 42-2·42-4 — 렌더 일감 한 벌의 모양 (순수): 그리는 방법(`RenderSpec` — 일꾼이 읽는다)과 결과를 놓는 방법
- * (`RenderOutputSpec` — 서버가 읽는다). 설정(`exportSettings.ts`)에서 지어지고, 서버·일꾼·화면이 같은 거르개를 쓴다.
- */
+/** §5.13 (AA) 42-2·42-4 — 렌더 일감의 모양(순수): `RenderSpec`(일꾼이 읽는다) · `RenderOutputSpec`(서버가 읽는다). 설정에서 지어지고 서버·일꾼·화면이 같은 거르개를 쓴다. */
 
 import { EXPORT_MIN_RANGE_S } from './constants.js';
 import { normalizeExportSettings, type ExportAfter, type ExportCaptions, type ExportConflict, type ExportFormat, type ExportQuality, type ExportSettings } from './exportSettings.js';

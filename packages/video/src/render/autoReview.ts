@@ -1,13 +1,4 @@
-/**
- * 자동 검수 실행 (SCENARIO.md §5.13 (G)).
- *
- * 컷 경계마다 한 장씩 떠서 `inspectSamples` 에 넘긴다. 판정은 순수 층에 있으므로
- * 여기서 하는 일은 **표본을 모으는 것뿐**이다 — 그래야 판정 기준을 화면 없이 고칠 수
- * 있고, 같은 표본에 대해 언제나 같은 결론이 나온다.
- *
- * 경계 정확히 그 지점이 아니라 조금 안쪽을 보는 이유는, 경계는 전환 중이라 흐릿해서
- * "빈 화면"으로 오해되기 쉽기 때문이다.
- */
+/** §5.13 (G) 자동 검수 — 컷 경계마다 표본만 모아 `inspectSamples` 에 넘긴다(판정은 순수 층). 경계 조금 안쪽을 본다 — 경계는 전환 중이라 빈 화면으로 오해된다. */
 
 import { CUT_INSPECT_EPSILON } from '../constants.js';
 import { cutPoints, resolveTimeline } from '../resolveTimeline.js';

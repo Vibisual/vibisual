@@ -156,10 +156,7 @@ describe('latestCompletedEdit', () => {
   });
 });
 
-/**
- * §5.5 #17-27 ⑪ — `tool_use_id` 짝짓기. 호출 순서(FIFO)만으로 맞추던 판이 실제 세션에서 어긋났던
- * 상황들을 그대로 재현한다(실측: 한 세션에서 `tool_use` 31 : `tool_result` 30 · 순서 어긋남 2건).
- */
+/** §5.5 #17-27 ⑪ — `tool_use_id` 짝짓기. FIFO 면 어긋나는 실제 상황 재현(실측: 한 세션 `tool_use` 31 : `tool_result` 30 · 순서 어긋남 2건). */
 describe('latestCompletedEdit — tool_use_id 짝짓기', () => {
   /** id 를 단 편집 호출. */
   function editCallId(id: string, filePath: string, newString: string, timestamp: number): SubAgentStreamEvent {
@@ -217,10 +214,7 @@ describe('latestCompletedEdit — tool_use_id 짝짓기', () => {
   });
 });
 
-/**
- * 건수는 세지 않는다 — 스캔 창(`scanLimit`) 밖으로 밀릴 때마다 저절로 줄어 화면에서 흔들렸다.
- * 돌려주는 것은 언제나 **마지막 한 건**이고, 그 값만은 창 안에 있는 한 흔들리지 않아야 한다.
- */
+/** 건수는 세지 않는다(스캔 창 밖으로 밀리며 줄어 흔들린다). 마지막 한 건만은 창 안에 있는 한 흔들리지 않아야 한다. */
 describe('latestCompletedEdit — 흔들리지 않는 마지막 한 건', () => {
   it('편집이 여러 건 쌓여도 마지막 한 건만 돌려준다', () => {
     const events = [

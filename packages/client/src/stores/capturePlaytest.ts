@@ -4,14 +4,8 @@ import { CAPTURE_PLAYTEST } from '@vibisual/shared';
 
 import { applyClipCap } from '../components/BubbleMap/playtestClip.js';
 
-// §5.9 플레이테스트 — 녹화 상태와 클립 보관(비영속, 렌더러 메모리).
-//
-// 영상은 서버·WS·체크포인트를 타지 않는다(§5.9 렌더러 전용 원칙). 그래서 클립은 여기 Blob 으로만
-// 살고 앱을 다시 켜면 사라진다 — 몇 분짜리 화면 영상이 체크포인트에 눌러앉으면 §9 용량 규칙이
-// 그 자리에서 깨진다. 상한이 곧 안전장치라 **개수 상한(밀려난 클립은 Blob URL 반납)** 을 여기서 건다.
-//
-// 스토어인 이유는 스트림을 쥔 CaptureNode(녹화기 본체)와 DetailPanel·크게 보기 창·클립 창이
-// 같은 상태를 봐야 하기 때문이다(런타임 스토어 `useCaptureRuntime` 과 같은 자리, 같은 이유).
+// §5.9 플레이테스트 — 녹화 상태와 클립(렌더러 메모리 Blob, 비영속). 영상은 서버·WS·체크포인트를 타지 않는다 — 실리면 §9 용량 규칙이 깨진다.
+// 개수 상한(밀려난 클립은 Blob URL 반납)이 안전장치다.
 
 export interface PlaytestClip {
   id: string;
@@ -19,10 +13,7 @@ export interface PlaytestClip {
   /** 렌더러 메모리 Blob 의 objectURL — 클립 창의 `<video>` 와 프레임 추출이 함께 쓴다. */
   url: string;
   blob: Blob;
-  /**
-   * 벽시계로 잰 길이(ms). MediaRecorder 의 webm 은 `duration` 메타가 비어(Infinity) 오는 일이
-   * 잦으므로 **이 값이 진실**이고, `<video>` 가 유한한 길이를 알려 주면 그때 갱신한다.
-   */
+  /** 벽시계로 잰 길이(ms). MediaRecorder webm 은 `duration` 이 Infinity 로 오기 잦아 이 값이 진실이고, `<video>` 가 유한한 길이를 주면 갱신한다. */
   durationMs: number;
   /** 녹화를 멈춘 시각(파일명·목록 정렬). */
   at: number;

@@ -1,31 +1,8 @@
 /**
- * **"실행 중"이 거짓말하지 않는가** — §2.4 세션 생존 판정의 회귀 고정.
- *
- * 사용자 보고: 일이 갑자기 멈췄는데 화면은 계속 "실행 중"이라 적혀 있고, 끝난 것인지·끊긴
- * 것인지·이어서 하는 것인지 구별할 수단도, 빠져나갈 방법도 없었다. 원인은 하나가 아니라
- * **판정이 여러 벌로 흩어져 있던 것**이었다:
- *  (A) 화면용 사본(displayCommands)이 생존 판정에 샜고, 그 목록엔 세션 필터조차 없었다,
- *  (B) executing/queued 를 호출부마다 손으로 적어 술어가 두 벌이 됐고,
- *  (C) 상태바만 sessionRunStateOf 를 인자 둘로 불러 다른 답을 냈고,
- *  (D) [중지]가 응답을 버려 "멈출 것이 없다"는 답이 화면에 닿지 않았고,
- *  (G) 실행 축에 시간이 없어 "얼마나 조용한가"를 말할 수 없었다.
- *  (I) **줄 서 있는 명령이 판정에서 통째로 빠져 있었다** — 앞 턴의 `executing` 이 좀비로 남아
- *      자물쇠를 쥐면 뒤에 선 덧말은 `queued` 로 멈추는데, 그 세션의 `sub.status` 는 `idle` 이라
- *      화면은 **"완료"**라고 적었다. 사용자는 그 완료를 믿고 또 덧말을 보냈고, 그 덧말도 줄만
- *      섰다 — 그러는 내내 스트림 바닥은 "작업 중 · 마지막 업데이트 24m 26s 전"을 키웠다
- *      (사용자 보고 그대로). 완료와 작업 중 **둘 다 거짓말**이었고, 참말은 "대기"였다.
- *  (J) 조용한 사전 압축(§5.3 #9-1 (P)) 뒤에 막 나간 명령이 **앞 턴 끝부터 잰** "마지막 업데이트 N분 전"
- *      으로 시작해 멈춘 세션처럼 보였다 — 라이브 1줄 시계가 보인 줄만 쟀고, 감춘 턴의 움직임은
- *      클라에 오지 않는다. 압축이 도는 동안에도 그 줄은 입력한 순간부터 세는 평소 "작업 중"이다.
- *  (E) 그 압축을 물려받은 명령은 "실행 중…" 배지 아래에 대기 명령의 칩·설명·삭제가 **함께** 붙어
- *      대기에 빠진 것으로 읽혔다 — 물려받은 명령은 실행 중인 명령과 구별되지 않아야 한다.
- *  (K) 입력창 위 백단 셸 띠가 셸 개수 하나만 보고 떠서, 턴이 아직 도는 중에도 "답은 이미 나왔으니
- *      계속 입력하셔도 된다"고 적었다 — 그 말을 믿고 보낸 말은 줄에 섰다. 띠를 걷었다(§5.5 #17-9 ⑰(c-1)).
- *  (L) 라이브 1줄의 경과가 **마지막 활동부터** 재여 줄이 올 때마다 0 으로 되감겼고(`0s`·`1s` 반복),
- *      1초 틱에 멈춘 `now` 로 그 사이 온 줄을 재면 음수라 숫자가 사라졌다. 평소엔 턴 시작부터 잰다.
- *
- * jsdom 이 없어 렌더 테스트는 못 한다 — 판정은 순수 함수로, 배선은
- * import.meta.glob(?raw) 소스 스캔으로 고정한다(promptBubbleCollapse.test.ts 와 같은 방식).
+ * "실행 중"이 거짓말하지 않는가 — §2.4 세션 생존 판정의 회귀 고정(판정이 여러 벌로 흩어지면 멈춘 일이 계속 "실행 중"으로 보인다).
+ * (A) 표시 사본은 생존 판정에 안 쓴다 (B) 술어 한 벌 (C) 상태바도 같은 인자 (D) [중지] 응답이 화면에 닿는다 (E) 압축 물려받은 명령 = 실행 중 (G) 실행 축에 시간
+ * (I) 좀비 `executing` 뒤 `queued` 덧말은 "대기" (J) 사전 압축(§5.3 #9-1 (P)) 뒤 명령은 입력 순간부터 (K) 백단 셸 띠 ❌(§5.5 #17-9 ⑰(c-1)) (L) 경과는 턴 시작부터.
+ * jsdom 이 없어 판정은 순수 함수로, 배선은 import.meta.glob(?raw) 소스 스캔으로 고정한다(promptBubbleCollapse.test.ts 와 같은 방식).
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -91,11 +68,8 @@ function sub(patch: Partial<SubAgent> = {}): SubAgent {
 const SOURCES = import.meta.glob('../**/*.{ts,tsx}', { query: '?raw', import: 'default', eager: true });
 
 /**
- * `fn(...)` 호출의 **최상위 인자 수**.
- *
- * 정규식 한 줄로 세면 안 된다 — `\([^)]*\)` 는 `busySubIds.has(sub.id)` 같은 중첩 괄호에서
- * 첫 `)` 에 끊겨 인자를 **적게** 센다. 그래서 인자가 하나 빠져도 그 검사는 통과한다.
- * 괄호 깊이를 세어 잘라야 이 목록이 실제로 무언가를 막는다.
+ * `fn(...)` 호출의 최상위 인자 수. 정규식(`\([^)]*\)`)은 `busySubIds.has(sub.id)` 같은 중첩 괄호의 첫 `)` 에서 끊겨 인자를 적게 세고,
+ * 인자가 빠져도 검사가 통과한다 — 괄호 깊이를 세어 잘라야 이 목록이 실제로 무언가를 막는다.
  */
 function callArgCounts(src: string, fn: string): number[] {
   const out: number[] = [];
@@ -308,7 +282,7 @@ describe('(I) 줄 서 있는 세션은 "완료"가 아니다 — 대기다', () 
   it('생존 축(resolveSessionLiveness)과 표시 축이 같은 말을 한다', () => {
     const q = { ...EMPTY_SESSION_RUN_INPUTS, hasQueuedCommand: true };
     expect(resolveSessionLiveness(q, 1_000, 1_000 + SESSION_NO_RESPONSE_MS * 9)).toBe('waiting');
-    // 종전엔 생존 축만 'waiting' 을 알고 표시 축은 그 값을 갖지도 않았다 — 그 비대칭이 사고였다.
+    // 생존 축과 표시 축이 모두 'waiting' 을 안다 — 한쪽만 알면 그 비대칭이 사고가 된다.
     expect(resolveSessionRunState(q)).toBe('waiting');
   });
 
@@ -395,7 +369,7 @@ describe('(D) 중지는 응답을 버리지 않는다', () => {
   it('네 갈래를 모두 구분한다', () => {
     expect(classifyStopResponse(false, 500, null)).toEqual({ kind: 'failed', status: 500 });
     expect(classifyStopResponse(true, 200, { ok: false })).toEqual({ kind: 'failed', status: 200 });
-    // 200 인데 멈춘 것이 0 건 — 종전에는 이 응답을 버려 화면이 그대로였다.
+    // 200 인데 멈춘 것이 0 건 — 이 응답을 버리면 화면이 그대로 남는다.
     expect(classifyStopResponse(true, 200, { stopped: 0, cancelledQueued: 0 })).toEqual({ kind: 'nothing' });
     expect(classifyStopResponse(true, 200, null)).toEqual({ kind: 'nothing' });
     expect(classifyStopResponse(true, 200, { cancelledQueued: 2 })).toEqual({ kind: 'stopped', count: 2 });
@@ -482,9 +456,8 @@ describe('(G) 배선 — 무응답 문턱은 한 값, 시간을 말하는 자리
     expect(judge).not.toMatch(/silenceMs >= \d/);
   });
 
-  // 사용자 지시(2026-09-23) — 상태바 "실행 중" 옆의 경과 시계(`· 0s`)는 걷었다. 축(⑥-6)은 그대로고
-  //   줄어든 것은 표시 자리 하나다(위 스트림 줄이 같은 사실을 계속 말한다).
-  //   판정은 **코드 모양**으로만 한다 — 왜 뺐는지 적은 주석이 낱말을 품고 있어 낱말 부재로 재면 헛실패한다.
+  // 상태바 "실행 중" 옆에는 경과 시계(`· 0s`)를 그리지 않는다 — 축(⑥-6)은 그대로고 위 스트림 줄이 같은 사실을 말한다.
+  //   판정은 코드 모양으로만 한다 — 왜 뺐는지 적은 주석이 낱말을 품고 있어 낱말 부재로 재면 헛실패한다.
   it('상태바는 경과 시계를 그리지 않는다', () => {
     const src = readSource('../components/IDE/IDEStatusBar.tsx');
     expect(src).not.toMatch(/statusElapsed/);
@@ -492,9 +465,8 @@ describe('(G) 배선 — 무응답 문턱은 한 값, 시간을 말하는 자리
     expect(src).not.toMatch(/from '\.\.\/\.\.\/hooks\/useNowTick\.js'/);
   });
 
-  // 사용자 지시(2026-09-23) — 입력창 위 무응답 띠(경과 안내 · [더 기다리기] · [중지])도 걷었다.
-  //   그 [중지]는 바로 아래 입력줄의 [중지](같은 handleStop)와 같은 기능 두 벌이었다.
-  //   빠져나갈 길은 입력줄 [중지]가 그대로 맡는다 — 그것까지 사라지면 안 된다.
+  // 입력창 위 무응답 띠(경과 안내 · [더 기다리기] · [중지])는 두지 않는다 — 그 [중지]는 입력줄 [중지](같은 handleStop)와 같은 기능 두 벌이었다.
+  //   빠져나갈 길은 입력줄 [중지]가 맡는다 — 그것까지 사라지면 안 된다.
   it('입력창 위에는 무응답 띠를 두지 않는다 — [중지]는 입력줄 하나다', () => {
     const src = readSource('../components/IDE/IDEMainArea.tsx');
     expect(src).not.toMatch(/ide\.mainArea\.stallNotice/);
@@ -506,16 +478,14 @@ describe('(G) 배선 — 무응답 문턱은 한 값, 시간을 말하는 자리
 });
 
 describe('(K) 입력창 위에 백단 셸 띠를 두지 않는다 — 턴이 도는 중에도 "답은 나왔다"고 적었다', () => {
-  // 사용자 지시(2026-09-29) — §5.5 #17-9 ⑰(c-1). 그 띠는 셸 개수 하나만 보고 떠서, 턴이 아직 도는 중
-  //   (실행 중 · 입력줄 [중지] · "작업 중…")에도 "답변은 이미 도착했으니 계속 입력하셔도 됩니다"라고 적었고,
-  //   그 말을 믿고 보낸 말은 #17-18 대로 줄에 섰다. [보기]는 활동바 항목과 같은 뷰를 여는 두 번째 손잡이였다.
-  //   판정은 코드 모양으로만 한다 — 왜 뺐는지 적은 주석이 낱말을 품고 있다.
+  // §5.5 #17-9 ⑰(c-1) — 셸 띠는 셸 개수만 보고 떠서 턴이 도는 중에도 "계속 입력하셔도 됩니다"라고 적었고, 그 말을 믿고 보낸 말은 #17-18 대로 줄에 섰다.
+  //   [보기]는 활동바 항목과 같은 뷰를 여는 두 번째 손잡이였다. 판정은 코드 모양으로만 한다 — 왜 뺐는지 적은 주석이 낱말을 품고 있다.
   it('입력창은 셸 개수를 구독하지도, 띠 문구를 그리지도 않는다', () => {
     const src = readSource('../components/IDE/IDEMainArea.tsx');
     expect(src).not.toMatch(/useBackgroundShellCount/);
     expect(src).not.toMatch(/t\('ide\.mainArea\.backgroundShells/);
     expect(src).not.toMatch(/openBackgroundShells/);
-    // 그 띠만 쓰던 훅도 걷었다 — 남겨 두면 "짝으로 읽으라"는 주석을 보고 다음 사람이 띠를 되살린다.
+    // 그 띠만 쓰던 훅도 없어야 한다 — 남겨 두면 "짝으로 읽으라"는 주석을 보고 다음 사람이 띠를 되살린다.
     expect(readSource('../hooks/useSessionRunning.ts')).not.toMatch(/export function useBackgroundShellCount/);
   });
 
@@ -542,9 +512,8 @@ describe('(K) 입력창 위에 백단 셸 띠를 두지 않는다 — 턴이 도
 });
 
 describe('(J) 조용한 사전 압축 뒤 — 막 나간 명령이 "마지막 업데이트 N분 전"으로 시작하지 않는다', () => {
-  // 실측(2026-09-28): 끝남을 본 사용자가 다음 지시를 보냈고, 서버는 그 앞에 조용한 /compact 를
-  //   끼웠다(73.6s). 명령이 나간 뒤에도 첫 줄까지 81s 가 더 걸렸다. 그 내내 라이브 1줄은 앞 턴 끝부터
-  //   재어 무응답(회색)으로 그렸다 — 사용자는 일이 멈춘 줄 알았다.
+  // 실측(2026-09-28): 다음 지시 앞에 서버가 조용한 /compact 를 끼웠고(73.6s), 명령이 나간 뒤 첫 줄까지 81s 가 더 걸렸다.
+  //   라이브 1줄이 앞 턴 끝부터 재면 그 내내 무응답(회색)으로 그려 일이 멈춘 것처럼 보인다.
   const now = 10_000_000;
   const prevTurnEnd = now - 8 * 60_000;
   const events: SubAgentStreamEvent[] = [{
@@ -581,8 +550,7 @@ describe('(J) 조용한 사전 압축 뒤 — 막 나간 명령이 "마지막 �
     return liveLineStalled(live!.mode, sessionSilenceMs(live!.lastActivityAt, at), live!.hiddenTurn === true);
   }
 
-  // §5.5 #17-10 ⑥-6 (2026-09-28 대체) — 종전엔 "모름"이라 경과를 적지 않았다. 경과 없는 줄은 실행 중인
-  //   줄과 달라 보여, 사용자는 방금 넣은 지시가 대기에 빠졌다고 읽었다("입력을 하면 압축이 입력 실행처럼").
+  // §5.5 #17-10 ⑥-6 — 압축 중에도 경과를 적는다. 경과 없는 줄은 실행 중인 줄과 달라 보여 방금 넣은 지시가 대기에 빠진 것으로 읽힌다.
   it('압축이 도는 동안에도 평소 "작업 중" — 입력한 순간부터 세고, 문턱을 넘겨도 무응답이 아니다', () => {
     expect(sessionHiddenTurnRunning(compacting, 'sub-A')).toBe(true);
     const live = liveOf(compacting);
@@ -660,9 +628,8 @@ describe('(J) 조용한 사전 압축 뒤 — 막 나간 명령이 "마지막 �
 });
 
 describe('(L) 턴 시계 — 라이브 1줄 경과가 줄마다 0 으로 되감기거나 틱 사이에 사라지지 않는다', () => {
-  // 사용자 보고(2026-09-29): IDE 스트림 "작업 중…" 줄의 `0s`·`1s` 가 "정상적인 시간은 표시 못하고 계속 같은
-  //   시간이 반복되거나 사라지거나 0만". 시계가 마지막 활동부터 재어 줄이 올 때마다 0 으로 되감겼고,
-  //   1초 틱에 멈춘 now 보다 늦은 줄이 오면 차가 음수 → 모름(null) → 다음 틱까지 숫자가 사라졌다.
+  // IDE 스트림 "작업 중…" 줄의 `0s`·`1s` 반복·사라짐 회귀 — 시계가 마지막 활동부터 재면 줄이 올 때마다 0 으로 되감기고,
+  //   1초 틱에 멈춘 now 보다 늦은 줄이 오면 차가 음수 → 모름(null) → 다음 틱까지 숫자가 사라진다.
   const now = 20_000_000;
   const turnStart = now - 65_000;
   const running = [cmd({ id: 'run-1', status: 'executing', timestamp: turnStart - 2_000, startedAt: turnStart })];
@@ -794,9 +761,8 @@ describe('(L) 턴 시계 — 라이브 1줄 경과가 줄마다 0 으로 되감�
 });
 
 describe('(E) 조용한 압축을 물려받은 명령은 실행 중인 명령과 구별되지 않는다', () => {
-  // §5.5 #17-10 ⑥-5 (2026-09-28 대체) — 종전엔 손잡이만 원본 큐(`queued`)를 따라, "실행 중…" 배지 아래에
-  //   [대기|합치기|즉시] 칩·"지금 턴이 끝난 뒤 보냅니다"·삭제(×)가 함께 붙었다. 사용자는 방금 넣은
-  //   지시가 대기에 빠졌다가 압축 뒤에야 도는 것으로 읽었다.
+  // §5.5 #17-10 ⑥-5 — 압축을 물려받은 명령에 원본 큐(`queued`)를 따른 손잡이를 붙이지 않는다. 붙이면 "실행 중…" 배지 아래에
+  //   [대기|합치기|즉시] 칩·"지금 턴이 끝난 뒤 보냅니다"·삭제(×)가 함께 서서, 방금 넣은 지시가 대기에 빠졌다가 압축 뒤에야 도는 것으로 읽힌다.
   const raw: QueuedCommand[] = [
     cmd({ id: 'silent-1', status: 'executing', silent: true, text: '/compact', dispatchMode: 'wait', startedAt: 5_000 }),
     cmd({ id: 'mine', status: 'queued' }),

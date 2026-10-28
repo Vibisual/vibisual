@@ -1,9 +1,6 @@
 /**
- * §5.5 #17-27 ①-1 — 독립 창이 편집창 자리를 내려고 **오른쪽으로 넓히는** 배선.
- *
- * 렌더(`growEditorRoomSelf`/`restoreEditorRoomSelf`) → preload → ipc → windowManager 네 자리 중
- * 하나라도 이름이 어긋나면 호출은 조용히 `undefined` 로 사라지고, 독립 창에서만 편집창이 다시
- * 대화를 덮는다. 그래서 채널 이름과 등록·해제를 한 번에 고정한다.
+ * §5.5 #17-27 ①-1 — 독립 창이 편집창 자리를 내려고 오른쪽으로 넓히는 배선. 렌더(`growEditorRoomSelf`/`restoreEditorRoomSelf`) → preload → ipc → windowManager 중
+ * 하나라도 이름이 어긋나면 호출이 조용히 `undefined` 로 사라져 독립 창에서만 편집창이 대화를 덮는다 — 채널 이름과 등록·해제를 한 번에 고정한다.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';

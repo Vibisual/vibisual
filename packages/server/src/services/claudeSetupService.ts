@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { ClaudeSetupState, ClaudeSetupProgress, WSMessage } from '@vibisual/shared';
 import {
@@ -14,37 +13,18 @@ import { logger } from '../logger.js';
 import { broadcast } from '../broadcastBus.js';
 import { getClaudeBin, invalidateClaudeBinCache } from './claudeBin.js';
 import { probeClaudeBinVersion } from './claudeVersionService.js';
-import { killTree, processGroupSpawnOptions } from './processTree.js';
+import { managedEngineService } from './managedEngineService.js';
+import { hostPlatformTarget } from './managedEngineLayout.js';
 
 /**
- * §4 (첫 실행 설치 온보딩) — `claude` CLI 가 아예 없는 사람에게 깔아 주는 서버 창구.
- *
- * **왜 필요한가**: 앱만 내려받은 사람은 CLI 가 없어도 화면에서 아무 신호를 못 받았다 —
- * §4 v4.82 `LoginWindow` 는 `error`(판정 불가)면 뜨지 않도록 의도적으로 설계돼 있고,
- * §5.7 #23-1 버전 게이트는 `isOutdated` 로만 발화하는데 미설치는 `current=null` 이라 항상 false 다.
- * 그래서 "없다"를 **1급 상태**(`ClaudeSetupState.phase`)로 세우고, 클라가 그것만 보고
- * 권장형 게이트를 띄우게 한다.
- *
- * **왜 npm 이 아니라 네이티브 인스톨러인가**: 기존 `claudeVersionService.installLatestClaude` 는
- * `npm install -g` 라 Node/npm 이 이미 있는 사람 전용이다. 설치 파일만 받은 신규 사용자에게는
- * 통하지 않으므로, Node 가 필요 없는 **공식 네이티브 인스톨러**를 쓴다. 그 설치 위치
- * (`~/.local/bin`)는 `claudeBin` 이 이미 아는 경로라 설치 직후 탐지는 기존 배선이 그대로 받는다.
- *
- * **왜 PTY 가 아니라 서버 spawn 인가**: 로그인은 브라우저 왕복·코드 입력이 있어 PTY 가 필요했지만
- * 인스톨러는 대화형 입력이 없다. 서버 spawn 이면 §4 v3.16 모바일 웹처럼 터미널 transport 가 없는
- * 창에서도 설치가 돌고, 진행 상황을 모든 창에 같은 값으로 push 할 수 있다
- * (§5.7 #23-1 `installLatestClaude` 의 in-flight 세션 + WS 진행 push 패턴 재사용).
- *
- * 영속화 ❌ — 설치 여부는 디스크를 보면 아는 파생 사실이고 프로젝트가 아니라 기기에 매인 값이라
- * `ProjectCheckpoint` 에 넣지 않는다(런타임 캐시 + `GraphSnapshot.claudeSetup` 전달).
+ * §4 (첫 실행 설치 온보딩) — `claude` CLI 가 없는 사람에게 깔아 주는 서버 창구.
+ * 미설치는 화면 신호가 없다 — `LoginWindow` 는 `error`(판정 불가)면 일부러 안 뜨고, §5.7 #23-1 버전 게이트는 `isOutdated` 로만 발화하는데 미설치는 `current=null` 이라 늘 false. 그래서 "없다"를 1급 상태(`ClaudeSetupState.phase`)로 세워 클라가 권장형 게이트를 띄운다.
+ * 까는 것은 §4 앱 전용 엔진의 **앱 전용 사본**(`~/.vibisual/cli-engines/claude`, `managedEngineService`) — 공식 릴리스 저장소에서 받아 대조·점검한다(판을 바꾸는 권한이 앱에 있어야 CLI 판올림이 우리 인자를 깨기 전에 거른다). 공식 인스톨러 명령은 "직접 설치" 손 경로(`installCommand`)로 남는다.
+ * PTY 가 아니라 서버 spawn 이다 — 인스톨러는 대화형 입력이 없고, 그래야 터미널 transport 가 없는 창(§4 모바일 웹)에서도 돌며 진행을 모든 창에 같은 값으로 push 한다(§5.7 #23-1 `installLatestClaude` 패턴).
+ * 영속화 ❌ — 설치 여부는 디스크로 아는 기기 단위 파생 사실이라 `ProjectCheckpoint` 에 넣지 않는다(런타임 캐시 + `GraphSnapshot.claudeSetup`).
  */
 
-/**
- * 자동 설치를 시도할 수 있는 플랫폼인가. 그 밖(예: 미지원 OS)이면 수동 명령만 안내한다.
- *
- * **플랫폼을 인자로 받는다** — 함수 안에서 `process.platform` 을 읽으면 그 분기는 개발기 한 대에서
- * 영영 실행되지 않아 검증되지 않는다(멀티플랫폼 규칙).
- */
+/** 자동 설치를 시도할 수 있는 플랫폼인가. 그 밖(미지원 OS)이면 수동 명령만 안내한다. 플랫폼은 인자로 받는다(멀티플랫폼 규칙). */
 export function isAutoInstallSupported(platform: NodeJS.Platform = process.platform): boolean {
   return platform === 'win32' || platform === 'darwin' || platform === 'linux';
 }
@@ -176,61 +156,49 @@ class ClaudeSetupService {
       return toProgress(session);
     }
 
-    const command = buildSetupInstallCommand();
-    logger.info(`[claudeSetup] installing via native installer: ${command}`);
+    // §4 (앱 전용 엔진) — [설치하기]는 공식 인스톨러가 아니라 **앱 전용 받기**다: 공식 릴리스 저장소에서 받아
+    //   크기 · SHA-256 을 대조하고, 우리 인자를 전부 받는지 점검한 뒤 `~/.vibisual/cli-engines/claude` 에 둔다.
+    //   화면의 "직접 설치" 명령(공식 인스톨러)은 이 받기가 실패했을 때의 손 경로로 그대로 남는다.
+    if (!hostPlatformTarget('claude')) {
+      this.finishInstall(session, {
+        status: 'error',
+        error: `No official Claude Code build for ${process.platform}/${process.arch}. Run: ${buildSetupInstallCommand()}`,
+      });
+      return toProgress(session);
+    }
+    logger.info('[claudeSetup] installing the app-managed Claude Code');
     session.status = 'running';
     this.pushProgress(session);
     this.emitInstallingState();
 
-    let child: ReturnType<typeof spawn>;
-    try {
-      // 두 플랫폼 명령 모두 셸 문법(파이프)을 쓰므로 shell 실행이 필요하다.
-      child = spawn(command, {
-        shell: true,
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        // POSIX 한정 detached — `shell:true` 라 child.pid 는 `/bin/sh` 이고 진짜 인스톨러는 그 아래
-        //   `curl … | bash` 파이프라인(손자)이다. 그룹 리더로 띄워 두지 않으면 아래 타임아웃이 sh 만
-        //   죽이고 인스톨러는 계속 돌아, 사용자가 다시 누르면 인스톨러 두 벌이 동시에 돈다.
-        ...processGroupSpawnOptions(),
-      });
-    } catch (err) {
-      this.finishInstall(session, {
-        status: 'error',
-        error: `spawn failed: ${err instanceof Error ? err.message : String(err)}`,
-      });
-      return toProgress(session);
-    }
-
-    const appendOutput = (chunk: unknown): void => {
+    const appendOutput = (line: string): void => {
       if (this.install !== session) return;
-      const next = session.output + String(chunk);
+      const next = `${session.output}${line}\n`;
       session.output =
         next.length > CLAUDE_SETUP_OUTPUT_MAX_CHARS ? next.slice(-CLAUDE_SETUP_OUTPUT_MAX_CHARS) : next;
       this.pushProgress(session);
     };
-    child.stdout?.on('data', appendOutput);
-    child.stderr?.on('data', appendOutput);
 
+    // 받기는 수백 MB 라 느린 회선에서 오래 걸릴 수 있다 — 상한은 종전 인스톨러와 같은 값이다.
+    let timedOut = false;
     const timer = setTimeout(() => {
-      // 이전엔 `child.kill()` — shell:true 라 sh 만 죽고 `curl … | bash` 인스톨러는 계속 돌았다.
-      //   "타임아웃 = 포기" 이므로 트리째 회수해야 재시도가 인스톨러를 겹쳐 돌리지 않는다.
-      killTree(child.pid);
+      timedOut = true;
       this.finishInstall(session, {
         status: 'error',
         error: `install timed out after ${CLAUDE_SETUP_INSTALL_TIMEOUT_MS}ms`,
       });
     }, CLAUDE_SETUP_INSTALL_TIMEOUT_MS);
 
-    child.on('error', (err) => {
+    void managedEngineService.ensureLatest('claude', { manual: true, report: appendOutput }).then((result) => {
       clearTimeout(timer);
-      this.finishInstall(session, { status: 'error', error: `spawn failed: ${err.message}` });
-    });
-
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      session.exitCode = code ?? undefined;
-      // exit 0 이어도 곧바로 성공으로 단정하지 않는다 — 실제로 `--version` 이 도는지가 유일한 근거다.
+      if (timedOut) return;
+      const ok = result.outcome === 'installed' || result.outcome === 'up-to-date' || result.outcome === 'skipped-rolled-back';
+      session.exitCode = ok ? 0 : 1;
+      if (!ok) {
+        this.finishInstall(session, { status: 'error', error: result.error ?? 'install failed' });
+        return;
+      }
+      // 받기가 끝나도 곧바로 성공으로 단정하지 않는다 — 실제로 `--version` 이 도는지가 유일한 근거다.
       void this.verifyAfterInstall(session);
     });
 

@@ -3,27 +3,14 @@ import { TIDY_BAND_ORDER, TIDY_LAYOUT } from '@vibisual/shared';
 import { tidyBandOf } from './tidyLayout.js';
 import type { LinkEdgeRef } from './linkedBubbles.js';
 
-/**
- * §5.4 #33 (I) **버블 정리 — 무엇을 기준으로 무리를 짓나.**
- *
- * `tidyLayout.ts` 가 "어디에 앉히나"(순수 기하)를 쥔다면 여기는 **"누구와 함께, 몇 번째로
- * 앉나"** 만 쥔다. 둘을 갈라 두는 이유는 기하가 기준을 몰라야 새 기준을 표 한 줄로 늘릴 수
- * 있기 때문이다(§3.3) — 실제로 아래 다섯은 전부 같은 두 기하(`rows`/`clusters`) 위에서 돈다.
- *
- * **UI 없이 검증한다**(`tidyLayout`·`bubbleTextFit` 선례) — 무리 나눔은 입력과 출력이 둘 다
- * 순수 값이라 렌더링 없이 확인하는 편이 정확하다(`tidySort.test.ts`).
- */
+/** §5.4 #33 (I) 정리 — 누구와 함께, 몇 번째로 앉나("어디에"는 `tidyLayout.ts`). 기하가 기준을 몰라야 새 기준을 표 한 줄로 늘린다(§3.3). */
 
 /** 무리를 나눌 때 보는 버블 한 장. 기하에 필요한 지름·좌표는 여기 없다(그쪽은 `TidyItem`). */
 export interface TidySortItem {
   id: string;
   bubbleType: BubbleType;
   status: NodeStatus;
-  /**
-   * 히트 축 값 — **색·지름이 쓰는 `heatValueOf` 가 낸 그 값**이어야 한다(§5.24 가 척도와 축을
-   * 한 벌로 묶은 것과 같은 규율). 다른 자로 재면 히트맵을 켜고 정리했을 때 색과 자리가 서로
-   * 다른 말을 한다.
-   */
+  /** **`heatValueOf` 의 그 값**이어야 한다(§5.24) — 다른 자면 히트맵을 켜고 정리했을 때 색과 자리가 다른 말을 한다. */
   heat: number;
   /** 마지막 활동 시각(ms). **잰 적이 없으면 `undefined`** — 0("가장 오래전")과 다른 뜻이다. */
   lastActivity?: number;
@@ -33,28 +20,11 @@ export interface TidySortItem {
 export interface TidyGrouping {
   /** 버블 id → 무리 키. 목록에 없는 버블은 `TIDY_GROUP_NONE` 으로 읽는다. */
   readonly groupById: ReadonlyMap<string, string>;
-  /**
-   * 무리 키의 순서. 줄 세우기에서는 **위→아래**이고(앞이 더 급한/뜨거운/최근),
-   * 덩어리에서는 자리를 채워 가는 순서다(앞이 안쪽 — 서열이 아니라 자리 효율).
-   */
+  /** 줄 세우기에선 위→아래(앞이 급함), 덩어리에선 채우는 순서(앞이 안쪽 — 서열이 아니라 자리 효율). */
   readonly order: readonly string[];
-  /**
-   * §5.4 #33 (I-2) 무리 **안에서** 서는 순서 — **작을수록 앞(왼쪽)**. 줄 세우기 기하만 쓴다.
-   *
-   * 칸을 다섯으로 자르는 것으로 끝나면 한 칸 안 열 개가 아무 순서로 늘어서 "왜 이 자리인가"에
-   * 답하지 못한다 — 그 칸만 다시 "흩어진 것"으로 읽힌다. 순위를 낼 수 없는 무리(잰 적 없는
-   * 것들)는 **여기 없다** — 그때는 기하가 `id` 순으로 세운다(억지 순서 ❌).
-   *
-   * 값의 뜻은 기준마다 다르고(`-히트` · `-마지막 활동`) **기하는 그 뜻을 알지 못한다.**
-   */
+  /** §5.4 #33 (I-2) 무리 안 순서(작을수록 왼쪽, 줄 세우기만). 순위를 낼 수 없는 것은 넣지 않는다 — 기하가 `id` 순으로 세운다(억지 순서 ❌). */
   readonly rankById: ReadonlyMap<string, number>;
-  /**
-   * §5.4 #33 (I-3) 무리 키 → 그 무리의 **가운데에 고정할 버블**. 덩어리 기하만 쓴다.
-   *
-   * `lineage` 의 에이전트가 여기 든다 — 주인이 덩어리 가장자리에 앉으면 덩어리들이 전부
-   * "그냥 뭉친 공"으로 보여 무엇이 그 무리를 만들었는지가 화면에 남지 않는다. `kind` 에는
-   * 가운데에 세울 주인이 없으므로 **비어 있고, 그래서 `kind` 의 그림은 바뀌지 않는다.**
-   */
+  /** §5.4 #33 (I-3) 무리 키 → 가운데 고정 버블(덩어리만). `lineage` 의 에이전트가 든다 — 가장자리면 무리의 주인이 안 보인다. `kind` 는 비어 있다. */
   readonly anchorByGroup: ReadonlyMap<string, string>;
 }
 
@@ -71,19 +41,10 @@ export function tidyQuantileKey(bucket: number): string {
   return `q${bucket}`;
 }
 
-/**
- * 에이전트 계열 — `lineage` 에서 무리의 **중심**이 되는 종류. §5.1 #2-2 등장 영역도 같은 목록으로 새 버블의
- * 주인을 찾는다(`spawnZoneSeating.ts`) — 두 벌로 들면 정리한 무리의 중심과 새 버블이 서는 중심이 갈린다.
- */
+/** `lineage` 무리의 중심 종류. §5.1 #2-2 등장 영역(`spawnZoneSeating.ts`)도 이 목록을 쓴다 — 두 벌이면 정리한 중심과 새 버블의 중심이 갈린다. */
 export const LINEAGE_HUB_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>(['agent', 'auto', 'pipeline']);
 
-/**
- * 연속값을 **순위로** 자른다 — 절대 기준으로 자르면 프로젝트마다 전부 한 칸에 몰린다
- * (§5.24 가 램프에서 겪은 롱테일이 그대로 재현된다).
- *
- * **동점은 반드시 같은 칸이다.** 인덱스만으로 자르면 486회짜리 둘이 경계에 걸렸을 때 하나는
- * 안쪽 띠, 하나는 바깥 띠에 앉아 **같은 값이 다른 말을 하는** 그림이 된다.
- */
+/** 연속값을 **순위로** 자른다(절대 기준이면 롱테일로 한 칸에 몰린다, §5.24). **동점은 반드시 같은 칸** — 인덱스로 자르면 같은 값이 갈린다. */
 function quantileGroups(
   entries: readonly { id: string; value: number }[],
   groupById: Map<string, string>,
@@ -116,13 +77,7 @@ function byCountDesc(counts: Map<string, number>): (a: string, b: string) => num
   return (a, b) => ((counts.get(b) ?? 0) - (counts.get(a) ?? 0)) || (a < b ? -1 : 1);
 }
 
-/**
- * ① `status` — (A) 의 다섯 띠. 기본값.
- *
- * **띠 안 순서는 활동이 최근인 쪽이 왼쪽이다**(§5.4 #33 I-2 셋째 글머리). 띠 안에 순위가 없다고
- * 자리를 아무렇게나 주면 그 칸만 다시 "흩어진 것"으로 읽힌다 — 같은 `running` 이라도 방금 무언가
- * 한 에이전트를 먼저 보고 싶은 것이 이 기준을 고른 이유다.
- */
+/** ① `status` — (A) 의 다섯 띠(기본). 띠 안은 활동이 최근인 쪽이 왼쪽(§5.4 #33 I-2). */
 function groupByStatus(items: readonly TidySortItem[]): TidyGrouping {
   const groupById = new Map<string, string>();
   const rankById = new Map<string, number>();
@@ -142,12 +97,7 @@ function groupByStatus(items: readonly TidySortItem[]): TidyGrouping {
   };
 }
 
-/**
- * ② `kind` — **유사한 것끼리.** 무리 키는 버블 종류(§2.2) 그대로다.
- *
- * 종류를 큰 갈래로 뭉치지 않는다 — 파일과 도메인을 한 덩어리로 묶으면 "유사한 것끼리"라는
- * 이 기준의 유일한 약속이 깨진다. 실제로 있는 종류만 덩어리가 생기므로 덩어리 수는 저절로 적다.
- */
+/** ② `kind` — 무리 키는 버블 종류(§2.2) 그대로. 큰 갈래로 뭉치지 않는다(파일+도메인이면 "유사한 것끼리"가 깨진다). */
 function groupByKind(items: readonly TidySortItem[]): TidyGrouping {
   const groupById = new Map<string, string>();
   const counts = new Map<string, number>();
@@ -193,18 +143,8 @@ function groupByRecent(items: readonly TidySortItem[]): TidyGrouping {
 }
 
 /**
- * ⑤ `lineage` — **누가 무엇을 건드렸나.** 무리의 중심은 에이전트고, 무리는 그 에이전트에
- * 1촉으로 닿은 버블들이다.
- *
- * **근거는 화면에 그려진 엣지다** — 스토어의 관계가 아니라(`computeLinkGroup`(#31) 과 같은
- * 규율이자 같은 이유: 뷰마다 그려지는 선이 다르므로 스토어를 보면 화면에 없는 버블까지 든다).
- *
- * **여러 에이전트에 걸친 버블은 활동이 가장 최근인 에이전트 쪽으로 간다** — 한 버블은 한 자리에만
- * 앉을 수 있고, 두 곳에 그리면 §2.1 이 금지한 "같은 버블이 두 자리에" 가 된다.
- *
- * **그리고 그 에이전트는 제 덩어리의 가운데에 고정된다**(`anchorByGroup`). 주인이 가장자리에
- * 앉으면 덩어리들이 전부 "그냥 뭉친 공"으로 보여 무엇이 이 무리를 만들었는지가 화면에 남지
- * 않는다 — 가운데 한 장이 곧 그 무리의 이름표다(§5.4 #33 I-3).
+ * ⑤ `lineage` — 중심은 에이전트, 무리는 1촉으로 닿은 버블. 근거는 **화면에 그려진 엣지**(`computeLinkGroup` 과 같은 이유).
+ * 여러 에이전트에 걸친 버블은 가장 최근 쪽으로(§2.1 한 버블 한 자리). 에이전트는 제 덩어리 가운데에 고정(`anchorByGroup`, I-3).
  */
 function groupByLineage(items: readonly TidySortItem[], edges: readonly LinkEdgeRef[]): TidyGrouping {
   const byId = new Map<string, TidySortItem>();
@@ -265,13 +205,7 @@ export interface TidyGroupingContext {
   edges?: readonly LinkEdgeRef[];
 }
 
-/**
- * §5.4 #33 (I) — 이 기준에서 누가 누구와 함께 앉는가.
- *
- * **새 기준은 `TIDY_SORTS` 한 줄 + 여기 한 갈래로만.** 배치 쪽(`computeTidyLayout`)은 이 결과의
- * 네 칸(`groupById`·`order`·`rankById`·`anchorByGroup`)을 읽을 뿐 기준 이름도, 그 수가 무엇을
- * 센 것인지도 알지 못한다.
- */
+/** §5.4 #33 (I) — 새 기준은 `TIDY_SORTS` 한 줄 + 여기 한 갈래로만. 배치는 네 칸(`groupById`·`order`·`rankById`·`anchorByGroup`)만 읽는다. */
 export function computeTidyGrouping(
   items: readonly TidySortItem[],
   sort: TidySort,

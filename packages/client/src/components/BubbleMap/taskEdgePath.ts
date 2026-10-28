@@ -12,29 +12,15 @@ export interface TaskEdgePathArgs {
   targetY: number;
   sourceRadius: number;
   targetRadius: number;
-  /**
-   * 평행 엣지 슬롯 번호 (정수, 0 / ±1 / ±2 / ±3 / ...).
-   *   0  → 직선 (N=1 유일)
-   *   +k → 중심선 수직 방향으로 k·CURVATURE_STEP 만큼 변위 (위/아래 중 한쪽)
-   *   -k → 반대쪽으로 k·CURVATURE_STEP 만큼 변위
-   * 같은 쌍 여러 엣지가 생성 순서대로 0→+1→-1→+2→-2→+3→... 슬롯에 할당되어
-   * 바깥 슬롯일수록 더 휘고 기존 엣지 곡률은 새 엣지 추가에 영향받지 않는다.
-   */
+  /** 평행 엣지 슬롯(정수). 0 = 직선(N=1), ±k = 중심선 수직으로 k·CURVATURE_STEP 변위. */
   offset?: number;
-  /**
-   * 타겟 원둘레 상에서 화살촉 endpoint 를 회전시키는 각도(라디안).
-   * 같은 타겟에 여러 엣지가 모일 때 화살촉이 겹치지 않도록 원둘레를 따라 이동시킨다.
-   * 소스 endpoint 는 항상 자연 각도 고정. 경로 커브는 `offset` 만 결정 — 이 값은 endpoint 만 회전.
-   */
+  /** 타겟 원둘레에서 화살촉 끝만 돌리는 각도(라디안, 겹침 방지). 소스 끝은 고정, 커브는 `offset` 이 정한다. */
   targetAngularOffset?: number;
 }
 
 export interface TaskEdgePathResult {
   path: string;
-  /**
-   * §5.4 #31 (K) — 같은 선을 3차 베지어로 올린 것. 지나가는 버블 원 안의 구간을 잘라 그릴 때
-   * 쓴다(`edgeOcclusion`). 이벤트 펄스가 따라가는 `path` 는 잘리지 않은 그대로다.
-   */
+  /** §5.4 #31 (K) — 같은 선의 3차 베지어. 버블 원 안 구간을 잘라 그릴 때 쓴다(`edgeOcclusion`) — 펄스가 따라가는 `path` 는 잘리지 않는다. */
   curve: CubicCurve;
   sx: number;
   sy: number;

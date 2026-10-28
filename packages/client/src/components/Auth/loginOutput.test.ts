@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { stripAnsi, scanLoginOutput } from './loginOutput.js';
 
-// §4 v4.82 — 로그인 팝업이 PTY 출력에서 뽑아내는 것들. 화면 없이 문구 규칙만 고정한다.
+// §4 — 로그인 팝업이 PTY 출력에서 뽑는 것들의 문구 규칙(화면 없이).
 
 const ESC = String.fromCharCode(27);
 const BEL = String.fromCharCode(7);

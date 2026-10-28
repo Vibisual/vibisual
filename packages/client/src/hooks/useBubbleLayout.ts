@@ -3,7 +3,8 @@ import type { Edge } from '@xyflow/react';
 import type { BubbleData, ActivityEdge, PipelineState } from '@vibisual/shared';
 import { BUBBLE_COLORS, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, PIPELINE_PARENT_BUBBLE_ID } from '@vibisual/shared';
 import { collectSatellites } from '../utils/satellite.js';
-import { withScreenFileRange } from '../utils/sizeCalc.js';
+import { withBundleUsageRange, withScreenFileRange } from '../utils/sizeCalc.js';
+import { packBundleInterior } from '../utils/bundleInteriorLayout.js';
 import type { InteriorView } from '../stores/graphStore.js';
 import { applyConstellations, type ConstellationAppHubView } from '../utils/constellationView.js';
 import { clientPathPlatform } from '../utils/platform.js';
@@ -33,6 +34,8 @@ interface UseBubbleLayoutProps {
   appHubs?: readonly ConstellationAppHubView[];
   /** §5.1 #2-1 (B) — 최상위 파일 묶음(프로젝트 루트)의 이름 = 지금 탭의 프로젝트 이름. */
   rootLabel?: string | null;
+  /** §5.1 #2-1 (B) — 폴더 위성 묶음의 구성을 지금 턴의 것만으로(캔버스만 — IDE 세션 지도는 턴 표시가 없다). */
+  openTurnOnly?: boolean;
 }
 
 const NO_APP_HUBS: readonly ConstellationAppHubView[] = [];
@@ -42,20 +45,14 @@ const NO_BUBBLES: BubbleData[] = [];
 const FOLDER_BACK_ID = '__root_back__';
 const FOLDER_HOME_ID = '__root_home__';
 
-/**
- * §5.1 #2-2 — 폴더 안 내비게이션 버블 id. 이 둘은 그 화면의 배치(`radialLayout` 의 중심)가 세우는 고정물이라
- * 새 버블의 등장 영역 규칙에서 뺀다(`spawnZoneSeating.isSpawnZoneSeated`).
- */
+/** §5.1 #2-2 — 폴더 안 내비게이션 버블 id. 배치(`radialLayout` 중심)가 세우는 고정물이라 등장 영역 규칙(`isSpawnZoneSeated`)에서 뺀다. */
 export const FOLDER_NAV_IDS: ReadonlySet<string> = new Set([FOLDER_BACK_ID, FOLDER_HOME_ID]);
 
 const NO_BUNDLED: ReadonlyMap<string, string> = new Map();
 
 /**
- * §5.1 #2-1 (B) — 위성이 된 직속 파일로 들어오던 선을 새 노드로 옮겨 단다. `dropWith` 가 주어지면 그 노드와 위성이 된
- * 파일 사이의 선은 버린다(폴더 → 직속 파일 선 — 그 관계는 이제 중심 → 위성 선이 말한다).
- *
- * 원 둘레 묶음에 든 직속 파일(`bundled` — 2026-10-22)의 선은 묶음 버블로 옮겨 단다. 폴더 쪽 선도 버리지 않고(묶음에는 따로 선
- * 위성선이 없다), 구성 수만큼 같은 끝점 선이 겹쳐 그려지지 않게 하나만 남긴다 — 그중 하나라도 돌면(`animated`) 도는 선을 남긴다.
+ * §5.1 #2-1 (B) — 위성이 된 직속 파일로 오던 선을 새 노드로 옮긴다(`dropWith` 면 그 노드와 위성 사이 선은 버린다).
+ * 묶음에 든 파일의 선은 묶음 버블로 옮기고 같은 끝점은 하나만 남긴다(하나라도 `animated` 면 도는 선).
  */
 export function remapConverted(
   edges: Edge[],
@@ -94,12 +91,7 @@ export function remapConverted(
   return out;
 }
 
-/**
- * 메인 뷰 레이아웃 계산 -- agents + folders + edges + satellites로부터
- * React Flow용 노드/엣지/레이아웃을 생성한다.
- *
- * BubbleMap에서 사용.
- */
+/** 메인 뷰 레이아웃 — agents·folders·edges·satellites 로 React Flow 노드/엣지를 짓는다. */
 export function useBubbleLayout({
   agents,
   folders,
@@ -109,6 +101,7 @@ export function useBubbleLayout({
   residentBubbles = [],
   appHubs = NO_APP_HUBS,
   rootLabel = null,
+  openTurnOnly = false,
 }: UseBubbleLayoutProps): ViewData {
   // §5.24 — 히트맵이 켜져 있으면 배치도 렌더와 **같은 자**를 써야 한다(안 그러면 화살표가 빗나간다).
   const heat = useHeatScale();
@@ -118,9 +111,8 @@ export function useBubbleLayout({
     const cx = LAYOUT_CENTER_X;
     const cy = LAYOUT_CENTER_Y;
 
-    // §5.1 #2-1 (B) — 작업물 별자리. 판정은 이 화면의 파일(최상위 파일 + 폴더·에이전트의 파일 위성)로 하고,
-    //   위성이 된 최상위 파일은 원 둘레에서 빠진다 — 그래서 원 배치(`radialLayout`)는 그 **뒤의** 목록으로 짓는다.
-    //   같은 종류 둘 이상인 최상위 파일은 묶음 하나로 선다(2026-10-22 — 이름은 프로젝트 이름).
+    // §5.1 #2-1 (B) — 작업물 별자리. 위성이 된 최상위 파일은 원 둘레에서 빠지므로 `radialLayout` 은 그 **뒤의** 목록으로 짓는다.
+    // 같은 종류 둘 이상인 최상위 파일은 묶음 하나(이름은 프로젝트 이름)로 선다.
     const rawSatInfos = collectSatellites([...agents, ...folders], satellites, heat, satellitePositions);
     const cv = applyConstellations({
       radial: folders,
@@ -129,6 +121,7 @@ export function useBubbleLayout({
       heat,
       platform: clientPathPlatform(),
       satellitePositions,
+      openTurnOnly,
       ...(rootLabel ? { rootLabel } : {}),
     });
     // §2.3 · §5.1 #2-1 (A) — 원 둘레에 선 파일은 같은 화면의 원 둘레 파일끼리 견준다(종전 — 프로젝트 전체 위성의 범위).
@@ -168,7 +161,7 @@ export function useBubbleLayout({
       flowEdges: [...flowEdges, ...satFlowEdges],
       satInfos,
     };
-  }, [agents, folders, edges, satellites, satellitePositions, residentBubbles, heat, appHubs, rootLabel]);
+  }, [agents, folders, edges, satellites, satellitePositions, residentBubbles, heat, appHubs, rootLabel, openTurnOnly]);
 }
 
 // ─── §5.10 기억/휴지통 내부 뷰 데이터 Hook ───
@@ -183,11 +176,7 @@ interface UseInteriorLayoutProps {
   bundleMembers?: BubbleData[];
 }
 
-/**
- * §5.10 (J) 휴지통 내부 뷰 — `← Back` 노드 + 버려진 에이전트 버블을 방사형 배치.
- * currentFolderId 계층과 독립(interiorView 축). §5.10 로 기억 축이 폐기된 뒤
- * 이 축에 남은 값은 휴지통 하나뿐이다.
- */
+/** §5.10 (J) 내부 뷰 — 휴지통(`← Back` + 버려진 에이전트 방사형)과 §5.1 #2-1 (B) 묶음 안. currentFolderId 계층과 독립인 interiorView 축. */
 export function useInteriorLayout({ view, trashedAgents, bundleMembers = NO_BUBBLES }: UseInteriorLayoutProps): ViewData {
   const heat = useHeatScale();
   return useMemo(() => {
@@ -204,12 +193,12 @@ export function useInteriorLayout({ view, trashedAgents, bundleMembers = NO_BUBB
       activity: 1,
     };
 
-    // §5.1 #2-1 (B) — 묶음 안: 구성 파일만 원 둘레에 선다. 크기는 구성끼리 견준다(§2.3 — 같은 화면의 같은 층).
-    //   파일의 선·위성은 바깥 화면의 것이라 여기서는 긋지 않는다(묶음은 파일들을 한 자리에 모아 보는 화면이다).
+    // §5.1 #2-1 (B) — 묶음 안: 구성 파일만 선다. 지름은 구성끼리 견준 사용 횟수(`_usageRange`), 자리는 많이 쓴 것이 가운데인 무리.
+    // 파일의 선·위성은 바깥 화면의 것이라 긋지 않는다.
     if (view.kind === 'bundle') {
-      const members = withScreenFileRange(bundleMembers);
+      const members = withBundleUsageRange(bundleMembers);
       const navBubbles = [backBubble];
-      const layout = radialLayout(navBubbles, members, cx, cy, heat, { offsetX: -300, offsetY: -150 });
+      const layout = packBundleInterior(members, backBubble, { x: cx, y: cy }, heat);
       return { bubbles: [...navBubbles, ...members], layout, flowEdges: [], satInfos: [] };
     }
 
@@ -243,12 +232,10 @@ interface UseFolderLayoutProps {
   agentEdges?: ActivityEdge[];
   satellites: Record<string, BubbleData[]>;
   satellitePositions?: Record<string, { x: number; y: number }>;
+  /** §5.1 #2-1 (B) — 폴더 위성 묶음의 구성을 지금 턴의 것만으로(캔버스만 — IDE 세션 지도는 턴 표시가 없다). */
+  openTurnOnly?: boolean;
 }
 
-/**
- * 폴더 내부 뷰 레이아웃 계산 -- backBubble + 자식 노드 + 내부 엣지로부터
- * React Flow용 노드/엣지/레이아웃을 생성한다.
- */
 export function useFolderLayout({
   folderId,
   folderData,
@@ -258,6 +245,7 @@ export function useFolderLayout({
   agentEdges = [],
   satellites,
   satellitePositions,
+  openTurnOnly = false,
 }: UseFolderLayoutProps): ViewData {
   const heat = useHeatScale();
   return useMemo(() => {
@@ -279,8 +267,7 @@ export function useFolderLayout({
       bubbleType: 'root',
       path: folderData?.path ?? '',
       status: 'idle',
-      // §2.3 (2026-10-21) — `Root→` 는 내비게이션이라 그 폴더의 활동량을 따르지 않고 `← Back` 과 같은 크기다(종전에는 활동량으로
-      //   최대 지름까지 커져 폴더 안에서 혼자 거대했다 — 사용자 지시 "하나의 크기가 갑자기 너무 커져버렸다").
+      // §2.3 — `Root→` 는 내비게이션이라 폴더 활동량을 따르지 않고 `← Back` 과 같은 크기다(따르면 혼자 최대 지름까지 커진다).
       activity: backBubble.activity,
       childCount: folderData?.childCount,
     };
@@ -288,11 +275,8 @@ export function useFolderLayout({
     const navBubbles = [backBubble, rootBubble];
     // worktree 버블 내부 드릴다운이면 해당 worktree 소속 에이전트도 함께 렌더
     const extraAgents = folderData?.bubbleType === 'worktree' ? agents : [];
-    // dismiss(완료 확인)/auto-idle 후에만 읽던 폴더가 사라지도록 좁힌다.
-    // 에이전트가 active/completed(작업중·결과대기) 이거나 워크트리에 에이전트가
-    // 없으면(단순 탐색) children 을 그대로 다 보여줘 워크트리 탐색을 막지 않는다.
-    // 에이전트가 idle 로 내려간(= 사용자 dismiss 또는 5분 auto-idle → 서버가
-    // agent↔폴더 엣지 제거) 경우에만 엣지 끊긴 폴더를 숨긴다. preserve-pin/ghost 보존.
+    // 읽던 폴더는 dismiss/auto-idle 뒤에만 사라지게 좁힌다 — active/completed 이거나 워크트리에 에이전트가 없으면(단순 탐색) children 을 다 보인다.
+    // idle(서버가 agent↔폴더 엣지 제거) 뒤 엣지가 끊긴 폴더만 숨긴다. preserve-pin/ghost 는 보존.
     const isWorktreeDrill = extraAgents.length > 0;
     const anyLiveAgent = extraAgents.some((a) => a.status === 'active' || a.status === 'completed');
     const visibleChildren = (() => {
@@ -321,6 +305,7 @@ export function useFolderLayout({
       heat,
       platform: clientPathPlatform(),
       satellitePositions,
+      openTurnOnly,
     });
     // §2.3 · §5.1 #2-1 (A) — 직속 파일은 이 폴더 화면의 직속 파일끼리 견준다(종전 — 프로젝트 전체 위성의 범위).
     const radialChildren = withScreenFileRange(cv.radial);
@@ -329,8 +314,7 @@ export function useFolderLayout({
     const allBubbles = [...navBubbles, ...radialChildren, ...extraAgents];
     const layout = radialLayout(navBubbles, [...radialChildren, ...extraAgents], cx, cy, heat, { offsetX: -300, offsetY: -150 });
 
-    // 폴더 → 직속 파일 선은 그 파일이 위성이 되면 버린다(그 관계는 중심 → 위성 선이 말한다). 묶음에 든 직속 파일의 선은
-    //   그 묶음으로 옮겨 단다(2026-10-22 — 같은 끝점은 하나로).
+    // 폴더 → 직속 파일 선은 그 파일이 위성이 되면 버리고, 묶음에 든 파일의 선은 묶음으로 옮긴다(같은 끝점은 하나로).
     const endOf = (id: string): string => (id === folderId ? backBubble.id : cv.bundled.get(id) ?? id);
     const flowEdges = remapConverted(innerEdges.map((e) => {
       const child = visibleChildren.find((i) => i.id === e.source) ?? visibleChildren.find((i) => i.id === e.target);
@@ -346,10 +330,7 @@ export function useFolderLayout({
       });
     }), cv.converted, backBubble.id, cv.bundled);
 
-    // worktree 드릴다운: agent→자식(파일/폴더) 엣지도 렌더 — 메인 레이어와 동일하게.
-    // useFolderLayout 은 기본적으로 innerEdges(자식↔자식)만 그리므로, 워크트리로 이주한
-    // 에이전트의 read/edit 엣지가 여기서 누락됐다. 양 끝점이 모두 현재 렌더 버블
-    // (extraAgents/children/nav)에 있는 agentEdges 만 추려 추가(중복 id 는 제외).
+    // worktree 드릴다운: agent→자식 엣지도 그린다(innerEdges 만이면 옮긴 에이전트의 read/edit 엣지가 빠진다). 양 끝이 지금 그리는 버블에 있는 agentEdges 만, 중복 id 제외.
     const innerEdgeIds = new Set(flowEdges.map((fe) => fe.id));
     // 위성이 된 직속 파일은 원래 id 로 들어온다 — 그 id 도 이 화면에 있는 것으로 치고, 선은 새 노드로 옮겨 단다.
     const bubbleIds = new Set([...allBubbles.map((b) => b.id), ...cv.converted.keys(), ...cv.bundled.keys()]);
@@ -374,7 +355,7 @@ export function useFolderLayout({
       flowEdges: [...flowEdges, ...agentFlowEdges, ...satFlowEdges],
       satInfos,
     };
-  }, [folderId, folderData, agents, children, innerEdges, agentEdges, satellites, satellitePositions, heat]);
+  }, [folderId, folderData, agents, children, innerEdges, agentEdges, satellites, satellitePositions, heat, openTurnOnly]);
 }
 
 // ─── 파이프라인 내부 뷰 데이터 Hook ───

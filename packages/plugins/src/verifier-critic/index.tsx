@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.96 — 검증자·비평자(Verifier–Critic): 작성자와 검사자가 갈려 있는가.
- *
- * 결정적 규칙 하나 — 비평자는 작성자보다 강하거나 최소한 다른 프롬프트여야 한다. 같은 맹점을 공유하는
- * 비평자는 나쁜 답에 그대로 도장을 찍는다. 그리고 가능하면 **실행 가능한 검증**(테스트·린트·타입체크)을
- * 비평자보다 먼저 두는 편이 싸고 정확하다. 표시 전용.
- */
+/** §5.11 — 검증자·비평자(Verifier–Critic): 작성자와 검사자가 갈려 있는가(같은 맹점의 비평자는 도장만 찍는다). 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import { toneIfActive } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

@@ -1,10 +1,4 @@
-/**
- * test-time-compute — 이 플러그인의 문자열 전량 (§5.11 v4.58 자립 규약).
- *
- * 종전에는 `packages/client/src/i18n/locales/*.json` 안에 있었다. 그래서 폴더를 복사해도 화면에는
- * 번역 키가 그대로 노출됐다 — **폴더가 자기 문자열을 안 들고 있었기 때문**이다. 이제 여기에 산다.
- * 호스트는 `panel.plugins.testTimeCompute` 지붕 아래로 병합한다(키 네임스페이스는 6개 규칙 그대로).
- */
+/** 이 플러그인의 문자열 전량(§5.11 자립 규약) — 호스트가 `panel.plugins.testTimeCompute` 아래로 병합한다(키 네임스페이스 6개 규칙 그대로). */
 export const strings = {
   "en": {
     "desc": "Buying thinking time instead of a bigger model pays off over a wide range. In practice it means quality, latency and cost became a dial you can turn per task.",

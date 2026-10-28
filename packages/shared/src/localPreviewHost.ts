@@ -1,17 +1,8 @@
 /**
- * §5.23 「더블클릭」 · §7.11 — 이 주소는 **로컬 프리뷰**인가, **인터넷 페이지**인가.
- *
- * 로컬 프리뷰(루프백·사설 대역)는 우리 iframe 프록시를 지나 다리 스크립트(요소 집기·Alt)를 받는다.
- * 인터넷 페이지는 그 프록시가 받지 않는다(SSRF 가드 — 403). 그렇다고 본체 렌더러의 iframe 에 직접
- * 실으면 샌드박스 없는 프로세스에서 남의 페이지가 돈다 — 그래서 격리 웹뷰로 띄운다(§5.23).
- *
- * 규칙은 서버 `iframeProxy.ts` 의 `isAllowedProxyHost` 와 **같아야 한다.** 어긋나면 한쪽이 프록시로
- * 보낸 주소를 다른 쪽이 403 으로 돌려보내거나, 로컬 화면이 다리 없이 뜬다. 서버 시험
- * (`localPreviewHost.test.ts`)이 두 판정을 같은 표로 대조한다.
- *
- * 순수 함수다 — Node(`net`)·DOM 에 닿지 않아 클라·main·서버가 같은 답을 낸다. 호스트 이름은 WHATWG
- * `URL` 이 정규화한 값(`hostname`)을 받는다고 본다. 그래야 `0x7f.1`·`2130706433` 같은 표기가 이미
- * `127.0.0.1` 로 풀려 있고, 아래 IPv4 판정이 앞자리 0 같은 별칭을 따로 다루지 않아도 된다.
+ * §5.23 · §7.11 — 이 주소는 로컬 프리뷰인가 인터넷 페이지인가. 로컬(루프백·사설)은 iframe 프록시를 지나 다리 스크립트를 받고,
+ * 인터넷 페이지는 프록시가 거절하므로(SSRF 가드 403) 격리 웹뷰로 띄운다(본체 iframe 에 실으면 샌드박스 없이 남의 페이지가 돈다).
+ * 규칙은 서버 `iframeProxy.ts` `isAllowedProxyHost` 와 같아야 한다(`localPreviewHost.test.ts` 가 대조). 순수 함수 —
+ * 호스트는 WHATWG `URL` 의 `hostname` 이라 `0x7f.1`·`2130706433` 은 이미 `127.0.0.1` 이다.
  */
 
 /** 정규화된 십진 점 표기 한 칸(앞자리 0 없음 · 0~255). */
@@ -59,10 +50,7 @@ export function isHttpUrl(raw: string): boolean {
   }
 }
 
-/**
- * **인터넷 페이지**인가 — http(s) 이고 호스트가 로컬 프리뷰가 아니다.
- * 못 읽는 주소는 false 다(모르는 것을 인터넷 페이지로 넘겨짚지 않는다 — 그 주소는 종전 길을 탄다).
- */
+/** 인터넷 페이지인가 — http(s) 이고 호스트가 로컬 프리뷰가 아니다. 못 읽는 주소는 false(넘겨짚지 않는다 — 기존 길을 탄다). */
 export function isRemoteWebUrl(raw: string): boolean {
   if (!isHttpUrl(raw)) return false;
   return !isLocalPreviewHost(new URL(raw).hostname);

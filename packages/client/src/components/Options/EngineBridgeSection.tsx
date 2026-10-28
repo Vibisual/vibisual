@@ -3,12 +3,8 @@ import { useTranslation } from 'react-i18next';
 import type { EngineBridgeStatus } from '@vibisual/shared';
 
 /**
- * §4 엔진 다리 — 옵션창 고급 탭의 손잡이.
- *
- * 스위치(`UserDefaults.advanced.engineBridge`, 기본 켬)는 옵션창의 [적용]과 **함께** 저장된다. 같은
- * `advanced` 칸의 터미널 scrollback 과 한 벌로 보내야 서로를 덮지 않으므로, 값은 창이 들고 여기는
- * 그리기만 한다. 아래 상태 줄은 서버가 지금 아는 사실(판올림·지금 붙은 세션 수)을 그대로 읽어 보여 준다 —
- * 켜 두었는데 왜 안 붙는지(판올림이 낮다·파일이 없다)를 사용자가 여기서 알 수 있어야 한다.
+ * §4 엔진 다리 스위치(`UserDefaults.advanced.engineBridge`, 기본 켬) — 같은 `advanced` 칸의 scrollback 과 한 벌로 [적용]해야 서로 안 덮으므로 값은 창이 든다.
+ * 상태 줄은 서버 사실(판올림·붙은 세션 수)을 그대로 보인다(왜 안 붙는지 알게).
  */
 
 const API_BASE = '';

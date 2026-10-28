@@ -2,16 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { QueuedCommand } from '@vibisual/shared';
 import { sessionsNeedingKick } from './queueWatchdog.js';
 
-/**
- * §5.5 #17-18 ⑪ — **줄만 서고 안 나가는 명령을 다시 민다.**
- *
- * 사용자 보고: "나한테는 완료 표시를 보냈어. 근데 나는 그 완료 표시를 믿고 추가 작업을 시켰어.
- * 근데 추가작업이 즉시 들어가는게 아니라 대기로 빠지고 «작업 중» 표시가 뜨면서 일을 안 해."
- *
- * 정체는 **재진입 경로의 구멍**이었다. 명령은 전부 `queued` 로 태어나고 슬롯당 한 건만
- * `executing` 으로 올라간다. 그 잠금을 쥔 턴이 완료 콜백·토큰 절약 펌프·정지 라우트 중
- * 아무 데도 들르지 않고 사라지면(좀비 봉합이 대표적) 뒤에 선 덧말을 밀어 줄 곳이 없다.
- */
+/** §5.5 #17-18 ⑪ — 줄만 서고 안 나가는 명령(`executing` 잠금을 쥔 턴이 완료 콜백 없이 사라진 경우)을 워치독이 다시 민다. */
 function cmd(patch: Partial<QueuedCommand>): QueuedCommand {
   return { id: 'c1', text: 'hi', timestamp: 0, subAgentId: 'sub-A', status: 'queued', ...patch };
 }

@@ -1,12 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { formatPromptStamp, formatStreamClock, calendarDayDiff } from './promptStamp.js';
 
-/**
- * 내 명령 말풍선의 "언제 보냈나" 표기.
- *
- * 로케일 문자열 자체(`9월`·`Sep`)는 ICU 판본에 따라 흔들릴 수 있어, **분기가 제대로 갈렸는가**를
- * 본다 — 오늘/어제/날짜 세 갈래 · 달력 경계 · 대기 꼬리 표식 차단 · 이상한 로케일에서 안 죽는가.
- */
+/** 말풍선 "언제 보냈나" — 로케일 문자열(ICU 판본마다 흔들림)이 아니라 분기를 본다: 오늘/어제/날짜 · 달력 경계 · 대기 꼬리 표식 · 이상한 로케일. */
 
 /** 로컬 시각으로 짓는다 — 판정이 자정(로컬) 기준이라 TZ 가 달라도 답이 같아야 한다. */
 function local(y: number, m: number, d: number, hh = 0, mm = 0, ss = 0): number {

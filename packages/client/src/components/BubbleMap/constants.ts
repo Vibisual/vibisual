@@ -4,17 +4,11 @@ export const CANVAS_PROJECT_WATERMARK = {
 } as const;
 
 /**
- * Selection focus preserves category colors; distant connections stay above the unrelated floor.
- *
- * Motion is an iOS-style critically damped spring rather than a switch: the curve leaves with zero
- * velocity (nothing pops), covers half the change in the first fifth, then settles slowly.
- *
- * There is one clock. Every bubble, line and task-edge icon starts and stops on the same frames,
- * whether the focus lights, moves or clears: the transitions carry the only duration and the levels
- * carry values alone, so no level can run on its own timing. Per-depth timings (inner rings settling
- * first) were tried and, on a bubble with many connections, read as each bubble playing its own
- * effect one after another. Level 0 has no filter at all: `saturate(1)` changes nothing but still
- * makes the compositor filter the selected bubble's animated corona on every frame.
+ * Selection focus keeps category colors; distant connections stay above the unrelated floor.
+ * Motion is a critically damped spring (zero start velocity, half the change in the first fifth, slow settle).
+ * One clock: bubbles, lines and task-edge icons start and stop on the same frames — durations live only in the transitions.
+ * Don't stagger by depth (inner rings first): on a bubble with many connections it reads as each bubble firing its own effect in turn.
+ * Level 0 has no filter: even `saturate(1)` makes the compositor filter the selected bubble's animated corona every frame.
  */
 export const SELECTION_FOCUS = {
   nodeTransition: 'transition-[opacity,filter] duration-[420ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',

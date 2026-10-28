@@ -1,9 +1,6 @@
 /**
- * §2.1 #3 쓰기 축 — shared `bashCommandPaths.ts` 의 `extractBashWritePaths` 고정 시험.
- *
- * 추출기는 shared 순수 함수지만 shared 패키지에는 러너가 없으므로(읽기 축 `bashReadPaths.test.ts`
- * 와 같은 자리에서 돌린다) 여기서 고정한다. **플랫폼은 인자로 넘긴다** — 개발기 한 대에서 세 OS 를
- * 전부 재기 위함이고, 그것이 이 모듈이 `process.platform` 을 읽지 않는 이유다(멀티플랫폼 1축).
+ * §2.1 #3 쓰기 축 — shared `extractBashWritePaths` 고정 시험(shared 에는 러너가 없어 읽기 축처럼 여기서 돌린다).
+ * 플랫폼은 인자로 넘겨 개발기 한 대에서 세 OS 를 잰다 — 그래서 이 모듈은 `process.platform` 을 읽지 않는다.
  */
 import { describe, it, expect } from 'vitest';
 import { extractBashWritePaths, BASH_WRITE_PATH_LIMIT } from '@vibisual/shared';
@@ -117,8 +114,7 @@ describe('extractBashWritePaths — 쓰기가 아닌 것은 세지 않는다', (
 });
 
 describe('extractBashWritePaths — 값이 **떨어져** 오는 리다이렉트', () => {
-  // 종전에는 붙어 온 모양(`<<EOF`)만 heredoc 으로 봤다. 셸에서는 공백을 둔 `<< EOF` 도 똑같은
-  // heredoc 인데, 그 모양에서는 본문 건너뛰기가 안 걸려 **본문 줄이 명령으로 파싱**됐다.
+  // 공백을 둔 `<< EOF` 도 heredoc 이다 — 붙은 꼴(`<<EOF`)만 보면 본문 건너뛰기가 안 걸려 본문 줄이 명령으로 파싱된다.
   it('heredoc 을 `<< EOF` 로 열어도 본문은 명령이 아니다 — 남의 글이 "고친 파일"이 되면 안 된다', () => {
     const cmd = 'cat > note.md << EOF\necho hacked > evil.txt\nEOF';
     expect(extractBashWritePaths(cmd, 4, posix)).toEqual(['note.md']);

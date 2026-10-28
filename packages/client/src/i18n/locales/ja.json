@@ -66,7 +66,9 @@
       "tooltip": "現在のセッション: 5時間の上限の{{percent}}%を使用 — クリックで詳細",
       "tooltipNoData": "まだ使用量を受け取っていません — クリックで詳細",
       "tooltipWaiting": "Claude Code から使用量を取得中です — まもなく数値が表示されます",
-      "tooltipCliUnavailable": "使用量を読み取るための Claude Code を実行できませんでした — クリックで詳細"
+      "tooltipCliUnavailable": "使用量を読み取るための Claude Code を実行できませんでした — クリックで詳細",
+      "creditActive": "新しい実行で API クレジットを使用中",
+      "creditBlocked": "Anthropic が API クレジットを拒否したため、実行はサブスクリプションを使用中"
     },
     "setupBanner": {
       "text": "Claude Code がインストールされていません — エージェントはまだ実行できません。",
@@ -387,7 +389,8 @@
         "account": "アカウント",
         "storage": "ストレージ",
         "keyboard": "キーボード",
-        "theme": "テーマ"
+        "theme": "テーマ",
+        "credits": "クレジット"
       },
       "appearance": {
         "intro": "Vibisualの見た目をカスタマイズします。",
@@ -497,9 +500,6 @@
         "updateAvailable": "アップデートあり",
         "upToDate": "最新",
         "registryError": "npm確認失敗",
-        "installations": "インストール済み",
-        "auto": "自動（推奨）",
-        "autoDesc": "Vibisualが自動的に選択します",
         "activeBadge": "使用中",
         "unknownVer": "不明",
         "restartHint": "選択を保存しました。新規スポーンエージェントに反映するにはVibisualを再起動してください。",
@@ -512,12 +512,51 @@
           "title": "Claude Code の更新",
           "label": "Claude Code を自動的に最新の状態に保つ",
           "onHint": "Vibisual はアプリを起動するたびに CLI を最新バージョンに更新します。",
-          "offHint": "自動更新はオフです。CLI を手動で更新するには「今すぐ更新」を使用してください。",
+          "offHint": "自動更新はオフです。CLI を手動で更新するには「{{updateNow}}」を使用してください。",
           "vscodeNotice": "現在使用中のバイナリは VS Code 拡張機能由来のため、更新は Marketplace からのみ可能です。Vibisual に更新を管理させるには、上で別のインストールを選択してください。",
           "updateNow": "今すぐ更新",
           "updating": "更新中…",
           "updated": "{{version}} に更新しました",
           "updateFailed": "更新に失敗しました"
+        },
+        "sourceManaged": "アプリ管理",
+        "managed": {
+          "title": "アプリ管理のコピー",
+          "hint": "Vibisualは公式配布元から{{engine}}の新しいリリースをダウンロードし、各リリースがVibisualで使うすべてのオプションを受け付けることを確認してから切り替えます（起動時と6時間ごと）。ログインと設定は引き続き共有されます。",
+          "inUse": "使用中",
+          "latest": "最新（公式）",
+          "previous": "前のバージョン",
+          "none": "未ダウンロード",
+          "checkedAt": "最終確認: {{time}}",
+          "notChecked": "未確認",
+          "updating": "ダウンロードして確認中…",
+          "rollback": "{{version}}にロールバック",
+          "rollbackFailed": "ロールバックできませんでした",
+          "rejected": "切り替えませんでした — {{version}}が拒否したオプション: {{options}}",
+          "deferred": "未ダウンロード — このPCではまだ{{engine}}を使っていません。インストール時にダウンロードされます。",
+          "folder": "フォルダー",
+          "nextRetry": "次回の再試行 {{time}}"
+        },
+        "codexAutoUpdate": {
+          "title": "Codexの更新",
+          "label": "Codexを自動で最新の状態に保つ",
+          "offHint": "自動更新はオフです。Codex を手動で更新するには「{{updateNow}}」を使用してください。"
+        },
+        "chooseBinary": "使用するバイナリ",
+        "defaultManaged": "アプリ管理（デフォルト・自動更新）",
+        "defaultManagedReady": "{{version}} を使用中 — 公式配布元からダウンロードし、Vibisual のチェックに合格してから切り替えます。",
+        "defaultManagedPending": "まだ準備できていません — ダウンロードとチェックが終わり次第、Vibisual がすぐに切り替えます。",
+        "otherInstalls": "その他のインストール（補助）",
+        "otherInstallsNone": "このPCでは他のインストールが見つかりませんでした。",
+        "defaultBadge": "デフォルト",
+        "temporaryBadge": "一時的",
+        "codexUserSelected": "別のインストールを選択しています — その更新は提供元が行います。デフォルトに戻すと、アプリ管理の更新が再開されます。",
+        "pending": {
+          "downloading": "アプリ管理のコピーを準備しています — ダウンロードしてチェック中…",
+          "failed": "アプリ管理のコピーを準備できませんでした: {{error}}",
+          "retryAt": "{{time}} に自動で再試行します。",
+          "tryNow": "今すぐ再試行するには、下の「{{updateNow}}」を使用してください。",
+          "waiting": "アプリ管理のコピーがまだ準備できていないため、当面はこのインストールを使用します。ダウンロードは自動で行われます。"
         }
       },
       "agent": {
@@ -817,7 +856,8 @@
         "autoCompactWindow": "会話が次のサイズに達したら折りたたむ",
         "autoCompactWindowOff": "設定のまま",
         "autoCompactWindowDesc": "ここでは最も効果が大きい設定です。3日間計測したところ、セッションの中央値は186kトークンで、200kを超える部分が入力全体の62%を占めていました。ターンのたびにこの部分を読み直すことになります。同じ作業でウィンドウを400kから200kに下げると入力が27%減り、100kまで下げると59%減りました。この設定は下げる方向にしか働きません：agentや初期値がすでにこれより低い場合は、そちらが優先されます。折りたたみ自体が大きなリクエストになるため、最も低い設定が必ずしも最も安いとは限りません。このウィンドウが決めるのはコマンドの合間に畳む位置だけです。作業の途中では、モデルのウィンドウが満杯になったときだけ CLI が畳みます。"
-      }
+      },
+      "creditsIntro": "Claude のクレジットは、複数のウォレットに分かれています。各ページでは 1 つのウォレットについて、その内容、請求元、管理場所、Vibisual が使用するかどうかを説明します。"
     },
     "autoAgent": {
       "title": "Auto Agent",
@@ -2019,7 +2059,134 @@
       "hwDevicesUnknown": "アクセラレータはエンジンから読み取られるため、エンジンをインストールすると表示されます。",
       "hwLoaded": "RAMに読み込み済み",
       "hwLoadedNone": "現在、読み込まれているモデルはありません。",
-      "hwHint": "All Modelにはサブスクリプションの上限がありません。その代わりに負荷がかかるのはこのPCです。異なるモデルを保持するバブルはそれぞれ独自のRAMを使用しますが、同じモデルのバブル同士は1つのインスタンスを共有します。"
+      "hwHint": "All Modelにはサブスクリプションの上限がありません。その代わりに負荷がかかるのはこのPCです。異なるモデルを保持するバブルはそれぞれ独自のRAMを使用しますが、同じモデルのバブル同士は1つのインスタンスを共有します。",
+      "apiCredit": {
+        "title": "API クレジット（Console）",
+        "status": {
+          "off": "オフ",
+          "standby": "待機中",
+          "active": "使用中",
+          "blocked": "Anthropic により拒否"
+        },
+        "enable": "API クレジットを使用",
+        "enableHint": "オフの場合、すべての実行でこれまでどおりサブスクリプションを使用します。",
+        "mode": "クレジットを優先して使用",
+        "modeHintConsole": "オフ：サブスクリプションの上限に達してはじめて、クレジットに切り替わります。オン：クレジットを優先し、Anthropic がクレジットを拒否したときはサブスクリプションに切り替わります。",
+        "autoContinue": "停止した実行を自動で続行",
+        "autoContinueHint": "上限で実行が停止した場合、もう一方の課金経路で一度だけ続行します。",
+        "key": "API キー",
+        "keyPlaceholder": "sk-ant-api03-…",
+        "keySave": "キーを保存",
+        "keySaved": "保存済み {{hint}}",
+        "keyRemove": "削除",
+        "keyVerify": "再確認",
+        "keyVerified": {
+          "ok": "確認済み",
+          "rejected": "Anthropic に拒否されました",
+          "unknown": "未確認"
+        },
+        "keyUnreadable": "このキーはこのコンピューターでは読み取れません。もう一度入力してください。",
+        "keyProtected": "キーは OS のセキュアストレージに保存されています。",
+        "keyUnprotected": "このコンピューターにはセキュアなキー保存先がないため、キーは暗号化されずに保存されます。",
+        "keyCreate": "Console でキーを作成",
+        "keyProblem": {
+          "empty": "API キーを貼り付けてください。",
+          "notAnthropic": "Anthropic の API キーではないようです。sk-ant- で始まっている必要があります。",
+          "adminKey": "管理者キーではモデルを実行できません。通常の API キーを作成してください。",
+          "oauthToken": "これは API キーではなく、サインイン用のトークンです。",
+          "whitespace": "キーに空白が含まれています。空白を除いて貼り付け直してください。"
+        },
+        "keySaveFailed": "キーを保存できませんでした。もう一度お試しください。",
+        "liveRunsNow": "現在クレジットで実行中：{{count}}件",
+        "reason": {
+          "off": "クレジットがオフのため、すべての実行でサブスクリプションを使用します。",
+          "cloud-provider": "このコンピューターの Claude Code はクラウドプロバイダーに設定されているため、クレジットは使用されません。実行ごとにクラウド側で課金されます。",
+          "no-key": "クレジットを使うには API キーを追加してください。",
+          "blocked": "Anthropic が直近のクレジットでの実行を拒否したため、新しい実行ではサブスクリプションを使用します。",
+          "subscription-ok": "現在の実行はサブスクリプションを使用しています。上限に達するとクレジットに切り替わります。",
+          "subscription-exhausted": "サブスクリプションの上限に達したため、新しい実行ではクレジットを使用します。",
+          "credits-first": "新しい実行ではクレジットを優先して使用します。"
+        },
+        "subscriptionResets": "サブスクリプションは {{time}} にリセット",
+        "block": {
+          "balance-empty": "Anthropic がクレジットでの実行を拒否しました：Console のクレジット残高が不足しています。",
+          "spend-limit": "Anthropic がクレジットでの実行を拒否しました：Console の月次支出上限に達しています。",
+          "key-invalid": "Anthropic が API キーを拒否しました。"
+        },
+        "blockRetryAt": "{{time}}にクレジットの使用を再試行します。",
+        "blockRetry": "今すぐ再試行",
+        "actionFailed": "うまくいきませんでした。もう一度お試しください。",
+        "console": {
+          "title": "今月の支出（Console）",
+          "asOf": "{{start}}以降・更新：{{time}}・Console のコストページと同じデータ",
+          "used": "使用済み",
+          "resetsOn": "{{date}}（UTC）にリセット",
+          "viewSpendLimits": "Console で支出上限を確認",
+          "org": "組織：{{name}}",
+          "refresh": "更新",
+          "refreshing": "更新中…",
+          "pending": "Console の支出を読み取り中…",
+          "limitsNote": "支出上限とクレジット残高は Console 側で設定されます。Anthropic はそれらを読み取れる公開 API を提供していないため、Vibisual は独自の上限を表示も適用もしません。上限に達するか残高がなくなると、Anthropic が実行を拒否し、Vibisual は再びサブスクリプションに切り替えます。",
+          "needKeyTitle": "管理者キーを追加して Console の支出を表示",
+          "needKeyBody": "Vibisual は、Anthropic の公式 Usage and Cost API を使って今月の支出を読み取ります。この API には管理者キー（sk-ant-admin01-…）が必要です。組織の管理者は、Console の管理者キーページで作成できます。個人アカウントの場合は、先に Console で組織をセットアップする必要があります。",
+          "createAdminKey": "Console で管理者キーを作成",
+          "setupOrg": "Console で組織をセットアップ",
+          "adminKey": "管理者キー（支出の読み取り用）",
+          "adminKeyPlaceholder": "sk-ant-admin01-…",
+          "adminKeyHint": "支出の読み取りにのみ使用されます。モデルの実行には使えません。",
+          "error": {
+            "auth": "管理者キーではないか有効期限切れのため、Anthropic が拒否しました。先に Console で組織をセットアップし、管理者キー（sk-ant-admin01-…）を作成して追加してください。",
+            "forbidden": "このキーでは支出を読み取れません。組織の管理者が作成した管理者キーを使用してください。",
+            "not-found": "Anthropic でこのキーの支出データが見つかりませんでした。個人アカウントの場合は、先に Console で組織をセットアップする必要があります。",
+            "rate-limited": "Vibisual は Anthropic から、支出を再度読み取る前に待つよう求められました。自動的に更新されます。",
+            "network": "Anthropic に接続できませんでした。自動的に更新されます。",
+            "unreadable": "この管理者キーはこのコンピューターでは読み取れません。もう一度入力してください。",
+            "other": "Console の支出を読み取れませんでした。"
+          },
+          "lastValue": "最後に読み取った値を表示しています。"
+        }
+      },
+      "creditPages": {
+        "tabsLabel": "クレジットの種類",
+        "billedLabel": "請求元",
+        "manageLabel": "管理場所",
+        "vibisualLabel": "Vibisual での扱い",
+        "subscription": {
+          "tab": "プラン制限",
+          "what": "Claude Pro または Max プランに含まれる、5 時間ごとと週ごとの使用制限です。",
+          "billed": "claude.ai のサブスクリプション（月額定額）です。",
+          "vibisual": "ヘッドレス・CMD を問わず、すべての Claude 実行でデフォルトで使用されます。"
+        },
+        "personal": {
+          "tab": "個人クレジット",
+          "what": "個人の claude.ai アカウントの追加使用分です。claude.ai でオンにすると、プラン制限に達した後も作業を続けられます。",
+          "billed": "claude.ai アカウントに登録されている支払い方法です。",
+          "vibisual": "Vibisual では選択できません。オンになっていれば、プラン制限に達した後に Claude Code が自動的に使用します。このページは読み取りのみです。"
+        },
+        "business": {
+          "tab": "ビジネスクレジット",
+          "what": "Claude Console（platform.claude.com）組織の API クレジットです。Max または Team プランの月次プロモーションクレジットと、購入したクレジットがここに反映されます。",
+          "billed": "Console 組織のクレジットから差し引かれます。使い切ると実行は停止します。自動リロードをオンにした場合にのみ、カードに請求されます。",
+          "vibisual": "有効にすると、ヘッドレス実行のみで使用されます（CMD やフックバブルでは使用されません）。デフォルトでは、プラン制限に達した後にのみ使用されます。"
+        },
+        "cloud": {
+          "tab": "クラウドクレジット",
+          "what": "Amazon Bedrock、Google Cloud Vertex AI、または Microsoft Foundry 経由で使用する Claude です。",
+          "billed": "お使いのクラウドアカウントに請求されます。Anthropic の個人クレジットやビジネスクレジットは適用されません。",
+          "vibisual": "Vibisual は、このコンピューターの Claude Code の設定に従います。クラウドプロバイダーに設定されている場合、すべての実行がそのクラウドで課金されます。",
+          "currentLabel": "このコンピューターの Claude Code の請求先",
+          "provider": {
+            "anthropic": "Anthropic に直接（クラウドプロバイダーではない）",
+            "unknown": "不明（サインイン状態をまだ確認していないため）",
+            "bedrock": "Amazon Bedrock",
+            "vertex": "Google Cloud Vertex AI",
+            "foundry": "Microsoft Foundry"
+          },
+          "activeNote": "Vibisual からの Claude 実行はすべて、このクラウドに課金されます。個人クレジットとビジネスクレジットは使用されず、ビジネスクレジットの経路もオフのままです。",
+          "inactiveNote": "このコンピューターの Claude Code はクラウドプロバイダーに設定されていないため、クラウドクレジットは使用されません。使用するには、先にそのプロバイダー向けに Claude Code を設定してください。",
+          "docs": "クラウドプロバイダーで Claude Code を実行する方法"
+        }
+      }
     },
     "plugins": {
       "title": "プラグイン",
@@ -4714,6 +4881,9 @@
       "runOutput": "実行結果",
       "runOutputNone": "このバブルからはまだ何も実行されていません。"
     },
+    "fileWindow": {
+      "close": "閉じる"
+    },
     "paneOpener": {
       "tabHint": "ここに表示するファイルを選択",
       "scope": "このプロジェクト内の{{list}}ファイル（更新日時の新しい順）",
@@ -5405,6 +5575,7 @@
       "openInPane": "エディターペインで開く — {{path}}",
       "openFolder": "このファイルを含むフォルダーを開く — {{path}}",
       "readOnlyLocked": "このファイルはディスク上で読み取り専用にロックされています（Perforce のチェックアウト、ファイル属性）。",
+      "outsideReadOnly": "プロジェクト外のファイルのため、表示のみです。",
       "readOnlyUnlock": "読み取り専用を解除して保存",
       "readOnlyUnlockHint": "読み取り専用属性を解除してから保存します。ロックは元に戻さず、バージョン管理コマンド（p4 edit など）は実行しません。",
       "saveError": {
@@ -5877,7 +6048,8 @@
       "orphaned": "アプリの再起動により中断されました",
       "dispatchResult": "委任したタスクの結果を受け取らずに終了しました",
       "usageLimit": "使用量上限に達して停止しました",
-      "unknown": "不明な理由で失敗しました"
+      "unknown": "不明な理由で失敗しました",
+      "creditCap": "API クレジットの上限で停止しました"
     },
     "turnStop": {
       "cancelled": "ユーザーが停止",
@@ -5907,15 +6079,12 @@
       "viaTask": "サブエージェント経由：{{name}}",
       "external": "プロジェクト外",
       "enter": "フォルダに入る",
-      "leave": "セッションに戻る",
       "openAddress": "アドレスを開く",
       "showInConversation": "会話内で表示",
       "copyAddress": "アドレスをコピー",
       "copyCommand": "コマンドをコピー",
       "recentQueries": "最近の検索",
       "recentCommands": "最近のコマンド",
-      "moreFiles": "ほか{{count}}件のファイル（フォルダに入るとすべて表示されます）",
-      "overflowHint": "最も長く使われていない場所が、1つに折りたたまれています",
       "centerTotals": "ファイル{{files}}件・ウェブ{{webs}}件・アプリ{{apps}}件・サブエージェント{{tasks}}件"
     },
     "density": {

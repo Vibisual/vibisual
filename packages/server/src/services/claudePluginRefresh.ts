@@ -1,20 +1,9 @@
 /**
- * claudePluginRefresh.ts — §5.5 #17-33 ⑦: **손으로 하던 갱신을 앱이 대신 한다.**
- *
- * 왜 있는가. #17-33 은 플러그인을 보고·켜고·설치하는 자리를 만들었지만 **갱신하는 자리는 없었다**.
- * 마켓 클론은 누군가 `claude plugin marketplace update` 를 부르기 전까지 영영 그대로이고,
- * 실측(2026-09-09) 공식 마켓 매니페스트는 2026-08-04 에 멈춰 **36일** 낡아 있었다 — 그동안
- * Anthropic 이 낸 스킬은 앱 어디에도 나타나지 않았고, 사용자는 그 사실조차 알 수 없었다.
- * 부를 자리가 없던 것이 원인이므로, 그 자리를 여기 하나 만든다.
- *
- * 지키는 것 넷:
- *  ① **바꾸는 일은 여전히 전부 CLI 위임**(#17-33 ④). 우리는 `claudePluginService` 의 스폰만 부른다.
- *  ② **겹치지 않는다** — git 을 타는 작업이라 두 벌이 동시에 돌면 서로의 클론을 물어 뜯는다.
- *  ③ **한 번에 다 하려 들지 않는다** — 뒤처진 것이 수십 개면 나눠서 다음 주기에 이어 간다.
- *  ④ **못 했으면 시각을 안 찍는다** — 실패에 시각을 찍으면 다음 주기까지 조용히 넘어가 버린다.
- *
- * 상태는 `AppState`(머신 단위)에 산다 — 마켓 클론은 어느 프로젝트를 열든 하나뿐이라
- * 프로젝트 체크포인트에 둘 이유가 없다. broadcast·checkpoint 미관여(#17-33 ⑥ 그대로).
+ * claudePluginRefresh.ts — §5.5 #17-33 ⑦: 마켓·플러그인 갱신을 앱이 대신 한다.
+ * 마켓 클론은 누가 `claude plugin marketplace update` 를 부르기 전까지 그대로다 — 실측(2026-09-09) 공식 마켓 매니페스트가 36일 낡아, 그동안 나온 스킬이 앱 어디에도 안 보였다.
+ * 지키는 것: ① 바꾸는 일은 전부 CLI 위임(#17-33 ④ — `claudePluginService` 스폰만 부른다) ② 겹치지 않는다(git 을 타서 동시에 돌면 클론을 서로 물어뜯는다)
+ * ③ 한 번에 다 하지 않는다(뒤처진 것이 많으면 다음 주기에 이어 간다) ④ 못 했으면 시각을 안 찍는다(찍으면 다음 주기까지 조용히 넘어간다).
+ * 상태는 `AppState`(머신 단위)에 둔다 — 마켓 클론은 하나뿐이라 프로젝트 체크포인트에 둘 이유가 없다. broadcast·checkpoint 미관여(#17-33 ⑥).
  */
 import type { ClaudePluginRefreshResult } from '@vibisual/shared';
 import {
@@ -30,11 +19,7 @@ import { logger } from '../logger.js';
 import { appStateGetClaudePluginRefresh, appStateSetClaudePluginRefresh } from './appState.js';
 import { scanClaudePlugins, updateClaudeMarketplaces, updateClaudePlugin } from './claudePluginService.js';
 
-/**
- * ② 겹치지 않는다. 자동 주기와 사용자가 누른 [지금 갱신] 이 같은 순간에 걸릴 수 있고, 둘 다
- * `git` 을 타므로 동시에 돌면 같은 클론을 서로 물어 뜯는다. 도는 중이면 **그 약속을 그대로 준다**
- * — 두 번째 호출자도 첫 번째의 결과를 받으므로 화면이 영영 "갱신 중" 으로 남지 않는다.
- */
+/** ② 겹치지 않는다 — 자동 주기와 [지금 갱신] 이 같은 순간에 걸릴 수 있고 둘 다 git 을 탄다. 도는 중이면 **그 약속을 그대로 준다**(두 번째 호출자도 결과를 받아 화면이 "갱신 중"에 남지 않는다). */
 let inflight: Promise<ClaudePluginRefreshResult> | null = null;
 
 /** 자동 주기 타이머 — 중복 기동을 막고 종료 시 정리할 수 있게 들고 있는다. */
@@ -69,9 +54,7 @@ export interface RefreshOptions {
 
 /**
  * 한 번 훑는다 — 마켓을 끌어오고, 뒤처진 설치본을 최신 판으로 올린다.
- *
- * 순서가 중요하다: **마켓을 먼저** 갱신해야 "무엇이 최신인지" 를 아는 상태에서 설치본을 견줄 수 있다.
- * 옛 마켓으로 견주면 이미 나온 새 판을 못 보고 넘어간다.
+ * **마켓을 먼저** 갱신한다 — 옛 마켓으로 견주면 이미 나온 새 판을 못 본다.
  */
 export function runClaudePluginRefresh(
   projectPath: string,
@@ -170,11 +153,8 @@ async function doRefresh(projectPath: string, opts: RefreshOptions): Promise<Cla
 }
 
 /**
- * 자동 갱신을 켠다 — 기동 후 한 번, 그 뒤로는 정해진 간격마다 "지금 할 때가 됐나" 만 본다.
- *
- * `resolveProjectPath` 를 인자로 받는 이유: CLI 는 `cwd` 로 범위를 해석하므로 **어느 프로젝트에서
- * 띄우는지**가 필요한데, 그것을 아는 것은 그래프 쪽이고 이 모듈은 그 사정을 몰라도 된다.
- * 열린 프로젝트가 하나도 없으면(`null`) 이번 차례는 조용히 건너뛴다 — 마켓 갱신은 급한 일이 아니다.
+ * 자동 갱신을 켠다 — 기동 후 한 번, 그 뒤로는 간격마다 "할 때가 됐나"만 본다.
+ * `resolveProjectPath` 를 받는 이유: CLI 는 `cwd` 로 범위를 해석해 어느 프로젝트에서 띄우는지가 필요하다(그래프가 안다). 열린 프로젝트가 없으면(`null`) 이번 차례는 건너뛴다.
  */
 export function startClaudePluginAutoRefresh(resolveProjectPath: () => string | null): void {
   if (tickTimer || startupTimer) return; // 중복 기동 방지(테스트·핫리로드)

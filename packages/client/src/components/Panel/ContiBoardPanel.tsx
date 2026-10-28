@@ -14,19 +14,19 @@ import { shortcutLabel } from '../../utils/platform.js';
 import { runEnterKey } from '../../hooks/useEnterSubmit.js';
 import { IME_ENTER_OWNER } from '../../utils/inputComposition.js';
 
-/** §5.3 #28 v1.59 — 표준 16:9 스토리보드 viewBox. CONTI_DEFAULTS 와 동기화. */
+/** §5.3 #28 — 표준 16:9 스토리보드 viewBox. CONTI_DEFAULTS 와 맞출 것. */
 const VB_W = 320;
 const VB_H = 180;
 /** FrameCard 폭 (16:9 비율 유지: 카드 520, wireframe 480×270) */
 const CARD_W = 520;
-/** §5.3 #28 v1.59 — 콘티 보드 줌 한도. 휠 한 틱 = 10% 가감. */
+/** §5.3 #28 — 콘티 보드 줌 한도. 휠 한 틱 = 10% 가감. */
 const ZOOM_MIN = 0.4;
 const ZOOM_MAX = 4.0;
 const ZOOM_STEP = 1.1;
 /** 드래그 팬 감지 임계값 — 이 이상 움직이면 click 무시(false drag) */
 const PAN_CLICK_THRESHOLD_PX = 4;
 
-/** §5.3 #28 v1.61 — 카드 사이 화살표(아이콘+양쪽 패딩) 영역의 폭(px). 카드 그리드 stride 계산에 사용. */
+/** §5.3 #28 — 카드 사이 화살표 영역 폭(px), 카드 stride 계산용. */
 const ARROW_AREA = 48;
 /** 카드 한 칸이 차지하는 가로 stride (카드 + 카드 뒤 화살표 영역). 슬라이드 애니메이션 거리 = STRIDE. */
 const STRIDE = CARD_W + ARROW_AREA;
@@ -52,12 +52,7 @@ function isValidGap(from: number, g: number): boolean {
   return g !== from && g !== from + 1;
 }
 
-/** 컨테이너 로컬 좌표 x 가 어느 gap 에 매핑되는지 판정.
- *  *Slot-based*: cursor 가 어느 카드 슬롯 위에 있는지 cardIdx 를 구하고, source 와의 좌/우 관계로 g 를 결정.
- *    cardIdx < from → g = cardIdx        (cursor 가 가리키는 슬롯에 source 가 들어간다 — 왼쪽으로 이동)
- *    cardIdx > from → g = cardIdx + 1    (cursor 가 가리키는 슬롯에 source 가 들어간다 — 오른쪽으로 이동)
- *    cardIdx === from → null              (source 자신 위 = dead zone. 인접 no-op gap 도 자연 회피)
- *  결과: 양 방향 모두 "cursor 가 가리키는 카드 자리에 source 가 그대로 들어간다" 로 좌우 대칭. */
+/** x → 삽입 gap(슬롯 기준). cursor 아래 카드가 source 왼쪽이면 g = cardIdx, 오른쪽이면 cardIdx + 1, 자기 자신이면 null(dead zone) — 좌우 대칭. */
 function detectGapAtX(x: number, totalFrames: number, from: number): number | null {
   if (totalFrames === 0) return null;
   let cardIdx = Math.floor((x - FLEX_PADDING_PX) / STRIDE);
@@ -81,12 +76,12 @@ function formatDateTime(ts: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** v1.62 — element 좌표/크기 NaN 방어. 서버 sanitize 가 정상이면 no-op. */
+/** element 좌표/크기 NaN 방어(서버 sanitize 가 정상이면 no-op). */
 function safeNum(n: unknown, fallback: number): number {
   return typeof n === 'number' && Number.isFinite(n) ? n : fallback;
 }
 
-/** v1.62 — render 직전 element 의 모든 수치 필드 normalize. NaN/string/undefined 다 안전값. */
+/** render 직전 수치 필드 normalize(NaN/string/undefined → 안전값). */
 function normalizeEl(el: ContiElement): ContiElement {
   const out: ContiElement = { ...el, x: safeNum(el.x, 0), y: safeNum(el.y, 0) };
   if (el.w !== undefined) out.w = safeNum(el.w, 0);
@@ -96,8 +91,7 @@ function normalizeEl(el: ContiElement): ContiElement {
   return out;
 }
 
-/** v1.62 — element 의 시각적 bounding box. 모든 type 을 최소 MIN×MIN 의 hit area 로 보장.
- *  text/line 처럼 자체 클릭 영역이 좁은 type 도 이 bbox 만큼은 어디 누르든 click 잡힌다. */
+/** 시각적 bbox — 모든 type 을 최소 MIN×MIN hit area 로(text/line 처럼 좁은 것도 잡히게). */
 function elementBBox(rawEl: ContiElement): { x: number; y: number; w: number; h: number } {
   const el = normalizeEl(rawEl);
   const MIN = 18;
@@ -141,9 +135,9 @@ function ElementSvg({
   selected: boolean;
   onClick: (e: React.MouseEvent) => void;
 }): React.JSX.Element {
-  // v1.62 — 옛 체크포인트 잔존/HMR 캐시가 NaN 을 흘려도 SVG 가 깨지지 않도록 진입점에서 한 번 더 normalize.
+  // 옛 체크포인트/HMR 캐시가 NaN 을 흘려도 SVG 가 깨지지 않게 한 번 더 normalize.
   const el = normalizeEl(rawEl);
-  // v1.59 — 기본 strokeWidth 1.5 → 2 로 상향 (CONTI_DEFAULTS.defaultStrokeWidth)
+  // 기본 2 = `CONTI_DEFAULTS.defaultStrokeWidth`.
   const stroke = selected ? '#2563eb' : (el.stroke ?? '#374151');
   const strokeWidth = selected ? Math.max(3, (el.strokeWidth ?? 2) + 1) : (el.strokeWidth ?? 2);
   const fill = el.fill ?? 'none';
@@ -219,9 +213,7 @@ function ElementSvg({
     );
   }
 
-  // v1.62 — bbox 기반 hit + 항상 보이는 가이드 박스.
-  //   fill="transparent" 면 클릭이 잡히지만 시각적으로는 비어있는 것처럼. fill="none" 이었으면 클릭 안 잡힘.
-  //   selected = 진한 파란 실선, idle = 연한 회색 점선. 사용자가 "여기 누를 수 있구나" 한눈에 알 수 있도록.
+  // bbox hit + 가이드 박스. fill="transparent" 라야 클릭이 잡힌다(fill="none" ❌).
   const bb = elementBBox(el);
   return (
     <g onClick={onClick} style={{ cursor: 'pointer' }} data-element-id={el.id}>
@@ -265,9 +257,8 @@ function FrameCard({
   onPatchText: (patch: { title?: string; action?: string }) => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
-  /** v1.61 — 커스텀 드래그에서 cursor offset 계산용 카드 root ref. */
   const cardRootRef = useRef<HTMLDivElement>(null);
-  // §5.3 #28 v1.61 — title / action 더블클릭 → 인라인 편집. blur/Enter 커밋, Esc 취소.
+  // §5.3 #28 — title / action 더블클릭 → 인라인 편집. blur/Enter 커밋, Esc 취소.
   const [editing, setEditing] = useState<'title' | 'action' | null>(null);
   const [draft, setDraft] = useState('');
 
@@ -292,16 +283,14 @@ function FrameCard({
     <div
       ref={cardRootRef}
       onClick={onSelect}
-      // v1.61 — 표준 카드 폭 520px. 톤: bg_card #1A1D26 + border subtle. 선택 강조는 action 컬러(보라).
-      // dragOver/drop 은 컨테이너 단일 핸들러에서 cursor x 로 gap 판정 → 여기는 더 이상 핸들링하지 않음.
+      // 카드 폭 520px. dragOver/drop 은 컨테이너 단일 핸들러가 cursor x 로 판정한다.
       style={{ width: CARD_W }}
       className={`flex h-full flex-shrink-0 cursor-pointer flex-col gap-3 rounded-xl border p-5 transition-[opacity,transform,box-shadow,border-color] duration-200 ${
         selected ? 'border-violet-400 bg-vb-card shadow-lg shadow-violet-400/20' : 'border-white/[0.06] bg-vb-card hover:border-white/10'
       } ${isDragging ? 'pointer-events-none scale-95 opacity-25' : ''}`}
     >
       <div
-        // v1.61 — HTML5 drag 폐기, 커스텀 드래그(mousedown→window mousemove/up)로 전환.
-        //   Chromium 이 transform 된 조상 내부 요소를 setDragImage 로 캡쳐 못 하는 케이스 우회 + ghost 를 React 가 직접 그린다.
+        // HTML5 drag ❌ — Chromium 이 transform 된 조상 안 요소를 setDragImage 로 못 잡는다. 커스텀 드래그 + React 가 ghost 를 그린다.
         onMouseDown={(e) => {
           if (e.button !== 0) return;
           e.stopPropagation();
@@ -344,10 +333,10 @@ function FrameCard({
           {frame.title}
         </div>
       )}
-      {/* v1.61 — 와이어프레임 16:9 표준. 배경 = bg_demo `#242833` (Conti Design System 3-레이어). */}
+      {/* 와이어프레임 16:9, 배경 `#242833`(Conti Design System). */}
       <div className="flex aspect-video w-full items-center justify-center overflow-hidden rounded-lg border border-white/5 bg-vb-inset p-0 shadow-inner">
         <svg viewBox={`0 0 ${VB_W} ${VB_H}`} className="h-full w-full" preserveAspectRatio="xMidYMid meet">
-          {/* v1.61 — 기본 배경 면 (LLM 이 첫 element 로 까는 걸 깜빡해도 톤 유지). */}
+          {/* 기본 배경 면(LLM 이 바탕을 안 깔아도 톤 유지). */}
           <rect x={0} y={0} width={VB_W} height={VB_H} fill="#242833" stroke="none" />
           {frame.elements.map((el) => (
             <ElementSvg
@@ -412,7 +401,7 @@ function FrameCard({
   );
 }
 
-/** §7.13 v1.47 — 콘티 보드 (더블 클릭 시 전체 화면 오버레이) */
+/** §7.13 — 콘티 보드(더블 클릭 시 전체 화면 오버레이). */
 export function ContiBoardPanel(): React.JSX.Element | null {
   const { t } = useTranslation();
   const open = useGraphStore((s) => s.contiBoardOpen);
@@ -440,7 +429,6 @@ export function ContiBoardPanel(): React.JSX.Element | null {
   /** 받을 수 있다고 선언한 설치된 앱들. 코어는 이름을 묻지 않는다(§5.13 (P-4)). */
   const storyboardApps = useMemo(() => listStoryboardApps(userDefaults), [userDefaults]);
 
-  // §5.3 #28 v1.59 — 줌(transform scale) + 팬(transform translate) 상태
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const boardRef = useRef<HTMLDivElement>(null);
@@ -451,10 +439,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
   /** click handler 가 직전 드래그 팬을 무시하기 위한 플래그. mouseup 시 셋 → 첫 click 에서 클리어. */
   const suppressNextClickRef = useRef(false);
 
-  // §5.3 #28 v1.61 — 프레임 reorder.
-  //   dragFromIdx: 드래그 중인 source frame 의 원래 index.
-  //   dragOverGap: 현재 cursor 가 가리키는 "삽입 gap" (0 ≤ g ≤ N). g 의 의미: 원래 배열에서 frame[g-1] 와 frame[g] 사이.
-  //   카드별 dragOver/drop 대신 컨테이너 단일 핸들러에서 cursor x 좌표로 gap 판정 → 카드 transform 슬라이드와 충돌 없음.
+  // §5.3 #28 — reorder. dragOverGap = 삽입 gap(0 ≤ g ≤ N, frame[g-1]·frame[g] 사이). 컨테이너 단일 핸들러라 카드 transform 슬라이드와 충돌 없음.
   const [dragFromIdx, setDragFromIdx] = useState<number | null>(null);
   const [dragOverGap, setDragOverGap] = useState<number | null>(null);
   const flexContainerRef = useRef<HTMLDivElement>(null);
@@ -475,8 +460,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
     setPan({ x: 0, y: 0 });
   }, [open?.contiId]);
 
-  // v1.62 — 팝업 열려 있을 때 외부 press → 자동 닫기(공통 규약 — 팝업 안에서 시작한 드래그는 ❌).
-  //   팝업 자체와 현재 선택된 element 위는 "안"으로 본다(ref 가 아니라 data 속성으로 판정).
+  // 열린 팝업은 외부 press 로 닫는다. 팝업과 선택 element 위는 "안"(ref 가 아니라 data 속성으로 판정).
   useOutsidePressDismiss({
     enabled: selectedElement !== null,
     onDismiss: () => setSelectedElement(null),
@@ -488,8 +472,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
     capture: false,
   });
 
-  // §5.3 #28 v1.59 — 휠 줌. 컨테이너 위에서 wheel → 줌 in/out (page scroll 막음).
-  // mouse 위치를 anchor 로 잡아 자연스러운 줌. passive:false 로 preventDefault 가능하게.
+  // §5.3 #28 — 휠 줌(마우스 anchor). passive:false 라야 preventDefault 로 페이지 스크롤을 막는다.
   useEffect(() => {
     const el = boardRef.current;
     if (!el || !open) return;
@@ -516,8 +499,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
     return () => el.removeEventListener('wheel', handler);
   }, [open]);
 
-  // §5.3 #28 v1.59 — 좌클릭 드래그 팬. boardRef 위 mousedown → window mousemove/up.
-  // 드래그앤드롭(frame 핸들)·element click 과 충돌하지 않도록 stopPropagation 사용.
+  // §5.3 #28 — 좌클릭 드래그 팬. frame 드래그·element click 과 안 겹치게 stopPropagation.
   const onBoardMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
     // FrameCard 의 drag 핸들 / element click 은 e.stopPropagation 으로 여기 도달 ❌.
@@ -539,7 +521,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
       const dy = e.clientY - d.startY;
       if (!d.moved && (Math.abs(dx) > PAN_CLICK_THRESHOLD_PX || Math.abs(dy) > PAN_CLICK_THRESHOLD_PX)) {
         d.moved = true;
-        // v1.62 — 실제 pan-drag 가 시작되면 inline prompt 팝업 닫기 (드래그 중 거슬리지 않게).
+        // 실제 pan-drag 가 시작되면 inline prompt 팝업을 닫는다.
         setSelectedElement(null);
       }
       setPan({ x: d.origX + dx, y: d.origY + dy });
@@ -605,9 +587,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
     setSelectedFrameIdx((idx) => Math.max(0, idx - 1));
   }, [conti, selectedFrameIdx, deleteFrame]);
 
-  // §5.3 #28 v1.61 — 커스텀 드래그 상태.
-  //   HTML5 native drag 는 transform 된 보드 안에서 setDragImage 가 깨지는 케이스가 있어 폐기.
-  //   대신 mousedown → window mousemove/up → React 가 직접 floating preview 를 그린다.
+  // §5.3 #28 — 커스텀 드래그 상태(native drag 는 transform 보드에서 setDragImage 가 깨진다).
   const dragStateRef = useRef<{
     active: boolean;
     fromIdx: number;
@@ -656,7 +636,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
         if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
         d.passed = true;
         setDragFromIdx(d.fromIdx);
-        // v1.62 — frame 드래그 실제 시작 시 inline prompt 팝업도 닫기.
+        // frame 드래그가 실제로 시작되면 inline prompt 팝업도 닫는다.
         setSelectedElement(null);
       }
       setCursorPos({ x: e.clientX, y: e.clientY });
@@ -719,12 +699,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
     void patchFrame(conti.id, latestFrameIdx, { title: nextTitle, action: nextAction });
   }, [conti, selectedFrameIdx, patchFrame, t]);
 
-  /**
-   * §5.13 (Q) — 이 콘티를 받는 앱에게 넘긴다.
-   *
-   * 코어는 **어떤 앱인지 모른다** — "받겠다고 선언한 설치된 앱" 중 첫 번째를 부르고,
-   * 그 앱이 돌려준 `{appId, docId, jobId}` 를 데이터로 콘티에 적어 둘 뿐이다.
-   */
+  /** §5.13 (Q) — 받겠다고 선언한 설치된 앱 중 첫 번째에게 넘긴다. 코어는 앱을 모르고 돌려준 `{appId, docId, jobId}` 만 적는다. */
   const handleHandoff = useCallback(async () => {
     const target = storyboardApps[0];
     const projectId = currentProject?.path ?? '';
@@ -752,8 +727,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
 
   return (
     <div className="fixed inset-0 z-[55] flex flex-col bg-black/80 backdrop-blur-sm">
-      {/* 헤더 — 정보 묶음은 좁으면 줄을 바꾸고, [닫기]는 묶음 밖 오른쪽 위에 늘 선다.
-          종전에는 한 줄에 다 늘어서 폰 폭에서 [닫기]가 화면 밖으로 밀려났다(폰에는 Esc 도 없다). */}
+      {/* [닫기]는 정보 묶음 밖 오른쪽 위에 늘 선다(폰 폭에서 밀려나면 닫을 길이 없다 — 폰엔 Esc 도 없다). */}
       <div className="flex items-center gap-3 border-b border-gray-800 bg-gray-900 px-6 py-3 max-md:items-start max-md:px-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 max-md:gap-2">
         <span className="text-sm font-bold text-gray-100">
@@ -823,10 +797,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
         </button>
       </div>
 
-      {/* 본문 — 줌(휠) + 좌클릭 드래그 팬 + frame 드래그앤드롭 reorder.
-          boardRef = 뷰포트, 내부 inner = transform 적용 컨테이너.
-          터치에는 휠도 마우스 끌기도 없어 520px 카드 줄의 화면 밖 칸에 닿을 길이 없었다 — 굵은 포인터에서는
-          보드가 손가락으로 구른다(팬·줌 배선은 그대로 마우스 몫). */}
+      {/* 본문 — 휠 줌 + 드래그 팬 + reorder. 터치엔 둘 다 없어 굵은 포인터에서는 보드가 손가락으로 구른다. */}
       <div
         ref={boardRef}
         onMouseDown={onBoardMouseDown}
@@ -841,7 +812,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
             transformOrigin: '0 0',
             width: 'max-content',
             gap: 0,
-            // §5.3 #28 v1.59 — will-change: transform 금지. GPU 합성 레이어로 가면 SVG/텍스트가 깨진다.
+            // §5.3 #28 — will-change: transform 금지. GPU 합성 레이어로 가면 SVG/텍스트가 깨진다.
           }}
         >
           {conti.frames.map((f, i) => {
@@ -850,11 +821,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
             return (
               <Fragment key={f.id}>
                 <div
-                  // §5.3 #28 v1.61 — 카드 + 뒤따르는 화살표를 한 wrapper 로 묶어 transform 슬라이드.
-                  // STRIDE = CARD_W + ARROW_AREA. 옆 카드가 비집고 들어갈 자리를 만들어준다.
-                  // transition 은 "드래그 중에만". 드롭 직후엔 array 재정렬과 transform 0 리셋이 동시에 일어나는데
-                  // transition 이 살아 있으면 새 flex 슬롯에서 -STRIDE→0 보간이 일어나서
-                  // "옆에서 미끄러져 들어오는" 잔존 애니메이션이 생긴다 → 드래그 끝나면 snap.
+                  // §5.3 #28 — 카드+화살표 wrapper 를 STRIDE 만큼 슬라이드. transition 은 드래그 중에만 — 드롭 직후에도 살아 있으면 새 슬롯에서 미끄러져 들어온다.
                   style={{
                     transform: `translateX(${shift}px)`,
                     transition: dragFromIdx !== null ? 'transform 220ms cubic-bezier(0.4, 0, 0.2, 1)' : 'none',
@@ -903,8 +870,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
               </Fragment>
             );
           })}
-          {/* §5.3 #28 v1.61 — 드롭 placeholder. 슬라이드로 비워진 슬롯에 절대 위치로 자리잡고,
-              gap 이 바뀔 때 left 값이 transition 돼서 마치 자리를 옮겨가는 듯이 부드럽게 미끄러진다. */}
+          {/* §5.3 #28 — 드롭 placeholder(left transition 으로 미끄러진다). */}
           {dragFromIdx !== null && dragOverGap !== null && isValidGap(dragFromIdx, dragOverGap) && (
             <div
               aria-hidden
@@ -1026,9 +992,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
         />
       )}
 
-      {/* §5.3 #28 v1.61 — 커스텀 드래그 floating preview.
-          오버레이 최상위에 fixed 로 그려 보드의 transform 영향 없이 마우스를 따라온다.
-          카드 자체를 transform: scale(zoom) 으로 그려 화면에 보이는 그대로의 크기로 매달림. */}
+      {/* §5.3 #28 — floating preview 는 오버레이 최상위 fixed 로(보드 transform 무관), scale(zoom) 으로 보이는 크기 그대로. */}
       {dragFromIdx !== null && cursorPos && conti.frames[dragFromIdx] && (
         <div
           aria-hidden

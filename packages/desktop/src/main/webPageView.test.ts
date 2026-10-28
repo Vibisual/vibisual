@@ -10,12 +10,7 @@ import {
   type WebPageGuardDeps,
 } from './webPageView.js';
 
-/**
- * §5.23 「더블클릭」 — 인터넷 페이지는 격리 웹뷰로만 들어온다.
- *
- * 렌더러가 무엇을 적어 보냈든(`preload`·`nodeintegration`·`partition`·`webpreferences`) main 의 손님 설정이 이긴다 —
- * 그래서 여기서는 ① 받는 주소(http(s) 만) ② 다시 쓴 손님 설정 ③ 붙은 손님의 새 창·이동 잠금을 못 박는다.
- */
+/** §5.23 「더블클릭」 — 렌더러가 무엇을 적든 main 의 손님 설정이 이긴다: 받는 주소(http(s) 만)·다시 쓴 손님 설정·새 창·이동 잠금을 못 박는다. */
 
 describe('isWebPageGuestSrc — 손님으로 띄울 주소는 http(s) 만', () => {
   it('인터넷 페이지와 로컬 http 는 받는다', () => {

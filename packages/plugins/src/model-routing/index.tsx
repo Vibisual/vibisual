@@ -1,20 +1,11 @@
-/**
- * §5.11 v3.93 — 모델 라우팅(Model Routing / Cascade): 이 작업에 이 모델이 맞나.
- *
- * 싼 모델로 먼저 처리하고 실패하면 승급시키는 계단식이 표준 실무가 됐지만, 실제로는 **한 번 고른
- * 모델이 그대로 남는다**. 여기서는 지금 모델과 작업의 크기(턴 수)를 나란히 놓아 승급·강등을 눈으로
- * 판단하게 한다. 자동으로 바꾸지 않는다 — 모델 선택은 사용자 결정이다. 표시 전용.
- */
+/** §5.11 — 모델 라우팅(Model Routing / Cascade): 지금 모델과 작업 크기(턴 수)를 나란히 놓는다. 자동으로 바꾸지 않는다 — 모델은 사람이 고른다. 표시 전용. */
 import { parseModelFamily } from '@vibisual/shared';
 import { defineInspector, ICONS } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';
 
 /**
  * 사고 비용이 큰 순서. 알 수 없는 패밀리는 중간으로 본다.
- *
- * fable/mythos 는 opus 위 티어다(입력 단가 $10 vs $5). 여기 없으면 아래 `?? 2` 가 물어 **sonnet 급**으로
- * 취급되고, 그러면 3턴짜리 작업에 최상위 모델을 물려 둬도 강등 제안이 뜨지 않는다 — 이 인스펙터가
- * 존재하는 이유가 바로 그 자리다.
+ * fable/mythos 는 opus 위 티어(입력 단가 $10 vs $5) — 빠지면 `?? 2` 로 sonnet 급이 되어 3턴짜리 작업에 최상위 모델을 물려도 강등 제안이 안 뜬다.
  */
 const WEIGHT: Record<string, number> = { haiku: 1, sonnet: 2, opus: 3, fable: 4, mythos: 4 };
 

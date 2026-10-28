@@ -1,17 +1,6 @@
 /**
- * §9 — **키맵 슬라이스 증분의 두 전제**를 고정한다(2026-09-02 라운드).
- *
- * v3.89 가 `fileEdits`·`bashHistory` 에 증분을 붙였을 때, 나머지 키맵 슬라이스는 손대지 않았다.
- * 넣어 봐야 소용이 없었기 때문이다 — 서버가 그것들을 **매 스냅샷마다 새로 복사**해 내보내고 있어서
- * 참조 비교가 전부 "바뀜"으로 잡혔다(실측 2026-09-02 · 살아 있는 checkpoint: 키맵 941KB 의
- * 참조 유지율 **0%**. 한 에이전트가 한 줄 뱉을 때마다 `agentReports` 240KB·`sessionGoals` 171KB 가
- * 통째로 다시 갔다).
- *
- * 그래서 이 파일이 지키는 것은 둘이고, **둘 중 하나만 무너져도 최적화가 조용히 0이 된다**:
- *  ① 안 바뀐 값은 **같은 사본**이 나온다(`ProjectGraph.stableCopy` / `sessionGoalViewCache`).
- *  ② 표(`DELTA_SLICE_KEYS`)에 있는 슬라이스는 전부 실제로 델타를 타고, 왕복하면 원본과 같다.
- *
- * 실측 효과(같은 체크포인트): 전선 1,184KB → **408.9KB**.
+ * §9 — 키맵 슬라이스 증분의 두 전제(하나만 무너져도 최적화가 조용히 0): 안 바뀐 값은 같은 사본(`ProjectGraph.stableCopy`·`sessionGoalViewCache`),
+ * `DELTA_SLICE_KEYS` 슬라이스는 실제로 델타를 타고 왕복이 원본과 같다. 2026-09-02 실측: 참조 유지율 0% → 고친 뒤 전선 1,184KB → 408.9KB.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';

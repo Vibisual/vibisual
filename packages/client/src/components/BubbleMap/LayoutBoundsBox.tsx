@@ -12,14 +12,8 @@ import {
 } from './layoutBoundsHandles.js';
 
 /**
- * 루트 캔버스에서 부모 버블이 나가지 못하도록 하는 사각 바운딩 박스.
- * - 회색 점선(드문드문)으로 영역만 시각화 — 별도 핸들 글리프 없음.
- * - 4개 변(N/E/S/W) 어디든 pointerdown → 해당 변을 끌어 박스 크기 조절.
- * - 4개 모서리(NW/NE/SW/SE) pointerdown → 가로·세로를 함께 끌어 대각선 조절 (SSOT §5.4 #42).
- * - 변 띠·모서리 칸만 hit 영역(`layoutBoundsHandles.ts`), 나머지는 클릭 통과.
- *
- * 물리 클램프는 usePhysicsLayout 가 store 의 layoutBoundsByProject 를 읽어 처리.
- * 이 컴포넌트는 루트 뷰(currentFolderId === null) 에서만 마운트한다.
+ * 루트 캔버스에서 부모 버블을 가두는 바운딩 박스. 변·모서리를 끌어 조절(§5.4 #42), hit 영역은 `layoutBoundsHandles.ts` 의 띠·칸뿐이고 나머지는 통과.
+ * 클램프는 usePhysicsLayout 이 layoutBoundsByProject 로 한다. 루트 뷰에서만 마운트.
  */
 
 const DEFAULT_HW = LAYOUT_BOUNDS_DEFAULT.hw;

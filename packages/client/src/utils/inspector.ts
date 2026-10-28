@@ -79,15 +79,9 @@ export function cumulativeCssZoom(el: Element, zoomOf: (e: Element) => number = 
 }
 
 /**
- * 요소가 **화면에 보이는** 사각형(자기 문서의 뷰포트 기준 CSS px).
- *
- * 통합 앱의 엔진(Electron 31 = Chromium 126)은 CSS `zoom` 아래 요소의 `getBoundingClientRect` 를
- * **위치·크기 모두 그 요소의 누적 zoom 으로 나눠** 준다 — 실측: `zoom:0.9` 아래 화면 `[145,100] 180×36`
- * 인 요소가 `[161,111] 200×40` 으로 왔다. IDE 본문은 글자 크기(`ideTextZoom`)를 항목마다 `zoom` 으로
- * 걸어서, 인스펙터 상자가 IDE 창 본문에서만 엉뚱한 자리·크기로 그려졌다(사용자 보고 — 배율 0.9 에서
- * 상자가 오른쪽 아래로 밀리고 커져 무엇을 집었는지 알 수 없었다). 집는 요소는 맞았다 — `elementFromPoint`
- * 는 화면 기준이다. 틀린 것은 상자와 그 옆 크기 글자뿐이었다.
- *
+ * 요소가 화면에 보이는 사각형(자기 문서의 뷰포트 기준 CSS px).
+ * Electron 31(Chromium 126)은 CSS `zoom` 아래 요소의 `getBoundingClientRect` 를 위치·크기 모두 누적 zoom 으로 나눠 준다 — 실측: `zoom:0.9` 아래 화면
+ * `[145,100] 180×36` 인 요소가 `[161,111] 200×40` 으로 왔다. `elementFromPoint` 는 화면 기준이라 집는 요소는 맞고, 틀리는 것은 상자와 크기 글자다.
  * 표준 엔진(Chromium 130 실측)은 이미 보이는 값을 준다 — 거기서 또 곱하면 두 번 곱한 것이 된다.
  */
 export function visualClientRect(el: Element): DOMRect {
@@ -99,9 +93,8 @@ export function visualClientRect(el: Element): DOMRect {
 }
 
 /**
- * `getBoundingClientRect` 값에 곱하면 **보이는 값**이 되는 배율(표준 엔진이면 늘 1).
- * 같은 zoom 아래 형제 여럿을 잴 때 한 번만 구해 두려고 꺼냈다 — `visualClientRect` 는 부를 때마다
- * 조상을 거슬러 오른다(IDE 항목 래퍼 이분 탐색이 스크롤 프레임마다 그 길을 수십 번 걸었다).
+ * `getBoundingClientRect` 값에 곱하면 보이는 값이 되는 배율(표준 엔진이면 늘 1).
+ * 같은 zoom 아래 형제 여럿을 잴 때 한 번만 구하려고 꺼냈다 — `visualClientRect` 는 부를 때마다 조상을 거슬러 오른다(IDE 항목 래퍼 이분 탐색이 스크롤 프레임마다 수십 번).
  */
 export function visualRectScale(el: Element): number {
   return zoomDividesRects() ? cumulativeCssZoom(el) : 1;
@@ -212,10 +205,7 @@ export function buildRegionClipboardText(region: RegionInfo): string {
   return out.join('\n');
 }
 
-// ─────────────────────────────────────────────────────────────
 // Tier-based clipboard payload — optimized for AI consumption
-// ─────────────────────────────────────────────────────────────
-//
 //  Tier A  React fiber + _debugSource     → [Source][Component][Text][Hint]
 //  Tier B  React fiber, no source         → [Component][Text][Attrs][Path]
 //  Tier C  no framework                   → [Tag][Text][Attrs][Path]
@@ -375,10 +365,8 @@ function buildShortPath(el: Element): string {
 }
 
 /**
- * §5.5 #17-27 ⑮ (i) — 워크스페이스 페이지의 요소가 들고 있는 **원본 줄:칸**.
- *
- * 스크립트가 만든 요소에는 자기 자리가 없으므로 가장 가까운 조상까지 거슬러 올라가고, 몇 단계
- * 위였는지 함께 돌려준다 — "정확하지 않다"를 숨기는 것보다 그 편이 쓸모 있다.
+ * §5.5 #17-27 ⑮ (i) — 워크스페이스 페이지의 요소가 들고 있는 원본 줄:칸.
+ * 스크립트가 만든 요소에는 자리가 없어 가장 가까운 조상까지 거슬러 오르고, 몇 단계 위였는지 함께 돌려준다("정확하지 않다"를 숨기지 않는다).
  */
 function siteSourceOf(el: Element): { at: string; hops: number } | null {
   let cur: Element | null = el;

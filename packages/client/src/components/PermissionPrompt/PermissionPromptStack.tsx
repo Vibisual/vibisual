@@ -17,18 +17,12 @@ import { shortcutLabel } from '../../utils/platform.js';
 import { isImeConsumedKey } from '../../utils/inputComposition.js';
 import { decideEnterKey } from '../../utils/inputEnterKey.js';
 
-/** §5.3 #12-1 v1.43 — 스택 모달 간 z-index 시작값. */
+/** §5.3 #12-1 — 스택 모달 간 z-index 시작값. */
 const BASE_Z = 100_000;
 /** 스택 카드 cascading offset — 뒤 카드일수록 위·우측으로 밀려 꼬리만 보이게. */
 const STACK_OFFSET_Y = 14;
 const STACK_OFFSET_X = 10;
-/**
- * 더미로 **그려 두는** 카드 수(맨 앞 포함). 종전에는 대기 중인 요청을 전부 그렸는데, 카드마다
- * `depth × 14px` 위로 밀고 `1 − 0.03 × depth` 로 줄이는 식이라 상한이 없었다 — 10장이면 이미
- * 140px 위로 밀려 화면 밖으로 나가고, 34장이면 배율이 음수라 카드가 뒤집힌다. 꼬리는 장식일
- * 뿐이고 개수는 맨 앞 카드의 `N / total` 배지가 말해 주므로, 넷만 그리고 나머지는 그리지 않는다
- * (카드마다 0.5초 타이머가 하나씩 붙어 있어 안 그리는 편이 가볍기도 하다).
- */
+/** 그려 두는 카드 수(맨 앞 포함) — 깊이마다 14px 밀고 3% 줄이는 식이라 전부 그리면 화면 밖·음수 배율로 뒤집힌다. 개수는 `N / total` 배지가 말한다. */
 const STACK_VISIBLE = 4;
 /** 클릭 피드백(플래시) 지속 시간 — 버튼 눌림 → 모달 색상 플래시 → 제거 */
 const FLASH_DURATION_MS = 220;
@@ -133,8 +127,7 @@ function PermissionModal({
   const footerButtons = permissionFooterButtons(request);
   const groupName = request.codexToolGroup ? (CODEX_TOOL_GROUP_NAMES[request.codexToolGroup] ?? request.codexToolGroup) : '';
 
-  // 스택 뒤쪽 카드: 꼬리만 보이게 밀어냄. 깊이는 STACK_VISIBLE 에서 멈춘다 — 그 너머로 곱하면
-  //   화면 밖으로 나가거나 배율이 음수가 되어 카드가 뒤집힌다.
+  // 꼬리 깊이는 STACK_VISIBLE 에서 멈춘다 — 그 너머는 화면 밖·음수 배율.
   const tailDepth = Math.min(depth, STACK_VISIBLE - 1);
   const translateY = tailDepth * -STACK_OFFSET_Y; // 위로 밀어 올림
   const translateX = tailDepth * STACK_OFFSET_X;  // 오른쪽으로 밀어냄
@@ -254,10 +247,8 @@ function PermissionModal({
           </div>
         )}
 
-        {/* §5.22 — 위험 띠. 위험 3종으로 분류된 호출일 때만 뜨고, 모드가 통과시켰을 호출을
-            경계가 되돌려 물은 것이면 왜 지금 묻는지도 한 줄로 말한다.
-            §5.3 #12-1-A — 사용자가 그 도구를 **직접 확인 목록에 넣어** 붙잡힌 호출도 같은 띠를
-            쓴다(새 모달·새 띠 ❌). 그쪽은 위험 판정 없이도 뜰 수 있으므로 조건이 둘이다. */}
+        {/* §5.22 위험 띠 — 위험 3종 호출일 때(경계가 되돌려 물었으면 그 이유도 한 줄).
+           §5.3 #12-1-A 확인 목록에 넣은 도구 호출도 같은 띠다(새 띠 ❌) — 그래서 조건이 둘. */}
         {((request.risk?.length ?? 0) > 0 || request.askedByTool === true) && (
           <div className="flex flex-col gap-1 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -372,23 +363,14 @@ function InlineStyles(): React.JSX.Element {
   );
 }
 
-/**
- * §5.3 #12-1 v1.43 — 모든 대기 중인 권한 요청을 스택 모달로 렌더.
- * 오래된 요청이 배열 앞, 최신이 뒤. 최신(top)이 전면에 보이고 이전 요청은 뒤쪽 꼬리로 쌓인다.
- * 포커스·키보드는 top 만 받음. 한 장짜리 반투명 backdrop 이 전체 덮음.
- */
+/** §5.3 #12-1 — 대기 권한 요청 스택 모달. 배열 앞이 오래된 것, top(최신)만 전면·포커스·키보드. backdrop 은 한 장. */
 export function PermissionPromptStack(): React.JSX.Element | null {
   const pending = useGraphStore((s) => s.pendingPermissions);
-  // §5.3 #12-1 v2.64 — 윈도우/프로젝트 격리. pendingPermissions 는 전역(모든 broadcast 수신)
-  // 이지만, 이 윈도우가 보고 있는 프로젝트(activeProject — 메인은 현재 탭, 별창은
-  // setActiveProjectLocal 로 set 한 자기 단일 탭)의 카드만 띄운다. §3.5 상 같은 프로젝트는
-  // 메인·별창 중 한 곳에만 활성 노출되므로, 이 필터로 (1) 다른 프로젝트로 전환 시 이전
-  // 프로젝트 팝업이 따라오는 누출, (2) 멀티뷰에서 같은 카드가 여러 창에 중복 표시되는 문제가
-  // 동시에 차단된다. projectName 이 비어 귀속 불명한 요청만 안전망으로 모든 창에 표시.
+  // §5.3 #12-1 — 이 창의 activeProject(메인 = 현재 탭, 별창 = 자기 탭) 카드만 띄운다 — 전환 시 누출·여러 창 중복을 막는다(§3.5 한 프로젝트 한 창).
+  // projectName 이 빈 요청만 모든 창에.
   const activeProject = useGraphStore((s) => s.activeProject);
 
-  // 부트 시 대기 목록 복구 — 권한 요청과 §5.3 #12-2 v2.26 AskUserQuestion 을 함께.
-  //   재연결 때도 같은 함수가 다시 받는다(`hooks/reconnectResync.ts`).
+  // 부트 복구 — 권한 요청 + §5.3 #12-2 AskUserQuestion. 재연결 때도 같은 함수(`hooks/reconnectResync.ts`).
   useEffect(() => {
     let cancelled = false;
     restorePendingPrompts(() => cancelled);

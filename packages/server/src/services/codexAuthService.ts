@@ -5,27 +5,17 @@ import { logger } from '../logger.js';
 
 /**
  * §5.25 (E) — 코덱스 로그인 상태 판정 · 로그아웃의 서버 창구.
- *
- * **자격증명은 우리가 읽지도 쓰지도 않는다.** 판정은 `codex login status` 한 줄이 전부이고,
- * 코덱스 홈의 `auth.json` 을 우리가 여는 일은 없다(클로드 쪽 `claudeAuthService` 와 같은 규칙 —
- * 그쪽이 세운 "토큰 파일은 읽기 전용"보다 한 걸음 더).
- *
- * 로그인 자체는 브라우저 왕복이나 기기 코드 입력이 필요한 인터랙션이라 서버가 아니라 임베디드
- * PTY 에서 돌고(§5.25 (E) — `LoginWindow` 가 클로드에 대해 이미 하는 일), 그 성패는 다시 이
- * 서비스의 재조회로 확인한다.
- *
- * `error` 가 있는 상태는 "로그아웃"이 아니라 **"모름"** 이다 — CLI 를 못 찾거나 응답이 없을 때
- * 로그인 창을 띄우면 멀쩡히 일하던 사용자를 모달로 막게 된다.
+ * **자격증명은 읽지도 쓰지도 않는다** — 판정은 `codex login status` 뿐, 코덱스 홈의 `auth.json` 을 열지 않는다(`claudeAuthService` 와 같은 규칙).
+ * 로그인은 브라우저 왕복·기기 코드 입력이 필요해 임베디드 PTY 에서 돌고(§5.25 (E) — `LoginWindow`), 성패는 이 서비스의 재조회로 확인한다.
+ * `error` 가 있는 상태는 "로그아웃"이 아니라 **"모름"** — CLI 를 못 찾거나 무응답일 때 로그인 창을 띄우면 일하던 사용자를 모달로 막는다.
  */
 
 /** CLI 가 로그아웃을 말할 때 쓰는 표현. 이 중 하나라도 있으면 확실한 로그아웃이다. */
 const LOGGED_OUT_HINTS = ['not logged in', 'no credentials', 'please run', 'run `codex login`'];
 
 /**
- * `codex login status` 원문 → `CodexAuthStatus`. 형식을 못 알아보면 null(파싱 실패).
- *
- * **못 알아본 것을 로그아웃으로 적지 않는다** — CLI 가 문구를 바꾼 날 멀쩡한 사용자에게
- * 로그인 창이 뜨는 것이 더 나쁜 실패이기 때문이다(클로드 쪽과 같은 판단).
+ * `codex login status` 원문 → `CodexAuthStatus`. 못 알아보면 null(파싱 실패).
+ * **못 알아본 것을 로그아웃으로 적지 않는다** — CLI 가 문구를 바꾼 날 멀쩡한 사용자에게 로그인 창이 뜨는 것이 더 나쁘다.
  */
 export function parseCodexLoginStatus(raw: string, code: number | null, now: number): CodexAuthStatus | null {
   const text = raw.trim();
@@ -53,11 +43,8 @@ export function parseCodexLoginStatus(raw: string, code: number | null, now: num
 }
 
 /**
- * 판정 실패("모름")가 **마지막 정상 판정을 지우지 않게** 한다.
- *
- * 종전에는 탐침 한 번이 실패하면 캐시가 통째로 모름으로 덮여, 다음 폴링(10분)이나 사용자가
- * 새로고침을 누를 때까지 준비 여부를 보는 쪽이 전부 막혔다. 직전 판정을 `staleLoggedIn` 으로
- * 이어 실어 두면 표시는 여전히 "모름"이되 준비 검사는 이어 갈 수 있다.
+ * 판정 실패("모름")가 **마지막 정상 판정을 지우지 않게** 한다 — 캐시를 모름으로 덮으면 다음 폴링(10분)·새로고침까지 준비 검사가 전부 막힌다.
+ * 직전 판정을 `staleLoggedIn` 으로 이어 실어, 표시는 "모름"이되 준비 검사는 이어 간다.
  */
 function unknownStatus(error: CodexAuthProbeError, prev: CodexAuthStatus | null): CodexAuthStatus {
   const carried = prev?.error !== undefined ? prev.staleLoggedIn : prev?.loggedIn;
@@ -102,10 +89,8 @@ class CodexAuthService {
   }
 
   /**
-   * `codex logout` 실행 후 상태 재조회.
-   *
-   * 사용자가 옵션창에서 명시적으로 누른 경우에만 호출된다. CLI 가 실패해도 재조회한 현재 상태를
-   * 그대로 돌려준다 — 화면이 실제 상태와 어긋나지 않게(클로드 쪽과 같은 규칙).
+   * `codex logout` 실행 후 상태 재조회. 옵션창에서 명시적으로 누른 경우에만 호출된다.
+   * CLI 가 실패해도 재조회한 현재 상태를 돌려준다 — 화면이 실제와 어긋나지 않게.
    */
   async logout(): Promise<{ ok: boolean; status: CodexAuthStatus; error?: string }> {
     const res = await runCodexCli(['logout'], CODEX_AUTH_LOGOUT_TIMEOUT_MS);

@@ -2,10 +2,8 @@ import { useEffect, useState } from 'react';
 import type { CodexEffectiveConfig } from '@vibisual/shared';
 
 /**
- * §5.25 (G-2) — 코덱스가 겹쳐 읽을 설정 파일들(`GET /api/codex-config`). 읽기만 한다.
- *
- * `agentId` 가 있으면 그 버블의 프로젝트 폴더, 없으면 지금 프로젝트 폴더 기준이다(새 에이전트용 설정 창).
- * 묻는 중이면 `null`, 실패하면 `'failed'` — 실패를 내장값으로 채우면 파일에 적힌 값을 덮어 거짓말이 된다.
+ * §5.25 (G-2) — `GET /api/codex-config`(읽기만). `agentId` 가 있으면 그 버블의 프로젝트, 없으면 지금 프로젝트 기준.
+ * 묻는 중 `null`, 실패 `'failed'` — 실패를 내장값으로 채우면 파일에 적힌 값을 덮어 거짓말이 된다.
  */
 export function useCodexEffectiveConfig(enabled: boolean, agentId?: string, projectPath?: string): CodexEffectiveConfig | 'failed' | null {
   const [state, setState] = useState<{ key: string; value: CodexEffectiveConfig | 'failed' } | null>(null);

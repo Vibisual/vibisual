@@ -6,14 +6,8 @@ import {
 import type { ChatCard, ChatChannelKind, ChatVerbosity, SessionGoal } from '@vibisual/shared';
 import { passesVerbosity } from './cards';
 
-// §4 메신저 원격제어 브리지 — 판정만 모은 곳 (판올림 번호 발급 대기)
-//
-// `index.ts` 는 electron·fs·net 을 안고 있어 테스트에서 import 할 수 없다. 그런데 이 축에서
-// **가장 조용히 틀리는 것이 판정**이다 — 끄기가 안 먹히고, 안내가 무제한 나가고, 맵이 자라고,
-// 진행률이 스팸이 되는 자리가 전부 여기다(검수에서 나온 것도 그쪽이었다).
-//
-// 그래서 판정은 부작용 없는 순수 함수로 여기 두고, `index.ts` 는 이 답을 따르기만 한다.
-// **이 파일에 있는 것은 전부 단위 테스트로 고정돼 있다**(policy.test.ts).
+// §4 메신저 원격제어 브리지 — 판정만 모은 곳. `index.ts` 는 electron·fs·net 을 안아 시험에서 import 할 수 없는데, 이 축에서 가장 조용히 틀리는 것이 판정이다
+// (끄기가 안 먹힘·안내 무제한·맵 증가·진행률 스팸). 그래서 판정은 부작용 없는 순수 함수로 여기 두고 `index.ts` 는 따르기만 한다 — 전부 policy.test.ts 로 고정.
 
 /** 카드 한 장이 이 peer 로 나갈 수 있는가. */
 export interface SendGateInput {
@@ -26,12 +20,8 @@ export interface SendGateInput {
 }
 
 /**
- * **카드가 나가는 유일한 문.**
- *
- * 예전에는 전송량(`verbosity`)만 봤고 채널 on/off 는 보지 않았다. 그런데 드라이버 `stop()` 은
- * 수신(long-poll/Gateway)만 끊고 `sendCard` 는 REST 라, 토큰이 남아 있는 한 **끈 뒤에도 카드가
- * 그대로 나갔다** — 사용자는 껐다고 믿는데 권한 요청·작업 신고가 계속 메신저로 흘렀다.
- * 정책이 한 곳이라는 말은 on/off 에도 적용되어야 한다.
+ * **카드가 나가는 유일한 문.** 전송량(`verbosity`)과 채널 on/off 를 함께 본다 — 드라이버 `stop()` 은 수신(long-poll/Gateway)만 끊고 `sendCard` 는 REST 라,
+ * on/off 를 안 보면 끈 뒤에도 토큰이 남은 한 권한 요청·작업 신고가 메신저로 계속 흐른다.
  */
 export function canSend(input: SendGateInput): boolean {
   if (!input.channelEnabled) return false;
@@ -44,12 +34,8 @@ export function canPair(direct: boolean): boolean {
 }
 
 /**
- * 화이트리스트 밖 발신자에게 안내를 보내도 되는가. 보내도 되면 `true` 를 돌려주고
- * **그 사실을 맵에 적는다**(같은 발신자는 `CHAT_UNPAIRED_NOTICE_MS` 동안 다시 못 받는다).
- *
- * 침묵이 원칙이지만 예외 둘(텔레그램 자동 `/start`, 만료된 티켓으로 온 시도)에는 안내를
- * 준다 — 없으면 사용자는 봇이 고장난 줄 안다. **다만 상한이 없으면 그 친절이 곧 무제한
- * 답장**이 되어 봇의 존재가 노출되고 메신저 rate limit 이 소진된다(429 → 정상 채널까지 흔들린다).
+ * 화이트리스트 밖 발신자에게 안내를 보내도 되는가. 되면 `true` 를 돌려주고 맵에 적는다(같은 발신자는 `CHAT_UNPAIRED_NOTICE_MS` 동안 다시 못 받는다).
+ * 침묵이 원칙이지만 예외 둘(텔레그램 자동 `/start`, 만료된 티켓으로 온 시도)엔 안내한다 — 상한이 없으면 무제한 답장이 되어 봇이 노출되고 rate limit 이 소진된다(429 → 정상 채널도 흔들림).
  */
 export function takeNoticeSlot(
   seen: Map<string, number>,
@@ -68,10 +54,8 @@ export function takeNoticeSlot(
 }
 
 /**
- * 만료 시각을 가진 맵을 상한 안으로 줄인다. **만료된 것부터, 그래도 넘치면 가장 이른 것부터.**
- *
- * 값의 길이만 묶고 키 개수를 안 묶으면 오래 켜 둔 앱에서 계속 자란다 — 대기 버튼 맵이
- * 정확히 그랬다(권한 요청마다 2건이 들어가는데 **폰에서 누를 때만** 지워졌다).
+ * 만료 시각을 가진 맵을 상한 안으로 줄인다 — **만료된 것부터, 그래도 넘치면 가장 이른 것부터.** 키 개수를 안 묶으면 오래 켜 둔 앱에서 계속 자란다
+ * (대기 버튼 맵은 권한 요청마다 2건이 들고 폰에서 누를 때만 지워진다).
  */
 export function trimExpiring<T extends { expiresAt: number }>(
   map: Map<string, T>,
@@ -107,12 +91,7 @@ export function trimPairAttempts(map: Map<string, { count: number; bannedUntil: 
   trimOldest(map, CHAT_PAIR_ATTEMPT_MAX);
 }
 
-/**
- * 목표 카드의 **지문**. 이것이 바뀔 때만 카드 한 장이 나간다.
- *
- * 목표는 별도 WS 종류가 아니라 `GraphSnapshot.sessionGoals` 에 실려 오므로, 스냅샷마다 보내면
- * 진행률이 곧 스팸이 된다. 사람이 알아차릴 변화(문장·완료 단계 수·퍼센트·상태)만 지문에 넣는다.
- */
+/** 목표 카드의 **지문** — 바뀔 때만 카드 한 장이 나간다(스냅샷마다 보내면 진행률이 스팸). 사람이 알아차릴 변화(문장·완료 단계 수·퍼센트·상태)만 넣는다. */
 export function goalSignature(goal: SessionGoal): string {
   const steps = goal.steps ?? [];
   const done = steps.filter((s) => s.status === 'done').length;
@@ -124,16 +103,9 @@ export function peerKey(kind: ChatChannelKind, chatId: string): string {
   return `${kind}:${chatId}`;
 }
 
-// ─── 3단계 선택 (프로젝트 → 커스텀 에이전트 → 세션) ──────────────────────────
-//
-// 버튼이 실어 보낼 수 있는 글자에는 **바깥이 정한 상한**이 있다 — 텔레그램 `callback_data` 는
-// 64바이트다. 프로젝트 표시명은 사용자 폴더 이름이라 길이도 문자도 우리가 정하지 못하고,
-// 한글 한 자가 UTF-8 3바이트라 스무 자면 이미 넘친다. 넘치면 텔레그램이 **카드 전체를 거절**해
-// 목록이 아예 안 뜬다 — 조용히 실패하는 자리라 규칙을 여기 순수 함수로 못박고 테스트로 고정한다.
-//
-// 그래서 값은 해시로 접어 보내고, 눌렸을 때 **그 시점 목록에서 되찾는다.** 목록을 다시 만들어
-// 대조하므로 그 사이 사라진 항목은 자연히 못 찾고(= "사라졌다" 안내), 인덱스로 보냈을 때처럼
-// **엉뚱한 대상이 선택되는 일이 구조적으로 불가능**하다.
+// 3단계 선택 버튼 값. 버튼이 실을 글자엔 바깥 상한이 있다 — 텔레그램 `callback_data` 는 64바이트, 프로젝트 표시명은 폴더 이름이라 길이·문자를 못 정하고
+// 한글은 UTF-8 3바이트라 스무 자면 넘친다. 넘치면 텔레그램이 **카드 전체를 거절**해 목록이 아예 안 뜬다(조용히 실패하는 자리라 순수 함수·시험으로 고정).
+// 그래서 값은 해시로 접어 보내고 눌렸을 때 **그 시점 목록에서 대조로** 되찾는다 — 사라진 항목은 못 찾고("사라졌다" 안내), 인덱스와 달리 엉뚱한 대상이 골라질 수 없다.
 
 /** 긴 값을 버튼에 실을 수 있는 짧은 토큰으로 접는다. 되돌릴 수 없고, 되찾기는 대조로 한다. */
 export function pickToken(value: string): string {
@@ -147,9 +119,7 @@ export function pickActionId(prefix: string, value: string): string {
 
 /**
  * 눌린 버튼이 가리키는 값을 **지금 목록에서** 되찾는다. 없으면 `null`(사라진 항목).
- *
- * 원문도 함께 받아 주는 이유는 하위호환 하나뿐이다 — 종전 `/agents` 는 `a:<agentId>` 로
- * agentId 를 그대로 실어 보냈고, 그 카드가 아직 폰의 대화 기록에 남아 있다.
+ * 원문도 받는 것은 하위호환 — 옛 `/agents` 카드(`a:<agentId>` 로 agentId 를 그대로 실음)가 폰의 대화 기록에 남아 있다.
  */
 export function resolvePick(actionId: string, prefix: string, candidates: readonly string[]): string | null {
   const head = `${prefix}:`;

@@ -9,11 +9,7 @@ import {
   type ExplorerDirCache,
 } from './explorerModel.js';
 
-/**
- * §5.5 #17-19 v4.71 — IDE 워크스페이스 탐색기 순수 로직 테스트.
- * 트리를 화면 순서로 펴는 계산과 경로 취급(대소문자·구분자·상대화)이 여기서 어긋나면
- * 사용자에게는 "엉뚱한 폴더가 열린다 / 경로가 안 뜬다"로 보인다.
- */
+/** §5.5 #17-19 — IDE 탐색기 순수 로직 테스트(트리 펴기 순서·경로 대소문자·구분자·상대화). */
 
 const dir = (name: string, relPath: string): WorkspaceEntry => ({ name, relPath, isDirectory: true });
 const file = (name: string, relPath: string): WorkspaceEntry => ({ name, relPath, isDirectory: false });

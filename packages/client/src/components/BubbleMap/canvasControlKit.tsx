@@ -1,12 +1,4 @@
-/**
- * 캔버스 컨트롤 공용 부품 — 캔버스든 IDE 안의 작은 지도든 **같은 손잡이로 보이게** 하는 곳.
- *
- * React Flow 기본 `<Controls>` 는 흰 사각 버튼이라 우리 화면에서 혼자 밝게 뜬다(`.react-flow.light`
- * 기본 스킨). 그 자리를 이 부품들이 대신한다. **새 React Flow 뷰를 만들면 기본 `<Controls>` 대신
- * 여기 것을 쓴다** — 디자인이 두 벌로 갈리는 순간 한쪽만 고쳐진다.
- *
- * 아이콘은 이모지 ❌, lucide 톤 stroke SVG 만(`CLAUDE.md` UI 아이콘 규칙).
- */
+/** 캔버스 컨트롤 공용 부품 — 새 React Flow 뷰도 기본 `<Controls>`(흰 사각, 혼자 밝게 뜬다) 대신 이것을 쓴다. 두 벌이면 한쪽만 고쳐진다. */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Panel, useReactFlow, type PanelPosition } from '@xyflow/react';
@@ -65,12 +57,8 @@ const HOLD_LABEL_MOVE_PX = 10;
 const HOLD_LABEL_GAP = 8;
 
 /**
- * 터치에서 **길게 누르면 이름표**를 띄운다. 아이콘만 있는 단추의 이름(`title`)은 마우스를 올려야 뜨는데, 손가락에는
- * 올리는 동작이 없어 폰에서는 단추가 무엇인지 알 길이 없었다(안드로이드 도구 막대의 길게 누르기 이름표와 같은 문법).
- *
- * 이름표를 띄운 누름은 **누르기로 치지 않는다** — 이름을 보려던 손이 잠금·전체화면을 바꾸면 안 된다. 그 뒤 click 이
- * 오지 않는 브라우저도 있어 다음 누름이나 이름표가 걷히는 순간 그 표시를 푼다(키보드 Enter 가 먹히지 않는 일이 없게).
- * 마우스는 이 길을 타지 않는다 — 종전 `title` 그대로다.
+ * 터치 길게 누르기 = 이름표(아이콘 단추의 `title` 은 손가락에 안 뜬다). 이름표를 띄운 누름은 누르기로 치지 않고(잠금·전체화면 ❌),
+ * click 이 안 오는 브라우저를 위해 다음 누름·걷힘에 그 표시를 푼다(Enter 가 먹히지 않게 되지 않도록).
  */
 function useHoldLabel(): {
   rect: DOMRect | null;
@@ -213,13 +201,7 @@ interface CanvasZoomControlsProps {
   className?: string;
 }
 
-/**
- * 어느 React Flow 뷰에나 그대로 얹는 줌/화면맞춤 3종 — 기본 `<Controls showInteractive={false} />`
- * 자리를 그대로 대신한다. 동작은 기본 컨트롤과 같다(`zoomIn`/`zoomOut`/`fitView`).
- *
- * 화면맞춤에만 애니메이션을 준다 — 카메라가 어디로 갔는지 눈이 따라갈 수 있어야 한다.
- * 줌은 d3 가 이미 부드럽게 밀어 준다.
- */
+/** 기본 `<Controls showInteractive={false} />` 대체(같은 동작). 화면맞춤만 애니메이션 — 카메라가 간 곳을 눈이 따라가야 한다. */
 export function CanvasZoomControls({ position = 'bottom-left', className = '' }: CanvasZoomControlsProps): React.JSX.Element {
   const { t } = useTranslation();
   const { zoomIn, zoomOut, fitView } = useReactFlow();

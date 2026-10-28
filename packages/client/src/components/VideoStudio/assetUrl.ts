@@ -2,11 +2,8 @@
 import { isPackagedDesktop } from '../../transport/packaged.js';
 
 /**
- * 소재 파일 주소. 프로젝트 안 경로만 통한다(서버가 막는다). 번역·상태 모듈을 끌어오지 않는 작은 모듈이다.
- *
- * §5.13 (Y) 40-1 — **미디어 모양**(`…/media?…`)이다. 패키지 앱은 `vibproxy://proxy` 절대 주소라 패치된 fetch(IPC — 응답을 통째로
- * 싣고, 끝이 열린 구간을 끊어도 나머지가 다 건너왔다)를 타지 않고, 코어가 파일을 조각으로 흘려 보낸다(구간·끊기 지원). 그 밖
- * (웹·모바일)은 같은 모양을 서버가 `sendFile` 로 낸다.
+ * 소재 파일 주소(프로젝트 안만 — 서버가 막는다. 번역·상태 모듈을 끌어오지 않는다). §5.13 (Y) 40-1 — 패키지 앱은 `vibproxy://proxy` 절대 주소라
+ * 패치된 fetch(IPC — 응답을 통째로 싣는다)를 피해 코어가 조각으로 흘린다(구간·끊기). 웹·모바일은 서버 `sendFile`.
  */
 export function assetUrl(project: string, relPath: string): string {
   const path = `/api/app/vibistudio/media?project=${encodeURIComponent(project)}&path=${encodeURIComponent(relPath)}`;

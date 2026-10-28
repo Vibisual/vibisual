@@ -1,12 +1,6 @@
 /**
- * §9 폴더 스코프 — `getSnapshot()` 이 실제로 무엇을 싣고 무엇을 빼는가.
- *
- * 규칙(`folderScope.ts`)이 맞아도 **적용 지점이 어긋나면** 증상은 똑같이 "폴더를 열었는데
- * 비어 있다" 로 나온다. 그래서 규칙 테스트와 별개로, 실제 그래프를 세워 세 슬라이스
- * (`children`·`innerEdges`·폴더 위성)가 같은 집합을 따라가는지 여기서 못 박는다.
- *
- * 가장 중요한 항목은 맨 앞의 **등가성**이다 — 범위를 안 주면 이 변경 전과 한 글자도 달라지지
- * 않아야 한다(내부 조회용 스냅샷·REST·명령 dispatch 가 전부 그 경로를 쓴다).
+ * §9 폴더 스코프 — 세 슬라이스(`children`·`innerEdges`·폴더 위성)가 같은 집합을 따른다.
+ * 맨 앞 등가성이 가장 중요하다: 범위를 안 주면 한 글자도 달라지지 않는다(REST·dispatch 가 그 경로).
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';

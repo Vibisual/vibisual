@@ -1,11 +1,5 @@
 /**
- * hooks/session-start-handler.mjs — Layer 1: SessionStart bridge
- *
- * Claude Code invokes this on every session start (CLI, VSCode extension, Desktop).
- * Sends {sessionId, pid, cwd, source} to the Vibisual server so the agent bubble
- * gets registered immediately — no need to wait for the first tool use.
- *
- * stdin: hook event JSON (hook_event_name: "SessionStart", session_id, cwd, ...)
+ * SessionStart bridge — sends {sessionId, pid, cwd, source} on every session start (CLI, VS Code extension, Desktop) so the bubble registers before the first tool use.
  * stdout: {"continue": true}
  */
 

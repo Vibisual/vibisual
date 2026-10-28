@@ -1,12 +1,7 @@
 /**
- * §5.13 (AA) 42-2·42-7 — 내보내기의 OS 기능(앱 main 몫 — 코어는 이 파일의 뜻을 모른다, `invoke` 문자열로만 닿는다).
- *
- * - `export:pickFolder` — OS 폴더 창(처음 자리는 OS 의 동영상 폴더 — Windows 동영상 · mac Movies · Linux XDG Videos).
- * - `export:reveal` — 그 파일을 탐색기·Finder·파일 관리자에서 보인다(리눅스는 파일 관리자에 따라 폴더만 열린다).
- * - `export:open` — 결과 파일을 OS 기본 앱으로 연다(결과 형식만 — 실행 파일을 여는 문이 되지 않게).
- * - `export:openFolder` — 저장 폴더를 연다.
- * - `export:done` — 끝난 뒤: OS 알림(앱 창이 앞에 있으면 띄우지 않는다 · 누르면 폴더에서 보인다) · 폴더에서 보이기.
- * - `power:keepAwake` — 렌더가 도는 동안 OS 절전을 막는다(세 OS 공통 `powerSaveBlocker`).
+ * §5.13 (AA) 42-2·42-7 — 내보내기의 OS 기능(앱 main 몫, 코어는 `invoke` 문자열로만 닿는다).
+ * `export:pickFolder` 처음 자리는 OS 동영상 폴더(Windows 동영상·mac Movies·Linux XDG Videos). `export:reveal` 은 리눅스에서 관리자에 따라 폴더만 열린다.
+ * `export:open` 은 결과 형식만 연다(실행 파일을 여는 문이 되지 않게). `export:done` 알림은 앱 창이 앞이면 띄우지 않는다. `power:keepAwake` = `powerSaveBlocker`.
  */
 import fs from 'node:fs';
 import path from 'node:path';

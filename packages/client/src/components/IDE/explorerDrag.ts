@@ -1,14 +1,5 @@
-// §5.5 #17-19 ⑧ — 탐색기 행을 **끌어다 어디에 놓았는가**. 짐표 규약과 판정만 모은 순수 모듈.
-//
-// `dragover` 중에는 짐의 **값**을 읽을 수 없고 종류(type)만 보인다 — #17-34 분할 드롭이 같은 벽에
-// 부딪혀 세운 규약을 그대로 따른다. "우리 짐인가"·"폴더인가"는 전용 MIME 으로 알아보고, 자세한
-// 것(어느 경로인가)은 손을 뗄 때 읽는다.
-//
-// 다만 **끌고 있는 동안** 하이라이트를 정확히 그리려면 경로가 필요하다(자기 자신·자기 하위·이미
-// 사는 폴더 위에서는 파란 테두리를 띄우면 안 된다 — 눌러도 안 되는 표시는 고장으로 읽힌다).
-// 그래서 지금 이 렌더러가 끌고 있는 짐 한 벌을 아래 등록소에 얹어 둔다. 드래그는 한 번에 하나뿐이고
-// `dragend` 에 걷힌다. 별창처럼 등록소가 비어 있는 경우에도 **막지 않는다** — 손을 뗄 때 값이 오고,
-// 그때 같은 판정이 한 번 더 서므로 잘못된 이동은 거기서 걸린다(서버가 마지막 관문).
+// §5.5 #17-19 ⑧ — 탐색기 끌어 놓기 판정(순수). `dragover` 중엔 type 만 보여(#17-34 규약) 전용 MIME 으로 가리고 경로는 놓을 때 읽는다.
+// 끄는 동안 하이라이트용 경로는 아래 등록소에서 — 비어 있어도(별창) 막지 않는다(놓을 때 다시 판정, 서버가 마지막 관문).
 
 import { foldPathCase } from '../../utils/platform.js';
 import { edgeBandPx, type SplitRect } from './splitDrop.js';
@@ -67,13 +58,8 @@ export type WorkspaceDropZone = 'input' | 'editor';
 
 /**
  * 커서가 IDE 본문의 어디에 있는가.
- *
- * @param rect       본문(대화 + 편집창) 영역. 활동바·사이드바는 여기에 들어오지 않는다.
- * @param editorLeft 편집창이 이미 열려 있으면 그 왼쪽 변(뷰포트 x). 닫혀 있으면 `null`.
- *
- * 편집창이 열려 있으면 **그 패널 자체가 곧 오른쪽 자리**다(눈에 보이는 경계와 판정이 어긋나면
- * 사용자는 늘 틀린 쪽에 놓는다). 닫혀 있으면 오른쪽 끝의 띠를 그 자리로 쓰고, 띠 두께는 분할
- * 드롭과 **같은 표**(`edgeBandPx`)를 읽는다 — 한 화면에 두 종류의 "가장자리"가 있으면 안 된다.
+ * @param rect 본문(대화 + 편집창) 영역 — 활동바·사이드바 제외.
+ * @param editorLeft 열린 편집창의 왼쪽 변(뷰포트 x), 닫혀 있으면 `null` — 열려 있으면 그 패널이 오른쪽 자리, 닫혀 있으면 오른쪽 끝 띠(두께는 분할 드롭과 같은 `edgeBandPx`).
  */
 export function resolveWorkspaceDropZone(rect: SplitRect, x: number, editorLeft: number | null): WorkspaceDropZone {
   if (editorLeft !== null) return x >= editorLeft ? 'editor' : 'input';
@@ -102,13 +88,7 @@ export interface WorkspaceDropBoxPct {
   widthPct: number;
 }
 
-/**
- * 본문 안 px 박스를 **바깥 상자(위치 기준 조상) 기준 비율**로 바꾼다.
- *
- * IDE 창은 DOM 상 캔버스의 자식이라(§5.5 #17-6) 조상에 CSS 변형이 걸린다. `getBoundingClientRect`
- * 는 그 변형이 반영된 값을 주므로, 두 사각형을 **같은 공간에서** 재서 비율로 나누면 확대·축소와
- * 무관하게 맞는다(px 를 그대로 쓰면 확대한 창에서 띠가 어긋난다).
- */
+/** 본문 안 px 박스 → 바깥 상자 기준 비율. IDE 창은 캔버스의 자식이라(§5.5 #17-6) 조상에 CSS 변형이 걸린다 — 둘 다 `getBoundingClientRect` 로 재 나눠야 확대와 무관하다. */
 export function dropBoxToPercent(box: WorkspaceDropBox, content: SplitRect, outer: SplitRect): WorkspaceDropBoxPct {
   if (outer.width <= 0) return { leftPct: 0, widthPct: 0 };
   const offset = content.left - outer.left;
@@ -120,12 +100,7 @@ export function dropBoxToPercent(box: WorkspaceDropBox, content: SplitRect, oute
 
 // ─── 폴더 위에 놓기 = 옮기기 ─────────────────────────────────────────────────────
 
-/**
- * 그 폴더로는 옮길 수 없는 이유. `null` 이면 옮길 수 있다.
- *
- * 넷 다 손으로 끌다 자연스럽게 만드는 상황이라, 되물음을 띄우기 **전에** 걸러 낸다 —
- * "옮길까요?"를 눌렀는데 아무 일도 일어나지 않는 것이 가장 나쁜 결과다.
- */
+/** 그 폴더로 옮길 수 없는 이유(`null` = 옮길 수 있다). 되물음 전에 거른다 — "옮길까요?" 뒤에 아무 일도 없는 것이 가장 나쁘다. */
 export type WorkspaceMoveBlock =
   /** 다른 프로젝트(다른 루트)의 트리다 */
   | 'other-root'
@@ -143,10 +118,7 @@ export function parentRelOf(rel: string): string {
   return idx < 0 ? '' : rel.slice(0, idx);
 }
 
-/**
- * @param fold 경로 케이스 접기 — 기본은 이 기기의 규칙(`foldPathCase`)이고, **테스트가 세 OS 를
- *             전부 넣어 볼 수 있도록** 인자로 받는다(win/mac 은 접고 linux 는 안 접는다).
- */
+/** @param fold 경로 케이스 접기(기본 `foldPathCase`) — 세 OS 를 시험하려고 인자로 받는다(win/mac 은 접고 linux 는 안 접는다). */
 export function workspaceMoveBlock(
   drag: WorkspaceDragPayload,
   targetRoot: string,
@@ -170,11 +142,7 @@ export function movedRelPath(drag: WorkspaceDragPayload, targetDirRel: string): 
   return targetDirRel ? `${targetDirRel}/${drag.name}` : drag.name;
 }
 
-// ─── 지금 끌고 있는 짐 등록소 ────────────────────────────────────────────────────
-//
-// 모듈 자리에 두는 상태는 §3.5 가 경계하는 "프로젝트 상태의 전역 공유"가 아니다 — 이 렌더러에서
-// **지금 이 순간** 손에 들려 있는 것 하나이고, 드래그가 끝나면 반드시 걷힌다. 여러 IDE 창이 한
-// 렌더러에 떠 있어도 사용자의 손은 하나라 오히려 이 자리가 옳다.
+// 지금 끌고 있는 짐 등록소 — §3.5 의 프로젝트 상태 공유가 아니라 이 렌더러의 손에 든 것 하나다(드래그가 끝나면 걷힌다).
 
 let activeDrag: WorkspaceDragPayload | null = null;
 

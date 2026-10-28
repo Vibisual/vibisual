@@ -1,37 +1,18 @@
 /**
- * §5.5 — IDE 읽기 설정(Reading Settings) 순수 모델.
- *
- * IDE 본문이 창 폭을 그대로 줄 길이로 쓰던 문제(초광폭에서 한 줄 100자 이상)를 사용자가 직접
- * 조절하게 만드는 표시 계층 설정이다. `ideStreamDensity`(#17-12 ④)·`ideTextZoom` 과 **동형** —
- * 클라 전용 UI 환경설정으로 graphStore + localStorage 에 살고 서버·체크포인트에 가지 않는다.
- *
- * 값의 근거는 전부 가독성 연구에서 왔고, 각 상수 옆에 출처를 적어 둔다. UI 는 이 모듈이 내놓는
- * 표를 그대로 그리므로(Open-Closed) 새 축을 더할 때 컴포넌트가 아니라 여기만 고친다.
- *
- * 순수 모듈 — DOM·store 를 모르며 `readingModel.test.ts` 가 단위 검증한다.
+ * §5.5 — IDE 읽기 설정 순수 모델(DOM·store 모름). `ideStreamDensity`·`ideTextZoom` 과 같은 꼴 — graphStore + localStorage 에만 살고 서버·체크포인트에 가지 않는다.
+ * 값의 근거(가독성 연구)는 상수 옆에. UI 는 이 표를 그대로 그리므로 새 축은 여기만 고친다.
  */
 
 import type { StreamDensity } from '@vibisual/shared';
 
 /**
- * 화면에 나가는 폭 상태 2종(`data-ide-layout`) — **사용자가 고르는 축이 아니라 파생값**이다(② v5.04).
- * - `full`: 폭 제한 없음(읽기 폭이 `MEASURE_UNLIMITED` 이거나 창이 좁을 때).
- * - `breakout`: 산문은 읽기 칼럼 안, 코드·diff·도구 상자·표는 칼럼 밖 전체 폭.
- *
- * 종전에는 여기에 `column`(코드까지 칼럼 안)·`preset`(= breakout + 프리셋 노출)이 더 있었고 넷을
- * 사용자가 골랐다. 그러나 "폭 제한이 걸렸는가"는 읽기 폭 값이 이미 말하고, "코드·표를 칼럼 밖으로
- * 내보내는가"는 **언제나 내보내는 쪽이 옳다** — 좁은 칼럼에 갇힌 코드는 읽으라고 만든 것이 아니다.
- * 남은 두 상태는 그래서 고르는 것이 아니라 `resolveReading` 이 계산한다.
+ * 폭 상태(`data-ide-layout`) — 고르는 축이 아니라 `resolveReading` 의 파생값(②). `full` = 제한 없음(무제한·좁은 창),
+ * `breakout` = 산문만 칼럼 안, 코드·diff·도구 상자·표는 칼럼 밖(코드를 칼럼에 가두는 상태는 두지 않는다).
  */
 export const READING_LAYOUTS = ['full', 'breakout'] as const;
 export type ReadingLayout = (typeof READING_LAYOUTS)[number];
 
-/**
- * 글꼴 출처 2단.
- * - `preset`: 우리가 고른 무료 글꼴 목록(전부 상업적 사용 허용). 이름만 부르고 파일은 배포하지 않는다.
- * - `custom`: 사용자가 자기 컴퓨터에 설치된 글꼴 이름을 직접 지정. 우리는 그 이름을 CSS 에 옮길 뿐이다.
- * 두 갈래 모두 **글꼴 파일을 우리가 가지거나 나눠 주지 않으므로** 재배포 라이선스와 무관하다.
- */
+/** 글꼴 출처 — `preset`(우리가 고른 무료·상업 사용 허용 목록) / `custom`(사용자 컴퓨터에 설치된 글꼴 이름을 CSS 에 옮길 뿐). */
 export const READING_FONT_SOURCES = ['preset', 'custom'] as const;
 export type ReadingFontSource = (typeof READING_FONT_SOURCES)[number];
 
@@ -47,7 +28,7 @@ export const READING_MEASURE_PRESETS = [
   { id: 'balanced', ch: 50 },
   /** 속도 우선 — 95 CPL 에서 읽기 속도가 가장 빨랐다. */
   { id: 'speed', ch: 86 },
-  /** 전체 — 폭 제한 없음. 종전 `full` 안이 하던 일을 이 한 칸이 대신한다(② v5.04). */
+  /** 전체 — 폭 제한 없음(②). */
   { id: 'full', ch: 0 },
 ] as const;
 export type ReadingMeasurePresetId = (typeof READING_MEASURE_PRESETS)[number]['id'];
@@ -59,14 +40,8 @@ export const MEASURE_MIN_CH = 24;
 export const MEASURE_MAX_CH = 160;
 
 /**
- * 내용 폭(#17-22 ⑩) — **바깥 상자** 축이라 읽기 폭과 단위부터 다르다(창 폭 대비 %).
- * `measureCh` 가 글줄만 좁히는 데 반해 이 값은 카드·도구 상자·코드·표까지 **본문 전체**를 좁힌다.
- * 100 = 제한 없음(종전 동작) = **창 전체 너비**, 내릴수록 좁아진다. 줄어드는 방향은 대화 정렬(⑨)이
- * 정한다 — 켜져 있으면 말하는 쪽 끝에 붙은 채 반대쪽만, 꺼져 있으면 가운데로 모인다.
- *
- * ⑩-1(v4.91) — 바닥이 30 이던 것을 10 으로 내렸다. 사용자가 원한 것은 "0 쪽으로 갈수록 많이
- * 줄어드는" 눈금인데 30 에서 멈추면 그 절반이 없는 것과 같다. 0 으로 두지 않는 이유는 하나뿐이다:
- * 0% 는 본문이 통째로 사라져 **되돌릴 실마리(슬라이더가 있는 화면)조차 안 보이게** 만든다.
+ * 내용 폭(#17-22 ⑩, 창 폭 대비 %) — 글줄만 좁히는 `measureCh` 와 달리 카드·도구 상자·코드·표까지 본문 전체를 좁힌다. 100 = 제한 없음.
+ * 방향은 대화 정렬(⑨): 켜면 말하는 쪽 끝에 붙어 반대쪽만, 끄면 가운데로. 바닥 10(⑩-1) — 0 이면 본문이 사라져 되돌릴 슬라이더조차 안 보인다.
  */
 export const CONTENT_WIDTH_MIN_PCT = 10;
 export const CONTENT_WIDTH_MAX_PCT = 100;
@@ -135,10 +110,7 @@ export const READING_MOBILE_MAX_WIDTH = 768;
 export const READING_MOBILE_LINE_HEIGHT_BONUS = 0.08;
 
 export interface ReadingSettings {
-  /**
-   * 읽기 폭(ch). `MEASURE_UNLIMITED`(0) = **제한 없음**(종전 `layout: 'full'` 이 하던 일).
-   * 폭 축은 이제 이 하나뿐이라, 화면이 좁은 칼럼인지 전체 폭인지는 전부 이 값이 정한다(② v5.04).
-   */
+  /** 읽기 폭(ch). `MEASURE_UNLIMITED`(0) = 제한 없음 — 폭 축은 이것 하나다(②). */
   measureCh: number;
   /** 행간 배수. */
   lineHeight: number;
@@ -148,12 +120,7 @@ export interface ReadingSettings {
   wordSpacing: number;
   /** 문단 뒤 간격(em). */
   paragraphSpacing: number;
-  /**
-   * 글꼴 출처 — 우리가 고른 무료 글꼴 목록에서 고를지, 사용자가 자기 글꼴을 직접 지정할지.
-   * 둘로 나눈 이유는 법적 경계가 다르기 때문이다: 우리 목록은 **상업적 사용이 허용된 글꼴만**
-   * 이름으로 부르고(배포 ❌), 커스텀은 **사용자 컴퓨터에 이미 설치된 글꼴**을 그 사람 화면에서만
-   * 쓰는 것이라 어느 쪽도 재배포가 아니다.
-   */
+  /** 글꼴 출처 — 제공 목록(상업 사용 허용 글꼴만)과 사용자 컴퓨터의 커스텀 글꼴은 법적 경계가 달라 둘로 나눈다. */
   fontSource: ReadingFontSource;
   /** 제공 글꼴 목록에서 고른 id(`readingFonts.ts` 의 레지스트리 키). `fontSource === 'preset'` 일 때 쓰인다. */
   fontId: string;
@@ -161,26 +128,13 @@ export interface ReadingSettings {
   customFontFamily: string;
   /** 좁은 화면에서 폭 제한을 자동으로 푸는가. */
   autoMobile: boolean;
-  /**
-   * 대화 정렬 — 켜면 메신저처럼 **내 말은 오른쪽에 붙고 AI 말은 왼쪽**에 선다.
-   * 발화 주체가 위치로 갈려 누가 한 말인지 읽기 전에 보인다(사용자 요청: "카톡 대화처럼").
-   */
+  /** 대화 정렬 — 켜면 메신저처럼 내 말은 오른쪽, AI 말은 왼쪽. */
   chatAlign: boolean;
-  /**
-   * 내용 폭(창 폭 대비 %) — 본문 상자 **전체**의 최대 폭. `measureCh`(글줄)와 직교한다.
-   * `CONTENT_WIDTH_MAX_PCT`(100) = 제한 없음이라 기본 화면은 종전과 같다.
-   */
+  /** 내용 폭(창 폭 대비 %) — 본문 상자 전체 최대 폭, `measureCh` 와 직교. 100 = 제한 없음. */
   contentWidthPct: number;
 }
 
-/**
- * 기본값 — **종전 동작(폭 제한 없음)** + CJK 권장 행간.
- * 폭을 좁은 칼럼으로 시작하면 이 설정을 만진 적 없는 사용자의 화면이 어느 날 갑자기 좁아진다.
- * 기본은 손대기 전과 같아야 하므로 `measureCh` 를 `MEASURE_UNLIMITED`(제한 없음)로 두고, 좁히는
- * 것은 사용자의 선택으로 남긴다 — 고른 값은 `setIdeReading` 이 localStorage 에 저장해 유지한다.
- * (v4.78 이 같은 이유로 기본 폭 안을 `preset` → `full` 로 되돌렸고, ② v5.04 는 그 `full` 을
- * 축이 아니라 **이 값 하나**로 옮겼을 뿐이다 — 화면은 그대로다.)
- */
+/** 기본값 — 폭 제한 없음 + CJK 권장 행간. 기본을 좁은 칼럼으로 두지 마라 — 손댄 적 없는 화면이 갑자기 좁아진다(좁히기는 사용자 선택, `setIdeReading` 이 저장). */
 export const DEFAULT_READING_SETTINGS: ReadingSettings = {
   measureCh: MEASURE_UNLIMITED,
   lineHeight: LINE_HEIGHT_DEFAULT,
@@ -198,11 +152,7 @@ export const DEFAULT_READING_SETTINGS: ReadingSettings = {
   contentWidthPct: CONTENT_WIDTH_MAX_PCT,
 };
 
-/**
- * 읽기 패널은 자기 설정 말고도 **이미 있는 두 축**(글자 크기·스트림 밀도)을 같은 자리에서 조절한다.
- * 그 줄에도 "이 항목만 되돌리기"를 달려면 기본값이 필요하므로, graphStore 의 초기 폴백과 같은 값을
- * 여기 한 곳에 둔다(양쪽에 숫자를 흩뿌리면 되돌린 값이 기본값과 어긋난다).
- */
+/** 패널이 함께 조절하는 기존 두 축(글자 크기·스트림 밀도)의 기본값 — graphStore 초기 폴백과 같은 값을 여기 한 곳에 둔다("이 항목만 되돌리기"용). */
 export const DEFAULT_IDE_TEXT_ZOOM = 1;
 export const DEFAULT_IDE_STREAM_DENSITY: StreamDensity = 'standard';
 
@@ -215,10 +165,8 @@ function clamp(value: number, min: number, max: number, fallback: number): numbe
 export const CUSTOM_FONT_NAME_MAX = 64;
 
 /**
- * 커스텀 글꼴 이름 소독.
- * 이 값은 `style.setProperty('--ide-reading-font', …)` 로 CSS 에 그대로 들어가므로, 따옴표·세미콜론·
- * 괄호·중괄호 같은 문자가 남아 있으면 선언 밖으로 빠져나갈 수 있다. 글꼴 패밀리 이름에는 쓰이지 않는
- * 문자들이니 **지우고** 쓴다(어느 언어의 글꼴 이름이든 통과하도록 허용 목록이 아니라 금지 목록 방식).
+ * 커스텀 글꼴 이름 소독 — `--ide-reading-font` 로 CSS 에 그대로 들어가므로 따옴표·세미콜론·괄호·중괄호를 지운다(선언 밖으로 샌다).
+ * 어느 언어 이름이든 통과하게 금지 목록 방식.
  */
 export function sanitizeFontFamily(raw: string): string {
   if (typeof raw !== 'string') return '';
@@ -247,12 +195,8 @@ export function clampContentWidthPct(value: number): number {
 }
 
 /**
- * 저장된 값(구버전·손상 포함)을 언제나 유효한 설정으로 되돌린다.
- *
- * **옛 `layout` 축 마이그레이션(② v5.04)** — 폭 안이 있던 시절의 저장값을 폭 하나로 옮긴다.
- * 저장된 안이 `full`(폭 제한 없음)이었으면 그 시절 `measureCh` 는 **화면에 걸리지 않는 시작값**일
- * 뿐이었으므로, 그대로 이어받으면 앱을 켜자마자 글이 갑자기 좁아진다. 그래서 제한 없음으로 옮긴다.
- * 칼럼 계열(`column`·`breakout`·`preset`)이었으면 그때 보던 폭이 곧 저장된 `measureCh` 라 그대로 쓴다.
+ * 저장값(구버전·손상 포함) → 늘 유효한 설정. 옛 `layout` 마이그레이션(②): `full` 이었으면 제한 없음으로(그 `measureCh` 는 화면에 안 걸리던 값이라
+ * 이어받으면 켜자마자 글이 좁아진다), 칼럼 계열이면 저장된 `measureCh` 그대로.
  */
 export function normalizeReadingSettings(raw: unknown): ReadingSettings {
   const d = DEFAULT_READING_SETTINGS;
@@ -303,21 +247,13 @@ export function judgeMeasure(measureCh: number): ReadingVerdict {
 }
 
 /**
- * 항목 kind 별 폭 취급. index.css 의 `[data-ide-prose]`/`[data-ide-wide]` 와 짝이다.
- * - prose: 안에 `.ide-md`(마크다운)를 품은 항목 — 폭은 안쪽 마크다운 그리드가 잡는다.
- * - wide: 도구 호출·묶음처럼 **넓어야 값이 있는** 항목 — C·D 안에서 칼럼 밖으로 나간다.
- * - 나머지(카드·계획·시스템 줄)는 칼럼 안에 남는다.
+ * 항목 kind 별 폭 취급(index.css `[data-ide-prose]`/`[data-ide-wide]` 와 짝). prose = `.ide-md` 를 품은 항목(폭은 안쪽 마크다운 그리드),
+ * wide = 도구 호출·묶음(칼럼 밖으로), 나머지는 칼럼 안.
  */
 export const READING_PROSE_ITEM_KINDS: ReadonlySet<string> = new Set(['text', 'result', 'command']);
 export const READING_WIDE_ITEM_KINDS: ReadonlySet<string> = new Set(['tool', 'toolgroup']);
 
-/**
- * 발화 주체 — 대화 정렬(`chatAlign`)이 이 표식으로 좌우를 가른다.
- * - `user`: 사용자가 친 프롬프트. 이것만 오른쪽으로 간다.
- * - `ai`: AI 가 낸 말·카드·계획·도구 결과 — 왼쪽에 선다.
- * - 표식 없음: 시스템 줄처럼 **누구의 말도 아닌** 것. 정렬을 건드리지 않아 종전 자리에 남는다.
- * 정렬 자체는 전부 index.css 가 하고, 여기서는 누가 말했는지만 정한다.
- */
+/** 발화 주체 — 대화 정렬이 좌우를 가르는 표식(정렬은 index.css). `user` = 프롬프트(오른쪽), `ai` = 왼쪽, 표식 없음 = 시스템 줄(정렬 안 함). */
 export const READING_USER_ITEM_KINDS: ReadonlySet<string> = new Set(['command']);
 // §5.5 #17-12 ③ — 실패 사유(`error`)도 누구의 말이 아니라 **일어난 일**이다(정렬 대상 ❌).
 // §5.5 #17-39 — 단계 자국(`step`)도 같다. 사고는 말이 아니라 **걸린 시간**이라 좌우 어느 쪽도 아니다.
@@ -374,17 +310,11 @@ export interface ResolvedReading {
   layoutAttr: ReadingLayout;
   /** 좁은 화면 자동 변형이 실제로 걸렸는가(패널이 사용자에게 알린다). */
   mobileAdapted: boolean;
-  /**
-   * `data-ide-chat` 값 — 켜져 있을 때만 속성을 달아 index.css 의 대화 정렬 규칙이 걸린다.
-   * 꺼져 있으면 `null` 이라 속성 자체가 붙지 않는다(꺼진 기능이 선택자에 흔적을 남기지 않게).
-   */
+  /** `data-ide-chat` — 켜졌을 때만 단다. 꺼지면 `null`(속성 자체가 안 붙는다). */
   chatAttr: 'on' | null;
 }
 
-/**
- * 설정 + 현재 뷰포트 → 렌더에 필요한 값 전부.
- * 순수 함수 — 뷰포트를 인자로 받으므로 테스트에서 어떤 폭이든 재현할 수 있다.
- */
+/** 설정 + 뷰포트 → 렌더 값 전부(뷰포트를 인자로 받아 어떤 폭이든 시험한다). */
 export function resolveReading(
   settings: ReadingSettings,
   viewportWidth: number,
@@ -392,8 +322,7 @@ export function resolveReading(
 ): ResolvedReading {
   const isMobile = settings.autoMobile && viewportWidth > 0 && viewportWidth <= READING_MOBILE_MAX_WIDTH;
 
-  // 폭을 잡는 조건은 이제 하나다 — 사용자가 제한을 걸었고(② v5.04) 창이 그럴 만큼 넓은가.
-  // 좁은 화면에서는 폭 제한을 풀고(여백만 먹는다) 행간을 조금 올린다.
+  // 폭은 제한을 걸었고 창이 넓을 때만 잡는다. 좁은 화면은 폭 제한을 풀고(여백만 먹는다) 행간을 조금 올린다.
   const constrained = settings.measureCh !== MEASURE_UNLIMITED && !isMobile;
   const measure = constrained ? `${settings.measureCh}ch` : '100%';
   const lineHeight = clamp(
@@ -419,8 +348,7 @@ export function resolveReading(
       [READING_CSS_VARS.fontFamily]: fontStack,
       [READING_CSS_VARS.gutter]: `${gutter}px`,
     },
-    // 폭 상태는 고르는 것이 아니라 여기서 나온다(② v5.04). 제한이 안 걸렸으면(모바일 포함) 그리드
-    // 자체를 끄는 `full` 이고, 걸렸으면 산문만 칼럼에 두고 코드·표·도구 상자는 내보내는 `breakout` 이다.
+    // 제한이 없으면(모바일 포함) 그리드를 끄는 `full`, 걸렸으면 산문만 칼럼에 두는 `breakout`(②).
     layoutAttr: constrained ? 'breakout' : 'full',
     // 폭 제한이든 내용 폭이든 **실제로 풀린 게 있을 때만** 알린다(걸린 게 없으면 알릴 것도 없다).
     mobileAdapted: isMobile

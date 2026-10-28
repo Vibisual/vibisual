@@ -1,8 +1,6 @@
 /**
- * §5.11 v3.88 — DetailPanel 의 치명적 3요소 섹션 (panelSection 기여).
- *
- * 배지가 "몇 개 섰나"를 말한다면 여기서는 **무엇 때문에 섰고, 무엇을 끊으면 되는지**를 말한다.
- * 표시 전용 — 이 섹션은 권한을 바꾸지 않는다(판정과 집행의 분리). 실제 변경은 Agent Settings 에서.
+ * §5.11 — DetailPanel 의 치명적 3요소 섹션(panelSection 기여): 무엇 때문에 섰고 무엇을 끊으면 되는지.
+ * 표시 전용 — 권한을 바꾸지 않는다(판정과 집행의 분리). 실제 변경은 Agent Settings 에서.
  */
 import type { PluginPanelContext } from '../../sdk/index.js';
 import { judgeTrifecta, type TrifectaLeg, type TrifectaLegState } from '../../sdk/index.js';

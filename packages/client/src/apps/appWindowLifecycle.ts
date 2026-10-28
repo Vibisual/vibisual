@@ -14,13 +14,7 @@ const currentTargets = new Map<string, Target>();
 /** The live document may have changed since the OS window's initial hash. */
 export function getAppWindowTarget(id: string): Target | undefined { return currentTargets.get(id); }
 
-/**
- * §5.13 (L) — 창을 연 캔버스 노드가 **지금 그 창이 보는 작업 문서**를 기억한다(`AppBubble.ref`).
- *
- * 종전에는 노드가 문서를 가리키게 하는 길이 없어(구현 현황 (L) 의 "남은 것") 노드를 열 때마다 빈 앱이 떴고, 그 안에서
- * 고른 문서는 다음에 다시 골라야 했다. 이제 노드에서 연 창이 문서를 고르거나 새로 만들면 그 노드가 그 문서로 묶인다.
- * 명패가 문서를 얻어 화면이 되면 가운데를 지킨다(§5.4 #36 (F) 와 같은 규칙).
- */
+/** §5.13 (L) — 노드에서 연 창이 문서를 고르거나 만들면 그 노드가 그 문서(`AppBubble.ref`)로 묶인다. 명패가 화면이 되면 가운데를 지킨다(§5.4 #36 (F)). */
 function bindBubbleRef(bubbleId: string | undefined, ref: string | undefined): void {
   if (!bubbleId || !ref) return;
   const store = useGraphStore.getState();

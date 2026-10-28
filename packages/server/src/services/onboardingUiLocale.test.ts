@@ -10,14 +10,7 @@ vi.mock('./appState.js', async (importOriginal) => {
   return { ...actual, appStateAddOpenProject: () => false };
 });
 
-/**
- * §4 (첫 실행 온보딩) — **온보딩 중에 고른 UI 언어가 살아남는다.**
- *
- * 실제 사고: 설치·로그인 팝업은 프로젝트가 하나도 없는 상태에서 뜨는데, 그때 `setUiLocale` 은
- * 0개 인스턴스를 돌아 **아무 데도 남지 않았다**. 그러다 폴더를 고르는 순간 새 인스턴스가
- * 기본값 `'en'` 으로 서고 그 값이 스냅샷으로 밀려와, 방금 고른 한국어가 영어로 되돌아갔다.
- * (그 팝업의 백드롭이 헤더 언어 전환기까지 덮고 있었으므로, 되돌아가면 다시 고를 자리도 없었다.)
- */
+/** §4 (첫 실행 온보딩) — 프로젝트가 0개일 때 고른 UI 언어가 남는가(안 남으면 폴더를 고르는 순간 새 인스턴스의 `'en'` 이 덮는다). */
 
 const tmpDirs: string[] = [];
 
@@ -38,7 +31,6 @@ describe('온보딩 중(프로젝트 0개)에 고른 UI 언어', () => {
     const manager = new ProjectGraphManager();
     expect(manager.getUiLocale()).toBe('en');
 
-    // 예전에는 여기서 false 를 돌려주고(=바뀐 것 없음) 값도 사라졌다.
     expect(manager.setUiLocale('ko')).toBe(true);
     expect(manager.getUiLocale()).toBe('ko');
   });

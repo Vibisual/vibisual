@@ -3,10 +3,8 @@ import { createInterface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
 
 const REQUEST_TIMEOUT_MS = 10000;
-// One tool call waits server-side instead of handing an unchanged status back to the model every 45s.
-// CALL_WAIT_MS is half of tool_timeout_sec=3600 (codexEdgeOverrides); each lookup stays under the server's
-// 120s hold cap and fetch's 300s header wait. VIBISUAL_EDGE_WAIT_TUNING is for tests only: Codex forwards
-// just the env_vars listed in codexEdgeOverrides to this process.
+// Waits server-side instead of re-sending an unchanged status every 45s. CALL_WAIT_MS = half of tool_timeout_sec=3600 (codexEdgeOverrides);
+// each lookup stays under the server's 120s hold cap and fetch's 300s header wait. VIBISUAL_EDGE_WAIT_TUNING is test-only (Codex forwards only codexEdgeOverrides env_vars).
 const tuning = (() => { try { return JSON.parse(process.env.VIBISUAL_EDGE_WAIT_TUNING || '{}') ?? {}; } catch { return {}; } })();
 const tuned = (value, fallback) => (Number.isFinite(value) && value >= 0 ? value : fallback);
 const CALL_WAIT_MS = tuned(tuning.callWaitMs, 30 * 60 * 1000);

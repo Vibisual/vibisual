@@ -1,17 +1,9 @@
 // SCENARIO.md §3.7 · §9 「시작 화면(스플래시)」 — **시작 진입점.** 빌드의 main 입구(`out/main/index.cjs`)는 이 파일이다.
-//
-// 앱을 켜면 화면 가운데에 스플래시를 먼저 띄우고, 그다음에 본체(`index.ts` — 서버 코어 전부)를 읽는다(사용자 지시
-// 2026-10-16 — "처음 킬 때 로딩 화면이 중간에 뜨면 좋겠다, 언리얼·VS 처럼"). 종전에는 본체가 곧 입구라, 본체를 다 읽고
-// 서버를 다 띄운 뒤에야 첫 창이 나왔다. 실측(main-stall.log · crash.log, 7회 실행): 프로세스 시작에서 본체 첫 줄까지
-// 4.4~5.4초(재설치·업데이트 직후 첫 실행 — 새로 깔린 파일을 처음 읽는다), 서버 기동 동기 구간 4.2~6.2초, 첫 창은 시작 뒤
-// 약 10초. 그동안 화면에는 아무것도 없었다. 이 파일은 Electron 이 뜬 직후(실측 0.05초)에 돌므로 스플래시는 시작 뒤
-// 0.3초 안팎에 보인다.
-//
-// 그래서 이 파일은 **가볍게 남아야 한다** — 서버 코어(`@vibisual/server`)·shared 값을 정적으로 부르지 않는다. 본체는
-// `import('./index')` 로만 읽는다(빌드가 별도 청크로 나눈다). `bootstrap.test.ts` 가 원문으로 지킨다.
-//
-// 여기 있는 것은 `ready` 전에 해야만 하는 일과 스플래시뿐이다: vibproxy 스킴 등록 · Linux 캡처 스위치 · 크래시 수집과
-// 부팅 배너 · 단일 인스턴스 잠금 · 앱 사용자 모델 ID(Windows 작업 표시줄에서 스플래시와 본체가 한 묶음이 되게).
+// 스플래시를 먼저 띄우고 본체(`index.ts` — 서버 코어 전부)를 읽는다. 실측(7회): 본체 첫 줄까지 4.4~5.4초(재설치·업데이트 직후 첫 실행), 서버 기동 동기 구간
+// 4.2~6.2초, 첫 창은 약 10초 — 이 파일은 Electron 이 뜬 직후(0.05초)에 돌아 스플래시가 0.3초 안팎에 보인다.
+// **가볍게 남아야 한다** — 서버 코어·shared 값을 정적으로 부르지 않고, 본체는 `import('./index')` 로만 읽는다(별도 청크). `bootstrap.test.ts` 가 원문으로 지킨다.
+// 여기 있는 것은 `ready` 전에 해야 하는 일과 스플래시뿐: vibproxy 스킴 등록 · Linux 캡처 스위치 · 크래시 수집과 부팅 배너 · 단일 인스턴스 잠금 ·
+// 앱 사용자 모델 ID(Windows 작업 표시줄에서 스플래시와 본체가 한 묶음이 되게).
 
 import { app, protocol } from 'electron';
 import { showAppMessageBox } from './appMessageBox';
@@ -43,9 +35,8 @@ if (process.platform === 'linux') {
   app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
 }
 
-// crashLog(§4 v1.98 확장) — 네이티브 크래시 minidump 수집을 app ready·창 생성 전에 켜고,
-// 이번 실행의 부팅 배너를 crash.log 에 남긴다(다음에 로그를 볼 때 "clean exit 마커 없이
-// 다음 배너로 넘어갔으면 그 사이에 팅긴 것" 판별용).
+// crashLog(§4) — 네이티브 크래시 minidump 수집을 app ready·창 생성 전에 켜고, 이번 실행의 부팅 배너를 crash.log 에 남긴다
+// (clean exit 마커 없이 다음 배너로 넘어갔으면 그 사이에 팅긴 것).
 startCrashReporter();
 logAppStart();
 // 본체가 자기 진단기를 걸기 전 구간(스플래시 만들기·본체 읽기)의 오류도 crash.log 에 남긴다.

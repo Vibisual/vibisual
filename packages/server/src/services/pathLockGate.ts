@@ -1,11 +1,5 @@
-// SCENARIO.md §5.3 #12-3 — 자물쇠의 서버 쪽 접합부.
-//
-// 판정은 shared `findToolLockHits` 한 벌이고, 여기서는 **이 호스트의 값**(플랫폼·홈)을 물려 주고
-// 엔진에게 돌려줄 사유 문구를 짓는다. 승인 창구 셋(클로드·코덱스·로컬)과 훅 세션 답이 이 모듈을
-// 같이 쓴다 — 저마다 옵션을 지어 넣으면 같은 호출이 한 자리에서는 잠기고 다른 자리에서는 열린다.
-//
-// 문구는 영어다 — 사람에게 보이는 화면이 아니라 **엔진에게 돌려주는 사유**라서다(훅 세션의 `ask` 사유는
-// 그 CLI 의 승인 창에도 뜬다). 기존 승인 훅 문구(`handler.mjs`)와 같은 규약이다.
+// §5.3 #12-3 — 자물쇠의 서버 쪽 접합부. 판정은 shared `findToolLockHits` 한 벌에 이 호스트 값(플랫폼·홈)을 물린다.
+// 창구 셋(클로드·코덱스·로컬)과 훅 세션이 함께 쓴다(따로 지으면 한 곳만 열린다). 문구는 영어다 — 엔진에 돌려주는 사유다(`handler.mjs` 승인 훅과 같은 규약).
 
 import { homedir } from 'node:os';
 import { findToolLockHits, PATH_LOCK_CARD_HITS_MAX } from '@vibisual/shared';
@@ -69,11 +63,8 @@ export interface UnmanagedLockAnswer {
 }
 
 /**
- * 관할 밖 세션(사용자 에디터·터미널의 훅 세션 · 우리 CMD 터미널)에 돌려줄 자물쇠 답. 자물쇠에 안 닿았으면
- * `null`(종전 통과). **우리 팝업은 띄우지 않는다** — 그 엔진 자신의 강제 허락 장치로 돌려준다:
- * 클로드는 `ask`(그 CLI 의 승인 창 · bypass 에서도 뜬다), 코덱스는 `ask` 를 읽기만 하고 도구를 그대로
- * 실행하므로(공식 문서) 거부 + 사유. 코덱스는 앱 소유 훅(`engine: 'codex'`)이거나 페이로드에 `turn_id`
- * (코덱스 훅에만 있는 필드)가 실려 온 것으로 가른다.
+ * 관할 밖 세션(사용자 에디터·터미널 훅 · 우리 CMD)의 자물쇠 답 — 안 닿으면 `null`. 팝업 대신 그 엔진의 장치로: 클로드는 `ask`(bypass 에서도 뜬다),
+ * 코덱스는 `ask` 를 무시하고 실행하므로(공식 문서) 거부 + 사유. 코덱스 판별은 `engine: 'codex'` 또는 페이로드의 `turn_id`.
  */
 export function unmanagedLockAnswer(
   hits: readonly PathLockHit[],

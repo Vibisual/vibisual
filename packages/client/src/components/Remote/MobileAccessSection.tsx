@@ -4,14 +4,7 @@ import { MOBILE_QR_TICKET_TTL_MS, MOBILE_QR_MAX_USES, type MobileAccessState } f
 import { drawQrToCanvas, downloadCanvasPng } from '../../utils/qrCanvas';
 import { MobileAddressList, mobileAddressKindLabelKey } from './MobileAddressList';
 
-// §4 v3.16 모바일 웹 접속 — **원격 접속 창의 한 칸**(판올림 번호 발급 대기).
-//
-// 종전에는 이것이 File 메뉴의 독립 모달(`MobileAccessWindow`)이었다. 폰으로 이 PC 를 만지는
-// 길이 둘(웹 브라우저 · 메신저)인데 **File 메뉴에 창이 둘로 서 있어** 사용자는 무엇이 무엇인지
-// 알 수 없었다. 이제 셋(폰 브라우저 · 텔레그램 · 디스코드)이 한 창의 칸으로 나뉜다.
-//
-// 상태의 SSOT 는 여전히 main 의 mobileAccess 매니저다. 구독은 **셸이 한 번만** 하고(사이드바
-// 점이 그 상태를 함께 쓴다) 여기서는 표시 + 액션만 한다.
+// §4 모바일 웹 접속 — 원격 접속 창의 한 칸. 상태 SSOT 는 main 의 mobileAccess 매니저, 구독은 셸이 한 번(여기는 표시 + 액션).
 
 /** 남은 시간을 mm:ss 로. 만료됐으면 0:00. */
 function formatRemaining(ms: number): string {
@@ -29,7 +22,7 @@ interface MobileAccessSectionProps {
 export function MobileAccessSection({ state, onState }: MobileAccessSectionProps): React.JSX.Element {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
-  // §4 v3.66 QR — 대상 주소 인덱스 + 1초 카운트다운용 현재 시각.
+  // §4 QR — 대상 주소 인덱스 + 1초 카운트다운용 현재 시각.
   const [qrTargetIndex, setQrTargetIndex] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -60,14 +53,7 @@ export function MobileAccessSection({ state, onState }: MobileAccessSectionProps
     }
   }, [busy, onState]);
 
-  /**
-   * 수동 포트포워딩의 **대상 주소** — 공유기가 아는 이 PC 의 랜 주소다.
-   *
-   * 종전에는 `state.publicIp` 를 넘기고 있었다. 공유기 포워딩 규칙의 "내부 대상" 칸에 공인 IP 를
-   * 적으면 규칙이 서지 않거나 엉뚱한 곳을 가리킨다 — 안내를 그대로 따라 한 사용자가 공유기를
-   * 잘못 설정하게 되는 자리였다(`MobileAccessState.httpsPort` 주석도 "이 LAN IP" 라고 말한다).
-   * VPN 주소는 공유기가 모르는 망이라 후보가 아니다 — `lan` 만 고른다.
-   */
+  /** 수동 포트포워딩 대상 = 이 PC 의 `lan` 주소. 공인 IP(`publicIp`)·VPN 주소를 넣지 마라 — 공유기 "내부 대상" 규칙이 서지 않는다. */
   const forwardTargetIp = useMemo(
     () => state?.addresses.find((a) => a.kind === 'lan')?.address ?? null,
     [state],
@@ -100,7 +86,7 @@ export function MobileAccessSection({ state, onState }: MobileAccessSectionProps
     }
   }, [state, busy, onState]);
 
-  // ─── §4 v3.66 QR 페어링 ──────────────────────────────────────────────────
+  // §4 QR 페어링
 
   const qrTargets = useMemo(() => state?.qrTicket?.targets ?? [], [state]);
   const qrTarget = qrTargets[Math.min(qrTargetIndex, qrTargets.length - 1)] ?? null;
@@ -257,7 +243,7 @@ export function MobileAccessSection({ state, onState }: MobileAccessSectionProps
             )}
           </div>
 
-          {/* §4 v3.66 — QR 페어링(3분 티켓) */}
+          {/* §4 — QR 페어링(3분 티켓) */}
           <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
             <div className="mb-1 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -365,7 +351,7 @@ export function MobileAccessSection({ state, onState }: MobileAccessSectionProps
             {t('panel.mobileAccess.clients', { count: state.clientCount })}
           </div>
 
-          {/* §4 v3.20 — 외부(인터넷) 접속 */}
+          {/* §4 — 외부(인터넷) 접속 */}
           <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
             <div className="mb-1 flex items-center justify-between">
               <div className="flex items-center gap-2">

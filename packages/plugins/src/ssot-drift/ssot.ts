@@ -1,39 +1,12 @@
 /**
- * §5.11 v4.57 → v4.67 — SSOT 플러그인의 **집행** 로직.
- *
- * 이 카드는 오랫동안 "진실 공급원이 몇 개인가"를 0~3 으로 세어 한 줄 그리는 것이 전부였다. 세어 봐야
- * 아무 일도 안 일어나므로 사용자가 그대로 지적했다 — "SSOT 를 켜면 **지금 이 프로젝트에서 쓰는 SSOT 가
- * 똑같이 켜져야** 한다". 그래서 이 파일은 두 가지를 한다.
- *
- *  ① **실측** — 이 프로젝트에 기획 SSOT 로 볼 문서가 실제로 있는지, 그 문서에 **내용이 있는지**, 같은
- *     역할을 하는 문서가 몇 개나 더 있는지, 그리고 그 문서가 **코드보다 뒤처졌는지**를 파일로 확인한다.
- *  ② **집행** — 그 결과로 지시 블록을 만들어 **에이전트의 매 턴 프롬프트에 싣는다**. 켜면 에이전트가
- *     실제로 SSOT 를 먼저 읽고, 재설계 전에 묻고, 문서를 먼저 고친 뒤 구현하게 된다.
- *
- * v4.67 에서 고친 것 — 전부 "실측이 현실을 못 따라가던" 자리다.
- *  - **후보 경로가 하드코딩 8개**였다. `docs/GDD.md` 가 정본인 프로젝트는 문서가 있어도 "없음(warn)" 이
- *    떴다. 후보를 넓히고, 그 위에 **프로젝트가 직접 지정하는 길**(`.vibisual/ssot.json`)을 열었다.
- *  - **빈 문서도 통과**했다. `fileExists` 만 봤으므로 0바이트·제목 한 줄짜리 파일도 SSOT 로 인정돼
- *    규율 여섯 줄이 실렸다. 이제 본문 분량·헤딩 수를 재서 "문서는 있으나 내용 없음"을 따로 가른다.
- *  - **문서가 없을 때 경쟁 문서를 말하지 않았다.** SSOT 가 없을수록 `CLAUDE.md` 같은 사실상의 지시서가
- *    유일 권위가 되므로, 그때야말로 경고가 필요하다.
- *  - **경쟁 문서를 해소할 길이 없었다.** `CLAUDE.md` 에 "기획 SSOT = docs/SSOT.md" 라고 종속을 적어도
- *    영원히 rival(warn) 이었다. 본문이 SSOT 경로를 가리키면 **정렬됨**으로 낮춘다 — 사용자가 경고를 끌
- *    수 있는 길이 있어야 경고가 신호로 남는다.
- *  - **이름은 Drift 인데 어긋남을 안 쟀다.** 세던 것은 "지시 문서가 몇 개인가" 뿐이었다. 문서 갱신 시각을
- *    저장소의 최근 활동과 비교해 **문서가 코드보다 뒤처짐**을 잰다(이것이 이름값이다).
- *
- * 파일 접근은 호스트가 넘긴 탐침(`fileExists`/`readFile`/`fileMtimeMs`)만 쓴다 — 이 패키지는 `node:fs` 를 모른다.
+ * §5.11 — SSOT 플러그인의 집행 로직(켜면 이 프로젝트가 쓰는 SSOT 가 그대로 켜진다).
+ * ① 실측 — SSOT 문서(지정 `.vibisual/ssot.json` → 후보 표)가 있는지·내용이 있는지·같은 역할 문서 수·코드보다 뒤처졌는지.
+ * ② 집행 — 그 결과로 매 턴 지시 블록을 싣는다. 경쟁 문서는 SSOT 가 없어도 경고하고, 본문이 SSOT 경로를 가리키면 정렬됨으로 낮춘다.
+ * 파일 접근은 호스트 탐침뿐(`node:fs` ❌).
  */
 import type { PluginPromptContext } from '../sdk/index.js';
 
-/**
- * 기획 SSOT 후보 — **권위 순서**다. 위에 있는 것이 먼저 잡히면 그것이 그 프로젝트의 SSOT.
- *
- * 순서를 바꾸면 같은 저장소에서 다른 문서가 SSOT 가 되어 버리므로, 추가는 뒤에 붙이는 것이 기본이다.
- * v4.67 에서 게임·기획 계열(`GDD`)과 흔한 요구사항 문서 이름을 뒤에 더했다 — 그 이름을 쓰는 프로젝트는
- * 문서를 제대로 들고 있어도 "없음" 으로 떨어져 **집행이 통째로 헛돌았다**.
- */
+/** 기획 SSOT 후보 — 권위 순서(먼저 잡힌 것이 SSOT). 순서를 바꾸면 같은 저장소의 SSOT 가 바뀌므로 추가는 뒤에 붙인다. */
 export const SSOT_DOC_CANDIDATES: readonly string[] = [
   'docs/SCENARIO.md',
   'docs/SSOT.md',
@@ -51,12 +24,7 @@ export const SSOT_DOC_CANDIDATES: readonly string[] = [
   'DESIGN.md',
 ];
 
-/**
- * SSOT 는 아니지만 **같은 자리에서 지시를 내는** 문서들 — 어긋남(drift)의 실제 원천.
- *
- * 사람은 "이건 옛날 거네" 하고 넘기지만 모델은 둘 다 그럴듯하게 인용한다. 그래서 세는 데서 그치지 않고,
- * 충돌 시 누가 이기는지를 프롬프트에 못 박는다.
- */
+/** SSOT 는 아니지만 같은 자리에서 지시를 내는 문서들(어긋남의 원천) — 충돌 시 누가 이기는지를 프롬프트에 못 박는다. */
 export const RIVAL_DIRECTION_SOURCES: readonly string[] = [
   'CLAUDE.md',
   'AGENTS.md',
@@ -67,15 +35,8 @@ export const RIVAL_DIRECTION_SOURCES: readonly string[] = [
 ];
 
 /**
- * 프로젝트가 **자기 SSOT 를 직접 지정하는** 파일 (v4.67).
- *
- * 앱 설정(사용자 기기)에 두지 않고 **프로젝트 안**에 두는 이유: SSOT 가 무엇인지는 그 저장소의 사실이지
- * 이 컴퓨터의 취향이 아니다. 저장소와 함께 옮겨 다녀야 하고, 팀원·다른 기기·다른 앱에서도 같은 답이
- * 나와야 한다. 형식도 그래서 **평범한 JSON 한 장**이다(플러그인 폴더를 복사해 가도 계약이 따라온다).
- *
- * ```json
- * { "doc": "docs/GDD.md", "candidates": ["docs/DESIGN_v2.md"], "rivals": ["docs/OLD_RULES.md"] }
- * ```
+ * 프로젝트가 SSOT 를 직접 지정하는 파일 — 앱 설정이 아니라 저장소 안에 둔다(팀원·다른 기기·다른 앱에서도 같은 답).
+ * 형식: `{ "doc": "docs/GDD.md", "candidates": ["docs/DESIGN_v2.md"], "rivals": ["docs/OLD_RULES.md"] }`
  */
 export const SSOT_CONFIG_PATH = '.vibisual/ssot.json';
 
@@ -88,14 +49,7 @@ const HEADING_LINE = /^#{1,6}\s+\S/gm;
 /** 문서 앞머리의 YAML frontmatter — 분량을 셀 때 본문으로 치지 않는다. */
 const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---\r?\n/;
 
-/**
- * "문서는 있으나 내용이 없다"의 문턱.
- *
- * 0바이트·제목 한 줄짜리 파일이 SSOT 로 인정되면 규율 여섯 줄이 실리고, 에이전트는 **없는 기획을 읽으러
- * 갔다가 아무것도 못 찾은 채** 작업을 시작한다. 그 상태는 "SSOT 있음"보다 오히려 위험하다 — 화면은
- * 초록인데 실제로는 아무 근거가 없기 때문이다. 그래서 분량과 헤딩 수 둘 다 본다(둘 중 하나만 보면
- * "제목 30개 목차 파일"이나 "헤딩 없는 긴 잡문"이 그대로 통과한다).
- */
+/** "문서는 있으나 내용이 없다"의 문턱 — 빈 문서가 SSOT 로 서면 화면은 초록인데 근거가 없다. 분량·헤딩 수 둘 다 본다(하나만 보면 목차 파일·헤딩 없는 잡문이 통과). */
 export const SSOT_MIN_BODY_CHARS = 400;
 export const SSOT_MIN_HEADINGS = 2;
 
@@ -104,12 +58,7 @@ export const SSOT_STALE_DAYS = 14;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/**
- * 저장소의 **최근 활동 시각**을 알려 주는 자리들 — 앞에 있는 것이 더 정확하다.
- *
- * git 로그(`.git/logs/HEAD`)는 커밋할 때마다 한 줄이 붙으므로 그 파일의 갱신 시각이 곧 **마지막 커밋
- * 시각**이다. 서브프로세스(`git log`)를 부르지 않고 같은 답을 얻는 길이라 호스트 탐침만으로 닿는다.
- */
+/** 저장소 최근 활동 시각의 출처(앞일수록 정확). `.git/logs/HEAD` 갱신 시각 = 마지막 커밋 시각이라 `git log` 없이 호스트 탐침만으로 닿는다. */
 const REPO_ACTIVITY_FILES: readonly string[] = ['.git/logs/HEAD', '.git/index', '.git/HEAD'];
 
 /** `2026-08-04` 꼴 날짜 — Change Log 의 마지막 줄이 언제인지 재는 데 쓴다. */
@@ -130,12 +79,7 @@ const EMPTY_CONFIG: SsotConfig = { doc: null, candidates: [], rivals: [] };
 const strList = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map((x) => x.trim()) : [];
 
-/**
- * 프로젝트가 지정한 설정을 읽는다.
- *
- * 깨진 JSON·이상한 타입은 **없는 것으로 취급**한다(던지지 않는다). 설정 한 장 때문에 집행이 통째로
- * 빠지면, 사용자는 "켰는데 아무 일도 안 일어난다"만 보고 원인을 영영 못 찾는다.
- */
+/** 프로젝트 지정 설정을 읽는다. 깨진 JSON·이상한 타입은 던지지 않고 없는 것으로 본다(설정 한 장 때문에 집행이 통째로 빠지면 안 된다). */
 export function readSsotConfig(ctx: PluginPromptContext): SsotConfig {
   let raw: string | null = null;
   try {
@@ -167,14 +111,7 @@ export function resolveCandidates(config: SsotConfig): string[] {
   return out;
 }
 
-/**
- * SSOT 문서의 상태 — "있다/없다"의 두 칸으로는 실제 상황을 못 담는다.
- *
- * - `ok`            내용이 있는 문서를 잡았다.
- * - `thin`          문서는 있는데 **거의 비어 있다**(0바이트·제목만).
- * - `configMissing` 프로젝트가 경로를 지정했는데 **그 자리에 파일이 없다**(오타·이동·미생성).
- * - `none`          후보를 하나도 못 찾았다.
- */
+/** SSOT 문서의 상태: `ok` 내용 있는 문서 · `thin` 거의 빈 문서(0바이트·제목만) · `configMissing` 지정한 경로에 파일 없음(오타·이동·미생성) · `none` 후보를 못 찾음. */
 export type SsotDocState = 'ok' | 'thin' | 'configMissing' | 'none';
 
 export interface SsotSurvey {
@@ -219,14 +156,7 @@ export function hasSubstance(text: string): boolean {
   return body.length >= SSOT_MIN_BODY_CHARS && countHeadings(body) >= SSOT_MIN_HEADINGS;
 }
 
-/**
- * 경쟁 문서가 SSOT 에 **종속을 명시했는가**.
- *
- * `CLAUDE.md` 본문에 "기획 SSOT = docs/SCENARIO.md" 라고 적어 두면 그 문서는 더 이상 경쟁자가 아니라
- * **SSOT 를 가리키는 이정표**다. 그런데도 계속 warn 으로 남으면 사용자는 경고를 끌 방법이 없고, 끌 수
- * 없는 경고는 곧 무시된다. 판정은 문자열 한 줄이면 충분하다 — 경로가 본문 어딘가에 있으면 정렬로 본다
- * (경로를 적어 놓고 딴소리하는 문서까지 잡아내는 것은 이 카드의 일이 아니다).
- */
+/** 경쟁 문서가 SSOT 종속을 명시했는가 — 본문에 SSOT 경로가 있으면 정렬로 낮춘다(끌 수 없는 경고는 무시된다). 딴소리하는 문서까지 잡는 것은 이 카드의 일이 아니다. */
 export function mentionsDoc(text: string, doc: string): boolean {
   const hay = text.replace(/\\/g, '/').toLowerCase();
   const needle = doc.replace(/\\/g, '/').toLowerCase();
@@ -316,14 +246,8 @@ export function surveySsot(ctx: PluginPromptContext): SsotSurvey {
 }
 
 /**
- * §5.11 v4.65 — 같은 실측을 **카드가 그릴 수 있는 얕은 값**으로 옮긴다.
- *
- * `buildSsotPromptBlock` 과 같은 `surveySsot` 하나에서 파생시키는 것이 요점이다. 카드용으로 따로 세면
- * 그 순간 화면과 프롬프트가 갈라지고, 그것이 v4.57~v4.63 에서 실제로 벌어진 일이다(프롬프트는 문서를
- * 잡아 싣는데 카드는 rules·skills·기억 수를 "진실 공급원"이라 표시했다).
- *
- * ⚠ **못 잰 값은 키를 넣지 않는다**(`driftDays` 등). 0 으로 채우면 카드가 "오늘 고쳤다"고 그리는데
- * 실제로는 잰 적이 없는 상태가 된다 — 없는 값을 판정으로 바꾸는 것이 곧 거짓말이다.
+ * §5.11 — 같은 실측을 카드용 얕은 값으로 — `buildSsotPromptBlock` 과 같은 `surveySsot` 에서 파생시킨다(따로 세면 화면과 프롬프트가 갈린다).
+ * ⚠ **못 잰 값은 키를 넣지 않는다**(`driftDays` 등) — 0 이면 카드가 잰 적 없는 값을 "오늘 고쳤다"로 그린다.
  */
 export function surveySsotFacts(ctx: PluginPromptContext): Record<string, string | number | boolean | string[]> {
   const survey = surveySsot(ctx);
@@ -348,12 +272,7 @@ export function surveySsotFacts(ctx: PluginPromptContext): Record<string, string
 /** 경로 목록을 프롬프트에 적을 때 쓰는 표기 — 백틱 + 가운뎃점. */
 const paths = (list: readonly string[]): string => list.map((p) => `\`${p}\``).join(' · ');
 
-/**
- * 지시가 여러 곳에서 올 때 붙이는 경고 — **문서가 있든 없든 붙는다** (v4.67).
- *
- * 종전에는 SSOT 를 찾았을 때만 이 경고를 냈다. 그런데 SSOT 가 **없을 때**야말로 `CLAUDE.md` 같은
- * 사실상의 지시서가 유일 권위가 되므로, 침묵하면 모델은 그 문서를 기획서로 오인한 채 일한다.
- */
+/** 지시가 여러 곳일 때의 경고 — 문서가 있든 없든 붙는다(SSOT 가 없으면 모델이 `CLAUDE.md` 같은 지시서를 기획서로 오인한다). */
 function rivalLines(survey: SsotSurvey): string[] {
   if (survey.rivals.length === 0) {
     // 정렬된 문서만 남았으면 그 사실을 짧게 알린다 — 사용자가 종속을 적어 경고를 끈 결과이기 때문이다.
@@ -390,12 +309,7 @@ function driftLines(survey: SsotSurvey): string[] {
   ];
 }
 
-/**
- * 매 턴 프롬프트에 실을 SSOT 규율.
- *
- * 짧게 유지한다 — 규칙 블록을 길게 쓰면 무관한 작업에도 그만큼의 소음이 매 턴 실린다(§5.10 에서
- * 규칙 카드 전량 주입이 같은 이유로 문제가 됐다). 여기서는 **여섯 줄 + 상황 경고**가 상한이다.
- */
+/** 매 턴 SSOT 규율 — **여섯 줄 + 상황 경고가 상한**(길면 무관한 작업에도 매 턴 소음이 실린다). */
 export function buildSsotPromptBlock(ctx: PluginPromptContext): string | undefined {
   const survey = surveySsot(ctx);
 

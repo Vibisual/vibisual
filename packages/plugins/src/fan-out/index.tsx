@@ -1,9 +1,4 @@
-/**
- * §5.11 v3.93 — 부채꼴 분기(Fan-out): 지금 몇 갈래가 동시에 도는가.
- *
- * 병렬은 하위 작업이 **진짜로 독립일 때만** 이득이다. 서로의 결과가 필요하면 중복 작업과 모순된
- * 결론만 낳는다. 그래서 갈래 수와 함께 "합칠 규칙을 정했는가"를 묻는다. 표시 전용.
- */
+/** §5.11 — 부채꼴 분기(Fan-out): 동시에 도는 갈래 수와 "합칠 규칙을 정했는가"를 본다(병렬은 진짜 독립일 때만 이득). 표시 전용. */
 import { defineInspector, ICONS } from '../sdk/index.js';
 import { formatElapsed } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

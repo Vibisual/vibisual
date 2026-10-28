@@ -4,14 +4,9 @@ import { subAgentManager } from './subAgentManager.js';
 import type { QueuedCommand } from '@vibisual/shared';
 
 /**
- * §2.4 확인 dismiss — **실패 표식은 눌러 내리면 내려간 채로 있어야 한다.**
- *
- * 부모 버블의 `error` 는 저장된 상태가 아니라 파생값이다 — `recomputeCustomAgentStatus` 가
- * `subs.some(s => s.status === 'error')` 로 매 스윕(`SESSION_SCAN_INTERVAL`=10초) 다시 만든다.
- * 종전 dismiss 는 버블만 `idle` 로 내리고 그 근거인 sub 의 `error` 는 그대로 뒀기 때문에,
- * 사용자가 확인해서 껐어도 **다음 스윕이 같은 자리에 빨강을 되살렸다**(사용자 보고
- * "에러난 거 확인해서 클릭했는데 프로젝트 오가고 세션 여닫으면 왜 다시 빨간불이 드나").
- * 게다가 그 `error` 는 체크포인트에 그대로 실려 앱을 껐다 켜도 되살아났다.
+ * §2.4 확인 dismiss — 실패 표식은 눌러 내리면 내려간 채로 있어야 한다.
+ * 부모 버블의 `error` 는 파생값이다 — `recomputeCustomAgentStatus` 가 `subs.some(s => s.status === 'error')` 로 매 스윕(10초) 다시 만든다.
+ * 버블만 `idle` 로 내리고 sub 의 `error` 를 두면 다음 스윕이 빨강을 되살리고, 체크포인트에도 실려 재시작 뒤 되살아난다.
  */
 
 /** 커스텀 에이전트 하나 + 실패로 끝난 sub 하나. 부모 버블은 이미 `error` 까지 올라와 있다. */

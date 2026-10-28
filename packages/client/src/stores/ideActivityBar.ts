@@ -9,14 +9,8 @@ import { DEFAULT_ACTIVITY_ORDER } from '../components/IDE/ideActivityItems.js';
 import type { IDEViewType } from './graphStore.js';
 
 /**
- * §5.5 #16-1 — **사용자가 만들어 둔 IDE 활동바 배치**(순서 + 내려놓은 항목).
- *
- * `graphStore` 에 넣지 않는다(`keymap` 과 같은 이유). 활동바 배치는 프로젝트가 아니라 **그 사람**의
- * 것이라 스냅샷·체크포인트와 무관하고, 저쪽은 스냅샷 1건에 `set()` 이 수십 번 도는 자리라 여기
- * 구독을 얹으면 활동바가 매 스냅샷마다 다시 그려진다.
- *
- * 영속은 서버(`~/.vibisual/app-state.json`)다 — 창이 여럿이면 WS `ide_activity_bar_updated` 로
- * 다른 창도 즉시 같은 배치를 쓴다(창마다 항목 순서가 다르면 그게 곧 버그 신고다).
+ * §5.5 #16-1 — 사용자가 만든 IDE 활동바 배치(순서 + 내려놓은 항목). `graphStore` 밖(사람의 값 · 저쪽은 스냅샷마다 `set()` 수십 번).
+ * 영속은 서버, 다른 창은 WS `ide_activity_bar_updated` 로 같은 배치를 쓴다.
  */
 
 interface IDEActivityBarState {
@@ -125,12 +119,7 @@ export const useIDEActivityBarStore = create<IDEActivityBarState>((set, get) => 
   },
 }));
 
-/**
- * **지금 활동바에 그릴 순서** — 저장된 순서 + 판올림에서 새로 생긴 칸.
- *
- * ⚠ 선택자가 매번 새 배열을 만들면 zustand 가 참조 비교로 "바뀌었다"고 판정해 무한 리렌더가 된다
- * (§9 파생 선택자 함정). 그래서 **입력이 같으면 같은 배열을 돌려주도록** 한 벌만 캐시한다.
- */
+/** **지금 활동바에 그릴 순서** — 저장된 순서 + 판올림에서 새로 생긴 칸. ⚠ 매번 새 배열이면 무한 리렌더(§9 파생 선택자 함정) — 한 벌 캐시한다. */
 let orderMemo: { key: string; value: IDEViewType[] } | null = null;
 
 export function selectActivityOrder(s: IDEActivityBarState): IDEViewType[] {

@@ -1,16 +1,8 @@
 /**
  * localModelService.ts — §5.19 (E) All Model 로컬 모델 카탈로그·내려받기·목록.
- *
- * **카탈로그를 코드에 박지 않는다.** 모델 목록을 상수 배열로 들고 있으면 그 항목이 사라지거나
- * 새 모델이 나올 때마다 앱을 새로 내야 하고, 그 사이 화면은 거짓말을 한다. 그래서 검색은
- * 그때그때 조회해서 만든다(§5.19 (D) 빌드 번호를 안 박는 것과 같은 이유).
- *
- * **고르는 것은 사용자다.** "당신 PC 엔 이게 맞습니다" 식 추천을 하지 않는다 — 배포되는
- * 제품이라 우리는 사용자 장비를 모르고, 올라마도 7B 옆에 70B 를 그냥 같이 놓는다.
- * 이름·용량·양자화를 정직하게 보여 주는 것까지가 우리 몫이다.
- *
- * 받아 둔 모델의 진실도 **디스크**다 — 별도 색인 파일을 두면 사용자가 파일을 지웠을 때
- * 목록만 남아 첫 대화에서 죽는다. 매번 폴더를 훑는다.
+ * **카탈로그를 코드에 박지 않는다** — 상수 배열이면 모델이 바뀔 때마다 앱을 새로 내야 하고 그 사이 화면이 거짓말을 한다. 검색은 그때그때 조회한다.
+ * **고르는 것은 사용자다** — "이게 맞습니다" 식 추천을 하지 않는다(배포 제품이라 사용자 장비를 모른다). 이름·용량·양자화를 정직하게 보여 주는 데까지가 몫이다.
+ * 받아 둔 모델의 진실은 **디스크**다 — 색인 파일을 두면 파일을 지웠을 때 목록만 남아 첫 대화에서 죽는다. 매번 폴더를 훑는다.
  */
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -57,12 +49,8 @@ function fileToId(fileName: string): string {
 }
 
 /**
- * 큰 모델은 `…-00002-of-00003.gguf` 처럼 쪼개져 배포된다. 그 조각 정보를 읽는다.
- * 쪼개진 파일이 아니면 `null`.
- *
- * **조각은 모델이 아니다.** 하나만 받으면 못 쓰고, 엔진에는 **첫 조각**을 줘야 나머지를
- * 스스로 따라간다 — 다른 조각을 주면 그대로 죽는다(2026-08-20 실측: 둘째 조각만 받힌
- * 상태로 고를 수 있어서 `engine exited before ready (code=1)` 만 남았다).
+ * `…-00002-of-00003.gguf` 처럼 쪼개진 파일의 조각 정보. 쪼개진 파일이 아니면 `null`.
+ * **조각은 모델이 아니다** — 엔진에는 **첫 조각**을 줘야 나머지를 따라가고, 다른 조각을 주면 죽는다(2026-08-20 실측: 둘째 조각만 받아 고르면 `engine exited before ready (code=1)`).
  */
 function parseSplitPart(fileName: string): { base: string; index: number; total: number } | null {
   const m = /^(.+)-(\d{5})-of-(\d{5})\.gguf$/i.exec(fileName);
@@ -83,10 +71,8 @@ function splitPartName(base: string, index: number, total: number): string {
 }
 
 /**
- * **부속 파일은 모델이 아니다.** 저장소에는 본체와 함께 쓰라고 있는 GGUF 가 섞여 있다 —
- * `mmproj-…`(시각 투영기), `mtp-…`/`MTP/`(투기적 디코딩용 보조 헤드). 이름만 같은 `.gguf`
- * 라서 목록에 그대로 내놓으면 사용자가 그걸 본체로 알고 받는다. 그리고 그걸 열면 엔진이
- * 그냥 뻗는다(2026-08-20 실측: 27B 라면서 1.37GB 인 MTP 헤드 → `0xC0000005`).
+ * **부속 파일은 모델이 아니다** — `mmproj-…`(시각 투영기)·`mtp-…`/`MTP/`(투기적 디코딩 보조 헤드)도 `.gguf` 라 목록에 내놓으면 본체로 알고 받는다.
+ * 그걸 열면 엔진이 뻗는다(2026-08-20 실측: 1.37GB MTP 헤드 → `0xC0000005`).
  */
 function isCompanionName(fileOrPath: string): boolean {
   const name = (fileOrPath.split('/').pop() ?? fileOrPath).toLowerCase();
@@ -104,11 +90,8 @@ function isCompanionName(fileOrPath: string): boolean {
 }
 
 /**
- * 이름이 아니라 **파일 스스로**에게 묻는다 — GGUF 머리 24바이트에 텐서 개수가 들어 있다.
- * 진짜 언어모델은 아무리 작아도 텐서가 수백 개다(0.5B 도 200개 이상). 스물 몇 개짜리는
- * 본체가 아니라 부속이다. 24바이트만 읽으므로 목록을 훑는 비용에 영향을 주지 않는다.
- *
- * 못 읽으면 `null` — 여기서 단정하지 않는다(이름 규칙이 따로 판단한다).
+ * 이름이 아니라 **파일 스스로**에게 묻는다 — GGUF 머리 24바이트의 텐서 개수. 진짜 언어모델은 작아도 수백 개(0.5B 도 200개 이상)라 스물 몇 개면 부속이다.
+ * 24바이트만 읽어 목록 훑기 비용에 영향이 없다. 못 읽으면 `null` — 단정하지 않는다(이름 규칙이 따로 판단한다).
  */
 function ggufTensorCount(file: string): number | null {
   let fd: number | null = null;
@@ -364,11 +347,9 @@ function downloadUrl(repo: string, file: string): string {
 }
 
 /**
- * §5.19 (E) — 저장소 검색. 검색어가 비면 그 정렬 축의 인기 목록을 준다.
- * 조회 실패는 호출자에게 알린다 — 네트워크 장애를 검색 결과 없음으로 숨기면 재시도할 수 없다.
- *
- * **정렬은 카탈로그에 맡긴다.** 받아 온 스무 건을 우리가 다시 줄 세우면 "하트순 1위"가
- * 그 스무 건 안에서만 1위가 되어, 화면이 말하는 순위와 실제 순위가 갈린다.
+ * §5.19 (E) — 저장소 검색. 검색어가 비면 그 정렬 축의 인기 목록.
+ * 조회 실패는 호출자에게 알린다 — 네트워크 장애를 "결과 없음"으로 숨기면 재시도할 수 없다.
+ * **정렬은 카탈로그에 맡긴다** — 받아 온 스무 건을 다시 줄 세우면 화면의 순위가 실제 순위와 갈린다.
  */
 export async function searchCatalog(
   query: string,
@@ -484,10 +465,8 @@ export async function listRepoFiles(repo: string): Promise<LocalModelCatalogEntr
       if (quant) entry.quant = quant;
       singles.push(entry);
     }
-    // §5.19 (E) — **많이 쓰이는 양자화가 앞에 선다**(화면은 앞의 몇만 펴 놓고 나머지는 접는다).
-    //   종전에는 파일명 사전순이라 첫 줄이 51GB `BF16` 이었다 — 목록의 첫 줄이 이 PC 로는
-    //   무리인 항목이면 사용자는 무엇을 받아야 할지 알 길이 없다. 순위가 같으면 큰 쪽이
-    //   대개 품질이 낫고, 그마저 같으면 이름순으로 고정해 목록이 조회마다 흔들리지 않게 한다.
+    // §5.19 (E) — **많이 쓰이는 양자화가 앞에 선다**(화면은 앞의 몇만 펴고 나머지는 접는다). 사전순이면 첫 줄이 51GB `BF16` 같은 무리한 항목이 된다.
+    // 순위가 같으면 큰 쪽(대개 품질이 낫다), 그마저 같으면 이름순 — 목록이 조회마다 흔들리지 않게.
     singles.sort((a, b) => {
       const byRank = quantRank(a.quant) - quantRank(b.quant);
       if (byRank !== 0) return byRank;
@@ -644,8 +623,7 @@ export function downloadModel(repo: string, file: string, partFiles?: readonly s
         } catch {
           already = 0;
         }
-        // 예전 200 오류 페이지도 .part 로 남을 수 있다. 그 뒤에 진짜 모델의 뒷부분을
-        // 붙이면 재시도할 때마다 같은 잘못된 머리를 보존하므로 처음부터 다시 받는다.
+        // 200 으로 받은 오류 페이지가 `.part` 로 남아 있을 수 있다 — 그 뒤에 이어 받으면 재시도마다 잘못된 머리가 남으므로, GGUF 머리가 없으면 처음부터 받는다.
         if (already >= 24 && !hasGgufHeader(partPath)) already = 0;
 
         session.abort.signal.throwIfAborted();
@@ -714,10 +692,8 @@ export function downloadModel(repo: string, file: string, partFiles?: readonly s
           signal: session.abort.signal,
         });
 
-        // 스트림이 끝났다는 것은 "다 받았다"가 아니다 — 중간에 끊긴 응답도 정상 종료로 보인다.
-        //   여기서 대조하지 않으면 반쪽 GGUF 가 그대로 제자리에 놓여, 목록에는 멀쩡히 뜨고
-        //   쓰는 순간에야 이상해진다(§5.19 엔진 내려받기와 같은 계열의 사고).
-        //   `.part` 는 남긴다 — 다음 시도가 이어받을 수 있는 자산이지 쓰레기가 아니다.
+        // 스트림이 끝난 것은 "다 받았다"가 아니다 — 끊긴 응답도 정상 종료로 보인다. 대조하지 않으면 반쪽 GGUF 가 목록에 멀쩡히 뜨고 쓸 때에야 이상해진다.
+        // `.part` 는 남긴다 — 다음 시도가 이어받을 자산이다.
         const gotBytes = session.receivedBytes - doneBytes;
         if (fileTotal > 0 && gotBytes !== fileTotal) {
           throw new Error(

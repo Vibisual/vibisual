@@ -1,12 +1,5 @@
-// SCENARIO.md §5.22 — 권한·감사 경계.
-//
-// **새 감시 계층이 아니다.** 도구 호출은 §5.3 훅 이벤트로 이미 우리 앞을 지나가고, 사람에게
-// 묻는 창구도 §5.3 #12-1 권한 브로커가 이미 서 있다. 이 서비스는 그 두 길에서 받은 사실을
-// **한 원장**에 적을 뿐이다 — 따로 가로채지도, 따로 저장하지도 않는다(디스크는 훅 경로가
-// 이미 쓰는 코얼레스 체크포인트에 얹는다 — §5.7 v3.45).
-//
-// 원장이 하나인 이유: "무슨 도구로 어디를 만졌나"와 "사람이 뭐라 답했나"를 따로 두면 둘을
-// 잇는 키가 또 필요해지고, 한쪽만 캡에 잘렸을 때 어느 쪽이 진실인지 판정할 수 없다.
+// §5.22 — 권한·감사 원장. 새 감시 계층이 아니다 — 훅 이벤트(§5.3)와 권한 브로커(§5.3 #12-1)가 이미 받은 사실을 한 원장에 적을 뿐이다(디스크는 코얼레스 체크포인트, §5.7).
+// 원장이 하나인 이유: 도구 기록과 사람의 답을 따로 두면 잇는 키가 또 필요하고, 한쪽만 캡에 잘리면 무엇이 진실인지 못 가린다.
 
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -33,18 +26,10 @@ import {
 } from '@vibisual/shared';
 import { HOST_PLATFORM } from './pathKey.js';
 
-/**
- * §5.22 `outside` — `~` 를 펴는 홈 디렉터리. 프로세스가 사는 동안 바뀌지 않으므로 한 번만 읽는다.
- * (플랫폼과 마찬가지로 **판정 함수 안에서 읽지 않고** 인자로 실어 보낸다 — 멀티플랫폼 규약.)
- */
+/** §5.22 `outside` — `~` 를 펴는 홈. 판정 함수 안에서 읽지 않고 인자로 넘긴다(멀티플랫폼 규약). */
 const AUDIT_HOME_DIR = homedir();
 
-/**
- * §5.22 — 이 호스트의 값(플랫폼·홈)을 물린 위험 판정.
- *
- * 승인 창구(`/api/permission-check`)와 원장 기록이 **같은 이 함수**를 쓴다. 두 자리가 저마다
- * 옵션을 지어 넣으면 같은 호출이 카드에서는 위험, 타임라인에서는 평범으로 갈린다.
- */
+/** §5.22 — 이 호스트(플랫폼·홈)를 물린 위험 판정. 승인 창구와 원장이 같은 이 함수를 쓴다 — 따로 옵션을 지으면 카드는 위험, 타임라인은 평범으로 갈린다. */
 export function classifyToolRiskOnHost(
   toolName: string,
   toolInput?: Record<string, unknown> | null,
@@ -57,13 +42,7 @@ export function classifyToolRiskOnHost(
   });
 }
 
-/**
- * 승인 창구(`/api/permission-check`)가 적은 줄을 뒤따라오는 훅 이벤트가 찾아가는 창.
- *
- * 훅 핸들러는 PreToolUse 에서 **승인 창구를 먼저 부르고**(사람을 최대 60초 기다린다) 그 답이
- * 난 뒤에 추적용 이벤트를 보낸다. 그래서 같은 호출이 두 길로 도착하고, 그 간격이 승인 대기만큼
- * 벌어질 수 있다 — 창을 짧게 잡으면 한 호출이 두 줄로 갈라진다.
- */
+/** 승인 창구가 적은 줄을 뒤따르는 훅 이벤트가 찾아가는 창(ms). 훅은 승인(사람을 최대 60초 기다림) 뒤에 추적 이벤트를 보낸다 — 짧으면 한 호출이 두 줄로 갈라진다. */
 const AUDIT_PENDING_WINDOW_MS = 120_000;
 
 /** 훅 경로가 넘겨 주는 호출 한 건. */
@@ -78,13 +57,7 @@ export interface AuditRecordInput {
   toolInput?: Record<string, unknown> | null;
   /** 같은 호출의 Pre/Post 를 한 줄로 합치는 키. */
   toolUseId?: string;
-  /**
-   * §5.22 `outside` — 이 호출이 머물러야 할 경계(프로젝트 루트 · 세션 cwd).
-   *
-   * 비면 `outside` 를 판정하지 않는다. 호출부가 **둘 다** 실어 주는 이유는, 루트 밖에 선
-   * 워크트리나 별도 cwd 로 띄운 세션을 통째로 밖으로 몰면 그 세션의 모든 호출이 빨개져
-   * 배지가 뜻을 잃기 때문이다.
-   */
+  /** §5.22 `outside` 경계(프로젝트 루트 · 세션 cwd, 비면 판정 안 함). 둘 다 싣는다 — 루트 밖 워크트리·별도 cwd 세션을 통째로 밖으로 몰면 배지가 뜻을 잃는다. */
   roots?: readonly string[];
   at?: number;
   /**
@@ -129,12 +102,7 @@ export function countsAsDenied(e: Pick<AuditEntry, 'decision' | 'decisionSource'
   return isAuditEntryDenied(e);
 }
 
-/**
- * 원장을 훑어 집계를 만든다 — 파생을 따로 누적하지 않는다(한 벌만 진실이면 어긋날 수 없다).
- *
- * 보관 상한이 사용자 손에 있어 원장이 길어질 수 있으므로, 이 접기는 **브로드캐스트마다가 아니라
- * 스냅샷을 만들 때** 도는 자리라는 전제 위에 있다. 상한을 크게 둔 사용자에게도 O(줄 수) 한 번이다.
- */
+/** 원장에서 집계를 접는다(파생을 따로 누적하지 않는다 — 한 벌만 진실). 원장이 길 수 있어 브로드캐스트마다가 아니라 스냅샷을 만들 때만 돈다는 전제다. */
 function foldCounts(state: LedgerState, now: number): AuditCounts {
   const today = costDayKey(now);
   const counts = emptyAuditCounts();
@@ -154,12 +122,7 @@ function foldCounts(state: LedgerState, now: number): AuditCounts {
   return counts;
 }
 
-/**
- * 캡을 넘은 꼬리를 잘라 `retired` 합계로 접는다 — 숫자는 줄지 않는다(§9).
- *
- * `max <= 0` 이면 **이 축은 정리하지 않는다**(§3.2.3 의 `0`=무제한 규약). 여기 한 곳에서만
- * 그 뜻을 해석한다 — 호출부마다 `> 0` 을 각자 쓰면 한 곳이 빠졌을 때 조용히 무제한이 된다.
- */
+/** 캡을 넘은 꼬리는 `retired` 합계로 접는다(숫자는 줄지 않는다, §9). `max <= 0` = 무제한(§3.2.3) — 이 해석은 여기 한 곳에서만(호출부마다 쓰면 하나가 빠질 때 조용히 무제한이 된다). */
 function trim(state: LedgerState, max: number): void {
   if (max <= 0) return;
   while (state.entries.length > max) {
@@ -183,13 +146,7 @@ function sanitizeEntryOnLoad(e: AuditEntry): AuditEntry {
 export class AuditLogService {
   private logs = new Map<string, LedgerState>();
 
-  /**
-   * §3.2.3 B축 — 프로젝트당 보관 줄 수(`RetentionSettings.auditEntryMaxPerProject`).
-   *
-   * **주입으로 받는다.** 이 서비스가 앱 상태를 직접 읽으면 단위 테스트가 그 기계의 실제
-   * `app-state.json` 에 좌우된다(테스트가 사용자 파일에 물린 사고는 이미 한 번 겪었다).
-   * 기본 해석기는 상수 하나를 돌려주므로 주입 없이도 종전 그대로 동작한다.
-   */
+  /** §3.2.3 B축 보관 줄 수 — 주입으로 받는다(직접 읽으면 단위 테스트가 그 기계의 실제 `app-state.json` 에 좌우된다). */
   constructor(private readonly resolveMaxEntries: () => number = () => AUDIT_ENTRIES_MAX_PER_PROJECT) {}
 
   /** 지금 유효한 보관 상한. `0` 이면 무제한(§3.2.3). */
@@ -198,12 +155,7 @@ export class AuditLogService {
     return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
   }
 
-  /**
-   * 설정이 바뀐 직후 **지금 들고 있는 원장 전부**에 새 상한을 적용한다. 잘린 줄이 있으면 true.
-   *
-   * 이게 없으면 조용한 프로젝트는 다음 도구 호출이 올 때까지 옛 크기 그대로라,
-   * 사용자에게는 "줄였는데 안 줄었다"로 보인다.
-   */
+  /** 설정이 바뀌면 들고 있는 원장 전부에 새 상한을 적용한다(잘렸으면 true) — 안 하면 조용한 프로젝트는 다음 호출까지 "줄였는데 안 줄었다". */
   applyRetention(): boolean {
     const max = this.maxEntries();
     let changed = false;
@@ -231,11 +183,7 @@ export class AuditLogService {
     return s;
   }
 
-  /**
-   * 호출 한 건을 원장에 적는다. 같은 `toolUseId` 가 이미 있으면 **새 줄을 만들지 않고**
-   * 그 줄을 갱신한다(Pre/Post 두 번 도착해도 한 줄 — 두 줄이면 같은 일이 두 번 일어난
-   * 것처럼 보이고 원장 길이가 두 배가 된다).
-   */
+  /** 같은 `toolUseId` 면 새 줄 없이 갱신한다 — Pre/Post 두 번 와도 한 줄(두 줄이면 같은 일이 두 번 일어난 것처럼 보인다). */
   record(input: AuditRecordInput): AuditEntry {
     const at = input.at ?? Date.now();
     const state = this.state(input.projectName);
@@ -353,13 +301,7 @@ export class AuditLogService {
     return this.logs.get(projectName)?.byId.get(entryId);
   }
 
-  /**
-   * 전선용 — 프로젝트당 한 장. 집계는 여기서 접어 실어 준다(§3.1).
-   *
-   * **최근 몫만 싣는다**(§9). 원장 전량을 브로드캐스트마다 실으면 스냅샷이 통째로 무거워지므로
-   * 화면이 쓰는 최근 `AUDIT_SNAPSHOT_ENTRIES` 줄만 보내고, 전량은 체크포인트와 조회 REST 에 둔다.
-   * 집계는 **자르기 전 원장 전체**에서 접으므로 숫자는 그대로다.
-   */
+  /** 전선용, 프로젝트당 한 장. 최근 `AUDIT_SNAPSHOT_ENTRIES` 줄만 싣는다(§9 — 전량은 체크포인트·조회 REST). 집계는 자르기 전 전체에서 접는다. */
   getSnapshot(now: number = Date.now()): ProjectAuditLog[] {
     const out: ProjectAuditLog[] = [];
     for (const [projectName, state] of this.logs) {
@@ -373,9 +315,7 @@ export class AuditLogService {
     const state = this.logs.get(projectName);
     if (!state) return undefined;
     if (state.entries.length === 0 && state.retired.entries === 0 && isDefaultAuditBoundary(state.boundary)) {
-      // 기록도 없고 스위치도 기본이면 저장할 것이 없다(빈 필드로 체크포인트를 늘리지 않는다).
-      // 기본값 비교는 shared 한 곳(`isDefaultAuditBoundary`)에서만 한다 — 여기에 종전 기본을
-      // 직접 적어 두면 기본이 뒤집힌 순간 **사용자가 켜 둔 경계가 저장되지 않고 사라진다**.
+      // 기록 없고 스위치가 기본이면 저장하지 않는다. 기본값 비교는 shared `isDefaultAuditBoundary` 에서만 — 여기에 기본값을 적으면 기본이 뒤집힐 때 켜 둔 경계가 사라진다.
       return undefined;
     }
     return this.build(projectName, state, now);

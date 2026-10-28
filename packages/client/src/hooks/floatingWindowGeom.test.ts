@@ -15,7 +15,7 @@ import {
   windowStyle,
 } from './floatingWindowGeom.js';
 
-// §5.9 v3.34 / §5.10 v3.77 — 창 기하는 window 없이 검증한다(뷰포트를 인자로 받는 순수 함수).
+// §5.9 / §5.10 — 창 기하는 window 없이 검증한다(뷰포트를 인자로 받는 순수 함수).
 
 const cfg = resolveFloatingWindowConfig();
 const wide = { w: 1920, h: 1080 };

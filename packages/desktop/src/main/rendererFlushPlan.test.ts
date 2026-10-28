@@ -1,6 +1,5 @@
 /**
- * rendererFlushPlan.test.ts — 종료 직전 렌더러 초안 flush 왕복의 회귀.
- *
+ * 종료 직전 렌더러 초안 flush 왕복의 회귀.
  * A missing or failed acknowledgement returns within a bound and blocks shutdown. The decision
  * stays independent of Electron so hidden windows, late replies, and failed writes are testable.
  */

@@ -1,11 +1,9 @@
 import type { StageWarmOptions } from '@vibisual/video/render';
 
 /**
- * §5.13 (Y) 40-11 — 스튜디오 **메모리 예산을 한 곳에서** 센다. 기기 등급(코어 수 · `navigator.deviceMemory`)마다 상한을 정하고, 소리
- * 조각 · 실사 읽개 · `UrlSource` 캐시 · 대표 프레임 · 데우기 · 쉬는 숨은 창이 모두 이 표를 읽는다. 이 PC(32코어 · 64GB) 실측으로 정하지
- * 않는다 — 4코어 · 8GB 등급에서도 무너지지 않아야 한다(시험이 세 등급을 고정한다).
- *
- * `deviceMemory` 는 Chromium 이 8 을 넘게 알려 주지 않는다(8GB 이상이면 8) — 그래서 높은 등급의 문턱은 코어 수가 정한다.
+ * §5.13 (Y) 40-11 — 스튜디오 메모리 예산을 한 곳에서 센다. 기기 등급(코어 수·`navigator.deviceMemory`)마다 상한을 두고, 소리 조각·실사 읽개·
+ * `UrlSource` 캐시·대표 프레임·데우기·쉬는 숨은 창이 모두 이 표를 읽는다. 개발 PC 실측으로 정하지 않는다 — 4코어·8GB 등급에서도 무너지지 않아야 한다(시험이 세 등급을 고정).
+ * `deviceMemory` 는 Chromium 이 8 을 넘게 알려 주지 않는다 — 그래서 높은 등급의 문턱은 코어 수가 정한다.
  */
 
 export type DeviceTier = 'low' | 'mid' | 'high';

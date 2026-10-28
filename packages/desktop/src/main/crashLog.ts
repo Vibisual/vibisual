@@ -2,21 +2,10 @@ import { app, crashReporter } from 'electron';
 import { appendFileSync, mkdirSync, renameSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Vibisual desktop — 크래시/치명 오류 파일 영속화 (SCENARIO.md §4 v1.98 확장).
-//
-// 문제: 기존 진단 로그(diagnosticService)는 메모리 ring buffer 라 "영속화 ❌" — 앱이
-// 팅기면(uncaughtException / unhandledRejection / renderer·GPU 프로세스 사망) 그 순간의
-// 에러가 프로세스와 함께 증발해, 설치본 크래시 원인을 사후에 전혀 복구할 수 없었다.
-//
-// 해법: 두 갈래로 디스크에 남긴다.
-//   (1) crash.log — main/renderer/child 프로세스의 치명 오류 라인을 userData/logs 아래
-//       회전식 텍스트 파일에 **동기 append**. 크래시 컨텍스트라 flush 를 보장해야 하므로
-//       비동기 쓰기(fs.appendFile)가 아니라 appendFileSync 를 쓴다.
-//   (2) crashReporter(Crashpad) — 네이티브 크래시(segfault·GPU 드라이버·네이티브 OOM)는
-//       JS 핸들러가 못 잡으므로 minidump(.dmp)를 userData/Crashpad 에 수집(로컬 전용,
-//       업로드 ❌).
-//
-// §3.5 경계: 이건 프로젝트 데이터가 아니라 앱 진단이라 app.getPath('userData') 에 둔다.
+// desktop 크래시/치명 오류 파일 영속화(SCENARIO.md §4). 진단 로그(diagnosticService)는 메모리 ring buffer 라 앱이 팅기면 함께 사라진다 — 두 갈래로 디스크에 남긴다.
+// (1) crash.log — main/renderer/child 의 치명 오류를 userData/logs 회전식 파일에 **동기 append**(크래시 순간이라 flush 를 보장해야 해 appendFileSync, fs.appendFile ❌).
+// (2) crashReporter(Crashpad) — JS 가 못 잡는 네이티브 크래시(segfault·GPU 드라이버·네이티브 OOM)의 minidump(.dmp)를 userData/Crashpad 에 수집(로컬 전용, 업로드 ❌).
+// §3.5 경계: 프로젝트 데이터가 아니라 앱 진단이라 `app.getPath('userData')` 에 둔다.
 
 /** 로그 파일 회전 임계치 — 넘으면 crash.log → crash.log.1 로 밀고 새로 시작. */
 const MAX_LOG_BYTES = 2 * 1024 * 1024; // 2MB

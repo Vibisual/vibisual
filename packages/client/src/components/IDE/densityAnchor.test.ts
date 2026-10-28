@@ -8,11 +8,7 @@ import {
   sessionSnapshotKey,
 } from './densityAnchor.js';
 
-/**
- * §5.5 #17-12 — 표시 밀도(간결/표준/원문)를 오가도 **보던 자리**가 남는지 못 박는다.
- * 종전엔 위로 올려 읽던 화면에서 밀도를 바꾸면 화면이 튀고, 튄 자리가 바닥 가까이면 추종이 다시 켜져
- * 최신으로 끌려 내려갔다 — 사용자에게는 읽던 과거 대화가 사라진 것으로 보였다.
- */
+/** §5.5 #17-12 — 밀도를 오가도 보던 자리가 남는다(튀어 바닥 근처에 닿으면 추종이 켜져 최신으로 끌려간다). */
 describe('densityAnchorAliases', () => {
   it('원문의 도구 id 는 표준의 묶음 id 를 함께 부른다', () => {
     expect(densityAnchorAliases('tool-1')).toEqual(['tool-1', 'toolgroup-tool-1']);

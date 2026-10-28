@@ -3,16 +3,7 @@ import { normalizeShelfImport, SHELF_MAX_ITEMS } from '@vibisual/shared';
 import { ProjectGraph } from './projectGraph.js';
 import { mergeSnapshots } from './projectGraphManager.js';
 
-/**
- * §5.20 — 스크립트 선반의 **영속 왕복 + 가져오기 방어** 회귀 테스트.
- *
- * 앱 버블(§5.13)·플레이 버블(§5.14)·스펙 보드(§5.15)에서 이미 데인 두 자리를 그대로 못 박는다 —
- * ① 영속 5지점 중 앞의 둘만 채우면 화면엔 보이는데 껐다 켜면 사라지고, ② `mergeSnapshots` 를
- * 빠뜨리면 프로젝트를 둘 이상 연 사람에게만 사라진다.
- *
- * 여기에 이 기능 고유의 계약이 둘 더 있다: **남이 준 파일을 믿지 않는다**(아이콘·색·개수·본문),
- * 그리고 **재시작 뒤에 도는 항목은 없다**(running 잔상을 내리지 않으면 화면이 거짓말한다).
- */
+/** §5.20 — 스크립트 선반 영속 왕복(영속 5지점·`mergeSnapshots`) + 가져오기 방어: 남이 준 파일은 믿지 않고(아이콘·색·개수·본문), 재시작 뒤 `running` 은 내린다. */
 
 const PROJECT_CWD = '/tmp/shelf-project';
 

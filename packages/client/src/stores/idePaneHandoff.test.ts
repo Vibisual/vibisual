@@ -4,13 +4,7 @@ import { DEFAULT_IDE_OVERLAY } from './graphStore.js';
 import type { IDEOverlayState } from './graphStore.js';
 import { captureIDEPaneHandoff, coerceIDEPaneHandoff, handoffPanePatch } from './idePaneHandoff.js';
 
-/**
- * SCENARIO.md §5.5 #17-6 (H) — **창이 자리를 옮겨도 하던 일을 잃지 않는다**.
- *
- * 종전에는 앱 밖으로 꺼내거나 되돌릴 때 받는 쪽이 `openIDEOverlay` 로 창을 새로 만들어,
- * 열어 둔 편집 탭이 전부 닫히고(`editorFiles: []`) 뷰가 첫 화면으로 돌아가고 붙어 있던 변을
- * 잊었다. 화면 없이 확인할 수 있도록 그 이월을 순수 함수로 갈라 두고, 여기서 못 박는다.
- */
+/** §5.5 #17-6 (H) — **창이 자리를 옮겨도 하던 일을 잃지 않는다**(편집 탭·뷰·붙어 있던 변) — 이월하는 순수 함수를 고정한다. */
 
 const AGENT = 'agent-1';
 const PROJ = 'alpha';
@@ -209,14 +203,7 @@ describe('handoffPanePatch', () => {
   });
 });
 
-/**
- * §5.5 #17-6 (H-26) — **되돌아온 창이 저절로 확대되던 자리.**
- *
- * 독립 창의 슬롯은 `'detached'` 갈래가 자리 값을 심지 않아 통째로 비어 있고, `openMode` 는
- * 슬롯을 세울 때의 기본값 `'modal'` 그대로 남는다(그 창은 `fullWindow` 라 그 필드를 읽지
- * 않는다). 돌아오는 짐을 **그 슬롯에서** 뜨므로, 짐의 `openMode` 를 물려받는 갈래가 남아
- * 있으면 앱 안에 서는 창이 언제나 모달이 되어 밖에서 들고 온 크기를 `80vw×80vh` 로 부풀린다.
- */
+/** §5.5 #17-6 (H-26) — 되돌아온 창이 저절로 확대되지 않는다(독립 창 슬롯의 `openMode` 는 늘 기본 `'modal'` 이라 물려받으면 `80vw×80vh`). */
 describe('(H-26) 앱으로 합치는 창은 언제나 떠 있는 창으로 선다', () => {
   /** 밖으로 꺼낸 창의 슬롯을 실제 갈래로 지어 본다(손으로 채우지 않는다). */
   const detachedSlot = pane(handoffPanePatch(

@@ -3,11 +3,8 @@ import type { DocEnvelope } from '../Creation/videoDocumentApi.js';
 export { createDoc, patchDoc, importVideoAsset, readJsonResponse, VersionConflictError } from '../Creation/videoDocumentApi.js';
 export type { DocEnvelope } from '../Creation/videoDocumentApi.js';
 /**
- * §5.13 Vibistudio — 클라이언트 REST 얇은 층.
- *
- * 호출을 한 곳에 모으는 이유는 **낙관적 잠금 규약을 한 군데서만 지키면 되게** 하기
- * 위해서다. 화면 여러 곳이 각자 patch 를 만들면 `baseVersion` 을 빠뜨리는 자리가
- * 생기고, 그때부터는 저장이 조용히 서로를 덮는다.
+ * §5.13 — 클라이언트 REST 얇은 층. 호출을 한 곳에 모아 낙관적 잠금 규약을 한 군데서만 지킨다 — 화면 여러 곳이 각자 patch 를 만들면
+ * `baseVersion` 을 빠뜨리는 자리가 생기고, 저장이 조용히 서로를 덮는다.
  */
 
 import type {

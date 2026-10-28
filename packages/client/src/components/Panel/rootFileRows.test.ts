@@ -1,15 +1,4 @@
-/**
- * 루트 패널 "표시됨" 목록이 **캔버스와 어긋나지 않는다**는 것을 고정한다.
- *
- * 실제 사고: 에이전트가 `.claude/…` 를 만져 캔버스에 `.claude` 버블이 떠 있는데도 패널의
- * "표시됨" 에는 한 줄도 안 나왔다 — 종전 구현이 **디스크 목록을 걸러서** 표시됨을 만들었고,
- * 그 목록은 점으로 시작하는 폴더와 무시 목록(`node_modules`, `dist` …)을 일부러 감추기 때문이다.
- * 사용자에겐 "에이전트가 쓰는 폴더가 체크가 안 된다"로 보였다.
- *
- * 반대 방향도 고정한다: 캔버스에는 디스크 경로가 아닌 합성 버블(프로젝트 루트 자신, 루트 밖
- * 외부 폴더, 워크트리 네임스페이스, 도메인)도 뜨는데, 이들은 이 폴더 **안의** 항목이 아니고
- * `/api/root/toggle` 로 끌 수도 없으므로 행으로 만들면 안 된다.
- */
+/** 루트 패널 "표시됨" 이 캔버스와 맞는다 — 점 폴더(`.claude`)·무시 목록도 버블이면 나오고, 합성 버블(루트·외부·워크트리·도메인)은 행이 안 된다. */
 import { describe, expect, it } from 'vitest';
 import type { BubbleData, FolderFileEntry } from '@vibisual/shared';
 import { baseName, isSyntheticNodeKey, visibleRowsFrom } from './rootFileRows.js';

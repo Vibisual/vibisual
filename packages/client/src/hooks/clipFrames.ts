@@ -2,12 +2,9 @@ import { CAPTURE_PLAYTEST } from '@vibisual/shared';
 
 import { frameTargetSize } from '../components/BubbleMap/playtestClip.js';
 
-// 녹화 클립에서 **프레임 PNG 를 뽑는** 한 벌 — §5.9 플레이테스트 첨부(`useCapturePlaytestAttach`)와
-// §5.5 #17-35 ⑨ 시연 저장(`useVerifyDemoSave`)이 **같은 코드**를 쓴다.
-//
-// 둘로 갈라 두면 한쪽만 고쳐진다: webm `duration=Infinity` 우회나 seek 상한 같은 것은 브라우저
-// 사정이라 언젠가 다시 손대게 되는데, 그때 시연 쪽만 낡은 채로 남으면 "왜 여기서만 그림이 비지?"
-// 가 된다. 계산(구간 클램프·시각 배분·파일명)은 `playtestClip` 에, **실제로 뽑는 일**은 여기에.
+// 녹화 클립에서 프레임 PNG 를 뽑는 한 벌 — §5.9 플레이테스트 첨부(`useCapturePlaytestAttach`)와 §5.5 #17-35 ⑨ 시연 저장(`useVerifyDemoSave`)이 같은 코드를 쓴다.
+// webm `duration=Infinity` 우회·seek 상한 같은 브라우저 사정은 다시 손대게 되므로 둘로 가르면 한쪽만 낡는다.
+// 계산(구간 클램프·시각 배분·파일명)은 `playtestClip` 에, 실제로 뽑는 일은 여기에.
 
 /** 클립에서 프레임을 뽑기 위해 필요한 것만. `PlaytestClip` 전체를 끌고 오지 않는다. */
 export interface ClipFrameSource {
@@ -70,11 +67,9 @@ async function grabFrame(
 }
 
 /**
- * 뽑아 낸 프레임 한 장 — 파일과 **그 파일이 찍힌 시각**이 한 몸이다.
- *
- * 시각을 함께 돌려주는 이유: 실패한 장은 건너뛰므로 결과 배열이 요청한 `times` 보다 짧아질 수 있다.
- * 그때 호출부가 `files[i]` 와 `times[i]` 를 짝지으면 **한 칸씩 밀린 시각**이 붙는다(시연 저장이
- * 실제로 그랬다 — 단계 시각과 그림 시각이 어긋나면 그 둘을 짝지으라는 프롬프트가 거짓이 된다).
+ * 뽑아 낸 프레임 한 장 — 파일과 그 파일이 찍힌 시각이 한 몸이다.
+ * 실패한 장은 건너뛰어 결과가 요청한 `times` 보다 짧을 수 있다 — 호출부가 `files[i]` 와 `times[i]` 를 짝지으면 한 칸씩 밀린 시각이 붙는다
+ * (단계 시각과 그림 시각을 짝지으라는 프롬프트가 거짓이 된다).
  */
 export interface ClipFrame {
   file: File;

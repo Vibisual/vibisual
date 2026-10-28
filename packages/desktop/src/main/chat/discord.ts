@@ -8,18 +8,11 @@ import type { ChatCard } from '@vibisual/shared';
 import { chunk, escapeDiscordMarkdown, renderCard } from './cards';
 import type { ChatChannel, ChatChannelContext, ChatPairLink, ChatVerifyResult } from './types';
 
-// §4 메신저 원격제어 브리지 — 디스코드 드라이버 (판올림 번호 발급 대기)
-//
-// 텔레그램과 방식은 다르지만(long-poll vs Gateway WebSocket) **방향은 같다** — 우리가 나가서
-// 붙는다. 그래서 이 축의 이점(포트 개방 0·인증서 0·CGNAT 무관)이 그대로 유지된다.
-//
+// §4 메신저 원격제어 브리지 — 디스코드 드라이버. 텔레그램(long-poll)과 방식은 달라도(Gateway WebSocket) 우리가 나가서 붙는다 — 포트 개방 0·인증서 0·CGNAT 무관.
 // 텔레그램과 다른 셋만 여기서 흡수한다:
-//   ① DM 딥링크가 없다 → 초대 URL 을 QR 로 주고 `!vibisual pair <token>` 한 줄로 마무리한다.
-//   ② Message Content Intent 를 포털에서 켜야 평문을 읽을 수 있다 → 4014 를 별도 사유로 올려
-//      UI 가 "포털에서 스위치를 켜세요"라고 정확히 말하게 한다(그냥 '연결 실패'로 묶으면 못 고친다).
-//   ③ 상호작용(버튼)에는 **3초 응답 창**이 있고 빈 본문을 거부한다 → `ackAction` 이 분기한다.
-//
-// 공개 문서 API 만 쓴다(https://discord.com/developers/docs). 의존성은 이미 있는 `ws` 하나.
+// ① DM 딥링크가 없다 → 초대 URL 을 QR 로 주고 `!vibisual pair <token>` 한 줄로 마무리.
+// ② Message Content Intent 를 포털에서 켜야 평문을 읽는다 → 4014 를 별도 사유로 올려 UI 가 "포털에서 스위치를 켜세요"라고 말하게 한다('연결 실패'로 묶으면 못 고친다).
+// ③ 버튼 상호작용엔 3초 응답 창이 있고 빈 본문을 거부한다 → `ackAction` 이 분기한다. 공개 문서 API 만 쓴다(https://discord.com/developers/docs), 의존성은 `ws` 하나.
 
 /** 봇 초대 시 요구하는 권한 — 보기 + 보내기 + 기록 읽기. 그 이상 요구하지 않는다. */
 const INVITE_PERMISSIONS = (1 << 10) | (1 << 11) | (1 << 16); // 68608
@@ -43,18 +36,10 @@ function fitDiscord(text: string): string {
 }
 
 /**
- * `POST /channels/{id}/messages` 로 보낼 JSON 한 벌.
- *
- * **순수 함수로 떼어 둔 이유**는 여기 붙은 보호막 셋이 전부 **조용히** 사라지기 때문이다 —
- * 빠뜨려도 전송은 200 으로 성공하고, 틀렸다는 것은 폰 화면에서만 드러난다.
- *
- *   ① `allowed_mentions: { parse: [] }` — 카드 본문은 모델이 쓴 글과 파일 경로가 섞인 것이라
- *      `@everyone`·역할·사용자 멘션이 들어올 수 있다. 우리가 요구하는 권한에는 `MENTION_EVERYONE`
- *      이 없어 `@everyone` 은 발동하지 않지만 **역할·사용자 멘션은 권한 없이도 알림을 쏜다.**
- *      길드 채널로 묶인 옛 대화(`direct` 아님 배지가 붙는 것들)에서는 그 방의 사람이 우리 카드로
- *      호출된다 — 표시하려던 것이 **남에게 알림을 보내는 일**이 되어서는 안 된다.
- *   ② `flags: SUPPRESS_EMBEDS` — 위 상수의 이유.
- *   ③ 마크다운 이스케이프 — 디스코드에는 평문 스위치가 없다(`cards.escapeDiscordMarkdown`).
+ * `POST /channels/{id}/messages` 로 보낼 JSON 한 벌. 순수 함수로 뗀 이유: 아래 보호막 셋은 빠뜨려도 200 으로 성공해 폰 화면에서만 드러난다.
+ * ① `allowed_mentions: { parse: [] }` — 본문엔 모델 글·경로가 섞여 멘션이 들 수 있다. `MENTION_EVERYONE` 권한이 없어 `@everyone` 은 안 터져도
+ *    **역할·사용자 멘션은 권한 없이도 알림을 쏜다**(길드 채널로 묶인 옛 대화에선 그 방 사람이 호출된다).
+ * ② `flags: SUPPRESS_EMBEDS` — 위 상수의 이유. ③ 마크다운 이스케이프 — 평문 스위치가 없다(`cards.escapeDiscordMarkdown`).
  */
 export function buildDiscordMessage(card: ChatCard): Record<string, unknown> {
   const body: Record<string, unknown> = {
@@ -88,12 +73,8 @@ export function buildDiscordAckData(text: string): Record<string, unknown> | nul
 }
 
 /**
- * 상호작용 회신 주소 `<interaction id>:<interaction token>` 을 가른다.
- *
- * **첫 콜론만** 기준이다. interaction token 은 디스코드가 발급하는 불투명 문자열이라
- * 우리가 글자 집합을 정하지 못한다 — `split(':')` 로 갈라 두 번째 조각만 쓰면 콜론이 든
- * 토큰에서 **주소가 조용히 잘려** 회신이 404 로 사라지고, 누른 사람 화면에는 "이 상호작용에
- * 실패했습니다" 가 뜬다(결정 자체는 이미 적용된 뒤라 원인을 찾을 단서가 없다).
+ * 상호작용 회신 주소 `<interaction id>:<interaction token>` 을 가른다. **첫 콜론만** 기준이다 — 토큰은 불투명 문자열이라 콜론이 들 수 있고,
+ * `split(':')` 로 자르면 주소가 조용히 잘려 회신이 404, 누른 사람 화면엔 "이 상호작용에 실패했습니다"가 뜬다(결정은 이미 적용돼 원인을 찾을 단서가 없다).
  */
 export function splitAckToken(ackToken: string): { id: string; token: string } | null {
   const at = ackToken.indexOf(':');
@@ -117,23 +98,15 @@ export class DiscordChannel implements ChatChannel {
   private seq: number | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   /**
-   * 보낸 뒤 ACK(op 11)을 못 받은 하트비트 수.
-   *
-   * 이걸 안 세면 소켓이 `close` 이벤트 없이 반쯤 죽었을 때 상태는 `online` 인 채
-   * **영원히 아무것도 받지 않는다** — 밖에서 권한 승인을 기다리다 60초 자동 결정을 맞는,
-   * 이 축이 막으려던 바로 그 상황이다. 디스코드 문서도 "ACK 이 없으면 비정상 코드로 끊고
-   * 재연결" 을 요구한다.
+   * 보낸 뒤 ACK(op 11)을 못 받은 하트비트 수. 안 세면 `close` 없이 반쯤 죽은 소켓에서 `online` 인 채 영원히 아무것도 안 받는다
+   * (밖에서 권한 승인을 기다리다 60초 자동 결정을 맞는다). 디스코드 문서도 ACK 이 없으면 비정상 코드로 끊고 재연결하라고 한다.
    */
   private missedAcks = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private backoff = CHAT_RECONNECT_MIN_MS;
   /**
-   * 우리가 **의도해서** 끊었는가(op 7 재연결 요청 · op 9 세션 무효 · 좀비 소켓).
-   *
-   * 디스코드는 배포할 때마다 op 7 로 "다시 붙어라" 를 보낸다 — 드문 일이 아니다. 그것까지
-   * `error: network` 로 올리면 그때마다 사이드바 점이 빨강으로 깜빡이고 "연결할 수 없습니다"
-   * 가 뜬다. **정상적인 재연결이 실패로 보이면 사용자는 고칠 것이 없는데 고치려 든다** —
-   * 토큰을 다시 넣고 봇을 다시 초대한다. 그래서 의도한 끊김은 `connecting` 으로 올린다.
+   * 우리가 **의도해서** 끊었는가(op 7 재연결 요청 · op 9 세션 무효 · 좀비 소켓). 디스코드는 배포마다 op 7 을 보낸다 — 이것을 `error: network` 로 올리면
+   * 사이드바 점이 빨갛게 깜빡여 고칠 것이 없는데 토큰·봇 초대를 다시 하게 만든다. 그래서 의도한 끊김은 `connecting` 으로 올린다.
    */
   private expectedClose = false;
 

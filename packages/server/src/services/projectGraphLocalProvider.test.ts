@@ -2,16 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { normalizeAgentProvider } from '@vibisual/shared';
 import { ProjectGraph } from './projectGraph.js';
 
-/**
- * §5.19 — All Model(로컬 LLM) 버블의 두 가지를 못 박는다.
- *
- * ① **`provider` 가 껐다 켜도 살아남는가.** 이 축은 `AgentConfig` 안에 살아서 기존
- *    agentConfigs 영속 경로를 그대로 탄다 — "공짜로 따라온다"는 그 전제가 실제로 맞는지
- *    왕복으로 확인한다. 틀리면 사용자가 고른 모델이 재시작마다 사라진다.
- *
- * ② **기존 커스텀·CMD 에이전트가 그대로인가.** 이 기능의 조건은 "기존 Claude 경로 무영향"
- *    이었다. provider 를 주지 않은 에이전트의 설정에 이 축이 새어 들어오면 안 된다.
- */
+/** §5.19 — All Model 버블: ① `provider` 가 기존 agentConfigs 영속 경로로 재시작을 넘는가 ② provider 를 안 준 커스텀·CMD 에이전트에 이 축이 새지 않는가. */
 
 const PROJECT_CWD = '/tmp/example-local-provider';
 

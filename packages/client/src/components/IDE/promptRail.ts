@@ -1,12 +1,6 @@
 /**
- * §5.5 #17-48 — 내 입력 레일: '맨 아래로' 위의 [맨 위] · [이전 입력] · 입력 눈금 · [다음 입력] + 올리면 내 글.
- *
- * 긴 세션에서 "내가 뭐라고 했었지"를 다시 보려면 휠로 한참 거슬러 올라가야 했다(사용자 요청 —
- * "내가 입력한 것을 단계적으로 즉시 이동 · 깔끔하게 선으로 · 마우스 올리면 내가 쓴 글, 길면 일부 생략").
- *
- * 지금 자리·이전·다음 판정, 눈금 배치, 팝업 자리, 글 생략은 DOM 을 모르는 순수 함수로 두어 단위 테스트로
- * 못박는다(클라 테스트에는 jsdom 이 없다). DOM 을 만지는 것은 화면을 재는 `measureViewportItems` 와
- * 도착을 맞추는 `settleItemAtTop` 둘뿐이다 — Sub 탭 렌더러와 메인 탭 타임라인이 같은 측정·같은 도착을 쓴다.
+ * §5.5 #17-48 — 내 입력 레일: 알약 하나에 [맨 위]·[이전]·입력 점·[다음]·[맨 아래로] + 올리면 내 글. 판정·배치·생략은 순수 함수,
+ * DOM 은 `measureViewportItems`·`settleItemAtTop` 둘뿐 — Sub 탭과 메인 탭 타임라인이 같은 측정·도착을 쓴다.
  */
 import { visualClientRect, visualRectScale } from '../../utils/inspector.js';
 import { findItemElement, flashElement } from './bookmarkScroll.js';
@@ -22,6 +16,12 @@ export const PROMPT_RAIL_PREVIEW_MAX = 320;
 export const PROMPT_RAIL_BOTTOM_EPS = 40;
 /** "화면 안에 들어왔다"고 볼 최소 노출(px) — 바닥 가장자리에 몇 px 걸친 말풍선은 보인 것이 아니다. */
 export const PROMPT_RAIL_VISIBLE_MIN = 12;
+/** 점 트랙 높이(px) — 입력 수만큼 자라되 이 사이에 머문다. 창이 낮으면 그보다 더 줄어든다(flex). */
+export const PROMPT_RAIL_TRACK_MIN_PX = 40;
+export const PROMPT_RAIL_TRACK_MAX_PX = 192;
+export const PROMPT_RAIL_TRACK_PX_PER_PROMPT = 14;
+/** 점 간격(px)이 이보다 좁으면 점을 작게 그린다 — 큰 점이 겹쳐 덩어리로 뭉치지 않고 가는 줄처럼 이어지게. */
+export const PROMPT_RAIL_DENSE_GAP_PX = 7;
 
 /** 레일 눈금 하나 = 내 입력 하나. */
 export interface PromptRailEntry {
@@ -67,13 +67,9 @@ export interface PromptProbe {
 }
 
 /**
- * 잰 화면(`ViewportItems`)을 입력 단위로 옮긴다. 소속은 §5.5 #17-12 ③-2 와 같은 규칙 —
- * 맨 위 항목부터 **항목 배열을 거슬러 올라가** 처음 만나는 입력이다(말풍선이 선렌더 버퍼 밖이어도 정확하다).
- * 단, ③-2 와 달리 첫 입력보다 위(세션 서두)를 첫 입력으로 뭉개지 않는다 — 레일에서는 그 자리에서
- * [이전]이 없고 [다음]이 첫 입력이어야 한다.
- *
- * 맨 위 항목이 배열에 없으면(측정과 데이터가 어긋난 한 프레임) `null` — 부르는 쪽이 앞 판정을 유지한다.
- * `idOf` 는 항목 래퍼의 `data-stream-item-id` 와 같은 값을 내야 한다(메인 탭 노드는 id 를 계산해 낸다).
+ * 잰 화면 → 입력 단위. 소속은 §5.5 #17-12 ③-2 규칙(맨 위 항목에서 배열을 거슬러 처음 만나는 입력)이되, 첫 입력보다 위(세션 서두)는
+ * 첫 입력으로 뭉개지 않는다(거기선 [이전] 없음·[다음] = 첫 입력). 맨 위 항목이 배열에 없으면 `null`(앞 판정 유지).
+ * `idOf` 는 래퍼의 `data-stream-item-id` 와 같은 값이어야 한다.
  */
 export function probePromptPlace<T>(
   items: readonly T[],
@@ -121,14 +117,9 @@ export interface PromptRailPlace {
 export const EMPTY_PROMPT_RAIL_PLACE: PromptRailPlace = { current: -1, anchored: false, prev: null, next: null };
 
 /**
- * 지금 자리 → [이전]·[다음] 행선지.
- *
- * - **이전** = 그 입력에 서 있으면 앞 입력, 그 턴의 응답 중간이면 **지금 턴의 입력**(미디어 플레이어의 "이전").
- * - **다음** = 다음 입력. 첫 입력보다 위(-1)면 이전은 없고 다음은 첫 입력이다.
- * - **바닥 예외** — 바닥에 닿아 더 내려갈 수 없는데 화면 안에 더 뒤의 입력이 보이면 그 입력이 지금 자리다.
- *   그러지 않으면 [다음]이 맨 위까지 못 올라올 입력을 가리켜 눌러도 헛돈다.
- * - **붙든 자리**(`held`) — 레일로 옮긴 직후에는 옮겨 간 입력이 지금 자리다. 바닥 가까운 입력은 맨 위까지
- *   못 올라와 재 보면 앞 턴이 나오고, 그러면 [다음]이 같은 입력으로 되돌아간다. 두 예외 중 이것이 먼저다.
+ * 지금 자리 → [이전]·[다음]. 이전 = 입력 위면 앞 입력, 응답 중간이면 지금 턴의 입력. 첫 입력보다 위(-1)면 다음 = 첫 입력.
+ * 바닥 예외: 바닥인데 화면에 더 뒤의 입력이 보이면 그게 지금 자리. 붙든 자리(`held`, 먼저 적용): 레일로 옮긴 직후엔 옮겨 간 입력
+ * (예외가 없으면 [다음]이 헛돌거나 같은 입력으로 되돌아간다).
  */
 export function resolvePromptRailPlace(input: {
   count: number;
@@ -176,6 +167,34 @@ export function promptMarkerRatio(index: number, count: number): number {
   return (index + 0.5) / count;
 }
 
+/** 점 트랙 높이(px) — 입력 하나에 `PROMPT_RAIL_TRACK_PX_PER_PROMPT` 씩, 위아래 한도 안에서. */
+export function promptRailTrackPx(count: number): number {
+  return Math.min(PROMPT_RAIL_TRACK_MAX_PX, Math.max(PROMPT_RAIL_TRACK_MIN_PX, count * PROMPT_RAIL_TRACK_PX_PER_PROMPT));
+}
+
+/** 점이 빽빽한가 — 점 간격이 `PROMPT_RAIL_DENSE_GAP_PX` 보다 좁으면 작은 점으로 그린다. */
+export function promptRailDense(count: number, trackPx: number = promptRailTrackPx(count)): boolean {
+  return count > 0 && trackPx / count < PROMPT_RAIL_DENSE_GAP_PX;
+}
+
+/** 점들을 잇는 선의 자리(트랙 높이 대비 %). */
+export interface PromptRailLine {
+  /** 옅은 이음선의 위·아래 끝 — 트랙 위·아래 변에서 첫 점·마지막 점까지의 거리. */
+  insetPct: number;
+  /** 첫 점에서 지금 자리 점까지 강조색으로 차오른 길이. 0 이면 차오른 선이 없다. */
+  fillPct: number;
+}
+
+/** 첫 점~마지막 점의 옅은 선과 첫 점~지금 자리의 차오른 선. 점이 하나면 `null`, 자리가 첫 입력 이하면 0, 목록보다 크면 마지막 점에서 멈춘다. */
+export function promptRailLine(count: number, current: number): PromptRailLine | null {
+  if (count < 2) return null;
+  const at = Math.min(count - 1, current);
+  return {
+    insetPct: promptMarkerRatio(0, count) * 100,
+    fillPct: at > 0 ? (at / count) * 100 : 0,
+  };
+}
+
 /**
  * 트랙 위 포인터 높이(0~1)에서 **가장 가까운 눈금**. 눈금이 수백 개면 1px 눈금을 겨눌 수 없으므로
  * 트랙 전체를 눈금 수만큼 고르게 나눠 그 칸의 눈금을 고른다(눈금이 칸 한가운데 서므로 곧 가장 가까운 눈금).
@@ -186,11 +205,7 @@ export function nearestPromptMarker(ratio: number, count: number): number {
   return Math.max(0, Math.min(count - 1, Math.floor(r * count)));
 }
 
-/**
- * 팝업에 실을 내 글 — 줄바꿈은 살리되 `maxLines` 줄 · `maxChars` 자를 넘으면 그 뒤를 `…` 로 생략한다.
- * 줄 끝 공백과 세 줄 넘는 빈 줄은 접는다(붙여 넣은 글의 빈칸이 팝업을 늘리지 않게).
- * 자르는 자리가 서로게이트 쌍 한가운데면 한 칸 앞에서 자른다(그림 글자가 깨진 물음표로 남지 않게).
- */
+/** 팝업에 실을 내 글 — 줄바꿈은 살리고 `maxLines`·`maxChars` 를 넘으면 `…`. 줄 끝 공백·세 줄 넘는 빈 줄은 접고, 서로게이트 쌍 한가운데는 자르지 않는다. */
 export function promptPreviewText(
   text: string,
   maxChars: number = PROMPT_RAIL_PREVIEW_MAX,
@@ -240,11 +255,8 @@ export function placePromptRailPopup(
 // ─── DOM — 화면 재기 · 도착 맞추기 ───────────────────────────────────────────
 
 /**
- * 스크롤러 안의 항목 래퍼(`data-stream-item-id`, 위→아래 순서라 top 이 단조증가)를 이분 탐색으로 잰다.
- *
- * 래퍼마다 글자 배율(`ideTextZoom`)이 `zoom` 으로 걸려 있어 Chromium 126 은 그 사각형을 배율로 나눠 준다 —
- * 그대로 쓰면 배율이 1이 아닐 때 "맨 위 항목"이 한 칸씩 어긋났다. 래퍼들은 같은 zoom 아래 있으므로
- * 배율은 첫 래퍼에서 한 번만 구한다(`visualRectScale`). 래퍼가 없으면 `null`.
+ * 항목 래퍼(`data-stream-item-id`, top 단조증가)를 이분 탐색으로 잰다. 래퍼에 `ideTextZoom` 이 `zoom` 으로 걸려 Chromium 126 은 사각형을
+ * 배율로 나눠 준다 — 배율은 첫 래퍼에서 한 번 구한다(`visualRectScale`, 안 그러면 배율 ≠ 1 에서 한 칸 어긋난다).
  */
 export function measureViewportItems(cont: HTMLElement): ViewportItems | null {
   const els = cont.querySelectorAll<HTMLElement>('[data-stream-item-id]');
@@ -265,10 +277,8 @@ export function measureViewportItems(cont: HTMLElement): ViewportItems | null {
 }
 
 /**
- * 가상 리스트 인덱스 이동(`scrollToIndex`) 뒤, 추정 높이로 내려앉은 오차를 실제 DOM 으로 맞춘다.
- * 두 프레임 뒤(그려진 직후) 한 번 맞추고 도착한 항목을 짧게 빛낸다 — 바닥 근처라 화면이 움직이지 않는
- * 이동도 어디로 갔는지 보이게(북마크·카드 점프와 같은 도착 연출). 위쪽 항목들이 늦게 재측정돼 밀리는
- * 몫은 잠시 뒤 한 번 더 맞춘다(빛내기는 한 번만).
+ * `scrollToIndex` 뒤 추정 높이 오차를 실제 DOM 으로 맞춘다 — 두 프레임 뒤 맞추고 도착 항목을 짧게 빛낸다(화면이 안 움직이는 이동도 보이게).
+ * 위쪽이 늦게 재측정돼 밀린 몫은 잠시 뒤 한 번 더 맞춘다(빛내기는 한 번).
  */
 export function settleItemAtTop(getContainer: () => HTMLElement | null, itemId: string, gap: number = PROMPT_JUMP_TOP_GAP): void {
   const fix = (flash: boolean): void => {

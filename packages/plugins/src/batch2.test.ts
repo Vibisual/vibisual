@@ -1,9 +1,4 @@
-/**
- * §5.11 v3.88 — 2차 배치 플러그인 판정 고정 테스트.
- *
- * 전부 순수 함수라 UI 없이 조합만으로 검증된다. 특히 "배지가 상시 점등되면 신호가 죽는다"는 규율이
- * 회귀로 무너지지 않게, **언제 조용해야 하는지**를 함께 못 박는다.
- */
+/** §5.11 — 2차 배치 플러그인 판정 고정(순수 함수). 배지가 상시 점등되지 않게 언제 조용해야 하는지도 함께 못 박는다. */
 import { describe, it, expect } from 'vitest';
 import type { AgentConfig, AgentEvent, SubAgent } from '@vibisual/shared';
 import { judgeLeastPrivilege } from './least-privilege/leastPrivilege.js';

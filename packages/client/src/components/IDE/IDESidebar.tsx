@@ -48,13 +48,11 @@ function formatTime(ts: number): string {
 // §5.5 #17-31 — 종전 이 자리의 `TerminalView`(세션 목록)는 **MCP 인벤토리**(`IDEMcpView`)로
 //   대체됐다. 세션 목록은 탭 바(#17-5)와 세션 요약(#17-8)이 이미 두 벌로 보여 주고 있었다.
 
-// §5.5 #17-19 v4.71 — 파일 뷰는 워크스페이스 탐색기(IDEExplorerView)로 대체됐다.
-//   종전의 "이 에이전트가 만진 파일" 목록은 사라지지 않고 그 탐색기 안 접이식 구역으로 옮겨 갔다.
+// §5.5 #17-19 — "이 에이전트가 만진 파일"은 탐색기(`IDEExplorerView`) 안 접이식 구역에 있다.
 
-// §5.5 #17-28 v4.96 — 종전 Events 뷰(훅 이벤트 목록)는 **컨텍스트 주입원 통제**(`IDEContextView`)로
-//   대체됐다. 이벤트 자체는 스트림·카드·목표창이 이미 보여 주므로 목록을 한 벌 더 두지 않는다.
+// §5.5 #17-28 — 훅 이벤트 목록 뷰는 두지 않는다(스트림·카드·목표창이 이미 보인다).
 
-// ─── Skills view: 프로젝트 + 플러그인 스킬 목록 (§5.5 #17-4 v2.32) ───
+// Skills view (§5.5 #17-4).
 
 type SkillSource = 'project' | 'global' | 'plugin';
 
@@ -77,20 +75,16 @@ function applyPinnedOrder(
 
 function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   const { t } = useTranslation();
-  // §5.5 #17-4 v2.36 — 이 에이전트가 속한 프로젝트의 카운트만 정렬·배지 표시.
-  // v2.59 — 스킬 목록도 이 프로젝트의 .claude/skills/ 만 조회(탭별 개별).
-  // 스킬 목록 조회는 agentId 를 권위 키로 넘긴다 — 서버가 그 에이전트의 소속 인스턴스에서
-  // 프로젝트 path 를 직접 해소하므로, 활성 프로젝트 오염·표시명 어긋남에 영향받지 않는다.
+  // §5.5 #17-4 — 카운트·스킬 목록은 이 에이전트의 프로젝트 것만. 조회 키는 `agentId` 다(서버가 소속 인스턴스로 path 를 풀어 표시명 어긋남을 피한다).
   const projectName = useGraphStore((s) => s.agentProjects[agentId]);
   const { skills, order, favorites, loaded, failure } = useAvailableSkills(projectName, agentId);
-  // §5.5 #17-4 v2.93 — 신규(미클릭) 스킬 색 구분용 "본 것" 집합 + 시드/표시 액션.
+  // §5.5 #17-4 — 신규(미클릭) 스킬 구분용 "본 것" 집합.
   const seenSkills = useGraphStore((s) => s.seenSkills);
   const seedSeenSkills = useGraphStore((s) => s.seedSeenSkills);
   const markSkillSeen = useGraphStore((s) => s.markSkillSeen);
   const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   const setAgentSessionInputText = useGraphStore((s) => s.setAgentSessionInputText);
-  // §4 v2.63 — CMD(interactive-terminal) 에이전트는 textarea 대신 임베디드 PTY 가 렌더된다.
-  // 그 경우 스킬 클릭은 draft store 가 아니라 PTY stdin 으로 `/skill ` 을 직접 타이핑한다.
+  // §4 — CMD 에이전트는 PTY 라 스킬 클릭이 draft 가 아니라 PTY stdin 에 `/skill ` 을 친다.
   const executionMode = useGraphStore((s) => s.agentConfigs[agentId]?.executionMode);
   const projectCounts = useGraphStore((s) =>
     projectName ? (s.skillUsageCounts[projectName] ?? null) : null,
@@ -110,7 +104,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   const [pluginError, setPluginError] = useState<Record<string, string>>({});
   const dragNameRef = useRef<string | null>(null);
 
-  // §5.5 #17-4 v2.93 — 즐겨찾기 집합. 출처 무관 스킬명 키.
+  // 즐겨찾기 — 키는 출처 무관 스킬명.
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
 
   const { favoriteSkills, projectSkills, globalSkills, pluginSkills } = useMemo(() => {
@@ -147,14 +141,14 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
     };
   }, [skills, projectCounts, order, liveDrag, favorites, favoriteSet]);
 
-  // §5.5 #17-4 v2.93 — 최초 1회: 현재 보이는 전 스킬을 "본 것"으로 시드(첫 로드 전체 깜빡임 방지).
+  // 최초 1회 보이는 스킬을 전부 "본 것"으로 시드한다(첫 로드에 전부 깜빡이지 않게).
   useEffect(() => {
     if (loaded && skills.length > 0) {
       seedSeenSkills(skills.map((s) => `${s.source}:${s.name}`));
     }
   }, [loaded, skills, seedSeenSkills]);
 
-  // §5.5 #17-4 v2.93 — 즐겨찾기 토글(전체 목록 치환 저장). 별 누른 순서 유지.
+  // 즐겨찾기 토글 — 목록 통째 저장, 별 누른 순서 유지.
   const toggleFavorite = useCallback((s: SkillInfo) => {
     const next = favoriteSet.has(s.name)
       ? favorites.filter((n) => n !== s.name)
@@ -162,7 +156,6 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
     void persistSkillFavorites(next);
   }, [favorites, favoriteSet]);
 
-  // §5.5 #17-4 v2.93 — 새로고침: 디스크에서 스킬 목록 재조회(새로 만든 스킬 즉시 반영).
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
     void refreshAvailableSkills().finally(() => {
@@ -247,15 +240,8 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   }, []);
 
   /**
-   * §5.5 #17-33 ⑦ — 목록에서 못 쓰는 플러그인 스킬을 **그 자리에서 쓸 수 있게** 만든다.
-   *
-   * 어느 처방인지는 여기서 고르지 않는다 — `SkillStateTag` 가 shared `skillFixAction` 으로 이미
-   * 골라서 넘겨준다. 종전에 이 자리에서 `installed === false ? install : enable` 로 갈랐던 것이
-   * 결함이었다: 남의 프로젝트에 매인 것은 `installed === true` 라 `enable` 로 갔고, user 범위엔
-   * 켤 설치본이 없어 **아무 일도 일어나지 않았다.**
-   *
-   * 실패는 **삼키지 않는다.** 종전엔 반환값을 버려서, 눌러도 잠깐 `처리 중…` 이 떴다 도로
-   * 제자리로 돌아올 뿐 왜 안 됐는지 알 길이 없었다.
+   * §5.5 #17-33 ⑦ — 처방(install/enable)은 `SkillStateTag`(shared `skillFixAction`)가 고른다. `installed` 로 가르지 마라 — 남의 프로젝트에 매인 것이 enable 로 가 아무 일도 안 일어난다.
+   * 실패는 삼키지 않는다.
    */
   const activatePluginSkill = useCallback(async (s: SkillInfo, action: 'install' | 'enable'): Promise<void> => {
     if (!currentProjectPath || !s.pluginId) return;
@@ -315,13 +301,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
               {s.pluginName}
             </span>
           )}
-          {/*
-            §5.5 #17-33 ⑦ — **이 스킬이 지금 어느 상태인지 말한다.**
-            종전 칩은 못 쓰는 것만 말했다 — 멀쩡한 줄은 아무 표시가 없어, 표시 없는 줄이
-            "괜찮은 것" 인지 "아직 안 물어본 것" 인지 구분되지 않았다. 이제 네 상태를 다 적고
-            (`켜짐`/`꺼짐`/`다른 프로젝트`/`미설치`), 고칠 것은 그 태그가 곧 손잡이다.
-            판정·처방·그리기는 전부 `SkillStateTag` 안이라 여기서 다시 갈래를 만들지 않는다.
-          */}
+          {/* §5.5 #17-33 ⑦ — 상태 넷을 다 적는다(켜짐/꺼짐/다른 프로젝트/미설치) — 못 쓰는 것만 적으면 표시 없는 줄의 뜻이 갈린다. 판정·처방은 `SkillStateTag` 안에서만. */}
           <SkillStateTag
             skill={s}
             busy={pluginBusy === s.name}
@@ -510,16 +490,8 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   );
 }
 
-// ─── §5.5 #17-17 ⑬ — 목표 뷰 (에이전트의 목표를 **보여주는** 창) ───
-//
-// 스킬 뷰와 같은 자리(사이드바 `w-52`)에 뜬다 — 목표는 화면을 가로채는 것이 아니라 곁눈으로
-// 보는 것이기 때문. 퍼센트는 서버가 체크리스트에서 계산한 값을 그대로 그린다(클라 계산 ❌).
-//
-// ⑬ — **여기는 읽는 창이다.** 목표를 쓰는 것은 세션이고(①), 손보는 곳은 무대다(⑫ — 끌어다 놓기·
-// 순서 바꾸기·종류 붙이기가 전부 거기 있다). 그래서 이 창에는 쓰기 입구가 하나도 없다: 문장 편집도,
-// [직접 쓰기]도, 단계 추가 입력칸도, 체크박스 토글도, 삭제 ✕ 도 걷었다. 남는 손잡이는 목표를
-// **끝내는** 셋뿐이다([달성]·[다시 열기]·[포기] — ⑩ 이 "닫는 것은 사용자다"로 못 박은 자리).
-// 단계는 무대·지도와 **같은 조각**(`StepMark`, ⑪(n)④)으로 그린 표식이라 누를 수 있어 보이지 않는다.
+// §5.5 #17-17 ⑬ — 목표 뷰. 읽는 창이다 — 쓰기는 세션(①), 손보기는 무대(⑫) 몫이라 쓰기 입구를 두지 않는다. 퍼센트는 서버 값 그대로.
+// 손잡이는 끝내는 셋뿐([달성]·[다시 열기]·[포기] — ⑩).
 
 /** ⑬(d) — 예시 창의 단계 셋. 실제 목록과 같은 세 상태(끝남·지금·아직)를 그대로 보여 준다. */
 const GOAL_SAMPLE_STEPS: readonly { key: string; status: SessionGoalStepStatus }[] = [
@@ -528,12 +500,7 @@ const GOAL_SAMPLE_STEPS: readonly { key: string; status: SessionGoalStepStatus }
   { key: 'stepPending', status: 'pending' },
 ];
 
-/**
- * ⑬(d) — **예시(임시) 창.** 목표가 아직 없을 때 그 자리에 서서 "이 칸이 무엇으로 채워지는가"를
- * 말한다. 실제 카드와 **같은 뼈대**(문장 · 진행 막대 · 단계 셋)를 흐리게 깔고 머리에 `예시` 배지를
- * 달아 지금 이 세션의 것이 아님을 분명히 한다. `aria-hidden` 이라 읽는 기계에는 들리지 않는다 —
- * 없는 목표를 있는 것처럼 읽어 주면 그게 더 나쁘다.
- */
+/** ⑬(d) — 목표가 없을 때의 예시 창(실제 카드와 같은 뼈대 + `예시` 배지). `aria-hidden` — 없는 목표를 읽어 주지 않게. */
 function GoalSample({ note }: { note: string }): React.JSX.Element {
   const { t } = useTranslation();
   return (
@@ -572,11 +539,7 @@ function GoalSample({ note }: { note: string }): React.JSX.Element {
 function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
   const { t } = useTranslation();
   const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
-  // §5.5 #17-17 ⑪(k) — 무대는 이 창의 우측 자리라 창 단위 상태다(컴포넌트 로컬 ❌ —
-  //   사이드바가 언마운트될 때마다 무대가 닫히면 "열어 뒀는데 사라진다"가 된다).
-  // ㉔ — 이 버튼이 눌린 것으로 보여야 하는 때는 "열려 있다"가 아니라 **"지금 보인다"** 이다:
-  //   무대가 열려 있어도 판이 파일 탭을 비추고 있으면 화면에 없는 것과 같다(그때 눌린 것으로
-  //   그려 두면, 눌러도 아무 일 안 하는 것처럼 보인다). 여는 액션 쪽도 같은 값으로 판단한다.
+  // §5.5 #17-17 ⑪(k) — 무대는 창 단위 상태(로컬이면 사이드바가 내려갈 때 닫힌다). ㉔ 눌림 표시는 "열림"이 아니라 "지금 보임" — 판이 파일 탭이면 무대는 안 보인다.
   const stageShowing = useIDEPaneValue((o) => o.stageOpen && o.activeEditorPath === null);
   const { setStageOpen } = useIDEPaneActions();
   const goal = useGraphStore((s) => (activeSessionId ? s.sessionGoals[activeSessionId] : undefined));
@@ -594,12 +557,7 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
 
   return (
     <div className="flex min-h-0 flex-col">
-      {/* ⑬(c) — 머리글은 **조기 반환 위**에 있다. 세션을 아직 고르지 않았든 목표가 아직 없든
-          [뷰 보기]는 늘 이 자리다 — 무대로 가는 입구는 하나인데(⑪(k)) 그 하나가 조건부로
-          사라지면 사용자는 들어갈 길을 잃는다(특히 목표가 없을 때가 ⑪(m) 의 흐름 템플릿이
-          깔리는 그 상태다).
-          `pb-1.5` — 아래 스크롤 영역의 상단 그라데이션(`.scroll-fade-top`, 12px)이 스크롤을 내리는
-          순간 이 줄 밑변에 달라붙지 않게 띄운 자리(루프·검증 뷰 헤더와 같은 규약). */}
+      {/* ⑬(c) — 머리글은 조기 반환 위에 — 무대 입구(⑪(k))는 하나라 세션·목표가 없어도 사라지면 안 된다. `pb-1.5` 는 `.scroll-fade-top`(12px)과 띄우는 자리(루프·검증 뷰 헤더와 같은 규약). */}
       <div className="flex flex-shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-1.5 pt-2">
         <span
           title={t('ide.goal.title')}
@@ -649,7 +607,7 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
           /* break-words 는 상속되므로 여기 한 번이면 목표문·단계·메모 전부가 폭 안에서 접힌다
              (에이전트가 코드/URL 처럼 공백 없는 긴 토큰을 적어 넣어도 패널 밖으로 안 넘어간다). */
           <div className="flex min-w-0 flex-col gap-2 overflow-x-hidden break-words p-2">
-            {/* 최종 목표 한 문장 — 세션이 쓴 것을 읽는다(⑬(a) 로 클릭 편집을 걷었다). */}
+            {/* 최종 목표 한 문장 — 읽기 전용(⑬(a)). */}
             <p className="min-w-0 overflow-hidden whitespace-pre-wrap break-words rounded border border-gray-700/70 bg-gray-900/60 px-2 py-1.5 text-[12px] leading-relaxed text-gray-200">
               {goal.text}
             </p>
@@ -758,14 +716,7 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
           </div>
         )}
 
-        {/*
-          §5.10 (P) — **자동 목표 블록은 여기서 나갔다.** 사용자 지시(2026-09-12)로 활동바에
-          「절차 감지」 칸이 따로 섰고, 화면은 `IDEAutoGoalView` 가 통째로 갖는다. 목표가 답하는
-          물음("지금 향하는 그 일")과 절차 감지가 답하는 물음("늘 하던 그 일")이 다르기 때문이다.
-
-          **여기에 다시 얹지 마라** — 스위치가 두 자리에서 켜지면 "켰는데 왜 안 도는지"를 찾을
-          길이 없어진다(#17-44 ⑧(d) 가 정독에서 이미 겪은 그 구멍).
-        */}
+        {/* §5.10 (P) — 자동 목표(절차 감지)는 `IDEAutoGoalView` 칸이 갖는다. 여기에 다시 얹지 마라 — 스위치가 두 자리면 "켰는데 왜 안 도나"를 못 찾는다. */}
       </ScrollFade>
     </div>
   );
@@ -781,9 +732,9 @@ const VIEW_MAP: Record<IDEViewType, React.FC<{ agentId: string }>> = {
   // §5.5 #17-33 — Claude Code 자신의 플러그인(글로벌·이 프로젝트·다른 프로젝트) + 마켓플레이스.
   //   §5.11 의 우리 관측 플러그인과는 다른 물건이다.
   plugins: IDEPluginsView,
-  // §5.5 #17-19 v4.71 — 이름 목록 → VS Code 톤 워크스페이스 탐색기(경로가 보이는 트리).
+  // §5.5 #17-19 — 워크스페이스 탐색기.
   files: IDEExplorerView,
-  // §5.5 #17-28 v4.96 — 종전 `events`(훅 이벤트 목록) 자리를 컨텍스트 주입원 통제가 잇는다.
+  // §5.5 #17-28 — 컨텍스트 주입원 통제.
   context: IDEContextView,
   skills: SkillsView,
   goal: GoalView,
@@ -796,33 +747,21 @@ const VIEW_MAP: Record<IDEViewType, React.FC<{ agentId: string }>> = {
   // §5.3 #10-5 — 설정 덜어내기. 오케스트라 바로 뒤. 코덱스도 **같은 화면**이라 아래 코덱스 표에 없다
   //   (덜어낼지의 판단만 엔진별로 갈리고, 그 갈림은 서버 규칙 표가 이미 들고 있다).
   configTrim: IDEConfigTrimView,
-  // §5.5 #17-11 ⑨ v4.51 — 루프도 목표와 같은 곁눈 자리로. 뷰 본체는 자기 파일에 산다.
+  // §5.5 #17-11 ⑨ — 루프.
   loop: IDELoopView,
   // §5.5 #17-35 — 검증(Verify): `/verify` 를 우리 레시피·판정·이력에 물린 자리. 루프 바로 뒤.
   verify: IDEVerifyView,
   // §5.11 정독 게이트 — 검증 바로 옆. 검증이 "만든 것이 도는가"라면 이 칸은 **"기획대로 만들었는가"**다.
   specReading: IDEReadingView,
-  // §5.5 #17-20 v4.74 — 디버그·실행 런처(실행 구성 · MCP 연결 · 외부 디버거 위임).
+  // §5.5 #17-20 — 디버그·실행 런처.
   debug: IDEDebugView,
-  // §5.5 #17-7 v4.93 — 북마크도 덮개 패널을 벗고 루프와 같은 곁눈 자리로 왔다.
+  // §5.5 #17-7 — 북마크.
   bookmarks: IDEBookmarkView,
-  // §5.5 #17-9 ③ v4.95 — 실행 중 서브에이전트도 덮개를 벗고 같은 자리로. 이 에이전트가 백단에
-  //   자식을 띄운 동안에만 활동바 항목이 뜨므로, 평소에는 이 뷰로 들어올 입구 자체가 없다.
+  // §5.5 #17-9 ③ — 실행 중 서브에이전트.
   subagents: IDERunningSubagentsView,
-  // §5.10 v3.47 ⑥ — 기억 정리. 활동바 맨 아래 칸이며, 쌓인 기억의 현황만 보여 주고 판단은
-  //   기억 라이브러리로 넘긴다(파괴적 동작은 제안-승인 — 이 화면은 스스로 지우지 않는다).
 };
 
-/**
- * §5.25 (M) — **코덱스 버블일 때만** 갈아 끼우는 여섯 칸.
- *
- * 활동바가 이 다섯을 코덱스에게도 보여 주기로 한 이상(`CODEX_PROVIDER_VIEWS`), 그 칸이 그리는
- * 내용도 코덱스 것이어야 한다 — 입구만 열고 클로드 목록을 그대로 그리면 **이 대화에 실리지도
- * 않는 것**이 뜬다(감추는 거짓말을 고치려다 더 나쁜 거짓말을 하게 된다).
- *
- * 여기 없는 뷰(파일·디버그·북마크·목표·루프)는 우리 기능이거나 엔진과 무관해서
- * **위 표를 그대로 쓴다** — 두 벌로 만들면 한쪽만 고쳐지는 날이 온다.
- */
+/** §5.25 (M) — 코덱스 버블이면 갈아 끼우는 칸. 활동바가 코덱스에게도 여는 칸이라 내용도 코덱스 것이어야 한다(클로드 목록은 이 대화에 안 실린다). 엔진 무관한 뷰는 위 표를 쓴다(두 벌 ❌). */
 export const CODEX_VIEW_MAP: Partial<Record<IDEViewType, React.FC<{ agentId: string }>>> = {
   mcp: IDECodexMcpView,
   hooks: IDECodexHooksView,
@@ -837,9 +776,7 @@ export const CODEX_VIEW_MAP: Partial<Record<IDEViewType, React.FC<{ agentId: str
 export const IDESidebar = memo(function IDESidebar({ agentId }: IDESidebarProps): React.JSX.Element {
   const activeView = useIDEPaneValue((o) => o.activeView);
   const collapsed = useIDEPaneValue((o) => o.sidebarCollapsed);
-  // §4 v3.16 확장 — 자리를 뺏지 않고 **떠서** 뜰지의 판정. 종전에는 뷰포트 미디어 쿼리(`max-md`)
-  //   하나였는데, IDE 창은 화면이 아니라 앱 안의 창이라 넓은 화면에서도 창만 좁을 수 있다
-  //   (`ideResponsive` — 그 조합에서 종전 규칙은 아무것도 접지 않아 대화가 0px 로 찌부러졌다).
+  // §4 — 서랍으로 띄울지는 뷰포트가 아니라 이 창 폭으로 가른다(`ideResponsive`) — 넓은 화면의 좁은 창에서 대화가 0px 로 찌부러진다.
   const { sidebarDrawer } = useIDEBodyLayout();
   // §5.25 (M) — 코덱스 버블이면 그 다섯 칸은 코덱스 것으로 갈아 끼운다(없으면 종전 표).
   const providerKind = useGraphStore((s) => s.agentConfigs[agentId]?.provider?.kind);
@@ -850,10 +787,7 @@ export const IDESidebar = memo(function IDESidebar({ agentId }: IDESidebarProps)
   if (collapsed) return <></>;
 
   return (
-    // §5.5 #17-28 v4.96 — 주입원 뷰에서만 한 칸 넓어진다(줄마다 토큰·통제 배지·토글이 함께 선다).
-    //   서랍일 때는 활동바(48px) 옆에 떠서, 아래 대화의 폭을 건드리지 않는다. 폭 상한은 뷰포트가
-    //   아니라 **이 창** 기준이다 — 좁은 창에서 서랍이 오른쪽 끝까지 차면 backdrop 을 눌러 닫을
-    //   자리가 사라진다(활동바 3rem + 누를 자리 2rem 을 남긴다).
+    // §5.5 #17-28 — 주입원 뷰만 한 칸 넓다. 서랍이면 활동바(48px) 옆에 뜬다. 폭 상한은 창 기준 — backdrop 을 눌러 닫을 자리(3rem+2rem)를 남긴다.
     <div className={`flex min-h-0 flex-shrink-0 flex-col border-r border-gray-700 ${
       sidebarDrawer
         ? 'absolute inset-y-0 left-12 z-40 w-64 max-w-[calc(100%-5rem)] bg-gray-900 shadow-2xl shadow-black/60'

@@ -3,18 +3,9 @@ import type { ContextMenuItem } from './IDEContextMenu.js';
 import type { MenuText } from './editorContextMenu.js';
 
 /**
- * pathLinkContextMenu.ts — §5.5 #17-27 ⑬ (j) 본문 경로 링크 우클릭 **메뉴 항목 목록**(순수 로직).
- *
- * 왼쪽 클릭은 한 곳으로만 간다(⑬ (i) 여섯 갈래 중 하나). 그 밖의 행선지 — 그 파일이 든 폴더, HTML 을
- * 앱 안 페이지로(⑮)·기본 브라우저로, 경로 집어가기 — 는 우클릭이 받는다. 우클릭이 없으면 사용자는
- * 글자 메뉴(#17-3 복사·인용…)를 받는데, 경로 조각 위에서 그 메뉴는 할 일이 없다.
- *
- * `explorerContextMenu.ts` 와 같은 규약이다 — 무엇이 어느 자리에 서고 무엇이 흐려지는지는 화면을
- * 띄우지 않고도 답이 나와야 하므로 목록 만들기를 여기 두고 `pathLinkContextMenu.test.ts` 로 못 박는다.
- * 메뉴 위젯은 이미 있는 `IDEContextMenu` 다. i18n 은 호출부가 넘긴 `t` 로만 만든다.
- *
- * **새 열기 레일 ❌** — 모든 항목은 이미 있는 창구로 간다: 폴더 = `open-node-folder`(⑩) · 루트 밖 =
- * `reveal-path`(⑬ (d)) · 웹(내부) = 내장 편집창의 페이지(⑮) · 웹(외부) = `open-external`(⑮ (b) [바깥 브라우저]).
+ * §5.5 #17-27 ⑬ (j) — 본문 경로 링크 우클릭 메뉴 항목 목록(순수, `explorerContextMenu.ts` 와 같은 규약, i18n 은 넘겨받은 `t`).
+ * 왼쪽 클릭이 안 가는 행선지(든 폴더 · HTML 의 앱 안/기본 브라우저 · 경로 복사)를 받는다. 새 열기 레일 ❌ — 전부 기존 창구
+ * (`open-node-folder` · `reveal-path` · 내장 편집창 페이지 · `open-external`).
  */
 
 /** 루트 **안** 경로가 아는 상태. */
@@ -66,11 +57,8 @@ export function pathLinkOpenLabel(plan: WorkspaceOpenPlan, appName: string | und
 }
 
 /**
- * (a) 루트 **안** — 여는 것 → 위치 → 집어가기. 폴더는 왼쪽 클릭이 곧 탐색기라 여는 줄이 하나다.
- *
- * `open-external` 은 HTML 에만 선다. 아무 파일에나 "연결 프로그램으로 열기"를 두면 Windows 에서
- * `.js`·`.vbs` 의 연결 프로그램(스크립트 호스트)이 **그 파일을 실행한다** — 누르면 도는 것은 ⑬ (h) 의
- * 실행 판정을 거친 것뿐이어야 한다. `.html` 의 연결 프로그램은 브라우저라 ⑮ (b) 가 이미 이 길을 쓴다.
+ * (a) 루트 안 — 여는 것 → 위치 → 집어가기. `open-external` 은 HTML 에만(연결 프로그램이 브라우저다) — 아무 파일에나 두면 Windows 에서
+ * `.js`·`.vbs` 의 연결 프로그램(스크립트 호스트)이 파일을 실행한다. 실행은 ⑬ (h) 판정을 거친 것만.
  */
 export function buildPathLinkMenuItems(
   state: PathLinkMenuState,
@@ -118,11 +106,7 @@ export interface OutsidePathLinkMenuHandlers {
   copyPath: () => void;
 }
 
-/**
- * (b) 루트 **밖** — 탐색기와 복사뿐이다. HTML 이면 웹 두 줄을 **흐린 채** 세우고 까닭을 단다 —
- * 안 보이면 "HTML 인데 왜 웹 열기가 없지" 가 고장으로 읽힌다(창구 `workspace-site` 는 루트 안만 낸다).
- * 상대 경로는 기준이 없으니 서지 않는다.
- */
+/** (b) 루트 밖 — 탐색기와 복사뿐. HTML 이면 웹 두 줄을 흐린 채 까닭과 함께 세운다(없으면 고장으로 읽힌다, `workspace-site` 는 루트 안만). 상대 경로는 안 선다. */
 export function buildOutsidePathLinkMenuItems(
   state: OutsidePathLinkMenuState,
   h: OutsidePathLinkMenuHandlers,
@@ -156,16 +140,7 @@ export interface WebLinkMenuHandlers {
   copyLink: () => void;
 }
 
-/**
- * (c) ⑬ (k) ④ — **웹 주소** 링크의 우클릭.
- *
- * 종전에는 `http(s)` 링크 위 우클릭이 본문 글자 메뉴(#17-3 복사·인용·검색…)를 받았는데, 주소 위에서
- * 그 항목들은 할 일이 없다 — "링크를 눌렀는데 글자 메뉴가 뜬다" 는 경로 조각에서 (j) 가 고친 것과 똑같은
- * 어긋남이다. 줄은 둘이면 족하다: 왼쪽 클릭이 가는 곳과, 그 주소를 집어가는 것.
- *
- * **새 키 ❌** — 같은 문구가 이미 선 자리(웹 버블 [브라우저에서 열기] · 로그인 창 [링크 복사])의 키를
- * 그대로 쓴다. 같은 말에 키를 하나 더 만들면 로케일 12벌이 서로 갈린다.
- */
+/** (c) ⑬ (k) ④ — 웹 주소 링크 우클릭: 왼쪽 클릭이 가는 곳과 주소 복사 두 줄. 새 키 ❌ — 웹 버블 [브라우저에서 열기]·로그인 창 [링크 복사] 키를 쓴다. */
 export function buildWebLinkMenuItems(h: WebLinkMenuHandlers, t: MenuText): ContextMenuItem[] {
   return [
     { id: 'openBrowser', label: t('panel.webEntry.openExternal'), onClick: h.openBrowser },

@@ -13,11 +13,7 @@ import {
 import { thumbnailAppFor, thumbnailSkipped } from './appLinkedItems.js';
 import { THUMB_SKIPPED_TOO_LARGE } from './thumbnailSkip.js';
 
-/**
- * §5.4 #36 (F) — 앱 위성 화면의 미리보기 기억 장소. 앱이 굽고 코어가 기억한다 — 여기서 고정하는 것은
- * "몇 번·언제 굽는가"(같은 결과는 한 번, 동시 건수 상한, 못 구운 것도 기억, 밀려난 그림은 되돌림)다.
- * DOM 이 없는 시험 환경이라 순수 코어(`createThumbCache`)만 본다.
- */
+/** §5.4 #36 (F) — 미리보기 기억이 같은 결과는 한 번 · 동시 건수 상한 · 못 구운 것도 기억 · 밀려난 그림 되돌림을 지키는지. DOM 이 없어 `createThumbCache` 만 본다. */
 function job(over: Partial<ThumbJob> = {}): ThumbJob {
   return { appId: 'app-a', projectId: 'C:/proj', file: 'out/a.png', version: 1, width: 416, height: 260, ...over };
 }
@@ -217,10 +213,6 @@ describe('§5.4 #36 (G) 굽는 크기·파형 구간', () => {
   });
 });
 
-/**
- * §5.1 #2-1 (G) ④ — 시각 기준. 영상 디코더·WebGL 문맥은 종류마다 따로 줄을 세우고, 캔버스가 움직이는 동안은 새로 굽지 않고,
- * 줄에 섰다가 화면을 떠난 일감은 시작 전에 버린다.
- */
 describe('§5.1 #2-1 (G) ④ 굽는 줄 — 종류별 상한 · 움직이는 동안 쉬기 · 떠난 줄 버리기', () => {
   /** 일감마다 손으로 끝내는 굽는 함수 — 지금 도는 파일 이름을 센다. */
   function gatedRender() {

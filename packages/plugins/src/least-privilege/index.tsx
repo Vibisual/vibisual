@@ -1,4 +1,4 @@
-/** §5.11 v3.88 — 최소 권한 플러그인 (배지 + 패널 섹션). 표시 전용. */
+/** §5.11 — 최소 권한 플러그인(배지 + 패널 섹션). 표시 전용. */
 import type { PluginClientModule, PluginBubbleContext, PluginManifest, PluginSeverity } from '../sdk/index.js';
 import { PluginSection, PluginRow, PluginBadgePill, type PluginTone } from '../sdk/index.js';
 import { judgeLeastPrivilege } from './leastPrivilege.js';
@@ -21,10 +21,7 @@ function judgeable(ctx: PluginBubbleContext): boolean {
   return ctx.bubbleType === 'agent' && ctx.agentConfig !== undefined;
 }
 
-/**
- * 배지는 버블 위에 직접 붙는다 — 판정과 무관하게 항상 붙으면 111종을 켠 화면은 배지 띠가 되고,
- * "배지가 떴다"가 더는 신호로 읽히지 않는다. 눈여겨볼 상태일 때만 붙인다.
- */
+/** 배지는 눈여겨볼 상태일 때만 붙인다 — 늘 붙으면 카드를 다 켠 화면이 배지 띠가 되어 신호로 읽히지 않는다. */
 function badgeMatch(ctx: PluginBubbleContext): boolean {
   return judgeable(ctx) && judgeLeastPrivilege(ctx.agentConfig).level !== 'tight';
 }
@@ -41,10 +38,7 @@ function Badge({ ctx }: { ctx: PluginBubbleContext }): React.JSX.Element {
   );
 }
 
-/**
- * 호스트는 카드 내용을 열어 보지 않고 이 등급만으로 정렬·접힘을 정한다. 등급을 안 주면 `neutral` 로 떨어져
- * **문제를 보고하는 순간에도 조용한 카드로 분류돼 접힘 대상이 된다.** 카드가 이미 계산해 둔 판정을 그대로 넘긴다.
- */
+/** 호스트는 이 등급만으로 정렬·접힘을 정한다 — 안 주면 `neutral` 로 떨어져 문제를 보고할 때도 접힌다. */
 function severity(ctx: PluginBubbleContext): PluginSeverity {
   return TONE[judgeLeastPrivilege(ctx.agentConfig).level] ?? 'neutral';
 }

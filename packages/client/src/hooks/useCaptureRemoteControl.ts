@@ -2,33 +2,10 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { CaptureInputEvent, CaptureInjectResult, CaptureSourceKind } from '@vibisual/shared';
 import type { CaptureControlMode } from '../stores/captureBubbleRuntime.js';
 
-// §5.9 원격 조작 — 캔버스 캡처 노드(CaptureNode)와 크게 보기 창(CaptureWindow)이 **공유하는** 조작 로직.
-//
-// 조작은 `off / touch / mouse` 3상태 단일 축이고 **기본은 off** — 그때는 이 훅이 아무 이벤트도 잡지 않아
-// 캔버스 팬/창 조작이 그대로 살아 있고 캡처 대상엔 아무것도 주입되지 않는다. 사용자가 모드를 직접 고를
-// 때만(DetailPanel · CaptureWindow 타이틀바) 표면이 pointer/key 를 받아 OS 로 주입한다.
-//
-// ── v3.58 "손을 뗀 뒤 재생" 모델 ────────────────────────────────────────────────────────────
-// v3.57 은 mousedown 에서 `down` 을 주입하고, 드래그는 사용자의 실제 손이 대상 커서를 끄는 것으로,
-// mouseup 에서 `up` 을 주입하는 사슬 모델이었다. **이 모델은 Windows 에서 원천적으로 동작하지 않는다** —
-// 사용자가 우리 창에서 버튼을 누르는 순간 Chromium 이 그 창으로 **마우스 캡처(SetCapture)** 를 걸기
-// 때문에, 버튼이 눌려 있는 동안 SendInput 으로 주입한 마우스 이벤트가 **대상 앱이 아니라 우리 창으로
-// 되돌아온다**. 그래서 클릭도 우클릭도 드래그도 "아무 일도 안 일어나는" 상태였다.
-//
-// 이제 제스처를 **끝까지 렌더러에서 지켜본 뒤, 손을 뗀 시점에 한 방으로 재생**한다. 그 시점엔 캡처가
-// 풀려 있어 주입이 대상에 그대로 닿는다:
-//   · 터치(절대) — 누른 지점과 뗀 지점이 같으면 `click`, 멀어졌으면 그 구간을 `drag` 로 재생.
-//     연타는 `dblclick`. 버튼은 좌/우/가운데 그대로.
-//   · 마우스(상대) — **확정 사양(v3.69)**: 화면 안에 가상 마우스가 하나 있고, 사용자는 **그것을 드래그
-//     앤 드롭으로 옮긴다**. ① 모드를 켜면 가상 마우스가 화면 **한가운데**에 생긴다. ② 누른 채 끌면 손이
-//     움직인 만큼 따라오고, 놓으면 그 자리에 남는다(옮기는 동안 대상엔 아무것도 주입하지 않는다).
-//     ③ **짧게 톡 누르면(탭) 가상 마우스가 있는 그 지점을 정확히 클릭**한다 — 손이 조금 흔들려도
-//     클릭으로 본다(300ms·10px 이내). ④ **내 실제 PC 마우스를 따라다니지 않는다** — hover 로 따라오게
-//     했던 v3.57~59 는 트랙패드가 아니라 '커서 미러'였고, 애초에 폰엔 hover 가 없다.
-//
-// **사용자의 로컬 커서는 숨기지 않는다**(v3.57 의 `cursor:none` 철회) — 자기 마우스가 사라지면 어디를
-// 조작하는지 오히려 헷갈린다. 실제 커서는 늘 보이고, 대상에 찍히는 지점은 오버레이 가상 커서가 따로
-// 보여 준다. OS 커서는 주입 순간에만 잠깐 빌려 쓰이고 즉시 원래 자리로 반납된다(갇히지 않음).
+// §5.9 원격 조작 — CaptureNode·CaptureWindow 공용. `off / touch / mouse` 한 축, 기본 off(이벤트를 안 잡는다).
+// **제스처는 손을 뗀 뒤 한 번에 재생한다** — Windows 는 누르는 동안 Chromium 의 마우스 캡처(SetCapture)가 SendInput 주입을 우리 창으로 되돌린다.
+// 터치(절대): 같은 자리 `click` · 멀면 `drag` · 연타 `dblclick`. 마우스(상대): 가상 마우스를 끌어 옮기고(켜면 한가운데) 짧은 탭이 그 자리를 클릭한다 — 실제 마우스는 따라가지 않는다.
+// OS 커서는 주입 순간에만 빌려 쓰고 곧 돌려준다.
 
 /** 주입 직후 이 시간(ms) 안에 들어온 이벤트만 반향 후보 — OS 는 주입을 즉시 되돌려 준다. */
 const ECHO_WINDOW_MS = 200;
@@ -36,11 +13,7 @@ const ECHO_WINDOW_MS = 200;
 const ECHO_JUMP_PX = 24;
 /** 이 거리(px) 안에서 뗐으면 '탭'(클릭), 넘겼으면 '드래그'. */
 const TAP_SLOP_PX = 6;
-/**
- * 마우스(트랙패드) 모드의 탭 판정(v3.69) — 이 모드에서 손이 조금 움직이는 건 **클릭하다 흔들린 것**이지
- * 포인터를 옮기려는 게 아니다. 종전엔 6px 만 넘어도 '옮기기'로 분류해 **클릭이 통째로 사라졌다**
- * (사용자 체감: "가상 마우스는 움직이는데 클릭이 안 된다"). 짧게 톡 누르면 흔들려도 클릭으로 본다.
- */
+/** 마우스(트랙패드) 모드의 탭 판정 — 짧게 톡 누르면 조금 흔들려도 클릭이다(6px 같은 작은 문턱이면 클릭이 사라진다). */
 const MOUSE_TAP_MAX_MS = 300;
 const MOUSE_TAP_SLOP_PX = 10;
 /** 연속 두 탭이 이 시간(ms)·거리 안이면 더블클릭으로 재생. */
@@ -51,14 +24,7 @@ const clamp01 = (n: number): number => Math.min(Math.max(n, 0), 1);
 
 const buttonName = (b: number): 'left' | 'right' | 'middle' => (b === 2 ? 'right' : b === 1 ? 'middle' : 'left');
 
-/**
- * 조작 표면(영상 레이어)에 그대로 펴 넣는 props — 모드가 off 면 pointerEvents 가 none 이라 통과된다.
- *
- * v3.59 — 마우스 이벤트가 아니라 **포인터 이벤트**를 쓴다. 터치 모드는 애초에 "폰에서 손가락으로 짚어도
- * 데스크톱과 똑같이 동작"하라고 만든 모드인데, 마우스 이벤트만 듣던 종전엔 폰에서 탭은 호환 이벤트로
- * 겨우 들어오고 **손가락 끌기(드래그)는 브라우저 스크롤에 먹혀 사라졌다**. 포인터 이벤트는 마우스·터치·펜을
- * 한 경로로 받고, `setPointerCapture` 로 표면 밖으로 끌어도 제스처가 끊기지 않는다.
- */
+/** 조작 표면(영상 레이어) props — off 면 pointerEvents 가 none. **포인터 이벤트**를 쓴다 — 마우스 이벤트만이면 폰의 손가락 끌기가 스크롤에 먹힌다(`setPointerCapture` 로 밖까지 끌어도 이어진다). */
 export interface CaptureSurfaceProps {
   tabIndex: number;
   'data-capture-control': 'on' | 'off';
@@ -89,7 +55,7 @@ export interface CaptureRemoteControlParams {
   timeoutSec: number;
   /** 읽기 전용(조작 잠금) — 켜지면 즉시 해제. */
   readOnly: boolean;
-  /** "커서 안 움직이기"(v3.62) — 대상 창에 메시지를 직접 넣어 사용자의 커서를 안 건드린다. */
+  /** "커서 안 움직이기" — 대상 창에 메시지를 직접 넣어 사용자의 커서를 안 건드린다. */
   backgroundClick: boolean;
   /** 스트림 끊김·타임아웃·읽기전용으로 조작을 놓아야 할 때 호출(모드를 'off' 로). */
   onDisengage: () => void;
@@ -102,22 +68,13 @@ export interface CaptureRemoteControl {
   cursorPx: { x: number; y: number } | null;
   /** 버튼을 누르고 있는 중 — 오버레이 표시용(아직 주입 전이다). */
   pressing: boolean;
-  /**
-   * 대상 화면/창을 못 찾아 주입이 통하지 않는 상태(창 제목이 바뀐 window 소스 등).
-   * 종전엔 이때 아무 일도 안 일어나 "클릭이 안 먹는다"로만 보였다 — 이제 오버레이가 이유를 알려준다.
-   */
+  /** 대상 화면/창을 못 찾아 주입이 안 통하는 상태(창 제목이 바뀐 window 소스 등) — 오버레이가 이유를 알린다. */
   targetMissing: boolean;
-  /**
-   * 마지막 주입이 실패한 이유(성공·미시도면 null). 종전엔 실패해도 조용해서 "클릭이 안 먹는다"로만
-   * 보였다 — 오버레이가 이 값을 칩으로 띄운다. 몇 초 뒤 자동으로 지워진다.
-   */
+  /** 마지막 주입이 실패한 이유(성공·미시도면 null). 오버레이가 칩으로 띄우고 몇 초 뒤 지운다. */
   injectError: NonNullable<CaptureInjectResult['reason']> | null;
-  /**
-   * "커서 안 움직이기"를 켰는데 이 앱에선 불가능해 커서를 잠깐 빌려 쓴 경우의 사유(v3.62).
-   * 켜 놓고 왜 커서가 움직이는지 몰라 헤매지 않도록 오버레이가 알려 준다.
-   */
+  /** "커서 안 움직이기"를 켰는데 이 앱에선 불가능해 커서를 잠깐 빌려 쓴 사유 — 오버레이가 알린다. */
   backgroundFallback: NonNullable<CaptureInjectResult['fallback']> | null;
-  /** 표면 CSS cursor — 조작 중에도 **로컬 커서를 숨기지 않는다**(v3.58). */
+  /** 표면 CSS cursor — 조작 중엔 `none`(오버레이의 복제 커서가 대신한다). */
   surfaceCursor: string;
   surfaceProps: CaptureSurfaceProps;
   /** 특수키(Esc/Tab/방향키/Ctrl 콤보) 주입. */
@@ -181,8 +138,7 @@ export function useCaptureRemoteControl({
       ev.type === 'mouse' && backgroundClick ? { ...ev, preferBackgroundClick: true } : ev;
     const pending = window.api?.capture?.sendInput?.(payload);
     if (!pending) return;
-    // 주입 성패를 받아 실패면 이유를 화면에 띄운다(v3.61) — 종전엔 실패를 통째로 삼켜서
-    // "클릭이 안 먹는다"로만 보였다. 성공하면 조용히 지운다.
+    // 주입 실패면 이유를 띄우고(삼키면 "클릭이 안 먹는다"로만 보인다), 성공하면 조용히 지운다.
     void Promise.resolve(pending)
       .then((res) => {
         if (!res || typeof res !== 'object') return; // 구버전 preload — 성패를 알 수 없다
@@ -239,18 +195,8 @@ export function useCaptureRemoteControl({
     return { x: m.offX + u * m.dispW, y: m.offY + v * m.dispH };
   }, [displayMetrics]);
 
-  /**
-   * 가상 커서를 화면에 그릴지 — **마우스(트랙패드) 모드에서만**(v3.59).
-   * 터치 모드는 짚은 자리에 그대로 들어가는 모드라 커서 아래에 아무것도 덧그리지 않는다(윈도우 원격에서
-   * 마우스 모양이 바뀌지 않는 것과 같다). 좌표 자체(vu/vv)는 두 모드 모두 추적한다 — 재생에 필요하다.
-   */
-  // v3.65 — 두 모드 모두 커서를 그린다. **진짜 커서는 표면 위에서 숨기고(cursor:none) 똑같이 생긴
-  // 복제 커서를 손 위치에 그린다**: 주입 순간 진짜 커서가 대상 지점으로 잠깐 다녀와도 사용자 눈에는
-  // 아무 일도 안 일어난 것처럼 보인다(내가 클릭한 자리에 내 커서가 그대로 있다).
-  //   · 터치(절대) = 복제 커서가 실제 포인터를 1:1 로 따라간다(그 자리가 곧 클릭 지점).
-  //   · 마우스(상대) = 트랙패드로 밀어 옮긴 가상 포인터 자리에 그린다.
-  // v3.59 가 터치 모드의 '조준 링·후광'을 걷어낸 것은 유효하다 — 지금 그리는 것은 장식이 아니라
-  // 시스템 커서와 같은 모양의 **대역(代役)** 이고, 진짜 커서는 그동안 숨어 있다.
+  /** 가상 커서를 그릴지. 좌표(vu/vv)는 두 모드 모두 추적한다 — 재생에 필요하다. */
+  // 두 모드 모두 **진짜 커서를 숨기고(cursor:none) 같은 모양의 복제 커서**를 그린다 — 주입 때 진짜 커서가 대상에 다녀와도 안 보인다. 터치는 포인터 1:1, 마우스는 가상 포인터 자리.
   const showVirtualCursor = true;
 
   const syncCursorPx = useCallback(() => {
@@ -266,8 +212,7 @@ export function useCaptureRemoteControl({
     if (p) setCursorPx(p);
   }, [pxFromNorm, showVirtualCursor]);
 
-  // 모드를 켜거나 바꾸면 **가상 마우스를 화면 한가운데에서 새로 시작**한다(v3.60 — 마우스 모드를 켜는
-  // 순간 가운데에 포인터가 생기는 게 이 모드의 약속). 터치 모드는 그리지 않으므로 좌표만 초기화된다.
+  // 모드를 켜거나 바꾸면 가상 마우스를 화면 한가운데에서 새로 시작한다(켜는 순간 가운데에 포인터가 생기는 게 약속).
   useEffect(() => {
     // 모드가 바뀌면 반향 창을 닫아 둔다(직전 세션의 주입 시각 때문에 첫 조작이 반향으로 오인되지 않게).
     lastInjectRef.current = 0;
@@ -360,12 +305,7 @@ export function useCaptureRemoteControl({
     syncCursorPx();
   }, [active, mode, normFromEvent, moveVirtual, syncCursorPx]);
 
-  /**
-   * 손을 뗀 시점에 제스처 하나를 원자적으로 재생한다(v3.58 의 핵심).
-   *
-   * 여기서야 비로소 주입한다 — 사용자가 버튼을 쥐고 있는 동안엔 Windows 마우스 캡처가 우리 창을 물고
-   * 있어 주입이 대상에 닿지 않기 때문. 커서는 main 이 빌려 쓰고 즉시 원래 자리로 반납한다.
-   */
+  /** 손을 뗀 시점에 제스처 하나를 원자적으로 재생한다 — 쥔 동안엔 Windows 마우스 캡처가 우리 창을 물어 주입이 대상에 안 닿는다. 커서는 main 이 빌리고 곧 돌려준다. */
   const replayGesture = useCallback((press: NonNullable<typeof pressRef.current>) => {
     if (targetMissing) return; // 대상을 못 찾는 상태면 주입해도 허공 — 오버레이가 이유를 표시한다.
     const button = buttonName(press.button);
@@ -417,9 +357,7 @@ export function useCaptureRemoteControl({
     // 우리가 주입한 클릭이 되돌아온 반향이면 새 제스처로 삼지 않는다(재주입 연쇄 차단).
     if (isEcho(e.clientX, e.clientY)) return;
 
-    // ── 손가락 두 개 = 우클릭(v3.61) ──────────────────────────────────────────────
-    // 폰엔 오른쪽 버튼이 없다. 트랙패드 관행대로 **한 손가락 탭=좌클릭, 두 손가락 탭=우클릭**.
-    // 두 번째 손가락은 새 제스처를 시작하지 않고, 진행 중인 제스처를 우클릭으로 바꿔 놓기만 한다.
+    // 두 손가락 탭 = 우클릭(폰엔 오른쪽 버튼이 없다). 두 번째 손가락은 새 제스처를 열지 않고 진행 중인 제스처를 우클릭으로 바꾸기만 한다.
     if (e.pointerType === 'touch') {
       touchPointersRef.current.add(e.pointerId);
       const inProgress = pressRef.current;
@@ -496,10 +434,7 @@ export function useCaptureRemoteControl({
       if (n) moveVirtual(n.u, n.v);
       return;
     }
-    // 마우스(트랙패드·상대) — **누르고 끄는 동안에만** 가상 마우스가 끈 만큼 움직인다(v3.60).
-    // 이 모드는 사실상 모바일용 트랙패드다: 손가락으로 눌러 끌면 그만큼 포인터가 가고, 탭하면 그 자리를
-    // 클릭한다. 내 실제 PC 마우스를 따라다니면 안 된다(v3.57~59 가 hover 로도 따라와 트랙패드가 아니라
-    // '커서 미러'가 돼 버렸다 — 폰에는 hover 자체가 없어 개념도 안 맞는다). OS 커서는 여전히 미접촉.
+    // 마우스(트랙패드·상대) — **누르고 끄는 동안에만** 가상 마우스가 움직인다. hover 로 실제 마우스를 따라가게 하지 마라 — '커서 미러'가 되고 폰엔 hover 가 없다.
     if (!pressRef.current) return;
     const m = displayMetrics();
     if (!m) return;
@@ -509,9 +444,7 @@ export function useCaptureRemoteControl({
     );
   }, [active, isEcho, mode, normFromEvent, moveVirtual, displayMetrics]);
 
-  // 마우스(트랙패드) 모드의 가상 마우스는 **표면을 벗어나도 그 자리에 그대로 남는다**(v3.60) —
-  // 내 손을 따라다니는 표시가 아니라 대상 위에 놓여 있는 포인터이기 때문. 터치 모드는 애초에
-  // 가상 커서를 그리지 않으므로 지울 것도 없다.
+  // 가상 마우스는 표면을 벗어나도 그 자리에 남는다 — 손을 따르는 표시가 아니라 대상 위에 놓인 포인터다.
   const onPointerLeave = useCallback(() => {
     /* 유지 — 지우지 않는다. */
   }, []);
@@ -574,10 +507,7 @@ export function useCaptureRemoteControl({
     targetMissing,
     injectError,
     backgroundFallback,
-    // 로컬 커서는 숨기지도, 모양을 바꾸지도 않는다 — 터치 모드는 "짚은 자리에 그대로"이고(윈도우 원격처럼
-    // 아무것도 안 달라짐), 마우스 모드는 가상 커서가 따로 있으므로 실제 커서는 평범하게 둔다.
-    // 조작 중엔 진짜 커서를 숨긴다 — 오버레이의 복제 커서가 그 자리를 대신한다(v3.65).
-    // 그래야 주입 때 진짜 커서가 대상으로 다녀오는 것이 화면에 드러나지 않는다.
+    // 조작 중엔 진짜 커서를 숨긴다 — 복제 커서가 대신해 주입 때 진짜 커서가 대상에 다녀오는 것이 안 보인다.
     surfaceCursor: active ? 'none' : 'default',
     surfaceProps: {
       tabIndex: active ? 0 : -1,

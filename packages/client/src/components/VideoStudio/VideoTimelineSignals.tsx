@@ -6,11 +6,7 @@ import { StudioPopover, PopoverItem } from './StudioPopover.js';
 import { StudioIcon } from './studioIcons.js';
 import { bindToCueOps, collectTimelineSignals, unbindFromCueOps, type CueMark } from './timelineSignals.js';
 
-/**
- * §5.13 (T-8) — 정밀 편집의 **표지 줄**. 컴포지션이 알린 표지는 위에서 내려오는 구슬(이름과 함께), 음악 비트는 아래에서 올라오는
- * 눈금(강한 비트는 길게)이다 — 줄은 하나, 출처만 둘. 표지를 누르면 그 자리로 가고 작은 창이 뜬다: 고른 아이템을 이 표지에 묶기 ·
- * 묶인 아이템 떼기(그 자리 숫자 시각으로 풀린다). 코드를 고쳐 다시 모으는 중이면 흐리게 보인다.
- */
+/** §5.13 (T-8) — 표지 줄: 컴포지션 표지(위 구슬)와 음악 비트(아래 눈금)를 한 줄에. 표지를 누르면 고른 아이템을 묶거나 뗀다(떼면 그 자리 숫자 시각으로 풀린다). */
 export interface VideoTimelineSignalsProps {
   readonly doc: VideoDoc;
   readonly timeline: ResolvedTimeline;

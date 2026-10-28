@@ -1,14 +1,8 @@
 import { COMMANDS, type CommandId, type CommandScope } from '@vibisual/shared';
 
 /**
- * commandLabels.ts — **명령 이름의 영어 원문 한 곳.**
- *
- * 번역 키는 `COMMANDS[id].labelKey` 이고 실제 문구는 로케일 파일에 있다. 여기 있는 것은
- * `t()` 의 `defaultValue` — 번역이 아직 없는 로케일에서도 빈 칸이 보이지 않게 한다.
- *
- * ⚠ **문구에 `Ctrl+` 를 박지 않는다.** 키는 사용자가 바꿀 수 있고 mac 에서는 기호가 다르므로,
- * 라벨은 **무엇을 하는지**만 말하고 키는 `KeyCap` 이 그린다(12개 로케일이 한꺼번에 틀어지는
- * 자리가 정확히 여기다).
+ * 명령 이름 영어 원문(`t()` 의 `defaultValue` — 번역 없는 로케일에서도 빈 칸 ❌).
+ * **문구에 `Ctrl+` 를 박지 않는다** — 키는 `KeyCap` 이 그린다(재매핑·mac).
  */
 
 /** 명령 이름(영어 원문). */

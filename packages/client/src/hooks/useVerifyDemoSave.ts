@@ -8,13 +8,7 @@ import { demoFrameTimes, type ClipRange } from '../components/BubbleMap/playtest
 import { extractClipFrames } from './clipFrames.js';
 import { uploadVerifyDemoFrames } from './verifyDemoUpload.js';
 
-// §5.5 #17-35 ⑨ — 시연을 **검증 절차로 저장**한다.
-//
-// 순서는 서버 REST 규약 그대로 **레코드 먼저, 그림 나중**이다(⑨ REST). 그림은 몇 장이 될지 여기서
-// 뽑아 봐야 알고, 한 장씩 올라가는 동안 사용자는 진행을 봐야 한다.
-//
-// 첨부 레일(§5.9 `useCapturePlaytestAttach`)과 **다른 곳에 올린다** — 그쪽은 입력창 draft 로 가는
-// 일회성 그림이고, 이쪽은 다음 검증에도 계속 실릴 절차의 일부라 수명이 다르다(⑨-3).
+// §5.5 #17-35 ⑨ — 시연을 **검증 절차로 저장**한다 — 서버 REST 규약대로 **레코드 먼저, 그림 나중**. 첨부 레일(§5.9 `useCapturePlaytestAttach`)과 다른 곳에 올린다 — 그쪽은 일회성 draft, 이쪽은 다음 검증에도 실릴 절차(⑨-3).
 
 export interface VerifyDemoSaveProgress {
   done: number;

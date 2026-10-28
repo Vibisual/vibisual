@@ -2,15 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { reorderOpenProjects, projectOrderFollows } from '@vibisual/shared';
 
 /**
- * §5.4 #14-2 (C-1) 프로젝트 탭 순서(`shared/src/projectTabOrder.ts`)의 회귀 고정.
- *
- * 프로젝트 탭끼리의 순서는 `AppState.openProjects` 의 배열 순서가 SSOT 다. 탭을 끌어 놓으면 클라가 화면에 선
- * 프로젝트 탭의 경로를 보이는 순서로 보내고, 서버는 그 순서를 **목록을 치환하지 않고** 얹는다. 이 파일이 지키는 것:
- * ① 순서만 바뀐다 — 구성원·길이는 `open` 그대로(열려 있지 않은 경로가 끼어들면 닫은 탭이 되살아난다).
- * ② 보내지 않은 항목(별창으로 뺀 탭 · 그 사이 새로 열린 프로젝트)은 제자리다.
- * ③ 경로 접기는 OS 가 정한다 — linux 에서 접으면 케이스만 다른 두 프로젝트가 한 칸을 다툰다.
- *
- * shared 패키지에는 테스트 러너가 없어(빌드 전용) 여기 server 쪽에 둔다 — `closedTabs.test.ts` 선례.
+ * §5.4 #14-2 (C-1) — 프로젝트 탭 순서(`shared/src/projectTabOrder.ts`) 회귀 고정. 순서 정본은 `AppState.openProjects` 배열이고,
+ * 서버는 클라가 보낸 순서를 목록 치환 없이 얹는다. ① 순서만 바뀐다(열려 있지 않은 경로가 끼면 닫은 탭이 되살아난다)
+ * ② 보내지 않은 항목(별창 탭·새로 열린 프로젝트)은 제자리 ③ 경로 접기는 OS 가 정한다(linux 에서 접으면 케이스만 다른 두 프로젝트가 한 칸을 다툰다).
+ * shared 에 러너가 없어 server 에 둔다.
  */
 
 const A = 'C:/work/alpha';

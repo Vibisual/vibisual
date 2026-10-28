@@ -1,12 +1,6 @@
 /**
- * IDECodexReviewView.tsx — §5.25 (N): 공통 검증 뷰 안의 코드 리뷰 갈피(`codex review`).
- *
- * 클로드의 검증(§5.5 #17-35)과 자리는 같고 **묻는 것이 다르다** — 그쪽은 "앱을 띄워 돌려 보니
- * 되던가"(pass/fail/held 판정 · 시연 · 재시도)이고, 이쪽은 "**git 변경분에 문제가 있나**"이다.
- * 그래서 판정 칸을 빌려 오지 않는다 — 앱을 띄운 적이 없는 결과에 `pass` 를 붙이면 거짓말이 된다.
- *
- * **누를 때만 돈다.** 모델을 부르는 일이라 자동 실행하지 않는다(그 비용은 사용자 것이다 —
- * 검증이 자동 실행을 일부러 뺀 것과 같은 판단).
+ * IDECodexReviewView.tsx — §5.25 (N) 코드 리뷰 갈피(`codex review`): "git 변경분에 문제가 있나"를 묻는다 — 앱을 띄운 적 없으니 검증 판정(pass)을 빌리지 않는다.
+ * 모델 호출이라 누를 때만 돈다.
  */
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';

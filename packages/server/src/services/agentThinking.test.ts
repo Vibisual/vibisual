@@ -1,17 +1,6 @@
 /**
- * §4 (Thinking on/off) — 확장 사고를 끄는 유일한 창구가 지켜져야 하는 자리.
- *
- * 사고를 끄는 CLI 플래그는 없다. 설치본이 여는 것은 settings 키 `alwaysThinkingEnabled` 하나이고
- * (스키마 원문: *"When false, thinking is disabled. When absent or true, thinking is enabled
- * automatically for supported models."*), 그 키는 Fast 모드·자기 기억과 **같은 한 장**에 실려야 한다 —
- * `--settings` 는 두 번 주면 병합이 아니라 뒤엣것이 앞엣것을 통째로 덮기 때문이다(설치본 실측).
- *
- * 그래서 여기서 못 박는 것은 셋이다:
- *   ① 껐을 때만 키가 생긴다(켬은 무개입 — 사용자 자신의 settings 를 우리가 되켜면 안 된다),
- *   ② 껐다는 사실이 기억·Fast 와 **한 파일**에 같이 들어간다,
- *   ③ 아무것도 안 골랐으면 파일 자체가 없다(= 종전과 바이트 단위로 같은 인자로 뜬다).
- *
- * `os.homedir()` 을 임시 폴더로 돌려 사용자 홈(`~/.vibisual`)을 건드리지 않는다.
+ * §4 (Thinking on/off) — `alwaysThinkingEnabled` 는 끌 때만 생기고(켬은 무개입 — 사용자 settings 를 되켜지 않는다), 기억·Fast 와 한 파일에 들며
+ * (`--settings` 를 두 번 주면 뒤엣것이 덮는다), 아무것도 안 골랐으면 파일이 없다. `os.homedir()` 은 임시 폴더로 돌린다.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';

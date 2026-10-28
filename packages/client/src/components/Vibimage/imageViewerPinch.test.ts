@@ -2,10 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { pinchSpan, pinchView, type PinchPoint, type PinchStart } from './imageViewerPinch.js';
 
-/**
- * §5.13 (R-9) — 그림 보기 무대의 두 손가락 핀치. 폰에서는 휠이 없어 확대가 [+]·[−] 단추뿐이었다. 손가락을 벌리면 그만큼 커지고,
- * 시작할 때 손가락 가운데 아래 있던 그림의 점은 끝까지 손가락 가운데에 붙어 있어야 한다(그림이 튀거나 미끄러지지 않게).
- */
+/** §5.13 (R-9) — 핀치: 벌린 만큼 커지고, 시작 때 손가락 가운데 아래 점이 끝까지 그 아래 붙어 있다. */
 
 const stage = { w: 400, h: 300 };
 const limits = { min: 0.05, max: 16 };

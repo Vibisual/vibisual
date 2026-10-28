@@ -10,14 +10,7 @@ import { lineRangeOf } from './editorLineRange.js';
 
 import { getRunTail, stopRun, useRunSessions } from '../../stores/runSessions.js';
 
-/**
- * §5.5 #17-20 ④ — 실행 출력 패널(웹 미리보기와 같은 오른쪽 판 안에 선다).
- *
- * 왜 xterm 이 아니라 텍스트인가: 살아 있는 PTY 는 재부착으로 scrollback 을 replay 받을 수 있지만
- * **이미 끝난 실행**은 PTY 가 사라져 다시 붙을 대상이 없다. 그때 `create` 를 부르면 명령이 한 번
- * 더 실행된다 — 실패 로그를 보려다 실패한 서버를 또 띄우는 셈이다. 그래서 살아 있든 끝났든
- * 같은 창구(우리 링버퍼)로 그린다. 색은 잃지만 동작은 하나이고 예측 가능하다.
- */
+/** §5.5 #17-20 ④ — 실행 출력 패널. xterm 이 아니라 우리 링버퍼 텍스트로 그린다 — 끝난 실행은 재부착할 PTY 가 없고, `create` 를 부르면 명령이 다시 실행된다. */
 export const IDERunOutputPanel = memo(function IDERunOutputPanel({ onClose }: { onClose: () => void }): React.JSX.Element | null {
   const { t } = useTranslation();
   const runId = useRunSessions((s) => s.outputRunId);

@@ -1,9 +1,8 @@
 import { STUDIO_APP_ID } from './studioAppId.js';
 
 /**
- * §5.13 (AA) 42-2·42-8 — 내보내기의 OS 기능(앱 main 몫 `export:*` — 코어의 일반 통로 `app.invoke` 하나로만 닿는다).
- *
- * 웹·모바일처럼 `window.api.app` 이 없으면 쓸 수 없다 — 그때 화면은 폴더 고르기·폴더에서 보기·열기 칸을 세우지 않는다(42-8).
+ * §5.13 (AA) 42-2·42-8 — 내보내기의 OS 기능(main 몫 `export:*` — 코어의 일반 통로 `app.invoke` 로만 닿는다).
+ * `window.api.app` 이 없으면(웹·모바일) 화면은 폴더 고르기·폴더에서 보기·열기 칸을 세우지 않는다.
  */
 export function exportHostAvailable(): boolean {
   return typeof window !== 'undefined' && typeof window.api?.app?.invoke === 'function';

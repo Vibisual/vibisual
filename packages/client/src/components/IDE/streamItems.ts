@@ -1,18 +1,6 @@
 /**
- * streamItems.ts — SubAgent 스트림 이벤트 → 표시 아이템 파생(순수 로직).
- *
- * StreamRenderer 에서 분리한 이유:
- *  1) React/virtuoso 의존 없는 순수 함수라 Vitest 로 단독 검증 가능.
- *  2) **증분 파서**(IncrementalStreamParser)를 전체 재구축(buildBaseItems)과 나란히 두고
- *     "증분 == 전체" 등가성을 테스트로 못박기 위함.
- *
- * 핵심 성능 배경: 종전엔 스트림이 갱신될 때마다 활성 세션 버퍼 전체(최대 4000개)를 처음부터
- * 다시 파싱(buildBaseItems 3패스)해 O(전체 길이) 비용이 매 틱 발생 → 길수록 느려지는 구조였다.
- * IncrementalStreamParser 는 **새로 도착한 이벤트만** 처리하고, 변경된 항목만 새 객체로 교체해
- * (참조 안정) 갱신 비용을 O(신규 이벤트)로 낮춘다. VS Code 터미널처럼 길이와 무관하게 일정.
- *
- * 증분이 성립하지 않는 변화(세션 전환 / commands 변경 / 버퍼 앞쪽 절단 / 재로드)에는 전체
- * 재구축으로 안전 폴백한다 — 정확성은 항상 buildBaseItems 와 동일, 증분은 흔한 append 의 빠른 길.
+ * SubAgent 스트림 이벤트 → 표시 아이템 파생(순수). 증분 파서는 새 이벤트만 처리하고 바뀐 항목만 새 객체로 바꾼다(O(신규), 참조 안정).
+ * 증분이 안 되는 변화(세션 전환·commands 변경·앞쪽 절단·재로드)는 전체 재구축(buildBaseItems)으로 — 둘은 항상 같아야 한다.
  */
 import type {
   SubAgentStreamEvent,
@@ -81,10 +69,7 @@ export function planProgressOf(todos: TodoItem[]): PlanProgress | null {
   return { current: active.content, done, total: todos.length };
 }
 
-/**
- * 이벤트 버퍼 끝에서부터 가장 최근 TodoWrite 를 찾아 진행 상태를 반환.
- * 뒤에서부터 훑으므로 보통 몇 개만 보고 끝난다(계획이 없으면 전체 1회 스캔).
- */
+/** 가장 최근 TodoWrite 의 진행 상태(뒤에서 훑는다). */
 export function latestPlanProgress(events: SubAgentStreamEvent[]): PlanProgress | null {
   for (let k = events.length - 1; k >= 0; k--) {
     const e = events[k]!;
@@ -97,9 +82,7 @@ export function latestPlanProgress(events: SubAgentStreamEvent[]): PlanProgress 
 
 // ─── system subtype 필터 (펄스/숨김) ───
 
-// §5.5 v4.92 — 이 두 목록(펄스·숨김)은 **서버가 복원 예산에서 뺄 대상을 고르는 근거**이기도 하다.
-//   두 벌로 두면 한쪽만 늘어난 순간 "안 그리는데 저장은 하는" 또는 그 반대가 된다 — shared 가 원본.
-//   기존 호출부가 이 모듈에서 그대로 가져가도록 여기서 다시 내보낸다.
+// §5.5 — 두 목록(펄스·숨김)은 서버가 복원 예산에서 뺄 대상을 고르는 근거이기도 해 원본은 shared 한 벌이다(두 벌이면 그리기와 저장이 어긋난다).
 export { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype };
 
 export function isThinkingPulse(evt: { eventType: string; content: string }): boolean {
@@ -115,10 +98,7 @@ export function isSystemSubtypeChip(content: string): boolean {
   return parseSystemSubtype(content) !== null;
 }
 
-/**
- * IDE 에서 아예 숨길 system subtype(노드 점도 라벨도 그리지 않음). 판정은 shared 가 들고 있다 —
- * §5.5 #17-13 ⑤-4 부터 이름표(`status`)뿐 아니라 살림성 통지(`*_changed`)도 여기에 걸린다.
- */
+/** IDE 에서 아예 숨길 system subtype(이름표 `status`·살림성 통지 `*_changed`, §5.5 #17-13 ⑤-4). 판정은 shared 에 있다. */
 export function isHiddenSystem(evt: { eventType: string; content: string }): boolean {
   if (evt.eventType !== 'system') return false;
   const subtype = parseSystemSubtype(evt.content);
@@ -144,10 +124,7 @@ export interface StreamGroup {
   nestedUnderToolUseId?: string;
 }
 
-/**
- * §5.5 #17-12 — 계획 블록(TodoWrite 승격). 짝 tool_result 는 종전처럼 소비되어 별도 줄을 만들지 않는다.
- * `superseded` 는 표시 단계(streamDensity)가 채운다 — 같은 턴에서 뒤에 더 새로운 계획이 온 옛 계획.
- */
+/** §5.5 #17-12 — 계획 블록(TodoWrite 승격, 짝 tool_result 는 소비). `superseded` 는 streamDensity 가 채운다(같은 턴의 옛 계획). */
 export interface StreamPlan {
   kind: 'plan';
   id: string;
@@ -166,19 +143,13 @@ export interface StreamText {
    * "이만큼 쓰는 데 걸린 시간" 이다. 델타가 하나뿐이면 `timestamp` 와 같다(= 걸린 시간 0).
    */
   endedAt?: number;
-  /**
-   * §4 (스트림 3종 ①) — 이 말풍선이 **중첩 서브에이전트(Task)** 가 한 말이면 그 Task 호출의 id.
-   * 미설정 = 이 에이전트 자신이 한 말(종전 그대로).
-   */
+  /** §4 (스트림 3종 ①) — 중첩 서브에이전트(Task)의 말이면 그 Task 호출의 id. 미설정 = 이 에이전트 자신. */
   nestedUnderToolUseId?: string;
 }
 
 /**
- * §5.5 #17-39 — **단계 자국**. 끝난 사고 런 하나가 남기는 한 줄(`1분 13초 동안 사고함 · 4,182자`).
- *
- * #17-15 가 없앤 것은 사고 **원문**을 보여 주는 표면이다. 이 항목은 원문을 담지 않는다 —
- * 길이(`chars`)와 시각 둘뿐이라, 사고를 버퍼에 쌓지 않는다는 #17-15 ② 는 그대로다.
- * 자국은 **봉인된 런에만** 생긴다(자라는 자국 ❌ — 지금 도는 일은 라이브 1줄 `작업 중` 이 맡는다, #17-24 ⑦).
+ * §5.5 #17-39 — 단계 자국: 끝난 사고 런의 한 줄(`1분 13초 동안 사고함 · 4,182자`). 원문은 담지 않는다(길이·시각뿐, #17-15 ②).
+ * **봉인된 런에만** 생긴다(자라는 자국 ❌ — 지금 도는 일은 라이브 1줄).
  */
 export interface StreamStep {
   kind: 'step';
@@ -215,12 +186,7 @@ export interface StreamResult {
   timestamp: number;
 }
 
-/**
- * §5.5 #17-12 ③ — 턴이 **실패로 끝난 자리**에 서는 오류 줄. 서버가 `error` 스트림 이벤트로 보낸
- * `[code:exit] 원문` 을 그대로 담고, 문장은 렌더가 로케일로 만든다(`describeCommandError`).
- * 시스템 줄로 흘리지 않는 이유는 하나다 — 사용자가 읽어야 할 유일한 실패 원인이 회색 잡음에 섞이면
- * "오류라고만 나온다"는 그 문제가 자리만 바꿔 남는다.
- */
+/** §5.5 #17-12 ③ — 턴이 실패로 끝난 자리의 오류 줄(`[code:exit] 원문`, 문장은 렌더가 `describeCommandError` 로). 시스템 줄로 흘리면 회색 잡음에 묻힌다. */
 export interface StreamError {
   kind: 'error';
   id: string;
@@ -237,27 +203,14 @@ export interface StreamThinkingLive {
   kind: 'thinking-live';
   id: string;
   /**
-   * `working` = 작동 중(사고·도구·본문 무엇이든), `waiting` = **줄만 서 있고 아무것도 안 돈다**
-   * (§5.5 #17-18 ⑪), `compacting` = CLI 가 접는 중(#17-24 ⑥). 라벨·색만 가른다(항목은 그대로 — 생멸 ❌).
-   * 사고/작업을 가르던 `thinking` 은 걷었다(#17-24 ⑦ — `생각 중… 53m 59s` 가 멈춘 것으로 읽혔다).
-   *
-   * `waiting` 이 없던 것이 사용자 보고의 절반이었다 — 앞 턴이 자물쇠를 쥔 채 사라지면 뒤에 선
-   * 덧말은 `queued` 로 멈추는데, 이 줄은 그것도 "작업 중"이라 적고 경과만 키웠다("작업 중 ·
-   * 마지막 업데이트 24m 26s 전"). 도는 것과 줄 선 것이 **같은 낱말**을 쓰면 화면이 거짓말을 한다.
+   * `working` 작동 중 · `waiting` 줄만 서 있고 아무것도 안 돈다(§5.5 #17-18 ⑪) · `compacting` CLI 가 접는 중(#17-24 ⑥). 라벨·색만 가른다(생멸 ❌).
+   * 사고 전용 모드는 두지 않는다(#17-24 ⑦ — 멈춘 것으로 읽힌다). 도는 것과 줄 선 것이 같은 낱말이면 멈춘 `queued` 덧말도 "작업 중"이 된다.
    */
   mode: LiveLineMode;
   timestamp: number;
-  /**
-   * §2.4 (무응답) — **마지막으로 무언가 온 시각.** "얼마나 조용한가"를 재는 시계라 **무응답 판정**
-   * (`liveLineStalled`)과 그 문구("마지막 업데이트 N 전")에만 쓴다. `timestamp` 와 값이 같아 보여도
-   * 뜻이 다르다 — 그쪽은 정렬용(항상 맨 끝이라 쓰이지 않는다)이다. 근거가 없으면 `null`(0 으로 적지 않는다).
-   */
+  /** §2.4 (무응답) — 마지막으로 무언가 온 시각. 무응답 판정(`liveLineStalled`)과 "마지막 업데이트 N 전"에만 쓴다(`timestamp` 는 정렬용). 근거가 없으면 `null`(0 ❌). */
   lastActivityAt: number | null;
-  /**
-   * §5.5 #17-10 ⑥-6 (턴 시계) — **지금 보고 있는 일이 시작된 시각**(대기면 줄 선 시각). 이 줄이
-   * 평소 적는 경과의 시작점이다 — 위 시계로 적으면 줄이 올 때마다 0 으로 되감겼다
-   * (`sessionTurnStartedAt`). 근거가 없으면 `null`(평소엔 아무것도 적지 않는다).
-   */
+  /** §5.5 #17-10 ⑥-6 (턴 시계) — 지금 일이 시작된 시각(대기면 줄 선 시각). 평소 경과의 시작점이다(위 시계면 줄마다 0 으로 되감긴다). 없으면 `null`. */
   turnStartedAt: number | null;
   /**
    * §5.3 #9-1 (P) — 감춘 턴(조용한 사전 압축)이 도는 중. 그 턴의 줄은 오지 않으므로 이 줄은 경과만
@@ -271,10 +224,7 @@ export interface StreamThinkingLive {
   compactingSince?: number;
 }
 
-/**
- * §4 v2.53 — 작업 신고 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류).
- * §5.5 #17-12 — 같은 턴에 온 검수 요청은 별도 카드가 아니라 이 카드 **안쪽 구획**으로 흡수된다(`review`).
- */
+/** §4 — 작업 신고 카드(createdAt 을 timestamp 로 시간순 합류). §5.5 #17-12 — 같은 턴의 검수 요청은 이 카드 안쪽 구획(`review`)으로 흡수된다. */
 export interface StreamReport {
   kind: 'report';
   id: string;
@@ -285,7 +235,7 @@ export interface StreamReport {
   live?: boolean;
 }
 
-/** §4 v2.60 — 질문 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류) */
+/** §4 — 질문 카드(createdAt 을 timestamp 로 시간순 합류). */
 export interface StreamQuestion {
   kind: 'question';
   id: string;
@@ -295,7 +245,7 @@ export interface StreamQuestion {
   live?: boolean;
 }
 
-/** §4 v2.70 — 검수 요청 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류) */
+/** §4 — 검수 요청 카드(createdAt 을 timestamp 로 시간순 합류). */
 export interface StreamReview {
   kind: 'review';
   id: string;
@@ -305,7 +255,7 @@ export interface StreamReview {
   live?: boolean;
 }
 
-/** §4 v2.84 — 번호 목록 정렬 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류) */
+/** §4 — 번호 목록 정렬 카드(createdAt 을 timestamp 로 시간순 합류). */
 export interface StreamList {
   kind: 'list';
   id: string;
@@ -331,28 +281,17 @@ export interface StreamCommand {
   result: string;
   status: string;
   timestamp: number;
-  /**
-   * **내가 보낸 시각**(`QueuedCommand.timestamp` = 큐 투입). 위 `timestamp` 는 §5.5 #17-18 ⑥ 대로
-   * 말풍선이 설 자리(= 나간 시각 · 대기 중이면 `PENDING_COMMAND_TS` 꼬리 표식)라 **시각 표기에
-   * 쓸 수 없다** — 대기 중 덧말이 서기 275760년에 보낸 글이 된다. 말풍선의 `오늘 14:32` 는 이 값이다.
-   */
+  /** 내가 보낸 시각(큐 투입) — 말풍선의 `오늘 14:32` 는 이 값이다. 위 `timestamp` 는 말풍선 자리(대기면 `PENDING_COMMAND_TS`)라 표기에 쓰면 서기 275760년이 된다. */
   submittedAt?: number;
-  /** v2.61 — 전송한 paste 이미지 첨부의 절대경로(완료 후에도 보존). basename 으로 blob preview 조회. */
+  /** 전송한 paste 이미지 첨부의 절대경로(완료 후에도 보존). basename 으로 blob preview 를 찾는다. */
   attachments?: string[];
-  /** §5.5 #17-18 v4.68 — 이 프롬프트에 함께 실려 나간 덧말 수(합치기). 0/undefined = 단독. */
+  /** §5.5 #17-18 — 함께 실려 나간 덧말 수(합치기). 0/undefined = 단독. */
   mergedCount?: number;
-  /**
-   * 앱/서버가 내려가 이 명령의 실행이 끊겼고, 보존된 세션으로 **다시 이어 돌린** 건인가.
-   * 서버는 이미 그렇게 재개하고 있었지만 화면에 한 글자도 안 떠서, 사용자에겐 그냥 "멈춰 있다"로
-   * 보였다(사용자 보고 — "멈춰있길래 물어보니 끊겼다더라"). 끊겼다는 사실은 말해 줘야 한다.
-   */
+  /** 앱/서버가 내려가 끊긴 명령을 보존된 세션으로 다시 이어 돌린 건인가 — 표시하지 않으면 재개 중에도 그냥 멈춘 것으로 보인다. */
   restartResumed?: boolean;
-  /**
-   * §5.5 #17-18 ⑤ v4.77 — 큐의 원본 명령 id(`cmd-` 접두어 없는 raw). 말풍선 안의 [대기|합치기|즉시]·
-   * 삭제가 이 id 로 큐를 직접 손댄다(옛 대기 줄이 하던 일).
-   */
+  /** §5.5 #17-18 ⑤ — 큐의 원본 명령 id(`cmd-` 접두어 없음). 말풍선의 [대기|합치기|즉시]·삭제가 이 id 로 큐를 손댄다. */
   commandId?: string;
-  /** §5.5 #17-18 ⑤ v4.77 — 대기 중인 덧말의 dispatch 방식(말풍선 색·칩 활성 표시). */
+  /** §5.5 #17-18 ⑤ — 대기 중인 덧말의 dispatch 방식(말풍선 색·칩 활성 표시). */
   dispatchMode?: CommandDispatchMode;
   /**
    * §5.5 #17-12 ③ — 오류로 끝난 이유. `result` 와 같은 규약으로 **스트림이 없을 때만** 싣는다 —
@@ -362,14 +301,8 @@ export interface StreamCommand {
 }
 
 /**
- * §5.25 (O) — 엔진이 대화에 내건 **그림 한 장**.
- *
- * 전선에서는 `text` 이벤트지만(`SubAgentStreamEvent.imagePath`), 화면 항목으로는 **따로 선다.**
- * 이유는 말풍선이 연속된 `text` 를 한 덩어리로 합치기 때문이다 — 그 런에 섞이면
- * 그림이 사라지고 파일 이름만 본문 중간에 박힌다.
- *
- * `src` 를 여기 두지 않는다 — 그림을 청하는 주소는 `id` 와 세션으로 화면이 만든다
- * (경로는 서버 밖으로 나가지 않는다).
+ * §5.25 (O) — 엔진이 대화에 내건 그림 한 장. 전선에선 `text` 지만 따로 선다(말풍선 런에 섞이면 그림이 사라진다).
+ * `src` 는 두지 않는다 — 주소는 `id`·세션으로 화면이 만든다(경로는 서버 밖으로 나가지 않는다).
  */
 export interface StreamImage {
   kind: 'image';
@@ -382,14 +315,8 @@ export interface StreamImage {
 }
 
 /**
- * §5.5 #17-12 ③-6 (g) — 이 턴이 **왜 멈췄는지** 말하는 한 줄.
- *
- * 종전에는 이 낱말을 `StreamCommand`(말풍선) 안에 실었다. 그런데 말풍선이 서는 자리는 #17-18 ⑥ 대로
- * **명령이 나간 시각**이라, 멈춤 표시가 그 턴의 출력 **전부보다 위** — 내가 친 글 바로 아래, 아직 아무
- * 일도 일어나지 않은 자리에 떴다(사용자 보고). 멈춤은 그 턴에서 마지막에 일어난 일이므로 말풍선의
- * 일부가 아니라 **자기 항목**으로 서서 그 턴의 꼬리에 놓인다 — 읽는 순서 = 일어난 순서.
- *
- * 낱말은 화면이 정하지 않는다(`turnStopLabelKey` — 하단 상태바와 같은 함수 · 같은 낱말).
+ * §5.5 #17-12 ③-6 (g) — 이 턴이 왜 멈췄는지 말하는 한 줄. 말풍선 안이 아니라 자기 항목으로 턴의 꼬리에 선다(말풍선 자리는 나간 시각이라 출력보다 위다).
+ * 낱말은 `turnStopLabelKey`(하단 상태바와 같은 함수)가 정한다.
  */
 export interface StreamTurnStop {
   kind: 'turnstop';
@@ -424,24 +351,14 @@ export interface BaseItemsResult {
 export const PENDING_COMMAND_TS = Number.MAX_SAFE_INTEGER;
 
 /**
- * §5.5 #17-18 ⑥-5 — 이 명령이 **한 번이라도 나갔는가**(= 시간축 위에 자기 자리가 있는가).
- *
- * 종전 판정은 `status !== 'queued'` 하나였다. 그런데 앱이 내려가 끊긴 명령은 부팅 reconcile 이
- * 보존된 세션으로 재개하려고 **다시 `queued` 로 되돌린다**(§5.3 #12-1 `restartResumed`) — 이미
- * 출력을 한참 뱉어 놓은 명령인데도 "아직 안 나간 글"로 읽혀 말풍선이 화면 꼬리로 끌려 내려갔다.
- * `startedAt` 이 찍혀 있다는 것은 그 명령이 실제로 나간 적이 있다는 뜻이므로, 지금 큐에 되돌아가
- * 있더라도 자리는 처음 나간 그 시각에 남는다.
+ * §5.5 #17-18 ⑥-5 — 한 번이라도 나갔는가. `status !== 'queued'` 만 보면 안 된다 — 부팅 reconcile 이 끊긴 명령을 재개하려고 `queued` 로 되돌린다
+ * (§5.3 #12-1). `startedAt` 이 있으면 나간 적이 있으니 처음 나간 시각에 남는다.
  */
 export function hasDispatched(cmd: QueuedCommand): boolean {
   return cmd.status !== 'queued' || cmd.startedAt !== undefined;
 }
 
-/**
- * §5.5 #17-18 ⑥ — 이 명령의 말풍선이 설 자리.
- *  - 아직 안 나간 `queued`: 꼬리(출력이 자라는 동안 계속 아래로 밀린다).
- *  - 그 외: **나간 시각**(`startedAt`). 그 뒤 도착한 스트림이 전부 아래에 쌓여 턴 경계선이 된다.
- *  - `startedAt` 이 없는 옛 명령은 종전대로 큐 투입 시각(`timestamp`).
- */
+/** §5.5 #17-18 ⑥ — 말풍선이 설 자리: 안 나간 `queued` 는 꼬리, 그 외는 나간 시각(`startedAt` — 턴 경계선), `startedAt` 없는 옛 명령은 큐 투입 시각. */
 export function commandAnchorTs(cmd: QueuedCommand): number {
   if (!hasDispatched(cmd)) return PENDING_COMMAND_TS;
   return cmd.startedAt ?? cmd.timestamp;
@@ -462,14 +379,8 @@ function dispatchedAnchorsAsc(commands: readonly QueuedCommand[] | undefined): n
 }
 
 /**
- * §5.5 #17-12 ③-6 (g) — 그 턴에서 **마지막에 일어난 일**이 설 자리.
- *
- * `anchor` 는 그 명령이 나간 시각(= 그 턴이 시작된 경계)이다. 그 턴의 출력은 모두 이 경계와 다음
- * 경계 사이에 있으므로, **다음 경계 바로 앞**(`-0.5`)이 곧 "그 턴의 마지막 줄 아래 · 다음 말풍선 위"다.
- * 뒤에 나간 명령이 없으면(= 마지막 턴) 어떤 실제 시각보다 큰 값으로 꼬리에 서되, 정렬 밖으로 빼는
- * 대기 말풍선·라이브 1줄(`PENDING_COMMAND_TS`)보다는 **한 칸 위**에 남는다(아직 안 나간 글이 더 아래다).
- *
- * §5.3 #12-2 의 대기 중 물음 카드가 쓰는 것과 같은 규약이라 새 정렬 축을 만들지 않는다.
+ * §5.5 #17-12 ③-6 (g) — 그 턴의 마지막 일이 설 자리: 다음 경계 바로 앞(`-0.5`) = 그 턴 마지막 줄 아래·다음 말풍선 위.
+ * 마지막 턴이면 꼬리에 서되 대기 말풍선·라이브 1줄(`PENDING_COMMAND_TS`)보다 한 칸 위다(§5.3 #12-2 물음 카드와 같은 규약).
  */
 export function turnTailSortTs(anchor: number, dispatchedAsc: readonly number[]): number {
   for (const ts of dispatchedAsc) { if (ts > anchor) return ts - 0.5; }
@@ -571,13 +482,8 @@ export function turnCoverageOf(events: readonly SubAgentStreamEvent[], anchors: 
 }
 
 /**
- * commands → 사용자 프롬프트 블록.
- *
- * §5.5 #17-12 ③-3 — 저장된 `result`(그 턴의 마지막 AI 본문)는 **그 턴의 말이 스트림에 남아 있을 때만**
- * 비운다(같은 답이 두 번 읽히지 않게). 종전에는 "세션에 스트림이 하나라도 있으면" 모든 말풍선의 결과를
- * 통째로 비웠다 — 복원 창(서버 마지막 N건 · 클라 상한) 밖으로 밀려난 턴은 본문도 없고 결과도 비워져,
- * 디스크에 답이 있는데 화면에는 말풍선만 줄지어 남았다(2026-09-09 사용자 보고). 실패 사유(`error`)도
- * 같은 규약 — 그 턴의 오류 줄이 남아 있을 때만 비운다.
+ * commands → 사용자 프롬프트 블록. §5.5 #17-12 ③-3 — 저장된 `result`·`error` 는 **그 턴의** 말·오류 줄이 스트림에 남아 있을 때만 비운다.
+ * 세션 단위로 비우면 복원 창 밖으로 밀린 턴은 말풍선만 남는다.
  */
 function buildCommandItems(commands: readonly QueuedCommand[] | undefined, coverage: TurnCoverage): StreamItemFull[] {
   const items: StreamItemFull[] = [];
@@ -624,14 +530,8 @@ function buildCommandItems(commands: readonly QueuedCommand[] | undefined, cover
 }
 
 /**
- * 이 스트림이 **작동 중인가** — 라이브 1줄과 도구 블록의 `isActive` 가 이 값 하나를 본다.
- *
- * ⚠ `override` 가 주어지면 **그것이 답이다.** 명령 목록만으로 내리는 판정은 두 군데서 거짓말을 한다:
- *  · 화면에 건네는 목록은 `displayCommands` 를 거친 **표시용 사본**이라 조용한 압축이 감춰져 있고,
- *    뒤에 선 대기 명령이 `executing` 으로 그려져 있다(생존 판정에 써서는 안 되는 값이다).
- *  · 봉인이 만료돼 되살아난 세션은 `SubAgent.status` 만 `active` 이고 명령은 아카이브로 옮겨져 있다.
- * 그래서 호출부(IDE 본문)가 공유 술어(`hasSessionWork`)로 **원본 큐 + 세션 필터** 위에서 낸 답을
- * 내려보내고, 이 함수는 그것이 없을 때만 종전 방식으로 추정한다.
+ * 이 스트림이 작동 중인가(라이브 1줄·도구 블록 `isActive`). ⚠ `override` 가 오면 **그것이 답이다**(호출부가 `hasSessionWork` 로 원본 큐 위에서 냈다).
+ * 목록은 표시용 사본이라 압축을 감추고 대기 명령을 `executing` 으로 그리며, 되살아난 세션은 명령이 아카이브에 있다 — 없을 때만 추정한다.
  */
 function computeAgentBusy(commands: readonly QueuedCommand[] | undefined, override?: boolean): boolean {
   if (override !== undefined) return override;
@@ -639,12 +539,8 @@ function computeAgentBusy(commands: readonly QueuedCommand[] | undefined, overri
 }
 
 /**
- * **줄만 서 있는가** — 낼 일은 있는데 도는 것이 없다(§5.5 #17-18 ⑪ · 공유 술어 `isSessionWaiting`).
- *
- * `computeAgentBusy` 와 같은 규약이다: `override` 가 오면 그것이 답이고(호출부가 원본 큐 + 세션
- * 필터 위에서 냈다), 없을 때만 목록으로 추정한다. 추정 경로는 표시용 사본을 보므로 뒤에 선 대기
- * 건이 `executing` 으로 승격돼 있을 수 있다 — 그 경우 `waiting` 이 안 켜지는 쪽으로 틀리는데,
- * 이는 **안전한 방향**이다(없는 대기를 지어내지 않는다).
+ * 줄만 서 있는가(§5.5 #17-18 ⑪ · `isSessionWaiting`). `override` 규약은 `computeAgentBusy` 와 같다.
+ * 추정은 표시 사본이라 `waiting` 이 안 켜지는 쪽으로만 틀린다(없는 대기를 지어내지 않는다).
  */
 function computeAgentWaiting(commands: readonly QueuedCommand[] | undefined, override?: boolean): boolean {
   if (override !== undefined) return override;
@@ -653,13 +549,8 @@ function computeAgentWaiting(commands: readonly QueuedCommand[] | undefined, ove
 }
 
 /**
- * §5.5 #17-10 ⑥-6 (턴 시계) — 라이브 1줄이 평소 적는 경과의 시작점.
- *
- * `computeAgentBusy` 와 같은 규약이다: 부모가 원본 큐 + 세션 필터로 낸 값(`useSessionLivenessFacts`)이
- * 오면 **그것이 답**이고 `null`(모름)도 답이다. 안 올 때만(생존 사실을 내려 주지 않는 자리 — Auto Agent
- * 패널) 받은 목록으로 추정한다. 그 목록은 표시 사본이라 감춘 압축이 없지만, 물려받은 명령이 그 압축이
- * 나간 시각을 달고 실행 중으로 서 있어 같은 답이 나온다. 추정이 없으면 그 자리의 줄은 평소 시간을
- * 통째로 잃는다.
+ * §5.5 #17-10 ⑥-6 (턴 시계) — 라이브 1줄 경과의 시작점. 부모 값(`useSessionLivenessFacts`)이 오면 그것이 답이고 `null` 도 답이다.
+ * 안 오는 자리(Auto Agent 패널)만 목록으로 추정한다 — 빼면 그 자리의 줄이 경과를 잃는다.
  */
 function resolveTurnStartedAt(
   commands: readonly QueuedCommand[] | undefined,
@@ -670,13 +561,7 @@ function resolveTurnStartedAt(
   return sessionTurnStartedAt(commands ?? [], [], null, agentWaiting);
 }
 
-/**
- * §5.5 #17-39 — 봉인된 사고 런 → 자국 항목. 문턱(`shouldTraceThinking`)을 못 넘으면 `null` —
- * 순간 사고마다 한 줄을 내주면 그 줄이 곧 소음이 된다.
- *
- * 전체 재구축·증분 파서가 **같은 함수**를 쓴다. 두 벌이 되면 한쪽만 문턱이 바뀌어 같은 대화가
- * 경로에 따라 다르게 그려진다(등가성 테스트가 그 순간 걸린다).
- */
+/** §5.5 #17-39 — 봉인된 사고 런 → 자국. 문턱(`shouldTraceThinking`)을 못 넘으면 `null`. 전체 재구축·증분 파서가 **같은 함수**를 쓴다(두 벌이면 경로마다 달라진다). */
 function thinkRunToStep(run: ThinkRun): StreamStep | null {
   if (!shouldTraceThinking(run)) return null;
   return {
@@ -711,15 +596,8 @@ function thinkOwnerChanged(open: TurnThinkRun | null, evt: SubAgentStreamEvent, 
 }
 
 /**
- * 라이브 "작업 중 …" 1줄 — **에이전트가 작동하는 동안 항상** 켠다.
- *
- * §5.5 #17-24 ② — 종전엔 `agentBusy && 마지막 이벤트가 사고` 였다. 그래서 사고 → 도구 → 본문으로
- * 이벤트 종류가 바뀔 때마다 이 줄이 사라졌다 다시 나타나 화면이 깜빡였다. 이제 발화 조건은 `agentBusy`
- * 하나이고 항목 id 가 고정이라 항목은 생멸하지 않는다(가상 리스트 remount ❌).
- *
- * §5.5 #17-24 ⑦ — 마지막 이벤트 종류는 라벨도 고르지 않는다. 사고 이벤트면 `생각 중`이라 적던 것을
- * 걷었다 — 도구 사이 안내 문장이 사고로 오고 큰 `Write` 입력을 만드는 동안은 줄이 없어, 파일을 쓰는
- * 중에도 `생각 중… 53m 59s`(턴 시계)로 서서 멈춘 것으로 읽혔다. 마지막 이벤트는 시계 재료로만 쓴다.
+ * 라이브 "작업 중 …" 1줄 — 작동하는 동안 항상 켠다(§5.5 #17-24 ② — 조건은 `agentBusy` 하나, id 고정이라 생멸·깜빡임이 없다).
+ * §5.5 #17-24 ⑦ — 마지막 이벤트로 라벨을 고르지 않는다(시계 재료로만) — 사고면 `생각 중`이라 적으면 큰 `Write` 입력 중에도 멈춘 것으로 읽힌다.
  */
 function computeThinkingLive(
   events: SubAgentStreamEvent[],
@@ -732,17 +610,10 @@ function computeThinkingLive(
 ): StreamThinkingLive | null {
   if (!agentBusy) return null;
   const lastRaw = events[events.length - 1];
-  // §5.5 #17-18 ⑪ — **줄 선 것이 먼저다.** 도는 것이 없으면 마지막 이벤트가 무엇이었든 그것은
-  //   앞 턴의 잔상이지 지금 하는 일이 아니다. 여기서 `working` 으로 접으면 아무 일도 안 일어나는
-  //   화면이 파랗게 뛰며 경과만 키운다(사용자가 본 그 줄이다).
-  // §5.5 #17-24 ⑥ ⑦ — 접는 중이면 압축 중. 고르는 규칙은 메인 탭과 같은 함수 한 곳(대기 > 압축 > 작업).
+  // §5.5 #17-18 ⑪ — 줄 선 것이 먼저다(도는 것이 없으면 마지막 이벤트는 잔상이다). 규칙은 메인 탭과 같은 함수 한 곳(대기 > 압축 > 작업, #17-24 ⑥ ⑦).
   const mode = liveLineMode(agentWaiting, compactingSince !== null);
-  // 정렬에 참여하지 않고 항상 맨 끝이라 timestamp 는 표시 순서에 영향을 주지 않는다(없으면 0).
-  // §2.4 (무응답) — 무응답을 재는 시계는 **마지막 활동 시각**이다: 보인 줄과 세션 활동(명령 시작 포함) 중
-  //   늦은 쪽. 감춘 턴이 도는 동안에는 무응답으로 안 뒤집는다(`hiddenTurn` → `liveLineStalled`).
-  //   메인 탭과 같은 함수다(`liveLineActivityAt`).
-  // §5.5 #17-10 ⑥-6 (턴 시계) — 평소 적는 경과는 그 시계가 아니라 **턴 시작**(`turnStartedAt`)부터다.
-  //   부모가 원본 큐로 낸 값을 그대로 싣는다(메인 탭과 같은 사실 — `useSessionLivenessFacts`).
+  // 정렬에 참여하지 않고 늘 맨 끝이라 timestamp 는 순서에 영향이 없다(없으면 0).
+  // §2.4 — 무응답 시계는 마지막 활동 시각(`liveLineActivityAt`, 메인 탭과 같은 함수), 감춘 턴 중엔 안 뒤집는다. 평소 경과는 `turnStartedAt` 부터(§5.5 #17-10 ⑥-6).
   return {
     kind: 'thinking-live', id: 'thinking-live', mode,
     timestamp: lastRaw?.timestamp ?? 0,
@@ -958,25 +829,9 @@ export function buildBaseItems(
 // ─── 2단계: 카드 합류 + 정렬 (증분과 무관 — base 위에서만 동작) ───
 
 /**
- * §5.5 #17-18 ⑦-5 — 카드를 발행한 **직후**에 붙는 "보냈습니다" 한 줄인가.
- *
- * ⑦-4 가 "발행한 뒤에는 본문을 더 붙이지 마라"를 지시문에 못 박았는데도 카드 바로 아래에는
- * **"검수 카드로 확인 지점을 정리해 보냈습니다"** 같은 줄이 매번 따라붙었다. 지시를 어긴 게 아니라
- * **턴의 모양**이 그렇다 — 카드 curl 이 그 턴의 마지막 도구라, 결과를 받은 에이전트는 무언가 말해야
- * 턴이 닫힌다. 이미 화면에 뜬 카드를 다시 말할 뿐이라 정보량은 0 인데, 카드마다 반복돼 #17-21 ② 가
- * 유일하게 펼쳐 두는 자리(마지막 본문 = 결론)를 잡아먹는다.
- *
- * 판정은 **좁게** — 실제 결론 문장을 지우는 쪽이 훨씬 나쁘기 때문이다:
- *  ① 줄바꿈 없는 한 줄, ② 짧다(`CARD_ECHO_MAX_LEN`), ③ 문장 하나(중간에 종결부호가 또 있으면 뒤에
- *  정보가 붙은 것이므로 건드리지 않는다), ④ 카드를 가리키는 낱말 + 발행·전송 동사가 **둘 다** 있다.
- * 여기에 호출측이 "바로 앞이 카드"라는 자리 조건을 더한다(`dropCardEchoTexts`).
- *
- * §5.5 #17-18 ⑦-6 — 지시문은 이제 카드 뒤를 **비우지 말고** "카드를 확인해 주세요." 한 문장으로 닫게 한다
- * (비워 두면 CLI 가 "no visible output" 재촉을 넣고, 그 재촉에 보고가 카드 아래에 통째로 다시 쓰였다).
- * 그 문장도 정보량이 0 이라 여기서 함께 뺀다 — **정해 준 문장과 그 흔한 변형만**(`CARD_CLOSING_*_RE`)이고
- * 동사 목록은 넓히지 않는다. 같은 답에 목표 창 블록(```vibisual)이 섞여 오는 일이 잦아 판정은 무대 블록을
- * 걷어 낸 **보이는 글**로 한다 — 블록은 렌더도 숨기고 적용은 서버가 원문에서 따로 하므로, 표시에서 빼도
- * 목표 창은 그대로 갱신된다.
+ * §5.5 #17-18 ⑦-5 — 카드 발행 직후의 "보냈습니다" 한 줄인가(카드 curl 이 턴의 마지막 도구라 에이전트가 무언가 말해야 턴이 닫힌다 — 정보량 0 이 결론 자리를 먹는다).
+ * 판정은 **좁게**(결론을 지우는 쪽이 훨씬 나쁘다): 한 줄 · 짧음(`CARD_ECHO_MAX_LEN`) · 문장 하나 · 카드 낱말 + 발행 동사 둘 다. 자리 조건은 `dropCardEchoTexts`.
+ * ⑦-6 — 닫는 문장 "카드를 확인해 주세요." 와 흔한 변형(`CARD_CLOSING_*_RE`)만 함께 뺀다. 판정은 목표 창 블록을 걷은 보이는 글로(적용은 서버가 원문으로).
  */
 const CARD_ECHO_MAX_LEN = 200;
 /** "무엇을" — 카드를 가리키는 낱말. 이게 없으면 발송 보고가 아니다. */
@@ -1060,12 +915,7 @@ export function dropCardEchoTexts(items: StreamItemFull[]): StreamItemFull[] {
   return out ?? items;
 }
 
-/**
- * §5.5 #17-18 ⑥-1·⑥-5 — 정렬 밖 **꼬리**로 뺄 말풍선인가(= 아직 한 번도 안 나간 명령).
- * 판정을 `status === 'queued'` 가 아니라 앵커 값으로 하는 이유: 자리 계산은 `commandAnchorTs`
- * 한 곳이 하고 있으므로, "꼬리인가"도 그 결과를 그대로 읽어야 두 판정이 어긋나지 않는다
- * (재개 대기 중인 명령은 앵커가 제 시각이라 여기 걸리지 않고 제자리에 남는다).
- */
+/** §5.5 #17-18 ⑥-1·⑥-5 — 꼬리로 뺄 말풍선인가. `status` 가 아니라 앵커 값으로 본다 — `commandAnchorTs` 와 어긋나지 않게(재개 대기 명령은 제자리). */
 export function isPendingCommandItem(item: StreamItemFull): item is StreamCommand {
   return item.kind === 'command' && item.timestamp === PENDING_COMMAND_TS;
 }
@@ -1131,15 +981,8 @@ function pickCardSender(
 }
 
 /**
- * §5.5 #17-18 ⑦-7 — 카드가 설 정렬 키. 기본은 신고된 시각(⑦-1)이고, **카드를 보낸 도구 줄이 그보다 뒤에
- * 정렬될 때만** 그 줄 바로 아래로 옮긴다.
- *
- * 카드는 그 명령이 도는 동안 만들어지므로 인과로는 늘 그 줄 뒤다. 클로드는 도구 시작 줄이 카드보다 먼저
- * 와서 이 판정이 아무것도 바꾸지 않지만, 코덱스는 시작 줄이 카드보다 늦게 와서 카드를 보낸 명령 줄 하나가
- * 카드 **밑에** 깔렸다(사용자 보고 — "꼭 저렇게 하나가 아래에 깔린다").
- *
- * `calls` 는 **카드와 같은 세션**의 후보만 넘긴다(메인 탭 전체 보기는 세션이 섞인다). 옮기는 것은 표시
- * 순서뿐 — `createdAt`·턴 귀속·`작업 중` 배지는 신고 시각 그대로다.
+ * §5.5 #17-18 ⑦-7 — 카드 정렬 키. 기본은 신고 시각(⑦-1), **카드를 보낸 도구 줄이 더 뒤일 때만** 그 줄 바로 아래로(코덱스는 시작 줄이 늦게 온다).
+ * `calls` 는 카드와 같은 세션 후보만. 옮기는 것은 표시 순서뿐 — `createdAt`·턴 귀속·`작업 중` 배지는 신고 시각 그대로다.
  */
 export function cardPlacementTs(
   kind: SentCardKind,
@@ -1200,12 +1043,8 @@ export function mergeCardsIntoItems(
   }
 
   const cmdTsAsc = dispatchedAnchorsAsc(commands);
-  // §5.5 #17-18 ⑦-1 — 카드가 설 자리는 **신고된 그 시각**(`createdAt`)이다. 옛 `turnEndSortTs`(그 턴 끝으로
-  //   미루기)는 지금 도는 턴에 뒤에 올 명령이 없어 MAX_SAFE_INTEGER 로 떨어졌고, 그 결과 카드가 화면 바닥에
-  //   붙박여 **이후 출력이 전부 카드 위로** 들어갔다 — 사용자에겐 "안 끝났는데 카드부터 나와 끝난 줄 착각",
-  //   "중간 카드와 완료 카드가 바닥에서 뒤섞여 언제 뭐가 끝난지 모름"으로 보였다. 이제 카드는 그 자리에
-  //   못 박히고 그 뒤 출력은 카드 **아래**로 쌓인다(자리 자체가 시점을 말한다).
-  // §5.5 #17-18 ⑦-3 — 턴 식별은 정렬과 분리한다: dispatch 경계를 **몇 개 지났는가**가 곧 턴 번호다.
+  // §5.5 #17-18 ⑦-1 — 카드 자리는 신고된 시각(`createdAt`)이다. 턴 끝으로 미루면 도는 턴엔 뒤 명령이 없어 MAX_SAFE_INTEGER 가 되어 이후 출력이 카드 위로 간다.
+  // ⑦-3 — 턴 식별은 정렬과 분리한다: dispatch 경계를 몇 개 지났는가가 턴 번호다.
   const turnIndexOf = (createdAt: number): number => {
     let n = 0;
     for (const ts of cmdTsAsc) { if (ts <= createdAt) n += 1; else break; }
@@ -1282,7 +1121,7 @@ export function mergeCardsIntoItems(
   return visible;
 }
 
-// ─── identity 안정화 비교(v3.09) ───
+// identity 안정화 비교
 
 /** §5.5 #17-12 ③ — 사유가 붙거나 바뀌면 말풍선을 다시 그려야 한다(렌더에 영향 주는 필드). */
 function sameCommandError(a?: CommandError, b?: CommandError): boolean {
@@ -1335,7 +1174,7 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
     }
     case 'command': {
       const x = a as StreamCommand;
-      // §5.5 #17-18 ⑤ v4.77 — dispatchMode 도 렌더(말풍선 색·활성 칩)에 영향 → 비교에 포함.
+      // §5.5 #17-18 ⑤ — dispatchMode 도 렌더(말풍선 색·활성 칩)에 영향 → 비교에 포함.
       return x.prompt === b.prompt && x.result === b.result && x.status === b.status
         && x.dispatchMode === b.dispatchMode && sameCommandError(x.error, b.error)
         && sameAttachments(x.attachments, b.attachments);
@@ -1350,12 +1189,8 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
       }
       return true;
     }
-    // §5.5 #17-24 ② — 라벨(mode)이 바뀌면 다시 그려야 한다(작업 중 ↔ 대기 ↔ 압축 중 — ⑦ 이후 생각 중은 없다).
-    // §2.4 (무응답) — 시계(`lastActivityAt`)와 감춘 턴 표식도 렌더에 쓰인다. 빼면 모드가 같은 동안
-    //   identity 안정화가 옛 객체를 재사용해, 줄이 들어와도 시계가 옛 시각에서 계속 늘어 멀쩡한 턴이
-    //   "마지막 업데이트 N 전"이 되고, 압축이 끝나 명령이 나가도 줄이 감춘 턴의 모습에 머문다.
-    // §5.5 #17-10 ⑥-6 — 턴 시계(`turnStartedAt`)도 같다. 빼면 다음 명령이 나가도(모드는 그대로 working)
-    //   줄이 앞 턴 시작부터 계속 센다.
+    // §5.5 #17-24 ② — mode 가 바뀌면 다시 그린다. §2.4 — `lastActivityAt`·감춘 턴 표식도 넣는다(빼면 옛 객체 재사용으로 멀쩡한 턴이 "N 전"이 된다).
+    // §5.5 #17-10 ⑥-6 — `turnStartedAt` 도(빼면 다음 명령이 나가도 앞 턴부터 센다).
     case 'thinking-live': {
       const x = a as StreamThinkingLive;
       // §5.5 #17-24 ⑥ — 압축 시작 시각도 렌더에 쓰인다(넷째 모드의 경과). 빼면 압축이 두 번째로 시작해도 옛 시각에서 센다.
@@ -1379,15 +1214,8 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
 // ─── 증분 파서 ───
 
 /**
- * commands 로 파생되는, 증분 유효성에 영향 주는 컨텍스트(정렬된 턴 경계 + agentBusy).
- *
- * §5.5 #17-18 ⑥ — 경계는 **나간 시각**이므로 대기 중 덧말이 dispatch 되면(=경계가 하나 늘면)
- * 이 키가 바뀌어 전체 재구축으로 안전하게 떨어진다(그 자리에서 본문 런이 끊겨야 하기 때문).
- *
- * ⚠ `agentBusy` 를 **반드시 키에 넣는다** — 파서는 tool_use 를 만드는 순간의 `this.agentBusy` 로
- * `isActive` 를 정하는데, 그 값은 리셋될 때만 갱신된다. 경계 목록이 그대로인 채 상태만 바뀌는 경우
- * (대기 덧말 추가 → busy, 실행 끝 → idle)에 키가 같으면 파서가 **낡은 busy** 로 계속 판정해
- * 전체 재구축과 결과가 갈린다(등가성 테스트가 잡아낸 구멍).
+ * 증분 유효성을 가르는 commands 파생 키(턴 경계 + agentBusy). 대기 덧말이 dispatch 되면 경계가 늘어 전체 재구축으로 떨어진다(§5.5 #17-18 ⑥).
+ * ⚠ `agentBusy` 를 **반드시 넣는다** — 파서는 tool_use 를 만들 때의 `this.agentBusy` 로 `isActive` 를 정해, 빼면 낡은 busy 로 전체 재구축과 갈린다.
  */
 function cmdTsKey(commands: readonly QueuedCommand[] | undefined, agentBusy: boolean): string {
   // §5.5 #17-12 ③-3 — 경계 시각뿐 아니라 **명령 id** 까지 키에 넣는다. 턴 커버리지는 id 로 쌓이므로
@@ -1408,14 +1236,8 @@ interface OpenBuf {
 }
 
 /**
- * 온라인 증분 파서. `sync(events, commands)` 를 매 틱 호출하면:
- *  - 이전 소비분의 순수 꼬리-확장이면 **신규 이벤트만** 처리(O(신규)).
- *  - 그렇지 않으면(세션 전환/commands 변경/앞쪽 절단/재로드) 전체 재구축으로 리셋.
- * 반환 = 이벤트 파생 StreamItem[] (command 아이템·카드는 호출측이 buildCommandItems/mergeCards 로 합침).
- *
- * 불변식: 어느 시점에 반환한 배열의 내용은 buildBaseItems(consumedEvents).items 에서 command 아이템을
- * 뺀 것과 **항상 동일**(streamItems.test.ts 가 랜덤 시퀀스로 못박음). 변경된 항목만 새 객체가 되어
- * 참조가 안정하므로 memo/virtuoso 가 자란 항목 1개만 재렌더한다.
+ * 온라인 증분 파서. `sync(events, commands)` 매 틱 — 꼬리 확장이면 신규만(O(신규)), 아니면 전체 재구축. command 아이템·카드는 호출측이 합친다.
+ * 불변식: 반환은 buildBaseItems(consumedEvents).items 에서 command 를 뺀 것과 **항상 같다**(streamItems.test.ts). 바뀐 항목만 새 객체다.
  */
 export class IncrementalStreamParser {
   /** 이벤트 파생 아이템(command 제외). */

@@ -1,43 +1,31 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
-/* §5.11 v3.88 — 플러그인 패키지(`packages/plugins`)의 클래스도 스캔 대상에 넣는다.
-   Tailwind v4 는 node_modules 를 훑지 않는데 플러그인은 워크스페이스 심링크(`@vibisual/plugins`)로 들어오므로,
-   이 한 줄이 없으면 플러그인 UI 의 클래스가 빌드에서 조용히 빠진다 — 빌드는 성공하고 화면만 무너지는 유형이다.
-   (실측: 이 줄을 빼면 클래스가 CSS 에서 사라지고 번들이 205.28 → 203.56 kB 로 줄어든다.)
-   경로는 이 CSS 파일 기준 상대경로이며, 새 플러그인은 전부 이 경로 아래로 들어오므로 추가 등록이 필요 없다. */
+/* §5.11 — 플러그인(`packages/plugins`) 클래스도 스캔한다. Tailwind v4 는 node_modules(워크스페이스 심링크)를 안 훑어, 이 줄이 없으면
+   빌드는 성공하고 플러그인 UI 클래스만 조용히 빠진다(실측). 경로는 이 CSS 기준 — 새 플러그인도 이 아래라 추가 등록이 필요 없다. */
 @source "../../plugins/src/**/*.{ts,tsx}";
 
-/* 상자 폭 변형 — 앱 창·별창 안쪽처럼 **뷰포트가 아니라 그 상자의 폭**으로 접는 자리. `hooks/useBoxTier.ts` 가
-   상자를 재서 `data-box` 토큰을 달고, 자손은 `box-compact:`(1024px 미만) · `box-narrow:`(640px 미만, compact 를 겸한다) ·
-   `box-wide:`(1600px 이상)로 읽는다. 기준 숫자는 `utils/boxTier.ts` 한 곳 — 여기는 토큰 이름만 안다.
-   `@container` 를 쓰지 않는 이유: Chromium 126 의 `container-type` 상자는 fixed 자손을 화면이 아니라 자기 기준으로
-   세운다(2026-10-17 실측) — 앱 화면 안에서 포털 없이 뜨는 메뉴가 창 위치만큼 밀린다. 등록 순서 = 우선순위(narrow 가 이긴다). */
+/* 상자 폭 변형 — 뷰포트가 아니라 그 상자(앱 창·별창)의 폭으로 접는다. `hooks/useBoxTier.ts` 가 `data-box` 토큰을 달고 자손은
+   `box-compact:`(1024px 미만) · `box-narrow:`(640px 미만, compact 겸함) · `box-wide:`(1600px 이상)로 읽는다. 기준 숫자는 `utils/boxTier.ts` 한 곳.
+   `@container` 를 쓰지 않는다 — Chromium 126 의 `container-type` 상자는 fixed 자손을 자기 기준으로 세워(2026-10-17 실측)
+   포털 없이 뜨는 메뉴가 창 위치만큼 밀린다. 등록 순서 = 우선순위(narrow 가 이긴다). */
 @custom-variant box-compact (&:where([data-box~="compact"] *));
 @custom-variant box-narrow (&:where([data-box~="narrow"] *));
 @custom-variant box-wide (&:where([data-box~="wide"] *));
 
 @theme {
-  /* 끝에서 셋째 무리(Noto Sans SC·JP·Devanagari)가 §5.5 #17-22 ⑤-3 **문자 폴백**이다.
-     앞의 동봉본은 전부 라틴+한글이라 中文·日本語·हिन्दी 는 걸리는 글꼴이 하나도 없었고,
-     OS 가 메워 주는 윈도우·맥과 달리 최소 설치 리눅스에서는 화면이 통째로 두부가 됐다. */
+  /* Noto Sans SC·JP·Devanagari 는 §5.5 #17-22 ⑤-3 문자 폴백 — 앞의 동봉본은 라틴+한글뿐이라, 없으면 OS 가 메워 주지 않는
+     최소 설치 리눅스에서 中文·日本語·हिन्दी 가 통째로 두부가 된다. */
   --font-sans: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans Devanagari', ui-sans-serif, system-ui, sans-serif;
-  /* 앞의 둘은 앱에 **동봉**한 글꼴(src/assets/fonts) — 라틴은 JetBrains Mono, 한글은 그 폭의
-     정확히 2배인 나눔고딕코딩이 맡아 한국어가 섞여도 터미널 열이 밀리지 않는다. 뒤의 OS 글꼴은
-     동봉본이 아직 안 실렸을 때만 잠깐 쓰이는 자리다(Consolas/Menlo 는 재배포 불가라 동봉 ❌).
-     Noto 세 벌은 **맨 끝**에만 둔다 — 고정폭이 아니라 열이 밀리지만, 앞의 둘이 못 그리는
-     글자에서만 도달하므로 라틴·한글 정렬은 그대로이고 두부만 사라진다.
-     ⚠ 이 줄은 `utils/terminalFont.ts` 의 `TERMINAL_FONT_STACK` 과 **글자 그대로 같아야 한다**
-     (xterm 은 CSS 변수를 못 받아 실제 이름이 필요하다). `i18n/localeFontCoverage.test.ts` 가 대조한다. */
+  /* 앞의 둘은 동봉 글꼴(src/assets/fonts) — 나눔고딕코딩이 JetBrains Mono 폭의 정확히 2배라 한국어가 섞여도 터미널 열이 안 밀린다.
+     OS 글꼴은 동봉본이 실리기 전에만 쓰인다(Consolas/Menlo 는 재배포 불가). Noto 세 벌은 고정폭이 아니라 맨 끝 — 앞이 못 그리는 글자만.
+     ⚠ `utils/terminalFont.ts` `TERMINAL_FONT_STACK` 과 글자 그대로 같아야 한다(xterm 은 CSS 변수를 못 받는다, `i18n/localeFontCoverage.test.ts` 대조). */
   --font-mono: 'JetBrains Mono', 'Nanum Gothic Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans Devanagari', monospace;
 }
 
-/* §4 앱 테마 — **의미 토큰**(Tailwind 클래스로 못 칠하던 자리). 여기 값은 기본 테마(= 종전 화면)이고,
-   고른 테마는 `AppThemeHost` 가 `<html>` 에 같은 이름의 변수를 실어 덮는다(팔레트 `--color-<계열>-<칸>` 과 함께).
-   `--color-` 이름이라 Tailwind 가 `bg-vb-titlebar`·`text-vb-code-fg` 같은 유틸을 만든다.
-   `static` — 클래스로 안 쓰고 아래 규칙의 `var()` 로만 쓰는 값도 늘 내보낸다.
-   ⚠ 값의 정본은 shared `APP_THEME_TOKEN_SPECS` 다(기본 테마를 풀면 이 값이 나온다) — 여기를 바꾸려면 그쪽을
-   함께 바꾼다. server `services/appThemeSourceSync.test.ts` 가 둘을 대조한다. */
+/* §4 앱 테마 — 의미 토큰. 여기 값은 기본 테마이고, 고른 테마는 `AppThemeHost` 가 `<html>` 에 같은 이름 변수를 실어 덮는다.
+   `--color-` 이름이라 Tailwind 가 `bg-vb-titlebar` 같은 유틸을 만든다. `static` = `var()` 로만 쓰는 값도 늘 내보낸다.
+   ⚠ 정본은 shared `APP_THEME_TOKEN_SPECS` — 함께 바꿀 것(server `services/appThemeSourceSync.test.ts` 가 대조). */
 @theme static {
   --color-vb-window: oklch(13% 0.028 261.692);
   --color-vb-titlebar: #334155;
@@ -62,9 +50,8 @@
   --color-vb-terminal-panel: #181825;
 }
 
-/* §4 앱 테마 — 본문 마크다운(`prose-invert`)의 글자색. typography 플러그인은 이 값들을 **빌드 때 숫자로 박아**
-   팔레트 변수를 따르지 않는다(실측: `--tw-prose-invert-body:oklch(87.2% .01 258.338)`). 그래서 같은 칸을
-   팔레트 변수로 다시 정의한다 — 기본 테마에서는 박힌 값과 같고, 라이트에서는 팔레트를 따라 어두워진다. */
+/* §4 앱 테마 — `prose-invert` 글자색. typography 플러그인은 이 값을 빌드 때 숫자로 박아 팔레트를 안 따르므로(실측)
+   팔레트 변수로 다시 정의한다 — 기본 테마에선 박힌 값과 같고, 라이트에선 팔레트를 따라 어두워진다. */
 .prose {
   --tw-prose-invert-body: var(--color-gray-300);
   --tw-prose-invert-headings: var(--color-white);
@@ -86,12 +73,9 @@
   --tw-prose-invert-td-borders: var(--color-gray-700);
 }
 
-/* §5.5 #17-22 ⑤-3 — **한자 통합**: 같은 코드포인트라도 나라마다 자형이 다르다.
-   스택을 고정하면 Pretendard 가 가진 한자만 한국식으로 먼저 그려지고 없는 것만 Noto 로 떨어져
-   한 문장 안에서 자형이 섞인다. 그래서 UI 언어(`<html lang>` — i18n 이 갱신한다)에 맞춰
-   그 언어의 글꼴을 맨 앞에 세운다. 나머지 둘은 뒤에 그대로 남으므로 섞인 문장도 안 깨진다.
-   `:lang()` 은 접두 일치라 `lang="zh-CN"` 이 `:lang(zh)` 에 걸리고, `html` + `:lang()` 이
-   `:root` 보다 특정도가 높아 @theme 의 값을 덮는다. */
+/* §5.5 #17-22 ⑤-3 — 한자 통합: 같은 코드포인트도 나라마다 자형이 달라, 스택을 고정하면 Pretendard 의 한자만 한국식으로
+   그려져 한 문장 안에서 자형이 섞인다. UI 언어(`<html lang>`, i18n 이 갱신)의 글꼴을 맨 앞에 세운다.
+   `:lang()` 은 접두 일치(`zh-CN` → `:lang(zh)`)이고, `html:lang()` 이 `:root` 보다 특정도가 높아 @theme 값을 덮는다. */
 html:lang(zh) {
   --font-sans: 'Noto Sans SC', 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans Devanagari', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Nanum Gothic Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans Devanagari', monospace;
@@ -107,21 +91,9 @@ html:lang(hi) {
   --font-mono: 'JetBrains Mono', 'Nanum Gothic Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Devanagari', 'Noto Sans SC', 'Noto Sans JP', monospace;
 }
 
-/* §3.7 v2.10 — 통합 타이틀바 드래그 영역. Electron `titleBarStyle: 'hidden'` +
- * `titleBarOverlay`(Windows) / 트래픽 라이트(Mac) 위에 React 헤더가 타이틀바 역할을 한다.
- * Header 루트는 `app-drag` 로 윈도우 드래그 가능, 안의 버튼/메뉴는 `app-nodrag` 로 클릭 가능.
- *
- * **드래그 영역에서는 글자가 잡히면 안 된다 (판올림 번호 발급 대기).** 종전에는 이 블록에
- * `-webkit-app-region` 두 줄뿐이라, 헤더의 로고("Vibisual")와 File 메뉴("파일") 글자가 그대로
- * 선택 가능한 텍스트였다. 창을 옮기려고 그 자리를 잡아 끌면 OS 창 이동 대신 **글자 선택**이 되고,
- * 한 번 선택이 남으면 그 위를 다시 잡는 손짓은 Chromium 이 **선택 텍스트의 드래그앤드롭**으로
- * 읽어 버려 창 이동이 그 뒤로 통째로 막혔다(사용자 보고 — "글자 선택 모드로 빠지더니 그 후로
- * 동작을 안 해"). 같은 성격의 다른 타이틀바(`TabBar` 탭 · `DetachedShell` 미니 타이틀바)는
- * 저마다 `select-none` 을 달고 있었지만 **정작 메인 헤더 루트만 빠져 있었다** — 그래서 방어를
- * 컴포넌트마다 흩뿌리지 않고 드래그 영역의 정의 자체에 못 박는다. 이 규칙 하나로 헤더뿐 아니라
- * 앱 안 창 셸들(`Vibi3DShell`·`VibisoundShell`·`VideoStudioShell`)·지휘통제실·오버레이 창의
- * 드래그 영역이 함께 덮인다. `-webkit-user-drag: none` 은 남은 한 갈래(요소 자체를 끌어 만드는
- * 네이티브 DnD)를 막는다. **이 두 줄을 지우지 말 것 — 지우면 창이 안 움직이는 증상으로 돌아온다.** */
+/* §3.7 — 통합 타이틀바 드래그 영역(Electron `titleBarStyle: 'hidden'` 위의 React 헤더). 루트는 `app-drag`, 버튼·메뉴는 `app-nodrag`.
+ * **user-select·user-drag 줄을 지우지 말 것** — 글자가 잡히면 끌기가 창 이동 대신 선택이 되고, 남은 선택 위 손짓은 Chromium 이
+ * 텍스트 DnD 로 읽어 창 이동이 통째로 막힌다(user-drag 는 요소 자체의 네이티브 DnD). 컴포넌트마다가 아니라 여기 건다(앱 안 창 셸도 덮인다). */
 .app-drag {
   -webkit-app-region: drag;
   app-region: drag;
@@ -129,19 +101,15 @@ html:lang(hi) {
   user-select: none;
   -webkit-user-drag: none;
 }
-/* 다만 드래그 영역 **안의 입력칸**은 선택·캐럿이 살아야 한다 — 헤더 안에 실제로 하나 있다
- * (`TabBar` 탭 이름 바꾸기 인라인 입력). 폼 컨트롤은 브라우저마다 상속 처리가 갈리므로
- * 기대에 맡기지 않고 여기서 명시적으로 되돌린다. */
+/* 드래그 영역 안의 입력칸(`TabBar` 탭 이름 바꾸기)은 선택·캐럿이 살아야 한다 — 폼 컨트롤 상속은 브라우저마다 갈려 명시로 되돌린다. */
 .app-drag input,
 .app-drag textarea,
 .app-drag [contenteditable='true'] {
   -webkit-user-select: text;
   user-select: text;
 }
-/* 정적 로고 상자는 창 드래그 hit target 으로 남긴다.
- * pointer-events:none 은 내부 장식에만 적용한다. 상자까지 제외하면
- * 로고 자리의 hit target 이 바깥 레이아웃으로 넘어간다.
- * .app-drag 와 함께 사용해 선택 방지와 페이지까지 온 누름의 창 이동(`utils/titlebarPress.ts`)도 적용한다. */
+/* 정적 로고 상자는 창 드래그 hit target 으로 남기고 pointer-events:none 은 안쪽 장식에만 — 상자까지 빼면 hit target 이 바깥
+ * 레이아웃으로 넘어간다. `.app-drag` 와 함께 써서 선택 방지·페이지까지 온 누름의 창 이동(`utils/titlebarPress.ts`)도 받는다. */
 .app-drag-label {
   pointer-events: auto;
 }
@@ -167,20 +135,9 @@ html:lang(hi) {
   pointer-events: none;
 }
 
-/* §5.4 #14-2 / §5.5 #16-1 (E) — **꾹 눌러 항목을 집어 든 동안.**
- *
- * 두 가지를 함께 막는다.
- *
- * ① **커서·선택** — 끄는 내내 손은 무언가를 쥐고 있으므로 커서가 그것을 말해야 하고, 지나는
- *    자리의 글자가 선택되면 "쥐고 있다"는 감각이 끊긴다(#17-34 분할 손잡이가 이미 쓰는 수법을
- *    클래스로 옮긴 것 — 그쪽은 `body.style` 을 직접 만진다).
- *
- * ② **창 이동 영역** — `-webkit-app-region: drag` 인 자리는 OS 캡션이라 손짓이 렌더러에 아예
- *    도착하지 않는다. 탭을 헤더 쪽으로 가져가는 순간 `pointermove` 가 끊겨 고스트가 그 자리에
- *    얼어붙고, 거기서 손을 떼면 `pointerup` 도 오지 않아 끌던 것이 화면에 그대로 남는다. 그래서
- *    **끄는 동안만** 비켜 준다(항상 끄면 창을 못 옮긴다). 종전 네이티브 DnD 에는 이 문제가
- *    없었다 — 그쪽은 OS 드래그 루프라 캡션과 무관했고, 포인터로 옮기면서 새로 생긴 자리다.
- *    자손까지 일괄로 거는 것이 맞다(캡션 판정은 가장 안쪽 요소의 값으로 결정된다). */
+/* §5.4 #14-2 / §5.5 #16-1 (E) — 꾹 눌러 항목을 집어 든 동안. ① 커서는 쥔 것을 말하고 지나는 글자는 선택되지 않는다.
+ * ② 창 이동 영역 — drag 자리는 OS 캡션이라 손짓이 렌더러에 안 온다: 탭을 헤더로 끌면 `pointermove`·`pointerup` 이 끊겨 고스트가
+ *    얼어 남는다. 끄는 동안만 비켜 준다(늘 끄면 창을 못 옮긴다). 자손까지 건다 — 캡션 판정은 가장 안쪽 요소의 값이다. */
 body.vib-pointer-drag {
   cursor: grabbing;
   -webkit-user-select: none;
@@ -194,32 +151,14 @@ body.vib-titlebar-drag .app-drag * {
   app-region: no-drag;
 }
 
-/* §5.5 #17-1 — **IDE 우측 도킹 중에도 전면 오버레이는 창 전체를 덮는다 (도크 회피 오프셋 ❌).**
-   종전에는 도킹 중 `body[data-ide-dock="right"] .fixed.inset-0 { right: var(--ide-dock-width) }` 로
-   모든 전면 오버레이의 오른쪽 변을 도크 폭만큼 당겨 도킹된 IDE 자리를 비워 뒀다. 그 결과
-   ① 백드롭이 화면을 다 덮지 못하고 ② 그 안에서 가운데 정렬되는 팝업 상자가 창 중심이 아니라
-   축소된 캔버스의 중심으로 밀렸으며(사용자 보고 — 전체화면 + 우측 도킹에서 사용량 팝업이 왼쪽으로
-   치우쳐 뜸) ③ IDE 내부 dialog·엣지 드래그 프리뷰 SVG 처럼 `fixed inset-0` 을 쓰는 다른 것들까지
-   함께 잘렸다. 이미지 라이트박스(v2.61)가 이미 예외를 강요한 자리라, 예외를 하나 더 붙이는 대신
-   규칙 자체를 걷어낸다 — 모달이 뜨면 도킹된 IDE 도 같이 어두워지고 클릭이 막힌다(모달 본래 동작).
-   도크와 캔버스를 나란히 두는 축소는 CSS 가 아니라 App.tsx 의 `main` marginRight 담당이다.
-   여기에 도크 오프셋을 다시 추가하지 말 것. */
+/* §5.5 #17-1 — IDE 우측 도킹 중에도 전면 오버레이(`fixed inset-0`)는 창 전체를 덮는다(도킹된 IDE 도 어두워진다). 도크 폭만큼 당기는
+   규칙을 다시 넣지 말 것 — 가운데 팝업이 밀리고 IDE 안 dialog·엣지 드래그 SVG 까지 잘린다. 도크·캔버스 나란히 두기는 App.tsx `main` marginRight. */
 
-/* §4 v3.44 — 저전력(발열 억제)을 '끄기'가 아니라 '최적화'로 전환(사용자 지시: "다 끄지 말고
- * 최적화해서 보여줘"). 모바일/터치에서도 애니메이션은 **하나도 끄지 않고 계속 보여주되**, 폰
- * GPU/컴포지터 비용이 큰 부분만 깎는다. 데스크톱(fine 포인터)엔 `.vibisual-low-power` 미부착 →
- * 기존 연출 그대로.
- *
- *  (1) 흐르는 활성 엣지(dashdraw): SVG `stroke-dashoffset` 은 매 프레임 path 를 raster 스레드에서
- *      재도색해 활성 엣지가 많을수록 최대 지속 발열원이다. 끄지 않고 timing 을 `steps()` 로 이산화
- *      + 주기를 늘려 초당 재도색을 ~60fps→~8fps 로 낮춘다. "대시가 흐른다"는 신호는 그대로 보인다.
- *  (2) 코로나(sun-spin): 정적·캐시된 SVG 필터 위 32s 회전. transform 회전이라 자기 레이어로 승격하면
- *      필터 결과를 캐시한 채 GPU 합성만으로 돈다 → `will-change: transform` 로 main-thread 리페인트 제거.
- *      pulse·pulse-ring·ping·spin·git-sweep·thinking 은 이미 transform·opacity(컴포지터 친화)라 그대로 둔다.
- *  (3) backdrop-blur: 매 프레임 재합성 최고 비용 → 완전 제거 대신 반경을 3px 로 캡(가벼운 블러)해
- *      유리질 느낌은 남기고 비용만 낮춘다.
- * 일회성 진입 애니메이션(bubble-spawn·scene-zoom 등)은 발열원이 아니라 그대로 둔다. `animate-float`
- * 는 실제 사용처가 없어 별도 처리 불필요. */
+/* §4 — 저전력(모바일/터치의 `.vibisual-low-power`, 데스크톱엔 미부착)은 애니메이션을 끄지 않고 GPU 비용이 큰 부분만 깎는다.
+ *  (1) 흐르는 엣지: `stroke-dashoffset` 은 매 프레임 path 를 재도색하는 최대 발열원 — `steps()` + 긴 주기로 ~8fps 로 낮춘다.
+ *  (2) sun-spin: `will-change: transform` 으로 레이어를 떼면 캐시된 필터 위에서 GPU 합성만으로 돈다.
+ *  (3) backdrop-blur: 매 프레임 재합성이 가장 비싸 반경을 3px 로 캡한다.
+ * transform·opacity 애니메이션과 일회성 진입 연출은 발열원이 아니라 그대로 둔다. */
 .vibisual-low-power .react-flow__edge.animated path,
 .vibisual-low-power .react-flow__edge-animated path {
   animation-duration: 1.2s !important;
@@ -233,12 +172,9 @@ body.vib-titlebar-drag .app-drag * {
   -webkit-backdrop-filter: blur(3px) !important;
 }
 
-/* §4 v3.71 가시성 LOD — 캔버스가 전면 오버레이에 덮여 있을 때. React Flow 루트에
- * `visibility:hidden` 과 함께 이 클래스가 붙는다. 페인트가 멈춰도 애니메이션은 계속 tick 하며
- * 스타일 재계산·컴포지터 작업을 만들므로, 하위의 모든 keyframe 애니메이션·전이를 끊는다.
- * 선택자 특이도(0,2,0)가 Tailwind 단일 클래스(0,1,0)보다 높아 `!important` 없이 이긴다(§9).
- * 인라인 style 의 animationDuration/Delay 는 남지만 `animation-name` 이 없어져 동작하지 않는다.
- * 덮개가 걷히면 클래스가 사라져 즉시 원래 연출로 복귀한다(상태 없음). */
+/* §4 가시성 LOD — 캔버스가 전면 오버레이에 덮이면 React Flow 루트에 `visibility:hidden` 과 함께 붙는다. 페인트가 멈춰도
+ * 애니메이션은 tick 하며 재계산·합성 일을 만들어 전부 끊는다. 특이도(0,2,0)가 Tailwind 단일 클래스보다 높아 `!important` 가
+ * 필요 없다(§9). 상태 없음 — 클래스가 빠지면 즉시 원래 연출. */
 .vibisual-canvas-idle [class*="animate-"],
 .vibisual-canvas-idle .react-flow__edge path,
 .vibisual-canvas-idle .bubble-spawn,
@@ -249,11 +185,8 @@ body.vib-titlebar-drag .app-drag * {
   transition: none;
 }
 
-/* §9 v3.71 확장 — **창 자체가 안 보일 때**(최소화·다른 창에 완전히 가림·다른 데스크톱).
- * 위 규칙은 캔버스가 오버레이에 덮인 경우만 봐서, IDE·패널의 상시 애니메이션은 창을 내려 둬도
- * 계속 tick 했다(실측 2026-08-15: 유휴에도 렌더러→GPU 초당 2MB 고정 전송, 누적 18.6GB).
- * 안 보이는 동안은 잃을 화면이 없으므로 keyframe·전이를 통째로 끊는다. `main.tsx` 의
- * visibilitychange 가 이 클래스를 켜고 끄며, 창이 돌아오면 즉시 원래 연출로 복귀한다(상태 없음). */
+/* §9 — 창 자체가 안 보일 때(최소화·완전히 가림·다른 데스크톱) keyframe·전이를 통째로 끊는다. 없으면 IDE·패널의 상시 애니메이션이
+ * 창을 내려 둬도 tick 한다(2026-08-15 실측: 유휴에도 렌더러→GPU 초당 2MB). `main.tsx` 의 visibilitychange 가 켜고 끈다(상태 없음). */
 .vibisual-window-hidden [class*="animate-"],
 .vibisual-window-hidden .react-flow__edge path,
 .vibisual-window-hidden .bubble-spawn,
@@ -264,8 +197,7 @@ body.vib-titlebar-drag .app-drag * {
   transition: none;
 }
 
-/* §5.1 #3-2 — 활성 신호는 이 링 두 겹이 전부다. 시작 불투명도 `0.4` 를 올리지 마라:
- * 2026-09-09 에 0.62 로 올리고 광륜·궤도 아크를 얹었다가 사용자 지시로 되돌린 값이다. */
+/* §5.1 #3-2 — 활성 신호는 이 링 두 겹이 전부다. 시작 불투명도 `0.4` 를 올리거나 광륜·궤도 아크를 얹지 마라(넣었다 되돌린 값이다). */
 @keyframes pulse-ring {
   0% {
     transform: scale(1);
@@ -297,8 +229,7 @@ body.vib-titlebar-drag .app-drag * {
   }
 }
 
-/* v1.33 — Task Edge 이벤트 펄스. offset-path(엣지 path)를 따라 아이콘이 source→target 으로
- * 3회 연속 이동. 엣지 자체의 모양은 변하지 않고 이 펄스만 이벤트 때 잠깐 뜬다. */
+/* Task Edge 이벤트 펄스 — offset-path(엣지 path)를 따라 아이콘이 source→target 으로 3회 이동한다(엣지 모양은 그대로). */
 @keyframes task-edge-travel {
   from { offset-distance: 0%; opacity: 0; }
   8%   { opacity: 1; }
@@ -310,8 +241,7 @@ body.vib-titlebar-drag .app-drag * {
   animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* §7.6 GitStatusCard — root 버블 새로고침 sweep. conic-gradient 를 회전시켜
- * "무언가 돌아가는 중"을 가볍게 표시한다. 완료되면 즉시 제거. */
+/* §7.6 GitStatusCard — root 버블 새로고침 sweep(conic-gradient 회전). 완료되면 즉시 뗀다. */
 @keyframes git-sweep {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
@@ -340,7 +270,7 @@ body.vib-titlebar-drag .app-drag * {
   animation: slide-in-left 0.2s ease-out both;
 }
 
-/* 폰 바텀시트 — 옆 패널이 폰에서 아래 시트로 바뀌면 들어오는 방향도 아래에서 위다(옆에서 밀려 들어오면 어색하다). */
+/* 폰 바텀시트 — 옆 패널이 폰에서 아래 시트가 되면 아래에서 들어온다. */
 @keyframes slide-in-up {
   from {
     transform: translateY(100%);
@@ -360,9 +290,7 @@ body.vib-titlebar-drag .app-drag * {
   animation: float 3s ease-in-out infinite;
 }
 
-/* §5.5 #17-1 — IDE 오버레이 에이전트 전환 sheen.
- * 유리 표면에 빛이 비스듬히 한 번 스쳐 지나가는 iOS 풍 연출.
- * skew 된 화이트 그라데이션 띠가 좌 → 우로 통과하며 한 번만 빛난다. */
+/* §5.5 #17-1 — IDE 오버레이 에이전트 전환 sheen: skew 된 흰 그라데이션 띠가 좌→우로 한 번 스친다. */
 @keyframes ide-switch-sheen {
   0%   { opacity: 0; transform: translateX(-60%) skewX(-14deg); }
   18%  { opacity: 1; }
@@ -373,8 +301,6 @@ body.vib-titlebar-drag .app-drag * {
   animation: ide-switch-sheen 360ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-/* ─── 메뉴 드롭다운 (Apple-style) ─── */
-
 @keyframes menu-in {
   0% { opacity: 0; transform: translateY(-4px) scale(0.97); }
   100% { opacity: 1; transform: translateY(0) scale(1); }
@@ -384,8 +310,6 @@ body.vib-titlebar-drag .app-drag * {
   animation: menu-in 0.15s cubic-bezier(0.2, 0, 0, 1) both;
   transform-origin: top left;
 }
-
-/* ─── Apple-style 버블 프레스 (스프링 복귀) ─── */
 
 .bubble-press {
   transition:
@@ -403,10 +327,8 @@ body.vib-titlebar-drag .app-drag * {
     filter 0.08s ease-out;
 }
 
-/* §5.4 #31 (K) 2026-10-09 — 캔버스 버블 본체는 테두리 두께(테두리 근접 손짓)·색·그림자 전이(0.15s)를
- * 여기서 **함께** 든다. 종전엔 BubbleNode 가 이 셋만 인라인 `transition` 으로 적어 위 스프링이 통째로
- * 덮였다 — 누르는 순간 7% 줄고 놓는 순간 원래 크기로 순간이동했다(선택할 때마다 클릭이 덜컥거림).
- * 같은 클래스를 쓰는 다른 창 버블(앱·플레이·스펙·랩·선반)의 전이 값은 위 규칙 그대로다. */
+/* §5.4 #31 (K) — 캔버스 버블 본체는 테두리 두께·색·그림자 전이(0.15s)를 스프링과 여기서 함께 든다. 인라인 `transition` 으로
+ * 따로 적지 마라 — 위 스프링이 통째로 덮여 놓는 순간 원래 크기로 순간이동한다. 다른 창 버블은 위 규칙 그대로다. */
 .bubble-body.bubble-press {
   transition:
     transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1),
@@ -425,28 +347,16 @@ body.vib-titlebar-drag .app-drag * {
     box-shadow 0.15s ease;
 }
 
-/* §5.4 #31 (K) 2026-10-09 — 흐르는 선(활성 엣지의 dashdraw)은 초당 24번 옮긴다. 대시 오프셋은 합성으로
- * 못 돌려 바뀔 때마다 그 선이 지나는 캔버스 타일을 밑의 버블까지 통째로 다시 그린다. 매 프레임(75Hz)
- * 옮기면 확대해 선이 길어지거나 선택 초점으로 흐려진 버블(채도 필터)이 깔릴수록 그 비용이 프레임을
- * 넘겼다(실측 100% 확대: 가만히 있어도 끊김, 초점 중 37fps, 초점 이동 프레임 누락 25~32). 흐름은 초당
- * 20px(0.5s 에 10px)이라 24번이면 한 번에 1px 안팎 — 눈엔 그대로 흐른다. 저전력(모바일)은 위 규칙이
- * 더 성기게 덮는다. 선마다 레이어로 떼는 길은 긴 선마다 화면 폭만 한 GPU 타일을 따로 잡아(100% 확대
- * 수백 MB) 접었다. 선택자에 `.react-flow` 를 붙인 것은 React Flow 기본 CSS(같은 선택자의 `animation`
- * 단축 속성)가 어느 순서로 실리든 이기게 하기 위해서다. */
+/* §5.4 #31 (K) — 흐르는 선(dashdraw)은 초당 24번만 옮긴다(흐름 초당 20px 라 한 번에 1px 안팎). 대시 오프셋은 합성으로 못 돌려
+ * 바뀔 때마다 밑의 버블까지 다시 그린다 — 매 프레임이면 확대·채도 필터에서 프레임을 넘긴다(실측: 초점 중 37fps).
+ * 선마다 레이어로 떼지 마라 — 긴 선마다 화면 폭 GPU 타일로 수백 MB. `.react-flow` 는 React Flow 기본 `animation` 을 순서와 무관하게 이기려고. */
 .react-flow .react-flow__edge.animated path {
   animation-timing-function: steps(12, end);
 }
 
-/* §6 2026-10-11 — 캔버스 고르기 표시. 둘 다 React Flow 기본 그대로라 어두운 캔버스와 따로 놀았다(사용자 보고
- * "선택할 때 영역을 표현해 주는 게 자연스럽지 않다").
- *  ① 끄는 동안의 상자(`.react-flow__selection`) — 기본은 흐린 파랑 점선이라 어두운 바탕에서 거의 안 보였다.
- *     하늘색 실선 + 옅은 채움 + 둥근 모서리로 앱의 다른 고른 표시(흰 고리 + 제 색 번짐)와 같은 결로 맞춘다.
- *  ② 고른 뒤 덮이는 묶음 상자(`.react-flow__nodesselection`)는 그리지 않는다. 그 상자는 고른 노드들의 사각
- *     테두리 합(원형 버블·궤도·말풍선의 빈 모서리까지)이라 실제 모양보다 크게 떴고, 물리 엔진이 버블을 움직이면
- *     매 프레임 크기가 흔들렸고, 박스로 골랐을 때만 떠서 Shift·Ctrl 클릭으로 고른 묶음과 생김새가 갈렸다. 무엇보다
- *     `pointer-events: all` 로 버블을 통째로 덮어 그 안의 클릭·더블클릭을 삼켰다. 고른 것은 노드마다 고리가 말하고,
- *     묶음은 그 안의 아무 노드를 끌어도 함께 간다. 이 캔버스(`.vibisual-canvas`)에만 건다 — 다른 React Flow
- *     (목표 지도·디버그 판·오버레이)는 손대지 않는다. */
+/* §6 — 캔버스 고르기 표시(`.vibisual-canvas` 에만 — 다른 React Flow 는 손대지 않는다). ① 끄는 상자: 기본 흐린 점선은 어두운 바탕에서
+ * 안 보여 하늘색 실선 + 옅은 채움. ② 고른 뒤 묶음 상자는 그리지 않는다 — 사각 테두리 합이라 원형보다 크게 뜨고 물리 엔진에 흔들리며
+ * `pointer-events: all` 로 버블의 클릭·더블클릭을 삼킨다. 고른 표시는 노드마다의 고리가 맡는다. */
 .vibisual-canvas .react-flow__selection {
   background: rgba(56, 189, 248, 0.07);
   border: 1px solid rgba(125, 211, 252, 0.7);
@@ -456,8 +366,6 @@ body.vib-titlebar-drag .app-drag * {
 .vibisual-canvas .react-flow__nodesselection {
   display: none;
 }
-
-/* ─── Apple-style 더블클릭 열림 ─── */
 
 @keyframes bubble-open {
   0%   { transform: scale(1);     filter: brightness(1)    saturate(1); }
@@ -472,7 +380,7 @@ body.vib-titlebar-drag .app-drag * {
   animation: bubble-open 0.48s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* ─── 선택 태양 코로나 회전 (CSS transform = 컴포지터 처리, 메인스레드 부하와 무관) ─── */
+/* 선택 태양 코로나 회전 — transform 이라 컴포지터가 돌린다(메인스레드 부하 없음). */
 
 @keyframes sun-spin {
   to { transform: rotate(360deg); }
@@ -484,13 +392,9 @@ body.vib-titlebar-drag .app-drag * {
   will-change: transform;
 }
 
-/* ─── §5.10 v3.82 Brain 버블 주입 연출 ───
- * 기억이 에이전트로 흘러 들어간 순간을 알리는 1회 연출. 종전 Tailwind 기본 `animate-ping`
- * (디스크가 2배로 부풀었다 사라짐)은 알림 뱃지 톤이라 폐기했다.
- * ① sweep — 림을 도는 짧은 아크 2개. SVG circle 에 `pathLength=100` 을 줘 대시 길이를
- *    원 둘레와 무관한 백분율로 고정했으므로 버블 크기가 변해도 아크 비율이 같다.
- * ② bloom — 안쪽에서 한 번 번지는 빛. 둘 다 infinite ❌(§4 v3.71 LOD) · `animate-` 접두
- *    클래스라 캔버스가 덮이면 상단 규칙이 자동으로 멈춘다. */
+/* §5.10 Brain 버블 주입 연출 — 기억이 에이전트로 흘러 들어간 순간의 1회 연출(`animate-ping` 은 알림 뱃지 톤이라 쓰지 않는다).
+ * ① sweep: 림을 도는 짧은 아크 — SVG circle 의 `pathLength=100` 이라 버블 크기와 무관하게 아크 비율이 같다.
+ * ② bloom: 안쪽에서 한 번 번지는 빛. 둘 다 infinite ❌ — `animate-` 접두라 캔버스가 덮이면 위 LOD 규칙이 멈춘다. */
 
 @keyframes brain-inject-sweep {
   0%   { stroke-dashoffset: 0;    opacity: 0; }
@@ -513,16 +417,13 @@ body.vib-titlebar-drag .app-drag * {
   animation: brain-inject-bloom 1.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* §5.10 — 메모리 버블의 카드 수.
- * 배경 워터마크(카드 실루엣) 위에 놓이는 큰 흰 숫자라, 획과 배경을 가르는 그림자가 필요하다.
- * Tailwind 의 `drop-shadow-*` 는 필터라 이 크기에서는 번지기만 하고 경계를 세우지 못했다 —
- * 글리프 바로 아래 짙은 인디고 그림자 + 넓은 번짐 하나로 표면에서 떠 보이게 한다. */
+/* §5.10 — 메모리 버블의 카드 수(워터마크 위 큰 흰 숫자). `drop-shadow-*` 는 필터라 이 크기에선 번지기만 하고 경계를 못 세운다. */
 @utility bubble-brain-count {
   /* 평면 표면 — 엠보싱 text-shadow 없음. 단색 틴트 위 흰 글자로 대비가 이미 선다. */
   text-shadow: none;
 }
 
-/* ─── 말풍선 페이드인 ─── */
+/* 말풍선 페이드인 */
 
 @keyframes fade-in {
   0% { opacity: 0; transform: translateX(-50%) translateY(4px); }
@@ -533,9 +434,7 @@ body.vib-titlebar-drag .app-drag * {
   animation: fade-in 0.3s ease-out both;
 }
 
-/* ─── §5.5 #17-27 ⑪ [추종] — 방금 고쳐진 줄 강조 ───
-   에이전트가 파일을 고치면 편집창이 그 줄로 스크롤하고, 그 줄이 **한 번** 물들었다 사라진다.
-   배경색만 다루므로 컴포지터 친화적이고(§9), 한 번짜리라 발열원이 아니다. */
+/* §5.5 #17-27 ⑪ [추종] — 에이전트가 고친 줄로 스크롤한 뒤 그 줄이 한 번 물들었다 사라진다(한 번짜리라 발열원이 아니다, §9). */
 
 @keyframes edit-follow-flash {
   0% { background-color: rgb(59 130 246 / 0); }
@@ -543,7 +442,7 @@ body.vib-titlebar-drag .app-drag * {
   100% { background-color: rgb(59 130 246 / 0); }
 }
 
-/* 애니메이션을 줄여 달라고 한 사용자에게는 깜빡임 없이 잠깐 머물다 사라지는 표시로 대신한다. */
+/* reduced-motion 이면 깜빡임 없이 잠깐 머물다 사라진다. */
 @keyframes edit-follow-hold {
   0%, 88% { background-color: rgb(59 130 246 / 0.22); }
   100% { background-color: rgb(59 130 246 / 0); }
@@ -559,11 +458,8 @@ body.vib-titlebar-drag .app-drag * {
   }
 }
 
-/* (판올림 번호 발급 대기) **눌러 들어간 세션의 여운** — 누른 색이 그 자리에서 10초간 뛴다.
-   [창과 버블] 목록에서 색을 눌러 들어가면 도착과 동시에 그 색이 걷혀(누름 = 확인) 무슨 색을
-   눌렀는지 알아볼 수 없던 것을 메운다(§5.5 #17-1). 1초 × 10회 = 사용자가 정한 10초이고,
-   횟수가 정해져 있어 **스스로 멎는다** — 상시 도는 애니메이션이 아니라 발열원이 아니다(§9).
-   크기까지 함께 줄었다 커지는 이유는 도트가 6px 이라 투명도만으로는 눈에 안 띄기 때문이다. */
+/* §5.5 #17-1 눌러 들어간 세션의 여운 — [창과 버블] 목록에서 누른 색은 도착 즉시 걷히므로(누름 = 확인) 그 자리에서
+   10초(1초 × 10회) 뛴다. 횟수가 정해져 스스로 멎어 발열원이 아니다(§9). 도트가 6px 이라 투명도만으론 안 보여 크기도 함께 변한다. */
 @keyframes session-glow {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.18; transform: scale(0.7); }
@@ -573,16 +469,13 @@ body.vib-titlebar-drag .app-drag * {
   animation: session-glow 1s ease-in-out 10;
 }
 
-/* **확인한 자리의 짧은 여운** — 세션 탭에서 완료를 확인해 초록이 회색으로 내려앉을 때 5회(=5초).
-   같은 몸짓을 횟수만 줄여 쓴다(새 keyframes 없이 — 두 여운이 다르게 뛰면 같은 뜻으로 안 읽힌다).
-   CSS 는 반복 횟수를 변수로 받지 못해서 길이마다 유틸리티가 하나씩 필요하다
-   (짝은 sessionStatus.ts 의 SESSION_GLOW_ANIM). */
+/* 확인한 자리의 짧은 여운 — 세션 탭에서 완료를 확인해 초록이 회색이 될 때 5회. 같은 keyframes 를 쓴다(다르게 뛰면 같은 뜻으로
+   안 읽힌다). CSS 는 반복 횟수를 변수로 못 받아 길이마다 유틸이 하나씩이다 — 짝은 `sessionStatus.ts` 의 `SESSION_GLOW_ANIM`. */
 @utility animate-session-glow-brief {
   animation: session-glow 1s ease-in-out 5;
 }
 
-/* 애니메이션을 줄여 달라고 한 사용자에게는 **뛰지 않는 색만** 남긴다 — 여운의 본체는 색이지
-   움직임이 아니라, 색이 10초 더 서 있는 것만으로 "방금 그걸 눌렀다"가 전해진다. */
+/* reduced-motion 이면 뛰지 않는 색만 남긴다 — 여운의 본체는 색이라 색이 서 있는 것만으로 전해진다. */
 @media (prefers-reduced-motion: reduce) {
   .animate-session-glow,
   .animate-session-glow-brief {
@@ -590,9 +483,7 @@ body.vib-titlebar-drag .app-drag * {
   }
 }
 
-/* §5.5 #17-27 ⑪ (h) — 방금 따라간 것을 말하는 **순간 알림**.
-   상태바에 상주하던 칩·배지를 걷어낸 자리다 — 알아야 할 순간에만 떠올랐다 스스로 걷힌다.
-   변형(transform)과 불투명도만 다루므로 컴포지터 친화적이고(§9), 한 번짜리라 발열원이 아니다. */
+/* §5.5 #17-27 ⑪ (h) — 방금 따라간 것을 말하는 순간 알림. 떠올랐다 스스로 걷힌다(transform·opacity 만, 한 번짜리 — §9). */
 
 @keyframes follow-flyout {
   0%   { opacity: 0; transform: translateY(6px) scale(0.96); }
@@ -601,7 +492,7 @@ body.vib-titlebar-drag .app-drag * {
   100% { opacity: 0; transform: translateY(-4px) scale(0.98); }
 }
 
-/* 애니메이션을 줄여 달라고 한 사용자에게는 움직임 없이 밝기만 바뀌는 표시로 대신한다. */
+/* reduced-motion 이면 움직임 없이 불투명도만 바뀐다. */
 @keyframes follow-flyout-fade {
   0%   { opacity: 0; }
   10%  { opacity: 1; }
@@ -618,8 +509,6 @@ body.vib-titlebar-drag .app-drag * {
     animation: follow-flyout-fade 2.2s linear both;
   }
 }
-
-/* ─── 버블 스폰/디스폰 ─── */
 
 @keyframes bubble-spawn {
   0%   { opacity: 0; transform: scale(0); }
@@ -641,10 +530,10 @@ body.vib-titlebar-drag .app-drag * {
   animation: bubble-despawn 0.25s cubic-bezier(0.4, 0, 1, 1) both;
 }
 
-/* ─── §5.4 #36 전환과 연결 — 말풍선 · 궤도 · 위성줄 · 꽃잎 ─── */
+/* §5.4 #36 전환과 연결 — 말풍선 · 궤도 · 위성줄 · 꽃잎 */
 
-/* 말풍선이 원 쪽(오른쪽 가운데)에서 왼쪽으로 펴진다 — 원은 그 자리에 남고 말이 옆으로 나온다는 것이 읽히게.
- * 바꾼 그 순간에만 붙는다(`AgentCardNode`). 시간은 shared `AGENT_CARD.morphMs`(240ms)와 같다. */
+/* 말풍선이 원 쪽(오른쪽 가운데)에서 왼쪽으로 펴진다 — 원은 남고 말이 옆으로 나온다.
+ * 바꾼 순간에만 붙는다(`AgentCardNode`). 시간 = shared `AGENT_CARD.morphMs`(240ms). */
 @keyframes agent-balloon-unfold {
   0%   { opacity: 0; transform: translateX(28px) scale(0.55); }
   70%  { opacity: 1; transform: translateX(0) scale(1.02); }
@@ -698,39 +587,9 @@ body.vib-titlebar-drag .app-drag * {
   animation: app-screen-scan 1.6s ease-in-out infinite;
 }
 
-/* §5.5 #17-50 세션 버블 지도 — 결과가 아직 안 온 호출의 버블은 고리가 번지고(transform·opacity 만 — 합성으로 돈다),
- * 그 선은 데이터가 가는 쪽으로 흐른다. 주기 = `SESSION_BUBBLE_MAP.pulseMs`(1.6s) · `flowMs`(0.8s). */
-@keyframes session-bubble-pulse {
-  0%   { transform: scale(1);    opacity: 0.6; }
-  70%  { transform: scale(1.45); opacity: 0; }
-  100% { transform: scale(1.45); opacity: 0; }
-}
-
-.session-bubble-pulse {
-  animation: session-bubble-pulse 1.6s ease-out infinite;
-}
-
-@keyframes session-bubble-flow {
-  from { stroke-dashoffset: 12; }
-  to   { stroke-dashoffset: 0; }
-}
-
-.session-bubble-flow {
-  stroke-dasharray: 6 6;
-  animation: session-bubble-flow 0.8s linear infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  /* 끄지 않고 `REDUCED_MOTION_LOOP_SLOWDOWN` 배 느리게 — 멈추면 그 PC 에서 도는 호출이 끝난 것과 똑같아진다(§5.4 #31 (K)).
-   * 값 = `SESSION_BUBBLE_MOTION.pulseReducedMs` · `flowReducedMs`. */
-  .session-bubble-pulse { animation-duration: 2.4s; }
-  .session-bubble-flow { animation-duration: 1.2s; }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .agent-balloon-unfold { animation: none; }
-  /* 도는 동안 계속 도는 궤도·구슬은 끄지 않고 느리게 돈다 — 멈추면 그 PC 에서 일하는 에이전트가 쉬는 것과 똑같아진다
-   * (2026-10-22 사용자 보고 "커스텀마다 움직이던 선이 멈춰 있다" — Windows 는 애니메이션 효과를 끄면 이 설정이 된다).
+  /* 궤도·구슬은 끄지 않고 느리게 돈다 — 멈추면 일하는 에이전트가 쉬는 것과 똑같아진다(Windows 는 애니메이션 효과를 끄면 이 설정이 된다).
    * 값 = shared `AGENT_CARD.orbitSpinReducedMs` · `REF_LINK_STYLE.flowReducedMs`(`REDUCED_MOTION_LOOP_SLOWDOWN` 배). */
   .agent-orbit-spin { animation-duration: 21s; }
   .ref-bead-flow { animation-duration: 0.9s; }
@@ -738,8 +597,6 @@ body.vib-titlebar-drag .app-drag * {
   /* 멈춘 줄은 가운데에 선다 — 도는 중이라는 사실은 남긴다. */
   .app-screen-scan { animation: none; transform: translateX(75%); }
 }
-
-/* ─── Ghost 버블 (fade out over lifetime) ─── */
 
 .bubble-ghost {
   border-style: dashed !important;
@@ -752,7 +609,7 @@ body.vib-titlebar-drag .app-drag * {
   text-decoration-color: color-mix(in srgb, var(--color-white) 40%, transparent);
 }
 
-/* ─── 장면 전환 (폴더 진입/복귀) ─── */
+/* 장면 전환(폴더 진입/복귀) */
 
 @keyframes scene-zoom-in {
   0% { opacity: 0; transform: scale(1.15); }
@@ -772,7 +629,7 @@ body.vib-titlebar-drag .app-drag * {
   animation: scene-zoom-out 0.22s cubic-bezier(0.25, 0.1, 0.25, 1) both;
 }
 
-/* ─── 터미널 그룹 프로그레스 바 ─── */
+/* 터미널 그룹 프로그레스 바 */
 
 @keyframes slide {
   0%   { transform: translateX(-100%); }
@@ -780,21 +637,18 @@ body.vib-titlebar-drag .app-drag * {
   100% { transform: translateX(-100%); }
 }
 
-/* ─── 사고 중(thinking) 말줄임 애니메이션 — "." → ".." → "..." 반복 (VS Code 스타일 1줄) ─── */
 @keyframes thinking-ellipsis {
   0%        { content: '.'; }
   33%       { content: '..'; }
   66%, 100% { content: '...'; }
 }
-/* span.thinking-ellipsis 자체는 비워 두고 ::after 가 점을 그린다. 폭 고정(width)로 레이아웃 흔들림 방지. */
+/* span.thinking-ellipsis 는 비워 두고 ::after 가 점을 그린다. */
 .thinking-ellipsis::after {
   content: '...';
   animation: thinking-ellipsis 1.2s steps(1, end) infinite;
 }
 
-/* ─── 전역 스크롤바 기본값 (앱 전체 공통 톤) ─── */
-/* §4 앱 테마 — 스크롤바·페이드·체크박스의 색은 팔레트 변수(slate)에서 섞는다. 고정 rgba 였을 때는 테마를
-   바꿔도 이 자리만 그대로 남았다. 기본 테마에서는 종전 값과 같은 색이다(slate-500/400 의 같은 비율). */
+/* 전역 스크롤바 기본값. §4 앱 테마 — 스크롤바·페이드·체크박스 색은 팔레트 변수(slate)에서 섞는다(고정 rgba 면 테마를 안 따른다). */
 /* Firefox / 최신 엔진 */
 * {
   scrollbar-width: thin;
@@ -821,7 +675,7 @@ body.vib-titlebar-drag .app-drag * {
   background: transparent;
 }
 
-/* ─── 커스텀 스크롤바 (기본 숨김, hover 시 페이드인) ─── */
+/* .scrollbar-thin — 기본 숨김, hover 때 페이드인 */
 
 .scrollbar-thin {
   scrollbar-width: thin;
@@ -856,14 +710,9 @@ body.vib-titlebar-drag .app-drag * {
   background: color-mix(in srgb, var(--color-slate-400) 50%, transparent);
 }
 
-/* 굴리는 동안에도 뜬다 — hover 와 짝이 되는 **두 번째 입구**.
- * 스크롤바가 기본 숨김이라, 마우스를 올리지 않고 휠·터치·키보드로 굴리기만 한 사용자에게는
- * "여기 더 있다"가 아무 데도 안 보인다. `useScrollReveal` 이 스크롤 중 이 속성을 켜고 손을 뗀 뒤
- * 잠깐 있다가 끈다. 색은 hover 와 같은 값이라 어느 경로로 떠도 같은 모양이다.
- *
- * `data-hovering` 은 **세 번째 입구**다(§7.16 프리뷰). 상자 안이 다른 오리진 iframe 이면 마우스가
- * 그 위로 들어가는 순간 이 문서는 아무 것도 받지 못해 `:hover` 가 서지 않는다 — 그 자리를 안에서
- * 온 신고로 대신 채운다. 값이 같으므로 어느 입구로 떠도 모양은 하나다. */
+/* hover 말고도 뜨는 입구 둘 — 색은 hover 와 같은 값으로 맞출 것.
+ * `data-scrolling`: 휠·터치·키보드로만 굴려도 보이게 `useScrollReveal` 이 스크롤 중 켜고 손을 뗀 뒤 잠깐 있다 끈다.
+ * `data-hovering`(§7.16 프리뷰): 안이 다른 오리진 iframe 이면 `:hover` 가 서지 않아 안에서 온 신고로 대신한다. */
 .scrollbar-thin[data-scrolling='true'],
 .scrollbar-thin[data-hovering='true'] {
   scrollbar-color: color-mix(in srgb, var(--color-slate-500) 35%, transparent) transparent;
@@ -874,11 +723,9 @@ body.vib-titlebar-drag .app-drag * {
   background: color-mix(in srgb, var(--color-slate-500) 30%, transparent);
 }
 
-/* A moving ellipsis reveals whole glyphs in steps as a tab expands. Clip the
- * text continuously through a soft edge instead. The trailing space lets the
- * mask clear the final glyph naturally once the full name fits. */
-/* §5.4 #14 — 고른 탭이 커질 때 이 칸은 왼쪽 끝을 기준으로 늘고(안쪽 글자는 그 역수로 펴진다), 탭의 판
- * (`data-tab-part="plate"`, absolute) 위에 서야 하므로 스스로 자리를 갖는다. */
+/* A moving ellipsis reveals whole glyphs in steps as a tab expands — clip continuously through a soft edge instead;
+ * the trailing padding lets the mask clear the last glyph once the full name fits. */
+/* §5.4 #14 — 왼쪽 끝 기준으로 늘고(안쪽 글자는 역수로 펴진다) 탭의 판(`data-tab-part="plate"`, absolute) 위에 서야 해 스스로 자리를 갖는다. */
 .tab-selection-label {
   --tab-label-fade: 16px;
   position: relative;
@@ -891,8 +738,6 @@ body.vib-titlebar-drag .app-drag * {
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--tab-label-fade)), transparent 100%);
   mask-image: linear-gradient(to right, #000 calc(100% - var(--tab-label-fade)), transparent 100%);
 }
-
-/* ─── 스크롤 페이드 — 물결 그라데이션 + 애니메이션 ─── */
 
 .scroll-fade {
   position: relative;
@@ -917,21 +762,19 @@ body.vib-titlebar-drag .app-drag * {
   opacity: 1;
 }
 
-/* 상단 — 위에서 아래로 페이드 */
 .scroll-fade-top {
   top: 0;
   background:
     linear-gradient(to bottom, color-mix(in srgb, var(--color-slate-400) 18%, transparent) 0%, color-mix(in srgb, var(--color-slate-400) 6%, transparent) 40%, transparent 100%);
 }
 
-/* 하단 — 아래에서 위로 페이드 */
 .scroll-fade-bottom {
   bottom: 0;
   background:
     linear-gradient(to top, color-mix(in srgb, var(--color-slate-400) 18%, transparent) 0%, color-mix(in srgb, var(--color-slate-400) 6%, transparent) 40%, transparent 100%);
 }
 
-/* 좌/우 — 가로 스크롤 에지 페이드 (IDE 탭바 등) */
+/* 좌/우 — 가로 스크롤 가장자리 페이드(IDE 탭바 등) */
 .scroll-fade-left,
 .scroll-fade-right {
   pointer-events: none;
@@ -961,14 +804,11 @@ body.vib-titlebar-drag .app-drag * {
     linear-gradient(to left, color-mix(in srgb, var(--color-slate-400) 22%, transparent) 0%, color-mix(in srgb, var(--color-slate-400) 8%, transparent) 40%, transparent 100%);
 }
 
-/* 가로 스크롤바 — .scrollbar-thin 의 가로 보강 (높이만 추가) */
 .scrollbar-thin::-webkit-scrollbar:horizontal {
   height: 5px;
 }
 
-/* 트랙 여백은 **구르는 축**으로 준다. 세로용 `margin: 4px 0` 이 가로 트랙에 그대로 걸리면
- * 5px 짜리 트랙이 위아래로 눌려 썸이 그려질 자리가 남지 않는다(끝을 4px 씩 비우려던 여백이
- * 가로에서는 스크롤바를 지우는 값이 된다). */
+/* 트랙 여백은 구르는 축으로 준다 — 세로용 `margin: 4px 0` 이 가로 트랙에 걸리면 5px 트랙이 눌려 썸이 사라진다. */
 .scrollbar-thin::-webkit-scrollbar-track:horizontal {
   margin: 0 4px;
 }
@@ -981,8 +821,6 @@ body.vib-titlebar-drag .app-drag * {
   display: none;
 }
 
-
-/* ─── 커스텀 체크박스 (슬레이트 톤, 스크롤바와 동일 계열) ─── */
 
 .checkbox-slate {
   appearance: none;
@@ -1020,7 +858,6 @@ body.vib-titlebar-drag .app-drag * {
   transform: rotate(45deg);
 }
 
-/* 터미널 스타일 — 초록 글로우 */
 .scrollbar-terminal {
   scrollbar-width: thin;
   scrollbar-color: rgba(52, 211, 153, 0.25) transparent;
@@ -1046,22 +883,13 @@ body.vib-titlebar-drag .app-drag * {
   box-shadow: 0 0 6px rgba(52, 211, 153, 0.3);
 }
 
-/* ─── §5.5 IDE 읽기 설정 — 읽기 폭 · 브레이크아웃 · 타이포그래피 ───
- * 값은 전부 `useReadingSettings` 가 <html> 에 실어 준 커스텀 프로퍼티에서 온다(컴포넌트는
- * 인라인 스타일을 들지 않는다). 폭 상태는 <html data-ide-layout> 두 값으로 갈리는데, 이제 그것은
- * 사용자가 고르는 축이 아니라 읽기 폭에서 나온 **파생값**이다(② v5.04 — 제한 없음 → `full`,
- * 제한 있음 → `breakout`). 종전의 `column`·`preset` 값은 폐지됐다.
- *
- * 그리드 3트랙 기법 — 가운데 트랙만 읽기 폭이고, 넓어야 값이 있는 요소(코드·표·diff·도구박스)만
- * `1 / -1` 로 양끝까지 빠져나간다. 산문은 좁게, 코드는 넓게라는 두 요구를 한 컨테이너에서 만족시킨다. */
-/* 폭은 **두 층**에서 잡힌다. 한 층으로는 안 되기 때문이다 —
- *   ① `.ide-stream`  = 스트림 항목 층(자식 = 항목 루트). 도구 상자처럼 마크다운이 아닌 항목을 맡는다.
- *   ② `.ide-md`      = 마크다운 층(자식 = p / pre / table / ul …). 산문을 좁히고 코드·표만 내보낸다.
- * 마크다운을 품은 항목(`data-ide-prose`)은 칼럼이 걸린 동안 ① 이 폭을 잡지 않고 ② 에 넘긴다. 그래야
- * 본문 속 코드 블록이 **항목 전체 폭**까지 빠져나갈 수 있다(① 이 먼저 좁히면 그 안에서만 넓어진다). */
-/* 양옆 트랙은 `--ide-lead`/`--ide-trail` 로 연다 — 기본은 `1fr`(= 종전의 가운데 정렬)이고,
- * 대화 정렬이 한쪽을 `0` 으로 눌러 칼럼 자체를 그쪽 끝으로 옮긴다(아래 ⑨). 마진으로는 안 된다:
- * 아이템을 트랙 안에서 아무리 붙여도 **트랙이 가운데 있으면** 글자는 가운데서 시작한다. */
+/* §5.5 IDE 읽기 설정 — 읽기 폭 · 브레이크아웃 · 타이포그래피. 값은 전부 `useReadingSettings` 가 <html> 에 싣는 커스텀 프로퍼티다.
+ * <html data-ide-layout> 은 읽기 폭에서 나온 파생값(제한 없음 → `full`, 있음 → `breakout`)이다.
+ * 그리드 3트랙 — 가운데 트랙만 읽기 폭이고, 넓어야 값이 있는 것(코드·표·diff·도구 상자)만 `1 / -1` 로 양끝까지 빠진다. */
+/* 폭은 두 층에서 잡는다 — ① `.ide-stream`(자식 = 항목 루트, 도구 상자 같은 비마크다운 항목) ② `.ide-md`(자식 = p/pre/table…).
+ * 마크다운 항목(`data-ide-prose`)은 ① 이 폭을 잡지 않고 ② 에 넘긴다 — ① 이 먼저 좁히면 코드 블록이 그 안에서만 넓어진다. */
+/* 양옆 트랙은 `--ide-lead`/`--ide-trail`(기본 `1fr` = 가운데) — 대화 정렬(⑨)이 한쪽을 `0` 으로 눌러 칼럼을 그 끝으로 옮긴다.
+ * 마진으로는 안 된다 — 트랙이 가운데 있으면 아이템을 붙여도 글자는 가운데서 시작한다. */
 .ide-stream,
 .ide-md {
   display: grid;
@@ -1071,13 +899,9 @@ body.vib-titlebar-drag .app-drag * {
     var(--ide-trail, 1fr);
 }
 
-/* ─── §5.5 #17-22 ⑩ 내용 폭 — 글줄이 아니라 본문 상자 전체를 좁힌다 (v4.85) ───
- * 읽기 폭(`--ide-measure`)은 가운데 트랙만 줄이므로 카드·도구 상자·코드·표는 창 끝까지 퍼진다.
- * 이 한 겹은 **항목 래퍼 자체**를 좁혀 그 전부를 안으로 들이고 가운데로 모은다.
- * 기본값 100% 라 손대기 전 화면과 같고, 폭 그리드·대화 정렬과 직교한다 — 상자를 먼저 좁힌 뒤
- * 그 **안에서** 트랙이 글줄 폭을, `data-ide-role` 이 좌우 자리를 정한다.
- * 가운데로 모으는 것은 **대화 정렬이 꺼져 있을 때의 기본값**이다. 켜져 있으면 아래 ⑨ ① 이 이
- * `margin-inline` 을 말하는 쪽 끝으로 덮어써서, 폭을 줄일 때 반대쪽만 줄어든다. */
+/* §5.5 #17-22 ⑩ 내용 폭 — 글줄이 아니라 항목 래퍼 자체를 좁혀 카드·도구 상자·코드·표까지 안으로 들인다(기본 100%).
+ * 상자를 먼저 좁힌 뒤 그 안에서 트랙이 글줄 폭을, `data-ide-role` 이 좌우 자리를 정한다.
+ * 가운데 모으기는 대화 정렬이 꺼졌을 때의 기본 — 켜지면 ⑨ ① 이 `margin-inline` 을 말하는 쪽 끝으로 덮는다. */
 .ide-stream {
   max-width: var(--ide-content-width, 100%);
   margin-inline: auto;
@@ -1096,18 +920,15 @@ body.vib-titlebar-drag .app-drag * {
   grid-template-columns: var(--ide-lead, 1fr) minmax(0, 100%) var(--ide-trail, 1fr);
 }
 
-/* 제한 있음 — 넓어야 값이 있는 것만 칼럼 밖으로. 좁은 칼럼에 갇힌 코드는 읽으라고 만든 것이 아니다. */
+/* 제한 있음 — 넓어야 값이 있는 것만 칼럼 밖으로. */
 :root[data-ide-layout='breakout'] .ide-stream:is([data-ide-prose], [data-ide-wide]) > *,
-/* 코드 블록은 복사 버튼 래퍼(`.ide-breakout`)가 그리드의 직접 자식이라 표식이 거기 붙는다.
- * 표도 이제 가로 스크롤 래퍼(`.ide-breakout` — StreamRenderer `MarkdownTable`)에 싸여 나온다(좁은 칸에서 열 많은
- * 표가 대화 칸 밖으로 삐져나가지 않게). `table` 요소 선택자는 래퍼 없이 그려지는 표를 위해 그대로 둔다. */
+/* 코드 블록·표는 래퍼(`.ide-breakout` — 복사 버튼 / StreamRenderer `MarkdownTable` 가로 스크롤)가 그리드 직접 자식이다.
+ * `table` 선택자는 래퍼 없이 그려지는 표를 위해 남긴다. */
 :root[data-ide-layout='breakout'] .ide-md > :is(pre, table, .ide-breakout) {
   grid-column: 1 / -1;
 }
 
-/* 타이포그래피 — 본문(.ide-md)과 원문 말풍선(.ide-prompt-text, 임시 전체 보기 포함)이 함께 따른다.
- * 코드 블록은 자체 행간·자간을 지키므로 제외한다
- * (코드는 산문과 시선 이동 패턴이 다르다는 별개 근거 — 산문 규칙을 코드에 적용하지 않는다). */
+/* 타이포그래피 — 본문(.ide-md)과 원문 말풍선(.ide-prompt-text, 임시 전체 보기 포함)이 함께 따른다. 코드는 산문 규칙을 따르지 않는다(아래). */
 .ide-md,
 .ide-prompt-text {
   font-family: var(--ide-reading-font, var(--font-sans));
@@ -1120,8 +941,7 @@ body.vib-titlebar-drag .app-drag * {
   line-height: inherit;
 }
 
-/* 그리드에서는 인접 마진이 상쇄되지 않는다 — 위 마진을 걷고 문단 간격을 아래 하나로만 결정해
- * 슬라이더 값이 화면의 실제 간격과 1:1 로 맞게 한다. */
+/* 그리드에선 인접 마진이 상쇄되지 않는다 — 위 마진을 걷고 아래 하나로만 간격을 정해 슬라이더 값과 1:1 로 맞춘다. */
 .ide-md > * {
   margin-top: 0;
 }
@@ -1130,8 +950,7 @@ body.vib-titlebar-drag .app-drag * {
   margin-bottom: var(--ide-paragraph-spacing, 0.9em);
 }
 
-/* 코드 블록·표는 래퍼(.ide-breakout)가 간격을 소유한다 — 안쪽 <pre>·<table> 의 기본 마진(prose 의 표는 위아래
- * 2em)까지 살아 있으면 슬라이더 값에 프리셋 마진이 얹혀 두 배로 벌어진다. */
+/* 코드 블록·표의 간격은 래퍼(.ide-breakout)가 갖는다 — 안쪽 <pre>·<table> 의 prose 마진이 살면 슬라이더 값에 얹혀 두 배로 벌어진다. */
 .ide-md > .ide-breakout > :is(pre, table) {
   margin-top: 0;
   margin-bottom: 0;
@@ -1151,23 +970,13 @@ body.vib-titlebar-drag .app-drag * {
   word-spacing: normal;
 }
 
-/* ─── §5.5 #17-22 ⑨ 대화 정렬 — 내 말은 오른쪽, AI 말은 왼쪽 (v4.79) ───
- * 켜짐은 <html data-ide-chat="on"> 한 겹이고, 누가 한 말인지는 항목 래퍼의 data-ide-role 이
- * 말한다(`readingItemSpeaker` 가 kind 로 정한다). 컴포넌트는 정렬을 모른다 — 여기서만 한다.
- *
- * 폭 그리드(위 .ide-stream 3트랙)는 그대로 살아 있고, 이 규칙은 **읽기 칼럼을 통째로** 한쪽 끝으로
- * 옮긴다. 그래서 읽기 칼럼을 켠 채로도 대화 정렬이 성립한다(두 축이 서로를 무효화하지 않음).
- * 시스템 줄(표식 없음)은 누구의 말도 아니라 건드리지 않는다. */
+/* §5.5 #17-22 ⑨ 대화 정렬 — 내 말은 오른쪽, AI 말은 왼쪽. 켜짐은 <html data-ide-chat="on">, 화자는 항목 래퍼의 data-ide-role
+ * (`readingItemSpeaker` 가 kind 로 정한다). 정렬은 여기서만 한다(컴포넌트는 모른다). 읽기 칼럼을 통째로 한쪽 끝으로 옮기므로
+ * 읽기 폭과 함께 성립한다. 시스템 줄(표식 없음)은 건드리지 않는다. */
 
-/* ① 칼럼의 자리 — 말하는 쪽의 여백 트랙을 0 으로 눌러 칼럼을 그 끝에 붙인다.
- * 커스텀 프로퍼티라 안쪽 마크다운 그리드(`.ide-md`)까지 상속돼 **본문 글자도 같은 끝**에서 시작한다.
- * 이 한 겹이 없으면 "AI 는 왼쪽"이라고 켜 놓고도 글자가 화면 가운데(=오른쪽으로 밀린 자리)에서
- * 시작한다 — 아이템 마진(아래 ②)은 트랙 **안에서만** 붙일 수 있기 때문이다.
- *
- * `margin-inline` 도 함께 뒤집는다 — 내용 폭(⑩)이 좁힌 **상자 자체**의 자리다. 상자가 `auto auto`
- * 로 가운데 남아 있으면 트랙을 아무리 끝으로 눌러도 그 끝이 이미 화면 가운데 쪽이라, 폭을 줄일수록
- * 말이 가운데로 모여든다("왼쪽 맞추기를 켰는데 왜 가운데로 줄어드냐"의 정체). 정렬이 켜져 있으면
- * 상자는 말하는 쪽 끝에 못 박히고 **반대쪽만** 줄어든다. 꺼지면 아래 기본 규칙대로 다시 가운데다. */
+/* ① 칼럼의 자리 — 말하는 쪽 여백 트랙을 0 으로 눌러 칼럼을 그 끝에 붙인다(커스텀 프로퍼티라 안쪽 `.ide-md` 글자도 같은 끝에서
+ * 시작한다 — 아이템 마진은 트랙 안에서만 붙는다). `margin-inline` 도 뒤집는다 — 내용 폭(⑩)이 좁힌 상자가 `auto auto` 로 남으면
+ * 폭을 줄일수록 말이 가운데로 모인다. 상자는 말하는 쪽 끝에 붙고 반대쪽만 줄어든다. */
 :root[data-ide-chat='on'] .ide-stream[data-ide-role='ai'] {
   --ide-lead: 0;
   margin-inline: 0 auto;
@@ -1178,65 +987,42 @@ body.vib-titlebar-drag .app-drag * {
   margin-inline: auto 0;
 }
 
-/* ② 칼럼 안에서의 자리
- * 폭 상한은 **걸지 않는다**(⑩-1, v4.91) — 상자 폭의 주인은 내용 폭(⑩) 하나다. 여기에 `44rem`·`52rem`
- * 같은 고정 캡이 함께 있으면 슬라이더를 100% 로 올려도 상자가 그 캡에서 멈춰, 초광폭 창에서는 눈금의
- * 위쪽 절반이 끌어도 아무 일도 하지 않는다("100%인데 왜 화면 전체 너비가 아니냐"의 정체).
- * 좁게 읽고 싶으면 내용 폭을 내리거나(상자) 읽기 폭을 줄이면 된다(글줄) — 그것이 두 축의 일이다. */
+/* ② 칼럼 안의 자리 — 폭 상한(`44rem` 같은 고정 캡)을 걸지 않는다(⑩-1). 상자 폭의 주인은 내용 폭(⑩) 하나다 — 캡이 있으면
+ * 초광폭 창에서 슬라이더 위쪽 절반이 아무 일도 안 한다. 좁히는 건 내용 폭(상자)·읽기 폭(글줄) 두 축의 일이다. */
 :root[data-ide-chat='on'] .ide-stream[data-ide-role='user'] > * {
-  /* 내 말풍선도 폭은 내용 폭(⑩)이 정한다 — **글자 길이가 정하지 않는다**(사용자 지시).
-   * 종전에는 여기에 `width: fit-content` + `margin-inline-start: auto` 를 걸어 "내용만큼만" 차지하게
-   * 했는데(메신저 흉내), 그러면 아래 AI 쪽 규칙이 겪은 것과 **같은 일**이 벌어진다 — 폭의 주인이
-   * 트랙에서 내용으로 넘어가, 같은 자리의 상자가 한 줄일 땐 127px · 긴 글일 땐 1168px 로 매번
-   * 달라지고(실측 1200px 창) 내용 폭을 60% 로 내려도 짧은 글은 127px 그대로였다(눈금이 상자에
-   * 닿지 않는다). 오른쪽 끝에 붙이는 일은 위 ① 의 `--ide-trail: 0` + 래퍼 `margin-inline` 이 이미
-   * 하므로 여기서는 폭만 트랙에 맡기면 된다 — 수정 후 100%→1168px / 60%→688px, 글 길이 무관. */
+  /* 내 말풍선도 폭은 내용 폭(⑩)이 정한다 — 글자 길이가 아니다. `width: fit-content` + `margin-inline-start: auto` 로 되돌리지 마라:
+   * 폭의 주인이 내용으로 넘어가 상자가 글 길이마다 127px~1168px 로 널뛰고 슬라이더가 닿지 않는다(실측 1200px 창).
+   * 오른쪽 붙이기는 ① 의 `--ide-trail: 0` + 래퍼 `margin-inline` 이 한다. */
   max-width: 100%;
   margin-inline-start: 0;
   margin-inline-end: 0;
 }
 
-/* 말풍선 자체가 들고 있던 `ml-auto max-w-[90%]`(두 렌더 경로 공용 CollapsiblePrompt)를 대화 정렬에서는
- * 풀어 준다 — 부모가 이미 폭과 위치를 정했는데 안쪽이 다시 90% 로 줄이면 오른쪽에 틈이 생긴다. */
+/* 대화 정렬에서는 말풍선(CollapsiblePrompt)의 `ml-auto max-w-[90%]` 를 푼다 — 안쪽이 다시 90% 로 줄이면 오른쪽에 틈이 생긴다. */
 :root[data-ide-chat='on'] .ide-user-msg {
   max-width: 100%;
   margin-inline-start: 0;
 }
 
 :root[data-ide-chat='on'] .ide-stream[data-ide-role='ai'] > * {
-  /* 상한 없음 — 위 ② 와 같은 이유(폭은 내용 폭 ⑩ 단독 소유). AI 말은 왼쪽 끝에 못 박히고,
-   * 내용 폭을 내리면 그 자리를 지킨 채 오른쪽만 줄어든다.
-   *
-   * ⚠ 반대쪽 마진은 `auto` 가 아니라 `0` 이어야 한다. 그리드 아이템의 auto 마진은 트랙에 남은 폭을
-   * **흡수**하고, 흡수하는 순간 `stretch`(폭 auto → 트랙 전체)가 취소돼 상자가 **제 내용 크기로
-   * 쪼그라든다**. 그러면 ⓐ 도구 묶음·카드가 내용이 바뀔 때마다 폭이 널뛰고(칩 하나 늘면 넓어졌다
-   * 다시 좁아진다 — "자기 맘대로 쪼그라든다"의 정체) ⓑ 내용 폭(⑩) 슬라이더를 아무리 움직여도
-   * 상자가 따라오지 않는다(폭의 주인이 트랙이 아니라 내용이 돼 버린다 — ⑩-1 이 세운 "한 축의
-   * 주인은 하나" 가 여기서 깨졌다). 왼쪽에 못 박는 일은 위 ① 의 `--ide-lead: 0` + 래퍼
-   * `margin-inline` 이 이미 하므로 이 마진은 정렬에 아무 몫이 없다.
-   * 계측(1200px 창): `auto` 일 때 도구 묶음이 내용에 따라 238px ↔ 905px 를 오갔고 내용 폭 60% 로
-   * 내려도 238px 그대로였다. `0` 이면 100%→1200px / 60%→720px 로 눈금과 1:1 이다.
-   * 내 말풍선(위 ②)도 같은 이유로 `fit-content` + auto 마진을 걷었다 — 좌우 어느 쪽이든 폭은
-   * 트랙(내용 폭)이 갖고, 자리는 여백 트랙이 갖는다. 이 규칙에 auto 를 되살리지 마라. */
+  /* 상한 없음(② 와 같은 이유). ⚠ 반대쪽 마진은 `auto` 가 아니라 `0` — 그리드 아이템의 auto 마진은 남은 폭을 흡수해 `stretch` 를
+   * 취소하고 상자가 제 내용 크기로 쪼그라든다: 도구 묶음 폭이 내용마다 널뛰고 내용 폭 슬라이더가 닿지 않는다
+   * (실측 1200px 창: auto 면 238px↔905px, 0 이면 100%→1200px / 60%→720px). 왼쪽 붙이기는 ① 의 `--ide-lead: 0` 이 한다. */
   max-width: 100%;
   margin-inline-start: 0;
   margin-inline-end: 0;
 }
 
-/* 넓어야 값이 있는 것(코드·표·도구 상자)은 대화 정렬에서도 폭을 뺏기지 않는다 —
- * 읽기 쉬우라고 켠 정렬이 코드 가독성을 깎으면 안 된다. */
+/* 넓어야 값이 있는 것(코드·표·도구 상자)은 대화 정렬에서도 폭을 뺏기지 않는다. */
 :root[data-ide-chat='on'] .ide-stream[data-ide-wide] > * {
   max-width: 100%;
 }
 
-/* ─── IDE 오버레이 마크다운 — 인라인 코드 칩 (VS Code 채팅 톤) ───
- * react-markdown + @tailwindcss/typography 의 인라인 <code> 는 기본적으로
- * 백틱 글리프(::before/::after)만 붙고 배경이 없어 본문에 묻힌다.
- * VS Code/GitHub 처럼 둥근 슬레이트 칩 배경 + 모노폰트로 떠 보이게 한다.
- * fenced code block(<pre> 내부 <code>)은 제외 — 거기는 자체 배경이 이미 있다. */
+/* IDE 마크다운 인라인 코드 칩 — typography 기본은 백틱 글리프(::before/::after)만 붙어 본문에 묻혀 칩 배경 + 모노폰트로 띄운다.
+ * <pre> 안 <code> 는 제외(자체 배경이 있다). */
 .ide-md :where(code):not(:where(pre *)) {
   font-family: var(--font-mono);
-  /* §9 가독 하한 — 읽기 설정에서 본문 크기를 줄여도 인라인 코드가 12px 아래로 내려가지 않게 바닥을 둔다. */
+  /* §9 가독 하한 — 본문 크기를 줄여도 인라인 코드는 12px 아래로 내려가지 않는다. */
   font-size: max(12px, 0.86em);
   font-weight: 500;
   /* §4 앱 테마 — 인라인 코드 칩(의미 토큰 `code.inline*`). */
@@ -1251,10 +1037,8 @@ body.vib-titlebar-drag .app-drag * {
   content: none;
 }
 
-/* §5.5 #17-27 ⑬ — 본문에 적힌 경로가 곧 여는 손잡이(파일 → 내장 편집창 / 폴더 → 시스템 탐색기).
- * 칩 배경은 위 규칙이 그대로 유지하고, 그 안의 버튼만 본문 링크(MarkdownLink)와 같은 색·밑줄을 얻는다 —
- * "코드처럼 보이던 조각이 이제 눌린다" 를 누르기 전에 알리는 표식이다.
- * inline-flex 로 두면 긴 경로가 줄바꿈되지 않으므로 display 는 inline 그대로 두고, 아이콘만 띄운다. */
+/* §5.5 #17-27 ⑬ — 본문의 경로가 여는 손잡이(파일 → 내장 편집창 / 폴더 → 시스템 탐색기). 칩 배경은 위 규칙 그대로, 안의 버튼만
+ * 본문 링크(MarkdownLink)의 색·밑줄을 얻어 눌린다는 것을 알린다. `inline-flex` 로 바꾸지 마라 — 긴 경로가 줄바꿈되지 않는다. */
 .ide-md .ide-path-link {
   display: inline;
   /* §4 앱 테마 — 팔레트 sky 를 따른다(라이트에서는 뒤집힌 사다리라 진한 하늘색이 된다). */
@@ -1278,15 +1062,8 @@ body.vib-titlebar-drag .app-drag * {
   opacity: 0.8;
 }
 
-/* ─── IDE 오버레이 마크다운 — 펜스드 코드/인덴트 블록 (<pre>) ───
- * 기본 prose-invert + prose-pre:bg-gray-800/80 조합은 반투명 배경 위에
- * slate-300 톤 텍스트라 12px 에서 흐릿하게 묻혀 보인다.
- * 배경을 짙고 불투명하게, 텍스트는 밝은 회백색으로 또렷하게 만든다.
- * (TextBlock / ResultBlock / CommandBlock 모두 적용)
- *
- * ⚠ `-webkit-font-smoothing: antialiased` 는 여기 있었으나 제거했다 — 그것은 macOS Retina 에서
- * 글자를 얇게 보이려는 관용구이고, Windows 에서는 ClearType(서브픽셀) 렌더링을 끄는 쪽으로 작용해
- * "또렷하게" 라는 원래 의도와 반대다. 이 앱의 주 사용 환경이 Windows 이므로 브라우저 기본에 맡긴다. */
+/* IDE 마크다운 코드 블록(<pre>) — 기본 반투명 배경 + slate-300 은 12px 에서 묻혀 짙은 불투명 배경 + 밝은 글자로 한다.
+ * ⚠ `-webkit-font-smoothing: antialiased` 를 넣지 마라 — Windows 에서 ClearType(서브픽셀)을 꺼 오히려 흐려진다. */
 .ide-md :where(pre) {
   /* §4 앱 테마 — 코드 블록(의미 토큰 `code.*`). */
   background: var(--color-vb-code);
@@ -1306,28 +1083,17 @@ body.vib-titlebar-drag .app-drag * {
   letter-spacing: 0;
 }
 
-/* §5.5 #17-6 v2.73 — 버블 오버레이 위젯 창. BrowserWindow 가 transparent:true 라
- * body 의 bg-gray-950 불투명 배경을 투명으로 덮어 원형 버블만 데스크톱 위에 떠 보이게 한다.
- * main.tsx 가 overlay 해시일 때 html 에 .overlay-window 클래스를 부여한다. */
+/* §5.5 #17-6 — 버블 오버레이 위젯 창(transparent BrowserWindow): body 불투명 배경을 걷어 원형 버블만 데스크톱 위에 뜬다.
+ * `.overlay-window` 는 main.tsx 가 overlay 해시일 때 html 에 단다. */
 html.overlay-window,
 html.overlay-window body,
 html.overlay-window #root {
   background: transparent !important;
 }
 
-/* §5.5 #17-6 v2.73 — 오버레이 창 내 클릭/드래그 영역 분리.
- * 빈 캔버스(.react-flow__pane)를 잡으면 OS 창 이동(-webkit-app-region: drag),
- * 버블 노드(.react-flow__node)는 no-drag 라 클릭/더블클릭/드래그(노드 물리)가 그대로 동작.
- * app-drag 컨테이너로 감싸면 마우스 이벤트가 OS 로 가로채여 버블이 안 눌리는 문제를 이 분리로 해결.
- *
- * ⚠ (판올림 번호 발급 대기) **이 규칙은 접힌 버블 캔버스 하나만의 것이다** — `.overlay-window` 만으로
- * 받으면 그 창 안의 **모든** React Flow 가 OS 캡션이 된다. 그 창은 펼치면 `AgentIDEOverlay`(fullWindow)
- * 가 통째로 채우고 접힌 버블 캔버스는 아예 렌더되지 않으므로, 펼친 동안 이 규칙이 실제로 잡는 것은
- * **무대(§5.5 #17-17 ⑭)의 지도 캔버스뿐**이었다. 캡션 위에서는 손짓이 렌더러에 도착하지 않아(위
- * `body.vib-pointer-drag` 주석 ②) 빈 자리를 끌면 지도가 밀리는 대신 **창이 통째로 따라왔고**,
- * ⑭(e) 가 약속한 "팬은 왼쪽·가운데 버튼, 확대는 휠"이 독립 창에서만 통째로 죽었다(사용자 보고).
- * 그래서 앞에 `.overlay-bubble-canvas`(`OverlayShell` 의 접힌 버블 컨테이너)를 세워 **그 캔버스에만**
- * 건다. 앞으로 이 창 안에 어떤 캔버스가 더 서든 이 규칙에 걸리지 않는다. */
+/* §5.5 #17-6 — 오버레이 창: 빈 캔버스(.react-flow__pane)는 OS 창 이동, 버블 노드는 no-drag(app-drag 로 감싸면 버블이 안 눌린다).
+ * ⚠ 접힌 버블 캔버스(`.overlay-bubble-canvas`, `OverlayShell`)에만 건다 — `.overlay-window` 만으로 받으면 그 창 안 모든 React Flow
+ * (무대 §5.5 #17-17 ⑭ 지도 등)가 OS 캡션이 되어 끌면 지도 대신 창이 따라온다(위 `body.vib-pointer-drag` 주석 ②). */
 html.overlay-window .overlay-bubble-canvas .react-flow__pane {
   -webkit-app-region: drag;
   app-region: drag;
@@ -1337,15 +1103,9 @@ html.overlay-window .overlay-bubble-canvas .react-flow__node {
   app-region: no-drag;
 }
 
-/* §5.5 #17 대화 인-페이지 검색(Ctrl+F) — 찾은 텍스트 하이라이트 두 벌.
- * document selection(파란 선택영역)으로 칠하면 브라우저가 selection 을 본문으로 옮기며 포커스를 쥔
- * 검색 입력창의 caret 을 함께 지워, 한 번 검색한 뒤로는 그 칸에 이어서 타이핑을 못 한다.
- * 그래서 selection 을 건드리지 않는 CSS Custom Highlight 로 칠한다(bookmarkScroll.markRange).
- *
- * 색(v3.46 사용자 지시 — "이용자가 드래그해서 텍스트 선택한 것처럼"): 종전 앰버는 찾기막대 감각이라
- * "선택했다" 로 읽히지 않았다. 지금 가 있는 자리는 **드래그 선택과 같은 파랑**으로 칠해 눈이 바로
- * 그리로 가게 하고(`::selection` 과 같은 톤), 같은 문단 안의 나머지 출현은 옅은 파랑으로 깔아
- * "여기 더 있다" 만 알린다 — 둘이 같은 색이면 몇 번째로 이동한 건지 구분할 수 없다. */
+/* §5.5 #17 대화 인-페이지 검색 — 찾은 글자 하이라이트 두 벌. document selection 으로 칠하지 마라 — 검색 입력칸의 caret 이
+ * 지워져 이어서 타이핑을 못 한다. selection 을 건드리지 않는 CSS Custom Highlight 로 칠한다(bookmarkScroll.markRange).
+ * 지금 자리는 드래그 선택과 같은 파랑, 나머지 출현은 옅은 파랑 — 둘이 같으면 몇 번째인지 구분이 안 된다. */
 ::highlight(vibisual-find) {
   /* blue-600 — 드래그 선택과 같은 톤. §4 앱 테마 — 의미 토큰 `find.*`(고대비는 노랑). */
   background-color: var(--color-vb-find);
@@ -1355,8 +1115,7 @@ html.overlay-window .overlay-bubble-canvas .react-flow__node {
   background-color: var(--color-vb-find-all); /* 같은 파랑을 옅게 — 본문 글자는 그대로 읽힌다 */
 }
 
-/* §5.5 #17-27 ⑭ — 이미지 미리보기 바탕. 투명 PNG 의 알파를 눈으로 확인하는 바둑판.
-   미리보기 뒤에만 깔리고 두 겹 그러데이션이라 그리는 비용이 사실상 없다(§9). */
+/* §5.5 #17-27 ⑭ — 이미지 미리보기 바탕(투명 PNG 알파를 보는 바둑판). 두 겹 그러데이션이라 비용이 사실상 없다(§9). */
 @utility bg-alpha-checker {
   /* §4 앱 테마 — 바둑판도 팔레트를 따른다(gray-900 바탕 · gray-700 칸). */
   background-color: var(--color-gray-900);
@@ -1367,13 +1126,8 @@ html.overlay-window .overlay-bubble-canvas .react-flow__node {
   background-size: 16px 16px;
 }
 
-/* §5.5 #17-6 (H-16) — 밖에 나가 있는 IDE 창을 앱 안 버블 더블클릭으로 **불렀을 때의 대답**.
- *
- * 그 창은 상시-위라 이미 보이고 있는 경우가 많다 — 그때 앞으로 세우기만 하면 화면이 그대로여서
- * "내 더블클릭이 저 창에 닿았다" 가 어디에도 나타나지 않는다(누른 사람은 안 먹은 줄 안다).
- * 그래서 창 가장자리를 한 번 두르고 안쪽을 아주 옅게 씻어 내린다 — 눌린 자리가 되밀리는 느낌이라
- * "이 창이 방금 클릭됐다" 로 읽힌다. 0.5초 안에 끝나고, 클릭통과라 그리는 동안에도 창은 그대로 쓴다.
- * transform/opacity 만 움직이므로 컴포지터가 처리한다(§9 — 메인스레드 부하 없음). */
+/* §5.5 #17-6 (H-16) — 밖에 나간 IDE 창을 버블 더블클릭으로 불렀을 때의 대답. 창이 상시-위라 이미 보이면 앞으로 세워도 화면이
+ * 그대로라, 가장자리를 한 번 두르고 안쪽을 옅게 씻어 닿았음을 보인다. 0.5초 안에 끝나고 클릭통과다(transform/opacity 만, §9). */
 @keyframes overlay-attention {
   0% {
     opacity: 0;

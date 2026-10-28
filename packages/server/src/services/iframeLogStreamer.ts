@@ -1,16 +1,6 @@
 /**
- * IframeLogStreamer — §7.11 v1.44 / v2.5 iframe 버블의 dev server 로그 라이브 스트리밍.
- *
- * Lazy pub/sub 모델: `(shellId, port)` 구독자가 0→1 될 때만 매칭 ServerEntry.outputFile 을
- * 1500ms 주기 tail 하고 ring buffer(200줄) + 50ms 마이크로배치로 push.
- * 구독자 1→0 이면 타이머 해제 + 버퍼 폐기 → 메모리 0.
- *
- * 스트림 식별자는 `port` 단독이 아니라 `(shellId, port)` (§7.11 v2.5) — 다른 프로젝트의
- * dev server 가 같은 포트(Vite 기본 5173 등)를 써도 셸이 다르면 스트림이 분리된다.
- * `shellId` 없는 레거시 위성은 `port` 단독 키로 후방호환.
- *
- * BackgroundShellWatcher 와 같은 파일을 읽지만 목적이 다름(포트 탐지 vs 라인 스트리밍)
- * 이므로 별도 tail 루프를 돌리고 결과를 공유하지 않는다. 스트리머는 "사용자가 보고 있을 때만" 동작.
+ * §7.11 — iframe 버블 dev server 로그 스트리밍. 구독자가 있을 때만 `ServerEntry.outputFile` 을 1500ms 주기 tail(ring 200줄·50ms 배치), 없으면 타이머·버퍼를 버린다.
+ * 키는 `(shellId, port)`(같은 포트의 다른 프로젝트를 가른다, 없으면 `port`). `BackgroundShellWatcher` 와 목적이 달라 tail 을 공유하지 않는다.
  */
 import fs from 'node:fs';
 import type { WebSocket } from 'ws';
@@ -205,11 +195,7 @@ export class IframeLogStreamer {
     }
   }
 
-  /**
-   * text 를 라인으로 쪼개 IframeLogLine 배열 반환.
-   * @param historic true 이면 과거 라인(팝업 open 전에 이미 기록된 내용) — `ts: 0` sentinel 로 "실제 시각 알 수 없음" 표시.
-   *   false(live tick) 이면 `Date.now()` (실제 생성 시각에 tail 지연 ~1.5s 오차 이내).
-   */
+  /** @param historic 팝업 열기 전 기록이면 `ts: 0`(시각 모름), 아니면 `Date.now()`(tail 지연 ~1.5s). */
   private parseLines(s: PortStream, text: string, historic: boolean = false): IframeLogLine[] {
     const combined = s.tailCarry + text;
     const parts = combined.split(/\r?\n/);

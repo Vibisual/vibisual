@@ -1,11 +1,8 @@
 /**
- * §5.13 (V) 37-5 — **값 손잡이**의 모델(순수 — 화면 없음): 고른 아이템을 종류 있는 값 목록으로 바꾼다.
- *
- * - 코드 컴포지션: 컴포지션이 선언한 값(`asset.propsDecl` — `vibi-props`)을 순서 그대로. 값은 `props[name]`, 없으면 선언 기본값.
- * - 기본 씬·글자·도형·자막·소리: 종전 필드표(`videoInspectorFields` — 렌더러가 실제로 읽는 것만)를 종류에 맞는 손잡이로
- *   (색 열쇠 → 원형 색 견본, 글꼴 → 글꼴 목록, 고르기 → 조각 단추, 초 단위 숫자 → 시각, 그 밖 숫자 → 끌기 숫자).
- *
- * 화면(`StudioValueControls`)은 이 목록만 그리고, 바꾼 값은 `toPropValue` 로 문서 값이 된다(목록 필드는 줄마다 한 항목).
+ * §5.13 (V) 37-5 — 값 손잡이의 모델(순수 — 화면 없음): 고른 아이템을 종류 있는 값 목록으로 바꾼다.
+ * - 코드 컴포지션: 선언한 값(`asset.propsDecl` — `vibi-props`)을 순서 그대로. 값은 `props[name]`, 없으면 선언 기본값.
+ * - 기본 씬·글자·도형·자막·소리: 필드표(`videoInspectorFields` — 렌더러가 실제로 읽는 것만)를 종류에 맞는 손잡이로(색 열쇠 → 원형 색 견본, 글꼴 → 글꼴 목록,
+ *   고르기 → 조각 단추, 초 단위 숫자 → 시각, 그 밖 숫자 → 끌기 숫자). 화면(`StudioValueControls`)은 이 목록만 그리고, 바꾼 값은 `toPropValue` 로 문서 값이 된다(목록 필드는 줄마다 한 항목).
  */
 import type { TFunction } from 'i18next';
 import type { CompositionPropType, VideoAsset, VideoDoc, VideoItem } from '@vibisual/video';

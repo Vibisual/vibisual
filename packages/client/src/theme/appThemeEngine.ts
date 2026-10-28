@@ -1,17 +1,8 @@
 /**
- * §4 앱 테마 — 해석된 테마를 **문서에 싣는** 자리(DOM 배선). 해석 자체는 shared `resolveAppTheme` 한 곳이다.
- *
- * 하는 일 셋:
- *  1. `<html>` 에 CSS 변수를 싣는다(`useReadingSettings` 와 같은 길 — 컴포넌트는 인라인 스타일을 들지
- *     않는다). Tailwind v4 의 색 클래스는 전부 `var(--color-…)` 라 이 한 번으로 앱 전체가 바뀐다.
- *  2. 마지막으로 칠한 값을 localStorage 에 **표시 캐시**로 둔다. 부팅 첫 줄에서 먼저 칠해 첫 화면이
- *     기본 테마로 깜빡이지 않게 하고, 스냅샷을 받지 않는 창(메뉴 팝업 등)이 storage 이벤트로 따라오게
- *     한다. 권위는 서버의 `UserDefaults.appearance.themeId` 다 — 이 캐시는 언제든 다시 계산되는 파생물이다.
- *  3. 어두운 판 고정 규칙(`[data-vb-theme-lock="dark"]`)을 한 번 심는다. 기본 테마의 변수 전부를 그
- *     요소에 다시 선언하므로, 조상이 라이트여도 그 안은 종전 화면 그대로 칠해진다.
- *
- * 값 안전: 변수 이름은 `--color-…` 꼴만, 값은 길이를 자르고 `setProperty` 로만 싣는다(선언 밖으로
- * 새지 않는다). 고정 규칙의 글자는 우리 해석기가 다시 쓴 값으로만 짓는다.
+ * §4 앱 테마 — 해석된 테마를 문서에 싣는 DOM 배선(해석은 shared `resolveAppTheme`).
+ * `<html>` 에 CSS 변수를 싣는다(Tailwind v4 색 클래스가 `var(--color-…)` 라 앱 전체가 바뀐다) · 칠한 값을 localStorage 표시 캐시로(부팅 깜빡임 방지,
+ * 권위는 `UserDefaults.appearance.themeId`) · 어두운 판 고정 규칙(`[data-vb-theme-lock="dark"]`)을 심는다.
+ * 값 안전: 이름은 `--color-…` 꼴만, 값은 길이를 자르고 `setProperty` 로만.
  */
 import {
   APP_THEME_BOOT_CACHE_KEY,

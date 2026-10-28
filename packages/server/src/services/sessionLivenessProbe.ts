@@ -1,42 +1,9 @@
 /**
- * §2.4 — **"실행중…"이 진짜인가**를 에이전트에게 물어 판정한다.
- *
- * ## 왜 필요한가
- *
- * `isSessionRunning`(shared `sessionRunState.ts`)의 근거는 셋인데 **전부 우리가 켜고 우리가 꺼야
- * 하는 깃발**이다 — `subStatus==='active'` · `hasExecutingCommand` · `runningAgentTaskCount>0`.
- * 끄는 쪽이 한 번이라도 실패하면(훅 유실·크래시·고아 Task) 그 세션은 영영 "실행중…"으로 남고,
- * 사용자는 "아직도?"를 판단할 근거가 없다.
- *
- * 이미 있는 다섯 장치(5분 자동 idle · 죽은 active 리컨사일 · 좀비 봉인 · 인터럽트 리컨사일 ·
- * 15분 잠듦)도 **같은 종류의 증거**(깃발 · 자식 프로세스 유무 · 훅 시각)만 본다. 그래서 양쪽으로
- * 다 틀렸다 — 실측(2026-09-02)에서 정상 동작하던 58분짜리 세션이 훅 없는 긴 도구 한 방에 5분
- * 임계로 idle 로 내려갔고, 반대로 끝난 세션은 깃발이 안 꺼져 계속 떠 있었다.
- *
- * ## 왜 코드가 아니라 모델인가
- *
- * 남는 질문이 **"이 세션이 지금 무엇을 기다리는가"** 이고, 그 답은 마지막 기록의 *뜻*을 읽어야
- * 나온다. 60분째 조용한 세션이 "긴 빌드를 기다리는 중"인지 "사용자 답을 기다리다 멈춘 것"인지
- * "이미 끝났는데 깃발만 남은 것"인지는 파일 크기로 구분되지 않는다.
- *
- * ## 질문을 쪼개지 않으면 틀린다
- *
- * §5.5 #17-9 ⑭(`backgroundTaskProbe.ts`)가 실증한 계약을 그대로 따른다 — 열린 질문("아직 도나")은
- * 값싼 모델이 **정당한 대기를 끝난 것으로 오판**했고, **① 무엇을 기다리는가 → ② 그것이 지금도
- * 오고 있는가** 로 쪼개자 사라졌다. 그래서 이 프롬프트 구조는 취향이 아니라 계약이다.
- *
- * ## 안전선 (⑭ 와 동일)
- *
- * - **도구를 주지 않는다**(`--max-turns 1`). 증거에 대화록 꼬리가 들어가는데 그것은 **신뢰할 수
- *   없는 입력**이다(다른 에이전트가 쓴 글이다). 도구가 없으면 최악이 "그 세션 하나의 오판"이다.
- * - **중립 cwd 에서 돈다.** 프로젝트에서 띄우면 `CLAUDE.md`·플러그인·훅이 실려 판정 한 번에 몇 배
- *   비용이 붙는다(⑭ 실측 $0.042 → $0.013). 판정에는 그 문맥이 필요 없다.
- * - **한쪽으로 기울여 묻는다.** 애매하면 `working`/`unknown` 이라고 프롬프트가 못 박는다 —
- *   `finished` 오판은 살아 있는 세션을 죽이고, 반대 오판은 조금 더 떠 있을 뿐이다.
- * - **`stuck` 은 죽이지 않는다.** 멈춘 것처럼 보여도 판단은 사용자 몫이다(긴 빌드를 기다리는
- *   멀쩡한 세션과 구분이 안 되는 자리라, 우리가 정하면 남의 작업을 죽인다).
- *
- * ⚠ **읽기 전용이다.** 이 모듈은 디스크에 아무것도 쓰거나 지우지 않는다(중립 cwd 폴더 하나 제외).
+ * §2.4 — "실행중…"이 진짜인가를 모델에게 묻는다. `isSessionRunning` 의 근거는 우리가 켜고 끄는 깃발뿐이라 끄기가 한 번 실패하면
+ * (훅 유실·크래시·고아 Task) 영영 실행중이고, 기존 장치도 같은 증거만 봐 양쪽으로 틀린다. "무엇을 기다리는가"는 마지막 기록의 뜻을 읽어야 해서 모델이다.
+ * 프롬프트 구조는 계약(§5.5 #17-9 ⑭) — 기다리는 것 → 그것이 아직 오는가로 쪼개지 않으면 값싼 모델이 정당한 대기를 끝남으로 본다.
+ * 안전선: 도구 없음(`--max-turns 1`, 꼬리는 신뢰 못 할 입력) · 중립 cwd(프로젝트 문맥이 실리면 비용이 몇 배 — ⑭ 실측 $0.042 → $0.013) ·
+ * 애매하면 `working`/`unknown`(`finished` 오판은 세션을 죽인다) · `stuck` 은 죽이지 않는다(긴 빌드 대기와 구분 불가). ⚠ 읽기 전용(중립 cwd 폴더 하나 제외).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -56,11 +23,7 @@ import { codexHome } from './codexCli.js';
 import { scanLinesBackward } from './jsonlChunkReader.js';
 import { logger } from '../logger.js';
 
-/**
- * 판정에 실어 보내는 증거 한 벌. **코드가 전부 모은다**(모델은 도구가 없다).
- *
- * 숫자는 해석하지 않고 그대로 준다 — 해석이 곧 판정이고 그것이 모델의 일이다.
- */
+/** 판정 증거 한 벌 — 코드가 다 모으고(모델엔 도구가 없다) 숫자는 해석 없이 준다(해석이 곧 판정). */
 export interface SessionProbeEvidence {
   subId: string;
   /** 사용자가 보는 세션 이름(첫 프롬프트에서 온다). 무엇을 하던 세션인지의 유일한 단서다. */
@@ -79,29 +42,19 @@ export interface SessionProbeEvidence {
   /** 마지막으로 부른 도구 이름. 무엇을 기다리는지의 가장 강한 단서. */
   lastTool?: string;
   /**
-   * 이 세션이 아직 안 끝낸 백그라운드 작업 수. 0 이 아니면 기다릴 이유가 있다.
-   *
-   * **여기서는 셸까지 센다**(§5.5 #17-9 ⑰ 의 분리를 따르지 않는다). 이 칸은 화면이 아니라
-   * **판정 모델에게 주는 증거**라, 백단에 도는 명령이 있다는 사실 자체가 "이 세션을 끝났다고
-   * 말하면 안 되는" 근거가 된다. 화면 축(`SessionRunInputs.runningAgentTaskCount`)과 이름이
-   * 닮았다고 같은 뜻으로 읽지 마라 — 묻는 질문이 다르다(표시 ≠ 회수·판정).
+   * 안 끝난 백그라운드 작업 수. 여기선 셸까지 센다(§5.5 #17-9 ⑰ 분리를 따르지 않는다) — 판정 증거라 백단 명령이 있다는 사실이 근거다.
+   * 화면 축 `runningAgentTaskCount` 와 같은 뜻으로 읽지 마라.
    */
   runningTaskCount: number;
   /** 큐에 남은 명령 수 — "돌고 있다"가 아니라 "낼 일이 남았다". */
   queuedCommandCount: number;
   /** 세션 프로세스가 살아 있는가. 못 세었으면 undefined(모른다 ≠ 없다). */
   processAlive?: boolean;
-  /**
-   * §4 엔진 다리 — 그 세션 안에 실린 모드가 **엔진에게서 직접** 받은 사실 한 줄(턴이 도는가·마지막 진척·
-   * 도는 도구). 다리가 없으면 undefined 라 프롬프트가 종전과 글자까지 같다.
-   */
+  /** §4 엔진 다리 — 모드가 엔진에게서 받은 사실 한 줄(턴 진행·마지막 진척·도는 도구). 없으면 undefined 라 프롬프트가 글자까지 그대로다. */
   engine?: string;
 }
 
-/**
- * 판정 프롬프트. **구조가 계약이다** — 머리말의 "질문을 쪼개지 않으면 틀린다" 참조.
- * 순수 함수라 문구가 바뀌면 테스트가 먼저 깨진다.
- */
+/** 구조가 계약이다(머리말) — 순수 함수라 문구가 바뀌면 시험이 먼저 깨진다. */
 export function buildSessionProbePrompt(ev: SessionProbeEvidence): string {
   return [
     'A coding-agent session is still displayed as RUNNING. Decide whether it really is.',
@@ -206,15 +159,9 @@ function isEvidenceLineHead(line: string): boolean {
 }
 
 /**
- * 대화록 꼬리를 줄 단위로(앞→뒤 순서) 돌려준다. **꼬리만** 읽는다 — 수 MB 짜리를 통째로 파싱하면 판정 한 번이
- * 뜨거운 경로를 막는다. 없는 파일·빈 파일은 빈 배열이다(예외를 던지지 않는다).
- *
- * 뒤에서부터 **완결된 줄**을 거슬러 읽어, 증거 줄이 창(`SESSION_PROBE_TAIL_WINDOW_BYTES`)을 채우거나 전체 상한
- * (`SESSION_PROBE_TAIL_SCAN_BYTES`)에 닿으면 멈춘다. 종전에는 끝 256KB 를 한 번에 떠서 첫 조각을 버렸는데,
- * **마지막 줄 하나가 그보다 크면 꼬리가 통째로 비었고** 판정 모델은 빈 꼬리를 "끝났다"로 읽을 수 있었다(코덱스
- * 꼬리가 비던 2026-10-02 사고와 같은 자리). CLI 2.1.300 부터 클로드 대화록은 요청마다 시스템 프롬프트·도구 정의를
- * 한 줄로 적어 그 줄이 수백 KB 가 되고, 요청 **직전**에 쓰이므로 긴 요청이 도는 동안 바로 그 줄이 마지막 줄이다.
- * 큰 줄은 머리만 보고 증거 줄이 아니면 담지도 세지도 않는다. 작은 줄은 담는다(요약이 모양으로 거른다).
+ * 대화록 꼬리 줄들(앞→뒤, 없으면 빈 배열). 뒤에서부터 완결된 줄을 거슬러 증거 창(`SESSION_PROBE_TAIL_WINDOW_BYTES`)을 채우거나
+ * 상한(`SESSION_PROBE_TAIL_SCAN_BYTES`)에서 멈춘다 — 고정 크기로 떠서 첫 조각을 버리면 거대한 마지막 줄 하나에 꼬리가 비어 모델이 "끝났다"로 읽는다
+ * (CLI 2.1.300 부터 요청마다 수백 KB 한 줄이 요청 직전에 쓰인다). 큰 줄은 머리만 보고 증거가 아니면 세지 않는다.
  */
 function readTranscriptTailLines(file: string): string[] {
   const out: string[] = [];
@@ -242,12 +189,8 @@ function codexItemText(value: unknown): string {
 }
 
 /**
- * 코덱스 롤아웃 한 줄 → 꼬리 한 줄. 코덱스 줄이 아니면 `undefined`(클로드 규칙으로 넘긴다),
- * 코덱스 줄이지만 실을 뜻이 없으면 `''`(토큰 집계·설정·세션 머리 같은 배관).
- *
- * 항목은 `response_item` 만 읽는다 — 같은 내용이 `event_msg`(`agent_message`·`item_completed` …)로
- * 한 번 더 적히므로 둘 다 읽으면 같은 말이 두 줄씩 실린다. `event_msg` 에서는 **턴의 끝** 둘만 본다.
- * 사용자·개발자 메시지는 싣지 않는다 — 클로드 꼬리도 사용자 프롬프트는 싣지 않는다(문자열 본문이라 빠진다).
+ * 코덱스 롤아웃 줄 → 꼬리 줄(코덱스 줄이 아니면 `undefined`, 배관이면 `''`). `response_item` 만 읽는다 — 같은 내용이 `event_msg` 에 또 적혀
+ * 두 줄씩 실린다(`event_msg` 는 턴 끝 둘만). 사용자·개발자 메시지는 싣지 않는다.
  */
 function summarizeCodexRolloutLine(j: Record<string, unknown>): string | undefined {
   const payload = j['payload'];
@@ -273,13 +216,7 @@ function summarizeCodexRolloutLine(j: Record<string, unknown>): string | undefin
   return '';
 }
 
-/**
- * 대화록 JSONL 의 **마지막 몇 줄을 사람이 읽는 형태**로 접는다.
- *
- * 원문 JSONL 을 그대로 실으면 토큰의 대부분이 `uuid`·`parentUuid`·`sessionId` 같은 배관에 나간다
- * (실측 한 줄 2~20KB). 판정에 필요한 것은 **모델이 마지막에 무슨 말을 했고 어떤 도구를 불렀는가**
- * 뿐이라, 여기서 그 세 종류(말·도구 호출·도구 결과)만 뽑아 한 줄씩으로 접는다.
- */
+/** 꼬리를 사람이 읽는 줄로 접는다 — 원문은 대부분 `uuid` 등 배관이라(실측 한 줄 2~20KB) 말·도구 호출·도구 결과만 뽑는다. */
 export function summarizeTranscriptTail(file: string, maxChars: number = SESSION_PROBE_TAIL_BYTES): string {
   const lines: string[] = [];
   for (const line of readTranscriptTailLines(file)) {
@@ -292,9 +229,7 @@ export function summarizeTranscriptTail(file: string, maxChars: number = SESSION
     } catch {
       continue;
     }
-    // §5.25 (F) — 코덱스 롤아웃은 줄 모양이 다르다(`{type, payload}`). 클로드 모양(`message.content[]`)만
-    //   읽던 동안 코덱스 세션의 꼬리는 늘 빈 문자열이었고, 판정 모델은 그 빈칸을 "끝났다"로 읽어 도는 턴을
-    //   닫았다(2026-10-02 실측 — 사유 "Empty last lines suggests session completed").
+    // §5.25 (F) — 코덱스 줄(`{type, payload}`)은 따로 읽는다. 클로드 모양만 읽으면 코덱스 꼬리가 비어 모델이 도는 턴을 끝남으로 닫는다(2026-10-02 실측).
     const codexLine = summarizeCodexRolloutLine(j);
     if (codexLine !== undefined) {
       if (codexLine) lines.push(codexLine);
@@ -349,15 +284,8 @@ export interface TranscriptFacts {
 const TRANSCRIPT_CLOCK_SKEW_MS = 60_000;
 
 /**
- * 대화록이 **마지막으로 자란 시각** — 파일 수정 시각과 마지막 줄의 `timestamp` 중 늦은 쪽.
- *
- * 수정 시각만으로는 모자란다. Windows 의 코덱스 롤아웃은 쓰는 내내 수정 시각이 **생성 시각에 멈춰
- * 있다**(이 PC 실측: 2분 넘게 돈 롤아웃 117개 중 56개 — 29분 동안 3.3MB 를 쓰고도 생성 시각 그대로).
- * 그 값으로 조용한 시간을 재면 1초 전에 줄을 쓴 턴이 "8분 조용"이 되어, 판정이 도는 턴을 끝남으로
- * 닫았다(2026-10-02). 줄마다 적히는 `timestamp`(클로드·코덱스 모두 맨 바깥 ISO 문자열)는 그 줄을 쓴
- * 순간이라 이 결함을 타지 않는다. 늦은 쪽을 쓰므로 수정 시각이 정직한 대화록(클로드)의 값은 그대로다.
- *
- * 마지막 줄이 아직 쓰이는 중이면(개행 전) 그 앞 줄을 쓴다. 읽을 수 있는 줄이 없으면 수정 시각 그대로다.
+ * 마지막으로 자란 시각 = 수정 시각과 마지막 줄 `timestamp` 중 늦은 쪽. Windows 코덱스 롤아웃은 쓰는 내내 수정 시각이 생성 시각에 멈춘다
+ * (실측 117개 중 56개) — 그것만 보면 도는 턴이 "조용"으로 닫힌다. 쓰는 중인 마지막 줄은 건너뛰고, 읽을 줄이 없으면 수정 시각 그대로.
  */
 export function transcriptLastWriteMs(file: string, mtimeMs: number, now: number = Date.now()): number {
   const lines = readTranscriptTailLines(file);
@@ -379,22 +307,11 @@ export function transcriptLastWriteMs(file: string, mtimeMs: number, now: number
   return mtimeMs;
 }
 
-/**
- * `sessionId` 하나로 대화록 파일을 찾는다 — **cwd 를 몰라도 된다**.
- *
- * `resolveSessionTasksDir` 와 같은 모양(슬러그 폴더를 훑고 캐시)이다. 세션의 cwd 는 워크트리 이주·
- * 프로젝트 재등록으로 바뀔 수 있어서, cwd 로 슬러그를 계산하면 이주한 세션의 대화록을 놓친다.
- * 못 찾은 결과도 짧게 캐시한다 — 아직 첫 줄을 안 쓴 세션에 매 회차 디렉터리 스캔을 물리지 않게.
- */
+/** `sessionId` 만으로 대화록을 찾는다(슬러그 폴더 스캔 + 캐시 — cwd 는 이주·재등록으로 바뀐다). 못 찾음도 짧게 캐시한다(첫 줄 전 세션에 매번 스캔하지 않게). */
 /** 대화록을 **어느 엔진 규칙으로** 찾을지. 엔진마다 파일이 놓이는 자리가 다르다. */
 export type ProbeTranscriptEngine = 'claude' | 'codex';
 
-/**
- * 뿌리 경로는 전부 주입 가능해야 한다 — 시험이 사용자 홈을 건드리면 안 된다(멀티플랫폼 4축).
- *
- * `preferEngine` 은 **순서 힌트일 뿐 배제가 아니다**. 설정이 도중에 바뀐 세션(코덱스로 돌다가
- * 클로드로 바뀐 경우 등)에서도 이전 대화록을 놓치지 않게, 먼저 본 규칙이 비면 나머지도 본다.
- */
+/** 뿌리는 전부 주입 가능(시험이 사용자 홈을 건드리면 안 된다). `preferEngine` 은 순서 힌트일 뿐 — 엔진이 바뀐 세션의 옛 대화록을 놓치지 않게 나머지 규칙도 본다. */
 export interface ResolveTranscriptOptions {
   preferEngine?: ProbeTranscriptEngine;
   codexSessionsRoot?: string;
@@ -414,12 +331,7 @@ function findClaudeTranscript(sessionId: string, projectsRoot: string): Transcri
   return null;
 }
 
-/**
- * 코덱스 규칙: `<sessionsRoot>/<년>/<월>/<일>/rollout-...-<threadId>.jsonl`.
- *
- * 파일명이 threadId 로 **끝나는** 형태라 이름을 조립할 수 없다. `codexContext.ts` 가 쓰는
- * 것과 **같은 깊이 3 걷기**를 그대로 쓴다(날짜 세 칸이 전부다 — 더 깊이 들어가지 않는다).
- */
+/** 코덱스: `<root>/<년>/<월>/<일>/rollout-...-<threadId>.jsonl` — 이름을 조립할 수 없어 `codexContext.ts` 와 같은 깊이 3 걷기(더 깊이 안 간다). */
 function findCodexTranscript(threadId: string, sessionsRoot: string): TranscriptFacts | null {
   if (!/^[a-zA-Z0-9-]+$/.test(threadId)) return null;
   const suffix = `-${threadId}.jsonl`;

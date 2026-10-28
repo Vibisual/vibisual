@@ -2,21 +2,8 @@ import { IDE_EDITOR_WIDTH } from '@vibisual/shared';
 import type { IDEViewType } from '../../stores/graphStore.js';
 
 /**
- * IDE 창 **안쪽** 레이아웃의 반응형 판정 — 기준은 앱 뷰포트가 아니라 **그 창 자신의 폭**이다.
- *
- * 왜 필요한가: 종전에는 창 안 반응형이 전부 `max-md`(뷰포트 max-width:767px)와 `useIsNarrowViewport`
- * 하나에 매여 있었다. 그런데 IDE 창은 화면이 아니라 **앱 안의 창**이라 뷰포트가 1920px 이어도
- * 창 자신은 480px 일 수 있다(도킹 두께 조절·떠 있는 창 리사이즈). 그 조합에서는 `narrow=false` 라
- * 활동바(48) · 사이드바(208/288) · 편집창(저장된 px, 기본 520)이 전부 `flex-shrink-0` 으로 자리를
- * 먼저 가져가고, **대화만** `flex-1 min-w-0` 이라 0 까지 찌부러졌다 — 글자가 한 칸에 한 자씩
- * 세로로 서고, 그 안의 하단 상태바는 `justify-end` 라 넘친 만큼 **왼쪽으로 흘러** 사이드바 위를
- * 덮었다(사용자 스크린샷). 즉 "반응형이 없다"가 아니라 **엉뚱한 것의 폭을 보고 있었다**.
- *
- * 그래서 판정을 여기 한 곳에 모으고 창 폭을 인자로 받는다 — 컴포넌트 안에서 `window.innerWidth`
- * 를 읽으면 그 분기는 영영 단위 테스트로 확인할 수 없다(멀티플랫폼 규칙과 같은 결).
- *
- * 접는 순서는 **덜 잃는 것부터**다. 정보를 지우지 않고 자리만 옮긴다 — 접힌 것은 전부 되부를
- * 손잡이가 남는다(편집창 탭 줄·활동바 아이콘·타이틀바 내비 토글).
+ * IDE 창 안 반응형 — 기준은 뷰포트가 아니라 창 폭이다. `max-md`·`useIsNarrowViewport` 로 가르면 넓은 화면의 좁은 창에서 고정 폭 조각(`flex-shrink-0`)이 먼저 먹어 대화가 0 까지 찌부러진다.
+ * 창 폭은 인자로(`window.innerWidth` 는 시험 불가). 덜 잃는 것부터 접고 되부를 손잡이를 남긴다.
  */
 
 /** 창 안 가로 배치의 고정 치수 — Tailwind 클래스와 짝이 맞아야 한다(한쪽만 고치면 판정이 어긋난다). */
@@ -27,19 +14,9 @@ export const IDE_BODY = {
   SIDEBAR_W: 208,
   /** `IDESidebar` 가 주입원 뷰에서 쓰는 `w-72`(§5.5 #17-28). */
   SIDEBAR_CONTEXT_W: 288,
-  /**
-   * 대화가 **글자를 담을 수 있는** 최소 폭(px). 이보다 좁으면 한 줄에 한두 글자만 들어가
-   * 본문이 세로로 서고, 그 안의 상태바 손잡이가 밖으로 넘친다. 분할 칸 하한
-   * (`IDE_SPLIT.minCellWidthPx` = 280)보다 조금 넉넉하게 잡는다 — 저쪽은 "나눠도 되는가"의
-   * 하한이고, 이쪽은 "이 창이 대화에 보장하는" 폭이다.
-   */
+  /** 대화가 보장받는 최소 폭(px) — 더 좁으면 글자가 세로로 선다. 분할 칸 하한(`IDE_SPLIT.minCellWidthPx` 280, "나눠도 되나")보다 넉넉하게. */
   MIN_STREAM_W: 320,
-  /**
-   * 타이틀바 손잡이를 접기 시작하는 창 폭(px). 이 줄에는 손잡이가 아홉 개까지 서는데 오른쪽
-   * 묶음은 줄지 않으므로(`flex-shrink-0` — 줄어들면 [닫기]가 사라진다), 좁은 창에서는 무엇을
-   * 접을지 `titleBarChrome` 이 정해야 한다. 떠 있는 창 하한(`IDE_FLOAT.MIN_W` = 480)보다
-   * 조금 위로 잡아, 최소 크기 창이 확실히 접힌 쪽에 들어오게 한다.
-   */
+  /** 타이틀바 손잡이를 접기 시작하는 창 폭(px) — 오른쪽 묶음은 `flex-shrink-0`(줄면 [닫기]가 사라진다)이라 `titleBarChrome` 이 접는다. 떠 있는 창 하한(480)보다 조금 위. */
   TITLE_FOLD_W: 520,
 } as const;
 
@@ -48,27 +25,16 @@ export function ideSidebarWidth(activeView: IDEViewType): number {
   return activeView === 'context' ? IDE_BODY.SIDEBAR_CONTEXT_W : IDE_BODY.SIDEBAR_W;
 }
 
-/**
- * 창 안 **조각**의 접기 문턱(px) — 아래 `resolveIDEBodyLayout` 이 창 뼈대(활동바·사이드바·편집창)를
- * 접는다면, 이 표는 그 안에 든 막대·레일·diff 가 **저마다 받은 칸**이 좁을 때 어떻게 접을지를 정한다.
- *
- * 판정의 폭은 그 조각이 스스로 잰 값이다(`useElementWidth`). 뷰포트(`max-md`)로 물으면 1920px 화면에서
- * 창만 480px 로 줄였을 때 아무것도 안 접힌다 — 이 파일 머리말이 고친 바로 그 함정이다.
- * 못 쟀으면(0) 전부 **접지 않는다** — 첫 프레임에 넓은 화면을 흔들지 않는다(넓은 칸은 종전 그대로다).
- */
+/** 창 안 조각(막대·레일·diff)의 접기 문턱(px) — 폭은 조각이 스스로 잰 값(`useElementWidth`, 뷰포트 ❌). 못 쟀으면(0) 접지 않는다(첫 프레임을 흔들지 않게). */
 export const IDE_PIECE_FOLD = {
-  /**
-   * 편집창 찾기 막대(§5.5 #17-27 ⑲) — 이보다 좁으면 상태 글자·이전/다음/닫기 줄을 둘째 줄로 내린다.
-   * 오른쪽 칸(상태 5.5rem + 단추 셋)과 입력칸 안 토글 셋이 늘 먼저 자리를 가져가, 편집창 하한(280px)에서는
-   * 입력칸이 0 까지 눌렸다. 기본 막대(460px)는 이보다 넓어 한 줄 그대로다.
-   */
+  /** 편집창 찾기 막대(§5.5 #17-27 ⑲) — 이보다 좁으면 상태·이전/다음/닫기를 둘째 줄로(편집창 하한 280px 에서 입력칸이 0 까지 눌린다). 기본 460px 은 한 줄. */
   FIND_BAR_STACK_W: 400,
   /**
    * diff(§5.5 #17-30) — 이보다 좁으면 좌우 두 열 대신 **한 열**(지운 줄 위, 고친 줄 아래)로 쌓는다.
    * 두 열이면 열마다 줄 번호·표식 몫(약 60px)을 따로 내 글자 칸이 한 열에 120px 남짓만 남는다.
    */
   DIFF_STACK_W: 480,
-  /** CMD 카드 레일(§4 v2.89)의 펼친 폭 — `IDETerminalCardRail` 의 `w-[360px]` 와 짝이다. */
+  /** CMD 카드 레일(§4)의 펼친 폭 — `IDETerminalCardRail` 의 `w-[360px]` 와 짝이다. */
   TERMINAL_RAIL_W: 360,
 } as const;
 
@@ -93,10 +59,7 @@ export function terminalRailOverlays(width: number): boolean {
 export interface IDEBodyInput {
   /** 창 본문 행의 실제 폭(px). `0` 이하면 아직 못 쟀다(첫 프레임) → 뷰포트 기준으로 폴백. */
   width: number;
-  /**
-   * 폰 폭(`useIsNarrowViewport`, max-width:767px). 이 축은 **그대로 남는다** — 터치 기기에서는
-   * 창 폭이 넉넉해도 손가락 표적·세로 공간 때문에 서랍 배치가 맞다(§4 v3.24).
-   */
+  /** 폰 폭(`useIsNarrowViewport`, ≤767px) 축은 남긴다 — 터치는 창이 넓어도 손가락 표적·세로 공간 때문에 서랍 배치가 맞다(§4). */
   viewportNarrow: boolean;
   /** 사용자가 사이드바를 접어 뒀나 — 접혀 있으면 애초에 자리를 안 먹는다. */
   sidebarCollapsed: boolean;
@@ -123,11 +86,7 @@ export interface IDEBodyLayout {
   editorMaxWidth: number;
   /** 위 판정을 적용했을 때 대화가 실제로 갖는 폭(px). 회귀 테스트가 이 값을 본다. */
   streamWidth: number;
-  /**
-   * 타이틀바가 한 줄에 손잡이를 다 못 세우는 폭인가 — `resolveTitleBarChrome` 의 `narrow` 로 간다.
-   * 종전에는 그 자리에 뷰포트 판정이 들어가, 넓은 화면에서 창만 좁히면 아무것도 안 접혀
-   * **[닫기]가 창 밖으로 밀려났다**(그 함수의 주석이 폰에서 겪었다고 적어 둔 바로 그 증상).
-   */
+  /** 타이틀바가 손잡이를 한 줄에 못 세우는 폭인가(`resolveTitleBarChrome` 의 `narrow`) — 뷰포트 판정이면 창만 좁힐 때 [닫기]가 밖으로 밀린다. */
   titleBarNarrow: boolean;
 }
 
@@ -141,11 +100,7 @@ export interface EditorResizeDrag {
   max: number;
 }
 
-/**
- * 끄는 동안의 편집창 폭. **처음부터의 이동량**으로 계산한다 — 프레임마다 증분을 더하면
- * 하한/상한에 부딪힌 뒤 손을 되돌려도 그만큼 늦게 반응하는(끈적이는) 손맛이 된다.
- * 편집창은 오른쪽에 붙어 있으므로 커서를 **왼쪽으로** 끌수록 넓어진다.
- */
+/** 끄는 동안의 편집창 폭 — 처음부터의 이동량으로 잰다(증분을 더하면 한계에 닿은 뒤 되돌릴 때 끈적인다). 오른쪽에 붙어 왼쪽으로 끌수록 넓어진다. */
 export function dragEditorWidth(drag: EditorResizeDrag, clientX: number): number {
   const raw = drag.startWidth + (drag.startX - clientX);
   return Math.round(Math.min(drag.max, Math.max(IDE_EDITOR_WIDTH.MIN, raw)));
@@ -157,15 +112,7 @@ function clampEditor(w: number): number {
   return Math.min(IDE_EDITOR_WIDTH.MAX, Math.max(IDE_EDITOR_WIDTH.MIN, Math.round(w)));
 }
 
-/**
- * 창 폭 하나로 **무엇을 접을지**를 정한다(렌더 부작용 ❌ — 값만 돌려준다).
- *
- * 접는 차례:
- *  1. **편집창을 줄인다** — 사용자가 저장해 둔 폭보다 좁혀 대화에 자리를 낸다(하한 280px).
- *  2. **사이드바를 서랍으로** — 208~288px 을 통째로 비운다. 활동바가 남으므로 아이콘 한 번이면 돌아온다.
- *  3. **편집창을 대화 위로** — 폰에서 이미 하던 그 거동(탭 줄과 [닫기]가 그대로라 되돌아갈 길이 있다).
- *  4. **활동바까지 서랍으로** — 48px 마저 못 낼 만큼 좁은 창(도킹 하한 260px 부근).
- */
+/** 창 폭으로 접을 것을 정한다(값만). 차례: 1 편집창 줄이기(하한 280) → 2 사이드바 서랍 → 3 편집창을 대화 위로 → 4 활동바까지 서랍(도킹 하한 260 부근). */
 export function resolveIDEBodyLayout(input: IDEBodyInput): IDEBodyLayout {
   const { width, viewportNarrow, sidebarCollapsed, sidebarWidth, editorOpen } = input;
   const stored = clampEditor(input.editorWidth);
@@ -252,16 +199,8 @@ export function resolveIDEBodyLayout(input: IDEBodyInput): IDEBodyLayout {
 }
 
 /**
- * §5.5 #17-27 ①-1 — 판(편집창·무대·실행 출력)을 열 때 **창을 몇 px 넓혀야** 대화 오른쪽에 설 수 있나.
- *
- * 지금 폭에서 그대로 열면 무언가 접히는 창에서만 양수다 — 편집창이 대화를 덮거나(③), 열기 전에는
- * 서 있던 사이드바·활동바가 서랍으로 들어가는(②·④) 경우. 그때 창은 **편집창 폭(저장값)만큼**
- * 자란다: 대화는 연 앞과 같은 폭으로 남고 편집창은 그 오른쪽에 선다. 넉넉한 창은 0 — 종전처럼
- * 편집창이 대화 폭을 나눠 쓴다(①). 폰 폭과 아직 못 잰 첫 프레임도 0 이다(넓힐 창이 없거나, 모른다).
- *
- * 열기 전에 **이미 서랍에 들어가 있던** 사이드바·활동바는 자란 창에서 다시 선다(배치는 폭만 보고 정한다) —
- * 그 몫도 함께 넓힌다. 편집창 폭만 넓히면 늘어난 자리를 그들이 먼저 가져가, 대화는 하한까지 찌부러지고
- * 편집창도 저장 폭보다 좁게 섰다(500px 창·사이드바 208·편집창 520 → 대화 452→320, 편집창 444).
+ * §5.5 #17-27 ①-1 — 판을 열 때 넓힐 창 폭. 무언가 접히는 창에서만 양수(편집창 폭 — 대화 폭 유지), 그 밖·폰·못 잰 첫 프레임은 0.
+ * 열기 전 서랍에 있던 사이드바·활동바 몫도 넓힌다(빼면 그들이 먼저 먹는다 — 500px·208·520 → 대화 320·편집창 444).
  */
 export function editorGrowth(input: Omit<IDEBodyInput, 'editorOpen'>): number {
   if (input.viewportNarrow || !(input.width > 0)) return 0;
@@ -298,14 +237,7 @@ export type DockGrowthClose =
   | { kind: 'hand'; key: string; growth: DockGrowthRecord }
   | { kind: 'keep' };
 
-/**
- * §5.5 #17-27 ①-1 — 도크 창이 판을 닫을 때 **넓혀 둔 두께를 어떻게 할지**.
- *
- * 두께는 그 변 전체의 성질이다(`setIDEDockSize` 가 같은 변의 창을 함께 바꾼다). 종전에는 판을 닫는 창이 제 기록대로
- * 되돌렸다 — 그 넓힌 두께를 보고 "자리가 있다"며 넓히지 않고 판을 연 옆 창이 대신 찌부러졌다. 넓힌 **뒤에** 따진 창
- * (`seq` 가 더 큰 창)이 남아 있으면 되돌리지 않고 그 창에 기록을 넘긴다 — 그 넓힘에 기댄 마지막 판이 닫힐 때 처음
- * 두께로 돌아간다. 그 창이 이어서 제 몫을 더 넓혔으면 두 기록을 하나로 잇는다.
- */
+/** §5.5 #17-27 ①-1 — 판을 닫을 때 넓힌 도크 두께(변 전체 성질). 넓힌 뒤에 따진 창(`seq` 큰 창)이 남으면 되돌리지 않고 기록을 넘긴다(되돌리면 그 창이 찌부러진다) — 마지막 판에서 처음 두께로. */
 export function dockGrowthOnClose(
   rec: DockGrowthRecord,
   now: number,

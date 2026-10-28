@@ -1,12 +1,6 @@
 /**
- * §5.4 #36 — 전환과 연결의 **화면 쪽 순수 판정** 한 벌.
- *
- * 말풍선(`AgentCardNode`)·버블 메뉴(`BubbleContextMenu`)·캔버스(`BubbleMap`)·선(`RefLinkEdge`·`CurvedEdge`·
- * `TaskEdgeComponent`)·꽃잎 고르기(`RefLinkBloom`)가 같은 답을 내야 하는 것만 여기 둔다. DOM 을 만지지 않으므로
- * 그대로 단위 테스트된다.
- *
- * **코어는 앱 이름을 모른다(§5.13 (P-4))** — 이 파일에 앱 이름을 적지 않는다. 앱의 이름·여는 확장자는
- * 부르는 쪽이 레지스트리에서 꺼내 넘긴다.
+ * §5.4 #36 — 말풍선·메뉴·캔버스·선·꽃잎이 같은 답을 내야 하는 화면 쪽 순수 판정(DOM 없음 → 단위 테스트).
+ * 코어는 앱 이름을 모른다(§5.13 (P-4)) — 앱 이름을 적지 않고, 앱의 이름·확장자는 부르는 쪽이 레지스트리에서 넘긴다.
  */
 
 import type { AgentConfig, AppBubble, BubbleData, CommandExecutionRequirements, CreationRunLimits } from '@vibisual/shared';
@@ -16,11 +10,8 @@ import { refLinkVisible } from './linkView.js';
 // ─── (A) 전환 — 누가 말풍선을 펼칠 수 있나 ───
 
 /**
- * 이 버블 옆에 입력 말풍선을 펼칠 수 있는가(코드 이름은 첫 판의 "카드" 그대로 — 저장값 `agentForm:'card'` 와 짝).
- *
- * 커스텀 에이전트만이다(코덱스·All Model 포함). 훅 버블은 입력이 없고(§5.5 #17-29), CMD 는 입력이 터미널의
- * 것이며(§4 v2.63), 휴지통 안의 버려진 에이전트는 입력을 받지 않는다. **서버 `setAgentForm` 과 같은 조건**이다 —
- * 한쪽만 넓히면 화면은 말풍선을 펼쳤는데 서버가 409 로 되돌리는 깜빡임이 생긴다.
+ * 입력 말풍선을 펼칠 수 있는가(이름의 "카드" = 저장값 `agentForm:'card'`). 커스텀 에이전트만(코덱스·All Model 포함, 훅·CMD·휴지통 ❌).
+ * 서버 `setAgentForm` 과 같은 조건 — 한쪽만 넓히면 펼쳤다가 409 로 되돌아가며 깜빡인다.
  */
 export function canUseAgentCard(
   data: Pick<BubbleData, 'bubbleType' | 'customCreated' | 'trashed'> | undefined | null,
@@ -31,18 +22,14 @@ export function canUseAgentCard(
   return config?.executionMode !== 'interactive-terminal';
 }
 
-/**
- * 지금 이 노드를 말풍선으로 그려야 하는가(형태 칸 + 커스텀 에이전트).
- * 휴지통 안의 버려진 에이전트는 말풍선이었어도 버블로 그린다 — 그 화면은 고르는 자리지 입력하는 자리가 아니다.
- */
+/** 휴지통 안 에이전트는 말풍선이었어도 버블로 그린다 — 고르는 자리지 입력하는 자리가 아니다. */
 export function isAgentCardForm(data: Pick<BubbleData, 'bubbleType' | 'customCreated' | 'agentForm' | 'trashed'> | undefined | null): boolean {
   return !!data && data.bubbleType === 'agent' && data.customCreated === true && data.agentForm === 'card' && data.trashed !== true;
 }
 
 /**
- * 말풍선에서 보낼 세션 — **버블이 보여 주는 세션과 같은 우선순위**(`BubbleNode` 의 effective sub).
- * 도는 세션 → 그 IDE 창에서 고른 탭 → 마지막으로 고른 탭 → 없으면 null(서버 기본).
- * 버블은 A 세션을 보여 주는데 말풍선은 B 로 보내면, 사용자는 자기가 친 글이 어디로 갔는지 모른다.
+ * 버블이 보여 주는 세션과 같은 우선순위(`BubbleNode` effective sub): 도는 세션 → IDE 에서 고른 탭 → 마지막 탭 → null(서버 기본).
+ * 어긋나면 친 글이 어느 세션으로 갔는지 모른다.
  */
 export function pickCardSession(
   subs: readonly { id: string; status: string }[] | undefined,
@@ -59,10 +46,7 @@ export function pickCardSession(
 
 // ─── (B) 연결 — 누가 누구를 참조하나 ───
 
-/**
- * 이 에이전트를 참조하는 앱 노드들(만든 순). `projectName` 을 주면 그 프로젝트 것만 — 다른 탭의 노드가
- * 같은 에이전트 id 를 들고 있을 일은 없지만, 프로젝트 격리(§3.5)는 판정마다 지킨다.
- */
+/** `projectName` 을 주면 그 프로젝트 것만 — 프로젝트 격리(§3.5)는 판정마다 지킨다. */
 export function linkedAppBubblesOf(
   appBubbles: readonly AppBubble[],
   agentId: string,
@@ -73,10 +57,7 @@ export function linkedAppBubblesOf(
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
-/**
- * 위 목록의 **지문** — 구독은 이 문자열로 한다(파생 선택자 함정: 배열을 돌려주면 매 스냅샷 새 참조라
- * 무변화에도 말풍선이 다시 그려진다). 좌표는 넣지 않는다 — 앱 노드를 끄는 매 프레임 말풍선이 깨면 안 된다.
- */
+/** 지문으로 구독한다(배열은 매 스냅샷 새 참조라 헛 렌더). 좌표는 넣지 않는다 — 앱 노드를 끄는 매 프레임 말풍선이 깨면 안 된다. */
 export function linkedAppBubblesKey(
   appBubbles: readonly AppBubble[],
   agentId: string,
@@ -87,10 +68,7 @@ export function linkedAppBubblesKey(
     .join('\u0002');
 }
 
-/**
- * 화면에 그릴 위성줄 하나 — 출발(에이전트)·도착(앱 노드)·지문용 키.
- * 끝점 둘이 **지금 화면에 있을 때만** 만든다(어느 한쪽이 없으면 React Flow 가 고아 선을 경고한다).
- */
+/** 끝점 둘이 화면에 있을 때만 만든다(없으면 React Flow 가 고아 선을 경고한다). */
 export interface RefLinkPair {
   id: string;
   agentId: string;
@@ -136,10 +114,7 @@ export interface LinkedOutputNode {
   accepts: readonly string[];
   /** 지금 담긴 파일(루트 기준 상대 경로). */
   file?: string | undefined;
-  /**
-   * §5.4 #36 (C) 개정 — **앱 몫 브리프**(레지스트리 `agentBrief` 가 지은 그 노드의 줄들). 있으면 공통 문구(결과 파일을
-   * 만들어 `/output` 으로 넣어라) 대신 이 줄이 그 노드를 말한다 — 영상 노드는 "완성 파일"이 아니라 "작업 문서"다.
-   */
+  /** §5.4 #36 (C) — 앱 몫 브리프(레지스트리 `agentBrief`). 있으면 공통 `/output` 문구 대신 이것이 노드를 말한다(영상 노드는 작업 문서다). */
   brief?: string | undefined;
 }
 
@@ -154,12 +129,7 @@ export function appNodeLabel(bubble: Pick<AppBubble, 'title' | 'file'>, appName:
 /** 블록이 시작되는 표식 — 본문과 섞이지 않게(그리고 두 번 붙지 않게) 이 줄로 가른다. */
 export const LINKED_OUTPUT_MARK = 'Linked canvas nodes (Vibisual)';
 
-/**
- * 위성 칩이 켜진 노드들의 **에이전트 프로토콜 블록**.
- *
- * 화면 라벨이 아니라 에이전트에게 주는 규약이라 영어다(`vibi3dAgentPrompt`·`buildAudioDelegatePrompt` 선례).
- * 자격 증명 **값**은 싣지 않는다 — 환경 변수 이름만 적는다(그 값은 이미 세션 환경에 있다).
- */
+/** 에이전트에게 주는 규약이라 영어다. 자격 증명 값은 싣지 않는다 — 환경 변수 이름만(값은 이미 세션 환경에 있다). */
 export function buildLinkedOutputBrief(nodes: readonly LinkedOutputNode[]): string {
   if (nodes.length === 0) return '';
   // 앱이 자기 브리프를 낸 노드(작업 문서)와 공통 문구를 받는 노드(결과 파일)를 가른다 — 공통 납품 문구는 공통 노드가
@@ -216,10 +186,7 @@ export function orbitDotAngles(count: number): number[] {
   return Array.from({ length: n }, (_, i) => AGENT_CARD.orbitDotStartDeg + i * AGENT_CARD.orbitDotStepDeg);
 }
 
-/**
- * 중심에서 단위 벡터 `(nx, ny)` 방향으로 나간 반직선이 **사각 테두리**와 만나는 거리.
- * 원(정사각 버블)은 반지름 그대로다 — 원 반지름으로 사각을 재면 가로로 다가오는 선이 판 안쪽에서 끊긴다.
- */
+/** 반직선이 사각 테두리와 만나는 거리 — 원 반지름으로 사각을 재면 가로로 오는 선이 판 안에서 끊긴다. */
 export function rectBorderDistance(halfW: number, halfH: number, nx: number, ny: number): number {
   const ax = Math.abs(nx);
   const ay = Math.abs(ny);
@@ -240,11 +207,8 @@ export function isAgentCardBox(width: number, height: number): boolean {
 }
 
 /**
- * 말풍선 노드 가운데에서 단위 벡터 `(nx, ny)` 방향으로 나간 반직선이 **말풍선 + 궤도 원의 실루엣**을 마지막으로
- * 빠져나가는 거리. 경계 상자로 끊으면 원 위·아래의 빈 자리에서 선이 허공에 멈춘다.
- *
- * 가운데는 말풍선 안이다(말풍선이 노드 폭의 절반을 넘는다). 그래서 "말풍선을 나가는 거리"와 "궤도 원을 나가는
- * 먼 쪽 거리" 중 큰 쪽이 실루엣이다 — 오른쪽으로 가는 선은 틈을 지나 궤도 바깥에서 끊긴다.
+ * 말풍선 + 궤도 원 실루엣을 마지막으로 빠져나가는 거리(경계 상자로 끊으면 원 위·아래에서 선이 허공에 멈춘다).
+ * 가운데가 말풍선 안이라 "말풍선을 나가는 거리"와 "궤도 원을 나가는 먼 쪽 거리" 중 큰 쪽이다.
  */
 export function agentCardBorderDistance(nx: number, ny: number): number {
   const cx = AGENT_CARD.width / 2;
@@ -264,10 +228,7 @@ export function agentCardBorderDistance(nx: number, ny: number): number {
   return Math.max(Number.isFinite(balloon) ? balloon : 0, orbit);
 }
 
-/**
- * 노드 박스에서 그 방향 끝점까지의 거리 — 말풍선이면 실루엣, 정사각(버블)이면 원 반지름, 그 밖의 사각(앱 노드)은
- * 테두리. 선 끝점을 정하는 세 곳(`CurvedEdge`·`TaskEdgeComponent`·`RefLinkEdge`)이 이 한 함수를 쓴다.
- */
+/** 말풍선 = 실루엣, 정사각(버블) = 원, 그 밖(앱 노드) = 테두리. 선 끝점 세 곳(`CurvedEdge`·`TaskEdgeComponent`·`RefLinkEdge`)이 이 함수 하나를 쓴다. */
 export function nodeBorderDistance(width: number, height: number, nx: number, ny: number): number {
   if (isAgentCardBox(width, height)) return agentCardBorderDistance(nx, ny);
   if (!isRectNode(width, height)) return Math.min(width, height) / 2;
@@ -289,10 +250,7 @@ export interface OrbitOrigin {
   r: number;
 }
 
-/**
- * 위성줄이 나가는 자리 — 말풍선이면 **원 중심과 궤도 반지름**(줄은 말풍선이 아니라 에이전트에서 나온다),
- * 버블이면 그 원. 버블로 접어도 같은 문법으로 붙는다.
- */
+/** 말풍선이면 원 중심 + 궤도 반지름에서 나온다(줄은 말풍선이 아니라 에이전트에서), 버블이면 그 원. */
 export function refLinkOrigin(src: NodeBox): OrbitOrigin {
   if (isAgentCardBox(src.halfW * 2, src.halfH * 2)) {
     const d = agentCardDiscCenter();
@@ -310,10 +268,7 @@ export function pointOnOrbitToward(o: OrbitOrigin, x: number, y: number): { x: n
   return { x: o.x + (dx / len) * o.r, y: o.y + (dy / len) * o.r };
 }
 
-/**
- * 위성줄의 두 끝 — 출발은 원(궤도) 둘레, 도착은 앱 노드 테두리. 둘 다 **원 중심과 앱 노드 중심을 잇는 직선 위**다
- * (옆구리에서 옆구리로 가지 않는다 — 줄은 에이전트에서 곧장 위성으로 간다).
- */
+/** 두 끝 모두 원 중심 ↔ 앱 노드 중심 직선 위다(옆구리에서 옆구리로 ❌). */
 export function refLinkEnds(src: NodeBox, dst: NodeBox): { sx: number; sy: number; tx: number; ty: number } {
   const o = refLinkOrigin(src);
   const dx = dst.cx - o.x;
@@ -352,10 +307,7 @@ export function refLinkPath(sx: number, sy: number, tx: number, ty: number): Ref
 
 // ─── 꽃잎 고르기 — 놓은 자리에 앱들이 핀다 ───
 
-/**
- * 꽃잎 자리 — 가운데 기준 오프셋(화면 px). `facing` 은 라디안(화면 좌표 — 0 = 오른쪽, π/2 = 아래).
- * 꽃잎은 `facing` 을 가운데로 좌우 같은 간격으로 펴진다. 앱이 많으면 간격이 `maxSpreadDeg` 안으로 좁아진다.
- */
+/** `facing` 은 라디안(화면 좌표 — 0 = 오른쪽, π/2 = 아래). 좌우 같은 간격으로 펴고, 많으면 `maxSpreadDeg` 안으로 좁힌다. */
 export function bloomPetalOffsets(count: number, facing: number): { dx: number; dy: number }[] {
   if (count <= 0) return [];
   const stepDeg = count > 1 ? Math.min(REF_BLOOM.stepDeg, REF_BLOOM.maxSpreadDeg / (count - 1)) : 0;
@@ -394,13 +346,7 @@ export function clampBloomCenter(
   };
 }
 
-/**
- * 꽃 가운데 아래(위)의 **이름 한 줄**이 화면 가장자리에서 잘리지 않게 그 가로 가운데를 안쪽으로 민다.
- *
- * 꽃 자리(`clampBloomCenter`)는 꽃잎만 보고 잡힌다 — 꽃잎이 위·아래로 피면 가운데가 가장자리 `seedSize/2 + margin`
- * 까지 붙고, 그 아래 이름은 가운데 정렬이라 긴 이름의 반이 화면 밖으로 나갔다(폰 폭). 꽃은 그대로 두고 이름만 민다.
- * 이름이 화면보다 넓으면(말줄임으로 잘린다) 화면 가운데에 둔다.
- */
+/** 꽃 아래 이름이 화면 밖으로 반쯤 나가지 않게 이름의 가로 가운데만 안쪽으로 민다(`clampBloomCenter` 는 꽃잎만 본다). 화면보다 넓으면 가운데. */
 export function clampCaptionCenterX(x: number, width: number, viewW: number, margin: number): number {
   const half = width / 2;
   const min = margin + half;
@@ -417,10 +363,7 @@ function axisShiftToShow(start: number, length: number, view: number, margin: nu
   return overflow > 0 ? -overflow : 0;
 }
 
-/**
- * §5.4 #36 (F) — 캔버스 사각형(노드 좌표)이 화면에 다 보이도록 뷰포트를 **모자란 만큼만** 옮길 양(화면 px).
- * 이미 다 보이면 `null` — 고를 때마다 화면이 출렁이지 않게. 줌은 건드리지 않는다.
- */
+/** 모자란 만큼만 옮긴다 — 다 보이면 `null`(고를 때마다 출렁이지 않게). 줌은 건드리지 않는다. */
 export function viewportShiftToShow(
   rect: { x: number; y: number; width: number; height: number },
   viewport: { x: number; y: number; zoom: number },

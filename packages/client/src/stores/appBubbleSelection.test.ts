@@ -4,14 +4,7 @@ import { APP_BUBBLE_PENDING_MS } from '@vibisual/shared';
 
 import { useGraphStore } from './graphStore.js';
 
-/**
- * §5.13 (M) v4.61 — 앱 버블의 선택·삭제.
- *
- * 앱 버블은 `flowNodes`(useNodesState) 밖에 사는 노드라 React Flow 의 자동 선택이 닿지 않는다.
- * 선택은 store 한 채널(`selectedAppBubbleId`)로만 이뤄지고 Delete 키·우클릭 메뉴가 같은
- * `deleteAppBubble` 을 쓴다 — 이 배선이 끊기면 "클릭해도 선택 안 되고 지울 수도 없는" 버블이
- * 다시 생긴다(사용자 보고로 드러난 회귀).
- */
+/** §5.13 (M) — 앱 버블은 `flowNodes` 밖이라 React Flow 선택이 안 닿는다 — 선택은 `selectedAppBubbleId`, 삭제는 Delete·우클릭 공용 `deleteAppBubble`. */
 
 function bubble(id: string, over: Partial<AppBubble> = {}): AppBubble {
   return {
@@ -120,10 +113,7 @@ describe('app bubble delete', () => {
   });
 });
 
-/**
- * §5.13 (M) v4.68 — 이름·핀은 store 한 경로로. 우클릭 메뉴와 우측 옵션 패널이 같은 함수를 쓴다.
- * 각자 fetch 를 들고 있으면 낙관 반영 규칙이 갈라져 한쪽에서만 되돌아간다.
- */
+/** §5.13 (M) — 이름·핀은 store 한 경로(우클릭·옵션 패널 공용). 각자 fetch 하면 낙관 반영이 갈린다. */
 describe('app bubble rename / pin', () => {
   beforeEach(() => {
     useGraphStore.setState({
@@ -167,14 +157,7 @@ describe('app bubble rename / pin', () => {
   });
 });
 
-/**
- * §5.13 (M) v4.68 — "선택하면 오른쪽에 옵션이 뜬다"는 배선 가드.
- *
- * 선택 store 는 v4.61 부터 있었지만 **패널을 띄우는 조건에 앱 버블이 빠져 있어서** 눌러도
- * 우측 패널이 열리지 않았다(사용자 보고). 이 조건은 창 셸마다 따로 적혀 있어 한쪽만 고치면
- * 창에 따라 동작이 갈린다 — 두 셸과 패널 본체를 함께 못 박는다. DOM 테스트 환경이 없으므로
- * 소스 수준에서 확인한다(독립 규약 테스트와 같은 방식).
- */
+/** §5.13 (M) — 앱 버블 선택 시 우측 패널을 띄우는 조건 가드. 조건이 창 셸마다 따로 있어 두 셸과 패널 본체를 소스 수준에서 함께 본다. */
 describe('app bubble detail panel wiring', () => {
   // 소스를 원문으로 읽는다 — 클라 패키지는 node 타입이 없으므로 fs 대신 vite 의 `?raw` 글롭.
   const SOURCES = import.meta.glob<string>(
@@ -220,9 +203,8 @@ function definitionOf(src: string, name: string): string {
 }
 
 /**
- * `{...gesture.handlers}` 뒤 같은 여는 태그에서 손짓 핸들러를 다시 적은 자리마다 — 그 값이 손짓을 이어 부르는가.
- * 이 파일들은 속성을 줄마다 쓰고 여는 태그를 홀로 선 `>`·`/>` 줄로 닫는다. 펼침도 그 줄에 홀로 선 것만 센다 —
- * 그 사고를 적어 둔 주석 속 글자를 JSX 로 읽지 않게.
+ * `{...gesture.handlers}` 뒤 같은 태그에서 손짓 핸들러를 다시 적은 자리마다 — 그 값이 손짓을 이어 부르는가.
+ * 태그는 홀로 선 `>`·`/>` 줄로 닫힌다고 보고, 펼침도 홀로 선 줄만 센다(주석 속 글자를 JSX 로 읽지 않게).
  */
 function gestureHandlerOverrides(src: string): { prop: string; value: string; chains: boolean }[] {
   const out: { prop: string; value: string; chains: boolean }[] = [];
@@ -242,20 +224,9 @@ function gestureHandlerOverrides(src: string): { prop: string; value: string; ch
 }
 
 /**
- * §5.13 (M) v4.69 — **선택 이벤트를 받는 단계**.
- *
- * v4.61(스토어 배선)·v4.68(패널 조건)을 다 맞췄는데도 화면에서는 여전히 "눌러도 선택이 안
- * 되는" 버블이었다. 진짜 원인은 배선이 아니라 이벤트가 도달하지 못한 것이다 — 드래그 가능한
- * 노드 래퍼에 걸린 `d3-drag` 가 mousedown 에서 `stopImmediatePropagation()` 을 부르고,
- * React 18 은 핸들러를 루트 컨테이너에 위임하므로 **버블 단계 `onMouseDown` 은 발화 자체를
- * 못 한다**(우클릭·더블클릭만 살아 있던 이유이기도 하다). 캡처 단계로 받아야 뚫린다.
- * 되돌리면 세 증상(선택·선택 이펙트·Delete 삭제·패널)이 한꺼번에 다시 죽으므로 못 박는다.
- *
- * ⚠ 그 규칙은 이제 **캔버스 공용 상태기계 한 벌**(`bubbleSelectGesture`)에 들어 있고, 캔버스의
- * 모든 버블이 그것을 펼쳐 쓴다(`{...gesture.handlers}`). 그래서 가드도 두 겹이다 — ① 공용
- * 모듈이 캡처 단계로 받는가, ② 각 버블이 그 묶음을 실제로 펼쳐 쓰는가. 어느 버블 하나가
- * 자기만의 핸들러로 되돌아가면 손버릇이 다시 갈린다(사용자 지적: "더블클릭할 때 선택 동작도
- * 같이 일어난다" — 자기만의 즉시 선택이 남아 있던 버블들이 그랬다).
+ * §5.13 (M) — 선택은 캡처 단계에서 받는다. 노드 래퍼의 `d3-drag` 가 mousedown 에서 `stopImmediatePropagation()` 을 부르고 React 18 은 루트에 위임해
+ * 버블 단계 `onMouseDown` 은 발화하지 못한다. 규칙은 공용 `bubbleSelectGesture` 에 있고, 가드는 ① 공용 모듈이 캡처로 받는가
+ * ② 각 버블이 `{...gesture.handlers}` 를 펼쳐 쓰는가(자기 핸들러로 돌아가면 더블클릭 때 선택까지 일어난다).
  */
 describe('canvas store-driven bubbles — 선택은 캡처 단계에서 받는다', () => {
   const NODE_PATHS = [
@@ -307,10 +278,8 @@ describe('canvas store-driven bubbles — 선택은 캡처 단계에서 받는�
   }
 
   /**
-   * 2026-10-20 — 펼쳐 넣은 묶음을 **뒤에서 같은 이름으로 덮어쓰면** 위 검사(펼쳐 쓰는가)는 통과하는데 손짓은 죽는다.
-   * 앱 노드가 누를 때 미리 받기(§5.13 39-2)를 `onPointerDownCapture={prefetchNow}` 로 따로 달아 손짓의 누름을
-   * 덮어썼고, 등록된 앱은 눌러도 고르지 않아 `Delete` 가 지울 것이 없었다(사용자 보고 — 일부 앱이 안 지워진다).
-   * 덮어써도 되는 것은 손짓 핸들러를 **이어 부르는** 핸들러뿐이다(에이전트 버블의 `handlePointerUp` 선례).
+   * 펼친 묶음을 뒤에서 같은 이름으로 덮어쓰면 위 검사는 통과해도 손짓이 죽는다(예: `onPointerDownCapture={prefetchNow}` → 고르지 못해 Delete 가 못 지운다).
+   * 덮어써도 되는 것은 손짓 핸들러를 이어 부르는 핸들러뿐이다(`handlePointerUp` 선례).
    */
   it('펼쳐 넣은 손짓 핸들러를 뒤에서 덮어쓰면, 그 핸들러가 손짓을 이어 부른다', () => {
     const sources = import.meta.glob<string>('/src/components/BubbleMap/*.tsx', {
@@ -353,10 +322,7 @@ describe('canvas store-driven bubbles — 선택은 캡처 단계에서 받는�
   });
 });
 
-/**
- * §5.4 #36 (F) — 앱 위성은 **고르는 즉시** 선다. 클라가 id 를 지어 화면에 먼저 넣고 같은 id 로 POST 한다.
- * 서버 확인 전에 도착한 스냅샷(만들기 전에 출발한 것)이 방금 선 노드를 지우면 한 프레임 사라졌다 돌아온다.
- */
+/** §5.4 #36 (F) — 앱 위성은 고르는 즉시 선다(클라가 지은 id 로 먼저 넣고 같은 id 로 POST). 만들기 전에 출발한 스냅샷이 그 노드를 지우면 한 프레임 깜빡인다. */
 describe('app bubble optimistic create', () => {
   const input = {
     projectName: 'demo',

@@ -4,15 +4,8 @@ import { useGraphStore, selectProjectBookmarks } from '../../stores/graphStore.j
 import type { IDEBookmark } from '../../stores/graphStore.js';
 import { ScrollFade } from '../ScrollFade.js';
 
-// §5.5 #17-7 v4.93 — 북마크 뷰.
-//
-// 스킬(#17-4)·목표(#17-17)·루프(#17-11 ⑨) 와 같은 자리(사이드바 `w-52`)에 뜬다 — 보관해 둔 조각은
-// 대화를 가리고 볼 것이 아니라 **본문을 보면서 곁눈으로** 꺼내는 것이기 때문(v4.93 이전의 세션창
-// 덮개 패널 `IDEBookmarkPanel` 은 폐지). 저장·이동 로직(`jumpToBookmark`/`removeBookmark`/생존 판정)은
-// 종전 그대로고, 바뀐 것은 **어디에 어떻게 그리는가** 뿐이다.
-//
-// 좁은 폭에 맞춘 표시 규약: 본문 4줄 클램프 · 메타 한 줄(출처 칩 + 짧은 시각) · 액션 3종은 hover 노출.
-// 카드 본문을 누르면 곧바로 원본으로 이동한다(좁은 칸에서 작은 버튼만 노리지 않아도 되게).
+// §5.5 #17-7 — 북마크 뷰: 스킬·목표·루프와 같은 사이드바(`w-52`) — 대화를 가리지 않고 곁눈으로 꺼낸다.
+// 좁은 폭 규약: 본문 4줄 클램프 · 메타 한 줄 · 액션은 hover · 카드를 누르면 원본으로.
 
 /** 목록용 짧은 시각 — 오늘이면 `HH:MM`, 그 전이면 `M/D`. 전체 시각은 툴팁이 말한다. */
 function formatShort(ts: number): string {
@@ -134,13 +127,7 @@ const BookmarkRow = memo(function BookmarkRow({ bookmark }: { bookmark: IDEBookm
   );
 });
 
-/**
- * 북마크 뷰 — `IDESidebar` 의 `VIEW_MAP['bookmarks']`. 활동바 북마크 항목을 누르면 여기로 바뀌고,
- * 같은 항목을 다시 누르면 사이드바가 접힌다(다른 항목과 같은 규약).
- * 목록은 **지금 보고 있는 프로젝트 칸**만 보여 준다(§5.5 #17-7 프로젝트별로 갈라 담기) — 활동바 배지와
- * 같은 산식(`selectProjectBookmarks`)이라 둘이 어긋나지 않는다. 칸 안에서는 에이전트를 가리지 않으므로
- * `agentId` 는 여전히 쓰지 않는다(뷰 시그니처만 맞춘다).
- */
+/** 북마크 뷰(`VIEW_MAP['bookmarks']`) — 지금 보는 프로젝트 칸만(활동바 배지와 같은 `selectProjectBookmarks`). `agentId` 는 안 쓴다(시그니처만). */
 export const IDEBookmarkView = memo(function IDEBookmarkView(): React.JSX.Element {
   const { t } = useTranslation();
   // 선택자가 칸을 합칠 때 새 배열을 만들므로 store 구독은 원본 상태만 하고 합치기는 useMemo 로 감싼다.

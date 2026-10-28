@@ -1,19 +1,8 @@
 /**
- * bubbleDeleteAction.test.ts — **"도는 에이전트가 저절로 휴지통에 들어갔다"의 회귀 방지.**
- *
- * 2026-09-11 실측: 사용자가 지우기를 누른 적이 없는데 커스텀 에이전트 하나가 휴지통으로 갔다
- * (`checkpoint.json.bak3` 에 `trashed:true`·`trashedAt` 이 찍혀 있었다). 원인은 캔버스의 옛
- * `window.addEventListener('keydown')` 이었다 — **`Backspace` 까지 받았고**, 레지스트리(§5.24 #32)
- * 밖이라 스코프·입력칸 회피·IME 조합 판정이 하나도 없었다. 그래서 캔버스가 아닌 곳(IDE 창·팝업)의
- * 지우기가 캔버스의 버블을 지웠다.
- *
- * 그래서 이 파일이 못 박는 것은 셋이다.
- *  ① 지우기 명령의 기본 배정은 **`Delete` 하나**다. `Backspace` 는 일부러 없다(사용자 지시).
- *  ② 캔버스 소스가 `Backspace` 를 다시 지우기 키로 받지 않는다(옛 리스너 재발 차단).
- *  ③ 같은 버블에 **키와 우클릭 메뉴가 다른 일을 하지 않는다** — 판정도 실행도 이 모듈 한 벌이다.
- *
- * ⚠ 클라 vitest 에는 DOM 이 없다. 소스 훑기는 `import.meta.glob('?raw')` 으로 하고, glob 이 비면
- * 검사가 조용히 통과하므로 "실제로 읽어 왔다"를 먼저 못 박는다.
+ * 도는 에이전트가 저절로 휴지통에 가던 회귀(2026-09-11 실측) — 옛 캔버스 keydown 이 `Backspace` 를 받았고 레지스트리(§5.24 #32) 밖이라
+ * 스코프·입력칸·IME 판정이 없어 IDE 창의 지우기가 버블을 지웠다.
+ * 못 박는 셋: 지우기 기본 키는 `Delete` 하나 · 캔버스가 `Backspace` 를 다시 받지 않음 · 키와 메뉴가 같은 판정·실행.
+ * glob 이 비면 조용히 통과하므로 "읽어 왔다"를 먼저 못 박는다.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { COMMANDS } from '@vibisual/shared';
@@ -188,12 +177,7 @@ describe('지우기 실행 — 키와 메뉴가 같은 창구를 쓴다', () => 
   });
 });
 
-/**
- * 2026-09-11 두 번째 사용자 보고 — **여러 개를 묶어 놓고 우클릭했더니 삭제가 아니라 "만들기"
- * 목록이 떴다.** 원인은 화면이 아니라 DOM 이다: 여러 개를 고르면 React Flow 가 그 위에
- * `.react-flow__nodesselection-rect` 를 덮는데 그것이 `pointer-events: all` 이라, 우클릭이 버블에
- * 닿지 못하고 "빈 곳"으로 판정돼 생성 메뉴로 샜다.
- */
+/** 묶음 위 우클릭이 생성 메뉴로 새던 회귀 — `.react-flow__nodesselection-rect`(`pointer-events: all`)가 버블을 덮어 빈 곳으로 판정됐다. */
 describe('묶음 위 우클릭 — 빈 곳 메뉴로 새지 않는다', () => {
   /** `closest` 하나만 흉내 내는 최소 대상(테스트 환경엔 DOM 이 없다). */
   const targetIn = (...classes: string[]) => ({

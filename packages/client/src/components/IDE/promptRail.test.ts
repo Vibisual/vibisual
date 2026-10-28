@@ -4,8 +4,15 @@ import {
   nearestPromptMarker,
   placePromptRailPopup,
   probePromptPlace,
+  PROMPT_RAIL_DENSE_GAP_PX,
+  PROMPT_RAIL_TRACK_MAX_PX,
+  PROMPT_RAIL_TRACK_MIN_PX,
+  PROMPT_RAIL_TRACK_PX_PER_PROMPT,
   promptMarkerRatio,
   promptPreviewText,
+  promptRailDense,
+  promptRailLine,
+  promptRailTrackPx,
   resolvePromptRailPlace,
   samePromptOutline,
   samePromptRailPlace,
@@ -144,6 +151,53 @@ describe('눈금 배치 — 순번으로 고르게, 포인터는 가장 가까�
 
   it('눈금이 없으면 -1', () => {
     expect(nearestPromptMarker(0.5, 0)).toBe(-1);
+  });
+});
+
+describe('점 트랙 — 높이 · 빽빽함 · 잇는 선과 차오른 선 (알약 하나 · 점과 빛)', () => {
+  it('트랙은 입력 수만큼 자라되 위아래 한도 안에 머문다', () => {
+    expect(promptRailTrackPx(0)).toBe(PROMPT_RAIL_TRACK_MIN_PX);
+    expect(promptRailTrackPx(1)).toBe(PROMPT_RAIL_TRACK_MIN_PX);
+    expect(promptRailTrackPx(5)).toBe(5 * PROMPT_RAIL_TRACK_PX_PER_PROMPT);
+    expect(promptRailTrackPx(500)).toBe(PROMPT_RAIL_TRACK_MAX_PX);
+  });
+
+  it('점 간격이 기준보다 좁아지면 빽빽하다 — 작은 점으로 그려 덩어리로 뭉치지 않게', () => {
+    expect(promptRailDense(0)).toBe(false);
+    expect(promptRailDense(10)).toBe(false);
+    // 한도(192px)에 닿은 뒤 간격이 7px 아래로 내려가는 첫 개수부터 빽빽하다.
+    const firstDense = Math.floor(PROMPT_RAIL_TRACK_MAX_PX / PROMPT_RAIL_DENSE_GAP_PX) + 1;
+    expect(promptRailDense(firstDense - 1)).toBe(false);
+    expect(promptRailDense(firstDense)).toBe(true);
+    expect(promptRailDense(300)).toBe(true);
+    // 창이 낮아 트랙이 줄었으면 그 높이로 판정한다.
+    expect(promptRailDense(10, 60)).toBe(true);
+  });
+
+  it('점이 하나뿐이면 이을 선이 없다', () => {
+    expect(promptRailLine(0, -1)).toBeNull();
+    expect(promptRailLine(1, 0)).toBeNull();
+  });
+
+  it('잇는 선은 첫 점에서 마지막 점까지 — 위아래 끝이 점의 중심에 닿는다', () => {
+    const line = promptRailLine(4, 1)!;
+    expect(line.insetPct).toBeCloseTo(promptMarkerRatio(0, 4) * 100);
+    expect(100 - line.insetPct).toBeCloseTo(promptMarkerRatio(3, 4) * 100);
+  });
+
+  it('차오른 선은 첫 점에서 지금 턴의 점까지 — 끝이 그 점의 중심에 닿는다', () => {
+    for (const count of [2, 3, 7, 40]) {
+      for (let current = 1; current < count; current++) {
+        const line = promptRailLine(count, current)!;
+        expect(line.insetPct + line.fillPct).toBeCloseTo(promptMarkerRatio(current, count) * 100);
+      }
+    }
+  });
+
+  it('첫 입력에 서 있거나 그보다 위면 차오른 선이 없다 · 목록보다 큰 자리는 마지막 점에서 멈춘다', () => {
+    expect(promptRailLine(4, 0)!.fillPct).toBe(0);
+    expect(promptRailLine(4, -1)!.fillPct).toBe(0);
+    expect(promptRailLine(4, 9)!.fillPct).toBeCloseTo(promptRailLine(4, 3)!.fillPct);
   });
 });
 

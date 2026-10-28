@@ -3,11 +3,8 @@ import { splitCmdPane } from '@vibisual/shared';
 import { subAgentManager } from './subAgentManager.js';
 
 /**
- * §4 (CMD 터미널 업그레이드 ① QA) — 터미널 상태 신호가 **세션 하나의 결론**으로 합쳐지는지.
- *
- * 처음 구현은 pane 마다 감지기가 따로 돌면서 같은 sub 를 서로 덮어썼다 — 왼쪽 pane 에서 빌드가
- * 돌고 오른쪽 pane 이 권한 프롬프트에서 멈춰 있으면 탭 도트가 1초 간격으로 working↔blocked 를
- * 오갔고, 분할을 쓰는 순간 상태 표시가 통째로 무의미해졌다. 그 합의 규칙을 여기서 고정한다.
+ * §4 (CMD 터미널 업그레이드 ① QA) — pane 마다의 터미널 상태 신호가 **세션 하나의 결론**으로 합쳐지는지.
+ * pane 감지기가 같은 sub 를 따로 덮어쓰면, 한 pane 은 빌드·다른 pane 은 권한 프롬프트일 때 탭 도트가 1초마다 working↔blocked 를 오간다 — 그 합의 규칙을 고정한다.
  */
 
 const created: string[] = [];
@@ -92,7 +89,7 @@ describe('applyCmdTerminalSignal — 분할 pane 합의', () => {
     subAgentManager.applyCmdTerminalSignal({ termId: base, state: 'working' });
     expect(subAgentManager.getSub(subId)!.blocked).toBeUndefined();
 
-    // 막힌 pane 이 같은 상태를 다시 신고해도 결론이 뒤집히지 않는다(종전엔 여기서 깜빡였다).
+    // 막힌 pane 이 같은 상태를 다시 신고해도 결론이 뒤집히지 않는다(여기서 깜빡이면 안 된다).
     subAgentManager.applyCmdTerminalSignal({ termId: `${base}#1`, state: 'blocked', reason: 'Continue? (y/n)' });
     expect(subAgentManager.getSub(subId)!.blocked).toBeUndefined();
   });

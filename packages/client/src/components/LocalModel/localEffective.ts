@@ -3,11 +3,8 @@ import { LOCAL_DEFAULT_CONTEXT_SIZE, type LocalSamplingInfo } from '@vibisual/sh
 import type { TranslateFn } from '../../formatSince.js';
 
 /**
- * §5.25 (G-2) — 로컬 모델의 온도·문맥 칸을 **비워 두었을 때 실제로 쓰이는 값**을 칸에 적는다.
- *
- * 에이전트 설정 창과 설정 창(Agent 기본값)이 같은 조회·같은 문구를 쓴다 — 한쪽만 "엔진 기본값" 같은
- * 말로 되돌아가지 않게. 값은 서버(`GET /api/local-llm/models/:id/sampling`)가 올라간 엔진 → 모델 파일 →
- * 엔진 `--help` 순서로 읽은 것이고, 못 읽었으면 숫자를 지어내지 않는다.
+ * §5.25 (G-2) — 로컬 모델 온도·문맥 칸을 비웠을 때 실제 값을 적는다(에이전트 설정·설정 창 공용). 값은 서버(`GET /api/local-llm/models/:id/sampling`)가
+ * 엔진 → 모델 파일 → `--help` 순으로 읽은 것 — 못 읽으면 지어내지 않는다.
  */
 
 /** 모델을 아직 안 골랐을 때 — 온도는 모델이 정하니 모르고, 문맥은 깎을 학습 길이가 없어 우리 크기 그대로다. */

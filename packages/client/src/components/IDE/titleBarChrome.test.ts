@@ -1,14 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { autoFloatOnMultiPane, resolveTitleBarChrome, touchWindowMode, type TitleBarChromeInput } from './titleBarChrome.js';
 
-/**
- * IDE 타이틀바 폰 다이어트 회귀.
- *
- * 고정하는 약속 둘:
- *   ① 데스크톱(narrow=false)에서는 **무엇도 사라지지 않는다** — 기존 화면 불변.
- *   ② 폰에서 접더라도 **나갈 길은 남는다** — 붙어 있는 창에서는 [붙이기/떼기] 메뉴가 살아 있고,
- *      [닫기]는 애초에 이 판정의 대상이 아니라 항상 그려진다.
- */
+/** IDE 타이틀바 폰 접기: 데스크톱에선 아무것도 사라지지 않고, 폰에서도 나갈 길([붙이기/떼기]·[닫기])이 남는다. */
 
 const base: TitleBarChromeInput = {
   narrow: false,
@@ -92,8 +85,7 @@ describe('resolveTitleBarChrome — 오버레이 창·도킹 끔', () => {
     }
   });
 
-  // §17-6 (H-5) — 독립 창은 `frame:false + transparent` 라 OS 타이틀바도 시스템 최대화도 없다.
-  //   여기서 접으면 그 창을 키우는 길이 **네 변을 손으로 끄는 것뿐**이 된다(사용자 보고).
+  // §17-6 (H-5) — 독립 창은 `frame:false + transparent` 라 시스템 최대화가 없다 — 접으면 키우는 길이 변 끌기뿐이다.
   it('독립 창에서는 [최대화]를 남긴다 — 폭과 무관하게', () => {
     for (const narrow of [false, true]) {
       const chrome = resolveTitleBarChrome({ ...base, narrow, fullWindow: true, disableDock: true });

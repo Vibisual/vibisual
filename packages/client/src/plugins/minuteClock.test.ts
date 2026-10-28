@@ -1,9 +1,4 @@
-/**
- * §5.11 v4.31 — 공용 분 시계 고정 테스트.
- *
- * 이 시계가 멈추면 `rogue-agent`(방치 감지)처럼 **시간 자체가 판정 근거인 카드**가 아무 일도 안 한다.
- * 반대로 너무 자주 깨우면 111장이 통째로 다시 계산된다. 두 실패 모두 조용히 일어나므로 여기서 못 박는다.
- */
+/** §5.11 — 공용 분 시계 고정: 멈추면 시간이 판정 근거인 카드(`rogue-agent`)가 죽고, 너무 자주 깨우면 카드 전부가 재계산된다. */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { subscribeMinute, getMinuteNow, resetMinuteClockForTest } from './minuteClock.js';
 

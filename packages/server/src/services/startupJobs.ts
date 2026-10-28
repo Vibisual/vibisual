@@ -1,17 +1,7 @@
 /**
- * startupJobs.ts — §3.7 · §9 「창이 뜬 직후의 메인 스레드」 ②. **부팅 한 번짜리 확인은 창이 보인 뒤 한 칸씩.**
- *
- * 서버는 창의 입력을 받는 메인 스레드에서 함께 돈다(§3.7). 부팅 때 걸던 확인들(Claude 설치 1.2초 · 로그인
- * 1.5초 · 사용량 2초 · 코덱스 2초 · 훅 전송 4초)은 `runServer` 맨 앞에서 **부팅 시작 기준**으로 걸려, 부팅이
- * 느리면 창이 뜨는 그 순간 한꺼번에 터졌다 — 저마다 CLI 프로세스를 띄우고(Windows 는 프로세스 생성이 동기다)
- * 스냅샷을 다시 민다. 그 사이 사용자가 제목줄을 잡으면 창이 따라오지 않았다.
- *
- * 그래서 줄에 세웠다가 본체 창이 처음 보일 때(`releaseStartupJobs` — desktop main 이 부른다) 원래 순서 그대로
- * 한 칸씩 돌린다. 창 소식이 끝내 안 오면(창 없는 실행·시험) 상한 뒤 스스로 풀린다 — 확인이 영영 안 도는 일은 없다.
- *
- * §9 「시작 화면(스플래시)」 — 스플래시가 떠 있는 실행은 본체 창이 보이기 **전에** 줄을 푼다(`'splash'`). 그 구간에는
- * 아무도 창을 끌지 않으므로 좁은 간격(`STARTUP_JOB_SPLASH_*`)으로 돌리고, desktop main 은 줄이 다 돌았는지
- * (`pendingStartupJobCount() === 0`)를 보고서야 본체 창을 보인다 — 창이 보인 뒤의 CLI 기동 멈춤이 사라진다.
+ * §3.7 · §9 「창이 뜬 직후의 메인 스레드」 ② — 부팅 한 번짜리 확인(설치·로그인·사용량·코덱스·훅 전송)은 줄에 세웠다가
+ * 본체 창이 처음 보일 때(`releaseStartupJobs`) 원래 순서대로 한 칸씩 돈다 — 저마다 CLI 를 띄우고(Windows 프로세스 생성은 동기) 스냅샷을 밀어, 한꺼번에 터지면 창이 안 끌린다.
+ * 창 소식이 없으면 상한 뒤 스스로 풀린다. 스플래시 실행은 창 전에 좁은 간격으로 풀고(`'splash'`), desktop main 은 `pendingStartupJobCount() === 0` 뒤에 창을 보인다.
  */
 import {
   STARTUP_JOB_GAP_MS,
@@ -35,11 +25,7 @@ interface StartupJob {
  */
 export type StartupJobRelease = 'window-shown' | 'splash' | 'cap';
 
-/**
- * 풀린 순간부터 각 작업까지의 지연(ms) — 순수 함수. 등록 순서가 아니라 **종전 지연 순서**를 지킨다(같으면
- * 등록 순서). 설치 판정이 로그인 판정보다 앞서야 하는 것처럼 순서에 뜻이 있는 확인들이라서다.
- * 첫 작업은 `settleMs` 뒤, 그다음부터 `gapMs` 씩 띄운다.
- */
+/** 풀린 뒤 각 작업까지의 지연(ms, 순수). 등록 순서가 아니라 원래 지연 순서다(설치 판정 → 로그인 판정처럼 순서에 뜻이 있다). 첫 작업 `settleMs`, 이후 `gapMs` 간격. */
 export function planStartupJobDelays(
   delays: readonly number[],
   settleMs: number = STARTUP_JOB_SETTLE_MS,
@@ -93,10 +79,7 @@ export function deferStartupJob(label: string, delayMs: number, run: () => void)
   }
 }
 
-/**
- * 줄에 선 작업을 원래 순서대로 한 칸씩 돌린다. 두 번째부터는 아무것도 하지 않는다(스플래시가 먼저 풀었으면 본체
- * 창의 첫 show 는 아무 일도 하지 않는다). `splash` 만 좁은 간격을 쓴다 — 나머지는 종전 간격 그대로다.
- */
+/** 원래 순서대로 한 칸씩 돌린다 — 두 번째 호출부터는 무동작(스플래시가 먼저 풀었으면 창의 첫 show 는 무시). `splash` 만 좁은 간격. */
 export function releaseStartupJobs(reason: StartupJobRelease = 'window-shown'): void {
   if (released) return;
   released = true;
@@ -116,11 +99,7 @@ export function releaseStartupJobs(reason: StartupJobRelease = 'window-shown'): 
   }
 }
 
-/**
- * 부팅 한 번짜리 확인 중 **아직 시작하지 않은** 것의 수 — 풀리기 전이면 줄에 선 수, 풀린 뒤면 시계에 걸린 수다.
- * 작업은 시작만 동기이고(CLI 기동) 결과는 나중에 오므로, 0 이면 "멈춤을 만들 일은 다 지나갔다"는 뜻이다.
- * desktop main 이 스플래시를 걷기 전에 본다(§9 「시작 화면(스플래시)」).
- */
+/** 아직 시작 안 한 부팅 확인 수(풀리기 전엔 줄, 뒤엔 시계). 시작만 동기라 0 이면 멈춤을 만들 일이 지나갔다 — desktop main 이 스플래시를 걷기 전에 본다. */
 export function pendingStartupJobCount(): number {
   return released ? scheduledNotRun : pending.length;
 }

@@ -8,10 +8,7 @@ import type { VideoDoc } from '../types.js';
 import { VersionBook } from './versionBook.js';
 import { compositionFingerprint, compositionFingerprintAsync } from './composition.js';
 
-/**
- * §5.13 (Y) 40-7 ② — 판 기억. `/version` 은 기억한 판으로만 답하고(비동기 stat 한 번 — 파일이 그대로면 다시 읽지도 파싱하지도 않는다),
- * 이 서버가 적으면 기억이 그 판으로 바뀌며 지켜보는 창에 알린다. 컴포지션 지문은 동기·비동기 판이 같은 값이다.
- */
+/** §5.13 (Y) 40-7 ② — 판 기억: 파일이 그대로면 다시 읽지 않는지, 서버가 적으면 판이 바뀌고 지켜보는 창에 알리는지, 지문의 동기·비동기 판이 같은지. */
 
 let dir: string;
 let now = 1_000;

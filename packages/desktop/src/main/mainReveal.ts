@@ -1,14 +1,8 @@
-// SCENARIO.md §3.7 · §9 「시작 화면(스플래시)」 — **본체 창은 다 그리고 조용해진 뒤에 보인다.**
-//
-// 종전에는 본체 창이 `ready-to-show`(빈 껍데기를 한 번 칠한 순간)에 곧바로 보였다. 그 뒤에 React 마운트·첫 스냅샷·
-// 부팅 확인(CLI 기동)이 몰려, 창이 뜬 첫 3초에 0.2~2.9초씩 멈췄다(main-stall.log 실측 — "떴는데도 버벅인다").
-// 이제 본체 창은 숨긴 채 그리게 두고(숨긴 창도 그린다 — 실측: 숨긴 창의 rAF 초당 30회·visibilityState 'visible'),
-// 스플래시가 그 앞을 지킨다. 보이는 조건과 순서는 `splashPolicy.decideMainReveal` 이 단독으로 갖는다 — 여기는 신호를
-// 모으고 창을 보이는 일만 한다.
-//
-// 신호 셋: ① 렌더러의 "첫 화면을 다 그렸다"(`MAIN_READY_CHANNEL`) ② 부팅 한 번짜리 확인의 남은 수(서버 코어)
-// ③ 메인 스레드의 조용함 — 이 시계가 늦게 깬 만큼이 그 사이 바빴던 시간이다(`mainStallLog` 와 같은 원리).
-// 렌더러가 죽거나 못 읽거나 응답이 없으면 기다리지 않는다 — 그 창의 복구 안내(`windowCrashRecovery`)가 보여야 한다.
+// SCENARIO.md §3.7 · §9 「시작 화면(스플래시)」 — 본체 창은 다 그리고 조용해진 뒤에 보인다.
+// `ready-to-show` 에 보이면 React 마운트·첫 스냅샷·부팅 확인이 몰려 첫 3초에 0.2~2.9초씩 멈춘다(main-stall.log 실측).
+// 숨긴 창도 그린다(실측: rAF 초당 30회·visibilityState 'visible'). 조건·순서는 `splashPolicy.decideMainReveal` 단독 — 여기는 신호를 모아 보이기만.
+// 신호: ① 렌더러 첫 화면 완료(`MAIN_READY_CHANNEL`) ② 부팅 한 번짜리 확인의 남은 수 ③ 메인 스레드 조용함(시계가 늦게 깬 만큼이 바빴던 시간).
+// 렌더러가 죽거나 못 읽거나 무응답이면 기다리지 않는다 — 그 창의 복구 안내(`windowCrashRecovery`)가 보여야 한다.
 
 import { ipcMain, type BrowserWindow } from 'electron';
 import {

@@ -17,12 +17,7 @@ import type { DebugControlActionWire } from '../../stores/debugSessionTypes.js';
 import { toWorkspaceRelative } from './debugPaths.js';
 import { useIDEPaneActions } from './idePane.js';
 
-/**
- * §5.5 #17-20 ⑩ v4.94 — 붙어 있는 디버그 세션 하나의 조작판.
- *
- * **여기에는 CDP·DAP 라는 말이 없다.** 서버가 한 모양으로 정규화해 보내므로 이 컴포넌트는
- * `DebugSessionState` 하나만 알면 되고, 런타임이 늘어도 한 줄도 바뀌지 않는다.
- */
+/** §5.5 #17-20 ⑩ — 디버그 세션 하나의 조작판. CDP·DAP 를 모른다 — 서버가 `DebugSessionState` 한 모양으로 정규화한다. */
 
 /** 조작 버튼 하나 — 아이콘은 전부 lucide 톤 stroke SVG(이모지 ❌). */
 function ControlButton({

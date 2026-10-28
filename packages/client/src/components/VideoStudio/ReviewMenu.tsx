@@ -6,10 +6,7 @@ import { StudioPopover, PopoverItem } from './StudioPopover.js';
 import { StudioIcon } from './studioIcons.js';
 import { formatClock } from './PreviewControls.js';
 
-/**
- * §5.13 (V) 37-9 — 장면 줄 위 **검수 표시**를 누르면 뜨는 판: 사람 말 한 줄 + [AI 에게 고치게](그 시각·아이템·검수 결과가 실린
- * 바퀴) + [비트에 맞추기](비트 어긋남 — 코드가 계산한 연산) + [이번엔 넘기기] + [프레임까지 다시 보기].
- */
+/** §5.13 (V) 37-9 — 검수 표시 판: [AI 에게 고치게](시각·아이템·검수 결과가 실린 바퀴) · [비트에 맞추기](코드가 계산한 연산) · [넘기기] · [다시 보기]. */
 export interface ReviewMenuProps {
   readonly anchor: HTMLElement;
   readonly finding: MotionFinding;

@@ -1,18 +1,10 @@
 import { spawn } from 'node:child_process';
-import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { claudeSpawnEnv, getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { logger } from '../logger.js';
 
 /**
- * §4 — `claude` 하위명령을 **한 번 실행하고 출력을 받아오는** 공통 창구.
- *
- * `claudeAuthService`(로그인 상태 판정)와 `claudeUsageProbe`(사용량 조회)가 같은 모양의 실행을
- * 필요로 해서, 종전 auth 서비스 안에 있던 private `runClaude` 를 그대로 끌어올린 것이다 —
- * spawn 옵션(특히 Windows 셸 경유·`windowsHide`)이 두 벌로 갈라지면 한쪽만 고쳐지는 사고가 난다.
- *
- * **오래 사는 자식이 아니다.** 프로세스 그룹(`processGroupSpawnOptions`)은 **일부러 안 붙인다** —
- * `auth status --json` · `-p "/usage"` 처럼 손자를 만들지 않고 즉시 끝나는 probe 라, 회수도
- * killTree 가 아니라 단일 kill 로 충분하다. 안 붙인 이유가 여기 없으면 다음 사람이 "빠뜨렸다"고
- * 보고 무의미하게 넓힌다.
+ * §4 — `claude` 하위명령을 **한 번 실행하고 출력을 받는** 공통 창구(`claudeAuthService`·`claudeUsageProbe`). spawn 옵션(Windows 셸 경유·`windowsHide`)이 두 벌로 갈리면 한쪽만 고쳐진다.
+ * **오래 사는 자식이 아니다** — `auth status --json`·`-p "/usage"` 는 손자 없이 바로 끝나는 probe 라 프로세스 그룹(`processGroupSpawnOptions`)은 **일부러 안 붙인다** — 단일 kill 로 회수한다(빠뜨린 것이 아니다).
  */
 
 export interface ClaudeCliRunResult {
@@ -44,31 +36,18 @@ export interface CliInvocation {
 const CMD_META_CHARS = /([()\][%!^"`<>&|;, *?])/g;
 
 /**
- * **실행본 경로**를 cmd 명령줄에 넣을 형태로 바꾼다.
- *
- * 인자와 달리 따옴표로 감싸지 않는다 — 감싸면 `cmd /d /s /c` 가 줄 전체의 바깥 따옴표를
- * 벗기는 규칙과 겹쳐 경로 해석이 깨진다(실측: "파일 이름, 디렉터리 이름 또는 볼륨 레이블
- * 구문이 잘못되었습니다"). 대신 메타문자를 `^` 로 **한 번만** 덮는다. Windows 경로에는
- * `"` 가 올 수 없으므로 혹시 섞여 있으면 잘라 낸다 — 인용 상태를 뒤집는 유일한 글자다.
+ * **실행본 경로**를 cmd 명령줄에 넣을 형태로. 따옴표로 감싸지 않는다 — `cmd /d /s /c` 의 바깥 따옴표 벗기기와 겹쳐 경로 해석이 깨진다(실측: "파일 이름, 디렉터리 이름 또는 볼륨 레이블 구문이 잘못되었습니다").
+ * 메타문자는 `^` 로 **한 번만** 덮는다. Windows 경로엔 `"` 가 올 수 없으므로 섞여 있으면 잘라 낸다(인용 상태를 뒤집는 유일한 글자).
  */
 function escapeCmdCommand(value: string): string {
   return value.replace(/"/g, '').replace(CMD_META_CHARS, '^$1');
 }
 
 /**
- * **인자 하나**를 cmd 명령줄에 넣을 형태로 바꾼다. 2단이다.
- *
- * 1. `CommandLineToArgvW` 규칙으로 따옴표를 만든다 — 역슬래시 뭉치는 배로 늘리고 `"` 는
- *    `\"` 로 escape 한 뒤 전체를 `"…"` 로 감싼다. 자식이 argv 를 복원할 때 원래 문자열을
- *    **그대로** 돌려받는다.
- * 2. 메타문자를 `^` 로 **두 번** 덮는다. `.cmd` shim 은 안에서 `%*` 로 인자를 다시 펼치기
- *    때문에 cmd 가 같은 줄을 두 번 읽는다 — 한 번만 덮으면 두 번째 읽기에서 벗겨진 `&` 가
- *    되살아난다.
- *
- * 종전 `quoteForShell` 은 `[\s&|<>^]` 이 없는 값(예: `"` 하나뿐인 모델명)을 **그대로**
- * 흘려 보냈다. 그 `"` 하나가 cmd 의 인용 상태를 뒤집으면, 뒤따르는 인자에서 따옴표로 감싼
- * `&` 가 인용 **밖**으로 나와 실행됐다(PoC 로 실행까지 확인). 개행이 든 값이 조용히 잘려
- * 나가던 것(`runBackgroundTaskProbe`·`runSessionLivenessProbe` 의 프롬프트)도 같은 뿌리다.
+ * **인자 하나**를 cmd 명령줄에 넣을 형태로 — 2단이다.
+ * 1. `CommandLineToArgvW` 규칙으로 따옴표를 만든다(역슬래시 뭉치는 배로, `"` 는 `\"`, 전체를 `"…"`) — 자식이 원래 문자열을 그대로 돌려받는다.
+ * 2. 메타문자를 `^` 로 **두 번** 덮는다 — `.cmd` shim 은 `%*` 로 인자를 다시 펼쳐 cmd 가 같은 줄을 두 번 읽으므로, 한 번만 덮으면 벗겨진 `&` 가 되살아난다.
+ * 메타문자가 없어 보이는 값도 그대로 흘리지 않는다 — `"` 하나가 인용 상태를 뒤집으면 뒤 인자의 따옴표 속 `&` 가 실행된다(PoC 로 확인).
  */
 function escapeCmdArgument(value: string): string {
   const quoted = `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, '$1$1')}"`;
@@ -76,18 +55,10 @@ function escapeCmdArgument(value: string): string {
 }
 
 /**
- * 실행본 경로 + 인자 → 실제 spawn 형태.
- *
- * **`platform` 을 인자로 받는다**(멀티플랫폼 규칙 — 함수 안에서 `process.platform` 을 읽으면
- * 그 분기는 개발기 한 곳에서만 돌아 영영 검증되지 않는다).
- *
- * - Windows 에서 실행본이 `.cmd`/`.bat` shim(예: npm 전역 설치)이면 **셸 경유가 필수**다
- *   (Node 는 배치 파일을 직접 exec 하지 못한다). 이때만 cmd 인용 규칙이 끼어들므로 경로는
- *   `escapeCmdCommand`, 인자는 `escapeCmdArgument` 로 덮는다 — 안 덮으면 `C:\Program Files\…`
- *   처럼 **공백이 든 설치 경로**에서 명령이 두 동강 나고, 그보다 나쁘게는 인자에 섞인 `"`·`&`
- *   가 **명령 주입**이 된다(§보안 감사 2026-09-09).
- * - 그 외(네이티브 `claude.exe`, mac/linux 실행본)는 셸을 끼우지 않는다. 셸이 없으면 인용
- *   규칙 자체가 사라져 공백 문제도 함께 사라진다.
+ * 실행본 경로 + 인자 → 실제 spawn 형태. `platform` 은 인자로 받는다(멀티플랫폼 규칙).
+ * - Windows `.cmd`·`.bat` shim(npm 전역 설치 등)은 **셸 경유가 필수**다(Node 는 배치 파일을 직접 exec 못 한다). 이때만 경로는 `escapeCmdCommand`, 인자는 `escapeCmdArgument` 로 덮는다.
+ * 안 덮으면 `C:\Program Files\…` 같은 공백 경로에서 명령이 두 동강 나고, 인자의 `"`·`&` 가 명령 주입이 된다(§보안 감사 2026-09-09).
+ * - 그 외(네이티브 `claude.exe`, mac/linux 실행본)는 셸을 끼우지 않는다 — 인용 규칙도 공백 문제도 함께 사라진다.
  */
 export function buildCliInvocation(
   binPath: string,
@@ -119,11 +90,8 @@ export function runClaudeCli(
 
   const invocation = buildCliInvocation(binPath, args, process.platform);
 
-  // 실측(2026-09-09): `cmd.exe /d /s /c` 는 명령줄에 든 **개행에서 줄을 끊는다.** 인용 안쪽,
-  // `^` 줄연결, `^^`+빈 줄, CRLF 까지 다섯 형태를 다 재 봤지만 개행이 살아남는 형태는 없었다
-  // (cross-spawn 도 같은 한계를 가진다). 즉 Windows `.cmd` shim 경유일 때 여러 줄 프롬프트는
-  // **첫 줄까지만** 자식에게 간다. 조용히 잘리면 probe 가 근거 일부만 보고 판정하므로, 고칠 수
-  // 없는 자리라도 잘렸다는 사실은 남긴다.
+  // 실측(2026-09-09): `cmd.exe /d /s /c` 는 명령줄의 **개행에서 줄을 끊는다** — 인용 안쪽·`^` 줄연결·`^^`+빈 줄·CRLF 어느 형태도 살아남지 않았다(cross-spawn 도 같다).
+  // 그래서 `.cmd` shim 경유의 여러 줄 프롬프트는 첫 줄까지만 간다. 고칠 수 없지만 probe 가 근거 일부만 보고 판정하므로 잘렸다는 사실은 남긴다.
   if (invocation.shell && args.some((a) => /[\r\n]/.test(a))) {
     logger.warn('[claude-cli] .cmd shim 경유 — 개행이 든 인자는 첫 줄까지만 전달된다(cmd.exe 한계)');
   }
@@ -144,7 +112,8 @@ export function runClaudeCli(
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
         ...(options.cwd ? { cwd: options.cwd } : {}),
-        ...(options.extraEnv ? { env: { ...process.env, ...options.extraEnv } } : {}),
+        // §4 (앱 전용 엔진) ⑤ — 앱 전용 실행본이면 엔진 자체 갱신을 끈다(`claudeSpawnEnv`).
+        env: claudeSpawnEnv(options.extraEnv ? { ...process.env, ...options.extraEnv } : process.env, binPath),
       });
     } catch {
       return finish({ code: null, out: '', failure: 'spawn' });

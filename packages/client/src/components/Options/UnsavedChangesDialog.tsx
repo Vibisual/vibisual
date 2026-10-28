@@ -4,14 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 /**
- * §4 — 옵션창을 **저장하지 않고 나가려 할 때** 뜨는 확인 팝업(우리 디자인).
- *
- * 종전에는 `window.confirm` 이었다. 그 창은 OS 가 그리므로 우리 톤과 무관한 모양·버튼 순서·
- * 시스템 소리로 뜨고, Electron 에서는 앱 전체를 얼리는 모달이라 "우리 앱이 아닌 무언가가 튀어나온"
- * 인상을 준다. 그래서 `TrashPurgeDialog`·`WorktreeDeleteDialog` 와 같은 문법(백드롭 + 카드)으로 그린다.
- *
- * 닫기 경로는 호출부(`OptionsWindow`)가 한 곳으로 모은다 — 여기서는 배경 클릭 = "계속 편집"만 안다
- * (Esc 는 옵션창이 이미 잡고 있어 여기서 또 달면 두 벌이 된다).
+ * §4 — 옵션창 미저장 이탈 확인 팝업. `window.confirm` ❌(OS 모양·소리, Electron 에서 앱 전체를 얼린다).
+ * 배경 클릭 = 계속 편집만 안다 — Esc 는 옵션창이 잡는다(또 달면 두 벌).
  */
 
 interface UnsavedChangesDialogProps {

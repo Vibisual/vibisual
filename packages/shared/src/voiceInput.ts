@@ -1,15 +1,6 @@
 /**
- * voiceInput.ts — **§5.5 #17-38 음성 받아쓰기의 판정 한 곳.**
- *
- * 마이크를 열고 소리를 글자로 바꾸는 일은 브라우저(Chromium)가 한다. 이 파일이 맡는 것은
- * 그 결과를 **어디에 어떻게 꽂을 것인가** 하나다 — 단축키를 뜻으로 바꾸고, 인식된 토막을
- * 입력창의 커서 자리에 끼워 넣고, 엔진이 돌려준 실패 코드를 사람에게 보여 줄 이름으로
- * 접는다. DOM·React·오디오 API 를 모르는 순수 함수라 **실기(mac·리눅스) 없이도 세 OS 의
- * 조합을 단위 테스트로 전부 확인**할 수 있다([docs/rules/multiplatform.md] "플랫폼 분기는
- * 인자로 받는다" — 우리에게는 이것이 규칙을 지켰는지 확인하는 유일한 방법이다).
- *
- * 왜 shared 인가: 판정이 컴포넌트 안에 있으면 그 화면을 띄우지 않고는 확인할 수 없고,
- * 나중에 입력창이 한 곳 더 생기면(지휘통제실·모바일) 규칙이 두 벌로 갈린다.
+ * §5.5 #17-38 음성 받아쓰기 판정 한 곳 — 인식은 브라우저가, 이 파일은 단축키 해석·커서 자리 끼우기·실패 코드 이름 접기를 맡는다.
+ * DOM·React·오디오 API 를 모르는 순수 함수라 세 OS 조합을 단위 테스트로 확인하고, 입력창이 늘어도(모바일 등) 규칙이 한 벌로 남는다.
  */
 
 /** 화면·동작이 함께 보는 값들. 매직넘버를 컴포넌트에 흩지 않는다(§3.3). */
@@ -49,51 +40,21 @@ export type VoiceInputStatus =
   /** 실패해서 멎음. 사유는 `VoiceInputErrorCode`. */
   | 'error';
 
-/**
- * 엔진이 돌려준 실패를 **사람에게 보여 줄 이름**으로 접은 것.
- *
- * 원문(`SpeechRecognitionErrorEvent.error`)을 그대로 화면에 쓰지 않는다 — 브라우저마다
- * 문자열이 갈리고, 12개 로케일에 번역할 키를 그 문자열 수만큼 만들 수는 없다.
- */
+/** 엔진 실패를 보여 줄 이름으로 접은 것 — 원문 문자열은 브라우저마다 갈려 12개 로케일 키를 그 수만큼 만들 수 없다. */
 export type VoiceInputErrorCode =
   /** 이 환경에 음성 인식 자체가 없다. */
   | 'unsupported'
   /** 마이크 사용이 거부됐다(브라우저 권한 또는 OS 개인정보 설정). */
   | 'permission'
-  /**
-   * 마이크를 못 찾았거나 열지 못했다 — **원인을 더 좁히지 못한 경우.**
-   *
-   * `no-device`·`device-busy` 가 갈라 나간 뒤 남는 자리다(장치 목록을 못 물어봤거나,
-   * 목록엔 있는데 왜 안 열리는지 모를 때). 여기 남으면 화면은 두 가능성(권한·연결)을
-   * 모두 말한다 — 좁히지 못했으면 좁혀서 말하지 않는 것이 맞다.
-   */
+  /** 마이크를 못 찾았거나 못 열었는데 원인을 더 좁히지 못했다(`no-device`·`device-busy` 를 뺀 나머지) — 화면은 권한·연결 둘 다 말한다. */
   | 'device'
-  /**
-   * **이 PC 에 마이크가 아예 없다**(연결된 입력 장치 0개).
-   *
-   * `permission` 과 갈라 두는 이유는 `engine`/`network` 를 가른 것과 같다 — 사용자가 할 일이
-   * 다르다. 권한은 설정을 켜는 일이고 이쪽은 **물건을 꽂는 일**이다. 뭉뚱그리면 마이크가 없는
-   * 사람이 설정만 뒤지고(그 설정은 이미 켜져 있다), 반대로 권한이 막힌 사람이 멀쩡한 마이크를
-   * 다시 꽂아 본다. 특히 Windows 는 연결되지 않은 장치도 소리 설정 목록에 회색으로 남겨 두어
-   * 사용자에게는 "있음"으로 읽히므로, 화면이 **없다고 분명히 말해 주어야** 한다.
-   */
+  /** 입력 장치가 0개다 — 할 일이 권한(설정)이 아니라 꽂는 것이라 `permission` 과 가른다. Windows 는 끊긴 장치도 목록에 회색으로 남겨 화면이 "없다"고 분명히 말해야 한다. */
   | 'no-device'
-  /**
-   * 마이크는 **있는데 다른 앱이 쥐고 있다**(`NotReadableError` — OS 가 장치를 못 넘겨준다).
-   *
-   * 종전에는 이것도 `device` 로 접혀 "마이크를 찾지 못했습니다"가 떴는데, 그 문장을 읽은
-   * 사용자는 **연결된 마이크를 다시 꽂아 본다** — 실제로 할 일은 화상회의·녹음 앱을 끄는 것이다.
-   */
+  /** 다른 앱이 마이크를 쥐고 있다(`NotReadableError`). `device` 로 접으면 마이크를 다시 꽂아 본다 — 할 일은 그 앱을 끄는 것이다. */
   | 'device-busy'
   /** 인식 서비스에 닿지 못했다. */
   | 'network'
-  /**
-   * 받아 둔 인식기가 **이 PC 에서 뜨지 않았다**(⑫ — 엔진은 우리 것이고 밖에 있지 않다).
-   *
-   * `network` 와 갈라 두는 이유: 인식기가 내 PC 에서 도는 이상 "서비스에 닿지 못했다"는
-   * 사실이 아니고, 사용자가 할 일도 다르다(회선을 보는 것이 아니라 다시 받는 것이다).
-   * 뭉뚱그리면 화면이 원인을 가린다 — ⑬ "실패는 사유까지 말한다".
-   */
+  /** 받아 둔 인식기가 이 PC 에서 뜨지 않았다(⑫). `network` 와 가른다 — 할 일이 회선 확인이 아니라 다시 받기다(⑬). */
   | 'engine'
   /** 이 언어를 인식기가 모른다. */
   | 'language'
@@ -109,12 +70,7 @@ export function isFatalVoiceError(code: VoiceInputErrorCode): boolean {
   return code !== 'no-speech' && code !== 'aborted';
 }
 
-/**
- * 엔진 실패 문자열 → 우리 코드.
- *
- * 값은 Web Speech 명세의 `SpeechRecognitionErrorCode` 를 따른다. 모르는 값은 지어내지 않고
- * `unknown` 으로 떨어뜨린다 — 넘겨짚은 안내문이 진짜 원인을 가리는 쪽이 더 나쁘다.
- */
+/** 엔진 실패 문자열(Web Speech `SpeechRecognitionErrorCode`) → 우리 코드. 모르는 값은 지어내지 않고 `unknown`. */
 export function mapVoiceError(raw: string | undefined | null): VoiceInputErrorCode {
   switch ((raw ?? '').trim()) {
     case 'not-allowed':
@@ -135,12 +91,7 @@ export function mapVoiceError(raw: string | undefined | null): VoiceInputErrorCo
   }
 }
 
-/**
- * `getUserMedia` 가 던진 `DOMException` → 우리 코드.
- *
- * 마이크를 여는 단계와 인식하는 단계는 실패 모양이 다르다(`NotAllowedError` vs
- * `not-allowed`). 두 표를 하나로 합치면 어느 쪽이 막혔는지 화면이 말할 수 없게 된다.
- */
+/** `getUserMedia` 의 `DOMException` → 우리 코드. 인식 단계(`not-allowed`)와 모양이 달라 표를 따로 둔다 — 합치면 어느 단계가 막혔는지 모른다. */
 export function mapMediaError(name: string | undefined | null): VoiceInputErrorCode {
   switch ((name ?? '').trim()) {
     case 'NotAllowedError':
@@ -173,17 +124,8 @@ export interface VoiceKeyLike {
 }
 
 /**
- * 이 키가 "받아쓰기 켜기/끄기"인가 — `Ctrl+Shift+M`(mac `⇧⌘M`).
- *
- * ⚠ **`e.key` 가 아니라 `e.code`** 를 본다. `Shift` 가 눌린 상태의 `key` 는 자판 배열에 따라
- * `'M'`·`'m'`·다른 글자까지 되고, macOS 는 `⌥`/`⌘` 조합에서 `key` 가 통째로 달라지는 자리가
- * 있다. 물리 키로 보면 세 OS·모든 자판에서 같은 손짓이 같은 뜻이 된다(#17-37 과 같은 규율).
- *
- * ⚠ **`Alt` 가 낀 조합은 통째로 비켜선다** — 일부 유럽 자판에서 `Ctrl+Alt` 는 AltGr 이라
- * 글자 입력을 가로채게 된다.
- *
- * mac 예외(`Cmd` 대신 진짜 `Control`)를 두지 않는 이유: `⇧⌘M` 은 macOS 가 선점한 조합이
- * 아니라 우리에게 그대로 도달한다(선점된 `⌘Tab` 때문에 예외를 둔 #17-37 과 다르다).
+ * 받아쓰기 토글 키인가 — `Ctrl+Shift+M`(mac `⇧⌘M`). ⚠ `e.key` 가 아니라 `e.code`(물리 키) — `key` 는 자판 배열·mac 조합키마다 달라진다(#17-37).
+ * ⚠ `Alt` 가 낀 조합은 비켜선다(일부 유럽 자판의 `Ctrl+Alt` = AltGr). mac 예외는 없다 — `⇧⌘M` 은 macOS 가 선점하지 않는다.
  */
 export function isVoiceToggleKey(e: VoiceKeyLike): boolean {
   if (e.altKey) return false;
@@ -192,16 +134,7 @@ export function isVoiceToggleKey(e: VoiceKeyLike): boolean {
   return e.code === 'KeyM';
 }
 
-/**
- * UI 로케일 → 인식기에 넘길 BCP-47 언어.
- *
- * 인식기는 "무슨 말이 들어올지"를 미리 알아야 정확도가 산다 — 한국어를 `en-US` 로 들으면
- * 결과가 통째로 무의미해진다. 그래서 **앱의 화면 언어를 그대로 따라간다**(사용자가 이미
- * 고른 값이라 따로 물을 것이 없다).
- *
- * 표에 없는 로케일은 지역 없는 코드를 그대로 넘긴다 — 인식기가 알면 쓰고, 모르면
- * `language-not-supported` 로 돌려주므로 화면이 사유를 말할 수 있다.
- */
+/** UI 로케일 → 인식기 BCP-47 언어(앱 화면 언어를 따른다 — 들어올 말을 알아야 정확하다). 표에 없으면 지역 없는 코드를 넘기고, 모르면 인식기가 `language-not-supported` 를 준다. */
 const VOICE_LANG: Record<string, string> = {
   ko: 'ko-KR',
   en: 'en-US',
@@ -227,12 +160,7 @@ export function voiceRecognitionLang(uiLocale: string | undefined | null): strin
   return VOICE_LANG[base] ?? raw;
 }
 
-/**
- * 파형 막대 = **최근에 실제로 잰 소리 세기의 기록**.
- *
- * 무작위로 흔드는 가짜 파형을 쓰지 않는다 — 마이크가 죽어 있어도 춤을 추면 사용자는
- * 되고 있다고 믿고 계속 말하게 된다. 새 값은 오른쪽으로 들어가고 가장 오래된 것이 밀려난다.
- */
+/** 파형 막대 = 최근에 실제로 잰 세기(새 값이 오른쪽). 가짜 파형 ❌ — 마이크가 죽어도 춤을 추면 되는 줄 알고 계속 말한다. */
 export function pushVoiceLevel(prev: readonly number[], level: number): number[] {
   const clamped = Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : 0;
   const next = prev.length >= VOICE_INPUT.BAR_COUNT
@@ -248,12 +176,7 @@ export function emptyVoiceLevels(): number[] {
   return new Array<number>(VOICE_INPUT.BAR_COUNT).fill(0);
 }
 
-/**
- * 시간 영역 표본(`getByteTimeDomainData`) → 0~1 세기.
- *
- * RMS 를 쓴다(최댓값 ❌) — 최댓값은 클릭 잡음 하나에 막대가 천장을 치고, 말이 멎어도
- * 한동안 안 내려온다. `LEVEL_GAIN` 으로 말소리 대역을 화면 높이에 맞춰 편다.
- */
+/** 시간 영역 표본 → 0~1 세기. RMS 를 쓴다(최댓값은 클릭 하나에 천장을 치고 한동안 안 내려온다). `LEVEL_GAIN` 으로 말소리 대역을 편다. */
 export function levelFromTimeDomain(samples: Uint8Array | readonly number[]): number {
   const len = samples.length;
   if (len === 0) return 0;
@@ -285,13 +208,8 @@ function attachesToPrev(ch: string): boolean {
 }
 
 /**
- * 인식된 토막을 입력창에 끼워 넣는다 — **커서 자리에**, 선택 범위가 있으면 그것을 갈아 끼운다.
- *
- * 항상 뒤에 이어 붙이지 않는 이유: 사용자가 문장 가운데를 고치다가 마이크를 켜는 일이 실제로
- * 있고, 그때 말한 것이 엉뚱하게 맨 끝에 붙으면 그 문장을 다시 손봐야 한다.
- *
- * 띄어쓰기는 **필요할 때만** 넣는다 — 앞 글자가 공백·줄바꿈·여는 괄호면 넣지 않고, 끼우는
- * 말이 문장부호로 시작하면 앞말에 붙인다. 한국어·영어 모두 같은 규칙으로 읽힌다.
+ * 토막을 커서 자리에 끼운다(선택 범위는 갈아 끼운다 — 맨 끝에 붙이면 문장 가운데를 고치던 사람이 다시 손본다).
+ * 띄어쓰기는 필요할 때만 — 앞이 공백·줄바꿈·여는 괄호면 안 넣고, 문장부호로 시작하면 앞말에 붙인다.
  */
 export function mergeVoiceText(
   prev: string,
@@ -329,17 +247,8 @@ export function mergeVoiceText(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 마이크가 안 열릴 때 **사용자가 실제로 가야 할 곳**.
- *
- * ⑥ 은 실패의 사유를 갈라 화면이 "할 수 있는 일"을 말하게 했지만, 거기서 멈췄다 — 문장은
- * 정확한데(“시스템 개인 정보 설정에서 허용해 주세요”) 그 설정이 **어디 있는지는 OS 마다
- * 다르고**, 특히 Windows 는 스위치가 둘이라(앱별 목록 + 그 위의 "데스크톱 앱 허용") 안내문만
- * 읽고 찾아가는 사람은 대개 앱별 목록에서 우리 이름을 못 찾고 되돌아온다(우리는 unpackaged 앱이라
- * 그 목록에 이름이 없다 — ⑫ 의 MSIX identity 부재와 같은 뿌리).
- *
- * 그래서 사유를 말하는 데서 한 걸음 더 간다: **그 설정 창을 우리가 연다.** 여는 주소는 세 OS 가
- * 전부 다르므로 판정을 여기 한 곳에 두고 `platform` 을 **인자로 받는다** — 실기(mac·linux) 없이
- * 세 OS 를 단위 테스트로 확인할 수 있는 유일한 방법이다([multiplatform.md] "플랫폼 분기는 인자로").
+ * 마이크가 안 열릴 때 가야 할 OS 설정 창 — 안내문만으로는 못 찾는다(win 은 스위치가 둘이고, unpackaged 앱이라 앱별 목록에 우리 이름이 없다).
+ * 여는 주소가 OS 마다 달라 `platform` 을 인자로 받는다(세 OS 단위 테스트).
  */
 export interface VoiceMicSettingsTarget {
   /**
@@ -356,20 +265,9 @@ export interface VoiceMicSettingsTarget {
 }
 
 /**
- * `platform` → 마이크 설정 창.
- *
- * **win 이 두 갈래인 이유**: `ms-settings:privacy-microphone` 한 장에 스위치가 둘 있다 —
- * ⓐ "마이크 액세스"(기기 전체) ⓑ "데스크톱 앱이 마이크에 액세스하도록 허용"(목록 맨 아래).
- * 우리처럼 nsis 로 깔린 앱은 ⓑ 하나로 판가름 나는데, 그 스위치는 앱 목록을 한참 내려야 나와
- * 안내 없이는 못 찾는다. 그래서 주소는 하나여도 **힌트를 반드시 함께 준다.**
- *
- * **mac 은 앵커까지 준다** — `Privacy_Microphone` 앵커가 없으면 개인정보 보호 첫 장만 열리고
- * 마이크 항목은 목록에서 다시 찾아야 한다. macOS 13+ 의 시스템 설정에서도 이 앵커는 유효하다.
- *
- * **linux 는 `null` 이 정답이다** — GNOME 은 `gnome-control-center`, KDE 는 `systemsettings`,
- * 그마저 배포판이 안 깔았을 수 있고 애초에 리눅스의 마이크 차단은 권한 UI 가 아니라
- * PulseAudio/PipeWire 의 기본 입력 장치 문제다(정본 표의 linux 칸과 같은 판정). 열 수 없는
- * 창을 여는 척하는 대신 **무엇을 확인해야 하는지**를 글로 말한다.
+ * `platform` → 마이크 설정 창. win: `ms-settings:privacy-microphone` 의 "데스크톱 앱이 마이크에 액세스하도록 허용"(목록 맨 아래)이 판가름이라 힌트를 반드시 함께 준다.
+ * mac: `Privacy_Microphone` 앵커까지(없으면 개인정보 보호 첫 장만 열린다, macOS 13+ 도 유효).
+ * linux: `null` — 설정 앱이 데스크톱 환경마다 다르고 차단은 PulseAudio/PipeWire 기본 입력 장치 문제라 여는 척 대신 확인할 것을 글로 말한다.
  */
 export function micSettingsTarget(platform: string): VoiceMicSettingsTarget {
   switch (platform) {
@@ -389,46 +287,17 @@ export function micSettingsTarget(platform: string): VoiceMicSettingsTarget {
 }
 
 /**
- * 이 실패가 **OS 설정으로 가서 풀 수 있는 것**인가.
- *
- * `permission` 은 당연하고, **`device` 도 포함한다** — Windows 에서 "데스크톱 앱 허용"이 꺼져
- * 있으면 `getUserMedia` 가 `NotAllowedError` 가 아니라 **`NotFoundError`** 로 온다(장치가 있는데
- * 목록 자체를 안 보여 준다 — 정본 표 win 칸에 적힌 그 자리다). 즉 화면에는 "마이크를 찾지
- * 못했습니다"가 뜨지만 실제 원인이 권한인 경우가 있고, 그 사람에게 설정 문을 안 열어 주면
- * 영영 장치만 다시 꽂아 보게 된다. 둘을 함께 태우는 것이 **사용자가 덜 헤매는 쪽**이다.
- *
- * **`no-device` 도 태운다 — 다만 그 화면의 주된 안내는 "꽂으세요"다.** 장치가 0개인 것이
- * 확인됐어도 win 에서는 그 0 이 **OS 가 감춘 결과**일 수 있어(같은 "데스크톱 앱 허용"), 설정
- * 문을 아예 닫아 두면 그 사람에게는 막다른 길이 된다. 그래서 문은 열어 두되 **문구의 무게를
- * 바꾼다**(⑯) — 오류 줄과 팝업 본문은 연결을 먼저 말하고, 설정은 곁들이는 선택지로 남긴다.
- *
- * **`device-busy` 는 태우지 않는다** — 그 사람이 할 일은 설정이 아니라 **다른 앱을 끄는 것**이다.
- * 설정 창을 열어 주면 이미 켜져 있는 스위치를 보게 되어 안내가 오히려 원인을 가린다.
+ * OS 설정으로 풀 수 있는 실패인가. `device`·`no-device` 도 태운다 — win 의 "데스크톱 앱 허용"이 꺼지면 `NotFoundError`·장치 0개로 보인다(OS 가 목록을 감춘다).
+ * `no-device` 화면의 주된 안내는 "꽂으세요"다(⑯). `device-busy` 는 안 태운다 — 할 일이 다른 앱 끄기라 설정 창은 원인을 가린다.
  */
 export function isMicAccessFixable(code: VoiceInputErrorCode): boolean {
   return code === 'permission' || code === 'device' || code === 'no-device';
 }
 
 /**
- * `device` 를 **장치 목록으로 한 번 더 좁힌다** — "없다"와 "막혔다"를 가르는 유일한 길.
- *
- * `getUserMedia` 의 실패만으로는 이 둘을 못 가른다. Windows 에서 "데스크톱 앱이 마이크에
- * 액세스하도록 허용" 이 꺼져 있으면 **장치가 멀쩡히 꽂혀 있어도 `NotFoundError`** 가 오기
- * 때문이다(OS 가 목록 자체를 감춘다 — 거절하지 않는다). 그래서 이름이 같은 실패 하나에
- * 서로 다른 두 원인이 들어온다.
- *
- * 가르는 근거는 `enumerateDevices()` 다. 이 API 는 **권한 없이도 목록의 길이는 알려 준다**
- * (label 만 빈 문자열이 된다 — 지문 채취를 막으려는 명세의 의도). 따라서:
- *
- * - 입력 장치가 **0개** → 물건이 없거나 OS 가 통째로 감췄다. 사용자가 할 일은 **꽂는 것**이고,
- *   설정이 원인이어도 그 화면은 [설정 열기] 를 함께 띄우므로 막다른 길이 되지 않는다.
- * - 입력 장치가 **1개 이상인데 못 열었다** → 물건은 있는데 못 쓴다 = 권한 쪽이 훨씬 유력하다.
- *   여기서 "연결해 주세요"라고 하면 **꽂혀 있는 마이크를 다시 꽂아 보게** 만든다.
- *
- * `count` 를 **인자로 받는다** — 이 판정은 순수 함수라 실기 없이 단위 테스트로 고정된다
- * (`navigator` 를 여기서 만지면 그 분기는 영영 검증되지 않는다 — 멀티플랫폼 규칙과 같은 규율).
- *
- * @param count 입력(오디오) 장치 수. 목록을 **못 물어봤으면 `null`** — 그때는 좁히지 않는다.
+ * `device` 를 장치 수로 한 번 더 좁힌다 — win 은 "데스크톱 앱 허용"이 꺼지면 꽂혀 있어도 `NotFoundError` 라 실패만으로는 "없다"와 "막혔다"를 못 가른다.
+ * `enumerateDevices()` 는 권한 없이도 개수는 준다. 0개 → 꽂으라고(설정 열기도 함께), 1개 이상 → 권한 쪽(다시 꽂게 하지 않는다).
+ * @param count 입력 장치 수. 못 물었으면 `null` — 좁히지 않는다.
  */
 export function refineDeviceError(
   code: VoiceInputErrorCode,

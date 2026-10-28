@@ -1,36 +1,9 @@
 /**
- * **한도로 끊긴 턴을 알아본다** — "You've hit your session limit · resets 10pm (Asia/Seoul)".
- *
- * **왜 필요한가.** 요금제 한도에 닿으면 CLI 는 *실패하지 않는다.* 마지막 턴 자리에 **합성
- * assistant 메시지**를 한 줄 적고(`model: "<synthetic>"` · 토큰 전부 0) 정상 종료(exit 0)한다.
- * 우리 마감 경로는 종료 코드만 보므로 그 명령은 `completed` 로 봉인되고, 세션 도트는 초록
- * "끝남", 헤더 배지는 회색으로 내려간다 — **화면 어디에도 "멈췄다"가 없다.** 사용자는 에이전트
- * 열 개가 한꺼번에 멎은 것을 한참 뒤에야 알아챈다(사용자 보고 2026-09-09).
- *
- * 실측한 원문(트랜스크립트 `~/.claude/projects/**.jsonl`):
- * ```json
- * {"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text",
- *   "text":"You've hit your session limit · resets 10pm (Asia/Seoul)"}]},
- *  "quotaLimits":{"status":"rejected","resetsAt":1788958800,"rateLimitType":"five_hour"},
- *  "error":"rate_limit","isApiErrorMessage":true,"apiErrorStatus":429}
- * ```
- * 다른 모양들도 같은 자리로 온다 — 주간 한도(`weekly limit`), 옛 CLI 의
- * `Claude AI usage limit reached|<epoch>`, 코덱스의 `{"type":"error","message":"You've hit
- * your usage limit. …"}`(§5.25 (F)), 추가 사용량을 켠 요금제의 `You've hit your monthly spend
- * limit · raise it at … · your session limit resets 2:40pm (Asia/Seoul)`(§5.5 #17-47 (H)).
- *
- * **판정을 여기 한 곳에 둔다.** 스트림 경로가 셋(persistent stdout · legacy stdout · agent-view
- * JSONL watcher)이라, 화면마다·경로마다 따로 알아보면 한쪽만 고쳐지는 날이 온다(§2.1 셸
- * 토크나이저·`externalFolderView` 와 같은 규율). 순수 함수라 단위 테스트로 고정한다.
- *
- * **넘겨짚지 않는다.** 이 문장은 대화 본문에도 얼마든지 등장한다(지금 이 기능을 지시한 프롬프트가
- * 그 문장 자체였다). 그래서 두 관문을 함께 요구한다 — ① 원문이 **그 통지로 시작**할 것(문장
- * 가운데 인용은 통지가 아니다), ② 합성 표식(`<synthetic>`)이나 한도 증거(`rate_limit`·HTTP 429·
- * `quotaLimits`)가 함께 있거나, 그것이 없으면 **통지 길이의 짧은 한 줄**일 것.
- *
- * **낱말을 몰라도 봉투가 말한다.** 문구는 판마다 바뀌어 왔다(`usage limit reached` → `hit your
- * session limit` → `monthly spend limit`). 그래서 합성 표식과 `quotaLimits` 거절이 **둘 다** 있으면
- * ① 없이도 받는다 — 합성 줄은 CLI 가 API 응답 없이 직접 적은 줄이라 대화 본문의 인용일 수 없다.
+ * 한도로 끊긴 턴을 알아본다. CLI 는 한도에서 실패하지 않고 합성 assistant 줄(`model: "<synthetic>"`, 토큰 0)을 적고 exit 0 한다 — 종료 코드만 보면 `completed` 로 봉인된다.
+ * 알려진 문구: `hit your session|weekly limit`, 옛 `Claude AI usage limit reached|<epoch>`, 코덱스 error 줄(§5.25 (F)), `monthly spend limit … session limit resets …`(§5.5 #17-47 (H)).
+ * 판정은 여기 한 곳 — 스트림 경로가 셋(persistent·legacy stdout · agent-view JSONL)이다. 대화 본문에도 이 문장이 나오므로 넘겨짚지 않는다:
+ * ① 원문이 통지로 시작하고 ② 합성 표식·한도 증거(`rate_limit`·429·`quotaLimits`)가 있거나 통지 길이의 짧은 한 줄이어야 한다.
+ * 합성 표식과 `quotaLimits` 거절이 둘 다 있으면 ① 없이도 받는다(문구는 판마다 바뀌고, 합성 줄은 인용일 수 없다).
  */
 
 /** 어느 창이 막혔는가 — CLI 가 쓰는 낱말 그대로. */
@@ -61,10 +34,7 @@ export const USAGE_LIMIT_MESSAGE_MAX = 200;
 /** 리셋 표기 보관 상한(`10pm (Asia/Seoul)`). */
 export const USAGE_LIMIT_RESET_LABEL_MAX = 40;
 
-/**
- * 증거 없이 원문만으로 인정해 줄 최대 길이. 합성 통지는 55자 안팎이고, 이보다 긴 글이 그 문장으로
- * 시작하면 그것은 통지가 아니라 **통지를 인용한 사람의 글**이다(보고서·이 기획 문단 자체).
- */
+/** 증거 없이 원문만으로 인정할 최대 길이. 합성 통지는 55자 안팎 — 이보다 긴 글이 그 문장으로 시작하면 통지를 인용한 글이다. */
 export const USAGE_LIMIT_NOTICE_MAX = 200;
 
 /**
@@ -99,12 +69,7 @@ function toEpochMs(value: number): number | undefined {
   return value < 1e12 ? Math.round(value * 1000) : Math.round(value);
 }
 
-/**
- * 원문 한 덩이가 **한도 통지 그 자체**인가 — 맞으면 종류를, 아니면 `null`.
- *
- * 시작 위치를 요구하는 것이 오탐을 막는 핵심이다. 문장 가운데의 인용(`… "You've hit your
- * session limit" 이라고 떴습니다`)은 통지가 아니라 그것을 말하는 사람의 글이다.
- */
+/** 원문 한 덩이가 한도 통지 그 자체인가(아니면 `null`). 시작 위치를 요구하는 것이 오탐을 막는 핵심이다 — 문장 가운데 인용은 통지가 아니다. */
 export function matchUsageLimitNotice(text: string): UsageLimitKind | null {
   const t = text.trim();
   if (t === '') return null;
@@ -124,12 +89,7 @@ export function parseUsageLimitResetLabel(text: string): string | undefined {
   return label ? clamp(label, USAGE_LIMIT_RESET_LABEL_MAX) : undefined;
 }
 
-/**
- * 원문 한 줄만으로 판정한다 — 턴 결과(`result` 본문)처럼 봉투가 없는 자리에서 쓴다.
- *
- * 증거 봉투가 없으므로 **짧은 한 줄**만 인정한다(`USAGE_LIMIT_NOTICE_MAX`). 긴 글이 그 문장으로
- * 시작하면 그것은 통지를 인용한 글이다 — 그것까지 한도로 세면 멀쩡히 끝난 세션이 주황으로 물든다.
- */
+/** 봉투가 없는 자리(`result` 본문)용 — 짧은 한 줄만 인정한다(`USAGE_LIMIT_NOTICE_MAX`). 긴 인용 글까지 세면 멀쩡히 끝난 세션이 주황이 된다. */
 export function detectUsageLimitInText(text: string, now: number): UsageLimitStop | null {
   const t = text.trim();
   if (t.length > USAGE_LIMIT_NOTICE_MAX) return null;
@@ -168,14 +128,9 @@ function textOfMessage(message: Record<string, unknown>): string {
 }
 
 /**
- * CLI 가 뱉은 **한 줄**(stream-json stdout · agent-view JSONL)에서 한도 종료를 알아본다.
- *
- * 보는 줄은 `assistant` · `result` · `error` 셋뿐이다. **`user` 줄은 절대 보지 않는다** —
- * 사용자가 그 문장을 프롬프트에 적는 일이 실제로 있고(이 기능의 지시가 그랬다), 그것을 한도로
- * 세면 명령을 넣는 순간 그 세션이 주황이 된다.
- *
- * @param line  JSON 한 줄을 파싱한 객체.
- * @param now   지금 시각(ms) — 시간을 함수 안에서 읽지 않아야 테스트로 고정할 수 있다.
+ * CLI 한 줄(stream-json stdout · agent-view JSONL)에서 한도 종료를 알아본다. `assistant`·`result`·`error` 줄만 본다 —
+ * **`user` 줄은 보지 않는다**(프롬프트에 그 문장을 적으면 명령을 넣는 순간 주황이 된다).
+ * @param now 지금 시각(ms) — 함수 안에서 시간을 읽지 않아야 테스트로 고정된다.
  */
 export function detectUsageLimitStop(line: unknown, now: number): UsageLimitStop | null {
   if (!line || typeof line !== 'object' || Array.isArray(line)) return null;

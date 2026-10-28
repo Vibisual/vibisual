@@ -7,13 +7,7 @@ import { ValueFieldList } from './StudioValueControls.js';
 import { itemValueFields, toPropValue } from './valueFields.js';
 import { CompositionDetails } from './ValueCard.js';
 
-/**
- * §5.13 (T-7) — 아이템 패널의 **코드 컴포지션** 구역. §5.13 (V) 37-5 로 다시 지었다.
- *
- * 값은 컴포지션이 선언한 대로 종류별 손잡이(`vibi-props` → 글자 칸·끌기 숫자·원형 색 견본·글꼴·그림·시각·고르기)로 고친다.
- * 시각 맞춤 방식·검사 결과·[다시 읽기]·[프레임 띠]·[파일 열기]는 사람 말로 '코드 정보' 에, JSON 칸은 '고급' 에 접는다 —
- * 값 카드(AI 패널)와 같은 부품이다. 새 편집기를 만들지 않는다 — 코드는 사용자의 에디터나 에이전트가 고친다.
- */
+/** §5.13 (T-7) · (V) 37-5 — 코드 컴포지션 구역: `vibi-props` 대로 종류별 손잡이, 값 카드와 같은 부품. 새 코드 편집기 ❌(코드는 사용자 에디터나 에이전트가). */
 export interface CompositionInspectorActions {
   readonly busy?: boolean;
   onReload: (asset: VideoAsset) => void;

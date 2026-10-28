@@ -4,15 +4,8 @@ import net, { Socket } from 'node:net';
 import { findPortListeners, killByPortDetailed, listenerPids, reachableListeners } from './processChecker.js';
 
 /**
- * §7.11 / §3.5 — **한 포트 두 주인**을 실제 프로세스 둘로 재현한다(2026-10-01 사고).
- *
- * 파서 시험(`processChecker.test.ts`)은 출력 모양만 고정한다. 여기서는 그 위 한 층 —
- * "포트 → (pid, 주소) → 그 주소가 닿는 리스너 → 그것만 죽이기" 사슬이 **이 OS 에서 실제로 이어지는가**를 본다.
- * 실측에서 한 프로젝트의 서버와 옆 프로젝트의 vite 가 같은 8080 을 서로 다른 주소로 쥐고 있었고,
- * 종전 Windows 조회(`netstat -p TCP` = IPv4 표만)는 [::1] 쪽을 아예 못 봤다.
- *
- * 자식은 셸 없이(`process.execPath -e`) 띄운다 — 자식 pid 가 곧 리스너 pid 라 단정할 수 있다.
- * IPv6 루프백이 없는 기기(일부 컨테이너)는 건너뛴다 — 거기서는 이 사고가 날 수 없다.
+ * §7.11 / §3.5 — 한 포트 두 주인을 실제 프로세스 둘로 재현해 "포트 → (pid, 주소) → 닿는 리스너 → 그것만 죽이기"가 이 OS 에서 이어지는지 본다.
+ * 자식은 셸 없이(`process.execPath -e`) — pid 가 곧 리스너 pid 다. IPv6 루프백이 없는 기기(일부 컨테이너)는 건너뛴다.
  */
 const children: ChildProcess[] = [];
 

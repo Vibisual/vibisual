@@ -2,29 +2,13 @@ import { toRelativeFromRoot } from './explorerModel.js';
 import { lineRangeOf, type EditorLineRange } from './editorLineRange.js';
 
 /**
- * streamPathLinks.ts — §5.5 #17-27 ⑬ 스트림 본문 속 경로 손잡이의 **순수 판정**.
- *
- * 에이전트가 본문에 적어 준 위치(`assets/test/gpt-image/` · `packages/client/src/App.tsx:42`)를
- * 눌러서 열 수 있게 하려면, 먼저 그 조각이 **경로인지**를 가려야 한다. 여기서 하는 일은 그중
- * **1차 체** 하나다 — 명백히 경로가 아닌 것(공백이 든 명령·URL·CLI 플래그·코드 문법 조각)을 걸러 내고,
- * 남은 것을 루트 기준 상대 경로로 되돌린다.
- *
- * **최종 판정은 여기서 하지 않는다.** 글자 모양만으로 "경로처럼 생겼다"를 단정하면 본문 곳곳에
- * 누를 수 없는 가짜 손잡이가 생긴다(⑬ (b)). 진짜 손잡이가 되는지는 디스크에 그 경로가 실제로 있는지를
- * 물어 온 답(`GET /api/workspace-path`)이 정하고, 없으면 화면은 종전과 같은 평범한 인라인 코드로 둔다.
- *
- * 화면·통신을 섞지 않은 계산만 두는 이유는 #17-27 의 다른 순수 모듈(`editorModel`·`explorerModel`)과 같다 —
- * "무엇이 경로로 읽히는가" 는 앱을 띄워 눈으로 확인하기 어렵고, 단위 테스트가 훨씬 촘촘히 잡는다.
+ * §5.5 #17-27 ⑬ 본문 속 경로 손잡이의 1차 체(순수) — 명백히 경로가 아닌 것(공백 든 명령·URL·CLI 플래그·코드 조각)을 거르고 루트 기준으로 되돌린다.
+ * **최종 판정은 디스크가 한다**(`GET /api/workspace-path`) — 모양만으로 단정하면 누를 수 없는 가짜 손잡이가 생긴다(⑬ (b)).
  */
 
 /**
- * 인라인 코드 한 조각에서 뽑아낸 경로 후보.
- *
- * `scope` 로 갈라 둔 이유는 **열리는 곳이 다르기 때문**이다(⑬ (d)). 루트 안(`inside`)은 여덟 갈래로
- * 갈리지만(§5.13 (R-7) — 편집창·그림·PDF·내부 앱·실행·변환·연결 프로그램·탐색기), 루트 밖(`outside`)은
- * **시스템 탐색기 하나**뿐이다. 둘을 한 모양으로 두면 화면이 자리마다 "이게 루트 안이었나" 를 다시
- * 따져야 하고, 그 따짐이 한 군데라도 빠지는 순간 본문 글자로 임의 경로를 실행하는 길이 열린다.
- * 타입으로 갈라 두면 그 실수를 컴파일러가 막는다.
+ * 인라인 코드 조각에서 뽑은 경로 후보. `scope` 로 타입을 가른다(⑬ (d)) — `inside` 는 여덟 갈래(§5.13 (R-7)), `outside` 는 탐색기 하나뿐.
+ * 한 모양이면 한 곳만 따짐이 빠져도 본문 글자로 임의 경로를 실행하는 길이 열린다 — 타입이면 컴파일러가 막는다.
  */
 export type StreamPathCandidate =
   | {
@@ -55,24 +39,10 @@ const MAX_PATH_LEN = 260;
  */
 const MAX_LINK_PATH_LEN = 1024;
 
-/**
- * 이 문자가 하나라도 있으면 경로 후보에서 뺀다.
- *
- * 앞쪽 절반은 파일명에 쓸 수 없는 문자(`"` `<` `>` `|` `*` `?`)이고, 뒤쪽 절반은 **쓸 수는 있지만
- * 본문에서는 거의 언제나 코드·명령의 문법 문자**다(`pnpm build` 의 공백, `foo()` 의 괄호, `a=b` 의 등호).
- * 경로에 공백이 든 경우를 잃지만, 그 대가로 본문의 모든 명령 조각이 파란 밑줄을 얻는 일을 막는다.
- */
+/** 하나라도 있으면 경로 후보에서 뺀다 — 파일명에 못 쓰는 문자와, 본문에선 거의 늘 명령·코드 문법인 문자(공백·괄호·등호…). 공백 든 경로는 잃는다. */
 const NON_PATH_CHARS = /[\s"'`<>|*?()[\]{}=;,!$&^~+]/;
 
-/**
- * 절대 경로에만 쓰는 느슨한 체 — 위와 같되 **보통 공백 하나만** 허용한다(탭·줄바꿈은 여전히 제외).
- *
- * `C:\games\Unreal Projects\…` 처럼 **공백이 든 폴더는 흔한데**, 위 체를 그대로 적용하면
- * 그런 경로는 영영 손잡이가 되지 못한다. 그렇다고 공백을 전면 허용하면 본문의 명령 조각(`pnpm build`)이
- * 전부 후보가 된다 — 그래서 **드라이브 머리나 앞 슬래시로 시작하는 조각에만** 이 체를 쓴다.
- * `C:\` 로 시작하는 명령은 사실상 없고, 그러고도 남는 오탐(`/usr/bin/env node`)은 **디스크가 걸러 낸다**
- * ((b) — 없는 경로는 종전과 같은 평문이다).
- */
+/** 절대 경로 전용 느슨한 체 — 보통 공백은 허용한다(`Unreal Projects` 같은 폴더가 흔하다). 드라이브 머리·앞 슬래시로 시작할 때만 쓰고, 남는 오탐은 디스크가 거른다. */
 const NON_PATH_CHARS_ABS = /[\t\n\r\v\f"'`<>|*?()[\]{}=;,!$&^~+]/;
 
 /** 원문(역슬래시 그대로) 기준으로 "절대 경로처럼 시작하는가". 공백 허용 여부를 이걸로 가른다. */
@@ -87,15 +57,10 @@ const LINE_SUFFIX = /^(.*?):(\d+)(?:[-–](\d+)|:\d+)?$/;
 /** `C:/repo` · `D:\repo` — Windows 절대 경로의 드라이브 머리. */
 const WIN_DRIVE = /^[A-Za-z]:\//;
 
-/** 확장자 — **글자로 시작하는** 것만 센다(`v4.87` · `0.1.8` 같은 판올림 번호를 파일로 오인하지 않게). */
+/** 확장자 — 글자로 시작하는 것만 센다(`0.1.8` 같은 판올림 번호를 파일로 오인하지 않게). */
 const FILE_EXT = /\.[A-Za-z][A-Za-z0-9]{0,7}$/;
 
-/**
- * 인라인 코드 조각 하나를 경로 후보로 읽는다. 경로로 볼 수 없으면 null.
- *
- * `rootPath` 가 없으면(프로젝트를 아직 모르면) 아무것도 손잡이가 되지 않는다 — 같은 상대 경로가
- * 어느 트리의 것인지 정할 수 없기 때문이며, 이는 탐색기·편집창이 같은 뿌리를 봐야 한다는 규율과 같다.
- */
+/** 인라인 코드 조각 하나를 경로 후보로(아니면 null). `rootPath` 가 없으면 아무것도 손잡이가 되지 않는다(상대 경로의 트리를 정할 수 없다). */
 export function parseStreamPathCandidate(raw: string, rootPath: string | null): StreamPathCandidate | null {
   if (!rootPath) return null;
 
@@ -109,16 +74,7 @@ export function parseStreamPathCandidate(raw: string, rootPath: string | null): 
   return toStreamPathCandidate(text, rootPath);
 }
 
-/**
- * ⑬ (k) ② — **이미 "경로다"가 확정된 글자**를 후보로 되돌린다(1차 체 없이).
- *
- * 위 `parseStreamPathCandidate` 와 다른 점은 `NON_PATH_CHARS` 계열의 체를 지나지 않는다는 것 하나다.
- * 그 체는 *평범한 본문 글자*에 가짜 손잡이가 생기는 것을 막는 장치인데(⑬ (b)), 마크다운 **링크의
- * 목적지**처럼 에이전트가 "여기를 누르라"고 명시한 자리에는 막을 것이 없다 — 오히려 그대로 쓰면
- * 공백·괄호가 든 실제 파일 이름(`Docs/Temp/보고서 (최종).html`)을 잃는다.
- *
- * 최종 판정은 여기서도 하지 않는다 — 디스크에 있는지를 물어 온 답이 손잡이 여부를 정한다.
- */
+/** ⑬ (k) ② — 이미 경로로 확정된 글자(링크 목적지)를 후보로. `NON_PATH_CHARS` 체를 지나지 않는다(공백·괄호 든 실제 이름을 잃는다). 최종 판정은 디스크. */
 export function toStreamPathCandidate(raw: string, rootPath: string | null): StreamPathCandidate | null {
   if (!rootPath) return null;
 
@@ -143,8 +99,7 @@ export function toStreamPathCandidate(raw: string, rootPath: string | null): Str
   if (isWinAbs || isPosixAbs) {
     // `toRelativeFromRoot` 는 루트 밖이면 절대 경로를 **그대로** 돌려주므로 그것이 곧 안/밖 판정이다.
     const rel = toRelativeFromRoot(norm, rootPath);
-    // ⑬ (d) — 루트 밖도 후보가 된다(종전에는 여기서 null 이었다). 다만 갈 수 있는 곳은 탐색기 하나뿐이라
-    // 상대 경로가 아니라 **절대 경로 그대로** 들고 간다 — 기준이 없는 값을 상대처럼 쓰면 엉뚱한 곳이 열린다.
+    // ⑬ (d) — 루트 밖은 갈 곳이 탐색기 하나라 절대 경로 그대로 들고 간다.
     if (rel === norm && rel !== '') return { scope: 'outside', absPath: norm, lines };
     return { scope: 'inside', relPath: rel, lines };
   }
@@ -159,10 +114,8 @@ export function toStreamPathCandidate(raw: string, rootPath: string | null): Str
 }
 
 /**
- * 끝에 붙은 줄 표기를 떼어 낸다(`a.ts:42-51` → `a.ts` + 42~51). 앞 토막이 한 글자면 줄이 아니라
- * 드라이브(`C:`)라 떼지 않는다. 표기는 있는데 줄로 쓸 수 없는 값(`a.ts:0`)이면 떼기만 하고 줄은 null 이다.
- *
- * 링크 글자(⑬ (g) ③ — `streamLinkHref.ts`)도 이 함수로 읽는다. 두 벌이면 한쪽만 범위 표기를 알게 된다.
+ * 끝의 줄 표기를 뗀다(`a.ts:42-51`). 앞 토막이 한 글자면 드라이브(`C:`)라 두고, 줄로 못 쓰는 값(`a.ts:0`)은 떼기만 한다.
+ * 링크 글자(`streamLinkHref.ts`)도 이 함수를 쓴다 — 두 벌이면 한쪽만 범위 표기를 안다.
  */
 export function splitLineSuffix(text: string): { body: string; lines: EditorLineRange | null } {
   const m = LINE_SUFFIX.exec(text);

@@ -4,10 +4,8 @@ import { getCommandAppIcon, peekCommandAppIcon } from '../utils/commandAppIcon.j
 import { COMMAND_APP_BRAND_ICONS } from './commandAppBrandIcons.js';
 
 /**
- * The icon of an app detected from a command (SSOT §5.1): a bundled official mark for commands whose
- * executable carries none (git, curl …), otherwise the icon read from the installed executable —
- * requested only while this instance is on screen — and the terminal glyph until then or without one.
- * `tone` is the background it sits on: bubbles are always dark, the detail panel follows the theme.
+ * §5.1 — bundled official mark for executables that carry none (git, curl …), else the installed executable's icon,
+ * requested only while on screen (terminal glyph until then). `tone`: bubbles are always dark, the detail panel follows the theme.
  */
 export const CommandAppIcon = memo(function CommandAppIcon({ executable, px = 24, tone = 'dark' }: {
   executable?: string;
@@ -45,14 +43,23 @@ export const CommandAppIcon = memo(function CommandAppIcon({ executable, px = 24
     return () => { cancelled = true; observer.disconnect(); };
   }, [executable, brand]);
 
-  const mark = brand ? COMMAND_APP_BRAND_ICONS[brand][tone] : null;
+  const entry = brand ? COMMAND_APP_BRAND_ICONS[brand] : null;
+  const mark = entry ? entry[tone] : null;
   // Remounting (off-screen bubbles unmount) must not flash the glyph over an icon already fetched.
   const native = brand || !executable ? null
     : answer?.executable === executable ? answer.url : peekCommandAppIcon(executable) ?? null;
   const src = mark && mark !== brokenMark ? mark : native;
+  // A black-on-white mark keeps its own white behind it on a dark background (see commandAppBrandIcons).
+  const plate = src && src === mark && tone === 'dark' ? entry?.plate : undefined;
 
   return (
-    <span ref={ref} className="inline-flex shrink-0 items-center justify-center" style={{ width: px, height: px }} aria-hidden="true">
+    <span
+      ref={ref}
+      className={`inline-flex shrink-0 items-center justify-center${plate ? ' overflow-hidden rounded-full bg-white' : ''}`}
+      style={{ width: px, height: px }}
+      aria-hidden="true"
+      data-plate={plate}
+    >
       {src ? (
         <img
           key={src}
@@ -61,7 +68,7 @@ export const CommandAppIcon = memo(function CommandAppIcon({ executable, px = 24
           draggable={false}
           width={px}
           height={px}
-          className="h-full w-full object-contain"
+          className={`h-full w-full object-contain${plate === 'pad' ? ' p-[16%]' : ''}`}
           onError={() => {
             if (src === mark) setBrokenMark(src);
             else if (executable) setAnswer({ executable, url: null });

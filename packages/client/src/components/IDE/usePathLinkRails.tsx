@@ -16,16 +16,7 @@ import { reportPreviewUrlIfLoopback } from './reportPreviewUrl.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { getInternalApp } from '../../apps/registry.js';
 
-/**
- * usePathLinkRails — §5.5 #17-27 ⑬ 경로 손잡이의 **판정·열기·우클릭 메뉴 한 벌**.
- *
- * 손잡이가 서는 자리는 둘이다 — (a) 의 인라인 코드와 (k) 의 마크다운 링크. 두 자리가 여는 곳·메뉴를
- * 각자 짜면 한쪽만 고쳐지는 날이 반드시 오고, 그러면 "같은 파일인데 적힌 모양에 따라 다르게 열리는"
- * 화면이 된다. 그래서 후보(`StreamPathCandidate`) 하나를 받아 **레일 전부**를 돌려주는 훅을 두고,
- * 두 컴포넌트는 아이콘·글자만 각자 그린다.
- *
- * **새 열기 레일 ❌** — 여기서 부르는 것은 전부 이미 있는 창구다(⑬ (d)(i)(j)).
- */
+/** §5.5 #17-27 ⑬ 경로 손잡이의 판정·열기·우클릭 메뉴 한 벌 — 인라인 코드(a)와 링크(k)가 같은 레일을 쓰게 한다(따로면 적힌 모양에 따라 다르게 열린다). 새 레일 ❌. */
 
 /** 우클릭이 연 자리. 화면 좌표다(메뉴는 `document.body` 로 포털된다). */
 interface MenuAnchor {
@@ -147,11 +138,7 @@ export function usePathLinkRails(candidate: StreamPathCandidate | null, rootPath
     );
   }, [linked, insideRel, insideLines, rootPath, t, paneKey]);
 
-  /**
-   * ⑬ (d) — 루트 **밖** 경로를 누르면 벌어지는 일은 하나뿐이다: 시스템 탐색기가 그 자리를 보여 준다.
-   * 편집창·실행·연결 프로그램으로는 가지 않으므로 `planWorkspaceOpen` 을 거치지 않는다 — 갈래가 없는
-   * 곳에서 갈림을 묻지 않는 것이 (d) 개정의 조건이었다. **링크로 적혀도(⑬ (k) ③) 이 선은 그대로다.**
-   */
+  /** ⑬ (d) — 루트 밖 경로는 탐색기로 보여 주는 것 하나뿐이라 `planWorkspaceOpen` 을 거치지 않는다. 링크로 적혀도(⑬ (k) ③) 그대로다. */
   const onReveal = useCallback((e: React.MouseEvent): void => {
     if (!linkedOutside) return;
     e.preventDefault();
@@ -236,12 +223,7 @@ export interface WebLinkRails {
   readonly menu: React.JSX.Element | null;
 }
 
-/**
- * ⑬ (k) ④ — **웹 주소** 링크의 레일. 여는 동작은 종전 그대로다(바깥 브라우저 + §7.11 프리뷰 신고).
- *
- * 여는 갈래를 훅 안에 두는 이유는 (k) ③ 과 같다 — 왼쪽 클릭과 메뉴의 [브라우저에서 열기] 가 **같은 한 줄**을
- * 부르게 해야 한쪽만 고쳐지는 날이 오지 않는다.
- */
+/** ⑬ (k) ④ — 웹 주소 링크 레일(바깥 브라우저 + §7.11 신고). 왼쪽 클릭과 메뉴가 같은 한 줄을 부르게 훅 안에 둔다. */
 export function useWebLinkRails(href: string, ownerAgentId: string | undefined): WebLinkRails {
   const { t } = useTranslation();
   const { at, onContextMenu, close } = useAnchoredMenu();

@@ -1,9 +1,4 @@
-/**
- * §2.1 #3 — shared `editToolInput.ts` 고정 시험 (편집 계열 도구 입력 모양).
- *
- * 이 파서는 **서버 그래프(`recordFileEdit`)와 클라 IDE 스트림(`diffTool.ts`)이 함께 쓰는 한 벌**이다.
- * shared 패키지에는 러너가 없으므로(읽기·쓰기 축 시험과 같은 자리에서 돌린다) 여기서 고정한다.
- */
+/** §2.1 #3 — shared `editToolInput.ts`(편집 계열 도구 입력 모양) 시험. 서버 그래프(`recordFileEdit`)와 클라 IDE 스트림(`diffTool.ts`)이 함께 쓰는 한 벌이고, shared 엔 러너가 없어 여기서 돈다. */
 import { describe, it, expect } from 'vitest';
 import {
   EDIT_INPUT_TOOLS,
@@ -123,10 +118,7 @@ describe('clampEditSide — 이력 본문 상한은 한 벌', () => {
   });
 });
 
-/**
- * §5.25 (F) "쓴 내용도 남는다" — 코덱스 `apply_patch` 본문 → 파일별 바뀐 덩어리.
- * 사진 속 실제 경우(2026-10-20 `pathLinkContextMenu.ts` 주석 한 줄)를 그대로 픽스처로 쓴다.
- */
+/** §5.25 (F) "쓴 내용도 남는다" — 코덱스 `apply_patch` 본문 → 파일별 바뀐 덩어리. 픽스처는 실제 패치(`pathLinkContextMenu.ts` 주석 한 줄)다. */
 describe('parseApplyPatch — 코덱스 패치 본문을 파일별 덩어리로', () => {
   const REAL = [
     '*** Begin Patch',

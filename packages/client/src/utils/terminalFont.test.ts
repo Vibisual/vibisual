@@ -1,10 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ensureTerminalFonts, TERMINAL_FONT_STACK, type TerminalFontSet } from './terminalFont.js';
 
-// §4 (CMD) — 터미널이 창을 넘어가던 자리의 회귀 방지.
-//
-// xterm 은 열릴 때 잰 셀 폭을 끝까지 쓰므로, 동봉 글꼴이 실리기 전에 재면 열 수(cols)가 실제보다
-// 크게 잡혀 그 값이 셸에 실려 간다. 그래서 "기다려야 하는가"의 판정이 정확해야 한다.
+// §4 (CMD) — 터미널이 창을 넘어가던 회귀 방지. xterm 은 열릴 때 잰 셀 폭을 끝까지 쓰므로 동봉 글꼴이 실리기 전에 재면
+// cols 가 실제보다 크게 잡혀 셸에 실려 간다 — "기다려야 하는가" 판정을 고정한다.
 
 function fakeFontSet(over: Partial<TerminalFontSet> & { checked?: string[][] } = {}): TerminalFontSet & { checked: string[][]; loaded: string[][] } {
   const checked: string[][] = [];

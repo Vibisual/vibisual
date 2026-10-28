@@ -1,20 +1,6 @@
 /**
- * 루트 패널(§7.5 `RootFileList`)의 **프로젝트 컨텍스트 보존**을 고정한다.
- *
- * 실제 사고: 프로젝트를 여러 개 열어 둔 상태에서 vibisual 루트 버블을 눌렀더니 패널에
- * **먼저 열어 둔 다른 프로젝트의 폴더 목록**이 그려졌다.
- * 그래서 ① 에이전트가 실제로 쓰는 폴더는 목록에 없어 체크가 안 되고 ② 체크하면 그 경로가
- * 이 프로젝트에는 없어 404 라 버블이 안 뜨고 ③ 파일도 남의 것이 나왔다 — 증상 셋이 한 뿌리.
- *
- * 뿌리는 둘이었다:
- *  ① `ProjectGraph.resolveAbsolutePath('__root__:<남의 프로젝트>')` 가 그 프로젝트를 모르면
- *     **자기 root 로 물러섰다** → 남의 루트 키에도 "내가 안다"고 답했다.
- *  ② `ProjectGraphManager` 가 "첫 non-null 인스턴스가 이긴다"로 훑었다 → ①과 만나 먼저 등록된
- *     프로젝트가 항상 이겼다.
- *
- * 노드 키는 프로젝트 루트 기준 **상대 경로**라(`docs`) 이름만으로는 소속을 알 수 없다는 것이
- * 이 계열 버그의 공통 원인이다 — 그래서 `absolutePath` 힌트가 라우팅의 정본이다
- * (`/api/open-node-file` 이 같은 규약을 먼저 쓰고 있었다).
+ * §7.5 `RootFileList` — 여러 프로젝트 중 루트 버블을 누르면 그 프로젝트의 폴더가 그려진다: 남의 `__root__:` 키에 자기 root 로 답하지 않고,
+ * Manager 는 `absolutePath` 힌트로 라우팅한다(노드 키는 상대 경로라 이름만으론 소속을 모른다).
  */
 import { describe, expect, it, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
@@ -48,7 +34,7 @@ function makeProjectDir(tag: string, dirs: string[]): string {
   return dir;
 }
 
-/** 두 프로젝트를 **등록 순서대로** 한 매니저에 올린다(먼저 등록된 쪽이 종전에는 항상 이겼다). */
+/** 두 프로젝트를 등록 순서대로 올린다(먼저 등록된 쪽이 이기면 안 된다). */
 function twoProjects(): { manager: ProjectGraphManager; first: string; second: string; firstName: string; secondName: string } {
   const first = makeProjectDir('first', ['docs', 'engine', 'levels']);
   const second = makeProjectDir('second', ['docs', 'packages', 'scripts']);

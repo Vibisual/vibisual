@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { APP_BUBBLE_PAST_FILE_MAX, pushPastFile } from '@vibisual/shared';
 
-/**
- * §5.4 #36 (H) ③ — 지난 결과 쌓기(shared `pushPastFile`). 결과 전달이 `file` 을 바꾸기 **전** 파일을 앞에 쌓는다.
- * 경로 비교는 `pathKey` — 플랫폼을 인자로 받으므로 세 OS 를 여기서 모두 본다(멀티플랫폼 1축).
- */
+/** §5.4 #36 (H) ③ — 지난 결과 쌓기(`pushPastFile`): `file` 이 바뀌기 **전** 파일을 앞에. 경로 비교 `pathKey` 는 플랫폼을 인자로 받아 세 OS 를 다 본다. */
 
 describe('§5.4 #36 (H) ③ 지난 결과', () => {
   it('바뀌기 전 파일을 맨 앞에, 그때의 결과 버전과 함께', () => {

@@ -2,20 +2,14 @@ import { useRef } from 'react';
 import { HoverTooltip } from '../Layout/HoverTooltip.js';
 import { StudioIcon, type StudioIconName } from './studioIcons.js';
 
-/**
- * §5.13 (V) 37-1 — 스튜디오의 아이콘 단추(글자 단추 ❌). 툴팁에 이름과 단축키(표시는 `shortcutLabel()` 로 만든 글자)를 적는다.
- * 켬 상태는 앱 색 링(`--vs-accent`) — 앱 색은 선택·진행 표시에만 쓴다.
- */
+/** §5.13 (V) 37-1 — 스튜디오 아이콘 단추(툴팁에 이름 + `shortcutLabel()` 키). 켬은 앱 색 링(`--vs-accent`) — 앱 색은 선택·진행 표시에만. */
 export interface StudioIconButtonProps {
   readonly icon: StudioIconName;
   readonly label: string;
   /** 툴팁 두 번째 줄(단축키 등). */
   readonly hint?: string | undefined;
   readonly onClick: () => void;
-  /**
-   * §5.13 (Y) 40-10 ① — 주면 **누르는 순간**(`pointerdown`, 주 단추) 부른다(0.1초 안에 반응 — 손을 떼기를 기다리지 않는다). 그때는
-   * 뒤따르는 클릭을 한 번 삼킨다. 키보드(Enter·Space)로 누르면 종전대로 `onClick` 한 번이다.
-   */
+  /** §5.13 (Y) 40-10 ① — 주면 `pointerdown`(주 단추)에서 부르고 뒤따르는 클릭 하나를 삼킨다(0.1초 반응). 키보드는 `onClick` 한 번. */
   readonly onPress?: (() => void) | undefined;
   readonly active?: boolean | undefined;
   readonly disabled?: boolean | undefined;

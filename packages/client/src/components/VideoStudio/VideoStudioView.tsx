@@ -18,15 +18,8 @@ import { StudioToastStack } from './StudioToastStack.js';
 import type { StudioToast } from './useStudioToasts.js';
 
 /**
- * §5.13 (V) 37-1 — 스튜디오 **화면 배치**((U) 작업 공간을 대체한다).
- *
- * 위: 한 줄 크롬 — 창이 머리줄 자리를 주면(`AppChrome`) 그 자리에 머리줄 내용을 그리고 창 제목을 문서 제목으로 바꾼다(앱 이름
- * 머리줄과 스튜디오 머리줄이 겹치던 세 줄이 한 줄이 된다). 가운데: 왼쪽 아이콘 레일 + 서랍 · 큰 미리보기(+ 조작 줄 · 장면 구슬
- * 줄) · 오른쪽 AI 패널(판 기록을 열면 그 자리). 아래: [정밀 편집] 판(열 때만). 시작 화면에서는 레일·AI 패널을 거두고 입력창
- * 하나만 남긴다(같은 입력이 두 군데 있지 않게).
- *
- * 반응형은 **창 폭**이 기준이다(앱 창은 1920 화면에서도 400px 일 수 있다 — `box-*` 변형, `apps/AppShellHost.tsx` 가 잰다):
- * 1024px 미만은 서랍이 미리보기 위에 덮이고 AI 칸 하한이 260px 로 낮아지며, 640px 미만은 AI 칸이 미리보기 아래로 쌓인다.
+ * §5.13 (V) 37-1 — 스튜디오 화면 배치(레일 + 서랍 · 미리보기 · AI 패널 · [정밀 편집]). 시작 화면은 입력창 하나만(같은 입력 두 군데 ❌).
+ * 반응형은 창 폭(`box-*`, `apps/AppShellHost.tsx`) — 1024px 미만은 서랍이 덮고 AI 칸 하한 260px, 640px 미만은 AI 칸이 아래로 쌓인다.
  */
 export interface VideoStudioViewProps {
   readonly accent: string;

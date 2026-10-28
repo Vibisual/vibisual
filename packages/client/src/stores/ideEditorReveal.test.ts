@@ -3,12 +3,8 @@ import type { SubAgent } from '@vibisual/shared';
 import { useGraphStore, type IDEEditorFile } from './graphStore.js';
 
 /**
- * §5.5 #17-27 ⑬ (g) — 줄을 들고 온 열기의 **요청 한 건**(`ideEditorReveal`).
- *
- * 여기서 잡고 싶은 사고는 셋이다.
- *  ⓐ 줄을 실어 열었는데 요청이 안 서서 편집창이 첫 줄에서 열리는 것 — 사용자가 본 바로 그 고장이다.
- *  ⓑ 처리 전 요청이 남아 있다가, 나중에 그 탭으로 돌아왔을 때 옛 줄로 끌려가는 것.
- *  ⓒ 늦게 끝난 처리가 그 사이 새로 들어온 요청까지 지워 두 번째 클릭이 먹통이 되는 것.
+ * §5.5 #17-27 ⑬ (g) — 줄을 든 열기 요청(`ideEditorReveal`): ⓐ 요청이 안 서 첫 줄에서 열린다 ⓑ 남은 요청에 나중에 옛 줄로 끌려간다
+ * ⓒ 늦은 처리가 새 요청까지 지워 두 번째 클릭이 먹통 — 셋을 막는다.
  */
 
 const PROJECT = 'project';

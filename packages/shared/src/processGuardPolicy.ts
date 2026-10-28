@@ -1,10 +1,4 @@
-/**
- * §5.3 #9-2 — 에이전트가 띄운 프로세스 보호의 **판정**(순수 함수).
- *
- * 서버의 감시(`processGuard.ts`)와 그 시험이 같은 함수를 본다 — 판정이 두 벌이 되면 한쪽만 고쳐져 어긋난다.
- * 플랫폼 차이는 **들어오는 값**(무엇을 여유로 재는가, 무엇을 메모리로 재는가)에만 있고 판정 자체는 하나다.
- * `process.platform` 을 읽지 않는다(멀티플랫폼 규칙).
- */
+/** §5.3 #9-2 — 에이전트가 띄운 프로세스 보호의 판정(순수, 서버 `processGuard.ts` 와 시험이 공용). OS 차이는 들어오는 값에만 있다 — `process.platform` ❌. */
 import type { ProcessGuardNotice, ProcessGuardNoticeReason } from './types.js';
 import {
   MEMORY_PRESSURE_FLOOR_MIN_BYTES,
@@ -103,15 +97,10 @@ export interface RememberedDescendant {
 }
 
 /**
- * 한 묶음(본체 `rootPid`)에 속하는 프로세스들. 본체 자신도 넣는다(`isRoot` 표시용).
- *
- * ① 본체에서 부모를 따라 내려간 자손 ② 본체 그룹(`pgid === rootPid` — 본체는 detached 로 떠 그룹 리더다)
- * ③ 기억해 둔 자손(명령줄이 같을 때만) ④ ①~③ 중 그룹 리더인 것의 그룹. ④ 가 없으면 자기 그룹을
- * 만든 셸(`setsid`)이 죽은 뒤 그 손자를 영영 못 찾는다 — 이번 사고의 고아가 그 모양이었다(Windows 판).
- *
- * `rootAlive = false`(본체가 이미 내려갔다)면 **기억해 둔 것(③)에서만** 출발한다 — 본체 번호도, 그 그룹
- * 번호도 이미 다른 프로세스의 것일 수 있다(그룹이 비면 POSIX 는 그 번호를 새 pid 로 내준다). 살아 있는 동안
- * 매 틱 그룹 구성원까지 기억에 적으므로, 이렇게 좁혀도 놓치는 것은 그 사이 새로 생긴 것뿐이다.
+ * 본체 `rootPid` 묶음의 프로세스(본체 포함, `isRoot`): ① 부모를 따라 내려간 자손 ② 본체 그룹(`pgid === rootPid`, detached 리더)
+ * ③ 기억한 자손(명령줄 같을 때) ④ ①~③ 중 그룹 리더의 그룹 — 없으면 `setsid` 셸이 죽은 뒤 그 손자를 못 찾는다.
+ * `rootAlive = false` 면 ③ 에서만 — 본체·그룹 번호는 이미 남의 것일 수 있다(POSIX 는 빈 그룹 번호를 새 pid 로 준다).
+ * 살아 있는 동안 매 틱 그룹 구성원까지 기억하므로 놓치는 것은 그 사이 새로 생긴 것뿐이다.
  */
 export function membersOfRoot(
   rows: readonly ProcessSnapshotRow[],

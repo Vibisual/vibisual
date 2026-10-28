@@ -1,23 +1,11 @@
-/**
- * Iframe Proxy — cross-origin 페이지를 same-origin으로 로드하여
- * Inspector의 contentDocument 접근을 가능하게 한다.
- *
- * 동작: GET /iframe-proxy/<host:port>/path → http://<host:port>/path 로 프록시
- * HTML 응답에는 <base> 태그 + fetch/XHR 패치 스크립트를 주입한다.
- */
+/** Inspector 가 `contentDocument` 에 닿게 cross-origin 페이지를 same-origin 으로 싣는 프록시(`/iframe-proxy/<host:port>/path`). HTML 에 `<base>`·fetch/XHR 패치를 주입한다. */
 import net from 'node:net';
 import type { Request, Response } from 'express';
 import { IFRAME_PROXY_PATH } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { buildPreviewInjectionTail } from './previewPicker.js';
 
-/**
- * 보안 — SSRF 가드. 이 프록시는 **로컬 dev 서버 프리뷰** 전용이므로
- * loopback/사설 대역만 허용한다. 공인 IP·링크로컬(169.254/16, 클라우드
- * 메타데이터 169.254.169.254 포함)·임의 호스트명은 전부 차단.
- * (차단 안 하면: 사용자가 연 임의 웹페이지가 cross-origin 으로
- *  /iframe-proxy/169.254.169.254/... 를 호출해 메타데이터·내부 포트 유출.)
- */
+/** SSRF 가드 — loopback/사설 대역만(링크로컬 169.254/16·공인 IP·임의 호스트 ❌). 안 막으면 아무 웹페이지가 메타데이터 169.254.169.254·내부 포트를 읽는다. */
 function isPrivateIPv4(ip: string): boolean {
   const parts = ip.split('.');
   if (parts.length !== 4) return false;
@@ -73,11 +61,7 @@ function buildInjection(proxyBase: string): string {
   ].join('');
 }
 
-/**
- * HTML 내 root-relative URL(`src="/..."`, `href="/..."`)을 프록시 경로로 재작성.
- * `<base>`는 root-relative에 영향 없으므로 직접 치환해야 스크립트/링크가 로드된다.
- * 또한 `<meta http-equiv="Content-Security-Policy">` 태그를 제거 (iframe 프리뷰에선 원본 CSP가 방해).
- */
+/** root-relative `src`/`href` 를 프록시 경로로 바꾼다(`<base>` 는 안 먹는다). 원본 meta CSP 는 프리뷰를 막아 걷는다. */
 function rewriteHtml(html: string, proxyBase: string): string {
   // 1) meta CSP 제거 — 원본 앱의 Electron용 CSP가 프리뷰에서 스크립트/WS 차단
   html = html.replace(/<meta[^>]+http-equiv=["']Content-Security-Policy["'][^>]*>/gi, '');
@@ -217,15 +201,8 @@ export async function iframeProxyHandler(req: Request, res: Response): Promise<v
         html = injection + html;
       }
 
-      // §7.11 (판올림 번호 발급 대기) — 요소 집기(picker) 는 문서가 다 선 뒤에 붙인다(`</body>` 앞).
-      //   항상 넣되 **기본 비활성**이라, 부모가 켜기 전까지는 아무 것도 하지 않는다.
-      //
-      // §7.11 (G) — 같은 자리에 **인스펙터 응답 조각**(§5.5 #17-27 ⑮ (i))도 함께 넣는다.
-      //   패키지 앱에서 이 프리뷰는 `vibproxy://` 라 우리 창과 오리진이 달라, 인스펙터가
-      //   `contentDocument` 를 못 읽고 그 자리에서 포기한다 — Alt 를 눌러도 강조 상자가 뜰 곳이
-      //   없다. 편집창 미리보기가 이미 쓰고 있는 그 조각을 그대로 실어 **묻는 말에 답하게** 한다
-      //   (새 창구 ❌ — 부모가 좌표를 묻고 페이지가 요소를 답하는 기존 대화를 그대로 쓴다).
-      //   원본 위치(`data-vib-src`)는 우리가 내보낸 파일에만 있으므로 여기서는 `at:null` 로 온다.
+      // §7.11 — picker 는 `</body>` 앞, 기본 비활성. (G) 인스펙터 응답 조각(§5.5 #17-27 ⑮ (i))도 넣는다 — 패키지 앱은 `vibproxy://` 라 오리진이 달라 `contentDocument` 를 못 읽는다.
+      // 부모가 좌표를 묻고 페이지가 요소를 답하는 기존 대화 그대로(새 창구 ❌). `data-vib-src` 가 없어 `at:null`.
       const picker = buildPreviewInjectionTail(proxyBase, target);
       html = /<\/body\s*>/i.test(html)
         ? html.replace(/<\/body\s*>/i, () => `${picker}</body>`)

@@ -9,10 +9,7 @@ import {
   type ScreenRect,
 } from '@vibisual/shared';
 
-// shared 의 순수 판정 로직은 server 테스트에서 검증한다(pathCase.test.ts·updateDelivery.test.ts 선례).
-//
-// §5.5 #17-6 (H-4) — 앱 안 IDE 와 독립 창을 **한 손짓 안에서** 오가므로, 되돌아오는 판정이
-// 헐거우면 창이 무한히 왕복한다. 창을 띄우지 않고 그 규칙을 여기서 고정한다.
+// §5.5 #17-6 (H-4) — IDE 와 독립 창을 한 손짓 안에서 오가므로, 되돌아오는 판정이 헐거우면 창이 무한히 왕복한다.
 
 const APP: ScreenRect = { x: 100, y: 100, width: 1000, height: 800 };
 
@@ -72,12 +69,8 @@ describe('stepAppEntry — 밖 → 안 **전이**에서만 되돌린다', () => 
   });
 });
 
-// (판올림 번호 발급 대기) §5.5 #17-6 (H-8) — **밖으로 나갔다**를 화면 좌표로도 잰다.
-//
-// 밖에서 끌던 손을 이어받은 판(H-4 ③)은 그 창에서 mousedown 이 일어난 적이 없어 마우스 캡처가
-// 없다 — 커서가 창을 벗어나는 순간 렌더러에 이벤트가 끊겨 창 안 좌표로는 이탈을 영영 못 본다
-// (사용자 보고 — "되돌린 뒤 다시 밖으로 빼려는데 막힌다"). 그때는 main 이 커서를 대신 보는데,
-// 판정이 두 벌이 되면 두 눈이 서로 다른 자리에서 다른 말을 하므로 규칙을 여기 한 곳에 둔다.
+// §5.5 #17-6 (H-8) — 밖으로 나갔다를 화면 좌표로도 잰다. 이어받은 끌기는 그 창에 마우스 캡처가 없어 커서가 나가면 이벤트가 끊긴다 — main 이 대신 본다.
+// 판정이 두 벌이면 두 눈이 다른 말을 하므로 규칙은 여기 한 곳.
 describe('isCursorOutsideRect — 앱 밖으로 "나갔다"의 문턱', () => {
   const M = 24; // 렌더러 POP_OUT_MARGIN 과 같은 값
 
@@ -116,11 +109,8 @@ describe('isCursorOutsideRect — 앱 밖으로 "나갔다"의 문턱', () => {
   });
 });
 
-// §5.5 #17-6 (H-12)+(H-17) — **들어오는 길에도 구간이 있다.** 들어온 순간에는 창이 윤곽선으로
-// 바뀌기만 하고, 그대로 버티면 그 선이 **밝아진다**(무장). 실제로 합치는 일은 이 함수가 하지
-// 않는다 — 손을 뗄 때 `finishOverlayFollow` 한 곳에서만 일어난다(사용자 지시 — "마우스 놓기
-// 전까지 가상의 창 그대로 유지해"). 셋(`start`·`cancel`·`arm`)이 한 틱에 겹치면 화면에는 선이
-// 뜨자마자 밝아진 것으로만 보여 구간을 만든 뜻이 없어지므로, 그 배타성을 여기서 고정한다.
+// §5.5 #17-6 (H-12)+(H-17) — 들어오면 윤곽선, 버티면 밝아짐(무장). 합치기는 손을 뗄 때 `finishOverlayFollow` 에서만(그 전까지 가상 창을 그대로 둔다).
+// `start`·`cancel`·`arm` 이 한 틱에 겹치면 구간이 사라지므로 그 배타성을 고정한다.
 describe('stepRedockDwell — 들어오기: 선으로 바뀜 · 버팀 · 무장', () => {
   const idle = { wasInside: false, isInside: false, dwelling: false, elapsedMs: 0 };
 
@@ -152,8 +142,7 @@ describe('stepRedockDwell — 들어오기: 선으로 바뀜 · 버팀 · 무장
       wasInside: true, isInside: true, dwelling: true, elapsedMs: REDOCK_DWELL_MS,
     });
     expect(step.arm).toBe(true);
-    // 종전에는 여기서 `dwelling` 이 거짓이 되며 그 틱에 합쳐졌다. 이제는 참으로 남아야 한다 —
-    //   그 한 비트가 "지금 화면에 있는 것은 가상 창"이고, 뗄 때 합칠지를 그것으로 가른다.
+    // `dwelling` 은 참으로 남아야 한다 — 그 비트가 "지금은 가상 창"이고, 뗄 때 합칠지를 그것으로 가른다.
     expect(step.dwelling).toBe(true);
     expect(step.start).toBe(false);
     expect(step.cancel).toBe(false);

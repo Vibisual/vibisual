@@ -1,9 +1,4 @@
-/**
- * §5.11 v4.30 — 슬롯 사전 판정 고정 테스트.
- *
- * 배지 슬롯은 모든 버블 안에 들어가므로, 여기서 "할 일 없음"을 못 걸러 내면 켠 플러그인이 하나도 없는
- * 사용자까지 버블마다 스토어 구독 열두 개를 문다. 기본값이 전부 비활성이라 그게 대부분의 사용자다.
- */
+/** §5.11 — 슬롯 사전 판정 고정. 못 거르면 켠 플러그인이 없어도(기본값) 버블마다 구독 열두 개를 문다. */
 import { describe, it, expect } from 'vitest';
 import type { PluginClientModule } from '@vibisual/plugins';
 import { modulesForSlot } from './slots.js';

@@ -6,14 +6,7 @@ import { CaptureSourcePicker } from '../BubbleMap/CaptureSourcePicker.js';
 import { VerifyRecorderHost } from './VerifyRecorderHost.js';
 import { VerifyDemoWindow } from './VerifyDemoWindow.js';
 
-// §5.5 #17-35 ⑨⑩ — 시연 녹화의 **상시 마운트 층**.
-//
-// IDE 창 하나가 열려 있는 동안 늘 살아 있는 자리다. 여기 사는 셋:
-//   ① `VerifyRecorderHost` — 스트림·녹화기(화면에 아무것도 안 그린다)
-//   ② `CaptureSourcePicker` — §5.9 의 그 피커 그대로(새 피커 ❌). 고르면 바로 녹화가 시작된다.
-//   ③ `VerifyDemoWindow`   — 되돌려 보며 절차로 저장 / ⑩ 증거 재생
-//
-// 검증 뷰(사이드바)가 아니라 여기 있는 이유는 하나다 — **뷰가 접혀도 녹화가 끊기면 안 된다.**
+// §5.5 #17-35 ⑨⑩ — 시연 녹화 상시 층(녹화 호스트 · §5.9 피커 그대로 · 시연 창). 검증 뷰가 아니라 여기 둔다 — 뷰가 접혀도 녹화가 끊기면 안 된다.
 
 export const VerifyDemoLayer = memo(function VerifyDemoLayer(): React.JSX.Element {
   const pickerFor = useVerifyDemoStore((s) => s.pickerFor);

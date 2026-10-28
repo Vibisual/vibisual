@@ -12,11 +12,7 @@ interface GitError {
   subtitle?: React.ReactNode;
   note?: React.ReactNode;
   stderr: string;
-  /**
-   * §7.6 (판올림 번호 발급 대기) — 모달 안에서 한 걸음 더 갈 수 있을 때의 손잡이.
-   * 합치기 충돌에서 "이 충돌을 그 워크트리 에이전트에게 넘기기" 가 이 자리를 쓴다.
-   * 없으면 모달은 종전대로 [닫기] 하나뿐이다.
-   */
+  /** §7.6 — 모달의 다음 걸음 손잡이(충돌을 워크트리 에이전트에게 넘기기). */
   action?: { label: string; onClick: () => void };
 }
 
@@ -116,13 +112,7 @@ export function GitStatusCard({ projectName }: GitStatusCardProps): React.JSX.El
     }
   }, [fetchStatus, t]);
 
-  /**
-   * §7.6 (판올림 번호 발급 대기) — 워크트리를 **본선으로** 합친다(sync 의 반대 방향).
-   *
-   * 서버가 선행 거부(부모 dirty / 합칠 것 없음)와 충돌 원복까지 맡으므로 여기서는 결과를 읽어
-   * 사람이 다음에 뭘 할 수 있는지만 보여 준다. 충돌이면 그 워크트리에서 일하던 커스텀 에이전트
-   * (서버가 `ownerAgentId` 로 알려 준다)에게 **그 자리에서** 넘길 수 있다.
-   */
+  /** §7.6 — 워크트리를 본선으로 합친다. 거부·충돌 원복은 서버가 하고 여기선 결과만 보인다. 충돌이면 `ownerAgentId` 에이전트에게 넘긴다. */
   const mergeWorktree = useCallback(async (wt: GitWorktreeStatus): Promise<void> => {
     // 본선 브랜치 이름 — repo 케이스에서만 있다(no-git/not-repo 면 애초에 워크트리 목록도 없다).
     const baseBranch = status?.case === 'repo' ? status.branch : undefined;
@@ -718,7 +708,7 @@ function WorktreeRow({
   );
 }
 
-// ─── Git 에러 모달 (v1.20 WorktreeDeleteDialog 패턴 기반, title/stderr props 로 일반화) ───
+// Git 에러 모달(WorktreeDeleteDialog 패턴의 일반화).
 
 function GitErrorModal({
   error,

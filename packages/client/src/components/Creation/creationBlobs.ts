@@ -9,11 +9,8 @@ import {
 } from '@vibisual/shared';
 
 /**
- * §5.13 (R-10) — the screen side of "large binaries live outside the payload".
- *
- * Before a save, inline data URLs and long number arrays are hashed here, only the blobs the project does not have yet
- * are uploaded (raw bytes, no base64), and the payload keeps `vibi-blob:` references. Reading resolves references
- * back to inline values for renderers. Blobs are immutable (named by hash), so a byte-budgeted cache is always correct.
+ * §5.13 (R-10) — large binaries live outside the payload: data URLs and long number arrays are hashed, only missing blobs are
+ * uploaded (raw bytes), the payload keeps `vibi-blob:` references. Blobs are immutable (hash-named), so a byte-budgeted cache is always correct.
  */
 const BLOBS = `${CREATION_API_PREFIX}/blobs`;
 const query = (projectId: string): string => `projectId=${encodeURIComponent(projectId)}`;

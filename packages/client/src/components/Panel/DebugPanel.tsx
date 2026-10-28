@@ -111,7 +111,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
   const rfRef = useRef<ReactFlowInstance | null>(null);
 
   const fps = useRenderFps();
-  // §4 v3.71 가시성 LOD 계측 — 캔버스가 지금 그려지고 있는지(덮임 비트).
+  // §4 가시성 LOD 계측 — 캔버스가 지금 그려지고 있는지(덮임 비트).
   const canvasCovered = useCanvasCovered();
   const storeAgents = useGraphStore((s) => s.agents);
   const storeTopFolders = useGraphStore((s) => s.topFolders);
@@ -120,7 +120,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
   const currentProject = useGraphStore((s) => s.currentProject);
   const agentProjects = useGraphStore((s) => s.agentProjects);
   const nodeProjects = useGraphStore((s) => s.nodeProjects);
-  // §4 v1.98 — 진단 에러 로그 (renderer·main·server 통합). 서버가 SSOT, 여기선 표시만.
+  // §4 — 진단 에러 로그(renderer·main·server 통합). 서버가 SSOT, 여기선 표시만.
   const diagnosticLog = useGraphStore((s) => s.diagnosticLog);
 
   // 성능 프로파일러 — 40 FPS 하락 자동 트리거 + 리포트 표시.
@@ -155,9 +155,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
     perfProfiler.maybeTrigger(fps, perfContext);
   }, [fps, perfContext]);
 
-  // v3.72 — 느린 인터랙션 감시. FPS 는 "타자가 밀린다" 를 못 잡으므로(합성기 프레임 간격과
-  //   입력→표시 지연은 다른 축이다) 입력 지연이 임계를 넘는 순간에도 수집이 열려야 한다.
-  //   패널이 열려 있는 동안에만 무장 → 닫히면 종전대로 상시 비용 0.
+  // 느린 인터랙션 감시 — FPS 는 입력 지연을 못 잡아 임계 초과 입력에도 수집을 연다. 패널이 열린 동안에만 무장.
   useEffect(() => {
     perfProfiler.armSentinel(perfContext);
     return () => perfProfiler.disarmSentinel();
@@ -208,11 +206,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
     return { nodes: [...agentNodes, ...fileNodes], edges: flowEdges, counts };
   }, [storeAgents, storeTopFolders, storeEdges, activeProject, agentProjects, nodeProjects]);
 
-  /**
-   * 이 그래프도 파생 배열을 그대로 넘기는 controlled 캔버스다 — 잰 치수를 도로 실어 주지 않으면
-   * React Flow 가 손잡이 치수를 지워 **선이 그려지지 않는다**(무대 지도와 같은 원인, 훅 주석 참조).
-   * 버블 치수는 글로우 여백까지 재 봐야 알 수 있으므로 기본값은 넘기지 않는다 — 첫 측정이 곧 진실이다.
-   */
+  /** controlled 캔버스라 잰 치수를 도로 실어야 한다(아니면 React Flow 가 손잡이 치수를 지워 선이 안 그려진다). 기본 치수는 넘기지 않는다. */
   const { nodes: flowNodes, onNodesChange } = useMeasuredFlowNodes(nodes);
 
   useEffect(() => {
@@ -280,8 +274,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
           </span>
         </div>
 
-        {/* §4 v3.71 가시성 LOD 계측 — 덮임 여부 / 현재 줌 티어 / 뷰포트 밖 컬링.
-            FPS 를 볼 때 "지금 캔버스가 그려지고 있는지"를 같은 줄에서 확인하려는 용도. */}
+        {/* §4 가시성 LOD — 덮임 / 줌 티어 / 컬링(FPS 옆에서 본다). */}
         <div className="flex items-center justify-between gap-2 font-mono text-[12px]">
           <span className="text-gray-500">{t('panel.debugPanel.visibility', { defaultValue: 'Visibility' })}</span>
           <span className="flex items-center gap-2">
@@ -295,8 +288,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
           </span>
         </div>
 
-        {/* v3.72 입력 지연 — FPS 옆에 나란히. "타자가 밀린다" 는 FPS 가 아니라 이 값이 말해준다.
-            감시 무장 후 임계(200ms) 초과 인터랙션이 관측되면 그 값이 찍힌다. */}
+        {/* 입력 지연 — "타자가 밀린다"는 FPS 가 아니라 이 값이다(임계 200ms). */}
         <div className="flex items-center justify-between gap-2 font-mono text-[12px]">
           <span className="text-gray-500">{t('panel.debugPanel.inputLag')}</span>
           <span className={lastSlowMs > 0 ? 'text-red-400' : 'text-gray-600'}>
@@ -429,7 +421,6 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
         )}
       </div>
 
-      {/* §4 v1.98 — Error Log (renderer · main · server 통합) */}
       <div className="flex flex-col gap-1.5 border-b border-gray-800 p-4">
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-gray-400">{t('panel.debugPanel.errorLog')}</span>
@@ -490,8 +481,5 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
   );
 }
 
-/**
- * onClose 는 App 에서 useCallback 으로 안정 참조를 넘기므로, memo 가 App 의 잦은 리렌더 전파를 끊는다.
- * DebugPanel 은 자체 store 구독으로만 갱신 → 켜져 있을 때의 발발거림 완화. 꺼지면 App 이 언마운트(비용 0).
- */
+/** memo 로 App 리렌더를 끊는다(onClose 는 안정 참조). 꺼지면 언마운트. */
 export const DebugPanel = memo(DebugPanelImpl);

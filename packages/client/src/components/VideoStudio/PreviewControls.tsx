@@ -5,14 +5,7 @@ import { shortcutLabel } from '../../utils/platform.js';
 import { StudioIconButton } from './StudioIconButton.js';
 import { usePlayheadValue, type PlayheadClock } from './playheadClock.js';
 
-/**
- * §5.13 (V) 37-1 — 미리보기 조작 줄(글자 단추 대신 아이콘 — 툴팁에 단축키): 재생 `Space` · 한 프레임 `←`/`→` · 반복 `L` ·
- * 소리 `M`(§5.13 (AA) 42-3 — 음소거·크기) · 안전 영역 `G` · 맞춤/100% `F` · 가리키기 `P` · 메모 `N`. 오른쪽 끝에 [정밀 편집](트랙
- * 타임라인을 아래에서 올린다).
- * 시간은 `tabular-nums`(`00:12.04`).
- * 반응형 — 미리보기 칸이 좁으면 줄이 아랫줄로 접힌다(아이콘이 가려지지 않게). 폰 폭 창(`box-narrow`)에서는 총길이(`/ 00:30`)와
- * 가르는 선을 걷고 [정밀 편집]은 아이콘만 남긴다(이름은 툴팁·aria-label 에 그대로).
- */
+/** §5.13 (V) 37-1 — 미리보기 조작 줄(아이콘 + 툴팁 단축키, 시간은 `tabular-nums`). 좁으면 접히고, `box-narrow` 에선 총길이를 걷고 [정밀 편집]은 아이콘만. */
 export interface PreviewControlsProps {
   readonly playing: boolean;
   readonly preparing?: boolean;

@@ -1,14 +1,6 @@
 /**
- * §3.6 — 훅 **전송 경로**(HTTP 훅 승격 / command 폴백)와 훅 엔트리 옵션(`args`·`if`) 테스트.
- *
- * 회귀 방지 대상 넷:
- *  1) HTTP 승격 조건 — 판올림·`allowedHttpHookUrls` 중 하나라도 어긋나면 **반드시** command 로
- *     떨어져야 한다. 못 도는 HTTP 훅을 깔면 이벤트가 0건이 되고 화면에서는 앱이 죽은 것으로 보인다.
- *  2) `args` exec 형식 — 경로에 공백이 있어도 셸 파서를 타지 않는다(멀티플랫폼 규칙).
- *  3) `if` 필터 — 기억 카드 주입이 `Edit`/`Write` 에만 붙어야 한다. 없으면 **모든 도구 호출마다**
- *     Node 프로세스가 한 번씩 뜬다(종전 동작).
- *  4) `SessionEnd` 상한 — 기본 예산 1.5초짜리 이벤트에 10초를 걸면 우리 서버가 멎었을 때
- *     사용자의 `/clear`·`/resume` 이 그만큼 멈춘다.
+ * §3.6 — 전송 경로·엔트리 옵션 시험: ① 판·`allowedHttpHookUrls` 중 하나라도 어긋나면 command ② `args` exec 형식(공백 경로도 셸 파서 ❌)
+ * ③ `if` — 기억 카드 주입은 `Edit`/`Write` 만(없으면 도구마다 Node) ④ `SessionEnd` 짧은 상한.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';

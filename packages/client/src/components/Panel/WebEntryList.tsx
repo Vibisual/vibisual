@@ -41,17 +41,7 @@ function post(path: string, body: unknown): void {
   }).catch(() => {});
 }
 
-/**
- * §7.22 — 도메인 버블의 웹 이력 목록.
- *
- * **목록은 훑는 자리, 팝업은 읽는 자리.** 줄을 누르면 `WebEntryDetailPopup` 이 열려 검색어·URL
- * 전문과 결과 본문을 다 보여 준다(260px 안에서 `pre` 를 펼치던 종전 방식은 목록을 밀어내면서도
- * 읽히지 않았다 — 훑기와 읽기를 한 칸에서 하려다 둘 다 놓쳤다).
- *
- * **지우기는 휴지통 버튼이다.** 종전의 "항상 꺼진 체크박스"는 고르는 칸으로 읽히는데 실제 행동은
- * 제거라 모양과 행동이 어긋났다. 부르는 창구는 그대로(`/api/domain-entries/check`)라 서버 계약은
- * 안 바뀌고, 되돌리기가 없다는 것도 그대로다 — 지워지는 것은 산출물이 아니라 관찰 이력이다(§5.23).
- */
+/** §7.22 — 도메인 버블 웹 이력 목록. 줄을 누르면 `WebEntryDetailPopup` 에서 읽는다. 지우기는 휴지통 버튼(`/api/domain-entries/check`, 되돌리기 없음 — 관찰 이력만 지운다). */
 export function WebEntryList({ nodeId, host, entries, maxWebEntries }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const [maxEditorAt, setMaxEditorAt] = useState<{ x: number; y: number } | null>(null);
@@ -177,12 +167,7 @@ export function WebEntryList({ nodeId, host, entries, maxWebEntries }: Props): R
   );
 }
 
-/**
- * 한 줄 = 한 항목. **줄 전체가 여는 버튼**이고, 지우기만 그 안에서 따로 선다.
- *
- * 계층은 글자 크기가 아니라 색·굵기로 만든다 — 표제는 진한 색, 요약·메타는 흐린 색이되 셋 다
- * 12px 이다(한글은 12px 아래로 내려가면 읽히지 않는다).
- */
+/** 줄 전체가 여는 버튼. 계층은 색·굵기로 — 글자는 전부 12px(한글 하한). */
 function WebEntryRow({
   entry,
   onOpen,

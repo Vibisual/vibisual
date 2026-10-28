@@ -2,19 +2,10 @@ import type { CodeToken } from './codeHighlight.js';
 import type { TokenKind } from './codeLanguages.js';
 
 /**
- * editorFind.ts — §5.5 #17-27 ⑲ 편집창 **찾기·바꾸기의 순수 계산**.
- *
- * 무엇이 맞는가 · 다음은 어디인가 · 바꾸면 무엇이 되는가 · 화면 어느 줄 어느 칸을 칠하는가.
- * 찾기 막대(화면)와 textarea(편집)를 뺀 계산만 둔다 — 엉뚱한 자리를 바꾸는 사고는 눈으로 잡기 어렵고
- * 단위 테스트가 훨씬 촘촘히 잡는다(`editorFollow.ts`·`editorLineRange.ts` 와 같은 판단).
- *
- * 규칙은 VS Code 찾기 위젯을 따른다(사용자 지시 — "기존 편집 툴들처럼 … 단축키랑 동일하게"):
- *  - 스위치 셋 — 대/소문자 · 단어 단위 · 정규식. 정규식은 `u` 깃발로 짓고, 깨지면 결과 0 + "잘못된 정규식".
- *  - **단어 단위는 `\b` 가 아니다** — `\b` 는 ASCII 만 낱말로 보아 한글 낱말을 하나도 못 찾는다.
- *    앞뒤 글자가 낱말 글자(유니코드 글자·숫자·`_`)인지로 가른다.
- *  - 결과는 상한(`FIND_MATCH_LIMIT`)까지만 센다 — 한 글자 찾기로 큰 파일 전체를 칠하지 않는다.
- *    "모두 바꾸기" 는 상한 없이 다시 센다(보이는 것만 바꾸면 그건 "모두"가 아니다).
- *  - 정규식 바꾸기는 `$1`·`$&`·`$<이름>`·`$$`·`$0` 과 `\n`·`\t`·`\\`, 대소문자 바꾸기 `\u`·`\l`·`\U`·`\L` 을 읽는다.
+ * §5.5 #17-27 ⑲ 편집창 찾기·바꾸기의 순수 계산. VS Code 찾기 위젯을 따른다:
+ * - 정규식은 `u` 깃발, 깨지면 결과 0 + "잘못된 정규식". 단어 단위는 `\b` 가 아니다 — ASCII 만 낱말로 봐 한글을 못 찾는다(앞뒤가 유니코드 낱말 글자인지로).
+ * - 결과는 `FIND_MATCH_LIMIT` 까지만 센다. "모두 바꾸기"는 상한 없이 다시 센다.
+ * - 바꾸기 틀: `$1`·`$&`·`$<이름>`·`$$`·`$0`, `\n`·`\t`·`\\`, `\u`·`\l`·`\U`·`\L`.
  */
 
 /** 찾기 스위치 셋. */
@@ -102,10 +93,7 @@ function charBeforeOffset(text: string, i: number): string {
   return text[i - 1] ?? '';
 }
 
-/**
- * 단어 단위로 맞았는가 — 맞은 자리의 양 끝이 낱말 안에서 잘리지 않았는가.
- * 끝 글자가 낱말 글자가 아니면(`.foo` 처럼 기호로 시작) 그쪽 경계는 따지지 않는다(VS Code 와 같다).
- */
+/** 양 끝이 낱말 안에서 잘리지 않았는가. 끝 글자가 낱말 글자가 아니면(`.foo`) 그쪽 경계는 따지지 않는다(VS Code 와 같다). */
 export function isWholeWordMatch(text: string, start: number, end: number): boolean {
   if (end <= start) return false;
   const leftOk = !isWordChar(charBeforeOffset(text, start)) || !isWordChar(charAtOffset(text, start));
@@ -194,10 +182,7 @@ export function currentMatchIndex(matches: readonly FindMatch[], selStart: numbe
 
 // ─── 찾을 말 채우기 ───────────────────────────────────────────────────────────
 
-/**
- * 막대를 열 때 찾을 말로 넣을 글자 — 고른 글자가 한 줄이면 그것, 고른 것이 없으면 커서 자리의 낱말.
- * 여러 줄을 골랐거나 너무 길면 `null`(지난 찾을 말을 그대로 둔다) — VS Code 의 기본값과 같다.
- */
+/** 막대를 열 때의 찾을 말 — 한 줄 선택이면 그것, 없으면 커서 자리 낱말. 여러 줄·너무 길면 `null`(지난 말 유지, VS Code 와 같다). */
 export function seedFindQuery(text: string, start: number, end: number): string | null {
   if (end > start) {
     const picked = text.slice(start, end);
@@ -225,10 +210,7 @@ function applyCase(value: string, op: CaseOp | null): string {
   }
 }
 
-/**
- * 정규식 바꾸기의 틀을 맞은 결과 하나에 맞춰 편다.
- * 대소문자 바꾸기(`\U$1`)는 **바로 뒤에 오는 묶음 하나**에만 걸린다(VS Code 와 같다).
- */
+/** 대소문자 바꾸기(`\U$1`)는 바로 뒤 묶음 하나에만 걸린다(VS Code 와 같다). */
 export function expandReplaceTemplate(template: string, m: RegExpExecArray, text: string): string {
   let out = '';
   let pending: CaseOp | null = null;
@@ -280,10 +262,7 @@ export function expandReplaceTemplate(template: string, m: RegExpExecArray, text
   return out;
 }
 
-/**
- * 결과 하나를 무엇으로 바꿀지 정하는 함수. 정규식이 아니면 받은 글자 그대로다.
- * 그 자리가 지금 본문에서 더는 맞지 않으면(그 사이 본문이 바뀌었다) `null` — 바꾸지 않는다.
- */
+/** 그 사이 본문이 바뀌어 그 자리가 더는 맞지 않으면 `null` — 바꾸지 않는다. */
 export function makeReplacer(
   text: string,
   query: string,
@@ -302,10 +281,7 @@ export function makeReplacer(
   };
 }
 
-/**
- * 결과 전부를 한 번에 바꾼다. `keep` 은 함께 옮겨 줄 위치(커서) — 바뀐 길이만큼 밀리고, 바뀐 자리 안이면
- * 그 자리의 시작으로 간다. 바꿀 글을 정할 수 없는 결과(`null`)는 그대로 둔다.
- */
+/** `keep`(커서)은 바뀐 길이만큼 밀리고, 바뀐 자리 안이면 그 시작으로 간다. `null` 결과는 그대로 둔다. */
 export function replaceAllMatches(
   text: string,
   matches: readonly FindMatch[],
@@ -359,10 +335,7 @@ export function lineIndexAt(starts: readonly number[], offset: number): number {
   return lo;
 }
 
-/**
- * 결과를 줄마다의 칠할 자리로 나눈다. 여러 줄에 걸친 결과(정규식 `\n`)는 줄마다 잘라 담고,
- * 줄바꿈 하나만 맞은 결과처럼 그릴 글자가 없으면 그 자리에 길이 0 표식을 둔다.
- */
+/** 결과를 줄마다 칠할 자리로. 여러 줄 결과(정규식 `\n`)는 줄마다 자르고, 그릴 글자가 없으면(줄바꿈만) 길이 0 표식을 둔다. */
 export function marksByLine(
   starts: readonly number[],
   textLength: number,
@@ -402,10 +375,7 @@ export type LinePiece =
   | { text: string; kind: TokenKind; mark: 'none' | 'match' | 'current' }
   | { caret: 'match' | 'current' };
 
-/**
- * 한 줄의 색 토큰을 칠할 자리 경계에서 다시 자른다. 글자는 하나도 더하거나 빼지 않는다 —
- * 칠한 층(`<pre>`)과 타이핑하는 층(`textarea`)이 한 글자라도 어긋나면 커서가 엉뚱한 글자 위에 선다.
- */
+/** 토큰을 칠할 경계에서 다시 자르되 글자는 더하거나 빼지 않는다 — `<pre>` 층과 `textarea` 층이 한 글자라도 어긋나면 커서가 엉뚱한 글자 위에 선다. */
 export function splitTokensByMarks(tokens: readonly CodeToken[], marks: readonly LineMark[]): LinePiece[] {
   if (marks.length === 0) return tokens.map((t) => ({ text: t.text, kind: t.kind, mark: 'none' as const }));
   const ranged = marks.filter((m) => m.end > m.start).sort((a, b) => a.start - b.start);

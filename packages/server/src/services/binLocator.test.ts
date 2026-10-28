@@ -21,11 +21,7 @@ import {
 
 const IS_WIN = process.platform === 'win32';
 
-/**
- * 이 테스트가 있는 이유: **Finder 로 띄운 macOS 앱은 PATH 가 넉 줄뿐**이라는 사고를
- * 우리 개발기(Windows)에서는 절대 재현할 수 없다. 그래서 플랫폼·env·존재확인을 전부 주입해
- * win/mac/linux 세 경우를 그 OS 에 가지 않고 여기서 고정한다.
- */
+/** Finder 로 띄운 macOS 앱은 PATH 가 넉 줄뿐이라는 사고를 Windows 개발기에서는 재현할 수 없다 — 플랫폼·env·존재확인을 주입해 세 OS 를 여기서 고정한다. */
 
 /** Finder/Dock 으로 띄운 macOS 앱이 실제로 받는 PATH(=launchd 기본). */
 const LAUNCHD_MINIMAL_PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
@@ -297,9 +293,8 @@ describe('isExecutableFileSync', () => {
   });
 
   /**
-   * Windows 앱 실행 별칭 회귀 — `%LOCALAPPDATA%\Microsoft\WindowsApps\winget.exe` 는 재분석
-   * 지점이라 `statSync` 가 EACCES 로 죽고 `existsSync` 도 false 다(2026-08-26 실측). 그런데
-   * `spawn` 은 정상 실행한다. 이 보정이 빠지면 ffmpeg 설치 대행(`winget install`)이 통째로 죽는다.
+   * Windows 앱 실행 별칭 회귀 — `%LOCALAPPDATA%\Microsoft\WindowsApps\winget.exe` 는 재분석 지점이라 `statSync` 가 EACCES 로 죽고 `existsSync` 도 false 다(2026-08-26 실측).
+   * 그래도 `spawn` 은 실행한다 — 이 보정이 빠지면 ffmpeg 설치 대행(`winget install`)이 통째로 죽는다.
    */
   it.runIf(IS_WIN)('Windows: where.exe 가 찾는 것은 우리도 찾아야 한다 (winget 앱 실행 별칭)', () => {
     let fromWhere: string | null = null;

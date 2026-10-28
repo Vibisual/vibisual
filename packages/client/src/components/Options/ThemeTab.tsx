@@ -1,10 +1,6 @@
 /**
- * §4 앱 테마 — 옵션창의 **테마** 칸.
- *
- * 카드를 누르면 **그 자리에서 칠하고 저장한다** — 언어와 같은 즉시 축이라 푸터 [적용]과 무관하다
- * (테마는 눈으로 보고 고르는 것이라, 적용을 눌러야 바뀌면 고르는 동안 비교할 수가 없다).
- * 저장값은 `UserDefaults.appearance.themeId` 하나이고, 다른 창(별창·지휘통제실)도
- * `user_defaults_updated` 로 함께 바뀐다. 창 바탕·제목줄 단추는 desktop main 이 같은 값으로 다시 칠한다.
+ * §4 앱 테마 — 카드를 누르면 바로 칠하고 저장한다(즉시 축 — 푸터 [적용]과 무관, 고르며 비교할 수 있게).
+ * 저장값은 `UserDefaults.appearance.themeId` 하나, 다른 창은 `user_defaults_updated` 로 따른다.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';

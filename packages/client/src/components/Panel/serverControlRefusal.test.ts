@@ -1,9 +1,4 @@
-/**
- * §7.11 / §3.5 — 서버가 "다른 프로젝트의 서버라 손대지 않았다"고 거절한 것을 화면이 읽는가.
- *
- * 한 포트에 주인이 둘이면 Stop/Restart 는 옆 프로젝트 서버를 지키려고 거절한다(Stop = 200 +
- * `refused: 'foreign'`, Restart = 409 + 같은 표식). 응답을 버리면 버튼을 눌러도 아무 일이 없는 채로 남는다.
- */
+/** §7.11 / §3.5 — Stop(200)·Restart(409)의 `refused: 'foreign'` 거절을 화면이 읽는다. */
 import { describe, expect, it } from 'vitest';
 import { isRefusedForOtherProject, refusedForOtherProject } from './serverControlRefusal.js';
 

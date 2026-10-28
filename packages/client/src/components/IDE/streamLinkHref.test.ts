@@ -1,15 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { streamUrlTransform, isWebLinkHref, parseLinkHrefCandidate, withLinkLabelLines } from './streamLinkHref.js';
 
-/**
- * §5.5 #17-27 ⑬ (k) — 본문 **마크다운 링크**의 목적지 판정.
- *
- * 여기서 잡고 싶은 사고는 넷이다.
- *  ⓐ 세척이 `file:`·`C:\…` 를 지워 **앵커조차 서지 않는 것** — 사용자가 본 바로 그 고장이다.
- *  ⓑ 낯선 스킴(`javascript:`)이 세척을 **함께 통과하는 것** — 살리는 것은 그 둘뿐이어야 한다.
- *  ⓒ 퍼센트로 인코딩된 한글·공백 이름이 복호되지 않아 **디스크에 없는 경로**가 되는 것.
- *  ⓓ 웹 주소·메일·문서 안 앵커가 경로로 읽혀 엉뚱한 파일 판정을 부르는 것.
- */
+/** §5.5 #17-27 ⑬ (k) 마크다운 링크 목적지: `file:`·`C:\…` 만 살리고 `javascript:` 는 지우기 · 퍼센트 복호 · 웹 주소·메일·앵커는 경로 ❌. */
 
 const ROOT = 'C:/work/proj';
 
@@ -139,11 +131,7 @@ describe('parseLinkHrefCandidate — 경로가 아닌 주소', () => {
   });
 });
 
-/**
- * ⑬ (g) ① — 줄 조각은 떼어 **버리지 않고** 들고 간다. 사용자가 누른 링크는
- * `[MPSThreatPhaseAuthoritySubsystem.h:806-807](Source/…/MPSThreatPhaseAuthoritySubsystem.h#L806-L807)` 였고,
- * 종전에는 `#L806-L807` 을 조각으로 떼어 버려 편집창이 첫 줄에서 열렸다.
- */
+/** ⑬ (g) ① — 줄 조각(`#L806-L807`)은 버리지 않고 줄 범위로 들고 간다(버리면 첫 줄에서 열린다). */
 describe('parseLinkHrefCandidate — ⑬ (g) 줄 조각', () => {
   it('사용자가 누른 바로 그 링크 — `#L806-L807`', () => {
     expect(parseLinkHrefCandidate('Source/P_MPS_GPT/Public/Risk/MPSThreatPhaseAuthoritySubsystem.h#L806-L807', ROOT))

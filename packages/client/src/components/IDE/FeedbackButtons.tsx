@@ -4,11 +4,8 @@ import type { AgentFeedbackTargetType } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 
 /**
- * §4 v3.21 — 좋아요/싫어요 피드백 버튼 (작업 신고/검수 카드 푸터 + 스트림 result 블록 공용).
- *
- * 클릭 즉시 서버로 upsert(같은 대상 재클릭 = 철회). 싫어요는 즉시 전송 후 사유 입력을 열어
- * 선택적으로 보강(재전송 = verdict 교체라 안전). 눌림 상태는 graph_snapshot 의 agentFeedbacks 가
- * SSOT — 로컬 낙관 상태를 두지 않아 창/새로고침을 넘어 일관된다.
+ * §4 — 좋아요/싫어요(신고·검수 카드 + result 블록 공용). 즉시 upsert(재클릭 = 철회), 싫어요는 보낸 뒤 사유 입력(재전송 = 교체).
+ * 눌림 상태는 graph_snapshot `agentFeedbacks` 가 SSOT(로컬 낙관 ❌).
  */
 interface FeedbackButtonsProps {
   agentId: string;

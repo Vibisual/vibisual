@@ -1,21 +1,7 @@
 /**
- * overlayOpenWire.test.ts — §5.5 #17-6 (H-17) **전선에서 떨어뜨린 한 비트**의 회귀.
- *
- * 밖으로 꺼내는 손짓은 (H-17) 부터 **뗌 한 곳**에서만 창을 만든다. 그래서 그 길로 태어나는 창은
- * 언제나 "손이 이미 떠난 창"이고, 렌더러는 그 사실을 `follow.settled` 로 실어 보낸다 —
- * `openOverlay` 는 그 비트를 보고 ⓐ 매달지 않고(`startOverlayFollow` ❌) ⓑ 그 자리에 세운 뒤
- * 앞으로 올린다(`show()+focus()`, `showInactive()` ❌).
- *
- * 그런데 그 사이의 **창구**(`vibisual:overlay:open` 처리기)가 payload 를 새 객체로 다시 지으면서
- * 이 한 필드만 빠뜨렸다. 값이 틀린 것이 아니라 **없었다** — 받는 쪽에서는 `undefined` 라, 손을 뗀
- * 판이 "아직 눌린 판"으로 읽혔다. 그 결과 놓는 순간 태어난 창이 도로 커서에 매달려 따라다니고,
- * 사용자는 **한 번 더 눌렀다 놓아야** 그 창이 그 자리에 섰다(사용자 보고 — "놓으면 독립 창이
- * 되어야 하는데 왜 한번더 놔야해").
- *
- * 렌더러 쪽 계약은 `client/…/dropToCommit.test.ts` 가 이미 고정하고 있었다. 빠져 있던 것은 그
- * 값이 **창구를 건너오는지**뿐이라, 이 파일은 그 한 칸을 메운다: 받는 쪽(`openOverlay`)이 읽는
- * 필드를 정본으로 삼아, 창구가 그 전부를 실어 보내는지 소스로 집행한다(`windowManager`·`ipc` 는
- * electron 에 붙어 있어 여기서 실행할 수 없다 — `vitest.config.ts` 의 전제).
+ * §5.5 #17-6 (H-17) — `vibisual:overlay:open` 창구가 payload 를 다시 지을 때 `openOverlay` 가 읽는 필드(`follow.settled` 포함)를
+ * 전부 싣는지 소스로 집행한다. `settled` 가 빠지면 손을 뗀 판이 눌린 판으로 읽혀, 놓는 순간 태어난 창이 커서에 매달려
+ * 한 번 더 놓아야 선다(렌더러 쪽 계약은 `dropToCommit.test.ts`).
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';

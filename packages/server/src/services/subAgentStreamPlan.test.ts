@@ -1,14 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseStreamLine } from './subAgentManager.js';
 
-/**
- * §5.5 #17-17 ⑨ / #17-12 ② v4.59 — **계획(TodoWrite) input 은 잘리면 안 된다.**
- *
- * 도구 input 미리보기 상한(300자)이 계획 JSON 도 잘라내고 있었다. 잘린 문자열은 `JSON.parse` 가
- * 실패하므로 (a) IDE 계획 블록(`parsePlanTodos`)은 계획을 못 알아보고 일반 도구 상자로 폴백하고,
- * (b) 스트림 폴백 경로의 목표 단계 동기화도 조용히 통과해 버린다 — 둘 다 **에러 없이 그냥 안 뜬다**.
- * 항목 두어 개만 넘어도 300자를 넘기므로 실사용에서는 거의 항상 걸린다.
- */
+/** §5.5 #17-17 ⑨ / #17-12 ② — **계획(TodoWrite) input 은 미리보기 상한(300자)에 잘리면 안 된다** — 잘린 JSON 은 파싱이 실패해 계획 블록·목표 동기화가 에러 없이 안 뜬다. */
 
 function assistantTodoWrite(todos: { content: string; status: string }[]): Record<string, unknown> {
   return {

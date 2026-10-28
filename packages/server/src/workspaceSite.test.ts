@@ -15,10 +15,7 @@ import {
   workspaceSiteUrl,
 } from '@vibisual/shared';
 
-// shared 의 순수 판정 로직은 server 테스트에서 검증한다(pathCase.test.ts·windowDragRegion.test.ts 선례).
-//
-// §5.5 #17-27 ⑮ — 이 규약이 어긋나면 증상은 **흰 사각형 하나**다(404 도 오류도 화면에 안 뜬다).
-// 조립(클라)과 해석(서버)이 같은 파일에 있는 이유가 그것이고, 여기서 그 왕복을 못 박는다.
+// §5.5 #17-27 ⑮ — 어긋나면 증상은 흰 사각형뿐이다(404 도 오류도 없다). 조립(클라)·해석(서버)의 왕복을 고정한다.
 
 const WIN_ROOT = 'C:/work/projects/vibisual';
 const NIX_ROOT = '/srv/projects/vibisual';
@@ -207,11 +204,7 @@ describe('workspaceSiteRewriteKind — 본문을 다시 쓰는 것은 두 갈래
   });
 });
 
-// ─── ⑮ (i) 시작 태그마다 원본 줄:칸 ────────────────────────────────────────────
-//
-// 이 주석이 어긋나면 Alt+클릭이 **엉뚱한 줄**을 가리킨다 — 틀린 위치는 없는 위치보다 나쁘다
-// (받은 쪽이 그 줄을 믿고 고치기 시작한다). 그래서 손으로 쓴 HTML 이 흔히 담는 함정들을
-// 하나씩 못 박는다.
+// ⑮ (i) 시작 태그마다 원본 줄:칸. 틀린 위치는 없는 위치보다 나쁘다(Alt+클릭을 믿고 엉뚱한 줄을 고친다) — 손 HTML 의 흔한 함정을 고정한다.
 
 /** `data-vib-src="L:C"` 를 전부 뽑아 `[줄, 칸]` 목록으로. */
 function positions(html: string): string[] {

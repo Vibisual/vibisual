@@ -83,10 +83,8 @@ export function workspaceResourceUrl(projectId: string, filePath: string, url: s
 }
 
 /**
- * Texture bytes come through `fetch`, which the packaged app routes over IPC; an `<img>`'s own
- * request to /api/… never reaches the server there (see useWorkspaceImage). TGA, common in game
- * assets, has no browser decoder and goes through three's parser. A texture that cannot be
- * fetched or decoded is reported and left empty, so the model still opens.
+ * Texture bytes come through `fetch` (the packaged app routes it over IPC; an `<img>`'s own /api/… request never reaches the server).
+ * TGA has no browser decoder and goes through three's parser. A failed texture is reported and left empty, so the model still opens.
  */
 class FetchedTextureLoader extends THREE.Loader<THREE.Texture> {
   constructor(manager: THREE.LoadingManager, private readonly tga: boolean, private readonly failed: (url: string) => void) { super(manager); }

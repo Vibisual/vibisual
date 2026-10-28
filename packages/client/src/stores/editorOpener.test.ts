@@ -10,11 +10,7 @@ import {
   openEditorOpener,
 } from './editorOpener.js';
 
-/**
- * §5.5 #17-27 ⑱ — 빈 탭(판이 먼저, 파일은 그다음)의 탭 계산.
- *
- * 세션을 오가며 눈으로 확인하기 어려운 부류라 값으로 못 박는다(`editorTabScope.test.ts` 와 같은 규약).
- */
+/** §5.5 #17-27 ⑱ — 빈 탭(판이 먼저, 파일은 그다음)의 탭 계산. */
 
 const file = (relPath: string, dirty = false): IDEEditorFile => ({
   relPath,

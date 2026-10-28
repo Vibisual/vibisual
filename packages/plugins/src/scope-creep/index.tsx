@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.93 — 범위 확장·축소(Scope Creep and Shrink).
- *
- * AI 협업에서는 **반대 방향도 똑같이 문제**다 — 모델이 "일단 핵심만"으로 조용히 줄이면 사용자는 전부
- * 됐다고 믿고 넘어가므로 발견이 늦다. 범위 조정은 지시하는 쪽의 결정권이지 모델의 재량이 아니다.
- * 여기서는 할일 목록이 도중에 늘었는지 줄었는지를 본다. 표시 전용.
- */
+/** §5.11 — 범위 확장·축소(Scope Creep and Shrink): 할일 목록이 도중에 늘었나 줄었나 — 조용한 축소도 문제다(범위 조정은 지시하는 쪽 몫). 표시 전용. */
 import { defineInspector, ICONS } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';
 

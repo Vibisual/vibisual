@@ -18,9 +18,8 @@ export interface NumberFieldProps {
 }
 
 /**
- * §5.13 (R-10) — a number input that is a draft while typing and changes the document once, on Enter or when focus
- * leaves (one undo step). An empty field keeps the old value (never becomes 0), values are clamped to min/max, and
- * Escape restores the current value. Shared by Vibi3D and Vibimage.
+ * §5.13 (R-10) — a draft while typing; the document changes once, on Enter or blur (one undo step). Empty keeps the old
+ * value (never 0), values clamp to min/max, Escape restores.
  */
 export function NumberField({ label, caption, value, disabled = false, min, max, className, inputClassName, onCommit }: NumberFieldProps): React.JSX.Element {
   const [draft, setDraft] = useState(format(value));

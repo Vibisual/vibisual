@@ -3,15 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { shouldDismissOnSelect, shouldDismissOnOpen } from './agentDismiss.js';
 
 /**
- * "종료하거나 튕긴 뒤 다시 켜면 버블이 그대로 남는다"(사용자 보고)의 회귀 방지.
- *
- * 재시작하면 살아 있던 세션은 전부 `idle` 로 복원된다(§2.4 재시작 강등). 그런데 확인 dismiss
- * 조건이 `completed`/`error` 뿐이라, **그 잔상을 걷을 클릭이 아예 없었다** — 죽은 세션이
- * 만졌던 파일·폴더 버블이 주인 없이 캔버스에 쌓였다.
- *
- * 함께 잠그는 반대편 둘:
- *  - `active` 는 절대 대상이 아니다(지금 쓰는 세션의 작업 지도를 지우는 일이 된다).
- *  - 더블클릭은 `completed` 에서만 걷는다 — 잔상을 **걷지 않고 열어 보는 손**이 남아야 한다.
+ * 재시작 뒤 `idle` 로 복원된 잔상(§2.4 재시작 강등)을 클릭으로 걷을 수 있어야 한다는 회귀.
+ * 함께 잠근다: `active` 는 대상 ❌ · 더블클릭은 `completed` 만(걷지 않고 열어 보는 손이 남게).
  */
 describe('확인 dismiss 판정 — 싱글 클릭(선택)', () => {
   it('종료·크래시 뒤 남은 idle 잔상을 걷는다', () => {
@@ -34,7 +27,7 @@ describe('확인 dismiss 판정 — 싱글 클릭(선택)', () => {
 });
 
 describe('확인 dismiss 판정 — 더블클릭(IDE 열기)', () => {
-  it('completed 만 확인으로 친다 (§6 v2.74)', () => {
+  it('completed 만 확인으로 친다 (§6)', () => {
     expect(shouldDismissOnOpen('completed')).toBe(true);
   });
 

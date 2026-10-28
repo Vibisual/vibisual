@@ -1,19 +1,9 @@
 /**
- * §9 슬라이스 스코프 — **클라 쪽 함정 하나**의 회귀 테스트.
- *
- * `applyGraphSnapshot` 은 없는 슬라이스를 `snap.bashHistory ?? {}` 처럼 **빈 객체로 채워** 스토어에
- * 넘긴다. 그 자체는 §9 ③(`?? {}` 는 고정 참조)의 산물이라 옳다 — 서버가 그 슬라이스를 **한 번도
- * 안 보내는** 경우를 위한 것이기 때문이다. 그런데 슬라이스 스코프가 들어오면서 "잠깐 안 보내는"
- * 경우가 새로 생겼고, 그것이 같은 자리에 걸리면 **사용자 눈에는 데이터가 날아간 것으로 보인다.**
- *
- * 해소는 `materializeSnapshot` 이 구조적 공유를 태우기 직전에 `carryForwardScopedSlices` 로
- * 직전 값을 이어받는 것이다. 여기서 못 박는 것 둘:
- *  ① 규칙 자체가 맞는가(직전 참조 그대로 · 실린 것은 안 덮음 · 범위 미적용이면 무동작).
- *  ② `useWebSocket` 이 그 규칙을 **실제로 부르고 있는가** — 그리고 부르는 자리가 `structuralShare`
- *     **앞**인가(뒤로 가면 이어받은 값이 공유를 안 타 매 스냅샷 새 참조가 된다).
- *
- * ⚠ 이 스위트에는 DOM 이 없다(jsdom 미설치). 훅을 렌더할 수 없으므로 ②는 소스 스캔으로 본다 —
- *   `typographyFloor.test.ts`·`terminalShrinkContract.test.ts` 와 같은 계열의 집행이다.
+ * §9 슬라이스 스코프 — 클라 쪽 함정 하나의 회귀 시험.
+ * `applyGraphSnapshot` 은 없는 슬라이스를 `snap.bashHistory ?? {}` 처럼 빈 객체로 채운다(§9 ③ — 서버가 한 번도 안 보내는 경우). 슬라이스 스코프의 "잠깐 안 보내는" 경우가 같은 자리에 걸리면 데이터가 날아간 것으로 보인다.
+ * 해소는 `materializeSnapshot` 이 구조적 공유 직전에 `carryForwardScopedSlices` 로 직전 값을 이어받는 것. 못 박는 것 둘:
+ *  ① 규칙(직전 참조 그대로 · 실린 것은 안 덮음 · 범위 미적용이면 무동작) ② `useWebSocket` 이 그것을 `structuralShare` 앞에서 부르는가(뒤면 매 스냅샷 새 참조가 된다).
+ * DOM 이 없어(jsdom 미설치) ②는 소스 스캔으로 본다(`typographyFloor.test.ts`·`terminalShrinkContract.test.ts` 계열).
  */
 import { describe, it, expect } from 'vitest';
 import { carryForwardScopedSlices, SCOPABLE_SLICE_KEYS } from '@vibisual/shared';
@@ -125,14 +115,10 @@ describe('② useWebSocket 이 그 규칙을 실제로 쓰고 있다', () => {
 });
 
 /**
- * ③ §5.5 #17-6 (H-4) — **끌어낸 오버레이 창이 이 축을 통째로 되돌리지 않는다.**
- *
- * 이 창은 드래그로 밖에 나가는 **그 순간** 태어난다. 그때 자기가 읽는 것을 말하지 못하면(미선언)
- * 합집합이 통째로 전량이 되고, 그 전량은 **모든 창에** 나간다(합집합은 한 벌 — `sliceScope.ts`
- * 함정 ①). 실측 752.9KB(agentReports 256.9 · sessionGoals 216.3 · agentReviews 168.7 ·
- * agentQuestions 93.2 · agentLists 16.0)가 매 브로드캐스트마다 되살아나 IPC structuredClone →
- * 역직렬화 → structuralShare 를 다시 타므로, 사용자에게는 "빼내고 나면 갑자기 렉이 심하게
- * 걸리고 바로 동작 안 한다"로 읽힌다. 그 회귀를 여기서 못 박는다.
+ * ③ §5.5 #17-6 (H-4) — 끌어낸 오버레이 창이 이 축을 통째로 되돌리지 않는다.
+ * 이 창은 드래그로 밖에 나가는 순간 태어난다 — 그때 읽는 것을 선언하지 못하면 합집합이 통째로 전량이 되고, 그 전량은 모든 창에 나간다(합집합은 한 벌 — `sliceScope.ts` 함정 ①).
+ * 실측 752.9KB(agentReports 256.9 · sessionGoals 216.3 · agentReviews 168.7 · agentQuestions 93.2 · agentLists 16.0)가 매 브로드캐스트마다
+ * IPC structuredClone → 역직렬화 → structuralShare 를 다시 타, 빼낸 직후 심한 렉과 무반응으로 나타난다.
  */
 describe('③ 오버레이 창이 슬라이스 축을 되돌리지 않는다 (§5.5 #17-6 H-4)', () => {
   it('메인 캔버스 창(해시 없음)은 선언한다', () => {

@@ -5,18 +5,11 @@ import type {
 import { fmt } from './strings';
 import type { ChatStrings } from './strings';
 
-// §4 메신저 원격제어 브리지 — 카드 만들기 + 전송량 정책 (판올림 번호 발급 대기)
-//
-// **여기가 폰으로 나가는 것을 좁히는 유일한 지점이다.** 드라이버는 `ChatCard` 만 받고, 카드는
-// 이 파일에서만 만들어진다. 정책을 두 곳에서 판정하지 않으므로 "카드만 보낸다"가 새는 구멍이
-// 생기지 않는다 — 나중에 카드 종류를 더해도 `passesVerbosity` 한 곳만 보면 된다.
-// (채널 on/off 까지 합친 최종 판정은 `policy.ts` 의 `canSend` 다.)
-//
-// 왜 좁히나: 메신저는 **제3자 서버를 우리 코드·경로가 통과하는** 경로다. 기본값에서 스트림
-// 원문·파일 diff·bash 출력은 나가지 않고, 필요하면 사용자가 `/log` 로 그때만 가져간다.
-//
-// 문구는 **인자로 받는다**(`ChatStrings`). 모달만 12개 로케일이고 카드가 한국어면 그 사용자에게는
-// 기능 전체가 읽을 수 없는 것이 되기 때문 — 언어를 고르는 것은 상위(`index.ts`)의 일이다.
+// §4 메신저 원격제어 브리지 — 카드 만들기 + 전송량 정책.
+// **폰으로 나가는 것을 좁히는 유일한 지점이다** — 드라이버는 `ChatCard` 만 받고 카드는 이 파일에서만 만든다. 카드 종류를 더해도 `passesVerbosity` 한 곳만 본다
+// (채널 on/off 까지 합친 최종 판정은 `policy.ts` 의 `canSend`).
+// 메신저는 제3자 서버를 지나는 경로라 기본값에서 스트림 원문·파일 diff·bash 출력은 나가지 않는다(필요하면 `/log` 로 그때만).
+// 문구는 인자(`ChatStrings`)로 받는다 — 카드만 한 언어면 그 사용자에겐 기능 전체를 읽을 수 없다. 언어 고르기는 상위(`index.ts`) 몫.
 
 /** 한 줄이 이보다 길면 자른다(카드는 훑어보는 것이지 읽는 것이 아니다). */
 const LINE_MAX = 300;
@@ -38,11 +31,8 @@ export function clipList(items: readonly string[], prefix: string, max = LIST_MA
 }
 
 /**
- * 이 카드가 지금 **전송량 정책**에서 나갈 수 있는가.
- * `cards`(기본)에서는 스트림 원문(`stream`)만 막힌다 — 나머지는 이미 사람이 읽으라고 만든 요약이다.
- * `/log` 로 사용자가 명시 요청해 만든 카드는 `text` 로 오므로 이 문에 걸리지 않는다(의도된 통로).
- *
- * **채널 on/off 는 여기서 보지 않는다** — 그건 `policy.canSend` 가 이 판정을 감싸서 함께 본다.
+ * 이 카드가 전송량 정책에서 나갈 수 있는가. `cards`(기본)에서는 스트림 원문(`stream`)만 막힌다 — 나머지는 이미 읽으라고 만든 요약이다.
+ * `/log` 로 명시 요청한 카드는 `text` 로 와 이 문에 안 걸린다(의도된 통로). **채널 on/off 는 여기서 보지 않는다** — `policy.canSend` 가 감싸서 본다.
  */
 export function passesVerbosity(kind: ChatCard['kind'], verbosity: ChatVerbosity): boolean {
   if (kind === 'stream') return verbosity === 'full';
@@ -149,11 +139,8 @@ export function reviewCard(review: AgentReview, s: ChatStrings, agentLabel?: str
 }
 
 /**
- * 세션 목표 한 장 — **지문이 바뀔 때만** 나간다(`policy.goalSignature`).
- *
- * 목표는 별도 WS 종류가 아니라 `GraphSnapshot.sessionGoals` 에 실려 온다. 그래서 스냅샷마다
- * 보내면 진행률이 곧 스팸이 되고, 아예 안 보내면 밖에 있는 사람은 `/status` 를 계속 쳐야 한다.
- * 사람이 알아차릴 변화가 있을 때 한 장 — 그 사이가 이 카드의 자리다.
+ * 세션 목표 한 장 — **지문이 바뀔 때만** 나간다(`policy.goalSignature`). 목표는 `GraphSnapshot.sessionGoals` 에 실려 와,
+ * 스냅샷마다 보내면 진행률이 스팸이 되고 안 보내면 밖에서 `/status` 를 계속 쳐야 한다.
  */
 export function goalCard(goal: SessionGoal, s: ChatStrings, agentLabel?: string): ChatCard {
   const steps = goal.steps ?? [];
@@ -241,16 +228,9 @@ export function chunk<T>(items: readonly T[], size: number): T[][] {
 const DISCORD_INLINE = /[\\`*_~|]/g;
 
 /**
- * 디스코드로 나갈 본문에서 마크다운을 무력화한다.
- *
- * **왜 디스코드만인가** — 텔레그램은 `parse_mode` 를 주지 않으면 평문이지만, 디스코드에는
- * "평문으로 보내기" 스위치가 없다. `content` 는 **언제나** 마크다운으로 그려진다. 그래서 위
- * `renderCard` 가 노린 평문이 디스코드에서만 무너진다 — `__init__.py` 는 밑줄 친 `init` 이
- * 되고, `report_2026_08.md` 는 가운데가 기울고, 모델이 쓴 `**` 와 백틱은 서식이 된다.
- * **경로가 화면에서 손상되면 사용자는 그것을 복사할 수 없다** — 폰에서 할 수 있는 일이 준다.
- *
- * 줄머리 `#`·`>`·`-` 는 제목·인용·목록이 되므로 그 자리에서만 접고, URL 은 통째로 비켜 간다
- * (URL 안에 `\` 가 들어가면 자동 링크가 그 자리에서 끊겨 누를 수 없게 된다).
+ * 디스코드로 나갈 본문의 마크다운을 무력화한다. 디스코드엔 평문 스위치가 없어 `content` 가 **언제나** 마크다운으로 그려진다(텔레그램은 `parse_mode` 가 없으면 평문) —
+ * `__init__.py` 는 밑줄 친 `init`, `report_2026_08.md` 는 가운데가 기울고, 모델이 쓴 `**`·백틱은 서식이 된다. 경로가 손상되면 폰에서 복사할 수 없다.
+ * 줄머리 `#`·`>`·`-` 는 그 자리에서만 접고, URL 은 통째로 비켜 간다(URL 안에 `\` 가 들면 자동 링크가 끊긴다).
  */
 export function escapeDiscordMarkdown(text: string): string {
   return text.split('\n').map(escapeDiscordLine).join('\n');

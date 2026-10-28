@@ -6,10 +6,7 @@ import { ScrollFade } from '../ScrollFade.js';
 import { StudioIcon, type StudioIconName } from './studioIcons.js';
 import { mediaKindKey } from './kindLabels.js';
 
-/**
- * §5.13 (V) 37-1 — **소재 서랍**(종전 라이브러리의 '가져오기'·'프로젝트 미디어' 를 옮겼다). 미디어·SRT 가져오기(프로젝트에
- * 복사 — (U)), 문서의 소재 목록(찾기) — 누르면 재생 머리 자리에 얹는다. (T-6) 라이브러리·글꼴 가져오기는 아래 `libraries` 칸.
- */
+/** §5.13 (V) 37-1 — 소재 서랍(미디어·SRT 가져오기 = 프로젝트에 복사, (U)). 라이브러리·글꼴은 아래 `libraries` 칸((T-6)). */
 export interface MediaDrawerProps {
   readonly doc: VideoDoc;
   readonly disabled: boolean;

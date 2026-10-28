@@ -17,10 +17,7 @@ const VERDICT_CLASS: Record<string, string> = {
   over: 'border-gray-600 bg-gray-700/40 text-gray-400',
 };
 
-/**
- * 읽기 폭 + 대화 정렬 + 내용 폭. 계측·판정을 함께 보여줘 사용자가 숫자를 보고 고르게 한다.
- * 폭 안(A~D) 줄은 ② v5.04 에서 걷어냈다 — "제한이 걸렸는가"는 읽기 폭 값이 이미 말한다.
- */
+/** 읽기 폭 + 대화 정렬 + 내용 폭(계측·판정을 함께 보인다). 폭 안 줄은 두지 않는다 — 제한 여부는 읽기 폭 값이 말한다(②). */
 export function ReadingWidthSection(): React.JSX.Element {
   const { t } = useTranslation();
   const reading = useGraphStore((s) => s.ideReading);
@@ -41,9 +38,7 @@ export function ReadingWidthSection(): React.JSX.Element {
 
   return (
     <>
-      {/* §5.5 #17-22 ② (v5.04) — 폭 축은 이 한 줄뿐이다. 종전 [폭 방식] 이 있던 자리를 그대로 잇는다:
-          [전체] 프리셋이 옛 `full` 안을 대신하므로 조건부로 감추지 않는다 — 감추면 "제한 없음"에서
-          다시 좁힐 길이 사라진다. */}
+      {/* §5.5 #17-22 ② — 폭 축은 이 한 줄뿐. [전체] 프리셋이 있으니 감추지 않는다(감추면 "제한 없음"에서 다시 좁힐 길이 없다). */}
       <ReadingRow
         label={t('ide.reading.measureTitle')}
         value={reading.measureCh === MEASURE_UNLIMITED

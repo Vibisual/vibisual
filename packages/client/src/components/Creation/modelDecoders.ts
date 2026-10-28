@@ -2,13 +2,9 @@ import * as THREE from 'three';
 import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 /**
- * §5.13 (R-10) — compressed glTF (Draco geometry · meshopt buffers · KTX2/Basis textures).
- *
- * The decoders are the copies three.js ships (`examples/jsm/libs`) — Draco and Basis Universal are Apache-2.0, meshopt
- * is MIT; their license texts sit next to this file (`third-party/`). They load only when a file actually uses the
- * extension. They reach the loaders as `blob:`/`data:` URLs through three's public options (`setDecoderPath` with an
- * explicit `{js, wasm}` pair, a LoadingManager URL modifier for KTX2), because the packaged app loads its pages from
- * `file://` where fetching a bundled asset path does not work on every OS.
+ * §5.13 (R-10) — compressed glTF (Draco · meshopt · KTX2/Basis). Decoders are three.js's shipped copies (Draco, Basis: Apache-2.0;
+ * meshopt: MIT — licenses in `third-party/`), loaded only when a file uses the extension. They reach the loaders as `blob:`/`data:` URLs
+ * via three's public options — the packaged app loads from `file://`, where fetching a bundled asset path fails on some OSes.
  */
 export type GltfCompression = 'draco' | 'meshopt' | 'ktx2';
 const EXTENSION: Readonly<Record<string, GltfCompression>> = {
@@ -51,10 +47,7 @@ export const BUNDLED_DECODERS: GltfDecoderModules = {
   }),
 };
 
-/**
- * Configures `loader` for the compressions `needs` lists. Returns a cleanup that releases workers and URLs.
- * KTX2 needs a renderer to pick a GPU format; without one, a small offscreen renderer answers once and is released.
- */
+/** Returns a cleanup that releases workers and URLs. KTX2 needs a renderer to pick a GPU format; without one, a small offscreen renderer answers once and is released. */
 export async function attachGltfDecoders(
   loader: GLTFLoader, needs: readonly GltfCompression[], renderer?: THREE.WebGLRenderer, modules: GltfDecoderModules = BUNDLED_DECODERS,
 ): Promise<() => void> {

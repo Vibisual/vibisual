@@ -17,22 +17,8 @@ import type { SpeechRecognitionLike } from '../utils/speechRecognition.js';
 import { createVoiceOpenGate, type VoicePortResult } from './voiceOpenGate.js';
 
 /**
- * useVoiceDictation — **§5.5 #17-38 마이크 한 대의 수명을 쥐는 훅.**
- *
- * 하는 일은 셋이다: ① 마이크를 열고 닫는다, ② 인식기를 붙였다 뗀다, ③ 지금 들어오는 소리의
- * 세기를 화면이 그릴 수 있게 내어 준다. **글을 어디에 넣을지는 모른다** — 최종 토막을
- * `onCommit` 으로 넘기고 끝낸다(입력창은 그 콜백을 받는 쪽이 안다).
- *
- * ### 왜 마이크를 직접 여는가 (인식기가 알아서 여는데도)
- * 실패의 **원인이 갈리기 때문**이다. 인식기만 부르면 권한 거부·장치 없음·서비스 불가가 전부
- * 뭉뚱그려 오지만, `getUserMedia` 를 먼저 부르면 "마이크 자체가 막혔다"를 그 자리에서 알 수
- * 있어 화면이 사용자가 **실제로 할 수 있는 일**(권한 허용 / 장치 연결)을 말할 수 있다.
- * 덤으로 그 스트림에서 파형을 뽑는다 — 인식기는 소리 세기를 알려 주지 않는다.
- *
- * ### 파형은 왜 React 상태가 아닌가
- * 초당 스물 몇 번 도는 자리라 상태로 올리면 입력창 전체가 그만큼 다시 그려진다(타이핑 지연의
- * 원인이 된다). `analyserRef` 만 넘기고 **그리는 쪽이 rAF 로 DOM 을 직접** 만진다 — 탭바의
- * 가려진 실행 표시(#17-9)와 같은 규율.
+ * §5.5 #17-38 — **마이크 한 대의 수명**(열고 닫기·인식기 붙이고 떼기·소리 세기). 글을 넣을 곳은 모른다(`onCommit`).
+ * `getUserMedia` 를 먼저 연다 — 인식기만 부르면 권한 거부·장치 없음·서비스 불가가 뭉쳐 온다. 파형은 React 상태가 아니다(초당 스물 몇 번) — `analyserRef` 를 그리는 쪽이 rAF 로 읽는다.
  */
 
 export interface UseVoiceDictationOptions {
@@ -42,12 +28,7 @@ export interface UseVoiceDictationOptions {
   enabled: boolean;
   /** 최종 확정된 토막. 입력창이 커서 자리에 끼워 넣는다. */
   onCommit: (chunk: string) => void;
-  /**
-   * §5.5 #17-38 ⑰ — 마이크에 **잡음·에코 억제**를 걸 것인가.
-   *
-   * 끄면 `{ audio: true }` 로 열어 장치 기본값에 맡긴다 — 오디오 인터페이스가 이미 처리하는
-   * 사용자는 이중 처리로 소리가 뭉개지기 때문이다. 생략하면 켜진 것으로 본다(결함을 고친 쪽).
-   */
+  /** §5.5 #17-38 ⑰ — 잡음·에코 억제(생략하면 켜짐). 끄면 `{ audio: true }` — 오디오 인터페이스가 이미 처리하면 이중 처리로 뭉개진다. */
   denoise?: boolean;
   /**
    * §5.5 #17-38 ⑫ — 인식기를 띄우고 표본을 보낼 포트를 받아 온다.
@@ -71,14 +52,7 @@ export interface VoiceDictationHandle {
   supported: boolean;
   /** 파형을 그릴 쪽이 읽어 갈 분석기. 듣는 중이 아니면 `null`. */
   analyserRef: React.MutableRefObject<AnalyserNode | null>;
-  /**
-   * §5.5 #17-38 ⑰ — **에코 제거를 부탁했는데 장치가 못 해서 꺼진 채 열렸는가.**
-   *
-   * 제약은 `ideal` 이라 부탁이지 보장이 아니다(`exact` 로 걸면 못 하는 장치에서 마이크가 아예
-   * 안 열린다). 꺼진 것을 화면이 **알아야** "헤드폰을 쓰시면 낫습니다"를 말할 수 있다 —
-   * 말해 주지 않으면 사용자는 우리가 아무 일도 안 한 줄 안다. 모르는 판(`null` 보고)에서는
-   * 거짓이다 — 넘겨짚은 안내가 진짜 원인을 가리는 쪽이 더 나쁘다(⑥ 과 같은 규율).
-   */
+  /** §5.5 #17-38 ⑰ — **에코 제거를 부탁했는데 꺼진 채 열렸는가**(헤드폰 안내의 근거). 제약은 `ideal`(`exact` 면 못 하는 장치에서 안 열린다). 모르면(`null`) 거짓 — 넘겨짚지 않는다(⑥). */
   echoUnavailable: boolean;
   /** 듣기 시작. 이미 듣는 중이면 아무 일도 하지 않는다. */
   start: () => void;
@@ -92,16 +66,7 @@ export interface VoiceDictationHandle {
   dismissError: () => void;
 }
 
-/**
- * 이 PC 에 붙어 있는 **입력(마이크) 장치 수**. 못 물어봤으면 `null`(= 모름, ≠ 0).
- *
- * `enumerateDevices()` 는 **권한이 없어도 목록의 길이는 알려 준다**(label 만 빈 문자열이 된다 —
- * 지문 채취를 막으려는 명세의 의도). 그래서 `getUserMedia` 가 실패한 뒤에도 "물건이 아예 없는
- * 것"과 "있는데 못 여는 것"을 가를 수 있다 — 이 둘은 사용자가 할 일이 완전히 다르다.
- *
- * ⚠ **0 과 `null` 을 섞지 않는다.** 못 물어본 것을 0 으로 접으면, 목록을 못 읽는 판에서
- * 마이크가 멀쩡히 꽂힌 사용자에게 "연결해 주세요"가 뜬다(고치라는 안내가 곧 거짓말이 된다).
- */
+/** 이 PC 의 **마이크 장치 수**(모르면 `null` ≠ 0). `enumerateDevices()` 는 권한 없이도 길이를 줘 "없음"과 "못 엶"을 가른다. ⚠ 모름을 0 으로 접지 마라 — 꽂힌 사람에게 "연결해 주세요"가 뜬다. */
 async function countAudioInputs(): Promise<number | null> {
   try {
     if (typeof navigator === 'undefined') return null;
@@ -310,12 +275,7 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
 
     /** 이 켜기가 아직 살아 있는가 — 그 사이에 껐거나(끄기) 다시 켰으면(새 세대) 아니다. */
     const alive = (): boolean => gateRef.current.isCurrent(token) && wantListeningRef.current;
-    /**
-     * 낡은 켜기가 물러나며 **자기가 연 것만** 되돌린다(ref 에 심기 전이라 `teardown` 이 모른다).
-     *
-     * 엔진을 쥔 손은 **더 새 켜기가 없을 때만** 놓는다. 새 켜기가 같은 열쇠로 다시 쥐었는데
-     * 여기서 놓으면, 말하는 도중에 서버가 그 650MB 짜리 자식을 유휴로 보고 내린다.
-     */
+    /** 낡은 켜기가 물러나며 **자기가 연 것만** 되돌린다(심기 전이라 `teardown` 이 모른다). 엔진 손은 더 새 켜기가 없을 때만 놓는다 — 같은 열쇠로 다시 쥔 뒤 놓으면 말하는 도중 서버가 650MB 자식을 내린다. */
     const rollback = (stream: MediaStream | null, ctx: AudioContext | null): void => {
       if (stream !== null) stream.getTracks().forEach((track) => track.stop());
       if (ctx !== null) void ctx.close().catch(() => { /* 이미 닫힌 컨텍스트 */ });
@@ -323,11 +283,7 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
     };
 
     void (async (): Promise<void> => {
-      /**
-       * ① **인식기가 준비됐는지부터 묻는다 — 마이크는 그 다음이다.**
-       * 순서를 뒤집으면, 아직 안 받은 사용자는 마이크가 한 번 켜졌다 곧바로 꺼지는 것을 본다
-       * (OS 의 "사용 중" 표시가 깜빡인다). 그건 설치 안내가 아니라 고장으로 읽힌다.
-       */
+      /** ① **인식기 준비부터 묻고 마이크는 그 다음이다** — 뒤집으면 아직 안 받은 사람에게 마이크가 켜졌다 꺼져(OS "사용 중" 깜빡임) 고장으로 읽힌다. */
       const resolved = await resolvePortRef.current();
       if (!alive()) {
         rollback(null, null);
@@ -350,10 +306,7 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
       const { port } = resolved;
 
       try {
-        // §5.5 #17-38 ⑰ — **`{ audio: true }` 로 열지 않는다.** 그건 "기본값에 맡긴다"는 뜻이고,
-        //   그 기본값은 브라우저·OS·드라이버가 각자 정한다 — 스피커로 나간 소리가 그대로 마이크로
-        //   되돌아오는 판이 실제로 있었다(사용자 보고). 제약은 `ideal` 이라 못 하는 장치에서도
-        //   열리고(⑰ 주석), 켜져서 열렸는지는 아래에서 트랙에게 되묻는다.
+        // §5.5 #17-38 ⑰ — 억제를 켰으면 `{ audio: true }` 로 열지 않는다 — 기본값에선 스피커 소리가 마이크로 되돌아오는 판이 실제로 있다. `ideal` 이라 못 하는 장치에서도 열리고, 켜졌는지는 트랙에게 되묻는다.
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: denoiseRef.current ? voiceAudioConstraints() : true,
         });
@@ -397,7 +350,7 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
         analyserRef.current = analyser;
 
         if (ctx === null) {
-          // 종전에는 파형만 잃고 넘어갔지만, 이제 이 컨텍스트가 **표본을 보내는 길**이기도 하다.
+          // 오디오 컨텍스트가 없으면 실패로 끝낸다 — 파형만이 아니라 **표본을 보내는 길**이다.
           finish('device');
           return;
         }
@@ -443,16 +396,8 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
     }
 
     /**
-     * ⚠ **여기서 곧바로 거두면 마지막 말이 사라진다.**
-     * `stop()` 은 `abort()` 와 달리 "말하던 토막을 확정해서 마저 돌려 달라"는 뜻이라, 마지막
-     * `onresult` 가 **비동기로 뒤늦게** 온다. 그 전에 핸들러를 떼면 방금 한 말이 입력창에
-     * 닿지 못한다. 그래서 엔진이 끝났다고 알릴 때(`onend`)까지 기다렸다가 거둔다.
-     *
-     * 다만 **기다리는 것은 인식기 하나뿐**이다. 마이크·오디오 컨텍스트는 지금 놓는다:
-     *   ① 인식기는 이미 `stop()` 안에서 오디오 배선을 끊었으므로 더 쓸 일이 없고,
-     *   ② 기다리는 사이에 사용자가 다시 켜면 그 켜기가 `streamRef` 를 덮어써 **여기 있던
-     *      마이크를 아무도 못 끄는 좀비**로 만든다(OS 의 "사용 중" 표시가 켜진 채 남는다).
-     * 인식기만 ref 에서 미리 떼어 두면 아래 `teardown()` 이 그것만 건너뛰고 나머지를 거둔다.
+     * ⚠ **곧바로 거두면 마지막 말이 사라진다** — `stop()` 은 마지막 `onresult` 를 뒤늦게 보내므로 인식기는 `onend` 까지 기다린다.
+     * 마이크·오디오 컨텍스트는 지금 놓는다 — 기다리는 사이 다시 켜면 `streamRef` 가 덮여 이 마이크가 좀비가 된다. 인식기만 ref 에서 떼 두면 `teardown()` 이 나머지를 거둔다.
      */
     recognitionRef.current = null;
     teardown();

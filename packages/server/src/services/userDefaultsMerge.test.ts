@@ -3,17 +3,8 @@ import { backfillAgentTools, AGENT_TOOLS_BACKFILL_GEN, AVAILABLE_AGENT_TOOLS, re
 import type { AgentConfig, AgentConfigPatch, UserDefaults } from '@vibisual/shared';
 
 /**
- * §4 (설정 3층) — 전역 옵션(`~/.vibisual/user-defaults.json`)의 **머지 계약**을 고정한다.
- *
- * 실제 서비스는 홈 디렉터리 파일을 읽는 싱글턴이라 여기서 부르지 않는다(테스트가 사용자 파일을
- * 건드리면 안 된다). 대신 그 안의 두 규칙을 **같은 모양으로** 재현해 고정한다 —
- * 규칙이 어긋나면 이 파일이 먼저 깨진다.
- *
- * 고정하는 것 둘:
- *  (1) **`null` = 그 칸을 비운다.** 종전에는 창이 미설정을 `undefined` 로 담았고
- *      `JSON.stringify` 가 그 키를 통째로 버려, 전역 기본값은 한 번 켜면 창에서 끌 수 없었다.
- *  (2) **전역 프리셋도 도구 백필을 받는다.** 여기만 빠져 있어서 판올림 전에 골라 둔 목록이
- *      앞으로 만들 모든 에이전트의 상한이 됐다(실측 11/48).
+ * §4 (설정 3층) — 전역 옵션 머지 계약을 같은 모양으로 재현한다(서비스는 홈 파일 싱글턴이라 안 부른다).
+ * (1) `null` = 비운다(`undefined` 는 `JSON.stringify` 가 버린다) (2) 전역 프리셋도 도구 백필을 받는다(빠지면 옛 목록이 새 에이전트 상한 — 실측 11/48).
  */
 
 /** `userDefaultsService.update` 의 카테고리 머지와 같은 규칙. */

@@ -3,14 +3,7 @@ import { ProjectGraph } from './projectGraph.js';
 import { VERIFICATION_RUNS_MAX_PER_SESSION } from '@vibisual/shared';
 import type { VerificationRun } from '@vibisual/shared';
 
-/**
- * §5.5 #17-35 — 검증(Verify) 보관 계층 회귀 테스트.
- *
- * 이 기능에서 조용히 깨지는 곳은 판정 로직이 아니라 **영속화**다(§3.2 v1.59/v2.55 재발 자리):
- * `getSnapshot` 에만 넣고 디스크 포맷인 `toProjectCheckpoint` 를 빠뜨리면 화면엔 잘 보이다가
- * 껐다 켜면 검증 이력이 통째로 사라진다. 그리고 서버가 죽는 동안 돌던 검증(`running`)을 그대로
- * 복원하면 죽은 명령 id 를 영원히 기다려 그 탭에서 새 검증을 영영 시작할 수 없게 된다.
- */
+/** §5.5 #17-35 — 검증 보관 계층: `toProjectCheckpoint` 왕복, 그리고 죽기 전 `running` 검증은 복원하지 않는다(그 탭에서 새 검증을 영영 못 연다). */
 
 /** 프로젝트가 붙은 그래프 — 체크포인트 필터(`projectBubbleIds`)를 통과하려면 에이전트가 프로젝트에 귀속돼야 한다. */
 function seededGraph(): { graph: ProjectGraph; projectName: string } {

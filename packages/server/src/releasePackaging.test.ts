@@ -7,15 +7,8 @@ import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * 배포 산출물이 **Windows 밖에서도 돌아가는지**를 기계가 지킨다.
- *
- * 여기 담긴 것들은 전부 "빌드는 초록인데 앱은 안 뜨는" 부류다 — CI 가 성공으로 끝나고
- * dmg/AppImage 까지 발행되지만, 정작 그것을 연 사람만 아는 실패다. 우리 개발기는 Windows 라
- * 누가 mac 을 꺼내 열어 보기 전까지 아무도 모른다. 그래서 되돌아가면 **여기서** 넘어지게 둔다.
- *
- * 전례: mac 잡은 v0.1.0~v0.1.9 열 번을 연속으로 실패했는데 워크플로 주석이 그 실패를
- * "서명이 없어서"라고 미리 설명해 둔 탓에 아무도 로그를 열지 않았다(실제 원인은 아이콘 크기).
- * **실패를 예상된 것으로 적어 두면 그 실패는 조사되지 않는다** — 그래서 설명 대신 검사를 둔다.
+ * 배포 산출물이 Windows 밖에서도 도는지 기계가 지킨다 — 전부 "CI 는 초록인데 연 사람만 아는" 실패 부류다. 되돌아가면 여기서 넘어진다.
+ * 실패를 "예상된 것"으로 주석에 적지 마라 — 그 실패는 조사되지 않는다(mac 잡이 "서명 없음" 설명 뒤에서 실제로는 아이콘 크기로 연속 실패했다).
  */
 
 const REPO = path.resolve(__dirname, '../../..');
@@ -66,10 +59,8 @@ describe('release packaging — mac/linux', () => {
 
   it('afterPack 은 리소스 경로를 electron-builder 에 물어본다 (mac 의 리소스는 .app 안이다)', () => {
     const src = read('packages/desktop/build/after-pack.cjs');
-    // mac 의 리소스 디렉터리는 <appOutDir>/<Product>.app/Contents/Resources 다.
-    // appOutDir 아래 'resources' 를 하드코딩하면 **mac 에서만** .app 바깥에 복사되고,
-    // 그 경로가 없으면 mkdir 로 만들어 버려 경고조차 남지 않는다 → 서버 dist 와 전이
-    // 의존성이 통째로 빠진 dmg 가 초록 CI 를 달고 발행된다.
+    // mac 리소스 디렉터리는 <appOutDir>/<Product>.app/Contents/Resources 다. appOutDir 아래 'resources' 를 박으면 mac 에서만 .app 바깥에 복사되고
+    // (없으면 mkdir 해 경고도 없다) 서버 dist·전이 의존성이 빠진 dmg 가 초록 CI 로 발행된다.
     expect(src).toContain('getResourcesDir');
     expect(src).not.toContain("join(appOutDir, 'resources', 'app'");
   });
@@ -103,12 +94,9 @@ describe('release packaging — mac/linux', () => {
   it('mac 서명 값을 electron-builder 가 읽는 이름으로 env 에 두지 않는다', () => {
     const wf = read('.github/workflows/release.yml');
     const live = wf.split('\n').filter((line) => !line.trim().startsWith('#'));
-    // 없는 시크릿을 GitHub 은 "정의 안 됨"이 아니라 **빈 문자열**로 넣는다. electron-builder 는
-    // `cscLink == null` 로만 걸러서 그 빈 문자열을 진짜 경로로 받아들이고 projectDir 로 풀어
-    // `⨯ <projectDir> not a file` 로 죽는다 — v0.1.15 의 mac 두 잡이 3회 재시도를 다 쓰고
-    // 그렇게 전멸했고, win·linux 는 발행됐으므로 릴리스는 "성공"으로 보였다(mac 자산 5종 실종).
-    // 셸 가드(`[ -n "${MAC_CSC_LINK:-}" ]`)는 옳게 걸렀지만, env 에 이름이 있는 한
-    // electron-builder 는 그 가드를 거치지 않고 제 손으로 읽는다.
+    // 없는 시크릿을 GitHub 은 빈 문자열로 넣고, electron-builder 는 `cscLink == null` 만 걸러 그것을 projectDir 로 풀어
+    // `⨯ <projectDir> not a file` 로 죽는다(mac 잡만 죽고 win·linux 는 발행돼 릴리스가 "성공"으로 보인다).
+    // 셸 가드(`[ -n "${MAC_CSC_LINK:-}" ]`)가 있어도 env 에 이름이 있으면 electron-builder 가 가드를 거치지 않고 직접 읽는다.
     for (const name of ['CSC_LINK', 'CSC_KEY_PASSWORD', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID']) {
       const leaked = live.some((line) => new RegExp(`^\\s{2,}${name}:`).test(line));
       expect(leaked, `${name} 을 env: 에 직접 두면 빈 시크릿이 빈 문자열로 새어 들어간다`).toBe(false);
@@ -135,10 +123,8 @@ describe('release packaging — mac/linux', () => {
 
   it('afterPack 이 node-pty spawn-helper 의 실행 권한을 되돌린다 (mac 터미널 전체가 여기 걸린다)', () => {
     const src = read('packages/desktop/build/after-pack.cjs');
-    // npm 은 배포 tarball 의 파일 모드를 644 로 눌러 버리고, node-pty 는 그것을 되돌리는
-    // 스크립트가 없다. macOS 의 node-pty 는 이 helper 를 실행해 제어 터미널을 얻으므로
-    // 권한이 없으면 **모든 pty.spawn 이 `posix_spawnp failed.` 로 죽는다** —
-    // 로그인 창·CMD 버블·실행 런처가 통째로 안 뜬다(v0.1.14 실기 확인).
+    // npm 은 tarball 파일 모드를 644 로 누르고 node-pty 는 되돌리지 않는다. macOS node-pty 는 이 helper 를 실행해 제어 터미널을 얻으므로
+    // 권한이 없으면 모든 pty.spawn 이 `posix_spawnp failed.` 로 죽는다(로그인 창·CMD 버블·실행 런처가 안 뜬다, 실기 확인).
     expect(src).toContain('spawn-helper');
     expect(src).toContain('0o755');
     // 실패를 삼키면 알맹이 빠진 dmg 가 초록 CI 를 달고 나간다 — 못 고치면 빌드를 세운다.
@@ -208,25 +194,14 @@ describe('release packaging — mac/linux', () => {
 });
 
 /**
- * §4 v2.44 — **발행은 실기 검증을 통과한 결과여야 한다.**
- *
- * v0.1.19 가 이 검사를 만든 사고다. 그때는 태그 push 가 곧 공개 발행이라, Windows 인스톨러가
- * `0xC0000005` 로 죽어 아무것도 설치하지 못한다는 사실을 **이미 공개된 뒤에** 알았다. 자산은
- * 나가 있었고 설치본은 그것을 받아 실패하는 상태였으며, 되돌릴 방법이 없었다.
- *
- * 원인은 그 빌드의 결함이 아니라 **순서**였다 — 검증이 발행보다 뒤에 있으면, 검증이 무엇을
- * 찾아내든 이미 늦다. 그래서 순서를 뒤집었다: 자산은 draft 로 올라가고(업데이터는 draft 를
- * 읽지 못한다), 4종 러너의 실기 설치 + 자산 11종 검사를 통과해야 공개로 바뀐다.
- *
- * 아래 검사들은 그 순서가 **되돌아가지 못하게** 잠근다. 한 줄만 바꿔도 게이트 전체가 사라지는
- * 구조라(예: `releaseType` 을 `release` 로) 사람의 기억에 맡길 수 없다.
+ * §4 — 발행은 실기 검증을 통과한 결과여야 한다. 검증이 발행 뒤에 있으면 무엇을 찾든 늦다(설치기가 `0xC0000005` 로 죽는 판이 이미 공개된 적이 있다).
+ * 자산은 draft 로 올리고(업데이터는 draft 를 못 읽는다) 4종 러너 실기 설치 + 자산 11종 검사를 통과해야 공개로 바꾼다.
+ * 아래 검사가 그 순서를 잠근다 — 한 줄(예: `releaseType` 을 `release` 로)만 바꿔도 게이트 전체가 사라진다.
  */
 describe('Windows 설치 프로그램 — 새 설치가 가끔 죽지 않는다', () => {
-  // electron-builder 24.13.3 의 multiUser.nsh 는 새 설치(이전 설치 위치 없음)에서 기본 폴더 문자열을
-  // `*$2(&w${NSIS_MAX_STRLEN} .s)` 로 읽는다. 그 NSIS 빌드는 NSIS_MAX_STRLEN=8192 라 수십 바이트짜리
-  // 문자열 뒤로 16KB 를 복사하고, 힙 배치가 나쁘면 System.dll(+0x1581)이 0xC0000005 로 죽는다
-  // (2026-09-13 스모크 23회 중 6회 — 같은 설치본이 러너마다 갈렸다). 설치본이 아무것도 설치하지 않고
-  // 끝나므로 **처음 받는 사람**이 맞는 실패다. build/installer.nsh 의 preInit 이 그 줄을 비껴간다.
+  // electron-builder 24.13.3 multiUser.nsh 는 새 설치(이전 설치 위치 없음)에서 기본 폴더 문자열을 `*$2(&w${NSIS_MAX_STRLEN} .s)` 로 읽는다 —
+  // NSIS_MAX_STRLEN=8192 라 짧은 문자열 뒤 16KB 를 복사해, 힙 배치가 나쁘면 System.dll(+0x1581)이 0xC0000005 로 죽는다
+  // (2026-09-13 스모크 23회 중 6회). 처음 설치하는 사람이 맞는 실패다. build/installer.nsh 의 preInit 이 그 줄을 비껴간다.
   const OVERREAD = '(&w${NSIS_MAX_STRLEN} .s)';
   const NSH = 'packages/desktop/build/installer.nsh';
   const codeOf = (src: string): string =>
@@ -286,16 +261,10 @@ describe('Windows 설치 프로그램 — 새 설치가 가끔 죽지 않는다'
 });
 
 /**
- * 설치 동의 화면 — 설치 언어를 고른 뒤 그 언어의 사용권 계약에 동의해야 설치한다(2026-10-13, 사용자 지시).
- *
- * 셋이 한 몸이라 하나만 어긋나도 깨진다:
- *  ① electron-builder.yml `nsis.installerLanguages` — 설치기에 실리는 언어
- *  ② build/installer.nsh 의 `LicenseLangString` — 언어마다 약관 파일 하나. 빠지면 makensis 가 경고를 내고 -WX 라
- *     **Windows 빌드가 멈춘다**(릴리스가 통째로 선다).
- *  ③ build/license/license_<언어>.txt — UTF-8 BOM. 없으면 NSIS 가 ANSI 로 읽어 한글·일본어·중국어가 깨진 채
- *     **빌드는 초록으로 나간다**(이 파일 머리말이 말하는 바로 그 부류).
- * 그리고 약관 파일이 buildResources(resources/)에 license_*.txt 로 들어가면 dmg-builder 가 dmg 에 동의 창을 붙여
- * `hdiutil attach` 가 동의 입력을 기다린다 — macOS 자체 업데이트·스모크가 멈추므로 그 자리는 비어 있어야 한다.
+ * 설치 동의 화면 — 설치 언어를 고른 뒤 그 언어의 사용권 계약에 동의해야 설치한다. 셋이 한 몸이다:
+ * ① electron-builder.yml `nsis.installerLanguages` ② build/installer.nsh `LicenseLangString`(언어마다 약관 하나 — 빠지면 -WX 로 Windows 빌드가 멈춘다)
+ * ③ build/license/license_<언어>.txt — UTF-8 BOM(없으면 ANSI 로 읽혀 한중일 글자가 깨진 채 빌드는 초록).
+ * 약관을 buildResources(resources/)에 license_*.txt 로 두지 마라 — dmg 에 동의 창이 붙어 `hdiutil attach` 가 멈춘다(mac 자체 업데이트·스모크).
  */
 describe('설치 동의 화면 — 언어를 고르고, 그 언어의 약관에 동의해야 설치한다', () => {
   const YML = 'packages/desktop/electron-builder.yml';
@@ -508,7 +477,7 @@ describe('release publishing — 검증이 발행보다 앞선다', () => {
     const script = read('.github/scripts/check-release-assets.mjs');
     // draft 를 세야 하므로 태그 단건 조회에 기댈 수 없다 — 그 경로는 draft 에 404 를 준다.
     expect(script).toContain('/releases?per_page=');
-    // v0.1.12 가 Intel dmg 없이 발행된 자리 — 그 이름이 목록에서 빠지면 다시 그렇게 된다.
+    // Intel dmg 이름이 목록에서 빠지면 Intel dmg 없이 발행된다.
     expect(script).toContain('-arm64.dmg');
     expect(script).toContain('.dmg');
     expect(script).toContain('.deb');
@@ -526,15 +495,13 @@ describe('release publishing — 검증이 발행보다 앞선다', () => {
 
   it('릴리스 본문 생성기가 draft 릴리스를 찾을 수 있다 (본문은 공개보다 먼저 붙는다)', () => {
     const src = read('.github/scripts/release-notes.mjs');
-    // 태그 단건 조회만 쓰면 draft 에 404 라 매 릴리스가 본문 없이 지나간다(v0.1.14 의 재발).
+    // 태그 단건 조회만 쓰면 draft 에 404 라 매 릴리스가 본문 없이 지나간다.
     expect(src).toContain('/releases?per_page=');
   });
 
   it('draft 를 태그에 묶는 스텝이 있다 (GitHub 은 draft 에 태그를 안 붙인다)', () => {
     const wf = read('.github/workflows/release.yml');
-    // v0.1.20 이 여기서 통째로 막혔다: 태그를 먼저 밀어 두었는데도 draft 는 `untagged-<id>` 로
-    // 남았고, 태그로 찾는 것이 전부 빗나가 스모크 4종이 "release not found" 로 즉사했다.
-    // 설치본은 멀쩡했는데 **검증이 시작조차 못 했다.**
+    // 태그를 먼저 밀어도 draft 는 `untagged-<id>` 로 남는다 — tag_name 을 묶지 않으면 태그로 찾는 스모크 4종이 "release not found" 로 즉사한다.
     expect(wf).toContain('tag_name=');
     // 묶는 일은 `prepare` 잡이 자산보다 **먼저** 한다 — draft 를 만들 때 tag_name 을 실어 둔다.
     expect(wf).toMatch(/gh api -X POST .*releases[\s\S]*?-f tag_name=/);
@@ -543,21 +510,17 @@ describe('release publishing — 검증이 발행보다 앞선다', () => {
   });
 
   /**
-   * v0.1.23 이 30분 늦게, 그것도 죽은 링크를 단 채 공개된 자리.
-   *
-   * ① 본문 생성기가 draft 에 **본문만** PATCH 하자 GitHub 이 태그 묶음을 `untagged-<hash>` 로 풀었다
-   *    (2026-09-13 임시 draft 로 확인 — tag_name 을 함께 보내면 유지된다). 설치 검증 4종은 전부
-   *    초록이었는데 publish 잡의 자산 검사가 태그로 릴리스를 못 찾아 멈췄다.
-   * ② 본문의 다운로드 링크를 draft 의 `browser_download_url`(untagged 주소)로 만들어서, 공개되는 순간
-   *    표의 링크가 전부 404 가 됐다(v0.1.22 도 같았고 둘 다 본문을 손으로 다시 써서 살렸다).
+   * 릴리스 본문 생성기.
+   * ① draft 에 본문만 PATCH 하면 GitHub 이 태그 묶음을 `untagged-<hash>` 로 푼다(2026-09-13 임시 draft 로 확인 — tag_name 을 함께 보내면 유지된다).
+   * 그러면 publish 잡의 자산 검사가 태그로 릴리스를 못 찾아 멈춘다.
+   * ② 다운로드 링크를 draft 의 `browser_download_url`(untagged 주소)로 만들지 마라 — 공개되는 순간 전부 404 다.
    */
   const loadNotes = async (): Promise<Record<string, any>> =>
     await import(pathToFileURL(path.join(REPO, '.github/scripts/release-notes.mjs')).href);
 
   it('이 시험이 import 하는 스크립트는 #! 로 시작하지 않는다 (Windows 러너의 CRLF 에서 Vitest 가 못 읽는다)', () => {
-    // Windows 러너는 CRLF 로 체크아웃하고, Vitest 는 `#!…\r\n` 으로 시작하는 모듈을
-    // `SyntaxError: Invalid or unexpected token` 으로 거절한다 — 개발기(LF)와 ubuntu·macos 는 통과해서
-    // 3-OS CI 에서야 드러났다(2026-09-13 #39). 실행은 어디서나 `node <파일>` 이라 hashbang 이 필요 없다.
+    // Windows 러너는 CRLF 로 체크아웃하고 Vitest 는 `#!…\r\n` 으로 시작하는 모듈을 `SyntaxError: Invalid or unexpected token` 으로 거절한다
+    // (LF 인 개발기·ubuntu·macos 는 통과해 3-OS CI 에서야 드러난다). 실행은 늘 `node <파일>` 이라 hashbang 이 필요 없다.
     for (const rel of ['.github/scripts/release-notes.mjs', '.github/scripts/releaseRetry.mjs']) {
       expect(read(rel).startsWith('#!'), `${rel} 첫 줄의 #! 를 지워라`).toBe(false);
     }
@@ -595,17 +558,9 @@ describe('release publishing — 검증이 발행보다 앞선다', () => {
   });
 
   /**
-   * v0.1.21 이 갈라진 자리.
-   *
-   * 네 OS 잡이 동시에 출발하는데, electron-publish 의 `getOrCreateRelease()` 는 릴리스 목록에서
-   * `tag_name` 이 태그(또는 버전)와 같은 것만 재사용한다. GitHub 은 draft 에 태그를 걸지 않으므로
-   * (`untagged-<id>`) 먼저 도착한 잡이 만든 draft 를 뒤따라온 잡이 자기 것이 아니라고 보고
-   * **새로 만든다.** 실제로 draft 가 둘이 됐고 Linux 자산 4종만 태그 없는 쪽에 남아,
-   * 스모크의 `gh release download <TAG> --pattern '*.AppImage'` 가 자산을 못 찾아 죽었다.
-   * 검증이 실패했으니 공개 전환도 없었고 사이트의 최신 버전은 v0.1.20 에 멈춰 있었다.
-   *
-   * 고침은 순서다: 자리를 **먼저 하나 만들고** 태그를 박아 둔다. 그러면 네 잡이 전부 그것을 찾는다.
-   * 이 배선이 풀리면 증상이 다음 릴리스에서야, 그것도 스모크 실패라는 엉뚱한 얼굴로 나타난다.
+   * draft 를 먼저 하나 만들고 태그를 박아 둔다 — 네 OS 잡이 동시에 출발하면 electron-publish `getOrCreateRelease()` 는 `tag_name` 이 같은
+   * 것만 재사용하는데 draft 는 `untagged-<id>` 라, 뒤 잡이 draft 를 새로 만들어 자산이 두 draft 로 갈린다(스모크가 자산을 못 찾는다).
+   * 이 배선이 풀리면 다음 릴리스에서야 스모크 실패라는 엉뚱한 얼굴로 나타난다.
    */
   it('올릴 draft 를 먼저 만드는 준비 잡이 있고, 릴리스 잡 넷이 그것에 매여 있다', () => {
     const wf = read('.github/workflows/release.yml');
@@ -623,25 +578,11 @@ describe('release publishing — 검증이 발행보다 앞선다', () => {
 });
 
 /**
- * 2026-09-07 — **다운로드 수는 사용자의 것이어야 한다.**
- *
- * GitHub 의 릴리스 자산 다운로드 수는 우리가 밖에 내보이는 유일한 채택 지표다
- * (`vibisual-site` 의 `stats.json` → 사이트의 "설치 수"). 그런데 스모크가 검증할 설치본을
- * `gh release download` 로 받으면서 **그 숫자를 우리 CI 가 채우고 있었다.**
- *
- * 실측(2026-09-07): 공개 릴리스의 설치본 다운로드 134회 중 릴리스가 없는 날의 증가는 **0**
- * 이었고(metrics 브랜치 `traction.csv` 9/3→9/4 · 9/5→9/6), 릴리스당 합계는 스모크가 들어온
- * 2026-08-27(v0.1.14) 을 경계로 0~6 에서 7~40 으로 뛰었다. 릴리스 한 번에 6회가 구조적으로
- * 쌓였다 — win 1 · linux 2 · mac arm64 1 · mac x64 2(`--pattern '*.dmg'` 가 arm64 것까지 집는다).
- *
- * 업계 통상은 **CI 가 릴리스 자산을 아예 건드리지 않는 것**이다. 잡 사이의 산출물은
- * `actions/upload-artifact`/`download-artifact` 로 넘기고, 릴리스 자산 URL 은 사용자만
- * 지나가는 길로 비워 둔다. 게이트는 약해지지 않는다 — 아티팩트는 릴리스에 올라간 그 파일에서
- * 같은 자리에 올라가고, 업로드 손상은 사용자 기기의 electron-updater 가 `latest*.yml` 의
- * sha512 로 설치 직전에 다시 검사한다.
- *
- * 이 검사는 그 경로가 되돌아가지 못하게 잠근다. 한 줄만 되돌리면(스모크에서 다시
- * `gh release download`) 지표는 조용히 다시 오염되고, 그 사실은 몇 달 뒤 통계를 뜯어봐야 드러난다.
+ * 다운로드 수는 사용자의 것이어야 한다 — 릴리스 자산 다운로드 수가 사이트 "설치 수"(`stats.json`)의 원천이라,
+ * 스모크가 `gh release download` 로 받으면 CI 가 릴리스마다 그 숫자를 채운다(`--pattern '*.dmg'` 는 arm64 것까지 집는다).
+ * CI 는 릴리스 자산을 건드리지 않는다 — 잡 사이 산출물은 `actions/upload-artifact`/`download-artifact` 로 넘긴다
+ * (게이트는 그대로: 업로드 손상은 electron-updater 가 `latest*.yml` sha512 로 설치 직전에 다시 검사한다).
+ * 스모크를 `gh release download` 로 되돌리면 지표가 조용히 오염된다.
  */
 describe('릴리스 다운로드 수 — CI 는 자산을 건드리지 않는다', () => {
   const liveLines = (rel: string): string[] =>
@@ -752,10 +693,8 @@ describe('release 완수 — 초록을 볼 때까지 간다', () => {
     expect(second.platforms.length).toBe(PLATFORMS.length);
   });
 
-  // ⚠️ `scripts/release.mjs` 는 **개인 자산**이라 공개 저장소에 없다(`.gitignore: /scripts/*.mjs`).
-  //    CI 체크아웃에는 파일 자체가 없으니 **있을 때만** 잰다 — 없다고 실패시키면 CI 가 영영 빨갛다.
-  //    (위의 표·워크플로 검사는 공개 파일만 보므로 CI 에서도 그대로 돈다. 그래서 표를
-  //     `.github/scripts/` 로 옮겼다 — 정작 지켜야 할 어긋남이 저쪽에서 나기 때문이다.)
+  // `scripts/release.mjs` 는 공개 저장소에 없다(`.gitignore`) — CI 체크아웃에는 없으니 있을 때만 잰다(없다고 실패시키면 CI 가 영영 빨갛다).
+  // 위 표·워크플로 검사는 공개 파일(`.github/scripts/`)만 봐서 CI 에서도 돈다.
   const hasReleaseScript = fs.existsSync(path.join(REPO, 'scripts/release.mjs'));
   it.skipIf(!hasReleaseScript)('릴리스 스크립트의 완수 조건은 태그가 아니라 공개다', () => {
     const src = read('scripts/release.mjs');
@@ -766,20 +705,15 @@ describe('release 완수 — 초록을 볼 때까지 간다', () => {
     expect(src).toContain('이 릴리스는 **완수되지 않았다**');
     // 25분짜리 재빌드로 가기 전에 값싼 원인(태그 미결합)을 먼저 배제한다.
     expect(src).toContain('ensureDraftTagBound');
-    // 공개 여부·스모크 상태는 토큰으로 묻는다 — 토큰 없는 호출의 시간당 60회가 바닥나면 스모크가
-    // 빨갛게 끝난 것도, 공개된 것도 못 본 채 45분을 채운다(v0.1.23).
+    // 공개 여부·스모크 상태는 토큰으로 묻는다 — 토큰 없는 호출 한도(시간당 60회)가 바닥나면 스모크 결과도 공개도 못 본 채 45분을 채운다.
     expect(src).toContain('headers: apiHeaders()');
   });
 });
 
 /**
- * 제거기 — 남은 훅을 걷는다 (2026-10-22, 사용자 지시 — SCENARIO §3.6 「수명」 · §5.7 #24-3 ⑤).
- *
- * 우리 훅은 앱이 켜져 있는 동안만 둔다 — 앱은 끌 때 스스로 걷는다. 그런데 앱이 팅겼거나 제거기의 "앱 실행 중" 처리가
- * 앱을 강제로 끝냈으면 걷을 기회가 없었다. 그대로 파일을 지우면 훅이 부를 handler.mjs 가 사라져 이 PC 의 모든 Claude
- * Code 세션에 오류 알림이 남는다. 그래서 제거기가 파일을 지우기 **전**에 앱을 정리 모드로 한 번 부른다.
- * 성립 전제(호출 위치·업데이트 표시)는 **실제로 설치된** electron-builder 템플릿에서 잰다 — 판을 올려 순서가 바뀌면
- * 여기서 넘어진다.
+ * 제거기 — 남은 훅을 걷는다(§3.6 「수명」 · §5.7 #24-3 ⑤). 훅은 앱이 켜진 동안만 두고 끌 때 걷지만, 앱이 팅겼거나 강제 종료됐으면 남는다.
+ * 그대로 파일을 지우면 훅이 부를 handler.mjs 가 사라져 그 PC 의 모든 Claude Code 세션에 오류 알림이 남으므로, 지우기 **전**에 앱을 정리 모드로 부른다.
+ * 전제(호출 위치·업데이트 표시)는 실제 설치된 electron-builder 템플릿에서 잰다 — 판을 올려 순서가 바뀌면 여기서 넘어진다.
  */
 describe('제거기 — 남은 훅을 걷는다', () => {
   const NSH = 'packages/desktop/build/installer.nsh';

@@ -1,13 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { DIAGNOSTIC_LOG_MAX, type DiagnosticEntry } from '@vibisual/shared';
 
-// §4 v1.98 — 진단 에러 로그 서비스 (단일 SSOT).
-//
-// 수집원 3종:
+// §4 — 진단 에러 로그 서비스(단일 SSOT). 수집원 3종:
 //   - server 코어   : logger.error/warn 탭 (logger.ts)
 //   - main 프로세스 : 진입점이 process.on('uncaughtException') 등에서 recordDiagnostic() 호출
 //   - renderer      : client_error WS 메시지 → handleClientMessage 가 record()
-//
 // ring buffer(DIAGNOSTIC_LOG_MAX). GraphSnapshot.diagnosticLog 로 클라에 전달, 영속화 ❌.
 
 interface RecordInput {

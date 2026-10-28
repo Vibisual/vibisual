@@ -1,16 +1,4 @@
-/**
- * §7.22 — 도메인 버블 웹 이력 **한 건**을 통째로 보는 창.
- *
- * 목록(`WebEntryList`)은 260px 안에서 훑어보는 자리다. 종전에는 그 안에서 결과 본문을 `pre` 로
- * 펼쳤는데, 그 블록은 목록을 아래로 밀어내면서도 정작 읽힐 만큼은 담지 못했다 — 훑기와 읽기를
- * 한 칸에서 하려다 둘 다 놓친 모양이다. 그래서 **읽는 일은 이 창으로 옮긴다**: 목록이 줄여 놓은
- * 것(검색어·URL·결과 도메인)을 여기서는 **줄임 없이** 풀어 보여 주는 것이 이 창의 존재 이유다.
- *
- * 닫기 배선은 새로 만들지 않는다 — 백드롭은 `useBackdropDismiss`(팝업 안에서 시작한 드래그로는
- * 안 닫힌다는 공통 규약), Esc 는 window keydown. 밖으로 여는 길도 앱에 하나뿐인
- * `window.open` → main `setWindowOpenHandler` → `shell.openExternal` 을 그대로 쓴다(§5.23 경계 —
- * 앱 안에서 페이지를 열지 않는다).
- */
+/** §7.22 — 웹 이력 한 건을 줄임 없이 보는 창(목록은 훑기, 여기는 읽기). 닫기는 공통 `useBackdropDismiss` + Esc, 밖으로 여는 길은 `window.open` → `shell.openExternal`. */
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { WebEntry } from '@vibisual/shared';

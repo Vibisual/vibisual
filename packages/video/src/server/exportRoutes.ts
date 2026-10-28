@@ -1,15 +1,6 @@
 /**
- * §5.13 (AA) 42 — 내보내기 설정·내 프리셋·렌더 대기열 조작 REST(앱 라우트 — `/api/app/vibistudio/…`).
- *
- * - `GET    /export-settings?project=` — 마지막 설정 + 내 프리셋(없으면 기본값)
- * - `PUT    /export-settings { project, settings }` — 마지막 설정(사람만)
- * - `POST   /export-presets { project, name, settings }` — 내 프리셋 저장(같은 이름이면 덮는다 · 사람만)
- * - `DELETE /export-presets/:presetId?project=` — 내 프리셋 지우기(사람만)
- * - `POST   /job/:jobId/control { action }` — 일시정지·재개·취소·지금 시작·멈춤·위로·아래로·담았음(사람만)
- * - `POST   /jobs/control { project, action }` — 모두 시작·대기열 멈춤·모두 취소·끝난 것 지우기(사람만)
- *
- * 설정의 저장 위치는 OS 폴더 창으로만 고르고(42-2) 서버는 절대 경로인지만 본다. 루프백 유입(에이전트)은 전부 403 이다 —
- * 사람의 결정을 대신하지 못하게(37-17).
+ * §5.13 (AA) 42 — 내보내기 설정·프리셋·대기열 조작 REST. 에이전트는 `GET /export-settings` 만, 나머지는 사람만(루프백 403 — 37-17).
+ * 저장 위치는 OS 폴더 창으로만 고르고(42-2) 서버는 절대 경로인지만 본다.
  */
 import path from 'node:path';
 import type { Express } from 'express';

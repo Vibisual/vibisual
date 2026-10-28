@@ -83,8 +83,7 @@ describe('bubble edge appearance semantics', () => {
     expect(base).toEqual(original);
   });
 
-  // §5.4 #31 (K) 2026-10-22 — on a PC with animation effects off (reduced motion) the travel layer used to be
-  // stripped to `animation: none`, so a working edge stood as still as an idle one. It now slows down instead.
+  // §5.4 #31 (K) — reduced motion slows the travel layer; `animation: none` would leave a working edge as still as an idle one.
   it.each(variants)('%s keeps a working edge flowing under reduced motion: same keyframes, slower, still 24 moves a second', (variant) => {
     const paint = bubbleEdgeAppearance(variant, {
       semantic: 'activity', base: { stroke: '#369ac5CC', strokeWidth: 2.5 }, active: true,

@@ -79,7 +79,7 @@ import {
 import { followTitlebarMove, startTitlebarMove, type TitlebarMove } from './titlebarMove';
 import { toScreenPoint } from './titlebarDrag';
 import { createWindowImmersiveController } from './windowImmersive';
-// §3.7 (2026-10-16) — 덮개 끌기도 앱 창 끌기와 같은 물리 버튼 판정으로 손을 뗀 것을 안다.
+// §3.7 — 덮개 끌기도 앱 창 끌기와 같은 물리 버튼 판정으로 손을 뗀 것을 안다.
 import { appWindowPrimaryPressed } from './appWindowMouseButton';
 import { checkForUpdates, quitAndInstall, getUpdateState } from './updaterManager';
 import {
@@ -119,17 +119,12 @@ import { injectCaptureInput, resolveCaptureTargetRect } from './captureInputMana
 import type { ChatBridgeState, ChatChannelKind, ChatVerbosity, UpdateState, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture, PerfProcessMemoryWire } from '@vibisual/shared';
 import { summarizeProcessMetrics } from '@vibisual/shared';
 
-// IPC hub — SCENARIO.md §3.7 (in-process 통합).
-//
-// renderer↔server 는 소켓 없이 Electron IPC 직결. 채널:
-//   - vibisual:server-info  → renderer 가 패키지 모드인지 확인용(in-process라 포트 의미 없음).
-//   - vibisual:fetch        → HTTP 요청을 in-process Express app 으로 합성 디스패치
-//                             (light-my-request — fake req/res 주입, TCP 소켓 없음).
-//   - vibisual:send         → renderer→server WS 메시지(hydrate/unload/iframe-log) 직접 처리.
-//   - vibisual:ws-connect   → renderer 의 IpcWebSocket 생성 시 초기 ack+snapshot 푸시.
-//   - vibisual:ws (push)    → server broadcast sink(main/index.ts)가 renderer 로 푸시.
+// IPC hub — SCENARIO.md §3.7 (in-process 통합). renderer↔server 는 소켓 없이 Electron IPC 직결. 채널:
+//   - vibisual:server-info — 패키지 모드 확인용(포트 의미 없음) · vibisual:fetch — in-process Express 로 합성 디스패치(light-my-request, TCP 없음)
+//   - vibisual:send — renderer→server WS 메시지(hydrate/unload/iframe-log) · vibisual:ws-connect — 초기 ack+snapshot 푸시
+//   - vibisual:ws (push) — server broadcast sink(main/index.ts)가 renderer 로 푸시.
 
-// §4 v3.33 — 데스크톱 IPC 용 TermSink. PTY 출력을 이 webContents 의 renderer 로 push.
+// §4 — 데스크톱 IPC 용 TermSink. PTY 출력을 이 webContents 의 renderer 로 push.
 function webContentsSink(wc: WebContents): TermSink {
   return {
     id: `wc:${wc.id}`,
@@ -156,8 +151,8 @@ interface FetchResponseWire {
   /** `body` 가 base64 인코딩 바이너리임을 표시 — 옛 길(하위 호환). 새 main 은 바이너리를 `bodyBytes` 로 싣는다. */
   bodyEncoding?: 'base64';
   /**
-   * §5.13 (Y) 40-7 ① — 비텍스트 응답의 바이트 그대로(구조화 복제). 있으면 `body` 는 빈 문자열이다. 종전에는 바이너리를
-   * UTF-8 문자열 → base64 로 두 번 바꿔 실었다(164MB 에 메인 1.5초 + 렌더러 0.46초).
+   * §5.13 (Y) 40-7 ① — 비텍스트 응답의 바이트 그대로(구조화 복제). 있으면 `body` 는 빈 문자열이다.
+   * 문자열 → base64 로 바꿔 싣지 마라 — 164MB 에 메인 1.5초 + 렌더러 0.46초.
    */
   bodyBytes?: Uint8Array;
 }
@@ -318,7 +313,7 @@ export function setupIpc(expressApp: Express): IpcHub {
     }
   });
 
-  // ─── §5.4 #14-1 (v2.29) Detach/Redock 채널 ───────────────────────────────
+  // §5.4 #14-1 — Detach/Redock 채널
   ipcMain.handle(
     'vibisual:window:detach',
     (
@@ -351,45 +346,11 @@ export function setupIpc(expressApp: Express): IpcHub {
     return !!win && closeByWindowId(win.id);
   });
 
-  // §5.4 #14-1 — 별창 자기 창의 최소화/최대화(복원) 토글. 닫기(close-self) 와 동일하게
-  // event.sender.id 로 자기 창을 식별한다.
-  // Explicit titlebar mouse gestures bypass Chromium's startup drag-region registration.
-  //
-  // §5.5 #17-6 (H-19) — **크기는 장부가 답한다(창에 되묻지 않는다).** 이 손잡이는 종전에
-  //   `setPosition()` 으로 창을 옮겼다. 그 호출은 크기를 **창에 되물어** 다시 쓰므로, Windows 의
-  //   분수 배율(125%·150%)에서 DIP↔물리 픽셀이 쓸 때와 읽을 때 따로 반올림돼 **부를 때마다 폭이
-  //   1px 자란다**(실측 150%: 40번에 +40px). 헤더 로고 덮개는 `mousemove` 마다 이 채널을
-  //   부르므로, 한 번 잡고 끄는 동안 본체 창이 눈에 띄게 계속 커졌다(사용자 보고 — "여기를 잡고
-  //   잡아 끌면 에디터가 점점 커진다"). 별창·오버레이 창은 `moveOverlayTo` 로 이미 고쳤는데
-  //   **본체 창만 이 길에 남아 있었다.**
-  //
-  //   이제 끌기 판이 **시작할 때 잰 크기**를 장부로 들고, 자리와 그 크기를 `setBounds` 로 함께
-  //   쓴다 — 창에 되묻지 않으니 자랄 자리가 없다. 좌표·크기는 그 화면의 배율 격자에 맞춘다
-  //   (`movedBounds` + `dipStepAt` — 격자를 벗어난 좌표는 물리 픽셀 폭을 1px 씩 흔든다).
-  //
-  // §3.7 (2026-10-12) — **덮개는 창을 스스로 옮긴다. OS 이동 루프로 넘기지 않는다(세 OS 같은 길).**
-  //   10-08 에 win 에서만 4 DIP 를 넘으면 제목줄 누름을 창에 게시해 OS 이동 루프로 넘기고, 넘긴
-  //   즉시 이 수동 경로를 끊는 인계가 붙었다. 그 "넘겼다"는 메시지를 큐에 넣었다는 뜻일 뿐 창이
-  //   움직였다는 뜻이 아니었고(만든 세션도 실제 이동은 확인하지 못했다고 남겼다), 실제 앱에서는
-  //   로고를 잡아 끌어도 창이 꿈쩍하지 않았다 — 수동 경로는 이미 끊긴 뒤라 손짓이 통째로 사라졌다
-  //   (사용자 보고 — "앱이 켜졌을때 여기 잡고 옮겨야 하는데 왜 맨날 이거 막는거야"). 덮개가 있는
-  //   이유가 "OS 캡션이 그 순간 안 먹을 때도 옮긴다"인데, OS 에 다시 맡기면 그 이유가 사라진다.
-  //   그래서 인계를 걷고 이 경로 하나로 옮긴다. 잃는 것은 로고 자리에서 끌 때의 OS 가장자리 스냅뿐이다
-  //   (헤더 빈 자리는 여전히 OS 캡션이라 스냅된다). 다시 붙이려면 실제 앱에서 창이 움직이는 것을
-  //   먼저 확인할 것 — 회귀는 `titlebarMove.test.ts` 가 원문으로 지킨다.
-  //
-  // §3.7 ③ (2026-10-12) — **누른 자리·놓은 자리는 렌더러가 잰다.** 서버가 이 메인 스레드에서 함께 돌아,
-  //   스레드가 바쁘면 이 채널을 늦게 받는다. 그때 OS 커서는 손이 이미 옮겨 간 자리라 누른 자리를 여기서 읽으면
-  //   끝난 손짓이 0px 이 됐다. 렌더러가 실어 보낸 화면 좌표로 누른 자리를 잡고, 늦게 받은 해제는 놓은 자리까지
-  //   옮긴다(`titlebarMove.ts`). 페이지까지 온 제목줄 누름도 덮개와 같은 이 채널을 탄다(client `titlebarPress.ts`).
-  //
-  // §3.7 (2026-10-16) — **최대화된 창을 덮개로 끌면 작아지며 끝까지 따라온다.** 종전에는 페이지의 `mousemove` 마다 오는
-  //   `move` 에만 기대 창을 옮겼다. 최대화를 푸는 순간 창 크기가 손 밑에서 바뀌며 페이지가 손짓을 놓치면 그 `move` 가
-  //   끊겨 창이 따라오지 않았다(사용자 지시 — 헤더 빈 자리처럼 덮개에서도 되게 "연결만 시켜"). 이제 손짓을 시작하면
-  //   main 이 앱 창 끌기(`appWindowTransfer.ts`)와 같은 박자로 OS 커서를 직접 읽어 따라가고, 손을 뗀 것은 같은 물리
-  //   버튼 판정으로 안다(`followTitlebarMove`). 페이지의 `move`·`end` 는 그대로 받는다 — 놓은 자리는 여전히 렌더러 값이다.
-  // 로고도 이제 헤더와 같은 native drag 영역이다. 이 채널은 OS 가 페이지로 보낸 누름의
-  // 공통 보조 경로로 남긴다(installTitlebarPressCatch). native 이동 중에는 호출하지 않는다.
+  // §5.4 #14-1 — 자기 창 손잡이는 close-self 처럼 event.sender 로 창을 식별한다. 명시적 제목줄 손짓은 Chromium 시작 때의 drag-region 등록을 거치지 않는다.
+  // §5.5 #17-6 (H-19) — 크기는 장부가 답한다: 끌기 시작 때 잰 크기와 자리를 격자에 맞춰 `setBounds` 로 함께 쓴다(`movedBounds` + `dipStepAt`).
+  //   `setPosition()` 으로 되돌리지 마라 — 크기를 창에 되물어 분수 배율에서 부를 때마다 1px 자란다(실측 150%: 40번에 +40px).
+  // §3.7 — OS 이동 루프로 넘기지 마라 — 게시는 큐에 넣을 뿐이라 창이 안 움직이고 손짓이 사라진다(되살리려면 실제 앱 확인부터, `titlebarMove.test.ts`). 누른·놓은 자리는 렌더러가 잰다(메인 스레드가 늦으면 0px).
+  //   main 도 제 박자로 OS 커서를 따른다(최대화를 풀 때 페이지 `move` 가 끊긴다). 이 채널은 페이지로 온 누름의 보조 경로다(installTitlebarPressCatch) — native 이동 중엔 부르지 않는다.
   const titlebarDrags = new Map<WebContents, TitlebarMove>();
   ipcMain.handle('vibisual:window:move-self', (event, phase: string, point?: unknown): boolean => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -409,8 +370,8 @@ export function setupIpc(expressApp: Express): IpcHub {
         },
       );
       titlebarDrags.set(event.sender, gesture);
-      // §3.7 (2026-10-16) — main 도 제 박자로 손을 따라간다. 페이지의 `move` 는 최대화를 푸는 순간 끊길 수 있다.
-      //   앱 창 끌기와 같은 박자·같은 물리 버튼 판정(`appWindowPrimaryPressed` — win32 만 값, 그 밖은 null)이다.
+      // §3.7 — main 도 제 박자로 손을 따라간다(페이지 `move` 는 최대화를 푸는 순간 끊길 수 있다).
+      //   앱 창 끌기와 같은 박자·같은 물리 버튼 판정(`appWindowPrimaryPressed` — win32 만 값, 그 밖은 null).
       stopFollowing = followTitlebarMove(gesture, appWindowPrimaryPressed);
       return true;
     }
@@ -462,7 +423,7 @@ export function setupIpc(expressApp: Express): IpcHub {
     return redockCommit(tabKey);
   });
 
-  // §5.4 #14-1 v2.30 — 별창 미니 타이틀바 드래그 시작/종료.
+  // §5.4 #14-1 — 별창 미니 타이틀바 드래그 시작/종료.
   ipcMain.handle('vibisual:window:detach-drag-start', (event): boolean => {
     return startDetachDragByWindowId(event.sender.id);
   });
@@ -470,7 +431,7 @@ export function setupIpc(expressApp: Express): IpcHub {
     return endDetachDragByWindowId(event.sender.id, !!commit);
   });
 
-  // ─── §5.5 #17-6 (v2.73) 버블 오버레이 창 채널 ─────────────────────────────
+  // §5.5 #17-6 — 버블 오버레이 창 채널
   ipcMain.handle(
     'vibisual:overlay:open',
     (
@@ -522,23 +483,17 @@ export function setupIpc(expressApp: Express): IpcHub {
             // §17-6 (H-12) 되돌아올 때 선에 적을 말 — 문자열일 때만 받고 길이를 자른다.
             label: typeof payload.follow.label === 'string' ? payload.follow.label.slice(0, 120) : undefined,
             hint: typeof payload.follow.hint === 'string' ? payload.follow.hint.slice(0, 160) : undefined,
-            // §17-6 (H-17) **손을 뗀 뒤에 태어나는 창**이라는 표식. 이 줄이 없으면 `openOverlay`
-            //   가 매달 이유가 없다는 것을 알 길이 없어 새 창을 커서에 매달고(`startOverlayFollow`)
-            //   비활성으로 띄운다(`showInactive`) — 이미 뗀 손을 기다리므로 창이 커서를 계속
-            //   따라다니고, 사용자는 **한 번 더 눌렀다 놓아야** 그 자리에 선다(사용자 보고 —
-            //   "놓으면 독립 창이 되어야 하는데 왜 한번더 놔야해"). 전선에서 필드 하나를 떨구면
-            //   받는 쪽의 갈래가 통째로 죽는다 — 재조립은 **선언한 필드를 전부** 실어야 한다.
+            // §17-6 (H-17) 손을 뗀 뒤에 태어나는 창이라는 표식. 빠지면 `openOverlay` 가 새 창을 커서에 매달고(`startOverlayFollow`)
+            //   비활성으로 띄워(`showInactive`), 한 번 더 눌렀다 놓아야 그 자리에 선다. 재조립은 선언한 필드를 전부 실어야 한다 —
+            //   하나를 떨구면 받는 쪽 갈래가 통째로 죽는다.
             settled: !!payload.follow.settled,
           }
           : undefined,
       });
     },
   );
-  // §17-6 (H-25) — **놓기 전에 미리 짓는다.** 나갈 뜻이 분명해지는 순간(선의 무장)에 창을 지어
-  //   부팅만 시켜 두고 보여주지 않는다. 그러면 뗌은 위 `overlay:open` 의 **재사용 갈래**를 타
-  //   자리 옮기기와 보여주기만 남아, 손을 떼는 그 지점에 창 짓기가 통째로 몰리지 않는다.
-  //   짐(`handoff`)도 지금 맡긴다 — 손이 눌린 동안에는 그 창의 상태가 바뀌지 않으므로 지금
-  //   값이 곧 마지막 값이다((H-4) 가 드래그 시작에 짐을 받는 것과 같은 근거).
+  // §17-6 (H-25) — 놓기 전에 미리 짓는다. 선이 무장되는 순간 창을 지어 부팅만 시키고 보이지 않는다 — 뗌은 `overlay:open` 의
+  //   재사용 갈래를 타 자리 옮기기·보이기만 남는다. 짐(`handoff`)도 지금 맡긴다(눌린 동안 상태가 바뀌지 않아 지금 값이 마지막 값).
   ipcMain.handle(
     'vibisual:overlay:warm',
     (
@@ -612,7 +567,7 @@ export function setupIpc(expressApp: Express): IpcHub {
   ipcMain.handle('vibisual:overlay:restore-editor-room-self', (event): boolean =>
     restoreOverlayEditorRoomByWindowId(event.sender.id),
   );
-  // §17-6 v2.81 — 버블 드래그 = OS 창 이동(메인 프로세스 커서 폴링).
+  // §17-6 — 버블 드래그 = OS 창 이동(메인 프로세스 커서 폴링).
   ipcMain.handle(
     'vibisual:overlay:drag-start',
     (event, payload?: { redockOnEnter?: boolean; handoff?: unknown; label?: string; hint?: string }): boolean =>
@@ -632,9 +587,8 @@ export function setupIpc(expressApp: Express): IpcHub {
   ipcMain.handle('vibisual:overlay:drag-end-for', (_event, agentId: string): boolean =>
     typeof agentId === 'string' && agentId.length > 0 ? endOverlayDragByAgentId(agentId) : false,
   );
-  // §17-6 (H-6) — 밖으로 빼는 동안 그리는 **가상 창 윤곽선**(클릭통과 투명 창).
-  //   자리는 렌더러가 프레임마다 보내는 것이 아니라 main 이 커서를 폴링해 정한다 — (v2.81) 버블
-  //   드래그·(H-4) `follow` 와 같은 물리라, 윤곽선과 곧 태어날 창이 정확히 같은 자리를 그린다.
+  // §17-6 (H-6) — 밖으로 빼는 동안 그리는 가상 창 윤곽선(클릭통과 투명 창). 자리는 main 이 커서를 폴링해 정한다 —
+  //   버블 드래그·(H-4) `follow` 와 같은 물리라 윤곽선과 곧 태어날 창이 같은 자리를 그린다.
   ipcMain.handle(
     'vibisual:overlay:ghost-show',
     async (_event, payload: { width?: number; height?: number; grabX?: number; grabY?: number; label?: string; armed?: boolean; hint?: string; settled?: boolean }): Promise<boolean> => {
@@ -680,7 +634,7 @@ export function setupIpc(expressApp: Express): IpcHub {
     setOverlaysVisible(!!visible);
     return getOverlaysVisible();
   });
-  // §17-6 (G) v2.82 — 버블 우클릭 메뉴 액션.
+  // §17-6 (G) — 버블 우클릭 메뉴 액션.
   ipcMain.handle('vibisual:overlay:hide-self', (event): boolean => hideOverlaySelfByWindowId(event.sender.id));
   ipcMain.handle('vibisual:overlay:set-opacity-self', (event, opacity: number): boolean =>
     setOverlayOpacitySelfByWindowId(event.sender.id, typeof opacity === 'number' ? opacity : 1),
@@ -702,7 +656,7 @@ export function setupIpc(expressApp: Express): IpcHub {
       });
     },
   );
-  // §17-6 (G) v2.87 — 우클릭 메뉴 = 커서 위치 독립 팝업 창.
+  // §17-6 (G) — 우클릭 메뉴 = 커서 위치 독립 팝업 창.
   ipcMain.handle('vibisual:overlay:open-menu', (event): boolean => openOverlayMenuByWindowId(event.sender.id));
   ipcMain.handle('vibisual:overlay:menu-resize', (event, size: { width: number; height: number }): boolean =>
     resizeOverlayMenu(event.sender.id, size?.width ?? 0, size?.height ?? 0),
@@ -712,8 +666,7 @@ export function setupIpc(expressApp: Express): IpcHub {
   );
   ipcMain.handle('vibisual:overlay:close-menu', (event): boolean => closeOverlayMenuByWindowId(event.sender.id));
 
-  // ─── §5.12 (v4.43) Command Center — 지휘통제실 창 채널 ────────────────────
-  // 창 자체의 최소화/최대화/닫기는 별창의 `vibisual:window:*-self` 를 공유한다
+  // §5.12 Command Center — 지휘통제실 창 채널. 최소화/최대화/닫기는 별창의 `vibisual:window:*-self` 를 공유한다
   // (windowManager.selfWindowById 가 두 맵을 함께 조회).
   ipcMain.handle(
     'vibisual:command:open',
@@ -727,13 +680,10 @@ export function setupIpc(expressApp: Express): IpcHub {
       return openCommandCenter({ projectId: payload.projectId, cursor: payload.cursor });
     },
   );
-  // v4.44 — 창이 하나뿐이라 인자가 없다(구버전 renderer 가 projectId 를 보내도 무시).
+  // 창이 하나뿐이라 인자가 없다(옛 renderer 가 projectId 를 보내도 무시).
   ipcMain.handle('vibisual:command:close', (): boolean => closeCommandCenter());
 
-  // ─── §5.13 (O) v4.48 내부 앱 채널 ───
-  //
-  // 앱마다 채널을 늘리지 않는다. 코어가 아는 것은 이 한 줄뿐이고, 앱이 늘어도
-  // 늘어나는 것은 `main/apps/` 안의 파일 하나다(플러그인 호스트와 같은 규율).
+  // §5.13 (O) 내부 앱 채널 — 앱마다 채널을 늘리지 않는다. 코어는 이 한 줄만 알고, 앱이 늘면 `main/apps/` 안 파일 하나가 는다(플러그인 호스트와 같은 규율).
   mountAppIpc(ipcMain);
   ipcMain.handle(
     'vibisual:command:reveal-in-main',
@@ -747,22 +697,19 @@ export function setupIpc(expressApp: Express): IpcHub {
     },
   );
 
-  // ─── §4 v2.44 자동 업데이트 채널 ──────────────────────────────────────────
-  // 상태 push 는 updaterManager 가 직접 webContents 로 보낸다(vibisual:update:status).
-  // 여기서는 renderer→main 의 invoke 액션만 등록한다.
+  // §4 자동 업데이트 채널 — 상태 push 는 updaterManager 가 직접 보낸다(vibisual:update:status). 여기는 renderer→main invoke 액션만.
   ipcMain.handle('vibisual:update:check', (): Promise<UpdateState> => checkForUpdates());
   ipcMain.handle('vibisual:update:install', (): boolean => quitAndInstall());
   ipcMain.handle('vibisual:update:get-state', (): UpdateState => getUpdateState());
 
-  // ─── §4 v3.16 모바일 웹 접속 모드 채널 ────────────────────────────────────
-  // 상태 push 는 mobileAccess 매니저가 직접 webContents 로 보낸다(vibisual:mobile:status).
+  // §4 모바일 웹 접속 모드 채널 — 상태 push 는 mobileAccess 매니저가 직접 보낸다(vibisual:mobile:status).
   ipcMain.handle('vibisual:mobile:get-state', (): MobileAccessState => getMobileAccessState());
   ipcMain.handle('vibisual:mobile:enable', (): Promise<MobileAccessState> => enableMobileAccess());
   ipcMain.handle('vibisual:mobile:disable', (): Promise<MobileAccessState> => disableMobileAccess());
   ipcMain.handle('vibisual:mobile:regen-code', (): MobileAccessState => regenMobilePairingCode());
   ipcMain.handle('vibisual:mobile:enable-external', (): Promise<MobileAccessState> => enableExternalAccess());
   ipcMain.handle('vibisual:mobile:disable-external', (): Promise<MobileAccessState> => disableExternalAccess());
-  // §4 v3.66 — QR 페어링 티켓(3분) 발급/폐기.
+  // §4 — QR 페어링 티켓(3분) 발급/폐기.
   ipcMain.handle('vibisual:mobile:issue-qr', (): MobileAccessState => issueMobileQrTicket());
   ipcMain.handle('vibisual:mobile:revoke-qr', (): MobileAccessState => revokeMobileQrTicket());
   ipcMain.handle('vibisual:mobile:ack-manual-forward', (): MobileAccessState => ackManualForwardCleanup());
@@ -780,10 +727,8 @@ export function setupIpc(expressApp: Express): IpcHub {
   ipcMain.handle('vibisual:chat:unpair', (_e, kind: ChatChannelKind, chatId: string): ChatBridgeState => unpairChat(kind, chatId));
   ipcMain.handle('vibisual:chat:set-verbosity', (_e, verbosity: ChatVerbosity): ChatBridgeState => setChatVerbosity(verbosity));
 
-  // ─── §4 v2.63 임베디드 인터랙티브 터미널 채널 ─────────────────────────────
-  // §4 v3.33 — 출력 대상은 TermSink 추상화. 데스크톱 IPC 는 아래 webContents 싱크로
-  //   `vibisual:term:data`|`vibisual:term:exit` 를 push 한다(모바일 /ws 싱크는 mobileAccess.ts).
-  //   여기서는 renderer→main 의 invoke 액션(create/write/resize/kill)만 등록한다.
+  // §4 임베디드 인터랙티브 터미널 채널 — 출력은 TermSink 추상화: 데스크톱은 webContents 싱크로 `vibisual:term:data`|`vibisual:term:exit` 를
+  //   push(모바일 /ws 싱크는 mobileAccess.ts). 여기는 invoke 액션(create/write/resize/kill)만.
   ipcMain.handle(
     'vibisual:term:create',
     (event, spec: CreateTerminalSpec): { ok: boolean; error?: string } => {
@@ -824,19 +769,15 @@ export function setupIpc(expressApp: Express): IpcHub {
     'vibisual:capture:input',
     (_event, ev: CaptureInputEvent): Promise<CaptureInjectResult> => injectCaptureInput(ev),
   );
-  // §5.9 v3.57 — 드래그 좌표를 렌더러가 닫힌 루프로 계산하려면 대상 사각형(DIP+물리)이 필요하다.
+  // §5.9 — 드래그 좌표를 렌더러가 닫힌 루프로 계산하려면 대상 사각형(DIP+물리)이 필요하다.
   ipcMain.handle(
     'vibisual:capture:target-rect',
     (_event, spec: { sourceId: string; sourceKind: CaptureSourceKind; sourceName: string }): Promise<CaptureTargetRect> =>
       resolveCaptureTargetRect(spec),
   );
   /**
-   * §5.17 (B) — 프리뷰에서 그은 사각형을 PNG 로 찍는다.
-   *
-   * 찍는 대상은 **부른 그 창 자신**(`event.sender`)이다 — 도킹이든 별창(§5.5 #17-6)이든
-   * 사용자가 누른 화면이 찍힌다. 좌표는 렌더러가 준 CSS px(문서 좌상단 기준) 그대로이고,
-   * Electron 이 받는 rect 와 같은 좌표계라 변환이 없다. 실패는 던지지 않고 사유를 담아 돌려준다
-   * (렌더러가 한 줄로 보여 준다 — 조용한 무동작 ❌).
+   * §5.17 (B) — 프리뷰에서 그은 사각형을 PNG 로 찍는다. 대상은 부른 창 자신(`event.sender` — 도킹·별창 무관).
+   * 좌표는 렌더러가 준 CSS px(문서 좌상단) 그대로 — Electron rect 와 같은 좌표계라 변환이 없다. 실패는 던지지 않고 사유를 돌려준다.
    */
   ipcMain.handle(
     'vibisual:capture:page-region',
@@ -951,7 +892,7 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:capture:page-region');
       shutdownIframeLogStreamer();
       shutdownServerLogService();
-      // §5.5 #17-20 ⑩ v4.94 — 붙어 있던 디버그 세션(어댑터 자식 프로세스·소켓)을 함께 회수한다.
+      // §5.5 #17-20 ⑩ — 붙어 있던 디버그 세션(어댑터 자식 프로세스·소켓)을 함께 회수한다.
       debugSessionManager.disposeAll();
       connections.clear();
     },

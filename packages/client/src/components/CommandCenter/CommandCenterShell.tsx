@@ -15,28 +15,13 @@ import {
   type CommandCenterSettings,
 } from './commandCenterSettings.js';
 
-// SCENARIO.md §5.12 (A) — 지휘통제실 창의 shell. `#command=1&projectId=…` 로 뜨는 네 번째 shell
-// (DetachedShell / OverlayShell / OverlayMenuShell 에 이어).
-//
-// 데이터: 같은 in-process 서버에 IPC WS 로 붙어 같은 graph_snapshot 을 받는다(별창 선례 — 별도
-// hydrate·별도 REST ❌). 자기 창의 활성 프로젝트는 `setActiveProjectLocal` 로 **로컬만** 설정해
-// 서버 appState 를 건드리지 않는다(다른 창의 활성 탭에 영향 ❌).
-//
-// v4.44 — 창은 **앱 전체에 하나**이고 기본값은 **따라가기**다. 메인 창이 프로젝트를 옮기면
-// 이 창도 따라간다. 판정 근거는 이미 오는 스냅샷의 `appState.lastActiveProject`(절대경로)를
-// 표시명으로 역해소한 값 — 새 서버 상태도, 폴링도 만들지 않는다. 사용자가 타이틀바에서 특정
-// 프로젝트를 고르면 그 프로젝트에 **고정**되어 따라가지 않는다(localStorage).
-//
-// 캔버스(BubbleMap)는 그리지 않는다 — 목록·검색 전용 화면(§5.12 (G)).
+// SCENARIO.md §5.12 (A) — 지휘통제실 창 shell(`#command=1&projectId=…`). 같은 in-process 서버에 IPC WS 로 붙는다(별도 hydrate·REST ❌).
+// 활성 프로젝트는 `setActiveProjectLocal` 로 **로컬만** — 서버 appState 를 건드리면 다른 창의 활성 탭이 바뀐다.
+// 앱에 하나, 기본은 따라가기(스냅샷 `appState.lastActiveProject` 역해소 — 새 상태·폴링 ❌), 타이틀바에서 고르면 고정(localStorage). 캔버스는 그리지 않는다.
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}${WS_PATH}`;
 
-// §5.12 (J) — 갱신·새로고침.
-//
-// 이 창은 `graph_snapshot` push 로 이미 실시간이다(폴링 ❌). 다만 WS 가 끊기면 마지막 스냅샷을
-// 붙잡은 채 조용히 멈추므로, "지금 나를 기다리는 게 무엇인가"만 말하는 이 창에서는 그 낡은 화면이
-// 곧 거짓말이 된다. 그래서 **보고 있는 동안 30초마다** 스스로 다시 붙고(= 서버가 전체 스냅샷을
-// 다시 준다), 사용자가 직접 누를 [새로고침] 버튼과 연결 상태·마지막 갱신 시각을 타이틀바에 둔다.
+// §5.12 (J) — push 로 실시간이지만 WS 가 끊기면 낡은 스냅샷에서 조용히 멈춘다 — 보는 동안 30초마다 다시 붙고, [새로고침]·연결 상태·갱신 시각을 둔다.
 
 /** 자동 갱신 주기. 창이 가려져 있으면 건너뛴다(안 보는 창을 위해 도는 타이머는 두지 않는다). */
 const AUTO_REFRESH_MS = 30_000;
@@ -44,10 +29,7 @@ const AUTO_REFRESH_MS = 30_000;
 const REFRESH_CHECK_MS = 5_000;
 /** 눌렀다는 것이 보이도록 아이콘이 도는 최소 시간. */
 const REFRESH_SPIN_MS = 600;
-/**
- * 창이 다시 보일 때의 즉시 갱신에만 거는 최소 간격 — 창을 빠르게 오갈 때(alt-tab 왕복) 전환마다
- * 소켓을 다시 여는 것을 막는다. 사용자가 **직접 누른** 새로고침은 이 가드를 타지 않는다.
- */
+/** 창이 다시 보일 때의 즉시 갱신만 이 간격을 둔다(alt-tab 왕복마다 소켓을 다시 열지 않게). 직접 누른 새로고침은 타지 않는다. */
 const REFRESH_MIN_GAP_MS = 2_000;
 
 export interface CommandCenterShellProps {
@@ -64,11 +46,7 @@ export function parseCommandCenterHash(hash: string): { projectId: string } | nu
   return { projectId };
 }
 
-/**
- * 서버 appState 의 경로 키와 동일 semantics(v1.63) — 구분자·끝 슬래시를 무시한다.
- * 대소문자는 **플랫폼이 실제로 무시할 때만** 접는다(utils/platform.ts) — Linux 에서 접으면
- * 케이스만 다른 두 프로젝트가 한 명령 센터로 뭉개진다.
- */
+/** 서버 appState 경로 키와 같은 규칙(구분자·끝 슬래시 무시). 대소문자는 플랫폼이 실제로 무시할 때만 접는다 — Linux 에서 접으면 두 프로젝트가 뭉개진다. */
 function normalizePath(p: string): string {
   return clientPathKey(p);
 }
@@ -179,13 +157,7 @@ export function CommandCenterShell({ projectId: initialProjectId }: CommandCente
   );
 }
 
-/**
- * 미니 타이틀바 — 별창(§5.4 #14-1)과 같은 톤이되 **redock 드래그는 없다**(탭이 아니라 도구 창).
- * 최소화/최대화/닫기는 별창의 기존 `vibisual:window:*-self` 채널을 그대로 쓴다.
- *
- * v4.44 — 가운데에 **프로젝트 선택기**. 지금 무엇을 보고 있는지와, 그것이 따라가는 중인지
- * 고정된 것인지를 한 줄로 보여 준다(모드가 안 보이면 "왜 안 따라오지"를 알 수 없다).
- */
+/** 미니 타이틀바 — redock 드래그 없음(도구 창). 창 단추는 별창의 `vibisual:window:*-self` 채널. 가운데 선택기가 따라가기/고정 모드를 보인다. */
 function CommandCenterTitleBar({
   viewed,
   pinned,
@@ -316,11 +288,8 @@ function CommandCenterTitleBar({
 }
 
 /**
- * §5.12 (J) 새로고침 조작부 — [새로고침] 버튼 + 연결 상태 점 + 마지막 갱신 시각.
- *
- * **1초 시계와 30초 타이머를 이 부품 안에 가둔다.** shell 이 매초 다시 그려지면 §5.12 (I) 의 파생
- * 체인(항목 만들기 → 레인 정착 → 정렬)이 통째로 다시 도는데, 그건 초 단위로 낼 비용이 아니다.
- * 스냅샷 수신 시각도 `useWebSocket` 이 ref 로 들고 있는 것을 여기서 읽어 간다(구독 ❌).
+ * §5.12 (J) — **1초 시계와 30초 타이머를 이 부품 안에 가둔다**: shell 이 매초 그려지면 항목 → 레인 정착 → 정렬이 통째로 다시 돈다.
+ * 수신 시각은 `useWebSocket` 의 ref 를 읽는다(구독 ❌).
  */
 function CommandCenterRefresh({
   status,

@@ -39,11 +39,8 @@ beforeEach(() => {
 afterEach(() => child.emit('close', 0));
 
 /**
- * §5.25 (F) — 코덱스 고급 설정이 **실제로 스폰된 인자**에 닿는가.
- *
- * 조립 함수(`buildCodexExecArgs`)만 시험하면 러너가 그 필드를 넘기지 않는 것을 못 잡는다. 추론 요약·
- * 성격·서비스 등급 셋이 바로 그렇게 화면·저장·턴 인자(`subAgentManager`)까지 오고도 러너의 호출에서
- * 빠져 **한 번도 CLI 에 닿지 않았다** — 설정 창에서 골라도 아무 일이 없었다. 그래서 러너를 통째로 돌린다.
+ * §5.25 (F) — 코덱스 고급 설정이 실제로 스폰된 인자에 닿는가. 조립 함수(`buildCodexExecArgs`)만 재면 러너가 필드를 안 넘기는 것을 못 잡는다
+ * (추론 요약·성격·서비스 등급이 그렇게 CLI 에 한 번도 닿지 않았었다) — 그래서 러너를 통째로 돌린다.
  */
 const SETTINGS = {
   reasoningSummary: 'detailed',
@@ -95,10 +92,7 @@ describe.each([undefined, 'existing-thread'])('runCodexTurn — 고급 설정이
   });
 });
 
-/**
- * Windows 샌드박스 판정이 **실제 스폰**까지 닿는가. 판정은 이 프로세스의 OS 로 갈리므로 OS 마다 다른 쪽을 잰다
- * (세 OS 의 조립 규칙 자체는 `codexRunner.test.ts` 가 `platform` 인자로 전부 잰다).
- */
+/** Windows 샌드박스 판정이 실제 스폰까지 닿는가. 이 프로세스 OS 로 갈리므로 OS 마다 다른 쪽을 잰다(세 OS 조립 규칙은 `codexRunner.test.ts` 가 `platform` 인자로 잰다). */
 describe('runCodexTurn — Windows 샌드박스 키가 비었는지가 스폰 인자에 닿는다', () => {
   it('returns a clear local-transport failure before spawn when a selected profile explicitly blocks networking', () => {
     vi.mocked(readCodexEffectiveConfigFor).mockReturnValue(configWith({ networkAccess: false }));

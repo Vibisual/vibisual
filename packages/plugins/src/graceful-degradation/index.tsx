@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.98 — 우아한 성능 저하(Graceful Degradation): 판정에 실패하면 열리는가, 닫히는가.
- *
- * 가드레일은 fail-safe 여야 한다 — 판정 실패 시 통과가 아니라 차단이다. Vibisual 에서 그 갈림길은
- * **승인 팝업에 응답이 없을 때의 정책**이다. 자동 허용은 자리를 비운 사이 열리는 쪽(fail-open),
- * 자동 차단은 안전 쪽(fail-safe)이다. 표시 전용.
- */
+/** §5.11 — 우아한 성능 저하(Graceful Degradation): 판정 실패 시 열리나 닫히나 — 여기서는 승인 팝업 무응답 정책(자동 허용 = fail-open, 자동 차단 = fail-safe). 표시 전용. */
 import { defineInspector, ICONS } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';
 

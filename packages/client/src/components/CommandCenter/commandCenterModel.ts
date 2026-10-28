@@ -15,11 +15,7 @@ import type { SessionRunInputs } from '@vibisual/shared';
 import { NODE_STATUS_AS_SUB_STATUS } from '../../utils/sessionStatus.js';
 import { commandCenterHistoryText } from './commandCenterHistoryText.js';
 
-// SCENARIO.md §5.12 (v4.43) — 지휘통제실의 레인 파생 + 검색. **순수 함수만** 둔다.
-//
-// 원칙: 새 서버 상태를 만들지 않는다. 레인은 스냅샷, 검색은 스냅샷·수신 스트림·저장 기록 일치의
-// 파생이다. 그래서 이 모듈은 store 를 import 하지 않고 필요한 조각만 인자로 받는다
-// — 컴포넌트 없이 단위 테스트할 수 있게 하기 위함(floatingWindowGeom 선례).
+// SCENARIO.md §5.12 — 지휘통제실 레인 파생 + 검색(순수 함수, 새 서버 상태 ❌). store 를 import 하지 않고 조각만 인자로 받는다.
 
 /** 급한 순 5레인. 배열 순서가 곧 우선순위다(앞이 이긴다). */
 export const COMMAND_CENTER_LANES = [
@@ -38,12 +34,7 @@ export function laneRank(lane: CommandCenterLane): number {
   return idx < 0 ? COMMAND_CENTER_LANES.length : idx;
 }
 
-/**
- * 상세 패널(§5.12 (H))이 펼쳐 보여 줄 **근거 원문**. 전부 이미 창 안에 와 있는 스냅샷 값의
- * 참조라 서버 왕복이 없다 — 새 REST 를 만들지 않는다는 §5.12 (G) 를 그대로 지킨다.
- *
- * 스트림(assistant 텍스트)은 여기 들어오지 않는다. 카드(질문/검수/신고)와 큐 텍스트뿐이다.
- */
+/** §5.12 (H) 근거 원문 — 전부 와 있는 스냅샷 값의 참조(새 REST ❌, §5.12 (G)). 스트림은 들어오지 않는다. */
 export interface CommandCenterDetailData {
   question: AgentQuestions | null;
   review: AgentReview | null;
@@ -71,15 +62,9 @@ export interface CommandCenterItem {
   laneReason: string;
   /** 레인 ①②③ 이면 그 근거가 생긴 시각 — "얼마나 기다렸나" 표시용. */
   waitingSince: number | null;
-  /**
-   * §5.12 (I) — 이 레인에 들어온 시각. `stabilizeLanes` 가 채운다(0 = 아직 모름).
-   * ④ 작업 중 레인의 정렬 키 — 도구를 몇 번 쓰든 변하지 않아야 카드가 자리를 지킨다.
-   */
+  /** §5.12 (I) — 레인에 들어온 시각(`stabilizeLanes` 가 채운다, 0 = 모름). ④ 의 정렬 키 — 도구를 몇 번 쓰든 변하지 않아야 자리를 지킨다. */
   laneSince: number;
-  /**
-   * §5.12 (I) — 세션이 만들어진 시각(`SubAgent.createdAt`). 메인 탭은 스냅샷에 생성 시각이
-   * 없어 0(= 그 에이전트의 세션들 중 가장 위). 최종 동점을 푸는 고정값이다.
-   */
+  /** §5.12 (I) — `SubAgent.createdAt`. 메인 탭은 생성 시각이 없어 0(세션 중 가장 위). 최종 동점을 푸는 고정값. */
   startedAt: number;
   /** 세션 상태 원본값. done 레인의 completed/idle 구분에 쓴다. */
   status: 'active' | 'idle' | 'completed' | 'error' | 'awaiting_permission' | 'disappearing';
@@ -90,17 +75,11 @@ export interface CommandCenterItem {
   queuedCount: number;
   /** 이 세션이 띄운 **에이전트 자식** 수(모델이 돈다). 레인 판정에 쓰인다. */
   runningTaskCount: number;
-  /**
-   * 이 세션이 백단에 남겨 둔 **셸** 수 — 표시 전용이다(레인 판정에 넣지 않는다).
-   * 셸만 남은 세션은 **끝난 것**이라 done 레인에 있어야 하고, 이 수는 그 카드에 한 줄로만 붙는다.
-   */
+  /** 표시 전용(레인 판정 ❌) — 셸만 남은 세션은 끝난 것이라 done 레인에 있어야 한다. */
   backgroundShellCount: number;
   /** completed 인데 사용자가 아직 확인하지 않음 — done 레인에서 강조. */
   unacknowledged: boolean;
-  /**
-   * §5.5 #17-29 — 훅으로 태어난 버블의 세션이면 true. 카드는 그대로 보여 주되(관측은 막지 않는다)
-   * **명령 보내기 손잡이**를 지운다. 서버도 같은 술어로 403 을 돌려주므로 화면과 어긋나지 않는다.
-   */
+  /** §5.5 #17-29 — 훅 버블 세션이면 true: 카드는 보이되 명령 보내기 손잡이를 지운다(서버도 같은 술어로 403). */
   readOnly: boolean;
   /** ① 레인 질문 카드의 제안 응답 프롬프트(카드에서 칩으로 노출). */
   questionPrompts: string[];
@@ -117,10 +96,7 @@ export interface CommandCenterInput {
   agentConfigs: Record<string, AgentConfig>;
   subAgents: Record<string, SubAgent[]>;
   queuedCommands: Record<string, QueuedCommand[]>;
-  /**
-   * §5.12 (B) v4.55 — 끝난 프롬프트 이력. 대기 **개수**에는 들어가지 않지만, 카드가 아직 스트림
-   * 맨 끝인지(= 살아 있는지) 재는 자다. 큐만 보면 "답이 이미 갔다"는 사실이 스냅샷에서 사라진다.
-   */
+  /** §5.12 (B) — 대기 개수엔 넣지 않고 카드가 스트림 맨 끝인지 재는 자다(큐만 보면 "답이 이미 갔다"가 사라진다). */
   completedCommands: Record<string, QueuedCommand[]>;
   runningSubagentTasks: Record<string, RunningSubagentTask[]>;
   agentQuestions: Record<string, AgentQuestions[]>;
@@ -140,7 +116,7 @@ function sessionKey(agentId: string, subAgentId: string | null): string {
   return `${agentId}::${subAgentId ?? 'main'}`;
 }
 
-/** 카드류(질문/검수/신고)는 `subAgentId` 가 없으면 메인 탭 소속이다(§4 v2.52 규약). */
+/** `subAgentId` 가 없는 카드는 메인 탭 소속이다(§4 규약). */
 function cardKey(agentId: string, subAgentId: string | undefined): string {
   return sessionKey(agentId, subAgentId ?? null);
 }
@@ -158,15 +134,7 @@ function firstLine(text: string | undefined, max = 160): string {
   return line.length > max ? `${line.slice(0, max)}…` : line;
 }
 
-/**
- * 스냅샷 조각 → 레인이 매겨진 항목 목록. 정렬은 하지 않는다(정렬은 sortItems 소관).
- *
- * 한 항목은 **한 레인에만** 속한다 — 위 표의 위쪽이 이긴다(일하는 중이어도 내 답을 기다리면
- * 답 대기다, §5.12 (B)).
- *
- * ①②③ 의 근거 카드는 **아직 스트림 맨 끝인 것**만 쓴다(v4.55) — 뒤에 프롬프트가 온 카드는 사용자가
- * 이미 답하고 지나간 것이라 대기가 아니다(`isLiveCard`).
- */
+/** 한 항목은 **한 레인에만** — 위 표의 위쪽이 이긴다(§5.12 (B)). ①②③ 근거 카드는 아직 스트림 맨 끝인 것만(`isLiveCard`). 정렬은 sortItems 몫. */
 export function buildCommandCenterItems(input: CommandCenterInput): CommandCenterItem[] {
   const {
     projectId,
@@ -222,13 +190,7 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
     if (agentFloor > 0) promptFloorByKey.set(sessionKey(agentId, null), agentFloor);
   }
 
-  /**
-   * 그 카드가 아직 세션 스트림의 **맨 끝**인가(§5.12 (B) v4.55).
-   *
-   * IDE 가 카드를 놓는 규칙(`turnEndSortTs`)과 같은 자다 — 카드 뒤에 프롬프트가 하나라도 있으면
-   * 그 카드는 다음 턴 앞으로 밀려 **중간**으로 올라간다. 그런 카드는 사용자가 이미 답한 것이므로
-   * "지금 나를 기다리는 것"에서 빠져야 한다.
-   */
+  /** §5.12 (B) — IDE 카드 배치 규칙(`turnEndSortTs`)과 같은 자. 뒤에 프롬프트가 있는 카드는 이미 답한 것이라 대기에서 빠진다. */
   const isLiveCard = (key: string, createdAt: number): boolean =>
     createdAt >= (promptFloorByKey.get(key) ?? 0);
 
@@ -474,11 +436,7 @@ const LANE_TOKENS: Record<string, CommandCenterLane> = {
   'needs:action': 'needs-action',
 };
 
-/**
- * 레인 → 그 레인을 고르는 **정본 토큰**. §5.12 (H) 분류 막대가 이 토큰을 검색 문자열에
- * 넣고 빼는 방식으로 동작한다 — 알약과 검색창이 같은 하나의 질의를 공유하게 하려는 것이다
- * (알약 전용 상태를 따로 두면 "검색창엔 needs:review 인데 알약은 전체"가 되어 어긋난다).
- */
+/** §5.12 (H) — 분류 막대는 이 토큰을 검색 문자열에 넣고 뺀다. 알약 전용 상태를 두면 검색창과 알약이 어긋난다. */
 export const LANE_QUERY_TOKEN: Record<CommandCenterLane, string> = {
   'needs-answer': 'needs:answer',
   'needs-review': 'needs:review',
@@ -487,11 +445,7 @@ export const LANE_QUERY_TOKEN: Record<CommandCenterLane, string> = {
   done: 'is:done',
 };
 
-/**
- * 검색 문자열에서 그 레인 토큰을 켜고 끈다(§5.12 (H) 분류 막대).
- * 이미 켜져 있으면 빼고(=전체로 복귀), 아니면 **다른 레인 토큰을 모두 걷어내고** 그것만 켠다
- * — 알약은 라디오처럼 동작해야 "지금 한 종류만 본다"가 눈에 보인다.
- */
+/** 켜져 있으면 빼고, 아니면 다른 레인 토큰을 모두 걷고 그것만 켠다 — 알약은 라디오처럼 동작한다(§5.12 (H)). */
 export function toggleLaneToken(raw: string, lane: CommandCenterLane | null): string {
   const kept: string[] = [];
   let had = false;
@@ -603,18 +557,10 @@ export const COMMAND_CENTER_SORTS = ['priority', 'recent', 'waiting', 'context']
 
 export type CommandCenterSort = (typeof COMMAND_CENTER_SORTS)[number];
 
-/**
- * §5.12 (I) — `recent` 가 **초 단위 차이로** 카드를 뒤바꾸지 않도록 활동 시각을 이 폭으로 뭉갠다.
- * 같은 칸 안에서는 우선순위 순서(=고정값)로 떨어지므로 동시에 도는 세션끼리 자리를 맞바꾸지 않는다.
- */
+/** §5.12 (I) — `recent` 가 초 단위로 카드를 뒤바꾸지 않게 활동 시각을 이 폭으로 뭉갠다(같은 칸은 우선순위 순). */
 const RECENT_BUCKET_MS = 60_000;
 
-/**
- * §5.12 (I) 우선순위 비교 — **작업이 도는 동안 변하지 않는 값만** 쓴다.
- *
- * 레인 순위 → (①②③ 대기 시작 시각 / ④ 작업 진입 시각 / ⑤ 미확인 먼저·마지막 활동)
- * → 세션 생성 시각 → 세션 키. 마지막이 키라 **동점이 남지 않는다** — 같은 입력이면 언제나 같은 순서다.
- */
+/** §5.12 (I) — **작업 중 변하지 않는 값만**: 레인 → 대기 시작/작업 진입/미확인·마지막 활동 → 생성 시각 → 세션 키(동점 없음). */
 function comparePriority(a: CommandCenterItem, b: CommandCenterItem): number {
   const byLane = laneRank(a.lane) - laneRank(b.lane);
   if (byLane !== 0) return byLane;
@@ -636,13 +582,7 @@ function comparePriority(a: CommandCenterItem, b: CommandCenterItem): number {
   return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
 }
 
-/**
- * 정렬 — `priority`(우선순위 고정, 기본) / `recent`(마지막 활동 최신순) / `waiting`(대기가 긴 순) /
- * `context`(컨텍스트 잔량 적은 순). 원본 배열을 건드리지 않는다.
- *
- * 어느 기준을 골라도 **동점은 우선순위 순서로 떨어진다**(§5.12 (I)) — 동점을 남겨 두면 그 두 장이
- * 스냅샷마다 자리를 맞바꾸는데, 그것이 "엎치락뒤치락"의 실제 원인이었다.
- */
+/** 어느 기준이든 **동점은 우선순위 순서로** 떨어진다(§5.12 (I)) — 남기면 두 장이 스냅샷마다 자리를 맞바꾼다. 원본 배열은 건드리지 않는다. */
 export function sortCommandCenterItems(
   items: CommandCenterItem[],
   sort: CommandCenterSort,
@@ -685,10 +625,7 @@ export function sortCommandCenterItems(
 
 // ─── 레인 정착(§5.12 (I)) ───────────────────────────────────────────────────
 
-/**
- * 덜 급한 레인으로 **내려갈 때만** 이만큼 붙잡는다(올라갈 땐 즉시).
- * 도구 사이의 짧은 공백에 ④↔⑤ 를 오가며 카드가 열을 뛰어다니는 것을 막기 위한 것이다.
- */
+/** 덜 급한 레인으로 내려갈 때만 붙잡는다(올라갈 땐 즉시) — 도구 사이 짧은 공백에 ④↔⑤ 를 오가지 않게. */
 export const LANE_SETTLE_MS = 8_000;
 
 export interface LaneMemoEntry {
@@ -704,13 +641,8 @@ export interface LaneMemoEntry {
 export type LaneMemory = Map<string, LaneMemoEntry>;
 
 /**
- * 레인 판정에 **정착 시간**을 입히고 `laneSince` 를 채운다(§5.12 (I)).
- *
- * - 더 급한 레인으로 바뀌면 **즉시** 옮긴다(내 답을 기다리는 것이 늦게 보이면 안 된다).
- * - 덜 급한 레인으로 바뀌면 `holdMs` 동안 이전 레인을 유지한다 — **표시만 늦출 뿐**
- *   판정(§5.12 (B))도 세션도 건드리지 않는다(자동 정리와 같은 성격).
- *
- * `memory` 는 호출자가 창 수명 동안 들고 있는 Map 이며 여기서 갱신된다(사라진 세션은 지운다).
+ * §5.12 (I) — 더 급한 레인으로는 즉시, 덜 급한 쪽은 `holdMs` 동안 이전 레인 — 표시만 늦출 뿐 판정·세션은 건드리지 않는다.
+ * `memory` 는 호출자가 창 수명 동안 쥔 Map(여기서 갱신, 사라진 세션은 지운다).
  */
 export function stabilizeLanes(
   items: CommandCenterItem[],
@@ -750,10 +682,7 @@ export function stabilizeLanes(
 /** 자동 정리 문턱 선택지(분). §5.12 (E). */
 export const AUTO_TIDY_MINUTES = [10, 30, 60, 180] as const;
 
-/**
- * 자동 정리 대상 판정 — **표시 접기 전용**. 세션을 종료하지 않는다(§5.12 (G)).
- * ⑤ done 레인의 유휴 세션 중 마지막 활동이 문턱보다 오래된 것만.
- */
+/** 표시 접기 전용 — 세션을 종료하지 않는다(§5.12 (G)). done 레인 유휴 세션 중 마지막 활동이 문턱보다 오래된 것만. */
 export function isAutoTidyTarget(
   item: CommandCenterItem,
   now: number,
@@ -787,10 +716,7 @@ export function laneCounts(items: CommandCenterItem[]): Record<CommandCenterLane
   return out;
 }
 
-/**
- * 화면에 보이는 순서(레인 우선순위 → 각 레인 안 정렬)대로 평탄화 — 키보드 ↑↓ 이동이
- * 눈에 보이는 순서와 어긋나지 않게 하려면 이동도 이 목록을 따라야 한다(§5.12 (H)).
- */
+/** 키보드 ↑↓ 이동도 이 목록을 따라야 눈에 보이는 순서와 어긋나지 않는다(§5.12 (H)). */
 export function flattenLanes(lanes: Record<CommandCenterLane, CommandCenterItem[]>): CommandCenterItem[] {
   const out: CommandCenterItem[] = [];
   for (const lane of COMMAND_CENTER_LANES) out.push(...lanes[lane]);
@@ -809,10 +735,7 @@ export function waitingLevel(
   return { minutes, level: 'fresh' };
 }
 
-/**
- * 경과 시간을 단위 + 값으로 쪼갠다. 문자열 조립은 i18n 이 하도록 여기선 숫자만 낸다.
- * (컴포넌트가 `commandCenter.time.<unit>` 키로 번역)
- */
+/** 문자열은 컴포넌트가 `commandCenter.time.<unit>` 키로 번역한다. */
 export function elapsedParts(ms: number): { unit: 'now' | 'min' | 'hour' | 'day'; value: number } {
   const safe = Math.max(0, ms);
   const minutes = Math.floor(safe / 60_000);

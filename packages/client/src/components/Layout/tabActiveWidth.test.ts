@@ -1,13 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-/**
- * §5.4 #14 — **고른 탭은 이름이 보인다.** 탭은 한 칸(128px)을 이름·배지(`1/19`)·닫기 버튼이 나눠 써서,
- * 지금 보고 있는 프로젝트조차 `P_M…` 로 읽혔다(사용자 지시). 고른 탭만 폭이 이름을 따라가고, 이름 칸은
- * 상한(페이드 여백 포함 200px)까지 보인 뒤 그보다 긴 것만 끝에서 흐려진다. 고르지 않은 탭은 한 칸이다.
- *
- * 클라 테스트에는 DOM 이 없으므로(jsdom 미설치) 렌더가 아니라 **소스 문자열**을 읽는다 —
- * `tabPointerDrag.test.ts` 와 같은 방식이다.
- */
+/** §5.4 #14 — 고른 탭만 폭이 이름을 따라가 상한(페이드 포함 200px)까지 보이고, 쉬는 탭은 한 칸(128px). DOM 이 없어 소스 문자열로 본다. */
 const sources = import.meta.glob(['./TabBar.tsx'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 const src = Object.values(sources)[0] ?? '';
 

@@ -1,12 +1,6 @@
 /**
- * bubbleLockAction.ts — §5.3 #12-3 **"이 버블(들)을 잠그거나 풀면 무엇이 되는가"를 한 곳에서 정한다.**
- *
- * 버블 위 우클릭 메뉴(§5.4 #34)가 부른다. 삭제 판정(`bubbleDeleteAction.ts`)과 같은 규율 — DOM 도
- * 스토어도 보지 않고 인자로 받은 것만 본다. 그래야 단위 테스트로 고정되고, 메뉴가 판정을 지어내지 않는다.
- *
- * "무엇을 잠그나"(`pathLockTargetOf`)와 "이미 잠겼나"(`findPathLockCover`)는 shared 한 벌이다 — 집행
- * (서버 `findToolLockHits`)과 같은 경로 규칙이라, 메뉴가 "잠그기"라고 말하는데 집행은 이미 묻고 있는
- * 어긋남이 생기지 않는다.
+ * §5.3 #12-3 — 잠그기/풀기 판정(우클릭 메뉴 §5.4 #34). DOM·스토어 ❌, 인자만.
+ * 대상·덮임 판정은 shared(`pathLockTargetOf`·`findPathLockCover`)라 서버 집행(`findToolLockHits`)과 같은 경로 규칙이다.
  */
 import { findPathLockCover, pathLockId, pathLockTargetOf } from '@vibisual/shared';
 import type { LockableBubble, PathLock, PathLocksByProject, PathLockTarget, PlatformName } from '@vibisual/shared';

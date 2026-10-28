@@ -1,22 +1,9 @@
 /**
- * §2.4 "확인 dismiss → 전유 file/folder 즉시 소멸"(v1.82) 이 **실제로 걷어 내는지** 못 박는다.
- *
- * 배경: v1.82 는 "그 에이전트가 전유하던 file/folder 버블을 즉시 제거" 라고 약속하지만, 그
- * 판정의 유일한 근거인 `nodeAgentRefs`(누가 이 버블을 만졌나) 를 **그 지점에 닿기 전에**
- * 지우고 있었다. 세션이 끝나면 `setAgentStatus('completed')` → `removeAgentRefs` 가 활성 참조가
- * 없는 노드의 ref 집합을 통째로 `clear()` 했고, 사용자가 그 버블을 눌러 dismiss 할 때 도는
- * `removeAgentRefsPurging` 은 `refs.has(agentId)` 가 false 라 **한 장도 걷지 못하고 지나갔다**.
- * 즉 소유 기록을 지우는 쪽이 소유 기록을 읽는 쪽보다 항상 먼저 도는 순서 문제다.
- *
- * 그 결과가 "종료·크래시 뒤에도 남는 버블"이다 — 껐다 켜면 에이전트는 idle 로 내려오는데,
- * 그 에이전트가 만졌던 파일/폴더 버블은 **주인이 없는 고아**가 되어 어떤 클릭으로도 걷히지
- * 않는다(실측: 살아 있는 checkpoint.json 에서 `nodeAgentRefs` 2,425칸 중 2,409칸이 빈 배열).
- *
- * 여기서 잠그는 계약 넷:
- *  1. 상태 강등(active→completed→idle)은 **소유 기록을 지우지 않는다**. 지우는 것은 활성 표시뿐.
- *  2. 그래서 세션이 끝난 뒤 눌러도, **앱을 껐다 켠 뒤 눌러도** 전유 버블이 걷힌다.
- *  3. 다른 **active** 에이전트가 아직 쓰는 버블은 남는다(v1.82 원문).
- *  4. 에이전트 버블을 **영구 삭제**하면 그 소유 기록도 함께 사라진다(죽은 id 누적 ❌).
+ * §2.4 "확인 dismiss → 전유 file/folder 즉시 소멸"이 실제로 걷어 내는지 못 박는다.
+ * 판정 근거 `nodeAgentRefs`(누가 이 버블을 만졌나)를 세션 끝(`setAgentStatus('completed')` → `removeAgentRefs`)에서 `clear()` 하면,
+ * dismiss 때 `removeAgentRefsPurging` 이 `refs.has(agentId)` false 로 한 장도 못 걷어 주인 없는 고아 버블이 남는다(실측: `nodeAgentRefs` 2,425칸 중 2,409칸이 빈 배열).
+ * 계약: 1. 상태 강등(active→completed→idle)은 소유 기록을 지우지 않는다(활성 표시만). 2. 세션 끝 뒤·재시작 뒤 눌러도 전유 버블이 걷힌다.
+ * 3. 다른 active 에이전트가 쓰는 버블은 남는다. 4. 에이전트 버블을 영구 삭제하면 소유 기록도 사라진다(죽은 id 누적 ❌).
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -137,7 +124,7 @@ describe('확인 dismiss — 남겨야 할 것은 남긴다', () => {
     expect(hasNode(graph, 'packages')).toBe(true);
   });
 
-  it('preserve-pin 된 버블은 걷지 않는다 (§2.4 v1.28)', () => {
+  it('preserve-pin 된 버블은 걷지 않는다 (§2.4)', () => {
     const { graph } = makeGraph();
     editFile(graph, 'sess-pin', 'packages/server/index.ts');
     for (const n of internals(graph).nodes.values()) {

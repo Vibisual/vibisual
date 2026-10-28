@@ -1,9 +1,6 @@
 /**
- * §5.11 v3.88 — lethal-trifecta 의 클라이언트 기여 묶음.
- *
- * 배지·섹션 모두 **우리가 오케스트레이션한 에이전트**(agentConfig 가 있는 버블)에만 붙는다.
- * 훅으로 등록된 외부 Claude Code 세션은 우리가 설정을 소유하지 않으므로 판정 대상이 아니다
- * (판정할 근거가 없는데 배지를 다는 것은 잘못된 안심을 준다).
+ * §5.11 — lethal-trifecta 의 클라이언트 기여 묶음. 배지·섹션은 agentConfig 가 있는 버블(우리가 오케스트레이션한 에이전트)에만 붙는다.
+ * 훅으로 등록된 외부 세션은 설정을 소유하지 않아 판정 대상이 아니다 — 근거 없이 배지를 달면 잘못된 안심을 준다.
  */
 import type { PluginClientModule, PluginBubbleContext, PluginSeverity } from '../../sdk/index.js';
 import { lethalTrifectaManifest } from '../manifest.js';
@@ -15,10 +12,7 @@ function isJudgeableAgent(ctx: PluginBubbleContext): boolean {
   return ctx.bubbleType === 'agent' && ctx.agentConfig !== undefined;
 }
 
-/**
- * 호스트는 카드를 열어 보지 않고 이 등급만으로 정렬·접힘을 정한다. 등급을 안 주면 `neutral` 로 떨어지고,
- * 그러면 **세 다리가 다 열린 상태조차 조용한 카드로 분류돼 접힘 대상이 된다** — 보라고 만든 카드가 숨는다.
- */
+/** 호스트는 이 등급만으로 정렬·접힘을 정한다 — 안 주면 `neutral` 로 떨어져 세 다리가 다 열린 상태조차 접힌다. */
 function severity(ctx: PluginBubbleContext): PluginSeverity {
   const level = judgeTrifecta(ctx.agentConfig).level;
   return level === 'critical' ? 'bad' : level === 'caution' ? 'warn' : 'good';

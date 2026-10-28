@@ -5,13 +5,8 @@ import type { AgentConfig, QueuedCommand, SubAgent } from '@vibisual/shared';
 import { SubAgentManager } from './subAgentManager.js';
 
 /**
- * §5.3 #9-1 (P)(b) — 조용한 압축을 물려받은 명령은 **실행 중인 명령과 구별되지 않아야 한다**
- * (2026-09-28 사용자 지시 — "입력을 하면 압축이 입력 실행처럼 보이게 하란말야").
- *
- * 화면 몫(말풍선 손잡이·라이브 줄)은 클라 `sessionRunTruth.test.ts` (E)(J) 가 고정한다. 여기는 서버 몫 둘 —
- *   ① 탭·세션 목록·명령 센터·대화 연결이 읽는 "마지막 명령"(`sub.lastCommand`)과 기본 라벨의 자동 제목이
- *      `/compact` 가 아니라 사용자가 넣은 그 명령이다.
- *   ② 압축 도중 [중지]하면 그 명령은 사라지지 않고 실행 중에 멈춘 명령처럼 중지됨으로 남는다.
+ * §5.3 #9-1 (P)(b) — 압축을 물려받은 명령은 실행 중 명령과 구별되지 않아야 한다(화면은 클라 `sessionRunTruth.test.ts`).
+ * 서버 몫: `sub.lastCommand`·자동 제목이 `/compact` 가 아니라 그 명령 · 압축 중 [중지]면 그 명령이 중지됨으로 남는다.
  */
 
 type Innards = {
@@ -88,10 +83,7 @@ describe('① "마지막 명령"은 압축이 아니라 사용자가 넣은 명�
   });
 });
 
-/**
- * 끼우는 자리와 두 [중지]는 서버 진입점(`index.ts`)의 클로저 안에 있어 직접 부를 수 없다 — 배선을 소스로
- * 고정한다(`askToolGate.test.ts` 와 같은 방식). 가려내는 규칙 자체는 `silentPreCompact.test.ts` 가 값으로 고정한다.
- */
+/** 끼우는 자리·두 [중지]는 `index.ts` 클로저 안이라 배선을 소스로 고정한다(규칙 값은 `silentPreCompact.test.ts`). */
 describe('배선 — 서버가 물려받은 명령을 두 자리에서 다룬다', () => {
   // 줄끝은 체크아웃마다 다를 수 있다(CRLF/LF) — 여러 줄 모양을 재기 전에 하나로 맞춘다.
   const src = readFileSync(new URL('../index.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
@@ -123,10 +115,7 @@ describe('배선 — 서버가 물려받은 명령을 두 자리에서 다룬다
     expect(body).toMatch(/if \(c\.startedAt === undefined && silentStartedAt !== undefined\) c\.startedAt = silentStartedAt;/);
   });
 
-  /*
-   * [즉시] 덧말도 실행 중으로 보이던 그 명령을 끊는다 — 종전에는 CLI 로 간 인터럽트가 보이지 않는 압축만 끊어,
-   * 압축이 끝나자마자 그 명령이 그대로 나가고 즉시 덧말은 그 뒤에 섰다("즉시로 끊었는데 계속 돈다").
-   */
+  /* [즉시] 덧말도 실행 중으로 보이던 명령을 끊는다 — 압축만 끊으면 그 명령이 그대로 나간다. */
   it('[즉시] 덧말은 끊기 전에 물려받은 명령을 중지됨으로 봉합한다 — 두 입구 모두 세션 큐를 넘긴다', () => {
     const start = src.indexOf('function interruptForImmediateCommand(');
     expect(start).toBeGreaterThan(0);

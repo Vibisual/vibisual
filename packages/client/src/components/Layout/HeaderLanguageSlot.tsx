@@ -5,18 +5,8 @@ import { LIFTED_LANGUAGE_Z, LIFTED_LANGUAGE_MENU_Z, liftedSlotPosition } from '.
 import { useAnyOnboardingGateOpen } from '../../stores/onboardingGates.js';
 
 /**
- * 헤더(상단 탭) 오른쪽 언어 전환기의 자리 — 온보딩 창이 떠 있으면 **그 창 위로 띄운다**(§4 첫 실행 온보딩).
- *
- * 새 OS 에 앱을 처음 깔면 Claude 설치 창이 곧바로 뜨는데, 그 창의 백드롭은 `fixed inset-0` 이라
- * 헤더까지 덮는다 — 전환기는 눈에는 보이지만 **눌리지 않는다**(백드롭이 클릭을 먼저 받는다).
- * 처음 켠 사람에게 이 자리가 앱을 모국어로 바꾸는 첫 입구이므로, 창이 떠 있는 동안만 같은
- * 전환기를 `document.body` 로 빼서 **원래 자리 좌표 그대로** 창보다 위에 그린다.
- *
- * 왜 z-index 만 올리지 않는가 — 헤더는 `relative z-[100]` 으로 자기 쌓임 맥락을 만든다.
- * 그 안에서 z 를 아무리 올려도 헤더(100) 밖으로는 못 나가 100_500 대의 창을 넘지 못한다.
- *
- * 원래 자리에는 같은 전환기를 `invisible` 로 남긴다 — 자리(폭)를 그대로 지켜야 띄운 것이 정확히
- * 그 위에 겹치고, 언어를 바꿔 글자 폭이 달라져도 두 벌이 저절로 같은 크기가 된다.
+ * 헤더 언어 전환기의 자리(§4) — 온보딩 백드롭(`fixed inset-0`)이 헤더를 덮어 안 눌리는 동안 같은 전환기를 `document.body` 로 빼 원래 좌표에 그린다.
+ * z-index 만 올리면 헤더 `relative z-[100]` 쌓임 맥락에 갇혀 100_500 대 창을 못 넘는다. 원래 자리는 `invisible` 로 남겨 폭을 지킨다(겹침·크기 일치).
  */
 export function HeaderLanguageSlot(): React.JSX.Element {
   const gated = useAnyOnboardingGateOpen();

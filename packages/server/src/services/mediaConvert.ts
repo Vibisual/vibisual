@@ -1,13 +1,6 @@
 /**
- * mediaConvert.ts — §5.13 (R-8) **못 읽는 영상·소리를 우리 엔진이 읽는 형식으로 바꾼다.**
- *
- * 규율 넷:
- *   ① **포장만 바꾸는 것이 먼저다** — 영상은 리먹스(`-c copy`)를 먼저 시도한다. 재인코딩이 아니라
- *      컨테이너만 갈아 끼우는 것이라 화질 손실이 없고 25MB 가 0.073초에 끝난다(실측). MP4 가 담을 수
- *      없는 코덱일 때만 인코딩으로 내려간다.
- *   ② **결과는 프로젝트 안 캐시** — 원본 경로+크기+수정시각 해시라 원본이 바뀌면 저절로 다시 만든다.
- *   ③ **같은 파일을 두 번 갈지 않는다** — 이미 도는 작업이 있으면 그 작업을 그대로 돌려준다.
- *   ④ **상태는 휘발성** — 진실은 디스크의 캐시 파일이다. 체크포인트·broadcast 미관여(§5.13 (I) 와 같은 판단).
+ * mediaConvert.ts — §5.13 (R-8) 못 읽는 영상·소리를 읽는 형식으로 바꾼다. 리먹스(`-c copy`)가 먼저(무손실, 실측 25MB 0.073초), MP4 가 못 담는 코덱만 인코딩.
+ * 결과는 원본 경로+크기+수정시각 해시의 프로젝트 안 캐시. 같은 파일은 도는 작업을 돌려준다. 상태는 휘발성(체크포인트·broadcast 없음, §5.13 (I)).
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -21,12 +14,7 @@ import { resolveWorkspacePath } from './workspaceExplorer.js';
 
 // ─── 순수 계산(테스트가 지키는 자리) ──────────────────────────────────────────
 
-/**
- * 리먹스 인자 — **다시 인코딩하지 않는다.**
- *
- * `+faststart` 는 재생 머리(moov)를 앞으로 옮겨 스트리밍 시작이 빨라지게 한다. 우리 미디어 창구가
- * 구간 요청으로 읽으므로 이게 없으면 첫 프레임까지 파일 끝을 먼저 받아야 한다.
- */
+/** 리먹스 인자(재인코딩 없음). `+faststart`(moov 를 앞으로) — 없으면 구간 요청으로 읽는 미디어 창구가 첫 프레임 전에 파일 끝부터 받는다. */
 export function buildRemuxArgs(src: string, out: string): string[] {
   return ['-hide_banner', '-nostdin', '-y', '-i', src, '-c', 'copy', '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', out];
 }
@@ -46,12 +34,7 @@ export function buildAudioArgs(src: string, out: string): string[] {
   return ['-hide_banner', '-nostdin', '-y', '-i', src, '-vn', '-c:a', 'pcm_s16le', '-progress', 'pipe:1', '-nostats', out];
 }
 
-/**
- * `-progress pipe:1` 이 뱉는 `key=value` 줄에서 **진행한 시각(초)** 을 읽는다.
- *
- * 사람이 읽는 `time=00:00:04.00` 대신 이 창구를 쓰는 이유는 형식이 고정이라서다(로케일·판올림에
- * 흔들리지 않는다). 모르는 줄은 null.
- */
+/** `-progress pipe:1` 의 `out_time_ms` 에서 진행 초를 읽는다(사람용 `time=` 은 로케일·판에 흔들린다). 모르는 줄은 null. */
 export function parseProgressSeconds(line: string): number | null {
   const m = /^out_time_ms=(\d+)/.exec(line.trim());
   if (m?.[1] !== undefined) return Number(m[1]) / 1_000_000;
@@ -85,12 +68,7 @@ class MediaConvertService {
     return this.jobs.get(jobId) ?? null;
   }
 
-  /**
-   * 변환을 시작한다(또는 이미 있는 결과·작업을 돌려준다).
-   *
-   * 셋 중 하나로 답한다 — 캐시가 이미 있으면 **곧바로 `done`**, 같은 파일을 갈고 있으면 **그 작업**,
-   * 아니면 새로 띄운다. 호출부(화면)는 셋을 구분할 필요 없이 `status` 만 보면 된다.
-   */
+  /** 변환 시작 — 캐시가 있으면 `done`, 같은 파일이 도는 중이면 그 작업, 아니면 새로. 호출부는 `status` 만 본다. */
   start(root: string, sourceRel: string, kind: MediaConvertKind): MediaConvertJob | { error: 'not-found' | 'no-ffmpeg' } {
     const source = resolveWorkspacePath(root, sourceRel);
     if (!source || !fs.existsSync(source.abs)) return { error: 'not-found' };

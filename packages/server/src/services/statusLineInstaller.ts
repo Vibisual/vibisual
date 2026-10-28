@@ -4,26 +4,10 @@ import path from 'node:path';
 import type { UsageCollectorStatus } from '@vibisual/shared';
 
 /**
- * §4 v3.60 — 사용량 수집기(statusLine) 인스톨러.
- *
- * Claude Code 가 플랜 한도 사용률을 외부에 노출하는 **유일한 공식 경로**가 statusLine 의
- * stdin JSON(`rate_limits.five_hour.used_percentage` / `.resets_at` / `.seven_day.*`)이다.
- * JSONL 트랜스크립트에는 없고(전수 확인), CLI 서브커맨드도 없다. 그래서 §4 v1.50 이
- * "외부 statusline 스크립트가 푸시" 로 열어둔 `POST /api/rate-limits` 를 실제로 채우려면
- * `~/.claude/settings.json` 의 `statusLine` 에 우리 핸들러를 걸어야 한다.
- *
- * §3.6 훅 인스톨러와 다른 점 — **자동 설치 ❌, 사용자 opt-in**(§4 v1.50 원문 존중).
- * 부팅 시에는 이미 설치돼 있을 때만 포트·토큰을 갱신(`refreshStatusLineIfInstalled`)하고,
- * 신규 설치는 오직 사용자가 사용량 팝업에서 켤 때(`installStatusLine`)만 일어난다.
- *
- * 사용자 statusLine 보존: `statusLine` 은 훅과 달리 배열이 아니라 **객체 1개**라 그냥 덮으면
- * 사용자 설정이 사라진다. 설치 시 원본 객체를 `_vibisualPrevStatusLine` 에 통째로 보관하고
- * 핸들러가 그 명령을 같은 stdin 으로 대신 실행해 출력을 그대로 흘린다(passthrough).
- * 해제하면 원본 객체를 그 자리에 되돌린다.
- *
- * **마커는 지워질 수 있다** — `statusLine` 은 Claude Code 가 스키마를 아는 키라 그쪽이
- * settings.json 을 다시 쓰면 `_vibisualManaged`·`_vibisualPrevStatusLine` 가 함께 날아간다.
- * 그래서 "우리 항목인가" 판정은 마커가 아니라 **명령 내용**(`isOurEntry`)으로 한다.
+ * §4 — 사용량 수집기(statusLine) 인스톨러. 플랜 한도 사용률(`rate_limits.*`)의 유일한 공식 경로가 statusLine stdin 이라
+ * `~/.claude/settings.json` 의 `statusLine` 에 우리 핸들러를 건다(`POST /api/rate-limits`).
+ * 자동 설치 ❌ opt-in — 부팅 땐 설치돼 있을 때만 포트·토큰 갱신, 새 설치는 팝업에서만. 사용자 원본은 `_vibisualPrevStatusLine` 에 보관해 passthrough 하고 해제 때 되돌린다.
+ * 마커는 CLI 가 settings.json 을 다시 쓰면 사라지므로 "우리 것"은 명령 내용(`isOurEntry`)으로 판정한다.
  */
 
 const MARKER = '_vibisualManaged';
@@ -55,16 +39,8 @@ function buildStatusLineCommand(port: number, handlerPath: string, token: string
 }
 
 /**
- * 우리 명령인가 — **마커가 아니라 명령 내용**으로 판정한다.
- *
- * `statusLine` / `subagentStatusLine` 은 Claude Code 가 스키마를 아는 키라, 그쪽이 settings.json
- * 을 다시 쓰면(테마 변경 등) 값 안의 미지 필드인 `_vibisualManaged`·`_vibisualPrevStatusLine`
- * 가 **통째로 사라진다**(실측: 백업 파일에서 `statusLine` 이 `type`·`command` 두 키만 남음).
- * 마커만 믿으면 그 순간 우리 수집기가 "꺼짐" 으로 읽혀 두 가지 사고가 난다 —
- *   ① 부팅 시 `refreshStatusLineIfInstalled` 가 포트·토큰 갱신을 건너뛰어 값이 영영 안 들어옴,
- *   ② 사용자가 팝업에서 다시 "켜기" 를 누르면 **우리 명령이 "사용자 원본" 으로 보관**되어
- *      핸들러가 자기 자신을 passthrough 로 띄우는 무한 재귀 사슬이 된다(실측 사고).
- * 그래서 명령 문자열로도 우리 것을 알아본다.
+ * 마커가 아니라 명령 내용으로 우리 것을 가린다 — CLI 가 settings.json 을 다시 쓰면(테마 변경 등) 미지 필드인 마커가 사라진다(실측).
+ * 마커만 믿으면 부팅 갱신을 건너뛰고, 다시 켤 때 우리 명령이 원본으로 보관돼 자기 자신을 passthrough 하는 무한 재귀가 된다.
  */
 function isOurCommand(command: unknown, mode: '--statusline' | '--subagent-statusline'): boolean {
   if (typeof command !== 'string') return false;
@@ -79,11 +55,7 @@ function isOurEntry(entry: unknown, mode: '--statusline' | '--subagent-statuslin
   return e[MARKER] === true || isOurCommand(e.command, mode);
 }
 
-/**
- * 보관할 **사용자 원본** 을 고른다. 우리 항목이면 그 안의 `_vibisualPrevStatusLine` 로 파고들고,
- * 그 안쪽도 우리 것이면 또 파고든다(자기 감쌈이 이미 여러 겹 쌓인 파일도 여기서 풀린다).
- * 끝까지 우리 것뿐이면 undefined — 보관할 사용자 명령이 애초에 없었다는 뜻이다.
- */
+/** 보관할 사용자 원본 — 우리 항목이면 `_vibisualPrevStatusLine` 로 계속 파고든다(여러 겹 감쌈도 풀린다). 우리 것뿐이면 undefined. */
 function resolvePreserved(entry: unknown, mode: '--statusline' | '--subagent-statusline'): StatusLineEntry | undefined {
   let cur: unknown = entry;
   for (let depth = 0; depth < 8; depth++) {
@@ -95,15 +67,8 @@ function resolvePreserved(entry: unknown, mode: '--statusline' | '--subagent-sta
 }
 
 /**
- * §4 v4.89 — 서브에이전트 행 수집기(`subagentStatusLine`).
- *
- * 이 설정은 새로고침 틱마다 **보이는 모든 서브에이전트 행**을 stdin JSON(`tasks[]`)으로 준다 —
- * 행마다 `status`·`model`·`effort`·`tokenCount`·`contextWindowSize`·`cwd` 가 들어 있다. 우리에겐
- * 서브에이전트 토큰 사용량이 들어오는 **유일한 실시간 경로**다(JSONL 은 턴이 끝나야 채워진다).
- *
- * **화면은 건드리지 않는다.** stdout 으로 `{"id":…,"content":…}` 를 내면 그 행을 우리가 덮어쓰게
- * 되는데, Claude Code 의 기본 렌더가 이미 충분하고 우리가 바꿀 이유가 없다. 아무것도 출력하지
- * 않으면 전 행이 기본 렌더로 남는다 — 즉 이 배선은 **순수 계측 ingress** 다.
+ * §4 — 서브에이전트 행 수집기. 틱마다 보이는 행 전부(`tasks[]`: status·model·tokenCount·contextWindowSize 등)를 stdin 으로 받는
+ * 유일한 실시간 토큰 경로다(JSONL 은 턴 끝에 채워진다). stdout 은 비워 둔다 — 쓰면 그 행 렌더를 덮는다(순수 계측).
  */
 function buildSubagentStatusLineCommand(port: number, handlerPath: string, token: string): string {
   const fwd = handlerPath.replace(/\\/g, '/');
@@ -111,8 +76,7 @@ function buildSubagentStatusLineCommand(port: number, handlerPath: string, token
 }
 
 /**
- * `subagentStatusLine` 을 statusLine 과 **같은 opt-in 에 묶어** 설치·해제한다.
- * 사용자 설정 보존 규칙도 동일(`_vibisualPrevStatusLine` 에 원본 보관 → 해제 시 복원).
+ * `subagentStatusLine` 도 같은 opt-in·보관·복원 규칙으로 설치·해제한다.
  * @returns 실제로 바뀌었으면 true.
  */
 function applySubagentStatusLine(
@@ -211,10 +175,7 @@ export function readUsageCollectorStatus(): UsageCollectorStatus {
   return toStatus(settings, error);
 }
 
-/**
- * 사용자 opt-in 설치. 기존 사용자 statusLine 이 있으면 `_vibisualPrevStatusLine` 으로 보존
- * (핸들러가 passthrough 실행) — 화면 출력은 그대로 유지된다.
- */
+/** opt-in 설치 — 기존 statusLine 은 `_vibisualPrevStatusLine` 으로 보존해 passthrough 한다(화면 그대로). */
 export function installStatusLine(port: number, handlerPath: string, token: string): UsageCollectorStatus {
   const { raw, settings, error } = readSettings();
   if (error) return toStatus(settings, error);
@@ -236,7 +197,7 @@ export function installStatusLine(port: number, handlerPath: string, token: stri
     const mainChanged = JSON.stringify(current ?? null) !== JSON.stringify(next);
     if (mainChanged) settings.statusLine = next;
 
-    // §4 v4.89 — 서브에이전트 행 수집기도 같은 opt-in 에 묶어 함께 건다.
+    // §4 — 서브에이전트 행 수집기도 같은 opt-in 에 묶어 함께 건다.
     const subChanged = applySubagentStatusLine(settings, port, handlerPath, token);
 
     if (!mainChanged && !subChanged) return toStatus(settings);

@@ -3,11 +3,8 @@ import { useEffect, useState } from 'react';
 import type { AvailableSkill } from '@vibisual/shared';
 
 /**
- * §5.5 #17-2 v2.30 / #17-4 v2.32 — 프로젝트 + 플러그인 스킬 목록.
- * `GET /api/available-skills` 응답 shape 와 동치.
- *
- * §5.5 #17-33 ⑦ — 정의는 `@vibisual/shared` 의 `AvailableSkill` 하나로 모았다. 서버와 화면이
- * 각자 모양을 들고 있었기 때문에 `installed`/`enabled` 같은 새 칸이 한쪽에만 생길 수 있었다.
+ * §5.5 #17-2 / #17-4 — 프로젝트 + 플러그인 스킬 목록(`GET /api/available-skills` 응답 shape).
+ * §5.5 #17-33 ⑦ — 정의는 `@vibisual/shared` 의 `AvailableSkill` 하나다(서버와 화면이 따로 들면 `installed`/`enabled` 같은 새 칸이 한쪽에만 생긴다).
  */
 export type SkillInfo = AvailableSkill;
 
@@ -31,10 +28,10 @@ export interface BuiltinCommandInfo {
 
 interface SkillsState {
   skills: SkillInfo[];
-  /** §5.5 #17-2 v3.19 — CLI 내장 슬래시 명령(자동완성 전용). */
+  /** §5.5 #17-2 — CLI 내장 슬래시 명령(자동완성 전용). */
   builtins: BuiltinCommandInfo[];
   order: SkillOrder;
-  /** §5.5 #17-4 v2.93 — 즐겨찾기 스킬명(별 누른 순서, 출처 무관). */
+  /** §5.5 #17-4 — 즐겨찾기 스킬명(별 누른 순서, 출처 무관). */
   favorites: string[];
   /**
    * §5.5 #17-2 (보강) — 이 프로젝트에서 슬래시 명령이 **살아 있는가**.
@@ -45,10 +42,8 @@ interface SkillsState {
    */
   slashCommandsEnabled: boolean;
   /**
-   * §5.5 #17-4 ③ — 목록을 **못 읽었으면** 그 사유(읽었으면 null).
-   *
-   * 종전에는 서버 500(`{error}` 만 온다)·네트워크 실패를 빈 목록으로 캐시해, 스킬 칸이 탭에
-   * "Claude 0" 을 적고 본문에 "설치된 스킬 없음"을 띄웠다 — 모르는 것을 없다고 말한 것이다.
+   * §5.5 #17-4 ③ — 목록을 못 읽었으면 그 사유(읽었으면 null).
+   * 서버 500·네트워크 실패를 빈 목록으로 캐시하지 마라 — 탭에 "Claude 0", 본문에 "설치된 스킬 없음"이 떠 모르는 것을 없다고 말한다.
    */
   failure: string | null;
 }
@@ -57,9 +52,8 @@ const EMPTY_ORDER: SkillOrder = { project: [], global: [], plugin: [] };
 const EMPTY_STATE: SkillsState = { skills: [], builtins: [], order: EMPTY_ORDER, favorites: [], slashCommandsEnabled: true, failure: null };
 
 /**
- * §5.5 #17-2/#17-4 v2.59 — 프로젝트별 조회.
- * 캐시를 projectName 키로 분리한다(`''` = project 미지정 = 전 프로젝트 병합 fallback).
- * 같은 프로젝트를 보는 컴포넌트끼리만 캐시·구독을 공유 → 탭(프로젝트)마다 독립 목록.
+ * §5.5 #17-2/#17-4 — 프로젝트별 조회. 캐시는 projectName 키로 가른다(`''` = project 미지정 = 전 프로젝트 병합 fallback)
+ * — 같은 프로젝트를 보는 컴포넌트끼리만 캐시·구독을 공유한다(탭마다 독립 목록).
  */
 const caches = new Map<string, SkillsState>();
 const inflights = new Map<string, Promise<SkillsState>>();
@@ -175,18 +169,10 @@ export function refreshAvailableSkills(): Promise<void> {
 }
 
 /**
- * §5.5 #17-33 ⑦ — 목록에서 고른 플러그인 스킬을 **그 자리에서 깐다**.
- *
- * 왜 필요한가: 종전 목록은 마켓 클론 폴더를 훑어 **안 깔린 스킬까지** 실었고, 고르면 프롬프트 앞에
- * `/이름` 만 붙어 나가 CLI 가 그것을 풀지 못했다. 이제 목록이 `installed:false` 를 말해 주므로,
- * 사용자를 터미널로 내보내는 대신 여기서 `claude plugin install --scope user --yes` 를 대신 부른다.
- *
- * **범위는 `user` 고정이다.** 이 사용자가 겪은 병목의 절반이 "프로젝트마다 다시 깔아야 한다" 였고
- * (실측: 공식 플러그인 4개가 `project` 범위로 한 프로젝트에만 매여 있었다), 스킬 목록에서 고르는
- * 행위의 뜻은 "이걸 쓰겠다" 이지 "이 프로젝트에서만 쓰겠다" 가 아니다. 범위를 고르고 싶은 사용자는
- * 플러그인 창(#17-33 ⑤)에 그 자리가 이미 있다.
- *
- * `root` 는 그 프로젝트 경로 — CLI 가 `cwd` 로 범위를 해석하므로 필요하다.
+ * §5.5 #17-33 ⑦ — 목록에서 고른 플러그인 스킬을 그 자리에서 깐다. 안 깔린 스킬에 `/이름` 만 붙여 보내면 CLI 가 풀지 못한다
+ * — 목록이 `installed:false` 를 말해 주므로 여기서 `claude plugin install --scope user --yes` 를 부른다.
+ * 범위는 `user` 고정 — 목록에서 고르는 뜻은 "이걸 쓰겠다"이지 "이 프로젝트에서만"이 아니다(`project` 범위면 프로젝트마다 다시 깔아야 한다 — 실측: 공식 플러그인 4개가 한 프로젝트에만 매여 있었다).
+ * 범위를 고르는 자리는 플러그인 창(#17-33 ⑤)에 있다. `root` 는 그 프로젝트 경로 — CLI 가 `cwd` 로 범위를 해석하므로 필요하다.
  */
 export async function installPluginSkill(
   root: string,
@@ -301,7 +287,7 @@ export async function persistSkillOrder(type: 'project' | 'global' | 'plugin', o
 }
 
 /**
- * §5.5 #17-4 v2.93 — 즐겨찾기 목록(전체)을 저장. 낙관적으로 캐시를 갱신하고 서버에도 반영.
+ * §5.5 #17-4 — 즐겨찾기 목록(전체)을 저장. 낙관적으로 캐시를 갱신하고 서버에도 반영.
  * favorites 는 전역 appState 라 캐시된 모든 프로젝트 키에 동일하게 반영한다.
  */
 export async function persistSkillFavorites(favorites: string[]): Promise<void> {
@@ -322,9 +308,8 @@ export async function persistSkillFavorites(favorites: string[]): Promise<void> 
 }
 
 /**
- * 모듈 캐시를 공유하는 훅 — `TerminalInput` 슬래시 자동완성과 `SkillsView` 사이드바가
- * 같은 프로젝트를 볼 때 같은 데이터를 본다. v2.59 부터 캐시는 projectName 키로 분리되어
- * 탭(프로젝트)마다 독립 목록을 반환한다. fetch 는 프로젝트 키별 첫 호출 시 1회.
+ * 모듈 캐시를 공유하는 훅 — `TerminalInput` 슬래시 자동완성과 `SkillsView` 사이드바가 같은 프로젝트를 볼 때 같은 데이터를 본다.
+ * 캐시는 projectName 키로 갈려 탭(프로젝트)마다 독립 목록이고, fetch 는 키별 첫 호출 시 1회.
  */
 export function useAvailableSkills(projectName?: string | null, agentId?: string | null): { skills: SkillInfo[]; builtins: BuiltinCommandInfo[]; order: SkillOrder; favorites: string[]; slashCommandsEnabled: boolean; loaded: boolean; failure: string | null } {
   const key = keyOf(projectName, agentId);

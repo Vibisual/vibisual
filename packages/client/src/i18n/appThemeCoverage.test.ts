@@ -1,14 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { BUILTIN_APP_THEMES, SUPPORTED_UI_LOCALES, type AppThemeIssueCode } from '@vibisual/shared';
 
-/**
- * §4 앱 테마 — **테마 목록·문제 코드와 번역이 한 벌인가**를 못박는다.
- *
- * 기본 테마의 이름·설명과 사용자 테마 파일의 문제 문장은 화면이 `t()` 의 **동적 키**로 고른다
- * (`panel.options.theme.builtin.<i18nKey>.name` · `panel.options.theme.issue.<code>`). 그래서 테마를 하나
- * 더하거나 문제 코드를 하나 더 만들고 번역을 잊으면, 타입도 빌드도 멀쩡한 채 그 자리에 키 문자열이
- * 그대로 뜬다. 그 자리를 여기서 잡는다.
- */
+/** §4 앱 테마 — **테마 목록·문제 코드와 번역이 한 벌인가.** 동적 키(`…theme.builtin.<i18nKey>.name` · `…theme.issue.<code>`)라 번역을 잊으면 빌드는 멀쩡한 채 키가 뜬다. */
 
 type Dict = Record<string, unknown>;
 

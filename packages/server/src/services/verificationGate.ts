@@ -1,20 +1,7 @@
 /**
- * verificationGate.ts — §5.3 #12-4 · 검증 권한 판정의 서버 쪽 한 벌.
- *
- * 분류·판정은 shared `verificationPolicy.ts` 의 순수 함수가 하고, 여기서는 **이 호스트의 값**을 물려 준다:
- *  - 지금 그 탭에서 도는 명령(그 명령에 서버가 찍은 범위·기록) — 명령이 끝나면 판정이 그 명령을 못
- *    찾으므로 권한은 그대로 만료된다(다음 명령으로 승계 ❌).
- *  - 패키지 스크립트 본문(`package.json` — mtime 캐시) — `npm run check` 의 본문이 무엇을 도는지.
- *  - CMD 터미널의 턴 — 사람이 친 문장(`UserPromptSubmit`)에서 만든 범위가 `Stop` 까지 산다.
- *
- * 판정 자리 다섯(헤드리스 클로드 `/api/permission-check` · 코덱스 권한 훅 · 로컬 `requestTool` · CMD 훅 ·
- * 앱 검증 MCP)이 이 객체 하나를 부른다 — 두 벌이 되면 한 엔진에서만 막힌다.
- *
- * 정책을 켠 동안 권한을 확인하지 못하면(도는 명령을 못 찾음) 검증은 거부한다(fail-closed). 검증이 아닌 호출은 언제나
- * 통과(`none`)라, 이 객체가 일반 작업(읽기·검색·편집)을 막는 일은 없다.
- *
- * (J) 실행 전 차단은 옵션창 권한 탭의 스위치다(기본 끔). 꺼져 있으면 다섯 자리 모두 거부하지 않고 실행으로만
- * 센다 — 스위치를 이 객체가 쥐어야 한 자리만 빠지는 일이 없다. 값은 호출마다 읽는다(다음 호출부터 적용).
+ * §5.3 #12-4 — 검증 권한 판정의 서버 쪽 한 벌. 판정은 shared `verificationPolicy.ts`, 여기는 호스트 값(도는 명령의 범위·기록 · `package.json` 스크립트 본문 · CMD 턴)을 물린다.
+ * 권한은 그 명령과 함께 만료된다(다음 명령으로 승계 ❌). 판정 자리 다섯(헤드리스 · 코덱스 훅 · 로컬 `requestTool` · CMD 훅 · 앱 검증 MCP)이 이 객체 하나를 부른다 — 두 벌이면 한 엔진에서만 막힌다.
+ * 정책을 켠 동안 명령을 못 찾으면 검증은 거부(fail-closed), 검증이 아닌 호출은 늘 `none`. (J) 실행 전 차단 스위치(기본 끔)도 여기서 쥐고 호출마다 읽는다.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -44,10 +31,7 @@ export const VERIFICATION_CMD_TURN_MAX = 200;
 export interface VerificationGateDeps {
   /** 이 세션 탭에서 지금 도는 명령. 없으면 undefined(정책을 켠 동안 검증은 거부). */
   findExecutingCommand(subAgentId: string): QueuedCommand | undefined;
-  /**
-   * (J) 실행 전 차단이 켜져 있는가 — 앱은 옵션 값(`isVerificationGateEnabled`, 기본 끔)을 넘긴다.
-   * 안 넘겨도 공통 기본값(끔)을 따른다.
-   */
+  /** (J) 실행 전 차단이 켜져 있는가 — 앱은 `isVerificationGateEnabled`(기본 끔)를 넘긴다. 없으면 공통 기본값(끔). */
   isEnforced?: () => boolean;
   now?: () => number;
   /** 플랫폼(테스트 주입용 — 기본 `process.platform`). msys 경로(`/c/...`) 해석에만 쓴다. */
@@ -103,10 +87,7 @@ export class VerificationGate {
     return decision;
   }
 
-  /**
-   * 전용 검증 경로(앱 검증 MCP) — 그 검증 실행의 명령이 돌고 있고, 이 종류들이 열려 있는가. 기록은 하지 않는다
-   * (같은 호출이 이미 권한 창구를 지나며 적혔다). 차단을 꺼 두면(J) 그 명령이 돌고 있는지만 본다.
-   */
+  /** 전용 검증 경로(앱 검증 MCP) — 그 명령이 돌고 이 종류들이 열려 있는가. 기록은 안 한다(권한 창구에서 이미 적혔다). (J) 차단을 끄면 명령이 도는지만 본다. */
   commandAllows(cmd: QueuedCommand | undefined, kinds: readonly VerificationPolicyKind[]): boolean {
     if (!cmd || cmd.status !== 'executing') return false;
     return !this.isEnforced() || verificationScopeAllows(cmd.verificationScope, kinds);

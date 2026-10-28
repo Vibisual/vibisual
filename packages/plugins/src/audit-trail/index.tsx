@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.93 — 감사 추적(Audit Trail): "이건 누가 했나"에 사후에 답할 수 있는가.
- *
- * 에이전트가 행위 주체가 되면 그 질문은 조직적 질문이 된다. 최소 구성은 세 가지 —
- * 원본 실행 로그 보존 · 결정에 출처 세션 ID · 커밋에 공동 작성자 표기. 여기서는 앞의 둘,
- * 즉 **이 에이전트의 흔적이 지금 얼마나 남아 있는지**를 센다. 표시 전용.
- */
+/** §5.11 — 감사 추적(Audit Trail): "누가 했나"에 사후에 답할 수 있는가 — 원본 실행 로그·출처 세션 ID 축으로 이 에이전트의 흔적이 얼마나 남았는지 센다. 표시 전용. */
 import { defineInspector, ICONS } from '../sdk/index.js';
 import { formatElapsed } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

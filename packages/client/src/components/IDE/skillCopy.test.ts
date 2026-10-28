@@ -1,10 +1,4 @@
-/**
- * §5.5 #17-4 — 스킬 복사 대상·결과 요약 규칙.
- *
- * 대상 목록이 틀리면 사용자는 **자기 프로젝트에 자기 스킬을 다시 복사**하거나(무의미), worktree 까지
- * 늘어선 목록에서 진짜 프로젝트를 찾아야 한다. 요약이 틀리면 "이미 있음" 을 놓쳐 [덮어쓰기] 가 엉뚱한
- * 대상으로 간다 — 둘 다 화면을 보기 전에 여기서 막는다.
- */
+/** §5.5 #17-4 — 스킬 복사 대상(자기 자신·worktree ❌)과 결과 요약("이미 있음"을 놓치지 않는다). */
 import { describe, it, expect } from 'vitest';
 import type { ProjectInfo } from '@vibisual/shared';
 import { buildSkillCopyTargets, summarizeSkillCopy, SKILL_COPY_GLOBAL_TARGET } from './skillCopy.js';

@@ -16,16 +16,8 @@ interface Props {
 const canControl = typeof window !== 'undefined' && !!window.api?.capture?.sendInput;
 
 /**
- * §5.9 캡처 버블 전용 DetailPanel 섹션 (v3.36 신설 / v3.56 외형 개편).
- *
- * 종전에 캡처 버블 헤더 strip 에 몰려 있던 설정(화질·스냅샷·일시정지·원격조작·불투명도·정지절전·
- * 읽기전용·타임아웃·배지·핀·다시선택·크게보기)을 다른 버블처럼 "선택 → 우측 디테일창"으로 옮긴 것.
- * 취향값(prefs)은 localStorage(useCapturePrefs), 조작 상태(frozen/controlMode/expanded)는
- * 런타임 스토어(useCaptureRuntime)에서 온다. 비디오에 묶인 스냅샷은 window 이벤트로 CaptureNode 에 위임.
- *
- * v3.56 — 같은 크기 버튼이 위계 없이 나열되고 날 것의 체크박스가 섞여 있던 걸 정리했다: 섹션 라벨 +
- * 카드 그룹 + **세그먼트 피커**(화질·조작 모드) + **스위치 토글** + 하단 위험구역(삭제)으로 재구성.
- * 색은 rose 계열을 걷어내고 sky 액센트(정체성)와 emerald(조작 중)만 쓴다.
+ * §5.9 캡처 버블 DetailPanel — 캡처 설정 전부를 "선택 → 우측 디테일창"에 둔다.
+ * 취향값은 localStorage(`useCapturePrefs`), 조작 상태는 `useCaptureRuntime`, 비디오에 묶인 스냅샷은 window 이벤트로 CaptureNode 에 위임.
  */
 export function CaptureBubbleDetail({ bubble }: Props): React.JSX.Element {
   const { t } = useTranslation();
@@ -284,7 +276,7 @@ export function CaptureBubbleDetail({ bubble }: Props): React.JSX.Element {
         <section className="flex flex-col gap-2.5">
           <SectionLabel accent="emerald">{t('bubbleMap.capture.remoteControl', { defaultValue: '원격 조작' })}</SectionLabel>
           <div className="flex flex-col gap-3 rounded-lg border border-emerald-400/20 bg-emerald-400/[0.05] p-3">
-            {/* 조작 모드 — 끄기/터치/마우스 (v3.43: 모드 선택이 곧 조작 시작. 재시작 시 항상 off) */}
+            {/* 조작 모드 — 선택이 곧 조작 시작, 재시작하면 늘 off. */}
             <div className="flex flex-col gap-1.5">
               <div className="flex gap-1 rounded-lg border border-emerald-400/15 bg-black/20 p-1">
                 {(['off', 'touch', 'mouse'] as const).map((mode) => {

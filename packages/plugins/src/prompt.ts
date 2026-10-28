@@ -1,18 +1,7 @@
 /**
- * §5.11 v4.57 → v4.59 — **집행 기여 배럴** (서버 전용).
- *
- * v4.57 이 집행 슬롯을 열었을 때 여기 실린 카드는 하나뿐이었다. 그래서 나머지는 켜도 화면 한 칸이
- * 느는 것이 전부였고, 사용자가 그대로 지적했다 — "켜면 우리 프로젝트에 **영향력을 행사**해야 한다.
- * 각자 SSOT 처럼 강제할 수 있는 핵심이 있을 거 아니냐." v4.59 에서 **111종 전부**가 여기 실린다.
- *
- * 규율 넷을 배럴이 강제한다.
- *  ① **켠 프로젝트에서만** — 판정은 다른 곳과 같은 `resolveEnabledPluginsFor` 하나를 통과한다.
- *  ② **낼 말이 있을 때만** — `buildBlock` 이 빈 값을 주면 아무것도 붙지 않는다.
- *  ③ **한 카드가 죽어도 턴은 산다** — 블록 조립 실패는 그 카드만 건너뛴다.
- *  ④ 각 카드의 집행 내용은 **자기 폴더의 `enforce.ts`** 에 있다(자립 규약 — 폴더를 복사하면 집행도 간다).
- *
- * React 를 물지 않는다(카드 모듈 import 금지) — 서버가 프롬프트 한 줄 만들려고 렌더 트리를 끌어오면 안 된다.
- * 별칭에 `e` 접두사를 붙이는 이유는 id 중 `eval` 처럼 **식별자로 못 쓰는 낱말**이 있기 때문이다.
+ * §5.11 — 집행 기여 배럴(서버 전용, 111종 전부): ① 켠 프로젝트에서만(`resolveEnabledPluginsFor` 하나) ② 빈 값이면 안 붙는다
+ * ③ 한 카드가 죽어도 턴은 산다 ④ 집행 내용은 각 폴더의 `enforce.ts`. React(카드 모듈)를 물지 않는다 — 서버가 렌더 트리를 끌어온다.
+ * 별칭의 `e` 접두사는 `eval` 처럼 식별자로 못 쓰는 id 때문.
  */
 import type { PlatformName } from '@vibisual/shared';
 import type { PluginFactMap, PluginPromptContext, PluginPromptModule } from './types.js';
@@ -263,10 +252,7 @@ export function activePromptModules(
   });
 }
 
-/**
- * 켠 플러그인들의 지시 블록을 이어 붙인다. 하나도 없으면 **빈 문자열** — 호출부가 그대로 더해도 프롬프트가
- * 한 글자도 늘지 않는다(플러그인을 안 켠 프로젝트는 이 기능이 없던 때와 완전히 같아야 한다).
- */
+/** 켠 플러그인들의 지시 블록을 이어 붙인다. 하나도 없으면 빈 문자열 — 안 켠 프로젝트는 프롬프트가 한 글자도 늘지 않아야 한다. */
 export function buildPluginPromptBlocks(
   source: PluginEnablementSource | null | undefined,
   projectId: string | null | undefined,
@@ -277,13 +263,7 @@ export function buildPluginPromptBlocks(
   return buildPluginPromptParts(source, projectId, ctx, onError, platform).map((p) => p.block).join('');
 }
 
-/**
- * §5.5 #17-28 — 위와 같은 조립이지만 **플러그인별로 갈라서** 돌려준다.
- *
- * 주입원 통제 화면이 "어느 플러그인이 몇 자를 실었는지"를 한 줄씩 보여 주고, 사용자가 그중 하나만
- * 끌 수 있으려면 합쳐지기 **전**의 조각이 필요하다. 이어 붙이면 위 함수와 완전히 같은 문자열이므로
- * 두 경로가 갈라지지 않는다.
- */
+/** §5.5 #17-28 — 위 조립을 플러그인별로 갈라 돌려준다(주입원 통제 화면이 하나만 끌 수 있게). 이어 붙이면 위 함수와 같은 문자열이어야 한다. */
 export function buildPluginPromptParts(
   source: PluginEnablementSource | null | undefined,
   projectId: string | null | undefined,
@@ -304,11 +284,8 @@ export function buildPluginPromptParts(
 }
 
 /**
- * §5.11 v4.65 — 켠 집행 모듈들의 **실측**을 모은다(카드가 같은 값을 그리게 하기 위한 것).
- *
- * `buildPluginPromptBlocks` 와 같은 관문(`activePromptModules`)을 통과하므로 **켠 프로젝트의 것만**
- * 나오고, 실측을 안 내는 모듈은 키 자체가 없다. 한 장이 던져도 나머지는 산다 — 이 값은 표시용이라
- * 여기서 던져 프롬프트 조립을 막을 이유가 전혀 없다.
+ * §5.11 — 켠 집행 모듈들의 실측(카드가 같은 값을 그리게). 관문은 블록 조립과 같은 `activePromptModules`, 실측을 안 내는 모듈은 키가 없다.
+ * 표시용이라 한 장이 던져도 나머지는 산다.
  */
 export function collectPluginFacts(
   source: PluginEnablementSource | null | undefined,

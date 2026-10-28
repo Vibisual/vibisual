@@ -1,12 +1,4 @@
-/**
- * §7.6 (판올림 번호 발급 대기) — 워크트리를 본선으로 합치다 **충돌**했을 때, 그 충돌을 그
- * 워크트리에서 일하던 에이전트에게 그대로 넘기기 위한 명령 조립(순수 모듈).
- *
- * 서버는 충돌 시 부모를 `merge --abort` 로 원복해 두므로, 이 명령을 받은 에이전트가 할 일은
- * "합쳐질 수 있게 자기 브랜치를 고치는 것"이다 — 사람이 파일 목록을 손으로 옮겨 적지 않는다.
- *
- * 조립을 컴포넌트가 아니라 여기 두는 이유는 `diffCommentPrompt.ts` 와 같다(화면 없이 시험).
- */
+/** §7.6 — 합치기 충돌을 그 워크트리 에이전트에게 넘길 명령 조립(순수 모듈). 서버가 `merge --abort` 로 원복해 두므로 할 일은 자기 브랜치 고치기. */
 
 /** 명령에 실을 충돌 파일 수 상한 — 넘으면 잘라 내고 "+N" 으로 말한다. */
 export const MERGE_CONFLICT_FILES_MAX = 40;
@@ -20,12 +12,7 @@ export interface MergeConflictPrompt {
   conflicts: readonly string[];
 }
 
-/**
- * 충돌 정보 → 명령 텍스트.
- *
- * `header` 는 번역된 지시문을 그대로 받는다(모듈이 언어를 정하지 않는다 — i18n 규칙).
- * 충돌 파일이 하나도 없으면 빈 문자열을 돌려주고, 호출부는 그때 아무 것도 보내지 않는다.
- */
+/** 충돌 → 명령 텍스트. `header` 는 번역된 지시문(모듈이 언어를 안 정한다). 파일이 없으면 빈 문자열 — 호출부는 안 보낸다. */
 export function buildMergeConflictPrompt(input: MergeConflictPrompt, header: string): string {
   const files = input.conflicts.map((f) => f.trim()).filter((f) => f !== '');
   if (files.length === 0) return '';

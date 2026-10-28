@@ -2,16 +2,8 @@ import type { AgentEngineKind } from '@vibisual/shared';
 import type { IDEViewType } from '../../stores/graphStore.js';
 
 /**
- * §5.19 (G) · §5.25 (M) — **프로바이더 버블**의 IDE 좌측 활동바에 남는 항목. **엔진마다 다르다.**
- *
- * 같은 IDE 를 쓰되 같은 얼굴을 하지는 않는다. 규율은 하나다 — **화면이 사실을 말한다.** 그 하나가
- * 두 방향으로 작동한다: 없는 기능의 입구는 거짓말이고(눌러 봐야 빈 화면), **있는 기능을 감추는
- * 것도 같은 거짓말**이다(사용자가 자기 엔진에 깔아 둔 것을 우리 창에서 못 본다).
- *
- * 그래서 목록은 `kind` 로 갈린다. 한때 이 파일은 "엔진별로 갈리지 않는 것이 옳다"고 적혀 있었는데,
- * 그것은 **로컬 모델에서 참인 문장을 코덱스에 그대로 옮긴** 실수였다 — 코덱스에는 MCP·스킬·
- * 플러그인·훅·규칙 문서가 **전부 있다**(`codex mcp` · `~/.codex/skills` · `codex plugin` ·
- * `~/.codex/hooks.json` · `AGENTS.md`). 확인은 그 CLI 의 공개 인터페이스로 했다.
+ * §5.19 (G)·§5.25 (M) — 프로바이더 버블의 활동바 항목(엔진별). 없는 기능의 입구도, 있는 기능을 감추는 것도 거짓말이다 —
+ * 코덱스엔 다 있다(`codex mcp`·`~/.codex/skills`·`codex plugin`·`~/.codex/hooks.json`·`AGENTS.md`, 공개 CLI 로 확인).
  */
 
 /** 어느 엔진에서도 뜻이 통하는 항목 — 우리 기능이거나 폴더처럼 엔진과 무관한 것들. */
@@ -20,48 +12,19 @@ import type { IDEViewType } from '../../stores/graphStore.js';
 // 둘은 §5.10 (P) 에서 칸이 갈렸고, 갈린 뒤에도 둘 다 중립이다(엔진이 아니라 우리가 재는 것이므로).
 const NEUTRAL_VIEWS: readonly IDEViewType[] = ['files', 'debug', 'bookmarks', 'goal', 'autoGoal', 'loop'];
 
-/**
- * §5.3 #10-4 — **우리 기능이지만 로컬 엔진에서는 돌지 않는** 칸. 화면은 클로드·코덱스가 같은 것을 쓴다.
- *
- * 오케스트라는 지휘자가 Bash 로 loopback REST 를 쳐서 멤버를 만들고 엣지를 잇는 절차라, 그 도구가 없는
- * 로컬 엔진에는 가로채기가 아예 걸리지 않는다(서버 가로채기 조건 — 엔진 claude|codex). 거기 칸을 세우면
- * 켜 둬도 영영 아무 일도 일어나지 않는 스위치가 된다 — 없는 기능의 입구다.
- */
+/** §5.3 #10-4 — 로컬 엔진에선 안 도는 우리 기능 칸(오케스트라 — 지휘자가 Bash 로 loopback REST 를 치는데 로컬엔 그 도구가 없다). 세우면 죽은 스위치다. */
 const CONDUCTING_VIEWS: readonly IDEViewType[] = ['orchestra'];
 
-/**
- * §5.3 #10-5 — **턴 사본에서 설정을 덜어내는** 칸. 여기도 클로드·코덱스에만 선다.
- *
- * 덜어낼지 말지의 판단이 "그 엔진의 CLI·모델이 이 항목을 받는가"에 매여 있어(`configTrimContextOf`
- * 의 엔진 인자, 설치된 CLI 의 `--help`·모델 원장) 서버 가로채기 자체가 엔진 claude|codex 에서만
- * 걸린다. 로컬 러너는 우리가 프롬프트를 직접 조립하므로 덜어낼 CLI 항목이 아예 없다 —
- * 거기 칸을 세우면 켜 둬도 영영 빈 목록만 그리는 스위치가 된다.
- */
+/** §5.3 #10-5 — 턴 사본 설정 덜어내기 칸(클로드·코덱스만). 판단이 그 CLI·모델 원장에 매여 가로채기가 claude|codex 에서만 걸린다(로컬은 덜 것이 없다). */
 const TURN_CONFIG_VIEWS: readonly IDEViewType[] = ['configTrim'];
 
-/**
- * All Model(로컬 LLM) 버블에 남는 항목.
- *
- * 로컬 모델에는 MCP·스킬·플러그인·훅·주입원이 **정말로 없다** — 우리 러너가 프롬프트를 조립해
- * 직접 도는 것이 전부다. 그래서 중립 항목만 남는다(§5.19 (G) 원문 그대로).
- */
+/** All Model(로컬 LLM) 버블 — 중립 항목만(§5.19 (G)). 로컬엔 MCP·스킬·플러그인·훅·주입원이 없다. */
 export const LOCAL_PROVIDER_VIEWS: readonly IDEViewType[] = NEUTRAL_VIEWS;
 
 /**
- * 코덱스 버블에 남는 항목 — 중립 항목 + **코덱스가 실제로 들고 있는 다섯**.
- *
- * 다섯은 클로드 것을 빌려 그리지 않는다. 각각 코덱스 쪽 실물을 읽어 그린다(§5.25 (M)):
- * MCP=`codex mcp list --json` · 스킬=`~/.codex/skills/<이름>/` · 플러그인=`codex plugin list --json` ·
- * 훅=`~/.codex/hooks.json` · 컨텍스트=`AGENTS.md`(홈 + 이 프로젝트).
- *
- * **`subagents` 와 `reading` 이 빠진다.** 앞은 클로드 SDK 가 백단에 띄운 자식들을 보는 곳인데, 코덱스의
- * `codex agents` 는 자기 데몬에 붙는 **대화형 TUI** 라 우리 헤드리스 집계에 대응물이 없다.
- * 뒤(§5.11 정독 `specReading`)는 우리 기능이지만 재료가 **클로드 Code 의 `Read`/`Grep` 도구 이력**이다 — 다른 엔진은
- * 그 이름으로 열지 않으므로 원장이 영원히 비고, 그러면 이 칸은 "하나도 안 읽었다"를 늘 띄우는 거짓 화면이
- * 된다. 없는 것을 그리지 않는 쪽이 여기서는 여전히 옳다.
- *
- * `verify` uses the common app-owned execution tools for Claude and Codex.
- * Codex's git code review remains a separate tab inside the common verification view.
+ * 코덱스 버블 — 중립 + 코덱스 실물 다섯(§5.25 (M)): MCP `codex mcp list --json` · 스킬 `~/.codex/skills/<이름>/` · 플러그인 `codex plugin list --json` · 훅 `~/.codex/hooks.json` · 컨텍스트 `AGENTS.md`.
+ * `subagents`(`codex agents` 는 대화형 TUI)·`specReading`(재료가 클로드 `Read`/`Grep` 이력)은 뺀다 — 대응물이 없어 늘 빈 화면이다.
+ * `verify` uses the common app-owned execution tools; Codex's git code review is a separate tab inside it.
  */
 export const CODEX_PROVIDER_VIEWS: readonly IDEViewType[] = [
   ...NEUTRAL_VIEWS, ...CONDUCTING_VIEWS, ...TURN_CONFIG_VIEWS,
@@ -89,25 +52,12 @@ export function fallbackViewForProvider(view: IDEViewType, providerKind: string 
   return isViewAllowedForProvider(view, providerKind) ? view : 'files';
 }
 
-/**
- * §5.25 (M) · (M-1) — 그 칸을 **코덱스 것으로 갈아 끼울까**(`IDESidebar` 의 `CODEX_VIEW_MAP`).
- *
- * 스킬 칸만은 **실제로 도는 엔진**(`agentEngineOf`)을 따른다 — 서버 스킬 공유 API 가 그 판정으로 받는
- * 엔진을 정하기 때문이다. 칸이 공급자만 보면 Codex CMD(공급자 칸 없음 · 터미널은 codex)에서 클로드 칸을
- * 그려, 첫 탭이 그 에이전트의 엔진과 다르고 둘째 탭은 청한 엔진과 응답의 엔진이 갈려 늘 거절됐다.
- * 나머지 칸은 종전대로 공급자를 따른다(위 목록과 같은 `kind`).
- */
+/** §5.25 (M)·(M-1) — 그 칸을 코덱스 것으로 갈아 끼울까(`CODEX_VIEW_MAP`). 스킬만 실제 엔진(`agentEngineOf`) — 서버 스킬 API 가 그것으로 엔진을 정한다(공급자를 보면 Codex CMD 에서 거절). 나머지는 공급자. */
 export function usesCodexPane(view: IDEViewType, providerKind: string | undefined, engine: AgentEngineKind): boolean {
   return view === 'skills' ? engine === 'codex' : providerKind === 'codex-cli';
 }
 
-/**
- * §5.25 (B) — 하단 상태바의 **정체 뱃지**가 무엇을 말할지. 위 목록과 마찬가지로 `kind` 로 갈린다 —
- * 여기서 하는 말이 곧 "이 창이 누구의 것인가"이기 때문이다.
- *
- * `switchable` — 로컬은 이 자리에서 바로 모델을 바꿀 창(`localModelWindow`)이 있지만, 코덱스 모델은
- * 버블 설정 창에서 고른다. 없는 창을 약속하는 손잡이를 두느니 누를 수 없게 둔다.
- */
+/** §5.25 (B) — 상태바 정체 뱃지 내용(`kind` 로). `switchable` — 로컬은 `localModelWindow` 가 있고 코덱스 모델은 버블 설정에서 고르므로 누를 수 없게 둔다. */
 export interface ProviderBadge {
   engine: 'local' | 'codex';
   /** 표시할 모델 이름. 아직 안 고른 버블은 빈 문자열이라 화면이 엔진 이름만 적는다. */

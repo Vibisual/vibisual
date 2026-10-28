@@ -50,8 +50,7 @@ interface IDETabBarProps {
   isFrontPane: boolean;
 }
 
-// 도트 색표는 `utils/sessionStatus` 한 곳에 산다 — 종전에는 같은 표가 여기·사이드바·패널 세 벌로
-// 복사돼 있었고 확인(ack) 반영 여부까지 갈려, 같은 세션이 화면마다 다른 색으로 보였다.
+// 도트 색표는 `utils/sessionStatus` 한 곳 — 사본을 두면 화면마다 색이 갈린다.
 
 /**
  * 훅 에이전트의 메인 탭(세션 `null`)을 끌 때 쓰는 키 — 실제 세션 id(`sub-…`)와 겹치지 않는다.
@@ -64,10 +63,7 @@ function sessionIdOfDragKey(key: string): string | null {
   return key === MAIN_TAB_DRAG_KEY ? null : key;
 }
 
-/**
- * §5.5 #17-9 ④(b) v5.03 — 가려진 실행 알림 한 쪽을 갱신.
- * 스크롤·리사이즈마다 도는 자리라 React 상태가 아니라 DOM 만 직접 만진다(페이드·썸과 같은 경로).
- */
+/** §5.5 #17-9 ④(b) — 가려진 실행 알림 갱신. 스크롤마다 도는 자리라 DOM 을 직접 만진다. */
 function applyHiddenIndicator(
   btn: HTMLElement | null,
   countEl: HTMLElement | null,
@@ -103,10 +99,7 @@ export const IDETabBar = memo(function IDETabBar({
   const subAgentLabels = useGraphStore((s) => s.subAgentLabels);
   const setSubAgentLabel = useGraphStore((s) => s.setSubAgentLabel);
 
-  // §5.5 #17-11 ⑩ v5.02 — 지금 반복 루프가 도는 탭. 활동바는 열어 둔 탭 하나만 비추므로
-  //   탭 자신이 "나는 지금 반복 중"이라고 말한다(점등 근거는 활동바와 같은 `enabled`).
-  //   `sessionLoops` 는 스냅샷마다 새 객체라 그대로 구독하면 탭바가 매번 다시 그려진다 —
-  //   켜진 루프만 문자열로 뽑아(순수 모듈) 값이 바뀔 때만 리렌더한다.
+  // §5.5 #17-11 ⑩ — 루프가 도는 탭 표시(점등 근거는 활동바와 같은 `enabled`). `sessionLoops` 는 매번 새 객체라 켜진 것만 문자열로 뽑아 구독한다.
   const runningLoopKey = useGraphStore((s) => serializeRunningLoops(s.sessionLoops));
   const runningLoops = useMemo(() => parseRunningLoops(runningLoopKey), [runningLoopKey]);
   // 백단 서브에이전트를 가진 탭 — 그 탭의 status 가 idle 이어도 도트는 켜져 있어야 한다.
@@ -172,10 +165,7 @@ export const IDETabBar = memo(function IDETabBar({
     startRename(activeSessionId);
   });
 
-  // --- 가로 스크롤 컨테이너 (탭이 많아지면 좌/우 페이드 + wheel 가로 스크롤 + 오버레이 썸) ---
-  // 네이티브 스크롤바는 레이아웃 점유로 탭을 줄이기 때문에 hide 하고, 오버레이 썸을 별도 DOM 으로 그린다(VS Code 식).
-  // 페이드/썸 갱신은 imperative ref 조작 — 스크롤·리사이즈마다 React 리렌더 없이 즉시 반영.
-  //   **끄는 손짓도 이 칸을 기준으로 잰다**(중앙선·가장자리 자동 스크롤)므로 선언이 여기 앞에 있다.
+  // 가로 스크롤 — 네이티브 스크롤바는 탭을 줄여 숨기고 오버레이 썸을 그린다. 페이드·썸은 ref 로 직접 갱신(리렌더 ❌). 끄는 손짓이 이 칸으로 재므로 선언이 앞에 있다.
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // 드래그 재정렬 — 커밋 왕복 동안 화면을 붙들어 두는 로컬 순서(§5.4 #14-2 (C)).
@@ -202,19 +192,8 @@ export const IDETabBar = memo(function IDETabBar({
   }, [agentId, subAgents]);
 
   /*
-   * ─── 끌어서 자리를 옮긴다 (§5.4 #14-2 (F-6) · 활동바 §5.5 #16-1 (E) 와 같은 한 벌) ───
-   *
-   * **꾹 누르는 기다림은 없다.** 누른 채 문턱(`POINTER_DRAG.dragStartPx`)을 넘게 끌면 그 자리에서 곧장
-   * 들리고, 문턱 안에서 떼면 평소의 클릭이라 세션 선택·우클릭 메뉴·닫기는 그대로다. 본문 위 분할
-   * 미리보기도 든 그 순간부터 뜬다(터치만 꾹 누르기로 남는다 — 손가락으로 줄을 넘기는 스크롤).
-   *
-   * 종전에는 HTML5 네이티브 DnD 였다 — 살짝만 밀어도 탭이 즉시 "뚝 떨어져" 반투명 유령이 되고,
-   * 손에 붙어 오는 것은 탭이 아니라 브라우저가 찍은 스크린샷이며, 놓을 때는 되돌아가는 연출이 한
-   * 번 더 끼어들었다(사용자 지적 — "때서 붙이는 느낌이 너무 어색해"). 그 셋은 전부 네이티브 DnD 가
-   * 정하는 것이라 CSS 로는 손댈 수 없어, 제스처를 통째로 포인터로 옮긴다.
-   *
-   * **본문 위 분할(#17-34)도 이 손짓이 함께 나른다** — 종전에 짐을 실어 나르던 `dataTransfer` 가
-   * 사라지므로, 끌고 있는 세션이 무엇인지를 `sessionDragBus` 가 들고 드롭 자리에 알린다.
+   * 끌어 옮기기(§5.4 #14-2 (F-6) · 활동바 §5.5 #16-1 (E) 와 한 벌). 문턱(`POINTER_DRAG.dragStartPx`)을 넘으면 곧장 들리고 안에서 떼면 클릭이다(터치만 꾹 누르기).
+   * HTML5 DnD 로 되돌리지 마라 — 스크린샷 유령·복귀 연출을 못 고친다. 분할(#17-34)로는 `sessionDragBus` 가 세션을 나른다.
    */
   const dragApi = usePointerDragReorder({
     axis: 'x',
@@ -269,13 +248,8 @@ export const IDETabBar = memo(function IDETabBar({
     [isCustom, orderedSubs],
   );
 
-  // §5.5 #17-37 / §6 — 키 판정은 레지스트리(`useCommand`)가 하고, 여기서는 그 뜻을 **탭을 누르는
-  //   그 문**으로 흘린다(#17-37 ⑥ — 분할 창에서 이미 떠 있는 세션이면 초점만 그 칸으로 간다).
-  //   ⚠ 창이 여럿이면 맨 앞 하나만 받는다(#17-1 (H-5)·Escape 와 같은 판정 — 새 축 ❌), 탭 이름을
-  //   고치는 중에는 비켜선다(F2 와 같은 자리). 그 둘을 `enabled` 로 표현하면 **꺼져 있는 동안 키를
-  //   삼키지도 않는다**(종전 동작 그대로 — 이름 편집 중의 Ctrl+Tab 은 우리 것이 아니다).
-  //   입력창·xterm 터미널에 포커스가 있어도 먹어야 하므로 표의 `typingSafe: true` 가 그 자리를 맡고,
-  //   디스패처가 삼켜(`stopPropagation`) 터미널이 같은 키를 셸로 흘려보내지 않게 한다(④).
+  // §5.5 #17-37 / §6 — 키 판정은 `useCommand`, 여기는 탭 누르는 문으로 흘린다. 맨 앞 창만·이름 편집 중엔 끔(`enabled` — 꺼지면 키를 삼키지 않는다).
+  // `typingSafe: true` + 디스패처의 `stopPropagation` — 입력창·xterm 초점에서도 받고 셸로 새지 않게(④).
   const switchEnabled = isFrontPane && !editingId;
   const runSwitch = useCallback((id: TabSwitchCommandId, digit?: number): void => {
     const intent = tabSwitchIntentOf(id, digit);
@@ -290,11 +264,7 @@ export const IDETabBar = memo(function IDETabBar({
   useCommand('ide.tabPrev', () => runSwitch('ide.tabPrev'), { enabled: switchEnabled });
   useCommand('ide.tabNextAlt', () => runSwitch('ide.tabNextAlt'), { enabled: switchEnabled });
   useCommand('ide.tabPrevAlt', () => runSwitch('ide.tabPrevAlt'), { enabled: switchEnabled });
-  /**
-   * 탭을 **마우스로** 눌렀다 — 그것이 바로 옆 탭이면 "옆으로 한 칸"과 같은 동작이다.
-   * 이 신고가 몇 번 쌓이면 그 자리에서 "키로도 됩니다"가 뜬다(`stores/keyPromoter.ts`).
-   * 멀리 있는 탭을 누른 것은 **세지 않는다** — 그건 단축키로 대신할 수 있는 동작이 아니다.
-   */
+  /** 마우스로 바로 옆 탭을 누르면 "옆으로 한 칸"으로 센다 — 쌓이면 "키로도 됩니다"가 뜬다(`stores/keyPromoter.ts`). 멀리 있는 탭은 단축키로 대신할 수 없어 세지 않는다. */
   const notePointerTabSwitch = useCallback((target: TabKey): void => {
     const from = tabOrder.indexOf(activeSessionId);
     const to = tabOrder.indexOf(target);
@@ -334,11 +304,7 @@ export const IDETabBar = memo(function IDETabBar({
   const purgeSubLocal = useCallback((subId: string) => {
     if (!agentId) return;
     const store = useGraphStore.getState();
-    // §4 v2.63 — CMD 에이전트의 세션 탭은 임베디드 PTY 핸들이기도 하다. 탭을 명시적으로 닫으면
-    //   그 세션의 PTY 도 종료(좀비 셸 방지). 비-CMD 에이전트엔 해당 termId 가 없어 no-op.
-    // §4 (CMD ⑤ QA) — **분할된 pane 의 PTY 도 전부** 회수한다. 종전에는 기본 termId 하나만 죽여
-    //   `#1`·`#2` 셸이 화면 없이 계속 돌았다(탭을 닫을수록 좀비가 쌓였다). 어떤 pane 이 있었는지는
-    //   그 세션의 `paneTree` 가 진실이므로 거기서 id 를 모아 하나씩 끈다.
+    // §4 — CMD 세션 탭을 닫으면 그 세션의 PTY 를 `paneTree` 의 pane 까지 전부 끈다(기본 termId 만 끄면 분할 셸이 남는다).
     const base = `term:${agentId}:${subId}`;
     const paneTree = store.subAgents[agentId]?.find((x) => x.id === subId)?.paneTree ?? null;
     for (const paneId of collectCmdPaneIds(paneTree)) {
@@ -424,9 +390,7 @@ export const IDETabBar = memo(function IDETabBar({
   const fadeRightRef = useRef<HTMLDivElement>(null);
   const thumbRef = useRef<HTMLDivElement>(null);
 
-  // §5.5 #17-9 ④(b) v5.03 — 스크롤 밖으로 밀린 실행 중 탭 알림.
-  //   탭이 많으면 도는 탭이 화면 밖으로 나가는데 그 사실을 말하는 자리가 없어, 아무것도 안 도는
-  //   화면과 구별되지 않았다. 판정은 순수 모듈이 하고 여기서는 결과만 DOM 에 반영한다.
+  // §5.5 #17-9 ④(b) — 스크롤 밖으로 밀린 실행 중 탭 알림. 판정은 순수 모듈, 여기는 DOM 반영만.
   const hiddenLeftRef = useRef<HTMLButtonElement>(null);
   const hiddenRightRef = useRef<HTMLButtonElement>(null);
   const hiddenLeftCountRef = useRef<HTMLSpanElement>(null);
@@ -463,11 +427,7 @@ export const IDETabBar = memo(function IDETabBar({
     if (id) setSession(id);
   }, [setSession]);
 
-  /**
-   * §5.5 #17-40 — 마지막 탭이 끝나는 자리로 인라인 + 노출을 정한다.
-   * 스크롤마다 도는 자리라 값이 **바뀔 때만** style 을 쓴다(쓰기 → 읽기가 곧 강제 리플로우다).
-   * 인라인 버튼 자기 폭은 세지 않는다 — 숨겼다가 자리가 남아 다시 뜨는 진동을 막는다.
-   */
+  /** §5.5 #17-40 — 인라인 `+` 의 자리·노출. 값이 바뀔 때만 style 을 쓴다(쓰기→읽기는 강제 리플로우). 버튼 자기 폭은 세지 않는다 — 숨김↔노출 진동을 막는다. */
   const syncInlineNew = useCallback((el: HTMLDivElement) => {
     const btn = inlineNewRef.current;
     if (!btn) return;
@@ -536,8 +496,7 @@ export const IDETabBar = memo(function IDETabBar({
     };
   }, [updateScrollState]);
 
-  // 탭 수/이름/핀 변동 시 재계산. 도는 탭 집합도 여기서 갱신한다 — 실행이 시작·종료되면
-  // 가려진 알림의 수도 함께 바뀌어야 한다(§5.5 #17-9 ④(b) v5.03).
+  // 탭 수·이름·핀이 바뀌면 다시 잰다. 도는 탭 집합도 여기서 — 가려진 알림 수가 따라 바뀌어야 한다.
   useEffect(() => {
     runningIdsRef.current = new Set(subAgents.filter((s) => s.status === 'active').map((s) => s.id));
     updateScrollState();
@@ -824,8 +783,7 @@ export const IDETabBar = memo(function IDETabBar({
         {/* 좌/우 에지 페이드 — 가려진 방향에만 표시 (imperative class toggle) */}
         <div ref={fadeLeftRef} className="scroll-fade-left" />
         <div ref={fadeRightRef} className="scroll-fade-right" />
-        {/* §5.5 #17-9 ④(b) v5.03 — 그쪽에 가려진 **실행 중** 탭 알림. 표시·숫자는 ref 로 갱신하고
-            누르면 그 방향으로 처음 만나는 실행 탭으로 이동한다. 가려진 실행이 없으면 뜨지 않는다. */}
+        {/* §5.5 #17-9 ④(b) — 이쪽에 가려진 실행 탭 알림(ref 로 갱신). 누르면 그 방향 첫 실행 탭으로. */}
         <button
           ref={hiddenLeftRef}
           type="button"
@@ -879,9 +837,7 @@ export const IDETabBar = memo(function IDETabBar({
           정렬은 세션을 만들지 않으므로 훅 버블에서도 쓸 수 있다(#17-29 의 읽기 전용 경계 밖). */}
       <IDETabSortMenu subs={orderedSubs} agentId={agentId} onSort={commitOrder} />
 
-      {/* §5.5 #17-27 ⑱ (a) — [우측 판] 목록. `+`(새 세션) → 탭 정렬 다음 셋째 자리, 정렬 **바로 오른쪽**에
-          선다(2026-10-08 사용자 지시). 세션을 만들지 않으므로 훅 버블에도 선다(#17-29 가 막는 것은 새 일을
-          시키는 것이지 보기가 아니다). */}
+      {/* §5.5 #17-27 ⑱ (a) — [우측 판] 목록(정렬 바로 오른쪽). 세션을 안 만들어 훅 버블에도 선다(#17-29 는 새 일 시키기만 막는다). */}
       <IDEPaneLauncherMenu />
 
       {/* History(폴더) button — 이 cwd에서 쓰였던 과거 세션을 다시 열기.
@@ -961,26 +917,13 @@ export const IDETabBar = memo(function IDETabBar({
         document.body,
       )}
 
-      {/*
-        손에 들린 탭. **`document.body` 로 내보낸다** — IDE 창은 DOM 상 캔버스의 자식이고(§5.5 #17-6)
-        그 위에는 React Flow 의 `transform` 이 걸려 있어, 여기서 `fixed` 를 쓰면 뷰포트가 아니라
-        그 변환된 조상 기준이 돼 고스트가 커서에서 어긋난다(활동바가 배운 것과 같은 함정).
-        자리는 렌더가 아니라 훅이 `transform` 으로 준다(프레임마다 리렌더 ❌).
-      */}
+      {/* 손에 들린 탭은 `document.body` 로 포털한다 — IDE 창은 캔버스의 자식이라 React Flow `transform` 아래 `fixed` 가 어긋난다(§5.5 #17-6). 자리는 훅의 `transform`. */}
       {dragApi.dragKey !== null && typeof document !== 'undefined' && createPortal(
         <div
           ref={dragApi.ghostRef}
           aria-hidden
           className="pointer-events-none fixed left-0 top-0 z-[200] will-change-transform"
-          /*
-           * **집어 든 순간 원본이 차지하던 치수를 그대로 입는다.**
-           *
-           * 종전에는 고스트가 원본을 흉내 낸 미니어처였다(`px-3` + `max-w-[160px]`). 그런데 세션
-           * 탭의 폭은 라벨 자리 `w-[120px]` + 닫기 버튼 `w-4` + 핀/기본/루프 글리프가 함께 정하는
-           * 값이라, 흉내로는 맞출 수가 없다 — 라벨이 짧으면 고스트가 원본의 **절반**으로 줄어
-           * 집어 드는 순간 크기가 툭 튀었다(사용자 지적). 활동바가 안 어긋났던 것은 원본이
-           * `h-10 w-10` 고정이라 우연히 맞았기 때문이고, 그 우연에 기대지 않는 것이 이 한 줄이다.
-           */
+          /* 집는 순간 원본 치수를 그대로 입는다 — 탭 폭은 라벨·닫기·글리프가 함께 정해 클래스 흉내로는 크기가 튄다. */
           style={dragApi.dragSize ?? undefined}
         >
           {/* 안쪽은 원본 탭과 같은 뼈대(`pl-3 pr-1.5 gap-1.5` + 도트 + 라벨). 치수는 겉이 정한다. */}

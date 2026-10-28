@@ -2,11 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { buildCodexReviewArgs, effectiveReviewTarget } from './codexReviewService.js';
 
 /**
- * §5.25 (N) — `codex review` 인자 조립.
- *
- * 못 박는 것 셋: ① **위험 플래그가 새지 않는다**(`--dangerously-*` 금지 — 안전선),
- * ② **값이 필요한 대상에 빈 값이 실리지 않는다**(빈 브랜치 이름은 엉뚱한 것을 보게 한다),
- * ③ **권한 표는 스폰 경로와 같은 한 벌**을 쓴다(두 벌이면 한쪽만 고쳐진다).
+ * §5.25 (N) — `codex review` 인자 조립 시험. 못 박는 것 셋:
+ * ① 위험 플래그(`--dangerously-*`)가 새지 않는다 ② 값이 필요한 대상에 빈 값이 실리지 않는다(빈 브랜치 이름은 엉뚱한 것을 본다) ③ 권한 표는 스폰 경로와 같은 한 벌이다.
  */
 
 /** `codex review --help`(0.159.2)가 받는 옵션 전부. 이 밖의 플래그는 인자 파싱에서 exit 2 로 죽는다. */

@@ -1,22 +1,7 @@
 /**
- * §5.5 #17-32 — "지금 이 세션이 도는 동안 실제로 실행되는 훅" 인벤토리 + 켜고 끄기.
- *
- * #17-31(MCP)이 세운 규율을 그대로 따른다: **새 설정 포맷을 발명하지 않고** Claude Code 가
- * 실제로 읽는 파일을 매번 다시 읽어 목록을 세운다. 디스크가 SSOT 라 상태를 들지 않는다 —
- * 캐시·broadcast·checkpoint 미관여.
- *
- * 읽는 곳(Claude Code 자신의 설정 우선순위와 같은 넷):
- *   - `~/.claude/settings.json`                  → 글로벌(user) — 모든 프로젝트에서 돈다
- *   - `<루트>/.claude/settings.json`             → 프로젝트(레포에 커밋되는 공유 자산)
- *   - `<루트>/.claude/settings.local.json`       → 로컬(내 컴퓨터에서만)
- *   - managed-settings.json                      → 관리자 정책(읽기 전용)
- *
- * 끄기(④): Claude Code 에는 훅을 끄는 손잡이가 **없다**(플래그도 하위명령도 없다). 그래서
- * 파일에서 지우는 대신 **그 명령 객체를 같은 블록 안 `_vibisualDisabled` 로 옮겨 담는다** —
- *   · `hooks` 배열에서 빠졌으니 Claude Code 는 그 명령을 실행하지 않는다,
- *   · 원문이 바로 옆에 그대로 남아 있어 되돌리기가 손실 없는 이동 한 번이다,
- *   · 우리 흔적이 **블록 안**에만 산다(이미 `_vibisualManaged` 표식이 증명된 그 자리).
- * 사용자 파일을 지우는 방향의 오차를 만들지 않는 것이 이 모듈의 유일한 규율이다.
+ * §5.5 #17-32 — 이 세션에서 실제로 도는 훅 인벤토리 + 켜고 끄기. CLI 가 읽는 넷(user·프로젝트·local·managed 읽기 전용)을 매번 다시 읽는다(디스크가 SSOT, 상태 없음).
+ * CLI 에는 훅 끄는 손잡이가 없어 명령 객체를 같은 블록 안 `_vibisualDisabled` 로 옮긴다 — 실행에서 빠지고 되돌리기는 손실 없는 이동이다.
+ * **사용자 파일을 지우는 방향의 오차를 만들지 않는다.**
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -69,13 +54,7 @@ function readJsonObject(file: string): Record<string, unknown> | null {
   }
 }
 
-/**
- * 관리자(managed) 설정 — 플랫폼별 고정 위치. 없으면 없는 대로 둔다.
- *
- * 플랫폼·환경변수를 **인자로 받는다**(기본값은 이 프로세스의 것). 그래야 win/mac/linux 세 경로를
- * 개발기 한 대에서 다 시험할 수 있다 — 함수 안에서 `process.platform` 을 읽으면 그 두 가지는
- * 영영 실행되지 않는다.
- */
+/** 관리자 설정의 플랫폼별 위치(없으면 없음). 플랫폼·환경변수를 인자로 받아 세 OS 를 한 대에서 시험한다. */
 export function managedSettingsPath(
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
@@ -99,11 +78,7 @@ function settingsFiles(projectPath: string): { scope: HookScope; file: string }[
   ];
 }
 
-/**
- * 명령 원문 → 짧고 안정된 지문. 목록 키에 인덱스를 쓰지 않기 위한 것이다(파일이 바뀌면
- * 인덱스는 다른 훅을 가리키지만 지문은 그렇지 않다). 충돌해도 손해가 없는 표시용이라
- * 암호학적 해시가 아니라 32비트 FNV-1a 로 충분하다.
- */
+/** 목록 키용 명령 지문(인덱스는 파일이 바뀌면 다른 훅을 가리킨다). 표시용이라 32비트 FNV-1a 로 충분하다. */
 export function hashHookCommand(command: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < command.length; i += 1) {
@@ -205,14 +180,7 @@ export function scanHookInventory(projectPath: string): HookInventory {
   return { projectPath, hooks, scanned, scannedAt: Date.now() };
 }
 
-/**
- * 켜기/끄기 — 그 명령 객체를 `hooks` ↔ `_vibisualDisabled` 사이로 **옮긴다**(④).
- *
- * 지우지 않으므로 되돌리기가 항상 가능하고, 파일이 파싱되지 않으면 **쓰지 않는다** —
- * 남의 설정 파일을 망가뜨리는 것보다 토글이 안 되는 편이 낫다(#17-31 ④ 와 같은 판단).
- * 대조는 인덱스가 아니라 (이벤트 · matcher · 명령 원문) 세 값이라 파일이 그새 바뀌어도
- * 엉뚱한 줄을 건드리지 않는다.
- */
+/** 켜기/끄기 — `hooks` ↔ `_vibisualDisabled` 이동(④). 파싱 실패면 쓰지 않는다. 대조는 (이벤트·matcher·명령 원문)이라 그새 파일이 바뀌어도 엉뚱한 줄을 안 건드린다. */
 export function setHookEnabled(
   projectPath: string,
   scope: HookScope,

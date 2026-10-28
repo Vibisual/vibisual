@@ -15,11 +15,8 @@ function sameImage(a: ImageDocument, b: ImageDocument): boolean {
 }
 
 /**
- * §5.13 (R-9)(R-10) — the editable image document of one Vibimage window.
- *
- * - Polls only the source head (revision + candidate stamp); the full source / candidate list is read on a change.
- * - Edits with the same `coalesce` key (typing in one field, dragging one colour) are one undo step until `endEdit`.
- * - A save that only moved inline pictures into the blob store adopts the stored payload, so the editor is clean.
+ * §5.13 (R-9)(R-10) — one Vibimage window's editable document. Polls only the head (revision + candidate stamp); the full source/list is read on a change.
+ * Edits with the same `coalesce` key are one undo step until `endEdit`. A save that only moved inline pictures to the blob store adopts the stored payload (stays clean).
  */
 export function useImageDocument(root: string, initialId: string) {
   const [doc, setDoc] = useState<ImageSourceDoc | null>(null);

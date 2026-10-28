@@ -7,14 +7,7 @@ import { TASK_CHIP_START_SUBTYPE } from '@vibisual/shared';
 import { SubAgentManager } from './subAgentManager.js';
 import { resetBackgroundTaskOutputCache } from './backgroundTaskOutput.js';
 
-/**
- * §5.5 #17-9 ⑬ — 세션이 **살아 있는 동안**에도 끝난 작업을 내린다.
- *
- * 여기서 고정하는 상황이 사용자가 본 그 화면이다: 세션은 상주 프로세스라 탭이 열려 있는 한
- * `isSessionProcessGone()` 이 결코 참이 되지 않고(=①② 가 손을 못 댄다), 끝 통지(`task_notification`)
- * 는 유실됐다. 종전에는 이 조합에서 항목이 **영영** "실행 중"으로 남았다(실측 2026-09-01,
- * 목적을 다한 `tail -f` 둘이 10·16분째). 유일하게 남은 근거가 하니스가 출력 파일에 쓴 종료 표식이다.
- */
+/** §5.5 #17-9 ⑬ — 상주 세션이 살아 있어도(`isSessionProcessGone()` 거짓) 끝 통지를 잃은 작업을 하니스의 종료 표식으로 내린다(실측 2026-09-01). */
 const PARENT = 'agent-endmarker';
 /** 실제 임시 폴더 아래에 우리 이름의 슬러그 한 겹만 만든다(다른 세션 폴더는 건드리지 않는다). */
 const SLUG = 'vibisual-endmarker-test';

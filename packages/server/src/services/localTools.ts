@@ -1,21 +1,8 @@
 /**
- * localTools.ts — §5.19 (H) 로컬 모델이 실제로 파일을 읽고 고치는 자리.
- *
- * **왜 이 파일이 있는가**: 클로드 경로에서는 도구를 `claude` CLI 가 들고 있다. 로컬에는 그
- * CLI 가 없으므로 **우리가 도구를 준다** — 그러지 않으면 로컬 버블은 영원히 채팅창이고,
- * "같은 프로젝트의 파일을 고친다"는 목적에 한 발짝도 못 간다.
- *
- * **경계 셋**:
- *  1. **프로젝트 루트 밖으로 못 나간다.** 경로는 전부 루트 기준으로 풀고, 푼 결과가 루트
- *     안이 아니면 거절한다(`..` 도 심볼릭 링크도 여기서 걸린다). 모델이 시키는 대로 파일을
- *     여는 자리라, 이 가드가 없으면 프롬프트 한 줄로 홈 디렉터리가 열린다.
- *  2. **결과는 잘라서 준다.** 도구 결과는 그대로 문맥에 쌓인다 — 큰 파일 한 번이면 대화가
- *     통째로 막힌다. 자를 때는 **잘랐다고 말한다**(모델이 전부인 줄 알면 잘못 판단한다).
- *  3. **판정하지 않는다.** 이 파일은 시키는 것을 하고 결과를 돌려줄 뿐, 허용 여부는
- *     호출자가 `resolveLocalToolGate` + 권한 브로커로 이미 정하고 들어온다.
- *
- * 도구 이름은 클로드 경로와 **같은 이름**이다(§5.19 (H)) — 권한 팝업·감사·도구 카드가 전부
- * 이름으로 갈라지므로, 다른 이름을 쓰면 같은 일이 화면에서 남남이 된다.
+ * localTools.ts — §5.19 (H) 로컬 모델이 파일을 읽고 고치는 자리(로컬엔 도구를 든 CLI 가 없다).
+ * ① 루트 밖으로 못 나간다 — 루트 기준으로 풀어 안이 아니면 거절(`..`·링크 포함). 없으면 프롬프트 한 줄로 홈이 열린다.
+ * ② 결과는 잘라서 주고 잘랐다고 말한다(그대로 문맥에 쌓인다). ③ 판정하지 않는다 — 허용은 호출자가 `resolveLocalToolGate` + 권한 브로커로 정한다.
+ * 도구 이름은 클로드 경로와 같게 — 권한 팝업·감사·도구 카드가 이름으로 갈라진다.
  */
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -75,12 +62,8 @@ export function resolveInRoot(
   platform: PlatformName = process.platform,
 ): string | null {
   if (!candidate || typeof candidate !== 'string') return null;
-  // ⚠️ 링크는 **양쪽 다** 푼다. 대상만 풀고 루트를 안 풀면, 루트가 링크 위에 놓이는 순간
-  //    루트 안의 파일이 전부 "밖"으로 판정된다 — mac 의 `/tmp`·`/var` 는 `/private/…` 로
-  //    가는 링크라 거기 둔 프로젝트는 도구가 한 파일도 못 연다(2026-08-28 CI mac 러너에서
-  //    이 파일 8건이 그렇게 죽었다. win 은 tmp 가 링크가 아니라 초록이었다 — 개발기 한 대로는
-  //    영영 안 보이는 종류다). 링크를 푸는 목적은 **링크로 밖을 가리키는 경로를 막는 것**이지
-  //    링크 위에 놓인 프로젝트를 통째로 막는 것이 아니다.
+  // 링크는 양쪽 다 푼다 — 루트를 안 풀면 링크 위의 루트(mac `/tmp` → `/private/…`)에서 안쪽 파일이 전부 "밖"이 된다(2026-08-28 CI mac 실측).
+  // 막을 것은 링크로 밖을 가리키는 경로다.
   const rootAbs = resolvePathWithLinks(root);
   if (!rootAbs) return null;
   const abs = path.resolve(rootAbs, candidate);
@@ -292,10 +275,7 @@ function toolBash(root: string, args: Record<string, unknown>, signal?: AbortSig
   }
   return new Promise<LocalToolOutcome>((resolve) => {
     const isWin = process.platform === 'win32';
-    // §5.19 (H) — 셸에 **보강된 PATH** 를 물려준다. Finder/Dock 으로 띄운 macOS 앱은 launchd 의
-    //   최소 PATH(`/usr/bin:/bin:/usr/sbin:/sbin`)만 들고 있어, env 를 넘기지 않으면 모델이 부른
-    //   `git`·`node`·`pnpm`(전부 Homebrew 자리)이 죄다 `command not found` 로 돌아온다.
-    //   모델은 그걸 "이 프로젝트엔 그 도구가 없다"로 읽고 엉뚱한 우회를 시작한다.
+    // §5.19 (H) — 보강된 PATH 를 물려준다(macOS 앱의 launchd 최소 PATH 로는 Homebrew 도구가 `command not found`).
     const env = augmentedEnv();
     const child = isWin
       ? spawn(process.env['COMSPEC'] ?? 'cmd.exe', ['/d', '/s', '/c', command], { cwd: root, windowsHide: true, env })
@@ -327,14 +307,8 @@ function toolBash(root: string, args: Record<string, unknown>, signal?: AbortSig
   });
 }
 
-/**
- * 도구 한 건을 실행한다. **던지지 않는다** — 실패도 모델이 읽고 고쳐 쓸 수 있게 결과로 준다
- * (여기서 예외가 새면 턴 전체가 죽고, 모델은 무엇이 잘못됐는지 영영 모른다).
- */
-// ─── §5.19 (H) 바깥을 보는 도구 — 로컬 모델에게 특히 필요한 것 ───
-//
-// 로컬로 돌리는 모델은 학습 시점이 뒤처져 있고, 그 사실을 **자기가 모른다**. 파일만 보여 주면
-// 옛 API 를 오늘 것인 양 쓴다. 그래서 바깥을 볼 수단은 클로드 경로보다 여기서 더 중요하다.
+/** `runLocalTool` — 도구 한 건 실행. **던지지 않는다** — 실패도 결과로 준다(예외가 새면 턴이 죽고 모델은 무엇이 잘못됐는지 모른다). */
+// §5.19 (H) 바깥을 보는 도구 — 로컬 모델은 학습 시점이 뒤처진 줄 모르고 옛 API 를 쓴다. 그래서 여기서 특히 중요하다.
 
 /** HTML 을 사람이 읽는 글로 접는다. 파서를 들이지 않는다 — 우리가 필요한 건 본문뿐이다. */
 export function htmlToText(html: string): string {
@@ -405,13 +379,7 @@ function collapseSpaces(s: string): string {
   return s.split(/\s+/).join(' ').trim();
 }
 
-/**
- * 요약 자리에 실려 오는 페이지 본문을 읽을 수 있게 다듬는다.
- *
- * 검색 창구는 `description` 에 **긁어 온 마크다운**을 그대로 담아 준다(실측 — `# 제목`,
- * `[Link for this heading](…)` 같은 것이 240자 중 절반을 먹는다). 모델이 볼 것은 "이 페이지가
- * 무슨 내용인가" 한 줄이므로, 링크는 글자만 남기고 장식 기호는 걷어낸다.
- */
+/** 요약 자리의 본문을 다듬는다 — 검색 창구는 `description` 에 긁은 마크다운을 준다(실측: 240자 중 절반이 `# 제목`·링크). 링크는 글자만, 장식은 걷는다. */
 export function tidySnippet(raw: string): string {
   let s = raw;
   // [글자](주소) → 글자 · ![대체글](주소) → 대체글
@@ -423,15 +391,8 @@ export function tidySnippet(raw: string): string {
 }
 
 /**
- * 웹 검색 — **공식 창구를 부른다**(선택 근거는 shared `LOCAL_WEB_SEARCH_API_URL` 주석).
- *
- * 종전에는 검색 결과 **화면**(`html.duckduckgo.com`)을 받아 HTML 을 파싱했다. 키가 필요 없다는
- * 이유 하나로 골랐지만 그건 그 서비스 약관이 금지하는 자동 조회였고, 배포되는 제품이라
- * 우리 사용자들이 차단 대상이 되는 자리였다. 지금은 공개된 검색 API 를 부른다 — 키 없이도
- * 되고, 더 쓰려는 사용자는 `FIRECRAWL_API_KEY` 를 환경변수로 두면 자기 키로 올라간다.
- *
- * **못 읽으면 못 읽었다고 말하고 끝낸다** — 조용히 빈 결과를 주면 모델은 "검색해도 아무것도
- * 없다"로 잘못 배운다. 특히 한도를 넘긴 429 는 그 사실을 그대로 알려야 사용자가 손을 쓴다.
+ * 웹 검색 — 공개 검색 API 를 부른다(근거는 shared `LOCAL_WEB_SEARCH_API_URL`). 키가 필요 없어도 결과 화면 HTML 을 긁지 마라 — 약관이 금지하는 자동 조회다.
+ * 키 없이 되고 `FIRECRAWL_API_KEY` 가 있으면 그 키로. 못 읽으면(429 포함) 못 읽었다고 말한다 — 빈 결과면 모델이 "없다"로 배운다.
  */
 async function toolWebSearch(args: Record<string, unknown>, signal?: AbortSignal): Promise<LocalToolOutcome> {
   const query = typeof args['query'] === 'string' ? args['query'].trim() : '';

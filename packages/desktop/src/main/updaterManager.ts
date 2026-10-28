@@ -19,42 +19,17 @@ import { recordDiagnostic } from '@vibisual/server';
 import { openExternalWithNotice } from './externalOpen';
 import { prepareSelfInstall, runSwap, type StagedUpdate } from './macSelfInstall';
 
-// 자동 업데이트 매니저 — SCENARIO.md §4 v2.44 (electron-updater + GitHub Releases).
-//
-// VS Code 우상단 파란 업데이트 버튼과 같은 모델 — 앱이 GitHub Releases 의 최신 빌드를
-// 감지 → 자동 다운로드 → 재시작 시 적용. 업데이트 상태는 프로젝트 그래프 데이터가 아니라
-// Electron *shell* 상태라 server 코어/GraphSnapshot 을 거치지 않고, §5.4 #14-1 별창
-// (windowManager.broadcastList) 선례대로 전용 IPC 채널(`vibisual:update:status`)로 모든
-// renderer 에 직접 푸시한다. invoke 핸들러(check/install/get-state)는 ipc.ts 가 등록한다.
-//
-// ⚠️ **전달 방식은 플랫폼마다 다르다.** `resolveUpdateDelivery`(shared, 플랫폼을 인자로 받는
-// 순수 판정)로 갈라진다:
-//   - `auto-install`(Windows·Linux·서명된 mac) : 종전 그대로 electron-updater 가 받고 적용
-//   - `self-install`(무서명 mac)                : **우리가 직접 받아 직접 교체**(macSelfInstall.ts)
-//
-// 무서명 macOS 에서 Squirrel.Mac 이 서명 검증을 **강제**하는 것은 사실이지만, 그 검증은
-// **Squirrel 의 적용 경로 안**에 있다 — 우리가 적용하면 그 코드가 아예 돌지 않는다. Gatekeeper
-// 의 첫 실행 차단도 서명이 아니라 `com.apple.quarantine` **속성**이 발동시키고, 그 속성은
-// **파일을 받은 프로그램이 붙인다**(브라우저는 붙이고 CLI·Node 는 안 붙인다). 그래서 받는 것도
-// 적용하는 것도 우리가 하면 둘 다 발동하지 않는다. 종전 `notify-only`(알리고 릴리스 페이지 열기)
-// 는 걷어냈다 — 사용자에게 업데이트마다 첫 설치를 통째로 반복시키는 방식이었다.
-// 판정 근거와 승격 조건은 shared `updateDelivery.ts` 머리말에 있다.
-//
-// 중요 — `app.isPackaged === false`(=`electron-vite preview` = /runapp) 면 no-op.
-// electron-updater 는 패키지 빌드에만 동봉되는 app-update.yml(electron-builder 의 publish
-// 설정으로 베이킹)을 읽으므로 preview/개발 경로에선 동작하지 않는다. 실 설치본 전용.
+// 자동 업데이트 매니저 — SCENARIO.md §4 (electron-updater + GitHub Releases). 상태는 shell 상태라 server 코어를 안 거치고 `vibisual:update:status` 로 민다.
+// 전달은 플랫폼마다 다르다(`resolveUpdateDelivery`): `auto-install`(Windows·Linux·서명 mac) = electron-updater, `self-install`(무서명 mac) = 우리가 받아 교체.
+// 무서명 mac 에서 우리가 받고 적용하면 Squirrel 서명 검증도 Gatekeeper(`com.apple.quarantine`)도 안 돈다(근거: shared `updateDelivery.ts`).
+// `app.isPackaged === false`(/runapp preview)면 no-op — app-update.yml 은 패키지 빌드에만 있다.
 
 // electron-updater 는 CJS default export 라 named import 가 불안정 — default 에서 꺼낸다.
 const { autoUpdater } = pkg;
 
 /**
- * 이 빌드의 macOS 바이너리에 Developer ID 서명 + 공증이 붙어 있는가.
- *
- * ⚠️ `packages/desktop/electron-builder.yml` 의 mac 섹션과 **짝**이다. 지금 그 파일에는
- * 서명 설정이 없으므로(인증서 슬롯 미배선) `false` 다. Apple Developer 인증서를 배선하는
- * 라운드에서 **이 상수도 함께 켜야** mac 이 `auto-install` 로 돌아온다. 한쪽만 바꾸면
- * 서명은 됐는데 여전히 알림형으로 남거나(이 상수만 false), 서명이 없는데 자동 설치를
- * 시도해 종전 오류가 재발한다(이 상수만 true).
+ * 이 빌드의 mac 바이너리에 Developer ID 서명 + 공증이 있는가. `electron-builder.yml` mac 서명 설정과 **짝**이다(지금 없음 → `false`).
+ * 한쪽만 바꾸면 서명했어도 `auto-install` 로 안 돌아오거나, 서명 없이 자동 설치를 시도해 실패한다.
  */
 const MAC_CODE_SIGNED = false;
 
@@ -75,15 +50,8 @@ function broadcast(): void {
 }
 
 /**
- * 업데이터 신호를 **규칙 한 곳**(`reduceUpdateState`)에 통과시켜 상태로 바꾼다.
- *
- * ⚠️ 상태를 바꾸는 길은 이것 하나다. 종전의 `patchState({ phase: … })` 처럼 임의 패치를
- * 허용하면 규칙이 다시 호출부로 흩어지고, 흩어진 규칙은 테스트가 못 붙든다.
- *
- * 이벤트마다 `phase` 를 직접 찍던 것을 여기로 모은 이유: 주기 체크가
- * 이미 받아 둔 업데이트를 지우고 있었다. 오프라인에서 4시간짜리 체크가 실패하면
- * `phase:'error'` 가 되어 `quitAndInstall` 이 거절했고, 디스크에 멀쩡히 있는 설치본을 다음
- * 성공 체크까지 못 깔았다. 규칙을 순수 함수로 뽑으면 그 전이를 단위 테스트로 붙들 수 있다.
+ * 업데이터 신호를 `reduceUpdateState` 한 곳에 통과시킨다 — 상태를 바꾸는 길은 이것 하나다(임의 `patchState` 는 규칙을 흩어 시험이 못 붙든다).
+ * 이벤트마다 phase 를 찍으면 오프라인 주기 체크 실패가 `phase:'error'` 로 받아 둔 업데이트를 지워 `quitAndInstall` 이 거절한다.
  */
 function applyEvent(ev: UpdateEvent): void {
   state = reduceUpdateState(state, ev);
@@ -106,13 +74,8 @@ let staged: StagedUpdate | null = null;
 let preparing = false;
 
 /**
- * 새 버전을 우리 손으로 받아 검사하고 임시 위치에 꺼내 둔다(`macSelfInstall.prepareSelfInstall`).
- * 성공하면 `phase:'downloaded'` 로 올라가 종전과 **같은 버튼 흐름**을 탄다 — 사용자가
- * "재시작하여 업데이트" 를 누르면 v2.63 확인 모달을 거쳐 교체가 일어난다.
- *
- * 실패는 조용히 넘어가지 않는다. `errorCode` 로 사유를 실어 보내 화면이 제 나라 말로 말하게 하고,
- * 원문은 진단 로그에 남긴다. **어느 실패 경로에서도 설치는 시작되지 않으므로** 앱은 종전 버전
- * 그대로 산다.
+ * 새 버전을 직접 받아 검사·임시 위치에 꺼낸다(`prepareSelfInstall`) — 성공하면 `phase:'downloaded'` 로 같은 버튼 흐름을 탄다.
+ * 실패는 `errorCode` 로 화면에, 원문은 진단 로그에. 어느 실패에서도 설치는 시작되지 않는다(지금 버전 그대로).
  */
 async function beginSelfInstall(version: string): Promise<void> {
   if (preparing) return;
@@ -231,10 +194,8 @@ export function initAutoUpdater(): void {
     applyEvent({ kind: 'error', message, at: Date.now() });
   });
 
-  // 첫 체크는 윈도우가 뜬 직후(~10s)에 1회 — 부팅 직후 새 버전을 빨리 알린다.
-  // 이후 UPDATE_CHECK_INTERVAL_MS 주기로 반복 체크. self-install 도 체크 경로는 **같다** —
-  // 갈리는 것은 `update-available` 이후(누가 받는가)뿐이고, 주기 체크가 같은 버전을 다시
-  // 물어와도 `beginSelfInstall` 의 `preparing`·`staged.version` 가 재다운로드를 막는다.
+  // 첫 체크는 창이 뜬 직후(~10s) 1회, 이후 UPDATE_CHECK_INTERVAL_MS 주기. self-install 도 체크는 같다 —
+  // 같은 버전을 다시 물어와도 `preparing`·`staged.version` 이 재다운로드를 막는다.
   initialTimer = setTimeout(() => {
     void checkForUpdates();
   }, 10_000);
@@ -245,21 +206,9 @@ export function initAutoUpdater(): void {
 }
 
 /**
- * 업데이트 피드를 우리 프록시로 돌린다 — **한 번만, 그리고 안 되면 조용히 종전 그대로.**
- *
- * 왜 프록시를 두는지는 shared `updateFeed.ts` 머리말에 있다(요지: 업데이트 확인 요청 로그가
- * 데스크톱 앱에서 "쓰는 사람 수"를 재는 업계 통상 경로인데, GitHub 에 직접 물으면 우리에게
- * 남는 것이 `latest.yml` 다운로드 수 한 줄뿐이라 1대인지 여럿인지 가릴 수 없다).
- *
- * 이 함수는 **깨지지 않는 것**이 첫째 목표다:
- *   - `UPDATE_FEED_URL` 이 비어 있으면(배포 전 기본값) 네트워크도 안 건드리고 그냥 돌아온다.
- *     그러면 `setFeedURL` 이 호출되지 않으므로 electron-updater 는 `app-update.yml` 에
- *     구워진 GitHub 프로바이더를 그대로 쓴다 = **오늘 동작과 완전히 같다.**
- *   - 주소가 있어도 실제로 응답하는지 먼저 확인하고, 안 되면 GitHub 으로 둔다.
- *   - `setFeedURL` 자체가 던져도 삼킨다(던진 시점에는 아직 바뀌지 않았으므로 역시 종전 동작).
- *
- * 결정은 세션당 1회다. 도중에 프록시가 죽으면 그 세션은 계속 실패하는데, 그건 종전에
- * GitHub 이 죽었을 때와 같은 상태이고 다음 실행에서 폴백으로 복구된다.
+ * 업데이트 피드를 우리 프록시로 돌린다 — GitHub 직접이면 `latest.yml` 다운로드 수뿐이라 1대인지 여럿인지 못 가린다(shared `updateFeed.ts`).
+ * 깨지지 않는 것이 첫째: `UPDATE_FEED_URL` 이 비면 손대지 않고(`app-update.yml` 의 GitHub 그대로), 응답을 먼저 확인하며, `setFeedURL` 이 던져도 삼킨다.
+ * 결정은 세션당 1회 — 도중에 프록시가 죽으면 그 세션만 실패하고 다음 실행에서 폴백한다.
  */
 let feedConfigured: Promise<void> | null = null;
 
@@ -329,20 +278,9 @@ export async function checkForUpdates(): Promise<UpdateState> {
 }
 
 /**
- * 설치기를 아직 띄우지 않은 **예약** 상태인가. `before-quit` 정리 경로가 읽는다.
- *
- * ⚠️ **왜 예약이 필요한가 — 설치기를 먼저 띄우면 업데이트가 실패한다.**
- * `autoUpdater.quitAndInstall()` 은 NSIS 설치기를 **먼저 spawn 하고** 그 다음에 `app.quit()`
- * 을 건다. 그런데 electron-builder 의 업데이트용 언인스톨러는 설치 폴더의 파일을 하나씩
- * **rename 해서 들어내는** 방식이라(`un.atomicRMDir`), 그 시점에 `Vibisual.exe` 가 아직 살아
- * 있으면 첫 파일에서 막히고 → 1초 간격 5회 재시도 후 포기 → "Failed to uninstall old
- * application files" 대화상자 → `SetErrorLevel 2; Quit` 으로 **설치도 재기동도 하지 않는다.**
- * 사용자에게는 "눌렀는데 앱만 닫히고 그대로"로 보인다.
- *
- * 2026-08-27 실측(v0.1.12 → 0.1.13): 정리 시작 12:39:04 → 설치기 첫 rename 시도 12:39:11 →
- * **프로세스가 실제로 사라진 시각 12:40:12**. 우리 종료 정리가 68초 걸려 설치기는 한참 전에
- * 포기한 뒤였다. 그래서 이제 여기서는 **예약만** 하고, 실제 발사는 정리가 끝나 프로세스가
- * 죽기 직전(`runPendingUpdateInstall`)에 한다 — 설치기가 보는 앱은 이미 없다.
+ * 설치기를 아직 안 띄운 **예약** 상태인가(`before-quit` 이 읽는다). 먼저 띄우면 업데이트가 실패한다 — NSIS 언인스톨러는 파일을 rename 으로
+ * 들어내(`un.atomicRMDir`) `Vibisual.exe` 가 살아 있으면 5회 재시도 뒤 포기한다(설치·재기동 없음). 2026-08-27 실측: 종료 정리 68초.
+ * 그래서 예약만 하고 발사는 정리가 끝난 뒤(`runPendingUpdateInstall`).
  */
 let installPending = false;
 
@@ -352,11 +290,8 @@ export function isUpdateInstallPending(): boolean {
 }
 
 /**
- * 예약된 설치기를 **지금** 띄운다. 종료 정리를 모두 마치고 `app.exit()` 직전에 한 번만 부른다.
- * 예약이 없으면 아무것도 하지 않고 `false`.
- *
- * spawn 은 동기(자식 pid 가 즉시 잡힌다) + `detached` 라 곧바로 프로세스를 내려도 살아남는다.
- * 다만 호출부는 spawn 직후 한 틱 정도 여유를 주고 나가는 편이 안전하다.
+ * 예약된 설치기를 지금 띄운다 — 종료 정리를 마친 `app.exit()` 직전에 한 번만(예약이 없으면 `false`). spawn 은 동기 + `detached` 라 곧바로
+ * 내려도 살지만, 호출부는 한 틱쯤 여유를 둔다.
  */
 export function runPendingUpdateInstall(): boolean {
   if (!installPending) return false;
@@ -392,16 +327,8 @@ export function runPendingUpdateInstall(): boolean {
 }
 
 /**
- * 업데이트 **적용 액션**. renderer 의 `api.update.install()`(IPC `vibisual:update:install`)이
- * 부른다. 전달 방식에 따라 하는 일이 다르다:
- *
- * - `auto-install` : 다운로드 완료 상태에서만 설치를 예약하고 종료를 건다(설치기 발사는
- *                    정리 후 `runPendingUpdateInstall`). 그 외에는 no-op.
- * - `self-install` : 우리가 꺼내 둔 번들이 있을 때만 같은 방식으로 예약한다(교체는 정리 후).
- *                    준비가 실패해 `phase:'error'` 인 상태에서는 **릴리스 페이지를 연다** —
- *                    전달 방식이 아니라 막혔을 때의 **복구 손잡이**다.
- *
- * 반환값은 "액션을 실제로 수행했는가" — 채널 계약(boolean)은 종전과 같다.
+ * 업데이트 적용(`vibisual:update:install`). 반환 = 실제로 수행했는가. `auto-install` 은 다운로드 완료일 때만, `self-install` 은 꺼낸 번들이 있을 때만
+ * 설치를 예약하고 종료를 건다(발사는 정리 뒤). self-install 준비 실패(`phase:'error'`)면 릴리스 페이지를 연다 — 복구 손잡이.
  */
 export function quitAndInstall(): boolean {
   if (!app.isPackaged) return false;
@@ -409,8 +336,7 @@ export function quitAndInstall(): boolean {
   // self-install 이 막힌 상태에서 누른 것 — 손으로 받을 길이라도 열어 준다.
   if (delivery === 'self-install' && state.phase === 'error') {
     const url = releasesPageUrl(state.newVersion);
-    // §3.7 — 열기가 실패하면 화면에도 안내가 뜬다(종전에는 로그에만 남아 버튼이 죽은 것처럼 보였다).
-    // 누른 창을 특정할 수 없는 자리라 sender 를 주지 않는다 → 전 창 broadcast.
+    // §3.7 — 열기가 실패하면 화면에도 안내를 띄운다(로그에만 남으면 버튼이 죽은 것처럼 보인다). 누른 창을 특정할 수 없어 sender 없이 전 창 broadcast.
     openExternalWithNotice(url, null, ({ reason }) => {
       recordDiagnostic('main', 'warn', `auto-update: open releases page failed (${reason}): ${url}`);
     });

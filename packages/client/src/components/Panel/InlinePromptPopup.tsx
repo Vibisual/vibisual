@@ -17,7 +17,7 @@ interface Props {
   onClose: () => void;
 }
 
-/** §7.13 v1.47 — frame element 클릭 시 옆에 떠서 한 줄 프롬프트 + 재가동 */
+/** §7.13 — frame element 클릭 시 옆에 떠서 한 줄 프롬프트 + 재가동. */
 export function InlinePromptPopup({
   contiId,
   frameId,
@@ -39,8 +39,7 @@ export function InlinePromptPopup({
     ref.current?.focus();
   }, []);
 
-  // 화면 끝 클램프는 **실제 크기**로 — 종전에는 키를 180px 로 가정해(폭은 300px 에 여백 20px) 폰 폭·긴 번역에서
-  //   아래·옆이 잘렸다. 상자는 3줄 고정이라 한 번 재면 된다.
+  // 화면 끝 클램프는 실측 크기로(가정하면 폰·긴 번역에서 잘린다).
   useLayoutEffect(() => {
     const el = boxRef.current;
     if (!el) return;

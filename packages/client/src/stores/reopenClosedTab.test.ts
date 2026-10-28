@@ -3,17 +3,8 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { useGraphStore } from './graphStore.js';
 
 /**
- * §5.4 #14-4 — "닫은 탭 다시 열기"의 **클라 쪽 배선**을 못 박는다.
- *
- * 서버가 목록의 SSOT 라 쌓기·꺼내기 규칙은 `server/src/closedTabs.test.ts` 가 지킨다. 여기서
- * 지키는 것은 그 결과가 화면에 앉는 두 자리다.
- *
- * ① **닫자마자 되열면 탭이 바로 보여야 한다.** 탭바는 `closingProjectPaths` 에 든 탭을 안 그리고,
- *    그 표시는 "서버 truth 에서 사라지면" 걷힌다. 그런데 되열면 서버 truth 에 **도로 실려 오므로**
- *    그 조건이 영영 안 서고, 유예 5초가 지나서야 탭이 나타난다 — 되돌리기가 주 사용례인 기능에서
- *    "눌러도 아무 반응 없음"이 그대로 재현되는 자리다.
- * ② **iframe 탭은 클라가 되살린다.** 서버는 그 탭의 존재를 모르므로 꺼내 준 항목으로 여기서
- *    다시 열어야 한다 — 안 하면 목록에서는 사라지는데 탭은 안 열리는, 되돌릴 수도 없는 상태가 된다.
+ * §5.4 #14-4 — "닫은 탭 다시 열기"의 **클라 쪽 배선**(쌓기·꺼내기 규칙은 `server/src/closedTabs.test.ts`).
+ * ① 닫자마자 되열면 탭이 바로 보여야 한다(닫는 중 표시가 남으면 유예 5초 뒤에야) ② iframe 탭은 클라가 되살린다(서버는 그 탭을 모른다).
  */
 
 const ORIGINAL_FETCH = globalThis.fetch;

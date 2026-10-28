@@ -1,19 +1,9 @@
 /**
- * §5.23 도메인 버블 · §2.4 노드 TTL — "유휴 버블은 제 시계대로 5분 뒤 화면에서 걷힌다"를 못 박는다.
- *
- * 배경: WebFetch/WebSearch 도메인 버블이 쌓이기만 했다. 원인은 둘이었다.
- *  ① 스냅샷 생존 필터 `isAlive` 와 표시 강등(`enrichNode`)의 대상 목록에 `domain` 이 빠져,
- *     §5.23 "TTL 은 일반 버블 경로 그대로" 와 달리 유휴 도메인 버블이 영영 남았다.
- *  ② `removeAgentRefs` 가 턴이 끝날 때마다 소유 기록이 남은 **모든** 유휴 노드의 `lastActivity` 를
- *     다시 찍어, 프로젝트 어디선가 턴이 끝나기만 하면 오래전에 사라졌어야 할 버블이 5분씩 되살아났다
- *     (실측: 유휴 file/folder/domain 1,876장 중 1,592장이 같은 ms 를 달고 있었다).
- *
- * 여기서 잠그는 계약:
- *  1. 에이전트가 끝나 유휴가 된 도메인 버블은 BUBBLE_TTL 이 지나면 스냅샷에서 빠진다.
- *  2. 작업 중(active)인 도메인 버블 · 고정한 도메인 버블은 오래돼도 남는다.
- *  3. 도는 에이전트가 없는 도메인 버블은 저장값이 active 여도 화면에는 idle 로 나간다.
- *  4. 다른 에이전트의 턴 종료(completed · idle 두 길)는 이미 유휴인 버블의 시계를 다시 감지 않는다 —
- *     file 버블도 같다. 이번에 내려가는 노드만 그 순간부터 5분을 받는다.
+ * §5.23 도메인 버블 · §2.4 노드 TTL — 유휴 버블은 제 시계대로 5분 뒤 화면에서 걷힌다.
+ * 막는 원인 둘: ① 생존 필터 `isAlive`·표시 강등(`enrichNode`) 대상에 `domain` 이 빠지면 유휴 도메인 버블이 영영 남는다.
+ * ② `removeAgentRefs` 가 턴 끝마다 모든 유휴 노드의 `lastActivity` 를 다시 찍으면 오래된 버블이 5분씩 되살아난다(실측: 유휴 1,876장 중 1,592장이 같은 ms).
+ * 계약: 1. 유휴 도메인 버블은 BUBBLE_TTL 뒤 스냅샷에서 빠진다. 2. active·고정 버블은 남는다. 3. 도는 에이전트가 없으면 저장값이 active 여도 idle 로 나간다.
+ * 4. 다른 에이전트의 턴 종료(completed·idle 두 길)는 이미 유휴인 버블(file 도)의 시계를 감지 않는다 — 이번에 내려가는 노드만 5분을 받는다.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
@@ -174,7 +164,7 @@ describe('§2.4 — 다른 에이전트의 턴 종료가 유휴 버블의 시계
     expect(early.lastActivity).toBe(T0);
     expect(late.lastActivity).toBe(T0 + 4 * MIN);
 
-    // 6분째 — 먼저 끝난 쪽만 걷힌다. 종전에는 4분째에 시계가 다시 감겨 둘 다 남았다.
+    // 6분째 — 먼저 끝난 쪽만 걷힌다(4분째 다른 턴 종료가 시계를 다시 감으면 둘 다 남는다).
     vi.setSystemTime(T0 + 6 * MIN);
     expect(shipped(graph, early.id)).toBeUndefined();
     expect(shipped(graph, late.id)).toBeDefined();

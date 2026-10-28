@@ -19,11 +19,7 @@ const MAX_LIST_HEIGHT = 320;
 interface FolderFileTreeProps {
   /** 폴더 노드의 path (서버 키) */
   folderPath: string;
-  /**
-   * 이 폴더의 **절대 경로**(스냅샷 값 그대로) — 서버 인스턴스 라우팅 힌트.
-   * 노드 키는 프로젝트 루트 기준 상대 경로라 `docs` 같은 흔한 이름은 프로젝트를 여러 개 열면
-   * 먼저 등록된 쪽이 답한다(`open-node-file` 이 `absolutePath` 를 함께 보내는 것과 같은 이유).
-   */
+  /** 절대 경로 = 서버 인스턴스 라우팅 힌트(상대 키 `docs` 같은 흔한 이름은 여러 프로젝트에서 엉뚱한 쪽이 답한다). */
   folderAbsPath?: string | undefined;
   /** 폴더 노드의 ID (store satellites 조회용) */
   nodeId: string;
@@ -33,13 +29,7 @@ interface FolderFileTreeProps {
   maxSatellites?: number;
 }
 
-/**
- * 체크박스 + 계층 트리 — 위성 파일을 시각적으로 토글.
- *
- * 목록은 **한 겹씩·한 장씩** 온다(§7.5) — 폴더를 펼치는 순간 그 겹을 부르고, 접으면 그 아래를
- * 즉시 버린다. 종전에는 폴더 하나를 통째로 재귀해 받았고, 외부 폴더 버블이 사용자 홈이면
- * 그 요청 하나가 창을 통째로 세웠다.
- */
+/** 목록은 한 겹씩·한 장씩(§7.5) — 펼칠 때 부르고 접으면 버린다(통째 재귀는 큰 폴더에서 창을 세운다). */
 export function FolderFileTree({ folderPath, folderAbsPath, nodeId, collectAll, maxSatellites }: FolderFileTreeProps): React.JSX.Element {
   const { t } = useTranslation();
   const effectiveMax = maxSatellites ?? DEFAULT_MAX_SATELLITES;
@@ -72,9 +62,7 @@ export function FolderFileTree({ folderPath, folderAbsPath, nodeId, collectAll, 
     return new Set(sats.map((s) => s.path.toLowerCase()));
   }, [storeSatellites, nodeId, collectAll]);
 
-  // ⚠ 위성이 바뀌어도 **목록을 다시 부르지 않는다**. 체크 여부는 위 store 에서 오고 응답에는
-  //   그 정보가 없다 — 종전에는 위성이 바뀔 때마다 트리를 통째로 다시 걸어 목록이 "불러오는 중"
-  //   으로 깜빡였다(§7.6 이 루트 패널에서 먼저 없앤 것과 같은 헛일).
+  // ⚠ 위성이 바뀌어도 목록을 다시 부르지 않는다(체크 여부는 store 에서 온다 — 다시 걸면 깜빡인다).
 
   // 위성 토글 → 서버 API → snapshot broadcast → store 자동 갱신
   const handleToggle = useCallback((filePath: string, show: boolean) => {

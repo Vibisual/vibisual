@@ -9,11 +9,7 @@ import { buildPickPrompt, describePickedElement } from './pickPrompt.js';
 import type { PreviewPicker } from './usePreviewPicker.js';
 import type { PreviewSnip } from './usePreviewSnip.js';
 
-/**
- * §7.11 (판올림 번호 발급 대기) + §5.17 — 프리뷰 위에 붙는 조작 줄 + 집은 요소·첨부 패널.
- *
- * 탭 프리뷰와 캔버스 프리뷰가 같은 화면 요소를 쓰도록 여기 하나로 둔다.
- */
+/** §7.11 · §5.17 — 프리뷰 조작 줄 + 집은 요소·첨부 패널(탭·캔버스 프리뷰 공용). */
 
 /** 요소 집기 아이콘 — 조준하는 네모(lucide `scan`/`crosshair` 톤). */
 function PickIcon(): React.JSX.Element {
@@ -49,11 +45,7 @@ interface PreviewControlsProps {
   picker: PreviewPicker;
   /** 없으면 [영역 캡처] 를 그리지 않는다(붙일 입력창이 없는 화면). */
   snip?: PreviewSnip | undefined;
-  /**
-   * 프리뷰 안에 우리 다리 스크립트가 있는가(기본 있음 — 프록시를 지난 로컬 프리뷰).
-   * `false` 면 그 스크립트가 있어야 도는 [요소 선택]·[Alt] 를 걷는다 — §5.23 「더블클릭」 인터넷 페이지(격리 웹뷰)에는
-   * 다리가 없어(§7.11 (F) "picker 는 프록시를 통과한 문서에만") 눌러도 아무 일도 없는 손잡이가 된다.
-   */
+  /** 다리 스크립트가 있나(기본 있음). `false` 면 [요소 선택]·[Alt] 를 걷는다 — §5.23 인터넷 페이지(격리 웹뷰)엔 다리가 없다. */
   bridge?: boolean | undefined;
 }
 
@@ -63,11 +55,8 @@ export function PreviewControls({ picker, snip, bridge = true }: PreviewControls
   // 한꺼번에 틀어지므로(멀티플랫폼 5축) 라벨도 설명문도 **여기서 만든 이름 하나**를 받아 쓴다.
   const altKey = shortcutLabel('Alt');
   return (
-    // 이 줄은 **되돌아오는 유일한 문**이다(§7.16 — 조작은 헤더 한 곳). 그래서 좁아져도 줄지 않고
-    // (`shrink-0`), 자리가 모자라면 잘리는 대신 아랫줄로 접힌다(`flex-wrap`) — 한 번 잘려 나가면
-    // 폭 프리셋을 되돌릴 방법이 화면에서 사라진다.
-    // `max-w-full` 이 그 접힘을 실제로 일으킨다 — 없으면 `shrink-0` 상자가 한 줄 폭(약 460px)을 고집해
-    // 폰(336px 줄)에서 접히지 않고 오른쪽이 잘려 [Alt]·[영역 캡처]에 닿을 수 없었다. 들어갈 때는 종전과 같다.
+    // §7.16 — 되돌아오는 유일한 문이라 줄지 않고(`shrink-0`) 잘리는 대신 접는다(`flex-wrap`).
+    // `max-w-full` 을 빼면 폰(336px)에서 안 접혀 [Alt]·[영역 캡처]가 잘린다.
     <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-1">
       {/* 폭 프리셋 — 실제 폭으로 렌더한다(축소 ❌). `compare` 는 폭 하나가 아니라 여러 폭을 나란히. */}
       <div className="flex shrink-0 items-center overflow-hidden rounded border border-white/[0.08]">
@@ -157,10 +146,7 @@ interface PreviewPickPanelProps {
   snip?: PreviewSnip | undefined;
 }
 
-/**
- * 집은 요소 패널 — 무엇을 집었는지 보여 주고, 한 문장을 받아 그 프리뷰를 띄운 에이전트에게 보낸다.
- * §5.17 (B) — 방금 캡처한 그림도 같은 자리에 함께 뜬다(집은 요소가 없어도 첨부만으로 열린다).
- */
+/** 집은 요소 패널 — 한 문장을 받아 그 프리뷰를 띄운 에이전트에게 보낸다. §5.17 (B) 캡처 첨부만으로도 열린다. */
 export function PreviewPickPanel({ picker, snip }: PreviewPickPanelProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const [text, setText] = useState('');

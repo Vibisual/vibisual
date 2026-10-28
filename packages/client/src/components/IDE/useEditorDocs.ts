@@ -2,14 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkspaceEol, WorkspaceFileContent, WorkspaceFileSaveResult } from '@vibisual/shared';
 import { isDirty } from './editorModel.js';
 import { registerIDEEditorDrafts } from '../../stores/ideEditorClose.js';
+import { workspaceMediaQuery } from '../../utils/workspaceMedia.js';
 
-/**
- * useEditorDocs.ts — §5.5 #17-27 v4.87 내장 편집창의 서버 대화 담당(파일 읽기·저장·초안 보관).
- *
- * 탐색기의 `useWorkspaceExplorer` 와 같은 자리의 훅이다 — 화면은 무엇을 그릴지만 알고,
- * "언제 읽고 언제 저장하는가" 는 여기 모은다. 탭을 오가도 **고치던 초안이 살아 있도록**
- * 문서를 relPath 별로 들고 있는다(탭을 닫을 때만 버린다).
- */
+/** §5.5 #17-27 내장 편집창의 서버 대화(읽기·저장·초안 보관). 탭을 오가도 초안이 살도록 relPath 별로 들고 있다(탭을 닫을 때만 버린다). */
 
 export interface EditorDoc {
   status: 'loading' | 'ready' | 'error';
@@ -24,12 +19,7 @@ export interface EditorDoc {
   size: number;
   truncated: boolean;
   binary: boolean;
-  /**
-   * §5.5 #17-27 ⑭ — 이 문서를 **그림으로 그릴 자리**인가(서버 판정 그대로).
-   *
-   * `binary` 와 갈라 두는 이유는 뜻이 다르기 때문이다 — `binary` 는 "저장하지 마라"이고
-   * 이 값은 "본문 대신 미리보기를 그려라"다. 이미지가 아닌 이진 파일은 종전 안내로 떨어진다.
-   */
+  /** §5.5 #17-27 ⑭ — 그림으로 그릴 자리인가(서버 판정). `binary`("저장하지 마라")와 뜻이 다르다 — "본문 대신 미리보기를 그려라". */
   image: boolean;
   /**
    * §5.5 #17-27 ⑫ — 디스크가 쓰기를 막고 있는가(Perforce 체크아웃 전 파일 등).
@@ -37,6 +27,11 @@ export interface EditorDoc {
    * `truncated`/`binary` 와 달리 **타이핑을 막지 않는다** — 고쳐 두었다가 저장하는 순간 잠금을 푼다.
    */
   readOnly: boolean;
+  /**
+   * §5.5 #17-27 ⑥ — 열린 프로젝트 루트 **밖** 파일(캔버스에 버블로 떠 있어 읽기만 열렸다 — 서버 판정 그대로). 보기만 한다 —
+   * `readOnly` 와 달리 풀 수 없다(쓰기는 루트 안만이다).
+   */
+  outside: boolean;
   saving: boolean;
   /** 저장 시도가 디스크 변경으로 막혔는가(사용자가 [다시 읽기]/[그래도 저장]을 고른다) */
   conflict: boolean;
@@ -73,16 +68,26 @@ const EMPTY_DOC: Omit<EditorDoc, 'status'> = {
   binary: false,
   image: false,
   readOnly: false,
+  outside: false,
   saving: false,
   conflict: false,
   saveError: null,
   savedAt: 0,
 };
 
+/**
+ * 탭 열쇠(`relPath`) → 서버 루트·경로. 탭은 루트 기준 상대 경로이거나 절대경로(§5.1 #2-1 (A) 루트 밖 버블 파일)다 — 절대는 폴더 + 이름으로 푼다.
+ * 서버는 그 폴더가 프로젝트 안이면 읽고 쓰고, 밖이면 버블로 떠 있는 그 파일만 읽는다.
+ */
+export function editorFileQuery(root: string, relPath: string): { readonly root: string; readonly path: string } {
+  return workspaceMediaQuery(root, relPath);
+}
+
 async function fetchFile(root: string, relPath: string): Promise<WorkspaceFileContent | null> {
   try {
+    const query = editorFileQuery(root, relPath);
     const res = await fetch(
-      `/api/workspace-file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(relPath)}`,
+      `/api/workspace-file?root=${encodeURIComponent(query.root)}&path=${encodeURIComponent(query.path)}`,
     );
     if (!res.ok) return null;
     return (await res.json()) as WorkspaceFileContent;
@@ -181,6 +186,7 @@ export function useEditorDocs(rootPath: string | null, paneKey?: string): Editor
             binary: file.binary,
             image: file.image,
             readOnly: file.readOnly,
+            outside: file.outside === true,
           },
         };
       });
@@ -220,15 +226,17 @@ export function useEditorDocs(rootPath: string | null, paneKey?: string): Editor
     const request = scope.requests.get(relPath);
     if (!request || scope.saves.has(request)) return;
     if (!doc || doc.status !== 'ready' || doc.saving) return;
-    if (doc.truncated || doc.binary) return;
+    // ⑥ 루트 밖 파일은 보기만 한다 — 서버도 쓰기를 루트 안으로만 받는다.
+    if (doc.truncated || doc.binary || doc.outside) return;
     // ⑫ 잠금 해제는 고친 것이 없어도 보낸다 — 푸는 것 자체가 사용자가 누른 일이다.
     if (!force && !clearReadOnly && !isDirty(doc.diskText, doc.draft)) return;
 
     scope.saves.add(request);
     patch(relPath, { saving: true, saveError: null });
+    const target = editorFileQuery(rootPath, relPath);
     void putFile({
-      root: rootPath,
-      path: relPath,
+      root: target.root,
+      path: target.path,
       text: doc.draft,
       eol: doc.eol,
       baseMtimeMs: force ? 0 : doc.mtimeMs,

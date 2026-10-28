@@ -8,11 +8,7 @@ import { ValueControl } from './StudioValueControls.js';
 import { confirmStyle, readStyle, scanStyle } from './studioApi.js';
 import { useProjectFileUrl } from './useProjectFileUrl.js';
 
-/**
- * §5.13 (V) 37-10 — **스타일 서랍**: 이 프로젝트를 아는 영상. [프로젝트에서 찾기]가 색(CSS 변수·tailwind)·글꼴·로고 후보를 훑어
- * 카드로 제안하고, 사람이 칸마다 고른 뒤 **[확정]**(프로젝트의 스타일 카드 — 새 문서가 이것으로 태어난다). [이 영상에 적용]이
- * 지금 문서에 그 한 벌을 적는다(되돌릴 수 있는 평소 편집). 모든 컴포지션은 `--vibi-*` 변수로, 기본 씬·글자는 기본값으로 따른다.
- */
+/** §5.13 (V) 37-10 — 스타일 서랍: 프로젝트에서 색·글꼴·로고 후보를 찾아 사람이 [확정](새 문서가 이것으로 태어난다). [이 영상에 적용]은 되돌릴 수 있는 편집이다. */
 export interface StyleDrawerProps {
   readonly project: string;
   readonly doc: VideoDoc;

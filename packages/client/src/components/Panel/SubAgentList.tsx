@@ -50,20 +50,14 @@ export const SubAgentList = memo(function SubAgentList({
           const runState = sessionRunStateOf(sub, !!acknowledged[sub.id], busySubIds.has(sub.id), pendingSubIds.has(sub.id));
           return (
             <li key={sub.id}>
-              {/* §7.2 (판올림 번호 발급 대기) — 행을 누르면 IDE 의 그 세션 탭이 열린다. 종전에는 눌러도 아무 일이
-                  없었다. 지휘통제실 [세션으로 이동]·콘티 이력과 같은 호출이고, 이 목록의 세션은 지금 있는
-                  세션이라 그대로 세운다. 안쪽 칸은 버튼 안에 둘 수 있는 span 으로 쌓는다.
-                  버튼에는 `items-stretch` 가 꼭 있어야 한다 — 브라우저 기본 스타일의 `align-items: flex-start` 가 남으면
-                  안쪽 줄이 행 폭이 아니라 글자 길이만큼 넓어져, 이름·명령이 잘리지 않고 행 밖으로 새며 상태·시각도
-                  오른쪽 끝에 서지 못한다(`li` 였던 종전 행은 이 기본값이 없어 멀쩡했다). */}
+              {/* §7.2 — 행을 누르면 IDE 그 세션 탭. 버튼에 `items-stretch` 필수 — 기본 `align-items: flex-start` 면 이름이 행 밖으로 새고 상태가 끝에 못 선다. */}
               <button
                 type="button"
                 onClick={() => openIDEOverlay(sub.parentAgentId, { focus: { sessionId: sub.id } })}
                 title={t('commandCenter.jump')}
                 className="flex w-full min-w-0 flex-col items-stretch gap-1 rounded border border-gray-700/50 bg-gray-800/60 px-2.5 py-1.5 text-left transition-colors hover:border-gray-600 hover:bg-gray-700/60"
               >
-                {/* 1행: 도트 + 이름 + 상태. 이름은 긴 경로가 와도 한 줄로 잘린다(전체는 title 로).
-                    종전에는 잘림이 없어 경로가 오른쪽 칸(상태·토큰) 위로 넘어가 겹쳐 보였다. */}
+                {/* 이름은 한 줄로 자른다(전체는 title) — 안 자르면 상태·토큰 칸 위로 겹친다. */}
                 <span className="flex items-center gap-2">
                   <span className={`h-2 w-2 flex-shrink-0 rounded-full ${sessionDotClass(runState, sessionFocusGlow[sub.id], Date.now())}`} />
                   <span className="min-w-0 flex-1 truncate text-xs font-medium text-gray-200" title={sub.label}>

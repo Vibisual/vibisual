@@ -1,8 +1,4 @@
-// §5.5 #17-19 ⑧ — IDE 본문이 탐색기에서 끌어온 것을 **받는 손**.
-//
-// 자리는 둘뿐이다 — **가운데(대화)** 에 놓으면 경로 글자가 입력창에 들어가고, **오른쪽** 에 놓으면
-// 그 파일이 편집창에서 열린다. 판정·미리보기 기하는 전부 `explorerDrag` 순수 함수가 하고 여기서는
-// 이벤트만 받는다(#17-34 `useSplitDrop` 과 같은 분담).
+// §5.5 #17-19 ⑧ — 탐색기에서 끌어온 것을 받는 손: 가운데(대화)면 경로를 입력창에, 오른쪽이면 편집창에서 연다. 판정·기하는 `explorerDrag` 가 한다.
 
 import { useCallback, useEffect, useRef, useState, type DragEvent, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';

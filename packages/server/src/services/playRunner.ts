@@ -1,15 +1,8 @@
 /**
- * §5.14 v4.62 — 플레이 버블의 기동/정지.
- *
- * **새 실행 레이어를 만들지 않는다** — 프로세스 도구는 §7.11 이 이미 쓰고 있는
- * `processChecker`(`respawn`/`killByPort`/`isPortAlive`/`isUrlServing`)를 그대로 쓴다.
- * 여기서 하는 일은 그 도구들을 "사용자가 버튼을 눌렀을 때의 한 흐름"으로 엮는 것뿐이다:
- * 띄운다 → 살아날 때까지 지켜본다 → URL 을 돌려준다(또는 왜 안 떴는지 한 줄로 말한다).
- *
- * §7.11 의 `ServerEntry`·iframe 위성으로는 **등록하지 않는다**. 그 파이프라인은
- * "Claude 의 background bash 가 띄운 서버"를 전제로 owning-shell 검사와 strict 1:1 을
- * 걸어 두었는데, 여기서 띄우는 것은 Vibisual 이 직접 낳은 detached child 라 그 전제 밖이다
- * (등록하면 1:1 self-healing 이 곧바로 지워 버린다).
+ * §5.14 — 플레이 버블의 기동/정지. **새 실행 레이어를 만들지 않는다** — §7.11 의 `processChecker`(`respawn`/`killByPort`/`isPortAlive`/`isUrlServing`)를
+ * 한 흐름으로 엮을 뿐이다: 띄운다 → 살아날 때까지 지켜본다 → URL 을 돌려준다(또는 왜 안 떴는지 한 줄로).
+ * §7.11 의 `ServerEntry`·iframe 위성으로 **등록하지 않는다** — 그쪽은 Claude 의 background bash 가 띄운 서버를 전제로 owning-shell 검사·strict 1:1 을 걸어,
+ * 여기서 직접 낳은 detached child 를 등록하면 1:1 self-healing 이 곧바로 지운다.
  */
 import net from 'node:net';
 import fs from 'node:fs';
@@ -30,10 +23,8 @@ export interface PlayStartOutcome {
 }
 
 /**
- * 포트를 모르는 명령을 위한 후보 목록.
- *
- * 명령에서 포트를 못 뽑았을 때, 기동 **전후로 새로 열린 포트**를 이 목록에서 찾아 채택한다
- * (정규식으로 배너를 뜯는 것보다 정확하다 — 실제로 listen 한 포트만 잡힌다).
+ * 포트를 모르는 명령을 위한 후보 목록 — 명령에서 포트를 못 뽑으면 기동 전후로 **새로 열린 포트**를 여기서 찾는다
+ * (배너를 정규식으로 뜯는 것보다 정확하다 — 실제로 listen 한 포트만 잡힌다).
  */
 const COMMON_DEV_PORTS: readonly number[] = [
   3000, 3001, 3333, 4000, 4173, 4200, 4321, 5000, 5173, 5174, 5175, 5273,

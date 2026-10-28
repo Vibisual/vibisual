@@ -1,38 +1,15 @@
 /**
- * §3.2.2 — **영속 왕복의 집행.** 개별 필드를 고치는 것이 아니라, 같은 사고가 네 번째로
- * 재발하지 않게 하는 장치다.
- *
- * 왜 있나: `ProjectCheckpoint` 에 필드를 하나 더하는 데는 아무 관문이 없다. 그래서 새 축을
- * `getSnapshot` 과 `toCheckpoint()` 에만 넣고 **정작 디스크 포맷인 `toProjectCheckpoint` 에**
- * 빠뜨리는 일이 반복됐다 — `toCheckpoint()` 는 지금 테스트에서만 불리는데도 이름이 그럴듯해
- * "저장했다"는 착각을 준다. 지금까지 세 번 같은 자리에서 터졌다:
- *
- *  · v1.59 — `contis` 누락
- *  · v2.55 — `agentReports` 누락(껐다 켜면 신고 카드가 사라짐)
- *  · 이번  — `compactCounts` · `skillUsageCounts` · `autoAgentSummaries` · `satellitePositions`
- *            (복원 코드는 멀쩡한데 저장이 없어 늘 빈 맵이었다. 실측: 살아 있는 4.3MB
- *             `checkpoint.json` 에 네 키가 전부 없음)
- *
- * 증상이 "껐다 켜면 사라진다"라 **다음 부팅 전까지 아무도 모른다**. 그래서 문서가 아니라
- * 빌드가 막아야 한다 — `snapshotWireBudget.test.ts`(전선 부피)와 같은 집행 계열이다.
- *
- * 이 파일이 막는 것: `ProjectCheckpoint` 의 모든 필드는 **쓰기 한 곳 + 읽기 두 곳**에 있거나,
- * 아래 예외표에 사유와 함께 등재돼야 한다.
- *   · 쓰기 = `toProjectCheckpoint`  — 디스크에 나가는 유일한 자리
- *   · 읽기 = `restoreFromCheckpoint` — 첫 프로젝트
- *   · 읽기 = `mergeFromCheckpoint`   — **두 번째 이후** 프로젝트(여기만 빠지면 프로젝트를
- *                                      둘 이상 연 사람에게만 드러난다)
+ * §3.2.2 — 영속 왕복의 집행: `ProjectCheckpoint` 의 모든 필드는 쓰기 한 곳 + 읽기 두 곳에 있거나, 아래 예외표에 사유와 함께 등재돼야 한다.
+ * · 쓰기 = `toProjectCheckpoint`(디스크에 나가는 유일한 자리 — `toCheckpoint()` 는 테스트에서만 불린다)
+ * · 읽기 = `restoreFromCheckpoint`(첫 프로젝트) · `mergeFromCheckpoint`(두 번째 이후 — 빠지면 프로젝트를 둘 이상 연 사람에게만 드러난다)
+ * 저장 누락은 "껐다 켜면 사라진다"라 다음 부팅 전까지 모른다 — 그래서 빌드가 막는다(`snapshotWireBudget.test.ts` 와 같은 집행 계열).
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 예외표 — 세 경로에 다 있지 **않아도 되는** 필드와 그 이유.
-//
-// 새 필드를 `ProjectCheckpoint` 에 더하면 세 경로에 넣거나 여기 한 줄을 쓰게 된다.
-// 그 한 줄을 쓰는 동안 "껐다 켜면 이게 살아 있어야 하나"를 한 번 생각하는 것이 목적이다.
-// ─────────────────────────────────────────────────────────────────────────────
+// 예외표 — 세 경로에 다 있지 않아도 되는 필드와 그 이유.
+// 새 필드는 세 경로에 넣거나 여기 한 줄을 쓴다 — "껐다 켜면 이게 살아 있어야 하나"를 한 번 묻게 하는 것이 목적이다.
 const ROUND_TRIP_EXEMPT: Record<string, { readonly skip: readonly ('restore' | 'merge')[]; note: string }> = {
   version: { skip: ['restore', 'merge'], note: '파일 메타 — 읽는 쪽은 포맷 판정에서만 본다' },
   savedAt: { skip: ['restore', 'merge'], note: '파일 메타 — 저장 시각이라 되읽을 상태가 아니다' },

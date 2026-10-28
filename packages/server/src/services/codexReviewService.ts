@@ -5,15 +5,9 @@ import { runCodexCli } from './codexCli.js';
 import { logger } from '../logger.js';
 
 /**
- * §5.25 (N) — `codex review`. 검증(Verify) 칸의 **코덱스 대응물**.
- *
- * 클로드의 `/verify`(§5.5 #17-35)와 **하는 일이 다르다.** 그쪽은 "앱을 띄워 실제로 돌려 보고
- * 됐는지 판정한다"이고, `codex review` 는 "**git 변경분을 읽고 문제를 짚는다**"이다. 그래서 같은
- * 자리에 서되 같은 화면을 쓰지 않는다 — 판정(pass/fail/held)·시연·재시도 같은 칸을 빌려 오면
- * 그 칸들이 거짓말을 한다(이 리뷰는 앱을 띄운 적이 없다).
- *
- * **사용자가 누를 때만 돈다.** 모델을 부르는 일이라 자동 실행하지 않는다(§5.5 #17-35 가 검증
- * 자동 실행을 일부러 뺀 것과 같은 판단 — 비용이 사용자 것이다).
+ * §5.25 (N) — `codex review`. 검증(Verify) 칸의 코덱스 대응물.
+ * 클로드 `/verify`(§5.5 #17-35 — 앱을 띄워 돌려 보고 판정)와 달리 git 변경분을 읽고 문제를 짚는다 — 판정(pass/fail/held)·시연·재시도 칸을 빌려 오지 마라(앱을 띄운 적이 없다).
+ * 사용자가 누를 때만 돈다 — 모델을 부르는 일이라 자동 실행하지 않는다(비용이 사용자 것, §5.5 #17-35 와 같은 판단).
  */
 
 /** 한 번에 담아 둘 리뷰 이력 수. 넘으면 오래된 것부터 버린다(용량 폭증 감사 규약). */
@@ -24,13 +18,8 @@ const CODEX_REVIEW_TIMEOUT_MS = 10 * 60 * 1000;
 const CODEX_REVIEW_OUTPUT_MAX = 200_000;
 
 /**
- * `codex review` 인자 조립.
- *
- * **`--dangerously-*` 는 쓰지 않는다**(§5.25 안전선). 샌드박스·승인 정책은 스폰 경로와 **같은
- * 표**(`resolveCodexPermission`)에서 나온다 — 두 벌이 되면 한쪽만 고쳐지는 날이 온다.
- *
- * `--commit` 과 `--base` 는 값이 필요하고 `--uncommitted` 는 아니다. 값이 있어야 하는데 없으면
- * **미커밋 변경으로 떨어뜨린다** — 빈 문자열을 브랜치 이름이라고 넘기면 코덱스가 엉뚱한 것을 본다.
+ * `codex review` 인자 조립. `--dangerously-*` 는 쓰지 않는다(§5.25 안전선). 샌드박스·승인 정책은 스폰 경로와 같은 표(`resolveCodexPermission`)에서 나온다.
+ * `--commit`·`--base` 는 값이 필요하고 `--uncommitted` 는 아니다. 값이 비면 미커밋 변경으로 떨어뜨린다 — 빈 문자열을 브랜치 이름으로 넘기면 엉뚱한 것을 본다.
  */
 export function buildCodexReviewArgs(args: {
   cwd: string;
@@ -71,10 +60,7 @@ class CodexReviewService {
     return this.runs;
   }
 
-  /**
-   * 리뷰 한 번 시작. **기다리지 않는다** — 몇 분이 걸릴 수 있어 REST 응답은 즉시 돌려주고,
-   * 끝나면 스냅샷으로 알린다(호출자가 `onChange` 로 방송한다).
-   */
+  /** 리뷰 한 번 시작. 기다리지 않는다 — 몇 분 걸릴 수 있어 REST 는 즉시 돌려주고, 끝나면 스냅샷으로 알린다(호출자가 `onChange` 로 방송). */
   start(args: {
     agentId: string;
     cwd: string;

@@ -1,9 +1,4 @@
-/**
- * §5.4 #36 (I) · §5.1 #2-1 (F) — 앱 작업 보기 판정(`planAppWork`)과 자리(`applyConstellations` 의 `workSeat`) 고정 시험.
- *
- * **결과 파일 없이 참조만 있는 작업**을 익명 픽스처로 쓴다 — Vibi3D 노드 `app-model-fixture` 는 `ref` 만 있고(결과 파일 없음) 그 작업이
- * 쓴 파일 11개가 전부 코드·데이터·문서였다. 지난번 구현은 가짜 `teaser.*` 묶음으로만 시험해 이 경우에서 변화가 0 이었다.
- */
+/** §5.4 #36 (I) · §5.1 #2-1 (F) — 앱 작업 보기 판정(`planAppWork`)·자리(`workSeat`) 고정 시험 — **결과 파일 없이 참조만 있는 작업**을 익명 픽스처로. */
 import { describe, expect, it } from 'vitest';
 import type { AppWorkMark, BubbleData, QueuedCommand } from '@vibisual/shared';
 import { APP_WORK, CONSTELLATION } from '@vibisual/shared';
@@ -66,7 +61,7 @@ function input(overrides: Partial<AppWorkInput> = {}): AppWorkInput {
   };
 }
 
-describe('appWorkFocusOf — 초점 = 이어진 앱 노드 전부(2026-10-21 — 잇는 순간 켜진다)', () => {
+describe('appWorkFocusOf — 초점 = 이어진 앱 노드 전부(잇는 순간 켜진다)', () => {
   it('잇기만 해도 초점이다 — 명령도 작업 장부도 없이', () => {
     const linkedOnly = input({ queued: {}, completed: {} });
     expect(appWorkFocusOf({ id: AGENT }, linkedOnly.apps, linkedOnly)).toEqual([APP]);

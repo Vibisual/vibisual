@@ -1,14 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 /**
- * §5.4 #15 (C) — 앱 창 안의 **그린 화면**(캔버스 · WebGL · 그림을 그리는 SVG)은 Alt 인스펙터 집기 공급자를 단다.
- *
- * 브라우저는 그린 화면의 판 하나만 안다. 공급자가 없으면 그 위 어디를 가리켜도 판이 통째로 집히고, 사용자는 "이 글자 · 이 클립 ·
- * 이 바퀴"를 가리켜 고치라고 말할 수 없다(사용자 보고 — 같은 지시 세 번). 영상 미리보기만 고쳐 두면 다른 앱이 같은 자리에서 또
- * 막히므로, 앱 폴더의 화면 파일이 판을 그리면 공급자도 다는지 소스로 센다.
- *
- * 앱 폴더는 레지스트리의 늦은 로더가 가리키는 곳에서 읽는다 — 목록을 따로 적으면 새 앱이 빠진다. 소스는 `import.meta.glob`
- * (`?raw`)로 읽는다(클라이언트 tsconfig 에는 Node 타입이 없다 — `inspectorOverlayLayer.test.ts` 와 같은 방식).
+ * §5.4 #15 (C) — 앱 창 안의 그린 화면(캔버스·WebGL·그리는 SVG)은 Alt 인스펙터 집기 공급자를 단다(없으면 판이 통째로 집힌다) — 앱 폴더 화면 파일을 소스로 센다.
+ * 앱 폴더는 레지스트리 로더에서 찾는다(목록을 따로 적으면 새 앱이 빠진다). `import.meta.glob`(`?raw`) — 클라 tsconfig 에 Node 타입이 없다.
  */
 
 const registry = import.meta.glob('./registry.tsx', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;

@@ -1,10 +1,7 @@
-// 진단 에러 캡처 (renderer) — SCENARIO.md §4 v1.98.
-//
-// renderer 의 JS 에러(window error / unhandledrejection / console.error·warn)를 잡아
-// 서버로 `client_error` WS 메시지로 보낸다. 서버 diagnosticService 가 단일 SSOT 라
-// 여기서 모은 건 GraphSnapshot.diagnosticLog 로 되돌아와 DebugPanel 에 표시된다.
-//
-// WS 가 끊겨 있으면 큐잉했다가 재연결(setDiagnosticsSender) 시 flush.
+// 진단 에러 캡처(renderer) — SCENARIO.md §4.
+// renderer 의 JS 에러(window error / unhandledrejection / console.error·warn)를 `client_error` WS 메시지로 서버에 보낸다.
+// 서버 diagnosticService 가 SSOT 라, 모은 것은 GraphSnapshot.diagnosticLog 로 되돌아와 DebugPanel 에 표시된다.
+// WS 가 끊겨 있으면 큐에 두었다가 재연결(setDiagnosticsSender) 때 보낸다.
 
 interface ClientErrorPayload {
   level: 'error' | 'warn';
@@ -17,11 +14,9 @@ type Sender = (msg: { type: 'client_error'; payload: ClientErrorPayload }) => vo
 const QUEUE_MAX = 100;
 
 /**
- * 진단 로그에서 제외할 renderer 잡음 — 코드 버그가 아니라 브라우저가 스펙대로 내는 알림.
- *
- * ResizeObserver 콜백이 레이아웃을 다시 바꿔 남은 크기 변경 알림이 그 프레임 안에 다 전달되지
- * 못하면, Chromium 은 예외를 던지는 대신 window 에 error 이벤트만 한 번 발생시킨다(스택 없음).
- * 렌더링은 다음 프레임에 정상적으로 끝나므로 DebugPanel 에 쌓아둘 값이 없다.
+ * 진단 로그에서 제외할 renderer 잡음 — 브라우저가 스펙대로 내는 알림.
+ * ResizeObserver 콜백이 레이아웃을 다시 바꿔 알림이 그 프레임 안에 다 전달되지 못하면 Chromium 은 예외 대신 window error 이벤트만 한 번 낸다(스택 없음).
+ * 렌더링은 다음 프레임에 정상으로 끝나므로 쌓아 둘 값이 없다.
  */
 const IGNORED_PATTERNS: readonly RegExp[] = [
   /ResizeObserver loop (completed with undelivered notifications|limit exceeded)/i,

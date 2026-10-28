@@ -1,13 +1,4 @@
-/**
- * streamItems.cardEcho.test.ts — §5.5 #17-18 ⑦-5
- *
- * 카드를 발행한 **직후**에 붙는 "~카드로 보냈습니다" 한 줄만 화면에서 빠지고, 같은 자리에 온
- * **실제 결론 문장은 살아남는지**를 못박는다. 이 판정이 넓어지면 사용자가 읽어야 할 마지막 본문이
- * 조용히 사라지므로(그쪽이 훨씬 나쁘다), 경계 사례를 양쪽에서 모두 고정한다.
- *
- * ⑦-6 — 지시문이 카드 뒤를 비우지 말고 "카드를 확인해 주세요." 한 문장으로 닫게 바뀐 뒤로, 그 문장
- * (목표 창 블록이 섞여 와도)까지 빠져 화면이 "본문 → 카드"로 끝나는지를 함께 고정한다.
- */
+/** §5.5 #17-18 ⑦-5·⑦-6 — 카드 직후의 발송 보고 한 줄과 닫는 문장("카드를 확인해 주세요.")만 빠지고 실제 결론은 남는지 양쪽 경계로 고정한다. */
 import { describe, it, expect } from 'vitest';
 import type { AgentReview } from '@vibisual/shared';
 import {
@@ -127,11 +118,7 @@ describe('mergeCardsIntoItems — 카드 합류 뒤에 걷힌다', () => {
   });
 });
 
-/**
- * §5.5 #17-18 ⑦-6 — 카드 뒤를 비워 두면 CLI 의 "no visible output" 재촉이 보고를 카드 아래에 통째로
- * 다시 쓰게 했다(카드가 한참 위로 밀리고 같은 내용을 또 읽는다). 지시문은 정해진 한 문장으로 닫게 하고,
- * 화면은 그 한 문장까지 걷는다 — 같은 자리의 실제 정보는 여전히 남아야 한다.
- */
+/** §5.5 #17-18 ⑦-6 — 카드 뒤를 비우면 CLI 의 "no visible output" 재촉에 보고가 카드 아래 다시 쓰인다 — 정해진 한 문장으로 닫고 화면은 그 문장만 걷는다. */
 describe('⑦-6 — 카드 뒤를 닫는 한 문장', () => {
   const GOAL_BLOCK = '```vibisual\n- [x] 원인 고치기 @change\n- [x] 테스트 @test\n```';
   const base = (items: StreamItemFull[]): BaseItemsResult => ({ items, agentBusy: false, thinkingLive: null });

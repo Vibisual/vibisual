@@ -6,18 +6,8 @@ import { SubAgentManager } from './subAgentManager.js';
 import { TURN_RESUME_GRACE_MS } from './turnSeal.js';
 
 /**
- * §5.5 #17-9 ⑱(c) · #17-10 ⑤ — **백단 자식 덕에 떠 있던 쉬는 탭이 끝날 때, 탭 상태를 다시 센다.**
- *
- * 붙듦(`noticeResumeHolds`)과 백단 자식 장부는 쉬는 탭을 `active` 로 올려 둔다(승격 표식 `bgPromotedSubs`). 그것들을
- * **걷기만 하고 다시 세지 않는** 자리가 셋 있었다 —
- *   · 붙든 사이 쉬던 자식이 스스로 죽으면(크래시, 진행 중 명령 없음) 어느 분기도 탭을 건드리지 않아 `active` 가 영영
- *     남았다. 주기 대조(`reconcileDeadActiveSubs`)도 내리지 않았다 — 입력창은 [중지]로 굳고 무응답 경고가 선다.
- *   · 그런 탭을 [중지]하면 마감할 턴이 없어 자식의 `close` 가 올 때까지 [중지] 그대로였다(⑤ 가 없앤 그 기다림 —
- *     Windows 는 파이프를 쥔 손자가 다 죽어야 `close` 가 온다). 그 사이 죽어 가는 자식이 흘린 늦은 끝 칩은 남은
- *     승격 표식을 보고 붙듦을 다시 걸었다.
- *   · 전체 중지도 같다 — 앞선 대차대조 정리의 셈이 스트림 장부를 걷기 전이라, 살아 있던 백단 자식 덕에 떠 있던 탭이 남았다.
- *
- * 실제 스폰 콜백(`close` 처리기)을 거친다 — 자식을 장부에 직접 넣으면 `close` 처리기가 붙지 않는다.
+ * §5.5 #17-9 ⑱(c) · #17-10 ⑤ — 백단 자식 덕에 `active` 였던 쉬는 탭이 끝날 때(자식 자멸 · [중지] · 전체 중지) 상태를 다시 센다 — 걷기만 하면 `active` 가 남는다.
+ * 실제 스폰 콜백을 거친다 — 자식을 장부에 직접 넣으면 `close` 처리기가 붙지 않는다.
  */
 
 const mock = vi.hoisted(() => ({ spawn: vi.fn(), noteSpawnFailure: vi.fn() }));
@@ -58,10 +48,7 @@ type Innards = {
 const AGENT = 'agent-notice-settle';
 const SESSION = 'session-notice-settle';
 
-/**
- * 보고된 모양 그대로 — 본 턴이 백그라운드 `Explore` 자식을 띄우고 끝났다(유예가 지나 봉인). 자식은 쉬며 다음 턴을
- * 기다리고, 탭은 백단 자식 덕에 `active` 다. `notified` 면 그 자식의 끝 칩까지 와서 탭이 붙들린 상태.
- */
+/** 본 턴이 백그라운드 `Explore` 자식을 띄우고 봉인됐고, 쉬는 자식 덕에 탭은 `active`. `notified` 면 끝 칩까지 와서 붙들린 상태. */
 function restingPromotedTab(opts: { notified: boolean }) {
   vi.useFakeTimers();
   const m = new SubAgentManager();

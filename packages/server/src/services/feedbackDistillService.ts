@@ -1,16 +1,10 @@
 /**
- * §4 v3.21 — 에이전트 피드백 증류 (싫어요 사유 → 규칙 문장 제안).
- *
- * 사용자가 남긴 싫어요(+사유) 피드백 더미를 one-shot claude CLI(`-p`, haiku)로 요약해
- * `AgentConfig.rules` 에 append 할 규칙 문장 제안을 만든다. **제안만 반환** — 적용은
- * 클라이언트 확인 모달에서 사용자가 승인한 뒤 기존 `PUT /api/agent-config/:agentId` 경로로
- * 이뤄진다(rulesHistory 롤백 가능, 자동 append 금지 — 일회성 싫어요의 영구 규칙화 방지).
- *
- * 스폰 인프라: §5.7 sessionDiscovery 의 one-shot `-p` 선례 재사용(shell:false, 트리 kill).
+ * §4 — 싫어요(+사유) 피드백을 one-shot `claude -p`(haiku)로 요약해 `AgentConfig.rules` 규칙 제안을 만든다. 스폰은 §5.7 sessionDiscovery 와 같다(shell:false, 트리 kill).
+ * **제안만 반환** — 적용은 클라 확인 모달 승인 뒤 `PUT /api/agent-config/:agentId`(자동 append 금지 — 일회성 싫어요가 영구 규칙이 된다).
  */
 import { spawn } from 'child_process';
 import { AGENT_FEEDBACK_DISTILL_MAX, type AgentFeedback } from '@vibisual/shared';
-import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { claudeSpawnEnv, getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { killTree, processGroupSpawnOptions } from './processTree.js';
 import { logger } from '../logger.js';
 
@@ -48,10 +42,7 @@ function buildDistillPrompt(downLines: string[]): string {
   ].join('\n');
 }
 
-/**
- * 싫어요 피드백을 규칙 문장으로 증류한다. 성공 시 규칙 텍스트(줄바꿈 구분), 실패 시 null.
- * CLI 부재·타임아웃·빈 출력 모두 null — 호출부(REST)가 502 로 응답한다.
- */
+/** 규칙 텍스트(줄바꿈 구분)를 낸다. CLI 부재·타임아웃·빈 출력은 모두 null — 호출부(REST)가 502 로 답한다. */
 export function distillFeedbackToRules(feedbacks: AgentFeedback[]): Promise<string | null> {
   const downLines = collectDownFeedbackLines(feedbacks);
   if (downLines.length === 0) return Promise.resolve(null);
@@ -71,6 +62,8 @@ export function distillFeedbackToRules(feedbacks: AgentFeedback[]): Promise<stri
         // POSIX 한정 detached — 아래 finish() 가 killTree 로 회수한다. 그룹 리더가 아니면 `-pid` 가
         //   ESRCH 로 실패해 haiku 세션이 띄운 손자(MCP 서버·worker)가 mac/linux 에서 남는다.
         ...processGroupSpawnOptions(),
+        // §4 (앱 전용 엔진) ⑤ — 앱 전용 실행본이면 엔진 자체 갱신을 끈다.
+        env: claudeSpawnEnv(),
       },
     );
     const finish = (result: string | null, reason: string): void => {

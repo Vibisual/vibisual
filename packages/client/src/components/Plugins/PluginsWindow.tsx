@@ -1,15 +1,6 @@
 /**
- * §5.11 v3.88 — Plugins 창 (File › Plugins).
- *
- * OptionsWindow·GuideWindow 와 **동형 모달 셸**(portal + 좌측 목록 + 우측 패널)을 그대로 쓴다.
- * 다른 점은 Apply/Cancel 이 없다는 것 — 토글은 즉시 적용된다(재시작 불필요, §5.11).
- *
- * 활성 상태 SSOT 는 서버 `UserDefaults.enabledPluginsByProject` 다. 여기서는 PUT 하고, 화면은 스토어를
- * 따른다(PUT 응답을 기다리는 동안만 낙관적으로 먼저 반영해 토글이 굼떠 보이지 않게 한다).
- *
- * **v4.54 — 켬/끔은 프로젝트별이다.** 창은 지금 보고 있는 프로젝트 한 칸만 읽고 쓴다. 그래서 창 머리에
- * 대상 프로젝트를 **상시 표시**한다 — 프로젝트를 옮겨도 창 모양이 똑같으면 무엇에 적용되는 설정인지
- * 알 방법이 없기 때문이다(사용자 지적). 프로젝트가 없으면 토글을 막고 그 이유를 적는다.
+ * §5.11 — Plugins 창(File › Plugins). OptionsWindow 와 같은 모달 셸, 토글 즉시 적용(Apply ❌).
+ * SSOT 는 서버 `UserDefaults.enabledPluginsByProject`(PUT + 응답 전 낙관 반영). 켬/끔은 프로젝트별이라 창 머리에 대상 프로젝트를 늘 보이고, 없으면 토글을 막는다.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -67,12 +58,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
     [userDefaults, projectPath],
   );
 
-  /**
-   * 지금 목록에 "설 수 있는" 카드들 — 찾기·"켠 것만" 보다 한 단계 앞의 노출 게이트다.
-   *
-   * 켠 것은 게이트와 무관하게 늘 포함한다. 그래서 "목록에 없는데 프롬프트에는 실리는" 카드가
-   * 원천적으로 생기지 않는다(끄려면 보여야 한다).
-   */
+  /** 노출 게이트를 지난 카드. 켠 것은 늘 넣는다 — 목록에 없는데 프롬프트에 실리는 카드가 없게(끄려면 보여야 한다). */
   const gated = useMemo(
     // §5.5 #17-44 ⑧(d) — 손잡이가 자기 화면에 있는 카드(`ownToggle`)는 디버그 모드에서도 세우지 않는다.
     //   여기 서면 그 칸이 두 번째 관문이 되어, 뷰에서 켠 것이 왜 안 도는지가 이 목록 안에 숨는다.
@@ -83,12 +69,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
   const managed = useMemo(() => PLUGIN_MANIFESTS.filter((m) => !hasOwnToggle(m)), []);
   /** 아직 안 만들어져 지금 숨어 있는 카드 수 — 스위치에 그대로 세운다(몇 장이 잠겨 있는지 말한다). */
   const hiddenCount = managed.length - gated.length;
-  /**
-   * 켠 수 — **이 창이 관리하는 것만** 센다.
-   *
-   * `enabledSet` 을 그대로 세면 저장 목록에 남아 있는 `ownToggle` 카드가 분자에만 더해져 `112 / 111`
-   * 이 된다(그 카드는 분모인 `gated` 에서 빠졌으므로). 끄면 지우지 않는 규약상 그 id 는 계속 남는다.
-   */
+  /** 켠 수는 관리 대상만 센다 — `enabledSet` 엔 `ownToggle` 카드 id 가 남아 있어(끄면 안 지운다) 분자만 커진다. */
   const enabledCount = useMemo(() => managed.filter((m) => enabledSet.has(m.id)).length, [managed, enabledSet]);
 
   // 목록을 거르고 묶는 판단은 `pluginList.ts` 가 한다 — 여기서는 결과를 그리기만 한다.
@@ -122,13 +103,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
 
   const backdrop = useBackdropDismiss(onClose);
 
-  /**
-   * §5.11 v4.67 — 설정 슬롯이 쓰는 **플러그인 전용 창구**.
-   *
-   * 플러그인에 `fetch` 를 그대로 쥐여 주면 그 순간 어디로든 갈 수 있다. 그래서 여기서 접두사
-   * (`/api/plugins/<id>`)와 **지금 프로젝트**를 붙여 주고, 플러그인은 뒤쪽 경로만 말한다 — 서버 주소도,
-   * 어느 프로젝트인지도 몰라도 되고, 남의 라우트로는 못 간다(§5.11 "슬롯 경유만").
-   */
+  /** §5.11 — 설정 슬롯용 플러그인 창구: 접두사(`/api/plugins/<id>`)와 지금 프로젝트를 붙인다 — 생 `fetch` 를 주면 남의 라우트로 간다("슬롯 경유만"). */
   const callPlugin = useCallback(
     async (id: string, path: string, init?: { method?: string; body?: unknown }): Promise<unknown> => {
       const qs = projectPath ? `?projectId=${encodeURIComponent(projectPath)}` : '';
@@ -149,7 +124,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
   );
 
   const toggle = useCallback(async (id: string) => {
-    // 프로젝트가 없으면 매달 칸이 없다 — 전역으로 흘려 저장하면 v4.54 이전으로 조용히 되돌아간다.
+    // 프로젝트가 없으면 매달 칸이 없다 — 전역으로 흘려 저장하면 프로젝트별 켬/끔이 조용히 깨진다.
     if (!projectPath) return;
 
     const prev = useGraphStore.getState().userDefaults;
@@ -297,12 +272,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                 <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${onlyEnabled ? 'bg-emerald-400' : 'bg-gray-600'}`} />
                 {t('panel.plugins.onlyEnabled')}
               </button>
-              {/*
-                §5.11 노출 게이트 스위치 — 아직 프로젝트를 훑지 않는 카드를 함께 세운다.
-                이 창은 모달이라 캔버스의 ` 단축키를 모르면 갇힌다. 그래서 같은 칸을 뒤집는 버튼을
-                여기 둔다(§7.7 `debugMode` 그대로 — 새 상태가 아니다).
-                숨은 것이 하나도 없으면(전부 만들어졌으면) 이 줄 자체가 필요 없다.
-              */}
+              {/* §5.11 노출 게이트 스위치 — 모달이라 캔버스 단축키를 모르면 갇힌다. 같은 칸(§7.7 `debugMode` — 새 상태 ❌)을 뒤집는다. 숨은 것이 없으면 안 그린다. */}
               {(hiddenCount > 0 || debugMode) && (
                 <button
                   type="button"
@@ -413,11 +383,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                   </button>
                 </div>
 
-                {/*
-                  §5.11 노출 게이트 — 아직 프로젝트를 훑지 않는 카드에는 그 사실을 적는다.
-                  켤 수는 있다(개발 중에 시험해야 하므로). 다만 "켜도 고정 문장만 실린다"는 것을
-                  먼저 말해야 사용자가 "켰는데 왜 아무 일도 없냐"에 부딪히지 않는다.
-                */}
+                {/* §5.11 — 아직 프로젝트를 훑지 않는 카드: 켤 수는 있지만(개발 시험) 고정 문장만 실린다고 먼저 적는다. */}
                 {!isProjectEnforcing(selected) && (
                   <div className="flex items-start gap-2 rounded border border-amber-500/20 bg-amber-500/[0.07] px-3 py-2 text-[12px] leading-relaxed text-amber-300/90">
                     <svg className="mt-0.5 h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -486,8 +452,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                     <div>{tryBuild(selected.id, () => settingsSection({
                       enabled: selectedEnabled,
                       t: pluginT,
-                      // v4.67 — 설정도 켬/끔과 같은 프로젝트 한 칸에 매인다. 이 둘을 안 넘기면
-                      //   플러그인은 "어디에 저장되는지 모르는 저장 버튼"을 그리게 된다.
+                      // 설정도 켬/끔과 같은 프로젝트 칸에 매인다 — 안 넘기면 어디 저장되는지 모르는 저장 버튼이 된다.
                       projectPath,
                       call: (path, init) => callPlugin(selected.id, path, init),
                     }))}</div>

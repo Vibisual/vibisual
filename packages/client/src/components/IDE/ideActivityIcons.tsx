@@ -1,16 +1,6 @@
 import type { IDEViewType } from '../../stores/graphStore.js';
 
-/**
- * §5.5 #16-1 — 활동바 항목의 **글리프 한 벌**.
- *
- * 정본 표(`ideActivityItems.ts`)에서 아이콘만 떼어 온 곳이다 — 저쪽은 순수 데이터라 JSX 를
- * 들지 않는다(그래야 순서·제외 로직이 렌더 없이 테스트된다). 여기 모아 둔 덕에 활동바와
- * 구성 패널이 **같은 글리프**를 그린다: 패널에서 고르는 그림과 활동바에 서는 그림이 다르면
- * 무엇을 내려놓는지 알 수 없다.
- *
- * 전부 lucide 톤 stroke SVG 다(이모지 ❌ — CLAUDE.md 아이콘 규약). 색은 `currentColor` 로 받아
- * 부모 `text-*` 가 정한다(점등/회색 자동 추종).
- */
+/** §5.5 #16-1 — 활동바 글리프 한 벌(정본 표는 순수 데이터라 JSX ❌). 활동바와 구성 패널이 같은 그림을 쓴다. lucide 톤 stroke SVG, 색은 `currentColor`. */
 
 /** 뷰별 SVG 자식. `<svg>` 껍데기는 아래 `ActivityIcon` 이 씌운다(속성이 한 벌이어야 한다). */
 function glyphOf(view: IDEViewType): React.JSX.Element | null {

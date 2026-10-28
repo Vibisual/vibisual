@@ -1,10 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { certFingerprintOf } from './certFingerprint';
 
-// §4 (외부 접속 보안) — 인증서 지문 계산.
-//
-// 이 값은 사용자가 **폰 화면과 눈으로 대조**하는 값이다. 틀린 지문은 경고가 없는 것보다 나쁘다
-// — 사용자는 "확인했다"고 믿고 남의 인증서를 통과시킨다. 그래서 고정 벡터로 묶는다.
+// §4 (외부 접속 보안) — 인증서 지문 계산. 사용자가 폰 화면과 눈으로 대조하는 값이라 틀린 지문은 경고가 없는 것보다 나쁘다 — 고정 벡터로 묶는다.
 
 /** 알려진 바이트열의 PEM 포장 — 기대값은 같은 바이트의 SHA-256 이다(밖에서 미리 계산). */
 const FIXTURE_B64 = 'dmliaXN1YWwtZmluZ2VycHJpbnQtZml4dHVyZQ==';

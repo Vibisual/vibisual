@@ -11,7 +11,7 @@ import { useIDEActivityBarStore } from '../stores/ideActivityBar.js';
 import { useActivePluginModules } from '../plugins/host.js';
 import { batchStoreNotify } from '../stores/batchedNotify.js';
 import { structuralShare } from '../stores/structuralShare.js';
-// §5.5 #17-20 ⑩ v4.94 — 디버그 세션은 프로세스 수명이라 그래프 스토어가 아닌 런타임 스토어가 받는다.
+// §5.5 #17-20 ⑩ — 디버그 세션은 프로세스 수명이라 그래프 스토어가 아닌 런타임 스토어가 받는다.
 import { useDebugSessions } from '../stores/debugSessions.js';
 import { useHookFires } from '../stores/hookFires.js';
 import { iframeLogEvents } from '../bubble-map/api/iframeLogEvents.js';
@@ -35,11 +35,7 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 interface UseWebSocketReturn {
   status: ConnectionStatus;
   send: (message: WSMessage) => void;
-  /**
-   * §5.12 (J) — 지금 붙어 있는 소켓을 끊고 **즉시 다시 붙는다**. 서버가 새 연결에 보내는
-   * `buildConnectionMessages()`(연결 ack + 전체 스냅샷)가 곧 "새로고침"이다 — 스냅샷을 다시
-   * 달라는 새 메시지 타입을 만들지 않고 이미 있는 계약을 쓴다.
-   */
+  /** §5.12 (J) — 소켓을 끊고 즉시 다시 붙는다 — 새 연결의 `buildConnectionMessages()`(ack + 전체 스냅샷)가 곧 새로고침이다(새 메시지 타입 ❌). */
   reconnect: () => void;
   /**
    * §5.12 (J) — 마지막으로 `graph_snapshot` 을 화면에 반영한 시각(0 = 아직 없음).
@@ -58,45 +54,15 @@ function isWSMessage(data: unknown): data is WSMessage {
   );
 }
 
-/**
- * §9 — 서버가 안 싣는 슬라이스의 **빈 값 고정 참조**.
- *
- * `snap.agentReports ?? {}` 처럼 매번 새 빈 객체를 지어 넘기면, 그 슬라이스를 구독하는 화면은
- * 서버가 그 필드를 **한 번도 안 보내는 동안에도** 스냅샷 주기(16ms)마다 리렌더된다 — 값이 없는데
- * 값이 바뀐 것으로 읽히는 자리다. 항상 같은 참조를 넘겨 "없음"이 조용하도록 만든다.
- */
+/** §9 — 서버가 안 싣는 슬라이스의 **빈 값 고정 참조**(`?? {}` 로 매번 새로 지으면 안 온 필드에도 16ms 마다 리렌더). */
 const EMPTY_RECORD: Record<string, never> = {};
 const EMPTY_LIST: never[] = [];
 
 /**
- * §9 슬라이스 스코프 — **이 창이 자기가 읽는 슬라이스를 말할 수 있는가.**
- *
- * `main.tsx` 의 창 라우팅은 전부 `location.hash` 로 갈린다(별창 `#detached=…` · 버블 오버레이
- * `#overlay=…` · 우클릭 메뉴 `#overlaymenu=…` · 지휘통제실 `#command=…` · 내부 앱 `#app=…`).
- * 해시가 비어 있는 창이 곧 메인 캔버스 창(`App`)이다.
- *
- * **왜 창을 가리나**: 슬라이스 선언은 "이 창이 무엇을 읽는가"인데, 그 판정을 창 종류마다
- * 확증해야 한다. 예를 들어 지휘통제실(`CommandCenterBoard`)은 IDE 레인 없이도 `agentReports`·
- * `agentReviews`·`agentQuestions` 를 읽는다 — 그 창이 "안 읽는다"고 잘못 선언하면 보드가 빈다.
- * 확증 못 한 창은 **선언 자체를 안 한다**. 미선언 창이 하나라도 있으면 합집합이 통째로 전량이
- * 되므로(§9 안전 기본값), 그런 창이 떠 있는 동안에는 이 축이 아무것도 좁히지 않을 뿐 **틀린
- * 값이 가지는 않는다.**
- *
- * ── 버블 오버레이 창(`#overlay=…`)을 선언 쪽에 넣은 까닭 (§5.5 #17-6 (H-4)) ──────────
- *
- * 그 창은 **끌어내는 순간 태어난다.** 그때까지 좁혀져 있던 이 축이 그 창 하나의 침묵으로 통째로
- * 전량으로 되돌아가고, 되돌아간 스냅샷은 **모든 창에** 나간다(합집합은 한 벌뿐 — `sliceScope.ts`
- * 함정 ①). 실측(살아 있는 checkpoint.json): `agentReports` 256.9KB · `sessionGoals` 216.3KB ·
- * `agentReviews` 168.7KB · `agentQuestions` 93.2KB · `agentLists` 16.0KB — 합 **752.9KB** 가
- * 매 브로드캐스트마다 되살아나 IPC 의 동기 structuredClone → 역직렬화 → `structuralShare` 비교를
- * 전부 다시 탄다. 사용자에게는 **끌어낸 직후 앱 전체가 멎는 것**으로 읽힌다(사용자 보고 — "밖으로
- * 빼내고 나면 갑자기 렉이 심하게 걸리고 바로 동작 안 한다").
- *
- * 이 창은 자기가 읽는 것을 **말할 수 있다**: 그리는 것이 `BubbleNode`(+ 플러그인 배지 슬롯) 와
- * `AgentIDEOverlay` 와 `PermissionPromptStack` 뿐이고, 그 셋의 독자는 아래 두 그룹이 이미 덮는다
- * (`ideLane` — IDE 안쪽 전부 · `pluginAgentData` — 버블 배지). `OverlayShell` 이 부팅 때
- * `setActiveProjectLocal(projectId)` 로 자기 프로젝트를 고정하므로 `selectRenderedIDEPaneKeys`
- * 도 이 창에서 제 슬롯을 정확히 센다 — 메인 창과 같은 산식이 그대로 성립한다.
+ * §9 슬라이스 스코프 — **이 창이 자기가 읽는 슬라이스를 말할 수 있는가**(창은 `location.hash` 로 갈린다, 빈 해시 = 메인 캔버스).
+ * 독자를 확증한 창만 선언한다 — 틀린 "안 읽는다"는 화면을 비운다. 미선언 창이 있으면 합집합이 전량이 될 뿐 틀린 값은 안 간다.
+ * 버블 오버레이(`#overlay=`)도 선언한다(§5.5 #17-6 (H-4)) — 끌어내는 순간 태어나는 이 창이 침묵하면 전량(실측 752.9KB)이 모든 창에 되살아나 앱이 멎는다.
+ * 그 창은 `BubbleNode`·`AgentIDEOverlay`·`PermissionPromptStack` 만 그려 `ideLane`·`pluginAgentData` 가 덮는다(`OverlayShell` 이 프로젝트를 고정해 IDE 칸 수도 맞다).
  */
 export function canDeclareSliceScopeForHash(hash: string): boolean {
   const h = hash.replace(/^#/, '');
@@ -122,24 +88,12 @@ function isGraphSnapshot(data: unknown): data is GraphSnapshotWire {
   );
 }
 
-/**
- * §5.5 #17-11 ⑦ 개정 — `announceCompletions` 는 **이 창이 완료음·완료 알림을 내는 창인가**.
- *
- * 다섯 셸(App·지휘통제실·별창·오버레이·비디오 스튜디오)이 저마다 이 훅을 마운트하므로, 게이트가
- * 없으면 창을 두 개 띄운 사용자는 **같은 종료를 창 수만큼** 듣는다. `claimCompletionChime` 의
- * localStorage 클레임은 그 대부분을 접지만 창마다 렌더러 프로세스가 달라 읽기→쓰기 사이가 갈리면
- * 둘 다 통과한다 — 확률에 기대지 않고 **소리를 내는 창을 하나로 정한다**(통상적인 앱처럼 부속
- * 창은 알림을 내지 않는다). 기본값이 `false` 라 새 셸이 늘어도 조용한 쪽이 기본이다.
- */
+/** §5.5 #17-11 ⑦ — 이 창이 완료음·알림을 내는가(기본 `false`). 셸마다 이 훅을 마운트해 게이트가 없으면 창 수만큼 울린다(`claimCompletionChime` 클레임은 프로세스 경합에서 둘 다 통과한다). */
 export function useWebSocket(
   url: string,
   options?: {
     announceCompletions?: boolean;
-    /**
-     * §9 슬라이스 스코프 — 이 창이 읽는 슬라이스 묶음을 **부르는 쪽이 직접 말한다**(해시로 판정하지 않는다). 독자를 코드로
-     * 확인한 창만 준다 — 빈 배열은 "스코프 대상 슬라이스를 하나도 안 읽는다"는 유효한 선언이다. 주지 않으면 종전 판정
-     * (`canDeclareSliceScope` — 메인 캔버스·버블 오버레이만 선언) 그대로다.
-     */
+    /** §9 — 이 창이 읽는 슬라이스 묶음을 **부르는 쪽이 직접** 말한다(독자를 확인한 창만, 빈 배열도 유효). 없으면 해시 판정(`canDeclareSliceScope`). */
     sliceScope?: readonly SliceScopeGroup[];
   },
 ): UseWebSocketReturn {
@@ -152,9 +106,7 @@ export function useWebSocket(
   // graph_snapshot 코얼레스 — 버스트 시 마지막 스냅샷만 적용 (16ms 트레일링).
   const snapshotPendingRef = useRef<GraphSnapshotWire | null>(null);
   const snapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // §9 v3.40 — 부하 적응형 배치 창. loadSnapshot 풀 재구축이 16ms 예산을 넘기면
-  // 다음 flush 창을 직전 실측 비용 × 배수로 늘려(상한 250ms) 렌더/입력이 굶지 않게 한다.
-  // 비용이 낮아지면 즉시 기본 주기 복귀 — 경부하 체감 불변.
+  // §9 — 부하 적응형 배치 창. loadSnapshot 재구축이 16ms 예산을 넘기면 다음 flush 창을 직전 비용 × 배수로 늘린다(상한 250ms). 비용이 낮아지면 즉시 기본 주기.
   const snapshotDelayRef = useRef(WS_BATCH_INTERVAL);
   // §5.12 (J) — 마지막으로 스냅샷을 반영한 시각. ref 라 리렌더를 유발하지 않는다(위 주석 참조).
   const lastSnapshotAtRef = useRef(0);
@@ -162,39 +114,17 @@ export function useWebSocket(
   // 커스텀 에이전트 다중 실행 시 매 스트림 라인마다 구독자 전원 재평가하던 것을 16ms당 1회로.
   const streamPendingRef = useRef<SubAgentStreamEvent[]>([]);
   const streamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // §9 v3.40 — 스트림 반영도 동일 적응(기본 50ms, 상한 250ms). 배수는 3 — 스트림 텍스트는
-  // 지연에 더 민감해 스냅샷(×4)보다 완만하게 늘린다.
+  // §9 — 스트림 반영도 같은 적응(기본 50ms, 상한 250ms). 배수 3 — 스트림 텍스트는 지연에 민감해 스냅샷(×4)보다 완만하게.
   const streamDelayRef = useRef(WS_STREAM_BATCH_INTERVAL);
   // 이 창에서 소켓이 한 번이라도 열렸나 — 부팅 첫 연결과 재연결을 가른다(재연결만 놓친 것을 다시 받는다).
   const hasOpenedRef = useRef(false);
   // 화면 복귀로 새로고침을 마지막으로 건 시각 — 복귀 신호가 한꺼번에 여럿 와도 한 번만 붙게(`resumeResync.ts`).
   const lastResumeResyncAtRef = useRef(0);
 
-  /**
-   * §9 v3.89 — 증분으로 온 키맵 슬라이스를 복원하기 위한 **최신 전체 맵**(수신 시점 기준).
-   *
-   * `fileEdits`·`bashHistory` 는 diff/명령 출력 원문이라 스냅샷 부피의 78% 를 차지하면서도 대부분
-   * 그대로다. 서버는 바뀐 키만 실어 보내고, 여기서 이전 값 위에 얹어 종전과 **똑같은 전체 맵**으로
-   * 되돌린다(스토어·컴포넌트는 이 최적화를 모른다).
-   *
-   * ⚠ **합치는 시점이 중요하다** — 아래 스냅샷 코얼레스는 창 안에서 마지막 1건만 적용하고 나머지를
-   * 버린다. 증분은 누적이라 버려진 메시지의 변경분은 영영 사라진다. 그래서 합성은 flush 가 아니라
-   * **메시지가 도착할 때마다** 한다(비용은 얕은 복사 1회).
-   */
+  /** §9 — 증분으로 온 키맵 슬라이스(`fileEdits`·`bashHistory` — 부피의 78%)를 복원할 **최신 전체 맵**. ⚠ **합성은 메시지가 도착할 때마다** — 코얼레스는 마지막 1건만 적용해, flush 때 합치면 버려진 메시지의 증분이 사라진다. */
   const keyedShadowRef = useRef<Partial<Record<DeltaSliceKey, Record<string, unknown>>>>({});
 
-  /**
-   * §9 — **직전에 반영한 스냅샷**(구조적 공유의 비교 상대).
-   *
-   * `loadSnapshot` 은 자기 30여 개 슬라이스에 이미 구조적 공유를 태우지만, 그 뒤에 이어지는
-   * `apply*` 35개는 **받은 값을 그대로 갈아끼운다** — 내용이 한 글자도 안 바뀐 스냅샷에도
-   * `agentReports`·`sessionGoals`·`costMaps` … 가 매번 새 참조가 되어, 그것을 보는 화면 전부가
-   * 16ms 주기로 리렌더됐다(실측 스냅샷 1건당 리렌더 유발 612건).
-   *
-   * 액션 35개를 각각 고치는 대신 **전선에서 받은 시점에 한 번** 공유를 태운다 — 이후 경로는
-   * 종전과 완전히 같고, 안 바뀐 슬라이스는 앞선 스냅샷의 참조를 그대로 들고 내려간다.
-   * `loadSnapshot` 쪽 공유도 첫 `Object.is` 에서 끝나므로 총 비교량은 늘지 않는다.
-   */
+  /** §9 — **직전 스냅샷**(구조적 공유의 비교 상대). `apply*` 들은 받은 값을 그대로 갈아끼워 안 바뀐 스냅샷도 새 참조가 된다(실측 1건당 리렌더 612건) — 전선에서 받은 시점에 한 번 공유를 태운다. */
   const lastWireRef = useRef<GraphSnapshotWire | null>(null);
 
   /** 전선에서 온 스냅샷 → 증분을 푼 뒤 직전 스냅샷과 구조적 공유를 태운 것(이후 경로는 종전과 동일). */
@@ -222,18 +152,8 @@ export function useWebSocket(
       shadow[key] = wireRec[key] ?? {};
     }
     if (wire.deltas) delete full.deltas;
-    // §9 슬라이스 스코프 — **범위 밖이라 안 온 슬라이스는 직전 값을 그대로 이어받는다.**
-    //
-    // ⚠ 이게 없으면 아래 `applyGraphSnapshot` 의 `snap.bashHistory ?? {}` 부류가 걸려 **사용자
-    //   눈에는 데이터가 날아간 것으로 보인다**(§9 ⑥ — 범위 밖은 "비어 있는 것"이 아니라 "아직
-    //   안 온 것"이다). 직전 값을 **같은 참조로** 넣으므로 바로 아래 `structuralShare` 도 그대로
-    //   통과해 리렌더가 나지 않는다.
-    //
-    // ⚠ `keyedShadowRef` 로는 부족하다 — 그쪽은 `DELTA_SLICE_KEYS` 만 덮고, 델타를 안 타는
-    //   슬라이스(`verificationRuns` 등)는 거기 없다. 그래서 기준은 **직전 전체 스냅샷**이다.
-    //
-    // 서버가 `scopedSlices` 를 안 실었으면(범위 미적용 · 구버전 서버) 아무것도 하지 않는다 —
-    // 그때 없는 슬라이스는 진짜로 없는 것이라, 이어받으면 지워진 값이 되살아난다.
+    // §9 슬라이스 스코프 — **범위 밖이라 안 온 슬라이스는 직전 전체 스냅샷의 값을 같은 참조로 잇는다**(§9 ⑥ 안 옴 ≠ 비어 있음). `keyedShadowRef` 는 델타 슬라이스만 덮어 부족하다.
+    // `scopedSlices` 가 없으면(범위 미적용·구버전 서버) 하지 않는다 — 그때 없는 것은 진짜 없는 것이라 이으면 지운 값이 되살아난다.
     full = carryForwardScopedSlices(lastWireRef.current, full, wire.scopedSlices);
     // 서버 권위 순수 JSON 이므로 구조적 공유의 전제(structuralShare.ts 주석)를 그대로 만족한다.
     const shared = structuralShare(lastWireRef.current, full);
@@ -303,10 +223,9 @@ export function useWebSocket(
       snap.readCountQuantilesByProject,
       snap.writeCountQuantilesByProject,
     );
-    // §5.13 v4.45 — 앱 버블은 별도 액션으로 반영한다(loadSnapshot 의 위치 인자를 늘리면
-    //   호출부 한 곳만 어긋나도 조용히 다른 값이 들어간다).
+    // §5.13 — 앱 버블은 별도 액션으로 반영한다(loadSnapshot 위치 인자를 늘리면 호출부 한 곳만 어긋나도 조용히 다른 값이 들어간다).
     useGraphStore.getState().applyAppBubbles(snap.appBubbles ?? EMPTY_LIST);
-    // §5.14 v4.62 — 플레이 버블도 같은 이유로 별도 액션.
+    // §5.14 — 플레이 버블도 같은 이유로 별도 액션.
     useGraphStore.getState().applyPlayBubbles(snap.playBubbles ?? EMPTY_LIST);
     // §5.15 — 스펙 보드도 같은 이유로 별도 액션.
     useGraphStore.getState().applySpecDocs(snap.specDocs ?? EMPTY_LIST);
@@ -322,9 +241,9 @@ export function useWebSocket(
     useGraphStore.getState().applyContextInsurance(snap.contextInsurance ?? EMPTY_LIST);
     // §5.16 — 리뷰·승인 레인. 서버가 전량을 싣고, 사람이 치운 리뷰는 곧 사라짐으로 반영된다.
     useGraphStore.getState().applyReviewRequests(snap.reviewRequests ?? EMPTY_LIST);
-    // §5.5 #17-20 ⑩ v4.94 — 중단점(프로젝트별). 세션이 없어도 편집창 gutter 가 이 값을 그린다.
+    // §5.5 #17-20 ⑩ — 중단점(프로젝트별). 세션이 없어도 편집창 gutter 가 그린다.
     useGraphStore.getState().applyDebugBreakpoints(snap.debugBreakpoints ?? EMPTY_RECORD);
-    // §5.11 v4.65 — 집행 플러그인의 실측(프로젝트별). 켠 것이 없으면 서버가 필드를 안 실으므로 빈 맵으로 비운다.
+    // §5.11 — 집행 플러그인의 실측(프로젝트별). 켠 것이 없으면 서버가 필드를 안 실으므로 빈 맵으로 비운다.
     useGraphStore.getState().applyPluginFacts(snap.pluginFacts ?? EMPTY_RECORD);
     const _tLoad = PERF ? performance.now() : 0;
     store.applyStubProjects(snap.stubProjects ?? EMPTY_RECORD);
@@ -334,8 +253,10 @@ export function useWebSocket(
     // §5.3 #12-3 — 자물쇠(프로젝트 이름 키). 집행은 서버가 하고 화면은 이 값으로 글리프·메뉴를 그린다.
     store.applyPathLocks(snap.pathLocks);
     store.applyV150Metrics(snap.recentToolDurations, snap.compactCounts, snap.rateLimits, snap.claudeUsage);
-    // §4 v4.82 — Claude 로그인 상태(글로벌). 미로그인이면 LoginWindow 가 이 값을 보고 뜬다.
+    // §4 — Claude 로그인 상태(글로벌). 미로그인이면 LoginWindow 가 이 값을 보고 뜬다.
     store.applyClaudeAuth(snap.claudeAuth);
+    // §4 API 크레딧 — 설정·장부·지금 경로(글로벌). 헤더 필의 점과 사용량 팝업·계정 탭이 이 값을 그린다.
+    store.applyApiCredits(snap.apiCredits);
     // §4 (첫 실행 설치 온보딩) — CLI 설치 판정(글로벌). 미설치면 ClaudeSetupGate 가 이 값을 보고 뜬다.
     store.applyClaudeSetup(snap.claudeSetup);
     // §5.25 — 코덱스 네 칸(설치·로그인·모델·훅). 클로드와 같은 자리에서 같은 모양으로 받는다.
@@ -368,7 +289,7 @@ export function useWebSocket(
     store.applyVerificationDemos(snap.verificationDemos);
     // §5.11 정독 게이트 — 세션별 기획 정독 상태(활동바 배지 + 정독 뷰의 원본).
     store.applySpecReading(snap.specReading);
-    // §5.5 #17-17 v4.46 — 세션 목표(활동바 퍼센트 배지 + 목표 패널의 원본).
+    // §5.5 #17-17 — 세션 목표(활동바 퍼센트 배지 + 목표 패널의 원본).
     store.applySessionGoals(snap.sessionGoals);
     store.applyVisualKinds(snap.visualKinds);
     store.applyGoalActions(snap.goalActions);
@@ -396,12 +317,7 @@ export function useWebSocket(
     const t0 = performance.now();
     applyGraphSnapshot(snap);
     lastSnapshotAtRef.current = Date.now();
-    // v3.76 — 완료음·완료 알림의 유일한 발화 지점. 사용자가 만든 커스텀 에이전트가 이번 스냅샷에서
-    // completed 로 넘어온 건만 울린다(서버가 서브에이전트 대차대조까지 반영해 매긴 상태라, 배경
-    // 서브가 남아 있는 동안에는 넘어오지 않는다).
-    // §5.5 #17-11 ⑦ v3.84 — 세션 루프가 도는 동안에는 회차마다 오는 완료 전이를 침묵시키고
-    // 루프 묶음이 끝날 때 한 번만 울리므로, 판정에 스냅샷의 `sessionLoops` 를 함께 넘긴다.
-    // 부속 창은 판정 자체를 돌리지 않는다 — 소리를 내는 창은 하나뿐이다(위 `announceCompletions`).
+    // 완료음·알림의 **유일한 발화 지점** — 커스텀 에이전트가 이번에 completed 로 넘어온 건만(서버가 서브에이전트까지 대차대조한 상태). §5.5 #17-11 ⑦ — 루프 중엔 회차를 침묵하고 끝에 한 번 울리므로 `sessionLoops` 도 넘긴다.
     if (announceCompletions) {
       for (const finished of detectCustomAgentCompletions(snap.agents, snap.sessionLoops)) {
         if (!claimCompletionChime()) break;
@@ -456,11 +372,11 @@ export function useWebSocket(
           ws.send(JSON.stringify(msg));
         }
       });
-      // §4 v1.98 — 진단 에러 캡처 sender 주입 (연결 시 큐 flush).
+      // §4 — 진단 에러 캡처 sender 주입(연결 때 쌓인 큐를 보낸다).
       setDiagnosticsSender((msg) => {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
       });
-      // §4 v3.33 — 모바일 임베디드 터미널 프레임 sender 등록(데스크톱은 window.api.terminal 이라 미사용).
+      // §4 — 모바일 임베디드 터미널 프레임 sender 등록(데스크톱은 window.api.terminal).
       registerTerminalWsSender((frame) => {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
       });
@@ -472,11 +388,10 @@ export function useWebSocket(
 
     ws.onmessage = (event: MessageEvent) => {
       try {
-        // §9 v3.40 — 통합 앱은 IPC 브리지(IpcWebSocket)가 구조화 클론된 객체를 그대로 실어
-        // 보낸다(대형 스냅샷의 stringify→parse 왕복 제거). dev/web/모바일 ws 는 종전대로 문자열.
+        // §9 — 통합 앱은 IPC 브리지(IpcWebSocket)가 구조화 클론 객체를 그대로 보낸다(stringify→parse 왕복 없음). dev/web/모바일 ws 는 문자열.
         const raw: unknown = event.data;
         const parsed: unknown = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        // §4 v3.33 — 터미널 다중화 프레임(term_*)은 WSMessageType 유니온 밖 — 브리지로 먼저 라우팅.
+        // §4 — 터미널 다중화 프레임(term_*)은 WSMessageType 유니온 밖 — 브리지로 먼저 보낸다.
         if (
           parsed && typeof parsed === 'object' &&
           typeof (parsed as { type?: unknown }).type === 'string' &&
@@ -492,9 +407,7 @@ export function useWebSocket(
         switch (parsed.type) {
           case 'graph_snapshot':
             if (isGraphSnapshot(parsed.payload)) {
-              // 16ms 트레일링 코얼레스 — 액티브 에이전트 버스트 시 매 메시지마다
-              // 전체 스냅샷 재구축/풀 재동기화하던 것을 최신 1건으로 합침 (60fps 예산 보호).
-              // §9 v3.89 — 증분(deltas)은 누적이라 **버려지는 메시지 것도 여기서 먼저** 반영한다.
+              // 16ms 트레일링 코얼레스 — 버스트 때 최신 1건만 재구축한다. §9 — 증분(deltas)은 누적이라 버려지는 메시지 것도 여기서 먼저 반영한다.
               snapshotPendingRef.current = materializeSnapshot(parsed.payload);
               if (snapshotTimerRef.current === null) {
                 snapshotTimerRef.current = setTimeout(flushSnapshot, snapshotDelayRef.current);
@@ -567,13 +480,10 @@ export function useWebSocket(
           }
 
           case 'agent_status':
-            // v3.76 — **여기서 완료음을 울리지 않는다.** 이 신호는 "시스템 전체 활성 세션 0" 전이일
-            // 뿐이라 두뇌 리플렉션 자식·외부 폴더의 claude 세션·훅 세션의 매 턴 종료까지 전부 완료로
-            // 잡혀, 사용자가 아무 명령도 안 내린 유휴 상태에서 소리가 났다. 완료음은 flushSnapshot 의
-            // 커스텀 에이전트 completed 전이가 발화한다. phase 는 서버 스냅샷이 관리.
+            // **여기서 완료음을 울리지 않는다** — "전체 활성 세션 0" 전이라 외부·훅 세션의 턴 종료까지 잡힌다. 완료음은 flushSnapshot 의 커스텀 에이전트 completed 전이가 낸다. phase 는 서버 스냅샷이 관리한다.
             break;
 
-          // §5.3 #12-1 v1.43 — 권한 승인 요청 스택
+          // §5.3 #12-1 — 권한 승인 요청 스택
           case 'permission_request': {
             const p = parsed.payload as PermissionRequest;
             if (p && typeof p.requestId === 'string') {
@@ -589,7 +499,7 @@ export function useWebSocket(
             break;
           }
 
-          // §5.3 #12-2 v2.26 — AskUserQuestion IDE 인라인 카드
+          // §5.3 #12-2 — AskUserQuestion IDE 인라인 카드
           case 'ask_user_question': {
             const p = parsed.payload as AskUserQuestionRequest;
             if (p && typeof p.requestId === 'string') {
@@ -605,8 +515,7 @@ export function useWebSocket(
             break;
           }
 
-          // §5.5 #17-20 ⑩ v4.94 — 공통 디버그 층의 상태/출력. 세션은 프로세스 수명이라
-          // graph_snapshot 이 아니라 이 메시지로만 흐른다(런타임 스토어가 받는다).
+          // §5.5 #17-20 ⑩ — 디버그 층의 상태/출력. 세션은 프로세스 수명이라 graph_snapshot 이 아니라 이 메시지로만 흐른다.
           case 'debug_event': {
             const p = parsed.payload as DebugEventPayload;
             if (p && typeof p.sessionId === 'string') {
@@ -625,7 +534,7 @@ export function useWebSocket(
             break;
           }
 
-          // §7.11 v1.44 / v2.5 — iframe 서버 로그 스트리밍. shellId 는 (port, shellId) 필터용 echo.
+          // §7.11 — iframe 서버 로그 스트리밍. shellId 는 (port, shellId) 필터용 echo.
           case 'iframe_log_init': {
             const p = parsed.payload as IframeLogInitPayload;
             if (p && typeof p.port === 'number' && Array.isArray(p.lines)) {
@@ -654,7 +563,7 @@ export function useWebSocket(
             break;
           }
 
-          // §7.7 v1.99 — Vibisual 서버 코어 로그 스트리밍
+          // §7.7 — 서버 코어 로그 스트리밍
           case 'server_log_init': {
             const p = parsed.payload as ServerLogInitPayload;
             if (p && Array.isArray(p.lines)) {
@@ -670,7 +579,7 @@ export function useWebSocket(
             break;
           }
 
-          // §5.7 #23-1 v1.59 — Claude Code 업데이트 설치 진행
+          // §5.7 #23-1 — Claude Code 업데이트 설치 진행
           case 'claude_install_progress': {
             const p = parsed.payload as ClaudeInstallProgress;
             if (p && typeof p.installId === 'string') {
@@ -697,7 +606,7 @@ export function useWebSocket(
             break;
           }
           case 'model_registry_updated': {
-            // §4 v2.38 — 시드→api-merged 전환 또는 TTL refresh 시 단독 push.
+            // §4 — 시드→api-merged 전환 또는 TTL refresh 때 단독 push.
             store.applyModelRegistry(parsed.payload as import('@vibisual/shared').ModelRegistry);
             break;
           }
@@ -717,7 +626,7 @@ export function useWebSocket(
             break;
           }
           case 'user_defaults_updated': {
-            // §4 v2.42 — 사용자가 Options 창에서 Apply → 다른 창들도 즉시 반영.
+            // §4 — Options 창의 Apply 를 다른 창들도 즉시 반영.
             store.applyUserDefaults(parsed.payload as import('@vibisual/shared').UserDefaults);
             break;
           }
@@ -759,8 +668,8 @@ export function useWebSocket(
     ws.onclose = () => {
       setStatus('disconnected');
       wsRef.current = null;
-      setDiagnosticsSender(null); // §4 v1.98 — 끊긴 동안 발생한 에러는 큐잉됐다 재연결 시 flush.
-      registerTerminalWsSender(null); // §4 v3.33 — 끊기면 터미널 프레임 전송 중단(재연결 시 재등록).
+      setDiagnosticsSender(null); // §4 — 끊긴 동안의 에러는 큐에 두었다가 재연결 때 보낸다.
+      registerTerminalWsSender(null); // §4 — 끊기면 터미널 프레임 전송을 멈춘다(재연결 때 다시 등록).
 
       if (attemptRef.current < MAX_RECONNECT_ATTEMPTS) {
         const delay = RECONNECT_BASE_DELAY * Math.pow(2, attemptRef.current);
@@ -806,13 +715,7 @@ export function useWebSocket(
     }
   }, []);
 
-  /**
-   * §5.12 (J) 새로고침 — 지금 소켓을 버리고 새로 붙는다(서버가 전체 스냅샷을 다시 준다).
-   *
-   * 닫기 전에 기존 소켓의 `onclose` 를 떼는 것이 핵심이다 — 그대로 두면 backoff 재연결이 **여기서
-   * 여는 소켓과 별개로** 하나 더 예약되어 창 하나가 두 소켓을 물게 된다. 예약돼 있던 재시도 타이머도
-   * 같은 이유로 걷어내고 시도 횟수를 0 으로 되돌린다(사용자가 직접 누른 것이 곧 새 시작이다).
-   */
+  /** §5.12 (J) 새로고침 — 닫기 전에 옛 소켓의 `onclose` 를 뗀다(두면 backoff 재연결이 하나 더 예약돼 두 소켓을 문다). 예약된 재시도도 걷고 횟수를 0 으로. */
   const reconnect = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -833,8 +736,7 @@ export function useWebSocket(
 
   const getLastSnapshotAt = useCallback(() => lastSnapshotAtRef.current, []);
 
-  // §4 v3.16 모바일 웹 — 화면이 돌아오면 연결을 점검해 제자리 새로고침을 건다. 폰은 화면이 꺼진 사이
-  //   소켓이 말없이 죽어 OPEN 으로 남거나, 재시도를 다 써 버려 다시는 안 붙는다. 판정은 `resumeResync.ts`.
+  // §4 모바일 웹 — 화면이 돌아오면 연결을 점검해 제자리 새로고침을 건다(폰은 꺼진 사이 소켓이 말없이 죽어 OPEN 으로 남거나 재시도를 다 쓴다). 판정은 `resumeResync.ts`.
   useEffect(() => installResumeWatch((trigger, hiddenForMs) => {
     const ws = wsRef.current;
     const socketState: SocketState =
@@ -854,34 +756,18 @@ export function useWebSocket(
     reconnect();
   }), [reconnect]);
 
-  // ─── §9 스코프드 스냅샷 구독 ───────────────────────────────────────────────
-  //
-  // 이 창이 **지금 그리는 프로젝트**를 서버에 선언한다. 모든 shell(메인 · 별창 · 지휘통제실 ·
-  // 오버레이)이 자기 창의 활성 프로젝트를 `activeProject` 로 들고 있으므로(별창·통제실은
-  // `setActiveProjectLocal`), 선언 지점을 이 훅 하나로 모을 수 있다.
-  //
-  // ⚠ `activeProject` 가 아직 정해지지 않았으면(부팅 첫 스냅샷 전) **선언하지 않는다** —
-  //   서버는 "선언한 창이 하나도 없으면 전부 보낸다"가 기본값이라, 침묵이 곧 안전 쪽이다.
-  //   여기서 성급히 `[]` 를 보내면 활성 프로젝트를 정하기도 전에 데이터가 끊긴다.
+  // §9 — 이 창이 **지금 그리는 프로젝트**를 서버에 선언한다(모든 셸이 `activeProject` 를 든다). ⚠ 아직 없으면(첫 스냅샷 전) **선언하지 않는다** — 서버는 선언이 없으면 전부 보낸다. 성급한 `[]` 는 데이터를 끊는다.
   const activeProject = useGraphStore((s) => s.activeProject);
   // §9 폴더 스코프 — 이 창이 **지금 열어 둔 폴더의 내비 경로**. 서버는 이 경로의 폴더들과
   //   그 한 칸 앞(하위 폴더)만 `children`/`innerEdges`/폴더 위성에 싣는다.
   //   실측(살아 있는 checkpoint.json): 세 슬라이스 1,306,933 → 72,938 바이트(5.6%).
   const navStack = useGraphStore((s) => s.navStack);
   const currentFolderId = useGraphStore((s) => s.currentFolderId);
-  // §5.1 #2-1 (B) — 같은 폴더 묶음 안에 들어가 있으면 그 폴더도 지금 그리는 폴더다. 그 `children` 이 와야 위성 상한으로 빠진
-  //   같은 종류 파일이 묶음 안에 선다(2026-10-22 사용자 지시) — 새 메시지 없이 같은 선언의 폴더 축에 하나를 더한다.
+  // §5.1 #2-1 (B) — 폴더 묶음 안이면 그 폴더도 지금 그리는 폴더다 — 그 `children` 이 와야 위성 상한으로 빠진 같은 종류 파일이 묶음 안에 선다.
   const bundleFolderId = useGraphStore((s) => (s.interiorView?.kind === 'bundle' ? s.interiorView.folderId ?? null : null));
 
-  // §9 슬라이스 스코프 — 이 창이 **지금 읽고 있는 슬라이스 묶음**. 서버는 모든 창 선언의 합집합에
-  //   든 슬라이스만 싣는다(창별로 가르면 전선 증분의 기준점이 어긋난다 — `sliceScope.ts` 함정 ①).
-  //
-  //   판정 기준은 **코드로 확인한 독자**뿐이다. 그룹 정의와 근거는 `sliceScope.ts` 가 소유하고,
-  //   여기서는 "그 화면이 지금 켜져 있는가"만 본다.
-  //
-  //   ⚠ 구독은 **불리언 하나**로 잡는다. `selectRenderedIDEPaneKeys(s)` 는 호출마다 새 배열이라
-  //   그대로 구독하면 zustand v5 가 "캐시되지 않은 스냅샷"으로 보고 무한 리렌더로 간다
-  //   (`IDEPaneHost` 가 배운 것과 같은 규약).
+  // §9 슬라이스 스코프 — 이 창이 **지금 읽는 슬라이스 묶음**(서버는 모든 창 선언의 합집합만 싣는다 — `sliceScope.ts` 함정 ①). 정의·근거는 `sliceScope.ts`, 여기선 화면이 켜져 있는지만.
+  // ⚠ 구독은 **불리언 하나로** — `selectRenderedIDEPaneKeys(s)` 는 매번 새 배열이라 zustand v5 가 무한 리렌더한다.
   const ideLaneOpen = useGraphStore((s) => selectRenderedIDEPaneKeys(s).length > 0);
   //   플러그인은 IDE 레인과 **독립**이다 — `usePluginData` 의 슬롯이 캔버스 버블 배지와
   //   DetailPanel 섹션에 들어가므로, IDE 를 닫아도 켠 플러그인이 이 둘을 읽을 수 있다.

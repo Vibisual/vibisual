@@ -13,9 +13,8 @@ function pageHidden(): boolean {
 }
 
 /**
- * §5.13 (R-10) — the only poll an editable-source screen runs: revision + candidate stamp, a few bytes.
- * Only while `enabled` (the panel is visible/open) and the window is visible; a new object only when something
- * changed, so consumers re-read the full document or the candidate list only on a real change.
+ * §5.13 (R-10) — the only poll an editable-source screen runs (revision + candidate stamp), only while `enabled` and the window is visible.
+ * Returns a new object only on a real change, so consumers re-read the document or candidates only then.
  */
 export function useCreationHead(
   projectId: string, docId: string | null | undefined, options: { enabled?: boolean; intervalMs?: number } = {},

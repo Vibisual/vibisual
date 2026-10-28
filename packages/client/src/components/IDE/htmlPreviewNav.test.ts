@@ -12,12 +12,7 @@ import {
   withCacheToken,
 } from './htmlPreviewNav.js';
 
-/**
- * §5.5 #17-27 ⑮ (b) — 편집창 속 브라우저의 주소·방문 기록.
- *
- * 이 계산이 틀렸을 때의 증상은 전부 조용하다 — "링크를 눌렀는데 주소가 그대로", "뒤로가 영영
- * 안 켜짐", "저장했는데 화면이 안 바뀜". 화면을 띄워 눈으로 잡기 어려운 것들이라 여기서 못 박는다.
- */
+/** §5.5 #17-27 ⑮ (b) — 편집창 속 브라우저 주소·방문 기록. 틀려도 조용하다(주소 그대로·뒤로 안 켜짐·저장해도 그대로). */
 
 const ROOT = 'C:/work/proj';
 const PAGE = workspaceSiteUrl(ROOT, 'demo/index.html');

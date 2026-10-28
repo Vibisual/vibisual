@@ -7,11 +7,7 @@ import { shortcutLabel } from '../../utils/platform.js';
 import { formatClock } from './PreviewControls.js';
 import { StudioIcon } from './studioIcons.js';
 
-/**
- * §5.13 (V) 37-7 — **메모 서랍**: 꽂은 메모 핀 목록. 누르면 그 시각으로 간다. 고친 메모(에이전트가 '고침' 으로 적었다)는
- * [확인]으로 닫고(닫힌 칸에 남는다), 닫힌 것은 [다시 열기]·[지우기]. 맡기기([고칠 점 n개 맡기기])는 AI 패널에 하나만 있다
- * (같은 일에 손잡이 둘 ❌).
- */
+/** §5.13 (V) 37-7 — 메모 서랍. 고친 메모는 [확인]으로 닫는다. 맡기기는 AI 패널에만 둔다(손잡이 둘 ❌). */
 export interface NotesDrawerProps {
   readonly notes: readonly VideoNote[];
   readonly activeId: string | null;

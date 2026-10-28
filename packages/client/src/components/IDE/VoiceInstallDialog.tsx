@@ -10,16 +10,8 @@ import {
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 /**
- * VoiceInstallDialog — **§5.5 #17-38 ⑬ 마이크를 처음 누르면 뜨는 준비 창.**
- *
- * §5.19 (B) 가 세운 흐름 그대로다: **창은 준비 과정 그 자체이고, 끝나는 순간 스스로 물러나며
- * 하려던 일이 이어진다.** 여기서는 "설치했습니다. 이제 마이크를 다시 눌러 주세요" 로 끝내지
- * 않는다 — 사용자가 누른 것은 [설치]가 아니라 **[말하기]** 였다.
- *
- * ### 왜 주의사항을 접지 않고 다 펴 두는가
- * 700MB 를 받는 일이고, 되돌리려면 어디를 지워야 하는지까지 알아야 한다. 접어 두면 아무도
- * 안 펴고, 안 편 채 눌렀다가 나중에 "왜 이렇게 커졌냐"가 된다. 대신 **문장 수를 줄이고**
- * 각 줄이 한 가지만 말하게 했다.
+ * §5.5 #17-38 ⑬ 마이크를 처음 누르면 뜨는 준비 창. §5.19 (B) — 끝나면 스스로 물러나 하려던 말하기가 이어진다("다시 눌러 주세요" ❌).
+ * 주의사항은 접지 않는다(700MB · 지울 자리를 알아야 한다) — 한 줄에 한 가지만.
  */
 
 export interface VoiceInstallDialogProps {
@@ -52,12 +44,7 @@ export function VoiceInstallDialog(props: VoiceInstallDialogProps): JSX.Element 
   const failed = progress?.stage === 'error';
   const ready = state?.ready === true;
 
-  /**
-   * 모델 몫 + 엔진 몫(대략) — 받기 전에 얼마인지 말하기 위한 값.
-   *
-   * 실제 크기는 릴리스를 조회해야 알 수 있고 그 조회는 [설치]를 누른 뒤에 돈다. 여기서는
-   * **디스크에 남는 양**으로 말한다(내려받는 압축본보다 크다) — 적게 말하지 않는다.
-   */
+  /** 받기 전에 말할 크기(대략) — 디스크에 남는 양(압축본보다 크다)으로 적게 말하지 않는다. 실제 크기는 [설치] 뒤 조회로 안다. */
   const totalBytes = useMemo(
     // 엔진 자산은 플랫폼마다 18~25MB 라 25MB 로 잡는다.
     () => VOICE_MODEL_DISK_APPROX_BYTES + 25_000_000,
@@ -66,12 +53,7 @@ export function VoiceInstallDialog(props: VoiceInstallDialogProps): JSX.Element 
 
   const tier = voiceAsrLanguageTier(uiLocale);
 
-  /**
-   * 끝나는 순간 물러난다.
-   *
-   * ⚠ 한 번만 부른다 — `ready` 는 다음 상태 갱신마다 참으로 남아 있어, 가드가 없으면 창이
-   * 닫힌 뒤에도 `onReady` 가 계속 불려 받아쓰기가 껐다 켜졌다 한다.
-   */
+  /** ⚠ `onReady` 는 한 번만 — `ready` 는 갱신마다 참으로 남아, 가드가 없으면 닫힌 뒤에도 불려 받아쓰기가 껐다 켜진다. */
   const firedRef = useRef(false);
   useEffect(() => {
     if (!open) {

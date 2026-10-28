@@ -1,32 +1,8 @@
 /**
- * CollapsiblePrompt — 사용자가 IDE 에 입력/붙여넣은 프롬프트를 "내 메시지" 말풍선으로 렌더.
- *
- * 두 렌더 경로(Sub 탭 `StreamRenderer` 의 CommandBlock, Agent/메인 탭 `IDEMainArea` 의 TerminalLine)가
- * **동일하게** 이 컴포넌트를 쓰도록 분리한 공용 모듈 — 한쪽만 고쳐 입력이 탭에 따라 옛 모양으로
- * 뜨던 불일치를 없앤다.
- *
- * 사용자 입력은 **길이와 무관하게 항상 말풍선**으로 뜬다(본인 입력임을 한눈에). 짧은 한 줄은 접을
- * 게 없으니 셰브론 없는 정적 말풍선, 길거나 여러 줄(복붙한 inspector 정보 등)이면 기본 접힘
- * (첫 줄만 미리보기) + 펼치면 넣은 그대로(공백·줄바꿈 보존)인 접이식 말풍선. 둘 다 우상단 복사 버튼.
- *
- * **펼친 말풍선은 IDE 어디를 눌러도 접힌다.** 접는 손짓이 "그 좁은 머리줄을 다시 정확히 찾아 누르기"
- * 하나뿐이면, 내 글을 확인하고 되돌아가는 흔한 동작이 매번 조준을 요구한다(사용자 보고). 바깥 press
- * 판정은 팝업과 같은 공통 규약(`useOutsidePressDismiss`)에 맡긴다 — 말풍선 안에서 시작한 press·드래그
- * 로는 접히지 않으므로 복사·대기 컨트롤과 펼친 본문의 **텍스트 선택**은 그대로 살아 있다.
- *
- * tool/thinking 의 좌측 세로바 박스와 모양·정렬을 의도적으로 다르게(우측 정렬 + 채움 말풍선 +
- * 사람 아이콘·"나" 라벨) 해 본인 입력임을 한눈에 구분한다.
- *
- * §5.5 #17-18 ⑤ v4.77 — **이 말풍선이 곧 대기 줄이다.** 실행 중에 넣은 덧말은 어차피 이 말풍선으로
- * 올라가므로, 입력창 위에 같은 내용을 한 번 더 그리던 별도 "대기 줄"을 없애고 **상태를 말풍선 색으로**
- * 구분한다(실행 중 = emerald / 대기 = slate / 합치기 = violet / 즉시 = amber / 보낸 뒤 = 기존 sky).
- * [대기|합치기|즉시] 칩과 삭제(×)도 대기 줄이 아니라 **그 말풍선 안**에 있다 — 사용자가 자기 글을
- * 보면서 그 자리에서 방식을 바꾼다.
- *
- * **말풍선은 자기가 언제 보낸 글인지 말한다.** 스트림의 도구 잔줄에는 시각이 붙어 있는데 정작 내가
- * 보낸 명령에는 없어서, 며칠에 걸친 세션을 되감으면 `/release` 라고 적힌 말풍선이 언제 친 것인지 알
- * 수 없었다(사용자 보고). 이름표 옆에 `오늘 14:32` / `어제 09:07` / `9월 2일 14:32` 를 늘 띄우고,
- * 호버하면 요일·초까지 있는 전체 표기가 뜬다 — 규칙과 로케일 처리는 [`promptStamp.ts`](./promptStamp.ts).
+ * CollapsiblePrompt — "내 메시지" 말풍선(두 렌더 경로 `StreamRenderer` · `IDEMainArea` 공용). 길면 기본 접힘(펼치면 공백·줄바꿈 보존).
+ * 펼친 것은 IDE 어디를 눌러도 접힌다(`useOutsidePressDismiss` — 안에서 시작한 press·드래그는 제외).
+ * §5.5 #17-18 ⑤ 이 말풍선이 곧 대기 줄 — 상태는 색(실행 중 emerald / 대기 slate / 합치기 violet / 즉시 amber / 보낸 뒤 sky), 칩·삭제도 안에.
+ * 보낸 시각을 늘 띄운다(`promptStamp.ts`).
  */
 import { useState, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -46,16 +22,8 @@ export function isLongUserPrompt(prompt: string): boolean {
 }
 
 /**
- * AI 발화 표식 — assistant 텍스트를 박스로 감싸지 않고 평범한 본문으로 두되, 왼쪽에 작은 스파클 글리프만
- * 붙여 "AI 가 말하는 것"임을 한눈에 알리는 수수한 마커. 내 입력(사람 아이콘·sky 말풍선)과 짝을 이루는
- * 발화 주체 표식이라 이 공용 모듈에 둔다(두 렌더 경로가 동일 모양을 쓰도록).
- *
- * §5.5 #17-45 — `run` 은 이 문단이 **연속 발화 런**에서 선 자리(`speechRunPositions`). 말머리는 런의
- * **첫 문단에만** 달고, 이어지는 문단에는 같은 칼럼에 실선 한 줄만 내려 "같은 사람이 계속 하는 말"임을
- * 알린다. 값이 없으면(`solo`) 종전과 한 픽셀도 다르지 않다 — 표준·원문 밀도는 이 축을 타지 않는다.
- *
- * ⚠ 세로 여백은 **이 칸이 아니라 옆의 본문 칸**이 만든다(부르는 쪽이 `py-*` 를 본문 칸에 준다).
- * 바깥 상자에 `py-*` 를 주면 이 칸이 그만큼 짧아져 실선이 항목마다 끊긴 점선으로 보인다.
+ * AI 발화 표식(본문 왼쪽 스파클) — 내 입력 말풍선과 짝이라 공용 모듈에. §5.5 #17-45 `run` = 연속 발화 런의 자리(`speechRunPositions`) — 첫 문단만 말머리, 이어지는 문단엔 실선.
+ * ⚠ 세로 여백은 옆 본문 칸이 준다 — 바깥 상자에 `py-*` 를 주면 실선이 점선처럼 끊긴다.
  */
 export function AiSpeakerGlyph({ run = 'solo' }: { run?: SpeechRunPos }): React.JSX.Element {
   const head = run === 'solo' || run === 'head';
@@ -247,27 +215,15 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
   const tone = PROMPT_TONES[toneFor(command)];
   const mode = command?.dispatchMode ?? DEFAULT_COMMAND_DISPATCH_MODE;
   /*
-   * §5.5 #17-10 ⑥-5 (2026-09-28 대체) — 손잡이는 **배지와 같은 사실**(`command.status` = 표시용 사본
-   * `displayCommands` 의 칸)을 따른다. 조용한 압축이 도는 동안 그 세션의 첫 대기 명령은 `executing`
-   * 으로 그려지는데, 종전에는 손잡이만 원본 큐(`queued`)를 따라 "실행 중…" 배지 아래에 [대기|합치기|즉시]
-   * 칩·"지금 턴이 끝난 뒤 보냅니다"·삭제(×)가 **함께** 붙었다 — 사용자는 방금 넣은 지시가 대기에
-   * 빠졌다고 읽었다("입력을 하면 압축이 입력 실행처럼 보이게"). 물려받은 명령은 실행 중인 명령과
-   * 구별되지 않아야 하므로 손잡이도 없다. 빠져나갈 길은 입력줄 [중지]이고, 그때 서버가 그 명령을
-   * 실행 중에 멈춘 명령처럼 중지됨으로 남긴다(§5.3 #9-1 (P)(b)).
+   * §5.5 #17-10 ⑥-5 — 손잡이는 배지와 같은 사실(`displayCommands` 의 `command.status`)을 따른다 — 원본 큐를 따르면 조용한 압축 중 "실행 중…" 배지 아래에
+   * 대기 칩이 붙는다. 물려받은 명령은 손잡이가 없고, 빠지는 길은 [중지](§5.3 #9-1 (P)(b)).
    */
   const controlAgentId = command?.status === 'queued' ? command.agentId : undefined;
   const controlCommandId = command?.status === 'queued' ? command.commandId : undefined;
   const controllable = controlAgentId !== undefined && controlCommandId !== undefined;
 
-  // 펼친 말풍선은 **IDE 어디를 눌러도 접힌다** — 다시 접으려고 좁은 머리줄을 정확히 찾아 누를 필요가
-  // 없다(사용자 보고: "펼친 걸 닫으려면 그 자리를 다시 정확히 눌러야 한다"). 팝업은 아니지만 닫는
-  // 손짓의 성질이 같아 **공통 규약을 그대로 쓴다**(직접 리스너 ❌ · `popupDismissContract` 가 집행).
-  //   - 말풍선 안에서 시작한 press 는 안이므로 접지 않는다 → 복사·[대기|합치기|즉시] 칩·삭제(×)와
-  //     펼친 본문의 **텍스트 선택 드래그**(밖에서 손을 떼도)가 살아 있다. 내 글을 확인하려고 펼친
-  //     것이므로 긁어서 복사하는 도중에 접히면 안 된다.
-  //   - `graceMs` — 펼친 그 클릭의 잔여 이벤트가 곧바로 접어 "안 펼쳐지는" 것처럼 보이는 것을 막는다.
-  //   - 접혀 있으면 리스너를 아예 걸지 않는다(`enabled`) — 스트림에 말풍선이 수백 개 쌓여도
-  //     window 리스너는 지금 펼친 것 수만큼만 산다.
+  // 펼친 말풍선은 IDE 어디를 눌러도 접힌다(팝업 닫기 공통 규약 — `popupDismissContract`). 안에서 시작한 press·선택 드래그는 접지 않고,
+  // `graceMs` 는 펼친 클릭의 잔여 이벤트를 거르며, 접혀 있으면 리스너를 안 건다(`enabled`).
   const collapse = useCallback(() => setOpen(false), []);
   const closeFullscreen = useCallback(() => setFullscreenHost(null), []);
   useOutsidePressDismiss({
@@ -331,9 +287,7 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
   );
 
   return (
-    // §4 v3.24 — 폰(max-md)에선 말풍선을 화면 폭에 더 붙인다(여백 압축).
-    // `ide-user-msg` 는 §5.5 #17-22 ⑨ 대화 정렬이 잡는 표식 — 켜지면 index.css 가 이 90% 폭을 풀고
-    // 내용 폭 그대로 오른쪽 끝에 붙인다(꺼져 있으면 아무 규칙도 걸리지 않아 종전 모양 그대로).
+    // §4 — 폰에선 말풍선을 폭에 더 붙인다. `ide-user-msg` = §5.5 #17-22 ⑨ 대화 정렬 표식(켜지면 index.css 가 90% 폭을 풀어 오른쪽 끝에 붙인다).
     <div className="ide-user-msg mb-2 ml-auto w-full max-w-[90%] max-md:max-w-[96%]">
       <div ref={bubbleRef} className={`relative overflow-hidden rounded-2xl rounded-tr-sm border shadow-sm ${tone.bubble}`}>
         {collapsible ? (
@@ -377,8 +331,7 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
           </pre>
         )}
 
-        {/* §5.5 #17-18 ⑤ v4.77 — 대기 중 덧말의 컨트롤 줄. 옛 "대기 줄"이 갖고 있던 것을 전부
-            이 말풍선 안으로 옮겼다: [대기|합치기|즉시] 칩 + 삭제(×) + 고른 방식의 한 줄 설명. */}
+        {/* §5.5 #17-18 ⑤ — 대기 중 덧말 컨트롤 줄: 칩 + 삭제(×) + 고른 방식 설명. */}
         {controllable && (
           <div className={`flex items-center gap-1.5 border-t px-2 py-1 ${tone.divider}`}>
             <div className="flex flex-shrink-0 items-center gap-0.5 rounded bg-gray-950/50 p-0.5">

@@ -3,13 +3,7 @@ import type { Conti } from '@vibisual/shared';
 import { ProjectGraph } from './projectGraph.js';
 import { mergeSnapshots } from './projectGraphManager.js';
 
-/**
- * §5.13 (Q) — 대본 콘티·출력 프리셋·렌더 기록의 **영속 왕복** 회귀 테스트.
- *
- * 콘티는 레코드를 통째로 직렬화하므로 필드별 배선이 필요 없지만, 그 "통째로"가 어느
- * 지점에서 필드를 골라 담는 코드로 바뀌면 새 필드는 **화면에는 보이는데 껐다 켜면
- * 사라지는** 상태가 된다(v1.59 contis 누락과 같은 자리). 그 조용한 실패를 여기서 못 박는다.
- */
+/** §5.13 (Q) — 대본 콘티·출력 프리셋·렌더 기록의 영속 왕복(새 필드가 껐다 켤 때 사라지지 않는다). */
 
 const PROJECT_CWD = '/tmp/storyboard-project';
 

@@ -1,10 +1,6 @@
 /**
- * 스트림 버퍼에 서버 창을 **겹쳐 얹는** 순수 함수들 — 스토어(`loadStreamBuffers`·`appendStreamEvents`)와
- * 창(`AgentIDEOverlay`·`streamHistory.ts`)이 같이 쓴다. 스토어도 읽으므로 이 파일은 스토어를 import 하지
- * 않는다(순환 방지). DOM 없이 시험한다(`streamGapFill.test.ts` · `streamHistory.test.ts`).
- *
- * 연결이 끊겼다 다시 붙으면 버퍼는 "끊기기 전 줄 → 다시 붙은 뒤 줄"로 곧장 이어져 **가운데가 빈다**
- * (새 연결은 스냅샷만 주고 스트림 줄은 WS 로만 흐른다). 서버에서 다시 받은 창을 여기서 제자리에 끼운다.
+ * 스트림 버퍼에 서버 창을 겹쳐 얹는 순수 함수 — 스토어와 창(`AgentIDEOverlay`·`streamHistory.ts`)이 같이 쓴다. 스토어를 import 하지 않는다(순환).
+ * 재연결하면 새 연결은 스냅샷만 받아 버퍼 가운데가 빈다 — 다시 받은 창을 여기서 제자리에 끼운다.
  */
 import type { SubAgentStreamEvent } from '@vibisual/shared';
 
@@ -30,15 +26,8 @@ export function mergeDeepWindow(
 }
 
 /**
- * 서버 창의 줄 중 버퍼에 없는 것을 **서버 순서의 제자리**에 끼운다. 버퍼에 이미 든 줄은 하나도 빼거나
- * 옮기지 않는다 — 얕은 조회가 깊은 창·거슬러 불러온 과거를 줄이면 안 되기 때문이다.
- *
- * 빠진 줄의 자리는 서버 창에서 바로 앞에 선 줄 중 버퍼에 있는 것의 **바로 뒤**다. 그런 앞줄이 없으면
- * (서버 창의 머리) 버퍼와 겹치는 첫 서버 줄의 앞, 겹치는 줄이 아예 없으면 버퍼 끝이다.
- *
- * 종전에는 빠진 줄을 전부 끝에 붙였다 — 끊겨 있던 사이의 줄이 다시 붙은 뒤에 온 줄보다 **아래에**
- * 그려져, 글이 뒤섞이거나 중간에서 끊긴 채 끝난 것처럼 읽혔다.
- *
+ * 서버 창의 줄 중 버퍼에 없는 것을 **서버 순서의 제자리**에 끼운다. 버퍼에 든 줄은 빼거나 옮기지 않는다(깊은 창·불러온 과거를 줄이면 안 된다).
+ * 자리 = 서버 창의 바로 앞 줄 중 버퍼에 있는 것 뒤 → 없으면 겹치는 첫 서버 줄 앞 → 겹침이 없으면 끝. 끝에 몰아 붙이면 글이 뒤섞인다.
  * @returns 끼울 것이 없으면 `null`(호출부가 버퍼를 그대로 둔다).
  */
 export function spliceMissingInServerOrder(
@@ -85,11 +74,7 @@ export function spliceMissingInServerOrder(
 /** 라이브 줄이 이미 버퍼에 있는지 볼 때 끝에서부터 훑는 칸 수. */
 export const RECENT_EVENT_ID_SCAN = 256;
 
-/**
- * 이 id 가 버퍼 끝 가까이 이미 있나. 서버 창을 다시 받는 사이 WS 로도 같은 줄이 오면(서버는 40ms,
- * 클라는 50ms 로 모아 보낸다) 창에 든 줄이 한 번 더 붙어 같은 글이 두 번 그려진다. 겹치는 줄은
- * 방금 받은 창의 끝자락에 있으므로 끝에서 `RECENT_EVENT_ID_SCAN` 칸만 본다.
- */
+/** 이 id 가 버퍼 끝 가까이 이미 있나 — 창을 받는 사이 WS 로도 같은 줄이 오면 두 번 그려진다. 겹침은 끝자락이라 `RECENT_EVENT_ID_SCAN` 칸만 본다. */
 export function hasRecentEventId(buffer: readonly SubAgentStreamEvent[], id: string): boolean {
   const stop = Math.max(0, buffer.length - RECENT_EVENT_ID_SCAN);
   for (let i = buffer.length - 1; i >= stop; i--) {

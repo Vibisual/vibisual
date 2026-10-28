@@ -73,8 +73,8 @@ describe('live line clock', () => {
     expect(liveLineActivityAt(undefined, undefined)).toBeNull();
   });
 
-  // §5.5 #17-10 ⑥-6 (2026-09-28) — the hidden turn is no longer "unknown": the command the user
-  // just typed inherits it, so the clock counts from the moment the compaction went out (= input).
+  // §5.5 #17-10 ⑥-6 — a hidden turn is not "unknown": the command just typed inherits it,
+  // so the clock counts from the moment the compaction went out (= input).
   it('keeps counting from the session activity while a hidden turn runs', () => {
     expect(liveLineActivityAt(100_000, 265_000)).toBe(265_000);
   });

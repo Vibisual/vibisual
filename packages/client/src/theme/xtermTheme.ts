@@ -1,8 +1,4 @@
-/**
- * §4 앱 테마 — 터미널(xterm) 색표. xterm 은 CSS 변수도 oklch 도 못 읽으므로, 해석된 테마의 터미널 토큰을
- * **sRGB hex(투명도가 있으면 rgba)** 로 옮겨 넘긴다. 색 자체의 정본은 테마(`terminal.*` 토큰)다 —
- * 기본 테마의 값은 종전 `IDETerminalView` 의 Catppuccin Mocha 그대로다.
- */
+/** §4 앱 테마 — 터미널(xterm) 색표. xterm 은 CSS 변수·oklch 를 못 읽어 터미널 토큰을 **sRGB hex(투명도 있으면 rgba)** 로 옮긴다. 기본 값은 Catppuccin Mocha. */
 import { useMemo } from 'react';
 import type { ITheme } from '@xterm/xterm';
 import {

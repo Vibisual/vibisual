@@ -1,23 +1,7 @@
 /**
- * §7.11 포트 인계 — **포트 인계(takeover)**: 에이전트가 띄워 놓은 서버의 기동 명령을 OS 프로세스
- * 테이블에서 직접 읽어, Vibisual 이 그 서버를 넘겨받는다.
- *
- * 왜 필요한가 — v3.85 는 에이전트 신고/루프백 감지로 알게 된 서버에 `reportedOnly` ServerEntry 를
- * 만들었다. 명령을 모르니 Restart/Start 가 영구 disabled 였고, 사용자 체감은 "내가 띄운 것도 아닌데
- * 껐다 켜지도 못한다" 였다. 하지만 **살아 있는 프로세스는 자기 기동 명령을 들고 있다** — 포트 →
- * PID → 명령줄까지 이으면 그 서버는 우리가 다시 띄울 수 있는 서버가 된다.
- *
- * 언제 읽는가 — **프로세스가 살아 있는 동안**이어야 한다. 신고 시점·Stop 직전·Restart 요청 시
- * 세 자리에서 시도한다(죽은 뒤에는 OS 에도 남지 않는다).
- *
- * 보안 — 읽어 온 명령은 `respawn` 의 "서버가 탐지한 dev 명령" 계약 안에 있다(사용자 자유입력 ❌).
- * 인계 대상은 **이미 이 기기에서 그 포트로 돌고 있던 프로세스**이므로, 재실행은 새 권한을 만들지
- * 않는다. 대신 우리 자신(Vibisual)·부모 프로세스는 인계하지 않는다(자기 자신을 죽이고 다시 띄우는
- * 사고 차단).
- *
- * 멀티플랫폼 — 조회 계획(`buildTakeoverProbes`)이 `platform` 을 **인자로 받는다**. 실기가 없는
- * Windows 개발기에서도 mac/linux 분기를 단위 테스트로 확인할 수 있어야 하기 때문이다
- * (docs/rules/multiplatform.md).
+ * §7.11 포트 인계 — 에이전트가 띄운 서버의 기동 명령을 OS 프로세스 테이블(포트 → PID → 명령줄)에서 읽어 넘겨받는다. 명령을 모르면 Restart/Start 를 못 한다.
+ * 프로세스가 살아 있을 때만 읽힌다 — 신고 시점·Stop 직전·Restart 요청 때 시도한다.
+ * 보안: 읽은 명령은 `respawn` 의 "탐지한 dev 명령" 계약 안이다(이미 이 기기에서 돌던 프로세스라 새 권한이 아니다). 우리 자신·부모 프로세스는 인계하지 않는다.
  */
 import { exec } from 'node:child_process';
 import fs from 'node:fs';
@@ -25,15 +9,9 @@ import { logger } from '../logger.js';
 import { findPortListeners, isVibisualOwnPort, listenerPids, reachableListeners } from './processChecker.js';
 
 /**
- * 프로세스 정보 조회 1회당 상한. 넘으면 "못 읽었다"로 보고 다음 후보로 넘어간다.
- *
- * Windows 는 조회 한 번이 PowerShell(.NET) 기동 + WMI 질의라 POSIX 의 `ps`·`lsof` 와 무게가 다르다.
- * CPU 가 바쁜 기기에서는 기동만으로 4초를 넘긴다 — 2026-09-13 windows-latest 러너에서 시험 스위트가
- * 함께 돌던 중 netstat 은 pid 를 찾았는데 이 조회가 세 번 연달아 4초에 잘렸다(같은 질의로 프로세스
- * 목록을 뜨는 `processDescendants.ts` 는 8초를 준다). 잘려도 아무것도 죽이지 않지만 그 서버는
- * "재시작 불가"로 남고, 신고 직후의 조회는 프로세스가 살아 있을 때만 가능하므로 넉넉히 준다.
- *
- * @param platform 세 OS 를 한 기기에서 테스트하기 위해 인자로 받는다.
+ * 조회 1회당 상한. 넘으면 "못 읽었다"로 다음 후보로 간다. 잘리면 그 서버가 "재시작 불가"로 남으므로 넉넉히 준다.
+ * Windows 는 조회마다 PowerShell + WMI 라 바쁜 기기에선 기동만으로 4초를 넘긴다(2026-09-13 windows-latest 실측).
+ * @param platform 테스트용 주입점(멀티플랫폼 규칙).
  */
 export function takeoverProbeTimeoutMs(platform: NodeJS.Platform): number {
   return platform === 'win32' ? 15_000 : 4_000;
@@ -49,27 +27,16 @@ export interface PortTakeover {
   via: string;
 }
 
-/**
- * PID 하나의 기동 명령·작업 폴더를 알아내기 위한 조회 계획 1건.
- *
- * - `file`  — 파일을 그대로 읽는다(리눅스 `/proc/<pid>/cmdline`: 인자가 NUL 로 갈려 있어 **무손실**).
- * - `link`  — 심볼릭 링크를 읽는다(리눅스 `/proc/<pid>/cwd`).
- * - `exec`  — 외부 명령 한 줄을 돌려 stdout 을 파싱한다.
- */
+/** PID 하나의 기동 명령·작업 폴더 조회 계획 — `file`(`/proc/<pid>/cmdline`, NUL 구분이라 무손실) · `link`(`/proc/<pid>/cwd`) · `exec`(외부 명령 stdout 파싱). */
 export type TakeoverProbe =
   | { kind: 'file'; path: string; field: 'command'; parse: 'proc-cmdline' }
   | { kind: 'link'; path: string; field: 'cwd' }
   | { kind: 'exec'; command: string; field: 'command' | 'cwd'; parse: 'ps-args' | 'win-cmdline' | 'lsof-cwd' };
 
 /**
- * 플랫폼별 조회 계획. 위에 있는 것부터 시도하고, 값을 얻으면 그 항목(`field`)은 더 묻지 않는다.
- *
- * - **linux**: `/proc` 이 커널이 주는 진실이라 1순위(무손실 argv + 실제 cwd). 없으면 `ps` 로 내려간다.
- * - **darwin**: `/proc` 이 없다. `ps -o args=` 로 명령줄, `lsof -d cwd` 로 작업 폴더.
- * - **win32**: `Get-CimInstance Win32_Process` 의 `CommandLine` 이 원본 명령줄 그대로다.
- *   cwd 는 Win32 에 공개 API 가 없어(PEB 읽기 필요) **포기하고 호출자 폴백**(세션 cwd)에 맡긴다.
- *
- * @param platform `process.platform` 값. 인자로 받는 이유는 세 OS 를 한 기기에서 테스트하기 위함.
+ * 플랫폼별 조회 계획(위부터, 값을 얻은 `field` 는 더 안 묻는다). linux: `/proc` → `ps` · darwin: `ps -o args=` + `lsof -d cwd`
+ * win32: `Get-CimInstance Win32_Process` 의 `CommandLine`, cwd 는 공개 API 가 없어(PEB) 호출자 폴백(세션 cwd).
+ * @param platform 테스트용 주입점.
  */
 export function buildTakeoverProbes(platform: NodeJS.Platform, pid: number): TakeoverProbe[] {
   if (!Number.isInteger(pid) || pid <= 0) return [];
@@ -106,11 +73,7 @@ export function parseProcCmdline(raw: string): string[] {
   return raw.split('\x00').filter((s) => s.length > 0);
 }
 
-/**
- * `ps -o args=` 출력 → 명령줄 한 줄. 여러 줄이 와도 첫 비어 있지 않은 줄만 쓴다.
- * ⚠ `ps` 는 argv 를 공백으로 이어 붙여 주므로 공백이 든 인자는 이 시점에 이미 뭉개져 있다 —
- * 그래서 리눅스에서는 `/proc/<pid>/cmdline` 을 먼저 본다.
- */
+/** `ps -o args=` → 첫 비어 있지 않은 줄. `ps` 는 argv 를 공백으로 이어 붙여 공백 든 인자가 뭉개진다 — 그래서 리눅스는 `/proc/<pid>/cmdline` 을 먼저 본다. */
 export function parsePsArgs(stdout: string): string | null {
   for (const line of stdout.split(/\r?\n/)) {
     const t = line.trim();
@@ -210,17 +173,9 @@ export async function readProcessStart(
 }
 
 /**
- * 포트를 LISTEN 중인 프로세스에서 기동 명령을 읽어 **인계 가능한 형태**로 돌려준다.
- *
- * 실패(=null)의 사유는 셋 중 하나이며 모두 정상 경로다 — ① 그 포트에 아무도 없다(서버가 이미 죽었다)
- * ② 점유자를 볼 도구가 없다 ③ 남의 계정 소유라 명령줄을 읽을 권한이 없다. 호출자는 이때 종전처럼
- * "재시작 불가"로 남기면 된다(kill 은 하지 않는다 — 되살릴 수 없는 서버를 죽이면 사용자 손해다).
- *
- * §7.11 — `host` 를 주면 **그 주소로 접속했을 때 닿는 리스너**에서만 읽는다. 한 포트에 주인이 둘일 수
- * 있어서다(`[::1]` 의 옆 프로젝트 vite 와 `::` 의 우리 서버). 가르지 않으면 "먼저 읽힌 pid" 가 남의
- * 서버여도 그 명령을 우리 entry 로 넘겨받아, Restart 가 남의 프로젝트 명령을 우리 폴더에서 돌린다.
- *
- * @param platform 기본값은 실제 플랫폼. 테스트가 세 OS 를 모두 지나갈 수 있도록 인자로 열어 둔다.
+ * LISTEN 프로세스의 기동 명령을 인계 가능한 형태로. null(빈 포트·도구 없음·권한 없음)은 정상 경로 — "재시작 불가"로 남기고 kill 하지 않는다.
+ * §7.11 — `host` 가 닿는 리스너에서만 읽는다(한 포트 두 주인 — 안 가르면 Restart 가 남의 명령을 우리 폴더에서 돌린다).
+ * @param platform 테스트용 주입점(기본 = 실제 플랫폼).
  * @param host 그 서버를 부르는 주소의 호스트(`localhost` · `127.0.0.1` · `::1`). 비우면 포트 전체.
  */
 export async function takeoverPortCommand(

@@ -1,14 +1,7 @@
 import { create } from 'zustand';
 
-// §4 v3.71 가시성 LOD — "지금 캔버스가 다른 UI 에 덮여 있는가" 한 비트(비영속, 표시/게이팅 전용).
-//
-// IDE 오버레이는 BubbleMap 의 자식으로 렌더되므로, 최대화·모달로 캔버스를 완전히 덮어도 그 아래
-// React Flow 는 계속 그려지고 물리 rAF·주기 타이머도 계속 돈다(물리의 절전 조건은 document.hidden
-// 뿐이라 "같은 창 안에서 덮인 상태"를 못 본다). 덮개는 IDE 말고도 여럿이라(기억 피드·옵션창·모바일
-// 접속창) prop 으로 내려보내면 갈래가 생긴다 — captureSnapGuides 선례대로 런타임 스토어 한 곳에
-// 키 단위로 등록하고, 하나라도 켜져 있으면 covered=true 로 본다.
-//
-// 캔버스가 아니라 "덮개"가 자기 상태를 신고한다(덮개가 자기 모드를 가장 잘 안다).
+// §4 가시성 LOD — 캔버스가 다른 UI 에 덮여 있는가(비영속). IDE 오버레이는 BubbleMap 자식이라 다 덮여도 React Flow·물리 rAF 가 돈다
+// (물리 절전은 `document.hidden` 만 본다). 덮개가 여럿이라 각 덮개가 키로 신고하고, 하나라도 있으면 covered=true.
 
 interface CanvasVisibilityState {
   /** 등록된 덮개 키 집합 — 하나라도 있으면 캔버스가 안 보인다. */

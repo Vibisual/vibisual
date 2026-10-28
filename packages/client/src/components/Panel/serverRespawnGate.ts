@@ -1,15 +1,8 @@
 import type { ServerEntry } from '@vibisual/shared';
 
 /**
- * §7.11 포트 인계 — Restart/Start 를 눌러도 되는가, 안 되면 왜 안 되는가.
- *
- * `ServerList`(목록의 작은 ⟳)와 `IframeServerCard`(버블 상세의 Restart/Start)가 **같은 규칙**을
- * 써야 한다 — 같은 서버가 한 화면에서는 눌리고 다른 화면에서는 회색이면 사용자는 둘 중 어느 쪽이
- * 진짜인지 알 수 없다. 그래서 판정을 컴포넌트 밖 한 곳에 둔다.
- *
- * 규칙: 에이전트가 신고해 알게 된 서버(`reportedOnly`)라도 **그 프로세스가 살아 있으면 연다.**
- * 서버가 OS 프로세스 테이블에서 기동 명령을 읽어 인계(takeover)한 뒤 재시작하기 때문이다.
- * 영구 불가는 둘뿐 — ① 이미 꺼져 읽어 올 프로세스가 없다 ② 읽기를 시도했다가 실패했다.
+ * §7.11 포트 인계 — Restart/Start 가능 여부·이유. `ServerList`·`IframeServerCard` 가 같은 판정을 쓰도록 한 곳에 둔다.
+ * `reportedOnly` 도 프로세스가 살아 있으면 연다(서버가 OS 프로세스 표에서 기동 명령을 읽어 인계한다). 영구 불가는 이미 꺼짐 · 읽기 실패 둘뿐.
  */
 export interface RespawnGate {
   canRespawn: boolean;

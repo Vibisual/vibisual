@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.96 — 추론 시점 연산(Test-Time Compute): 사고를 사서 품질을 올리고 있는가.
- *
- * 모델을 키우는 대신 **생각할 시간을 사는** 쪽이 비용 대비 효과가 좋은 구간이 넓다는 것이 확인됐다.
- * 실무적으로는 품질과 지연·비용을 다이얼로 조절할 수 있게 됐다는 뜻이고, 쉬운 작업에 최대 사고를 켜는 것은
- * 순수한 낭비다. 표시 전용.
- */
+/** §5.11 — 추론 시점 연산(Test-Time Compute): 사고를 사서 품질을 올리는가(쉬운 작업에 최대 사고는 낭비). 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';
 

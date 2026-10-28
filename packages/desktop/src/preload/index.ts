@@ -37,7 +37,7 @@ export interface ServerInfo {
   running: boolean;
 }
 
-// SCENARIO.md §5.4 #14-1 (v2.29) — 별창 detach/redock IPC surface.
+// SCENARIO.md §5.4 #14-1 — 별창 detach/redock IPC surface.
 export type DetachKindWire = 'project' | 'iframe';
 export interface DetachedTabInfoWire {
   windowId: number;
@@ -57,7 +57,7 @@ export interface DetachPayloadWire {
 export interface RectWire { x: number; y: number; width: number; height: number }
 export interface PointWire { x: number; y: number }
 
-// SCENARIO.md §5.5 #17-6 (v2.73) — 버블 오버레이 창 IPC surface.
+// SCENARIO.md §5.5 #17-6 — 버블 오버레이 창 IPC surface.
 export interface OverlayInfoWire {
   windowId: number;
   agentId: string;
@@ -72,27 +72,14 @@ export interface OverlayListWire {
 // SCENARIO.md §5.13 (S-11) — 밖에 떠 있는 앱 창과 그 창이 지금 보는 대상(앱 화면 파라미터 그대로).
 export type AppWindowListWire = Array<{ windowId: number; appId: string; params: Record<string, string> }>;
 
-// ─── §9 스냅샷 무복사 수신 ──────────────────────────────────────────────────
-//
-// main 은 `graph_snapshot` 을 창 수와 무관하게 **1회만** 인코딩해 UTF-8 바이트로 민다
-// (`WS_BUFFER_CHANNEL`). 깊은 객체를 창마다 구조화 클론하던 종전 경로의 메인 스레드 점유를
-// 없애기 위함이다(설계·함정은 `main/snapshotWire.ts` 주석).
-//
-// **렌더러는 이 변경을 몰라야 한다.** 여기서 TextDecoder 로 문자열을 되돌려, 종전에 창이 2개
-// 이상일 때 이미 흐르던 것과 **똑같은 모양**(문자열)으로 `onMessage` 콜백에 넘긴다.
-// `install-packaged-transport.ts` 의 IpcWebSocket 은 그 문자열을 MessageEvent.data 로 싣고,
-// `useWebSocket` 이 `typeof raw === 'string'` 가지에서 JSON.parse 한다 — 손댈 곳이 없다.
-//
-// 구독은 `onMessage` 마다 새 엔트리 객체로 담는다. 같은 함수 참조가 두 번 구독돼도 해지가
-// 서로를 지우지 않게 하기 위함(Set<함수> 였다면 하나를 끊을 때 둘 다 끊긴다).
+// §9 스냅샷 수신 — main 은 `graph_snapshot` 을 1회만 UTF-8 바이트로 민다(`WS_BUFFER_CHANNEL`, 함정은 `main/snapshotWire.ts`). 렌더러는 이를 몰라야 해
+// TextDecoder 로 문자열로 되돌려 `onMessage` 에 넘긴다(`useWebSocket` 의 `typeof raw === 'string'` 가지). 구독은 엔트리 객체로 — Set<함수> 면
+// 같은 함수의 두 구독 중 하나를 끊을 때 둘 다 끊긴다.
 interface WsListenerEntry { cb: (payload: unknown) => void }
 const wsBufferListeners = new Set<WsListenerEntry>();
 
-// 바이트 채널을 **로드 시점에** 붙이고 곧바로 능력을 신고한다.
-//   - 붙이기가 신고보다 먼저여야, 신고 직후 날아온 첫 바이트를 흘리지 않는다.
-//   - 신고가 없으면 main 은 이 창에 바이트를 보내지 않는다(구버전 preload 취급 → 종전 경로).
-//     postMessage 는 리스너가 없어도 조용히 사라져 실패를 감지할 수 없기 때문에, 낙관 대신
-//     신고제로 뒤집어 놓은 것이다. 이 신고를 지우면 화면이 통째로 조용히 죽는다.
+// 바이트 채널을 로드 시점에 붙이고 곧바로 신고한다(붙이기가 먼저여야 첫 바이트를 안 흘린다). postMessage 는 리스너가 없어도 조용히 사라져 신고제다 —
+// 신고가 없으면 main 은 바이트를 안 보낸다. 이 신고를 지우면 화면이 통째로 조용히 죽는다.
 ipcRenderer.on(WS_BUFFER_CHANNEL, (_e, payload: unknown) => {
   let text: string;
   try {
@@ -109,11 +96,7 @@ ipcRenderer.send(WS_BUFFER_READY_CHANNEL);
 const api = {
   serverInfo: (): Promise<ServerInfo> => ipcRenderer.invoke('vibisual:server-info'),
   getCommandAppIcon: (executable: string): Promise<string | null> => ipcRenderer.invoke(COMMAND_APP_ICON_CHANNEL, executable),
-  /**
-   * OS 파일 드래그앤드롭 — 드롭된 File 의 절대경로 해석(Electron 31+ webUtils).
-   * `File.path` 는 Electron 32 에서 제거 예정이라 공식 권장 경로(webUtils.getPathForFile)로 통일.
-   * 동기 반환이며 File 객체는 contextBridge 가 그대로 preload 로 전달한다.
-   */
+  /** OS 파일 드롭의 절대경로(`webUtils.getPathForFile`, 동기) — `File.path` 는 Electron 32 에서 제거 예정이다. */
   getPathForFile: (file: File): string => {
     try { return webUtils.getPathForFile(file); } catch { return ''; }
   },
@@ -195,8 +178,7 @@ const api = {
       ipcRenderer.on('vibisual:tab:redock-commit', listener);
       return () => ipcRenderer.removeListener('vibisual:tab:redock-commit', listener);
     },
-    // §5.4 #14-1 v2.30 — 별창 미니 타이틀바 드래그 시작/종료. 본체가 mini ghost 로 축소되어
-    // cursor 따라가게 한다(main 의 windowManager 가 폴링).
+    // §5.4 #14-1 — 별창 미니 타이틀바 드래그 시작/종료. 별창 자체가 mini ghost 로 줄어 커서를 따른다(main 의 windowManager 가 폴링).
     startDetachDrag: (): Promise<boolean> => ipcRenderer.invoke('vibisual:window:detach-drag-start'),
     endDetachDrag: (commit: boolean): Promise<boolean> =>
       ipcRenderer.invoke('vibisual:window:detach-drag-end', commit),
@@ -207,13 +189,9 @@ const api = {
       return () => ipcRenderer.removeListener('vibisual:tab:redock-drag-state', listener);
     },
   },
-  /** §5.5 #17-6 (v2.73) — 버블 오버레이 창 surface. */
+  /** §5.5 #17-6 — 버블 오버레이 창 surface. */
   overlay: {
-    /**
-     * 에이전트 버블을 데스크톱 상시-위 위젯 창으로 분리. 이미 있으면 그 창 focus.
-     * (판올림 번호 발급 대기) `expanded` 면 버블이 아니라 **IDE 크기로 바로** 뜬다 —
-     * IDE 창을 앱 밖으로 끌어내 만든 독립 창이 그 경로다(`size` 는 끌던 창 크기).
-     */
+    /** 에이전트 버블을 데스크톱 상시-위 위젯 창으로 분리(이미 있으면 focus). `expanded` 면 IDE 크기로 바로 뜬다 — 앱 밖으로 끌어낸 IDE 창의 경로(`size` = 끌던 창 크기). */
     open: (payload: {
       agentId: string;
       projectId: string;
@@ -246,11 +224,8 @@ const api = {
     }): Promise<{ windowId: number; reused: boolean }> =>
       ipcRenderer.invoke('vibisual:overlay:open', payload),
     /**
-     * §17-6 (H-25) — **놓기 전에 미리 짓는다.** 나갈 뜻이 분명해지는 순간(선의 무장)에 부른다.
-     *
-     * 창을 지어 부팅만 시키고 **보여주지 않으므로** 화면은 그대로 선 하나다. 손을 떼면 위
-     * `open` 이 그 창을 재사용해 자리만 옮기므로, 창 짓기(번들·WS·스냅샷·IDE 마운트)가 뗌
-     * 프레임에 몰리지 않는다. 이미 그 에이전트의 창이 있으면 아무 일도 하지 않고 거짓을 준다.
+     * §17-6 (H-25) — 놓기 전에 미리 짓는다(선의 무장 때). 부팅만 하고 안 보여 화면은 선 하나다 — 뗌에 `open` 이 재사용해 창 짓기가 뗌 프레임에 몰리지 않는다.
+     * 그 에이전트의 창이 이미 있으면 거짓.
      */
     warm: (payload: {
       agentId: string;
@@ -261,10 +236,7 @@ const api = {
     /** §17-6 (H-25) ⑤ — 나가지 않기로 끝난 판이 예열 창을 거둔다(이미 태어난 창은 건드리지 않는다). */
     warmCancel: (agentId: string): Promise<boolean> =>
       ipcRenderer.invoke('vibisual:overlay:warm-cancel', agentId),
-    /**
-     * §17-6 (H) — 새로 뜬 창이 **자기 짐**을 꺼낸다. 한 번 꺼내면 사라지고, 없으면 null 이다
-     * (그때는 종전대로 첫 화면에서 시작한다 — 짐이 없다고 창이 안 뜨지는 않는다).
-     */
+    /** §17-6 (H) — 새로 뜬 창이 자기 짐을 꺼낸다. 한 번 꺼내면 사라지고, 없으면 null(첫 화면에서 시작 — 짐이 없다고 창이 안 뜨지는 않는다). */
     takeHandoff: (agentId: string): Promise<unknown> =>
       ipcRenderer.invoke('vibisual:overlay:take-handoff', agentId),
     /** 특정 에이전트의 오버레이 창 닫기(메인에서 토글 해제 시). */
@@ -301,9 +273,8 @@ const api = {
     restoreEditorRoomSelf: (): Promise<boolean> =>
       ipcRenderer.invoke('vibisual:overlay:restore-editor-room-self'),
     /**
-     * §17-6 v2.81 — 버블 드래그 = OS 창 이동. mousedown 시 시작(메인이 커서 폴링으로 창을 따라가게).
-     * (H-4) 펼친 IDE 창의 타이틀바는 `redockOnEnter` 를 켜서 부른다 — 끌다 앱 안으로 들어오면
-     * 그 자리에서 앱 안 IDE 로 돌아간다(그때 실어 보낼 짐도 **시작할 때** 함께 맡긴다).
+     * §17-6 — 버블 드래그 = OS 창 이동. mousedown 시 시작(main 이 커서 폴링으로 창을 따라가게).
+     * (H-4) 펼친 IDE 창의 타이틀바는 `redockOnEnter` 를 켜서 부른다 — 끌다 앱 안에 들면 앱 안 IDE 로 돌아간다(실어 보낼 짐도 시작할 때 맡긴다).
      */
     dragStart: (payload?: {
       redockOnEnter?: boolean;
@@ -366,10 +337,7 @@ const api = {
     },
     /**
      * §17-6 (H-4) — 이 창이 지금 커서에 매달려 있는가(그렇다면 이 창도 뗌을 듣는다).
-     *
-     * (H-23) **메인 창도 이 신호를 받는다** — 들어오는 판(`redockOnEnter`)은 창이 숨는 순간
-     * 그 렌더러가 뗌을 못 듣게 되므로, 누구의 판인지(`agentId`)를 함께 실어 메인 창이 대신
-     * 듣게 한다. 받는 쪽이 자기 창인지 남의 판인지는 그 `agentId` 로 가른다.
+     * (H-23) 메인 창도 받는다 — 들어오는 판(`redockOnEnter`)은 창이 숨는 순간 그 렌더러가 뗌을 못 들어 메인 창이 대신 듣는다. 자기 판인지는 `agentId` 로 가른다.
      */
     onFollowDragState: (cb: (payload: { following: boolean; agentId?: string }) => void): (() => void) => {
       const listener = (_e: unknown, payload: { following: boolean; agentId?: string }): void => cb(payload);
@@ -405,14 +373,13 @@ const api = {
     list: (): Promise<OverlayListWire> => ipcRenderer.invoke('vibisual:overlay:list'),
     /** Header 전역 토글 — 모든 오버레이 창 show/hide. */
     setVisible: (visible: boolean): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:set-visible', visible),
-    /** §17-6 (G) v2.82 — 우클릭 "숨기기(이 버블만)" — 이 창만 숨김(복귀는 Header 전역 토글). */
+    /** §17-6 (G) — 우클릭 "숨기기(이 버블만)" — 이 창만 숨김(복귀는 Header 전역 토글). */
     hideSelf: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:hide-self'),
-    /** §17-6 (G) v2.82 — 우클릭 불투명도(1/0.75/0.5) — 접힘 버블에 적용. */
+    /** §17-6 (G) — 우클릭 불투명도(1/0.75/0.5) — 접힘 버블에 적용. */
     setOpacitySelf: (opacity: number): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:set-opacity-self', opacity),
     /**
-     * §17-6 (G) v2.82 — 우클릭 "본체에서 이 버블로 점프" — 메인 창 포커스 + reveal 신호.
-     * (판올림 번호 발급 대기) `openIde` 면 점프에서 그치지 않고 **앱 안에서 IDE 창까지 다시 연다**
-     * (밖으로 끌어냈던 창을 되돌리는 길).
+     * §17-6 (G) — 우클릭 "본체에서 이 버블로 점프" — 메인 창 포커스 + reveal 신호.
+     * `openIde` 면 앱 안에서 IDE 창까지 다시 연다(밖으로 끌어냈던 창을 되돌리는 길).
      */
     revealInMain: (payload: {
       agentId: string;
@@ -424,7 +391,7 @@ const api = {
       handoff?: unknown;
     }): Promise<boolean> =>
       ipcRenderer.invoke('vibisual:overlay:reveal-in-main', payload),
-    /** §17-6 (G) v2.82 — 메인 윈도우 한정: 오버레이가 보낸 캔버스 점프 신호 구독. */
+    /** §17-6 (G) — 메인 윈도우 한정: 오버레이가 보낸 캔버스 점프 신호 구독. */
     onReveal: (
       cb: (payload: {
         agentId: string;
@@ -447,18 +414,18 @@ const api = {
       ipcRenderer.on('vibisual:overlay:reveal', listener);
       return () => ipcRenderer.removeListener('vibisual:overlay:reveal', listener);
     },
-    /** §17-6 (G) v2.87 — 버블 창: 우클릭 → 커서 위치에 메뉴 팝업 창 열기. */
+    /** §17-6 (G) — 버블 창: 우클릭 → 커서 위치에 메뉴 팝업 창 열기. */
     openMenu: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:open-menu'),
-    /** §17-6 (G) v2.87 — 메뉴 창: 실제 메뉴 크기 신고(main 이 창을 딱 맞춰 커서 아래 배치). */
+    /** §17-6 (G) — 메뉴 창: 실제 메뉴 크기 신고(main 이 창을 딱 맞춰 커서 아래 배치). */
     menuResize: (size: { width: number; height: number }): Promise<boolean> =>
       ipcRenderer.invoke('vibisual:overlay:menu-resize', size),
-    /** §17-6 (G) v2.87 — 메뉴 창: 액션(open-ide·reveal·opacity·hide·close)을 대상 버블 창에 적용. */
+    /** §17-6 (G) — 메뉴 창: 액션(open-ide·reveal·opacity·hide·close)을 대상 버블 창에 적용. */
     menuAction: (payload: { action: string; value?: number }): Promise<boolean> =>
       ipcRenderer.invoke('vibisual:overlay:menu-action', payload),
-    /** §17-6 (G) v2.87 — 메뉴 창: 자기 자신 닫기(Esc 등). */
+    /** §17-6 (G) — 메뉴 창: 자기 자신 닫기(Esc 등). */
     closeMenu: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:close-menu'),
     /**
-     * §17-6 (G) v2.87 — 버블 창: 메뉴가 보낸 명령(open-ide) 구독 → openIDEOverlay.
+     * §17-6 (G) — 버블 창: 메뉴가 보낸 명령(open-ide) 구독 → openIDEOverlay.
      * (H-27) ⑦ 앱이 세션을 골라 이 창을 불렀으면 `focus` 에 그 세션이 실려 온다(모양은 받는 렌더가 가린다).
      */
     onMenuCommand: (cb: (payload: { command: string; focus?: unknown }) => void): (() => void) => {
@@ -473,14 +440,14 @@ const api = {
       return () => ipcRenderer.removeListener('vibisual:overlay:list', listener);
     },
   },
-  /** §5.12 (v4.44) — 지휘통제실 창 surface. **앱 전체에 1창**이며 활성 프로젝트를 따라간다. */
+  /** §5.12 — 지휘통제실 창 surface. 앱 전체에 1창이며 활성 프로젝트를 따라간다. */
   command: {
     /** 프로젝트 root 버블 더블클릭 → 지휘통제실 창. 이미 있으면 focus + show-project push. */
     open: (payload: { projectId: string; cursor?: { x: number; y: number } }): Promise<{ windowId: number; reused: boolean }> =>
       ipcRenderer.invoke('vibisual:command:open', payload),
     /** 지휘통제실 창 닫기(창이 하나라 인자 없음). */
     close: (): Promise<boolean> => ipcRenderer.invoke('vibisual:command:close'),
-    /** 지휘통제실 창 한정 — "이 프로젝트를 보여라" 신호 구독(v4.44). */
+    /** 지휘통제실 창 한정 — "이 프로젝트를 보여라" 신호 구독. */
     onShowProject: (cb: (payload: { projectId: string }) => void): (() => void) => {
       const listener = (_e: unknown, payload: { projectId: string }): void => cb(payload);
       ipcRenderer.on('vibisual:command:show-project', listener);
@@ -496,12 +463,7 @@ const api = {
       return () => ipcRenderer.removeListener('vibisual:command:reveal', listener);
     },
   },
-  /**
-   * §5.13 (O) v4.48 — 내부 앱 surface (앱 무관).
-   *
-   * 앱마다 surface 를 만들지 않는다. `appId` 만 다르고 통로는 셋으로 고정이다 —
-   * 앱이 늘어도 이 파일은 그대로다.
-   */
+  /** §5.13 (O) — 내부 앱 surface(앱 무관). 앱마다 surface 를 만들지 않는다 — `appId` 만 다르고 통로는 셋으로 고정이다. */
   app: {
     open: (appId: string, params?: Record<string, string>, placement?: { width: number; height: number; x?: number; y?: number; fromGhost?: boolean }): Promise<{ windowId: number; reused: boolean }> =>
       ipcRenderer.invoke('vibisual:app:open', { appId, params, placement }),
@@ -559,7 +521,7 @@ const api = {
       return () => ipcRenderer.removeListener('vibisual:app:attention', listener);
     },
   },
-  /** §4 v2.44 자동 업데이트 surface — VS Code 식 업데이트 버튼. */
+  /** §4 자동 업데이트 surface — VS Code 식 업데이트 버튼. */
   update: {
     /** 수동 체크 트리거(부팅 직후·주기 체크는 main 이 자동). 갱신된 상태를 반환. */
     check: (): Promise<UpdateState> => ipcRenderer.invoke('vibisual:update:check'),
@@ -574,7 +536,7 @@ const api = {
       return () => ipcRenderer.removeListener('vibisual:update:status', listener);
     },
   },
-  /** §4 v3.16 모바일 웹 접속 모드 surface — File 메뉴 Mobile Access 모달. */
+  /** §4 모바일 웹 접속 모드 surface — File 메뉴 Mobile Access 모달. */
   mobile: {
     /** 현재 상태 1회 조회(모달 오픈 시 초기값). */
     getState: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:get-state'),
@@ -584,13 +546,13 @@ const api = {
     disable: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:disable'),
     /** 새 페어링 코드 발급 — 실패 잠금 해제 겸용. */
     regenCode: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:regen-code'),
-    /** §4 v3.20 — UPnP 외부 개방 켜기(공유기 포트 자동 개방 + HTTPS). */
+    /** §4 — UPnP 외부 개방 켜기(공유기 포트 자동 개방 + HTTPS). */
     enableExternal: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:enable-external'),
-    /** §4 v3.20 — 외부 개방 끄기(UPnP 매핑 제거 + HTTPS 종료). */
+    /** §4 — 외부 개방 끄기(UPnP 매핑 제거 + HTTPS 종료). */
     disableExternal: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:disable-external'),
-    /** §4 v3.66 — QR 페어링 티켓 발급(3분). 기존 티켓이 있으면 폐기하고 새로 만든다. */
+    /** §4 — QR 페어링 티켓 발급(3분). 기존 티켓이 있으면 폐기하고 새로 만든다. */
     issueQr: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:issue-qr'),
-    /** §4 v3.66 — QR 페어링 티켓 즉시 폐기(이미 페어링된 기기는 유지). */
+    /** §4 — QR 페어링 티켓 즉시 폐기(이미 페어링된 기기는 유지). */
     revokeQr: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:revoke-qr'),
     /**
      * 공유기에 손으로 만든 포워딩 규칙을 지웠다는 확인 — 뒷정리 안내를 내린다.
@@ -639,11 +601,11 @@ const api = {
       return () => ipcRenderer.removeListener('vibisual:chat:status', listener);
     },
   },
-  /** §4 v2.63 임베디드 인터랙티브 터미널 surface — IDE 창 안 PTY. */
+  /** §4 임베디드 인터랙티브 터미널 surface — IDE 창 안 PTY. */
   terminal: {
     /**
      * 셸+claude prefill PTY 생성. termId 는 renderer 가 (agent+session) 으로 부여.
-     * §5.5 #17-20 v4.74 — `command` 를 주면 claude 대신 그 명령을 띄우는 실행 런처가 된다.
+     * §5.5 #17-20 — `command` 를 주면 claude 대신 그 명령을 띄우는 실행 런처가 된다.
      */
     create: (spec: {
       termId: string;
@@ -686,7 +648,7 @@ const api = {
     listSources: (): Promise<CaptureSourceInfo[]> => ipcRenderer.invoke('vibisual:capture:list-sources'),
     /** §5.9 Phase B — 캡처 본체 위 제스처를 OS 입력으로 주입(원격 조작). */
     sendInput: (event: CaptureInputEvent): Promise<CaptureInjectResult> => ipcRenderer.invoke('vibisual:capture:input', event),
-    /** §5.9 v3.57 — 대상 화면/창의 사각형(DIP+물리). 드래그 중 손 움직임만 뽑아내는 데 쓴다. */
+    /** §5.9 — 대상 화면/창의 사각형(DIP+물리). 드래그 중 손 움직임만 뽑아내는 데 쓴다. */
     targetRect: (spec: { sourceId: string; sourceKind: CaptureSourceKind; sourceName: string }): Promise<CaptureTargetRect> =>
       ipcRenderer.invoke('vibisual:capture:target-rect', spec),
     /** §5.17 (B) — 프리뷰에서 그은 사각형을 이 창에서 그대로 찍는다(프리뷰 → 입력창 첨부). */
@@ -694,11 +656,8 @@ const api = {
       ipcRenderer.invoke('vibisual:capture:page-region', rect),
   },
   /**
-   * §3.7 — 바깥 브라우저 열기 실패 알림.
-   *
-   * 여는 길은 종전 그대로 renderer 의 `window.open(url, '_blank')` 하나다(새 여는 길 ❌).
-   * 이건 그 반대 방향 — main 이 "안 열렸다"를 알려 주는 길이다. 리눅스에서는
-   * `shell.openExternal` 이 실패해도 resolve 하므로 renderer 는 스스로 알 방법이 없다.
+   * §3.7 — 바깥 브라우저 열기 실패 알림(여는 길은 renderer 의 `window.open(url, '_blank')` 하나 — 이건 main 이 "안 열렸다"를 알리는 반대 방향).
+   * 리눅스는 `shell.openExternal` 이 실패해도 resolve 해 renderer 가 스스로 알 수 없다.
    */
   externalOpen: {
     onFailed: (cb: (payload: ExternalOpenFailure) => void): (() => void) => {
@@ -709,14 +668,8 @@ const api = {
   },
 
   /**
-   * §3.2.1 — 종료 직전 "아직 디스크에 안 앉힌 손글씨를 지금 밀어라".
-   *
-   * 세션 입력 초안·IDE 폼 초안·명령 히스토리는 타이핑 핫패스를 지키려고 debounce 로 쓰고
-   * `pagehide`/`beforeunload`/`visibilitychange` 에서 즉시 flush 한다. 그런데 앱 종료는 창을
-   * 정상으로 닫지 않고 `app.exit(0)` 으로 프로세스를 내리므로 **그 세 이벤트가 뜨지 않는다** —
-   * main 이 대신 물어봐 주는 길이다.
-   *
-   * Durable writes must finish before acknowledging success. Failure keeps the app open.
+   * §3.2.1 — 종료 직전 디스크에 안 앉힌 초안(세션 입력·IDE 폼·명령 히스토리)을 지금 밀라는 신호. 평소 flush 는 `pagehide`/`beforeunload`/`visibilitychange` 인데
+   * `app.exit(0)` 종료엔 셋 다 안 뜬다. Durable writes must finish before acknowledging success. Failure keeps the app open.
    */
   lifecycle: {
     onFlushDraftsCanceled: (cb: () => void): (() => void) => {

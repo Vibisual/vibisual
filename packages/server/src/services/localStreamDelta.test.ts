@@ -1,13 +1,7 @@
 /**
- * §5.19 (D) 로컬 턴 스트림 — 델타 해석 + 조각 합치기 테스트.
- *
- * 회귀 방지 대상 — 2026-08-20 실측 사고. 엔진은 멀쩡히 답하고 상태도 "완료"인데 **말풍선이
- * 텅 비어** 사용자에게는 아무 일도 안 일어난 것으로 보였다. 원인은 우리가 `delta.content` 만
- * 읽은 것 — 추론 모델은 생각을 `reasoning_content` 로 따로 보내므로, 생각만 하다 끝난 턴은
- * 우리 눈에 한 글자도 안 보인다(실측: content 0자 / reasoning_content 4,096자).
- *
- * 조건은 둘이다 — **생각을 버리지 말 것**, 그리고 **한 조각도 잃지 말 것**(합치기는 전선을
- * 아끼려는 것이지 내용을 줄이려는 것이 아니다).
+ * §5.19 (D) 로컬 턴 스트림 — 델타 해석 + 조각 합치기 시험.
+ * 추론 모델은 생각을 `reasoning_content` 로 따로 보낸다 — `delta.content` 만 읽으면 말풍선이 빈다(2026-08-20 실측: content 0자 / reasoning_content 4,096자).
+ * 생각을 버리지 말 것, 합치면서 한 조각도 잃지 말 것.
  */
 import { describe, it, expect } from 'vitest';
 import { parseChatDelta, createStreamCoalescer } from './localRunner.js';

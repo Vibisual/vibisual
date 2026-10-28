@@ -1,11 +1,8 @@
 import type { AgentConfig, AgentProvider, LocalLlmState, LocalModelEntry } from '@vibisual/shared';
 
 /**
- * §5.19 (B) — All Model 버블을 눌렀을 때 갈리는 세 갈래.
- *
- * 진입 순서가 뒤집히면서(버블이 먼저 생기고 준비는 그 뒤) "지금 이 버블은 말을 걸 수 있는가"를
- * 누를 때마다 판정해야 한다. 그 판정은 **디스크의 실물**(엔진 파일·받아 둔 모델)만 본다 —
- * 설치 플래그를 믿었다가 사용자가 폴더를 지우면 첫 대화에서 죽는다.
+ * §5.19 (B) — All Model 버블을 눌렀을 때의 세 갈래. 누를 때마다 디스크 실물(엔진 파일·받은 모델)로 판정한다 —
+ * 설치 플래그를 믿으면 폴더가 지워졌을 때 첫 대화에서 죽는다.
  */
 export type LocalEntryDecision =
   /** 엔진이 있고 이 버블이 문 모델도 실물로 있다 — 곧장 IDE. */
@@ -33,12 +30,7 @@ export function isLocalModelReady(model: LocalModelEntry): boolean {
   return model.companion !== true && (model.missingParts?.length ?? 0) === 0;
 }
 
-/**
- * §5.19 (B) — 이 버블을 누르면 무엇이 열려야 하는가.
- *
- * `config.provider` 가 없으면 이 함수를 부를 일이 없다(= 클로드 버블). 그래도 방어적으로
- * `ide` 를 돌려준다 — 판정이 틀렸다고 클로드 버블 앞에 설치 창을 띄우면 안 된다.
- */
+/** §5.19 (B) — 누르면 열 것. `config.provider` 가 없으면(클로드 버블) 방어적으로 `ide` — 클로드 버블 앞에 설치 창 ❌. */
 export function resolveLocalEntry(
   config: AgentConfig | undefined,
   local: LocalLlmState | null | undefined,
@@ -59,25 +51,13 @@ export function resolveLocalEntry(
 
 // ─── §5.19 (G) 정체 표시 — 캔버스 버블과 오른쪽 패널이 같은 답을 말하게 ───
 
-/**
- * §5.19 (G) — 이 설정이 **로컬 프로바이더**인가. 맞으면 그 프로바이더를, 아니면 null.
- *
- * 판정을 화면마다 따로 쓰면 한쪽만 고쳐지는 날이 온다 — 설정 창은 이미 프로바이더에 맞췄는데
- * 오른쪽 패널과 버블에는 `config.model`(기본값 `opus`)·클로드 도구 한 벌이 그대로 남아 All Model
- * 버블이 자기 정체를 클로드로 말하던 자리가 정확히 그 사고였다.
- */
+/** §5.19 (G) — 로컬 프로바이더면 그것, 아니면 null. 화면마다 따로 판정하지 말 것 — 남은 `config.model`·클로드 도구로 All Model 버블이 클로드로 소개된다. */
 export function localProviderOf(config: AgentConfig | null | undefined): AgentProvider | null {
   const provider = config?.provider;
   return provider?.kind === 'local-llama' ? provider : null;
 }
 
-/**
- * §5.19 (G) — 좁은 자리(버블 하단·패널 한 줄)에 적을 **정체 한 줄**.
- *
- * 문 모델이 있으면 그 이름이고, 아직 안 골랐으면 그 사실이 곧 상태라 제품 이름만 적는다
- * (긴 안내문을 넣을 자리가 아니다 — 자세한 것은 그 버블이 여는 설치 창이 말한다).
- * 로컬이 아니면 null 이므로 부르는 쪽은 종전 클로드 표기를 그대로 쓰면 된다.
- */
+/** §5.19 (G) — 좁은 자리용 정체 한 줄: 문 모델 이름, 안 골랐으면 제품 이름만. 로컬이 아니면 null(부르는 쪽이 클로드 표기를 쓴다). */
 export function localModelLabelOf(provider: AgentProvider | null, allModelLabel: string): string | null {
   if (!provider) return null;
   return provider.modelName || provider.modelId || allModelLabel;

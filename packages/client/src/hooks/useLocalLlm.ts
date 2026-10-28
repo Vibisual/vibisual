@@ -2,15 +2,7 @@ import { useCallback, useState } from 'react';
 import type { LocalModelCatalogEntry, LocalModelCatalogRepo, LocalModelCatalogSort, LocalModelDownloadProgress } from '@vibisual/shared';
 import { localLlmResponseError } from '../components/LocalModel/localLlmApi.js';
 
-/**
- * §5.19 — All Model 창이 쓰는 조작들.
- *
- * 상태(엔진·모델·진행률)는 **서버가 스냅샷으로 내려준 것**을 그대로 읽고, 여기서는 조작만
- * 보낸다 — 클라이언트가 자기 판단으로 목록을 만들면 디스크의 진실과 어긋난다.
- *
- * 설치를 부르는 자리가 하나뿐이어도 이 훅에 모아 두는 이유는 `useAppInstall` 과 같다:
- * 실패했을 때 무엇을 되돌리고 무엇을 보여 줄지가 한 곳에 있어야 갈라지지 않는다.
- */
+/** §5.19 — All Model 창의 조작들. 상태(엔진·모델·진행률)는 서버 스냅샷을 그대로 읽고 여기선 조작만 보낸다(클라가 목록을 지으면 디스크와 어긋난다). */
 export function useLocalLlm(): {
   installEngine: () => Promise<boolean>;
   uninstallEngine: () => Promise<boolean>;

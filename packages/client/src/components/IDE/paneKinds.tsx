@@ -1,14 +1,8 @@
 import type { EditorPaneFileKind } from '@vibisual/shared';
 
 /**
- * paneKinds.tsx — §5.5 #17-27 ⑱ 우측 판 갈래의 **이름표 한 벌**(문구 키 · 글리프).
- *
- * 같은 갈래가 네 자리에 선다 — 탭 줄 [우측 판] 목록 · 빈 탭의 라벨 · 빈 탭 머리 · 보기의 [파일 열기].
- * 자리마다 그림과 이름을 따로 들면 같은 것을 여는 손잡이가 서로 다른 그림이 된다(무대 탭 ㉔ 이 세운
- * 규약 — "같은 것을 여는 손잡이는 같은 그림"). 그래서 여기 한 곳에 둔다.
- *
- * 문구는 키만 든다 — 번역은 그리는 자리의 `t()` 가 한다(모듈 레벨에서 글자를 지으면 언어를 바꿔도
- * 따라가지 않는다 — i18n 규칙 「모듈 레벨 상수 패턴」).
+ * §5.5 #17-27 ⑱ — 우측 판 갈래의 이름표 한 벌(문구 키·글리프). 네 자리(탭 줄 목록·빈 탭 라벨·빈 탭 머리·[파일 열기])가 함께 쓴다 — 따로 들면 같은 것이 다른 그림이 된다.
+ * 문구는 키만 든다(번역은 그리는 자리의 `t()` — 모듈 레벨에서 지으면 언어 전환을 안 따라간다).
  */
 
 export interface PaneKindText {
@@ -49,10 +43,7 @@ export const PANE_KIND_TEXT: Readonly<Record<EditorPaneFileKind, PaneKindText>> 
   },
 };
 
-/**
- * 갈래 글리프(lucide 톤 stroke path). 웹 페이지 = 지구본 · 코드 = 꺾쇠 — 판 손잡이 줄의 [페이지]/[소스]
- * 토글(⑮)이 이미 쓰는 그 그림이다(같은 뜻은 같은 그림).
- */
+/** 갈래 글리프(lucide stroke path) — 판 손잡이 줄 [페이지]/[소스] 토글(⑮)과 같은 그림. */
 const PANE_KIND_GLYPH: Readonly<Record<EditorPaneFileKind, readonly string[]>> = {
   code: ['M16 18l6-6-6-6', 'M8 6l-6 6 6 6'],
   html: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', 'M3 12h18', 'M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z'],

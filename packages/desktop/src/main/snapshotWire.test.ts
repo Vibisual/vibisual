@@ -1,14 +1,6 @@
 /**
- * snapshotWire.test.ts — 스냅샷 무복사 팬아웃의 회귀.
- *
- * 고정하는 것은 네 줄이다.
- *  1. 인코딩 → 디코딩 왕복이 원본과 같다(한글·이모지 등 멀티바이트 포함).
- *  2. 창이 N개여도 **인코딩은 1회**다.
- *  3. 창이 N개면 **각 창이 온전한 버퍼**를 받는다 — 앞선 창이 버퍼를 detach 해 가도.
- *  4. 어느 단계가 깨져도 **조용히 종전 경로로 되돌아간다**.
- *
- * 판정이 electron 에 붙어 있으면 영영 검증되지 않으므로 `snapshotWire.ts` 는 순수 모듈로 나와
- * 있다(`chat/policy.ts`·`rendererFlushPlan.ts` 와 같은 이유).
+ * 스냅샷 무복사 팬아웃의 회귀: ① 인코딩→디코딩 왕복이 원본과 같다(멀티바이트 포함) ② 창이 N개여도 인코딩 1회
+ * ③ 앞선 창이 detach 해 가도 각 창이 온전한 버퍼를 받는다 ④ 어느 단계가 깨져도 조용히 종전 경로로 되돌아간다.
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
@@ -41,11 +33,8 @@ function makeSnapshot(agentCount: number): unknown {
 }
 
 /**
- * 받는 즉시 버퍼를 **detach 하는** 가짜 창.
- *
- * Transferable 의 소유권 이전을 그대로 재현한다(`structuredClone(buf, { transfer: [buf] })` 는
- * 원본을 byteLength 0 으로 만든다). 구현이 창들에 같은 버퍼를 돌려 쓰면 두 번째 창부터 빈
- * 데이터를 받게 되므로, 이 가짜 창이 그 함정을 잡는다.
+ * 받는 즉시 버퍼를 detach 하는 가짜 창 — `structuredClone(buf, { transfer: [buf] })` 로 소유권 이전을 재현해,
+ * 구현이 같은 버퍼를 돌려 쓰면 두 번째 창부터 빈 데이터를 받는 함정을 잡는다.
  */
 function makeDetachingTarget(id: number, canPost = true): WireTarget & {
   readonly received: { bytes: ArrayBuffer[]; objects: unknown[] };

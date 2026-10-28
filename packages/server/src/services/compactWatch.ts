@@ -1,14 +1,6 @@
-// SCENARIO.md §5.26 (F) — 자동압축 미발동 감시.
-//
-// **CLI 안에서는 이 판정 자체가 불가능하다.** Claude Code 는 컨텍스트 토큰 수를 훅에 주지 않아
-// (anthropics/claude-code#44790) 세션 안에서는 "지금 몇 % 찼는지"를 알 길이 없다. 우리는 §5.5
-// 상태바가 쓰는 증분 스캐너로 그 수를 이미 재고 있으므로, 밖에서 보면 판정이 선다.
-//
-// **증거만 본다 — 모델을 부르지 않는다.** §2.4 세션 생존 판정이 모델을 쓰는 이유는 "무엇을
-// 기다리는가"가 기록의 *뜻*을 읽어야 나오기 때문인데, 여기서 묻는 것은 숫자 셋의 대소 관계뿐이다.
-//
-// 순수 함수인 이유: 시각·비율·임계를 전부 인자로 받아야 한 대의 개발기에서 모든 갈래를 시험할 수
-// 있다. `Date.now()` 를 안에서 읽으면 "3분 뒤" 를 시험할 방법이 사라진다.
+// §5.26 (F) — 자동압축 미발동 감시. CLI 안에서는 판정이 불가능하다 — 훅이 컨텍스트 토큰 수를 주지 않는다(anthropics/claude-code#44790).
+// §5.5 상태바의 증분 스캐너가 그 수를 이미 재므로 밖에서 판정한다. 모델을 부르지 않는다 — 숫자 셋의 대소 관계뿐이다(§2.4 생존 판정과 다름).
+// 순수 함수다: 시각·비율·임계를 전부 인자로 받는다 — `Date.now()` 를 안에서 읽으면 "3분 뒤"를 시험할 수 없다.
 
 import type { CompactWatchLevel, CompactWatchState } from '@vibisual/shared';
 import {
@@ -27,17 +19,11 @@ export interface CompactWatchInput {
   /** 마지막 턴 하나의 입력 크기(§5.5 정의 — 누적이 아니다). */
   contextUsed?: number;
   /**
-   * 그 모델의 창 크기. `stalled`(CLI 가 곧 멈춘다)와 `overdue`(작업 도중 CLI 가 접을 자리에 왔는데 안 접는다)
-   * 둘의 분모다 — §5.26 (F)(a) 2026-10-05 정정. 스폰이 `--autocompact` 를 싣지 않게 된 뒤로 작업 도중의 CLI
-   * 압축선은 모델 창 끝이고, 사용자가 고른 창(예: 400k)은 명령 사이 압축의 기준일 뿐이라 긴 지시가 그 선을
-   * 넘는 것은 정상이다(그 선을 분모로 두면 400k 를 넘는 지시마다 거짓 경보가 선다).
+   * 그 모델의 창 크기 — `stalled`(CLI 가 곧 멈춘다)와 `overdue`(작업 도중 CLI 가 접을 자리인데 안 접는다)의 분모(§5.26 (F)(a)).
+   * 스폰이 `--autocompact` 를 싣지 않아 작업 도중 압축선은 모델 창 끝이다. 고른 창(예: 400k)은 명령 사이 압축 기준일 뿐이라, 분모로 두면 400k 를 넘는 지시마다 거짓 경보가 선다.
    */
   contextMax?: number;
-  /**
-   * §5.26 (F)(b) — 우리가 이 세션에 `/compact` 를 마지막으로 **보낸** 시각.
-   *
-   * 도착(`lastCompactAt`)과 짝을 이룬다: 보냈는데 그 뒤로 도착이 없으면 명령이 실행되지 않은 것이다.
-   */
+  /** §5.26 (F)(b) — 이 세션에 `/compact` 를 마지막으로 보낸 시각. 도착(`lastCompactAt`)과 짝이다 — 보낸 뒤 도착이 없으면 실행되지 않은 것이다. */
   compactSentAt?: number;
   /** 마지막 `PreCompact` 시각. 압축이 한 번도 없었으면 세션이 처음 움직인 시각. */
   lastCompactAt?: number;
@@ -46,11 +32,8 @@ export interface CompactWatchInput {
   /** 우리가 프롬프트를 보낼 수 있는 세션인가(= [압축 보내기] 손잡이를 그릴지). */
   canSendCompact: boolean;
   /**
-   * 사용자가 이 세션의 자동압축을 **껐는가**.
-   *
-   * 껐으면 `overdue` 를 띄우지 않는다 — 끈 것을 고장으로 신고하면 늑대소년이 되고,
-   * 정작 진짜로 안 도는 세션(#66144)에서 아무도 안 본다. `stalled`(창이 거의 다 참)는
-   * 끄고 켜고와 무관한 사실이라 그대로 띄운다.
+   * 이 세션의 자동압축을 껐는가. 껐으면 `overdue` 를 띄우지 않는다 — 끈 것을 고장으로 신고하면 진짜로 안 도는 세션(#66144)의 경보를 아무도 안 본다.
+   * `stalled`(창이 거의 다 참)는 끄고 켜고와 무관해 그대로 띄운다.
    */
   autoCompactOff: boolean;
   /** 지금 실제로 돌고 있는가. 멈춰 선 세션은 벽으로 가고 있지 않다. */
@@ -76,13 +59,11 @@ export const DEFAULT_COMPACT_WATCH_THRESHOLDS: CompactWatchThresholds = {
 };
 
 /**
- * 세션 하나의 감시 판정.
- *
- * 판정 순서가 곧 규율이다.
- *  ① 비율을 못 재면 **아무 말도 하지 않는다**(`ok`) — 모르는 것을 고장으로 읽지 않는다.
- *  ② `stalled` 가 나머지를 이긴다 — 창이 거의 다 찼다는 것은 압축 설정과 무관한 사실이다.
- *  ③ `rejected` 가 `overdue` 를 이긴다 — 예측보다 **이미 일어난 실패**가 먼저다((F)(b)).
- *  ④ `overdue` 는 셋이 **동시에** 참일 때만이다(꽉 찼다 · 아직 자란다 · 압축이 안 왔다).
+ * 세션 하나의 감시 판정. 판정 순서가 곧 규율이다:
+ *  ① 비율을 못 재면 아무 말도 하지 않는다(`ok`) — 모르는 것을 고장으로 읽지 않는다.
+ *  ② `stalled` 가 나머지를 이긴다 — 창이 거의 다 찼다는 것은 압축 설정과 무관하다.
+ *  ③ `rejected` 가 `overdue` 를 이긴다 — 예측보다 이미 일어난 실패가 먼저다((F)(b)).
+ *  ④ `overdue` 는 셋이 동시에 참일 때만(꽉 찼다 · 아직 자란다 · 압축이 안 왔다).
  */
 export function judgeCompactWatch(
   input: CompactWatchInput,
@@ -97,8 +78,7 @@ export function judgeCompactWatch(
   if (input.subAgentId) base.subAgentId = input.subAgentId;
   if (input.agentId) base.agentId = input.agentId;
 
-  // 창 대비 — `stalled`·`overdue` 공용(§5.26 (F)(a) 2026-10-05). 작업 도중 CLI 가 접는 자리도, 스스로 멈추는
-  //   자리도 모델 창이다 — 사용자가 고른 창은 명령 사이 압축의 기준이라 여기서 재지 않는다.
+  // 창 대비 — `stalled`·`overdue` 공용(§5.26 (F)(a)). 작업 도중 CLI 가 접는 자리도 멈추는 자리도 모델 창이다 — 고른 창은 명령 사이 압축 기준이라 여기서 재지 않는다.
   const ratio = safeRatio(input.contextUsed, input.contextMax);
   if (ratio === undefined) return base; // ① 모르면 말하지 않는다
   base.ratio = ratio;
@@ -143,10 +123,8 @@ export function judgeCompactWatch(
   if (!input.running) return base;
   if (ratio < thresholds.overdueRatio) return base;
   if (grown < thresholds.growthBytes) return base;
-  // ⚠ **압축을 한 번도 안 한 세션이 이 기능의 머리 사례다.** 종전에는 `lastCompactAt` 이 없으면
-  //   여기서 `ok` 로 떨어졌는데, 그러면 "창이 95% 인데 압축이 **아예** 안 돈다"는 바로 그 상황에서
-  //   경고가 영영 안 나온다(마커가 없다는 것이 곧 그 증거인데도). 없으면 "무한히 오래됐다"로 읽는다 —
-  //   나머지 둘(비율·성장)이 함께 참일 때만 여기까지 오므로 거짓 경보가 되지 않는다.
+  // ⚠ 압축을 한 번도 안 한 세션이 이 기능의 머리 사례다 — `lastCompactAt` 이 없다고 `ok` 로 떨어뜨리지 마라("95% 인데 압축이 아예 안 돈다"에 경고가 영영 안 난다).
+  // 없으면 "무한히 오래됐다"로 읽는다 — 비율·성장이 함께 참일 때만 여기 오므로 거짓 경보가 되지 않는다.
   if (sinceCompactMs !== undefined && sinceCompactMs < thresholds.overdueMs) return base;
 
   base.level = 'overdue';
@@ -167,12 +145,7 @@ export function judgeAll(
   return out;
 }
 
-/**
- * 표시 서열 — 한 화면에 여럿이 걸리면 더 나쁜 것이 위로.
- *
- * `rejected` 가 `overdue` 위인 이유: 후자는 "곧 벽이다"라는 예측이고 전자는 **이미 안 된 것**이라,
- * 사용자가 지금 손대야 하는 쪽이다(§5.26 (F)(b)). `stalled` 는 CLI 가 곧 멈추는 자리라 그 위다.
- */
+/** 표시 서열 — 여럿이 걸리면 더 나쁜 것이 위로. `stalled`(CLI 가 곧 멈춘다) > `rejected`(이미 안 된 것, 지금 손대야 한다 — §5.26 (F)(b)) > `overdue`(곧 벽이라는 예측). */
 export function compactWatchRank(level: CompactWatchLevel): number {
   return level === 'stalled' ? 3 : level === 'rejected' ? 2 : level === 'overdue' ? 1 : 0;
 }

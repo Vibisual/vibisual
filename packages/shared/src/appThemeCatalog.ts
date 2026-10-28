@@ -1,18 +1,7 @@
 /**
- * appThemeCatalog.ts — §4 앱 테마의 **기본 테마 목록** (데이터).
- *
- * 기본 테마도 사용자 테마 파일과 **같은 형식**(`AppThemeDefinition`)으로 적는다. 그래서 사용자는 이 중
- * 하나를 `extends` 로 이어받아 몇 칸만 바꾸면 되고, 해석기(`resolveAppTheme`)는 두 출처를 가르지 않는다.
- *
- * 값 쓰는 법(사용자 테마도 같다):
- *  - `palette.<계열>` — 다른 계열 이름(`"neutral"`)이면 그 계열을 그대로 빌린다. 객체면 `from` 계열에서
- *    출발해 `mirror` → OKLCH 색조·채도 이동(`hue`·`chroma`·`chromaScale`) → `shades` 덮어쓰기 순.
- *    빌려 오는 값은 **이어받은 팔레트**에서 온다(같은 정의 안에서 바꾼 계열은 보지 않는다).
- *  - `colors.<토큰>` — 색이거나 팔레트 참조(`{gray.900}` · `{sky.400}/50` · `{white}`). 참조는 이 테마의
- *    **최종 팔레트**에서 풀리므로, 팔레트를 뒤집으면 참조도 함께 뒤집힌다.
- *
- * 터미널 색: 다크 = Catppuccin Mocha(종전 값, `APP_THEME_TOKEN_SPECS` 기본), 라이트 = Catppuccin Latte.
- * 둘 다 MIT 라이선스라 색값 사용이 자유롭다. 고대비 두 벌의 터미널 색은 대비를 맞춰 새로 골랐다.
+ * §4 기본 테마 목록(데이터) — 사용자 테마와 같은 `AppThemeDefinition` 형식이라 `extends` 로 이어받고 `resolveAppTheme` 는 출처를 가르지 않는다.
+ * `palette.<계열>`: 이름이면 빌림, 객체면 `from` → `mirror` → OKLCH 이동 → `shades` 순(빌리는 값은 이어받은 팔레트에서). `colors.<토큰>`: 색 또는 참조(`{gray.900}` · `{sky.400}/50`), 최종 팔레트에서 풀린다.
+ * 터미널 색: 다크 Catppuccin Mocha · 라이트 Latte(둘 다 MIT).
  */
 import type { AppThemeDefinition, AppThemeRampSpec } from './types.js';
 
@@ -80,8 +69,8 @@ const LATTE_TERMINAL: ThemeColors = {
 };
 
 /**
- * 다크 변주들이 함께 쓰는 의미 토큰 — 전부 팔레트 참조라, 각 테마가 계열만 바꾸면 따라온다.
- * 기본 테마(Vibisual Dark)는 이것을 쓰지 않는다 — 종전 화면의 리터럴 값을 그대로 지킨다.
+ * 다크 변주들이 함께 쓰는 의미 토큰 — 전부 팔레트 참조라 각 테마가 계열만 바꾸면 따라온다.
+ * 기본 테마는 이것을 쓰지 않고 원래 화면의 리터럴 값을 지킨다.
  */
 const DARK_VARIANT_SURFACES: ThemeColors = {
   'window.background': '{gray.950}',

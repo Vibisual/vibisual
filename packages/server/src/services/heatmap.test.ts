@@ -1,9 +1,4 @@
-/**
- * §5.24 히트맵(읽기·쓰기 두 축)의 **순수 판정·색 계산** 고정 시험.
- *
- * 대상 모듈은 `packages/shared/src/heatmap.ts` 인데 shared 에는 러너가 없어 여기 둔다
- * (§2.1 #3 `bashWritePaths.test.ts` · §5.23 `webToolEntry.test.ts` 와 같은 자리).
- */
+/** §5.24 히트맵 판정·색 계산 시험 — 대상은 shared `heatmap.ts`(shared 에는 러너가 없다). */
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_HEAT_CURVE,

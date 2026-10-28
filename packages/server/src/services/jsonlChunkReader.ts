@@ -1,18 +1,6 @@
 /**
- * jsonlChunkReader.ts — §3.2.4 G축. JSONL 을 **고정 청크로 흘려 읽는다.**
- *
- * **왜**: 종전 읽기 경로는 전부 "구간 전체를 한 번에"였다 —
- * `fs.readFileSync(path,'utf8')`(3곳) 또는 `Buffer.allocUnsafe(구간 전체)`(2곳).
- * 26MB 짜리 트랜스크립트 하나를 훑으면 버퍼 26MB + `toString()` 문자열(UTF-16 이라 최대 52MB)
- * + `split('\n')` 조각 배열이 한꺼번에 잡혀 **피크가 파일 크기의 4~5배**였다. 이 피크가 반복되며
- * V8 old space 가 3GB 까지 자랐다(실측 2026-08-14).
- *
- * 청크로 끊어 읽으면 같은 줄을 같은 순서로 **딱 한 번씩** 먹이므로 결과는 전량 읽기와
- * 바이트 단위로 동일하고, 피크만 `JSONL_SCAN_CHUNK_BYTES` 상수가 된다.
- *
- * ⚠ **UTF-8 경계**: 청크를 그대로 `toString('utf8')` 하면 멀티바이트 문자가 경계에서 깨진다.
- *   그래서 **마지막 개행까지만** 디코드하고 남은 바이트는 `Buffer` 로 들고 다음 청크에 이어 붙인다.
- *   개행(`0x0A`)은 ASCII 라 UTF-8 멀티바이트 시퀀스의 일부가 될 수 없으므로 이 경계는 안전하다.
+ * §3.2.4 G축 — JSONL 을 고정 청크로 읽는다(통째로 읽으면 피크가 파일의 4~5배 — 실측 2026-08-14 V8 old space 3GB). 결과는 전량 읽기와 같다.
+ * ⚠ **마지막 개행까지만** 디코드하고 남은 바이트는 다음 청크에 잇는다 — `0x0A` 는 멀티바이트 시퀀스에 끼지 않는다.
  */
 import fs from 'node:fs';
 import { JSONL_SCAN_CHUNK_BYTES } from '@vibisual/shared';
@@ -33,12 +21,7 @@ export interface ChunkScanResult {
  */
 export type LineConsumer = (line: string) => void | boolean;
 
-/**
- * `[start, end)` 를 청크로 읽으며 **완결된 줄만** `onLine` 에 먹인다.
- *
- * 빈 줄(`''`)은 먹이지 않는다 — 종전 경로들이 전부 `if (!line) continue` 로 걸러 왔으므로
- * 여기서 거르는 편이 호출부마다 반복하는 것보다 낫고, 동작도 같다.
- */
+/** `[start, end)` 의 **완결된 줄만** 먹인다. 빈 줄은 거른다. */
 export function scanFileLines(
   filePath: string,
   start: number,
@@ -99,17 +82,7 @@ export function scanFileLines(
   }
 }
 
-/**
- * **뒤에서 `maxLines` 줄이 시작하는 바이트 오프셋**을 찾는다(그만큼 없으면 0).
- *
- * **왜**: 소비자가 "마지막 N줄"만 쓰는데도 읽기 경로가 파일을 통째로 읽고 전 줄을 파싱해 왔다
- * (`streamBufferStore.loadBuffer` 가 정확히 그랬다 — 2.5MB 파일을 읽어 마지막 2,000줄만 남김).
- * 여기서 시작점을 먼저 집으면 `scanFileLines` 가 **꼬리만** 읽으므로, 비용이 파일 크기가 아니라
- * 실제로 쓰는 줄 수에 비례한다.
- *
- * 뒤에서부터 청크를 읽어 개행(`0x0A`)을 센다. **파일 맨 끝 개행은 세지 않는다** — 그건 마지막 줄을
- * 닫는 것이지 새 줄을 여는 경계가 아니다(이걸 세면 결과가 한 줄씩 밀린다).
- */
+/** 뒤에서 `maxLines` 줄이 시작하는 오프셋(모자라면 0) — 꼬리만 읽어 비용이 쓰는 줄 수에 비례한다. **맨 끝 개행은 세지 않는다**(세면 한 줄씩 밀린다). */
 export function findTailLineOffset(
   filePath: string,
   maxLines: number,
@@ -155,12 +128,7 @@ export function findTailLineOffset(
   }
 }
 
-/**
- * **마지막 `maxLines` 줄만** 청크로 읽어 먹인다 — 전량 읽기 뒤 `slice(-N)` 하던 경로 대체용.
- *
- * 시작점이 항상 개행 바로 뒤라 첫 줄이 반쪽으로 잘리지 않는다. 파일이 개행 없이 끝났으면
- * `scanWholeFileLines` 와 같은 규약으로 그 마지막 줄도 먹인다.
- */
+/** **마지막 `maxLines` 줄만** 먹인다(= 전량 + `slice(-N)`). 시작점이 개행 뒤라 첫 줄이 반쪽이 안 되고, 개행 없는 마지막 줄도 먹인다. */
 export function scanTailLines(
   filePath: string,
   maxLines: number,
@@ -180,15 +148,8 @@ export function scanTailLines(
 }
 
 /**
- * **뒤에서 앞으로** 줄을 먹인다 — 파일의 마지막 줄부터 첫 줄까지. `false` 를 돌려주면 거기서 멈춘다.
- *
- * **왜**: 과거 구간 조회(`streamBufferStore.loadEventsBefore`)는 "기준 줄 바로 앞의 N줄"만 쓴다.
- * 기준 줄은 대개 꼬리 가까이에 있으므로 앞에서부터 훑으면 쓰지도 않을 앞부분 수 MB 를 매번 읽는다.
- * 뒤에서부터 읽으면 비용이 "기준 줄까지의 거리 + N줄"로 준다.
- *
- * 바이트를 개행(`0x0A`)에서 먼저 가르고 **줄 단위로** 디코드한다 — 개행은 UTF-8 멀티바이트 시퀀스의
- * 일부가 될 수 없으므로 청크 경계에서 글자가 깨지지 않는다(`scanFileLines` 와 같은 근거).
- * 빈 줄은 먹이지 않는다(같은 규약). 반환값: 소비자가 멈췄으면 `true`, 끝까지 읽었으면 `false`.
+ * **뒤에서 앞으로** 먹인다(`false` 면 멈춤) — `loadEventsBefore` 의 비용이 "기준 줄까지 거리 + N줄"이 된다. 개행에서 먼저 갈라 줄 단위로 디코드한다(경계 안전). 빈 줄 ❌.
+ * 반환: 소비자가 멈췄으면 `true`.
  */
 export function scanLinesBackward(
   filePath: string,
@@ -238,12 +199,7 @@ export function scanLinesBackward(
   }
 }
 
-/**
- * 파일 전체를 청크로 훑으며 완결된 줄을 먹인다 — `fs.readFileSync(p,'utf8').split('\n')` 대체용.
- *
- * 파일이 개행 없이 끝났으면 그 마지막 줄도 먹인다(전량 읽기와 결과를 맞추기 위함 —
- * `split('\n')` 은 마지막 조각을 그대로 내놓는다).
- */
+/** 전체를 청크로 훑는다(= `readFileSync(...).split('\n')`). 개행 없는 마지막 줄도 먹인다(`split` 이 내놓는다). */
 export function scanWholeFileLines(
   filePath: string,
   onLine: LineConsumer,

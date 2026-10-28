@@ -31,16 +31,10 @@ import {
 } from '@vibisual/shared';
 
 /**
- * §5.13 (R-10) — editable sources. Disk is authoritative: there is no module cache, so a reconnect never lets a
- * stale in-memory copy overwrite newer work.
- *
- * Layout under `<project>/.vibisual/creation/`:
- * - `<doc>/state.json` — the current revision's metadata (no payload) and the ledger. Written last.
- * - `<doc>/previous.json` — the ledger before the last change (recovery when state.json is corrupt).
- * - `<doc>/revisions/<n>.json` — immutable revisions; the only copy of each payload.
- * - `<doc>/candidates/<sha>.json` — proposals; file names are a hash of the id (case-insensitive file systems and
- *   Windows device names never meet an agent's request id).
- * - `blobs/<sha256>.<ext>` — content-addressed immutable binaries referenced as `vibi-blob:<name>`.
+ * §5.13 (R-10) — editable sources. Disk is authoritative (no module cache), so a reconnect never lets a stale copy overwrite newer work.
+ * Layout under `<project>/.vibisual/creation/`: `<doc>/state.json` (current revision metadata, no payload, + ledger; written last) ·
+ * `<doc>/previous.json` (ledger before the last change — recovery when state.json is corrupt) · `<doc>/revisions/<n>.json` (immutable; the only copy of each payload) ·
+ * `<doc>/candidates/<sha>.json` (proposals; hashed ids never meet case-insensitive FS or Windows device names) · `blobs/<sha256>.<ext>` (immutable, `vibi-blob:<name>`).
  */
 export interface CreationHost {
   resolveProjectPath(raw: unknown): string | null;

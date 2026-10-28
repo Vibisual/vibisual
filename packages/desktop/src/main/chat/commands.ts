@@ -5,10 +5,8 @@ import type { ChatChannelKind } from '@vibisual/shared';
 import { fmt } from './strings';
 import type { ChatStrings } from './strings';
 
-// §4 메신저 원격제어 브리지 — 들어온 한 줄을 무엇으로 볼 것인가 (판올림 번호 발급 대기)
-//
-// 순수 함수만 둔다(네트워크·상태 없음) — 폰에서 온 문자열을 해석하는 규칙은 단위 테스트로
-// 고정할 수 있어야 하고, 드라이버가 둘이라 해석이 두 벌이 되면 그때부터 어긋나기 시작한다.
+// §4 메신저 원격제어 브리지 — 들어온 한 줄의 해석. 순수 함수만 둔다(네트워크·상태 없음) — 해석 규칙은 단위 시험으로 고정해야 하고,
+// 드라이버마다 두 벌이 되면 어긋난다.
 
 /** 우리가 가로채는 명령. 이 목록에 없는 `/…` 는 **에이전트에게 그대로 넘긴다**. */
 export type ChatCommand =
@@ -27,22 +25,15 @@ export type ChatCommand =
 const OWNED = new Set(['help', 'projects', 'agents', 'sessions', 'status', 'stop', 'log', 'unpair', 'start', 'pair']);
 
 /**
- * 폰에서 온 한 줄을 해석한다.
- *
- * 설계 판단 하나: **모르는 슬래시 명령은 우리 것이 아니다.** `/compact`·`/스킬` 처럼 CLI 가
- * 가진 명령을 폰에서 그대로 쓰고 싶은 것이 자연스럽고, 우리가 전부 삼키면 그 길이 막힌다.
- * 그래서 가로채는 이름을 `OWNED` 로 못박고 나머지는 프롬프트로 흘려보낸다.
+ * 폰에서 온 한 줄을 해석한다. **모르는 슬래시 명령은 우리 것이 아니다** — `/compact`·`/스킬` 처럼 CLI 명령을 폰에서 그대로 쓸 수 있어야 하므로
+ * 가로채는 이름만 `OWNED` 로 못박고 나머지는 프롬프트로 흘려보낸다.
  */
 export function parseChatCommand(raw: string): ChatCommand | null {
   const text = raw.replace(/\r/g, '').trim();
   if (!text) return null;
 
-  // `!vibisual <명령>` 은 `/<명령>` 과 **같다**(§4 ⑨-(f)).
-  //
-  // 종전에는 이 접두어가 `pair` 한 가지에만 붙어 있었다. 그런데 디스코드 클라이언트는
-  // 입력창의 `/` 를 슬래시 명령 피커로 가로채고 우리는 application command 를 등록하지
-  // 않으므로, **거기서는 `/projects` 를 칠 방법이 없었다** — 3단계 선택은 채널 공통 코드인데
-  // 디스코드에서만 그 흐름에 못 들어가던 이유다. 이미 치고 있던 한 줄의 범위를 넓혀 연다.
+  // `!vibisual <명령>` 은 `/<명령>` 과 **같다**(§4 ⑨-(f)). 디스코드 클라이언트는 입력창의 `/` 를 슬래시 명령 피커로 가로채고 우리는 application command 를
+  // 등록하지 않으므로, 디스코드에서 `/projects` 같은 선택 흐름에 들어갈 길이 이 접두어다.
   const rest = stripTextPrefix(text);
   if (rest !== null) {
     if (!rest) return { type: 'help' };
@@ -116,14 +107,8 @@ export function clampLogLines(arg: string): number {
 }
 
 /**
- * 페어링 전 발신자에게도, 페어링 뒤 `/help` 에도 쓰는 안내문.
- *
- * 슬래시 명령 이름(`/agents` 등)은 **번역하지 않는다** — 그 글자를 그대로 쳐야 동작하기
- * 때문이다. 번역되는 것은 그 옆의 설명뿐이다.
- *
- * **채널을 보는 것은 이 표기 하나뿐이다.** 디스코드에서는 `/` 를 클라이언트가 가로채 그
- * 글자를 칠 수 없으므로, 안내가 `/projects` 라고 말하면 **화면이 안 되는 것을 알려 주는**
- * 셈이 된다. 해석은 두 채널이 같고(`parseChatCommand`), 적어 주는 모양만 바꾼다.
+ * 페어링 전 발신자와 페어링 뒤 `/help` 에 쓰는 안내문. 슬래시 명령 이름은 번역하지 않는다(그대로 쳐야 동작한다) — 설명만 번역한다.
+ * 채널을 보는 것은 표기 하나뿐이다 — 디스코드는 `/` 를 칠 수 없어(클라이언트가 가로챈다) 안내 모양만 바꾸고, 해석은 두 채널이 같다(`parseChatCommand`).
  */
 export function helpLines(paired: boolean, s: ChatStrings, kind: ChatChannelKind = 'telegram'): string[] {
   if (!paired) return [s.helpNotPaired1, s.helpNotPaired2];

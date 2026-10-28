@@ -1,14 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { clampUsagePct, usageTextToneClass, usageBarToneClass } from './usageLimits.js';
 
-// SCENARIO.md §4 v3.64 — "1% 가 100% 로 보이던" 회귀 방지.
-//
-// Claude 앱은 1% 인데 Vibisual 만 빨간 100% 를 띄워 사용자를 놀라게 한 사고가 있었다.
-// 원인은 "0~1 이면 비율이니 ×100" 이라는 추측이었다. 값 1 은 "1%" 와 "100%" 어느 쪽으로도
-// 읽히므로 추측으로는 풀 수 없다 — 단위를 퍼센트로 고정한 지금 규약을 여기서 못 박는다.
+// §4 — "1% 가 100% 로 보이던" 회귀 방지. 값 1 은 "1%" 와 "100%" 어느 쪽으로도 읽혀 "0~1 이면 비율" 추측으로는 풀 수 없다 — 단위를 퍼센트로 고정한 규약을 못 박는다.
 
 describe('clampUsagePct', () => {
-  it('1 은 1% 다 — 절대 100% 로 부풀리지 않는다 (v3.64 회귀)', () => {
+  it('1 은 1% 다 — 절대 100% 로 부풀리지 않는다 (회귀)', () => {
     expect(clampUsagePct(1)).toBe(1);
   });
 

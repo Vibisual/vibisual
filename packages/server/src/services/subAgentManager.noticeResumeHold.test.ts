@@ -5,20 +5,9 @@ import { NOTICE_RESUME_WINDOW_MS, TURN_RESUME_GRACE_MS } from './turnSeal.js';
 import { logger } from '../logger.js';
 
 /**
- * §5.5 #17-9 ⑱ — **끝 통지는 "끝"이 아니라 "곧 다시 돈다"다.**
- *
- * 사용자 보고(`/release` 탭): "여기서 지금 작업이 안 끝났는데 왜 작업 끝남 알림이 울리냐". 실측 사슬 —
- *   · 본 턴이 백그라운드 `Explore` 자식을 띄우고 끝났다. 탭은 자식 덕에 계속 "도는 중"(§5.3 #12-1 승격).
- *   · 25분 뒤 그 자식의 끝 칩이 왔다. 장부가 비자 `syncBgSubStatus` 가 탭을 **그 자리에서** idle 로 내렸고,
- *     버블이 `completed` 로 넘어가 완료음이 울렸다.
- *   · 그러나 CLI 는 그 통지로 3ms 만에 새 턴을 열었다. 첫 모델 줄이 stdout 에 온 것은 24초 뒤다.
- *
- * 고정하는 약속 —
- *   · 쉬는 persistent 자식에 온 끝 칩은 탭을 내리지 않고 붙든다. 푸는 것은 되살아난 턴의 첫 모델 줄이다.
- *   · 풀 때 승격 표식도 함께 걷는다 — 탭은 `active` 그대로 그 턴을 돌고, 그 턴의 끝에서 **한 번만** 잠든다.
- *   · 상한(90초)이 지나도 모델 줄이 없으면 종전처럼 내린다. 명령 처리 중이거나 쉬는 자식이 없으면 종전 그대로.
- *   · 봉인 유예 중에 온 끝 칩은 그 유예를 90초로 늘린다.
- *   · 자식이 둘이면 첫 통지 턴이 끝나도 탭은 `active` 로 남아 남은 자식의 끝 칩도 붙든다(⑱(e)).
+ * §5.5 #17-9 ⑱ — 끝 통지는 "곧 다시 돈다"다(CLI 는 3ms 만에 새 턴을 열고 첫 모델 줄은 24초 뒤 — 그 사이 내리면 완료음, 실측).
+ * 고정: 쉬는 persistent 자식의 끝 칩은 탭을 붙들고 첫 모델 줄이 푼다(승격 표식도 걷어 턴 끝에 한 번만 잠든다) · 90초 상한 ·
+ * 봉인 유예 중이면 유예를 90초로 · 자식이 둘이면 남은 자식의 끝 칩도 붙든다(⑱(e)).
  */
 
 type FakeStdin = {
@@ -176,7 +165,7 @@ describe('쉬는 탭에 온 끝 통지 — 되살아난 턴의 끝까지 내리�
   it('보고된 사슬 그대로 — 끝 칩에 탭이 내려가지 않고, 되살아난 턴의 끝에서 한 번만 잠든다', () => {
     const { priv, sub, seen, feed } = heldAfterNotice();
 
-    // 첫 토큰까지 24초 — 종전에는 이 사이 내내 탭이 idle, 버블이 completed 였다(완료음).
+    // 첫 토큰까지 24초 — 이 사이 탭이 idle·버블이 completed 로 내려가면 안 된다(완료음).
     vi.advanceTimersByTime(24_000);
     expect(sub.status).toBe('active');
 
@@ -361,13 +350,13 @@ describe('자식이 둘 — 첫 통지 턴의 끝도 남은 자식을 센다 (�
     feed(ASSISTANT);
     feed(result('첫 조사 결과를 반영했습니다'));
     vi.advanceTimersByTime(TURN_RESUME_GRACE_MS);
-    // t2 가 아직 돈다 — 종전에는 여기서 idle 로 잠들었다.
+    // t2 가 아직 돈다 — 여기서 idle 로 잠들면 안 된다.
     expect(sub.status).toBe('active');
     expect(priv.bgPromotedSubs.has(SUB)).toBe(true);
 
     // 남은 자식이 끝난다 — CLI 는 그 통지로 또 새 턴을 연다.
     endTask('t2');
-    // 종전에는 탭이 이미 idle 이라 붙들 자격이 없어, 여기서 버블이 completed 로 넘어갔다(완료음).
+    // 탭이 idle 이면 붙들 자격이 없어 버블이 completed 로 넘어간다(완료음) — 여기서는 붙들어야 한다.
     expect(priv.noticeResumeHolds.has(SUB)).toBe(true);
     expect(sub.status).toBe('active');
 

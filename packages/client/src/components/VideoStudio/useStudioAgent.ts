@@ -11,11 +11,9 @@ import { readJsonResponse } from './videoApi.js';
 import { newPassId, recordHistory } from './studioApi.js';
 
 /**
- * §5.13 (V) 37-2 — 스튜디오의 **AI 쪽**: 엔진 칩(설치·로그인 감지) · 이 문서에 이어진 에이전트 · 없으면 기존 커스텀 에이전트
- * 생성 경로로 만들어 이 문서의 노드에 잇기 · 바퀴 열기(맡기기 직전 판) · 기존 명령 큐로 보내기.
- *
- * 새 전송 경로를 만들지 않는다 — 생성은 캔버스 우클릭 [커스텀 에이전트] 와 같은 `POST /api/create-custom-agent`, 연결은
- * 캔버스의 참조선과 같은 `linkAppBubbleAgent`/`createAppBubble`, 보내기는 `addCommand` 하나다.
+ * §5.13 (V) 37-2 — 스튜디오의 AI 쪽: 엔진 칩(설치·로그인 감지) · 이 문서에 이어진 에이전트 · 없으면 커스텀 에이전트 생성 경로로 만들어 이 문서의 노드에 잇기 ·
+ * 바퀴 열기(맡기기 직전 판) · 명령 큐로 보내기. 새 전송 경로를 만들지 않는다 — 생성은 캔버스 [커스텀 에이전트]와 같은 `POST /api/create-custom-agent`,
+ * 연결은 참조선과 같은 `linkAppBubbleAgent`/`createAppBubble`, 보내기는 `addCommand` 하나다.
  */
 
 /** 이 앱의 id — 이 문서에 묶인 캔버스 노드를 고를 때 쓴다(레지스트리 항목과 같은 값). */
@@ -92,9 +90,9 @@ function linkedAgentsOf(st: Pick<GraphState, 'agents' | 'agentConfigs'>, bound: 
 }
 
 /**
- * §5.13 (X) 39-7 — 이 문서에 이어진 것의 **지문**(원시 문자열). `agents`·`subAgents`·`agentConfigs`·`appBubbles` 를 통째로 구독하면
- * 다른 프로젝트·다른 세션이 움직일 때마다(스냅샷마다 — AI 가 일하는 동안 초당 여러 번) 스튜디오 전체가 다시 그려졌다. 지문은 이
- * 문서의 노드와 거기 이어진 에이전트가 실제로 바뀔 때만 달라지고, 목록은 그때 스토어에서 다시 만든다(지문 구독 + 재구성).
+ * §5.13 (X) 39-7 — 이 문서에 이어진 것의 지문(원시 문자열). `agents`·`subAgents`·`agentConfigs`·`appBubbles` 를 통째로 구독하면 다른 프로젝트·세션이
+ * 움직일 때마다(AI 가 일하는 동안 초당 여러 번) 스튜디오 전체가 다시 그려진다. 지문은 이 문서의 노드와 이어진 에이전트가 바뀔 때만 달라지고,
+ * 목록은 그때 스토어에서 다시 만든다(지문 구독 + 재구성).
  */
 function linkSignature(st: Pick<GraphState, 'appBubbles' | 'agents' | 'agentConfigs'>, projectName: string, docId: string, bubbleId: string): string {
   const bound = boundBubblesOf(st, projectName, docId, bubbleId);

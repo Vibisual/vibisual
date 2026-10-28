@@ -1,11 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolveCanvasLoadingState, type CanvasLoadingInputs } from './canvasLoading.js';
 
-/**
- * §9 — 느린 회선에서만 재현되는 화면이라 표로 고정한다.
- * 여기서 지키는 것은 두 가지다: **빈 프로젝트에 영구 스피너를 씌우지 않는다** ·
- * **아직 안 온 탭을 빈 프로젝트로 보여 주지 않는다**.
- */
+/** §9 — 빈 프로젝트에 영구 스피너 ❌ · 안 온 탭을 빈 프로젝트로 ❌ (느린 회선에서만 재현돼 표로 고정). */
 function inputs(over: Partial<CanvasLoadingInputs> = {}): CanvasLoadingInputs {
   return {
     activeProject: 'vibisual',
@@ -82,10 +78,7 @@ describe('resolveCanvasLoadingState', () => {
   });
 });
 
-/**
- * §9 폴더 스코프 — 프로젝트 축과 **똑같은 함정을 한 칸 아래에서** 갖는다.
- * 폴더에 막 들어간 직후의 빈 내부 뷰와, 자식이 하나도 없는 진짜 빈 폴더가 화면상 완전히 같다.
- */
+/** §9 폴더 축 — 막 들어간 폴더의 빈 화면과 진짜 빈 폴더가 똑같다. */
 describe('resolveCanvasLoadingState — 폴더 축', () => {
   it('폴더 밖(메인 뷰)이면 폴더 범위를 아예 보지 않는다', () => {
     expect(resolveCanvasLoadingState(inputs({

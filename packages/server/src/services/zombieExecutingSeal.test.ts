@@ -4,17 +4,8 @@ import { ZOMBIE_EXECUTING_GRACE_MS, TURN_STREAM_STALL_MS } from '@vibisual/share
 import type { LocalTurnArgs } from './localRunner.js';
 
 /**
- * **좀비 `executing` 봉합** — 턴은 끝났는데 명령만 실행 중으로 굳은 자리를 런타임에 되돌리는가.
- *
- * 왜 치명적인가: dispatch 는 같은 sub 에 두 명령을 동시에 보내지 않으려고 `executing` 인
- * subAgentId 를 `busy` 로 잠근다. 그래서 완료 신호가 한 번 유실되면 그 탭은 **영구히** 새 명령을
- * 못 받는다 — 사용자에게는 "입력해도 아무 반응이 없는 탭"이다. 종전에 이걸 푸는 길은 앱 재기동
- * (restore reconcile)이나 [중지] 뿐이었고, 둘 다 사용자가 이상을 눈치채야 했다.
- *
- * 이 시험이 고정하는 것은 두 방향이다:
- *  - 굳은 것은 **반드시** 걷는다(그래야 탭이 되살아난다).
- *  - 도는 것은 **절대** 걷지 않는다 — 특히 **자식이 없는 채로 도는 로컬 턴**. 2026-08-25 에
- *    같은 착각(자식 없음 = 죽음)이 버블을 완료↔동작으로 되풀이시킨 전례가 있다.
+ * 좀비 `executing` 봉합 — dispatch 가 `executing` 탭을 `busy` 로 잠가, 완료 신호 하나만 잃어도 그 탭은 영구히 명령을 못 받는다.
+ * 굳은 것은 반드시 걷고, 도는 것(특히 자식 없이 도는 로컬 턴)은 절대 걷지 않는다 — 자식 없음 = 죽음 착각은 완료↔동작 되풀이를 낸다.
  */
 
 /** 러너에 넘어간 인자 — 턴을 "아직 안 끝난" 채로 붙잡아 두려고 가로챈다. */
@@ -166,7 +157,7 @@ describe('좀비 executing — 도는 것은 걷지 않는다', () => {
     expect(seal(queues(cmd))).toHaveLength(0);
   });
 
-  it('자식이 없어도 로컬 턴이 도는 중이면 걷지 않는다 (2026-08-25 회귀)', () => {
+  it('자식이 없어도 로컬 턴이 도는 중이면 걷지 않는다', () => {
     const sub = newSub('agent-z8', 'sub-z8');
     const cmd = makeCmd(sub.id);
     // 로컬(All Model) 턴은 자식 프로세스가 없다 — "자식이 없으니 죽었다"가 통하지 않는 경로.
@@ -216,17 +207,11 @@ describe('좀비 executing — 상태 강등과 같은 답을 쓴다', () => {
 });
 
 /**
- * §2.4 / §5.3 #10-2 ⑤ — **"프로세스가 살아 있다"와 "실제로 일하고 있다"는 같은 말이 아니다.**
- *
- * 2026-09-20 사용자 보고의 핵심 자리다. 자식(또는 자식 없는 실행 경로의 in-flight 표식)이
- * 서 있기만 하면 `hasLivingWork` 이 참이라, 출력이 완전히 멎은 턴은 좀비 봉합의 **후보로도**
- * 올라오지 못했다. 그 탭은 `busy` 로 잠긴 채 영원히 "실행 중"으로 남았고, 사용자는 끝난 것인지
- * 죽은 것인지 도는 것인지 구분할 방법이 없었다.
- *
- * 축은 `SubAgent.lastActivityAt` 하나 — `emitStreamEvent` 가 모든 경로에서 갱신하는 값이다.
+ * §2.4 / §5.3 #10-2 ⑤ — 살아 있음 ≠ 일하는 중. 자식·in-flight 표식만 보면(`hasLivingWork`) 출력이 멎은 턴이 봉합 후보에도 못 올라 "실행 중"에 굳는다.
+ * 축은 `SubAgent.lastActivityAt` 하나(`emitStreamEvent` 가 모든 경로에서 갱신).
  */
 describe('좀비 executing — 살아 있지만 멎은 턴', () => {
-  it('in-flight 는 서 있어도 스트림이 한계를 넘겨 멎었으면 걷는다 (2026-09-21 회귀)', () => {
+  it('in-flight 는 서 있어도 스트림이 한계를 넘겨 멎었으면 걷는다', () => {
     const sub = newSub('agent-z12', 'sub-z12');
     const cmd = makeCmd(sub.id);
     subAgentManager.execute(cmd, PARENT_CWD, '', localConfig());
@@ -309,12 +294,7 @@ describe('좀비 executing — 살아 있지만 멎은 턴', () => {
   });
 });
 
-/**
- * §5.3 #10-2 — **굶은 큐가 다시 흐르는가.** dispatch 는 `status === 'executing'` 인 탭을 통째로
- * `busy` 로 잠근다(`index.ts` 의 큐 배분). 그래서 좀비 하나가 그 탭의 **뒤에 선 모든 명령**을
- * 함께 굶긴다 — 봉합의 값어치는 이 한 줄에서 나온다. 잠금 규칙 자체는 여기서 고치지 않고,
- * 봉합이 그 규칙을 푸는지만 못 박는다.
- */
+/** §5.3 #10-2 — 굶은 큐가 다시 흐르는가. 좀비 하나가 `busy` 잠금(`index.ts` 큐 배분)으로 뒤에 선 명령을 모두 굶긴다 — 잠금은 그대로 두고 봉합이 푸는지만 본다. */
 describe('좀비 executing — 굶은 큐가 다시 흐른다', () => {
   /** dispatch 의 잠금 계산과 **같은 술어**. 갈리면 이 시험이 지키는 것이 없어진다. */
   const busyOf = (q: Map<string, QueuedCommand[]>): Set<string> => {

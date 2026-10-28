@@ -2,17 +2,10 @@ import type { CostAgentTotal, CostTone, ProjectCostMap } from '@vibisual/shared'
 import { costTone } from '@vibisual/shared';
 
 // SCENARIO.md §5.21 — 비용·토큰 지도 공용 헬퍼.
-//
-// 비용 줄(Panel/CostPill — 사용량 팝업 하단)과 비용 팝업(Panel/CostMapPopup)이 **같은 함수**로 색을 정한다.
-// 같은 금액이 두 화면에서 다른 색으로 보이면 그 즉시 신뢰를 잃는다.
-// 컴포넌트끼리 직접 import 하면 순환이 생기므로 여기 한 곳에 둔다.
-//
-// 에이전트 버블 배지는 철회됐다(§7.19 — 캔버스 버블에 금액을 쓰지 않는다). 그 배지만 쓰던
-// `findAgentCost` / `costBadgeToneClass` 는 표시 로직이 아니라 조회·색 통로라 남겨 둔다 —
-// 지우면 되살릴 때 규칙을 다시 적게 되고, 그때 임계가 화면마다 갈린다.
-//
-// 여기서 금액을 **다시 계산하지 않는다** — 합계·기간 접기는 전부 서버 몫이고(§3.1)
-// 이 파일이 하는 일은 "이미 접힌 값을 어느 색으로 그릴까" 하나뿐이다.
+// 비용 줄(Panel/CostPill)과 비용 팝업(Panel/CostMapPopup)이 같은 함수로 색을 정한다 — 같은 금액이 두 화면에서 다른 색이면 신뢰를 잃는다.
+// 컴포넌트끼리 import 하면 순환이 생겨 여기 한 곳에 둔다.
+// `findAgentCost` / `costBadgeToneClass` 는 철회된 버블 배지(§7.19)만 쓰던 조회·색 통로지만 남긴다 — 지우면 되살릴 때 임계가 화면마다 갈린다.
+// 금액을 다시 계산하지 않는다 — 합계·기간 접기는 서버 몫이고(§3.1) 여기는 접힌 값의 색만 정한다.
 
 /** 지금 보고 있는 프로젝트의 지도. 없으면 undefined(빈 지도를 지어내지 않는다). */
 export function findCostMap(maps: readonly ProjectCostMap[], projectName: string | null): ProjectCostMap | undefined {

@@ -3,13 +3,7 @@ import type { ClaudeAuthStatus, CodexAuthStatus } from '@vibisual/shared';
 import { accountPortalLinks, type AccountPortalLink } from './accountPortals.js';
 import en from '../../i18n/locales/en.json';
 
-/**
- * §5.25 (E) — **계정 칸의 바깥 링크가 제 집으로 가는가.**
- *
- * 이 축이 조용히 죽는 모양은 하나다: 버튼은 멀쩡히 떠 있고 눌리는데, 도착한 화면에 그 사람의
- * 청구가 없다(구독 사용자를 개발자 콘솔로, API 키 사용자를 claude.ai 로, Bedrock 사용자를
- * Anthropic 으로 보내는 식). 화면·타입·빌드는 전부 통과하므로 여기서 잡는다.
- */
+/** §5.25 (E) — 계정 링크가 그 사람의 청구 화면으로 가는가. 엉뚱한 곳(구독 → 개발자 콘솔 등)으로 가도 화면·타입·빌드는 통과한다. */
 
 const claude = (over: Partial<ClaudeAuthStatus> = {}): ClaudeAuthStatus =>
   ({ loggedIn: true, checkedAt: 0, ...over });

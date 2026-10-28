@@ -3,13 +3,10 @@ import { promisify } from 'node:util';
 
 /**
  * Windows app icons read from the PE file itself.
- *
- * Why not only `app.getFileIcon`: on Electron 31 / Windows 11 it returned the generic program picture
- * for executables whose icon frames are PNG-compressed (UnrealEditor.exe, git-bash.exe — measured
- * 2026-10-20), i.e. the same picture as for an executable that has no icon at all (git.exe). This walks
- * the documented PE/COFF resource tree (RT_GROUP_ICON → RT_ICON) — exactly the picture Explorer shows
- * for the file; it is not string extraction from a binary. Every offset comes from an untrusted file,
- * so each read is range-checked and the walk is bounded.
+ * Not only `app.getFileIcon`: on Electron 31 / Windows 11 it returns the generic program picture for executables whose icon frames
+ * are PNG-compressed (UnrealEditor.exe, git-bash.exe — measured 2026-10-20). This walks the documented PE/COFF resource tree
+ * (RT_GROUP_ICON → RT_ICON) — the picture Explorer shows; it is not string extraction from a binary.
+ * Every offset comes from an untrusted file, so each read is range-checked and the walk is bounded.
  */
 
 const RT_ICON = 3;

@@ -1,12 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { findHiddenRunningTabs, sameHiddenRunningTabs, noHiddenRunningTabs, type TabBox } from './hiddenRunningTabs.js';
 
-/**
- * §5.5 #17-9 ④(b) v5.03 — 가려진 실행 중 탭 판정 회귀.
- *
- * 고정하는 약속: 보이는 창 **완전히 밖**에 있는 실행 중 탭만 세고, 각 목록의 `[0]` 은 그 방향으로
- * 처음 만나는(가장 가까운) 탭이다. 이게 어긋나면 "눌러서 이동"이 엉뚱한 탭으로 튄다.
- */
+/** §5.5 #17-9 ④(b) — 가려진 실행 중 탭: 보이는 창 완전히 밖만 세고, 각 목록 `[0]` 은 그 방향의 가장 가까운 탭이다. */
 
 // 탭 100px 씩 6개 — 창은 250px 만 보인다.
 const boxes: TabBox[] = [

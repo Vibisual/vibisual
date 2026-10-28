@@ -1,17 +1,6 @@
-# 플랫폼 동등성 검증 — Windows·macOS·Linux 에서 타입체크와 테스트를 모두 돌린다.
-#
-# ⚠️ 이 워크플로가 왜 생겼는지(2026-08-26 전수조사):
-#    이전까지 `.github/workflows/` 에는 release.yml 하나뿐이었다. 즉 **테스트 238개 파일이
-#    macOS·Linux 에서 단 한 번도 실행된 적이 없었다.** 개발도 릴리스 검증도 Windows 에서만
-#    이뤄지는 동안, POSIX 에서만 깨지는 결함들(경로 대소문자 접기, 프로세스 그룹 킬,
-#    PATH 미상속, Wayland 캡처)이 아무 저항 없이 쌓였다.
-#
-#    그러니 이 워크플로를 "빨갛다고 꺼 두는" 일만은 하지 마라. 빨간 것이 곧 정보다 —
-#    release.yml 머리말이 남긴 교훈 그대로, 실패를 "예상된 것"으로 적어 두면 그 실패는
-#    조사되지 않는다. 특정 케이스가 그 플랫폼에서 성립할 수 없다면 워크플로를 끄지 말고
-#    **그 테스트에 사유를 적어 skip** 하라.
-#
-# 러너는 셋 다 GitHub 공개 저장소 무료 표준 러너다.
+# 플랫폼 동등성 검증 — Windows·macOS·Linux 에서 타입체크와 테스트를 모두 돌린다. POSIX 에서만 깨지는 결함
+# (경로 대소문자 접기, 프로세스 그룹 킬, PATH 미상속, Wayland 캡처)은 Windows 개발로는 안 보인다.
+# 빨갛다고 꺼 두지 마라 — 그 플랫폼에서 성립할 수 없는 케이스는 그 테스트에 사유를 적어 skip 한다.
 
 name: CI
 
@@ -22,7 +11,7 @@ on:
   pull_request:
   workflow_dispatch:
 
-# 같은 브랜치에 연속 푸시하면 앞선 런은 취소한다(러너 시간 절약).
+# 같은 브랜치에 연속 푸시하면 앞선 런은 취소한다.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -30,8 +19,7 @@ concurrency:
 jobs:
   verify:
     strategy:
-      # 한 플랫폼이 넘어져도 나머지 결과를 봐야 한다 — "mac 만 깨졌나, 셋 다 깨졌나"가
-      # 원인 분류의 첫 갈림길이다.
+      # 한 플랫폼이 넘어져도 나머지를 본다 — "mac 만 깨졌나, 셋 다 깨졌나"가 원인 분류의 첫 갈림길이다.
       fail-fast: false
       matrix:
         os:
@@ -57,23 +45,16 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      # 릴리스 페이지 본문을 짓는 분류 규칙(win/mac-arm64/mac-x64/deb/rpm/AppImage)을 여기서 잰다.
-      # 의존성이 필요 없는 순수 JS 라 설치 앞에 둔다 — 실패하면 30초 안에 안다.
-      # ⚠️ 이 규칙이 뒤집히면 Apple Silicon dmg 가 Intel 줄에 실리는데 표는 멀쩡해 보인다.
-      #    릴리스 워크플로도 --apply 앞에서 같은 점검을 돌리지만, 그때는 이미 자산이 나간 뒤다.
+      # 릴리스 본문의 자산 분류 규칙(win/mac-arm64/mac-x64/deb/rpm/AppImage) — 의존성 없는 순수 JS 라 설치 앞에 둔다.
+      # ⚠️ 규칙이 뒤집히면 Apple Silicon dmg 가 Intel 줄에 실려도 표는 멀쩡해 보인다(릴리스 때 잡으면 이미 자산이 나간 뒤다).
       - name: Release notes classifier selftest
         run: node .github/scripts/release-notes.mjs --selftest
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # shared/plugins/video/server 는 dist 를 내야 다른 패키지가 타입을 볼 수 있다.
-      # ⚠️ server 를 빠뜨리면 desktop typecheck 가 `Cannot find module '@vibisual/server'` 로 죽는다
-      #    — 2026-08-27 첫 실측에서 세 OS 가 동시에 같은 8건으로 넘어졌다. desktop/main 의 7개 파일
-      #    (index·ipc·terminalManager·mobileAccess·updaterManager·captureInputManager·backgroundClick)이
-      #    server 를 import 하므로 그 dist 가 없으면 타입이 성립하지 않는다.
-      # 데스크톱 패키징(electron-builder)은 여기서 돌리지 않는다 — 그건 release.yml 몫이고,
-      # 여기서 확인하려는 것은 "소스가 이 OS 에서 성립하는가"다.
+      # 이 패키지들은 dist 를 내야 다른 패키지가 타입을 본다. ⚠️ server 를 빠뜨리면 desktop/main 이 server 를 import 해
+      # desktop typecheck 가 `Cannot find module '@vibisual/server'` 로 죽는다. 패키징은 release.yml 몫이다.
       - name: Build workspace packages
         run: pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video --filter=@vibisual/audio --filter=@vibisual/server -r build
 

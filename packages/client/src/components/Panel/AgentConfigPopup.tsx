@@ -100,12 +100,7 @@ const API_BASE = '';
 //   기존 체크포인트를 건드려야 하므로, 바꾸는 것은 이름뿐이다.
 interface SelectOption { value: string; description: string; disabled?: boolean; label?: string; detail?: string }
 
-// §4 v2.77 — Model 드롭다운은 더 이상 3종 하드코딩이 아니라 레지스트리 기반 동적 목록(`listModelFamilies`).
-//   여기 적는 것은 **전용 설명문(i18n `panel.agentConfig.model.<패밀리>`)을 가진 패밀리**이고,
-//   그 밖은 `model.unknownFamily` 폴백 문구로 그려진다.
-// (판올림 번호 발급 대기) — `fable` 추가. 시드에 버젓이 있는 출시 모델인데 이 목록에 없어서
-//   "newly released model. Capabilities and cost inferred from family defaults" 로 설명됐는데,
-//   그때 fable 은 패밀리 디폴트 자체가 없어 폴백값으로 떨어지고 있었으므로 문장까지 사실과 달랐다.
+// §4 — 전용 설명문(i18n `panel.agentConfig.model.<패밀리>`)이 있는 패밀리. 나머지는 `model.unknownFamily` 폴백 — 출시 모델은 여기 넣을 것.
 const KNOWN_MODEL_FAMILIES = ['opus', 'sonnet', 'haiku', 'fable'] as const;
 // §4 (CLI 사양 추종) — 권한 모드는 설치된 CLI 내부 enum 과 같은 6종. 하드코딩 사본을 두지 않고
 //   shared 상수를 그대로 쓴다(CLI 가 값을 늘리면 여기 한 줄이 아니라 shared 한 곳만 고친다).
@@ -137,8 +132,7 @@ function HoverTip({ text, children, className }: {
     setShow(true);
   }, []);
 
-  // 실측 클램프 — 칸 가운데 기준(`-translate-x-1/2`)이라 폰 폭에서 화면 끝 칸의 설명이 반쯤 화면 밖으로
-  //   나갔다. 첫 페인트 전에 상자 크기를 재서 화면 안으로 민다(맨 위 칸이면 칸 아래로 뒤집는다).
+  // 실측 클램프 — 가운데 기준이면 폰 폭에서 끝 칸 설명이 밖으로 나간다. 첫 페인트 전에 재서 안으로 민다(맨 위 칸이면 아래로).
   useLayoutEffect(() => {
     if (!show || !ref.current || !tipRef.current) return;
     const tip = tipRef.current;
@@ -189,10 +183,7 @@ function InfoTip({ text }: { text: string }): React.JSX.Element {
   );
 }
 
-/**
- * §4 — 이 칸이 **설정 창의 전역 기본값과 다르다**는 표식. 점 하나가 전부다 — 테두리·배경·글자를
- * 더하면 설정 창 자체가 어지러워져 정작 값이 안 읽힌다. 무엇으로 되돌려야 하는지는 hover 에 있다.
- */
+/** §4 — 전역 기본값과 다르다는 표식은 점 하나뿐이다(더하면 값이 안 읽힌다). 되돌릴 값은 hover 에. */
 function DiffMark({ text }: { text: string }): React.JSX.Element {
   return (
     <HoverTip text={text} className="relative ml-1 inline-flex cursor-help items-center">
@@ -203,10 +194,7 @@ function DiffMark({ text }: { text: string }): React.JSX.Element {
   );
 }
 
-/**
- * 칩 안의 작은 손잡이(×·방패) 터치 면적 — 글리프는 그대로 두고 손가락이 닿는 칸만 24px 로 넓힌다.
- * 굵은 포인터에서만 걸린다(데스크톱 칩은 종전 크기 그대로).
- */
+/** 칩 안 작은 손잡이의 터치 면적 — 굵은 포인터에서만 24px(글리프는 그대로). */
 const CHIP_HANDLE_TOUCH = 'pointer-coarse:flex pointer-coarse:h-6 pointer-coarse:w-6 pointer-coarse:items-center pointer-coarse:justify-center';
 
 /** 포털 드롭다운 패널 폭 — 지정 폭을 지키되 폰 폭에서는 화면 양쪽 여백(8px) 안에 둔다. */
@@ -216,10 +204,7 @@ function ddWidth(px: number): string {
 
 // ─── Portal Dropdown Hook ───
 
-/** 버튼 위치·패널 실측 크기·뷰포트 경계를 재서 자리 계산(`placePortalDropdown`)에 넘긴다.
- *  - 'below': 아래 공간이 모자라고 위가 더 넓으면 **위로 뒤집어** 버튼 상단에 붙인다.
- *  - 'left' : 버튼 왼쪽에 세우고 세로만 뷰포트 안으로 클램프 — 왼쪽에 패널 폭만큼 자리가 없으면 'below' 로 내린다.
- *  패널 실측(scrollHeight)은 maxHeight 클램프와 무관한 콘텐츠 높이라 재측정해도 값이 안정적이다(무한 루프 없음). */
+/** `placePortalDropdown` 에 실측을 넘긴다. 'below' 는 아래가 모자라면 위로, 'left' 는 자리가 없으면 'below'. scrollHeight 라 재측정해도 루프 없음. */
 function computeDropdownPos(
   btn: HTMLElement,
   panel: HTMLElement | null,
@@ -334,13 +319,7 @@ function CustomSelect({ value, onChange, options, disabled, compact, ariaLabel }
 
 // ─── Tool Chip with Tooltip ───
 
-/**
- * §5.3 #12-1-A — 도구 칩에 얹는 **[확인] 토글**. 켜면 그 도구는 권한 모드가 무엇이든
- * (`bypassPermissions` 포함) 실행 전에 기존 승인 카드를 만난다.
- *
- * 손 모양(방패)은 lucide 톤 stroke SVG 다 — 이모지 ❌(OS·폰트별로 모양이 달라진다).
- * 색은 `currentColor` 로 받아 부모의 on/off 색을 그대로 따른다.
- */
+/** §5.3 #12-1-A — 도구 칩 [확인] 토글: 켜면 권한 모드(`bypassPermissions` 포함)와 무관하게 실행 전 승인 카드. 글리프는 stroke SVG + `currentColor`. */
 function AskToolToggle({ on, onToggle, label }: {
   on: boolean; onToggle: () => void; label: string;
 }): React.JSX.Element {
@@ -408,19 +387,13 @@ interface AgentConfigPopupProps {
   config: AgentConfig | null;
   currentColor: string;
   onClose: () => void;
-  /**
-   * §4 (상태바 모델 칸 ②) — `'model'` 이면 **모델 구역만** 뜬 작은 카드로 연다. 새 설정창이 아니라
-   * 같은 창의 다른 보기다: 상태·저장·렌더 조각이 한 벌이고, [전체 설정]을 누르면 고치던 값을 든 채
-   * 이 인스턴스가 전체 보기로 넓어진다(닫았다 다시 열면 방금 고른 값이 사라진다). 생략하면 종전 그대로.
-   */
+  /** §4 (상태바 모델 칸 ②) — `'model'` 이면 모델 구역만 연 카드. 새 창이 아니라 같은 창의 다른 보기(상태·저장 한 벌) — [전체 설정]은 값을 든 채 넓힌다. */
   section?: 'model';
   /** `section` 카드를 붙일 칸의 화면 사각형(상태바 모델 칸). 없으면 화면 아래 가운데에 뜬다. */
   anchorRect?: PopupAnchorRect | null;
 }
 
-/** v1.33 — 해당 agent 를 source 로 가진 outbound(primary) 엣지 목록 + 타겟 메타 계산.
- *  엣지 변경은 graphStore.taskEdges WS snapshot 구독으로 자동 재렌더.
- *  v1.38 — `inactive` 플래그 추가(타겟이 설정되어 있고 tools==[])로 프롬프트 비주입 상태를 UI 에 노출. */
+/** 이 agent 가 source 인 outbound(primary) 엣지 + 타겟 메타. `inactive` = 타겟 tools==[] → 프롬프트 비주입. */
 function useOutboundEdgesForAgent(agentId: string): Array<{
   edgeId: string;
   command: string;
@@ -461,14 +434,10 @@ function useOutboundEdgesForAgent(agentId: string): Array<{
   }, [taskEdges, agents, agentConfigs, agentId]);
 }
 
-/** v1.37 — STRICT outbound 엣지의 타겟 툴 합집합(소스에서 박탈될 툴).
- *  서버 computeStrictStripSet 과 동일 규칙 — 툴은 전부 사용자 책임이라 특수 예외 없음.
- *  v1.38 — 타겟 tools==[] 엣지는 viability 필터로 skip(서버와 동일 판정).
- *  v1.44 — commandMode 게이트로 변경. 박탈 조건:
- *    - kind === 'command' (artifact/request/critique 는 박탈 ❌)
- *    - commandMode === 'tool-delegation' (shared / mode-delegation 은 박탈 ❌)
- *    - commandMode === undefined 인 기존 엣지는 delegationPolicy === 'strict' 일 때만 박탈
- *      (= v1.37~v1.43 거동 보존, 후방호환). */
+/**
+ * STRICT outbound 엣지 타겟 툴 합집합(소스에서 박탈) — 서버 `computeStrictStripSet` 과 같은 규칙, 함께 고칠 것. 타겟 tools==[] 엣지는 건너뛴다.
+ * 박탈은 kind 'command' + commandMode 'tool-delegation' 만. commandMode 없는 옛 엣지는 delegationPolicy 'strict' 일 때만(후방호환).
+ */
 function useStrictStripSet(agentId: string): Set<string> {
   const taskEdges = useGraphStore((s) => s.taskEdges);
   const agentConfigs = useGraphStore((s) => s.agentConfigs);
@@ -569,10 +538,7 @@ export function AgentConfigPopup({
   //   [전체 설정]만 `'full'` 로 넓힌다(거꾸로 좁히는 길은 없다 — 전체 보기에서 고친 다른 칸이 가려진다).
   const [view, setView] = useState<'full' | 'model'>(section === 'model' ? 'model' : 'full');
   const narrowViewport = useIsNarrowViewport();
-  // §4 (설정 3층) — 저장분이 아직 없는 버블의 기본값도 **설정 창을 따른다**. 종전에는 내장
-  //   기본값으로 떨어져, 같은 질문("이 에이전트의 기본은 무엇인가")에 이 창과 서버가 서로 다른
-  //   답을 했다 — 그 상태로 저장을 누르면 사용자가 고른 적 없는 내장 값이 그 버블에 못 박혔고,
-  //   창을 열자마자 모든 칸에 "기본값과 다름" 점이 붙었다.
+  // §4 (설정 3층) — 저장분이 없으면 설정 창 기본을 따른다. 내장값으로 떨어지면 서버와 답이 갈려 저장 때 고른 적 없는 값이 박힌다.
   const userDefaults = useGraphStore((st) => st.userDefaults);
   const base = config ?? { ...resolveAgentDefaults(userDefaults), color: currentColor };
   // §5.19 (G) — 이 버블이 **내 PC 에서 도는 모델**인가. 아래 화면의 모든 갈림이 이 한 줄만 본다.
@@ -580,27 +546,18 @@ export function AgentConfigPopup({
   //   아니라 **지금 값**(`config`)을 읽는다 — 사본을 그리면 열어 둔 창만 과거를 보여 준다.
   const provider = config?.provider;
   const isLocal = provider?.kind === 'local-llama';
-  /**
-   * §5.25 (J) — 이 버블이 **코덱스 CLI** 로 도는가.
-   *
-   * 아래에서 `!isProviderAgent` 로 접히는 칸들은 전부 **클로드 CLI 의 스폰 인자·env** 다
-   * (모델 별칭·1M 창·Fast·도구 허용목록·격리·기억·스킬…). 코덱스 턴은 그 어느 것도 읽지 않으므로
-   * 그대로 그리면 이 창이 "고를 수 있다"고 거짓말을 한다 — §5.19 (G) 가 로컬에 대해 세운 규칙을
-   * 프로바이더 축 전체로 넓힌 것이다.
-   */
+  /** §5.25 (J) — 코덱스 CLI 버블인가. `!isProviderAgent` 로 접는 칸은 클로드 CLI 스폰 인자·env 라, 코덱스에 그리면 거짓 선택지가 된다. */
   const isCodex = provider?.kind === 'codex-cli';
   /** 클로드 경로가 아닌 버블 = 프로바이더 버블(로컬·코덱스). `undefined` 면 종전 클로드 그대로다. */
   const isProviderAgent = isLocal || isCodex;
   // §4 (CMD ⑧) — 이 버블이 임베디드 터미널(CMD)인가. `executionMode` 는 이 창이 만지지 않는
   //   정체성 축이라 **지금 값**(config)을 읽는다.
   const isCmdAgent = config?.executionMode === 'interactive-terminal';
-  // v1.37 — STRICT outbound 엣지 타겟 툴은 소스에서 박탈(회색 표시). 서버 dispatch strip 과 동일.
+  // STRICT outbound 엣지 타겟 툴은 소스에서 박탈(회색) — 서버 dispatch strip 과 같다.
   const strictStripSet = useStrictStripSet(agentId);
   const modelRegistry = useGraphStore((s) => s.modelRegistry);
 
-  // §4 v2.77 — Model 드롭다운을 레지스트리 기반 동적 목록으로. 기본 alias 3종은 항상 포함,
-  //   CLI-scan/`/v1/models` 가 발견한 신규 패밀리(fable/mythos 등)도 자동 추가. known 3종은 전용 설명,
-  //   미지 패밀리는 displayName(있으면) + 공통 'unknownFamily' 설명으로 폴백.
+  // §4 — Model 목록은 레지스트리 기반(기본 alias 3종 + 새로 찾은 패밀리 자동 추가). 미지 패밀리는 displayName + 'unknownFamily' 설명.
   const MODEL_OPTIONS: SelectOption[] = useMemo(() => {
     const known = new Set<string>(KNOWN_MODEL_FAMILIES);
     return listModelFamilies(modelRegistry).map((fam) => {
@@ -624,10 +581,8 @@ export function AgentConfigPopup({
     description: t(`panel.agentConfig.permissionMode.${v}`),
   })), [t]);
   const ISOLATION_OPTIONS: SelectOption[] = useMemo(() => ISOLATION_VALUES.map((v) => ({ value: v, description: t(`panel.agentConfig.isolation.${v}`) })), [t]);
-  // §4 (CLI 사양 추종) (5) — 자동 압축 창(명령 사이 압축의 기준 · 2026-10-05 부터 스폰 `--autocompact` 에는
-  //   실리지 않는다). 맨 앞 빈 값은 "미설정" = **설정 창의 전역 기본을 따름**(꺼짐 ❌ — 그 뜻이었다면 명령 사이
-  //   압축이 사라진다). 모델 창 전체를 기준으로 삼으려면 `'auto'` 를 고른다.
-  //   §5.25 (G-2) — 빈 값의 라벨은 **지금 적용되는 값**이다: 설정 창에 값이 있으면 그것, 없으면 내장 값.
+  // §4 (CLI 사양 추종) (5) — 자동 압축 창(명령 사이 기준, 2026-10-05 부터 스폰 `--autocompact` 에는 안 실린다).
+  // 빈 값 = 설정 창 전역을 따름(꺼짐 ❌). 빈 값 라벨은 지금 적용되는 값이다(§5.25 (G-2)).
   const globalAutoCompact = userDefaults?.agentConfig?.autoCompact;
   const AUTOCOMPACT_OPTIONS: SelectOption[] = useMemo(() => {
     const valueLabel = (v: string): string => (
@@ -653,7 +608,7 @@ export function AgentConfigPopup({
             : t('panel.agentConfig.autoCompact.tokens', { tokens: `${Number(v) / 1000}k` }),
     }));
   }, [t, globalAutoCompact]);
-  // §5.3 v4.89 — 자기 기억 범위. 'default' 는 저장하지 않는 값(= 레포 공용 기억)이라 목록 맨 앞에 둔다.
+  // §5.3 — 기억 범위. 'default' 는 저장 안 하는 값(레포 공용 기억)이라 맨 앞.
   const MEMORY_OPTIONS: SelectOption[] = useMemo(() => (
     ['default', ...AGENT_MEMORY_SCOPES].map((v) => ({ value: v, description: t(`panel.agentConfig.memory.${v}`) }))
   ), [t]);
@@ -695,27 +650,26 @@ export function AgentConfigPopup({
   const [cliKind, setCliKind] = useState<CmdCliKind | undefined>(base.cliKind);
   // 순수 셸이면 모델 칸이 가리키는 대상이 없다 — 빈칸을 남기느니 감춘다.
   const isShellOnly = isCmdAgent && cliKindIsShell(cliKind);
-  // §4 v2.38 — 특정 풀ID 핀. undefined = alias=latest 모드.
+  // §4 — 특정 풀ID 핀. undefined = alias=latest 모드.
   const [modelVersion, setModelVersion] = useState<string | undefined>(base.modelVersion);
-  // §5.5 #17-20 ⑥ v4.74 — 이 창에는 UI 가 없지만 저장할 때 함께 실어 보내야 하는 값(통과용).
-  //   IDE 디버그 뷰에서 켠 MCP 도구 선택이 이 창의 [저장]으로 꺼지지 않게 한다.
+  // §5.5 #17-20 ⑥ — UI 는 없지만 저장 때 함께 실을 값(빠지면 IDE 디버그 뷰에서 켠 MCP 도구가 [저장]으로 꺼진다).
   const mcpServers = base.mcpServers;
-  // v1.37 — 툴 구성은 사용자 책임 (Bash 등 자동 포함 없음).
+  // 툴 구성은 사용자 책임(Bash 등 자동 포함 없음).
   const [tools, setTools] = useState<string[]>([...base.tools]);
   const [permissionMode, setPermissionMode] = useState(base.permissionMode);
-  // §5.3 #12-1 v1.90 — 60초 무응답 fallback (기본 allow). bypass/plan 이면 UI 숨김(무의미).
+  // §5.3 #12-1 — 60초 무응답 fallback(기본 allow). bypass/plan 이면 UI 숨김.
   const [permissionTimeoutPolicy, setPermissionTimeoutPolicy] = useState<'allow' | 'deny'>(
     base.permissionTimeoutPolicy ?? 'allow',
   );
-  // §5.3 #28 v1.47 — Vibisual Custom Mode (conti/review/debug). undefined='none'
+  // §5.3 #28 — 커스텀 모드(conti/review/debug). undefined = 'none'.
   const [customMode, setCustomMode] = useState<'none' | 'conti' | 'review' | 'debug'>(base.customMode ?? 'none');
   const [skills, setSkills] = useState<string[]>([...base.skills]);
   const [color, setColor] = useState(base.color ?? currentColor);
   const [maxTurns, setMaxTurns] = useState(base.maxTurns ?? 3000);
-  // §4 v2.88 — API 비용 상한($). 0 = 무제한(기본). 양수면 헤드리스 스폰에 --max-budget-usd 전달.
+  // §4 — API 비용 상한($). 0 = 무제한(기본), 양수면 헤드리스 스폰에 `--max-budget-usd`.
   const [maxBudgetUsd, setMaxBudgetUsd] = useState(base.maxBudgetUsd ?? 0);
   const [isolation, setIsolation] = useState(base.isolation ?? 'none');
-  // §5.3 v4.89 — 자기 기억 범위 · 서브에이전트 중첩 깊이. 둘 다 미지정이 기본(CLI 기본 동작 유지).
+  // §5.3 — 기억 범위 · 서브에이전트 중첩 깊이. 둘 다 미지정이 기본(CLI 기본 동작).
   const [memory, setMemory] = useState<string>(base.memory ?? 'default');
   const [subagentDepth, setSubagentDepth] = useState<number>(base.subagentDepth ?? 0);
   const [effort, setEffort] = useState(base.effort ?? 'default');
@@ -766,20 +720,16 @@ export function AgentConfigPopup({
   const [maxThinkingTokens, setMaxThinkingTokens] = useState(base.maxThinkingTokens ?? 0);
   const [autoCompactPct, setAutoCompactPct] = useState(base.autoCompactPct ?? 0);
   const [disableNonEssentialModelCalls, setDisableNonEssentialModelCalls] = useState(base.disableNonEssentialModelCalls ?? false);
-  // §4 v1.53 — disallowedTools UI 노출 (Tools 아래 빨간 칩 라인)
   const [disallowedTools, setDisallowedTools] = useState<string[]>([...(base.disallowedTools ?? [])]);
-  /**
-   * §5.3 #12-1-A — 도구별 확인 목록. Tools(가질 수 있는 능력)·Disallowed(못 쓰는 것)와 **직교**한다 —
-   * 이 목록의 뜻은 "쓸 수 있되 **물어보고** 쓴다"이고, 권한 모드가 통과시켰을 호출을 되돌려 묻는다.
-   */
+  /** §5.3 #12-1-A — 도구별 확인 목록. Tools·Disallowed 와 직교 — 권한 모드가 통과시켰을 호출도 물어보고 쓴다. */
   const [askTools, setAskTools] = useState<string[]>([...(base.askTools ?? [])]);
   const toggleAskTool = useCallback((tool: string): void => {
     setAskTools((prev) => (prev.includes(tool) ? prev.filter((x) => x !== tool) : [...prev, tool]));
   }, []);
-  // §4 v1.53 — Opus 1M 컨텍스트 토글. **기본 ON** — undefined/'1m' 둘 다 체크, '200k' 만 언체크.
+  // §4 — Opus 1M 토글. 기본 ON — undefined/'1m' 은 체크, '200k' 만 언체크.
   const [contextWindow, setContextWindow] = useState<'1m' | '200k' | undefined>(base.contextWindow);
   const oneMillionEnabled = contextWindow !== '200k';
-  // §4 v1.53 — 프리셋 트레이스 (UI 제거됨, 기존 값은 save 시 그대로 보존)
+  // §4 — 프리셋 트레이스(UI 없음, 기존 값을 저장 때 보존).
   const [presetId] = useState<string | undefined>(base.presetId);
   const [rules, setRules] = useState(base.rules ?? '');
   // §5.19 (G) — 로컬 버블에서만 서는 세 칸. 입력 중에는 문자열이고 저장할 때 숫자로 굳는다
@@ -804,7 +754,7 @@ export function AgentConfigPopup({
   const [retryToolSupport, setRetryToolSupport] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showRulesEditor, setShowRulesEditor] = useState(false);
-  // §5.3 #28 (K) v1.48 — Rules 히스토리 미리보기 선택 (null=텍스트영역, ts=해당 항목 본문)
+  // §5.3 #28 (K) — 히스토리 미리보기(null = 텍스트영역, ts = 그 항목 본문).
   const [historyPreviewTs, setHistoryPreviewTs] = useState<number | null>(null);
   // 폰 폭에서는 히스토리가 본문 **아래로** 접혀 쌓인다(옆 칸 320px 를 둘 자리가 없다). 기본은 접힘 — 본문 편집이 먼저다.
   const [rulesHistoryOpen, setRulesHistoryOpen] = useState(false);
@@ -812,25 +762,19 @@ export function AgentConfigPopup({
   const [saving, setSaving] = useState(false);
   const [contextItems, setContextItems] = useState<{ name: string; type: string; summary?: string; lines?: number; path?: string }[]>([]);
   const [contextOpen, setContextOpen] = useState(false);
-  /**
-   * §5.5 #17-33 ⑦ — 모양은 `AvailableSkill` 하나(서버와 같은 정의)를 쓴다. `installed`/`enabled`
-   * 가 붙으면서 화면이 각자 든 모양으로는 새 칸이 조용히 빠지게 됐다.
-   */
+  /** §5.5 #17-33 ⑦ — 서버와 같은 `AvailableSkill` 모양을 쓴다(따로 들면 새 칸이 조용히 빠진다). */
   const [availableSkills, setAvailableSkills] = useState<AvailableSkill[]>([]);
   /** 지금 깔고 있는 플러그인 스킬 이름 — 그 줄만 잠근다(설치는 git 을 탄다). */
   const [skillInstalling, setSkillInstalling] = useState<string | null>(null);
   /** 스킬 이름 → 직전 시도가 실패한 사유. 태그가 그 자리에서 그대로 드러낸다. */
   const [skillError, setSkillError] = useState<Record<string, string>>({});
-  /**
-   * §5.5 #17-33 ⑦ — CLI 는 `cwd` 로 설치 범위를 해석하므로 그 프로젝트 **경로**가 필요하다.
-   * `agentProjects` 가 주는 것은 표시명이므로 한 번 더 풀어야 한다(경로로 조회, 이름으로 표시).
-   */
+  /** §5.5 #17-33 ⑦ — CLI 는 `cwd` 로 설치 범위를 풀어 경로가 필요하다(`agentProjects` 는 표시명이라 한 번 더 푼다). */
   const projectPath = useGraphStore((s) => {
     const name = s.agentProjects[agentId];
     return name ? (s.projects[name]?.path ?? null) : null;
   });
 
-  // §5.5 #17-6 v2.73 — 오버레이 위젯 창 토글(packaged Electron + customCreated 한정).
+  // §5.5 #17-6 — 오버레이 위젯 창 토글(packaged Electron + customCreated 한정).
   const overlayAgentIds = useGraphStore((s) => s.overlayAgentIds);
   const isCustomAgent = useGraphStore(
     (s) => (s.nodeMap[agentId] as { customCreated?: boolean } | undefined)?.customCreated ?? false,
@@ -858,12 +802,7 @@ export function AgentConfigPopup({
    */
   const codexModels = useGraphStore((st) => st.codexModels);
   const refreshCodexModels = useGraphStore((st) => st.refreshCodexModels);
-  /**
-   * §4 (상태바 모델 칸 ③) — **창을 열 때 모델 목록을 한 번 더 확인한다.** 클로드 경로는 서버 레지스트리
-   * (`POST /api/models/refresh` — 실행본이 바뀌었으면 강도 등급까지 다시 긁는다), 코덱스는 최신 카탈로그를
-   * 읽는다. 로컬은 목록이 디스크에 있고 설치 창이 따로 다루므로 부르지 않는다. 겹친 확인은 서버가
-   * 합치고 API 는 하한을 지키므로, 창을 연달아 열고 닫아도 바깥을 두드리지 않는다.
-   */
+  /** §4 (상태바 모델 칸 ③) — 열 때 모델 목록을 한 번 더 확인한다(클로드 레지스트리 refresh · 코덱스 카탈로그, 로컬 제외). 겹친 확인은 서버가 합친다. */
   const refreshModelRegistry = useGraphStore((st) => st.refreshModelRegistry);
   const [modelListChecking, setModelListChecking] = useState(false);
   const recheckModelList = useCallback(async (force = true): Promise<void> => {
@@ -902,11 +841,7 @@ export function AgentConfigPopup({
   const [codexTools, setCodexTools] = useState<CodexToolPolicy>(() => normalizeCodexToolPolicy(provider?.codexTools) ?? {});
   const [codexVerbosity, setCodexVerbosity] = useState(provider?.modelVerbosity ?? '');
   const [codexNetwork, setCodexNetwork] = useState(provider?.networkAccess === undefined ? '' : String(provider.networkAccess));
-  /**
-   * §5.25 (G-2) — 비워 둔 칸에 **실제로 적용되는 값**의 근거. 코덱스가 이 버블의 작업 폴더에서 읽을
-   * 설정 파일들을 서버가 읽어 준다. 창을 열 때마다 다시 묻는다(사용자가 그사이 파일을 고쳤을 수 있다).
-   * 못 읽었으면 `'failed'` — 빈 목록으로 두면 파일에 적힌 값을 없는 것으로 읽어 내장 값을 말하게 된다.
-   */
+  /** §5.25 (G-2) — 빈 칸에 실제 적용될 값의 근거(코덱스가 작업 폴더에서 읽을 설정 파일). 못 읽으면 `'failed'` — 빈 목록이면 파일 값을 없는 것으로 읽는다. */
   const codexConfig = useCodexEffectiveConfig(isCodex, agentId);
   const codexModelOptions: SelectOption[] = useMemo(
     () => codexModelOptionsFor(codexModels?.models ?? [], codexModelId,
@@ -943,11 +878,7 @@ export function AgentConfigPopup({
     setCodexEffort('');
   };
 
-  /**
-   * 저장할 코덱스 `provider` 한 벌. 바닥은 **지금 스토어에 있는 값**이다(창을 연 시점의 사본이
-   * 아니다) — 창이 열려 있는 동안에도 왕복이 `contextUsed`·`tokensIn/Out` 을 갱신하므로,
-   * 옛 사본을 되돌려 보내면 그 값들이 뒤로 간다(로컬 쪽과 같은 규칙).
-   */
+  /** 저장할 코덱스 `provider` — 바닥은 지금 스토어 값이다(연 시점 사본이면 왕복이 갱신한 토큰 값이 뒤로 간다). */
   const buildCodexProvider = useCallback((): AgentProvider | undefined => {
     const live = useGraphStore.getState().agentConfigs[agentId]?.provider ?? provider;
     if (!live) return undefined;
@@ -976,7 +907,6 @@ export function AgentConfigPopup({
 
   const toolPicker = usePortalDropdown();
   const skillPicker = usePortalDropdown('left');
-  // §4 v1.53 — disallowedTools 추가용 picker (별도 인스턴스)
   const denyPicker = usePortalDropdown();
 
   // Fetch project context + available skills on mount
@@ -987,10 +917,7 @@ export function AgentConfigPopup({
         if (data.ok) setContextItems(data.items);
       })
       .catch(() => {});
-    // §5.5 #17-33 ⑦ — `agent=` 를 붙인다. 종전에는 범위 없이 물어 **전 프로젝트 병합**이 왔고,
-    // 그러면 서버가 어느 프로젝트의 플러그인 상태를 봐야 할지 알 수 없어 `installed`/`enabled`
-    // 표식이 통째로 빠졌다. 여기서 고른 스킬이 바로 서버가 `/이름` 으로 앞에 붙이는 그것이라
-    // (`skillsPrefix`), 못 쓰는 것을 못 쓴다고 말해야 하는 자리가 정확히 이곳이다.
+    // §5.5 #17-33 ⑦ — `agent=` 를 붙여야 서버가 그 프로젝트의 플러그인 상태로 `installed`/`enabled` 를 단다(없으면 전 프로젝트 병합이 온다).
     fetch(`${API_BASE}/api/available-skills?agent=${encodeURIComponent(agentId)}`)
       .then((r) => r.json())
       .then((data: { ok: boolean; skills: typeof availableSkills }) => {
@@ -999,13 +926,7 @@ export function AgentConfigPopup({
       .catch(() => {});
   }, [agentId]);
 
-  /**
-   * §5.5 #17-33 ⑦ — 고른 스킬이 지금 안 실리면 **그 자리에서** 살린다.
-   * 범위는 `user` 고정 — 여기서 고르는 뜻은 "이 에이전트가 이걸 쓴다" 이지 "이 프로젝트에서만" 이 아니다.
-   *
-   * 처방(`action`)은 `SkillStateTag` 가 shared 판정으로 골라 넘겨준다 — 이 자리에서 다시 갈래를
-   * 만들면 사이드바와 두 벌이 되고, 언젠가 한쪽만 고쳐진다.
-   */
+  /** §5.5 #17-33 ⑦ — 안 실리는 스킬을 그 자리에서 살린다(범위 `user` 고정). 처방은 `SkillStateTag` 의 shared 판정 — 여기서 갈래를 또 만들지 말 것. */
   const activateSkill = useCallback(async (s: AvailableSkill, action: 'install' | 'enable'): Promise<void> => {
     if (!s.pluginId || !projectPath) return;
     setSkillInstalling(s.name);
@@ -1025,18 +946,14 @@ export function AgentConfigPopup({
   }, [agentId, projectPath, t]);
 
   const isOpus = model === 'opus';
-  // §4 (xhigh effort 등급 · 2026-10-15) — Effort 칸은 클로드 네 패밀리(Opus·Fable·Sonnet·Haiku)에 열린다.
-  //   1M 토글은 그대로 Opus 전용(`isOpus`)이다. 옵션창도 같은 판정 함수를 본다.
+  // §4 — Effort 칸은 클로드 네 패밀리, 1M 토글은 Opus 전용(`isOpus`). 옵션창과 같은 판정 함수.
   const effortEnabled = supportsEffortSelection(model);
 
   const backdrop = useBackdropDismiss(onClose);
   const closeRulesEditor = useCallback(() => setShowRulesEditor(false), []);
   const rulesBackdrop = useBackdropDismiss(closeRulesEditor);
 
-  // Esc — **캡처 단계에서 소비한다**. 종전에는 버블 단계에서 듣고 전파를 끊지 않아, 같은 Esc 가
-  //   `window` 에 붙은 다른 리스너(특히 IDE 창 닫기)까지 함께 발동했다 — 설정창을 닫으려 한 번
-  //   눌렀을 뿐인데 뒤에 있던 IDE 창까지 닫혔다. 규칙 편집기가 열려 있으면 그것부터 닫는다
-  //   (안쪽 창이 열려 있는데 바깥 창이 먼저 닫히면 편집 중이던 글이 사라진다).
+  // Esc 는 캡처 단계에서 소비한다 — 안 끊으면 뒤의 IDE 창 닫기까지 발동한다. 규칙 편집기가 열려 있으면 그것부터(편집 글이 사라진다).
   useEffect(() => {
     const handleKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
@@ -1056,16 +973,13 @@ export function AgentConfigPopup({
     setModel(v);
     // Effort 칸이 닫히는 모델로 갈 때만 되돌린다 — 네 패밀리 사이를 오가면 고른 값을 지킨다.
     if (!supportsEffortSelection(v)) setEffort('default');
-    // §4 v2.38 — 패밀리 변경 시 기존 modelVersion 핀 무효 → alias=latest 모드로 복귀
+    // §4 — 패밀리를 바꾸면 modelVersion 핀은 무효 → alias=latest.
     setModelVersion(undefined);
   }, []);
 
-  // §4 v2.41 — 현재 패밀리(alias) 의 버전 옵션 목록 (compact).
-  // CLI 바이너리 raw scan 결과에서 패밀리 필터 + semver 내림차순.
-  // VSCode 스타일로 **최신 + 직전 1개** 만 노출 → 총 2 + Latest(alias) + Custom = 최대 4 옵션.
+  // §4 — 현재 패밀리의 버전 옵션: 최신 + 직전 1개 + Latest(alias) + Custom = 최대 4개(semver 내림차순).
   const VERSION_OPTIONS = useMemo((): SelectOption[] => {
-    // §4 v2.77 — opus/sonnet/haiku 화이트리스트 제거. 현재 선택된 패밀리(alias) 에 해당하는
-    //   레지스트리 entry 가 있으면 그대로 버전 목록을 구성(신규 패밀리도 동일 경로).
+    // §4 — 화이트리스트 없음. 선택 패밀리의 레지스트리 entry 로 버전 목록을 만든다.
     const family = model || null;
     if (!family) return [];
     const fams = (modelRegistry?.entries ?? []).filter((e) => e.family === family);
@@ -1109,11 +1023,7 @@ export function AgentConfigPopup({
     else setModelVersion(v);
   }, [model]);
 
-  // §4 (CLI 사양 추종) — `--fallback-model` 선택지. 종전에는 자유 입력이라 모델 이름을 외워
-  //   타이핑해야 했고, 오타는 스폰이 죽고 나서야 드러났다. 목록은 Model 드롭다운과 **같은
-  //   레지스트리**(`MODEL_OPTIONS` = `listModelFamilies`)를 그대로 쓴다 — 이 파일에 모델 이름을
-  //   박지 않으므로 CLI/`/v1/models` 가 새 패밀리를 내면 여기에도 저절로 생긴다.
-  //   맨 끝 '직접 입력'은 종전 자유 입력을 잃지 않기 위한 자리다(콤마 목록·정확한 버전 id).
+  // §4 — `--fallback-model` 선택지. Model 과 같은 레지스트리라 이름을 박지 않는다(자유 입력은 오타가 스폰 뒤에야 드러난다). 끝 '직접 입력'은 콤마 목록·정확한 id 용.
   const FALLBACK_MODEL_OPTIONS: SelectOption[] = useMemo(() => ([
     {
       value: '',
@@ -1135,8 +1045,7 @@ export function AgentConfigPopup({
     setFallbackModel(v);
   }, []);
 
-  // §4 v2.41 — Model 셀렉트 바로 아래 작은 글씨 라벨: CLI 에 실제로 전달될 모델 인자.
-  // alias 모드면 "opus[1m]" 식, 풀ID 핀이면 "claude-opus-4-7[1m]" 식.
+  // §4 — CLI 에 실제로 갈 모델 인자 라벨(alias 면 "opus[1m]", 핀이면 풀ID).
   const effectiveCliArg = useMemo(() => {
     const base = modelVersion?.trim() || model;
     const suffix = (model === 'opus' && contextWindow !== '200k') ? '[1m]' : '';
@@ -1205,13 +1114,7 @@ export function AgentConfigPopup({
     setSkills((p) => p.includes(name) ? p : [...p, name]);
   }, []);
 
-  /**
-   * §5.19 (G) — 저장할 `provider` 한 벌.
-   *
-   * 바닥은 **지금 스토어에 있는 값**이다(창을 연 시점의 사본이 아니다) — 이 창이 열려 있는 동안에도
-   * 왕복은 `contextUsed`·`contextLimit`·`tokensIn/Out` 을 갱신하고, 옛 사본을 되돌려 보내면 그
-   * 값들이 뒤로 간다. 그 위에 이 창이 실제로 만진 칸만 얹는다.
-   */
+  /** §5.19 (G) — 저장할 `provider`: 지금 스토어 값을 바닥에 깔고 이 창이 만진 칸만 얹는다(연 시점 사본이면 왕복 수치가 뒤로 간다). */
   const buildLocalProvider = useCallback((): AgentProvider | undefined => {
     const live = useGraphStore.getState().agentConfigs[agentId]?.provider ?? provider;
     if (!live) return undefined;
@@ -1226,19 +1129,13 @@ export function AgentConfigPopup({
 
   const buildPayload = useCallback((): AgentConfig => ({
     model, tools, permissionMode, skills, color,
-    // §4 (설정 3층) — **미설정을 `undefined` 로 담지 않는다.** 이 창은 완성본을 보내고 서버가
-    //   `sparsifyAgentConfig` 로 위층과 갈라진 칸만 남기는데, `undefined` 는 `JSON.stringify` 가
-    //   키째 버려 그 비교에 **아예 오르지 못한다** — 그래서 전역 기본값이 켠 축을 이 창에서 다시
-    //   끌 수 없었다(껐다 저장해도 읽는 순간 위층이 도로 얹힌다). 설정 창이 `null` 로 푼 것과
-    //   같은 문제이며(§4 "전역 옵션을 다시 끌 수 없던 것"), 아래층은 **그 축의 미설정 표기**
-    //   (0 · '' · [] · false · 'none' · 'default' · 'allow')를 명시로 보내 푼다. 기본값과 같으면
-    //   서버가 어차피 버리므로 저장 크기는 늘지 않는다.
+    // §4 (설정 3층) — 미설정을 `undefined` 로 담지 않는다. `JSON.stringify` 가 키를 버려 `sparsifyAgentConfig` 비교에 못 오르면 위층이 켠 축을 여기서 끌 수 없다.
+    // 그 축의 미설정 표기(0 · '' · [] · false · 'none' · 'default' · 'allow')를 명시로 보낸다 — 기본값과 같으면 서버가 버린다.
     maxTurns: maxTurns > 0 ? maxTurns : 0,
-    // §4 v2.88 — 0 = 무제한. 위층이 상한을 걸어 둔 에이전트를 여기서 무제한으로 되돌리려면
-    //   그 0 이 전선을 건너가야 한다.
+    // §4 — 0 = 무제한. 위층 상한을 되돌리려면 0 이 건너가야 한다.
     maxBudgetUsd: maxBudgetUsd > 0 ? maxBudgetUsd : 0,
     isolation,
-    // §5.3 v4.89 — 'default'(미지정)는 저장하지 않는다. 0 은 "깊이 미지정" 이라 undefined 로.
+    // §5.3 — 'default'(미지정)는 저장하지 않는다. 깊이 0 = 미지정이라 undefined.
     memory: normalizeAgentMemoryScope(memory),
     subagentDepth: normalizeSubagentDepth(subagentDepth),
     // 'default' = 오버라이드 없음. 드롭다운이 그 뜻으로 고르는 값이라 그대로 실어 보낸다.
@@ -1248,43 +1145,29 @@ export function AgentConfigPopup({
     disallowedTools,
     askTools,
     rules: rules.trim(),
-    // §5.3 #12-1 v1.90 — 'allow' 가 기본. 위층이 'deny' 면 여기서 되돌릴 길이 있어야 한다.
+    // §5.3 #12-1 — 'allow' 가 기본. 위층이 'deny' 면 여기서 되돌릴 길이 있어야 한다.
     permissionTimeoutPolicy,
-    // §5.3 #28 v1.47 — 'none' 이 기본. 이 축은 **설정 창에 칸이 없어** 위층이 값을 가질 수
-    //   없으므로(= 되돌릴 상위값이 없다) 종전대로 undefined 로 접는다. 타입도 'none' 을 받지 않는다.
+    // §5.3 #28 — 설정 창에 칸이 없어 되돌릴 위층 값이 없으므로 'none' 은 undefined 로 접는다.
     customMode: customMode === 'none' ? undefined : customMode,
-    // §4 v1.53 — 1M 컨텍스트. 기본 ON.
-    //   - Opus 모델 + uncheck → '200k' 저장 (명시적 opt-out)
-    //   - Opus 모델 + check → undefined (= 기본 1M, 직렬화 최소화)
-    //   - 그 외 모델 → undefined (어차피 의미 없음)
-    //   '1m' 은 undefined 와 같은 동작이지만 **위층의 '200k' 를 되돌리는 유일한 표기**라
-    //   명시로 보낸다(비교에서 둘 다 미설정으로 접히므로 안 건드린 버블에는 점이 안 붙는다).
+    // §4 — 1M 기본 ON. Opus 면 '200k'(opt-out) 또는 '1m' 을 명시로 보낸다 — '1m' 은 위층의 '200k' 를 되돌리는 유일한 표기다. 그 외 모델은 undefined.
     contextWindow: isOpus ? (contextWindow === '200k' ? '200k' : '1m') : undefined,
-    // §4 v1.53 — 프리셋 트레이스 메타
     presetId,
-    // §4 v2.38 — 풀ID 핀 ('' = alias=latest 모드). 위층이 핀을 박아 둔 경우 여기서
-    //   alias 로 되돌리려면 그 빈 문자열이 전선을 건너가야 한다.
+    // §4 — '' = alias=latest. 위층의 핀을 되돌리려면 빈 문자열이 건너가야 한다.
     modelVersion: modelVersion ?? '',
     // §4 (CMD ⑧) — 고른 CLI. 'claude'(기본)는 undefined 로 보내 직렬화를 최소화한다.
     cliKind: cliKind && cliKind !== 'claude' ? cliKind : undefined,
-    // §5.5 #17-20 ⑥ v4.74 — MCP 디버그 도구 선택은 이 창이 아니라 IDE 디버그 뷰에서 켠다.
-    //   PUT 은 body 로 config 전량을 재구축하므로 **여기서 그대로 실어 보내지 않으면 저장할 때
-    //   조용히 꺼진다** — 이 창이 모르는 필드라도 통과시켜야 한다.
+    // §5.5 #17-20 ⑥ — PUT 은 config 전량을 재구축하므로 이 창이 모르는 `mcpServers` 도 실어야 한다(빠지면 저장 때 조용히 꺼진다).
     mcpServers: mcpServers && mcpServers.length > 0 ? mcpServers : undefined,
-    // §4 (CLI 사양 추종) — 미설정은 **빈 값**으로 보낸다. 플래그가 안 붙는 것은 스폰부가
-    //   빈 값을 보고 정하며(종전과 같음 · 자동 압축 창은 2026-10-05 부터 값과 무관하게 안 실린다),
-    //   전선에서는 "이 버블은 안 쓴다"가 위층에 닿아야 한다.
+    // §4 (CLI 사양 추종) — 미설정은 빈 값으로 보낸다(플래그는 스폰부가 정한다) — "이 버블은 안 쓴다"가 위층에 닿아야 한다.
     fallbackModel: fallbackModel.trim(),
     autoCompact: autoCompact.trim(),
     excludeDynamicSystemPromptSections: excludeDynamicSections,
     settingSources,
     safeMode,
     agentCanCompact,
-    // §4 (Fast 모드) — 지원 모델일 때만 켠다. 모델을 바꾼 뒤에도 값이 남아 있으면
-    //   나중에 그 모델로 되돌렸을 때 사용자가 켠 적 없는 Fast 가 되살아난다.
+    // §4 — Fast 는 지원 모델일 때만. 값이 남으면 그 모델로 돌아갔을 때 켠 적 없는 Fast 가 살아난다.
     fastMode: fastMode && fastModeSupported,
-    // §4 (Thinking on/off) — 켬이 기본인 축이라 방향이 반대다: 위층이 꺼 둔 것을 여기서
-    //   켜려면 명시 `true` 가 건너가야 한다(종전에는 그게 undefined 라 영영 못 켰다).
+    // §4 — Thinking 은 켬이 기본이라 위층이 끈 것을 켜려면 명시 `true` 가 건너가야 한다.
     thinking,
     // §4 (스트림 3종) — ①도 켬이 기본. 나머지 둘은 끔이 기본이고, 규약은 같다.
     forwardSubagentText,
@@ -1314,10 +1197,7 @@ export function AgentConfigPopup({
     maxThinkingTokens,
     autoCompactPct,
     disableNonEssentialModelCalls,
-    // §5.19 (G) — 로컬 버블의 프로바이더. **저장하는 순간의 최신값**(스토어)을 바닥에 깔고 이 창이
-    //   만진 칸만 얹는다. 창을 연 시점의 사본을 그대로 되돌려 보내면 그사이 왕복이 갱신한
-    //   `contextUsed`·`tokensIn/Out` 이 옛 값으로 되돌아가 게이지가 뒤로 간다.
-    //   로컬이 아니면 **아무것도 보내지 않는다** — 서버가 이전 값을 유지하므로 종전과 같다.
+    // §5.19 (G) — 프로바이더는 저장 순간의 스토어 값 위에 만진 칸만 얹는다. 로컬·코덱스가 아니면 안 보낸다(서버가 유지).
     provider: isLocal ? buildLocalProvider() : isCodex ? buildCodexProvider() : undefined,
   }), [
     model, tools, permissionMode, permissionTimeoutPolicy, skills, color, maxTurns, maxBudgetUsd, isolation, effort,
@@ -1330,17 +1210,10 @@ export function AgentConfigPopup({
     isLocal, buildLocalProvider, isCodex, buildCodexProvider,
   ]);
 
-  // §4 — 이 창의 값이 **설정 창(Options › Agent Defaults)의 전역 기본값**과 어디서 갈라지는가.
-  //   두 화면이 같은 모양이라 표식이 없으면 어느 칸이 이 버블만의 값인지 알 길이 없다.
-  //   저장분이 아니라 **지금 폼이 저장하려는 값**으로 재므로 고르는 즉시 붙고 되돌리면 사라진다.
-  //   §4 (설정 3층) — 점이 붙은 칸이 곧 **저장될 칸**이다(서버가 같은 판정으로 갈라진 칸만 남긴다).
+  // §4 — 이 창 값이 설정 창 전역 기본과 갈라지는 칸(점). 폼이 저장하려는 값으로 재 즉시 붙고, 점이 붙은 칸이 곧 저장될 칸이다.
   const agentDefaults = useMemo(() => resolveAgentDefaults(userDefaults, isCodex ? 'codex' : isLocal ? 'local' : 'claude', projectPath), [userDefaults, isCodex, isLocal, projectPath]);
-  // §4 (CLI 사양 추종) — 지금 고른 값이면 명령 사이에서 **실제로 몇 토큰에서 접히는가**. 고른 숫자는
-  //   창 크기이고 발동선은 그보다 낮으므로, 그 숫자를 화면이 직접 말해야 놀라지 않는다(작업 도중에는
-  //   2026-10-05 부터 CLI 가 모델 창 끝에서만 접는다 — 이 숫자와 무관하다).
-  //   3층 그대로다: 이 에이전트 값 → 설정 창 전역 기본 → 내장 기본. 'auto' 는 모델 창을 런타임에야
-  //   아는 값이라 숫자가 없다 → null.
-  // §4 — 화면에 적는 비율. 상수 한 곳(shared)에서 와야 값을 바꿔도 12개 로케일이 안 틀어진다.
+  // §4 — 지금 값이면 명령 사이에서 몇 토큰에 접히는가(고른 숫자는 창 크기, 발동선은 더 낮다). 3층: 에이전트 → 설정 창 → 내장, 'auto' 는 null.
+  // 비율은 shared 상수 한 곳에서 온다(12개 로케일).
   const compactFoldsAtPercent = Math.round(TURN_COMPACT_TRIGGER_RATIO * 100);
   // §4 (CLI 사양 추종) (5) 창 하한 — 이 에이전트의 대화가 몇 토큰에서 시작하는가(가장 최근 세션). 시작 문맥에
   //   비해 고른 창이 작으면 서버가 턴 경계 판정에서 창을 올려 잡는다 — 화면도 **같은 함수**로 올린 값을 적어야
@@ -1355,8 +1228,7 @@ export function AgentConfigPopup({
   // §4 — 지금 켜져 있는가. 꺼짐도 `turnCompactTriggerTokens` 는 null 이라(선이 없다) 화면에서
   //   `'auto'`(창을 아직 모름)와 뒤섞이지 않도록 이 술어로 먼저 가른다.
   const autoCompactOn = isAutoCompactOn(resolveAutoCompact(autoCompact, userDefaults?.agentConfig?.autoCompact));
-  // §4 (CLI 사양 추종) — 켜는 방향에만 세우는 비용 확인 관문(2026-09-02 사용자 지시).
-  //   설정 창과 **같은 컴포넌트**를 쓴다 — 두 벌로 두면 한쪽만 고쳐져 문구가 어긋난다.
+  // §4 — 켜는 방향에만 비용 확인. 설정 창과 같은 컴포넌트(두 벌이면 문구가 어긋난다).
   const [compactConfirm, setCompactConfirm] = useState<{ kind: AutoCompactConfirmKind; value: string } | null>(null);
 
   const requestAutoCompact = (next: string): void => {
@@ -1382,10 +1254,7 @@ export function AgentConfigPopup({
     else setAutoCompact(compactConfirm.value);
     setCompactConfirm(null);
   };
-  // 이 창이 **지금 그리지 않는** 축은 세지 않는다 — 화면의 점이 3개인데 머리의 숫자가 5 면
-  //   그 숫자는 설명이 아니라 수수께끼가 된다.
-  // §5.3 #12-1-A · §5.25 (H) — 60초 무응답 정책이 뜻을 갖는 설정(= 이 버블에 승인 카드가 뜰 수 있다).
-  //   코덱스는 요청 시 승인 모드의 승인 요청과 도구별 확인이 카드를 띄운다. 토글과 변경 점 개수가 같은 판정을 본다.
+  // 지금 그리지 않는 축은 세지 않는다(점 수와 머리 숫자가 같아야 한다). 60초 무응답 정책은 승인 카드가 뜰 수 있을 때만 — 토글과 점 개수가 같은 판정.
   const timeoutPolicyVisible = isCodex
     ? canCodexPromptForPermission(permissionMode) || (permissionMode !== 'dontAsk' && Object.values(codexTools).includes('ask'))
     : canPromptForPermission(permissionMode, askTools);
@@ -1646,8 +1515,7 @@ export function AgentConfigPopup({
       <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.model.label')}<InfoTip text={FIELD_TIPS.model} />{diffDot('model')}</label>
       <CustomSelect value={model} onChange={handleModelChange} options={MODEL_OPTIONS} />
 
-      {/* §4 v2.41 — 작은 인라인 버전 라인. `version: claude-opus-4-8 ▾` 식.
-          native <select> 로 컴팩트 + 옵션 4개 이내 (Latest / 최신 / 직전 / Custom…) */}
+      {/* §4 — 인라인 버전 줄(native select, Latest / 최신 / 직전 / Custom…). */}
       {/* 좁은 폭에서는 줄을 바꿔 쌓는다 — 한 줄로 못 박아 두면 긴 버전 이름과 인자 미리보기가 창 밖으로 나간다. */}
       <div className="mt-0.5 flex flex-wrap items-center gap-1 px-0.5 text-[12px] text-gray-500">
         <span className="uppercase tracking-wider">{t('panel.agentConfig.modelVersion.label', { defaultValue: 'Version' })}:</span>{diffDot('modelVersion')}
@@ -1675,7 +1543,7 @@ export function AgentConfigPopup({
         )}
       </div>
 
-      {/* §4 v1.53 — Opus 1M 컨텍스트 토글. 기본 ON (undefined === checked). uncheck 시 '200k' opt-out 저장 */}
+      {/* §4 — Opus 1M 토글. 언체크하면 '200k' opt-out. */}
       {isOpusModel(model) && (
         <label className="mt-1 flex cursor-pointer items-center gap-2 rounded border border-gray-700/60 bg-gray-900/40 px-2.5 py-1.5 hover:border-gray-600">
           <input
@@ -1779,11 +1647,8 @@ export function AgentConfigPopup({
     </label>
   );
 
-  // ─── §4 (상태바 모델 칸 ②) — 모델 구역만 연 카드 ───
-  //   새 설정창이 아니라 이 창의 다른 보기다: 위 조각·상태·저장(`handleSave` = 전량 페이로드 PUT)이 전체 보기와
-  //   한 벌이다. 칸 위에 붙어 뜨고(폰 폭에서는 아래에서 올라오는 시트), [전체 설정]은 고치던 값을 든 채 같은
-  //   인스턴스를 전체 보기로 넓힌다. 닫기는 백드롭 — 드롭다운 패널이 body 포털이라 바깥 press 방식으로 닫으면
-  //   드롭다운 안을 누른 것이 이 카드를 닫는다.
+  // §4 (상태바 모델 칸 ②) — 모델 구역 카드. 조각·상태·저장(`handleSave` 전량 PUT)이 전체 보기와 한 벌이다.
+  // 닫기는 백드롭 — 드롭다운이 body 포털이라 바깥 press 방식이면 드롭다운 클릭이 카드를 닫는다.
   if (view === 'model') {
     const applyTiming = modelSectionApplyTiming({ isLocal, isCodex, isCmdAgent });
     const applyNote = applyTiming === 'nextTurn'
@@ -1929,10 +1794,7 @@ export function AgentConfigPopup({
     );
   }
 
-  // §5.5 #17-1 — **body 포털**. 이 창은 지금까지 `DetailPanel`(`z-30`) 안에서 그려졌는데, 부모가
-  //   z-index 를 가지면 자식은 그 층 **안**에 갇힌다 — `fixed inset-0 z-50` 이라고 적혀 있어도
-  //   실제로는 30층에 머물러 IDE 창(40층대) 뒤로 깔렸다. 여는 자리가 상세 패널이든 IDE 타이틀바든
-  //   설정창은 늘 맨 위여야 하므로 부모의 층에서 빼낸다.
+  // §5.5 #17-1 — body 포털. 부모 z-index 층에 갇히면 `z-50` 이어도 IDE 창 뒤로 깔린다 — 설정창은 늘 맨 위.
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" {...backdrop}>
       <div className="flex max-h-[80dvh] w-[420px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
@@ -2067,11 +1929,7 @@ export function AgentConfigPopup({
                 <p className="text-[12px] leading-relaxed text-gray-500">{t('panel.agentConfig.codex.applyNoteEffective')}</p>
               </div>
             )}
-            {/* §5.3 #12-1 v1.90 — On no response (60s) fallback. 팝업이 원천적으로 안 뜨는 모드
-                (bypassPermissions·plan·auto·dontAsk)에서는 무의미해서 숨긴다 — §4 CLI 사양 추종으로
-                auto·dontAsk 가 늘었으므로 조건을 shared 판정 한 곳으로 모았다.
-                §5.3 #12-1-A — 도구별 확인 목록이 비어 있지 않으면 bypass·auto 에서도 카드가 뜨므로
-                그때는 이 토글을 **다시 보여야 한다**(숨기면 정책을 볼 수도 고칠 수도 없다). */}
+            {/* §5.3 #12-1 — 팝업이 안 뜨는 모드(bypass·plan·auto·dontAsk)에선 숨긴다(shared 판정). 도구별 확인 목록이 있으면 bypass·auto 에서도 카드가 떠 다시 보인다. */}
             {timeoutPolicyVisible && (
               <div className="flex flex-col gap-1.5">
                 <label className="flex items-center text-xs font-medium text-gray-400">
@@ -2125,8 +1983,7 @@ export function AgentConfigPopup({
               </div>
             )}
 
-            {/* §5.3 #28 v1.47 — Custom Mode (Vibisual 콘티/리뷰/디버그 모드 축, claude CLI 와 직교)
-                §5.19 (G) — 콘티는 클로드 세션이 낸 결과를 읽어 보드를 채우는 축이라 로컬에는 안 뜬다. */}
+            {/* §5.3 #28 — 커스텀 모드(claude CLI 와 직교). 콘티는 클로드 세션 결과로 보드를 채워 로컬에는 안 뜬다(§5.19 (G)). */}
             {!isProviderAgent && (
             <div className="flex flex-col gap-1">
               <label className="flex items-center text-xs font-medium text-gray-400">
@@ -2139,10 +1996,7 @@ export function AgentConfigPopup({
                 value={customMode}
                 onChange={(v) => {
                   const next = v as 'none' | 'conti' | 'review' | 'debug';
-                  // §5.3 #28 (K) v1.48 — 서버 전이 거동을 클라에서도 즉시 미러:
-                  //   conti 진입 = rules 를 CONTI_AGENT_RULES 로 덮어쓰기 (사용자 보고 dirty 인지)
-                  //   conti 이탈 = rules 비우기 (자동 복원 ❌)
-                  // 사용자가 Save 누르기 전에도 Rules 편집기에서 즉시 확인 가능.
+                  // §5.3 #28 (K) — 서버 전이를 즉시 미러: conti 진입 = rules 를 `CONTI_AGENT_RULES` 로 덮기, 이탈 = 비우기(자동 복원 ❌). Save 전에 편집기에서 보인다.
                   if (next === 'conti' && customMode !== 'conti') {
                     setRules(CONTI_AGENT_RULES);
                   } else if (customMode === 'conti' && next !== 'conti') {
@@ -2159,7 +2013,6 @@ export function AgentConfigPopup({
                   { value: 'debug', description: t('panel.agentConfig.customMode.debugDisabled', { defaultValue: '디버그모드 (coming soon)' }), disabled: true },
                 ]}
               />
-              {/* §5.3 #28 (K) v1.48 — 콘티모드 ON 으로 전이될 때만 룰 덮어쓰기 경고 노출 */}
               {customMode === 'conti' && base.customMode !== 'conti' && (
                 <p className="flex items-start gap-1.5 text-[12px] leading-tight text-amber-400/85">
                   <svg viewBox="0 0 24 24" className="mt-0.5 h-3 w-3 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2216,7 +2069,7 @@ export function AgentConfigPopup({
                   {rules.trim() ? t('panel.agentConfig.lines', { count: rules.trim().split('\n').length }) : t('panel.agentConfig.noRulesDefined')}
                 </span>
               </button>
-              {/* v1.33 — outbound 엣지 자동 섹션 (읽기 전용 · 서버가 같은 내용을 rules 에 자동 인젝션) */}
+              {/* 읽기 전용 — 서버가 같은 내용을 rules 에 자동 주입한다. */}
               <AutoEdgeSection agentId={agentId} compact />
             </div>
 
@@ -2449,8 +2302,7 @@ export function AgentConfigPopup({
             </div>
             )}
 
-            {/* §4 v1.53 — Disallowed Tools (deny-list). Tools allow-list 와 직교 — Tools 에 있어도 이 칩에 있으면 CLI --disallowedTools 로 차단
-                §5.19 (G) — CLI 플래그라 로컬에는 뜨지 않는다(로컬의 차단축은 권한 모드 하나다). */}
+            {/* §4 — Disallowed Tools: Tools 에 있어도 여기 있으면 `--disallowedTools` 로 차단. CLI 플래그라 로컬에는 안 뜬다. */}
             {!isProviderAgent && (
             <div className="flex flex-col gap-1.5">
               <label className="flex items-center text-xs font-medium text-gray-400">
@@ -2529,12 +2381,11 @@ export function AgentConfigPopup({
                 <CustomSelect value={isolation} onChange={setIsolation} options={ISOLATION_OPTIONS} />
               </div>
               {effortField}
-              {/* §5.3 v4.89 — 자기 기억 범위. 이 에이전트가 세션을 넘어 무엇을 기억할지 정한다. */}
               <div className="flex flex-col gap-1">
                 <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.memory.label')}<InfoTip text={FIELD_TIPS.memory} />{diffDot('memory')}</label>
                 <CustomSelect value={memory} onChange={setMemory} options={MEMORY_OPTIONS} />
               </div>
-              {/* §5.3 v4.89 — 서브에이전트 중첩 깊이. 0 = 미지정(CLI 기본 3층). */}
+              {/* §5.3 — 0 = 미지정(CLI 기본 3층). */}
               <div className="flex flex-col gap-1">
                 <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.subagentDepth.label')}<InfoTip text={FIELD_TIPS.subagentDepth} />{diffDot('subagentDepth')}</label>
                 <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
@@ -2554,7 +2405,6 @@ export function AgentConfigPopup({
                   </button>
                 </div>
               </div>
-              {/* §4 v2.88 — API 비용 상한($). 0 = 무제한. 양수면 헤드리스 스폰에 --max-budget-usd 전달. */}
               <div className="flex flex-col gap-1">
                 <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.maxBudgetUsd', { defaultValue: 'Budget ($, 0=∞)' })}<InfoTip text={FIELD_TIPS.maxBudgetUsd} />{diffDot('maxBudgetUsd')}</label>
                 <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
@@ -2607,10 +2457,7 @@ export function AgentConfigPopup({
                     <InfoTip text={t('panel.agentConfig.autoCompact.tip', { percent: compactFoldsAtPercent })} />
                   </label>
                   <CustomSelect value={autoCompact} onChange={requestAutoCompact} options={AUTOCOMPACT_OPTIONS} />
-                  {/* §4 (CLI 사양 추종) — **이 숫자 하나가 전부다.** 옆에 있던 "턴이 끝나면 압축"
-                      체크박스는 같은 일을 해 헷갈리기만 했고(그리고 같은 숫자를 쓰는 한 CLI 가 늘 먼저
-                      접어 뜨지도 못했다) 이 값 안으로 합쳤다. 실제로 접히는 토큰 수는 고른 값과 다르므로
-                      숨기지 않고 여기서 직접 말한다. 꺼져 있으면 "접지 않는다"고 그대로 말한다. */}
+                  {/* §4 — 이 숫자 하나가 전부다(별도 "턴 끝 압축" 체크박스 ❌ — 같은 일이다). 실제로 접히는 토큰 수와 꺼짐을 여기서 직접 말한다. */}
                   <span className={`text-[12px] leading-snug ${autoCompactOn ? 'text-gray-400' : 'text-gray-500'}`}>
                     {!autoCompactOn
                       ? t('panel.agentConfig.autoCompact.foldsAtOff')
@@ -2985,12 +2832,7 @@ export function AgentConfigPopup({
                     : info?.source === 'global'
                       ? 'text-sky-400/60'
                       : 'text-purple-400/60';
-                  /*
-                   * §5.5 #17-33 ⑦ — **고른 스킬이 실제로 실리는지를 여기서 말한다.**
-                   * 이 목록이 곧 서버가 프롬프트 앞에 `/이름` 으로 붙이는 그것인데(`skillsPrefix`),
-                   * 그 플러그인이 안 깔렸거나 꺼져 있으면 CLI 는 슬래시를 풀지 못하고 평문으로 흘린다.
-                   * 종전에는 그 사실이 어디에도 안 보여, 켠 줄 알고 쓰다가 아무 일도 안 일어났다.
-                   */
+                  /* §5.5 #17-33 ⑦ — 고른 스킬이 실제로 실리는지 말한다. 플러그인이 없거나 꺼져 있으면 CLI 가 `/이름` 을 못 풀고 평문으로 흘린다. */
                   // `ready`·`unknown` 은 손댈 것이 없다 — 칩 바탕을 바꾸는 것은 나머지 셋뿐이다.
                   const dormant = !!info && !skillLoadsNow(resolveSkillPluginState(info));
                   const chip = (
@@ -3048,11 +2890,7 @@ export function AgentConfigPopup({
                             <div className="flex items-center gap-1.5">
                               <span className="text-xs font-medium text-purple-400">{s.name}</span>
                               {s.pluginName && <span className="text-[12px] text-gray-600">{s.pluginName}</span>}
-                              {/*
-                                고르기 **전에** 알려 준다 — 고른 뒤에 알면 이미 한 번 헛돌고 난 뒤다.
-                                여기는 표시만 한다: 목록에서 고르려던 손이 설치를 시작하면 놀란다.
-                                고치는 자리는 위의 고른 칩 쪽이다.
-                              */}
+                              {/* 고르기 전에 알리되 표시만 한다(목록에서 설치를 시작하면 놀란다). 고치는 자리는 위의 고른 칩. */}
                               <SkillStateTag skill={s} />
                             </div>
                             {s.description && <span className="line-clamp-2 text-[12px] leading-tight text-gray-500">{s.description}</span>}
@@ -3116,7 +2954,7 @@ export function AgentConfigPopup({
         </div>
       </div>
 
-      {/* Rules Editor Overlay — §5.3 #28 (K) v1.48: 좌 본문 + 우 히스토리 패널 2-column */}
+      {/* Rules 편집기 오버레이 — 좌 본문 + 우 히스토리(§5.3 #28 (K)). */}
       {showRulesEditor && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70" {...rulesBackdrop}>
           <div className="flex h-[82dvh] max-h-[92dvh] w-[960px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
@@ -3137,7 +2975,6 @@ export function AgentConfigPopup({
                   placeholder={t('panel.agentConfig.rulesEditor.placeholder')}
                   className="scrollbar-thin mx-4 mt-2 flex-1 resize-none rounded border border-gray-700 bg-gray-800 p-3 font-mono text-sm leading-relaxed text-gray-200 outline-none placeholder:text-gray-600 focus:border-blue-500"
                 />
-                {/* v1.33 — 자동 주입되는 outbound 엣지 섹션 전체 미리보기 */}
                 <div className="mx-4 mt-2">
                   <AutoEdgeSection agentId={agentId} />
                 </div>
@@ -3238,8 +3075,7 @@ export function AgentConfigPopup({
               <button
                 type="button"
                 onClick={() => {
-                  // §5.3 #28 (K) v1.48 — 인라인 Save 도 본 메인 handleSave 와 동일 페이로드.
-                  // §4 v1.53 — buildPayload 로 통합해 새 필드(contextWindow/presetId)도 자동 포함.
+                  // §5.3 #28 (K) — 인라인 Save 도 `buildPayload` 전량 페이로드.
                   fetch(`${API_BASE}/api/agent-config/${agentId}`, {
                     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildPayload()),
                   }).catch(() => {});

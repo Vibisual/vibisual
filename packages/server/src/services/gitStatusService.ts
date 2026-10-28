@@ -20,10 +20,7 @@ interface RunResult {
   stderr: string;
 }
 
-/**
- * 프로젝트별 git 상태 캐시·조회 서비스.
- * §7.6 GitStatusCard 데이터 공급원. 서버 SSOT 원칙에 따라 클라이언트는 REST로만 수신.
- */
+/** §7.6 GitStatusCard 데이터 공급원(프로젝트별 git 상태 캐시). 클라는 REST 로만 받는다. */
 class GitStatusService {
   private cache = new Map<string, CacheEntry>();
   private dirtyMap = new Map<string, boolean>();

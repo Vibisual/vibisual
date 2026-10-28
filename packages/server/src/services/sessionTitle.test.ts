@@ -1,11 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { sessionTitleFromPrompt, SESSION_TITLE_MAX_CHARS } from '@vibisual/shared';
 
-// SCENARIO.md §5.26 / §7.23 — 세션 제목 뽑기.
-//
-// 이 시험이 지키는 것: **모든 세션이 같은 제목을 갖지 않는다**, 그리고 **없는 제목을 지어내지
-// 않는다**. 첫째가 무너지면 목록이 종전(해시 8자)과 똑같이 못 읽는 것이 되고, 둘째가 무너지면
-// 화면이 거짓을 적는다. 실제 세션 386개로 확증한 규칙을 여기 고정한다(373건 추출·310종 구분).
+// §5.26 / §7.23 — 세션 제목 뽑기: 세션마다 다른 제목, 없는 제목은 짓지 않는다(실제 세션 386개로 확증한 규칙).
 
 /** 서브에이전트 프롬프트의 앞머리 — 실물 그대로의 모양. 모든 세션에 똑같이 붙는다. */
 const PREAMBLE = `You are a sub-agent working in project at: C:/work/vibisual

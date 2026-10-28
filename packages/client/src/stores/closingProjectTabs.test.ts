@@ -2,13 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { pruneClosingProjects, CLOSING_TAB_GRACE_MS } from './graphStore.js';
 
-/**
- * §5.4 #14 v1.34 — 프로젝트 탭 × 는 **누른 그 자리에서** 닫힌다.
- *
- * 탭바는 `closingProjectPaths` 에 든 탭을 그리지 않는다. 그래서 이 표시를 언제 걷느냐가 곧
- * "탭이 언제 돌아오느냐" 다 — 너무 일찍 걷으면 서버 truth 가 오기 전에 닫은 탭이 도로 보이고,
- * 안 걷으면 실재하는 탭이 영영 안 보이는 상태로 갇힌다. 그 두 사고를 여기서 못 박는다.
- */
+/** §5.4 #14 — × 를 누른 그 자리에서 탭이 닫히는지(`closingProjectPaths`). 표시를 너무 일찍 걷으면 탭이 도로 보이고, 안 걷으면 영영 안 보인다. */
 
 const P = 'C:/work/alpha';
 const Q = 'C:/work/beta';

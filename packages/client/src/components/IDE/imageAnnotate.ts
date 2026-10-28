@@ -1,13 +1,5 @@
-// §5.5 #17-25 v4.80 — 라이트박스 이미지 주석(강조 표시)의 순수 모델·기하.
-//
-// 좌표는 화면이 아니라 **이미지 natural 픽셀**로만 다룬다. 화면에는 같은 viewBox 를 가진 SVG
-// 오버레이로 그리고, 저장할 때는 원본 해상도 캔버스에 같은 값을 다시 그린다 — 그래서 창 크기·
-// 확대율이 바뀌어도 표시가 어긋나지 않고 "화면에서 본 것"과 "저장된 것"이 같다.
-//
-// DOM 없이 검증 가능하게 계산은 전부 여기 순수 함수로 둔다(floatingWindowGeom 선례).
-// 캔버스에 실제로 붓을 대는 함수(drawAnnotations / composeLayers / exportAnnotated*)만 브라우저 API 를
-// 쓰며, 그것들도 그리는 값 자체는 위 순수 함수들이 계산한다.
-// ⑦ 자르기·알파 빼기의 픽셀 연산과 자르기 상자 기하는 imageEdit.ts 가 따로 소유한다.
+// §5.5 #17-25 — 라이트박스 이미지 주석의 순수 모델·기하. 좌표는 natural 픽셀만(화면 SVG 와 원본 해상도 저장 캔버스가 같은 값을 그려 화면 = 저장본).
+// 브라우저 API 는 붓질 함수(drawAnnotations / composeLayers / exportAnnotated*)만. ⑦ 자르기·알파는 imageEdit.ts.
 
 export interface Point {
   x: number;
@@ -110,10 +102,7 @@ export interface BadgeAnnotation extends AnnotationBase {
 
 export type Annotation = ShapeAnnotation | PenAnnotation | TextAnnotation | BadgeAnnotation;
 
-// ─── 기본 치수 — 이미지 짧은 변에서 뽑는다 ───
-// 4K 스크린샷에 2px 실선을 그으면 화면에서 머리카락처럼 사라지고, 작은 아이콘 캡처에 20px 을
-// 그으면 그림이 안 보인다. 그래서 굵기·글자·배지 크기는 전부 이미지 크기에 비례해 잡고,
-// 사용자가 굵기 3단으로 그 위를 조절한다.
+// 기본 치수는 이미지 짧은 변에 비례한다(4K 에 2px 은 사라지고 아이콘에 20px 은 가린다) — 그 위를 굵기 3단으로 조절한다.
 
 export function baseStrokeWidth(natural: Size): number {
   const shortSide = Math.min(natural.w, natural.h);
@@ -139,11 +128,7 @@ function clamp(v: number, min: number, max: number): number {
   return v;
 }
 
-/**
- * 화면(클라이언트) 좌표 → 이미지 natural 좌표.
- * `rect` 는 오버레이 SVG 의 getBoundingClientRect (= 이미지가 실제로 그려진 상자).
- * 이미지 밖으로 끌어도 좌표는 이미지 안으로 클램프한다(밖에 그려진 도형은 저장 시 잘려 사라진다).
- */
+/** 화면 좌표 → 이미지 natural 좌표(`rect` = 오버레이 SVG 의 getBoundingClientRect). 이미지 안으로 클램프한다(밖의 도형은 저장 때 잘린다). */
 export function toImagePoint(client: Point, rect: Box, natural: Size): Point {
   if (rect.w <= 0 || rect.h <= 0) return { x: 0, y: 0 };
   const nx = ((client.x - rect.x) / rect.w) * natural.w;
@@ -299,11 +284,7 @@ export function nextBadgeIndex(items: readonly Annotation[], floor = 0): number 
   return max + 1;
 }
 
-// ─── 되돌리기 스택 ───
-//
-// §5.5 #17-25 ⑦ — 자르기·알파 빼기는 그림 자체를 바꾸므로 한 칸이 "표시 목록"이 아니라
-// **세 겹 한 벌**(바탕 래스터 / 원형 자르기가 구운 표시 / 벡터 주석)이다. 도형·자르기·알파가
-// 같은 스택에 쌓여 Ctrl+Z 한 번이 마지막 동작 하나를 되돌린다.
+// 되돌리기 스택 — §5.5 #17-25 ⑦ 한 칸은 세 겹 한 벌(바탕 래스터 / 원형 자르기가 구운 표시 / 벡터 주석). 도형·자르기·알파가 한 스택이라 Ctrl+Z 하나가 동작 하나.
 
 /** 편집이 구운 래스터 한 겹 — PNG blob URL 과 그 픽셀 크기. */
 export interface RasterLayer {
@@ -426,11 +407,7 @@ export function referencedLayerSrcs(history: AnnotationHistory): Set<string> {
   return out;
 }
 
-/**
- * 사각 자르기 — 주석은 벡터 그대로 두고 좌표만 (dx, dy) 옮긴다(잘린 상자의 왼쪽 위가 새 원점).
- * 상자 밖으로 밀려난 주석도 지우지 않는다: 화면 SVG·저장 캔버스 모두 그림 크기에서 잘리고,
- * 되돌리면 그대로 돌아와야 하기 때문이다.
- */
+/** 사각 자르기 — 주석은 좌표만 (dx, dy) 옮긴다(잘린 상자 왼쪽 위가 새 원점). 밖으로 밀린 주석도 지우지 않는다(어차피 잘리고, 되돌리면 돌아와야 한다). */
 export function translateAnnotations(items: readonly Annotation[], dx: number, dy: number): Annotation[] {
   const move = (p: Point): Point => ({ x: p.x + dx, y: p.y + dy });
   return items.map((ann): Annotation => {
@@ -571,15 +548,8 @@ export function composeLayers(
 }
 
 /**
- * 원본 + 주석을 **원본 해상도 한 장**으로 굽는다. 실패하면 null(호출부가 오류 표시).
- *
- * §5.5 #17-25 ④-1 — `mime` 은 저장 대상이 정한다. 워크스페이스 파일을 덮어쓸 때 형식을 바꾸면
- * 확장자와 내용이 어긋나므로 원본 확장자의 MIME 을 그대로 받아 굽는다(png·jpeg·webp).
- * `canvas.toBlob` 이 모르는 MIME 을 받으면 브라우저는 조용히 PNG 를 뱉으므로, 그런 형식은
- * 애초에 호출부(`canOverwriteWorkspaceImage`)가 막는다.
- *
- * ⑦ — 바탕은 원본 `<img>` 대신 자르기·알파가 만든 캔버스일 수 있고, `overlay` 는 원형 자르기가
- * 구운 앞선 표시다. 크기는 언제나 바탕을 따른다.
+ * 원본 + 주석을 원본 해상도 한 장으로(실패 null). ④-1 `mime` 은 저장 대상이 정한다(덮어쓰기는 원본 확장자 — png·jpeg·webp).
+ * `toBlob` 은 모르는 MIME 이면 조용히 PNG 라 호출부(`canOverwriteWorkspaceImage`)가 막는다. ⑦ 크기는 늘 바탕(편집 캔버스일 수 있다)을 따른다.
  */
 export async function exportAnnotatedImage(
   image: RasterSource,

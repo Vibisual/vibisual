@@ -6,10 +6,8 @@ import { workspaceMediaSize } from '../../utils/workspaceMedia.js';
 import { createLiveView, homeAngles, loadLiveModel, type LiveView } from './modelCanvasLive.js';
 
 /**
- * Bake the same viewport used by the interactive face, then return its WebGL context.
- *
- * §5.1 #2-1 (G) ① — 정지 화면은 **작은 모델만** 굽는다(`PREVIEW_POLICY.maxBytes.model`). 읽기·파싱·GPU 올리기가 메인 스레드라 큰
- * 모델 하나가 캔버스를 멈춘다 — 넘으면 아이콘이다. 사용자가 손을 대는 끌어 돌려 보기는 종전 상한(`APP_THUMB.modelMaxBytes`)이다.
+ * Bakes the same viewport as the interactive face and returns its WebGL context.
+ * §5.1 #2-1 (G) ① — 작은 모델만 굽는다(`PREVIEW_POLICY.maxBytes.model`) — 파싱·GPU 올리기가 메인 스레드라 큰 모델이 캔버스를 멈춘다. 끌어 돌려 보기는 `APP_THUMB.modelMaxBytes`.
  */
 export async function renderModelThumbnail(req: AppThumbnailRequest): Promise<AppThumbnail | AppThumbnailSkip | null> {
   const bytes = typeof req.bytes === 'number' ? req.bytes : await workspaceMediaSize(req.projectId, req.file);

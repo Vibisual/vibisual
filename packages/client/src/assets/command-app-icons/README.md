@@ -1,16 +1,24 @@
 # Bundled command-app icons — sources, licenses, trademarks
 
 `../../components/commandAppBrandIcons.ts` shows these marks on app bubbles detected from shell commands
-(SSOT §5.1, "앱 아이콘은 그 앱이 실제로 쓰는 그림이다"). They stand in only for commands whose own executable
-shows no app icon: `git.exe` carries none, and POSIX command-line programs never do. Every other app shows
-the icon read from its installed executable on the user's machine; nothing here is drawn on top of or
-in place of such an icon.
+(SSOT §5.1, "앱 아이콘은 그 앱이 실제로 쓰는 그림이다"). They are the official marks of command-line programs
+an AI coding agent commonly runs: most of those executables carry no icon (`git.exe`; POSIX command-line
+programs never do), and a shim that does may carry its runtime's icon instead of the program's (`pnpm.exe`
+→ Node.js). A bundled mark is drawn first, without asking the OS; every other app shows the icon read from
+its installed executable on the user's machine.
 
 A mark is bundled **only when its owner licenses the artwork for this kind of use** — referring to the
-program the agent ran, unaltered, without implying endorsement. Attribution for the copies below is also in
-the repository `NOTICE`, which ships with every installer.
+program the agent ran, unaltered, without implying endorsement — and its trademark terms allow that
+reference or impose none. Licenses of third-party icon packs (simple-icons, devicon …) do not count; only
+the owner's own statements do. Attribution for the copies below is also in the repository `NOTICE`, which
+ships with every installer.
 
-| File | Program | Source (fetched 2026-10-20) | Copyright / license | Trademark basis |
+**On a white disc**: Nx, Ollama, Lua and the GNU head are published as a black (or white-grounded) mark only,
+with no variant for dark backgrounds, and recolouring is not ours to do. On a dark background
+`CommandAppIcon` therefore places the unaltered file on a white disc (`plate` in
+`commandAppBrandIcons.ts`) — the same white it is published on.
+
+| File | Program (commands) | Source (fetched 2026-10-20 / 2026-10-28) | Copyright / license | Trademark basis |
 |---|---|---|---|---|
 | `git.svg` | Git | <https://git-scm.com/images/logos/downloads/Git-Icon-1788C.svg> (unmodified) | Git Logo by Jason Long, [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) | Git Project trademark policy §2.2 permits the marks "to identify the Git software" (<https://git-scm.com/about/trademark>) |
 | `curl.svg`, `curl-white.svg` | curl | <https://curl.se/logo/curl-symbol.svg>, <https://curl.se/logo/curl-white-symbol.svg> (unmodified) | curl project: "You are free to use the images for purposes of showing your use of curl" (<https://curl.se/logo/>) | same page |
@@ -18,25 +26,63 @@ the repository `NOTICE`, which ships with every installer.
 | `ruby.png` | Ruby | `ruby-kit/ruby.png` from <https://cache.ruby-lang.org/pub/misc/logo/ruby-logo-kit.zip>, **resized** from 995×996 to 128×128 | The Ruby Logo, Copyright (c) 2006 Yukihiro Matsumoto, [CC BY-SA 2.5](https://creativecommons.org/licenses/by-sa/2.5/) — [LICENSE-ruby.txt](LICENSE-ruby.txt). The resized copy is under the same license. | used only to represent the Ruby language (`ruby`, `irb`), as the kit asks |
 | `perl.svg` | Perl | `blessed/exports/perl-081-64.svg` from [metacpan/perl-assets@d942561f](https://github.com/metacpan/perl-assets/blob/d942561f594feab70c7a8905d70d675c4bdd4d31/blessed/exports/perl-081-64.svg) (unmodified) | Perl logo by Zach Roszczewski and Sébastien Feugère, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — <https://perl.org> | the repository asks IDE icon designers to draw from these exports |
 | `yarn.svg` | Yarn | `yarn-kitten-circle.svg` from [yarnpkg/assets@b28fd5a0](https://github.com/yarnpkg/assets/blob/b28fd5a09430a7b7701dbebe1765fe166c389cc6/yarn-kitten-circle.svg) (unmodified) | Yarn assets, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | official asset repository |
-| `pnpm.svg` | pnpm | `static/img/pnpm-no-name-with-frame.svg` from [pnpm/pnpm.io@f05d3514](https://github.com/pnpm/pnpm.io/blob/f05d35143162810ac84377b5a064edf5c2826226/static/img/pnpm-no-name-with-frame.svg) (unmodified) | Copyright (c) 2016-2022 Zoltan Kochan and other contributors, MIT — [LICENSE-pnpm.txt](LICENSE-pnpm.txt) | official logo, offered at <https://pnpm.io/logos> |
+| `pnpm.svg` | pnpm (`pnpm`, `pnpx`) | `static/img/pnpm-no-name-with-frame.svg` from [pnpm/pnpm.io@f05d3514](https://github.com/pnpm/pnpm.io/blob/f05d35143162810ac84377b5a064edf5c2826226/static/img/pnpm-no-name-with-frame.svg) (unmodified) | Copyright (c) 2016-2022 Zoltan Kochan and other contributors, MIT — [LICENSE-pnpm.txt](LICENSE-pnpm.txt) | official logo, offered at <https://pnpm.io/logos> |
 | `godot.svg` | Godot Engine | `misc/logo/icon.svg` from [godotengine/godot@925fbbc5](https://github.com/godotengine/godot/blob/925fbbc5c4cb34ca4377b3231b2dc1b8d3a7d187/misc/logo/icon.svg) (unmodified) | Godot Engine Logo, Copyright (c) 2017 Andrea Calabró, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — [LICENSE-godot.txt](LICENSE-godot.txt) | press kit: "Only use the logo and icon to represent Godot", undistorted, no endorsement (<https://godotengine.org/press/>) |
+| `bun.svg` | Bun (`bun`, `bunx`) | `docs/logo/logo.svg` from [oven-sh/bun@1606a9f2](https://github.com/oven-sh/bun/blob/1606a9f24ef93078a4203bb591f7b0d31946e47a/docs/logo/logo.svg) (unmodified) | Bun repository: "Bun itself is MIT-licensed." | press kit: "Please don't stretch, recolour or put a hat on the bun without asking." (<https://bun.com/press-kit>) |
+| `vite.svg` | Vite | `docs/public/logo-without-border.svg` from [vitejs/vite@93d790d4](https://github.com/vitejs/vite/blob/93d790d44a93ac6f4193a72e7d44f5a217d02f2b/docs/public/logo-without-border.svg) (unmodified) | Copyright (c) 2019-present, VoidZero Inc. and Vite contributors, MIT | no trademark policy published |
+| `vitest.svg` | Vitest | `docs/public/logo.svg` from [vitest-dev/vitest@0ed7e82f](https://github.com/vitest-dev/vitest/blob/0ed7e82f5e0c02032955a6ca034d1562c2ec920e/docs/public/logo.svg) (unmodified) | Copyright (c) 2021-Present VoidZero Inc. and Vitest contributors, MIT | no trademark policy published |
+| `esbuild.svg` | esbuild | `images/logo.svg` from [evanw/esbuild@ac542f91](https://github.com/evanw/esbuild/blob/ac542f913908d7326b65eb2e01f0559ed135a40e/images/logo.svg), **`viewBox` added** so it scales (drawing unchanged) | Copyright (c) 2020 Evan Wallace, MIT | no trademark policy published |
+| `prettier-icon-light.svg`, `prettier-icon-dark.svg` | Prettier | `images/prettier-icon-light.svg` / `-dark.svg` from [prettier/prettier-logo@e638a708](https://github.com/prettier/prettier-logo/tree/e638a708b41a176a46cfbbf9d3ed4910132df265/images) (unmodified). The names describe the bar colour: `-light` reads on dark backgrounds. | Copyright 2017 James Long, MIT (the logo repository's LICENSE) | no trademark policy published |
+| `nx.svg` | Nx | `images/nx-logo.svg` from [nrwl/nx@214f951f](https://github.com/nrwl/nx/blob/214f951fb24ec0ecad967cb57a6059312e76bfc3/images/nx-logo.svg) (unmodified; white disc on dark) | Copyright (c) 2017-2026 Narwhal Technologies Inc., MIT | "Please don't modify the marks or use them in a confusing way, including suggesting sponsorship or endorsement by Nx" (<https://nx.dev/brands>) |
+| `uv.svg` | uv (`uv`, `uvx`) | `docs/assets/logo-letter.svg` from [astral-sh/uv@ac81036a](https://github.com/astral-sh/uv/blob/ac81036aa90f75ecb980ef98faf94a406aa1ad2f/docs/assets/logo-letter.svg) (unmodified) | Copyright (c) 2023 Astral Software Inc., MIT (dual MIT / Apache-2.0; MIT chosen) | no trademark policy published |
+| `ruff.svg` | Ruff | `docs/assets/bolt.svg` from [astral-sh/ruff@e8ebe0a4](https://github.com/astral-sh/ruff/blob/e8ebe0a4259885132de1db8935a813424c3c61bd/docs/assets/bolt.svg) (unmodified) | Copyright (c) 2022 Charles Marsh, MIT | no trademark policy published |
+| `pdm.svg` | PDM | `docs/assets/logo.svg` from [pdm-project/pdm@d205fd8a](https://github.com/pdm-project/pdm/blob/d205fd8a65b760ca9ce2d04be938583afbcf8292/docs/assets/logo.svg) (unmodified) | Copyright (c) 2019-present Frost Ming, MIT | no trademark policy published |
+| `pytest.svg` | pytest (`pytest`, `py.test`) | `pytest_logo/pytest_logo_notext.svg` from [pytest-dev/design@43bbb9b7](https://github.com/pytest-dev/design/blob/43bbb9b7c2fd484a60c6922b903ca76796b3f45b/pytest_logo/pytest_logo_notext.svg) (unmodified) | Copyright (c) 2016-2017 Vasily Kuznetsov and others, [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) (the design repository's LICENSE) | no trademark policy published |
+| `r.svg` | R (`R.exe`, `Rscript`) | <https://www.r-project.org/logo/Rlogo.svg> (unmodified; SHA-256 `6d3318a61b6370799dc413c8bded66ee3417509c0f4a82c7739e5e1c057c4269`) | "The R logo is © 2016 The R Foundation", [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) (<https://www.r-project.org/logo/>) | none published. Bare `r` is not detected as an app (zsh builtin, PowerShell alias). |
+| `zig.svg` | Zig | `zig-mark.svg` from [ziglang/logo@402b3706](https://github.com/ziglang/logo/blob/402b370640119be1ae28854502b71ab348a65ad1/zig-mark.svg) (unmodified) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) (the logo repository's README) | none published |
+| `ocaml.svg` | OCaml (`ocaml`, `ocamlc`, `ocamlopt`, `ocamlfind`) | `Colour/SVG/colour-icon.svg` from [ocaml/ocaml-logo@18923642](https://github.com/ocaml/ocaml-logo/blob/18923642786f54c91f9ff07140ab5738d81771d0/Colour/SVG/colour-icon.svg) (unmodified) | public domain, Unlicense (`UNLICENSE.md` of the same commit) | none published |
+| `lua.gif` | Lua (`lua`, `luac`, `lua5.4` …) | <https://www.lua.org/images/lua-logo.gif> (unmodified, 128×128; SHA-256 `9c3a3208ef05e12110f9b7b491cef676e650e4ebf3d36c4414268666bcc95d8a`; the file has its own white ground, so it fills a white disc on dark) | Copyright © 1998 Lua.org, graphic design by Alexandre Nakonechnyj. "Permission is hereby granted, without written agreement and without license or royalty fees, to use, copy, and distribute this logo for any purpose" — origin not misrepresented, only the orbiting text may change, proportions kept (<https://www.lua.org/images/>) | same page |
+| `composer.png` | Composer | `web/img/logo-composer-transparent.png` from [composer/getcomposer.org@ff617be2](https://github.com/composer/getcomposer.org/blob/ff617be2b2670624854cbfc301e94cafabfd5b0d/web/img/logo-composer-transparent.png), **resized** from 290×356 to 104×128 | "Logo by: Max Grigorian"; the site's content is MIT, Copyright (c) 2016 Jordi Boggiano, Nils Adermann | no trademark policy published |
+| `stack.svg` | Haskell Stack (`stack`) | `doc/img/stack-favicon.svg` from [commercialhaskell/stack@bdcbc3a0](https://github.com/commercialhaskell/stack/blob/bdcbc3a0fd1255d2004b3b6c4822eb111b4c6d49/doc/img/stack-favicon.svg) (unmodified) | Copyright (c) 2015-2024, Stack contributors, BSD-3-Clause (full text in NOTICE) | no trademark policy published |
+| `erlang.svg` | Erlang (`erl`, `erlc`, `escript`) | `assets/img/erlang-logo-notext.svg` from [erlang/erlang-org@e7ae4b25](https://github.com/erlang/erlang-org/blob/e7ae4b251e04635d39fba19272db8cacb3cb3520/assets/img/erlang-logo-notext.svg) (unmodified) | Apache-2.0 (the erlang.org site repository) | the OTP team (ERL-41): "It is okay for you to use the name Erlang and the unaltered Erlang logo … as long as it is a nominative use" |
+| `homebrew.svg` | Homebrew (`brew`) | `assets/img/homebrew.svg` from [Homebrew/brew.sh@00492130](https://github.com/Homebrew/brew.sh/blob/0049213c003cd79efe476f890dc5ec1433313328/assets/img/homebrew.svg) (unmodified) | Copyright (c) 2009-present, Homebrew contributors, BSD-2-Clause (full text in NOTICE) | no trademark policy published |
+| `scoop.svg` | Scoop | `public/logo/scoop.svg` from [ScoopInstaller/scoopinstaller.github.io@1db42c0c](https://github.com/ScoopInstaller/scoopinstaller.github.io/blob/1db42c0c70bf64a6384aa21dd858d514511e863c/public/logo/scoop.svg) (unmodified) | Copyright (c) 2022 scoopinstaller.github.io, MIT | no trademark policy published |
+| `chocolatey.png` | Chocolatey (`choco`) | `docs/logo/chocolateyicon.png` from [chocolatey/choco@c8659d49](https://github.com/chocolatey/choco/blob/c8659d49508d2a1dcb61ef3548f90552ff86c5c8/docs/logo/chocolateyicon.png) (unmodified) | the logos are excluded from the project's Apache-2.0 | `docs/logo/LogoUsePolicy.md`: "You may use Chocolatey marks/logos, without a license, provided such use complies with the following requirements" — refers only to Chocolatey, not part of our product name, less prominent than our name, no endorsement, no more than needed to identify it |
+| `netlify-monogram-darkmode.svg`, `netlify-monogram-lightmode.svg` | Netlify CLI (`netlify`, `ntl`) | `darkmode/` and `lightmode/logo-netlify-monogram-fullcolor-*.svg` from <https://www.netlify.com/assets/logos/netlify-logo-monogram.zip> (unmodified; SHA-256 `bcafcfeb287e12d903f0c82958d3da8bf72370a56af5c376192faccdbe7096bf`, `fb0e8994c35b7a6f45bb2963957eea5f1de2796fc4f072a97bdba06ebc5e7857`) | © Netlify, Inc.: "Download and use the logo assets below. Please do not modify or change the resources." (<https://www.netlify.com/press/>) | the same page recommends the monogram "in collapsed left navigation UI" |
+| `ollama.svg` | Ollama | `docs/ollama-logo.svg` from [ollama/ollama@f067033f](https://github.com/ollama/ollama/blob/f067033f9126993b6172bdfffa71a74ad693fda4/docs/ollama-logo.svg) (unmodified; white disc on dark) | Copyright (c) Ollama, MIT | no trademark policy published |
+| `nix-snowflake-white.svg`, `nix-snowflake-colours.svg` | Nix (`nix`, `nix-shell`, `nix-build`, `nix-env`) | `logo/nix-snowflake-white.svg` / `-colours.svg` from [NixOS/nixos-artwork@9d2cdedd](https://github.com/NixOS/nixos-artwork/tree/9d2cdedd73d64a068214482902adea3d02783ba8/logo) (unmodified) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) ("The logo is made available under a CC-BY license", `logo/README.md`) | the same README: "When used on a dark background, use the white variant". A trademark policy is announced but not yet published — recheck when it is. |
+| `gnu-head.svg` | GNU Wget (`wget`) | <https://www.gnu.org/graphics/heckert_gnu.svg> (original SHA-256 `7c299c0c4ca04f9a53e62bee5e6a0dce3dba89ef44de605bf4e954d34de5ca10`), **`viewBox` added** so it scales (drawing unchanged); white disc on dark | GNU head, [CC BY-SA 2.0](https://creativecommons.org/licenses/by-sa/2.0/) (one of the three licenses offered; the modified copy is under the same license) | gnu.org: in contexts about GNU "in a supportive and accurate way, you can also do this without permission". Wget has no mark of its own; the head identifies the GNU program it is. |
+| `android-head.svg` | Android Debug Bridge (`adb`) | <https://developer.android.com/static/images/brand/android-head_flat.svg> (original SHA-256 `5f05dae657da9f31e5d4a09b7976f39881617f6b3e4d4562d9ee16295d250bdb`), **`viewBox` added** so it scales (drawing unchanged) | the Android robot, [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) with Google's attribution line (in NOTICE) | "Google retains all trademark rights to the Android robot"; the robot "can be reproduced and/or modified". The Android wordmark and typeface are not used. |
+| `emscripten.svg` | Emscripten (`emcc`, `em++`, `emcmake`, `emmake`, `emconfigure`) | `media/logo.svg` from [emscripten-core/emscripten@f6acdcc8](https://github.com/emscripten-core/emscripten/blob/f6acdcc86d6a754fdc71cc386eb42ef740e8ecee/media/logo.svg) (unmodified) | Copyright (c) 2010-2014 Emscripten authors, MIT (dual MIT / NCSA; MIT chosen) | no trademark policy published |
 
 ## Marks deliberately not bundled
 
-These commands show their executable's own icon where it has one (for example `node.exe` and `python.exe`
-on Windows), otherwise the generic terminal glyph:
+Researched 2026-10-20 and 2026-10-28 from the owners' own pages. These commands show their executable's own
+icon where it has one (for example `node.exe` and `python.exe` on Windows), otherwise the generic terminal
+glyph:
 
-- **Node.js, npm** — OpenJS Foundation policy and npm's logo policy allow the logos only with permission.
-- **Python** — the PSF allows the unaltered logo, but only with the ™ symbol always shown, which an icon cannot carry.
+- **Node.js, npm, ESLint, Jest, webpack, Electron** — OpenJS Foundation policy and npm's logo policy allow the logos only with permission.
+- **Python, Jupyter, Kotlin** — the mark must always carry ™ / ® (or be followed by it at first mention), which an icon and a bare label cannot.
 - **Rust / Cargo** — the artwork is CC BY, but the trademark policy does not cover UI icons and asks to be contacted.
 - **Docker, Go, PostgreSQL** — logo use needs prior approval or forbids showing the logo next to other marks.
-- **Deno, Bun, .NET, Java, SQLite, FFmpeg, CMake** — no published license or permission for this use of the logo.
+- **TypeScript, Playwright, .NET, Azure CLI, winget** — Microsoft logos need an express license; the TypeScript branding page asks not to use its logos for an application.
+- **Kubernetes (kubectl), Helm, Podman, OpenTofu** — the Linux Foundation trademark policy permits a project logo only as a link to the project's home page.
+- **Gradle, Apache Maven / Ant, Bazel, Meson, LLVM / Clang, Scala / sbt, Swift, Unity, Unreal Engine** — logo use needs written permission (Unreal: no permission for third-party tools found).
+- **Next.js, Turborepo, Vercel CLI, Astro, Supabase, Terraform, Vagrant, Ansible, GitHub CLI, GitLab CLI, AWS CLI, gcloud, Firebase, Flutter, Dart, Cloudflare Wrangler, Redis, MySQL, MongoDB, MariaDB, Conda, conda-forge** — logo use needs written permission, is limited to the owner's own marketing, or carries conditions (® on every page, commercial-use bans) an icon cannot keep.
+- **Vue, Julia** — non-commercial (NC) license.
+- **opam** — the logo sits in an LGPL repository.
+- **Deno, Svelte, Elixir, Nim, Crystal, Haskell, RubyGems, Bundler, pip, Poetry, Angular** — no license on the current artwork found, ownership unsettled, no official logo, or (Angular) published only as a Google Drive folder and an animated GIF.
+- **Java, SQLite, FFmpeg, CMake** — no published license or permission for this use of the logo.
 - **ImageMagick** — license permits it, but the official icon is a detailed illustration that is unreadable at icon size.
-- **Unreal Engine, Blender, Unity, Visual Studio Code and other desktop apps** — never bundled; their installed executable provides the icon.
+- **jq** — permitted, but jq is a text filter like `sed`/`awk`, which are not apps; its SVG also switches colour with the OS theme rather than the app's.
+- **WebAssembly** — CC0, but the mark names the standard, not a program an agent runs.
+- **Unreal Engine, Blender, Unity, Inkscape, Visual Studio Code and other desktop apps** — never bundled; their installed executable provides the icon.
 
 ## Adding a mark
 
 Add a file only when the mark's owner publishes a license that permits redistribution **and** permits
 using the logo to refer to the program. Keep the file unmodified where the owner asks for that, record the
-source with a pinned commit or URL, add the license text if the license requires it, update `NOTICE`, and
-add the brand to `COMMAND_APP_BRANDS` in `packages/shared/src/commandApps.ts`.
+source with a pinned commit (or the URL and SHA-256 where there is no repository), add the license text if
+the license requires it, update `NOTICE`, and add the brand to `COMMAND_APP_BRANDS` (and its command names
+to `APP_NAMES`) in `packages/shared/src/commandApps.ts`. A mark with no variant for dark backgrounds gets
+`plate` rather than a recoloured copy.

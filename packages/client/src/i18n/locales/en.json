@@ -66,7 +66,9 @@
       "tooltip": "Current session: {{percent}}% of your 5-hour limit used — click for details",
       "tooltipNoData": "No usage received yet — click for details",
       "tooltipWaiting": "Fetching usage from Claude Code — the number appears shortly",
-      "tooltipCliUnavailable": "Couldn't run Claude Code to read usage — click for details"
+      "tooltipCliUnavailable": "Couldn't run Claude Code to read usage — click for details",
+      "creditActive": "New runs use API credits",
+      "creditBlocked": "Anthropic refused API credits — runs use your subscription"
     },
     "setupBanner": {
       "text": "Claude Code is not installed — agents cannot run yet.",
@@ -387,7 +389,8 @@
         "account": "Account",
         "storage": "Storage",
         "keyboard": "Keyboard",
-        "theme": "Theme"
+        "theme": "Theme",
+        "credits": "Credits"
       },
       "appearance": {
         "intro": "Personalize how Vibisual looks.",
@@ -497,9 +500,6 @@
         "updateAvailable": "Update available",
         "upToDate": "Up to date",
         "registryError": "npm check failed",
-        "installations": "Installations",
-        "auto": "Auto (recommended)",
-        "autoDesc": "Let Vibisual pick automatically",
         "activeBadge": "active",
         "unknownVer": "unknown",
         "restartHint": "Selection saved. Restart Vibisual to apply it to newly spawned agents.",
@@ -512,12 +512,51 @@
           "title": "Claude Code updates",
           "label": "Keep Claude Code up to date automatically",
           "onHint": "Vibisual updates the CLI to the latest version each time you launch the app.",
-          "offHint": "Automatic updates are off. Use \"Update now\" to update the CLI yourself.",
+          "offHint": "Automatic updates are off. Use \"{{updateNow}}\" to update the CLI yourself.",
           "vscodeNotice": "The active binary comes from the VS Code extension, which only the Marketplace can update. Pick a different installation above to let Vibisual manage updates.",
           "updateNow": "Update now",
           "updating": "Updating…",
           "updated": "Updated to {{version}}",
           "updateFailed": "Update failed"
+        },
+        "sourceManaged": "App-managed",
+        "managed": {
+          "title": "App-managed copy",
+          "hint": "Vibisual downloads new {{engine}} releases from the official source, checks that each one accepts every option Vibisual uses, then switches over — at launch and every 6 hours. Your login and settings stay shared.",
+          "inUse": "In use",
+          "latest": "Latest (official)",
+          "previous": "Previous",
+          "none": "Not downloaded yet",
+          "checkedAt": "Last checked {{time}}",
+          "notChecked": "Not checked yet",
+          "updating": "Downloading and checking…",
+          "rollback": "Roll back to {{version}}",
+          "rollbackFailed": "Could not roll back",
+          "rejected": "Not switched in — {{version}} rejected: {{options}}",
+          "deferred": "Not downloaded — this PC doesn't use {{engine}} yet. It is downloaded when you install it.",
+          "folder": "Folder",
+          "nextRetry": "Next retry {{time}}"
+        },
+        "codexAutoUpdate": {
+          "title": "Codex updates",
+          "label": "Keep Codex up to date automatically",
+          "offHint": "Automatic updates are off. Use \"{{updateNow}}\" to update Codex yourself."
+        },
+        "chooseBinary": "Which binary to use",
+        "defaultManaged": "App-managed (default · auto-updated)",
+        "defaultManagedReady": "Using {{version}} — downloaded from the official source and switched in only after passing Vibisual's checks.",
+        "defaultManagedPending": "Not ready yet — once it is downloaded and checked, Vibisual switches to it right away.",
+        "otherInstalls": "Other installations (secondary)",
+        "otherInstallsNone": "No other installations found on this PC.",
+        "defaultBadge": "Default",
+        "temporaryBadge": "Temporary",
+        "codexUserSelected": "You picked another installation — its owner keeps it up to date. App-managed updates resume when you switch back to the default.",
+        "pending": {
+          "downloading": "Preparing the app-managed copy — downloading and checking…",
+          "failed": "The app-managed copy couldn't be prepared: {{error}}",
+          "retryAt": "Retrying automatically at {{time}}.",
+          "tryNow": "Use \"{{updateNow}}\" below to try again now.",
+          "waiting": "The app-managed copy isn't ready yet, so this installation is used for now. It is downloaded automatically."
         }
       },
       "agent": {
@@ -817,7 +856,8 @@
         "autoCompactWindow": "Fold the conversation once it reaches",
         "autoCompactWindowOff": "Leave as configured",
         "autoCompactWindowDesc": "The largest single lever here. Measured over three days, sessions sat at a median of 186k tokens and everything above 200k accounted for 62% of all input — every turn re-reads that. Lowering the window from 400k to 200k cut input by 27%, and 100k by 59%, for the same work. It only ever tightens: an agent or a default that is already lower wins. Folding is itself a large request, so the lowest setting is not automatically the cheapest. This window only decides where we fold between commands — mid-task, the CLI only folds when the model window fills up."
-      }
+      },
+      "creditsIntro": "Claude credits come from different wallets. Each page shows one wallet: what it is, who bills it, where you manage it, and whether Vibisual uses it."
     },
     "autoAgent": {
       "title": "Auto Agent",
@@ -2019,7 +2059,134 @@
       "hwDevicesUnknown": "Accelerators are read from the engine, so they appear once the engine is installed.",
       "hwLoaded": "Loaded in memory",
       "hwLoadedNone": "No model is loaded right now.",
-      "hwHint": "All Model has no subscription limit — what it spends is this PC. Bubbles holding different models each take their own memory, while bubbles on the same model share one instance."
+      "hwHint": "All Model has no subscription limit — what it spends is this PC. Bubbles holding different models each take their own memory, while bubbles on the same model share one instance.",
+      "apiCredit": {
+        "title": "API credits (Console)",
+        "status": {
+          "off": "Off",
+          "standby": "Standby",
+          "active": "In use",
+          "blocked": "Refused by Anthropic"
+        },
+        "enable": "Use API credits",
+        "enableHint": "When this is off, every run uses your subscription as before.",
+        "mode": "Use credits first",
+        "modeHintConsole": "Off: credits take over only after your subscription limit is reached. On: credits first, then your subscription whenever Anthropic refuses the credits.",
+        "autoContinue": "Continue stopped runs automatically",
+        "autoContinueHint": "When a run stops at a limit, continue it once on the other billing route.",
+        "key": "API key",
+        "keyPlaceholder": "sk-ant-api03-…",
+        "keySave": "Save key",
+        "keySaved": "Saved {{hint}}",
+        "keyRemove": "Remove",
+        "keyVerify": "Check again",
+        "keyVerified": {
+          "ok": "Verified",
+          "rejected": "Rejected by Anthropic",
+          "unknown": "Not checked yet"
+        },
+        "keyUnreadable": "This key cannot be read on this computer. Enter it again.",
+        "keyProtected": "The key is stored in your operating system's secure storage.",
+        "keyUnprotected": "This computer has no secure key storage, so the key is stored without encryption here.",
+        "keyCreate": "Create a key in the Console",
+        "keyProblem": {
+          "empty": "Paste an API key.",
+          "notAnthropic": "This does not look like an Anthropic API key. It should start with sk-ant-.",
+          "adminKey": "Admin keys cannot run models. Create a regular API key.",
+          "oauthToken": "This is a sign-in token, not an API key.",
+          "whitespace": "The key contains spaces. Paste it again without them."
+        },
+        "keySaveFailed": "The key could not be saved. Try again.",
+        "liveRunsNow": "Running on credits now: {{count}}",
+        "reason": {
+          "off": "Credits are off, so every run uses your subscription.",
+          "cloud-provider": "Claude Code on this computer is set to a cloud provider, so credits are not used. The cloud bills every run.",
+          "no-key": "Add an API key to use credits.",
+          "blocked": "Anthropic refused the last credit run, so new runs use your subscription.",
+          "subscription-ok": "Runs use your subscription now. Credits take over when it reaches its limit.",
+          "subscription-exhausted": "Your subscription limit is reached, so new runs use credits.",
+          "credits-first": "New runs use credits first."
+        },
+        "subscriptionResets": "subscription resets {{time}}",
+        "block": {
+          "balance-empty": "Anthropic refused the credit run: your Console credit balance is too low.",
+          "spend-limit": "Anthropic refused the credit run: your Console monthly spend limit is reached.",
+          "key-invalid": "Anthropic rejected the API key."
+        },
+        "blockRetryAt": "Credits are tried again at {{time}}.",
+        "blockRetry": "Try again now",
+        "actionFailed": "That did not work. Try again.",
+        "console": {
+          "title": "This month's spend (Console)",
+          "asOf": "Since {{start}} · updated {{time}} · same data as the Console Cost page",
+          "used": "used",
+          "resetsOn": "Resets {{date}} (UTC)",
+          "viewSpendLimits": "View spend limits in the Console",
+          "org": "Organization: {{name}}",
+          "refresh": "Refresh",
+          "refreshing": "Refreshing…",
+          "pending": "Reading your Console spend…",
+          "limitsNote": "Your spend limit and credit balance are set in the Console, and Anthropic offers no public API to read them, so Vibisual neither shows nor enforces a limit of its own. When the limit or the balance runs out, Anthropic refuses the run and Vibisual switches back to your subscription.",
+          "needKeyTitle": "Add an admin key to show your Console spend",
+          "needKeyBody": "Vibisual reads this month's spend with Anthropic's official Usage and Cost API, which needs an admin key (sk-ant-admin01-…). Organization admins create one on the Admin keys page of the Console. Individual accounts must first set up an organization in the Console.",
+          "createAdminKey": "Create an admin key in the Console",
+          "setupOrg": "Set up an organization in the Console",
+          "adminKey": "Admin key (reads spend)",
+          "adminKeyPlaceholder": "sk-ant-admin01-…",
+          "adminKeyHint": "Used only to read spend — it cannot run models.",
+          "error": {
+            "auth": "Anthropic rejected this key: it isn't an admin key, or it has expired. Set up an organization in the Console first, then create an admin key (sk-ant-admin01-…) and add it here.",
+            "forbidden": "This key cannot read spend. Use an admin key created by an organization admin.",
+            "not-found": "Anthropic found no spend data for this key. Individual accounts must first set up an organization in the Console.",
+            "rate-limited": "Anthropic asked Vibisual to wait before reading spend again. It refreshes automatically.",
+            "network": "Could not reach Anthropic. It refreshes automatically.",
+            "unreadable": "This admin key cannot be read on this computer. Enter it again.",
+            "other": "Could not read your Console spend."
+          },
+          "lastValue": "Showing the last value read."
+        }
+      },
+      "creditPages": {
+        "tabsLabel": "Credit types",
+        "billedLabel": "Billed by",
+        "manageLabel": "Manage at",
+        "vibisualLabel": "In Vibisual",
+        "subscription": {
+          "tab": "Plan limits",
+          "what": "The 5-hour and weekly usage limits included in your Claude Pro or Max plan.",
+          "billed": "Your claude.ai subscription, a flat monthly fee.",
+          "vibisual": "Used by default for every Claude run, both headless and CMD."
+        },
+        "personal": {
+          "tab": "Personal credits",
+          "what": "Extra usage on your personal claude.ai account. You turn it on at claude.ai so you can keep working after your plan limit is reached.",
+          "billed": "The payment method on your claude.ai account.",
+          "vibisual": "Vibisual does not choose it. If it is on, Claude Code uses it on its own after the plan limit. This page only reads it."
+        },
+        "business": {
+          "tab": "Business credits",
+          "what": "API credits of your Claude Console (platform.claude.com) organization. The monthly promotional credit from a Max or Team plan and any credit you buy land here.",
+          "billed": "Deducted from the Console organization credit. When it runs out, runs stop. A card is charged only if you turned on auto-reload.",
+          "vibisual": "When enabled, used for headless runs only (not CMD or hook bubbles). By default only after your plan limit is reached."
+        },
+        "cloud": {
+          "tab": "Cloud credits",
+          "what": "Claude used through Amazon Bedrock, Google Cloud Vertex AI, or Microsoft Foundry.",
+          "billed": "Your cloud account. Personal and business credits from Anthropic do not apply.",
+          "vibisual": "Vibisual follows how Claude Code on this computer is set up. If it is set to a cloud provider, every run is billed there.",
+          "currentLabel": "Claude Code on this computer bills",
+          "provider": {
+            "anthropic": "Anthropic directly, not a cloud provider",
+            "unknown": "Unknown, because the sign-in status has not been checked yet",
+            "bedrock": "Amazon Bedrock",
+            "vertex": "Google Cloud Vertex AI",
+            "foundry": "Microsoft Foundry"
+          },
+          "activeNote": "Every Claude run from Vibisual is billed to this cloud. Personal and business credits are not used, and the business credit route stays off.",
+          "inactiveNote": "Claude Code on this computer is not set to a cloud provider, so no cloud credit is used. To use one, set Claude Code up for that provider first.",
+          "docs": "How to run Claude Code on a cloud provider"
+        }
+      }
     },
     "plugins": {
       "title": "Plugins",
@@ -4714,6 +4881,9 @@
       "runOutput": "Run output",
       "runOutputNone": "Nothing has been run from this bubble yet."
     },
+    "fileWindow": {
+      "close": "Close"
+    },
     "paneOpener": {
       "tabHint": "Pick a file to show here",
       "scope": "{{list}} files in this project, most recently changed first",
@@ -5405,6 +5575,7 @@
       "openInPane": "Open in editor pane — {{path}}",
       "openFolder": "Open the folder that holds this file — {{path}}",
       "readOnlyLocked": "This file is locked read-only on disk (Perforce checkout, file attribute).",
+      "outsideReadOnly": "This file is outside the project, so it is view-only.",
       "readOnlyUnlock": "Unlock and save",
       "readOnlyUnlockHint": "Clears the read-only attribute, then saves. The lock is not restored, and no version-control command (p4 edit, …) is run.",
       "saveError": {
@@ -5877,7 +6048,8 @@
       "orphaned": "Interrupted when the app restarted",
       "dispatchResult": "Ended before receiving the delegated task result",
       "usageLimit": "Stopped at the usage limit",
-      "unknown": "Failed for an unknown reason"
+      "unknown": "Failed for an unknown reason",
+      "creditCap": "Stopped at your API credit cap"
     },
     "turnStop": {
       "cancelled": "Stopped by you",
@@ -5907,15 +6079,12 @@
       "viaTask": "Through sub-agent: {{name}}",
       "external": "Outside the project",
       "enter": "Go into folder",
-      "leave": "Back to session",
       "openAddress": "Open address",
       "showInConversation": "Show in conversation",
       "copyAddress": "Copy address",
       "copyCommand": "Copy command",
       "recentQueries": "Recent searches",
       "recentCommands": "Recent commands",
-      "moreFiles": "{{count}} more files — go into the folder to see them all",
-      "overflowHint": "The least recently used places, folded into one",
       "centerTotals": "Files {{files}} · Web {{webs}} · Apps {{apps}} · Sub-agents {{tasks}}"
     },
     "density": {

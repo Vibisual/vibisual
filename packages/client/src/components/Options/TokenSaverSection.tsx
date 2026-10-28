@@ -5,17 +5,8 @@ import { DEFAULT_TOKEN_SAVER_SETTINGS, TOKEN_SAVER_LIMITS, TOKEN_SAVER_PRESET_VA
 import { NumberStepper } from './NumberStepper.js';
 
 /**
- * §5.3 #9-1 — **토큰 절약 손잡이.**
- *
- * 실측(2026-09-11)에서 입력 토큰의 96.5%가 `cache_read` 였다 — 돈이 나가는 자리는 "새로 보낸 것"이
- * 아니라 **"이미 보낸 것을 매 턴 다시 읽는 것"** 이다. 그래서 이 화면의 손잡이들은 하나같이
- * *한 턴에 실리는 양*과 *그 양을 몇 번 다시 읽는가*를 건드린다.
- *
- * 화면 순서는 **효과가 큰 것부터**다: 문맥이 자라는 속도(J) → 한 턴에 쓰는 양(K) → 언제 접나(L) →
- * 덤으로 도는 호출(M) → 몇이 동시에 도나(N) → 어떻게 띄우나(O) → 얼마나 오래 끄나(P).
- *
- * `SessionProbeSection`·`BgTaskProbeSection` 과 **같은 문법**이다 — 머신 단위 설정이라 자기
- * REST(`/api/token-saver-settings`)를 직접 읽고 쓰고, 미저장 여부만 창에 올린다.
+ * §5.3 #9-1 — 토큰 절약 손잡이. 실측(2026-09-11) 입력 토큰의 96.5%가 `cache_read` — 비용은 매 턴 다시 읽는 양에서 난다.
+ * 화면 순서 = 효과 순(위가 크다). 머신 단위 설정 — 자기 REST 직접, 미저장 여부만 창에 올린다.
  */
 
 const API_BASE = '';
@@ -93,10 +84,7 @@ export function TokenSaverSection({ onDirtyChange }: TokenSaverSectionProps = {}
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => () => { onDirtyChange?.(false); }, [onDirtyChange]);
 
-  /**
-   * 프리셋 고르기 — **값을 채울 뿐**이다. 저장 전까지는 서버에 아무것도 안 간다(다른 칸과 같다).
-   * `preset` 문자열은 서버가 값에서 다시 판정하므로 여기서 보내는 것은 참고값이다.
-   */
+  /** 프리셋은 값을 채울 뿐 저장 전엔 서버에 안 간다. `preset` 문자열은 서버가 값에서 다시 판정한다(참고값). */
   const applyPreset = (name: Exclude<TokenSaverPreset, 'custom'>): void => {
     setSettings({ ...TOKEN_SAVER_PRESET_VALUES[name] });
   };

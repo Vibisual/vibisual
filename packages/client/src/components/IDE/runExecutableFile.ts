@@ -1,16 +1,6 @@
 /**
- * runExecutableFile.ts — §5.5 #17-27 ⑬ (h) 본문에 적힌 **실행 파일을 실제로 켜는 자리**.
- *
- * ⑬ 이 연 손잡이는 종전까지 둘이었다 — 파일이면 편집창(②), 폴더면 탐색기(⑩). 그런데 에이전트가
- * "빌드 결과는 여기 있습니다" 하며 적어 주는 위치는 종종 `.exe` 다. 그것을 편집창으로 보내면
- * 이진 파일 안내가 뜬 빈 창이 열릴 뿐이라, 사용자가 정작 하려던 일(그 프로그램을 켜 보는 것)은
- * 탐색기로 나가 손으로 찾아야 했다.
- *
- * **새 실행 레일은 만들지 않는다** — #17-20 ④ 의 실행 세션(`startRun` → PTY)을 그대로 탄다.
- * 그래야 [정지]·출력·종료 코드·실패를 에이전트에게 넘기기가 종전 실행과 **같은 자리**에서 돌아간다.
- * 여기서 하는 일은 "절대 경로 하나" 를 그 레일이 받는 모양(`RunConfig`)으로 옮기는 것뿐이고,
- * 명령 문자열을 만드는 계산은 셸을 띄우지 않고도 검증할 수 있게 **순수 함수로 갈라 두었다**
- * (`streamPathLinks`·`editorModel` 과 같은 규율 — 눈으로 확인하기 어려운 것은 단위 테스트가 잡는다).
+ * §5.5 #17-27 ⑬ (h) — 본문에 적힌 실행 파일(`.exe` 같은 빌드 결과)을 켠다. 새 실행 레일 ❌ — #17-20 ④ 실행 세션(`startRun` → PTY)을 타서
+ * [정지]·출력·종료 코드·실패 넘기기가 기존 실행과 같다. 명령 문자열 계산은 순수 함수로 갈라 시험한다.
  */
 import { DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
 import type { AgentConfig, RunConfig } from '@vibisual/shared';
@@ -22,12 +12,7 @@ import { clientPathKey } from '../../utils/platform.js';
 /** `C:\…` · `D:/…` — 윈도우 절대 경로. 명령을 어떻게 감쌀지가 여기서 갈린다. */
 const WIN_ABS = /^[A-Za-z]:[\\/]/;
 
-/**
- * 본문에서 띄운 실행의 구성 id 접두사.
- *
- * 구성 스캔(#17-20 ②)이 만든 id 와 한 이름 공간을 쓰므로, 사이드바가 "이건 목록에 없는 실행"을
- * 가려낼 수 있도록 접두사로 표를 낸다(그 묶음이 [본문에서 실행] 이다).
- */
+/** 본문에서 띄운 실행의 구성 id 접두사 — 구성 스캔(#17-20 ②) id 와 한 이름 공간이라 사이드바가 이것으로 [본문에서 실행] 묶음을 가린다. */
 export const ADHOC_RUN_PREFIX = 'exec:';
 
 /** 같은 파일을 다시 누르면 같은 id → ④ 의 규칙대로 **재시작**(먼저 죽이고 새로 띄운다). */
@@ -43,13 +28,7 @@ export function executableName(absPath: string): string {
   return parts[parts.length - 1] ?? absPath;
 }
 
-/**
- * 실행 작업 폴더 = **그 파일이 있는 폴더**.
- *
- * 프로젝트 루트가 아니라 파일 옆을 잡는 이유는 실행 파일이 자기 옆에 둔 자원을 상대 경로로 찾기
- * 때문이다(패키징된 게임의 `Saved/`·`Content/` 가 정확히 그런 배치다). 폴더를 못 가르면 null —
- * 호출부가 프로젝트 루트로 떨어진다.
- */
+/** 작업 폴더 = 파일이 있는 폴더(실행 파일은 옆 자원을 상대 경로로 찾는다 — 게임의 `Saved/`·`Content/`). 못 가르면 null → 프로젝트 루트. */
 export function executableWorkDir(absPath: string): string | null {
   const norm = absPath.replace(/\\/g, '/');
   const cut = norm.lastIndexOf('/');
@@ -60,13 +39,7 @@ export function executableWorkDir(absPath: string): string | null {
   return WIN_ABS.test(absPath) ? dir.replace(/\//g, '\\') : dir;
 }
 
-/**
- * 절대 경로 하나 → PTY 에 실제로 실행될 **명령 한 줄**.
- *
- * 셸이 셋이므로 감싸는 법도 셋이다 — 윈도우(cmd)는 큰따옴표, macOS 앱 번들은 `open`(폴더를
- * 그대로 실행할 수 있는 유일한 창구), 그 밖 POSIX 는 작은따옴표. 경로에 공백이 든 경우가
- * 기본값이라(`C:\Program Files\…`) 따옴표는 선택이 아니다.
- */
+/** 절대 경로 → PTY 명령 한 줄. cmd 는 큰따옴표, macOS 앱 번들은 `open`(폴더를 실행하는 유일한 창구), 그 밖 POSIX 는 작은따옴표 — 공백 든 경로가 흔해 따옴표는 필수. */
 export function buildExecutableRunCommand(absPath: string): string {
   if (WIN_ABS.test(absPath)) return `"${absPath.replace(/\//g, '\\')}"`;
   // POSIX 작은따옴표 안의 작은따옴표는 닫고-이스케이프하고-다시 여는 방식으로만 넣을 수 있다.
@@ -98,15 +71,9 @@ export interface RunExecutableResult {
 }
 
 /**
- * 본문에서 누른 실행 파일을 띄운다.
- *
- * 스토어를 **구독하지 않고 누른 순간에 읽는다** — 이 함수를 부르는 곳은 본문의 인라인 코드 조각
- * 하나하나라, 화면에 수십 개가 떠 있어도 구독이 늘어서는 안 된다(§9 — 스트림이 길어질수록
- * 비용이 오르지 않아야 한다).
- *
- * @param failNote 시작하지 못했을 때 출력 패널에 남길 한 줄(번역은 부르는 화면이 한다).
- * @param paneKey 어느 창에서 눌렀는지(§5.5 #17-1). 안 주면 맨 앞 창 — 창이 여럿이면 실행이 옆 창의
- *        에이전트로 갈 수 있으므로 화면에서 부를 때는 반드시 자기 슬롯 키를 넘긴다.
+ * 본문에서 누른 실행 파일을 띄운다. 스토어는 구독하지 않고 누른 순간 읽는다(인라인 코드마다 부르므로, §9).
+ * @param failNote 시작 실패 때 출력 패널에 남길 한 줄(번역된 것).
+ * @param paneKey 누른 창(§5.5 #17-1) — 안 주면 맨 앞 창이라 창이 여럿이면 옆 창 에이전트로 간다. 화면에서는 반드시 넘긴다.
  */
 export async function runExecutableFile(
   absPath: string,

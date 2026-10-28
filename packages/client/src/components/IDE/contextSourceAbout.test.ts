@@ -11,13 +11,7 @@ import {
 } from './contextSourceAbout.js';
 import { CONTEXT_CATEGORY_ORDER } from './contextInventoryView.js';
 
-/**
- * §5.5 #17-28 ⑦ — **설명 없는 줄이 생기지 않게** 막는 테스트.
- *
- * 주입원은 앞으로도 늘어난다. 설명 없이 하나가 들어오면 사용자는 다시 `cc.???` 를 보게 되고,
- * 그 줄은 "무엇이 사라지는지 모르는 스위치"가 되어 아무도 못 끈다. 그래서 이 파일이 먼저 막는다 —
- * 전 항목 × (무엇인가·어디서·끄면) × (en·ko).
- */
+/** §5.5 #17-28 ⑦ — 모든 주입원 × (무엇인가·어디서·끄면) × (en·ko) 설명이 있다(없으면 아무도 못 끄는 스위치가 된다). */
 
 /** 점으로 이어진 키를 로케일 객체에서 꺼낸다. 없으면 undefined. */
 function lookup(bundle: unknown, key: string): unknown {

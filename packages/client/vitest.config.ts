@@ -7,14 +7,9 @@ import react from '@vitejs/plugin-react';
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 /**
- * `virtual:vibisual-css-source/<이름>` — **CSS 원문을 테스트에 그대로 넘겨 주는 통로**(`src/<이름>.css`).
- *
- * 규칙 중에는 컴포넌트가 아니라 CSS 에 사는 것이 있다(§5.5 ⑤-3 글꼴 스택 — 언어별 폴백 차례).
- * 그런데 테스트에서는 `import '../index.css?raw'` 도 `import.meta.glob(?raw)` 도 **빈 문자열**이
- * 온다(실측 길이 0) — `.css` 는 Tailwind 플러그인과 vitest 의 CSS 스텁을 차례로 지나며 원문이
- * 사라지기 때문이다. 클라이언트 tsconfig 에는 Node 타입이 없어 테스트가 `node:fs` 로 직접 열 수도
- * 없다(`typographyFloor.test.ts` 와 같은 제약). 그래서 **설정 파일이 대신 읽어 넘긴다** — 설정은
- * Node 에서 돌고 tsc 대상도 아니므로 두 제약을 함께 비켜 간다.
+ * `virtual:vibisual-css-source/<이름>` — CSS 원문(`src/<이름>.css`)을 시험에 그대로 넘기는 통로(§5.5 ⑤-3 글꼴 스택처럼 CSS 에 사는 규칙용).
+ * 시험에서는 `?raw` import 도 `import.meta.glob(?raw)` 도 빈 문자열이 온다(실측 길이 0 — Tailwind 플러그인과 vitest CSS 스텁을 지나며 사라진다).
+ * 클라 tsconfig 엔 Node 타입이 없어 `node:fs` 로 열 수도 없다(`typographyFloor.test.ts` 와 같은 제약) — 그래서 Node 에서 돌고 tsc 대상도 아닌 설정 파일이 대신 읽어 넘긴다.
  */
 function cssSourcePlugin(): Plugin {
   const PREFIX = 'virtual:vibisual-css-source/';

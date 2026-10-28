@@ -5,15 +5,10 @@ import { READ_TOOLS } from '@vibisual/shared';
 const EMPTY_EDGES: ActivityEdge[] = [];
 
 /**
- * 엣지 생명주기 관리.
- * - **버블 쌍당 방향은 하나** (§2.1 #3) — 방향이 뒤집히면 반대 방향 엣지를 **삭제**한다.
- *   종전엔 `isActive=false` 로만 내려 읽고→고친 쌍에 회색 읽기 화살표와 컬러 쓰기 화살표가
- *   동시에 걸린 채 남았다(실측: inner 1,228쌍 중 426쌍). 단 **다른 에이전트가 아직 그 방향을
- *   쓰고 있으면(ref ≥ 1) 남긴다** — 여러 에이전트가 같은 파일을 읽고 쓰는 진실을 지우면 더 나쁘다.
- * - 버블과 운명 공동체 — 버블이 사라지기 전까진 유지
- * - 에이전트 ref 스택: ref >= 1 → active, ref == 0 → idle
- *
- * 메인 뷰 엣지, 폴더 내부 엣지 모두 이 클래스 인스턴스로 관리.
+ * 엣지 생명주기 관리(메인 뷰·폴더 내부 엣지 모두 이 클래스 인스턴스).
+ * - 버블 쌍당 방향은 하나(§2.1 #3) — 방향이 뒤집히면 반대 방향 엣지를 삭제한다(`isActive=false` 로만 내리면 회색 읽기와 컬러 쓰기 화살표가 함께 남는다).
+ *   단 다른 에이전트가 그 방향을 아직 쓰면(ref ≥ 1) 남긴다.
+ * - 버블과 운명 공동체 — 버블이 사라지기 전까진 유지. 에이전트 ref 스택: ref >= 1 → active, ref == 0 → idle.
  */
 export class EdgeManager {
   private edges = new Map<string, ActivityEdge>();
@@ -23,16 +18,9 @@ export class EdgeManager {
   private agentRefs = new Map<string, Set<string>>();
 
   /**
-   * §9 — 그룹 키 → 그 그룹의 엣지들. `getByGroup` 전용 **역색인**(내용은 `edges` 가 정본).
-   *
-   * `getSnapshot()` 은 폴더(부모)마다 `getByGroup` 을 한 번씩 부르는데, 종전 구현은 그때마다
-   * **엣지 전부**를 훑었다. 실측(이 저장소의 실제 체크포인트: 내부 엣지 2,426개 · 폴더 456개)
-   * 스냅샷 1건에 **110만 6천 번**을 돌아 **11.8ms** — Electron 메인 스레드에서 도는 비용이라
-   * 그대로 프레임 하나다. 색인을 두면 같은 일이 0.02ms 로 끝난다(529배).
-   *
-   * 무효화 방식으로 유지한다(증분 갱신 ❌) — 엣지를 건드리는 자리가 7곳이라 증분으로 맞추면
-   * 한 곳만 빠뜨려도 화살표가 조용히 사라진다. 무효화는 빠뜨려도 다음 재구축이 바로잡는다.
-   * 재구축은 스냅샷당 많아야 한 번(2,426회)이고, 그 뒤 456번의 조회는 전부 O(1)이다.
+   * §9 — 그룹 키 → 그 그룹의 엣지들. `getByGroup` 전용 역색인(정본은 `edges`).
+   * `getSnapshot()` 이 폴더마다 `getByGroup` 을 부르므로 매번 전부 훑으면 실측(엣지 2,426 · 폴더 456) 스냅샷 1건에 11.8ms(메인 스레드 프레임 하나), 색인이면 0.02ms.
+   * 무효화 방식으로 유지한다(증분 갱신 ❌) — 엣지를 건드리는 자리가 7곳이라 증분은 한 곳만 빠뜨려도 화살표가 조용히 사라진다. 재구축은 스냅샷당 많아야 한 번이다.
    */
   private groupIndex: Map<string, ActivityEdge[]> | null = null;
 
@@ -119,12 +107,8 @@ export class EdgeManager {
   }
 
   /**
-   * §2.1 #3 — 한 쌍에 방향 하나. 같은 (group, 버블쌍)에 read·write 가 **둘 다** 남아 있으면
-   * 하나만 남긴다. 우선순위는 **활성 우선 → 그다음 최신 `timestamp`**.
-   *
-   * 이 규칙이 생기기 전 체크포인트에는 양방향 잔여쌍이 이미 쌓여 있어(실측 426쌍), 복원 직후
-   * 한 번 훑어 정리하지 않으면 옛 유령 화살표가 그대로 되살아난다.
-   *
+   * §2.1 #3 — 한 쌍에 방향 하나. 같은 (group, 버블쌍)에 read·write 가 둘 다 있으면 활성 우선 → 최신 `timestamp` 하나만 남긴다.
+   * 옛 체크포인트에 양방향 잔여쌍이 쌓여 있어(실측 426쌍) 복원 직후 한 번 훑지 않으면 유령 화살표가 되살아난다.
    * @returns 지운 엣지 수
    */
   pruneOppositePairs(): number {
@@ -165,13 +149,8 @@ export class EdgeManager {
 
   /**
    * 특정 에이전트의 모든 엣지 ref 제거 → 남은 ref 중 active 에이전트가 없으면 idle.
-   *
-   * §9 — 비운 항목은 **장부에서도 뺀다.** 종전엔 `refs.clear()` 로 Set 만 비우고 키는 남겼는데,
-   * 이 함수는 에이전트가 유휴로 갈 때마다 불리므로 빈 Set 이 영영 쌓였다 — 실측(이 저장소의
-   * 실제 체크포인트) `agentRefs` 2,367개 중 **2,248개가 빈 항목**, 136 KB 가 매 체크포인트에
-   * 실려 나가고 이 순회도 그만큼 길어져 있었다. 빈 항목은 있으나 없으나 판정이 같다
-   * (`agentRefs.get()` 이 `undefined` 면 호출부는 전부 "ref 없음"으로 읽는다 — upsert 의
-   * `!oppositeRefs || oppositeRefs.size === 0` 이 그 예다).
+   * §9 — 비운 항목은 장부에서도 뺀다 — 에이전트가 유휴로 갈 때마다 불려 빈 Set 이 쌓인다(실측 `agentRefs` 2,367개 중 2,248개가 빈 항목, 체크포인트마다 136 KB).
+   * 빈 항목과 없는 항목은 판정이 같다(`agentRefs.get()` 이 `undefined` 면 "ref 없음" — upsert 의 `!oppositeRefs || oppositeRefs.size === 0`).
    */
   removeAgentRefs(agentId: string, activeAgentIds?: Set<string>): void {
     for (const [edgeId, refs] of this.agentRefs) {
@@ -195,11 +174,7 @@ export class EdgeManager {
   }
 
   /**
-   * §9 — 복원 시 옛 체크포인트에 쌓여 있던 **빈 ref 항목**을 걷어낸다.
-   *
-   * 위 누수는 이미 사용자 디스크에 자국을 남겼다(실측 2,248개). 고친 코드만으로는 그 자국이
-   * 사라지지 않으므로 복원 경로에서 한 번 훑는다 — 판정에는 영향이 없고 부피만 준다.
-   *
+   * §9 — 복원 시 옛 체크포인트의 빈 ref 항목을 걷어낸다(이미 디스크에 남은 자국, 실측 2,248개). 판정 영향 없이 부피만 준다.
    * @returns 걷어낸 항목 수
    */
   private pruneEmptyRefs(): number {
@@ -223,12 +198,7 @@ export class EdgeManager {
     return Array.from(this.edges.values());
   }
 
-  /**
-   * 특정 그룹의 엣지만 반환.
-   *
-   * ⚠ 돌려주는 배열은 **색인이 들고 있는 것**이다 — 호출자가 고치면 안 된다(읽기 전용).
-   *   그룹이 없으면 매번 새 빈 배열 대신 공유 상수를 준다.
-   */
+  /** 특정 그룹의 엣지. ⚠ 돌려주는 배열은 색인이 들고 있는 것이라 고치면 안 된다(읽기 전용). 그룹이 없으면 공유 빈 상수를 준다. */
   getByGroup(groupKey: string): ActivityEdge[] {
     return this.ensureGroupIndex().get(groupKey) ?? EMPTY_EDGES;
   }

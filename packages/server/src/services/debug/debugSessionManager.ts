@@ -1,15 +1,8 @@
 /**
- * §5.5 #17-20 ⑩ v4.94 — 공통 디버그 층의 심장.
- *
- * **화면은 어느 백엔드로 붙었는지 몰라야 한다.** 그 규율을 지키는 자리가 여기다 — CDP(Node
- * 내장 인스펙터)와 DAP(남의 어댑터)의 서로 다른 응답을 `DebugStackFrame`·`DebugScope`·
- * `DebugVariable` 한 벌로 정규화해 올린다. 런타임이 하나 늘어도 UI 는 한 줄도 안 바뀐다.
- *
- * 연결을 **서버가 소유하는** 이유는 단순하다: 소켓과 자식 프로세스는 브라우저가 못 연다.
- * 클라는 REST 로 명령하고 `debug_event` WS 로 결과를 받는다(새 통신 레일 ❌ — §4 broadcast 재사용).
- *
- * 영속 미관여 — 세션은 프로세스 수명이다. 저장되는 것은 중단점뿐이고 그건 클라가
- * `ProjectCheckpoint.debugBreakpoints` 로 들고 있다가 세션이 열릴 때 여기로 밀어 넣는다.
+ * §5.5 #17-20 ⑩ — 공통 디버그 층. 화면은 어느 백엔드로 붙었는지 몰라야 한다 — CDP(Node 내장 인스펙터)와 DAP(남의 어댑터) 응답을
+ * `DebugStackFrame`·`DebugScope`·`DebugVariable` 한 벌로 정규화한다(런타임이 늘어도 UI 는 안 바뀐다).
+ * 연결은 서버가 소유한다(소켓·자식 프로세스는 브라우저가 못 연다). 클라는 REST 로 명령하고 `debug_event` WS 로 받는다(§4 broadcast 재사용, 새 레일 ❌).
+ * 영속하지 않는다 — 세션은 프로세스 수명이다. 중단점은 클라가 `ProjectCheckpoint.debugBreakpoints` 로 들고 있다가 세션이 열릴 때 밀어 넣는다.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { observeChildStreamErrors } from '../childStreamErrors.js';
@@ -70,12 +63,8 @@ export interface StartDebugSessionOptions {
   port?: number;
   pid?: number;
   /**
-   * 붙자마자 걸어 둘 중단점.
-   *
-   * **순서가 중요하다** — `--inspect-brk`·`suspend=y` 로 멈춰 선 프로세스는 우리가 풀어 줘야
-   * 비로소 달리기 시작하는데, 그전에 중단점을 걸어 두지 않으면 **시작 코드의 중단점을 통째로
-   * 놓친다**(그 줄은 이미 지나간 뒤가 된다). 그래서 붙기 절차는 항상
-   * `연결 → 중단점 → 풀어 주기` 세 단계다.
+   * 붙자마자 걸어 둘 중단점. 순서가 중요하다 — `--inspect-brk`·`suspend=y` 로 멈춘 프로세스를 풀기 전에 걸지 않으면 시작 코드의 중단점을 놓친다.
+   * 붙기 절차는 항상 `연결 → 중단점 → 풀어 주기` 세 단계다.
    */
   breakpoints?: DebugBreakpoint[];
 }
@@ -721,10 +710,7 @@ function urlToPathOrUndefined(url: string): string | undefined {
   }
 }
 
-/**
- * 비어 있는 포트를 고른다. **상한(`DEBUG_PORT_SCAN_MAX`)을 지킨다** — 종전 클라이언트의 포트
- * 고르기는 상한 없이 while 로 올리기만 해서, 상수만 export 되고 아무도 쓰지 않았다.
- */
+/** 비어 있는 포트를 고른다 — 상한(`DEBUG_PORT_SCAN_MAX`)까지만 올린다. */
 export async function findFreePort(base: number): Promise<number> {
   for (let i = 0; i < DEBUG_PORT_SCAN_MAX; i += 1) {
     const port = base + i;

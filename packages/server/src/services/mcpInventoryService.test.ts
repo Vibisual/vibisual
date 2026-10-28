@@ -1,13 +1,6 @@
 /**
- * §5.5 #17-31 — MCP 인벤토리 층 테스트.
- *
- * 이 층이 지켜야 하는 것: ① 네 범위를 빠짐없이 세운다, ② 꺼짐과 **승인 대기**를 구분한다,
- * ③ 켜기까지 남은 일을 읽어서 적는다(값이 아니라 **변수 이름**만), ④ 쓰는 곳은
- * `~/.claude.json` 의 그 프로젝트 엔트리 하나뿐 — 레포의 `.mcp.json` 은 한 바이트도 안 건드린다,
- * ⑤ 같은 폴더가 `C:/…`·`C:\…` 두 표기로 들어 있어도 **전부** 갱신한다.
- *
- * ⚠ `os.homedir()` 를 반드시 가짜 홈으로 갈아 끼운다 — 안 그러면 테스트가 **사용자의 진짜
- *   `~/.claude.json`** 을 고쳐 쓴다(같은 사고를 app-state 에서 이미 한 번 겪었다).
+ * §5.5 #17-31 — MCP 인벤토리 층 시험: 네 범위 · 꺼짐과 승인 대기 구분 · 남은 일(변수 이름만) · 쓰기는 `~/.claude.json` 그 엔트리뿐 · `C:/…`·`C:\…` 두 표기 모두 갱신.
+ * `os.homedir()` 를 반드시 가짜 홈으로 — 아니면 실제 `~/.claude.json` 을 고쳐 쓴다.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -222,13 +215,7 @@ describe('setMcpServerEnabled', () => {
   });
 });
 
-/**
- * 경로 키 정책 — 종전 `normalizePathKey` 는 **무조건 `.toLowerCase()`** 였다.
- *
- * Linux 는 대소문자를 가리는 파일시스템이라 `~/Work/App` 과 `~/work/app` 이 **실재하는 서로 다른
- * 폴더**다. 무조건 접으면 두 프로젝트의 MCP 설정이 한 키로 뭉개져, 한쪽을 끄면 남의 프로젝트
- * `disabledMcpServers` 가 함께 바뀐다. 이제 `pathKey`(플랫폼 정책 SSOT)를 쓴다.
- */
+/** 경로 키는 `pathKey` 를 따른다 — 무조건 접으면 Linux 에서 `~/Work/App`·`~/work/app` 의 MCP 설정이 섞여 남의 `disabledMcpServers` 가 바뀐다. */
 describe('프로젝트 키의 대소문자 — 플랫폼 정책을 따른다', () => {
   it('케이스만 다른 두 경로는 그 파일시스템이 실제로 무시할 때만 같은 칸으로 본다', () => {
     const upper = path.join(projectPath, 'Work');

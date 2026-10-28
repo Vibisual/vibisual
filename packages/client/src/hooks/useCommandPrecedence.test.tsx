@@ -6,11 +6,8 @@ import { __resetCommandRegistry, useCommand } from './useCommand.js';
 import { useKeymapStore } from '../stores/keymap.js';
 
 /**
- * §5.5 #17-27 ⑲ · §5.24 #32 — 디스패처는 같은 스코프 안에서 **진짜 Control 바인딩을 먼저** 본다.
- *
- * 판정이 `ctrlKey || metaKey`(멀티플랫폼 5축)라 mac 에서 ⌃G 는 ⌘G 자리(`Ctrl+G` = 다음 찾기)에도 맞는다.
- * 등록 차례대로 고르면 먼저 등록된 다음 찾기가 ⌃G(줄 번호로 가기)를 가져간다. 그 사고를 실제 디스패처로
- * 고정한다 — 클라 시험에는 DOM 이 없으므로 `window`·`HTMLElement` 만 흉내 낸다.
+ * §5.5 #17-27 ⑲ · §5.24 #32 — 같은 스코프에선 **진짜 Control 바인딩을 먼저** 본다. 판정이 `ctrlKey || metaKey` 라 mac ⌃G 가 `Ctrl+G`(다음 찾기)에도 맞아,
+ * 등록 차례로 고르면 다음 찾기가 ⌃G(줄 번호로 가기)를 가져간다. `window`·`HTMLElement` 만 흉내 낸다.
  */
 
 class FakeElement {
@@ -23,10 +20,7 @@ class FakeElement {
 }
 
 let renderer: ReactTestRenderer | null = null;
-/**
- * 디스패처는 리스너를 `window` 에 **한 번만** 건다(`ensureListener`) — 시험마다 새 가짜 창을 주면 두 번째부터
- * 키가 아무 데도 닿지 않는다. 그래서 가짜 창은 하나를 돌려 쓴다.
- */
+/** 디스패처는 `window` 에 리스너를 **한 번만** 건다(`ensureListener`) — 시험마다 새 가짜 창을 주면 둘째부터 키가 안 닿아 하나를 돌려 쓴다. */
 const view = new EventTarget();
 
 afterEach(() => {

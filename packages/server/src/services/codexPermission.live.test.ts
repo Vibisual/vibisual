@@ -1,9 +1,8 @@
-/** Opt-in: uses the signed-in Codex CLI for three short turns (§5.25 (H) permission bridge).
- * The loopback /api/permission-check endpoint is a fixture; the runner, hook trust, helper and Codex are real.
- *
- * The working folder must NOT live under the OS temp folder: the workspace-write sandbox may allow the temp
- * roots, and then the outside write never asks for approval. Set VIBISUAL_CODEX_PERMISSION_LIVE_DIR to a
- * scratch folder outside it (default: the home folder; everything created is removed afterwards). */
+/**
+ * Opt-in: uses the signed-in Codex CLI for three short turns (§5.25 (H) permission bridge). Only /api/permission-check is a fixture.
+ * The working folder must NOT be under the OS temp folder — the workspace-write sandbox may allow temp roots, so the outside write never asks.
+ * Set VIBISUAL_CODEX_PERMISSION_LIVE_DIR to a scratch folder outside it (default: home; everything created is removed afterwards).
+ */
 import { describe, expect, it } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync } from 'node:fs';

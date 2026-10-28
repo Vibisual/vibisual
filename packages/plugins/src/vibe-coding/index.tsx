@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.97 — 바이브 코딩(Vibe Coding): 이 코드는 얼마나 오래 살아야 하는가.
- *
- * 정의적 특징은 **모든 줄을 읽지 않고 받아들이는 것**이다. 사라지는 게 아니라 적용 범위가 좁혀졌다 —
- * 프로토타입·탐색·일회성 도구에는 여전히 최적이고, 오래 살아야 하는 코드에는 부적합하다.
- * 판단 기준은 하나다 — 하루면 바이브, 3년이면 명세. 표시 전용.
- */
+/** §5.11 — 바이브 코딩(Vibe Coding): 이 코드는 얼마나 오래 살아야 하는가(하루면 바이브, 3년이면 명세). 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import { toneIfActive } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

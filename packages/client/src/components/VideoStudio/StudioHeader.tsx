@@ -9,14 +9,8 @@ import type { DocSummary } from './videoApi.js';
 import { memoLatest } from './studioMemo.js';
 
 /**
- * §5.13 (V) 37-1 — 스튜디오 머리줄: **문서 제목(바로 고치기) · 문서 메뉴 · 판형 칩 · 판 기록 · 내보내기** 넷만.
- *
- * 창이 머리줄 자리를 주면(앱 안 창·분리된 창 — `AppChrome`) 그 자리에 그려져 위쪽 크롬이 한 줄이 되고, "Vibistudio" 는 창의 앱
- * 아이콘 하나로만 남는다. 입력·단추는 창 끌기 판정이 비켜 주고(`button, input`), 빈 곳은 그대로 창을 끈다.
- *
- * 반응형 — 폰 폭 창에서는 판 기록·내보내기의 글자를 걷고 아이콘만 남기며(이름은 aria-label·title), 제목은 0 폭까지 줄지 않게
- * 바닥을 둔다. 창 머리줄 자리로 포털되면 `data-box` 상자 밖이라 `box-*` 변형이 닿지 않는다 — 그래서 등급을 JS 로 읽는다
- * (`useAppBoxTier` — 포털도 React 문맥은 이어받는다. 등급이 바뀔 때만 다시 그린다).
+ * §5.13 (V) 37-1 — 스튜디오 머리줄. `AppChrome` 자리가 있으면 거기 그려 크롬이 한 줄이 된다(입력·단추는 창 끌기 판정이 비켜 준다).
+ * 포털되면 `data-box` 밖이라 `box-*` 가 안 닿는다 — 등급을 `useAppBoxTier` 로 읽는다. 폰 폭은 아이콘만, 제목은 0 폭까지 줄지 않게.
  */
 export interface StudioHeaderProps {
   readonly title: string | null;

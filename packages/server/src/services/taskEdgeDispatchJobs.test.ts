@@ -214,11 +214,7 @@ describe('taskEdgeDispatchJobs — access, request parsing, waiters, outcomes', 
   });
 });
 
-/*
- * 장부는 순수 모듈이지만 **끝 상태를 적는 자리는 index.ts 안의 클로저**라 밖에서 부를 수 없다. 한 자리라도 배선이
- * 빠지면 그 작업은 장부에서 영영 진행 중이고 동기 대기는 풀리지 않는다 — 화면에는 아무것도 안 뜬다. 그래서
- * 배선이 살아 있는지를 소스로 고정한다(§5.3 #9-1 게이트 배선 검사와 같은 수법).
- */
+/* 끝 상태를 적는 자리는 index.ts 클로저라 못 부른다 — 배선이 빠지면 작업이 영영 진행 중이니 소스로 고정한다(§5.3 #9-1 과 같은 수법). */
 describe('§5.3 #10-2 — 위임 결과 복구 배선', () => {
   const server = (): string => readFileSync(new URL('../index.ts', import.meta.url), 'utf8');
 

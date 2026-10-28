@@ -1,15 +1,6 @@
 /**
- * §5.10 — 자동 목표 켬/끔 **3층 스위치**(프로젝트 · 에이전트 · 세션) + 현황 창구.
- *
- * 사용자 지시는 "정독 키고 끄는 것처럼 똑같이 만들어 — 키고 끄는 적용 되고 말고 하는 부분들"이었다.
- * 그래서 손짓·글리프·3값 순환이 `specReadingScope.tsx` 와 **글자 그대로 같다**: 누르면
- * `켬 → 끔 → 물려받음` 으로 돈다.
- *
- * 이 파일은 그 스위치의 **한 벌**이다. **여기 말고 다른 곳에서 스위치를 다시 그리지 마라** —
- * 두 벌이면 한쪽만 고쳐져 어긋난다(#17-44 ⑤ 와 같은 결).
- *
- * **판정은 여기서 하지 않는다.** 층을 접는 것은 shared 순수 함수(`autoGoalScopeStates`)이고,
- * 서버 집행·프롬프트 블록·화면이 전부 같은 함수를 부른다.
+ * §5.10 — 자동 목표 3층 스위치(프로젝트·에이전트·세션) + 현황. 손짓·글리프·순환(`켬 → 끔 → 물려받음`)이 `specReadingScope.tsx` 와 같다.
+ * 이 한 벌뿐 — 다른 곳에 다시 그리지 마라(#17-44 ⑤). 층 접기는 shared `autoGoalScopeStates`(서버·프롬프트·화면 공용).
  */
 import { memo, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -42,15 +33,7 @@ export interface AutoGoalControl {
   requestReview: (skillId: string, revision?: string) => void;
 }
 
-/**
- * 이 프로젝트의 자동 목표 설정·현황을 받아 3층 상태로 접고, 한 칸만 갈아 끼우는 창구를 연다.
- *
- * 저장은 **전량 교체가 아니라** 전용 창구(`POST /scope`)로 간다 — 전량으로 보내면 화면이 모르는
- * 값(물린 후보 목록)이 함께 실려 나가 사용자가 물린 기록이 통째로 되살아난다(§4 `agent-config` 사고).
- *
- * 현황(`state`)은 **같은 응답에 실려 온다.** 켜는 순간 바로 "지금 무엇이 보이나"가 바뀌어야 하므로
- * 쓰기 응답도 현황을 다시 받아 온다 — 스위치를 눌렀는데 목록이 그대로면 켜진 건지 알 수 없다.
- */
+/** 저장은 전용 창구 `POST /scope` — 전량으로 보내면 화면이 모르는 물린 후보 목록이 실려 나가 되살아난다(§4 `agent-config` 사고). 쓰기 응답에도 현황이 실려 온다(눌렀는데 목록이 그대로면 켜졌는지 모른다). */
 export function useAutoGoalScope(
   rootPath: string | null | undefined,
   agentId: string | null | undefined,
@@ -120,10 +103,7 @@ export function useAutoGoalScope(
   };
 }
 
-/**
- * 켜짐·꺼짐·상속 세 모양의 글리프 — 이모지 ❌, lucide 톤 stroke SVG(정독과 같은 그림).
- * 오케스트라 스위치(§5.3 #10-4)도 같은 그림을 쓴다 — 같은 3값 순환이 두 그림이면 서로 다른 스위치로 읽힌다.
- */
+/** 켬·끔·상속 글리프 — lucide 톤 stroke SVG(정독과 같은 그림). 오케스트라 스위치(§5.3 #10-4)도 같은 그림 — 같은 3값 순환이 두 그림이면 다른 스위치로 읽힌다. */
 export function ScopeGlyph({ own, effective }: { own: boolean | null; effective: boolean }): React.JSX.Element {
   const tone = own === null ? 'text-gray-600' : effective ? 'text-emerald-400' : 'text-gray-500';
   const common = {
@@ -137,12 +117,7 @@ export function ScopeGlyph({ own, effective }: { own: boolean | null; effective:
   return <svg {...common}><path d="M18 6 6 18M6 6l12 12" /></svg>;
 }
 
-/**
- * 세 층을 한 줄씩. **누르면 켬 → 끔 → 물려받음 → 켬** 으로 돈다.
- *
- * 3값을 두 개의 버튼으로 나누지 않는 이유는 208px 사이드바에서 버튼 여섯 개가 서면 무엇을 누르는지
- * 읽히지 않기 때문이다. 지금 값과 다음 값은 줄 오른쪽 글에 그대로 적는다.
- */
+/** 한 버튼이 켬 → 끔 → 물려받음 으로 돈다 — 208px 사이드바에 버튼 여섯이면 안 읽힌다. 지금·다음 값은 줄 오른쪽 글에. */
 export const AutoGoalScopeRows = memo(function AutoGoalScopeRows({
   control, agentId, subAgentId,
 }: {

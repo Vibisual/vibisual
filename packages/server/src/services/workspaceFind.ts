@@ -18,21 +18,9 @@ import type {
 import { isExecutableWorkspacePath, resolveWorkspacePath } from './workspaceExplorer.js';
 
 /**
- * §5.5 #17-27 ⑱ — 판 쪽에서 **그 갈래의 파일**을 찾는다(`GET /api/workspace-find`).
- *
- * 탐색기(`listWorkspaceDir`)는 폴더 한 겹이라, 빈 탭이 "이 프로젝트의 HTML" 을 한 목록으로 세우려면
- * 따로 걸어야 한다. 셋을 지킨다.
- *
- *  1. **메인 프로세스를 세우지 않는다** — 서버는 Electron main 과 한 몸이라(§3.7) 동기로 수만 항목을
- *     걸으면 창이 그만큼 멎는다. 그래서 전부 `fs.promises` 다(§9).
- *  2. **끝이 정해져 있다** — 훑는 항목 수 · 시간 · 담는 파일 수, 셋 중 하나라도 걸리면 멈추고
- *     `truncated` 로 알린다(조용히 자르면 사용자는 없는 줄 알고 찾기를 그만둔다).
- *  3. **너비 우선** — 얕은 결과가 먼저 잡힌다. 상한에 걸려도 루트 가까이 놓인 결과물(보고서 · 빌드한
- *     페이지)은 이미 손에 있다.
- *
- * 무엇을 고르는가는 shared `isEditorPaneListable` 하나다(화면의 목록 판정과 한 벌). 링크(심볼릭)는
- * 따라가지 않는다 — 루트 밖으로 새지 않고, 고리를 돌지도 않는다(열기는 어차피 `resolveWorkspacePath`
- * 가드를 다시 지난다). 상태가 없는 순수 조회라 함수 하나로 둔다(`workspaceExplorer.ts` 와 같은 판단).
+ * §5.5 #17-27 ⑱ — 그 갈래의 파일 찾기(`GET /api/workspace-find`). 서버가 Electron main 과 한 몸이라(§3.7) 전부 `fs.promises`(§9).
+ * 항목 수·시간·담는 수 상한 중 하나라도 걸리면 멈추고 `truncated` 로 알린다(조용히 자르면 없는 줄 안다). 너비 우선이라 얕은 결과가 먼저 잡힌다.
+ * 판정은 shared `isEditorPaneListable`(화면과 한 벌). 심볼릭 링크는 따라가지 않는다(루트 밖·고리 방지).
  */
 
 export interface FindWorkspaceFilesOptions {
@@ -92,10 +80,7 @@ export async function findWorkspaceFiles(
   const walkStart = now();
   let scanned = 0;
   let truncated = false;
-  /**
-   * 고르는 판정은 **확장자 하나에만** 달려 있다(`resolveWorkspaceOpen` 은 확장자로 갈리고, HTML 판정도
-   * 그렇다). 파일 수만 개마다 확장자 표 수백 칸을 처음부터 훑지 않게 확장자별로 한 번만 묻는다.
-   */
+  /** 판정은 확장자에만 달려 있어 확장자별로 한 번만 묻는다(수만 파일마다 표를 훑지 않게). */
   const listableByExt = new Map<string, boolean>();
   const listable = (relPath: string): boolean => {
     const ext = workspaceFileExt(relPath);

@@ -1,7 +1,4 @@
-/**
- * §5.4 #36 (H) ③ · §5.1 #2-1 (F) — Vibi3D 단계 구슬. 픽스처는 2026-10-21 실제 문서(사용자 프로젝트의 한국 구도심 모퉁이)의
- * 모양 그대로다: 기록 6개가 단계 id 3개를 나눠 쓴다(검토 대기 기록 → 직접 검수 기록) · 지금 단계는 `storefronts`.
- */
+/** §5.4 #36 (H) ③ · §5.1 #2-1 (F) — Vibi3D 단계 구슬. 픽스처는 2026-10-21 실제 문서 모양: 기록 6개가 단계 id 3개를 나눠 쓴다, 지금 단계 `storefronts`. */
 import { describe, expect, it } from 'vitest';
 import type { Vibi3DCaptureRecord, Vibi3DRun, Vibi3DStageRecord } from '@vibisual/shared';
 

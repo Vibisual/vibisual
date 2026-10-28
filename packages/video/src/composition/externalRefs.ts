@@ -1,13 +1,9 @@
 /**
- * §5.13 (T-10)(V) 37-11 — **HTML 한 장 들여오기**의 순수 층: 그 파일이 바깥에서 부르는 것을 찾고, 받은 뒤 사본의 주소를 상대
- * 경로로 바꾼다.
- *
- * 찾는 것(정적 둘): ① 문서 안 — `<script src>` · `<link href>`(stylesheet·preload·modulepreload) · `<img src/srcset>`·`<source>` ·
- * SVG `href`/`xlink:href` · 인라인 `style` 과 `<style>` 의 `url()`·`@import` ② 스크립트 안 — 문자열 그대로 적힌 모듈 지정자
- * (`import … from 'https://…'`·`import('https://…')`) · import map. 실행 중에만 조립되는 주소(③)는 미리보기 무대의 CSP 위반
- * 알림(`blocked{url}`)이 따로 잡는다. 데이터 부르기(`fetch()` 로 JSON 등)는 받아도 CSP 가 막으므로 "받아도 돌지 않는 것" 으로 가른다.
- *
- * 브라우저 없이 문자열로 한다(서버가 일꾼을 깨우지 않고 바로 답한다). 거짓 양성이 있을 수 있으나 사람이 목록을 보고 고른다.
+ * §5.13 (T-10)(V) 37-11 — **HTML 한 장 들여오기**의 순수 층: 바깥에서 부르는 것을 찾고, 받은 사본의 주소를 상대 경로로 바꾼다.
+ * 찾는 것(정적): ① 문서 — `<script src>`·`<link href>`(stylesheet·preload·modulepreload)·`<img src/srcset>`·`<source>`·SVG `href`/`xlink:href`·`style`/`<style>` 의 `url()`·`@import`
+ * ② 스크립트 — 문자열 그대로인 모듈 지정자(`import … from 'https://…'`·`import('https://…')`)·import map. 실행 중 조립 주소(③)는 무대 CSP 위반 알림(`blocked{url}`)이 잡는다.
+ * 데이터 부르기(`fetch()` 로 JSON 등)는 받아도 CSP 가 막아 "받아도 돌지 않는 것"으로 가른다.
+ * 브라우저 없이 문자열로 한다(서버가 일꾼을 깨우지 않고 바로 답한다) — 거짓 양성은 사람이 목록을 보고 거른다.
  */
 
 export type ExternalRefKind = 'script' | 'style' | 'font' | 'image' | 'module' | 'data' | 'other';

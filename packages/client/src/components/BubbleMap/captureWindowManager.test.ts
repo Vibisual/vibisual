@@ -5,13 +5,11 @@ import {
   registerCaptureWindow,
   topCaptureWindowUid,
   closeTopCaptureWindow,
+  escBelongsToFileWindow,
   __resetCaptureWindowsForTest,
 } from './captureWindowManager.js';
 
-/**
- * §5.9 v3.34 캡처 버블 앱 내부 멀티 윈도우 매니저.
- * 핵심 계약: 마지막 등록/클릭한 창이 맨 앞(z 최대), Escape 는 그 최상단 창 하나만 닫는다.
- */
+/** §5.9 멀티 윈도우 매니저 — 마지막 등록/클릭 창이 맨 앞, Escape 는 최상단 하나만. */
 describe('captureWindowManager', () => {
   beforeEach(() => {
     __resetCaptureWindowsForTest();
@@ -69,6 +67,33 @@ describe('captureWindowManager', () => {
     expect(backgroundClose).not.toHaveBeenCalled();
     answerAppDialog(getAppDialog()!.id, false);
     await expect(answer).resolves.toBe(false);
+  });
+
+  it('파일 창 안에서 난 Esc 는 뒤에 선 창을 닫지 않는다(§5.5 #17-27 ⑳ — 그 Esc 는 편집기의 것)', () => {
+    const browser = new EventTarget();
+    vi.stubGlobal('window', browser);
+    const close = vi.fn();
+    registerCaptureWindow(close);
+    const escapeFrom = (inFileWindow: boolean): Event => {
+      const event = new Event('keydown', { cancelable: true });
+      Object.defineProperty(event, 'key', { value: 'Escape' });
+      Object.defineProperty(event, 'target', {
+        value: { closest: (selector: string) => (inFileWindow && selector === '[data-file-window]' ? {} : null) },
+      });
+      browser.dispatchEvent(event);
+      return event;
+    };
+    expect(escapeFrom(true).defaultPrevented).toBe(false);
+    expect(close).not.toHaveBeenCalled();
+    expect(escapeFrom(false).defaultPrevented).toBe(true);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('파일 창 판정은 `closest` 하나만 본다 — 판정할 수 없는 대상은 파일 창이 아니다', () => {
+    expect(escBelongsToFileWindow({ closest: (s: string) => (s === '[data-file-window]' ? {} : null) })).toBe(true);
+    expect(escBelongsToFileWindow({ closest: () => null })).toBe(false);
+    expect(escBelongsToFileWindow(null)).toBe(false);
+    expect(escBelongsToFileWindow({})).toBe(false);
   });
 
   it('여러 창을 등록하면 나중 등록이 맨 앞(top)이고 z 가 더 크다', () => {

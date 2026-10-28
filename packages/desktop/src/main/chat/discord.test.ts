@@ -4,11 +4,8 @@ import type { ChatCard } from '@vibisual/shared';
 import { buildDiscordAckData, buildDiscordMessage, splitAckToken } from './discord';
 import { escapeDiscordMarkdown } from './cards';
 
-// §4 메신저 브리지 — 디스코드로 나가는 한 벌의 **모양**.
-//
-// 여기 있는 것은 전부 **빠뜨려도 전송이 200 으로 성공하는** 종류다. 멘션이 발동하고, 링크
-// 미리보기가 펼쳐지고, 경로가 기울어져도 API 는 아무 말도 하지 않는다 — 틀렸다는 것은 폰
-// 화면에서만 드러난다. 그래서 드라이버에서 순수 함수로 떼어 여기서 고정한다.
+// §4 메신저 브리지 — 디스코드로 나가는 한 벌의 모양. 전부 빠뜨려도 전송이 200 으로 성공하는 종류다(멘션 발동·링크 미리보기·기울어진 경로) —
+// 틀린 것은 폰 화면에서만 드러나므로 드라이버에서 순수 함수로 떼어 고정한다.
 
 const card = (over: Partial<ChatCard> = {}): ChatCard => ({
   kind: 'text', title: '제목', lines: ['본문'], ...over,

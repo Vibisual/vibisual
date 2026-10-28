@@ -1,15 +1,5 @@
-// Packaged-mode transport adapter — SCENARIO.md §3.7 (v1.93).
-//
-// When this module is imported in packaged Electron (window.api is exposed by
-// preload), it monkey-patches the global `fetch` and `WebSocket` constructors
-// so that EVERY existing fetch('/api/…') / new WebSocket('/ws') call site in
-// the client (31 sites across 14 files) is transparently rerouted to IPC.
-//
-// In dev mode and standalone web the patch is a no-op — window.api is absent
-// and the Vite proxy keeps doing its job.
-//
-// Rationale: "renderer fetch/WS → window.api 일괄 교체" (Stage 4) at a single
-// chokepoint instead of editing every call site. UI source stays untouched.
+// Packaged-mode transport adapter — SCENARIO.md §3.7. In packaged Electron (window.api from preload) this monkey-patches global
+// `fetch`/`WebSocket` so every existing '/api/…' and '/ws' call site is rerouted to IPC at one chokepoint. No-op in dev/web (Vite proxy).
 
 import type { UpdateState, AgentConfig, MobileAccessState, ChatBridgeState, ChatChannelKind, ChatVerbosity, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture, ExternalOpenFailure, PerfMemoryWire } from '@vibisual/shared';
 
@@ -34,7 +24,7 @@ interface FetchResponseWire {
   /** §5.13 (Y) 40-7 ① — 비텍스트 응답의 바이트 그대로(구조화 복제). 있으면 이것이 본문이다(`body` 는 빈 문자열). */
   bodyBytes?: Uint8Array;
 }
-// SCENARIO.md §5.4 #14-1 (v2.29) — 별창 detach/redock surface.
+// SCENARIO.md §5.4 #14-1 — 별창 detach/redock surface.
 export type DetachKindWire = 'project' | 'iframe';
 export interface DetachedTabInfoWire {
   windowId: number;
@@ -80,13 +70,13 @@ export interface PackagedWindowApi {
   onDetachedList(cb: (list: DetachedTabInfoWire[]) => void): () => void;
   onRedockHover(cb: (payload: { tabKey: string; hovering: boolean }) => void): () => void;
   onRedockCommit(cb: (payload: { tabKey: string; kind: DetachKindWire | null }) => void): () => void;
-  // §5.4 #14-1 v2.30 — 별창 mini-ghost 드래그.
+  // §5.4 #14-1 — 별창 mini-ghost 드래그.
   startDetachDrag(): Promise<boolean>;
   endDetachDrag(commit: boolean): Promise<boolean>;
   onDragState(cb: (payload: { dragging: boolean; hovering: boolean }) => void): () => void;
 }
 
-// §5.5 #17-6 v2.73 — 버블 오버레이 창 surface.
+// §5.5 #17-6 — 버블 오버레이 창 surface.
 export interface OverlayInfoWire {
   windowId: number;
   agentId: string;
@@ -98,28 +88,18 @@ export interface OverlayListWire {
   userVisible: boolean;
 }
 export interface PackagedOverlayApi {
-  /**
-   * (판올림 번호 발급 대기) `expanded` 면 버블이 아니라 **IDE 크기로 바로** 뜬다 —
-   * IDE 창을 앱 밖으로 끌어내 만든 독립 창이 그 경로다(`size` 는 끌던 창 크기).
-   */
+  /** `expanded` 면 버블이 아니라 **IDE 크기로 바로** 뜬다 — IDE 창을 앱 밖으로 끌어낸 독립 창의 경로(`size` 는 끌던 창 크기). */
   open(payload: {
     agentId: string;
     projectId: string;
     cursor?: { x: number; y: number };
     expanded?: boolean;
     size?: { width: number; height: number };
-    /**
-     * §17-6 (H) — 그 창이 들고 가는 짐(열어 둔 편집 탭·보던 뷰·고른 세션·붙어 있던 변).
-     * main 은 뜻을 모르고 맡아만 두므로 여기서도 `unknown` 이다 — 모양을 아는 곳은
-     * 넣고 꺼내는 `components/IDE/paneHandoff.ts` 한 곳뿐이다.
-     */
+    /** §17-6 (H) — 그 창이 들고 가는 짐. main 은 뜻을 모르고 맡아만 두므로 `unknown` — 모양을 아는 곳은 `stores/idePaneHandoff.ts` 한 곳이다. */
     handoff?: unknown;
     /**
-     * §17-6 (H-4) — 앱 경계를 넘는 **그 순간** 만들어지는 창. 잡고 있던 지점을 그대로 물려받아
-     * 커서에 매달린 채 뜬다(끌던 손 아래에서 창이 이어진다).
-     *
-     * (H-12) `label`·`hint` 는 그 창이 **되돌아올 때** 그릴 윤곽선에 적을 말이다 — main 에는
-     * 번역이 없으므로 이 판의 로케일로 지어 함께 맡긴다.
+     * §17-6 (H-4) — 앱 경계를 넘는 **그 순간** 만들어지는 창(잡은 지점을 물려받아 커서에 매달린 채 뜬다).
+     * (H-12) `label`·`hint` 는 되돌아올 때 그릴 윤곽선의 말 — main 에는 번역이 없어 이 판의 로케일로 지어 맡긴다.
      */
     follow?: { grabX: number; grabY: number; label?: string; hint?: string; settled?: boolean };
     /**
@@ -129,11 +109,8 @@ export interface PackagedOverlayApi {
     focus?: unknown;
   }): Promise<{ windowId: number; reused: boolean }>;
   /**
-   * §17-6 (H-25) — **놓기 전에 미리 짓는다.** 선이 무장되는 순간(나갈 뜻이 분명한 자리)에 부른다.
-   *
-   * 지어 두는 창은 부팅만 하고 보이지 않으므로 화면은 그대로 선 하나다. 손을 떼면 위 `open` 이
-   * 그 창을 재사용해 자리만 옮기므로, 창 짓기가 뗌 프레임에 몰리지 않는다.
-   * 구버전 preload 에는 없으므로 **선택 속성** — 없으면 종전대로 뗌에 창을 짓는다(⑥).
+   * §17-6 (H-25) — **놓기 전에 미리 짓는다**(선이 무장되는 순간) — 숨은 채 부팅한 창을 뗌에 `open` 이 재사용해 창 짓기가 뗌 프레임에 몰리지 않는다.
+   * 구버전 preload 에는 없어 선택 속성(없으면 뗌에 짓는다).
    */
   warm?(payload: {
     agentId: string;
@@ -172,9 +149,8 @@ export interface PackagedOverlayApi {
   /** §5.5 #17-27 ①-1 — 판이 닫히면 넓힌 만큼 되돌린다(그 사이 사용자가 폭을 바꿨으면 그대로 둔다). */
   restoreEditorRoomSelf?(): Promise<boolean>;
   /**
-   * §17-6 v2.81 — 버블 드래그 = OS 창 이동(메인 프로세스 커서 폴링) 시작/종료.
-   * (H-4) 펼친 IDE 창의 타이틀바는 `redockOnEnter` 를 켜서 부른다 — 끌다 앱 안으로 들어오면
-   * 그 자리에서 앱 안 IDE 로 돌아간다.
+   * §17-6 — 버블 드래그 = OS 창 이동(메인 프로세스 커서 폴링) 시작/종료.
+   * (H-4) 펼친 IDE 창의 타이틀바는 `redockOnEnter` 를 켜서 부른다 — 끌다 앱 안으로 들어오면 그 자리에서 앱 안 IDE 로 돌아간다.
    */
   dragStart(payload?: {
     redockOnEnter?: boolean;
@@ -216,10 +192,8 @@ export interface PackagedOverlayApi {
    */
   shellReady?(): Promise<boolean>;
   /**
-   * §17-6 (H-8) — 앱 안 IDE 창을 끄는 동안 **커서를 main 이 대신 본다**. 밖에서 끌던 손을
-   * 이어받은 판에는 이 창의 `mousedown` 이 없어 마우스 캡처가 없고, 그러면 커서가 창을
-   * 벗어나는 순간 렌더러가 눈이 멀어 "밖으로 빼기"가 영영 서지 않는다.
-   * 구버전 preload 에는 없으므로 **선택 속성**(없으면 종전대로 캡처에만 기댄다).
+   * §17-6 (H-8) — 앱 안 IDE 창을 끄는 동안 **커서를 main 이 대신 본다** — 밖에서 이어받은 드래그엔 `mousedown` 캡처가 없어 창 밖 커서를 못 본다.
+   * 구버전 preload 에는 없어 선택 속성.
    */
   paneDragWatch?(on: boolean): Promise<boolean>;
   /** §17-6 (H-8) — 커서가 이 창 밖으로 나갔다(한 판에 한 번, **화면 좌표**). */
@@ -246,14 +220,11 @@ export interface PackagedOverlayApi {
   onIdeOpened?(cb: (payload: { agentId: string; projectId: string }) => void): () => void;
   list(): Promise<OverlayListWire>;
   setVisible(visible: boolean): Promise<boolean>;
-  /** §17-6 (G) v2.82 — 우클릭 "숨기기(이 버블만)". */
+  /** §17-6 (G) — 우클릭 "숨기기(이 버블만)". */
   hideSelf(): Promise<boolean>;
-  /** §17-6 (G) v2.82 — 우클릭 불투명도(1/0.75/0.5). */
+  /** §17-6 (G) — 우클릭 불투명도(1/0.75/0.5). */
   setOpacitySelf(opacity: number): Promise<boolean>;
-  /**
-   * §17-6 (G) v2.82 — 우클릭 "본체에서 이 버블로 점프".
-   * (판올림 번호 발급 대기) `openIde` 면 점프에서 그치지 않고 앱 안에서 **IDE 창까지 다시 연다**.
-   */
+  /** §17-6 (G) — 우클릭 "본체에서 이 버블로 점프". `openIde` 면 앱 안에서 **IDE 창까지 다시 연다**. */
   revealInMain(payload: {
     agentId: string;
     projectId: string;
@@ -266,7 +237,7 @@ export interface PackagedOverlayApi {
     /** §17-6 (H) — 되돌아가며 들고 가는 짐. 메인 창이 꺼내 그 창을 이어 세운다. */
     handoff?: unknown;
   }): Promise<boolean>;
-  /** §17-6 (G) v2.82 — 메인 윈도우: 오버레이 점프 신호 구독. */
+  /** §17-6 (G) — 메인 윈도우: 오버레이 점프 신호 구독. */
   onReveal(
     cb: (payload: {
       agentId: string;
@@ -292,26 +263,23 @@ export interface PackagedOverlayApi {
     }) => void,
   ): () => void;
   onList(cb: (payload: OverlayListWire) => void): () => void;
-  /** §17-6 (G) v2.87 — 버블 창: 우클릭 → 커서 위치에 메뉴 팝업 창 열기. */
+  /** §17-6 (G) — 버블 창: 우클릭 → 커서 위치에 메뉴 팝업 창 열기. */
   openMenu(): Promise<boolean>;
-  /** §17-6 (G) v2.87 — 메뉴 창: 실제 메뉴 크기 신고. */
+  /** §17-6 (G) — 메뉴 창: 실제 메뉴 크기 신고. */
   menuResize(size: { width: number; height: number }): Promise<boolean>;
-  /** §17-6 (G) v2.87 — 메뉴 창: 액션을 대상 버블 창에 적용. */
+  /** §17-6 (G) — 메뉴 창: 액션을 대상 버블 창에 적용. */
   menuAction(payload: { action: string; value?: number }): Promise<boolean>;
-  /** §17-6 (G) v2.87 — 메뉴 창: 자기 자신 닫기. */
+  /** §17-6 (G) — 메뉴 창: 자기 자신 닫기. */
   closeMenu(): Promise<boolean>;
-  /** §17-6 (G) v2.87 — 버블 창: 메뉴 명령(open-ide) 구독. (H-27) ⑦ `focus` 는 앱이 골라 보낸 세울 세션이다. */
+  /** §17-6 (G) — 버블 창: 메뉴 명령(open-ide) 구독. (H-27) ⑦ `focus` 는 앱이 골라 보낸 세울 세션이다. */
   onMenuCommand(cb: (payload: { command: string; focus?: unknown }) => void): () => void;
 }
 
-// §5.12 v4.44 — 지휘통제실 창 surface. **앱 전체에 1창**이며 메인의 활성 프로젝트를 따라간다.
+// §5.12 — 지휘통제실 창 surface. **앱 전체에 1창**이며 메인의 활성 프로젝트를 따라간다.
 export interface PackagedCommandCenterApi {
   open(payload: { projectId: string; cursor?: { x: number; y: number } }): Promise<{ windowId: number; reused: boolean }>;
   close(): Promise<boolean>;
-  /**
-   * 지휘통제실 창: "이 프로젝트를 보여라" 신호 구독(v4.44).
-   * 구버전 preload 에는 없을 수 있어 선택 속성이다 — 없으면 따라가기만으로 동작한다.
-   */
+  /** 지휘통제실 창: "이 프로젝트를 보여라" 신호 구독. 구버전 preload 에는 없을 수 있어 선택 속성(없으면 따라가기만으로 동작). */
   onShowProject?(cb: (payload: { projectId: string }) => void): () => void;
   /** 카드 [이동] — 메인 창 focus + 그 세션으로 점프. */
   revealInMain(payload: { projectId: string; agentId: string; subAgentId?: string | null }): Promise<boolean>;
@@ -319,7 +287,7 @@ export interface PackagedCommandCenterApi {
   onReveal(cb: (payload: { projectId: string; agentId: string; subAgentId: string | null }) => void): () => void;
 }
 
-// §4 v2.44 자동 업데이트 surface. UpdateState 는 shared 계약.
+// §4 자동 업데이트 surface. UpdateState 는 shared 계약.
 export interface PackagedUpdateApi {
   check(): Promise<UpdateState>;
   install(): Promise<boolean>;
@@ -327,16 +295,16 @@ export interface PackagedUpdateApi {
   onStatus(cb: (state: UpdateState) => void): () => void;
 }
 
-// §4 v3.16 모바일 웹 접속 모드 surface. MobileAccessState 는 shared 계약.
+// §4 모바일 웹 접속 모드 surface. MobileAccessState 는 shared 계약.
 export interface PackagedMobileApi {
   getState(): Promise<MobileAccessState>;
   enable(): Promise<MobileAccessState>;
   disable(): Promise<MobileAccessState>;
   regenCode(): Promise<MobileAccessState>;
-  /** §4 v3.20 — UPnP 외부 개방 on/off. */
+  /** §4 — UPnP 외부 개방 on/off. */
   enableExternal(): Promise<MobileAccessState>;
   disableExternal(): Promise<MobileAccessState>;
-  /** §4 v3.66 — QR 페어링 티켓(3분) 발급/폐기. */
+  /** §4 — QR 페어링 티켓(3분) 발급/폐기. */
   issueQr(): Promise<MobileAccessState>;
   revokeQr(): Promise<MobileAccessState>;
   /** 공유기에 손으로 만든 포워딩 규칙을 지웠다는 확인 — 뒷정리 안내를 내린다. */
@@ -345,9 +313,8 @@ export interface PackagedMobileApi {
 }
 
 /**
- * §4 메신저 원격제어 브리지 surface (판올림 번호 발급 대기).
- * 모바일 웹(위)과 **방향이 반대**다 — 포트를 열지 않고 우리가 나가서 붙는다.
- * 봇 토큰은 되돌아 나오지 않는다(상태에는 `hasToken` 만 있다).
+ * §4 메신저 원격제어 브리지 surface. 모바일 웹(위)과 **방향이 반대**다 — 포트를 열지 않고 우리가 나가서 붙는다.
+ * 봇 토큰은 되돌아 나오지 않는다(상태에는 `hasToken` 만).
  */
 export interface PackagedChatApi {
   getState(): Promise<ChatBridgeState>;
@@ -362,7 +329,7 @@ export interface PackagedChatApi {
   onStatus(cb: (state: ChatBridgeState) => void): () => void;
 }
 
-// §4 v2.63 임베디드 인터랙티브 터미널 surface — IDE 창 안 PTY.
+// §4 임베디드 인터랙티브 터미널 surface — IDE 창 안 PTY.
 export interface PackagedTerminalApi {
   create(spec: {
     termId: string;
@@ -370,7 +337,7 @@ export interface PackagedTerminalApi {
     config: AgentConfig;
     cols?: number;
     rows?: number;
-    /** §5.5 #17-20 ④ v4.74 — 있으면 claude 대신 이 명령을 띄운다(실행 런처). */
+    /** §5.5 #17-20 ④ — 있으면 claude 대신 이 명령을 띄운다(실행 런처). */
     command?: string;
     autoRun?: boolean;
     env?: Record<string, string>;
@@ -380,10 +347,7 @@ export interface PackagedTerminalApi {
   write(termId: string, data: string): Promise<void>;
   resize(termId: string, cols: number, rows: number): Promise<void>;
   kill(termId: string): Promise<void>;
-  /**
-   * §4 (CMD ②) — 전경 프로세스명·크기. **선택** — 모바일 /ws 브리지(§4 v3.16)와 구버전
-   * preload 에는 없다. 없으면 탭 라벨 보조 표기가 비는 것뿐이고 나머지는 그대로 동작한다.
-   */
+  /** §4 (CMD ②) — 전경 프로세스명·크기. **선택** — 모바일 /ws 브리지와 구버전 preload 에는 없다(없으면 탭 라벨 보조 표기만 빈다). */
   info?(termId: string): Promise<{ process?: string; cols: number; rows: number } | null>;
   onData(cb: (payload: { termId: string; data: string }) => void): () => void;
   onExit(cb: (payload: { termId: string; exitCode: number }) => void): () => void;
@@ -394,7 +358,7 @@ export interface PackagedCaptureApi {
   listSources(): Promise<CaptureSourceInfo[]>;
   /** 주입 결과 — 구버전 preload 는 undefined 를 준다(그땐 성패를 알 수 없어 무시). */
   sendInput(event: CaptureInputEvent): Promise<CaptureInjectResult | void>;
-  /** §5.9 v3.57 — 대상 화면/창 사각형(DIP+물리). 드래그 좌표 계산용. 구버전 preload 엔 없을 수 있다. */
+  /** §5.9 — 대상 화면/창 사각형(DIP+물리). 드래그 좌표 계산용. 구버전 preload 엔 없을 수 있다. */
   targetRect?(spec: { sourceId: string; sourceKind: CaptureSourceKind; sourceName: string }): Promise<CaptureTargetRect>;
   /**
    * §5.17 (B) — 이 창의 그 사각형을 PNG 로 찍는다(프리뷰 영역 캡처 → 입력창 첨부).
@@ -413,9 +377,9 @@ export interface PackagedApi {
   onMessage(cb: (payload: unknown) => void): () => void;
   window: PackagedWindowApi;
   update: PackagedUpdateApi;
-  /** §4 v2.63 — 임베디드 터미널. dev/web 모드(window.api 없음)에선 부재. */
+  /** §4 — 임베디드 터미널. dev/web 모드(window.api 없음)에선 부재. */
   terminal?: PackagedTerminalApi;
-  /** §4 v3.16 — 모바일 웹 접속 모드. 모바일 브라우저(web 모드)에선 부재. */
+  /** §4 — 모바일 웹 접속 모드. 모바일 브라우저(web 모드)에선 부재. */
   mobile?: PackagedMobileApi;
   /** §4 — 메신저 원격제어 브리지. 모바일 브라우저(web 모드)·구버전 preload 에선 부재. */
   chat?: PackagedChatApi;
@@ -442,11 +406,8 @@ export interface PackagedPerfApi {
 }
 
 /**
- * §3.2.1 — 종료 직전 "아직 디스크에 안 앉힌 손글씨를 지금 밀어라" surface.
- *
- * 앱 종료는 창을 정상으로 닫지 않고 `app.exit(0)` 으로 프로세스를 내리므로 renderer 의
- * `pagehide`/`beforeunload` 가 뜨지 않는다 — main 이 대신 물어봐 주는 **한 방향**의 길이다.
- * 받는 쪽 구현은 `utils/persistFlush.ts`.
+ * §3.2.1 — 종료 직전 "안 앉힌 손글씨를 지금 밀어라" surface. 앱 종료는 `app.exit(0)` 이라 `pagehide`/`beforeunload` 가 안 뜬다 —
+ * main 이 대신 묻는다(받는 쪽은 `utils/persistFlush.ts`).
  */
 export interface PackagedLifecycleApi {
   onFlushDrafts(cb: () => boolean | Promise<boolean>): () => void;
@@ -458,23 +419,12 @@ export interface PackagedLifecycleApi {
   mainReady?(): Promise<boolean>;
 }
 
-/**
- * §3.7 — 바깥 브라우저 열기 실패 알림 surface.
- *
- * 여는 길은 종전 그대로 `window.open(url,'_blank')` 하나이고(새 여는 길 ❌) 이건 그 **반대
- * 방향**이다. 리눅스에서는 `shell.openExternal` 이 실패해도 resolve 하므로 renderer 는
- * 스스로 실패를 알 방법이 없다 — main 이 알려 준다.
- */
+/** §3.7 — 바깥 브라우저 열기 실패 알림(여는 길은 `window.open(url,'_blank')` 하나). 리눅스 `shell.openExternal` 은 실패해도 resolve 해 main 이 알려 준다. */
 export interface PackagedExternalOpenApi {
   onFailed(cb: (payload: ExternalOpenFailure) => void): () => void;
 }
 
-/**
- * §5.13 (O) v4.48 — 내부 앱 surface (앱 무관).
- *
- * 앱마다 surface 를 만들지 않는다. `appId` 만 다르고 통로는 셋으로 고정이라, 앱이
- * 늘어도 이 타입은 그대로다.
- */
+/** §5.13 (O) — 내부 앱 surface(앱 무관). 앱마다 surface 를 만들지 않는다 — `appId` 만 다르고 통로는 셋으로 고정이다. */
 export interface PackagedAppApi {
   open: (appId: string, params?: Record<string, string>, placement?: { width: number; height: number; x?: number; y?: number; fromGhost?: boolean }) => Promise<{ windowId: number; reused: boolean }>;
   close: (appId: string) => Promise<boolean>;
@@ -525,10 +475,8 @@ function getApi(): PackagedApi | null {
   return window.api ?? null;
 }
 
-// ─── fetch patch ────────────────────────────────────────────────────────────
-// Route URL-path requests (`/api/*`, `/health`, `/iframe-proxy/*`) through IPC.
-// Absolute URLs (http://, https://, ws://, data:, blob:) pass through to the
-// native fetch — they target external services, not the embedded server.
+// fetch patch — route URL-path requests (`/api/*`, `/health`, `/iframe-proxy/*`) through IPC.
+// Absolute URLs (http://, https://, ws://, data:, blob:) pass through to native fetch — they target external services.
 
 function shouldRouteThroughIpc(url: string): boolean {
   if (!url) return false;
@@ -556,11 +504,8 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(binary);
 }
 
-// fetch 본문을 IPC 와이어(텍스트 전용)에 실을 수 있게 인코딩한다.
-//   - string / URLSearchParams → 그대로 텍스트.
-//   - FormData / Blob / ArrayBuffer(View) / ReadableStream → Response 로 정규 직렬화해
-//     바이트와 Content-Type(FormData 면 multipart boundary 포함)을 얻어 base64 로 싣는다.
-// 이 경로가 없으면 FormData 가 JSON.stringify 로 "{}" 가 되어 이미지 paste 업로드가 깨진다.
+// fetch 본문을 IPC 와이어(텍스트 전용)용으로 인코딩 — string/URLSearchParams 는 그대로, FormData/Blob/ArrayBuffer/ReadableStream 은 Response 로
+// 직렬화해 바이트+Content-Type(multipart boundary)을 base64 로. 없으면 FormData 가 "{}" 가 되어 이미지 paste 업로드가 깨진다.
 async function encodeBody(body: BodyInit | null | undefined): Promise<EncodedBody | null> {
   if (body == null) return null;
   if (typeof body === 'string') return { body };
@@ -723,10 +668,8 @@ class IpcWebSocket extends EventTarget implements WebSocket {
   }
 
   private _emitMessage(payload: unknown): void {
-    // §9 v3.40 — IPC 로 받은 객체는 재직렬화 없이 그대로 싣는다. 종전엔 여기서
-    // JSON.stringify 하고 useWebSocket 이 곧바로 JSON.parse 해, 대형 graph_snapshot 이
-    // renderer 메인 스레드에서 왕복 직렬화되며 전수조사급 부하에서 프레임드랍의 주범이었다.
-    // 유일 소비자인 useWebSocket 이 문자열(진짜 ws)·객체(IPC) 양쪽을 수용한다.
+    // §9 — IPC 로 받은 객체는 **재직렬화 없이** 그대로 싣는다(stringify→parse 왕복이면 큰 graph_snapshot 이 메인 스레드에서 프레임을 떨군다).
+    // 유일 소비자 useWebSocket 이 문자열(진짜 ws)·객체(IPC) 양쪽을 받는다.
     const ev = new MessageEvent('message', { data: payload });
     this.onmessage?.call(this as unknown as WebSocket, ev);
     this.dispatchEvent(ev);
@@ -798,16 +741,8 @@ function safeParse(text: string): unknown {
 }
 
 function shouldBridgeWs(url: string): boolean {
-  // 임베디드 server WS 만 IPC 로 브리지. 커버:
-  //   - path-relative   '/ws'
-  //   - localhost        ws[s]://localhost|127.0.0.1:<port>/ws
-  //   - host-less        'ws:///ws'  ← packaged renderer 는 file:// 로딩이라
-  //                       window.location.host 가 '' → App.tsx 가 'ws:///ws' 를 만든다.
-  // 실제 외부 host 를 가진 ws[s] URL 은 네이티브 WebSocket 으로 통과.
-  //
-  // 주의: new URL('ws:///ws') 는 host 를 'ws' 로 오파싱한다(빈 authority 를 첫 path
-  // 세그먼트로 흡수 → href 'ws://ws/'). 그래서 URL API 를 쓰지 않고 정규식으로
-  // authority 를 직접 떼어내 host 를 판정한다.
+  // 임베디드 server WS('/ws' · localhost/127.0.0.1 · file:// renderer 의 'ws:///ws')만 IPC 로 브리지, 외부 host 는 네이티브 WebSocket.
+  // 주의: new URL('ws:///ws') 는 host 를 'ws' 로 오파싱한다(href 'ws://ws/') — 정규식으로 authority 를 떼어 판정한다.
   if (url !== '/ws' && !url.endsWith('/ws')) return false;
   if (url.startsWith('/')) return true;
   const m = /^wss?:\/\/([^/?#]*)/i.exec(url);

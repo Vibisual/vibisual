@@ -1,37 +1,9 @@
 /**
- * §5.5 #17-17 ⑪·⑫·⑭·⑰ — **살아 있는 단계 지도.** ⑭ 로 무대의 **몸통 전부**가 됐다.
- *
- * ④ 의 `w-52` 사이드바 체크리스트는 "몇 개 남았나"는 답하지만 "지금 무슨 성격의 일을 하는
- * 중인가"는 답하지 못한다. 이 뷰는 그 답을 그린다 — 단계 하나가 노드, 순서가 엣지, 좌측에
- * 종류 색 레인, `done` 은 취소선, `in_progress` 는 맥동, `low` 확신은 빗금.
- *
- * ⑪(j) — 카메라가 **도는 단계를 따라간다.** 프로그램이 옮긴 화면은 추종을 끄지 않고, 사용자가
- * 손으로 끌거나 확대했을 때만 끈다 — 둘을 구분하지 못하면 이 기능은 첫 회에 스스로 죽는다.
- *
- * ⑭(c) — **조작 창구는 우클릭 하나다.** 빈 자리에서 우클릭하면 노드 메뉴가 뜨고 고른 것이 누른
- * 그 자리에 선다(흐름 템플릿·배운 행동·종류·직접 쓰기·설치 스킬·두뇌 스킬). 노드 위에서 우클릭하면
- * 그 단계의 메뉴다(비추기·나란히 놓기·종류 바꾸기). 걷어낸 세 칸(⑭(a))이 하던 일이 전부 여기로 들어왔다.
- *
- * ⑭(d) — **자유 배치.** 노드는 x·y 어디로든 가고 놓인 자리는 그대로 남는다(클라 로컬 저장 —
- * 서버 페이로드에 실리는 것은 여전히 **순서뿐**이다).
- *
- * ⑳ — **자리는 자리고, 흐름은 선이다.** 끌어 놓는 것은 자리만 바꾼다. 차례는 노드 아래 **핀(작은 원)** 을
- * 끌어 다른 단계의 위 핀에 꽂을 때만 바뀐다 — 꽂힌 단계가 그 단계 **바로 다음**에 선다(블루프린트의
- * 실행 선). 이미 그려진 선의 끝을 잡아 다른 단계로 옮겨 꽂아도 같은 일이다. 판정은 `goalDropTarget.ts`
- * 의 순수 함수 한 벌(`wireAfter`) — 종전의 "세로가 차례를 정한다"는 없다(보기 좋게 옮긴 손짓이
- * 실행을 바꿔 버렸다 — 사용자 지시 "이동 시킨게 바로 바로 연결되서 실행을 바꾸는게 아니라").
- *
- * ㉖(h)-3 — **끊은 것은 끊긴 채로 남는다.** 무대의 선은 두 원천에서 온다(차례가 그리는 팬아웃·팬인 +
- * 사용자가 그은 `goalWires`). 끊기가 그은 목록에서만 빼던 동안, 차례는 같은 선을 매 프레임 도로 그렸다
- * — 끊어도 화면이 그대로였다. 그래서 **끊은 자리를 기억하는 목록**(`goalCuts`)을 두고 두 원천 모두에서
- * 뺀다. 종전의 행 합치기(`breakAt`)는 걷었다 — 합치면 팬아웃이 **방금 끊은 그 핀에** 새 선을 도로 그린다.
- * 끊기는 차례를 건드리지 않는다(서버 왕복 ❌) — 나란히(병렬)로 만드는 손잡이는 [나란히 놓기]다.
- *
- * ⑰(a) — **나란히 = 병렬.** 행은 순서 위에 얹힌 표식 하나(`parallel`)다. 엣지는 행 단위 팬아웃·팬인이라
- * "이것들이 끝나야 저것이 시작된다"가 선으로 읽힌다. 행에 붙이고 떼는 손잡이는 노드 메뉴와 우클릭
- * 끼워 넣기(노드 옆이면 한 행)다 — ⑳ 뒤로 끌어 옆에 놓는 것은 행을 만들지 않는다.
- *
- * 렌더러를 새로 만들지 않는다 — 캔버스가 쓰는 React Flow 를 그대로 쓴다.
+ * §5.5 #17-17 — 살아 있는 단계 지도(무대 몸통, 캔버스의 React Flow 재사용). 단계 = 노드, 순서 = 엣지, 종류 색 레인, done 취소선·in_progress 맥동·low 빗금.
+ * ⑪(j) 카메라 추종은 손으로 끌거나 확대할 때만 끈다(프로그램 이동으로 끄면 첫 회에 꺼진다). ⑭(c) 조작은 우클릭 하나.
+ * ⑭(d)·⑳ 끌기는 자리만 바꾼다(클라 로컬) — 차례는 아래 핀을 위 핀에 꽂을 때만(`wireAfter`). 세로 위치로 차례를 정하지 마라.
+ * ㉖(h)-3 선 = 차례의 팬아웃·팬인 + 그은 `goalWires` — 끊은 자리(`goalCuts`)는 둘 다에서 뺀다(행 합치기 `breakAt` ❌ — 선이 도로 그려진다).
+ * ⑰(a) 병렬 행(`parallel`)은 노드 메뉴·우클릭 끼워 넣기로만 붙이고 뗀다.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -121,13 +93,8 @@ const GAP_X = 28;
 const PARALLEL_BAND = NODE_H / 2;
 
 /**
- * ⑳ — **핀과 선 끌기.** 노드 위·아래의 작은 원이 핀이고, 선은 핀에서 핀으로만 이어진다.
- *
- * - `CONNECT_RADIUS` — 끌던 선이 핀에 **달라붙는** 거리(흐름 좌표). React Flow 기본 10 은 10px 짜리 핀
- *   위에 정확히 놓아야 해서 손이 자주 빗나간다. 노드 높이의 절반쯤이면 "그 노드 위쪽에 놓았다"가 곧 연결이다.
- * - `RECONNECT_RADIUS` — 이미 그려진 선의 **끝**을 잡을 수 있는 반지름. 이 원이 "선 끝의 작은 원"이다 —
- *   잡아서 다른 단계에 옮겨 꽂으면 새로 잇는 것과 같은 일이 된다(`applyWire` 한 곳).
- * - `DASH` — 끌고 가는 동안의 점선 간격. 화면 좌표로 못 박는다(⑱ 과 같은 이유).
+ * ⑳ 핀·선 끌기 상수. `CONNECT_RADIUS` 달라붙는 거리(흐름 좌표, 기본 10 은 빗나간다) · `RECONNECT_RADIUS` 선 끝을 잡는 반지름
+ * (옮겨 꽂기 = `applyWire`) · `DASH` 끄는 동안 점선 간격(화면 좌표, ⑱ 과 같은 이유).
  */
 const STAGE_WIRE = {
   CONNECT_RADIUS: 32,
@@ -137,23 +104,12 @@ const STAGE_WIRE = {
   PIN_COLOR: '#94A3B8',
 } as const;
 
-/**
- * ⑳ — 핀의 생김새. React Flow 기본 핸들(6px · 검정)은 어두운 무대에서 보이지 않아 "잡을 것"으로 읽히지
- * 않는다. 노드 테두리 색 위에 뜨는 10px 원 + 무대 배경색 테두리로 노드에서 떠 보이게 한다. 크기·모양은
- * 라이브러리 CSS 를 이겨야 해서 `!` 접두다(같은 파일의 `!mb-8` 과 같은 사정). 색은 종류 색을 빌리므로
- * 클래스가 아니라 인라인 값이다.
- */
+/** ⑳ 핀 — 기본 핸들(6px 검정)은 어두운 무대에서 안 보여 10px 원 + 배경색 테두리. `!` 접두는 라이브러리 CSS 를 이기려고, 색은 종류 색이라 인라인. */
 const PIN_CLASS = '!h-2.5 !w-2.5 !rounded-full !border-2 !border-gray-950 transition-colors hover:!border-white';
 
 /**
- * ⑱ — **흐름 선.** 종전에는 아무 값도 주지 않아 React Flow 기본값(`#b1b1b7` · 1px)이 그대로 나갔고,
- * 그 1px 은 **흐름 좌표**라 화면 굵기가 줌 배율에 곱해졌다 — `fitView` 로 배율이 0.6 쯤 내려가는
- * 흔한 상태에서 선이 0.6px 이 되어 어두운 무대 위에서 사실상 사라졌다(사용자 지적 "확대 축소
- * 때문인지 여기 선들이 잘 안 보여"). 점선(`stroke-dasharray: 5`)도 같이 줄어 진행 표시까지 뭉갰다.
- *
- * `vector-effect: non-scaling-stroke` 는 굵기·점선 간격을 **화면 좌표**로 못 박는다 — 어느 배율에서도
- * 같은 굵기다. 줌을 구독해 매번 다시 계산하는 방법도 있지만, 그러면 확대·축소하는 내내 선 전부가
- * 다시 그려진다. 여기서는 CSS 한 줄이 같은 일을 공짜로 한다.
+ * ⑱ 흐름 선 — `vector-effect: non-scaling-stroke` 로 굵기·점선을 화면 좌표에 고정한다(기본 1px 은 줌에 곱해져 0.6 배율에서 사라진다).
+ * 줌 구독 재계산 ❌(줌 내내 선 전부를 다시 그린다).
  */
 const STAGE_EDGE = {
   /** 평상시 선 — 노드 테두리(gray-700)보다 밝아 눈에 걸리고, `KIND_NEUTRAL` 보다는 한 단 아래라 선이 노드를 이기지 않는다. */
@@ -163,21 +119,12 @@ const STAGE_EDGE = {
   WIDTH_RUNNING: 2.4,
 } as const;
 
-/**
- * ⑳(f) — **끄는 손짓의 상수.**
- *
- * - `THRESHOLD` — 이만큼(화면 px) 움직여야 "끈 것"이다. 그 아래는 누른 것으로 읽어 단계를 비춘다
- *   (노드가 클릭으로 여는 카드이기도 해서 이 문턱이 없으면 비추려던 손이 노드를 1px 씩 옮긴다).
- */
+/** ⑳(f) `THRESHOLD` — 이만큼(화면 px) 움직여야 끌기, 그 아래는 클릭(단계 비추기) — 없으면 클릭이 노드를 1px 씩 옮긴다. */
 const STAGE_DRAG = {
   THRESHOLD: 4,
 } as const;
 
-/**
- * ⑳(g) — 카드의 치수. 인라인 `style` 로 못 박은 값이라 **재기 전에도 우리가 아는 값**이다.
- * 이걸 노드에 실어 보내면 React Flow 가 첫 프레임부터 손잡이 치수를 지키므로 선이 깜빡이지 않는다
- * (모듈 상수여야 한다 — 매 렌더 새 객체를 만들면 그만큼 헛렌더가 는다).
- */
+/** ⑳(g) 카드 치수(인라인 style 이라 재기 전에도 안다). 노드에 실어야 첫 프레임부터 선이 안 깜빡인다. 모듈 상수여야 한다(새 객체 = 헛렌더). */
 const NODE_SIZE = { width: NODE_W, height: NODE_H };
 
 /** ㉖(c) — 선을 하나도 긋지 않은 세션이 매 렌더 새 빈 배열을 받지 않도록(그것만으로 memo 가 깨진다). */
@@ -190,14 +137,8 @@ function withRow(p: StepPayload, parallel: boolean): StepPayload {
 }
 
 /**
- * ㉖(h) — **핀에서 끊는 손짓 한 벌.** 두 핀이 같은 규약을 쓰므로 한 자리에서 만든다.
- *
- * - `mousedown` — `Ctrl`(⌘)을 누른 채면 **삼킨다.** 안 그러면 React Flow 가 그 누름을 "선을 끌기
- *   시작했다"로 읽어, 끊으려던 손이 새 선을 끌고 다닌다. 누르지 않았으면 종전대로 흘려보낸다.
- * - `click` — `Ctrl`(⌘)+클릭이면 끊는다. 판정은 `ctrlKey || metaKey` 한 줄이라 Windows·Linux 는
- *   `Ctrl`, macOS 는 `⌘` 다(멀티플랫폼 5축). 노드의 `onClick`(카드 열기)으로 번지지 않게 막는다.
- * - `contextmenu` — 핀 메뉴. macOS 의 `Ctrl`+클릭은 OS 가 이 이벤트를 내므로 **그쪽으로도 끊을
- *   길이 있다**(위 `click` 은 그때 오지 않는다).
+ * ㉖(h) 핀 끊기 손짓: `mousedown`+Ctrl(⌘)은 삼킨다(아니면 선 끌기로 읽힌다) · `click`+`ctrlKey || metaKey` 면 끊고 노드 onClick 으로 안 번지게 ·
+ * `contextmenu` 핀 메뉴 — mac Ctrl+클릭은 click 대신 이 이벤트가 와서 이 길로도 끊을 수 있어야 한다.
  */
 function pinBreakHandlers(
   stepId: string,
@@ -225,13 +166,7 @@ function pinBreakHandlers(
   };
 }
 
-/**
- * ⑪(f)(n)·⑰(a) — 단계 노드.
- *
- * 종전에는 회색 상자 안에 작은 글리프 하나라 스무 개가 전부 같은 모양이었다. 이제 **종류 색이
- * 칸을 차지한다** — 왼쪽 색 레인 + 옅은 색 밑칠 + 오른쪽에 장면 워터마크. 그래야 지도를 훑는 것만으로
- * "여기까지가 찾기고 여기부터가 고치기"가 읽힌다. 나란히 놓인 노드는 오른쪽 위에 `∥`.
- */
+/** ⑪(f)(n)·⑰(a) — 단계 노드. 종류 색 레인 + 옅은 밑칠 + 장면 워터마크로 훑기만 해도 일의 성격이 읽히게. 병렬 노드는 우상단 `∥`. */
 function StepNode({ data }: NodeProps): React.JSX.Element {
   const { t } = useTranslation();
   const { step, kind, selected, parallel, onOpen, onBreakPin, onPinMenu } = data as unknown as StepNodeData;
@@ -332,12 +267,8 @@ function StepNode({ data }: NodeProps): React.JSX.Element {
 const nodeTypes = { goalStep: StepNode };
 
 /**
- * ⑪(j) — **카메라가 비출 단계를 따라간다.** `<ReactFlow>` 의 자식이라야 `useReactFlow` 가 그 인스턴스를
- * 잡으므로 이 조각으로 뺐다(부모에서 부르면 컨텍스트 밖이다).
- *
- * 추종이 꺼져 있으면 아무것도 하지 않는다. 같은 단계로 두 번 옮기지 않는다 — 옮길 때마다 애니메이션이
- * 다시 시작되면 화면이 미세하게 계속 떨린다. ⑭(d) 로 자리가 자유로워졌으므로 **그 노드의 실제 좌표**로
- * 간다(격자 산식으로 계산하면 손으로 옮긴 노드를 비출 때 엉뚱한 빈 곳을 비춘다).
+ * ⑪(j) 카메라 — `useReactFlow` 는 `<ReactFlow>` 자식에서만 잡혀 조각으로 뺐다. 같은 단계로 두 번 옮기지 않는다(떨림).
+ * 목적지는 노드 실제 좌표다(격자 산식이면 손으로 옮긴 노드를 놓친다).
  */
 function StageCamera({
   focusId,
@@ -434,15 +365,7 @@ export function IDEGoalMapView({
   const rfRef = useRef<ReactFlowInstance | null>(null);
   const [menu, setMenu] = useState<StageMenuAnchor | null>(null);
 
-  /*
-   * ⑲ — 빈 자리 메뉴가 열릴 때만 자동 목표 스킬을 묻는다.
-   *
-   * **꺼진 프로젝트에서도 목록은 온다** — 그동안 굳은 절차는 껐다고 사라지지 않기 때문이다(서버
-   * `/api/auto-goal/state` 의 계약). 아무것도 없으면 메뉴가 "아직 자란 절차가 없다"고 말한다.
-   *
-   * 조회 키는 **경로**다(표시명 ❌) — 표시명은 탭에 보이는 이름이라 같은 폴더가 다른 이름으로 뜰 수
-   * 있고, 그러면 서버가 저장고를 못 찾아 빈 목록이 온다.
-   */
+  /* ⑲ — 빈 자리 메뉴가 열릴 때만 자동 목표 스킬을 묻는다(꺼진 프로젝트도 목록은 온다 — `/api/auto-goal/state` 계약). 키는 경로(표시명이면 빈 목록). */
   const projectPath = useGraphStore((s) => (projectName
     ? s.projects[projectName]?.path ?? s.stubProjects[projectName]?.project.path ?? null
     : null));
@@ -461,25 +384,14 @@ export function IDEGoalMapView({
     return () => { cancelled = true; };
   }, [paneMenuOpen, projectPath, agentId, activeSessionId]);
 
-  /**
-   * ⑪(f)·⑭(d)·⑰(a)·⑲(c) — 노드마다 지금 자리. 손댄 적 있으면 그 자리, 없으면 파생 배치.
-   * 산식은 순수 모듈에 있다(`derivePositions`) — 겹침 규칙은 DOM 없이 시험할 수 있어야 한다.
-   */
+  /** ⑪(f)·⑭(d)·⑰(a)·⑲(c) — 노드 자리: 손댄 자리, 없으면 파생 배치(`derivePositions` — DOM 없이 시험되게 순수 모듈). */
   const positions = useMemo(
     () => derivePositions(steps, layout, { nodeW: NODE_W, nodeH: NODE_H, gapX: GAP_X, gapY: GAP_Y, originX: NODE_X }),
     [steps, layout],
   );
   /**
-   * ⑳(f) — **끄는 동안의 자리.** 저장이 아니라 **화면**이다 — 손을 떼는 순간 로컬 저장(`goalNodeLayout`)으로 넘어간다.
-   *
-   * React Flow v12 는 controlled 모드(`nodes` prop)에서 드래그 좌표를 자기 store 에 넣지 않고
-   * `onNodesChange` 로만 흘려보낸다. 이 무대에는 그 핸들러가 없었으므로 매 프레임 좌표가 **조용히
-   * 버려졌고**, 노드는 손을 따라오지 않고 제자리에 붙어 있다가 놓는 순간 그 자리로 순간이동했다
-   * (사용자 지적 "드래그할때 자연스럽게 마우스에 붙이란 말야"). 캔버스의 store 기반 버블(§5.13 앱 버블)이
-   * 겪은 것과 **같은 함정**이고 푸는 법도 같다 — 매 프레임 낙관 반영 + 놓을 때 저장.
-   *
-   * 이 값이 파생·저장 좌표를 이기므로(아래 `positionOf`) 끄는 도중 도착한 스냅샷이 손을 되돌리지 못한다
-   * — 끄는 노드에 대해서는 이것이 곧 드래그 락이다.
+   * ⑳(f) 끄는 동안의 자리(손을 떼면 `goalNodeLayout` 저장). v12 controlled 모드는 드래그 좌표를 `onNodesChange` 로만 흘려,
+   * 매 프레임 반영해야 노드가 손을 따라온다(§5.13 앱 버블과 같은 함정). 이 값이 파생·저장 좌표를 이겨 도중에 온 스냅샷이 손을 되돌리지 못한다.
    */
   const [dragPos, setDragPos] = useState<Record<string, { x: number; y: number }> | null>(null);
   /** 세션이 바뀌면 끌던 자리는 버린다 — 다른 목록의 id 에 옛 좌표가 얹히지 않게. */
@@ -498,11 +410,7 @@ export function IDEGoalMapView({
     [steps, positionOf],
   );
 
-  /**
-   * ⑭(c) — **우클릭한 자리에 노드가 선다.** 서버가 id 를 발급하므로 새 단계의 자리는 곧바로
-   * 저장할 수 없다 — 본문을 적어 두었다가 그 단계가 스냅샷으로 돌아온 순간 자리를 붙인다.
-   * (붙이지 않으면 손으로 배치한 캔버스 한가운데에 파생 좌표로 겹쳐 서서 노드가 사라진 것처럼 보인다.)
-   */
+  /** ⑭(c) — 우클릭 자리에 새 노드. id 는 서버가 주므로 본문을 적어 뒀다가 스냅샷에 돌아올 때 자리를 붙인다(안 붙이면 파생 좌표에 겹쳐 사라진 듯 보인다). */
   const pendingRef = useRef<{ text: string; x: number; y: number }[]>([]);
   useEffect(() => { pendingRef.current = []; }, [activeSessionId]);
   useEffect(() => {
@@ -549,11 +457,7 @@ export function IDEGoalMapView({
     [steps, payloadOf],
   );
 
-  /**
-   * ⑪(d)·⑭(c)·⑰(a)②·⑳ — 그 자리에 단계를 끼워 넣는다. 사용자 소유라 세션이 지우지 못한다.
-   * `at` 이 있으면 누른 캔버스 좌표가 자리를 정한다 — **가장 가까운 노드**의 앞·뒤·옆이다(같은 높이 띠면
-   * 한 행). ⑳ 뒤로 좌표는 차례를 말하지 않으므로 목록 전체를 다시 세지 않는다 — 있는 차례는 그대로다.
-   */
+  /** ⑪(d)·⑭(c)·⑰(a)②·⑳ — 단계 끼워 넣기(사용자 소유). `at` 이면 가장 가까운 노드의 앞·뒤·옆(같은 높이 띠면 한 행). 있는 차례는 다시 세지 않는다. */
   const insertStep = useCallback(
     (text: string, at?: { x: number; y: number }, kind?: string) => {
       if (!canEdit || !activeSessionId) return;
@@ -586,10 +490,7 @@ export function IDEGoalMapView({
     [activeSessionId, t],
   );
 
-  /**
-   * ⑪(m) — **흐름 템플릿을 깐다.** 꼬리에 붙인다(있던 목록을 지우지 않는다 — 지우는 것은 언제나
-   * 사용자가 따로 하는 일이고, 버튼 한 번에 남의 계획이 사라지면 그게 더 나쁘다).
-   */
+  /** ⑪(m) — 흐름 템플릿은 꼬리에 붙인다(있던 목록을 지우지 않는다). */
   const applyFlow = useCallback(
     (tpl: GoalFlowTemplate) => {
       if (!canEdit || !activeSessionId) return;
@@ -607,18 +508,10 @@ export function IDEGoalMapView({
   );
 
   /**
-   * ⑭(d)·⑳ — 노드를 끌어 놓으면 **자리만** 남는다. 차례·행은 건드리지 않는다.
-   *
-   * 종전(⑫(d)·⑰(a)①)에는 놓는 순간 세로 순서로 차례를 다시 판정해 서버로 보냈다 — 보기 좋게 옮긴
-   * 손짓이 실행 순서를 바꿔 버렸다. 이제 좌표는 클라 로컬에만 앉고(⑪(f) 의 규율은 전송에 그대로 산다),
-   * 차례는 아래 `applyWire`(핀을 끌어 꽂기)로만 바뀐다. 서버 왕복이 없으므로 목록이 사용자 소유로
-   * 박히는 문(⑲(a))도 열리지 않는다.
+   * ⑭(d)·⑳ — 놓으면 자리만 남는다(클라 로컬). 차례는 `applyWire` 로만 — 세로 순서로 다시 정하면 보기 좋게 옮긴 손짓이 실행 순서를 바꾼다.
+   * 서버 왕복이 없어 ⑲(a) 의 사용자 소유 문도 안 열린다.
    */
-  /**
-   * ⑳(f) — **끄는 내내 손을 따라온다.** React Flow 가 매 프레임 흘려보내는 좌표를 그대로 받아 화면
-   * 자리에 앉힌다(위 `dragPos` 주석 — 이 한 곳이 없으면 노드는 끄는 내내 제자리에 서 있다).
-   * 골라 둔 노드가 여럿이면 `moved` 에 그것들이 함께 온다.
-   */
+  /** ⑳(f) — 매 프레임 드래그 좌표를 `dragPos` 에 앉힌다(없으면 노드가 제자리). 여럿 골랐으면 `moved` 로 함께 온다. */
   const onNodeDrag = useCallback(
     (_e: React.MouseEvent, node: Node, moved: Node[]) => {
       const dragged = moved.length > 0 ? moved : [node];
@@ -650,10 +543,8 @@ export function IDEGoalMapView({
   );
 
   /**
-   * ⑳ — **선을 잇는다.** `source` 의 아래 핀에서 `target` 의 위 핀으로 — 꽂힌 단계가 그 단계 **바로
-   * 다음**에 선다(판정은 `wireAfter`). 새로 끈 선이든, 그려진 선의 끝을 옮겨 꽂은 것이든 같은 문이다.
-   * 자리는 그대로 둔다 — 블루프린트가 그렇듯 선은 노드를 옮기지 않는다(손대지 않은 노드의 파생 자리만
-   * 새 차례를 따라 흐른다). 보낼 것이 없으면(`null`) 왕복도 없다.
+   * ⑳ 선 잇기 — `source` 아래 핀 → `target` 위 핀, 꽂힌 단계가 바로 다음(`wireAfter`). 새 선·옮겨 꽂기가 같은 문.
+   * 선은 노드 자리를 옮기지 않는다. `null` 이면 왕복 없음.
    */
   const applyWire = useCallback(
     (source: string, target: string, base: GoalWire[] = wires) => {
@@ -679,11 +570,7 @@ export function IDEGoalMapView({
   /** ⑳ — 핀에서 핀으로 새 선을 끌어 놓았다. */
   const onConnect = useCallback((c: Connection) => applyWire(c.source, c.target), [applyWire]);
 
-  /**
-   * ㉖(e) — 선 끝(작은 원)을 **잡은** 순간. 다른 단계에 꽂히면 `onReconnect` 가 이 표식을 내리고,
-   * 빈 자리에서 손을 떼면 표식이 그대로 남아 `onReconnectEnd` 가 그 선을 끊는다(블루프린트에서
-   * 연결을 떼는 그 손짓). ⑳(b) 의 "빈 자리에 놓으면 취소"를 **끊기**로 정정한 자리다.
-   */
+  /** ㉖(e) 선 끝을 잡은 표식 — 꽂히면 `onReconnect` 가 내리고, 빈 자리에 놓으면 남아 `onReconnectEnd` 가 선을 끊는다. */
   const reconnectedRef = useRef(true);
   const onReconnectStart = useCallback(() => { reconnectedRef.current = false; }, []);
 
@@ -702,10 +589,7 @@ export function IDEGoalMapView({
     [activeSessionId, removeGoalWire, addGoalCut, applyWire, wires],
   );
 
-  /**
-   * ㉖(e)·(h)-3 — 빈 자리에서 손을 뗐다 = 그 선을 끊는다. 그은 목록에서 빼고 **끊은 자리로 남긴다** —
-   * 차례(순서·행)는 건드리지 않는다(끊었다고 목록이 뒤섞이면 ⑲ 의 재발이다).
-   */
+  /** ㉖(e)·(h)-3 — 빈 자리에 놓으면 끊는다: 그은 목록에서 빼고 끊은 자리로 남긴다. 차례는 건드리지 않는다(뒤섞이면 ⑲ 재발). */
   const onReconnectEnd = useCallback(
     (_e: MouseEvent | TouchEvent, edge: Edge) => {
       if (reconnectedRef.current) return;
@@ -717,11 +601,7 @@ export function IDEGoalMapView({
     [activeSessionId, removeGoalWire, addGoalCut],
   );
 
-  /**
-   * ㉖(e)·(h)-3 — 노드 메뉴 [선 끊기] — 그 단계에 붙은 선을 전부 걷는다(들어오는 것도 나가는 것도).
-   * 그은 선은 목록에서 빠지고, 차례가 그리던 선은 끊은 자리로 남는다 — 둘 다 걷어야 노드 하나가
-   * 정말로 **떨어져 선다**(한쪽만 걷으면 남은 쪽이 곧바로 다시 그려져 아무 일도 없던 것처럼 보인다).
-   */
+  /** ㉖(e)·(h)-3 [선 끊기] — 그 단계의 들고 나는 선 전부. 그은 선은 빼고 차례 선은 끊은 자리로 — 한쪽만 걷으면 곧바로 다시 그려진다. */
   const onClearWires = useCallback(
     (stepId: string) => {
       if (!activeSessionId) return;
@@ -740,11 +620,7 @@ export function IDEGoalMapView({
     window.setTimeout(() => rfRef.current?.fitView({ duration: 300 }), 0);
   }, [activeSessionId, clearGoalNodeLayout]);
 
-  /**
-   * ⑰(a) — [나란히 놓기]/[줄에서 떼기]. 끌 자리가 없는 좁은 무대용 손잡이 — 앞 단계와 붙이고 뗀다.
-   * 행은 차례의 일부라 차례 바꾸기와 **같은 문**(사용자 문)으로 간다. 손이 놓은 자리는 지운다 —
-   * 붙고 뗀 것이 파생 자리(왼쪽 이웃 옆 / 다음 줄)로 보여야 무슨 일이 일어났는지 읽힌다.
-   */
+  /** ⑰(a) [나란히 놓기]/[줄에서 떼기] — 좁은 무대용. 행은 차례의 일부라 같은 사용자 문으로 간다. 놓은 자리는 지운다(파생 자리로 보여야 변화가 읽힌다). */
   const onToggleParallel = useCallback(
     (stepId: string, parallel: boolean) => {
       if (!canEdit || !activeSessionId) return;
@@ -757,14 +633,7 @@ export function IDEGoalMapView({
     [canEdit, activeSessionId, agentId, steps, payloadOf, forgetGoalNodePosition, setUserGoalSteps],
   );
 
-  /**
-   * ⑲(b) — **단계 지우기.** ⑪(d) 는 사용자 문을 "끼워 넣기·삭제·순서 바꾸기"라고 적어 두고도
-   * 삭제 손잡이를 세운 적이 없다. 그래서 한 번 목록에 들어온 단계는 **뺄 방법이 없었고**, 사용자
-   * 소유로 박힌 단계는 세션도 못 지워 라운드가 바뀌어도 영영 남았다(⑲ 가 고친 그 오염의 절반).
-   *
-   * 되돌릴 수 없는 조작이라 한 번 묻는다 — 세션이 쓴 단계는 다음 신고에 다시 서지만, 사용자가
-   * 직접 써 넣은 본문은 여기서 끝이다. 손이 놓은 자리도 함께 잊는다(남으면 죽은 좌표가 된다).
-   */
+  /** ⑲(b) 단계 지우기 — 사용자 소유 단계는 세션이 못 지워 이 손잡이가 유일한 길이다. 되돌릴 수 없어 한 번 묻고(직접 쓴 본문은 끝), 놓은 자리도 잊는다. */
   const onDeleteStep = useCallback(
     async (stepId: string) => {
       if (!canEdit || !activeSessionId) return;
@@ -784,11 +653,7 @@ export function IDEGoalMapView({
     [canEdit, activeSessionId, agentId, steps, payloadOf, forgetGoalNodePosition, clearGoalWiresOf, setUserGoalSteps, t],
   );
 
-  /**
-   * ㉖(c)·(h)-3 — 목록에서 사라진 단계의 선·끊은 자리를 저장고에서도 걷는다. **빈 목록에서는 걷지
-   * 않는다** — 탭을 옮긴 직후처럼 스냅샷이 아직 안 온 한 프레임에 목록이 비어 보이는데, 그때 걷으면
-   * 사용자가 그은 선이 통째로 날아간다(영속 상태를 스냅샷으로 청소할 때 늘 나는 그 사고).
-   */
+  /** ㉖(c)·(h)-3 — 사라진 단계의 선·끊은 자리를 저장고에서 걷되 빈 목록에선 걷지 않는다(스냅샷 전 한 프레임의 빈 목록에 걷으면 그은 선이 날아간다). */
   useEffect(() => {
     if (!activeSessionId || steps.length === 0) return;
     const live = steps.map((s) => s.id);
@@ -796,10 +661,7 @@ export function IDEGoalMapView({
     pruneGoalCuts(activeSessionId, live);
   }, [activeSessionId, steps, pruneGoalWires, pruneGoalCuts]);
 
-  /**
-   * ⑭(c)·㉖(h) — 우클릭 **세 갈래**. 빈 자리는 노드 메뉴, 노드 위는 그 단계의 메뉴,
-   * 핀 위는 그 핀의 메뉴([끊기])다. 규약·검색·닫기는 한 벌 그대로다.
-   */
+  /** ⑭(c)·㉖(h) — 우클릭 세 갈래: 빈 자리 = 노드 메뉴, 노드 = 단계 메뉴, 핀 = [끊기]. 규약·검색·닫기는 한 벌. */
   const openMenuAt = useCallback((clientX: number, clientY: number, stepId?: string, pinSide?: GoalPinSide) => {
     const pos = rfRef.current?.screenToFlowPosition({ x: clientX, y: clientY });
     setMenu({
@@ -813,13 +675,8 @@ export function IDEGoalMapView({
   }, []);
 
   /**
-   * ㉖(h)·(h)-3 — **핀에서 끊는다.** 그은 선은 **그 방향의 것만** 걷고(위 핀은 들어오는 선, 아래 핀은
-   * 나가는 선), 차례가 그리던 선은 **끊은 자리로 남긴다.** 끊을 것이 없는 핀에서는 아무 일도 없다.
-   *
-   * 종전(㉖(h)-1)에는 여기서 두 행을 합쳤다(`breakAt`). 그 판정이 사용자가 본 결함을 만들었다 —
-   * `[A][B][C][D]` 에서 `C` 의 위 핀을 끊으면 `C` 가 `B` 행에 합류해 `[A][B,C][D]` 가 되고, 팬아웃이
-   * `A→C` 를 **방금 끊은 그 핀에** 도로 그린다. 그래서 행을 합치지 않는다 — 끊기는 끊기고, 나란히
-   * (병렬)로 만드는 손잡이는 종전대로 노드 메뉴 [나란히 놓기]다. 서버 왕복도 없다(차례 무변).
+   * ㉖(h)·(h)-3 핀 끊기 — 그은 선은 그 방향 것만(위 = 들어오는, 아래 = 나가는), 차례 선은 끊은 자리로. 행을 합치지 마라(`breakAt`) —
+   * `[A][B][C][D]` 에서 C 위 핀을 끊어 B 행에 합치면 팬아웃이 A→C 를 도로 그린다. 서버 왕복 없음.
    */
   const onBreakPin = useCallback(
     (stepId: string, side: GoalPinSide) => {
@@ -850,12 +707,7 @@ export function IDEGoalMapView({
     openMenuAt(e.clientX, e.clientY, node.id);
   }, [openMenuAt]);
 
-  /**
-   * ⑳(f) — **자리와 몸통을 따로 짓는다.** 끄는 동안 프레임마다 달라지는 것은 자리 하나뿐인데, 한 덩어리로
-   * 지으면 그 한 프레임마다 스무 개 노드의 `data` 가 전부 새 객체가 되어 손을 따라오지 않는 노드까지
-   * 다시 그려진다(장면 워터마크·글리프까지). 몸통을 여기서 한 번만 짓고 `data` 신원을 그대로 두면
-   * React Flow 는 **자리가 바뀐 노드만** 다시 그린다 — 그 차이가 "부드럽게"다.
-   */
+  /** ⑳(f) 자리와 몸통을 따로 짓는다 — 한 덩어리면 끄는 프레임마다 모든 노드 `data` 가 새 객체라 전부 다시 그린다. `data` 신원을 지켜야 옮긴 노드만 그린다. */
   const baseNodes = useMemo(
     () => steps.map((step, i) => ({
       id: step.id,
@@ -882,25 +734,12 @@ export function IDEGoalMapView({
     [baseNodes, positionOf],
   );
 
-  /**
-   * ⑳(g) — **선이 사라지지 않게** 잰 치수를 노드에 도로 실어 준다. 이 한 겹이 없으면 새 노드 객체가
-   * 갈 때마다 React Flow 가 그 노드의 손잡이 치수를 지우고, 손잡이 치수가 없는 노드에 붙은 선은
-   * 그려지지 않는다 — 목록이 갱신될 때마다 선이 하나씩 빠진 그림이 남았다(훅 주석에 근거).
-   */
+  /** ⑳(g) 잰 치수를 노드에 도로 싣는다 — 없으면 새 노드 객체마다 손잡이 치수가 지워져 그 노드의 선이 안 그려진다(훅 주석). */
   const { nodes: flowNodes, onNodesChange } = useMeasuredFlowNodes(nodes, NODE_SIZE);
 
   /**
-   * ⑰(a)·㉖(b) — **차례가 그리는 선 위에 내가 그은 선이 더해진다.**
-   *
-   * 밑바탕은 종전 그대로다 — 행 단위 **팬아웃·팬인**(앞 행의 모든 노드에서 다음 행의 모든 노드로).
-   * 그 선이 곧 "이것들이 끝나야 저것이 시작된다"이고, 목록에 단계가 있는 한 흐름은 언제나 보인다.
-   * ㉖ 초안은 이 선을 통째로 걷고 그은 것만 남겼는데, 그러면 지도가 **선 없는 카드 더미**가 된다
-   * (사용자 지적 "선이 잘 안보여서 정확하게 보이게 만들라고 하니까 왜 아예 지워버렸어"). 사용자가
-   * 본 "긋지도 않은 연결"의 정체는 ㉖(a) 의 **남의 마스크에 잘린 선 토막**이었고, 고칠 자리는
-   * 그쪽이다 — 흐름을 그리는 선 자체가 아니다.
-   *
-   * 그 위에 **핀에서 핀으로 그은 선**(`goalWires`)을 얹는다. 차례가 이미 그린 선이면 같은 id 라
-   * 한 번만 그려지고, 행을 건너뛰어 이은 선은 그것대로 남는다. 양 끝이 지금 목록에 있는 선만 그린다.
+   * ⑰(a)·㉖(b) — 밑바탕은 행 단위 팬아웃·팬인, 그 위에 그은 `goalWires`(같은 id 는 한 번, 양 끝이 목록에 있는 것만).
+   * 밑바탕 선을 걷지 마라 — 선 없는 카드 더미가 된다(긋지 않은 연결로 보인 것은 ㉖(a) 마스크에 잘린 선 토막이다).
    */
   const edges = useMemo<Edge[]>(() => {
     const byId = new Map(steps.map((s) => [s.id, s] as const));
@@ -921,10 +760,7 @@ export function IDEGoalMapView({
           strokeLinecap: 'round',
           vectorEffect: 'non-scaling-stroke',
         },
-        // ⑱ — 선 둘레의 **보이지 않는 20px 띠**(React Flow 기본 `interactionWidth`)를 없앤다.
-        //   이 무대의 선은 몸통을 고를 것이 아닌데(선 메뉴 ❌), 그 띠가 포인터를 먼저 먹어
-        //   선 근처 우클릭이 노드 메뉴를 못 열고 조용히 삼켜졌다(캔버스도 같은 이유로 0 이다).
-        //   ⑳ 뒤로 잡을 수 있는 것은 선의 **끝**(`reconnectRadius` 원)뿐이다 — 몸통은 여전히 0.
+        // ⑱ — 선 둘레 20px 띠(`interactionWidth`)를 0 으로: 띠가 포인터를 먹어 선 근처 우클릭이 노드 메뉴를 못 연다(캔버스도 0). 잡는 건 선 끝(`reconnectRadius`)뿐.
         interactionWidth: 0,
       };
     };

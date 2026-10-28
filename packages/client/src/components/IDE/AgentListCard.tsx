@@ -32,14 +32,7 @@ function ListOrderedIcon(): React.JSX.Element {
   );
 }
 
-/**
- * §4 v2.84 — 에이전트 번호 목록 정렬 카드.
- *
- * 커스텀/스폰 에이전트가 `POST /api/agent-list` 로 보낸 title/items 를 렌더. 에이전트가 답변에 담는
- * 여러 항목의 번호/순서 목록을 본문 텍스트로 길게 나열하는 대신, 항목 배열만 보내면 IDE 가 번호를
- * 자동으로 매겨 **가지런히 정렬**해 보여준다(번호 열 고정폭 + 행잉 인덴트). teal 액센트로 구분.
- * 작업 신고(emerald)·질문(sky)·검수(violet)와 동일 골격.
- */
+/** §4 — 번호 목록 카드(`POST /api/agent-list` 의 title/items 에 번호를 매겨 정렬 — 번호 열 고정폭 + 행잉 인덴트). teal — 신고·질문·검수 카드와 같은 골격. */
 export const AgentListCard = memo(function AgentListCard({ list, live }: AgentListCardProps): React.JSX.Element {
   const { t } = useTranslation();
   // §5.5 #17-21 ④ — 간결에서는 상위 N개만 보이고 나머지는 `+N` 한 줄(클릭하면 전부 펼친다).

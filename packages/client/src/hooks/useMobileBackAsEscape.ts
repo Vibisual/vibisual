@@ -1,15 +1,6 @@
 import { useEffect } from 'react';
 
-// SCENARIO.md §4 v3.16 — 모바일 웹 접속 모드 전용 UX 보정.
-// 모바일 브라우저의 하드웨어/제스처 "뒤로가기(back)" 는 기본적으로 페이지를 이탈시켜(홈으로 나가버림)
-// Vibisual 을 벗어나게 만든다. 데스크톱의 ESC 처럼 "열려 있는 오버레이·팝업·메뉴를 하나 닫는" 동작으로
-// 바꿔, back 이 앱을 떠나지 않고 컨텍스트만 되짚게 한다.
-//
-// 방식: history 에 센티넬 엔트리를 하나 밀어 넣어 back 을 가둔다. back 이 눌리면 popstate 가 뜨는데,
-// 이때 실제로 페이지를 떠나지 않고 (1) 전역에 걸린 ESC 핸들러들이 반응하도록 합성 'Escape' keydown 을
-// 디스패치하고 (2) 센티넬을 다시 밀어 넣어 트랩을 재무장한다. 결과적으로 back 은 항상 "ESC 한 번"이 된다.
-//
-// 데스크톱 Electron(`window.api` 존재)에는 브라우저 back 개념이 없으므로 no-op — 기존 동작 불변.
+// §4 모바일 웹 — 브라우저 뒤로가기를 앱 이탈이 아니라 ESC 한 번으로 바꾼다: history 센티넬로 back 을 가두고, popstate 때 합성 'Escape' keydown 을 보낸 뒤 센티넬을 다시 민다. `window.api` 가 있으면 no-op.
 
 function dispatchEscape(): void {
   // 포커스된 요소에서 디스패치해 React onKeyDown(루트 컨테이너에서 위임) 과 window/document 전역

@@ -57,15 +57,7 @@ export interface OrchestraCritiqueFiring {
   freshCycle: boolean;
 }
 
-/**
- * 검수는 **신고 목록이 아니라 참가 사실**로 발사한다.
- *
- * 종전에는 감독이 `reusedAgentIds` 에 적은 검수자만 발사했다 — 신고를 빠뜨리면 검수가 한 번도
- * 돌지 않고, 런은 검수 0건인 채 `completed`(성공으로 읽힌다)로 닫혔다. 작업자가 이 런의 명령을
- * 실제로 끝냈다면 그 작업자에게 걸린 검수 엣지는 이 런의 검수다.
- *
- * 발사 단위는 **런당 한 번**이다(같은 런의 명령이 여럿 끝나도 검수는 한 벌).
- */
+/** 검수는 신고(`reusedAgentIds`)가 아니라 참가 사실로 발사한다 — 신고를 빠뜨리면 검수 0건으로 `completed` 가 된다. 런당 한 번. */
 export function orchestraCritiqueFirings(
   done: readonly QueuedCommand[],
   workerAgentId: string,

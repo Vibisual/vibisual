@@ -1,9 +1,4 @@
-/**
- * §5.11 v4.01 — 명령 패턴 탐지기 고정 테스트.
- *
- * 이 두 탐지기는 카탈로그에서 유일하게 **실제 실행 기록**을 훑는다. 패턴이 넓어지면 평범한 명령이 매번
- * 걸려 경고가 배경이 되므로, "무엇을 잡고 **무엇을 안 잡는지**"를 함께 못 박는다.
- */
+/** §5.11 — 명령 패턴 탐지기 고정. 실제 실행 기록을 훑는 탐지기라, 패턴이 넓어져 평범한 명령이 걸리지 않게 무엇을 안 잡는지도 못 박는다. */
 import { describe, it, expect } from 'vitest';
 import type { BashEntry } from '@vibisual/shared';
 import { findMisuse } from './tool-misuse/toolMisuse.js';

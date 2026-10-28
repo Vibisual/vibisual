@@ -3,11 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { DEFAULT_SESSION_PROBE_SETTINGS, type QueuedCommand, type SessionLivenessProbeResult } from '@vibisual/shared';
 
 /**
- * §5.3 #10-2 — **띄운 위임의 결과를 받지 못한 턴은 완료로 끝나지 않는다.**
- *
- * 반환 엣지가 있는 dispatch 는 대기가 풀려도(제한시간·조회 거절·연결 끊김) 작업이 계속 돈다. 그 자리에서 턴이 끝나면
- * 부모는 초록 "완료"로 서서 결과를 받지 않고 끝난 것이 가려졌다. 여기서는 턴 끝 경로 하나(세션 판정 자동 종료)를
- * 실제로 돌려 가드가 사유와 cmdId 를 남기는지 본다 — 나머지 끝 경로의 배선은 `taskEdgeDispatchJobs.test.ts` 가 소스로 고정한다.
+ * §5.3 #10-2 — 반환 엣지 dispatch 의 결과를 못 받은 턴은 완료로 끝나지 않는다(대기가 풀려도 작업은 돈다).
+ * 세션 판정 자동 종료 경로를 실제로 돌리고, 나머지 끝 경로 배선은 `taskEdgeDispatchJobs.test.ts` 가 고정한다.
  */
 
 let probeAnswer: SessionLivenessProbeResult | null = null;

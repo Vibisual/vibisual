@@ -79,11 +79,7 @@ interface NumberedNote {
   items: { num: string; text: string }[];
 }
 
-/**
- * note 본문에서 "1. … 2. …" / "1) …" 형태의 번호 목록을 추출한다.
- * 줄바꿈으로 나뉘었든 한 줄에 인라인으로 붙었든 마커 기준으로 분해한다.
- * 번호 마커가 2개 미만이면 목록으로 보지 않고 null 반환(일반 문단으로 렌더).
- */
+/** note 의 "1. …"/"1) …" 번호 목록을 마커 기준으로 뽑는다(인라인 포함). 마커 2개 미만이면 null. */
 function parseNumberedNote(note: string): NumberedNote | null {
   const re = /(?:^|\s)(\d{1,3})[.)]\s+/g;
   const markers: { num: string; index: number; markerLen: number }[] = [];
@@ -128,15 +124,7 @@ function NoteBody({ note }: { note: string }): React.JSX.Element {
   );
 }
 
-/**
- * §4 v2.52 — 에이전트 작업 신고 인라인 카드.
- *
- * 커스텀/스폰 에이전트가 `POST /api/agent-report` 로 보낸 did/userActions 를 색으로 구분해 렌더.
- * - did       : 중립(에메랄드 체크) — AI 가 한 일.
- * - userActions: amber 강조 — 사용자가 직접 해야 할 일.
- * - nextSteps : 보조(슬레이트) — 다음 단계.
- * 표시 전용 — 사용자가 긴 보고를 다 안 읽어도 "내가 할 일"을 한눈에 파악하게 한다.
- */
+/** §4 — 작업 신고 카드(`POST /api/agent-report`, 표시 전용): did(AI 가 한 일) · userActions(사람이 할 일, amber) · nextSteps(다음 단계). */
 export const AgentReportCard = memo(function AgentReportCard({ report, review, live }: AgentReportCardProps): React.JSX.Element {
   const { t } = useTranslation();
   const hasUserActions = report.userActions.length > 0;
@@ -265,7 +253,7 @@ export const AgentReportCard = memo(function AgentReportCard({ report, review, l
           />
         </CardDetails>
 
-        {/* §4 v3.21 — 좋아요/싫어요 (규칙 되먹임 학습 재료). §5.5 #17-12 — 호버 때만 노출(상시 잡음 제거). */}
+        {/* §4 — 좋아요/싫어요(규칙 되먹임 재료). §5.5 #17-12 호버 때만. */}
         <CardHoverControls>
           <FeedbackButtons
             agentId={report.agentId}

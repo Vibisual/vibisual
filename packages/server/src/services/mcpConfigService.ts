@@ -1,14 +1,7 @@
 /**
- * §5.5 #17-20 ⑥ v4.74 — 에이전트에 MCP 디버그 도구를 꽂아 주는 층.
- *
- * 우리는 디버거를 만들지 않는다. 이미 있는 MCP 서버(`@debugmcp/mcp-debugger`,
- * `chrome-devtools-mcp`, 언리얼 MCP, LLDB MCP)를 **스폰되는 claude 세션에 연결만** 해 준다.
- *
- * 왜 사용자 레포의 `.mcp.json` 을 쓰지 않는가:
- *   - 그 파일은 사용자 저장소에 커밋되는 자산이다. 우리가 임의로 쓰면 공개 저장소를 오염시킨다.
- *   - 켬/끔은 **에이전트 단위**(`AgentConfig.mcpServers`)라 레포 단위 파일과 축이 다르다.
- * 그래서 `~/.vibisual/mcp/<해시>.json` 에 우리 것만 쓰고 CLI 에 `--mcp-config` 로 건넨다.
- * 해시는 켠 서버 목록에서 나오므로 같은 조합은 같은 파일을 재사용한다(스폰마다 쓰지 않는다).
+ * §5.5 #17-20 ⑥ — 스폰되는 claude 세션에 기존 MCP 디버그 서버(`chrome-devtools-mcp` 등)를 연결만 한다(디버거를 만들지 않는다).
+ * 레포의 `.mcp.json` 은 쓰지 않는다(커밋되는 사용자 자산 · 켬/끔은 에이전트 단위) — `~/.vibisual/mcp/<해시>.json` 을 `--mcp-config` 로 넘긴다.
+ * 해시는 켠 서버 목록에서 나와 같은 조합은 같은 파일을 쓴다.
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -24,12 +17,7 @@ function mcpDir(): string {
   return path.join(os.homedir(), '.vibisual', 'mcp');
 }
 
-/**
- * 켠 프리셋 id 목록 → `--mcp-config` 에 넘길 파일 경로 + `--allowedTools` 에 넣을 도구 패턴.
- *
- * 알 수 없는 id 는 조용히 건너뛴다 — 옛 설정에 남은 id 가 스폰 자체를 깨뜨리면 안 된다.
- * 쓸 것이 하나도 없거나 파일을 못 쓰면 null(=MCP 인자 없이 평소대로 스폰).
- */
+/** 켠 프리셋 id → `--mcp-config` 파일 경로 + `--allowedTools` 패턴. 모르는 id 는 건너뛴다(옛 설정이 스폰을 깨지 않게). 쓸 것이 없거나 못 쓰면 null(평소대로 스폰). */
 export interface StdioMcpServer { command: string; args: string[]; env?: Record<string, string> }
 
 export function prepareMcpConfig(serverIds: readonly string[] | undefined, runtimeServers: Readonly<Record<string, StdioMcpServer>> = {}): { configPath: string; allowedTools: string[] } | null {

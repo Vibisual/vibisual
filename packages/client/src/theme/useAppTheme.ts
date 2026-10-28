@@ -66,12 +66,8 @@ export function useAppThemeTokenHex(token: AppThemeToken): string {
 }
 
 /**
- * 창 하나에 한 번(부팅 지점의 `AppThemeHost`) — 고른 테마를 `<html>` 에 싣고 표시 캐시를 남긴다.
- *
- * - 사용자 테마를 골라 뒀는데 목록을 아직 못 받았으면 **칠하지 않고 기다린다** — 목록 없이 풀면
- *   기본 테마로 떨어져 한 번 깜빡인다. 그동안은 부팅 캐시(지난번 색)가 그대로 서 있다.
- * - 스냅샷을 받지 않는 창(설정값이 끝내 안 오는 창)은 다른 창이 남긴 캐시를 storage 이벤트로 따라간다.
- *   스냅샷을 받는 창은 캐시를 따르지 않는다 — 옛 스냅샷을 든 창이 새 값을 되돌리지 못하게.
+ * 창마다 한 번(`AppThemeHost`) — 고른 테마를 `<html>` 에 싣고 표시 캐시를 남긴다. 사용자 테마 목록을 아직 못 받았으면 **칠하지 않고 기다린다**
+ * (기본 테마로 한 번 깜빡인다). 스냅샷을 안 받는 창만 storage 이벤트로 캐시를 따른다(옛 스냅샷을 든 창이 새 값을 되돌리지 못하게).
  */
 export function useAppThemeSync(): void {
   const hasDefaults = useGraphStore((s) => s.userDefaults !== null);

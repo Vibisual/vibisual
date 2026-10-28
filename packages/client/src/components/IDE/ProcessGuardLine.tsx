@@ -9,12 +9,7 @@ interface ProcessGuardLineProps {
   sessionLabel?: string;
 }
 
-/**
- * §5.3 #9-2 — 메모리 보호가 프로세스를 멈춘 사실 한 줄. 세션 탭·메인 탭 공용(`TransportRecoveryLine` 과 같은 자리).
- *
- * 서버는 사유·실행본·메모리·상한 같은 **사실만** 싣고, 문장은 여기서 로케일로 만든다(§5.5 #17-12 ③ 실패 사유와
- * 같은 규율). 줄 머리 `[process-guard]` 가 칩 패턴 밖이라 표준·간결 밀도에서도 숨지 않는다.
- */
+/** §5.3 #9-2 — 메모리 보호가 프로세스를 멈춘 사실 한 줄(세션·메인 탭 공용). 서버는 사실만, 문장은 로케일로. `[process-guard]` 머리는 칩 패턴 밖이라 간결 밀도에서도 보인다. */
 export function ProcessGuardLine({ notice, content, sessionLabel }: ProcessGuardLineProps): React.JSX.Element {
   const { t } = useTranslation();
   const image = notice.image || t('ide.processGuard.someProcess');

@@ -1,10 +1,6 @@
 /**
- * platform.test.ts — 플랫폼 판정 SSOT 회귀.
- *
- * 여기서 못 박는 것은 세 가지다:
- *  ① mac 단축키 라벨(`⌘S`)과 그 외(`Ctrl+S`)가 **같은 입력에서 갈린다**.
- *  ② 경로 키가 Linux 에서는 케이스를 보존하고 Windows/macOS 에서만 접힌다.
- *  ③ 판정 불가(`unknown`)일 때는 **접는 쪽**으로 물러선다 — 종전 동작이라 회귀가 없다.
+ * 플랫폼 판정 SSOT 회귀: ① mac 단축키 라벨(`⌘S`)과 그 외(`Ctrl+S`)가 같은 입력에서 갈린다 ② 경로 키는 Linux 에서 케이스를 보존하고
+ * Windows/macOS 에서만 접힌다 ③ 판정 불가(`unknown`)면 접는 쪽으로 물러선다.
  */
 import { describe, it, expect } from 'vitest';
 import { pathKey } from '@vibisual/shared';

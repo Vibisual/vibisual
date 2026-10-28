@@ -1,14 +1,6 @@
-// Vibisual app-icon generator (pure Node, no image deps).
-//
-// Rasterizes the brand bubble — same blue→purple linear gradient as
-// packages/client/public/favicon.svg — into:
-//   - icon.png  (1024×1024, single image; feeds macOS .icns and Linux)
-//   - icon.ico  (16/32/48/64/128/256, multi-image; Windows picks per-DPI)
-//
-// icon.png must stay at 512×512 or larger: electron-builder refuses to package
-// for macOS below that ("image ... must be at least 512x512") and that check is
-// what broke every mac release job before v0.1.9.
-//
+// Vibisual app-icon generator (pure Node, no image deps). Rasterizes the brand bubble — same blue→purple linear gradient as
+// packages/client/public/favicon.svg — into icon.png (1024×1024; feeds macOS .icns and Linux) and icon.ico (16/32/48/64/128/256; Windows picks per-DPI).
+// icon.png must stay at 512×512 or larger: electron-builder refuses to package for macOS below that ("image ... must be at least 512x512").
 // Run:  node packages/desktop/resources/icons/generate-placeholder.mjs
 
 import { writeFileSync } from 'node:fs';
@@ -122,14 +114,9 @@ function wrapMultiIco(images /* [{ size, png }] */) {
   return Buffer.concat([dir, ...payloads]);
 }
 
-// ICNS: 'icns' + total length, then typed chunks of `type + length + payload`.
-// macOS 10.7+ reads PNG directly out of these chunk types, so we embed the same
-// PNGs rather than the old raw-bitmap formats.
-//
-// We ship a finished .icns instead of letting electron-builder derive one from
-// icon.png: its converter (app-builder, Go) panics with "index out of range [-1]"
-// on that path — a bug reported since 2018 and still open. Handing it a ready
-// .icns skips the converter entirely.
+// ICNS: 'icns' + total length, then typed chunks of `type + length + payload`; macOS 10.7+ reads PNG directly out of these chunk types.
+// We ship a finished .icns instead of letting electron-builder derive one from icon.png: its converter (app-builder, Go) panics with
+// "index out of range [-1]" on that path (open bug since 2018). A ready .icns skips the converter entirely.
 const ICNS_TYPES = [
   ['icp4', 16],   ['icp5', 32],   ['ic11', 32],   ['ic12', 64],
   ['ic07', 128],  ['ic08', 256],  ['ic13', 256],  ['ic09', 512],

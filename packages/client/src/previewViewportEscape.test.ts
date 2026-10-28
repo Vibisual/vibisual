@@ -5,27 +5,10 @@ import { PREVIEW_DEVICE_PRESETS, resolveCompareWidths } from '@vibisual/shared';
 import indexCss from 'virtual:vibisual-css-source/index';
 
 /**
- * §5.17 · §7.16 **프리뷰 폭 프리셋에서 되돌아올 수 있는가**의 집행.
- *
- * 실제 사고: 탭 프리뷰에서 `비교`(또는 `데스크톱`)를 고르면 **조작 줄이 화면 밖으로 밀려나** 다시
- * `자동` 으로 돌아올 방법이 사라졌다. 원인은 iframe 도 프리셋도 아니라 **한 칸 위의 CSS** 였다.
- *
- *  - `App.tsx` 의 `<main>` 은 가로 flex 의 항목인데 `min-width` 가 `auto` 였다. 가로 flex 항목의
- *    `min-width:auto` 는 **콘텐츠 최소폭**으로 풀린다 — 비교 줄의 최소폭은 390+820+1280 = 2490px 다.
- *  - 그래서 `<main>` 이 2490px 로 부풀고, 그 부모의 `overflow-hidden` 이 넘친 부분을 **스크롤바 없이**
- *    잘라 냈다. URL 줄도 함께 2490px 가 되어, 그 오른쪽 끝에 있던 폭 프리셋 줄이 창 밖에 놓였다.
- *  - 창 밖이라 누를 수도, 스크롤해 데려올 수도 없다. 프리셋은 `localStorage` 에 남으므로 껐다 켜도
- *    그대로다 — 그래서 "한 번 바꾸면 돌아갈 방법이 없다" 가 된다.
- *
- * 고친 방향은 하나다: **넘치는 폭은 프리뷰 본체의 가로 스크롤이 받는다**(§7.16 이 처음부터 정한 동작).
- * 조작 줄은 어떤 폭에서도 잘리지 않고, 모자라면 아랫줄로 접힌다.
- *
- * jsdom 에는 레이아웃이 없어 폭을 재서 확인할 수 없다. 대신 그 동작을 만드는 **클래스 자체**를
- * 소스에서 확인한다(`typographyFloor.test.ts` 와 같은 방식). `node:fs` 는 클라이언트 tsconfig 에
- * Node 타입이 없어 쓸 수 없으므로 Vite 의 `import.meta.glob(?raw)` 로 읽는다.
- *
- * ⚠ 이 테스트는 **`packages/client` 에서** 실행해야 한다 — 레포 루트에서 돌리면 glob 이 빈 문자열을
- *   돌려주어 아래 `readSource` 가 그 사실을 알리고 멈춘다(멀쩡한 코드를 위반으로 오진하지 않게).
+ * §5.17 · §7.16 — 프리뷰 폭 프리셋(`비교` 등)을 골라도 조작 줄이 창 밖으로 밀리지 않는가. 가로 flex 항목(`App.tsx` `<main>`)이
+ * `min-width:auto` 면 콘텐츠 최소폭(비교 줄 2490px)으로 부풀어 부모 `overflow-hidden` 이 잘라 낸다 — 넘치는 폭은 프리뷰 본체의 가로 스크롤이 받는다.
+ * jsdom 에 레이아웃이 없어 클래스를 소스(`import.meta.glob(?raw)`)에서 본다.
+ * ⚠ `packages/client` 에서 실행할 것 — 루트에서는 glob 이 비어 `readSource` 가 멈춘다.
  */
 
 const tsxSources = import.meta.glob('./**/*.tsx', {
@@ -136,12 +119,8 @@ describe('프리뷰 폭 프리셋 — 되돌아올 문이 항상 화면 안에 �
   });
 
   /**
-   * §7.16 — **마우스만 대도 떠야 한다.**
-   *
-   * `.scrollbar-thin:hover` 는 이 자리에서 서지 않는다: 프리뷰 본체가 다른 오리진 iframe 이라,
-   * 마우스가 그 위로 들어가는 순간 부모 문서는 아무 것도 받지 못한다(인스펙터가 켜질 때 iframe 의
-   * `pointer-events` 를 일부러 끄는 것과 같은 까닭). 그래서 안에서 온 신고를 `data-hovering` 으로
-   * 세운다 — 표식과 CSS 규칙은 **다른 파일**에 살기 때문에, 한쪽만 지워져도 조용히 죽는다.
+   * §7.16 — 마우스만 대도 떠야 한다. 다른 오리진 iframe 위에선 `:hover` 가 서지 않아 안에서 온 신고를 `data-hovering` 으로 세운다
+   * — 표식과 CSS 규칙이 다른 파일이라 한쪽만 지워져도 조용히 죽는다.
    */
   it('마우스를 대기만 해도 뜬다 — 안에서 온 신고가 `:hover` 를 대신한다', () => {
     const frames = readSource('components/Preview/PreviewFrames.tsx');

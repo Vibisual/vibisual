@@ -1,13 +1,4 @@
-/**
- * §5.13 (V) 37-3 — 판 기록·바퀴 보고 REST(앱 라우트 — `/api/app/vibistudio/…`).
- *
- * - `GET  /doc/:docId/history` · `GET /doc/:docId/history/:revId` — 목록·그 판의 문서
- * - `POST /doc/:docId/history { kind:'checkpoint'|'pass-start', passId?, request?, label?, mode?, chapterId? }`
- * - `POST /doc/:docId/history/:revId/restore` — 그 판으로 돌아가기(사람만 — 되돌림도 새 판)
- * - `DELETE /doc/:docId/history/:revId` — 사람만(자동 삭제는 없다 — (K))
- * - `GET  /doc/:docId/history/:revId/still?t=` — 그 판의 문서·코드로 찍은 정지 화면
- * - `GET  /doc/:docId/passes` · `POST /doc/:docId/pass { passId, summary, suggestions[], warnings[], notesFixed[] }`
- */
+/** §5.13 (V) 37-3 — 판 기록·바퀴 보고 REST. 판 되돌리기(`restore` — 되돌림도 새 판)·판 지우기는 사람만, 자동 삭제는 없다((K)). */
 import type { Express } from 'express';
 import { pathKey } from '@vibisual/shared';
 

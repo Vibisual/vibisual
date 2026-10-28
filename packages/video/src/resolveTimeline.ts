@@ -1,21 +1,7 @@
 /**
- * 타임라인 해소기 (SCENARIO.md §5.13 (D)(E)).
- *
- * 문서에 적힌 **상대 앵커와 `'auto'` 길이**를 실제 초 단위 시각으로 푼다.
- * 렌더러는 이 결과만 보고 그리므로, 시간 계산의 진실은 오직 이 파일 하나다.
- *
- * 순수 함수인 이유: 시간 계산은 화면 없이 전부 검증할 수 있어야 하고, 렌더 백엔드가
- * 셋(§5.13 (F))이나 되므로 백엔드마다 시간이 다르게 나오는 일이 있어서는 안 된다.
- *
- * 설계 결정 두 가지를 여기 적어 둔다:
- *
- * 1. **꺼 둔 아이템도 시각은 계산한다.** `enabled:false` 를 타임라인에서 통째로 빼면
- *    그 아이템을 앵커로 삼던 뒤쪽이 전부 밀린다. 컷 하나를 잠깐 꺼 보는 것이 영상
- *    전체를 재배치하는 일이 되어서는 안 된다. 그래서 시각은 그대로 두고 렌더에서만
- *    빠지며, 전체 길이 계산에서도 빠진다.
- * 2. **실패해도 던지지 않는다.** 잘못된 앵커 하나가 문서 전체를 못 열게 만들면
- *    에이전트가 스스로 고칠 방법이 없다. 문제 있는 아이템만 빼고 나머지는 그리되,
- *    무엇이 왜 빠졌는지를 `diagnostics` 로 남긴다.
+ * 타임라인 해소기(§5.13 (D)(E)) — 상대 앵커·`'auto'` 길이를 실제 초로 푼다. 시간 계산의 진실은 이 파일 하나다(순수 — 렌더 백엔드 셋이 같은 시간을 내게).
+ * 꺼 둔 아이템도 시각은 계산한다(빼면 그것을 앵커로 삼던 뒤가 전부 밀린다 — 렌더·전체 길이에서만 빠진다).
+ * 실패해도 던지지 않는다 — 문제 아이템만 빼고 이유를 `diagnostics` 로 남긴다(에이전트가 고칠 수 있게).
  */
 
 import type {
@@ -49,13 +35,7 @@ interface Timing {
 const FAILED: Timing = { start: 0, duration: 0, failed: true };
 
 
-/**
- * `'auto'` 길이를 푼다.
- *
- * 오디오·영상은 소재의 실측 길이에서 트림한 만큼을 뺀 값이고, 자막은 큐가 덮는
- * 구간이다. 그 밖의 종류(씬·도형·텍스트)는 스스로 길이를 알 방법이 없으므로
- * `'auto'` 를 쓸 수 없다 — 이건 문서 작성자의 실수이지 렌더러가 추측할 일이 아니다.
- */
+/** `'auto'`: 오디오·영상 = 소재 실측 길이 − 트림, 자막 = 큐가 덮는 구간. 씬·도형·텍스트는 `'auto'` 를 쓸 수 없다 — 작성자의 실수다(렌더러가 추측하지 않는다). */
 function resolveAutoDuration(
   entry: ItemEntry,
   assets: Readonly<Record<string, VideoAsset>>,
@@ -122,11 +102,8 @@ function resolveAutoDuration(
 }
 
 /**
- * §5.13 (T-1) — composition 아이템이 올바른 소재를 가리키는가.
- *
- * 어긋나면 **그 아이템만** 빠지고 진단이 남는다(문서 전체를 거부하지 않는다 — 에이전트가 고칠 길을 남긴다).
- * 소재는 `kind:'composition'` 이고 프로젝트 루트 기준 상대 경로의 `.html`/`.htm` 이어야 한다. 실제 파일이 프로젝트
- * 안에 있는지는 내주는 쪽(서버)이 `realpath` 로 다시 본다.
+ * §5.13 (T-1) — 어긋나면 그 아이템만 빠지고 진단이 남는다(문서 전체를 거부하지 않는다). 소재는 `kind:'composition'` + 루트 기준 상대 `.html`/`.htm`
+ * — 실제로 프로젝트 안인지는 내주는 서버가 `realpath` 로 다시 본다.
  */
 function compositionProblem(
   entry: ItemEntry,
@@ -222,13 +199,7 @@ function resolveDuration(
   return raw;
 }
 
-/**
- * 문서를 실제 시각으로 해소한다.
- *
- * 앵커가 서로를 가리키므로 재귀로 풀되, 방문 중인 아이템을 다시 만나면 순환으로 보고
- * 끊는다(순환은 사람이 문서를 손으로 고치다 충분히 만들 수 있는 상태이므로 앱이
- * 멈추는 대신 그 고리만 빼고 나머지를 그린다).
- */
+/** 방문 중인 아이템을 다시 만나면 순환으로 보고 끊는다 — 손으로 고치다 흔히 생기므로 멈추지 않고 그 고리만 빼고 그린다. */
 export function resolveTimeline(doc: VideoDoc): ResolvedTimeline {
   const diagnostics: ResolveDiagnostic[] = [];
   const push = (d: ResolveDiagnostic): void => {
@@ -440,10 +411,8 @@ export function resolveTimeline(doc: VideoDoc): ResolvedTimeline {
 }
 
 /**
- * §5.13 (T-4) — 문서에 **켜진** composition 아이템이 있는가(숨긴 트랙 제외).
- *
- * 있으면 그 문서는 DOM 을 찍는 무대(오프스크린 창)로만 제대로 그릴 수 있다 — canvas2d 는 HTML 을 그릴 수 없다.
- * 미리보기·스틸·렌더가 모두 이 한 판정으로 갈린다.
+ * §5.13 (T-4) — 켜진 composition(숨긴 트랙 제외)이 있으면 DOM 무대(오프스크린 창)로만 그릴 수 있다(canvas2d 는 HTML 을 못 그린다).
+ * 미리보기·스틸·렌더가 이 한 판정으로 갈린다.
  */
 export function docHasCompositions(doc: VideoDoc): boolean {
   for (const track of doc.tracks) {
@@ -470,12 +439,7 @@ export function itemsAt(items: readonly ResolvedItem[], t: number): readonly Res
   return items.filter((it) => t >= it.start && t < it.end);
 }
 
-/**
- * 컷 경계 목록.
- *
- * 자동 검수(§5.13 (G))가 "여기 스틸을 떠 보라"고 쓸 지점이다. 아이템이 나타나거나
- * 사라지는 순간이 곧 사람이 이상을 느끼는 지점이라 그 자리를 검사한다.
- */
+/** 자동 검수(§5.13 (G))가 스틸을 뜰 지점 — 아이템이 나타나고 사라지는 순간이 이상이 눈에 띄는 자리다. */
 export function cutPoints(items: readonly ResolvedItem[]): readonly number[] {
   const set = new Set<number>();
   for (const it of items) {

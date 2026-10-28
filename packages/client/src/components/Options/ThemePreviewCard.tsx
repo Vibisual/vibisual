@@ -1,10 +1,4 @@
-/**
- * §4 앱 테마 — 테마 하나의 **미리보기 카드**.
- *
- * 축소판 앱(제목줄 · 캔버스와 버블 · IDE 패널 · 입력칸 · 버튼)을 **앱과 같은 Tailwind 클래스**로 그리고,
- * 그 테마의 변수를 카드 한 장에만 싣는다(`useThemeScopeVars`). 그래서 카드가 보여 주는 색은 고르면
- * 실제로 칠해질 색 그대로다 — 견본 색을 따로 적어 두면 테마와 어긋난다.
- */
+/** §4 앱 테마 — 미리보기 카드. 앱과 같은 Tailwind 클래스 + 그 테마 변수(`useThemeScopeVars`)로 그려 보이는 색이 곧 칠해질 색이다. */
 import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ResolvedAppTheme } from '@vibisual/shared';

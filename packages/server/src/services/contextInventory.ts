@@ -1,17 +1,9 @@
 /**
- * §5.5 #17-28 — **컨텍스트 주입원 통제**의 계측·판정 층.
- *
- * 이 파일이 답하는 질문은 하나다: *"지금 이 세션의 프롬프트에 무엇이, 얼마나 실리는가."*
- *
- * 규율 셋(§5.5 #17-28):
- *  · **매번 읽는다** — 목록은 고정 표가 아니라 그때그때의 파일·조립 결과다. 프로젝트가 다르면 다르고,
- *    세션이 다르면 다르다. 하드코딩된 것은 "무엇을 끌 수 있는가"의 어휘(`CONTEXT_SOURCE_IDS`)뿐이다.
- *  · **여기가 최종** — 다른 화면(플러그인 창·에이전트 설정)에서 켜져 있어도 여기서 끄면 안 실린다.
- *    판정은 `resolveContextEnabled` 한 곳에서만 하고, 서버(주입)와 클라(표시)가 그것을 함께 쓴다.
- *    층은 셋 — 프로젝트 전체 > 이 에이전트 버블 > 이 세션 탭 순으로 좁아지고, **좁은 쪽이 이긴다**.
- *  · **못 끄는 것은 못 끈다고 말한다** — Claude Code 내부 프롬프트처럼 손댈 수 없는 줄은 계측만 하고
- *    토글을 잠근다. 끌 수 있는 척하면 사용자는 껐다고 믿는데 프롬프트에는 계속 실린다.
- *
+ * §5.5 #17-28 — 컨텍스트 주입원 통제의 계측·판정 층: "지금 이 세션 프롬프트에 무엇이, 얼마나 실리는가."
+ *  · 매번 읽는다 — 목록은 고정 표가 아니라 그때의 파일·조립 결과다. 하드코딩은 끌 수 있는 것의 어휘(`CONTEXT_SOURCE_IDS`)뿐.
+ *  · 여기가 최종 — 다른 화면에서 켜져 있어도 여기서 끄면 안 실린다. 판정은 `resolveContextEnabled` 한 곳(서버 주입·클라 표시 공용).
+ *    층은 프로젝트 > 에이전트 버블 > 세션 탭 순으로 좁아지고 좁은 쪽이 이긴다.
+ *  · 못 끄는 것은 못 끈다고 말한다 — Claude Code 내부 프롬프트 같은 줄은 계측만 하고 토글을 잠근다(끌 수 있는 척하면 껐다고 믿는다).
  * 파일 접근은 전부 "없으면 조용히 건너뛴다" — 계측 실패가 프롬프트 조립이나 화면을 막으면 안 된다.
  */
 import fs from 'node:fs';
@@ -70,12 +62,7 @@ function childFromFile(title: string, p: string): ContextSourceChild | null {
   return { title, path: p, chars: f.text.length, tokens: estimateTokens(f.text), updatedAt: f.mtime };
 }
 
-/**
- * YAML 프론트매터에서 `name`·`description` 만 뽑는다.
- *
- * 스킬·커맨드·서브에이전트 정의는 **본문 전체가 아니라 이 두 줄만** 프롬프트에 실린다(본문은 호출될 때
- * 읽힌다). 파일 크기로 재면 실제보다 몇 배 크게 잡히므로 실리는 부분만 잰다.
- */
+/** YAML 프론트매터에서 `name`·`description` 만 뽑는다 — 스킬·커맨드·서브에이전트 정의는 이 두 줄만 프롬프트에 실린다(본문은 호출될 때). 파일 크기로 재면 몇 배 크게 잡힌다. */
 function readFrontmatterBlurb(p: string): { blurb: string; mtime: number } | null {
   const f = readFileSafe(p);
   if (!f) return null;
@@ -101,11 +88,7 @@ function claudeDirs(projectPath: string, home: string, sub: string): { root: str
   return out;
 }
 
-/**
- * 자동으로 로드되는 지시 파일 — 프로젝트 루트에서 위로 훑고(3단계), 사용자 홈 것도 함께.
- * "읽으라고 적힌 파일"(docs/rules 등)은 자동 로드가 아니므로 넣지 않는다 — 여기 있는 줄은 전부
- * **실제로 매 세션 실리는 것**이어야 한다.
- */
+/** 자동 로드되는 지시 파일 — 프로젝트 루트에서 위로 3단계 + 사용자 홈. "읽으라고 적힌 파일"(docs/rules 등)은 넣지 않는다 — 여기 줄은 전부 실제로 매 세션 실리는 것이어야 한다. */
 export function scanInstructionFiles(projectPath: string, cwd: string, home = os.homedir()): ContextSourceChild[] {
   const out: ContextSourceChild[] = [];
   const seen = new Set<string>();
@@ -311,11 +294,8 @@ const PART_LABEL_KEYS: Record<string, string> = {
 };
 
 /**
- * 우리 조립 블록의 분류 — 대부분 `vibisual` 이지만 플러그인은 제 분류로 간다.
- *
- * §5.10 — 자동 목표 줄은 `vibisual` 이다. 폐기된 브레인 네 줄은 `memory` 로 갔었지만,
- * 그것은 **남의 저장고**(디스크의 카드 더미)를 읽어 오는 줄이었기 때문이다. 자동 목표 줄은
- * 우리가 그 자리에서 조립해 넣는 색인이라 나머지 조립 블록과 같은 칸에 서는 것이 맞다.
+ * 우리 조립 블록의 분류 — 대부분 `vibisual`, 플러그인은 제 분류.
+ * §5.10 — 자동 목표 줄도 `vibisual` 이다(그 자리에서 조립하는 색인이라, 남의 저장고를 읽어 오는 줄의 `memory` 칸이 아니다).
  */
 function partCategory(id: string): ContextSourceItem['category'] {
   if (id.startsWith('plugin:') || id === CONTEXT_SOURCE_IDS.plugins) return 'plugins';
@@ -335,12 +315,7 @@ function sumChildren(children: ContextSourceChild[]): { chars: number; tokens: n
   return { chars, tokens, ...(updatedAt ? { updatedAt } : {}) };
 }
 
-/**
- * 주입원 전수 목록을 만든다. **읽기 전용** — 아무것도 바꾸지 않는다.
- *
- * `parts` 는 호출부가 이 턴에 실제로 조립한 문자열이라 화면과 프롬프트가 어긋날 수 없고,
- * 나머지(지시 파일·스킬·커맨드…)는 여기서 그때그때 디스크를 훑어 잰다.
- */
+/** 주입원 전수 목록을 만든다(읽기 전용). `parts` 는 호출부가 이 턴에 실제로 조립한 문자열이라 화면과 프롬프트가 어긋날 수 없고, 나머지는 그때그때 디스크를 훑어 잰다. */
 export function buildContextInventory(input: InventoryInput): ContextInventory {
   const home = input.home ?? os.homedir();
   const items: ContextSourceItem[] = [];
@@ -349,11 +324,8 @@ export function buildContextInventory(input: InventoryInput): ContextInventory {
   const scopeKeys = { projectKey: input.projectKey, agentId: input.agentId, subAgentId: input.subAgentId };
 
   /**
-   * 오버라이드까지 얹어 한 줄을 완성한다 — 최종 판정은 여기 한 곳뿐이다.
-   *
-   * `enabled` 는 **실제로 프롬프트에 실리는 값**(세션>에이전트>프로젝트>기본)이고, 화면이 고른 층의
-   * 스위치를 그릴 값은 `scopeStates` 에 층마다 따로 담는다. 둘을 하나로 합쳐 두면 아래층에 명시값이
-   * 걸린 줄은 위층에서 아무리 눌러도 스위치가 안 움직인다 — 그것이 종전의 "동작을 안 한다"였다.
+   * 오버라이드를 얹어 한 줄을 완성한다 — 최종 판정은 여기 한 곳.
+   * `enabled` 는 실제로 실리는 값(세션>에이전트>프로젝트>기본), 화면 스위치 값은 `scopeStates` 에 층마다 따로 담는다 — 합치면 아래층에 명시값이 걸린 줄은 위층에서 눌러도 스위치가 안 움직인다.
    */
   const push = (item: Omit<ContextSourceItem, 'enabled' | 'overrideScope' | 'scopeStates' | 'scopeOverrides'>): void => {
     const resolved = resolveContextEnabled(input.overrides, scopeKeys, item.id, item.defaultEnabled);
@@ -607,12 +579,7 @@ function inventoryFromItems(input: InventoryInput, items: ContextSourceItem[]): 
 
 // ─── §5.5 #17-28 ⑦ 상세창이 쓰는 부분 (읽기 전용) ───
 
-/**
- * 본문을 읽을 수 없는 줄 — Claude Code 실행본 안에 있어 우리가 열어 볼 파일이 없다.
- *
- * 화면은 이 줄들에서 **빈 칸 대신 "왜 못 보여 주는가"** 를 적는다. ③ 의 "끌 수 있는 척하지 않는다"와
- * 같은 원칙의 표시 쪽이다 — 없는 것을 있는 척하면 사용자는 화면을 못 믿게 된다.
- */
+/** 본문을 읽을 수 없는 줄 — Claude Code 실행본 안에 있어 열어 볼 파일이 없다. 화면은 빈 칸 대신 "왜 못 보여 주는가"를 적는다(③ "끌 수 있는 척하지 않는다"의 표시 쪽). */
 export const CONTEXT_UNREADABLE_SOURCE_IDS: ReadonlySet<string> = new Set<string>([
   CONTEXT_SOURCE_IDS.systemPrompt,
   CONTEXT_SOURCE_IDS.bundledSkills,
@@ -622,22 +589,12 @@ export const CONTEXT_UNREADABLE_SOURCE_IDS: ReadonlySet<string> = new Set<string
   CONTEXT_SOURCE_IDS.mcp,
 ]);
 
-/**
- * 경로 대조 키 — 대소문자는 **그 플랫폼의 파일시스템이 실제로 무시할 때만** 접는다.
- *
- * 예전에는 win32 에서만 접어, mac(기본 APFS 도 대소문자 무시)에서 같은 파일이 표기만 다른 두 칸으로
- * 갈려 인벤토리에 중복으로 실렸다. 정책은 pathKey 한 곳(경로 대소문자 SSOT).
- */
+/** 경로 대조 키 — 대소문자는 그 플랫폼 파일시스템이 실제로 무시할 때만 접는다(mac APFS 기본도 무시 — win32 만 접으면 같은 파일이 두 칸으로 갈린다). 정책은 `pathKey` 한 곳. */
 export function normalizeFsPath(p: string): string {
   return pathKey(path.resolve(p));
 }
 
-/**
- * 지금 이 인벤토리가 **실제로 싣고 있는** 파일들의 절대경로.
- *
- * 상세창의 파일 열람은 이 목록하고만 대조해 열린다(⑤). 이 창의 권한은 "이미 프롬프트에 실리는 것을
- * 보여 주는 것"까지이며, 여기 없는 경로를 물으면 그냥 거절한다 — 아무 파일이나 읽는 창구가 되면 안 된다.
- */
+/** 지금 이 인벤토리가 실제로 싣는 파일들의 절대경로. 상세창 파일 열람은 이 목록과만 대조해 연다(⑤) — 없는 경로는 거절한다(아무 파일이나 읽는 창구가 되면 안 된다). */
 export function collectInventoryFilePaths(inventory: ContextInventory): Set<string> {
   const out = new Set<string>();
   for (const item of inventory.items) {
@@ -668,11 +625,7 @@ export function readContextSourceFile(
 
 // ─── 주입 게이트 (프롬프트 조립 경로가 쓰는 부분) ───
 
-/**
- * 이 주입원이 지금 켜져 있는가. 오버라이드가 없으면 `defaultEnabled`(보통 true).
- *
- * 프롬프트 경로에서 **매 턴** 불리므로 파일을 읽지 않는다 — 메모리에 있는 사용자 뜻만 본다.
- */
+/** 이 주입원이 지금 켜져 있는가(오버라이드가 없으면 `defaultEnabled`). 매 턴 불리므로 파일을 읽지 않는다 — 메모리의 오버라이드만 본다. */
 export function isContextSourceOn(
   overrides: ContextOverrides | undefined,
   scope: { projectKey?: string | null; agentId?: string | null; subAgentId?: string | null },
@@ -683,10 +636,8 @@ export function isContextSourceOn(
 }
 
 /**
- * `control: 'spawn'` 인 줄을 끄기 위해 이번 스폰에 얹을 CLI 인자·환경변수.
- *
- * 헤드리스 경로는 매 턴 새 프로세스라(`--resume` 도 새 spawn) 여기서 돌려준 값이 **다음 프롬프트부터**
- * 그대로 먹는다. 끈 것이 하나도 없으면 빈 결과라, 이 기능을 안 쓰는 사용자의 스폰은 종전과 완전히 같다.
+ * `control: 'spawn'` 인 줄을 끄려고 이번 스폰에 얹을 CLI 인자·환경변수. 헤드리스는 매 턴 새 프로세스라(`--resume` 도 새 spawn) 다음 프롬프트부터 먹는다.
+ * 끈 것이 없으면 빈 결과 — 이 기능을 안 쓰는 스폰은 그대로다.
  */
 export function buildSpawnContextSwitches(
   overrides: ContextOverrides | undefined,

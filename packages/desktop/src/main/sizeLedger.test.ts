@@ -1,11 +1,6 @@
 /**
- * sizeLedger.test.ts — §5.5 #17-6 (H-19) **창 크기는 장부가 답한다.**
- *
- * 독립 창이 끌 때마다 저절로 커지던 원인은 "창에 크기를 되묻는 것"이었다 — 분수 배율에서
- * `setPosition()` 은 크기를 창에 되물어 다시 쓰므로 부를 때마다 1px 자랐고(실측 150%: 40번에
- * +40px), `getBounds()` 로 읽은 크기를 되돌아오는 길·선·복원에 되쓰면 왕복마다 2px 자랐다.
- * 규칙(`overlaySize.ts`)은 순수 함수가 쥐고, 여기서는 **그 규칙을 실제로 그렇게 부르는지**를
- * 소스로 집행한다 — `windowManager` 는 electron 에 붙어 있어 여기서 실행할 수 없다.
+ * §5.5 #17-6 (H-19) 창 크기는 장부가 답한다 — windowManager 가 `overlaySize.ts` 규칙대로 창에 크기를 되묻지 않는지
+ * (`setPosition()`·`getBounds()` 되쓰기 ❌ — 분수 배율에서 부를 때마다 자란다) 소스로 집행한다.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -109,10 +104,8 @@ describe('(H-19) 창이 알려 오는 크기는 순수 함수가 가른다', () 
   });
 });
 
-// §5.5 #17-6 (H-19) — 같은 규칙은 **본체 창의 타이틀바 드래그**에도 걸린다. 헤더 로고 덮개
-// (`Header.tsx` 의 `app-nodrag` 덮개)가 `pointermove` 마다 `vibisual:window:move-self` 를 부르는데,
-// 그 핸들러만 `setPosition` 에 남아 있어서 잡고 끄는 동안 본체 창이 계속 커졌다(사용자 보고 —
-// "여기를 잡고 잡아 끌면 에디터가 점점 커진다"). 오버레이 창과 **같은 규칙**을 여기서 함께 집행한다.
+// §5.5 #17-6 (H-19) — 같은 규칙을 본체 창 타이틀바 드래그(`vibisual:window:move-self`, 로고 덮개가 `pointermove` 마다 부른다)에도 집행한다
+// — `setPosition` 이면 끄는 동안 본체 창이 계속 커진다.
 const IPC = readFileSync(join(HERE, 'ipc.ts'), 'utf8').replace(/\r\n/g, '\n');
 const TITLEBAR_MOVE = readFileSync(join(HERE, 'titlebarMove.ts'), 'utf8').replace(/\r\n/g, '\n');
 

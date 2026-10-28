@@ -4,11 +4,8 @@ import type { SubAgent, SubAgentStreamEvent } from '@vibisual/shared';
 import { useGraphStore } from './graphStore.js';
 
 /**
- * §4 v3.16 모바일 웹 — 폰 화면을 껐다 켜 **다시 붙은 뒤** 스토어가 버퍼를 어떻게 합치는지 못 박는다.
- *
- * 끊긴 사이의 스트림 줄은 WS 로 다시 오지 않아 버퍼 가운데가 빈다(글이 중간에서 끊겨 멈춘 것처럼 읽힌다).
- * 재연결 쪽이 서버 창을 다시 받아 오면 여기서 ① 가운데를 제자리에 메우고 ② 요청이 오가는 사이 WS 로 온
- * 줄을 잃지 않고 ③ 같은 줄이 두 번 그려지지 않게 하며 ④ 창들이 깊은 창을 다시 받도록 표식을 내린다.
+ * §4 모바일 웹 — **다시 붙은 뒤** 버퍼 합치기(끊긴 사이의 줄은 WS 로 다시 안 와 가운데가 빈다): ① 제자리에 메운다 ② 요청 중 WS 로 온 줄을 잃지 않는다
+ * ③ 같은 줄을 두 번 그리지 않는다 ④ 깊은 창을 다시 받도록 표식을 내린다.
  */
 
 const AGENT = 'agent-1';
@@ -43,7 +40,7 @@ function openIDE(): void {
   useGraphStore.getState().setIDEActiveSession(SUB);
 }
 
-describe('재연결 뒤 스트림 합치기 (§4 v3.16)', () => {
+describe('재연결 뒤 스트림 합치기 (§4)', () => {
   beforeEach(() => {
     useGraphStore.setState({
       subAgentStreams: {},

@@ -1,11 +1,4 @@
-/**
- * editorImageMeta.ts — §5.5 #17-27 ⑭ 손잡이 줄에 적을 **이미지 한 줄 요약**.
- *
- * 편집창이 이진 파일에 대해 처음으로 "무엇인지"를 말하는 자리다(종전에는 "바이너리 파일" 한 마디가
- * 전부였다). 순수 함수라 React·DOM 의존이 없고 단위 테스트로 고정한다 — `codeHighlight.ts` 와 같은 결.
- *
- * 단위(B/KB/MB)는 어느 언어에서도 같은 기호라 번역하지 않는다.
- */
+/** §5.5 #17-27 ⑭ 손잡이 줄의 이미지 한 줄 요약(순수). 단위(B/KB/MB)는 번역하지 않는다. */
 
 const UNITS = ['B', 'KB', 'MB', 'GB'] as const;
 
@@ -22,11 +15,7 @@ export function formatImageBytes(bytes: number): string {
   return `${value.toFixed(digits)} ${UNITS[unit]}`;
 }
 
-/**
- * 손잡이 줄 한 조각 — `1309 × 825 · 131.6 KB`.
- *
- * 그림을 아직 못 읽었으면(`natural` 이 null) 크기만 적는다. 모르는 값을 `0 × 0` 으로 지어내지 않는다.
- */
+/** `1309 × 825 · 131.6 KB`. 그림을 아직 못 읽었으면 크기만 — `0 × 0` 으로 지어내지 않는다. */
 export function imageMetaLabel(natural: { w: number; h: number } | null, bytes: number): string {
   const size = formatImageBytes(bytes);
   if (!natural || natural.w <= 0 || natural.h <= 0) return size;

@@ -2,16 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ProjectGraph } from './projectGraph.js';
 import { mergeSnapshots } from './projectGraphManager.js';
 
-/**
- * §5.15 — 스펙 보드의 **영속 왕복 + 개정 번호** 회귀 테스트.
- *
- * 앱 버블(§5.13)·플레이 버블(§5.14)에서 이미 데인 두 자리를 그대로 못 박는다 — ① 영속 5지점 중
- * 앞의 둘만 채우면 화면엔 보이는데 껐다 켜면 사라지고, ② `mergeSnapshots` 를 빠뜨리면
- * 프로젝트를 둘 이상 연 사람에게만 사라진다.
- *
- * 여기에 이 기능 고유의 계약이 하나 더 있다: **개정 번호는 스펙 내용이 달라질 때만 오른다.**
- * 버블을 옮겼다는 이유로 하위 작업 카드가 전부 "스펙 변경됨"이 되면 그 배지는 아무 뜻도 없어진다.
- */
+/** §5.15 — 스펙 보드 영속 왕복(영속 5지점·`mergeSnapshots`) + 개정 번호는 스펙 내용이 바뀔 때만 오른다. */
 
 const PROJECT_CWD = '/tmp/spec-project';
 

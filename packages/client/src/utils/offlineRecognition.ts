@@ -1,20 +1,8 @@
 /**
- * offlineRecognition.ts — **§5.5 #17-38 ⑫ 내 PC 에서 도는 인식기.**
- *
- * `speechRecognition.ts` 가 비워 둔 그 자리(#17-38 ⑩ "엔진을 하나 더 붙일 자리")를 채운다.
- * 밖으로 내는 모양은 **브라우저 내장과 똑같은 `SpeechRecognitionLike`** 다 — 그래야 마이크
- * 수명을 쥔 훅(`useVoiceDictation`)도, 파형·커서 끼워넣기·단축키도 한 줄도 안 바뀐다.
- *
- * ### 소리는 이 앱의 메인 스레드를 지나가지 않는다
- * 16kHz float32 는 초당 64KB 다. IPC 로 메인(=서버 코어, §3.7)에 부으면 §9 가 지켜 온 그
- * 스레드를 우리가 다시 먹는다. 그래서 표본은 **화면에서 엔진으로 곧장** 간다 — 서버가 하는
- * 일은 엔진을 띄우고 포트를 알려 주는 것까지다.
- *
- * ### 왜 `ScriptProcessorNode` 인가 (deprecated 인데도)
- * `AudioWorklet` 은 모듈을 **URL 로** 올려야 하는데 패키지 앱의 렌더러는 `file://` 이라
- * 그 URL 을 `blob:` 으로 만들어야 하고, 그건 CSP 한 줄에 조용히 막힌다(막히면 마이크는
- * 열렸는데 글자만 안 나오는, 원인을 못 읽는 상태가 된다). 받아쓰기는 몇 초짜리 짧은 경로라
- * 워클릿의 이점(전용 스레드)보다 **확실히 도는 쪽**이 낫다. Chromium 은 아직 제거 일정이 없다.
+ * §5.5 #17-38 ⑫ — 내 PC 에서 도는 인식기. 밖으로 내는 모양은 브라우저 내장과 같은 `SpeechRecognitionLike` 라 마이크 수명을 쥔 `useVoiceDictation`·파형·커서 끼워넣기·단축키가 그대로다.
+ * 소리는 메인 스레드를 지나가지 않는다 — 16kHz float32 는 초당 64KB 라 IPC 로 메인(=서버 코어, §3.7)에 부으면 §9 가 지켜 온 스레드를 먹는다. 표본은 화면에서 엔진으로 곧장 가고, 서버는 엔진을 띄우고 포트를 알려 주는 것까지 한다.
+ * `ScriptProcessorNode`(deprecated)를 쓴다 — `AudioWorklet` 은 모듈을 URL 로 올려야 해 `file://` 렌더러에서 `blob:` 이 필요하고, CSP 한 줄에 조용히 막혀 마이크는 열렸는데 글자만 안 나온다.
+ * 받아쓰기는 짧은 경로라 확실히 도는 쪽이 낫다(Chromium 은 아직 제거 일정이 없다).
  */
 import { VOICE_ASR, downsampleTo16k, float32Bytes } from '@vibisual/shared';
 import type {
@@ -39,10 +27,8 @@ export interface OfflineRecognitionOptions {
 }
 
 /**
- * 엔진이 사는 호스트.
- *
- * 패키지 앱의 렌더러는 `file://` 이라 `location.hostname` 이 빈 문자열이다 → 루프백.
- * 모바일 웹 접속 모드(§4 v3.16)에서는 그 페이지를 준 호스트가 곧 엔진이 도는 기계다.
+ * 엔진이 사는 호스트. 패키지 앱 렌더러는 `file://` 이라 `location.hostname` 이 빈 문자열 → 루프백.
+ * 모바일 웹 접속 모드(§4)에서는 그 페이지를 준 호스트가 곧 엔진이 도는 기계다.
  */
 export function engineHost(hostname: string): string {
   return hostname.length > 0 ? hostname : '127.0.0.1';
@@ -57,10 +43,7 @@ function* frames(samples: Float32Array, size: number): Generator<Float32Array> {
 
 /**
  * 인식기 한 대. `start()` 를 부르기 전에는 아무것도 열지 않는다.
- *
- * 브라우저 내장과 모양은 같지만 **`lang` 은 쓰지 않는다** — 이 모델은 40개 로케일을 가중치
- * 한 벌로 처리하고 언어를 스스로 가른다. 값을 받아 두기만 하고 버리는 것은 거짓말이 아니라
- * 인터페이스를 지키기 위한 것이고, 그 사실을 여기 적어 둔다.
+ * `lang` 은 받아 두기만 하고 쓰지 않는다 — 이 모델은 40개 로케일을 가중치 한 벌로 처리하고 언어를 스스로 가른다(인터페이스를 지키려고 받는다).
  */
 export function createOfflineRecognition(opts: OfflineRecognitionOptions): SpeechRecognitionLike {
   const { port, stream, audioContext } = opts;

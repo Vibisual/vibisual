@@ -1,7 +1,4 @@
-/**
- * §5.5 #17-28 v4.96 — 주입원 목록 화면 로직(정렬·검색·묶음) 테스트.
- * 화면이 흔들리면 토글을 못 누른다 — 같은 값일 때의 **안정 순서**까지 못 박는다.
- */
+/** §5.5 #17-28 — 주입원 목록 화면 로직. 같은 값일 때의 안정 순서까지 고정한다(줄이 흔들리면 토글을 못 누른다). */
 import { describe, it, expect } from 'vitest';
 import type { ContextSourceItem } from '@vibisual/shared';
 import {

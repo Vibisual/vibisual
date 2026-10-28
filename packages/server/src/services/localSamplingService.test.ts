@@ -1,9 +1,4 @@
-/**
- * §5.25 (G-2) — 로컬 온도를 비워 두었을 때 "실제로 쓰이는 값" 판정 고정 시험.
- *
- * 숫자를 코드에 적어 두지 않았으므로, 엔진이 알려 주는 모양을 못 읽으면 화면은 값을 비운다.
- * 이 시험은 그 읽기가 실제 출력 모양에서 살아남는지를 본다.
- */
+/** §5.25 (G-2) — 로컬 온도를 비웠을 때 실제 값 판정 시험. 숫자를 코드에 두지 않으므로 엔진 출력 모양을 읽는 쪽을 고정한다. */
 import { describe, it, expect } from 'vitest';
 import { parseLlamaHelpTemp, parsePropsTemperature, pickLocalContext, pickLocalSampling } from './localSamplingService.js';
 

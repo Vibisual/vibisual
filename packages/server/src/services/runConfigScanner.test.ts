@@ -1,9 +1,4 @@
-/**
- * §5.5 #17-20 ② v4.74 — 실행 구성 스캐너 테스트.
- *
- * 핵심은 **JSONC**다. `launch.json`·`tasks.json` 에는 거의 항상 주석이 있고, `JSON.parse` 를
- * 그대로 쓰면 사용자의 진짜 구성이 통째로 "없음" 이 된다 — 그 회귀를 여기서 잡는다.
- */
+/** §5.5 #17-20 ② — 핵심은 JSONC: `launch.json`·`tasks.json` 엔 늘 주석이 있어 `JSON.parse` 면 구성이 통째로 "없음"이 된다. */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

@@ -1,31 +1,22 @@
 import { CMD_READ_MAX_LINES, CMD_WAIT_MAX_MS, CMD_WAIT_POLL_MS, sanitizeCmdPrefill } from '@vibisual/shared';
 
 /**
- * §4 (CMD 터미널 업그레이드 ⑥) — 임베디드 PTY 를 **서버 REST 에서 만질 수 있게 하는 주입 지점**.
- *
- * PTY 는 desktop main 의 `terminalManager` 가 소유한다. server 코어는 desktop 을 import 하지
- * 않으므로(§3.4 의존성 방향), `setBroadcastSink`/`setHookListenerToken` 과 **같은 방식**으로
- * main 이 구현체를 주입하고 server 는 이 인터페이스만 안다. 주입이 없으면(웹·테스트) 모든
- * 경로가 조용히 실패한다 — 새 프로세스도 새 소켓도 만들지 않는다.
+ * §4 (CMD 터미널 업그레이드 ⑥) — 임베디드 PTY 를 **서버 REST 에서 만지는 주입 지점**.
+ * PTY 는 desktop main 의 `terminalManager` 소유이고 server 코어는 desktop 을 import 하지 않는다(§3.4) — `setBroadcastSink`/`setHookListenerToken` 처럼 main 이 구현체를 주입한다.
+ * 주입이 없으면(웹·테스트) 모든 경로가 조용히 실패한다 — 새 프로세스도 소켓도 만들지 않는다.
  */
 export interface CmdTerminalController {
   /** 살아 있는 termId 목록. */
   list(): string[];
   /** 그 termId 의 PTY 가 살아 있는지. */
   exists(termId: string): boolean;
-  /**
-   * PTY stdin 에 **그대로** 쓴다. 호출자가 개행을 붙이지 않는 한 실행되지 않는다 —
-   * `/api/cmd/send` 는 개행을 절대 붙이지 않는다(사람이 Enter = §4 v2.63 ToS 합법선).
-   */
+  /** PTY stdin 에 **그대로** 쓴다 — 개행을 붙이지 않는 한 실행되지 않는다. `/api/cmd/send` 는 개행을 절대 붙이지 않는다(사람이 Enter — §4 ToS 합법선). */
   write(termId: string, data: string): boolean;
   /** scrollback 버퍼 원문(ANSI 포함). 없으면 null. */
   readBuffer(termId: string): string | null;
   /**
-   * §7.10 — 그 폴더(하위 포함) 안에서 도는 PTY 를 **전부 강제 종료**하고 그 개수를 돌려준다.
-   *
-   * 워크트리 삭제가 쓴다. 여기서 다시 확인을 묻지 않는 것은 사용자가 이미 삭제 팝업에서
-   * 확인했기 때문이고, 남겨 두면 그 프로세스가 파일을 잡고 있어 폴더가 반만 지워진다.
-   * 주입이 없는 환경(웹·테스트)에서는 이 다리 자체가 없으므로 호출부가 0 으로 취급한다.
+   * §7.10 — 그 폴더(하위 포함) 안에서 도는 PTY 를 **전부 강제 종료**하고 개수를 돌려준다(워크트리 삭제용).
+   * 삭제 팝업에서 이미 확인했으므로 다시 묻지 않는다 — 남기면 프로세스가 파일을 잡아 폴더가 반만 지워진다. 주입이 없는 환경(웹·테스트)에서는 호출부가 0 으로 본다.
    */
   killUnder(rootPath: string): number;
   /**
@@ -73,11 +64,7 @@ export function readCmdTerminal(termId: string, lines: number): string | null {
   return all.slice(-n).join('\n');
 }
 
-/**
- * §4 (⑥) — 터미널에 prefill 한다. **개행을 붙이지 않는다** — 붙이면 사람 없이 명령이 실행돼
- * §4 v2.63 이 세운 "사람이 루프 안"(Anthropic ToS 합법선)이 무너진다. herdr 의
- * `agent prompt --wait` 를 의도적으로 따라가지 않는 지점이다.
- */
+/** §4 (⑥) — 터미널에 prefill 한다. **개행을 붙이지 않는다** — 붙이면 사람 없이 명령이 실행돼 §4 의 "사람이 루프 안"(Anthropic ToS 합법선)이 무너진다(herdr 의 `agent prompt --wait` 를 일부러 따르지 않는다). */
 export function sendCmdTerminal(termId: string, text: string): { ok: boolean; error?: string } {
   if (!controller) return { ok: false, error: 'terminal controller not available' };
   if (!controller.exists(termId)) return { ok: false, error: `no such terminal: ${termId}` };

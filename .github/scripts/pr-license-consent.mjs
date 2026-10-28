@@ -1,36 +1,9 @@
 #!/usr/bin/env node
 /**
- * pr-license-consent.mjs — PR 본문의 라이선스 동의 확인란을 검사해 병합을 막는다.
- *
- * ⚠️ 왜 필요한가(2026-09-01) — CONTRIBUTING.md 의 추가 라이선스 허락은 기여자에게서
- *    재라이선스 권한을 받아 두는 조항이고, 이 프로젝트가 나중에 유료로 전환하거나
- *    소유권을 넘길 수 있는지가 여기 하나에 걸려 있다. 그런데 그 동의를 확인하는 장치가
- *    DCO 서명 한 줄뿐이었다. 서명은 "제출할 권리가 있다"는 확인이지 "추가 허락 조항을
- *    읽고 동의했다"가 아니다.
- *
- *    동의 없는 기여가 한 건이라도 병합되면 그 파일을 품은 모듈은 이중 라이선스도,
- *    소스 공개형 전환도, 유료판도 할 수 없게 된다. 되돌리는 길은 그 사람을 찾아 사후
- *    동의를 받거나 코드를 들어내는 것뿐이고, 둘 다 몇 년 뒤에 청구서로 온다.
- *
- *    막아야 하는 것은 남이 아니라 **우리 자신의 "급하니까"** 다. 소유자는 보호 규칙을
- *    우회할 수 있으므로(실제로 그렇게 푸시한 적이 있다), 규칙은 사람의 기억이 아니라
- *    병합 버튼 위에 떠 있는 붉은 검사여야 한다.
- *
- * 판정: PR 본문에서 확인란 두 줄을 찾아 둘 다 체크됐는지 본다.
- *   1. Sign-off                 — 커밋마다 Signed-off-by (DCO 워크플로가 별도로 기계 검사)
- *   2. Additional License Grant — 재라이선스·서브라이선스 허락에 대한 동의
- *
- * 소유자(author_association=OWNER)의 PR 은 통과시킨다 — 추가 허락은 소유자 **에게** 주는
- * 권한이라 자기 자신에게 받을 것이 없다. 규칙이 헛되이 울리면 사람은 규칙을 우회하기
- * 시작하므로, 울릴 이유가 없는 자리에서는 울리지 않게 한다.
- *
- * ⚠️ 정규식은 **리터럴로만** 쓴다. new RegExp('...\\[...') 형태는 이 파일이 heredoc 을
- *    거쳐 만들어질 때 백슬래시가 한 겹 사라져 조용히 다른 뜻이 된다(실제로 겪었다).
- *    리터럴은 그 사고가 구조적으로 불가능하다.
- *
- * 사용:
- *   node .github/scripts/pr-license-consent.mjs --selftest
- *   PR_BODY=... AUTHOR_ASSOCIATION=... node .github/scripts/pr-license-consent.mjs
+ * PR 본문의 라이선스 동의 확인란(1. Sign-off · 2. Additional License Grant)이 둘 다 체크됐는지 검사해 병합을 막는다(DCO 서명은 재라이선스 동의가 아니다).
+ * 소유자(author_association=OWNER)의 PR 은 통과 — 자기에게 받을 허락이 없다.
+ * ⚠️ 정규식은 리터럴로만 — new RegExp('...\\[...') 는 heredoc 을 거치며 백슬래시가 한 겹 사라져 조용히 뜻이 바뀐다.
+ * 사용: --selftest · PR_BODY=... AUTHOR_ASSOCIATION=... node .github/scripts/pr-license-consent.mjs
  */
 
 import { appendFileSync } from 'node:fs';

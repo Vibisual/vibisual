@@ -1,10 +1,4 @@
-/**
- * §5.5 #17-10 ⑥-6 (턴 시계) — 라이브 1줄이 **실제로 그리는** 경과.
- *
- * 순수 함수(`liveLineClockFrom`)만 고정하면, 줄이 그 함수를 멈춘 틱 값으로 부르는 일(= 숫자가
- * 사라지던 것)은 잡히지 않는다. 그래서 컴포넌트를 가짜 시계로 직접 그려 본다.
- * 사용자 보고(2026-09-29) — "정상적인 시간은 표시 못하고 계속 같은 시간이 반복되거나 사라지거나 0만".
- */
+/** §5.5 #17-10 ⑥-6 — 라이브 1줄이 실제로 그리는 경과. 순수 함수만으론 멈춘 틱 값으로 부르는 일을 못 잡아 가짜 시계로 컴포넌트를 그린다. */
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SESSION_NO_RESPONSE_MS } from '@vibisual/shared';

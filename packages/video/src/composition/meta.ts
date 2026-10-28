@@ -1,13 +1,6 @@
 /**
- * §5.13 (T-1) — 컴포지션의 자기 선언 읽기 (순수).
- *
- * 컴포지션은 `<head>` 의 meta 셋으로 자기를 말한다.
- *   `<meta name="vibi:duration" content="6">`      — 길이(초). `duration:'auto'` 가 이 값으로 풀린다.
- *   `<meta name="vibi:size" content="1920x1080">`  — 그리도록 짠 픽셀 크기(없으면 문서 판형).
- *   `<meta name="vibi:libs" content="a, b">`       — 쓰는 라이브러리 이름(T-6, 이름만 읽어 둔다).
- *
- * 브라우저 없이 문자열로 읽는다 — 서버 탐침이 창을 띄우지 않고 이 값을 채우게 하기 위해서다. 정규식으로 meta 태그만
- * 집어내며, 속성 순서·따옴표 종류(큰/작은)·대소문자에 관대하다.
+ * §5.13 (T-1) — `<head>` meta 자기 선언: `vibi:duration`(초, `duration:'auto'` 가 이 값으로 풀린다)·`vibi:size`(없으면 문서 판형)·`vibi:libs`(T-6, 이름만).
+ * 서버 탐침이 창 없이 채우도록 정규식으로 읽는다 — 속성 순서·따옴표·대소문자에 관대하다.
  */
 
 import type { CompositionPropDecl, CompositionPropType } from '../types.js';
@@ -87,11 +80,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/**
- * `<script type="application/json" id="vibi-props">{ "<이름>": { "type": …, "default": …, … } }</script>` 를 읽는다.
- * 속성 순서·따옴표에 관대하다(meta 와 같은 규칙). 사람이 바꿀 만한 값을 코드 밖으로 꺼낸 선언이다 — 스튜디오가 종류별 손잡이를
- * 그리고, 값은 아이템 `props[name]` 에 산다.
- */
+/** `<script type="application/json" id="vibi-props">` 선언을 읽는다(meta 와 같이 관대하게). 스튜디오가 종류별 손잡이를 그리고 값은 아이템 `props[name]` 에 산다. */
 export function parsePropsDecl(html: string): PropsDeclParse {
   let body: string | null = null;
   for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {

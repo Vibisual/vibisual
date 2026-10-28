@@ -1,31 +1,8 @@
 /**
- * §2.4 **버블 타이포 오토핏** — 원 안의 글자가 서로 밟지 않게 하는 순수 기하 모듈.
- *
- * 종전 규칙은 "하단 블록 높이만큼 바디에 `paddingBottom` 을 예약한다"였지만 그 예약값이
- * **고정 3줄치**(`6+9+8+7+6`·ts)로 굳어 있었다. 하단 블록은 상황에 따라 1~5줄(모델명 ·
- * 컨텍스트 · 잠듦/대기 · 토큰 합산)까지 자라므로, 4줄이 되는 순간 중앙 열의 배지·라벨이
- * 모델명 줄 위에 그대로 얹혔다(`All Model` 배지가 `Qwen3.8-27B-UD-Q4_K_M` 을 덮은 신고).
- *
- * 그래서 높이를 **그릴 줄에서 계산**한다. 값 하나를 키우는 땜질은 다음 줄이 늘어나면 또
- * 깨지지만, 줄에서 높이를 얻으면 몇 줄이 되든 깨질 수 없다.
- *
- * 그러고도 원 안에 다 안 들어가면 **축약 사다리**를 순서대로 내려간다:
- *
- *  1. **간격 밀기** — 중앙 열 gap `4 → 2 → 1 → 0`·ts. 가장 싸고 정보 손실이 없다.
- *  2. **줄 병합 요약** — 성격이 같은 하단 줄(`mergeGroup`)을 가운뎃점으로 한 줄에 합친다
- *     (`15K/16K` + `대기` → `15K/16K · 대기`). 줄 수가 줄어도 읽을 내용은 그대로 남는다.
- *  3. **라벨 2줄 → 1줄 + 가운데 줄임** — 꼬리를 살려 자른다(`Qwen3.8-27B…Q4_K_M`).
- *     모델 파일명은 **꼬리에 정체가 있다**(양자화 표기) — 뒤를 버리면 무엇인지 알 수 없다.
- *  4. **최하 우선순위 줄 접기** — 그래도 안 되면 덜 중요한 줄부터 접는다. 접힌 내용은
- *     `foldedText` 로 돌려주므로 호출부가 툴팁에 남긴다(정보를 지우지 않는다).
- *  5. **배지 숨김** — 마지막 수단. 배지 글자는 버블 색·아이콘이 이미 말하고 있다.
- *
- * 가로도 원의 **현(chord)** 으로 잡는다. 원 안에서는 중심에서 멀어질수록 쓸 수 있는 가로가
- * 좁아지는데 종전 하단 줄은 `size × 0.82` 고정이라 맨 아랫줄이 원 밖으로 삐져나갔다.
- *
- * ⚠ **DOM 측정을 쓰지 않는다.** `getBoundingClientRect` 는 리플로를 부르고 화면의 버블 수만큼
- * 곱해진다. 대신 글자 폭을 표로 추정하는 순수 함수로 계산하고 단위 테스트로 고정한다
- * (`bubbleTextFit.test.ts`). 최종 안전망은 그대로 CSS(`truncate` · `line-clamp`)가 맡는다.
+ * §2.4 버블 타이포 오토핏 — 원 안 글자가 서로 밟지 않게 하는 순수 기하. 하단 예약 높이를 그릴 줄에서 낸다(고정값이면 줄이 늘 때 겹친다).
+ * 안 들어가면 사다리: ① gap `4→2→1→0`·ts ② 같은 `mergeGroup` 줄 병합 ③ 라벨 1줄 + 가운데 줄임(모델 파일명은 꼬리에 정체)
+ * ④ 낮은 우선순위 줄 접기(`foldedText` → 툴팁) ⑤ 배지 숨김. 가로는 원의 현(chord)으로 — 고정 비율이면 맨 아랫줄이 원 밖으로 나간다.
+ * ⚠ DOM 측정 ❌(리플로 × 버블 수) — 글자 폭 표로 추정하고 시험으로 고정. 최종 안전망은 CSS `truncate`·`line-clamp`.
  */
 
 /** 하단 줄의 행 높이 배수 — 렌더에서 인라인 `lineHeight` 로 같은 값을 주어 계산과 실제를 맞춘다. */
@@ -70,10 +47,7 @@ export interface BubbleBottomLine {
   title?: string;
   /** 칩처럼 세로 padding 이 붙는 줄의 추가 높이(px) — 예약에 함께 더한다. */
   extraHeight?: number;
-  /**
-   * 넘칠 때 줄이는 방식. `middle` 이면 **꼬리를 살려** 가운데를 줄인다(모델 파일명처럼 뒤에
-   * 정체가 있는 줄). 지정하지 않으면 CSS `truncate`(꼬리 자르기)에 맡긴다.
-   */
+  /** `middle` = 꼬리를 살려 가운데를 줄인다(모델 파일명). 없으면 CSS `truncate`. */
   summarize?: 'middle';
 }
 
@@ -125,13 +99,7 @@ export interface BubbleFitPlan {
   labelMaxWidth: number;
   /** 중앙 열 gap(px). */
   centerGap: number;
-  /**
-   * 중앙 열이 쓸 수 있는 세로 최대(px) — **마지막 안전망**.
-   * `overflow-hidden` 은 padding box 에서 자르므로, 사다리를 다 내려가고도 안 들어가는 극단
-   * (아주 작은 버블)에서는 중앙 열이 예약 영역으로 흘러들어 하단 블록을 다시 밟는다. 이 값을
-   * `maxHeight` 로 씌우면 그때 **겹치는 대신 잘린다** — 겹친 글자는 둘 다 못 읽지만 잘린 글자는
-   * 남은 부분이라도 읽힌다. 들어가는 경우엔 `centerHeight ≤ 이 값` 이라 아무 효과가 없다.
-   */
+  /** 마지막 안전망 — 극단(아주 작은 버블)에서 중앙 열이 예약 영역을 밟지 않게 `maxHeight` 로 자른다(겹치면 둘 다 못 읽는다). 들어가면 효과 없음. */
   centerMaxHeight: number;
   /** 배지를 그릴지. */
   showBadge: boolean;
@@ -145,12 +113,7 @@ export interface BubbleFitPlan {
  * 글자 폭 추정 — DOM 없이, 문자 부류별 평균 폭(em)으로.
  * ------------------------------------------------------------------ */
 
-/**
- * 문자 하나의 폭(em 단위 근사).
- *
- * 한글·한자·가나는 라틴의 두 배 가까이 넓다. 여기서 이 차이를 무시하면 `대기` 같은 짧은 한글
- * 줄을 안전하다고 오판한다.
- */
+/** 한글·한자·가나는 라틴의 두 배 가까이 넓다 — 무시하면 짧은 한글 줄을 안전하다고 오판한다. */
 function charWidthUnits(ch: string): number {
   const code = ch.codePointAt(0) ?? 0;
   // CJK(한글 음절·한자·가나) + 전각 — 사실상 정사각형.
@@ -185,22 +148,14 @@ export function estimateTextWidth(text: string, fontSize: number): number {
  * 원 기하
  * ------------------------------------------------------------------ */
 
-/**
- * 지름 `size` 인 원에서, 중심으로부터 세로 `dyFromCenter` 떨어진 높이의 **현(chord) 길이**.
- * 원 안에 글자를 놓을 때 그 높이에서 쓸 수 있는 최대 가로다.
- */
+/** 중심에서 `dyFromCenter` 떨어진 높이의 현 길이 = 그 높이에서 쓸 수 있는 최대 가로. */
 export function chordWidthAt(size: number, dyFromCenter: number, inset = 0): number {
   const r = Math.max(0, size / 2 - inset);
   const dy = Math.min(Math.abs(dyFromCenter), r);
   return 2 * Math.sqrt(Math.max(0, r * r - dy * dy));
 }
 
-/**
- * 가운데를 줄여 폭 안에 넣는다 — **꼬리를 살린다**.
- *
- * 모델 파일명(`Qwen3.8-27B-UD-Q4_K_M`)은 꼬리의 양자화 표기가 정체의 절반이라, 뒤를 버리는
- * 보통의 말줄임(`truncate`)은 서로 다른 모델을 같은 이름으로 보이게 만든다.
- */
+/** 꼬리를 살린다 — 양자화 표기가 정체의 절반이라 보통 말줄임은 서로 다른 모델을 같은 이름으로 만든다. */
 export function summarizeMiddle(text: string, maxWidth: number, fontSize: number): string {
   if (maxWidth <= 0 || fontSize <= 0) return text;
   if (estimateTextWidth(text, fontSize) <= maxWidth) return text;
@@ -249,11 +204,7 @@ export function bottomBlockHeight(lines: BubbleBottomLine[]): number {
   return lines.reduce((h, l) => h + l.fontSize * BUBBLE_LINE_HEIGHT + (l.extraHeight ?? 0), 0);
 }
 
-/**
- * 바디에 예약할 하단 높이 — **이것이 겹침을 막는 유일한 값**이다.
- * 하단 블록은 `absolute` 라 padding 에 밀리지 않으므로, 중앙 열이 그 위에서만 중앙정렬되도록
- * 같은 높이를 padding 으로 되돌려 준다.
- */
+/** 겹침을 막는 유일한 값 — 하단 블록은 `absolute` 라 padding 에 밀리지 않으므로 같은 높이를 padding 으로 돌려준다. */
 export function reserveBottomHeight(lines: BubbleBottomLine[], bottomOffset: number): number {
   if (lines.length === 0) return 0;
   return Math.ceil(bottomOffset + bottomBlockHeight(lines) + 2);
@@ -291,12 +242,7 @@ function centerHeight(input: BubbleFitInput, gap: number, labelLines: number, sh
   return h;
 }
 
-/**
- * 버블 하나의 글자 배치를 정한다.
- *
- * 반환값만 그대로 렌더에 꽂으면 **어떤 줄 수·어떤 버블 크기에서도** 하단 블록과 중앙 열이
- * 겹치지 않는다(예약이 실제 높이에서 나오므로).
- */
+/** 예약이 실제 높이에서 나오므로 결과를 그대로 꽂으면 어떤 줄 수·크기에서도 겹치지 않는다. */
 export function planBubbleText(input: BubbleFitInput): BubbleFitPlan {
   const { size, ts, borderWidth, bottomOffset } = input;
   const edgeInset = Math.max(EDGE_INSET_MIN, Math.round(2 * ts)) + borderWidth;
@@ -366,11 +312,7 @@ export function planBubbleText(input: BubbleFitInput): BubbleFitPlan {
     step += 1;
   }
 
-  // 하단 줄 가로 — **글자 상자의 세로 한가운데** 높이에서의 현.
-  //   줄의 아래 모서리로 재면 원의 맨 밑을 스치는 값이 나와(맨 아랫줄에서 0) 멀쩡한 줄이 통째로
-  //   사라진다. 글리프는 행 상자 가운데에 앉으므로 가운데가 실제에 맞다.
-  //   바닥값을 두는 것은 안전하다 — 바디가 `overflow-hidden rounded-full` 이라 원 밖은 어차피
-  //   잘리고, 여기서 0 을 주면 잘리는 게 아니라 아무것도 안 보인다.
+  // 현은 글자 상자 세로 가운데에서 잰다 — 아래 모서리로 재면 맨 아랫줄이 0 이 돼 사라진다. 바닥값은 안전하다(바디가 `overflow-hidden rounded-full` 이라 어차피 잘린다).
   const heights = lines.map((l) => l.fontSize * BUBBLE_LINE_HEIGHT + (l.extraHeight ?? 0));
   const widthCap = size * BOTTOM_WIDTH_CAP_RATIO;
   const widthFloor = Math.max(16, size * BOTTOM_WIDTH_FLOOR_RATIO);

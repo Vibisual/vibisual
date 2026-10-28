@@ -13,16 +13,8 @@ import {
 } from '@vibisual/shared';
 
 /**
- * §4 (CLI 사양 추종) — 턴 경계 압축의 **발동 판정**. 손잡이는 자동 압축 값 하나뿐이다.
- *
- * 사용자 보고 둘이 이 파일에 고정돼 있다.
- *  1. "턴 끝나고" 가 매 턴이었다 — 짧은 대화까지 요약으로 접혀 세부가 사라지고, `/compact` 자체가
- *     요약 1회 호출이라 턴마다 토큰과 한도를 먹었다.
- *  2. 고쳐 놓고 보니 **체크박스와 드롭다운이 같은 일**이었고, 같은 숫자를 쓰는 한 CLI 가 늘 먼저
- *     접어 체크박스가 아예 뜨지 못했다. 그래서 하나로 합치고 우리 선을 한 단 낮췄다.
- *
- * 2026-10-05 부터 창은 스폰(`--autocompact`)에 실리지 않는다 — 작업 도중에는 CLI 가 모델 창 끝에서만 접고,
- * 이 파일의 선은 **명령 사이 조용한 압축**의 발동선이다(§4 CLI 사양 추종 (5)).
+ * §4 (CLI 사양 추종) — 턴 경계 압축 발동 판정(손잡이는 자동 압축 값 하나). 매 턴 접지 않는다(`/compact` 도 요약 호출이라 토큰을 먹는다).
+ * 우리 선은 CLI 선보다 한 단 낮다 — 같으면 CLI 가 먼저 접는다. 창은 스폰에 안 싣는다 — 이 선은 명령 사이 압축용이다.
  */
 describe('autoCompactThresholdTokens — 명령 사이 압축의 기준 창 크기', () => {
   it('숫자 문자열은 그대로 토큰 수', () => {
@@ -75,7 +67,6 @@ describe('shouldCompactAfterTurn', () => {
   });
 
   it('값을 고른 것만으로 발동한다 — 별도 체크박스가 없다(합쳐진 축)', () => {
-    // 종전에는 `compactAfterTurn: true` 가 있어야 참이었다. 이제 그 입력 자체가 없다.
     expect(shouldCompactAfterTurn({ requested: false, autoCompact: '400000', contextUsed: 330_000 })).toBe(true);
   });
 
@@ -96,8 +87,7 @@ describe('shouldCompactAfterTurn', () => {
     expect(shouldCompactAfterTurn({ ...base, userAutoCompact: '400000' })).toBe(false); // 선 320k
   });
 
-  // 아래 넷은 종전 `agentCliArgs.test.ts` 의 "3층 해소" 묶음이 옮겨 온 것이다 — 창이 스폰에 실리지 않게 된
-  //   2026-10-05 부터 3층 해소가 닿는 곳은 이 발동선(과 그것을 보여 주는 화면)뿐이다.
+  // 아래 넷은 3층 해소 — 창이 스폰에 안 실리므로 이 발동선(과 그 화면)에만 닿는다.
   it('에이전트 설정이 있으면 그것이 전역값을 이긴다', () => {
     expect(resolveAutoCompact('500000', '100000')).toBe('500000');
     const base = { requested: false, contextUsed: 170_000, userAutoCompact: '100000' } as const;
@@ -140,14 +130,7 @@ describe('shouldCompactAfterTurn', () => {
   });
 });
 
-/**
- * §4 (CLI 사양 추종) — **꺼짐 축**(2026-09-02 사용자 지시). 기본이 꺼짐으로 바뀌었으므로
- * "안 접는다"가 제대로 안 접는지가 이 파일에서 가장 중요한 검사다.
- *
- * 가장 무서운 실패는 **조용히 켜지는 것**이다: `Number('off')` 는 NaN 이라, 꺼짐을 먼저 거르지
- * 않으면 `autoCompactThresholdTokens` 의 `contextMax` 폴백으로 굴러떨어져 **꺼 둔 에이전트가
- * 모델 창을 발동선 삼아 접기 시작한다**. 사용자는 끈 줄 알고 있는데 돈이 나가는 자리다.
- */
+/** §4 — **꺼짐 축**: 끈 것은 안 접혀야 한다. `Number('off')` 는 NaN 이라 먼저 거르지 않으면 `contextMax` 폴백으로 떨어져 꺼 둔 에이전트가 접는다. */
 describe('꺼짐(off) — 끈 것은 정말로 안 접혀야 한다', () => {
   it('창 크기를 알아도 선을 만들지 않는다 (NaN → contextMax 폴백 금지)', () => {
     expect(autoCompactThresholdTokens(AUTOCOMPACT_OFF)).toBeNull();

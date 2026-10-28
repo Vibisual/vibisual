@@ -5,7 +5,7 @@ import { spawnBackground } from './claudeAgentViewService.js';
 
 const mock = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock('node:child_process', async (importOriginal) => ({ ...await importOriginal<typeof import('node:child_process')>(), spawn: mock.spawn }));
-vi.mock('./claudeBin.js', () => ({ getClaudeBin: () => ({ binPath: 'test-claude' }), noteClaudeSpawnFailure: vi.fn() }));
+vi.mock('./claudeBin.js', () => ({ getClaudeBin: () => ({ binPath: 'test-claude' }), noteClaudeSpawnFailure: vi.fn(), claudeSpawnEnv: (env: NodeJS.ProcessEnv = process.env) => env }));
 
 describe('background launcher stdio error', () => {
   it.each(['stdin', 'stdout', 'stderr'] as const)('rejects only its launch operation for %s errors', async (name) => {

@@ -1,13 +1,6 @@
 /**
- * §5.13 (T-5) — 새 컴포지션의 뼈대 HTML (순수).
- *
- * `POST /composition` 이 기본 자리에 이 파일을 쓴다. 에이전트가 처음부터 쓸 수도 있지만, 뼈대가 meta 셋과 두 가지
- * 시각 맞춤 길(CSS `@keyframes` · `__vibi.seek` 캔버스)을 보여 주면 자리와 규약을 틀리지 않는다. 사람이 열어도 읽히게
- * 짧게 둔다 — 화려함은 에이전트·사람이 채운다.
- *
- * §5.13 (V) 37-5·37-10·37-15 — 뼈대가 규약 셋을 그대로 보인다: ① 값 선언(`vibi-props` — 사람이 바꿀 글자·색은 코드 밖으로)과
- * 묶기(`data-vibi-prop`), ② 스타일 변수(`--vibi-accent`·`--vibi-fg`·`--vibi-font` — 문서 스타일이 있으면 그것으로 칠한다),
- * ③ 판형 반응형(`vibi:responsive` — `__vibi.width/height` 로 상자 크기에 맞춘다).
+ * §5.13 (T-5) — `POST /composition` 이 쓰는 새 컴포지션 뼈대(순수). meta 셋·시각 맞춤 두 길(CSS `@keyframes`·`__vibi.seek` 캔버스)·
+ * (V) 규약 셋(`vibi-props`·`data-vibi-prop` / `--vibi-*` 스타일 변수 / `vibi:responsive`)을 보여 자리와 규약을 틀리지 않게 한다. 사람이 읽히게 짧게 둔다.
  */
 
 import { COMPOSITION_DEFAULT_DURATION } from '../constants.js';

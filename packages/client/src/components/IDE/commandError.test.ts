@@ -21,13 +21,7 @@ import itIT from '../../i18n/locales/it.json';
 import ptBR from '../../i18n/locales/pt-BR.json';
 import { describeCommandError, engineLabelOf, parseStreamErrorContent, joinCommandErrorLine } from './commandError.js';
 
-/**
- * §5.5 #17-12 ③ — "오류" 한 단어만 뜨던 자리에 사유가 서게 하는 순수 규칙.
- *
- * 여기서 못박는 것은 세 가지다: ① 사유를 **잃지 않는다**(모르는 코드·형식이 깨진 본문도 원문으로 남는다),
- * ② 종료 코드가 없을 때 `{{code}}` 문장을 고르지 않는다("code undefined" 가 화면에 뜨던 부류의 사고),
- * ③ 문장이 **제 엔진의 이름**을 부른다(③-7 — 코덱스 턴이 "Claude CLI" 로 불리던 사고).
- */
+/** §5.5 #17-12 ③ — 사유를 잃지 않는다(모르는 코드·깨진 본문도 원문으로) · 종료 코드가 없으면 `{{code}}` 문장 ❌ · 제 엔진의 이름을 부른다(③-7). */
 describe('describeCommandError', () => {
   it('explains how to recover when a queued local command contains images', () => {
     expect(describeCommandError({ code: 'local', detail: 'local-images-unsupported' })).toEqual({
@@ -71,13 +65,7 @@ describe('describeCommandError', () => {
   });
 });
 
-/**
- * §5.5 #17-12 ③-7 — **실패 문장은 제 엔진의 이름을 부른다.**
- *
- * 사유 코드는 엔진 중립이다(`cli`·`spawn`·`exit` 은 클로드도 코덱스도 낸다). 그런데 문장만
- * `Claude CLI` 를 글자로 박고 있어서, GPT 버블이 한도로 멈춘 자리에 **"Claude CLI 가 실패를
- * 알렸습니다"** 가 떴다(2026-09-22 사용자 보고 — GPT 버블 아래에 `opus` 가 뜬 §5.25 (J) 와 같은 부류).
- */
+/** §5.5 #17-12 ③-7 — 사유 코드는 엔진 중립이라 문장에 `Claude CLI` 를 박으면 GPT 버블의 실패가 Claude 실패로 뜬다(§5.25 (J) 와 같은 부류). */
 describe('엔진 이름', () => {
   it('엔진마다 제 이름을 부르고, 모르면 중립 이름으로 떨어진다', () => {
     expect(engineLabelOf('claude')).toBe('Claude CLI');
@@ -160,8 +148,7 @@ describe('parseStreamErrorContent', () => {
   });
 
   it('모르는 접두어·형식 파탄은 원문을 통째로 남기되 **누구의 실패인지 단정하지 않는다**', () => {
-    // 예전엔 이 자리가 `exit` 였다 → 화면에서 "Claude CLI 가 예기치 않게 종료됐습니다" 로 굳어,
-    //   CLI 를 쓰지도 않는 로컬 모델의 실패까지 Claude 탓으로 말했다(2026-08-20 사용자 보고).
+    // `exit` 로 떨어뜨리면 CLI 없는 로컬 모델 실패까지 "Claude CLI 가 예기치 않게 종료됐습니다"가 된다.
     expect(parseStreamErrorContent('[nope] hi')).toEqual({ code: 'unknown', detail: 'hi' });
     expect(parseStreamErrorContent('그냥 오류 문장')).toEqual({ code: 'unknown', detail: '그냥 오류 문장' });
     expect(parseStreamErrorContent('   ')).toEqual({ code: 'unknown' });
@@ -179,13 +166,7 @@ describe('joinCommandErrorLine', () => {
   });
 });
 
-/**
- * §5.5 #17-12 ③ / §5.19 — **사유 코드가 늘면 문장도 함께 늘어야 한다.**
- *
- * 코드만 늘고 문장이 없으면 화면에 키(`ide.cmdError.local`)가 그대로 뜨거나, 목록에서 빠진 코드가
- * 다른 코드로 폴백해 **엉뚱한 엔진을 범인으로 지목한다**(로컬 모델 실패가 "Claude CLI 가 종료됐다"로
- * 뜬 사고). 코드 목록은 shared 한 벌이므로, 여기서 그 목록 전량에 문장이 있는지 확인한다.
- */
+/** §5.5 #17-12 ③ / §5.19 — shared 코드 목록 전량에 문장이 있어야 한다(없으면 키가 뜨거나 다른 코드로 폴백해 엉뚱한 엔진을 지목한다). */
 describe('사유 코드 ↔ 문장 대응', () => {
   const BUNDLES: Record<string, Record<string, unknown>> = {
     en, ko, ja, 'zh-CN': zhCN, es, 'es-419': es419, fr, de, hi, id, it: itIT, 'pt-BR': ptBR,

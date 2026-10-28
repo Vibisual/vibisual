@@ -1,10 +1,4 @@
-/**
- * §7.1 (판올림 번호 발급 대기, 사용자 지시 2026-10-12) — 에이전트 패널의 **마지막 결과 한 건**을 고른다.
- *
- * 종전 `AgentEventList` 는 두 재료(부모 직접 대화 `agentEvents` · 세션 완료 명령 `completedCommands`)를
- * **전부** 최신순 목록으로 그렸다. 패널은 이제 "방금 끝낸 것" 하나만 들고, 전체 기록은 IDE 스트림과
- * 지휘통제실 검색이 맡는다. 무엇이 그 한 건인지는 이 파일 한 곳이 정한다(화면은 그리기만 한다).
- */
+/** §7.1 — 에이전트 패널의 마지막 결과 한 건을 고른다(재료 `agentEvents`·`completedCommands`). 판정은 이 파일 한 곳. */
 import type { AgentEvent, QueuedCommand, SubAgent, TodoItem } from '@vibisual/shared';
 import { extractStageBlocks } from '@vibisual/shared';
 
@@ -24,11 +18,7 @@ export interface LatestAgentResult {
   todos?: TodoItem[];
 }
 
-/**
- * 결과 본문에서 무대 블록(```vibisual …)을 걷는다. 그 블록은 진행 신고라 읽을 글이 아니고,
- * 보고가 대개 그 블록으로 시작하므로 그대로 앞 줄을 자르면 칸이 신고 줄로만 찬다.
- * 판정은 서버·IDE 와 같은 파서(`extractStageBlocks`) 한 벌을 쓴다.
- */
+/** 무대 블록(```vibisual …)을 걷는다 — 진행 신고라 남기면 칸이 신고 줄로 찬다. 파서는 서버·IDE 와 같은 `extractStageBlocks`. */
 export function stripStageBlocks(text: string | undefined): string {
   if (!text) return '';
   const spans = extractStageBlocks(text);
@@ -45,17 +35,8 @@ export function stripStageBlocks(text: string | undefined): string {
 }
 
 /**
- * 끝난 것 가운데 가장 늦게 시작한 한 건. 없으면 `null`(칸째 그리지 않는다).
- *
- * - 대화는 **응답이 붙은 것만** 끝난 것이다 — 도는 중인 것은 버블 상태와 IDE 가 말한다.
- * - 명령은 `completed`/`error` 만. 우리가 끼운 조용한 내부 명령(`silent` — 자동 압축)은 사용자가 보낸
- *   명령이 아니라 어느 화면에도 그리지 않는다(§5.3 #9-1 (P)).
- * - 명령에는 끝난 시각이 없다. 실제로 나간 시각(`startedAt`)으로 견준다 — 큐에 넣은 시각은 덧말이면
- *   몇 분씩 앞서 있어 순서를 뒤집는다(§5.5 #17-18 ⑥).
- * - 시각이 같으면 대화가, 같은 재료 안에서는 배열의 앞쪽이 이긴다.
- *
- * 본문 손질(`stripStageBlocks`)은 **고른 한 건에만** 한다 — 완료 명령은 세션당 1000건까지 보관되고
- * 이 함수는 스냅샷마다 다시 돈다. 후보마다 본문을 훑으면 큰 결과 글을 수백 번 줄 단위로 쪼갠다.
+ * 끝난 것 중 가장 늦게 시작한 한 건(없으면 `null`). 대화는 응답이 붙은 것만, 명령은 `completed`/`error` 만(`silent` 제외, §5.3 #9-1 (P)).
+ * 명령은 `startedAt` 으로 견준다 — 큐 시각은 덧말이면 앞서 순서를 뒤집는다(§5.5 #17-18 ⑥). 본문 손질은 고른 한 건에만(스냅샷마다 돈다).
  */
 export function pickLatestAgentResult(
   events: readonly AgentEvent[],

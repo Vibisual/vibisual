@@ -9,11 +9,8 @@ import {
 } from './resumeResync.js';
 
 /**
- * §4 v3.16 모바일 웹 — 폰 화면을 껐다 켰을 때 **다시 붙을지** 판정을 못 박는다.
- *
- * 화면이 꺼진 사이 소켓은 `onclose` 없이 죽은 채 OPEN 으로 남는다. 그래서 오래 숨어 있었으면 OPEN 이라도
- * 믿지 않고 새로 붙어야 하고, 반대로 잠깐 가렸다 돌아온 경우·통합 앱(IPC 전송)은 전체 스냅샷을 다시 받을
- * 까닭이 없다.
+ * §4 모바일 웹 — 폰 화면을 껐다 켰을 때 다시 붙을지 판정을 못 박는다.
+ * 화면이 꺼진 사이 소켓은 `onclose` 없이 죽은 채 OPEN 으로 남는다 — 오래 숨어 있었으면 OPEN 이라도 새로 붙고, 잠깐 가렸다 돌아온 경우·통합 앱(IPC 전송)은 전체 스냅샷을 다시 받지 않는다.
  */
 
 function input(over: Partial<ResumeResyncInput> = {}): ResumeResyncInput {
@@ -27,9 +24,9 @@ function input(over: Partial<ResumeResyncInput> = {}): ResumeResyncInput {
   };
 }
 
-describe('화면 복귀 새로고침 판정 (§4 v3.16)', () => {
+describe('화면 복귀 새로고침 판정 (§4)', () => {
   it('오래 숨어 있다 돌아오면 소켓이 OPEN 이라도 다시 붙는다', () => {
-    // 사용자 보고의 그 경우 — 화면을 끄고 10분 뒤. 소켓은 OPEN 으로 적혀 있지만 죽어 있다.
+    // 화면을 끄고 10분 뒤 — 소켓은 OPEN 으로 적혀 있지만 죽어 있다.
     expect(shouldResyncOnResume(input())).toBe(true);
   });
 

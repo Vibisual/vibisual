@@ -52,7 +52,7 @@ describe('DEFAULT_READING_SETTINGS', () => {
     expect(DEFAULT_READING_SETTINGS.measureCh).toBe(MEASURE_UNLIMITED);
     const r = resolveReading(DEFAULT_READING_SETTINGS, 1920, STACK);
     expect(r.vars[READING_CSS_VARS.measure]).toBe('100%');
-    // 폭 상태도 파생값이라 제한이 없으면 그리드 자체가 꺼진 `full` 이다(② v5.04).
+    // 폭 상태는 파생값 — 제한이 없으면 `full`(②).
     expect(r.layoutAttr).toBe('full');
   });
   it('대화 정렬도 기본은 꺼짐 — 켜야만 속성이 붙는다', () => {
@@ -70,7 +70,7 @@ describe('normalizeReadingSettings', () => {
     expect(normalizeReadingSettings(null)).toEqual(DEFAULT_READING_SETTINGS);
     expect(normalizeReadingSettings('nope')).toEqual(DEFAULT_READING_SETTINGS);
   });
-  // ② v5.04 마이그레이션 — 폭 안이 있던 시절의 저장값을 폭 하나로 옮긴다.
+  // ② — 옛 `layout`(폭 안) 저장값을 폭 하나로 옮기는 마이그레이션.
   it('옛 full 안 저장값은 읽기 폭 제한 없음으로 옮겨진다 — 켜자마자 글이 좁아지면 안 된다', () => {
     // 그 시절 measureCh(50)는 "칼럼으로 바꾸면 쓸 시작값"일 뿐 화면에 걸리지 않았다.
     expect(normalizeReadingSettings({ layout: 'full', measureCh: 50 }).measureCh).toBe(MEASURE_UNLIMITED);

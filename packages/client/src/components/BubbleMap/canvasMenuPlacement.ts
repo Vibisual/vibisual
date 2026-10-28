@@ -27,11 +27,7 @@ export interface ViewportSource {
   visualViewport?: Pick<VisualViewport, 'offsetLeft' | 'offsetTop' | 'width' | 'height'> | null;
 }
 
-/**
- * 지금 **보이는** 화면(문서 좌표) — 떠 있는 상자를 화면 안에 넣을 때의 기준은 이것 하나다.
- * 폰에서 가상 키보드가 올라오거나 핀치로 확대하면 보이는 화면(시각 뷰포트)만 줄고·옮겨 가고 `innerHeight` 는 그대로라,
- * 창 크기로 재면 아래로 접힌 상자가 키보드 밑에 깔린다. 시각 뷰포트가 없는 환경은 창 크기로 폴백한다.
- */
+/** 보이는 화면(시각 뷰포트) 기준 — 폰 키보드·핀치 확대엔 `innerHeight` 가 그대로라 창 크기로 재면 상자가 키보드 밑에 깔린다. 없으면 창 크기. */
 export function visibleViewport(win: ViewportSource = window): MenuViewport {
   const v = win.visualViewport;
   return {

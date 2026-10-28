@@ -4,11 +4,7 @@ import { CAPTURE_PLAYTEST } from '@vibisual/shared';
 import { pickRecorderMime } from '../components/BubbleMap/playtestClip.js';
 import { useCapturePlaytestStore } from '../stores/capturePlaytest.js';
 
-// §5.9 플레이테스트 — 라이브 캡처 스트림을 클립으로 담는 녹화기.
-//
-// 담는 대상은 **이미 붙어 있는 그 MediaStream**(useCaptureStream 이 준 것) 하나다. 두 번째
-// getUserMedia 도, 새 캡처 레이어도 만들지 않는다 — 화면에 보이는 그 화면이 그대로 녹화된다.
-// 결과 Blob 은 렌더러 메모리에만 살고(서버·WS ❌) `capturePlaytest` 스토어가 상한을 걸어 보관한다.
+// §5.9 플레이테스트 녹화기 — 이미 붙은 MediaStream(useCaptureStream)을 담는다(두 번째 getUserMedia ❌). Blob 은 렌더러 메모리에만(서버·WS ❌), `capturePlaytest` 스토어가 상한을 걸어 보관한다.
 
 export interface UseCaptureRecorderOptions {
   captureBubbleId: string;

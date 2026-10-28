@@ -1,17 +1,6 @@
 /**
- * 문서 편집 연산 (SCENARIO.md §5.13 (G)).
- *
- * 에이전트가 문서를 고치는 유일한 통로다. 두 가지 규율을 코드로 강제한다:
- *
- * 1. **낙관적 잠금** — 패치는 `baseVersion` 을 들고 오고, 그 사이 문서가 바뀌었으면
- *    거절한다. 여러 에이전트가 같은 문서를 동시에 만지는 것이 이 앱의 기본 상황이라
- *    (씬마다 다른 에이전트를 붙일 수 있다) 마지막에 쓴 쪽이 조용히 이기는 구조를
- *    두면 작업이 소리 없이 사라진다.
- * 2. **안정 식별자만** — 모든 연산이 id 로 대상을 찾는다. 순번을 쓰면 에이전트가
- *    읽은 시점과 쓰는 시점 사이에 아이템 하나만 들어와도 엉뚱한 것을 고친다.
- *
- * 그리고 **전부를 적용하거나 아무것도 적용하지 않는다.** 중간에 실패한 패치가 절반만
- * 반영되면 에이전트는 자기가 무엇을 만든 건지 알 수 없게 된다.
+ * §5.13 (G) — 에이전트가 문서를 고치는 유일한 통로. 낙관적 잠금: `baseVersion` 이 다르면 거절한다(동시 편집이 기본이라 마지막 쓰기가 이기면 작업이 사라진다).
+ * 안정 식별자만: id 로 찾는다(순번이면 그 사이 아이템 하나만 들어와도 엉뚱한 것을 고친다). 전부 적용하거나 아무것도 적용하지 않는다.
  */
 
 import { VIDEO_SCHEMA_VERSION } from './constants.js';
@@ -269,13 +258,7 @@ export function requiredSchemaVersion(doc: VideoDoc): number {
   return need;
 }
 
-/**
- * 패치를 적용한다.
- *
- * 성공하면 `version` 이 1 오르고 `updatedAt` 이 갱신된 **새 문서**를 돌려준다.
- * 원본은 건드리지 않는다(불변 — 되돌리기와 비교가 공짜가 된다). 새 기능을 쓰기 시작한 문서는 스키마 판이 따라 오른다
- * (내리지는 않는다 — 한 번 오른 판은 그 문서가 거쳐 온 기록이다).
- */
+/** 성공하면 `version` +1 된 새 문서(원본 불변 — 되돌리기·비교가 공짜). 스키마 판은 새 기능을 쓰면 따라 오르고 내리지 않는다. */
 export function applyPatch(doc: VideoDoc, patch: VideoDocPatch, now = Date.now()): VideoDocPatchResult {
   if (patch.baseVersion !== doc.version) {
     return { ok: false, reason: 'version-conflict', currentVersion: doc.version };

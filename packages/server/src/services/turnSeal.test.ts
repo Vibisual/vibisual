@@ -68,7 +68,7 @@ describe('turnSeal — 백그라운드 작업 대차대조', () => {
   });
 
   it('실측 타임라인 재현 — 첫 result 는 잠정, 이어진 턴의 끝이 진짜 완료', () => {
-    // P_MPS_GPT 세션 e78cf71c… (2026-08-07) 그대로.
+    // 실측 세션(2026-08-07) 그대로.
     const s = createTurnSealState();
     noteTaskChip(s, START, { id: 'bbeerj5yf' });               // 15:00:15 백그라운드 빌드
     noteTaskChip(s, START, { id: 'bfl52vk5f' });               // 15:00:30 Monitor
@@ -227,10 +227,7 @@ describe('shouldSleepResumedTurn — 되살아난 턴이 끝나면 세션을 재
   });
 
   it('실측 재현 — 백그라운드 통지로 깨어난 턴의 끝은 봉인되고 세션도 재워진다', () => {
-    // P_MPS_GPT 세션 `5c01ebc2…` (2026-08-14): 09:30 명령이 codex 검수를 백그라운드로 띄우고
-    // 턴을 끝내 봉인(그때 in-flight 가 지워진다) → 09:53:11 완료 통지로 세션 재진입 →
-    // 09:56:37 그 턴 종료. 종전에는 이 끝을 받는 자리가 없어 09:59:52 다음 명령까지
-    // **3분 14초** 동안 탭 점이 파랗게 돌았다(= 멈췄는데 도는 것처럼 보임).
+    // 실측(2026-08-14): 봉인 → 09:53:11 통지로 재진입 → 09:56:37 종료. 이 끝을 못 받으면 다음 명령(09:59:52)까지 3분 14초 탭 점이 돈다.
     const s = createTurnSealState();
     noteTaskChip(s, START, { id: 'b6vj8ja6r', description: 'Run codex-audit ultra in background' });
     noteTaskChip(s, END, { id: 'b6vj8ja6r', status: 'completed' });
@@ -352,8 +349,7 @@ describe('isResultBeforeOwnTurn — 남의 턴 result 로는 내 명령을 봉�
   const base = { mainActivity: false, cliError: false, killed: false, interrupted: false, slashCommand: false };
 
   it('도장이 다르면 이미 말을 한 뒤라도 내 result 가 아니다 — 가장 중요한 한 줄', () => {
-    // 종전에는 mainActivity 하나만 봤다. 앞 턴의 모델 줄이 빗장을 올려 둔 채라
-    //   뒤늦게 도착한 **남의 result** 가 지금 도는 명령을 즉시 완료로 굳혔다.
+    // `mainActivity` 만 보면 앞 턴이 올린 빗장 탓에 늦게 온 남의 result 가 지금 명령을 완료로 굳힌다.
     expect(isResultBeforeOwnTurn({ ...base, mainActivity: true, foreignTurn: true })).toBe(true);
   });
 
@@ -378,7 +374,7 @@ describe('isResultBeforeOwnTurn — 남의 턴 result 로는 내 명령을 봉�
 });
 
 describe('shouldHoldForNoticeResume — 끝 통지는 "곧 다시 돈다"다 (§5.5 #17-9 ⑱)', () => {
-  // 사용자 보고의 그 순간: 백단 자식 덕에 떠 있던 탭, 자식은 살아서 쉬는 중, 도는 명령 없음.
+  // 재현 상태: 백단 자식 덕에 떠 있던 탭, 자식은 살아서 쉬는 중, 도는 명령 없음.
   const idleHeld = {
     bgPromoted: true,
     subStatus: 'active' as const,

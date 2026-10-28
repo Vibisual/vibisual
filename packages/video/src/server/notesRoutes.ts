@@ -1,13 +1,6 @@
 /**
- * §5.13 (V) 37-7 — 메모 핀 저장소와 REST(앱 라우트 — `/api/app/vibistudio/…`).
- *
- * - `GET    /doc/:docId/notes?project=` — 목록
- * - `POST   /doc/:docId/notes { project, t, x, y, text, itemId?, chapterId?, element? }` — 꽂기(사람만)
- * - `PATCH  /doc/:docId/notes/:noteId { project, status?, text?, passId?, reply? }` — 에이전트는 `fixed`·`reply` 만
- * - `DELETE /doc/:docId/notes/:noteId?project=` — 사람만(자동 삭제는 없다 — (K))
- *
- * 자리: `<project>/.vibisual/video/notes/<docId>.json` — 원자적 쓰기(`AppServerHost.atomicWriteFile`). 프로젝트 안에만 산다
- * (§3.5). 쓰기는 읽고 → 고치고 → 쓰기 한 벌이라 한 프로세스 안에서 순서대로 돈다(Express 처리기는 동기).
+ * §5.13 (V) 37-7 — 메모 핀 REST(`/doc/:docId/notes`). 꽂기·지우기는 사람만, 에이전트의 `PATCH` 는 `fixed`·`reply` 만. 자동 삭제는 없다((K)).
+ * `<project>/.vibisual/video/notes/<docId>.json` 에 원자적으로 쓴다 — 읽고·고치고·쓰기가 동기 처리기 안이라 한 프로세스 안에서 순서대로 돈다.
  */
 import fs from 'node:fs';
 import path from 'node:path';

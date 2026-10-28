@@ -1,12 +1,8 @@
 /**
- * appThemePalette.ts — §4 앱 테마의 **기본 팔레트 표와 계열 변환** (순수 함수).
- *
- * `TAILWIND_DEFAULT_PALETTE` 는 이 앱이 싣는 tailwindcss(4.2.x)의 기본 색표(`tailwindcss/theme.css`)를
+ * §4 앱 테마의 기본 팔레트 표와 계열 변환(순수 함수). `TAILWIND_DEFAULT_PALETTE` 는 싣는 tailwindcss(4.2.x) 기본 색표(`tailwindcss/theme.css`)를
  * 값 그대로 옮긴 것이다. Tailwind CSS 는 MIT 라이선스(Copyright Tailwind Labs, Inc.)라 값을 옮겨 써도 된다 —
- * 우리는 이미 그 패키지를 싣고 있고, 여기 둔 것은 **같은 값을 서버(창 바탕 색)도 알아야 해서**다.
- *
- * 앱의 모든 Tailwind 색 클래스는 `--color-<계열>-<칸>` 변수로 칠해지므로 이 표가 기본 테마의 출발점이다.
- * tailwindcss 를 올리면 표가 번들 값과 어긋날 수 있다 — server 의 `services/appThemeSourceSync.test.ts` 가 대조한다.
+ * 같은 값을 서버(창 바탕 색)도 알아야 해서 둔다. 앱의 Tailwind 색 클래스는 모두 `--color-<계열>-<칸>` 변수로 칠해져 이 표가 기본 테마의 출발점이다.
+ * tailwindcss 를 올리면 번들 값과 어긋날 수 있다 — server `services/appThemeSourceSync.test.ts` 가 대조한다.
  */
 import { APP_THEME_FAMILIES, APP_THEME_SHADES } from './constants.js';
 import type { AppThemeFamily, AppThemeRamp, AppThemeShade } from './types.js';

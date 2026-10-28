@@ -1,18 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { pickReadableTextColor } from '../../utils/commentBoxStyle.js';
 
-/**
- * 색 선택 팝오버의 **가독 규약 집행** — "색을 고르는 도구에서 가장 커야 하는 것은 색이다".
- *
- * 이 규칙들은 전부 눈으로만 확인되는 종류라, 다음 라운드에 "칸이 너무 크다" 같은 이유로
- * 조용히 되돌아가기 쉽다(실제로 종전 판이 그 상태였다 — 격자 한 칸 23.5px 안에 16px 짜리
- * 색이 1px 회색 테두리를 두르고 앉아, 칸의 35% 만 색이었다). 그래서 되돌리려면 **이 표를
- * 함께 고치게** 만든다.
- *
- * DOM 이 없으므로(§ 클라 테스트에 jsdom 미설치) 렌더 대신 소스를 읽는다 — `node:fs` 는 클라
- * tsconfig 에 Node 타입이 없어 막히므로 `import.meta.glob(?raw)` 를 쓴다(팝업 닫기 규약
- * `popupDismissContract.test.ts` 와 같은 수법).
- */
+/** 색 선택기 가독 규약 집행 — 눈으로만 보이는 규칙이라 되돌리려면 이 시험을 함께 고치게 한다. DOM 이 없어 `import.meta.glob(?raw)` 로 소스를 읽는다. */
 
 const sources = import.meta.glob('./CommentBoxColorPopover.tsx', {
   query: '?raw',
@@ -22,11 +11,7 @@ const sources = import.meta.glob('./CommentBoxColorPopover.tsx', {
 
 const src = Object.values(sources)[0] ?? '';
 
-/**
- * 색 칸(`Swatch`) 본문만 떼어 낸다 — 팝오버 본체의 다른 상자들(패드·슬라이더·미리보기)은
- * 테두리 규칙이 다르고, **주석에는 종전 값이 근거로 적혀 있어** 파일 전체를 훑으면
- * "옛 값이 아직 있다"는 오탐이 난다.
- */
+/** `Swatch` 본문만 본다 — 다른 상자는 테두리 규칙이 다르고, 주석의 옛 값이 오탐을 낸다. */
 function swatchBody(): string {
   const start = src.indexOf('function Swatch(');
   expect(start, 'Swatch 컴포넌트가 사라졌다 — 세 팔레트가 다시 각자 마크업을 들면 규약이 무너진다').toBeGreaterThan(0);
@@ -99,7 +84,7 @@ describe('색 선택기 — 표식은 어느 색 위에서도 보인다', () => 
 
 describe('색 선택기 — 미리보기는 실제로 나올 모습이다', () => {
   it('HEX 옆 미리보기가 불투명도를 반영한다', () => {
-    // 종전에는 알파를 무시하고 원색을 칠해, 30% 로 낮춰 놓고도 여기만 진하게 보였다.
+    // 알파를 무시하면 30% 로 낮춰도 여기만 진하게 보인다.
     const at = src.indexOf('{/* 미리보기는');
     expect(at, '미리보기 주석이 사라졌다').toBeGreaterThan(0);
     const block = src.slice(at, at + 900);

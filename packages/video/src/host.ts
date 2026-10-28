@@ -1,12 +1,6 @@
 /**
- * §5.13 (P) — 앱이 호스트에게 요구하는 것 (도킹 계약).
- *
- * **앱은 Vibisual 코어를 import 하지 않는다.** 앱이 코어를 부르면 두 패키지가 서로를
- * 부르는 고리가 생기고, 그 순간 "따로 떼어 낼 수 있다"는 말이 거짓이 된다. 대신 앱은
- * *필요한 것*을 여기 인터페이스로 적고, 호스트가 붙일 때 그것을 건네준다.
- *
- * 이 파일이 앱과 코어 사이의 **유일한 접촉면**이다. 여기 없는 것을 앱이 쓰기 시작하면
- * 그때부터 독립이 깨진 것이므로, 무엇이 오갔는지가 이 한 파일만 보면 드러난다.
+ * §5.13 (P) 도킹 계약 — 앱은 코어를 import 하지 않는다(서로 부르면 떼어 낼 수 없다). 필요한 것은 여기 인터페이스로 적고 호스트가 건넨다 —
+ * 이 파일이 유일한 접촉면이다.
  */
 
 import type { CreationLink } from '@vibisual/shared';
@@ -31,10 +25,8 @@ export interface AppServerHost {
     source: { key: string; appId: string; title: string; links: CreationLink[] },
   ): Promise<{ id: string; revision: number } | null>;
   /**
-   * §5.13 (T-4)(T-11) ① — 서버 몫 → **같은 앱의 main 몫** `invoke(action, payload)`.
-   *
-   * 서버와 main 이 한 프로세스라(§3.7) 새 소켓도 새 IPC 채널도 없다. 일감이 들어오면 숨은 일꾼 창을 깨우는 데 쓴다.
-   * main 이 없는 실행 형태(단위 시험·웹)에서는 비어 있다 — 그때 일감은 줄에 남아 다른 일꾼을 기다린다.
+   * §5.13 (T-4)(T-11) ① — 서버 몫 → 같은 앱 main 몫 `invoke`(한 프로세스라 새 소켓·IPC 없음, §3.7). 일감이 오면 숨은 일꾼 창을 깨운다.
+   * main 이 없는 실행(단위 시험·웹)에선 비어 있다 — 일감은 줄에서 다른 일꾼을 기다린다.
    */
   invokeMain?(action: string, payload?: unknown): Promise<unknown>;
   /**
@@ -44,11 +36,7 @@ export interface AppServerHost {
   notify?(event: { project: string; kind: string; key: string; version?: number }): void;
 }
 
-/**
- * main 프로세스 몫이 호스트에게 요구하는 것.
- *
- * 앱의 main 몫은 이것 말고도 `dispose()`(본체 창이 닫힐 때 — 앱이 띄운 숨은 창 정리, T-11 ④)를 낼 수 있다.
- */
+/** 앱 main 몫은 `dispose()`(본체 창이 닫힐 때 숨은 창 정리, T-11 ④)도 낼 수 있다. */
 export interface AppMainHost {
   /** 렌더러 파일 경로(오프스크린 창이 열 화면). */
   rendererFile: string;

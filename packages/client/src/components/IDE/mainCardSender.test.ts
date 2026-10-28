@@ -1,10 +1,4 @@
-/**
- * mainCardSender.test.ts — §5.5 #17-18 ⑦-7 (메인 탭 판본)
- *
- * 메인 탭은 Sub 탭과 자료형이 다르다(도구가 `TerminalGroup` 묶음으로 들어오고, 전체 보기는 여러 세션이 한
- * 타임라인에 섞인다). 같은 판정 함수(`cardPlacementTs`)를 쓰되 ① 같은 세션의 도구만 보고 ② 카드는 도구가 든
- * **묶음 아래**로 가며 ③ 간결(묶음을 감춤)에서는 신고 시각 그대로인지를 고정한다.
- */
+/** §5.5 #17-18 ⑦-7 메인 탭 판본 — `cardPlacementTs` 를 쓰되 ① 같은 세션 도구만 ② 카드는 도구가 든 `TerminalGroup` 묶음 아래 ③ 간결(묶음 감춤)에선 신고 시각 그대로. */
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentReview, QueuedCommand, SubAgent, SubAgentStreamEvent } from '@vibisual/shared';
 // 순수 조립 함수만 쓴다 — 터미널 창을 띄우지 않는다(mainTransportRecovery.test.ts 와 같은 이유).

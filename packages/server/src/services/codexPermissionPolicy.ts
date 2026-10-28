@@ -6,14 +6,10 @@ import {
 } from '@vibisual/shared';
 
 /**
- * §5.25 (H) — 코덱스 버블의 권한 판정. 클로드 경로(`/api/permission-check` 의 모드 단축)와 같은 창구·
- * 같은 원장·같은 승인 카드를 쓰되, **두 계층을 따로 본다**:
- *
- *  - **권한 모드**는 코덱스가 집행한다(샌드박스 + 승인 정책). 우리 몫은 코덱스가 샌드박스 밖 실행을
- *    물을 때(PermissionRequest) 그 질문을 승인 카드로 옮기는 것뿐이다.
- *  - **감사 경계**는 모드와 무관한 별도 필터다. 실행 전(PreToolUse) 위험 호출을 붙잡아 카드로 묻는다.
- *
- * 순수 함수라 서버 없이 모드 × 경계 × 이벤트를 전부 시험한다.
+ * §5.25 (H) — 코덱스 버블의 권한 판정. 클로드 경로(`/api/permission-check`)와 같은 창구·원장·승인 카드를 쓰되 두 계층을 따로 본다:
+ *  - 권한 모드는 코덱스가 집행한다(샌드박스 + 승인 정책). 우리는 샌드박스 밖 실행 질문(PermissionRequest)을 승인 카드로 옮길 뿐이다.
+ *  - 감사 경계는 모드와 무관한 필터다 — 실행 전(PreToolUse) 위험 호출을 붙잡아 카드로 묻는다.
+ * 순수 함수라 모드 × 경계 × 이벤트를 전부 시험한다.
  */
 
 export type CodexPermissionHookEvent = 'PreToolUse' | 'PermissionRequest';
@@ -33,15 +29,9 @@ export function planCodexPermission(input: {
   permissionMode: string | undefined;
   /** 감사 경계가 이 호출을 붙잡는가(위험 종류가 켜진 종류와 겹친다). */
   escalate: boolean;
-  /**
-   * §5.3 #12-3 — 이 호출이 자물쇠에 닿는가. 모드보다 먼저 본다 — `plan`·`bypassPermissions` 도 묻는다
-   * (읽기 전용 샌드박스도 **읽기**는 막지 않는다). 생략하면 false(옛 호출부 호환).
-   */
+  /** §5.3 #12-3 — 이 호출이 자물쇠에 닿는가. 모드보다 먼저 본다 — `plan`·`bypassPermissions` 도 묻는다(읽기 전용 샌드박스도 읽기는 막지 않는다). 생략하면 false. */
   locked?: boolean;
-  /**
-   * 같은 호출을 방금 승인 카드에서 허용했으면 그 몫을 하나 쓰고 true. **물을 자리에서만** 부른다 —
-   * 묻지 않고 끝나는 호출이 몫을 먼저 써 버리면 정작 재시도가 다시 묻는다.
-   */
+  /** 방금 승인 카드에서 같은 호출을 허용했으면 그 몫을 하나 쓰고 true. 물을 자리에서만 부른다 — 묻지 않고 끝나는 호출이 몫을 먼저 쓰면 재시도가 다시 묻는다. */
   consumeApproval: () => boolean;
 }): CodexPermissionPlan {
   const mode = input.permissionMode || 'default';
@@ -73,15 +63,10 @@ export function planCodexPermission(input: {
 }
 
 /**
- * 권한 훅을 못 붙였을 때 턴을 거절해야 하는가. 승인 모드이거나, 경계가 켜져 이 모드에서 호출을
- * 붙잡을 수 있으면 훅이 곧 집행이다 — 없이 돌면 사용자가 고른 설정이 조용히 꺼진다.
- * (`plan`·`dontAsk` 는 읽기 전용 샌드박스라 훅 없이도 위험 호출이 실행되지 않는다.)
- *
- * §5.3 #12-3 — 자물쇠가 하나라도 있으면 **모든 모드에서** 필수다. 읽기 전용 샌드박스도 읽기는 막지
- * 않으므로, 훅 없이 돌면 잠긴 파일을 묻지 않고 읽는다.
- *
- * §5.3 #12-4 — 검증 실행 전 차단이 켜져 있으면(옵션창 권한 탭 — 기본 끔, (J)) 역시 **모든 모드에서** 필수다. 읽기 전용 샌드박스에서도
- * 테스트는 돈다 — 훅 없이 돌면 실행 전 검증 판정이 닿지 않는다(권한을 확인할 수 없으면 실행하지 않는다).
+ * 권한 훅을 못 붙였을 때 턴을 거절해야 하는가 — 훅이 곧 집행인 경우다(없이 돌면 고른 설정이 조용히 꺼진다).
+ * 승인 모드이거나 경계가 이 모드에서 호출을 붙잡을 수 있으면 필수(`plan`·`dontAsk` 는 읽기 전용 샌드박스라 훅 없이도 위험 호출이 안 돈다).
+ * §5.3 #12-3 — 자물쇠가 하나라도 있으면 모든 모드에서 필수(읽기 전용 샌드박스도 읽기는 막지 않는다).
+ * §5.3 #12-4 — 검증 실행 전 차단이 켜져 있으면(옵션창 권한 탭, 기본 끔, (J)) 모든 모드에서 필수 — 읽기 전용 샌드박스에서도 테스트는 돈다.
  */
 export function codexPermissionHooksRequired(
   permissionMode: string | undefined,
@@ -97,10 +82,8 @@ export function codexPermissionHooksRequired(
 }
 
 /**
- * 같은 호출을 가리키는 열쇠. 코덱스는 재시도에 새 `tool_use_id` 를 주고, 승인 요청에는 모델이 쓴
- * 설명(`description`)을 덧붙인다(실측 — 명령 본문은 세 번 모두 같다). 그래서 명령 본문으로 잇고,
- * 명령이 없는 도구(MCP)는 설명을 뺀 입력 전체로 잇는다. 요약(200자 절단)은 쓰지 않는다 — 앞이 같은
- * 두 명령이 한 열쇠로 묶이면 허용하지 않은 명령이 통과한다.
+ * 같은 호출을 가리키는 열쇠. 코덱스는 재시도에 새 `tool_use_id` 를 주고 승인 요청에 `description` 을 덧붙인다(실측 — 명령 본문은 세 번 모두 같다).
+ * 그래서 명령 본문으로 잇고, 명령이 없는 도구(MCP)는 설명을 뺀 입력 전체로 잇는다. 요약(200자 절단)은 쓰지 마라 — 앞이 같은 두 명령이 한 열쇠가 되면 허용 안 한 명령이 통과한다.
  */
 export function codexApprovalKey(
   agentId: string,
@@ -119,12 +102,9 @@ export function codexApprovalKey(
 export const CODEX_APPROVAL_TTL_MS = 120_000;
 
 /**
- * §5.25 (H) — **같은 호출을 두 번 묻지 않기.** 샌드박스 밖이 필요한 명령은 코덱스에서
- * PreToolUse(1차) → 샌드박스 실패 → PreToolUse(재시도) → PermissionRequest 로 흐른다. 1차에서 경계
- * 카드가 허용되면 재시도 한 번과 승인 요청 한 번을 그 답으로 덮는다(무응답 허용 정책도 사용자가 고른
- * 답이다 — 덮지 않으면 한 명령에 60초 대기가 세 번 쌓인다). 몫은 한 번씩이고 2분이 지나면 사라진다.
- *
- * PermissionRequest 에는 `tool_use_id` 가 없어, 그 답을 적을 원장 줄도 여기서 이어 준다.
+ * §5.25 (H) — 같은 호출을 두 번 묻지 않기. 샌드박스 밖 명령은 PreToolUse(1차) → 샌드박스 실패 → PreToolUse(재시도) → PermissionRequest 로 흐른다.
+ * 1차에서 경계 카드가 허용되면 재시도 한 번과 승인 요청 한 번을 그 답으로 덮는다(무응답 허용도 고른 답이다 — 안 덮으면 한 명령에 60초 대기가 세 번).
+ * 몫은 한 번씩이고 2분 뒤 사라진다. PermissionRequest 에는 `tool_use_id` 가 없어 그 답을 적을 원장 줄도 여기서 잇는다.
  */
 export class CodexApprovalMemory {
   private readonly grants = new Map<string, { at: number; preToolUse: number; permissionRequest: number }>();

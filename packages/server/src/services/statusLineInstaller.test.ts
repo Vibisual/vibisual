@@ -1,16 +1,6 @@
 /**
- * §4 v3.60 사용량 수집기(statusLine) 인스톨러 — 마커 유실 내성 + 자기 감쌈 차단 테스트.
- *
- * 회귀 방지 대상(실측 사고): `statusLine` 은 Claude Code 가 스키마를 아는 키라, 그쪽이
- * settings.json 을 다시 쓰면 값 안의 `_vibisualManaged`·`_vibisualPrevStatusLine` 가 통째로
- * 날아간다(사용자 홈 백업에서 `statusLine` 이 `type`·`command` 두 키만 남은 것을 확인).
- * 마커만으로 "우리 것" 을 판정하던 탓에 두 가지가 연달아 무너졌다 —
- *   ① 켜져 있는데도 `installed:false` 로 읽혀 부팅 시 포트·토큰 갱신을 건너뛰고, 화면은
- *      "아직 수집하지 않고 있습니다" 로 남았다.
- *   ② 그 상태에서 사용자가 다시 "켜기" 를 누르면 **우리 명령이 사용자 원본으로 보관**되어,
- *      핸들러가 자기 자신을 passthrough 로 실행하는 무한 사슬이 됐다.
- * 그래서 "마커가 없어도 알아본다" 와 "우리 명령은 절대 보관하지 않는다" 를 함께 고정한다.
- * 남의 statusLine 을 그대로 보존·복원하는 기존 계약도 같은 무게로 검증한다.
+ * §4 statusLine 인스톨러 시험 — CLI 가 settings.json 을 다시 쓰면 마커(`_vibisualManaged`·`_vibisualPrevStatusLine`)가 사라진다(실측).
+ * 마커 없이도 우리 것을 알아보는가 · 우리 명령을 사용자 원본으로 보관하지 않는가(자기 passthrough 무한 사슬) · 남의 statusLine 보존·복원.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
@@ -169,10 +159,7 @@ describe('남의 statusLine 은 그대로 보존·복원한다(기존 계약)', 
 });
 
 describe('수집기 핸들러가 실제로 서버에 닿는 URL 을 만든다', () => {
-  // 실측 결함: 서브에이전트 수집기가 `${SERVER_URL}/api/subagent-statusline` 로 보내는데
-  // SERVER_URL 자체가 이미 `${BASE}/api/hook-event` 라, 최종 URL 이
-  // `/api/hook-event/api/subagent-statusline` 이 되어 전량 404 로 버려지고 있었다.
-  // 훅 이벤트가 아닌 라우트는 반드시 BASE 에서 조립해야 한다.
+  // SERVER_URL 은 이미 `…/api/hook-event` 라 그 위에 경로를 붙이면 전량 404 다(실측) — 다른 라우트는 BASE 에서 조립한다.
   const handlerSource = fs.readFileSync(new URL('../../../../hooks/handler.mjs', import.meta.url), 'utf-8');
 
   it('훅 이벤트 URL 위에 다른 경로를 덧붙여 호출하지 않는다', () => {

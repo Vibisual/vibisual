@@ -14,12 +14,7 @@ import {
 
 import { useGraphStore } from '../../stores/graphStore.js';
 
-/**
- * §7.11 (판올림 번호 발급 대기) + §5.17 (A) — 프리뷰 조작(디바이스 폭 + 요소 집기) 상태 한 벌.
- *
- * 탭 프리뷰(`IframeView`)와 캔버스 프리뷰(`PlayPreviewNode`)가 **같은 규칙**을 써야 한 쪽만
- * 동작하는 사고가 안 난다(§7.11 `toProxyUrl` 이 한 곳에 사는 것과 같은 이유) — 그래서 이 훅 하나다.
- */
+/** §7.11 · §5.17 (A) — 프리뷰 조작(폭 + 요소 집기) 상태 한 벌(탭·캔버스 프리뷰가 같은 규칙을 쓰게). */
 
 const DEVICE_KEY = 'vibisual:preview:device';
 /** §7.11 (G) — Alt 를 우리가 가져갈지. 폭 프리셋과 같은 자리(클라 로컬)에 남는다. */
@@ -37,12 +32,7 @@ function loadDevice(): PreviewDeviceId {
   }
 }
 
-/**
- * §7.11 (G) — 저장된 값이 **없으면 우리 것이 강제**(`PREVIEW_ALT_CAPTURE_DEFAULT`).
- *
- * 끈 사람만 그 뜻이 남는다 — `'off'` 한 낱말만 끄기로 읽고 나머지(저장 실패·옛 값·손으로 고친 값)는
- * 전부 기본으로 돌아온다.
- */
+/** §7.11 (G) — `'off'` 만 끄기로 읽고 그 밖(저장 실패·옛 값·손으로 고친 값)은 기본(`PREVIEW_ALT_CAPTURE_DEFAULT`). */
 function loadAltCapture(): boolean {
   try {
     const raw = window.localStorage.getItem(ALT_KEY);
@@ -68,27 +58,12 @@ export interface PreviewPicker {
   /** 요소 집기 모드가 켜져 있는가. */
   pickMode: boolean;
   togglePickMode: () => void;
-  /**
-   * §7.11 (G) — 프리뷰 안에서 누른 **Alt 를 우리가 가져가는가**(기본 켜짐).
-   *
-   * 끄면 프리뷰 안의 앱이 Alt 를 자기 단축키로 쓴다 — 안에서 도는 것이 남의 앱이라 그 손을
-   * 영영 묶어 둘 수는 없기 때문이다. 대신 그 프리뷰에서는 Alt 인스펙터가 서지 않는다.
-   */
+  /** §7.11 (G) — 프리뷰 안 Alt 를 우리가 가져가나(기본 켜짐). 끄면 안의 앱이 쓰고 그 프리뷰엔 Alt 인스펙터가 없다. */
   altCapture: boolean;
   toggleAltCapture: () => void;
-  /**
-   * §7.16 — 마우스가 **이 프리뷰 안**에 있는가(안에서 온 신고로 안다).
-   *
-   * iframe 위에서는 부모 문서의 `:hover` 가 서지 않아, 프리뷰를 담은 스크롤 상자가 "마우스를 댔다"를
-   * 스스로 알 방법이 없다. 그 hover 를 이 값이 대신한다.
-   */
+  /** §7.16 — 마우스가 이 프리뷰 안에 있나(안의 신고로 안다 — iframe 위엔 부모 `:hover` 가 없다). */
   hovered: boolean;
-  /**
-   * §5.17 (A) — 프리뷰 iframe 한 장을 이 훅에 등록한다(콜백 ref).
-   *
-   * 비교 모드에서는 프레임이 셋이라, pick 모드를 **등록된 전부**에 방송해야 어느 칸에서 집어도
-   * 올라온다. 프레임이 붙는 그 순간 현재 모드를 한 번 보내 준다(늦게 태어난 칸이 꺼진 채 남는 것 ❌).
-   */
+  /** §5.17 (A) — iframe 등록(콜백 ref). pick 모드는 등록된 전부에 방송하고, 붙는 순간 한 번 보낸다(늦게 태어난 칸이 꺼진 채 남지 않게). */
   registerFrame: (el: HTMLIFrameElement | null) => void;
   /** iframe 이 (재)로드된 뒤 호출 — 새로 태어난 문서에 현재 pick 모드를 다시 알린다. */
   notifyFrameLoaded: (el: HTMLIFrameElement | null) => void;
@@ -102,12 +77,9 @@ export interface PreviewPicker {
 }
 
 /**
- * @param iframeRef 프리뷰의 **대표** iframe(새로고침처럼 한 장을 가리켜야 하는 조작의 상대).
- * @param url       프리뷰가 보고 있는 **원본** URL(프록시 경로 ❌) — 호스트 에이전트를 찾는 열쇠.
- * @param fallbackAgentId
- *   위성으로 찾지 못할 때 쓸 후보(§5.17 (C) `PlayBubble.ownerAgentId`). 플레이 프리뷰는
- *   iframe 위성을 만들지 않으므로(§5.14) 이것이 없으면 캔버스 프리뷰에서는 보낼 곳도
- *   붙일 곳도 영영 없다 — 엣지가 가리키는 그 에이전트를 그대로 쓴다(두 기능이 어긋나지 않는다).
+ * @param iframeRef 대표 iframe(새로고침 등 한 장을 가리키는 조작의 상대).
+ * @param url 원본 URL(프록시 경로 ❌) — 호스트 에이전트를 찾는 열쇠.
+ * @param fallbackAgentId 위성이 없을 때의 후보(§5.17 (C) `PlayBubble.ownerAgentId` — 플레이 프리뷰는 iframe 위성을 안 만든다, §5.14).
  */
 export function usePreviewPicker(
   iframeRef: RefObject<HTMLIFrameElement | null>,
@@ -168,12 +140,7 @@ export function usePreviewPicker(
   // 프리뷰 → 부모: 집은 요소 / 취소 / 마우스 들고 남. 출처 표식이 없는 메시지는 무시한다
   //   (남의 postMessage 오인 ❌).
   useEffect(() => {
-    /**
-     * 이 신고가 **우리 칸**에서 온 것인가.
-     *
-     * `message` 는 창 하나에 하나뿐이라 다른 프리뷰(다른 탭·다른 캔버스 노드)의 신고도 전부 여기로
-     * 온다 — 가리지 않으면 옆 프리뷰를 스치기만 해도 이쪽 스크롤바가 뜬다.
-     */
+    /** 우리 칸의 신고인가 — `message` 는 창에 하나라 옆 프리뷰의 신고도 온다. */
     function isOurs(win: MessageEventSource | null): boolean {
       if (!win) return false;
       if (iframeRef.current?.contentWindow === win) return true;

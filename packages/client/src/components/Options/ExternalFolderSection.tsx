@@ -4,18 +4,8 @@ import { EXTERNAL_TOP_BUDGET_BOUNDS, EXTERNAL_TOP_BUDGET_DEFAULT } from '@vibisu
 import { NumberStepper } from './NumberStepper.js';
 
 /**
- * §2.1 (B) — **최상위에 동시에 세울 외부 폴더 개수**의 손잡이.
- *
- * 이 값이 화면에서 정하는 것은 하나뿐이다 — 프로젝트 밖 폴더가 캔버스에 몇 개까지 펼쳐지는가.
- * 작게 두면 지도가 조용하지만 무엇을 건드는지 덜 보이고, 크게 두면 다 보이지만 붐빈다.
- * **개수는 이 값이 고정하고 무엇이 보일지는 활동이 정한다** — 접촉이 많고 최근인 자리부터
- * 채워지고, 식으면 다시 조상 밑으로 접힌다.
- *
- * **핀을 꽂은 폴더는 이 수에 들지 않는다.** 사용자가 고정한 것이 예산 때문에 사라지면 핀이라는
- * 약속이 깨지기 때문이다(사용자 결정).
- *
- * 설정은 **머신 단위**(`AppState`)라 프로젝트를 옮겨도 같다 — `SessionProbeSection` 과 같은
- * 문법으로 자기 REST(`/api/external-folder-budget`)를 직접 읽고 쓰고, 미저장만 창에 올린다.
+ * §2.1 (B) — 최상위에 동시에 세울 외부 폴더 개수. 개수는 이 값, 무엇이 보일지는 활동(접촉 많고 최근 순 — 식으면 조상 밑으로)이 정한다.
+ * 핀 폴더는 이 수에 안 든다(예산 때문에 사라지면 핀이 깨진다). 머신 단위(`AppState`), 자기 REST(`/api/external-folder-budget`).
  */
 
 const API_BASE = '';

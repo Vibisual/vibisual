@@ -2,10 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { MENU_VIEWPORT_MARGIN } from '../BubbleMap/canvasMenuPlacement.js';
 import { followVisibleViewport, placeBelowAnchor, viewportMaxHeight, visibleViewport } from './popupPlacement.js';
 
-/**
- * 떠 있는 상자 자리 회귀 — 폰에서 가상 키보드가 올라온 화면(시각 뷰포트만 준다)에서도 상자가 **보이는 화면 안**에
- * 서야 한다. 종전에는 `innerHeight` 로 접어 키보드 밑에 깔렸다.
- */
+/** 폰 가상 키보드로 시각 뷰포트만 준 화면에서도 상자가 보이는 화면 안에 서는가(`innerHeight` 면 키보드 밑에 깔린다). */
 
 const desktop = { left: 0, top: 0, width: 1280, height: 800 };
 /** 폰 세로 화면에 키보드가 올라와 아래 절반이 가려진 상태. */

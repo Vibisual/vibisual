@@ -11,16 +11,7 @@ import {
 } from '@vibisual/shared';
 import { shortcutLabel } from '../../utils/platform.js';
 
-/**
- * VoiceInputOverlay — **§5.5 #17-38 "지금 듣고 있다"를 입력창 **위**에 그리는 판.**
- *
- * 왜 입력창 안이 아니라 위인가: 말한 것은 **입력창의 글**이 되어야 하고(고치고 지우고 이어 쓸
- * 수 있어야 한다), 듣는 중이라는 신호는 그 글과 섞이면 안 된다. 둘을 한 칸에 겹쳐 그리면
- * 확정 전 글자가 입력창에 들어갔다 사라지는 것처럼 보여, 사용자가 무엇을 보내게 되는지
- * 알 수 없게 된다(사용자 지시 — "텍스트 입력은 텍스트 창에, 이펙트는 텍스트창 위에").
- *
- * 자리는 히스토리 힌트·슬래시 드롭다운과 같은 `bottom-full` 레일이다(새 축 ❌).
- */
+/** §5.5 #17-38 — "듣는 중" 효과는 입력창 위, 말한 글은 입력창 안(겹치면 확정 전 글자가 들어갔다 사라져 보낼 것이 안 보인다). 자리는 `bottom-full` 레일(새 축 ❌). */
 
 interface VoiceInputOverlayProps {
   status: VoiceInputStatus;
@@ -30,19 +21,11 @@ interface VoiceInputOverlayProps {
   analyserRef: React.MutableRefObject<AnalyserNode | null>;
   onStop: () => void;
   onDismissError: () => void;
-  /**
-   * §5.5 #17-38 ⑮ — 이 실패를 **OS 설정에서 풀 수 있을 때** 그리로 가는 문을 연다.
-   * 사유만 말하고 끝내면 사용자는 어디를 만져야 하는지 모른 채 같은 버튼만 다시 누른다.
-   */
+  /** §5.5 #17-38 ⑮ — OS 설정에서 풀 수 있는 실패면 그리로 가는 문을 연다(사유만 말하면 같은 버튼만 다시 누른다). */
   onOpenMicSettings: () => void;
 }
 
-/**
- * 파형 — **실제로 잰 소리 세기의 최근 기록**.
- *
- * React 상태를 쓰지 않는다: 초당 스물 몇 번 도는 자리라 상태로 올리면 입력창 전체가 그만큼
- * 다시 그려진다(타이핑 지연 회귀). 막대 하나하나의 `transform` 만 직접 만진다.
- */
+/** 파형 — React 상태 없이 막대 `transform` 만 직접 만진다(초당 수십 번이라 상태면 입력창 전체가 다시 그려진다). */
 function VoiceWave({ analyserRef, active }: {
   analyserRef: React.MutableRefObject<AnalyserNode | null>;
   active: boolean;

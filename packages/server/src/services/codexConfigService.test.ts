@@ -1,9 +1,4 @@
-/**
- * §5.25 (G-2) — 코덱스 설정 파일 겹 읽기 고정 시험.
- *
- * 설정 창이 빈 칸에 "지금 적용되는 값"을 적으려면 코덱스와 **같은 파일을 같은 순서로** 봐야 한다.
- * 한 겹이라도 틀리면 화면이 사용자에게 틀린 값을 단정하게 된다 — 비어 있을 때보다 나쁘다.
- */
+/** §5.25 (G-2) — 코덱스 설정 파일 겹 읽기 고정 시험. 빈 칸에 "지금 적용되는 값"을 적으려면 코덱스와 같은 파일을 같은 순서로 봐야 한다 — 한 겹이라도 틀리면 화면이 틀린 값을 단정한다(비어 있을 때보다 나쁘다). */
 import { describe, it, expect } from 'vitest';
 import * as path from 'node:path';
 import { codexWindowsSandboxConfigured, readCodexEffectiveConfig, scanCodexConfigToml, stripExtendedPathPrefix } from './codexConfigService.js';

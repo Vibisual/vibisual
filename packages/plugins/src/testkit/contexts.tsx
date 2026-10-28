@@ -1,11 +1,6 @@
 /**
- * §5.11 v4.21 — 플러그인 카드 렌더 검사용 **공용 컨텍스트 픽스처**.
- *
- * 렌더 안전성 검사와 죽은 문자열 검사가 서로 다른 컨텍스트를 쓰면, 한쪽이 밟은 분기를 다른 쪽은 못 밟아
- * 판정이 어긋난다("이 키는 안 불린다"가 사실은 "그 컨텍스트에서만 안 불린다"가 된다). 그래서 컨텍스트는
- * 한 곳에서만 정의하고 양쪽이 같은 것을 가져다 쓴다.
- *
- * 빌드 산출물에는 들어가지 않는다 — `tsconfig.json` 의 `exclude` 에 이 폴더가 등록돼 있다.
+ * §5.11 — 카드 렌더 검사용 공용 컨텍스트 픽스처. 렌더 안전성·죽은 문자열 검사가 같은 것을 쓴다(다르면 "안 불린다"가 "그 컨텍스트에서만"이 된다).
+ * 빌드 산출물엔 안 들어간다(`tsconfig.json` 의 `exclude`).
  */
 import { AVAILABLE_AGENT_TOOLS } from '@vibisual/shared';
 import type {
@@ -48,13 +43,7 @@ export const event = (patch: Partial<AgentEvent> = {}): AgentEvent => ({
   ...patch,
 });
 
-/**
- * 신고·검수·엣지·캡처 픽스처.
- *
- * 손으로 쓴 객체 리터럴은 **shared 타입이 바뀌어도 아무 데서도 안 걸린다**(이 폴더는 오래 타입체크 밖에
- * 있었다). 그래서 실제로 `at` · `handoff` · `label` 처럼 **존재하지 않는 필드·값**이 픽스처에 남아 있었고,
- * 카드는 테스트에서만 빈 값을 보고도 초록으로 통과했다. 팩토리로 모아 두면 필드가 바뀔 때 한 곳만 고친다.
- */
+/** 신고·검수·엣지·캡처 픽스처 팩토리 — 손으로 쓴 리터럴은 타입이 바뀌어도 안 걸려 없는 필드로 카드가 초록 통과한다. */
 export const report = (patch: Partial<AgentReport> = {}): AgentReport => ({
   id: 'r1', agentId: 'agent-1', did: ['x'], userActions: [], createdAt: 1, ...patch,
 });
@@ -68,12 +57,7 @@ export const edge = (patch: Partial<TaskEdge> = {}): TaskEdge => ({
   status: 'idle', forwardMode: 'auto', templateId: null, createdAt: 1, ...patch,
 });
 
-/**
- * §5.10 — 자동 목표 요약 픽스처.
- *
- * 칸이 열둘이라 컨텍스트마다 손으로 적으면 한 칸을 빠뜨려도 아무도 모른다. 기본값은 **다 0 이되
- * 켜져 있는** 상태다 — "켜 뒀는데 아직 아무것도 없다"가 카드가 가장 자주 만나는 자리이기 때문이다.
- */
+/** §5.10 — 자동 목표 요약 픽스처(칸이 열둘). 기본은 다 0 이되 켜진 상태 — 카드가 가장 자주 만나는 자리다. */
 export const goal = (patch: Partial<AutoGoalSummary> = {}): AutoGoalSummary => ({
   enabled: true,
   skillCount: 0,
@@ -108,12 +92,9 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
     { ...base, customCreated: false, agentConfig: undefined, data: {} },
     // ② 갓 만들어진 커스텀 에이전트 — 설정만 있고 활동 이력 없음.
     { ...base, customCreated: true, agentConfig: cfg(), data: {} },
-    // ③ 권한이 열려 있고 도구가 **과반이되 전부는 아닌** 상태.
-    //    이 픽스처가 밟는 것은 여러 카드의 **중간 등급**(도구검색 `most` · 허용목록 `partial` ·
-    //    관심사분리 `mixed`)이라, 도구 이름을 손으로 적으면 `AVAILABLE_AGENT_TOOLS` 가 늘어날 때마다
-    //    비율이 조용히 내려가 그 등급들이 도달 불가가 된다(실제로 목록이 12→20 이 되며 세 등급이 한꺼번에
-    //    죽은 문자열로 잡혔다). 목록 길이를 따라가는 비율(약 70%)로 잡아 그 회귀를 원천 차단한다.
-    //    — 0.5 초과라 `focused`/`narrow`/`lean` 이 아니고, 0.9 미만이라 `broad`/`all` 도 아니다.
+    // ③ 권한이 열려 있고 도구가 과반이되 전부는 아닌 상태 — 여러 카드의 중간 등급(`most`·`partial`·`mixed`)을 밟는다.
+    //    도구 수를 `AVAILABLE_AGENT_TOOLS` 길이의 약 70%로 잡는다(손으로 적으면 목록이 늘 때 그 등급들이 도달 불가가 된다).
+    //    0.5 초과라 `focused`/`narrow`/`lean` 아님, 0.9 미만이라 `broad`/`all` 아님.
     {
       ...base,
       customCreated: true,
@@ -147,9 +128,7 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
           { id: 'b1', command: 'rm -rf build/', timestamp: 1 },
           { id: 'b2', command: 'git push --force', timestamp: 2 },
         ],
-        // §5.11 v4.65 — 집행 실측이 **있는** 상태(지시가 여러 곳 = 경고 등급). 실측을 안 주면 실측 기반
-        //   카드는 "아직 측정 전" 분기만 밟고 나머지 문구가 통째로 미검증으로 남는다.
-        //   v4.67 — 종속을 명시해 **정렬된** 문서와 **뒤처짐 실측**(문턱 안)도 함께 담는다.
+        // §5.11 — 집행 실측이 있는 상태(지시가 여러 곳 = 경고 등급, 정렬된 문서·문턱 안 뒤처짐 포함). 없으면 실측 카드는 "측정 전" 분기만 밟는다.
         pluginFacts: {
           'ssot-drift': {
             doc: 'docs/SCENARIO.md', docState: 'ok', bodyChars: 900_000, headings: 400,
@@ -472,13 +451,7 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         bashCommands: [],
       },
     },
-    /*
-     * ⑰~⑲ §5.11 v4.67 — **SSOT 실측의 나쁜 쪽 세 가지.**
-     *
-     * ③④⑦⑨ 는 "문서가 있다/없다"만 담고 있어서, v4.67 이 나눈 상태(빈 문서 · 지정한 경로에 파일 없음 ·
-     * 문서가 코드보다 뒤처짐)는 한 번도 안 그려졌다. 그리고 안 그려진 문구는 **번역만 12개 늘어난 채**
-     * 아무도 못 보는 자리에 남는다(`deadStrings` 가 그것을 잡는다). 데이터는 이 카드가 읽는 실측만 담는다.
-     */
+    /* ⑰~⑲ §5.11 — SSOT 실측의 나쁜 쪽 셋(빈 문서 · 지정 경로에 파일 없음 · 코드보다 뒤처짐). 그려지지 않은 문구는 `deadStrings` 가 잡는다. */
     // ⑰ 문서는 있는데 **거의 비어 있다** — 제목 한 줄짜리 파일이 초록으로 통과하던 자리.
     {
       ...base,
@@ -536,13 +509,8 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
       },
     },
     /*
-     * ⑳ **규칙만 비대한 에이전트** — 도구도 데이터도 평범한데 규칙 문서 하나가 창을 크게 먹는 상태.
-     *
-     * 여기까지의 픽스처는 규칙이 길어야 2만 자였다. 그래서 `token-budget` 의 "고정 비용이 큼" 등급은
-     * 어떤 상황에서도 안 밟혔고, 그 문구는 번역만 12개 늘어난 채 아무도 못 보는 자리에 있었다
-     * (`deadStrings` 가 그것을 "원리상 도달 불가"로 적어 두고 있었다). 판정이 규칙까지 세게 된 뒤로는
-     * 도달할 수 있는 상태이므로, 그 분기를 밟는 자리를 여기서 만든다 — 사용자가 실제로 만들 수 있는
-     * 상태만 담는다(규칙 5만 자 ≈ 1.25만 토큰, 20만 창의 11%).
+     * ⑳ **규칙만 비대한 에이전트** — 규칙 문서 하나가 창을 크게 먹는 상태(`token-budget` "고정 비용이 큼" 등급).
+     * 실제로 만들 수 있는 크기만: 규칙 5만 자 ≈ 1.25만 토큰, 20만 창의 11%.
      */
     {
       ...base,
@@ -553,13 +521,7 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         agentEvents: [], subAgents: [], runningTasks: [], taskEdges: [], bashCommands: [],
       },
     },
-    /*
-     * ㉑ **정독을 아직 안 켠 프로젝트** (§5.5 #17-44 ⑧).
-     *
-     * 켬/끔이 프로젝트·에이전트·세션 3층으로 열리면서 기본이 **꺼짐**이 됐다. 그 상태의 실측은 값이 아니라
-     * `specEnabled: false` 한 칸이고, 카드는 그것을 보고 "꺼짐"이라 적는다 — "측정 전"으로 그리면 사용자는
-     * 재는 중인 줄 알고 기다리다가 켜야 한다는 것을 영영 모른다. 그 분기를 밟는 자리가 여기다.
-     */
+    /* ㉑ 정독을 안 켠 프로젝트(§5.5 #17-44 ⑧, 기본 꺼짐) — 실측은 `specEnabled: false` 한 칸, 카드는 "꺼짐"("측정 전"이면 켜야 하는 줄 모른다). */
     {
       ...base,
       now: NOW,

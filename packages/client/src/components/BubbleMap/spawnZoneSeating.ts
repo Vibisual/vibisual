@@ -16,12 +16,8 @@ import { isAgentCardForm } from './agentCard.js';
 import { LINEAGE_HUB_TYPES } from './tidySort.js';
 
 /**
- * §5.1 #2-2 등장 영역 — 화면 값(버블·노드·좌상단 좌표·사각 창)을 원·사각으로 바꿔 `spawnZone.ts` 에 넘기고,
- * 받은 중심을 다시 좌상단으로 돌려준다. BubbleMap 동기화 effect 가 새 버블의 첫 자리를 정할 때 부른다.
- *
- * 크기는 **렌더와 같은 자**로 잰다 — 실측이 있으면 실측, 말풍선이면 그 상자, 아니면 `calcBubbleSize`
- * (§5.4 #33 (C) `tidyDiameterOf` 와 같은 순서). 자가 어긋나면 그 버블만 다른 크기로 앉아 이웃을 밟는다.
- * 실측이 정사각이 아니면 사각으로 잰다 — 물리(`usePhysicsLayout`)가 그 노드를 사각 바디로 보는 것과 같다.
+ * §5.1 #2-2 등장 영역 — 화면 값을 원·사각으로 바꿔 `spawnZone.ts` 에 넘기고 받은 중심을 좌상단으로 돌린다.
+ * 크기는 **렌더와 같은 자**: 실측 → 말풍선 상자 → `calcBubbleSize`(`tidyDiameterOf` 와 같은 순서) — 어긋나면 이웃을 밟는다. 정사각이 아닌 실측은 사각(물리와 같다).
  */
 
 /** 화면의 사각 창 하나(앱 노드·캡처·플레이·스펙·랩·선반) — 좌상단 + 크기. */
@@ -49,11 +45,7 @@ export interface SpawnFieldInput {
   cardForm: boolean;
 }
 
-/**
- * 최상위 칸의 기준 지름 — 방금 선 버블(활동 1·작업 중)이 그려지는 지름. 렌더와 같은 자에서 딴다.
- * 히트맵은 넣지 않는다 — 켜고 끌 때마다 격자 간격이 달라지면 같은 고리가 두 격자로 갈린다
- * (히트맵 아래의 실제 지름은 겹침 판정이 따로 본다).
- */
+/** 방금 선 버블(활동 1·작업 중)의 렌더 지름. 히트맵은 넣지 않는다 — 켜고 끌 때마다 격자 간격이 바뀌어 같은 고리가 두 격자로 갈린다. */
 export function spawnTopSlotDiameter(): number {
   return calcBubbleSize({ id: '', label: '', path: '', bubbleType: 'internal_folder', status: 'active', activity: 1 });
 }
@@ -63,10 +55,7 @@ export function spawnTopGrid(): ZoneGrid {
   return { slot: spawnTopSlotDiameter(), firstGap: TIDY_LAYOUT.RING_GAP };
 }
 
-/**
- * 이 버블이 등장 영역에 앉는가 — 에이전트(영역의 주인)와 내비게이션(← Back · Root→)은 그 화면의 배치가
- * 세운다. 위성(`sat-`)은 `placeSatellitePositions` 가 같은 기하로 앉힌다.
- */
+/** 에이전트(영역의 주인)·내비게이션(Back·Root)은 그 화면의 배치가, 위성(`sat-`)은 `placeSatellitePositions` 가 같은 기하로 앉힌다. */
 export function isSpawnZoneSeated(bubble: BubbleData): boolean {
   if (bubble.id.startsWith('sat-')) return false;
   if (LINEAGE_HUB_TYPES.has(bubble.bubbleType)) return false;
@@ -97,19 +86,13 @@ function footprintOf(
   return { w: d, h: d };
 }
 
-/**
- * §5.1 #2-2 (J) — 달을 거느린 위성(묶음)의 몸집 반경(`constellationView` 가 싣는 `_orbitReach` — 가장 큰 달의 바깥 테두리까지).
- * `BubbleData` 타입 밖에서 붙는 표시용 칸이라 레코드로 읽는다.
- */
+/** §5.1 #2-2 (J) — 묶음 위성의 몸집 반경(`constellationView` 가 싣는 `_orbitReach`, 가장 큰 달의 바깥 테두리까지). 타입 밖 표시용 칸이라 레코드로 읽는다. */
 export function orbitReachOf(bubble: BubbleData): number | undefined {
   const raw = (bubble as unknown as Record<string, unknown>)['_orbitReach'];
   return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : undefined;
 }
 
-/**
- * 좌상단 + 크기를 장부 한 칸으로 — 정사각이 아니면 사각(1px 은 측정 반올림으로 본다). 달을 거느린 위성은 달 궤도까지가 몸
- * (`reach`)이고, 주인으로는 제 원이다(`core`).
- */
+/** 정사각이 아니면 사각(1px 은 측정 반올림). 묶음 위성은 몸이 달 궤도까지(`reach`), 주인으로는 제 원(`core`). */
 function obstacleOf(id: string, x: number, y: number, w: number, h: number, reach?: number): ZoneObstacle {
   const cx = x + w / 2;
   const cy = y + h / 2;
@@ -118,10 +101,7 @@ function obstacleOf(id: string, x: number, y: number, w: number, h: number, reac
   return { id, cx, cy, r: w / 2 };
 }
 
-/**
- * 그 화면의 등장 영역 장부 — 이미 자리가 있는 것 전부(에이전트·폴더·위성·사각 창). 최상위를 앉힌 뒤 위성을
- * 앉힐 때도 같은 장부를 이어 쓴다(앉힌 것은 장부에 더해진다).
- */
+/** 이미 자리가 있는 것 전부(에이전트·폴더·위성·사각 창). 위성을 앉힐 때도 같은 장부를 이어 쓴다(앉힌 것이 더해진다). */
 export function buildSpawnField(input: SpawnFieldInput): SpawnField {
   const nodeById = new Map<string, Node>();
   for (const node of input.nodes) nodeById.set(node.id, node);
@@ -153,10 +133,7 @@ export interface SpawnSeatingInput {
   fallbackCenter: { x: number; y: number };
 }
 
-/**
- * 새 최상위 버블들의 첫 자리(좌상단 좌표). 이미 자리가 있는 버블은 하나도 옮기지 않는다 — 이 함수가 정하는
- * 것은 처음 설 자리뿐이다(§5.1 #2-2 (H)).
- */
+/** 이미 자리가 있는 버블은 옮기지 않는다 — 처음 설 자리만 정한다(§5.1 #2-2 (H)). */
 export function seatSpawnZoneBubbles(input: SpawnSeatingInput): Map<string, { x: number; y: number }> {
   const hubs = new Map<string, number>();
   for (const bubble of input.bubbles) {

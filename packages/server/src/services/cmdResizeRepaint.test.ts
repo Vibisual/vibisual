@@ -3,12 +3,7 @@ import { isConsoleRepaintChunk, shouldBufferPtyChunk, CMD_RESIZE_REPAINT_MS } fr
 
 /**
  * §4 (CMD 터미널 업그레이드 ③) — 리사이즈 리페인트가 replay 링버퍼에 쌓이지 않는지.
- *
- * 증상은 "cmd 창이 같은 걸 계속 출력한다" 였다. 실측으로 갈라 보니 CLI 가 도는 게 아니라
- * **Windows ConPTY 가 `ResizePseudoConsole` 마다 보이는 화면을 통째로 다시 내보내는** 것이었고
- * (리사이즈 6회 = cmd 배너 6벌 추가, 배너 사이 간격이 그때의 rows 와 일치), `terminalManager` 가
- * 그 리페인트까지 scrollback 링버퍼에 쌓는 바람에 재부착 replay 마다 같은 배너가 N벌 되살아났다.
- *
+ * Windows ConPTY 는 `ResizePseudoConsole` 마다 보이는 화면을 통째로 다시 내보낸다(실측: 리사이즈 6회 = cmd 배너 6벌, 배너 간격 = 그때의 rows) — scrollback 에 쌓으면 재부착 replay 마다 같은 배너가 N벌 되살아난다.
  * 아래 바이트는 node-pty 로 cmd.exe 를 띄워 실제로 받은 청크다(실측 시그니처 고정).
  */
 

@@ -1,8 +1,6 @@
 /**
- * §5.1 #2-1 — shared `fileFace.ts` · `fileMentions.ts` · `constellation.ts` · `kindBundle.ts` 고정 시험.
- *
- * 판정은 shared 순수 함수지만 shared 패키지에는 러너가 없으므로 여기서 고정한다(`externalFolderView.test.ts` 와 같은
- * 자리). **플랫폼을 인자로 넘긴다** — 개발기 한 대에서 win32·darwin·linux 셋의 경로 규칙을 다 재기 위함이다.
+ * §5.1 #2-1 — shared `fileFace.ts`·`fileMentions.ts`·`constellation.ts`·`kindBundle.ts` 시험(shared 엔 러너가 없어 여기서 돈다).
+ * 플랫폼을 인자로 넘긴다 — 개발기 한 대에서 win32·darwin·linux 경로 규칙을 다 잰다.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -12,6 +10,9 @@ import {
   fileFaceKindOf,
   fileStemOf,
   isMediaFaceKind,
+  keepSatelliteSeats,
+  kindBundleCommonDir,
+  kindBundleDirToken,
   kindBundleNameOf,
   kindBundlePathShape,
   planConstellations,
@@ -129,7 +130,7 @@ describe('planConstellations — 앱 노드 별자리(파일은 중심이 되지
     id: 'app-1', results: [], parts: [], codeParts: [], ...extra,
   });
 
-  it('파일만 있으면 아무것도 묶지 않는다 — 영상의 같은 이름 json·코드도 영상을 돌지 않는다(2026-10-21 사용자 지시)', () => {
+  it('파일만 있으면 아무것도 묶지 않는다 — 영상의 같은 이름 json·코드도 영상을 돌지 않는다', () => {
     // "사진 묶음인데 … 사진만 있는게 아니라 다른 파일들도 같이 있는게 문제야 … 사진 제외한 다른 앱들표현도 마찬가지" — 파일 중심
     //   별자리는 다른 종류를 그 묶음에 넣었다. 같은 종류끼리의 묶음은 planKindBundles 가 맡는다.
     const plan = planConstellations([
@@ -243,7 +244,7 @@ describe('planConstellations — 앱 노드 별자리(파일은 중심이 되지
   });
 });
 
-describe('planKindBundles — 같은 폴더의 같은 종류(2026-10-21 사용자 지시 · 2026-10-22 직속 포함)', () => {
+describe('planKindBundles — 한 무리의 같은 종류(직속 포함 · 하위 폴더 무관)', () => {
   const opts = { platform: 'win32' as const };
 
   it('사진 속 2번 — bubble-test 의 위성 다섯(전부 bubble-test/video 의 영상)은 영상 묶음 하나다', () => {
@@ -267,7 +268,7 @@ describe('planKindBundles — 같은 폴더의 같은 종류(2026-10-21 사용�
     expect(bundles[0]).toMatchObject({ kind: 'image', memberIds: ['crop', 'tl'] });
   });
 
-  it('폴더의 직속 파일도 같은 종류 둘 이상이면 묶음 하나다 — 직속 제외는 걷었다(2026-10-22 사용자 지시)', () => {
+  it('폴더의 직속 파일도 같은 종류 둘 이상이면 묶음 하나다', () => {
     const bundles = planKindBundles([f('a', 'video/a.mp4', { lastActivity: 1 }), f('b', 'video/b.mp4', { lastActivity: 2 })], opts);
     expect(bundles).toHaveLength(1);
     expect(bundles[0]).toMatchObject({ kind: 'video', dir: 'video', memberIds: ['b', 'a'], overflowIds: [] });
@@ -291,7 +292,7 @@ describe('planKindBundles — 같은 폴더의 같은 종류(2026-10-21 사용�
     expect(planKindBundles([f('a', 'p/docs/a.md'), f('b', 'p/docs/b.md'), f('c', 'p/src/c.ts'), f('d', 'p/src/d.ts')], opts)).toEqual([]);
   });
 
-  it('루트 바로 아래 파일은 includeRoot 일 때만 묶는다 — 메인 화면 최상위 파일(2026-10-22), 위성(서버)은 늘 폴더 안이다', () => {
+  it('루트 바로 아래 파일은 includeRoot 일 때만 묶는다 — 메인 화면 최상위 파일, 위성(서버)은 늘 폴더 안이다', () => {
     expect(planKindBundles([f('a', 'a.png'), f('b', 'b.png')], opts)).toEqual([]);
     const [root, ...rest] = planKindBundles([f('a', 'a.png', { lastActivity: 1 }), f('b', 'b.png', { lastActivity: 2 })], { ...opts, includeRoot: true });
     expect(rest).toHaveLength(0);
@@ -309,9 +310,28 @@ describe('planKindBundles — 같은 폴더의 같은 종류(2026-10-21 사용�
     expect(bundles).toHaveLength(2); // 소리는 하나뿐이라 묶음이 아니다
   });
 
-  it('같은 종류라도 폴더가 다르면 따로 — 묶음 하나는 한 폴더다', () => {
+  it('같은 종류는 하위 폴더가 달라도 한 묶음이다 — 이름은 함께 든 가장 가까운 폴더', () => {
     const bundles = planKindBundles([f('a', 'p/x/a.png'), f('b', 'p/x/b.png'), f('c', 'p/y/c.png'), f('d', 'p/y/d.png')], opts);
-    expect(bundles.map((b) => kindBundleNameOf(b.dir)).sort()).toEqual(['x', 'y']);
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toMatchObject({ kind: 'image', token: 'image', dir: 'p' });
+    expect([...bundles[0]!.memberIds].sort()).toEqual(['a', 'b', 'c', 'd']);
+    expect(kindBundleNameOf(bundles[0]!.dir)).toBe('p');
+  });
+
+  it('사진 속 경우 — `.vibisual` 을 도는 png 다섯이 attachments 의 하위 폴더 다섯에 하나씩 있어도 사진 묶음 하나다', () => {
+    const files = [1, 2, 3, 4, 5].map((n) => f(`p${n}`, `.vibisual/attachments/custom-a/sub-${n}/shot-${n}.png`, { lastActivity: n }));
+    const notes = f('md', '.vibisual/notes.md', { lastActivity: 9 });
+    const bundles = planKindBundles([...files, notes], opts);
+    expect(bundles).toHaveLength(1); // 텍스트(md)는 묶지 않는다
+    expect(bundles[0]).toMatchObject({ kind: 'image', dir: '.vibisual/attachments/custom-a', overflowIds: [] });
+    expect(bundles[0]?.memberIds).toEqual(['p5', 'p4', 'p3', 'p2', 'p1']);
+  });
+
+  it('구성이 바뀌어 공통 폴더가 움직여도 열쇠는 종류 그대로다 — 화면의 묶음 노드가 다시 서지 않는다', () => {
+    const one = planKindBundles([f('a', 'p/x/a.mp4'), f('b', 'p/x/b.mp4')], opts)[0]!;
+    const two = planKindBundles([f('a', 'p/x/a.mp4'), f('b', 'p/x/b.mp4'), f('c', 'p/y/c.mp4')], opts)[0]!;
+    expect([one.dir, two.dir]).toEqual(['p/x', 'p']);
+    expect(one.token).toBe(two.token);
   });
 
   it('상한을 넘으면 최근 것부터 남기고 오래된 구성은 overflow 로 알린다', () => {
@@ -323,7 +343,7 @@ describe('planKindBundles — 같은 폴더의 같은 종류(2026-10-21 사용�
     expect(planKindBundles(files, { ...opts, memberMax: Number.MAX_SAFE_INTEGER })[0]?.overflowIds).toEqual([]);
   });
 
-  it('외부 노드 키(`__ext__` · 워크트리 접두 포함)를 같은 자로 잰다 — 하위 폴더와 직속이 저마다 묶음이다', () => {
+  it('외부 노드 키(`__ext__` · 워크트리 접두 포함)를 같은 자로 잰다 — 하위 폴더와 직속이 한 묶음이고 이름은 그 위 폴더다', () => {
     const files = [
       f('a', '__ext__c:/users/dev/temp/out/a.png'), // privacy-ok — 실제 홈이 아니라 테스트 픽스처
       f('b', 'wtabc__ext__c:/users/dev/temp/out/b.png'), // privacy-ok — 실제 홈이 아니라 테스트 픽스처
@@ -331,20 +351,20 @@ describe('planKindBundles — 같은 폴더의 같은 종류(2026-10-21 사용�
       f('d', '__ext__c:/users/dev/temp/d.png'), // privacy-ok — 실제 홈이 아니라 테스트 픽스처
     ];
     const bundles = planKindBundles(files, opts);
-    expect(bundles).toHaveLength(2);
-    const byName = new Map(bundles.map((b) => [kindBundleNameOf(b.dir), [...b.memberIds].sort()] as const));
-    expect(byName.get('out')).toEqual(['a', 'b']);
-    expect(byName.get('temp')).toEqual(['c', 'd']);
+    expect(bundles).toHaveLength(1);
+    expect([...bundles[0]!.memberIds].sort()).toEqual(['a', 'b', 'c', 'd']);
+    expect(bundles[0]!.dir).toBe('c:/users/dev/temp'); // privacy-ok — 실제 홈이 아니라 테스트 픽스처
+    expect(kindBundleNameOf(bundles[0]!.dir)).toBe('temp');
     expect(kindBundlePathShape('wtabc__ext__c:\\users\\dev\\temp\\x.png')).toBe('c:/users/dev/temp/x.png'); // privacy-ok — 실제 홈이 아니라 테스트 픽스처
   });
 
-  it('대소문자 — win32·darwin 은 접고 linux 는 가른다(플랫폼은 인자)', () => {
+  it('대소문자 — 묶음은 세 OS 모두 하나, 공통 폴더는 win32·darwin 은 접고 linux 는 가른다(플랫폼은 인자)', () => {
     const files = [f('a', 'p/Video/a.mp4'), f('b', 'p/video/b.mp4')];
-    expect(planKindBundles(files, { platform: 'win32' })).toHaveLength(1);
-    expect(planKindBundles(files, { platform: 'darwin' })).toHaveLength(1);
-    expect(planKindBundles(files, { platform: 'linux' })).toHaveLength(0);
-    // 같은 글자의 폴더면 linux 에서도 한 묶음이다.
-    expect(planKindBundles([f('a', 'P/x/a.mp4'), f('b', 'P/x/b.mp4')], { platform: 'linux' })).toHaveLength(1);
+    for (const platform of ['win32', 'darwin', 'linux'] as const) expect(planKindBundles(files, { platform })).toHaveLength(1);
+    // 글자는 첫 구성(같은 시각이면 id 순 — a) 그대로다.
+    expect(planKindBundles(files, { platform: 'win32' })[0]?.dir).toBe('p/Video');
+    expect(planKindBundles(files, { platform: 'darwin' })[0]?.dir).toBe('p/Video');
+    expect(planKindBundles(files, { platform: 'linux' })[0]?.dir).toBe('p');
   });
 
   it('같은 입력은 같은 열쇠 — 입력 순서와 무관하고, 한 부모 안에서 열쇠가 겹치지 않는다', () => {
@@ -353,5 +373,74 @@ describe('planKindBundles — 같은 폴더의 같은 종류(2026-10-21 사용�
     const b = planKindBundles([...files].reverse(), opts);
     expect(a.map((x) => x.token)).toEqual(b.map((x) => x.token));
     expect(new Set(a.map((x) => x.token)).size).toBe(a.length);
+  });
+});
+
+describe('kindBundleCommonDir — 묶음 구성이 함께 든 가장 가까운 폴더', () => {
+  it('한 폴더면 그 폴더, 흩어져 있으면 그 위 — 외부 표식은 떼고 본다', () => {
+    expect(kindBundleCommonDir(['a/b/x.png', 'a/b/y.png'], 'win32')).toBe('a/b');
+    expect(kindBundleCommonDir(['a/b/x.png', 'a/c/y.png', 'a/c/d/z.png'], 'win32')).toBe('a');
+    expect(kindBundleCommonDir(['wt1__ext__d:/m/n/x.png', '__ext__d:/m/y.png'], 'win32')).toBe('d:/m');
+  });
+
+  it('루트 바로 아래 파일이 하나라도 있거나 공통 마디가 없으면 빈 글자 — POSIX 루트에서만 만나면 `/`', () => {
+    expect(kindBundleCommonDir(['x.png', 'a/y.png'], 'linux')).toBe('');
+    expect(kindBundleCommonDir(['c:/a/x.png', 'd:/b/y.png'], 'win32')).toBe('');
+    expect(kindBundleCommonDir(['/a/x.png', '/b/y.png'], 'linux')).toBe('/');
+    expect(kindBundleCommonDir(['//srv1/s/x.png', '//srv2/s/y.png'], 'win32')).toBe('');
+    expect(kindBundleCommonDir(['//srv/s/a/x.png', '//srv/s/b/y.png'], 'win32')).toBe('//srv/s');
+    expect(kindBundleCommonDir([], 'win32')).toBe('');
+  });
+
+  it('마디 비교는 플랫폼 규칙 — linux 만 대소문자를 가른다(글자는 첫 경로 그대로)', () => {
+    const paths = ['Media/Shots/x.png', 'media/shots/y.png'];
+    expect(kindBundleCommonDir(paths, 'win32')).toBe('Media/Shots');
+    expect(kindBundleCommonDir(paths, 'darwin')).toBe('Media/Shots');
+    expect(kindBundleCommonDir(paths, 'linux')).toBe('');
+  });
+});
+
+describe('kindBundleDirToken — 원 둘레 묶음 id 의 열쇠', () => {
+  it('종류와 폴더가 같으면 같고, 폴더가 다르면 다르다 — 폴더 비교는 플랫폼 규칙', () => {
+    expect(kindBundleDirToken('image', 'p/x', 'win32')).toBe(kindBundleDirToken('image', 'P/X', 'win32'));
+    expect(kindBundleDirToken('image', 'p/x', 'linux')).not.toBe(kindBundleDirToken('image', 'P/X', 'linux'));
+    expect(kindBundleDirToken('image', 'p/x', 'win32')).not.toBe(kindBundleDirToken('image', 'p/y', 'win32'));
+    expect(kindBundleDirToken('video', 'p/x', 'win32')).not.toBe(kindBundleDirToken('image', 'p/x', 'win32'));
+    expect(kindBundleDirToken('image', 'p/x', 'win32').startsWith('image-')).toBe(true);
+  });
+});
+
+describe('keepSatelliteSeats — 위성 상한은 자리 수(서버 trimSatellites · IDE 세션 지도가 같은 함수)', () => {
+  const opts = { platform: 'win32' as const };
+
+  it('상한 안이면 전부 — 판정 없이 지나간다', () => {
+    const files = [f('a', 'p/a.ts', { lastActivity: 1 }), f('b', 'p/b.ts', { lastActivity: 2 })];
+    expect([...keepSatelliteSeats(files, 2, opts)].sort()).toEqual(['a', 'b']);
+  });
+
+  it('하위 폴더가 다른 같은 종류는 한 자리 — 사진 다섯 + 글 둘에 상한 2면 사진 묶음 자리 + 최근 글 하나', () => {
+    const shots = [1, 2, 3, 4, 5].map((n) => f(`p${n}`, `assets/s${n}/shot.png`, { lastActivity: 10 + n }));
+    const docs = [f('old', 'assets/old.md', { lastActivity: 1 }), f('new', 'assets/new.md', { lastActivity: 20 })];
+    const keep = keepSatelliteSeats([...docs, ...shots], 2, opts);
+    expect([...keep].sort()).toEqual(['new', 'p1', 'p2', 'p3', 'p4', 'p5']);
+  });
+
+  it('한 묶음은 moonMax 까지 — 넘친 오래된 구성은 빠진다', () => {
+    const total = CONSTELLATION.moonMax + 3;
+    const shots = Array.from({ length: total }, (_, i) => f(`p${i}`, `assets/s${i}/shot.png`, { lastActivity: i }));
+    const keep = keepSatelliteSeats([f('md', 'assets/a.md', { lastActivity: 99 }), ...shots], 1, opts);
+    // 자리 하나 — 가장 최근 자리(md)가 남고 사진 묶음 자리는 통째로 빠진다.
+    expect([...keep]).toEqual(['md']);
+    const keepTwo = keepSatelliteSeats([f('md', 'assets/a.md', { lastActivity: 99 }), ...shots], 2, opts);
+    expect(keepTwo.size).toBe(1 + CONSTELLATION.moonMax);
+    expect(keepTwo.has('p0')).toBe(false);
+    expect(keepTwo.has(`p${total - 1}`)).toBe(true);
+  });
+
+  it('서버 trimSatellites 의 옛 셈(등록 차례 = 최근)과 같은 답이다', () => {
+    // 등록 차례: a.ts → clips 영상 셋 → b.ts. 상한 2 → 영상 묶음 자리(가장 최근 구성 index 3) + b.ts(4). a.ts 가 빠진다.
+    const keys = ['media/a.ts', 'media/clips/c1.mp4', 'media/clips/c2.mp4', 'media/clips/c3.mp4', 'media/b.ts'];
+    const keep = keepSatelliteSeats(keys.map((key, i) => ({ id: key, path: key, lastActivity: i })), 2, opts);
+    expect(keys.filter((k) => keep.has(k))).toEqual(['media/clips/c1.mp4', 'media/clips/c2.mp4', 'media/clips/c3.mp4', 'media/b.ts']);
   });
 });

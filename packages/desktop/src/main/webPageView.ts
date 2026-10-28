@@ -2,16 +2,9 @@ import type { WebContents, WebPreferences } from 'electron';
 import { WEB_PAGE_PARTITION, isHttpUrl } from '@vibisual/shared';
 
 /**
- * §5.23 「더블클릭」 · §7.11 — **인터넷 페이지는 격리 웹뷰로만 들어온다.**
- *
- * 도메인 버블을 앱 안에서 열면 그 페이지는 iframe 탭 안의 `<webview>` 로 뜬다. 본체 창의 iframe 에 직접 싣지 않는 이유는
- * 셋이다 — ① 본체·별창은 `sandbox:false` 라 그 하위 프레임 프로세스도 샌드박스 없이 돈다 ② 기본 세션의 권한 처리기는
- * "바깥 주소는 이 세션에 뜨지 않는다"는 전제로 전부 허락한다 ③ 기본 세션에는 `vibproxy://`(로컬 프리뷰 프록시) 처리기가 있다.
- * 웹뷰는 **손님 webContents** 라 설정을 따로 줄 수 있고, 그 설정을 정하는 것은 렌더러가 아니라 여기다 — 렌더러가 무엇을
- * 적어 보냈든(`preload`·`nodeintegration`·`webpreferences` 속성) 아래 값이 이긴다(Electron 보안 지침 "Verify WebView options").
- *
- * 이 파일은 electron 을 **형(type)으로만** 읽는다 — 판정이 electron 에 붙어 있으면 시험이 영영 닿지 않는다(vitest 설정 머리말).
- * 세션의 권한 처리기는 electron 을 직접 부르는 `webPageSession.ts` 가 세우고, 여기에는 주입으로 들어온다.
+ * §5.23 「더블클릭」 · §7.11 — 인터넷 페이지는 격리 웹뷰로만. 본체 iframe 은 안 된다: 본체·별창이 `sandbox:false`, 기본 세션은 권한 전부 허락,
+ * `vibproxy://` 처리기가 있다. 손님 설정은 여기서 정하고 렌더러가 적은 속성보다 이긴다(Electron 보안 지침 "Verify WebView options").
+ * electron 은 형으로만 읽는다(시험이 닿게). 권한 처리기는 `webPageSession.ts` 가 세워 주입한다.
  */
 
 /** 손님 설정에 주입되는 바깥 일 — 시험이 가짜로 바꿔 끼운다. */
@@ -28,12 +21,9 @@ export function isWebPageGuestSrc(src: unknown): boolean {
 }
 
 /**
- * 손님 설정을 **다시 쓴다**(제자리 수정 — `will-attach-webview` 가 넘긴 객체를 Electron 이 그대로 손님 생성에 쓴다).
- *
- * - 전용 메모리 세션(`WEB_PAGE_PARTITION`) — 쿠키를 디스크에 남기지 않고, 기본 세션의 처리기(권한 "전부 허락"·`vibproxy://`)가 없다.
- * - 샌드박스 · contextIsolation · Node 없음 · preload 없음 · 웹뷰 중첩 없음 · 플러그인 없음 · 실험 기능 없음.
- * - 새 창 요청은 막지 않는다 — 막으면 `target=_blank` 링크가 아무 일도 안 한다. 대신 손님의 `setWindowOpenHandler` 가
- *   창을 만들지 않고 바깥 브라우저로 넘긴다(`guardWebPageGuest`).
+ * `will-attach-webview` 의 손님 설정을 제자리에서 다시 쓴다(Electron 이 그 객체로 손님을 만든다): 전용 메모리 세션(쿠키 디스크 ❌, 기본 세션 처리기 ❌)
+ * · 샌드박스 · contextIsolation · Node·preload·웹뷰 중첩·플러그인·실험 기능 없음. 새 창 요청은 막지 않는다(막으면 `target=_blank` 가 죽는다) —
+ * `guardWebPageGuest` 가 바깥 브라우저로 넘긴다.
  */
 export function sanitizeWebPageGuestPreferences(prefs: WebPreferences): void {
   const loose = prefs as Record<string, unknown>;

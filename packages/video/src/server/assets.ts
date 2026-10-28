@@ -39,11 +39,8 @@ export async function resolveVideoAssetAsync(root: string, relative: string, pla
 }
 
 /**
- * §5.13 (G) — 프로젝트 안의 파일(절대 경로 또는 루트 기준 상대 경로)을 영상 소재 자리로 **복사**한다.
- *
- * 에이전트에게 사용자가 첨부한 그림은 `.vibisual/attachments/<세션>/…` 에 있고, 그 폴더는 보존 정책(§3.2.3)이 정리할 수
- * 있다. 문서가 첨부 원본을 가리키면 언젠가 소재가 사라지므로 복사본을 소재로 삼는다. 프로젝트 밖 파일은 받지 않는다
- * (`realpath` 까지 확인 — 정션·심볼릭 링크로 밖을 가리키는 것도 막는다).
+ * §5.13 (G) — 프로젝트 안 파일을 소재 자리로 복사한다 — 첨부(`.vibisual/attachments/<세션>/…`)는 보존 정책(§3.2.3)이 지울 수 있어 원본을 가리키지 않는다.
+ * 프로젝트 밖은 받지 않는다(`realpath` 까지 — 정션·심볼릭 링크로 밖을 가리키는 것도 막는다).
  */
 export function importProjectAsset(root: string, input: string, platform: PlatformName = process.platform): VideoAsset {
   const base = fs.realpathSync(root);

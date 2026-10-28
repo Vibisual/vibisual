@@ -28,22 +28,14 @@ interface TaskEdgePopupProps {
   editingEdgeId?: string | null;
 }
 
-/**
- * 팝업 폭(`w-96`). 자리 잡기는 **실제로 잰 폭**으로 하고 이 값은 재기 전 폴백일 뿐이다 — 폰 폭에서는
- * `max-w-[calc(100vw-24px)]`(양옆 `VIEWPORT_MARGIN`)이 폭을 줄인다.
- */
+/** `w-96` 폭 — 자리는 실제로 잰 폭으로 잡고 이 값은 재기 전 폴백이다(폰에선 `max-w-[calc(100vw-24px)]` 가 줄인다). */
 const POPUP_WIDTH = 384; // w-96
 const VIEWPORT_MARGIN = 12;
 
-/**
- * 박탈 프리뷰에 **처음부터 펼쳐 두는** 도구 칩 수. 도구 기본값이 45종이라 교집합도 그대로 45개가
- * 되어, 프리뷰 한 블록이 팝업 높이를 다 먹고 아래 버튼들이 스크롤 밖으로 밀렸다. w-96 팝업에서
- * 10개면 약 두 줄 — 나머지는 `+N` 을 눌러 펼친다(프리뷰는 요약이지 목록이 아니다).
- */
+/** 기본 도구가 45종이라 다 펼치면 프리뷰가 팝업을 먹고 버튼이 스크롤 밖으로 밀린다 — w-96 에서 두 줄쯤인 10개만, 나머지는 `+N`. */
 const STRIP_PREVIEW_CHIPS = 10;
 
-// v1.55 — 사용자가 마지막으로 고른 Critique 옵션 값을 기억해 다음 신규 엣지의 기본값으로 재사용.
-//          편집 모드(existingEdge)나 템플릿 명시 선택(handleTemplateSelect)에는 영향 ❌.
+// 마지막 Critique 옵션을 기억해 신규 엣지 기본값으로 쓴다. 편집 모드·템플릿 명시 선택엔 영향 ❌.
 const CRITIQUE_DEFAULTS_STORAGE_KEY = 'vibisual.taskEdge.critiqueDefaults';
 interface PersistedCritiqueDefaults {
   timing?: TaskEdgeCritiqueTiming;
@@ -82,19 +74,13 @@ function matchTemplates(
   });
 }
 
-/**
- * 터치로 띄운 설명은 **다른 곳을 누르면 접힌다**(hover 가 없으니 떠나는 순간도 없다) — 바깥 누르기 규약
- * (`useOutsidePressDismiss`) 그대로다. 누름은 창 캡처 단계에서 먼저 받으므로, 다른 단추를 누르면 접힌 뒤 그 단추가
- * 제 설명을 다시 띄운다.
- */
+/** 터치로 띄운 설명은 바깥을 누르면 접힌다(`useOutsidePressDismiss`). 누름은 캡처 단계라 다른 단추를 누르면 접힌 뒤 그 단추 설명이 뜬다. */
 const TOUCH_TIP_PRESS_EVENTS = ['pointerdown'] as const;
 
-/** Inline help icon with a custom hover tooltip. Rendered via fixed positioning
- * so it escapes the popup's `overflow-y-auto` and never gets clipped.
- *
- * 마우스는 올리면 뜨고 떠나면 진다(종전 그대로). 터치에는 hover 가 없어 **눌러서 펴고 다시 눌러 접는다** —
- * 14px 글리프는 손가락으로 맞히기 어려워 굵은 포인터에서만 누르는 자리를 넓힌다(보이는 크기는 그대로). 가로는
- * 34px, 세로는 바로 아래 칸(선택 상자)의 윗변을 덮지 않게 26px 까지만. */
+/**
+ * Fixed-positioned so the popup's `overflow-y-auto` never clips it. 터치는 눌러 펴고 다시 눌러 접는다 —
+ * 굵은 포인터에서만 누르는 자리를 34×26px 로 넓힌다(보이는 크기 그대로, 아래 선택 상자를 덮지 않게).
+ */
 function InfoIcon({ title }: { title: string }): React.JSX.Element {
   const iconRef = useRef<HTMLSpanElement>(null);
   // `touch` — 손가락으로 편 것인가(그건 마우스가 떠나도 접히지 않고, 다른 곳을 눌러야 접힌다).
@@ -156,12 +142,8 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
   const setTaskEdgePreview = useGraphStore((s) => s.setTaskEdgePreview);
   const clearTaskEdgePreview = useGraphStore((s) => s.clearTaskEdgePreview);
 
-  // Shared hover tooltip for every button/control. Only one element can be
-  // hovered at a time, so a single shared slot is enough.
-  //
-  // 터치에는 hover 가 없다. 종전 `onMouseEnter` 는 탭 뒤에 브라우저가 흉내 내는 마우스 이벤트로 떠서, 다른 곳을
-  // 누를 때까지 아래 칸을 가린 채 남았다. 이제 마우스만 올림·떠남을 따르고, 터치는 **누르는 순간** 그 단추의 설명을
-  // 띄운다(단추 동작은 그대로 일어난다) — 다른 곳을 누르면 접힌다(`useOutsidePressDismiss`).
+  // One shared tooltip slot (one hover at a time). 마우스만 올림·떠남을 따른다 — 탭 뒤 흉내 마우스 이벤트로 뜨면 아래 칸을 가린 채 남는다.
+  // 터치는 누를 때 띄우고 바깥 누름에 접는다.
   const [hoverTip, setHoverTip] = useState<{ rect: DOMRect; text: string; touch?: boolean } | null>(null);
   const tipProps = useCallback(
     (text: string) => ({
@@ -184,8 +166,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
   useOutsidePressDismiss({ enabled: hoverTip?.touch === true, onDismiss: closeTouchTip, events: TOUCH_TIP_PRESS_EVENTS });
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
-  // v1.48 — backdrop 닫기 판정은 공통 규약(useBackdropDismiss)에 위임한다. textarea/input 안에서
-  // 드래그-선택을 시작했다가 마우스가 카드 밖(창 밖 포함)에서 떨어져도 팝업이 닫히지 않는다.
+  // backdrop 닫기는 `useBackdropDismiss` — 입력칸에서 시작한 드래그 선택이 밖에서 끝나도 닫히지 않는다.
   const backdrop = useBackdropDismiss(onClose);
 
   const isEditing = Boolean(editingEdgeId);
@@ -215,7 +196,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
   const [messageFormat, setMessageFormat] = useState<TaskEdgeMessageFormat>(
     existingEdge?.messageFormat ?? initialTemplate.defaultMessageFormat ?? TASK_EDGE_DEFAULTS.messageFormat,
   );
-  // v1.48 — 자유 형식 schema 본문. messageFormat='schema' 일 때만 적용. 빈 값이면 형식 강제 없음.
+  // messageFormat='schema' 일 때만 쓰는 자유 형식 본문. 빈 값 = 형식 강제 없음.
   const [messageSchema, setMessageSchema] = useState<string>(existingEdge?.messageSchema ?? '');
   const [schemaEditOpen, setSchemaEditOpen] = useState(false);
   const schemaBackdrop = useBackdropDismiss(() => setSchemaEditOpen(false));
@@ -235,15 +216,11 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
   const [priority, setPriority] = useState<TaskEdgePriority>(
     existingEdge?.priority ?? initialTemplate.defaultPriority ?? TASK_EDGE_DEFAULTS.priority,
   );
-  // Per-edge delegation policy. strict = mandatory, auto = source agent decides.
-  // v1.83 — 신규 엣지는 템플릿의 defaultDelegationPolicy 를 우선 적용(Custom='auto').
-  //          편집 모드는 기존 엣지 값 보존.
+  // strict = mandatory, auto = source agent decides. 신규는 템플릿 defaultDelegationPolicy 우선, 편집은 기존 값.
   const [delegationPolicy, setDelegationPolicy] = useState<'strict' | 'auto'>(
     (existingEdge?.delegationPolicy ?? initialTemplate.defaultDelegationPolicy ?? TASK_EDGE_DEFAULTS.delegationPolicy) as 'strict' | 'auto',
   );
-  // v1.41 — Critique 엣지 전용. kind='critique' 일 때만 UI에 노출.
-  // v1.55 — 신규 엣지(existingEdge 없음)일 때 사용자의 마지막 Critique 선택값을 기본으로 재현.
-  //          편집 모드는 기존 값을 그대로 보존. 템플릿 명시 선택은 handleTemplateSelect 에서 별도로 덮어씀.
+  // kind='critique' 전용. 신규는 마지막 선택값, 편집은 기존 값, 템플릿 명시 선택은 handleTemplateSelect 가 덮는다.
   const persistedCritique = useMemo<PersistedCritiqueDefaults>(
     () => (existingEdge ? {} : loadCritiqueDefaults()),
     [existingEdge],
@@ -257,11 +234,9 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
   const [maxReworkCount, setMaxReworkCount] = useState<number>(
     existingEdge?.maxReworkCount ?? persistedCritique.maxRework ?? TASK_EDGE_DEFAULTS.maxReworkCount,
   );
-  // v1.44 — Command 엣지 위임 형태. kind='command' 일 때만 UI에 노출.
-  // 기존 엣지에 commandMode 가 없으면 후방호환 추정값을 초기값으로 — 사용자가 즉시 보는 상태가
-  // 서버 strip 로직과 일치하도록(undefined+strict → 'tool-delegation', 그 외 → 'shared').
+  // kind='command' 전용. commandMode 없는 기존 엣지는 서버 strip 과 같은 추정값(undefined+strict → 'tool-delegation', 그 외 'shared').
   const inferLegacyCommandMode = (): TaskEdgeCommandMode => {
-    // v1.83 — 신규 엣지는 템플릿의 defaultCommandMode 를 우선(Custom='tool-delegation').
+    // 신규 엣지 = 템플릿 기본(Custom 은 'tool-delegation').
     if (!existingEdge) return initialTemplate.defaultCommandMode ?? TASK_EDGE_DEFAULTS.commandMode;
     if (existingEdge.commandMode) return existingEdge.commandMode;
     return (existingEdge.delegationPolicy ?? 'strict') === 'strict' ? 'tool-delegation' : 'shared';
@@ -434,7 +409,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
     const options = {
       kind,
       messageFormat,
-      // v1.48 — schema 모드 외엔 빈 문자열로 정규화해 prompt 주입에서 자연 스킵.
+      // schema 가 아니면 비워 프롬프트 주입에서 빠지게 한다.
       messageSchema: messageFormat === 'schema' ? messageSchema : '',
       returnFormat,
       timeoutMs: timeoutMs === '' ? undefined : Number(timeoutMs),
@@ -442,12 +417,10 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
       cacheEnabled,
       priority,
       delegationPolicy,
-      // v1.41 — Critique 옵션은 kind='critique' 일 때만 의미. 다른 kind 에도 저장은 되지만
-      // 서버/런타임은 kind='critique' 에서만 해석하도록 설계.
+      // 다른 kind 에도 저장되지만 서버/런타임은 critique 에서만 해석한다.
       critiqueTiming,
       critiqueAuthority,
       maxReworkCount,
-      // v1.44 — Command 옵션도 kind='command' 일 때만 의미. 항상 저장.
       commandMode,
     };
     if (isEditing && editingEdgeId) {
@@ -455,7 +428,6 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
     } else {
       createTaskEdge(sourceAgentId, targetAgentId, command.trim(), forwardMode, selectedTemplate.id, options);
     }
-    // v1.55 — kind='critique' 로 저장 시 현재 옵션을 다음 신규 엣지의 기본값으로 기억.
     if (kind === 'critique') {
       saveCritiqueDefaults({
         timing: critiqueTiming,
@@ -596,9 +568,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
           </div>
         </div>
 
-        {/* v1.44 — Command 전용 옵션. kind='command' 일 때만 보임. cyan(sky-400) 액센트.
-         * delegationPolicy(강제 정도)와 직교하는 commandMode 축 — 도구 공유 vs 박탈 vs 모드 위임.
-         * shared = 부모 도구 유지 / tool-delegation = 박탈 / mode-delegation = 도구 공유 + 시스템 프롬프트 강제. */}
+        {/* delegationPolicy(강제 정도)와 직교하는 commandMode: shared = 부모 도구 유지 / tool-delegation = 박탈 / mode-delegation = 도구 공유 + 시스템 프롬프트 강제. */}
         {kind === 'command' && (
           <div className="mb-3 space-y-2.5 rounded border border-sky-400/40 bg-sky-400/5 p-2">
             <div className="flex items-center gap-1.5 text-[12px] uppercase tracking-wider text-sky-300">
@@ -691,7 +661,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
           </div>
         )}
 
-        {/* v1.41 — Critique 전용 옵션. kind='critique' 일 때만 보임. 보라(violet) 액센트로 감시자 톤 통일. */}
+        {/* Critique 전용 옵션 */}
         {kind === 'critique' && (
           <div className="mb-3 space-y-2.5 rounded border border-violet-500/40 bg-violet-500/5 p-2">
             <div className="flex items-center gap-1.5 text-[12px] uppercase tracking-wider text-violet-300">
@@ -925,8 +895,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
                   </span>
                   <InfoIcon title={t('bubbleMap.taskEdgePopup.retryDisabledNote')} />
                 </div>
-                {/* TODO(2026-05-13): retry runtime is not implemented yet. Input disabled.
-                 *  Re-enable once dispatch loop honors edge.retryCount (see 해보자/2026-05-13/todo.md). */}
+                {/* TODO: retry runtime not implemented — disabled until the dispatch loop honors edge.retryCount. */}
                 <input
                   type="number"
                   min={0}
@@ -951,8 +920,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
                   </span>
                   <InfoIcon title={t('bubbleMap.taskEdgePopup.priorityDisabledNote')} />
                 </div>
-                {/* TODO(2026-05-13): priority scheduling is not implemented yet. Select disabled.
-                 *  Re-enable once dispatch scheduler honors edge.priority (see 해보자/2026-05-13/todo.md). */}
+                {/* TODO: priority scheduling not implemented — disabled until the dispatch scheduler honors edge.priority. */}
                 <select
                   disabled
                   className="w-full cursor-not-allowed rounded border border-gray-800 bg-gray-900 px-2 py-1 text-xs text-gray-500 opacity-50"
@@ -973,8 +941,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
                   </span>
                   <InfoIcon title={t('bubbleMap.taskEdgePopup.cacheDisabledNote')} />
                 </div>
-                {/* TODO(2026-05-13): result cache is not implemented yet. Checkbox disabled.
-                 *  Re-enable once dispatch path honors edge.cacheEnabled (see 해보자/2026-05-13/todo.md). */}
+                {/* TODO: result cache not implemented — disabled until the dispatch path honors edge.cacheEnabled. */}
                 <label
                   className="flex cursor-not-allowed items-center gap-1.5 rounded border border-gray-800 bg-gray-900 px-2 py-1 text-xs text-gray-500 opacity-50"
                   {...tipProps(t('bubbleMap.taskEdgePopup.cacheDisabledNote'))}
@@ -1051,10 +1018,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
         </div>
       </div>
 
-      {/* v1.48 — Schema 편집 sub-popup. messageFormat='schema' 일 때 "편집" 버튼으로 오픈.
-       *  메인 TaskEdgePopup 의 backdrop 으로 버블링 차단(stopPropagation) + 자체 backdrop 닫기는
-       *  공통 규약(누른 곳도 뗀 곳도 backdrop 자신) — textarea 텍스트 선택 드래그가 우연히
-       *  backdrop 위에서 끝나도 닫히지 않도록. */}
+      {/* Schema 편집 서브 팝업 — 메인 backdrop 으로 버블링을 끊고, 자체 닫기는 누른 곳·뗀 곳 둘 다 backdrop 일 때만(선택 드래그가 거기서 끝나도 안 닫히게). */}
       {schemaEditOpen && (
         <div
           className="fixed inset-0 z-[65] flex items-center justify-center bg-black/40"

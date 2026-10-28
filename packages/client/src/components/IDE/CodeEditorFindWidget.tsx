@@ -9,15 +9,8 @@ import { findBarStacked } from './ideResponsive.js';
 import type { EditorFindWidgetModel, EditorGotoModel } from './useEditorFind.js';
 
 /**
- * CodeEditorFindWidget.tsx — §5.5 #17-27 ⑲ 편집창의 **찾기·바꾸기 막대**와 **줄 번호로 가기 상자**.
- *
- * 순수 표시다 — 상태와 동작은 전부 `useEditorFind` 가 쥐고, 여기는 받은 모델을 그린다. 자리는 VS Code 와
- * 같다(찾기 막대는 본문 오른쪽 위, 줄 번호 상자는 가운데 위) — 본문을 밀어내지 않고 그 위에 뜬다.
- *
- * 막대 안의 키 — `Enter` 다음 · `Shift+Enter` 이전(바꿀 말 칸에서는 `Enter` 가 하나 바꾸기) · `Esc` 닫기.
- * 그 밖의 키(옵션 셋·모두 바꾸기 …)는 단축키 표(`shared/keymap.ts`)의 것이라 여기서 판정하지 않는다
- * (단추 툴팁의 키도 표에서 읽는다 — 재매핑하면 함께 바뀐다).
- * 입력칸은 `IME_ENTER_OWNER` 다 — 한글 조합을 끝낸 첫 Enter 가 막대에 닿아야 두 번 누르지 않는다.
+ * CodeEditorFindWidget.tsx — §5.5 #17-27 ⑲ 찾기·바꾸기 막대와 줄 번호 상자(순수 표시 — 상태는 `useEditorFind`, 자리는 VS Code 와 같다).
+ * 막대 키: `Enter` 다음 · `Shift+Enter` 이전(바꿀 말 칸 `Enter` = 하나 바꾸기) · `Esc` 닫기, 나머지는 `shared/keymap.ts`. 입력칸은 `IME_ENTER_OWNER`(한글 조합 뒤 첫 Enter 가 닿게).
  */
 
 /** 막대 단추 하나의 겉모양(아이콘 칸). 터치에서는 손가락 크기(32px)로 키운다. */

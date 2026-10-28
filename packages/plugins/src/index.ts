@@ -1,8 +1,6 @@
 /**
- * §5.11 v3.88 — `@vibisual/plugins` 기본 진입점.
- *
- * **React·node 에 의존하지 않는 것만** 여기서 내보낸다(매니페스트·등록부·판정 순수 함수).
- * 클라이언트 기여는 `@vibisual/plugins/client`, 서버 기여는 `@vibisual/plugins/server` 로 분리.
+ * §5.11 — `@vibisual/plugins` 기본 진입점. React·node 에 의존하지 않는 것만 내보낸다(매니페스트·등록부·판정 순수 함수).
+ * 클라이언트 기여는 `@vibisual/plugins/client`, 서버 기여는 `@vibisual/plugins/server`.
  */
 export type {
   PluginTranslate,
@@ -46,7 +44,7 @@ export {
 } from './registry.js';
 export type { PluginEnablementSource } from './registry.js';
 
-// §5.11 v4.57 — SSOT 집행 판정. 순수 함수라 fs 없이 단독 검증된다(`ssot.test.ts`).
+// §5.11 — SSOT 집행 판정. 순수 함수라 fs 없이 단독 검증된다(`ssot.test.ts`).
 export {
   surveySsot,
   surveySsotFacts,
@@ -56,8 +54,7 @@ export {
   hasSubstance,
   SSOT_DOC_CANDIDATES,
   RIVAL_DIRECTION_SOURCES,
-  // v4.67 — 프로젝트가 자기 SSOT 를 지정하는 파일. 호스트가 그 파일을 **써 주는** 창구를 열려면
-  //   경로 정본이 하나여야 한다(호스트가 자기 문자열로 따로 적으면 그 순간 둘이 갈린다).
+  // 프로젝트가 자기 SSOT 를 지정하는 파일의 경로 정본 — 호스트가 그 파일을 써 줄 때 자기 문자열로 따로 적으면 둘이 갈린다.
   SSOT_CONFIG_PATH,
   SSOT_MIN_BODY_CHARS,
   SSOT_STALE_DAYS,
@@ -65,10 +62,8 @@ export {
 export type { SsotSurvey, SsotConfig, SsotDocState } from './ssot-drift/ssot.js';
 
 /**
- * §5.11 정독 게이트 — 절 색인·라우팅·영수증·인용 확증의 **판정 전부**(순수 함수, `spec.test.ts`).
- *
- * 서버가 이것을 그대로 부른다. 서버가 자기 판정을 따로 들면 프롬프트에 실린 판단과 게이트가 막는 근거가
- * 갈리고, 그러면 "화면은 초록인데 막힌다"가 만들어진다 — 사용자가 이 기능을 못 믿게 되는 정확한 경로다.
+ * §5.11 정독 게이트 — 절 색인·라우팅·영수증·인용 확증의 판정 전부(순수 함수, `spec.test.ts`).
+ * 서버는 이것을 그대로 부른다 — 따로 판정하면 프롬프트에 실린 판단과 게이트가 막는 근거가 갈려 "화면은 초록인데 막힌다"가 된다.
  */
 export {
   evaluateSpecReading,
@@ -113,7 +108,7 @@ export type {
   TrifectaVerdict,
 } from './sdk/judgments/trifecta.js';
 
-// ─── 2차 배치 (v3.88) — 판정 로직은 순수 함수라 UI 없이 단독 검증된다 ───
+// 2차 배치 판정 — 순수 함수라 UI 없이 단독 검증된다.
 export { judgeLeastPrivilege } from './least-privilege/leastPrivilege.js';
 export type { LeastPrivilegeVerdict, ToolClass } from './least-privilege/leastPrivilege.js';
 export { judgeBlastRadius } from './sdk/judgments/blastRadius.js';

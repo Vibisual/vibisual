@@ -26,16 +26,9 @@ import {
 } from '@vibisual/shared';
 
 /**
- * 단축키 SSOT(`shared/src/keymap.ts`)의 회귀 고정.
- *
- * 이 파일이 지키는 것은 셋이다.
- *  ① **mac 에서 ⌘ 로 눌린다** — 판정이 `ctrlKey` 만 보면 mac 사용자에게는 그 단축키가 아예 없다.
- *  ② **형제 스코프는 충돌이 아니다** — 이 규칙이 없으면 `Escape` 62곳이 전부 빨갛게 뜬다.
- *  ③ **자판 배열과 무관하다** — 독일어(QWERTZ) 자판에서도 같은 물리 키가 같은 명령이다.
- *
- * 실기(mac·linux)가 없으므로 플랫폼은 **인자로 받아** Windows 개발기에서 세 OS 를 전부 고정한다
- * ([docs/rules/multiplatform.md] 5축 — 단축키). shared 에는 러너가 없어 여기 server 쪽에 둔다
- * (`pathCase.test.ts` 와 같은 선례).
+ * 단축키 SSOT(`shared/src/keymap.ts`) 회귀 고정 — ① mac 에서 ⌘ 로 눌린다(`ctrlKey` 만 보면 mac 엔 그 단축키가 없다)
+ * ② 형제 스코프는 충돌이 아니다(없으면 `Escape` 62곳이 전부 빨갛다) ③ 자판 배열과 무관하다(QWERTZ 에서도 같은 물리 키 = 같은 명령).
+ * 플랫폼은 인자로 받아 Windows 개발기에서 세 OS 를 고정한다(멀티플랫폼 5축 — 단축키). shared 에 러너가 없어 server 에 둔다.
  */
 
 /** 키 이벤트 흉내 — 진짜 `KeyboardEvent` 를 만들지 않고도 판정을 부를 수 있다. */

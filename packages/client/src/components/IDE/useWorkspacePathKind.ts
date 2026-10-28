@@ -2,15 +2,8 @@ import { useEffect, useState } from 'react';
 import type { ExternalPathInfo, WorkspacePathInfo, WorkspacePathKind } from '@vibisual/shared';
 
 /**
- * useWorkspacePathKind.ts — §5.5 #17-27 ⑬ 본문 속 경로의 **정체를 디스크에 묻는 자리**.
- *
- * `streamPathLinks` 의 1차 체를 통과한 후보가 진짜 손잡이가 되는지는 여기서 정해진다 —
- * `GET /api/workspace-path` 가 파일이라 답하면 내장 편집창(②), 폴더라 답하면 시스템 탐색기(⑩),
- * 404 면 손잡이가 되지 않고 종전과 같은 평범한 인라인 코드로 남는다.
- *
- * 스트림은 가상 리스트(#17-12)라 같은 조각이 접혔다 펴질 때마다 다시 마운트된다. 그래서 판정 결과를
- * **컴포넌트가 아니라 모듈**에 캐시하고(⑬ (e)), 같은 경로로 동시에 들어온 요청은 하나로 합친다 —
- * 서버에는 경로당 한 번만 묻는다. 스트림이 길어질수록 비용이 오르지 않아야 한다는 §9 의 조건이 이 자리에도 걸린다.
+ * §5.5 #17-27 ⑬ 경로의 정체를 디스크에 묻는다(`GET /api/workspace-path` — 파일 → 편집창, 폴더 → 탐색기, 404 → 평문).
+ * 가상 리스트가 자주 다시 마운트하므로 결과를 **모듈**에 캐시하고 동시 요청을 합쳐 경로당 한 번만 묻는다(⑬ (e), §9).
  */
 
 /** 판정 결과 — `'missing'` 은 "디스크에 없다"를 **캐시에 남기기 위한** 값이다(다시 묻지 않는다). */
@@ -107,11 +100,7 @@ export function clearWorkspacePathCache(): void {
   inflight.clear();
 }
 
-// ─── ⑬ (d) 루트 밖 절대 경로 ────────────────────────────────────────────────
-//
-// 아래는 위와 같은 일을 **루트 밖 경로**에 하는 짝이다. 캐시·요청 합치기 규약을 그대로 잇되
-// 창구가 `GET /api/external-path` 이고, 답에 `executable` 이 **없다** — 루트 밖은 탐색기 한 갈래로만
-// 가므로 실행 여부를 알 필요가 없고, 알면 그 갈래가 늘어난다(⑬ (d)).
+// ⑬ (d) 루트 밖 절대 경로 — 같은 캐시 규약으로 `GET /api/external-path` 에 묻는다. 답에 `executable` 이 **없다**(탐색기 한 갈래뿐이라 알면 갈래가 는다).
 
 /** 루트 밖 경로 판정 결과. `'missing'` 은 "디스크에 없다"를 캐시에 남기기 위한 값이다. */
 export interface ResolvedExternalPath {

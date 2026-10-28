@@ -1,7 +1,6 @@
 /**
- * Comment Box 색상 유틸 — 가독성 있는 텍스트 색(흰/검) 자동 결정.
- * hex('#RRGGBB') 입력 전용. 사용자가 `textColor` 를 지정했으면 그 값이 우선이고,
- * 이 함수는 미지정 시 자동 fallback 용도.
+ * Comment Box 배경에 맞춰 읽히는 글자색(흰/검)을 고른다. 입력은 hex('#RRGGBB') 전용.
+ * `textColor` 를 지정했으면 그 값이 우선이고, 이 함수는 미지정 때의 대체값이다.
  */
 export function pickReadableTextColor(bgHex: string): string {
   const hex = bgHex.replace('#', '');

@@ -1,14 +1,7 @@
 /**
- * §5.3 #10-4 — 오케스트라 지휘 규칙. 지휘 턴 한 번에 `appendSystemPrompt` 로 붙는 글이다.
- *
- * 사용자 지시는 "내가 입력하면 자동이 아닌 에이전트가 스스로 알맞는거 선택해서 하게"였다. 그래서 이 글은
- * 방안을 **적용하라**고 하지 않고 **고르라**고 한다 — 의도·편성·방안·멤버를 요청마다 지휘자가 정하고,
- * 고른 이유와 건너뛴 이유를 계획 신고(`POST /api/orchestra/runs/:runId/plan`)로 남긴다.
- * 분석 원문은 `orchestraAnalysisMarkdown` 그대로 싣는다(사용자가 꺼 둔 방안의 표 행만 빠진다).
- *
- * 토큰 값은 본문에 굽지 않는다 — 절차는 환경변수 `VIBISUAL_TOKEN` 을 읽는다(#10-2 빌더와 같은 규약).
- * 이 파일은 `node:fs`·시간을 모르고 플랫폼은 인자(`platform`)로만 받는다 — 서버가 값을 넣어 부르고,
- * 테스트는 세 OS 의 글을 그대로 읽는다.
+ * §5.3 #10-4 — 오케스트라 지휘 규칙(지휘 턴에 `appendSystemPrompt` 로 붙는다). 방안을 적용하라가 아니라 고르라고 한다 —
+ * 지휘자가 요청마다 정하고 고른·건너뛴 이유를 계획 신고(`POST /api/orchestra/runs/:runId/plan`)로 남긴다.
+ * 토큰은 본문에 굽지 않고 환경변수 `VIBISUAL_TOKEN` 을 읽는다(#10-2 와 같은 규약). 플랫폼은 인자 — 시험이 세 OS 의 글을 읽는다.
  */
 import {
   AGENT_CARD_ENV_BASE,
@@ -36,11 +29,9 @@ import type { OrchestraSettings } from './types.js';
 export type OrchestraConductorShell = AgentRuleShell;
 
 /**
- * 지휘자가 절차를 돌릴 셸 — 플랫폼 분기라 `platform` 을 인자로 받는다(세 OS 를 한 PC 에서 테스트하려고).
- * - Claude 지휘자는 셸 도구가 `Bash` 하나이고 Windows 에서도 Git Bash 로 돈다 → 세 OS 모두 POSIX.
- * - Codex 는 Windows 에서 셸 명령을 `powershell.exe`(Windows PowerShell 5.1)로 돌린다(2026-09-19 `codex sandbox`
- *   실측 `5.1 Desktop`). 거기서는 `curl` 이 `Invoke-WebRequest` 의 별칭이고 heredoc·`${VAR:-기본}` 이 없어
- *   bash 절차가 첫 줄부터 깨진다. mac·linux 의 Codex 는 POSIX 셸이다.
+ * 지휘자 절차 셸(플랫폼 인자). Claude 는 셸 도구가 `Bash` 하나라 Windows 도 Git Bash — 세 OS 모두 POSIX.
+ * Windows 의 Codex 는 `powershell.exe` 5.1 로 돈다(2026-09-19 `codex sandbox` 실측) — `curl` 이 `Invoke-WebRequest` 별칭이고
+ * heredoc·`${VAR:-기본}` 이 없어 bash 절차가 첫 줄부터 깨진다. mac·linux 의 Codex 는 POSIX.
  */
 export function orchestraConductorShell(engine: 'claude' | 'codex', platform: PlatformName): OrchestraConductorShell {
   return agentRuleShell(engine, platform);
@@ -58,12 +49,8 @@ export interface OrchestraMemberRef {
   engine: 'claude' | 'codex' | 'local';
   model?: string;
   /**
-   * 이 지휘자가 **이전 런에서 직접 만든** 멤버인가. 거짓이면 같은 프로젝트의 다른 후보다
-   * (사용자가 손으로 만든 버블·다른 지휘자의 멤버).
-   *
-   * 둘 다 다시 쓸 수 있다 — ④ 계획 신고의 재사용 검사(`reused-agent-not-in-project`)는 **프로젝트
-   * 소속**만 본다. 그래서 표에 내 이전 런의 것만 실으면 *서버가 받아 줄 후보*를 지휘자에게 감추는
-   * 셈이 되고, 지휘자는 이미 있는 검수자 곁에 똑같은 것을 또 만든다. 순서만 내 것이 앞이다.
+   * 이 지휘자가 이전 런에서 만든 멤버인가(거짓 = 같은 프로젝트의 다른 후보). 재사용 검사(`reused-agent-not-in-project`)는 프로젝트 소속만 보므로
+   * 둘 다 싣는다 — 내 것만 실으면 이미 있는 검수자 곁에 같은 것을 또 만든다. 순서만 내 것이 앞이다.
    */
   own?: boolean;
 }
@@ -102,10 +89,7 @@ export interface OrchestraConductorRulesArgs {
 /** 엣지 명령 요약 길이 — 규칙이 엣지 목록 때문에 부풀지 않게. */
 const EDGE_COMMAND_PREVIEW_MAX = 80;
 
-/**
- * "이미 있는 엣지" 표의 줄 수 상한. 재사용 후보가 프로젝트 전체로 넓어지면서 이 표도 같이 넓어졌다 —
- * 상한이 없으면 오래 쓴 프로젝트에서 규칙 길이가 그래프 크기를 따라 자란다. 넘친 것은 수만 알린다.
- */
+/** "이미 있는 엣지" 표의 줄 수 상한 — 재사용 후보가 프로젝트 전체라 상한이 없으면 규칙 길이가 그래프를 따라 자란다. 넘친 것은 수만 알린다. */
 const EDGE_TABLE_MAX = 30;
 /** 한 번의 조회 대기 — 응답이 진행 중이면 같은 cmdId 로 이어 받는다. */
 const RESULT_WAIT_MS = 60_000;
@@ -161,15 +145,8 @@ function strategyTableRow(s: OrchestraStrategy): string {
 }
 
 /**
- * ① 멤버 색 — `create-custom-agent` 의 `color` 칸(`AgentConfig.color`, 자유 hex).
- *
- * **왜 규칙에 싣는가.** 편성이 커지면 사용자가 보는 것은 캔버스의 버블 무더기다. 색이 다 같으면
- * 어느 것이 검수자이고 어느 것이 구현자인지 이름표를 하나씩 읽어야 알 수 있다 — 지휘자는 역할을
- * 알고 만드는 유일한 자리이므로, 그 자리에서 칠해 두는 것이 가장 싸다.
- *
- * 값은 우리가 고른 것이다(고정 팔레트 상수가 없다). 서로 구별되는 색상환 간격으로 골랐고,
- * 시스템이 이미 쓰는 색은 피했다 — 초록 계열은 Codex(`CODEX_AGENT_COLOR`)·CMD(`CMD_AGENT_COLOR`),
- * 회청색은 로컬 엔진(`LOCAL_AGENT_COLOR`)의 자리다.
+ * ① 멤버 색(`AgentConfig.color`, 자유 hex) — 색이 다 같으면 역할을 이름표로만 안다. 역할을 아는 지휘자가 칠하는 것이 가장 싸다.
+ * 색상환 간격으로 골랐고 시스템 색은 피한다: 초록 = Codex(`CODEX_AGENT_COLOR`)·CMD(`CMD_AGENT_COLOR`), 회청 = 로컬(`LOCAL_AGENT_COLOR`).
  */
 function roleColorSection(): string[] {
   return [
@@ -180,14 +157,8 @@ function roleColorSection(): string[] {
 }
 
 /**
- * ③ 엣지의 **역할 짝 프리셋** — 화면의 "Template" 선택기가 쓰는 표(`TASK_EDGE_TEMPLATES`) 그대로다.
- *
- * **왜 값까지 펼쳐 적는가.** 서버는 `templateId` 를 **기록만** 한다 — 프리셋의 기본값을 대신 채워
- * 주지 않는다(채우는 쪽은 화면의 폼이다). 그래서 지휘자가 `templateId` 만 보내면 그 엣지는 이름표만
- * 붙은 기본 엣지가 되고, 프리셋이 약속한 `forwardMode`·`returnFormat` 은 아무 데도 없다.
- *
- * `generic`(Custom)은 뺀다 — 역할 짝이 없어 고를 자리가 없을뿐더러, 그 프리셋의 `defaultCommandMode`
- * 는 `tool-delegation` 이라 대상 멤버의 도구를 위임 한 벌로 갈아 끼운다. 일하는 멤버의 손을 뺏는다.
+ * ③ 엣지 역할 짝 프리셋(`TASK_EDGE_TEMPLATES` 그대로). 값까지 적는다 — 서버는 `templateId` 를 기록만 해서 id 만 보내면 `forwardMode`·
+ * `returnFormat` 없는 기본 엣지가 된다. `generic` 은 뺀다(`defaultCommandMode` 가 `tool-delegation` 이라 멤버 도구를 위임 한 벌로 갈아 끼운다).
  */
 function edgePresetSection(): string[] {
   const rows = TASK_EDGE_TEMPLATES.filter((tmpl) => tmpl.sourceRole !== null && tmpl.targetRole !== null);
@@ -203,12 +174,7 @@ function edgePresetSection(): string[] {
   ];
 }
 
-/**
- * 멤버가 **태어날 때 이미 받아 둔 것** — 사용자 스위치라 지휘자가 바꿀 수 없다. 편성 판단에 쓰라고 싣는다.
- *
- * 싣지 않으면 지휘자는 워커 셋이 한 워킹트리를 동시에 고친다는 것도, 자기가 만든 멤버에게 `Write` 가
- * 없다는 것도 모른 채 편성한다 — 둘 다 조용히 실패하고 원인이 규칙 밖에 있어 스스로 못 고친다.
- */
+/** 멤버가 태어날 때 받는 것(사용자 스위치)을 싣는다 — 모르면 한 워킹트리 동시 수정·`Write` 없는 멤버로 편성해 조용히 실패한다. */
 function memberBirthSection(settings: OrchestraSettings | null | undefined): string[] {
   const isolation = resolveOrchestraMemberIsolation(settings);
   const templateId = resolveOrchestraMemberToolTemplate(settings);
@@ -272,11 +238,7 @@ function memberEngineSection(settings: OrchestraSettings | null | undefined, con
 /** ② 설정 PATCH 예시 — 셸이 달라도 같은 JSON 이다. */
 const CONFIG_PATCH_SAMPLE =
   '{"model":"sonnet","effort":"medium","maxTurns":30,"subagentDepth":1,"rules":"# 역할: Researcher\\n답할 질문: <한 줄>\\n보고: 결론 먼저, 경로+줄번호, 1,000~2,000 토큰"}';
-/**
- * ③ 엣지 본문 예시 — 프리셋(`templateId`)과 그 값을 **함께** 적는 모양을 그대로 보인다.
- * 서버는 `templateId` 를 기록만 하고 나머지를 대신 채우지 않으므로, 예시가 id 만 들고 있으면
- * 지휘자가 이름표만 붙은 기본 엣지를 만든다.
- */
+/** ③ 엣지 본문 예시 — 프리셋(`templateId`)과 그 값을 함께 적는 모양. 서버는 `templateId` 를 기록만 하므로 id 만 들면 이름표만 붙은 기본 엣지가 된다. */
 const EDGE_BODY_SAMPLE =
   '{"sourceAgentId":"<SOURCE_ID>","targetAgentId":"<TARGET_ID>","command":"<이 엣지로 넘길 일의 용도>","templateId":"implementer-to-verifier","forwardMode":"auto","kind":"command","messageFormat":"schema","messageSchema":"{\\"changedFiles\\":[\\"<경로>\\"],\\"testsRun\\":\\"<명령>\\",\\"failures\\":[{\\"file\\":\\"<경로>\\",\\"why\\":\\"<한 줄>\\"}]}","returnFormat":"both"}';
 /** ⑤ 킥오프 본문 자리 — 엔트리도 하위 결과를 기다려야 지휘자에게 전체 결과가 돌아온다. */
@@ -376,14 +338,11 @@ function posixProcedure(v: ProcedureValues): ProcedureText {
 }
 
 /**
- * Windows PowerShell 5.1 + `Invoke-RestMethod` — Windows 의 Codex 지휘자.
- * 5.1 에서 지킬 것(2026-09-20 이 PC 의 `powershell.exe` 5.1.26100 으로 ①~⑤ 조각을 임시 서버에 그대로 돌려 확인):
- *  · 본문은 UTF-8 **바이트**로 보낸다 — 문자열 `-Body` 는 한글이 `??` 로 바뀌어 도착했다.
- *  · 4xx 는 `ErrorDetails.Message` 가 비어 있어 기본 오류 줄에 응답 본문이 없다 — `Send` 가 응답 스트림을 읽어
- *    `HTTP <코드> <본문>` 으로 다시 던진다(PowerShell 7 은 `ErrorDetails` 가 차 있어 그쪽을 먼저 쓴다).
- *  · 토큰은 `"$env:…"` 로 감싼다 — 변수가 없을 때 `$null` 헤더는 NullReference 로 죽고, 빈 문자열이면 401 로 이유가 보인다.
- *  · 출력은 OEM 코드 페이지로 나가 한글이 깨진다 — `[Console]::OutputEncoding` 을 UTF-8 로 둔다.
- *  · 합치기는 `[ordered]` 사전으로 하고 `ConvertTo-Json -Depth` 를 준다(기본 깊이 2 는 중첩을 문자열로 뭉갠다). 빈·한 개 배열도 배열로 남았다.
+ * Windows PowerShell 5.1 + `Invoke-RestMethod` — Windows 의 Codex 지휘자. 지킬 것(2026-09-20 5.1.26100 으로 ①~⑤ 를 임시 서버에 돌려 확인):
+ *  · 본문은 UTF-8 바이트로(문자열 `-Body` 는 한글이 `??`). 출력은 OEM 코드 페이지라 `[Console]::OutputEncoding` 을 UTF-8 로.
+ *  · 4xx 는 `ErrorDetails.Message` 가 비어 본문이 안 보인다 — `Send` 가 응답 스트림을 읽어 `HTTP <코드> <본문>` 으로 던진다(7 은 `ErrorDetails` 먼저).
+ *  · 토큰은 `"$env:…"` 로 감싼다(`$null` 헤더는 NullReference, 빈 문자열이면 401 로 이유가 보인다).
+ *  · 합치기는 `[ordered]` + `ConvertTo-Json -Depth`(기본 깊이 2 는 중첩을 문자열로 뭉갠다 — 이러면 빈·한 개 배열도 배열로 남는다).
  *  · 조각마다 머리 네 줄을 다시 적는다 — Codex 는 명령마다 새 셸이다.
  */
 function powershellProcedure(v: ProcedureValues): ProcedureText {
@@ -461,10 +420,7 @@ function powershellProcedure(v: ProcedureValues): ProcedureText {
   };
 }
 
-/**
- * 지휘 턴에 붙는 규칙 전문. 서버 `processNextCommand` 가 오케스트라 명령일 때만 부른다.
- * 같은 입력이면 같은 글이다(시간·난수를 읽지 않는다).
- */
+/** 지휘 턴에 붙는 규칙 전문. 서버 `processNextCommand` 가 오케스트라 명령일 때만 부른다. 같은 입력이면 같은 글이다(시간·난수를 읽지 않는다). */
 export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs): string {
   const { serverBase, projectName, runId, conductorAgentId, conductorSubAgentId, centerX, centerY, settings, existingMembers, existingEdges, conductorEngine, platform } = args;
   const projectField = projectName ? JSON.stringify(projectName) : 'null';

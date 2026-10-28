@@ -1,7 +1,4 @@
-/**
- * §5.25 (G-2) — 비워 둔 칸의 선택지 문구 고정 시험. 번역 대신 키와 인자를 그대로 돌려주는 가짜 t 로
- * "어느 키를 어떤 값으로 부르는가"만 본다.
- */
+/** §5.25 (G-2) — 비워 둔 칸의 선택지 문구. 가짜 t 로 어느 키를 어떤 값으로 부르는지만 본다. */
 import { describe, it, expect } from 'vitest';
 import type { TranslateFn } from '../../formatSince.js';
 import { codexInheritedOption } from './codexInheritedLabel.js';

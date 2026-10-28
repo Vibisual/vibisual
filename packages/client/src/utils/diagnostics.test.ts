@@ -1,9 +1,6 @@
 /**
- * renderer 진단 잡음 필터 테스트.
- *
- * "ResizeObserver loop completed with undelivered notifications." 는 코드 버그가 아니라
- * 브라우저가 스펙대로 내는 알림인데, window error 핸들러가 모든 ErrorEvent 를 잡는 탓에
- * DebugPanel 에 RENDERER 오류로 쌓였다. 그 한 종류만 걸러내고 진짜 오류는 그대로 통과하는지 고정한다.
+ * renderer 진단 잡음 필터 시험 — "ResizeObserver loop completed with undelivered notifications." 는 브라우저가 스펙대로 내는 알림이라
+ * DebugPanel 에 RENDERER 오류로 쌓지 않게 그 한 종류만 거르고, 진짜 오류는 그대로 통과하는지 고정한다.
  */
 import { describe, it, expect } from 'vitest';
 import { isIgnoredRendererMessage } from './diagnostics.js';

@@ -10,16 +10,9 @@ import { CostPill } from './CostPill.js';
 import { LimitGauge } from './LimitGauge.js';
 import { LocalResourceSection } from './LocalResourceSection.js';
 import { UsageManagement, UsageResources } from './UsageResources.js';
+import { CreditPages } from './CreditPages.js';
 
-// SCENARIO.md §4 v1.50 / v3.60 — 사용량 팝업.
-//
-// 헤더 사용량 필을 클릭하면 열린다. 값의 원천은 둘이다(§4) —
-//   ① 서버가 주기적으로 도는 `claude -p "/usage"` probe(대화형 세션이 없어도 들어온다),
-//   ② statusLine 수집기(대화형 세션이 떠 있는 동안 더 촘촘히 밀어 준다).
-// 서버가 둘 중 **더 최근 것**을 골라 `claudeUsage` 로 실어 보내므로 이 팝업은 고르지 않는다.
-//
-// 구 v3.62 의 OAuth 직접 조회는 약관 문제로 걷어냈지만, 그때 잃었던 모델별 주간 한도와 사용
-// 크레딧은 ①이 공개 인터페이스로 되찾아 왔다(그래서 아래 두 블록이 다시 채워진다).
+// SCENARIO.md §4 — 사용량 팝업. 원천은 `claude -p "/usage"` probe 와 statusLine 수집기 — 서버가 더 최근 것을 골라 준다(팝업은 고르지 않는다). OAuth 직접 조회 ❌(약관).
 
 const API_BASE = '';
 
@@ -55,7 +48,7 @@ interface CollectorSectionProps {
   onToggle: (enable: boolean) => void;
 }
 
-/** statusLine 폴백 스위치 — 직접 조회가 안 될 때만 노출한다(§4 v3.62 이후 부차 경로). */
+/** statusLine 폴백 스위치 — 직접 조회가 안 될 때만 보인다. */
 function CollectorSection({ status, failed, busy, onToggle }: CollectorSectionProps): React.JSX.Element {
   const { t } = useTranslation();
   const installed = status?.installed === true;
@@ -179,7 +172,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
     [limits],
   );
 
-  // 직접 조회가 비어 있으면 statusLine 이 밀어준 §4 v1.50 값으로 대체한다.
+  // 직접 조회가 비면 statusLine 값으로 대체한다.
   const usingFallback = limits.length === 0;
   const sessionPct = usingFallback ? rateLimits?.used5h : sessionLimit?.percent;
   const sessionReset = usingFallback ? rateLimits?.resetAt5h : sessionLimit?.resetsAt;
@@ -189,13 +182,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
   const updatedAt = claudeUsage?.fetchedAt ?? rateLimits?.updatedAt;
   const showCollector = engine === 'claude' && (usingFallback || Boolean(claudeUsage?.error));
 
-  /**
-   * §4 v3.63 — 카운트다운이 0 을 지나면 그 자리에서 한 번 다시 받아온다.
-   *
-   * 리셋 직후에도 화면이 100% 로 남아 있던 문제(사용자 보고)의 클라 쪽 안전망이다. 서버도
-   * 리셋 시각에 일회성 갱신을 걸지만, 그 타이머가 어떤 이유로 못 돌아도 팝업을 보고 있으면
-   * 스스로 복구된다. 같은 리셋 시각에 두 번 요청하지 않도록 반응한 시각을 기억한다.
-   */
+  /** §4 — 카운트다운이 0 을 지나면 한 번 다시 받는다(리셋 후 100% 고착의 클라 안전망). 같은 리셋 시각엔 한 번만. */
   const reactedResets = useRef<Set<number>>(new Set());
   useEffect(() => {
     if (engine !== 'claude') return;
@@ -320,7 +307,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
           </button>
         </div>
 
-        {/* §5.25 (C) — 탭은 보기만 바꾸고, 메인 제공자는 줄 끝 [기본으로 설정]이 바로 바꾼다(사용자 지시 2026-10-03). */}
+        {/* §5.25 (C) — 탭은 보기만, 메인 제공자는 [기본으로 설정]이 바꾼다. */}
         <div className="px-4 pt-3"><ProviderTabs value={engine} onChange={setEngine} showSetMain /></div>
         <ScrollFade fill className="min-h-0 flex-1">
           {/* 올모델은 구독 한도가 아니라 **이 PC 의 자원**을 쓴다 — 그것이 이 탭의 사용량이다(§5.19 (F)). */}
@@ -342,8 +329,9 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
             </>}
           </div>}
           {engine === 'codex' && <UsageResources provider="codex" codexUsage={codexLoggedIn ? codex.usage : null} />}
-          {engine === 'claude' && <>
-          <div className="flex flex-col gap-4 px-4 py-4">
+          {/* §4 API 크레딧 — 구독 한도 페이지에 이 팝업의 게이지·수집기·토큰 합이 들어간다. */}
+          {engine === 'claude' && <CreditPages variant="popup" subscription={<div className="-mx-4 flex flex-col">
+          <div className="flex flex-col gap-4 px-4 py-3">
             {claudeUsage?.error && <ErrorNotice error={claudeUsage.error} />}
 
             <LimitGauge
@@ -384,8 +372,6 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
             </div>
           </div>
 
-          <UsageResources provider="claude" claudeCredits={claudeLoggedIn ? claudeUsage?.extraCredits : undefined} />
-
           {/* statusLine 폴백 — 직접 조회가 막혔을 때만 */}
           {showCollector && (
             <CollectorSection
@@ -415,9 +401,10 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
               {t('panel.usage.localHint')}
             </div>
           </div>
-          </>}
+          </div>} />}
         </ScrollFade>
-        {engine !== 'local' && <UsageManagement provider={engine} />}
+        {/* Claude 는 페이지마다 머리 칸이 관리하는 곳을 말한다(claude.ai·Console·클라우드가 서로 다르다) — 바닥 링크는 코덱스만. */}
+        {engine === 'codex' && <UsageManagement provider="codex" />}
 
         {/* §5.21 / §7.19 — 오늘 비용. 헤더에서 옮겨 온 자리이고, 스크롤 **밖** 바닥에 고정한다
             (아래로 내려야 보이는 입구는 없는 입구와 같다). 누르면 비용·토큰 지도가 이 위에 겹친다. */}

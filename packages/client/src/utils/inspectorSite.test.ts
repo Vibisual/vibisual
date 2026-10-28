@@ -3,10 +3,8 @@ import { workspaceSiteUrl, type WorkspaceSiteInspectHit } from '@vibisual/shared
 import { buildSiteClipboardText, siteHitSummary, siteRelPathFromUrl } from './inspectorSite.js';
 
 /**
- * §5.5 #17-27 ⑮ (i) — 미리보기 페이지에서 Alt 로 집은 요소가 **어느 파일 몇 줄인지**.
- *
- * 이 조립이 어긋나면 증상이 고약하다: 위치가 그럴듯하게 붙어 오지만 가리키는 곳이 틀리고,
- * 받은 쪽은 그 줄을 믿고 고치기 시작한다. 없는 위치보다 **틀린 위치**가 나쁘다.
+ * §5.5 #17-27 ⑮ (i) — 미리보기 페이지에서 Alt 로 집은 요소가 어느 파일 몇 줄인지.
+ * 어긋나면 그럴듯한 위치가 붙어 와 받은 쪽이 틀린 줄을 고치기 시작한다 — 없는 위치보다 틀린 위치가 나쁘다.
  */
 
 const ROOT = 'C:/work/projects/vibisual';

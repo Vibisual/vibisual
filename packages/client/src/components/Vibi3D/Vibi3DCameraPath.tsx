@@ -12,8 +12,8 @@ const input = 'min-w-0 w-full rounded border border-white/10 bg-gray-950 px-1 py
 const field = 'flex min-w-0 items-center gap-1 text-xs text-gray-400';
 
 /**
- * §5.13 (R-10) — the view camera's keyframed path: keys come from the current view (position + what it looks at), times
- * and values stay editable, and the path is what videos and stills use when their camera is not overridden.
+ * §5.13 (R-10) — the view camera's keyframed path (keys from the current view — position + target; times and values editable).
+ * Videos and stills use it unless their camera is overridden.
  */
 export function Vibi3DCameraPath({ snapshot, disabled, onCommand, onCamera, readView }: {
   snapshot: Vibi3DSnapshot; disabled: boolean; onCommand: AuthoringCommand; onCamera?: () => void; readView?: ViewReader;

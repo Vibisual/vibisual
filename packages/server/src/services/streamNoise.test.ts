@@ -1,14 +1,4 @@
-/**
- * §5.5 v4.92 — 스트림 "복원 예산" 판정 회귀 방지.
- *
- * 배경: IDE 를 다시 열었을 때 되살아나는 대화는 `sub-streams/*.jsonl` 의 **마지막
- * MAX_STREAM_BUFFER 이벤트**가 전부다. 사용자 말풍선·카드는 체크포인트에 따로 남으므로,
- * 이 창이 잡음으로 차면 화면은 "말풍선과 카드만 있고 사이 대화가 통째로 빈" 모양이 된다.
- *
- * 그래서 여기서 지키는 것은 두 줄이다:
- *  ① 화면에 한 글자도 안 그려지는 SDK 상태 칩은 예산에서 뺀다.
- *  ② 사람이 읽어야 하는 것은 **하나도** 빼지 않는다 — 특히 내용이 붙은 system 과 thinking.
- */
+/** §5.5 — 복원 예산(마지막 MAX_STREAM_BUFFER 이벤트) 판정: 화면에 안 그리는 SDK 상태 칩은 빼고, 사람이 읽을 것(내용 있는 system·thinking)은 하나도 빼지 않는다. */
 import { describe, it, expect } from 'vitest';
 import {
   parseSystemSubtype,

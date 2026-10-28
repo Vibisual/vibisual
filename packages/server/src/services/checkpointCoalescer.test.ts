@@ -1,10 +1,6 @@
 /**
- * checkpointCoalescer.test.ts — §9 v3.45 체크포인트 창 + §3.2.1 종료 flush 회귀.
- *
- * 이 파일이 고정하는 것은 **"정상 종료 시 마지막 창을 잃지 않는다"** 한 줄이다.
- * 종전에는 그 마무리가 `process.on('exit')` 한 곳에만 있었는데, Electron 의 종료 경로는
- * `app.exit(0)` 으로 끝나 그 이벤트가 돌지 않을 수 있었다 — `before-quit` 가 부르는
- * `flushPendingCheckpointSave()` 가 그 자리를 메운다.
+ * §9 체크포인트 창 + §3.2.1 종료 flush 회귀 — **정상 종료 때 마지막 창을 잃지 않는다.**
+ * Electron 종료는 `app.exit(0)` 이라 `process.on('exit')` 가 돌지 않을 수 있다 — `before-quit` 가 부르는 `flushPendingCheckpointSave()` 가 그 자리를 메운다.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {

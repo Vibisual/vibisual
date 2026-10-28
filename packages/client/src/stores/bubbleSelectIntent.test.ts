@@ -2,14 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { isStoreChannelSelection, useGraphStore } from './graphStore.js';
 
-/**
- * 선택 링 한 칸(`selectIntentId`) — 캔버스 전체가 나눠 쓴다.
- *
- * 에이전트 버블만 이 칸을 쓰고 앱·캡처·플레이·스펙·랩·선반 버블과 메모 상자는 각자 자기
- * `selectedXxxId` 로만 링을 켜던 시절에는, **더블클릭 지연**(§ `bubbleSelectGesture`) 동안
- * 링이 안 뜨고, 다른 store 버블로 옮겨 갈 때 링이 둘 다 켜져 보였다. 이 파일은 그 한 칸이
- * 어느 채널에서든 같은 규칙으로 옮겨 다니는지 고정한다.
- */
+/** 선택 링 한 칸(`selectIntentId`)을 캔버스 전체가 나눠 쓰는지 고정 — 채널마다 따로 켜면 더블클릭 지연 동안 링이 안 뜨고 옮길 때 둘 다 켜진다. */
 
 const STORE_CHANNEL_KEYS = [
   'selectedTaskEdgeId',

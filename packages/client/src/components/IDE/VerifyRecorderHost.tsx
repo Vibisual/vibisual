@@ -6,15 +6,8 @@ import { useCapturePlaytestStore } from '../../stores/capturePlaytest.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useVerifyDemoStore, verifyRecorderKey, type VerifyRecordingTarget } from '../../stores/verifyDemo.js';
 
-// §5.5 #17-35 ⑨⑩ — 시연 녹화 **호스트**(화면에 아무것도 그리지 않는다).
-//
-// 왜 따로 있는가: 녹화기를 검증 뷰(사이드바)가 쥐면, 활동바에서 다른 항목을 눌러 그 뷰가 접히는
-// 순간 언마운트 정리가 녹화를 끊는다 — ⑩(검증이 도는 동안의 화면)은 몇 분씩 도는 일이라 그 사이
-// 사용자가 사이드바를 한 번도 안 건드릴 거라고 가정할 수 없다. 그래서 **IDE 가 열려 있는 동안 늘
-// 살아 있는 자리**에 스트림과 녹화기를 두고, 사이드바는 스토어를 통해 상태만 본다.
-//
-// 재사용만 한다(⑨-1) — `useCaptureStream`(getUserMedia desktop) · `useCaptureRecorder`(MediaRecorder
-// + 길이 상한 자동 정지) · `capturePlaytest`(클립 보관·개수 상한). 새 캡처 레이어 ❌.
+// §5.5 #17-35 ⑨⑩ — 시연 녹화 호스트(그리지 않는다). 검증 뷰가 녹화기를 쥐면 뷰가 접힐 때 언마운트가 녹화를 끊는다 — IDE 가 열린 동안 사는 자리에 둔다.
+// 재사용만(⑨-1): `useCaptureStream` · `useCaptureRecorder` · `capturePlaytest`. 새 캡처 레이어 ❌.
 
 /** 멈춤을 걸어 둔 뒤 **클립이 실제로 나오기를** 기다리는 동안 들고 있는 것. */
 interface PendingClose {
@@ -32,10 +25,7 @@ export const VerifyRecorderHost = memo(function VerifyRecorderHost(): React.JSX.
   const openWindow = useVerifyDemoStore((s) => s.openWindow);
   const setRunClip = useVerifyDemoStore((s) => s.setRunClip);
 
-  // 멈춤을 걸어 둔 뒤 클립이 나오기를 기다리는 동안 들고 있는 것(아래 "새 클립이 나왔을 때" 참조).
-  //
-  // ref 가 아니라 **state** 인 이유: 아래 구독이 "어느 키의 클립을 기다릴지"를 렌더에서 정하므로,
-  // ref 로 두면 그 값이 바뀌어도 다시 렌더되지 않아 구독이 영영 빈 키를 본다(클립이 나와도 못 듣는다).
+  // 멈춘 뒤 클립을 기다리는 동안의 값 — state 여야 한다(구독이 렌더에서 키를 정해, ref 면 빈 키만 본다).
   const [pending, setPending] = useState<PendingClose | null>(null);
   const prevTargetRef = useRef<VerifyRecordingTarget | null>(null);
   const previousTopClipIdRef = useRef<string | undefined>(undefined);
@@ -49,11 +39,7 @@ export const VerifyRecorderHost = memo(function VerifyRecorderHost(): React.JSX.
   const lastSourceIdRef = useRef<string | undefined>(undefined);
   if (source?.sourceId) lastSourceIdRef.current = source.sourceId;
 
-  // 대상이 없으면 스트림을 붙이지 않는다 — 안 찍는 동안 화면을 계속 읽으면 CPU 만 태운다.
-  //
-  // 다만 **멈춘 뒤에도 클립이 나올 때까지는 놓지 않는다**(`pending`): 트랙을 먼저 끊으면 마지막
-  // 조각이 잘려 나가고, 사용자는 자기가 마지막에 보여 준 그 동작이 빠진 줄 모른다.
-  // 정지 요청과 pending effect 사이의 렌더에서도 트랙을 유지한다.
+  // 대상이 없으면 스트림을 붙이지 않는다(CPU). 단 멈춘 뒤 클립이 나올 때까지(`pending`, 정지 요청 직후 렌더 포함)는 트랙을 쥔다 — 먼저 끊으면 마지막 조각이 잘린다.
   const holdStream = !!target || !!pending || !!prevTargetRef.current;
   const { stream, error: streamError } = useCaptureStream(source?.sourceId ?? lastSourceIdRef.current, holdStream);
 
@@ -104,11 +90,7 @@ export const VerifyRecorderHost = memo(function VerifyRecorderHost(): React.JSX.
     }
   }, [recordedClipId, stopRecordingTarget, target]);
 
-  // 대상이 사라지면(사용자가 [정지], 또는 그 검증이 닫힘) 녹화기를 마감한다.
-  //
-  // **클립은 여기서 바로 집을 수 없다** — `MediaRecorder.stop()` 은 즉시 끝나지 않고 `onstop` 이
-  // 한 틱 뒤에 온다. 그 자리에서 목록 맨 앞을 읽으면 방금 찍은 것이 아니라 **직전 클립**(또는 아무것도)
-  // 을 집는다. 그래서 무엇을 기다리는지만 적어 두고, 실제 처리는 아래 "새 클립이 나왔을 때" 로 미룬다.
+  // 대상이 사라지면 녹화기를 마감만 한다 — `stop()` 뒤 `onstop` 이 한 틱 늦어 여기서 집으면 직전 클립이다. 처리는 "새 클립이 나왔을 때" 에서.
   useEffect(() => {
     const prev = prevTargetRef.current;
     prevTargetRef.current = target;

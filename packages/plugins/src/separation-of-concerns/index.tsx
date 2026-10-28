@@ -1,9 +1,4 @@
-/**
- * §5.11 v3.98 — 관심사 분리(Separation of Concerns): 이 에이전트가 건드리는 폭.
- *
- * 에이전트가 한 곳을 고칠 때 **부수 효과 반경**이 곧 사고 규모다. 분리돼 있으면 잘못 고쳐도 그 안에서 끝난다.
- * 멀티 에이전트에서는 "한 기능을 맡은 에이전트가 그 테스트도 맡는다"가 같은 원칙의 에이전트판이다. 표시 전용.
- */
+/** §5.11 — 관심사 분리(Separation of Concerns): 이 에이전트가 건드리는 폭(부수 효과 반경이 곧 사고 규모). 표시 전용. */
 import { AVAILABLE_AGENT_TOOLS } from '@vibisual/shared';
 import { defineInspector } from '../sdk/index.js';
 import { effectiveTools } from '../sdk/index.js';

@@ -10,13 +10,7 @@ import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
 import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
 import { CanvasNodeMenu, CanvasNodeMenuItem, CanvasNodeMenuSeparator } from './CanvasNodeMenu.js';
 
-/**
- * §5.14 v4.62 — 플레이 버튼 버블.
- *
- * 캡처 버블·앱 버블과 같은 "사용자가 만든 독립 캔버스 요소"이고, 하는 일은 하나다 —
- * **이 프로젝트를 켜고 끈다.** 프리뷰(iframe)는 이 버튼이 아니라 옆에 따로 뜨고, 프리뷰를
- * 닫아도 버튼은 남는다. 지우는 것은 사용자뿐이다.
- */
+/** §5.14 — 플레이 버튼 버블. 하는 일은 프로젝트를 켜고 끄는 것뿐. 프리뷰(iframe)는 따로 뜨고 닫아도 버튼은 남는다. */
 
 export interface PlayNodeData extends Record<string, unknown> {
   playBubbleId: string;
@@ -116,16 +110,7 @@ export const PlayNode = memo(function PlayNode({
     return () => clearTimeout(timer);
   }, [notice]);
 
-  /**
-   * 선택 — 캔버스 공용 상태기계(`bubbleSelectGesture`) 한 벌. 앱·스펙·랩·선반 버블과 같은 규칙.
-   *
-   * 플레이 버튼에는 더블클릭 동작이 없으므로 `doubleClickable:false` — 지연 없이 손 뗀 자리에서
-   * 바로 선택된다(에이전트 버블에서 더블클릭 대상이 아닌 버블이 그렇듯이). 다만 **끌고 간 뒤에는
-   * 선택되지 않는다** — 드래그와 클릭을 가르는 것도 그 상태기계의 몫이다.
-   *
-   * ⚠ 누름을 캡처 단계로 받는 이유(v4.69)와 안쪽 버튼(재생/정지) 위에서 선택을 건너뛰는 이유는
-   * 그 파일에 함께 적어 두었다.
-   */
+  /** 선택 — 공용 `bubbleSelectGesture`, 더블클릭이 없어 `doubleClickable:false`(지연 없이 바로, 끈 뒤엔 선택 ❌). 캡처 단계·재생 버튼 건너뛰기의 이유는 그 파일에. */
   // §6 — 고른 묶음은 다른 버블과 같은 칸이다(보통 클릭 = 이 노드 하나로, Ctrl/Cmd 클릭 = 넣고 빼기).
   const canvasSelection = useCanvasNodeSelection(id, data.playBubbleId);
   const gesture = useBubbleSelectGesture({
@@ -258,10 +243,8 @@ export const PlayNode = memo(function PlayNode({
     if (status === 'running' && data.url) return data.url.replace(/^https?:\/\//, '');
     if (status === 'starting') return t('canvas.play.starting', { defaultValue: '켜는 중…' });
     if (!hasRecipe) return t('canvas.play.findHint', { defaultValue: '눌러서 실행법 찾기' });
-    // §보안 감사 2026-09-09 — **이름이 명령을 가리지 못하게.** 버블에 보이는 이름이 실행할 명령과
-    //   다르면(제목을 붙였거나 레시피에 라벨이 있으면) 이 줄에 명령 원문을 그대로 보여 준다.
-    //   이 버블은 누르면 그 명령이 그대로 돈다 — 무엇이 도는지 모르는 채로 누르는 자리는 없어야 한다.
-    //   서버 쪽 짝은 `POST /api/play-recipe` — 에이전트가 등록한 명령에는 별명을 못 붙인다.
+    // 보안 — 보이는 이름이 실행 명령과 다르면 명령 원문을 보인다. 누르면 그대로 도는 버튼이라 무엇이 도는지 숨기면 안 된다.
+    // 서버 짝 `POST /api/play-recipe`(에이전트가 등록한 명령엔 별명 ❌).
     const command = data.recipe?.command;
     if (command && command !== label) return command;
     return t('canvas.play.idle', { defaultValue: '눌러서 실행' });

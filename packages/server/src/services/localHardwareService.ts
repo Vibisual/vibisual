@@ -1,18 +1,9 @@
 /**
  * localHardwareService.ts — §5.19 (E) 이 PC 가 감당할 수 있는 크기.
- *
- * **하드웨어를 알아맞히지 않는다 — 엔진에게 묻는다.** 모델을 실제로 돌릴 주체가
- * `llama-server --list-devices` 로 자기가 쓸 수 있는 장치와 남은 메모리를 그대로 말해 준다.
- * 벤더별 분기도, 새 네이티브 의존성도, VRAM 을 추측하는 산수도 필요 없고, **엔진이 못 쓰는
- * 장치는 애초에 안 나오므로** "화면엔 보이는데 못 쓰는" 어긋남이 생기지 않는다.
- *
- * 이 값은 **표시와 권유**에만 쓴다. 실행을 막는 데 쓰지 않는다 — 레이어 오프로드는 여전히
- * 엔진 자동이고, 안 되면 CPU 로 떨어져 느리게라도 도는 것이 §5.19 (D) 의 약속이다.
- *
- * **CPU·시스템 메모리는 엔진에게 묻지 않는다** — 엔진이 깔려 있든 아니든 이 PC 의 사실이라
- * `node:os` 에서 바로 읽는다. §5.19 (F) "자원은 한 벌뿐"을 사용자가 눈으로 확인하는 자리
- * (사용량 팝업의 올모델 탭)가 이 값을 먹는다 — 구독 한도가 없는 엔진에서 "이 턴이 무엇을
- * 쓰고 있나"에 답하는 것은 토큰이 아니라 이 PC 의 자원이기 때문이다.
+ * **하드웨어를 알아맞히지 않는다 — 엔진에게 묻는다**(`llama-server --list-devices`). 벤더 분기·네이티브 의존성·VRAM 추측이 없고,
+ * 엔진이 못 쓰는 장치는 애초에 안 나와 "보이는데 못 쓰는" 어긋남이 없다.
+ * 이 값은 표시와 권유에만 쓰고 실행을 막지 않는다(오프로드는 엔진 자동, 안 되면 CPU 로 떨어져 도는 것이 §5.19 (D) 의 약속).
+ * CPU·시스템 메모리는 엔진과 무관한 이 PC 의 사실이라 `node:os` 에서 읽는다 — §5.19 (F) 사용량 팝업 올모델 탭이 쓴다.
  */
 import os from 'node:os';
 import path from 'node:path';
@@ -75,14 +66,9 @@ export function parseDevices(output: string): LocalDeviceInfo[] {
 }
 
 /**
- * 두 누적 표본 사이의 CPU 점유율(0~100). **모르면 -1 을 준다** — 답이 없을 때 0 을 주면
- * 화면이 "CPU 가 놀고 있다"는 거짓을 말한다(§5.19 (E) 와 같은 규율).
- *
- * -1 이 되는 경우는 셋이다: ① 표본이 하나뿐(첫 호출), ② 카운터가 되감겼다(절전 복귀·코어 수
- * 변동), ③ 아직 측정 창이 안 찼다.
- *
- * 순수 함수로 둔 이유는 이 산수가 **세 OS 에서 똑같기** 때문이다 — `os.cpus()` 가 주는 값은
- * 개발 PC 에서 재현할 수 없지만, 여기서 틀리면 win/mac/linux 가 한꺼번에 틀린다.
+ * 두 누적 표본 사이의 CPU 점유율(0~100). **모르면 -1** — 0 을 주면 화면이 "CPU 가 논다"는 거짓을 말한다(§5.19 (E)).
+ * -1 인 경우: ① 표본이 하나뿐(첫 호출) ② 카운터가 되감김(절전 복귀·코어 수 변동) ③ 측정 창이 안 참.
+ * 순수 함수로 둔다 — 산수가 세 OS 에서 같아 여기서 틀리면 셋이 한꺼번에 틀린다(`os.cpus()` 값은 개발기에서 재현할 수 없다).
  */
 export function computeCpuPercent(
   prev: CpuSample | null,
@@ -116,11 +102,8 @@ function readCpuSample(): { sample: CpuSample; model: string; cores: number } | 
 }
 
 /**
- * 표본을 하나 더 떠서 직전 것과 견준다 — 답하는 것은 "마지막으로 물어본 뒤로 CPU 가 얼마나
- * 바빴나"이고, 그래서 **부르는 주기가 곧 측정 창**이다.
- *
- * 창이 안 차서 답을 못 내면 **기준점을 옮기지 않고** 직전 답을 그대로 준다(다음 호출이 더 긴
- * 창으로 다시 잰다). 게이지가 실제치와 0 사이를 깜빡이면 읽을 수 없기 때문이다.
+ * 표본을 하나 더 떠 직전 것과 견준다 — "마지막으로 물은 뒤로 얼마나 바빴나"라서 **부르는 주기가 곧 측정 창**이다.
+ * 창이 안 차면 기준점을 옮기지 않고 직전 답을 준다(다음 호출이 더 긴 창으로 잰다) — 게이지가 실제치와 0 사이를 깜빡이지 않게.
  */
 function sampleCpuNow(): { model: string; cores: number; percent: number } {
   const read = readCpuSample();
@@ -203,10 +186,8 @@ async function probeDevices(primaryBin: string): Promise<LocalDeviceInfo[]> {
 }
 
 /**
- * 메모리·CPU 값은 늘 지금 것으로 — 캐시하는 것은 장치 목록이지 남은 양이 아니다.
- *
- * macOS 의 `os.freemem()` 은 회수 가능한 inactive 메모리를 여유로 치지 않아 활동 모니터보다
- * 적게 나온다. 표시 전용이라 그대로 두되, 그 숫자를 판정에 쓰지 않는 이유가 이것이다.
+ * 메모리·CPU 는 늘 지금 값 — 캐시하는 것은 장치 목록이지 남은 양이 아니다.
+ * macOS `os.freemem()` 은 회수 가능한 inactive 를 여유로 치지 않아 활동 모니터보다 적게 나온다 — 표시에만 쓰고 판정에 쓰지 않는다.
  */
 function withMemory(devices: LocalDeviceInfo[], measuredAt: number): LocalHardwareInfo {
   const vramFreeBytes = devices.reduce((max, d) => Math.max(max, d.freeBytes), 0);
@@ -270,9 +251,8 @@ export async function getLocalHardware(): Promise<LocalHardwareInfo> {
 }
 
 /**
- * 스냅샷처럼 **기다릴 수 없는 자리**에서 쓰는 동기 조회. 재 둔 값이 있으면 그것을 주고,
- * 없거나 낡았으면 뒤에서 재도록 시켜 둔 뒤 지금 아는 만큼만 답한다(프로세스 스폰이
- * 스냅샷 경로를 붙잡으면 캔버스 전체가 그만큼 늦어진다 — §5.19 스냅샷은 자주 돈다).
+ * 스냅샷처럼 **기다릴 수 없는 자리**의 동기 조회. 재 둔 값이 있으면 주고, 없거나 낡았으면 뒤에서 재도록 시켜 둔 뒤 아는 만큼만 답한다
+ * (스냅샷 경로에서 프로세스를 띄우면 캔버스 전체가 그만큼 늦는다 — §5.19 스냅샷은 자주 돈다).
  */
 export function peekLocalHardware(): LocalHardwareInfo {
   const engine = getEngineState();

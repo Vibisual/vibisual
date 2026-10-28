@@ -9,13 +9,7 @@ import { StudioIcon } from './studioIcons.js';
 import { formatClock } from './PreviewControls.js';
 import { useStagePreview } from './useStagePreview.js';
 
-/**
- * §5.13 (V) 37-14 — **비교 판**: 같은 장면의 두 갈래(엔진마다 하나)를 같은 시각에 나란히 — 재생하면 둘이 함께 흐르고, 막대를
- * 끌면 둘이 함께 간다. 무대는 미리보기와 같은 DOM 무대(같은 문서에서 고른 갈래만 바꾼 사본)다. [이걸로] → 장면 `pick`.
- * 고르지 않은 쪽은 [안 고른 쪽 지우기]를 누를 때까지 문서에 남는다(그리지 않을 뿐).
- * 반응형 — 폰 폭 창에서는 두 화면을 위아래로 쌓고, 창보다 길면 창 안에서 스크롤한다. 화면 높이 상한은 `dvh`(폰 주소창이 접혀도
- * 맞는 높이).
- */
+/** §5.13 (V) 37-14 — 비교 판: 두 갈래를 같은 시각에(무대 = 고른 갈래만 바꾼 사본). 안 고른 쪽은 [안 고른 쪽 지우기]까지 문서에 남는다. 폰 폭 높이 상한은 `dvh`. */
 export interface VariantCompareProps {
   readonly project: string;
   readonly doc: VideoDoc;

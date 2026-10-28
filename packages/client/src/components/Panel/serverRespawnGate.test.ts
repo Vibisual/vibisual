@@ -2,11 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { ServerEntry } from '@vibisual/shared';
 import { serverRespawnGate } from './serverRespawnGate.js';
 
-/**
- * §7.11 포트 인계 — 사용자 보고: "이건 iframe 버블인데 왜 재시작 불가야. 에이전트가 켰더라도
- * 우리 앱이 그대로 넘겨받아서 내가 껐다 켰다 할 수 있게 해줘야지."
- * 그 요구를 판정 규칙으로 고정한다.
- */
+/** §7.11 포트 인계 — 에이전트가 켠 iframe 서버도 넘겨받아 재시작할 수 있다. */
 function entry(over: Partial<ServerEntry> = {}): ServerEntry {
   return { id: 's1', command: 'pnpm dev', port: 5173, startedAt: 0, alive: true, ...over };
 }

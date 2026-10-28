@@ -3,7 +3,7 @@ import { classifyStudioError, type StudioErrorKind } from './studioErrors.js';
 
 /**
  * §5.13 (V) 37-1 — 스튜디오 알림. 오류는 사람이 읽는 말 한 줄 + [자세히](원문은 접어 둔다), 성공은 잠깐 떴다 사라진다.
- * 종전 amber 상태줄을 대신한다. 같은 말이 연달아 오면 한 장으로 접는다(폴링이 같은 오류를 2초마다 내도 쌓이지 않게).
+ * 같은 말이 연달아 오면 한 장으로 접는다(폴링이 같은 오류를 되풀이해도 쌓이지 않게).
  */
 export type StudioToast =
   | { readonly id: number; readonly tone: 'error'; readonly kind: StudioErrorKind; readonly detail: string; readonly code?: string }

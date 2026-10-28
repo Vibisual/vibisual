@@ -3,19 +3,10 @@ import type { ContextMenuItem } from '../components/IDE/IDEContextMenu.js';
 import { shortcutLabel } from '../utils/platform.js';
 
 /**
- * textFieldContextMenu.ts — 한 줄 입력칸(`input`/`textarea`) 우클릭 **메뉴 항목 목록**(순수 로직).
- *
- * Electron 패키지 빌드에는 브라우저 기본 우클릭 메뉴가 없다. IDE 입력창·편집창은 그래서 각자
- * 메뉴를 그려 뒀지만, 그 밖의 평범한 입력칸(로그인 창의 인증 코드 등)은 우클릭이 아무 것도
- * 하지 않아 **붙여넣기 자체가 불가능**했다. 이 파일은 그 입력칸들이 공유할 항목 목록이다.
- *
- * 무엇이 흐려지는지는 화면을 띄우지 않고도 답이 나와야 한다 — 고른 글자가 없으면 잘라내기·복사가
- * 흐려지고, 읽기 전용이면 잘라내기·붙여넣기가 흐려진다. 그래서 목록 만들기를 컴포넌트에서 떼어
- * 여기 두고 `textFieldContextMenu.test.ts` 로 못 박는다.
- *
- * i18n 은 호출부가 넘긴 `t` 로만 만든다(모듈 레벨 하드코딩 문자열 ❌ — 언어 전환이 안 따라온다).
- * 키는 편집창이 쓰던 `ide.editor.ctx.*` 를 그대로 쓴다 — "잘라내기/복사/붙여넣기/전체 선택" 은
- * 같은 낱말이라 번역을 두 벌 들 이유가 없다.
+ * textFieldContextMenu.ts — 한 줄 입력칸(`input`/`textarea`) 우클릭 메뉴 항목 목록(순수 로직).
+ * Electron 패키지 빌드에는 브라우저 기본 우클릭 메뉴가 없다 — 자기 메뉴가 없는 평범한 입력칸(로그인 창의 인증 코드 등)은 이게 없으면 붙여넣기가 불가능하다.
+ * 흐려짐 판정(고른 글자가 없으면 잘라내기·복사, 읽기 전용이면 잘라내기·붙여넣기)을 화면 없이 시험하려고 컴포넌트에서 뗐다(`textFieldContextMenu.test.ts`).
+ * i18n 은 호출부가 넘긴 `t` 로만(모듈 레벨 하드코딩 문자열 ❌ — 언어 전환이 안 따라온다). 키는 편집창의 `ide.editor.ctx.*` 를 그대로 쓴다(같은 낱말 — 번역 두 벌 ❌).
  */
 
 /** `useTranslation()` 의 `t` 중 우리가 쓰는 모양만. */
@@ -23,11 +14,8 @@ export type MenuText = (key: string, opts?: Record<string, unknown>) => string;
 
 export interface TextFieldMenuState {
   /**
-   * 고른 글자가 있는가.
-   *
-   * `type="email"`·`type="number"` 처럼 선택 API 를 안 주는 입력 유형에서는 알 방법이 없다 —
-   * 그때는 `true` 로 두는 쪽이 맞다. **고른 글자가 있는데 복사가 흐려진 것**이 그 반대보다
-   * 훨씬 나쁜 고장이기 때문이다(눌러도 아무 일이 없는 쪽은 최소한 되돌릴 게 없다).
+   * 고른 글자가 있는가. `type="email"`·`type="number"` 처럼 선택 API 가 없는 유형에서는 `true` 로 둔다
+   * — 고른 글자가 있는데 복사가 흐려진 쪽이 그 반대보다 훨씬 나쁜 고장이다(눌러도 아무 일이 없는 쪽은 되돌릴 게 없다).
    */
   hasSelection: boolean;
   /** 읽기 전용·비활성 입력칸 — 글자를 바꾸는 항목이 흐려진다. */

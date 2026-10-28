@@ -1,9 +1,4 @@
-/**
- * §5.11 v4.29 — 카드 격리 고정 테스트.
- *
- * 111장 중 한 장이 그리다 던지면 앱 전체가 내려가던 상태였다. 이 함수가 그 한 장을 그 자리에 가둔다.
- * 규칙이 흔들리면 다시 흰 화면이 되므로 여기서 못 박는다.
- */
+/** §5.11 — 카드 한 장이 그리다 던져도 그 자리에 가두는지 고정(흔들리면 흰 화면). */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { tryBuild, reportPluginFailure, resetPluginFailureLog } from './isolate.js';
 

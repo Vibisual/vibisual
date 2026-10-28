@@ -10,18 +10,8 @@ import {
 } from '../components/BubbleMap/linkedBubbles.js';
 
 /**
- * §5.4 **연결 무리 강조 + 동반 이동** — Ctrl/Cmd 를 누른 채 에이전트 버블을 잡으면
- * 그 버블에 매달린 것만 남기고 나머지가 뒤로 물러나며, 그대로 끌면 무리가 함께 움직인다.
- *
- * 상태를 여기 두는 이유는 **읽는 쪽이 흩어져 있어서**다 — 버블(`BubbleNode`)·활동 엣지
- * (`CurvedEdge`)·위임 엣지(`TaskEdgeComponent`)가 전부 React Flow 가 그리는 잎이라 prop 으로
- * 내려보낼 길이 없다(`canvasVisibility`·`captureSnapGuides` 가 같은 이유로 스토어에 산다).
- *
- * **`graphStore` 에 넣지 않는다.** 이건 손이 떠나면 사라지는 순수 표시 상태라 스냅샷·체크포인트와
- * 무관하고, 저쪽은 스냅샷 1건에 `set()` 이 수십 번 도는 자리라 여기 구독을 얹으면 hover 하나가
- * 그 통지에 묻어 매번 다시 계산된다.
- *
- * **비영속** — 새로고침하면 없다(§3.2 에 새 필드 ❌).
+ * §5.4 **연결 무리 강조 + 동반 이동** — Ctrl/Cmd 로 에이전트 버블을 잡으면 매달린 것만 남고, 끌면 무리가 함께 움직인다.
+ * 읽는 쪽(`BubbleNode`·`CurvedEdge`·`TaskEdgeComponent`)이 React Flow 잎이라 스토어에 두되, `graphStore` 밖에 둔다(순수 표시 · 비영속).
  */
 
 /** 무리를 잡은 단계 — 세기가 다르다. */
@@ -43,13 +33,7 @@ interface LinkFocusState {
   setModifierHeld: (held: boolean) => void;
   /** 무리를 잡는다(미리보기 또는 확정). 같은 중심·같은 단계면 통지하지 않는다. */
   focus: (group: LinkGroup, phase: Exclude<LinkFocusPhase, 'off'>) => void;
-  /**
-   * 이미 잡아 둔 미리보기를 **확정으로 올린다** — 누르는 순간 세기가 한 단계 오른다.
-   *
-   * 무리를 여기서 다시 계산하지 않는 이유: 누르는 쪽(`BubbleNode`)은 화면에 그려진 엣지 목록을
-   * 모른다. 올릴 것이 이미 그 버블의 미리보기로 잡혀 있을 때만 올리고, 아니면 아무것도 하지
-   * 않는다(그 경우는 드래그 시작이 무리를 새로 잡는다).
-   */
+  /** 미리보기를 **확정으로 올린다**(세기가 오른다). 무리는 다시 계산하지 않는다 — `BubbleNode` 는 엣지 목록을 모른다(미리보기가 없으면 드래그 시작이 잡는다). */
   promoteToGrab: (focusId: string) => void;
   /** 미리보기만 걷는다 — 확정(`grab`) 중이면 아무것도 하지 않는다. */
   clearHover: (focusId?: string) => void;

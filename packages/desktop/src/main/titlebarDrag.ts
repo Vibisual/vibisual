@@ -1,12 +1,6 @@
-// SCENARIO.md §3.7 · §5.5 #17-6 (H-19) — **헤더 로고 덮개의 끌기 문턱.**
-//
-// 덮개(`Header.tsx` 의 `app-nodrag` 덮개)는 OS 캡션이 아니라서 끌기도 더블클릭도 우리가 대신한다
-// (`ipc.ts` 의 `vibisual:window:move-self` · `toggle-maximize-self`). OS 캡션에는 끌기 문턱이 있어
-// 최대화된 창을 눌렀다 떼는 동안의 손떨림이 창을 풀지 않는다. 덮개에는 그 문턱이 없었다 — 첫 클릭의
-// 1px 떨림이 `move` 한 번으로 창을 풀어 커서 밑으로 옮기고, 이어지는 더블클릭 토글이 "복원"이 아니라
-// "다시 최대화"가 됐다.
-//
-// electron 에 붙어 있지 않다 — 좌표(DIP)만 받으므로 Windows 개발기에서 세 OS 를 단위 테스트로 함께 고정한다.
+// SCENARIO.md §3.7 · §5.5 #17-6 (H-19) — 헤더 로고 덮개의 끌기 문턱. 덮개(`app-nodrag`)는 OS 캡션이 아니라 끌기·더블클릭을 우리가 대신한다
+// (`ipc.ts` 의 `move-self`·`toggle-maximize-self`). 문턱이 없으면 최대화 창의 1px 떨림이 창을 풀어 이어지는 더블클릭이 "다시 최대화"가 된다.
+// electron 에 붙지 않는다(DIP 좌표만) — 세 OS 를 단위 테스트한다.
 
 /**
  * 최대화된 창을 풀기 시작하는 끌기 거리(DIP). 누른 자리에서 가로나 세로로 이만큼 움직여야 끌기다.
@@ -57,11 +51,8 @@ export function pickTitlebarPoint(
   return Math.abs(sample.x - live.x) > gap || Math.abs(sample.y - live.y) > gap ? sample : live;
 }
 
-// §3.7 (2026-10-16) — **덮개 끌기는 main 이 제 박자로도 따라간다.** 종전에는 페이지의 `mousemove` 마다 오는 `move` 에만
-//   기대 창을 옮겼다. 최대화를 푸는 순간 창 크기가 손 밑에서 바뀌며 페이지가 손짓을 놓치면(§3.7 "복원 중 캡처 상실")
-//   그 `move` 가 끊겨 창이 따라오지 않는다(사용자 지시 — "기존 곳 클릭하면 있는 기능인데 여기도 가능하게 연결만 시켜").
-//   앱 창 끌기(`appWindowTransfer.ts`)가 이미 같은 일을 이렇게 한다 — 정해진 박자로 OS 커서를 직접 읽어 옮기고,
-//   손을 뗐는지는 물리 버튼(`appWindowPrimaryPressed`)으로 본다. 덮개도 그 길에 잇는다(`titlebarMove.ts`).
+// §3.7 — 덮개 끌기는 main 이 제 박자로도 따라간다. 최대화를 푸는 순간 창이 손 밑에서 바뀌어 페이지가 손짓을 놓치면 `move` 가 끊긴다 —
+// 앱 창 끌기(`appWindowTransfer.ts`)처럼 박자마다 OS 커서를 읽고, 뗌은 물리 버튼(`appWindowPrimaryPressed`)으로 본다(`titlebarMove.ts`).
 
 /** main 이 OS 커서를 직접 읽어 창을 옮기는 박자(ms) — 앱 창 끌기(`DRAG_POLL_MS`)와 같은 값이다. */
 export const TITLEBAR_FOLLOW_MS = 16;

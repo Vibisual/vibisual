@@ -1,38 +1,19 @@
-# 공개 지표 일일 스냅샷 — 성장 곡선을 오늘부터 남긴다.
-#
-# ⚠️ 이 워크플로가 왜 생겼는지(2026-08-28):
-#    GitHub 은 별·포크·릴리스 다운로드를 **지금 이 순간의 누적값으로만** 준다.
-#    어제 몇이었는지는 어디에도 남지 않는다. 그래서 "언제부터 어떻게 늘었나"를
-#    보여 줘야 할 날이 왔을 때, 기록을 시작하지 않았다면 그 곡선은 만들 방법이 없다.
-#    소급이 불가능한 종류의 자산이라 **가장 싸고 가장 급하다**(하루 한 번, 몇 초).
-#
-#    앱에는 텔레메트리를 넣지 않는다(PRIVACY.md). 여기서 옮겨 적는 값은 전부 GitHub 이
-#    이미 공개하고 있는 숫자이고, 사용자를 식별하는 정보는 하나도 없다.
-#
-# ⚠️ METRICS_TOKEN 시크릿에 대하여(2026-08-31 추가):
-#    조회수·고유 방문자·클론 수(`traffic.csv`)는 이 워크플로가 남기는 값 중 **유일하게
-#    14일 만에 사라지는** 것이다 — GitHub 이 그만큼만 보관한다. 그런데 아래 기본
-#    `GITHUB_TOKEN` 으로는 그 엔드포인트를 못 부른다. 워크플로 `permissions:` 블록에
-#    `administration` 키가 아예 없기 때문이다(설정 가능한 16종에 없다).
-#    → 저장소 Settings > Secrets > Actions 에 `METRICS_TOKEN` 을 넣어야 채워진다.
-#      이 저장소 하나에만 묶은 fine-grained PAT, 권한은 `Administration: read` 하나면 된다.
-#    시크릿이 없어도 워크플로는 실패하지 않는다 — 그 열만 비우고 나머지를 적는다.
-#
-# 결과는 `metrics` 브랜치에 쌓인다. main 을 더럽히지 않으려고 브랜치를 가르며,
-# 그래서 이 워크플로의 커밋이 CI 를 깨우지도 않는다.
+# 공개 지표 일일 스냅샷. GitHub 은 별·포크·릴리스 다운로드를 지금의 누적값으로만 줘 지난 값은 소급할 수 없다.
+# 앱에는 텔레메트리를 넣지 않는다(PRIVACY.md) — 여기 값은 전부 GitHub 이 이미 공개하는 숫자다.
+# METRICS_TOKEN: 조회·클론(`traffic.csv`)은 GitHub 이 14일만 보관하고 기본 `GITHUB_TOKEN` 으로는 못 부른다(`permissions:` 에
+#   `administration` 키가 없다). 이 저장소에만 묶은 fine-grained PAT(`Administration: read`)를 넣는다 — 없으면 그 열만 빈다.
+# 결과는 `metrics` 브랜치에 쌓인다(main 을 더럽히지 않고 CI 도 안 깨운다).
 #   traction.csv         누적 게이지(별·포크·다운로드) — 하루 한 줄
 #   traffic.csv          그날의 유량(조회·클론) — 14일치를 매번 덮어써 결손을 스스로 메운다
 #   badge-stars.json     별 수 배지(shields endpoint). 다운로드 배지는 shields 표준 `github/downloads/…/total` 을 쓴다
 #   stars-light/dark.svg 별 성장 곡선. README 가 <picture> 로 골라 쓴다
-#
-# 주의: GitHub 은 60일간 활동이 없는 저장소의 정기 워크플로를 자동으로 멈춘다.
-# 개발이 이어지는 동안에는 문제가 없고, 멈췄다면 Actions 탭에서 다시 켜면 된다.
+# GitHub 은 60일간 활동이 없는 저장소의 정기 워크플로를 멈춘다 — 멈췄다면 Actions 탭에서 다시 켠다.
 
 name: Traction snapshot
 
 on:
   schedule:
-    # 매일 03:17 UTC — 정각은 러너가 붐빈다.
+    # 03:17 UTC — 정각은 러너가 붐빈다.
     - cron: '17 3 * * *'
   workflow_dispatch:
 
@@ -72,7 +53,7 @@ jobs:
       - name: 스냅샷 한 줄 append
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 없으면 트래픽 열만 비고 나머지는 그대로 기록된다(위 머리말 참조).
+          # 없으면 트래픽 열만 빈다(머리말 참조).
           METRICS_TOKEN: ${{ secrets.METRICS_TOKEN }}
           REPO: ${{ github.repository }}
         run: node "$GITHUB_WORKSPACE/.github/scripts/traction-snapshot.mjs" /tmp/metrics
@@ -122,7 +103,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # 이 브랜치에는 우리가 쓴 산출물만 있다 — 전부 담는다.
+          # 이 브랜치에는 우리 산출물만 있다.
           git add -A
 
           if git diff --cached --quiet; then

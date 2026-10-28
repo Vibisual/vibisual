@@ -12,10 +12,7 @@ import {
   type BoundsHandle,
 } from './layoutBoundsHandles.js';
 
-/**
- * SSOT §5.4 #42 — 캔버스 배치 상자는 변과 모서리 어디서든 끌어 크기를 바꾼다.
- * 종전에는 변 띠 넷만 있어 모서리에서 두 띠가 겹치고 바깥 한 칸이 비었다 — 대각선으로 잡을 자리가 없었다.
- */
+/** §5.4 #42 — 변·모서리 어디서든 끌어 크기를 바꾼다(띠가 모서리에서 겹치거나 비면 대각선으로 잡을 자리가 없다). */
 
 /** 그 점을 받는 손잡이들 — 칸은 [left, left+width) × [top, top+height). */
 function hitsAt(x: number, y: number, w: number, h: number): BoundsHandle[] {

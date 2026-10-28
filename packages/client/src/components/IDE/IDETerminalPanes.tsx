@@ -14,31 +14,15 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { getTerminalTransport } from '../../transport/terminalTransport.js';
 import { IDETerminalView } from './IDETerminalView.js';
 
-// §4 (CMD 터미널 업그레이드 ⑤) — 세션 탭 **안**의 pane 분할 컨테이너.
-//
-// herdr 이 tmux 에서 가져온 것 중 우리에게 없던 것이 pane 이다. 종전 CMD 탭은 탭 1개 = PTY 1개라
-// "빌드 돌려 두고 옆에서 로그 보기"를 하려면 탭을 오가야 했다.
-//
-// 새 실행 레일을 만들지 않는다 — `termId` 에 `#<paneId>` 한 토큰이 붙으면 desktop 의 PTY 는
-// 그냥 하나 더 뜬다. 그래서 이 파일이 하는 일은 **레이아웃과 트리 편집뿐**이고, 터미널 자체는
-// 기존 `IDETerminalView` 를 pane 마다 반복 렌더한다.
-//
-// 트리는 그 세션 탭의 표시 상태라 서버(`PUT /api/cmd-pane-tree`)가 들고 체크포인트에 실린다.
-// 화면은 서버 값을 그대로 보되, 사용자가 방금 만진 결과는 **낙관 오버라이드**로 먼저 보여 준다
-// (드래그 리사이즈는 프레임마다 일어나므로 매번 서버를 왕복할 수 없다).
+// §4 (CMD ⑤) — 세션 탭 안 pane 분할. `termId` 에 `#<paneId>` 를 붙이면 PTY 가 하나 더 뜰 뿐이라 여기는 레이아웃·트리 편집만 한다.
+// 트리는 서버(`PUT /api/cmd-pane-tree`)가 들고, 방금 만진 결과는 낙관 오버라이드로 보인다(리사이즈는 매 프레임이라 왕복 ❌).
 
 interface IDETerminalPanesProps {
   agentId: string;
   sessionId: string | null;
 }
 
-/**
- * 낙관 오버라이드. **바깥 `null` = 오버라이드 없음(서버 값을 본다)**, 안쪽 `tree: null` =
- * "분할 없음(단일 pane)" 이다.
- *
- * 두 의미를 하나의 `null` 로 합치면 **마지막 pane 을 닫는 순간 서버의 옛 분할 트리가 되살아나**
- * 화면이 되돌아간다. 감싸는 객체 한 겹이 그 구분을 만든다.
- */
+/** 바깥 `null` = 오버라이드 없음, 안쪽 `tree: null` = 단일 pane. 하나의 `null` 로 합치지 마라 — 마지막 pane 을 닫으면 서버의 옛 분할이 되살아난다. */
 type PaneOverride = { tree: CmdPaneNode | null } | null;
 
 /** 트리에 없는 새 pane id 발급 — 숫자 문자열을 1씩 올려 빈 자리를 찾는다. */
@@ -141,8 +125,7 @@ export function IDETerminalPanes({ agentId, sessionId }: IDETerminalPanesProps):
     />
   ), [agentId, sessionId, handleSplit, handleClosePane, handleToggleZoom, zoomPane, paneCount]);
 
-  // zoom — 한 pane 만 그린다. 다른 pane 의 xterm 은 언마운트되지만 **PTY 는 살아 있다**
-  // (§4 v2.63: unmount 는 kill 이 아니다) → 확대를 풀면 reattach + replay 로 그대로 돌아온다.
+  // zoom — 한 pane 만 그린다. 나머지 PTY 는 살아 있어(unmount ≠ kill) 풀면 reattach 로 돌아온다.
   const node: CmdPaneNode = zoomPane && paneCount > 1
     ? { type: 'leaf', id: zoomPane }
     : (tree ?? { type: 'leaf', id: '0' });
@@ -160,13 +143,8 @@ export function IDETerminalPanes({ agentId, sessionId }: IDETerminalPanesProps):
 }
 
 /**
- * split 노드를 **그 둘째 자식의 첫 leaf id** 로 식별해 비율만 갈아 끼운다.
- *
- * ⚠ *첫째* 자식의 첫 leaf 로 식별하면 안 된다 — leaf id 자체는 트리 안에서 유일하지만
- * "첫째 자식의 첫 leaf" 는 **조상과 자손이 나눠 갖는다**. `row[ col[leaf0, leaf2], leaf1 ]`
- * 처럼 첫 pane 을 한 번 더 분할하면 바깥 row 와 안쪽 col 이 둘 다 `'0'` 이 되어, 경계선 하나를
- * 끌었는데 두 경계선이 같이 움직였다(그 비율이 `handleResizeEnd` 로 서버에 저장까지 됐다).
- * 둘째 자식의 첫 leaf 는 split 마다 유일하다 — `resizeCmdPane`(shared) 머리말이 같은 규약이다.
+ * split 은 둘째 자식의 첫 leaf id 로 식별한다(`resizeCmdPane` 과 같은 규약).
+ * ⚠ 첫째 자식의 첫 leaf 는 조상·자손이 같은 값을 가져(`row[col[0,2],1]`) 경계선 둘이 같이 움직이고 저장된다.
  */
 function applyRatio(node: CmdPaneNode, secondHeadLeafId: string, ratio: number): CmdPaneNode {
   if (node.type === 'leaf') return node;
@@ -231,8 +209,7 @@ function PaneNode({ node, renderLeaf, onResize, onResizeEnd }: PaneNodeProps): R
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        // §4 (CMD) — 종전에는 이 자리가 회색 실선이었다. 이제 pane 마다 자기 테두리가 있어
-        //   실선을 그대로 두면 경계에 선이 두 겹으로 겹친다 → 평소엔 비우고 **잡을 때만** 보인다.
+        // §4 (CMD) — 경계는 잡을 때만 보인다(pane 테두리와 겹쳐 선이 두 겹이 된다).
         className={`shrink-0 bg-transparent transition-colors hover:bg-teal-500/50 ${
           isRow ? 'w-1.5 cursor-col-resize' : 'h-1.5 cursor-row-resize'
         }`}

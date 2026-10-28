@@ -1,9 +1,4 @@
-/**
- * §5.11 v3.93 — 사람 개입 지점(Human in the Loop): 되돌릴 수 없는 동작 앞에 확인이 있는가.
- *
- * 전부에 승인을 걸면 사람이 내용을 안 보고 누르게 되어 승인 자체가 무의미해지고, 아무 데도 안 걸면
- * 사고가 난다. 그래서 판단 기준은 **가역성**이다 — 되돌릴 수 있으면 승인이 필요 없다. 표시 전용.
- */
+/** §5.11 — 사람 개입 지점(Human in the Loop): 되돌릴 수 없는 동작 앞에 확인이 있는가 — 기준은 가역성(전부 걸면 안 보고 누른다). 표시 전용. */
 import { defineInspector, ICONS } from '../sdk/index.js';
 import { effectiveTools } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

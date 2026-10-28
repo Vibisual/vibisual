@@ -5,12 +5,8 @@ import { APP_WORK, FILE_MIN_SIZE, SATELLITE_ORBIT_GAP, clipNameList } from '@vib
 import type { AppWorkOrbitInfo } from './appWorkFold.js';
 
 /**
- * §5.1 #2-1 (F) ⑤⑧ — 앱 작업 보기 중인 앱 노드의 **작업 궤도**. 작업 위성이 앉는 위쪽 반원(9시 → 12시 → 3시)에 앱 색의 흐린
- * 점선 타원을 그리고(아래 반원은 구슬 줄 자리라 비운다), 위성 상한을 넘은 작업물이 있으면 궤도 오른쪽 끝에 회색 `+N` 점을 둔다
- * (표시 전용 — 누르는 손잡이 ❌, 툴팁에 이름 목록).
- *
- * 타원의 두 반지름은 물리가 위성을 거는 자리와 같다(`orbitSeatAtAngle` — 가로·세로 반폭 + 위성 반경 + 간격). 위성 지름은 제각각이라
- * 가장 작은 파일 지름으로 그린다(위성이 궤도 바깥쪽에 살짝 걸쳐 앉는다). SVG 필터·마스크 ❌ — 획 하나다.
+ * §5.1 #2-1 (F) ⑤⑧ — 작업 궤도: 위쪽 반원에 앱 색 흐린 점선(아래는 구슬 줄 자리), 상한 초과분은 오른쪽 끝 회색 `+N`(표시 전용).
+ * 반지름은 물리가 위성을 거는 자리(`orbitSeatAtAngle`)와 같다. 필터·마스크 ❌.
  */
 export const AppWorkOrbit = memo(function AppWorkOrbit({
   orbit,

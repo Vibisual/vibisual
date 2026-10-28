@@ -3,16 +3,7 @@ import type { PlayRecipe } from '@vibisual/shared';
 import { ProjectGraph } from './projectGraph.js';
 import { mergeSnapshots } from './projectGraphManager.js';
 
-/**
- * §5.14 v4.62 — 플레이 버블의 **영속 왕복** 회귀 테스트.
- *
- * 앱 버블(§5.13)에서 이미 두 번 데인 자리를 그대로 못 박는다 — ① 영속 5지점 중 앞의 둘만
- * 채우면 화면엔 보이는데 껐다 켜면 사라지고, ② `mergeSnapshots` 를 빠뜨리면 프로젝트를
- * 둘 이상 연 사람에게만 사라진다(REST 는 200 이라 클라 버그로 오진하기 딱 좋다).
- *
- * 여기에 이 기능 고유의 계약이 하나 더 있다: **실행 상태는 복원되지 않는다.** 버튼과
- * 레시피는 사용자의 것이라 살아나야 하지만, `running` 은 앱과 함께 죽은 프로세스의 잔상이다.
- */
+/** §5.14 — 플레이 버블 영속 왕복(영속 5지점·`mergeSnapshots`). 실행 상태는 복원하지 않는다 — `running` 은 앱과 함께 죽은 프로세스의 잔상이다. */
 
 const PROJECT_CWD = '/tmp/play-project';
 
@@ -184,10 +175,7 @@ describe('PlayBubble — 영속 왕복 (껐다 켜도 남는가)', () => {
   });
 });
 
-/**
- * 프로젝트를 둘 이상 연 사용자에겐 방송 스냅샷이 인스턴스별 스냅샷의 **병합본**이다.
- * 앱 버블이 바로 이 자리를 빠뜨려 "서버엔 있는데 캔버스엔 없는" 상태가 됐었다.
- */
+/** 다중 프로젝트 방송은 병합본이다 — 여기서 빠지면 "서버엔 있는데 캔버스엔 없다". */
 describe('PlayBubble — 여러 프로젝트 병합 (캔버스에 실제로 도달하는가)', () => {
   it('다른 프로젝트 인스턴스와 합쳐도 살아남는다', () => {
     const { graph: a, projectName: nameA } = makeGraph();

@@ -35,31 +35,13 @@ import {
   type InsuranceTab,
 } from '../../utils/insuranceView.js';
 
-// SCENARIO.md §5.26 / §7.23 — 컨텍스트 보험 팝업.
-//
-// 갈피 넷이 한 창에 있다: **압축 이력 · 요약이 안 실은 것 · 파일 사본 · 부활.** 넷을 따로 띄우면
-// 사용자가 "압축 때문에 뭘 잃었나"를 알아보려고 창 세 개를 오가게 된다 — 같은 사건의 네 얼굴이다.
-//
-// 화면은 서버가 접어 준 것을 **그대로** 그린다(§3.1). 여기서 다시 세거나 다시 판정하지 않는다.
-// 판정처럼 보이는 것(손잡이를 내줄지·낱말이 무엇인지)은 전부 `utils/insuranceView.ts` 의 순수
-// 함수에 있고 시험으로 고정돼 있다.
+// SCENARIO.md §5.26 / §7.23 — 컨텍스트 보험 팝업(압축 이력·요약 누락·파일 사본·부활 한 창). 서버 값을 그대로 그리고 판정은 `utils/insuranceView.ts`.
 
 interface ContextInsurancePopupProps {
   onClose: () => void;
-  /**
-   * 이 창을 연 버블. **부활한 세션이 앉을 자리**다.
-   *
-   * 디스크만 훑어 찾은 세션에는 소유 버블 기록이 없다(마커가 남기 전에 죽은 대화라서). 그때
-   * 이 값이 없으면 목록은 보이는데 손잡이가 전부 잠긴 창이 된다 — 사용자가 창을 연 그 버블이
-   * 곧 그 자리라, 여기서 물려받으면 그 상태가 생기지 않는다.
-   */
+  /** 이 창을 연 버블 = 부활 세션이 앉을 자리. 디스크에서만 찾은 세션은 소유 버블이 없어 이 값이 없으면 손잡이가 잠긴다. */
   agentId: string;
-  /**
-   * §7.23 범위 축 — **지금 보고 있는 세션의 좌표**. 상태바가 세운 것을 그대로 받는다.
-   *
-   * 팝업이 여기서 세션을 다시 찾지 않는 이유: 상태바와 팝업이 각자 고르면 같은 화면의 두
-   * 칸이 서로 다른 세션을 주어로 삼게 된다(§5.26 (I) 가 상태바에서 이미 겪은 부류의 사고).
-   */
+  /** §7.23 — 상태바가 세운 세션 좌표를 그대로 받는다(따로 찾으면 두 칸의 주어가 갈린다). */
   scope: InsuranceSessionScope;
 }
 
@@ -70,15 +52,8 @@ interface LedgerResponse {
 }
 
 /**
- * §5.26 (I) ⑤ — 이 창의 칩 색은 **셋뿐이고 빨강은 없다**(2026-09-23, 사용자 지시).
- *
- * 압축이 실패한 것은 **그 세션에서 일어난 일**이지 앱의 오류가 아니다. 빨강으로 적으면
- * 사용자가 앱이 깨진 줄 알고 여기서 고칠 것을 찾는다(사용자 보고: "무슨 에러 같잖아").
- * 무엇이 일어났는지는 **칩의 글자**가 말하고, 색은 "봐야 하나"만 말한다.
- *   · `warn`(amber) — 봐 둘 것(실패 · 판독 불가 · 문맥 미탑재)
- *   · `ok`          — 확인된 것(사본 있음)
- *   · `mute`        — 아직 모르는 것(비교 중 · 못 뜬 줄)
- * 빨강은 **앱이 깨졌을 때**를 위해 비워 둔다 — 그래서 여기엔 그 단계가 아예 없다.
+ * §5.26 (I) ⑤ — 칩 색은 셋(`warn`·`ok`·`mute`)뿐, 빨강 ❌ — 압축 실패는 세션의 일이지 앱 오류가 아니다. 빨강은 앱이 깨졌을 때를 위해 비워 둔다.
+ * 글자가 무슨 일인지, 색은 봐야 하나만 말한다.
  */
 function Chip({ tone, children }: { tone: 'ok' | 'warn' | 'mute'; children: React.ReactNode }): React.JSX.Element {
   const cls = tone === 'warn'
@@ -95,19 +70,9 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
   const activeProject = useGraphStore((s) => s.activeProject);
   const snapshotLedgers = useGraphStore((s) => s.contextInsurance);
   const [tab, setTab] = useState<InsuranceTab>('compacts');
-  /**
-   * §7.23 범위 축 — **이 세션 / 이 에이전트 / 이 프로젝트**.
-   *
-   * 기본은 **가장 좁은 것**이다. 이 창을 여는 자리가 IDE 상태바의 컨텍스트 칸이라(§5.5),
-   * 누른 사람의 질문은 언제나 "지금 이 세션이 뭘 잃었나"로 시작한다 — 프로젝트 전량으로
-   * 열면 그 답을 여덟 세션의 줄 사이에서 찾아야 한다(사용자 보고: "다 통합인 것 같다").
-   * 넓히고 싶으면 한 번 누르면 되고, 넓힌 쪽은 종전 화면과 정확히 같다.
-   */
+  /** §7.23 — 범위 기본은 가장 좁은 세션이다(여는 자리가 IDE 상태바 컨텍스트 칸이라 물음이 "이 세션이 뭘 잃었나"다). */
   const [wantedScope, setWantedScope] = useState<InsuranceScopeLevel>('session');
-  /**
-   * 전문 원장. 방송 스냅샷은 최근분만 싣고 부활 후보는 아예 안 싣는다(디스크를 훑어야 해서) —
-   * 그래서 창을 열 때 한 번 받아 온다. 못 받으면 스냅샷 몫으로 물러선다(빈 창보다 낫다).
-   */
+  /** 전문 원장 — 스냅샷엔 최근분만·부활 후보 없음이라 열 때 한 번 받는다. 실패하면 스냅샷 몫으로. */
   const [full, setFull] = useState<ProjectInsuranceLedger | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ p: FilePreimage; text: string | null } | null>(null);
@@ -128,15 +93,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
 
   const led = full ?? findInsuranceLedger(snapshotLedgers, activeProject);
 
-  /*
-   * §7.23 범위 축 — 네 갈피가 **같은 눈금**을 따른다.
-   *
-   * 갈피마다 주어가 다르면(압축은 세션인데 사본은 프로젝트) 사용자가 지금 무엇을 보고 있는지
-   * 갈피를 옮길 때마다 다시 판단해야 한다. 눈금은 창 전체에 하나 — 그 대신 눈금 이름 옆에
-   * 각 갈피의 줄 수를 적어, 좁힌 눈금에서 빈 갈피를 봐도 "저쪽엔 있다"를 바로 안다.
-   *
-   * 고른 눈금은 쓸 수 없으면 한 칸 넓혀 쓴다(세션 탭이 없는 훅 버블에서 `session` → `agent`).
-   */
+  /* §7.23 — 네 갈피가 같은 눈금을 따른다. 고른 눈금을 쓸 수 없으면 한 칸 넓힌다(세션 탭 없는 훅 버블: `session` → `agent`). */
   const scopeLevels = useMemo(() => availableScopeLevels(scope), [scope]);
   const scopeLevel = resolveScopeLevel(wantedScope, scope);
 
@@ -149,11 +106,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
   const ncRows = useMemo(() => scopedNotCarriedRows(led, scopeLevel, scope), [led, scopeLevel, scope]);
   /** 같은 파일의 몇 번째 판인가 — 보이는 목록 기준으로 센다(눈금을 좁히면 번호도 그 안에서 다시 매겨진다). */
   const revisions = useMemo(() => preimageRevisions(preimages), [preimages]);
-  /**
-   * §5.26 (I) ⑤ — 지금 눈금에서 실패로 끝난 압축 건수. 종전에는 IDE 상태바 컨텍스트 칸 옆의 빨간
-   * 숫자였는데, 밖에서는 무엇의 숫자인지 읽히지 않아 이 창 안으로 옮겼다(사용자 지시). 세는 것은
-   * 서버다 — 전선 `markers` 가 아니라 서버가 접은 집계를 눈금대로 읽는다.
-   */
+  /** §5.26 (I) ⑤ — 지금 눈금의 실패 압축 건수(상태바가 아니라 이 창에). 세는 것은 서버 집계다. */
   const failedCompacts = scopedFailedCompacts(led, scopeLevel, scope);
 
   const restore = useCallback(async (p: FilePreimage): Promise<void> => {
@@ -220,11 +173,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
             <path d="m9 12 2 2 4-4" />
           </svg>
           <span className="text-sm font-semibold text-gray-100">{t('panel.insurance.title')}</span>
-          {/*
-            금고 크기는 **프로젝트 눈금에서만** 적는다. 디스크에서 잰 저장고 전체 크기라
-            세션 몫으로 쪼갤 근거가 없고(blob 은 내용 해시로 여러 세션이 공유한다), 좁힌
-            칸에 프로젝트 합계를 적으면 그건 그냥 틀린 숫자다(§5.26 (A)).
-          */}
+          {/* 금고 크기는 프로젝트 눈금에서만 — 저장고 전체라 세션 몫으로 쪼갤 근거가 없다(§5.26 (A)). */}
           {led && showsVaultSize(scopeLevel) && (
             <span className="text-[12px] text-gray-500" title={t('panel.insurance.vaultSizeTip')}>
               {t('panel.insurance.vaultSize', { size: formatBytes(led.counts.vaultBytes) })}
@@ -245,12 +194,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
           </button>
         </div>
 
-        {/*
-          범위 — **이 세션 / 이 에이전트 / 이 프로젝트**. 갈피보다 위에 둔다: 눈금이 먼저 정해져야
-          갈피의 줄 수가 뜻을 갖는다("압축 3건"이 누구의 3건인지가 눈금에 달려 있다).
-          이름 옆 숫자는 **지금 갈피** 기준이라, 갈피를 옮기면 숫자도 따라 바뀐다 — 좁힌 눈금에서
-          빈 목록을 봐도 넓은 쪽에 몇 줄이 있는지 누르기 전에 안다.
-        */}
+        {/* 범위 줄은 갈피 위에 둔다(눈금이 정해져야 갈피 줄 수가 뜻을 갖는다). 이름 옆 숫자는 지금 갈피 기준. */}
         <div className="flex flex-wrap items-center gap-1 border-b border-gray-700 px-3 py-2">
           <span className="mr-1 text-[12px] text-gray-500">{t('panel.insurance.scopeLabel')}</span>
           {scopeLevels.map((lv) => {
@@ -287,13 +231,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
               }`}
             >
               {t(INSURANCE_TAB_LABEL_KEY[id])}
-              {/*
-                §5.26 (I) ⑤ — 실패 건수는 목록 머리가 아니라 **갈피 이름**에 단다. 다른 갈피를 보고 있어도
-                보여야 "들어가면 확인할 수 있다"가 된다. 숫자만 두면 줄 수로 읽히므로 낱말을 함께 적는다.
-                색은 줄의 칩과 같은 **경고색**이다 — 불투명한 빨강은 앱이 고장 난 것처럼 읽혔다(2026-09-23).
-                선택된 갈피의 파란 바탕 위에서 읽히게 하려던 것이 그 빨강의 이유였으므로, 테두리와 바탕을
-                함께 줘서 같은 목적을 채운다. 0 이면 서지 않는다.
-              */}
+              {/* §5.26 (I) ⑤ — 실패 건수는 갈피 이름에 낱말과 함께 단다(다른 갈피에서도 보이게). 색은 경고색 + 테두리·바탕(빨강 ❌). 0 이면 없음. */}
               {id === 'compacts' && failedCompacts > 0 && (
                 <span
                   className="ml-1.5 rounded border border-amber-500/50 bg-amber-500/15 px-1 text-[12px] font-semibold tabular-nums text-amber-300"
@@ -329,11 +267,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1.5">
                       <span className="min-w-0 truncate text-xs text-gray-200">{preimageFileName(p)}</span>
-                      {/*
-                        같은 파일이 여러 줄일 때 **몇 번째 판인가**. 한 파일을 네 번 고치면
-                        `projectgraph.ts` 가 네 줄 서는데 종전에는 시각 말고 구별할 것이 없었다.
-                        `1` 이 가장 최근이다(목록이 최신 순).
-                      */}
+                      {/* 같은 파일 여러 줄일 때의 판 번호. `1` 이 가장 최근. */}
                       {revisions.get(p.id) && (
                         <span className="shrink-0 rounded bg-gray-700/50 px-1 text-[12px] tabular-nums text-gray-400">
                           {t('panel.insurance.revisionOf', {
@@ -383,11 +317,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
               ? <ScopedEmpty tab="resurrect" emptyKey="panel.insurance.emptyResurrect" led={led} level={scopeLevel} scope={scope} levels={scopeLevels} onWiden={setWantedScope} />
               : resurrectable.map((s) => (
                 <div key={s.sessionId} className="flex items-center gap-2 rounded border border-gray-700/50 bg-gray-900/40 px-3 py-2">
-                  {/*
-                    제목이 이 줄의 주인이다 — 종전에는 `39f5680d` 처럼 세션 id 앞 8자만 적어
-                    "무슨 대화였는지" 알 길이 없었다(사용자 보고). id 는 제목 자리를 뺏지 않게
-                    아래 줄에 작게 곁들이고, 제목을 못 뽑았을 때만 그 자리를 대신한다.
-                  */}
+                  {/* 제목이 줄의 주인 — id 앞 8자로는 대화를 못 알아본다. id 는 아래 줄에 작게. */}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs text-gray-200" title={resurrectTitle(s) ?? undefined}>
                       {resurrectTitle(s) ?? t('panel.insurance.untitledSession')}
@@ -454,16 +384,7 @@ function EmptyNote({ text }: { text: string }): React.JSX.Element {
   return <p className="px-1 py-6 text-center text-[12px] leading-relaxed text-gray-500">{text}</p>;
 }
 
-/**
- * §7.23 범위 축 — **빈 목록이 왜 비었는지**를 가른다.
- *
- * 좁힌 눈금에서 빈 화면은 두 가지 뜻이다: 정말 아무 일도 없었거나, **넓은 쪽에는 있는데 지금
- * 눈금이 가리고 있거나.** 둘을 같은 문장으로 적으면 사용자가 있는 사본을 없다고 믿고 창을 닫는다
- * — 보험 화면에서 그건 그냥 데이터를 잃는 것이다.
- *
- * 그래서 넓은 눈금에 줄이 있으면 **그리로 가는 버튼을 그 자리에 세운다.** 눈금 줄까지 눈을
- * 올려 다시 판단하게 하지 않는다(빈 화면을 본 사람은 이미 "없구나"로 결론을 냈다).
- */
+/** §7.23 — 좁은 눈금의 빈 목록은 "없음"과 "가려짐"이 다르다. 넓은 눈금에 줄이 있으면 그리 가는 버튼을 그 자리에 세운다(없다고 믿고 닫지 않게). */
 function ScopedEmpty({
   tab, emptyKey, led, level, scope, levels, onWiden,
 }: {
@@ -510,11 +431,7 @@ function CompactRow({ m }: { m: CompactMarker }): React.JSX.Element {
   return (
     <div className="flex items-center gap-2 rounded border border-gray-700/50 bg-gray-900/40 px-3 py-2">
       <span className="min-w-0 flex-1">
-        {/*
-          **무엇을 하던 중의 압축인가**가 첫 줄이다. 종전에는 시각·트리거만 적어 압축 이력
-          다섯 줄이 서로 구별되지 않았다 — 되살릴 세션을 고르는 화면에서 고를 근거가 없었다.
-          우리가 모르면(작업 묶음이 비었으면) 지어내지 않고 종전 그대로 시각·트리거만 적는다.
-        */}
+        {/* **무엇을 하던 중의 압축인가**가 첫 줄이다(시각만으로는 구별이 안 된다). 모르면 지어내지 않고 시각·트리거만. */}
         {subject
           ? (
             <>

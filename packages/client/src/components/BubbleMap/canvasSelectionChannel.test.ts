@@ -8,12 +8,8 @@ import {
 import { useGraphStore } from '../../stores/graphStore.js';
 
 /**
- * "클릭·클릭인데 두 버블이 같이 움직인다"(사용자 보고)의 회귀 방지.
- *
- * 원인은 다중 선택이 아니라 **선택 채널이 둘이라서**였다. React Flow 는 드래그할 때
- * `selectable` 을 보지 않고 `selected` 인 draggable 노드를 전부 함께 집어 든다. 앱·캡처·플레이·
- * 스펙·랩·선반 버블과 메모 상자는 `selectable:false` + store 선택이라, 일반 버블의 네이티브
- * 선택이 켜진 채로 이들을 클릭하면 두 선택이 나란히 살아남아 함께 끌려왔다.
+ * 두 버블이 함께 끌리던 회귀 — RF 는 드래그 때 `selectable` 을 안 보고 `selected` draggable 을 다 집어,
+ * store 선택 노드를 클릭한 뒤에도 네이티브 선택이 남으면 같이 끌린다.
  */
 describe('canvas selection channel', () => {
   it('한쪽 채널만 선택을 들고 있으면 손대지 않는다', () => {
@@ -104,10 +100,7 @@ describe('clearElementSelection', () => {
   });
 });
 
-/**
- * 배선 가드 — 규칙 모듈만 맞고 캔버스가 그걸 안 부르면 버그는 그대로다.
- * DOM 테스트 환경이 없으므로 소스 원문으로 확인한다(이 레포의 다른 배선 가드와 같은 방식).
- */
+/** 배선 가드 — 규칙 모듈만 맞고 캔버스가 안 부르면 버그는 그대로다(DOM 이 없어 소스 원문으로). */
 describe('BubbleMap 배선', () => {
   const SOURCES = import.meta.glob<string>(
     ['/src/components/BubbleMap/BubbleMap.tsx'],

@@ -16,22 +16,16 @@ import { APP_STATE_BACKUP_GENERATIONS, normalizeRetentionSettings, normalizeBgTa
   type IDEActivityBarPrefs,
   type WebGroupSettings,
   type WebOpenTarget,
-  type SessionLivenessProbeSettings, normalizeTokenSaverSettings } from '@vibisual/shared';
+  type SessionLivenessProbeSettings, normalizeTokenSaverSettings,
+  normalizeApiCreditPersisted, type ApiCreditPersisted } from '@vibisual/shared';
 import { atomicWriteFileSync, rotateBackups, loadFromBackups } from './statePersistence.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
 import { pathKey, HOST_PLATFORM } from './pathKey.js';
 import { logger } from '../logger.js';
 
-// v1.52: AppState = Vibisual 인스턴스 자체 상태 (어떤 프로젝트의 데이터도 아님 → 머신 단위 글로벌).
-// 저장 위치 `~/.vibisual/app-state.json` (Claude Code `~/.claude/` 와 동일 패턴).
-// v1.63: 식별 모델 = **정규화 절대경로(projectId)**. 과거 `path.basename` 이름 PK 는
-//        같은 basename 다른 경로 프로젝트 동시 오픈 시 한 슬롯을 공유해 한쪽이 소실됐다(§3.5 위반).
-//        openProjects/pinned/lastActive/default 전부 절대경로. 이름은 표시용(projectNames 캐시).
-// v1.74 — `VIBISUAL_HOME` env override: AppState(=머신 단위 글로벌 `~/.vibisual/app-state.json`)
-//         의 base 디렉토리만 격리한다. `~/.claude`(인증·roster)·`~/.vscode`(claude.exe 해석)는
-//         그대로 실 homedir 을 쓰므로 데몬/스폰은 정상 동작. 격리 인스턴스(테스트·샌드박스)가
-//         사용자의 openProjects 목록을 읽어 실 프로젝트를 stub 등록·체크포인트 덮어쓰는 누수 방지.
-//         미설정 시 기존 동작(os.homedir()) 그대로.
+// AppState = 머신 단위 글로벌 상태(`~/.vibisual/app-state.json`). 식별은 정규화 절대경로(projectId) — basename 을 키로 쓰면 같은 이름·다른 경로가
+// 한 슬롯을 나눠 한쪽이 사라진다(§3.5). 이름은 표시용(projectNames 캐시).
+// `VIBISUAL_HOME` 은 이 base 만 격리한다(`~/.claude`·`~/.vscode` 는 실 homedir) — 테스트·샌드박스가 실 openProjects 를 읽어 체크포인트를 덮지 않게.
 const HOME_DIR = os.homedir();
 const APP_HOME_DIR = path.join(
   (process.env['VIBISUAL_HOME'] && process.env['VIBISUAL_HOME'].trim()) || HOME_DIR,
@@ -56,10 +50,10 @@ function emptyState(): AppState {
 
 // ─── 경로 식별 헬퍼 (projectId = 정규화 절대경로) ───
 
-/** projectId 정규화 — forward-slash + trailing slash 제거 + **대소문자를 실제로 무시하는 FS 에서만** 소문자.
- *  projectGraph.normalize 와 동일 semantics (인스턴스 Map 키와 일치). 비교·중복제거 전용.
- *  linux 에서 무조건 접으면 `Feature-X` 와 `feature-x` 두 프로젝트가 한 탭으로 뭉개진다.
- *  저장 포맷은 `toStorePath`(원본 케이스 유지)라 이 변경으로 잃는 저장분은 없다. */
+/**
+ * projectId 정규화(비교 전용) — `/`·끝 슬래시 제거, 대소문자를 실제로 무시하는 FS 에서만 소문자(`projectGraph.normalize` 와 같아야 한다).
+ * linux 에서 무조건 접으면 `Feature-X`·`feature-x` 가 한 탭이 된다. 저장은 `toStorePath`(원본 케이스).
+ */
 function normPath(p: string): string {
   return pathKey(p);
 }
@@ -129,11 +123,7 @@ function lookupNameCI(names: Record<string, string> | undefined, p: string): str
   return base;
 }
 
-/**
- * raw 상태 정규화 + **v1.63 마이그레이션** (구 name-array → path-array).
- * 판별: openProjects 엔트리 중 하나라도 path 처럼 보이지 않으면 구 포맷으로 간주,
- * 구 `projectPaths`(name→path) 로 경로 복원. 복원 실패 엔트리는 drop(부팅 시 stale 청소).
- */
+/** 정규화 + 옛 이름 배열 → 경로 배열 이주(경로처럼 안 보이는 엔트리가 있으면 옛 `projectPaths` 로 되찾고, 못 찾으면 버린다). */
 function normalize(raw: Partial<AppState> | null | undefined): AppState {
   const base = emptyState();
   if (!raw || typeof raw !== 'object') return base;
@@ -211,6 +201,8 @@ function normalize(raw: Partial<AppState> | null | undefined): AppState {
     webFoldPerAgent: typeof raw.webFoldPerAgent === 'boolean' ? raw.webFoldPerAgent : undefined,
     // §3.6 「수명」 — 사용량 수집기 켬 여부. 없으면 첫 부팅이 settings.json 에서 옮겨 적는다(`syncUsageCollectorAtBoot`).
     usageCollector: typeof raw.usageCollector === 'boolean' ? raw.usageCollector : undefined,
+    // §4 API 크레딧 — 같은 규약: 저장돼 있을 때만 싣는다. 이 줄이 없으면 저장이 매번 이 칸(키·장부 포함)을 떨군다.
+    apiCredits: raw.apiCredits ? normalizeApiCreditPersisted(raw.apiCredits, Date.now()) : undefined,
     // §3.6 「수명」 · §5.25 (I) — 코덱스 전역 훅 켬 여부. 없으면 첫 부팅이 hooks.json 에서 옮겨 적는다(`syncCodexHooksAtBoot`).
     codexHooks: typeof raw.codexHooks === 'boolean' ? raw.codexHooks : undefined,
     // §5.23 웹 버블 묶기 — 같은 규약: 저장돼 있을 때만 실어 기본값 변경을 자동 추종한다.
@@ -233,7 +225,7 @@ function normalize(raw: Partial<AppState> | null | undefined): AppState {
   };
 }
 
-/** §5.5 #17-4 v2.93 — skillFavorites 정규화 — 문자열만, 중복 제거(순서 보존). 비면 undefined. */
+/** §5.5 #17-4 — 문자열만, 중복 제거(순서 보존). 비면 undefined. */
 function normalizeSkillFavorites(raw: unknown): string[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const seen = new Set<string>();
@@ -295,9 +287,7 @@ function recoverAppStateFromBackups(): AppState | null {
   return normalize(rec.data);
 }
 
-/** 디스크에서 AppState 로드 (없거나 손상 시 백업 복구 → 그래도 없으면 빈 상태). 내부 캐시 사용.
- *  v1.52: 신규 위치 비었고 구 위치 있으면 1회 이전. v1.63: normalize 가 name→path 변환.
- *  v3.29: §3.2.1 손실방지 — 파싱 실패/파일 부재 시 `.bak1~N` 복구를 먼저 시도. */
+/** 로드(캐시). 파싱 실패·부재면 `.bak1~N` 부터(§3.2.1), 그래도 없으면 빈 상태. 옛 위치에만 있으면 한 번 옮긴다. */
 export function loadAppState(): AppState {
   if (cached) return cached;
   try {
@@ -329,8 +319,7 @@ export function loadAppState(): AppState {
   }
 }
 
-/** AppState 를 디스크에 저장. §3.2.1 v3.29 — checkpoint 와 동일한 손실방지 인프라 적용:
- *  다세대 백업 롤링 → 원자적 쓰기(tmp+fsync+rename)+디렉토리 fsync. projectPaths(구) 는 더는 쓰지 않음. */
+/** §3.2.1 손실방지 — 다세대 백업 롤링 → 원자적 쓰기(tmp+fsync+rename) + 디렉토리 fsync. 옛 `projectPaths` 는 쓰지 않는다. */
 export function saveAppState(state: AppState): void {
   try {
     if (!fs.existsSync(APP_HOME_DIR)) fs.mkdirSync(APP_HOME_DIR, { recursive: true });
@@ -355,10 +344,7 @@ export function saveAppState(state: AppState): void {
   }
 }
 
-/**
- * 부분 업데이트 helper — 현재 상태 + patch 필드 머지 후 저장.
- * 배열 필드는 치환 (클라가 전체 목록을 보냄). v1.63: 모든 값은 projectId(절대경로).
- */
+/** patch 를 머지해 저장. 배열 필드는 치환(클라가 전체 목록을 보낸다). 프로젝트 값은 projectId(절대경로). */
 export function patchAppState(patch: AppStatePatch): AppState {
   const current = loadAppState();
   const merged: AppState = {
@@ -372,10 +358,7 @@ export function patchAppState(patch: AppStatePatch): AppState {
   return cached ?? merged;
 }
 
-// ─── 보존 정책 (§3.2.3) ───
-//
-// 판정은 **여기 하나**를 통과한다. `recordFileEdit` 처럼 뜨거운 경로에서도 불리므로
-// 정규화 결과를 메모해 둔다(`loadAppState` 자체는 이미 in-memory 캐시라 싸다).
+// 보존 정책(§3.2.3) — 판정은 여기 하나. `recordFileEdit` 같은 뜨거운 경로에서도 불려 정규화 결과를 메모한다.
 
 let retentionMemo: RetentionSettings | null = null;
 
@@ -398,19 +381,11 @@ export function appStateSetRetention(patch: Partial<RetentionSettings>): Retenti
   return merged;
 }
 
-// ─── 토큰 절약 (§5.3 #9-1) ───
-//
-// 보존 정책과 같은 결이다 — **머신 단위**라 여기 살고, 판정은 여기 하나를 통과하며, 스폰마다
-// 불리므로 정규화 결과를 메모해 둔다. 다른 점은 대상이 디스크가 아니라 **스폰 정책**이라는 것뿐.
+// 토큰 절약(§5.3 #9-1) — 보존 정책처럼 머신 단위·판정 한 곳·스폰마다 불려 메모한다.
 
 let tokenSaverMemo: TokenSaverSettings | null = null;
 
-/**
- * §5.3 #9-1 — 현재 토큰 절약 설정. 저장된 값이 없으면 `DEFAULT_TOKEN_SAVER_SETTINGS`(전 축 끔).
- *
- * ⚠ 숫자 축의 `0` 은 상한이 아니라 **"그 축을 끔"** 이다 — 호출부가 그대로 존중해야 한다
- * (`buildTokenSaverEnv` 는 0 이면 env 키 자체를 만들지 않는다).
- */
+/** §5.3 #9-1 — 없으면 `DEFAULT_TOKEN_SAVER_SETTINGS`(전 축 끔). ⚠ 숫자 축 `0` 은 상한이 아니라 끔이다(`buildTokenSaverEnv` 는 env 키를 안 만든다). */
 export function appStateGetTokenSaver(): TokenSaverSettings {
   if (tokenSaverMemo) return tokenSaverMemo;
   tokenSaverMemo = normalizeTokenSaverSettings(loadAppState().tokenSaver);
@@ -494,9 +469,32 @@ export function appStateSetProcessGuard(patch: Partial<ProcessGuardSettings>): P
 }
 
 /**
- * §3.6 「수명」 · §5.7 #24-3 — 사용량 수집기(`statusLine`)를 켜 두었는가. 머신 단위다(설정 파일이 사용자 단위라서).
- * 저장된 적이 없으면 `undefined` — 첫 부팅이 settings.json 에 깔려 있는지로 옮겨 적는다(`syncUsageCollectorAtBoot`).
- * `loadAppState` 가 캐시를 들고 있어 따로 메모하지 않는다.
+ * §4 API 크레딧 — 서버 **밖으로** 내보내는 AppState. 크레딧 칸(암호화된 키·키링 없는 환경의 원문 키·장부)은 뺀다.
+ * 스냅샷은 모바일 웹 접속(LAN)에도 실리므로 키는 어떤 모양으로도 나가면 안 된다. 화면이 쓰는 크레딧 값은
+ * `GraphSnapshot.apiCredits`(키 본문 없음)로만 간다. **AppState 를 응답·스냅샷에 싣는 자리는 전부 이 함수를 지난다.**
+ */
+export function publicAppState(state: AppState): AppState {
+  if (state.apiCredits === undefined) return state;
+  const { apiCredits: _private, ...rest } = state;
+  return rest;
+}
+
+// API 크레딧(§4) — 설정·감싼 두 키·Anthropic 거절 기억이 한 칸에(금액 없음 — Console 이 센다). 판정·암호화는 `apiCreditService`, 여기는 저장만.
+
+/** 저장된 크레딧 칸. 없으면 빈 객체(= 기능 꺼짐·키 없음). */
+export function appStateGetApiCredits(): ApiCreditPersisted {
+  return loadAppState().apiCredits ?? {};
+}
+
+/** 크레딧 칸을 통째로 갈아 끼운다(호출부가 완성본을 만든다 — 부분 머지는 키·장부를 잃기 쉽다). */
+export function appStateSetApiCredits(next: ApiCreditPersisted): void {
+  const current = loadAppState();
+  saveAppState({ ...current, apiCredits: next });
+}
+
+/**
+ * §3.6 「수명」 · §5.7 #24-3 — 사용량 수집기(`statusLine`) 켬 여부(머신 단위). 저장된 적 없으면 `undefined` — 첫 부팅이 settings.json 실태로
+ * 옮겨 적는다(`syncUsageCollectorAtBoot`).
  */
 export function appStateGetUsageCollector(): boolean | undefined {
   const value = loadAppState().usageCollector;
@@ -510,10 +508,7 @@ export function appStateSetUsageCollector(enabled: boolean): void {
   saveAppState({ ...current, usageCollector: enabled });
 }
 
-/**
- * §3.6 「수명」 · §5.25 (I) — 코덱스 전역 훅을 켜 두었는가. 사용량 수집기와 같은 규약이다 — 저장된 적이 없으면
- * `undefined` 이고, 첫 부팅이 코덱스 `hooks.json` 에 깔려 있는지로 옮겨 적는다(`syncCodexHooksAtBoot`).
- */
+/** §3.6 「수명」 · §5.25 (I) — 코덱스 전역 훅 켬 여부. 같은 규약: 저장된 적 없으면 `undefined`, 첫 부팅이 `hooks.json` 실태로 옮겨 적는다(`syncCodexHooksAtBoot`). */
 export function appStateGetCodexHooks(): boolean | undefined {
   const value = loadAppState().codexHooks;
   return typeof value === 'boolean' ? value : undefined;
@@ -528,12 +523,7 @@ export function appStateSetCodexHooks(enabled: boolean): void {
 
 let externalTopBudgetMemo: number | null = null;
 
-/**
- * §2.1 (B) — 최상위에 동시에 세울 **외부 폴더 예산**.
- *
- * 위 설정들과 같은 이유로 **머신 단위**다(어느 프로젝트를 열든 같은 화면 밀도여야 한다).
- * 저장된 값이 없거나 범위를 벗어나면 `normalizeExternalTopBudget` 이 기본값·경계로 접는다.
- */
+/** §2.1 (B) — 최상위에 동시에 세울 외부 폴더 예산(머신 단위). 없거나 범위 밖이면 `normalizeExternalTopBudget` 이 접는다. */
 export function appStateGetExternalTopBudget(): number {
   if (externalTopBudgetMemo !== null) return externalTopBudgetMemo;
   externalTopBudgetMemo = normalizeExternalTopBudget(loadAppState().externalTopBudget);
@@ -551,13 +541,7 @@ export function appStateSetExternalTopBudget(value: unknown): number {
 
 let webGroupMemo: WebGroupSettings | null = null;
 
-/**
- * §5.23 웹 버블 묶기 — 같은 사이트 · 비슷한 종류 · 에이전트마다 최대 N개.
- *
- * 위 설정들과 같은 이유로 **머신 단위**다(어느 프로젝트를 열든 같은 화면 밀도여야 한다).
- * 저장된 값이 없으면 `WEB_GROUP_DEFAULTS`(켬). **설정 이주** — 묶기를 저장한 적이 없고 종전 접어 보기
- * (`webFoldPerAgent: true`)를 켜 둔 사용자는 최대 1개로 읽는다(그 체크박스가 이 숫자의 1 로 흡수됐다).
- */
+/** §5.23 웹 버블 묶기(머신 단위). 없으면 `WEB_GROUP_DEFAULTS`. 이주 — 묶기를 저장한 적 없고 옛 `webFoldPerAgent: true` 면 최대 1개로 읽는다. */
 export function appStateGetWebGroup(): WebGroupSettings {
   if (webGroupMemo !== null) return { ...webGroupMemo };
   const state = loadAppState();
@@ -584,12 +568,7 @@ export function appStateSetWebGroup(value: unknown): WebGroupSettings {
 
 let webOpenTargetMemo: WebOpenTarget | null = null;
 
-/**
- * §5.23 「더블클릭」 — 도메인 버블 더블클릭이 마지막 주소를 여는 곳.
- *
- * 묶기와 같은 이유로 **머신 단위**다. 저장된 값이 없으면 바깥 브라우저(`WEB_OPEN_TARGET_DEFAULT`) —
- * 사용자 지시("기본 선택은 외부 웹")다.
- */
+/** §5.23 「더블클릭」 — 도메인 버블 더블클릭이 여는 곳(머신 단위). 없으면 바깥 브라우저. */
 export function appStateGetWebOpenTarget(): WebOpenTarget {
   if (webOpenTargetMemo !== null) return webOpenTargetMemo;
   webOpenTargetMemo = normalizeWebOpenTarget(loadAppState().webOpenTarget);
@@ -607,11 +586,7 @@ export function appStateSetWebOpenTarget(value: unknown): WebOpenTarget {
 
 let keymapMemo: KeymapOverrides | null = null;
 
-/**
- * §6 — 사용자가 바꾼 단축키만. 저장된 값이 없으면 빈 객체(= 전부 기본 바인딩).
- *
- * 위 설정들과 같은 이유로 **머신 단위**다 — 손에 익은 키가 프로젝트마다 달라질 이유가 없다.
- */
+/** §6 — 사용자가 바꾼 단축키만(머신 단위). 없으면 빈 객체 = 전부 기본. */
 export function appStateGetKeymap(): KeymapOverrides {
   if (keymapMemo) return keymapMemo;
   keymapMemo = normalizeKeymapOverrides(loadAppState().keymap, process.platform);
@@ -649,25 +624,14 @@ export function appStateResetKeymap(): KeymapOverrides {
 
 let ideActivityBarMemo: IDEActivityBarPrefs | null = null;
 
-/**
- * §5.5 #16-1 — IDE 활동바 구성. 만진 적 없으면 빈 객체(= 코드의 기본 순서 그대로 전부 보임).
- *
- * 단축키와 같은 이유로 **머신 단위**다 — 활동바는 프로젝트의 것이 아니라 그 사람이 손에 익힌
- * 자리다. **서버는 항목 이름을 모른다**: 여기서 하는 일은 문자열 배열을 정규화해 들고 있는 것뿐이고,
- * 무엇이 실재하는 뷰인지는 클라의 정본 표가 판정한다(`skillOrder` 와 같은 규약).
- */
+/** §5.5 #16-1 — IDE 활동바 구성(머신 단위). 만진 적 없으면 빈 객체(= 기본 순서로 전부 보임). 서버는 항목 이름을 모른다 — 문자열 배열만 정규화하고 실재 판정은 클라 정본 표(`skillOrder` 와 같은 규약). */
 export function appStateGetIDEActivityBar(): IDEActivityBarPrefs {
   if (ideActivityBarMemo) return ideActivityBarMemo;
   ideActivityBarMemo = normalizeIDEActivityBarPrefs(loadAppState().ideActivityBar) ?? {};
   return ideActivityBarMemo;
 }
 
-/**
- * 활동바 구성 부분 갱신 → 정규화 후 저장. 반환은 저장된 최종본.
- *
- * `order`·`hidden` 은 **언급한 칸만** 치환한다(둘은 서로 다른 축이라, 순서를 바꿨다고 제외
- * 목록이 함께 날아가면 안 된다 — `keymap` 의 `undefined` = "이번 요청에서 언급 안 함"과 같은 뜻).
- */
+/** `order`·`hidden` 은 언급한 칸만 치환한다 — 순서만 바꿨는데 제외 목록이 날아가면 안 된다. */
 export function appStateSetIDEActivityBar(patch: {
   order?: readonly string[];
   hidden?: readonly string[];
@@ -692,8 +656,7 @@ export function appStateResetIDEActivityBar(): IDEActivityBarPrefs {
   return {};
 }
 
-/** openProjects에 프로젝트 추가 (정규화 경로 기준 중복 체크). 새로 추가/이름변경 시 true.
- *  v1.63: 식별 = projectPath(projectId). displayName 은 projectNames 캐시에 기록(표시 전용). */
+/** 정규화 경로로 중복 체크. 새로 추가·이름 변경 시 true. displayName 은 projectNames 캐시(표시 전용). */
 export function appStateAddOpenProject(projectPath: string, displayName?: string): boolean {
   const current = loadAppState();
   const sp = toStorePath(projectPath);
@@ -749,12 +712,8 @@ export function appStateRemoveOpenProject(projectPath: string): boolean {
 }
 
 /**
- * §5.4 #14-2 (C-1) — 프로젝트 탭 순서 저장. `openProjects` 의 배열 순서가 곧 탭 순서다(새 영속 필드 ❌).
- *
- * **목록은 치환하지 않는다 — 순서만 바꾼다.** 보낸 경로가 지금 차지한 자리들에만 새 순서를 되꽂고, 보내지 않은
- * 것(별창으로 뺀 탭 · 그 사이 새로 열린 프로젝트)은 제자리, 열려 있지 않은 경로는 버린다. 여닫기는 이 함수의
- * 몫이 아니다(`PATCH /api/app-state` 가 `openProjects` 를 받지 않는 것과 같은 규약 — 클라가 쥔 옛 목록으로 통째
- * 덮으면 그 사이 열린 프로젝트가 다음 부팅에 사라진다). 실제로 바뀌었을 때만 저장하고 `true`.
+ * §5.4 #14-2 (C-1) — 탭 순서 = `openProjects` 배열 순서. 목록은 치환하지 않고 순서만 바꾼다 — 보낸 경로가 차지한 자리에만 되꽂고, 안 보낸 것
+ * (별창 탭·그 사이 연 프로젝트)은 제자리, 안 열린 경로는 버린다. 옛 목록으로 통째 덮으면 그 사이 연 프로젝트가 다음 부팅에 사라진다. 바뀐 때만 저장·`true`.
  */
 export function appStateReorderOpenProjects(order: readonly string[]): boolean {
   const current = loadAppState();
@@ -789,11 +748,7 @@ export function appStatePruneStaleProjectNames(exists: (p: string) => boolean): 
   return removed;
 }
 
-// ─── §5.4 #14-4 "닫은 탭 다시 열기" 스택 ───
-//
-// 여기가 **유일한 창구**다. 목록을 쌓는 규칙(중복 접기·상한·최신이 앞)은 shared 의 순수 함수가
-// 쥐고 있고, 이 층은 그것을 디스크에 앉히기만 한다 — `patchAppState` 로 통째 덮어쓰는 길을
-// 열어 두지 않은 이유이기도 하다(부분 페이로드가 목록을 통째로 날리는 사고를 원천 차단).
+// §5.4 #14-4 닫은 탭 스택의 유일한 창구(쌓는 규칙은 shared 순수 함수). `patchAppState` 로 통째 덮는 길을 열지 마라 — 부분 페이로드가 목록을 날린다.
 
 /** 지금 스택. 저장된 것이 없으면 빈 배열. */
 export function appStateGetClosedTabs(): ClosedTabEntry[] {
@@ -808,12 +763,7 @@ export function appStatePushClosedTab(entry: ClosedTabEntry): ClosedTabEntry[] {
   return next;
 }
 
-/**
- * 스택에서 한 건을 꺼낸다(= 다시 열기). `key` 를 안 주면 가장 최근 것.
- *
- * **꺼내는 것과 지우는 것이 한 동작**이다 — 되열고 나서 따로 지우게 하면 그 사이에 앱이 죽었을 때
- * 이미 열려 있는 탭이 목록에도 남아, 다시 눌러도 아무 일이 없는 항목이 된다.
- */
+/** 스택에서 한 건을 꺼낸다(`key` 가 없으면 가장 최근 것). 꺼내기 = 지우기(한 동작). 따로 하면 그 사이 죽었을 때 이미 열린 탭이 목록에 남아 눌러도 아무 일 없는 항목이 된다. */
 export function appStateTakeClosedTab(key?: string): ClosedTabEntry | null {
   const current = loadAppState();
   const { entry, rest } = takeClosedTabEntry(current.recentlyClosedTabs ?? [], key);
@@ -831,12 +781,7 @@ export function appStateClearClosedTabs(): number {
   return had;
 }
 
-/**
- * 디스크에서 사라진 프로젝트 항목을 걷어낸다(부팅 1회 — `appStatePruneStaleProjectNames` 와 짝).
- *
- * 이걸 안 하면 폴더를 지운 뒤에도 메뉴에 이름이 남고, 누르면 `registerProject` 가 없는 경로를
- * 유령 프로젝트로 등록한다(§3.2.3 이 반면교사로 든 "눌리면 깨지는 유령 항목"이 그 자리다).
- */
+/** 부팅 1회, 사라진 프로젝트 항목을 걷는다(`appStatePruneStaleProjectNames` 와 짝) — 안 하면 누를 때 `registerProject` 가 유령 프로젝트를 등록한다(§3.2.3). */
 export function appStatePruneMissingClosedTabs(exists: (p: string) => boolean): number {
   const current = loadAppState();
   const list = current.recentlyClosedTabs ?? [];
@@ -885,13 +830,13 @@ export function appStateRemoveSkillFromOrder(name: string): void {
   saveAppState({ ...current, skillOrder: { project, global, plugin }, skillFavorites: nextFavorites });
 }
 
-/** §5.5 #17-4 v2.93 — SkillsView 즐겨찾기 목록 조회 (없으면 빈 배열). */
+/** §5.5 #17-4 — SkillsView 즐겨찾기(없으면 빈 배열). */
 export function appStateGetSkillFavorites(): string[] {
   const current = loadAppState();
   return current.skillFavorites ?? [];
 }
 
-/** §5.5 #17-4 v2.93 — 즐겨찾기 목록 전체 치환 저장 (클라가 별 누른 순서대로 전체를 보냄). */
+/** §5.5 #17-4 — 전체 치환(클라가 별 누른 순서대로 전체를 보낸다). */
 export function appStateSetSkillFavorites(favorites: string[]): void {
   const current = loadAppState();
   const seen = new Set<string>();
@@ -906,24 +851,14 @@ export function appStateSetSkillFavorites(favorites: string[]): void {
 
 // ─── §5.5 #17-33 ⑦ — Claude Code 플러그인 자동 갱신 (머신 단위) ───
 
-/**
- * 자동 갱신 상태 조회 — 설정은 항상 정규화해서 준다(구버전 AppState·손으로 고친 값 대비).
- *
- * **머신 단위**로 두는 이유: 마켓 클론(`~/.claude/plugins`)은 어느 프로젝트를 열든 하나뿐이라
- * 프로젝트마다 다른 주기를 둘 이유가 없다(`retention` 과 같은 결).
- */
+/** 설정은 늘 정규화해서 준다. 머신 단위 — 마켓 클론(`~/.claude/plugins`)은 하나뿐이다. */
 export function appStateGetClaudePluginRefresh(): Required<Pick<ClaudePluginRefreshState, 'settings'>> & ClaudePluginRefreshState {
   const current = loadAppState();
   const raw = current.claudePluginRefresh ?? {};
   return { ...raw, settings: normalizePluginRefreshSettings(raw.settings) };
 }
 
-/**
- * 자동 갱신 상태를 병합 저장. **넘긴 칸만 바꾼다** — 마지막 시각을 찍는 호출이 설정을 지우면
- * 사용자가 끈 것이 되살아난다(§5.5 #12-1 agent-config 부분 페이로드가 겪은 그 강등).
- *
- * `lastError` 는 `null` 을 넘겨 지운다(성공했을 때 옛 사유가 화면에 남으면 안 된다).
- */
+/** 넘긴 칸만 바꾼다 — 시각만 찍는 호출이 설정을 지우면 끈 것이 되살아난다(§5.5 #12-1 부분 페이로드 강등). `lastError` 는 `null` 로 지운다. */
 export function appStateSetClaudePluginRefresh(patch: {
   settings?: ClaudePluginAutoRefreshSettings;
   lastMarketAt?: number;

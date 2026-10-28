@@ -1,16 +1,6 @@
 /**
- * openWorkspaceTarget.ts — §5.13 (R-7) 파일 하나를 눌렀을 때 **실제로 여는 자리**.
- *
- * 판정(`resolveWorkspaceOpen`, shared)과 실행(여기)을 갈라 둔 이유는 판정이 순수 계산이라
- * 테스트가 지킬 수 있어서다. 여기서는 그 결과를 이미 있는 여섯 레일로 넘기기만 한다 —
- * **새 열기 레일을 만들지 않는다**(⑬ (d) 의 규약을 그대로 잇는다):
- *
- *   editor / image / pdf → 내장 편집창(②)   ·   app → 내부 앱 창(§5.13)
- *   run → 실행 세션(⑬ (h))                   ·   external → OS 연결 프로그램
- *   folder → 시스템 탐색기(⑩)
- *
- * 클릭 지점(스트림 본문 · 탐색기 · 편집한 파일 목록)이 전부 이 함수를 부르므로, 같은 파일은
- * 어디서 눌러도 같은 곳에서 열린다.
+ * openWorkspaceTarget.ts — §5.13 (R-7) 파일을 눌렀을 때 실제로 여는 자리(판정은 shared `resolveWorkspaceOpen`) — 결과를 있는 레일로만 넘긴다(새 레일 ❌, ⑬ (d)).
+ * 모든 클릭 지점이 이걸 불러 같은 파일은 어디서든 같은 곳에서 열린다.
  */
 import { resolveWorkspaceOpen, type WorkspaceOpenPlan, type WorkspacePathKind } from '@vibisual/shared';
 
@@ -52,11 +42,10 @@ export function planWorkspaceOpen(target: {
 }
 
 /**
- * 그 파일을 연다. 어디로 갔는지를 돌려주므로 호출부가 결과를 화면에 적을 수 있다.
- *
+ * 그 파일을 열고 어디로 갔는지 돌려준다(호출부가 화면에 적는다).
  * @param rootPath 프로젝트 루트 절대 경로(= 내부 앱이 받는 `projectId`).
- * @param runFailNote 실행이 시작되지 못했을 때 출력 패널에 남길 한 줄(번역은 화면이 한다).
- * @param paneKey 어느 IDE 창에서 열었는지(§5.5 #17-1) — 편집창·실행이 그 창에서 일어나야 한다.
+ * @param runFailNote 실행이 못 시작됐을 때 출력 패널에 남길 한 줄(번역은 화면이 한다).
+ * @param paneKey 연 IDE 창(§5.5 #17-1) — 편집창·실행이 그 창에서 일어나야 한다.
  */
 export async function openWorkspaceTarget(
   target: WorkspaceOpenTarget,
@@ -89,12 +78,7 @@ export async function openWorkspaceTarget(
       await openExternally(target.absPath);
       break;
 
-    /**
-     * §5.13 (R-8) — 우리 엔진이 못 읽는 영상·소리.
-     *
-     * **이미 변환해 둔 것이 있으면 아무것도 묻지 않는다** — 두 번째부터 팝업 없이 바로 열리는 자리다.
-     * 없을 때만 팝업을 띄우고, 무엇을 할지는 사용자가 고른다(변환 · 연결 프로그램).
-     */
+    /** §5.13 (R-8) — 못 읽는 영상·소리: 변환본이 있으면 묻지 않고 열고, 없을 때만 팝업(변환 · 연결 프로그램). */
     case 'convert': {
       const kind = plan.convertTo ?? 'video';
       const cached = await fetchCachedConversion(rootPath, target.relPath, kind);
@@ -123,10 +107,8 @@ export async function openWorkspaceTarget(
 }
 
 /**
- * OS 연결 프로그램으로 넘긴다(§5.13 (R-6)). 실패해도 화면을 막지 않는다.
- *
- * 편집창의 페이지 미리보기(#17-27 ⑮ (b) [바깥 브라우저])도 이 함수를 부른다 — .html 의 연결
- * 프로그램이 곧 기본 브라우저다(새 레일 ❌). `openFileByPath`(외부 **에디터**)와 헷갈리지 말 것.
+ * OS 연결 프로그램으로 넘긴다(§5.13 (R-6), 실패해도 화면을 막지 않는다). 편집창 [바깥 브라우저](#17-27 ⑮ (b))도 이걸 쓴다(.html 연결 프로그램 = 기본 브라우저, 새 레일 ❌).
+ * `openFileByPath`(외부 에디터)와 헷갈리지 말 것.
  */
 export async function openExternally(absPath: string): Promise<void> {
   try {

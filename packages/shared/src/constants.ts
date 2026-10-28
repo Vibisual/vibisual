@@ -54,27 +54,12 @@ export const RECONNECT_BASE_DELAY = 1000;
 export const WS_BATCH_INTERVAL = 16;
 
 /**
- * 스트림 이벤트(sub_agent_stream / _batch) 전용 클라 반영 주기(ms) — 스냅샷(16ms)과 분리.
- *
- * 성능: StreamRenderer 는 store 에 이벤트가 반영될 때마다 활성 세션 버퍼 전체(최대
- * STREAM_EVENTS_MAX_PER_SESSION=4000)를 처음부터 다시 파싱(buildBaseItems 3패스 + 정렬 +
- * identity 재조정 + Virtuoso 재대조)한다. 새 이벤트가 1개든 200개든 재구축 비용은 버퍼 크기에
- * 비례하므로, 멀티에이전트 폭주로 버퍼가 4000 에 근접하면 16ms 주기 재구축이 프레임 예산을 넘겨
- * 창 전체가 멈칫거린다. 스트림 반영을 이 주기로 묶어 무거운 재구축 빈도를 ~3배 낮춘다(추가 지연
- * 수십 ms — 스트림 텍스트는 20Hz 로도 라이브로 보인다). 스냅샷·스크롤·가상화 로직은 불변.
+ * 스트림 이벤트 전용 클라 반영 주기(ms, 스냅샷 16ms 와 별개). StreamRenderer 는 반영마다 버퍼 전체(최대 4000)를 다시 파싱해 16ms 면 프레임 예산을 넘긴다
+ * — 묶어서 빈도를 ~3배 낮춘다(20Hz 도 라이브로 보인다).
  */
 export const WS_STREAM_BATCH_INTERVAL = 50;
 
-/**
- * 부하 적응형 배치 창 상한(ms) — §9 v3.40.
- *
- * 전수조사급 다중 세션에서는 graph_snapshot 의 생성(서버=Electron 메인 스레드의
- * getSnapshot+IPC 직렬화)과 반영(클라 loadSnapshot 풀 재구축) 비용이 각각 고정 16ms
- * 배치 창을 넘겨, 스레드가 스냅샷 처리만 하느라 입력·렌더가 굶는다(프레임드랍).
- * 서버·클라 양쪽 flush 는 직전 실측 비용 × WS_BATCH_BACKOFF_FACTOR 로 다음 창을
- * 늘리되 이 값을 상한으로 한다 — 폭주 중에도 최소 4Hz 갱신은 보장.
- * 유휴·경부하에선 비용이 작아 항상 기본 주기(16/50ms)로 즉시 복귀한다.
- */
+/** §9 — 부하 적응형 배치 창 상한(ms). 다음 창 = 직전 flush 실측 비용 × `WS_BATCH_BACKOFF_FACTOR`(이 값이 상한 — 폭주 중에도 4Hz). 폭주 땐 스냅샷 생성·반영이 16ms 를 넘겨 입력·렌더가 굶는다. */
 export const WS_BATCH_INTERVAL_MAX = 250;
 
 /**
@@ -84,35 +69,17 @@ export const WS_BATCH_INTERVAL_MAX = 250;
 export const WS_BATCH_BACKOFF_FACTOR = 4;
 
 /**
- * hook-event 도구 이벤트 경로 전용 체크포인트 저장 배치 창(ms) — §9 v3.45.
- *
- * saveCheckpoint() 는 체크포인트 build + 전체 stringify + fsync 원자쓰기(+백업 rotate,
- * identity 한 벌 더)를 Electron 메인 스레드에서 동기로 수행한다. 빠른 모델 전수조사처럼
- * 도구 이벤트가 초당 수~수십 건 도착하면 이벤트당 저장이 스레드를 포화시켜 앱 전체가
- * 동결되므로, 이 경로만 trailing 창으로 코얼레스한다. 사용자 조작·설정·정체성 변경 등
- * 나머지 저장 지점은 종전대로 동기 즉시 저장(#4 내구성 원칙 유지), 정상 종료 시 pending
- * 창은 process 'exit' 동기 flush 로 보장.
+ * §9 — 훅 도구 이벤트 경로만 체크포인트 저장을 trailing 창으로 코얼레스한다(ms). 저장은 메인 스레드 동기(stringify+fsync)라 이벤트당 저장이면 앱이 언다.
+ * 다른 저장은 즉시(#4 내구성), 종료 땐 process 'exit' 동기 flush.
  */
 export const CHECKPOINT_BATCH_INTERVAL = 500;
 
-/**
- * 체크포인트 배치 창 상한(ms) — 다음 창 = clamp(기본, 직전 실측 저장 비용 ×
- * WS_BATCH_BACKOFF_FACTOR, 이 값). 폭주 중에도 최소 0.2Hz 저장은 보장하고,
- * 비정상 종료 시 잃을 수 있는 휘발성 그래프 상태를 최대 5초 분량으로 묶는다.
- */
+/** 체크포인트 배치 창 상한(ms) — 폭주 중에도 0.2Hz 저장, 비정상 종료 때 잃는 그래프 상태를 5초 분량으로 묶는다. */
 export const CHECKPOINT_BATCH_INTERVAL_MAX = 5000;
 
 /**
- * §9 "저장은 바뀐 프로젝트만" — **조용한 프로젝트를 그래도 한 번은 재구축하는 주기(ms)**.
- *
- * `saveCheckpoint()` 는 인스턴스 `mutationVersion` 이 지난 저장 이후 바뀐 프로젝트만 다시
- * 만든다(실측 2026-08-19: 열린 탭 7개 직렬화만 21.8ms → 활성 1개면 3.8ms). 그런데 체크포인트에는
- * 인스턴스 **밖** 싱글턴(서브에이전트·파이프라인·신고/검수/질문 카드류)에서 오는 값이 함께 담기고
- * 그쪽 변경은 `mutationVersion` 을 올리지 않는다 — 그래서 조용해 보이는 프로젝트도 이 주기마다
- * 한 번은 **무조건** 재구축한다.
- *
- * ⚠ 이 값을 키우면 "인스턴스는 안 바뀌었지만 싱글턴만 바뀐" 변경의 디스크 반영이 그만큼 늦어진다
- *   (유실이 아니라 지연 — 종료 시 `process 'exit'` 동기 flush 는 항상 전 프로젝트 전량).
+ * §9 — 조용한 프로젝트도 이 주기(ms)마다 한 번은 무조건 재구축한다. 저장은 `mutationVersion` 이 바뀐 프로젝트만 하는데(실측 2026-08-19: 7탭 21.8ms → 1탭 3.8ms)
+ * 인스턴스 밖 싱글턴(서브에이전트·카드류) 변경은 버전을 안 올린다. 키우면 그 반영이 늦어진다(종료 flush 는 전량).
  */
 export const CHECKPOINT_QUIET_SWEEP_MS = 10_000;
 
@@ -197,7 +164,7 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
     ringIdle: 'border-lime-300',
     ringActive: 'border-lime-500 shadow-lg shadow-lime-500/30',
   },
-  // §5.3 #28 v1.47 — 콘티모드 버블 (커스텀 에이전트와 dashed inner edge 로 1:1 연결)
+  // §5.3 #28 — 콘티모드 버블(커스텀 에이전트와 dashed inner edge 로 1:1 연결)
   conti: {
     color: '#059669',
     glow: '#6EE7B7',
@@ -205,7 +172,7 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
     ringIdle: 'border-emerald-300 border-dashed',
     ringActive: 'border-emerald-500 border-dashed shadow-lg shadow-emerald-500/30',
   },
-  // §5.3 #10-2 v2.37 — Auto Agent (메타 에이전트). 커스텀 에이전트(#3B82F6)보다 어두운 다크블루.
+  // §5.3 #10-2 — Auto Agent(메타 에이전트). 커스텀 에이전트(#3B82F6)보다 어두운 다크블루.
   auto: {
     color: '#1E3A8A',
     glow: '#3B82F6',
@@ -213,7 +180,7 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
     ringIdle: 'border-blue-900',
     ringActive: 'border-blue-700 shadow-lg shadow-blue-900/40',
   },
-  // §5.10 v3.46 — 커스텀 에이전트 휴지통 버블 (홈 버블 위성). 스톤 그레이.
+  // §5.10 — 커스텀 에이전트 휴지통 버블(홈 버블 위성). 스톤 그레이.
   trash: {
     color: '#57534E',
     glow: '#A8A29E',
@@ -221,11 +188,7 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
     ringIdle: 'border-stone-400',
     ringActive: 'border-stone-300 shadow-lg shadow-stone-400/30',
   },
-  // §5.13 v4.66 — Vibistudio 영상 버블. 필름 스톡 그레이파이트 + 실버 엣지.
-  //   구 푸시아(#D946EF)는 채도가 높아 팔레트에서 겉돌았다(사용자 지적 — Brain 버블의
-  //   핑크 #EC4899 → 인디고 와 같은 이유). 앱 버블(`apps/registry.tsx` 의 Vibistudio)과
-  //   **같은 색 한 벌**이라, 영상 도구가 어디에 뜨든 같은 정체로 읽힌다.
-  //   bash(#1E293B) 도 어두운 무채색이지만 아이콘·모양이 달라 섞이지 않는다.
+  // §5.13 — 영상 버블(그레이파이트 + 실버 엣지). 앱 버블(`apps/registry.tsx`)과 같은 색 한 벌이다.
   video: {
     color: '#2C3446',
     glow: '#A8B4CC',
@@ -278,11 +241,8 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
 };
 
 /**
- * §2.2 (v2.67, C안) — Hook 에이전트(외부 Claude Code 훅 캡처, `customCreated=false`) 전용 본체 스타일.
- * Custom/CMD(우리가 오케스트레이션, `BUBBLE_STYLES.agent`=#3B82F6)와 **같은 파랑 계열**이되 더 어둡고 탁한
- * 네이비로 **명도만** 구분한다. `bubbleType` 은 그대로 'agent' — `BubbleNode` 가 `!customCreated` 일 때만
- * `baseStyle` 을 이 상수로 치환한다(새 BubbleType 추가 ❌). Auto(#1E3A8A, `bubbleType='auto'`)와는 한 톤 더
- * 죽인 색(#1E3A6B) + 별 아이콘/`Auto:` 라벨로 구분. glow 는 활성 시 Custom 파랑(#3B82F6)으로 살아남는다.
+ * §2.2 (C안) — Hook 에이전트(`customCreated=false`) 본체 색. Custom 파랑(#3B82F6) 계열에서 명도만 낮춘다 — `bubbleType` 은 'agent' 그대로,
+ * `BubbleNode` 가 `!customCreated` 일 때만 바꾼다(새 BubbleType ❌). Auto(#1E3A8A)와는 별 아이콘·`Auto:` 라벨로 가른다. 활성 glow 는 Custom 파랑.
  */
 export const HOOK_AGENT_STYLE: BubbleStyleConfig = {
   color: '#1E3A6B',
@@ -302,11 +262,7 @@ export const BUBBLE_COLORS: Record<BubbleType, string> = Object.fromEntries(
 /** Read 계열 도구 — 데이터가 파일→폴더→에이전트 방향으로 흐름 */
 export const READ_TOOLS: ReadonlySet<string> = new Set(['Read', 'Grep', 'Glob']);
 
-/**
- * §5.24 — **쓰기로 확실한** 도구. 읽기(`READ_TOOLS`)의 짝이며 히트 카운터를 가르는 데 쓴다.
- * Bash 로 읽고/쓴 것은 §2.1 #3 이 이미 `Read`/`Write` 로 정규화해 보내므로 이 표를 그대로 탄다.
- * **표 밖은 세지 않는다** — `manual`(사용자 고정) 같은 비-도구 이름을 쓰기로 넘겨짚지 않기 위함.
- */
+/** §5.24 — 쓰기로 확실한 도구(`READ_TOOLS` 짝, 히트 카운터용 — Bash 는 §2.1 #3 이 `Read`/`Write` 로 정규화해 온다). 표 밖(`manual` 등)은 세지 않는다. */
 export const WRITE_TOOLS: ReadonlySet<string> = new Set([
   'Write',
   'Edit',
@@ -329,39 +285,18 @@ export const EDGE_STYLE: EdgeStyleConfig = {
 export const MAX_BASH_HISTORY = 50;
 /** 파일 버블당 보관하는 diff 엔트리 상한(초과 시 오래된 것부터 drop). 노드별 `unlimitedFileEdits=true` 면 미적용(무한 저장) */
 export const MAX_FILE_EDITS = 20;
-/**
- * §5.1 명령 앱 · §7.3 — 명령 앱 버블 패널이 보이는 명령 수. 파일 버블 수정 기록과 **같은 규칙**(`마지막 20개만 유지` 체크박스)이라
- * 같은 수를 따로 적지 않는다(2026-10-21 사용자 지시 — 10-20 에 새로 만든 화면 상한 50 을 걷었다). 노드별
- * `unlimitedCommandHistory=true` 면 남아 있는 기록을 모두 보인다. 보관 상한(`MAX_BASH_HISTORY`)과 별개의 보기 축이다.
- */
+/** §5.1 명령 앱 · §7.3 — 패널이 보이는 명령 수. 파일 수정 기록과 같은 `마지막 20개만 유지` 규칙이라 따로 수를 두지 않는다. `unlimitedCommandHistory` 면 전부(보관 상한과 별개). */
 export const MAX_COMMAND_APP_HISTORY = MAX_FILE_EDITS;
 /** Write diff 합성 시 old/new 본문 한 쪽당 최대 보관 길이(문자). 초과분은 잘라 표식 추가 — 스냅샷/메모리 폭증 방지 */
 export const MAX_WRITE_DIFF_BYTES = 100_000;
-/**
- * §2.1 #3 쓰기 축 — Bash diff 합성용 **사전 스냅샷**을 붙들어 두는 `tool_use_id` 개수 상한.
- *
- * 사전(Pre)에 뜬 본문은 사후(Post)가 오면 곧바로 소비돼 지워지므로 정상 흐름에서는 한 자릿수다.
- * 이 상한은 사후가 영영 오지 않는 경우(중단·크래시·훅 유실)에만 쓰이는 안전망이다
- * (§3.2.4 F′축 — 키가 늘 수 있는 자리는 다시 만들 수 있는 파생물에만 캡을 건다).
- */
+/** §2.1 #3 — Bash diff 사전 스냅샷을 붙드는 `tool_use_id` 수 상한. 사후가 오면 곧 소비되니, 사후가 영영 안 올 때(중단·크래시)의 안전망이다(§3.2.4 F′축). */
 export const BASH_WRITE_PENDING_MAX = 64;
-/**
- * §5.25 (F) "쓴 내용도 남는다" — 코덱스 `apply_patch` 의 **적용 전 덩어리**를 붙들어 두는 칸(sub × 파일) 개수 상한.
- *
- * 앱 소유 사전 훅이 적은 칸은 그 파일의 `file_change` 완료가 오면 곧바로 소비돼 지워지고, 그 sub 의 턴이
- * 시작될 때 통째로 비워진다. 이 상한은 완료가 영영 오지 않는 경우(적용 실패·중단)에만 쓰이는 안전망이다
- * (§3.2.4 F′축 — `BASH_WRITE_PENDING_MAX` 와 같은 자리).
- */
+/** §5.25 (F) — 코덱스 `apply_patch` 적용 전 덩어리(sub × 파일) 상한. `file_change` 완료·턴 시작 때 비워지니, 완료가 안 올 때의 안전망이다(F′축). */
 export const CODEX_PATCH_PENDING_MAX = 64;
 
 // ─── 보존 정책 (§3.2.3) ───
-//
-// 실측(2026-08-13)에서 드러난 것 한 줄: **캡이 "키 하나당 값의 길이"에만 있고 "키 개수"엔 없다.**
-// `MAX_FILE_EDITS`(20) · `MAX_WRITE_DIFF_BYTES`(100KB) 는 파일 하나를 지켰지만 경로 키가 597개까지
-// 늘어 `activity.fileEdits` 만 5.77MB 였다. 아래 상수들이 그 빠진 축(A 시간 · D 병합창 · E 키 개수)이다.
-//
-// ⚠ 전부 **0 이면 그 축은 정리하지 않는다**(무제한) — 사용자가 설정에서 끌 수 있어야 한다는 §3.2.3 요구.
-//   여기 값은 `DEFAULT_RETENTION_SETTINGS` 의 기본값이고, 실제 판정은 항상 사용자 설정을 통과한 값으로 한다.
+// 캡이 값 길이에만 있고 키 개수엔 없었다(실측 2026-08-13: 경로 키 597개, `fileEdits` 5.77MB) — 아래가 빠진 축(A 시간·D 병합창·E 키 개수).
+// ⚠ 0 = 그 축 끔(무제한). 여기 값은 `DEFAULT_RETENTION_SETTINGS` 기본값일 뿐, 판정은 늘 사용자 설정값으로.
 
 /**
  * 파일 편집 이력 보존 기간(일). 이보다 오래된 `FileEdit` 은 버린다.
@@ -369,32 +304,13 @@ export const CODEX_PATCH_PENDING_MAX = 64;
  */
 export const FILE_EDIT_RETENTION_DAYS = 30;
 
-/**
- * 편집 이력을 들고 있는 **파일 경로 키 개수** 상한(LRU — 마지막 편집이 가장 오래된 경로부터 버림).
- *
- * 우리에게 없던 바로 그 축이다. VS Code Local History 가 `maxFileEntries`(50)로 **파일당 항목 수**를
- * 자르는 것과 짝이 되는, **파일 개수** 쪽 상한.
- */
+/** 편집 이력을 든 파일 경로 키 수 상한(LRU — 마지막 편집이 오래된 경로부터). 파일당 항목 수 상한의 짝. */
 export const MAX_FILE_EDIT_PATHS = 300;
 
-/**
- * 같은 파일의 연속 편집을 마지막 항목에 합치는 창(ms).
- * VS Code `workbench.localHistory.mergeWindow`(10초)와 같은 개념 — 에이전트는 한 파일을 연달아
- * 고치는 일이 잦아, 이게 없으면 `MAX_FILE_EDITS`(20)가 한 턴 만에 차서 그 파일의 이력이 통째로 밀린다.
- */
+/** 같은 파일 연속 편집을 마지막 항목에 합치는 창(ms) — 없으면 연달아 고치는 에이전트가 `MAX_FILE_EDITS`(20)를 한 턴에 채운다. */
 export const FILE_EDIT_MERGE_WINDOW_MS = 10_000;
 
-/**
- * 세션 하나가 보관하는 완료 명령(사용자 말풍선) 상한.
- *
- * 종전엔 `archive.push(...)` 에 상한 검사가 **아예 없었다**. IDE 스트림 복원이 2,000 이벤트인데
- * 말풍선만 무제한이라 짝이 맞지 않았다.
- *
- * ⚠ 처음 값은 200 이었으나 **실측에서 이미 232건인 세션이 나왔다**(2026-08-19). 이 축이 자르는 것은
- * 파생물이 아니라 **사용자가 직접 타이핑한 원문**이라 재생성할 방법이 없고(Claude Code 쪽 트랜스크립트도
- * 같은 30일에 만료된다), 나이 축이 아니라 개수 축이라 "많이 쓴 세션"에서 바로 발동한다.
- * 1,000 이면 한 세션을 몇 달 써도 닿지 않으면서 IDE 복원 창(2,000 이벤트)보다 여전히 촘촘하다.
- */
+/** 세션당 완료 명령(사용자 말풍선) 상한. ⚠ 자르는 것이 다시 만들 수 없는 타이핑 원문이라 넉넉히 — 200 은 실측(2026-08-19) 232건 세션에서 모자랐다. */
 export const COMPLETED_COMMAND_MAX_PER_SESSION = 1000;
 
 /**
@@ -404,60 +320,24 @@ export const COMPLETED_COMMAND_MAX_PER_SESSION = 1000;
 export const SUB_STREAM_RETENTION_DAYS = 30;
 
 /**
- * §3.2.3 — 긴 대화의 스트림 파일을 컴팩션할 때 **앞부분이 옮겨 가는 보관 파일**의 꼬리 이름
- * (`sub-streams/<agentId>/<subId>.archive.jsonl`). 컴팩션은 앞부분을 지우지 않고 여기로 옮긴다 —
- * IDE 가 복원 창 위쪽을 거슬러 읽으므로(과거 구간 조회) 앞부분도 읽기 경로가 닿는 범위다.
- * 세션 id 는 파일명이 될 때 `[a-zA-Z0-9_-]` 로만 접히므로, 점이 든 이 이름은 본 파일과 겹칠 수 없다.
- * 보존 정리는 이 파일을 **주인 세션의 일부**로 본다(주인이 보호되면 함께 보호, 주인 파일이 살아 있으면 남긴다).
+ * §3.2.3 — 스트림 컴팩션 때 앞부분을 옮겨 두는 보관 파일 꼬리(IDE 가 위쪽을 거슬러 읽는다). 파일명으로 접힌 세션 id 엔 점이 없어 겹치지 않는다.
+ * 보존 정리는 주인 세션의 일부로 본다.
  */
 export const SUB_STREAM_ARCHIVE_SUFFIX = '.archive.jsonl';
 
-/**
- * `.vibisual/attachments/<sessionId>/` 첨부 보존 기간(일). 부팅 시 1회 정리.
- *
- * ⚠ 이 값은 **고아(참조 0)에만** 적용된다. 체크포인트 그래프 노드·완료 명령 보관분이 아직 그 파일을
- * 가리키고 있으면 나이와 무관하게 남긴다 — 종전에는 그 검사가 없어 세션 폴더를 mtime 만으로 통째
- * 삭제했고, 실측에서 위성 노드 89개와 완료 명령(최고령 37일)이 그 파일들을 참조하고 있었다.
- * 30 을 유지하는 근거는 git 이 unreachable 을 30일에 지우는 것과 같은 갈래라는 점이다.
- */
+/** 첨부 보존 기간(일, 부팅 1회). ⚠ 고아(참조 0)에만 — 체크포인트 노드·완료 명령이 가리키면 나이와 무관하게 남긴다(mtime 만 보면 참조 중인 파일이 지워진다). */
 export const ATTACHMENT_RETENTION_DAYS = 30;
 
-/**
- * 휴지통 보존 기간(일). 정리로 옮겨진 파일을 이만큼 두고 나서 영구 삭제한다. 0=영구 보관.
- *
- * 휴지통 자체에 만료가 없으면 "정리"가 이름만 남고 용량은 그대로다(Cursor 가 만료를 안 걸어
- * 25~30GB 가 된 그 자리). 반대로 만료만 있고 유예가 없으면 Claude Code 처럼 되돌릴 수단이 없다 —
- * 14일이면 "지난주에 뭐였지"가 닿는 창이면서 용량이 두 배로 눌러앉지 않는다.
- */
+/** 휴지통 보존(일, 0 = 영구). 만료가 없으면 정리해도 용량이 그대로, 유예가 없으면 못 되돌린다 — 14일. */
 export const TRASH_RETENTION_DAYS = 14;
 
-/**
- * 프로젝트당 원장 상한(§3.2.3 B축 = 키 개수 캡). 밀려난 줄의 몫은 `retired` 합계로 접힌다.
- *
- * ⚠ 이것은 못박힌 상한이 아니라 **`RetentionSettings.auditEntryMaxPerProject` 의 기본값**이다.
- * 사용자가 설정에서 올리거나 `0`(무제한)으로 끌 수 있다 — 실제 판정은 항상 그 설정을 통과한 값으로.
- *
- * 500 → 200 으로 내린 근거: 전선에 싣는 몫이 `AUDIT_SNAPSHOT_ENTRIES`(120)라 화면이 도달하는
- * 범위보다 여전히 넉넉하다(§3.2.3 — 읽는 쪽 상한보다 남기는 쪽이 크면 소비자에게 no-op).
- */
+/** 프로젝트당 원장 상한(§3.2.3 B축, 밀린 몫은 `retired` 로 접힌다) — `auditEntryMaxPerProject` 기본값(0 = 무제한). 200 이어도 전선 몫 `AUDIT_SNAPSHOT_ENTRIES`(120)를 덮는다. */
 export const AUDIT_ENTRIES_MAX_PER_PROJECT = 200;
 
-/**
- * §5.26 (H) A축 — 압축 마커·파일 사본 보존 일수. `RetentionSettings.insuranceRetentionDays` 의 기본값.
- *
- * 30일(파일 편집 이력)보다 짧게 잡는 이유는 담는 것이 **바이트**이기 때문이다. 보험이 값을 갖는
- * 구간은 "방금 압축됐는데 뭘 잃었지"·"방금 sed 로 날렸는데 되돌리자" 라서 14일이면 충분히 넉넉하다.
- * ⚠ 살아 있는 세션의 마커와 참조되는 blob 은 이 값과 무관하게 보존한다(§3.2.3 규칙 2·3).
- */
+/** §5.26 (H) A축 — 압축 마커·파일 사본 보존 일수(기본값). 담는 것이 바이트라 편집 이력(30일)보다 짧다. ⚠ 살아 있는 세션의 마커·참조되는 blob 은 무관하게 보존(§3.2.3 규칙 2·3). */
 export const INSURANCE_RETENTION_DAYS = 14;
 
-/**
- * §5.26 (H) E축 — 프로젝트당 보험 저장고 총 바이트 예산(MB). `insuranceVaultMaxMB` 의 기본값.
- *
- * 실측(§3.2.3, 2026-08-13) `.vibisual` 20곳 합이 216MB 였다. 보험은 우리가 프로젝트 폴더에 쓰는 것 중
- * **가장 커질 수 있는 물건**이라 예산을 명시하고 저장소 사용량 화면에 띄운다.
- * 넘치면 **미러부터** LRU 로 버리고 마커는 남긴다(마커는 수백 바이트다).
- */
+/** §5.26 (H) E축 — 프로젝트당 보험 저장고 바이트 예산(MB, 기본값). 넘치면 미러부터 LRU 로 버리고 마커는 남긴다(실측 2026-08-13: `.vibisual` 20곳 합 216MB). */
 export const INSURANCE_VAULT_MAX_MB = 256;
 
 /** §5.26 (H) B축 — 프로젝트당 압축 마커 상한. 밀려난 몫은 `retired` 로 접힌다. */
@@ -473,14 +353,7 @@ export const RETENTION_LOG_MAX = 500;
 export const RETENTION_DAY_MS = 24 * 60 * 60 * 1000;
 
 /** 보존 설정 기본값 — `AppState.retention` 이 없을 때(구버전) 이 값으로 판정한다. */
-/**
- * §5.5 #17-9 ⑭ — **표식 없이 조용한 작업**을 한 번 물어보는 판정의 예산과 한계.
- *
- * ⑬ 이 끝난 것을 걷고 나면 남는 회색지대는 실측에서 **드물다** — 살아 있는 셸 17건 중 15건이
- * 종료 표식을 갖고 있었고, 표식이 없던 2건이 전부 정당하게 대기 중인 폴링 루프였다
- * (2026-09-01). 그래서 모델 호출이라는 비싼 수단을 쓸 수 있다: 대상이 하루 몇 건 수준이다.
- * 반대로 이 값을 잘못 잡아 **매 항목마다 반복해서** 부르면 그 순간 자기증식이 된다.
- */
+/** §5.5 #17-9 ⑭ — 표식 없이 조용한 작업을 묻는 판정의 예산. 대상이 드물어(실측 2026-09-01: 셸 17건 중 2건) 모델 호출을 쓸 수 있다 — ⚠ 항목마다 반복 호출하면 자기증식이다. */
 
 /** 이만큼 출력이 없으면 조사 착수. **시간은 착수 조건일 뿐 판정 근거가 아니다**(§5.5 #17-9 ⑩). */
 export const BG_TASK_QUIET_PROBE_MINUTES = 10;
@@ -500,11 +373,7 @@ export const BG_TASK_PROBE_GLOB_SCAN_MAX = 500;
 /** 모델이 쓴 사유를 화면·저장에 남길 때의 길이 상한. */
 export const BG_TASK_PROBE_REASON_MAX = 160;
 
-/**
- * 앱 전체에서 **한 시간에** 낼 수 있는 판정 횟수. 이 상한이 자기증식을 막는 마지막 벽이다
- * (선례: 매 Stop 마다 haiku 를 스폰해 토큰을 태운 리플렉션 · 90분에 Monitor 를 309번 띄운
- * anthropics/claude-code#55151). 넘치면 조사를 미룰 뿐 항목은 그대로 남는다.
- */
+/** 앱 전체 시간당 판정 상한 — 자기증식을 막는 마지막 벽(선례: anthropics/claude-code#55151). 넘치면 미룰 뿐 항목은 남는다. */
 export const BG_TASK_PROBE_MAX_PER_HOUR = 12;
 
 /** 동시에 도는 판정 수. 1 = 한 번에 하나 — 줄 세우면 상한과 함께 총량이 예측 가능해진다. */
@@ -531,10 +400,7 @@ export const DEFAULT_BG_TASK_PROBE_SETTINGS: BackgroundTaskProbeSettings = {
   model: BG_TASK_PROBE_MODEL,
 };
 // ─── §2.4 세션 생존 판정 ("실행중…"이 진짜인가) ───
-//
-// `isSessionRunning` 의 근거 셋은 전부 자기 신고 깃발이라 끄는 쪽이 실패하면 영영 도는 것처럼
-// 보인다. 이 축만 **에이전트가 직접** 답한다. 구조·예산은 §5.5 #17-9 ⑭ 백그라운드 작업 판정을
-// 그대로 따른다(두 벌이 되면 한쪽만 고쳐져 어긋난다).
+// `isSessionRunning` 근거는 전부 자기 신고 깃발이라 이 축만 에이전트가 직접 답한다. 구조·예산은 §5.5 #17-9 ⑭ 를 따른다(두 벌 ❌).
 
 /** 판정 주기 — 사용자 지정 값. 돌고 있다고 표시되는 세션을 이 간격으로 훑는다. */
 export const SESSION_PROBE_INTERVAL_MS = 10 * 60 * 1000;
@@ -551,16 +417,10 @@ export const SESSION_PROBE_TIMEOUT_MS = 90_000;
 /** 증거로 싣는 대화록 꼬리 바이트. 프롬프트를 부풀리지 않으면서 마지막 상황을 담는 선. */
 export const SESSION_PROBE_TAIL_BYTES = 1_200;
 
-/**
- * 꼬리를 모으는 창 — 뒤에서 거슬러 읽어 **증거 줄**(대화·코덱스 항목)이 이만큼 차면 멈춘다(종전 고정 창과
- * 같은 값). 요약은 이 중 끝 `SESSION_PROBE_TAIL_BYTES` 만 싣는다.
- */
+/** 꼬리 창 — 뒤에서 거슬러 읽어 증거 줄(대화·코덱스 항목)이 이만큼 차면 멈춘다. 요약엔 끝 `SESSION_PROBE_TAIL_BYTES` 만. */
 export const SESSION_PROBE_TAIL_WINDOW_BYTES = 256 * 1024;
 
-/**
- * 거슬러 읽는 전체 상한 — 큰 기록 줄만 이어져도 여기서 멈춘다. CLI 2.1.300 부터 클로드 대화록은 요청마다
- * 시스템 프롬프트·도구 정의를 한 줄로 적어(줄 하나가 수백 KB), 그 줄들만으로 종전 고정 창이 찼다.
- */
+/** 거슬러 읽는 전체 상한. CLI 2.1.300 부터 대화록에 요청마다 수백 KB 줄(시스템 프롬프트·도구 정의)이 있어 고정 창이면 그 줄로만 찬다. */
 export const SESSION_PROBE_TAIL_SCAN_BYTES = 8 * 1024 * 1024;
 
 /** 이보다 긴 줄은 머리만 보고 증거 줄(대화·코덱스 항목)이 아니면 담지 않는다 — 통째로 파싱하지 않는다. */
@@ -569,10 +429,7 @@ export const SESSION_PROBE_TAIL_BULK_LINE_BYTES = 64 * 1024;
 /** 모델이 쓴 사유·대기 대상을 화면·저장에 남길 때의 길이 상한. */
 export const SESSION_PROBE_REASON_MAX = 160;
 
-/**
- * 앱 전체에서 **한 시간에** 낼 수 있는 세션 판정 횟수. 자기증식을 막는 마지막 벽이다
- * (선례: 매 Stop 마다 haiku 를 스폰해 토큰을 태운 브레인 리플렉션). 넘치면 미룰 뿐 세션은 그대로.
- */
+/** 앱 전체 시간당 세션 판정 상한 — 자기증식을 막는 마지막 벽. 넘치면 미룰 뿐. */
 export const SESSION_PROBE_MAX_PER_HOUR = 12;
 
 /** 동시에 도는 세션 판정 수. 1 = 한 번에 하나 — 총량이 예측 가능해진다. */
@@ -623,10 +480,7 @@ export function normalizeSessionProbeSettings(
 }
 
 // ─── §5.3 #9-2 에이전트가 띄운 프로세스의 보호 (묶음 · 메모리 상한 · 정리) ───
-//
-// 2026-10-12 앱이 메모리 부족으로 꺼졌다 — 우리 에이전트가 돌린 grep 둘이 커밋 97GB 를 먹었다.
-// 상류(Claude Code)는 Windows 에서 작업을 끊을 때 bash.exe 만 끊어 자손이 고아로 남고(#76353),
-// Node 기본 묶음은 직계 자식만 묶는다. 그래서 띄운 쪽인 우리가 손자까지 책임진다.
+// Claude Code 는 Windows 에서 bash.exe 만 끊어 자손이 고아로 남고(#76353) Node 묶음은 직계만 묶는다 — 손자까지 우리가 책임진다(실측 2026-10-12: grep 둘이 커밋 97GB).
 
 /** 감시 주기. 평소 비용은 묶음·그룹 조회 몇 번이다(우리 것만 잰다). */
 export const PROCESS_GUARD_TICK_MS = 15_000;
@@ -699,10 +553,7 @@ export const DEFAULT_RETENTION_SETTINGS: RetentionSettings = {
   insuranceMirror: true,
 };
 
-/**
- * 설정 UI 가 쓰는 입력 한계 — 사용자가 아무 값이나 넣어 저장을 망가뜨리지 않게.
- * `min: 0` 은 전부 "무제한"의 의미라 허용한다(§3.2.3).
- */
+/** `RETENTION_LIMITS` — 설정 UI 입력 한계. `min: 0` = 무제한이라 허용(§3.2.3). */
 /**
  * 숫자 축만 골라낸 키 — 스위치(boolean) 축은 min/max/step 이 뜻을 갖지 않는다.
  * 이렇게 파생시켜야 새 축을 넣을 때 **컴파일러가 빠뜨림을 잡아 준다**(손으로 나열하면 조용히 샌다).
@@ -783,12 +634,7 @@ export function isExpiredByDays(timestampMs: number, days: number, now: number =
 
 // ─── 토큰 절약 (§5.3 #9-1 · 토큰 축 J~P) ───
 
-/**
- * §5.3 #9-1 (P축) — 세션 턴 예산의 **하한**. 0(끔)이 아닌 값은 이 아래로 못 내려간다.
- *
- * 압축은 그 자체로 문맥 전체를 읽는 큰 요청이라 자주 부르면 아끼는 것보다 쓰는 것이 많아진다.
- * 이 바닥이 "절약하려다 더 쓰는" 자리를 막는 유일한 벽이다.
- */
+/** §5.3 #9-1 (P축) — 켠(0 아닌) 턴 예산의 하한. 압축 자체가 큰 요청이라 너무 자주 부르면 오히려 더 쓴다. */
 export const TOKEN_SAVER_TURN_BUDGET_FLOOR = 40;
 
 /**
@@ -812,10 +658,7 @@ export const DEFAULT_TOKEN_SAVER_SETTINGS: TokenSaverSettings = {
   sessionTurnBudget: 0,
 };
 
-/**
- * 숫자 축만 골라낸 키 — 스위치(boolean)·프리셋(문자열) 축은 min/max/step 이 뜻을 갖지 않는다.
- * 파생시켜야 새 축을 넣을 때 **컴파일러가 빠뜨림을 잡아 준다**(`NumericRetentionKey` 와 같은 수법).
- */
+/** `NumericRetentionKey` 와 같은 수법 — 숫자 축만 파생(빠뜨림을 컴파일러가 잡는다). */
 export type NumericTokenSaverKey = {
   [K in keyof TokenSaverSettings]: TokenSaverSettings[K] extends number ? K : never;
 }[keyof TokenSaverSettings];
@@ -834,13 +677,7 @@ export const TOKEN_SAVER_LIMITS: Record<NumericTokenSaverKey, { min: number; max
   sessionTurnBudget: { min: 0, max: 2_000, step: 10 },
 };
 
-/**
- * §5.3 #9-1 — 프리셋 세 벌. **값을 채우는 손일 뿐** 판정 근거가 아니다(진실은 항상 값이다).
- *
- * - `off` — 이 기능이 생기기 전과 **바이트 단위로 같은 스폰**(env 키를 하나도 안 넣는다).
- * - `balanced` — 문맥이 자라는 속도만 늦춘다. 답의 길이·사고 깊이는 건드리지 않는다.
- * - `saver` — 위에 더해 생성 상한·압축 조기화까지 건다. 긴 답이 잘릴 수 있다는 대가가 있다.
- */
+/** §5.3 #9-1 프리셋 — 값을 채우는 손일 뿐 판정은 값으로. `off` = 기능 전과 바이트 단위로 같은 env · `balanced` = 문맥 증가만 늦춤 · `saver` = 생성 상한·조기 압축까지(긴 답이 잘릴 수 있다). */
 export const TOKEN_SAVER_PRESET_VALUES: Record<Exclude<TokenSaverPreset, 'custom'>, TokenSaverSettings> = {
   off: { ...DEFAULT_TOKEN_SAVER_SETTINGS, preset: 'off' },
   balanced: {
@@ -885,27 +722,10 @@ export function detectTokenSaverPreset(input: TokenSaverSettings): TokenSaverPre
   return 'custom';
 }
 
+/** `normalizeTokenSaverSettings` 설명 — 절약 설정 정규화(서버·클라 공용). 켠 값은 `TOKEN_SAVER_TURN_BUDGET_FLOOR`·`TOKEN_SAVER_OUTPUT_FLOOR` 아래로 못 간다. `preset` 은 값에서 다시 판정한다. */
 /**
- * 들어온 절약 설정을 안전한 값으로 정규화한다(서버·클라 공용 — 판정이 두 벌이 되면 화면과 실제가 어긋난다).
- *
- * **바닥이 둘 있다**: 켠 상태(0 초과)의 세션 턴 예산은 `TOKEN_SAVER_TURN_BUDGET_FLOOR` 아래로,
- * 생성/사고 상한은 `TOKEN_SAVER_OUTPUT_FLOOR` 아래로 못 내려간다 — 그 아래는 절약이 아니라 손해다.
- * `preset` 은 입력을 믿지 않고 **값에서 다시 판정**한다(둘이 어긋난 저장분이 와도 화면이 거짓말하지 않게).
- */
-/**
- * §5.3 #9-1 (Q축) — **압축 창의 최종 값.** 기존 3층(에이전트 → 설정 창 → 내장 기본) 위에
- * 토큰 절약을 **조이는 방향으로만** 얹는다.
- *
- * 규칙은 하나다 — **더 작은 창이 이긴다.** 창이 작을수록 일찍 접히고, 일찍 접힐수록 매 턴
- * 다시 읽는 양이 준다. 그래서 절약 값이 더 크면 아무 일도 하지 않는다(느슨하게 푸는 일은 없다).
- *
- * - 절약이 미설정(`''`)이면 **종전 결과 그대로**다(이 축이 생기기 전과 바이트 단위로 같다).
- * - 종전 결과가 꺼짐이면 절약 값이 그 자리를 **켠다** — 절약을 켠 것 자체가 "접어라"는 뜻이다.
- * - 종전 결과가 `'auto'`(모델 창 전체)면 숫자 쪽이 조이는 값이라 절약이 이긴다.
- *
- * 이 값은 **명령 사이 압축(턴 경계 판정)만** 본다 — 2026-10-05 부터 스폰은 `--autocompact` 를 싣지
- * 않는다(사용자 지시: 작업 도중에는 CLI 가 모델 창 끝에서만 접는다). 절약이 조이는 것도 명령 사이에
- * 접는 자리이고, 작업 도중의 CLI 압축선은 모델 창 끝 그대로다.
+ * §5.3 #9-1 (Q축) — 압축 창 최종 값: 3층(에이전트 → 설정 창 → 내장) 결과에 절약을 조이는 쪽으로만 얹는다(작은 창이 이긴다). 절약 `''` = 3층 그대로,
+ * 3층이 꺼짐이면 절약이 켜고, `'auto'` 면 숫자가 이긴다. 명령 사이 압축만 본다 — 스폰은 `--autocompact` 를 싣지 않아 작업 도중 CLI 압축선은 모델 창 끝이다.
  */
 export function resolveEffectiveAutoCompact(
   agentValue: string | undefined,
@@ -949,27 +769,15 @@ export function normalizeTokenSaverSettings(input?: Partial<TokenSaverSettings> 
   return out;
 }
 
-/**
- * §5.3 #9-1 — 3층 해소(**에이전트 값 → 전역 값 → 미설정**). `--autocompact` 가 쓰는 3층 그대로다.
- *
- * 에이전트 칸의 `0`/미설정은 **"전역을 따른다"** 는 뜻이다(`bashDefaultTimeoutMs` 와 같은 규약 —
- * 숫자 입력칸에 "미설정"을 따로 표현할 자리가 없어 둘을 같은 뜻으로 묶었다). 그래서 에이전트가
- * 전역 절약을 **더 조일 수는 있어도 풀 수는 없다** — 절약 축에서는 안전한 방향이다.
- * 최종 결과가 `0` 이면 env 키를 만들지 않는다.
- */
+/** §5.3 #9-1 — 에이전트 값 → 전역 값 → 미설정. 에이전트 `0`/미설정 = 전역을 따른다(`bashDefaultTimeoutMs` 규약) — 조일 수는 있어도 풀 수는 없다. 결과 `0` 이면 env 키를 만들지 않는다. */
 export function resolveTokenSaverNumber(agentValue: number | undefined, globalValue: number): number {
   if (typeof agentValue === 'number' && Number.isFinite(agentValue) && agentValue > 0) return Math.floor(agentValue);
   return globalValue;
 }
 
 /**
- * §5.3 #9-1 (J~M) — 절약 축을 **스폰 env** 로 조립한다.
- *
- * ⚠ **켜지 않은 축은 키 자체를 넣지 않는다.** 이것이 무변경의 근거다 — 전 축이 꺼진 사용자의
- * env 는 이 기능이 생기기 전과 바이트 단위로 같다(§4 "`provider` 가 undefined 면 클로드 경로 그대로").
- *
- * 값이 아니라 **문자열**로 나가는 이유는 env 규약이고, `DISABLE_NON_ESSENTIAL_MODEL_CALLS` 는
- * CLI 가 존재 여부가 아니라 값을 보므로 끌 때는 키를 안 넣는다(빈 문자열 ❌ — 판본에 따라 참으로 읽힌다).
+ * §5.3 #9-1 (J~M) — 절약 축 → 스폰 env. ⚠ 켜지 않은 축은 키를 넣지 않는다(전부 꺼지면 기능 전과 바이트 단위로 같다).
+ * `DISABLE_NON_ESSENTIAL_MODEL_CALLS` 는 값을 보므로 끌 때 키를 뺀다(빈 문자열은 판본에 따라 참).
  */
 export function buildTokenSaverEnv(
   agent: {
@@ -1000,59 +808,21 @@ export function buildTokenSaverEnv(
 }
 
 // ─── 런타임 메모리 자정작용 (§3.2.4) ───
-//
-// 실측(2026-08-14): 가동 10.9시간 앱의 **메인 프로세스 3,050MB**. 디스크 영속분은 73MB 뿐인데
-// 누적 읽기는 15,949MB(읽을 대상 전체는 2,173MB) — 같은 파일을 일곱 번 넘게 다시 읽었다.
-// 원인은 세션 캐시가 **"파일 몇 개"** 로만 묶여 있던 것(64개). 26MB 와 4KB 가 같은 한 칸을
-// 차지하니 트랜스크립트가 수천 개인 기계에서 캐시가 끊임없이 교체되고 그때마다 전량 재파싱이 돈다.
-//
-// ⚠ 여기 값들도 §3.2.3 과 같은 규약 — **0 이면 그 축은 끈다**(무제한).
+// 실측 2026-08-14: 10.9시간 가동 메인 3,050MB — 개수로 묶은 세션 캐시가 26MB·4KB 를 같은 칸으로 세 같은 파일을 일곱 번 넘게 다시 읽었다. 0 = 그 축 끔.
 
 /**
- * 세션 JSONL 파생 캐시(제목·마지막 응답·사용자 메시지·컨텍스트 스캔·토큰 스캔)가 **다 함께**
- * 쓰는 총 바이트 예산.
- *
- * 개수가 아니라 바이트인 이유는 `byteBudgetCache.ts` 머리말 참조.
- *
- * ⚠ 예산의 기준은 "가장 큰 파일 하나"가 아니라 **작업 집합**(스냅샷 한 바퀴가 만지는 세션 전체)이다.
- * 종전 48MB 는 앞의 기준으로 잡혀 있었는데, 그러면 세션이 늘어난 기계에서 한 바퀴를 도는 동안에도
- * 방금 채운 항목이 다시 밀려나 적중률이 0 으로 수렴한다(LRU 스래싱). 실측 2026-08-16: 체크포인트가
- * 참조하는 세션 178개 · 트랜스크립트 합 228MB 인 기계에서 도구 이벤트 1회마다 832MB 를 재파싱하고
- * 코어 하나를 5초씩 잡았다 — 읽은 총량이 대상 총량의 3.6배였다.
- *
- * 캐시가 담는 것은 파일이 아니라 **파생 상태**(턴 배열·이벤트 텍스트·누적 숫자)라 트랜스크립트
- * 총량보다 훨씬 작다. 반대로 한 번 밀려났을 때 치르는 재파싱 피크는 파일 크기의 4~5배(§3.2.4 G축)라,
- * 예산을 작업 집합 위로 올리는 것이 오히려 최대 점유를 낮춘다. 상한 자체는 I축(압력 축출)이 지킨다.
+ * 세션 JSONL 파생 캐시 전체가 함께 쓰는 바이트 예산. ⚠ 기준은 가장 큰 파일이 아니라 작업 집합(스냅샷 한 바퀴의 세션 전체) — 작으면 LRU 스래싱으로 적중률 0
+ * (실측 2026-08-16: 48MB 로 도구 이벤트마다 832MB 재파싱). 파생 상태라 트랜스크립트보다 작고, 밀려날 때 재파싱 피크가 4~5배라 넉넉한 쪽이 최대 점유가 낮다. 상한은 I축.
  */
 export const SESSION_CACHE_BYTE_BUDGET = 256 * 1024 * 1024;
 
-/**
- * 같은 캐시의 **항목 개수** 보조 상한. 바이트 예산과 둘 다 적용되고 먼저 걸리는 쪽이 이긴다.
- * 작은 파일 수천 개가 들어와 엔트리 오버헤드만으로 부푸는 경우를 막는 자리(값이 작아 바이트
- * 예산에는 안 걸리는 구간).
- *
- * ⚠ 이 값은 **몫으로 쪼개져** 캐시마다 나뉘므로(가장 작은 몫이 8%), 작업 집합보다 넉넉해야 한다.
- * 512 일 때 실제 상한은 userMessages 153 · contextScan 61 · lastAssistant 51 · paths 40 이었고,
- * 세션 178개인 기계에서는 넷 다 작업 집합보다 작아 바이트 예산과 무관하게 개수만으로 스래싱했다.
- */
+/** 같은 캐시의 항목 수 보조 상한(먼저 걸리는 쪽이 이긴다). ⚠ 캐시마다 몫으로 쪼개져(최소 8%) 작업 집합보다 넉넉해야 한다 — 512 는 개수만으로 스래싱했다. */
 export const SESSION_CACHE_MAX_ENTRIES = 4096;
 
-/**
- * JSONL 을 훑을 때 **한 번에 메모리로 올리는 최대 바이트**(§3.2.4 G축).
- *
- * 종전엔 `Buffer.allocUnsafe(구간 전체)` 라 26MB 파일이면 버퍼 26MB + `toString()` 문자열
- * (UTF-16 이라 최대 52MB) + `split('\n')` 조각 배열이 한꺼번에 잡혀 피크가 파일 크기의 4~5배였다.
- * 청크로 끊어 읽으면 같은 줄을 같은 순서로 한 번씩 먹이므로 **결과는 동일**하고 피크만 상수가 된다.
- */
+/** JSONL 을 훑을 때 한 번에 올리는 바이트(§3.2.4 G축). 통째 버퍼+`toString()`+`split` 은 피크가 파일의 4~5배 — 청크로 읽어도 결과는 같다. */
 export const JSONL_SCAN_CHUNK_BYTES = 1024 * 1024;
 
-/**
- * 세션·에이전트 id 를 키로 쓰는 **파생 Map** 의 키 개수 상한(§3.2.4 F축 경량판).
- *
- * 값이 작아 바이트 예산까지는 필요 없지만, 키가 세션 수만큼 늘어나면 오래 켜 둔 앱에서 계속 자란다
- * (`brainInjections`·`recentToolDurations` 처럼 값에는 링버퍼 캡이 있는데 **키에는 없던** 자리들).
- * 1,000 은 한 프로젝트에서 동시에 의미 있게 다룰 세션 수보다 훨씬 크다 — 화면에 영향이 없는 선.
- */
+/** 세션·에이전트 id 키 파생 Map 의 키 수 상한(§3.2.4 F축 경량판 — 값엔 캡이 있어도 키엔 없던 자리). 1,000 은 화면에 영향이 없는 선. */
 export const SESSION_KEYED_MAP_MAX = 1_000;
 
 /** 힙 표본 주기(ms) — §3.2.4 H축. 너무 잦으면 그 자체가 부하라 30초. */
@@ -1073,24 +843,15 @@ export const MEMORY_PRESSURE_CRITICAL_RATIO = 0.88;
 /** 고압(HIGH) 상태에서 한 번에 버리는 비율. */
 export const MEMORY_PRESSURE_EVICT_FRACTION = 0.5;
 
-/**
- * 압력 대응을 다시 실행하기까지의 최소 간격(ms).
- *
- * 축출 직후에는 GC 가 아직 안 돌아 `heapUsed` 가 그대로라, 이 간격이 없으면 매 표본마다
- * 캐시를 비워 "캐시가 영영 비어 있는" 상태가 된다 — 그러면 재파싱이 오히려 늘어난다.
- */
+/** 압력 대응 재실행 최소 간격(ms) — 축출 직후엔 GC 전이라 `heapUsed` 가 그대로라, 없으면 매번 캐시를 비워 재파싱이 는다. */
 export const MEMORY_PRESSURE_COOLDOWN_MS = 120_000;
 
-// ─── IDE 워크스페이스 탐색기 (§5.5 #17-19 v4.71) ───
+// ─── IDE 워크스페이스 탐색기 (§5.5 #17-19) ───
 
-/**
- * 디렉터리 한 겹에서 클라이언트로 넘기는 엔트리 최대 개수.
- * `node_modules` 처럼 수천 개가 든 폴더를 펼쳤을 때 사이드바 한 칸이 통째로 얼어붙는 것을 막는다
- * (넘치면 앞에서 자르고 `truncated` 로 알린다 — 가상화 ❌, 탐색기는 곁눈 자리다).
- */
+/** 한 겹에서 넘기는 엔트리 상한(`node_modules` 가 사이드바를 얼리지 않게). 넘치면 자르고 `truncated`(가상화 ❌). */
 export const WORKSPACE_DIR_ENTRY_MAX = 500;
 
-// ─── IDE 내장 편집창 (§5.5 #17-27 v4.87) ───
+// ─── IDE 내장 편집창 (§5.5 #17-27) ───
 
 /**
  * 편집창이 통째로 읽어 들이는 파일 크기 상한(bytes).
@@ -1105,12 +866,7 @@ export const WORKSPACE_FILE_MAX_BYTES = 2_000_000;
  */
 export const IDE_EDITOR_MAX_TABS = 12;
 
-/**
- * §5.5 #17-27 ⑯ — 그 창이 **접어 두는 세션 수** 상한(지금 보고 있는 세션은 여기 안 든다).
- *
- * 탭 묶음은 세션마다 따로 서므로 세션을 오갈수록 키가 는다 — 값 길이만 재고 키 개수는 안 재는 캡은
- * 캡이 아니다. 넘으면 **가장 오래전에 떠난 세션**부터 버린다(그 세션으로 돌아가면 빈 편집창이다).
- */
+/** §5.5 #17-27 ⑯ — 편집창이 접어 두는 세션 수 상한(키 개수 캡). 넘치면 가장 오래전에 떠난 세션부터 버린다. */
 export const IDE_EDITOR_TAB_SCOPE_MAX = 12;
 
 /** 편집창 폭(px) — 기본값과 드래그 허용 범위. */
@@ -1118,12 +874,7 @@ export const IDE_EDITOR_WIDTH = { DEFAULT: 520, MIN: 280, MAX: 1400 } as const;
 
 // ─── §5.5 #17-27 ⑭ · #17-25 ④-1 — 편집창이 그림으로 여는 파일 ───
 
-/**
- * 편집창이 **텍스트가 아니라 그림으로** 여는 확장자(소문자, 마침표 포함).
- *
- * 판정을 확장자로 하는 이유는 바이트를 한 번 더 훑지 않기 위해서다 — 형식별 매직 넘버 스니핑은
- * 형식마다 다른 규칙을 우리가 떠안는 일이고, 여기서 틀렸을 때의 대가는 "안 그려짐" 하나뿐이다.
- */
+/** 편집창이 그림으로 여는 확장자(소문자·마침표 포함). 스니핑 없이 확장자로 — 틀려도 "안 그려짐"뿐. */
 export const WORKSPACE_IMAGE_EXTENSIONS: readonly string[] = [
   '.png',
   '.jpg',
@@ -1140,21 +891,10 @@ export const WORKSPACE_IMAGE_EXTENSIONS: readonly string[] = [
   '.apng',
 ];
 
-/**
- * §5.5 #17-25 ④-1 — 주석을 구워 **원본 형식 그대로 덮어쓸 수 있는** 확장자.
- *
- * `canvas.toBlob` 이 실제로 인코딩하는 세 가지뿐이다. 나머지(svg·gif·ico·bmp·avif)에 저장하면
- * 브라우저가 조용히 PNG 를 뱉어 **확장자와 내용이 어긋난 파일**이 되므로 그 자리는 아예 막는다.
- */
+/** §5.5 #17-25 ④-1 — 주석을 구워 덮어쓸 수 있는 확장자 = `canvas.toBlob` 이 실제로 인코딩하는 것만(나머지는 조용히 PNG 가 돼 확장자와 내용이 어긋난다). */
 export const WORKSPACE_IMAGE_BAKEABLE_EXTENSIONS: readonly string[] = ['.png', '.jpg', '.jpeg', '.webp'];
 
-/**
- * 미리보기로 통째로 읽어 보내는 이미지 크기 상한(bytes).
- *
- * 텍스트 상한(`WORKSPACE_FILE_MAX_BYTES`)과 갈라 두는 이유는 성격이 다르기 때문이다 — 텍스트는
- * "잘리면 저장이 위험해서" 막는 값이고, 이미지는 읽기 전용이라 위험이 없고 대신 **4K 스크린샷 한 장이
- * 예사로 5MB** 라 같은 상한을 쓰면 정작 볼 것을 못 본다. 넘으면 미리보기 없이 종전 안내로 떨어진다.
- */
+/** 미리보기 이미지 상한(bytes). 텍스트 상한과 따로 — 읽기 전용이라 위험이 없고 4K 스크린샷은 예사로 5MB 다. */
 export const WORKSPACE_IMAGE_MAX_BYTES = 32_000_000;
 
 /** 확장자 → MIME. 미리보기 응답의 `Content-Type` 과 굽기 대상 형식이 같은 표를 본다. */
@@ -1195,14 +935,8 @@ export function workspaceImageMime(filePath: string): string {
   return WORKSPACE_IMAGE_MIME_BY_EXT[workspaceFileExt(filePath)] ?? 'application/octet-stream';
 }
 
-// ─── §5.13 (R) — 워크스페이스 파일 하나를 **무엇으로 여는가** ───────────────────
-//
-// 클릭 지점은 여럿이다(스트림 본문의 경로 손잡이 · 탐색기 · 편집한 파일 목록). 그 자리마다
-// 자기 판정을 들면 같은 파일이 자리마다 다르게 열린다 — 그래서 갈림은 아래 함수 **하나**다.
-//
-// 그리고 **확장자와 앱의 대응표를 코어가 들지 않는다**(§5.13 (R-1) · (P) 독립 규약). 표를
-// 여기 적으면 앱이 늘 때마다 코어가 바뀐다. 앱이 "나는 이 확장자를 연다"고 선언한 것을
-// 인자로 받아 훑을 뿐이라, 앱이 몇 개로 늘어도 이 파일은 그대로다.
+// ─── §5.13 (R) — 워크스페이스 파일 하나를 무엇으로 여는가 ───
+// 클릭 지점마다 판정하면 같은 파일이 다르게 열린다 — 갈림은 아래 함수 하나. 확장자→앱 표는 코어가 들지 않고 앱 선언을 인자로 받는다(§5.13 (R-1)·(P)).
 
 /** 파일·폴더 하나를 눌렀을 때 갈리는 일곱 갈래. */
 export type WorkspaceOpenAction =
@@ -1241,15 +975,7 @@ export interface WorkspaceOpenPlan {
 /** 내장 PDF 뷰어가 받는 확장자. */
 export const WORKSPACE_PDF_EXTENSIONS: readonly string[] = ['.pdf'];
 
-/**
- * **우리가 흉내 내지 않는 것들** — OS 연결 프로그램으로 넘긴다(§5.13 (R-6)).
- *
- * 압축을 우리 안에서 풀어 보여 주거나 폰트 미리보기를 그리는 일은 이 앱이 할 일이 아니다.
- * 브라우저가 디코드하지 못하는 미디어(mkv·avi·wma…)도 여기 있다 — 우리 창에서 못 여는 것을
- * 우리 창으로 보내면 "눌렀더니 검은 화면"이 되므로, 열 수 있는 프로그램에게 그대로 넘긴다.
- *
- * **`.ts` 는 여기 없다** — 영상 컨테이너이기도 하지만 이 저장소에서는 압도적으로 TypeScript 다.
- */
+/** OS 연결 프로그램으로 넘기는 확장자(§5.13 (R-6)) — 우리가 흉내 내지 않는 것(압축·폰트 등). **`.ts` 는 없다** — 영상 컨테이너보다 TypeScript 다. */
 export const WORKSPACE_EXTERNAL_EXTENSIONS: readonly string[] = [
   // 압축·패키지
   '.zip', '.7z', '.rar', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.txz', '.zst', '.lz', '.lz4', '.lzma',
@@ -1310,13 +1036,7 @@ export const WORKSPACE_MEDIA_MIME_BY_EXT: Readonly<Record<string, string>> = {
   ...WORKSPACE_IMAGE_MIME_BY_EXT,
 };
 
-/**
- * 편집 결과(음악 내보내기 등)를 프로젝트 안에 쓸 때의 상한(bytes).
- *
- * 읽기(스트리밍)에는 상한이 없다 — 구간 요청이라 파일이 아무리 커도 메모리에 다 올라오지 않는다.
- * 쓰기만 막는 이유는 본문이 통째로 메모리를 지나기 때문이다. WAV 는 분당 약 10MB 이므로 이 값이면
- * 한 시간짜리도 들어간다.
- */
+/** 편집 결과를 프로젝트에 쓸 때의 상한(bytes) — 쓰기는 본문이 통째로 메모리를 지난다(읽기는 구간 요청이라 무제한). WAV 한 시간분이 든다. */
 export const WORKSPACE_MEDIA_MAX_BYTES = 768_000_000;
 
 /** 확장자에 맞는 미디어 MIME. */
@@ -1324,28 +1044,15 @@ export function workspaceMediaMime(filePath: string): string {
   return WORKSPACE_MEDIA_MIME_BY_EXT[workspaceFileExt(filePath)] ?? 'application/octet-stream';
 }
 
-/**
- * §5.13 40-1 — 코어 미디어 창구의 **흘려 보내는 갈래**(패키지 앱의 `vibproxy://proxy/api/workspace-media`)가 낼 수 있는 파일인가 —
- * 위 미디어 표에 있는 형식만이다. 같은 출처의 프리뷰 페이지도 그 갈래에 닿으므로 표 밖(코드 · 설정 · 키)은 내지 않는다.
- * 화면도 같은 표로 미리 가른다(표 밖은 종전 IPC 길).
- */
+/** §5.13 40-1 — `vibproxy://proxy/api/workspace-media` 가 낼 수 있는 파일 = 미디어 표의 형식만. 같은 출처 프리뷰 페이지도 닿으므로 코드·설정·키는 내지 않는다. 화면도 이 표로 가른다. */
 export function isWorkspaceMediaFile(filePath: string): boolean {
   return Object.prototype.hasOwnProperty.call(WORKSPACE_MEDIA_MIME_BY_EXT, workspaceFileExt(filePath));
 }
 
-// ─── §5.13 (R-8) — 못 읽는 영상·소리는 **변환해서** 우리 안에서 연다 ─────────────
-//
-// 코덱을 받는 것이 아니다. Chromium 은 시스템 코덱을 쓰지 않으므로(실측: `.avi` 는
-// `DEMUXER_ERROR_COULD_NOT_OPEN`) 코덱팩을 깔아도 우리 창에서는 아무 일도 일어나지 않는다.
-// 대신 **ffmpeg 으로 포장을 바꿔** 우리 엔진이 읽는 형식으로 만든다 — 영상은 리먹스(`-c copy`)가
-// 먼저라 25MB 가 0.073초에 끝나고 화질도 그대로다(실측).
+// ─── §5.13 (R-8) — 못 읽는 영상·소리는 변환해서 우리 안에서 연다 ───
+// Chromium 은 시스템 코덱을 안 써 코덱팩은 소용없다(실측 `.avi` → `DEMUXER_ERROR_COULD_NOT_OPEN`) — ffmpeg 리먹스(`-c copy`)가 먼저(실측 25MB 0.073초).
 
-/**
- * 변환하면 우리 영상 앱이 여는 컨테이너.
- *
- * **mkv 는 여기 없다** — 동봉 ffmpeg 에 Matroska 데먹서가 있어 그냥 열린다(H.264-in-MKV 실측 확인).
- * 여기 있는 것들은 데먹서 자체가 빠져 있어 포장을 바꿔야 하는 것들이다.
- */
+/** 변환해야 열리는 컨테이너(데먹서가 빠진 것). mkv 는 동봉 ffmpeg 로 그냥 열려 없다(실측). */
 export const WORKSPACE_CONVERT_VIDEO_EXTENSIONS: readonly string[] = [
   '.avi', '.divx', '.wmv', '.asf', '.flv', '.f4v', '.mpg', '.mpeg', '.mpe', '.m2v',
   '.m2ts', '.vob', '.rm', '.rmvb', '.mxf', '.ogm',
@@ -1353,12 +1060,7 @@ export const WORKSPACE_CONVERT_VIDEO_EXTENSIONS: readonly string[] = [
   //   영상 하나를 살리려고 소스 파일 전부를 변환기로 보낼 수는 없다(테스트가 이 자리를 지킨다).
 ];
 
-/**
- * 변환하면 우리 음악 편집기가 여는 소리 형식.
- *
- * WAV(PCM)로 뽑으므로 편집기가 그대로 받아 자르고 다시 내보낸다. **mid·midi 는 여기 없다** —
- * 악보라서 디코딩이 아니라 신시사이저가 필요하고, ffmpeg 도 소리를 만들지 못한다.
- */
+/** 변환하면 음악 편집기가 여는 형식(WAV 로 뽑는다). mid·midi 는 없다 — 악보라 신시사이저가 필요하다. */
 export const WORKSPACE_CONVERT_AUDIO_EXTENSIONS: readonly string[] = [
   '.wma', '.aiff', '.aif', '.au', '.ape', '.amr', '.dsf', '.dff', '.ra', '.mka', '.wv', '.tta', '.mpc',
 ];
@@ -1379,12 +1081,7 @@ function mediaHash(input: string): string {
   return h.toString(16).padStart(8, '0');
 }
 
-/**
- * §5.13 (R-8) (d) — 변환 결과의 자리.
- *
- * 키에 **크기와 수정 시각**을 넣는 이유는 원본이 바뀌면 캐시가 저절로 빗나가야 하기 때문이다.
- * 같은 파일을 다시 누르면 같은 이름이 나오므로 두 번째부터는 변환 없이 즉시 열린다.
- */
+/** §5.13 (R-8) (d) — 변환 결과 자리. 키에 크기·수정 시각이 들어 원본이 바뀌면 캐시가 저절로 빗나간다. */
 export function mediaCacheRelPath(
   relPath: string,
   size: number,
@@ -1401,15 +1098,8 @@ export function mediaCacheRelPath(
 }
 
 /**
- * §5.13 (R-1) — 이 파일을 **어디로 보낼 것인가**. 클릭 지점 전부의 유일한 갈림길.
- *
- * 순서에 뜻이 있다:
- *   ① 실행할 수 있으면 실행이 먼저다 — macOS `.app` 은 폴더이면서 실행이라 폴더 판정보다 앞서야 한다.
- *   ② 폴더는 탐색기.
- *   ③ **앱이 받겠다고 선언한 확장자**는 그 앱으로(코어는 어떤 앱인지 모른다).
- *   ④ 그림 · PDF 는 우리 안에서 본다. `.svg` 는 예외 — 텍스트라 편집창에서 여는 것이 종전이자 더 쓸모 있다.
- *   ⑤ 우리가 다룰 이유가 없는 것은 연결 프로그램.
- *   ⑥ 나머지는 전부 편집창(모르는 확장자를 바깥으로 던지지 않는다 — 텍스트일 가능성이 가장 크다).
+ * §5.13 (R-1) — 클릭 지점 전부의 유일한 갈림길. 순서에 뜻이 있다: ① 실행(macOS `.app` 은 폴더이기도 해 먼저) ② 폴더 ③ 앱이 선언한 확장자
+ * ④ 그림·PDF(`.svg` 는 편집창) ⑤ 연결 프로그램 ⑥ 나머지는 편집창(모르는 확장자는 텍스트일 가능성이 가장 크다).
  */
 export function resolveWorkspaceOpen(args: {
   readonly relPath: string;
@@ -1436,47 +1126,25 @@ export function resolveWorkspaceOpen(args: {
 // ─── 위성(satellite) 상한 ───
 
 /** 폴더당 표시 위성 기본 상한. 폴더 노드에 maxSatellites 가 없으면 이 값 사용. */
-export const DEFAULT_MAX_SATELLITES = 5;
+export const DEFAULT_MAX_SATELLITES = 2;
 /** 사용자가 패널에서 폴더별 Max 를 편집할 때 허용 범위(클램프 경계). */
 export const SATELLITE_MAX_BOUNDS = { MIN: 1, MAX: 50 } as const;
 
 // ─── 외부 폴더 표시 규약 (§2.1 — 요약 · 예산 · 접기 · 이름) ───
 
-/**
- * 외부 노드 키의 표식 — 서버 노드 키는 `<워크트리 접두>__ext__<절대경로>` 이고, 화면의 외부 폴더 `path` 는 절대경로다.
- * §5.1 #2-1 (B) 같은 종류 묶음(`kindBundle.ts`)이 서버 위성 목록과 화면 위성을 같은 자로 재려고 shared 로 올렸다
- * (서버 `EXT_KEY_MARK` 가 이 값을 쓴다 — 키 조립·해체가 한 값에서 나오게).
- */
+/** 외부 노드 키 표식(`<워크트리 접두>__ext__<절대경로>`). 서버 `EXT_KEY_MARK` 와 §5.1 #2-1 (B) `kindBundle.ts` 가 이 값 하나로 조립·해체한다. */
 export const EXTERNAL_NODE_KEY_MARK = '__ext__';
 
-/**
- * (A) 접합 버블이 요약으로 보여 줄 **자손 이름 칩** 개수.
- * 접합은 스스로 만져진 적이 없어 라벨이 경로 하나뿐이었고, 그래서 25곳을 삼킨 채 아무 말도
- * 하지 않았다. 이 칩이 "그 안에 무엇이 있나"를 대신 말한다. 넘치는 수는 `+N` 으로 접는다.
- */
+/** (A) 접합 버블이 보이는 자손 이름 칩 수(라벨이 경로뿐이라 안을 말해 준다). 넘치면 `+N`. */
 export const EXTERNAL_SUMMARY_CHIPS = 3;
 
-/**
- * (B) 최상위에 동시에 세울 외부 폴더 **예산** 기본값.
- * 개수는 이 값이 고정하고 무엇이 보일지는 활동이 정한다 — 그래서 폭발과 식별 불가가 한 장치로
- * 함께 풀린다. **핀(`preservePinned`)은 이 수에 들지 않는다**(사용자 결정).
- */
+/** (B) 최상위 외부 폴더 예산 기본값 — 개수는 이 값, 무엇이 보일지는 활동이 정한다. 핀(`preservePinned`)은 세지 않는다. */
 export const EXTERNAL_TOP_BUDGET_DEFAULT = 12;
 
 /** (B) 사용자가 옵션창에서 예산을 조절할 때의 허용 범위(클램프 경계). */
 export const EXTERNAL_TOP_BUDGET_BOUNDS = { MIN: 1, MAX: 40 } as const;
 
-/**
- * (B) **한 부모에서 꺼낼 수 있는 자식 수.**
- *
- * 이 상한이 없으면 승격이 접합 트리를 무너뜨린다 — `…/claude/<프로젝트>` 아래 형제 12개가
- * 예산을 통째로 먹고 최상위에 우르르 서면, 그것은 접합 트리가 막으려던 바로 그 그림이다
- * (형제 12개는 전부 같은 성격이라 펼쳐도 사용자가 아는 것이 늘지 않는다).
- *
- * 반대로 **서로 다른 가지**(`.claude` · `.vibisual` · `.codex`)는 펼칠수록 정보가 는다. 그래서
- * 부모당 몇 개까지만 꺼내고, 남은 예산은 다른 부모에게 돌아간다 — 결과적으로 화면은 "한 자리를
- * 깊게"가 아니라 **"여러 자리를 넓게"** 보여 준다.
- */
+/** (B) 한 부모에서 꺼낼 자식 수 — 없으면 같은 성격의 형제들이 예산을 다 먹어 접합 트리가 무너진다. 남은 예산은 다른 가지로 간다(여러 자리를 넓게). */
 export const EXTERNAL_PROMOTION_PER_PARENT = 3;
 
 /**
@@ -1501,16 +1169,7 @@ export interface ExternalPlacePattern {
   readonly test: RegExp;
 }
 
-/**
- * (D) **알려진 자리 사전** — 경로가 아니라 정체를 말한다.
- *
- * `c--work-my-app` 같은 slug 와 세션 UUID 는 사람이 읽을 수
- * 없다. 이 표에 걸리면 라벨을 그 자리의 **이름**으로 바꾼다. **경로를 지우지 않는다** —
- * 바뀌는 것은 라벨뿐이고 `absolutePath`·노드 키는 그대로라 탐색기 열기·위성 매칭은 불변이다.
- *
- * 순서가 우선순위다(구체적인 것이 먼저). 표에 없는 자리는 종전 라벨 그대로 — §3.3 대로
- * 이 표가 정본이고 코드에 자리 이름을 박지 않는다.
- */
+/** (D) 알려진 자리 사전 — slug·UUID 대신 자리 이름을 라벨로(경로·노드 키는 그대로). 순서가 우선순위. 이 표가 정본이다 — 코드에 자리 이름을 박지 않는다(§3.3). */
 export const EXTERNAL_PLACE_PATTERNS: readonly ExternalPlacePattern[] = [
   { key: 'claudeMemory', base: 'home', test: /^\.claude\/projects\/[^/]+\/memory$/ },
   { key: 'claudeProject', base: 'home', test: /^\.claude\/projects\/[^/]+$/ },
@@ -1533,13 +1192,7 @@ export const EXTERNAL_PLACE_PATTERNS: readonly ExternalPlacePattern[] = [
 
 // ─── 폴더 목록 지연 로딩 (§7.5) ───
 
-/**
- * `GET /api/folder-files` 가 **한 겹**에서 한 번에 돌려주는 엔트리 수.
- *
- * 종전에는 폴더를 통째로 재귀해 전부 실어 보냈다 — 사용자 홈이 외부 폴더 버블로 뜨면
- * 61만 항목·83MB 가 되고, 서버가 메인 프로세스와 한 몸이라 창이 통째로 멈췄다(§7.5).
- * 이제 이 값만큼 끊어 보내고 목록 바닥에 닿을 때마다 다음 장을 부른다.
- */
+/** `GET /api/folder-files` 한 쪽 크기 — 바닥에 닿으면 다음 장. 통째 재귀는 홈 폴더가 61만 항목·83MB 라 창이 멈춘다(§7.5). */
 export const FOLDER_FILES_PAGE_SIZE = 100;
 
 /**
@@ -1570,16 +1223,9 @@ export const WEB_TOOLS: ReadonlySet<string> = new Set(['WebFetch', 'WebSearch'])
 
 // ─── 웹 버블 묶기 (§5.23) ───
 
-/**
- * 묶기 기본값 — 같은 사이트 · 비슷한 종류 · 에이전트마다 최대 6개.
- * **기본 켬**은 사용자 지시다(2026-10-16 "지금 너무 많이 나와"). 종전 화면(호스트마다 하나)은 옵션창에서
- * 두 칸을 끄고 0 으로 두면 그대로 돌아온다.
- */
+/** 묶기 기본값(같은 사이트·비슷한 종류·에이전트마다 6개) — 기본 켬(안 묶으면 버블이 너무 많다). 끄면 호스트마다 하나. */
 export const WEB_GROUP_DEFAULTS: Readonly<WebGroupSettings> = { sameSite: true, byKind: true, maxPerAgent: 6 };
-/**
- * 묶지 않음 — 호스트마다 버블 하나. 그래프 엔진(`ProjectGraph`·매니저)의 씨앗이다. 앱이 부팅 때 저장값(없으면
- * 위 기본값)을 밀어 넣으므로 사용자가 보는 기본은 위 값이다 — 엔진 단위 시험이 앱 기본값에 끌려가지 않게 둘을 가른다.
- */
+/** 묶지 않음 — 그래프 엔진의 씨앗. 앱 기본값은 부팅 때 밀어 넣는다(엔진 시험이 앱 기본값에 끌려가지 않게). */
 export const WEB_GROUP_OFF: Readonly<WebGroupSettings> = { sameSite: false, byKind: false, maxPerAgent: 0 };
 /** (C) 에이전트마다 따로 세울 웹 버블 수의 범위. `0` = 상한 없음, `1` = 에이전트마다 하나. */
 export const WEB_GROUP_MAX_BOUNDS = { MIN: 0, MAX: 40 } as const;
@@ -1588,24 +1234,17 @@ export const WEB_GROUP_MAX_BOUNDS = { MIN: 0, MAX: 40 } as const;
 
 /** 더블클릭이 고를 수 있는 열 곳 — 옵션창 고르기 칸이 이 순서로 그린다. */
 export const WEB_OPEN_TARGETS: readonly WebOpenTarget[] = ['external', 'iframe'];
-/** 기본은 바깥 브라우저 — 사용자 지시(2026-10-21 "기본 선택은 외부 웹에서 여는 거"). */
+/** 기본 선택은 바깥 브라우저다. */
 export const WEB_OPEN_TARGET_DEFAULT: WebOpenTarget = 'external';
 /** 도메인 버블이 여는 iframe 탭의 id 접두 — `web-<버블 id>`. 버블마다 탭 하나(다시 누르면 같은 탭이 옮겨 간다). */
 export const WEB_PAGE_TAB_PREFIX = 'web-';
 /**
- * 인터넷 페이지를 띄우는 격리 웹뷰의 세션(partition) 이름. `persist:` 를 붙이지 않는다 — 메모리에만 살아 쿠키·저장소를
- * 디스크에 남기지 않고, 앱을 끄면 함께 사라진다. 기본 세션과 갈라 두는 것이 격리의 핵심이다(그쪽에는 `vibproxy://`
- * 처리기와 "전부 허락" 권한 처리기가 있다). 렌더러의 `<webview partition>` 과 main 의 `will-attach-webview` 가 같은 값을 쓴다.
+ * 인터넷 페이지 격리 웹뷰 partition. `persist:` ❌ — 쿠키·저장소가 메모리에만 산다. 기본 세션(`vibproxy://`·전부 허락 권한 처리기)과 갈라 두는 것이 격리의 핵심.
+ * 렌더러 `<webview partition>`·main `will-attach-webview` 가 같이 쓴다.
  */
 export const WEB_PAGE_PARTITION = 'vibisual-web';
 
-/**
- * (A) **끝 두 칸이 사이트가 아닌 접미사** — 여기 걸리면 한 칸 더 붙여 사이트로 본다.
- *
- * 공개 접미사 목록 전체를 싣지 않고 자주 만나는 것만 둔다. 두 부류다 — 나라별 두 칸 접미사(`co.uk`·`co.kr`)와
- * **칸마다 주인이 다른 호스팅**(`github.io`·`vercel.app`). 뒤의 것을 빼면 서로 다른 사람의 `*.github.io` 가
- * "같은 사이트"로 한 버블에 묶인다. 표에 없는 접미사는 끝 두 칸으로 어림한다(틀려도 묶음이 조금 커질 뿐이다).
- */
+/** (A) 끝 두 칸이 사이트가 아닌 접미사(`co.uk`·`github.io` 류) — 한 칸 더 붙여 사이트로 본다. 호스팅을 빼면 남남의 `*.github.io` 가 한 버블에 묶인다. */
 export const WEB_SITE_SUFFIXES: ReadonlySet<string> = new Set([
   // 나라별 두 칸 접미사
   'co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'me.uk', 'net.uk', 'ltd.uk', 'plc.uk',
@@ -1656,11 +1295,7 @@ export const WEB_KIND_HOSTS: Readonly<Record<string, WebKind>> = {
   'html.spec.whatwg.org': 'spec', 'datatracker.ietf.org': 'spec',
 };
 
-/**
- * (B) **하위 도메인 머리**의 종류 — `docs.`·`developer.`·`blog.` 처럼 앞 칸이 하는 일을 말하는 경우.
- * 사이트보다 앞에 붙은 칸만 왼쪽부터 본다(`www` 는 건너뛴다). 모호한 머리(`api.`·`code.`·`dev.`)는 일부러 뺐다 —
- * `code.claude.com` 은 코드 저장소가 아니라 문서다(그런 곳은 아래 경로 판정이 맡는다).
- */
+/** (B) 하위 도메인 머리의 종류(`docs.`·`blog.`, `www` 는 건너뜀). 모호한 머리(`api.`·`code.`·`dev.`)는 일부러 뺐다 — `code.claude.com` 은 문서다(경로 판정이 맡는다). */
 export const WEB_KIND_SUBDOMAINS: Readonly<Record<string, WebKind>> = {
   docs: 'docs', doc: 'docs', developer: 'docs', developers: 'docs', learn: 'docs', reference: 'docs',
   manual: 'docs', guide: 'docs', guides: 'docs', documentation: 'docs', devdocs: 'docs', help: 'docs',
@@ -1734,11 +1369,7 @@ export const WEB_KIND_SITES: Readonly<Record<string, WebKind>> = {
   'godotengine.org': 'docs',
 };
 
-/**
- * (B) **주소 경로**의 종류 — 표에 없는 사이트를 그 호스트에서 읽은 주소로 가른다(`electronjs.org/docs/…`,
- * `react.dev/reference/…`). 순서가 우선순위다 — 넓은 문서 판정이 맨 뒤라야 `/blog/` 가 글로 남는다.
- * 한 호스트의 주소들은 다수결이고, 같으면 가장 최근 주소를 따른다.
- */
+/** (B) 주소 경로의 종류(표에 없는 사이트용). 순서가 우선순위 — 넓은 문서 판정이 맨 뒤라야 `/blog/` 가 글로 남는다. 한 호스트의 주소들은 다수결, 같으면 최근 것. */
 export const WEB_KIND_PATHS: readonly { readonly kind: WebKind; readonly test: RegExp }[] = [
   // `/TR/` 는 W3C 의 대문자 경로라 대소문자를 가린다(`/tr/` 는 터키어 로케일 경로다).
   { kind: 'spec', test: /\/(?:specs?|rfcs?|standards?)(?:[/.?#]|$)|\/TR\// },
@@ -1761,24 +1392,13 @@ export const NODE_MAX_SIZE = 180;
 export const FILE_MIN_SIZE = 40;
 export const FILE_MAX_SIZE = 90;
 
-/**
- * §2.3 · §5.1 #2-1 (A) — 파일 지름의 **용량 눈금**(2026-10-21 사용자 지시 — "상대적이긴 하지만 어느정도 크기의 제어를 해야한다
- * 하나의 크기가 갑자기 너무 커져버렸다"). 용량은 자릿수로 읽는다(로그 눈금) — 정비례면 큰 파일 하나가 `FILE_MAX_SIZE` 를 차지하고
- * 나머지는 바닥에 눌렸다(실측 57MB wav 하나만 90px).
- */
+/** §2.3 · §5.1 #2-1 (A) — 파일 지름의 용량 눈금(로그). 정비례면 큰 파일 하나가 `FILE_MAX_SIZE` 를 먹고 나머지가 바닥에 눌린다(실측 57MB wav). */
 export const FILE_SIZE_SCALE = {
-  /**
-   * 눈금 폭의 하한(배). 같은 화면 파일들의 용량이 이 배 안에서 갈리면 지름이 가운데로 모인다 — 몇 바이트 차이가 지름 차이가 되지
-   * 않게(실측 같은 그림 40장 184~186B 가 56~90px 로 갈렸다). 하한으로 거는 것이라 문턱에서 튀지 않고 이어진다.
-   */
+  /** 눈금 폭 하한(배) — 몇 바이트 차이가 지름 차이가 되지 않게(실측 184~186B 그림이 56~90px 로 갈렸다). */
   minSpread: 16,
 } as const;
 
-/**
- * §2.2 · §5.1 #2-1 (B) — **묶음 버블**(화면 전용 `bundle`). 같은 종류 파일들(하위 폴더의 같은 미디어 종류 · 연속 번호)의 자리 —
- * 파일이 묶음의 부모로 서지 않고(2026-10-21 사용자 지시 "png인줄알고 mp4인줄 알고 들어갔더니 그게 묶음이더라"), 묶음에는 그
- * 종류만 든다(같은 날 "사진 묶음인데 … 사진만 있는게 아니라 다른 파일들도 같이 있는게 문제야").
- */
+/** §2.2 · §5.1 #2-1 (B) — 묶음 버블(화면 전용): 한 버블 위성 무리의 같은 미디어 종류(하위 폴더 무관). 파일은 묶음의 부모로 서지 않고, 묶음엔 그 종류만 든다. */
 export const BUNDLE_BUBBLE = {
   /** 지름(px) — 파일 범위의 가운데보다 조금 커서 무리의 중심으로 읽히되 구성 파일을 덮지 않는다. 용량·활동과 무관하게 고정. */
   size: 64,
@@ -1788,6 +1408,17 @@ export const BUNDLE_BUBBLE = {
   interiorMax: 120,
   /** 툴팁에 이름을 적는 구성 수 상한 — 넘치면 "외 N개". */
   tooltipNameMax: 12,
+  /** 묶음 안 지름 상한(px) — 넓이가 사용 횟수에 비례(하한 `FILE_FACE.mediaMinSize`). 이름 줄이 12px 고정이라 키우면 화면 맞춤이 줌을 내린다 — `NODE_MAX_SIZE` 보다 작게. */
+  interiorMaxSize: 140,
+  /**
+   * 묶음 안 이웃 사이 틈(px) — 원과 원 · 원과 이름 줄 · 이름 줄끼리. 물리의 원끼리 틈(`PHYSICS_MAGNET_GAP` 12)보다 넉넉해 앉은 뒤
+   * 겹침 풀기로 밀리지 않는다.
+   */
+  interiorGap: 18,
+  /** 묶음 안 무리의 가로/세로 비 — 가운데까지의 거리를 이 비의 타원으로 잰다(화면이 가로로 길다). */
+  interiorAspect: 1.35,
+  /** 이미 앉은 버블 둘레에서 맞닿는 자리 후보를 고르는 방향 수 — 많을수록 촘촘하지만 느리다(구성 120 개에서도 한 번에 수 ms). */
+  interiorSeatDirections: 24,
 } as const;
 
 // ─── §5.24 읽기 히트맵 ───
@@ -1796,14 +1427,7 @@ export const BUNDLE_BUBBLE = {
 export const HEAT_MIN_SIZE = 44;
 export const HEAT_MAX_SIZE = 150;
 
-/**
- * 히트 램프 7칸 — 거의 검은 남색에서 **빨강까지** 간다(불꽃의 관습적 순서). 사이 값은 선형 보간한다.
- *
- * 명도는 **노랑(index 4)까지 단조 증가**하고, 그 위 두 칸은 밝기 대신 **색상**으로 말한다
- * (노랑 → 주황 → 빨강). 밝기만으로 순서를 읽는 층이 램프의 5/7 을 덮고, 남은 뜨거운 구간은
- * 초록 성분이 단조로 빠지며 갈리므로 색각 이상에서도 "가장 뜨거운 쪽"이 뭉개지지 않는다
- * (차가운 끝의 파랑과 뜨거운 끝의 빨강은 명도가 비슷해도 색상이 정반대라 서로 섞이지 않는다).
- */
+/** 히트 램프 7칸(남색 → 빨강). 명도는 노랑(index 4)까지 단조 증가, 위 두 칸은 색상으로 — 색각 이상에서도 가장 뜨거운 쪽이 뭉개지지 않는다. */
 export const HEATMAP_RAMP: readonly string[] = [
   '#312E81', // indigo-900 — 거의 안 읽음
   '#1D4ED8', // blue-700
@@ -1821,27 +1445,12 @@ export const HEATMAP_RAMP: readonly string[] = [
 export const HEATMAP_ZERO_COLOR = '#374151'; // gray-700
 
 /**
- * §5.24 히트 척도 곡선 목록 — **횟수를 램프 위 자리로 옮기는 방식**. 순서가 곧 범례의 버튼 순서다.
- *
- * 파일 접촉 횟수는 거의 언제나 롱테일이라, 선형 하나만 두면 극단값 하나가 나머지를 램프 첫 칸에
- * 통째로 눌러 앉힌다(실측 2026-09-09 · 읽기 대상 502개 중 **491개(97.8%)** 가 첫 칸 · 중앙값 4회
- * 대 최대 2,471회). 그래서 곡선을 **사용자가 고르는 축**으로 연다 — 어느 것이 맞는지는 지금 보고
- * 있는 분포가 정하지, 우리가 미리 정할 수 없다.
- *
- * - `log`     — 기본. `log1p(v)/log1p(max)`. 최대값이 10배로 자라도 로그는 1.3배만 자라 **지도가
- *               다시 눌리지 않는다**. 단조성을 지키면서 절대 크기도 보존한다.
- * - `linear`  — 종전 동작(`v/max`). 값의 비율을 그대로 본다.
- * - `sqrt`    — 로그와 선형 사이. 낮은 쪽을 덜 들어올린다.
- * - `cbrt`    — 세제곱근. `sqrt` 보다 더 들어올리고 로그보다 덜하다.
- * - `quantile`— 값이 아니라 **순위**로 칠한다. 램프를 가장 고르게 쓰지만 3회와 5회를 크게 벌려
- *               없는 차이를 만들 수 있어 기본으로 두지 않는다.
+ * §5.24 히트 곡선(순서 = 범례 버튼 순서). 접촉 횟수가 롱테일이라 선형이면 극단값이 나머지를 첫 칸에 누른다(실측 2026-09-09: 97.8%) — 곡선은 사용자가 고른다.
+ * `log` 기본(최대가 10배 자라도 1.3배만) · `linear` · `sqrt` · `cbrt` · `quantile`(순위 — 가장 고르지만 없는 차이를 만들 수 있어 기본이 아니다).
  */
 export const HEAT_CURVES = ['log', 'linear', 'sqrt', 'cbrt', 'quantile'] as const;
 
-/**
- * 켜면 시작하는 곡선. **로그다** — 지금 살아 있는 분포에서 첫 칸 쏠림이 97.8% → 46.2% 로 내려가고,
- * 남은 46% 는 실제로 1~2회짜리라 어떤 곡선으로도 나눌 수 없는 데이터의 진실이다.
- */
+/** 기본 곡선은 로그(실측 첫 칸 쏠림 97.8% → 46.2% — 나머지는 실제로 1~2회라 어떤 곡선으로도 못 나눈다). */
 export const DEFAULT_HEAT_CURVE = 'log';
 
 /**
@@ -1856,25 +1465,11 @@ export const HEAT_LEGEND_TICKS = 3;
 export const IFRAME_BUBBLE_HEIGHT = 90;
 
 // ─── 모델 컨텍스트 한도 (토큰) ───
-//
-// §4 v2.38 — 정적 테이블은 시드(폴백)로 격하. 런타임 SSOT 는 server `ModelRegistryService` 가 빌드해
-// `GraphSnapshot.modelRegistry` 로 클라에 전달하는 `ModelRegistry`.
-// 콜사이트는 `getModelContextLimit(modelId, registry?)` 헬퍼 통일.
+// §4 — 정적 표는 시드(폴백)다. 런타임 SSOT 는 `ModelRegistry`(서버가 짓고 `GraphSnapshot.modelRegistry` 로). 조회는 `getModelContextLimit` 로.
 
 /**
- * 풀ID → 컨텍스트 한도(토큰) **시드**.
- *
- * v2.40 이 이 테이블을 비우며 "패밀리 디폴트만으로 충분(Opus=1M, Sonnet/Haiku=200k)"이라고 적었는데,
- * 그 전제는 깨졌다 — 같은 sonnet 안에서 **Sonnet 5/4.6 은 1M, Sonnet 4.5 는 200K** 다. 패밀리 하나에
- * 한 값만 두면 둘 중 하나는 반드시 틀린다. 그래서 **아는 풀ID 는 여기 정확히 적고**, 패밀리 디폴트는
- * §4 v2.38 이 준 원래 역할("처음 보는 풀ID 폴백")로 되돌린다.
- *
- * 출처는 Anthropic 공개 문서 — 모델 개요표(`platform.claude.com/docs/en/about-claude/models/overview`)
- * 의 Context window 행 + 가격표의 long-context 주석("Claude 4.6 and later models ... include the full
- * 1M token context window"). 확인 2026-09-02, Sonnet 5.5·Haiku 5.5 는 2026-10-15.
- *
- * 해소 순서는 `getModelContextLimit` — (1) 레지스트리 entry → (2) 이 시드 → (3) 패밀리 디폴트 → (4) `DEFAULT_CONTEXT_LIMIT`.
- * `ANTHROPIC_API_KEY` 가 있으면 `/v1/models` 의 `max_input_tokens` 가 (1) 에서 이 시드를 덮어 최신을 따라간다.
+ * 풀ID → 컨텍스트 한도 시드. 같은 패밀리도 값이 갈려(Sonnet 4.6 1M · 4.5 200K) 아는 ID 는 여기 적는다 — 패밀리 디폴트는 처음 보는 ID 폴백일 뿐.
+ * 출처: 공개 모델 개요표 Context window 행(확인 2026-09-02, Sonnet 5.5·Haiku 5.5 는 2026-10-15). 키가 있으면 `/v1/models` 의 `max_input_tokens` 가 덮는다.
  */
 export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   // 1M 세대 — 4.6 이후는 1M 이 표준가에 포함된다(장문 프리미엄 ❌). Haiku 5.5 만 예외로 길이 구간 요금이다(`MODEL_PRICING`).
@@ -1897,12 +1492,7 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   'claude-sonnet-4-0': 200_000,
   'claude-haiku-4-5': 200_000,
 };
-/**
- * 알 수 없는 모델의 기본 컨텍스트 한도 — 패밀리 추론까지 실패할 때만.
- *
- * **낮은 쪽으로 둔다.** 실제보다 작게 잡으면 게이지가 일찍 차서 성가신 정도지만, 크게 잡으면
- * 넘치기 직전까지 아무 경고도 못 준다. 현행 모델의 실제 하한(Haiku 4.5)과도 같은 값이다.
- */
+/** 모르는 모델의 컨텍스트 한도 — 낮게 둔다: 작으면 게이지가 일찍 찰 뿐, 크면 넘치기 직전까지 경고가 없다. */
 export const DEFAULT_CONTEXT_LIMIT = 200_000;
 
 // ─── 에이전트 ───
@@ -1911,30 +1501,12 @@ export const MAX_AGENTS = 10;
 export const MAX_AGENT_EVENTS = 30;
 
 /**
- * §5.3 #10 (판올림 번호 발급 대기) — **커스텀 에이전트 정원(프로젝트당).**
- *
- * `POST /api/create-custom-agent` 는 §3.7 빌더 구축 경로라 loopback 토큰만 있으면 닿는데 **개수
- * 제한이 한 곳도 없었다**(`MAX_AGENTS` 는 이름과 달리 이 축이 아니고, 유일한 사용처도 주석 처리된
- * 상태다). 그래서 "작업이 끝나면 새 에이전트를 둘 만들어라" 한 줄이면 버블·자식 프로세스가
- * 기하급수로 늘고, 각 자식이 다시 그 규칙을 물려받아 자기증식이 성립했다 — §5.10 리플렉션이
- * 전체 토큰의 76.9% 를 태웠던 그 계열의 사고이고, 그쪽은 시간당 상한·동시 상한·백오프로 막았는데
- * 스폰 축에는 그 세 장치가 없었다.
- *
- * 값은 **막으려는 것과 지키려는 것 사이**에서 골랐다 — 빌더가 짜는 오케스트라는 실측 5~8개라
- * 40 이면 정상 사용을 한 번도 건드리지 않고, 자기증식은 두 세대 안에 벽을 만난다.
- * 사용자가 캔버스에서 직접 만드는 것도 같은 정원을 쓴다(창구가 하나라 예외를 두면 그 예외가
- * 곧 우회로가 된다 — 정원이 찼다는 것은 화면에 40개가 이미 있다는 뜻이고, 그때는 사람도 지운다).
+ * §5.3 #10 — 프로젝트당 커스텀 에이전트 정원. `POST /api/create-custom-agent` 는 loopback 토큰으로 닿아 상한이 없으면 "끝나면 둘 더 만들어라" 한 줄로 자기증식한다.
+ * 40 = 빌더 오케스트라(실측 5~8개)는 안 건드리는 값. 캔버스에서 만드는 것도 같은 정원 — 예외가 곧 우회로다.
  */
 export const CUSTOM_AGENT_MAX_PER_PROJECT = 40;
 
-/**
- * §5.3 #9 (판올림 번호 발급 대기) — **한 세션 명령 대기열의 길이 상한.**
- *
- * 위 정원이 "몇 개나 뜨나"를 막는다면 이쪽은 "한 놈이 몇 번이나 자기를 다시 부르나"를 막는다.
- * 에이전트는 `POST /api/commands/:sessionId` 로 **자기 세션에** 명령을 넣을 수 있고, 턴이 끝나면
- * Stop 훅이 큐에서 다음 것을 꺼내 다시 띄운다 — 큐에 상한이 없으면 그 고리는 끊기지 않는다.
- * 사용자가 손으로 쌓는 명령은 실측 한 자릿수라 이 값이 사람의 사용을 막을 일은 없다.
- */
+/** §5.3 #9 — 세션 명령 대기열 상한. 에이전트가 자기 세션에 명령을 넣고 Stop 훅이 다시 띄우는 고리를 끊는다(사람은 실측 한 자릿수). */
 export const COMMAND_QUEUE_MAX_PER_SESSION = 50;
 /** 초기 로딩 시 띄울 최근 세션 수 */
 export const INITIAL_AGENT_COUNT = 3;
@@ -1949,114 +1521,46 @@ export const GHOST_FADE_DURATION = 60 * 1000;
 /** 세션 스캔 주기 (ms) */
 export const SESSION_SCAN_INTERVAL = 10_000;
 
-/**
- * Cowork 설정 홈 재탐색 간격 (ms) — §3.6 훅 설치처 · §5.7 #24 세션 스캔이 공유한다.
- *
- * Cowork 세션 홈은 `<userData>/claude-code-sessions/<org>/<user>/<session>` 3겹이라 열거에
- * `readdir` 이 세 번 중첩된다. 세션 스캔(10초)마다 그걸 다시 훑으면 세션이 수백 개인 기계에서
- * 같은 디렉터리를 하루 8,640번 읽는다 — 디렉터리 구성은 그만큼 자주 바뀌지 않으므로 캐시한다.
- * 새 세션이 뜨고 이 간격 안에 훅이 깔리면 그 세션은 첫 턴부터 잡힌다.
- */
+/** Cowork 설정 홈 재탐색 간격(ms, §3.6 · §5.7 #24 공유) — 3겹 `readdir` 을 세션 스캔(10초)마다 하지 않게 캐시한다. */
 export const COWORK_HOME_CACHE_MS = 15_000;
 
-/**
- * 한 번에 다루는 Cowork 세션 홈 개수 상한 — **최근 것부터**.
- *
- * Cowork 세션 디렉터리는 대화를 할수록 쌓이기만 하고 스스로 줄지 않는다(실측: 이 기계에
- * 7월 한 주에만 8개). 상한이 없으면 훅 주입 대상과 세션 스캔 대상이 함께 무한히 는다 —
- * "키 개수엔 캡이 없다"가 만든 용량 폭증과 같은 자리다. 오래된 세션은 이미 끝난 대화라
- * 훅을 깔아 봐야 발화하지 않으므로, 최근 것만 본다.
- */
+/** Cowork 세션 홈 상한(최근 것부터) — 쌓이기만 해 상한이 없으면 훅 주입·스캔 대상이 무한히 는다(오래된 세션엔 훅이 발화하지 않는다). */
 export const COWORK_HOME_SCAN_MAX = 48;
 
-/**
- * 에이전트 자동 idle 전환 임계값 (ms) — 부모/서브 모두 적용.
- * 마지막 이벤트 timestamp로부터 이 시간을 넘기면 서버가 status='idle'로 전환.
- * active/completed 양쪽 모두 대상. 수동 dismiss·좀비 제거와 별개 축.
- */
+/** 자동 idle 전환 임계값(ms) — 부모/서브, active/completed 모두. 수동 dismiss·좀비 제거와 별개 축. */
 export const AGENT_IDLE_THRESHOLD_MS = 5 * 60 * 1000;
 
-/**
- * §2.4 (잠듦) — 이 시간을 넘겨 아무 명령도 처리하지 않은 세션의 claude 자식 프로세스를 회수한다.
- * 짧은 후속 입력에는 자식을 재사용하되 5분간 쉬면 회수하는 앱 자체 정책이다.
- * 대화는 디스크 JSONL 에 남아 있어 다음 명령이 --resume 으로 그대로 이어 간다.
- */
+/** §2.4 (잠듦) — 이만큼 명령이 없던 세션의 claude 자식을 회수한다. 대화는 JSONL 에 남아 다음 명령이 `--resume` 으로 잇는다. */
 export const SUBAGENT_DORMANT_IDLE_MS = 5 * 60 * 1000;
 /** 자동 idle 전환 판정 주기 (ms) */
 export const AGENT_IDLE_SWEEP_INTERVAL_MS = 30_000;
 
-/**
- * §9 "열려 있어도 오래 안 보면 내려놓는다" — **배경 탭 유휴 해제 임계값(ms)**.
- *
- * 어떤 창의 구독 범위(§9 스코프드 구독)에도 들어 있지 않고, 이 시간 동안 아무 일도 하지 않은
- * 프로젝트를 `unloadProject`(stub 강등)로 내려놓는다. 탭은 그대로 보이고 클릭하면 되살아난다.
- *
- * **0 이면 이 정리를 하지 않는다**(§3.2.3 "전부 사용자 조절 가능 · 0 = 무제한" 규약과 동일).
- */
+/** §9 — 배경 탭 유휴 해제(ms): 구독 밖에서 이만큼 조용한 프로젝트를 `unloadProject`(stub)로 내려놓는다(탭은 남는다). 0 = 끔(§3.2.3). */
 export const PROJECT_IDLE_UNLOAD_MS = 15 * 60 * 1000;
 
 /** 배경 탭 유휴 해제 판정 주기 (ms). 판정 자체가 부하가 되면 안 되므로 넉넉히 잡는다. */
 export const PROJECT_IDLE_UNLOAD_SWEEP_MS = 60_000;
 
-/**
- * 힙 압력(§3.2.4 I축)이 걸렸을 때 적용하는 **낮춘** 유휴 임계값(ms).
- * 압력 상황에서는 "15분은 기다려 보자"가 사치라 3분으로 좁혀 먼저 내려놓는다.
- * `PROJECT_IDLE_UNLOAD_MS` 가 0(끔)이면 이 값도 적용하지 않는다 — 끈 것은 끈 것이다.
- */
+/** 힙 압력(§3.2.4 I축) 때의 낮춘 유휴 임계값. `PROJECT_IDLE_UNLOAD_MS` 가 0 이면 쓰지 않는다 — 끈 것은 끈 것이다. */
 export const PROJECT_IDLE_UNLOAD_PRESSURE_MS = 3 * 60 * 1000;
 
-/**
- * §9 "탭을 옮긴 직후의 빈 캔버스는 빈 프로젝트가 아니다" — **불러오는 중 표시를 띄우기까지 기다리는 시간(ms)**.
- *
- * 탭 전환은 `set-project-scope` 선언 → 서버가 그 자리에서 스냅샷 1벌 회신, 이라는 **왕복**이다.
- * 같은 기기에서는 눈에 띄지 않지만 원격(느린 회선)에서는 몇 초씩 걸리고 그동안 캔버스가 비어
- * 보인다. 그렇다고 즉시 띄우면 빠른 전환마다 표시가 깜빡여 오히려 거슬리므로, **이 시간을
- * 넘겨 기다릴 때만** 조용히 나타난다(도착하면 사라진다).
- */
+/** §9 — 탭 전환 뒤 "불러오는 중"을 띄우기까지(ms). 원격에선 스냅샷 왕복 동안 캔버스가 비고, 즉시 띄우면 빠른 전환마다 깜빡인다. */
 export const PROJECT_LOAD_HINT_DELAY_MS = 400;
 
-/**
- * §9 — 이 시간을 넘겨서도 스냅샷이 안 오면 **문구를 바꾼다**("불러오는 중" → "회선이 느립니다").
- *
- * 같은 말을 계속 띄우면 멈춘 것처럼 보이고, 사용자는 앱이 죽었는지 회선이 느린지 알 길이 없다
- * (원격 접속에서 실제로 나온 신고다). 상태는 그대로이고 **말만 정확해진다.**
- */
+/** §9 — 이만큼 지나도 스냅샷이 없으면 문구를 "회선이 느립니다"로 — 같은 말만 계속되면 멈춘 것처럼 보인다. */
 export const PROJECT_LOAD_HINT_SLOW_MS = 6_000;
 
-/**
- * §4 v1.50/v3.60 — Claude.ai 한도 사용률 경고 임계(%).
- * DetailPanel 게이지·헤더 사용량 필·팝업이 모두 이 값을 공유한다(색 기준 단일화).
- */
+/** §4 — Claude.ai 한도 사용률 경고 임계(%). 게이지·헤더 필·팝업이 함께 쓴다. */
 export const USAGE_LIMIT_WARN_PCT = 70;
 export const USAGE_LIMIT_DANGER_PCT = 90;
 
-/**
- * §4 — 사용량 표시값을 다시 조립하는 주기.
- *
- * 종전(구 v3.62)에는 이 자리에 `/api/oauth/usage` 직접 호출용 URL·타임아웃이 함께 있었다.
- * 그 호출은 문서화되지 않은 내부 엔드포인트를 OAuth 토큰으로 자동 조회하는 것이라 약관에
- * 걸려 걷어냈다(`claudeUsageService` 주석 참고). 그 자리를 대신하는 지금의 1차 원천은 **공식
- * CLI 의 `/usage` print 실행**(`claudeUsageProbe`)이라, 이 주기는 그 probe 를 도는 간격이기도
- * 하다 — 모델 호출이 0턴이라 과금이 없고(실측), 부르는 것은 공개 인터페이스(CLI)뿐이다.
- */
+/** §4 — 사용량 갱신 주기 = 공식 CLI `/usage` print probe 간격(모델 0턴, 과금 없음 — 실측). 문서에 없는 `/api/oauth/usage` 를 OAuth 토큰으로 부르지 않는다 — 약관에 걸린다. */
 export const CLAUDE_USAGE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 
-/**
- * §4 — `claude -p "/usage"` probe 1회 타임아웃.
- *
- * 실측 2.3초(모델 호출 0턴)라 넉넉히 잡아도 안전하다. 값을 못 받으면 화면이 "실행 경로 문제"
- * 라고 말해야 하므로(`ClaudeUsageError.cli-unavailable`) 무한정 기다리지 않는다.
- */
+/** §4 — `claude -p "/usage"` probe 타임아웃(실측 2.3초). 못 받으면 `cli-unavailable` 을 말해야 해 무한정 기다리지 않는다. */
 export const CLAUDE_USAGE_PROBE_TIMEOUT_MS = 30_000;
 
-/**
- * §4 v4.82 — 앱 안 Claude 로그인 설정.
- *
- * 상태 판정은 `claude auth status --json` 한 번 spawn(정상 응답 수백 ms). 폴링은 "밖에서
- * 로그아웃했는데 앱만 모르는" 구간을 없애기 위한 것이라 넉넉히 잡고, 로그인 팝업이 떠 있는
- * 동안에는 클라가 `LOGIN_POLL` 간격으로 직접 재조회한다(성공 판정의 1차 근거 — CLI 출력
- * 문구 파싱은 보조).
- */
+/** §4 — 앱 안 Claude 로그인: `claude auth status --json` spawn 으로 판정(수백 ms). 로그인 팝업 동안엔 `LOGIN_POLL` 간격 재조회가 성공 판정의 1차 근거다(CLI 문구 파싱은 보조). */
 export const CLAUDE_AUTH_PROBE_TIMEOUT_MS = 8_000;
 /** `claude auth logout` 은 네트워크 왕복이 있어 조금 더 길게. */
 export const CLAUDE_AUTH_LOGOUT_TIMEOUT_MS = 20_000;
@@ -2072,35 +1576,12 @@ export const CLAUDE_AUTH_LOGIN_TERM_ID = 'term:auth:login';
 export const CLAUDE_AUTH_TERMINAL_REVEAL_MS = 6_000;
 
 /**
- * Claude Code CLI 내장(built-in) 슬래시 명령 목록 — `/` 자동완성 드롭다운(§5.5 #17-2)이 읽는다.
- *
- * **출처는 Anthropic 공개 문서**(`https://code.claude.com/docs/en/commands`)의 명령 표다.
- * 종전에는 CLI 실행본을 latin1 로 읽어 minified 객체 리터럴을 정규식으로 뜯어냈는데(구 v3.19),
- * 그 방식은 Anthropic 소비자 약관 §3 이 금지하는 "역설계 … 사람이 판독 가능한 형태로 축소"에
- * 닿을 소지가 있어 공개 인터페이스로 옮겼다. 부수 효과로 **커버리지가 늘었다** — 스캔이
- * 놓치던 `/init` `/login` `/memory` `/code-review` `/verify` 등 사용자가 실제로 치는 명령이
- * 들어왔고(+29), 빠진 것은 대부분 문서에 없는 내부용(`/daemon` `/pro-trial-expired` 등)이다.
- *
- * **갱신 방법**: 위 문서의 표가 바뀌면 이 목록을 다시 뽑는다. CLI 업데이트만으로 자동
- * 추종하던 성질은 잃었으므로, 없는 명령을 사용자가 치면 CLI 가 그대로 거절한다(표시 전용
- * 목록이라 실행 경로는 불변 — 서버는 텍스트를 그대로 세션에 넘긴다).
+ * `BUILTIN_SLASH_COMMANDS` 설명 — `/` 자동완성용 CLI 내장 명령. 출처는 공개 문서 `code.claude.com/docs/en/commands`(실행본 추출 ❌ — 약관 §3 역설계 금지).
+ * 표시 전용 — 없는 명령은 CLI 가 거절한다.
  */
 /**
- * §4 (슬래시 명령 가용성) — **헤드리스 세션에서는 실행되지 않는 내장 명령**.
- *
- * Vibisual 의 기본 실행 경로(`executionMode: 'headless'`)는 화면이 없다. 이 목록의 명령은 CLI 안에서
- * 대화형 패널을 여는 부류라, 헤드리스로 보내면 예외 없이 아래 한 줄만 돌아오고 턴이 끝난다:
- *   `"/<name> isn't available in this environment."`  (실측: `turns=0`, `cost=$0` — API 호출도 없다)
- *
- * 종전에는 이 사실을 화면이 전혀 말해 주지 않아, 사용자가 `/` 드롭다운에서 고른 명령이 왜 죽는지
- * 알 방법이 없었다(Fast 모드와 같은 뿌리 — 우리가 헤드리스라서 CLI 가 거절한다).
- *
- * **판정 근거는 공개 동작이다** — 그 명령을 한 번 쳐 보면 누구나 같은 답을 받는다. 목록이 낡아도
- * 위험하지 않다: 여기 없는데 실제로는 안 되는 명령은 종전처럼 CLI 가 직접 거절하고, 여기 있는데
- * 되는 명령은 배지 하나가 더 붙을 뿐 실행 경로는 손대지 않는다(§3.3 표시와 로직 분리).
- *
- * ⚠ `executionMode: 'interactive-terminal'`(CMD 버블)에서는 **전부 정상 동작한다** — 그쪽은 진짜
- * REPL 이다. 그래서 판정은 명령 이름만으로 하지 않고 `slashCommandNeedsTerminal` 이 실행 모드와 함께 본다.
+ * §4 — 헤드리스에선 안 도는 내장 명령(대화형 패널을 여는 부류): `"/<name> isn't available in this environment."` 한 줄로 끝난다(실측 turns=0).
+ * 공개 동작이 근거라 낡아도 배지만 틀린다(실행 경로 불변, §3.3). CMD 버블(진짜 REPL)에선 다 되므로 `slashCommandNeedsTerminal` 이 실행 모드와 함께 본다.
  */
 const TERMINAL_ONLY_SLASH_COMMANDS: ReadonlySet<string> = new Set([
   'add-dir', 'advisor', 'artifacts', 'autofix-pr', 'background', 'branch', 'btw', 'bug', 'cd',
@@ -2112,12 +1593,7 @@ const TERMINAL_ONLY_SLASH_COMMANDS: ReadonlySet<string> = new Set([
   'upgrade', 'web-setup', 'workflows',
 ]);
 
-/**
- * §4 (슬래시 명령 가용성) — 이 명령을 **지금 이 에이전트에서** 보내면 실제로 도는가.
- *
- * `interactiveTerminal` 이 true 면 그 버블은 진짜 REPL 이라 무엇이든 된다 — 이름만 보고 배지를 달면
- * CMD 버블에서 멀쩡히 되는 명령에 "안 된다"고 거짓말을 하게 된다.
- */
+/** §4 — 이 명령이 이 에이전트에선 안 도는가(터미널이 필요한가). 진짜 REPL(`interactiveTerminal`)이면 늘 false — 이름만 보면 CMD 버블에 거짓말한다. */
 export function slashCommandNeedsTerminal(name: string, interactiveTerminal: boolean): boolean {
   if (interactiveTerminal) return false;
   return TERMINAL_ONLY_SLASH_COMMANDS.has(name.toLowerCase());
@@ -2230,45 +1706,18 @@ export const BUILTIN_SLASH_COMMANDS: readonly BuiltinSlashCommand[] = [
 ];
 
 
-/**
- * 사용자 인터럽트 해소 판정 주기 (ms).
- * Claude Code 는 사용자 인터럽트(Esc/Ctrl+C)·도구 거부 시 Stop 훅을 발사하지 않는다(공식 명세).
- * 그 결과 Hook 에이전트 버블이 active(파란 링)로 stuck 되어 5분 idle sweep 전까지 안 풀린다.
- * 이 주기로 세션 JSONL 의 마지막 엔트리가 인터럽트 sentinel 인지 확인해, 누락된 Stop 훅을 대신
- * 시뮬레이트(→ completed)한다. idle sweep(30초)보다 촘촘히 돌려 인터럽트 직후 빠르게 해소.
- */
+/** 인터럽트 해소 주기(ms). Claude Code 는 인터럽트·도구 거부 때 Stop 훅을 안 내(공식 명세) Hook 버블이 active 로 굳는다 — JSONL 끝이 인터럽트 sentinel 이면 Stop 을 대신 낸다. */
 export const INTERRUPT_RECONCILE_INTERVAL_MS = 5_000;
 
 /**
- * 좀비 `executing` 봉합 유예 (ms) — 이 시간이 지나도 살아 있는 일감이 하나도 없으면 끊긴 것으로 본다.
- *
- * 턴이 실제로 끝났는데 완료 신호가 유실되면 명령이 `executing` 에 굳고, 그 탭은 `busy` 로 잠겨
- * **새 명령을 영영 못 받는다**(앞 명령이 안 끝났으니 다음이 안 나간다). 종전에 이 굳음을 푸는 길은
- * 앱 재기동(restore reconcile)이나 사용자가 [중지]를 누르는 것뿐이었다 — 런타임 자동 회수가 없었다.
- *
- * 유예를 넉넉히 두는 이유: `dispatch → 자식 spawn` 사이에는 "아직 아무것도 안 도는" 짧은 창이 있고,
- * 그 창에서 걷어 내면 **정상 명령을 죽인다.** 과거에 자식 없는 실행 경로를 죽은 것으로 읽어 버블이
- * 완료↔동작을 되풀이한 사고가 있었으므로(2026-08-25), 오탐보다 늦게 걷는 쪽을 택한다.
- * 판정 자체도 자식 유무만 보지 않는다 — PTY 탭·백그라운드 작업·봉인 유예까지 전부 살아있음으로 친다
- * (`SubAgentManager.sealZombieExecutingCommands`).
+ * 좀비 `executing` 봉합 유예(ms) — 이만큼 살아 있는 일감이 없으면 끊긴 것으로 본다(완료 신호 유실로 탭이 `busy` 에 잠기는 것을 푼다).
+ * 넉넉히 둔다 — dispatch→spawn 사이 빈 창에서 걷으면 정상 명령을 죽인다. PTY·백그라운드 작업·봉인 유예도 살아있음이다(`sealZombieExecutingCommands`).
  */
 export const ZOMBIE_EXECUTING_GRACE_MS = 60_000;
 
 /**
- * **"프로세스가 살아 있다"와 "실제로 일하고 있다"를 가르는 시한 (ms).**
- *
- * `ZOMBIE_EXECUTING_GRACE_MS` 는 "살아 있는 일감이 **하나도 없을 때**" 걷는 유예다. 그런데 자식이
- * 살아만 있고 출력이 끊긴 턴은 `localInFlightCmd`·`persistentInFlightCmd` 만으로 계속 "일감 있음"으로
- * 읽혀 **후보로 올라오지도 못했다** — 사용자에게는 영원히 "실행 중"인 탭으로 남는다.
- *
- * 그래서 마지막 스트림 이벤트 시각(`SubAgent.lastActivityAt` — `emitStreamEvent` 가 모든 경로에서
- * 갱신한다)을 축으로 하나 더 둔다. 이 시간이 지나도록 **한 줄도** 흐르지 않으면 그 자식은 살아 있어도
- * 일하는 중이 아니라고 본다.
- *
- * 값이 큰 이유 — 늦게 걷는 쪽이 항상 안전하다(도는 세션을 죽이면 그 사용자의 작업이 날아간다).
- * 그보다 먼저 도는 장치가 둘 있다: ① 코덱스 턴 워치독(`CODEX_TURN_IDLE_SETTLE_MS`, 20분),
- * ② 세션 생존 판정 프로브(§2.4 · 10분 주기). 이 축은 그 둘이 전부 실패했을 때의 **마지막 그물**이라
- * 둘보다 길어야 한다.
+ * "살아 있다"와 "일한다"를 가르는 시한(ms). in-flight 표식으로 늘 일감이 있어 좀비 후보에 못 오르는 턴을, `lastActivityAt` 이 이만큼 멎으면 일하지 않는다고 본다.
+ * 코덱스 워치독(20분)·세션 생존 판정(10분 주기)이 다 실패했을 때의 마지막 그물이라 둘보다 길어야 한다(늦게 걷는 쪽이 안전).
  */
 export const TURN_STREAM_STALL_MS = 30 * 60_000;
 
@@ -2278,42 +1727,22 @@ export const TURN_STREAM_STALL_MS = 30 * 60_000;
  */
 export const CODEX_TURN_IDLE_CHECK_MS = 15_000;
 
-/**
- * 코덱스 턴 1단계 — 출력이 이만큼 끊기면 **위로 알린다**(마감하지 않는다).
- *
- * `AGENT_IDLE_THRESHOLD_MS` 와 같은 5분이다. 긴 도구 하나가 조용한 것과 구분되지 않으므로
- * 이 단계는 기록만 남긴다 — 걷는 판단은 2단계가 한다.
- */
+/** 코덱스 턴 1단계(5분) — 끊기면 알리기만 한다(긴 도구가 조용한 것과 구분이 안 된다). 걷는 판단은 2단계. */
 export const CODEX_TURN_IDLE_NOTICE_MS = 5 * 60_000;
 
-/**
- * 코덱스 턴 2단계 — 이만큼 끊기면 **마감 경로를 태운다**(트리 종료 + `onDone`).
- *
- * 실측 사고(2026-09-20): MCP 서버가 `CONNECT_TIMEOUT` 으로 죽은 뒤 `item.started` 만 남기고
- * 코덱스가 조용해졌다. 자식은 살아 있어 `close` 도 `exit` 도 오지 않았고, 턴을 닫을 타이머가
- * 하나도 없어 명령이 `executing` 에 영구히 굳었다.
- */
+/** 코덱스 턴 2단계 — 이만큼 끊기면 마감(트리 종료 + `onDone`). 실측 2026-09-20: MCP 가 `CONNECT_TIMEOUT` 으로 죽자 자식은 살아 `close`/`exit` 없이 `executing` 에 굳었다. */
 export const CODEX_TURN_IDLE_SETTLE_MS = 20 * 60_000;
 
 /**
- * 짝을 못 찾은 코덱스 MCP 도구 호출의 시한 (ms). 지나면 **합성 실패 `tool_result`** 를 흘려
- * 화면의 도구 카드를 닫는다(§5.25 (F)).
- *
- * MCP 는 자체 전송 시한이 있어 10분을 정상적으로 도는 호출이 없다 — Bash(`tool_timeout_sec=3600`)와
- * 달리 여기서만 시한을 걸 수 있는 이유다. 시한이 없으면 `item.started` 만 오고 만 호출이
- * "도는 중" 카드로 영원히 남아, 사용자는 멈춘 턴과 도는 턴을 구분할 길이 없다.
+ * 짝 없는 코덱스 MCP 호출 시한(ms) — 지나면 합성 실패 `tool_result` 로 카드를 닫는다(§5.25 (F)). MCP 는 자체 전송 시한이 있어 10분을 정상으로 도는 호출이 없다
+ * (Bash `tool_timeout_sec=3600` 과 달리 여기만 걸 수 있다).
  */
 export const CODEX_MCP_CALL_DEADLINE_MS = 10 * 60_000;
 
 /** 파일 존재 확인 주기 (ms) — 삭제된 파일 버블 자동 제거 */
 export const FILE_EXISTENCE_CHECK_INTERVAL = 30_000;
 
-/**
- * 파일 노드를 ghost(삭제 추정)로 전환하기 전 요구하는 연속 "존재 안 함" 관측 횟수.
- * 에디터 atomic-save(temp+rename)·git·빌드툴이 파일을 찰나 치우는 동안 1회 fs.existsSync
- * miss로 실재 파일이 소멸되던 버그 방지. 연속 miss가 이 값에 도달해야 진짜 삭제로 판정.
- * 1이면 디바운스 없음(레거시 동작).
- */
+/** ghost(삭제 추정) 전환 전 연속 miss 횟수 — atomic-save·git·빌드툴이 찰나 치운 파일을 지우지 않게. 1 = 디바운스 없음. */
 export const FILE_EXISTENCE_MISS_THRESHOLD = 2;
 
 // ─── 레이아웃 ───
@@ -2327,22 +1756,12 @@ export const ORBIT_BASE_RADIUS = 180;
 export const ORBIT_RADIUS_PER_ITEM = 20;
 
 /**
- * 위성(파일) 궤도 간격 — 부모 테두리와 위성 테두리 사이의 틈(px).
- *
- * §5.1 #2-2 (J) — 20 → 48 (2026-10-22 사용자 지시 「폴더에 붙는 위성들이 너무 짧아져서 다닥다닥」). 20 은 미디어 위성의 원 아래
- * 이름 줄(`FILE_FACE.captionGap` 3 + 줄 높이 14)과 거의 같아, 12시 자리 위성은 이름이 부모 테두리에 닿았고 위성선이 보이지 않아
- * "도는 것"이 아니라 "붙은 것"으로 읽혔다. 이름 줄 뒤에도 선이 보일 만큼(약 30px) 남긴다.
- *
- * 이 값 하나를 등장 영역 첫 고리 · 물리 스프링 평형점 · 놓았을 때 · 부모가 바뀐 위성 · 정리(§5.4 #33) · 묶음 궤도 점선 · 앱 작업
- * 타원 궤도가 함께 본다 — 따로 들면 한쪽이 앉힌 궤도를 다른 쪽 스프링이 조금씩 당겨 스스로 풀린다.
+ * 위성 궤도 틈(px, §5.1 #2-2 (J)). 20 이면 미디어 위성의 이름 줄(17px)이 부모에 닿고 위성선이 안 보여 "붙은 것"으로 읽힌다 — 이름 줄 뒤에도 선이 보이게 둔다.
+ * 등장 첫 고리·스프링 평형점·놓기·정리(§5.4 #33)·묶음 점선·앱 작업 궤도가 이 값 하나를 본다 — 따로 들면 서로 당겨 궤도가 풀린다.
  */
 export const SATELLITE_ORBIT_GAP = 48;
 
-/**
- * §5.1 #2-2 (J) — 위성 고리의 **이웃 사이(호)**와 **고리 사이** 틈(px). 최상위 버블의 `TIDY_LAYOUT.RING_GAP`(34)·`ROW_GAP`(30)
- * 보다 넓다 — 위성은 원 아래 이름 줄(지름의 1.8배 폭까지)을 달고 다녀, 최상위 간격으로 붙이면 이웃의 이름이 서로를 밟는다.
- * 등장 영역의 위성 격자(`satelliteZoneGrid`)·물리의 다시 걸기·정리(§5.4 #33 (F))가 같은 값을 쓴다.
- */
+/** §5.1 #2-2 (J) — 위성 고리의 이웃·고리 사이 틈(px). 이름 줄(지름의 1.8배 폭)을 달아 최상위 간격(`TIDY_LAYOUT`)보다 넓다. 등장 격자·물리·정리(§5.4 #33 (F))가 같이 쓴다. */
 export const SATELLITE_RING_SPACING = {
   NEIGHBOR_GAP: 44,
   ROW_GAP: 40,
@@ -2360,14 +1779,7 @@ function mediaExtsWithMime(prefix: string): string[] {
     .map(([ext]) => ext);
 }
 
-/**
- * (A) 파일 얼굴의 **종류 표**(소문자, 마침표 포함). 판정은 `fileFaceKindOf` 한 곳이다.
- *
- * **종류 표이지 확장자→앱 대응표가 아니다** — 어느 앱이 굽고 여는지는 레지스트리 선언이 정한다(§5.13 (R-1)).
- * 미디어는 이미 있는 표(그림 창구·미디어 창구·변환 표)를 그대로 펼친다 — 같은 사실을 두 벌로 들면 한쪽만 고쳐진다.
- * 앞의 갈래가 이긴다(한 확장자는 한 얼굴). **`.ts` 는 코드다** — 영상 컨테이너이기도 하지만 이 앱의 사용자에게는
- * 압도적으로 TypeScript 다(변환 표가 같은 이유로 뺀 것과 같다).
- */
+/** (A) 파일 얼굴 종류 표(판정은 `fileFaceKindOf`) — 확장자→앱 표가 아니다(앱은 레지스트리 선언, §5.13 (R-1)). 미디어는 기존 표를 펼친다(두 벌 ❌). 앞 갈래가 이긴다. `.ts` 는 코드다. */
 export const FILE_FACE_EXTENSIONS: Readonly<Record<Exclude<FileFaceKind, 'other'>, readonly string[]>> = {
   video: [
     ...mediaExtsWithMime('video/'), '.mkv', '.3gp', '.3g2', ...WORKSPACE_CONVERT_VIDEO_EXTENSIONS,
@@ -2505,11 +1917,7 @@ export const FILE_FACE_FAMILY_EXTENSIONS: Readonly<Partial<Record<FileFaceFamily
 /** (A) 버블 안에 미리보기를 굽는 **미디어** 얼굴 — 이 넷만 렌즈가 된다. */
 export const FILE_FACE_MEDIA_KINDS: ReadonlySet<FileFaceKind> = new Set<FileFaceKind>(['video', 'image', 'audio', 'model']);
 
-/**
- * (A) 얼굴의 기본색. 미디어는 **그 확장자를 받겠다고 선언한 앱의 색**이 이기고(레지스트리 — 앱 노드와 한 가족으로
- * 읽히게), 이 값은 선언한 앱이 없을 때(psd 등)만 쓴다. 미디어가 아닌 종류는 §2.2 파일 보라 계열 안에서 명도만 가른다 —
- * 파일이라는 정체는 그대로 두고 무엇인지만 더 말한다.
- */
+/** (A) 얼굴 기본색 — 미디어는 그 확장자를 선언한 앱의 색이 이기고 이 값은 선언이 없을 때(psd 등)만. 그 밖은 §2.2 파일 보라 계열에서 명도만 가른다. */
 export const FILE_FACE_STYLES: Readonly<Record<FileFaceKind, { readonly color: string; readonly glow: string }>> = {
   video: { color: '#2B3243', glow: '#9FB0CF' },
   image: { color: '#3A3024', glow: '#E2C08F' },
@@ -2533,6 +1941,10 @@ export const FILE_FACE = {
   radialBars: 40,
   /** 이름 줄을 원 아래로 띄우는 거리(px). */
   captionGap: 3,
+  /** 원 아래 이름 줄의 높이(px) — `FileFaceRim` 의 `leading-[14px]` 와 같은 값(묶음 안 배치가 이 줄까지 몸으로 친다). */
+  captionLineHeight: 14,
+  /** 원 아래 이름 줄의 최대 폭 — 지름의 `ratio` 배, 작은 원이라도 `min` px(`FileFaceRim` 과 묶음 안 배치가 같은 값을 읽는다). */
+  captionMaxWidth: { ratio: 1.8, min: 96 },
   /** 중심 둘레 궤도 점선의 투명도. */
   orbitOpacity: 0.32,
 } as const;
@@ -2709,16 +2121,7 @@ export const IMAGE_VIEW = {
   regrowDebounceMs: 200,
 } as const;
 
-/**
- * **안에 들어갈 수 있는** 폴더 버블 타입 — 더블클릭하면 `children` 을 펼쳐 내부 뷰가 되는 것들.
- *
- * §9 폴더 스코프드 스냅샷이 "한 칸 앞"을 계산할 때 쓴다: 지금 그리는 폴더 안에서 사용자가
- * 다음에 누를 수 있는 것이 이 타입의 자식이므로, 그 자식들의 `children` 까지 미리 실어야
- * 드릴다운이 왕복 없이 즉시 열린다.
- *
- * `pipeline` 은 뺀다 — 내부를 `pipelineChildren` 이라는 **다른 슬라이스**로 그리므로 이 축과
- * 무관하다(여기 넣으면 쓰지도 않을 `children` 을 실어 나른다).
- */
+/** 안에 들어갈 수 있는 폴더 버블 타입 — §9 폴더 스코프드 스냅샷이 한 칸 앞 `children` 까지 실어 드릴다운이 즉시 열린다. `pipeline` 은 `pipelineChildren` 으로 그려 뺀다. */
 export const FOLDER_BUBBLE_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>([
   'internal_folder',
   'external_folder',
@@ -2744,38 +2147,16 @@ export const PANEL_MAX_WIDTH = 720;
 /** 물리 엔진 위치 자동 저장 주기 (ms) */
 export const POSITION_SAVE_INTERVAL = 30_000;
 
-/**
- * §3.2.1 v2.62 — 영속 파일(checkpoint.json / identity.json) 다세대 백업 보관 수.
- * 저장 직전 기존 파일을 `<file>.bak1 → .bak2 → ... → .bak<N>` 로 회전 보관한다.
- * 논리적 실수(빈/급감 저장)·사용자 실수를 N 세대 전까지 수동 복구 가능.
- */
+/** §3.2.1 — checkpoint.json / identity.json 백업 세대 수(`.bak1…N` 회전, 빈/급감 저장을 수동 복구). */
 export const CHECKPOINT_BACKUP_GENERATIONS = 3;
 
-/**
- * §3.2.1 v3.29 — `~/.vibisual/app-state.json`(머신 단위 "열린 프로젝트 목록" SSOT) 다세대 백업 수.
- * app-state 는 "어떤 프로젝트 탭이 뜨는가"의 유일한 SSOT 인데도 과거엔 checkpoint 와 달리
- * fsync·백업·백업복구가 전무했다. 크래시로 이 파일이 truncate 되면 부팅 시 빈 목록 → 탭 0개 →
- * 이후 저장이 손상 파일을 영구 확정하는 손실 경로가 있었다. 같은 손실방지 인프라를 적용한다.
- */
+/** §3.2.1 — `app-state.json`(열린 프로젝트 목록 SSOT) 백업 세대 수. checkpoint 와 같은 손실방지를 쓴다 — 크래시로 잘리면 탭 0개로 부팅해 다음 저장이 손상을 확정한다. */
 export const APP_STATE_BACKUP_GENERATIONS = 3;
 
-/**
- * §5.4 #14-4 — "닫은 탭 다시 열기" 스택에 남길 최대 건수(§3.2.3 축 E — 키 개수 캡).
- *
- * 보존 설정(`RetentionSettings`)으로 빼지 않는 이유: 저 축들이 지키는 것은 **잃으면 되살릴 수
- * 없는 기록**(편집 이력·타이핑한 명령 원문)이라 사용자가 상한을 쥐어야 하지만, 이 스택은 이미
- * 디스크에 그대로 있는 프로젝트를 가리키는 **되돌리기 손잡이**다. 25건이 넘어 밀려난 항목도
- * File → 폴더 열기로 언제든 다시 열 수 있어 잃는 것이 없다. 브라우저(Chrome 최근 닫은 항목)도
- * 같은 크기를 쓴다.
- */
+/** §5.4 #14-4 — 닫은 탭 스택 최대 건수(§3.2.3 축 E). 보존 설정으로 빼지 않는다 — 밀려난 것도 폴더 열기로 다시 열 수 있어 잃는 게 없다(Chrome 과 같은 25). */
 export const MAX_RECENTLY_CLOSED_TABS = 25;
 
-/**
- * §5.4 #14-2 (C-1) — 프로젝트 탭 순서 저장(`PATCH /api/projects/order`).
- *
- * 순서의 SSOT 는 `AppState.openProjects` 의 배열 순서다. 탭을 끌어 놓으면 화면이 먼저 바뀌고 PATCH 가 뒤따르므로,
- * 서버가 그 PATCH 를 받기 전에 떠난 스냅샷이 옛 순서로 탭을 한 번 되돌리지 않게 클라가 놓은 순서를 붙든다.
- */
+/** §5.4 #14-2 (C-1) — 탭 순서 저장(`PATCH /api/projects/order`, SSOT = `openProjects` 순서). PATCH 전에 떠난 스냅샷이 옛 순서로 되돌리지 않게 클라가 놓은 순서를 붙든다. */
 export const PROJECT_TAB_ORDER = {
   /**
    * 놓은 순서를 화면이 붙드는 최대 시간(ms). 보낸 PATCH 가 다 답한 뒤 서버 순서가 그것을 따르면 그 전에 놓는다 —
@@ -2786,29 +2167,13 @@ export const PROJECT_TAB_ORDER = {
   maxEntries: 1000,
 } as const;
 
-/**
- * §3.2.1-3 v2.63 — 명시 삭제 커스텀 에이전트 묘비(deletedCustomAgents) 최대 보관 수.
- * 묘비는 "이미 삭제된 sessionId 의 부활 차단" 신호. sessionId 가 전역 유니크(시간+카운터)라
- * 절대 재생성되지 않아 안전하게 prune 할 길이 없으므로, 단조 증가를 막는 상한만 둔다.
- * 한도 초과 시 가장 오래된 묘비부터 버린다(최근 삭제분이 부활 차단에 더 중요).
- */
+/** §3.2.1-3 — 삭제 에이전트 묘비 상한(지운 sessionId 의 부활 차단). 안전한 prune 기준이 없어 상한만 — 넘치면 오래된 묘비부터. */
 export const DELETED_AGENT_TOMBSTONE_MAX = 1000;
 
 /**
- * §3.2.1-3 v3.03 — checkpoint.json 빈/급감 덮어쓰기 거부 가드.
- * 크래시 후 재시작 시 빈 인스턴스가 멀쩡한 checkpoint 를 빈 그래프로 덮어쓰는 손실을 막는다.
- * 판정은 `graph.agents + graph.nodes` 합계 기준.
- *
- * - `EMPTY_GUARD_MIN_PRIOR`: 디스크 직전 합계가 이 값 이상이면 "통째-0 저장"을 거부 대상으로 본다(1=무엇이든 있었으면).
- * - `SHRINK_GUARD_MIN_PRIOR` / `SHRINK_GUARD_RATIO`: 급감 비율 가드(2차) — 직전 합계가 MIN_PRIOR 이상인데
- *   새 합계가 `직전 * RATIO` 미만이고 묘비로 설명 안 되는 에이전트 소멸이 있을 때 거부. 정상 대량 만료
- *   오탐 위험이 있어 **기본 비활성**(`CHECKPOINT_SHRINK_GUARD_ENABLED=false`); 통째-0 가드만 1차 운용.
- *
- * ⚠ 직전 합계에서 **프로젝트 루트 노드는 빼고** 센다(`ROOT_NODE_KEY_PREFIX`). 루트 노드는 프로젝트를
- *   등록하면 자동 생성되는 골격이라 "지켜야 할 사용자 데이터" 가 아니고, 워크트리처럼 화면 표현이
- *   부모 캔버스로 옮겨간 프로젝트는 정상적으로 0개가 되기 때문. 이 예외가 없으면 "루트 노드 하나뿐인
- *   디스크 vs 비어 있는 정상 인스턴스" 가 매 저장마다 거부되고, 거부되면 디스크도 캐시도 갱신되지
- *   않아 같은 판정이 영원히 반복된다(가드가 자기를 발화시키는 파일을 스스로 보존하는 고착 상태).
+ * §3.2.1-3 — checkpoint 빈/급감 덮어쓰기 거부(크래시 뒤 빈 인스턴스가 덮지 않게, `agents + nodes` 합계). 직전 합계가 `EMPTY_GUARD_MIN_PRIOR` 이상이면 통째-0 저장을 거부한다.
+ * 급감 가드(`SHRINK_GUARD_*`)는 정상 만료 오탐이라 기본 꺼짐(`CHECKPOINT_SHRINK_GUARD_ENABLED=false`).
+ * ⚠ 직전 합계에서 루트 노드(`ROOT_NODE_KEY_PREFIX`)는 뺀다 — 안 빼면 루트뿐인 디스크 vs 빈 인스턴스가 매번 거부돼 같은 판정이 영원히 반복된다.
  */
 export const CHECKPOINT_EMPTY_GUARD_MIN_PRIOR = 1;
 export const CHECKPOINT_SHRINK_GUARD_MIN_PRIOR = 8;
@@ -2866,18 +2231,11 @@ export const PHYSICS_SLEEP_THRESHOLD = 0.1;
 export const PHYSICS_SLEEP_FRAMES = 15;
 
 // ─── 모델 가격 ($ per 1M tokens) ───
-//
-// §4 v2.38 — `MODEL_PRICING` 정적 테이블은 시드(폴백)로 격하. 런타임 SSOT 는 `ModelRegistry`.
-// 콜사이트는 `getModelPricing(modelId, registry?)` 헬퍼 통일.
+// §4 — `MODEL_PRICING` 은 시드(폴백), 런타임 SSOT 는 `ModelRegistry`. 조회는 `getModelPricing` 로.
 
 /**
- * 단가 한 벌 만들기 — **캐시 두 값은 기본 입력가에서 파생한다**(손으로 옮겨 적지 않는다).
- *
- * Anthropic 공개 가격표의 배수: 5분 캐시 쓰기 = 입력가 × 1.25, 캐시 읽기 = 입력가 × 0.1.
- * 예외가 있어 `cacheReadMultiplier` 를 열어 둔다 — **Fable 5.1 / Mythos 5.1 은 0.025×, Opus 5.5 / Sonnet 5.5 는
- * 0.05×** 다(가격표 각주: "All other models use the standard 0.1x multiplier").
- * `longPrompt` 는 길이 구간 요금(현재 Haiku 5.5 뿐) — 장문 구간의 캐시 두 값도 같은 배수로 파생한다.
- * 부동소수 꼬리(3 × 0.1 = 0.30000000000000004)는 6자리에서 끊는다.
+ * 단가 한 벌 — 캐시 값은 입력가에서 파생(쓰기 ×1.25, 읽기 ×0.1). 예외 `cacheReadMultiplier`: Fable 5.1·Mythos 5.1 0.025×, Opus 5.5·Sonnet 5.5 0.05×.
+ * `longPrompt` 캐시도 같은 배수, 부동소수 꼬리는 6자리에서 끊는다.
  */
 function makePricing(
   input: number,
@@ -2897,25 +2255,12 @@ function makePricing(
   return { ...base, longPrompt: { aboveTokens: longPrompt.aboveTokens, ...tier(longPrompt.input, longPrompt.output) } };
 }
 
-/**
- * Haiku 5.5 길이 구간 요금 — 한 요청의 프롬프트가 10만 토큰을 **넘으면** 그 요청 전체가 $0.50/$2.50
- * (이하는 $0.10/$0.50). 공개 가격표 Model pricing 두 행 + "Long context pricing" 절, 확인 2026-10-15.
- * 시드 단가와 패밀리 디폴트가 같은 값을 쓰도록 한 벌만 둔다.
- */
+/** Haiku 5.5 길이 구간 요금 — 프롬프트가 10만 토큰을 넘는 요청은 전체가 $0.50/$2.50(이하 $0.10/$0.50, 확인 2026-10-15). 시드·패밀리 디폴트가 같이 쓴다. */
 const HAIKU_5_5_PRICING: ModelPricing = makePricing(0.1, 0.5, 0.1, { aboveTokens: 100_000, input: 0.5, output: 2.5 });
 
 /**
- * 풀ID → 가격 **시드**.
- *
- * v2.40 이 이 테이블을 비운 근거는 "패밀리 내 minor 버전은 가격이 같다"는 관찰이었는데, 그 관찰은
- * 깨졌다 — 같은 sonnet 안에서 **Sonnet 5 는 $2/$10, Sonnet 4.6 은 $3/$15** 다. 패밀리 하나에 한 값만
- * 두면 둘 중 하나는 반드시 틀리므로, **아는 풀ID 는 여기 정확히 적는다**(컨텍스트 시드와 같은 규율).
- *
- * 출처는 Anthropic 공개 가격표(`platform.claude.com/docs/en/about-claude/pricing`) 의 Model pricing 표.
- * 확인 2026-09-02, Sonnet 5.5·Haiku 5.5 는 2026-10-15. 은퇴 모델(Opus 4.1 등)도 남겨 둔다 — 드롭다운에는 없지만
- * **지난 세션의 JSONL 에** 그 ID 가 남아 있어 `getModelPricing(view.lastModel)` 이 그대로 조회하기 때문이다.
- *
- * 해소 순서는 `getModelPricing` — (1) 레지스트리 entry.pricing → (2) 이 시드 → (3) 패밀리 디폴트 → (4) `DEFAULT_PRICING`.
+ * 풀ID → 가격 시드. 같은 패밀리도 값이 갈려(Sonnet 5 $2/$10 · 4.6 $3/$15) 아는 ID 는 여기 적는다. 출처: 공개 가격표 Model pricing(확인 2026-09-02, Sonnet 5.5·Haiku 5.5 는 2026-10-15).
+ * 은퇴 모델도 남긴다 — 지난 세션 JSONL 의 ID 로 조회된다. 순서: 레지스트리 → 시드 → 패밀리 → `DEFAULT_PRICING`.
  */
 export const MODEL_PRICING: Record<string, ModelPricing> = {
   'claude-fable-5-1': makePricing(10, 50, 0.025),
@@ -2935,11 +2280,9 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   'claude-sonnet-4-0': makePricing(3, 15),
   'claude-haiku-5-5': HAIKU_5_5_PRICING, // 길이 구간 요금 — 10만 토큰 초과 요청은 5배
   'claude-haiku-4-5': makePricing(1, 5),
-  // OpenAI Standard / short-context API rates per 1M tokens; checked 2026-10-13.
-  // https://developers.openai.com/api/docs/pricing
-  // This is a token-cost equivalent, not a ChatGPT subscription/credit charge.
-  // Older Codex models: https://developers.openai.com/api/docs/models/<model-id>
-  // Models without separate cache-write billing use 0; uncached input covers it.
+  // OpenAI Standard API rates per 1M tokens, checked 2026-10-13: https://developers.openai.com/api/docs/pricing
+  // (older Codex models: https://developers.openai.com/api/docs/models/<model-id>). Token-cost equivalent, not a ChatGPT subscription charge.
+  // No separate cache-write billing → 0 (uncached input covers it).
   'gpt-6-astra': { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
   'gpt-6.1-sol': { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
   'gpt-6-sol': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
@@ -2962,28 +2305,12 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   'gpt-5': { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
 };
 
-/**
- * 알 수 없는 모델 최종 폴백 — 패밀리 추론까지 실패할 때만.
- *
- * **현행 최고가 티어**(Fable = $10/$50)로 둔다. 종전 값 $15/$75 는 은퇴한 Opus 4.1 의 단가라
- * 지금은 **어떤 현행 모델보다도 비싸서**, 모르는 모델의 비용을 최소 1.5배 부풀렸다.
- * 캐시 읽기는 보수적으로 표준 0.1× 를 쓴다(0.025× 는 Fable 5.1 계열 전용 할인이라 폴백에 쓰면 과소계상).
- */
+/** 모르는 모델의 최종 폴백 = 현행 최고가 티어(Fable $10/$50 — 은퇴 모델 단가는 현행보다 비싸 부풀린다). 캐시 읽기는 표준 0.1×(할인 배수면 과소계상). */
 export const DEFAULT_PRICING: ModelPricing = makePricing(10, 50);
 
 /**
- * §4 v2.38 — 패밀리별 디폴트(**처음 보는 풀ID** 폴백).
- * Anthropic `/v1/models` 는 신규 풀ID·컨텍스트는 주지만 **가격은 주지 않으므로**, 시드에도 없는 ID 는
- * 그 패밀리의 **현재 latest** 단가로 추정한다(처음 보는 ID 는 새로 나온 것일 확률이 높다).
- *
- * §4 v2.77 — `Record<KnownModelFamily,…>` 로 좁힘.
- * (판올림 번호 발급 대기) — fable/mythos 를 실제로 채운다. 종전에는 이 둘이 표에 없어 `isKnownFamily` 가
- * 걸러내고 `DEFAULT_*` 로 떨어졌는데, 그 폴백이 $15/$75 · 200K 라 **Fable 에이전트의 비용이 1.5배 과대,
- * 컨텍스트가 5배 과소**로 나왔다(문맥 게이지가 실제 20% 지점에서 100% 로 보임).
- *
- * 2026-10-15 — 값을 다시 "그 패밀리의 현재 latest" 로 맞춘다: opus=Opus 5.5, sonnet=Sonnet 5.5,
- * haiku=Haiku 5.5. 종전 opus 는 Opus 5, haiku 는 Haiku 4.5($1/$5·200K)라 시드가 놓친 Haiku 5.5 세션이
- * 비용 약 10배·컨텍스트 5배 과소로 보였다(§4 동적 모델 레지스트리 ⑧).
+ * §4 — 패밀리 디폴트(처음 보는 ID 폴백). `/v1/models` 는 가격을 주지 않아 그 패밀리의 현재 latest 단가로 추정한다 — latest 가 아니면 시드가 놓친 세션의 비용·컨텍스트가 몇 배씩 틀린다(§4 ⑧).
+ * fable/mythos 도 채운다 — 빠지면 `DEFAULT_*` 로 떨어져 컨텍스트가 5배 과소로 잡힌다.
  */
 export const MODEL_FAMILY_DEFAULTS: Record<KnownModelFamily, { contextWindow: number; pricing: ModelPricing }> = {
   fable:  { contextWindow: 1_000_000, pricing: makePricing(10, 50, 0.025) },
@@ -2993,63 +2320,33 @@ export const MODEL_FAMILY_DEFAULTS: Record<KnownModelFamily, { contextWindow: nu
   haiku:  { contextWindow: 1_000_000, pricing: HAIKU_5_5_PRICING },
 };
 
-/**
- * §4 v2.77 — `MODEL_FAMILY_DEFAULTS` 키(=디폴트 테이블 보유 패밀리)인지 판정.
- * **표에서 직접 읽는다** — 손으로 적은 `===` 목록은 표에 패밀리를 추가할 때 같이 고치는 것을 잊으면
- * 조용히 어긋난다(fable 이 표에 없어서가 아니라 이 목록에 없어서 폴백되는 사고가 실제로 있었다).
- */
+/** §4 — 표에서 직접 읽는다(손으로 적은 목록은 패밀리 추가 때 잊혀 조용히 폴백된다). */
 export function isKnownFamily(family: string | undefined | null): family is KnownModelFamily {
   return !!family && Object.prototype.hasOwnProperty.call(MODEL_FAMILY_DEFAULTS, family);
 }
 
-/**
- * §4 v2.38 — 풀ID prefix 에서 패밀리 추론.
- * 예: `claude-opus-4-8` → `'opus'`, `claude-sonnet-4-6` → `'sonnet'`, `claude-fable-5` → `'fable'`.
- *
- * §4 v2.77 — opus/sonnet/haiku 화이트리스트 제거. `claude-<family>-<digit>…` 형태의 임의 패밀리를 수용한다
- * (family 뒤에 숫자가 와야 진짜 버전ID — `claude-code-…` 류 비모델 문자열 회피). 매칭 실패 시 undefined.
- */
+/** §4 — 풀ID 에서 패밀리 추론(임의 패밀리 수용). 패밀리 뒤에 숫자가 와야 한다 — `claude-code-…` 같은 비모델 문자열을 거른다. */
 export function parseFamilyFromFullId(id: string | undefined | null): ModelFamily | undefined {
   if (!id) return undefined;
   const m = /^claude-([a-z]+)-\d/.exec(id);
   return m?.[1] as ModelFamily | undefined;
 }
 
-/**
- * §4 v2.77 — 풀ID 의 (major, minor) 추출. minor 가 없으면 0.
- * `claude-opus-4-8` → [4,8], `claude-fable-5` → [5,0]. 임의 패밀리 수용.
- * 패밀리 내 latest 선정·버전 sub-드롭다운 정렬의 공통 SSOT (클라/서버 정규식 드리프트 방지).
- */
+/** §4 — 풀ID 의 (major, minor), minor 없으면 0. latest 선정·드롭다운 정렬의 공통 정규식(클라/서버가 갈라지지 않게). */
 export function parseModelSemver(id: string): [number, number] {
   const m = /^claude-[a-z]+-(\d+)(?:-(\d{1,2}))?$/.exec(id);
   if (!m) return [0, 0];
   return [Number(m[1]), m[2] ? Number(m[2]) : 0];
 }
 
-/**
- * §4 v2.38 — 풀ID → 가격. 우선순위:
- * (1) registry 에 entry.pricing 정의 → 그대로
- * (2) 시드 `MODEL_PRICING[id]` → 그대로
- * (3) 패밀리 추론 → `MODEL_FAMILY_DEFAULTS[family].pricing`
- * (4) `DEFAULT_PRICING`
- *
- * registry 가 없으면 (1) 건너뛰고 (2)~(4) 만 평가 — 클라/서버 어느 쪽에서도 호출 가능.
- */
+/** §4 — 풀ID → 가격(순서는 `resolveModelPricing`). registry 없이도 부른다. */
 export function getModelPricing(modelId: string | undefined | null, registry?: ModelRegistry | null): ModelPricing {
   return resolveModelPricing(modelId, registry).pricing;
 }
 
 /**
- * §4 — **조회용 정규화.** Anthropic 은 같은 모델을 두 모양으로 부른다: 별칭형 `claude-haiku-4-5` 와
- * 날짜형 `claude-haiku-4-5-20251001`. 트랜스크립트에는 **날짜형이 그대로** 남는다(실측 2026-09-02:
- * 로컬 대화록 135,150 턴 중 1,225 턴이 날짜형 haiku, 캐시읽기만 10.2M 토큰).
- *
- * 표는 별칭형 한 벌만 들고 있으므로 날짜형은 시드를 **빗나가 패밀리 디폴트로 떨어진다.** haiku 는
- * 우연히 값이 같아 티가 안 났지만 `claude-opus-4-5-<날짜>` 였다면 컨텍스트가 200K 대신 1M(5배)로
- * 잡혔다 — 직전 라운드에 fable 에서 고친 것과 **같은 종류의 사고**다.
- *
- * 꼬리의 `[1m]` 같은 변형 표기도 함께 뗀다(`claude-opus-5[1m]` → `claude-opus-5`).
- * 여기까지 접고도 못 찾으면 그때가 **정말 모르는 모델**이고, 그 자리가 "추정" 표식이 뜨는 자리다.
+ * §4 — 조회용 정규화: 날짜형(`claude-haiku-4-5-20251001` — 트랜스크립트에 그대로 남는다, 실측 2026-09-02)·`[1m]` 꼬리를 뗀다.
+ * 안 떼면 시드를 빗나가 패밀리 디폴트로 떨어진다. 그래도 못 찾으면 "추정" 표식.
  */
 export function normalizeModelId(id: string): string {
   const base = id.replace(/\[[^\]]*\]$/, '').replace(/-\d{8}$/, '');
@@ -3057,22 +2354,10 @@ export function normalizeModelId(id: string): string {
   return base.startsWith('gpt-') ? base.replace(/-\d{4}-\d{2}-\d{2}$/, '') : base;
 }
 
-/**
- * §4 — 단가가 **어디서 왔나**. 화면의 "추정" 표식과 `scripts/model-table-check.mjs` 가 같은 판정을 쓴다.
- *
- * - `registry` / `seed` = 그 모델의 값을 **우리가 안다**(공개 가격표에서 옮겨 둔 값).
- * - `family` / `default` = **모르는 모델**이라 폴백으로 환산했다 — 자릿수가 틀릴 수 있다.
- */
+/** §4 — 단가 출처(화면 "추정" 표식이 쓴다). `registry`/`seed` = 아는 값, `family`/`default` = 폴백 환산(자릿수가 틀릴 수 있다). */
 export type ModelPricingSource = 'registry' | 'seed' | 'family' | 'default';
 
-/**
- * 단가 + 그 출처. `getModelPricing` 은 이것의 얇은 껍데기다 — 해소 순서를 **한 벌만** 두기 위해서다
- * (두 벌이면 한쪽만 고쳐 놓고 못 알아채는 드리프트가 생긴다. `isKnownFamily` 가 그렇게 어긋나
- *  fable 이 통째로 폴백을 탔다).
- *
- * 순서: (1) 레지스트리 entry.pricing → (2) 시드 `MODEL_PRICING` → (3) 패밀리 디폴트 → (4) `DEFAULT_PRICING`.
- * (1)(2) 는 **정규화한 ID 로도** 한 번 더 찾는다.
- */
+/** 단가 + 출처 — 해소 순서는 이 한 벌(`getModelPricing` 은 껍데기). 레지스트리·시드는 정규화한 ID 로도 한 번 더 찾는다. */
 export function resolveModelPricing(
   modelId: string | undefined | null,
   registry?: ModelRegistry | null,
@@ -3084,25 +2369,17 @@ export function resolveModelPricing(
   const seed = MODEL_PRICING[modelId] ?? MODEL_PRICING[base];
   if (seed) return { pricing: seed, source: 'seed' };
   const family = parseFamilyFromFullId(base);
-  // §4 v2.77 — known 패밀리만 디폴트 테이블 보유. 미지 패밀리는 보수적 폴백.
   if (isKnownFamily(family)) return { pricing: MODEL_FAMILY_DEFAULTS[family].pricing, source: 'family' };
   return { pricing: DEFAULT_PRICING, source: 'default' };
 }
 
-/**
- * 이 모델의 금액을 **"추정"으로 표시해야 하는가** — 폴백으로 환산했으면 true.
- *
- * 모델 이름 자체가 없는 턴도 추정이다. 그때 `DEFAULT_PRICING`(현행 최상위 티어)으로 환산하는데,
- * 아무 표식 없이 그리면 그 숫자를 사실로 읽게 된다.
- */
+/** "추정"으로 표시할 금액인가 — 폴백 환산이거나 모델 이름이 없는 턴(표식 없이 그리면 사실로 읽힌다). */
 export function isPricingEstimated(modelId: string | undefined | null, registry?: ModelRegistry | null): boolean {
   const source = resolveModelPricing(modelId, registry).source;
   return source === 'family' || source === 'default';
 }
 
-/**
- * §4 v2.38 — 풀ID → 컨텍스트 한도(토큰). 우선순위는 `getModelPricing` 과 동일 구조.
- */
+/** §4 — 풀ID → 컨텍스트 한도(토큰). 순서는 `getModelPricing` 과 같다. */
 export function getModelContextLimit(modelId: string | undefined | null, registry?: ModelRegistry | null): number {
   return resolveModelContextLimit(modelId, registry).contextWindow;
 }
@@ -3122,23 +2399,14 @@ export function resolveModelContextLimit(
   const seed = MODEL_CONTEXT_LIMITS[modelId] ?? MODEL_CONTEXT_LIMITS[base];
   if (seed) return { contextWindow: seed, source: 'seed' };
   const family = parseFamilyFromFullId(base);
-  // §4 v2.77 — known 패밀리만 디폴트 테이블 보유. 미지 패밀리는 보수적 폴백.
   if (isKnownFamily(family)) return { contextWindow: MODEL_FAMILY_DEFAULTS[family].contextWindow, source: 'family' };
   return { contextWindow: DEFAULT_CONTEXT_LIMIT, source: 'default' };
 }
 
-/**
- * §4 v2.40 — alias(`'opus'`/`'sonnet'`/`'haiku'`) → 현재 latest 풀ID.
- *
- * 레지스트리 entry 의 `isLatestOfFamily=true` 만 사용. 시드 폴백 ❌ — 코드 측 alias 해소를 폐기했으므로
- * 레지스트리가 비어 있으면 그냥 undefined 반환. 호출 측은 alias 그대로 CLI 에 넘김(CLI 가 latest 해소).
- *
- * 이 함수의 의미가 UI 라벨용("Latest = X" 표시) 으로 좁혀짐 — 실제 CLI 인자 빌드엔 사용 ❌.
- */
+/** §4 — alias → 레지스트리 latest 풀ID. UI 라벨("Latest = X") 전용 — CLI 인자엔 alias 를 그대로 넘긴다(CLI 가 해소). 시드 폴백 ❌. */
 export function resolveAliasToLatest(alias: string | undefined | null, registry?: ModelRegistry | null): string | undefined {
   if (!alias) return undefined;
-  // §4 v2.77 — opus/sonnet/haiku 가드 제거. 레지스트리에 그 패밀리(alias)의 latest entry 가 있으면 해소.
-  // 미지 패밀리도 CLI-scan/`/v1/models` 가 발견했으면 자동 동작. 없으면 undefined → UI 는 "Latest" 만 표시.
+  // 레지스트리가 찾은 미지 패밀리도 해소된다. 없으면 undefined(UI 는 "Latest" 만).
   return registry?.entries.find((e) => e.family === alias && e.isLatestOfFamily)?.id;
 }
 
@@ -3152,13 +2420,7 @@ export function pricingForPromptTokens(pricing: ModelPricing, promptTokens: numb
   return { input: long.input, output: long.output, cacheRead: long.cacheRead, cacheWrite: long.cacheWrite };
 }
 
-/**
- * 토큰 수 → 비용($) 계산 — v2.38: registry 우선 가격 조회.
- *
- * `singleRequest` — 넘긴 토큰이 **API 요청 한 번**의 것이면 true. 그때만 길이 구간 요금(`longPrompt`, 현재 Haiku 5.5)을
- * 가른다. 가격표는 요청마다 따로 프롬프트 길이로 단가를 고르므로, 여러 요청을 합친 값에 문턱을 대면 짧은 요청들이
- * 모여 문턱을 넘어 전부 장문 단가(5배)로 부푼다 — 합산 호출(루프 예산·랩·비용 카드)은 기본 단가로 둔다.
- */
+/** 토큰 → 비용($). `singleRequest` = API 요청 한 번의 토큰일 때만 길이 구간 요금을 가른다 — 합친 값에 문턱을 대면 짧은 요청들이 모여 전부 장문 단가(5배)가 된다. */
 export function calculateTokenCost(
   inputTokens: number,
   outputTokens: number,
@@ -3187,25 +2449,9 @@ export const AVAILABLE_AGENT_MODELS: readonly string[] = [
 ];
 
 /**
- * 버전 sub-드롭다운을 채우는 풀ID 시드.
- *
- * **출처는 Anthropic 공개 문서** — 현행 4종은 모델 개요표(`docs.claude.com/en/docs/about-claude/
- * models/overview`)의 "Claude API ID / alias" 행, 이전 세대는 Claude Code 모델 설정 문서
- * (`code.claude.com/docs/en/model-config`)가 `availableModels`·`/model` 값으로 문서화한 것들이다.
- *
- * 내력: v2.40 이 정적 시드를 비웠고(빈 배열), v2.41 이 그 자리를 **CLI 실행본 raw scan** 으로
- * 메웠다. 그 스캔은 Anthropic 소비자 약관 §3 의 역설계 금지에 닿을 소지가 있어 걷어냈는데,
- * 시드가 비어 있으면 **패밀리 목록과 버전 드롭다운이 통째로 빈다**(`ANTHROPIC_API_KEY` 를 둔
- * 사용자만 `/v1/models` 로 채워졌다). 그래서 공개 문서를 출처로 시드를 되살린다.
- *
- * `ANTHROPIC_API_KEY` 가 있으면 `/v1/models`(공식 API)가 이 시드를 덮어써 최신을 따라간다.
- * 없으면 여기가 목록의 전부이므로, 새 모델이 나오면 이 배열을 갱신한다.
- * 날짜 붙은 변형(`…-20251001`)은 UI 노이즈라 넣지 않는다(구 cli-scan 의 필터와 같은 기준).
- *
- * **이 배열은 alias 해소에도 쓰인다** — CLI 가 bare alias 로 모르는 패밀리(fable 등)는
- * `subAgentManager` 가 여기서 나온 latest 풀ID 로 치환해서 넘긴다. 그래서 한 세대 뒤처지면
- * "최신을 골랐는데 구모델이 뜨는" 조용한 오작동이 된다 — 실제로 `claude-fable-5-1` 이 나온 뒤에도
- * 이 배열에 `claude-fable-5` 만 있어서 `fable` 이 구 5.0 으로 해소되고 있었다(2026-09-02 확인).
+ * 버전 드롭다운 풀ID 시드 — 출처는 공개 문서(모델 개요표·Claude Code 모델 설정 문서). 실행본 스캔 ❌(약관 §3 역설계 금지). 비면 패밀리 목록·드롭다운이 빈다.
+ * 키가 있으면 `/v1/models` 가 덮고, 없으면 여기가 전부라 새 모델이 나오면 갱신한다(날짜형 변형 ❌).
+ * ⚠ alias 해소에도 쓰인다 — CLI 가 모르는 bare alias(fable 등)는 `subAgentManager` 가 여기 latest 로 바꾼다. 뒤처지면 최신을 골라도 구모델이 뜬다.
  */
 export const AVAILABLE_AGENT_MODEL_FULL_IDS: readonly string[] = [
   'claude-fable-5-1',
@@ -3223,10 +2469,7 @@ export const AVAILABLE_AGENT_MODEL_FULL_IDS: readonly string[] = [
   'claude-sonnet-4-5',
 ];
 
-/**
- * §4 v2.38 — 시드 풀ID 들을 `ModelRegistryEntry[]` 형태로 빌드.
- * 서버 `ModelRegistryService` 가 부팅 시 첫 번째로 적재.
- */
+/** §4 — 시드 → `ModelRegistryEntry[]`(`ModelRegistryService` 가 부팅 때 먼저 적재). */
 export const MODEL_SEED_ENTRIES: readonly ModelRegistryEntry[] = AVAILABLE_AGENT_MODEL_FULL_IDS.map((id): ModelRegistryEntry => {
   const family = parseFamilyFromFullId(id);
   return {
@@ -3238,13 +2481,7 @@ export const MODEL_SEED_ENTRIES: readonly ModelRegistryEntry[] = AVAILABLE_AGENT
   };
 });
 
-/**
- * §4 (상태바 모델 칸 ③(나)) — `/v1/models` 결과가 **낡았다고 보는** 나이(ms).
- *
- * 부팅 때 캐시 신선도와 앱이 켜져 있는 동안의 재조회 주기가 **같은 값**을 쓴다 — 종전에는 부팅
- * 1회뿐이라, 앱을 켜 둔 채 새 모델이 나오면 재시작 전까지 목록이 그대로였다. 키가 있는 사용자만
- * 해당하고 호출은 한 번에 한 요청이라 6시간이면 새 모델 출시를 반나절 안에 따라간다.
- */
+/** §4 (상태바 모델 칸 ③(나)) — `/v1/models` 가 낡았다고 보는 나이(ms). 부팅 캐시 신선도와 켜 둔 동안의 재조회 주기가 같이 쓴다. */
 export const MODEL_REGISTRY_API_TTL_MS = 6 * 60 * 60 * 1000;
 
 /** §4 (상태바 모델 칸 ③(나)) — `/v1/models` 가 실패했을 때 다시 두드리기까지 기다리는 시간(ms). */
@@ -3262,18 +2499,13 @@ export const MODEL_REGISTRY_MANUAL_REFRESH_FLOOR_MS = 5 * 60 * 1000;
  */
 export const MODEL_REGISTRY_OBSERVED_MAX = 64;
 
-/**
- * §4 v1.53 — alias 와 풀ID 합집합. CLI `--model` 가드용.
- *
- * v2.38 주의 — 이 정적 합집합은 시드 한정. 서버 `subAgentManager.buildConfigArgs` 는 런타임 레지스트리
- * (`modelRegistryService.getRegistry().entries`) 를 우선 조회하고 시드는 폴백.
- */
+/** §4 — alias ∪ 풀ID(`--model` 가드). 시드 한정 — `buildConfigArgs` 는 런타임 레지스트리를 먼저 본다. */
 export const AVAILABLE_AGENT_MODEL_IDS: readonly string[] = [
   ...AVAILABLE_AGENT_MODELS,
   ...AVAILABLE_AGENT_MODEL_FULL_IDS,
 ];
 
-/** §4 v1.53 — 모델 ID(alias 또는 풀ID)가 Opus 패밀리인지 판정. 1M 토글 노출/적용 가드용. */
+/** §4 — Opus 패밀리인가(1M 토글 노출/적용 가드). */
 export function isOpusModel(modelId: string | undefined | null): boolean {
   if (!modelId) return false;
   if (modelId === 'opus') return true;
@@ -3281,17 +2513,12 @@ export function isOpusModel(modelId: string | undefined | null): boolean {
 }
 
 /**
- * §4 (xhigh effort 등급 · 2026-10-15) — Effort 칸이 열리는 모델 패밀리. 종전에는 Opus 하나였다.
- * 공식 모델 개요표가 네 패밀리 모두에 effort 기본값을 적고(Fable 5.1 high · Opus 5.5 medium · Sonnet 5.5 high ·
- * Haiku 5.5 medium), 2.1.300 실측에서 옛 Sonnet 4.5·Haiku 4.5 까지 `--effort` 를 거부한 모델이 없었다.
- * 레지스트리가 새로 알려 준 패밀리는 사용자가 열기로 하기 전까지 넣지 않는다.
+ * §4 — Effort 칸이 열리는 패밀리. 공식 개요표(2026-10-15)가 넷 다 effort 기본값을 적고 2.1.300 실측에서 옛 Sonnet/Haiku 4.5 도 `--effort` 를 받았다.
+ * 레지스트리가 새로 알린 패밀리는 열기로 정하기 전엔 넣지 않는다.
  */
 export const EFFORT_MODEL_FAMILIES: readonly string[] = ['opus', 'fable', 'sonnet', 'haiku'];
 
-/**
- * 설정창·옵션창의 Effort 칸을 열어도 되는 모델인가. alias(설정창의 `model` 칸)와 풀ID 를 다 받는다 —
- * 풀ID 는 그 패밀리로 접는다. 로컬·코덱스 버블은 이 칸을 쓰지 않으므로 부르는 쪽이 따로 가린다.
- */
+/** Effort 칸을 열어도 되는 모델인가(alias·풀ID 모두, 풀ID 는 패밀리로 접는다). 로컬·코덱스 버블은 부르는 쪽이 가린다. */
 export function supportsEffortSelection(modelId: string | undefined | null): boolean {
   if (!modelId) return false;
   if (EFFORT_MODEL_FAMILIES.includes(modelId)) return true;
@@ -3299,36 +2526,19 @@ export function supportsEffortSelection(modelId: string | undefined | null): boo
   return family !== undefined && EFFORT_MODEL_FAMILIES.includes(family);
 }
 
-/**
- * §4 (스트림 3종 ①) — 중첩 서브에이전트 텍스트 전달이 켜져 있는가.
- *
- * **기본이 켬**이라 판정이 단순 truthy 가 아니다 — `undefined`(한 번도 안 만짐)와 `true` 는 켬,
- * 명시 `false` 만 끔이다. 서버 인자 조립과 클라 체크박스가 **같은 함수**를 봐야 화면과 실제가
- * 어긋나지 않는다(§5.5 컨텍스트 주입원 통제에서 배운 규율).
- */
+/** §4 (스트림 3종 ①) — 중첩 서브에이전트 텍스트 전달. 기본 켬이라 명시 `false` 만 끔 — 서버 인자와 클라 체크박스가 이 함수 하나를 본다. */
 export function isForwardSubagentTextEnabled(value: boolean | undefined): boolean {
   return value !== false;
 }
 
-/**
- * §4 (Thinking on/off) — 이 에이전트의 확장 사고가 켜져 있는가.
- *
- * `isForwardSubagentTextEnabled` 와 **같은 규율**이다 — `undefined`(한 번도 안 만짐)와 `true` 는 켬,
- * 명시 `false` 만 끔. 설치본 설정 스키마의 `alwaysThinkingEnabled`("absent or true → enabled")를
- * 그대로 옮긴 것이라, 우리 판정과 CLI 판정이 어긋나지 않는다. 서버의 설정 파일 조립과 클라
- * 체크박스가 이 함수 하나를 봐야 화면과 실제가 갈라지지 않는다.
- */
+/** §4 — 확장 사고가 켜져 있는가: 명시 `false` 만 끔(설치본 스키마 `alwaysThinkingEnabled` 의 "absent or true → enabled"). 서버 설정 조립·클라 체크박스가 같이 쓴다. */
 export function isThinkingEnabled(value: boolean | undefined): boolean {
   return value !== false;
 }
 
 /**
- * §4 (Thinking on/off) — **사고를 끌 수 없는 모델**(공개 문서 근거가 있는 풀ID 만).
- *
- * 공식 모델 개요표의 Thinking 행이 "Adaptive (always on)" 인 것(Opus 5.5·Fable 5.1)과 같은 성질의 이전 판(Fable 5) —
- * API 가 `thinking: {type: "disabled"}` 를 400 으로 거부하므로 `alwaysThinkingEnabled: false` 가 아무 일도 하지 않는다
- * (CLI 2.1.300 의 VS Code 확장도 이 모델들에서 토글을 감췄다). 확인 2026-10-15.
- * Sonnet 5.5(`between_tools` 로 끈다)·Haiku 5.5(근거 부족)는 넣지 않는다 — 모르는 것을 잠그지 않는다.
+ * §4 — 사고를 끌 수 없는 모델(공개 문서 근거 있는 ID 만): 개요표 "Adaptive (always on)" 인 Opus 5.5·Fable 5.1 과 Fable 5. API 가 `thinking: disabled` 를 400 으로 거부한다(확인 2026-10-15).
+ * 끌 수 있는 Sonnet 5.5(`between_tools`)·근거 없는 Haiku 5.5 는 넣지 않는다 — 모르는 것을 잠그지 않는다.
  */
 export const THINKING_ALWAYS_ON_MODEL_IDS: readonly string[] = [
   'claude-fable-5-1',
@@ -3336,13 +2546,7 @@ export const THINKING_ALWAYS_ON_MODEL_IDS: readonly string[] = [
   'claude-opus-5-5',
 ];
 
-/**
- * §4 (Thinking on/off) — 이 모델은 사고를 끌 수 없는가. 설정창 체크박스 잠금과 상태바 「확장 사고 꺼짐」 칸이
- * 이 함수 하나를 본다(두 자리가 따로 판정하면 한쪽만 거짓말을 한다).
- *
- * `modelId` 는 풀ID(날짜형·`[1m]` 변형 포함)나 alias(`opus`·`fable`…)다. alias 는 지금 그 alias 가 가리키는 최신
- * 풀ID 로 본다 — 레지스트리 latest, 레지스트리가 아직 없으면 시드 최신(CLI 가 alias 를 그렇게 해소한다).
- */
+/** §4 — 이 모델은 사고를 끌 수 없는가(설정창 잠금·상태바 「확장 사고 꺼짐」 칸이 같이 쓴다). alias 는 지금 가리키는 최신 풀ID 로 본다(레지스트리 latest, 없으면 시드). */
 export function isThinkingAlwaysOnModel(modelId: string | undefined | null, registry?: ModelRegistry | null): boolean {
   if (!modelId) return false;
   let full = modelId;
@@ -3362,16 +2566,8 @@ export function isThinkingAlwaysOnModel(modelId: string | undefined | null, regi
 }
 
 /**
- * §4 (Fast 모드) — 이 모델에서 Fast 모드가 실제로 켜지는가.
- *
- * 설치된 CLI 의 판정을 그대로 옮긴 것이다 — CLI 는 모델 capability 에 `fast_mode` 가 있거나
- * 모델 ID 에 `opus-4-8`/`opus-5` 가 들어 있을 때만 Fast 를 허용하고, **그 밖에서는 사유 문자열도
- * 없이 조용히 `off` 로 떨어뜨린다**(sonnet·haiku 실측). 우리 레지스트리에는 capability 필드가
- * 없으므로 이름 규칙만 옮기고, 최종 판정권은 CLI 에 둔다.
- *
- * bare alias `'opus'` 는 CLI 가 현재 latest Opus 로 해소하므로 true(실측: `claude-opus-5` → on).
- * 풀ID 를 핀했다면 그 ID 로 판정하므로 `claude-opus-4-7` 같은 옛 판은 false 가 된다.
- * `[1m]` 변형은 접미사일 뿐이라 `claude-opus-5[1m]` 도 그대로 true(실측 확인).
+ * §4 (Fast 모드) — 설치본 CLI 판정을 옮겼다: capability `fast_mode` 거나 ID 에 `opus-4-8`/`opus-5` 가 있을 때만, 그 밖은 사유 없이 `off`(실측). 최종 판정은 CLI.
+ * bare `'opus'` 는 true(CLI 가 latest 로 해소), 핀한 옛 판은 false, `[1m]` 은 그대로(실측).
  */
 export function supportsFastMode(modelId: string | undefined | null): boolean {
   if (!modelId) return false;
@@ -3380,23 +2576,12 @@ export function supportsFastMode(modelId: string | undefined | null): boolean {
   return id.includes('opus-4-8') || id.includes('opus-5');
 }
 
-/**
- * JSONL model ID → AgentConfig.model 패밀리 추출.
- * 예: `claude-opus-4-6` → `opus`, `claude-sonnet-4-5-20250414` → `sonnet`, `claude-fable-5` → `fable`.
- *
- * §4 v2.77 — `AVAILABLE_AGENT_MODELS`(3종) 화이트리스트 제거. `claude-<family>-<digit>…` 형태의
- * 임의 패밀리를 그대로 반환(라이브 세션 모델명이 신규 패밀리여도 버블에 정상 표기). 매칭 실패 시 undefined.
- */
+/** JSONL model ID → 패밀리(임의 패밀리 수용 — 새 패밀리 세션도 버블에 뜬다). 실패 시 undefined. */
 export function parseModelFamily(modelId: string | undefined | null): string | undefined {
   return parseFamilyFromFullId(modelId);
 }
 
-/**
- * §4 v2.77 — UI Model 드롭다운에 노출할 패밀리 목록.
- * 레지스트리(CLI-scan/`/v1/models`)에서 발견된 모든 패밀리 ∪ 기본 alias 3종.
- * 정렬: 기본 3종(opus/sonnet/haiku 순) 먼저, 그 외 신규 패밀리는 알파벳순.
- * 레지스트리가 비어도 기본 3종은 항상 포함 → 신규 모델 미발견 시에도 기존 UX 보존.
- */
+/** §4 — 드롭다운 패밀리 = 레지스트리 패밀리 ∪ 기본 3종(opus/sonnet/haiku 먼저, 나머지 알파벳순). 레지스트리가 비어도 기본 3종은 있다. */
 export function listModelFamilies(registry?: ModelRegistry | null): string[] {
   const found = new Set<string>(AVAILABLE_AGENT_MODELS);
   for (const e of registry?.entries ?? []) {
@@ -3407,13 +2592,7 @@ export function listModelFamilies(registry?: ModelRegistry | null): string[] {
   return [...known, ...extra];
 }
 
-/**
- * §4 (CLI 사양 추종) — 공식 도구 표(`code.claude.com/docs/en/tools-reference`, 2.1.278) 그대로 46종.
- *
- * `AVAILABLE_AGENT_TOOLS` 가 이 표를 **전부 담고 있는지** 회귀로 고정하기 위한 대조본이다.
- * 목록에 넣는 것을 잊으면 그 도구는 우리 에이전트에게 존재하지 않게 되는데, 화면·타입·저장은
- * 전부 멀쩡해서 어느 검사에도 걸리지 않는다 — 그래서 대조본을 따로 둔다.
- */
+/** §4 — 공식 도구 표(`code.claude.com/docs/en/tools-reference`, 2.1.278) 46종 대조본. `AVAILABLE_AGENT_TOOLS` 에서 빠진 도구는 어느 검사에도 안 걸려 회귀로 고정한다. */
 export const CLI_BUILTIN_TOOLS: readonly string[] = [
   'Agent', 'Artifact', 'AskUserQuestion', 'Bash', 'CronCreate', 'CronDelete', 'CronList',
   'Edit', 'EndConversation', 'EnterPlanMode', 'EnterWorktree', 'ExitPlanMode', 'ExitWorktree',
@@ -3426,32 +2605,12 @@ export const CLI_BUILTIN_TOOLS: readonly string[] = [
 ];
 
 /**
- * §4 (CLI 사양 추종) — **공식 도구 표에서 사라졌지만 우리가 계속 실어 보내는 이름.**
- *
- * `BashOutput`·`KillShell` 은 백그라운드 Bash 의 결과 회수·종료였고 지금은 `Bash`(백그라운드 실행)
- * + `Monitor` + `TaskOutput`/`TaskStop` 으로 갈렸다. `MultiEdit` 은 `Edit` 에 흡수됐다.
- * 셋 다 2.1.278 공식 표에도 설정 스키마에도 없다.
- *
- * **그래도 지우지 않는다** — CLI 는 모르는 도구 이름을 인자 파싱 단계에서 거부하지 않으므로
- * (실측: `--tools NotAToolXyz` 가 플래그 오류를 내지 않는다) 남겨서 잃는 것이 없고, 반대로 이
- * 이름들이 아직 살아 있는 별칭이라면 지우는 순간 그 능력을 조용히 뺏는다. 문서에서 사라진 사실만
- * 여기 적어 두고, 실제로 제거된 것이 확인되면 그때 이 배열만 비우면 된다.
+ * §4 — 공식 표에서 사라졌지만 계속 보내는 이름(`Bash`·`Monitor`·`Task*`·`Edit` 으로 갈렸다). CLI 가 모르는 이름을 거부하지 않아(실측) 남겨도 잃는 게 없고,
+ * 살아 있는 별칭이면 지울 때 능력을 뺏는다. 제거가 확인되면 이 배열만 비운다.
  */
 export const LEGACY_AGENT_TOOLS: readonly string[] = ['BashOutput', 'KillShell', 'MultiEdit'];
 
-/**
- * §4 (CLI 사양 추종) 규약 (3) — **선택 가능한 내장 도구 목록.**
- *
- * `buildConfigArgs` 가 `--tools` 를 **항상 명시**하므로 이 목록에 없는 내장 도구는 그 에이전트에게
- * **존재하지 않는다.** 즉 이 배열은 UI 체크박스 목록이기 전에 **에이전트가 가질 수 있는 능력의 상한**이다.
- *
- * 종전에는 22종만 올라 있어 **공식 표 45종 중 26종이 우리 에이전트에게 아예 없었다** — IDE 를
- * 표방하면서 코드 인텔리전스(`LSP`)가 없었고, 목표 창을 REST 로 흉내 내면서 정작 그 원본인 작업
- * 도구(`Task*`)가 없었으며, 윈도우가 주력인데 네이티브 셸(`PowerShell`)이 없었다.
- *
- * ⚠ 새 도구를 넣을 때는 `BACKFILL_AGENT_TOOLS` 에도 넣어라 — 판올림 전에 만들어진 에이전트는
- *   "사용자가 끈 것"이 아니라 "화면에 존재한 적이 없어서" 빠진 상태라 복원 1회 백필이 필요하다.
- */
+/** §4 규약 (3) — 선택 가능한 내장 도구. `--tools` 를 늘 명시하므로 여기 없는 도구는 에이전트에게 없다(능력의 상한). ⚠ 새 도구를 넣으면 `AGENT_TOOLS_BACKFILL_GEN` 을 올린다. */
 export const AVAILABLE_AGENT_TOOLS: readonly string[] = [
   // ── 파일·검색 ──
   'Read', 'Write', 'Edit', 'Glob', 'Grep', 'NotebookEdit',
@@ -3464,19 +2623,14 @@ export const AVAILABLE_AGENT_TOOLS: readonly string[] = [
   //   없어서, 우리 에이전트는 텍스트 검색으로만 코드를 읽었다.
   'LSP',
   // ── 위임·오케스트레이션 ──
-  //   `Workflow` 는 서브에이전트를 스크립트로 대량 지휘하는 축이라 캔버스 모델과 정면으로 맞는다.
-  //   `ListAgents` 는 세션 간 발견(§5.12 Command Center 와 같은 갈래).
-  //   `SubagentHandback` 은 자식이 끝낸 일의 **최종 보고를 그 결과를 받는 대화로 되돌려 주는** 도구다
-  //   (공식 표 2.1.278 에서 늘어난 한 종). `Agent`·`Workflow` 로 위임해 놓고 이것만 빼면 자식은 일을
-  //   마치고도 부모 대화에 건넬 길이 없다 — 위임을 캔버스의 축으로 파는 우리에게는 특히 그렇다.
+  // `SubagentHandback` 을 빼면 위임받은 자식이 부모 대화에 결과를 건넬 길이 없다.
   'Agent', 'Workflow', 'ListAgents', 'SendMessage', 'SubagentHandback', 'TaskOutput', 'TaskStop',
   // ── 작업(Task) 장부 ──
   //   `TaskCreated`/`TaskCompleted` 훅이 발화하는 바로 그 도구들이다(§3.6). 이게 없으면 훅을
   //   등록해도 영영 한 건도 오지 않는다 — 목표 창(§5.5 #17-17)과 한 쌍으로 다룬다.
   'TaskCreate', 'TaskGet', 'TaskList', 'TaskUpdate', 'TodoWrite',
   // ── 모드·워크트리 ──
-  //   종전에는 나가는 쪽(`ExitPlanMode`)만 있고 들어가는 쪽이 없었다. 워크트리도 마찬가지로,
-  //   `isolation: 'worktree'` 는 스폰 시점에만 정해지고 세션 도중에는 손댈 수단이 없었다.
+  // 들어가는 쪽(`EnterPlanMode`·`EnterWorktree`)이 없으면 세션 도중엔 들어갈 수단이 없다.
   'EnterPlanMode', 'ExitPlanMode', 'EnterWorktree', 'ExitWorktree',
   // ── 사용자에게 닿는 것 ──
   //   `PushNotification` 은 데스크톱 알림 + Remote Control 연결 시 폰 푸시까지 간다.
@@ -3497,45 +2651,20 @@ export const AVAILABLE_AGENT_TOOLS: readonly string[] = [
 ];
 
 /**
- * §5.5 #17-17 ⑨ v4.59 — 옛 설정에 없던 도구 중 "사용자가 끈 것이 아니라 화면에 존재한 적이
- * 없어서" 빠진 항목. 체크포인트 복원 시 1회 백필해 판올림 전에 만든 에이전트도 계획을 세울 수
- * 있게 한다. 복원 경로에서만 채우므로 사용자가 이후 직접 해제한 선택은 되살아나지 않는다.
- *
- * §4 (CLI 사양 추종) — 공식 표를 통째로 받은 뒤로는 **`AVAILABLE_AGENT_TOOLS` 전체**가
- * 백필 대상이다. 항목을 손으로 다시 나열하면 새 도구를 넣을 때마다 여기를 잊게 되고, 그러면
- * 판올림 전에 만든 에이전트만 영영 그 도구를 못 갖는다(화면·타입·저장은 멀쩡해 아무 데도 안 걸린다).
+ * §5.5 #17-17 ⑨ — 복원 때 한 번 채우는 도구 = 전체 목록(옛 설정엔 화면에 없어서 빠진 도구가 있다). 복원 경로에서만 채운다(이후 해제는 되살리지 않는다).
+ * 손으로 나열하지 마라 — 새 도구 때 잊으면 옛 에이전트만 영영 못 갖는다.
  */
 export const BACKFILL_AGENT_TOOLS: readonly string[] = [...AVAILABLE_AGENT_TOOLS];
 
 /**
- * §4 (CLI 사양 추종) — **백필 세대.** 이 숫자보다 낮은(또는 없는) 설정에만 백필이 한 번 돈다.
- *
- * 종전 백필은 세대 표식이 없어 **복원·병합 때마다** 돌았다. 목록이 `TodoWrite` 하나뿐일 때는
- * 티가 안 났지만 실제로는 그때도 "사용자가 끈 도구가 재시작마다 되살아나는" 동작이었고, 목록이
- * 공식 표 45종으로 커지는 순간 그것이 **모든 해제 선택을 매번 되돌리는** 동작이 된다.
- * 세대 표식을 두면 "화면에 존재한 적 없어서 빠진 것"은 한 번 채우고, 그 뒤의 해제는 사용자 뜻으로 남는다.
- *
- * 새 도구를 `AVAILABLE_AGENT_TOOLS` 에 넣을 때 이 숫자를 **1 올려라** — 안 올리면 이미 백필을
- * 받은 설정(= 지금 쓰는 거의 모든 에이전트)은 새 도구를 영영 못 갖는다.
- *
- * - 세대 1 — v4.59 `TodoWrite` 외 (세대 표식이 없던 시절. 표식 없는 설정 = 세대 0 취급)
- * - 세대 2 — 공식 도구 표 45종 전체 수용
- * - 세대 3 — 2.1.278 표에서 늘어난 `SubagentHandback` 수용
+ * §4 — 백필 세대: 이보다 낮은 설정에만 한 번 돈다(없으면 매 복원마다 해제한 도구를 되살린다). ⚠ 새 도구를 넣으면 1 올려라 — 안 올리면 기존 에이전트는 새 도구를 못 갖는다.
+ * 세대: 1 `TodoWrite` · 2 공식 표 45종 · 3 `SubagentHandback`.
  */
 export const AGENT_TOOLS_BACKFILL_GEN = 3;
 
 /**
- * §4 (설정 3층) — 도구 목록에 **세대 도장이 찍히기 전 한 번만** 새 내장 도구를 채운다.
- *
- * 받는 것이 `Partial<AgentConfig>` 인 이유는 대상이 셋이기 때문이다 — 에이전트 오버라이드,
- * 옛 저장분의 전체 설정, 그리고 **설정 창의 전역 프리셋**(`UserDefaults.agentConfig`).
- * 종전에는 전역 프리셋만 이 백필을 못 받았고, 그 목록이 신규 에이전트의 씨앗이라
- * **판올림 전에 정해 둔 목록이 앞으로 만들 모든 에이전트의 상한**이 됐다(실측 11/48).
- * 게다가 씨앗을 받은 에이전트에는 `DEFAULT_AGENT_CONFIG` 의 현행 세대 도장이 함께 찍혀
- * 백필이 "이미 돌았다"고 판단하므로, 그 누락은 어느 복원에서도 회복되지 않았다.
- *
- * `tools` 가 없는 설정은 **그대로 돌려준다** — 목록을 갖지 않은 것은 "고르지 않았다"이지
- * "비워 뒀다"가 아니며, 여기서 채우면 위층을 따르던 설정이 자기 목록을 갖게 된다.
+ * §4 — 세대 도장 전 한 번만 새 도구를 채운다. 대상 셋(오버라이드·옛 저장분·전역 프리셋 `UserDefaults.agentConfig`) — 프리셋을 빼면 새 에이전트 전부의 상한이 되고 회복되지 않는다.
+ * `tools` 가 없으면 그대로 — "고르지 않았다"이지 "비워 뒀다"가 아니다.
  */
 export function backfillAgentTools<T extends Partial<AgentConfig>>(config: T): T {
   if (!Array.isArray(config.tools)) return config;
@@ -3545,25 +2674,71 @@ export function backfillAgentTools<T extends Partial<AgentConfig>>(config: T): T
   return { ...config, tools: [...config.tools, ...missing], toolsBackfillGen: AGENT_TOOLS_BACKFILL_GEN };
 }
 
-/** §5.3 #12-2 v2.26 — AskUserQuestion 요청 타임아웃 (60s, permissionBroker 와 동일 윈도우) */
+/** §5.3 #12-2 — AskUserQuestion 요청 타임아웃(60s, permissionBroker 와 같은 창) */
 export const ASK_USER_QUESTION_TIMEOUT_MS = 60_000;
 
-/** §4 v2.43 — 옵션창 Version 탭: 설치본 하나당 `--version` probe 타임아웃 (정상 응답 수십 ms) */
+/** §4 — 옵션창 Version 탭: 설치본 하나당 `--version` probe 타임아웃(정상 응답 수십 ms) */
 export const CLAUDE_VERSION_PROBE_TIMEOUT_MS = 2_500;
 
-/** §4 v2.43 — 옵션창 Version 탭: 다중 설치본 스캔 시 probe 할 최대 후보 수 (폭주 가드) */
+/** §4 — 옵션창 Version 탭: 다중 설치본 스캔 때 probe 할 최대 후보 수(폭주 가드) */
 export const CLAUDE_INSTALL_SCAN_MAX = 24;
 
-// ─── 첫 실행 설치 온보딩 (§4) ───
-//
-// 앱만 내려받은 사람에게 `claude` CLI 를 깔아 주는 경로. 명령은 **공식 네이티브 인스톨러**다
-// (Node 불필요 — npm 경로는 Node/npm 이 이미 있는 사람 전용이라 신규 사용자에게 통하지 않는다).
+// ─── 앱 전용 엔진 (§4) ───
+// 클로드·코덱스 실행본을 공식 배포처에서 받아 `~/.vibisual/cli-engines/<엔진>` 에 깐다. 인스톨러 동봉 ❌ — Claude Code 는 재배포 허락이 없고, 받는 곳은 문서의 공식 배포처뿐이다.
+// 출처: https://code.claude.com/docs/en/setup · https://github.com/openai/codex/releases (Apache-2.0)
+
+/** 앱 전용 엔진 폴더 이름(`~/.vibisual/<이름>/<엔진>`). 올모델 엔진(`~/.vibisual/engine`)과 같은 층이다. */
+export const MANAGED_ENGINE_DIR_NAME = 'cli-engines';
+/** 판 폴더 안 설치 메타 — 올모델 엔진(§5.19)의 같은 이름 메타와 같은 규약. */
+export const MANAGED_ENGINE_META_NAME = '.vibisual-engine.json';
+/** 사용자가 [이전 판으로] 로 물린 판의 표식 파일 — 상태 JSON 을 따로 두지 않고 폴더를 훑어 안다. */
+export const MANAGED_ENGINE_ROLLBACK_MARK = '.vibisual-rolled-back';
+/** 남겨 둘 판 수 — 지금 쓰는 판 + 바로 앞 판(되돌릴 자리). */
+export const MANAGED_ENGINE_KEEP_VERSIONS = 2;
+/** 켜 둔 동안 새 판을 확인하는 간격(6시간). 켤 때 한 번은 따로 돈다. */
+export const MANAGED_ENGINE_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/** 플래그 점검 한 번의 상한 — 프롬프트 없이 인자 검증에서 끝나는 실행이라 정상은 몇 초다. */
+export const MANAGED_ENGINE_PROBE_TIMEOUT_MS = 20_000;
+/** 동시에 띄우는 점검 수 — 판 하나에 수십 번 띄우므로 한꺼번에 띄우지 않는다. */
+export const MANAGED_ENGINE_PROBE_CONCURRENCY = 4;
+/** 받기 전에 남아 있어야 하는 디스크 — 받을 크기의 이 배수(받은 파일 + 풀거나 옮기는 몫). */
+export const MANAGED_ENGINE_DISK_HEADROOM_RATIO = 2;
+/** 배포처 조회(포인터 · manifest · 릴리스 API)의 상한. 받기 자체에는 걸지 않는다(수백 MB). */
+export const MANAGED_ENGINE_LOOKUP_TIMEOUT_MS = 15_000;
+/** 받는 동안 진행을 화면에 미는 간격 — 청크마다 보내면 전선이 진행률로 도배된다. */
+export const MANAGED_ENGINE_PROGRESS_PUSH_MS = 250;
+/** 진행 줄 누적 상한 — 기존 설치 진행 칸과 같은 크기로 자른다. */
+export const MANAGED_ENGINE_OUTPUT_MAX_CHARS = 20_000;
+/** 받기 오류 뒤 재시도 간격 — 그 뒤로는 6시간 확인에 맡긴다. 점검 탈락은 다시 받아도 같은 판이라 재시도하지 않는다. */
+export const MANAGED_ENGINE_RETRY_BACKOFF_MS: readonly number[] = [5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000];
+/** 받기가 이만큼 한 바이트도 못 받으면 끊고 실패로 적는다 — 없으면 멎은 받기가 그 엔진을 영영 "받는 중"으로 막는다. */
+export const HELPER_DOWNLOAD_STALL_MS = 60_000;
+
+/** Claude Code 공식 릴리스 저장소 — `latest` 포인터 · `<판>/manifest.json` · `<판>/<플랫폼>/<binary>`. */
+export const CLAUDE_RELEASES_BASE_URL = 'https://downloads.claude.ai/claude-code-releases';
+/** 코덱스 최신 릴리스 조회 — GitHub REST(공개 문서 API). prerelease 는 이 자리에 오지 않는다. */
+export const CODEX_RELEASES_LATEST_API = 'https://api.github.com/repos/openai/codex/releases/latest';
+/** 코덱스 릴리스 태그 접두사(`rust-v0.164.0`). */
+export const CODEX_RELEASE_TAG_PREFIX = 'rust-v';
+/** 코덱스 패키지 자산 이름 앞부분(`codex-package-<타깃>.tar.gz`). */
+export const CODEX_PACKAGE_ASSET_PREFIX = 'codex-package-';
+/** 코덱스 패키지 SHA-256 목록 자산 — 자산 `digest` 가 없을 때 이것으로 대조한다. */
+export const CODEX_PACKAGE_CHECKSUM_ASSET = 'codex-package_SHA256SUMS';
+
+/**
+ * 앱 전용 claude 에만 얹어 엔진 자체 갱신을 전부 막는다(공식 문서가 자체 채널 배포용으로 지정한 값). 판은 앱이 바꾼다.
+ * Version 탭에서 고른 자기 설치본에는 얹지 않는다 — 그 갱신은 그 주인의 것이다.
+ */
+export const CLAUDE_MANAGED_SPAWN_ENV: Readonly<Record<string, string>> = { DISABLE_UPDATES: '1' };
+/** 앱 전용 코덱스 TUI 에 붙여 시작 시 업데이트 확인을 끈다 — 안 끄면 npm·brew 갱신을 권해 설치본을 따로 만들게 한다(`exec`·`app-server` 는 확인 안 함). */
+export const CODEX_MANAGED_TUI_ARGS: readonly string[] = ['-c', 'check_for_update_on_startup=false'];
+
+// §4 첫 실행 설치 온보딩 — 공식 네이티브 인스톨러로 `claude` CLI 를 깐다(Node 불필요 — npm 경로는 Node 가 있는 사람에게만 통한다).
 // 출처: https://code.claude.com/docs/en/setup
 
 /**
- * Windows 네이티브 설치 명령. `irm | iex` 는 PowerShell 문법이라 PowerShell 을 명시 호출한다.
- * `-NoProfile` = 사용자 프로필 스크립트가 설치를 방해하지 않게, `-ExecutionPolicy Bypass` =
- * 기본 정책(RemoteSigned)에서 원격 스크립트가 막히는 것을 피한다(레지스트리 정책은 안 건드림).
+ * `irm | iex` 는 PowerShell 문법이라 명시 호출한다. `-NoProfile` = 프로필 스크립트의 방해 차단,
+ * `-ExecutionPolicy Bypass` = 기본 정책(RemoteSigned)의 원격 스크립트 차단 회피(레지스트리 정책은 안 건드림).
  */
 export const CLAUDE_SETUP_INSTALL_COMMAND_WIN =
   'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://claude.ai/install.ps1 | iex"';
@@ -3590,100 +2765,52 @@ export const CLAUDE_SETUP_VERIFY_RETRY_MAX = 4;
 /** 누적 출력 상한 — 인스톨러가 진행률을 대량으로 찍어도 메모리·전선이 부풀지 않게 자른다. */
 export const CLAUDE_SETUP_OUTPUT_MAX_CHARS = 20_000;
 
-/**
- * 설치가 끝난 뒤 게이트가 "준비 완료" 를 보여주고 스스로 닫히기까지의 시간.
- *
- * 게이트를 **보고 있던 사람**에게만 확인을 남기기 위한 값이라 짧다 — 이 시간이 지나면 게이트는
- * 닫히고 다음 단계(로그인)로 넘어간다. 사용자가 [계속]을 누르면 기다리지 않고 즉시 넘어간다.
- */
+/** 설치 뒤 게이트가 "준비 완료"를 보이고 스스로 닫히기까지 — 보고 있던 사람에게 확인만 남기므로 짧다. [계속]이면 즉시 로그인 단계로. */
 export const CLAUDE_SETUP_READY_HOLD_MS = 1_600;
 
-/**
- * §4 (Claude Code CLI 자동 업데이트) — 앱을 켠 뒤 CLI 최신화를 시도하기까지의 지연.
- *
- * 설치 판정(1.2s)·로그인 판정(1.5s)보다 **뒤**여야 한다: 아직 안 깔린 사람은 설치 온보딩이
- * 먼저 맡아야 하고, 갓 설치한 실행본은 이미 최신이라 곧바로 갱신을 시도할 이유가 없다.
- * 부팅 직후 몰리는 작업(체크포인트 복원·훅 설치)과도 겹치지 않게 넉넉히 뒤로 민다.
- */
+/** §4 — 앱을 켠 뒤 CLI 자동 업데이트까지의 지연. 설치(1.2s)·로그인(1.5s) 판정 뒤여야 하고(설치 온보딩이 먼저), 부팅 작업과도 겹치지 않게 민다. */
 export const CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS = 20_000;
 
 /**
- * §3.6 (판올림 번호 발급 대기) — 부팅 후 **훅 전송 경로(HTTP 승격)** 를 다시 판정하기까지의 지연.
- *
- * 설치 판정(1.2s)보다 뒤여야 갓 설치된 실행본의 판올림이 잡힌다. 자동 업데이트(20s)보다는
- * **앞**이다 — 지금 깔려 있는 판올림으로 먼저 승격해 두고, 업데이트가 끝나면
- * `onClaudeInstallSettled` 가 한 번 더 판정한다(인스톨러가 idempotent 라 헛일이 아니다).
+ * §3.6 — 부팅 후 훅 전송 경로(HTTP 승격) 재판정 지연. 설치 판정(1.2s) 뒤·자동 업데이트(20s) 앞 — 지금 판올림으로 먼저 승격하고
+ * 업데이트 뒤 `onClaudeInstallSettled` 가 다시 판정한다.
  */
 export const HOOK_TRANSPORT_REFRESH_DELAY_MS = 4_000;
 
 /**
- * §3.7 · §9 「창이 뜬 직후의 메인 스레드」 ② — **부팅 한 번짜리 확인은 창이 보인 뒤 한 칸씩 돈다.**
- *
- * 위의 설치(1.2s)·로그인(1.5s)·사용량(2s)·코덱스(2s)·훅 전송(4s) 확인은 부팅 시작 기준으로 걸려, 부팅이
- * 느리면 창이 뜨는 그 순간 한꺼번에 터졌다(저마다 CLI 프로세스를 띄우고 스냅샷을 다시 민다 — 서버가 창의
- * 메인 스레드에서 함께 돌아 그동안 창이 제목줄로 안 움직였다). 이제 줄에 세웠다가 본체 창이 처음 보이면
- * `STARTUP_JOB_SETTLE_MS` 뒤부터 `STARTUP_JOB_GAP_MS` 간격으로 **원래 순서 그대로** 돌린다. 위의 지연값들은
- * 이제 순서만 정한다. 창 소식이 끝내 안 오면(창 없는 실행·시험) 부팅 `STARTUP_JOB_RELEASE_CAP_MS` 뒤 스스로 풀린다.
+ * §3.7 · §9 「창이 뜬 직후의 메인 스레드」 ② — 부팅 확인들은 본체 창이 처음 보인 뒤 한 칸씩 돈다(위 지연값은 순서만 정한다).
+ * 부팅 기준이면 느린 부팅에서 창이 뜨는 순간 한꺼번에 터져 창이 제목줄로 안 움직인다. 창 소식이 없으면 `STARTUP_JOB_RELEASE_CAP_MS` 뒤 풀린다.
  */
 export const STARTUP_JOB_SETTLE_MS = 1_500;
 export const STARTUP_JOB_GAP_MS = 750;
 export const STARTUP_JOB_RELEASE_CAP_MS = 20_000;
 
 /**
- * §3.7 · §9 「시작 화면(스플래시)」 — **스플래시가 떠 있으면 위 확인들을 그 뒤에서 먼저 돌린다.**
- *
- * 스플래시가 있는 실행에서는 본체 창이 아직 숨어 있어 아무도 창을 끌지 않는다. 그래서 본체 창이 보일 때까지
- * 미루지 않고 백엔드가 뜬 직후 이 간격으로 풀고, 본체 창은 줄이 다 돈 뒤에 보인다 — 창이 보인 뒤 1.5~4.5초에
- * 몰리던 CLI 기동(실측: 창이 뜬 뒤 +1.5s·+2.1s·+2.6s 멈춤)이 사용자가 만지기 전에 끝난다. 순서는 그대로다.
- * 간격은 종전 부팅 기준 지연에서 가장 가까웠던 두 칸(설치 1.2s → 로그인 1.5s, 0.3초)보다 좁히지 않는다.
+ * §3.7 · §9 「시작 화면(스플래시)」 — 스플래시가 있으면 위 확인들을 그 뒤에서 먼저 돌리고 본체 창은 줄이 다 돈 뒤 보인다
+ * (실측: 창이 뜬 뒤 +1.5s·+2.1s·+2.6s 멈춤이 사라진다). 간격은 0.3초(설치 1.2s → 로그인 1.5s)보다 좁히지 않는다.
  */
 export const STARTUP_JOB_SPLASH_SETTLE_MS = 300;
 export const STARTUP_JOB_SPLASH_GAP_MS = 400;
 
-/**
- * §3.7 · §9 「시작 화면(스플래시)」 — 본체 창 렌더러가 "첫 화면을 다 그렸다"고 main 에 알리기 전에 기다리는 것.
- *
- * 지금 보는 탭의 스냅샷이 오고(§9 `canvasLoading` 의 'ready') 그 그림이 한 번 칠해진 뒤, 렌더러의 긴 작업(50ms+)이
- * `MAIN_WINDOW_READY_QUIET_MS` 동안 없을 때 알린다. 긴 작업이 그치지 않아도 `MAIN_WINDOW_READY_CAP_MS` 뒤에는
- * 알린다 — 조용해지기를 기다리느라 창이 영영 숨어 있으면 안 된다.
- */
+/** §3.7 · §9 — 본체 창이 main 에 "첫 화면을 그렸다"고 알리는 조건: 지금 탭이 칠해진 뒤 긴 작업(50ms+)이 QUIET 동안 없을 때, 늦어도 CAP 뒤(창이 영영 숨으면 안 된다). */
 export const MAIN_WINDOW_READY_QUIET_MS = 300;
 export const MAIN_WINDOW_READY_CAP_MS = 2_500;
 
-/** v1.36 — STRICT delegation enforcement 경로(dispatch curl)가 Bash 에 의존하므로
- *  사용자가 UI 에서 제거할 수 없고, STRICT strip 계산에서도 항상 보존된다.
- *  서버 PUT /api/agent-config/:id 가 payload.tools 에서 빠져 있으면 자동 포함, UI 는 × 잠금. */
+/** STRICT 위임 집행(dispatch curl)이 Bash 에 의존해 잠근다 — UI 에서 못 빼고, strip 계산에서도 보존되며, 서버 PUT 은 빠지면 자동 포함한다. */
 export const LOCKED_AGENT_TOOLS: readonly string[] = ['Bash'];
 
 /**
- * 선택 가능한 퍼미션 모드 — 설치된 CLI 내부 enum 과 같은 6종(§4 CLI 사양 추종).
- *
- * `'default'` 는 **우리 저장값**이고 표시명은 **Manual** 이다(마이그레이션 ❌ — 옛 체크포인트가
- * 그대로 읽힌다). `'auto'`/`'dontAsk'` 는 CLI 2.1.223 에서 열린 값이며 판정 의미는 CLI 실측 기준으로
- * `auto → classify`(모델 분류기) · `dontAsk → deny`(사전 승인 없으면 거부).
- * 서버 승인 게이트(`/api/permission-check`)의 매핑은 §5.3 #12-1 참조.
- *
- * ⚠ 저장값을 그대로 CLI 에 넘기지 마라 — 변환은 아래 `toCliPermissionMode` 한 곳이다.
+ * 퍼미션 모드 — 설치된 CLI enum 과 같은 6종(§4). `'default'` 는 저장값, 표시명은 Manual(옛 체크포인트 호환이라 바꾸지 않는다).
+ * `auto` = 모델 분류기 · `dontAsk` = 사전 승인 없으면 거부(CLI 2.1.223 실측). 승인 게이트 매핑은 §5.3 #12-1.
+ * ⚠ 저장값을 그대로 CLI 에 넘기지 마라 — 변환은 `toCliPermissionMode` 한 곳.
  */
 export const AVAILABLE_PERMISSION_MODES: readonly string[] = [
   'default', 'acceptEdits', 'auto', 'dontAsk', 'plan', 'bypassPermissions',
 ];
 
 /**
- * §4 (CLI 사양 추종) — 우리 저장값 → CLI `--permission-mode` 값.
- *
- * **왜 표가 필요한가**: 종전에는 `'default'` 일 때 플래그를 아예 붙이지 않고 "CLI 기본이 곧 Manual"
- * 이라고 가정했다. 그 가정이 2026-08-14 에 깨졌다 — 그날부터 **CLI 무플래그 기본은 `auto`**(모델
- * 분류기가 스스로 승인) 이고, Pro/Max/Team 새 세션에 순차 적용된다. 그래서 화면에는 "Manual —
- * 위험한 동작마다 확인" 이라고 적혀 있는 에이전트가 **실제로는 자동 승인으로 돌 수 있었다.**
- * 사용자가 고른 승인 강도가 조용히 약해지는 것이라 표시 오류가 아니라 안전 문제다.
- *
- * CLI 2.1.251 `--help` 의 `--permission-mode` 선택지에 `manual` 이 실재하므로, 이제 **모든 모드를
- * 명시**한다(무플래그 = CLI 기본에 맡기는 자리를 없앤다). 플랜·조직 정책·판올림으로 기본값이 또
- * 바뀌어도 우리가 고른 값은 그대로 간다.
- *
- * `bypassPermissions` 만 예외다 — 전용 플래그(`--dangerously-skip-permissions`)로 나가므로
- * 이 표에 넣지 않는다(넣으면 두 경로가 같은 뜻을 두 벌로 들게 된다).
+ * §4 — 저장값 → CLI `--permission-mode` 값. 모든 모드를 명시한다 — CLI 무플래그 기본이 2026-08-14 부터 `auto`(자동 승인)라
+ * 빼면 Manual 로 보이는 에이전트가 자동 승인으로 돈다(`manual` 은 CLI 2.1.251 `--help` 에 실재). `bypassPermissions` 는 전용 플래그라 표에 없다.
  */
 export const PERMISSION_MODE_CLI_VALUES: Readonly<Record<string, string>> = {
   default: 'manual',
@@ -3693,20 +2820,13 @@ export const PERMISSION_MODE_CLI_VALUES: Readonly<Record<string, string>> = {
   plan: 'plan',
 };
 
-/**
- * 저장값을 CLI `--permission-mode` 값으로 옮긴다. 표에 없으면 `null`
- * (= `bypassPermissions` 전용 플래그 경로, 또는 우리가 모르는 값이라 플래그를 흘리지 않는다).
- */
+/** 표에 없으면 `null` — `bypassPermissions`(전용 플래그)이거나 모르는 값이라 플래그를 흘리지 않는다. */
 export function toCliPermissionMode(mode: string | undefined | null): string | null {
   if (!mode) return PERMISSION_MODE_CLI_VALUES['default'] ?? null;
   return PERMISSION_MODE_CLI_VALUES[mode] ?? null;
 }
 
-/**
- * §4 (CLI 사양 추종) — 서브에이전트 **이름** 규칙: 소문자 영문·숫자·하이픈만, 하이픈으로 시작 ❌,
- * `:` 금지. 공식 문서가 못 박은 규칙이라 우리가 먼저 다듬어 보낸다 — CLI 가 거부하면 그 에이전트가
- * 통째로 못 뜨기 때문이다(`--isolation` 이 그렇게 죽었던 자리와 같은 성질).
- */
+/** §4 — 서브에이전트 이름 규칙(공식 문서): 소문자·숫자·하이픈, 하이픈 시작·`:` ❌. CLI 가 거부하면 그 에이전트가 통째로 못 뜨므로 미리 다듬는다. */
 export function normalizeAgentDefinitionName(raw: string | undefined | null): string {
   if (!raw) return '';
   return raw
@@ -3719,21 +2839,12 @@ export function normalizeAgentDefinitionName(raw: string | undefined | null): st
     .replace(/-+$/g, '');            // 자른 자리에 남은 끝 하이픈도 뗀다
 }
 
-/**
- * §4 (CLI 사양 추종) — 서브에이전트 이름 길이 상한. CLI 2.1.292 부터 에이전트 이름은 최대 256자다
- * (공식 변경 기록 — 더 긴 skill·plugin 파일의 `name` 은 무시된다). 이름 칸·정규화가 같은 값을 쓴다.
- */
+/** §4 — 서브에이전트 이름 상한. CLI 2.1.292 부터 최대 256자(공식 변경 기록 — 더 긴 `name` 은 무시된다). 이름 칸·정규화가 같은 값을 쓴다. */
 export const AGENT_DEFINITION_NAME_MAX = 256;
 
 /**
- * §4 (CLI 사양 추종) — `AgentDefinition[]` → `--agents` 가 받는 **JSON 문자열**.
- *
- * 우리는 순서 있는 배열로 들고 CLI 는 이름을 키로 하는 객체를 받으므로 여기서 뒤집는다.
- * 넘길 게 없으면 `null` — 그래야 호출부가 **플래그 자체를 안 붙인다**(빈 객체 `{}` 를 넘기면
- * "정의 0개"가 아니라 "정의를 준다"는 뜻이 되어 CLI 판본에 따라 파일 기반 에이전트를 가릴 수 있다).
- *
- * 버리는 것: 이름/설명/프롬프트 중 하나라도 빈 항목, 그리고 **먼저 나온 것과 이름이 겹치는 항목**
- * (객체 키라 뒤엣것이 앞엣것을 조용히 덮어써 사용자가 적은 정의 하나가 사라진다).
+ * §4 — `AgentDefinition[]` → `--agents` 의 이름 키 객체 JSON. 넘길 게 없으면 `null`(플래그를 안 붙인다 — `{}` 는 판본에 따라 파일 기반 에이전트를 가린다).
+ * 빈 칸이 있는 항목과 앞엣것과 이름이 겹치는 항목은 버린다(객체 키라 조용히 덮어쓴다).
  */
 export function buildAgentsFlagJson(defs: readonly AgentDefinition[] | undefined | null): string | null {
   if (!Array.isArray(defs) || defs.length === 0) return null;
@@ -3755,13 +2866,7 @@ export function buildAgentsFlagJson(defs: readonly AgentDefinition[] | undefined
   return Object.keys(out).length > 0 ? JSON.stringify(out) : null;
 }
 
-/**
- * §4 (CLI 사양 추종) — `--plugin-dir` 로 나갈 경로 목록 정리.
- *
- * 줄 단위로 받은 입력을 다듬는다: 앞뒤 공백 제거, 빈 줄 제거, **중복 제거**(같은 폴더를 두 번
- * 얹으면 CLI 가 같은 플러그인을 두 번 로드한다). 경로 문자열은 손대지 않는다 — 대소문자를
- * 접거나 구분자를 바꾸면 리눅스에서 다른 폴더가 되기 때문이다(멀티플랫폼 규칙 1).
- */
+/** §4 — `--plugin-dir` 목록 정리(공백·빈 줄·중복 제거 — 중복이면 두 번 로드). 경로는 손대지 않는다 — 대소문자·구분자를 바꾸면 리눅스에서 다른 폴더다. */
 export function normalizePluginDirs(dirs: readonly string[] | undefined | null): string[] {
   if (!Array.isArray(dirs)) return [];
   const seen = new Set<string>();
@@ -3784,16 +2889,8 @@ export const PERMISSION_MODES_WITHOUT_PROMPT: readonly string[] = [
 ];
 
 /**
- * §5.3 #12-1-A — **이 설정에서 승인 팝업이 뜰 수 있는가.** `permissionTimeoutPolicy` 토글을
- * 보일지 결정하는 자리이고, 판정이 두 벌이 되지 않게 여기 한 곳에 둔다.
- *
- * 종전에는 `PERMISSION_MODES_WITHOUT_PROMPT` 하나로 끝났지만, 도구별 확인 목록(`askTools`)이
- * 생기면서 그 목록이 비어 있지 않으면 **`bypassPermissions`·`auto` 에서도 팝업이 뜬다** —
- * 그때 토글을 숨기면 사용자는 60초 무응답 정책을 **볼 수도 고칠 수도 없는데** 카드는 뜨는
- * 상태가 된다.
- *
- * `plan`·`dontAsk` 는 목록과 무관하게 그대로 숨긴다 — 전자는 실행 자체가 없고 후자는 팝업
- * 대신 즉시 거부라, 확인 목록이 그 둘을 되돌리지 않는다(서버 판정도 같은 규칙이다).
+ * §5.3 #12-1-A — 승인 팝업이 뜰 수 있는가(`permissionTimeoutPolicy` 토글 표시). `askTools` 가 있으면 `bypassPermissions`·`auto` 에서도 뜬다 —
+ * 그때 숨기면 60초 무응답 정책을 고칠 수 없다. `plan`·`dontAsk` 는 늘 숨긴다(실행 없음·즉시 거부, 서버와 같은 규칙).
  */
 export function canPromptForPermission(
   permissionMode: string | undefined,
@@ -3816,27 +2913,14 @@ export const AVAILABLE_ISOLATION_MODES: readonly string[] = [
  */
 export const AVAILABLE_SETTING_SOURCES: readonly string[] = ['user', 'project', 'local'];
 
-/**
- * §4 (CLI 사양 추종) — 자동 압축 드롭다운이 그리는 값.
- * 맨 앞 `''` 는 "미설정"(=위층을 따름), `'off'` 는 **꺼짐**, `'auto'` 는 그 모델의 창 전체,
- * 나머지는 토큰 수. 눈금은 CLI `--autocompact` 가 받는 100k~1M 을 그대로 따른다 — 2026-10-05 부터
- * 스폰에는 싣지 않지만 창 하한(`applyAutoCompactFloor`)이 이 눈금에서 고른다.
- */
+/** §4 — 자동 압축 드롭다운 값: `''` 미설정(위층), `'off'` 꺼짐, `'auto'` 창 전체, 나머지 토큰 수. 눈금은 CLI 가 받는 100k~1M — 스폰엔 안 싣지만 창 하한이 이 눈금에서 고른다. */
 export const AVAILABLE_AUTOCOMPACT_VALUES: readonly string[] = [
   '', 'off', 'auto', '100000', '200000', '400000', '500000', '1000000',
 ];
 
 /**
- * §4 (CLI 사양 추종) — "접지 않는다"를 뜻하는 우리 축 값.
- *
- * ⚠ **CLI 에 보내는 값이 아니다.** 설치본은 `--autocompact` 에 `auto` 또는 100k~1M 만 받고,
- * `off`·`0` 을 주면 `argument 'off' is invalid` 로 **즉시 종료**한다(실측 2.1.252 —
- * `--help` + `--print` probe). 2026-10-05 부터 스폰은 어느 값이든 `--autocompact` 를 싣지 않아 CLI 는
- * 늘 기본(창 전체)으로 돌고, Opus `[1m]` 에서는 작업 도중 압축이 사실상 없이 창에 닿을 때 한 번 접는
- * 최후 안전망만 남는다. 그래서 꺼짐과 켜짐은 작업 도중에는 같고, 갈리는 것은 **명령 사이 압축**(턴 경계
- * 발동선)이 있느냐 하나다 — 그것이 우리가 파는 "꺼짐"의 정확한 의미다.
- *
- * 문자열을 여기저기 흩뿌리면 한 곳만 고쳐져 어긋나므로 비교는 전부 이 상수를 쓴다.
+ * §4 — "접지 않는다"의 우리 값. ⚠ CLI 에 보내지 마라 — `--autocompact off`·`0` 이면 즉시 종료한다(실측 2.1.252).
+ * 스폰은 `--autocompact` 를 안 실어, 꺼짐/켜짐은 명령 사이 압축(턴 경계 발동선) 유무만 가른다. 비교는 이 상수로.
  */
 export const AUTOCOMPACT_OFF = 'off';
 
@@ -3847,14 +2931,8 @@ export function isAutoCompactOn(resolved: string): boolean {
 }
 
 /**
- * §4 (CLI 사양 추종) — 비용 확인 팝업이 인용하는 **압축 1회의 실측 표본**.
- *
- * "토큰이 든다"는 말만으로는 크기 감각이 안 서고, 감각이 없으면 경고는 그냥 클릭해 넘기는 관문이
- * 된다. 그래서 숫자를 함께 보인다 — 이 저장소 트랜스크립트의 `compact_boundary` 기록
- * `runs` 회를 그대로 집계한 값이다(추정치가 아니다).
- *
- * ⚠ 사용자 환경마다 다르므로 팝업 문구는 이것을 **"실측 예"** 로 소개해야 한다. 자기 환경의
- * 확정 비용으로 읽히면 그것은 거짓말이 된다.
+ * §4 — 비용 확인 팝업이 인용하는 압축 1회 실측 표본(트랜스크립트 `compact_boundary` `runs` 회 집계). 숫자가 없으면 경고를 그냥 넘긴다.
+ * ⚠ 팝업은 "실측 예"로 소개해야 한다 — 자기 환경의 확정 비용으로 읽히면 거짓이다.
  */
 export const AUTOCOMPACT_COST_SAMPLE = {
   /** 집계한 압축 횟수 */
@@ -3868,44 +2946,15 @@ export const AUTOCOMPACT_COST_SAMPLE = {
 } as const;
 
 /**
- * §4 (CLI 사양 추종) — 아무도 정하지 않았을 때 실릴 `--autocompact` 내장 기본값.
- *
- * CLI 기본은 "모델 창 전체"다. 우리는 Opus 에 `[1m]` 을 붙여 띄우므로 그 기본을 그대로 두면
- * 압축이 **100만 토큰에서야** 걸리는데, 실측상 세션 대부분은 그 근처도 못 가고 끝난다
- * (= 사실상 압축이 없다).
- *
- * 400k 로 두는 이유 — 실측한 세션 최고점이 213k·231k·255k·349k 였다. 200k 면 **웬만한 세션이
- * 작업 도중 한 번은 잘리고**, 1M 이면 아무 일도 일어나지 않는다. 400k 는 그 분포 바로 위라
- * 평범한 세션은 끝까지 온전히 가고 길어지는 세션만 걸린다.
- *
- * ⚠ 이 값은 **우리 턴 경계 압축(명령 사이 압축)의 기준 창**이다 — 사용자가 고르는 숫자는 이것 하나뿐이고
- * (설정 창에 체크박스가 따로 없다), 실제로 접히는 자리는 `turnCompactTriggerTokens` 가 정한다. 위
- * "작업 도중 한 번은 잘린다"는 이 값이 `--autocompact` 로 실리던 때의 근거다 — 2026-10-05 부터 스폰은
- * 창을 싣지 않아 작업 도중에는 CLI 가 모델 창 끝에서만 접는다.
- *
- * ⚠ **더 이상 "아무도 정하지 않았을 때"의 값이 아니다**(2026-09-02 사용자 지시). 내장 기본은
- * `DEFAULT_AUTOCOMPACT`(=꺼짐)로 옮겼고, 이 상수는 **사용자가 비용 확인 팝업에서 "켜기"를
- * 눌렀을 때 앉힐 권장 시작값**으로 남는다. 위 400k 근거(실측 세션 최고점 분포)는 그대로 유효하다.
+ * §4 — 비용 확인 팝업에서 켤 때 앉힐 권장 시작 창(내장 기본은 꺼짐). 실측 세션 최고점 213k·231k·255k·349k 바로 위라 평범한 세션은 안 걸린다.
+ * 명령 사이 압축의 기준 창이다 — 접히는 자리는 `turnCompactTriggerTokens`.
  */
 export const DEFAULT_AUTOCOMPACT_TOKENS = '400000';
 
-/**
- * §4 (CLI 사양 추종) — 아무도 정하지 않았을 때의 내장 기본 = **꺼짐**(2026-09-02 사용자 지시).
- *
- * 종전 기본은 400k 였다. 압축은 공짜 정리가 아니라 **대화 전체를 다시 먹여 요약을 만드는 모델
- * 호출 1회**라 접을 때마다 토큰과 플랜 한도를 쓴다(이 저장소 실측 23회: 회당 입력 평균 364,566
- * 토큰 · 평균 150초 정지). 돈이 나가는 축이 사용자가 고른 적 없는 채로 켜져 있으면 안 되므로
- * 기본을 끄고, 켜는 것은 **비용 확인 팝업을 거친 명시 선택**으로만 되게 한다.
- */
+/** §4 — 내장 기본 = 꺼짐. 압축은 대화 전체를 다시 먹이는 모델 호출이라(실측 23회: 회당 입력 평균 364,566 토큰·150초 정지) 비용 확인 팝업의 명시 선택으로만 켠다. */
 export const DEFAULT_AUTOCOMPACT = AUTOCOMPACT_OFF;
 
-/**
- * §4 (CLI 사양 추종) — 턴 경계·에이전트 요청으로 보내는 압축 명령.
- *
- * 문자열은 `SESSION_LOOP_COMPACT_COMMAND` 와 같지만 **축이 다르다**(그건 루프 회차 경계,
- * 이건 일반 턴 경계·에이전트 자율 요청). 사용자가 입력창에 직접 치는 것과 완전히 같은 길이며
- * 새 실행 레일이 아니다 — 그 세션 명령 큐에 `QueuedCommand` 한 건으로 얹힌다.
- */
+/** §4 — 턴 경계·에이전트 요청 압축 명령. `SESSION_LOOP_COMPACT_COMMAND` 와 글자는 같지만 축이 다르다. 입력창에 치는 것과 같은 길(큐의 `QueuedCommand` 한 건). */
 export const AGENT_COMPACT_COMMAND = '/compact';
 
 /** `displayCommands` 가 읽는 최소 모양 — 서버 `QueuedCommand` 를 통째로 알 필요가 없다. */
@@ -3917,15 +2966,8 @@ export interface DisplayCommandLike {
 }
 
 /**
- * §5.3 #9-1 (P)(b) — **조용한 압축의 진행 표시를 물려받는 명령**(heir) → 물려줄 시작 시각.
- *
- * 세션마다 `executing` 인 조용한 압축이 있으면, 그 세션의 **첫** 대기 명령 하나가 물려받는다
- * (뒤엣것까지 물려받으면 거짓이 된다). 시작 시각은 압축이 나간 시각이다 — 사용자에게는 그 명령을
- * 넣은 순간이다. 압축이 아직 대기 중이면 도는 것이 없으므로 아무도 물려받지 않는다.
- *
- * 화면(`displayCommands` — 실행 중으로 그린다)과 서버의 두 중지 라우트(도는 중에 [중지]하면
- * 실행 중에 멈춘 명령처럼 봉합한다)가 **같은 규칙**을 봐야 한다 — 두 벌이 되면 "실행 중으로
- * 보이던 명령"과 "중지됨으로 남는 명령"이 서로 다른 명령이 된다.
+ * §5.3 #9-1 (P)(b) — 도는 조용한 압축의 진행 표시를 물려받는 명령(세션의 첫 대기 명령 하나) → 시작 시각. 압축이 대기 중이면 없다.
+ * 화면(`displayCommands`)과 서버 두 중지 라우트가 이 규칙을 같이 써야 실행 중으로 보인 명령과 중지된 명령이 같다.
  */
 export function silentPreCompactHeirs<T extends DisplayCommandLike>(list: readonly T[]): Map<T, number | undefined> {
   // 키는 **그 명령 객체**다 — id 를 몰라도 되고, 같은 배열을 도는 호출자가 그대로 `has` 로 묻는다.
@@ -3947,16 +2989,8 @@ export function silentPreCompactHeirs<T extends DisplayCommandLike>(list: readon
 }
 
 /**
- * §5.3 #9-1 (P)(b) — **[즉시] 덧말 `cmd` 가 끊을 "도는 턴"이 물려받은 명령인가.** 그렇다면 그 명령과
- * 물려줄 시작 시각, 아니면 `null`.
- *
- * 즉시는 도는 턴을 끊는 손이다(§5.5 #17-18). 조용한 압축이 도는 동안 사용자에게 그 턴은 압축이 아니라
- * 그 진행을 물려받은 명령인데, CLI 로 가는 인터럽트는 압축만 끊는다 — 압축이 끝나면 대기열 맨 앞의 그
- * 명령이 그대로 나가고 즉시 덧말은 그 뒤에 섰다("즉시로 끊었는데 계속 돈다"). 그래서 서버는 여기서 고른
- * 명령을 실행 중에 멈춘 명령과 똑같이 봉합한다(두 [중지]와 같은 규칙 — 같은 `silentPreCompactHeirs`).
- *
- * `cmd` 가 바로 그 명령이면(그 명령을 즉시로 돌리는 것) 끊을 턴이 아니다 — 압축만 비켜선다
- * (`planSilentPreCompact` 가 즉시 명령 앞에 서지 않는 것과 같은 규율).
+ * §5.3 #9-1 (P)(b) — [즉시] 덧말이 끊을 도는 턴이 물려받은 명령이면 그것(아니면 `null`). CLI 인터럽트는 압축만 끊어, 안 그러면 압축 뒤 그 명령이 그대로 돈다.
+ * 서버는 이 명령을 실행 중에 멈춘 명령처럼 봉합한다. `cmd` 가 바로 그 명령이면 압축만 비켜선다(`planSilentPreCompact` 와 같은 규율).
  */
 export function heirCutByImmediate<T extends DisplayCommandLike>(
   list: readonly T[],
@@ -3971,25 +3005,8 @@ export function heirCutByImmediate<T extends DisplayCommandLike>(
 }
 
 /**
- * §5.3 #9-1 (P) — **화면이 그릴 명령 목록.** 두 가지를 한 번에 한다.
- *
- * **① 조용한 압축을 감춘다.** 자동 압축은 사용자가 넣은 명령이 아니라 우리가 그 앞에 끼운
- * 것이라, 말풍선·대기열·명령 센터·탭 배지 어디에도 나오지 않는다.
- *
- * **② 그 진행 표시를 뒤에 선 명령에게 넘긴다.** ① 만 하면 압축이 도는 내내 사용자가 방금 넣은
- * 명령이 **"대기 중"** 으로 앉아 있다 — 아무것도 안 하는 것처럼 보이는데 실제로는 그 명령을
- * 위해 도는 중이라, 감춘 보람 없이 "왜 멈췄지"가 된다. 그래서 조용한 압축이 도는 동안 그
- * 세션의 **첫 대기 명령을 실행 중으로 그린다** — 사용자 눈에는 자기가 넣은 명령이 그냥
- * 진행 중이고, 압축은 그 대기 안에 숨는다(이 축이 원한 그림 그대로다).
- *
- * 바꾸는 것은 **화면에 건네는 사본 하나뿐**이다 — 서버가 준 값은 그대로 두고(§3.1 서버 = SSOT)
- * 여기서 상태를 만들거나 전이시키지 않는다. 실제로 그 명령이 나가면 서버가 같은 자리를
- * `executing` 으로 덮으므로 표시가 튀지 않는다.
- *
- * 규칙이 화면마다 따로 적히면 한 곳만 고쳐져 어긋나므로 **판정은 여기 한 곳**이 소유한다.
- *
- * ⚠ `isSessionRunning` 계열(돌고 있는가)에는 **쓰지 마라** — 그쪽은 서버가 준 진짜 큐를 봐야
- * 한다(감춘 명령도 도는 명령이다).
+ * §5.3 #9-1 (P) — 화면용 명령 목록: 조용한 압축을 감추고 그 진행을 세션의 첫 대기 명령에 넘겨 실행 중으로 그린다(안 넘기면 멈춘 듯 "대기 중").
+ * 사본만 바꾼다(§3.1). ⚠ `isSessionRunning` 계열에는 쓰지 마라 — 감춘 명령도 도는 명령이다.
  */
 export function displayCommands<T extends DisplayCommandLike>(list: readonly T[] | undefined): readonly T[] {
   if (!list || list.length === 0) return list ?? [];
@@ -4014,15 +3031,8 @@ export function displayCommands<T extends DisplayCommandLike>(list: readonly T[]
 }
 
 /**
- * §4 (CLI 사양 추종) — `agentCanCompact` 가 켜진 에이전트에게 매 턴 실리는 창구 안내.
- *
- * CLI 의 `SlashCommand` 도구는 `--tools` 로 켜도 헤드리스 세션에 나오지 않는다(실측 2.1.247)
- * — 그래서 에이전트가 `/compact` 를 직접 부를 방법이 없고, 서버에 신고하면 서버가 **다음 명령이
- * 나가기 직전에** 큐에서 돌린다. 토큰·주소는 스폰 env 에 이미 있으므로 여기에 비밀을 박지 않는다.
- *
- * §5.3 #9-1 (P) — 종전에는 "턴이 끝난 직후"였다. 그 자리는 사용자가 결과를 받아 든 다음이라
- * **아무도 기다리지 않는 시간에 화면이 다시 도는 것**으로 보였다. 이제 접는 자리는 다음 명령
- * 바로 앞이고, 그 명령은 어차피 사용자가 기다리는 턴이라 압축이 그 대기 안으로 숨는다.
+ * §4 — `agentCanCompact` 에이전트에게 매 턴 싣는 창구 안내. `SlashCommand` 도구는 헤드리스에 안 나와(실측 2.1.247) 서버에 신고하고,
+ * 서버가 다음 명령 바로 앞에서 접는다(§5.3 #9-1 (P)). 토큰·주소는 스폰 env 에 있어 여기에 박지 않는다.
  */
 export function buildAgentSelfCompactRule(agentId: string, subAgentId: string, shell: AgentRuleShell = 'posix'): string {
   const request = shell === 'powershell'
@@ -4046,16 +3056,8 @@ ${request}
 }
 
 /**
- * §4 (CLI 사양 추종) — 자동 압축 창(명령 사이 압축의 기준)을 정하는 **단 하나의 판정**.
- * 2026-10-05 부터 이 값은 스폰(`--autocompact`)에 실리지 않고 턴 경계 발동선만 정한다.
- *
- * 3층으로 내려온다: **에이전트 설정 → 설정 창(Agent Defaults) 전역 기본 → 내장 기본**.
- * 그래서 `''`(미설정)은 "꺼짐"이 아니라 **"위층을 따름"** 이다 — 모델 창 전체를 기준으로 삼으려면
- * `'auto'` 를 고른다. 이 계층이 있어야 **이미 만들어져 돌던 에이전트**도 설정 창에서 바꾼 값을 따른다.
- *
- * ⚠ 목록 밖의 값은 내장 기본으로 떨어뜨린다. 이 값이 스폰에 실리던 때는 CLI 가 범위 밖 값을 무시하지
- * 않고 `argument … is invalid` 로 **즉시 종료**해(실측 2.1.247 — `--autocompact 50000`) 저장분이
- * 오염되면 그 에이전트가 영영 뜨지 못했다. 지금은 발동선과 창 하한이 같은 눈금을 전제한다.
+ * §4 — 자동 압축 창의 단 하나의 판정(명령 사이 압축의 기준, 스폰엔 안 실린다). 에이전트 설정 → 설정 창 전역 기본 → 내장 기본 3층이라
+ * `''` 는 꺼짐이 아니라 "위층을 따름"이다. 목록 밖 값은 내장 기본으로 — 발동선과 창 하한이 같은 눈금을 전제한다.
  */
 export function resolveAutoCompact(agentValue?: string, userDefaultValue?: string): string {
   for (const raw of [agentValue, userDefaultValue]) {
@@ -4066,14 +3068,8 @@ export function resolveAutoCompact(agentValue?: string, userDefaultValue?: strin
 }
 
 /**
- * §4 (CLI 사양 추종) — 자동 압축 창 값을 **토큰 수**로 읽는다. 창 크기이지 접는 지점이 아니다 — 우리 선
- * (턴 경계 발동선)은 `turnCompactTriggerTokens` 가 이 값에서 한 단 낮춰 잡는다. 그 한 단은 이 값이
- * `--autocompact` 로 실리던 때 생겼다: CLI 에게 이 숫자는 창 크기라(설치본 2.1.251 `--help`: "Auto-compact
- * window size") 이 선에 **닿기 전에** 접었고, 같은 숫자를 발동선으로 쓰면 CLI 가 항상 먼저 도달해 턴 경계
- * 압축이 **영영 걸리지 않았다**(실제로 그렇게 만들어 봤다). 2026-10-05 부터 스폰은 창을 싣지 않는다.
- *
- * `'auto'` 는 숫자가 아니다 — 그 모델의 창(`contextMax`)을 선으로 삼는다. 창 크기를 모르면 `null` 을 돌려주고, 부르는 쪽은 그것을 **"아직 판정 불가"**로
- * 다뤄야 한다(모르는 채로 쏘면 종전의 매 턴 압축으로 되돌아간다).
+ * §4 — 자동 압축 창 값을 토큰 수로(창 크기이지 접는 지점이 아니다 — 발동선은 `turnCompactTriggerTokens`). `'auto'` = 모델 창(`contextMax`).
+ * 모르면 `null` = "아직 판정 불가"(모르는 채로 쏘면 매 턴 압축이 된다).
  */
 export function autoCompactThresholdTokens(resolved: string, contextMax?: number): number | null {
   // 꺼짐이면 선 자체가 없다 — **가장 먼저 걸러야 한다.** `Number('off')` 는 NaN 이라
@@ -4086,23 +3082,12 @@ export function autoCompactThresholdTokens(resolved: string, contextMax?: number
 }
 
 /**
- * §4 (CLI 사양 추종) — 우리가 **턴 경계에서** 접는 선을 자동 압축 값의 몇 배로 잡는가.
- *
- * 0.8 은 400k 설정에서 320k 다. 이 비율은 CLI 가 같은 창(`--autocompact`)으로 돌던 때 생겼다 — CLI 는 그
- * 값을 창 크기로 보고 그보다 **먼저** 접었으므로 1.0 이면 우리 차례가 오지 않았다. 2026-10-05 부터 스폰은
- * 창을 싣지 않아 그 경쟁은 없지만 비율은 그대로 둔다: 사용자가 겪어 온 명령 사이 압축 자리가 바뀌지 않고,
- * 창 하한 산식(`minAutoCompactWindowTokens`)이 이 비율 위에 서 있다. 한 지시가 이 선을 넘어 계속 자라도
- * 그 지시 안에서는 접지 않는다 — 작업 도중의 안전망은 모델 창 끝의 CLI 압축이다.
+ * §4 — 턴 경계 발동선 = 자동 압축 값 × 비율(400k → 320k). 바꾸지 마라 — 명령 사이 압축 자리와 창 하한 산식(`minAutoCompactWindowTokens`)이 여기에 선다.
+ * 한 지시 안에서는 접지 않는다(작업 도중 안전망은 모델 창 끝의 CLI 압축).
  */
 export const TURN_COMPACT_TRIGGER_RATIO = 0.8;
 
-/**
- * §4 (CLI 사양 추종) — **턴이 끝났을 때 접기 시작하는 토큰 수.** 화면에 적히는 숫자도 이것이다.
- *
- * 자동 압축 값 하나에서 파생되므로 사용자가 고르는 숫자는 여전히 하나뿐이다(설정 창의 체크박스를
- * 없앤 이유 — 같은 일을 하는 손잡이가 둘이면 헷갈리기만 한다). 값을 모르면 `null` 이고, 부르는
- * 쪽은 그것을 **"아직 판정 불가"**로 다뤄야 한다.
- */
+/** §4 — 턴이 끝났을 때 접기 시작하는 토큰 수(화면 숫자도 이것). 자동 압축 값 하나에서 파생된다. 모르면 `null` = "아직 판정 불가". */
 export function turnCompactTriggerTokens(resolved: string, contextMax?: number): number | null {
   const window = autoCompactThresholdTokens(resolved, contextMax);
   if (window === null) return null;
@@ -4110,30 +3095,17 @@ export function turnCompactTriggerTokens(resolved: string, contextMax?: number):
 }
 
 /**
- * §4 (CLI 사양 추종) (5) 창 하한 — 압축 **뒤에** 시작 문맥 위로 다시 얹히는 몫의 어림(토큰).
- *
- * 압축은 대화만 줄인다. 시작 문맥(시스템 프롬프트·도구·CLAUDE.md·기억·스킬 목록)은 그대로 남고, 그 위에
- * 요약과 다시 읽는 파일·스킬 본문이 얹힌다(공식 문서: 파일 최대 5개·각 5k, 스킬 본문 합계 25k 상한).
- * 30k 는 실측에서 왔다 — 2026-10-04 압축 반복 세션(200k 창 · 시작 문맥 70.6k)의 압축 24회 직후 문맥이
- * 89~117k 였고, "직후 수준 − 시작 문맥"의 중앙값이 약 28k 였다.
+ * §4 (5) 창 하한 — 압축 뒤 시작 문맥 위로 다시 얹히는 몫(요약·다시 읽는 파일·스킬 본문 — 공식: 파일 5개·각 5k, 스킬 25k)의 어림.
+ * 2026-10-04 실측: 200k 창·시작 문맥 70.6k 세션의 압축 24회 직후 "문맥 − 시작 문맥" 중앙값 약 28k.
  */
 export const COMPACT_RESTART_ALLOWANCE_TOKENS = 30_000;
 
-/**
- * §4 (CLI 사양 추종) (5) 창 하한 — 화면이 새 세션(아직 응답이 없음)의 창을 미리 적을 때 시작 문맥을 빌려 올
- * 같은 에이전트의 최근 세션을 몇 개까지 보는가. 턴 경계 판정은 턴이 끝난 뒤라 언제나 그 세션 자신의 값을 본다.
- */
+/** §4 (5) 창 하한 — 새 세션의 창을 미리 적을 때 시작 문맥을 빌려 올 같은 에이전트 최근 세션 수. 턴 경계 판정은 늘 그 세션 자신의 값. */
 export const COMPACT_FLOOR_SIBLING_SCAN = 3;
 
 /**
- * §4 (CLI 사양 추종) (5) 창 하한 — 이 시작 문맥이면 창이 **적어도** 몇 토큰이어야 압축이 일보다 잦아지지 않는가.
- *
- * 압축 한 번에 다시 싣는 몫 R = 시작 문맥 + `COMPACT_RESTART_ALLOWANCE_TOKENS`. 압축 사이에 일할 몫은 발동선
- * (창 × `TURN_COMPACT_TRIGGER_RATIO`)에서 R 을 뺀 것이고, 그것이 R 보다 작으면 압축이 일보다 잦아진다 —
- * 2026-10-04 사고가 그 자리였다(200k 창에서 일할 몫 약 70k · 압축 한 번에 2.4~6분 · 세션 시간의 47%).
- * 그래서 일할 몫 ≥ R ⇔ 창 ≥ 2R ÷ 비율.
- *
- * 시작 문맥을 모르면(없음·0 이하·비유한) `null` — **모르면 올리지 않는다**.
+ * §4 (5) 창 하한 — 압축이 일보다 잦아지지 않을 최소 창. R = 시작 문맥 + 다시 얹히는 몫, 일할 몫 = 창 × 비율 − R ≥ R ⇔ 창 ≥ 2R ÷ 비율.
+ * 2026-10-04 실측: 200k 창에서 일할 몫 약 70k·압축이 세션 시간의 47%. 시작 문맥을 모르면 `null`(올리지 않는다).
  */
 export function minAutoCompactWindowTokens(startupFloor: number | null | undefined): number | null {
   if (typeof startupFloor !== 'number' || !Number.isFinite(startupFloor) || startupFloor <= 0) return null;
@@ -4156,17 +3128,8 @@ export interface AutoCompactFloorResult {
 }
 
 /**
- * §4 (CLI 사양 추종) (5) 창 하한 — 해소된 창(`resolveEffectiveAutoCompact` 의 답)에 하한을 건다.
- *
- * **턴 경계 판정(`shouldCompactAfterTurn`)과 화면(설정 창·상태바)이 이 함수를 같은 시작 문맥 출처로 부른다.**
- * 2026-10-05 부터 스폰은 창을 싣지 않는다 — 작업 도중에는 CLI 가 모델 창 끝에서만 접고, 이 함수가 정하는
- * 창은 명령 사이 압축의 발동선만 움직인다.
- *
- *  - 숫자 창만 다룬다 — `'off'`(창 전체)·`'auto'`(CLI 판단)·빈 값은 그대로 돌려준다.
- *  - **올리기만** 한다. 눈금 중 하한 이상인 가장 작은 값으로.
- *  - 모델 창(`contextMax`)을 넘겨 올리지 않는다 — 넘기면 턴 경계 선(창 × 0.8)이 모델 창 밖으로 나가
- *    영영 닿지 않는다. 모델 창 안의 가장 큰 눈금이 지금 값보다 크지 않으면 그대로다.
- *  - 시작 문맥을 모르면 그대로다(모르면 올리지 않는다).
+ * §4 (5) 창 하한 — 해소된 창에 하한을 건다(턴 경계 판정과 화면이 같은 시작 문맥 출처로 부른다). 숫자 창만, 올리기만, 눈금 중 하한 이상 최소값으로.
+ * 모델 창(`contextMax`)을 넘기지 않는다 — 넘기면 발동선(창 × 0.8)이 영영 안 닿는다.
  */
 export function applyAutoCompactFloor(
   resolved: string,
@@ -4197,51 +3160,20 @@ export interface CompactAfterTurnInput {
   contextUsed?: number;
   /** 그 모델의 창 크기. `'auto'` 일 때만 쓰인다. */
   contextMax?: number;
-  /**
-   * §5.3 #9-1 (P축) — 마지막 압축 이후 이 세션이 돈 턴 수.
-   *
-   * 컨텍스트 축(위 둘)과 **직교**한다. 큰 창(1M)에서는 발동선이 아주 멀어 수백 턴을 돌아도
-   * 한 번도 안 접히는데, 실측상 비용의 96.5%가 `cache_read`(매 턴 전체를 다시 읽는 값)라
-   * **턴이 쌓이는 것 자체가 N² 로 돈이 된다** — 그 자리를 재는 것이 이 축이다.
-   */
+  /** §5.3 #9-1 (P축) — 마지막 압축 이후 턴 수(컨텍스트 축과 직교). 1M 창은 수백 턴에도 안 접히는데 비용의 96.5%가 `cache_read` 라(실측) 턴 누적 자체가 N² 비용이다. */
   turnsSinceCompact?: number;
   /** §5.3 #9-1 (P축) — 그 턴 수의 상한. 0/undefined = 이 축 끔(종전과 같은 판정). */
   turnBudget?: number;
-  /**
-   * §5.3 #9-1 (Q축) — 토큰 절약이 조인 압축 창. `''`/undefined = 미설정(종전 판정 그대로).
-   * 명령 사이 압축의 발동선만 조인다 — 2026-10-05 부터 스폰에는 실리지 않는다.
-   */
+  /** §5.3 #9-1 (Q축) — 토큰 절약이 조인 압축 창(`''`/undefined = 미설정). 명령 사이 압축의 발동선만 조인다. */
   tokenSaverAutoCompact?: string;
-  /**
-   * §4 (CLI 사양 추종) (5) 창 하한 — 이 세션의 **시작 문맥**(첫 응답의 문맥 크기). 모르면 undefined
-   * (하한을 걸지 않는다). 화면(`SubAgent.contextFloor`)과 **같은 출처**(`readContextInfo().firstContextUsed`)여야 한다.
-   */
+  /** §4 (5) — 이 세션의 시작 문맥(첫 응답 문맥 크기, 모르면 undefined = 하한 없음). 화면(`SubAgent.contextFloor`)과 같은 출처(`readContextInfo().firstContextUsed`)여야 한다. */
   startupFloor?: number;
 }
 
 /**
- * §4 (CLI 사양 추종) — **턴이 끝났다. 지금 접어야 하는가.**
- *
- * 켜고 끄는 스위치가 없다. 자동 압축 값을 고른 순간 "그 근처에서 접는다"는 뜻이고, 판정하는 자리는
- * 언제나 **턴 경계**다 — 손잡이 둘(창 크기 + 턴 경계 체크박스)이 같은 일을 하며 헷갈리게 하던 것을
- * 하나로 합친 결과다. 사용자가 고르는 숫자 하나가 "얼마나 차면"과 "언제 접는가"를 함께 정한다.
- *
- * ⚠ §5.3 #9-1 (P) — **여기서 참이 나와도 그 자리에서 접지 않는다.** 참은 "다음 명령 앞에서 접어라"는
- * 예약이고, 실제 압축은 그 세션에 다음 명령이 나가기 직전에 조용히(`QueuedCommand.silent`) 실린다.
- * 판정과 실행을 가른 이유는 하나다 — 턴이 끝난 자리는 **아무도 기다리지 않는 시간**이라 거기서
- * 도는 압축은 순수한 추가 대기로 보이는 반면, 다음 명령 앞은 어차피 사용자가 기다리는 구간이다.
- *
- * ⚠ **꺼짐(`AUTOCOMPACT_OFF`)이면 발동선이 없다** — `autoCompactThresholdTokens` 가 null 을 주므로
- * 아래 둘째 조건은 영영 걸리지 않는다. 다만 `agentCanCompact` 는 **직교 축**이라 꺼짐에서도
- * 에이전트 요청은 그대로 돈다 — 그 스위치도 켤 때 같은 비용 확인을 거치므로 몰래 도는 것이 아니다.
- *
- * 발동 조건 둘:
- *  - **에이전트 요청**(`agentCanCompact`) — 무조건 참. 판단을 맡긴 축이라 우리가 되묻지 않으며,
- *    발동선 아래(예: 120k)에서도 "이 일 끝났고 앞 맥락은 이제 필요 없다"고 부를 수 있다.
- *  - **발동선 도달** — `turnCompactTriggerTokens` 를 넘긴 채 턴이 끝났을 때.
- *
- * ⚠ **컨텍스트를 못 재면 거짓**이다(`contextUsed` 없음/0). 모르는 채로 참을 돌려주면 매 턴 압축으로
- * 조용히 되돌아간다 — 안 접히는 쪽이 사용자가 알아채고 고칠 수 있는 실패다(CLI 안전망도 남아 있다).
+ * §4 — 턴이 끝났다, 지금 접어야 하는가. 참은 예약이다 — 압축은 다음 명령 직전에 조용히 실린다(§5.3 #9-1 (P), 턴 끝은 아무도 안 기다린다).
+ * 참: 에이전트 요청(`agentCanCompact`, 발동선 아래여도) 또는 발동선을 넘긴 채 턴 끝. 꺼짐이면 발동선이 없지만 에이전트 요청은 돈다(직교 축).
+ * ⚠ 컨텍스트를 못 재면 거짓 — 참이면 매 턴 압축으로 조용히 되돌아간다.
  */
 export function shouldCompactAfterTurn(input: CompactAfterTurnInput): boolean {
   if (input.requested) return true;
@@ -4264,49 +3196,18 @@ export function shouldCompactAfterTurn(input: CompactAfterTurnInput): boolean {
   return used >= trigger;
 }
 
-/**
- * 선택 가능한 사고 깊이 (effort) — **폴백 전용**.
- *
- * §4 v1.49 — Opus 4.7 신규 등급 `xhigh` 추가.
- * §4 v2.48 — Opus 4.8 은 low/medium/high/xhigh/max 5등급을 모두 별개로 지원(공식 문서 2026-05).
- *   v1.49 에서 빠졌던 `'max'`(토큰 제약 없는 최대 추론, per-spawn 세션 단위)를 최상단으로 재도입.
- * 서버는 string 패스스루이므로 SDK/CLI 가 인식하는 신규 값을 즉시 사용 가능.
- *
- * §4 — 더 이상 UI 의 1차 소스가 아니다. AgentConfigPopup / OptionsWindow 는 `listEffortLevels(registry)`
- * (=설치된 `claude --help` 에서 파싱한 실제 `--effort` 값)를 우선 쓰고, 그게 비었을 때만 이 상수로 폴백한다.
- * CLI 가 새 등급을 추가하면 코드 수정 없이 자동 노출 — Model 드롭다운의 registry 기반 동적화와 동일 철학.
- */
+/** §4 — effort 폴백 목록. UI 는 `listEffortLevels(registry)`(설치본 `--help`)를 먼저 쓴다. 서버는 문자열을 그대로 넘긴다. */
 export const AVAILABLE_EFFORT_LEVELS: readonly string[] = [
   'default', 'low', 'medium', 'high', 'xhigh', 'max',
 ];
 
 /**
- * §4 — `claude --help` 가 **적어 두지 않은** effort 등급 후보.
- *
- * CLI 는 도움말의 `--effort <level> (…)` 괄호에 5등급만 적지만, 그 목록 밖 값을 전부 거부하지는 않는다.
- * `ultracode`(xhigh + 동적 워크플로우 자동 편성 · 2026-05 Opus 4.8 동시 출시)가 그 자리다 —
- * 도움말에 없으면서 **경고 없이 수락**된다(실측 2.1.259: `--effort ultracode --version` 은 무경고,
- * `--effort zzzbogus --version` 은 `Warning: Unknown --effort value …`). 도움말만 믿으면
- * **CLI 가 받는데 사용자는 고를 수 없는 등급**이 생기므로, 여기 적힌 후보는 부팅 시 한 번씩
- * 실측 probe 해서 **받아들여지는 것만** 목록에 더한다(`effortLevelProbe.ts`).
- *
- * §4 규약 (4) 의 "판정 근거는 추측이 아니라 설치본 실측" 을 **값** 축으로 넓힌 것이다 —
- * 종전 probe 는 "플래그가 있는가" 였고 이쪽은 "그 플래그가 이 값을 받는가" 다.
- * ⚠ 이 목록에 이름을 적는 것만으로는 아무것도 켜지지 않는다 — CLI 가 거부하면 그대로 빠지고,
- * CLI 가 값 검증 자체를 안 하는 판올림이면(보정 probe 실패) 후보를 통째로 버린다.
+ * §4 — `--help` 에 없는 effort 후보. CLI 는 도움말 밖 값도 받는다(실측 2.1.259: `ultracode` 무경고, `zzzbogus` 는 `Warning: Unknown --effort value`).
+ * 부팅 때 probe 해 받아들여지는 것만 더한다(`effortLevelProbe.ts`) — 값 검증을 안 하는 판이면(보정 probe 실패) 통째로 버린다.
  */
 export const EFFORT_LEVEL_PROBE_CANDIDATES: readonly string[] = ['ultracode'];
 
-/**
- * §4 — Effort(사고 깊이) 드롭다운의 **동적** 옵션 목록.
- *
- * 우선순위:
- *  (1) `registry.effortLevels` (서버가 `claude --help` 의 `--effort <level> (...)` 에서 파싱) — 설치된 CLI 진실.
- *  (2) 비었으면 `AVAILABLE_EFFORT_LEVELS` (하드코딩 폴백).
- * 어느 경우든 맨 앞에 `'default'`(오버라이드 없음)를 항상 붙인다(중복 제거).
- *
- * Model 드롭다운의 `listModelFamilies` 와 대칭 — 클라 하드코딩 `EFFORT_VALUES` 를 대체한다.
- */
+/** §4 — Effort 드롭다운: `registry.effortLevels` 먼저, 비면 `AVAILABLE_EFFORT_LEVELS`. 맨 앞에 늘 `'default'`(오버라이드 없음). */
 export function listEffortLevels(registry?: ModelRegistry | null): string[] {
   const fromCli = registry?.effortLevels?.filter((v) => typeof v === 'string' && v.trim().length > 0);
   const base = (fromCli && fromCli.length > 0)
@@ -4319,30 +3220,20 @@ export function listEffortLevels(registry?: ModelRegistry | null): string[] {
   return out;
 }
 
-/** §5.3 #28 v1.47 — Vibisual Custom Mode 옵션. 'conti' 만 본 라운드에서 동작, 나머지는 placeholder. */
+/** §5.3 #28 — Custom Mode 옵션('conti' 만 동작, 나머지는 placeholder). */
 export const AVAILABLE_CUSTOM_MODES = [
   { value: 'conti', enabled: true },
   { value: 'review', enabled: false },
   { value: 'debug', enabled: false },
 ] as const;
 
-/**
- * §4 v2.63 — 선택 가능한 실행(스폰) 모드. `AgentConfig.executionMode` 축.
- * 'headless'(기본) = 서버가 `claude -p` 헤드리스 스폰(프로그래매틱 과금).
- * 'interactive-terminal' = IDE 창 안 임베디드 PTY 로 인터랙티브 `claude` REPL(구독 과금, 6/15 대응).
- */
+/** §4 — 실행 모드: 'headless' = `claude -p` 스폰(프로그래매틱 과금), 'interactive-terminal' = IDE 안 PTY 의 `claude` REPL(구독 과금). */
 export const AVAILABLE_EXECUTION_MODES = [
   { value: 'headless', enabled: true },
   { value: 'interactive-terminal', enabled: true },
 ] as const;
 
-/**
- * §4 (CMD 터미널 업그레이드 ⑧) — CMD 버블이 띄울 수 있는 에이전트 CLI 표.
- *
- * `bin` = 셸에 prefill 될 실행 파일명(빈 문자열 = 아무것도 넣지 않는 순수 셸),
- * `managed` = **우리 훅의 자식으로 다루는지** — true 일 때만 rules `--add-dir`·`--resume`·
- * 소유자 태그·카드 토큰 env 를 붙인다. 새 CLI 지원은 이 표에 한 줄 추가로 끝난다(§3.3).
- */
+/** §4 (CMD ⑧) — CMD 버블이 띄울 CLI 표(새 CLI 는 한 줄, §3.3). `bin` 빈 문자열 = 순수 셸. `managed` 일 때만 rules·`--resume`·소유자 태그·카드 토큰 env 를 붙인다. */
 export const CMD_CLI_KINDS = [
   { value: 'claude', bin: 'claude', managed: true, label: 'Claude Code' },
   { value: 'codex', bin: 'codex', managed: false, label: 'Codex CLI' },
@@ -4358,11 +3249,7 @@ export function resolveCmdCliKind(value: string | undefined): (typeof CMD_CLI_KI
   return CMD_CLI_KINDS.find((k) => k.value === value) ?? CMD_CLI_KINDS[0];
 }
 
-/**
- * §4 (CMD 터미널 업그레이드 ③) — 임베디드 터미널 scrollback 줄 수.
- * xterm 의 `scrollback` 옵션과 desktop PTY 링버퍼가 **같은 값**을 쓰게 하는 단일 출처.
- * 종전에는 링버퍼 256KB 와 xterm 기본 1000줄이 어긋나 Ctrl+F 로 못 찾는 구간이 있었다.
- */
+/** §4 (CMD ③) — scrollback 줄 수. xterm 과 PTY 링버퍼의 단일 출처(어긋나면 Ctrl+F 로 못 찾는 구간이 생긴다). */
 export const TERMINAL_SCROLLBACK_LINES = 5000;
 /** 옵션창 Advanced 가 허용하는 scrollback 하한. */
 export const TERMINAL_SCROLLBACK_MIN = 500;
@@ -4377,28 +3264,20 @@ export function clampTerminalScrollback(n: unknown): number {
   return Math.max(TERMINAL_SCROLLBACK_MIN, Math.min(TERMINAL_SCROLLBACK_MAX, v));
 }
 
-/**
- * §4 (CMD ③) — 클라 리사이즈 트레일링 디바운스(ms).
- * 드래그 중 매 픽셀 SIGWINCH 를 쏘지 않고 **멎은 뒤 1회**만 PTY 에 통지한다.
- * 폰트 확대/축소도 같은 창구를 타므로 "+"를 세 번 연타해도 리사이즈는 한 번이다.
- */
+/** §4 (CMD ③) — 리사이즈 트레일링 디바운스(ms): 멎은 뒤 1회만 PTY 에 알린다(폰트 확대/축소도 같은 창구). */
 export const TERMINAL_RESIZE_DEBOUNCE_MS = 150;
 
 /**
- * §4 (CMD ③) — 리사이즈 직후 **화면 전체 리페인트**를 replay 링버퍼에서 걸러 낼 시간 창(ms).
- *
- * Windows ConPTY 는 `ResizePseudoConsole` 마다 보이는 화면을 통째로 다시 내보낸다(실측: 리사이즈
- * 6회 = cmd 배너 6벌 추가, 배너 사이 간격이 그때의 rows 와 일치). 그대로 링버퍼에 쌓으면 재부착
- * replay 때 같은 배너·프롬프트가 리사이즈 횟수만큼 되살아난다("cmd 창이 같은 걸 계속 출력").
+ * §4 (CMD ③) — 리사이즈 직후 리페인트를 replay 버퍼에서 거르는 창(ms). Windows ConPTY 는 리사이즈마다 화면을 통째로 다시 내보내
+ * (실측: 6회 = 배너 6벌) 재부착 때 그만큼 되살아난다.
  */
 export const CMD_RESIZE_REPAINT_MS = 400;
 
 const CONSOLE_ESC = String.fromCharCode(27);
 
 /**
- * 리사이즈 리페인트의 실측 시그니처 — 커서 숨김/창크기 보고/속성 리셋 몇 개를 지나 **커서 home**
- * (`CSI H` 또는 `CSI 1;1H`)으로 시작한다: `ESC[?25l` `ESC[8;<rows>;<cols>t` `ESC[H` `…화면 전체…`.
- * 화면을 지우는 `J` 는 일부러 빼 둔다 — `cls` 같은 정상 출력까지 삼키지 않게(못 걸러도 종전 동작).
+ * 리사이즈 리페인트 실측 시그니처: `ESC[?25l` `ESC[8;<rows>;<cols>t` 등을 지나 커서 home(`CSI H`·`CSI 1;1H`)으로 시작한다.
+ * 화면 지우기 `J` 는 일부러 뺀다 — `cls` 같은 정상 출력을 삼키지 않게.
  */
 const CONSOLE_REPAINT_RE = new RegExp(
   `^(?:${CONSOLE_ESC}\\[(?:\\?[0-9;]*[hl]|[0-9;]*m|8;[0-9]+;[0-9]+t))*${CONSOLE_ESC}\\[(?:1;1)?H`,
@@ -4409,13 +3288,7 @@ export function isConsoleRepaintChunk(data: string): boolean {
   return CONSOLE_REPAINT_RE.test(data);
 }
 
-/**
- * §4 (CMD ③) — 이 PTY 청크를 replay 링버퍼에 **쌓아야 하는가**.
- *
- * 리사이즈 직후(`CMD_RESIZE_REPAINT_MS` 안)에 오는 화면 전체 리페인트만 `false` 다. 그런 청크도
- * 화면(sink)에는 그대로 흘려보내야 하지만(현재 화면이 곧 그 리페인트다), 버퍼에 쌓으면 재부착
- * replay 가 리사이즈 횟수만큼 같은 화면을 되풀이한다. `resizedAt=0` 은 "직전 리사이즈 없음".
- */
+/** §4 (CMD ③) — replay 버퍼에 쌓을 청크인가. 리사이즈 직후의 리페인트만 `false`(화면에는 그대로 흘린다). `resizedAt=0` = 직전 리사이즈 없음. */
 export function shouldBufferPtyChunk(data: string, resizedAt: number, now: number): boolean {
   if (!resizedAt || now - resizedAt > CMD_RESIZE_REPAINT_MS) return true;
   return !isConsoleRepaintChunk(data);
@@ -4427,23 +3300,10 @@ export function shouldBufferPtyChunk(data: string, resizedAt: number, now: numbe
  */
 export const CMD_PREFILL_DELAY_MS = 350;
 
-/**
- * §4 (CMD) — 입력줄 채우기를 리사이즈 때문에 미룰 수 있는 **총 한도**(ms).
- *
- * ConPTY 는 리사이즈마다 보이는 화면을 통째로 다시 그리는데(`CMD_RESIZE_REPAINT_MS`), 그때 셸
- * 입력줄에 글자가 들어 있으면 새 폭에 맞춰 다시 배치되며 잘려 나간다 — 사용자 눈에는 "자동으로
- * 적어 둔 명령이 지워진다"로 보인다. 그래서 크기가 멎은 뒤에 채우되, 창을 계속 끌고 있는 동안
- * 영영 안 채워지지는 않게 이 한도에서 끊는다.
- */
+/** §4 (CMD) — 입력줄 채우기를 리사이즈로 미룰 총 한도(ms). ConPTY 리페인트가 입력줄 글자를 새 폭에 재배치하며 잘라 크기가 멎은 뒤 채우되, 끝없이 미루지 않는다. */
 export const CMD_PREFILL_MAX_DEFER_MS = 2000;
 
-/**
- * 지금 예약할 입력줄 채우기 지연(ms). 평소에는 `CMD_PREFILL_DELAY_MS`, 위 한도가 가까우면 그
- * 남은 시간만큼만(음수면 0 = 지금 당장).
- *
- * @param now 현재 시각(ms)
- * @param deadline 최초 예약 때 정해진 한도 시각(ms)
- */
+/** 지금 예약할 채우기 지연(ms) — 평소 `CMD_PREFILL_DELAY_MS`, 한도(`deadline`)가 가까우면 남은 시간만큼(음수면 0). */
 export function cmdPrefillDelay(now: number, deadline: number): number {
   return Math.max(0, Math.min(CMD_PREFILL_DELAY_MS, deadline - now));
 }
@@ -4463,12 +3323,8 @@ export const CMD_BLOCK_REASON_MAX = 120;
 export const CMD_PROCESS_POLL_MS = 5000;
 
 /**
- * §4 (CMD 2차 0) — 훅이 그 CMD 탭의 `working`/`idle` 권위를 쥐는 시간(ms).
- *
- * 이 안에 훅이 그 탭을 한 번이라도 몰았으면 화면 감지는 `blocked` 만 기여한다. 훅이 없는
- * CLI(codex·gemini·순수 셸)는 이 표에 오르지 않으므로 화면 감지가 단독 권위로 남는다.
- * 값이 너무 짧으면 조용한 턴 사이에 권위가 풀려 도트가 다시 튀고, 너무 길면 claude 를 끄고
- * 다른 CLI 를 띄운 탭이 한동안 상태를 못 받는다 — 세션 유휴 판정(5분)과 같은 눈금으로 맞춘다.
+ * §4 (CMD 2차 0) — 훅이 CMD 탭의 `working`/`idle` 권위를 쥐는 시간(ms) — 그동안 화면 감지는 `blocked` 만. 훅 없는 CLI 는 화면 감지가 단독 권위.
+ * 짧으면 조용한 턴 사이 도트가 튀고 길면 CLI 를 바꾼 탭이 상태를 못 받는다 — 세션 유휴 판정(5분)과 같은 눈금.
  */
 export const CMD_HOOK_AUTHORITY_TTL_MS = 300000;
 
@@ -4482,16 +3338,8 @@ export const CMD_READ_MAX_LINES = 2000;
 export const CMD_SEND_MAX_CHARS = 8000;
 
 /**
- * §4 (⑥) (판올림 번호 발급 대기) — **prefill 에서 걷어내는 것.**
- *
- * 종전 필터는 `/[\r\n]+/` 두 글자뿐이었다. 그런데 "개행을 붙이지 않는다"가 지키려는 것은 *글자 두 개*가
- * 아니라 **사람이 누르기 전에는 실행되지 않는다**는 성질이고, PTY 에서 그 성질을 건드리는 바이트는
- * 개행 말고도 있다 — `\x04`(EOF: 정규 모드에서 대기 중인 줄을 읽는 쪽에 그대로 넘긴다) · `\x03`(SIGINT) ·
- * `\x1a`(Windows EOF) · `\x1b`(ESC: 터미널 앱의 키 시퀀스로 해석된다) · `\x00`.
- *
- * 그래서 **차단 목록을 허용 목록으로 뒤집는다** — C0 제어문자와 DEL 을 전부 공백으로 바꾸고 나머지는
- * 그대로 둔다(탭도 제어문자라 함께 접힌다 — prefill 한 줄에 탭이 필요한 경우는 없다). 이렇게 하면
- * "무엇이 위험한가"를 매번 다시 세지 않아도 되고, 새 제어문자가 문제가 되는 날에도 이 함수는 이미 막고 있다.
+ * §4 (⑥) — prefill 에서 C0 제어문자·DEL 을 전부 공백으로 바꾼다(지킬 성질: 사람이 누르기 전에는 실행되지 않는다).
+ * 개행만 거르면 안 된다 — `\x04`(EOF)·`\x03`(SIGINT)·`\x1a`(Windows EOF)·`\x1b`(키 시퀀스)·`\x00` 도 그 성질을 깬다.
  */
 export const CMD_SEND_CONTROL_CHARS = /[\u0000-\u001F\u007F]+/gu;
 
@@ -4508,14 +3356,7 @@ export const CMD_PANE_MAX = 8;
 /** §4 (CMD ⑤) — pane termId 구분자. `:` 를 쓰면 `parseTermId` 의 sessionToken 해석이 깨진다. */
 export const CMD_PANE_SEPARATOR = '#';
 
-/**
- * §4 (CMD 터미널 업그레이드 ⑤) — 신뢰할 수 없는 입력(REST body·옛 체크포인트)에서 pane 트리를
- * 안전하게 복원한다. 형태가 어긋나면 `null`(= 단일 pane)로 떨어뜨린다.
- *
- * - `ratio` 는 `CMD_PANE_RATIO_MIN`~`MAX` 로 clamp,
- * - leaf 총 개수가 `CMD_PANE_MAX` 를 넘으면 거부(§3.2.3 — 쓸수록 커지는 것에 상한),
- * - 중복 pane id 도 거부(같은 termId 를 두 자리에 그리면 PTY 하나를 두 xterm 이 다툰다).
- */
+/** §4 (CMD ⑤) — 신뢰할 수 없는 입력에서 pane 트리 복원(어긋나면 `null` = 단일 pane). `ratio` clamp, leaf 상한 초과·중복 pane id 는 거부(한 PTY 를 두 xterm 이 다툰다). */
 export function sanitizeCmdPaneTree(input: unknown): CmdPaneNode | null {
   const seen = new Set<string>();
   let leaves = 0;
@@ -4561,10 +3402,7 @@ export function cmdPaneTermId(baseTermId: string, paneId: string): string {
   return paneId === '0' ? baseTermId : `${baseTermId}${CMD_PANE_SEPARATOR}${paneId}`;
 }
 
-/**
- * §4 (⑤) — 지정한 pane 을 둘로 쪼갠 새 트리를 돌려준다(원본 불변).
- * `newPaneId` 는 호출자가 발급한 미사용 id. 대상 pane 을 못 찾으면 원본을 그대로 돌려준다.
- */
+/** §4 (⑤) — pane 을 둘로 쪼갠 새 트리(원본 불변). 대상을 못 찾으면 원본 그대로. */
 export function splitCmdPane(
   tree: CmdPaneNode | null | undefined,
   targetPaneId: string,
@@ -4601,17 +3439,8 @@ export function closeCmdPane(tree: CmdPaneNode | null | undefined, targetPaneId:
 }
 
 /**
- * §4 (⑤) — 지정한 split 노드의 비율을 갈아 끼운 새 트리(원본 불변).
- *
- * split 노드는 **둘째 자식의 첫 잎 id** 로 식별한다(`secondChildHeadPaneId`).
- *
- * ⚠ 예전에는 *첫째* 자식의 첫 잎으로 식별했는데 그 키는 **유일하지 않다** — 잎 `L` 에서 루트로
- * 올라가며 "부모의 children[0] 인 동안" 만나는 조상 split 이 **전부 같은 키**를 갖는다.
- * 그래서 `row[ col[leaf0, leaf2], leaf1 ]`(첫 pane 을 한 번 더 분할한 흔한 모양)에서 키가 둘 다
- * `'0'` 이 되어, 경계선 하나를 끌면 **두 경계선이 함께 움직이고** 그 값이 서버에 저장까지 됐다.
- *
- * 둘째 자식의 첫 잎은 유일하다: 잎 `L` 을 첫 잎으로 갖는 `children[1]` 은 트리 전체에서 하나뿐이다
- * (`L` 에서 위로 올라갈 때 "처음으로 children[1] 쪽에서 온" 지점이 정확히 한 곳이다).
+ * §4 (⑤) — split 비율을 갈아 끼운 새 트리. split 은 둘째 자식의 첫 잎 id 로 식별한다(`secondChildHeadPaneId`).
+ * ⚠ 첫째 자식의 첫 잎으로 바꾸지 마라 — 유일하지 않아 `row[ col[leaf0, leaf2], leaf1 ]` 에서 경계선 둘이 함께 움직인다.
  */
 export function resizeCmdPane(
   tree: CmdPaneNode | null | undefined,
@@ -4630,14 +3459,7 @@ export function resizeCmdPane(
   return walk(tree);
 }
 
-/**
- * §4 (CMD ①) — `blocked` 판정용 프롬프트/질문 패턴 표.
- *
- * 화면 **꼬리 `CMD_BLOCK_TAIL_LINES` 줄**(ANSI 제거·빈 줄 제외)에 대해서만 검사한다 —
- * 본문 산문에서 물음표를 주워 오탐하지 않게 하기 위한 제약이며, 검사 시점 자체가
- * "무출력 `CMD_BLOCKED_IDLE_MS` 경과" 뒤라 지나가는 출력은 애초에 걸리지 않는다.
- * 새 CLI 의 확인 문구는 이 표에 한 줄 추가로 지원한다(§3.3 하드코딩 금지).
- */
+/** §4 (CMD ①) — `blocked` 판정 패턴 표(새 CLI 는 한 줄, §3.3). 화면 꼬리 `CMD_BLOCK_TAIL_LINES` 줄만, 무출력 `CMD_BLOCKED_IDLE_MS` 뒤에 본다 — 산문의 물음표 오탐을 막는다. */
 export const CMD_BLOCK_PATTERNS: readonly RegExp[] = [
   // 예/아니오 확인 — claude·codex·gemini·aider·git 공통 골격.
   /\(\s*y\s*\/\s*n\s*\)/i,
@@ -4658,40 +3480,23 @@ export const CMD_BLOCK_PATTERNS: readonly RegExp[] = [
   /\bwaiting for\b[^\n]{0,40}\b(?:input|approval|confirmation|response)\b/i,
   // 자격증명·값 입력 대기(줄 끝 콜론).
   /\b(?:password|passphrase|api[ _-]?key|token|username|email)\b[^\n]{0,24}:\s*$/i,
-  // 무엇을 고를지 묻는 **CLI 질문형** 한 줄.
-  //   ⚠ 종전의 맨 물음표 규칙(`/\?\s*$/`)은 폐기했다 — 에이전트가 답을 "~할까요?"로 끝내는 것은
-  //   herdr 정의상 `idle`(다음 프롬프트를 받을 준비)이지 `blocked`(입력을 기다려 멈춤)가 아닌데,
-  //   그 규칙이 매 턴 끝마다 앰버 링과 OS 알림을 띄웠다(실측 오탐).
+  // CLI 질문형 한 줄. ⚠ 맨 물음표 규칙(`/\?\s*$/`)을 되살리지 마라 — "~할까요?"로 끝나는 답은 `idle` 인데 매 턴 앰버 링·OS 알림이 뜬다(실측 오탐).
   /\b(?:which|what|where|who|how many|select|choose|pick|enter)\b[^\n]{0,60}\?\s*$/i,
   // 한국어 입력 요청(같은 이유로 평서형 질문은 제외하고 "입력/선택 요청"만).
   /(?:선택|입력|골라)[^\n]{0,12}(?:하세요|해\s*주세요|하시겠|해라)[^\n]{0,4}[?:]?\s*$/,
 ];
 
-/**
- * §4 v2.63 · §2.2 (에이전트 CMD) — CMD(인터랙티브 터미널) 에이전트 버블의 구분 색. teal-600 에서 채도만 낮춘 회청록.
- * 우클릭 "CMD Agent" 로 생성 시 agentConfig.color 에 baked → 일반 커스텀 에이전트(blue)와 한눈에 구별.
- * 사용자가 이후 색을 바꾸면 그 값이 우선(기능 표식은 executionMode 가 전담, 색은 cosmetic).
- */
+/** §4 · §2.2 — CMD 에이전트 버블 색(teal-600 에서 채도만 낮춤). 생성 때 agentConfig.color 에 구워지고 사용자가 바꾼 색이 우선(기능 표식은 executionMode). */
 export const CMD_AGENT_COLOR = '#4e8e88';
-/**
- * 지금 색 이전에 CMD 에 구워 넣었던 값들(소문자 `#rrggbb`). 색이 설정에 구워져 있어 상수만 바꾸면
- * 이미 만든 CMD 버블은 옛 색으로 남는다 — 복원할 때 `migrateCmdAgentColor` 가 한 번 갈아 끼운다.
- */
+/** 옛 CMD 색들(소문자 `#rrggbb`). 색이 설정에 구워져 상수만 바꾸면 기존 버블은 옛 색으로 남는다 — 복원 때 `migrateCmdAgentColor` 가 갈아 끼운다. */
 export const CMD_AGENT_LEGACY_COLORS: readonly string[] = ['#0d9488'];
-/**
- * 옛 CMD 색으로 구워진 설정만 지금 색으로 옮긴다. CMD 가 아니거나 사용자가 고른 다른 색이면 그대로 둔다
- * (같은 teal 을 쓰는 Librarian 프리셋 같은 헤드리스 에이전트는 건드리지 않는다).
- */
+/** 옛 CMD 색으로 구워진 CMD 설정만 옮긴다 — 사용자가 고른 다른 색이나 같은 teal 을 쓰는 헤드리스 프리셋은 그대로 둔다. */
 export function migrateCmdAgentColor<T extends Partial<AgentConfig>>(config: T): T {
   if (config.executionMode !== 'interactive-terminal' || typeof config.color !== 'string') return config;
   if (!CMD_AGENT_LEGACY_COLORS.includes(config.color.toLowerCase())) return config;
   return { ...config, color: CMD_AGENT_COLOR };
 }
-/**
- * §5.19 (C) — All Model(로컬 LLM) 버블 본체 색.
- * 채도 높은 원색을 하나 더 들이면 캔버스가 탁해진다 — 앱 버블이 푸시아를 걷어내고 그레이파이트로
- * 간 것과 같은 이유로 무채색을 쓰고, 무엇을 물고 있는지는 라벨(모델명)이 말한다.
- */
+/** §5.19 (C) — 로컬 LLM 버블 색. 원색을 더 들이면 캔버스가 탁해져 무채색을 쓰고, 무엇을 물었는지는 라벨(모델명)이 말한다. */
 export const LOCAL_AGENT_COLOR = '#3F4658';
 /**
  * §5.25 (B) — Codex CLI 에이전트 버블 본체 색.
@@ -4699,11 +3504,7 @@ export const LOCAL_AGENT_COLOR = '#3F4658';
  */
 export const CODEX_AGENT_COLOR = '#047857';
 
-/**
- * §5.3 #28 (K) v1.48 — 콘티 모드 진입 시 자동으로 `AgentConfig.rules` 에 박히는 강제 룰셋.
- * "사용자 입력이 무엇이든 응답은 콘티 JSON 으로만" 을 룰 + 스키마 양쪽으로 강제.
- * 이 상수가 들어 있는 동안 모델은 다른 형식으로 응답하기 어렵다.
- */
+/** §5.3 #28 (K) — 콘티 모드 진입 때 `AgentConfig.rules` 에 들어가는 강제 룰셋(응답은 콘티 JSON 으로만). */
 export const CONTI_AGENT_RULES = `# Conti Mode (Vibisual) — STRICT
 
 이 에이전트는 **콘티(스토리보드) 전용** 입니다. 사용자가 무엇을 입력하든, 답변은 **항상 아래 스키마의 ONE JSON object** 로만 출력합니다. 마크다운, 산문, 코드펜스, 설명, 사과 문장 일체 금지.
@@ -4898,14 +3699,8 @@ stamp 좌표는 좌상단 \`x,y\` 와 박스 크기 \`w,h\` 입니다. \`w,h\` �
 `;
 
 /**
- * §5.3 #28 v1.60 — STAMP_CATALOG.
- *
- * LLM 이 좌표 합성으로 UI 컴포넌트를 매번 새로 그리지 않도록 미리 정의된
- * stamp 집합을 강제. 서버 \`coerceElement\` 가 \`stampName\` 이 이 카탈로그의 키에
- * 없으면 element 통째로 drop, 클라 \`StampSvg\` 가 같은 카탈로그를 보고 prebuilt SVG 렌더.
- *
- * 카탈로그 항목은 LLM 룰셋(\`CONTI_AGENT_RULES\`) 의 STAMP_CATALOG 섹션과 1:1 동기화.
- * 항목 추가/제거 시 양쪽 함께 갱신.
+ * §5.3 #28 — LLM 이 UI 를 좌표로 매번 새로 그리지 않게 정한 stamp 집합. 서버 `coerceElement` 는 없는 `stampName` 의 element 를 버리고 클라 `StampSvg` 가 그린다.
+ * `CONTI_AGENT_RULES` 의 STAMP_CATALOG 섹션과 1:1 — 함께 고칠 것.
  */
 export interface StampSpec {
   /** 카테고리 (디버그/문서용) */
@@ -4961,15 +3756,10 @@ export const STAMP_CATALOG = {
   'badge-pill':       { category: 'indicator', defaultW: 60,  defaultH: 18,  variants: [],                         summary: '작은 pill 라벨' },
 } as const satisfies Readonly<Record<string, StampSpec>>;
 
-/** §5.3 #28 (K) v1.48 — `AgentConfig.rulesHistory` 가 보관하는 최대 항목 수. 초과 시 가장 오래된 항목 FIFO drop. */
+/** §5.3 #28 (K) — `rulesHistory` 최대 항목 수(넘으면 오래된 것부터 버린다). */
 export const RULES_HISTORY_MAX = 20;
 
-/**
- * §5.3 #28 v1.47 — 콘티 패치/생성 시 LLM 호출 기본 설정.
- * v1.59 — viewBox 200×110 (작아서 식별 안됨) → 표준 스토리보드 16:9 비율 **320×180** 로 확대.
- * 디스플레이 wireframe 영역도 280×140 → 480×270 으로 1.7× 키움 (FrameCard 폭 280→520).
- * 기본 fontSize/strokeWidth 도 같이 키워 LLM 결과물이 한눈에 읽히도록.
- */
+/** §5.3 #28 — 콘티 LLM 호출 기본값. viewBox 는 16:9 320×180(더 작으면 식별이 안 된다). */
 export const CONTI_DEFAULTS = {
   /** 콘티 1건 의 frame 표준 개수 (LLM 에 권고) */
   defaultFrameCount: 6,
@@ -4994,13 +3784,7 @@ export const CONTI_DEFAULTS = {
 
 // ─── §5.13 (Q) 대본 → 콘티 → 렌더 ───
 
-/**
- * 출력 프리셋 표 — **이 표가 유일한 출처다**(§3.3 하드코딩 금지).
- *
- * 컷의 좌표계는 여기 없다. `CONTI_DEFAULTS.viewBoxWidth/Height`(320×180)는 프리셋과
- * 무관하게 고정이며, 프리셋은 *출력* 판형(화면 크기·컷 길이·배치)만 정한다. 좌표계를
- * 프리셋마다 갈면 이미 그려 둔 콘티가 프리셋을 바꾸는 순간 전부 어긋난다.
- */
+/** 출력 프리셋 표(§3.3) — 출력 판형만 정한다. 컷 좌표계(`CONTI_DEFAULTS.viewBox*`)는 고정 — 프리셋마다 갈면 그려 둔 콘티가 어긋난다. */
 export const STORYBOARD_PRESETS = {
   landscape: {
     id: 'landscape',
@@ -5068,7 +3852,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   //   도장을 안 찍으면, 사용자가 도구 하나를 끄고 앱을 다시 켰을 때 백필이 그 선택을 되돌린다.
   toolsBackfillGen: AGENT_TOOLS_BACKFILL_GEN,
 };
-// ─── §5.3 v4.89 자기 기억 범위 · 중첩 깊이 ───
+// §5.3 자기 기억 범위 · 중첩 깊이
 
 /** 드롭다운이 그리는 순서. 맨 앞이 "지정 안 함"(= 레포 공용 기억). */
 export const AGENT_MEMORY_SCOPES: readonly AgentMemoryScope[] = ['off', 'user', 'project', 'local'] as const;
@@ -5122,14 +3906,12 @@ export function normalizeBashTimeoutMs(value: unknown): number | undefined {
   return ms;
 }
 
-// ─── §5.5 #17-18 v4.68 덧말 처리 방식 ───
+// §5.5 #17-18 덧말 처리 방식
 
 /** 큐 항목 UI 가 그리는 순서(대기 → 합치기 → 즉시). */
 export const COMMAND_DISPATCH_MODES: readonly CommandDispatchMode[] = ['wait', 'merge', 'immediate'] as const;
 
-/** 방식을 지정하지 않고 넣은 명령의 기본값.
- *  합치기 — 연달아 넣은 덧말은 대개 "하나의 생각을 나눠 적은 것"이라 한 턴에 함께 가야 한다
- *  (쪼개면 앞 지시가 뒤 지시에 뒤집히고 완료 보고 카드만 늘어난다). */
+/** 방식 없이 넣은 명령의 기본 = 합치기 — 연달은 덧말은 대개 한 생각이라 한 턴에 간다(쪼개면 앞 지시가 뒤집히고 보고 카드만 는다). */
 export const DEFAULT_COMMAND_DISPATCH_MODE: CommandDispatchMode = 'merge';
 
 /** 합치기로 한 프롬프트에 이어 붙일 때 쓰는 구분자. */
@@ -5145,27 +3927,18 @@ export function normalizeCommandDispatchMode(value: unknown): CommandDispatchMod
 // ─── §5.5 #17-12 ③ 명령 실패 사유 코드 ───
 
 /**
- * `CommandErrorCode` 전량의 **런타임 목록**. 화면이 "이 코드를 아는가"를 이 목록으로 판정한다.
- *
- * 목록을 여기 한 벌만 두는 이유: 클라가 자기 집합을 따로 들고 있던 동안 `local`(§5.19) 이 유니언에만
- * 추가돼, 로컬 모델 실패가 "알 수 없는 이유" 로 떨어지고 스트림 쪽은 `exit` 로 폴백해 **CLI 를 쓰지도
- * 않는 실패를 "Claude CLI 가 종료됐다"** 로 말했다(2026-08-20 사용자 보고). 코드를 늘릴 때는
- * 유니언과 이 목록, 그리고 `ide.cmdError.<code>` 문자열까지 한 번에 늘린다(클라 테스트가 확인한다).
+ * `CommandErrorCode` 런타임 목록 — 화면이 "아는 코드인가"를 이것으로 판정한다. 클라에 따로 두지 마라(빠진 코드가 엉뚱하게 "CLI 종료"로 말한다).
+ * 코드를 늘릴 때는 유니언·이 목록·`ide.cmdError.<code>` 를 함께(클라 테스트가 확인한다).
  */
 export const COMMAND_ERROR_CODES = [
   'spawn', 'stdin', 'exit', 'crash', 'cli', 'maxTurns', 'agentView', 'orphaned', 'local', 'dispatchResult',
-  'usageLimit',
+  'usageLimit', 'creditCap',
 ] as const satisfies readonly CommandErrorCode[];
 
 /** 종료 코드 유무로 문장이 갈리는 코드 — 코드가 없으면 `<code>Unknown` 문장을 쓴다. */
 export const COMMAND_ERROR_CODES_WITH_EXIT = ['exit', 'crash'] as const satisfies readonly CommandErrorCode[];
 
-/**
- * §5.5 #17-12 ③-7 — 실패 문장이 부를 **엔진의 이름**. 제품 고유명사라 번역하지 않는다(12 로케일 공통).
- *
- * 이 표가 없던 동안 문장은 `Claude CLI` 를 글자 그대로 박고 있었고, 같은 사유 코드를 쓰는 코덱스 턴이
- * 실패하면 **남의 이름**으로 불렸다. 엔진이 늘면 여기 한 줄만 더한다.
- */
+/** §5.5 #17-12 ③-7 — 실패 문장이 부를 엔진 이름(번역하지 않는다). 문장에 박지 마라 — 같은 사유 코드의 다른 엔진이 남의 이름으로 불린다. */
 export const AGENT_ENGINE_CLI_LABEL: Record<AgentEngineKind, string> = {
   claude: 'Claude CLI',
   codex: 'Codex CLI',
@@ -5177,13 +3950,7 @@ export const AGENT_ENGINE_CLI_LABEL: Record<AgentEngineKind, string> = {
 /** 엔진을 모르는 사유(옛 명령·세션이 사라진 봉합분)가 쓰는 이름 — **클로드로 단정하지 않는다**. */
 export const UNKNOWN_ENGINE_CLI_LABEL = 'CLI';
 
-/**
- * §2.4 — **한도 정지로 고쳐 적어도 되는 실패 사유.**
- *
- * 「엔진이 실패를 신고했다」 부류만 넣는다. 턴 상한(`maxTurns`)·위임 결과 누락(`dispatchResult`)·
- * 스폰 실패(`spawn`)·파이프 단절(`stdin`)·프로세스 사망(`crash`)은 **원인이 이미 분명해** 그쪽
- * 이름이 더 정확하다. 로컬 엔진(`local`)에는 요금제 한도라는 것이 없다.
- */
+/** §2.4 — 한도 정지로 고쳐 적어도 되는 실패 사유(엔진이 신고한 실패만). 나머지는 원인이 이미 분명하고, `local` 엔 요금제 한도가 없다. */
 export const USAGE_LIMIT_PROMOTABLE_ERROR_CODES: ReadonlySet<CommandErrorCode> = new Set<CommandErrorCode>([
   'cli', 'exit', 'agentView',
 ]);
@@ -5191,14 +3958,8 @@ export const USAGE_LIMIT_PROMOTABLE_ERROR_CODES: ReadonlySet<CommandErrorCode> =
 // ─── 훅 버블 읽기 전용 경계 (§5.5 #17 / #17-29) ───
 
 /**
- * 훅으로 태어난 에이전트 버블인가 = **읽기 전용인가.**
- *
- * 훅 버블은 사용자가 외부(VS Code 등)에서 직접 연 Claude Code 세션의 **시각화**다. 우리가 spawn 하지
- * 않았으므로 스폰 시 실리는 것(컨텍스트 요약·카드 지시문·목표·집행 플러그인)이 하나도 없고, 완료 신고
- * 경로도 없다. 거기에 명령을 넣으면 그 자식은 아무것도 주입받지 못한 채 매달린다 — 그래서 관측만 한다.
- *
- * 버블을 못 찾은 경우(`null`/`undefined`)도 훅으로 본다 — 모르면 쓰지 않는다.
- * 서버 REST 가드와 클라 UI 가 **같은 함수**를 쓰기 때문에 "화면에선 막혔는데 서버는 받는" 어긋남이 없다.
+ * 훅 버블인가 = 읽기 전용인가. 외부에서 연 세션의 시각화라 스폰 주입(컨텍스트·카드 지시문·목표·집행)도 완료 신고도 없어 명령을 넣으면 매달린다.
+ * 못 찾으면(`null`/`undefined`) 훅으로 본다. 서버 REST 가드와 클라 UI 가 같은 함수를 쓴다.
  */
 export function isReadOnlyHookAgent(agent: { customCreated?: boolean } | null | undefined): boolean {
   return !agent?.customCreated;
@@ -5277,8 +4038,7 @@ export const PIPELINE_PARENT_BUBBLE_ID = '__pipeline_parent__';
 
 // ─── Task Edge 템플릿 (newAgents 파이프라인 프리셋) ───
 
-/** Task Edge 템플릿 — 드래그 연결 시 역할 조합에 맞는 프리셋 자동 제안.
- * `default*`는 v1.18 고급 옵션 자동 채움용(모두 optional — 미설정 시 `TASK_EDGE_DEFAULTS` 적용). */
+/** Task Edge 템플릿 — 드래그 연결 때 역할 조합의 프리셋. `default*` 는 고급 옵션 채움(없으면 `TASK_EDGE_DEFAULTS`). */
 export const TASK_EDGE_TEMPLATES: TaskEdgeTemplate[] = [
   {
     id: 'explore-to-architect',
@@ -5335,8 +4095,7 @@ export const TASK_EDGE_TEMPLATES: TaskEdgeTemplate[] = [
     defaultCommand: '',
     sourceRole: null,
     targetRole: null,
-    // v1.83 — 사용자 지정 Custom 엣지 기본값(메시지 본문 제외): Gate=auto, 반환=둘 다,
-    // Command 모드=도구 위임(tool-delegation), 위임 정책=auto.
+    // Custom 엣지 기본값: Gate=auto · 반환=둘 다 · Command 모드=tool-delegation · 위임 정책=auto.
     defaultForwardMode: 'auto',
     defaultKind: 'command',
     defaultMessageFormat: 'free',
@@ -5347,7 +4106,7 @@ export const TASK_EDGE_TEMPLATES: TaskEdgeTemplate[] = [
   },
 ];
 
-/** Task Edge 옵션 기본값 — 템플릿·필드 미설정 시 폴백. v1.18 */
+/** 템플릿·필드가 비었을 때의 Task Edge 폴백. */
 export const TASK_EDGE_DEFAULTS = {
   kind: 'command' as TaskEdgeKind,
   messageFormat: 'free' as const,
@@ -5356,40 +4115,25 @@ export const TASK_EDGE_DEFAULTS = {
   retryCount: 0,
   cacheEnabled: false,
   priority: 'normal' as const,
-  delegationPolicy: 'strict' as const, // v1.33 — 엣지별 위임 정책. 기본 강제.
-  // v1.41 — Critique 엣지 전용 기본값 (kind='critique' 일 때만 의미).
+  delegationPolicy: 'strict' as const,
+  // kind='critique' 일 때만 의미.
   critiqueTiming: 'intermediate' as const,
   critiqueAuthority: 'force-rework' as const,
   maxReworkCount: 3,
-  // v1.44 — Command 엣지 전용 기본값 (kind='command' 일 때만 의미).
-  // 'shared' 기본 — 부모 도구 박탈 ❌. v1.37 이전 + auto 정책 거동.
-  // 박탈을 원하면 사용자가 명시적으로 'tool-delegation' 선택.
+  // kind='command' 일 때만 의미. 'shared' = 부모 도구 박탈 ❌(박탈은 'tool-delegation' 을 고를 때만).
   commandMode: 'shared' as const,
 };
 
-/** v1.41 — Critique 재작업 횟수 입력 UI 상한. 무한 루프 방지 목적이므로 관용 상한 10. */
+/** Critique 재작업 횟수 UI 상한(무한 루프 방지). */
 export const TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT = 10;
 
-/**
- * §5.3 #10-3 v4.98 — 검증 런 보관 상한 (autoAgentId 당, ring buffer).
- * 넘으면 가장 오래된 런부터 밀려난다.
- */
+/** §5.3 #10-3 — autoAgentId 당 검증 런 보관 상한(오래된 것부터 밀려난다). */
 export const AUTO_AGENT_RUN_MAX_PER_AGENT = 50;
 
-/**
- * §5.3 #10-3 v4.98 — 런 하나가 쓸 수 있는 재작업 예산(기본값).
- * 종전에는 엣지마다 따로 셌기 때문에 reviewer·tester 가 각각 3번씩 = 실제 6번이 됐다.
- * 이제 런 전체 합산이며, 소진 시 조용한 강등이 아니라 에스컬레이션이다.
- */
+/** §5.3 #10-3 — 런 전체 합산 재작업 예산(엣지마다 세면 reviewer·tester 각 3번 = 6번이 된다). 소진은 에스컬레이션. */
 export const AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET = 3;
 
-/**
- * §5.3 #10-3 v4.98 — 검수자에게 요구하는 **구조화 판정 형식**.
- *
- * 종전에는 자유 텍스트를 정규식으로 긁어 판정했고, 해석에 실패하면 `unknown` 이 되어
- * 승인과 같은 길로 흘렀다(fail-open). 이제 이 형식을 요구하고, 어긋나면 `held`(보류)다.
- * 증거 없는 approve 도 `held` 로 떨어진다 — "봤더니 괜찮다"는 증거가 아니다.
- */
+/** §5.3 #10-3 — 검수자 구조화 판정 형식. 어긋나거나 증거 없는 approve 는 `held` — 해석 실패를 승인으로 흘리면 fail-open 이다. */
 export const VERIFICATION_VERDICT_SCHEMA_GUIDE = `
 === Verdict format (structured — required) ===
 Reply with a fenced JSON block exactly like this:
@@ -5408,22 +4152,16 @@ Rules:
 - exitCode is the real process exit code. The server decides pass/fail from it; your own opinion of "it looks fine" is not evidence.
 `.trim();
 
-/** v1.54 — `bundleRole='auto-rework'` 자동 엣지의 표준 command 라벨.
- *  critique force-rework 가 발사하는 rework 지시 채널의 자동 본문. 사용자 편집 불가. */
+/** `bundleRole='auto-rework'` 자동 엣지의 command 라벨(critique force-rework 의 자동 본문, 편집 불가). */
 export const TASK_EDGE_AUTO_REWORK_COMMAND_LABEL = 'Rework on critique reject';
 
-/** v1.32 — Task Edge dispatch 기본 타임아웃 (ms). 엣지 `timeoutMs` 미설정/0 시 적용.
- *  v1.84 — 기본 0 = 무제한(dispatch 가 타이머를 아예 설치하지 않고 타겟 완료까지 홀드).
- *  사용자가 팝업 Timeout 입력에 양수를 넣은 엣지에서만 그 ms 로 제한이 걸린다. */
+/** Task Edge dispatch 기본 타임아웃(ms, 엣지 `timeoutMs` 가 없거나 0 일 때). 0 = 무제한(타이머 없이 완료까지). */
 export const TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS = 0;
 
-/** Task Edge 의미(kind)별 시각 스타일. v1.18
- * 엣지 상태 스타일(TASK_EDGE_STYLES)과 독립 — 색 hue는 kind에서, dash/animation은 status에서 온다.
- *
- * ⚠️ `label`·`description` 을 **화면에 그리지 마라.** 여기 값은 한국어라 12개 로케일 전부에
- * 한국어로 나갔었다(i18n 규칙 "다른 곳에서 문자열 import 해서 JSX 에 꽂기" 금지 항목).
- * 사람이 읽는 두 칸의 정본은 `bubbleMap.taskEdgeKind.<kind>.{label,description}` 이다.
- * 여기 남겨 두는 것은 코드에서 kind 를 식별할 때 쓰는 개발자용 이름 · 그리고 `color`/`icon` 때문이다. */
+/**
+ * kind 별 시각 스타일(상태 스타일 `TASK_EDGE_STYLES` 와 독립). ⚠ `label`·`description` 을 화면에 그리지 마라 — 한국어라 전 로케일에 한국어로 나간다.
+ * 화면 정본은 `bubbleMap.taskEdgeKind.<kind>.{label,description}`.
+ */
 export const TASK_EDGE_KIND_STYLES: Record<TaskEdgeKind, {
   color: string;
   label: string;
@@ -5451,10 +4189,10 @@ export const TASK_EDGE_KIND_STYLES: Record<TaskEdgeKind, {
     icon: '↩',
   },
   critique: {
-    color: '#A78BFA', // violet-400 — v1.41: 빨간 경고 → 보라 감시자로 변경 (비평은 위협이 아니라 관찰)
+    color: '#A78BFA', // violet-400 — 비평은 위협이 아니라 관찰이다.
     label: 'Critique',
     description: '비평/리뷰 — 감사·레드팀 역할 (감시자)',
-    // v1.41 — fisheye 기호. 이모지 대신 Unicode 기호를 써야 stroke color(violet-400)가 적용된다.
+    // 이모지 대신 Unicode 기호라야 stroke color 가 먹는다.
     icon: '◉', // ◉ — 동공이 응시하는 눈
   },
 };
@@ -5494,7 +4232,7 @@ export const LOOPBACK_SNIFF_URLS_PER_BASH = 4;
  *  돌리므로 이 문이 없으면 같은 주소에 매번 TCP+HTTP 를 날린다. */
 export const LOOPBACK_SNIFF_PROBE_TTL_MS = 60_000;
 
-// ─── §7.11 v1.44 iframe 서버 로그 스트리밍 ───
+// §7.11 iframe 서버 로그 스트리밍
 
 /** 서버 측 port 당 ring buffer 최대 라인 수 */
 export const IFRAME_LOG_SERVER_BUFFER_MAX = 200;
@@ -5507,13 +4245,9 @@ export const IFRAME_LOG_BATCH_MS = 50;
 /** 구독 시작 시 tail read 최대 바이트 */
 export const IFRAME_LOG_TAIL_BYTES = 64 * 1024;
 
-// ─── §7.11 v2.1 죽은 iframe 위성 자동 제거 ───
+// §7.11 죽은 iframe 위성 자동 제거
 
-/**
- * iframe 위성이 죽은(`iframeAlive===false`) 뒤 캔버스에서 자동 제거되기까지의 grace(ms).
- * checkIframesAlive 가 `Date.now() - BubbleData.iframeDeadAt` 이 이 값을 넘으면 위성을 제거.
- * 죽은 직후 잠깐은 dim 으로 남겨 사용자가 Restart 로 되살릴 여지를 준다.
- */
+/** 죽은 iframe 위성이 자동으로 걷히기까지의 grace(ms) — 그동안 dim 으로 남아 Restart 로 되살릴 수 있다. */
 export const IFRAME_DEAD_GRACE_MS = 60_000;
 
 // ─── 이미지 붙여넣기 ───
@@ -5535,14 +4269,8 @@ export const IMAGE_SAVE_DIR = 'images';
 export const TOKEN_BYTES_RATIO = 0.35;
 
 /**
- * §3.2.4 ② — 서브에이전트 토큰 조회를 **동시에 몇 개까지** 겹칠지.
- *
- * 자체 턴이 비는 에이전트(커스텀이 그렇다)는 `/api/tokens` 가 서브 세션을 모두 뒤져 합산하는데,
- * 종전엔 그 조회가 순차라 서브가 20개면 갱신 한 번에 왕복이 20번 줄줄이 일어났다. 결과는 그대로
- * 두고 왕복만 겹친다(`mapWithConcurrency` 가 입력 순서를 보존한다).
- *
- * 무제한으로 풀지 않는 이유는 서버가 로컬 단일 프로세스라, 한꺼번에 쏟으면 오히려 메인 스레드가
- * 통째로 막히기 때문이다.
+ * §3.2.4 ② — 서브에이전트 토큰 조회 동시 개수(커스텀은 서브 세션을 모두 합산한다). 순서는 `mapWithConcurrency` 가 보존한다.
+ * 무제한 ❌ — 서버가 로컬 단일 프로세스라 메인 스레드가 막힌다.
  */
 export const TOKEN_SUBAGENT_FETCH_CONCURRENCY = 4;
 /** 시스템 프롬프트 추정 토큰 (도구 사용법, 코딩 규칙 등 내장 지침) */
@@ -5558,14 +4286,7 @@ export const TOKEN_FIXED_CATEGORIES: { key: string; label: string; estimate: num
   { key: 'git_status', label: 'Git Status', estimate: GIT_STATUS_ESTIMATE },
 ];
 
-/**
- * §5.5 #17-28 — 텍스트 한 덩이의 추정 토큰. 서버(주입원 계측)와 클라(합계 표시)가 **같은 산식**을
- * 써야 화면과 프롬프트가 다른 숫자를 말하지 않는다.
- *
- * 바이트 기준인 것은 한글이 UTF-8 3바이트라 문자 수보다 바이트가 실제 토큰에 가깝기 때문이며,
- * 비율은 이미 쓰던 `TOKEN_BYTES_RATIO` 를 그대로 쓴다(새 산식을 들이면 화면마다 숫자가 갈린다).
- * 정확한 토크나이저가 아니라 **어림값**이다 — 화면은 `~` 를 붙여 그렇게 말한다.
- */
+/** §5.5 #17-28 — 텍스트의 추정 토큰(어림값). 서버 계측과 클라 합계가 같은 산식을 쓴다. 바이트 기준(한글 UTF-8 3바이트가 토큰에 가깝다)·`TOKEN_BYTES_RATIO`. */
 export function estimateTokens(text: string | null | undefined): number {
   if (!text) return 0;
   // TextEncoder 는 Node 18+/브라우저 공통. 없으면 문자 수 기반으로 물러난다(테스트 환경 보호).
@@ -5577,11 +4298,7 @@ export function estimateTokens(text: string | null | undefined): number {
 
 // ─── §5.5 #17-28 컨텍스트 주입원 통제 ───
 
-/**
- * 주입원 안정 키. **저장되는 값**이므로 한 번 정하면 바꾸지 않는다(바꾸면 사용자가 꺼 둔 것이 되살아난다).
- * 목록 자체는 하드코딩이지만 **각 줄이 실제로 실리는지·얼마나 되는지는 매번 읽어서** 정한다 —
- * 고정된 것은 "무엇을 끌 수 있는가"의 어휘뿐이다.
- */
+/** 주입원 안정 키 — 저장되는 값이라 바꾸지 마라(꺼 둔 것이 되살아난다). 실리는지·얼마인지는 매번 읽어서 정한다. */
 export const CONTEXT_SOURCE_IDS = {
   // ① Vibisual 이 프롬프트에 직접 조립하는 블록 — 그 자리에서 뺄 수 있다(control: 'session').
   skillsPrefix: 'vibisual.skills-prefix',
@@ -5600,29 +4317,16 @@ export const CONTEXT_SOURCE_IDS = {
   cardQuestion: 'vibisual.card.question',
   cardReview: 'vibisual.card.review',
   goal: 'vibisual.goal',
-  /**
-   * §5.10 — **자동 목표**가 싣는 줄. 폐기된 브레인 네 줄(카드·주제·규칙·스킬)을 이 한 줄이
-   * 대신한다 — 네 갈래로 밀어넣던 것이 색인 하나로 접혔으니 끄는 스위치도 하나면 된다.
-   *
-   * 카드 본문을 밀어넣던 브레인과 달리 여기 실리는 것은 **이름과 한 줄 설명뿐**이라, 절차가 스무
-   * 장이 있어도 프롬프트가 얇다(에이전트는 필요할 때 그 파일을 연다 — v3.74 가 "밀어넣기 ❌
-   * 색인 ⭕" 로 옮겨간 그 결론을 스킬에 그대로 적용한 것). 자동 목표가 꺼져 있으면 0자다.
-   */
+  /** §5.10 — 자동 목표가 싣는 줄. 이름·한 줄 설명뿐인 색인이라 얇다(본문은 에이전트가 필요할 때 연다). 꺼져 있으면 0자. */
   autoGoalSkills: 'vibisual.auto-goal.skills',
-  /**
-   * §5.26 (E) — 압축 뒤 **딱 한 턴만** 실리는 복원 브리핑(요약이 안 실은 것).
-   *
-   * 상시 블록이 아니라 사건 뒤 1회라서 평소 이 줄의 바이트는 0 이다. 그래도 표에 세운다 —
-   * 우리가 프롬프트에 싣는 것 중 이 표에 없는 것이 있으면 그 표는 그 순간 거짓말을 시작한다.
-   */
+  /** §5.26 (E) — 압축 뒤 한 턴만 실리는 복원 브리핑. 평소 0바이트지만 표에 세운다 — 싣는 것이 표에서 빠지면 표가 거짓이다. */
   compactRecovery: 'vibisual.compact-recovery',
   /**
-   * §5.3 #12-4 — 검증 정책 문단 + 이번 명령의 검증 권한 한 줄. 정책은 시스템 프롬프트로, 권한은 매 턴
-   * 앞말로 간다. 이 주입원 스위치는 안내 문구만 제어하고, 검증 제한·실행 전 차단은 옵션의
-   * permissions.verificationGate가 켜져 있을 때만 적용한다. 옵션이 꺼져 있으면 제한 문구를 싣지 않는다.
+   * §5.3 #12-4 — 검증 정책 문단(시스템 프롬프트) + 이번 명령의 검증 권한(매 턴 앞말). 이 스위치는 안내 문구만 다룬다 —
+   * 검증 제한·실행 전 차단은 `permissions.verificationGate` 가 켜져 있을 때만, 꺼져 있으면 제한 문구도 싣지 않는다.
    */
   verificationPolicy: 'vibisual.verification-policy',
-  /** 훅으로 붙은 외부 세션에 매 턴 실리는 집행 블록(§5.11 v4.67). */
+  /** 훅으로 붙은 외부 세션에 매 턴 실리는 집행 블록(§5.11). */
   hookEnforcement: 'vibisual.hook-enforcement',
   /** §5.11 집행 플러그인 전체 — 개별 플러그인은 `plugin:<id>` 로 따로 선다. */
   plugins: 'plugins.all',
@@ -5659,26 +4363,13 @@ export const CONTEXT_SOURCE_IDS = {
 /** 개별 플러그인 줄의 id 접두어 — `plugin:ssot-drift` 처럼 선다. */
 export const CONTEXT_PLUGIN_ID_PREFIX = 'plugin:';
 
-/**
- * §5.5 #17-28 ⑦ — 상세창이 한 번에 받는 본문의 상한(글자).
- *
- * 지시 파일은 수십 KB 가 예사라 전문을 그대로 실어 보내면 창이 멎는다. 잘린 것은 화면이 말해 주고
- * (`truncated`), 글자·토큰 숫자는 **자르기 전 전체 기준**으로 준다 — 표의 합계와 어긋나지 않게.
- */
+/** §5.5 #17-28 ⑦ — 상세창 본문 상한(글자, 지시 파일 전문이면 창이 멎는다). 글자·토큰 숫자는 자르기 전 기준(표 합계와 맞게). */
 export const CONTEXT_PREVIEW_MAX_CHARS = 60_000;
 
 /** 위 상수의 값 목록(검증·테스트용). */
 export const CONTEXT_SOURCE_ID_LIST: string[] = Object.values(CONTEXT_SOURCE_IDS);
 
-/**
- * `control: 'spawn'` 인 줄을 실제로 끄는 수단.
- *
- * 헤드리스 경로는 **매 턴 새 프로세스**를 띄우므로(`--resume` 도 새 spawn 이다) 여기 적힌 인자·환경변수는
- * 다음 프롬프트부터 곧바로 먹는다 — "끄면 다음 프롬프트에 안 실린다"가 성립하는 근거다.
- *
- * 값은 Claude Code CLI 가 실제로 읽는 이름이다(`claude --help` + 배포 바이너리 확인, 2.1.223 기준).
- * 판본이 바뀌어 이름이 사라져도 **모르는 환경변수는 무시**되므로 스폰이 깨지지 않는다.
- */
+/** `control: 'spawn'` 줄을 끄는 인자·환경변수. 헤드리스는 매 턴 새 spawn 이라 다음 프롬프트부터 먹는다. 이름은 CLI 2.1.223 기준 — 모르는 환경변수는 무시돼 스폰이 안 깨진다. */
 export const CONTEXT_SPAWN_SWITCHES: Record<string, { env?: string; flag?: string }> = {
   [CONTEXT_SOURCE_IDS.claudeMd]: { env: 'CLAUDE_CODE_DISABLE_CLAUDE_MDS' },
   [CONTEXT_SOURCE_IDS.autoMemory]: { env: 'CLAUDE_CODE_DISABLE_AUTO_MEMORY' },
@@ -5688,10 +4379,7 @@ export const CONTEXT_SPAWN_SWITCHES: Record<string, { env?: string; flag?: strin
   [CONTEXT_SOURCE_IDS.gitInstructions]: { env: 'CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS' },
 };
 
-/**
- * 통제 층의 정본 순서 — **위(넓음) → 아래(좁음)**. 상속 사슬을 도는 코드는 전부 이 배열만 본다
- * (층이 또 늘면 여기 한 줄과 아래 표만 고치면 된다).
- */
+/** 통제 층 순서(넓음 → 좁음). 상속 사슬을 도는 코드는 이 배열만 본다. */
 export const CONTEXT_SCOPE_LEVELS: readonly ContextScopeLevel[] = ['project', 'agent', 'session'];
 
 /** `resolveContextEnabled` 가 보는 오버라이드 묶음의 최소 모양(디스크에서 온 옛 값도 받도록 전부 선택). */
@@ -5719,15 +4407,8 @@ const CONTEXT_SCOPE_LOOKUP: Record<
 };
 
 /**
- * **최종 판정 한 곳** — 세션 > 에이전트 > 프로젝트 > 기본값.
- *
- * 서버(주입 게이트)와 클라(화면 표시)가 이 함수를 함께 쓴다. 판정이 두 벌이 되면
- * "화면엔 꺼져 있는데 프롬프트엔 실리는" 상태가 생기고, 그것이 이 기능의 유일한 실패 방식이다.
- *
- * `level` 은 **어느 층에서 내려다본 값인가**다. 기본값 `'session'` 은 실제로 프롬프트에 실리는
- * 최종값이고, `'project'`/`'agent'` 를 주면 그 층보다 **아래는 보지 않는다** — 화면이 "프로젝트
- * 층에서 이 줄은 켜져 있다"를 그릴 때 쓰는 값이 그것이다. 아래층을 섞어 그리면 위층 스위치를
- * 눌러도 안 움직이는 것처럼 보인다.
+ * 최종 판정 한 곳 — 세션 > 에이전트 > 프로젝트 > 기본값. 서버와 클라가 함께 쓴다(두 벌이면 화면과 프롬프트가 갈린다).
+ * `level` 을 주면 그 층 아래는 보지 않는다 — 아래층을 섞어 그리면 위층 스위치가 안 움직이는 것처럼 보인다.
  */
 export function resolveContextEnabled(
   overrides: ContextOverrideLayers | null | undefined,
@@ -5751,12 +4432,7 @@ export function resolveContextEnabled(
   return { enabled: defaultEnabled };
 }
 
-/**
- * 그 층에 **명시적으로** 걸린 값(없으면 undefined = 위에서 물려받는 중).
- *
- * "이 층에서 되돌리면 명시값을 지운다"(설정이 쌓이지 않게)와 "위층을 보는 동안 아래층이 따로
- * 정해 뒀다"를 화면이 판정하는 근거다. 판정 자체는 하지 않는다 — 판정은 위 한 함수뿐이다.
- */
+/** 그 층에 명시적으로 걸린 값(undefined = 물려받는 중). 화면이 되돌리기·아래층 별도 설정을 가르는 근거 — 판정은 `resolveContextEnabled` 뿐. */
 export function contextOverrideAt(
   overrides: ContextOverrideLayers | null | undefined,
   scopeKeys: ContextScopeKeys,
@@ -5771,13 +4447,7 @@ export function contextOverrideAt(
   return typeof v === 'boolean' ? v : undefined;
 }
 
-/**
- * 이 층에서 명시값을 지웠을 때 **물려받게 될 값** — 곧 "여기서 아무것도 안 정했을 때의 값"이다.
- *
- * 토글이 이 값과 같아지는 순간 명시값을 저장하지 않고 지운다(되돌리기 = 삭제). 이걸 `defaultEnabled`
- * 로 대신 재던 것이 종전 결함이었다 — 프로젝트에서 끈 줄을 세션에서 다시 켜면 "기본값과 같다"는
- * 이유로 세션 명시값이 지워져, 도로 프로젝트의 끔으로 굴러떨어졌다(= 아래층이 위층을 못 이겼다).
- */
+/** 명시값을 지웠을 때 물려받을 값 — 토글이 이것과 같아지면 명시값을 지운다. `defaultEnabled` 로 재지 마라 — 프로젝트에서 끈 줄을 세션에서 켜면 도로 꺼진다. */
 export function contextInheritedAt(
   overrides: ContextOverrideLayers | null | undefined,
   scopeKeys: ContextScopeKeys,
@@ -5820,12 +4490,9 @@ export const GIT_STATUS_CONFIG = {
   CLAUDE_COAUTHOR_MARKER: 'co-authored-by: claude',
 } as const;
 
-// ─── Comment Box (언리얼 블프 스타일 주석) v1.45 ───
+// Comment Box (언리얼 블프 스타일 주석)
 
-/**
- * Comment Box 기본값 / 동작 파라미터.
- * SSOT §3.3 — 매직넘버 금지. 크기·색·폰트·풍선 LOD 임계치는 여기서만.
- */
+/** Comment Box 기본값 — 크기·색·폰트·LOD 임계치는 여기서만(§3.3). */
 export const COMMENT_BOX_DEFAULTS = {
   /** 새 박스 생성 시 선택된 버블 bbox 에 덧붙일 padding (px). */
   PADDING: 40,
@@ -5850,12 +4517,7 @@ export const COMMENT_BOX_DEFAULTS = {
   CREATE_HOTKEY: 'KeyC',
 } as const;
 
-/**
- * LOD — React Flow zoom 값에 따라 라벨 렌더 모드 전환.
- * 줌아웃(< BALLOON_BELOW) 시 박스 외부 상단에 풍선(pill) 라벨을 크게 띄워 읽기 보존.
- * 줌인(≥ NORMAL_ABOVE) 시 박스 내부 헤더 텍스트 정상 표시.
- * 중간 구간은 헤더 그대로 표시(풍선 없음).
- */
+/** 라벨 LOD — 줌 < BALLOON_BELOW 면 박스 밖 위에 큰 풍선 라벨, 그 위로는 박스 안 헤더. */
 export const COMMENT_BOX_LOD = {
   /** 이 zoom 미만이면 외부 풍선 라벨 표시. */
   BALLOON_BELOW: 0.55,
@@ -5865,28 +4527,15 @@ export const COMMENT_BOX_LOD = {
   BALLOON_MAX_CHARS: 80,
 } as const;
 
-/**
- * §4 v3.71 가시성 LOD — "안 보이면 안 그린다".
- *
- * 여기서 말하는 '안 보임'은 **화면 밖(뷰포트 이탈)과 전면 오버레이에 가려짐** 두 가지뿐이다.
- * 줌아웃은 '안 보이는' 게 아니라 '멀리서 보는' 것이므로 이펙트·정보를 빼지 않는다
- * (줌 티어로 장식을 생략하던 초안은 사용자 정정으로 철회 — 줌아웃해도 보이던 건 그대로 보여야 한다).
- */
+/** §4 가시성 LOD — 안 보이면(화면 밖·전면 오버레이에 가림) 안 그린다. 줌아웃은 멀리서 보는 것이라 이펙트·정보를 빼지 마라. */
 export const CANVAS_LOD = {
   /** 뷰포트 밖 노드·엣지를 아예 렌더하지 않는다(React Flow onlyRenderVisibleElements). */
   CULL_OFFSCREEN: true,
 } as const;
 
 /**
- * §5.4 #31 **연결 무리 강조** — Ctrl/Cmd 를 쥔 채 에이전트 버블을 잡았을 때의 표시 값.
- *
- * **색을 새로 칠하지 않는다.** 캔버스에는 이미 카테고리 색이 15종 있어서(§2.2) 강조에 또 하나를
- * 들이면 그 색이 "무슨 종류인가"로 읽힌다 — 무리는 종류가 아니라 **지금 잡은 것**이라 오래 남지
- * 않는 표시다. 그래서 위계를 **밝기와 흰 빛**으로만 만든다: 무리 밖은 물러나고(투명도·탈색),
- * 무리 안은 흰 테두리로 떠오르며, 중심은 같은 모양을 한 단계 강하게 쓴다.
- *
- * **크기(scale)는 건드리지 않는다** — 엣지 끝점이 노드의 실측 지오메트리(`measured`)로 계산되는데
- * transform 은 그 값을 바꾸지 않아서, 버블만 커지고 화살표는 제자리에 남아 어긋난다.
+ * §5.4 #31 연결 무리 강조(Ctrl/Cmd + 버블 잡기). 색을 새로 칠하지 않는다 — 카테고리 색 사이에서 새 색은 "종류"로 읽힌다. 밝기와 흰 빛으로만.
+ * scale 은 건드리지 마라 — 엣지 끝점은 `measured` 기준이라 화살표가 어긋난다.
  */
 export const LINK_FOCUS = {
   /** 무리 밖 버블이 물러나는 불투명도(곱). 0 이면 사라지므로 "거기 있다"는 것은 남긴다. */
@@ -5912,12 +4561,7 @@ export const LINK_FOCUS = {
   FOCUS_GLOW_BLUR: 26,
   /** 강조가 켜지고 꺼지는 시간(ms) — 손끝 반응이라 짧게. */
   TRANSITION_MS: 150,
-  /**
-   * 미리보기(Ctrl 만 쥐고 위에 올려 둔 상태)의 세기(곱).
-   *
-   * 아직 아무것도 잡지 않았으므로 확정과 같은 세기로 번쩍이면 "이미 뭔가 일어났다"로 읽힌다.
-   * 물러나는 쪽은 덜 물러나고, 떠오르는 쪽은 덜 떠오른다.
-   */
+  /** 미리보기(Ctrl 만 쥐고 올림) 세기(곱) — 확정과 같으면 "이미 일어났다"로 읽힌다. */
   HOVER_STRENGTH: 0.55,
   /** 무리 밖 엣지의 불투명도(곱). 버블보다 더 물러난다 — 선이 남아 있으면 시야가 어지럽다. */
   EDGE_DIM_OPACITY: 0.12,
@@ -5926,30 +4570,12 @@ export const LINK_FOCUS = {
   EDGE_LIT_OPACITY: 1,
 } as const;
 
-/**
- * §5.4 #33 **버블 정리** — 위에서 아래로 앉는 띠(칸)의 순서.
- *
- * 순서의 뜻은 "지금 봐야 하는 급한 정도"다 — 도는 것이 맨 윗 줄, 손이 가야 하는 것이 그다음,
- * 쉬는 것과 자리(폴더)가 아래. 종류가 아니라 **상태**가 앞자리를 정하는 이유는, 캔버스를 보는
- * 이유가 "무엇이 있나"가 아니라 "무엇이 지금 움직이나"이기 때문이다.
- *
- * **새 띠는 여기 한 줄 추가로만.** 배치 함수는 이 배열을 순회할 뿐 띠 이름을 알지 못한다(§3.3).
- */
+/** §5.4 #33 — 정리 띠 순서 = 지금 봐야 하는 급한 정도(종류가 아니라 상태). 새 띠는 한 줄 추가로만(배치 함수는 이름을 모른다, §3.3). */
 export const TIDY_BAND_ORDER: readonly TidyBand[] = ['running', 'attention', 'waiting', 'folder', 'other'];
 
-/**
- * §5.4 #33 **버블 정리** 배치 값.
- *
- * 간격은 물리(`MAGNET_GAP`=12 · `REPULSION_RANGE`=120)보다 넉넉해야 한다 — 물리가 다시 밀어내면
- * 정리한 모양이 손을 떼자마자 풀린다. 정리는 물리를 끄는 것이 아니라 **물리가 할 일이 없는 자리**에
- * 놓아 두는 일이다.
- */
+/** §5.4 #33 정리 배치 값 — 간격은 물리(`MAGNET_GAP`·`REPULSION_RANGE`)보다 넉넉해야 한다(물리가 다시 밀면 곧 풀린다). */
 export const TIDY_LAYOUT = {
-  /**
-   * 이웃 버블 사이에 두는 간격(px) — 같은 고리에서든 **같은 줄에서든** 같은 값이다.
-   * 세 간격(`RING_GAP` < `ROW_GAP` … < `BAND_GAP`)의 크기 차이가 곧 "이건 이웃 / 이건 같은 칸의
-   * 다음 줄 / 이건 다른 칸"이라는 세 단계로 읽힌다(§5.4 #33 (C)).
-   */
+  /** 이웃 간격(px). `RING_GAP` < `ROW_GAP` < `BAND_GAP` 의 크기 차이가 이웃 / 다음 줄 / 다른 칸으로 읽힌다(§5.4 #33 (C)). */
   RING_GAP: 34,
   /** 한 칸이 여러 줄(또는 여러 고리)로 접혔을 때 줄과 줄 사이 간격(px). */
   ROW_GAP: 30,
@@ -5970,18 +4596,9 @@ export const TIDY_LAYOUT = {
   BAND_STAGGER_MS: 70,
   /** 이만큼도 안 움직이는 버블은 목록에서 뺀다(px) — 이미 제자리다. */
   SETTLED_EPSILON: 1,
-  /**
-   * §5.4 #33 (I) 덩어리 기하 — 무리와 무리 사이에 두는 간격(px). 띠 간격(`BAND_GAP`)보다
-   * 넓다. 동심 띠는 고리라는 모양 자체가 "여기서 갈렸다"를 말해 주지만, 덩어리는 빈 자리
-   * 말고는 경계를 말할 것이 없기 때문이다.
-   */
+  /** §5.4 #33 (I) 무리 사이 간격(px) — `BAND_GAP` 보다 넓다(덩어리는 빈 자리 말고 경계가 없다). */
   CLUSTER_GAP: 130,
-  /**
-   * §5.4 #33 (I-2) 연속값(열·최근)을 자를 분위 수. 절대 기준으로 자르면 프로젝트마다 전부
-   * 한 칸에 몰린다 — 순위로 자르면 어떤 분포가 와도 다섯 칸이 고르게 찬다(§5.24 `quantile`
-   * 곡선과 같은 논리). `TIDY_BAND_ORDER` 가 다섯인 것과 우연히 같은 수가 아니다: 기준을
-   * 바꿔도 칸 수가 같아야 지도의 크기가 튀지 않는다.
-   */
+  /** §5.4 #33 (I-2) 연속값을 자르는 분위 수 — 절대 기준이면 한 칸에 몰린다(§5.24 `quantile`). `TIDY_BAND_ORDER` 수와 맞춰 지도 크기가 안 튀게 한다. */
   QUANTILE_BUCKETS: 5,
   /**
    * §5.4 #33 (I-5) 줄 세우기 — 한 줄이 캔버스 바운딩 박스(§3.3 `layoutBounds`)의 이 비율까지만
@@ -5991,51 +4608,26 @@ export const TIDY_LAYOUT = {
 } as const;
 
 /**
- * §5.1 #2-2 **등장 영역** — 새 버블이 처음 앉는 자리(주인 둘레 동심 고리의 빈칸, 붐비면 바깥 고리).
- * §5.23 웹 궤도(도메인)가 첫 사례였고, 이제 메인 캔버스·폴더 안의 모든 새 버블이 같은 규칙을 탄다.
- *
- * 간격은 따로 두지 않는다 — 최상위는 첫 고리 앞과 같은 고리의 이웃 사이가 `TIDY_LAYOUT.RING_GAP`, 고리 사이가
- * `TIDY_LAYOUT.ROW_GAP` 이고, 위성은 첫 고리 앞이 `SATELLITE_ORBIT_GAP`(물리 스프링의 평형점), 이웃 사이·고리 사이가
- * `SATELLITE_RING_SPACING` 이다(§5.1 #2-2 (J)). 정리(§5.4 #33)와 같은 간격이라야 물리가 다시 밀어낼 이유가 없고,
- * 정리한 지도와 갓 자란 지도가 같은 말로 읽힌다.
+ * §5.1 #2-2 등장 영역 — 새 버블의 첫 자리(주인 둘레 동심 고리의 빈칸, 붐비면 바깥). 간격은 정리(§5.4 #33)와 같은 `TIDY_LAYOUT`·`SATELLITE_*` 값을 쓴다
+ * — 같아야 물리가 다시 밀지 않는다(§5.1 #2-2 (J)).
  */
 export const SPAWN_ZONE = {
-  /**
-   * 모든 고리의 첫 칸이 서는 방향(라디안) — 12시. 화면 y 는 아래로 자라므로 각이 커지면 **시계 방향**이다.
-   * 고리에 시작점이 없으면 순서가 읽히지 않는다(§5.4 #33 I-1) — 시작점과 방향을 약속해 순서를 읽히게 한다.
-   */
+  /** 고리 첫 칸 방향(라디안) = 12시, 각이 커지면 시계 방향(화면 y 가 아래로). 시작점이 없으면 순서가 안 읽힌다. */
   START_ANGLE: -Math.PI / 2,
-  /**
-   * 위성 칸의 기준 지름(px) — 파일 위성 지름 범위의 가운데. 한 부모 둘레의 위성이 **한 격자**를 나눠 써야
-   * 고리가 고리로 보인다(위성마다 제 지름으로 격자를 다시 짜지 않는다 — 큰 위성은 겹침 판정이 걸러 낸다).
-   */
+  /** 위성 칸 기준 지름(px, 파일 위성 범위의 가운데). 한 부모의 위성이 한 격자를 나눠 써야 고리로 보인다(큰 위성은 겹침 판정이 거른다). */
   SATELLITE_SLOT: (FILE_MIN_SIZE + FILE_MAX_SIZE) / 2,
-  /**
-   * 사각 창·말풍선이 원판 안에 든 넓이를 잴 때 한 변을 나누는 표본 수(N×N 격자 칸의 가운데). 원판과 사각의
-   * 겹친 넓이를 식으로 풀지 않고 표본으로 어림한다 — 세기는 "얼마나 붐볐나"를 칸 단위로 묻는 일이라 충분하다.
-   */
+  /** 사각 창·말풍선이 원판에 든 넓이를 재는 표본 수(N×N). 식 대신 표본으로 어림한다 — 붐빔을 칸 단위로 묻는 데 충분하다. */
   AREA_SAMPLES: 8,
   /** 상자가 없을 때(시험·폴백) 훑는 고리 수의 상한 — 탐색이 끝나는 자리. */
   MAX_RINGS: 24,
 } as const;
 
-/**
- * §5.23 큰 원(`radialLayout`)에서 빼는 버블 타입. 그 원의 반지름은 개수에 비례해 자란다
- * (`ORBIT_RADIUS_PER_ITEM`). 리서치 한 번에 수십 개가 서는 타입이 거기 들면 원이 물리 상자를 넘고, 함께 선
- * 항목까지 상자 벽으로 민다. 새 버블의 첫 자리는 이 표와 상관없이 §5.1 #2-2 등장 영역(`SPAWN_ZONE`)이 정한다.
- * **새 타입은 여기 한 줄 추가로만.**
- */
+/** §5.23 큰 원(`radialLayout`)에서 빼는 타입 — 반지름이 개수에 비례해 수십 개가 들면 원이 물리 상자를 넘어 이웃까지 벽으로 민다. 새 타입은 한 줄로. */
 export const WEB_ORBIT_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>(['domain']);
 
 /**
- * §5.4 #33 (I) **버블 정리 — 기준 다섯.** 순서가 곧 패널에 서는 순서다.
- *
- * `geometry` 가 `TidySort` 와 별개 축인 것이 이 표의 핵심이다 — 순위가 있는 기준(`status`·
- * `heat`·`recent`)은 **줄 세우기**로 "위·왼쪽이 더 급한/뜨거운/최근"을 말하고, 순위가 없는 분류
- * (`kind`·`lineage`)는 덩어리로 앉아 뜻 없는 서열을 만들지 않는다. 자세한 근거는 SSOT
- * §5.4 #33 (I-1).
- *
- * **새 기준은 여기 한 줄 추가로만.** 배치 함수는 이 표를 읽을 뿐 기준 이름을 알지 못한다(§3.3).
+ * §5.4 #33 (I) 정리 기준(순서 = 패널 순서). `geometry` 는 별개 축이다 — 순위 있는 기준은 줄 세우기, 순위 없는 분류는 덩어리(뜻 없는 서열 ❌).
+ * 새 기준은 한 줄 추가로만(§3.3).
  */
 export const TIDY_SORTS: readonly { readonly id: TidySort; readonly geometry: TidyGeometry }[] = [
   /** (A) 의 띠 순서 — 도는 것이 맨 윗 줄. */
@@ -6063,16 +4655,7 @@ export function tidyGeometryOf(sort: TidySort): TidyGeometry {
   return TIDY_SORTS.find((s) => s.id === sort)?.geometry ?? 'rows';
 }
 
-/**
- * §5.9 화면/프로그램 캡처 버블 기본값. CommentBox 처럼 캔버스 독립 요소이므로 절대좌표 배치.
- * 16:9 비율의 네모난 라이브 영상 본체가 기본.
- *
- * v3.56 색 개편 — 종전엔 rose-500(#F43F5E) 한 색이 "캡처 정체성"이라며 **테두리 2px + 헤더 전체 +
- * 창 타이틀바**를 통째로 칠했다. 라이브 영상 위에 채도 높은 분홍 색면이 얹혀 화면과 색이 싸우고
- * 값싸 보이던 원인. 이제 크롬(테두리·헤더·타이틀바)은 **무채색 그래파이트 글라스**로 물러나 영상이
- * 주인공이 되고, 색은 **의미 있는 최소 단위에만** 쓴다 — 라이브 도트(붉은 녹화등) / 선택 링(스카이) /
- * 조작 중 링(에메랄드, 기존 규칙 유지).
- */
+/** §5.9 캡처 버블 기본값(캔버스 독립 요소라 절대좌표, 16:9). 크롬은 무채색 — 채도 높은 색면은 라이브 영상과 싸운다. 색은 라이브 도트·선택 링·조작 링에만. */
 export const CAPTURE_BUBBLE_DEFAULTS = {
   /** 새 캡처 버블 초기 크기 (px, 16:9). */
   DEFAULT_WIDTH: 320,
@@ -6096,11 +4679,7 @@ export const CAPTURE_BUBBLE_DEFAULTS = {
   STAGE_BG: '#07090D',
 } as const;
 
-/**
- * §5.9 캡처 버블 **이어 붙이기(자석 스냅)** — 화면 버블 2~3개를 듀얼/트리플 모니터처럼
- * 나란히 붙여 쓰기 위한 값들. 임계값은 **화면 픽셀** 기준이라 실제 판정 때 줌으로 나눠
- * 캔버스 단위로 바꾼다(줌을 당겨도 손끝 감각이 같게).
- */
+/** §5.9 캡처 버블 자석 스냅 값. 임계값은 화면 px — 판정 때 줌으로 나눈다(줌과 무관하게 손끝 감각이 같게). */
 export const CAPTURE_SNAP = {
   /** 이 거리(화면 px) 안으로 들어오면 변을 붙인다. */
   THRESHOLD_PX: 12,
@@ -6122,13 +4701,7 @@ export const CAPTURE_SNAP = {
   GUIDE_WIDTH_PX: 1.5,
 } as const;
 
-/**
- * §5.9 캡처 버블 **플레이테스트(녹화 + 구간 프레임 첨부)** — 만든 빌드를 앱 안에서 직접 플레이해
- * 보다가, 버그가 난 그 구간을 프레임째 에이전트에게 넘기기 위한 값들.
- *
- * 영상은 렌더러 메모리(Blob)에만 살고 서버·WS·체크포인트를 타지 않는다(§5.9 렌더러 전용 원칙).
- * 그래서 상한이 곧 안전장치다 — 길이(자동 정지)와 개수(오래된 것부터 폐기) 둘 다 여기서 온다.
- */
+/** §5.9 캡처 플레이테스트(녹화 + 구간 프레임 첨부). 영상은 렌더러 메모리(Blob)에만 살아 길이·개수 상한이 곧 안전장치다. */
 export const CAPTURE_PLAYTEST = {
   /** 한 클립 최대 길이(초). 넘으면 녹화가 스스로 멈춘다(누르고 잊어도 메모리가 자라지 않게). */
   MAX_CLIP_SECONDS: 180,
@@ -6154,10 +4727,7 @@ export const CAPTURE_PLAYTEST = {
   RECORD_COLOR: "#EF4444",
 } as const;
 
-/**
- * UE 블프 풍 팔레트 — CommentBoxDetail 색 버튼 소스.
- * hex 는 태그 구분 색(Amber/Rose/Emerald/Blue/Violet/Pink/Teal/Slate) 으로 시각 다양성 확보.
- */
+/** UE 블프 풍 팔레트 — CommentBoxDetail 색 버튼 소스. */
 export const COMMENT_BOX_PALETTE: readonly { id: string; label: string; color: string }[] = [
   { id: 'amber', label: 'Amber', color: '#F59E0B' },
   { id: 'rose', label: 'Rose', color: '#F43F5E' },
@@ -6172,12 +4742,7 @@ export const COMMENT_BOX_PALETTE: readonly { id: string; label: string; color: s
 
 // ─── 세션 스티키 메모 (§5.5 #17-36) ───
 
-/**
- * 스티키 메모 기본값 / 상한. SSOT §3.3 — 매직넘버 금지. 크기·글자수·장수는 여기서만.
- *
- * 상한이 둘인 이유(§3.2.3 "쓸수록 커지는 것에 상한") — **글자 길이**(`TEXT_MAX`)만 막으면 장수로,
- * **장수**(`MAX_PER_OWNER`)만 막으면 길이로 무한히 자란다. 두 축을 함께 막아야 체크포인트가 붓지 않는다.
- */
+/** 스티키 메모 기본값·상한(§3.3). 글자 길이·장수 상한을 함께 둔다 — 하나만 막으면 다른 축으로 자란다(§3.2.3). */
 export const SESSION_MEMO = {
   /** 새 메모 기본 크기 (px). */
   DEFAULT_W: 260,
@@ -6191,10 +4756,7 @@ export const SESSION_MEMO = {
   HEADER_H: 28,
   /** 본문 상한 (자). 넘치면 잘라 저장한다. */
   TEXT_MAX: 4000,
-  /**
-   * 이름 상한 (자). 제목줄에 들어가는 한 줄이라 본문과 상한이 다르다 — 화면에서는 폭에 맞춰
-   * `…` 로 줄지만(CSS), **저장까지 무한히 길어지면 안 된다**(§3.2.3 "쓸수록 커지는 것에 상한").
-   */
+  /** 이름 상한(자) — 화면은 `…` 로 줄지만 저장값도 상한이 있어야 한다(§3.2.3). */
   NAME_MAX: 60,
   /** 한 세션(또는 메인 탭)에서 열 수 있는 메모 장수 상한. 닫은 기록은 포함하지 않는다. */
   MAX_PER_OWNER: 24,
@@ -6202,11 +4764,7 @@ export const SESSION_MEMO = {
   MAX_COORD: 20000,
   /** 같은 자리에 겹쳐 만들 때 계단식으로 밀어 놓는 간격 (px). [펼치기]가 자리를 찾는 격자도 이 눈금이다. */
   CASCADE_STEP: 18,
-  /**
-   * 손이 올라간 카드를 **잠시** 맨 앞으로 올릴 때 쓰는 z. 장수 상한(24)보다 한참 위라 어떤 카드보다
-   * 앞에 서고, 판(`z-[15]`) 안에서만 유효하므로 IDE 크롬(검색바·줌 배지)을 가리지 않는다.
-   * 저장되는 값이 아니다 — **겹쳐 둔 순서는 그대로 두고 보기만 바꾸는** 것이 이 값의 요점이다.
-   */
+  /** 손이 올라간 카드를 잠시 맨 앞으로 올리는 z(판 `z-[15]` 안이라 IDE 크롬은 안 가린다). 저장하지 않는다 — 겹친 순서는 두고 보기만 바꾼다. */
   PEEK_Z: 1000,
   /**
    * [겹친 메모 펼치기]가 빈자리를 찾을 때 넓혀 가는 고리의 최대 수(고리 하나 = `CASCADE_STEP`).
@@ -6225,17 +4783,11 @@ export const SESSION_MEMO = {
   MAX_ALPHA: 1,
   /** 불투명도 슬라이더 눈금. 저장은 소수 둘째 자리까지만(왕복 비교가 부동소수로 흔들리지 않게). */
   ALPHA_STEP: 0.01,
-  /**
-   * §5.5 #17-36 ⑫ — 메모 한 장에 걸 수 있는 링크 수. 본문 글자수(`TEXT_MAX`)만 막으면 링크 개수로
-   * 자란다 — 두 축을 함께 막는 위 규약(§3.2.3)을 링크에도 그대로 건다.
-   */
+  /** §5.5 #17-36 ⑫ — 메모 한 장의 링크 수 상한(§3.2.3). */
   LINK_MAX: 32,
   /** 세션 글 위치 링크가 기억하는 **그 자리의 글** 상한(자) — 도착해 칠할 글자이자 링크 상자의 요약. */
   LINK_TEXT_MAX: 200,
-  /**
-   * 항목을 **눌러서** 고른 자리의 글로 남기는 머리 길이(자). 드래그로 고른 글자는 `LINK_TEXT_MAX` 까지
-   * 그대로 남지만, 누른 항목은 본문이 수천 자일 수 있어 첫머리만 들고 간다(칠할 자리도 그 첫머리다).
-   */
+  /** 눌러서 고른 항목이 남기는 글 머리 길이(자) — 본문이 수천 자일 수 있어 첫머리만(드래그로 고른 글은 `LINK_TEXT_MAX` 까지). */
   LINK_HEAD_MAX: 80,
   /** 다른 세션 링크가 기억하는 탭 이름 상한(자) — 탭이 닫힌 뒤에도 무엇을 가리켰는지 말하려고 둔다. */
   LINK_LABEL_MAX: 80,
@@ -6249,21 +4801,10 @@ export const SESSION_MEMO = {
   LINK_PROMPT_MAX: 12,
 } as const;
 
-/**
- * §5.5 #17-36 ⑫ — 메모 링크 종류와 **목록 순서**. 첫 자리가 세션 글 위치인 것은 사용자 지시다
- * ("리스트들은 첫번째가 세션의 글 위치"). 화면의 [링크 ▸] 목록은 이 표를 그대로 돌므로,
- * 다음 종류는 여기 한 줄 + 화면의 종류별 손잡이 하나로 붙는다.
- */
+/** §5.5 #17-36 ⑫ — 메모 링크 종류와 목록 순서(첫 자리는 세션 글 위치). [링크 ▸] 목록이 이 표를 돈다. */
 export const SESSION_MEMO_LINK_KINDS: readonly SessionMemoLinkKind[] = ['stream', 'session', 'file', 'url'] as const;
 
-/**
- * 스티키 메모 팔레트 — **앱과 같은 색 언어**다. IDE 본문이 `bg-gray-950` 인 어두운 화면이라
- * 밝은 파스텔 종이는 그 위에서 혼자 튀는 이물이었다. 지금은
- * `COMMENT_BOX_PALETTE` 와 **같은 색상 계열의 깊은 판**이고, 불투명도(`SessionMemo.alpha`)를
- * 얹어 아래 대화가 비치는 유리로 읽힌다. 글자색은 여전히 자동이다 — 다만 판정 기준이 색 자체가
- * 아니라 **알파를 섞어 실제로 보이는 색**이라(`memoSurface`), 밝은 종이 한 칸(`paper`)을
- * 골라도 대비가 무너지지 않는다.
- */
+/** 메모 팔레트 — `COMMENT_BOX_PALETTE` 계열의 깊은 판(어두운 IDE 위에서 파스텔은 튄다). 글자색은 알파를 섞어 실제로 보이는 색으로 판정한다(`memoSurface`). */
 export const SESSION_MEMO_PALETTE: readonly { id: string; label: string; color: string }[] = [
   { id: 'slate', label: 'Slate', color: '#334155' },
   { id: 'sky', label: 'Sky', color: '#075985' },
@@ -6278,14 +4819,7 @@ export const SESSION_MEMO_PALETTE: readonly { id: string; label: string; color: 
 /** 새 메모의 기본색 — 팔레트 첫 칸과 같아야 한다(`sessionMemo.test.ts` 가 지킨다). */
 export const SESSION_MEMO_DEFAULT_COLOR = '#334155';
 
-/**
- * 옛 파스텔 팔레트 → 새 팔레트 이관표.
- *
- * 색을 갈아엎으면 **이미 붙여 둔 메모만 옛 색으로 남는다** — 사용자에게는 "고쳤다더니 내 메모는
- * 그대로"로 보이고, 되돌릴 방법도 한 장씩 다시 고르는 것뿐이다. 그래서 정화 단계에서 한 번
- * 갈아 끼운다(옛 8칸은 스와치로만 고를 수 있었으므로 **이 8개 값은 전부 우리가 넣은 것**이다 —
- * 사용자가 손으로 고른 자유색을 덮어쓸 위험이 없다). 키는 대문자 `#RRGGBB`.
- */
+/** 옛 파스텔 → 새 팔레트 이관표(키는 대문자 `#RRGGBB`). 색이 메모에 저장돼 정화 때 갈아 끼운다 — 옛 8칸은 스와치 전용이라 자유색을 덮지 않는다. */
 export const SESSION_MEMO_LEGACY_COLOR_MAP: Readonly<Record<string, string>> = {
   '#FDE68A': '#92400E', // yellow → amber
   '#FED7AA': '#92400E', // orange → amber
@@ -6306,10 +4840,8 @@ function clampNumber(v: unknown, min: number, max: number, fallback: number): nu
 }
 
 /**
- * 불투명도 정화 — 눈금(`ALPHA_STEP`)에 맞춘다. 좌표(`clampNumber`)와 달리 **정수로 반올림하면
- * 안 되고**, 눈금을 곱해서도 안 된다: `Math.round(0.82 / 0.01) * 0.01 === 0.8200000000000001` 이라
- * 기본값과 같은 값이 "다르다"로 판정돼, 기본값을 생략하는 규약이 조용히 무너진다(저장 왕복 비교도
- * 영영 안 맞는다). 그래서 **나눗셈으로** 자릿수를 맞춘다.
+ * 불투명도를 `ALPHA_STEP` 눈금에 맞춘다 — 나눗셈으로. `Math.round(0.82 / 0.01) * 0.01 === 0.8200000000000001` 이라
+ * 곱하면 기본값이 "다르다"로 판정돼 기본값 생략·저장 왕복 비교가 무너진다.
  */
 function clampMemoAlpha(v: unknown): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return SESSION_MEMO.DEFAULT_ALPHA;
@@ -6319,14 +4851,8 @@ function clampMemoAlpha(v: unknown): number {
 }
 
 /**
- * 메모 이름 정화 — **한 줄로 접고**, 앞뒤 공백을 떼고, 상한까지 자른다. 빈 값이면 `''`(= 필드 없음).
- *
- * ⚠ 화면과 서버가 **같은 함수**를 써야 한다. 카드가 올린 이름과 서버가 정화한 이름이 한 글자라도
- * 다르면 낙관 표시의 왕복 비교(`SessionMemoLayer.pushedRef`)가 영영 안 맞아, 그 판의 메모가
- * 다른 창의 변경을 다시는 따라가지 못한다. 그래서 이 규칙은 클라에 복제하지 않고 여기 하나만 둔다.
- *
- * 줄바꿈·탭을 공백 하나로 접는 것도 의도다 — 제목줄은 한 줄이라, 개행이 들어오면 저장값과 보이는
- * 값이 어긋난다(붙여넣기 한 번으로 쉽게 들어온다).
+ * 메모 이름 정화 — 줄바꿈·탭을 공백으로 접고(제목줄은 한 줄) 다듬어 상한까지. 빈 값이면 `''`.
+ * ⚠ 화면과 서버가 같은 함수를 쓴다 — 다르면 낙관 왕복 비교(`SessionMemoLayer.pushedRef`)가 영영 안 맞는다. 클라에 복제하지 마라.
  */
 export function normalizeMemoName(raw: unknown): string {
   if (typeof raw !== 'string') return '';
@@ -6334,19 +4860,13 @@ export function normalizeMemoName(raw: unknown): string {
   return oneLine.length > SESSION_MEMO.NAME_MAX ? oneLine.slice(0, SESSION_MEMO.NAME_MAX).trim() : oneLine;
 }
 
-// ─── §5.5 #17-36 ⑫ 메모 링크 정화 ───
-//
-// 화면과 서버가 **같은 함수**를 쓴다(`normalizeMemoName` 과 같은 이유) — 화면이 링크를 만들 때 이미
-// 이 규칙으로 다듬어 두면, 서버 정화본과 글자가 같아 낙관 표시의 왕복 비교가 흔들리지 않는다.
+// §5.5 #17-36 ⑫ 메모 링크 정화 — 화면과 서버가 같은 함수를 쓴다(낙관 왕복 비교).
 
 /** id·세션 id 모양 — 메모 id 와 같은 규칙(임의 문자열이 키·DOM 속성으로 새지 않게). */
 const SESSION_MEMO_ID_RE = /^[\w-]{1,64}$/;
 /** 제어 문자 — 경로·주소·항목 id 에 들어오면 그 링크는 버린다. */
 const SESSION_MEMO_LINK_CONTROL_RE = /[\u0000-\u001f\u007f]/;
-/**
- * 스트림 항목 id — 공백·따옴표·역슬래시·꺾쇠가 없는 한 덩어리. 화면이 이 값으로 항목을 찾으므로
- * 선택자·속성 문자열을 깨뜨릴 글자를 막는다(id 는 우리가 만든 값이라 정상 입력은 다 통과한다).
- */
+/** 스트림 항목 id — 공백·따옴표·역슬래시·꺾쇠 ❌. 화면이 이 값으로 항목을 찾으므로 선택자·속성 문자열을 깨뜨리면 안 된다. */
 const SESSION_MEMO_LINK_ANCHOR_RE = /^[^\s"'`\\<>]+$/;
 /**
  * 웹 주소 — **http(s) 만**. 링크를 누르면 바깥 브라우저로 가는 길(`window.open`)을 타므로
@@ -6354,11 +4874,7 @@ const SESSION_MEMO_LINK_ANCHOR_RE = /^[^\s"'`\\<>]+$/;
  */
 const SESSION_MEMO_LINK_URL_RE = /^https?:\/\/[^\s/?#"'<>\\][^\s"'<>\\]*$/i;
 
-/**
- * 링크가 기억하는 글(그 자리의 글·탭 이름) 정화 — 제어 문자를 공백으로, 공백을 한 칸으로 접고,
- * 앞뒤를 다듬어 상한까지 자른다. 접는 이유: 화면은 한 줄 요약으로만 보이고, 도착해서 칠할 때도
- * 공백을 접어 견준다(`findTextRangeInContainer`) — 원문 공백을 들고 다닐 까닭이 없다.
- */
+/** 링크가 기억하는 글 정화 — 제어 문자·공백을 한 칸으로 접어 상한까지. 화면도 칠할 때도(`findTextRangeInContainer`) 공백을 접어 견준다. */
 export function normalizeMemoLinkText(raw: unknown, max: number = SESSION_MEMO.LINK_TEXT_MAX): string {
   if (typeof raw !== 'string') return '';
   const folded = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -6447,11 +4963,8 @@ function sanitizeMemoLink(input: unknown, textLength: number): SessionMemoLink |
 }
 
 /**
- * 메모 한 장의 링크 목록 정화. 고치는 것 넷 — ① 모양이 어긋난 링크는 버린다, ② id 가 겹치면 앞의 것만,
- * ③ **시작 순으로 세우고 겹치는 범위는 앞의 것만 남긴다**(한 글자가 두 곳을 가리키면 눌렀을 때 어디로
- * 갈지 규칙이 없다), ④ 상한(`LINK_MAX`)까지만. 여러 번 거쳐도 같은 답이 나온다(멱등).
- *
- * @param textLength 정화가 끝난 본문 길이 — 본문이 상한에서 잘렸으면 그 뒤에 걸린 링크도 함께 사라진다.
+ * 메모 링크 목록 정화(멱등): 어긋난 것·id 겹침·범위 겹침(시작 순, 앞의 것만 — 한 글자가 두 곳을 가리키면 안 된다)을 버리고 `LINK_MAX` 까지.
+ * @param textLength 정화된 본문 길이 — 잘린 본문 뒤의 링크도 사라진다.
  */
 export function sanitizeMemoLinks(input: unknown, textLength: number): SessionMemoLink[] {
   if (!Array.isArray(input)) return [];
@@ -6476,10 +4989,7 @@ export function sanitizeMemoLinks(input: unknown, textLength: number): SessionMe
   return out;
 }
 
-/**
- * §5.5 #17-36 — 신뢰할 수 없는 입력(REST body·옛 체크포인트)에서 메모 1장을 안전하게 복원한다.
- * 모양이 어긋나면 `null`(= 그 장은 버린다). `sanitizeCmdPaneTree` 와 같은 자리·같은 규약이다.
- */
+/** §5.5 #17-36 — 신뢰할 수 없는 입력에서 메모 1장 복원. 어긋나면 `null`(버린다). */
 export function sanitizeSessionMemo(input: unknown): SessionMemo | null {
   if (!input || typeof input !== 'object') return null;
   const n = input as Record<string, unknown>;
@@ -6528,11 +5038,7 @@ export function sanitizeSessionMemo(input: unknown): SessionMemo | null {
   };
 }
 
-/**
- * 메모 목록 정화 — 열린 장수 상한 + id 중복 제거. 배열이 아니면 빈 목록.
- * 닫은 기록은 소유 세션이 최종 삭제될 때까지 보관한다. 앞의 열린 장이 상한에 닿아도 순회를 끝내지 않는다.
- * 중복 id 를 남기면 한 장을 지웠는데 다른 장이 사라지는 것처럼 보인다(React key 충돌).
- */
+/** 메모 목록 정화 — 열린 장수 상한 + id 중복 제거(React key 충돌 방지). 닫은 기록은 세션 최종 삭제까지 보관 — 상한에 닿아도 순회를 끝내지 않는다. */
 export function sanitizeSessionMemos(input: unknown): SessionMemo[] {
   if (!Array.isArray(input)) return [];
   const seen = new Set<string>();
@@ -6552,17 +5058,8 @@ export function sanitizeSessionMemos(input: unknown): SessionMemo[] {
 }
 
 /**
- * 합쳐진 묶음의 **무결성 보정** — 정화의 마지막 단계다. 고치는 것 셋.
- *  ① **혼자 남은 묶음은 묶음이 아니다** — 이름표를 지운다. 탭이 하나뿐인 탭 줄은 화면에서
- *    "왜 여기만 다르게 생겼지"가 되고, 마지막 장이 빠진 뒤 그 상태로 저장되는 일이 실제로 생긴다
- *    (장수 상한에 걸려 뒷장이 잘렸을 때 · 옛 판본이 저장했을 때 · 다른 창이 동시에 지웠을 때).
- *  ② **활성 탭은 묶음당 정확히 하나** — 없으면 마지막 장을 세우고(빈 카드 ❌), 여럿이면 마지막
- *    하나만 남긴다. 이 보정이 없으면 "탭은 3개인데 본문이 안 보이는 카드"가 나오는데, 화면에는
- *    고장으로 보이고 원인은 파일 안에 있다.
- *  ③ **묶음 안의 자리·크기는 활성 장을 따른다** — 한 카드로 그려지므로 멤버끼리 좌표가 다르면
- *    어느 것을 믿을지 규칙이 없다. 활성 장 하나를 정본으로 삼아 나머지를 맞춘다.
- *
- * 값이 하나도 안 바뀌면 **같은 배열**을 돌려준다(저장 왕복 비교가 흔들리지 않게).
+ * 합쳐진 묶음 보정(정화의 마지막): ① 혼자 남은 묶음은 이름표를 지운다 ② 활성 탭은 묶음당 하나(없으면 마지막 장, 여럿이면 마지막 하나)
+ * ③ 자리·크기는 활성 장을 따른다. 안 바뀌면 같은 배열을 돌려준다(저장 왕복 비교).
  */
 export function repairMemoGroups(memos: SessionMemo[]): SessionMemo[] {
   const members = new Map<string, SessionMemo[]>();
@@ -6619,7 +5116,7 @@ export function repairMemoGroups(memos: SessionMemo[]): SessionMemo[] {
 }
 
 
-// ─── Canvas Clipboard (§5.4 #29 v1.51) ───
+// Canvas Clipboard (§5.4 #29)
 
 /** localStorage key — Vibisual 내부 클립보드 단일 슬롯. 시스템 클립보드와 분리. */
 export const CANVAS_CLIPBOARD_STORAGE_KEY = 'vibisual.canvasClipboard';
@@ -6631,88 +5128,46 @@ export const CANVAS_CLIPBOARD_SCHEMA_VERSION = 1 as const;
 export const CANVAS_CLIPBOARD_DEFAULT_PASTE_OFFSET = 40;
 
 
-// ─── 자동 업데이트 (§4 v2.44) ───
+// 자동 업데이트 (§4)
 
-/**
- * 자동 업데이트 주기 체크 간격 (ms). desktop main 의 updaterManager 는 부팅 직후(윈도우가
- * 뜬 뒤 ~10s)에 첫 체크를 1회 하고, 그 다음부터 이 간격으로 반복 체크한다. 4시간 — 너무
- * 잦으면 GitHub API 부담·네트워크 노이즈, 너무 드물면 새 릴리스 인지가 늦다.
- */
+/** 자동 업데이트 주기(ms) — 창이 뜬 뒤 ~10s 첫 체크, 그 뒤 이 간격(잦으면 GitHub API 부담, 드물면 새 릴리스가 늦다). */
 export const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 /**
- * 업데이트 피드를 우리 프록시로 받을 주소. **비어 있으면 종전대로 GitHub 을 직접 본다.**
- *
- * 프록시(`infra/update-proxy/`)를 배포한 뒤 그 주소를 여기 한 줄 적으면, 다음 빌드부터
- * 앱이 그쪽으로 업데이트를 묻는다 — 그 요청 수가 곧 "돌고 있는 설치 수"다. 받는 파일과
- * 무결성 검사는 그대로다(프록시는 yml 을 넘겨주고 설치 파일은 GitHub 으로 302).
- *
- * 채택 규칙과 안전장치(https 강제·닿지 않으면 GitHub 폴백)는 `updateFeed.ts` 에 있다.
- * 실행 시 `VIBISUAL_UPDATE_FEED_URL` 로 덮어쓸 수 있다(자체 호스팅·시험용).
+ * 업데이트 피드 프록시 주소(비면 GitHub 직접, 요청 수 = 돌고 있는 설치 수). 프록시는 yml 만 넘기고 설치 파일은 GitHub 302 — 무결성 검사는 그대로다.
+ * 채택 규칙·폴백은 `updateFeed.ts`, 실행 시 `VIBISUAL_UPDATE_FEED_URL` 로 덮어쓴다.
  */
 export const UPDATE_FEED_URL = '';
 
-/**
- * 프록시가 살아 있는지 확인할 때 기다리는 시간 (ms). 넘기면 GitHub 기본 피드로 간다.
- * 짧게 잡는다 — 이 대기는 첫 업데이트 확인을 그만큼 늦추는데, 업데이트 확인은 급한 일이
- * 아니지만 **프록시가 죽었을 때 사용자를 기다리게 하는 것**은 그냥 손해다.
- */
+/** 프록시 생존 확인 대기(ms, 넘기면 GitHub 피드). 짧게 — 죽은 프록시가 첫 확인을 늦출 뿐이다. */
 export const UPDATE_FEED_PROBE_TIMEOUT_MS = 4000;
 
-// ─── 진단 에러 로그 (§4 v1.98) ───
+// 진단 에러 로그 (§4)
 
 /** 서버 diagnosticService ring buffer 최대 보관 건수. 초과 시 가장 오래된 것부터 제거. */
 export const DIAGNOSTIC_LOG_MAX = 200;
 
 // ─── 클라 스트림 이벤트 누적 상한 (성능: 장시간 세션 메모리/렌더 폭증 방지) ───
 
-/**
- * 한 서브에이전트 세션의 subAgentStreams[sessionId] 가 클라 메모리에 보관하는 최대 이벤트 수.
- * 장시간 세션에서 토큰 단위 스트림이 무한 누적되면 메모리 + 빌드/렌더 비용이 선형으로 커진다.
- * 초과분은 가장 오래된 이벤트(화면 최상단, 스크롤 위쪽)부터 잘라 항상 최근 N개만 유지한다.
- * (표시 전용 버퍼 — tool_use↔tool_result 페어링은 화면 표시용이라 오래된 잔여물 손실 허용.)
- */
+/** 세션 스트림 클라 버퍼 상한(오래된 것부터 자른다). 표시 전용이라 오래된 tool_use↔tool_result 짝이 깨져도 된다. */
 export const STREAM_EVENTS_MAX_PER_SESSION = 4000;
 
-/**
- * 활성 세션 버퍼를 상한(STREAM_EVENTS_MAX_PER_SESSION) 초과 시 **매번 앞을 1개씩** 미는 대신,
- * 이 여유(slack)를 넘겼을 때만 한 번에 cap 으로 되돌린다(히스테리시스).
- *
- * 성능(v3.10): StreamRenderer 의 증분 파서는 "직전 소비분의 순수 꼬리-확장"일 때만 신규 이벤트만
- * 처리한다. 상한에 도달한 뒤 append 마다 앞을 1개씩 잘라내면 배열이 매 틱 앞으로 밀려(순수 append 가
- * 아니게 되어) 증분이 깨지고 매번 전체 재구축으로 폴백 → 긴 세션에서 다시 O(전체)가 된다. slack 만큼
- * 여유를 두면 절단은 slack 개마다 1회(그때만 전체 재구축) → 그 사이 slack 개는 순수 append 로 증분이
- * 살아난다. 절단 1회 비용을 slack 개 이벤트에 분산 → 평균 O(1). (여유분 만큼만 메모리 소폭 증가.)
- */
+/** 상한을 넘으면 slack 을 넘겼을 때만 한 번에 cap 으로 자른다 — 매 append 마다 앞을 자르면 StreamRenderer 증분 파서가 매번 전체 재구축한다. */
 export const STREAM_EVENTS_TRIM_SLACK = 512;
 
-/**
- * 현재 IDE 에서 보고 있지 않은 비활성 세션의 클라 스트림 버퍼 상한.
- * 비활성 세션은 화면에 렌더되지 않으므로 메모리 절약을 위해 훨씬 작게 유지한다.
- * 세션 수가 많을 때 4000×N 으로 무한 누적되던 것을 차단한다.
- * 사용자가 세션을 다시 열면 서버 버퍼(/api/subagent-streams/:agentId)에서 복구되므로 표시 손실 없음(서버=SSOT).
- */
+/** 비활성 세션 클라 스트림 버퍼 상한 — 렌더되지 않아 작게. 다시 열면 서버 버퍼(/api/subagent-streams/:agentId)에서 복구된다. */
 export const STREAM_EVENTS_MAX_PER_INACTIVE_SESSION = 300;
 
-/**
- * 클라 메모리에 비활성 스트림 버퍼를 통째로 유지할 세션 수 상한.
- * 이 수를 넘는 비활성 세션(마지막 수신 기준 가장 오래된 것부터)은 버퍼를 통째로 삭제한다.
- * 해당 세션을 다시 열면 서버 버퍼(/api/subagent-streams/:agentId)에서 자동 복구.
- */
+/** 비활성 버퍼를 둘 세션 수 — 넘으면 마지막 수신이 오래된 것부터 지운다(다시 열면 서버에서 복구). */
 export const STREAM_INACTIVE_SESSIONS_MAX = 20;
 
-/**
- * §5.5 #17-12 — IDE 가 복원 창(서버 마지막 2,000건) **위쪽**을 한 번에 거슬러 받아 오는 이벤트 수.
- * 사용자가 그 경계 가까이 올라왔을 때만 요청한다 — 여는 비용은 그대로다(§9 "안 받는 것이 유일한 절약").
- * 받아 온 만큼은 그 세션의 활성 상한(`STREAM_EVENTS_MAX_PER_SESSION`)에 **더해진다** — 안 그러면 다음
- * 라이브 줄이 들어오는 순간 방금 불러온 과거가 앞쪽 절단으로 도로 잘린다.
- */
+/** §5.5 #17-12 — 복원 창 위쪽을 거슬러 받는 이벤트 수(경계 가까이 올라왔을 때만). 받은 만큼 활성 상한에 더한다 — 안 그러면 다음 라이브 줄에 도로 잘린다. */
 export const STREAM_HISTORY_PAGE_EVENTS = 1000;
 
 /** 서버가 과거 구간 한 번에 내주는 최대 이벤트 수 — 요청 값이 커도 이 수로 자른다. */
 export const STREAM_HISTORY_PAGE_MAX = 2000;
 
-// ─── 서버 코어 로그 뷰어 (§7.7 v1.99) ───
+// 서버 코어 로그 뷰어 (§7.7)
 
 /** 서버 serverLogService ring buffer 최대 라인 수. 초과 시 가장 오래된 것부터 제거. */
 export const SERVER_LOG_BUFFER_MAX = 1000;
@@ -6720,28 +5175,18 @@ export const SERVER_LOG_BUFFER_MAX = 1000;
 export const SERVER_LOG_CLIENT_BUFFER_MAX = 2000;
 /** 새 로그 라인 델타 push 마이크로배치 간격 (ms) — 폭주 보호. */
 export const SERVER_LOG_BATCH_MS = 50;
-/** ServerLogPopup "최근 N줄만" 토글 ON 시 렌더할 최근 라인 수 (§7.7 v2.3) — DOM 비용 고정. */
+/** "최근 N줄만" 토글 때 렌더할 줄 수(§7.7) — DOM 비용 고정. */
 export const SERVER_LOG_RECENT_VIEW_LIMIT = 200;
 
-// ─── §5.3 #10-2 v2.37 — Auto Agent (메타 에이전트) ───
+// §5.3 #10-2 Auto Agent (메타 에이전트)
 
-/**
- * Auto Agent 가 spawn 한 서브 커스텀 에이전트들을 본인 주변에 원형 배치할 때의 반지름 (px).
- * 너무 좁으면 겹치고, 너무 넓으면 화면 밖. 일반 캔버스 viewBox 가정.
- */
+/** Auto Agent 서브 에이전트 원형 배치 반지름(px). */
 export const AUTO_AGENT_LAYOUT_RADIUS = 280;
 
-/**
- * Auto Agent 가 high 복잡도 판정 시 발사할 명확화 질문 최대 개수.
- * 너무 많으면 사용자 인내심 소진, 너무 적으면 정보 부족.
- */
+/** high 복잡도 때 던질 명확화 질문 최대 개수. */
 export const AUTO_AGENT_MAX_CLARIFYING_QUESTIONS = 3;
 
-/**
- * 역할별 기본 AgentConfig 정책 — SCENARIO §5.3 #10-2 의 "역할 카탈로그" 테이블 SSOT.
- * Auto Agent 가 서브 에이전트 spawn 시 이 값을 `setAgentConfig` 로 즉시 적용.
- * 새 역할 추가 시 여기 한 줄 + `AutoAgentRole` 유니온 한 줄.
- */
+/** 역할별 기본 AgentConfig — §5.3 #10-2 역할 카탈로그 정본. 새 역할은 여기 + `AutoAgentRole` 유니온 한 줄씩. */
 export const AUTO_AGENT_ROLE_POLICY: Record<AutoAgentRole, Partial<AgentConfig>> = {
   pm: {
     model: 'opus',
@@ -6848,7 +5293,7 @@ export const AUTO_AGENT_ROLE_POLICY: Record<AutoAgentRole, Partial<AgentConfig>>
       '- 모호한 의도·숨겨진 가정·우선순위를 한 번에 하나씩 질문.\n' +
       '- 답이 모이면 명세 1쪽 분량으로 정리.',
   },
-  // ── v2.46 — OMO(oh-my-openagent) 전문가 archetype 차용 ──
+  // OMO(oh-my-openagent) 전문가 archetype 차용
   oracle: {
     model: 'opus',
     tools: ['Read', 'Grep', 'Glob', 'Bash'],
@@ -6904,15 +5349,9 @@ export const AUTO_AGENT_TEMPLATES: readonly AutoAgentTemplate[] = [
   { role: 'explore', label: 'Explore', description: 'Fast read-only codebase exploration — reports locations.', config: AUTO_AGENT_ROLE_POLICY.explore },
 ];
 
-// ─── §5.3 #10-2 v2.45 — 하네스 빌더 에이전트 ───
+// §5.3 #10-2 하네스 빌더 에이전트
 
-/**
- * Auto Agent 가 "하네스 빌더"로 스폰될 때 자신에게 적용하는 AgentConfig.
- * - 빌더는 loopback REST 를 Bash(curl) 로 자율 호출해야 하므로 bypassPermissions.
- * - 프로젝트를 살펴 최적 하네스를 설계하기 위해 Read/Grep/Glob, 필요 시 Agent.
- * - 직접 코드 작업은 하지 않으므로 Write/Edit 는 제외(빌더가 *만드는* 서브가 수행).
- * - 모호 요청 인터뷰가 필요하면 런타임이 tools 에 'AskUserQuestion' 을 추가한다(askQuestionsEnabled).
- */
+/** 하네스 빌더의 AgentConfig — loopback REST 를 curl 로 자율 호출해 bypassPermissions. 코드는 빌더가 만드는 서브가 짜므로 Write/Edit 는 뺀다. */
 export const AUTO_AGENT_BUILDER_CONFIG: Partial<AgentConfig> = {
   model: 'opus',
   effort: 'high',
@@ -6922,10 +5361,7 @@ export const AUTO_AGENT_BUILDER_CONFIG: Partial<AgentConfig> = {
   maxTurns: 0,
 };
 
-/**
- * 빌더가 인터뷰(명확화 질문)를 할 수 있도록 추가하는 도구.
- * 런타임이 askQuestionsEnabled 면 builder tools 에 합친다.
- */
+/** 빌더 인터뷰 도구 — askQuestionsEnabled 면 builder tools 에 합친다. */
 export const AUTO_AGENT_BUILDER_INTERVIEW_TOOL = 'AskUserQuestion';
 
 /** 역할 카탈로그를 빌더 프롬프트용 markdown 표 한 묶음으로 직렬화 (권고 참고, 강제 아님). */
@@ -6940,13 +5376,8 @@ function serializeRoleCatalog(): string {
 }
 
 /**
- * §5.3 #10-2 v2.45 — 스폰된 하네스 빌더 에이전트에게 주입할 시스템 규칙(rules).
- *
- * 빌더는 이 규칙 + 사용자 원본 요청(별도 task 본문)을 받아, 아래 loopback REST API 를
- * Bash(curl) 로 호출해 사용자 의도에 맞는 멀티-에이전트 하네스(버블 + Task Edge)를
- * 캔버스에 직접 구축하고, 엔트리 에이전트에 사용자 요청을 forward 한다.
- *
- * 동적 값(serverBase=hook loopback 포트, 배치 중심 좌표, 프로젝트명)은 서버 런타임이 주입.
+ * §5.3 #10-2 — 아래 `buildHarnessBuilderRules` 의 설명: 빌더는 이 규칙과 사용자 원본 요청을 받아 loopback REST 로 하네스(버블 + Task Edge)를 짓고
+ * 엔트리 에이전트에 요청을 넘긴다. 동적 값(serverBase·배치 중심·프로젝트명)은 서버 런타임이 넣는다.
  */
 /**
  * IntentGate 표의 행 — 하네스 빌더(§5.3 #10-2)와 오케스트라 지휘자(§5.3 #10-4)가 **같은 표**를 쓴다.
@@ -6954,7 +5385,7 @@ function serializeRoleCatalog(): string {
  */
 export const HARNESS_INTENT_GATE_ROWS: ReadonlyArray<{ intent: string; signal: string; shape: string }> = [
   { intent: 'quick-fix', signal: '파일/함수 지목 + 단순 수정', shape: '단일 coder (또는 explore→coder)' },
-  // §5.3 #12-4 — 검증 역할 편성도 현재 정책의 켬/끔과 사용자 지시를 따른다.
+  // §5.3 #12-4 — 검증 역할 편성도 현재 검증 정책의 켬/끔과 사용자가 요청에 적은 지시를 따른다.
   { intent: 'feature', signal: '새 기능·다중 단계', shape: 'pm 허브 + (architect)+coder (+tester·reviewer — 현재 검증 정책·사용자 지시에 따라)' },
   { intent: 'research', signal: '"조사/비교/알아봐"', shape: 'librarian + explore + researcher → 요약' },
   { intent: 'debug', signal: '"안 돼/버그/원인"', shape: 'oracle(원인 분석) → coder(수정) (→ tester — 현재 검증 정책·사용자 지시에 따라)' },
@@ -7126,68 +5557,32 @@ ${serializeRoleCatalog()}
   }
   return rules;
 }
-// ─── §4 v2.52 — 에이전트 작업 신고 (did/userActions 색 구분) ───
+// §4 에이전트 작업 신고 (did/userActions 색 구분)
 
 /** agentId 당 보관하는 작업 신고 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
 export const AGENT_REPORT_MAX_PER_AGENT = 50;
 
 /**
- * §5.5 #17-28 ⑧(b) — 카드 엔드포인트 curl 이 쓰는 **주소·토큰 참조**.
- *
- * 종전에는 카드 블록마다 `hook-listener.json` 을 읽어 `$VIBI_BASE`/`$VIBI_TOKEN` 을 채우는 bash
- * 두 줄(프렐류드)을 앞세웠다. 이유는 옳았다 — 앱 재기동으로 hook 포트가 바뀌면 dispatch 시점에 구워
- * 둔 상수는 죽은 포트를 가리킨다. 그런데 그 두 줄은 **596 토큰**이고 카드 5종 + 목표 + 브레인 +
- * 레시피 8벌에 통째로 복제돼 규약의 3분의 1을 먹었다(실측: 여분만 2,980 토큰).
- *
- * 같은 보장을 훨씬 싸게 얻는 길이 있다 — **그 값은 스폰하는 우리가 이미 알고 있다.** 서버가 자식
- * 프로세스 환경에 `VIBISUAL_BASE`/`VIBISUAL_TOKEN` 을 넣어 주면(§5.5 #17-28 ③ spawn 스위치와 같은
- * 통로) 그 자식이 띄우는 모든 Bash 호출이 그것을 물려받는다. 프렐류드도, 호출마다의 node 실행도
- * 필요 없고, 환경은 **자식이 뜰 때** 정해지므로 `--resume` 재스폰마다 최신값이라 dispatch 시점에
- * 구워 둔 상수보다 늘 새롭다.
- *
- * 환경이 비어 있을 때를 위해 bash 기본값(`${VAR:-<상수>}`)으로 종전 상수를 남긴다 — 옛 자식이 아직
- * 살아 있는 동안에도 **절대 지금보다 나빠지지 않는다**(프렐류드가 갖고 있던 폴백과 같은 값).
+ * §5.5 #17-28 ⑧(b) — 카드 curl 의 주소·토큰 참조. 서버가 자식 환경에 `VIBISUAL_BASE`/`VIBISUAL_TOKEN` 을 넣어 Bash 호출이 물려받는다
+ * (자식이 뜰 때 정해져 `--resume` 마다 최신 — 바뀐 hook 포트도 따른다). 카드마다 `hook-listener.json` 프렐류드로 되돌리지 마라(596 토큰 × 카드 수).
  */
 export const AGENT_CARD_ENV_BASE = 'VIBISUAL_BASE';
 export const AGENT_CARD_ENV_TOKEN = 'VIBISUAL_TOKEN';
 
 /**
- * §3.7 (판올림 번호 발급 대기) — **이 요청이 밖에서 왔는가**를 말하는 한 줄.
- *
- * loopback 리스너가 외부 `claude` 프로세스의 요청을 in-process Express 로 재디스패치할 때 붙인다.
- * 렌더러(사용자 UI)는 IPC 로 곧장 오므로 이 표식이 없다 — 그래서 서버는 "사용자가 눌렀다"와
- * "에이전트가 curl 했다"를 구분할 수 있다.
- *
- * **위조를 걱정하지 않아도 되는 헤더다.** 이 표식이 붙으면 서버는 **더 좁게** 동작할 뿐이라
- * (권한 축을 못 바꾼다), 밖에서 일부러 붙여 봐야 스스로를 제한하는 것 말고는 얻는 것이 없다.
- * 반대 방향(표식을 떼서 사용자인 척)은 애초에 loopback 리스너가 붙이므로 뗄 수 없다.
+ * §3.7 — 요청이 밖에서 왔다는 헤더(loopback 리스너가 외부 요청을 재디스패치할 때 붙인다, 렌더러 IPC 에는 없다).
+ * 위조를 걱정하지 않아도 된다 — 붙으면 서버가 더 좁게 동작할 뿐이고, 떼는 것은 불가능하다.
  */
 export const LOOPBACK_INGRESS_HEADER = 'x-vibisual-ingress';
 export const LOOPBACK_INGRESS_VALUE = 'loopback';
-/**
- * loopback 리스너가 받는 **요청 한 건의 본문 상한**. 외부 에이전트가 보내는 모든 REST 본문이 이 문을 지나므로,
- * 그 뒤의 라우트가 더 큰 본문을 약속하면 에이전트에게는 지켜지지 않는 약속이 된다(§5.13 (R-10) — 편집 원본
- * 24MB 와 리스너 16MB 가 어긋나 있던 것). 라우트 상한은 이 값에서 끌어 쓴다.
- */
+/** loopback 요청 한 건 본문 상한 — 외부 REST 가 다 이 문을 지나므로 라우트 상한은 이 값에서 끌어 쓴다(§5.13 (R-10)). */
 export const LOOPBACK_REQUEST_MAX_BYTES = 16 * 1024 * 1024;
 /** loopback 리스너가 동시에 붙들 수 있는 본문 합계(여러 요청이 겹칠 때). */
 export const LOOPBACK_TOTAL_MAX_BYTES = 64 * 1024 * 1024;
 
 /**
- * 카드 curl 한 줄이 쓰는 베이스 주소 + 토큰 헤더.
- *
- * §5.5 #17-28 ⑧(b) (판올림 번호 발급 대기 — **토큰 폴백 제거**) — 종전에는 환경변수가 비었을 때를
- * 대비해 `\${VIBISUAL_TOKEN:-<48자 원문>}` 으로 **토큰 값을 프롬프트에 구워** 넣었다. 그 한 줄의
- * 대가가 컸다: 프롬프트는 트랜스크립트(`~/.claude/projects/**.jsonl`)에 그대로 남고, 그 파일은
- * §5.10 회상(`/api/brain/recall`)이 발췌해서 **다른 세션의 모델에게 돌려준다**. 즉 이 제어 평면의
- * 열쇠가 대화 기록을 타고 계속 번졌다. 토큰 하나면 `create-custom-agent`·`agent-config`·
- * `commands`·`cmd/send` 가 전부 열리므로 폴백의 값어치보다 유출면이 훨씬 크다.
- *
- * **폴백을 지워도 지금보다 나빠지지 않는다** — 이 값을 쓰는 자식은 전부 우리가 스폰하고
- * (`execute` 의 `cardEnv`), 스폰 시점에 환경이 정해진다. 비어 있을 수 있는 경우는 앱이 아직
- * 리스너 토큰을 못 받은 부팅 순간뿐이고, 그때는 폴백 상수도 어차피 죽은 값이다.
- *
- * 주소(`serverBase`)는 시크릿이 아니라 폴백을 그대로 둔다 — 포트가 비면 카드가 아예 못 간다.
+ * 카드 curl 의 주소 + 토큰 헤더. §5.5 #17-28 ⑧(b) — 토큰을 폴백으로 프롬프트에 굽지 마라: 트랜스크립트에 남아 §5.10 회상이 다른 세션에 돌려준다
+ * (토큰 하나로 에이전트 생성·설정·명령이 다 열린다). 자식은 전부 우리가 스폰해 env 가 있다. 주소는 폴백을 둔다(포트가 비면 카드가 못 간다).
  */
 function cardEndpointRefs(serverBase: string, _serverToken: string): { base: string; tokenHdr: string } {
   return {
@@ -7197,11 +5592,7 @@ function cardEndpointRefs(serverBase: string, _serverToken: string): { base: str
 }
 
 
-/**
- * §5.5 #17-28 ⑧(a) — **카드 5종 전용** 짧은 참조. 이 블록들은 언제나 「카드 공통 규약」 뒤에 서고,
- * 그 공통 블록이 폴백까지 갖춘 온전한 형태를 이미 한 벌 보여 준다. 그래서 여기서는 폴백을 다시
- * 적지 않는다 — 같은 48자 토큰 상수를 카드마다 되풀이하면 그것만으로 카드당 50 토큰이 샌다.
- */
+/** §5.5 #17-28 ⑧(a) — 카드 5종 전용 짧은 참조. 늘 공통 규약 뒤에 서므로 폴백을 다시 적지 않는다(되풀이하면 카드당 50 토큰). */
 function cardEnvRefsShort(shell: AgentRuleShell = 'posix'): { base: string; tokenHdr: string } {
   if (shell === 'powershell') return { base: '$B', tokenHdr: '$H (공통 머리의 Send가 사용)' };
   return {
@@ -7211,14 +5602,8 @@ function cardEnvRefsShort(shell: AgentRuleShell = 'posix'): { base: string; toke
 }
 
 /**
- * §5.5 #17-28 ⑧(f) — 카드 규약의 **이유**를 담는 문서. 서버가 부팅 때 `~/.vibisual/rules/cards.md`
- * 로 한 장 써 두고, 프롬프트의 요약은 그 경로만 가리킨다.
- *
- * 프롬프트에는 **결론만** 남는다(언제 보내는가·무엇을 담는가·언제 보내지 마라). 그 결론이 왜 그렇게
- * 정해졌는지는 여기 있다 — 읽지 않아도 규약은 성립하고, 판단이 애매할 때만 읽으면 된다. 강제하지
- * 않는 이유는 실측이다: 규약이 실린 271 세션 중 255(94%)가 카드를 쓰므로 "필요할 때 읽어라"를 강제하면
- * 거의 모든 세션이 문서를 읽고, 읽어 온 내용은 도구 결과로 대화에 남아 **주입한 것과 똑같이 재열람된다**
- * (3,408 → 3,729 토큰, 게다가 읽을지 판단하는 모델 턴이 하나 더 붙는다).
+ * §5.5 #17-28 ⑧(f) — 카드 규약의 이유 문서(부팅 때 `~/.vibisual/rules/cards.md`). 프롬프트엔 결론과 경로만. 읽기를 강제하지 마라 —
+ * 규약 세션의 94%가 카드를 써 거의 모두 읽게 되고, 읽은 것은 도구 결과로 재열람된다(실측 3,408 → 3,729 토큰).
  */
 export const CARD_RULES_DOCUMENT = `# Vibisual 규약 — 그 결론들이 왜 그렇게 정해졌는가
 
@@ -7327,13 +5712,7 @@ export const CARD_RULES_DOCUMENT = `# Vibisual 규약 — 그 결론들이 왜 �
 그러니 실패(401·연결 거부)해도 무시하고 자연어 보고는 그대로 진행하라.
 `;
 
-/**
- * §5.5 #17-28 ⑧(a)(f) — 카드들이 **공유하는 결론 한 벌**.
- *
- * 종전 판본은 같은 규칙을 카드마다 되풀이했고(⑧(a) 에서 한 벌로 모았다), 그 위에 **왜 그런가**를
- * 문단으로 달고 있었다. 이제 이유는 `CARD_RULES_DOCUMENT` 로 내리고 여기에는 결론만 남긴다 —
- * 줄인 것은 문장의 길이이지 규칙의 수가 아니다(결론이 하나라도 빠지면 실패다).
- */
+/** §5.5 #17-28 ⑧(a)(f) — 카드 공유 결론 한 벌(이유는 `CARD_RULES_DOCUMENT`). 결론이 하나라도 빠지면 실패다. */
 export function buildAgentCardCommonRules(args: {
   serverBase: string;
   serverToken: string;
@@ -7367,10 +5746,7 @@ ${request}
 - 전부 **표시 전용** — 결과에 영향이 없다. 실패해도 무시하고 보고는 그대로 진행.${docLine}`;
 }
 
-/**
- * §4 v2.52 · §5.5 #17-28 ⑧(f) — "작업 신고" 결론.
- * 이유(왜 도배가 문제인가·`learned` 는 무엇인가)는 `CARD_RULES_DOCUMENT` 에 있다.
- */
+/** §4 · §5.5 #17-28 ⑧(f) — "작업 신고" 결론(이유는 `CARD_RULES_DOCUMENT`). */
 export function buildAgentReportRules(_args: {
   serverBase: string;
   serverToken: string;
@@ -7389,10 +5765,7 @@ export function buildAgentReportRules(_args: {
 - 인증 헤더: \`${tokenHdr}\``;
 }
 
-/**
- * §4 v2.60 · §5.5 #17-28 ⑧(f) · ⑨ — "사용자 질문" 결론.
- * `prompts` 를 어떻게 쓰는가·"뻔한 질문"의 경계는 `CARD_RULES_DOCUMENT` 에 있다.
- */
+/** §4 · §5.5 #17-28 ⑧(f) · ⑨ — "사용자 질문" 결론(이유는 `CARD_RULES_DOCUMENT`). */
 export function buildAgentQuestionRules(_args: {
   serverBase: string;
   serverToken: string;
@@ -7413,10 +5786,7 @@ export function buildAgentQuestionRules(_args: {
 - \`items[{question, header?, prompts[]}]\` — 질문은 짧게, 배경은 \`note\`. \`prompts\` 는 사용자가 골라 보낼 답을 1인칭으로 **질문마다 2~4개 — 비우지 마라**. 선택형은 실제 대안을 모두 포함하라(A/B 질문에 A만 금지). 의도를 물어도 그럴듯한 답을 초안으로, 비밀값은 지어내지 말고 주는 방법을 답으로.`;
 }
 
-/**
- * §4 v2.70 · §5.5 #17-28 ⑧(f) — "검수 요청" 결론.
- * 작업 신고와의 성격 차이는 `CARD_RULES_DOCUMENT` 에 있다.
- */
+/** §4 · §5.5 #17-28 ⑧(f) — "검수 요청" 결론(이유는 `CARD_RULES_DOCUMENT`). */
 export function buildAgentReviewRules(_args: {
   serverBase: string;
   serverToken: string;
@@ -7434,19 +5804,8 @@ export function buildAgentReviewRules(_args: {
 }
 
 /**
- * §5.5 #17-12 (v3.83) — "의도 먼저" 지시문 (시스템 프롬프트 꼬리표, 동적 값 없음).
- *
- * 배경: 실행 초반에 에이전트가 **무엇을 하려는지** 화면에 없어 사용자가 중지 여부를 판단할 수 없었다
- * (하단 상태바가 보여주던 건 "실행 중 + 사용자가 친 프롬프트" 뿐). 2026 추세(실행 전 계획 표시)에 맞춰
- * 도구를 쓰기 전에 의도·계획을 말하게 한다. 새 엔드포인트 없이 자연어 + 기존 `TodoWrite` 재사용 —
- * 화면에 뜨는 계획이 곧 에이전트가 실제로 들고 도는 계획이어야 "겉치레 미리보기"가 되지 않는다.
- *
- * ⚠ 길이 상한을 **고정으로 두지 마라** (§5.5 #17-12 ①-1 정정). 종전 문구는 입력 길이와 무관하게 "1~2문장"을
- * 못박았고, 그래서 요구가 여러 갈래인 긴 지시가 오면 모델이 가장 도드라진 한두 갈래만 남기고
- * 나머지를 **조용히** 버렸다(사용자 지적 — "내가 설명한 것의 30% 만 쓰고 나머지 70% 는 무시한다").
- * 버렸다는 사실이 화면에 남지 않으므로 사용자는 **못 알아들은 것**과 **줄여 말한 것**을 구분할 수
- * 없고, 그러면 이 규칙의 존재 이유(중지 여부 판단)가 통째로 무너진다. 상한은 **요구의 개수에
- * 비례**해야 하고, 모르겠는 항목·이번에 안 할 항목도 **적힌 채로** 남아야 한다.
+ * §5.5 #17-12 — "의도 먼저" 지시문(동적 값 없음). 도구 전에 의도·계획을 말하게 해 중지 여부를 판단하게 한다(계획은 기존 `TodoWrite`).
+ * ⚠ 길이 상한을 고정하지 마라(§5.5 #17-12 ①-1) — "1~2문장"이면 긴 지시의 나머지 갈래를 조용히 버린다. 요구 개수에 비례하고, 안 할 항목도 적힌 채로.
  */
 export const AGENT_INTENT_FIRST_RULES = `
 
@@ -7476,17 +5835,10 @@ export const STREAM_DENSITIES: readonly StreamDensity[] = ['compact', 'standard'
 /** Edit 계열 diff 를 자동으로 펼쳐 두는 변경 줄 수 상한(초과하면 접힌 채 "+N줄"). */
 export const STREAM_DIFF_AUTO_EXPAND_MAX_LINES = 20;
 
-/**
- * §5.5 #17-30 — 한 세션이 모아 둘 수 있는 diff 리뷰 코멘트 상한.
- *
- * 코멘트는 보내면 사라지는 작업 메모라 영속화하지 않지만, "보내지 않고 계속 다는" 사용에도
- * 메모리가 무한히 늘지 않도록 **개수**에 상한을 건다(§3.2.3 — 캡이 값 길이에만 있고 키 개수에
- * 없어서 터진 전례를 반복하지 않는다). 초과분은 더 담지 않고 화면이 안내한다.
- */
+/** §5.5 #17-30 — 세션당 diff 리뷰 코멘트 개수 상한(영속하지 않지만 메모리가 자라지 않게, §3.2.3). 넘으면 화면이 안내한다. */
 export const DIFF_COMMENT_MAX = 50;
 
-// ─── §5.5 #17-28 "간결" 밀도 = 핵심만 남기는 밀도 (v4.75) ───
-// 종전 간결은 표준과 같은 분기를 타서 사실상 차이가 없었다. 아래 상수들이 "얼마나 남길지"를 정한다.
+// §5.5 #17-28 "간결" 밀도 — 아래 상수가 얼마나 남길지 정한다.
 
 /** 간결에서 번호 목록 카드가 보여주는 항목 수 — 나머지는 `+N` 한 줄. */
 export const STREAM_COMPACT_LIST_PREVIEW = 3;
@@ -7500,7 +5852,7 @@ export const AGENT_LISTS_MAX_PER_AGENT = 50;
 
 
 
-// ─── §5.14 v4.62 — 플레이 버블 (이 프로젝트를 켜는 버튼) ───
+// §5.14 플레이 버블 (이 프로젝트를 켜는 버튼)
 
 /** 플레이 버튼 버블 기본 크기. 캔버스에서 한 손에 잡히는 작은 판. */
 export const PLAY_BUBBLE_DEFAULT_WIDTH = 156;
@@ -7528,13 +5880,7 @@ export const PLAY_STATIC_INDEX_FILES: readonly string[] = ['index.html', 'index.
 /** 정적 서빙 루트 후보 폴더(프로젝트 루트 기준). 빈 문자열 = 루트 자신. */
 export const PLAY_STATIC_ROOT_DIRS: readonly string[] = ['', 'public', 'dist', 'build', 'docs', 'src', 'web', 'www'];
 
-/**
- * §5.14 4단 계단 ④ — 실행법을 끝내 못 찾았을 때 에이전트에게 보내는 명령.
- *
- * **새 통신 레이어를 만들지 않는다** — 기존 명령 큐로 보내고, 답은 `/api/agent-iframe` 과 같은
- * loopback + 토큰 경로(`POST /api/play-recipe`)로 받는다. 핵심 제약은 하나다: **서버를 띄우지 마라.**
- * 켜는 것은 사용자가 버튼을 누를 때의 일이고, 에이전트가 할 일은 "어떻게 켜는가"를 알아내 등록하는 것뿐이다.
- */
+/** §5.14 ④ — 실행법을 못 찾았을 때 에이전트에게 보내는 명령(기존 큐, 답은 `POST /api/play-recipe`). 서버를 띄우지 마라 — 켜는 법만 등록한다. */
 export function buildPlayRecipeAskPrompt(args: {
   serverBase: string;
   serverToken: string;
@@ -7598,11 +5944,7 @@ export const REVIEW_DIFF_MAX_BYTES = 120_000;
 /** 리뷰 한 건에 실을 변경 파일 개수 상한. 넘으면 자르고 `filesTruncated` 로 말한다. */
 export const REVIEW_FILES_MAX = 200;
 
-/**
- * 프로젝트(워크트리)당 보관할 리뷰 개수 상한 — **키 개수에 두는 캡**.
- * 값 길이만 자르고 개수를 안 막으면 체크포인트가 무한히 자란다(§9 최적화 규약).
- * 넘으면 오래된 것부터 버리되 **결정 안 난(pending) 리뷰는 남긴다**(사람이 아직 판단해야 하는 것).
- */
+/** 프로젝트당 리뷰 개수 상한(§9). 넘으면 오래된 것부터 버리되 pending 은 남긴다. */
 export const REVIEW_REQUESTS_MAX_PER_PROJECT = 40;
 
 /** 리뷰 한 건이 보관할 결정 이력 개수 상한. 넘으면 오래된 것부터 버린다. */
@@ -7622,13 +5964,7 @@ export const SPEC_TASK_LABEL_MAX = 40;
 export const SPEC_TASK_OFFSET_X = 320;
 export const SPEC_TASK_GAP_Y = 150;
 
-/**
- * §5.15 — 작업 카드 한 장에 얹는 자동 규칙 섹션.
- *
- * 카드는 **기존 `createCustomAgent` 경로**로 만들어지고, 그 에이전트의 `AgentConfig.rules` 앞에
- * 이 블록이 붙는다(§7.9 v1.33 의 "연결된 위임 엣지(자동)" 섹션과 같은 문법 — 새 주입 경로 ❌).
- * 사용자가 rules 를 손으로 고쳐도 이 블록만 갈아 끼울 수 있도록 시작·끝 표식을 둔다.
- */
+/** §5.15 — 작업 카드의 `AgentConfig.rules` 앞에 붙는 자동 섹션(새 주입 경로 ❌). 손으로 고친 rules 에서 이 블록만 갈아 끼우려고 표식을 둔다. */
 export const SPEC_RULES_BEGIN = '<!-- vibisual:spec-task:begin -->';
 export const SPEC_RULES_END = '<!-- vibisual:spec-task:end -->';
 
@@ -7681,11 +6017,7 @@ export const LAB_RULES_APPEND_MAX = 2_000;
 /** 표에 싣는 결과 요약(마지막 응답 앞머리) 길이 상한. */
 export const LAB_SUMMARY_MAX = 300;
 
-/**
- * 랩 한 장이 가질 수 있는 변형 개수 상한 — **키 개수에 두는 캡**(§9).
- * 변형 하나가 워크트리 하나 + 에이전트 하나 + 도는 CLI 하나이므로, 이 숫자는 곧 한 번에
- * 태울 수 있는 프로세스 수다. 값 길이만 자르고 개수를 안 막으면 디스크와 CPU가 함께 터진다.
- */
+/** 랩당 변형 수 상한(§9) — 변형 하나 = 워크트리 + 에이전트 + CLI 라 한 번에 태우는 프로세스 수다. */
 export const LAB_MAX_VARIANTS = 8;
 
 /** 프로젝트당 보관할 랩 개수 상한. 넘으면 오래된 것부터 버리되 도는 랩은 남긴다. */
@@ -7694,25 +6026,14 @@ export const LAB_RUNS_MAX_PER_PROJECT = 20;
 /** 변형 워크트리 이름 앞머리 — `.claude/worktrees/lab-<랩id끝자리>-<변형순번>`. */
 export const LAB_WORKTREE_PREFIX = 'lab';
 
-/**
- * §7.10 — 워크트리 안 프로세스를 트리째 죽인 뒤 **폴더를 지우기 전에 기다리는 시간(ms)**.
- *
- * `taskkill /T /F`(Windows)·`kill(-pgid)`(POSIX)는 신호를 보내고 바로 돌아온다 — 그 순간에는
- * 아직 열린 파일 핸들이 남아 있어, 곧바로 `rmSync` 하면 방금 죽인 프로세스 탓에 폴더가 또
- * 반만 지워진다. 사람이 기다렸다고 느끼지 않으면서 핸들이 풀리기에 충분한 값으로 잡았다.
- */
+/** §7.10 — 트리째 죽인 뒤 폴더 삭제 전 대기(ms). `taskkill /T /F`·`kill(-pgid)` 는 신호만 보내 핸들이 남아, 곧바로 `rmSync` 하면 반만 지워진다. */
 export const WORKTREE_REAP_SETTLE_MS = 700;
 
 /** 변형 카드를 놓을 자리 — 랩 표지 오른쪽으로 이만큼 띄우고, 세로로 이 간격씩 쌓는다. */
 export const LAB_CARD_OFFSET_X = 320;
 export const LAB_CARD_GAP_Y = 150;
 
-/**
- * §5.18 — 변형 한 벌에 얹는 자동 규칙 섹션.
- *
- * 카드는 **기존 `createCustomAgent` 경로**로 만들어지고, 그 에이전트의 `AgentConfig.rules` 앞에
- * 이 블록이 붙는다(§5.15 스펙 작업 카드와 같은 문법 — 새 주입 경로 ❌).
- */
+/** §5.18 — 변형 에이전트의 `AgentConfig.rules` 앞에 붙는 자동 섹션(§5.15 와 같은 문법). */
 export const LAB_RULES_BEGIN = '<!-- vibisual:lab-variant:begin -->';
 export const LAB_RULES_END = '<!-- vibisual:lab-variant:end -->';
 
@@ -7738,13 +6059,7 @@ export function buildLabVariantRules(args: {
   ].join('\n');
 }
 
-/**
- * §5.18 — 토큰 × 단가로 추정 비용(USD)을 낸다. **단가를 모르면 `undefined`** 를 돌려준다 —
- * 0 을 돌려주면 화면이 "공짜로 끝났다"고 말하게 된다(§5.18 "측정 없음과 0 을 구분한다").
- *
- * 입력 토큰은 캐시 읽기·생성이 뒤섞여 들어오므로 여기서는 input 단가 하나로 뭉뚱그린다 —
- * 랩의 목적은 변형끼리의 **상대 비교**이고, 같은 셈법을 모든 변형에 똑같이 적용하면 순위는 선다.
- */
+/** §5.18 — 추정 비용(USD). 단가를 모르면 `undefined`(0 이면 "공짜"로 읽힌다). 입력은 input 단가 하나로 — 변형끼리 상대 비교라 충분하다. */
 export function estimateLabCostUsd(args: {
   inputTokens?: number;
   outputTokens?: number;
@@ -7759,7 +6074,7 @@ export function estimateLabCostUsd(args: {
   return Math.round(usd * 10_000) / 10_000;
 }
 
-// ─── §4 v3.21 — 에이전트 피드백 학습 루프 (좋아요/싫어요 → 규칙 되먹임) ───
+// §4 에이전트 피드백 학습 루프 (좋아요/싫어요 → 규칙 되먹임)
 
 /** agentId 당 보관하는 피드백 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
 export const AGENT_FEEDBACK_MAX_PER_AGENT = 200;
@@ -7773,7 +6088,7 @@ export const AGENT_FEEDBACK_DISTILL_MAX = 30;
 /** 피드백 summary 한 항목의 최대 길이 (result 본문 발췌 캡). */
 export const AGENT_FEEDBACK_SUMMARY_ITEM_MAX = 200;
 
-// ─── §5.5 #17-11 v3.79 — 세션 반복 실행(루프) ───
+// §5.5 #17-11 세션 반복 실행(루프)
 
 /** `mode='count'` 루프의 목표 횟수 상한 (실수로 수만 회를 걸어 세션이 폭주하는 것 차단). */
 export const SESSION_LOOP_MAX_ITERATIONS = 999;
@@ -7800,18 +6115,8 @@ export const SESSION_LOOP_COMPACT_COMMAND = '/compact';
 export const SESSION_LOOP_CLEAR_COMMAND = '/clear';
 
 /**
- * §5.5 #17-28 ⑩ (c) — 이 턴에 실리는 것이 **우리가 내부적으로 쏘는** 슬래시 명령인가.
- *
- * 주입원 통제에서 `cc.slash-commands` 를 끄면 스폰에 `--disable-slash-commands` 가 붙는데,
- * 그 플래그는 사용자 스킬만이 아니라 **CLI 내장 명령의 등록까지** 막는다(실측 2.1.263 —
- * `Unknown command:` 가 아니라 `"…isn't available in this environment."` 로 떨어지므로
- * 문구만 보고는 두 원인을 가를 수 없다). 그래서 그 줄을 끈 프로젝트에서는 턴 경계 압축·
- * 에이전트 자율 압축·세션 루프 압축이 **셋 다** 조용히 죽었다 — 셋의 본문이 전부 `/compact`
- * 라 같은 자리에서 함께 막힌다(실측: 24시간·컨텍스트 322k 세션에서 `compact_boundary` 0건,
- * 발사 2회가 모두 거절. 같은 시기 슬래시가 켜진 프로젝트는 59건/42세션).
- *
- * **사용자가 직접 친 슬래시 명령은 여기 해당하지 않는다.** 그것까지 열어 주면 사용자가 끈
- * 스위치를 우리가 통째로 무력화하는 것이 되어, 이 예외가 고치려던 것보다 나쁜 거짓말이 된다.
+ * §5.5 #17-28 ⑩ (c) — 우리가 내부적으로 쏘는 슬래시 명령인가. `--disable-slash-commands` 는 내장 명령까지 막아(실측 2.1.263)
+ * 그 줄을 끄면 `/compact` 셋(턴 경계·자율·루프)이 조용히 죽는다. 사용자가 친 슬래시는 해당 없음 — 끈 스위치를 우리가 무력화하면 안 된다.
  */
 export function isInternalSlashCommand(text: string): boolean {
   const t = text.trim();
@@ -7820,14 +6125,7 @@ export function isInternalSlashCommand(text: string): boolean {
     || t === SESSION_LOOP_CLEAR_COMMAND;
 }
 
-/**
- * §5.5 #17-28 ⑩ (c) — 스폰 인자에서 **슬래시 차단 플래그 하나만** 걷어 낸다.
- *
- * 나머지 스위치(CLAUDE.md·자동 기억·번들 스킬·워크플로·git 지시)는 **그대로 둔다** — 이 예외는
- * "명령이 등록되게" 하는 것이지 주입을 되살리는 것이 아니다. 그 턴에 실리는 것은 명령 한 줄뿐이라
- * 사용자 스킬이 낄 자리도 없다. 인자를 문자열로 비교하므로 표(`CONTEXT_SPAWN_SWITCHES`)에서
- * 플래그 이름이 바뀌어도 이 함수는 그 표를 따라간다.
- */
+/** §5.5 #17-28 ⑩ (c) — 스폰 인자에서 슬래시 차단 플래그만 뺀다(다른 주입 스위치는 그대로 — 명령 등록만 되살린다). 플래그 이름은 `CONTEXT_SPAWN_SWITCHES` 를 따른다. */
 export function withoutSlashCommandFlag(args: readonly string[]): string[] {
   const flag = CONTEXT_SPAWN_SWITCHES[CONTEXT_SOURCE_IDS.slashCommands]?.flag;
   if (!flag) return [...args];
@@ -7845,10 +6143,7 @@ export const SESSION_LOOP_MAX_DURATION_LIMIT_MS = 7 * 24 * 60 * 60 * 1000;
 
 // ─── §5.5 #17-35 — 검증(Verify) ───
 
-/**
- * 세션 탭 하나가 보관하는 검증 이력의 최대 건수.
- * 값 길이만 자르고 **개수를 안 막으면 체크포인트가 무한히 자란다**(§9).
- */
+/** 세션 탭당 검증 이력 상한(§9). */
 export const VERIFICATION_RUNS_MAX_PER_SESSION = 20;
 
 /** "무엇을 확인할지" 한 줄의 최대 길이 (프롬프트·체크포인트 비대 방지). */
@@ -7863,10 +6158,7 @@ export const VERIFICATION_REASON_MAX = 500;
 /** 시도 한 줄의 `command`/`detail` 최대 길이. */
 export const VERIFICATION_ATTEMPT_TEXT_MAX = 300;
 
-// ─── §5.5 #17-35 ⑨ — 시연(재현 절차) 상한 ───
-//
-// 값 길이만이 아니라 **개수에도** 캡을 둔다(§9). 시연은 디스크에 PNG 를 남기는 유일한 검증
-// 데이터라, 개수 상한이 곧 그 폴더의 크기 상한이다.
+// §5.5 #17-35 ⑨ 시연 상한 — 디스크에 PNG 를 남기는 유일한 검증 데이터라 개수 상한이 폴더 크기 상한이다(§9).
 
 /** 세션 탭 하나가 보관하는 시연 최대 건수. 넘치면 가장 오래된 것부터 지운다(프레임 폴더째). */
 export const VERIFICATION_DEMO_MAX_PER_SESSION = 6;
@@ -7883,11 +6175,7 @@ export const VERIFICATION_DEMO_LABEL_MAX = 80;
 /** 기대 결과 한 줄의 최대 길이. */
 export const VERIFICATION_DEMO_EXPECTED_MAX = 300;
 
-/**
- * 시연 하나가 남기는 프레임 최대 장수.
- * §5.9 플레이테스트 첨부 상한(`CAPTURE_PLAYTEST.MAX_FRAME_COUNT`)과 같은 수 — 같은 이유(입력창을
- * 그림으로 덮지 않는다)이고, 여기서는 매 검증마다 다시 실리므로 토큰에도 그대로 영향을 준다.
- */
+/** 시연 하나의 프레임 상한 — `CAPTURE_PLAYTEST.MAX_FRAME_COUNT` 와 같은 수·이유(입력창을 그림으로 덮지 않는다). 매 검증 토큰에도 든다. */
 export const VERIFICATION_DEMO_FRAMES_MAX = 9;
 
 /** 시연 프레임이 사는 곳 — 프로젝트 `.vibisual/` 아래 폴더 이름(첨부 폴더와 **다른** 자리). */
@@ -7906,7 +6194,7 @@ export const VERIFY_SLASH_COMMAND = '/verify';
 export const VERIFY_RECORDED_SKILL_PATH = '.claude/skills/verify/SKILL.md';
 
 
-// ─── §5.5 #17-17 v4.46 — 세션 목표(Goal) ───
+// §5.5 #17-17 세션 목표(Goal)
 
 /** 목표 본문 최대 길이 (체크포인트·프롬프트 비대 방지). */
 export const SESSION_GOAL_TEXT_MAX = 2000;
@@ -7917,24 +6205,16 @@ export const SESSION_GOAL_NOTE_MAX = 200;
 /** 진행 이력 ring buffer 크기 — 넘치면 오래된 것부터 버린다. */
 export const SESSION_GOAL_HISTORY_MAX = 40;
 
-/** §5.5 #17-17 v4.47 — 목표 단계(체크리스트) 최대 개수. 넘는 항목은 잘린다. */
+/** §5.5 #17-17 — 목표 단계 최대 개수(넘으면 잘린다). */
 export const SESSION_GOAL_STEPS_MAX = 30;
 
 /** 단계 본문 최대 길이 — 사이드바 한 줄에 들어갈 정도로 짧게 쓰게 한다. */
 export const SESSION_GOAL_STEP_TEXT_MAX = 200;
 
-/**
- * §5.5 #17-17 ⑰(c) — 목표 변천 기록(`SessionGoal.pastTexts`) 상한. 넘으면 오래된 것부터 버린다.
- * 목표 문장은 `SESSION_GOAL_TEXT_MAX`(2,000자)까지라 다섯 벌이면 체크포인트 한 목표에 최대 10KB —
- * "어디서 왔는가"를 답하는 데는 최근 몇 판이면 족하다.
- */
+/** §5.5 #17-17 ⑰(c) — 목표 변천 기록(`pastTexts`) 상한(오래된 것부터 버린다). */
 export const SESSION_GOAL_PAST_TEXT_MAX = 5;
 
-/**
- * §5.5 #17-17 ⑰(d) — 단계 본문이 가리키는 두뇌 스킬을 그 턴의 스킬 선택에 **더** 싣는 상한.
- * `BRAIN_SKILL_INJECTION_TOP_K`(명령 본문 매칭) 예산 밖이다 — 사용자가 노드로 세운 절차는 명령과
- * 안 맞아도 보게 하되, 목록이 길어지지 않게 두 건까지만.
- */
+/** §5.5 #17-17 ⑰(d) — 단계가 가리키는 두뇌 스킬을 그 턴에 더 싣는 상한(`BRAIN_SKILL_INJECTION_TOP_K` 예산 밖 — 명령과 안 맞아도 보게 하되 짧게). */
 export const SESSION_GOAL_STEP_SKILLS_MAX = 2;
 
 // ─── §5.5 #17-17 ⑪ 살아 있는 단계 지도 ───
@@ -7962,13 +6242,7 @@ export const VISUAL_KIND_BLURB_MAX = 120;
 
 // ─── §5.5 #17-17 ⑫ 무대 팔레트 — 배운 행동이 노드로 선다 ───
 
-/**
- * ⑫(a) — 되풀이로 **인정하는 최소 횟수.** 이 미만은 팔레트에 서지 않는다.
- *
- * 1~2회를 "자주 쓰는 것"으로 세면 팔레트는 곧 최근 목록이 되고, 그러면 사용자는 거기서
- * 자기 습관을 알아볼 수 없다. 스킬은 한 번 부르는 데 드는 값이 커서 이 문턱을 따로 두지 않는다
- * (아래 `GOAL_ACTION_SKILL_MIN_REPEAT`).
- */
+/** ⑫(a) — 팔레트에 서는 최소 반복 횟수(1~2회면 최근 목록이 된다). 스킬은 `GOAL_ACTION_SKILL_MIN_REPEAT`. */
 export const GOAL_ACTION_MIN_REPEAT = 3;
 
 /**
@@ -7986,12 +6260,7 @@ export const GOAL_ACTION_LABEL_MAX = 48;
 /** ⑫(b) — 떨궜을 때 단계 본문이 될 글의 최대 길이. 단계 본문 상한과 같은 자를 쓴다. */
 export const GOAL_ACTION_PAYLOAD_MAX = SESSION_GOAL_STEP_TEXT_MAX;
 
-/**
- * ⑪(i) — 종류 카드가 펴는 **화면 골격**의 전부.
- *
- * 종류(`key`)는 에이전트가 무한히 늘리지만 그리는 골격은 우리가 만든 수만큼이라 여기는 유한하다.
- * 목록이 곧 검증이다 — 여기 없는 값은 `none` 으로 접힌다(모르는 것을 아는 척 그리지 않는다).
- */
+/** ⑪(i) — 화면 골격 전부(종류는 무한, 골격은 유한). 없는 값은 `none`. */
 export const VISUAL_KIND_SURFACES: readonly VisualKindSurface[] = [
   'source',
   'log',
@@ -8008,13 +6277,8 @@ export const VISUAL_KIND_SURFACES: readonly VisualKindSurface[] = [
 ];
 
 /**
- * ㉒(a) — 산출물 골격이 **어느 내부 앱**의 화면을 펴는가 (§5.13 `INTERNAL_APPS` 의 `id`).
- *
- * 무대가 앱 이름을 코드에 적지 않도록 표 하나로 모은다 — 여기 없는 골격(`image` 를 포함해)은
- * 앱이 아니라 우리가 이미 가진 조각으로 그린다(`image` = 편집창의 그림 칸).
- *
- * ⚠ 이 표는 **앱 id 만** 든다. 무슨 확장자를 여는지는 앱이 스스로 선언하고(`InternalApp.opens`)
- * 무대는 `workspaceOpenClaims()` 로 그것을 받는다 — §5.13 (R-1) 의 "코어가 표를 들지 않는다".
+ * ㉒(a) — 산출물 골격이 펴는 내부 앱 id(§5.13 `INTERNAL_APPS`). 무대가 앱 이름을 코드에 안 적게 표로 모은다. 없는 골격(`image` 등)은 기존 조각으로.
+ * ⚠ 앱 id 만 — 여는 확장자는 앱이 선언하고(`InternalApp.opens`) 무대는 `workspaceOpenClaims()` 로 받는다(§5.13 (R-1)).
  */
 export const STAGE_SURFACE_APPS: Readonly<Partial<Record<VisualKindSurface, string>>> = {
   model3d: 'vibi3d',
@@ -8022,11 +6286,7 @@ export const STAGE_SURFACE_APPS: Readonly<Partial<Record<VisualKindSurface, stri
   audio: 'vibisound',
 };
 
-/**
- * ㉒(c) — 앞 단계가 없을 때 실황 구간을 뒤로 여는 폭(ms).
- *
- * 첫 단계는 "이전 단계의 끝"이 없어 구간이 한 점이 된다 — 그러면 첫 단계에서는 늘 빈 화면이다.
- */
+/** ㉒(c) — 앞 단계가 없을 때 실황 구간을 뒤로 여는 폭(ms, 없으면 첫 단계가 늘 빈 화면). */
 export const STAGE_WINDOW_FALLBACK_MS = 10 * 60 * 1000;
 
 /** ⑪(a)(i) — 카드 씨앗·시작 카드가 공유하는 모양. */
@@ -8042,13 +6302,7 @@ export interface VisualKindPreset {
   surface?: VisualKindSurface;
 }
 
-/**
- * ⑪(a) — **뿌리 씨앗** 셋. 시들지도 지워지지도 않는다(전부 사라지면 지도가 백지가 되므로).
- *
- * ⑪(i) 로 `scene`·`surface` 가 붙었다 — 씨앗도 무대를 갖는다. `blurb` 는 **일부러 비운다**:
- * 그 한 줄은 사용자의 언어로 쓰여야 하는데 여기는 로케일을 모르는 자리다. 비어 있으면 화면이
- * 골격별 기본 문장(`ide.stage.surfaceBlurb.*`)으로 채우고, 에이전트가 쓰면 그것이 이긴다.
- */
+/** ⑪(a) — 뿌리 씨앗 셋(시들지도 지워지지도 않는다). `blurb` 는 비운다 — 로케일을 모르는 자리라 화면이 `ide.stage.surfaceBlurb.*` 로 채운다. */
 export const VISUAL_KIND_SEEDS: readonly VisualKindPreset[] = [
   // 찾기·읽기·설계 — 돋보기
   {
@@ -8091,13 +6345,7 @@ export const VISUAL_KIND_SEEDS: readonly VisualKindPreset[] = [
   },
 ];
 
-/**
- * ⑪(i) — **시작 카드.** 처음 한 번 함께 심어 주지만 씨앗과 달리 **보통 카드처럼 시들고 휴지통으로
- * 간다** — 언리얼만 만드는 사용자에게 `github` 카드가 영원히 남아 있을 이유가 없다.
- *
- * 사용자 지시의 "초반에 몇 가지는 우리가 제공하지만 사용자가 쓰는 대로 진화한다"가 이 층이다.
- * 상표·로고는 쓰지 않는다(§ 법적 안전선) — 전부 우리가 그린 중립 도형이다.
- */
+/** ⑪(i) — 시작 카드. 씨앗과 달리 보통 카드처럼 시들고 휴지통으로 간다. 상표·로고 ❌ — 우리가 그린 중립 도형만. */
 export const VISUAL_KIND_STARTERS: readonly VisualKindPreset[] = [
   // 브랜치 — 갈라졌다 합쳐지는 선.
   {
@@ -8181,14 +6429,8 @@ export const VISUAL_KIND_STARTERS: readonly VisualKindPreset[] = [
       'M30 60h36',
     ],
   },
-  // ─── ㉒(b) 산출물 넷 — 에이전트가 **만든 것**을 무대 안에서 보는 종류들 ───
-  //
-  // ㉑ 이 정한 대로 규약은 `surface` 를 가르치지 않는다(파서만 읽는다). 그래서 골격만 늘리면
-  // 에이전트는 그것을 고를 길이 없다 — 이 카드 넷이 그 길이다(상태 블록의 `종류:` 줄에 키가 실린다).
-  // 색은 새로 만들지 않고 **그 골격이 여는 앱의 엣지 색**을 빌린다(§5.13 registry 의 `glow`).
-  //
-  // 그림 — 이젤에 걸린 캔버스. 여는 곳이 앱이 아니라 편집창의 그림 칸이라 빌릴 앱 색이 없어
-  //   종이·물감의 따뜻한 톤을 쓴다.
+  // ㉒(b) 산출물 넷 — 규약이 `surface` 를 가르치지 않아(㉑) 이 카드들이 에이전트가 골격을 고르는 길이다. 색은 그 골격이 여는 앱의 `glow` 를 빌린다.
+  // 그림 — 여는 곳이 편집창 그림 칸이라 빌릴 앱 색이 없어 따뜻한 종이 톤.
   {
     key: 'art',
     label: 'Art',
@@ -8248,17 +6490,8 @@ export const VISUAL_KIND_STARTERS: readonly VisualKindPreset[] = [
 // ─── §5.5 #17-17 ⑪(m) 기본 템플릿 — "스스로 진화"의 출발점 ───
 
 /**
- * ⑪(m) — **장면 템플릿.** 새 종류가 그림을 갖는 가장 싼 길.
- *
- * (b) 는 "그림은 에이전트가 그린다"고 정했고 그 규율은 그대로다. 문제는 **출발점이 없다는 것**이었다 —
- * 종류 하나를 만들 때마다 96 좌표계 path 를 여덟 줄까지 맨손으로 써야 하니, 실제로는 대부분
- * `glyph` 한 줄만 내고 장면은 비운 채 지나갔다(무대는 24px 글리프를 키운 그림으로 시작한다).
- *
- * 그래서 **몇 개를 미리 그려 둔다.** `from: wave` 한 줄이면 장면·글리프·어울리는 골격·색까지 딸려 온다.
- * 그 위에 자기 path 를 얹어 고쳐 그리는 것은 종전대로다 — 템플릿은 **시작점이지 울타리가 아니다**.
- * (c) 의 생애(침전·휴지통)도 그대로 적용된다: 템플릿에서 태어난 카드도 안 쓰이면 시든다.
- *
- * 전부 우리가 그린 중립 도형이다(상표·로고 ❌ — § 법적 안전선).
+ * ⑪(m) — 장면 템플릿: 새 종류 그림의 출발점(`from: wave` 한 줄로 장면·글리프·골격·색). 그 위에 자기 path 를 얹는다 — 시작점이지 울타리가 아니다.
+ * 상표·로고 ❌ — 우리가 그린 중립 도형만.
  */
 export interface VisualSceneTemplate {
   /** `from: <이름>` 또는 `scene: @<이름>` 으로 지목한다. */
@@ -8422,18 +6655,7 @@ export function findSceneTemplate(name: unknown): VisualSceneTemplate | undefine
   return VISUAL_SCENE_TEMPLATES.find((tpl) => tpl.name === want);
 }
 
-/**
- * ⑪(m) — **흐름 템플릿.** 빈 무대에서 첫 목록을 세우는 손잡이.
- *
- * (d) 는 "사용자가 단계를 끼워 넣는다"를 열었지만, 실제로 사용자가 마주치는 첫 화면은 **아무것도 없는
- * 지도 + [단계 끼워넣기] 버튼 하나**였다 — 한 줄씩 스무 번 치라는 뜻이 되어 아무도 쓰지 않았다.
- * 흐름 템플릿은 그 자리에 **자주 하는 일의 뼈대**를 한 번에 깔아 준다. 깔린 뒤로는 보통 단계와 똑같다:
- * 세션이 이어서 고치고 늘리고, 사용자는 지우거나 순서를 바꾼다.
- *
- * 본문은 **여기 두지 않는다** — 12 로케일이 있는 자리라 영어 문장을 상수로 박으면 그 순간 굳는다.
- * 클라가 `ide.stage.flow.<id>.title` · `ide.stage.flow.<id>.steps.<key>` 로 읽는다.
- * `kind` 는 씨앗·시작 카드 중에서만 고른다(없는 카드를 가리키면 중립 점이 되므로).
- */
+/** ⑪(m) — 흐름 템플릿: 빈 무대에 자주 하는 일의 뼈대를 깐다. 본문은 i18n(`ide.stage.flow.<id>.title`·`.steps.<key>`), `kind` 는 씨앗·시작 카드 중에서만. */
 export interface GoalFlowTemplateStep {
   /** i18n 키 조각. */
   key: string;
@@ -8508,13 +6730,8 @@ export const GOAL_FLOW_TEMPLATES: readonly GoalFlowTemplate[] = [
 ];
 
 /**
- * §5.5 #17-17 ⑪(b) — 글리프 path 검증. **에이전트가 쓴 문자열이 SVG 속성으로 그대로 들어가는 길을 막는다.**
- *
- * SVG path 문법에 실제로 쓰이는 것만 통과시킨다 — 명령 문자(MmLlHhVvCcSsQqTtAaZz)·숫자·부호·
- * 소수점·지수(e/E)·공백·쉼표. 그 밖의 문자가 하나라도 있으면 **글리프를 버린다**(카드는 만든다 —
- * 중립 점으로 그려질 뿐이다). 길이는 `SVG_PATH_MAX` 로 자른다.
- *
- * 순수 함수 — 서버가 저장할 때와 클라가 그릴 때가 같은 답을 내야 한다(두 벌이 되면 한쪽만 고쳐져 어긋난다).
+ * §5.5 #17-17 ⑪(b) — 글리프 path 검증: 에이전트 문자열이 SVG 속성으로 그대로 들어가는 길을 막는다. path 문법 문자만 통과, 아니면 글리프를 버린다(카드는 남는다).
+ * 서버 저장과 클라 그리기가 같은 답을 내야 한다.
  */
 export function sanitizeGlyphPath(raw: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined;
@@ -8526,13 +6743,7 @@ export function sanitizeGlyphPath(raw: unknown): string | undefined {
   return trimmed;
 }
 
-/**
- * §5.5 #17-17 ⑪(i) — **장면 그림 검증.** 글리프와 같은 문법 검사를 path 마다 돌린다.
- *
- * 통과 못 한 path 는 **그것만** 버리고 나머지는 살린다 — 여덟 줄짜리 그림에서 한 줄이 깨졌다고
- * 그림 전체를 버리면, 에이전트는 무엇이 잘못됐는지 모른 채 매번 통째로 다시 그리게 된다.
- * 배열이 아니거나 살아남은 path 가 하나도 없으면 `undefined`(카드는 그대로 만들어진다 — (b) 와 같은 규율).
- */
+/** §5.5 #17-17 ⑪(i) — 장면 path 마다 같은 검사. 깨진 path 만 버린다(통째로 버리면 매번 다시 그린다). 남은 게 없으면 `undefined`. */
 export function sanitizeScenePaths(raw: unknown): string[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const out: string[] = [];
@@ -8544,12 +6755,7 @@ export function sanitizeScenePaths(raw: unknown): string[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
-/**
- * §5.5 #17-17 ⑪(i) — 화면 골격 정규화. 목록에 없는 값은 `undefined`(= 무대가 `none` 으로 읽는다).
- *
- * `'none'` 을 명시적으로 보낸 것과 아예 안 보낸 것을 굳이 가르지 않는다 — 둘 다 "펼 화면이 없다"로
- * 같은 그림이 되므로, 저장 자리를 하나 아끼는 편이 낫다.
- */
+/** §5.5 #17-17 ⑪(i) — 골격 정규화. 목록 밖은 `undefined`(무대가 `none` 으로 읽는다 — `'none'` 과 같은 그림이라 가르지 않는다). */
 export function normalizeKindSurface(raw: unknown): VisualKindSurface | undefined {
   if (typeof raw !== 'string') return undefined;
   const v = raw.trim() as VisualKindSurface;
@@ -8564,16 +6770,7 @@ export function sanitizeKindBlurb(raw: unknown): string | undefined {
   return flat ? flat.slice(0, VISUAL_KIND_BLURB_MAX) : undefined;
 }
 
-/**
- * §5.5 #17-17 ⑪(m) — **템플릿을 펼친다.** 카드가 `from`(장면 템플릿 이름)을 냈으면 그 그림·색·골격을
- * 기본값으로 깔고, **카드가 직접 낸 값이 언제나 이긴다.**
- *
- * 덮어쓰기가 아니라 밑칠인 이유는 하나다 — 템플릿은 시작점이지 울타리가 아니다(⑪(m)). `from: wave` 로
- * 파형을 깔고 자기 path 두 줄을 얹는 것이 이 기능이 노리는 사용법이고, 그때 템플릿이 얹은 그림을
- * 지워 버리면 모델은 템플릿을 쓰는 순간 자기 그림을 잃는다.
- *
- * 순수 함수다 — 서버가 저장할 때와 클라가 대화에 미리 그릴 때가 같은 답을 내야 한다.
- */
+/** §5.5 #17-17 ⑪(m) — `from` 템플릿을 밑칠로 깐다 — 카드가 낸 값이 이긴다(덮어쓰면 템플릿 위에 얹은 자기 그림을 잃는다). 서버·클라가 같은 답을 내야 한다. */
 export interface SceneTemplateMerge {
   glyph?: string | undefined;
   color?: string | undefined;
@@ -8594,18 +6791,7 @@ export function applySceneTemplate(input: SceneTemplateMerge, from: unknown): Sc
   };
 }
 
-/**
- * §5.5 #17-17 ⑪(d) — 세션이 보낸 단계 목록과 **사용자가 끼워 넣은 단계**를 합친다.
- *
- * ⑧ 의 "본문이 같은 기존 단계의 id 재사용"은 그대로 두되, `authoredBy==='user'` 인 단계는
- * 세션 목록에 없어도 **지우지 않고 원래 자리에 남긴다** — 사용자가 작업 도중 끼워 넣은 일을
- * 에이전트가 자기 목록으로 덮어 지우면 안 되기 때문이다.
- *
- * 자리는 **앞 이웃의 본문**으로 잡는다(그 단계 바로 뒤에 다시 꽂는다). 앞 이웃이 사라졌으면
- * 꼬리에 붙인다 — 사용자가 넣은 일이 조용히 사라지는 것보다 순서가 밀리는 편이 낫다.
- *
- * 순수 함수 — 서버가 소유하지만 테스트가 이 함수 하나만 보면 규칙 전체를 고정할 수 있다.
- */
+/** §5.5 #17-17 ⑪(d) — 세션 단계 목록에 사용자 단계를 합친다. `authoredBy==='user'` 는 목록에 없어도 지우지 않는다 — 앞 이웃 뒤에, 없으면 꼬리에. */
 export function mergeGoalSteps(
   incoming: SessionGoalStep[],
   existing: SessionGoalStep[],
@@ -8658,32 +6844,17 @@ export function mergeGoalSteps(
 }
 
 /**
- * §5.5 #17-28 ⑧(c) · #17-17 ㉑ — 목표 블록의 **변하는 절반**(상태). 매 턴 새로 조립돼 프롬프트 앞에 선다.
- *
- * ㉑ 로 **목록만 남겼다.** 종전에는 여기에 세션 내내 같은 규칙 문장이 셋이나 더 실렸다 — `[사용자 추가]`
- * 단계를 지우지 말라는 문단, `∥` 행을 갈라 돌리라는 문단, "이 턴에 목록부터 세워라"는 지시 — 그것이
- * 매 턴 대화 이력에 N벌 쌓였다(실측: 빈 목록 317자 · 단계 넷 690자). 규칙은 규약(아래
- * `buildSessionGoalProtocol` — 시스템 프롬프트 한 벌)이 말하고, 여기는 **지금 값**만 적는다:
- * 목표 문장 · 진행률 · 목록 · 쓸 수 있는 종류 키.
- *
- * 목록은 **블록 문법 그대로** 적는다(`- [~] ∥ 본문 @종류`) — 세션이 목록을 다시 낼 때 이 줄을 그대로
- * 옮기면 되고, 옮기다 표식(`∥`·`@종류`)을 떨어뜨릴 자리가 없다. `[사용자 추가]` 표지만은 파서가 읽고
- * 버린다(`stageBlock.ts` — 본문에 섞이면 같은 단계가 다른 항목으로 갈린다). `**목표**:` 줄은
- * `sessionTitle.ts` 가 덧말 턴의 제목으로 뽑는 닻이라 그 모양을 지키고, 표지는 그 다음 줄에 둔다.
+ * §5.5 #17-28 ⑧(c) · #17-17 ㉑ — 목표 블록의 변하는 절반(매 턴 앞). 지금 값만 — 규칙은 `buildSessionGoalProtocol` 에(여기 두면 이력에 N벌 쌓인다).
+ * 목록은 블록 문법 그대로 적어 세션이 옮기게 한다(`[사용자 추가]` 표지는 `stageBlock.ts` 가 버린다). `**목표**:` 줄은 `sessionTitle.ts` 의 닻이라 모양을 지키고 표지는 다음 줄에.
  */
 export function buildSessionGoalState(args: {
   /** 최종 목표 한 문장. */
   goalText: string;
   /** 지금까지의 진행률 (0~100). 단계가 있으면 `done/전체` 파생값이다. */
   percent: number;
-  /**
-   * §5.5 #17-17 v4.47 — 단계 체크리스트(있으면 그대로 보여주고, 이걸 갱신하게 시킨다).
-   *
-   * ⑪(i) `kind` · ⑰(b) `parallel` · ⑪(d) `authoredBy` 를 함께 보여 준다 — 못 보면 모델은 같은 일에
-   * 매번 다른 키를 붙이고(`git`→`vcs`→`scm`), 사용자가 나란히 놓은 행을 풀고, 사용자 단계를 제 목록으로 덮는다.
-   */
+  /** §5.5 #17-17 — 단계 체크리스트. `kind`·`parallel`·`authoredBy` 를 보여야 모델이 키를 바꿔 붙이거나 행을 풀거나 사용자 단계를 덮지 않는다. */
   steps?: { text: string; status: SessionGoalStepStatus; authoredBy?: 'session' | 'user'; kind?: string; parallel?: boolean }[];
-  /** §5.5 #17-17 v4.50 — 목표 문장의 주인. `user` 면 에이전트가 문장을 건드리지 않게 못 박는다. */
+  /** §5.5 #17-17 — 목표 문장의 주인(`user` 면 에이전트가 건드리지 못한다). */
   authoredBy?: 'session' | 'user';
   /** 마지막 진행 신고의 한 줄 근거 (있으면 "직전에 어디까지 왔는지"를 모델이 이어받는다). */
   note?: string;
@@ -8719,27 +6890,10 @@ ${list}${kindsLine}`;
 }
 
 /**
- * §5.5 #17-28 ⑧(c)(f) · #17-17 ㉑ — 목표 블록의 **안 변하는 절반**(규약). `--append-system-prompt` 로
- * 세션에 한 벌만 실린다.
- *
- * ㉑ 로 세 절(「목표 창 규약」·「나란히 놓인 행」·「단계의 종류」, 1,956자)을 **한 절**로 줄였다. 목표 창이
- * 동작하는 데 필요한 것은 블록 문법 한 벌과 규칙 몇 줄뿐이었다 — 예시 블록 둘, 표식 풀이, 글리프·장면을
- * 직접 그리는 법, 화면 골격 목록, REST 폴백은 전부 걷었다. 파서는 그대로라 아는 세션이 `glyph`·`scene`·
- * `surface`·`color` 를 적으면 종전처럼 받는다(`stageBlock.ts`) — 가르치지 않을 뿐이다.
- *
- * 시스템 프롬프트에 두는 이유는 그대로다 — 사용자 메시지에 있는 규칙은 **압축(compact)에 쓸려 나갈 수
- * 있고**, 그러면 세션 중반부터 목록을 갱신하는 방법을 아무도 말해 주지 않는 상태가 된다.
- *
- * ㉓ 로 **시점**을 못 박았다. ㉑ 이 남긴 "이 턴에 세우고"는 **턴 끝도 이 턴이라** 모델이 규약을 하나도 어기지
- * 않고 늘 늦을 수 있었다 — 상태 블록을 최종 보고 옆에 붙이는 것이 자연스럽기 때문이다(카드 규약이 "보고의
- * 맨 마지막 동작"이라 말하는 그 자리). 실측(2026-09-10 · `sub-mtutwato-wu2ffu`): 14분 세션에서 블록이
- * 스트림 154줄 중 150번째, **끝나기 37초 전**에 딱 한 번 왔고 그 한 번에 6단계·5완료가 통째로 들어왔다.
- * 목표 창은 "도는 동안 보고 멈추라"고 있는 것이라, 끝나고 켜지는 불은 없는 것과 같다.
- *
- * 같은 이유로 **면제를 특정 도구 이름에 걸지 않는다.** ㉑ 이 남겼던 "`TodoWrite` 가 있으면 그것으로 충분하다"는
- * 지금 거짓이다 — 설치본 CLI 에서 그 도구는 발화하지 않는다(실측: 최근 40 세션 `tool_use` 0건 · `--tools` 에
- * 이름을 실어 스폰한 세션의 도구 목록에도 없다). ⑨ 가 고쳤던 "계획할 수단 없이 계획하라고 시킨다"가 도구가
- * 사라지는 쪽으로 재발한 것이라, 이제 살아 있는 승계 도구(작업 장부)를 **덤으로만** 적는다.
+ * §5.5 #17-28 ⑧(c)(f) · #17-17 ㉑ — 목표 블록의 안 변하는 절반(규약, `--append-system-prompt` 한 벌 — 사용자 메시지는 압축에 쓸린다).
+ * 블록 문법과 규칙 몇 줄만 가르친다(파서 `stageBlock.ts` 는 `glyph`·`scene`·`surface`·`color` 도 받는다).
+ * ㉓ 시점을 못 박는다 — "이 턴에"면 턴 끝에 붙여도 된다(2026-09-10 실측: 14분 세션에서 끝나기 37초 전에 한 번).
+ * 면제를 특정 도구에 걸지 마라 — 설치본에서 `TodoWrite` 는 발화하지 않는다(실측: 40 세션 0건).
  */
 export function buildSessionGoalProtocol(args: {
   serverBase: string;
@@ -8767,11 +6921,7 @@ note: 한 줄
 - \`@키\` 는 있는 종류(상태의 \`종류:\` 줄)를 먼저 쓴다. 없으면 같은 블록에 \`kind 키: 이름\` 과 들여쓴 \`from: 밑그림\`(${VISUAL_SCENE_TEMPLATES.map((t) => t.name).join('·')}) · \`blurb: 들어설 때 뜨는 한 줄\` 을 적어 만든다.`;
 }
 
-/**
- * §5.5 #17-17 — 목표 블록 **전량**(상태 + 규약). §5.5 #17-28 의 주입원 표가 "이 세션에 목표 때문에
- * 얼마가 실리는가"를 한 줄로 재는 데 쓴다. 실제 발송은 둘로 갈라 나간다 — 상태는 매 턴 프롬프트로,
- * 규약은 스폰의 `--append-system-prompt` 로.
- */
+/** §5.5 #17-17 — 목표 블록 전량(주입원 표 계측용). 실제로는 상태는 매 턴, 규약은 `--append-system-prompt` 로 갈라 나간다. */
 export function buildSessionGoalRules(args: {
   serverBase: string;
   serverToken: string;
@@ -8790,14 +6940,7 @@ export function buildSessionGoalRules(args: {
   return buildSessionGoalState(args) + buildSessionGoalProtocol(args);
 }
 
-/**
- * §4 v3.21 — 스폰 프롬프트 주입용 피드백 다이제스트 블록 생성.
- *
- * 사용자가 이 에이전트의 과거 작업에 남긴 좋아요/싫어요를 `# Past User Feedback` 블록으로
- * 만들어 매 턴 contextSummary 에 붙인다(Agent Rules 블록과 같은 자리 — 즉효 학습 경로).
- * 싫어요+사유가 학습 재료의 핵심이라 싫어요를 먼저, 좋아요는 "이런 방식은 좋았다" 보조로.
- * 피드백이 없으면 빈 문자열(블록 자체를 만들지 않음).
- */
+/** §4 — 좋아요/싫어요를 `# Past User Feedback` 블록으로 매 턴 contextSummary 에 붙인다(싫어요+사유가 먼저). 없으면 빈 문자열. */
 export function buildAgentFeedbackBlock(feedbacks: AgentFeedback[]): string {
   if (feedbacks.length === 0) return '';
   const recent = [...feedbacks]
@@ -8825,25 +6968,12 @@ export function buildAgentFeedbackBlock(feedbacks: AgentFeedback[]): string {
 }
 
 /**
- * §4 v2.83 — CMD(인터랙티브 터미널) 에이전트 카드 신고용 **터미널 한 줄 마커**.
- *
- * 헤드리스/스폰 에이전트는 loopback `curl` 로 카드 엔드포인트를 직접 친다(토큰 인증). 하지만 인터랙티브
- * 터미널 claude 는 그 loopback 포트/토큰을 모르고(셸 prefill 경로), curl 한 줄 구성도 번거롭다. 대신
- * **터미널 stdout 에 이 마커로 시작하는 한 줄을 인쇄**하면, 이미 PTY 출력을 받고 있는 IDE 터미널 뷰
- * (`IDETerminalView` → `TerminalCardSniffer`)가 그 줄을 스니핑 → JSON 파싱 → 기존 카드 엔드포인트로 POST 한다.
- * 즉 "cmd 창에 JSON 을 뿌리면 IDE 가 캡처해 카드로 재작성"하는 경로. 마커를 두는 이유: claude 가 평소
- * 출력하는 임의 JSON·코드블록·파일 내용을 카드로 오인하지 않게(마커 없는 줄은 그냥 터미널 텍스트).
+ * §4 — CMD 에이전트 카드 신고 마커. 인터랙티브 claude 는 loopback 포트/토큰을 몰라, 이 마커 줄을 찍으면 IDE 터미널 뷰가 카드 엔드포인트로 보낸다.
+ * 마커가 있어야 평소 출력의 JSON 을 카드로 오인하지 않는다.
  */
 export const VIBISUAL_CARD_SENTINEL = '::VIBISUAL-CARD::';
 
-/**
- * §4 v2.83 — CMD 에이전트에게 주입할 "카드 신고(터미널 한 줄)" 프로토콜 지시문.
- *
- * `prepareInteractiveRulesDir` 가 CMD 에이전트의 `~/.vibisual/cmd-agents/<id>/CLAUDE.md` 에 항상 붙여,
- * 인터랙티브 claude 가 작업 신고/질문/검수 카드를 **터미널 한 줄 인쇄**로 띄울 수 있게 한다. 동적 포트·토큰·
- * agentId 가 필요 없다(IDE 가 그 줄을 캡처할 때 agentId·subAgentId 를 문맥에서 주입) → 헤드리스 curl 지시문
- * (`buildAgentReportRules` 등)보다 단순. 발생 조건(언제 보내는지)은 curl 판본과 동일하게 유지한다.
- */
+/** §4 — CMD 에이전트 카드 신고 지시문(`prepareInteractiveRulesDir` 가 CLAUDE.md 에 붙인다). 보내는 조건은 curl 판본과 같게 유지한다. */
 export function buildCmdCardProtocolRules(): string {
   const S = VIBISUAL_CARD_SENTINEL;
   return `
@@ -8911,10 +7041,7 @@ JSON
 - 토큰 헤더가 없으면 401 이다. 실패해도 무시하고 자연어 보고는 그대로 진행하라(표시 전용).`;
 }
 
-/**
- * Auto Agent 본체에 자동 박히는 기본 rules (사용자가 AgentConfigPopup 에서 덮어쓰기 가능).
- * 본인은 작업하지 않고 메타 동작(생성·디스패치·요약 수령)만 한다는 책임 분리 명시.
- */
+/** Auto Agent 기본 rules(덮어쓸 수 있다) — 직접 작업하지 않고 생성·디스패치·요약 수령만. */
 export const AUTO_AGENT_DEFAULT_RULES = `# Role: Auto Agent (Vibisual 메타 에이전트)
 
 이 에이전트는 **다른 커스텀 에이전트들을 자동 생성·연결·디스패치하는 메타 역할**입니다.
@@ -8932,7 +7059,7 @@ export const AUTO_AGENT_DEFAULT_RULES = `# Role: Auto Agent (Vibisual 메타 에
 - 사용자 명시 승인 없이 서브 군을 삭제·재구성하지 않습니다
 `;
 
-// ─── §4 v3.16 모바일 웹 접속 모드 ────────────────────────────────────────────
+// §4 모바일 웹 접속 모드
 
 /** 페어링 코드 자릿수 — 데스크톱 모달에 표시되고 폰 브라우저 첫 접속 시 입력한다. */
 export const MOBILE_PAIR_CODE_LENGTH = 6;
@@ -8946,12 +7073,9 @@ export const MOBILE_SESSION_MAX = 5;
 /** 페어링 성공 시 폰 브라우저에 심는 HttpOnly 세션 쿠키 이름. */
 export const MOBILE_SESSION_COOKIE = 'vibisual_mobile_session';
 
-// ─── §4 v3.20 UPnP 외부 개방 + 보안 강화 ─────────────────────────────────────
+// §4 UPnP 외부 개방 + 보안 강화
 
-/**
- * 외부(인터넷) 개방이 켜졌을 때 승격되는 페어링 코드 길이(영숫자).
- * LAN 전용 6자리 숫자와 달리 공인망 노출이라 무차별 대입 내성이 필요 — 12자 영숫자.
- */
+/** 외부 개방 때 페어링 코드 길이(영숫자) — 공인망이라 무차별 대입 내성이 필요하다. */
 export const MOBILE_EXTERNAL_PAIR_CODE_LENGTH = 12;
 
 /** 한 IP 가 페어링 실패 한도를 넘겼을 때 차단하는 시간(ms). 소유자 lockout 없이 공격자만 격리. */
@@ -8960,7 +7084,7 @@ export const MOBILE_PAIR_BAN_MS = 10 * 60 * 1000;
 /** UPnP 포트 매핑 임대 시간(초). 이 절반 주기로 갱신해 공유기가 매핑을 지우지 않게 한다. */
 export const MOBILE_UPNP_LEASE_S = 3600;
 
-// ─── §4 v3.66 QR 페어링 티켓 ─────────────────────────────────────────────────
+// §4 QR 페어링 티켓
 
 /**
  * QR 페어링 티켓 수명(ms). 발급 후 이 시간이 지나면 스캔해도 무효 —
@@ -8971,14 +7095,7 @@ export const MOBILE_QR_TICKET_TTL_MS = 3 * 60 * 1000;
 /** QR 티켓 토큰 바이트 수(hex 인코딩 전) — 3분 안에 맞힐 수 없는 수준. */
 export const MOBILE_QR_TOKEN_BYTES = 24;
 
-/**
- * QR 한 장으로 페어링할 수 있는 **기기 수 상한**.
- *
- * 종전에는 횟수를 세기만 하고 막지 않아, 3분 창 안에서는 몇 대든 붙을 수 있었다. QR 은 화면에
- * 띄우는 물건이라 어깨너머·화면 공유·사진으로 새기 쉽고, 그 순간 남은 시간 전체가 열린 문이 된다.
- * 내 폰 한 대 + 태블릿 정도를 넉넉히 덮으면서 "새면 몇 대든"을 끊는 자리로 3 을 잡는다.
- * 상한에 닿으면 티켓은 즉시 폐기된다 — 남겨 두면 만료까지 계속 시도할 수 있다.
- */
+/** QR 한 장의 페어링 기기 수 상한 — QR 은 화면 공유·사진으로 새기 쉽다. 닿으면 티켓을 즉시 폐기한다(남기면 만료까지 시도할 수 있다). */
 export const MOBILE_QR_MAX_USES = 3;
 
 /** QR 에 담기는 딥링크 경로. `?t=<token>` 을 붙여 스캔 즉시 세션 쿠키를 받는다. */
@@ -8990,14 +7107,8 @@ export const MOBILE_QR_PARAM = 't';
 // ─── §4 (판올림 번호 발급 대기) 접속 주소의 정체 ──────────────────────────────
 
 /**
- * 네트워크 어댑터 이름 사전의 한 줄 — 이름만 보고 그 랜카드가 무엇인지 말한다.
- *
- * `label` 은 i18n 키가 아니라 **제품 이름 그대로**다(`EXTERNAL_PLACE_PATTERNS` 와 다른 점).
- * Tailscale·Docker 는 어느 언어에서도 그 이름이라 번역 대상이 아니고, 화면에는 사용자가
- * 자기 PC 의 어댑터 목록에서 본 것과 **같은 글자**가 떠야 정체가 연결된다.
- *
- * `test` 는 어댑터 이름을 소문자로 접어 맞춘다. 같은 제품이라도 이름이 OS 마다 전혀
- * 다르므로(Windows `Tailscale` · macOS `utun3` · Linux `tailscale0`) 별칭을 한 줄에 모은다.
+ * 어댑터 이름 사전의 한 줄. `label` 은 i18n 키가 아니라 제품 이름 그대로(사용자가 본 글자와 같아야 한다).
+ * `test` 는 소문자 이름에 맞추고, OS 마다 다른 이름(Windows `Tailscale` · macOS `utun3` · Linux `tailscale0`)을 한 줄에 모은다.
  */
 export interface MobileAdapterPattern {
   /** 어댑터 이름(소문자)에 대한 판정. */
@@ -9006,13 +7117,7 @@ export interface MobileAdapterPattern {
   readonly label: string;
 }
 
-/**
- * **가상 사설망(VPN) 어댑터 사전** — 이 주소는 폰이 *같은 망에 들어와 있으면* 실제로 열린다.
- *
- * 순서가 우선순위다(구체적인 것이 먼저). 맨 끝의 `utun`/`tun` 은 macOS·Linux 의 **공용**
- * 터널 이름이라 어느 제품인지 알 수 없다 — 그래서 `label` 을 비워 두고, 화면은 제품 이름
- * 대신 "가상 사설망" 이라는 종류만 말한다(모르는 것을 넘겨짚지 않는다).
- */
+/** VPN 어댑터 사전(폰이 같은 망이면 열린다). 순서 = 우선순위. 끝의 `utun`/`tun` 은 macOS·Linux 공용 이름이라 `label` 을 비운다(종류만 말한다). */
 export const MOBILE_VPN_ADAPTERS: readonly MobileAdapterPattern[] = [
   { test: /tailscale/, label: 'Tailscale' },
   { test: /zerotier|^zt[0-9a-z]{6,}$/, label: 'ZeroTier' },
@@ -9030,13 +7135,7 @@ export const MOBILE_VPN_ADAPTERS: readonly MobileAdapterPattern[] = [
   { test: /^(?:utun|tun|ppp|ipsec)\d*$/, label: '' },
 ];
 
-/**
- * **가상 어댑터 사전** — 이 주소는 이 PC 안에서만 뜻이 있어서 **폰에서는 절대 안 열린다**.
- *
- * 가상머신·컨테이너·WSL 이 만든 랜카드다. 지우지 않고 목록에 남기되(감추면 진짜로 되는
- * 경우까지 사라진다) "안 됩니다" 쪽으로 접어 둔다 — 종전에는 이것들이 진짜 랜 주소와
- * 구별 없이 나란히 떠서 사용자가 무엇을 찍어야 하는지 알 수 없었다.
- */
+/** 가상 어댑터 사전(VM·컨테이너·WSL) — 폰에서는 안 열린다. 감추지 않고(진짜로 되는 경우까지 사라진다) "안 됩니다" 쪽으로 접는다. */
 export const MOBILE_VIRTUAL_ADAPTERS: readonly MobileAdapterPattern[] = [
   { test: /\bwsl\b/, label: 'WSL' },
   { test: /vethernet|hyper-v|default switch/, label: 'Hyper-V' },
@@ -9051,27 +7150,12 @@ export const MOBILE_VIRTUAL_ADAPTERS: readonly MobileAdapterPattern[] = [
   { test: /bluetooth/, label: 'Bluetooth' },
 ];
 
-/**
- * 완료음 창 간 중복 재생 차단 창(ms).
- *
- * 완료음은 WS 를 듣는 창마다 재생되는데(메인·별창·오버레이 셸이 각각 구독) 같은 완료 하나에
- * 소리가 겹쳐 두세 번 울리는 것처럼 들린다. 먼저 울린 창이 localStorage 에 시각을 남겨 이 창
- * 안의 다른 창은 건너뛴다(저장소 접근이 막히면 종전대로 재생 — fail-open).
- */
+/** 완료음 창 간 중복 차단(ms) — WS 를 듣는 창마다 울리므로 먼저 울린 창이 localStorage 에 시각을 남긴다(막히면 재생, fail-open). */
 export const COMPLETION_CHIME_DEDUPE_MS = 1_500;
 
 /**
- * §5.10 v2 (C) (판올림 번호 발급 대기) — **회상이 돌려주는 대목에서 가리는 것.**
- *
- * 회상은 카드가 아니라 **그때 실제로 오간 대화**를 발췌한다. 그 대화에는 우리가 프롬프트로 실어
- * 보냈던 loopback 토큰·API 키가 그대로 남아 있고, 발췌는 **다른 세션의 모델 컨텍스트로 간다** —
- * 즉 마스킹이 없으면 회상이 시크릿 배포 경로가 된다. 세 가지만 가린다(오탐이 정보를 지우는 쪽이
- * 더 나쁘다):
- *
- * ① 헤더 이름 뒤의 값 — 길이와 무관하게 그 자리는 언제나 시크릿이다.
- * ② **48자 이상** 연속 hex — loopback 토큰이 `randomBytes(24)`(=48자)라 여기 걸린다.
- *    git 커밋 해시(40자)는 **일부러 통과시킨다** — 회상에서 해시는 실제로 쓸모가 있다.
- * ③ 발행처 접두사가 뚜렷한 API 키.
+ * §5.10 v2 (C) — 회상 발췌에서 가리는 것(다른 세션 모델에게 가므로 안 가리면 시크릿 배포 경로가 된다). 오탐이 더 나빠 셋만:
+ * ① 헤더 이름 뒤 값 ② 48자 이상 연속 hex(토큰 = `randomBytes(24)`, 커밋 해시 40자는 일부러 통과) ③ 접두사가 뚜렷한 API 키.
  */
 export const SECRET_REDACTION_PATTERNS: readonly RegExp[] = [
   /(x-vibisual-hook-token\s*:\s*)[^\s"'\\]+/gi,
@@ -9082,44 +7166,29 @@ export const SECRET_REDACTION_PATTERNS: readonly RegExp[] = [
 /** 가린 자리에 남기는 표시 — 지워진 것이 아니라 가려진 것임을 읽는 쪽이 알아야 한다. */
 export const SECRET_REDACTION_MASK = '[redacted]';
 
-/**
- * 위 패턴에 걸리는 자리를 가린다. **순수 함수** — 서버·클라 어디서 불러도 같은 답이고 테스트가 직접 부른다.
- * 헤더 패턴은 이름을 남기고 값만 가린다(무엇이 가려졌는지 읽는 쪽이 알아야 한다).
- */
+/** 위 패턴을 가린다(순수 함수). 헤더는 이름을 남기고 값만 — 무엇이 가려졌는지 알아야 한다. */
 export function redactSecrets(text: string): string {
   let out = text;
   for (const re of SECRET_REDACTION_PATTERNS) {
     // 전역 플래그가 붙은 정규식은 `lastIndex` 가 남으므로 매번 초기화한다(같은 배열을 재사용한다).
     re.lastIndex = 0;
-    // 첫 인자(전체 일치)는 쓰지 않지만 `prefix` 를 받으려면 자리를 비워 둘 수 없다.
-    //
-    // **두 번째 인자가 캡처 그룹이라는 보장이 없다.** `String.replace` 는 그룹이 없는 정규식에서는
-    // 그 자리에 **일치 위치(number)** 를 넘긴다 — 위 배열은 그룹이 있는 패턴(헤더)과 없는 패턴
-    // (hex·sk-)이 섞여 있어, `undefined` 만 걸러 내면 없는 쪽에서 숫자가 그대로 결과에 붙었다
-    // (`token=6[redacted]`). 그래서 **문자열일 때만** 접두로 인정한다.
+    // 그룹 없는 정규식이면 `String.replace` 의 둘째 인자는 일치 위치(number)다 — 문자열일 때만 접두로 쓴다(아니면 `token=6[redacted]`).
     out = out.replace(re, (_match: string, prefix: unknown) =>
       typeof prefix === 'string' ? `${prefix}${SECRET_REDACTION_MASK}` : SECRET_REDACTION_MASK);
   }
   return out;
 }
 
-// ─── 플러그인 커널 (§5.11 v3.88) ───
+// 플러그인 커널 (§5.11)
 
-/**
- * v1 에서 호스트가 실제로 슬롯을 연 기여 종류.
- *
- * 매니페스트가 이 목록 밖의 기여를 선언하면 **거부가 아니라 "미지원" 표시**다 — 플러그인은 등록되고
- * 지원되는 기여만 렌더된다. 슬롯을 새로 열 때 이 배열에 한 줄 추가하는 것이 개통 절차.
- */
+/** 호스트가 슬롯을 연 기여 종류. 목록 밖 기여는 거부가 아니라 "미지원" 표시다. 슬롯을 열 때 여기 한 줄 추가. */
 export const PLUGIN_SUPPORTED_CONTRIBUTIONS: readonly PluginContributionKind[] = [
   'bubbleBadge',
   'panelSection',
   'settingsSection',
-  // v4.01 — 헤더 기여 개통. 버블·패널과 달리 **동작**을 가질 수 있는 유일한 슬롯이며,
-  // 그 동작도 호스트가 이름 붙여 연 것(`PluginActions`)만 쓸 수 있다.
+  // 헤더 기여 — 동작을 가질 수 있는 슬롯이며, 동작은 호스트가 연 `PluginActions` 만.
   'headerItem',
-  // v4.57 — 집행 슬롯 개통. 위 4종이 "보여 주는" 자리라면 이것은 **에이전트가 실제로 그렇게 일하게 하는**
-  // 자리다(매 턴 프롬프트 블록). 사용자 지시 — "켜면 화면 한 칸 느는 게 전부면 만든 게 아니다".
+  // 집행 슬롯 — 보여 주기가 아니라 에이전트가 실제로 그렇게 일하게 하는 자리(매 턴 프롬프트 블록).
   'agentPrompt',
 ];
 
@@ -9129,20 +7198,12 @@ export const PLUGIN_ID_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 /** 플러그인 REST 기여의 유일한 마운트 지점 — `/api/plugins/<id>/*` 밖으로 나갈 수 없다. */
 export const PLUGIN_API_PREFIX = '/api/plugins';
 
-/**
- * §5.13 (P) v4.49 — 내부 앱 REST 네임스페이스.
- *
- * 앱의 모든 경로는 `/api/app/<앱id>/…` 아래로 들어간다(플러그인의 `/api/plugins/<id>/…`
- * 와 같은 규약). 그래야 코어가 앱 이름을 모른 채로도 "앱 경로인가"를 한 줄로 판정할 수
- * 있다 — loopback 화이트리스트에 앱 이름이 박히던 것이 이 규칙이 없어서 생긴 일이다.
- */
+/** §5.13 (P) — 내부 앱 REST 네임스페이스(`/api/app/<앱id>/…`, 플러그인과 같은 규약). 코어가 앱 이름 없이 앱 경로를 판정한다. */
 export const APP_API_PREFIX = '/api/app';
 
 /**
- * §5.13 (T-3)(T-11) ② — 내부 앱이 **iframe 으로 띄울 정적 콘텐츠**의 경로 모양: `/api/app/<앱id>/content/…`.
- *
- * 패키지 앱의 문서 출처는 `file://` 라 iframe 의 `/api/…` 상대 주소가 깨진다 — 그래서 `vibproxy://proxy` 로 내준다.
- * vibproxy 허용 목록과 프레임 이동 금지가 이 판정 **하나**를 쓴다(앱 이름 없이). API 는 이 길로 내지 않는다 — 콘텐츠만.
+ * §5.13 (T-3)(T-11) ② — 내부 앱 iframe 정적 콘텐츠 경로. 패키지 앱은 `file://` 출처라 iframe 의 `/api/…` 가 깨져 `vibproxy://proxy` 로 낸다.
+ * vibproxy 허용 목록·프레임 이동 금지가 이 판정 하나를 쓴다. API 는 이 길로 내지 않는다.
  */
 export const APP_CONTENT_SEGMENT = 'content';
 
@@ -9156,24 +7217,14 @@ export function isAppContentPath(pathname: string): boolean {
 // ─── §5.4 #36 전환과 연결 — 에이전트 말풍선 · 위성줄 · 꽃잎 고르기 ─────────────
 
 /**
- * §5.4 #31 (K) · #36 (A)(B) — 움직임 줄이기(OS 애니메이션 효과 꺼짐 → 엔진이 `prefers-reduced-motion: reduce`)에서
- * **도는 동안 계속 도는 움직임**(활성 선의 흐름 · 말풍선 궤도 · 위성줄 구슬)을 끄지 않고 이 배율만큼 느리게 돌린다.
- * 끄면 그 설정이 켜진 PC 에서 일하는 선이 쉬는 선과 똑같아진다(2026-10-22 사용자 보고 "커스텀마다 움직이던 선이
- * 멈춰 있다" — 그 PC 가 이 설정이었다). 끄지 말고 누그러뜨리는 원칙은 docs/rules/multiplatform.md §1.
- * CSS 만으로 도는 둘(`.agent-orbit-spin` · `.ref-bead-flow`)은 곱한 값을 아래 `*ReducedMs` 와 `index.css` 에 함께 적는다.
+ * §5.4 #31 (K) · #36 (A)(B) — 움직임 줄이기에서 도는 움직임(선 흐름·궤도·구슬)을 끄지 않고 이만큼 느리게 — 끄면 일하는 선이 쉬는 선과 같아진다.
+ * CSS 로만 도는 `.agent-orbit-spin`·`.ref-bead-flow` 는 곱한 값을 `*ReducedMs` 와 `index.css` 에 함께 적는다.
  */
 export const REDUCED_MOTION_LOOP_SLOWDOWN = 1.5;
 
 /**
- * §5.4 #36 (A) — 에이전트 말풍선의 기하(캔버스 px, 노드 좌표계 = 좌상단 원점).
- *
- * 버블은 판으로 변하지 않는다 — **원이 그 자리에 남고** 그 왼쪽으로 말풍선이 펴진다. 읽는 방향이 곧 흐름이다:
- * 말풍선(내 말) → 원(에이전트) → 오른쪽의 앱 위성(결과). 원 둘레 궤도 위의 흰 점이 위성 손잡이다.
- *
- * **고정 크기다.** 물리(사각 바디)·선 끝점(실루엣)·전환 때 원 중심 지키기가 전부 이 값으로 계산되므로,
- * 글 길이에 따라 자라면 그 셋이 매 글자마다 흔들린다. 긴 글은 입력칸 안에서 스크롤한다.
- * 원 중심은 `(balloonWidth + balloonGap + discSize/2, height/2)` 이고 `width` 는 그 중심에 궤도 반지름과
- * 위성 손 자리 반을 더한 값이다(`agentCardDiscCenter` — 어긋나면 위성이 노드 밖으로 잘린다).
+ * §5.4 #36 (A) — 에이전트 말풍선 기하(캔버스 px). 원은 제자리, 왼쪽에 말풍선. 고정 크기다 — 물리·선 끝점·원 중심이 이 값으로 계산돼 자라면 흔들린다.
+ * 원 중심 = `(balloonWidth + balloonGap + discSize/2, height/2)`, `width` = 중심 + 궤도 반지름 + 위성 손 자리 반(`agentCardDiscCenter` — 어긋나면 위성이 잘린다).
  */
 export const AGENT_CARD = {
   /** 노드 전체 = 말풍선 236 + 틈 20 + 원 60 + (궤도 − 원 반지름 10) + 위성 손 자리 반 12. */
@@ -9226,13 +7277,7 @@ export const APP_BUBBLE_LINK_MAX = 8;
 /** §5.13 (L) — 앱 노드가 가리키는 작업 문서 열쇠(`AppBubble.ref`) 길이 상한. 앱이 짓는 id 라 이 안에 든다. */
 export const APP_BUBBLE_REF_MAX = 200;
 
-/**
- * §5.4 #36 (B) — 위성줄(구슬 줄) 모양. 파일 선(회색 곡선·화살촉)·Task Edge(파란 점선·원 아이콘)와 **일부러 다르다**.
- *
- * 가는 실 한 가닥 위에 둥근 구슬이 일정 간격으로 꿰어 있다. 구슬은 `stroke-dasharray: 0 beadGap` + 둥근 끝이라
- * path 하나다(구슬마다 원 요소 ❌ · 필터·마스크 ❌ — #31 (K) 래스터 교훈). 줄은 두 노드 중심을 잇는 직선에서
- * 아래로 처진다(무게가 있는 줄) — 처짐 = 길이 × `sagRatio`(하한·상한 사이).
- */
+/** §5.4 #36 (B) — 위성줄 모양(파일 선·Task Edge 와 일부러 다르다). 구슬은 `stroke-dasharray` 로 path 하나 — 원 요소·필터·마스크 ❌(#31 (K)). 처짐 = 길이 × `sagRatio`. */
 export const REF_LINK_STYLE = {
   /** 구슬 지름과 구슬 중심 사이 간격. 흐름 애니메이션 한 칸이 이 간격이다(`index.css` `.ref-bead-flow`). */
   beadSize: 4,
@@ -9290,12 +7335,7 @@ export const REF_BLOOM = {
   revealMs: 240,
 } as const;
 
-/**
- * §5.4 #36 (F) — 낙관 생성한 앱 노드를 서버 확인 전까지 붙들어 두는 시간(ms).
- *
- * 서버가 만들기 전에 출발한 스냅샷이 도착하면 그 목록에는 새 노드가 없다 — 그대로 받으면 방금 선 노드가
- * 한 프레임 사라졌다 돌아온다. 이 시간이 지나도 서버 목록에 없으면(만들기 실패) 걷는다.
- */
+/** §5.4 #36 (F) — 낙관 생성 노드를 붙드는 시간(ms) — 먼저 출발한 스냅샷에 없어 한 프레임 사라지지 않게. 지나도 없으면 걷는다. */
 export const APP_BUBBLE_PENDING_MS = 8000;
 
 /**
@@ -9303,11 +7343,7 @@ export const APP_BUBBLE_PENDING_MS = 8000;
  * 비용은 "보이는 화면만 · 한 번 굽고 캐시 · 동시 건수 상한" 셋으로 묶는다.
  */
 export const APP_THUMB = {
-  /**
-   * 기억해 두는 미리보기 수(LRU). 밀려난 그림의 blob URL 은 되돌린다.
-   * §5.1 #2-1 (A) — 파일 버블 얼굴도 이 기억 장소를 함께 쓴다(화면에 미디어 파일이 수십 개 떠도 같은 그림을 다시
-   * 굽지 않게). 얼굴은 작게 굽는다(64px 칸 × 배율) — 한 장 수십 KB 라 상한을 넉넉히 둬도 메모리 부담이 작다.
-   */
+  /** 미리보기 LRU 수(밀려나면 blob URL 회수). 파일 버블 얼굴도 함께 쓴다(§5.1 #2-1 (A)) — 작게 구워 상한을 넉넉히 둬도 된다. */
   cacheMax: 120,
   /** 동시에 굽는 수 — 영상 디코더·WebGL 문맥이 한꺼번에 뜨지 않게. */
   concurrency: 2,
@@ -9322,10 +7358,7 @@ export const APP_THUMB = {
   /** 영상 대표 프레임 시각 = 길이 × 이 비율, 최대 `videoSeekMaxSec` 초(첫 프레임은 검은 화면이 흔하다). */
   videoSeekRatio: 0.1,
   videoSeekMaxSec: 1,
-  /**
-   * 영상을 읽는 구간 크기(bytes). 디코더는 끝이 열린 구간(`bytes=N-`)을 요청하는데, 패키지 앱의 fetch 는 응답을 통째로
-   * IPC 한 번에 싣는다 — 묶지 않으면 대표 프레임 하나에 파일 전체가 건너온다. 묶어 두면 모자란 만큼만 다시 요청한다.
-   */
+  /** 영상 읽기 구간(bytes). 디코더가 끝이 열린 구간(`bytes=N-`)을 청하는데 패키지 앱 fetch 는 응답을 IPC 한 번에 싣는다 — 묶지 않으면 파일 전체가 건너온다. */
   videoChunkBytes: 1_048_576,
   /** 한 장을 굽는 시간 상한(ms). 넘으면 못 구운 것으로 치고 줄을 비운다(멈춘 디코더가 자리를 영영 쥐지 않게). */
   renderTimeoutMs: 20_000,
@@ -9336,20 +7369,12 @@ export const APP_THUMB = {
   bakeStep: 64,
 } as const;
 
-/**
- * §5.13 (X) 39-3 — 앱 창이 늦은 화면(동적 청크)을 기다리는 동안 띄우는 **뼈대**. 빈 검은 칸 대신 편집기 모양을 먼저 보여
- * 기다림을 짧게 느끼게 한다. 바로 뜨는 화면 앞에서 한 번 번쩍이면 그게 더 거슬리므로 `delayMs` 를 넘겨 기다릴 때만 띄운다.
- */
+/** §5.13 (X) 39-3 — 늦은 화면(동적 청크)을 기다리는 동안의 뼈대. `delayMs` 를 넘길 때만 띄운다(바로 뜨는 화면 앞에서 번쩍이지 않게). */
 export const APP_SHELL_SKELETON = {
   delayMs: 120,
 } as const;
 
-/**
- * §5.4 #36 (G) — 앱 노드 크기 조절의 하한·상한(캔버스 px).
- *
- * 하한은 형태마다 다르다 — 화면은 머리줄(22) · 결과 · 조작줄(24)이 함께 들어가야 하고, 명패는 아이콘과 이름 한 줄이면 된다.
- * 상한은 둘이 같다. 서버도 이 상한으로 자른다(손으로 보낸 PATCH 가 캔버스를 덮는 노드를 만들지 않게).
- */
+/** §5.4 #36 (G) — 앱 노드 크기 하한(형태마다)·상한(캔버스 px). 서버도 상한으로 자른다(PATCH 가 캔버스를 덮는 노드를 만들지 않게). */
 export const APP_NODE_RESIZE = {
   nameplateMinWidth: 64,
   nameplateMinHeight: 40,
@@ -9383,24 +7408,14 @@ export const APP_CANVAS_FACE = {
   sourcePollMs: 5000,
 } as const;
 
-/**
- * §5.4 #36 (H) ② — 연결 보기. "연결된 것 위주"(앱 노드가 이어진 에이전트의 기본 보기)에서 그 에이전트의 활동 선
- * (파일·폴더 ↔ 에이전트)을 흐리게 그리는 배율. **지우지 않는다** — "위주"이지 "만"이 아니다. 선의 #31 무리 강조 배율과 곱해진다.
- */
+/** §5.4 #36 (H) ② — "연결된 것 위주" 보기에서 에이전트 활동 선을 흐리는 배율. 지우지 않는다("만"이 아니다). #31 강조 배율과 곱해진다. */
 export const LINK_VIEW = {
   dimOpacity: 0.18,
-  /**
-   * ①·①-1·② — 누른 칸(선·버블 숨기기·보기)을 화면이 붙드는 최대 시간(ms). 보낸 PATCH 가 다 답한 뒤 스냅샷이 같은 값을
-   * 실어 오면 그 전에 놓는다 — 이 값은 서버가 끝내 다른 값을 말할 때(다른 창이 되돌렸다)의 안전망이다.
-   * 낙관 생성의 `APP_BUBBLE_PENDING_MS` 와 같은 창(클라 `linkViewHold.ts`).
-   */
+  /** 누른 칸을 화면이 붙드는 최대 시간(ms). PATCH 답 뒤 스냅샷이 같은 값을 실으면 먼저 놓는다 — 서버가 끝내 다른 값을 말할 때의 안전망(`APP_BUBBLE_PENDING_MS` 와 같은 창). */
   pendingMs: 8000,
 } as const;
 
-/**
- * §5.4 #36 (H) ①-2 — [이전 연결 다시 보기]가 기억하는 연결의 한도(§3.2.3 B·C축). 에이전트마다 한 벌이고 걷을 때마다
- * 갈아 끼운다. 넘치면 오래 안 만진 버블부터 버린다(다시 보기가 가장 최근 것을 먼저 돌려줘야 한다).
- */
+/** §5.4 #36 (H) ①-2 — [이전 연결 다시 보기]가 기억하는 연결 한도(§3.2.3). 에이전트마다 한 벌, 넘치면 오래 안 만진 것부터 버린다. */
 export const AGENT_LINK_RECORD = {
   /** 한 에이전트가 기억하는 버블 수 — 파일 하나는 그 폴더 사슬까지 몇 장이다. */
   maxEntries: 300,
@@ -9411,10 +7426,7 @@ export const AGENT_LINK_RECORD = {
 /** §5.4 #36 (H) ③ — 결과 전달로 바뀌기 전 파일을 노드에 남기는 수(지난 결과, 최근 것부터). */
 export const APP_BUBBLE_PAST_FILE_MAX = 6;
 
-/**
- * §5.4 #36 (H) ③ — 앱 노드 아래 **구슬 줄**(연결된 것 위성). 무엇을 띄울지는 앱이 레지스트리 `linkedItems` 로 선언하고,
- * 크기·간격·읽는 주기의 한도는 여기 한 곳에 둔다. 길이는 캔버스 px(노드와 함께 줌된다).
- */
+/** §5.4 #36 (H) ③ — 앱 노드 아래 구슬 줄(연결된 것). 무엇을 띄울지는 앱의 `linkedItems`, 크기·간격·주기 한도는 여기. 길이는 캔버스 px. */
 export const APP_LINKED_ITEMS = {
   /** 구슬 지름. */
   beadSize: 22,
@@ -9436,7 +7448,7 @@ export const APP_LINKED_ITEMS = {
   threadOpacity: 0.35,
 } as const;
 
-// ─── §5.5 #17-20 v4.74 디버그·실행 런처 ────────────────────────────────────
+// §5.5 #17-20 디버그·실행 런처
 
 /** 한 프로젝트에서 목록에 올릴 실행 구성 상한(스캔 폭주 가드). */
 export const RUN_CONFIG_MAX = 60;
@@ -9456,22 +7468,14 @@ export const DEBUG_PORT_BASE = 9229;
 /** `DEBUG_PORT_BASE` 부터 이 개수까지만 훑는다(무한 탐색 방지). */
 export const DEBUG_PORT_SCAN_MAX = 40;
 
-/**
- * §5.5 #17-20 ③ — 런타임별 "평범한 실행 → 디버거가 붙을 수 있는 실행" 변환 규칙.
- *
- * `match` 로 명령을 알아보고 `apply` 가 같은 명령에 디버그 인자를 얹는다. 하드코딩된 분기 대신
- * 표로 두는 이유는 §3.3(설정과 로직 분리) — 런타임을 하나 더 지원하려면 여기 한 줄이면 된다.
- */
+/** §5.5 #17-20 ③ — 런타임별 디버그 실행 변환 규칙(`match` 로 알아보고 `apply` 가 인자를 얹는다). 런타임 추가는 한 줄(§3.3). */
 export interface DebugLaunchRecipe {
   runtime: RunRuntime;
   /** 명령 문자열을 보고 이 런타임인지 판정. */
   match: (command: string) => boolean;
   /**
    * 디버그로 켜는 방법. 얹을 수 없으면 null(그대로 실행하고 화면에 그 사실을 적는다).
-   *
-   * 셸 문법(`set X=… &&` 대 `X=… cmd`)으로 갈리지 않도록 **환경변수는 `env` 로 돌려준다** —
-   * 이 값은 PTY spawn 의 env 에 실리므로 Windows·POSIX 어느 쪽에서도 같은 코드가 통한다.
-   * (shared 는 브라우저에서도 로드되므로 `process.platform` 을 읽어서는 안 된다.)
+   * 환경변수는 셸 문법 대신 `env` 로 돌려준다(PTY spawn env 라 Windows·POSIX 공통). shared 라 `process.platform` 을 읽지 않는다.
    */
   apply: (command: string, port: number) => { command?: string; env?: Record<string, string> } | null;
   /** 화면에 뜨는 설명 i18n 키. */
@@ -9543,15 +7547,8 @@ export const DEBUG_LAUNCH_RECIPES: readonly DebugLaunchRecipe[] = [
     runtime: 'unreal',
     match: (c) => /(UnrealEditor|UE4Editor|\.uproject|UnrealBuildTool|Build\.bat|RunUAT)/i.test(c),
     /**
-     * 언리얼 C++ 를 멈춰 세우는 `cppvsdbg` 는 재배포할 수 없다(⑦). 그래서 우리가 하는 일은
-     * **에디터를 디버거가 붙을 수 있는 상태로 띄우는 것**까지다:
-     *
-     *   - `-WaitForDebugger` — 디버거가 붙을 때까지 엔진이 초기화 직전에 멈춰 선다. 이것이
-     *     있어야 "붙이기" 를 누를 시간이 생기고, 시작 코드에 건 중단점도 놓치지 않는다.
-     *   - `-stdout -FullStdOutLogOutput` — 로그가 별창이 아니라 **우리 출력 패널**로 흐른다.
-     *
-     * 붙이는 일 자체는 서버가 실행 중인 에디터 pid 를 찾아 JIT 디버거에 넘긴다.
-     * (포트를 쓰지 않는 유일한 런타임이라 `port` 를 받지 않는다 — 네이티브는 pid 로 붙는다.)
+     * `cppvsdbg` 는 재배포 불가(⑦) — 붙을 수 있게 띄우기까지만 하고, 붙이기는 서버가 에디터 pid 를 JIT 디버거에 넘긴다(`port` 없음).
+     * `-WaitForDebugger` = 붙을 때까지 초기화 직전 대기(시작 코드 중단점용) · `-stdout -FullStdOutLogOutput` = 로그를 우리 출력 패널로.
      */
     apply: (c) => {
       const flags = ['-WaitForDebugger', '-stdout', '-FullStdOutLogOutput', '-log'];
@@ -9570,13 +7567,7 @@ export function detectRunRuntime(command: string): RunRuntime {
   return 'other';
 }
 
-/**
- * §5.5 #17-20 ③ — 실행 구성 + 포트 → 디버그 명령.
- *
- * `config.debugCommand` 가 있으면 그것이 최우선(사용자·launch.json 이 직접 쓴 것). 변환할 수
- * 없으면 `{ command: 원본, note: 'unsupported' }` 를 돌려주고 **화면이 그 사실을 그대로 적는다** —
- * 조용히 평범하게 실행해 놓고 디버그인 척하지 않는다.
- */
+/** §5.5 #17-20 ③ — `config.debugCommand`(사용자·launch.json)가 최우선. 변환 못 하면 `note: 'unsupported'` 로 원본을 돌려주고 화면이 그렇게 적는다(디버그인 척하지 않는다). */
 export function buildDebugCommand(
   config: Pick<RunConfig, 'command' | 'debugCommand' | 'runtime'>,
   port: number,
@@ -9595,11 +7586,8 @@ export function buildDebugCommand(
   };
 }
 
-// ─── §5.5 #17-20 ⑩ v4.94 — 공통 디버그 층: 런타임 → 실제로 붙는 법 ─────────────
-//
-// `DEBUG_LAUNCH_RECIPES`(③)가 "붙을 수 있게 띄우는" 표라면 이 표는 "붙는" 표다. 둘을 갈라 둔
-// 이유는 축이 다르기 때문이다 — 띄우는 것은 셸 명령이고, 붙는 것은 프로토콜이다.
-// **여기 한 줄을 더하면 그 런타임이 같은 화면(중단점·스텝·콜스택·변수)을 얻는다.**
+// ─── §5.5 #17-20 ⑩ — 공통 디버그 층: 런타임 → 붙는 법 ───
+// 띄우는 표(`DEBUG_LAUNCH_RECIPES`, 셸 명령)와 축이 달라(프로토콜) 갈라 둔다. 한 줄 더하면 그 런타임이 같은 디버그 화면을 얻는다.
 
 /** DAP 어댑터 인자의 자리 표시자 — 매니저가 실제로 고른 포트로 바꿔 넣는다. */
 export const DEBUG_ADAPTER_PORT_TOKEN = '{{adapterPort}}';
@@ -9613,13 +7601,7 @@ export const DEBUG_ADAPTER_READY_TIMEOUT_MS = 8_000;
 /** 요청 한 건(DAP/CDP 공통)의 응답 대기 한계(ms). */
 export const DEBUG_REQUEST_TIMEOUT_MS = 10_000;
 
-/**
- * §5.5 #17-20 ⑩ — 런타임별 연결법.
- *
- * **상업적 사용이 가능한 것만 올린다.** Microsoft `vsdbg`·`cppvsdbg` 는 자사 IDE 전용이라
- * 이 표에 들어오지 못하고 `delegated`(⑦ 외부 디버거로 넘김)로 남는다. 그 한 줄을 빼면
- * 주요 런타임의 디버그 어댑터는 전부 permissive 라 우리 앱이 그대로 쓸 수 있다.
- */
+/** §5.5 #17-20 ⑩ — 런타임별 연결법. 상업적 사용이 가능한 어댑터만 올린다(`vsdbg`·`cppvsdbg` 는 MS IDE 전용 → `delegated`, ⑦). */
 export const DEBUG_ADAPTERS: readonly DebugAdapterSpec[] = [
   {
     // Node 는 런타임 자체가 인스펙터를 갖고 있다 — 설치할 것이 없고 라이선스 위험이 0.
@@ -9692,11 +7674,8 @@ export function findDebugAdapter(runtime: RunRuntime): DebugAdapterSpec | null {
   return DEBUG_ADAPTERS.find((a) => a.runtime === runtime) ?? null;
 }
 
-// ─── §5.5 #17-20 ⑪ v4.94 — 출력 한 줄에서 문제를 뽑는 공통 매처 ────────────────
-//
-// 언리얼을 위한 표가 아니다. 같은 표에 node·tsc·eslint·python·go·rust·MSVC·gcc/clang·java 가
-// **각각 한 줄**로 들어 있고 언리얼도 그중 한 줄일 뿐이다. 어느 줄에도 안 걸리면 `null` 이고
-// 그 출력은 평문 그대로 남는다 — 모르는 것을 아는 척 칠하지 않는다.
+// ─── §5.5 #17-20 ⑪ — 출력 한 줄에서 문제를 뽑는 공통 매처(런타임마다 한 줄) ───
+// 안 걸리면 `null` — 평문으로 둔다(모르는 것을 칠하지 않는다).
 
 /** 매처 한 개. 캡처 그룹 번호로 무엇을 뽑을지 지정한다(정규식마다 그룹 순서가 다르므로). */
 export interface ProblemMatcher {
@@ -9847,12 +7826,7 @@ export function matchProblemLine(line: string): ProblemMatch | null {
   return null;
 }
 
-/**
- * §5.5 #17-20 ⑥ — 에이전트에 꽂아 줄 MCP 서버 프리셋.
- *
- * 전부 **남이 만든 것**이고 우리는 실행법만 안다. 여기 한 줄을 더하면 그 서버가 화면의
- * 체크박스로 나타나고, 켜는 순간 `--mcp-config` 파일에 실려 스폰되는 세션이 그 도구를 갖는다.
- */
+/** §5.5 #17-20 ⑥ — MCP 서버 프리셋(남이 만든 것, 실행법만 안다). 한 줄 더하면 체크박스가 되고, 켜면 `--mcp-config` 로 스폰 세션에 실린다. */
 export const MCP_SERVER_PRESETS: readonly McpServerPreset[] = [
   {
     id: 'debugger',
@@ -9902,56 +7876,31 @@ export function findMcpPreset(id: string): McpServerPreset | undefined {
 
 // ─── §7.11 프리뷰 조작 (판올림 번호 발급 대기) ───
 
-/**
- * 프리뷰 ↔ 주입 스크립트가 주고받는 메시지의 출처 표식.
- *
- * 프리뷰 안의 페이지가 자기 목적으로 `postMessage` 를 쓰는 일은 흔하므로, 이 문자열이 없는
- * 메시지는 양쪽 모두 무시한다(남의 메시지를 우리 것으로 오인하지 않는다).
- */
+/** 프리뷰 ↔ 주입 스크립트 메시지 표식 — 페이지 자신의 `postMessage` 와 가르려고, 이게 없는 메시지는 양쪽 다 무시한다. */
 export const PREVIEW_PICK_SOURCE = 'vibisual-preview';
 
 /** 집은 요소에서 가져올 텍스트 길이 상한. */
 export const PREVIEW_PICK_TEXT_MAX = 80;
 
 /**
- * §7.11 (G) — 프리뷰 안에서 누른 **Alt** 를 부모(우리 창)에게 넘기는 메시지의 종류.
- *
- * `{ source: PREVIEW_PICK_SOURCE, type: PREVIEW_ALT_MESSAGE, down: boolean, shift: boolean }`.
- * 세 곳(주입 스크립트·`usePreviewPicker`·`useInspector`)이 같은 낱말을 봐야 하므로 여기 한 곳에 둔다 —
- * 문자열을 각자 적어 두면 한쪽만 고쳐져 다리가 조용히 끊긴다.
+ * §7.11 (G) — 프리뷰 안 Alt 를 부모로 넘기는 메시지 종류(`{ source, type, down, shift }`).
+ * 주입 스크립트·`usePreviewPicker`·`useInspector` 가 이 한 곳을 본다 — 각자 적으면 한쪽만 고쳐져 다리가 끊긴다.
  */
 export const PREVIEW_ALT_MESSAGE = 'alt';
 
 /** 부모 → 프리뷰: Alt 를 우리가 가져갈지(`on`). 헤더 토글이 이 메시지를 보낸다. */
 export const PREVIEW_ALT_CAPTURE_MESSAGE = 'alt-capture';
 
-/**
- * §7.16 — 프리뷰 → 부모: **마우스가 이 프레임 안에 있다/없다**(`on`).
- *
- * `{ source: PREVIEW_PICK_SOURCE, type: PREVIEW_HOVER_MESSAGE, on: boolean }`.
- *
- * 프리뷰를 담은 우리 스크롤 상자는 마우스가 iframe 위로 들어간 순간 **아무 것도 받지 못한다**
- * (인스펙터가 켜질 때 iframe 의 `pointer-events` 를 일부러 끄는 것도 같은 이유다). 그래서 상자의
- * `:hover` 가 서지 않고, 기본 숨김인 스크롤바가 **굴릴 때만** 떴다 — 마우스를 대도 "여기 더 있다"가
- * 아무 데도 안 보인다. Alt 와 같은 까닭·같은 다리라, 안에서 들고 남을 알려 그 hover 를 대신 세운다.
- */
+/** §7.16 — 프리뷰 → 부모: 마우스가 프레임 안에 있나(`on`). iframe 위에선 바깥 스크롤 상자가 `:hover` 를 못 받아 스크롤바가 안 뜬다 — 안에서 알려 hover 를 대신 세운다. */
 export const PREVIEW_HOVER_MESSAGE = 'hover';
 
 /**
- * §7.11 (G) — Alt 를 **우리가 먼저 가진다**(기본 `true`).
- *
- * Alt 인스펙터는 앱 어디서나 같은 손짓이어야 하는데, 프리뷰 안은 오리진이 달라 그 자리만 죽어
- * 있었다("여기선 왜 안 되냐"). 그래서 기본은 우리 것이 강제고, 안에서 도는 앱이 Alt 를 쓰는
- * 경우를 위해 프리뷰 헤더의 토글로 **양보**한다 — 끄면 이 다리가 통째로 쉬고 키는 페이지 몫이다.
+ * §7.11 (G) — Alt 를 우리가 먼저 가진다(기본 `true` — 인스펙터는 프리뷰 안에서도 같은 손짓이어야 한다).
+ * 안의 앱이 Alt 를 쓰면 헤더 토글로 양보한다(끄면 이 다리가 쉬고 키는 페이지 몫).
  */
 export const PREVIEW_ALT_CAPTURE_DEFAULT = true;
 
-/**
- * 프리뷰 폭 프리셋 — Auto / 모바일 / 태블릿 / 데스크톱.
- *
- * `transform: scale()` 로 줄이지 않고 **실제 폭**으로 렌더한다(축소하면 미디어쿼리가 실제 폭을
- * 못 보고, "모바일에서 어떻게 보이나"를 확인하려던 목적 자체가 무너진다).
- */
+/** 프리뷰 폭 프리셋. `transform: scale()` 로 줄이지 마라 — 미디어쿼리가 실제 폭을 못 본다. */
 export const PREVIEW_DEVICE_PRESETS: readonly PreviewDevicePreset[] = [
   { id: 'auto', labelKey: 'common.preview.deviceAuto', width: null },
   { id: 'mobile', labelKey: 'common.preview.deviceMobile', width: 390 },
@@ -9969,12 +7918,7 @@ export interface PreviewCompareWidth {
   width: number;
 }
 
-/**
- * §5.17 (A) — `compare` 칸이 나란히 놓을 폭들.
- *
- * 목록을 따로 적지 않고 **위 표에서 폭이 있는 칸 전부**로 파생한다 — 프리셋을 한 줄 더 넣으면
- * 비교 줄도 함께 늘어난다(§3.3 하드코딩 ❌). `auto`/`compare` 는 폭이 없어 자연히 빠진다.
- */
+/** §5.17 (A) — `compare` 칸이 나란히 놓을 폭 = 위 표에서 폭이 있는 칸 전부(§3.3 — 따로 적지 않는다). */
 export function resolveCompareWidths(
   presets: readonly PreviewDevicePreset[] = PREVIEW_DEVICE_PRESETS,
 ): readonly PreviewCompareWidth[] {
@@ -9986,43 +7930,26 @@ export function resolveCompareWidths(
   return out;
 }
 
-/**
- * §5.17 (B) — 이보다 작게 그은 사각형은 오조작으로 보고 버린다(가로·세로 둘 다 이 값 이상이어야 한다).
- * 캡처 모드를 켠 채 무심코 클릭한 것과 "여기를 찍겠다" 를 가르는 선이다.
- */
+/** §5.17 (B) — 가로·세로 둘 다 이보다 작게 그은 사각형은 오조작(무심코 한 클릭)으로 보고 버린다. */
 export const PREVIEW_SNIP_MIN_PX = 8;
 
 // ─── §5.19 All Model — 로컬 LLM ───
 
-/**
- * §5.19 (B) — All Model 설치 식별자.
- * `UserDefaults.installedApps` 에 이 id 가 들어가면 "설치했다"는 뜻이다(새 영속 필드 발명 ❌).
- * 다만 이 플래그는 사용자의 의사일 뿐이고, **실제로 켜지는 판정은 디스크의 실물**이 한다.
- */
+/** §5.19 (B) — All Model 설치 식별자(`UserDefaults.installedApps` — 새 영속 필드 ❌). 이건 의사일 뿐, 켜짐 판정은 디스크의 실물이 한다. */
 export const ALL_MODEL_INSTALL_ID = 'allmodel';
 
 /** §5.19 (D) — llama.cpp 최신 릴리스 조회. **빌드 번호를 코드에 박지 않는다.** */
 export const LLAMA_RELEASE_LATEST_API = 'https://api.github.com/repos/ggml-org/llama.cpp/releases/latest';
 
 /**
- * §5.19 (D) — 릴리스 **목록** 조회.
- *
- * `/releases/latest` 는 prerelease 가 아닌 것만 돌려주는데, llama.cpp 가 릴리스 체계를 바꿔
- * 그 자리에 자산이 `nightly-tag.txt` 하나뿐인 태그(`v0.3.0`)가 앉았다. 플랫폼별 실제 바이너리
- * (win/macos/ubuntu × cpu/vulkan/cuda)는 전부 `b#####` 형태의 **prerelease 태그**에만 붙는다.
- * 그래서 목록을 받아 **자산을 실제로 가진 가장 최근 릴리스**를 골라야 한다.
- * (2026-08-26 실측: `/releases/latest` → assets 1개(zip 0개) → 전 플랫폼 설치 실패.)
+ * §5.19 (D) — 릴리스 목록 조회. `/releases/latest` 를 쓰지 마라 — llama.cpp 바이너리는 prerelease `b#####` 태그에만 붙는다
+ * (2026-08-26 실측: latest 는 자산 1개 → 전 플랫폼 설치 실패). 자산을 가진 가장 최근 릴리스를 고른다.
  */
 export const LLAMA_RELEASES_LIST_API = 'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=20';
 
 /**
- * §5.19 (B) (판올림 번호 발급 대기) — **내려받은 엔진 압축파일이 발행처가 올린 그것인가.**
- *
- * GitHub 릴리스 자산은 `.sha256` 사이드카를 따로 올리지 않는다(2026-09-08 실측) — 대신 자산
- * JSON 에 `digest: "sha256:<64 hex>"` 가 들어 있다. 우리는 그 목록을 **이미 TLS 로** 받아 자산을
- * 고르고 있으므로, 별도 요청 없이 그 값을 그대로 대조하면 된다(요청을 하나 더 늘리지 않는다).
- *
- * 모양이 다르거나 비어 있으면 `null` — 부르는 쪽이 "검증 못 함"과 "불일치"를 가를 수 있게 한다.
+ * §5.19 (B) — 받은 엔진 압축파일이 발행처의 것인가. 릴리스 자산엔 `.sha256` 이 없고(2026-09-08 실측) 자산 JSON 의 `digest` 를 대조한다(추가 요청 없음).
+ * 모양이 다르거나 비면 `null` — "검증 못 함"과 "불일치"를 가른다.
  */
 export function parseAssetSha256(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -10030,11 +7957,7 @@ export function parseAssetSha256(value: unknown): string | null {
   return m?.[1] ? m[1].toLowerCase() : null;
 }
 
-/**
- * §5.19 (D) — 기본 설치 백엔드.
- * Vulkan 한 벌이 NVIDIA·AMD·Intel 을 함께 덮고(33MB 급), CPU(18MB 급)는 폴백이다.
- * CUDA 는 빌드가 크고 런타임이 없으면 `cudart` 를 더 받아야 해서 **기본이 아니라 선택**이다.
- */
+/** §5.19 (D) — 기본 설치 백엔드. Vulkan 한 벌이 NVIDIA·AMD·Intel 을 덮고 CPU 는 폴백. CUDA 는 크고 `cudart` 가 더 필요해 선택이다. */
 export const LOCAL_ENGINE_DEFAULT_BACKENDS: readonly LocalEngineBackend[] = ['vulkan', 'cpu'];
 
 /** §5.19 (F) — 동시에 메모리에 올려 두는 모델 수 상한. 넘는 요청은 거절이 아니라 줄을 선다. */
@@ -10056,17 +7979,8 @@ export const HF_MODEL_API = 'https://huggingface.co/api/models';
 export const LOCAL_MODEL_SEARCH_LIMIT = 20;
 
 /**
- * §5.19 (E) — **대화용이 아니라고 스스로 밝힌** 저장소의 작업 태그. 목록에서 뺀다.
- *
- * **왜 화이트리스트가 아닌가 (2026-08-21 실측)**: `pipeline_tag=text-generation` 만 남기는
- * 반대 방향을 먼저 재 봤더니, 인기 GGUF 40건 중 그 태그를 단 것은 **6건뿐**이었다. 정작
- * 대화가 되는 `unsloth/Qwen3.8-27B-GGUF`(태그 없음) · `unsloth/Qwen3.6-35B-A3B-GGUF`
- * (`image-text-to-text`) · `unsloth/gemma-4-12B-it-qat-GGUF`(`any-to-any`) 가 통째로 사라졌다 —
- * 좋은 저장소일수록 태그를 안 달거나 멀티모달 태그를 단다.
- *
- * 그래서 판정을 뒤집는다. **모르면 막지 않고**(태그가 없으면 통과), 음성인식·임베딩·이미지
- * 생성처럼 **애초에 대화가 아닌 것**만 뺀다. 사용자가 1.18GB 음성인식 모델(`parakeet-ctc`)을
- * 받아 놓고 프롬프트를 친 뒤에야 알게 되던 그 자리가 여기다.
+ * §5.19 (E) — 대화용이 아니라고 스스로 밝힌 작업 태그(음성인식·임베딩·이미지 생성 등) — 목록에서 뺀다. 모르면 막지 않는다.
+ * 화이트리스트(`text-generation`)로 바꾸지 마라 — 2026-08-21 실측: 인기 GGUF 40건 중 6건만 그 태그였고, 대화 모델이 태그 없음·멀티모달 태그로 사라졌다.
  */
 export const LOCAL_MODEL_NON_CHAT_PIPELINE_TAGS: readonly string[] = [
   'automatic-speech-recognition', 'audio-classification', 'audio-to-audio',
@@ -10078,10 +7992,7 @@ export const LOCAL_MODEL_NON_CHAT_PIPELINE_TAGS: readonly string[] = [
   'video-classification', 'unconditional-image-generation',
 ];
 
-/**
- * §5.19 (E) — 이 저장소를 받기 목록에 올릴 것인가. **태그가 없으면 올린다**(모르면 막지 않는다).
- * 판정은 여기 한 곳에서만 — 서버가 거르고 화면이 다르게 말하면 사용자는 둘 다 안 믿는다.
- */
+/** §5.19 (E) — 받기 목록에 올릴 저장소인가. 태그가 없으면 올린다. 판정은 여기 한 곳(서버와 화면이 같은 답). */
 export function isChatCapablePipelineTag(pipelineTag: string | null | undefined): boolean {
   if (!pipelineTag) return true;
   return !LOCAL_MODEL_NON_CHAT_PIPELINE_TAGS.includes(pipelineTag);
@@ -10090,26 +8001,12 @@ export function isChatCapablePipelineTag(pipelineTag: string | null | undefined)
 /** §5.19 (E) — 한 저장소에서 보여 줄 GGUF 파일(양자화) 상한. */
 export const LOCAL_MODEL_FILE_LIMIT = 40;
 
-/**
- * §5.19 (E) — 저장소를 펼쳤을 때 **먼저 서는** 양자화 개수. 나머지는 한 줄 뒤로 접힌다.
- *
- * 스무 갈래를 한꺼번에 늘어놓는 것은 고르라는 말이 아니라 알아서 공부하라는 말이다.
- * 셋인 이유는 "가장 많이 쓰는 것 + 한 단계 위 + 한 단계 아래"가 대개 그 안에 들어오기
- * 때문이다 — 그보다 아래는 접어 두되, 누르면 전부 보인다(숨기는 것이 아니라 미뤄 두는 것).
- */
+/** §5.19 (E) — 펼쳤을 때 먼저 서는 양자화 수(흔한 것 + 한 단계 위·아래). 나머지는 접힐 뿐 누르면 다 보인다. */
 export const LOCAL_MODEL_TOP_QUANT_COUNT = 3;
 
 /**
- * §5.19 (E) — 양자화가 **얼마나 많이 쓰이는가**의 순위(작을수록 앞에 선다).
- *
- * **왜 표를 드는가**: 카탈로그는 저장소 단위 내려받기 수만 준다 — 같은 저장소 안에서
- * `Q4_K_M` 과 `IQ1_S` 중 무엇이 더 받혔는지는 어디에도 없다(2026-08-24 확인). 그래서 파일
- * 순서만은 우리가 정해야 하고, 근거는 llama.cpp 진영에서 굳어진 통용 순서다 — `Q4_K_M` 이
- * 기본, 여유가 있으면 `Q5_K_M`·`Q8_0`, 모자라면 `Q3`·`IQ` 로 내려간다. 올라마가 태그 없는
- * 저장소에서 `Q4_K_M` 을 집는 것도 같은 순서를 따른 것이다.
- *
- * **순위는 숨기는 장치가 아니다** — 표에 없는 이름은 뒤로 갈 뿐 목록에서 빠지지 않는다.
- * 값을 5씩 띄운 것은 새 양자화가 나왔을 때 사이에 끼워 넣기 위함이다.
+ * §5.19 (E) — 양자화 통용 순위(작을수록 앞). 카탈로그엔 파일별 내려받기 수가 없어(2026-08-24 확인) llama.cpp 통용 순서를 쓴다(`Q4_K_M` 기본).
+ * 표에 없는 이름은 뒤로 갈 뿐 빠지지 않는다. 5씩 띄운 것은 새 양자화를 끼우기 위함이다.
  */
 export const QUANT_POPULARITY: Readonly<Record<string, number>> = {
   // 가장 흔한 한 벌 — 대부분이 이 셋 안에서 고른다.
@@ -10131,22 +8028,13 @@ export const QUANT_POPULARITY: Readonly<Record<string, number>> = {
 /** §5.19 (E) — 표에 없는 양자화의 자리. 옛 방식·원본보다는 앞이다(모르는 것을 맨 뒤로 밀지 않는다). */
 export const QUANT_RANK_UNKNOWN = 190;
 
-/**
- * §5.19 (E) — 이 양자화가 목록에서 몇 번째로 설 것인가. 판정은 여기 한 곳에서만 한다.
- * 대소문자를 가리지 않으며(`q4_k_m` 도 같다), unsloth 의 `UD-` 접두는 파일명을 읽는 쪽
- * (`parseQuant`)이 이미 떼고 넘겨 준다.
- */
+/** §5.19 (E) — 목록 순위(판정은 여기 한 곳). 대소문자 무시, unsloth `UD-` 접두는 `parseQuant` 가 이미 뗀다. */
 export function quantRank(quant: string | null | undefined): number {
   if (!quant) return QUANT_RANK_UNKNOWN;
   return QUANT_POPULARITY[quant.toUpperCase()] ?? QUANT_RANK_UNKNOWN;
 }
 
-/**
- * §5.19 (E) — 카탈로그를 어떤 축으로 줄 세울 것인가.
- *
- * 이 값은 **카탈로그에 그대로 넘긴다** — 받아 온 스무 건을 우리가 다시 정렬하면 "하트순
- * 1위"가 그 스무 건 안에서만 1위가 되어, 사용자가 보는 순위와 실제 순위가 갈린다.
- */
+/** §5.19 (E) — 정렬 축은 카탈로그에 그대로 넘긴다 — 받아 온 스무 건을 다시 정렬하면 실제 순위와 갈린다. */
 export const LOCAL_MODEL_CATALOG_SORTS: readonly LocalModelCatalogSort[] = ['downloads', 'likes', 'trending', 'recent'];
 
 /** §5.19 (E) — 우리 정렬 축 → 카탈로그(허깅페이스) 필드 이름. */
@@ -10167,23 +8055,14 @@ export const HF_EXPAND_FIELDS: readonly string[] = ['downloads', 'likes', 'trend
 export const LOCAL_ENGINE_DIR_NAME = 'engine';
 export const LOCAL_MODEL_DIR_NAME = 'models';
 
-/**
- * §5.19 (E) — 가중치 말고도 자리가 든다(문맥 캐시·작업 버퍼). 파일 크기에 이만큼 얹어
- * 잡는다. 후하게 잡아 "된다고 했는데 안 되는" 쪽보다 "된다고 안 했는데 됐다" 쪽으로 튄다.
- */
+/** §5.19 (E) — 가중치 외 자리(문맥 캐시·작업 버퍼)로 파일 크기에 얹는 비율. 후하게 잡는다("된다고 했는데 안 되는" 쪽보다 낫다). */
 export const LOCAL_MODEL_OVERHEAD_RATIO = 1.2;
 /** 위 비율에 더해 붙는 고정 여유(문맥 16K 기준 대략치). */
 export const LOCAL_MODEL_OVERHEAD_BYTES = 1_500_000_000;
 /** 시스템 메모리는 다 쓸 수 없다 — OS·앱이 쓸 몫을 남긴다. */
 export const LOCAL_MODEL_RAM_USABLE_RATIO = 0.7;
 
-/**
- * §5.19 (E) — 이 모델이 이 PC 에서 어떻게 돌지 판정한다.
- *
- * **판정 규칙은 한 곳에만 둔다** — 서버가 고르고 화면이 다르게 말하면 그 순간부터
- * 사용자는 둘 다 안 믿는다. 잴 수 없으면 `unknown` 으로 정직하게 물러난다(넘겨짚어
- * "돌아갑니다"라고 말하는 것이 가장 나쁘다).
- */
+/** §5.19 (E) — 판정 규칙은 여기 한 곳(서버와 화면이 같은 답). 잴 수 없으면 `unknown` — 넘겨짚어 "돌아갑니다"라 하지 않는다. */
 export function classifyModelFit(
   sizeBytes: number,
   hardware?: { vramFreeBytes: number; totalRamBytes: number; measuredAt: number } | null,
@@ -10201,25 +8080,13 @@ export function classifyModelFit(
  */
 export const LOCAL_DEFAULT_CONTEXT_SIZE = 16384;
 
-/**
- * §5.19 (D) — 사용자가 고를 수 있는 대화 창의 아래·위 끝.
- *
- * 아래는 도구 정의만으로도 차 버리지 않을 만큼, 위는 요즘 모델이 실제로 학습된 길이까지.
- * 위 끝을 넘겨 잡아도 소용이 없다 — 모델의 학습 문맥이 더 작으면 그 값으로 낮춰서 뜬다.
- */
+/** §5.19 (D) — 대화 창 아래·위 끝(토큰). 아래는 도구 정의가 들어갈 만큼, 위는 학습 길이까지(모델 학습 문맥이 작으면 그 값으로 낮춰 뜬다). */
 export const LOCAL_CONTEXT_MIN = 2048;
 export const LOCAL_CONTEXT_MAX = 262_144;
 
 /**
- * §5.19 (D) — 답 길이 상한이 문맥에서 차지하는 몫. 나머지는 프롬프트·이력이 쓴다.
- *
- * **왜 고정값이 아닌가 (2026-08-21 실측)**: 종전에는 4,096 고정이었다. 그런데 생각을 길게
- * 하는 모델은 그 상한을 **생각으로만** 다 써 버리고 답을 한 글자도 못 쓴다 — Qwen3.8-27B 에
- * debounce 구현을 시키자 16,950자를 생각하다 4,096 토큰을 소진하고 빈 답으로 끝났다
- * (`finish_reason=length`). 사용자에게는 "105초를 돌더니 아무 말도 안 한" 것으로 보인다.
- * 문맥을 늘린 사용자는 답 길이도 함께 늘어나야 한다.
- *
- * 상한 자체를 없애지는 않는다 — 로컬은 느려서 끝을 모르면 사람이 하염없이 기다린다.
+ * §5.19 (D) — 답 길이 상한의 문맥 비율(문맥을 늘리면 답도 늘게). 고정값으로 되돌리지 마라 —
+ * 2026-08-21 실측: 4,096 고정이면 긴 생각이 상한을 다 써 빈 답(`finish_reason=length`). 상한 자체는 둔다(로컬은 느리다).
  */
 export const LOCAL_ANSWER_BUDGET_RATIO = 0.75;
 
@@ -10233,12 +8100,8 @@ export const LOCAL_ANSWER_BUDGET_MIN = 1024;
 export const LOCAL_ANSWER_BUDGET_RESERVE = 256;
 
 /**
- * §5.19 (D) — 이 문맥에서 한 턴에 만들 토큰 상한. **판정은 여기 한 곳에서만.**
- *
- * `promptTokens` 를 주면 **남은 자리 안에서** 잡는다. 종전에는 창의 75% 고정이라, 이력이
- * 길어져 프롬프트가 창의 절반을 먹은 뒤에도 여전히 75% 를 달라고 했다 — 엔진은 그걸 거절하지
- * 않고(400 은 프롬프트만 본다) 대신 **생성 도중 창 끝에 닿아 답을 자른다**. 사용자에게는
- * "말하다 만 답"으로 보인다. 프롬프트 토큰 수는 직전 왕복의 `usage` 로 공짜로 알 수 있다.
+ * §5.19 (D) — 한 턴 생성 토큰 상한(판정은 여기 한 곳). `promptTokens`(직전 `usage`)가 있으면 남은 자리 안에서 잡는다 —
+ * 고정 비율이면 엔진은 거절하지 않고(400 은 프롬프트만 본다) 생성 도중 창 끝에서 답을 자른다.
  */
 export function localAnswerBudget(contextSize: number, promptTokens?: number): number {
   const ctx = contextSize > 0 ? contextSize : LOCAL_DEFAULT_CONTEXT_SIZE;
@@ -10251,15 +8114,8 @@ export function localAnswerBudget(contextSize: number, promptTokens?: number): n
 }
 
 /**
- * §5.19 (D) — 그중 **생각**이 쓸 수 있는 몫. 나머지가 실제 답이 된다.
- *
- * **왜 사고에 상한이 필요한가 (2026-08-21 실측)**: 답 예산을 4,096 → 12,288 으로 늘려도
- * Qwen3.8-27B 은 debounce 구현 하나에 48,352자를 생각하다 **예산을 통째로 소진하고 빈 답**
- * 으로 끝났다(5분 19초). 예산을 더 키우는 것은 답이 아니다 — 생각이 스스로 멈추지 않는다.
- * 엔진의 `--reasoning-budget` 로 여기서 끊으면 모델은 결론을 내고 답을 쓴다(같은 과제,
- * 사고 3,072 상한 → `finish_reason=stop`, 1,931자짜리 정상 구현).
- *
- * 생각이 없는 모델에는 아무 영향이 없다 — 쓸 일이 없는 몫이다.
+ * §5.19 (D) — 그중 생각 몫. 엔진 `--reasoning-budget` 로 끊는다 — 예산을 키워도 생각은 스스로 멈추지 않는다
+ * (2026-08-21 실측: 답 예산 12,288 에도 빈 답, 사고 3,072 상한이면 `finish_reason=stop`). 생각 없는 모델엔 영향 없음.
  */
 export const LOCAL_THINKING_BUDGET_RATIO = 0.25;
 
@@ -10271,13 +8127,7 @@ export function localThinkingBudget(contextSize: number): number {
 
 // ─── §5.19 (H) 도구 — 로컬 모델이 파일을 읽고 고친다 ───
 
-/**
- * §5.19 (H) — 한 턴에서 도구를 돌 수 있는 **최대 왕복 수**.
- *
- * 도구 대화는 "모델이 부른다 → 우리가 실행한다 → 결과를 돌려준다 → 모델이 또 부른다" 의
- * 되풀이라, 끝을 안 정하면 모델이 같은 도구를 무한히 부르는 동안 사람이 못 끊는다
- * ([중지]가 있지만 기본값에 끝이 있어야 한다 — 사고 예산과 같은 규율).
- */
+/** §5.19 (H) — 한 턴의 도구 왕복 상한. 없으면 같은 도구를 무한히 부른다([중지]가 있어도 기본값에 끝을 둔다). */
 export const LOCAL_TOOL_MAX_ROUNDS = 24;
 
 /** 한 파일에서 읽어 모델에게 줄 최대 바이트. 넘으면 앞부분만 주고 잘렸다고 말한다. */
@@ -10286,22 +8136,12 @@ export const LOCAL_TOOL_READ_MAX_BYTES = 256 * 1024;
 /** 도구 결과 한 건이 모델에게 갈 때의 글자 상한. 문맥을 한 번에 삼키지 않게. */
 export const LOCAL_TOOL_RESULT_MAX_CHARS = 24_000;
 
-/**
- * §5.19 (D)(H) — 토큰을 글자로 어림잡는 환산비. **문맥 예산을 글자로 재기 위한 것**이지
- * 정확한 토크나이저 대체물이 아니다(모델마다 다르다). 한글은 한 자에 한 토큰 가까이 가고
- * 영문·코드는 서너 자에 한 토큰이라, 그 사이에서 **적게 잡는 쪽**을 고른다 — 넘겨짚어 크게
- * 잡으면 예산을 넘긴 채로 엔진에 보내 400 을 맞고, 그쪽이 사용자에게 더 나쁘다.
- */
+/** §5.19 (D)(H) — 문맥 예산용 글자/토큰 환산비(토크나이저 아님). 한글 ≈ 1, 영문·코드 3~4 사이에서 적게 잡는다 — 크게 잡으면 예산을 넘겨 400 을 맞는다. */
 export const LOCAL_CHARS_PER_TOKEN = 3;
 
 /**
- * §5.19 (H) — 도구 결과 **한 건**이 이 문맥에서 차지해도 되는 몫.
- *
- * **왜 고정 24,000자로는 안 되나 (2026-08-21 실측)**: 기본 문맥은 16,384 토큰인데 고정
- * 상한 24,000자는 그 절반을 훌쩍 넘게 삼킨다. 웹 페이지 한 장을 받아 온 도구 결과 하나가
- * 창을 다 먹고, 그다음 왕복에서 엔진이
- * `request (N tokens) exceeds the available context size (M tokens)` 로 **요청 자체를**
- * **400 으로 거절**했다. 한 건이 창의 4분의 1을 넘지 못하게 한다.
+ * §5.19 (H) — 도구 결과 한 건의 문맥 몫(창의 4분의 1). 고정 글자 수로 두지 마라 —
+ * 2026-08-21 실측: 24,000자 고정이면 기본 문맥(16,384 토큰)에서 웹 결과 하나가 창을 먹어 다음 요청이 400 으로 거절됐다.
  */
 export const LOCAL_TOOL_RESULT_CONTEXT_RATIO = 0.25;
 
@@ -10312,13 +8152,7 @@ export function localToolResultBudget(contextSize: number): number {
   return Math.max(2_000, Math.min(LOCAL_TOOL_RESULT_MAX_CHARS, byContext));
 }
 
-/**
- * §5.19 (D) — 지난 이력이 문맥에서 차지해도 되는 몫. 나머지는 이번 턴의 질문·도구 왕복·답이 쓴다.
- *
- * **왜 상한이 필요한가**: 이력은 턴마다 이어 붙기만 하고 스스로 줄지 않는다. 상한이 없으면
- * 어느 세션이든 언젠가 문맥을 넘고, 그때부터 **그 버블은 무엇을 쳐도 400** 이 된다 — 되돌릴
- * 손잡이가 화면에 없으므로 사용자에게는 버블이 죽은 것과 같다.
- */
+/** §5.19 (D) — 지난 이력의 문맥 몫. 이력은 스스로 줄지 않아 상한이 없으면 언젠가 그 버블은 무엇을 쳐도 400 이 된다. */
 export const LOCAL_HISTORY_CONTEXT_RATIO = 0.5;
 
 /** §5.19 (D) — 이 문맥에서 지난 이력에 허용할 글자. **판정은 여기 한 곳에서만.** */
@@ -10327,30 +8161,15 @@ export function localHistoryBudget(contextSize: number): number {
   return Math.max(4_000, Math.floor(ctx * LOCAL_HISTORY_CONTEXT_RATIO * LOCAL_CHARS_PER_TOKEN));
 }
 /**
- * §5.19 (H) — 한 턴에서 **같은 도구를 같은 인자로** 몇 번까지 실제로 돌려줄 것인가.
- *
- * 작은 모델은 결과를 못 읽고 같은 호출을 되풀이한다. 왕복 상한(24)만 있으면 그 24번을 전부
- * 헛돌리며 사람은 몇 분을 기다린다. 그렇다고 한 번만 허용하면 **고친 뒤 다시 돌려 보는**
- * 정당한 재실행(편집 → 같은 테스트 명령)까지 막힌다 — 그래서 몇 번은 허용하고 그 뒤로는
- * 실행 대신 "방금 같은 호출을 했다"를 결과로 돌려준다.
+ * §5.19 (H) — 같은 도구·같은 인자를 실제로 돌릴 횟수(작은 모델은 같은 호출을 되풀이한다).
+ * 1 이면 편집 뒤 같은 테스트 재실행까지 막힌다 — 넘으면 실행 대신 "방금 같은 호출"을 결과로 준다.
  */
 export const LOCAL_TOOL_REPEAT_LIMIT = 3;
 
-/**
- * §5.19 (D) — 대화를 접을 때 요약이 쓸 수 있는 토큰.
- *
- * 넉넉하면 요약이 아니라 두 번째 대화가 되고, 인색하면 결정·파일 경로가 잘려 접은 값이
- * 쓸모없어진다. 400 낱말 안팎을 담을 만큼만 준다.
- */
+/** §5.19 (D) — 대화 접기 요약의 토큰(400 낱말 안팎). 넉넉하면 두 번째 대화가, 인색하면 결정·파일 경로가 잘린다. */
 export const LOCAL_COMPACT_MAX_TOKENS = 800;
 
-/**
- * §5.19 (D) — 엔진에게 KV 조각을 이어 쓰게 할 최소 단위(토큰).
- *
- * 우리는 문맥이 넘치면 이력 **앞**을 잘라 낸다(§5.19 (D)). 그런데 앞이 바뀌면 토큰 프리픽스가
- * 달라져 엔진이 프롬프트를 **통째로 다시 평가**한다 — 로컬에서 그건 곧 수십 초다. 이 값을 주면
- * 엔진이 어긋난 앞부분만 버리고 뒤쪽 조각을 이어 쓴다. 256 은 llama.cpp 쪽에서 통용되는 크기.
- */
+/** §5.19 (D) — KV 조각 재사용 최소 단위(llama.cpp 통용값). 이력 앞을 잘라 프리픽스가 바뀌어도 프롬프트 전체 재평가(로컬 수십 초)를 피한다. */
 export const LOCAL_ENGINE_CACHE_REUSE = 256;
 /** 목록·검색이 한 번에 돌려줄 최대 항목 수. */
 export const LOCAL_TOOL_LIST_MAX_ENTRIES = 400;
@@ -10359,25 +8178,9 @@ export const LOCAL_TOOL_LIST_MAX_ENTRIES = 400;
 export const LOCAL_WEB_SEARCH_MAX_HITS = 8;
 
 /**
- * §5.19 (H) — 로컬 모델의 `WebSearch` 가 쓰는 검색 창구.
- *
- * **왜 여기로 왔나**: 종전에는 `html.duckduckgo.com` 의 결과 화면을 받아 HTML 을 파싱했다.
- * 키가 필요 없다는 장점 하나로 골랐지만, 그건 DDG 이용약관이 금지하는 자동 조회였다 —
- * 배포되는 제품이라 우리 사용자들이 차단 대상이 된다.
- *
- * **왜 이것인가**: 대안을 실측으로 훑은 결과 조건(무료 · 키 불필요 · 약관이 허용 · 일반 웹
- * 결과)을 다 만족하는 것은 이 하나였다.
- *  · DDG 공식 Instant Answer API — 키는 필요 없으나 즉답 전용이라 웹 결과가 **0건**(실측).
- *  · Mojeek — 자동 질의라며 **403** 으로 거절(실측).
- *  · Marginalia 공개 API — 동작하지만 공개 키는 **상업적 사용 금지**이고 결과가
- *    CC-BY-NC-SA 라, 제품에 실으면 지금보다 나쁜 자리로 간다.
- *  · Brave · Serper · Exa · Google CSE — 품질은 되지만 **사용자마다 키 발급**이 필요하다.
- *
- * Firecrawl 은 2026-06-16 자로 **키 없는 접근을 공식 기능으로 열었다**(월 1,000 크레딧,
- * IP 단위 일일 상한, 넘으면 429). 상한이 IP 단위라는 점이 배포 제품에 오히려 맞는다 —
- * 사용자마다 자기 할당량을 쓰고 우리 쪽으로 몰리지 않는다.
- *
- * 더 쓰려는 사용자는 `FIRECRAWL_API_KEY` 를 환경변수로 두면 자기 키로 올라간다(선택).
+ * §5.19 (H) — 로컬 `WebSearch` 창구. 결과 화면 HTML 파싱(DDG)으로 되돌리지 마라 — 약관이 금지하는 자동 조회다.
+ * 무료·키 불필요·약관 허용·일반 웹 결과를 다 만족한 것은 이것뿐이다(실측: DDG Instant Answer 0건 · Mojeek 403 · Marginalia 상업 금지 · 나머지는 사용자별 키).
+ * Firecrawl 키 없는 접근은 공식 기능(2026-06-16~, IP 단위 일일 상한, 넘으면 429). `FIRECRAWL_API_KEY` 를 두면 자기 키로 올라간다.
  */
 export const LOCAL_WEB_SEARCH_API_URL = 'https://api.firecrawl.dev/v2/search';
 /** 검색 한 번의 상한(ms). 모델이 기다리는 시간이라 길게 잡지 않는다. */
@@ -10387,18 +8190,8 @@ export const LOCAL_WEB_SEARCH_TIMEOUT_MS = 20_000;
 export const LOCAL_TOOL_COMMAND_TIMEOUT_MS = 120_000;
 
 /**
- * §5.19 (H) (판올림 번호 발급 대기) — **셸도 루트 안에 둔다.**
- *
- * `localTools.ts` 머리말은 경계 셋 중 첫째로 "프로젝트 루트 밖으로 못 나간다"를 선언하는데, 그 가드는
- * 파일 도구(`Read`/`Write`/`Edit`/`Glob`/`Grep`)에만 걸려 있고 **`Bash` 에는 없었다.** `cwd` 가 루트일
- * 뿐이라 `cd ~` 한 번이면 나가고, 그 자리는 모델 출력이 검사 없이 `/bin/sh -c` 로 가는 곳이다
- * (클로드 경로는 CLI 가 이 판정을 대신 해 주지만 로컬에는 그 CLI 가 없다 — `resolveLocalToolGate` 가
- * 세운 규율과 같은 자리다).
- *
- * **명령을 해석하지 않는다** — 셸 문법을 우리가 다시 파싱하기 시작하면 그 파서가 곧 우회 대상이 된다.
- * 대신 **눈에 띄는 이탈 신호**만 거절하고 그 사실을 모델에게 결과로 알린다(던지지 않는다). 통과한
- * 명령이 그래도 밖으로 나갈 수 있다는 것은 사실이고, 이 목록은 "사고로 나가는 것"과 "한 줄 주입으로
- * 나가는 것"을 막는 자리이지 샌드박스가 아니다 — 진짜 봉인은 §5.22 경계를 켜는 것이다.
+ * §5.19 (H) — 셸도 루트 안에 둔다. 파일 도구 루트 가드는 `Bash` 에 안 걸린다(`cd ~` 면 나가고, 로컬엔 판정해 줄 CLI 가 없다).
+ * 명령을 파싱하지 않는다(파서가 곧 우회 대상) — 눈에 띄는 이탈 신호만 거절해 결과로 알린다. 샌드박스가 아니다 — 진짜 봉인은 §5.22 경계.
  */
 export const LOCAL_BASH_ESCAPE_PATTERNS: readonly RegExp[] = [
   // 홈 확장 — `cd ~`, `cat ~/.claude/.credentials.json`
@@ -10425,14 +8218,7 @@ export function detectLocalBashEscape(command: string): string | null {
   return null;
 }
 
-/**
- * §5.19 (H) — 이 모델에게 주는 도구들. **OpenAI 함수 호출 서식** 그대로다
- * (llama-server 의 `/v1/chat/completions` 가 그 서식을 받는다 — 새 규약 발명 ❌).
- *
- * 이름은 클로드 경로의 도구와 **같은 이름**을 쓴다(`Read`·`Write`·`Edit`·`Glob`·`Grep`·`Bash`).
- * 권한 팝업·감사 기록·도구 카드가 전부 도구 **이름**으로 갈라지므로, 여기서 다른 이름을 쓰면
- * 같은 일을 하는 호출이 화면에서 남남이 된다.
- */
+/** §5.19 (H) — 로컬 도구 정의(OpenAI 함수 호출 서식 — llama-server 가 받는다). 이름은 클로드 경로와 같게 — 권한·감사·도구 카드가 이름으로 갈린다. */
 export const LOCAL_TOOL_DEFS = [
   {
     type: 'function',
@@ -10638,29 +8424,16 @@ export const LOCAL_TOOL_DEFS = [
 /** 위 목록의 도구 이름들 — 모델이 없는 도구를 부를 때 걸러내는 근거. */
 export const LOCAL_TOOL_NAMES: readonly string[] = LOCAL_TOOL_DEFS.map((t) => t.function.name);
 
-/**
- * §5.19 (H) — 읽기만 하는 도구. 이것들은 **묻지 않는다**(클로드 경로의 `READ_TOOLS` 와 같은 규율).
- * 여기 없는 것은 전부 "무언가를 바꾸는" 도구로 본다 — 모르는 도구를 안전한 쪽으로 넘겨짚지 않는다.
- */
+/** §5.19 (H) — 읽기 전용 도구(묻지 않는다 — `READ_TOOLS` 와 같은 규율). 여기 없는 것은 전부 바꾸는 도구로 본다. */
 export const LOCAL_READ_ONLY_TOOLS: readonly string[] = ['Read', 'Glob', 'Grep'];
 
 /** §5.19 (H) — 파일을 고치는 도구(권한 모드 `acceptEdits` 가 자동 승인하는 범위). */
 export const LOCAL_EDIT_TOOLS: readonly string[] = ['Write', 'Edit'];
 
-/**
- * §5.19 (H) — **서버가 대신 처리하는** 도구들. 파일이 아니라 우리 화면·설정을 움직인다.
- * 러너는 이 이름들을 보고 파일 도구 대신 호스트 쪽 처리기로 넘긴다.
- */
+/** §5.19 (H) — 서버가 대신 처리하는 도구(화면·설정을 움직인다) — 러너가 호스트 처리기로 넘긴다. */
 export const LOCAL_HOST_TOOLS: readonly string[] = ['TodoWrite', 'AskUserQuestion', 'ExitPlanMode'];
 
-/**
- * §5.19 (H) — `TodoWrite` 가 쓰는 낱말을 목표창의 낱말로 옮긴다.
- *
- * 도구 스키마는 클로드의 `TodoWrite` 와 **같은 낱말**(`completed`)을 쓴다 — 모델들이 그 이름으로
- * 배웠기 때문에 여기서 우리 낱말을 강요하면 모델이 자꾸 틀린다. 반대로 목표창은 `done` 을 쓴다.
- * 이 함수가 그 사이를 잇는다. **없으면 단계가 영영 완료로 안 넘어가고 퍼센트가 0에 머문다**
- * (조용히 틀리는 부류라 눈에 안 띈다).
- */
+/** §5.19 (H) — `TodoWrite` 의 `completed`(모델이 배운 낱말)를 목표창 `done` 으로. 없으면 단계가 완료로 안 넘어가 퍼센트가 0에 머문다. */
 export function normalizeTodoStatus(raw: unknown): 'pending' | 'in_progress' | 'done' | undefined {
   if (raw === 'completed' || raw === 'done') return 'done';
   if (raw === 'in_progress' || raw === 'active') return 'in_progress';
@@ -10678,18 +8451,8 @@ export const LOCAL_EXIT_PLAN_TOOL = 'ExitPlanMode';
 export const LOCAL_NETWORK_TOOLS: readonly string[] = ['WebFetch', 'WebSearch'];
 
 /**
- * §5.3 #12-1-A — **이 호출이 사용자가 지목한 "물어봐야 하는 도구"인가.**
- *
- * `permissionMode` 는 모드 단위라 한 도구만 붙잡을 방법이 없다. 사용자가 `bypassPermissions` 를
- * 고른 뜻은 "읽고 찾고 고치는 것을 매번 묻지 말라"이지 "무엇이든 말없이 하라"가 아니다 —
- * 걱정되는 것은 그중 몇 가지뿐인데, 그 몇 가지 때문에 모드 전체를 내려야 했다. 이 함수가 그 한 칸이다.
- *
- * **판정은 여기 한 곳에서만.** 훅 경로(`POST /api/permission-check`)와 로컬 경로
- * (`subAgentManager` 의 `requestTool`)가 같은 함수를 부른다 — 두 벌이 되면 헤드리스에서는
- * 물어보고 로컬 모델에서는 안 묻는 상태가 생기고, 사용자에게는 "켰는데 안 먹는다"로만 보인다.
- *
- * 비교는 **정확한 이름 일치**다(대소문자 접기 ❌ — 도구 이름은 CLI 가 정한 식별자이고
- * `Read` 와 `read` 는 같은 것이 아니다). 목록이 비었거나 없으면 `false` = 종전과 완전히 동일.
+ * §5.3 #12-1-A — 사용자가 지목한 "물어볼 도구"인가(모드는 도구 하나를 못 붙잡는다).
+ * 판정은 여기 한 곳 — 훅 경로(`/api/permission-check`)와 로컬 `requestTool` 이 같이 부른다. 정확한 이름 일치(대소문자 접기 ❌). 목록이 없으면 `false`.
  */
 export function shouldAskForTool(askTools: readonly string[] | undefined, toolName: string): boolean {
   if (!askTools || askTools.length === 0) return false;
@@ -10697,13 +8460,7 @@ export function shouldAskForTool(askTools: readonly string[] | undefined, toolNa
   return askTools.includes(toolName);
 }
 
-/**
- * §5.3 #12-1-B — **이 도구는 금지 목록에 있는가.**
- *
- * `--disallowedTools` 는 스폰 때 실리므로 오래 사는 자식은 [항상 거절] 뒤에도 다음 스폰까지 그 도구를
- * 계속 가진다. 그래서 판정 자리 두 곳(`/api/permission-check` · 로컬 `requestTool`)이 모드 단축보다
- * 먼저 이 함수를 본다 — `shouldAskForTool` 과 같은 규율(한 곳 · 정확한 이름 일치).
- */
+/** §5.3 #12-1-B — 금지 목록에 있나. `--disallowedTools` 는 스폰 때만 실려 오래 사는 자식이 [항상 거절] 뒤에도 그 도구를 가진다 — 두 판정 자리가 모드보다 먼저 본다. */
 export function isToolDisallowed(disallowedTools: readonly string[] | undefined, toolName: string): boolean {
   if (!disallowedTools || disallowedTools.length === 0) return false;
   if (!toolName) return false;
@@ -10728,25 +8485,19 @@ export function permissionDecisionSource(decision: { reason?: string; cancelled?
 }
 
 /**
- * §5.22 · §5.3 #12-1-B — **거부 수에 드는 줄인가.** 취소(`decisionSource:'cancelled'`)는 실행되지 않아 `deny` 로
- * 적히지만 사람도 정책도 거부하지 않았다 — 세면 멈춘 에이전트가 "거부가 늘었다"로 읽힌다.
- * 서버 집계와 타임라인의 거부 탭이 같은 이 함수를 쓴다(두 벌이면 탭 숫자와 목록 길이가 어긋난다).
+ * §5.22 · §5.3 #12-1-B — 거부 수에 드는 줄인가. 취소(`cancelled`)는 `deny` 로 적혀도 거부가 아니다(세면 멈춘 에이전트가 "거부 증가"로 읽힌다).
+ * 서버 집계와 타임라인 거부 탭이 함께 쓴다.
  */
 export function isAuditEntryDenied(entry: { decision?: 'allow' | 'deny'; decisionSource?: string }): boolean {
   return entry.decision === 'deny' && entry.decisionSource !== 'cancelled';
 }
 
-/**
- * §5.3 #12-1-B — 세션 기억(이 세션에선 허용) 상한. 키 = 에이전트 + 세션 + 도구 이름이라 사람이 누른 만큼만
- * 늘지만, 앱을 오래 켜 두면 세션이 계속 새로 생긴다 — 넘치면 가장 오래된 기억부터 잊는다(다시 물을 뿐이다).
- */
+/** §5.3 #12-1-B — 세션 기억(이 세션에선 허용) 상한. 세션이 계속 생겨 키가 늘므로 넘치면 오래된 것부터 잊는다(다시 물을 뿐). */
 export const PERMISSION_SESSION_GRANTS_MAX = 500;
 
 /**
- * §5.3 #12-1-B — [항상 허용]/[항상 거절]을 확인 목록·금지 목록에 적은 **다음 모양**을 만든다(순수 함수).
- * - 항상 허용: 확인 목록에서 뺀다(사용자가 켠 것을 사용자가 끈다). 금지 목록은 건드리지 않는다.
- * - 항상 거절: 금지 목록에 넣고(중복 ❌) 확인 목록에서 뺀다 — 둘에 함께 있으면 어느 쪽이 이기는지 설명할 수 없다.
- * 원본 배열은 바꾸지 않는다. 비었거나 없던 목록은 그대로 둔다(없던 칸에 빈 배열을 만들지 않는다).
+ * §5.3 #12-1-B — [항상 허용]/[항상 거절] 뒤의 목록(순수 — 원본 불변, 없던 칸은 만들지 않는다).
+ * 허용 = 확인 목록에서 뺌. 거절 = 금지 목록에 넣고(중복 ❌) 확인 목록에서 뺌(둘에 함께 있으면 안 된다).
  */
 export function applyToolListAlways(
   lists: { askTools: readonly string[] | undefined; disallowedTools: readonly string[] | undefined },
@@ -10779,24 +8530,10 @@ export interface IngressPermissionGuardResult extends AgentPermissionAxes {
 }
 
 /**
- * §5.3 #12-1 — **권한 축은 사용자만 올린다.**
- *
- * `PUT /api/agent-config/:id` 는 §3.7 빌더 구축 경로라 loopback 토큰만 있으면 닿는데, 그 토큰은
- * 우리가 스폰한 에이전트의 env(`VIBISUAL_TOKEN`)와 프롬프트 본문에 실려 나간다 — 즉 **토큰을 들고
- * 있다는 것이 사용자 의사라는 뜻이 아니다.** 그 에이전트가 읽는 것은 프로젝트 파일·웹 문서라,
- * 거기 심긴 한 줄이 그대로 이 창구의 입력이 된다. 감시받는 쪽이 감시 장치를 끌 수 있으면
- * 그것은 게이트가 아니므로, loopback 유입이 이 네 칸에 할 수 있는 일을 좁힌다.
- *
- * - **첫 구성은 통과**(`prev === undefined`) — 빌더가 방금 만든 빈 버블을 설정하는 정상 흐름이다.
- * - **이미 정해진 값은 못 바꾼다** — 달라진 칸만 이전 값으로 되돌리고 이름을 `frozen` 에 남긴다.
- *   요청 전체를 거절하지 않는 이유는, 빌더가 같은 PUT 으로 보내는 모델·도구 설명 같은 나머지
- *   칸까지 함께 죽이면 기능이 조용히 망가지기 때문이다.
- * - **`bypassPermissions` 는 첫 구성에서도 못 켠다** — 그 한 값이 우리 팝업과 CLI
- *   `--dangerously-skip-permissions` 를 동시에 끈다. `acceptEdits` 로 낮춰 저장한다.
- * - **모르는 모드는 저장하지 않는다**(유입과 무관) — 저장되면 `toCliPermissionMode` 가 `null` 을
- *   내 플래그가 통째로 빠지고, 무플래그 CLI 기본은 2026-08-14 부터 `auto`(자동 승인)다.
- *
- * 사용자 창구(렌더러 IPC · 페어링된 모바일)는 `fromLoopback=false` 로 들어와 종전 그대로 동작한다.
+ * §5.3 #12-1 — 권한 축은 사용자만 올린다. loopback 토큰은 스폰 에이전트 env·프롬프트에 실려 나가 사용자 의사가 아니다(심긴 한 줄이 입력이 된다).
+ * 첫 구성(`prev === undefined`)은 통과, 정해진 값은 달라진 칸만 되돌려 `frozen` 에 남긴다(전체 거절 ❌ — 나머지 칸까지 죽는다).
+ * `bypassPermissions` 는 첫 구성에서도 `acceptEdits` 로 낮춘다(팝업과 CLI 확인을 함께 끈다). 모르는 모드는 저장 ❌ — 플래그가 빠지면 CLI 기본이 `auto`(2026-08-14~)다.
+ * 사용자 창구(렌더러 IPC·페어링 모바일)는 `fromLoopback=false` 라 제한이 없다.
  */
 export function applyIngressPermissionGuard(
   requested: AgentPermissionAxes,
@@ -10850,17 +8587,8 @@ export function applyIngressPermissionGuard(
 export type LocalToolGate = 'allow' | 'ask' | 'deny';
 
 /**
- * §5.19 (H) — 이 권한 모드에서 이 도구를 어떻게 할 것인가. **판정은 여기 한 곳에서만.**
- *
- * 클로드 경로의 매핑을 그대로 따르되, **CLI 가 대신 해 주던 몫은 우리가 진다** — 거기서는
- * `plan` 과 `auto` 를 CLI 에 넘기고 통과시켰지만(실행 차단·분류를 CLI 가 한다), 로컬에는
- * 그 CLI 가 없다. 여기서 통과시키면 아무도 안 막는다.
- *
- * - `bypassPermissions` — 묻지 않는다(사용자가 그렇게 골랐다).
- * - `plan` — 계획만 세우는 모드. 읽기는 되고 **바꾸는 것은 막는다**(CLI 가 하던 차단을 우리가).
- * - `dontAsk` — 묻지 않고 거절한다(사람 없는 무인 실행).
- * - `acceptEdits` — 파일 편집은 자동 승인, 나머지 가변 도구는 묻는다.
- * - `auto`·`default`·그 밖 — 가변 도구는 **묻는다**(분류기가 없으니 사람이 판정한다).
+ * §5.19 (H) — 권한 모드 × 도구 판정(여기 한 곳). 로컬엔 CLI 가 없어 CLI 가 하던 차단·분류를 우리가 진다.
+ * `bypassPermissions` 안 묻기 · `plan` 바꾸기 막기 · `dontAsk` 묻지 않고 거절 · `acceptEdits` 편집만 자동 승인 · 그 밖은 가변 도구를 묻는다.
  */
 export function resolveLocalToolGate(permissionMode: string | undefined, toolName: string): LocalToolGate {
   if (LOCAL_READ_ONLY_TOOLS.includes(toolName)) return 'allow';
@@ -10882,13 +8610,8 @@ export function resolveLocalToolGate(permissionMode: string | undefined, toolNam
 }
 
 /**
- * §5.19 (B) — 요청 본문에서 온 `provider` 를 좁힌다. 생성(create-custom-agent)과 저장
- * (PUT /api/agent-config) 두 입구가 **같은 규칙**을 써야, 한 쪽에서 만든 버블이 다른 쪽 저장
- * 한 번에 정체를 잃지 않는다.
- *
- * **모델이 없어도 통과시킨다.** 진입 순서가 뒤집혀(§5.19 (B)) 버블이 먼저 생기고 모델은
- * 그 뒤에 매이므로, `modelId` 가 빈 문자열인 "아직 준비 중인 버블"이 정상 상태다 — 여기서
- * 그것을 걸러 내면 우클릭으로 만든 All Model 버블이 조용히 클로드 버블이 된다.
+ * §5.19 (B) — 요청 본문 `provider` 좁히기(생성·저장 두 입구 공통 — 저장 한 번에 정체를 잃지 않게).
+ * `modelId === ''` 도 통과 — 버블이 먼저 생기고 모델은 뒤에 매인다(거르면 All Model 버블이 클로드 버블이 된다).
  */
 export function normalizeAgentProvider(value: unknown): AgentProvider | undefined {
   if (!value || typeof value !== 'object') return undefined;
@@ -10939,24 +8662,13 @@ export function normalizeAgentProvider(value: unknown): AgentProvider | undefine
   return provider;
 }
 
-/**
- * §5.19 (B) — 아직 모델을 안 문 All Model 버블의 기본 라벨 모양(`All Model 3`).
- * 모델을 매는 순간 라벨이 이 모양이면 **모델명이 그 자리를 잇는다** — 사용자가 직접 바꾼
- * 이름은 이 모양이 아니므로 자연히 보존된다(이름을 지키려고 별도 플래그를 두지 않는다).
- */
+/** §5.19 (B) — 모델을 아직 안 문 All Model 버블의 기본 라벨 모양. 모델을 매면 이 모양일 때만 모델명이 잇는다(바꾼 이름은 별도 플래그 없이 보존). */
 export const ALL_MODEL_DEFAULT_LABEL_RE = /^All Model \d+$/;
 
 // ─── §5.25 Codex — 같은 지도 위의 두 번째 엔진 ───
-//
-// 클로드 쪽 상수(`CLAUDE_SETUP_*`·`CLAUDE_AUTH_*`)와 **같은 모양**을 의도한 것이다.
-// 여기 있는 값 중 어느 것도 클로드 경로가 읽지 않는다.
+// 클로드 쪽(`CLAUDE_SETUP_*`·`CLAUDE_AUTH_*`)과 같은 모양 · 클로드 경로는 여기 값을 읽지 않는다.
 
-/**
- * §5.25 (D) — 공식 standalone 설치 명령(Node/npm 선행 설치 불필요).
- * 화면의 "직접 설치" 안내와 서버가 실제로 spawn 하는 문자열이 같아야 한다.
- *
- * 실행본을 우리가 동봉하지 않는 이유는 §5.25 (D) — 남의 배포물을 재배포하지 않는다.
- */
+/** §5.25 (D) — 공식 standalone 설치 명령. 화면 안내와 서버 spawn 문자열이 같아야 한다. 실행본은 재배포하지 않는다(동봉 ❌). */
 export const CODEX_SETUP_INSTALL_COMMAND_WIN = 'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"';
 export const CODEX_SETUP_INSTALL_COMMAND_POSIX = 'curl -fsSL https://chatgpt.com/codex/install.sh | sh';
 
@@ -11012,21 +8724,10 @@ export const CODEX_MODELS_REFRESH_INTERVAL_MS = 5 * 60_000;
 /** §5.25 (I) — 훅 정의 파일 이름(사용자 전역). */
 export const CODEX_HOOKS_FILENAME = 'hooks.json';
 
-/**
- * §5.25 (I) — 우리가 넣은 훅 블록에 붙이는 표식.
- *
- * 이게 있어야 나중에 **우리 것만** 골라 지울 수 있다(사용자가 직접 넣은 훅을 건드리면 안 된다).
- * `hookInstaller` 가 클로드 `settings.json` 에 대해 쓰는 방식과 같은 규약.
- */
+/** §5.25 (I) — 우리 훅 블록 표식(우리 것만 골라 지운다 — `hookInstaller` 와 같은 규약). */
 export const CODEX_HOOK_MARKER = '_vibisual';
 
-/**
- * §5.25 (I) — 우리가 설치하는 코덱스 훅 이벤트.
- *
- * 클로드 쪽에서 캔버스를 그리는 데 실제로 쓰는 것과 **같은 다섯**이다. 코덱스가 더 많은 이벤트를
- * 갖고 있어도(`PreCompact`·`Interrupt` 등) 우리가 안 쓰는 것을 남의 전역 설정에 심지 않는다 —
- * 새 이벤트를 넣을 때는 서버 분기(`/api/hook-event`)를 함께 본다.
- */
+/** §5.25 (I) — 설치하는 코덱스 훅 이벤트(클로드 캔버스가 쓰는 다섯). 안 쓰는 것은 남의 전역 설정에 심지 않는다 — 더하면 `/api/hook-event` 분기도 본다. */
 export const CODEX_HOOK_EVENTS: readonly string[] = [
   'SessionStart',
   'UserPromptSubmit',
@@ -11036,14 +8737,8 @@ export const CODEX_HOOK_EVENTS: readonly string[] = [
 ];
 
 /**
- * §5.25 (H) — 우리 권한 모드 → 코덱스의 두 축(`--sandbox`, `--ask-for-approval`).
- *
- * **표로 두는 이유**(§3.3): 코덱스는 "무엇을 만질 수 있나"(sandbox)와 "언제 사람에게 묻나"
- * (approval)를 갈라 말하는데 우리 모드는 그 둘을 한 값에 담고 있다. 분기문으로 흩어 놓으면
- * 스폰 자리와 화면 설명이 서로 다른 답을 하게 된다.
- *
- * `--dangerously-bypass-approvals-and-sandbox` 는 어떤 모드에도 매핑하지 않는다 — CLI 자신이
- * 위험하다고 이름 붙인 자리이고, `bypassPermissions` 가 원하는 것은 거기까지가 아니다.
+ * §5.25 (H) — 권한 모드 → 코덱스 두 축(`--sandbox`·`--ask-for-approval`). 표로 둔다(§3.3 — 스폰과 화면 설명이 같은 답).
+ * `--dangerously-bypass-approvals-and-sandbox` 는 어느 모드에도 매핑하지 않는다.
  */
 export const CODEX_PERMISSION_MAP: Readonly<Record<string, { sandbox: string; approval: string }>> = {
   /** 위험한 동작마다 확인 — 코덱스가 스스로 판단해 물어보는 정책. */
@@ -11070,40 +8765,21 @@ export const CODEX_PERMISSION_FALLBACK = { sandbox: 'read-only', approval: 'on-r
  * §5.25 (H) — 권한 모드 → 코덱스 인자 두 개. 스폰과 화면 설명이 **같은 함수**를 본다.
  */
 export function resolveCodexPermission(mode: string | undefined): { sandbox: string; approval: string } {
-  // **없는 값과 모르는 값을 가른다.** 미설정은 앱 전체가 `permissionMode || 'default'` 로 읽으므로
-  //   여기서만 읽기 전용으로 떨어뜨리면, 설정을 한 적 없는 사용자는 코덱스가 파일을 못 고치는
-  //   이유를 화면 어디에서도 볼 수 없다. 반대로 **모르는 문자열**은 우리가 뜻을 모르는 값이라
-  //   넓은 쪽으로 읽지 않는다(나중에 추가될 모드가 조용히 전면 허용이 되는 사고를 막는다).
+  // 없는 값과 모르는 값을 가른다 — 미설정은 앱 전체처럼 `default`, 모르는 문자열은 넓게 읽지 않는다(새 모드가 조용히 전면 허용이 되지 않게).
   const key = mode === undefined || mode === '' ? 'default' : mode;
   const hit = CODEX_PERMISSION_MAP[key];
   return hit ?? { ...CODEX_PERMISSION_FALLBACK };
 }
 
-/**
- * §5.25 (H) — 이 모드의 코덱스 버블이 승인 카드를 띄울 수 있는가(= 60초 무응답 정책이 뜻을 갖는가).
- * 코덱스는 승인 정책이 `on-request` 일 때만 샌드박스 밖 실행을 묻는다. 클로드의 도구별 확인 목록
- * (`askTools`)은 코덱스에 없으므로 보지 않는다 — 감사 경계가 따로 붙잡는 카드는 모드와 무관하다.
- */
+/** §5.25 (H) — 이 모드의 코덱스 버블이 승인 카드를 띄울 수 있나(`on-request` 일 때만 묻는다 — 60초 무응답 정책의 뜻). 클로드 `askTools` 는 코덱스에 없어 보지 않는다. */
 export function canCodexPromptForPermission(mode: string | undefined): boolean {
   return resolveCodexPermission(mode).approval === 'on-request';
 }
 
-/**
- * §5.25 (B) — 아직 모델을 안 문 Codex 버블의 기본 라벨 모양(`Codex Agent 3`).
- * All Model 과 같은 규약 — 이 모양이면 모델명이 그 자리를 잇고, 사용자가 바꾼 이름은 보존된다.
- *
- * **`Agent` 는 선택이다.** (B-2) 에서 기본 이름을 `Codex 3` → `Codex Agent 3` 으로 고쳤는데,
- * 그때 이 정규식을 같이 안 고쳐서 **이미 놓인 옛 버블**이 이름 잇기에서 조용히 빠졌다.
- * 두 모양을 다 받아 옛 버블도 새 버블도 같은 규약을 탄다.
- */
+/** §5.25 (B) — 모델을 안 문 Codex 버블의 기본 라벨 모양(All Model 과 같은 규약). `Agent` 는 선택 — 옛 기본 이름 `Codex 3` 버블도 받는다. */
 export const CODEX_DEFAULT_LABEL_RE = /^Codex (?:Agent )?\d+$/;
 
-/**
- * §5.25 (C) — 엔진 → 그 엔진으로 만드는 새 에이전트의 `provider` 초깃값.
- *
- * **클로드는 `undefined` 다** — 그게 "지금까지의 경로 그대로"라는 §5.19 (C) 의 무변경 근거이고,
- * 엔진 이름과 프로바이더 유니온을 잇는 곳은 이 함수 하나뿐이다.
- */
+/** §5.25 (C) — 엔진 → 새 에이전트 `provider` 초깃값. 클로드는 `undefined`(기존 경로 그대로). 엔진 이름과 프로바이더를 잇는 곳은 여기 하나다. */
 export function providerForEngine(engine: AgentEngineKind): AgentProvider | undefined {
   if (engine === 'codex') return { kind: 'codex-cli', modelId: '' };
   if (engine === 'local') return { kind: 'local-llama', modelId: '' };
@@ -11118,15 +8794,8 @@ export function engineForProvider(provider: AgentProvider | undefined): AgentEng
 }
 
 /**
- * §5.25 (B-1) · (M-1) — **이 에이전트가 실제로 도는 엔진**(스킬을 읽고, 세션 기록을 남기는 쪽).
- *
- * CMD 버블은 셸에 채우는 CLI 가 곧 그 터미널의 엔진이다 — Codex CMD 는 `provider` 가 비어 있어도 코덱스다.
- * 반대로 `cliKind` 는 **CMD 에서만** 읽는다: 헤드리스 스폰은 그 칸을 읽지 않는데, CMD 로 돌렸다 헤드리스로
- * 되돌린 버블에는 옛 값이 남는다(`agentModelLabelOf` 와 같은 규약).
- *
- * 종전에는 이 판정이 자리마다 달랐다 — 서버 스킬 공유·비용 지도는 실행 방식을 안 보고 `cliKind` 를 읽고,
- * IDE 스킬 칸은 `provider` 만 봤다. 그래서 Codex CMD 에서는 스킬 칸 둘째 탭이 늘 "응답이 올바르지 않음"이었고,
- * 헤드리스로 되돌린 클로드 버블은 공유 대상과 비용 원장이 코덱스 쪽으로 갔다.
+ * §5.25 (B-1)·(M-1) — 실제로 도는 엔진(스킬을 읽고 세션 기록을 남기는 쪽). 판정은 여기 한 곳.
+ * CMD 버블은 셸에 채우는 CLI 가 엔진이다. `cliKind` 는 CMD 에서만 읽는다(헤드리스로 되돌린 버블에 옛 값이 남는다).
  */
 export function agentEngineOf(
   config: { provider?: AgentProvider; executionMode?: string; cliKind?: string } | null | undefined,
@@ -11136,26 +8805,11 @@ export function agentEngineOf(
 }
 
 /**
- * §5.25 (J) — **"이 버블은 어느 모델로 도는가"를 답하는 한 곳.**
- *
- * `AgentConfig.model` 은 **클로드 칸**이다. 기본값이 `opus` 라서, 엔진을 안 보고 그대로 적으면
- * 코덱스·로컬 버블이 **자기를 클로드로 말한다** — GPT 버블 아래에 `opus` 가 뜬 그 사고다.
- * `config.model` 은 코덱스·로컬 턴이 읽지도 않는 칸이라 거짓이 아니라 **남의 값**이다.
- *
- * 종전에는 화면마다 `localProviderOf`·`codexProviderOf` 를 각자 부르고, 그 둘을 부르는 것을
- * **잊은 자리**(버블 하단 idle 줄 · IDE 상태바)가 그대로 `opus` 를 적었다. 엔진이 늘 때마다
- * 화면 수만큼 고쳐야 하는 구조라 또 빠진다 — 그래서 판정을 여기 하나로 모은다.
- * 새 엔진은 `engineForProvider` 에 갈래를 더하면 부르는 쪽은 손대지 않아도 따라온다.
- *
- * **CMD 버블은 셸에 채울 CLI 가 먼저다(§5.25 (B-1)).** 터미널이 실제로 띄우는 것은 `cliKind` 이고,
- * 클로드가 아닌 CLI(`managed === false` — 우클릭 Codex 칸의 "Codex CMD" 등)에는 모델 칸이 전달되지
- * 않는다. 그 버블에 `config.model` 을 적으면 코덱스 터미널 아래에 `opus` 가 뜬다 — 위와 같은 사고라
- * CLI 이름(`Codex CLI`)을 적는다. 순수 셸이면 적을 모델이 없다. `cliKind` 는 CMD 에서만 읽는다
- * (헤드리스로 되돌린 버블에 남은 옛 값이 클로드 세션의 모델을 가리지 않게).
- *
- * @param config    이 에이전트의 설정(없으면 아직 안 읽힌 것 — `null` 을 돌려준다).
- * @param fallbacks 프로바이더가 모델을 아직 안 물었을 때 적을 **엔진 이름**(i18n 문구).
- * @returns `null` 이면 적을 것이 없다(훅 버블처럼 설정이 없는 자리).
+ * §5.25 (J) — 이 버블의 모델 라벨을 답하는 한 곳(새 엔진은 `engineForProvider` 에 갈래만 더한다).
+ * `AgentConfig.model` 은 클로드 칸(기본 `opus`)이라 엔진을 안 보고 적으면 코덱스·로컬 버블에 `opus` 가 뜬다.
+ * CMD 는 셸에 채울 CLI 가 먼저(§5.25 (B-1)) — 클로드 아닌 CLI 는 CLI 이름을 적고, `cliKind` 는 CMD 에서만 읽는다.
+ * @param fallbacks 프로바이더가 모델을 아직 안 물었을 때 적을 엔진 이름(i18n 문구).
+ * @returns `null` 이면 적을 것이 없다(훅 버블처럼 설정이 없거나 아직 안 읽힌 자리).
  */
 export function agentModelLabelOf(
   config: { model?: string; provider?: AgentProvider; executionMode?: string; cliKind?: string } | null | undefined,
@@ -11293,12 +8947,8 @@ export interface ShelfImportResult {
 }
 
 /**
- * §5.20 — 가져온 JSON 한 장을 **믿지 않고** 훑어 우리 항목 초안으로 바꾼다.
- *
- * 남이 준 파일이 우리 상태를 그대로 밀어 넣는 통로가 되면 안 되므로 여기서 —
- * ① 모르는 스키마 버전은 통째로 거절하고, ② 런타임 필드(id·lastRun·에이전트 id·절대 경로 `cwd`)는
- * 애초에 읽지 않으며, ③ 아이콘·색은 고정 목록 안으로 강제하고, ④ 본문은 길이 상한으로 자르고,
- * ⑤ 개수는 `SHELF_IMPORT_MAX_ITEMS` 까지만 받는다. **클라이언트와 서버가 같은 함수를 쓴다.**
+ * §5.20 — 가져온 JSON 을 믿지 않는다(클라·서버 공용): 모르는 스키마 버전 거절 · 런타임 필드(id·lastRun·에이전트 id·`cwd`) 무시 ·
+ * 아이콘·색은 고정 목록으로 · 본문 길이 상한 · 개수는 `SHELF_IMPORT_MAX_ITEMS` 까지.
  */
 export function normalizeShelfImport(raw: unknown): ShelfImportResult {
   if (raw === null || typeof raw !== 'object') {
@@ -11347,10 +8997,7 @@ export function normalizeShelfImport(raw: unknown): ShelfImportResult {
 
 // ─── §5.21 — 비용·토큰 지도 (Cost Map) ───
 
-/**
- * 지도 스윕 주기(ms). 훅 이벤트마다 재파싱하는 형태는 금지 — 전수 재파싱이 프리즈를 부른 전례가 둘이다.
- * 이 주기로 **활성 세션만** 훑고, JSONL 스캐너가 mtime·size 로 먼저 걸러 변화 없으면 파일을 열지도 않는다.
- */
+/** 지도 스윕 주기(ms). 훅 이벤트마다 재파싱하지 마라(전수 재파싱이 프리즈를 부른다) — 활성 세션만, mtime·size 가 그대로면 열지도 않는다. */
 export const COST_MAP_SWEEP_INTERVAL_MS = 20_000;
 
 /**
@@ -11368,10 +9015,7 @@ export const COST_MAP_AGENTS_MAX = 200;
 /** 날짜 버킷 보관 일수(키 개수 캡). 최신 순으로 남긴다. */
 export const COST_MAP_DAYS_MAX = 180;
 
-/**
- * "추정" 툴팁에 이름을 대 줄 **단가 미상 모델** 개수 상한(§9 키 개수 캡).
- * 목록이 길어질수록 정보가 아니라 소음이 된다 — 몇 개만 보여도 무엇을 고칠지는 충분히 안다.
- */
+/** 툴팁에 이름을 대 줄 단가 미상 모델 수 상한(§9) — 길면 소음이다. */
 export const COST_MAP_UNSEEDED_MODELS_MAX = 8;
 
 /** 이 금액을 넘으면 배지·표가 경고 색으로 바뀐다(USD). */
@@ -11507,10 +9151,7 @@ export function formatTokenCount(tokens: number): string {
 }
 
 // ─── 권한·감사 경계 (§5.22) ───
-//
-// 판정은 **여기 한 곳**이다. 서버(사전 승인 판단)와 클라(타임라인 배지·승인 카드 배지)가 같은
-// 함수를 통과해야 두 화면이 같은 답을 말한다 — 어긋나는 순간 감사는 믿을 수 없는 화면이 된다.
-// 패턴은 전부 아래 테이블에서만 오고 분류 함수 안에 정규식을 박아 넣지 않는다(§3.3).
+// 판정은 여기 한 곳 — 서버(사전 승인)와 클라(배지)가 같은 답을 말해야 한다. 패턴은 아래 테이블에서만(§3.3).
 
 /** 위험 종류 표시 순서(배지·스위치 공용). */
 export const AUDIT_RISK_KINDS: readonly AuditRiskKind[] = ['delete', 'network', 'config', 'outside'] as const;
@@ -11531,18 +9172,11 @@ export const AUDIT_REASON_MAX_CHARS = 200;
 /** 타임라인 팝업이 한 번에 그리는 줄 수(더 보기로 늘린다). */
 export const AUDIT_TIMELINE_PAGE_SIZE = 60;
 
-/**
- * **전선에 싣는** 줄 수(§9). 원장은 프로젝트당 500 줄까지 들고 있지만 그 전량을 브로드캐스트마다
- * 실으면 스냅샷이 통째로 무거워진다 — §5.21 이 세션 `days` 를 전선에서 뺀 것과 같은 이유다.
- * 화면이 필요로 하는 것은 최근 몫이고, 전량은 체크포인트와 `GET /api/audit-log` 에 있다.
- */
+/** 전선에 싣는 감사 줄 수(§9) — 원장 전량(프로젝트당 500)은 체크포인트와 `GET /api/audit-log` 에. */
 export const AUDIT_SNAPSHOT_ENTRIES = 120;
 
 // ─── 컨텍스트 보험 (§5.26) ───
-//
-// 보존 축(일수·바이트 예산·줄 수)은 이 파일 위쪽 **보존 정책(§3.2.3)** 블록에 산다 —
-// 못박힌 상한이 아니라 `RetentionSettings` 의 기본값이라 그쪽에서 먼저 선언돼야 한다.
-// 여기 있는 것은 사용자가 조절하지 않는 **판정·형식 상수**다.
+// 보존 축은 위쪽 보존 정책(§3.2.3)의 `RetentionSettings` 기본값이다. 여기는 조절하지 않는 판정·형식 상수.
 
 /** 저장고 폴더 이름 — `<projectPath>/.vibisual/insurance/`. */
 export const INSURANCE_DIR = 'insurance';
@@ -11571,63 +9205,32 @@ export const INSURANCE_WORKING_SET_MAX = 40;
  */
 export const INSURANCE_PREIMAGE_MAX_BYTES = 2 * 1024 * 1024;
 
-/**
- * §5.26 (D) — **압축이 일어난 것은 확인했는데** 요약 본문만 못 읽을 때, 결론을 미루는 시간.
- *
- * 경계 레코드(`compact_boundary`)나 `PostCompact` 훅처럼 **압축이 끝났다는 증거가 이미 있는**
- * 갈래에만 쓴다. 그 뒤에는 요약이 몇 초 안에 내려앉으므로 짧아도 된다.
- * 증거가 아직 하나도 없을 때 기다리는 시간은 `INSURANCE_COMPACT_VERDICT_MS` 쪽이다.
- */
+/** §5.26 (D) — 압축 증거(`compact_boundary`·`PostCompact`)는 있고 요약만 못 읽을 때 미루는 시간(요약은 곧 온다). 증거가 없을 때는 `INSURANCE_COMPACT_VERDICT_MS`. */
 export const INSURANCE_COMPACT_TIMEOUT_MS = 3 * 60 * 1000;
 
 /**
- * §5.26 (D) — 증거가 하나도 없을 때 **교착으로 적기까지** 기다리는 시간.
- *
- * ⚠ 이 값을 3분으로 두었던 동안 실패로 적힌 10건 중 **7건이 오탐**이었다(2026-09-23 실측).
- * 요약이 실제로 도착한 시각은 마커 기준 +2분 · +9분 · +28분이었다 — 세션이 사람의 다음 말을
- * 기다리는 동안 트랜스크립트는 한 바이트도 안 자라는데, 그 정지를 교착으로 읽었던 것이다.
- * 압축이 진짜로 막힌 세션은 사용자가 손을 쓸 때까지 그대로 막혀 있으므로 **늦게 알려도 늦지 않다.**
+ * §5.26 (D) — 증거가 없을 때 교착으로 적기까지의 시간. 줄이지 마라 — 2026-09-23 실측: 3분이면 실패 10건 중 7건이 오탐(요약 +2·+9·+28분 도착).
+ * 진짜 막힌 세션은 그대로라 늦게 알려도 된다.
  */
 export const INSURANCE_COMPACT_VERDICT_MS = 30 * 60 * 1000;
 
-/**
- * §5.26 (D) — 한 번의 스윕이 요약을 찾으려고 읽는 **총** 바이트 상한(§3.2.4 G축).
- *
- * 마커마다 커서를 물고 새로 붙은 구간만 읽지만, 판정을 미루는 시간이 길어진 만큼 대기 중인
- * 마커가 같이 늘어난다. 마커별 상한(`INSURANCE_SUMMARY_SCAN_MAX_BYTES`)만으로는 **마커 수 × 상한**
- * 이 되어 10초마다 수십 MB 를 읽게 되므로, 스윕 전체에도 천장을 둔다. 예산이 떨어진 마커는
- * 다음 스윕이 커서 그대로 이어 읽는다 — 판정이 늦어질 뿐 건너뛰지 않는다.
- */
+/** §5.26 (D) — 한 스윕의 요약 찾기 총 바이트 상한(§3.2.4 G축) — 마커별 상한만이면 마커 수만큼 곱해진다. 예산이 떨어진 마커는 다음 스윕이 이어 읽는다. */
 export const INSURANCE_SCAN_BUDGET_BYTES = 4 * 1024 * 1024;
 
 /** §5.26 (D) — 요약 구간을 읽을 때 한 번에 훑는 최대 바이트(§3.2.4 G축 — 읽기 피크 상한). */
 export const INSURANCE_SUMMARY_SCAN_MAX_BYTES = 512 * 1024;
-/**
- * §7.23 — 세션 제목을 찾으려고 JSONL 앞에서 읽는 상한.
- *
- * 첫 사용자 프롬프트는 파일 맨 앞에 앉는데, 서브에이전트 프롬프트는 카드 규약 블록 때문에
- * 7KB 를 넘는 경우가 흔하다(실측). 32KB 면 그 뒤의 `Task:` 줄까지 넉넉히 들어오고, 수백 개
- * 세션을 훑어도 읽기 총량이 한 자릿수 MB 에 머문다 — 전량 파싱과 갈리는 자리다.
- */
+/** §7.23 — 세션 제목용 JSONL 앞 읽기 상한. 서브에이전트 프롬프트는 카드 규약 때문에 7KB 를 넘기 일쑤라(실측) `Task:` 줄까지 들게 32KB. */
 export const INSURANCE_TITLE_SCAN_MAX_BYTES = 32 * 1024;
 
 /**
- * §5.26 (F) — 이 비율을 넘었는데 압축이 안 오면 `overdue`.
- *
- * ⚠ **분모는 모델 창이 아니라 "접기로 한 선"** 이다((F)(a) 2026-09-09 정정). 오래 `contextUsed /
- * contextMax` 로 재 왔는데, 1M 창 모델에 자동압축을 400k 로 걸어 둔 세션에서 322k 는 창 대비
- * 32% 라 여기 한참 못 미친다 — 사용자가 정해 둔 선을 보험이 **아예 보지 않아** 400k~950k 가
- * 통째로 무보험이었다. `stalled` 쪽 분모는 종전대로 창이 맞다(CLI 가 멈추는 것은 창에 닿을 때다).
+ * §5.26 (F) — 넘었는데 압축이 안 오면 `overdue`. ⚠ 분모는 창이 아니라 접기로 한 선이다((F)(a)) — 창으로 재면 1M 창·자동압축 400k 세션이 무보험이 된다.
+ * `stalled` 분모는 창이 맞다(CLI 는 창에 닿을 때 멈춘다).
  */
 export const INSURANCE_OVERDUE_RATIO = 0.95;
 
 /**
- * §5.26 (F)(b) — 우리가 `/compact` 를 보낸 뒤 `PreCompact` 를 이만큼 기다린다.
- *
- * 넘으면 `rejected` — 명령이 **실행되지 않았다**는 뜻이다. CLI 는 거절을 `is_error: false` 로
- * 돌려주므로(실측 2.1.263) 이 시간 초과가 우리가 가진 유일한 사실 증거다. 압축 자체는 몇 초면
- * `PreCompact` 가 오지만, 앞선 턴이 길게 물려 있으면 큐에서 대기하는 시간이 붙는다 — 90초는
- * 그 대기를 넉넉히 덮으면서 사용자가 "안 되네"를 알아채기 전에 화면이 먼저 말할 수 있는 폭이다.
+ * §5.26 (F)(b) — `/compact` 뒤 `PreCompact` 대기. 넘으면 `rejected` — CLI 는 거절도 `is_error: false` 라(실측 2.1.263) 시간 초과가 유일한 증거다.
+ * 90초는 앞 턴 뒤 큐 대기를 덮는 폭.
  */
 export const INSURANCE_COMPACT_SEND_TIMEOUT_MS = 90 * 1000;
 
@@ -11757,16 +9360,7 @@ export const AUDIT_CONFIG_MUTATION_PATTERNS: readonly RegExp[] = [
   /\bsetx?\b\s+\w+=/i,
 ];
 
-/**
- * 경로를 입력으로 받는 도구 — `outside` 는 **읽기도 본다**(§5.22).
- *
- * `AUDIT_WRITE_TOOLS`(설정 파일 수정 판정용)와 일부러 따로 둔다. `config` 가 묻는 것은
- * "고쳤는가"이고 `outside` 가 묻는 것은 "사용자가 그은 선을 넘었는가"라, 고른 폴더 밖은
- * 읽기만 해도 대상이다.
- *
- * 이름을 아는 도구로 한정한다 — 아무 도구의 `path` 나 집으면 그 칸이 파일 경로가 아닌
- * 도구(예: 요청 경로 `/api/x` 를 `path` 로 받는 MCP 도구)에서 없는 위험을 지어낸다.
- */
+/** 경로 입력 도구 — `outside` 는 읽기도 본다(§5.22 — `AUDIT_WRITE_TOOLS` 와 일부러 따로). 이름 아는 도구로 한정한다(MCP 의 `path` 는 파일 경로가 아닐 수 있다). */
 export const AUDIT_PATH_INPUT_TOOLS: ReadonlySet<string> = new Set([
   'Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'NotebookRead', 'Glob', 'Grep', 'LS',
 ]);
@@ -11776,12 +9370,7 @@ export const AUDIT_PATH_INPUT_KEYS: readonly string[] = [
   'file_path', 'notebook_path', 'path', 'target_file',
 ];
 
-/**
- * §5.22 · §5.25 (H) — 입력이 셸 명령이 아니라 **패치 본문**인 편집 도구(코덱스 `apply_patch`).
- *
- * 코덱스 훅은 패치를 `command` 칸에 싣는다. 명령으로 읽으면 본문 한 줄의 `curl`·`rm -rf` 가
- * 위험으로 찍히고, 정작 어느 파일을 지우고 고치는지는 머리줄에만 있다.
- */
+/** §5.22 · §5.25 (H) — 입력이 패치 본문인 도구(코덱스 `apply_patch` — 훅은 `command` 칸에 싣는다). 명령으로 읽으면 본문의 `rm -rf` 가 위험으로 찍힌다. */
 export const AUDIT_PATCH_TOOLS: ReadonlySet<string> = new Set(['apply_patch']);
 
 /** 패치 본문이 담겨 오는 입력 칸. */
@@ -11813,10 +9402,7 @@ export const AUDIT_MSYS_PATH_PATTERN = /^\/([A-Za-z])(\/|$)/;
 /** `..` 로 위를 향하는 상대경로(`cd ..` · `../../other/x`). 절대경로가 아니어도 밖일 수 있다. */
 export const AUDIT_RELATIVE_ESCAPE_PATTERN = /(^|[\\/])\.\.([\\/]|$)/;
 
-/**
- * 파일이 아니라 장치·의사 경로 — 밖으로 세지 않는다.
- * `> /dev/null` 이 매번 걸리면 배지가 뜻을 잃는다(믿을 수 없는 화면이 되는 첫 걸음).
- */
+/** 장치·의사 경로 — 밖으로 세지 않는다(`> /dev/null` 마다 배지가 서면 뜻을 잃는다). */
 export const AUDIT_OUTSIDE_IGNORE_PATTERNS: readonly RegExp[] = [
   /^\/dev\//i,
   /^\/proc\//i,
@@ -11837,17 +9423,8 @@ export const AUDIT_TOKEN_FLAG_VALUE_PATTERN = /^-[^\s=]*=(.+)$/;
 export const AUDIT_FALLBACK_PATH_PLATFORM: PlatformName = 'win32';
 
 /**
- * 스위치가 없을 때의 기본 — **꺼짐**이다(§5.22).
- *
- * 묻는 쪽이 더 안전해 보이지만 이 경계가 되무르는 것은 **사용자가 직접 고른 권한 모드**다.
- * `bypassPermissions` 를 고른 사람에게 기본값으로 승인 카드를 띄우면 그가 고른 모드가
- * 설명 없이 무효가 되고, 그 카드는 원인을 알 수 없는 팝업으로만 보인다. 되무를지는
- * **사용자가 켜서** 정하고, 꺼져 있는 동안에도 기록은 계속된다(기록을 끄는 스위치는 없다).
- *
- * 종류별 `kinds` 는 켬 그대로 둔다 — 전체를 켠 사용자가 넷을 다시 켜야 하는 일은 만들지 않는다.
- *
- * **기본값은 이 상수 하나에서만 읽는다**: 서버 fallback·체크포인트 "저장할 것 없음" 판정·
- * 클라 두 화면이 저마다 기본을 하드코딩하면, 켠 적 없는 프로젝트가 화면마다 다른 상태로 보인다.
+ * 기본은 꺼짐(§5.22) — 이 경계는 사용자가 고른 권한 모드를 되무르므로 기본으로 켜면 `bypassPermissions` 가 설명 없이 무효가 된다. 꺼져도 기록은 계속된다.
+ * `kinds` 는 켬 그대로. 기본값은 이 상수에서만 읽는다(서버·체크포인트·클라가 각자 들면 화면마다 달라진다).
  */
 export const DEFAULT_AUDIT_BOUNDARY: AuditBoundaryConfig = {
   escalateRisky: false,
@@ -11888,10 +9465,7 @@ function auditLoopbackOnly(command: string): boolean {
 }
 
 // ─── `outside` — 고른 폴더 밖인가 (§5.22) ───
-//
-// 여기의 정규식은 전부 위 테이블에서 오고(§3.3), **플랫폼은 인자로 받는다** — shared 는
-// 브라우저에서도 로드되므로 `process.platform` 을 읽을 수 없고, 인자로 받아야 개발기 한 대에서
-// 세 OS 를 다 시험할 수 있다(멀티플랫폼 1축).
+// 정규식은 위 테이블에서만(§3.3). 플랫폼은 인자 — shared 는 브라우저에서도 로드되고, 그래야 세 OS 를 시험한다.
 
 /** 경로의 앞머리(드라이브 루트·UNC·POSIX 루트)를 가려내는 모양 — 위험 패턴이 아니라 경로 구조다. */
 const AUDIT_DRIVE_ROOT_SHAPE = /^[A-Za-z]:\//;
@@ -11945,15 +9519,7 @@ function auditCollapsePath(p: string): string {
   return `${prefix}${out.join('/')}`;
 }
 
-/**
- * §5.22 — 이 경로가 경계 **전부**의 밖인가.
- *
- * `roots` 가 비면 **항상 false** — 근거가 없을 때 위험을 지어내면 프로젝트 등록 전 몇 초의
- * 호출이 전부 밖으로 찍힌다. 여러 root 중 **하나에라도 들어가면 안**이다(우리가 띄운 워크트리·
- * 별도 cwd 세션이 통째로 빨개지지 않게).
- *
- * 상대경로는 각 root 에 붙여 접은 뒤 판정하므로 `src/a.ts` 는 안, `../../other/x` 는 밖이다.
- */
+/** §5.22 — 경계 전부의 밖인가. `roots` 가 비면 false(등록 전 호출이 다 밖이 되지 않게), 하나에라도 들면 안. 상대경로는 각 root 에 붙여 접는다. */
 export function isAuditPathOutside(
   rawPath: string,
   roots: readonly string[],
@@ -11991,12 +9557,7 @@ function auditStripToken(raw: string): string {
   return s.trim();
 }
 
-/**
- * 명령 문자열에서 경로 후보를 뽑는다.
- *
- * **URL 을 먼저 걷어낸다** — 그 자리는 `network` 가 이미 보고 있고, 안 걷어내면 `https://` 의
- * `//` 가 POSIX 절대경로로 오독되어 모든 curl 이 "폴더 밖"이 된다.
- */
+/** 명령 문자열의 경로 후보. URL 을 먼저 걷는다 — `https://` 의 `//` 가 POSIX 절대경로로 읽혀 모든 curl 이 밖이 된다. */
 function auditCommandPathCandidates(command: string): string[] {
   const withoutUrls = command.replace(AUDIT_URL_PATTERN, ' ');
   const out: string[] = [];
@@ -12207,12 +9768,7 @@ export function normalizeAuditBoundary(input: unknown): AuditBoundaryConfig {
   };
 }
 
-/**
- * 사용자가 아직 손대지 않은 기본 상태인가.
- *
- * "저장할 것이 없다"를 판정하는 자리(체크포인트)가 종전 기본값을 직접 비교하면, 기본이 뒤집힌
- * 순간 **사용자가 켜 둔 경계가 저장되지 않고 사라진다**. 판정은 여기 한 곳에서만 한다.
- */
+/** 아직 손대지 않은 기본 상태인가 — 체크포인트가 기본값을 직접 비교하면 기본이 바뀔 때 켜 둔 경계가 사라진다(판정은 여기 한 곳). */
 export function isDefaultAuditBoundary(boundary: AuditBoundaryConfig | undefined): boolean {
   const b = boundary ?? DEFAULT_AUDIT_BOUNDARY;
   if (b.escalateRisky !== DEFAULT_AUDIT_BOUNDARY.escalateRisky) return false;
@@ -12226,11 +9782,8 @@ export function emptyAuditCounts(): AuditCounts {
   return { total: 0, risky: 0, denied: 0, escalated: 0, todayRisky: 0 };
 }
 
-// ─── §5.3 #12-3 자물쇠 (판올림 번호 발급 대기) ─────────────────────────────────
-//
-// 판정 함수(`pathLock.ts`)는 이 표들만 읽는다(§3.3 — 분기 안에 도구·명령 이름을 박지 않는다).
-// 표를 넓히는 쪽이 안전하다 — 자물쇠가 놓치는 접근은 "잠갔는데 열렸다"로만 보이고, 더 묻는 쪽은
-// 카드 한 장으로 끝난다.
+// ─── §5.3 #12-3 자물쇠 ───
+// 판정(`pathLock.ts`)은 이 표만 읽는다(§3.3). 표는 넓히는 쪽이 안전하다(놓치면 "잠갔는데 열림", 더 물으면 카드 한 장).
 
 /** 프로젝트당 자물쇠 상한. 넘치면 새로 걸지 않는다 — 오래된 자물쇠를 말없이 푸는 일은 하지 않는다. */
 export const PATH_LOCK_MAX_PER_PROJECT = 200;
@@ -12287,21 +9840,15 @@ export const PATH_LOCK_TREE_ALL_ARGS_COMMANDS: ReadonlySet<string> = new Set([
   'tar', 'zip', '7z', 'cpio', 'robocopy', 'xcopy',
 ]);
 
-/**
- * 원본(앞 인자)과 목적지(마지막 인자)를 받는 복사·이동 명령 — **원본**이 자물쇠를 덮으면 센다.
- * 목적지가 자물쇠의 상위 폴더인 것은 그 안에 새 이름이 생길 뿐이라 세지 않는다(목적지가 자물쇠
- * 자체이거나 그 안이면 모든 낱말에 적용되는 직접 접촉으로 이미 잡힌다).
- */
+/** 원본(앞 인자)·목적지(마지막) 복사·이동 명령 — 원본이 자물쇠를 덮으면 센다. 목적지가 자물쇠의 상위 폴더면 세지 않는다(자물쇠 안 목적지는 직접 접촉으로 이미 잡힌다). */
 export const PATH_LOCK_TREE_SOURCE_DEST_COMMANDS: ReadonlySet<string> = new Set([
   'cp', 'mv', 'rsync', 'scp', 'ditto', 'copy', 'move', 'copy-item', 'move-item', 'cpi', 'mi',
 ]);
 
-// ─── §4 메신저 원격제어 브리지 (판올림 번호 발급 대기) ─────────────────────────
-//
-// 아웃바운드 전용이라 여기 상수에는 "우리가 여는 포트" 가 없다 — 전부 **우리가 나가서
-// 부르는 주소**와 그 왕복의 상한이다. 인바운드(§4 v3.16)와 대비되는 지점이 이 목록이다.
+// ─── §4 메신저 원격제어 브리지 ───
+// 아웃바운드 전용 — 여는 포트는 없고, 부르는 주소와 그 왕복 상한만 있다.
 
-/** 딥링크 페어링 티켓 수명(ms). §4 v3.66 QR 티켓과 같은 근거로 짧게 — 사진에 찍혀도 곧 죽는다. */
+/** 딥링크 페어링 티켓 수명(ms) — §4 QR 티켓처럼 짧게(사진에 찍혀도 곧 죽는다). */
 export const CHAT_PAIR_TICKET_TTL_MS = 3 * 60 * 1000;
 
 /** 페어링 티켓 토큰 바이트 수(hex 인코딩 전) — 3분 안에 맞힐 수 없는 수준. */
@@ -12316,23 +9863,10 @@ export const CHAT_PAIR_BAN_MS = 10 * 60 * 1000;
 /** 동시에 페어링해 둘 수 있는 대화(기기) 수 상한 — 초과 시 가장 오래된 것부터 밀어낸다. */
 export const CHAT_PEER_MAX = 5;
 
-/**
- * 페어링 안 된 발신자에게 안내를 보낼 수 있는 간격(ms).
- *
- * 화이트리스트 밖은 원칙적으로 침묵이지만(§4 ⑤) 예외가 둘 있다 — 텔레그램이 봇을 처음 열 때
- * 자동으로 보내는 `/start`, 그리고 티켓이 만료된 뒤 도착한 페어링 시도. 여기까지 침묵하면
- * 사용자는 봇이 고장난 줄 안다. **다만 상한이 없으면 그 친절이 곧 무제한 답장**이 된다 —
- * 아무나 `/start` 를 반복해 봇의 존재를 확인하고 메신저 rate limit 을 소진시킬 수 있다.
- */
+/** 미페어링 발신자 안내 간격(ms). 침묵이 원칙이지만(§4 ⑤) `/start`·만료 뒤 페어링 시도엔 안내한다 — 간격이 없으면 아무나 반복해 rate limit 을 소진시킨다. */
 export const CHAT_UNPAIRED_NOTICE_MS = 10 * 60 * 1000;
 
-/**
- * 대기 중인 버튼(권한·질문) 레지스트리의 키 개수 상한.
- *
- * 권한 요청 하나가 [허용]/[거부] 두 건을 넣는데, **폰에서 누르지 않으면 지워지지 않는다**
- * (누른 순간에만 짝을 거둔다). 만료돼도 남으므로 오래 켜 둔 앱에서 계속 자란다.
- * 값이 아니라 **키 개수**에 걸리는 상한이다 — 넘으면 만료된 것부터, 그래도 넘으면 오래된 것부터.
- */
+/** 대기 버튼(권한·질문) 레지스트리 키 상한 — 누를 때만 짝을 거둬 만료돼도 남는다. 넘치면 만료된 것 → 오래된 것 순으로 버린다. */
 export const CHAT_PENDING_ACTION_MAX = 500;
 
 /** `/log` 원문 버퍼를 들고 있을 에이전트 수 상한. 줄 수(`CHAT_LOG_BUFFER_LINES`)와 짝이다. */
@@ -12353,21 +9887,10 @@ export const CHAT_TELEGRAM_MESSAGE_MAX = 3800;
 /** 디스코드 REST 베이스(v10). */
 export const CHAT_DISCORD_API_BASE = 'https://discord.com/api/v10';
 
-/**
- * 디스코드 Gateway intents — GUILD_MESSAGES(1<<9) + DIRECT_MESSAGES(1<<12) +
- * MESSAGE_CONTENT(1<<15). 평문 명령을 읽어야 하므로 MESSAGE_CONTENT 가 필요하다
- * (Developer Portal 에서 "Message Content Intent" 를 켜야 IDENTIFY 가 통과한다).
- */
+/** 디스코드 Gateway intents — GUILD_MESSAGES·DIRECT_MESSAGES·MESSAGE_CONTENT. 평문 명령을 읽으려면 Developer Portal 에서 "Message Content Intent" 를 켜야 IDENTIFY 가 통과한다. */
 export const CHAT_DISCORD_INTENTS = (1 << 9) | (1 << 12) | (1 << 15);
 
-/**
- * 하트비트를 보내고 ACK(op 11) 없이 넘어가도 되는 횟수.
- *
- * 디스코드 문서는 "ACK 이 안 오면 비정상 코드로 끊고 재연결" 을 요구한다. 이걸 안 보면
- * 소켓이 `close` 이벤트 없이 반쯤 죽었을 때 상태는 `online` 인 채 **영원히 아무것도 받지
- * 않는다** — 밖에서 권한 승인을 기다리다 60초 자동 결정을 맞게 되는, 이 축이 막으려던 바로
- * 그 상황이다. 1 = 한 번 놓치면 바로 끊고 다시 붙는다.
- */
+/** 하트비트 ACK(op 11) 없이 넘길 횟수(1 = 한 번 놓치면 끊고 재연결 — 디스코드 문서 요구). 안 보면 반쯤 죽은 소켓이 `online` 인 채 아무것도 안 받는다. */
 export const CHAT_DISCORD_HEARTBEAT_MISS_MAX = 1;
 
 /** 좀비 커넥션을 우리가 끊을 때 쓰는 close code(1000 이 아니어야 RESUME 가능 범위로 다뤄진다). */
@@ -12376,14 +9899,7 @@ export const CHAT_DISCORD_ZOMBIE_CLOSE_CODE = 4009;
 /** 디스코드 한 메시지 최대 길이(공식 2000) — 여유를 두고 자른다. */
 export const CHAT_DISCORD_MESSAGE_MAX = 1900;
 
-/**
- * 슬래시 없이 명령을 치는 접두어 — `!vibisual <명령> [인자]` 는 `/<명령> [인자]` 와 **같다**.
- *
- * 디스코드 클라이언트는 입력창의 `/` 를 슬래시 명령 피커로 가로챈다. 우리는 application
- * command 를 등록하지 않으므로(등록해도 봇 DM 에서의 동작이 클라이언트마다 다르다) 거기서는
- * `/projects` 를 **칠 방법 자체가 없었다** — 선택 흐름은 채널 공통인데 디스코드에서만 그
- * 흐름에 못 들어가던 이유다. 페어링이 이미 쓰던 접두어를 일반 규칙으로 올려 그 길을 연다.
- */
+/** 슬래시 없는 명령 접두어(`!vibisual <명령>` = `/<명령>`). 디스코드 클라이언트가 `/` 를 가로채고 application command 는 등록하지 않으므로, 이게 없으면 `/projects` 를 칠 수 없다. */
 export const CHAT_TEXT_COMMAND_PREFIX = '!vibisual';
 
 /** 디스코드 페어링 명령 접두어. DM 딥링크가 없어 평문 한 줄로 같은 결과를 만든다. */
@@ -12408,37 +9924,19 @@ export const CHAT_LOG_BUFFER_LINES = 400;
 /** 브리지 설정·페어링 목록을 담는 userData 파일 이름(봇 토큰 포함 — 체크포인트 미관여). */
 export const CHAT_BRIDGE_FILE = 'chat-bridge.json';
 
-/**
- * 선택 카드 한 장에 실을 버튼 수 상한(프로젝트·에이전트·세션 공통).
- *
- * 두 메신저 모두 인라인 키보드 크기에 한계가 있고, 폰 화면에서 스무 칸이 넘어가면 고르는 것이
- * 아니라 훑는 것이 된다. 넘치면 카드가 "+N" 한 줄로 알리고 나머지는 상위 단계에서 좁혀 들어온다.
- */
+/** 선택 카드 한 장의 버튼 수 상한(인라인 키보드 한계). 넘치면 "+N" 한 줄 — 나머지는 상위 단계에서 좁힌다. */
 export const CHAT_PICK_MAX = 20;
 
 /** 선택 버튼 하나에 쓸 글자 수 상한 — 넘으면 잘린다(라벨이 길면 버튼이 줄바꿈으로 뭉개진다). */
 export const CHAT_PICK_LABEL_MAX = 40;
 
-/**
- * 선택 버튼이 실어 보내는 **짧은 토큰**의 hex 길이.
- *
- * 텔레그램 `callback_data` 는 **64바이트 상한**이라 프로젝트 표시명을 그대로 실을 수 없다
- * (한글 한 자가 UTF-8 3바이트라 스무 자면 이미 넘친다). 그래서 값을 이 길이의 해시로 접고,
- * 눌렸을 때 **그 시점 목록에서 되찾는다** — 사라진 항목은 자연히 못 찾아 안내로 떨어진다.
- */
+/** 선택 버튼 토큰의 hex 길이 — 텔레그램 `callback_data` 64바이트 상한이라 표시명 대신 해시를 싣고, 눌렸을 때 그 시점 목록에서 되찾는다(사라진 항목은 안내로). */
 export const CHAT_PICK_TOKEN_HEX = 10;
 
 /** "세션을 고르지 않고 서버에 맡긴다"를 뜻하는 선택 토큰(새 대화 / 정규 세션 재사용). */
 export const CHAT_PICK_AUTO_SESSION = '*';
 
-/**
- * 명령 대상 목록(`listChatCommandTargets`)을 다시 만들기까지의 최소 간격(ms).
- *
- * 그 조회는 **범위 미적용 전량 스냅샷**을 만든다 — 고를 목록이 집 PC 의 탭 상태로 달라지지
- * 않게 하려면 그래야 하지만, 카드 라벨을 붙이는 자리는 스트림처럼 초당 여러 번 도는 뜨거운
- * 경로다. 사람의 클릭 간격보다 훨씬 짧으므로 고르는 흐름에서는 사실상 늘 최신이고,
- * 사라진 항목 판정은 어차피 서버가 최종적으로 한다.
- */
+/** 명령 대상 목록(`listChatCommandTargets`) 재생성 최소 간격(ms) — 전량 스냅샷인데 카드 라벨 경로는 초당 여러 번 돈다. 클릭 간격보다 짧아 사실상 늘 최신이다. */
 export const CHAT_TARGETS_TTL_MS = 1_000;
 
 /**
@@ -12451,13 +9949,7 @@ export const DEFAULT_CHAT_VERBOSITY = 'cards';
 //
 // §3.3 — 여기 있는 값은 전부 설정이다. 로직 안에 숫자를 박지 않는다.
 
-/**
- * 기획 문서를 찾을 뿌리 후보 — **권위 순서**다. 사용자가 `.vibisual/spec.json` 의 `roots` 를 적으면
- * 그것이 이 목록을 통째로 대신한다(자동 탐색은 "적지 않았을 때"의 기본값일 뿐이다).
- *
- * `docs/` 를 뒤에 두는 이유: 앞의 셋은 명세 전용 폴더라 잡히면 그것이 답이지만, `docs/` 에는
- * API 문서·개발 노트가 섞여 있어 절 수가 폭증한다.
- */
+/** 기획 문서 뿌리 후보(권위 순서). `.vibisual/spec.json` 의 `roots` 가 있으면 통째로 대신한다. `docs/` 는 맨 뒤(API 문서·노트가 섞여 절이 폭증). */
 export const SPEC_DOC_ROOT_CANDIDATES: readonly string[] = [
   '.kiro/specs',
   'specs',
@@ -12476,12 +9968,7 @@ export const SPEC_DOC_SCAN_MAX_DEPTH = 4;
 /** 한 번의 색인에서 읽는 문서 수 상한. */
 export const SPEC_DOC_FILE_MAX = 120;
 
-/**
- * 절 id 로 쓸 토큰의 기본 정규식.
- *
- * 본문에 `REQ-14` 같은 토큰이 있으면 그것을 id 로 삼는다 — 업계의 역추적 관행(요구사항 ID 를 명세·
- * 테스트·PR 에 심고 CI 가 `REQ-\d+` 로 검사)과 그대로 맞물리기 때문이다. 없으면 헤딩 슬러그로 떨어진다.
- */
+/** 절 id 토큰 기본 정규식(`REQ-14` 류 — 요구사항 ID 역추적 관행). 없으면 헤딩 슬러그. */
 export const SPEC_ID_PATTERN_DEFAULT = '(?:REQ|SPEC|FR|NFR)-[A-Za-z0-9_.-]+';
 
 /**
@@ -12493,37 +9980,19 @@ export const SPEC_REQUIREMENT_MARKERS: readonly string[] = [
   '해야', '한다.', '금지', '하지 마', '필수', '반드시',
 ];
 
-/**
- * 한 턴에 필수로 지목하는 절 수 상한.
- *
- * 전집을 읽으라는 요구는 실패한다(서두가 이미 2만 토큰이다 — §5.5 #17-28). 넘치면 요구사항 수가
- * 많은 절부터 자르고, 잘렸다는 사실을 프롬프트와 화면 양쪽에 적는다.
- */
+/** 한 턴 필수 절 상한(§5.5 #17-28 — 전집 요구는 실패한다). 넘치면 요구사항 수가 많은 절부터 자르고 잘린 사실을 프롬프트·화면에 적는다. */
 export const SPEC_REQUIRED_MAX = 8;
 
-/**
- * 색인이 드는 절 수 상한. 넘으면 최근 수정 순으로 자르고 `truncated` 를 세운다.
- *
- * 2,000 → 4,000 — 절 크기 상한(`SPEC_UNIT_TOKEN_MAX`)으로 큰 절을 다시 자르면서 절이 잘게 늘었다.
- * 절 하나는 얕은 객체 하나라 4,000개여도 메모리·라우팅 비용은 미미하고, 전선에는 개수만 실린다.
- */
+/** 색인 절 수 상한 — 넘으면 최근 수정 순으로 자르고 `truncated`. 절은 얕은 객체라 4,000개도 싸고 전선엔 개수만 실린다. */
 export const SPEC_UNIT_MAX = 4000;
 
 /**
- * 절 하나의 토큰 상한(추정 — `estimateTokens`).
- *
- * 헤딩 하나가 27만 토큰을 품는 문서가 실재한다(실측 2026-09-10). 그 절에 "줄 범위 전체를 열어라"를
- * 시키면 그 한 번이 컨텍스트를 삼킨다. 업계 실측(서술문 청크 512~1,024 토큰이 최적)의 위쪽에 두고,
- * 넘는 절은 항목·문단 경계에서 다시 자르며 그래도 넘으면 `oversized` 로 표시해 Grep 으로 좁히게 한다.
+ * 절 하나의 토큰 상한(`estimateTokens`). 헤딩 하나가 27만 토큰인 문서가 있다(실측 2026-09-10).
+ * 넘으면 항목·문단에서 다시 자르고, 그래도 넘으면 `oversized`(Grep 으로 좁힌다).
  */
 export const SPEC_UNIT_TOKEN_MAX = 2000;
 
-/**
- * 헤딩 없는 긴 절을 다시 자르는 **항목 줄** — 척추 §5 목차의 찾기 정규식과 같은 꼴이다.
- *
- * `17-44.`·`3.2.1.`·`1)`·`(a)`·`①` 로 시작하는 줄(앞의 목록 표식 `- `·굵게 표식 `**` 은 건너뛴다).
- * 줄 하나에 대고 검사한다(`m` 플래그 없이 줄 단위 호출).
- */
+/** 헤딩 없는 긴 절을 자르는 항목 줄(척추 §5 목차 찾기 정규식과 같은 꼴 — `17-44.`·`1)`·`(a)`·`①` 등, 앞의 `- `·`**` 은 건너뜀). 줄 단위로 검사한다(`m` ❌). */
 export const SPEC_ITEM_PATTERN_DEFAULT =
   '^\\s{0,8}(?:[-*+]\\s+)?(?:\\*\\*)?(?:\\d+(?:[.\\-]\\d+)*[.)]|\\([A-Za-z0-9]{1,3}\\)|[\u2460-\u2473\u3251-\u325F])(?=[\\s*\\-]|$)';
 
@@ -12531,73 +10000,39 @@ export const SPEC_ITEM_PATTERN_DEFAULT =
 export const SPEC_RESPLIT_DEPTH_MAX = 4;
 
 /**
- * 재분할한 절 제목에 붙이는 항목 표지 길이(`부모 › 표지`) — **표시용 상한이다.**
- *
- * 40 자였을 때 한글 헤딩이 꼬리에서 잘렸다(실측: `— 활동바 정독` 이 `— 활동바 정` 으로 잘려 §5.5 #17-44 의
- * 조각 54 개 전부가 제목에 `정독` 을 잃었고, 그래서 「정독 기능 고쳐줘」가 자기 기획 절을 못 찾았다).
- * 우리 헤딩은 "번호. 무엇을 왜 — **어디**" 꼴이라 가장 검색되는 낱말이 늘 꼬리에 있다.
- * 길이를 늘리는 것만으로는 또 잘릴 뿐이므로 **낱말 경계에서 자르고**, 매칭은 자르지 않은
- * `SpecUnit.matchText` 로 한다 — 표시가 짧아도 찾기는 온전해야 한다.
+ * 재분할 절 제목의 항목 표지 길이(표시용). 헤딩은 검색 낱말이 꼬리에 있어 낱말 경계에서 자르고, 매칭은 자르지 않은 `SpecUnit.matchText` 로 한다
+ * (실측: 40자일 때 `정독` 이 `정` 으로 잘려 그 절을 못 찾았다).
  */
 export const SPEC_ITEM_LABEL_MAX = 60;
 
 /**
- * 제목 겹침으로 절이 걸리려면 **겹침 점수가 이만큼** 돼야 한다.
- *
- * 하나면 `정독`·`문서` 같은 낱말에 온 제목이 걸린다(실측: 두 프로젝트 모두 무관한 절 8개가 매 턴 섰다).
- * 그렇다고 낱말 **개수**만 세면 `지금`+`기능` 같은 산문 접착제 둘로 문턱이 뚫린다(실측 2026-09-11:
- * 「지금 정독 기능을 개선했는데…」에 무관한 `세션 목표` 절이 그 둘로 섰고, 정작 `정독` 절은 1 개라 떨어졌다).
- * 그래서 세는 것은 개수가 아니라 **무게**다 — 접착제는 0, 드문 낱말은 `SPEC_RARE_TITLE_HIT_WEIGHT`,
- * 나머지는 1. id·문서 경로를 직접 부른 것은 이 문턱과 무관하게 걸린다.
+ * 제목 겹침 문턱(점수). 개수가 아니라 무게를 센다 — 접착제 0 · 드문 낱말 `SPEC_RARE_TITLE_HIT_WEIGHT` · 나머지 1
+ * (실측: 1 이면 무관한 절 8개, 개수로 세면 접착제 둘로 섰다). id·문서 경로 직접 지목은 문턱과 무관.
  */
 export const SPEC_TITLE_MIN_HITS = 2;
 
-/**
- * **드문 낱말 하나면 절이 선다** — 그 낱말이 대신하는 겹침 수.
- *
- * `정독`처럼 온 색인에서 몇 절에만 있는 낱말은 그 자체로 "이 절을 말한 것"이다. 짝을 요구하면
- * 기능 이름을 정확히 부른 프롬프트가 도리어 떨어진다(위 실측이 그 경우다).
- */
+/** 드문 낱말 하나가 대신하는 겹침 수 — 기능 이름을 정확히 부른 프롬프트가 짝이 없어 떨어지지 않게. */
 export const SPEC_RARE_TITLE_HIT_WEIGHT = 2;
 
 /**
- * 낱말이 **이 비율 이하의 절 제목**에만 나오면 드문 낱말이다(문서 빈도 = df).
- *
- * 고정 개수로 두면 색인 크기에 따라 뜻이 달라진다(절 30 개짜리 저장소의 20 절 ≠ 절 1,000 개의 20 절).
- * 부모 제목이 자식 조각에 그대로 이어지므로 큰 절 하나가 df 를 수십까지 밀어 올린다 — 그래서 넉넉히 잡는다.
- * 실측(2026-09-11, 절 1,038 개): `정독` 23 · `인용` 10 · `개선` 14 · `색인` 40 · `배지` 46 이 도메인 낱말이고,
- * `드래그` 56 · `퍼센트` 91 · `버블` 145 · `활동바` 220 · `세션` 375 부터는 어디에나 있다. 5% 가 그 사이다.
+ * 드문 낱말의 df 비율 상한(고정 개수면 색인 크기마다 뜻이 바뀐다). 부모 제목이 조각에 이어져 df 가 부풀어 넉넉히 잡는다
+ * (실측 2026-09-11, 절 1,038: 도메인 낱말 df 10~46, 흔한 낱말 56~375).
  */
 export const SPEC_RARE_TITLE_DF_RATIO = 0.05;
 
 /**
- * 희귀도를 **재기 시작하는** 색인 크기 — 절이 이보다 적으면 드문 낱말을 아예 안 센다.
- *
- * df 는 모집단이 있어야 뜻이 생긴다. "절 다섯 중 하나에 나오는 낱말"은 드문 것이 아니라 20% 다.
- * 바닥값(예전 `SPEC_RARE_TITLE_DF_MIN = 3`)으로 깔아 두면 **작은 색인에서는 모든 낱말이 드문 낱말이 되어**
- * 문턱이 통째로 사라진다 — 실측으로 절 2 개짜리 색인에서 `게이트` 한 낱말이 절을 세웠다.
- * 절이 적은 저장소는 목록을 통째로 볼 수 있으니, 그때는 낱말 둘을 요구하는 종전 문턱이 옳다.
+ * 희귀도를 재기 시작하는 색인 크기(df 는 모집단이 있어야 뜻이 있다). df 바닥값으로 바꾸지 마라 —
+ * 작은 색인에선 모든 낱말이 드물어 문턱이 사라진다(실측: 절 2개에서 한 낱말이 절을 세웠다).
  */
 export const SPEC_RARE_TITLE_MIN_UNITS = 20;
 
 /**
- * 드문 낱말이 **혼자 절을 세우려면** 제목 사슬(`문서 › 절 › 항목 › …`)의 앞 이만큼 안에서 맞아야 한다.
- *
- * df 만으로는 **도메인 낱말과 우리말 동사가 안 갈린다** — 실측(2026-09-11)에서 `정독` df 23,
- * `오늘` df 4, `고치고` df 2, `먹는다` df 10 으로 뒤엣것들이 오히려 더 드물었다. 「안녕 오늘 뭐 할까」가
- * 무관한 절 4 개를 세운 것이 그 탓이다. 가르는 것은 빈도가 아니라 **자리**다 — 절이 그 낱말에 대한
- * 것이면 낱말은 **절 제목**에 서고(`17-44. … 활동바 정독`), 지나가는 말이면 말단 항목 표지에만 선다
- * (`⑧-2 날짜를 숨기지 않는다 — 오늘 것도 …`). 말단에서만 맞은 드문 낱말은 가중 없이 1 로 센다.
+ * 드문 낱말이 혼자 절을 세우려면 제목 사슬 앞 이만큼 안에서 맞아야 한다 — df 로는 도메인 낱말과 동사가 안 갈린다(실측 2026-09-11: `오늘` df 4).
+ * 절의 주제 낱말은 절 제목에, 지나가는 말은 말단 표지에 선다. 말단에서만 맞으면 1 로 센다.
  */
 export const SPEC_TITLE_HEAD_PARTS = 2;
 
-/**
- * 제목 겹침에서 **아예 세지 않는 낱말** — 어느 절 제목에나 있어 절을 가리지 못한다.
- *
- * 로직 분기가 아니라 **언어 표**다(`KO_PARTICLES` 와 같은 규율 — 사용자 설정으로 바꿀 값이 아니다).
- * df 만으로도 대부분 걸러지지만, 문서가 몇 장 없는 저장소에서는 접착제가 "드문 낱말"로 올라선다.
- * 그 자리를 이 표가 막는다. **명사만 넣는다** — 기능 이름이 될 수 있는 낱말은 여기 두지 마라.
- */
+/** 제목 겹침에서 세지 않는 낱말(언어 표 — `KO_PARTICLES` 와 같은 규율). 작은 저장소에서 접착제가 드문 낱말이 되는 것을 막는다. 명사만 — 기능 이름이 될 낱말은 넣지 마라. */
 export const SPEC_TITLE_STOPWORDS: readonly string[] = [
   // 한국어 — 지시·시점·수량·정도
   '지금', '이번', '다음', '처음', '나중', '먼저', '아까', '여기', '거기', '저기',
@@ -12611,10 +10046,7 @@ export const SPEC_TITLE_STOPWORDS: readonly string[] = [
   'how', 'why', 'use', 'using', 'add', 'fix', 'make', 'new', 'old', 'all',
 ];
 
-/**
- * 색인에서 빼는 **폴더 이름**(경로의 어느 칸이든, 소문자로 견줌 — 키 비교가 아니라 이름 판정이라 접어도 안전).
- * 백업·아카이브 사본이 원본 자리를 차지하고 원본이 상한 밖으로 밀리던 실측(349장 중 229장 탈락).
- */
+/** 색인에서 빼는 폴더 이름(소문자 견줌 — 이름 판정이라 안전). 없으면 백업 사본이 원본을 상한 밖으로 민다(실측: 349장 중 229장 탈락). */
 export const SPEC_DOC_SKIP_SEGMENTS: readonly string[] = [
   'backup', 'backups', 'bak', 'archive', 'archives', 'archived', '_archive', '_backup',
   'old', 'temp', 'tmp', 'trash', 'deprecated',
@@ -12632,12 +10064,7 @@ export const SPEC_INDEX_SKIPPED_LIST_MAX = 20;
 /** 인용 대조 결과에 붙이는 파일 원문 길이 — 나란히 보기(§5.5 #17-44 ③(b))의 재료. */
 export const SPEC_CITATION_ACTUAL_MAX = 300;
 
-/**
- * 이 줄 수를 넘는 파일을 `offset` 없이 통째로 Read 하면 **부분 열람으로 강등**한다.
- *
- * 통째 Read 는 도구가 앞부분만 돌려주고 나머지는 잘리므로, "열었다"를 그대로 인정하면 이 게이트가
- * 막으려는 바로 그 동작(중간 유실)을 통과시키게 된다.
- */
+/** 이 줄 수를 넘는 파일의 `offset` 없는 통째 Read 는 부분 열람으로 강등한다(도구가 앞부분만 돌려준다). */
 export const SPEC_FULL_READ_LINE_MAX = 4000;
 
 /** `Grep` 매치 한 건이 덮는 것으로 치는 줄 수(문맥 인자가 없을 때). */
@@ -12664,12 +10091,7 @@ export const SPEC_GATE_EVENT_MAX = 50;
 /** 세션당 히트맵이 드는 파일 수. */
 export const SPEC_LEDGER_FILE_MAX = 60;
 
-/**
- * 원장이 들고 있는 이번 턴 프롬프트의 앞부분 길이.
- *
- * 필수 절을 고르는 데 필요한 것은 "무슨 일을 하려는가"이고 그것은 앞머리에 있다. 통째로 들면 붙여넣은
- * 로그·스택트레이스가 그대로 원장에 남아 세션 200개만큼 곱해진다(§3.2.4 — 키 개수엔 캡이 없다).
- */
+/** 원장이 드는 프롬프트 앞부분 길이(할 일은 앞머리에 있다). 통째로 들면 붙여넣은 로그가 세션 수만큼 곱해진다(§3.2.4). */
 export const SPEC_PROMPT_KEEP_CHARS = 4_000;
 
 /** 세션당 기억하는 "건드린 경로" 수 — 경로 축 라우팅의 재료라 최근 것만 있으면 된다. */
@@ -12678,22 +10100,13 @@ export const SPEC_TOUCHED_PATH_MAX = 60;
 /** 세션당 들고 있는 인용 대조 결과 수. 넘으면 오래된 것부터 버린다. */
 export const SPEC_CITATION_SESSION_MAX = 120;
 
-/**
- * **전선에 싣는** 히트맵 파일 수 — 원장이 드는 수(`SPEC_LEDGER_FILE_MAX`)와 다르다.
- *
- * 원장은 판정 재료라 넉넉히 들어야 하지만, 화면이 한 번에 보여줄 수 있는 것은 몇십 줄이다.
- * 세션 200개가 각자 60개 파일의 구간을 매 브로드캐스트마다 실으면 그 자체가 §9 전선 예산을
- * 삼킨다. 필수 절이 가리키는 파일은 이 상한과 무관하게 **항상** 실린다(그것이 사용자가 보려는 것이다).
- */
+/** 전선에 싣는 히트맵 파일 수(원장의 `SPEC_LEDGER_FILE_MAX` 와 다르다 — §9 전선 예산). 필수 절이 가리키는 파일은 늘 싣는다. */
 export const SPEC_WIRE_FILE_MAX = 24;
 
 /** 전선에 싣는 파일당 구간 수. 겹친 구간은 원장에서 이미 합쳐져 있어 이 수면 한 문서를 다 그린다. */
 export const SPEC_WIRE_SPANS_PER_FILE = 40;
 
-/**
- * 색인 캐시 수명. mtime 두 겹 캐시와 함께 쓴다 — 실시간으로 append 되는 문서에서 mtime 만으로는
- * 매 턴 캐시가 빗나가 동기 읽기가 반복된다(§5.11 v4.65 가 배운 그대로).
- */
+/** 색인 캐시 수명 — 실시간 append 문서는 mtime 만으로 매 턴 빗나가 동기 읽기가 반복된다(§5.11). */
 export const SPEC_INDEX_TTL_MS = 30_000;
 
 /** 인용으로 인정하는 최소 글자 수 — 너무 짧으면 아무 문장에나 걸린다. */
@@ -12708,43 +10121,21 @@ export const SPEC_SETTINGS_FILE = '.vibisual/spec.json';
 /** 화면 드롭다운이 쓰는 강도 목록 — 순서가 곧 강해지는 순서다. */
 export const SPEC_GATE_STRENGTHS = ['observe', 'warn', 'enforce'] as const;
 
-/**
- * §5.5 #17-44 ⑧ — 층별 덮어쓰기 맵의 칸 수 상한.
- *
- * 에이전트·세션 id 는 그 세션이 사라져도 이 맵에 **잔칸**으로 남아 단조 증가한다(§3.2.4 "키 개수엔
- * 캡이 없다"가 잡아 온 그 모양). 넘치면 가장 먼저 적힌 칸부터 버린다 — 최근에 정한 것이 지금 쓰는
- * 것이기 때문이다.
- */
+/** §5.5 #17-44 ⑧ — 층별 덮어쓰기 맵 칸 상한(세션이 사라져도 칸이 남아 늘기만 한다 — §3.2.4). 넘치면 먼저 적힌 칸부터 버린다. */
 export const SPEC_SCOPE_ENTRY_MAX = 200;
 
 // ─── §5.10 자동 목표 — 되풀이를 스킬로 굳히는 문턱 ───────────────────────
 
-/**
- * **스킬이 되는 문턱** — 같은 절차를 이만큼 되풀이하면 자동으로 굳힌다.
- *
- * 2 로 두면 "우연히 두 번 같은 순서"가 전부 스킬이 되고, 5 로 두면 며칠을 써도 한 장도 안 생겨
- * 사용자가 켠 결과를 못 본다. 3 은 `GOAL_ACTION_MIN_REPEAT` 이 팔레트에서 이미 쓰던 값이라
- * 같은 프로젝트 안에서 "되풀이"의 뜻이 두 개가 되지 않는다.
- */
+/** 스킬로 굳히는 되풀이 문턱. 2 면 우연이 스킬이 되고 5 면 안 생긴다. `GOAL_ACTION_MIN_REPEAT` 와 같은 값이라 "되풀이"의 뜻이 하나다. */
 export const AUTO_GOAL_MIN_RUNS = 3;
 
 /** 절차 한 벌로 인정하는 **최소 단계 수** — 한 줄짜리는 절차가 아니라 명령이다(팔레트의 몫). */
 export const AUTO_GOAL_SEQUENCE_MIN = 2;
 
-/**
- * 절차 한 벌의 **최대 단계 수**.
- *
- * 길수록 정확히 같은 순서가 되풀이될 확률이 급격히 떨어져, 상한을 올리면 후보가 늘기는커녕
- * 아무것도 안 잡힌다. 긴 작업은 짧은 묶음 여럿으로 잡히는 편이 다시 쓰기도 쉽다.
- */
+/** 절차 최대 단계 수. 올리지 마라 — 길수록 같은 순서가 안 되풀이돼 아무것도 안 잡힌다. */
 export const AUTO_GOAL_SEQUENCE_MAX = 6;
 
-/**
- * 한 절차로 묶는 **시간 창**. 이보다 멀리 떨어진 두 명령은 이어진 일로 보지 않는다.
- *
- * 없으면 어제 친 `git status` 와 오늘 친 `pnpm build` 가 한 절차가 된다 — 시간이 그 둘을
- * 갈라 주는 유일한 증거다.
- */
+/** 한 절차로 묶는 시간 창 — 어제 명령과 오늘 명령을 가르는 증거는 시간뿐이다. */
 export const AUTO_GOAL_WINDOW_MS = 15 * 60 * 1000;
 
 /** 화면에 세우는 후보 수 상한 — 넘으면 "자주 하는 일"이 아니라 목록이 된다(팔레트와 같은 규율). */
@@ -12763,22 +10154,11 @@ export const AUTO_GOAL_EVIDENCE_FILE_BYTES = 2 * 1024 * 1024;
 export const AUTO_GOAL_ASSESSMENT_TTL_MS = 30 * 60 * 1000;
 export const AUTO_GOAL_ASSESSMENT_MAX = 256;
 export const AUTO_GOAL_COMPLETION_MAX = 16;
-/**
- * 한 턴에 실을 검토 대기 절차 수 (§5.10 (R)ⓑ).
- *
- * 3 이던 것을 6 으로 올렸다. 3 일 때는 관련도와 무관하게 목록 앞에서 잘렸고, 그래서 지금 만지는 파일의
- * 절차가 실리지 않는 턴이 대부분이었다 — 규약이 검토를 지시해도 실릴 자리가 없으면 아무 일도 일어나지 않는다.
- * 넓힌 대신 `autoGoalRelevanceScore` 로 **관련도 순위**를 매겨 고르므로, 무관한 절차가 더 실리지는 않는다.
- */
+/** 한 턴 검토 대기 절차 수(§5.10 (R)ⓑ) — 자리가 모자라면 규약이 검토를 지시해도 안 실린다. 관련도 순위(`autoGoalRelevanceScore`)로 골라 무관한 것은 안 늘린다. */
 export const AUTO_GOAL_REVIEW_QUEUE_MAX = 6;
 /** 한 턴에 실을 검토 통과 절차 수 — 검토 대기와 합쳐 한 턴의 주입 총량이 된다. */
 export const AUTO_GOAL_ACTIVE_QUEUE_MAX = 8;
-/**
- * 승인 뒤 이만큼 지나도록 **한 번도 쓰이지 않은** 절차는 걷을 후보로 표시한다 (§5.10 (R)ⓒ).
- *
- * 지우지 않는다 — 규약문에 "걷을 후보" 로 적어 에이전트가 그 자리에서 판단하게 할 뿐이다.
- * 30일은 한 판올림 주기보다 길어, 계절을 타는 절차(릴리스·점검)가 한 번은 돌아올 수 있는 길이다.
- */
+/** 승인 뒤 이만큼 안 쓰인 절차는 걷을 후보로 규약문에 적는다(§5.10 (R)ⓒ — 지우지 않는다). 30일 = 릴리스·점검 같은 절차가 한 번은 돌아올 길이. */
 export const AUTO_GOAL_STALE_REVIEW_MS = 30 * 24 * 60 * 60 * 1000;
 export const AUTO_GOAL_REFRESH_MS = 15_000;
 
@@ -12788,23 +10168,13 @@ export const AUTO_GOAL_REFRESH_MS = 15_000;
  */
 export const AUTO_GOAL_DISMISSED_MAX = 200;
 
-/**
- * 훑는 행동 이력의 **꼬리 길이**(에이전트당).
- *
- * 전량을 매번 다시 세면 이력이 쌓일수록 분석이 느려진다(§9 "쓸수록 느려진다"가 잡아 온 모양).
- * 되풀이는 최근 습관이라 꼬리만 봐도 답이 같다.
- */
+/** 훑는 행동 이력 꼬리 길이(에이전트당) — 전량을 매번 세면 쓸수록 느려진다(§9). */
 export const AUTO_GOAL_SCAN_TAIL = 400;
 
 /** 자동으로 굳히는 스킬 수의 총량 상한 — 넘으면 더 짓지 않는다(디스크·주입 둘 다 지킨다). */
 export const AUTO_GOAL_SKILL_BUDGET = 40;
 
-/**
- * 기본 설정 — **기본은 알림이다.**
- *
- * 오탐으로 매 턴 막히면 사용자는 이 기능을 꺼 버린다. 그것이 이 기능의 유일한 실패 방식이라
- * 기본값은 아무것도 막지 않는 쪽이고, 막는 것은 사용자가 켠다.
- */
+/** 기본은 알림(막기는 사용자가 켠다) — 오탐으로 매 턴 막히면 기능을 꺼 버린다. */
 export const DEFAULT_SPEC_READING_SETTINGS = {
   strength: 'observe' as const,
   maxRequired: SPEC_REQUIRED_MAX,
@@ -12812,17 +10182,9 @@ export const DEFAULT_SPEC_READING_SETTINGS = {
 };
 
 // ─── §5.5 #17-33 ⑦ — Claude Code 플러그인 자동 갱신 ───
-//
-// 왜 있는가: 마켓 클론은 `claude plugin marketplace update` 를 누가 부르기 전까지 **영영 그대로**다.
-// 실측(2026-09-09) 공식 마켓 클론은 2026-08-04 에 멈춰 36일 낡아 있었고, 그동안 Anthropic 이 낸
-// 스킬은 화면에 한 개도 나타나지 않았다. 부를 자리가 없던 것이 원인이라 주기를 여기 못 박는다.
+// 마켓 클론은 `claude plugin marketplace update` 를 부르기 전까지 그대로다(실측 2026-09-09: 공식 클론이 36일 낡아 있었다) — 그래서 주기를 둔다.
 
-/**
- * 기본 설정 — **기본은 둘 다 켬.**
- *
- * 플러그인 갱신은 도는 코드가 바뀌는 일이라 조심스럽지만, 끌 자리를 주는 것과 켤 자리를 못 찾아
- * 36일 멈춰 있는 것 중에서는 앞이 낫다(§5.10 브레인 v2 가 기본 off 로 겪은 함정의 반대편).
- */
+/** 기본은 둘 다 켬 — 끌 자리를 주는 편이 켤 자리를 못 찾아 멈춰 있는 것보다 낫다. */
 export const CLAUDE_PLUGIN_REFRESH_DEFAULTS = {
   market: true,
   plugins: true,
@@ -12835,36 +10197,20 @@ export const CLAUDE_PLUGIN_REFRESH_MIN_INTERVAL_HOURS = 1;
 /** 주기 상한 2주 — 이보다 길면 "자동" 이라 부를 수 없다. */
 export const CLAUDE_PLUGIN_REFRESH_MAX_INTERVAL_HOURS = 24 * 14;
 
-/**
- * 기동 후 첫 확인까지의 유예.
- *
- * 부팅 직후는 프로젝트 복원·체크포인트 읽기로 가장 바쁜 구간이라, 여기에 git 을 타는 스폰을
- * 얹으면 첫 화면이 늦는다. 사용자가 눈치채지 못할 만큼만 미룬다.
- */
+/** 기동 후 첫 확인 유예 — 부팅 직후(복원·체크포인트 읽기)에 git 스폰을 얹으면 첫 화면이 늦는다. */
 export const CLAUDE_PLUGIN_REFRESH_STARTUP_DELAY_MS = 45_000;
 
-/**
- * "지금 할 때가 됐나" 를 보는 간격 — 실제 갱신이 아니라 **판정만** 이 간격으로 한다.
- * 30분마다 시각 하나를 견주는 것뿐이라 값이 0 에 가깝고, 앱을 며칠 켜 둔 사용자도 주기를 놓치지 않는다.
- */
+/** "할 때가 됐나" 판정 간격(갱신 자체가 아니다) — 시각 비교뿐이라 값이 0 에 가깝고 며칠 켜 둬도 주기를 놓치지 않는다. */
 export const CLAUDE_PLUGIN_REFRESH_TICK_MS = 30 * 60_000;
 
 /** 갱신 뒤 화면에 적어 두는 "이번에 올라간 것" 최대 개수(그 이상은 수로만 적는다). */
 export const CLAUDE_PLUGIN_REFRESH_UPDATED_KEEP = 12;
 
-/**
- * 한 번의 훑기에서 올릴 설치본 최대 개수.
- *
- * 뒤처진 것이 수십 개면 하나에 최대 180초를 잡아 두었으므로 한 번에 다 하려다 몇 시간을 문다.
- * 남은 것은 다음 주기에 이어 간다 — **끝내지 못하는 것보다 나눠서 끝내는 편이 낫다.**
- */
+/** 한 번에 올릴 설치본 상한 — 하나에 최대 180초라 한꺼번에 하면 몇 시간이다. 남은 것은 다음 주기에. */
 export const CLAUDE_PLUGIN_REFRESH_MAX_PER_RUN = 8;
 
 // ─── §5.3 #10-4 — 오케스트라(지휘 모드) ───
-//
-// 왜 있는가: 켜 둔 커스텀 에이전트가 사용자 요청을 받으면 **그 턴만** 지휘자가 되어, 토큰 절감 분석
-// 원문(`ORCHESTRA_STRATEGIES`) 중 그 요청에 맞는 방안만 골라 멤버·엣지를 편성하고 고른 이유를 신고한다.
-// 전부 자동 적용이 아니다 — 고르는 것은 지휘자다.
+// 켜 둔 커스텀 에이전트가 요청을 받은 그 턴만 지휘자가 되어 `ORCHESTRA_STRATEGIES` 중 맞는 방안만 골라 편성하고 이유를 신고한다(자동 적용 ❌).
 
 /** 한 런에서 새로 만들 수 있는 멤버 수 기본값 — 분석 1번("머릿수는 비싸다")이 상한의 이유다. */
 export const ORCHESTRA_DEFAULT_MAX_MEMBERS = 6;
@@ -12878,7 +10224,7 @@ export const ORCHESTRA_RUN_MAX_PER_PROJECT = 100;
 /** 스냅샷에 싣는 최근 런 수 — 나머지는 체크포인트에만 있다(전선 무게). */
 export const ORCHESTRA_RUN_SNAPSHOT_MAX = 20;
 
-/** 런에 적어 두는 사용자 원문 길이 상한(글자). 명령 본문 자체는 자르지 않는다 — 기록용 사본만 자른다. */
+/** 런 기록용 요청 원문 길이 상한(글자) — 명령 본문은 자르지 않는다. */
 export const ORCHESTRA_RUN_REQUEST_MAX = 4000;
 
 /** 계획 신고의 방안별 이유 길이 상한(글자) — 넘으면 400. */
@@ -12887,11 +10233,7 @@ export const ORCHESTRA_PLAN_REASON_MAX = 300;
 /** 계획 신고의 note 길이 상한(글자) — 넘으면 400. */
 export const ORCHESTRA_PLAN_NOTE_MAX = 1000;
 
-/**
- * 지휘 턴의 도구 — #10-2 빌더(`AUTO_AGENT_BUILDER_CONFIG.tools`)와 같은 이유로 같은 벌이다.
- * loopback REST 를 Bash(curl) 로 치고, 범위를 잡으려고 읽기만 한다. 설정 `askQuestions` 가 켜져 있으면
- * `AUTO_AGENT_BUILDER_INTERVIEW_TOOL` 을 더한다.
- */
+/** 지휘 턴 도구 — #10-2 빌더(`AUTO_AGENT_BUILDER_CONFIG.tools`)와 같은 벌(loopback REST 는 Bash(curl), 나머지는 읽기). `askQuestions` 면 `AUTO_AGENT_BUILDER_INTERVIEW_TOOL` 을 더한다. */
 export const ORCHESTRA_CONDUCTOR_TOOLS: readonly string[] = ['Bash', 'Read', 'Grep', 'Glob', 'Agent'];
 
 /** 지휘 턴에서 막는 도구 — 지휘자는 코드를 고치지 않는다(고치는 것은 멤버다). */
@@ -12926,10 +10268,8 @@ export const VERIFICATION_AUTOMATION = {
   evidenceDirectory: 'verify-runs',
 } as const;
 
-// ─── §4 앱 테마 (판올림 번호 발급 대기) ──────────────────────────────────────
-// 왜 있는가: 화면이 한 벌(어두운 청회색)뿐이라 다른 IDE 처럼 테마를 고를 수 없었다(사용자 지시 2026-10-11).
-// 테마의 본체는 Tailwind 팔레트 변수(`--color-<계열>-<칸>`)를 갈아 끼우는 것이고, 클래스로 못 칠하는 자리만
-// 아래 의미 토큰으로 뽑았다. 해석은 `appThemeResolve.ts`, 기본 테마 목록은 `appThemeCatalog.ts`.
+// ─── §4 앱 테마 ───
+// 본체는 Tailwind 팔레트 변수(`--color-<계열>-<칸>`) 교체, 클래스로 못 칠하는 자리만 의미 토큰. 해석 `appThemeResolve.ts`, 목록 `appThemeCatalog.ts`.
 
 /** 기본 테마 — 종전 화면 그대로다. 고른 테마를 못 찾을 때도 여기로 떨어진다. */
 export const DEFAULT_APP_THEME_ID = 'vibisual-dark';
@@ -12967,24 +10307,15 @@ export const APP_THEME_LIMITS = {
   maxIssueDetailLength: 80,
 } as const;
 
-/**
- * 마지막으로 칠한 테마의 **표시 캐시**(localStorage 키). 권위는 `UserDefaults.appearance.themeId` 이고
- * 이 값은 다시 계산되는 파생물이다 — 첫 칠의 깜빡임을 막고, 스냅샷을 받지 않는 창이 따라오게 한다.
- */
+/** 마지막 칠한 테마의 표시 캐시(localStorage). 권위는 `UserDefaults.appearance.themeId` — 첫 칠 깜빡임을 막고 스냅샷을 안 받는 창이 따라오게 한다. */
 export const APP_THEME_BOOT_CACHE_KEY = 'vibisual.appTheme.v1';
 
-/**
- * 어두운 판을 고정하는 속성(`data-vb-theme-lock="dark"`). 고정 어두운 바탕을 전제로 칠한 화면
- * (내부 앱 화면·캔버스 미디어 무대)에 붙인다 — 라이트에서 글자만 뒤집혀 사라지는 것을 막는다.
- */
+/** 어두운 판 고정 속성 — 고정 어두운 바탕 전제의 화면(내부 앱·미디어 무대)에 붙인다(라이트에서 글자만 뒤집혀 사라지지 않게). */
 export const APP_THEME_LOCK_ATTR = 'data-vb-theme-lock';
 
 /**
- * 의미 토큰 — Tailwind 클래스로 못 칠하던 자리. `default` 는 기본 테마(=종전 화면)의 값이고
- * 지금 화면에 박혀 있던 값을 그대로 옮겼다(기본 테마에서 한 픽셀도 달라지지 않게).
- * `{gray.950}` 은 팔레트 참조라 팔레트를 바꾸면 따라간다. `cssVar` 가 있는 토큰만 CSS 변수로 나가고
- * (Tailwind 유틸 `bg-vb-*` 가 그것을 쓴다), 없는 것은 JS 소비자(xterm)만 읽는다.
- * 터미널 16색은 Catppuccin Mocha(MIT — 색값 사용 자유)로 종전 `IDETerminalView` 의 값 그대로다.
+ * 의미 토큰 — Tailwind 클래스로 못 칠하는 자리. `default` 는 기본 테마 값(기본 테마는 한 픽셀도 달라지면 안 된다), `{gray.950}` 은 팔레트 참조.
+ * `cssVar` 가 있는 것만 CSS 변수로 나간다(`bg-vb-*`), 없는 것은 JS(xterm)만 읽는다. 터미널 16색은 Catppuccin Mocha(MIT).
  */
 export const APP_THEME_TOKEN_SPECS: Readonly<Record<AppThemeToken, { readonly default: string; readonly cssVar?: string }>> = {
   'window.background': { default: '{gray.950}', cssVar: '--color-vb-window' },

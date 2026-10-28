@@ -2,14 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { subAgentManager } from './subAgentManager.js';
 import { SUBAGENT_DORMANT_IDLE_MS } from '@vibisual/shared';
 
-/**
- * §2.4 (잠듦) — **유휴 세션의 claude 자식 프로세스 회수** 회귀 테스트.
- *
- * 이 기능의 위험은 "안 재우는 것"이 아니라 **잘못 재우는 것**이다. 도는 세션의 자식을 뺏으면 그 턴이
- * 죽고, 백그라운드 작업을 가진 세션을 재우면 `--resume` 이 그것만은 되살리지 못해 사용자가 시킨 일이
- * 조용히 사라진다(Claude Desktop 이 실제로 그 버그를 안았다 — claude-code#68625).
- * 그래서 재우는 쪽 한 건보다 **재우지 않는 쪽**을 더 많이 고정한다.
- */
+/** §2.4 (잠듦) — 유휴 claude 자식 회수 시험. 위험은 잘못 재우는 것(도는 턴 사망 · 백그라운드 작업은 `--resume` 이 못 살린다 — claude-code#68625)이라 재우지 않는 쪽을 더 고정한다. */
 
 const THRESHOLD = SUBAGENT_DORMANT_IDLE_MS;
 

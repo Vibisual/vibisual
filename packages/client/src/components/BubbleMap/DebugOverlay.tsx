@@ -12,10 +12,7 @@ interface DebugOverlayProps {
 /** 그려 보일 고리 수 — 첫 고리와 그 바깥 둘(영역이 넓어지는 모양이 읽히는 만큼). */
 const DEBUG_RINGS = [0, 1, 2] as const;
 
-/**
- * 디버그 모드: §5.1 #2-2 등장 영역 — 에이전트 둘레 고리 0~2. 새 버블은 이 고리에 12시부터 시계 방향으로
- * 앉고, 원판이 붐비면(남의 버블까지 센다) 바깥 고리로 넓어진다. 반경은 배치와 같은 함수(`zoneGridRadius`)로 잰다.
- */
+/** 디버그: §5.1 #2-2 등장 영역 고리 0~2. 새 버블은 12시부터 시계 방향, 붐비면(남의 버블 포함) 바깥 고리. 반경은 배치와 같은 `zoneGridRadius`. */
 export const DebugOverlay = memo(function DebugOverlay({ flowNodes }: DebugOverlayProps): React.JSX.Element | null {
   const { x, y, zoom } = useViewport();
 

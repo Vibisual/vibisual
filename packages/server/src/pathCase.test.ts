@@ -9,14 +9,8 @@ import {
 } from '@vibisual/shared';
 
 /**
- * 경로 대소문자 정책(`shared/src/pathCase.ts`)의 회귀 고정.
- *
- * 이 파일이 지키는 것은 한 문장이다 — **Linux 에서는 경로를 소문자로 접으면 안 된다.**
- * 접으면 `Feature-X` 와 `feature-x` 라는 실재하는 두 디렉터리가 한 Map 키로 뭉개져
- * 프로젝트 그래프·탭 목록·두뇌 설정이 에러 없이 섞인다.
- *
- * shared 패키지에는 테스트 러너가 없어서(빌드 전용) 여기 server 쪽에 둔다 —
- * `keyedSliceDelta.test.ts` 와 같은 선례다.
+ * 경로 대소문자 정책(`shared/src/pathCase.ts`) 회귀 고정 — Linux 에서는 경로를 소문자로 접으면 안 된다
+ * (`Feature-X`·`feature-x` 두 디렉터리가 한 Map 키로 뭉개져 그래프·탭·설정이 조용히 섞인다). shared 에 러너가 없어 server 에 둔다.
  */
 describe('isCaseInsensitiveFs', () => {
   it('win32·darwin 은 대소문자를 가리지 않는 파일시스템으로 본다', () => {

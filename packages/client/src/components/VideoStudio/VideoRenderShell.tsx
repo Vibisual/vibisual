@@ -11,15 +11,8 @@ import { makeCompositionSrc } from './compositionUrl.js';
 import i18n from '../../i18n/index.js';
 
 /**
- * §5.13 (F) — 오프스크린 렌더 전용 화면.
- *
- * 보이지 않는 창이 이 화면을 열고, main 프로세스가 `window.__vibiRenderSeek(t)` 를 부른
- * 뒤 창을 찍는다. **사람이 볼 화면이 아니라 카메라 앞에 세우는 무대**라 조작 요소가
- * 하나도 없다.
- *
- * 준비 여부를 전역 플래그로 알리는 이유는 main 이 그것 말고 물어볼 방법이 없기 때문이다.
- * 실패하면 이유를 `__vibiRenderError` 에 남긴다 — 그래야 "왜 이 백엔드를 못 쓰는지"가
- * 사용자에게 그대로 전달된다(조용히 느린 쪽으로 내려가지 않게).
+ * §5.13 (F) — 오프스크린 렌더 무대(조작 요소 없음). main 이 `__vibiRenderSeek(t)` 를 부른 뒤 찍는다. 준비는 전역 플래그(main 이 물을 길이 그것뿐),
+ * 실패 이유는 `__vibiRenderError` — 조용히 느린 백엔드로 내려가지 않게.
  */
 
 declare global {

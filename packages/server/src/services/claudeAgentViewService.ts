@@ -1,18 +1,7 @@
 /**
- * §5.7 #23-2 v1.60 — Claude Code Agent View (per-user supervisor) 통합 서비스.
- *
- * 책임:
- * - Agent View 활성화 게이트 (`isAgentViewEnabled`) — 버전 v2.1.139+ && !disableAgentView 점검.
- * - `claude --bg` 백그라운드 디스패치 (`spawnBackground`) — short id 캡처 + roster 에서 sessionId 회수.
- * - 라이프사이클 명령 (`stopSession` / `rmSession`) — 짧은 subprocess.
- * - 디스크 상태 읽기 (`readRoster` / `readJobState`) — supervisor 가 쓰는 평범한 JSON 파일.
- * - 부팅 시 reconcile 진입점 (`reconcileOnBoot`) — 살아있는 worker 매칭 + 사라진 worker 의 최종 상태 회수.
- *
- * 비고:
- * - 본 모듈은 어떤 BubbleData/SubAgent 도 직접 만지지 않는다. 호출자(subAgentManager / index.ts)가
- *   service 출력을 받아 자기 데이터에 적용한다 — 책임 분리.
- * - `--bg` 가 `--session-id <uuid>` 를 명시적으로 거부하므로 sessionId 는 supervisor 가 할당한 것을
- *   roster.json 또는 state.json 에서 읽어와야 한다.
+ * §5.7 #23-2 — Claude Code Agent View(per-user supervisor) 통합 서비스: 활성화 게이트(`isAgentViewEnabled`) · `claude --bg` 디스패치(`spawnBackground`) · `stopSession`/`rmSession` · 디스크 상태 읽기(`readRoster`/`readJobState`) · 부팅 reconcile(`reconcileOnBoot`).
+ * BubbleData/SubAgent 는 만지지 않는다 — 호출자(subAgentManager / index.ts)가 결과를 자기 데이터에 적용한다.
+ * `--bg` 는 `--session-id <uuid>` 를 거부하므로 sessionId 는 supervisor 가 할당한 것을 roster.json·state.json 에서 읽어 와야 한다.
  */
 import { spawn } from 'node:child_process';
 import { observeChildStreamErrors } from './childStreamErrors.js';
@@ -21,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AgentViewRosterEntry, AgentViewJobState } from '@vibisual/shared';
 import { logger } from '../logger.js';
-import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { claudeSpawnEnv, getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { getClaudeVersionInfo } from './claudeVersionService.js';
 import { getSessionJsonlPath } from './sessionDiscovery.js';
 import { processGroupSpawnOptions } from './processTree.js';
@@ -48,7 +37,7 @@ const SESSION_ID_RESOLVE_INTERVAL_MS = 100;
 
 /** `isAgentViewEnabled` 결과 메모이즈 (서버 라이프 동안). 분기 게이트 안정성 위해. */
 let cachedEnabled: { value: boolean; reason: string; at: number } | null = null;
-/** 메모 무효화까지 보존할 ms — 너무 길면 사용자 업데이트 후 다음 부팅 까지 옛 판정 유지 */
+/** 판정 메모를 두는 시간(ms) — 너무 길면 CLI 를 갱신한 뒤에도 옛 판정이 남는다. */
 const ENABLED_CACHE_TTL_MS = 60_000;
 
 /** `~/.claude/settings.json` 의 `disableAgentView` 필드 + 환경변수 점검. */
@@ -162,12 +151,9 @@ async function resolveSessionIdForShort(short: string): Promise<string | null> {
 
 /**
  * `claude --bg` 로 백그라운드 세션을 시작한다.
- *
- * - prompt 는 **stdin UTF-8** 으로 전달(v1.33 Windows 인코딩 픽스와 같은 이유 — argv 의 CJK 가 OEM 디코딩
- *   되어 깨질 수 있음. stdin pipe 는 UTF-8 보존이 검증됨).
- * - extraArgs 는 buildConfigArgs() 결과(`--model` / `--permission-mode` / `--tools` / `--isolation` 등) 를
- *   그대로 받는다. `--session-id` 는 supervisor 가 거부하므로 호출자가 빼두어야 한다.
- * - 자식은 ~1초 안에 stdout 에 `backgrounded · <short>` 인쇄 후 자체 종료. timeout(15s) 이면 reject.
+ * - prompt 는 **stdin UTF-8** 으로 넘긴다 — Windows 에서 argv 의 CJK 가 OEM 디코딩으로 깨질 수 있고, stdin pipe 는 UTF-8 이 보존된다.
+ * - extraArgs 는 buildConfigArgs() 결과(`--model`·`--permission-mode`·`--tools`·`--isolation` 등)를 그대로 받는다. `--session-id` 는 supervisor 가 거부하므로 호출자가 빼 둔다.
+ * - 자식은 ~1초 안에 stdout 에 `backgrounded · <short>` 를 찍고 끝난다. timeout(15s)이면 reject.
  */
 export async function spawnBackground(
   prompt: string,
@@ -186,18 +172,17 @@ export async function spawnBackground(
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
-      // POSIX 한정 detached — `--bg` 런처는 금방 끝나지만 **뒤에 남기는 워커는 오래 산다.**
-      //   그룹을 따로 떼어 두면 우리 서버 프로세스 그룹에 가는 신호(터미널 Ctrl+C 등)에
-      //   백그라운드 워커가 휩쓸리지 않는다 — `--bg` 의 의미와 일치한다.
-      //   여기선 killTree 를 쓰지 않는다(정지 경로는 `claude stop <short>`). unref() 도 붙이지 않는다.
+      // POSIX 한정 detached — `--bg` 런처는 금방 끝나도 뒤에 남는 워커는 오래 산다. 그룹을 떼어 두면 서버 프로세스 그룹에 가는 신호(터미널 Ctrl+C 등)에 워커가 휩쓸리지 않는다.
+      // killTree 는 쓰지 않는다(정지 경로는 `claude stop <short>`). unref() 도 붙이지 않는다.
       ...processGroupSpawnOptions(),
-      env: {
+      // §4 (앱 전용 엔진) ⑤ — 앱 전용 실행본이면 엔진 자체 갱신을 끈다.
+      env: claudeSpawnEnv({
         ...process.env,
         LANG: 'en_US.UTF-8',
         LC_ALL: 'en_US.UTF-8',
         PYTHONIOENCODING: 'utf-8',
         ...envExtra,
-      },
+      }),
     });
 
     const timer = setTimeout(() => {
@@ -269,25 +254,15 @@ export async function spawnBackground(
   });
 }
 
-/**
- * roster.json 에서 특정 short 가 살아있는지 sync 점검.
- * 부팅 시퀀스 중(restore 직후) orphan 정리 로직이 agent-view sub 를 잘못 봉합하지 않도록
- * sync 가드용. roster 파일이 없거나 short 가 없으면 false.
- */
+/** roster.json 에서 그 short 가 살아 있는지 sync 점검 — 부팅(restore 직후) orphan 정리가 agent-view sub 를 잘못 봉합하지 않게. 파일이나 short 가 없으면 false. */
 export function isShortAlive(short: string): boolean {
   const r = readRoster();
   return !!r?.workers?.[short];
 }
 
 /**
- * v1.60: short 가 **실제로 턴을 처리 중인지** 점검.
- * roster.json + state.json 둘 다 본다:
- * - roster 에 없으면 false (worker 자체가 없음)
- * - state.json.state === 'working' | 'needs-input' → true (현재 턴 진행 중)
- * - 그 외('idle' | 'done' | 'failed' | 'stopped' | state.json 없음) → false
- *
- * 용도: restore 직후 sub.status='active' 복원 시, 끝난 worker(roster 엔 남았지만 turn 안 굴림)
- * 를 잘못 active 로 부활시켜 부모 에이전트가 idle→active→completed 사이클 타는 것 방지.
+ * short 가 **실제로 턴을 처리 중인지** — roster 에 없으면 false, state.json 이 `working`·`needs-input` 이면 true, 그 밖(`idle`·`done`·`failed`·`stopped`·파일 없음)은 false.
+ * restore 직후 끝난 worker(roster 엔 남았지만 턴을 안 굴림)를 active 로 되살려 부모가 idle→active→completed 를 도는 것을 막는다.
  */
 export function isShortWorking(short: string): boolean {
   if (!isShortAlive(short)) return false;
@@ -331,6 +306,7 @@ function fireSubcommand(args: string[]): Promise<{ exitCode: number | null; stdo
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: false,
       windowsHide: true,
+      env: claudeSpawnEnv(),
     });
     let stdout = '';
     let stderr = '';
@@ -354,14 +330,9 @@ export function rmSession(short: string): Promise<void> {
 }
 
 /**
- * 부팅 시 호출되는 reconcile 진입점.
- *
- * @param knownShorts — 우리 체크포인트가 들고 있는 모든 (bubbleId → agentViewShort) 매핑의 short 목록.
- *                     호출자가 graphManager 에서 추출해 넘긴다.
- * @returns 분류 결과: alive (살아있는 short), gone (roster 에 없는 short).
- *
- * 본 함수는 데이터 구조만 분류해 돌려준다. 실제 watcher 재부착이나 버블 상태 마무리는
- * 호출자(index.ts boot sequence)가 결과를 받아 graphManager 와 watcher 에 위임한다.
+ * 부팅 시 reconcile 진입점 — 분류만 돌려준다(watcher 재부착·버블 마무리는 호출자 index.ts 부팅 시퀀스가 graphManager·watcher 에 맡긴다).
+ * @param knownShorts 체크포인트가 든 모든 (bubbleId → agentViewShort) 매핑의 short 목록(호출자가 graphManager 에서 뽑는다).
+ * @returns alive(살아 있는 short), gone(roster 에 없는 short).
  */
 export function reconcileOnBoot(knownShorts: string[]): {
   alive: { short: string; sessionId: string; cwd: string }[];

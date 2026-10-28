@@ -5,10 +5,7 @@ import { commitCreationDoc } from '../Creation/creationApi.js';
 import { creationErrorText } from '../Creation/creationErrors.js';
 import { GENERATOR_CODE_MAX, modelGeneratorCode } from './modelSource.js';
 
-/**
- * §5.13 (R-10) — the generator code stored with a 3D source, shown and edited as text. Vibisual never runs it: the
- * scene is the source of truth, the code is a record the user and agents can read and revise.
- */
+/** §5.13 (R-10) — the generator code stored with a 3D source, as editable text. It is never run: the scene is the source of truth. */
 export function Vibi3DCodePanel({ projectId, doc, disabled, onDoc }: {
   projectId: string; doc: CreationDoc; disabled: boolean; onDoc: (doc: CreationDoc) => void;
 }): React.JSX.Element {

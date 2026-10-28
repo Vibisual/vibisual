@@ -4,10 +4,7 @@ import { DIFF_LINE_LIMIT, type DiffLine, type PassReport } from '@vibisual/video
 import { StudioIcon } from './studioIcons.js';
 import { diffLineText } from './diffText.js';
 
-/**
- * §5.13 (V) 37-3 — AI 패널의 **"이번에 바뀐 것"** 카드: 그 바퀴의 맡기기 직전 판 ↔ 지금(`diffDoc` 줄) · 바퀴 끝 보고(요약·남은
- * 경고) · [이 바퀴 되돌리기]. 줄을 누르면 그 장면·아이템으로 간다(재생 머리 + 선택).
- */
+/** §5.13 (V) 37-3 — "이번에 바뀐 것" 카드: 맡기기 직전 판 ↔ 지금(`diffDoc`) + 바퀴 보고 + [이 바퀴 되돌리기]. 줄을 누르면 그 장면·아이템으로. */
 export interface StudioChangeCardProps {
   readonly lines: readonly DiffLine[];
   readonly report: PassReport | null;

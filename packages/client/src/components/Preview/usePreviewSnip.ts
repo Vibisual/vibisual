@@ -4,13 +4,7 @@ import type { PreviewSnipRect } from '@vibisual/shared';
 import { useGraphStore, agentSessionInputKey } from '../../stores/graphStore.js';
 import { snipFileName } from './snipRect.js';
 
-/**
- * §5.17 (B) — 프리뷰 영역 캡처 → **그 프리뷰를 띄운 에이전트의 입력창 첨부**.
- *
- * 새 캡처 레이어를 만들지 않는다. 찍는 통로는 Electron `capturePage(rect)` 하나(`window.api`
- * 의 `capture.pageRegion`)이고, 붙이는 레일은 붙여넣기 이미지와 **같은** 첨부 엔드포인트다.
- * 첨부만 하고 **자동 전송 ❌** — 무엇을 고칠지는 사용자가 문장으로 얹어 직접 보낸다.
- */
+/** §5.17 (B) — 프리뷰 영역 캡처 → 그 에이전트 입력창 첨부. 통로는 `capture.pageRegion`(`capturePage`) + 붙여넣기와 같은 첨부 엔드포인트. 자동 전송 ❌. */
 
 /** 첨부는 IDE 입력창의 메인 탭(요소 집기 명령이 가는 그 자리)에 붙는다. */
 const DRAFT_SESSION: string | null = null;

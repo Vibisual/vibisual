@@ -6,16 +6,8 @@ import { randomUUID } from 'node:crypto';
 import { DEFAULT_BG_TASK_PROBE_SETTINGS, TASK_CHIP_START_SUBTYPE, type BackgroundTaskProbeResult } from '@vibisual/shared';
 
 /**
- * §5.5 #17-9 ⑭ — **표식 없이 오래 조용한 항목**을 한 번 물어보고 유지·정리를 결정한다.
- *
- * ⑬ 이 "끝났다고 적힌 것"을 걷고 나면 남는 회색지대가 이 파일의 무대다. 여기서 지키는 계약은
- * 전부 **한 방향**이다 — 확실할 때만 손댄다.
- *   · 표식이 있으면 ⑬ 소관이라 묻지 않는다.        · 명령을 모르면 묻지 않는다(판정 근거가 없다).
- *   · 답이 `alive`/`unknown`/실패면 항목을 남긴다.  · `finished` + 자동정리일 때만 내린다.
- * 시간은 **착수 조건**일 뿐 판정 근거가 아니다(⑩ — "루프 대기 중일 수도 있잖아").
- *
- * 판정과 프로세스 회수는 각자 파일에서 이미 굳혀 뒀으므로(`backgroundTaskProbe.test.ts` ·
- * `processDescendants.test.ts`) 여기서는 둘을 가짜로 두고 **오케스트레이션만** 본다.
+ * §5.5 #17-9 ⑭ — 표식 없이 오래 조용한 항목을 한 번 물어 정한다. 확실할 때만 손댄다: 표식이 있거나(⑬) 명령을 모르면 안 묻고,
+ * `finished` + 자동정리일 때만 내린다. 시간은 착수 조건일 뿐 판정 근거가 아니다(⑩). 판정·회수는 가짜로 둔다(따로 고정됨).
  */
 
 /** 판정 1회를 가로챈다 — 진짜 모델을 부르지 않는다. */
@@ -101,11 +93,7 @@ function writeTranscript(entries: { id: string; command: string; outputPath: str
   fs.writeFileSync(jsonlPath, lines.join('\n') + '\n', 'utf8');
 }
 
-/**
- * 착수 → 판정 반영 → `probesInFlight` 해제까지가 비동기다(모델 호출 자리).
- * `then → async applyProbeVerdict → catch → finally` 가 각각 틱을 먹으므로 마이크로태스크만으로는
- * 모자란다 — 매크로태스크를 두 번 돌려 사슬이 완전히 끝난 뒤에 확인한다.
- */
+/** 반영·해제가 비동기 사슬(then → applyProbeVerdict → catch → finally)이라 마이크로태스크로는 모자라 매크로태스크를 몇 번 돌린다. */
 const settle = async (): Promise<void> => {
   for (let i = 0; i < 3; i += 1) await new Promise((r) => { setTimeout(r, 0); });
 };

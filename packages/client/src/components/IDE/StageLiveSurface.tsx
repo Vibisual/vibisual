@@ -1,17 +1,6 @@
 /**
- * §5.5 #17-17 ㉒ — **무대 실황 칸.** 그 단계가 *지금 만들고 있는 것*을 무대 안에서 보여 준다.
- *
- * ⑪(j) 는 "그 아래로 `surface` 가 정한 화면이 열린다"고 정했고 ⑭(a) 는 그 칸을 회수했다 —
- * 대부분의 단계에서 **빈 안내 한 줄**로 `36%` 를 차지하고 앉아 있었기 때문이다. ㉒ 는 그 칸을
- * 되살리되 걷어낸 이유를 정면으로 피한다: **비출 것이 실제로 있을 때만 선다.** 없으면 이 컴포넌트는
- * `null` 이고 한 픽셀도 차지하지 않는다(빈 안내 ❌).
- *
- * 산출물 넷(`image`·`model3d`·`video`·`audio`)은 **밖에 프로그램을 띄우지 않는다** — 뒤 셋은 이미
- * 있는 내부 앱(§5.13 `vibi3d`·`vibistudio`·`vibisound`)을 `AppShellHost fill` 로 이 자리에 펴고,
- * `image` 는 편집창이 쓰는 그림 칸(`useWorkspaceImage` + `IDEImagePreview`)을 그대로 부른다.
- * **새 뷰어·새 전송 계층·새 창이 하나도 없다.**
- *
- * 무엇을 비출지 고르는 판정은 전부 `stageSurface.ts` 의 순수 함수다 — 여기 있는 것은 그리기뿐이다.
+ * §5.5 #17-17 ㉒ — 무대 실황 칸. 비출 것이 있을 때만 서고 없으면 `null`(빈 안내 ❌ — ⑭(a)).
+ * 산출물은 밖 프로그램 ❌ — 3D·영상·소리는 내부 앱(`AppShellHost fill`), 그림은 편집창 그림 칸을 그대로 쓴다. 고르기는 `stageSurface.ts`.
  */
 import React, { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';

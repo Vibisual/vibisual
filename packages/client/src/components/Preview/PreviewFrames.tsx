@@ -7,27 +7,13 @@ import { PreviewSnipOverlay } from './PreviewSnipOverlay.js';
 import type { PreviewPicker } from './usePreviewPicker.js';
 import type { PreviewSnip } from './usePreviewSnip.js';
 
-/**
- * §5.17 (A) — 프리뷰 본체. 폭 하나짜리와 **세 폭 나란히**(compare) 를 한 곳에서 그린다.
- *
- * 탭 프리뷰(`IframeView`)와 캔버스 프리뷰(`PlayPreviewNode`)가 이 컴포넌트 하나를 쓰므로
- * 한 쪽만 비교가 되거나 한 쪽만 캡처가 되는 일이 없다(§7.11 `toProxyUrl` 의 교훈).
- *
- * 폭은 언제나 **실제 CSS 폭**이다 — `transform: scale()` 로 줄이면 미디어쿼리가 실제 폭을
- * 못 보고 "모바일에서 어떻게 보이나" 를 확인하려던 목적 자체가 무너진다.
- */
+/** §5.17 (A) — 프리뷰 본체(한 폭 / 세 폭 compare), 탭·캔버스 프리뷰 공용. 폭은 실제 CSS 폭 — `scale()` 로 줄이면 미디어쿼리가 실제 폭을 못 본다. */
 
 const IFRAME_SANDBOX = 'allow-scripts allow-same-origin allow-forms allow-popups';
-/**
- * §5.23 「더블클릭」 — 웹뷰가 없는 화면(휴대폰 웹 접속)에서 인터넷 페이지를 직접 싣는 iframe. 거기서 새 창은 그 브라우저의
- * 새 탭이라 샌드박스 밖으로 나가게 둔다(묶어 두면 열린 탭의 스크립트·로그인까지 깨진다). 최상위 이동은 여전히 막는다.
- */
+/** §5.23 — 웹뷰 없는 화면(휴대폰 웹)의 인터넷 페이지 iframe. 새 창은 샌드박스 밖으로 둔다(묶으면 그 탭의 스크립트·로그인이 깨진다). 최상위 이동은 막는다. */
 const WEB_IFRAME_SANDBOX = `${IFRAME_SANDBOX} allow-popups-to-escape-sandbox`;
 
-/**
- * 이 창이 Electron 웹뷰 태그를 쓸 수 있는가 — 본체 창·떼어 낸 iframe 탭 창은 켜 두었다(손님 설정은 main 이 다시 쓴다 —
- * 전용 메모리 세션·샌드박스·권한 거절). 휴대폰 웹 접속(§4 v3.16)에는 없다.
- */
+/** Electron 웹뷰 태그를 쓸 수 있나 — 본체 창·떼어 낸 iframe 탭 창은 켜 두었다(손님 설정은 main 이 다시 쓴다 — 전용 세션·샌드박스·권한 거절). 휴대폰 웹 접속(§4)엔 없다. */
 export function canUseWebview(): boolean {
   if (typeof window === 'undefined') return false;
   const registry = window.customElements;
@@ -40,10 +26,7 @@ interface PreviewFramesProps {
   snip?: PreviewSnip | undefined;
   /** 프록시를 거친 최종 src(`web` 이면 원본 주소 그대로). */
   src: string;
-  /**
-   * §5.23 「더블클릭」 — **인터넷 페이지**다(프록시가 받지 않는 공인 호스트). 우리 렌더러의 iframe 에 싣지 않고 격리 웹뷰로
-   * 띄운다 — 본체 창은 샌드박스 밖이라 그 하위 프레임도 샌드박스 없이 돈다. 다리 스크립트가 없으므로 요소 집기 등록도 하지 않는다.
-   */
+  /** §5.23 — 인터넷 페이지(프록시 밖 공인 호스트)는 iframe 이 아니라 격리 웹뷰로 — 본체 창은 샌드박스 밖이라 하위 프레임도 그렇다. 다리가 없어 집기 등록도 없다. */
   web?: boolean | undefined;
   /** 대표 프레임 — 새로고침처럼 한 장을 가리켜야 하는 조작의 상대. */
   primaryRef: MutableRefObject<HTMLIFrameElement | null>;
@@ -83,16 +66,10 @@ export function PreviewFrames({
   // 한 폭·비교 중 화면에 있는 것은 언제나 하나라 상태도 하나면 된다.
   const scrollReveal = useScrollReveal();
 
-  // 그 스크롤바를 **마우스만 대도** 뜨게 하는 나머지 반쪽. `.scrollbar-thin:hover` 는 여기서 서지
-  // 않는다 — 프리뷰 본체는 다른 오리진 iframe 이라, 마우스가 그 위로 들어가는 순간 이 상자는 아무
-  // 것도 받지 못한다(인스펙터가 켜질 때 iframe 의 `pointer-events` 를 일부러 끄는 것도 같은 까닭).
-  // 그래서 안에서 알려 온 신고(§7.11 다리)를 `:hover` 자리에 세운다.
+  // iframe(다른 오리진) 위에선 `.scrollbar-thin:hover` 가 서지 않아, 안에서 온 신고(§7.11 다리)를 `:hover` 대신 쓴다.
   const hoverReveal = picker.hovered ? 'true' : 'false';
 
-  /**
-   * 한 칸의 표면. 로컬 프리뷰는 종전 그대로 프록시 iframe + 요소 집기 등록, 인터넷 페이지는 다리가 없어 등록하지 않는다 —
-   * 배치(한 폭·세 폭 비교)는 한 벌이고 그리는 표면만 갈린다(두 벌이면 한쪽만 고쳐진다).
-   */
+  /** 표면만 갈린다(로컬 = 프록시 iframe + 집기 등록, 인터넷 = 등록 없음) — 배치는 한 벌이어야 한쪽만 고쳐지지 않는다. */
   const frame = (
     frameKey: string | number | undefined,
     register: ((el: HTMLIFrameElement | null) => void) | undefined,

@@ -27,13 +27,7 @@ import {
   withMemoLink,
 } from './memoLinks.js';
 
-/**
- * §5.5 #17-36 ⑫ 메모 링크 — 순수 계산 회귀 테스트.
- *
- * 못 박는 것 넷: (a) 글을 고치면 링크가 **그 편집만큼** 따라 움직인다(경계에 친 글자는 링크가 되지 않는다),
- * (b) 링크끼리 겹치지 않는다, (c) 가리키는 곳은 서버 정화와 같은 자로 다듬는다, (d) 거울 층이 그릴 토막이
- * 본문을 빠짐없이 덮는다(한 글자라도 빠지면 밑줄이 그 뒤로 전부 밀린다).
- */
+/** §5.5 #17-36 ⑫ 메모 링크 순수 계산 회귀: 편집을 따라 움직임(경계 입력은 링크 아님)·안 겹침·서버와 같은 정화·거울 층 토막이 본문을 빠짐없이 덮음. */
 
 const STREAM: SessionMemoLinkTarget = { kind: 'stream', sessionId: 'sub-1', anchorId: 'cmd-1', text: '빌드 오류' };
 const URL_T: SessionMemoLinkTarget = { kind: 'url', url: 'https://example.com' };

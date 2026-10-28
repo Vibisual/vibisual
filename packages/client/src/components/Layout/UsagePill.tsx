@@ -6,22 +6,8 @@ import { clampUsagePct, usageTextToneClass } from '../../utils/usageLimits.js';
 import { useCodexUsage } from '../../hooks/useCodexUsage.js';
 import { UsagePopup } from '../Panel/UsagePopup.js';
 
-// SCENARIO.md §4 v1.50 / v3.60 — 헤더 사용량 필.
-//
-// 에이전트 상태 배지(`2/14`) **왼쪽**에 현재 세션(5시간 창) 사용률을 상시 노출한다.
-// v3.61 — 링 옆 별도 숫자를 없애고 **원 안에 숫자만** 넣는다(사용자 요청: "깔끔하게 원 안에
-// 숫자, 퍼센트 사이즈도 작게"). 폭이 20px 고정이라 헤더 우측 클러스터가 늘어나지 않는다.
-// 색만 임계에 따라 바뀐다(§4 v1.50 게이지와 같은 기준). 클릭하면 사용량 팝업.
-//
-// 데이터가 아직 없을 때도 **숨기지 않는다** — 필이 사라지면 수집기를 켤 입구도 같이
-// 사라지기 때문. 그 상태에선 dim 한 빈 링 + `-` 로 두고, 왜 비었는지는 팝업이 설명한다.
-//
-// §4 — 값은 이제 대화형 세션 없이도 들어온다. 서버가 `claude -p "/usage"` 를 주기적으로
-// 돌려(모델 호출 0턴 = 과금 없음) 받아 오고, statusLine 수집기는 대화형 세션이 떠 있는 동안
-// 그 사이를 더 촘촘히 메우는 보조가 됐다. 그래서 `-` 는 "켜라"가 아니라 대개 "곧 들어온다"다.
-//
-// 필 안에는 엔진 글리프를 넣지 않는다(사용자 요청) — 링 하나만 선다. 지금 엔진이 무엇인지는
-// 툴팁 첫 토막과 팝업이 이미 말하고, 헤더 우측 클러스터는 폭이 늘어나면 배지들이 밀린다.
+// §4 — 헤더 사용량 필: 현재 세션(5시간 창) 사용률. 원 안 숫자만, 폭 20px 고정, 색만 임계에 따라. 엔진 글리프 없음(툴팁·팝업이 말한다).
+// 값이 없어도 숨기지 않는다(수집기 입구) — dim 링 + `-`. 값은 서버가 `claude -p "/usage"`(0턴 = 과금 없음)로 주기적으로 받아, `-` 는 대개 "곧 들어온다"다.
 
 /** 사용률 링 + 원 안 숫자. 이모지·이미지 ❌ — 순수 SVG. */
 function UsageRing({ pct }: { pct: number | null }): React.JSX.Element {
@@ -74,24 +60,28 @@ export function UsagePill(): React.JSX.Element {
   const { usage: codexUsage } = useCodexUsage(main === 'codex' && codexLoggedIn, codexAuth);
   const claudeUsage = useGraphStore((s) => s.claudeUsage);
   const rateLimits = useGraphStore((s) => s.rateLimits);
+  // §4 API 크레딧 — 새 실행이 크레딧으로 나가는 중이면 주황 점, Anthropic 이 크레딧을 거절 중이면 빨강 점. 필 폭은 그대로다.
+  const creditOn = useGraphStore((s) => s.apiCredits?.settings.enabled === true);
+  const creditRoute = useGraphStore((s) => s.apiCredits?.route);
+  const creditBlocked = useGraphStore((s) => !!s.apiCredits?.block);
+  const creditDot = main !== 'claude' || !creditOn ? null : creditBlocked ? 'blocked' : creditRoute === 'credits' ? 'active' : null;
   const [open, setOpen] = useState(false);
 
-  // §4 — 1차 = 서버가 조립한 세션 한도(`claude -p "/usage"` probe 와 statusLine 중 더 최근 것).
-  //   그마저 비면 statusLine 이 밀어준 §4 v1.50 원본 값으로 폴백.
+  // §4 — 1차 = 서버 조립 세션 한도(`/usage` probe 와 statusLine 중 최근 것), 없으면 statusLine 원본 값.
   const session = claudeUsage?.limits.find((l) => l.kind === 'session' || l.group === 'session');
   const raw = main === 'claude' ? session?.percent ?? rateLimits?.used5h : main === 'codex' && codexLoggedIn ? (codexUsage?.windows.find(w => w.id === 'codex:primary') ?? codexUsage?.windows[0])?.usedPercent : undefined;
   const pct = typeof raw === 'number' ? clampUsagePct(raw) : null;
 
   const tone = pct === null ? 'text-gray-500' : usageTextToneClass(pct);
-  // 값이 없을 때 "켜라" 와 "기다리는 중" 을 구분한다 — 수집기가 이미 켜져 있는데 "클릭해서
-  // 켜기" 라고 하면 사용자가 켜진 스위치를 다시 누르게 된다(§4 v3.60 재설치 사고의 출발점).
+  // 값이 없을 때 "켜라"와 "기다리는 중"을 가른다 — 켜진 수집기에 "켜기"라고 하면 켜진 스위치를 다시 누르게 된다.
   const title = `${t(`providers.${main}`)} · ` + (main === 'local' ? t('providers.localUsage') : main === 'codex' ? (pct !== null ? `${Math.round(pct)}%` : t(codexLoggedIn ? 'providers.noUsage' : 'providers.signIn')) : pct !== null
     ? t('header.usage.tooltip', { percent: Math.round(pct) })
     : claudeUsage?.error === 'cli-unavailable'
       ? t('header.usage.tooltipCliUnavailable')
       : claudeUsage?.error === 'awaiting-statusline'
         ? t('header.usage.tooltipWaiting')
-        : t('header.usage.tooltipNoData'));
+        : t('header.usage.tooltipNoData'))
+    + (creditDot === 'active' ? ` · ${t('header.usage.creditActive')}` : creditDot === 'blocked' ? ` · ${t('header.usage.creditBlocked')}` : '');
 
   return (
     <>
@@ -100,13 +90,18 @@ export function UsagePill(): React.JSX.Element {
         onClick={() => setOpen(true)}
         title={title}
         aria-label={title}
-        className={`app-nodrag flex items-center justify-center rounded-md p-1 transition-colors duration-150 hover:bg-white/[0.08] ${tone}`}
+        className={`app-nodrag relative flex items-center justify-center rounded-md p-1 transition-colors duration-150 hover:bg-white/[0.08] ${tone}`}
       >
         <UsageRing pct={pct} />
+        {creditDot && (
+          <span
+            aria-hidden="true"
+            className={`absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full ring-1 ring-gray-950 ${creditDot === 'blocked' ? 'bg-red-400' : 'bg-amber-400'}`}
+          />
+        )}
       </button>
 
-      {/* Header 의 backdrop-filter 가 fixed 자식의 containing block 이 되므로(§7.7 v1.99 ServerLogPopup
-          와 동일한 함정) 팝업은 body 로 portal 해서 화면 전체를 덮게 한다. */}
+      {/* Header backdrop-filter 가 fixed 자식을 가두므로(§7.7 ServerLogPopup 과 같은 함정) 팝업은 body 로 portal 한다. */}
       {open && createPortal(<UsagePopup onClose={() => setOpen(false)} />, document.body)}
     </>
   );

@@ -1,13 +1,6 @@
 /**
- * audioEdit.ts — §5.13 (R-4) Vibisound 의 **순수 편집 연산**.
- *
- * 화면도 오디오 장치도 부르지 않는다. 자르기·지우기·페이드·볼륨·WAV 쓰기는 전부 샘플 배열을
- * 다루는 계산이고, 계산은 귀로 검수하는 것보다 단위 테스트가 훨씬 촘촘히 잡는다 — 반 샘플만
- * 어긋나도 "딸깍" 소리가 나지만 그것을 화면으로는 볼 수 없다.
- *
- * 다루는 값은 `AudioBuffer` 가 아니라 **평범한 Float32Array 채널 배열**이다. `AudioBuffer` 는
- * 브라우저 객체라 테스트가 만들 수 없고, 편집 결과를 다시 그 형식으로 굳힐 이유도 없다
- * (재생 직전에 한 번만 만든다).
+ * §5.13 (R-4) 순수 편집 연산 — 반 샘플 어긋남("딸깍")은 화면에 안 보여 시험으로 잡는다.
+ * 값은 `AudioBuffer` 가 아니라 Float32Array 채널 배열이다(브라우저 객체는 시험이 못 만든다 — 재생 직전에만 만든다).
  */
 
 import { AUDIO_LIMITS } from './constants.js';
@@ -67,11 +60,7 @@ export function deleteRange(clip: AudioClip, startSec: number, endSec: number): 
   };
 }
 
-/**
- * 구간에 이득을 곱한다. `0` 이면 그 구간이 조용해진다(= 음소거).
- *
- * 구간을 지우는 것과 다르다 — 길이가 그대로라 뒤의 타이밍이 밀리지 않는다.
- */
+/** 이득을 곱한다(`0` = 음소거) — 지우기와 달리 길이가 그대로라 뒤 타이밍이 밀리지 않는다. */
 export function applyGain(clip: AudioClip, startSec: number, endSec: number, gain: number): AudioClip {
   if (!Number.isFinite(gain)) throw new Error('Audio gain must be finite.');
   const from = timeToSample(clip, Math.min(startSec, endSec));
@@ -88,11 +77,7 @@ export function applyGain(clip: AudioClip, startSec: number, endSec: number, gai
   };
 }
 
-/**
- * 구간에 페이드를 건다. `in` 은 0→1, `out` 은 1→0 (선형).
- *
- * 자른 자리에 페이드를 거는 것이 "딸깍" 을 없애는 가장 흔한 손질이라 자르기와 짝으로 둔다.
- */
+/** 선형 페이드(`in` 0→1, `out` 1→0) — 자른 자리의 "딸깍"을 없애는 손질이라 자르기와 짝이다. */
 export function applyFade(clip: AudioClip, startSec: number, endSec: number, dir: 'in' | 'out'): AudioClip {
   const from = timeToSample(clip, Math.min(startSec, endSec));
   const to = timeToSample(clip, Math.max(startSec, endSec));
@@ -112,12 +97,7 @@ export function applyFade(clip: AudioClip, startSec: number, endSec: number, dir
   };
 }
 
-/**
- * 파형 그리기용 봉우리 — 픽셀 열마다 `[최소, 최대]`.
- *
- * 캔버스 폭이 1,000 인데 샘플이 1천만 개면 그리는 쪽에서 매 프레임 훑을 수 없다. 열 단위로
- * 한 번 접어 두면 그 뒤로는 폭이 바뀔 때만 다시 센다.
- */
+/** 픽셀 열마다 `[최소, 최대]` — 샘플을 매 프레임 훑지 않게 열 단위로 한 번 접는다(폭이 바뀔 때만 다시). */
 export function computePeaks(clip: AudioClip, columns: number): Float32Array {
   if (!Number.isInteger(columns) || columns > AUDIO_LIMITS.maxPeakColumns) throw new Error('Invalid waveform column count.');
   const out = new Float32Array(Math.max(0, columns) * 2);

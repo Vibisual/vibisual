@@ -1,20 +1,8 @@
 /**
- * 소재 공급자 — Mediabunny 기반 (SCENARIO.md §5.13 (E)).
- *
- * **푸티지 병목을 푸는 자리다.** 라이선스 — Mediabunny 는 MPL-2.0 이라 **수정하지 않고 의존성으로만** 쓴다.
- * 동작을 바꿔야 하면 이 래퍼에서 한다(THIRD-PARTY-LICENSES.md §3).
- *
- * §5.13 (X) 39-2 — Mediabunny 는 **영상·소리를 실제로 열 때만** 불러온다. 정적으로 묶으면 이 배럴을 쓰는 화면(스튜디오
- * 미리보기·렌더 화면)이 컴포지션만 든 문서를 열 때도 디먹서·디코더 코드 전부를 해석한 뒤에야 첫 그림이 섰다.
- *
- * §5.13 (Y) 40-3 — 실사 프레임은 **읽개**가 순서대로 받는다. 종전에는 프레임마다 `CanvasSink.getCanvas(t)` 를 불러 그때마다 새
- * 디코더가 키프레임부터 다시 풀었고(실측 프레임당 평균 148ms) 1920 폭 캔버스를 프레임마다 새로 만들었다. 이제 아이템마다 반복자
- * 하나(`VideoSampleSink.samples`)를 붙들고, 시계보다 늦은 프레임은 그리지 않고 닫으며(건너뛰기), 그릴 한 장만 읽개의 그리기 판
- * 두 장(현재 + 다음)에 칸 크기로 옮긴 뒤 곧바로 닫는다(같은 3초에 프레임당 2.5ms). 판단은 순수 함수(`footagePlan.ts`).
- * 소재 하나에 `Input` 하나를 모든 아이템과 소리가 나눠 쓰고, 디코더 수는 창마다 묶는다(넘으면 가장 오래 안 쓴 읽개를 닫는다).
- *
- * §5.13 (Y) 40-6 — `setAssets` 로 소재 목록만 갈아 끼운다: 지문(종류·경로·`contentHash`)이 그대로인 소재의 입력·읽개·비트맵은
- * 남기고 바뀌거나 빠진 것만 닫는다(종전에는 소재 하나만 바뀌어도 공급자가 통째로 새로 섰다).
+ * §5.13 (E) 소재 공급자. Mediabunny 는 MPL-2.0 이라 수정 없이 의존성으로만 쓴다 — 동작 변경은 이 래퍼에서(THIRD-PARTY-LICENSES.md §3).
+ * (X) 39-2 — Mediabunny 는 영상·소리를 실제로 열 때만 불러온다(정적이면 컴포지션만 든 문서도 디먹서·디코더를 다 해석한 뒤에야 첫 그림이 선다).
+ * (Y) 40-3 — 아이템마다 읽개가 반복자 하나를 붙들고 순서대로 받는다(판단은 `footagePlan.ts`). 소재 하나의 `Input` 을 모든 아이템·소리가 나눠 쓰고, 디코더 수는 창마다 묶는다.
+ * (Y) 40-6 — `setAssets` 는 지문(종류·경로·`contentHash`)이 그대로인 소재의 입력·읽개·비트맵을 남기고 바뀌거나 빠진 것만 닫는다.
  */
 
 import type { Input, InputAudioTrack, InputVideoTrack, VideoSample, VideoSampleSink, EncodedPacketSink } from 'mediabunny';
@@ -103,10 +91,7 @@ export interface MediabunnyProviderOptions {
   readonly previewWidthMax?: number;
   /** §5.13 (Y) 40-10 ① · 40-11 — 실사 키프레임 포스터를 둘 바이트 예산(기기 등급). 생략하면 `FOOTAGE_POSTER_BYTES`. 0 이면 두지 않는다. */
   readonly posterCacheBytes?: number;
-  /**
-   * §5.13 (Z) 41-4 — 재생 중 `<video>` 로 흘려 틀어도 되는 주소인가(구간을 끊을 수 있는 진짜 스트림). 생략하면 아무 주소도 내주지
-   * 않는다 — 그 실사는 종전처럼 프레임마다 풀어 그린다(응답을 통째로 싣는 통로에 `<video>` 를 걸지 않게).
-   */
+  /** §5.13 (Z) 41-4 — `<video>` 로 흘려 틀어도 되는 주소인가(구간을 끊을 수 있는 진짜 스트림). 생략하면 아무 주소도 내주지 않는다(응답을 통째로 싣는 통로에 `<video>` 를 걸지 않게). */
   readonly streamable?: (url: string) => boolean;
 }
 
@@ -260,20 +245,13 @@ function touchReader(reader: FrameReader): void {
   }
 }
 
-/**
- * 이미지와 영상 프레임·소리 조각을 내주는 공급자.
- *
- * 소재마다 입력을 한 번만 열고 재사용한다 — 프레임마다 파일을 다시 여는 것이 "쓸수록 느려지는" 전형적인 형태라 처음부터 막는다.
- */
+/** 소재마다 입력을 한 번만 열고 재사용한다(프레임마다 다시 열면 쓸수록 느려진다). */
 export class MediabunnyMediaProvider implements MediaProvider {
   private assets: Readonly<Record<string, VideoAsset>>;
   private readonly fingerprints = new Map<string, string>();
   private readonly images = new Map<string, ImageBitmap | null>();
   private readonly entries = new Map<string, InputEntry | null>();
-  /**
-   * 여는 중인 것(39-8) — 같은 소재를 처음 여는 요청이 겹치면(무대가 연달아 시각을 맞출 때) 둘 다 입력·비트맵을 따로 만들고 먼저
-   * 만든 것은 맵에서 덮여 **닫히지 않은 채** 남았다. 이제 여는 중이면 같은 약속을 나눠 쓴다.
-   */
+  /** 여는 중인 것(39-8) — 겹치는 첫 열기는 같은 약속을 나눠 쓴다(따로 만들면 먼저 것이 맵에서 덮여 닫히지 않은 채 남는다). */
   private readonly openingImages = new Map<string, Promise<ImageBitmap | null>>();
   private readonly openingEntries = new Map<string, Promise<InputEntry | null>>();
   /** Includes inputs still awaiting metadata, so disposal never waits for an outstanding read. */
@@ -308,10 +286,7 @@ export class MediabunnyMediaProvider implements MediaProvider {
     return this.assets[assetId];
   }
 
-  /**
-   * §5.13 (Z) 41-4 — 재생 중 `<video>` 로 흘려 틀 주소. 영상 소재이고 받개가 주소를 주며 그 주소가 진짜 스트림(`streamable`)일 때만
-   * — 그 밖은 null(종전 캔버스 길). 이미 닫힌 공급자면 null.
-   */
+  /** §5.13 (Z) 41-4 — 영상 소재이고 받개가 주소를 주며 그 주소가 `streamable` 일 때만. 그 밖·닫힌 공급자면 null(캔버스 길). */
   async streamUrl(assetId: string): Promise<string | null> {
     const asset = this.assetOf(assetId);
     const streamable = this.opts.streamable;
@@ -721,10 +696,7 @@ export class MediabunnyMediaProvider implements MediaProvider {
     }
   }
 
-  /**
-   * §5.13 (Y) 40-2 ② — 소재 소리의 한 조각 `[index·chunk, (index+1)·chunk)`(초)만 디코딩한다(파일 통째 `decodeAudioData` ❌).
-   * 소리 트랙이 없거나 이 판에서 풀 수 없는 코덱이면 null — 부르는 쪽이 종전 길로 물러선다.
-   */
+  /** §5.13 (Y) 40-2 ② — 소리 한 조각 `[index·chunk, (index+1)·chunk)`(초)만 디코딩한다. 소리 트랙이 없거나 못 푸는 코덱이면 null — 부르는 쪽이 통째 디코딩으로 물러선다. */
   async getAudioChunk(assetId: string, index: number, chunkSeconds: number, signal?: AbortSignal): Promise<AudioChunk | null> {
     const entry = await this.ensureInput(assetId);
     if (this.released || !entry) return null;
@@ -776,12 +748,7 @@ export class MediabunnyMediaProvider implements MediaProvider {
     }
   }
 
-  /**
-   * 소재를 실제로 읽어 길이와 화면 크기를 잰다(§5.13 (R-3)). 소리 파일이면 크기는 null.
-   *
-   * 크기는 회전 메타데이터를 반영한 **보이는** 크기다 — 휴대폰 세로 영상은 저장은 가로로,
-   * 표시는 세로로 되어 있어 coded 크기를 쓰면 판형이 눕는다.
-   */
+  /** §5.13 (R-3). 소리 파일이면 크기는 null. 크기는 회전 메타데이터를 반영한 보이는 크기다 — 휴대폰 세로 영상은 가로로 저장돼 coded 크기면 판형이 눕는다. */
   async measure(assetId: string): Promise<MediaMeasurement | null> {
     if (this.released) return null;
     const asset = this.assetOf(assetId);

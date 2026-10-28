@@ -2,13 +2,7 @@ import { useCallback, useEffect } from 'react';
 import type { VoiceAsrState } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
 
-/**
- * useVoiceAsr — **§5.5 #17-38 ⑫ 받아쓰기가 준비됐는지 묻고, 없으면 받아 오는 손잡이.**
- *
- * 상태는 서버가 **디스크를 보고** 판정한 것을 그대로 읽는다(§3.1·§5.19 (B)) — 여기서
- * "받아 뒀던 것 같다"를 기억해 두지 않는다. 사용자가 폴더를 지웠으면 다시 설치 창이 뜨는 것이
- * 맞고, 그 판정을 클라이언트가 흉내 내면 두 자리가 다르게 말한다.
- */
+/** §5.5 #17-38 ⑫ — 받아쓰기 준비 여부를 묻고 없으면 받아 온다. 상태는 서버가 **디스크를 보고** 판정한 것만 읽는다(§3.1·§5.19 (B)) — 클라가 기억하면 폴더를 지웠을 때 어긋난다. */
 export function useVoiceAsr(): {
   state: VoiceAsrState | null;
   refresh: () => Promise<VoiceAsrState | null>;

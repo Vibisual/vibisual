@@ -21,14 +21,8 @@ import { CLIPBOARD_IMAGE_MIME, copyImageToClipboard, resolveClipboardSurface, ty
 import { ImageSourceFace } from './ImageSourceFace.js';
 
 /**
- * §5.4 #36 (G) — Vibimage 노드 화면의 안쪽: **캔버스에서 바로 다룬다.**
- *
- * 화면은 코어가 구운 한 장(화면 크기로 줄인 것 — 원본을 노드마다 디코딩해 들고 있지 않는다)이다. 할 수 있는 것은 둘 —
- * **채우기 ↔ 맞춤**(잘라서 꽉 채워 보기 / 통째로 보기 — 구운 한 장은 자르지 않고 줄인 것이라 둘 다 같은 그림으로 된다)과
- * **클립보드로 복사**(원본을 PNG 로 — 라이트박스(§5.5 #17-25 ④-2)와 같은 `imageClipboard` 한 벌. 세 OS 가 공통으로 받는
- * 이미지 형식이 PNG 뿐이라 원본이 무엇이든 PNG 로 굽는다). 표시·고치기는 더블클릭·[에디터에서 열기]의 몫이다.
- *
- * 그림 위는 조작 자리가 아니다 — 거기서 끌면 노드가 움직이고, 두 번 누르면 에디터가 열린다.
+ * §5.4 #36 (G) — Vibimage 노드 화면: 코어가 줄여 구운 한 장(원본 디코딩 ❌). 채우기 ↔ 맞춤과 클립보드 복사만.
+ * 복사는 `imageClipboard`(§5.5 #17-25 ④-2)로 원본을 PNG 로 굽는다 — 세 OS 공통 이미지 형식이 PNG 뿐이다. 그림 위는 끌기·더블클릭 자리다.
  */
 type CopyState = 'idle' | 'busy' | 'done' | 'failed';
 

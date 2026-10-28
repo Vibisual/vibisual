@@ -1,12 +1,8 @@
 /**
- * 디스크 사용량 무한 증가 방지 테스트 (v4.67).
- *
- * 회귀 방지 대상 — "쓸수록 끝없이 커지는" 세 경로. 셋 다 **기존 동작을 바꾸지 않는 것**이
- * 조건이므로, 줄었다는 것뿐 아니라 **소비자가 보는 결과가 동일하다**는 것까지 검증한다.
- *
- *  1) `debugLog` — 상한 없는 append 로 한 파일이 590MB 까지 자랐다. 회전 + 정상상태 침묵.
- *  2) `streamBufferStore` — append-only jsonl(총 44MB). 컴팩션 후에도 `loadBuffer` 결과 동일.
- *  3) `toProjectCheckpoint` 의 `fileEdits` — 노드 없는 고아 키가 저장·복원만 되고 UI 엔 못 갔다.
+ * 디스크 사용량 무한 증가 방지 시험 — 세 경로 모두 줄었다는 것뿐 아니라 소비자가 보는 결과가 같다는 것까지 본다:
+ *  1) `debugLog` — 회전 + 정상상태 침묵(상한 없는 append 는 한 파일이 590MB 까지 자랐다).
+ *  2) `streamBufferStore` — append-only jsonl 컴팩션 후에도 `loadBuffer` 결과 동일.
+ *  3) `toProjectCheckpoint` 의 `fileEdits` — 노드 없는 고아 키는 저장·복원만 되고 UI 엔 못 간다.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -103,8 +99,7 @@ describe('streamBufferStore — 컴팩션은 소비자에게 no-op', () => {
     expect(files).toContain('sub-a.jsonl');
     const lines = fs.readFileSync(path.join(dir, 'sub-a.jsonl'), 'utf8').split('\n').filter(Boolean);
     expect(lines.length).toBeLessThanOrEqual(3_000);
-    // ⚠ 읽기 상한(MAX_STREAM_BUFFER=2000)보다는 반드시 많이 남아야 복원이 깎이지 않는다.
-    //   §5.5 v4.92 — 상한을 올릴 때 이 두 수를 함께 올리지 않으면 복원 대화가 조용히 잘린다.
+    // ⚠ 읽기 상한(MAX_STREAM_BUFFER=2000)보다 많이 남아야 복원이 깎이지 않는다 — §5.5: 상한을 올릴 때 이 두 수를 함께 올리지 않으면 복원 대화가 조용히 잘린다.
     expect(lines.length).toBeGreaterThanOrEqual(2_000);
   });
 

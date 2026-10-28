@@ -1,14 +1,8 @@
 import type { AuditEntry, AuditRiskKind, ProjectAuditLog } from '@vibisual/shared';
 import { isAuditEntryDenied } from '@vibisual/shared';
 
-// SCENARIO.md §5.22 — 권한·감사 경계 공용 헬퍼.
-//
-// 헤더 방패 필(Layout/AuditPill), 타임라인 팝업(Panel/AuditTimelinePopup), 승인 카드
-// (PermissionPrompt/PermissionPromptStack)가 **같은 함수**로 위험 색과 라벨 키를 정한다.
-// 같은 위험이 세 화면에서 다른 색으로 보이면 그 즉시 믿을 수 없는 화면이 된다.
-//
-// 여기서 위험을 **다시 판정하지 않는다** — 판정은 shared `classifyToolRisk` 한 곳이고(§3.1)
-// 이 파일이 하는 일은 "이미 판정된 값을 어느 색으로 그릴까" 하나뿐이다.
+// SCENARIO.md §5.22 — 권한·감사 경계 공용 헬퍼. 헤더 필·타임라인·승인 카드가 **같은 함수**로 위험 색·라벨 키를 정한다(세 화면이 다르면 못 믿는다).
+// 위험을 다시 판정하지 않는다 — 판정은 shared `classifyToolRisk`(§3.1), 여기는 색만.
 
 /** 지금 보고 있는 프로젝트의 원장. 없으면 undefined(빈 원장을 지어내지 않는다). */
 export function findAuditLog(

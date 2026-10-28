@@ -5,14 +5,7 @@ import { useEnterSubmit } from '../../hooks/useEnterSubmit.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { contextLevel, elapsedParts, type CommandCenterItem } from './commandCenterModel.js';
 
-// SCENARIO.md §5.12 (H) v4.44 — 상세 패널.
-//
-// 카드 한 장을 고르면 그 세션이 **왜 이 레인에 있는지의 원문**을 펼친다. 목록 카드는 한 줄
-// 미리보기라 "질문이 뭐였는지" 를 알려면 결국 메인 창까지 가야 했다 — 그 왕복을 없애는 것이
-// 이 패널의 존재 이유다.
-//
-// 여기 그리는 값은 전부 `item.detail`(= 이미 창에 와 있는 스냅샷 파생)이다. **스트림은 그리지
-// 않는다** — 그건 §5.12 (G) 대로 메인 창 IDE 의 몫이다.
+// SCENARIO.md §5.12 (H) — 상세 패널: 세션이 왜 이 레인에 있는지의 원문(`item.detail`, 스냅샷 파생). **스트림은 그리지 않는다**(§5.12 (G), 메인 창 IDE 몫).
 
 export interface CommandCenterDetailHandle {
   /** `c` 단축키 — 명령 입력창으로 포커스. */
@@ -20,10 +13,7 @@ export interface CommandCenterDetailHandle {
 }
 
 export interface CommandCenterDetailProps {
-  /**
-   * v4.56 — **고른 카드가 있을 때만** 이 패널이 산다(빈 상태 화면 없음). 보드가 선택이 풀린 뒤에도
-   * 미끄러져 나가는 동안 마지막 항목을 그대로 넘겨 주므로 여기서 null 을 다룰 일이 없다.
-   */
+  /** 고른 카드가 있을 때만 산다 — 보드가 미끄러져 나가는 동안에도 마지막 항목을 넘기므로 null 이 없다. */
   item: CommandCenterItem;
   projectId: string;
   now: number;

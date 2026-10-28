@@ -1,17 +1,7 @@
 /**
- * §5.5 — 읽기 설정 글꼴 레지스트리.
- *
- * 전부 **상업적 사용이 가능한 무료 글꼴**(SIL Open Font License 1.1)이며, 이제는 이름만 부르지 않고
- * **웹폰트 파일을 앱에 동봉**한다(`scripts/fetch-reading-fonts.mjs` → `src/assets/fonts/`,
- * `main.tsx` 가 그 CSS 를 싣는다). 예전처럼 OS 설치에 기대면 고른 글꼴이 조용히 폴백돼
- * "골랐는데 안 바뀐다"가 되고, 오프라인 데스크톱 앱에서는 사용자가 손쓸 방법도 없었다.
- *
- * 그래서 동봉한 글꼴(`bundled`)은 설치 여부를 재지 않는다(`probe: null`). 탐지 경로
- * (`detectFontAvailability`)는 앞으로 **동봉하지 않는 글꼴**을 목록에 넣을 때를 위해 남겨 둔다 —
- * 그때는 UI 가 "설치되어 있지 않음"을 그대로 보여 준다(없는 것을 있는 척하지 않는다).
- *
- * 새 글꼴은 이 배열에 한 줄만 더하면 된다(Open-Closed). 동봉하려면 내려받기 스크립트의 목록에도
- * 같이 더한 뒤 스크립트를 한 번 돌린다.
+ * §5.5 — 읽기 설정 글꼴 레지스트리. 전부 SIL OFL 1.1 이고 웹폰트를 동봉한다(`scripts/fetch-reading-fonts.mjs` → `src/assets/fonts/`, `main.tsx` 가 CSS 를 싣는다)
+ * — OS 설치에 기대면 조용히 폴백된다. 동봉 글꼴은 탐지하지 않는다(`probe: null`), `detectFontAvailability` 는 동봉 안 한 글꼴을 넣을 때를 위해 남긴다.
+ * 새 글꼴은 배열에 한 줄, 동봉하려면 내려받기 스크립트 목록에도 더해 한 번 돌린다.
  */
 
 import { sanitizeFontFamily, type ReadingSettings } from './readingModel.js';
@@ -28,10 +18,7 @@ export interface ReadingFont {
   stack: string | null;
   /** 설치 여부 탐지에 쓸 실제 패밀리 이름. `null` 이면 탐지 생략(항상 사용 가능). */
   probe: string | null;
-  /**
-   * 웹폰트 파일을 앱에 동봉해 실었는가. true 면 OS 설치와 무관하게 항상 그 글꼴로 보이므로
-   * 탐지(`probe`)가 필요 없다 — 동봉하지 않은 글꼴만 탐지 대상이다.
-   */
+  /** 웹폰트를 동봉했는가 — true 면 OS 설치와 무관하므로 탐지(`probe`)하지 않는다. */
   bundled?: boolean;
   /** 라이선스 표기 — 상업적 사용 가능함을 사용자가 확인할 수 있게 그대로 노출한다. */
   license: string;
@@ -165,10 +152,7 @@ export function resolveReadingFontStack(
     : resolveFontStack(settings.fontId);
 }
 
-// ── 설치 여부 탐지 ───────────────────────────────────────────────────────────
-// `document.fonts.check()` 는 폴백이 잡히면 참을 돌려주는 경우가 있어 믿기 어렵다. 대신 후보 글꼴을
-// 서로 다른 두 기준 글꼴 위에 얹어 폭을 재고, **둘 중 하나라도 기준과 달라지면** 실제로 그 글꼴이
-// 적용된 것으로 본다(널리 쓰이는 캔버스 계측 기법).
+// 설치 여부 탐지 — `document.fonts.check()` 는 폴백에도 참을 줄 때가 있어 믿지 않는다. 서로 다른 두 기준 글꼴 위에 얹어 폭을 재고 하나라도 다르면 적용된 것으로 본다.
 
 const PROBE_TEXT = 'mmmmmmmmmmlliWWQ가나다한글AZ0';
 const PROBE_SIZE = 72;
@@ -181,12 +165,7 @@ function measure(ctx: CanvasRenderingContext2D, family: string): number {
   return ctx.measureText(PROBE_TEXT).width;
 }
 
-/**
- * 패밀리 이름 하나의 설치 여부. **커스텀 글꼴**용 — 사용자가 이름을 적는 동안 "이 컴퓨터에 있는가"를
- * 그 자리에서 알려 준다. 동봉 글꼴과 달리 커스텀은 우리가 파일을 갖고 있지 않으므로, 없으면 조용히
- * 폴백돼 "적었는데 안 바뀐다"가 된다 — 그 침묵을 없애는 것이 이 함수의 존재 이유다.
- * 계측이 불가능한 환경에서는 `null`(모름)을 돌려준다 — 없다고 단정해 겁주지 않는다.
- */
+/** 커스텀 글꼴 이름의 설치 여부 — 적는 동안 알려 조용한 폴백을 없앤다. 잴 수 없으면 `null`(없다고 단정하지 않는다). */
 export function isFontFamilyAvailable(family: string): boolean | null {
   const clean = sanitizeFontFamily(family);
   if (!clean) return null;
@@ -204,13 +183,7 @@ export function isFontFamilyAvailable(family: string): boolean | null {
   });
 }
 
-/**
- * 이 컴퓨터에 설치된 글꼴 패밀리 목록. 커스텀 입력의 자동완성 후보로만 쓴다.
- *
- * Local Font Access API(`queryLocalFonts`)는 권한이 필요하고 거부·미지원될 수 있으므로 **실패를 정상
- * 경로로 취급**한다 — 목록이 비면 자동완성만 없고 이름을 직접 적는 길은 그대로다. 우리가 하는 일은
- * 이름을 읽는 것뿐이며 글꼴 파일을 읽거나 복사하지 않는다.
- */
+/** 설치된 글꼴 패밀리 목록(커스텀 입력의 자동완성 후보로만). `queryLocalFonts` 는 권한 거부·미지원이 흔해 실패를 정상 경로로 본다. 이름만 읽는다. */
 export async function queryLocalFontFamilies(): Promise<string[]> {
   const q = (window as unknown as {
     queryLocalFonts?: () => Promise<Array<{ family?: string }>>;

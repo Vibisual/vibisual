@@ -11,11 +11,7 @@ import {
 } from './portTakeover.js';
 import { PROCESS_LIST_TIMEOUT_MS } from './processDescendants.js';
 
-/**
- * §7.11 포트 인계 — 포트 인계의 **조회 계획과 파서**를 세 OS 모두에 대해 고정한다.
- * 실기(mac/linux)가 없는 Windows 개발기에서 플랫폼 분기를 검증할 수 있는 유일한 방법이라
- * `platform` 을 인자로 받게 설계했다(docs/rules/multiplatform.md).
- */
+/** §7.11 포트 인계 — 조회 계획과 파서를 세 OS 모두에 대해 고정한다(`platform` 을 인자로 받아 Windows 개발기에서도 잰다, docs/rules/multiplatform.md). */
 describe('§7.11 포트 인계 — 플랫폼별 조회 계획', () => {
   it('win32 은 Win32_Process 의 CommandLine 하나만 묻는다 (cwd 는 공개 API 가 없다)', () => {
     const probes = buildTakeoverProbes('win32', 4242);

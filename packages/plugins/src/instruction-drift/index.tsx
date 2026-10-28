@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.93 — 지시 표류(Instruction Drift): 초반 지시가 아직 유효한가.
- *
- * 긴 세션에서는 새 내용이 쌓일수록 앞쪽 규칙의 영향력이 옅어지고, 컴팩션이 돌면 초기 지시가 요약되며
- * 더 빨리 희석된다. "한 번 말했으니 계속 지켜지겠지"는 성립하지 않는다. 이 에이전트가 상시 규칙을
- * 갖고 있는지와, 세션이 얼마나 길어졌는지를 나란히 본다. 표시 전용.
- */
+/** §5.11 — 지시 표류(Instruction Drift): 긴 세션·컴팩션에서 앞쪽 규칙이 옅어진다 — 상시 규칙 유무와 세션 길이를 나란히 본다. 표시 전용. */
 import { defineInspector, ICONS } from '../sdk/index.js';
 import { defineDriftLevel } from './drift.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

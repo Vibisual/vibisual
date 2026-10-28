@@ -1,22 +1,6 @@
 /**
- * byteBudgetCache.ts — §3.2.4 F축. 캐시를 **개수가 아니라 총 바이트**로 묶는 LRU.
- *
- * **왜 개수 상한으로는 안 되나**: 세션 트랜스크립트는 4KB 짜리와 26MB 짜리가 섞여 있는데
- * `max = 64` 같은 개수 상한은 그 둘을 같은 한 칸으로 센다. 큰 것 몇 개가 들어오면 예산이
- * 수백 MB 로 튀고, 반대로 작은 것만 들어오면 캐시가 텅 빈 채로 축출이 돈다. 그래서 업계
- * 표준(`lru-cache` v11 의 `maxSize` + `sizeCalculation`)은 바이트 기준을 권한다 —
- * "개수 상한은 모든 항목이 같은 크기라고 가정하는데 실제로는 거의 그렇지 않다."
- *
- * 여기서는 그 형태만 가져오고 **새 의존성은 추가하지 않는다**(§3.4 — shared 는 아무것도
- * import 하지 않는다). `Map` 이 삽입 순서를 보존하므로 "가장 오래 안 쓴 것부터"는
- * `delete` → `set` 재삽입으로 얻는다.
- *
- * **크기는 근사여도 된다.** 예산이 하는 일은 절대 바이트를 맞추는 게 아니라 *큰 것이 작은 것보다
- * 먼저 밀려나게* 하는 것이다. `sizeOf` 는 O(1) 근사로 충분하고, 그래야 축출 판정이 싸다.
- *
- * ⚠ **제자리 변경(in-place mutation)에 주의**: 캐시에 넣은 값을 나중에 고치면(배열 push 등)
- *   저장된 크기가 낡는다. 고친 쪽이 `refresh(key)` 를 불러야 총량이 맞는다 — 증분 스캔처럼
- *   "같은 객체를 계속 키우는" 사용처가 바로 그 경우다.
+ * §3.2.4 F축 — 캐시를 개수가 아니라 **총 바이트**로 묶는 LRU(4KB·26MB 트랜스크립트를 같은 한 칸으로 세지 않게). 새 의존성 ❌(§3.4).
+ * 크기는 근사(O(1) `sizeOf`)면 된다. ⚠ 넣은 값을 제자리에서 키우면(증분 스캔) `refresh(key)` 를 불러야 총량이 맞는다.
  */
 
 /** 값 하나의 바이트를 추정한다. 정확할 필요 없고 **상대 크기**만 맞으면 된다. */
@@ -45,10 +29,7 @@ export interface ByteBudgetCacheStats {
   evictions: number;
 }
 
-/**
- * 메모리 압력 대응(§3.2.4 I축)이 캐시 종류를 모른 채 축출을 시킬 수 있게 하는 최소 접점.
- * `memoryMonitor` 는 이 인터페이스만 알고, 무엇이 들어 있는지는 모른다.
- */
+/** §3.2.4 I축 — 메모리 압력 대응(`memoryMonitor`)이 캐시 종류를 모른 채 축출을 시키는 최소 접점. */
 export interface EvictableCache {
   /** 진단·로그용 이름. */
   readonly cacheName: string;
@@ -73,16 +54,8 @@ export function approximateStringBytes(text: string | null | undefined): number 
 }
 
 /**
- * §3.2.4 F축(경량판) — **키 개수만** 묶는다. 넣은 직후 한 줄 부르면 된다.
- *
- * 값이 작아 바이트 예산까지는 필요 없지만 **키가 세션·에이전트 수만큼 늘어나는** 자리용이다
- * (§3.2.3 이 디스크에서 만난 "값 길이엔 캡이 있는데 키 개수엔 없다"와 같은 형태가 힙에도 있었다).
- * `Map` 이 삽입 순서를 보존하므로 가장 먼저 들어온 것부터 나간다.
- *
- * ⚠ **다시 만들 수 있는 파생물에만 쓴다.** 사용자가 옮긴 좌표처럼 잃으면 화면이 달라지는 상태에는
- *   쓰지 마라 — 그건 §3.2.3 이 세운 "보던 것은 줄지 않는다"를 깨는 것이다.
- *
- * @returns 버린 개수.
+ * §3.2.4 F축(경량판) — Map 의 키 개수만 묶는다(오래된 것부터 버리고 버린 개수를 돌려준다).
+ * ⚠ 다시 만들 수 있는 파생물에만 — 잃으면 화면이 달라지는 상태(옮긴 좌표 등)는 ❌(§3.2.3).
  */
 export function capMapSize<K, V>(map: Map<K, V>, max: number): number {
   if (!Number.isFinite(max) || max <= 0) return 0; // 0 = 무제한(§3.2.3 과 같은 규약)
@@ -96,14 +69,7 @@ export function capMapSize<K, V>(map: Map<K, V>, max: number): number {
   return dropped;
 }
 
-/**
- * §3.2.4 F축(경량판) — `capMapSize` 의 `Set` 짝. 같은 규약·같은 주의사항이다.
- *
- * 값 없이 **키만** 들고 도는 자리(예: "이 세션은 다음 명령 앞에 접어야 한다" 같은 표식)가
- * 세션 수만큼 늘지 않게 묶는다. `Set` 도 삽입 순서를 보존하므로 오래된 것부터 나간다.
- *
- * @returns 버린 개수.
- */
+/** `capMapSize` 의 `Set` 짝(같은 규약·같은 주의). 버린 개수를 돌려준다. */
 export function capSetSize<T>(set: Set<T>, max: number): number {
   if (!Number.isFinite(max) || max <= 0) return 0; // 0 = 무제한(§3.2.3 과 같은 규약)
   let dropped = 0;
@@ -138,11 +104,7 @@ export class ByteBudgetCache<K, V> implements EvictableCache {
     return this.name;
   }
 
-  /**
-   * 조회 + LRU 최신화. 없으면 `undefined`.
-   *
-   * 재삽입으로 순서를 갱신하므로 `Map` 삽입 순서 = "오래 안 쓴 것 먼저"가 유지된다.
-   */
+  /** 조회 + LRU 최신화(재삽입). */
   get(key: K): V | undefined {
     const entry = this.map.get(key);
     if (entry === undefined) {
@@ -178,12 +140,7 @@ export class ByteBudgetCache<K, V> implements EvictableCache {
     this.enforceBudget();
   }
 
-  /**
-   * 값을 제자리에서 고친 뒤 크기를 다시 재고 총량을 맞춘다(LRU 순서도 최신화).
-   *
-   * 증분 스캔처럼 같은 객체를 계속 키우는 사용처는 **반드시** 이걸 불러야 한다 — 안 부르면
-   * 캐시는 처음 넣었을 때의 작은 크기로 회계해 예산이 조용히 새어 나간다.
-   */
+  /** 제자리에서 키운 값의 크기를 다시 잰다 — 증분 스캔은 **반드시** 부른다(안 부르면 예산이 조용히 샌다). */
   refresh(key: K): void {
     const entry = this.map.get(key);
     if (entry === undefined) return;
@@ -277,12 +234,7 @@ export class ByteBudgetCache<K, V> implements EvictableCache {
     }
   }
 
-  /**
-   * 총량이 `targetBytes` 이하가 될 때까지 오래된 것부터 버린다.
-   *
-   * ⚠ **마지막 한 항목은 남긴다** — 방금 넣은 것이 예산보다 크면 넣자마자 사라져 캐시가
-   *   영원히 비게 되고, 그러면 그 파일을 물을 때마다 전량 재파싱이 돈다(고치려던 바로 그 증상).
-   */
+  /** ⚠ 마지막 한 항목은 남긴다 — 예산보다 큰 것이 바로 사라지면 캐시가 늘 비어 매번 전량 재파싱한다. */
   private evictDownTo(targetBytes: number): number {
     let freed = 0;
     while (this.totalBytes > targetBytes && this.map.size > 1) {

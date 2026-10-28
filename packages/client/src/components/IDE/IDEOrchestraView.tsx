@@ -1,20 +1,8 @@
 /**
- * §5.3 #10-4 · §5.5 #16-1 (H) — **오케스트라(지휘 모드)** 뷰. IDE 활동바의 제 칸(`data-activity-view="orchestra"`)이 여는 화면.
- *
- * 사용자 지시(2026-09-19): 활동바에서 프로젝트·에이전트 2단으로 켜고 끄고, 켜 둔 에이전트에 명령을 넣으면
- * 그 에이전트가 스스로 일을 나누고 엣지로 편성하며, 절감 방안은 **지난 분석 원문 그대로** 싣되 전부 자동
- * 적용이 아니라 **지휘자가 그 요청에 맞는 것만 골라** 쓰고, Claude·Codex 를 세부 설정할 수 있게.
- *
- * 화면이 하는 일은 넷이다 — 켜고 끄기(2층) · 세부 설정 · 방안 표(허용 토글 + 원문 펼침) · 런 기록.
- * **판정은 여기서 하지 않는다**: 층 접기는 shared `orchestraScopeStates`, 저장은 서버 두 창구
- * (`POST /api/orchestra/scope` · `PUT /api/orchestra/settings`)이고, 화면은 돌려받은 **저장된 값**으로 갈아 낀다
- * (낙관적 갱신 ❌ — 서버가 접은 결과와 화면이 갈린다).
- *
- * **수치 절감을 약속하지 않는다.** 원문의 예상 절감은 "원문의 추정"이라는 이름표를 달고서만 보인다 —
- * 지휘자가 무엇을 고를지는 요청마다 다르고, 여러 에이전트는 오히려 더 쓸 수 있다(분석 1번).
- *
- * 화면 규약은 절차 감지 뷰(§5.10 (P))와 같다 — 스위치는 꺼져 있을 때도 켜져 있을 때도 늘 이 자리 ·
- * 12px 하한(§9) · 아이콘은 stroke SVG(이모지 ❌) · 새 창·오버레이 ❌.
+ * §5.3 #10-4 · §5.5 #16-1 (H) — 오케스트라(지휘 모드) 뷰. 프로젝트·에이전트 2단으로 켜고, 켠 에이전트가 명령을 나눠 엣지로 편성한다.
+ * 절감 방안(분석 원문 그대로)은 지휘자가 요청에 맞는 것만 고른다. 판정은 여기서 하지 않는다 — 층 접기 shared `orchestraScopeStates`,
+ * 저장 `POST /api/orchestra/scope`·`PUT /api/orchestra/settings`, 화면은 돌려받은 저장값으로(낙관 ❌).
+ * 수치 절감을 약속하지 않는다("원문의 추정" 이름표로만). 화면 규약은 §5.10 (P) 와 같다.
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -79,12 +67,7 @@ interface OrchestraControl {
   patch: (p: OrchestraPatch) => void;
 }
 
-/**
- * 스냅샷의 설정 + 방금 저장하고 돌려받은 설정 중 **더 새것**을 쓴다(`updatedAt` — 서버가 쓸 때마다 찍는다).
- *
- * 둘을 함께 드는 이유: 저장 응답은 브로드캐스트보다 먼저 오기도 늦게 오기도 한다. 스냅샷만 보면 누른 뒤
- * 한 박자 동안 스위치가 옛 값으로 보이고, 응답만 보면 다른 창에서 바꾼 값을 영영 못 본다. 같으면 스냅샷이 이긴다.
- */
+/** 스냅샷 설정과 저장 응답 중 더 새것(`updatedAt`) — 응답은 브로드캐스트보다 먼저도 늦게도 온다(스냅샷만이면 옛 값이 깜빡, 응답만이면 남의 창 변경을 놓친다). 같으면 스냅샷. */
 function useOrchestraControl(
   rootPath: string | null,
   agentId: string,
@@ -152,10 +135,7 @@ function useOrchestraControl(
 
 // ─── 원문 그리기 ──────────────────────────────────────────────────────────────
 
-/**
- * 원문 칸은 마크다운 조각(`**굵게**` · `` `코드` `` · `<br>`)을 담고 있다. 글자는 한 자도 바꾸지 않고
- * **표시만** 한다 — 표시 기호를 벗기는 것이지 문장을 고치는 것이 아니다.
- */
+/** 원문 칸은 마크다운 조각(굵게·코드·`<br>`)이다. 글자는 바꾸지 않고 표시 기호만 벗긴다. */
 const BOLD_OR_CODE = /(\*\*[^*]+\*\*|`[^`]+`)/;
 const CODE_ONLY = /(`[^`]+`)/;
 
@@ -249,10 +229,7 @@ function WarnGlyph(): React.JSX.Element {
 
 interface Opt { value: string; label: string }
 
-/**
- * 고르기 한 칸. 지금 값이 목록에 없으면(목록이 아직 안 왔거나, 손으로 적은 값) **그 값을 목록 끝에 세운다** —
- * 없는 값을 빈칸으로 보이면 사용자는 "정하지 않음"으로 읽고, 한 번 건드리면 그 값이 사라진다.
- */
+/** 고르기 칸 — 지금 값이 목록에 없으면 목록 끝에 세운다(빈칸이면 "정하지 않음"으로 읽혀 한 번 건드리면 사라진다). */
 function SettingSelect({
   field, label, value, options, emptyLabel, disabled, onChange,
 }: {
@@ -369,10 +346,8 @@ function OriginalField({ label, text }: { label: string; text: string }): React.
 }
 
 /**
- * 방안 한 줄. 왼쪽 네모 = **지휘자에게 주는가**(끄면 지휘 규칙에서 빠지고, 계획 신고에 담기면 400).
- * 가운데를 누르면 원문 여섯 칸 + 지휘자가 받는 적용 지침이 펼쳐진다.
- *
- * 11·12·13 은 지휘자가 만질 손잡이가 없어 **참고 전용**이다 — 네모를 누를 수 없게 두고 그 까닭을 표로 붙인다.
+ * 방안 한 줄 — 네모 = 지휘자에게 주는가(끄면 규칙에서 빠지고 계획 신고에 담기면 400). 누르면 원문 여섯 칸 + 적용 지침.
+ * 11·12·13 은 지휘자 손잡이가 없어 참고 전용(못 누르고 까닭을 표로 붙인다).
  */
 const StrategyRow = memo(function StrategyRow({
   strategy, allowed, disabled, onToggle,
@@ -569,11 +544,7 @@ function ChoiceList({
   );
 }
 
-/**
- * 런 하나 — 누가 지휘했고(요청) · 무엇으로 읽었고(의도) · 어떻게 짰고(편성) · 무엇을 왜 골랐고 · 무엇을 왜
- * 건너뛰었고 · 누구에게 넘겼고 · 얼마를 썼는가. 이 기능의 핵심은 "지휘자가 **스스로** 고른다"이므로 고른
- * 이유가 보이지 않으면 사용자는 그 선택을 믿을 근거가 없다.
- */
+/** 런 한 줄 — 요청·의도·편성·고른 것/건너뛴 것과 이유·넘긴 곳·비용. 고른 이유가 보여야 지휘자의 선택을 믿는다. */
 const RunRow = memo(function RunRow({
   run, mine, nameOf, locale,
 }: {
@@ -701,11 +672,7 @@ export const IDEOrchestraView = memo(function IDEOrchestraView({
     () => (codexModels ?? []).map((m) => ({ value: m.slug, label: m.displayName || m.slug })),
     [codexModels],
   );
-  /*
-   * 멤버가 태어날 때 받는 도구 목록 — 이름은 에이전트 설정 창의 템플릿 이름을 그대로 쓴다(§4).
-   *   `all` 은 뺀다: 그것이 곧 기본값이라 고르면 "좁혔다고 믿는데 그대로"인 칸이 된다.
-   *   기본으로 돌아가는 길은 빈 칸 하나면 충분하다.
-   */
+  /* 멤버 생성 도구 목록(설정 창 템플릿 이름 그대로, §4). `all` 은 뺀다 — 곧 기본값이라 좁힌 줄 알게 된다(기본은 빈 칸). */
   const memberToolOpts = useMemo<Opt[]>(
     () => AGENT_TOOL_TEMPLATES.filter((tmpl) => tmpl.id !== 'all').map((tmpl) => ({
       value: tmpl.id,
@@ -1008,11 +975,7 @@ export const IDEOrchestraView = memo(function IDEOrchestraView({
               disabled={locked}
               onChange={(v) => control.patch({ maxMembers: v === '' ? null : Number(v) })}
             />
-            {/*
-              멤버가 **태어날 때** 받는 두 칸. 지휘자 손잡이가 아니라 사용자 스위치다 —
-                작업 폴더와 도구는 권한 축이라, 지휘자가 ② 설정 PATCH 로 넣을 수 없게 얼려 있다(§5.3 #12-1).
-                그래서 값의 출처를 여기로 두고 서버가 멤버 생성 시 대신 심는다.
-            */}
+            {/* 멤버가 태어날 때의 두 칸(작업 폴더·도구) — 권한 축이라 지휘자 PATCH 로는 못 넣게 얼려 있어(§5.3 #12-1) 사용자 스위치로 두고 서버가 생성 때 심는다. */}
             <div className="h-px bg-gray-800" />
             <ToggleRow
               field="memberIsolation"

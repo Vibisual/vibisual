@@ -1,13 +1,4 @@
-/**
- * §3.2.4 — `readUserMessages` · `readLastAssistantMessage` 의 **증분 이어읽기가 전량 재스캔과
- * 같은 결과**인지 고정한다.
- *
- * **배경**: 두 함수는 스냅샷 재구축이 살아있는 세션 전부에 대해 부른다. 종전엔 캐시 키가
- * (파일 크기·mtime) 뿐이라 트랜스크립트가 **한 줄이라도 자라면 처음부터 전량 재파싱**했고,
- * 캐시 예산에서 밀려나도 마찬가지였다. 실측 2026-08-16: 세션 178개(트랜스크립트 합 228MB)인
- * 기계에서 도구 이벤트 1회마다 832MB 를 읽고 코어 하나를 5초씩 잡았다. append-only 특성을 살려
- * 붙은 줄만 먹이도록 바꿨으므로, 이 테스트가 지키는 것은 하나다 — **최적화가 결과를 바꾸면 안 된다.**
- */
+/** §3.2.4 — `readUserMessages`·`readLastAssistantMessage` 의 증분 이어읽기가 전량 재스캔과 같은 결과인지 고정한다(최적화가 결과를 바꾸면 안 된다). */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';

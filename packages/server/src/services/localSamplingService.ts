@@ -8,18 +8,10 @@ import { findModel } from './localModelService.js';
 import { loadedModelContext, loadedModelPort } from './localRunner.js';
 
 /**
- * §5.25 (G-2) — 로컬 모델의 온도 칸을 비워 두면 **실제로 쓰이는 값**을 찾는다. 읽기만 한다.
- *
- * 비워 두면 우리는 요청에 `temperature` 를 싣지 않고(§5.19), 그때 값은 엔진이 정한다. 확실한 순서로:
- * ① 지금 올라가 있는 엔진의 `GET /props`(llama.cpp server 문서의 공개 엔드포인트) —
- *    `default_generation_settings` 가 그 인스턴스가 실제로 쓰는 값이다.
- * ② 모델 파일(GGUF)의 `general.sampling.temp` — 엔진은 올릴 때 이 값을 기본으로 삼는다.
- * ③ 설치된 `llama-server --help` 의 `--temp ... (default: N)` — 공개 인터페이스에서 읽는다.
- *    숫자를 코드에 적어 두지 않는다 — 엔진이 바꾸면 화면도 따라 바뀌어야 한다.
- * 셋 다 모르면 `null` 이고 화면은 값을 지어내지 않는다.
- *
- * 문맥 칸도 같은 응답에 싣는다 — 비워 두면 `LOCAL_DEFAULT_CONTEXT_SIZE` 로 띄우되 모델의 학습 문맥보다
- * 크면 그 길이로 깎이고(localRunner `ensureLoaded`), 이미 올라간 엔진은 내리기 전까지 뜬 크기 그대로다.
+ * §5.25 (G-2) — 로컬 온도 칸을 비우면(요청에 `temperature` 를 안 실어 엔진이 정한다, §5.19) 실제로 쓰이는 값을 찾는다. 읽기만 한다.
+ * 순서: ① 올라간 엔진의 `GET /props`(llama.cpp server 공개 엔드포인트) `default_generation_settings` ② GGUF `general.sampling.temp`
+ * ③ `llama-server --help` 의 `--temp ... (default: N)`. 숫자를 코드에 적지 않는다(엔진이 바꾸면 따라간다) — 셋 다 모르면 `null`.
+ * 문맥 칸: 비우면 `LOCAL_DEFAULT_CONTEXT_SIZE`, 학습 문맥보다 크면 깎인다(`ensureLoaded`). 이미 올라간 엔진은 내리기 전까지 뜬 크기 그대로다.
  */
 
 /** `/props` 한 번에 주는 시간. 같은 기계의 루프백이라 짧게 — 넘으면 다음 근거로 간다. */

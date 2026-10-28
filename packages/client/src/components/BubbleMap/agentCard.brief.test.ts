@@ -3,11 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { LINKED_OUTPUT_MARK, buildLinkedOutputBrief, withLinkedOutputBrief, type LinkedOutputNode } from './agentCard.js';
 
 /**
- * §5.4 #36 (C) 개정 · §5.13 (T-15) ① — **앱 몫 브리프.**
- *
- * 영상 노드에 공통 문구("결과 파일을 만들어 /output 으로 넣어라 · accepts .mp4")가 붙자 에이전트가 파이썬·ffmpeg 로
- * 완성 mp4 를 먼저 구워 꽂았다(2026-10-11 사용자 보고). 앱이 자기 브리프를 낸 노드는 그 브리프만 말하고, 공통 납품
- * 문구는 공통 노드가 있을 때만 붙는다 — 이 갈림이 되돌아가면 같은 사고가 난다.
+ * §5.4 #36 (C) · §5.13 (T-15) ① — 앱 브리프가 있는 노드는 그것만 말하고, 공통 납품 문구는 공통 노드가 있을 때만 붙는다.
+ * 되돌아가면 에이전트가 영상 노드에 파이썬·ffmpeg 로 완성 mp4 를 먼저 구워 꽂는다.
  */
 
 const fileNode: LinkedOutputNode = { id: 'app-9', appName: 'Imager', label: 'Logo', accepts: ['.png'], file: 'out/logo.png' };

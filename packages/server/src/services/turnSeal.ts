@@ -1,34 +1,8 @@
 /**
- * 턴 봉인 정책 — "CLI 가 `result` 를 냈다" 와 "이 명령이 끝났다" 를 분리한다.
- *
- * **왜 필요한가.** Claude Code 의 한 턴은 `result` 로 끝나지만, 그 자리에서 **다시 시작될 수 있다**.
- * 백그라운드 작업(`Bash run_in_background` · `Monitor`)이 끝나면 CLI 는 그 통지를 **다음 턴 경계에**
- * 새 user 메시지(`<task-notification>`)로 넣고 세션을 이어 돌린다. 실측(P_MPS_GPT 세션
- * `e78cf71c…`, 2026-08-07):
- *
- * ```
- * 15:00:15.526  [task_started]      bbeerj5yf   (백그라운드 빌드)
- * 15:00:30.137  [task_started]      bfl52vk5f   (Monitor)
- * 15:01:14.384  [task_notification] bbeerj5yf completed
- * 15:01:25.035  system/stop_hook_summary        ← 턴 종료(= CLI `result`)
- * 15:01:25.040  user <task-notification> …      ← 5ms 뒤 같은 세션이 다시 돌기 시작
- * 15:03:15.463  assistant "# 컴파일·자동화 실행 결과 …"  ← 진짜 끝
- * ```
- *
- * 종전 코드는 15:01:25 의 `result` 에서 곧바로 명령을 `completed` 로 봉인해, 화면에는 **1분 50초
- * 먼저** 완료가 떴다(사용자 보고: "안 끝났는데 끝나는 걸 먼저 표시하고 시간이 지난 후에 완성되고
- * 끝난다"). 이 모듈은 그 봉인을 **잠정**으로 만든다.
- *
- * **판정은 두 신호뿐이다.**
- *  - `liveTasks` — 시작(`task_started`)만 보이고 끝(`task_notification`)이 안 온 작업. 아직 살아 있으면
- *    그 작업이 끝나는 순간 세션이 다시 깨어난다.
- *  - `deliveredNotices` — 끝 통지가 이미 왔지만 **아직 세션에 전달되지 않은** 건수. CLI 는 이걸 턴
- *    경계에 밀어 넣으므로, 통지가 하나라도 밀려 있으면 이 턴 종료는 거의 확실히 재진입한다.
- *
- * 둘 다 0 이면 종전과 **완전히 같이** 즉시 봉인한다(회귀 0). 하나라도 있으면 `TURN_RESUME_GRACE_MS`
- * 만큼 봉인을 미루고, 그 사이 실제 작업 이벤트가 흐르면 "턴이 이어졌다"로 보고 봉인을 취소한다
- * (다음 `result` 가 같은 판정을 다시 받는다). 창이 조용히 지나가면 그대로 봉인한다 — **미결이 남아도
- * 봉인은 반드시 일어난다**(무한 스피너 방지).
+ * 턴 봉인 정책 — "CLI 가 `result` 를 냈다"와 "명령이 끝났다"를 가른다. 백그라운드 작업이 끝나면 CLI 는 그 통지를 다음 턴 경계에
+ * `<task-notification>` 으로 넣고 다시 돈다(실측 2026-08-07: `result` 5ms 뒤 재진입, 1분 50초 뒤 진짜 끝).
+ * 신호 둘 — `liveTasks`(끝이 안 온 작업) · `deliveredNotices`(아직 안 들어간 끝 통지). 둘 다 0 이면 즉시 봉인, 아니면 `TURN_RESUME_GRACE_MS` 만큼 미루고
+ * 그 사이 작업 이벤트가 흐르면 취소한다. **미결이 남아도 봉인은 반드시 일어난다**(무한 스피너 방지).
  */
 
 import { TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, type StreamTaskInfo, type SubAgentStatus } from '@vibisual/shared';
@@ -43,40 +17,17 @@ export const TURN_RESUME_GRACE_MS = 3000;
 export const MAX_TRACKED_TASKS = 64;
 
 /**
- * **시간 만료는 두지 않는다** — 종전의 `LIVE_TASK_MAX_AGE_MS`(4시간)는 폐기했다.
- *
- * 백그라운드 작업은 몇 시간짜리 패키징이거나 끝을 정하지 않은 폴링일 수 있다. 실측(2026-08-14,
- * P_MPS_GPT 세션)에서 한 작업이 33분을 정상적으로 돌다 `exit code 0` 으로 끝났다 — 조용하다는
- * 것도, 오래됐다는 것도 죽었다는 증거가 아니다. 오래됐다는 이유로 걷으면 **도는 작업이 화면에서
- * 사라지고**, 그 사이 사용자는 끝난 줄 안다(사용자 지시: "시간으로 잡아내면 엄청난 문제가 생긴다").
- *
- * 걷는 근거는 둘뿐이다 — ① 실제 끝 통지(`task_notification`)를 받았다, ② 그 작업을 담고 있던
- * 세션 프로세스가 사라졌다(`subAgentManager.sweepOrphanedBackgroundTasks`). 저장고가 무한히
- * 자라지 않게 하는 것은 시간이 아니라 개수 상한(`MAX_TRACKED_TASKS`)이 맡는다.
+ * **시간 만료는 두지 않는다** — 조용함도 오래됨도 죽음이 아니다(실측 2026-08-14: 33분 뒤 `exit code 0`). 시간으로 걷으면 도는 작업이 사라진다.
+ * 걷는 근거는 실제 끝 통지와 세션 프로세스 소멸(`sweepOrphanedBackgroundTasks`) 둘뿐, 크기는 `MAX_TRACKED_TASKS` 가 막는다.
  */
 
 /**
- * **프로세스가 사라진 세션**의 시작 칩을 걷기 전에 두는 유예.
- *
- * 이 작업들은 그 세션 CLI 프로세스의 자식이라 프로세스가 죽으면 함께 죽는데, 그 죽음은
- * 끝 통지로 오지 않는다(통지를 보낼 CLI 가 이미 없다). 그래서 "프로세스가 없다"가 곧
- * "그 작업도 없다"이지만, 스폰 직전·재개 직전처럼 **잠깐 프로세스가 없는 창**이 정상적으로
- * 존재하므로 그 창을 넘긴 뒤에만 걷는다.
- *
- * **이 값은 "얼마나 조용하면 죽었다고 볼까"가 아니다** — 그런 추정은 폐기됐다(위 주석). 판정은
- * 이미 "프로세스가 없다"는 사실로 끝나 있고, 이 유예는 그 사실을 읽는 순간이 하필 프로세스 교체
- * 틈이었을 가능성만 막는다. 그래서 분·시간이 아니라 초 단위이며, 작업이 얼마나 오래 돌았는지와는
- * 아무 상관이 없다.
+ * **프로세스가 사라진 세션**의 시작 칩을 걷기 전 유예 — 작업은 프로세스와 함께 죽으니 "프로세스 없음" = "작업 없음"이다.
+ * 스폰·재개 틈만 넘기는 값이라 초 단위다("얼마나 조용하면 죽었나" 추정이 아니다).
  */
 export const LIVE_TASK_ORPHAN_GRACE_MS = 15 * 1000;
 
-/**
- * 유예를 넘긴 시작 칩을 장부에서 **떼어 낸다** — 호출자가 그 세션에 프로세스가 없음을 이미
- * 확인했을 때만 부른다(그 판정은 프로세스를 아는 `subAgentManager` 의 몫이다).
- *
- * 떼어 낸 것을 돌려주는 이유는 소리 없이 사라지면 안 되기 때문이다 — 호출자가 "방금 끝난 것"
- * 꼬리로 옮겨, 사용자가 무엇이 얼마나 돌다 걷혔는지 볼 수 있게 한다.
- */
+/** 유예를 넘긴 시작 칩을 떼어 낸다 — 프로세스 없음을 확인한 호출자(`subAgentManager`)만 부른다. 돌려준 것은 "방금 끝난 것" 꼬리로 옮긴다. */
 export function takeOrphanLiveTasks(
   state: TurnSealState,
   now: number = Date.now(),
@@ -92,12 +43,7 @@ export function takeOrphanLiveTasks(
   return taken;
 }
 
-/**
- * 진행 중인 CLI 백그라운드 작업 한 건.
- *
- * `description`·`subagentType` 은 판정에 쓰이지 않는 **표시용**이다 — 이 대차대조가 봉인 지연에만
- * 쓰이던 것을 화면에도 내보내면서(§5.3 #12-1) 카드에 실을 이름이 필요해졌다.
- */
+/** 진행 중인 CLI 백그라운드 작업. `description`·`subagentType` 은 봉인 판정에 안 쓰는 화면용이다. */
 export interface LiveTaskInfo {
   /** 시작 시각(ms). */
   startedAt: number;
@@ -171,33 +117,13 @@ export function turnIdOfLiveTask(state: TurnSealState, taskId: string): string |
 }
 
 /**
- * **이 세션에 아직 도는 백그라운드 작업이 있는가** — 생존 판정 전용(§5.5 #17-9 ⑮).
- *
- * `listDisplayableLiveTasks` 와 **일부러 다른 답을 낸다.** 저쪽은 훅 대차대조가 이미 세는
- * Task/Agent 자식(`subagentType`)을 빼는 *표시용* 목록이고, 겹침 제거는 **숫자를 세는 자리**의
- * 규칙이다. "있나 없나"를 묻는 자리에서는 겹침이 아무 문제도 아니고, 오히려 그 전제가 깨진다 —
- * 백그라운드 자식 **안에서** 다시 스폰된 자식은 훅의 `session_id` 가 탭으로 풀리지 않아(#17-9 ③(c))
- * 훅 장부에 소유 탭 없이 오르거나 아예 오르지 않는다. 그 상태로 저 목록을 참/거짓으로 읽으면
- * **증인이 한 명도 없어** 도는 세션이 "완료"로 굳는다(실측: `status:'idle'` + `probe.verdict:'working'`).
- *
- * `mayTurnResume` 이 처음부터 `liveTasks.size` 를 거르지 않고 보던 것과 같은 자리다.
+ * `hasLiveTasks` — 아직 도는 백그라운드 작업이 있나, 생존 판정 전용(§5.5 #17-9 ⑮). 표시 목록과 일부러 답이 다르다 —
+ * 훅 장부에 소유 탭 없이 오르는 손자 자식(③(c))이 있어 겹침을 빼면 도는 세션이 "완료"로 굳는다(실측 `idle` + `probe:'working'`).
  */
 /**
- * **모델 자식이 도는가**(§5.5 #17-9 ⑰) — `subagentType` 이 붙은 항목만 센다.
- *
- * `hasLiveTasks` 와 **묻는 질문이 다르다.** 저쪽은 "이 세션의 자식 프로세스를 회수해도 되나"
- * (= 아무거나 살아 있으면 안 된다)이고, 이쪽은 "사용자에게 실행 중이라고 말해야 하나"
- * (= 모델이 돌아 답이 아직 안 나온 경우만)이다.
- *
- * 셸(`Bash run_in_background` · `Monitor` · 120초 타임아웃 승격분)은 `subagentType` 이 없어서
- * 여기 안 걸린다 — 셸은 명령이 돌 뿐 모델이 돌지 않으므로 그 턴의 답은 이미 나와 있다.
- * 종전에는 상태를 올리는 자리가 `hasLiveTasks` 를 써서, 끝 표식이 영영 안 오는 셸 하나
- * (`grep … | sort` 처럼 stdin 이 닫힐 때까지 한 글자도 안 찍는 명령)가 그 탭을 영구히
- * "실행 중"으로 붙들었다.
- *
- * 훅 대차대조(`pendingSubagentTasks`)와 **겹쳐 세지 않는다** — 있나 없나를 묻는 자리라 겹침이
- * 답을 바꾸지 않고, 훅이 소유 세션을 못 푼 자식(백그라운드 자식 **안에서** 다시 스폰된 경우)은
- * 이 스트림 신호가 유일한 증인이다.
+ * **모델 자식이 도는가**(§5.5 #17-9 ⑰) — `subagentType` 항목만 센다: "실행 중이라 말할까"의 답(회수는 `hasLiveTasks`).
+ * 셸은 모델이 안 돌아 답이 이미 나왔다 — 세면 끝 표식이 안 오는 셸(`grep … | sort`) 하나가 탭을 영영 붙든다.
+ * 훅 장부와의 겹침은 빼지 않는다 — 훅이 소유를 못 푼 자식엔 이 신호가 유일한 증인이다.
  */
 export function hasLiveAgentTasks(state: TurnSealState): boolean {
   for (const info of state.liveTasks.values()) { if (info.subagentType) return true; }
@@ -211,26 +137,14 @@ export function countLiveShells(state: TurnSealState): number {
   return n;
 }
 
-/**
- * ⑰ — 위 술어는 **회수(reclaim) 판정 전용**이다. 셸까지 안 거르고 센다.
- *
- * 이걸 **표시에 빌려 쓰지 마라.** 여기서 참이라는 것은 "이 세션의 자식을 죽이면 백단의 무언가가
- * 함께 죽는다"는 뜻이지 "사용자에게 실행 중이라고 말하라"는 뜻이 아니다. 화면이 쓸 것은
- * `hasLiveAgentTasks` 다. ⑮가 "표시용 목록을 생존 판정에 빌려 쓰지 마라"였다면 이쪽은 그 거울이다.
- */
+/** ⑰ — **회수 판정 전용**(셸까지 센다). **표시에 빌려 쓰지 마라** — 참은 "죽이면 백단이 함께 죽는다"이지 "실행 중"이 아니다. 화면은 `hasLiveAgentTasks`. */
 export function hasLiveTasks(state: TurnSealState): boolean {
   return state.liveTasks.size > 0;
 }
 
 /**
- * **화면에 내보낼 백그라운드 작업** — 훅 대차대조가 이미 세는 Task/Agent 서브에이전트(`subagentType`
- * 있음)는 뺀다. 남는 것은 `Bash run_in_background` · `Monitor` 처럼 **훅으로는 보이지 않는** 작업이라,
- * 이 목록이 비어 있지 않으면 세션은 "끝난 게 아니라 백단을 기다리는 중"이다.
- *
- * 살림성(`skip_transcript`) 작업은 애초에 스트림 이벤트로 만들어지지 않아 여기 들어오지 않는다.
- *
- * **생존 판정(살아 있나?)에는 쓰지 마라 — `hasLiveTasks` 다.** 여기 비어 있다고 그 세션이 논다는 뜻이
- * 아니다(#17-9 ⑮ — 그렇게 읽어서 도는 세션이 "완료"로 굳었다). 이 목록은 **셀 때**만 쓴다.
+ * **화면용 백그라운드 작업** — 훅이 세는 Task/Agent 는 빼고 `Bash run_in_background`·`Monitor` 만 남긴다.
+ * **생존 판정엔 쓰지 마라 — `hasLiveTasks` 다**(⑮). 셀 때만 쓴다.
  */
 export function listDisplayableLiveTasks(
   state: TurnSealState,
@@ -276,13 +190,7 @@ export function noteTurnSealed(state: TurnSealState): void {
   state.deliveredNotices = 0;
 }
 
-/**
- * 이 스트림 이벤트가 "세션이 실제로 일하고 있다"는 신호인가 — 잠정 봉인을 취소할 근거.
- *
- * 상태 칩(`system`)은 제외한다. 턴이 끝난 뒤에도 CLI 살림 통지가 몇 장 더 흐를 수 있어, 그걸
- * 재진입으로 읽으면 봉인이 영원히 미뤄진다. 모델이 말하거나(text/thinking) 도구를 쓰는
- * (tool_use/tool_result) 것만이 "다시 돌기 시작했다"의 증거다.
- */
+/** 잠정 봉인을 취소할 근거인가 — text/thinking/tool_use/tool_result 만. `system` 칩은 턴 뒤에도 흘러 넣으면 봉인이 영영 밀린다. */
 export function isTurnResumeSignal(eventType: string): boolean {
   return eventType === 'text' || eventType === 'thinking'
     || eventType === 'tool_use' || eventType === 'tool_result';
@@ -297,12 +205,8 @@ export function isTurnResumeSignal(eventType: string): boolean {
 export const EARLY_RESULT_SAFETY_MS = 90 * 1000;
 
 /**
- * 이 stdout 한 줄이 **본 대화의 모델 줄**인가 — `assistant` 완성 줄이나 토큰 단위 `stream_event` 이고,
- * 곁가지(서브에이전트 안쪽, `parent_tool_use_id` 가 문자열)가 아니다.
- *
- * 파싱된 이벤트(`isTurnResumeSignal`)보다 **이르다** — `stream_event` 는 persistent 경로가 그리지 않아
- * 이벤트가 안 되고, 빈 thinking 블록도 이벤트가 안 된다. 그래서 첫 글자가 나오기까지 수 초 동안
- * "세션이 말하기 시작했다"는 사실이 판정에 안 잡혔다.
+ * 본 대화의 모델 줄인가(`assistant` 또는 `stream_event`, `parent_tool_use_id` 가 문자열인 곁가지 ❌). `isTurnResumeSignal` 보다 이르다 —
+ * persistent 의 `stream_event`·빈 thinking 은 이벤트가 안 돼 첫 글자까지 수 초를 놓친다.
  */
 export function isMainThreadModelLine(obj: Record<string, unknown>): boolean {
   const type = obj['type'];
@@ -314,13 +218,7 @@ export function isMainThreadModelLine(obj: Record<string, unknown>): boolean {
 export interface InFlightResultFacts {
   /** 이 명령을 보낸 뒤 본 대화의 모델 줄(`isMainThreadModelLine`)이 하나라도 왔는가. */
   mainActivity: boolean;
-  /**
-   * §5.5 #17-18 ⑩-1 — 이 `result` 가 도착한 순간의 **턴 세대 도장이 남의 것**인가.
-   *
-   * `mainActivity` 는 래치라 "누가 말했는가"를 구분하지 못한다 — 남의 턴이 한 마디라도 하면
-   * 켜지고, 그 뒤에 오는 남의 `result` 가 이 명령을 봉인해 버린다(사용자에게는 "묻지도 않은
-   * 것에 대한 답을 받고 내 명령이 끝났다"로 보인다). 도장이 다르면 그 사실 하나로 남의 끝이다.
-   */
+  /** §5.5 #17-18 ⑩-1 — 이 `result` 의 턴 도장이 남의 것인가. `mainActivity` 는 래치라 누가 말했는지 못 가린다 — 도장이 다르면 남의 끝이다. */
   foreignTurn?: boolean;
   /** CLI 가 이 `result` 를 실패(`is_error`)로 신고했는가. */
   cliError: boolean;
@@ -333,18 +231,9 @@ export interface InFlightResultFacts {
 }
 
 /**
- * §5.5 #17-18 — 이 `result` 가 **이 명령의 답이 시작되기도 전에 온 남의 끝**인가.
- *
- * `--resume` 으로 막 뜬 자식은 밀려 있던 백그라운드 통지(`<task-notification>`)를 **우리 프롬프트보다
- * 먼저** 한 차례 처리하고 그 끝에 `result` 를 한 줄 낸다. 이 줄을 명령의 끝으로 읽으면 명령이 답도
- * 토큰도 없이 완료되고(완료음), 몇 초 뒤 진짜 답이 흐르며 세션이 다시 깨어난다 — 사용자에게는
- * "입력하자마자 끝났다고 울리고, 한참 뒤에 그 입력이 실행된다"로 보였다(실측 2026-09-18, P_MPS_GPT).
- *
- * 판정은 둘이다 — ① **이 명령을 보낸 뒤 본 대화가 한 마디도 안 했다**(위 타임라인),
- * ② **이 `result` 에 찍힌 턴 세대 도장이 남의 것이다**(`foreignTurn`). ②가 필요한 이유는 ①이
- * 래치이기 때문이다 — 남의 턴이 먼저 말을 꺼내면 ①은 꺼져 버려서, 그 뒤에 오는 남의 끝이
- * 이 명령을 그대로 봉인했다. 모델 줄 없이 `result` 가 오는 정상 경우(실패 신고 · 우리가 끊은
- * 턴 · 슬래시 로컬 명령)는 종전 그대로 봉인한다.
+ * §5.5 #17-18 — **이 명령의 답이 시작되기 전에 온 남의 끝**인가. `--resume` 자식은 밀린 통지를 먼저 처리하고 `result` 를 낸다 —
+ * 끝으로 읽으면 답 없이 완료음이 난다(실측 2026-09-18). 판정: ① 보낸 뒤 본 대화가 말이 없다 ② 도장이 남의 것(`foreignTurn`, ① 이 래치라 필요).
+ * 실패 신고·우리가 끊은 턴·슬래시 로컬 명령은 그대로 봉인한다.
  */
 export function isResultBeforeOwnTurn(facts: InFlightResultFacts): boolean {
   // 예외가 먼저다 — 우리가 끊었거나 CLI 가 실패를 신고했거나 슬래시 로컬 명령이면, 도장이
@@ -369,20 +258,8 @@ export interface ResumedTurnSleepInputs {
 }
 
 /**
- * **되살아난 턴이 끝났을 때 세션을 재워야 하는가.**
- *
- * 백그라운드 작업 통지로 봉인 뒤 다시 돌기 시작한 턴은 그 턴을 시킨 명령이 이미 마감돼
- * `inFlight` 가 없다. 그래서 CLI 가 그 턴의 `result` 를 내도 명령 마감 경로
- * (`_finalizeLegacyCommand`)가 돌지 않아, 재진입이 올려 둔 `active` 가 **그대로 굳었다** —
- * 세션이 사용자 답을 기다리는 내내 탭 점이 파랗게 돌았다(실측: P_MPS_GPT 세션 `5c01ebc2…`,
- * 2026-08-14 09:56:37 턴 종료 후 09:59:52 다음 명령까지 3분 14초). persistent 자식은 일부러
- * 살려 두므로 생존 대조(`reconcileDeadActiveSubs`)도 이 세션을 걷지 못한다.
- *
- * 닫아 줄 명령이 없을 뿐 **턴은 분명히 끝났다** — 그 사실만으로 세션을 재운다. 시간이 아니라
- * 실제 신호(`result`)가 근거이므로, 조용히 오래 도는 작업을 잘못 걷지 않는다.
- *
- * 재우면 안 되는 경우는 생존 대조가 쓰는 제외 목록과 같다(같은 사실을 두 곳이 다르게 판정하면
- * 화면이 서로 다른 말을 한다).
+ * **되살아난 턴이 끝나면 세션을 재울까** — 명령이 이미 마감돼 `inFlight` 가 없으니 안 재우면 `active` 가 굳는다(실측 3분 14초).
+ * 근거는 시간이 아니라 실제 `result` 다. 제외 목록은 생존 대조와 같다(다르면 화면이 엇갈린다).
  */
 export function shouldSleepResumedTurn(inputs: ResumedTurnSleepInputs): boolean {
   // `error` 는 보존 — 실패한 턴을 조용한 완료로 세탁하지 않는다.
@@ -395,11 +272,8 @@ export function shouldSleepResumedTurn(inputs: ResumedTurnSleepInputs): boolean 
 }
 
 /**
- * §5.5 #17-9 ⑱ — 끝 통지를 받은 쉬는 세션을 **"곧 다시 돈다"로 붙들어 두는** 최대 시간.
- *
- * CLI 는 통지를 3ms 만에 꺼내 새 턴을 열지만, 그 턴의 첫 모델 줄은 첫 토큰이 나와야 stdout 에 온다
- * (실측 24초). #17-18 의 안전 마감과 같은 질문(큰 문맥의 첫 토큰까지 얼마나 기다리나)이라 같은 값을 쓴다.
- * 이 시간 안에 모델 줄이 안 오면 붙듦을 풀고 종전처럼 내린다 — 영원한 스피너는 없다.
+ * §5.5 #17-9 ⑱ — 끝 통지 받은 쉬는 세션을 "곧 다시 돈다"로 붙드는 최대 시간(CLI 는 3ms 만에 새 턴을 열지만 첫 모델 줄은 실측 24초).
+ * #17-18 안전 마감과 같은 질문이라 같은 값. 넘으면 붙듦을 푼다.
  */
 export const NOTICE_RESUME_WINDOW_MS = EARLY_RESULT_SAFETY_MS;
 
@@ -420,14 +294,8 @@ export interface NoticeResumeHoldInputs {
 }
 
 /**
- * **끝 통지가 이 탭을 내리게 두지 말고 붙들어야 하는가**(§5.5 #17-9 ⑱).
- *
- * 쉬는 persistent 세션에 백그라운드 자식의 끝 칩이 오면, 장부가 비어 탭이 그 자리에서 idle 로
- * 내려가고 버블이 `completed` 로 넘어가 완료음이 울렸다 — 그런데 CLI 는 바로 그 통지로 **이미 새 턴을
- * 열었다.** 끝 통지는 "끝"이 아니라 "곧 다시 돈다"다. 붙든 탭은 되살아난 턴의 첫 모델 줄이 풀고,
- * 그 턴의 `result` 에서 `shouldSleepResumedTurn` 이 재운다 — 완료음은 진짜 끝에서 한 번 난다.
- *
- * 제외 목록은 `shouldSleepResumedTurn` 과 같은 사실을 쓴다(같은 세션을 두 판정이 다르게 읽지 않게).
+ * **끝 통지로 탭을 내리지 말고 붙들까**(§5.5 #17-9 ⑱) — 쉬는 세션에 끝 칩이 오면 CLI 는 이미 새 턴을 연다(내리면 거짓 완료음).
+ * 붙든 탭은 첫 모델 줄이 풀고 그 `result` 에서 `shouldSleepResumedTurn` 이 재운다. 제외 목록은 그 함수와 같다.
  */
 export function shouldHoldForNoticeResume(inputs: NoticeResumeHoldInputs): boolean {
   if (!inputs.bgPromoted) return false;

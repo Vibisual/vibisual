@@ -1,12 +1,6 @@
 /**
- * hooks/handler.mjs — Claude Code Hook bridge (pure Node.js, no dependencies)
- *
- * stdin JSON → POST localhost:4800/api/hook-event → stdout
- * Stop 이벤트 시 대기열에서 다음 명령을 꺼내 claude --resume으로 실행
- *
- * §5.3 #12-1 v1.43 — PreToolUse 는 /api/permission-check 로 동기 홀드.
- *   서버가 Vibisual 관할 + ask 모드로 판정 시 사용자 승인까지 최대 60s 대기.
- *   타임아웃·서버 unreachable 은 allow 폴백(비-Vibisual 세션 파괴 방지).
+ * Hook bridge (pure Node.js, no deps): stdin JSON → POST /api/hook-event → stdout. Stop 이면 대기열 다음 명령을 claude --resume 으로 실행.
+ * §5.3 #12-1 — PreToolUse 는 /api/permission-check 로 동기 홀드(ask 면 최대 60s). 타임아웃·불통은 allow — 관할 밖 세션을 깨지 않게.
  */
 
 import { spawn } from 'node:child_process';
@@ -18,11 +12,8 @@ import path from 'node:path';
 // or user status-line child must not inherit Electron's helper-only launch mode.
 delete process.env['ELECTRON_RUN_AS_NODE'];
 
-// §3.6 v2.9 — installer writes --server <url> into ~/.claude/settings.json so the packaged
-// handler never needs to discover the port itself. Inline fallback: if --server is absent,
-// check VIBISUAL_SERVER_URL env; otherwise default to http://127.0.0.1:4800.
-// The git-marker discovery logic from lib/serverUrl.mjs is intentionally dropped — it was
-// dev-only and handler.mjs is now fully self-contained.
+// §3.6 — the installer writes --server <url> into settings.json; fallback VIBISUAL_SERVER_URL, then http://127.0.0.1:4800.
+// No git-marker discovery (dev-only) — this file stays self-contained.
 function readArg(flag) {
   const args = process.argv.slice(2);
   for (let i = 0; i < args.length; i++) {
@@ -37,28 +28,15 @@ const SERVER_URL = `${BASE}/api/hook-event`;
 const COMMANDS_URL = `${BASE}/api/commands`;
 const PERMISSION_CHECK_URL = `${BASE}/api/permission-check`;
 const ASK_USER_QUESTION_URL = `${BASE}/api/ask-user-question`;
-// §4 v3.60 — 사용량 수집기(statusLine). Claude Code 가 플랜 한도 사용률을 외부에 주는 유일한
-//   공식 경로가 statusLine stdin JSON 이라, `--statusline` 으로 불리면 그 값만 뽑아 푸시한다.
+// §4 — 플랜 한도 사용률의 유일한 공식 경로가 statusLine stdin JSON 이라 `--statusline` 이면 그 값만 푸시한다.
 const RATE_LIMITS_URL = `${BASE}/api/rate-limits`;
-// §4 v4.89 — 서브에이전트 행 수집기(`--subagent-statusline`)가 미는 토큰 사용량. 종전에는
-//   `${SERVER_URL}/api/subagent-statusline` 로 보내 `/api/hook-event/api/subagent-statusline` 이
-//   되는 바람에 전량 404 로 버려졌다. 경로는 BASE 에서 조립한다.
+// §4 — 서브에이전트 행 수집기의 토큰 사용량. BASE 에서 조립한다 — `SERVER_URL` 에 붙이면 `/api/hook-event/api/…` 가 돼 전부 404.
 const SUBAGENT_STATUSLINE_URL = `${BASE}/api/subagent-statusline`;
 
-// Per-launch auth token written by the installer into the hook command (--token <hex>).
-// If absent (stale settings.json from before this change), TOKEN is null and the header
-// is omitted — the server will then reject with 401 and the user must restart the app
-// so a fresh token is written to settings.json.
+// Per-launch token from the installer (--token <hex>). Missing (stale settings.json) → no header → 401 until an app restart rewrites it.
 const TOKEN = readArg('--token');
 
-/**
- * §3.6 (판올림 번호 발급 대기) — **기억 카드 주입 전용 모드.**
- *
- * §5.10 — **옛 설치문만 이 플래그를 단다.** 기억 카드 주입이 폐기돼 이 모드가 할 일은
- * 없어졌지만, 사용자의 `settings.json` 에 남아 있는 옛 엔트리가 설치기에 다시 쓰이기 전까지는
- * 그대로 불린다. 그때 플래그를 모르는 척하면 같은 `PostToolUse` 가 두 번 추적돼 편집 이력이
- * 두 벌로 쌓인다 — **아무것도 안 하고 조용히 끝내는 것**이 이 모드의 새 계약이다.
- */
+/** §3.6 · §5.10 — 폐기된 기억 카드 주입 모드. 옛 설치문이 아직 부르므로 조용히 끝낸다 — 일반 처리하면 `PostToolUse` 가 두 번 추적돼 편집 이력이 두 벌 쌓인다. */
 const BRAIN_NOTES_ONLY = process.argv.includes('--brain-notes-only');
 function hookHeaders(extra) {
   const h = { 'Content-Type': 'application/json', ...extra };
@@ -96,23 +74,9 @@ function executeCommand(sessionId, text) {
 }
 
 /**
- * §5.3 #12-1 v1.43/v1.88/v1.96 — PreToolUse 권한 문의.
- *
- * 서버 응답 분기:
- *   - `deny`                                    → 명시적 `permissionDecision:'deny'` + reason (모델에게 차단 사유 전달)
- *   - `allow` & 관할 외(not-managed/view-only)  → `{continue:true}` (CC 기본 정책에 위임 — 메인 세션 가로채지 않음)
- *   - `allow` & 관할 안(custom agent)           → 명시적 `permissionDecision:'allow'` (reason 없음)
- *   - `ask` (§5.3 #12-3 자물쇠 · 관할 외 세션)   → `permissionDecision:'ask'` + reason (그 CLI 자신의 승인 창)
- *
- * 왜 allow 도 명시적이어야 하나: 커스텀 서브에이전트는 `claude -p` (print 모드) 로 떠 있고,
- * print + permissionMode='default' 의 CLI 기본 정책은 ask 가 필요한 도구를 자동 deny 한다.
- * 훅이 `{continue:true}` 만 돌려주면 "내가 안 막을게, 기본 정책 따라가" 의미라 → 자동 deny 로 떨어진다.
- *
- * 사용자가 뭘 눌렀는지 시각화는 클라이언트 측에서 `permission_resolved` WS 이벤트 수신 시
- * stream 에 합성 한 줄을 끼워 넣는 경로로 처리한다 (handler.mjs reason 은 모델 컨텍스트
- * 전용이라 UI 표시 보장이 안 됨). 따라서 allow 쪽 reason 은 비워둔다.
- *
- * 서버 unreachable / 타임아웃 / 에러는 `{continue:true}` (비-Vibisual 세션 안전장치).
+ * §5.3 #12-1 — `deny` → deny + reason · 관할 외 `allow`(not-managed/view-only) → `{continue:true}` · 관할 안 `allow` → 명시적 allow
+ * (`claude -p` 의 default 모드는 ask 도구를 자동 deny 해 `{continue:true}` 면 막힌다) · `ask`(§5.3 #12-3 자물쇠 · 관할 외 세션) → ask + reason(그 CLI 의 승인 창).
+ * allow 의 reason 은 비운다(무엇을 눌렀는지는 클라가 `permission_resolved` 로 그린다). 불통·에러 → `{continue:true}`.
  */
 
 /**
@@ -122,16 +86,9 @@ function executeCommand(sessionId, text) {
 const SERVER_PASSTHROUGH_REASONS = new Set(['not-managed', 'view-only-agent', 'codex-app-hook']);
 
 /**
- * §5.3 #12-4 — 서버가 답하지 못했을 때(불통·HTTP 오류·응답 깨짐)의 **안전망**.
- *
- * 정본 분류기는 shared `verificationPolicy.ts` 한 벌이고, 여기서는 그 일부(가장 흔한 실행기·브라우저 MCP)만
- * 본다. **우리가 띄운 세션**(헤드리스 = `VIBISUAL_SUBAGENT_ID`, CMD 터미널 = `VIBISUAL_OWNER_TERM_ID`)에서만
- * 쓰고, 검증 권한을 확인할 수 없으니 검증으로 보이면 거부한다(fail-closed). 그 밖의 호출은 종전대로 통과한다 —
- * 서버가 꺼졌다고 사용자의 일반 작업까지 막지 않는다.
- *
- * §5.3 #12-4 (J) — 실행 전 차단은 옵션창 스위치이고 기본은 끔이다. 서버가 답하지 못하면 현재 저장된
- * 옵션을 읽는다. 스폰 때의 표식만 보면 이미 끈 뒤에도 옛 CMD 세션이 계속 거부한다. 저장분도 읽지 못할 때만
- * 스폰 표식(`VIBISUAL_VERIFICATION_GATE=1`, shared `VERIFICATION_GATE_ENV`)으로 돌아간다.
+ * §5.3 #12-4 — 서버 무응답 때의 안전망(정본 분류는 shared `verificationPolicy.ts`, 여기는 흔한 실행기·브라우저 MCP 만).
+ * 우리 세션(`VIBISUAL_SUBAGENT_ID`·`VIBISUAL_OWNER_TERM_ID`)에서만 검증으로 보이면 거부한다(fail-closed) — 그 밖은 막지 않는다.
+ * (J) 차단 스위치(기본 끔)는 저장된 옵션부터 읽는다 — 스폰 표식만 보면 끈 뒤에도 옛 CMD 세션이 거부한다. 못 읽을 때만 `VIBISUAL_VERIFICATION_GATE=1`.
  */
 const OWNED_SESSION = Boolean(process.env.VIBISUAL_SUBAGENT_ID || process.env.VIBISUAL_OWNER_TERM_ID);
 const USER_DEFAULTS_FILE = path.join(os.homedir(), '.vibisual', 'user-defaults.json');
@@ -173,18 +130,8 @@ function unconfirmedAnswer(payload) {
 }
 
 /**
- * §5.3 #12-2 v2.26 — AskUserQuestion 전용 분기.
- *
- * 헤드리스 `claude -p` 라 tool_result 회신 채널이 없으므로 PreToolUse 에서 deny 시키고
- * 사용자가 IDE 카드에서 고른 답을 `permissionDecisionReason` 으로 합성해 모델 transcript 에
- * 도달시킨다(=다음 turn 에서 모델이 reason 텍스트를 읽고 답을 인지).
- *
- * 서버 응답 분기:
- *   - `answer`   → deny + reason("USER ANSWERED via Vibisual: ...")
- *   - `timeout`  → deny + reason("USER DID NOT ANSWER within 60s...")
- *   - `reject` (view-only / not-managed / invalid-input) → {continue:true} (CC 기본 처리)
- *
- * 서버 unreachable / 에러 → {continue:true} (안전장치).
+ * §5.3 #12-2 — `claude -p` 는 tool_result 회신 채널이 없어 deny 하고, 고른 답을 `permissionDecisionReason` 으로 모델에 전한다.
+ * `answer`·`timeout` → deny + reason · `reject`(view-only / not-managed / invalid-input)·불통·에러 → {continue:true}.
  */
 async function checkAskUserQuestion(payload) {
   try {
@@ -247,10 +194,8 @@ async function checkAskUserQuestion(payload) {
 async function checkPermission(payload) {
   try {
     const controller = new AbortController();
-    // 서버 타임아웃(60s) 보다 살짝 길게 둬서 서버 safe-deny 가 우선 발동하도록.
-    //   실패 경로에서도 걷는다(아래 `.finally`) — 앱이 꺼져 연결이 거부되면 답은 곧 나가는데 이 타이머가
-    //   프로세스를 65초 붙들었고, CLI 는 훅 프로세스가 끝나야 도구를 돌려 이 PC 의 모든 세션이
-    //   도구 호출마다 그만큼 멈췄다(2026-10-15 실측 — 68.9초).
+    // 서버 타임아웃(60s)보다 길게 — safe-deny 가 먼저 나게. 실패 경로에서도 걷는다(`.finally`) — 남으면 훅이 65초 살아
+    // 모든 세션의 도구 호출이 그만큼 멈춘다(2026-10-15 실측 68.9초).
     const tid = setTimeout(() => controller.abort(), 65_000);
     const res = await fetch(PERMISSION_CHECK_URL, {
       method: 'POST',
@@ -346,18 +291,9 @@ async function checkPermission(payload) {
 }
 
 /**
- * §4 v3.60 — statusLine 모드.
- *
- * Claude Code 는 `statusLine.command` 를 렌더마다(최대 300ms 주기) 실행하며 세션 JSON 을
- * stdin 으로 준다. 그 JSON 의 `rate_limits` 가 플랜 한도 사용률을 외부에 노출하는 **유일한
- * 공식 경로**다(JSONL 트랜스크립트·CLI 서브커맨드 어디에도 없음).
- *
- * 두 가지 일을 한다:
- *   1. 한도 값을 `/api/rate-limits` 로 푸시 (값이 바뀌었거나 최소 간격이 지났을 때만).
- *   2. stdout 으로 상태줄 한 줄을 출력 — 사용자가 원래 쓰던 statusLine 명령이 보관돼 있으면
- *      그 명령에 같은 stdin 을 먹여 출력을 그대로 흘린다(passthrough). 없으면 우리 기본 줄.
- *
- * 어떤 실패도 Claude Code 를 막지 않는다 — 항상 뭔가 한 줄 출력하고 끝낸다.
+ * §4 — statusLine 모드: CLI 가 렌더마다(최대 300ms) 세션 JSON 을 주고 그 `rate_limits` 가 한도 사용률의 유일한 공식 경로다.
+ * 값이 바뀌었거나 최소 간격이 지났을 때만 푸시한다. 상태줄은 보관된 사용자 원래 명령이 있으면 같은 stdin 으로 passthrough.
+ * 어떤 실패도 CLI 를 막지 않는다 — 늘 한 줄 내고 끝낸다.
  */
 const STATUSLINE_STATE_FILE = path.join(os.homedir(), '.vibisual', 'statusline-state.json');
 const STATUSLINE_MIN_POST_INTERVAL_MS = 20_000;
@@ -381,13 +317,8 @@ function writeStatusLineState(state) {
 }
 
 /**
- * 우리 자신인가 — 보관된 "사용자 원본" 이 실은 **우리 명령**일 때가 있다.
- *
- * `statusLine` 은 Claude Code 가 스키마를 아는 키라 그쪽이 settings.json 을 다시 쓰면 우리가
- * 넣어둔 `_vibisualManaged` 마커가 사라진다. 그 상태에서 사용자가 수집기를 다시 켜면 인스톨러가
- * **우리 명령을 사용자 원본으로 오인해 보관**하고, 그 뒤로는 이 핸들러가 자기 자신을 passthrough
- * 로 띄우는 무한 사슬이 된다(상태줄은 2초씩 멈추고 프로세스가 계속 쌓인다). 인스톨러 쪽도 함께
- * 고쳤지만, 이미 그렇게 적힌 settings.json 을 만나도 여기서 끊는다.
+ * 보관된 "사용자 원본"이 실은 우리 명령인가 — CLI 가 settings.json 을 다시 쓰면 `_vibisualManaged` 가 사라져 우리 명령이 원본으로 보관될 수 있고,
+ * 그러면 자기 자신을 passthrough 하는 무한 사슬(상태줄 멈춤·프로세스 누적)이 된다.
  */
 function isOwnStatusLineCommand(command) {
   if (typeof command !== 'string') return false;
@@ -496,14 +427,8 @@ async function runStatusLine(input) {
 }
 
 /**
- * §4 v4.89 — `subagentStatusLine` 수집기.
- *
- * 새로고침 틱마다 보이는 서브에이전트 행 전체가 `tasks[]` 로 들어온다(행마다 status·model·
- * effort·tokenCount·contextWindowSize·cwd). 서브에이전트의 토큰 사용량이 **실시간으로** 들어오는
- * 유일한 경로라 그대로 서버에 넘긴다.
- *
- * **stdout 으로 아무것도 쓰지 않는다** — 행을 하나라도 출력하면 그 행의 렌더를 우리가 가져가게
- * 되는데, 기본 렌더를 바꿀 이유가 없다. 즉 화면은 그대로 두고 값만 걷는 순수 계측 경로다.
+ * §4 — `subagentStatusLine`: 틱마다 서브에이전트 행(`tasks[]`)을 서버로 넘긴다(실시간 토큰 사용량의 유일한 경로).
+ * stdout 에 쓰지 않는다 — 쓰면 그 행의 렌더를 우리가 가져간다.
  */
 async function runSubagentStatusLine(input) {
   if (!input) return;
@@ -538,13 +463,13 @@ async function main() {
 
   const input = await readStdin();
 
-  // §4 v3.60 — statusLine 모드는 훅 이벤트가 아니라 세션 JSON 을 받는다. 완전히 별도 경로.
+  // §4 — statusLine 모드는 훅 이벤트가 아니라 세션 JSON 을 받는다(별도 경로).
   if (process.argv.includes('--statusline')) {
     await runStatusLine(input);
     return;
   }
 
-  // §4 v4.89 — 서브에이전트 행 수집기. 같은 이유로 별도 경로이며 stdout 을 쓰지 않는다.
+  // §4 — 서브에이전트 행 수집기. 별도 경로, stdout 을 쓰지 않는다.
   if (process.argv.includes('--subagent-statusline')) {
     await runSubagentStatusLine(input);
     return;
@@ -566,18 +491,13 @@ async function main() {
 
   const isPreToolUse = payload.hook_event_name === 'PreToolUse';
   const isStop = payload.hook_event_name === 'Stop';
-  // §5.11 v4.67 — 켠 플러그인의 집행(SSOT 규율 등)을 이 세션에도 싣는 유일한 통로.
-  //   서버가 같은 `/api/hook-event` 응답에 additionalContext 를 실어 주므로 새 경로가 필요 없다.
+  // §5.11 — 켠 플러그인의 집행을 이 세션에 싣는 유일한 통로(`/api/hook-event` 응답의 additionalContext).
   const isUserPromptSubmit = payload.hook_event_name === 'UserPromptSubmit';
 
-  // §4 v2.64 — CMD(인터랙티브 터미널) 에이전트 소유자 태그. Vibisual 이 띄운 CMD 터미널의
-  //   claude 는 env VIBISUAL_OWNER_AGENT_ID(=그 CMD 버블 agentId)를 물려받는다. 트래킹 본문에
-  //   `_vibisualOwnerAgentId` 로 실으면 서버 processHookEvent 가 이 이벤트를 그 CMD 버블로
-  //   귀속(별개 Hook 버블 차단). 권한 검사(permission-check/ask)는 건드리지 않는다 — 시각 귀속
-  //   전용이며, 인터랙티브 세션 권한은 Claude Code 기본 정책(사람이 루프 안)에 맡긴다.
+  // §4 — 우리 CMD 의 claude 는 VIBISUAL_OWNER_AGENT_ID 를 물려받아 `_vibisualOwnerAgentId` 로 그 CMD 버블에 귀속된다(별개 Hook 버블 ❌).
+  // 시각 귀속 전용 — 권한 검사는 건드리지 않는다(인터랙티브 권한은 CLI 기본 정책).
   const ownerAgentId = process.env.VIBISUAL_OWNER_AGENT_ID;
-  // §4 v2.64 — termId 도 함께 실어 보낸다. 서버가 termId 별로 claude 대화 sessionId 를 기록해
-  //   앱 재시작 후 `claude --resume` 으로 직전 대화를 이어받게 한다.
+  // §4 — termId 도 싣는다 — 서버가 termId 별 sessionId 를 기록해 재시작 뒤 `claude --resume` 으로 잇는다.
   const ownerTermId = process.env.VIBISUAL_OWNER_TERM_ID;
   // §5.1 #1-1 (D) — 이 이벤트를 낸 우리 sub. 서버가 소유자 태그로 세션 키를 주인 버블 것으로 바꿔 쓴 뒤에도 앱 작업
   //   귀속이 그 sub 를 잃지 않게 명시로 싣는다(HTTP 훅은 같은 값을 `x-vibisual-subagent-id` 헤더로 보낸다).
@@ -593,7 +513,6 @@ async function main() {
 
   let response;
   if (isPreToolUse) {
-    // §5.3 #12-2 v2.26 — AskUserQuestion 은 별도 broker 로 분기.
     if (payload.tool_name === 'AskUserQuestion') {
       response = await checkAskUserQuestion(payload);
     } else {
@@ -602,12 +521,8 @@ async function main() {
     }
   } else if (isUserPromptSubmit) {
     /*
-     * §5.11 v4.67 — 프롬프트가 올라가기 전에 서버에 한 번 물어, 이 프로젝트에서 **켜 둔 플러그인의
-     * 집행 블록**을 그 턴의 맥락에 얹는다. 그전까지 집행은 우리가 띄운 세션에만 실렸고, 사용자가
-     * 자기 에디터에서 직접 돌리는 세션에는 한 글자도 안 갔다.
-     *
-     * 이 한 번만 stdout 을 **응답 뒤에** 쓴다(다른 이벤트는 먼저 쓰고 보낸다). 대신 짧게 끊고
-     * (1초) 어떤 실패도 그냥 통과시킨다 — 서버가 꺼져 있어도 사용자의 프롬프트는 그대로 나가야 한다.
+     * §5.11 — 프롬프트 전에 서버에 물어 켜 둔 플러그인 집행을 그 턴에 얹는다(직접 띄운 세션에도).
+     * 이 이벤트만 stdout 을 응답 뒤에 쓰므로 1초로 끊고 어떤 실패도 통과시킨다 — 서버가 꺼져도 프롬프트는 나가야 한다.
      */
     response = { continue: true };
     try {
@@ -642,13 +557,7 @@ async function main() {
   //   붙은 HTTP 엔트리가 추적을 이미 맡고 있어, 여기서 또 보내면 편집 이력이 두 벌로 쌓인다.
   if (BRAIN_NOTES_ONLY) return;
 
-  // 권한 결과와 별도로 버블맵 트래킹용 /api/hook-event 는 모든 이벤트에 대해 전송.
-  //
-  // Stop event: fire-and-forget — process exits after executeCommand() and the loopback
-  // request completes fast enough on local network. Cancelled fetch is acceptable.
-  //
-  // Non-Stop non-PreToolUse: 500ms timeout is enough for loopback and avoids adding
-  // 3s latency to every hook invocation. If the server is unreachable, we simply skip.
+  // 트래킹 /api/hook-event 는 모든 이벤트에 보낸다. Stop 은 fire-and-forget, Stop·PreToolUse 가 아닌 이벤트는 500ms timeout(훅마다 3s 를 더하지 않게) — 불통이면 건너뛴다.
   if (isStop) {
     if (payload.session_id) {
       const cmd = await popCommand(payload.session_id);

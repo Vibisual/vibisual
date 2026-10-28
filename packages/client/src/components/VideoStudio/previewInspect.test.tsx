@@ -17,8 +17,8 @@ import { previewInspectPicker, type PreviewInspectLevels } from './previewInspec
 import { asksInside, previewHitOptions, previewInspectLevels, usePreviewInteraction, type PreviewInteraction } from './usePreviewInteraction.js';
 
 /**
- * §5.4 #15 (C) · §5.13 (V) 37-6 — Alt 인스펙터로 영상 미리보기 안을 집으면 "화면 전체" 가 아니라 그 자리의 글자(값)가 집힌다.
- * 사용자 문서(`데모 — 에이전트가 만든 영상`)와 같은 모양 — 단색 배경 위 제목 씬, 그 뒤 목록 씬.
+ * §5.4 #15 (C) · §5.13 (V) 37-6 — Alt 인스펙터로 영상 미리보기 안을 집으면 "화면 전체"가 아니라 그 자리의 글자(값)가 집힌다.
+ * 픽스처: 단색 배경 위 제목 씬, 그 뒤 목록 씬.
  */
 const SIZE = { width: 1920, height: 1080 };
 const items: VideoItem[] = [

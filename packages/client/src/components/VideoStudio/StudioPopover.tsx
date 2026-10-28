@@ -4,11 +4,8 @@ import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { StudioAccentContext } from './studioMotion.js';
 
 /**
- * §5.13 (V) — 스튜디오의 떠 있는 판(문서 메뉴·판형 칩·내보내기·전환 고르기·구슬 메뉴).
- *
- * 문서 몸으로 포털한다 — 스튜디오는 앱 안 창(머리줄의 흐림 효과가 쌓임 맥락을 만든다)이나 분리된 창 어디에나 있을 수 있어,
- * 그 안에 두면 잘리거나 창 몸이 덮는다. 앱 창들의 z 순서(백만 단위) 위에 서고, 바깥 누름·Esc 로 닫힌다(§6 공통 규약 —
- * 판 안에서 시작한 손짓은 판을 닫지 못한다, `useOutsidePressDismiss`).
+ * §5.13 (V) — 스튜디오 떠 있는 판. 문서 몸으로 포털한다(앱 안 창 머리줄의 흐림이 쌓임 맥락을 만들어 안에선 잘린다). z 는 앱 창(백만 단위) 위.
+ * 바깥 누름·Esc 로 닫되 판 안에서 시작한 손짓은 닫지 못한다(§6, `useOutsidePressDismiss`).
  */
 export const STUDIO_POPOVER_Z = 2_100_000_000;
 

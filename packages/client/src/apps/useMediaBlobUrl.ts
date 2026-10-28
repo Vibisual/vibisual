@@ -3,14 +3,9 @@ import { useEffect, useState } from 'react';
 import { fetchWorkspaceMediaBlob, workspaceMediaSize } from '../utils/workspaceMedia.js';
 
 /**
- * §5.4 #36 (G) — 앱 위성 화면에서 **바로 재생할** 파일을 blob URL 로 받는 훅.
- *
- * 엘리먼트(`<video src>`·`new Audio(src)`)가 스스로 내는 `/api/…` 요청은 패키지 앱(file://)에서 IPC 를 타지 않아 조용히
- * 빈다(§5.13 (R-5)). 그래서 `fetch` 로 통째로 받아 blob URL 로 건다 — 통째로 받으므로 **먼저 크기를 묻고**(`playMaxBytes`
- * 같은 상한을 넘으면 받지 않는다), **켜졌을 때만**(사용자가 처음 재생을 누른 뒤) 받는다. 화면이 보이기만 해서는 받지 않는다.
- *
- * URL 은 이 훅이 소유한다 — 입력이 바뀌거나 꺼지거나 노드가 언마운트되면 되돌린다(`URL.revokeObjectURL`).
- * 늦게 끝난 받기는 그 자리에서 버린다(이미 다른 결과로 넘어갔으면 옛 바이트를 새 결과 자리에 걸지 않는다).
+ * §5.4 #36 (G) — 재생할 파일을 blob URL 로 받는 훅 — 엘리먼트 `src` 의 `/api/…` 요청은 패키지 앱(file://)에서 IPC 를 안 타 빈다(§5.13 (R-5)).
+ * 통째로 받으므로 먼저 크기를 묻고(`playMaxBytes` 같은 상한), 처음 재생을 누른 뒤에만 받는다.
+ * URL 은 이 훅 소유(입력이 바뀌거나 꺼지거나 언마운트되면 revoke) · 늦게 끝난 받기는 버린다.
  */
 export type MediaBlobState =
   | { readonly status: 'idle' }

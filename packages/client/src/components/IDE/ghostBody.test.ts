@@ -1,13 +1,4 @@
-/**
- * ghostBody.test.ts — §5.5 #17-6 (H-19) **선이 뜨면 본체는 숨고, 숨은 채로 손을 따라온다.**
- *
- * (H-6) ③ 은 밖으로 빼는 동안 본체를 반투명(0.35)으로 그 자리에 멎게 했다. 그 멎은 창이
- * 사용자에게는 잔상이었다("밖으로 나갈 때 기존 앱 안 창은 안 보여야 하는데 잔상이 있다").
- * 이제 선이 뜨는 동안 본체는 완전히 숨되 자리는 계속 맞춰 두고(선이 꺼지면 손 아래에서 다시
- * 나타난다), 인계 중에도 도로 나타나지 않으며, 본체가 하던 말은 선이 한다.
- *
- * 이 파일은 그 계약을 소스로 고정한다(클라 테스트에는 DOM 이 없다 — `vitest.config.ts`).
- */
+/** §5.5 #17-6 (H-19) — 선이 뜨면 본체는 완전히 숨어 손을 따라오고(반투명이면 잔상), 인계 중에도 안 나타나며 본체의 말은 선이 한다. 소스로 고정한다(DOM 없음). */
 import { describe, expect, it } from 'vitest';
 
 const sources = import.meta.glob('./*.tsx', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
@@ -90,10 +81,7 @@ describe('(H-22) 한 번 나간 판은 도로 들어와도 선이다', () => {
     expect(OVERLAY.replace(DRAG, '')).not.toContain('ghostEscaped');
   });
 
-  // 선이 한 판 내내 살아 있게 됐으므로, main 의 수명 그물(20초)이 **아직 끌고 있는 손
-  //   아래에서** 걷힐 수 있게 됐다 — 본체는 숨어 있으니((H-19)) 그러면 커서 아래가 완전히
-  //   빈다. 판이 사는 동안 그물을 다시 재게 하되, 판이 끝나는 자리에서는 반드시 멎어야 한다
-  //   (안 멎으면 렌더러가 죽어도 선이 남는 그물 구멍이 된다).
+  // 선이 판 내내 살므로 main 의 20초 수명 그물을 판 동안 다시 잰다(아니면 끄는 손 아래서 걷힌다) — 판이 끝나면 반드시 멎어야 한다(렌더러가 죽어도 선이 남는다).
   it('선이 서면 수명 알림도 함께 선다', () => {
     const show = block(DRAG, 'function showGhost(rect: FloatGeom, armed: boolean): void {', 'function hideGhost(): void {');
     expect(show).toContain('startGhostKeepAlive();');

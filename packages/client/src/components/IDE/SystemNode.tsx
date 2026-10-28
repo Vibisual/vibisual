@@ -1,37 +1,12 @@
 /**
- * SystemNode — SDK system 메시지 subtype(task_started 등)을 "뜻이 보이는 한 줄"로 표현한다.
- * subtype 마다 전용 글리프 + 색 + 번역 라벨을 붙인다.
- *
- * 서버(parseStreamLine)가 `[subtype]` 형태로 보내는 system 이벤트를 날 텍스트 대신 노드로 렌더한다.
- * 권한 승인 결정 같은 임의 본문(emitSystemMessage)이나 짝 없는 tool_result(`[ToolName] ...`)는
- * `[word]` 단독 패턴에 매칭되지 않으므로 parseSystemSubtype 가 null 을 반환해 호출부가 텍스트로 폴백한다.
- *
- * §5.5 #17-13 ⑤-1 (v4.99) — 이 칩은 밀도 `원문` 에서만 보인다(간결/표준은 표시 단계에서 제거).
- *   그래서 "다 보여 달라"는 밀도의 뜻에 맞춰 라벨을 **항상 펼쳐** 둔다.
- *
- * §5.5 #17-13 ⑤-6 — **표현을 다시 지었다.** 종전 모양(컬러 테두리 원 + 컬러 라벨 + 24 그리드를
- *   꽉 채운 글리프)이 화면에서 무너지던 자리는 셋이다.
- *   ① **컬러 테두리 원**이 줄마다 "스티커"로 붙어, 열두 줄이 열두 색으로 번쩍였다.
- *   ② **획끼리 붙었다** — 이웃한 두 획의 중심 간격이 획 굵기보다 좁으면 그 사이 빈 곳이 0 이 되어
- *      한 덩어리로 뭉갠다(예: 압축 글리프는 가운데 가로선과 화살촉 꼭짓점의 간격이 2.5 그리드 =
- *      1.46px 인데 획도 1.46px 이라 `✳` 얼룩이 됐다). **크기가 아니라 간격이 원인이다.**
- *   ③ **라벨까지 물들여** 글자가 형광색이 됐다.
- *   그래서 지금은 **원·레일을 걷고 글리프만 두고**(잉크 범위 제약이 풀려 형태를 크게 그릴 수 있다),
- *   **색은 글리프 하나에만** 남기고(라벨은 무채색, 경고 계열만 옅게 물든다), 글리프는 **이웃한 두 획의
- *   중심 간격 ≥ 4 그리드**(15px 렌더에서 2.5px, 획 1.375px 보다 넓다)를 지켜 다시 그렸다.
- *   이 크기에서 윤곽선으로 형태가 안 읽히는 것(삼각형·사각형·연필·자물쇠 몸통·책갈피)은 **채운다.**
- *
- * ⚠ **글리프를 고칠 때의 규칙** — `GLYPH_SIZE_PX`(15) 와 `strokeWidth`(2.2) 는 한 쌍이다.
- *   화면 획 굵기 = `strokeWidth × (GLYPH_SIZE_PX / 24)`. 크기를 바꾸면 굵기도 같이 손보고,
- *   **새 글리프는 이웃한 두 획을 4 그리드 이상 떼어 놓아야 한다** — 안 그러면 ②가 그대로 재발한다.
+ * SDK system subtype(`[subtype]` 이벤트)을 글리프 + 색 + 번역 라벨 한 줄로. 꼴이 안 맞으면 `parseSystemSubtype` 가 null → 호출부가 텍스트로 폴백.
+ * §5.5 #17-13 ⑤-1 — 밀도 `원문` 에서만 보여 라벨은 늘 펼친다. ⑤-6 — 원·레일 없이 글리프만, 색도 글리프에만. 작아서 윤곽으로 안 읽히는 형태는 채운다.
+ * ⚠ `GLYPH_SIZE_PX`(15)·`strokeWidth`(2.2)는 한 쌍. 새 글리프는 이웃한 두 획의 중심을 4 그리드 이상 떼라 — 좁으면 획이 붙어 `✳` 얼룩이 된다.
  */
 import { useTranslation } from 'react-i18next';
 import type { StreamTaskInfo, StreamTaskStatus } from '@vibisual/shared';
 
-// §5.5 v4.92 — 판정 본체는 shared 로 옮겼다. 서버가 이 칩을 **복원 예산에서 빼는** 판정과
-//   클라의 표시 필터가 같은 규칙이어야 해서다(둘이 갈라지면 한쪽만 남기고 한쪽만 그린다).
-//   기존 호출부(streamItems 등)가 그대로 쓰도록 여기서 재export 한다.
-// §5.5 #17-13 ⑤-3 — 작업 칩 payload 파서도 같은 자리에서 함께 내보낸다(호출부는 이 모듈만 보면 된다).
+// §5.5 — 판정 본체는 shared(서버 복원 예산 제외와 클라 표시 필터가 같은 규칙이어야 한다). 호출부용 재export(⑤-3 payload 파서 포함).
 export { parseSystemSubtype, parseSystemTaskInfo } from '@vibisual/shared';
 
 /** 한 subtype 의 표현 = 글리프 + 색 한 벌 + 번역 키. */
@@ -48,13 +23,7 @@ export interface SystemNodeStyle {
   labelKey: string;
 }
 
-/**
- * 모든 글리프가 쓰는 한 벌 — 크기·굵기를 여기 한 곳에서 정한다.
- *
- * 화면 획 굵기 = `strokeWidth × (GLYPH_SIZE_PX / 24)` = 2.2 × 15/24 ≈ **1.375px**.
- * 이 값이 "이웃한 두 획을 얼마나 떼어 놓아야 하는가"의 기준이다 — 4 그리드(= 2.5px)면 사이에
- * 1.1px 의 빈 곳이 남아 두 획이 따로 읽힌다.
- */
+/** 획 = strokeWidth × 15/24 ≈ 1.375px — 4 그리드(2.5px) 떼야 두 획 사이에 빈 곳이 남는다. */
 const GLYPH_SIZE_PX = 15;
 const GLYPH_PROPS = {
   viewBox: '0 0 24 24',
@@ -199,16 +168,7 @@ const GlyphHook = (
   </svg>
 );
 
-/**
- * 색 한 벌 — 계열마다 **글리프 색**과 라벨 색을 함께 정한다.
- *
- * §5.5 #17-13 ⑤-6 — 색이 붙는 자리는 **글리프 하나**다. 종전엔 테두리 원·글리프·라벨 셋이 다 물들어
- * 한 줄이 통째로 형광색이 됐고, 열두 줄이 열두 색이면 그건 정보가 아니라 잡음이다. 라벨은 무채색 두 단
- * (기본 / 물러난 것)으로 고정하고, **사용자가 멈춰 서야 하는 경고 계열만** 옅게 물든다.
- *
- * 잉크는 `-300/75` 로 통일한다 — 어두운 배경과 섞이며 채도가 내려가 "네온"이 되지 않으면서도
- * 라벨(gray-300)보다 눈에 먼저 든다.
- */
+/** §5.5 #17-13 ⑤-6 — 색은 글리프에만(줄 전체가 물들면 열두 색의 잡음). 라벨은 무채색 두 단, 경고 계열만 옅게. 잉크 `-300/75` 는 네온이 안 되면서 라벨보다 먼저 보인다. */
 const TONE = {
   start: { mark: 'text-sky-300/75', label: 'text-gray-300' },
   done: { mark: 'text-emerald-300/75', label: 'text-gray-300' },
@@ -222,16 +182,9 @@ const TONE = {
 } as const;
 
 /**
- * 이름을 아는 subtype — 색은 뜻이 있는 것에만 주고, 원문 밀도에서 가장 많이 뜨는
- * 진행·상태·목록 변경류는 무채색(`quiet`)으로 물러난다.
- *
- * 실측 근거: 이 프로젝트 `sub-streams` 집계에서 **`system` 이벤트로 실제로 도착한** subtype 은
- * `task_started`(3,296) · `task_notification`(3,291) · `task_updated`(482) · `compact_boundary`(78) ·
- * `command_received`(32) · `permission_denied`(30) · `api_retry`(21) · `code_change_published`(7)
- * 8종이다(`thinking_tokens`·`status`·`task_progress`·`*_changed` 는 그 뒤 숨김으로 내려갔다).
- * 그중 `command_received`·`code_change_published` 둘이 이름표 밖이라 한국어 화면에 `Command Received`
- * 같은 **영어 원문**이 그대로 떴다 — ⑤-6 에서 이름표로 올렸다. 나머지 미지의 이름은 **패턴 규칙**
- * (PATTERN_RULES)이 받는다 — 하나하나 번역 키를 파 두면 영영 안 뜰 줄에 12 로케일이 묶인다.
+ * 진행·상태·목록 변경류(원문 밀도에서 가장 잦다)는 무채색(`quiet`). 실측(`sub-streams` 집계) `system` 으로 실제 오는 것은 8종:
+ * task_started(3,296)·task_notification(3,291)·task_updated(482)·compact_boundary(78)·command_received(32)·permission_denied(30)·api_retry(21)·code_change_published(7).
+ * 이름표에 없으면 영어 원문이 뜬다 — 그 밖은 PATTERN_RULES 가 받는다(하나씩 번역 키를 두면 안 뜰 줄에 12 로케일이 묶인다).
  */
 const STYLES: Record<string, SystemNodeStyle> = {
   task_started: { family: 'start', glyph: GlyphStart, ...TONE.start, labelKey: 'ide.systemNode.taskStarted' },
@@ -257,12 +210,7 @@ const STYLES: Record<string, SystemNodeStyle> = {
   permission_denied: { family: 'permission', glyph: GlyphLock, ...TONE.notify, labelKey: 'ide.systemNode.permissionDenied' },
 };
 
-/**
- * 이름을 모르는 subtype 도 **뜻이 비슷하면 같은 모양**으로 떨어진다 — CLI 바이너리에는 100여 개의
- * subtype 문자열이 있고 판올림마다 늘어나므로, 하나씩 등록하는 대신 어미·머리로 계열을 잡는다.
- * 라벨은 번역하지 않고 원문을 다듬어 쓴다(`worker_shutting_down` → `Worker Shutting Down`) —
- * 그래야 새 이름이 와도 무엇인지 글자로는 알 수 있다. 순서가 곧 우선순위다.
- */
+/** 모르는 subtype 은 어미·머리로 계열을 잡는다(판마다 는다). 순서 = 우선순위. 라벨은 원문을 다듬어 쓴다(`worker_shutting_down` → `Worker Shutting Down`). */
 const PATTERN_RULES: { test: RegExp; style: Omit<SystemNodeStyle, 'labelKey'> }[] = [
   { test: /(^error_|_error$|_failed$|_failure$|refusal)/, style: { family: 'alert', glyph: GlyphWarn, ...TONE.alert } },
   { test: /(^interrupt|shutting_down|_killed$|^stop_)/, style: { family: 'stop', glyph: GlyphStop, ...TONE.alert } },
@@ -283,10 +231,7 @@ const PATTERN_RULES: { test: RegExp; style: Omit<SystemNodeStyle, 'labelKey'> }[
 
 const FALLBACK_STYLE: SystemNodeStyle = { family: 'info', glyph: GlyphInfo, ...TONE.quiet, labelKey: '' };
 
-/**
- * subtype → 표현 한 벌. 이름표(STYLES) → 계열 패턴(PATTERN_RULES) → 기본(정보 점) 순으로 내려간다.
- * 순수 함수라 단위 테스트로 확인한다(systemNodeStyle.test.ts).
- */
+/** 이름표 → 계열 패턴 → 기본(정보 점) 순(systemNodeStyle.test.ts). */
 export function resolveSystemNodeStyle(subtype: string): SystemNodeStyle {
   const known = STYLES[subtype];
   if (known) return known;
@@ -301,10 +246,7 @@ export function humanizeSubtype(subtype: string): string {
   return subtype.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/**
- * §5.5 #17-13 ⑤-3 — **끝난 방식**의 표현. 시작·끝이 한 줄로 접히면 그 줄은 더 이상 "시작"이 아니라
- * 결과라서, 시작 글리프(재생·sky) 대신 이 표를 쓴다.
- */
+/** §5.5 #17-13 ⑤-3 — 끝난 방식의 표현. 시작·끝이 한 줄로 접히면 그 줄은 결과라 시작 글리프 대신 이 표를 쓴다. */
 const STATUS_STYLES: Record<StreamTaskStatus, SystemNodeStyle> = {
   completed: { family: 'done', glyph: GlyphDone, ...TONE.done, labelKey: 'ide.systemNode.taskCompleted' },
   failed: { family: 'alert', glyph: GlyphWarn, ...TONE.alert, labelKey: 'ide.systemNode.taskFailed' },
@@ -320,17 +262,8 @@ export function taskDurationLabel(ms: number | undefined): { key: string; value:
 }
 
 /**
- * 글리프 + 라벨 한 줄.
- *
- * §5.5 #17-13 ⑤-6 — **테두리 원과 세로 레일을 걷었다.** 원은 색 테두리 탓에 줄마다 스티커가 붙은 꼴이
- * 됐고, 안쪽 지름 18px 이 글리프의 잉크 범위를 묶어 형태를 뭉개는 원인이기도 했다. 레일은 그 원이
- * 22px 줄을 거의 다 먹어 **행 사이 2px 조각으로만 남아** 이어진 선이 아니라 점선으로 보였다 —
- * 은유만 있고 화면에는 없던 것이다. 지금은 24px 자리에 글리프만 가운데 세운다.
- * 줄 높이(22px)·왼쪽 여백은 그대로라 목록의 세로 리듬은 바뀌지 않는다.
- *
- * §5.5 #17-13 ⑤-3 — 작업 칩은 `task` payload 를 받아 **뜻이 있는 한 줄**이 된다: 라벨 자리에는
- * `작업 시작` 이라는 뜻 없는 낱말 대신 **작업 이름**(`description`)이 서고, 오른쪽에 결과·소요 시간이
- * 붙는다. payload 가 없는 옛 칩은 종전과 완전히 같은 모양이다.
+ * §5.5 #17-13 ⑤-6 — 24px 자리에 글리프만(테두리 원은 줄마다 스티커가 되고 형태를 뭉갠다, 레일은 줄 사이 조각으로만 남는다). 줄 높이 22px 가 세로 리듬.
+ * ⑤-3 — `task` payload 가 있으면 라벨 자리에 작업 이름, 오른쪽에 결과·소요 시간.
  */
 export function SystemNode({ subtype, task }: { subtype: string; task?: StreamTaskInfo | null }): React.JSX.Element {
   const { t } = useTranslation();
@@ -345,7 +278,6 @@ export function SystemNode({ subtype, task }: { subtype: string; task?: StreamTa
     name && statusStyle ? t(statusStyle.labelKey) : '',
     duration ? t(duration.key, { value: duration.value }) : '',
   ].filter(Boolean).join(' · ');
-  // ⑤-6 — `group/sysnode`(옛 hover 라벨의 손잡이)·`relative`(레일의 기준)는 둘 다 그 대상이 사라져 걷었다.
   return (
     <div className="flex min-h-[22px] items-stretch pl-3">
       <span className={`flex w-6 flex-shrink-0 items-center justify-center ${style.mark}`}>

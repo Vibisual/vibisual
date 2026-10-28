@@ -1,10 +1,6 @@
 /**
- * agentLinkRecord.ts — §5.4 #36 (H) ①-2 [이전 연결 다시 보기]의 **기록 다루기 한 벌**.
- *
- * ① 디스크에서 온 기록 정화(`sanitizeAgentLinkRecords`) · ② 한도 자르기(`capAgentLinkEntries`) ·
- * ③ 다시 세울 순서 짜기(`planLinkReplay`). 그래프 장부를 만지지 않는 순수 함수라 그대로 단위 테스트된다 —
- * 실제로 세우는 일은 `ProjectGraph.replayAgentLinks` 가 훅 이벤트와 같은 라우팅으로 한다(구조 장부를 손으로
- * 되돌리지 않는다 — 두 벌이 되면 한쪽만 고쳐져 다시 선 버블이 처음 선 버블과 어긋난다).
+ * §5.4 #36 (H) ①-2 [이전 연결 다시 보기] 기록의 정화·한도·다시 세울 순서(순수 함수). 실제로 세우는 일은 `ProjectGraph.replayAgentLinks` 가
+ * 훅 이벤트와 같은 라우팅으로 한다 — 구조 장부를 손으로 되돌리면 두 벌이 되어 다시 선 버블이 처음 것과 어긋난다.
  */
 
 import type { AgentLinkEntry, AgentLinkRecord, AppWorkMark, BubbleType, CommandAppTarget, WebEntry } from '@vibisual/shared';
@@ -48,18 +44,9 @@ export type LinkReplayOp =
     };
 
 /**
- * 다시 세울 순서를 짠다.
- *
- * - **파일**은 낱개로 흘린다 — 라우팅이 폴더 사슬·위성·내부 엣지를 함께 세운다.
- * - Grep/Glob 결과처럼 **직속 부모가 아닌 외부 폴더에 붙어 있던 파일**(`folders` 가 있다)은 그 폴더별로 묶어
- *   폴더 하나를 훑은 것처럼 흘린다 — 낱개로만 흘리면 직속 부모 밑에 다른 모양으로 선다. 직속 부모 밑에도
- *   있었으면(`folderOnly` 가 아니면) 낱개로도 흘린다.
- * - **내부 폴더**는 기록에 그 아래 파일이 하나도 없을 때만 폴더로 흘린다(파일이 있으면 그 파일이 사슬째 세운다 —
- *   두 번 흘리면 선 방향이 폴더의 도구로 덮인다).
- * - **외부 폴더**는 흘리지 않는다 — 위성 ≥ 1 불변식(§2.1 v2.28)이라 그 파일이 세우고, 접합은 트리 재구성이 세운다.
- * - **도메인·명령 앱**은 각자의 등록 함수로.
- *
- * 순서는 마지막으로 만진 시각 오름차순(같으면 기록 순서 그대로).
+ * 다시 세울 순서(마지막으로 만진 시각 오름차순). 파일은 낱개로(라우팅이 폴더 사슬·위성을 함께 세운다). 직속 부모가 아닌 외부 폴더에 붙었던 파일(`folders`)은
+ * 폴더별로 묶어 흘린다 — 낱개로만 흘리면 직속 부모 밑에 다른 모양으로 선다(`folderOnly` 가 아니면 낱개로도).
+ * 내부 폴더는 아래 파일이 기록에 없을 때만 — 두 번 흘리면 선 방향이 폴더의 도구로 덮인다. 외부 폴더는 안 흘린다(위성 ≥ 1 불변식 §2.1 — 그 파일이 세우고 접합은 트리 재구성이 세운다).
  */
 export function planLinkReplay(entries: readonly AgentLinkEntry[]): LinkReplayOp[] {
   const fileKeys = entries.filter((e) => e.bubbleType === 'file').map((e) => e.key);

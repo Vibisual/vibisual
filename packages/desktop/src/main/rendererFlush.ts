@@ -1,15 +1,8 @@
 /**
- * rendererFlush.ts — 종료 직전 렌더러 초안 flush 의 **electron 배선부**.
- * 판정·상한·회차 규약은 전부 `rendererFlushPlan.ts`(순수)에 있다 — 여기는 창 목록·IPC·세션만 맡는다.
- *
- * 순서가 중요하다:
- *   ① 모든 창에 flush 요청 → ② 응답을 (상한 안에서) 모음 → ③ `session.flushStorageData()`
- *
- * ③ 이 빠지면 반쪽이다. 렌더러의 `localStorage.setItem` 은 JS 관점에서만 동기이고 Chromium 은
- * 실제 디스크 커밋을 **뒤로 미룬다**. 우리 종료는 `app.exit(0)` 이라 그 커밋을 기다려 주지 않으므로,
- * 창이 "썼다"고 답한 뒤에도 디스크에는 없을 수 있다. `flushStorageData()` 가 그 미완의 DOMStorage 를
- * 지금 디스크에 앉힌다. 모든 창이 `session.defaultSession` 하나를 쓰므로(커스텀 partition ❌)
- * 이 한 번으로 별창·오버레이·지휘통제실·내부 앱 창까지 전부 덮인다.
+ * 종료 직전 렌더러 초안 flush 의 electron 배선부 — 판정·상한·회차 규약은 `rendererFlushPlan.ts`(순수), 여기는 창 목록·IPC·세션만.
+ * 순서: ① 모든 창에 flush 요청 → ② 응답을 상한 안에서 모음 → ③ `session.flushStorageData()`.
+ * ③ 을 빼지 마라 — `localStorage.setItem` 의 디스크 커밋은 Chromium 이 미루고 `app.exit(0)` 은 기다리지 않아, 창이 썼다고 답해도 디스크에 없을 수 있다.
+ * 모든 창이 `session.defaultSession` 하나라(커스텀 partition ❌) 이 한 번이 모든 창을 덮는다.
  */
 import { BrowserWindow, ipcMain, session } from 'electron';
 import { join } from 'node:path';

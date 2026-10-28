@@ -1,17 +1,6 @@
 /**
- * detachedFollowRelease.test.ts — §5.5 #17-6 (H-23) **뗌을 듣는 귀가 하나뿐이면 안 된다.**
- *
- * 독립 창을 끌고 앱 안으로 들어오면 (H-12) 가 그 창을 **숨긴다**. 숨는 순간 OS 는 그 창의 마우스
- * 캡처를 걷으므로, 들어오는 판의 뗌은 그 렌더러에 영영 닿지 않는다 — 그런데 그 판의 리스너는
- * 전부 그 창에 달려 있었다(`AgentIDEOverlay` 의 `fullWindow` 갈래 · `OverlayShell` 의 매달림 그물).
- * 그래서 `finishOverlayFollow` 가 불리지 않아 선이 커서에 붙은 채 남고(사용자 보고 — "마우스를
- * 때도 손에 붙어있는 버그"), 선마저 수명으로 걷히면 그 IDE 가 화면 어디에도 없다.
- *
- * (H-4) ⑥ 의 "두 창이 함께 듣는다"를 들어오는 길에도 적용하는 것이 고침이고, 이 파일은
- * ⓐ 그 그물 자체의 동작과 ⓑ 메인 창이 그것을 거는 계약을 고정한다.
- *
- * 클라 테스트에는 DOM 이 없다(`vitest.config.ts`) — 그물은 `window` 스텁으로 실제로 돌려 보고,
- * 훅·배선은 소스로 본다.
+ * §5.5 #17-6 (H-23) — 뗌을 듣는 귀가 하나면 안 된다: 들어오는 창은 (H-12) 가 숨겨 OS 가 캡처를 걷으므로 그 창 리스너엔 뗌이 안 닿고 선이 커서에 붙는다.
+ * 그물 동작(`window` 스텁)과 메인 창이 그물을 거는 계약(소스)을 고정한다.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { watchDetachedFollowRelease } from './detachedFollowRelease.js';

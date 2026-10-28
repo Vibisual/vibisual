@@ -1,14 +1,6 @@
 /**
- * jsonlWatcher.ts — Layer 2: Watches ~/.claude/projects/*.jsonl for mtime changes
- *
- * Session is considered live if its JSONL was written recently. This is the backup
- * signal when SessionStart hook (Layer 1) isn't installed — covers any Claude Code
- * client that actually produces transcripts.
- *
- * Emits two kinds of signals into the sessionLifecycle manager:
- *   - onActivity(sessionId, cwd):  JSONL mtime tick
- *   - onIdle(sessionId):           no activity for IDLE_THRESHOLD
- *   - onDead(sessionId):           no activity for DEAD_THRESHOLD (final removal trigger)
+ * Layer 2: watches `~/.claude/projects/*.jsonl` mtime — backup liveness when the SessionStart hook (Layer 1) isn't installed.
+ * Signals: `onActivity(sessionId, cwd)` · `onIdle` (IDLE_THRESHOLD) · `onDead` (DEAD_THRESHOLD, final removal).
  */
 
 import chokidar, { type FSWatcher } from 'chokidar';
@@ -48,12 +40,7 @@ function parseJsonlPath(filePath: string): { sessionId: string; slug: string } |
   return { sessionId, slug };
 }
 
-/**
- * Reverse the slug-to-cwd mapping by finding the corresponding real directory.
- * Claude Code's slug is the cwd with `:`, `/`, `\`, `_` collapsed to `-`.
- * We don't fully reverse it here — callers already have the cwd from other sources
- * (SessionStart hook or discoverSessions). This helper only supplies the raw slug.
- */
+/** The slug collapses `:`, `/`, `\`, `_` to `-` — not reversible. Returns the raw slug; callers get the real cwd from the SessionStart hook or discoverSessions. */
 function slugToBestGuessCwd(slug: string): string {
   // We keep it as the slug string — sessionLifecycle will cross-reference with
   // sessionCwds populated by hook events / discoverSessions.

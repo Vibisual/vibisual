@@ -6,11 +6,8 @@ import type { AppWorkPlan } from '../../utils/appWorkView.js';
 import { hiddenActivityBubbleIds } from './bubbleVisibility.js';
 
 /**
- * §5.4 #36 (I) — 앱 작업 보기의 **접기**. 초점이 선 에이전트의 활동 버블 중 초점 작업물이 아닌 것을 표시에서만 숨긴다.
- *
- * 소유 판정은 ①-1 [버블 숨기기]와 **같은 함수**(`hiddenActivityBubbleIds`) — 다른 에이전트도 쓰는 버블은 그 에이전트가 보여
- * 주면 남는다. 다른 점은 둘이다: 접는 종류를 파일·폴더·도메인(·잔상)으로 좁히고(iframe·콘티는 다른 축), 위성으로 서는 작업
- * 파일(`plan.keepIds`)은 빼고, 연속 번호의 나머지·넘침(`plan.hiddenWorkIds`)은 더한다. 데이터·엣지·이력은 그대로다.
+ * §5.4 #36 (I) — 앱 작업 보기의 접기(표시만 — 데이터·엣지·이력은 그대로). 소유 판정은 [버블 숨기기]와 같은 `hiddenActivityBubbleIds`.
+ * 다른 점: 접는 종류를 파일·폴더·도메인(·잔상)으로 좁히고, 위성 작업 파일(`plan.keepIds`)은 빼고, 넘침(`plan.hiddenWorkIds`)은 더한다.
  */
 export const APP_WORK_FOLD_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>([
   'file', 'internal_folder', 'external_folder', 'domain', 'ghost',
@@ -130,10 +127,7 @@ function visibleWorkMoons(nodes: readonly Node[], edges: readonly ActivityLink[]
   return byHub;
 }
 
-/**
- * §5.4 #36 (I) — 그리는 노드 사본에 앱 작업 보기의 표시 값을 얹는다: 에이전트(`bubble`)에는 접힌 개수 점(`_appWorkFolded`),
- * 앱 노드(`appNode`)에는 작업 궤도와 넘침(`appWorkOrbit`). 없으면 원본 배열을 그대로 돌려준다.
- */
+/** 그리는 사본에 표시 값(`_appWorkFolded`·`appWorkOrbit`)을 얹는다. 없으면 원본 배열 그대로. */
 export function decorateAppWorkNodes(nodes: Node[], plan: AppWorkPlan, fold: AppWorkFold, edges: readonly ActivityLink[]): Node[] {
   if (plan.hubs.size === 0 && fold.byAgent.size === 0) return nodes;
   const visibleMoons = visibleWorkMoons(nodes, edges, plan);

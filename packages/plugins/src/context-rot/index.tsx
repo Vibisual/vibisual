@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.93 — 컨텍스트 부패(Context Rot): 창을 얼마나 채웠는가.
- *
- * 창 크기는 상한이지 목표가 아니다. 성능은 절반 근처에서 이미 눈에 띄게 떨어지는 경우가 많고,
- * 길이보다 **비슷한 방해 정보의 혼입**이 더 큰 요인이다. 그래서 "몇 토큰 남았나"가 아니라
- * **채움 비율**을 보여준다. 표시 전용.
- */
+/** §5.11 — 컨텍스트 부패(Context Rot): 남은 토큰이 아니라 채움 비율을 보여준다(절반 근처에서 이미 성능이 떨어지고, 비슷한 방해 정보의 혼입이 더 큰 요인). 표시 전용. */
 import type { SubAgent } from '@vibisual/shared';
 import { defineInspector, ICONS } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

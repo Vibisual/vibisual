@@ -12,10 +12,7 @@ import { useEdgeOccluders } from './edgeOccluders.js';
 import { isRectNode, nodeBorderDistance } from './agentCard.js';
 import { bubbleEdgeAppearance, bubbleEdgeMarkerStyle } from './bubbleEdgeAppearance.js';
 
-/**
- * §5.4 #36 (A) — 끝 노드가 말풍선(정사각이 아닌 버블 노드)이면 그 방향의 **실루엣까지 거리**, 아니면 null
- * (반지름은 종전대로 data 의 값). 원 반지름으로 재면 위임 화살이 말풍선 안쪽에서 끊겨 묻힌다.
- */
+/** §5.4 #36 (A) — 끝 노드가 말풍선이면 그 방향 실루엣까지 거리, 아니면 null. 원 반지름으로 재면 위임 화살이 말풍선 안에 묻힌다. */
 function rectReach(node: InternalNode | undefined, nx: number, ny: number): number | null {
   const w = node?.measured?.width;
   const h = node?.measured?.height;
@@ -23,7 +20,7 @@ function rectReach(node: InternalNode | undefined, nx: number, ny: number): numb
   return nodeBorderDistance(w, h, nx, ny);
 }
 
-/** v1.33 — 엣지 이벤트 펄스 타입. 엣지 path 를 따라 3회 날아가는 아이콘의 종류. */
+/** path 를 따라 3회 날아가는 펄스 아이콘의 종류. */
 type EdgePulseEvent = 'sending' | 'completed' | 'error';
 
 const PULSE_CONFIG: Record<EdgePulseEvent, { color: string; labelKey: string }> = {
@@ -72,10 +69,6 @@ function KindIcon(
   return <svg {...p}><polygon points="7 4 19 12 7 20 7 4" /></svg>;
 }
 
-/**
- * Task Edge 시각 렌더링 — Unreal Engine 스테이트머신의 트랜지션 룰 노드 스타일.
- * 엣지 중점에 동그란 아이콘 배치 → 더블클릭 시 편집 팝업 오픈.
- */
 export const TaskEdgeComponent = memo(function TaskEdgeComponent({
   id,
   source,
@@ -93,8 +86,7 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
   ));
   const selectionFocusClassName = typeof edgeData?.['selectionFocusClassName'] === 'string'
     ? edgeData['selectionFocusClassName'] : undefined;
-  // v1.33 — status 기반 "지속" 시각 전이 OFF. 엣지 모양은 kind(의미)로만 결정.
-  // status 는 이벤트 펄스(아이콘이 path 따라 3회 날아감) 트리거 용도로만 사용.
+  // 모양은 kind 로만 — status 는 펄스 트리거로만 쓴다.
   const status = (edgeData?.['status'] as TaskEdgeStatus) ?? 'idle';
   const kind = (edgeData?.['kind'] as TaskEdgeKind | undefined) ?? TASK_EDGE_DEFAULTS.kind;
   const command = (edgeData?.['command'] as string) ?? '';
@@ -124,8 +116,7 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
   const kindStyle = TASK_EDGE_KIND_STYLES[kind] ?? TASK_EDGE_KIND_STYLES.command;
   // idle 스타일의 dasharray 를 kind 와 무관한 고정 dash 로 사용 (status 무반응).
   const idleDash = TASK_EDGE_STYLES['idle']?.strokeDasharray ?? '6 4';
-  // v1.54 — auto-rework 자매 엣지는 kind='command' 라 일반 command 엣지와 동일한 색/스타일.
-  // 시각 구분은 같은 두 에이전트 사이를 흐르는 보라(critique primary) 엣지와 짝지어 보이는 것으로 충분.
+  // auto-rework 자매 엣지는 command 와 같은 스타일 — 구분은 같은 두 에이전트 사이 critique 엣지와 짝으로 보이는 것으로 충분하다.
   const lineColor = kindStyle.color;
   const iconColor = lineColor;
 
@@ -145,20 +136,15 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
   const isSelected = useGraphStore((s) => s.selectedTaskEdgeId === taskEdgeId);
   const debugMode = useGraphStore((s) => s.debugMode);
 
-  // v1.33 — status 전이 감지 → 이벤트 펄스 트리거.
-  // 역할 분리(한 방향만 흐르게):
-  //   - primary(command) 엣지:   idle→executing 때 'sending' 만 (명령 발사 방향)
-  //                              번들 없으면(=artifact 짝 없음) 완료/에러도 여기서 피드백
-  //   - auto-artifact 엣지:      executing→completed 때 'completed' (결과 회귀 방향)
-  //                              → error 때 'error'
-  // 이렇게 하면 번들 쌍이 동시에 펄스 돌지 않고, 항상 한 엣지에서 arrow 방향 한 번만 흐른다.
+  // status 전이 → 펄스는 한 엣지에서 한 방향만: primary 는 executing 진입 때 'sending'(번들이 없으면 완료/에러도),
+  // auto-artifact 는 completed/error. 번들 쌍이 동시에 펄스하지 않는다.
   const [pulse, setPulse] = useState<{ event: EdgePulseEvent; key: number } | null>(null);
   const prevStatusRef = useRef<TaskEdgeStatus>(status);
   const pulseCounterRef = useRef(0);
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasBundle = Boolean(bundleId);
   const isAutoArtifact = bundleRole === 'auto-artifact';
-  // v1.54 — 자동 생성된 자매 엣지(auto-artifact / auto-rework)는 알파 살짝 빼서 자동 생성 티 표시.
+  // 자동 생성 자매 엣지는 알파를 살짝 뺀다.
   const isAutoSibling = bundleRole === 'auto-artifact' || bundleRole === 'auto-rework';
 
   // 수동 트리거 — debug 테스트 버튼용. status 와 무관하게 즉시 펄스 재생.
@@ -177,19 +163,14 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
     if (pulseTimerRef.current !== null) clearTimeout(pulseTimerRef.current);
   }, []);
 
-  // v1.33 / v1.54 — 이 엣지가 자기 role 기준으로 담당하는 이벤트 목록 (디버그 테스트 버튼용).
-  //   - primary + 번들 있음 : sending, error (송신 담당, 결과는 짝 artifact 가 처리)
-  //   - auto-artifact       : completed, error (결과 회귀 담당)
-  //   - auto-rework         : sending, error (감시자→작업자 rework 지시 발사 담당)
-  //   - primary + 번들 없음 : sending, error (송신 + 피드백은 자기 혼자지만 버튼은 2개로 통일)
+  // 디버그 버튼용 역할 이벤트: auto-artifact = completed·error, 그 밖 = sending·error(번들 없는 primary 도 버튼 2개로 통일).
   const myEvents: EdgePulseEvent[] = isAutoArtifact ? ['completed', 'error'] : ['sending', 'error'];
 
   useEffect(() => {
     const prev = prevStatusRef.current;
     prevStatusRef.current = status;
     if (prev === status) return;
-    // v1.33 — status 전이 트리거. 이전이 뭐였든(idle/error/completed) executing 진입하면 sending 울리도록
-    // 완화. 예전 고착된 error → 새 dispatch 의 executing 전환도 잡혀야 함.
+    // 이전 상태와 무관하게 executing 진입이면 sending — 고착된 error 뒤 새 dispatch 도 잡아야 한다.
     let event: EdgePulseEvent | null = null;
     if (isAutoArtifact) {
       if (status === 'completed') event = 'completed';
@@ -203,9 +184,7 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
     triggerPulse(event);
   }, [status, isAutoArtifact, hasBundle, triggerPulse]);
 
-  // 더블클릭: 엣지 편집 팝업 오픈. 아이콘 현재 스크린 좌표를 기준점으로.
-  // v1.54 — auto-artifact / auto-rework 자매 엣지는 편집 자체가 불가 — 더블클릭 무시(primary 로 리디렉트 ❌).
-  //         사용자는 primary 엣지를 직접 더블클릭해야 편집 팝업이 열린다.
+  // 자매 엣지(auto-artifact/rework)는 편집 불가 — 더블클릭 무시(primary 로 리디렉트 ❌).
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -255,7 +234,7 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
         <div className={selectionFocusClassName}>
         <svg style={{ position: 'absolute', width: 0, height: 0 }}>
           <defs>
-            {/* v1.33 — marker id 는 kind 단독 (status 무반응). 화살촉 색 = kind 색 고정. */}
+            {/* marker 는 kind 단독 — 화살촉 색은 status 와 무관. */}
             {(Object.keys(TASK_EDGE_KIND_STYLES) as TaskEdgeKind[]).map((k) => (
               <marker
                 key={k}
@@ -278,9 +257,7 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
           style={{
             position: 'absolute',
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-            // v1.54 — auto-sibling 은 아이콘도 함께 흐리게.
-            // §5.4 #31 — 무리 강조가 걸리면 선과 **같은 비율로** 아이콘도 물러난다(선만 흐려지고
-            //   아이콘이 또렷하면 지워진 선 위에 점만 떠 있는 그림이 된다).
+            // §5.4 #31 — 아이콘도 선과 같은 비율로 흐려진다(아이콘만 또렷하면 지워진 선 위에 점만 뜬다).
             opacity: (isAutoSibling ? 0.55 : 1) * linkVisual.opacityMul,
             transition: `opacity ${LINK_FOCUS.TRANSITION_MS}ms ease-out`,
           }}
@@ -299,12 +276,10 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
                 : `0 0 6px ${iconColor}80`,
             }}
           >
-            {/* v1.33 — status 기호 제거, kind 아이콘만 상시 표시.
-                전 kind 인라인 stroke SVG 통일(이모지/Unicode 텍스트 글리프 제거 — currentColor 추종). */}
+            {/* kind 아이콘만 — 인라인 stroke SVG(currentColor, 이모지·글리프 ❌). */}
             <KindIcon kind={kind} className="h-2.5 w-2.5" style={{ color: kindStyle.color, overflow: 'visible' }} />
           </div>
-          {/* v1.33 — 디버그 모드 테스트 버튼. `~` 로 debugMode 토글 시 각 엣지 중앙 아이콘 위에
-              자기 역할 이벤트 2개 버튼이 뜬다. 클릭 시 클라에서만 펄스 재생 (서버/status 불변). */}
+          {/* 디버그(`~`) 테스트 버튼 — 클라에서만 펄스 재생(서버/status 불변). */}
           {debugMode && (
             <div
               className="pointer-events-auto absolute left-1/2 flex -translate-x-1/2 gap-1 rounded border border-gray-700 bg-gray-900/90 px-1 py-0.5 shadow-lg"
@@ -330,7 +305,6 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
             </div>
           )}
         </div>
-        {/* v1.33 — 엣지 이벤트 펄스: path 를 따라 3회 날아가는 아이콘. 엣지 자체 모양은 불변. */}
         {pulse && (() => {
           const cfg = PULSE_CONFIG[pulse.event];
           return (

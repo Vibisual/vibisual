@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.99 — 에이전트 공급망(Agentic Supply Chain): 이 에이전트가 의존하는 것들.
- *
- * 침해는 에이전트가 **의존하는 것**을 통해 들어온다 — 악성 도구·플러그인, 신뢰할 수 없는 서버, 변조된 스킬 파일.
- * 특히 **도구 설명문 자체가 프롬프트**라는 점이 위험하다. 악의적 도구는 설명란에 지시를 숨겨 에이전트를 조종할 수 있다.
- * 그래서 외부 도구는 의존성이 아니라 **권한 위임**으로 취급해야 한다. 표시 전용.
- */
+/** §5.11 — 에이전트 공급망(Agentic Supply Chain): 이 에이전트가 의존하는 도구·서버·스킬. 도구 설명문 자체가 프롬프트라 외부 도구는 권한 위임으로 본다. 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import { effectiveTools } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

@@ -61,15 +61,8 @@ export function VerifyIcon(): React.JSX.Element {
 }
 
 /**
- * §4 v2.70 — 에이전트 검수 요청 인라인 카드.
- *
- * 커스텀/스폰 에이전트가 `POST /api/agent-review` 로 보낸 instruction/changes/checkpoints 를 렌더.
- * 작업 신고(AgentReportCard, 에메랄드)·질문(AgentQuestionCard, sky)과 **성격이 다르다**: 사용자가 지시한
- * 작업을 AI 가 완료한 뒤, 사용자가 직접 할 일(userActions)이 아니라 **결과가 맞는지 확인(검수)**할 것을
- * 요청하는 카드. violet 액센트 + 돋보기 아이콘으로 구분.
- * - instruction : 받은 지시 한 줄 맥락 (있을 때만).
- * - changes     : 무슨 동작을 어떻게 고쳤는지 — AI 가 완료한 변경(violet 중립).
- * - checkpoints : 사용자가 확인할 검수 포인트 — violet 강조 패널.
+ * §4 — 검수 요청 카드(`POST /api/agent-review`): 할 일이 아니라 끝낸 결과의 확인을 청한다(violet).
+ * instruction(받은 지시) · changes(고친 것) · checkpoints(확인할 점).
  */
 export const AgentReviewCard = memo(function AgentReviewCard({ review, live }: AgentReviewCardProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -156,7 +149,7 @@ export const AgentReviewCard = memo(function AgentReviewCard({ review, live }: A
           />
         </CardDetails>
 
-        {/* §4 v3.21 — 좋아요/싫어요 (규칙 되먹임 학습 재료). §5.5 #17-12 — 호버 때만 노출. */}
+        {/* §4 — 좋아요/싫어요(규칙 되먹임 재료). §5.5 #17-12 호버 때만. */}
         <CardHoverControls>
           <FeedbackButtons
             agentId={review.agentId}

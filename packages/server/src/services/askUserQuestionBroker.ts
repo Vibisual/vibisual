@@ -15,13 +15,8 @@ interface Pending {
 }
 
 /**
- * §5.3 #12-2 v2.26 — AskUserQuestionBroker.
- *
- * PermissionBroker 평행 패턴: PreToolUse 훅이 `tool_name === 'AskUserQuestion'` 분기로
- * 동기 hold 하면 여기 큐잉, WS push, 사용자 응답 또는 60s 타임아웃까지 대기.
- *
- * 타임아웃 시 빈 `selectedLabels` + `reason:'timeout'` 로 resolve — 훅이 그 의미를
- * `permissionDecisionReason` 으로 합성해 모델 transcript 에 도달시킨다.
+ * §5.3 #12-2 — PermissionBroker 와 같은 꼴: PreToolUse 훅이 `AskUserQuestion` 에서 동기 hold → 큐잉·WS push → 응답 또는 60s 타임아웃.
+ * 타임아웃은 빈 `selectedLabels` + `reason:'timeout'` 으로 resolve — 훅이 `permissionDecisionReason` 으로 모델에 알린다.
  */
 export class AskUserQuestionBroker {
   private pending = new Map<string, Pending>();

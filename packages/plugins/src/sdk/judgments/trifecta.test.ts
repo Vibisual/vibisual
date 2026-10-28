@@ -1,9 +1,4 @@
-/**
- * §5.11 v3.88 — 치명적 3요소 판정 고정 테스트.
- *
- * 판정은 순수 함수라 UI 없이 조합만으로 전부 검증된다(기하 계산을 전용 단위 테스트로 묶는 것과 같은 이유).
- * 특히 "Bash 가 잠긴 도구라 ⓑ·ⓒ를 동시에 켠다"는 성질이 회귀로 사라지지 않게 못 박는다.
- */
+/** §5.11 — 치명적 3요소 판정 고정. 특히 "Bash 가 잠긴 도구라 ⓑ·ⓒ를 동시에 켠다"는 성질이 회귀로 사라지지 않게 한다. */
 import { describe, it, expect } from 'vitest';
 import type { AgentConfig } from '@vibisual/shared';
 import { judgeTrifecta, effectiveTools } from './trifecta.js';

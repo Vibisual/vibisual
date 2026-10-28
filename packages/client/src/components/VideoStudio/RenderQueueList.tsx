@@ -7,12 +7,8 @@ import { fileNameOf, formatDuration, formatWhen } from './exportLabels.js';
 import type { RenderJobAction, VideoJob } from './videoApi.js';
 
 /**
- * §5.13 (AA) 42-5 — 렌더 대기열 줄들(내보내기 판의 요약 · 설정 창의 [대기열] 탭이 같은 줄을 쓴다).
- *
- * 줄마다 상태 · 진행 · 경과 · 남은 시간(멈춘 시간은 뺀다) · 초당 프레임, 그리고 그 상태에서 뜻이 있는 단추만 선다 — 도는 것은
- * 일시정지·취소, 기다리는 것은 위·아래·지금 시작·멈춤·취소, 끝난 것은 폴더에서 보기·열기·다시 렌더.
- * 반응형 — 터치에서는 줄 단추가 손가락 표적으로 커지고, 상태 글(진행·남은 시간)은 말줄임 대신 줄을 바꿔 끝까지 보인다(툴팁이 없다).
- * 폰 폭 창(설정 창의 [대기열] 탭)에서도 같다.
+ * §5.13 (AA) 42-5 — 렌더 대기열 줄(내보내기 판·[대기열] 탭 공용). 남은 시간에서 멈춘 시간은 빼고, 단추는 그 상태에서 뜻 있는 것만.
+ * 터치에선 툴팁이 없어 상태 글을 말줄임 대신 줄바꿈으로 끝까지 보인다.
  */
 export interface RenderQueueListProps {
   readonly jobs: readonly VideoJob[];

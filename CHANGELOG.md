@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-10-28
+
+### Added
+- **Vibisual keeps its own copy of Claude Code and Codex.** Each engine is downloaded from its official source into an app folder and used by default. A new release is switched in only after it accepts every option Vibisual uses — checked at launch and every 6 hours — and you can roll back to the previous version. The engine's own self-update is turned off for this copy, and other installations found on your PC stay available as secondary choices.
+- **Run Claude on your Console API credits.** Save an API key and headless runs move to your Claude Console organization's credits once your plan limit is reached — or turn on "Use credits first" and fall back to your subscription whenever Anthropic refuses the credits. The key is kept in your operating system's secure storage. This month's spend is read from the Console's cost report and shown as used, resetting on the 1st (UTC); the spend limit itself is managed in the Console, and Vibisual follows Anthropic's answer.
+- **Credits are explained one wallet at a time.** Options has a Credits category, and plan limits, personal credits (claude.ai), business credits (Console) and cloud credits each get a page saying who bills them, where they are managed and whether Vibisual uses them. PCs set up for a cloud provider do not use the credit route.
+- **A bubble map for each IDE session.** "Bubble" is the first choice in the IDE view options, next to Compact, Standard and Raw. It shows the files, folders, web addresses, command apps and sub-agents the session touched, drawn with the same bubbles as the canvas. Dragging a bubble brings its satellites along, double-clicking the agent in the middle returns to Standard, and search, bookmarks and prompt jumps return to the conversation first.
+- **Bundle bubbles.** Two or more media files of the same kind around one bubble fold into a single bundle showing the kind and count, and their lines lead to the bundle. Double-click to step inside, where files are sized by how often they were used and the most-used sit in the middle. A bundle collects the files written in the latest command you have not reviewed yet and shows recently used members as satellites.
+- **Pin an agent's linked bubbles.** Right-click › Linked bubbles › Pin keeps them after the agent finishes, through idle cleanup and the 5-minute timeout; Unpin clears them right away when nothing is running. "Show previous links again" brings back the bubbles the agent was last linked to.
+- **Double-click a web bubble to open the last address it read** — in your browser by default, or in an in-app iframe tab (Options › Advanced). Internet pages run in a separate sandboxed view with no permissions, and iframe tabs have an "Open in browser" action.
+- **Every file bubble opens with a double-click.** Files open in the matching Vibisual app, video and audio it cannot read are converted first, and anything else opens in its own file window like the IDE's side editor. Text files outside the project open read-only, and media outside the project that is on the canvas now gets a preview.
+- **Command app bubbles show the program's own icon**, read from the executable on Windows, the app bundle on macOS and icon themes on Linux. Common commands without an icon of their own use one of 34 bundled official marks, such as Git, curl, Bun, Vite, uv and Homebrew. Command history has the same "Keep last 20 only" checkbox as file edits.
+
+### Changed
+- **New bubbles take their place on a ring around their owner**, starting at 12 o'clock and going clockwise; a full ring widens outward. Satellites keep a visible gap from their parent, and folders and bundles show 2 satellites by default instead of 5 — limits you set per folder are kept.
+- **File bubble sizes follow the file size on a log scale** within the same view, so files of a similar size look alike.
+- **The app-work view starts the moment an agent is linked to an app.** Files written while linked count as work, result files stay, and the right-click menu switches between "Show all bubbles" and "Show only app-related bubbles".
+- **Compact view shows assistant text in full.** The "show more lines" fold is gone.
+- **The prompt rail and "Scroll to bottom" are one pill.** Your messages are dots, the current turn's dot glows softly, and the scroll button stays at the bottom and lights up when there is more to see.
+- **Image previews open at the size shown** and decode the original only when you zoom in; hidden previews release their memory, and SVG previews are cached small.
+- **Project tabs keep the order you drag them into** across restarts. The selected tab grows with a smooth spring, and dragging a tab out of the app shows an outline the size of the new window that opens where you drop it.
+- **Reduced motion slows animations instead of stopping them.** Agent lines, orbits and beads keep flowing at a gentler pace.
+- **Vibisual's hooks exist only while the app runs.** They are installed at launch and removed on quit, at OS shutdown and by the Windows uninstaller, so Claude Code sessions outside the app no longer report hook errors. The usage collector and Codex hooks are reinstalled only when their switches are on.
+- **Shell commands are tracked the same way in Bash, PowerShell and wrapper shells** (`bash -lc`, `pwsh -Command`, `cmd /c`, Codex), with relative paths resolved from the folder each command started in. More editing commands are recognized, including `sed -i`, `perl -pi` and moving folders with `mv`.
+- **Splitting a tab into the cell that already shows it** explains that it is the tab you are viewing, and the split menu item is dimmed in that case.
+
+### Fixed
+- **Sessions stopped by a monthly spend limit are shown as limit-stopped** instead of finished.
+- **Hook reports for large file edits are no longer dropped.** They were rejected as too large; the limit now matches the app's local connection.
+
 ## [0.2.4] - 2026-10-20
 
 ### Added
@@ -762,7 +792,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/Vibisual/vibisual/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/Vibisual/vibisual/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Vibisual/vibisual/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/Vibisual/vibisual/compare/v0.2.1...v0.2.2

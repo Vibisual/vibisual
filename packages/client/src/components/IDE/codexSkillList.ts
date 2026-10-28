@@ -1,23 +1,9 @@
 import type { CodexSkillEntry, CodexSkillSource } from '@vibisual/shared';
 
 /**
- * codexSkillList.ts — §5.25 (M-1): 코덱스 스킬 칸의 **판정**만 모은 곳.
- *
- * 이 파일이 생긴 이유는 종전 코덱스 스킬 칸이 **읽기만 하는 정적 목록**이었기 때문이다. 클로드
- * 스킬 칸에는 클릭 삽입·즐겨찾기·출처 그룹·검색이 있는데 코덱스 칸에는 그중 하나도 없어서,
- * 같은 IDE 안에서 같은 물건이 한쪽에서만 쓸 수 있었다. 화면을 고치면서 **판정은 화면 밖으로**
- * 뺀다 — 그래야 시험이 붙고, 다음에 엔진이 하나 더 늘 때 이 규칙들을 다시 짜지 않는다.
- *
- * **클로드 것을 그대로 베끼지 않는다.** 코덱스에 없는 조작은 만들지 않는다:
- *   - **삭제 ✗** — 기존 스킬은 그대로 보존한다. 사용자 스킬 공유는 명시 요청으로 별도 섹션에서
- *     추가했고, 기존 항목 덮어쓰기·플러그인/시스템 변경은 허용하지 않는다.
- *   - **사용 횟수 ✗** — 코덱스가 어느 스킬을 실제로 썼는지는 그쪽 CLI 가 쥐고 우리에게 주지
- *     않는다. 우리 카운터를 붙이면 화면의 숫자가 사실이 아닌 것이 된다(§5.25 (L) "모르는 것을
- *     지어내지 않은 자리" 와 같은 규율).
- *   - **드래그 재정렬 ✗** — 클로드 쪽 순서는 `skillOrder` 영속에 기대는데, 그 저장고는 출처가
- *     `project|global|plugin` 셋으로 못 박혀 있다. 코덱스 출처(`user|system|plugin`)를 거기
- *     밀어 넣으면 두 엔진의 순서가 서로를 덮어쓴다. 순서는 이름순 고정이고, 자주 쓰는 것은
- *     **즐겨찾기**가 위로 올린다.
+ * §5.25 (M-1) 코덱스 스킬 칸의 판정(화면 밖이라 시험이 붙는다). 클로드에 있어도 코덱스에 없는 조작은 만들지 않는다:
+ * 삭제 ✗(기존 스킬 보존, 공유는 별도 섹션) · 사용 횟수 ✗(코덱스 CLI 만 안다 — 지어낸 숫자가 된다, §5.25 (L)) ·
+ * 드래그 재정렬 ✗(`skillOrder` 는 `project|global|plugin` 출처로 묶여 코덱스 출처를 넣으면 순서가 서로 덮인다 — 이름순 + 즐겨찾기).
  */
 
 /** Codex explicit skill invocation uses `$name`; `/skills` opens the picker. */
@@ -25,13 +11,7 @@ export function codexSkillInsertText(name: string): string {
   return `$${name} `;
 }
 
-/**
- * 즐겨찾기 저장고의 키.
- *
- * **클로드와 같은 저장고(`appState.skillFavorites`)를 쓰되 접두로 가른다.** 새 영속 필드를
- * 만들지 않는 대신, 이름이 겹치는 스킬(`review` 처럼 흔한 이름)이 두 엔진에 다 있을 때
- * 한쪽 별을 켜면 다른 쪽도 켜지는 일을 막는다.
- */
+/** 클로드와 같은 `appState.skillFavorites` 를 쓰되 접두로 가른다 — 같은 이름(`review`)의 별이 두 엔진에 함께 켜지지 않게. */
 export const CODEX_FAVORITE_PREFIX = 'codex:';
 
 export function codexFavoriteKey(name: string): string {
@@ -53,12 +33,7 @@ export function toggleCodexFavorite(favorites: readonly string[], name: string):
   return favorites.includes(key) ? favorites.filter((f) => f !== key) : [...favorites, key];
 }
 
-/**
- * 출처가 없는 항목은 `user` 로 읽는다.
- *
- * 옛 스냅샷(홈만 읽던 시절)에는 `source` 가 없는데, 그때 목록은 **전부 홈 것**이었다 —
- * 그래서 이 기본값은 넘겨짚기가 아니라 그 시절의 사실이다.
- */
+/** 출처 없는 항목은 `user` — `source` 없는 옛 스냅샷은 홈만 읽던 때라 전부 홈 것이다. */
 export function codexSkillSourceOf(skill: CodexSkillEntry): CodexSkillSource {
   return skill.source ?? 'user';
 }
@@ -88,12 +63,7 @@ export interface CodexSkillGroups {
   shown: number;
 }
 
-/**
- * 목록을 화면이 그릴 모양으로 — 검색으로 거르고, 즐겨찾기를 뽑아 올리고, 출처로 나눈다.
- *
- * **즐겨찾기는 검색에도 걸린다** — 검색 중에 안 맞는 즐겨찾기가 남아 있으면 "찾은 것"이
- * 무엇인지 흐려진다(클로드 칸과 같은 규칙은 아니지만, 검색이 없던 그쪽과 상황이 다르다).
- */
+/** 즐겨찾기도 검색에 걸린다 — 안 맞는 즐겨찾기가 남으면 찾은 것이 흐려진다. */
 export function groupCodexSkills(
   skills: readonly CodexSkillEntry[],
   favoriteNames: readonly string[],

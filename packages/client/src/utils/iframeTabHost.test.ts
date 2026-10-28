@@ -1,8 +1,6 @@
 /**
- * §5.23 「더블클릭」 — "이 창에 iframe 탭 줄이 있는가" 표식.
- *
- * 탭 줄을 그리는 셸이 마운트될 때 세우고 언마운트될 때 내린다. StrictMode 는 마운트를 두 번 돌리므로(세우기·내리기·세우기)
- * 셈이 맞아야 하고, 같은 내리기를 두 번 불러도 다른 셸의 표식까지 내려가면 안 된다.
+ * §5.23 「더블클릭」 — "이 창에 iframe 탭 줄이 있는가" 표식 시험. 셸 마운트에 세우고 언마운트에 내린다 — StrictMode 의 두 번 마운트에도
+ * 셈이 맞고, 같은 내리기를 두 번 불러도 다른 셸의 표식까지 내려가지 않는다.
  */
 import { describe, expect, it } from 'vitest';
 import { hasIframeTabHost, registerIframeTabHost } from './iframeTabHost.js';

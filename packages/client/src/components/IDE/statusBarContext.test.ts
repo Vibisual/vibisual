@@ -5,17 +5,8 @@ import {
 } from './statusBarContext.js';
 
 /**
- * §5.5 — 상태바 한 줄의 **주어가 하나**이고, **칸이 사라지지 않는다**는 회귀.
- *
- * 되돌아가기 쉬운 자리라 고정한다. 세 번 무너졌다:
- * ① `agent.contextUsed` 만 그리던 시절 — 서버가 버블에 채우는 "가장 최근에 움직인 sub" 가
- *    스냅샷마다 바뀌며 숫자가 세션들 사이를 뛰었다.
- * ② 그 뒤 칸마다 `activeSession?.X ?? agent.X` 로 폴백을 걸던 시절 — 고른 세션이 값을 아직
- *    안 가졌으면 조용히 버블 값으로 굴러떨어져, 방금 연 세션 넷을 오가도 `입력 1267.2M`
- *    (= 24개 세션 합계)이 넷 다 똑같이 떴다("세션을 넘겨도 안 변한다").
- * ③ 폴백을 걷어낸 뒤 — 값이 없는 순간마다 칸이 **언마운트**돼 옆 칸이 밀렸다 되돌아왔다
- *    ("간헐적으로 아래 내용이 사라진다"). 이제 모르면 `0` 을 그리고 칸은 남는다.
- * 한 줄만 되돌려도 셋 중 하나가 그대로 돌아온다.
+ * §5.5 — 상태바 한 줄의 주어가 하나이고 칸이 사라지지 않는가: 버블 값으로 그리면 숫자가 세션 사이를 뛰고, 칸별 `?? agent.X` 폴백이면 세션을 넘겨도 안 변하고,
+ * 값 없을 때 칸을 지우면 옆 칸이 밀린다(모르면 `0`).
  */
 describe('resolveStatusBarContext', () => {
   it('세션이 자기 컨텍스트를 갖고 있으면 세션 값을 쓴다 (버블 값은 무시)', () => {
@@ -35,7 +26,7 @@ describe('resolveStatusBarContext', () => {
   });
 
   it('세션을 골랐는데 그 세션이 컨텍스트를 모르면 버블 값으로 채우지 않는다', () => {
-    // ← 종전에는 여기서 버블 값(153K)으로 물러났다. 그게 "세션을 넘겨도 안 변한다"의 절반이었다.
+    // ← 여기서 버블 값(153K)으로 물러나면 세션을 넘겨도 숫자가 안 변한다.
     expect(resolveStatusBarContext(
       { contextUsed: 153_000, contextMax: 1_000_000 },
       { contextUsed: undefined, contextMax: undefined },
@@ -136,7 +127,7 @@ describe('resolveStatusBarUsage', () => {
   });
 
   it('갓 연 세션 넷을 오가도 24개 세션 합계(1267.2M)가 뜨지 않는다 — 0 이 정답이다', () => {
-    // 사용자 보고 재현: 방금 만든 탭들은 아직 JSONL 이 없어 토큰이 비어 있다.
+    // 재현: 방금 만든 탭은 아직 JSONL 이 없어 토큰이 비어 있다.
     for (const fresh of [{}, { modelName: undefined }, { totalInputTokens: undefined }]) {
       const usage = resolveStatusBarUsage(bubble, fresh);
       expect(usage.inputTokens).toBe(0);
@@ -173,14 +164,7 @@ describe('resolveStatusBarUsage', () => {
   });
 });
 
-/**
- * §4 (Thinking on/off) — 상태바의 「확장 사고 꺼짐」 칸.
- *
- * 고정하는 것은 둘이다. ① **기본이 켬**이라 단순 truthy 가 아니다 — `undefined`(한 번도 안 만짐)를
- * 끔으로 읽으면 손댄 적 없는 모든 에이전트의 상태바에 "꺼짐"이 뜬다. ② **이 설정을 실제로 받지 않는
- * 세션에는 안 뜬다** — 훅 버블·프로바이더 버블·클로드가 아닌 CMD 갈래. 그 셋에 띄우면 화면이
- * "이래서 안 도는 겁니다"라고 거짓 사유를 대게 되고, 사용자는 있지도 않은 체크를 찾아 헤맨다.
- */
+/** §4 (Thinking on/off) — 「확장 사고 꺼짐」 칸: `undefined` 는 켬이고, 설정을 안 받는 세션(훅·프로바이더·클로드가 아닌 CMD)에는 안 뜬다. */
 describe('resolveStatusBarThinkingOff', () => {
   const on = { isCustom: true } as const;
 
@@ -256,14 +240,7 @@ describe('resolveStatusBarThinkingOff', () => {
   });
 });
 
-/**
- * §4 (상태바 모델 칸 ①) — 모델 칸 옆의 추론 강도.
- *
- * 고정하는 것은 셋이다. ① `'default'`·빈 값은 **값이 아니라 "안 정함"** 이다 — 서버가 `--effort` 를
- * 안 붙이는 조건과 같아야 화면이 스폰과 다른 말을 하지 않는다. ② 코덱스는 클로드 칸이 아니라
- * `reasoningEffort` 를 본다(클로드 칸의 기본값을 코덱스 상태바에 적으면 엉뚱한 엔진의 강도가 된다).
- * ③ 그 턴이 강도를 읽지 않는 갈래(훅·로컬·클로드가 아닌 CMD)에는 **자리 자체가 없다**.
- */
+/** §4 (상태바 모델 칸 ①) — 추론 강도: `'default'`·빈 값은 "안 정함"(서버가 `--effort` 를 안 붙이는 조건), 코덱스는 `reasoningEffort`, 안 읽는 갈래엔 자리 없음. */
 describe('resolveStatusBarEffort', () => {
   const custom = { isCustom: true } as const;
 

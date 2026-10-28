@@ -15,9 +15,8 @@ const DATA_MIME = new Set(['application/octet-stream', 'application/gltf-buffer'
 export class ModelDependencyError extends Error {}
 
 /**
- * Length of the model's animation in seconds (the longest clip), or undefined when it has none. glTF requires the
- * min/max of every animation input accessor, so the length is read from the JSON without decoding any buffer;
- * a .vibi3d source stores each clip's duration.
+ * Longest clip in seconds, or undefined. glTF requires min/max on animation input accessors, so it is read from the JSON without decoding
+ * buffers; a .vibi3d source stores each clip's duration.
  */
 export function modelAnimationSeconds(bytes: Buffer, extension: string): number | undefined {
   try {
@@ -48,9 +47,8 @@ export function modelAnimationSeconds(bytes: Buffer, extension: string): number 
 }
 
 /**
- * Pin glTF companion bytes together with the model. Companions must sit in the model's own folder (or below it) and
- * be a buffer or an image; network, escaping paths, other file types and foreign data URIs never become dependencies.
- * `read` receives a path relative to the model's folder.
+ * Companions must sit in the model's folder (or below) and be a buffer or an image; network, escaping paths, other file types and
+ * foreign data URIs never become dependencies. `read` receives a path relative to the model's folder.
  */
 export function embedModelResources(bytes: Buffer, extension: string, read: (relative: string) => Buffer): Buffer {
   const binary = extension === '.glb';

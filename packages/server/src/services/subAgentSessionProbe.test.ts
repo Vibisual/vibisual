@@ -14,14 +14,8 @@ import type { SessionProbeEvidence } from './sessionLivenessProbe.js';
 import { createTurnSealState, type TurnSealState } from './turnSeal.js';
 
 /**
- * §2.4 — **도는 중으로 서 있는 세션 하나를 10분마다 물어본다.**
- *
- * 판정 자체(프롬프트 구조·답 파싱·대화록 꼬리)는 `sessionLivenessProbe.test.ts` 가 이미 굳혔다.
- * 여기서 보는 것은 **오케스트레이션**이다 — 누구에게 묻고, 답을 어떻게 반영하고, 무엇을 안 건드리나.
- *
- * 계약은 한 방향이다: **확실할 때만 손댄다.**
- *  · 기존 다섯 장치가 걷을 수 있는 자리면 묻지 않는다(`hasLivingWork` 이 거짓이면 그쪽 소관).
- *  · 답이 `working`/`unknown`/실패면 세션을 그대로 둔다.  · `finished` + 자동종료일 때만 내린다.
+ * §2.4 — 도는 중으로 선 세션을 10분마다 묻는 오케스트레이션(판정은 `sessionLivenessProbe.test.ts`). 확실할 때만 손댄다:
+ * `hasLivingWork` 거짓이면 안 묻고, `finished` + 자동종료일 때만 내린다.
  */
 
 /** 판정 1회를 가로챈다 — 진짜 모델을 부르지 않는다. */
@@ -56,12 +50,7 @@ vi.mock('./codexRunner.js', async (importOriginal) => ({
 const { SubAgentManager } = await import('./subAgentManager.js');
 
 const PARENT = 'agent-sessprobe';
-/**
- * 명령 큐의 키. **일부러 `sub.sessionId` 와 다른 값**을 쓴다 — 실제 서버의 `commandQueues` 는
- * 훅 세션 id(`graphManager.findSessionByAgentId`)로 키가 잡히는데 `SubAgent.sessionId` 는 CLI 가
- * 발급한 세션 UUID 라 **서로 다른 namespace** 이기 때문이다. 둘을 같게 두면 키를 잘못 짚어도
- * 테스트가 초록으로 지나간다(이 파일이 처음 잡은 결함이 정확히 그것이다).
- */
+/** **일부러 `sub.sessionId` 와 다르게** — `commandQueues` 의 키는 훅 세션 id 이고 `SubAgent.sessionId` 는 CLI UUID 다. 같게 두면 키를 잘못 짚어도 초록이다. */
 const HOOK_SESSION = 'hook-session-xyz';
 
 let m: InstanceType<typeof SubAgentManager>;

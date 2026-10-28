@@ -20,21 +20,10 @@ import { buildClaudeLoginCommand, claudeLoginPlatform, isClaudeLoginEmailValid }
 const Z = 100_600; // ClaudeVersionGate(100_500) 보다 위 — 로그인이 안 되면 버전 갱신도 의미가 없다.
 
 /**
- * §4 v4.82 — 앱 안 Claude 로그인 팝업.
- *
- * 그동안 로그인은 앱 밖 cmd 창(`claude` → `/login`)에서만 됐다. 이 창은 **새 인증 레일이 아니라**
- * 기존 조각의 조합이다: 상태는 서버 `claude auth status`(스냅샷 `claudeAuth`), 실행은 기존 임베디드
- * PTY(§4 v2.63 terminalManager 의 §5.5 #17-20 ④ v4.74 실행 런처 갈래)로 `claude auth login` 을 돌린다.
- *
- * 화면 규칙:
- *  - `loggedIn === false && !error` 일 때만 자동으로 뜬다. `error`(CLI 미발견·타임아웃·파싱실패)는
- *    "로그아웃"이 아니라 **"모름"** 이라 모달로 앱을 막지 않는다.
- *  - 예외는 **설치 게이트의 인계**(`ClaudeSetupGate` → `setLoginGate({ forced: true })`) 하나다.
- *    갓 설치한 실행본에 자격증명이 있을 리 없어, 그 자리에서만은 "모름"도 불러 세운다.
- *  - PTY 출력을 훑어 **OAuth URL → 버튼**, **코드 요구 → 입력칸**으로 바꿔 보여준다.
- *  - 성공 판정의 1차 근거는 출력 문구가 아니라 **`auth status` 재조회**(로그인 중 3초 폴링)다.
- *    CLI 출력 포맷이 바뀌어도 안 깨지게 하기 위함.
- *  - URL 을 제때 못 찾으면 같은 PTY 를 터미널로 자동 펼친다 — 어떤 경우에도 앱 밖으로 나갈 일이 없다.
+ * §4 — 앱 안 로그인 팝업: 상태는 서버 `claude auth status`(스냅샷 `claudeAuth`), 실행은 임베디드 PTY(§5.5 #17-20 ④ 런처 갈래)로 `claude auth login`.
+ * `loggedIn === false && !error` 일 때만 자동으로 뜬다 — `error`(CLI 없음·타임아웃·파싱 실패)는 "모름"이라 막지 않는다(예외: 설치 게이트 인계 `forced`).
+ * 출력의 OAuth URL → 버튼, 코드 요구 → 입력칸. 성공 판정은 문구가 아니라 `auth status` 재조회(3초 폴링) — CLI 포맷이 바뀌어도 안 깨지게.
+ * URL 을 제때 못 찾으면 같은 PTY 를 터미널로 펼친다(앱 밖으로 나가지 않는다).
  */
 export function LoginWindow(): React.JSX.Element | null {
   const { t } = useTranslation();
@@ -43,13 +32,8 @@ export function LoginWindow(): React.JSX.Element | null {
   const forced = useGraphStore((s) => s.loginGateForced);
   const setLoginGate = useGraphStore((s) => s.setLoginGate);
   const refreshAuth = useGraphStore((s) => s.refreshClaudeAuth);
-  // PATH 의 `claude` 가 아니라 **앱이 실제로 쓰는 바이너리**로 로그인해야 자격증명이 같은 곳에 남는다
-  // (VS Code 확장 번들 등 PATH 밖 설치 — §5.7 #23-1 resolveClaudeBin 이 고른 경로).
-  //
-  // 폴백이 `claudeSetup.binPath` 인 이유: `claudeVersion` 은 옵션창/명령 전송이 한 번은 돌아야
-  // 채워져 **갓 설치한 사람에게는 비어 있다.** 그때 이름만(`claude`) 던지면 PTY 가 못 찾는다 —
-  // 네이티브 인스톨러가 넣은 PATH 는 **이미 떠 있는 앱의 환경에는 반영되지 않기 때문**이다
-  // (§4 첫 실행 설치 온보딩의 마지막 칸이 여기서 끊긴다). 설치 판정은 절대경로를 들고 있다.
+  // 앱이 실제로 쓰는 바이너리로 로그인해야 자격증명이 같은 곳에 남는다(VS Code 확장 번들 등 PATH 밖 설치 — §5.7 #23-1 resolveClaudeBin).
+  // 폴백 `claudeSetup.binPath` — 갓 설치하면 `claudeVersion` 이 비어 있고, 이름(`claude`)만 주면 이미 뜬 앱의 PATH 에 새 설치가 없어 PTY 가 못 찾는다.
   const claudeBinPath = useGraphStore((s) => s.claudeVersion?.binPath ?? s.claudeSetup?.binPath);
   const installCommand = useGraphStore((s) => s.claudeSetup?.installCommand);
   const engineChoice = useGraphStore((s) => s.userDefaults?.engineChoice);
@@ -85,14 +69,8 @@ export function LoginWindow(): React.JSX.Element | null {
   }, [shouldOpen, running, stopLogin]);
 
   /**
-   * §4 (첫 실행 온보딩) — 이 창이 닫히며 **다음 칸(프로젝트 폴더)으로 넘긴다.**
-   *
-   * `ClaudeSetupGate` 가 이 창을 불러 준 것(설치 → 로그인)의 뒷짝이다. 폴더 게이트는 스스로도
-   * 뜨지만, 방금 로그인을 마친 이 순간에는 `claudeSetup`·`claudeAuth` 스냅샷이 아직 한 박자
-   * 옛것일 수 있어 순서 판정이 'pending' 으로 떨어진다 — 그러면 온보딩이 로그인에서 끝난 것처럼
-   * 보이고, 사용자는 다음에 무엇을 해야 하는지 모른 채 빈 캔버스와 마주한다.
-   *
-   * 판정은 렌더 시점이 아니라 **그 순간의 스토어 값**으로 한다(오래된 클로저 값에 매이면 안 된다).
+   * §4 (온보딩) — 닫히며 다음 칸(프로젝트 폴더)으로 넘긴다. 로그인 직후 스냅샷이 한 박자 늦어 순서 판정이 'pending' 이 되면 온보딩이 끊겨 보인다
+   * — 그 순간의 스토어 값으로 판정한다(오래된 클로저 값 ❌).
    */
   const handOffToProjectFolder = useCallback(() => {
     const now = useGraphStore.getState();
@@ -189,10 +167,7 @@ export function LoginWindow(): React.JSX.Element | null {
                 {auth.error}
               </span>
             )}
-            {/* §4 (첫 실행 온보딩) — **폰 전용**. 데스크톱에서는 헤더 전환기가 이 창 위로 떠 오르므로
-                (HeaderLanguageSlot) 여기에도 두면 같은 것이 두 개 보인다. 폰(max-md)은 헤더 우측
-                묶음이 접혀 있어 그 띄우기가 일어나지 않아(liftedSlotPosition → null) 이 자리가
-                모국어로 바꿀 유일한 입구다 — 그래서 지우지 않고 `md:hidden` 으로 접는다. */}
+            {/* §4 (온보딩) — 폰 전용 언어 전환기(데스크톱은 헤더 전환기가 떠 두 개가 된다). 폰에선 여기가 유일한 입구라 지우지 않고 `md:hidden` 으로 접는다. */}
             <div className="shrink-0 md:hidden"><LanguageSwitcher portalMenu menuZIndex={Z + 100} /></div>
           </div>
 
@@ -338,9 +313,7 @@ export function LoginWindow(): React.JSX.Element | null {
                         defaultValue: 'This window cannot run a terminal here. Open Vibisual on the desktop app to sign in.',
                       })
                       : t('panel.login.startFailed', { defaultValue: 'Could not start the sign-in process.' })}
-                    {/* 실제 실패 사유를 함께 보인다 — 이 줄이 없어서 mac 의 `posix_spawnp failed.`
-                        (node-pty spawn-helper 실행 권한 없음)이 "시작하지 못했습니다" 한 줄로만
-                        보였고, 원인을 찾는 데 실기 조사가 필요했다(2026-08-29). */}
+                    {/* 실제 실패 사유를 함께 보인다 — 없으면 mac `posix_spawnp failed.`(node-pty spawn-helper 실행 권한 없음) 같은 원인이 한 줄 안내에 묻힌다. */}
                     {startError !== 'no-transport' && (
                       <span className="mt-1.5 block break-all font-mono text-[12px] text-red-300/70">{startError}</span>
                     )}

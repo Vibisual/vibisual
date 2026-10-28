@@ -7,21 +7,9 @@ import {
   type CmdTerminalState,
 } from '@vibisual/shared';
 
-// §4 (CMD 터미널 업그레이드 ①) — CMD 터미널 **상태 감지기**.
-//
-// herdr 이 파는 가치("막힌 놈을 찾아 헤매지 않는다")의 근거는 pane 별 working/idle/blocked 다.
-// 우리 CMD 세션의 상태 근거는 지금까지 Claude Code 훅(`markCmdSubActivity`) 하나뿐이라,
-// 훅이 없는 CLI(codex·gemini·aider…)를 띄우면 상태가 영영 idle 로 굳었고 claude 라도
-// "권한 프롬프트 앞에서 멈춰 있음"을 표현할 축이 없었다.
-//
-// 이 모듈은 **새 스트림을 만들지 않는다** — `TerminalCardSniffer` 와 **같은 PTY 바이트**를 받아
-// (1) 마지막 출력 시각과 (2) 화면 꼬리만 들고 있다가, 주기 tick 에서 상태를 판정한다.
-//   - 바이트가 흐르는 중            → `working`
-//   - 무출력 `CMD_BLOCKED_IDLE_MS` + 꼬리가 `CMD_BLOCK_PATTERNS` 매치 → `blocked`
-//   - 무출력 `CMD_IDLE_MS`          → `idle`
-//
-// **판정이 아니라 신호다** — 서버가 이 값을 받아 `SubAgent.blocked` 플래그와 `status` 로 번역한다
-// (§3.1 서버 = SSOT). 그래서 여기엔 상태 전이 규칙(`status='idle'` 같은)이 한 줄도 없다.
+// §4 (CMD 터미널 ①) — 상태 감지기(pane 별 working/idle/blocked). 훅만으로는 훅 없는 CLI 가 idle 로 굳고 권한 프롬프트 멈춤도 못 나타낸다.
+// `TerminalCardSniffer` 와 같은 PTY 바이트에서 마지막 출력 시각·화면 꼬리만 들고 tick 마다: 흐름 → `working` · 무출력 `CMD_BLOCKED_IDLE_MS` +
+// `CMD_BLOCK_PATTERNS` → `blocked` · 무출력 `CMD_IDLE_MS` → `idle`. **신호일 뿐** — 서버가 `SubAgent.blocked`·`status` 로 번역한다(§3.1).
 
 const ESC = String.fromCharCode(27);
 // ANSI(CSI/OSC/단일 이스케이프) + 잔여 제어문자 제거 — 소스에 제어문자 리터럴을 넣지 않는다

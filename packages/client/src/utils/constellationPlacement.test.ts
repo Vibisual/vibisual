@@ -27,9 +27,9 @@ function orbitRadius(sat: SatelliteInfo): number {
 afterEach(() => vi.restoreAllMocks());
 
 /**
- * §5.1 #2-1 (B) — 같은 종류 묶음(2026-10-21 · 2026-10-22): 상위 폴더 `/project` 를 도는 위성 가운데 하위 폴더 `video` 의 영상 둘은
- * 묶음 버블 하나가 되고, 그 영상들은 바깥 화면에 서지 않는다(2026-10-22 사용자 지시 "저런 버블은 없다고" — 구성은 묶음 안에서만).
- * 묶음 버블은 폴더의 보통 위성처럼 첫 고리에 선다. 궤도(고리 0)에만 앉는 달은 앱 노드 별자리의 위성이다.
+ * §5.1 #2-1 (B) — 같은 종류 묶음: `/project` 를 도는 위성 중 하위 폴더 `video` 의 영상 둘은 묶음 버블 하나가 되고 폴더의 낱자리로 서지 않는다.
+ * 대신 폴더 위성과 같은 규칙으로 묶음의 위성이 된다. 묶음은 폴더의 위성처럼 첫 고리에 서되 제 위성까지가 몸이다.
+ * 궤도(고리 0)에만 앉는 달은 앱 노드 별자리의 위성이다.
  */
 const parent: BubbleData = {
   id: 'parent', label: 'project', path: '/project', bubbleType: 'internal_folder', status: 'idle', activity: 1,
@@ -54,24 +54,40 @@ function appHubView(): ReturnType<typeof applyConstellations> {
 }
 
 describe('별자리 첫 자리 — 새 파일 위성이 먼 임의 거리에 남지 않는다', () => {
-  it('같은 종류 묶음은 구성 대신 묶음 버블 하나가 부모 둘레 첫 고리 12시에 선다 — 구성은 바깥에 서지 않는다', () => {
+  it('같은 종류 묶음은 구성 대신 묶음 버블 하나가 부모 둘레 첫 고리 12시에 서고, 구성은 그 묶음 둘레 12시부터 위성으로 선다', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const view = kindBundleView();
-    expect(view.satInfos).toHaveLength(1);
+    // 묶음 하나 + 그 위성 둘 — 폴더를 직접 도는 것은 묶음뿐이다(구성은 폴더의 낱자리로 서지 않는다).
+    expect(view.satInfos).toHaveLength(3);
     const bundle = view.satInfos[0]!;
     expect(bundle.bubble.bubbleType).toBe('bundle');
     expect(bundle.parentId).toBe(parent.id);
-    expect(view.satInfos.some((s) => s.bubble.id === 'sat-clip' || s.bubble.id === 'sat-video')).toBe(false);
+    expect(view.satInfos.filter((s) => s.parentId === parent.id)).toHaveLength(1);
+    const moons = view.satInfos.filter((s) => s.parentId === bundle.bubble.id);
+    expect(moons.map((s) => s.bubble.id).sort()).toEqual(['sat-clip', 'sat-video']);
+    expect(typeof bundle.reach).toBe('number');
     const positions = new Map([[parent.id, { x: 500, y: 500 }]]);
     const center = { x: 500 + bundle.parentSize / 2, y: 500 + bundle.parentSize / 2 };
 
     placeSatellitePositions(view.satInfos, positions);
 
+    // 묶음은 제 위성까지가 몸 — 부모 테두리 → 틈 → 몸집 테두리(§5.1 #2-2 (J) ④). 자리는 그대로 12시다.
     const size = calcBubbleSize(bundle.bubble, bundle.localRange, bundle.heat);
     const p = positions.get(bundle.bubble.id)!;
-    expect(radiusFrom(bundle, p, center)).toBeCloseTo(orbitRadius(bundle));
+    expect(radiusFrom(bundle, p, center)).toBeCloseTo(bundle.parentSize / 2 + bundle.reach! + SATELLITE_ORBIT_GAP);
     expect(p.x + size / 2).toBeCloseTo(center.x);
     expect(p.y + size / 2).toBeLessThan(center.y);
+    // 위성은 묶음 둘레 첫 고리 — 폴더 위성과 같은 틈이고, 먼저 앉은 것이 12시다(활동이 같으면 차례대로).
+    const bundleCenter = { x: p.x + size / 2, y: p.y + size / 2 };
+    const first = moons[0]!;
+    const fp = positions.get(first.bubble.id)!;
+    const fs = calcBubbleSize(first.bubble, first.localRange, first.heat);
+    expect(radiusFrom(first, fp, bundleCenter)).toBeCloseTo(orbitRadius(first));
+    expect(fp.x + fs / 2).toBeCloseTo(bundleCenter.x);
+    expect(fp.y + fs / 2).toBeLessThan(bundleCenter.y);
+    for (const moon of moons) {
+      expect(radiusFrom(moon, positions.get(moon.bubble.id)!, bundleCenter)).toBeCloseTo(orbitRadius(moon));
+    }
   });
 
   it('앱 중심의 새 위성도 앱 가운데를 기준으로 같은 궤도에 앉는다', () => {

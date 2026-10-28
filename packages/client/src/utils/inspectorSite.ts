@@ -6,17 +6,10 @@ import {
 } from '@vibisual/shared';
 
 /**
- * inspectorSite.ts — §5.5 #17-27 ⑮ (i) **미리보기 페이지 안의 요소를 Alt 로 집는다.**
- *
- * 인스펙터(`useInspector`)는 iframe 안까지 들어가지만, 그 길은 `contentDocument` 를 읽을 수
- * 있을 때만 열린다. 편집창의 페이지 미리보기는 패키지 앱에서 `vibproxy://` 라 우리 창과
- * **오리진이 다르고**, 그래서 인스펙터는 그 자리에서 조용히 포기했다 — 사용자가 얻는 것은
- * iframe 을 그린 React 컴포넌트(`IDEHtmlPreview`)뿐이라, 정작 가리킨 요소는 어디에도 없었다.
- *
- * 벽을 넘는 방법은 창구를 하나 더 파는 것이 아니라 **이미 있는 대화**를 쓰는 것이다: 서버가
- * 내보내는 HTML 에 이미 위치 신고 조각이 실려 있으므로(⑮ (b)), 거기에 "좌표를 물으면 요소를
- * 답한다"를 얹고 이쪽에서 묻는다. 답에는 **원본의 줄:칸**이 들어 있다 — 그 파일은 우리가
- * 내보내면서 시작 태그마다 자리를 적어 두기 때문이다(`annotateWorkspaceSiteSource`).
+ * §5.5 #17-27 ⑮ (i) — 미리보기 페이지 안의 요소를 Alt 로 집는다.
+ * 인스펙터(`useInspector`)는 `contentDocument` 를 읽을 수 있을 때만 iframe 안에 들어간다. 패키지 앱의 페이지 미리보기는 `vibproxy://` 라 오리진이 달라,
+ * 그대로면 iframe 을 그린 컴포넌트(`IDEHtmlPreview`)만 집힌다. 새 창구 대신 이미 있는 대화를 쓴다 — 서버가 내보내는 HTML 의 위치 신고 조각(⑮ (b))에
+ * "좌표를 물으면 요소를 답한다"를 얹고 여기서 묻는다. 답에는 원본의 줄:칸이 든다(내보낼 때 시작 태그마다 자리를 적는다 — `annotateWorkspaceSiteSource`).
  */
 
 /** 답을 기다리는 상한(ms). 넘으면 없는 셈 친다 — 페이지가 죽어 있어도 인스펙터는 살아 있어야 한다. */
@@ -104,12 +97,8 @@ export function siteHitSummary(hit: WorkspaceSiteInspectHit): string {
 }
 
 /**
- * 페이지 요소 → 클립보드 글. 앱 요소의 티어 표기(`buildClipboardText`)와 **같은 어휘**를 쓴다 —
- * 받는 쪽(사람이든 에이전트든)이 두 가지 형식을 배울 이유가 없다.
- *
- * 첫 줄이 곧 답이다: `[Source] <파일>:<줄>:<칸>`. 스크립트가 만든 요소라 자기 자리가 없으면
- * **가장 가까운 조상의 자리**를 주고 몇 단계 위인지 함께 적는다 — "정확하지 않다"를 숨기지
- * 않는 편이, 없는 줄 번호를 지어내는 것보다 쓸모 있다.
+ * 페이지 요소 → 클립보드 글. 앱 요소의 티어 표기(`buildClipboardText`)와 같은 어휘를 쓴다(받는 쪽이 두 형식을 배울 이유가 없다).
+ * 첫 줄이 곧 답이다: `[Source] <파일>:<줄>:<칸>`. 자기 자리가 없는 요소는 가장 가까운 조상의 자리와 몇 단계 위인지 적는다 — 줄 번호를 지어내지 않는다.
  */
 export function buildSiteClipboardText(hit: WorkspaceSiteInspectHit, url: string): string {
   const relPath = siteRelPathFromUrl(url);

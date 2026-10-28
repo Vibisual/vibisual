@@ -1,19 +1,7 @@
 /**
- * §5.13 (T-6)(T-10)(V) 37-11 — **가져오기** REST(앱 라우트 — `/api/app/vibistudio/…`).
- *
- * - `GET    /libs?project=` — 들여놓은 것 + 에이전트 요청(에이전트도 읽는다 — 무엇이 있는지 보고 `vibi:libs` 에 이름을 적는다)
- * - `POST   /libs/requests { project, url, reason }` — **에이전트는 요청만**(사람이 [가져오기]를 눌러야 받는다)
- * - `PATCH  /libs/requests/:id { project, status:'rejected' }` — 사람만
- * - `PUT    /libs/file?project=&name=` — 사람만. 파일 하나(JS·CSS·글꼴·zip·HTML 한 장)를 들인다
- * - `POST   /libs/url { project, url, name?, requestId? }` — 사람만. https 주소 하나를 main 네트워크로 받아 들인다
- * - `GET    /libs/project-files?project=&q=` — 이 프로젝트 `node_modules` 안에서 고를 파일 찾기(읽기만)
- * - `POST   /libs/project { project, path }` — 사람만. 그 파일을 복사해 들인다(사용자가 이미 설치한 것)
- * - `DELETE /libs/:id?project=` — 사람만. 라이브러리·글꼴 폴더는 지우고, 묶음은 목록에서만 뺀다(쓰던 문서가 깨지지 않게)
- * - `POST   /libs/:id/vendor { project, urls[], duration? }` — 사람만. HTML 한 장의 바깥 참조를 받아 `vendor/` 에 두고 사본의 주소를
- *   상대 경로로 바꾼다(원본은 `index.source.html`) · 길이 선언이 없으면 적는다
- *
- * 자리: `.vibisual/video/libs/<이름>/…` · 목록 `.vibisual/video/libs.json`(원자적 쓰기) · 묶음은 `compositions/<이름>/`. 라이선스는 찾은
- * 그대로 보여 주고 판단하지 않는다. 받기는 `invokeMain('libs:download')`(시스템 프록시를 따르는 main 네트워크) — 조용히 받지 않는다.
+ * §5.13 (T-6)(T-10)(V) 37-11 — 가져오기 REST. 에이전트는 읽기(`GET /libs`·`/libs/project-files`)와 요청(`POST /libs/requests`)만 — 받기·들이기·지우기는 사람만.
+ * `DELETE` 는 묶음을 목록에서만 뺀다(쓰던 문서가 깨지지 않게). `vendor` 는 바깥 참조를 `vendor/` 에 받아 사본 주소를 상대 경로로 바꾼다(원본 `index.source.html`).
+ * 라이선스는 찾은 그대로 보여 주고 판단하지 않는다. 받기는 `invokeMain('libs:download')`(시스템 프록시를 따르는 main 네트워크) · 목록은 원자적 쓰기.
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';

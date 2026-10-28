@@ -1,14 +1,7 @@
 /**
- * "이 자리는 캔버스인가" — 캔버스 생성 메뉴(커스텀/CMD/Auto 에이전트·파이프라인·워크트리)를 열어도
- * 되는 자리인지 한 곳에서 판정한다. 우클릭(§4)과 터치 롱프레스(§4 v3.22 ①)가 **같은 답**을 써야 한다.
- *
- * 왜 필요한가 — IDE 창·보드 패널 같은 화면 위 창들은 화면에서는 캔버스를 덮고 있지만 **DOM 으로는
- * 캔버스 컨테이너의 자식**이다(`BubbleMap` 의 바깥 div 안에 `<ReactFlow>` 와 나란히 선다). 그래서 그
- * 창 안에서 일어난 터치가 컨테이너까지 거슬러 올라가고, 폰에서 IDE 본문 글자를 꾹 눌러 **선택하려던
- * 손짓이 캔버스 생성 메뉴를 여는** 일이 벌어졌다(사용자 보고). 막는 목록을 늘려 잡으면 새 창이
- * 생길 때마다 같은 사고가 반복되므로, 판정을 뒤집어 **React Flow 안에서 시작한 손짓만** 캔버스로 본다.
- *
- * DOM 없이 단위 테스트할 수 있게 `closest` 하나만 요구한다(테스트 환경이 node 라 Element 가 없다).
+ * "이 자리는 캔버스인가" — 생성 메뉴 판정. 우클릭(§4)과 롱프레스(§4 ①)가 같은 답을 쓴다.
+ * IDE 창·보드 패널은 DOM 상 캔버스 컨테이너 자식이라 그 안 길게 누르기가 메뉴를 열었다 — 막는 목록 대신 React Flow 안에서 시작한 손짓만 캔버스로 본다(새 창마다 재발 ❌).
+ * `closest` 하나만 요구한다(시험 환경엔 Element 가 없다).
  */
 
 /** `Element.closest` 만 쓰는 최소 모양 — 진짜 Element 도 이 모양을 만족한다. */
@@ -20,27 +13,21 @@ export interface ClosestTarget {
 export const CANVAS_ROOT_SELECTOR = '.react-flow';
 
 /**
- * 캔버스 안이지만 **생성 메뉴 자리는 아닌** 것들 — 버블(노드) 위, 그리고 조작용 패널
- * (`CanvasControls` 는 React Flow `<Panel>` 이라 `.react-flow__panel` 이 된다) 위.
- *
- * §5.4 #34 — `.react-flow__nodesselection` 은 **여러 개를 묶어 고르면 그 위에 덮이는 상자**다.
- * `pointer-events: all` 이라 묶인 버블을 통째로 가려, 이것이 없으면 **묶음 위 우클릭이 버블에
- * 닿지 못하고 빈 곳 메뉴(만들기)로 샜다** — 지우려던 손이 만들기 목록을 받았다(2026-09-11 사용자
- * 보고). 묶음의 메뉴는 `onSelectionContextMenu` 가 따로 연다.
+ * 캔버스 안이지만 메뉴 자리가 아닌 것 — 노드·조작 패널(`.react-flow__panel`). §5.4 #34 — `.react-flow__nodesselection`(`pointer-events: all`)이 빠지면
+ * 묶음 우클릭이 만들기 메뉴로 샌다(묶음 메뉴는 `onSelectionContextMenu`).
  */
 export const CANVAS_CHROME_SELECTOR =
   '.react-flow__node, .react-flow__nodesselection, .react-flow__controls, .react-flow__minimap, .react-flow__panel, .react-flow__attribution';
 
-/**
- * 이 대상 위에서 캔버스 생성 메뉴를 열어도 되는가.
- *
- * - React Flow 밖(IDE 창·보드 패널·팝업 등) → `false` — 그 안의 글자 선택·스크롤을 방해하지 않는다.
- * - 버블 위·캔버스 조작 패널 위 → `false` — 각자 자기 메뉴가 있다.
- * - 판정할 수 없는 대상(`closest` 없음) → `false` — 애매하면 열지 않는다.
- */
+/** 남의 판(IDE 세션 버블 지도 §5.5 #17-50)의 뿌리 표식 — 그 판도 `.react-flow` 라 표식이 없으면 지도 빈 곳 우클릭이 캔버스 만들기 메뉴를 연다. */
+export const FOREIGN_FLOW_ATTR = 'data-foreign-flow';
+const FOREIGN_FLOW_SELECTOR = `[${FOREIGN_FLOW_ATTR}]`;
+
+/** `false`: React Flow 밖(글자 선택·스크롤 방해 ❌) · 남의 판 · 버블·조작 패널 위(각자 메뉴) · `closest` 없는 대상(애매하면 안 연다). */
 export function isCanvasSurfaceTarget(target: unknown): boolean {
   const el = target as ClosestTarget | null | undefined;
   if (!el || typeof el.closest !== 'function') return false;
+  if (el.closest(FOREIGN_FLOW_SELECTOR)) return false;
   if (el.closest(CANVAS_CHROME_SELECTOR)) return false;
   return !!el.closest(CANVAS_ROOT_SELECTOR);
 }

@@ -19,7 +19,7 @@ describe('command app history projection', () => {
     expect(new Set(rows.map((row) => row.key)).size).toBe(2);
   });
 
-  // §5.1 명령 앱 · §7.3 (2026-10-21 사용자 지시) — 파일 버블 수정 기록과 같은 `마지막 20개만 유지` 규칙(10-20 의 화면 상한 50 은 걷었다).
+  // §5.1 · §7.3 — 파일 버블과 같은 `마지막 20개만 유지` 규칙.
   it('follows the file bubble rule: the checked box keeps the newest MAX_FILE_EDITS references', () => {
     expect(MAX_COMMAND_APP_HISTORY).toBe(MAX_FILE_EDITS);
     const entries = Array.from({ length: 600 }, (_, i) => entry(`${i}`, i, ['app']));

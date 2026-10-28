@@ -16,55 +16,11 @@ import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import { SessionMemoHistory } from './SessionMemoHistory.js';
 
 /**
- * SessionMemoCard.tsx — §5.5 #17-36 스티키 메모 한 장.
- *
- * 몸가짐은 창(제목줄을 끌어 옮기고, 우하단을 끌어 늘리고, 접고, 닫는다), 겉모습은 **앱과 같은
- * 어두운 유리판**이다. 처음의 밝은 파스텔 종이는 `bg-gray-950` 본문 위에서 혼자 튀었고,
- * 불투명해서 가린 대화를 볼 방법도 없었다. 지금은 색 × 불투명도(`SessionMemo.alpha`)로 그리고,
- * 뒤는 `backdrop-filter` 로 흐린다 — 글자색은 색이 아니라 **알파를 섞어 실제로 보이는 색**으로
- * 정해지므로(`memoSurface`) 어느 조합에서도 대비가 무너지지 않는다.
- *
- * ⚠ **끄는 동안에는 React 를 거치지 않는다.** 종전에는 pointermove 마다 판 전체의 낙관 상태를
- * 갱신했고(→ 층 + 모든 카드 리렌더 + 저장 디바운스 재설정), 그래서 스트리밍으로 이미 바쁜
- * 메인스레드에서 커서가 카드를 앞질렀다. 지금은 제스처 중에 이 카드의 `transform`(이동) /
- * `width·height`(크기)만 직접 쓰고, **손을 뗄 때 한 번** 값을 올린다. React 가 소유하지 않는
- * `transform` 은 우리가 지우고, `width·height` 는 커밋 렌더가 덮어쓰므로 둘이 다투지 않는다.
- *
- * 이동·리사이즈는 pointer capture 로 잡는다(window 리스너 ❌) — 손가락·펜에서도 그대로 동작하고,
- * 커서가 카드 밖으로 나가도 이벤트가 끊기지 않는다. 좌표 산수는 전부 `sessionMemo.ts`(순수 함수)가 한다.
- *
- * 색 고르기는 **앱의 색 선택기**(`CommentBoxColorPopover`)를 그대로 쓴다. 카드 안에 스와치 줄을
- * 펼치던 종전 방식은 본문을 아래로 밀어냈고 자유색·불투명도를 고를 길이 없었다. 팝오버는
- * `position: fixed` 라 카드의 `overflow-hidden` 과 드래그용 `transform` 에 갇히지 않도록
- * **body 로 포털**한다.
- *
- * **겹쳐 놓는 것을 막지 않는다.** 대신 겹친 뒤에 잃는 것 둘을 돌려준다. ⓐ 손이 올라간 장은 **잠시**
- * 맨 앞으로 온다(`SESSION_MEMO.PEEK_Z` — 저장된 순서는 그대로다). 삐져나온 조각에 손만 올려도
- * 통째로 읽히므로, 읽자고 순서를 영구히 바꿀 필요가 없다. ⓑ **완전히 덮인 장은 손이 닿지 않으므로**
- * 손잡이를 덮인 쪽에 달 수 없다 — 그래서 배지는 **덮은 쪽**이 달고("밑에 N장"), 누르면 바로 밑장이
- * 올라온다. 한 번에 한 겹씩 벗겨 보는 이 길이 없으면, 완전히 가려진 메모는 사용자에게 **사라진
- * 것과 같다**(그것이 이 기능에서 진짜 잃는 것이다 — 본문 몇 픽셀이 아니다).
- *
- * **합치고 떼는 것이 이 카드의 두 번째 몸가짐이다.** 제목줄을 끌어 다른 카드의 제목줄에 놓으면
- * 한 카드로 **합쳐지고**(제목줄이 탭 줄이 된다), 탭을 끌어내면 그 자리에 **떨어져 나온다**.
- * 겹치기(위 문단)와 나뉘는 자리는 **제목줄 위인가**뿐이다 — 본문 위에 놓으면 그냥 겹치므로,
- * "겹쳐 두고 싶다"와 "합치고 싶다"가 같은 드래그로 뭉개지지 않는다.
- * 합쳐도 **본문·이름·색·불투명도는 탭마다 따로**이고 **자리·크기·접힘만 카드가 공유한다** —
- * 그것이 "합쳤다"와 "하나로 뭉갰다"의 차이다. 합칠 자리는 `elementFromPoint` 로 찾고
- * (끌고 있는 자신은 잠깐 `pointer-events:none` — 안 그러면 언제나 자기가 잡힌다),
- * 어디에 떨어질지는 **대상 테두리**와 **커서를 따라다니는 윤곽**이 알려 준다. 둘 다 인라인 style
- * 직접 쓰기라 끄는 동안 React 를 거치지 않는다.
- *
- * 이름 바꾸기는 **제자리 편집**이다(모달 ❌ — 한 줄 고치자고 화면을 덮지 않는다). 여는 길은 셋:
- * 카드에 **손이 올라간 채 F2**(탐색기·편집기의 손버릇) · **이름 더블클릭** · **이름 우클릭**.
- * 셋이 같은 `startRename` 한 곳으로 모이므로 어느 길로 들어와도 동작이 갈리지 않는다.
- * 커밋은 Enter·포커스 이탈, 취소는 Esc. 제목줄이 폭에 비해 길면 CSS 말줄임(`truncate`)이 `…` 로
- * 줄이고 전문은 툴팁으로 남는다 — 글자수로 자르지 않는 이유는 카드 폭이 사용자마다 다르기 때문이다.
- *
- * **본문의 고른 글자에 링크를 건다(⑫).** 입력칸은 자기 우클릭 메뉴를 갖는다(`data-text-menu="own"`) —
- * 메뉴 자체는 판이 그린다(내 입력·다른 세션·파일 목록을 아는 것이 판이다). 링크 글자는 입력칸 **뒤에 깐
- * 거울 층**이 밑줄로 칠하고(textarea 는 한 색 글자뿐이다), 캐럿이 링크 안에 들어가면 **링크 상자**가
- * 그 글자 아래에 뜬다. 그냥 클릭은 글을 고치는 캐럿이고, 따라가는 손은 상자의 [이동]과 Ctrl/Cmd+클릭이다.
+ * §5.5 #17-36 — 스티키 메모 한 장(어두운 유리판, 색 × `alpha` + `backdrop-filter`; 글자색은 알파를 섞은 실제 색 — `memoSurface`).
+ * ⚠ 끄는 동안 React 를 거치지 않는다 — `transform`·`width·height` 만 직접 쓰고 손을 뗄 때 한 번 올린다(스트리밍 중 커서가 카드를 앞지르지 않게). 이동·리사이즈는 pointer capture, 색 선택기는 body 로 포털(overflow·transform 에 안 갇히게).
+ * 겹침은 막지 않는다 — 손이 올라간 장은 잠시 맨 앞(`PEEK_Z`), 덮인 장은 덮은 쪽 "밑에 N장" 배지로 꺼낸다.
+ * 제목줄 위에 놓으면 합치고(탭 줄), 탭을 끌어내면 뗀다. 합쳐도 본문·이름·색은 탭마다, 자리·크기·접힘만 공유. 대상은 `elementFromPoint`(자신은 잠깐 `pointer-events:none`).
+ * 이름은 제자리 편집 — F2·더블클릭·우클릭이 `startRename` 하나로 모인다. 긴 제목은 CSS `truncate`(폭이 달라 글자수로 자르지 않는다).
  */
 
 /** 저장은 언제 — `'defer'` 는 잠잠해지면, `'now'` 는 지금. */
@@ -172,10 +128,7 @@ function SessionMemoCardImpl({
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   /** 같은 값의 ref — 확정 핸들러가 매 글자마다 새로 만들어지지 않게 하고, 재진입도 여기서 막는다. */
   const nameDraftRef = useRef<string | null>(null);
-  /**
-   * F2 를 받을 준비 — **손이 올라와 있거나**(사용자가 말한 그 길) 카드 안에 초점이 있을 때.
-   * 초점까지 세는 이유: 마우스를 못 쓰는 사람에게 hover 는 영영 오지 않는 조건이다.
-   */
+  /** F2 준비 — hover 또는 카드 안 초점(마우스를 못 쓰면 hover 가 오지 않는다). */
   const [hovered, setHovered] = useState(false);
   const [focusWithin, setFocusWithin] = useState(false);
 
@@ -420,12 +373,7 @@ function SessionMemoCardImpl({
 
   // ─── 이름 바꾸기: 여는 길은 셋, 도착지는 하나 ───
 
-  /**
-   * 편집을 연다. 시작값은 **지금 보이는 제목**이다(탐색기 F2 와 같은 손버릇 — 눈에 보이던 글자가
-   * 그대로 선택돼 있어야 고치든 갈아 치우든 손이 멈추지 않는다). 이름이 없어 본문 첫 줄이 서 있던
-   * 경우까지 그대로 담기는데, 그 값을 **고치지 않고 확인하면 아무 일도 일어나지 않는다**(아래
-   * `commitRename` — 안 그러면 F2·Enter 한 번에 자동 제목이 조용히 고정된다).
-   */
+  /** 편집 시작값은 보이는 제목이다(첫 줄 자동 제목 포함). 고치지 않고 확인하면 아무것도 안 한다 — 안 그러면 F2·Enter 한 번에 자동 제목이 고정된다. */
   const startRename = useCallback(() => {
     const m = memoRef.current;
     onRaise(m.id);
@@ -466,16 +414,8 @@ function SessionMemoCardImpl({
   }, [renaming]);
 
   /**
-   * F2 — 손이 올라와 있거나 카드 안에 초점이 있을 때만 받는다. 그 조건일 때만 리스너를 달아
-   * **화면에 한 개**만 존재하게 한다(메모 24장이 저마다 window 리스너를 들고 있지 않게).
-   *
-   * 이 앱에서 F2 는 **이미 임자가 둘 있다**: 타이틀바 위에서 누르면 에이전트(버블) 이름
-   * (`AgentIDEOverlay` — capture), 아무 데서나 누르면 세션 탭 이름(`IDETabBar` — bubble).
-   * 그래서 셋의 조정 규칙은 앱이 이미 세워 둔 그것 — **포인터가 있는 곳이 임자**다.
-   *  - capture 단계 + `stopPropagation`: 메모 위에서 누른 F2 가 세션 탭 리네임까지 함께 열지 않게
-   *    (bubble 단계의 `IDETabBar` 리스너까지 못 가게 여기서 끊는다 — 위 두 자리가 쓰는 규약 그대로).
-   *  - `defaultPrevented` 면 비켜선다: 포인터가 타이틀바 위인데 초점만 메모 안에 있는 드문 자리에서
-   *    두 편집기가 동시에 열리지 않게, 먼저 임자를 자처한 쪽에 양보한다.
+   * F2 — hover·초점일 때만 리스너를 단다(24장이 window 리스너를 들지 않게). 다른 임자: 타이틀바 = 에이전트 이름(`AgentIDEOverlay`, capture), 그 밖 = 세션 탭(`IDETabBar`, bubble) — 포인터가 있는 곳이 임자다.
+   * capture + `stopPropagation` 으로 탭 리네임을 막고, `defaultPrevented` 면 비켜선다.
    */
   useEffect(() => {
     if (!(hovered || focusWithin) || renaming) return;
@@ -521,13 +461,7 @@ function SessionMemoCardImpl({
 
   // ─── 제스처: 손을 떼기 전까지 DOM 만 만진다 ───
 
-  /**
-   * 지금 커서 밑에 있는 **다른 카드의 제목줄**. 합칠 자리를 찾는 유일한 창구다.
-   *
-   * ⚠ 잠깐 우리 카드를 `pointer-events: none` 으로 만든다 — 안 그러면 끌고 있는 카드 자신이
-   * 언제나 맨 위에서 잡혀 대상이 영영 안 잡힌다. 포인터 캡처는 히트테스트를 거치지 않으므로
-   * 이 조작이 진행 중인 드래그를 끊지 않는다.
-   */
+  /** 커서 밑 다른 카드 제목줄 — 합칠 자리의 유일한 창구. ⚠ 잠깐 자신을 `pointer-events: none` 으로(안 그러면 늘 자신이 잡힌다). 포인터 캡처라 드래그는 안 끊긴다. */
   const dropTargetAt = useCallback((clientX: number, clientY: number): { id: string; el: HTMLElement } | null => {
     const self = rootRef.current;
     const prev = self?.style.pointerEvents ?? '';
@@ -550,13 +484,7 @@ function SessionMemoCardImpl({
     if (g) g.dropEl = el;
   }, []);
 
-  /**
-   * 끄는 동안의 합칠 자리 갱신 — **몇 px 이상 움직였을 때만** 다시 찾는다.
-   *
-   * ⚠ `dropTargetAt` 안의 `elementFromPoint` 와 그 앞뒤 style 쓰기는 **강제 레이아웃**이다.
-   * 프레임마다 돌리면, 이 파일이 통째로 피하려고 만든 비용(스트리밍 중 커서가 카드를 앞지르는)이
-   * 다른 문으로 돌아온다. 4px 은 눈에 안 보이므로 그만큼을 문턱으로 둔다.
-   */
+  /** 합칠 자리는 4px 넘게 움직였을 때만 다시 찾는다 — `elementFromPoint`·style 쓰기는 강제 레이아웃이라 매 프레임이면 커서가 카드를 앞지른다. */
   const refreshDrop = useCallback((clientX: number, clientY: number): HTMLElement | null => {
     const g = gestureRef.current;
     if (!g) return null;
@@ -730,11 +658,7 @@ function SessionMemoCardImpl({
     onPatch(m.id, { collapsed: m.collapsed !== true }, 'now');
   }, [onPatch]);
 
-  /**
-   * 색 칩은 토글이어야 하는데, 팝오버가 **먼저** 바깥 누름(pointerdown)으로 닫히고 그 다음
-   * 클릭이 도착한다 — 그 클릭이 보는 상태는 이미 "닫힘"이라 그대로 두면 영영 안 닫힌다.
-   * 그래서 방금 닫혔는지를 시각으로 본다(팝오버에 트리거 ref 를 넘기는 길이 없다).
-   */
+  /** 색 칩 토글 — 팝오버가 pointerdown 으로 먼저 닫힌 뒤 클릭이 와 다시 열린다. 그래서 방금 닫혔는지를 시각으로 본다(트리거 ref 를 넘길 길이 없다). */
   const closedAtRef = useRef(0);
   const closePicker = useCallback(() => {
     closedAtRef.current = Date.now();
@@ -747,10 +671,8 @@ function SessionMemoCardImpl({
   }, []);
 
   return (
-    // 위치·크기·색은 사용자가 정하는 **데이터**라 style 로 간다(Tailwind 클래스로는 표현 불가).
-    //   `--memo-line` 은 밝은 판/어두운 판에 따라 뒤집히는 선 색 — hover 배경이 이 값을 쓴다.
-    //   포커스 표시가 ring 이 아니라 outline 인 것도 같은 이유다 — ring 은 box-shadow 라 아래
-    //   인라인 `boxShadow`(유리 하이라이트 + 그림자)에 통째로 덮여 한 픽셀도 안 보인다.
+    // 위치·크기·색은 사용자 데이터라 style 로 간다. `--memo-line` 은 판 밝기에 따라 뒤집히는 선 색(hover 배경).
+    // 포커스가 ring 이 아니라 outline 인 이유: ring(box-shadow)은 인라인 `boxShadow` 에 덮인다.
     <div
       ref={rootRef}
       className="pointer-events-auto absolute flex flex-col overflow-hidden rounded-lg focus-within:[outline:1px_solid_#38BDF8AA] focus-within:[outline-offset:-1px]"
@@ -860,10 +782,7 @@ function SessionMemoCardImpl({
             onChange={(e) => { nameDraftRef.current = e.target.value; setNameDraft(e.target.value); }}
             onKeyDown={onNameKeyDown}
             onBlur={commitRename}
-            // 제목줄이 가진 손버릇(끌기·더블클릭 접기)이 편집 중에는 방해가 된다.
-            //   우클릭은 **막지 않는다** — 글자 칸의 우클릭은 전역 텍스트 메뉴(잘라내기·붙여넣기)가
-            //   capture 단계에서 가져가는 것이 앱의 규약이라, 여기서 자기 핸들러를 달면 불리지 않는
-            //   죽은 코드가 된다(`GlobalTextFieldContextMenu` · `textFieldMenuContract.test.ts`).
+            // 편집 중엔 제목줄 손버릇(끌기·더블클릭)을 끊는다. 우클릭은 막지 않는다 — 글자 칸 우클릭은 전역 텍스트 메뉴가 capture 로 가져간다(`GlobalTextFieldContextMenu`).
             onPointerDown={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
             // `select-text` 는 장식이 아니다 — 제목줄이 끌기 손잡이라 `select-none` 이 걸려 있고,
@@ -1026,9 +945,5 @@ function SessionMemoCardImpl({
   );
 }
 
-/**
- * 한 장이 바뀌었다고 나머지가 다시 그려지면 안 된다 — 층은 판 전체를 낙관 갱신하므로, 이 `memo()`
- * 가 없으면 글자 하나에 24장이 통째로 리렌더된다. 위 핸들러들이 id 를 인자로 받는 이유가 이것이다
- * (카드마다 새 클로저를 주면 `memo()` 가 항상 헛된다).
- */
+/** 층이 판 전체를 낙관 갱신하므로 이 `memo()` 가 없으면 글자 하나에 24장이 리렌더된다(핸들러가 id 를 인자로 받는 이유). */
 export const SessionMemoCard = reactMemo(SessionMemoCardImpl);

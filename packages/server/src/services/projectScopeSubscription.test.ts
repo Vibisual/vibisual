@@ -13,13 +13,7 @@ vi.mock('./appState.js', async (importOriginal) => {
   return { ...actual, appStateAddOpenProject: () => false };
 });
 
-/**
- * §9 스코프드 스냅샷 구독 + 배경 탭 유휴 해제 — **규약 회귀 테스트**.
- *
- * 이 두 기능은 "안 보는 프로젝트를 덜 보내고 덜 들고 있는다"는 최적화라, 잘못 좁히면 증상이
- * **기능 손실**로 나타난다(탭이 사라진다 · 배지가 0 이 된다 · 헤더 카운트가 준다). 그래서
- * "무엇을 빼는가"만큼 **"무엇은 절대 빼지 않는가"** 를 함께 못 박는다.
- */
+/** §9 스코프드 구독 + 배경 탭 유휴 해제 규약. 잘못 좁히면 기능 손실(탭 소실·배지 0·헤더 카운트 감소)이라 "절대 빼지 않는 것"도 함께 못 박는다. */
 
 const tmpDirs: string[] = [];
 
@@ -46,10 +40,8 @@ function makeTwoProjects(): Fixture {
   const dirB = makeProjectDir('b');
   const nameA = manager.registerProject(dirA).name;
   const nameB = manager.registerProject(dirB).name;
-  // 반환값은 인스턴스가 들고 있는 **그 객체**다 — 테스트는 여기서 status 를 직접 세운다.
-  // ⚠ 상태를 직접 바꾼 뒤에는 `getSnapshot()` 을 처음 부르는 것이 순서다(스냅샷 캐시는
-  //   mutationVersion 으로만 무효화되므로, 먼저 부르면 캐시가 옛 상태를 돌려준다).
-  // 바로 위에서 두 폴더를 등록했으니 생성은 성공한다(§4 온보딩 ③: 폴더가 없으면 null).
+  // 반환값은 인스턴스가 든 그 객체라 status 를 직접 세운다. 바꾼 뒤 `getSnapshot()` 을 처음 부를 것 — 캐시는 mutationVersion 으로만 무효화돼 먼저 부르면 옛 상태다.
+  // 위에서 두 폴더를 등록해 생성이 성공한다(§4 온보딩 ③: 폴더가 없으면 null).
   const agentA = manager.createCustomAgent('Agent A', undefined, nameA)!;
   const agentB = manager.createCustomAgent('Agent B', undefined, nameB)!;
   return { manager, nameA, nameB, dirA, dirB, agentA, agentB };
@@ -270,9 +262,8 @@ describe('§9 저장은 바뀐 프로젝트만', () => {
   });
 });
 
-// §3.7 · §9 「창이 뜬 직후의 메인 스레드」 ① — **부팅 구간의 스냅샷은 마지막으로 보던 프로젝트만 짓는다.**
-//   아무 창도 선언하기 전의 방송·첫 연결 스냅샷이 열린 프로젝트 전부를 대화 기록 재파싱까지 하며 지어, 창이 막
-//   뜬 그 순간 메인 스레드를 붙잡았다(사용자 보고 — "앱이 켜지면 드래그해도 우리 앱만 안 움직인다").
+// §3.7 · §9 ① — 부팅 구간 스냅샷은 마지막으로 보던 프로젝트만 짓는다
+//   (전부 지으면 창이 뜬 순간 메인 스레드가 막혀 창이 안 끌린다).
 describe('§9 부팅 구간 — 마지막으로 보던 프로젝트만', () => {
   it('아직 아무 창도 선언하지 않았으면 그 프로젝트만 싣는다 — 탭 목록·배지는 그대로 전량', () => {
     const { manager, nameA, nameB, dirA, agentA, agentB } = makeTwoProjects();

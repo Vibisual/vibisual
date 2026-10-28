@@ -1,18 +1,9 @@
 /**
- * workspaceMedia.ts — §5.13 (R) 프로젝트 안의 **미디어 바이트에 닿는 창구**.
- *
- * 영상 앱·음악 앱·3D 뷰어가 같은 URL 규약을 쓰게 하기 위한 자리다. 앱마다 자기 쿼리를 조립하면
- * 루트·경로를 실어 보내는 방식이 앱마다 갈리고, 서버 가드가 바뀔 때 세 곳을 따로 고치게 된다.
- *
- * 파일을 통째로 읽어 오지 않아도 된다 — 서버가 Range 요청에 206 으로 답하므로, 구간을 집어 가는 `fetch`
- * 소비자(Mediabunny `UrlSource` 등)는 필요한 부분만 받는다.
- *
- * §5.13 40-1 — 이 파일의 **읽기 도우미**(`fetchWorkspaceMediaBlob` · `workspaceMediaSize` · `fetchWorkspaceMediaHead`)는 패키지 앱에서
- * 흘려 받는 주소(`workspaceMediaStreamUrl` — vibproxy 미디어 갈래)로 받는다. 상대 주소는 패치된 fetch(IPC)를 타는데, IPC 는 응답
- * 전체를 메인에 모았다가 한 번에 넘긴다(그림 한 장을 볼 때마다 그 파일 전체가 메인 메모리를 지나갔다).
- *
- * §5.1 #2-1 (A) — 여기 오는 경로는 둘 중 하나다: **루트 기준 상대 경로**(프로젝트 안) 또는 **절대경로**(프로젝트 밖 —
- * 지금 버블로 떠 있는 파일). 앞에 `/` 를 붙인 상대 경로는 쓰지 않는다(POSIX 에서 그것은 절대경로다).
+ * §5.13 (R) 프로젝트 안의 미디어 바이트에 닿는 창구 — 영상·음악 앱·3D 뷰어가 같은 URL 규약을 쓰게 한다(앱마다 조립하면 서버 가드가 바뀔 때 따로 고친다).
+ * 서버가 Range 요청에 206 으로 답하므로 구간을 집는 `fetch` 소비자(Mediabunny `UrlSource` 등)는 필요한 부분만 받는다.
+ * §5.13 40-1 — 읽기 도우미(`fetchWorkspaceMediaBlob`·`workspaceMediaSize`·`fetchWorkspaceMediaHead`)는 패키지 앱에서 흘려 받는 주소(`workspaceMediaStreamUrl`)로 받는다 —
+ * 상대 주소는 IPC 를 타 응답 전체가 메인 메모리를 지나간다.
+ * §5.1 #2-1 (A) — 경로는 **루트 기준 상대 경로** 또는 **절대경로**(프로젝트 밖, 지금 버블로 떠 있는 파일). 앞에 `/` 를 붙인 상대 경로는 쓰지 않는다(POSIX 에선 절대경로다).
  */
 import { WORKSPACE_MEDIA_PATH, isWorkspaceMediaFile, normalizePathShape } from '@vibisual/shared';
 
@@ -51,11 +42,9 @@ export function workspaceMediaUrl(root: string, relPath: string): string {
 }
 
 /**
- * §5.13 40-1 — **읽기 전용** 바이트 주소. 패키지 앱이면 미디어 갈래(`vibproxy://proxy/api/workspace-media?…`)로 흘려 받는다 — 메인이
- * 파일을 1MB 조각으로 당겨 읽어 보내고, 받는 쪽이 끊으면 그 자리에서 멈춘다. 그 갈래는 **미디어 표에 있는 형식만** 내므로(같은 출처의
- * 프리뷰 페이지도 닿는 길이다) 표 밖은 종전 주소다. 웹·모바일은 상대 주소 그대로다(진짜 HTTP 라 이미 흐른다).
- * 쓰기(PUT)·구간을 묶어 읽는 소비자는 이 주소를 쓰지 않는다(`workspaceMediaUrl`).
- *
+ * §5.13 40-1 — **읽기 전용** 바이트 주소. 패키지 앱이면 미디어 갈래(`vibproxy://proxy/api/workspace-media?…`)로 흘려 받는다 — 메인이 1MB 조각으로 당겨 보내고
+ * 받는 쪽이 끊으면 멈춘다. 그 갈래는 미디어 표에 있는 형식만 내므로(같은 출처의 프리뷰 페이지도 닿는 길이다) 표 밖은 일반 주소다.
+ * 웹·모바일은 상대 주소 그대로(진짜 HTTP 라 이미 흐른다). 쓰기(PUT)·구간을 묶어 읽는 소비자는 이 주소가 아니라 `workspaceMediaUrl` 을 쓴다.
  * @param packaged 시험용 — 기본은 지금 판(패키지 앱인가).
  */
 export function workspaceMediaStreamUrl(root: string, relPath: string, packaged: boolean = isPackagedDesktop()): string {
@@ -64,7 +53,7 @@ export function workspaceMediaStreamUrl(root: string, relPath: string, packaged:
 }
 
 /**
- * 읽기 요청 한 번 — 흘려 받는 주소로 먼저 묻고, 그 길이 **던지면**(전송 실패 — 답이 온 실패는 그대로 돌려준다) 그 한 번만 종전 주소로
+ * 읽기 요청 한 번 — 흘려 받는 주소로 먼저 묻고, 그 길이 **던지면**(전송 실패 — 답이 온 실패는 그대로 돌려준다) 그 한 번만 일반 주소(`workspaceMediaUrl`)로
  * 다시 묻는다. 끊은 요청(`signal`)은 다시 묻지 않는다.
  */
 async function fetchWorkspaceMediaRead(root: string, relPath: string, init?: RequestInit): Promise<Response> {

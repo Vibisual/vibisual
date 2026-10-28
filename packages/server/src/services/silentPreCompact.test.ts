@@ -2,13 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { planSilentPreCompact, displayCommands, silentPreCompactHeirs, heirCutByImmediate, capSetSize } from '@vibisual/shared';
 import type { PreCompactQueueItem } from '@vibisual/shared';
 
-/**
- * §5.3 #9-1 (P) — **조용한 선행 압축**. 압축이 도는 자리를 "턴이 끝난 직후"에서 "다음 명령이
- * 나가기 직전"으로 옮긴 축이고, 사용자 화면에는 아무것도 드러나지 않는다.
- *
- * 그래서 이 파일이 유일한 안전망이다 — 끼어드는 자리가 틀리면 압축이 사용자 명령 **사이**에
- * 끼거나 두 벌로 끼는데, 둘 다 화면에 안 보이므로 눈으로는 영영 못 잡는다.
- */
+/** §5.3 #9-1 (P) — 조용한 선행 압축(턴 직후 → 다음 명령 직전). 화면에 안 드러나 이 파일이 유일한 안전망이다 — 명령 사이에 끼거나 두 벌로 끼어도 눈으론 못 잡는다. */
 
 function cmd(over: Partial<PreCompactQueueItem> & { id: string }): PreCompactQueueItem {
   return {
@@ -124,10 +118,7 @@ describe('displayCommands — 감추고, 진행 표시를 넘긴다', () => {
     expect(displayCommands<Row>(undefined)).toEqual([]);
   });
 
-  /**
-   * 이 기능의 **눈에 보이는 전부**다 — 압축이 도는 동안 사용자가 넣은 명령이 "대기 중"으로
-   * 앉아 있으면 감춘 보람이 없다("왜 멈췄지"가 된다). 진행 중으로 보여야 한다.
-   */
+  /** 압축 중에 넣은 명령은 대기가 아니라 실행 중으로 보여야 한다(이 기능의 눈에 보이는 전부). */
   it('조용한 압축이 도는 동안 뒤에 선 명령이 **실행 중**으로 그려진다', () => {
     const list: Row[] = [
       { id: 'compact', silent: true, status: 'executing', subAgentId: 's1', startedAt: 100 },
@@ -173,11 +164,7 @@ describe('displayCommands — 감추고, 진행 표시를 넘긴다', () => {
   });
 });
 
-/**
- * §5.3 #9-1 (P)(b) — 압축의 진행 표시를 **누가 물려받는가.** 화면(`displayCommands` — 실행 중으로 그린다)과
- * 서버의 두 [중지](도는 중에 멈추면 그 명령을 중지됨으로 남긴다)가 같은 함수를 본다. 두 벌이 되면
- * "실행 중으로 보이던 명령"과 "중지됨으로 남는 명령"이 서로 다른 명령이 된다.
- */
+/** §5.3 #9-1 (P)(b) — 압축 진행을 물려받는 명령은 화면(`displayCommands`)과 서버의 두 [중지]가 같은 함수로 고른다(두 벌이면 보이는 명령과 중지되는 명령이 갈린다). */
 describe('silentPreCompactHeirs — 물려받는 명령은 하나의 규칙', () => {
   interface Row { id: string; silent?: boolean; status?: string; subAgentId?: string | null; startedAt?: number }
 
@@ -232,11 +219,7 @@ describe('silentPreCompactHeirs — 물려받는 명령은 하나의 규칙', ()
   });
 });
 
-/**
- * §5.3 #9-1 (P)(b) — [즉시] 덧말이 **실행 중으로 보이던 명령**을 끊는다. 종전에는 CLI 로 간 인터럽트가
- * 보이지 않는 압축만 끊어, 압축이 끝나자마자 그 명령이 대기열 맨 앞에서 그대로 나가고 즉시 덧말은 그
- * 뒤에 섰다 — 사용자에게는 "즉시로 끊었는데 계속 돈다"였다.
- */
+/** §5.3 #9-1 (P)(b) — [즉시] 덧말은 실행 중으로 보이던 명령을 끊는다(압축만 끊으면 그 명령이 곧바로 나가 계속 돈다). */
 describe('heirCutByImmediate — 즉시 덧말이 끊는 것은 화면에서 도는 그 명령이다', () => {
   interface Row { id: string; silent?: boolean; status?: string; subAgentId?: string | null; startedAt?: number }
 

@@ -10,19 +10,12 @@ export { formatElapsed, formatClock } from './elapsed.js';
 import { formatClock, formatElapsed } from './elapsed.js';
 
 /**
- * 이만큼 자식의 도구 이벤트가 끊기면 마지막 업데이트 이후 시간을 적는다.
- * 폴링·긴 단일 호출은 정상적으로 조용할 수 있으므로, 판단 재료만 주고 결정은 사용자가 한다.
- *
- * 값은 `@vibisual/shared` 의 `SESSION_NO_RESPONSE_MS` 하나다 — 세션 스트림의 무응답 표시와
- * 같은 문턱을 써야 카드와 스트림이 **같은 때에** 같은 말을 한다(두 벌이면 어느 쪽이 맞는지 알 수 없다).
+ * 자식 도구 이벤트가 이만큼 끊기면 마지막 업데이트 이후 시간을 적는다(판단은 사용자 몫 — 폴링은 정상적으로 조용하다).
+ * 스트림 무응답 표시와 같은 `SESSION_NO_RESPONSE_MS` 를 쓴다 — 두 벌이면 카드와 스트림이 다른 말을 한다.
  */
 const NO_RESPONSE_HINT_MS = SESSION_NO_RESPONSE_MS;
 
-// §5.5 #17-9 ⑦ — "실행 중 서브에이전트" 뷰의 카드 두 장.
-//
-// 도는 카드(`RunningTaskRow`)는 ⑦(a) 의 자식 활동 — 지금 무슨 도구를 무엇에 대고 쓰는지 + 누적 호출 수 —
-// 를 얹고, 끝난 카드(`FinishedTaskRow`)는 ⑦(b) 의 결과(부모가 받아 든 자식의 최종 보고)를 접힌 채 담는다.
-// 뷰 본체와 갈라 둔 것은 파일 200줄 규칙 때문이며, 두 카드가 같은 시간 표기를 쓰기 때문이기도 하다.
+// §5.5 #17-9 ⑦ — 실행 중 서브에이전트 카드 둘: 도는 카드(⑦(a) 현재 도구·누적 호출)·끝난 카드(⑦(b) 최종 보고, 접힘).
 
 const CHIP = 'min-w-0 truncate rounded px-1 py-px text-[12px] font-semibold';
 const KIND_CHIP = 'flex flex-shrink-0 items-center gap-0.5 rounded px-1 py-px text-[12px] font-semibold';
@@ -86,13 +79,8 @@ function ShellKindGlyph(): React.JSX.Element {
 }
 
 /**
- * 종류 칩 — 이 줄이 **AI 자식**인가 **셸**인가.
- *
- * 이 목록에는 성격이 아주 다른 둘이 섞인다: `Task`/`Agent` 로 띄운 서브에이전트(모델이 돌아 토큰을
- * 쓴다)와 `Bash run_in_background`·`Monitor` 로 띄운 셸(명령이 돌 뿐 토큰을 안 쓴다). 종전에는 둘
- * 다 "실행 중 서브에이전트" 한 이름으로 묶여 있어서, `tail -f` 한 줄이 **"내 AI 가 10분째 돌며
- * 토큰을 태우는 중"** 으로 읽혔다(사용자 보고). 비용도 끊는 방법도 다르므로 갈라 적는다.
- * 판정 근거는 서버가 이미 싣고 있던 `origin` 하나뿐이다 — 새 수집 경로 ❌.
+ * 종류 칩 — AI 자식(`Task`/`Agent`, 토큰 씀)인가 셸(`run_in_background`·`Monitor`, 안 씀)인가. 묶으면 `tail -f` 가 토큰 태우는 AI 로 읽힌다.
+ * 판정은 서버가 싣는 `origin` 하나로(새 수집 ❌).
  */
 function KindChip({ origin, subagentType }: { origin?: 'hook' | 'stream'; subagentType?: string }): React.JSX.Element {
   const { t } = useTranslation();
@@ -121,11 +109,7 @@ function FileEndGlyph(): React.JSX.Element {
   );
 }
 
-/**
- * 판정 글리프 — lucide `search-check` 톤. **물어보고 답을 받았다**는 뜻이라 돋보기 안에 체크가 있다.
- * ⑭ 의 세 줄(확인 중 · 아직 도는 중 · 확인 후 자동 정리)이 전부 이 하나를 쓴다 —
- * 같은 출처(판정 에이전트 1회)에서 나온 말이라는 것을 모양으로 먼저 알리기 위함이다.
- */
+/** 판정 글리프(lucide `search-check`). ⑭ 의 세 줄이 모두 이것을 써 같은 출처(판정 1회)임을 알린다. */
 function ProbeGlyph(): React.JSX.Element {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -166,14 +150,7 @@ const PROBE_TONE: Record<BackgroundTaskVerdict, { key: string; cls: string }> = 
   finished: { key: 'ide.runningSubagents.probeFinished', cls: 'text-amber-400/90' },
 };
 
-/**
- * §5.5 #17-9 ⑭(f) — **판정 1건을 그대로 적는다.**
- *
- * 자동으로 무엇을 하려면 그 근거가 화면에 남아야 한다. 판정이 `alive`/`unknown` 이면 항목은 그대로
- * 남고 이 블록만 붙어 "왜 30분째 떠 있는지"를 그 자리에서 답하고, `finished` 면 같은 블록이 끝난
- * 카드로 내려가 "무엇을 보고 닫았는지"를 답한다. 모델이 읽어 낸 **끝나는 조건**은 사유보다 길어서
- * 툴팁에 둔다 — 좁은 카드(`w-52`)에서 두 줄을 다 펴면 정작 사유가 안 보인다.
- */
+/** §5.5 #17-9 ⑭(f) — 판정 1건을 그대로 적는다(자동 정리의 근거). 끝나는 조건은 툴팁에 — 좁은 카드(`w-52`)에서 펴면 사유가 안 보인다. */
 function ProbeVerdictBlock({ probe }: { probe: BackgroundTaskProbeResult }): React.JSX.Element {
   const { t } = useTranslation();
   const tone = PROBE_TONE[probe.verdict] ?? PROBE_TONE.unknown;
@@ -216,11 +193,7 @@ function MetaRow({
   );
 }
 
-/**
- * 도는 카드 — 좁은 폭(`w-52`)에 담을 수 있는 정보를 최대로.
- * ⑦(a) 이전에는 [설명·타입·경과·소속 탭·시작 시각·프롬프트]가 **띄운 순간 그대로 멈춰** 있었고,
- * 이제 그 아래 한 줄이 자식의 현재 도구를 따라 계속 바뀐다.
- */
+/** 도는 카드 — 아래 한 줄이 자식의 현재 도구를 따라 바뀐다(⑦(a)). */
 export const RunningTaskRow = memo(function RunningTaskRow({
   task, now, sessionLabel, onDismiss,
 }: {
@@ -230,14 +203,9 @@ export const RunningTaskRow = memo(function RunningTaskRow({
 }): React.JSX.Element {
   const { t } = useTranslation();
   const title = task.description || task.subagentType || task.agentType || t('ide.runningSubagents.untitled');
-  // 오래 도는 작업(폴링 등)과 **응답이 끊긴 작업**은 경과 시간만으로는 구별되지 않는다.
-  //   자식이 마지막으로 도구를 쓴 시각이 있으면 그 이후 침묵한 시간을 따로 말해 준다.
-  //
-  // ⑭ — 조용함을 재는 시계는 둘이다. 훅이 본 **자식의 도구 사용**(`lastActivityAt`)은 셸에는 영영
-  //   안 붙고, **출력 파일이 마지막으로 바뀐 시각**(`lastOutputAt`)은 셸에만 붙는다. 뒤의 것이
-  //   있으면 그것을 먼저 쓴다 — 서버가 조사 착수를 판정할 때 보는 시계와 화면의 숫자가 어긋나면
-  //   "왜 아직 안 물어보나"를 사용자에게 설명할 길이 없다. 말도 갈라 쓴다: 셸이 조용한 것은
-  //   무응답이 아니라 정상적인 대기일 수 있다(⑩ — 시간만으로 죽었다고 단정하지 않는다).
+  // 경과만으로는 오래 도는 것과 끊긴 것이 구별되지 않아 침묵 시간을 따로 적는다.
+  // ⑭ — 셸은 `lastOutputAt`(출력 파일 변경), 자식은 `lastActivityAt`(훅이 본 도구 사용). 앞의 것을 먼저 쓴다(서버 조사 판정과 같은 시계).
+  // 셸의 조용함은 정상 대기일 수 있어 말을 갈라 쓴다(⑩).
   const quietSince = task.lastOutputAt ?? task.lastActivityAt ?? null;
   const quietFor = quietSince !== null && now - quietSince > NO_RESPONSE_HINT_MS
     ? formatElapsed(quietSince, now)
@@ -375,9 +343,7 @@ export const FinishedTaskRow = memo(function FinishedTaskRow({
         clockTitle={t('ide.runningSubagents.endedAt', { time: formatClock(task.endedAt) })}
       />
 
-      {/* §5.5 #17-9 ⑬ — 끝 통지가 안 와서 **출력 파일의 종료 표식**으로 회수한 항목. 종전에는 결과
-          칸이 "결과가 오지 않았습니다"로만 남아 성공인지 실패인지 알 길이 없었는데, 표식에는 그 답이
-          들어 있다. 색으로 한 번 더 말한다 — 0 이면 emerald, 그 외·중지면 rose. */}
+      {/* §5.5 #17-9 ⑬ — 종료 표식으로 회수한 항목. 종료 코드 0 이면 emerald, 그 외·중지면 rose. */}
       {(task.exitCode !== undefined || task.killed) && (
         <p
           className={`mt-1 flex items-center gap-1 text-[12px] font-semibold ${
@@ -393,10 +359,7 @@ export const FinishedTaskRow = memo(function FinishedTaskRow({
         </p>
       )}
 
-      {/* §5.5 #17-9 ⑭ — **무엇 때문에 내려갔는가.** 내리는 길이 다섯으로 늘었는데 카드가 전부
-          똑같이 "끝남"으로만 보이면, 사용자는 스스로 끝난 것과 우리가 닫은 것을 구별할 수 없다.
-          그 구별이 없으면 자동 정리는 신뢰를 잃는다 — 그래서 **우리가 손을 댄 세 길만** 적는다.
-          `notification`(정상 보고)과 `end-marker`(종료 표식)는 이미 위 줄들이 답을 했다. */}
+      {/* §5.5 #17-9 ⑭ — 우리가 닫은 세 길만 사유를 적는다(스스로 끝난 것과 구별돼야 자동 정리를 믿는다). `notification`·`end-marker` 는 위 줄들이 답했다. */}
       {task.closedBy === 'probe' && task.probe && <ProbeVerdictBlock probe={task.probe} />}
 
       {task.closedBy === 'process-gone' && (

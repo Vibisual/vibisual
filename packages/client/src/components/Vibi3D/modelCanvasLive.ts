@@ -11,14 +11,8 @@ import { MODEL_BACKGROUNDS, MODEL_VIEW_FOV, MODEL_FRAME_MARGIN, createModelGrid,
 import { vibi3dViewSize } from './vibi3dViewSize.js';
 
 /**
- * §5.4 #36 (G) — Vibi3D 노드 화면에서 **끌어 돌려 보는** 살아 있는 장면.
- *
- * 노드 화면의 그림(`ModelCanvasFace`)이 처음 손이 닿을 때만 이 모듈을 늦게 부른다 — three 와 모델 로더는 그때 온다.
- * 정지 미리보기(`modelThumbnail`)와 **같은 로더·같은 조명·같은 처음 구도(3/4 위)** 라, 손을 대는 순간 그림이 튀지 않는다.
- *
- * 노드마다 살아 있는 WebGL 문맥을 오래 두지 않는다 — 브라우저는 문맥 수를 한정한다(넘으면 오래된 것부터 잃는다).
- * 그래서 보기(`LiveView`)와 모델(`LiveModel`)을 갈라 둔다: 손을 떼고 잠시 지나면 보기만 버려 문맥을 돌려주고(그 각도의
- * 한 장은 남긴다), 모델은 노드가 화면에 있는 동안 붙들어 다시 손이 닿으면 곧바로 새 보기에 올린다.
+ * §5.4 #36 (G) — Vibi3D 노드의 끌어 돌려 보기. 처음 손이 닿을 때만 늦게 불리고, 정지 미리보기와 같은 로더·조명·구도라 그림이 튀지 않는다.
+ * WebGL 문맥 수는 브라우저가 한정한다 — 손을 떼면 잠시 뒤 보기(`LiveView`)만 버리고, 모델(`LiveModel`)은 화면에 있는 동안 붙든다.
  */
 
 /** 처음 구도 — 정지 미리보기와 같은 방향 (1, 0.7, 1). */
@@ -94,10 +88,7 @@ export interface LiveView {
   dispose: () => void;
 }
 
-/**
- * 모델 하나를 비추는 보기를 만든다. 각도는 `angles` 를 그대로 고쳐 쓴다 — 보기를 버렸다 다시 만들어도 그 각도에서 이어지게
- * 부르는 쪽이 같은 객체를 넘긴다. 편집기와 같은 격자·배경·카메라 비율을 작은 해상도로 그린다.
- */
+/** 각도는 `angles` 를 그대로 고쳐 쓴다 — 보기를 다시 만들어도 이어지게 부르는 쪽이 같은 객체를 넘긴다. 편집기와 같은 격자·배경·카메라 비율, 작은 해상도. */
 export function createLiveView(
   model: LiveModel,
   width: number,

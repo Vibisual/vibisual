@@ -9,15 +9,7 @@ import {
   type TabOrderEntry,
 } from './projectTabOrder.js';
 
-/**
- * §5.4 #14-2 (C-1) — 프로젝트 탭 줄의 순서.
- *
- * 사용자 보고: "프로젝트 새로 열 때마다 (탭) 위치가 바뀐다 — 내가 설정한 마지막 위치에 열리게".
- * 줄 순서가 `TabBar` 의 휘발 상태뿐이라, 앱을 켤 때마다 첫 스냅샷이 실어 온 순서("마지막으로 보던 프로젝트 →
- * 나머지")로 다시 섰다. 이제 프로젝트 탭끼리는 서버 `openProjects` 순서를 따르고, 놓은 직후에는 그 순서를 붙든다.
- *
- * 클라 테스트에는 DOM 이 없으므로(jsdom 미설치) 순수 함수와 **소스 문자열**로 고정한다.
- */
+/** §5.4 #14-2 (C-1) — 프로젝트 탭끼리는 서버 `openProjects` 순서를 따르고, 놓은 직후엔 그 순서를 붙든다. DOM 이 없어 순수 함수·소스 문자열로 본다. */
 
 const A = 'C:/work/alpha';
 const B = 'C:/work/beta';
@@ -28,7 +20,7 @@ const p = (name: string, path: string): TabOrderEntry => ({ key: `p:${name}`, pa
 const f = (id: string): TabOrderEntry => ({ key: `i:${id}` });
 
 describe('syncTabOrder — 켤 때 줄이 서는 순서', () => {
-  it('첫 스냅샷이 마지막으로 보던 프로젝트를 앞에 실어 와도, 줄은 저장된 순서로 선다(사용자 보고의 본체)', () => {
+  it('첫 스냅샷이 마지막으로 보던 프로젝트를 앞에 실어 와도, 줄은 저장된 순서로 선다', () => {
     // 첫 스냅샷: 마지막으로 보던 gamma 를 먼저 짓고 나머지를 붙인다.
     const items = [p('gamma', C), p('alpha', A), p('beta', B)];
     expect(syncTabOrder([], items, [A, B, C], 'win32')).toEqual(['p:alpha', 'p:beta', 'p:gamma']);

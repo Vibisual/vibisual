@@ -1,15 +1,6 @@
-// §4 v2.89 — CMD(인터랙티브 터미널) 카드 스니퍼.
-//
-// 인터랙티브 터미널 claude 는 **터미널 stdout 에 `::VIBISUAL-CARD::{…}` 한 줄을 인쇄**해 카드를 띄운다.
-// 이 모듈은 PTY 출력 스트림을 가로채, 그 마커 줄을 감지하면 **터미널에서 그 줄을 숨기고(빈 문자열로 대체)**
-// 파싱한 카드 페이로드를 `onCard` 콜백으로 올린다. 카드는 xterm 그리드 밖 DOM 패널(IDETerminalCardRail)이
-// 기존 React 카드 컴포넌트로 렌더한다 — 터미널 그리드를 한 줄도 건드리지 않으므로 폰트 확대·창 리사이즈로
-// claude REPL TUI 가 화면을 다시 그려도 카드가 깨지거나 복제되지 않는다(v2.83 인라인 ANSI 박스 방식의 근본 결함 해소).
-// 마커가 없는 일반 출력은 한 바이트도 변형 없이 통과시킨다.
-//
-// 안전: claude REPL TUI 는 개행 없는 `\r`·커서 시퀀스를 고빈도로 쏟아낸다 → **마커가 의심될 때만** 꼬리를
-// 잠깐 버퍼링하고, 그 외엔 즉시 통과시켜 TUI 렌더가 깨지지 않게 한다. reattach replay 청크는 화면 리셋 직후
-// 같은 줄 단위 처리로 흘려 — 마커를 숨기고 카드를 재구성(onReset 으로 패널을 먼저 비운다).
+// §4 — CMD 터미널 카드 스니퍼. claude 가 stdout 에 인쇄한 `::VIBISUAL-CARD::{…}` 줄을 숨기고(빈 문자열) 카드를 `onCard` 로 올린다.
+// 카드는 xterm 그리드 밖 DOM 패널이 그린다(그리드면 TUI 가 다시 그릴 때 깨지거나 복제된다). 마커 없는 출력은 한 바이트도 안 바꾼다.
+// TUI 가 `\r`·커서 시퀀스를 쏟으므로 **마커가 의심될 때만** 꼬리를 버퍼링한다. reattach replay 는 onReset 뒤 같은 처리로 카드를 재구성한다.
 
 import { VIBISUAL_CARD_SENTINEL } from '@vibisual/shared';
 
@@ -35,8 +26,7 @@ export type TerminalCard =
 export interface TerminalCardSnifferCallbacks {
   /** 마커 줄을 감지·파싱했을 때 1건씩 호출(표시용 카드). */
   onCard: (card: TerminalCard) => void;
-  /** §7.11 v2.29 — `kind:"iframe"` 마커 — 표시 카드가 아니라 서버 프리뷰 버블 트리거. url 을 올린다
-   *  (뷰가 `POST /api/agent-iframe` 로 위임). 카드 레일엔 안 들어간다. */
+  /** §7.11 — `kind:"iframe"` 마커는 카드가 아니라 서버 프리뷰 버블 트리거 — url 을 올린다(`POST /api/agent-iframe`, 카드 레일 ❌). */
   onIframe?: (url: string) => void;
   /** reattach replay(화면 리셋) 감지 시 호출 — 패널을 비우고 buffer 의 마커로 카드를 재구성하게 한다. */
   onReset?: () => void;
@@ -202,7 +192,7 @@ export class TerminalCardSniffer {
     const rec = obj as Record<string, unknown>;
     const kind = rec['kind'];
 
-    // §7.11 v2.29 — iframe 신고: 표시 카드가 아니라 서버 프리뷰 버블 트리거 → 별도 콜백으로 위임(카드 레일 미경유).
+    // §7.11 — iframe 신고는 카드가 아니라 프리뷰 버블 트리거 → 별도 콜백(카드 레일 미경유).
     if (kind === 'iframe') {
       const url = rec['url'];
       if (typeof url === 'string' && url.trim()) {

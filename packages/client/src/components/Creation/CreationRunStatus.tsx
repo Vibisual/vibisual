@@ -32,9 +32,8 @@ function clock(ms: number): string {
 }
 
 /**
- * §5.13 (R-10) — what a creation request is doing: a progress bar while it runs, the elapsed time, the limits the
- * server actually applied (only those — never a promised cost), and a stop button for the session that runs it
- * (the main session too, so it never disappears for lack of a sub-session id).
+ * §5.13 (R-10) — shows only the limits the server actually applied (never a promised cost), and a stop button for the
+ * running session (the main session too, so it never disappears for lack of a sub-session id).
  */
 export function CreationRunStatus({ agentId, command }: { agentId: string; command: QueuedCommand | undefined }): React.JSX.Element | null {
   const { t } = useTranslation();

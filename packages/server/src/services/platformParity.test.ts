@@ -1,13 +1,7 @@
 /**
- * 멀티플랫폼 등록(audit) 회귀 — **정본에 없던 분기**들을 win/mac/linux 세 경우로 고정한다.
- *
- * 배경: `docs/rules/multiplatform.md` 는 2026-08-26 전수조사 결과를 §2 등록부에 실었지만,
- * 플랫폼 분기를 가진 파일 43개 중 22개는 그 등록부에 이름이 없었다. 그 22개를 훑어 나온 결함이
- * 이 파일이 지키는 계약이다. 전부 **같은 병**을 앓고 있었다 —
- * `process.platform` 을 함수 **안에서** 읽어, 그 분기가 Windows 개발기에서 영영 실행되지 않는 것.
- *
- * 그래서 고친 방식도 하나다: **플랫폼을 인자로 받게 만든다.** 그러면 실기가 없어도 세 OS 를 다 잰다.
- * 이 파일이 초록인 동안에는 그 22개를 다시 전수조사할 이유가 없다.
+ * 멀티플랫폼 등록(audit) 회귀 — `docs/rules/multiplatform.md` 등록부에 없던 분기들을 win/mac/linux 세 경우로 고정한다.
+ * 결함은 모두 `process.platform` 을 함수 안에서 읽어 Windows 개발기에서 그 분기가 영영 안 도는 꼴이었다 — 플랫폼을 인자로 받게 해 세 OS 를 다 잰다.
+ * 이 파일이 초록인 동안은 그 파일들을 다시 전수조사할 필요가 없다.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -43,7 +37,7 @@ describe('isPathWithin — 경로 탈출 방어의 플랫폼 규칙', () => {
   });
 
   it('win/mac 은 케이스만 다른 정상 경로를 받아들인다 — 그 파일시스템에서는 같은 폴더다', () => {
-    // 이것이 예전 코드의 실제 결함이다. win32 만 접었으므로 **mac 에서 정상 요청이 사유 없이 거부**됐다.
+    // mac 도 대소문자를 접는다 — win32 만 접으면 mac 에서 정상 요청이 사유 없이 거부된다.
     for (const platform of ['win32', 'darwin'] as const) {
       expect(isPathWithin('/Srv/Proj/src/a.ts', '/srv/proj', platform)).toBe(true);
     }
@@ -93,9 +87,7 @@ describe('경계 판정을 쓰는 두 창구 — 호스트 플랫폼에서의 �
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ② 살아 있는 claude 프로세스 목록 — POSIX 는 예전에 **빈 집합**이었다(조용한 열화).
-// ─────────────────────────────────────────────────────────────────────────────
+// ② 살아 있는 claude 프로세스 목록 — POSIX 도 실제 목록을 뽑아야 한다(빈 집합이면 조용히 열화된다).
 describe('aliveClaudePidsCommand / parseAliveClaudePids', () => {
   it('세 OS 모두 실제로 목록을 뽑는 명령을 낸다 — POSIX 가 빈손으로 돌아가지 않는다', () => {
     expect(aliveClaudePidsCommand('win32')).toContain('tasklist');
@@ -222,11 +214,8 @@ describe('managedSettingsPath — 관리자 설정의 플랫폼별 고정 위치
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ⑤ 데스크톱 창 아이콘 — 다섯 곳이 같은 삼항식을 각자 적고 있던 것을 하나로 모았다.
-//    desktop 패키지는 electron 을 최상위에서 import 하므로 여기서 함수를 불러올 수 없다.
-//    대신 "분기가 한 곳뿐인가"를 소스로 확인한다 — 넷을 빠뜨리는 사고가 바로 그 형태였다.
-// ─────────────────────────────────────────────────────────────────────────────
+// ⑤ 데스크톱 창 아이콘 — 분기는 한 곳에만 둔다. desktop 패키지는 electron 을 최상위에서 import 해 여기서 함수를 못 부르므로
+// "분기가 한 곳뿐인가"를 소스로 확인한다(여러 곳에 적으면 일부를 빠뜨린다).
 describe('windowIconPath — 창 아이콘 분기가 한 곳으로 모여 있는가', () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const file = path.resolve(here, '../../../desktop/src/main/windowManager.ts');

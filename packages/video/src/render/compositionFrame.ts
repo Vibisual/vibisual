@@ -1,28 +1,9 @@
 /**
- * §5.13 (T-2)(T-3) — 컴포지션 한 장의 **샌드박스 프레임**과 시각 맞춤 대화.
- *
- * 무대(`HtmlSceneStage`)가 composition 아이템마다 하나씩 세운다. 하는 일은 셋이다.
- *
- * 1. **가둔다** — `<iframe sandbox="allow-scripts">`. `allow-same-origin` 이 없어 출처가 불투명해지므로 부모 문서·
- *    `window.api`(preload)·저장소·쿠키에 닿지 못한다. `allow`(권한 정책)는 비워 카메라·마이크·클립보드·전체 화면이 없다.
- * 2. **시각을 준다** — `{__vibi:'seek', t, seq}` 를 보내고 그 `seq` 의 `ready` 를 기다린다. 컴포지션 안의 런타임 심
- *    (`composition/runtime.ts`)이 맞춰 그리고 다 그려진 뒤에만 답한다. 상한을 넘기면 **어느 시각에서 멈췄는지** 말한다.
- * 3. **되감는다** — 프레임 콜백에 기대는 컴포지션(`forward`)은 뒤로 갈 수 없으므로, 지난 시각을 요구받으면 프레임을
- *    새로 열어 0초부터 다시 흘린다(그만큼 느리다 — 렌더는 앞으로만 가므로 대가가 없다).
- *
- * 메시지는 **그 iframe 의 `contentWindow` 에서 온 것만** 받고 모양이 다르면 버린다. 메시지로 무엇을 실행하는 일은 없다.
- *
- * §5.13 (Z) 41-1 — **직통 채널**: 런타임이 `loaded{ port:true }` 로 받을 수 있다고 알리면 `MessageChannel` 의 한쪽 포트를 그
- * 프레임에 건네고, 그 뒤 모든 요청·답은 포트로 오간다. 다른 프로세스 프레임 사이의 `window.postMessage` 는 브라우저 프로세스
- * UI 스레드(앱 본체 — 서버가 함께 돈다)를 거쳐 건너가서, 거기가 멈출 때마다 미리보기가 멎었다(41 실측). 포트를 모르는 옛
- * 런타임은 종전 길 그대로다.
- *
- * §5.13 (Z) 41-2 — **스스로 재생**: `play()` 는 프레임마다 시각을 보내는 대신 기준식(에포크 `anchor` 에 `base`) 하나를 보낸다 —
- * 컴포지션이 제 rAF 로 제 시각을 계산한다. `pause()` 는 멈춘 시각을 받아 온다(다음 정확한 seek 가 그 자리에서 판단하게).
- *
- * §5.13 (V) — 읽기 전용 쌍과 데이터: `pick`(그 자리 요소 → `picked`) · `inspect`(보이는 글자 상자 → `inspected`) ·
- * `props`(값 갈아 끼우기 → `props-applied{live}`). 묶인 곳이 없으면(`live:false`) 무대가 새 값을 실어 프레임을 다시 연다.
- * 컴포지션이 알린 신호 표지(`cue`)는 `onEvent` 로 올린다.
+ * §5.13 (T-2)(T-3) — 컴포지션 한 장의 샌드박스 프레임과 시각 맞춤 대화(무대 `HtmlSceneStage` 가 composition 아이템마다 세운다).
+ * `<iframe sandbox="allow-scripts">` — `allow-same-origin` 이 없어 부모 문서·`window.api`·저장소·쿠키에 못 닿고, `allow` 를 비워 카메라·마이크·클립보드·전체 화면이 없다. 메시지는 그 iframe 의 `contentWindow` 에서 온 것만·모양이 맞을 때만 받고, 메시지로 무엇을 실행하지 않는다.
+ * seek 는 그 `seq` 의 `ready`(다 그린 뒤)를 기다리고, 상한을 넘기면 어느 시각에서 멈췄는지 말한다. `forward` 컴포지션은 뒤로 못 가 지난 시각이면 새로 열어 0초부터 흘린다.
+ * (Z) 41-1 포트를 쓰는 이유: 창 간 `window.postMessage` 는 앱 본체 UI 스레드(서버가 함께 돈다)를 거쳐 거기가 멈추면 미리보기가 멎는다(41 실측). 포트를 모르는 런타임은 창 메시지 그대로.
+ * (V) 읽기 전용 `pick`→`picked`·`inspect`→`inspected`·`props`→`props-applied{live}`, 표지 `cue` 는 `onEvent` 로 올린다.
  */
 
 import { COMPOSITION_LOAD_TIMEOUT_MS, COMPOSITION_SEEK_TIMEOUT_MS } from '../constants.js';

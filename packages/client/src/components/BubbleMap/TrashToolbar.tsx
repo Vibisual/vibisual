@@ -2,16 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useTrashedAgents } from '../../hooks/useTrashedAgents.js';
 
-/**
- * §5.10 v4.84 — 휴지통 내부에서만 뜨는 툴바. 경로 표시(`CanvasBreadcrumb`) 바로 아래에 붙어
- * ① [모두 삭제] 버튼과 ② "선택 후 Delete · Shift 로 여러 개" 라는 조작 안내를 준다.
- *
- * 종전 휴지통은 버블 하나를 고른 뒤 우측 패널의 [영구 삭제]를 누르는 단 한 경로뿐이라, 버린
- * 에이전트가 쌓이면 같은 확인 절차를 개수만큼 반복해야 했다. 삭제 자체는 확인 팝업
- * (`TrashPurgeDialog`)이 받아 배치 REST 한 번으로 처리한다 — 여기서는 대상만 넘긴다.
- *
- * 대상 배열은 `useTrashedAgents` 하나에서 나온다(버블 배지·내부 목록과 같은 배열 — v3.73).
- */
+/** §5.10 — 휴지통 내부 툴바: [모두 삭제] + 조작 안내. 삭제는 `TrashPurgeDialog` 가 배치 REST 한 번으로, 대상은 배지·목록과 같은 `useTrashedAgents` 배열. */
 export function TrashToolbar(): React.JSX.Element | null {
   const { t } = useTranslation();
   const interiorView = useGraphStore((s) => s.interiorView);

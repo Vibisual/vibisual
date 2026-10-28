@@ -4,15 +4,8 @@ import { useLinkedCount, useLinkFocusPhase } from '../../stores/linkFocus.js';
 import { shortcutLabel } from '../../utils/platform.js';
 
 /**
- * §5.4 #31 — 무리를 잡고 있는 동안 캔버스 아래에 뜨는 한 줄.
- *
- * 강조만으로는 **몇 개가 함께 가는지**를 셀 수 없고(파일 점이 수십 개면 눈으로 못 센다), 특히
- * "연결된 게 하나도 없다"와 "강조가 안 켜졌다"는 화면에서 똑같아 보인다 — 그 둘을 이 줄이 가른다.
- *
- * **별도 컴포넌트인 이유**: 무리는 마우스를 옮길 때마다 바뀌는데, `BubbleMap` 본체가 그걸
- * 구독하면 노드 목록 조립(`displayNodes` 등)이 hover 마다 통째로 다시 돈다. 여기만 깨어난다.
- *
- * 표시 전용 · `pointer-events-none` — 이 줄이 떠 있는 동안에도 팬·줌·드래그는 그대로다.
+ * §5.4 #31 — 무리를 잡는 동안의 한 줄: 몇 개가 함께 가는지, 그리고 화면상 같은 "연결 없음"과 "강조 꺼짐"을 가른다.
+ * 따로 둔 이유: 무리는 hover 마다 바뀌어 `BubbleMap` 이 구독하면 노드 조립(`displayNodes`)이 매번 다시 돈다. `pointer-events-none`.
  */
 export function LinkFocusHint(): React.JSX.Element | null {
   const { t } = useTranslation();

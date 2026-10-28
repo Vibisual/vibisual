@@ -8,13 +8,8 @@ import type {
 import type { ExplorerDirCache } from './explorerModel.js';
 
 /**
- * §5.5 #17-19 v4.71 — 탐색기의 서버 대화 담당(디렉터리 지연 조회 + 캐시).
- *
- * 한 번에 한 겹만 받는다: 폴더를 펼치는 순간 그 폴더의 자식만 `GET /api/workspace-dir` 로 받아
- * 캐시에 넣고, 접었다 다시 펴면 캐시를 그대로 쓴다. 새로고침은 캐시를 비우고 **지금 펼쳐져 있는
- * 폴더들만** 다시 받는다(트리 전체를 다시 걷지 않는다).
- *
- * 펼침·선택 같은 화면 상태는 전역 store 로 올리지 않는다(§코딩 규칙 "UI 상태는 컴포넌트 로컬").
+ * §5.5 #17-19 — 탐색기의 서버 대화(지연 조회 + 캐시). 펼칠 때 그 폴더 자식만 `GET /api/workspace-dir` 로 받고, 새로고침은 펼친 폴더만 다시 받는다.
+ * 펼침·선택은 전역 store 에 올리지 않는다(UI 상태는 컴포넌트 로컬).
  */
 
 const ROOT_KEY = '';
@@ -75,13 +70,7 @@ export function workspaceAbsPath(rootPath: string, relPath: string): string {
   return relPath ? `${base}/${relPath}` : base;
 }
 
-/**
- * §5.5 #17-19 ⑦⑧ — 탐색기가 내는 **쓰기 넷**(만들기 · 이름 바꾸기 · 삭제 · 옮기기).
- *
- * 조회(`fetchDir`)와 같은 모듈에 두는 이유는 담당이 같아서다 — 이 파일이 "서버와 하는 말" 전부다.
- * 실패는 서버가 준 사유 코드를 **그대로** 올려 보낸다(화면이 번역문을 고른다 — 여기서 문구를 만들면
- * 언어 전환이 따라오지 않는다).
- */
+/** §5.5 #17-19 ⑦⑧ — 탐색기의 쓰기 넷(만들기·이름 바꾸기·삭제·옮기기). 실패는 서버 사유 코드 그대로 올린다(문구는 화면이 번역문으로 — 언어 전환을 따르게). */
 export type WorkspaceMutateFailure =
   | 'outside' | 'root' | 'invalid-name' | 'exists' | 'not-found' | 'denied' | 'failed'
   /** ⑧ 폴더를 자기 자신·자기 하위로 옮기려 했다 */

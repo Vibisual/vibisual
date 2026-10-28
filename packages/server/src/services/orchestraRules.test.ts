@@ -12,16 +12,9 @@ import {
 import type { OrchestraConductorRulesArgs, OrchestraStrategyId } from '@vibisual/shared';
 
 /**
- * §5.3 #10-4 — 지휘 규칙(지휘 턴 한 번에 붙는 글).
- *
- * 못 박는 계약:
- *  ① 멤버 만들기·계획 신고·킥오프 요청 키에 이 런의 id 가 실린다 — 빠지면 멤버가 런에 묶이지 않고
- *     멤버 자신이 다시 지휘한다(재귀).
- *  ② 토큰 값은 본문에 없다 — 환경변수 참조뿐이다(대화 기록에 남는다).
- *  ③ 지난 분석 원문이 그대로 실린다. 사용자가 꺼 둔 방안은 고를 수 있는 표와 원문 표 **양쪽에서** 빠진다.
- *  ④ 같은 입력이면 같은 글이다(캐시 적중 · 테스트 재현).
- *  ⑤ 절차는 지휘자가 명령을 돌리는 셸의 말로 적힌다 — Windows 의 Codex 지휘자는 `powershell.exe` 5.1 이라
- *     bash 조각(heredoc·`${VAR:-}`·curl 플래그)이 한 줄도 돌지 않는다. 플랫폼은 인자라 세 OS 를 여기서 다 본다.
+ * §5.3 #10-4 — 지휘 규칙 글. ① 요청 키에 런 id(빠지면 멤버가 다시 지휘 — 재귀) ② 토큰은 환경변수 참조만(대화 기록에 남는다)
+ * ③ 분석 원문 그대로, 꺼 둔 방안은 두 표 모두에서 빠진다 ④ 같은 입력 = 같은 글
+ * ⑤ 절차는 지휘자 셸의 말로 — Windows Codex 지휘자는 `powershell.exe` 5.1 이라 bash 조각이 안 돈다(플랫폼은 인자).
  */
 
 function args(partial: Partial<OrchestraConductorRulesArgs> = {}): OrchestraConductorRulesArgs {
@@ -212,11 +205,7 @@ describe('buildOrchestraConductorRules — 기존 멤버·엣지·상한', () =>
     expect(rules).toContain(`| \`e2\` | Coder → gone | command | ${'y'.repeat(80)}… |`);
   });
 
-  /*
-   * 재사용 후보가 **프로젝트 전체**로 넓어진 자리(격차 5). 서버가 ④ 계획 신고에서 받아 주는 집합이
-   * 프로젝트 소속 전부인데 표에는 내 이전 런의 것만 실려서, 지휘자가 쓸 수 있는 버블을 못 보고
-   * 똑같은 것을 또 만들었다. 표는 둘을 **갈라서** 보여야 한다 — 감추지도, 뒤섞지도 않는다.
-   */
+  /* 재사용 후보는 프로젝트 전체다(④ 계획 신고가 받는 집합과 같게) — 내 이전 런 것만 실으면 지휘자가 같은 버블을 또 만든다. 둘을 갈라 보인다. */
   it('재사용 후보는 내 이전 런과 프로젝트를 갈라 적고, 내 것이 먼저다', () => {
     const rules = buildOrchestraConductorRules(
       args({
@@ -426,12 +415,7 @@ describe('buildOrchestraConductorRules — Bash 판(Claude 지휘자 세 OS · m
   });
 });
 
-/**
- * 멤버가 **태어날 때** 받는 두 축(사용자 스위치)이 규칙에 실리는가.
- *
- * 싣지 않으면 지휘자는 워커 셋이 한 워킹트리를 동시에 고친다는 것도, 자기가 만든 멤버에게 `Write`
- * 가 없다는 것도 모른 채 편성한다 — 둘 다 조용히 실패하고 원인이 규칙 밖이라 스스로 못 고친다.
- */
+/** 멤버 태생 두 축(사용자 스위치)이 규칙에 실리는가 — 없으면 지휘자가 워킹트리 공유·`Write` 없음을 모른 채 편성해 조용히 실패한다. */
 describe('buildOrchestraConductorRules — 멤버 태생 상태', () => {
   it('기본값 — 같은 워킹트리라고 말하고 parallel 을 파일 겹침으로 제한한다', () => {
     const rules = buildOrchestraConductorRules(args());

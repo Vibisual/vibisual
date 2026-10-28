@@ -1,15 +1,7 @@
 /**
- * §5.1 #2-1 (C) — 글 파일의 내용이 **이름으로 적고 있는** 다른 파일을 찾는다(순수).
- *
- * "이 컴포지션 json 이 저 그림·소리를 쓴다", "이 렌더 스크립트가 저 mp4 를 만든다" — 경로 계층으로는 보이지 않는
- * 관계 중 가장 강한 증거가 내용 안의 파일 이름이다. 서버가 앞부분만 비동기로 읽어(`CONSTELLATION.scanMaxBytes`) 이
- * 모듈로 이름 낱말을 뽑고, 같은 프로젝트의 파일 노드로 푼다. 판정은 순수 함수라 시험으로 고정한다.
- *
- * - **뽑기**는 넓게, **풀기**는 좁게 — 파일 이름처럼 생긴 낱말(`이름.확장자`, 앞에 경로가 붙어도 된다)을 모두 뽑되,
- *   알려진 얼굴의 확장자가 아니면 버린다(`window.location`·`this.state`·`1.5` 같은 코드 조각이 걸리지 않게).
- * - 풀 때는 **가장 긴 접미부터** 맞춘다 — 경로를 적었으면 경로로, 이름만 적었으면 그 이름이 하나뿐일 때만 잇는다.
- *   하나로 좁혀지지 않으면 잇지 않는다(판단이 서지 않으면 묶지 않는다).
- * - 경로 비교는 `pathKey`(플랫폼 인자 — 멀티플랫폼 1축). linux 는 `Logo.png` 와 `logo.png` 를 다른 파일로 본다.
+ * §5.1 #2-1 (C) — 글 내용이 이름으로 적은 다른 파일 찾기(순수, 서버가 앞부분만 읽는다 — `scanMaxBytes`).
+ * 뽑기는 넓게(알려진 얼굴 확장자만 — `window.location`·`1.5` 제외), 풀기는 좁게(긴 접미부터, 이름만이면 유일할 때만).
+ * 경로 비교는 `pathKey`(linux 는 `Logo.png` ≠ `logo.png`).
  */
 
 import { CONSTELLATION, CONSTELLATION_SCAN_MODEL_EXTENSIONS, CONSTELLATION_SCAN_SKIP_EXTENSIONS } from './constants.js';
@@ -93,11 +85,7 @@ function segmentsOf(p: string): string[] {
     .filter((s) => s !== '' && s !== '.' && s !== '..');
 }
 
-/**
- * 후보 목록에서 한 번 색인을 짓고, 그 색인으로 여러 파일의 낱말을 푼다(스냅샷 한 번에 한 벌).
- * 경로 조각을 끝부터 색인한다(`c.png` → `b` → `a`). 모든 접미 문자열을 복사하지 않아
- * 후보 색인과 낱말 해소 모두 경로 길이에 비례한다. 파일 이름/경로 길이를 잘라 버리지 않는다.
- */
+/** 후보 색인을 한 번 짓고 여러 파일의 낱말을 푼다. 경로 조각을 끝부터 색인해 접미 문자열을 복사하지 않는다(경로 길이에 비례) — 이름·경로 길이를 자르지 않는다. */
 export function createMentionResolver(
   candidates: readonly MentionCandidate[],
   platform: PlatformName,

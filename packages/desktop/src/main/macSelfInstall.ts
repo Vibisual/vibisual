@@ -1,19 +1,9 @@
 /**
- * macOS `self-install` — 우리가 직접 받아 직접 교체한다. SCENARIO §4(자동 업데이트) 대체 항목.
- *
- * **왜 electron-updater 에게 맡기지 않는가.** 맥 백엔드인 Squirrel.Mac 은 코드 서명 검증을
- * **강제**해서, 무서명 빌드는 다운로드까지 성공한 뒤 적용 단계에서 반드시 실패한다. 그런데 그
- * 검증은 **Squirrel 의 적용 경로 안**에 있다 — 우리가 적용하면 그 코드가 아예 돌지 않는다.
- *
- * **왜 Gatekeeper 에 안 걸리는가.** 첫 실행 차단을 발동시키는 것은 서명 유무가 아니라
- * `com.apple.quarantine` **속성**이고, 그 속성은 **파일을 받은 프로그램이 붙인다**(브라우저는
- * 붙이고 CLI·Node 는 붙이지 않는다). 근거는 우리 저장소 안에 있다 — `.github/workflows/smoke.yml`
- * 은 사용자 상황을 재현하려고 quarantine 을 `xattr -w` 로 **손수 붙인다**(`gh release download`
- * 로 받은 dmg 에는 없어서 그냥 두면 재현이 안 된다). 우리가 받은 파일도 마찬가지로 깨끗하다.
- *
- * **무결성의 대가.** Squirrel 의 서명 검증이 빠진 자리를 GitHub 이 자산마다 주는
- * `digest`(sha256) 대조가 대신한다. 전송 중 손상·중간자는 막지만 **릴리스 자체가 바뀐 경우는
- * 못 막는다** — 서명이 막아 주던 것이 그것이라, 서명 슬롯(`MAC_CODE_SIGNED`)은 그대로 남는다.
+ * macOS `self-install` — 직접 받아 직접 교체한다(SCENARIO §4 자동 업데이트 대체 항목).
+ * electron-updater 에 맡기지 않는다 — Squirrel.Mac 이 적용 단계에서 서명 검증을 강제해 무서명 빌드는 반드시 실패한다(그 검증은 Squirrel 적용 경로 안에만 있다).
+ * Gatekeeper 첫 실행 차단은 `com.apple.quarantine` 속성이 걸고, 그 속성은 받은 프로그램이 붙인다(브라우저는 붙이고 CLI·Node 는 안 붙인다 —
+ * `smoke.yml` 이 재현하려고 `xattr -w` 로 손수 붙이는 이유). 무결성은 GitHub 자산 `digest`(sha256) 대조 — 전송 손상·중간자는 막지만
+ * 릴리스 자체가 바뀐 경우는 못 막아 서명 슬롯(`MAC_CODE_SIGNED`)은 남는다.
  */
 
 import { createHash } from 'node:crypto';
@@ -283,12 +273,9 @@ export async function prepareSelfInstall(opts: {
 }
 
 /**
- * 꺼내 둔 번들로 **지금 교체**한다. 종료 정리를 마치고 `app.exit()` 직전에 한 번만 부른다.
- *
- * ⚠️ **살아 있는 자기 자신을 덮어쓰지 않는다.** 분리된 셸을 띄워 우리 pid 가 사라지기를
- * 기다린 뒤 교체하게 한다 — Windows 가 NSIS 설치기를 spawn 하고 빠지는 것과 같은 구조다.
- * 교체는 부모 폴더 안에서 rename 두 번으로 하고, 실패하면 **원래 번들을 되돌린다**
- * (교체 도중 죽어서 앱이 통째로 사라지는 것이 가장 나쁘다).
+ * 꺼내 둔 번들로 지금 교체한다. 종료 정리를 마치고 `app.exit()` 직전에 한 번만 부른다.
+ * 살아 있는 자기 자신을 덮어쓰지 않는다 — 분리된 셸이 우리 pid 가 사라지길 기다려 교체한다(Windows NSIS 와 같은 구조).
+ * 교체는 부모 폴더 안 rename 두 번, 실패하면 원래 번들을 되돌린다(도중에 앱이 통째로 사라지는 것이 가장 나쁘다).
  */
 export function runSwap(staged: StagedUpdate, pid: number): boolean {
   const script = [

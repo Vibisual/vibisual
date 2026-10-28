@@ -53,6 +53,8 @@ import { waitForDurableDrafts } from './durableShutdown';
 import { mainStrings, fmt } from './strings';
 import { setVerificationAutomationAdapter, setAppMainInvoker } from '@vibisual/server';
 import { setProcessContainmentBackend } from '@vibisual/server';
+import { setApiCreditCipher } from '@vibisual/server';
+import { createApiCreditCipher } from './apiCreditCipher';
 import { createWindowsJobBackend } from './winJobObject.js';
 import { verificationAutomationAdapter, closeAllVerificationTargets } from './verificationAutomation';
 // §5.13 (T-11) — 내부 앱 공통 층의 앱 이름 없는 접점: 서버 몫 → main 몫 호출 · 숨은 창 정리 · 콘텐츠 프레임 이동 금지.
@@ -61,20 +63,10 @@ import { guardAppContentFrames } from './appContentGuard';
 import { allowWebPageViews } from './webPageSession';
 
 // Vibisual desktop main — SCENARIO.md §3.7 (in-process 통합, 단일 프로세스).
-//
-// server 코어를 child 프로세스로 spawn 하지 않고 이 main 프로세스 안에서 직접 구동한다
-// (`runServer()`). renderer↔server 는 Electron IPC 직결(ipc.ts) —
-// localhost HTTP/WS 브리지 없음.
-//
-// 단 하나의 예외: Claude Code hook 과 커스텀 위임 엣지 dispatch 는 claude CLI 가 spawn 하는
-// 외부 프로세스라 in-process 흡수(IPC)가 불가능하다. 그래서 main 은 127.0.0.1 loopback
-// HTTP 리스너 하나를 띄워 /api/hook-event·/api/task-edges/dispatch·/health 만 받는다
-// (renderer 브리지가 아니라 외부 claude 프로세스 ingress 전용 — §3.7 v2.8).
-//
-// §3.7 · §9 「시작 화면(스플래시)」 — **이 파일은 더 이상 빌드의 입구가 아니다.** 입구는 `bootstrap.ts` 이고, 그것이
-// 화면 가운데에 스플래시를 먼저 띄운 뒤 `ready` 가 지나서 이 모듈을 읽는다(`launchApp`). 그래서 `ready` 전에 해야만
-// 하는 일 — vibproxy 스킴 등록 · Linux 캡처 스위치 · 크래시 수집·부팅 배너 · 단일 인스턴스 잠금 — 은 전부 거기로 갔다.
-// 여기 다시 두지 마라: 이 모듈이 읽힐 때는 이미 늦다.
+// server 코어를 이 main 프로세스 안에서 직접 구동한다(`runServer()`). renderer↔server 는 Electron IPC 직결(ipc.ts), localhost 브리지 없음.
+// 예외 하나: hook·위임 엣지 dispatch 는 claude CLI 가 띄운 외부 프로세스라 127.0.0.1 loopback HTTP 리스너로만 받는다(외부 ingress 전용).
+// §9 「시작 화면(스플래시)」 — 빌드 입구는 `bootstrap.ts` 이고 이 모듈은 `ready` 뒤에 읽힌다(`launchApp`). `ready` 전에 해야 하는 일
+// (vibproxy 스킴 등록·Linux 캡처 스위치·크래시 수집·부팅 배너·단일 인스턴스 잠금)을 여기 다시 두지 마라 — 이미 늦다.
 
 let ipcHub: IpcHub | null = null;
 let hookListener: HttpServer | null = null;
@@ -82,9 +74,8 @@ let primaryMainWindow: BrowserWindow | null = null;
 let backendBootFailed = false;
 let backendStartAttempted = false;
 
-// Hook 리스너 인증 토큰. 예전엔 매 실행 새 랜덤이었으나, 이제 userData 에 저장된 값을
-// bootBackend 에서 불러와 재사용한다(hookIdentity.ts) — 재실행해도 동일 유지. 모듈 로드 시점엔
-// app 이 아직 ready 가 아니라 userData 를 못 읽으므로, 일단 랜덤 폴백으로 두고 boot 때 덮어쓴다.
+// Hook 리스너 인증 토큰 — bootBackend 가 userData 저장값(hookIdentity.ts)으로 덮어쓴다.
+// 모듈 로드 때는 ready 전이라 userData 를 못 읽어 랜덤 폴백으로 둔다.
 let hookToken: string = randomBytes(24).toString('hex');
 
 export function getHookToken(): string {
@@ -102,14 +93,9 @@ const hookRetirement = createHookRetirement((reason) => {
 }, (error) => mainDiagnostics.report('hook', error));
 
 /**
- * §보안 감사 2026-09-09 — loopback 토큰 비교는 **걸리는 시간이 값에 따라 달라지면 안 된다.**
- *
- * `!==` 는 첫 번째로 다른 글자에서 곧바로 끝난다. 이 리스너는 같은 PC 의 아무 프로그램이나
- * 두드릴 수 있고 횟수 제한도 없으므로, 응답 시간을 쌓으면 토큰을 앞에서부터 한 글자씩 맞춰
- * 나갈 수 있다. 토큰 하나면 이 리스너의 화이트리스트 전체(카드·설정·명령 큐)에 닿는다.
- *
- * 길이도 먼저 재지 않는다 — 길이 자체가 신호가 된다. 양쪽을 sha256 으로 접어 **항상 같은 32
- * 바이트**를 `timingSafeEqual` 로 비교한다(길이가 다르면 그 함수가 던지므로 접는 것이 필수다).
+ * loopback 토큰 비교는 걸리는 시간이 값에 따라 달라지면 안 된다 — `!==` 는 첫 다른 글자에서 끝나, 횟수 제한 없는 이 리스너에
+ * 응답 시간을 쌓으면 토큰을 한 글자씩 맞출 수 있다. 길이도 먼저 재지 않는다(길이도 신호다).
+ * 양쪽을 sha256 으로 접어 늘 같은 32바이트를 `timingSafeEqual` 로 비교한다(길이가 다르면 그 함수가 던진다).
  */
 function isValidHookToken(incoming: string | string[] | undefined): boolean {
   if (typeof incoming !== 'string') return false;
@@ -118,17 +104,15 @@ function isValidHookToken(incoming: string | string[] | undefined): boolean {
   return timingSafeEqual(a, b);
 }
 
-// crashLog(§4 v1.98 확장) — 크래시 수집과 부팅 배너는 시작 진입점(`bootstrap.ts`)이 이 모듈보다 먼저 건다.
+// §4 crashLog — 크래시 수집과 부팅 배너는 시작 진입점(`bootstrap.ts`)이 이 모듈보다 먼저 건다.
 
-// §3.5 v4.67 — 서버 코어의 버블 생명주기 진단 로그도 crash.log 와 같은 곳(userData/logs)에 둔다.
-// 이 로그는 프로젝트 데이터가 아니라 앱 진단이고, 종전엔 server 가 `process.cwd()` 상대 경로를
-// 쓰는 바람에 패키지 앱의 실행 위치에 따라 AppData/Local 같은 엉뚱한 곳으로 갈라져 쌓였다.
-// (app.getPath 는 ready 전에도 대체로 동작하지만 초기 실패에 대비해 감싼다 — crashLog 와 동일 방어.)
+// §3.5 — 서버 코어의 버블 생명주기 진단 로그도 crash.log 와 같은 userData/logs 에 둔다(앱 진단이지 프로젝트 데이터가 아니다).
+// `process.cwd()` 상대 경로면 패키지 앱의 실행 위치에 따라 엉뚱한 곳에 갈라져 쌓인다. app.getPath 의 ready 전 실패에 대비해 감싼다.
 try {
   setDebugLogDir(join(app.getPath('userData'), 'logs'));
 } catch { /* ready 전 극초기 실패 — server 의 cwd 상대 폴백을 그대로 쓴다 */ }
 
-// §4 v1.98 — main 프로세스 에러를 진단 로그(diagnosticService)에 적재 → DebugPanel 에 표시.
+// §4 — main 프로세스 에러를 진단 로그(diagnosticService)에 적재 → DebugPanel 에 표시.
 // Unknown exceptions remain diagnostic events, not proof that execution recovered safely.
 // Expected transport failures are contained at their own stream/request/window boundaries.
 const mainDiagnostics = createMainDiagnostics({
@@ -161,16 +145,14 @@ function saveSplashDisplayCache(): void {
 }
 
 /**
- * 본체 창. `splash` 가 있으면(앱을 켠 첫 창) 숨긴 채 그리다가 준비가 끝나면 보이고, 없으면(mac 에서 창을 다시
- * 만들 때 등) 종전처럼 첫 칠(`ready-to-show`)에 곧바로 보인다.
+ * 본체 창. `splash` 가 있으면(앱을 켠 첫 창) 숨긴 채 그리다 준비가 끝나면 보이고, 없으면(mac 에서 창을 다시 만들 때 등)
+ * 첫 칠(`ready-to-show`)에 곧바로 보인다.
  */
 function createWindow(opts: { splash?: SplashHandle | null } = {}): void {
   const splash = opts.splash ?? null;
-  // §3.7 v2.10 — 통합 앱 단일 타이틀바. Electron 네이티브 타이틀바를 숨기고(titleBarStyle: 'hidden')
-  // React Header(`app-drag` 영역)가 그 자리에 타이틀바 역할을 한다. Windows 는 titleBarOverlay 가
-  // 우상단에 네이티브 윈도우 컨트롤(min/max/close)을 오버레이로 깔아준다 — 헤더 우측의 `pr-36` 가
-  // 그 오버레이 폭(=Windows 기본 138px)을 비워둔다. Mac 은 같은 설정이 트래픽 라이트를 자동 표기.
-  // §4 앱 테마 — 창 바탕·제목줄 단추 색은 고른 테마에서 온다(화면과 같은 해석). 기본 테마는 종전 값 그대로다.
+  // §3.7 — 단일 타이틀바: 네이티브 타이틀바를 숨기고(titleBarStyle: 'hidden') React Header(`app-drag`)가 그 역할을 한다.
+  // Windows 는 titleBarOverlay 가 우상단에 min/max/close 를 깔고, 헤더 우측 `pr-36` 이 그 폭(기본 138px)을 비운다. mac 은 신호등을 띄운다.
+  // §4 앱 테마 — 창 바탕·제목줄 단추 색은 고른 테마에서 온다(화면과 같은 해석).
   const chrome = safeAppThemeChrome();
   const mainWindow = new BrowserWindow({
     width: 1440,
@@ -183,18 +165,15 @@ function createWindow(opts: { splash?: SplashHandle | null } = {}): void {
     title: 'Vibisual',
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      // §3.7 v2.15 — Header(`bg-vb-titlebar` = 테마 토큰 `titleBar.background`)와 같은 색.
-      // ⚠️ `color`/`symbolColor` 는 Windows·Linux 전용이다. macOS 는 이 값을 무시하고
-      //    대신 신호등(닫기/최소화/최대화)을 기본 위치에 그대로 띄운다 — 아래 참조.
+      // §3.7 — Header(`bg-vb-titlebar` = 테마 토큰 `titleBar.background`)와 같은 색.
+      // `color`/`symbolColor` 는 Windows·Linux 전용 — macOS 는 무시하고 신호등을 기본 위치에 띄운다(아래 참조).
       color: chrome.titleBar,
       symbolColor: chrome.titleBarSymbol,
       height: 36,
     },
-    // macOS 전용 — `titleBarStyle:'hidden'` 이면 신호등이 좌상단 기본 좌표에 그대로 뜨는데,
-    // 우리 Header 는 좌측 12px 부터 로고 + File 메뉴를 그린다. 위치를 안 잡아 주면
-    // 신호등이 File 버튼을 덮어 폴더 열기·설정·플러그인의 **유일한 진입로가 막힌다**
-    // (네이티브 앱 메뉴를 등록하지 않아 대체 경로가 없다).
-    // h-9(36px) 헤더의 세로 가운데에 오도록 y 를 잡고, Header 쪽은 mac 에서 좌측 여백을 예약한다.
+    // macOS 전용 — 위치를 안 잡으면 신호등이 좌상단 기본 좌표에 떠 Header 의 File 메뉴(좌측 12px~)를 덮는다
+    // — 네이티브 앱 메뉴가 없어 폴더 열기·설정·플러그인의 유일한 입구가 막힌다.
+    // y 는 h-9(36px) 헤더의 세로 가운데, Header 는 mac 에서 좌측 여백을 예약한다.
     ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 12, y: 11 } } : {}),
     // out/main/index.cjs → ../icon.{ico,png} (staged by electron.vite.config copy plugin).
     // On Windows, PNG icons render blurry in the taskbar/title bar; use the multi-size
@@ -215,9 +194,9 @@ function createWindow(opts: { splash?: SplashHandle | null } = {}): void {
   // 태그를 켠 이 자리에서 가드를 건다 — 웹뷰는 전용 메모리 세션·샌드박스·권한 거절로만 붙는다(`webPageView.ts`).
   allowWebPageViews(mainWindow.webContents);
 
-  // §3.7 — 창 상태 전이마다 렌더러에 드래그 영역 재신고를 시키던 배선은 걷었다. 그 재신고(영역 흔들기)가
-  //   제목줄 누름을 버리게 했다 — 페이지까지 온 누름은 렌더러가 덮개와 같은 길로 옮긴다(client `titlebarPress.ts`).
-  // §4 앱 테마 — 테마를 바꾸면 이 창의 바탕과 제목줄 단추도 다시 칠한다(그 창의 렌더러는 화면만 칠한다).
+  // §3.7 — 창 상태 전이마다 렌더러에 드래그 영역을 재신고시키지 않는다 — 그 재신고가 제목줄 누름을 버린다.
+  //   페이지까지 온 누름은 렌더러가 덮개와 같은 길로 옮긴다(client `titlebarPress.ts`).
+  // §4 앱 테마 — 테마를 바꾸면 이 창의 바탕과 제목줄 단추도 다시 칠한다(렌더러는 화면만 칠한다).
   trackThemedWindow(mainWindow, { titleBarOverlay: true });
 
   // §3.7 · §9 「시작 화면」 ② 첫 표시 — Windows 에서 숨겨 만든 창을 처음 보이면 첫 프레임이 흰색으로 찍힌다(바탕색을 줘도).
@@ -226,10 +205,9 @@ function createWindow(opts: { splash?: SplashHandle | null } = {}): void {
   const firstShow = coverFirstShow(mainWindow, { platform: process.platform });
 
   if (splash) {
-    // §3.7 · §9 「시작 화면(스플래시)」 — 종전에는 빈 껍데기를 한 번 칠한 순간(`ready-to-show`) 보여, 그 뒤의 React
-    //   마운트·첫 스냅샷·부팅 확인이 창이 뜬 첫 3초에 몰렸다(실측 멈춤 0.2~2.9초). 이제 스플래시가 앞을 지키는 동안
-    //   숨긴 채 그리고(숨긴 창도 그린다), 렌더러가 첫 화면을 다 그리고 · 부팅 확인이 다 돌고 · 메인 스레드가 조용해지면
-    //   보인다. 순서·상한은 `splashPolicy.decideMainReveal` 이 갖는다 — 무엇이 막혀도 상한 뒤에는 보인다.
+    // §3.7 · §9 「시작 화면(스플래시)」 — 스플래시가 앞을 지키는 동안 숨긴 채 그리고(숨긴 창도 그린다), 렌더러 첫 화면·부팅 확인·
+    //   메인 스레드 조용함이 갖춰지면 보인다 — `ready-to-show` 에 보이면 첫 3초에 일이 몰려 멈춘다(실측 0.2~2.9초).
+    //   순서·상한은 `splashPolicy.decideMainReveal` — 무엇이 막혀도 상한 뒤에는 보인다.
     splash.stage('workspace');
     mainReveal = startMainReveal({
       window: mainWindow,
@@ -258,9 +236,8 @@ function createWindow(opts: { splash?: SplashHandle | null } = {}): void {
   }
 
   // §3.7 · §9 「창이 뜬 직후의 메인 스레드」 — 본체 창이 처음 보이는 순간을 두 곳에 알린다.
-  //   ② 부팅 때 줄에 세워 둔 한 번짜리 확인(설치·로그인·사용량·코덱스·훅 전송)이 이때부터 한 칸씩 돈다.
-  //      (스플래시가 있었으면 그 뒤에서 이미 풀었다 — 그때 이 부름은 아무것도 하지 않는다.)
-  //   ④ 멈춤 기록이 "창이 뜬 뒤 몇 ms" 를 재는 기준점. 둘 다 첫 번만 센다(mac 에서 창을 다시 만들어도 같다).
+  //   ② 부팅 때 세워 둔 한 번짜리 확인(설치·로그인·사용량·코덱스·훅 전송)이 이때부터 한 칸씩 돈다(스플래시가 있었으면 이미 풀려 no-op).
+  //   ④ 멈춤 기록의 "창이 뜬 뒤 몇 ms" 기준점. 둘 다 첫 번만 센다(mac 에서 창을 다시 만들어도).
   mainWindow.once('show', () => {
     markMainWindowShown();
     releaseStartupJobs();
@@ -284,10 +261,8 @@ function createWindow(opts: { splash?: SplashHandle | null } = {}): void {
   // 헤더의 어느 app-drag 영역에서 끌어도 커서에서 창이 떨어진다. 직접 처리하는 로고도
   // titlebarMove 가 정상 크기와 잡은 위치를 지키며, 별도 중앙 배치로 덮지 않는다.
 
-  // §3.7 v2.12 — `titleBarStyle: 'hidden'` + `titleBarOverlay` Windows 조합에서 간헐적으로
-  // `ready-to-show` 가 안 떠 창이 영구 숨김 상태가 되는 회귀가 보고됨. 3초 fallback —
-  // 그때까지 안 떴으면 강제 show. 정상 경우엔 이미 ready-to-show 가 처리해서 이 분기 no-op.
-  // 스플래시가 있으면 이 3초 그물은 걸지 않는다 — 공개 제어가 `ready-to-show` 를 기다리지 않고 자기 상한을 든다.
+  // §3.7 — Windows 의 `titleBarStyle: 'hidden'` + `titleBarOverlay` 조합은 간헐적으로 `ready-to-show` 가 안 와 창이 영영 숨는다.
+  // 3초 안에 안 떴으면 강제 show(정상이면 no-op). 스플래시가 있으면 걸지 않는다 — 공개 제어가 자기 상한을 든다.
   if (!splash) {
     setTimeout(() => {
       if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) {
@@ -313,11 +288,10 @@ function createWindow(opts: { splash?: SplashHandle | null } = {}): void {
     }
   });
 
-  // §3.7 v2.2 — dev 모드 폐기. renderer 는 항상 디스크의 프로덕션 빌드 산출물에서 로드한다
-  // (electron-vite preview·packaged 동일 경로). renderer dev 서버·ELECTRON_RENDERER_URL 분기 없음.
+  // §3.7 — renderer 는 늘 디스크의 프로덕션 빌드에서 로드한다(preview·packaged 같은 경로). dev 서버·ELECTRON_RENDERER_URL 분기 없음.
   void mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
 
-  // SCENARIO.md §5.4 #14-1 (v2.29) — 별창 매니저가 메인 윈도우를 참조해야 한다(redock 푸시 대상).
+  // SCENARIO.md §5.4 #14-1 — 별창 매니저가 메인 윈도우를 참조해야 한다(redock 푸시 대상).
   primaryMainWindow = mainWindow;
   // §3.6 「수명」 — Windows 의 OS 종료·재시작·로그오프에는 before-quit 가 오지 않는다(Electron 문서). 이 창의
   //   `session-end` 가 그 순간에 오므로 여기서 동기로 걷는다(정상 종료와 겹쳐도 한 번만 돈다).
@@ -340,12 +314,11 @@ function createWindow(opts: { splash?: SplashHandle | null } = {}): void {
   });
   mainWindow.on('closed', () => {
     if (primaryMainWindow === mainWindow) primaryMainWindow = null;
-    // §5.4 #14-1 (v2.34) — 본체가 닫히면 별창도 같이 닫힌다(사용자 의도: "본체 꺼지면 별창도 같이").
-    // 그렇지 않으면 별창이 살아있는 한 window-all-closed 가 발생하지 않아 앱이 quit 하지 못함.
+    // §5.4 #14-1 — 본체가 닫히면 별창도 닫는다. 안 닫으면 별창이 사는 한 window-all-closed 가 오지 않아 앱이 quit 하지 못한다.
     closeAllDetachedWindows();
-    // §5.5 #17-6 (v2.73) — 오버레이 위젯 창도 함께 정리(같은 데드락 회피).
+    // §5.5 #17-6 — 오버레이 위젯 창도 함께 정리(같은 데드락 회피).
     closeAllOverlays();
-    // §5.12 (v4.43) — 지휘통제실 창도 함께 정리(같은 데드락 회피).
+    // §5.12 — 지휘통제실 창도 함께 정리(같은 데드락 회피).
     closeAllCommandCenters();
     // §5.13 (T-11) ④ — 내부 앱이 띄운 숨은 창(일꾼·오프스크린)도 함께 정리(같은 데드락 회피).
     disposeAppMains();
@@ -353,20 +326,11 @@ function createWindow(opts: { splash?: SplashHandle | null } = {}): void {
 }
 
 /**
- * §3.7 — hook 전용 loopback HTTP 리스너.
- *
- * in-process 모델에서 유일하게 남는 프로세스 경계 — Claude Code hook 도, 커스텀 위임 엣지를
- * dispatch 하는 소스 커스텀 에이전트도 모두 claude CLI 가 spawn 하는 외부 프로세스라 renderer↔
- * server IPC 를 못 쓴다. 화이트리스트(/api/hook-event·/api/task-edges/dispatch·/health) 외
- * 경로는 404. `:0` 동적 포트 → §3.6 인스톨러가 그 포트를 ~/.claude/settings.json 에 기록하고,
- * server 코어는 setHookListenerPort() 로 같은 포트를 받아 dispatch curl URL 에 쓴다(§3.7 v2.8).
- *
- * 중요: 외부에서 온 **실제** IncomingMessage 를 Express app 에 직접 먹이지 않는다. body 만 읽어
- * light-my-request `inject` 로 재디스패치한다. light-my-request 는 Express 를 감지하면
- * `express.request` 프로토타입을 자기 Request 로 바꿔치기하는데(IPC 디스패치를 위해 필요),
- * 그 상태에서 실제 IncomingMessage 가 Express 를 거치면 socket close 시 `req.destroy` 가
- * light-my-request 의 것으로 풀려 크래시한다. 그 경로를 원천 차단 — 실제 req 는 Express 를
- * 절대 거치지 않고, Express 는 오직 light-my-request 요청만 받는다.
+ * §3.7 — hook 전용 loopback HTTP 리스너. in-process 모델에 남은 유일한 프로세스 경계다(hook·위임 dispatch 는 claude CLI 가 띄운
+ * 외부 프로세스라 IPC 를 못 쓴다). 화이트리스트 밖은 404. 포트는 §3.6 인스톨러가 settings.json 에 적고 server 코어는 `setHookListenerPort()` 로 받는다.
+ * 실제 IncomingMessage 를 Express 에 직접 먹이지 마라 — body 만 읽어 light-my-request `inject` 로 재디스패치한다.
+ * light-my-request 가 `express.request` 프로토타입을 바꿔치기해 둔 상태라, 실제 req 가 Express 를 거치면 socket close 때
+ * `req.destroy` 가 그쪽 것으로 풀려 크래시한다.
  */
 async function startHookListener(expressApp: Express, preferredPort: number): Promise<number> {
   const bodyBudget = new LoopbackBodyBudget();
@@ -375,30 +339,23 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
 
     // /health is public — health checks must not require auth.
     const isHealth = path === '/health';
-    // §3.7 (판올림 번호 발급 대기) — **dispatch 면제 폐기.** 종전 주석은 "dispatch 호출자에게는
-    // 토큰 전달 채널이 없다"였는데, §5.5 #17-28 ⑧(b) 가 자식 환경에 `VIBISUAL_TOKEN` 을 넣기
-    // 시작한 뒤로 그 전제는 사실이 아니다(카드 5경로가 이미 그 값을 쓴다). 면제가 남아 있는 동안
-    // 이 경로는 **인증 없이 임의 지시문으로 새 에이전트를 스폰**할 수 있었다 — `edgeId` 존재
-    // 검사는 호출자를 확인하지 않고, `express.text()` 를 타는 `text/plain` 본문이라 브라우저의
-    // 단순 요청(preflight 없음)으로도 닿는다. 이제 `/health` 만 면제한다.
+    // §3.7 — 토큰 면제는 `/health` 하나뿐이다. dispatch 를 면제하지 마라 — 호출자는 자식 환경의 `VIBISUAL_TOKEN`(§5.5 #17-28 ⑧(b))을 쓸 수 있고,
+    // 면제하면 인증 없이 임의 지시문으로 새 에이전트를 스폰할 수 있다(`edgeId` 검사는 호출자를 안 보고,
+    // `text/plain` 본문이라 브라우저의 단순 요청(preflight 없음)으로도 닿는다).
 
-    // §5.3 #10-2 v2.47 — 하네스 빌더 구축 경로. 외부 빌더(spawn 된 claude)가 버블·엣지·설정·
-    // kickoff 를 만들려면 이 loopback 으로 와야 한다. 토큰 게이트 필수(아래 분기 — `/health` 만 면제).
+    // §5.3 #10-2 — 하네스 빌더 구축 경로. 외부 빌더(spawn 된 claude)가 버블·엣지·설정·kickoff 를 만드는 통로라 토큰 필수.
     const isBuilderPath =
       path === '/api/create-custom-agent' ||
       path === '/api/task-edges' ||
       path.startsWith('/api/agent-config/') ||
       path.startsWith('/api/commands/');
 
-    // §5.13 (P) v4.49 — 내부 앱 REST. **앱 이름을 여기 적지 않는다** — 모든 앱이
-    //   `/api/app/<id>/…` 아래로 들어오기로 했으므로 이 한 줄이면 앱이 늘어도 그대로다.
-    //   외부 `claude` 프로세스에게는 이 loopback 이 유일한 통로라 열어 두되 토큰은 필수.
+    // §5.13 (P) — 내부 앱 REST. 앱 이름을 여기 적지 않는다 — 모든 앱이 `/api/app/<id>/…` 아래라 이 한 줄이면 된다.
+    // 외부 `claude` 프로세스의 유일한 통로라 열어 두되 토큰 필수.
     const isAppPath = path.startsWith('/api/app/');
 
-    // §5.5 #17-17 v4.46 — 세션 목표 진행률 신고. 주입 지시문을 받은 외부 `claude` 프로세스가
-    // 유일한 호출자라 이 loopback 이 통로다. **`/progress` 로 끝나는 경로만** 연다 —
-    // 목표 문장 자체를 고치는 PUT/DELETE 는 열지 않는다(목표는 사용자의 것이다).
-    // 토큰 게이트 필수(아래 분기 — `/health` 만 면제).
+    // §5.5 #17-17 — 세션 목표 진행률 신고(외부 `claude` 가 유일한 호출자). `/progress` 로 끝나는 경로만 연다 —
+    // 목표 문장을 고치는 PUT/DELETE 는 열지 않는다(목표는 사용자의 것). 토큰 필수.
     const isSessionGoalProgressPath =
       path.startsWith('/api/session-goal/') && path.endsWith('/progress');
 
@@ -436,35 +393,29 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       // §5.3 #10-2 (위임 결과 복구) — 끊긴 뒤 결과를 다시 받는 조회(`GET …/:cmdId`)와 취소(`POST …/:cmdId/cancel`).
       //   부르는 쪽이 dispatch 와 같은 외부 프로세스라 같은 통로가 필요하다. 토큰 인증 필수(아래 분기).
       !path.startsWith('/api/task-edges/dispatch/') &&
-      // §4 v2.52 — 커스텀/스폰 에이전트의 작업 신고(did/userActions). 토큰 인증 필수(아래 분기).
+      // §4 — 커스텀/스폰 에이전트의 작업 신고(did/userActions). 토큰 인증 필수.
       path !== '/api/agent-report' &&
       // §4 (CLI 사양 추종) — 에이전트 자율 컨텍스트 압축 요청. 큐에 얹는 시점은 그 턴이 끝난 뒤라
       //   여기서 여는 것은 "대기표에 적기"까지다. 토큰 인증 필수.
       path !== '/api/agent-compact' &&
-      // §4 v2.60 — 커스텀/스폰 에이전트의 사용자 질문 카드(question + prompts). 토큰 인증 필수.
+      // §4 — 커스텀/스폰 에이전트의 사용자 질문 카드(question + prompts). 토큰 인증 필수.
       path !== '/api/agent-questions' &&
-      // §4 v2.70 — 커스텀/스폰 에이전트의 검수 요청 카드(changes + checkpoints). 토큰 인증 필수.
+      // §4 — 커스텀/스폰 에이전트의 검수 요청 카드(changes + checkpoints). 토큰 인증 필수.
       path !== '/api/agent-review' &&
-      // §4 v2.84 — 커스텀/스폰 에이전트의 번호 목록 정렬 카드(items). 토큰 인증 필수.
+      // §4 — 커스텀/스폰 에이전트의 번호 목록 정렬 카드(items). 토큰 인증 필수.
       path !== '/api/agent-list' &&
-      // §7.11 v2.29 — 커스텀/스폰 에이전트의 서버 iframe 신고(url). 토큰 인증 필수.
+      // §7.11 — 커스텀/스폰 에이전트의 서버 iframe 신고(url). 토큰 인증 필수.
       path !== '/api/agent-iframe' &&
-      // §4 (CMD 터미널 업그레이드 ⑥) — 임베디드 PTY 제어. herdr 의 `pane send-text/read/wait-output`
-      //   자리이며, **§10 'HTTP/REST API 외부 노출' 이 아니다** — 127.0.0.1 바인드 + 아래 토큰
-      //   인증을 지나야 하는 기존 카드 5경로와 **같은 규율**의 loopback ingress 확장이다.
-      //   `/api/cmd/send` 는 prefill 까지만 넣고 개행(Enter)은 절대 보내지 않는다(§4 v2.63 ToS 합법선).
+      // §4 (CMD 터미널 ⑥) — 임베디드 PTY 제어. §10 'HTTP/REST API 외부 노출' 이 아니다 — 127.0.0.1 바인드 + 토큰 인증을 지나는
+      // 카드 경로와 같은 규율의 loopback ingress 다. `/api/cmd/send` 는 prefill 까지만, 개행(Enter)은 절대 보내지 않는다(§4 ToS 합법선).
       path !== '/api/cmd/send' &&
       path !== '/api/cmd/read' &&
       path !== '/api/cmd/wait' &&
-      // §5.14 v4.62 — 플레이 버블의 실행 레시피 등록. **등록만** 열고 기동(`/start`)은 열지 않는다
-      //   — 서버를 켜는 것은 사용자가 버튼을 누를 때의 일이다. 토큰 인증 필수.
+      // §5.14 — 플레이 버블의 실행 레시피 등록. 등록만 열고 기동(`/start`)은 열지 않는다(서버는 사용자가 버튼으로 켠다). 토큰 필수.
       path !== '/api/play-recipe' &&
-      // §4 v3.60 — 사용량 수집기(statusLine)가 미는 Claude.ai 한도 사용률. Claude Code 가
-      //   statusLine 스크립트를 외부 프로세스로 돌리므로 이 loopback 이 유일한 도달 경로다.
-      //   토큰 인증 필수(아래 분기).
+      // §4 — 사용량 수집기(statusLine)가 미는 Claude.ai 한도 사용률. statusLine 은 외부 프로세스라 이 loopback 이 유일한 길. 토큰 필수.
       path !== '/api/rate-limits' &&
-      // §4 v4.89 — 서브에이전트 행 수집기(`subagentStatusLine`)가 미는 토큰 사용량·모델·사고 깊이.
-      //   statusLine 과 같은 이유로 이 loopback 이 유일한 도달 경로다. 토큰 인증 필수(아래 분기).
+      // §4 — 서브에이전트 행 수집기(`subagentStatusLine`)가 미는 토큰 사용량·모델·사고 깊이. statusLine 과 같은 이유로 유일한 길. 토큰 필수.
       path !== '/api/subagent-statusline' &&
       !isAppPath &&
       !isAppBubbleOutputPath &&
@@ -487,20 +438,14 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       return;
     }
 
-    // §3.7 v2.8 — hook 수신 외에 커스텀 위임 엣지 dispatch 도 외부 claude 프로세스가 호출하는
-    // 경로다(renderer↔server IPC 불가 → loopback 리스너 경유). dispatch 도 화이트리스트에 포함.
-    // §3.7 v2.9 — `/api/permission-check` 추가. §5.3 #12-1 권한 승인 팝업의 동기 게이트로,
-    // 외부 claude 프로세스가 PreToolUse 훅(node handler.mjs)을 통해 도달한다. 이전 3경로
-    // 화이트리스트가 permission-check 를 404 로 막아 `permissionBroker` 모달이 안 떴음.
+    // §3.7 — 위임 엣지 dispatch 와 `/api/permission-check`(§5.3 #12-1 권한 팝업의 동기 게이트, PreToolUse 훅 경유)도 외부 claude 가 부르는
+    // 경로라 화이트리스트에 둔다 — 빠지면 404 로 막혀 `permissionBroker` 모달이 안 뜬다.
     void readLoopbackBody(req, res, bodyBudget).then(async (body): Promise<void> => {
       if (!body) return;
       try {
         if (res.destroyed || res.writableEnded) return;
-        // §5.3 #12-1 — **이 요청이 어디서 왔는지 표시한다.** 여기 닿은 것은 전부 우리가 스폰한
-        //   외부 프로세스(빌더 포함)의 curl 이고, 그 토큰은 그 프로세스의 env·프롬프트에 실려
-        //   나간 값이라 **토큰 보유가 곧 사용자 의사가 아니다.** 서버는 이 표식을 보고 권한 축을
-        //   동결한다. 클라가 같은 이름의 헤더를 보냈어도 **덮어쓴다** — 위조는 제약을 더할 뿐이라
-        //   안전하고, 반대로 지우지 못하게 하는 것이 이 한 줄의 전부다.
+        // §5.3 #12-1 — 이 요청이 loopback 에서 왔다고 표시한다. 토큰은 스폰한 프로세스의 env·프롬프트에 실려 나간 값이라
+        // 토큰 보유가 곧 사용자 의사가 아니다 — 서버는 이 표식으로 권한 축을 동결한다. 같은 이름의 헤더가 와도 덮어쓴다(지우지 못하게).
         const ingressHeaders = { ...(req.headers as Record<string, string | string[]>) };
         ingressHeaders[LOOPBACK_INGRESS_HEADER] = LOOPBACK_INGRESS_VALUE;
         // §5.3 #10-2 · #12-1-B — 결과를 붙드는 dispatch·조회와 권한 카드 창구는 바깥 호출자가 끊기면 안쪽 응답도 끊는다. 안 그러면 끊긴 호출자에게
@@ -556,15 +501,9 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
 }
 
 /**
- * §3.7 — `vibproxy://proxy/iframe-proxy/<host>/<path>` 요청을 in-process Express 의
- * iframe 프록시 핸들러로 합성 디스패치한다. renderer 의 <iframe> 엘리먼트 로드는
- * fetch 몽키패치로 가로챌 수 없어 이 프로토콜 핸들러가 유일한 경로다.
- *
- * - `/iframe-proxy/…` 경로만 처리(프록시된 페이지가 재작성한 root-relative 링크가 동일
- *   오리진으로 다시 들어온다). 그 외 경로는 404.
- * - 응답은 rawPayload(Buffer) 그대로 전달 — 이미지·폰트·JS 등 바이너리 무손실.
- * - 실제 IncomingMessage 가 아니라 light-my-request `inject`(plain 옵션)로 디스패치하므로
- *   startHookListener 주석의 req.destroy 크래시 경로와 무관하다.
+ * §3.7 — `vibproxy://proxy/…` 요청을 in-process Express 로 합성 디스패치한다. <iframe> 엘리먼트 로드는 fetch 몽키패치로
+ * 가로챌 수 없어 이 프로토콜 핸들러가 유일한 길이다. 허용 접두사 밖은 404, 응답은 rawPayload(Buffer) 그대로(바이너리 무손실).
+ * light-my-request `inject` 로 디스패치하므로 startHookListener 의 req.destroy 크래시 경로와 무관하다.
  */
 const ALLOWED_PROTOCOL_PREFIXES = [IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH] as const;
 
@@ -579,12 +518,9 @@ function registerIframeProxyProtocol(expressApp: Express): void {
     } catch {
       return new Response('bad vibproxy url', { status: 400 });
     }
-    // 이 스킴으로 들어올 수 있는 경로는 **화이트리스트 두 갈래**뿐이다.
-    //   /iframe-proxy/…       — dev 서버 프리뷰(프록시된 페이지가 재작성한 root-relative 링크)
-    //   /api/workspace-site/… — §5.5 #17-27 ⑮ 워크스페이스 HTML 을 페이지로. 그 페이지가 부르는
-    //                           상대 경로 자산(css·js·그림)이 같은 오리진으로 다시 들어온다.
-    // 그 외는 404 — 이 스킴이 in-process Express 전체로 가는 우회로가 되어서는 안 된다.
-    //   + §5.13 (T-3) 내부 앱이 iframe 으로 띄울 정적 콘텐츠(`/api/app/<앱id>/content/…`) — 앱 이름 없이 모양 하나로.
+    // 이 스킴으로 들어오는 경로는 화이트리스트뿐이다(그 외 404) — 이 스킴이 in-process Express 전체로 가는 우회로가 되면 안 된다.
+    //   /iframe-proxy/… — dev 서버 프리뷰(재작성된 root-relative 링크) · /api/workspace-site/… — §5.5 #17-27 ⑮ 워크스페이스 HTML 과 그 상대 자산
+    //   + §5.13 (T-3) 내부 앱 정적 콘텐츠(`/api/app/<앱id>/content/…`) — 앱 이름 없이 모양 하나로.
     const allowed = ALLOWED_PROTOCOL_PREFIXES.some(
       (prefix) => pathname === prefix || pathname.startsWith(prefix + '/'),
     ) || isAppContentPath(pathname) || isAppMediaPath(pathname) || pathname === WORKSPACE_MEDIA_PATH;
@@ -632,8 +568,7 @@ function registerIframeProxyProtocol(expressApp: Express): void {
       const payload = hasBody ? Buffer.from(await request.arrayBuffer()) : undefined;
       const headers: Record<string, string> = {};
       request.headers.forEach((v, k) => { headers[k] = v; });
-      // §5.13 (Y) 40-7 ① — `payloadAsStream`: 조각을 모으기만 한다. 종전 길은 바이너리여도 응답 전체를 UTF-8 문자열로 한 번 더
-      //   바꿨다(light-my-request 가 `res.payload` 를 늘 만든다 — 164MB 에 메인 1.5초).
+      // §5.13 (Y) 40-7 ① — `payloadAsStream`: 조각을 모으기만 한다. 없으면 light-my-request 가 바이너리도 `res.payload` 문자열로 늘 바꾼다(164MB 에 메인 1.5초).
       const injected = await inject(expressApp as unknown as DispatchFunc, {
         method: (request.method ?? 'GET') as 'GET',
         url: pathname + search,
@@ -675,12 +610,12 @@ function registerIframeProxyProtocol(expressApp: Express): void {
 }
 
 async function bootBackend(): Promise<void> {
-  // Secrets — in-process 모델이라 server 코어는 이 main 프로세스의 process.env 를 그대로 읽는다.
-  //   dev      : Electron 을 띄운 셸 env 가 이미 process.env 에 있음(추가 작업 불필요).
-  //   packaged : 셸 env 가 없으므로 app.getPath('userData')/secrets.json 을 읽어 머지한다.
-  // 프로젝트 데이터(§3.5)는 영향 없음 — 여전히 <projectPath>/.vibisual.
+  // Secrets — server 코어는 이 main 의 process.env 를 그대로 읽는다. dev 는 셸 env 가 이미 있고,
+  // packaged 는 셸 env 가 없어 userData/secrets.json 을 머지한다(프로젝트 데이터는 여전히 <projectPath>/.vibisual).
   const secrets = loadSecrets();
   for (const [k, v] of Object.entries(secrets.env)) process.env[k] = v;
+  // §4 API 크레딧 — 사용자가 붙여 넣은 Console API 키를 OS 보안 저장소로 감싸는 손(앱 ready 뒤라 safeStorage 가 선다).
+  setApiCreditCipher(createApiCreditCipher());
   if (secrets.source === 'userData') {
     console.log(`[main] merged ${Object.keys(secrets.env).length} secret(s) from ${secrets.path}`);
   }
@@ -692,16 +627,11 @@ async function bootBackend(): Promise<void> {
   // broadcast sink — server 코어의 push 단일 창구를 모든 renderer 로 IPC 전송.
   // runServer 이전에 등록해야 부팅 중 push 가 유실되지 않는다.
   setBroadcastSink((msg) => {
-    // §9 — 창 수와 무관하게 **1회만** 인코딩해(JSON + UTF-8 바이트) 창마다 postMessage 로 민다.
-    // webContents.send 는 호출 시점에 메인 스레드에서 동기 구조화 클론을 수행하므로, 400KB 급
-    // graph_snapshot 객체를 그대로 실으면 그 깊은 순회가 곧 입력 지연이 된다. 종전엔 창이 2개
-    // 이상일 때만 문자열로 접었는데, **사용자 대부분인 단일 창**이 여전히 깊은 클론을 타고 있었다.
-    // 평평한 바이트의 클론은 깊은 순회가 아니라 memcpy 다. 판정·폴백·detach 방지는 전부
-    // snapshotWire.ts 에 있다(그래야 실기 없이 검증된다). 받는 쪽 preload 가 TextDecoder 로
-    // 문자열을 되돌려 주므로 renderer 계약은 종전 그대로다.
+    // §9 — 창 수와 무관하게(단일 창도) 1회만 인코딩해(JSON + UTF-8 바이트) 창마다 postMessage 로 민다 — webContents.send 는
+    // 메인 스레드에서 동기 구조화 클론을 해 400KB 급 graph_snapshot 의 깊은 순회가 곧 입력 지연이 된다. 바이트 클론은 memcpy 다.
+    // 판정·폴백·detach 방지는 snapshotWire.ts, preload 가 TextDecoder 로 문자열을 되돌려 renderer 계약은 그대로다.
     const json = broadcastToWindows(msg);
-    // §4 v3.16 — 모바일 웹 접속 모드가 켜져 있으면 LAN WebSocket 클라이언트에도 팬아웃.
-    // 위에서 이미 직렬화했으면 그 문자열을 재사용(스냅샷 재직렬화 방지).
+    // §4 — 모바일 웹 접속 모드가 켜져 있으면 LAN WebSocket 클라이언트에도 팬아웃. 위에서 직렬화한 문자열을 재사용한다.
     mobileBroadcast(msg, json ?? undefined);
     // §4 메신저 브리지 — 페어링된 대화가 하나도 없으면 즉시 반환하므로 꺼져 있을 때 비용 0.
     //   하행은 이 한 줄이 전부다(새 브로드캐스트 레일 ❌).
@@ -736,13 +666,12 @@ async function bootBackend(): Promise<void> {
   const hookPort = await startHookListener(handle.app, identity.preferredPort);
   // 실제 바인드된 포트·토큰을 확정 저장 → 다음 실행이 같은 값을 선호 포트/토큰으로 재사용.
   saveHookIdentity({ port: hookPort, token: hookToken });
-  // §3.7 v2.8 — server 코어가 커스텀 위임 엣지 dispatch curl URL 을 이 포트로 조립하도록 주입.
+  // §3.7 — server 코어가 커스텀 위임 엣지 dispatch curl URL 을 이 포트로 조립하도록 주입.
   setHookListenerPort(hookPort);
-  // §5.3 #10-2 v2.47 — 하네스 빌더 구축 curl 인증용 토큰을 server 코어에 주입.
+  // §5.3 #10-2 — 하네스 빌더 구축 curl 인증용 토큰을 server 코어에 주입.
   setHookListenerToken(hookToken);
-  // §4 v2.71 — 카드 엔드포인트 curl 이 호출 시점에 live 포트·토큰을 읽을 신원 파일 경로를 주입.
-  //   forward-slash 정규화: 빌더가 이 경로를 node 의 단일따옴표 JS 문자열에 그대로 박으므로
-  //   Windows 역슬래시면 이스케이프가 깨진다. node 의 fs 는 forward-slash 를 그대로 받는다.
+  // §4 — 카드 엔드포인트 curl 이 호출 시점에 live 포트·토큰을 읽을 신원 파일 경로를 주입.
+  //   forward-slash 로 접는다 — 빌더가 이 경로를 node 단일따옴표 문자열에 박아 Windows 역슬래시면 이스케이프가 깨진다.
   setHookListenerIdentityFile(hookIdentityPath().replace(/\\/g, '/'));
 
   // §4 (CMD 터미널 업그레이드 ⑥) — loopback REST(`/api/cmd/*`)가 임베디드 PTY 를 만질 수 있게
@@ -750,15 +679,11 @@ async function bootBackend(): Promise<void> {
   setCmdTerminalController(terminalController);
   // User-started verification uses the existing server queue and this app-owned tool adapter.
   setVerificationAutomationAdapter(verificationAutomationAdapter);
-  // §5.5 #17-19 ⑦ — 탐색기에서 지운 파일은 **OS 휴지통**으로 간다(영구 삭제 ❌ — 되돌릴 수 있어야 한다).
-  //   Windows 재활용·macOS ~/.Trash·Linux freedesktop 규약을 이미 옳게 다루는 물건이 `shell.trashItem`
-  //   하나뿐이라 세 OS 분기를 우리가 다시 쓰지 않는다. 주입이 없는 실행 형태에서는 서버가 영구 삭제로
-  //   떨어지고, 그 사실은 응답의 `trashed:false` 로 화면까지 전해진다.
+  // §5.5 #17-19 ⑦ — 탐색기에서 지운 파일은 OS 휴지통으로(영구 삭제 ❌). 세 OS 규약은 `shell.trashItem` 이 다루므로 분기를 다시 쓰지 않는다.
+  //   주입이 없는 실행 형태에서는 서버가 영구 삭제로 떨어지고 응답 `trashed:false` 로 화면에 전해진다.
   setWorkspaceTrash((absPath) => shell.trashItem(absPath));
-  // §5.5 #17-38 ⑮ — 마이크가 막혔을 때 **OS 의 마이크 설정 창을 우리가 연다**(사유만 말하고 끝내지
-  //   않는다). 여는 주소는 서버가 플랫폼으로 정한 하나뿐이고 여기서는 URL 을 만들지 않는다 —
-  //   임의 URI 를 여는 문이 되지 않게 하기 위해서다. 웹 단독 실행에서는 주입이 없어 서버가
-  //   `openable:false` 로 답하고, 화면은 버튼 대신 무엇을 확인해야 하는지를 글로 보여 준다.
+  // §5.5 #17-38 ⑮ — 마이크가 막혔을 때 OS 의 마이크 설정 창을 연다. 주소는 서버가 플랫폼으로 정한 하나뿐, 여기서 URL 을 만들지 않는다
+  //   (임의 URI 를 여는 문이 되지 않게). 주입이 없는 웹 단독 실행은 `openable:false` — 화면이 확인할 것을 글로 보인다.
   setMicSettingsOpener((url) => { void shell.openExternal(url); });
   // §4 (⑦) — PTY 안의 에이전트가 헤드리스와 **같은** 카드 엔드포인트를 curl 로 부를 수 있도록
   //   loopback 신원을 터미널 env 로 실어 보낸다(없으면 종전 `::VIBISUAL-CARD::` 마커 폴백).
@@ -780,10 +705,8 @@ async function bootBackend(): Promise<void> {
   });
   console.log(`[main] hook listener on http://127.0.0.1:${hookPort} (loopback — hook + edge dispatch ingest)`);
 
-  // §4 엔진 다리 — 우리가 띄우는 claude 세션에 `--plugin-dir` 로 싣는 모드의 동봉 자리. electron-vite 가
-  //   빌드 때 <repo>/hooks/mods/vibisual-bridge 를 out/mods/vibisual-bridge 로 복사하므로 훅 핸들러와 같은
-  //   규칙(out/main/index.cjs 기준 ../mods)으로 dev·packaged 양쪽에서 같은 위치다. 훅 설치를 건너뛰는
-  //   실행에서도 주입한다 — 모드는 이 인스턴스의 루프백으로만 신고하므로 설치와 무관하다.
+  // §4 엔진 다리 — 우리가 띄우는 claude 세션에 `--plugin-dir` 로 싣는 모드의 자리. 빌드가 hooks/mods/vibisual-bridge 를 out/mods 로 복사해
+  //   out/main/index.cjs 기준 ../mods 가 dev·packaged 같은 위치다. 훅 설치를 건너뛰어도 주입한다 — 모드는 이 인스턴스 루프백으로만 신고한다.
   setEngineBridgeSourceDir(join(__dirname, '..', 'mods', 'vibisual-bridge'));
 
   // Item #1 — VIBISUAL_SKIP_HOOK_INSTALL opt-out gate.
@@ -793,16 +716,13 @@ async function bootBackend(): Promise<void> {
   } else if (process.env['VIBISUAL_HOME']?.trim()) {
     console.log('[main] hook installer skipped — VIBISUAL_HOME set (isolated instance)');
   } else {
-    // §3.6 v2.9 — hook 명령은 `node <handlerPath> --server <loopbackUrl>`.
-    // electron-vite 가 빌드 시 <repo>/hooks/handler.mjs 를 out/hooks/handler.mjs 로 복사하므로
-    // out/main/index.cjs 기준 ../hooks/handler.mjs 가 dev·packaged 양쪽에서 같은 위치.
+    // §3.6 — hook 명령은 `node <handlerPath> --server <loopbackUrl>`. 빌드가 hooks/handler.mjs 를 out/hooks 로 복사하므로
+    // out/main/index.cjs 기준 ../hooks/handler.mjs 가 dev·packaged 같은 위치다.
     const handlerPath = join(__dirname, '..', 'hooks', 'handler.mjs');
-    // §4 v3.60 — 사용량 수집기(statusLine)도 같은 핸들러를 쓴다. 사용자가 팝업에서 켤 때
-    //   server 가 이 경로로 명령을 조립하도록 주입.
+    // §4 — 사용량 수집기(statusLine)도 같은 핸들러를 쓴다 — 팝업에서 켤 때 server 가 이 경로로 명령을 조립한다.
     setHookHandlerPath(handlerPath);
-    // §5.25 (I) — 코덱스 훅에 필요한 값도 같은 자리에서 넘긴다. **여기서 새로 켜지는 않는다** —
-    //   코덱스 훅은 기본 꺼짐이고 처음 켜는 것은 사용자의 REST 뿐이다(남의 전역 설정을 말없이 건드리지 않는다).
-    //   켜 둔 사람의 훅은 아래에서 이번 실행의 값으로 다시 깐다(§3.6 「수명」 — 끌 때 걷었다).
+    // §5.25 (I) — 코덱스 훅에 필요한 값도 넘긴다. 여기서 새로 켜지는 않는다 — 기본 꺼짐이고 처음 켜는 것은 사용자의 REST 뿐
+    //   (남의 전역 설정을 말없이 건드리지 않는다). 켜 둔 훅은 아래에서 이번 실행 값으로 다시 깐다(§3.6 「수명」 — 끌 때 걷었다).
     setCodexHookContext({ port: hookPort, handlerPath, token: hookToken });
     // §3.6 — 호스트 `~/.claude` 하나가 아니라 **우리가 아는 모든 설정 홈**에 심는다.
     //   Cowork(Claude Desktop 로컬 세션)는 설정 홈을 세션마다 따로 잡아 우리 훅을 보지 않았다
@@ -831,9 +751,8 @@ async function bootBackend(): Promise<void> {
       );
     }
 
-    // §4 v3.60 — 사용량 수집기는 **자동 설치하지 않는다**(opt-in). 사용자가 켜 둔 경우에만 이번 런의 포트·토큰으로
-    //   감싼다. §3.6 「수명」 — 끌 때 원래 상태 줄로 되돌리므로 켬 여부는 AppState 가 기억한다(값이 없는 첫 부팅은
-    //   지금 깔려 있는지로 옮겨 적어 종전 사용자의 켬이 이어진다).
+    // §4 — 사용량 수집기는 자동 설치하지 않는다(opt-in). 켜 둔 경우만 이번 런의 포트·토큰으로 감싼다.
+    //   §3.6 「수명」 — 끌 때 원래 상태 줄로 되돌리므로 켬 여부는 AppState 가 기억한다(값이 없으면 지금 깔려 있는지로 옮겨 적는다).
     const sl = syncUsageCollectorAtBoot(hookPort, handlerPath, hookToken);
     if (sl.installed && !sl.error) {
       console.log('[main] usage collector (statusLine) installed for this launch');
@@ -860,8 +779,7 @@ async function bootBackend(): Promise<void> {
 
   ipcHub = setupIpc(handle.app);
 
-  // §4 v3.16 — 모바일 웹 접속 모드(opt-in). 꺼져 있으면 소켓을 열지 않는다.
-  // 이전 실행에서 켜져 있었으면(userData mobile-access.json) 자동 재기동.
+  // §4 — 모바일 웹 접속 모드(opt-in). 꺼져 있으면 소켓을 열지 않고, 이전 실행에서 켜져 있었으면(userData mobile-access.json) 다시 켠다.
   initMobileAccess(handle.app);
 
   // §4 메신저 원격제어 브리지(opt-in). 켜 둔 채널이 있을 때만 바깥으로 나간다 —
@@ -870,12 +788,10 @@ async function bootBackend(): Promise<void> {
 }
 
 /**
- * §3.7 · §9 「시작 화면(스플래시)」 — **앱의 시작.** 시작 진입점(`bootstrap.ts`)이 `ready` 뒤에 화면 가운데에 스플래시를
- * 띄우고 이 모듈을 읽은 다음 부른다. 단일 인스턴스 잠금도 거기서 잡는다 — 두 번째 실행·Dock 클릭은 시작 진입점이 받아
- * 여기서 돌려준 `LaunchedApp` 으로 넘긴다.
- *
- * 순서: 동의(배포본 — 그동안 스플래시는 숨는다) → 권한 처리기·창 공통 배선 → 백엔드(스플래시에 진척) → 본체 창(숨긴 채
- * 그린다) → 준비가 끝나면 보이고 스플래시를 걷는다. 스플래시를 못 만들었으면(`null`) 종전처럼 본체 창이 곧바로 보인다.
+ * §3.7 · §9 「시작 화면(스플래시)」 — 앱의 시작. `bootstrap.ts` 가 `ready` 뒤 스플래시를 띄우고 이 모듈을 읽어 부른다.
+ * 단일 인스턴스 잠금도 거기서 잡고, 두 번째 실행·Dock 클릭은 여기서 돌려준 `LaunchedApp` 으로 넘긴다.
+ * 순서: 동의(배포본, 그동안 스플래시는 숨는다) → 권한 처리기·창 공통 배선 → 백엔드(스플래시에 진척) → 본체 창(숨긴 채 그림)
+ * → 준비가 끝나면 보이고 스플래시를 걷는다. 스플래시가 `null` 이면 본체 창이 곧바로 보인다.
  */
 export interface LaunchedApp {
   onSecondInstance(): void;
@@ -886,11 +802,9 @@ export function launchApp(opts: { splash: SplashHandle | null }): LaunchedApp {
   bootSplash = opts.splash;
   void runLaunch().catch((error: unknown) => mainDiagnostics.report('launch', error));
   return {
-    // 단일 인스턴스 락 — 2번째 실행이 백엔드를 또 부팅해 ~/.claude/settings.json 의 hook 포트를
-    // 자기 동적 포트로 덮어쓰는 사고를 원천 차단한다. 그 2번째 인스턴스가 닫히면 settings.json 이
-    // 죽은 포트를 가리켜, 새로 뜨는 훅·스폰 에이전트의 loopback curl(작업 신고/질문/검수)이 전부
-    // connection refused 로 "전송 실패"하던 회귀의 근본 원인. 락을 못 얻은 쪽은 시작 진입점이 즉시 끝내고,
-    // 이 쪽은 기존 인스턴스 창을 앞으로 가져온다 — 본체가 아직 숨어 있으면 그 앞을 지키는 스플래시를.
+    // 단일 인스턴스 락 — 두 번째 실행이 백엔드를 또 부팅해 settings.json 의 hook 포트를 덮어쓰면, 그 인스턴스가 닫힌 뒤
+    // 훅·스폰 에이전트의 loopback curl 이 전부 connection refused 가 된다. 락을 못 얻은 쪽은 시작 진입점이 끝내고,
+    // 이쪽은 기존 창을 앞으로 가져온다 — 본체가 아직 숨어 있으면 그 앞의 스플래시를.
     onSecondInstance: () => {
       if (mainReveal?.pending) {
         mainReveal.focusSplash();
@@ -932,18 +846,11 @@ async function runLaunch(): Promise<void> {
   if (quitting) return;
   bootSplash?.show();
 
-  // §5.5 #17-38 — **마이크를 열 수 있게 한다.** 받아쓰기는 렌더러의 getUserMedia 로 마이크를
-  //   여는데, 패키지 앱의 렌더러는 file:// 에서 뜨고 Electron 은 그 출처의 media 권한을 앱이
-  //   명시적으로 받아 주지 않으면 거절한다(숨김 창 실측: 처리기가 없으면 음성 인식이 곧바로
-  //   not-allowed 로 죽는다). 요청(request)과 확인(check) 두 경로가 따로라 둘 다 답해야 한다 —
-  //   getUserMedia 는 확인 경로를 먼저 밟는다.
-  //
-  //   **목록을 좁히지 않는 것이 의도다.** 종전에는 처리기 자체가 없어 Electron 기본값으로
-  //   돌았고, 여기서 아는 것만 골라 허용하면 이미 도는 기능(화면 캡처·클립보드·알림·전체화면)
-  //   중 무엇이 조용히 죽을지 실기 없이 알 수 없다. 노출면도 늘지 않는다 — 이 세션에 뜨는
-  //   것은 우리 번들과 로컬 프리뷰뿐이고, 바깥 주소는 기본 브라우저로 내보낸다(§5.13 (R-6)).
-  //   모든 창이 defaultSession 하나를 쓰므로(커스텀 partition ❌) 이 한 벌이 전부를 덮는다.
-  //   (스플래시·동의 창은 자기 partition 이라 이 처리기 밖이다 — 둘 다 전부 거절한다.)
+  // §5.5 #17-38 — 마이크를 열 수 있게 한다. 패키지 앱 렌더러는 file:// 라 Electron 이 media 권한을 명시 허용 없이 거절한다
+  //   (숨김 창 실측: 처리기가 없으면 음성 인식이 곧바로 not-allowed). 요청·확인 두 경로 모두 답한다 — getUserMedia 는 확인을 먼저 밟는다.
+  //   목록을 좁히지 마라 — 고르면 이미 도는 기능(화면 캡처·클립보드·알림·전체화면) 중 무엇이 조용히 죽을지 모른다. 노출면은 늘지 않는다
+  //   (우리 번들·로컬 프리뷰뿐, 바깥 주소는 기본 브라우저로 — §5.13 (R-6)). 모든 창이 defaultSession 하나라 이 한 벌이 전부를 덮는다
+  //   (스플래시·동의 창은 자기 partition 이라 밖이고 전부 거절한다).
   const allowPermission = (): true => true;
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => {
     callback(allowPermission());
@@ -1066,10 +973,8 @@ function safeUiLocale(): string | null {
 }
 
 /**
- * 종료 정리의 **시간 상한**. 소켓 `close()` 는 열려 있던 연결이 전부 끝나야 콜백이 오므로
- * (폰이 붙어 있거나 keep-alive 가 살아 있으면 분 단위로 끌린다) 상한이 없으면 프로세스가
- * 언제 사라지는지 아무도 모른다. 2026-08-27 실측 68초 — 그 사이 업데이트 설치기가 포기했다.
- * 여기까지 기다렸으면 남은 것은 버리고 나간다(작업안의 내구 저장은 이 정리 시작 전에 끝난다).
+ * 종료 정리의 시간 상한(ms). 소켓 `close()` 는 열린 연결이 다 끝나야 콜백이 와 분 단위로 끌린다(2026-08-27 실측 68초 —
+ * 그 사이 업데이트 설치기가 포기했다). 넘기면 남은 것은 버리고 나간다(내구 저장은 이 정리 전에 끝난다).
  */
 const QUIT_CLEANUP_TIMEOUT_MS = 4000;
 /** 설치기 spawn 직후 프로세스를 내리기까지의 여유 — detached 자식이 완전히 뜨는 시간. */
@@ -1098,16 +1003,9 @@ app.on('before-quit', (event) => {
   // Declining/closing the pre-start gate must not run project shutdown or persistence.
   if (!backendStartAttempted) { quitting = true; logCleanExit(); return; }
 
-  // 헤드리스 자식은 우리 프로세스의 자식이라 앱이 내려가면 **함께 죽는다.** 대화는 세션에 남아
-  //   다음 턴이 `--resume` 으로 잇지만(부팅 reconcile 이 자동으로 재개한다), 그 턴이 만들던
-  //   **커밋 전 편집은 돌아오지 않는다.** 닫기 전에 한 번 묻는 것이 유일한 예방이다.
-  //   물음은 사용자가 실수로 닫는 경우만 막는다 — [닫기] 를 고르면 종전과 똑같이 진행한다.
-  // ⚠️ 업데이트 설치로 인한 종료는 **묻지 않는다** — 렌더러의 §4 v2.63 확인 모달이 이미
-  //   같은 손실을 경고하고 확인까지 받았다(SSOT 2026-08-12 항목도 "업데이트 쪽은 이미 같은
-  //   경고를 하고 있었다"를 근거로 이 물음을 평범한 닫기에만 추가한 것이다). 여기서 또 물으면
-  //   같은 경고가 두 번 뜨고, 사용자가 답하는 동안 종료가 늦어져 설치기가 포기한다.
-  // 부팅 오류창에서 이미 다시 시작/종료를 골랐다. 두 번째 취소창으로 돌아가면
-  // 정상 창도 없는 부분 초기화 프로세스만 남으므로, 종료 정리로 바로 넘긴다.
+  // 헤드리스 자식은 앱과 함께 죽는다 — 대화는 `--resume` 으로 이어지지만(부팅 reconcile) 그 턴의 커밋 전 편집은 돌아오지 않아 닫기 전에 한 번 묻는다.
+  // 업데이트 설치로 인한 종료는 묻지 않는다 — 렌더러 확인 모달(§4)이 이미 같은 경고를 받았고, 또 물으면 종료가 늦어져 설치기가 포기한다.
+  // 부팅 오류창에서 이미 고른 종료도 묻지 않는다 — 취소로 돌아가면 정상 창 없는 부분 초기화 프로세스만 남는다.
   const work = quitConfirmed || isUpdateInstallPending() || backendBootFailed ? null : safeRunningWorkSummary();
   if (work && (work.sessions > 0 || work.backgroundTasks > 0)) {
     // 언어는 서버 코어가 들고 있는 UI 로케일 하나를 따른다 — main 에는 i18next 가 없다(./strings).
@@ -1172,10 +1070,9 @@ function finishApprovedQuit(): void {
     console.warn('[main] window cleanup failed:', err);
   });
 
-  // §4 v2.44 — 업데이트 체크 타이머 해제.
   stopAutoUpdater();
 
-  // §4 v2.63 — 살아있는 임베디드 터미널 PTY 일괄 종료(좀비 셸 방지).
+  // §4 — 살아 있는 임베디드 터미널 PTY 일괄 종료(좀비 셸 방지).
   killAllTerminals();
 
   ipcHub?.stop();
@@ -1196,7 +1093,7 @@ function finishApprovedQuit(): void {
     console.warn('[main] stopChatBridge failed:', err);
   });
 
-  // §4 v3.16 — 모바일 웹 접속 리스너 정리(켜져 있던 경우만 실 소켓 close).
+  // §4 — 모바일 웹 접속 리스너 정리(켜져 있던 경우만 실 소켓 close).
   const mobileClose = stopMobileAccess().catch((err: unknown) => {
     console.warn('[main] stopMobileAccess failed:', err);
   });
@@ -1208,9 +1105,8 @@ function finishApprovedQuit(): void {
     console.warn('[main] shutdownAllPersistentChildren failed:', err);
   });
 
-  // §5.14 v4.62 — 플레이 버블이 띄운 서버 정리. **우리가 띄운 포트만** 죽인다(사용자가 직접
-  // 켠 서버는 건드리지 않는다). 정적 호스트 소켓도 함께 닫는다 — 안 닫으면 다음 실행에서
-  // 포트만 늘어난다.
+  // §5.14 — 플레이 버블이 띄운 서버 정리. 우리가 띄운 포트만 죽인다(사용자가 켠 서버는 건드리지 않는다).
+  // 정적 호스트 소켓도 닫는다 — 안 닫으면 다음 실행에서 포트만 늘어난다.
   const playShutdown = stopAllPlays()
     .catch((err: unknown) => {
       console.warn('[main] stopAllPlays failed:', err);
@@ -1227,12 +1123,9 @@ function finishApprovedQuit(): void {
     console.warn('[main] unloadAllLocalModels failed:', err);
   }
 
-  // §9 — 코얼레스된 체크포인트 창을 **지금 동기로** 마무리한다(§3.2.1 내구성).
-  //   ⚠ 반드시 아래 `shutdownDiskWriteQueue()` **앞**이다 — 순서가 뒤집히면 이 저장이 만든 쓰기가
-  //     큐에 남은 채 프로세스가 사라진다. 예약이 없으면 no-op 이라 종료가 느려지지 않는다.
-  //   ⚠ 이것이 없으면 서버의 `process 'exit'` 만 남는데, 우리 종료 경로는 전부 `app.exit(0)` 이라
-  //     그 이벤트가 돌지 않을 수 있다 — 정상 종료·업데이트 설치마다 마지막 창(0.5~5초) 분량이
-  //     조용히 사라지던 자리다.
+  // §9 — 코얼레스된 체크포인트 창을 지금 동기로 마무리한다(§3.2.1 내구성). 예약이 없으면 no-op.
+  //   반드시 아래 `shutdownDiskWriteQueue()` 앞이다 — 뒤집히면 이 저장의 쓰기가 큐에 남은 채 프로세스가 사라진다.
+  //   서버의 `process 'exit'` 에 맡기지 마라 — 종료 경로가 `app.exit(0)` 이라 돌지 않을 수 있고, 마지막 창(0.5~5초) 분량이 사라진다.
   try {
     flushPendingCheckpointSave();
   } catch (err) {
@@ -1247,10 +1140,9 @@ function finishApprovedQuit(): void {
     console.warn('[main] shutdownDiskWriteQueue failed:', err);
   }
 
-  // 정리가 끝나면(또는 상한을 넘기면) **한 번만** 실제 종료한다.
-  // §4 v2.44 — 업데이트 설치기는 바로 여기, 프로세스가 사라지기 직전에 띄운다. 설치기의
-  //   파일 교체(언인스톨러의 rename)는 살아 있는 `Vibisual.exe` 를 만나면 그대로 실패하므로,
-  //   "설치기 먼저 → 정리" 순서였던 종전 경로에서는 정리가 조금만 길어져도 업데이트가 깨졌다.
+  // 정리가 끝나면(또는 상한을 넘기면) 한 번만 실제 종료한다.
+  // §4 — 업데이트 설치기는 여기, 프로세스가 사라지기 직전에 띄운다 — 설치기의 파일 교체(rename)는 살아 있는 `Vibisual.exe` 를 만나면
+  //   실패하므로 "설치기 먼저 → 정리" 면 정리가 조금만 길어져도 업데이트가 깨진다.
   let quitWatchdog: NodeJS.Timeout | null = null;
   let finished = false;
   const finishQuit = (): void => {

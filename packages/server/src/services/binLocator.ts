@@ -1,23 +1,9 @@
 /**
- * binLocator.ts — **외부 실행 파일을 찾는 단 하나의 자리** (멀티플랫폼).
- *
- * **왜 이 파일이 있는가 — 지우지 말 것.**
- * Finder/Dock(또는 Launchpad)으로 띄운 macOS 앱은 사용자의 셸이 아니라 `launchd` 에서 나오므로
- * PATH 가 `/usr/bin:/bin:/usr/sbin:/sbin` 넉 줄뿐이다. Homebrew 가 깔아 주는 `/opt/homebrew/bin`
- * (Apple Silicon)·`/usr/local/bin`(Intel)이 **통째로 없다.** 그래서 `which ffmpeg` / `which dlv` /
- * `spawn('brew')` 처럼 PATH 하나만 믿는 코드는 그 도구가 멀쩡히 깔려 있어도 "없음"으로 답한다 —
- * 예외도 로그도 없이 조용히. 사용자에게는 "눌렀는데 아무 일도 안 일어남"으로만 보인다.
- *
- * 정답 패턴은 이미 `claudeBin.ts`(`pathAndKnownCandidates`)와 `mediaTools.ts`(`knownLocations`)에
- * 두 벌로 적혀 있었다. 이 모듈은 그 둘을 하나로 뽑아 **나머지 전부**(에디터 실행·디버그 어댑터
- * 탐지·MCP 실행 파일 확인·brew 설치 대행·로컬 도구 셸)가 같은 규율을 타게 한다.
- *
- * 규율 셋:
- *  1. **PATH 를 보강해서 본다.** 현재 PATH → (필요할 때만 1회 읽은) 로그인 셸 PATH → 알려진 설치 위치.
- *  2. **로그인 셸은 많아야 한 번 띄운다.** 매 호출마다 `$SHELL -l -c` 를 띄우면 파일 하나 열 때마다
- *     프로세스가 뜬다 — 결과는 프로세스 수명 동안 메모리에 캐시한다.
- *  3. **플랫폼·env·존재확인을 주입받을 수 있게 둔다.** 그래야 win/mac/linux 세 경우를 실제로
- *     그 OS 에 가지 않고 단위 테스트로 고정할 수 있다(이 사고가 잡히지 않은 이유가 정확히 그것이다).
+ * binLocator.ts — **외부 실행 파일을 찾는 단 하나의 자리**(멀티플랫폼). 지우지 말 것.
+ * Finder/Dock 으로 띄운 macOS 앱은 `launchd` 에서 나와 PATH 가 `/usr/bin:/bin:/usr/sbin:/sbin` 뿐이다 — Homebrew(`/opt/homebrew/bin`·`/usr/local/bin`)가 없어, PATH 만 믿는 코드는 깔린 도구도 예외·로그 없이 "없음"으로 답한다.
+ * `claudeBin.ts`(`pathAndKnownCandidates`)·`mediaTools.ts`(`knownLocations`)의 패턴을 하나로 뽑아 나머지(에디터 실행·디버그 어댑터·MCP 실행 파일·brew 대행·로컬 도구 셸)가 같은 규율을 탄다.
+ * ① PATH 를 보강해서 본다(현재 PATH → 필요할 때 1회 읽은 로그인 셸 PATH → 알려진 설치 위치). ② 로그인 셸은 많아야 한 번 띄우고 프로세스 수명 동안 캐시한다(매번 띄우면 파일 열 때마다 프로세스가 뜬다).
+ * ③ 플랫폼·env·존재확인을 주입받게 둔다 — 그래야 세 OS 를 그 OS 에 가지 않고 단위 테스트로 고정한다.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -41,10 +27,7 @@ export interface BinLocatorContext {
   home: string;
   /** 이 절대경로가 **실행 가능한 파일**인가. */
   isExecutableFile: (candidate: string) => boolean;
-  /**
-   * 로그인 셸에서 읽어 둔 PATH 문자열(없으면 null).
-   * 이 모듈의 순수 부분은 여기서 셸을 띄우지 않는다 — 읽는 일은 런타임 래퍼의 몫.
-   */
+  /** 로그인 셸에서 읽어 둔 PATH 문자열(없으면 null). 순수 부분은 셸을 띄우지 않는다 — 읽기는 런타임 래퍼의 몫. */
   loginShellPath: string | null;
 }
 
@@ -70,9 +53,7 @@ function readPathValue(env: NodeJS.ProcessEnv): string {
 
 /**
  * PATH 문자열을 디렉터리 목록으로.
- *
- * fish 는 `$PATH` 가 리스트라 `echo "$PATH"` 가 **공백으로** 이어 붙인 값을 준다 — 구분자로 잘랐을 때
- * 한 덩어리로 남고 그 안에 공백이 있으면 공백으로 한 번 더 자른다(그 편이 통째로 버리는 것보다 낫다).
+ * fish 는 `$PATH` 가 리스트라 `echo "$PATH"` 가 공백으로 이어 붙인다 — 구분자로 자른 한 덩어리에 공백이 있으면 공백으로 한 번 더 자른다(통째로 버리는 것보다 낫다).
  */
 export function splitPathValue(value: string, platform: NodeJS.Platform): string[] {
   const delim = pathDelimiterFor(platform);
@@ -83,12 +64,7 @@ export function splitPathValue(value: string, platform: NodeJS.Platform): string
   return parts;
 }
 
-/**
- * **알려진 설치 위치** — PATH 가 비었거나 잘린 상태에서도 훑는 자리.
- *
- * "그 도구를 깔면 여기 놓인다"가 널리 정해져 있는 것만 넣는다. 존재하지 않는 폴더를 넣어도
- * 비용은 stat 한 번이라, 놓치는 쪽이 훨씬 비싸다.
- */
+/** **알려진 설치 위치** — PATH 가 비었거나 잘려도 훑는 자리. "깔면 여기 놓인다"가 널리 정해진 것만 넣는다(없는 폴더는 stat 한 번이라 놓치는 쪽이 훨씬 비싸다). */
 export function knownBinDirs(ctx: Pick<BinLocatorContext, 'platform' | 'env' | 'home'>): string[] {
   const p = pathFor(ctx.platform);
   const home = ctx.home;
@@ -156,9 +132,7 @@ function dedupeDirs(dirs: string[], platform: NodeJS.Platform): string[] {
 
 /**
  * 보강된 탐색 경로 — **현재 PATH → 로그인 셸 PATH → 알려진 설치 위치** 순.
- *
- * 현재 PATH 를 맨 앞에 두는 이유: 사용자가 PATH 로 어떤 버전을 앞세웠다면 그 뜻을 존중해야 한다.
- * 보강은 "없던 것을 뒤에 더한다"이지 "있던 것을 밀어낸다"가 아니다.
+ * 현재 PATH 가 맨 앞이다 — 사용자가 PATH 로 앞세운 버전을 존중한다(보강은 뒤에 더할 뿐 밀어내지 않는다).
  */
 export function augmentedPathDirs(ctx: BinLocatorContext): string[] {
   const fromEnv = splitPathValue(readPathValue(ctx.env), ctx.platform);
@@ -200,10 +174,7 @@ export function binFileNames(name: string, ctx: Pick<BinLocatorContext, 'platfor
 
 /**
  * 주입된 환경에서 실행 파일 하나를 찾는다 — **절대경로**, 못 찾으면 null.
- *
- * @param extraCandidates 알려진 **파일 경로**(디렉터리가 아니다). PATH·알려진 폴더에서 못 찾았을 때
- *   마지막으로 본다. macOS 의 `.app` 번들 안 CLI 런처(`/Applications/…/Contents/Resources/app/bin/code`)
- *   처럼 어떤 PATH 에도 안 들어가는 자리를 여기로 넘긴다.
+ * @param extraCandidates 알려진 **파일 경로**(디렉터리 아님). PATH·알려진 폴더에서 못 찾았을 때 마지막으로 본다 — mac `.app` 번들 안 CLI 런처(`/Applications/…/Contents/Resources/app/bin/code`)처럼 어떤 PATH 에도 없는 자리.
  */
 export function resolveBinaryIn(
   name: string,
@@ -253,12 +224,8 @@ export function augmentedEnvIn(ctx: BinLocatorContext, base?: NodeJS.ProcessEnv)
 
 /**
  * 존재 + (POSIX) 실행권한. `claudeBin.isUsableBin` 과 같은 판정 + Windows 앱 실행 별칭 보정.
- *
- * **앱 실행 별칭(App Execution Alias) 보정을 지우지 말 것.**
- * `%LOCALAPPDATA%\Microsoft\WindowsApps\winget.exe` 같은 것은 파일이 아니라 **재분석 지점**이라
- * `statSync` 가 `EACCES` 로 죽고 `existsSync` 도 `false` 를 준다(2026-08-26 이 PC 실측). 그런데
- * `where.exe` 와 `CreateProcess`(=`child_process.spawn`)는 이것을 정상 실행한다. 보정이 없으면
- * "winget 이 PATH 에 멀쩡히 있는데 우리만 못 찾는" 상태가 되어 ffmpeg 설치 대행이 통째로 죽는다.
+ * **앱 실행 별칭 보정을 지우지 말 것** — `%LOCALAPPDATA%\Microsoft\WindowsApps\winget.exe` 는 재분석 지점이라 `statSync` 가 `EACCES`, `existsSync` 가 `false` 다(2026-08-26 실측).
+ * `where.exe`·`CreateProcess`(= `spawn`)는 정상 실행하므로, 보정이 없으면 PATH 의 winget 을 우리만 못 찾아 ffmpeg 설치 대행이 통째로 죽는다.
  */
 export function isExecutableFileSync(candidate: string): boolean {
   try {
@@ -284,11 +251,8 @@ export function isExecutableFileSync(candidate: string): boolean {
 }
 
 /**
- * 로그인 셸 PATH 를 읽을 필요가 있는가.
- *
- * PATH 가 이미 사용자 자리(`/opt/homebrew/bin`·`/usr/local/bin`·`~/.local/bin`)를 담고 있으면
- * 이 앱은 셸에서 떴거나 데스크톱 세션이 프로필을 태운 것이다 — 셸을 띄울 이유가 없다.
- * 셋 다 없으면 `launchd` 최소 PATH(=Finder/Dock 실행)일 확률이 높다.
+ * 로그인 셸 PATH 를 읽을 필요가 있는가. PATH 에 사용자 자리(`/opt/homebrew/bin`·`/usr/local/bin`·`~/.local/bin`)가 있으면 셸에서 떴거나 프로필이 탄 것이라 필요 없다.
+ * 셋 다 없으면 `launchd` 최소 PATH(= Finder/Dock 실행)일 확률이 높다.
  */
 export function needsLoginShellPath(ctx: Pick<BinLocatorContext, 'platform' | 'env' | 'home'>): boolean {
   if (ctx.platform !== 'darwin' && ctx.platform !== 'linux') return false;
@@ -313,9 +277,7 @@ let cachedLoginShellPath: string | null | undefined;
 
 /**
  * 사용자 로그인 셸의 PATH — **많아야 한 번** 읽는다.
- *
- * `-l`(로그인)을 주는 이유: Homebrew 의 `eval "$(brew shellenv)"` 는 관례상 `~/.zprofile`
- * `~/.bash_profile` 에 들어가는데, 그 파일들은 **로그인 셸일 때만** 읽힌다.
+ * `-l` 이 필요하다 — Homebrew 의 `eval "$(brew shellenv)"` 는 관례상 `~/.zprofile`·`~/.bash_profile` 에 있고, 그 파일은 로그인 셸일 때만 읽힌다.
  */
 export function loginShellPath(): string | null {
   if (cachedLoginShellPath !== undefined) return cachedLoginShellPath;
@@ -351,9 +313,7 @@ export function currentContext(): BinLocatorContext {
 
 /**
  * 이 컴퓨터에서 `name` 실행 파일의 절대경로 — 못 찾으면 null.
- *
- * `which`/`where` 를 부르지 않는다. 그 두 명령은 **우리 프로세스의 PATH** 를 볼 뿐이라,
- * PATH 가 잘려 있는 바로 그 상황에서 똑같이 못 찾는다(고치려는 문제를 그대로 되풀이한다).
+ * `which`/`where` 를 부르지 않는다 — 우리 프로세스의 PATH 만 봐서, PATH 가 잘린 바로 그 상황에서 똑같이 못 찾는다.
  */
 export function resolveBinary(name: string, extraCandidates: readonly string[] = []): string | null {
   return resolveBinaryIn(name, currentContext(), extraCandidates);

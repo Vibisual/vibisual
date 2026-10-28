@@ -11,11 +11,8 @@ export interface OuterResponseLike {
 }
 
 /**
- * §5.3 #10-2 — 결과를 붙들고 기다리는 경로(위임 dispatch·조회). 바깥 연결 끊김을 안쪽 응답에 넘길 곳은 이 경로들뿐이다 —
- * 다른 경로의 끊김 처리는 바꾸지 않는다.
- *
- * §5.3 #12-1-B — 권한 카드를 붙드는 두 창구도 여기다. 빠지면 훅이 CLI 와 함께 죽어도 안쪽 응답은 모르고,
- * 카드는 dev 서버에서만 취소되고 사용자 앱에서는 종전처럼 60초를 채운 뒤 타임아웃 정책으로 풀린다.
+ * §5.3 #10-2 — 결과를 붙들고 기다리는 경로(위임 dispatch·조회). 끊김을 안쪽에 넘기는 곳은 이 경로들뿐이다(다른 경로는 그대로).
+ * §5.3 #12-1-B — 권한 카드를 붙드는 두 창구도 여기다. 빠지면 훅이 CLI 와 함께 죽어도 카드가 60초를 채운 뒤 타임아웃 정책으로 풀린다.
  */
 export function isHoldPath(path: string): boolean {
   if (path === '/api/task-edges/dispatch' || path.startsWith('/api/task-edges/dispatch/')) return true;
@@ -23,9 +20,8 @@ export function isHoldPath(path: string): boolean {
 }
 
 /**
- * §3.7 loopback 리스너는 요청을 in-process 로 다시 주입한다. 그대로 두면 바깥 호출자(curl·MCP 다리)가 끊겨도 안쪽 응답은
- * 모른 채 결과가 날 때까지 붙들고, 끝나면 **아무도 받지 않은 결과를 건넸다고** 적는다.
- * 바깥 응답이 다 나가기 전에 닫히면 안쪽 응답을 끊어(`destroy` → 다음 틱 `close`) 서버가 대기만 걷게 한다 — 작업은 그대로 돈다.
+ * §3.7 — 바깥 호출자(curl·MCP 다리)가 끊겨도 주입된 안쪽 응답은 모른 채 붙들다 아무도 받지 않은 결과를 건넸다고 적는다.
+ * 바깥 응답이 다 나가기 전에 닫히면 안쪽 응답을 끊어(`destroy` → 다음 틱 `close`) 대기만 걷는다 — 작업은 그대로 돈다.
  */
 export function followOuterDisconnect(outer: OuterResponseLike, dispatch: InjectDispatch): InjectDispatch {
   return (innerReq, innerRes) => {

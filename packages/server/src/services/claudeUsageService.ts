@@ -16,32 +16,11 @@ import type {
 } from './claudeUsageProbe.js';
 
 /**
- * §4 — Claude 사용량 표시값 조립.
- *
- * **원천은 둘이고, 이 모듈은 둘 중 더 최근 것을 골라 담는다.**
- *   ① `claude -p "/usage"` probe(`claudeUsageProbe`) — 대화형 세션이 없어도 값이 들어오는 1차
- *      원천. 모델 호출 0턴이라 과금이 없다(실측). 5분 주기 + 부팅 직후 + 팝업 새로고침에 돈다.
- *   ② statusLine(§4 v3.60) — 대화형 세션이 상태줄을 그릴 때 밀어 주는 값. `hooks/handler.mjs
- *      --statusline` → `POST /api/rate-limits` → `graphManager.rateLimits`. 세션이 떠 있는
- *      동안에는 probe 주기보다 빨리 도착하므로 폐기하지 않고 **최신성으로** 겨룬다.
- *
- * ②만 있던 시절에는 헤드리스 에이전트만 돌리는 사용자의 필이 영영 `-` 였다 — 수집기를 켜도
- * 채워질 길이 없었기 때문이다. ①을 더해 그 구멍을 막는다.
- *
- * **왜 직접 조회를 걷어냈나** — 종전(구 v3.62)에는 `~/.claude/.credentials.json` 의 OAuth
- * accessToken 으로 `GET https://api.anthropic.com/api/oauth/usage` 를 5분마다 직접 호출했다.
- * 문서화되지 않은 내부 엔드포인트를 공식 클라이언트용 토큰으로 자동 조회하는 것이라, Anthropic
- * 소비자 약관 §3 "API 키를 통하거나 명시적으로 허용된 경우를 제외한 자동화된 접속 금지" 에
- * 정면으로 걸린다. 배포되는 제품이므로 그 위험은 사용자 계정 전체에 걸린다 — 그래서 네트워크
- * 호출을 없애고 공식 경로 하나만 남겼다.
- *
- * **그래서 잃은 것** — 모델별 주간 한도(`weekly_scoped`)와 사용 크레딧(`extra_usage`)은
- * statusLine 이 주지 않으므로 더 이상 표시하지 않는다. 남는 것은 5시간·7일 두 창의 사용률과
- * 리셋 시각, 그리고 플랜 표시명이다.
- *
- * **자격증명 파일 취급** — 플랜 표시명(`Max (20x)`)을 만들려면 `subscriptionType`·`rateLimitTier`
- * 두 값이 필요해 파일을 읽지만, **accessToken 은 읽지도 실어 보내지도 않는다**. 쓰기는 절대 하지
- * 않는다(토큰 갱신은 Claude Code 자신의 일이다).
+ * §4 — Claude 사용량 표시값 조립. **원천 둘 중 더 최근 것을 고른다.**
+ * ① `claude -p "/usage"` probe(`claudeUsageProbe`) — 대화형 세션 없이 오는 1차 원천, 모델 0턴이라 과금 없음(실측). 5분 주기 + 부팅 직후 + 팝업 새로고침.
+ * ② statusLine — 대화형 세션이 밀어 주는 값(`hooks/handler.mjs --statusline` → `POST /api/rate-limits` → `graphManager.rateLimits`). 세션이 떠 있으면 probe 보다 빨라 버리지 않고 최신성으로 겨룬다.
+ * 네트워크로 직접 조회하지 않는다 — `.credentials.json` 의 OAuth 토큰으로 문서에 없는 `api/oauth/usage` 를 자동 호출하면 Anthropic 소비자 약관 §3(자동화 접속 금지)에 걸린다. statusLine 은 모델별 주간 한도(`weekly_scoped`)·사용 크레딧(`extra_usage`)을 주지 않는다.
+ * 자격증명 파일은 플랜 표시명(`Max (20x)`)용 `subscriptionType`·`rateLimitTier` 두 값만 읽는다 — **accessToken 은 읽지도 싣지도 않고**, 쓰기는 절대 하지 않는다(토큰 갱신은 Claude Code 의 일).
  */
 
 /** 플랜 표시명 재료 — 자격증명 파일에서 **토큰이 아닌** 두 값만 집는다. */
@@ -100,9 +79,7 @@ function toLimit(
   now: number,
 ): ClaudeUsageLimit | null {
   if (percent === undefined || !Number.isFinite(percent)) return null;
-  // 리셋 시각을 지난 값은 **옛 창의 값**이다. 그대로 두면 "시간이 지났는데 화면은 아직 100%"
-  // 가 되므로(v3.63 사용자 보고와 같은 증상) 0 으로 본다 — 다음 statusLine 갱신이 실제 값을
-  // 덮어쓴다. 값을 지어내는 것이 아니라 **만료를 반영**하는 것이다.
+  // 리셋 시각을 지난 값은 **옛 창의 값**이라 0 으로 본다 — 그대로 두면 시간이 지나도 화면이 100% 에 머문다. 다음 statusLine 갱신이 실제 값을 덮어쓴다(지어내기가 아니라 만료 반영).
   const expired = resetsAt !== undefined && resetsAt <= now;
   const pct = expired ? 0 : Math.max(0, Math.min(100, percent));
   return {
@@ -124,11 +101,8 @@ interface PickedWindow {
 }
 
 /**
- * 같은 창(5시간·7일)을 두 원천이 모두 보고했을 때 **더 최근 것**을 고른다.
- *
- * 우열을 고정하지 않는 이유 — 대화형 세션이 떠 있으면 statusLine 이 초 단위로 최신이고,
- * 그런 세션이 없으면 probe 만 갱신된다. 어느 한쪽을 항상 이기게 하면 나머지 상황에서 낡은 값이
- * 화면에 박힌다. 시각이 같으면 probe 를 택한다(리셋 시각까지 함께 오는 쪽).
+ * 같은 창(5시간·7일)을 두 원천이 모두 보고했으면 **더 최근 것**을 고른다.
+ * 우열을 고정하지 않는다 — 대화형 세션이 있으면 statusLine 이 초 단위로 최신이고, 없으면 probe 만 갱신된다. 시각이 같으면 probe(리셋 시각까지 오는 쪽).
  */
 function pickWindow(
   statusPercent: number | undefined,
@@ -165,13 +139,8 @@ function pickWindow(
 }
 
 /**
- * 두 원천(`/usage` probe · statusLine)의 창들 → 팝업이 읽는 `ClaudeUsageInfo`.
- *
- * 값이 하나도 없을 때 **왜 없는지**를 구분해 실어 보낸다 —
- *   - `cli-unavailable`: `claude` 실행본을 못 찾았거나 probe 가 실패/타임아웃. 켜고 끌 문제가
- *     아니라 실행 경로 문제라 화면이 다르게 말해야 한다.
- *   - `awaiting-statusline`: probe 는 아직인데 수집기는 켜져 있다 — 곧 들어온다.
- *   - `no-credentials`: 아직 아무 경로로도 값을 받은 적이 없다.
+ * 두 원천(`/usage` probe · statusLine)의 창들 → 팝업이 읽는 `ClaudeUsageInfo`. 값이 없으면 **왜 없는지**를 싣는다:
+ * `cli-unavailable` — 실행본을 못 찾았거나 probe 실패/타임아웃(켜고 끌 문제가 아니라 화면이 다르게 말한다) · `awaiting-statusline` — probe 는 아직, 수집기는 켜짐 · `no-credentials` — 아직 어느 경로로도 값을 받은 적이 없다.
  */
 export function buildClaudeUsage(
   rate: RateLimitInfo | undefined,

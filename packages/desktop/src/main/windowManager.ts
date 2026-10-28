@@ -32,46 +32,21 @@ import { AppWindowTransfers, type AppWindowListItem, type AppWindowPlacement } f
 import { appWindowPrimaryPressed } from './appWindowMouseButton';
 import { createAppWindowClose } from './appWindowClose';
 
-// SCENARIO.md §5.4 #14-1 (v2.29) — 탭 Detach/Redock 별창 매니저.
-//
-// 메인 윈도우 외에 사용자가 탭바에서 끌어 분리한 탭들을 별도 BrowserWindow 로 띄우고
-// tabKey ↔ BrowserWindow 매핑을 추적한다. 같은 in-process 서버와 같은 preload 를 쓰므로
-// 별창은 자동으로 같은 graph_snapshot 을 받는다(main/index.ts setBroadcastSink 가
-// BrowserWindow.getAllWindows() 순회 — 별창도 그 순회에 포함).
-//
-// Redock-drag(v2.30): 별창의 미니 타이틀바를 잡고 끌면 별창 자체가 mini ghost(MINI_W×MINI_H,
-// opacity 0.85, alwaysOnTop)로 축소되어 cursor 를 따라다닌다. 메인 헤더 영역 위에서
-// 떼면 redock, 그 외 위치에서 떼면 원본 bounds/opacity 복원.
+// SCENARIO.md §5.4 #14-1 — 탭 Detach/Redock 별창 매니저(tabKey ↔ BrowserWindow). 같은 서버·preload 라 별창도 graph_snapshot 을 받는다.
+// Redock-drag: 미니 타이틀바를 끌면 별창이 mini ghost(MINI_W×MINI_H, 0.85, alwaysOnTop)로 줄어 커서를 따르고, 메인 헤더 위에서 떼면 redock.
 
 /**
- * 창 아이콘 경로 — Windows 만 `.ico`, mac/linux 는 `.png`.
- *
- * 다섯 군데의 `BrowserWindow` 생성이 같은 삼항식을 각자 적고 있었다. 하나를 고치고 넷을 빠뜨리면
- * 창마다 아이콘이 갈리는데, 그건 그 OS 에서 띄워 보기 전에는 드러나지 않는다.
- * **플랫폼을 인자로 받아** 세 경우를 단위 테스트로 고정한다(mac 은 실제로는 앱 번들 아이콘을 쓰므로
- * 이 값이 쓰이지 않지만, 넘겨도 해가 없고 linux 와 같은 가지로 두는 편이 규칙이 단순하다).
+ * 창 아이콘 경로 — Windows 만 `.ico`, 나머지 `.png`. 모든 `BrowserWindow` 가 이 한 곳을 쓰고 플랫폼을 인자로 받아 시험한다
+ * (각자 적으면 갈려도 그 OS 에서 띄우기 전엔 모른다).
  */
 export function windowIconPath(baseDir: string, platform: NodeJS.Platform): string {
   return join(baseDir, '..', platform === 'win32' ? 'icon.ico' : 'icon.png');
 }
 
 /**
- * §보안 감사 2026-09-09 — **창이 우리 문서를 떠나지 못하게 잠근다.**
- *
- * 본체 창(main/index.ts)에는 오래전부터 `setWindowOpenHandler` + `will-navigate` 가 있었는데,
- * 이 파일이 만드는 **다섯 창(별창·오버레이 메뉴·오버레이 위젯·지휘통제실·내부 앱)에는 한 곳도
- * 없었다.** 그 창들은 전부 `sandbox:false` + 우리 preload(=`window.api` 전량)를 달고 뜬다.
- *
- * 최상위 항해를 막지 않으면, 그 창 안의 문서가 원격 주소로 옮겨 간 뒤에도 **preload 가 새 문서에
- * 다시 주입된다**(Electron 31 실측). 그때부터 원격 스크립트가 `window.api` 를 그대로 부른다.
- * 창을 띄우는 내용(에이전트가 그린 카드·마크다운 링크·내부 앱 화면)은 우리가 만든 것이 아니므로,
- * 이 잠금은 본체 창 하나로는 부족하다.
- *
- * - 새 창 요청은 창을 만들지 않고 바깥 브라우저로 넘긴다(스킴 허용 목록은 `externalOpen` 이 본다).
- * - 최상위 이동은 막고 같은 길로 넘긴다. **iframe 안쪽 항해는 건드리지 않는다** — 프리뷰 iframe 이
- *   그 길로 살아 있고, 거기는 `sandbox` 속성이 따로 잠근다.
- * - 해시 이동(`index.html#…`)과 main 이 부르는 `loadFile` 은 `will-navigate` 를 타지 않으므로
- *   이 잠금과 무관하다(본체 창이 같은 규약으로 오래 돌아온 근거).
+ * §보안 감사 2026-09-09 — 창이 우리 문서를 떠나지 못하게 잠근다(본체 창과 같은 규약을 이 파일의 다섯 창에도).
+ * `sandbox:false` + preload(`window.api` 전량) 창은 최상위 항해 뒤에도 preload 가 원격 문서에 다시 주입된다(Electron 31 실측) — 창 내용은 우리가 안 만든다.
+ * 새 창·최상위 이동은 바깥 브라우저로(스킴은 `externalOpen`). **iframe 안 항해는 건드리지 않는다**(프리뷰가 그 길로 산다, `sandbox` 가 따로 잠근다).
  */
 export function hardenWindow(win: BrowserWindow): void {
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -92,9 +67,8 @@ export interface DetachOptions {
   tabKey: string;
   cursor?: { x: number; y: number } | undefined;
   /**
-   * §5.4 #14-1 (H) 탭을 끌어 놓은 판 — 손을 뗀 자리에 **멈춰 선 선(가상 창)**의 자리·크기 그대로 선다.
-   * 선의 경계는 렌더러 좌표가 아니라 main 이 직접 읽는다(배율이 다른 모니터에서 렌더러 좌표는 어긋난다).
-   * 선이 없으면(못 띄운 환경) 종전대로 `cursor` 기준 자리다.
+   * §5.4 #14-1 (H) 탭을 끌어 놓은 판 — 손을 뗀 자리에 멈춰 선 선(가상 창)의 자리·크기 그대로 선다.
+   * 선의 경계는 main 이 직접 읽는다(배율이 다른 모니터에서 렌더러 좌표는 어긋난다). 선이 없으면 `cursor` 기준 자리.
    */
   fromGhost?: boolean | undefined;
 }
@@ -199,8 +173,7 @@ export function openDetached(opts: DetachOptions): { windowId: number; reused: b
     backgroundColor: safeAppThemeChrome().background,
     autoHideMenuBar: true,
     title: 'Vibisual',
-    // §5.4 #14-1 (v2.30) — 별창은 OS titlebar 를 통째로 우리 UI 가 대신한다. titleBarOverlay 를 쓰면
-    // 우상단 컨트롤 영역이 OS 가 그려 우리 미니 타이틀바와 시각 충돌하므로 frame:false 로 전환.
+    // §5.4 #14-1 — 별창은 OS 제목줄을 우리 UI 가 대신한다. titleBarOverlay 는 OS 가 그린 단추가 미니 타이틀바와 겹치므로 frame:false.
     frame: false,
     icon: windowIconPath(__dirname, process.platform),
     webPreferences: {
@@ -214,7 +187,6 @@ export function openDetached(opts: DetachOptions): { windowId: number; reused: b
       webviewTag: true,
     },
   });
-  // §보안 감사 2026-09-09 — 이 창들에는 항해 가드가 한 곳도 없었다(본체 창에만 있었다).
   hardenWindow(win);
   // 태그를 켠 이 자리에서 웹뷰 가드를 건다 — 전용 메모리 세션·샌드박스·권한 거절(`webPageView.ts`).
   allowWebPageViews(win.webContents);
@@ -291,10 +263,8 @@ export function closeByTabKey(tabKey: string): boolean {
   return true;
 }
 
-// 별창 + §5.12 Command Center 창 + §5.13 (O) 내부 앱 창을 함께 조회 — 이 창들이 모두 같은
-// `vibisual:window:*-self` 채널로 자기 창의 최소화/최대화/닫기를 요청하기 때문
-// (Command Center 는 redock 만 없다). frame:false 라 여기서 빠지면 그 창은 타이틀바 버튼이
-// 눌려도 아무 일이 일어나지 않는다 — 창을 새로 만들면 여기에도 등록할 것.
+// 별창 + §5.12 Command Center + §5.13 (O) 내부 앱 창 — 모두 `vibisual:window:*-self` 로 자기 창을 조작한다(Command Center 는 redock 만 없다).
+// frame:false 라 여기서 빠지면 제목줄 단추가 안 먹는다 — 새 창은 여기에도 등록할 것.
 function selfWindowById(windowId: number): BrowserWindow | null {
   const detachedEntry = byWindowId.get(windowId);
   if (detachedEntry) return detachedEntry.window;
@@ -331,12 +301,8 @@ export function toggleMaximizeByWindowId(windowId: number): boolean {
   return true;
 }
 
-// §3.7 · §5.5 #17-6 (H-19) — **본체 창의 최대화/복원.** 헤더 로고 덮개(`Header.tsx`)는 `app-nodrag`
-//   라 OS 가 그 자리의 더블클릭을 모른다. 덮개가 대신 `toggle-maximize-self` 로 제목줄과 같은 토글을
-//   부르는데, 본체는 `selfWindowById` 목록에 없어 종전에는 그 호출이 조용히 `false` 로 끝났다.
-//   본체는 번호가 아니라 **보낸 창 그 자체**로 맞춘다 — 목록은 `win.id`(창 번호)로 적혀 있고 채널은
-//   `event.sender.id`(webContents 번호)로 오는데, 둘은 서로 다른 번호다.
-//   최소화·닫기 채널은 여기에 잇지 않는다 — 본체가 부를 자리가 없고, 닫기가 본체에 닿으면 앱이 꺼진다.
+// §3.7 · §5.5 #17-6 (H-19) — 본체 창 최대화/복원(로고 덮개는 `app-nodrag` 라 OS 가 더블클릭을 모른다). 본체는 `selfWindowById` 에 없어
+// 보낸 창 그 자체로 맞춘다 — 목록은 `win.id`, 채널은 `event.sender.id`(webContents 번호)라 다르다. 최소화·닫기는 잇지 않는다(닫으면 앱이 꺼진다).
 export function toggleMaximizeMainWindow(sender: BrowserWindow | null): boolean {
   if (!sender || sender.isDestroyed() || sender !== getMainWindow()) return false;
   toggleMaximize(sender);
@@ -399,26 +365,12 @@ export function redockCommit(tabKey: string): boolean {
   return !!entry;
 }
 
-// ─── §5.4 #14-1 v2.30 — Redock-drag mode ────────────────────────────────
-//
-// 별창의 미니 타이틀바를 잡으면 startDetachDrag — 별창 자체를 mini ghost(MINI_W × MINI_H,
-// opacity 0.85, alwaysOnTop)로 축소하고 cursor 따라가게 polling. 메인 헤더 영역 위에 진입하면
-// 메인 탭바에 redock-hover 푸시 + 별창 자신에게도 hover 신호 전달(미니 박스에 "release to redock"
-// 라벨 표시용). pointerup 시 commit=hovering 으로 endDetachDrag 호출.
+// §5.4 #14-1 Redock-drag — startDetachDrag 가 별창을 mini ghost 로 줄여 커서를 폴링한다. 메인 헤더 위면 메인 탭바·별창에 hover 신호
+// ("release to redock"), pointerup 에 commit=hovering 으로 endDetachDrag.
 
-// mini ghost 로 축소 + cursor 추적 폴링 시작. 최대화/전체화면이어도 동일하게 동작한다.
-//
-// ⚠ frame:false(테두리 없는) 창에선 Windows 에서 unmaximize()/leave-full-screen 이 ~130ms 비동기다.
-// 그 동안 ① isMaximized() 가 계속 true 이고 ② maximize 스타일이 걸린 채라 setBounds() 가 no-op 이라
-// mini 로 줄지 못한다. 그래서 풀스크린 카드가 ~130ms 떠 있다가 사용자가 그 전에 손을 떼면 redock 실패.
-//
-// 해결(v2.36): 줄여야 할 만큼 큰 창이면 win.hide() 로 숨긴 채 unmaximize()+setBounds(mini) 를 한다.
-// 창이 보이지 않으면 Windows DWM 이 복원 애니메이션을 돌리지 않고 즉시 처리하므로, 곧바로 이어지는
-// show() 시점엔 이미 mini 크기로 cursor 옆에 떠 있다("최대화든 일반이든 잡으면 즉시 따라옴").
-// 일반(비최대화) 창은 hide/show 없이 바로 setBounds — 불필요한 깜빡임 회피.
-//
-// 폴링 루프는 그대로 두어, 혹시 위 즉시 축소가 일부 환경에서 덜 먹어도(실제 getBounds 가 여전히 큼)
-// 매 틱 unmaximize+setBounds(mini) 를 재시도하는 안전망 역할을 한다.
+// mini ghost 로 축소 + 커서 추적 폴링(최대화/전체화면도 같다). frame:false 창은 Windows 에서 unmaximize 가 ~130ms 비동기라 그동안
+// isMaximized() 가 참이고 setBounds 가 no-op 이다 — 그래서 큰 창은 hide() 한 채 unmaximize+setBounds(mini)(숨긴 창은 즉시 처리된다).
+// 일반 창은 바로 setBounds. 폴링은 매 틱 다시 줄이는 안전망이다.
 function enterMiniGhostAndPoll(entry: DetachedEntry): void {
   const win = entry.window;
   if (win.isDestroyed()) return;
@@ -560,10 +512,7 @@ export function endDetachDragByWindowId(windowId: number, commit: boolean): bool
   try { win.setAlwaysOnTop(false); } catch { /* noop */ }
   // mini ghost 진입 시 풀었던 최소 크기를 원래 값으로 복원.
   try { win.setMinimumSize(POPUP_MIN_W, POPUP_MIN_H); } catch { /* noop */ }
-  // §5.4 #14-1 — 최대화 상태에서 좌측 redock 트리거를 잡았다 떼면(메인 헤더까지 끌지 않아
-  // 재합치기는 취소된 경우) 최대화를 풀고 일반 창으로 복원한다. 이전엔 wasMaximized 면 다시
-  // maximize 했으나, 사용자가 그 버튼을 눌러 본체로 넣으려 할 때 최대화가 그대로 유지되는 문제가
-  // 있었다 → 누르면 최대화 해제 + 기존 일반 창 동작.
+  // §5.4 #14-1 — 최대화 상태에서 redock 트리거를 잡았다 떼면(재합치기 취소) 일반 창으로 복원한다(다시 최대화하지 않는다).
   const bounds = entry.originalBounds;
   entry.wasMaximized = false;
   entry.originalBounds = null;
@@ -573,10 +522,7 @@ export function endDetachDragByWindowId(windowId: number, commit: boolean): bool
   const target = bounds
     ? { x: Math.round(cur.x - bounds.width / 2), y: Math.round(cur.y - 18), width: bounds.width, height: bounds.height }
     : null;
-  // §5.4 #14-1 — 최대화/전체화면이었으면 setBounds 가 먹지 않으므로(그리고 frame:false 는
-  // isMaximized() 가 부정확하므로) 실제 bounds 가 target 크기에 근접할 때까지 매 틱 unmaximize +
-  // setBounds 를 재시도한다. 이전엔 wasMaximized 면 다시 maximize 했으나, 사용자가 본체로 넣으려
-  // 할 때 최대화가 유지되는 문제 → 누르면 최대화 해제 + 기존 일반 창 동작.
+  // §5.4 #14-1 — 최대화/전체화면이면 setBounds 가 먹지 않고 frame:false 는 isMaximized() 가 부정확하다 — 실제 bounds 가 target 에 근접할 때까지 매 틱 unmaximize + setBounds 를 재시도한다.
   if (target) {
     const applyRestore = (tries: number): void => {
       if (win.isDestroyed()) return;
@@ -595,15 +541,8 @@ export function endDetachDragByWindowId(windowId: number, commit: boolean): bool
   return true;
 }
 
-// ─── §5.5 #17-6 v2.73 — 버블 오버레이 창 ──────────────────────────────────
-//
-// 커스텀/CMD 에이전트 버블을 데스크톱 상시-위 위젯으로 분리한다. 별창(detach)과 같은
-// in-process 서버/preload 를 공유하므로 graph_snapshot 을 자동 수신(setBroadcastSink 의
-// BrowserWindow 순회에 포함). 별창과의 차이:
-//   - frame:false + transparent + alwaysOnTop + skipTaskbar, 버블 크기 작은 창(엣지 미표시)
-//   - 더블클릭 시 IDE 크기로 확대(expand) ↔ 닫으면 버블 크기로 축소(collapse)
-//   - 포커스 무관 항상 위(§17-6 (E) — focus-hide 는 사용자 요청으로 제거됨)
-//   - Header 전역 토글로 사용자 show/hide. 실제 표시 = userVisible.
+// §5.5 #17-6 — 버블 오버레이 창: 커스텀/CMD 에이전트 버블을 데스크톱 상시-위 위젯으로 분리(별창처럼 같은 서버·preload).
+// frame:false + transparent + alwaysOnTop + skipTaskbar 의 버블 크기 창 · 더블클릭 시 IDE 크기 ↔ 닫으면 축소 · 포커스 무관 위(§17-6 (E)) · Header 전역 토글(userVisible).
 
 interface OverlayEntry {
   id: number;
@@ -614,12 +553,11 @@ interface OverlayEntry {
   expanded: boolean;
   /** 펼치기 직전의 버블 창 bounds(접을 때 위치 복원용). */
   collapsedBounds: { x: number; y: number; width: number; height: number } | null;
-  /** §17-6 (G) v2.82 — 우클릭 메뉴 불투명도(1/0.75/0.5). 접힘 버블에만 적용, 펼침 시 1로 보고 접으면 이 값 복원. */
+  /** §17-6 (G) — 우클릭 메뉴 불투명도(1/0.75/0.5). 접힘 버블에만 적용, 펼침 시 1로 보고 접으면 이 값 복원. */
   opacity: number;
   /**
-   * §17-6 (H-5) — **최대화 상태를 우리가 쥔다.** `isMaximized()` 는 테두리 없는 창에서
-   * `unmaximize()` 뒤에도 참으로 남고(§5.4 #14-1 회귀), 투명 창의 네이티브 최대화는 플랫폼마다
-   * 되고 안 되고가 갈린다. 그래서 "지금 최대화인가"는 OS 가 아니라 이 값이 답한다.
+   * §17-6 (H-5) — 최대화 상태는 OS 가 아니라 이 값이 답한다. 테두리 없는 창은 `unmaximize()` 뒤에도 `isMaximized()` 가 참이고(§5.4 #14-1),
+   * 투명 창의 네이티브 최대화는 플랫폼마다 갈린다.
    */
   maximized: boolean;
   /** 최대화 직전의 자리 — 되돌릴 때 **정확히** 여기로 온다(어디로 갈지 OS 에 묻지 않는다). */
@@ -636,61 +574,35 @@ interface OverlayEntry {
    */
   closing: boolean;
   /**
-   * §17-6 (H-19) — **이 창이 가져야 할 크기(DIP).** 창에 되묻지 않는다.
-   *
-   * Windows 의 분수 배율(125%·150%)에서 창은 쓸 때와 읽을 때 따로 반올림한다 — `setPosition()`
-   * 은 크기를 창에 되물어 다시 쓰므로 부를 때마다 폭이 1px 자랐고(실측 150%: 40번에 +40px),
-   * `getBounds()` 로 읽은 크기를 되돌아오는 길에 되쓰면 왕복마다 2px 자랐다. 이제 크기를
-   * 정하는 자리마다 여기에 적고, 창에는 늘 **이 값**을 쓴다(`overlaySize.ts`).
+   * §17-6 (H-19) — 이 창이 가져야 할 크기(DIP) — 창에 되묻지 않는다. Windows 분수 배율에서 창은 쓸 때·읽을 때 따로 반올림해 `setPosition()` 마다
+   * 1px(실측 150%: 40번에 +40px), `getBounds()` 되쓰기마다 2px 자란다. 크기를 정하는 자리마다 여기에 적고 창엔 이 값만 쓴다(`overlaySize.ts`).
    */
   size: OverlaySize;
   /** (H-19) 우리가 마지막으로 크기를 쓴 시각 — 그 직후의 `resize` 는 OS 의 반올림 메아리다. */
   sizeWrittenAt: number;
   /**
-   * §17-6 (H-25) ② — **아직 태어나지 않은 창인가.** 참이면 이 창은 밖으로 나갈 것에 대비해
-   * 미리 지어 두고 **부팅만 시키는 중**이고, 사용자에게는 어디에도 보이지 않는다.
-   *
-   * 목록(`listOverlays`)에서 빠지고, 전역 표시 토글(`applyOverlayVisibility`)이 건드리지 않으며,
-   * `ready-to-show` 가 보여주지 않는다. 특히 보여주지 않는 것이 요점이다 — 지금 그 자리에는
-   * 윤곽선이 있고, 실물 창이 겹쳐 뜨면 무엇이 진짜인지 알 수 없다((H-6) ③ · (H-12) ①).
-   *
-   * 손을 떼면 `openOverlay` 의 **재사용 갈래**가 이 비트를 풀고 창을 세운다.
+   * §17-6 (H-25) ② — 예열 중인 창(미리 지어 부팅만, 어디에도 안 보임). `listOverlays`·`applyOverlayVisibility`·`ready-to-show` 표시에서 빠진다 —
+   * 그 자리엔 윤곽선이 있어 실물이 겹치면 무엇이 진짜인지 모른다. 손을 떼면 `openOverlay` 재사용 갈래가 풀고 세운다.
    */
   warming: boolean;
   /**
-   * §17-6 (H-25) ④ — **그 창이 자기 IDE 를 다 그렸는가**(`overlay:shell-ready`).
-   *
-   * (H-7) 은 이 신호를 "선을 걷어도 되는 시점"으로만 썼다. 예열이 생기면서 그 신호가 **뗌보다
-   * 먼저 와 있을 수 있게** 되었으므로, 인계와 무관하게 여기 적어 둔다 — 뗌에 선을 곧바로
-   * 걷을지(예열이 노린 그 순간) 종전대로 기다릴지를 이 비트가 가른다.
+   * §17-6 (H-25) ④ — 그 창이 자기 IDE 를 다 그렸는가(`overlay:shell-ready`). 예열 때문에 이 신호가 뗌보다 먼저 올 수 있어 인계와 따로 적는다 —
+   * 뗌에 선을 곧바로 걷을지 기다릴지를 이 비트가 가른다.
    */
   shellReady: boolean;
   /**
-   * §17-6 (H-27) ④ — **앱이 이 접힌 창에 IDE 를 열라고 보낸 시각.** 없으면 `null`.
-   *
-   * 기척은 IDE 로 서 있을 때만 비추므로((H-16)) 버블에 곧바로 보내면 그대로 사라진다. 그래서
-   * 명령을 보낸 시각만 적어 두고, 렌더가 IDE 를 열어 창을 펴는 순간(`expandOverlaySelf`)
-   * 이 표식을 한 번 읽어 앞세우기와 기척을 준 뒤 지운다.
+   * §17-6 (H-27) ④ — 앱이 이 접힌 창에 IDE 를 열라고 보낸 시각(없으면 `null`). 기척은 IDE 일 때만 비추므로((H-16)) 시각만 적어 두고,
+   * 펴는 순간(`expandOverlaySelf`) 한 번 읽어 앞세우기·기척을 준 뒤 지운다.
    */
   attentionOnExpandAt: number | null;
   /**
-   * §17-6 (H-27) ⑦ — **이 창이 IDE 를 다 그리면 세울 세션.** 없으면 `null`.
-   *
-   * 세션을 실어 부른 판에 그 에이전트의 창이 없으면 이 길이 창을 새로 짓는데, 갓 지은 창의 렌더는
-   * 아직 [IDE 열기]를 듣고 있지 않다 — 곧바로 보내면 그대로 사라진다. 방금 끌어낸 창(펼친 채 태어나
-   * 아직 다 그리지 않은 창)도 부팅 중이면 같다(이미 듣고 있으면 그 렌더가 짐을 풀 때까지 세션을 맡아
-   * 둔다 — `OverlayShell`). 그래서 적어 두었다가 그 창이 다 그렸다고 말하는 순간(`overlayShellReady` —
-   * 짐을 풀어 IDE 가 선 **뒤**다) 한 번 건네고 지운다.
-   * 버블로 태어난 창은 그 신호를 보내지 않으므로 여기 적힌 값은 건네지지 않고 창과 함께 사라진다
-   * (그 창의 렌더는 이미 듣고 있어 곧바로 보낸 신호로 충분하다). 모양은 main 이 모른다.
+   * §17-6 (H-27) ⑦ — 이 창이 IDE 를 다 그리면 세울 세션(없으면 `null`, 모양은 main 이 모른다). 부팅 중인 렌더는 아직 [IDE 열기]를 안 들어
+   * 바로 보내면 사라진다 — `overlayShellReady` 에 한 번 건네고 지운다. 버블로 태어난 창은 그 신호가 없어 창과 함께 사라진다(이미 듣고 있다).
    */
   pendingIdeFocus: unknown;
   /**
-   * §17-6 (H-28) — **사용자가 이 창을 다른 앱 위에 고정했는가**(제목줄 [항상 위에 고정]).
-   *
-   * 펼친 IDE 는 기본이 보통 층이라((E)) 다른 앱을 고르면 뒤로 깔린다. 참이면 펼쳐 있는 동안
-   * `'floating'` 에 선다(`overlayTopMostFor`). 버블로 접었다 다시 펴도 남고, 창이 닫히면 함께
-   * 사라진다 — 앱을 다시 켜면 풀린다((F) 휘발).
+   * §17-6 (H-28) — 사용자가 [항상 위에 고정]을 켰는가. 펼친 IDE 는 기본이 보통 층((E))이라 참이면 펼친 동안 `'floating'`(`overlayTopMostFor`).
+   * 접었다 펴도 남고, 창이 닫히거나 앱을 다시 켜면 풀린다((F) 휘발).
    */
   pinned: boolean;
 }
@@ -710,11 +622,8 @@ const overlaysByWindowId = new Map<number, OverlayEntry>();
 let overlaysUserVisible = true;
 
 /**
- * §17-6 (H-10) — 장부에서 **지금** 뗀다(`closed` 를 기다리지 않는다).
- *
- * 기다리면 그 틈에 온 팝아웃이 죽어 가는 창을 다시 쓴다. 뗄 때는 **내가 아직 쥐고 있는 칸만**
- * 뗀다 — 그 사이 같은 `agentId` 로 새 창이 들어섰다면 그 칸은 이미 남의 것이고, 조건 없이
- * 지우면 살아 있는 창이 장부에서 사라져 뗌 신호가 닿지 못한다(= 커서에 달라붙은 창).
+ * §17-6 (H-10) — 장부에서 지금 뗀다(`closed` 를 기다리면 그 틈의 팝아웃이 죽어 가는 창을 다시 쓴다). 내가 쥔 칸만 뗀다 —
+ * 같은 `agentId` 로 새 창이 섰다면 조건 없이 지울 때 산 창이 빠져 뗌 신호가 못 닿는다(커서에 달라붙은 창).
  */
 function detachOverlaySlot(entry: OverlayEntry): void {
   releaseSlotIfOwner(overlaysByAgentId, entry.agentId, entry);
@@ -722,11 +631,8 @@ function detachOverlaySlot(entry: OverlayEntry): void {
 }
 
 /**
- * §17-6 (H-10) — 오버레이 창을 닫는 **한 길**. 자리를 먼저 놓고, 이 창에 걸려 있던 시계와
- * 윤곽선을 걷은 다음 창을 닫는다.
- *
- * 닫는 자리가 여러 곳이라 각자 `win.close()` 만 부르면, 그중 하나만 정리를 빠뜨려도 그 판이
- * 남는다(고아 폴링·고아 윤곽선). 여기 한 곳으로 모은다.
+ * §17-6 (H-10) — 오버레이 창을 닫는 한 길: 자리를 먼저 놓고, 걸린 시계·윤곽선을 걷은 뒤 닫는다.
+ * 닫는 자리마다 `win.close()` 만 부르면 하나만 정리를 빠뜨려도 고아 폴링·고아 윤곽선이 남는다.
  */
 function closeOverlayEntry(entry: OverlayEntry): void {
   if (entry.closing) return;
@@ -738,12 +644,8 @@ function closeOverlayEntry(entry: OverlayEntry): void {
   if (!entry.window.isDestroyed()) entry.window.close();
 }
 
-// ─── §17-6 (H-19) — 창 크기는 장부가 답한다 ────────────────────────────────
-//
-// 창에 크기를 **쓰는** 길은 아래 둘뿐이다. 어느 쪽도 창에 크기를 되묻지 않는다 — 되물으면 배율의
-// 반올림이 값에 섞여 들어와 쓸 때마다 자란다(`overlaySize.ts` 머리말). 자리는 그 화면의 배율
-// 격자에 맞춘다: 격자를 벗어난 좌표는 물리 픽셀 폭을 1px 씩 흔들어 렌더러가 틱마다 창을 다시
-// 놓는다(실측 150%: 격자 밖 40번 이동에 `resize` 39회, 격자 위에서는 0회).
+// §17-6 (H-19) — 창 크기는 장부가 답한다. 크기를 쓰는 길은 아래 둘뿐이고 창에 되묻지 않는다(배율 반올림이 섞여 자란다). 자리는 그 화면의
+// 배율 격자에 맞춘다 — 격자 밖이면 물리 폭이 1px 씩 흔들려 틱마다 다시 놓인다(실측 150%: 40번 이동에 `resize` 39회, 격자 위 0회).
 
 /** 이 자리(DIP)가 놓일 화면의 배율 격자 — 좌표·크기를 이 배수로 맞춰 써야 물리 픽셀이 흔들리지 않는다. */
 export function dipStepAt(x: number, y: number): number {
@@ -773,17 +675,8 @@ function moveOverlayTo(entry: OverlayEntry, x: number, y: number): void {
   } catch { /* noop */ }
 }
 
-// ─── §17-6 (H) — 창이 자리를 옮길 때 들고 가는 상자 ────────────────────────
-//
-// 앱 안 IDE 창을 밖으로 꺼내거나 다시 합칠 때, 종전에는 받는 쪽이 `openIDEOverlay` 로 창을
-// **새로** 만들었다. 그 함수는 열어 둔 편집 탭을 비우고 뷰를 첫 화면으로 되돌리므로, 꺼내고
-// 나면 보던 파일이 전부 닫힌 채 다른 창이 서 있었다 — 같은 창이 밖으로 나온 것이 아니었다.
-//
-// 그래서 보내는 쪽이 그 창의 상태를 이 상자에 넣고, 받는 쪽이 꺼내 쓴다. **한 번 꺼내면
-// 사라진다**(같은 상자를 두 창이 나눠 쓰면 어느 쪽이 진짜인지 알 수 없다). 내용은 main 이
-// 해석하지 않는다 — 렌더러끼리 주고받는 짐이고 여기는 맡아 두는 자리일 뿐이다.
-//
-// 창 사이를 건너는 동안에만 살아 있으면 되므로 디스크에 쓰지 않는다(영속화 ❌ — 별창 선례).
+// §17-6 (H) — 창이 자리를 옮길 때 들고 가는 상자(렌더러끼리의 짐, main 은 해석하지 않는다). `openIDEOverlay` 로 새로 만들면 편집 탭·뷰가 초기화되므로
+// 보내는 쪽이 넣고 받는 쪽이 꺼낸다. 한 번 꺼내면 사라진다. 건너는 동안만 살아 디스크에 쓰지 않는다.
 interface PaneHandoffBox {
   handoff: unknown;
   at: number;
@@ -853,19 +746,9 @@ function overlayShouldShow(): boolean {
 }
 
 /**
- * §17-6 (E) 개정 — **층을 다시 박는다. 어느 층인지는 `expanded` 가 답한다.**
- *
- * (v2.80) Windows 에선 `setResizable`/`setBounds`/`show` 류 창 상태 전이가 층을 조용히
- * 풀어버리는 회귀가 있어, 모든 전이 직후 다시 박는다(멱등이라 비용 없음). 달라진 것은 **박는
- * 값**이다 — 접힌 버블은 상시-위(`screen-saver`), 펼친 IDE 는 보통 층이다. 펼친 IDE 는 화면을
- * 크게 덮는 작업 창이라 그것까지 위에 박히면 그 옆에서 다른 앱을 쓸 수 없다(사용자 지시).
- * 오버레이 버블은 여전히 그 위에 뜬다 — 상시-위 층이 보통 층보다 위라 따로 조율할 것이 없다.
- *
- * 값을 정하는 일은 `overlayTopMostFor` 한 곳이 하고 여기서는 실행만 한다(창을 띄우지 않고
- * 확인할 수 있어야, 전이 하나가 규칙을 빠뜨리는 v2.80 의 회귀가 다시 나지 않는다).
- *
- * (H-28) `pinned` 를 **필수 인자**로 둔 것도 같은 까닭이다 — 기본값이 있으면 전이 하나가 고정을
- * 빠뜨려도 타입이 말해 주지 않고, 사용자가 고정한 창이 최대화·접었다 펴기 한 번에 뒤로 깔린다.
+ * §17-6 (E) — 층을 다시 박는다(`expanded` 가 층을 정한다). Windows 는 `setResizable`/`setBounds`/`show` 전이가 층을 조용히 풀어 전이마다 다시 박는다(멱등).
+ * 접힌 버블은 상시-위(`screen-saver`), 펼친 IDE 는 보통 층 — 큰 작업 창까지 위면 옆에서 다른 앱을 못 쓴다. 값은 `overlayTopMostFor` 한 곳.
+ * `pinned` 는 필수 인자 — 기본값이 있으면 전이 하나가 고정을 빠뜨려도 타입이 말하지 않는다.
  */
 function keepOverlayOnTop(win: BrowserWindow, expanded: boolean, pinned: boolean): void {
   if (win.isDestroyed()) return;
@@ -886,11 +769,8 @@ function keepOverlayMenuOnTop(win: BrowserWindow): void {
 }
 
 /**
- * §17-6 (H-16) — **이미 서 있는 창을 앞으로 세운다.** 밟을 순서는 `overlayRaiseSteps` 한 곳이
- * 정하고(세 OS 를 인자로 갈라 단위 테스트할 수 있게), 여기서는 그대로 실행만 한다.
- *
- * 모든 손짓이 멱등이라 여러 번 불러도 안전하다 — 창 상태를 바꾸는 다른 일(펼치기 등) 뒤에
- * 한 번 더 부르는 것이 이 함수의 쓰임새다(그 전이가 층·Z 순서를 흩뜨리기 때문).
+ * §17-6 (H-16) — 이미 서 있는 창을 앞으로 세운다. 순서는 `overlayRaiseSteps` 한 곳(세 OS 를 인자로 시험), 여기서는 실행만.
+ * 멱등이라 펼치기 등 층·Z 순서를 흩뜨리는 전이 뒤에 한 번 더 부른다.
  */
 function raiseOverlayWindow(entry: OverlayEntry, activation: 'inactive' | 'foreground'): void {
   const win = entry.window;
@@ -936,15 +816,8 @@ function applyAllOverlayVisibility(): void {
 }
 
 /**
- * §17-6 (E-2) — **본체 창을 고르면 밖에 나가 있는 펼친 IDE 가 따라 올라온다.**
- *
- * (E) 개정으로 펼친 IDE 는 보통 층이 되어 다른 앱 뒤에 깔릴 수 있게 됐는데, 이 창은
- * `skipTaskbar:true` 라 **작업표시줄에도 없다** — 깔리면 되돌릴 길이 캔버스로 돌아가 그 버블을
- * 다시 부르는 것뿐이다. 본체 창이 포커스를 받는 순간 그 창들을 같이 맨 위로 올려 그 길을 낸다.
- *
- * **포커스는 옮기지 않는다**(`moveTop` 만) — 사용자가 고른 것은 본체 창이므로 타이핑은 거기로
- * 가야 한다. 누구를 올릴지는 `overlayFollowsMainFocus` 가 답한다(접힌 버블은 이미 위층이라 할
- * 일이 없고, 감춰 둔 창·최소화한 창·닫히는 중인 창·예열 창은 건드리지 않는다).
+ * §17-6 (E-2) — 본체 창이 포커스를 받으면 밖의 펼친 IDE 를 같이 올린다(보통 층이라 깔릴 수 있고 `skipTaskbar` 라 작업표시줄에도 없다).
+ * 포커스는 옮기지 않는다(`moveTop` 만). 대상은 `overlayFollowsMainFocus`(접힌 버블·감춤·최소화·닫히는 중·예열 제외).
  */
 export function raiseExpandedOverlaysForMainFocus(): void {
   for (const entry of overlaysByAgentId.values()) {
@@ -963,28 +836,15 @@ export function raiseExpandedOverlaysForMainFocus(): void {
   }
 }
 
-// ─── (판올림 번호 발급 대기) §5.5 #17-6 (H-7) 선 → 창 인계 ────────────────────
-//
-// (H-6) ⑤ 는 윤곽선을 `ready-to-show` 까지 살려 두면 빈 구간이 없다고 봤다. 그런데 이 창은
-// `transparent:true` 라 그 신호가 **투명한 빈 문서의 첫 페인트**에 떨어지고, 끌어내서 만든
-// 창은 그 뒤로도 부팅(번들 파싱 → WS 연결 → 스냅샷 → `takeHandoff` → IDE 마운트)을 더 간다.
-// 그동안 커서 아래에는 보이지 않는 창만 있다 — 사용자에게는 창이 사라진 것과 같다.
-//
-// 그래서 인계 시점을 **렌더러가 다 그렸다고 말하는 순간**으로 옮긴다. 대답이 없는 판(렌더러
-// 실패·구버전)에서도 선이 얹힌 채 남지 않게 그물을 하나 둔다 — 선 없이 잠깐 비는 편이,
-// 클릭통과 선이 창 위에 영영 얹혀 있는 것보다 낫다.
+// §5.5 #17-6 (H-7) 선 → 창 인계. 투명 창의 `ready-to-show` 는 빈 문서의 첫 페인트이고 끌어낸 창은 그 뒤로도 부팅이 남아, 그때 걷으면 커서 밑이 빈다 —
+// 렌더러가 다 그렸다고 말할 때 걷는다. 대답이 없어도 선이 남지 않게 그물을 둔다(잠깐 비는 편이 클릭통과 선이 영영 얹힌 것보다 낫다).
 
 /** 렌더러가 "다 그렸다"를 말하지 못할 때 선을 걷어 주는 상한(ms). */
 const GHOST_HANDOFF_FALLBACK_MS = 4_000;
 
 /**
- * (H-15) **들어오는 길의 그물은 훨씬 짧다 — 기다리는 것이 다르기 때문이다.**
- *
- * 위 4초는 **밖으로 나가 새로 태어나는 창**을 기다리는 값이다(번들 파싱 → WS 연결 → 스냅샷 →
- * `takeHandoff` → IDE 마운트 — 실제로 초 단위가 든다). 그런데 되돌아오는 길이 기다리는 것은
- * **이미 떠서 돌고 있는 메인 창이 칸 하나를 그리는 일**이라 한두 프레임이면 끝난다. 같은 값을
- * 쓰면, 렌더러가 말하지 못한 판에서 **클릭통과 선이 4초 동안 커서에 붙어 있다** — 사용자에게는
- * 그것이 곧 고장이다(사용자 보고). 정상 경로(두 프레임)와 넉넉히 벌리면서도 눈에 남지 않는 값.
+ * (H-15) 들어오는 길의 그물은 짧다 — 4초는 새로 태어나는 창(초 단위)용이고, 돌아오는 길은 도는 메인 창이 칸 하나 그리는 일(한두 프레임)이다.
+ * 같은 값이면 말 못 한 판에서 클릭통과 선이 4초간 커서에 붙는다.
  */
 const GHOST_REDOCK_FALLBACK_MS = 700;
 
@@ -1005,12 +865,7 @@ function finishGhostHandoff(): void {
   hidePopOutGhost();
 }
 
-/**
- * 이 창이 다 그릴 때까지 선을 살려 둔다(앞 판이 남아 있으면 그것부터 끝낸다).
- *
- * (H-15) 그물의 길이는 **무엇을 기다리는가**로 정한다 — 새로 태어나는 창과 이미 돌고 있는 창은
- * 걸리는 시간이 자릿수로 다르다. 부르는 쪽이 그 값을 함께 넘긴다(기본은 나가는 길의 4초).
- */
+/** 이 창이 다 그릴 때까지 선을 살려 둔다(앞 판은 먼저 끝낸다). (H-15) 그물 길이는 기다리는 것에 따라 부르는 쪽이 넘긴다(기본은 나가는 길의 4초). */
 function armGhostHandoff(windowId: number, fallbackMs: number = GHOST_HANDOFF_FALLBACK_MS): void {
   if (ghostHandoff) clearTimeout(ghostHandoff.timer);
   ghostHandoff = {
@@ -1019,30 +874,17 @@ function armGhostHandoff(windowId: number, fallbackMs: number = GHOST_HANDOFF_FA
   };
 }
 
-/**
- * §5.13 (S-10) 끌어낸 내부 앱 창이 **보인 뒤** 선을 걷는 한 박자(ms).
- *
- * `show()` 를 부른 그 순간에는 창이 아직 화면에 합성되기 전일 수 있다 — 거기서 선을 걷으면 그 사이
- * 손 아래가 빈다. 불투명 창이라(배경색이 있다) 투명 창의 "빈 문서" 문제((H-7) ③)는 없고, 합성
- * 몇 프레임만 기다리면 된다.
- */
+/** §5.13 (S-10) 끌어낸 내부 앱 창이 보인 뒤 선을 걷기까지(ms) — `show()` 순간엔 합성 전일 수 있다. 불투명 창이라 합성 몇 프레임이면 된다. */
 const APP_GHOST_SHOWN_SETTLE_MS = 50;
 
-/**
- * §5.13 (S-10) 이 창이 **보였다** — 한 박자 뒤에, 그때도 이 창이 선의 주인일 때만 선을 걷는다.
- *
- * 주인을 여기서 다시 세우지 않는다 — 그 사이 선을 걷은 길(실패한 렌더러의 `ghost-hide` · 그물)이 있으면
- * 지금 떠 있는 선은 다른 판의 것일 수 있다(그것을 걷으면 끌고 있는 손 아래가 빈다).
- */
+/** §5.13 (S-10) 이 창이 보였다 — 한 박자 뒤 그때도 선의 주인일 때만 걷는다. 주인을 다시 세우지 않는다 — 그 사이 선이 걷혔다면 지금 선은 다른 판의 것이다. */
 function finishGhostHandoffOnceShown(windowId: number): void {
   setTimeout(() => { if (isGhostHandoffTarget(windowId)) finishGhostHandoff(); }, APP_GHOST_SHOWN_SETTLE_MS);
 }
 
 /**
- * (H-12) **선을 걷어 달라**는 렌더러의 부탁 — 그물까지 함께 푼다.
- *
- * 들어오는 길에서는 앱 안 창이 그 자리를 이어받아 다 그린 뒤 이것을 부른다(나가는 길의
- * `overlay:shell-ready` 와 같은 뜻·같은 시점). 그물이 남으면 다음 판의 선을 엉뚱한 때에 걷는다.
+ * (H-12) 선을 걷어 달라는 렌더러의 부탁 — 그물까지 함께 푼다(남으면 다음 판의 선을 엉뚱한 때에 걷는다).
+ * 들어오는 길에서 앱 안 창이 자리를 이어받아 다 그린 뒤 부른다(나가는 길의 `overlay:shell-ready` 와 같은 뜻).
  */
 export function dismissPopOutGhost(): boolean {
   finishGhostHandoff();
@@ -1074,10 +916,8 @@ export function overlayShellReady(senderWindowId: number): boolean {
 }
 
 /**
- * §17-6 (H-25) — 그 에이전트의 오버레이 창이 **이미 장부에 있는가**(밖에 서 있든 예열 중이든).
- *
- * 예열은 이 답이 거짓일 때만 한다 — 있는데 또 부르면 `openOverlay` 의 재사용 갈래가 그 창을
- * 앞으로 세워, 사용자가 놓기도 전에 창이 튀어나온다. 닫히는 중인 창은 없는 것으로 본다((H-10)).
+ * §17-6 (H-25) — 그 에이전트의 오버레이 창이 장부에 있는가(밖이든 예열 중이든, 닫히는 중은 없음 — (H-10)). 예열은 거짓일 때만 —
+ * 있는데 또 부르면 `openOverlay` 재사용 갈래가 놓기도 전에 창을 앞으로 세운다.
  */
 export function hasOverlayForAgent(agentId: string): boolean {
   const entry = overlaysByAgentId.get(agentId);
@@ -1086,11 +926,8 @@ export function hasOverlayForAgent(agentId: string): boolean {
 }
 
 /**
- * §17-6 (H-25) ⑤ — **예열해 둔 창을 거둔다.** 나가지 않기로 끝난 판(앱 안에 놓았다)이 부른다.
- *
- * 안 거두면 쓰지도 않을 창이 목록 밖에 남아, 그 에이전트를 다음에 꺼낼 때 재사용 갈래가 그
- * 빈 창을 집는다. **이미 태어난 창은 건드리지 않는다** — `warming` 이 아닌 창을 여기서 닫으면
- * 사용자가 보고 있던 IDE 가 손짓 한 번에 사라진다.
+ * §17-6 (H-25) ⑤ — 예열해 둔 창을 거둔다(앱 안에 놓은 판). 안 거두면 다음에 꺼낼 때 재사용 갈래가 그 빈 창을 집는다.
+ * `warming` 이 아닌 창은 건드리지 않는다 — 닫으면 보던 IDE 가 사라진다.
  */
 export function cancelWarmOverlay(agentId: string): boolean {
   const entry = overlaysByAgentId.get(agentId);
@@ -1099,22 +936,9 @@ export function cancelWarmOverlay(agentId: string): boolean {
   return true;
 }
 
-// ─── (판올림 번호 발급 대기) §5.5 #17-6 (H-8) 앱 안 드래그의 **눈** ──────────────
-//
-// 앱 안 IDE 창을 끄는 일은 렌더러의 `mousemove` 로 한다. 그것이 창 밖에서도 오는 까닭은
-// **마우스 캡처** 하나뿐이다 — 그 창에서 `mousedown` 이 일어났기 때문에 OS 가 버튼을 뗄 때까지
-// 이벤트를 그 창으로 보내 준다.
-//
-// 그런데 (H-4) ③ 으로 **밖에서 끌던 드래그를 이어받은 판**에는 그 `mousedown` 이 없다. 손은
-// 눌려 있지만 눌린 곳은 이미 닫힌 창이다 — 커서가 앱 밖으로 나가는 순간 렌더러는 눈이 멀고,
-// "밖으로 나갔다"가 영영 서지 않는다(사용자 보고 — "한 번 나갔다 되돌린 뒤 다시 밖으로 빼려는데
-// 막힌다"). 가장자리 버팀이 받아 주기를 기대할 수도 없다: 손이 빠르면 마지막으로 본 커서가
-// 가장자리 띠(3px) 안이 아니라 한참 안쪽이다.
-//
-// 그래서 그동안 main 이 커서를 대신 본다. 새 물리가 아니라 **이미 세 곳이 쓰는 같은 폴링**이고,
-// 판정은 shared 순수 함수(`isCursorOutsideRect`)라 렌더러의 창 안 좌표 판정과 갈라지지 않는다.
-// 알리는 것은 **한 번뿐**이다 — 나갔다고 말하는 순간 렌더러가 창을 꺼내고, 그 뒤는 (H-4) 의
-// 검증된 매달림·뗌 그물이 받는다.
+// §5.5 #17-6 (H-8) 앱 안 드래그의 눈 — 렌더러 `mousemove` 가 창 밖에서도 오는 것은 그 창 `mousedown` 의 캡처 덕이다. (H-4) ③ 으로 이어받은 판엔 그것이 없어
+// 커서가 앱 밖으로 나가면 렌더러가 못 본다(가장자리 띠 3px 도 빠른 손은 못 잡는다). 그동안 main 이 같은 폴링으로 본다 — 판정은 shared `isCursorOutsideRect`.
+// 알림은 한 번뿐, 그 뒤는 (H-4) 매달림·뗌 그물이 받는다.
 
 /** 감시가 스스로 멎는 상한(ms) — 렌더러가 끝을 말하지 못해도 타이머가 남지 않게. */
 const PANE_ESCAPE_TTL_MS = 30_000;
@@ -1134,10 +958,8 @@ export function stopPaneDragEscapeWatch(senderWindowId?: number): boolean {
 }
 
 /**
- * 이 창에서 앱 안 IDE 창을 끄는 동안 커서를 지켜본다 — 창 밖으로 나가면 렌더러에 한 번 알린다.
- *
- * 어느 창인지는 **부른 쪽**(`event.sender`)이 정한다 — 메인 창일 수도 별창일 수도 있고, 그
- * 창의 콘텐츠 경계로 재야 "이 앱 밖"이 그 사람이 보는 화면과 맞는다.
+ * 이 창에서 앱 안 IDE 창을 끄는 동안 커서를 지켜보다 창 밖으로 나가면 한 번 알린다. 창은 부른 쪽(`event.sender`, 메인·별창)이다 —
+ * 그 창의 콘텐츠 경계로 재야 "이 앱 밖"이 보이는 화면과 맞는다.
  */
 export function startPaneDragEscapeWatch(senderWindowId: number): boolean {
   const win = BrowserWindow.fromId(senderWindowId);
@@ -1161,18 +983,11 @@ export function openOverlay(opts: {
   agentId: string;
   projectId: string;
   cursor?: { x: number; y: number } | undefined;
-  /**
-   * (판올림 번호 발급 대기) **앱 창 밖으로 끌어내 만든 창** — 버블로 접힌 채가 아니라
-   * 처음부터 IDE 크기로 뜬다. 끌어낸 사람은 "이 창이 밖으로 나왔다"를 기대하지,
-   * 버블로 접혔다가 다시 더블클릭하기를 기대하지 않는다.
-   */
+  /** 앱 창 밖으로 끌어내 만든 창 — 버블로 접힌 채가 아니라 처음부터 IDE 크기로 뜬다(끌어낸 사람은 창이 나오길 기대한다). */
   expanded?: boolean | undefined;
   /** 끌고 있던 창의 크기(px). 그대로 물려받아 **빠져나온 그 창**으로 보이게 한다. */
   size?: { width: number; height: number } | undefined;
-  /**
-   * §17-6 (H) — 앱 안에서 그 창이 들고 있던 것(열어 둔 편집 탭·보던 뷰·고른 세션·붙어 있던 변).
-   * 새로 뜨는 창이 부팅하면서 꺼내 그대로 이어 간다 — 없으면 종전대로 첫 화면에서 시작한다.
-   */
+  /** §17-6 (H) — 앱 안에서 그 창이 들고 있던 것(편집 탭·뷰·세션·붙어 있던 변). 새 창이 부팅하며 꺼내 잇는다 — 없으면 첫 화면에서 시작. */
   handoff?: unknown;
   /**
    * §17-6 (H-4) — **끌던 손 아래에서 그대로 이어지는 창.** 커서가 앱 경계를 넘는 그 순간
@@ -1189,21 +1004,14 @@ export function openOverlay(opts: {
     label?: string | undefined;
     hint?: string | undefined;
     /**
-     * §17-6 (H-17) — **이미 놓인 자리다.** 창은 그 자리에 서기만 하고 커서에 매달리지 않는다.
-     *
-     * 나가는 판정이 뗌 한 곳으로 모이면서(사용자 지시 — "마우스 놓는 순간 그 자리 그 크기
-     * 그대로"), 이 길로 태어나는 창은 손이 이미 떠난 뒤의 창이 됐다. 매달면 놓은 뒤에도
-     * 창이 커서를 따라다닌다. 자리를 내는 셈(`커서 - 잡은 지점`)은 그대로 쓴다 — 그래야
-     * 방금까지 떠 있던 윤곽선과 한 픽셀도 어긋나지 않는다.
+     * §17-6 (H-17) — 이미 놓인 자리다. 이 길의 창은 손이 떠난 뒤라 커서에 매달지 않는다(매달면 놓은 뒤에도 따라다닌다).
+     * 자리 셈(`커서 - 잡은 지점`)은 그대로 — 방금까지 떠 있던 윤곽선과 한 픽셀도 어긋나지 않게.
      */
     settled?: boolean | undefined;
   } | undefined;
   /**
-   * §17-6 (H-25) — **놓기 전에 미리 짓는 판.** 창을 만들어 부팅만 시키고 **보여주지 않는다**.
-   *
-   * 손을 뗀 그 프레임에 창 짓기(번들 파싱 → WS 연결 → 스냅샷 → `takeHandoff` → IDE 마운트,
-   * 실제로 초 단위)가 통째로 몰려 그 지점만 유독 무거웠다. 나갈 뜻이 분명해지는 순간(선의
-   * 무장)에 이 길로 미리 지어 두면, 뗌은 **재사용 갈래**를 타 자리 옮기기와 보여주기만 남는다.
+   * §17-6 (H-25) — 놓기 전에 미리 짓는 판(부팅만, 안 보임). 창 짓기(초 단위)가 뗌 프레임에 몰리지 않게 선을 무장할 때 지어 두면,
+   * 뗌은 재사용 갈래로 자리 옮기기·보이기만 남는다.
    */
   warm?: boolean | undefined;
   /**
@@ -1213,12 +1021,8 @@ export function openOverlay(opts: {
    */
   focus?: unknown;
 }): { windowId: number; reused: boolean } {
-  // (판올림 번호 발급 대기) **손으로 끌어낸 창은 반드시 보여야 한다.** 전역 표시(Header 토글)가
-  //   꺼진 채로 이 길을 타면 앱 안 창은 닫히는데 밖에도 아무것도 뜨지 않아, 사용자에게는 창이
-  //   통째로 사라진 것으로 읽힌다. 숨김 스위치는 하나뿐이므로(그것이 유일 스위치라는 규약, §17-6 (D))
-  //   그 스위치를 켜서 화면과 스위치가 어긋나지 않게 한다 — 창만 몰래 보이면 토글은 계속 "숨김"이다.
-  // (H-25) ② 예열은 아직 **꺼낸 것이 아니다** — 전역 스위치를 지금 켜면 사용자가 놓기도 전에
-  //   다른 오버레이 창들이 한꺼번에 나타난다. 그 켜기는 뗌이 이 길을 다시 탈 때 일어난다.
+  // 손으로 끌어낸 창은 반드시 보여야 한다 — 전역 표시가 꺼졌으면 유일 스위치(§17-6 (D))를 켠다(창만 몰래 보이면 토글이 계속 "숨김"이다).
+  // (H-25) ② 예열은 아직 꺼낸 것이 아니다 — 지금 켜면 놓기도 전에 다른 오버레이 창들이 나타난다. 켜기는 뗌 때.
   if (opts.expanded && !opts.warm && !overlaysUserVisible) {
     overlaysUserVisible = true;
     applyAllOverlayVisibility();
@@ -1230,13 +1034,8 @@ export function openOverlay(opts: {
   // (H-10) **닫히는 중인 창은 없는 것으로 본다.** `close()` 와 `closed` 사이의 틈에서 이 자리를
   //   다시 쓰면 새 창이 서지 않은 채 그 창이 죽어, 앱 안 창까지 닫힌 뒤라 IDE 가 어디에도 없다.
   if (existing && isOverlaySlotUsable({ closing: existing.closing, destroyed: existing.window.isDestroyed() })) {
-    // §17-6 (H-16) — **밖에 서 있는 그 창을 앞으로.** 밟을 손짓은 `overlayRaiseSteps` 가 정한다
-    //   (최소화 복원 · 보이기 · mac 앱 활성화 · 포커스 · 상시-위 재단언 · 같은 층 맨 위로).
-    //   `inactive`(§17-6 (H-4) ⑥ 매달린 채 나가는 판)에서는 그 목록이 스스로 활성화를 빼므로
-    //   여기서 갈래를 다시 세지 않는다 — 갈림이 두 곳에 있으면 한쪽만 고쳐지는 날이 온다.
-    // (H-25) ③ **예열해 둔 창이 여기서 태어난다.** 감춰 두었던 비트를 세우는 손짓보다 **먼저**
-    //   푼다 — `raiseOverlayWindow` 아래로 내려가는 길들(`applyOverlayVisibility`)이 이 비트를
-    //   보고 창을 도로 감추기 때문이다. 뒤에 오는 판정들이 쓰도록 원래 값을 들고 간다.
+    // §17-6 (H-16) — 밖의 그 창을 앞으로. 손짓 목록은 `overlayRaiseSteps` 한 곳이고 `inactive`((H-4) ⑥)도 그 목록이 가른다 — 갈림이 두 곳이면 한쪽만 고쳐진다.
+    // (H-25) ③ 예열 창은 여기서 태어난다 — 손짓보다 먼저 비트를 푼다(`applyOverlayVisibility` 가 그 비트를 보고 도로 감춘다). 원래 값은 뒤 판정용으로 든다.
     const wasWarming = existing.warming;
     if (wasWarming) {
       existing.warming = false;
@@ -1246,10 +1045,8 @@ export function openOverlay(opts: {
         overlaysUserVisible = true;
         applyAllOverlayVisibility();
       }
-      // §17-6 (H-27) ① **태어난 창은 목록에 알린다.** 예열 창은 목록에서 빠져 있다가 여기서 태어나는데,
-      //   이미 펼친 채 지어졌으니 아래 펼치기(목록을 알리는 자리)를 지나지 않고, 셸은 첫 펼침을
-      //   미러하지 않는다((H-7)). 여기서 안 알리면 본체의 `overlayWindows` 에 이 창이 끝내 없어,
-      //   (H-13) 이 "밖에 없음"으로 읽고 앱 안에 같은 IDE 를 한 벌 더 세웠다(사용자 보고).
+      // §17-6 (H-27) ① 태어난 창은 목록에 알린다 — 예열 창은 펼친 채 지어져 목록을 알리는 펼치기를 안 지난다((H-7) 셸도 첫 펼침을 미러하지 않는다).
+      // 안 알리면 (H-13) 이 "밖에 없음"으로 읽고 앱 안에 같은 IDE 를 한 벌 더 세운다.
       broadcastOverlayList();
     }
     const activation = overlayReuseActivation(!!opts.follow, !!opts.follow?.settled);
@@ -1265,22 +1062,14 @@ export function openOverlay(opts: {
     // 이미 버블로 떠 있는 창을 다시 끌어냈다면 그 창을 펼쳐 준다(창 두 개 ❌ — 한 에이전트 한 창).
     //   (H-27) ③ 앱이 부른 버블은 여기서 펴지 않는다 — 렌더가 IDE 를 열면 미러(`expand-self`)가 편다.
     if (opts.expanded && !existing.expanded && !bubbleOpensIde) expandOverlayByWindowId(existing.id);
-    // 펼치기는 `setBounds`·`setResizable`·`show` 로 창 상태를 통째로 바꾼다 — Windows 에선 그
-    //   전이가 상시-위를 조용히 풀고 Z 순서를 흩뜨리므로(§17-6 (E) v2.80), 끝난 **뒤에** 같은
-    //   순서를 한 번 더 밟는다(전부 멱등이라 두 번 밟아도 안전하다).
+    // 펼치기(`setBounds`·`setResizable`·`show`)가 Windows 에서 상시-위·Z 순서를 흩뜨리므로(§17-6 (E)) 끝난 뒤 같은 순서를 한 번 더 밟는다(멱등).
     raiseOverlayWindow(existing, activation);
-    // §17-6 (H-16) — 앞으로 선 것만으로는 **내 더블클릭이 저 창에 닿았다**가 읽히지 않는다.
-    //   이미 보이고 있던 창이면 화면이 그대로이기 때문이다. 그래서 그 창이 한 번 대답하게 한다
-    //   (렌더러가 짧게 비추는 기척 — main 에는 그림이 없으므로 신호만 보낸다). 구버전 렌더러나
-    //   부팅 전이면 아무도 듣지 않고 조용히 지나간다(포커싱 자체는 이미 끝난 뒤다).
-    //   (H-27) ④ 버블은 기척을 비추지 않으므로 지금 보내지 않는다 — 편 뒤에 보낸다(아래).
+    // §17-6 (H-16) — 이미 보이던 창은 앞으로 와도 화면이 그대로라 기척 신호를 보낸다(듣는 렌더러가 없으면 지나간다). (H-27) ④ 버블은 기척을 안 비춰 편 뒤에 보낸다.
     if (!bubbleOpensIde && overlayAttentionOnReuse(activation) && !existing.window.webContents.isDestroyed()) {
       existing.window.webContents.send('vibisual:overlay:attention', { agentId: opts.agentId });
     }
-    // §17-6 (H-27) ③④ 그 창에 [IDE 열기]를 보낸다((G) 메뉴와 같은 길 — 프로바이더 관문도 그 창이 가린다).
-    //   보낸 시각을 적어 두면 렌더가 창을 펴는 순간(`expandOverlaySelf`) 한 번 더 앞으로 세우고 비춘다.
-    //   (H-27) ⑦ 세울 세션을 실어 불렀으면 그것도 함께 싣는다 — 이미 IDE 로 서 있는 창에도 보낸다
-    //   (그 창의 렌더가 제 IDE 에 그 세션을 세운다). 보낼지·무엇을 실을지는 `overlayOpenIdeCommand` 한 곳이다.
+    // §17-6 (H-27) ③④ 그 창에 [IDE 열기]를 보낸다((G) 메뉴와 같은 길)·보낸 시각을 적어 펼 때(`expandOverlaySelf`) 한 번 더 세우고 비춘다.
+    // ⑦ 세울 세션이 있으면 함께 싣는다(이미 IDE 인 창에도). 판정은 `overlayOpenIdeCommand` 한 곳.
     const openIde = overlayOpenIdeCommand({
       bubbleOpensIde,
       wasExpanded: existing.expanded,
@@ -1316,10 +1105,7 @@ export function openOverlay(opts: {
           hint: opts.follow.hint,
         });
       }
-      // (H-6) ⑤ 이 창은 이미 서 있으므로 기다릴 것이 없다 — 윤곽선을 지금 걷는다(선이 창이 됐다).
-      // (H-25) ④ **예열 창만 예외다.** 미리 짓긴 했어도 아직 다 안 그렸을 수 있고, 그때 선을
-      //   걷으면 그 자리에 투명한 빈 창만 남는다((H-7) 이 새 창 길에서 겪은 그 구간이 예열
-      //   길로 옮겨 온 것뿐이다). 다 그린 판은 종전대로 곧바로 걷는다 — 그것이 예열이 노린 순간이다.
+      // (H-6) ⑤ 이미 선 창이라 윤곽선을 지금 걷는다. (H-25) ④ 아직 다 안 그린 예열 창만 예외 — 걷으면 투명한 빈 창만 남는다.
       if (wasWarming && !existing.shellReady) armGhostHandoff(existing.id);
       else finishGhostHandoff();
     }
@@ -1399,7 +1185,6 @@ export function openOverlay(opts: {
       nodeIntegration: false,
     },
   });
-  // §보안 감사 2026-09-09 — 이 창들에는 항해 가드가 한 곳도 없었다(본체 창에만 있었다).
   hardenWindow(win);
   // 층은 태어나는 모양이 정한다((E) 개정) — 버블로 태어나면 상시-위, 펼친 IDE 로 태어나면
   //   보통 층이다. 장부(entry)는 아직 없으므로 여기서는 `opts.expanded` 가 그 답을 대신한다.
@@ -1440,11 +1225,8 @@ export function openOverlay(opts: {
   overlaysByAgentId.set(opts.agentId, entry);
   overlaysByWindowId.set(win.id, entry);
 
-  // (H-10) **선을 이어받을 창은 태어나는 이 자리에서 정한다** — 종전에는 `ready-to-show` 에서
-  //   정했는데, 빠르게 오가면 그 신호가 오기 **전에** 창이 도로 앱 안으로 합쳐져 닫힌다. 그러면
-  //   이 창이 선의 주인이라는 사실을 아무도 몰라 `closed` 가 선을 걷지 못하고, 클릭통과 윤곽선이
-  //   수명 상한(20초) 내내 커서를 따라다녔다(사용자 보고 — "빠르게 왔다갔다 하면 마우스에 화면이
-  //   달려버린다"). `ready-to-show` 는 그물 시간을 다시 재기만 한다.
+  // (H-10) 선을 이어받을 창은 태어나는 여기서 정한다 — `ready-to-show` 에서 정하면 빠르게 오갈 때 그 전에 창이 닫혀 `closed` 가 선을 못 걷고
+  // 클릭통과 윤곽선이 수명 상한(20초) 내내 커서를 따른다. `ready-to-show` 는 그물 시간만 다시 잰다.
   if (opts.follow && isPopOutGhostVisible()) armGhostHandoff(win.id);
 
   // 준비되면 표시(전역 토글이 꺼져 있을 때만 숨긴 채 둔다). 포커스 숨김은 없다 — 본체가 떠 있어도,
@@ -1456,26 +1238,12 @@ export function openOverlay(opts: {
     if (entry.warming) return;
     if (!overlaysUserVisible) return;
     if (opts.follow) {
-      // (H-4) ⑥ **활성화하지 않고** 띄운다 — 지금 이 순간 사용자의 손은 아직 눌려 있고, 그
-      //   손짓은 메인 창이 잡고 있다. 새 창이 활성화되면 OS 가 그 캡처를 걷어 이동·뗌이
-      //   어디에도 도착하지 않는다(창이 영영 커서를 따라다닌다). 손을 뗄 때 앞으로 올린다.
-      //
-      // (H-17) `settled` 는 그 손이 **이미 떠난** 판이다 — 걷어 갈 캡처가 없으므로 종전
-      //   `expanded` 길과 똑같이 앞으로 세운다(방금 놓은 창이 뒤에 뜨면 "놓았는데 안 보인다").
+      // (H-4) ⑥ 활성화하지 않고 띄운다 — 손짓은 아직 메인 창이 잡고 있고, 새 창이 활성화되면 OS 가 캡처를 걷어 이동·뗌이 어디에도 안 닿는다.
+      // (H-17) `settled` 는 손이 떠난 판이라 앞으로 세운다(뒤에 뜨면 놓았는데 안 보인다).
       if (opts.follow.settled) { win.show(); win.focus(); } else win.showInactive();
-      // (H-6) ⑤ **선이 창이 되는 지점.** 밖으로 빼는 동안 커서를 따라오던 윤곽선은 여기까지
-      //   살아 있다가, 그 자리를 진짜 창이 이어받는 이 순간 꺼진다. 팝아웃 시점에 껐다면
-      //   창을 만들고 띄우는 동안 커서 아래에 **아무것도 없는 구간**이 생긴다(= "사라졌다
-      //   나타난다"). 둘 다 이 프로세스가 쥐고 있으므로 신호를 주고받을 필요가 없다.
-      //
-      // (H-7) 다만 **이 순간은 아직 창이 아니다.** `ready-to-show` 는 문서의 첫 페인트라,
-      //   `transparent:true` 인 이 창에서는 React 가 마운트되기 전의 **투명한 빈 창**이다.
-      //   게다가 끌어내서 만든 창은 WS 스냅샷이 와 자기 버블을 알게 된 뒤에야 IDE 를 연다
-      //   (`OverlayShell`) — 여기서 선을 걷으면 그 부팅 내내 커서 아래가 비고, ⑤ 가 없애기로
-      //   한 구간이 자리만 옮겨 되살아난다. 선은 **렌더러가 다 그렸다고 알려올 때** 걷는다.
-      //
-      // (H-10) 주인은 창을 만들 때 이미 정해 두었다 — 여기서는 그물 시간을 **다시 잰다**(창이
-      //   뜨기까지 걸린 시간만큼 그물이 이미 흘렀으므로, 렌더러가 그릴 시간을 온전히 준다).
+      // (H-6) ⑤ 선이 창이 되는 지점 — 팝아웃 때 끄면 창을 띄우는 동안 커서 아래가 빈다. (H-7) 다만 투명 창의 `ready-to-show` 는 React 전의 빈 창이고
+      // 끌어낸 창은 WS 스냅샷이 와야 IDE 를 연다(`OverlayShell`) — 선은 렌더러가 다 그렸다고 할 때 걷는다.
+      // (H-10) 주인은 생성 때 정했고, 여기서는 그물 시간을 다시 잰다(렌더러가 그릴 시간을 온전히).
       armGhostHandoff(win.id);
     } else if (opts.expanded) {
       // 방금 손으로 끌어낸 창이라 바로 쓰게 된다 — 뒤에 뜨면 "꺼냈는데 안 보인다"로 읽힌다.
@@ -1487,12 +1255,8 @@ export function openOverlay(opts: {
     keepOverlayOnTop(win, entry.expanded, entry.pinned);
   });
 
-  // (H-10) **어떤 길로 닫히든** 그 순간 자리를 놓는다 — `closeOverlayEntry` 를 거치지 않는 길
-  //   (OS 의 창 닫기 등)도 있고, `closed` 는 늦게 온다. 그 사이에 온 팝아웃이 죽어 가는 이 창을
-  //   "이미 있는 창"으로 알고 다시 쓰면 새 창이 서지 않아 IDE 가 어디에도 없다.
-  // (H-19) 창이 알려 오는 크기는 **사용자가 창틀을 잡아 늘린 것만** 장부에 받는다. 우리가 방금
-  //   쓴 크기의 메아리(배율 반올림)와 끄는 동안의 값은 무시한다 — 받아들이면 그 값을 다시 쓰는
-  //   순간 또 자라, 왕복마다 창이 커진다. 가름은 순수 함수(`acceptReportedSize`)가 한다.
+  // (H-10) 어떤 길로 닫히든(OS 닫기 포함, `closed` 는 늦다) 자리를 바로 놓는다 — 죽어 가는 창을 팝아웃이 다시 쓰면 IDE 가 어디에도 없다.
+  // (H-19) 보고된 크기는 사용자가 창틀로 늘린 것만 받는다(`acceptReportedSize`) — 우리 쓰기의 메아리를 받으면 왕복마다 자란다.
   win.on('resize', () => {
     if (win.isDestroyed()) return;
     const b = win.getBounds();
@@ -1560,14 +1324,8 @@ export function openOverlay(opts: {
   return { windowId: win.id, reused: false };
 }
 
-// §17-6 v2.81 — 버블 드래그 = OS 창 이동. 렌더러의 .bubble-body mousedown 이 drag-start 를
-// 보내면, 별창 mini-ghost 드래그(§5.4 #14-1)와 동일하게 메인 프로세스가 커서를 폴링해 창째
-// 따라가게 한다(잡은 지점 오프셋 유지). 창이 통째로 움직이므로 버블이 창 경계에서 잘리지
-// 않고 모니터·앱 경계 어디든 넘는다. mouseup 시 drag-end 로 해제.
-//
-// (H-4) 같은 폴링이 **꺼낸 IDE 창**도 끌고 다닌다 — 앱 밖으로 나가는 순간 태어난 창이 그대로
-// 커서를 따라오고(`follow`), 그 창의 타이틀바를 끌다 앱 안으로 들어오면 그 자리에서 앱 안
-// IDE 로 돌아간다(`redockOnEnter`). 두 방향이 같은 물리를 쓰므로 배울 손버릇이 하나다.
+// §17-6 — 버블 드래그 = OS 창 이동: drag-start 를 받으면 main 이 커서를 폴링해 창째 옮긴다(잡은 지점 유지, 창 경계에 안 잘린다), drag-end 로 해제.
+// (H-4) 같은 폴링이 꺼낸 IDE 창도 끈다 — 앱 밖에서 태어나 커서를 따르고(`follow`), 끌다 앱 안에 들면 앱 안 IDE 로 돌아간다(`redockOnEnter`).
 
 /** 창 하나를 커서에 매달아 둔 한 판. 끝나면 통째로 버린다(창에 남는 값은 없다). */
 interface OverlayFollowDrag {
@@ -1579,11 +1337,7 @@ interface OverlayFollowDrag {
   redockOnEnter: boolean;
   /** 지난 틱에 커서가 앱 **깊숙이** 있었는가 — 밖→안 전이에서만 되돌린다(stepAppEntry). */
   insideApp: boolean;
-  /**
-   * 되돌아갈 때 그대로 실어 보낼 짐. **드래그 시작에 한 번** 받는다 — 손이 눌린 동안에는 그
-   * 창의 상태가 바뀌지 않으므로 그 값이 곧 마지막 값이고, 되돌리는 순간 렌더러에 물어보면
-   * 왕복이 한 번 더 드는 데다 창이 아직 부팅 중이면 대답이 오지 않는다.
-   */
+  /** 되돌아갈 때 실어 보낼 짐 — 드래그 시작에 한 번 받는다(눌린 동안 상태는 안 바뀌고, 되돌릴 때 물으면 부팅 중인 창은 대답이 없다). */
   handoff: unknown;
   /**
    * §17-6 (H-12) — **들어와서 가상 창으로 바뀐 채 기다리는 중인가.** 참이면 이 창은 숨겨져
@@ -1592,20 +1346,9 @@ interface OverlayFollowDrag {
   dwelling: boolean;
   /** 그 기다림이 시작된 시각(ms) — `dwelling` 이 거짓이면 뜻이 없다. */
   dwellStartedAt: number;
-  /**
-   * §17-6 (H-17) — 버팀을 다 채워 **선이 밝아졌는가**(이제 손만 떼면 그 자리로 들어간다).
-   *
-   * 종전에는 버팀이 끝나는 그 틱에 곧바로 합쳤다. 이제 합치는 일은 뗌 한 곳의 몫이라, 그
-   * 순간이 하는 일은 이 비트를 세우고 선을 다시 그리는 것뿐이다. 매 틱 다시 그리지 않게
-   * 여기 기억해 둔다(같은 그림을 60Hz 로 다시 그리면 선이 깜빡인다).
-   */
+  /** §17-6 (H-17) — 버팀을 채워 선이 밝아졌는가(이제 떼면 들어간다). 합치기는 뗌의 몫이다. 매 틱 다시 그리지 않게 기억한다(60Hz 재그리기는 깜빡인다). */
   dwellArmed: boolean;
-  /**
-   * §17-6 (H-23) ③ — 숨긴 채 기다린 시간의 **상한 시계**. `dwelling` 동안에만 돈다.
-   *
-   * 뗌을 끝내 아무도 말하지 못하면 숨은 창이 영영 숨은 채로 남는다 — 이 시계가 그때 창을
-   * 도로 세운다. 정상 경로에서는 뗌이 훨씬 먼저 와 멎는다.
-   */
+  /** §17-6 (H-23) ③ — 숨긴 채 기다린 시간의 상한 시계(`dwelling` 동안만). 뗌을 아무도 못 들으면 숨은 창이 영영 숨는다 — 그때 도로 세운다. */
   holdTimer: NodeJS.Timeout | null;
   /** 윤곽선에 적을 이름·안내. main 에는 번역이 없으므로 렌더러가 지어 넘긴다. */
   label: string;
@@ -1632,17 +1375,8 @@ function cursorDeepInsideMain(): boolean {
 }
 
 /**
- * 이 창이 지금 커서에 매달려 있다고 렌더러에 알린다 — 뗌(mouseup)을 그 창도 함께 듣게.
- *
- * §17-6 (H-23) — **메인 창도 함께 듣는다.** (H-12) 로 들어오는 판은 창이 곧 숨는데, 숨는 순간
- * OS 가 그 창의 마우스 캡처를 걷어 **그 렌더러에는 뗌이 영영 닿지 않는다** — 들어오는 판의
- * 리스너는 전부 그 창에 달려 있으므로 아무도 듣지 못하고, 선이 커서에 붙은 채 남는다. (H-4) ⑥ 이
- * 세운 "두 창이 함께 듣는다"를 들어오는 길에도 그대로 적용한다: 누구의 판인지(`agentId`)를 실어
- * 메인 창에도 보내고, 메인 창은 그 판이 도는 동안 같은 그물을 건다.
- *
- * 켜는 신호는 `redockOnEnter` 인 판만 보낸다(버블 드래그는 앱 안으로 들어올 일이 없다).
- * **끄는 신호는 늘 보낸다** — 안 걸린 그물을 푸는 것은 아무 일도 하지 않지만, 걸린 그물을
- * 못 푸는 것은 다음 손짓을 먹는다.
+ * 이 창이 매달렸다고 렌더러에 알린다(뗌을 그 창도 듣게). (H-23) 메인 창도 듣는다 — 들어오는 판은 창이 숨는 순간 캡처를 잃어 그 렌더러에 뗌이 안 닿는다
+ * (`agentId` 를 실어 보낸다). 켜기는 `redockOnEnter` 판만, 끄기는 늘 — 못 푼 그물은 다음 손짓을 먹는다.
  */
 function sendFollowDragState(entry: OverlayEntry, following: boolean, alsoMain: boolean): void {
   const payload = { following, agentId: entry.agentId };
@@ -1657,14 +1391,8 @@ function sendFollowDragState(entry: OverlayEntry, following: boolean, alsoMain: 
 }
 
 /**
- * §17-6 (H-23) ③ — 숨긴 채 기다리는 **상한**(ms). 넘으면 창을 도로 세운다.
- *
- * ①② 로 뗌을 듣는 창이 둘이 됐어도, 둘 다 놓치는 조합이 남으면 그 대가가 너무 크다 —
- * 숨은 창은 클릭통과 선 뒤에 있어 사용자가 만질 수 없고, 선마저 수명(`GHOST_MAX_LIFE_MS`)으로
- * 걷히고 나면 **그 IDE 가 화면 어디에도 없다**. 그래서 선이 죽기 **전에** 창을 되살린다.
- *
- * 합치는 쪽이 아니라 되살리는 쪽으로 푸는 까닭은 (H-12) 의 되살리기와 같다 — 사용자가 부르지
- * 않은 합침은 되돌릴 손잡이가 없지만, 도로 선 창은 다시 끌면 그만이다.
+ * §17-6 (H-23) ③ — 숨긴 채 기다리는 상한(ms). 넘으면 창을 도로 세운다 — 뗌을 둘 다 놓치면 숨은 창은 만질 수 없고 선마저 `GHOST_MAX_LIFE_MS` 로 걷히면
+ * IDE 가 어디에도 없다. 합치지 않고 되살린다(부르지 않은 합침은 되돌릴 손잡이가 없다).
  */
 const REDOCK_DWELL_HOLD_MAX_MS = 15_000;
 
@@ -1676,15 +1404,8 @@ function clearRedockHold(drag: OverlayFollowDrag): void {
 }
 
 /**
- * §17-6 (H-12) — **들어왔다: 창을 선으로 바꾼다.** 아직 합치지 않는다.
- *
- * 나가는 길에는 이미 구간이 있는데(창은 멎고 윤곽선이 커서를 따라간다) 들어오는 길만 절벽이라,
- * 무슨 일이 일어나는지 보기도 전에 합쳐져 있었다. 이제 들어오는 순간에는 **창이 숨고 그 자리를
- * 윤곽선이 이어받을** 뿐이고, 버팀이 끝나야 실제로 앱 안으로 들어간다.
- *
- * 창을 숨기는 까닭은 (H-6) ③ 의 "움직이는 것이 하나뿐이라 두 그림이 어긋날 수 없다" 그대로다 —
- * 실물 창과 선이 같은 자리에 겹쳐 떠 있으면 무엇이 진짜인지 알 수 없다. 숨어 있는 동안에도
- * 폴링은 창 자리를 계속 옮기므로, 되돌릴 때 그냥 다시 보이기만 하면 손 아래 그대로 선다.
+ * §17-6 (H-12) — 들어왔다: 창을 숨기고 윤곽선이 이어받는다(아직 합치지 않는다 — 버팀이 끝나야). 실물과 선이 겹치면 무엇이 진짜인지 모른다((H-6) ③).
+ * 숨은 동안에도 폴링이 자리를 옮겨 되돌릴 때 보이기만 하면 손 아래에 선다.
  */
 function beginRedockDwell(entry: OverlayEntry, drag: OverlayFollowDrag): void {
   const win = entry.window;
@@ -1726,14 +1447,7 @@ function beginRedockDwell(entry: OverlayEntry, drag: OverlayFollowDrag): void {
   }, REDOCK_DWELL_HOLD_MAX_MS);
 }
 
-/**
- * §17-6 (H-17) — **다 버텼다: 선을 밝힌다.** 아직 합치지 않는다.
- *
- * 종전(H-12)에는 이 순간이 곧 합치는 순간이었다 — 손을 놓지도 않았는데 창이 앱 안으로 들어와,
- * 다시 밖으로 빼면 또 나가고, 한 손짓 안에서 창이 몇 번이고 바뀌었다(사용자 지시 — "마우스
- * 놓기 전까지 가상의 창 그대로 유지해"). 이제 여기서는 선의 색만 바꾼다: 밝은 선 = "지금
- * 놓으면 여기". 나가는 길의 무장(`popOutGhostDecision`)과 같은 어법이라 배울 것이 하나다.
- */
+/** §17-6 (H-17) — 다 버텼다: 선을 밝힌다. 합치지 않는다 — 손을 놓기 전까지 가상의 창 그대로 둔다(밝은 선 = 지금 놓으면 여기, `popOutGhostDecision` 과 같은 어법). */
 function armRedockDwell(entry: OverlayEntry, drag: OverlayFollowDrag): void {
   drag.dwellArmed = true;
   showPopOutGhost({
@@ -1748,12 +1462,7 @@ function armRedockDwell(entry: OverlayEntry, drag: OverlayFollowDrag): void {
   });
 }
 
-/**
- * §17-6 (H-12) — **버티다 다시 나갔다: 선을 걷고 창을 돌려놓는다.**
- *
- * (H-3) 의 "가장자리를 떠나면 즉시 풀린다"와 같은 규율이다 — 앱 위를 스쳐 지나간 손이 창을
- * 합쳐 버리면, 창을 앱 반대편으로 옮기는 평범한 손짓이 통째로 막힌다.
- */
+/** §17-6 (H-12) — 버티다 다시 나갔다: 선을 걷고 창을 돌려놓는다((H-3) 과 같은 규율 — 앱 위를 스친 손이 합치면 창을 옮기는 평범한 손짓이 막힌다). */
 function cancelRedockDwell(entry: OverlayEntry, drag: OverlayFollowDrag): void {
   drag.dwelling = false;
   drag.dwellStartedAt = 0;
@@ -1767,19 +1476,10 @@ function cancelRedockDwell(entry: OverlayEntry, drag: OverlayFollowDrag): void {
 }
 
 /**
- * (H-4) 끌던 독립 창이 **앱 안으로 들어왔다** — 그 자리에서 앱 안 IDE 로 되돌린다.
- *
- * `revealOverlayInMain` + `openIde` 를 탄다 — (H-21) 부터 IDE 를 **열린 채** 앱 안으로 돌아오는 길은
- * 이것 하나다(되돌리기 버튼·칩 드래그는 걷었다; 닫기는 IDE 를 열지 않는다). 다른 점은
- * `resumeDrag` 하나 — 손은 아직 눌려 있으므로, 앱 안에 다시 선 창이 **끌던 드래그를 그대로
- * 이어받아야** 한 손짓이 끊기지 않는다(잡은 지점과 창 크기를 그대로 넘긴다).
+ * (H-4) 끌던 독립 창이 앱 안으로 들어왔다 — 그 자리에서 앱 안 IDE 로 되돌린다.
+ * `revealOverlayInMain` + `openIde` 를 탄다 — IDE 를 열린 채 앱 안으로 돌아오는 길은 이것 하나다((H-21)). 다른 점은 `resumeDrag`(잡은 지점·창 크기) 하나다.
  */
-/**
- * (H-17) 여기까지 왔다는 것은 **손을 뗐다**는 뜻이다 — 이제 선이 창이 된다.
- *
- * 버팀을 다 채운 것만으로는 오지 않는다(그때는 선이 밝아질 뿐이다). 합치는 자리를 하나로
- * 모았으므로, 앱 안에 서는 창은 **끌던 드래그를 이어받지 않는다** — 이어받을 손이 없다.
- */
+/** (H-17) 여기까지 왔다 = 손을 뗐다 — 이제 선이 창이 된다(버팀을 채운 것만으로는 선이 밝아질 뿐). 앱 안에 서는 창은 드래그를 이어받지 않는다 — 이어받을 손이 없다. */
 function redockFollowedOverlay(entry: OverlayEntry, drag: OverlayFollowDrag): void {
   stopOverlayDrag(entry.id);
   const ok = revealOverlayInMain({
@@ -1790,8 +1490,7 @@ function redockFollowedOverlay(entry: OverlayEntry, drag: OverlayFollowDrag): vo
     resumeDrag: {
       grabX: drag.offX,
       grabY: drag.offY,
-      // (H-19) 앱 안에 설 창의 크기는 **장부** 값 — 방금까지 떠 있던 선과 같은 값이고, 창에
-      //   되물은 값(배율 반올림이 섞인다)이 아니다. 종전에는 이 왕복마다 창이 2px 씩 자랐다.
+      // (H-19) 앱 안에 설 창의 크기는 장부 값(방금까지 떠 있던 선과 같다) — 창에 되물은 값은 배율 반올림이 섞여 왕복마다 2px 씩 자란다.
       width: entry.size.width,
       height: entry.size.height,
       // 커서의 **화면 좌표** — 받는 창이 첫 이벤트를 기다리지 않고 곧바로 그 자리에 앉는다
@@ -1812,14 +1511,8 @@ function redockFollowedOverlay(entry: OverlayEntry, drag: OverlayFollowDrag): vo
   // (H-23) ② 메인 창에 걸어 둔 그물도 **여기서** 푼다 — 이 판은 끝났다. 창이 곧 닫히므로
   //   숨은 창에 보내는 쪽은 닿지 않아도 되지만, 메인 창은 살아서 다음 손짓을 받는다.
   sendFollowDragState(entry, false, true);
-  // (H-12) 선은 **여기서 걷지 않는다.** 나가는 길의 (H-6) ⑤("선이 있던 자리에 창이 채워지므로
-  //   선이 창이 된다")를 들어오는 길에도 그대로 지킨다 — 앱 안 창이 그 자리를 이어받아 다 그린
-  //   뒤에 스스로 걷는다(`overlay:ghost-hide`). 주인을 **메인 창**으로 적어 두므로, 방금 닫는 이
-  //   독립 창의 `closed` 는 이 선을 걷지 않는다.
-  // (H-10) 그물은 그대로다 — 이어받은 창이 끝내 말하지 못해도 선은 반드시 걷힌다(고아 선 ❌).
-  //   (H-15) 다만 **길이는 들어오는 길의 것**을 쓴다: 여기서 기다리는 것은 이미 돌고 있는 메인
-  //   창이 칸 하나를 그리는 일이라 한두 프레임이면 끝나는데, 나가는 길의 4초를 그대로 쓰면
-  //   말 못 한 판에서 클릭통과 선이 그만큼 커서에 붙어 있다.
+  // (H-12) 선은 여기서 걷지 않는다 — 앱 안 창이 다 그린 뒤 스스로 걷는다(`overlay:ghost-hide`). 주인이 메인 창이라 이 창의 `closed` 는 선을 안 걷는다.
+  // (H-10)(H-15) 그물은 두되 들어오는 길의 짧은 값 — 4초면 말 못 한 판에서 클릭통과 선이 그만큼 붙어 있다.
   armGhostHandoff(getMainWindow()?.id ?? -1, GHOST_REDOCK_FALLBACK_MS);
   closeOverlayEntry(entry);
 }
@@ -1858,10 +1551,8 @@ export function startOverlayDragByWindowId(
 }
 
 /**
- * 커서 폴링 시작 — 창을 잡은 지점 그대로 매달고, 필요하면 "앱 안으로 들어왔는가"까지 본다.
- *
- * 첫 `insideApp` 은 **지금 실측**으로 채운다. `false` 로 두면 ⓐ 가장자리 버팀으로 꺼낸 창(커서가
- * 아직 앱 안이다)이 태어나자마자 도로 합쳐지고 ⓑ 앱 위에 겹쳐 둔 창을 잡기만 해도 합쳐진다.
+ * 커서 폴링 시작 — 잡은 지점 그대로 매달고, 필요하면 "앱 안으로 들어왔는가"까지 본다. 첫 `insideApp` 은 지금 실측으로 채운다 —
+ * `false` 면 가장자리 버팀으로 꺼낸 창(커서가 아직 앱 안)이 곧바로 합쳐지고, 앱 위에 겹쳐 둔 창을 잡기만 해도 합쳐진다.
  */
 function startOverlayFollow(
   entry: OverlayEntry,
@@ -1928,11 +1619,7 @@ function startOverlayFollow(
 function finishOverlayFollow(entry: OverlayEntry | undefined): boolean {
   if (!entry) return false;
   const drag = overlayDrags.get(entry.id);
-  // (H-17) **선이 떠 있는 채로 손을 뗐다 = 여기가 합치는 자리다.** 이제 앱 안으로 들어가는
-  //   길은 이 한 곳뿐이다(사용자 지시 — "마우스 놓는 순간 그 자리 그 크기 그대로").
-  //   버팀이 아직 안 끝났어도 합친다 — 앱 안 깊숙이 끌어다 놓은 손짓의 뜻은 이미 분명하고,
-  //   여기서 되돌리면 (H-4) 전부터 되던 평범한 손짓이 막힌다. 구간은 **보여 주기 위한 것**
-  //   이지 관문이 아니다(밝은 선은 "다 버텼다"를 말할 뿐, 놓기를 막지 않는다).
+  // (H-17) 선이 뜬 채 손을 뗐다 = 합치는 유일한 자리(놓는 순간 그 자리·그 크기). 버팀이 안 끝났어도 합친다 — 구간은 보여 주기용이지 관문이 아니다.
   if (drag?.dwelling) {
     redockFollowedOverlay(entry, drag);
     return true;
@@ -1958,25 +1645,15 @@ export function endOverlayDragByWindowId(windowId: number): boolean {
 }
 
 /**
- * (H-4) **다른 창이** 끝내는 길 — 앱 안에서 끌어내 만든 창은 손이 메인 창에 있다.
- *
- * 뗌 신호를 두 창이 함께 듣는 까닭: 마우스 캡처가 어디에 있는지는 OS 가 정한다(창이 활성화되며
- * 캡처가 옮겨 가는 경우가 있다). 놓쳤을 때의 대가가 "창이 영영 커서를 따라다닌다"라, 한쪽만
- * 듣게 두지 않는다. 두 번 불려도 안전하다(이미 끝난 판은 조용히 지나간다).
+ * (H-4) 다른 창이 끝내는 길(끌어낸 창은 손이 메인 창에 있다). 캡처는 OS 가 옮기기도 하고 놓치면 창이 영영 커서를 따르므로 두 창이 함께 듣는다.
+ * 두 번 불려도 안전하다.
  */
 export function endOverlayDragByAgentId(agentId: string): boolean {
   return finishOverlayFollow(overlaysByAgentId.get(agentId));
 }
 
-// ─── §17-6 (H-5) — 독립 창의 [최대화/복원] ────────────────────────────────
-//
-// 이 창은 `frame:false + transparent` 라 OS 타이틀바도 시스템 메뉴도 없다(Windows 는 투명 창의
-// 시스템 최대화를 아예 막는다). 그래서 최대화를 **우리가 한다**: 그 창이 걸쳐 있는 화면의
-// 작업영역으로 bounds 를 옮기고, 직전 자리를 적어 뒀다 그대로 되돌린다.
-//
-// `win.maximize()`/`isMaximized()` 를 쓰지 않는 까닭은 §5.4 #14-1 에서 이미 데인 자리이기 때문이다 —
-// 테두리 없는 창에서 그 값은 `unmaximize()` 뒤에도 참으로 남아, 상태를 물어보는 코드가 영영
-// 빠져나오지 못한다. 우리가 옮긴 자리는 우리가 안다.
+// §17-6 (H-5) — 독립 창 [최대화/복원]은 우리가 한다(`frame:false + transparent` 라 시스템 최대화가 없다): 작업영역으로 옮기고 직전 자리로 되돌린다.
+// `maximize()`/`isMaximized()` 는 쓰지 않는다 — 테두리 없는 창은 `unmaximize()` 뒤에도 참이다(§5.4 #14-1).
 
 /** 지금 최대화 상태를 그 창에 알린다 — 렌더러는 **이 값만** 믿는다(짐작 ❌). */
 function sendOverlayMaximizeState(entry: OverlayEntry): void {
@@ -1997,7 +1674,7 @@ function restoreOverlayMaximize(entry: OverlayEntry): Electron.Rectangle | null 
   entry.restoreBounds = null;
   if (win.isDestroyed()) return null;
   if (target) writeOverlayBounds(entry, target);
-  // setBounds 가 층을 푸는 회귀(§17-6 (E) v2.80) — 자리를 옮길 때마다 그 창의 층을 다시 박는다.
+  // setBounds 가 층을 푼다(§17-6 (E)) — 자리를 옮길 때마다 그 창의 층을 다시 박는다.
   keepOverlayOnTop(win, entry.expanded, entry.pinned);
   sendOverlayMaximizeState(entry);
   return target ?? win.getBounds();
@@ -2034,12 +1711,8 @@ export function toggleMaximizeOverlaySelfByWindowId(windowId: number): boolean {
 }
 
 /**
- * §5.5 #17-27 ①-1 — 편집창 판이 열리며 독립 창을 **오른쪽으로** `dx` 만큼 넓힌다.
- *
- * 얼마나는 렌더가 정한다(창 안 배치를 아는 것은 그쪽뿐이다). 여기는 그 창이 걸친 화면의 작업영역
- * 안에 앉히고(오른쪽 끝에 닿으면 왼쪽으로 물러선다 — `growSpanRight`, 앱 안의 떠 있는 창과 같은
- * 규칙), 넓히기 전 자리를 기억할 뿐이다. 버블·최대화 상태에서는 넓힐 창이 아니므로 하지 않는다.
- * 크기는 (H-19) 장부 값에서 출발한다 — 창에 되물은 폭에는 배율 반올림이 섞여 있다.
+ * §5.5 #17-27 ①-1 — 편집창 판이 열리면 독립 창을 오른쪽으로 `dx` 넓힌다(폭은 렌더가 정한다). 작업영역 안에 앉히고(`growSpanRight`, 앱 안 창과 같은 규칙)
+ * 넓히기 전 자리를 기억한다. 버블·최대화에선 안 한다. 크기는 장부 값에서((H-19)).
  */
 export function growOverlayEditorRoomByWindowId(windowId: number, dx: number): boolean {
   const entry = overlaysByWindowId.get(windowId);
@@ -2054,7 +1727,7 @@ export function growOverlayEditorRoomByWindowId(windowId: number, dx: number): b
   const after = landedSpan(grown, dipStepAt(grown.x, cur.y));
   entry.editorGrowth = { before, after };
   writeOverlayBounds(entry, { x: after.x, y: cur.y, width: after.w, height: entry.size.height });
-  // setBounds 가 층을 푸는 회귀(§17-6 (E) v2.80) — 자리를 옮길 때마다 그 창의 층을 다시 세운다.
+  // setBounds 가 층을 푼다(§17-6 (E)) — 자리를 옮길 때마다 그 창의 층을 다시 세운다.
   keepOverlayOnTop(entry.window, entry.expanded, entry.pinned);
   return true;
 }
@@ -2097,9 +1770,8 @@ export function closeOverlayByWindowId(windowId: number): boolean {
 export function expandOverlayByWindowId(windowId: number): boolean {
   const entry = overlaysByWindowId.get(windowId);
   if (!entry || entry.window.isDestroyed()) return false;
-  // §17-6 (H-27) ⑥ **이미 펼친 창은 다시 펴지 않는다.** 종전에는 이 호출이 `collapsedBounds` 를 IDE
-  //   자리로 덮어쓰고 크기를 기본값으로 되돌려 가운데에 다시 앉혔다 — 키워 둔 IDE 가 줄고, 접으면
-  //   버블이 엉뚱한 자리로 갔다(짐을 지고 접힌 창에 들어가는 길에서 main 이 편 뒤 미러가 또 폈다).
+  // §17-6 (H-27) ⑥ 이미 펼친 창은 다시 펴지 않는다 — 다시 펴면 `collapsedBounds` 를 IDE 자리로 덮고 크기를 기본값으로 되돌려,
+  // 키워 둔 IDE 가 줄고 접으면 버블이 엉뚱한 자리로 간다.
   if (entry.expanded) return true;
   const win = entry.window;
   const cur = win.getBounds();
@@ -2119,7 +1791,7 @@ export function expandOverlayByWindowId(windowId: number): boolean {
   try { win.setResizable(true); } catch { /* noop */ }
   try { win.setMinimumSize(MIN_FLOAT_W_OVERLAY, MIN_FLOAT_H_OVERLAY); } catch { /* noop */ }
   writeOverlayBounds(entry, { x: nx, y: ny, width: w, height: h });
-  // §17-6 (G) v2.82 — 펼친 IDE 는 가독성 위해 항상 불투명(접힘 버블의 흐림 설정은 접을 때 복원).
+  // §17-6 (G) — 펼친 IDE 는 가독성 위해 항상 불투명(접힘 버블의 흐림 설정은 접을 때 복원).
   try { win.setOpacity(1); } catch { /* noop */ }
   win.show();
   win.focus();
@@ -2132,12 +1804,8 @@ export function expandOverlayByWindowId(windowId: number): boolean {
 }
 
 /**
- * §17-6 (H-27) — **그 창의 렌더가 IDE 를 열어 스스로 펼 때**(`overlay:expand-self`).
- *
- * 펼치기는 `expandOverlayByWindowId` 그대로 하고, 접힘→펼침으로 실제로 바뀐 판에만 둘을 더한다.
- * ④ 앱이 이 버블을 불러 둔 판(`attentionOnExpandAt` 이 5초 안)이면 펼친 **뒤에** 한 번 더 앞으로
- * 세우고 기척을 보낸다 — 버블에 보낸 기척은 비추지 않고 사라지므로((H-16)) 여기가 대답할 자리다.
- * ⑤ 본체에 `ide-opened` 를 알려, 앱 안에 같은 에이전트의 창이 남아 있으면 짐을 넘기고 물러나게 한다.
+ * §17-6 (H-27) — 렌더가 IDE 를 열어 스스로 펼 때. 실제로 접힘→펼침이 된 판에만: ④ `attentionOnExpandAt` 이 5초 안이면 편 뒤 앞세우기·기척
+ * (버블에 보낸 기척은 사라진다) ⑤ 본체에 `ide-opened` — 앱 안의 같은 에이전트 창은 짐을 넘기고 물러난다.
  */
 export function expandOverlaySelf(windowId: number): boolean {
   const entry = overlaysByWindowId.get(windowId);
@@ -2181,10 +1849,9 @@ export function collapseOverlayByWindowId(windowId: number): boolean {
     const cur = win.getBounds();
     writeOverlayBounds(entry, { x: cur.x, y: cur.y, width: OVERLAY_BUBBLE_W, height: OVERLAY_BUBBLE_H });
   }
-  // §17-6 (G) v2.82 — 버블로 복귀하면 사용자가 고른 불투명도를 복원.
+  // §17-6 (G) — 버블로 복귀하면 사용자가 고른 불투명도를 복원.
   try { win.setOpacity(entry.opacity); } catch { /* noop */ }
-  // (E) 개정 — 버블로 돌아오면 층도 상시-위로 함께 돌아온다(`setResizable(false)` 가 층을
-  //   풀 수 있는 v2.80 의 회귀도 이 한 번으로 같이 덮인다).
+  // (E) — 버블로 돌아오면 층도 상시-위로 돌아온다(`setResizable(false)` 가 층을 풀 수 있는 것도 이 한 번으로 덮인다).
   keepOverlayOnTop(win, entry.expanded, entry.pinned);
   broadcastOverlayList();
   return true;
@@ -2200,12 +1867,8 @@ export function setOverlaysVisible(visible: boolean): void {
 // ─── §17-6 (H-28) — 떼어 낸 IDE 창을 다른 앱 위에 고정 ─────────────────────────
 
 /**
- * 그 창의 **[항상 위에 고정]**을 켜고 끈다(제목줄 토글 — 렌더가 자기 창에만 보낸다).
- *
- * 토글이 아니라 원하는 값을 받는 멱등 set 이다 — 더블클릭으로 두 번 와도 main 과 버튼이 어긋나지
- * 않는다. 여기서는 기억만 바꾸고 층은 `keepOverlayOnTop` 이 다시 세운다(판정은 `overlayTopMostFor`
- * 한 곳). 접힌 창에서 켜 두면 층은 그대로 상시-위이고, 펼치는 순간 고정이 걸린다.
- * 돌려주는 값은 main 이 기억한 값이다 — 버튼은 이 값으로 칠한다.
+ * [항상 위에 고정] set(토글 아님, 멱등 — 두 번 와도 버튼과 안 어긋난다). 기억만 바꾸고 층은 `keepOverlayOnTop`(`overlayTopMostFor`)이 세운다.
+ * 접힌 창은 그대로 상시-위, 펼칠 때 고정이 걸린다. 돌려주는 값으로 버튼을 칠한다.
  */
 export function setOverlayPinnedSelfByWindowId(windowId: number, pinned: boolean): boolean {
   const entry = overlaysByWindowId.get(windowId);
@@ -2220,7 +1883,7 @@ export function isOverlayPinnedByWindowId(windowId: number): boolean {
   return overlaysByWindowId.get(windowId)?.pinned ?? false;
 }
 
-// ─── §17-6 (G) v2.82 — 버블 우클릭 컨텍스트 메뉴 액션 ──────────────────────
+// §17-6 (G) — 버블 우클릭 컨텍스트 메뉴 액션
 
 // "숨기기(이 버블만)" — 이 오버레이 창만 숨긴다(등록은 유지). 복귀는 Header 전역 토글(유일 스위치).
 export function hideOverlaySelfByWindowId(windowId: number): boolean {
@@ -2250,19 +1913,15 @@ export function revealOverlayInMain(payload: {
   projectId: string;
   openIde?: boolean;
   /**
-   * §17-6 (H-9) — **앱 안에 열려 있는 창은 하나도 건드리지 마라**(닫기가 타는 길).
-   *
-   * 종전의 점프(`openIde` 없음)는 "직전 세션 점프로 열린 IDE 가 캔버스를 가리지 않게" 앞 창을
-   * 하나 닫고 갔다. 그 규율은 우클릭 점프의 것이고, **닫기**에는 맞지 않는다 — 밖에 있던 창을
-   * 닫았을 뿐인데 앱 안에서 보고 있던 남의 창이 함께 닫힌다.
+   * §17-6 (H-9) — 앱 안에 열린 창은 하나도 건드리지 않는다(닫기가 타는 길). 앞 창을 닫는 것은 우클릭 점프의 규율이다 —
+   * 닫기에 쓰면 밖의 창을 닫았을 뿐인데 앱 안의 남의 창이 함께 닫힌다.
    */
   keepPanes?: boolean;
   /** §17-6 (H) — 그 창이 들고 오던 것(열어 둔 편집 탭·보던 뷰·붙어 있던 변). 메인 창이 꺼내 쓴다. */
   handoff?: unknown;
   /**
-   * §17-6 (H-4) — **끌던 도중에** 돌아온 창(손이 아직 눌려 있다). 앱 안에 다시 선 창이 그
-   * 드래그를 그대로 이어받게 잡은 지점·크기를 넘긴다 — 이어받지 않으면 창은 돌아왔는데 손은
-   * 눌린 채라, 한 번 놓았다 다시 잡아야 움직인다.
+   * §17-6 (H-4) — 끌던 도중에 돌아온 창(손이 아직 눌려 있다). 앱 안 창이 드래그를 이어받게 잡은 지점·크기를 넘긴다 —
+   * 안 그러면 한 번 놓았다 다시 잡아야 움직인다.
    */
   resumeDrag?: {
     grabX: number;
@@ -2300,11 +1959,8 @@ export function revealOverlayInMain(payload: {
   return true;
 }
 
-// ─── §17-6 (G) v2.87 — 우클릭 메뉴 = 커서 위치의 독립 팝업 창 ──────────────────
-// 280×320 버블 창 안에 HTML 로 그리던 메뉴는 ①커서 아래에 못 열리고 ②창보다 큰 메뉴 하단이
-// 창 밖으로 밀려 클릭이 안 됐다. 메뉴를 전용 투명 팝업 BrowserWindow 로 분리해 화면 어디든 커서
-// 아래에 온전히 띄운다. 메뉴 창은 자기 액션의 **대상(버블) 창**을 모르므로 main 이 targetWindowId 를
-// 기억해 라우팅한다(open-ide 만 IDE 렌더가 필요해 버블 렌더러로 push).
+// §17-6 (G) — 우클릭 메뉴는 커서 위치의 투명 팝업 창이다(버블 창 안 HTML 메뉴는 커서 아래에 못 열리고 넘친 하단이 잘린다).
+// 메뉴 창은 대상 창을 모르므로 main 이 targetWindowId 로 라우팅한다(open-ide 만 버블 렌더러로 push).
 const OVERLAY_MENU_INIT_W = 230;
 const OVERLAY_MENU_INIT_H = 300;
 
@@ -2357,7 +2013,6 @@ export function openOverlayMenuByWindowId(windowId: number): boolean {
       nodeIntegration: false,
     },
   });
-  // §보안 감사 2026-09-09 — 이 창들에는 항해 가드가 한 곳도 없었다(본체 창에만 있었다).
   hardenWindow(win);
   keepOverlayMenuOnTop(win);
   overlayMenu = { window: win, targetWindowId: windowId, anchor: { x: cursor.x, y: cursor.y }, shown: false };
@@ -2462,15 +2117,8 @@ export function closeAllOverlays(): void {
   paneHandoffs.clear();
 }
 
-// ─── §5.12 (v4.43, v4.44 개정) Command Center — 지휘통제실 창 ──────────────
-//
-// 프로젝트 root 버블 더블클릭으로 뜨는 전용 OS 창. **앱 전체에 1창**(v4.44) — 어느 프로젝트의
-// root 를 눌러도 같은 창을 focus 하고, 그 창에 "이 프로젝트를 보여라"(`show-project`)를 민다.
-// v4.43 의 projectId 1:1 다중 창은 폐기했다: 사용자가 프로젝트를 옮겨 다니면 창만 쌓이고 정작
-// 지금 보는 프로젝트의 통제실이 뒤에 묻힌다.
-//
-// 별창과 달리 redock 이 없다(탭이 아니라 도구 창). 최소화/최대화/닫기는 별창의 기존
-// `vibisual:window:*-self` 채널을 그대로 쓰므로, 아래 entry 를 byWindowId 조회에 함께 물린다.
+// §5.12 Command Center — 지휘통제실 창. 앱 전체에 1창 — 어느 root 를 눌러도 같은 창을 focus 하고 `show-project` 를 민다(프로젝트마다면 창만 쌓인다).
+// redock 은 없다. `vibisual:window:*-self` 를 쓰므로 byWindowId 조회에 함께 물린다.
 
 const CC_DEFAULT_W = 1180;
 const CC_DEFAULT_H = 760;
@@ -2530,7 +2178,6 @@ export function openCommandCenter(opts: {
       nodeIntegration: false,
     },
   });
-  // §보안 감사 2026-09-09 — 이 창들에는 항해 가드가 한 곳도 없었다(본체 창에만 있었다).
   hardenWindow(win);
   // §4 앱 테마 — 테마를 바꾸면 이 창의 바탕도 다시 칠한다.
   trackThemedWindow(win);
@@ -2596,11 +2243,8 @@ export function closeAllCommandCenters(): void {
   commandCenter = null;
 }
 
-// ─── §5.13 (O) v4.48 내부 앱 창 (앱 무관) ───
-//
-// 앱마다 `openXxxWindow` 를 만들지 않는다. 창 규격은 앱이 선언하고 여기서는 그대로 연다.
-// 앱 하나당 **앱 전체에 창 하나**이며, 다시 열면 새 창을 쌓지 않고 그 창에 대상을 밀어 넣는다
-// (편집 창은 오래 띄워 두는 것이라 창이 쌓이면 어느 것이 지금 것인지 알 수 없게 된다).
+// §5.13 (O) 내부 앱 창(앱 무관) — 창 규격은 앱이 선언하고 여기서는 그대로 연다(앱마다 `openXxxWindow` ❌).
+// 앱 하나당 창 하나 — 다시 열면 새 창을 쌓지 않고 그 창에 대상을 밀어 넣는다(쌓이면 어느 것이 지금 것인지 모른다).
 
 export interface AppWindowSpec {
   title: string;
@@ -2650,16 +2294,10 @@ export function listAppWindows(): AppWindowListItem[] {
 }
 
 /**
- * §5.13 (S-11) — 밖에 이미 떠 있는 앱 창을 **앞으로 세운다**(본체가 같은 문서를 다시 열었을 때).
- *
- * §5.5 #17-6 (H-13)(H-16) 의 IDE 창과 같은 규율이다 — 같은 문서가 두 창에 뜨면 어느 쪽이 진짜인지 알 수 없으니 새로
- * 열지 않고, 다른 프로그램 뒤에 가려져 있어도 앞으로 세운 뒤 그 창이 한 번 대답한다(테두리 기척 — 이미 보이던 창이면
- * 앞으로 오는 것만으로는 화면이 그대로라 누른 사람은 안 먹은 줄 안다). 대상은 다시 밀어 넣지 않는다 — 다시 쓰는 갈래
- * (`openAppWindow`)는 대상 전환 확인을 거쳐 편집기를 새로 세울 수 있어, 보던 그 문서를 부르는 손짓에는 맞지 않는다.
- * 밟을 순서는 IDE 창과 같은 `overlayRaiseSteps` 한 곳이 정한다(세 OS — mac 은 앱 활성화가 따로다).
- *
- * @param windowId 본체가 본 목록의 그 창 — 그 사이 닫히고 다른 문서로 새로 선 창을 대신 세우지 않는다.
- * @returns 세웠으면 true. 그 창이 없으면 false(본체는 종전대로 앱 안에 연다).
+ * §5.13 (S-11) — 밖에 이미 떠 있는 앱 창을 앞으로 세운다(IDE 창 (H-13)(H-16) 과 같은 규율 — 같은 문서를 두 창에 띄우지 않고, 세운 뒤 테두리 기척).
+ * 대상은 다시 밀어 넣지 않는다 — `openAppWindow` 는 대상 전환 확인을 거쳐 편집기를 새로 세울 수 있다. 순서는 `overlayRaiseSteps`.
+ * @param windowId 본체가 본 그 창 — 그 사이 다른 문서로 새로 선 창을 대신 세우지 않는다.
+ * @returns 세웠으면 true, 없으면 false(본체는 앱 안에 연다).
  */
 export async function focusAppWindow(appId: string, windowId?: number): Promise<boolean> {
   const entry = appWindows.get(appId);
@@ -2699,10 +2337,8 @@ export async function openAppWindow(appId: string, spec: AppWindowSpec, options?
   if (options?.params?.['_windowTitle']) appHash.set('_windowTitle', options.params['_windowTitle']);
   const hash = appHash.toString();
   const placement = options?.placement;
-  // §5.13 (S-10) 앱 안 창을 끌어내 놓은 판 — 손을 뗀 자리에 **멈춰 선 선(가상 창)**의 자리·크기 그대로
-  //   선다(§5.5 #17-6 (H-17) ④ "놓은 그 자리 그 크기 그대로"와 같은 규율). 렌더러가 보낸 좌표가 아니라
-  //   선의 경계를 읽는다 — 배율이 다른 모니터에서 렌더러 좌표는 엉뚱한 화면을 가리킨다((H) 와 같은 이유).
-  //   선이 없으면(못 띄운 환경) 종전대로 placement 의 x/y 를 쓴다.
+  // §5.13 (S-10) 앱 안 창을 끌어내 놓은 판 — 멈춰 선 선(가상 창)의 자리·크기 그대로 선다((H-17) ④ 와 같은 규율).
+  // 렌더러 좌표가 아니라 선의 경계를 읽는다(배율이 다른 모니터에서 어긋난다). 선이 없으면 placement 의 x/y.
   const ghostBounds = placement?.fromGhost === true ? popOutGhostBounds() : null;
   const existing = appWindows.get(appId);
   if (existing && !existing.window.isDestroyed()) {
@@ -2755,7 +2391,6 @@ export async function openAppWindow(appId: string, spec: AppWindowSpec, options?
       nodeIntegration: false,
     },
   });
-  // §보안 감사 2026-09-09 — 이 창들에는 항해 가드가 한 곳도 없었다(본체 창에만 있었다).
   hardenWindow(win);
   // §4 앱 테마 — 테마를 바꾸면 이 창의 바탕도 다시 칠한다.
   trackThemedWindow(win);

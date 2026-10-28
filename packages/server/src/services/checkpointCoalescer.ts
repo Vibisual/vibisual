@@ -1,31 +1,9 @@
 /**
- * checkpointCoalescer.ts — §9 v3.45 "체크포인트 저장 배치" 의 창(window) 관리 단독 소유.
- *
- * **무엇을 하나**: hook-event 도구 이벤트 경로는 모델의 도구 사용 빈도로 도착하는 유일한 폭주
- * 경로다. 그 경로의 `saveCheckpoint()` 를 부하 적응형 trailing 창으로 묶어(기본 500ms, 직전 실측
- * 저장 비용 × 배수, 상한 5s) 메인 스레드 포화를 막는다. §3.2.1 #4(이벤트 동기 즉시 저장)는
- * **나머지 모든 호출 지점에서 그대로**이며, 묶이는 것은 이 경로 하나뿐이다.
- *
- * **왜 이 파일로 나왔나 — 종료 flush 가 검증되지 않는 자리에 있었다.**
- * 창이 열린 채 앱이 닫히면 그 안의 미저장분은 종료 경로가 마무리해야 한다. 종전에는 그 마무리가
- * `runServer()` 안의 지역 클로저 + `process.on('exit')` 한 곳에만 있었는데, **Electron 의 모든
- * 종료 경로는 `app.exit(0)` 으로 끝나고 그때 Node 의 `exit` 이벤트는 돌지 않을 수 있다**
- * (`app.exit()` 은 "즉시 종료" 라 정상 teardown 을 거치지 않는다). 즉 SSOT §9 가 "정상 종료 시
- * pending 창은 `process 'exit'` 동기 flush 로 보장" 이라고 적어 둔 그 보장이 실제로는 성립하지
- * 않았고, 정상 종료·업데이트 설치마다 마지막 창 하나(0.5~5초) 분량이 조용히 사라질 수 있었다.
- *
- * 이제 창은 이 클래스가 단독으로 들고, 종료 경로는 **`flushPendingCheckpointSave()` 를 명시적으로
- * 부른다**(desktop main 의 `before-quit`). `process.on('exit')` 는 그대로 남지만 **최후 그물**로
- * 격하된다 — 둘 다 같은 `flushSync()` 를 지나므로 두 번 불려도 두 번 저장되지 않는다.
- *
- * **정확성 규약**
- *  1. **종료 flush 는 변경 판정을 타지 않는다** — `dirtyOnly` 없이 전 프로젝트 전량(내구성 우선).
- *  2. **예약이 없으면 저장하지 않는다** — 나머지 호출 지점이 이미 즉시 저장했으므로 디스크는 최신이다.
- *     여기서 매 종료마다 전량 저장을 걸면 탭이 많을수록 종료가 느려지고, 업데이트 설치기가 포기한다.
- *  3. **전 구간 동기** — `process 'exit'` 는 동기 작업만 허용하고, `before-quit` 도 이 호출 뒤에
- *     곧바로 디스크 큐를 내리므로 비동기가 섞이면 순서가 무너진다.
- *  4. **저장 실패는 삼킨다** — 종료 중 예외로 나머지 정리(디스크 큐 flush)가 건너뛰어지면 안 된다.
- *     실패분은 다음 부팅의 §3.2.1-4 백업 복구에 위임한다.
+ * checkpointCoalescer.ts — §9 체크포인트 저장 배치의 창(window) 단독 소유.
+ * hook-event 도구 이벤트 경로(모델 도구 사용 빈도로 오는 유일한 폭주 경로)의 `saveCheckpoint()` 만 부하 적응형 trailing 창으로 묶는다(기본 500ms, 직전 실측 저장 비용 × 배수, 상한 5s). 나머지 호출 지점은 §3.2.1 #4 대로 즉시 저장.
+ * 종료 경로는 `flushPendingCheckpointSave()` 를 명시적으로 부른다(desktop main `before-quit`) — Electron 종료는 `app.exit(0)` 이라 Node `exit` 이벤트가 안 돌 수 있어, 그것만 믿으면 마지막 창(0.5~5초)이 사라진다. `process.on('exit')` 는 최후 그물이고 둘 다 `flushSync()` 를 지나 중복 저장되지 않는다.
+ * 규약 ① 종료 flush 는 `dirtyOnly` 없이 전 프로젝트 전량(내구성 우선). ② 예약이 없으면 저장하지 않는다 — 디스크가 이미 최신이고, 매번 전량이면 탭이 많을수록 종료가 느려져 업데이트 설치기가 포기한다.
+ * ③ 전 구간 동기 — `process 'exit'` 는 동기만 허용하고 `before-quit` 는 곧바로 디스크 큐를 내린다. ④ 저장 실패는 삼킨다(나머지 정리를 건너뛰면 안 된다) — 실패분은 다음 부팅 §3.2.1-4 백업 복구가 맡는다.
  */
 
 /** 저장 창구 — `runServer()` 의 `saveCheckpoint` 시그니처와 같다. */
@@ -92,9 +70,7 @@ export class CheckpointCoalescer {
 
   /**
    * **종료 경로 전용** — 예약된 창을 지금 동기로 마무리한다.
-   *
-   * @returns 실제로 저장했으면 `true`, 예약이 없어 할 일이 없었으면 `false`.
-   *   (두 번째 호출은 항상 `false` — `before-quit` 와 `process 'exit'` 가 겹쳐도 중복 저장 ❌)
+   * @returns 저장했으면 `true`, 예약이 없었으면 `false`(두 번째 호출은 항상 `false` — `before-quit`·`process 'exit'` 가 겹쳐도 중복 저장 ❌).
    */
   flushSync(): boolean {
     if (this.timer === null) return false;
@@ -118,10 +94,7 @@ export class CheckpointCoalescer {
   }
 }
 
-// ─── 종료 경로가 부를 수 있는 단일 창구 ───
-//
-// desktop main 은 `runServer()` 안의 지역 변수에 닿을 수 없다. `enableAsyncDiskWrites`/
-// `flushPendingDiskWritesSync` 가 모듈 단위 싱글턴으로 같은 문제를 푼 것과 같은 형태다.
+// 종료 경로가 부를 수 있는 단일 창구 — desktop main 은 `runServer()` 지역 변수에 닿을 수 없어 모듈 싱글턴으로 둔다(`enableAsyncDiskWrites`/`flushPendingDiskWritesSync` 와 같은 형태).
 
 let active: CheckpointCoalescer | null = null;
 

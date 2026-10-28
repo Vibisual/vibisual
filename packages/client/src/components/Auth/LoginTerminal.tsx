@@ -8,14 +8,8 @@ import { getTerminalTransport } from '../../transport/terminalTransport.js';
 import { useLoginXtermTheme } from '../../theme/xtermTheme.js';
 
 /**
- * §4 v4.82 — 로그인 팝업의 터미널 폴백.
- *
- * `LoginWindow` 가 이미 띄운 로그인 PTY 에 **재부착만** 한다(`createTerminal` 은 살아있는 termId 면
- * 재스폰 대신 sink 갱신 + scrollback replay — §4 v2.63). 우리가 못 알아본 프롬프트(SSO 선택 등)가
- * 떠도 여기서 직접 응답할 수 있어, 어떤 경우에도 앱 밖 cmd 창으로 나갈 일이 없다.
- *
- * IDE 터미널(`IDETerminalView`)과 달리 카드 스니퍼·검색·폰트 조절은 없다 — 로그인 한 판에 필요한
- * 최소 기능만.
+ * §4 — 로그인 팝업의 터미널 폴백. `LoginWindow` 의 로그인 PTY 에 재부착만 한다(살아 있는 termId 면 재스폰 대신 sink 갱신 + scrollback replay)
+ * — 못 알아본 프롬프트(SSO 선택 등)에도 앱 안에서 응답한다. 로그인에 필요한 최소 기능만.
  */
 
 // §4 앱 테마 — 색표는 고른 테마에서 온다(`useLoginXtermTheme` — 창 바탕 · gray-200 · violet). 종전의 고정 값
@@ -23,11 +17,7 @@ import { useLoginXtermTheme } from '../../theme/xtermTheme.js';
 
 interface LoginTerminalProps {
   termId: string;
-  /**
-   * 로그인 명령. 재부착이면 쓰이지 않지만, PTY 가 이미 죽은 뒤 마운트되면 이 값이 있어야
-   * 셸에 **로그인 명령이 채워진 채** 새로 뜬다(없으면 실행 런처 갈래를 못 타 claude 세션이 뜬다).
-   * 자동 실행은 하지 않는다 — 그 상황에선 사용자가 Enter 로 직접 시작하는 편이 안전하다.
-   */
+  /** 로그인 명령 — PTY 가 이미 죽은 뒤 마운트되면 이 값이 있어야 로그인 명령이 채워진 셸이 뜬다(없으면 claude 세션이 뜬다). 자동 실행은 안 한다 — Enter 는 사용자가. */
   command?: string;
   env?: Record<string, string>;
 }

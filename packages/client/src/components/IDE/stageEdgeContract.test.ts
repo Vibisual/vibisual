@@ -1,19 +1,8 @@
 import { describe, it, expect } from 'vitest';
 
 /**
- * §5.5 #17-17 ⑱ — **무대의 흐름 선 규약 집행.**
- *
- * 선에 아무 값도 주지 않으면 React Flow 기본값이 나가는데, 그 기본값은 두 가지가 잘못돼 있다.
- *  ① 굵기 1px 이 **흐름 좌표**라 줌 배율이 곱해진다 — `fitView` 로 배율이 내려간 무대에서
- *     선이 1px 미만이 되어 사실상 사라진다(사용자 지적 "확대 축소 때문인지 선들이 잘 안 보여").
- *  ② 선 둘레에 **보이지 않는 20px 띠**(`interactionWidth` 기본값)가 깔려 포인터를 먼저 먹는다 —
- *     선 근처 우클릭이 노드 메뉴를 못 열고 조용히 삼켜진다.
- *
- * 둘 다 "고쳐 놓으면 눈에 안 보이는" 종류라, 다음 사람이 스타일 객체를 정리하다 지우면 아무도
- * 모른 채 회귀한다. 그래서 소스로 고정한다.
- *
- * `node:fs` 를 쓰지 않는다 — 클라이언트 tsconfig 에 Node 타입이 없다
- * (`canvasControlsContract.test.ts` 와 같은 이유·같은 방식).
+ * §5.5 #17-17 ⑱ — 무대 흐름 선이 React Flow 기본값을 쓰지 않는가: 굵기 1px 흐름 좌표는 `fitView` 축소에서 사라지고,
+ * `interactionWidth` 20px 띠는 선 근처 우클릭을 먹는다. `node:fs` 대신 glob(클라 tsconfig 에 Node 타입 없음).
  */
 
 const sources = import.meta.glob('./IDEGoalMapView.tsx', { query: '?raw', import: 'default', eager: true });

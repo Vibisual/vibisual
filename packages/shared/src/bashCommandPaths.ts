@@ -1,23 +1,7 @@
 /**
- * bashCommandPaths.ts — §2.1 #3 · §5.1 #1-1 · 셸 명령에서 경로를 뽑는 **공용 셸 파서**.
- *
- * 여기 사는 것은 세 가지다.
- *  1. **셸 토크나이저·세그먼트 걷기** — 읽기(`services/bashReadPaths.ts`)·쓰기(아래)·훑기 자리·경로 자물쇠·검증
- *     정책이 **한 벌을 나눠 쓴다.** 두 벌이 되면 한쪽만 고쳐져 어긋난다(읽기는 안 버리는데 쓰기는 버리는 명령이 생긴다).
- *  2. **셸 껍데기 벗기기**(§5.1 #1-1 (B)) — `bash -lc '…'`·`pwsh -Command '…'`·`cmd /c …` 안의 스크립트를 같은 규칙으로
- *     다시 본다. 코덱스는 셸 명령을 **늘** 이 모양으로 낸다(Windows `"…pwsh.exe" -Command '…'`, POSIX `bash -lc '…'`).
- *     Codex 자신도 같은 일을 한다(`parse_command` — 껍데기를 벗겨 읽기·검색을 판정한다).
- *  3. **쓰기 경로 추출기** — `>` 리다이렉트·heredoc·`tee`·`sed -i`·`cp`/`mv` 목적지·`touch`·PowerShell 쓰기 cmdlet 등.
- *
- * 읽기 추출기가 서버에 사는데 이쪽이 shared 인 이유: **감사 원장(§5.22)의 `target` 이 같은 답을
- * 봐야 한다.** 종전 Bash 줄은 명령만 있고 "어느 파일인지"가 비어 있었는데, 그 칸을 채우는
- * `summarizeToolCall` 은 shared 순수 함수라 서버 모듈을 부를 수 없다.
- *
- * 판정 원칙은 읽기와 같다 — **모르는 것을 쓰기로 넘겨짚지 않는다.** 화이트리스트 밖은 버린다.
- * 쓰기 오탐의 대가는 읽기보다 크다(가짜 diff·워크트리 이주까지 번진다).
- *
- * 순수 함수 모듈(디스크 접근 ❌ · `process.platform` 읽기 ❌ — 플랫폼은 **인자로 받는다**)이라
- * 개발기 한 대에서 세 OS 를 전부 단위 테스트할 수 있다(멀티플랫폼 1축).
+ * §2.1 #3 · §5.1 #1-1 — 셸 명령 경로 추출의 공용 파서: 토크나이저·세그먼트 걷기(읽기·쓰기·훑기·경로 자물쇠·검증 정책이 한 벌을 나눠 쓴다), 셸 껍데기 벗기기(§5.1 #1-1 (B)), 쓰기 추출기.
+ * shared 인 이유 — 감사 원장(§5.22) `target` 을 채우는 `summarizeToolCall` 이 shared 다. 모르는 것을 쓰기로 넘겨짚지 않는다(쓰기 오탐은 가짜 diff·워크트리 이주까지 번진다).
+ * 디스크·`process.platform` 을 읽지 않는다(플랫폼은 인자).
  */
 import { pathKey, type PlatformName } from './pathCase.js';
 
@@ -36,12 +20,8 @@ export const FALLBACK_PLATFORM: PlatformName = 'win32';
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 셸 명령을 `tool_input.command` 로 받는 Claude Code 도구.
- *
- * 공식 문서(Tools reference · PowerShell tool): Windows 에서는 `PowerShell` 이 기본으로 켜지고 **주 셸**이 되며,
- * "셸 명령을 보는 훅은 `Bash|PowerShell` 을 함께 잡으라 — `Bash` 만으로는 부족하다"고 적혀 있다. 종전 그래프는 `Bash`
- * 하나만 봐서 PowerShell 로 내린 명령은 감사 원장에만 남고 버블·이력·보험 사본이 0 이었다(2026-10-22 실측).
- * 코덱스·로컬 모델의 셸 명령은 방출기가 `Bash` 로 싣는다.
+ * 셸 명령을 `tool_input.command` 로 받는 도구. Windows 에서는 `PowerShell` 이 주 셸이라(공식 문서) `Bash` 만 보면 버블·이력·보험 사본이 0 이다(2026-10-22 실측).
+ * 코덱스·로컬 모델의 셸 명령은 `Bash` 로 실린다.
  */
 export const SHELL_TOOL_NAMES: readonly string[] = ['Bash', 'PowerShell'];
 
@@ -62,27 +42,13 @@ export function shellDialectOfTool(name: string | null | undefined): ShellDialec
 // 토크나이저 — 읽기·쓰기 공용
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * 세그먼트를 가르는 연산자. 자체 토큰으로 남는다.
- *
- * 단독 `&` 도 가른다(§5.1 #1-1 (E)) — bash 의 뒤로 돌리기(`npm run dev & cat log.txt`), cmd 의 명령 구분,
- * PowerShell 의 호출 연산자(`& "C:\x.exe" args` — 다음 낱말이 실행 대상) 모두 앞뒤가 다른 명령이다. 종전에는
- * 앞 명령의 인자로 붙어 뒤의 읽기가 통째로 사라졌다(검증 정책만 따로 `&`→`;` 로 바꿔 보고 있었다).
- */
+/** 세그먼트 연산자. 단독 `&` 도 가른다(§5.1 #1-1 (E) — bash 뒤로 돌리기·cmd 구분·PowerShell 호출 연산자) — 안 가르면 뒤 명령이 앞 명령 인자로 붙어 읽기가 사라진다. */
 export const SHELL_SEGMENT_SEPARATORS: ReadonlySet<string> = new Set(['&&', '||', ';', '|', '&']);
 
 /**
- * 따옴표를 존중하며 토큰으로 자른다. 연산자(`&&` `||` `;` `|` `&` 개행)는 자체 토큰으로 남긴다.
- *
- * `>` 는 **리다이렉트 토큰의 머리**로 남긴다 — `>out.txt` 처럼 붙어 오기도 하고 `> out.txt` 처럼 떨어져 오기도
- * 해서, 쓰기 추출기가 두 모양을 같이 본다. 낱말 **중간**의 `>` 는 거기서 끊는다(`echo hi>out.txt` = `echo hi` +
- * `>out.txt` — 셸이 그렇게 읽는다). 앞이 숫자뿐(`2>err`)·`&`(`&>`)·`*`(PowerShell `*>`)이면 fd 표기라 붙여 둔다.
- *
- * 낱말이 시작되는 자리의 `#` 부터 줄 끝까지는 주석이다(POSIX·PowerShell — cmd 에는 없다). 주석 속 경로를
- * 명령으로 읽지 않는다.
- *
- * @param dialect PowerShell 은 작은따옴표 안의 `''`(따옴표 글자) · here-string(`@'…'@`) · 블록 주석(`<#…#>`)을 안다.
- *   cmd 는 작은따옴표가 글자이고 `;` 가 구분자가 아니다. 기본은 POSIX(종전 그대로).
+ * 따옴표를 존중해 토큰으로 자른다(연산자·개행은 자체 토큰). `>` 는 리다이렉트 머리로 남기고 낱말 중간에서는 끊는다(`echo hi>out.txt`).
+ * `2>`·`&>`·`*>` 는 fd 표기라 붙여 둔다. 낱말 시작의 `#` 부터 줄 끝은 주석(POSIX·PowerShell, cmd 는 아님).
+ * @param dialect PowerShell 은 `''`·here-string(`@'…'@`)·`<#…#>` 를 안다. cmd 는 작은따옴표가 글자, `;` 가 구분자가 아니다. 기본 POSIX.
  */
 export function tokenizeShellCommand(command: string, dialect: ShellDialect = 'posix'): string[] {
   const tokens: string[] = [];
@@ -125,8 +91,7 @@ export function tokenizeShellCommand(command: string, dialect: ShellDialect = 'p
       i = end + 1;
       continue;
     }
-    // 줄 잇기 — POSIX `\`·PowerShell 백틱·cmd `^` 바로 뒤의 줄바꿈은 같은 명령이다(긴 명령을 여러 줄로 쓴 꼴).
-    //   종전에는 그 줄바꿈이 구분자가 되어 `cp a \` ↵ `b` 가 두 명령으로 갈렸다.
+    // 줄 잇기 — POSIX `\`·PowerShell 백틱·cmd `^` 바로 뒤 줄바꿈은 같은 명령이다(구분자로 보면 `cp a \` ↵ `b` 가 두 명령으로 갈린다).
     const escapeChar = dialect === 'powershell' ? '`' : dialect === 'cmd' ? '^' : '\\';
     if (ch === escapeChar && (next === '\n' || (next === '\r' && command[i + 2] === '\n'))) {
       i += next === '\r' ? 2 : 1;
@@ -163,10 +128,7 @@ export function tokenizeShellCommand(command: string, dialect: ShellDialect = 'p
       tokens.push('&');
       continue;
     }
-    // `>|` 는 파이프가 아니라 **noclobber 무시 리다이렉트**다(`set -o noclobber` 아래의 덮어쓰기).
-    //   여기서 끊으면 `>` 만 남아 대상이 사라지고(쓴 파일 기록 0건) 그 파일 이름은 다음 세그먼트의
-    //   **명령**으로 둔갑한다 — `redirectTargets` 의 `target.startsWith('|')` 갈래가 영영 안 돌던
-    //   이유가 이것이다(그 갈래는 이 토큰이 통째로 와야 성립한다).
+    // `>|` 는 noclobber 무시 리다이렉트다 — 여기서 끊으면 대상이 사라지고 파일 이름이 다음 명령이 된다(`redirectTargets` 의 `'|'` 갈래가 이 토큰을 기대한다).
     if (ch === '|' && /^(\d*|&|\*)>>?$/.test(cur)) { cur += ch; hasContent = true; continue; }
     if (ch === '|' && next === '|') { push(); tokens.push('||'); i++; continue; }
     if (ch === '|') { push(); tokens.push('|'); continue; }
@@ -194,13 +156,7 @@ export function splitShellSegments(tokens: readonly string[]): string[][] {
 /** heredoc 시작(`<<EOF` · `<<-EOF`). 토크나이저가 따옴표를 벗기므로 `<<'EOF'` 도 이 모양으로 온다. */
 const HEREDOC_PATTERN = /^<<-?(.+)$/;
 
-/**
- * 이 세그먼트가 heredoc 을 열었으면 그 **종료 표식**을, 아니면 `null`.
- *
- * 두 모양을 다 본다. `<<EOF` 는 한 토큰이고, `<< EOF` 는 토크나이저가 공백에서 끊어 구분자가
- * **다음 토큰**으로 온다. 떨어져 온 모양을 먼저 보는 것이 중요하다 — `<<-` 는 `HEREDOC_PATTERN`
- * 에도 걸리는데 그때 구분자를 `-` 로 잘못 읽어, 오지 않는 표식을 기다리며 명령 끝까지 삼킨다.
- */
+/** heredoc 종료 표식(없으면 `null`). `<< EOF` 처럼 떨어진 모양을 먼저 본다 — `<<-` 가 `HEREDOC_PATTERN` 에 걸려 `-` 를 표식으로 읽으면 명령 끝까지 삼킨다. */
 export function readHeredocDelimiter(segment: readonly string[]): string | null {
   for (let i = 0; i < segment.length; i++) {
     const tok = segment[i]!;
@@ -216,15 +172,8 @@ export function readHeredocDelimiter(segment: readonly string[]): string | null 
 }
 
 /**
- * heredoc **본문** 세그먼트를 걷어 낸다 — 읽기·쓰기가 같은 답을 보게 하는 한 곳.
- *
- * 본문은 셸이 명령으로 실행하지 않는 **글**이다. 그것을 세그먼트로 파싱하면 남의 글이 우리 판정이
- * 된다: `cat > doc.md <<'EOF'` 안에 예시로 적힌 `sed -n '1,5p' secrets/key.pem` 한 줄이
- * "에이전트가 그 파일을 읽었다"는 화살표를 세운다(실측 — 쓰기 축은 막고 있었고 읽기 축은 뚫려
- * 있었다. 토크나이저를 한 벌로 나눠 쓰면서 이 판정만 한쪽에 있었던 것이 원인이다).
- *
- * **여는 세그먼트는 남긴다** — `cat > f <<'EOF'` 의 `f` 는 거기 있고 그것은 진짜 쓰기다.
- * 종료 표식만 홀로 선 세그먼트에서 본문이 끝난다(표식을 못 만나면 명령 끝까지가 본문이다).
+ * heredoc 본문을 걷는다(읽기·쓰기가 같은 답을 보는 한 곳) — 본문의 예시 `sed -n '1,5p' secrets/key.pem` 이 읽기 화살표를 세웠다(실측).
+ * 여는 세그먼트는 남긴다(`cat > f <<'EOF'` 의 `f` 는 진짜 쓰기). 표식만 선 세그먼트에서 끝나고, 못 만나면 명령 끝까지다.
  */
 export function stripHeredocBodies(segments: readonly (readonly string[])[]): string[][] {
   const out: string[][] = [];
@@ -312,8 +261,8 @@ function collapseDotSegments(p: string): string {
 }
 
 /**
- * 기준 폴더에 경로를 잇는다 — 절대경로이거나 기준이 없으면 **원문 그대로**(종전 규약: 정규화·소문자화 ❌, 호출부의
- * `normalize()` 한 곳에서 처리). 이었으면 `.`·`..` 를 글자로 접는다(그대로 두면 노드 열쇠에 `..` 가 남는다).
+ * 기준 폴더에 경로를 잇는다 — 절대경로거나 기준이 없으면 원문 그대로(정규화·소문자화는 호출부 `normalize()` 한 곳).
+ * 이었으면 `.`·`..` 를 글자로 접는다(남기면 노드 열쇠에 `..` 가 남는다).
  */
 export function joinShellPath(base: string | null, raw: string): string {
   if (isAbsoluteShellPath(raw) || !base) return raw;
@@ -462,15 +411,10 @@ export interface ShellSegmentContext {
 }
 
 /**
- * 셸 명령을 세그먼트 단위로 걷는다 — 읽기·쓰기·훑기 자리가 **같은 걷기**를 쓴다(§2.1 #3 · §5.1 #1-1).
- *
- * - 세그먼트(`&&` `||` `;` `|` `&` 개행)로 자르고 heredoc 본문은 걷어 낸다(셸이 실행하지 않는 글이다).
- * - `cd`·`Set-Location` 은 이후 세그먼트의 기준 폴더가 된다(이어 붙인다). 그 세그먼트는 방문하지 않는다.
- * - 셸 껍데기는 바깥 세그먼트를 방문한 뒤(바깥의 `> out.txt` 같은 리다이렉트를 위해) **안쪽 스크립트를 같은 규칙으로**
- *   걷는다. 안쪽의 `cd` 는 바깥으로 새지 않는다(서브셸).
- *
- * @param visit `true` 를 돌려주면 걷기를 멈춘다(상한을 채웠을 때).
- * @param opts.onCd `cd` 를 만날 때마다 이은 기준 폴더로 불린다(훑기 자리가 기준 폴더도 자리로 삼는다). `true` 면 멈춘다.
+ * 셸 명령을 세그먼트 단위로 걷는다(읽기·쓰기·훑기 공용 — §2.1 #3 · §5.1 #1-1). heredoc 본문은 걷고, `cd`·`Set-Location` 은 기준 폴더가 된다(방문 ❌).
+ * 셸 껍데기는 바깥을 방문한 뒤 안쪽을 같은 규칙으로 걷는다(안쪽 `cd` 는 새지 않는다).
+ * @param visit `true` 를 돌려주면 멈춘다(상한).
+ * @param opts.onCd `cd` 마다 이은 기준 폴더로 불린다(훑기 자리용). `true` 면 멈춘다.
  */
 export function forEachShellSegment(
   command: string,
@@ -536,11 +480,8 @@ const IN_PLACE_VALUE_LETTERS: Readonly<Record<string, ReadonlySet<string>>> = {
 };
 
 /**
- * `sed`·`perl` 이 **제자리 수정**으로 불렸는가(§5.1 #1-1 (E)).
- *
- * GNU sed: `-i` 는 접미사를 선택으로 받으므로 묶음의 **끝**에 와야 맨 `-i` 다 — `-Ei`·`-ni` 는 제자리 수정이고
- * `-iE` 는 접미사 `E` 를 단 제자리 수정이다(어느 쪽이든 파일을 고친다). perlrun: `-spi.bak` = `-s -p -i.bak`.
- * 종전에는 `-i`·`-i<접미사>` 꼴만 봐서 `sed -Ei`·`perl -pi` 가 통째로 빠졌다.
+ * `sed`·`perl` 제자리 수정인가(§5.1 #1-1 (E)). GNU sed `-i` 는 묶음 끝이어야 맨 `-i`(`-Ei`·`-ni`), `-iE` 는 접미사 `E` — 둘 다 고친다.
+ * perlrun `-spi.bak` = `-s -p -i.bak`. `-i`·`-i<접미사>` 만 보면 `sed -Ei`·`perl -pi` 가 빠진다.
  */
 export function shellInPlaceEdit(name: string, args: readonly string[]): boolean {
   const valueLetters = IN_PLACE_VALUE_LETTERS[name];
@@ -565,11 +506,7 @@ function positionalArgs(segment: readonly string[]): string[] {
   for (let i = start + 1; i < segment.length; i++) {
     const tok = segment[i]!;
     if (REDIRECT_PATTERN.test(tok) || tok.startsWith('<')) {
-      // 리다이렉트 대상은 아래 `redirectTargets` 가 따로 본다 — 값이 떨어져 오면 그 토큰도 건너뛴다.
-      //   **출력(`>`)만 건너뛰던 것이 오탐의 원인이었다.** 입력 리다이렉트와 heredoc 도 값이 떨어져
-      //   올 수 있는데 그 토큰이 그대로 남아, `tee out.txt < in.txt` 의 `in.txt`(읽기일 뿐이다)와
-      //   `tee out.txt << EOF` 의 구분자 `EOF` 가 **고친 파일**로 기록됐다. 쓰기 오탐의 대가는
-      //   읽기보다 크다(가짜 diff) — 그래서 값이 떨어져 오는 네 모양을 전부 건너뛴다.
+      // 떨어져 온 리다이렉트 값 토큰은 건너뛴다(`redirectTargets` 몫) — 출력만 건너뛰면 `< in.txt`·`<< EOF` 의 값이 고친 파일로 기록된다(가짜 diff).
       if (BARE_REDIRECT_PATTERN.test(tok) || tok === '<' || tok === '<<' || tok === '<<-') i++;
       continue;
     }
@@ -592,9 +529,7 @@ function redirectTargets(segment: readonly string[]): string[] {
     if (!m) continue;
     let target = m[3] ?? '';
     if (target.startsWith('&')) continue; // `2>&1` — 파일이 아니라 다른 fd 다.
-    // `>|f` (noclobber 무시) — **비어 있는지 보기 전에** 벗긴다. 순서를 뒤집으면 `>| f` 처럼
-    //   떨어져 온 모양에서 `target` 이 `'|'` 라 "비지 않았다"로 읽혀 다음 토큰을 안 가져오고,
-    //   벗긴 뒤엔 빈 문자열이라 그대로 버려진다(그 쓰기가 통째로 사라진다).
+    // `>|` 는 비어 있는지 보기 전에 벗긴다 — 뒤집으면 `>| f` 의 `'|'` 가 "비지 않음"으로 읽혀 다음 토큰을 안 가져오고 쓰기가 사라진다.
     if (target.startsWith('|')) target = target.slice(1);
     if (!target) {
       const next = segment[i + 1];
@@ -874,18 +809,9 @@ function commandWriteTargets(segment: readonly string[]): ShellWriteTarget[] {
 }
 
 /**
- * Bash 명령 문자열에서 **고친 파일 경로**를 뽑는다(§2.1 #3 쓰기 축 · §5.1 #1-1).
- *
- * - 세그먼트(`&&` `||` `;` `|` `&` 개행)로 잘라 각각 판정한다. 셸 껍데기는 벗겨서 안을 본다.
- * - **heredoc 본문은 건너뛴다** — 본문 줄이 그대로 명령처럼 파싱되면 남의 글이 우리 판정이 된다.
- * - 선행 `cd <dir>` 는 이후 세그먼트의 기준 경로로 반영된다(상대 경로 해석용 · 이어 붙인다).
- * - 반환 경로는 **원문 그대로**(정규화·소문자화 ❌) — 호출부가 기존 `normalize()` 한 곳에서 처리한다.
- *
- * @param command 셸 도구의 `tool_input.command`
- * @param limit 상한 (기본 `BASH_WRITE_PATH_LIMIT`)
- * @param opts `platform` 은 중복 제거 키의 대소문자 규칙 + `/c/...` 변환 여부를 정한다. `dialect` 는 명령 글의 말씨
- *   (PowerShell 도구면 `'powershell'`).
- * @returns 중복 제거된 경로 목록. `cd` 로 base 가 잡혔으면 상대 경로에 그 base 를 붙여 돌려준다.
+ * Bash 명령에서 고친 파일 경로를 뽑는다(§2.1 #3 · §5.1 #1-1). 껍데기는 벗기고 heredoc 본문은 건너뛰며 선행 `cd` 를 기준으로 잇는다.
+ * 반환은 원문 그대로(정규화·소문자화는 호출부 `normalize()` 한 곳).
+ * @param opts `platform` 은 중복 제거 키의 대소문자 규칙 + `/c/...` 변환 여부, `dialect` 는 명령 말씨(PowerShell 도구면 `'powershell'`).
  */
 export function extractBashWritePaths(
   command: string,
@@ -940,12 +866,8 @@ export function extractBashWriteTargets(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 이 Bash 명령에 **적힌 경로처럼 생긴 낱말**(`cd` 대상 포함, 원문 그대로 · 앞의 `cd` 를 기준으로 상대 경로를 잇는다).
- *
- * 판정은 하지 않는다 — 스크립트가 만든 파일(렌더한 glb · 생성한 텍스처)은 명령 글에 이름이 없으므로, 서버가 이
- * 낱말들이 **실재하는지** 보고 파일이면 그 폴더, 폴더면 그 자리를 훑는다. heredoc 본문은 건너뛴다(셸이 실행하지 않는
- * 글이다). 셸 껍데기는 안의 스크립트에서 낱말을 줍는다(바깥 토큰에는 스크립트 글 전체가 한 낱말로 들어 있다).
- * 쓰기 축(`extractBashWritePaths`)과 달리 무엇도 쓰기로 세지 않는다 — 훑을 자리를 말할 뿐이다.
+ * 명령에 적힌 경로처럼 생긴 낱말(`cd` 기준으로 상대 경로를 잇는다). 판정하지 않는다 — 스크립트가 만든 파일은 이름이 글에 없어 서버가 실재를 보고 그 자리를 훑는다.
+ * heredoc 본문은 건너뛰고 셸 껍데기 안의 낱말을 줍는다. 아무것도 쓰기로 세지 않는다.
  */
 export function extractBashScanAnchors(
   command: string,

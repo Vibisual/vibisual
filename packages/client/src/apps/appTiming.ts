@@ -1,10 +1,4 @@
-/**
- * §5.13 (Y) 40-12 — 앱 창의 **단계 표식**(코어 — 앱 이름을 모른다. 이름은 실행 때 값으로만 온다).
- *
- * 앱을 여는 누름(`open:<appId>`) · 앱 화면 청크를 받기 시작한 때(`shell-start:<appId>`) · 다 받은 때(`shell-ready:<appId>`)를
- * `performance.mark` 로 남긴다. 앱 쪽 계측이 이 표식부터 자기 첫 그림까지를 잰다. 표식은 개발 도구 성능
- * 탭에도 그대로 보이고, 남기는 비용은 사실상 0 이다(계측을 켜지 않으면 아무도 읽지 않는다).
- */
+/** §5.13 (Y) 40-12 — 앱 창 단계 표식(`open:` · `shell-start:` · `shell-ready:<appId>`)을 `performance.mark` 로 — 앱 계측이 여기부터 첫 그림까지 잰다(비용 사실상 0). */
 const PREFIX = 'vibisual-app:';
 
 export function markAppTiming(name: string): void {

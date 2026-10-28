@@ -13,13 +13,7 @@ interface StatusResponse {
   isMerged: boolean;
   wtPath: string;
   parentPath: string;
-  /**
-   * §7.10 — 지금 지우면 **강제 종료될 것들**. 서버가 죽이지 않고 세어 실어 보낸다.
-   *
-   * 이 예고가 없으면 사용자는 워크트리를 지웠다가 자기 dev 서버가 왜 꺼졌는지 모른다.
-   * 반대로 예고만 하고 안 죽이면 폴더가 반만 지워져 `node_modules` 만 남은 좀비가 된다 —
-   * 그래서 "미리 알리고, 확인을 받았으면 망설이지 않는다" 가 이 팝업의 규약이다.
-   */
+  /** §7.10 — 지우면 강제 종료될 것들(서버가 센다). 미리 알리고, 확인되면 망설이지 않는다(안 죽이면 반쯤 지운 폴더가 남는다). */
   running?: { agents: number; terminals: number };
 }
 
@@ -31,7 +25,7 @@ export const WorktreeDeleteDialog = memo(function WorktreeDeleteDialog(): React.
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [errText, setErrText] = useState<string>('');
   const [copied, setCopied] = useState(false);
-  /** 잠긴 파일 때문에 폴더가 반만 지워진 경우의 잔여 목록(v3.71). */
+  /** 잠긴 파일 때문에 반만 지워진 폴더의 잔여 목록. */
   const [leftover, setLeftover] = useState<{ path: string; files: string[] } | null>(null);
   const errRef = useRef<HTMLPreElement>(null);
 

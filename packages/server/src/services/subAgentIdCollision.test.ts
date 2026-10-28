@@ -2,16 +2,8 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { subAgentManager } from './subAgentManager.js';
 
 /**
- * 세션 id 충돌 회귀 테스트.
- *
- * 종전 발급식은 `sub-<밀리초>` **하나뿐**이었다. 사람이 손으로 두 번 누르기는 어렵지만 **코드가
- * 연달아 만드는 자리**(파이프라인 워커·워처·dispatch 자동 생성)는 실제로 같은 밀리초에 들어가고,
- * 그러면 뒤에 만든 세션이 `index` 에서 앞의 것을 덮어써 **탭 하나가 조용히 사라진다**. 대화 파일
- * (`sub-streams/<agentId>/<subId>.jsonl`)·명령 큐·메모까지 둘이 한 자리를 다툰다.
- *
- * 여기서 못 박는 것 셋 — (a) 시계가 멈춰 있어도 id 는 전부 다르다, (b) **닫힌(아카이브) 세션의
- * id 를 물려받지 않는다**(그 세션의 대화 파일이 디스크에 그대로 남아 있다), (c) id 의 모양은
- * 종전 규약을 지킨다(`sub-` 접두어 + 파일명·termId 로 써도 안전한 글자만).
+ * 세션 id 충돌 회귀 — 같은 밀리초에 연달아 만들어도 id 가 전부 다르고, 닫힌 세션의 id 를 물려받지 않고(대화 파일이 남아 있다),
+ * `sub-` + 파일명·termId 로 안전한 글자 모양을 지킨다.
  */
 
 const created: string[] = [];

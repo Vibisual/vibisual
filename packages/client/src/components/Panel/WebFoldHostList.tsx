@@ -10,15 +10,7 @@ interface Props {
   domainEntries: Record<string, WebEntry[]>;
 }
 
-/**
- * §7.22 — 접힌 웹 버블(§5.23 접어 보기)의 패널: **호스트마다 한 칸씩 접었다 펴는 목록.**
- *
- * 편 칸의 본문은 `WebEntryList` **그대로**다. 진짜 호스트 노드 id 를 넘기므로 항목 지우기·모두 비우기·
- * 상한 편집이 부르는 창구가 하나도 안 바뀐다 — 접힌 id 는 서버 장부에 없어 그 id 로 부르면 404 로 버려진다.
- *
- * 처음에는 가장 최근 호스트 한 칸만 펴져 있다. 여러 칸을 함께 펴 둘 수 있다 — 두 사이트에서 읽은 것을
- * 나란히 견주는 일이 흔해서, 하나를 펴면 다른 하나가 닫히는 방식은 오히려 손을 번거롭게 한다.
- */
+/** §7.22 — 접힌 웹 버블 패널: 호스트마다 접었다 펴는 칸. 칸 본문은 `WebEntryList` 에 진짜 호스트 id 를 넘긴다(접힌 id 는 서버에 없어 404). */
 export function WebFoldHostList({ fold, domainEntries }: Props): React.JSX.Element {
   const [openIds, setOpenIds] = useState<ReadonlySet<string>>(
     () => new Set(fold.hosts[0] ? [fold.hosts[0].id] : []),
@@ -48,13 +40,7 @@ export function WebFoldHostList({ fold, domainEntries }: Props): React.JSX.Eleme
   );
 }
 
-/**
- * 한 칸 = 한 호스트. 머리는 호스트 · 항목 수 · 고정이다.
- *
- * 고정은 그 호스트의 `PATCH /api/bubble/:id/preserve-pin` 이다. 고정한 호스트는 접히지 않으므로(§5.23)
- * 누르면 다음 스냅샷에서 이 칸이 사라지고 캔버스에 그 호스트가 제 버블로 선다. 접힌 칸에 오는 호스트는
- * 늘 고정 안 된 상태라 버튼은 한 가지 모양뿐이다.
- */
+/** 고정 = 그 호스트의 `preserve-pin` — 고정한 호스트는 접히지 않아 다음 스냅샷에서 제 버블로 선다. */
 function WebFoldHostRow({
   host,
   open,

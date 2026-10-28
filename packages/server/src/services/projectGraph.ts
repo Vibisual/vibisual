@@ -6,7 +6,7 @@ import { validatePathWithinRoot } from './pathValidator.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`shared/pathCase.ts`).
 import { CASE_INSENSITIVE_FS, HOST_PLATFORM, pathKey, samePath } from './pathKey.js';
 // §5.1 #2-1 — 작업물 별자리(위성 상한의 "묶음은 자리 하나")와 내용 언급(비동기로 읽어 스냅샷 사본에만 싣는다).
-import { CONSTELLATION, EXTERNAL_NODE_KEY_MARK, createMentionResolver, fileFaceKindOf, isMediaFaceKind, isMentionScannablePath, kindBundlePathShape, planKindBundles, type MentionCandidate } from '@vibisual/shared';
+import { BUNDLE_BUBBLE, CONSTELLATION, EXTERNAL_NODE_KEY_MARK, createMentionResolver, fileFaceKindOf, isMediaFaceKind, isMentionScannablePath, keepSatelliteSeats, kindBundleCommonDir, kindBundlePathShape, type KindBundleKind, type MentionCandidate } from '@vibisual/shared';
 // §5.1 #2-1 (F) — 앱 작업물: 어느 앱 노드의 작업인가(명령 → 꼬리표) · 작업 폴더 훑기의 기준 자리.
 import { APP_WORK, commandAppNodeIds, extractBashScanAnchors, sameAppWork, withAppWorkMark } from '@vibisual/shared';
 import { FileMentionScanner } from './fileMentionScanner.js';
@@ -250,42 +250,24 @@ import { bashProcedureOutcome } from './bashProcedureOutcome.js';
 
 // ─── 유틸 (순수 함수) ───
 
-/**
- * §9 폴더 스코프 — "하위 폴더 없음"의 공용 빈 배열.
- * 조회마다 `[]` 를 새로 만들면 스냅샷 1건에 폴더 수만큼 쓰레기가 생긴다(그걸 없애려고 넣은 축이다).
- */
+/** §9 폴더 스코프 — "하위 폴더 없음"의 공용 빈 배열(조회마다 `[]` 를 만들면 스냅샷마다 폴더 수만큼 쓰레기가 생긴다). */
 const EMPTY_ID_LIST: readonly string[] = [];
 
 /**
- * §5.14 v4.62 — 디스크에서 올라온 플레이 버블의 실행 상태를 내린다.
- *
- * 버튼·레시피·좌표는 사용자의 것이라 그대로 살리되, `running`/`starting` 은 **앱과 함께 죽은
- * 프로세스**의 잔상이다. 그대로 복원하면 캔버스에 "실행 중"이라고 적힌 채 아무 데도 안 붙는
- * 프리뷰가 뜬다(§3.2 왕복 함정과 같은 계열 — 살아 있는 것과 저장된 것을 구분하지 않은 실수).
+ * §5.14 — `sanitizePlayBubbleOnLoad`: 디스크의 플레이 버블에서 `running`/`starting` 을 내린다(버튼·레시피·좌표는 살린다).
+ * 앱과 함께 죽은 프로세스의 잔상이라 살리면 아무 데도 안 붙는 "실행 중" 프리뷰가 뜬다(§3.2 왕복 함정).
  */
 /**
- * 인스턴스 간 id 충돌을 막는 꼬리.
- *
- * `Date.now()` + **인스턴스별** 카운터만으로는 부족하다. `ProjectGraph` 는 하나가 아니라
- * 프로젝트·워크트리마다 있어서, 두 인스턴스가 같은 밀리초에 첫 항목을 만들면 카운터가 둘 다 1 이라
- * **완전히 같은 id** 가 나온다. 그 뒤 `mergeFromCheckpoint` 의 합집합에서 한쪽이 조용히 사라진다 —
- * 에러도 경고도 없이 사용자가 만든 문서 하나가 없어지는 종류의 손실이다.
- *
- * 이 파일의 다른 id 들(`comment-`·`app-`·`capture-`·`play-` …)은 이미 이 조각을 물고 있었고,
- * 카운터를 쓰는 쪽만 빠져 있었다. 2026-08-28 CI 에서 `projectGraphSpecDocs.test.ts` 의
- * "머지 복원은 있던 것을 덮지 않는다"가 세 OS 에서 한꺼번에 빨개져 드러났다(로컬 재현 15회 중 9회).
- * 시간에 기대는 테스트라 그동안은 운 좋게 통과했을 뿐이고, 결함은 8/19부터 있었다.
- *
- * ⚠️ id 의 **모양**을 파싱하는 코드는 없다(세션 키 판별도 맵 조회로 한다) — 그래서 꼬리를
- *    덧붙여도 안전하다. 이미 저장된 id 는 그대로 유효하다.
+ * 인스턴스 간 id 충돌을 막는 꼬리 — `ProjectGraph` 는 프로젝트·워크트리마다 있어 `Date.now()` + 카운터만으론 같은 밀리초에 같은 id 가 나
+ * `mergeFromCheckpoint` 에서 한쪽이 조용히 사라진다. id 모양을 파싱하는 코드는 없어(세션 키 판별도 맵 조회) 꼬리를 붙여도 안전하다.
  */
 function idTail(): string {
   return Math.random().toString(36).slice(2, 6);
 }
 
 /**
- * §5.4 #36 (G) — PATCH 로 온 앱 노드 한 변의 길이. 유한한 양수만 받고 `max` 로 자른다. 못 받는 값이면 `null`
- * (칸을 건드리지 않는다). 하한은 형태마다 달라 서버가 형태를 모르는 자리에서는 자르지 않는다 — 그리는 쪽이 자른다.
+ * §5.4 #36 (G) — PATCH 로 온 앱 노드 한 변의 길이. 유한한 양수만 받아 `max` 로 자르고, 못 받으면 `null`(칸을 안 건드린다).
+ * 하한은 형태마다 달라 그리는 쪽이 자른다.
  */
 function appBubbleDimension(value: unknown, max: number): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
@@ -297,13 +279,7 @@ function sanitizePlayBubbleOnLoad(bubble: PlayBubble): PlayBubble {
   return { ...rest, status: 'idle', previewOpen: false };
 }
 
-/**
- * §5.15 — 디스크에서 올라온 스펙 한 장을 정규화한다.
- *
- * 실행 상태가 없으므로 내릴 것은 없고, **구버전·손상 체크포인트에서 빠졌을 수 있는 필드만**
- * 채운다(`items` 가 배열이 아니면 빈 배열, `bodyRevision` 이 없으면 0). 사람이 쓴 문장 자체는
- * 손대지 않는다 — 여기서 자르면 사용자가 쓴 것이 조용히 사라진다.
- */
+/** §5.15 — 디스크의 스펙 정규화. 구버전·손상 체크포인트에서 빠졌을 필드만 채운다(`items` → 빈 배열, `bodyRevision` → 0). 사람이 쓴 문장은 자르지 않는다. */
 function sanitizeSpecDocOnLoad(doc: SpecDoc): SpecDoc {
   return {
     ...doc,
@@ -314,12 +290,7 @@ function sanitizeSpecDocOnLoad(doc: SpecDoc): SpecDoc {
   };
 }
 
-/**
- * §5.16 — 디스크에서 올라온 리뷰 한 건을 정규화한다.
- *
- * 실행 상태가 없으므로 내릴 것은 없고, 구버전·손상 체크포인트에서 빠졌을 수 있는 필드만 채운다.
- * 사람이 쓴 반려 사유는 손대지 않는다 — 여기서 자르면 판단 근거가 조용히 사라진다.
- */
+/** §5.16 — 디스크의 리뷰 정규화. 빠졌을 필드만 채우고 사람이 쓴 반려 사유는 자르지 않는다(판단 근거가 조용히 사라진다). */
 function sanitizeReviewRequestOnLoad(req: ReviewRequest): ReviewRequest {
   const status: ReviewRequestStatus =
     req.status === 'approved' || req.status === 'rejected' || req.status === 'held' ? req.status : 'pending';
@@ -332,11 +303,7 @@ function sanitizeReviewRequestOnLoad(req: ReviewRequest): ReviewRequest {
   };
 }
 
-/**
- * §5.18 — 변형이 흔드는 설정 축만 남긴다. 여기 없는 키는 기준 에이전트 설정에서 온다.
- * 빈 문자열은 "이 축은 안 흔든다"는 뜻이므로 필드 자체를 떨어뜨린다(빈 값으로 덮어써서
- * 기준 설정의 모델이 사라지는 사고를 막는다).
- */
+/** §5.18 — 변형이 흔드는 설정 축만 남긴다(없는 키는 기준 에이전트 설정에서). 빈 문자열은 필드째 뺀다 — 빈 값으로 덮으면 기준 설정의 모델이 사라진다. */
 function sanitizeLabVariantConfig(cfg: LabVariantConfig | undefined): LabVariantConfig {
   const out: LabVariantConfig = {};
   if (!cfg) return out;
@@ -354,12 +321,7 @@ function sanitizeLabVariantConfig(cfg: LabVariantConfig | undefined): LabVariant
   return out;
 }
 
-/**
- * §5.18 — 디스크에서 올라온 랩 한 장을 정규화한다.
- *
- * 앱과 함께 죽은 프로세스는 아무것도 돌고 있지 않으므로 **`running` 잔상을 내린다**(플레이 버블의
- * `running → idle` 강등과 같은 규율). 사람이 쓴 과제 문장·측정된 결과값은 손대지 않는다.
- */
+/** §5.18 — 디스크의 랩 정규화. `running` 잔상을 내린다(플레이 버블과 같은 규율). 사람이 쓴 과제·측정 결과는 손대지 않는다. */
 function sanitizeLabRunOnLoad(run: LabRun): LabRun {
   const variants: LabVariant[] = Array.isArray(run.variants)
     ? run.variants
@@ -382,13 +344,7 @@ function sanitizeLabRunOnLoad(run: LabRun): LabRun {
   };
 }
 
-/**
- * §5.20 — 디스크에서 올라온 선반 한 장을 정규화한다.
- *
- * 앱과 함께 죽은 프로세스는 아무것도 돌고 있지 않으므로 **`running` 잔상을 내린다**(랩·플레이 버블과
- * 같은 규율 — 그대로 살리면 화면이 "지금 돌고 있다"고 거짓말한다). 아이콘·색은 고정 목록 안으로
- * 되돌린다 — 예전 버전이 남긴 값이나 손으로 고친 체크포인트가 화면에 아무 글리프나 그리지 못하게.
- */
+/** §5.20 — 디스크의 선반 정규화. `running` 잔상을 내리고, 아이콘·색은 고정 목록 안으로 되돌린다(옛 값·손으로 고친 체크포인트가 아무 글리프나 그리지 못하게). */
 function sanitizeShelfBubbleOnLoad(bubble: ShelfBubble): ShelfBubble {
   const items: ShelfItem[] = Array.isArray(bubble.items)
     ? bubble.items
@@ -417,16 +373,8 @@ function sanitizeShelfBubbleOnLoad(bubble: ShelfBubble): ShelfBubble {
   };
 }
 /**
- * §2.4 — 디스크에서 올라온 버블의 "활동중" 잔상을 내린다.
- *
- * 재시작 직후엔 아무 일도 일어나고 있지 않다. 저장된 `active`/`completed` 는 앱과 함께 죽은
- * 세션의 잔상이라, 그대로 살리면 아무도 만지지 않는 버블이 펄스 링을 단 채 캔버스에 남는다.
- * 에이전트 버블은 예전부터 이 규칙을 받았지만(v1.60/v1.73) 파일/폴더 버블은 빠져 있어서,
- * 같은 증상이 한 층 아래에서 되풀이됐다 — 에이전트는 얌전히 꺼져 있는데 그 에이전트가 만졌던
- * 파일·폴더만 계속 빛나는 상태. 그 노드들은 `isAlive` 의 5분 TTL 도 통과해(active 는 항상 alive)
- * 영영 사라지지 않았다.
- *
- * 레거시 체크포인트의 `awaiting_input` 도 여기서 함께 정규화한다(status 유니온에서 빠졌으므로 raw 비교).
+ * §2.4 — 디스크에서 올라온 `active`/`completed` 잔상을 내린다(앱과 함께 죽은 세션의 것). 파일·폴더도 빼지 마라 —
+ * `isAlive` 5분 TTL 도 통과해(active 는 늘 alive) 펄스 링을 단 채 영영 남는다. 레거시 `awaiting_input` 도 여기서(유니온에서 빠져 raw 비교).
  */
 function demoteStaleActivityOnLoad(bubble: BubbleData): void {
   if (
@@ -448,35 +396,22 @@ function hashString(str: string): number {
 }
 
 /**
- * 노드/프로젝트 Map 키 — 슬래시 통일 + 끝 슬래시 제거 + **그 플랫폼이 실제로 무시할 때만** 소문자.
- *
- * 예전에는 무조건 소문자로 접었다. Windows 는 파일시스템이 대소문자를 안 가려 옳았지만 Linux 는
- * `Feature-X` 와 `feature-x` 가 실재하는 별개 폴더라, 두 프로젝트·워크트리가 한 키로 뭉개져
- * 한쪽 등록이 다른 쪽을 **에러 한 줄 없이** 덮어썼다. 정책은 `shared/pathCase.ts` 한 곳.
+ * 노드/프로젝트 Map 키 — 슬래시 통일 + 끝 슬래시 제거 + 그 플랫폼이 실제로 무시할 때만 소문자(정책은 `shared/pathCase.ts`).
+ * 무조건 접으면 Linux 에서 `Feature-X`·`feature-x` 두 프로젝트가 한 키로 뭉개져 한쪽이 조용히 덮인다.
  */
 function normalize(filePath: string): string {
   return foldCase(filePath.replace(/\\/g, '/').replace(/\/+$/, ''));
 }
 
 /**
- * §5.11 정독 게이트 — 설정 맵의 키.
- *
- * 표시명이 아니라 **경로**를 쓴다(표시명은 basename 충돌 시 유일화돼 세션 간 바뀔 수 있는데,
- * 게이트 강도·면제 목록은 사용자가 손으로 정한 값이라 이름이 바뀌었다고 잃으면 안 된다).
- * 케이스는 `pathKey` 가 그 플랫폼이 실제로 무시할 때만 접는다 — linux 에서 접으면 케이스만 다른
- * 두 프로젝트가 서로의 게이트 설정을 쓰게 된다.
+ * §5.11 정독 게이트 — 설정 맵의 키는 경로다(표시명은 basename 충돌 때 바뀔 수 있어 손으로 정한 설정을 잃는다).
+ * 케이스는 `pathKey` 가 그 플랫폼이 무시할 때만 접는다(linux 에서 접으면 케이스만 다른 두 프로젝트가 설정을 나눠 쓴다).
  */
 function specSettingsKey(projectPath: string): string {
   return pathKey(path.resolve(projectPath));
 }
 
-/**
- * 프로젝트 탭에 적힐 이름 — `path.basename` 이 **빈 문자열을 돌려주는 경로**의 안전망.
- *
- * `path.basename('/')` 도 `path.basename('C:/')` 도 `''` 다. 이름이 빈 프로젝트는 탭에 아무
- * 글자도 없이 배지만 뜨고, 그게 어느 폴더인지 알 길이 사라진다(실측: mac 에서 이름 없는 탭 하나).
- * 그 자리에는 경로 자체를 적는다 — 짧고 이상해 보여도 "무엇인지 읽을 수는 있는" 쪽이 낫다.
- */
+/** 프로젝트 탭 이름 — `path.basename` 이 `''` 인 경로(`'/'`·`'C:/'`)는 경로 자체를 적는다(빈 이름이면 배지만 뜬 탭이 된다 — 실측: mac). */
 function projectDisplayName(cwd: string): string {
   const slashed = cwd.replace(/\\/g, '/');
   return path.basename(slashed) || slashed || cwd;
@@ -490,31 +425,15 @@ function foldCase(s: string): string {
   return CASE_INSENSITIVE_FS ? s.toLowerCase() : s;
 }
 
-/** cwd + 상대경로를 합쳐서 `..`/`.` 까지 collapse 한 정규화 경로.
- *  단순 `normalize()` 는 backslash/lowercase 만 처리하고 `..` 를 그대로 둬서
- *  `path: '..\\foo'` 같은 입력이 들어오면 가짜 `..` segment 가 폴더 버블로 박힌다.
- *  (사례: Grep `..\\TEST\\xxx` → `..` 폴더 + 자식 segment 들이 마스터 트리에 새겨짐) */
+/** cwd + 상대경로를 합쳐 `..`/`.` 까지 접는다 — `normalize()` 만 쓰면 `..\\foo` 같은 입력(Grep `..\\TEST\\xxx`)이 가짜 `..` 폴더 버블로 박힌다. */
 function resolveRelative(cwd: string, relPath: string): string {
   const joined = `${cwd}/${relPath}`.replace(/\\/g, '/');
   return foldCase(path.posix.normalize(joined).replace(/\/+$/, ''));
 }
 
-/** normalize() 결과가 절대 경로인지 (Windows 드라이브 또는 POSIX root).
- *  드라이브 문자는 대소문자를 가리지 않는다 — `normalize()` 가 더 이상 무조건 소문자로 접지 않으므로
- *  소문자만 보면 대소문자 구분 FS 에서 `C:/…` 를 상대경로로 오판한다. */
 /**
- * 이 도구 이벤트가 **사후**인가(§3.6 v4.89).
- *
- * `PostToolUseFailure` 도 사후다 — 실패한 도구도 **끝난 도구**이고, 그때 파일은 이미 중간까지
- * 바뀌었을 수 있다. 이 판정이 자리마다 흩어지면 새 종료류 이벤트가 늘 때 한쪽만 고쳐진다.
- */
-/**
- * diff 한 쪽에 실을 만큼만 디스크에서 읽는다 — `Write` 의 사전 본문과 §2.1 #3 Bash 쓰기 축 공용.
- *
- * 훅 경로 차단 방지 — 거대 파일은 통째 읽지 않고 경계 prefix 만 뜬다(어차피 `clampDiffSide` 가 자른다).
- * 없거나 못 읽으면 `null`. `rejectBinary` 를 켜면 NUL 바이트가 보이는 순간 `null` 이다 —
- * 셸 리다이렉트는 이미지·아카이브를 향할 때가 있고, 그 100KB 를 문자로 옮기면 이력과 스냅샷에
- * 읽을 수 없는 쓰레기가 눌러앉는다(`Write` 는 종전 동작 유지 — 이 옵션을 켜지 않는다).
+ * diff 한 쪽을 디스크에서 읽는다(`Write` 사전 본문·§2.1 #3 공용). 거대 파일은 앞부분만(훅 경로가 막히지 않게 — `clampDiffSide` 가 어차피 자른다), 못 읽으면 `null`.
+ * `rejectBinary` 면 NUL 이 보이면 `null` — 리다이렉트가 바이너리를 향해도 이력에 쓰레기가 안 남게(`Write` 는 안 켠다).
  */
 function readDiffSideFromDisk(rawPath: string, opts?: { rejectBinary?: boolean }): string | null {
   try {
@@ -542,6 +461,10 @@ function readDiffSideFromDisk(rawPath: string, opts?: { rejectBinary?: boolean }
   }
 }
 
+/**
+ * §3.6 — 사후 이벤트인가. `PostToolUseFailure` 도 사후다(끝난 도구이고 파일은 중간까지 바뀌었을 수 있다).
+ * 판정은 이 한 곳 — 흩어지면 새 종료류 이벤트가 늘 때 한쪽만 고쳐진다.
+ */
 function isPostToolPhase(payload: HookEventPayload): boolean {
   return payload.hook_event_name === 'PostToolUse' || payload.hook_event_name === 'PostToolUseFailure';
 }
@@ -557,6 +480,10 @@ interface AppWorkContext {
   readonly since: number;
 }
 
+/**
+ * normalize() 결과가 절대 경로인지(Windows 드라이브 또는 POSIX root). 드라이브 문자는 대소문자를 가리지 않는다 —
+ * `normalize()` 가 소문자로 접지 않으므로 소문자만 보면 대소문자 구분 FS 에서 `C:/…` 를 상대경로로 오판한다.
+ */
 function isAbsoluteNormalized(normalizedPath: string): boolean {
   return /^[a-zA-Z]:\//.test(normalizedPath) || normalizedPath.startsWith('/');
 }
@@ -564,12 +491,10 @@ function isAbsoluteNormalized(normalizedPath: string): boolean {
 /** git 워크트리 → 메인 워크트리(부모 repo) 해석 결과 캐시. key=normalizedCwd, value=결과|null. */
 const gitWorktreeParentCache = new Map<string, { parentPath: string; worktreeName: string } | null>();
 
-/** `git rev-parse` 로 cwd 가 **연결된(linked) 워크트리**인지 판정하고 메인 워크트리 경로를 돌려준다.
- *  Claude Code `--isolation worktree` 는 워크트리를 repo 의 `.claude/worktrees/` 가 아니라
- *  `~/.claude/worktrees/<name>` 등 임의 위치에 만들 수 있어, 경로 패턴만으론 부모를 잘못 잡는다
- *  (예: 부모를 사용자 홈으로 오인 → 이주/attribution 실패 → 작업이 `(ext)` 고아로 표시).
- *  git 의 `--show-toplevel`(현재 워크트리 루트) ≠ `--git-common-dir`의 부모(메인 워크트리 루트)
- *  이면 linked 워크트리로 확정한다. 결과는 cwd 단위 캐시(첫 등록 시 1회만 git 호출). */
+/**
+ * `git rev-parse` 로 cwd 가 linked 워크트리인지 판정해 메인 워크트리 경로를 낸다(cwd 단위 캐시). `--isolation worktree` 는 repo 밖에도 만들어
+ * 경로 패턴만으론 부모를 잘못 잡는다(작업이 `(ext)` 고아로 뜬다). `--show-toplevel` ≠ `--git-common-dir` 의 부모이면 linked.
+ */
 export function resolveGitWorktreeParent(
   normalizedCwd: string,
 ): { parentPath: string; worktreeName: string } | null {
@@ -597,12 +522,10 @@ export function resolveGitWorktreeParent(
   return result;
 }
 
-/** worktree cwd 감지.
- *  1) `<parent>/.claude/worktrees/<name>` 경로 패턴 — git 호출 없는 핫패스(기존 동작 보존).
- *  2) miss 시 `git rev-parse` 로 linked 워크트리 판정(임의 위치 워크트리 인식).
- *  입력은 `normalize()` 결과(lowercase, forward-slash)여야 한다.
- *  반환 `parentPath`는 normalized. `parentAbsPath`가 있으면 부모 cwd 를 문자열 prefix 가
- *  아니라 그 절대경로로 직접 등록해야 한다(임의 위치 워크트리는 prefix slice 불가). */
+/**
+ * worktree cwd 감지 — ① `.claude/worktrees/<name>` 경로 패턴(git 없는 핫패스) ② 빗나가면 `git rev-parse`. 입력은 `normalize()` 결과.
+ * `parentAbsPath` 가 있으면 prefix 로 자르지 말고 그 절대경로로 부모를 등록한다.
+ */
 function detectWorktree(
   normalizedCwd: string,
 ): { parentPath: string; worktreeName: string; parentAbsPath?: string } | null {
@@ -613,14 +536,7 @@ function detectWorktree(
   return null;
 }
 
-/**
- * 도구별 파일 경로 추출 — **이 표에 없는 도구는 캔버스에 존재하지 않는다**(버블 ✗ 화살표 ✗ 이력 ✗).
- *
- * §2.1 #3 — `MultiEdit`/`NotebookEdit` 는 우리 감사 원장(`AUDIT_WRITE_TOOLS`)과 IDE 스트림
- * (`DIFF_INPUT_TOOLS`)은 이미 보고 있었는데 **이 표에만 빠져 있었다**. 그래서 노트북 셀을 고치거나
- * 한 파일에 여러 수정을 넣으면 감사에는 남는데 지도에는 한 획도 안 그려지는 어긋남이 있었다.
- * 둘 다 `READ_TOOLS` 밖이라 방향 규칙이 그대로 **에이전트 → 파일**(쓰기) 화살표를 세운다.
- */
+/** 도구별 파일 경로 추출 — 이 표에 없는 도구는 캔버스에 없다. §2.1 #3 — `AUDIT_WRITE_TOOLS`·`DIFF_INPUT_TOOLS` 와 도구를 맞춘다(빠지면 감사엔 남고 지도엔 안 그려진다). */
 const FILE_PATH_KEYS: Record<string, readonly string[]> = {
   Read: ['file_path'],
   Write: ['file_path'],
@@ -700,13 +616,8 @@ function extractToolText(response: Record<string, unknown> | undefined): string 
 }
 
 /**
- * Grep/Glob 디렉토리 호출의 tool_response 에서 매치된 결과 파일의 절대경로 목록 추출 (§2.1 v2.7).
- *  - Grep `files_with_matches` / Glob: 줄당 1 경로 (`Found N files` 헤더·`No files found` 제외)
- *  - Grep `content`(`path:line:text`) / `count`(`path:count`): 줄 선두의 path 토큰
- * Grep/Glob 출력 경로는 backslash 가능·cwd 또는 검색 폴더(folderAbs) 기준 상대(혹은 절대)다.
- * 두 base 로 해석을 시도하되, **실제 디스크에 존재하는 파일**이면서 `folderAbs` 하위인 것만 채택해
- * 잘못된 base 로 만들어진 가짜 경로를 배제한다. normalize(소문자·forward-slash) 후 중복 제거.
- * `limit` 개를 채우면 조기 종료.
+ * Grep/Glob 폴더 호출의 tool_response 에서 결과 파일 절대경로를 뽑는다(§2.1 — 줄당 경로 또는 줄 앞 path 토큰).
+ * 경로는 cwd 또는 `folderAbs` 기준이라 두 base 로 풀되, 디스크에 실재하고 `folderAbs` 하위인 파일만 받는다(잘못된 base 의 가짜 경로 배제).
  */
 function extractDirToolFiles(
   toolResponse: Record<string, unknown> | undefined,
@@ -812,11 +723,8 @@ const WEB_READ_TOOL_NAME = 'Read';
 const EXTERNAL_JUNCTION_TOOL = 'Folder';
 
 /**
- * §2.1 (D) — 알려진 자리 사전이 기준으로 삼는 바깥 사실(홈 · 임시 디렉터리 · 플랫폼).
- *
- * shared 순수 모듈은 이것들을 스스로 알 수 없어 **인자로 받는다**(멀티플랫폼 규율 — 플랫폼을
- * 함수 안에서 읽으면 그 분기는 개발기 한 대에서 영영 검증되지 않는다). 프로세스가 사는 동안
- * 바뀌지 않는 값이라 한 번만 읽는다 — rebuild 는 훅 경로라 매번 `os.homedir()` 를 부를 자리가 아니다.
+ * §2.1 (D) — 알려진 자리 사전의 바깥 사실(홈·임시·플랫폼). shared 순수 모듈엔 인자로 넘긴다(함수 안에서 플랫폼을 읽으면 그 분기는 검증되지 않는다).
+ * 프로세스 수명 동안 불변이라 한 번만 읽는다(rebuild 는 훅 경로다).
  */
 const EXTERNAL_PLACE_CTX = {
   home: os.homedir().replace(/\\/g, '/'),
@@ -825,11 +733,8 @@ const EXTERNAL_PLACE_CTX = {
 } as const;
 
 /**
- * 파일 경로 없는 특수 도구 → BubbleType 매핑.
- *
- * §5.1 #1-1 (A) — 셸 도구는 `Bash`·`PowerShell` 둘이다(shared `SHELL_TOOL_NAMES` 와 같은 목록). 공식 문서상 Windows 에서
- * PowerShell 이 기본으로 켜지고 주 셸이 되는데, 종전 표에 `Bash` 만 있어 PowerShell 로 내린 명령은 Bash 이력·파일 버블·
- * 앱 버블·서버 감지·보험 사본이 0 이었다. 새 버블 종류 ❌ — 같은 `bash` 위성(숨김)과 같은 이력에 남는다.
+ * §5.1 #1-1 (A) — 셸 도구는 `Bash`·`PowerShell` 둘(shared `SHELL_TOOL_NAMES` 와 같은 목록). Windows 는 PowerShell 이 주 셸이라(공식 문서)
+ * 빠지면 그 명령의 이력·버블·서버 감지·보험 사본이 다 사라진다. 새 버블 종류 없이 같은 `bash` 위성(숨김)·이력에 남는다.
  */
 const SPECIAL_TOOL_TYPES: Record<string, BubbleType> = {
   Bash: 'bash',
@@ -845,8 +750,7 @@ function detectServerKind(command: string, logText?: string): ServerKind {
   return 'backend';
 }
 
-/** §7.11 v2.29 — iframe 위성 dedup 용 정규화 키 = 포트 문자열. host alias(localhost/127.0.0.1)·경로·쿼리를
- *  무시하고 포트만 남긴다(한 프로젝트 안에서 포트는 서버를 유일하게 가리킴). 파싱 실패면 null. */
+/** §7.11 — iframe 위성 dedup 키 = 포트 문자열(host alias·경로·쿼리 무시 — 한 프로젝트 안에서 포트가 서버를 유일하게 가리킨다). 파싱 실패면 null. */
 function iframePortKey(url: string | undefined): string | null {
   if (!url) return null;
   try {
@@ -857,17 +761,10 @@ function iframePortKey(url: string | undefined): string | null {
   }
 }
 
-/**
- * §7.11 / §3.5 — "우리가 방금 띄웠다" 기록의 부팅 유예. 포트가 끝내 안 열리면 이만큼 뒤에 버린다
- * (셸 출력 감시 상한 `MAX_POLL_DURATION_MS`(3분)와 같은 리듬 — 무거운 dev 서버의 기동 여유).
- */
+/** §7.11 / §3.5 — "우리가 방금 띄웠다" 기록의 부팅 유예. 포트가 끝내 안 열리면 이만큼 뒤에 버린다(셸 출력 감시 상한 `MAX_POLL_DURATION_MS` 3분과 같은 리듬). */
 const IFRAME_LAUNCH_CLAIM_BOOT_MS = 180_000;
 
-/**
- * §7.11 / §3.5 — iframe 위성 입구(`createIframeSatellite`)의 판정 옵션.
- * 판정이 비동기일 수 있어(다른 탭이 열려 있을 때의 새 위성) 짝 ServerEntry 등록을 호출부가 바로 잇지
- * 않고 `onPlaced` 로 넘긴다 — 거절된 위성에 entry 만 남는 일을 막는다.
- */
+/** §7.11 / §3.5 — iframe 위성 입구(`createIframeSatellite`)의 판정 옵션. 판정이 비동기일 수 있어 짝 ServerEntry 등록은 `onPlaced` 로 넘긴다(거절된 위성에 entry 만 남지 않게). */
 interface IframeSatelliteGate {
   /** 이 위성의 우리 쪽 증거. 생략 = `launch`(백그라운드 셸 경로들 — 우리 셸이 띄웠다). */
   evidence?: ServerEvidence;
@@ -877,21 +774,14 @@ interface IframeSatelliteGate {
   onRejected?: () => void;
 }
 
-// §4 (설정 3층) — 도구 목록 백필은 shared `backfillAgentTools` 한 곳으로 옮겼다.
-//   여기 있던 시절에는 **에이전트 설정만** 백필을 받고 설정 창의 전역 프리셋은 못 받았는데,
-//   그 프리셋이 신규 에이전트의 씨앗이라 판올림 전에 골라 둔 목록이 앞으로 만들 모든
-//   에이전트의 상한이 됐다(실측 11/48). 세 대상이 같은 함수를 쓰게 하는 것이 그 수리다.
+// §4 (설정 3층) — 도구 목록 백필은 shared `backfillAgentTools` 한 곳이다 — 전역 프리셋이 빠지면 판올림 전 목록이 신규 에이전트 전부의 상한이 된다(실측 11/48).
 
-/**
- * §5.5 #17-17 v4.46 — 디스크에서 읽은 세션 목표 정규화(복원·병합 공용).
- * 구버전 체크포인트에는 없던 필드가 있을 수 있어 기본값을 채우고, 퍼센트·이력 길이를 계약대로 조인다
- * (여기서 안 조이면 손상된 파일 하나가 UI 게이지를 이상하게 만든다).
- */
+/** §5.5 #17-17 — 디스크의 세션 목표 정규화(복원·병합 공용). 빠진 필드를 채우고 퍼센트·이력 길이를 조인다(손상 파일 하나가 UI 게이지를 망치지 않게). */
 function normalizeSessionGoal(goal: SessionGoal): SessionGoal {
   const history: SessionGoalProgress[] = Array.isArray(goal.history)
     ? goal.history.filter((h): h is SessionGoalProgress => !!h && typeof h.at === 'number')
     : [];
-  // §5.5 #17-17 v4.47 — v4.46 판본 체크포인트에는 steps 가 없다(빈 배열로 보충).
+  // 구판 체크포인트에는 steps 가 없다(빈 배열로).
   const steps: SessionGoalStep[] = Array.isArray(goal.steps)
     ? goal.steps
         .filter((s): s is SessionGoalStep => !!s && typeof s.text === 'string')
@@ -913,7 +803,7 @@ function normalizeSessionGoal(goal: SessionGoal): SessionGoal {
   const { pastTexts: _rawPast, ...base } = goal;
   return {
     ...base,
-    // v4.46~47 판본에는 authoredBy 가 없다 — 자동 관리(세션 소유)를 기본으로 본다(v4.50 ①).
+    // 구판에는 authoredBy 가 없다 — 세션 소유(자동 관리)로 본다.
     authoredBy: goal.authoredBy === 'user' ? 'user' : 'session',
     steps,
     // 단계가 있으면 저장된 숫자를 믿지 않고 체크리스트에서 다시 센다(둘이 어긋난 파일 방어).
@@ -927,11 +817,7 @@ function normalizeSessionGoal(goal: SessionGoal): SessionGoal {
   };
 }
 
-/**
- * §5.5 #17-17 ⑰(c) — 목표 문장이 바뀔 때 옛 문장을 변천 기록 뒤에 붙인다(상한을 넘으면 앞부터 버린다).
- * 세션이 다듬든 · 사용자가 고치든 · 새 명령으로 갈아타든 **같은 한 곳**을 지난다 — 경로마다 따로 쌓으면
- * 한 경로가 빠진 날 "어디서 왔는가"에 구멍이 난다.
- */
+/** §5.5 #17-17 ⑰(c) — 목표 문장이 바뀔 때 옛 문장을 변천 기록에 붙인다(상한을 넘으면 앞부터). 모든 경로(세션·사용자·새 명령)가 이 한 곳을 지난다 — 따로 쌓으면 기록에 구멍이 난다. */
 function pushPastText(prev: SessionGoal | undefined, oldText: string): string[] | undefined {
   const cur = prev?.pastTexts ?? [];
   const trimmed = oldText.trim();
@@ -940,10 +826,7 @@ function pushPastText(prev: SessionGoal | undefined, oldText: string): string[] 
   return next.slice(Math.max(0, next.length - SESSION_GOAL_PAST_TEXT_MAX));
 }
 
-/**
- * §5.5 #17-17 v4.50 — 세션 명령에서 목표 머리글 한 줄을 뽑는다(자동 생성 전용).
- * 사이드바 폭(w-52)에 들어갈 길이로 접고, 줄바꿈·연속 공백은 한 칸으로 눌러 한 줄로 만든다.
- */
+/** §5.5 #17-17 — 세션 명령에서 목표 머리글 한 줄을 뽑는다(자동 생성 전용 · 사이드바 폭 w-52 에 맞춘다). */
 function summarizeGoalSeed(command: string): string {
   const flat = command.replace(/\s+/g, ' ').trim();
   if (!flat) return '';
@@ -956,20 +839,14 @@ const GOAL_SEED_MAX = 200;
 /** 활성 에이전트 id 집합 메모의 벽시계 상한(ms) — 스냅샷 한 벌을 짓는 동안만 재사용하고 그 밖에서는 다시 센다(스냅샷 캐시 TTL 보다 늘 짧게). */
 const ACTIVE_AGENT_MEMO_MS = 50;
 
-/** §5.5 #17-17 v4.47 — 체크리스트에서 퍼센트 파생 (`done/전체`). 단계가 없으면 0. */
+/** §5.5 #17-17 — 체크리스트에서 퍼센트 파생(`done/전체`). 단계가 없으면 0. */
 function deriveGoalPercent(steps: SessionGoalStep[]): number {
   if (steps.length === 0) return 0;
   const done = steps.filter((s) => s.status === 'done').length;
   return Math.round((done / steps.length) * 100);
 }
 
-/**
- * §5.5 #17-17 v4.47 ⑧ — 들어온 단계 목록으로 체크리스트를 다시 세운다.
- *
- * **본문이 같은 기존 단계의 id 를 재사용**하는 것이 핵심 — 에이전트가 목록을 통째로 다시 보내도
- * 사용자가 보고 있던 항목이 새 id 로 갈려 체크박스가 튀거나 리스트가 깜빡이지 않는다.
- * 같은 본문이 여러 번 나오면 앞에서부터 하나씩 소비한다(중복 항목도 각자 id 를 유지).
- */
+/** §5.5 #17-17 ⑧ — 본문이 같은 기존 단계의 id 를 재사용해 다시 세운다(통째로 다시 보내도 체크박스가 튀지 않게). 같은 본문이 여럿이면 앞에서부터 하나씩. */
 function rebuildGoalSteps(
   prev: SessionGoalStep[],
   incoming: GoalStepInput[],
@@ -1030,11 +907,7 @@ type GoalStepInput = {
   parallel?: boolean;
 };
 
-/**
- * 단계 목록이 실질적으로 같은가 (본문·순서·상태·행 표식 전부 동일). 무의미한 이력 적재 차단용.
- * §5.5 #17-17 ⑰(b) — 행 표식만 바뀐 신고도 "바뀜"이다. 여기서 같다고 하면 `noteSessionGoalProgress` 가
- * 갱신을 통째로 버려, 세션이 `∥` 를 붙여 보내도 화면은 세로 한 줄로 남는다.
- */
+/** 단계 목록이 실질적으로 같은가(본문·순서·상태·행 표식). §5.5 #17-17 ⑰(b) — 행 표식만 바뀌어도 "바뀜"이다(같다고 하면 `∥` 를 붙여도 화면이 그대로다). */
 function sameGoalSteps(a: SessionGoalStep[], b: SessionGoalStep[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((s, i) => s.text === b[i]?.text && s.status === b[i]?.status && !!s.parallel === !!b[i]?.parallel);
@@ -1065,18 +938,10 @@ function readDevServerMarker(
 }
 
 /**
- * §5.5 #17-11 ⑪·⑫ — 디스크에서 올라온 루프 설정 1건을 지금 타입으로 맞춘다.
- *
- * 루프는 **사용자가 짜 넣은 설정**이라 옛 체크포인트를 버릴 수 없다. 새로 생긴 필드는 전부
- * "꺼짐 = 종전 동작" 으로 채우고, ⑪ 이 잠깐 썼던 `autoCompact: boolean` 은 `contextMode` 로 승계한다.
- * 순수 함수 — 입력을 건드리지 않고 새 객체를 돌려준다(테스트가 이 승계를 지킨다).
+ * §5.5 #17-11 ⑪·⑫ — `normalizeSessionLoop`: 디스크의 루프 설정을 지금 타입으로(사용자가 짠 설정이라 버릴 수 없다).
+ * 새 필드는 "꺼짐 = 종전 동작", 옛 `autoCompact: boolean` 은 `contextMode` 로 승계한다(순수 함수 — 시험이 이 승계를 지킨다).
  */
-/**
- * §5.5 #17-35 — 디스크에서 올라온 검증 한 건을 안전한 모양으로 되돌린다.
- *
- * 구버전 체크포인트엔 이 필드 자체가 없고, 손상된 파일에서 배열이 아닌 것이 올라올 수도 있다.
- * 여기서 막지 않으면 화면이 아니라 **복원 자체가** 터진다(§3.2 로드 게이트 완화 규율).
- */
+/** §5.5 #17-35 — 디스크의 검증 한 건을 안전한 모양으로. 여기서 막지 않으면 화면이 아니라 복원 자체가 터진다(§3.2). */
 export function normalizeVerificationRun(run: VerificationRun): VerificationRun {
   const attempts = Array.isArray(run.attempts)
     ? run.attempts
@@ -1099,12 +964,8 @@ export function normalizeVerificationRun(run: VerificationRun): VerificationRun 
 }
 
 /**
- * §5.5 #17-35 ⑧ — 디스크에서 올라온 시연 한 건을 안전한 모양으로 되돌린다.
- *
- * 검증 이력과 같은 이유로(복원 자체가 터지지 않게) 배열이 아닌 것·때가 아닌 것을 전부 걸러낸다.
- * 프레임은 **경로가 문자열인 것만** 남긴다 — 그림 파일이 지워졌는지는 여기서 보지 않는다(그건 실릴 때
- * 서버가 확인한다) — 로드 경로에서 디스크를 뒤지면 복원이 느려지고, 잠시 안 보이는 드라이브가
- * 사용자의 시연을 지워 버리게 된다.
+ * §5.5 #17-35 ⑧ — 디스크의 시연 한 건을 안전한 모양으로. 프레임은 경로가 문자열인 것만 남기고 파일 존재는 안 본다 —
+ * 로드 경로에서 디스크를 뒤지면 복원이 느려지고, 잠시 안 보이는 드라이브가 시연을 지운다(존재는 실릴 때 서버가 확인).
  */
 function normalizeVerificationSteps(raw: VerificationDemoStep[]): VerificationDemoStep[] {
   return Array.isArray(raw)
@@ -1165,22 +1026,9 @@ export function normalizeSessionLoop(loop: SessionLoop): SessionLoop {
 // ─── §9 (2d) 슬라이스별 버전 ───
 
 /**
- * §9 (2d) — **버전이 붙은 `Map`.** 키가 들고 나고 바뀌는 것을 스스로 센다.
- *
- * **왜 상속인가** — 슬라이스 memo 는 "이 맵은 안 바뀌었다"가 **틀리면 그 자리에서
- * 변경이 사라지는** 판정이다. 그런데 이 소스 맵들을 고치는 자리는 수십 곳이고 앞으로도 늘어난다.
- * 변경 지점마다 bump 를 손으로 심는 방식은 **반드시 한 곳을 빠뜨린다** — 이 파일에 이미
- * 전례가 있다(`mutationVersion` 은 `createCustomAgent` 경로에서 안 올라간다). `set`/`delete`/
- * `clear` 를 가로채면 **기존 호출 코드를 한 줄도 안 고치고** 전 경로가 자동으로 잡힌다 —
- * 누락이 구조적으로 불가능해진다.
- *
- * ⚠ **제자리 변경은 여기서 안 잡힌다** — `map.get(k)!.push(x)` 처럼 값을 직접 만지고
- *   `set` 을 다시 안 부르면 버전이 그대로다. 그래서 `memoSlice` 에 TTL 안전망이 함께
- *   걸려 있다(까닭은 `SLICE_MEMO_TTL` 주석). **이 둘은 한 쌍이다 — 한쪽만 남기지 마라.**
- *
- * ⚠ 생성자에 초기 항목을 못 넘기게 **일부러** 막아 둔다. `Map` 생성자는 스펙상 이
- *   클래스의 `set` 을 꺼내 부르는데, 클래스 필드는 `super()` 뒤에 깔리므로 그때
- *   `mapVersion` 은 아직 없다. 복원 경로는 빈 맵을 만든 뒤 `set` 으로 채워라.
+ * §9 (2d) — 버전이 붙은 `Map`: `set`/`delete`/`clear` 를 가로채 스스로 센다(지점마다 손으로 bump 를 심으면 반드시 하나를 빠뜨린다).
+ * ⚠ 제자리 변경(`map.get(k)!.push(x)`)은 못 잡는다 — `memoSlice` 의 TTL 안전망과 **한 쌍이다, 한쪽만 남기지 마라.**
+ * ⚠ 생성자 초기 항목 금지 — `Map` 생성자가 `set` 을 부를 때 `mapVersion` 필드가 아직 없다(`super()` 뒤에 깔린다). 빈 맵 뒤 `set` 으로 채운다.
  */
 export class VersionedMap<K, V> extends Map<K, V> {
   private mapVersion = 0;
@@ -1213,12 +1061,8 @@ export class VersionedMap<K, V> extends Map<K, V> {
 }
 
 /**
- * §5.24 — 히트 척도 한 축의 최대값 묶음. 소유 프로젝트를 모르는 노드는 어느 프로젝트에나 세므로
- * (클라가 쓰던 규칙) 프로젝트별 값과 **따로** 들고 다니다가 합칠 때 각 칸에 얹는다.
- *
- * `values*` 는 `quantile` 곡선이 읽는 **분포**다. 최대값과 같은 순회에서 모으는 이유는 두 번 돌 값이
- * 아니기 때문이고, 여기서는 **정렬하지 않는다** — 여러 인스턴스를 합친 뒤라야 순위가 뜻을 갖는다
- * (인스턴스마다 정렬하면 합칠 때 다시 정렬해야 해서 헛일이 된다).
+ * §5.24 — 히트 척도 한 축의 최대값 묶음. 소유 프로젝트를 모르는 노드는 모든 프로젝트에 세므로 따로 들다 합칠 때 각 칸에 얹는다.
+ * `values*` 는 `quantile` 이 읽는 분포 — 여기서 정렬하지 않는다(인스턴스를 합친 뒤라야 순위가 뜻을 갖는다).
  */
 export interface HeatAxisMaxes {
   byProject: Record<string, number>;
@@ -1242,13 +1086,7 @@ export interface ProcessResult {
   edge?: ActivityEdge;
 }
 
-/**
- * §5.26 (D) — 마커 하나를 **어디까지 읽었나.**
- *
- * 판정을 30분까지 미루게 된 만큼 같은 마커를 여러 스윕이 다시 본다. 매번 마커 오프셋부터
- * 되읽으면 그것이 곧 §9 가 잡았던 10초 스윕 전량 재파싱이라, 어디까지 봤는지를 물고 간다.
- * **영속화 ❌** — 파일에서 언제든 다시 만들 수 있는 파생이다.
- */
+/** §5.26 (D) — 마커 하나를 어디까지 읽었나. 판정을 30분까지 미뤄 같은 마커를 여러 스윕이 보므로, 매번 처음부터 읽으면 10초 스윕 전량 재파싱이 된다(§9). 영속 ❌. */
 interface CompactScanState {
   /** 다음에 읽기 시작할 바이트. 마커의 `transcriptBytes` 에서 출발한다. */
   cursor: number;
@@ -1294,19 +1132,13 @@ export class ProjectGraph {
   /** sessionId → PID (CLI/VSCode 실제 프로세스만). 점유 검사 대상 집합. */
   private sessionPids = new Map<string, number>();
   /**
-   * 워크트리 이주 read 누적 카운트.
-   * sessionId → (worktree 정규화 path → 누적 read 횟수). 임계치 도달 시 이주 트리거.
-   * 이주는 단방향 아님(v1.76) — 같은 root repo 안에서 워크트리 경계를 넘을 때마다 재평가한다
-   * (부모→워크트리, 워크트리 A→워크트리 B). 자기 워크트리 내부 작업은 재이주 안 함(thrash 방지),
-   * 부모/타 repo 파일 접근은 external 처리되어 이주 트리거가 아니다.
+   * 워크트리 이주 read 누적(sessionId → 워크트리 path → 횟수, 임계치에서 이주). 같은 repo 안에서 경계를 넘을 때마다 재평가한다(부모→WT, WT A→B).
+   * 자기 워크트리 안은 재이주 ❌(thrash 방지), 부모/타 repo 파일은 external 이라 트리거가 아니다.
    */
   private agentWorktreeReadCounts = new Map<string, Map<string, number>>();
   /** read 임계치 — 워크트리 내부를 N회 읽으면 이주 확정. 단일 write/edit 은 즉시 이주. */
   private static readonly WORKTREE_READ_MIGRATION_THRESHOLD = 3;
-  /**
-   * v1.6 SCENARIO §5.7 #24: VSCode 창 닫힘 등으로 lifecycle이 제거 신호를 보낸 에이전트의 스냅샷.
-   * 같은 cwd로 새 SessionStart 훅이 들어오면 restoreDormantForCwd로 다시 살아난다.
-   */
+  /** §5.7 #24 — lifecycle 이 제거 신호를 보낸 에이전트(VSCode 창 닫힘 등)의 스냅샷. 같은 cwd 로 새 SessionStart 가 오면 `restoreDormantForCwd` 로 되살아난다. */
   private dormantAgents = new Map<
     string,
     { agent: BubbleData; cwd: string; pid: number; removedAt: number }
@@ -1314,9 +1146,8 @@ export class ProjectGraph {
   /** 사용자 지정 라벨 (agentId → label). 자동 이름보다 우선 */
   private customLabels = new Map<string, string>();
   /**
-   * §3.2.1-3 v2.63 — 사용자가 명시적으로 삭제한 커스텀 에이전트 sessionId 묘비.
-   * identity.json 의 shrink guard 가 "정상 삭제 vs 복원 실패"를 구분하는 신호이자,
-   * 부활 시 이 sessionId 는 되살리지 않게 하는 차단 목록. removeBubble(커스텀) 에서 기록.
+   * §3.2.1-3 — 사용자가 명시 삭제한 커스텀 에이전트 sessionId 묘비(removeBubble 커스텀 분기에서 기록).
+   * identity.json shrink guard 가 정상 삭제와 복원 실패를 가르는 신호이자 부활 차단 목록이다.
    */
   private deletedCustomAgents = new Set<string>();
   /** 에이전트 이벤트 캐시 (agent ID → events) + 갱신 시각 */
@@ -1344,9 +1175,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §3.5 — 이 세션 키를 **다른 인스턴스도** 쥐고 있는가(매니저가 주입). 위 세 참조 맵은 전 인스턴스가 같은
-   * 객체를 쓰므로, 제 버블을 치울 때 이 답이 참이면 그 줄을 지우지 않는다(`dropSharedCommandState`).
-   * 매니저 없이 혼자 쓰는 인스턴스(시험 등)는 기본값 false — 종전 그대로 지운다.
+   * §3.5 — 이 세션 키를 다른 인스턴스도 쥐고 있는가(매니저가 주입). 위 세 참조 맵은 인스턴스끼리 공유라, 참이면 제 버블을 치울 때 그 줄을 안 지운다.
+   * 매니저 없는 인스턴스(시험 등)는 false.
    */
   private sessionHeldElsewhere: (sessionId: string) => boolean = () => false;
   setSessionHeldElsewhere(fn: (sessionId: string) => boolean): void {
@@ -1354,9 +1184,8 @@ export class ProjectGraph {
   }
 
   /**
-   * 공유 명령 맵(큐·완료 이력·pop 메타)에서 이 세션 줄을 지운다 — **다른 인스턴스가 같은 키를 쥐고 있으면 남긴다.**
-   * 실측(2026-09-30): 하위 폴더에 선 유령 인스턴스가 커스텀 세션 키로 훅 버블을 찍었고, 생존 판정이 그것을
-   * 2초마다 치울 때마다 주인 프로젝트의 명령 큐와 완료 이력이 통째로 지워졌다(입력 소실 + 이력 32건 소실).
+   * 공유 명령 맵(큐·완료 이력·pop 메타)에서 이 세션 줄을 지우되 다른 인스턴스가 같은 키를 쥐면 남긴다 — 실측(2026-09-30): 하위 폴더 유령 인스턴스가
+   * 커스텀 키로 훅 버블을 찍고 생존 판정이 그것을 치울 때마다 주인 프로젝트의 큐·이력이 통째로 지워졌다.
    */
   private dropSharedCommandState(sessionId: string): void {
     if (this.sessionHeldElsewhere(sessionId)) {
@@ -1368,11 +1197,7 @@ export class ProjectGraph {
     this.poppedCommandsRef.delete(sessionId);
   }
 
-  /**
-   * §5.5 #17-4 v2.36 — 프로젝트별 스킬 사용 카운트 (skill name → count).
-   * `POST /api/commands/:sessionId` 가 명령 텍스트 줄머리 `/skill-name` 매칭마다 증분.
-   * 클라 SkillsView 가 정렬 키·배지로 사용. 영속화 대상.
-   */
+  /** §5.5 #17-4 — 프로젝트별 스킬 사용 카운트. `POST /api/commands/:sessionId` 가 줄머리 `/skill-name` 마다 올리고 SkillsView 가 정렬·배지에 쓴다. 영속. */
   private skillUsageCounts = new Map<string, number>();
 
   /** 명령 텍스트 줄머리 `/<word>` 토큰들에 대해 카운트 증분 + broadcast 트리거. */
@@ -1388,11 +1213,7 @@ export class ProjectGraph {
     this.bumpMutationVersion();
   }
 
-  /**
-   * snapshot 직렬화용 — `{ [projectName]: { [skillName]: count } }`.
-   * 빈 맵 또는 primary project 미확정이면 undefined.
-   * 여러 ProjectGraph 인스턴스의 카운트가 mergeSnapshots 에서 projectName 1차 키로 보존된다.
-   */
+  /** snapshot 직렬화용 `{ [projectName]: { [skillName]: count } }` — projectName 1차 키라 여러 인스턴스 카운트가 mergeSnapshots 에서 보존된다. 비었거나 primary 미확정이면 undefined. */
   getSkillUsageCountsRecord(): Record<string, Record<string, number>> | undefined {
     if (this.skillUsageCounts.size === 0) return undefined;
     const primary = this.getPrimaryProject();
@@ -1421,50 +1242,21 @@ export class ProjectGraph {
   /** 폴더별 최근 작업 파일 (folder relative path → file relative paths) */
   private satelliteMap = new Map<string, Set<string>>();
   /**
-   * §2.1 #5 — **외부 폴더 조상의 물려받은 위성**(외부 폴더 키 → 자손이 만진 파일 키).
-   *
-   * 내부 폴더는 만진 파일을 **모든 조상 폴더**에 위성으로 등록한다(`processInternalFile` 마지막
-   * 루프) — 그래서 최상위 폴더 버블 주위에 "지금 읽고 쓴 파일"이 뜬다. 외부 폴더는 직속 부모
-   * 하나에만 달았고, 접합 트리가 생긴 뒤로는 최상위에 서는 것이 **접합**(스스로 만져진 적 없는
-   * 조상)이라 **가장 밖에서는 파일이 한 개도 보이지 않았다**. 사용자 보고 "가장 밖에는 읽거나
-   * 쓴 파일 버블이 나와 있어야지"의 정체다.
-   *
-   * 이 맵을 `satelliteMap` 과 **따로 두는 이유**는 하나다 — 접합/만진 폴더 판정이
-   * `satelliteMap` 크기 하나로 돌아가기 때문이다(§2.1 v2.28 invariant). 조상에 위성을 직접
-   * 심으면 접합이 "만진 폴더"로 승격돼 1자형 경유 체인이 통째로 되살아난다(v1.55 평탄화 붕괴).
-   * 그래서 **표시 전용 파생값**으로 두고, `rebuildExternalFolderTree` 가 트리를 세울 때마다
-   * 통째로 다시 만든다. 체크포인트에는 저장하지 않는다 — 복원 직후에도 같은 rebuild 가
-   * 돌아 같은 답이 나오므로 새 영속 필드가 필요 없다.
+   * §2.1 #5 — 외부 폴더 조상이 물려받은 위성(자손이 만진 파일). 없으면 최상위에 서는 접합(만져진 적 없는 조상)에 파일이 하나도 안 보인다.
+   * `satelliteMap` 에 심지 마라 — 접합/만진 폴더 판정이 그 크기로 돌아(§2.1 invariant) 1자형 경유 체인이 되살아난다.
+   * 표시 전용 파생값(`rebuildExternalFolderTree` 가 매번 다시 만든다, 저장 ❌).
    */
   private externalRollupSatellites = new Map<string, Set<string>>();
   /**
-   * §2.1 (C) — 외부 폴더 키 → 그 아래로 **접힌 휘발 자리**(세션 UUID 등)의 집합.
-   *
-   * 세션마다 새로 생기는 `…/claude/<프로젝트>/<세션UUID>/tasks` 는 앱을 켜 둔 시간에 비례해
-   * 늘어 캔버스를 끝없이 쪼갠다. 그래서 그런 폴더는 자기 버블을 갖지 않고 가장 가까운 비휘발
-   * 조상에 모이는데(`processExternalFile`), 그러면 **몇 곳이 접혔는지**를 화면이 말할 수 없다.
-   * 이 맵이 그 수를 들고 있다("세션 4곳").
-   *
-   * 표시 전용 파생값이라 체크포인트에 저장하지 않는다. 복원 직후에는 이 맵이 비어 있지만
-   * `rebuildExternalFolderTree` 가 **위성 파일의 실경로**에서 같은 값을 다시 세운다(위성은
-   * 접히지 않은 실경로로 등록되므로 그 안에 휘발 세그먼트가 그대로 남아 있다).
+   * §2.1 (C) — 외부 폴더 키 → 그 아래로 접힌 휘발 자리(세션 UUID 등). 세션마다 생기는 폴더는 가장 가까운 비휘발 조상에 모이므로(`processExternalFile`)
+   * 몇 곳이 접혔는지를 여기서 센다. 표시 전용 — 복원 뒤 `rebuildExternalFolderTree` 가 위성 실경로에서 다시 세운다.
    */
   private externalFoldedPlaces = new Map<string, Set<string>>();
-  /**
-   * §2.1 (B) — 최상위에 동시에 세울 외부 폴더 **예산**. 옵션창이 정하고(머신 단위 앱 설정)
-   * 서버가 트리를 세울 때 쓴다. 핀(`preservePinned`)은 이 수에 들지 않는다(사용자 결정).
-   */
+  /** §2.1 (B) — 최상위에 동시에 세울 외부 폴더 예산(옵션창이 정하는 머신 단위 설정). 핀(`preservePinned`)은 이 수에 들지 않는다. */
   private externalTopBudget = EXTERNAL_TOP_BUDGET_DEFAULT;
-  /**
-   * §5.23 웹 버블 묶기 — `getSnapshot` 이 한 에이전트가 읽은 호스트 버블들을 이 설정대로 묶어 싣는다
-   * (같은 사이트 · 비슷한 종류 · 에이전트마다 최대 N개). 머신 단위 앱 설정이라 매니저가 모든 인스턴스에 밀어
-   * 준다(`externalTopBudget` 과 같은 길). 씨앗은 **묶지 않음** — 사용자가 보는 기본값(켬)은 앱이 부팅 때 민다.
-   */
+  /** §5.23 웹 버블 묶기 설정(`getSnapshot` 이 이대로 묶는다). 머신 단위라 매니저가 모든 인스턴스에 민다(`externalTopBudget` 과 같은 길). 씨앗은 꺼짐 — 기본값(켬)은 앱이 부팅 때 민다. */
   private webGroup: WebGroupSettings = { ...WEB_GROUP_OFF };
-  /**
-   * §5.23 접어 보기·묶기 — 접힌 버블의 자리(접힌 id → {x,y}). 접힌 버블은 노드 장부에 없는 **보기**라
-   * 체크포인트에 쓰지 않는다 — 비어 있으면 가장 최근 호스트의 자리를 물려받는다.
-   */
+  /** §5.23 — 접힌 버블의 자리(접힌 id → {x,y}). 노드 장부에 없는 보기라 저장하지 않는다 — 비면 가장 최근 호스트의 자리를 물려받는다. */
   private webFoldPositions = new Map<string, { x: number; y: number }>();
   /** 위성 버블 위치 — 클라이언트가 계산한 위치를 서버에 동기화 (sat-{nodeId} → {x,y}) */
   private satellitePositions = new Map<string, { x: number; y: number }>();
@@ -1483,13 +1275,16 @@ export class ProjectGraph {
 
   /** 노드별 연결된 에이전트 참조 (node path → agent ID Set). 에이전트가 idle 될 때 제거 */
   private nodeAgentRefs = new Map<string, Set<string>>();
+  /**
+   * §5.1 #2-1 (B) — 에이전트별 이번 턴 장부(그 턴에 만진 node path). `addAgentRef` 에서 적고, 새 명령(`beginAgentTurn`·`beginAgentPromptTurn`)과
+   * 확인(캔버스 dismiss·IDE 세션 확인) 때 비운다. 소유 기록으로 대신하지 마라 — 캔버스 확인에서만 걷혀 묶음에 며칠치가 남는다. 체크포인트에 실린다.
+   */
+  private agentTurnNodes = new Map<string, Set<string>>();
+  /** 사람이 친 문장(`UserPromptSubmit`)으로 연 턴이 아직 끝나지(`Stop`) 않은 에이전트 — 턴 도중 끼어든 문장이 장부를 비우지 않게. */
+  private promptTurnAgents = new Set<string>();
   /** 노드별 소속 프로젝트 이름 (node key → projectName). ProjectInfo.path로 경로 해석 */
   private nodeProjectNames = new Map<string, string>();
-  /**
-   * 노드별 연속 "fs.existsSync 실패" 관측 횟수 (node key → count).
-   * checkFileExistence 디바운스용 — 런타임 전용(체크포인트 미저장, 재기동 시 self-heal).
-   * 존재 확인되면 엔트리 삭제, FILE_EXISTENCE_MISS_THRESHOLD 도달 시에만 ghost 전환.
-   */
+  /** 노드별 연속 `fs.existsSync` 실패 횟수 — checkFileExistence 디바운스(런타임 전용). `FILE_EXISTENCE_MISS_THRESHOLD` 에 닿을 때만 ghost 로 바꾼다. */
   private existenceMissCount = new Map<string, number>();
 
   /** 외부 폴더 접합 트리 재구성 중인가 — 재구성이 불러오는 제거·업서트가 다시 재구성을 부르는 것을 막는다. */
@@ -1503,58 +1298,27 @@ export class ProjectGraph {
   private commandAppKeys: Set<string> | null = null;
   /** 에이전트(session)별 서버 목록 (session_id → 서버) */
   private runningServers = new Map<string, ServerEntry[]>();
-  /**
-   * 사용자가 Delete 키로 지운 iframe — (sessionId → Set<port>).
-   * 서버가 여전히 살아있어도 shell watcher 로그/rehydrate 경로로는 재생성 금지.
-   * 새 Bash `run_in_background` 훅이 들어오면 해제되어 재생성 허용.
-   */
+  /** 사용자가 Delete 로 지운 iframe(sessionId → port). 서버가 살아 있어도 watcher·rehydrate 로 되살리지 않고, 새 Bash `run_in_background` 훅이 오면 풀린다. */
   private dismissedIframes = new Map<string, Set<number>>();
-  /**
-   * §7.11 — `sniffLoopbackServers` 의 probe 문. 키 `"{세션}|{포트}"` → 마지막으로 찔러 본 시각.
-   * 에이전트는 한 세션에서 Bash 를 수백 번 돌리므로 문이 없으면 같은 주소에 매번 TCP+HTTP 를
-   * 날린다. 영속 대상 ❌ — 재기동하면 다시 한 번 확인하는 편이 옳다.
-   */
+  /** §7.11 — `sniffLoopbackServers` probe 문(`"{세션}|{포트}"` → 마지막 시각). Bash 를 수백 번 돌려 문이 없으면 매번 TCP+HTTP 를 날린다. 영속 ❌(재기동하면 다시 확인한다). */
   private loopbackSniffProbedAt = new Map<string, number>();
-  /**
-   * §7.11 — 이미 만들어진 위성의 표시 URL 을 **한 번씩만** 다시 판정하기 위한 표식.
-   * 키 = 그 위성의 url 문자열 → 확인한 시각. 옛 판본이 API 경로(`/api/…`)를 그대로 실어 둔
-   * 위성이 체크포인트에 남아 있으므로, 서버가 살아난 순간 한 번 물어 정문으로 고쳐 준다.
-   * URL 이 바뀌면 키도 바뀌어 다시 한 번 확인한다. 영속 대상 ❌(파생 판정).
-   */
+  /** §7.11 — 이미 만든 위성의 표시 URL 을 한 번씩만 다시 판정하는 표식(영속 ❌). 체크포인트에 API 경로(`/api/…`)를 실은 옛 위성이 있어, 서버가 살아나면 한 번 물어 정문으로 고친다. */
   private iframePreviewCheckedAt = new Map<string, number>();
   /**
-   * §7.11 / §3.5 — **우리가 방금 띄웠다**는 기록. 키 = 위성 path(`__special__iframe__{세션}__{포트}`).
-   * owning shell 이 아직 붙지 않은 위성(PreToolUse 직후 — shellId 는 PostToolUse·rehydrate 가 늦게 채운다)과
-   * Vibisual 이 respawn 한 서버(v2.23 이 shellId 를 비운다)는 셸로 증거를 댈 수 없어, 상대경로로 띄운
-   * 우리 서버(`node serve.js` → 판정 `unknown`)가 격리 sweep 에 걷힌다. 그 자리를 이 기록이 메운다.
-   * 서버가 한 번 살아난 뒤 죽으면 지운다(그 포트에 새로 선 서버는 다시 증명해야 한다). 영속 대상 ❌.
+   * §7.11 / §3.5 — 우리가 방금 띄웠다는 기록(영속 ❌). shellId 없는 위성(PreToolUse 직후)·우리가 respawn 한 서버는 셸로 증거를 못 대 격리 sweep 에 걷힌다 — 그 자리를 메운다.
+   * 한 번 살아난 뒤 죽으면 지운다(그 포트의 새 서버는 다시 증명해야 한다).
    */
   private iframeLaunchClaims = new Map<string, { at: number; seenAlive: boolean }>();
-  /**
-   * §7.11 / §3.5 — `launch` 증거가 묶인 리스너 pid(처음 본 것). 키 = 위성 path.
-   * 한 포트에 주인이 둘일 수 있다 — 묶인 pid 가 아직 살아 있는데 위성 주소가 다른 pid 에 닿으면
-   * 그건 남이 같은 포트를 다른 주소로 겹쳐 묶은 것이다(`launchEvidenceHolds`). 영속 대상 ❌.
-   */
+  /** §7.11 / §3.5 — `launch` 증거가 묶인 리스너 pid(영속 ❌). 묶인 pid 가 살아 있는데 위성 주소가 다른 pid 에 닿으면 남이 같은 포트를 겹쳐 묶은 것이다(`launchEvidenceHolds`). */
   private iframeBoundPids = new Map<string, number[]>();
-  /**
-   * §7.11 — 소속 판정이 진행 중인 새 위성의 포트(→ 진행 중 개수). 짝 ServerEntry 는 판정 뒤에 서므로,
-   * 그 사이 생사 sweep 의 orphan 정리가 먼저 선 entry(PreToolUse 의 `registerServerPort`)를 지우지 않게 한다.
-   */
+  /** §7.11 — 소속 판정 중인 새 위성의 포트(→ 진행 수). 짝 ServerEntry 는 판정 뒤에 서므로, 그 사이 orphan 정리가 먼저 선 entry(`registerServerPort`)를 지우지 않게 한다. */
   private pendingIframePorts = new Map<number, number>();
   /**
-   * §7.11 — 오너 에이전트 키 → {실제 워커 claude 세션 → 그 워커 cwd} 매핑.
-   * 커스텀/서브 에이전트는 agents 맵·sessionCwds 에 커스텀 키(`custom-…`)로 저장되지만,
-   * background shell(dev 서버)의 JSONL 은 **실제 claude 워커 세션 이름**으로 디스크에 있다.
-   * processHookEvent 의 redirect 가 hook session_id 를 워커→오너 키로 rewrite 할 때 이 매핑을
-   * 쌓아두면, 오너 키로만 들어온 rehydrate 가 워커 JSONL 을 찾아 shell 을 잡고 위성은 오너에
-   * 붙일 수 있다. (일반 세션은 매핑이 없어 자기 세션만 스캔 — 기존 동작 불변.)
+   * §7.11 — 오너 키 → {실제 워커 claude 세션 → cwd}. bg shell JSONL 은 워커 세션 이름으로 있어, redirect 때 쌓아 두면
+   * 오너 키 rehydrate 가 워커 JSONL 의 shell 을 잡고 위성은 오너에 붙인다.
    */
   private workerSessionsByOwner = new Map<string, Map<string, string>>();
-  /**
-   * §7.7 v2.3 denoise — "Keeping agent X alive" 로그를 이미 찍은 세션.
-   * removeAgentBySession 은 lifecycle poll 마다(2초) 호출되므로, live iframe 보존
-   * 메시지를 매번 찍으면 ServerLogPopup 이 도배된다 → 상태 진입 시 1회만 로깅.
-   */
+  /** §7.7 — "Keeping agent X alive" 로그를 찍은 세션. removeAgentBySession 은 2초 poll 마다 불려 매번 찍으면 ServerLogPopup 이 도배된다(진입 때 1회만). */
   private keepAliveLogged = new Set<string>();
   /** background shell 파일 감시자 (port 탐지용) */
   private shellWatcher = new BackgroundShellWatcher();
@@ -1583,25 +1347,13 @@ export class ProjectGraph {
   private hiddenProjects = new Set<string>();
 
   /**
-   * §4 (설정 3층) — 에이전트가 **자기 것으로 못 박은 칸만**(agent ID → 갈라진 칸).
-   *
-   * 종전에는 여기에 완성된 설정 한 벌이 들어 있었고, 그 한 벌은 `createCustomAgent` 가 버블을
-   * 만드는 순간 전역 기본값을 통째로 복사해 넣은 것이었다. 그래서 설정 창을 나중에 고쳐도
-   * 이미 있는 버블에는 닿지 않았고, 저장분만 봐서는 **어느 칸이 사용자의 뜻인지 알 수 없었다.**
-   * 이제 갈라진 칸만 두고 `getAgentConfig` 가 읽는 순간 세 층을 겹친다 —
-   * 그래야 "안 건드린 칸은 설정 창을 따라간다"가 성립한다.
-   *
-   * 빈 객체가 들어 있는 것과 키가 아예 없는 것은 **다르다**: 빈 객체 = "그런 에이전트가 있고
-   * 전부 위층을 따른다", 키 없음 = "그런 에이전트를 모른다"(`getAgentConfig` 가 `undefined`).
+   * §4 (설정 3층) — 에이전트가 못 박은 칸만(`getAgentConfig` 가 읽을 때 세 층을 겹친다). 완성본을 저장하지 마라 — 설정 창 변경이 기존 버블에 안 닿는다.
+   * 빈 객체 = 전부 위층을 따르는 에이전트, 키 없음 = 모르는 에이전트(`undefined`).
    */
   private agentConfigOverrides = new Map<string, Partial<AgentConfig>>();
   /**
-   * §4 (설정 3층) — 라이브 세션에서 **관측된** 모델(agent ID → 모델 패밀리). 영속 ❌.
-   *
-   * 훅으로 잡은 외부 세션은 우리가 띄운 것이 아니라 설정이라 부를 것이 없다 — 그 버블의 모델은
-   * 관측이 유일한 진실이다. 종전에는 이 관측을 설정에 **써 넣어서**, 사용자가 고른 적 없는 값이
-   * 자기 값처럼 굳고 도구 목록까지 함께 덮였다(설정 창의 도구 선택이 읽히지 않던 원인).
-   * 이제 저장하지 않고 읽는 순간에만 얹으며, **자기 `model` 을 못 박은 에이전트는 건드리지 않는다.**
+   * §4 (설정 3층) — 라이브 세션에서 관측된 모델(영속 ❌). 훅으로 잡은 외부 세션은 관측이 유일한 진실이다.
+   * 설정에 써 넣지 마라 — 고른 적 없는 값이 굳고 도구 목록까지 덮인다. 읽을 때만 얹고, `model` 을 못 박은 에이전트는 안 건드린다.
    */
   private detectedAgentModels = new Map<string, string>();
   /** 에이전트(session)별 관측된 도구 (session_id → Set<tool_name>). 훅 이벤트에서 자동 수집 */
@@ -1612,84 +1364,37 @@ export class ProjectGraph {
   /** 에이전트 간 작업 흐름 엣지 (TaskEdge ID → TaskEdge) */
   private taskEdges = new VersionedMap<string, TaskEdge>();
 
-  /**
-   * §5.3 #10-2 v2.37 — Auto Agent 가 생성한 서브 군의 메타 (autoAgentSessionId → AutoAgentSummary).
-   * 영속화 대상 (ProjectCheckpoint.autoAgentSummaries).
-   */
+  /** §5.3 #10-2 — Auto Agent 가 생성한 서브 군의 메타. 영속(ProjectCheckpoint.autoAgentSummaries). */
   private autoAgentSummaries = new VersionedMap<string, AutoAgentSummary>();
-  /**
-   * §5.3 #10-3 v4.98 — 검증 런 (autoAgentSessionId → AutoAgentRun[], 최신이 뒤).
-   * 영속화 대상 (ProjectCheckpoint.autoAgentRuns). ring buffer 캡 = AUTO_AGENT_RUN_MAX_PER_AGENT.
-   * `autoAgentSummaries` 와 달리 요청마다 레코드가 늘어난다(덮어쓰지 않는다).
-   */
+  /** §5.3 #10-3 — 검증 런(최신이 뒤). 영속(ProjectCheckpoint.autoAgentRuns), 캡 = AUTO_AGENT_RUN_MAX_PER_AGENT. 요청마다 레코드가 늘어난다(덮어쓰지 않는다). */
   private autoAgentRuns = new VersionedMap<string, AutoAgentRun[]>();
-  /**
-   * §4 v2.52 — 에이전트 작업 신고 (agentId → AgentReport[]). did/userActions 색 구분용.
-   * 영속화 대상 (ProjectCheckpoint.agentReports). ring buffer 캡 = AGENT_REPORT_MAX_PER_AGENT.
-   */
+  /** §4 — 에이전트 작업 신고(did/userActions 색 구분용). 영속(ProjectCheckpoint.agentReports), 캡 = AGENT_REPORT_MAX_PER_AGENT. */
   private agentReports = new VersionedMap<string, AgentReport[]>();
   /**
-   * §5.4 #36 (H) ①-2 — 에이전트마다 **마지막으로 걷힌 연결** (agentId → AgentLinkRecord). 연결을 걷는 자리
-   * (`markAgentIdle` · 고정 풀기 걷기)가 걷기 직전에 적고, [이전 연결 다시 보기](`replayAgentLinks`)가 읽는다.
-   * 영속화 대상 (ProjectCheckpoint.agentLinkRecords) — 한도는 `AGENT_LINK_RECORD`(`capAgentLinkEntries`).
-   * 바꿀 때 `bumpMutationVersion` 을 부른다 — 스냅샷의 `prevLinkCount` 가 이 맵에서 나온다.
+   * §5.4 #36 (H) ①-2 — 에이전트마다 마지막으로 걷힌 연결. 걷는 자리(`markAgentIdle`·고정 풀기)가 적고 `replayAgentLinks` 가 읽는다. 영속(한도 `capAgentLinkEntries`).
+   * 바꿀 때 `bumpMutationVersion` — 스냅샷 `prevLinkCount` 가 여기서 나온다.
    */
   private agentLinkRecords = new Map<string, AgentLinkRecord>();
-  /**
-   * §5.5 #17-36 — **메인 탭**(세션 미선택)에서 만든 스티키 메모 (agentId → SessionMemo[]).
-   * 세션 탭 메모는 그 세션의 소지품이라 `SubAgent.memos` 에 있고, 붙일 세션이 없는 메인 탭
-   * 메모만 여기 산다. 영속화 대상 (ProjectCheckpoint.agentMemos). 열린 장수에만 상한을 적용한다.
-   */
+  /** §5.5 #17-36 — 메인 탭(세션 미선택) 스티키 메모. 세션 탭 메모는 `SubAgent.memos` 에 있다. 영속(ProjectCheckpoint.agentMemos), 열린 장수에만 상한. */
   private agentMemos = new VersionedMap<string, SessionMemo[]>();
-  /**
-   * §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[]). 질문 + 제안 프롬프트.
-   * 영속화 대상 (ProjectCheckpoint.agentQuestions). ring buffer 캡 = AGENT_QUESTIONS_MAX_PER_AGENT.
-   */
+  /** §4 — 에이전트 질문 카드(질문 + 제안 프롬프트). 영속(ProjectCheckpoint.agentQuestions), 캡 = AGENT_QUESTIONS_MAX_PER_AGENT. */
   private agentQuestions = new VersionedMap<string, AgentQuestions[]>();
-  /**
-   * §4 v2.70 — 에이전트 검수 요청 카드 (agentId → AgentReview[]). changes/checkpoints 검수용.
-   * 영속화 대상 (ProjectCheckpoint.agentReviews). ring buffer 캡 = AGENT_REVIEWS_MAX_PER_AGENT.
-   */
+  /** §4 — 에이전트 검수 요청 카드(changes/checkpoints). 영속(ProjectCheckpoint.agentReviews), 캡 = AGENT_REVIEWS_MAX_PER_AGENT. */
   private agentReviews = new VersionedMap<string, AgentReview[]>();
-  /**
-   * §4 v2.84 — 에이전트 번호 목록 정렬 카드 (agentId → AgentList[]). 번호/순서 목록 정렬용.
-   * 영속화 대상 (ProjectCheckpoint.agentLists). ring buffer 캡 = AGENT_LISTS_MAX_PER_AGENT.
-   */
+  /** §4 — 에이전트 번호 목록 정렬 카드. 영속(ProjectCheckpoint.agentLists), 캡 = AGENT_LISTS_MAX_PER_AGENT. */
   private agentLists = new VersionedMap<string, AgentList[]>();
-  /**
-   * §4 v3.21 — 에이전트 피드백 (agentId → AgentFeedback[]). 좋아요/싫어요 → 규칙 되먹임용.
-   * 영속화 대상 (ProjectCheckpoint.agentFeedbacks). ring buffer 캡 = AGENT_FEEDBACK_MAX_PER_AGENT.
-   */
+  /** §4 — 에이전트 피드백(좋아요/싫어요 → 규칙 되먹임). 영속(ProjectCheckpoint.agentFeedbacks), 캡 = AGENT_FEEDBACK_MAX_PER_AGENT. */
   private agentFeedbacks = new VersionedMap<string, AgentFeedback[]>();
-  /**
-   * §5.5 #17-11 v3.79 — 세션 반복 실행(루프) 설정 (subAgentId → SessionLoop).
-   * 키가 **세션 탭 ID** 인 것이 핵심 — 탭마다 다른 반복 명령을 갖는다.
-   * 영속화 대상 (ProjectCheckpoint.sessionLoops) — 사용자가 짜 넣은 설정 + 진행 카운트라
-   * 재시작 후에도 이어져야 한다(회차 발사·정지 판단은 index.ts 런타임이 담당).
-   */
+  /** §5.5 #17-11 — 세션 반복 실행(루프) 설정. 키가 세션 탭 ID 라 탭마다 반복 명령이 다르다. 영속 — 재시작 뒤에도 이어진다(발사·정지 판단은 index.ts 런타임). */
   private sessionLoops = new VersionedMap<string, SessionLoop>();
   /**
-   * §5.5 #17-35 — 검증 실행 이력 (subAgentId → VerificationRun[], **최신이 앞**).
-   * 루프·목표와 같은 키 축(세션 탭)이다. 세션당 `VERIFICATION_RUNS_MAX_PER_SESSION` 건에서 자른다 —
-   * 값 길이만 자르고 개수를 안 막으면 체크포인트가 무한히 자란다(§9).
-   * 영속화 대상 (ProjectCheckpoint.verificationRuns) — "무엇이 언제 실제로 돌아서 통과했는가" 는
-   * 세션이 끝나도 남아야 할 근거다. identity.json 은 아니다(실행 기록 ≠ 정체성 — §5.16 과 같은 판단).
+   * §5.5 #17-35 — 검증 실행 이력(세션 탭 키, 최신이 앞). `VERIFICATION_RUNS_MAX_PER_SESSION` 건에서 자른다(안 막으면 체크포인트가 무한히 자란다 — §9).
+   * 영속 — identity.json 은 아니다(실행 기록 ≠ 정체성).
    */
   private verificationRuns = new VersionedMap<string, VerificationRun[]>();
-  /**
-   * §5.5 #17-17 ⑪(a) — 단계의 "종류" 카드 (key → VisualKindCard).
-   *
-   * 목표·루프와 달리 **키 축이 세션 탭이 아니라 프로젝트 하나**다(같은 사람이 만드는 것의 종류는
-   * 탭이 바뀌어도 같다). 에이전트가 만들고, 안 쓰이면 시들고, 휴지통으로 간다.
-   * 영속화 대상 (ProjectCheckpoint.visualKinds + identity.json — 에이전트가 만든 것이라 정체성).
-   */
+  /** §5.5 #17-17 ⑪(a) — 단계의 "종류" 카드. 키 축은 프로젝트 하나(종류는 탭이 바뀌어도 같다). 에이전트가 만들고 안 쓰이면 시들어 휴지통으로. 영속(체크포인트 + identity.json). */
   private visualKinds = new VersionedMap<string, VisualKindCard>();
-  /**
-   * §5.5 #17-17 ⑫(b) — 사용자가 팔레트에서 **고정한** 행동 카드 id.
-   *
-   * 팔레트 목록 자체는 파생이라 여기 없다(매번 다시 짓는다). 고정은 사용자가 고른 것이라
-   * 재계산으로 되살릴 수 없으므로 체크포인트 + identity.json 까지 간다(§3.2.2).
-   */
+  /** §5.5 #17-17 ⑫(b) — 사용자가 팔레트에서 고정한 행동 카드 id. 팔레트는 파생이지만 고정은 재계산으로 못 살려 체크포인트 + identity.json 까지 간다(§3.2.2). */
   private pinnedGoalActions = new Set<string>();
   /**
    * ⑫(a) — 팔레트 집계 결과의 짧은 캐시. 원천이 넷이라 버전 memo 를 쓸 수 없다(그 이유는
@@ -1697,40 +1402,23 @@ export class ProjectGraph {
    */
   private goalActionsMemo: { at: number; value: GoalActionCard[] | undefined } | null = null;
   /**
-   * §5.5 #17-35 ⑧ — 시연(재현 절차) 목록 (subAgentId → VerificationDemo[], **최신이 앞**).
-   * 실행 이력과 같은 키 축(세션 탭)이고 세션당 `VERIFICATION_DEMO_MAX_PER_SESSION` 건에서 자른다.
-   * 영상은 여기 없다 — 단계 문장과 프레임 경로만 산다(⑧-2). 그림 파일 자체는 `.vibisual/verify-demos/`
-   * 에 있고, 그 폴더를 지우는 것은 삭제 경로의 일이다(이 맵은 경로만 든다).
+   * §5.5 #17-35 ⑧ — 시연(재현 절차) 목록(세션 탭 키, 최신이 앞, 세션당 `VERIFICATION_DEMO_MAX_PER_SESSION`). 단계 문장·프레임 경로만 든다(⑧-2).
+   * 그림 폴더(`.vibisual/verify-demos/`)는 삭제 경로가 지운다.
    */
   private verificationDemos = new VersionedMap<string, VerificationDemo[]>();
-  /**
-   * §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal).
-   * 루프와 같은 키 축(세션 탭)이지만 실행 주체가 아니라 **방향**이다 — 명령을 발사하지 않고
-   * 매 턴 dispatchContext 에 다시 실려 세션을 조향하고, 진행률 퍼센트를 사용자에게 답한다.
-   * 영속화 대상 (ProjectCheckpoint.sessionGoals + identity.json — 사용자가 쓴 문장이라 정체성).
-   */
+  /** §5.5 #17-17 — 세션 목표(세션 탭 키). 실행 주체가 아니라 방향 — 명령을 발사하지 않고 매 턴 dispatchContext 에 실려 세션을 조향한다. 영속(체크포인트 + identity.json). */
   private sessionGoals = new VersionedMap<string, SessionGoal>();
-  /**
-   * §5.5 #17-28 — 컨텍스트 주입원 오버라이드. 층은 셋 — 프로젝트 전체 · 에이전트 버블 · 세션 탭.
-   *
-   * 여기 담기는 것은 **사용자의 뜻**뿐이다(무엇이 존재하고 몇 토큰인지는 조회 때마다 다시 잰다).
-   * 영속화 대상 (ProjectCheckpoint.contextOverrides) — 잃으면 껐던 것이 조용히 다시 실린다.
-   */
+  /** §5.5 #17-28 — 컨텍스트 주입원 오버라이드(층: 프로젝트·에이전트 버블·세션 탭). 사용자의 뜻만 담는다(토큰 수는 조회 때 잰다). 영속 — 잃으면 껐던 것이 조용히 다시 실린다. */
   private contextOverridesProject = new Map<string, Map<string, boolean>>();
   /** 에이전트 버블 id → 그 버블의 모든 세션에 걸리는 층(프로젝트보다 우선, 세션보다 아래). */
   private contextOverridesAgent = new Map<string, Map<string, boolean>>();
   /** subAgentId → { 소속 에이전트(프로젝트 필터용), 값 }. 소속을 함께 들지 않으면 체크포인트를 못 가른다. */
   private contextOverridesSession = new Map<string, { agentId: string; values: Map<string, boolean> }>();
   private contextOverridesUpdatedAt = 0;
-  /**
-   * §5.3 #12-1 v1.91 — 현재 권한 승인 팝업 대기 중인 에이전트 id 집합.
-   * PreToolUse 훅이 동기 hold(최대 60s) 하는 동안 에이전트는 "블록된 활성" 상태다.
-   * 이 집합에 든 에이전트는 recompute/sweep/expire 가 completed·idle 로 강등하지 못한다
-   * (훅 hold 중 sub 가 비활성처럼 보여 집계가 completed 로 넘기던 버그 차단).
-   */
+  /** §5.3 #12-1 — 권한 승인 팝업 대기 중인 에이전트. PreToolUse 훅이 동기 hold(최대 60s) 하는 동안 "블록된 활성"이라 recompute/sweep/expire 가 completed·idle 로 내리지 못한다. */
   private permissionWaitingAgents = new Set<string>();
 
-  /** §5.3 #12-1 v1.91 — 권한 대기 진입/해제. index.ts /api/permission-check 가 broker.request 전후로 호출. */
+  /** §5.3 #12-1 — 권한 대기 진입/해제. index.ts /api/permission-check 가 broker.request 전후로 부른다. */
   setPermissionWaiting(agentId: string, waiting: boolean): void {
     if (waiting) this.permissionWaitingAgents.add(agentId);
     else this.permissionWaitingAgents.delete(agentId);
@@ -1746,35 +1434,15 @@ export class ProjectGraph {
       }
     }
   }
-  /** 언리얼 블프 스타일 Comment Box (id → CommentBox). 메인 캔버스 배경 주석. v1.45 */
+  /** 언리얼 블프 스타일 Comment Box. 메인 캔버스 배경 주석. */
   private commentBoxes = new Map<string, CommentBox>();
-  /**
-   * §5.5 #17-20 ⑩ v4.94 — 프로젝트별 중단점(projectName → 목록).
-   * 세션이 없어도 남는 사용자 표식이라 체크포인트로 영속한다(세션·콜스택·변수는 프로세스 수명).
-   */
+  /** §5.5 #17-20 ⑩ — 프로젝트별 중단점. 세션이 없어도 남는 사용자 표식이라 체크포인트로 영속한다(세션·콜스택·변수는 프로세스 수명). */
   private debugBreakpoints = new Map<string, DebugBreakpoint[]>();
-  /**
-   * §5.11 정독 게이트 — 프로젝트별 정독 설정(**projectPath 키**).
-   *
-   * 키가 표시명이 아니라 경로인 이유: 표시명은 basename 충돌 시 유일화되어 **세션 간 바뀔 수 있다**.
-   * 게이트 강도·면제 목록은 사용자가 손으로 정한 값이라 이름이 바뀌었다고 잃으면 안 된다.
-   * 원장(어느 절을 열었나)은 여기 없다 — 그건 세션 계측이라 `specReadingService` 가 휘발로 든다.
-   */
+  /** §5.11 정독 게이트 — 프로젝트별 정독 설정(경로 키 — 표시명은 바뀔 수 있어 손으로 정한 값을 잃는다). 원장(어느 절을 열었나)은 `specReadingService` 가 휘발로 든다. */
   private specReadingSettings = new Map<string, SpecReadingSettings>();
-  /**
-   * §5.10 — 자동 목표 설정(프로젝트 경로 키 → 3층 켬/끔 + 물린 후보).
-   *
-   * 정독과 같은 키 규칙(표시명 ❌ 경로 ⭕)을 쓴다 — 켬/끔과 "다시 제안하지 마라"는 사용자가 정한
-   * 값이라 탭 이름이 바뀌었다고 잃으면 안 된다. **후보·스킬 목록은 여기 없다**: 후보는 이력에서
-   * 매번 다시 세는 파생이고, 스킬은 디스크의 `SKILL.md` 가 원본이다.
-   */
+  /** §5.10 — 자동 목표 설정(경로 키 → 3층 켬/끔 + 물린 후보). 후보는 이력에서 매번 세는 파생, 스킬은 디스크 `SKILL.md` 가 원본이라 여기 없다. */
   private autoGoalSettings = new Map<string, AutoGoalSettings>();
-  /**
-   * §5.3 #10-4 — 오케스트라(지휘 모드) 설정(프로젝트 경로 키 → 2단 켬/끔 + 지휘·멤버 엔진 세부).
-   *
-   * 자동 목표와 같은 키 규칙(표시명 ❌ 경로 ⭕)이다 — 켬/끔은 사용자가 정한 값이라 탭 이름이
-   * 바뀌었다고 잃으면 안 된다. 안 정한 프로젝트는 칸이 없다(= 꺼짐).
-   */
+  /** §5.3 #10-4 — 오케스트라(지휘 모드) 설정(경로 키 → 2단 켬/끔 + 엔진 세부). 안 정한 프로젝트는 칸이 없다(= 꺼짐). */
   private orchestraSettings = new Map<string, OrchestraSettings>();
   /**
    * §5.3 #10-4 — 오케스트라 런 기록(프로젝트 경로 키 → 최근 `ORCHESTRA_RUN_MAX_PER_PROJECT`건 ring).
@@ -1782,10 +1450,8 @@ export class ProjectGraph {
    */
   private orchestraRuns = new Map<string, OrchestraRun[]>();
   /**
-   * §9 — `getOrchestraSummary` 의 참조 유지 메모. 설정·런 목록은 바뀔 때마다 **새 객체로 갈아
-   * 끼워지므로**(`setOrchestraSettings`·`addOrchestraRun`·`updateOrchestraRun`·복원) 두 참조가 같으면
-   * 요약도 같다. 이게 있어야 `orchestra` 슬라이스가 증분(`DELTA_SLICE_KEYS`)을 탄다 — 매번 새로
-   * 지으면 정지 상태에서도 최근 런(요청 원문 포함)이 매 브로드캐스트마다 통째로 간다.
+   * §9 — `getOrchestraSummary` 참조 유지 메모. 설정·런은 바뀔 때마다 새 객체로 갈아 끼우므로 참조가 같으면 요약도 같다 —
+   * 없으면 `orchestra` 슬라이스가 증분(`DELTA_SLICE_KEYS`)을 못 타 런 원문이 매 브로드캐스트마다 간다.
    */
   private orchestraSummaryMemo: {
     settings: OrchestraSettings | undefined;
@@ -1813,7 +1479,7 @@ export class ProjectGraph {
   } | null = null;
   /** §5.9 화면/프로그램 캡처 버블 (id → CaptureBubble). 사용자 생성 독립 캔버스 요소. */
   private captureBubbles = new Map<string, CaptureBubble>();
-  /** §5.13 v4.45 — 내부 앱 버블(범용). 앱이 늘어도 이 Map 하나로 끝난다. */
+  /** §5.13 — 내부 앱 버블(범용). 앱이 늘어도 이 Map 하나로 끝난다. */
   private appBubbles = new Map<string, AppBubble>();
   /**
    * §5.1 #2-1 (F) ③ — 작업 폴더 훑기의 기준 자리(sub 마다 · 명령이 바뀌면 비운다) · 대기 중인 훑기. 둘 다 런타임 전용이다
@@ -1821,7 +1487,7 @@ export class ProjectGraph {
    */
   private appWorkAnchors = new Map<string, { commandId: string | null; since: number; anchors: Set<string> }>();
   private appWorkScanTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  /** §5.14 v4.62 — 플레이 버블(이 프로젝트를 켜는 버튼 + 확정된 실행 레시피). */
+  /** §5.14 — 플레이 버블(이 프로젝트를 켜는 버튼 + 확정된 실행 레시피). */
   private playBubbles = new Map<string, PlayBubble>();
   /** §5.15 — 스펙 보드(요구사항 본문 + 수용 기준 + 거기서 나온 작업 카드 연결). */
   private specDocs = new Map<string, SpecDoc>();
@@ -1854,11 +1520,8 @@ export class ProjectGraph {
    */
   private auditLogService = new AuditLogService(() => appStateGetRetention().auditEntryMaxPerProject);
   /**
-   * §5.26 (A) — 컨텍스트 보험 저장고. `<projectPath>/.vibisual/save/insurance/` 아래에
-   * **바이트만** 앉는다(`sub-streams/` 와 같은 부류). 색인은 원장이 들고 체크포인트를 지난다.
-   *
-   * 저장고가 그래프를 물지 않게 `resolveSaveDir` 하나로만 바깥과 닿는다 — 그래야 시험이
-   * 임시 폴더를 주고 이 클래스 전체를 세우지 않고도 저장고를 돌릴 수 있다.
+   * §5.26 (A) — 컨텍스트 보험 저장고(`<projectPath>/.vibisual/save/insurance/` 에 바이트만, 색인은 원장이 든다).
+   * `resolveSaveDir` 하나로만 바깥과 닿는다 — 시험이 임시 폴더만으로 저장고를 돌릴 수 있게.
    */
   private insuranceVault = new InsuranceVault({
     resolveSaveDir: (projectName) => {
@@ -1884,62 +1547,30 @@ export class ProjectGraph {
   /** §5.26 (D) — 마커별 스캔 커서. 새로 붙은 바이트만 훑는다. 영속화 ❌(파생). */
   private readonly compactScans = new Map<string, CompactScanState>();
   /**
-   * §5.26 (D) — 되짚기를 **끝낸** 마커. 여기 든 마커는 스윕이 더 보지 않는다.
-   *
-   * 들어오는 자리는 셋뿐이다: 요약을 찾았거나, **둘째 경계**를 지났거나(그 뒤의 요약은 다음
-   * 마커의 것이다), 트랜스크립트가 사라졌거나. **"끝까지 읽었다"는 여기 없다** — 증거가 늦게
-   * 오는 것이 이 절이 고치고 있는 결함 자체라, 파일 끝에 닿았다고 손을 떼면 같은 실수를 한다.
-   * 안 자라는 파일을 계속 지켜보는 값은 스윕당 `fileSize` 한 번이다(커서가 이미 끝이라 읽지
-   * 않는다). 예산이 모자라 못 본 마커도 넣지 않아 다음 스윕이 커서 그대로 이어 본다.
+   * §5.26 (D) — 되짚기를 끝낸 마커 — 요약을 찾음·둘째 경계를 지남(그 뒤 요약은 다음 마커 것)·트랜스크립트가 사라짐일 때만 넣는다.
+   * "끝까지 읽었다"로 넣지 마라(증거가 늦게 오는 것이 이 절의 결함이다). 예산이 모자라 못 본 마커도 안 넣는다(다음 스윕이 잇는다).
    */
   private readonly compactRechecked = new Set<string>();
-  /**
-   * §5.26 (B) — 세션별 팀원 이름. 압축은 팀 구성을 통째로 지우는데 그래프에는 그 목록이
-   * 남는 자리가 없어, 훅이 지나갈 때마다 여기에 합집합으로 모아 둔다(§3.6-1 넓게 받기).
-   * 영속화 ❌ — 마커에 박혀 나가는 순간 그게 정본이다.
-   */
+  /** §5.26 (B) — 세션별 팀원 이름. 압축이 팀 구성을 지워도 남도록 훅이 지날 때마다 합집합으로 모은다(§3.6-1). 영속 ❌ — 마커에 박혀 나가면 그게 정본이다. */
   private teammatesBySession = new Map<string, Set<string>>();
-  /**
-   * §5.26 (F) — 5초 대조 루프가 갱신하는 감시 결과. **파생이라 영속화 ❌.**
-   *
-   * `getSnapshot()` 안에서 계산하지 않는다 — 그 자리는 방송마다 도는 가장 뜨거운 길이고,
-   * 판정에는 세션마다 트랜스크립트 눈금 읽기가 들어간다. 이미 도는 루프에 얹고 여기서 읽는다.
-   */
+  /** §5.26 (F) — 5초 대조 루프가 갱신하는 감시 결과(파생, 영속 ❌). `getSnapshot()` 에서 계산하지 마라 — 가장 뜨거운 길인데 판정에 트랜스크립트 읽기가 든다. */
   private compactWatchCache: CompactWatchState[] = [];
-  /**
-   * §5.26 (F) — 세션별 트랜스크립트 크기의 **직전 관측**(sessionId → 바이트).
-   *
-   * 압축을 한 번도 안 한 세션에는 마커가 없어 "아직 자라고 있는가"를 잴 기준이 없다. 그런데
-   * 그 세션이야말로 이 감시의 머리 사례다(창이 찼는데 압축이 아예 안 도는 상태). 5초 대조 루프가
-   * 어차피 여기를 지나므로 그때마다 크기를 적어 두고 다음 회차에 차이를 낸다. 영속화 ❌.
-   */
+  /** §5.26 (F) — 세션별 트랜스크립트 크기의 직전 관측(영속 ❌). 압축을 한 번도 안 한 세션엔 마커가 없어 자라는지 잴 기준이 없다 — 5초 루프마다 적어 차이를 낸다. */
   private transcriptSeenBySession = new Map<string, number>();
-  /**
-   * §5.26 (F)(b) — 세션별로 우리가 `/compact` 를 **보낸** 시각(CLI 세션 UUID 키).
-   *
-   * 파생값이라 체크포인트에 넣지 않는다((I)(b) 규약) — 앱을 껐다 켜면 비고, 다음 발사에서 다시 찬다.
-   * `transcriptSeenBySession` 과 같은 자리에서 같은 상한을 받는다(세션 키는 무한히 자라는 축이다).
-   */
+  /** §5.26 (F)(b) — 우리가 `/compact` 를 보낸 시각(CLI 세션 UUID 키). 파생이라 저장 ❌((I)(b)). `transcriptSeenBySession` 과 같은 상한(세션 키는 무한히 자란다). */
   private compactSentBySession = new Map<string, number>();
-  /** §5.3 #28 v1.47 — 콘티 (contiId → Conti). 에이전트 cascade 삭제. */
+  /** §5.3 #28 — 콘티(contiId → Conti). 에이전트 cascade 삭제. */
   private contis = new VersionedMap<string, Conti>();
 
-  /**
-   * §5.3 #28 (L) v1.58 — 콘티 인플라이트 작업 추적 (agentId → ActiveContiWork).
-   * 트리거 측에서 workId 발급, 첫 응답에 contiId 머지. 영속화 ❌.
-   */
+  /** §5.3 #28 (L) — 콘티 인플라이트 작업 추적. 트리거 측에서 workId 발급, 첫 응답에 contiId 머지. 영속화 ❌. */
   private activeContiWork = new VersionedMap<string, ActiveContiWork>();
 
-  /** §4 v1.50 — 에이전트(session)별 도구 실행 시간 ring buffer (최근 5건). 영속화 ❌. */
+  /** §4 — 에이전트(session)별 도구 실행 시간 ring buffer(최근 5건). 영속화 ❌. */
   private recentToolDurations = new VersionedMap<string, ToolDurationEntry[]>();
-  /** §4 v1.50 — 에이전트(session)별 컨텍스트 컴팩션 카운트 + 마지막 시각. ProjectCheckpoint 영속. */
+  /** §4 — 에이전트(session)별 컨텍스트 컴팩션 카운트 + 마지막 시각. ProjectCheckpoint 영속. */
   private compactCounts = new VersionedMap<string, CompactCount>();
   private uiLocale: UiLocale = DEFAULT_UI_LOCALE;
-  /**
-   * 프로젝트별 루트 캔버스 바운딩 박스 크기(half-width/height). 키 = projectName.
-   * 미설정(map miss)이면 클라이언트가 기본값을 사용. 사용자가 핸들로 조절하면
-   * PATCH 로 업데이트되어 해당 프로젝트 체크포인트에 저장.
-   */
+  /** 프로젝트별 루트 캔버스 바운딩 박스(half-width/height, projectName 키). 없으면 클라 기본값, 핸들로 조절하면 PATCH 로 그 프로젝트 체크포인트에 저장. */
   private layoutBoundsByProject = new Map<string, { hw: number; hh: number }>();
   /**
    * §5.3 #12-3 — 프로젝트별 자물쇠. 키 = projectName(감사 원장·바운딩 박스와 같은 키).
@@ -1949,11 +1580,7 @@ export class ProjectGraph {
 
   // ─── 성능 최적화: 내부 캐시 (public API / 타입 변경 없음) ───
 
-  /**
-   * (2a) enrichNode statSync mtime TTL 캐시.
-   * absPath → { size, mtimeMs, cachedAt } | null (null = 파일 없음 음성 캐시)
-   * §5.1 #2-1 — 같은 stat 에서 수정 시각도 든다(버블 안 미리보기의 판본 · 내용 언급 캐시의 도장). 새 디스크 호출 ❌.
-   */
+  /** (2a) enrichNode statSync TTL 캐시(null = 파일 없음 음성 캐시). §5.1 #2-1 — 수정 시각도 같은 stat 에서 든다(미리보기 판본·언급 캐시 도장 — 새 디스크 호출 ❌). */
   private static readonly STAT_CACHE_TTL = 3_000; // ms
   private static readonly STAT_MISS_TTL  = 1_000; // 파일 없음 음성 캐시
   private statCache = new Map<string, { size: number; mtimeMs: number; cachedAt: number } | null>();
@@ -1975,46 +1602,27 @@ export class ProjectGraph {
   private asyncChangeCallback: (() => void) | null = null;
 
   /**
-   * §9 (2c) `resolveAbsolutePath` 결과 캐시 — 노드 키 → 그때의 (루트·프로젝트명·답).
-   *
-   * `enrichNode` 가 노드마다 부르므로 `getSnapshot()` 1회에 노드 수만큼 `path.resolve` 가 돌았다
-   * (이 저장소 실측 2,467 노드 · **3.5ms/스냅샷**). 답은 (키·루트·프로젝트명)의 함수라 그 셋을
-   * 함께 담아 두고 **쓸 때마다 대조**한다 — 무효화 장부가 필요 없다(자세한 까닭은 그 함수 주석).
-   *
-   * 상한을 두는 이유: 노드가 지워져도 키가 남으므로, 오래 켜 두면 없는 키가 계속 쌓인다.
-   * 넘치면 통째로 비운다 — 다음 스냅샷 한 번이 다시 채우고 정확성에는 영향이 없다.
+   * §9 (2c) `resolveAbsolutePath` 결과 캐시(스냅샷마다 노드 수만큼 `path.resolve` — 실측 2,467 노드 · 3.5ms). 키·루트·프로젝트명을 함께 담아 쓸 때 대조한다(무효화 장부 불필요).
+   * 지워진 노드 키가 쌓이므로 상한을 넘으면 통째로 비운다(정확성 영향 없음).
    */
   private static readonly ABS_PATH_CACHE_MAX = 20_000;
   private absPathCache = new Map<string, { root: string; projectName: string | undefined; value: string | null }>();
 
-  /**
-   * (2b) getSnapshot 결과 캐시.
-   * mutationVersion 이 바뀌거나 TTL 이 지나면 재계산.
-   * TTL 상한은 worst-case staleness 자가치유 안전망 — mutationVersion 누락 경로 대비.
-   */
+  /** (2b) getSnapshot 결과 캐시 TTL — mutationVersion 이 못 잡은 경로의 자가치유 안전망. */
   private static readonly SNAPSHOT_CACHE_TTL = 200; // ms — 클라 coalescence(16ms) 한참 위
-  /**
-   * 캐시 슬롯 상한. 실제로 공존하는 키는 보통 **둘**이다 — 서버 내부용 전량(`''`)과 지금 창들이
-   * 선언한 폴더 범위 1벌(범위는 manager 가 합집합 1개로 접어 내려온다). 그래도 상한을 두는 것은
-   * 사용자가 폴더를 옮겨 다니면 키가 바뀌기 때문 — 무제한이면 그게 곧 캐시 누수다.
-   */
+  /** 캐시 슬롯 상한 — 공존하는 키는 보통 둘(내부용 전량 `''` · 창들이 선언한 폴더 범위 합집합)이지만, 폴더를 옮겨 다니면 키가 바뀌어 상한이 없으면 누수다. */
   private static readonly SNAPSHOT_CACHE_SLOTS = 4;
   /** 상태 변경을 추적하는 단조증가 버전 카운터 */
   private mutationVersion = 0;
   /**
-   * (2b) getSnapshot 결과 캐시 — **폴더 범위별로 슬롯이 갈린다.**
-   *
-   * ⚠ 슬롯을 하나로 두면 안 된다. 내부용 전량 호출(REST·명령 dispatch)과 전선용 스코프 호출이
-   *   번갈아 오면서 서로의 캐시를 계속 밀어내, 캐시가 있다는 사실이 오히려 매 호출 재계산이 된다.
+   * (2b) getSnapshot 결과 캐시 — 폴더 범위별로 슬롯이 갈린다. ⚠ 슬롯을 하나로 두지 마라 — 내부용 전량 호출(REST·명령 dispatch)과 전선용 스코프 호출이
+   * 번갈아 서로를 밀어내 매 호출 재계산이 된다.
    */
   private snapshotCache = new Map<string, { snapshot: GraphSnapshot; version: number; cachedAt: number }>();
 
   /**
-   * §9 "저장은 바뀐 프로젝트만" — 이 인스턴스가 지난 저장 이후 바뀌었는지 판정하는 단조 카운터.
-   *
-   * ⚠ 이 값 하나로 "저장이 필요 없다"를 단정하면 안 된다. 체크포인트에는 인스턴스 **밖** 싱글턴
-   *   (`subAgentManager`·`pipelineManager`·카드류)에서 오는 값이 함께 담기는데 그쪽 변경은 여기를
-   *   올리지 않는다. 호출자는 반드시 `CHECKPOINT_QUIET_SWEEP_MS` 주기 강제 재구축과 짝지어 쓴다.
+   * §9 "저장은 바뀐 프로젝트만" — 지난 저장 뒤 바뀌었는지 보는 단조 카운터. ⚠ 이것만으로 "저장 불필요"를 단정하지 마라 —
+   * 인스턴스 밖 싱글턴(`subAgentManager`·`pipelineManager`·카드류) 변경은 여기를 안 올린다. 반드시 `CHECKPOINT_QUIET_SWEEP_MS` 강제 재구축과 짝지어 쓴다.
    */
   getMutationVersion(): number {
     return this.mutationVersion;
@@ -2031,28 +1639,13 @@ export class ProjectGraph {
   // ─── §9 (2d) 슬라이스별 버전 메모이제이션 ───
 
   /**
-   * (2d) 슬라이스 memo 안전망 TTL — **`SNAPSHOT_CACHE_TTL` 과 같은 창을 일부러 쓴다.**
-   *
-   * `VersionedMap` 은 키 변경만 잡는다. 값을 제자리로 만지고 `set` 을 다시 안 부르는 자리
-   * (예: `appendVerificationAttempt` 의 `run.attempts.push`, `closeAutoAgentRun` 의 `run.status = …`)는
-   * 버전이 안 올라 memo 가 "안 바뀜"으로 읽는다. 이 TTL 이 그 경우의 **최대 지연을 창 하나로
-   * 묶는다 — 유실 경로는 없다.**
-   *
-   * 왜 하필 같은 값인가: 더 길게 잡으면 스냅샷 캐시가 먼저 살아나 memo 만 묵은 채로 남고,
-   * 짧게 잡으면 스냅샷 캐시가 빗나갈 때마다 memo 도 같이 빗나가 이 최적화가 0 이 된다.
-   *
-   * ⚠ **이 안전망을 걷어내지 마라.** "감지(`VersionedMap`) + TTL" 두 층은 이 저장소의 기존
-   *   규약이다 — §9 「저장은 바뀐 프로젝트만」 이 `mutationVersion` 옆에 `CHECKPOINT_QUIET_SWEEP_MS`
-   *   강제 스윕을 두는 것과 같은 사고다. 한 층만 남기면 조용한 데이터 유실로 돌아온다.
+   * (2d) 슬라이스 memo 안전망 TTL — `SNAPSHOT_CACHE_TTL` 과 같은 창을 일부러 쓴다(`VersionedMap` 이 못 잡는 제자리 변경의 지연을 창 하나로 묶는다).
+   * 길면 memo 만 묵고, 짧으면 스냅샷 캐시가 빗나갈 때마다 같이 빗나가 최적화가 0 이 된다.
+   * ⚠ **걷어내지 마라** — 감지 + TTL 두 층은 `mutationVersion` + `CHECKPOINT_QUIET_SWEEP_MS`(§9)와 같은 규약이고, 한 층만 남기면 조용한 유실이 된다.
    */
   private static readonly SLICE_MEMO_TTL = ProjectGraph.SNAPSHOT_CACHE_TTL;
 
-  /**
-   * §5.5 #17-17 ⑫(a) — 팔레트 집계를 다시 짓는 간격.
-   *
-   * "자주 쓰는 것"은 몇 초 사이에 뒤바뀌지 않는다 — 그래서 이 자료는 늦어도 되고, 늦는 대신
-   * 명령 이력 전량 순회가 스냅샷마다 돌지 않는다(§9 가 큰 자료에서 되풀이 순회를 걷어 낸 이유).
-   */
+  /** §5.5 #17-17 ⑫(a) — 팔레트 집계를 다시 짓는 간격(자주 쓰는 것은 몇 초 사이에 안 바뀐다 — 대신 명령 이력 전량 순회가 스냅샷마다 돌지 않는다). */
   private static readonly GOAL_ACTIONS_TTL = 5_000;
 
   /**
@@ -2065,20 +1658,9 @@ export class ProjectGraph {
   >();
 
   /**
-   * (2d) — **안 바뀐 슬라이스는 순회조차 하지 않는다.**
-   *
-   * 종전엔 `mutationVersion` 이 **전역 하나**라 어느 슬라이스가 바뀌었는지 몰랐고,
-   * 그래서 한 슬라이스가 바뀌면 키맵 슬라이스 **전부**를 다시 순회했다. `stableCopy` 는
-   * "복사"를 아꼈지만 "순회"는 그대로 지불했다(에이전트가 도는 내내 16~250ms 마다).
-   *
-   * 소스 버전이 그대로면 지난 결과를 **같은 참조로** 돌려준다. 같은 참조인 것이 핵심이다 —
-   * `broadcastBus` 의 증분이 참조 비교로 걸리기 때문이다(새 객체를 돌려주면 전선 부피가 도로 불어난다).
-   *
-   * `source` 객체 자체도 대조하는 이유: 체크포인트 복원이 맵 필드를 **통째로 갈아 끼우는**
-   * 자리가 있어서(`taskEdges`·`contis`), 새 맵의 버전이 우연히 0 으로 같아도 지난 결과가 새 나가지 않게.
-   *
-   * ⚠ build 가 만든 결과를 **나중에 제자리로 고치지 마라.** 이전에 내준 참조와 같은 객체라,
-   *   고치는 순간 이미 전선에 오른 스냅샷까지 소급변경된다.
+   * (2d) — 안 바뀐 슬라이스는 순회 없이 지난 결과를 같은 참조로 준다(`broadcastBus` 증분이 참조 비교다). `source` 객체도 대조한다 —
+   * 복원이 맵을 통째로 갈아 끼울 때(`taskEdges`·`contis`) 버전이 우연히 같아도 옛 결과가 새지 않게.
+   * ⚠ build 결과를 나중에 제자리로 고치지 마라 — 이미 내준 참조라 전선에 오른 스냅샷까지 바뀐다.
    */
   private memoSlice<T>(key: string, source: SliceVersionSource, build: () => T): T {
     const now = Date.now();
@@ -2139,10 +1721,7 @@ export class ProjectGraph {
 
   // ─── 공개 API ───
 
-  /**
-   * cwd에서 프로젝트 등록. 이미 있으면 무시.
-   * 원본 케이스 보존 (forward slash 변환만).
-   */
+  /** `registerProject`: cwd 에서 프로젝트 등록(이미 있으면 무시). 원본 케이스 보존(forward slash 변환만). */
   /** 루트 노드 키 접두사 (프로젝트별: __root__:프로젝트명).
    *  영속 계층의 빈 체크포인트 판정과 같은 기준을 써야 해서 공유 상수를 그대로 쓴다. */
   private static readonly ROOT_PREFIX = ROOT_NODE_KEY_PREFIX;
@@ -2203,9 +1782,7 @@ export class ProjectGraph {
         this.root = normalized;
         logger.info(`Project root set via register: ${this.root}`);
       }
-      // SSOT §5.4 #14 (v1.34): 사용자 close 의도는 훅보다 강함. 이미 hidden 인 프로젝트는
-      // 훅의 registerProject 재호출로 자동 unhide 하지 않는다. 복구는 사용자 명시 액션
-      // (POST /api/projects/open-folder → showProject)만 수행한다.
+      // §5.4 #14 — 사용자의 close 의도가 훅보다 강하다 — hidden 프로젝트는 훅의 registerProject 재호출로 unhide 하지 않는다(복구는 POST /api/projects/open-folder → showProject 만).
       this.ensureRootNode(existing.name, existing);
       return existing;
     }
@@ -2227,15 +1804,13 @@ export class ProjectGraph {
     // 새 프로젝트 → 기존 세션 탐색 + 에이전트 시딩 (기존 프로젝트와 동일 초기화)
     this.discoverAndSeed(cwd);
 
-    // `<project>/.claude/worktrees/<name>` 하위 디렉토리를 자동 스캔하여 worktree 버블 사전 생성 (v1.12)
+    // `<project>/.claude/worktrees/<name>` 하위 폴더를 스캔해 worktree 버블을 미리 만든다.
     this.discoverWorktrees(info);
 
     return info;
   }
 
-  /** `<parent>/.claude/worktrees` 디스크 스캔 → 각 하위 디렉토리를 worktree 프로젝트로 등록 + 버블 생성.
-   *  hook 이벤트가 들어오기 전에도 부모 캔버스에 worktree 버블이 떠 있도록 한다(v1.12).
-   *  이미 등록된 worktree 는 `registerProject` idempotent + `ensureWorktreeNode` 가드로 스킵. */
+  /** `<parent>/.claude/worktrees` 를 스캔해 하위 디렉토리를 worktree 프로젝트·버블로 등록한다(훅이 오기 전에도 부모 캔버스에 뜨게). 이미 있으면 멱등·가드로 건너뛴다. */
   private discoverWorktrees(parentInfo: ProjectInfo): void {
     // worktree 프로젝트 자체에서는 재귀 스캔 금지
     if (parentInfo.parentProjectPath) return;
@@ -2251,14 +1826,10 @@ export class ProjectGraph {
       if (!entry.isDirectory()) continue;
       if (entry.name.startsWith('.')) continue;
       const wtCwd = path.join(wtRoot, entry.name);
-      // v3.71: 폴더만 남은 좀비(= `git worktree remove`/외부 정리 후 잠금 파일·untracked 잔여물만
-      // 남은 디렉토리)는 워크트리로 등록하지 않는다. 등록하면 그 인스턴스의 오토세이브가
-      // 사용자가 지운 폴더를 다시 만들어내는 고리가 된다.
+      // 폴더만 남은 좀비(`git worktree remove` 뒤 잠금 파일·untracked 잔여물만 남은 디렉토리)는 등록하지 않는다 — 오토세이브가 지운 폴더를 다시 만든다.
       if (!isLiveWorktreeDir(wtCwd)) continue;
-      // 지금 `git worktree add` 가 돌고 있는 폴더는 아직 발견 대상이 아니다. `.git` 은 체크아웃이
-      // 끝나기 전에 이미 붙으므로 살아있음 판정만으로는 반쯤 만들어진 워크트리를 걸러내지 못한다.
-      // 여기서 주워 버리면 **좌표 없는** 버블이 먼저 태어나, 사용자가 고른 자리 대신 방사형
-      // 레이아웃 자리에 앉은 채로 굳는다(뒤늦게 오는 진짜 좌표는 클라 캐시에 막혀 무시된다).
+      // `git worktree add` 가 도는 폴더는 아직 줍지 않는다(`.git` 이 체크아웃 전에 붙어 살아있음 판정으로는 못 거른다) —
+      // 주우면 좌표 없는 버블이 방사형 자리에 굳는다(뒤늦은 진짜 좌표는 클라 캐시에 막힌다).
       if (isWorktreeUnderConstruction(wtCwd)) continue;
       const normalizedWt = normalize(wtCwd);
       // 사용자가 명시적으로 삭제한 worktree 버블이 `ghost` 로 남아있다면 부활시키지 않는다.
@@ -2269,9 +1840,7 @@ export class ProjectGraph {
     }
   }
 
-  /** 부모 프로젝트 캔버스 top-level에 worktree 버블 보장.
-   *  신규 생성 시 같은 상위 디렉토리(`.claude/worktrees`)에 최근 ghost 된 worktree가 있으면
-   *  `tryMigrateFromGhost`로 rename 연결(v1.12). */
+  /** 부모 캔버스 top-level 에 worktree 버블 보장. 새로 만들 때 `.claude/worktrees` 에 최근 ghost 된 worktree 가 있으면 `tryMigrateFromGhost` 로 rename 연결. */
   private ensureWorktreeNode(parentName: string, worktreeName: string, normalizedWtCwd: string): void {
     const key = normalizedWtCwd;
     if (this.nodes.has(key)) return;
@@ -2316,7 +1885,7 @@ export class ProjectGraph {
     // projectGraph에 `registerProject` 변경 이전에 저장된 데이터를 최신 규칙으로 승격한다.
     this.migrateWorktreeProjects();
 
-    // 부모 프로젝트별 `.claude/worktrees` 디렉토리를 다시 스캔 — 런타임 중 새 worktree 가 만들어져도 감지(v1.12)
+    // 부모 프로젝트별 `.claude/worktrees` 를 다시 스캔 — 런타임 중 새로 만든 worktree 도 감지한다.
     for (const info of [...this.projects.values()]) {
       if (info.parentProjectPath) continue;
       this.discoverWorktrees(info);
@@ -2349,8 +1918,7 @@ export class ProjectGraph {
         info.parentProjectPath = parentInfo.path;
         info.worktreeName = wt.worktreeName;
       }
-      // v3.71: 이미 죽은 워크트리(`.git` 없음)는 버블을 (재)생성하지 않는다 — ghost 가 fade 로 사라진
-      // 뒤 이 스윕이 인메모리 프로젝트 엔트리만 보고 버블을 되살리던 경로였다.
+      // 죽은 워크트리(`.git` 없음)는 버블을 (재)생성하지 않는다 — ghost 가 fade 로 사라진 뒤 인메모리 엔트리만 보고 되살아난다.
       if (!isLiveWorktreeDir(info.path)) continue;
       this.ensureWorktreeNode(parentInfo.name, wt.worktreeName, normalizedKey);
       // top-level 노드를 worktree 버블 자식으로 이관 (이미 이관된 경우 no-op)
@@ -2389,15 +1957,8 @@ export class ProjectGraph {
   }
 
   /**
-   * 프로젝트별 루트 폴더 노드가 없으면 생성.
-   *
-   * ⚠ 워크트리 프로젝트에는 만들지 않는다 — 워크트리의 화면 표현은 자기 루트 버블이 아니라
-   *   **부모 캔버스의 워크트리 버블**(`ensureWorktreeNode`, 부모 이름으로 귀속)이고, 주기 스윕
-   *   `migrateWorktreeProjects()` → `reparentWorktreeArtifacts()` 가 어차피 이 루트 노드를 지운다.
-   *   만들었다 지우는 왕복이 남아 있으면 부팅 직후 저장본에만 루트 노드가 실려, 그 뒤 정상적으로
-   *   비어 있는 저장본이 §3.2.1-3 통째-0 가드에 매 저장마다 걸린다(경고 무한 반복의 발화점).
-   *   호출부가 `info` 를 넘겨 주면 그것으로, 아니면 등록된 프로젝트에서 이름으로 찾아 판정한다
-   *   (복원 경로는 `graph.projects` 가 비어 있을 수 있어 `info` 를 직접 받는 쪽이 확실하다).
+   * 루트 폴더 노드 보장. ⚠ 워크트리 프로젝트엔 만들지 않는다(화면 표현은 부모의 워크트리 버블) — 만들었다 스윕(`reparentWorktreeArtifacts()`)이 지우면
+   * 부팅 직후 저장본에만 루트가 실려 정상 저장본이 §3.2.1-3 통째-0 가드에 매번 걸린다. 복원 경로는 `graph.projects` 가 비어 있을 수 있어 `info` 를 받는다.
    */
   private ensureRootNode(projectName: string, info?: ProjectInfo): void {
     const key = ProjectGraph.rootKeyFor(projectName);
@@ -2486,12 +2047,7 @@ export class ProjectGraph {
     return this.agentDefaultsCache.value;
   }
 
-  /**
-   * 에이전트 설정 조회 — **세 층을 겹친 완성본**(없으면 undefined).
-   *
-   * 부르는 쪽(스폰 인자 조립·화면·REST)은 종전과 똑같은 완전한 객체를 받는다. 달라진 것은
-   * "안 건드린 칸의 값이 어디서 오는가" 하나뿐이다 — 저장분이 아니라 지금의 설정 창에서 온다.
-   */
+  /** 에이전트 설정 조회 — 세 층을 겹친 완성본(없으면 undefined). 안 건드린 칸은 저장분이 아니라 지금의 설정 창에서 온다. */
   getAgentConfig(agentId: string): AgentConfig | undefined {
     const overrides = this.agentConfigOverrides.get(agentId);
     if (!overrides) return undefined;
@@ -2511,21 +2067,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §4 (설정 3층) — 저장분에서 오버라이드 한 벌을 되만든다. **복원과 병합이 같이 쓴다.**
-   *
-   * 저장분 모양이 둘이라(판올림 전 완성본 / 판올림 후 갈라진 칸) 되만드는 규칙이 두 곳에 흩어지면
-   * 한쪽만 고쳐지는 날이 온다. 그래서 한 곳이다.
-   *
-   * **판올림 전 저장분은 그 시점 기본값과 대조해 옮긴다.** 그래야 지금 동작이 그대로 유지된다 —
-   * 기본값과 달랐던 칸은 갈라진 채로 남아 계속 그 값으로 돌고, 기본값과 같던 칸은 위층을
-   * 따라가는데 그 위층의 값이 곧 방금까지 쓰던 값이라 결과가 바뀌지 않는다. 앞으로 설정 창을
-   * 고쳤을 때만 차이가 난다(그게 이번에 요청받은 동작이다).
-   *
-   * 도구 백필은 **옮기기 전에** 돈다. 옛 저장분에는 세대 도장이 없어 목록이 짧은데, 먼저 채우지
-   * 않으면 그 짧은 목록이 "사용자가 고른 목록"으로 못 박혀 앞으로 영영 새 도구를 못 받는다.
-   *
-   * §2.2 (에이전트 CMD) — CMD 색도 여기서 옮긴다. 생성 때 설정에 구워 넣는 색이라 상수만 바꾸면
-   * 이미 만든 CMD 버블은 옛 색으로 남는다(`migrateCmdAgentColor` — 옛 CMD 색일 때만 바꾼다).
+   * §4 (설정 3층) — 저장분에서 오버라이드를 되만든다(복원·병합 공용 — 저장분 모양이 둘이라 한 곳에 둔다). 판올림 전 완성본은 그 시점 기본값과 달랐던 칸만 남긴다.
+   * 도구 백필이 먼저다 — 옛 짧은 목록이 "고른 목록"으로 못 박히면 새 도구를 영영 못 받는다. §2.2 — CMD 색도 여기서 옮긴다(생성 때 구워 넣어 상수만 바꾸면 기존 버블이 옛 색에 남는다 — `migrateCmdAgentColor`).
    */
   private readAgentConfigOverrides(
     cp: Pick<ProjectCheckpoint, 'agentConfigs' | 'agentConfigOverrides'>,
@@ -2546,10 +2089,8 @@ export class ProjectGraph {
 
   /** 에이전트 설정 저장 (사용자 수동 편집) */
   setAgentConfig(agentId: string, config: AgentConfig): void {
-    // §5.19 (B) — 준비 중이던 All Model 버블이 **모델을 무는 순간** 라벨의 주인공이 모델명으로 바뀐다.
-    //   생성 시 명명(createCustomAgent)의 뒷짝이라 이름 규칙 둘이 한 파일 안에 나란히 산다.
-    //   사용자가 직접 바꾼 이름은 기본 라벨 모양이 아니라서 여기 걸리지 않는다 — 지키려고 플래그를
-    //   따로 두지 않는 이유다.
+    // §5.19 (B) — 준비 중이던 All Model 버블은 모델을 무는 순간 라벨이 모델명으로 바뀐다(`createCustomAgent` 명명의 뒷짝).
+    // 사용자가 바꾼 이름은 기본 라벨 모양이 아니라 안 걸린다 — 따로 플래그를 두지 않는다.
     const boundName = config.provider?.modelName?.trim();
     const hadModel = !!this.agentConfigOverrides.get(agentId)?.provider?.modelId;
     if (boundName && config.provider?.modelId && !hadModel) {
@@ -2559,9 +2100,7 @@ export class ProjectGraph {
         break;
       }
     }
-    // §4 (설정 3층) — 넘어온 완성본에서 **위층과 갈라진 칸만** 남긴다.
-    //   그래서 창을 열어 아무것도 안 고치고 저장하면 못 박히는 칸이 하나도 없다(종전에는 그
-    //   한 번으로 그 시점 전역값 한 벌이 통째로 굳었고, 자동 동기화에서도 영구히 빠졌다).
+    // §4 (설정 3층) — 위층과 갈라진 칸만 남긴다(통째 저장하면 그 시점 전역값이 굳어 동기화에서 영구히 빠진다).
     const overrides = sparsifyAgentConfig(config, resolveAgentDefaults(userDefaultsService.get(), config.provider?.kind === 'codex-cli' ? 'codex' : config.provider?.kind === 'local-llama' ? 'local' : 'claude', this.root));
     this.agentConfigOverrides.set(agentId, overrides);
     // "손댔다"의 판정도 저장분에서 나온다 — 되돌려 저장하면 자동 동기화로 다시 돌아간다.
@@ -2570,12 +2109,7 @@ export class ProjectGraph {
     logger.info(`Agent config updated (manual): ${agentId} (pinned=${Object.keys(overrides).length})`);
   }
 
-  /**
-   * 전체 에이전트 설정 스냅샷 — **완성본**(전선·구버전 저장분용).
-   *
-   * 화면과 구버전 앱은 완전한 설정 한 벌을 기대하므로 여기서 세 층을 겹쳐 넘긴다.
-   * 권위 있는 저장분은 `getAgentConfigOverridesSnapshot()` 쪽이다.
-   */
+  /** 전체 에이전트 설정 — 세 층을 겹친 완성본(전선·구버전 저장분용). 권위 있는 저장분은 `getAgentConfigOverridesSnapshot()`. */
   getAgentConfigsSnapshot(): Record<string, AgentConfig> {
     const out: Record<string, AgentConfig> = {};
     for (const agentId of this.agentConfigOverrides.keys()) {
@@ -2598,28 +2132,15 @@ export class ProjectGraph {
   }
 
   /**
-   * §4 (설정 3층) — 라이브 세션에서 관측한 모델을 **따로 기록**하고, 에이전트 버블마다 설정 자리를
-   * 하나씩 열어 둔다. `getSnapshot()` 마다 돈다.
-   *
-   * **종전에는 이 함수가 설정을 직접 고쳤다.** 관측한 모델을 저장분에 써 넣고, 그러면서 도구 목록을
-   * `DEFAULT_AGENT_CONFIG.tools` 로 되돌렸다("tools reset to all"). 그 되돌림 때문에 **설정 창의
-   * 도구 선택은 신규 에이전트에서 한 번도 살아남지 못했다** — 생성이 전역 목록을 넣으면 다음
-   * 스냅샷이 내장 목록으로 덮었다(실측: 전역 11종 · 살아 있는 에이전트 22종). 두 경로가 서로
-   * 반대 방향으로 싸운 것이라 한쪽을 이기게 하는 게 아니라, **관측을 저장에서 떼어 내** 끝낸다.
-   *
-   * 이제 여기서 하는 일은 둘뿐이다 — ① **훅 버블의** 관측 모델을 휘발성 맵에 기록(읽을 때만 얹힌다),
-   * ② 처음 보는 에이전트 버블에 **빈 오버라이드**를 열어 그 버블에도 설정 창구가 생기게 한다.
+   * §4 (설정 3층) — 훅 버블의 관측 모델을 휘발성 맵에 적고 처음 보는 에이전트 버블에 빈 오버라이드를 연다. ⚠ 여기서 설정을 고치지 마라 —
+   * 관측을 저장분에 쓰며 도구를 기본값으로 되돌리면 설정 창 도구 선택이 다음 스냅샷에 덮인다(실측: 전역 11종 · 에이전트 22종).
    */
   private syncDetectedAgentConfigs(enrichedAgents: BubbleData[]): void {
     for (const agent of enrichedAgents) {
       if (agent.bubbleType !== 'agent') continue;
       if (!this.agentConfigOverrides.has(agent.id)) this.agentConfigOverrides.set(agent.id, {});
-      // 우리가 띄우는 버블(커스텀·CMD)의 모델은 3층(에이전트 → 설정 창 → 내장)이 정하고, 관측은 그 결과일
-      //   뿐이다. 여기에도 얹으면 **기본값과 같은 모델을 고른 저장**이 지난 턴의 관측으로 도로 덮인다 —
-      //   기본값과 같은 칸은 못 박히지 않으므로(`sparsifyAgentConfig`) 그 빈자리를 관측이 채우고, 스폰도
-      //   그 모델로 나간다(사용자 보고: 전역 기본이 opus 인 채 Fable → Opus 로 바꿔 저장해도 fable 로 돌았다).
-      //   설정 창 기본 모델을 바꿔도 이미 한 턴 돈 버블이 따라오지 않던 것도 같은 자리다.
-      //   관측이 유일한 진실인 것은 우리가 띄우지 않은 훅 버블뿐이다(`getAgentConfig` 주석).
+      // 우리가 띄우는 버블(커스텀·CMD)의 모델은 3층이 정하고 관측은 결과일 뿐이다 — 여기 얹으면 기본값과 같아 못 박히지 않은 칸(`sparsifyAgentConfig`)을
+      // 지난 턴 관측이 채워 스폰이 그 모델로 나가고 설정 창 기본을 바꿔도 안 따라온다. 관측이 진실인 것은 훅 버블뿐이다.
       if (agent.customCreated) {
         this.detectedAgentModels.delete(agent.id);
         continue;
@@ -2674,6 +2195,8 @@ export class ProjectGraph {
       const agent = this.agents.get(sessionId);
       if (agent) {
         for (const [, refs] of this.nodeAgentRefs) refs.delete(agent.id);
+        this.agentTurnNodes.delete(agent.id);
+        this.promptTurnAgents.delete(agent.id);
         // persistSatellites 노드도 nodes에서 제거 (프로젝트 teardown — §3.5,
         // 핀 보존 안 함: 프로젝트가 사라지면 고아 노드를 남기지 않는다)
         for (const sat of agent.persistSatellites ?? []) {
@@ -2732,16 +2255,12 @@ export class ProjectGraph {
     return false;
   }
 
-  /** 경로 대조 키 — 대소문자를 실제로 무시하는 FS(win32/darwin)에서만 접는다(`shared/pathCase.ts`).
-   *  예전에는 win32 만 봤는데, mac 의 기본 APFS 볼륨도 대소문자를 가리지 않는다. */
+  /** 경로 대조 키 — 대소문자를 실제로 무시하는 FS(win32/darwin)에서만 접는다(`shared/pathCase.ts`). win32 만 보지 마라 — mac 기본 APFS 도 대소문자를 안 가린다. */
   private static pathCompareKey(p: string): string {
     return pathKey(path.resolve(p));
   }
 
-  /** Manager용: 이 절대경로가 **지금 버블로 떠 있는 노드**의 경로인지.
-   *  §2.1 #5 v1.55 의 "외부 폴더/파일 클릭 → OS 탐색기·에디터로 열기" 판정에 쓴다 —
-   *  `external_folder` 는 정의상 프로젝트 루트 **밖**이라 루트 경계만 보는 가드로는 늘 거절됐다.
-   *  화면에 없는 임의 절대경로는 여기서도 false(가드의 원래 취지 유지). */
+  /** Manager용: 이 절대경로가 지금 떠 있는 노드의 경로인지 — §2.1 #5 외부 폴더/파일을 OS 로 열기 판정(루트 경계 가드는 `external_folder` 를 늘 거절한다). 화면에 없으면 false. */
   hasNodeAbsolutePath(absPath: string): boolean {
     const target = ProjectGraph.pathCompareKey(absPath);
     for (const [key, node] of this.nodes) {
@@ -2765,9 +2284,8 @@ export class ProjectGraph {
   }
 
   /**
-   * Manager용: §5.23 접힌 웹 버블 id 인가 — 묶기가 무엇이든 묶을 수 있고 주인 에이전트가 이 인스턴스에 있을 때만.
-   * 접힌 버블은 노드 장부에 없어 `hasNodeId` 가 늘 false 다 — 이 판정이 없으면 지우기·자리 저장이
-   * 모르는 id 로 버려진다.
+   * Manager용: §5.23 접힌 웹 버블 id 인가(묶기가 켜졌고 주인 에이전트가 이 인스턴스에 있을 때만). 접힌 버블은 노드 장부에 없어 `hasNodeId` 가 늘 false —
+   * 이게 없으면 지우기·자리 저장이 버려진다.
    */
   hasWebFoldId(id: string): boolean {
     if (!isWebGroupActive(this.webGroup)) return false;
@@ -2775,7 +2293,7 @@ export class ProjectGraph {
     return agentId !== null && this.hasAgentId(agentId);
   }
 
-  /** preserve-pin 여부 (§2.4 v1.28). 대상 없으면 false. */
+  /** preserve-pin 여부(§2.4). 대상 없으면 false. */
   isPreservePinnedById(nodeId: string): boolean {
     for (const n of this.nodes.values()) {
       if (n.id === nodeId) return n.preservePinned === true;
@@ -2931,17 +2449,14 @@ export class ProjectGraph {
   ): BubbleData {
     this.agentCounter += 1;
     const sessionId = `${CUSTOM_SESSION_KEY_PREFIX}${Date.now().toString(36)}-${this.agentCounter}-${idTail()}`;
-    // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트는 생성 시점에 executionMode + 구분 색 + 이름을 baked.
+    // §4 — CMD(인터랙티브 터미널) 에이전트는 생성 시점에 executionMode + 구분 색 + 이름을 굽는다.
     const cmdMode = options?.executionMode === 'interactive-terminal';
     // §5.25 (B-1) — 우클릭 Codex 칸의 "Codex CMD". 같은 CMD 버블이 셸에 `codex` 를 채우도록
     //   `cliKind` 를 태어날 때 남긴다. CMD 가 아니면 버린다 — 헤드리스 스폰은 그 칸을 읽지 않는다.
     //   `claude` 는 표의 기본 행이라 남기지 않는다(설정 창도 같은 규약으로 저장한다).
     const cmdCliKind = cmdMode && options?.cliKind && options.cliKind !== 'claude' ? options.cliKind : undefined;
-    // §5.19 (C) — All Model(로컬 LLM) 버블. CMD 와 같은 자리에서 갈리는 세 번째 갈래이고,
-    //   라벨의 주인공은 에이전트 이름이 아니라 **모델명**이다(캔버스에서 무엇을 물었는지 바로 읽히게).
-    //   §5.25 (B) — 코덱스도 같은 `provider` 축에 실려 오므로 **엔진별로 갈라야 한다.**
-    //   종전에는 `provider` 가 있기만 하면 로컬로 봐서, 모델을 아직 안 문 코덱스 버블이
-    //   `All Model N` 이라는 남의 이름을 달고 태어났다.
+    // §5.19 (C) — All Model(로컬 LLM) 버블 — 라벨 주인공은 모델명이다. §5.25 (B) — 코덱스도 같은 `provider` 축이라 엔진별로 가른다
+    // (있기만 하면 로컬로 보면 코덱스 버블이 `All Model N` 으로 태어난다).
     const providerKind = options?.provider?.kind;
     const localMode = providerKind === 'local-llama';
     const codexMode = providerKind === 'codex-cli';
@@ -2966,15 +2481,8 @@ export class ProjectGraph {
       position,
     };
     this.agents.set(sessionId, agent);
-    // §4 (설정 3층) — 신규 에이전트는 **아무것도 복사하지 않는다.** 종전에는 여기서 전역 기본값
-    //   한 벌을 통째로 베껴 넣었고(v2.42), 그래서 그 뒤에 설정 창을 고쳐도 이 버블에는 영영
-    //   닿지 않았다. 이제 빈 오버라이드로 태어나 `getAgentConfig` 가 읽을 때마다 설정 창을
-    //   따라간다 — 사용자가 이 창에서 고친 칸만 그 시점에 여기 쌓인다.
-    //
-    //   태어날 때부터 갖는 것은 **위층이 정할 수 없는 정체성**뿐이다.
-    //   §4 v2.63 — executionMode 는 userDefaults 에서 절대 상속하지 않는다(레거시 토글 잔재 차단).
-    //     CMD 는 우클릭 "CMD Agent"(명시 options) 로만 baked. 일반 커스텀 에이전트는 항상 헤드리스.
-    //   §5.19 — provider 도 같은 규약: 생성 시 명시된 것만 baked. 없으면 지금까지의 claude 경로.
+    // §4 (설정 3층) — 신규 에이전트는 아무것도 복사하지 않고 빈 오버라이드로 태어난다(전역값을 베끼면 설정 창 변경이 영영 안 닿는다).
+    // 태어날 때 갖는 것은 위층이 못 정하는 정체성뿐 — executionMode 는 userDefaults 에서 상속 ❌(CMD 는 우클릭 명시 options 로만), §5.19 provider 도 명시된 것만.
     this.agentConfigOverrides.set(agent.id, {
       ...(cmdMode ? { executionMode: 'interactive-terminal' as const, color: CMD_AGENT_COLOR } : {}),
       ...(cmdCliKind ? { cliKind: cmdCliKind } : {}),
@@ -2992,11 +2500,7 @@ export class ProjectGraph {
     return agent;
   }
 
-  /**
-   * §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성. 커스텀 에이전트와 구조 동일하되 `bubbleType='auto'`.
-   * Auto Agent 는 사용자 자연어 요청을 받아 서브 커스텀 에이전트 군을 자동 spawn 하는 메타 동작 전담.
-   * 자체는 일반 작업(코드/탐색) ❌. customCreated=true 로 표기 — 영속화·삭제 cascade 등 기존 경로 재사용.
-   */
+  /** §5.3 #10-2 — Auto Agent 메타 버블(`bubbleType='auto'`). 자연어 요청으로 서브 커스텀 에이전트 군을 spawn 하는 일만 한다. customCreated=true — 영속·삭제 cascade 경로를 재사용한다. */
   createAutoAgent(label: string, position?: { x: number; y: number }, projectName?: string | null): BubbleData {
     this.agentCounter += 1;
     const sessionId = `auto-${Date.now().toString(36)}-${this.agentCounter}-${idTail()}`;
@@ -3034,17 +2538,16 @@ export class ProjectGraph {
     return agent;
   }
 
-  /** §5.3 #10-2 v2.37 — 특정 auto-agent 의 요약 메타 조회 */
   getAutoAgentSummary(autoAgentId: string): AutoAgentSummary | null {
     return this.autoAgentSummaries.get(autoAgentId) ?? null;
   }
 
-  /** §5.3 #10-2 v2.37 — 요약 메타 갱신 (런타임에서 phase 진행 시 호출) */
+  /** §5.3 #10-2 — 런타임이 phase 를 진행할 때 부른다. */
   setAutoAgentSummary(autoAgentId: string, summary: AutoAgentSummary): void {
     this.autoAgentSummaries.set(autoAgentId, summary);
   }
 
-  /** §5.3 #10-2 v2.37 — 요약 메타 부분 갱신 (phase·finalSummary 등) */
+  /** §5.3 #10-2 — 부분 갱신(phase·finalSummary 등). */
   updateAutoAgentSummary(autoAgentId: string, patch: Partial<AutoAgentSummary>): AutoAgentSummary | null {
     const existing = this.autoAgentSummaries.get(autoAgentId);
     if (!existing) return null;
@@ -3053,7 +2556,7 @@ export class ProjectGraph {
     return next;
   }
 
-  /** §5.3 #10-2 v2.37 — 전체 요약 메타 맵 (broadcast 스냅샷용) */
+  /** §5.3 #10-2 — broadcast 스냅샷용 전체 맵. */
   getAutoAgentSummaries(): Record<string, AutoAgentSummary> {
     // §9 (2d) — **얕은** 사본이라 값 객체를 제자리로 고쳐도 공유 참조를 통해 그대로 보인다.
     //   그래서 여기서 memo 가 놓칠 수 있는 것은 **키 변경뿐**이고, 그건 `VersionedMap` 이 전부 잡는다.
@@ -3061,10 +2564,7 @@ export class ProjectGraph {
       Object.fromEntries(this.autoAgentSummaries));
   }
 
-  // ── §5.3 #10-3 v4.98 — 검증 런 ────────────────────────────────────────────
-  //
-  // 완료를 LLM 이 쓴 문장이 아니라 **서버가 보관한 증거**로 판정하기 위한 저장소.
-  // 판정(`ok`, `verified`)은 전부 이 클래스가 계산한다 — 에이전트가 주장할 수 없다.
+  // §5.3 #10-3 — 검증 런. 완료를 LLM 의 문장이 아니라 서버가 보관한 증거로 판정한다 — `ok`·`verified` 는 이 클래스가 계산하고 에이전트는 주장할 수 없다.
 
   /** 새 검증 런 시작. 같은 auto-agent 의 이전 런은 지우지 않고 뒤에 쌓는다. */
   createAutoAgentRun(params: {
@@ -3196,10 +2696,7 @@ export class ProjectGraph {
     });
   }
 
-  /**
-   * §4 v2.52 — 에이전트 작업 신고 추가 (agentId → AgentReport[], append + ring buffer 캡).
-   * 커스텀/스폰 에이전트가 `POST /api/agent-report` 로 보낸 did/userActions 구조화 신고를 적재.
-   */
+  /** §4 — 작업 신고 추가(append + ring buffer 캡). 커스텀/스폰 에이전트가 `POST /api/agent-report` 로 보낸 did/userActions 신고. */
   addAgentReport(report: AgentReport): void {
     const list = this.agentReports.get(report.agentId) ?? [];
     list.push(report);
@@ -3210,7 +2707,7 @@ export class ProjectGraph {
     this.bumpMutationVersion();
   }
 
-  /** §4 v2.52 — 작업 신고 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  /** §4 — 작업 신고 전체 맵(broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   getAgentReportsRecord(): Record<string, AgentReport[]> | undefined {
     // §9 (2d) — 소스 맵이 그대로면 순회조차 안 한다(`memoSlice` 주석).
     //   값 배열은 `list.push(...)` 뒤에 반드시 `this.agentReports.set(...)` 을 다시 부르는 것을
@@ -3256,11 +2753,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.3 #10-4 — 이 그래프 프로젝트 뿌리의 **오케스트라 요약**(스냅샷 탑재분).
-   *
-   * 자동 목표와 같은 모양이다 — `projectName` 1차 키라 Manager 병합이 단순 spread 로 끝난다.
-   * 설정도 런도 없는 프로젝트는 `undefined`(기본 꺼짐이 전선에서도 같은 뜻). 런은 최근
-   * `ORCHESTRA_RUN_SNAPSHOT_MAX`건만 싣는다 — 전량은 체크포인트에 있다.
+   * §5.3 #10-4 — 오케스트라 요약(스냅샷 탑재분). `projectName` 1차 키라 Manager 병합이 spread 로 끝난다. 없으면 `undefined`(기본 꺼짐),
+   * 런은 최근 `ORCHESTRA_RUN_SNAPSHOT_MAX`건만(전량은 체크포인트).
    */
   getOrchestraSummary(): Record<string, OrchestraSummary> | undefined {
     if (!this.root) return undefined;
@@ -3279,13 +2773,7 @@ export class ProjectGraph {
     this.orchestraSummaryMemo = { settings, runs, value };
     return { [name]: value };
   }
-  /**
-   * §5.3 #10-5 — 이 그래프 프로젝트 뿌리의 **설정 덜어내기 요약**(스냅샷 탑재분).
-   *
-   * 오케스트라와 같은 모양이다 — `projectName` 1차 키라 Manager 병합이 단순 spread 로 끝난다.
-   * 설정도 기록도 없는 프로젝트는 `undefined`(기본 꺼짐이 전선에서도 같은 뜻). 기록은 최근
-   * `CONFIG_TRIM_RUN_SNAPSHOT_MAX`건만 싣는다 — 전량은 체크포인트에 있다.
-   */
+  /** §5.3 #10-5 — 설정 덜어내기 요약(오케스트라와 같은 모양). 없으면 `undefined`, 기록은 최근 `CONFIG_TRIM_RUN_SNAPSHOT_MAX`건만. */
   getConfigTrimSummary(): Record<string, ConfigTrimSummary> | undefined {
     if (!this.root) return undefined;
     const name = this.getPrimaryProjectName();
@@ -3303,15 +2791,7 @@ export class ProjectGraph {
     this.configTrimSummaryMemo = { settings, runs, value };
     return { [name]: value };
   }
-  /**
-   * §5.10 — 이 그래프 프로젝트 뿌리의 **자동 목표 요약**(스냅샷 탑재분).
-   *
-   * 폐기된 `getBrainSummary` 가 앉아 있던 자리이고 키 규칙도 같다 — `projectName` 1차 키다.
-   * 절차는 `<projectPath>/.vibisual/skills/` 로 프로젝트별로 갈라져 저장되므로, 단일 객체로
-   * 두면 프로젝트 2개 이상일 때 Manager 병합이 통째로 떨군다(브레인이 v3.70 에 겪은 결함).
-   *
-   * 꺼진 프로젝트는 `undefined` 다 — 기본 off 가 전선에서도 같은 뜻이 되게 한다.
-   */
+  /** §5.10 — 자동 목표 요약(스냅샷 탑재분, `projectName` 1차 키). 단일 객체로 두면 프로젝트가 둘 이상일 때 Manager 병합이 통째로 떨군다. 꺼진 프로젝트는 `undefined`. */
   getAutoGoalSummary(): Record<string, AutoGoalSummary> | undefined {
     if (!this.root) return undefined;
     const name = this.getPrimaryProjectName();
@@ -3328,22 +2808,12 @@ export class ProjectGraph {
       return undefined;
     }
   }
-  /**
-   * §9 (2b) — **스냅샷 통째 캐시만 비우는 창구.** 키맵(슬라이스 소스)은 한 칸도 안 건드린다.
-   *
-   * 그래프 **밖**에 사는 상태가 바뀌었을 때 다음 `getSnapshot()` 이 다시 지어지게 하는 자리다.
-   * 종전에는 기억 카드 REST 가 이 역할(`notifyBrainChanged`)을 썼고, 그 축이 폐기된 지금은
-   * 슬라이스 memo 가 **정말로** 소스 버전으로만 다시 도는지 재는 시험이 주 사용자다.
-   * 이 창구가 없으면 스냅샷 통째 캐시에 가려 그 확인 자체를 할 수 없다.
-   */
+  /** §9 (2b) — 스냅샷 통째 캐시만 비우는 창구(슬라이스 소스는 안 건드린다). 슬라이스 memo 가 소스 버전으로만 다시 도는지 재는 시험이 이것에 기댄다. */
   invalidateSnapshotCache(): void {
     this.bumpMutationVersion();
   }
 
-  /**
-   * §4 v2.60 — 에이전트 질문 카드 추가 (agentId → AgentQuestions[], append + ring buffer 캡).
-   * 커스텀/스폰 에이전트가 `POST /api/agent-questions` 로 보낸 질문 + 제안 프롬프트를 적재.
-   */
+  /** §4 — 질문 카드 추가(append + ring buffer 캡). 커스텀/스폰 에이전트가 `POST /api/agent-questions` 로 보낸 질문 + 제안 프롬프트. */
   addAgentQuestions(q: AgentQuestions): void {
     const list = this.agentQuestions.get(q.agentId) ?? [];
     list.push(q);
@@ -3354,7 +2824,7 @@ export class ProjectGraph {
     this.bumpMutationVersion();
   }
 
-  /** §4 v2.60 — 질문 카드 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  /** §4 — 질문 카드 전체 맵(broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   getAgentQuestionsRecord(): Record<string, AgentQuestions[]> | undefined {
     // §9 (2d) — 소스 맵이 그대로면 순회조차 안 한다(`memoSlice` 주석).
     //   값 배열은 `list.push(...)` 뒤에 반드시 `this.agentQuestions.set(...)` 을 다시 부르는 것을
@@ -3367,10 +2837,7 @@ export class ProjectGraph {
     });
   }
 
-  /**
-   * §4 v2.70 — 에이전트 검수 요청 카드 추가 (agentId → AgentReview[], append + ring buffer 캡).
-   * 커스텀/스폰 에이전트가 `POST /api/agent-review` 로 보낸 changes/checkpoints 검수 요청을 적재.
-   */
+  /** §4 — 검수 요청 카드 추가(append + ring buffer 캡). 커스텀/스폰 에이전트가 `POST /api/agent-review` 로 보낸 검수 요청. */
   addAgentReview(review: AgentReview): void {
     const list = this.agentReviews.get(review.agentId) ?? [];
     list.push(review);
@@ -3381,7 +2848,7 @@ export class ProjectGraph {
     this.bumpMutationVersion();
   }
 
-  /** §4 v2.70 — 검수 요청 카드 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  /** §4 — 검수 요청 카드 전체 맵(broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   getAgentReviewsRecord(): Record<string, AgentReview[]> | undefined {
     // §9 (2d) — 소스 맵이 그대로면 순회조차 안 한다(`memoSlice` 주석).
     //   값 배열은 `list.push(...)` 뒤에 반드시 `this.agentReviews.set(...)` 을 다시 부르는 것을
@@ -3394,10 +2861,7 @@ export class ProjectGraph {
     });
   }
 
-  /**
-   * §4 v2.84 — 에이전트 번호 목록 정렬 카드 추가 (agentId → AgentList[], append + ring buffer 캡).
-   * 커스텀/스폰 에이전트가 `POST /api/agent-list` 로 보낸 번호 목록을 적재.
-   */
+  /** §4 — 번호 목록 정렬 카드 추가(append + ring buffer 캡). 커스텀/스폰 에이전트가 `POST /api/agent-list` 로 보낸 번호 목록. */
   addAgentList(list: AgentList): void {
     const arr = this.agentLists.get(list.agentId) ?? [];
     arr.push(list);
@@ -3408,7 +2872,7 @@ export class ProjectGraph {
     this.bumpMutationVersion();
   }
 
-  /** §4 v2.84 — 번호 목록 정렬 카드 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  /** §4 — 번호 목록 정렬 카드 전체 맵(broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   getAgentListsRecord(): Record<string, AgentList[]> | undefined {
     // §9 (2d) — 소스 맵이 그대로면 순회조차 안 한다(`memoSlice` 주석).
     //   값 배열은 `list.push(...)` 뒤에 반드시 `this.agentLists.set(...)` 을 다시 부르는 것을
@@ -3421,10 +2885,7 @@ export class ProjectGraph {
     });
   }
 
-  /**
-   * §4 v3.21 — 에이전트 피드백 upsert (targetId 별 1건 — 같은 대상 재평가는 verdict 교체).
-   * `verdict:null` 은 평가 철회(해당 target 피드백 제거). ring buffer 캡 = AGENT_FEEDBACK_MAX_PER_AGENT.
-   */
+  /** §4 — 피드백 upsert(targetId 별 1건 — 재평가는 verdict 교체). `verdict:null` 은 평가 철회. 캡 = AGENT_FEEDBACK_MAX_PER_AGENT. */
   setAgentFeedback(feedback: AgentFeedback): void {
     const arr = (this.agentFeedbacks.get(feedback.agentId) ?? []).filter(
       (f) => !(f.targetType === feedback.targetType && f.targetId === feedback.targetId),
@@ -3437,7 +2898,7 @@ export class ProjectGraph {
     this.bumpMutationVersion();
   }
 
-  /** §4 v3.21 — 피드백 철회 (해당 target 의 기존 평가 제거). 제거했으면 true. */
+  /** §4 — 피드백 철회(그 target 의 기존 평가 제거). 제거했으면 true. */
   removeAgentFeedback(agentId: string, targetType: string, targetId: string): boolean {
     const arr = this.agentFeedbacks.get(agentId);
     if (!arr) return false;
@@ -3449,7 +2910,7 @@ export class ProjectGraph {
     return true;
   }
 
-  /** §4 v3.21 — 피드백 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  /** §4 — 피드백 전체 맵(broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   getAgentFeedbacksRecord(): Record<string, AgentFeedback[]> | undefined {
     // §9 (2d) — 소스 맵이 그대로면 순회조차 안 한다(`memoSlice` 주석).
     //   값 배열은 `list.push(...)` 뒤에 반드시 `this.agentFeedbacks.set(...)` 을 다시 부르는 것을
@@ -3462,12 +2923,12 @@ export class ProjectGraph {
     });
   }
 
-  /** §4 v3.21 — 한 에이전트의 피드백 목록 (스폰 다이제스트 주입/distill 용). */
+  /** §4 — 한 에이전트의 피드백 목록(스폰 다이제스트 주입/distill 용). */
   getAgentFeedbacksForAgent(agentId: string): AgentFeedback[] {
     return [...(this.agentFeedbacks.get(agentId) ?? [])];
   }
 
-  // ─── §5.5 #17-11 v3.79 — 세션 반복 실행(루프) ───
+  // §5.5 #17-11 — 세션 반복 실행(루프)
 
   /** 한 세션 탭의 루프 설정 (없으면 undefined). */
   getSessionLoop(subAgentId: string): SessionLoop | undefined {
@@ -3617,11 +3078,8 @@ export class ProjectGraph {
     });
   }
 
-  // ─── §5.5 #17-35 ⑨ — 시연(재현 절차) ───
-  //
-  // 검증 이력과 같은 모양·같은 키 축이다. 다른 것은 하나뿐 — **이 레코드에는 디스크에 남은 그림이
-  // 딸려 있다.** 그래서 잘리거나 지워지는 경로는 전부 "지워진 레코드"를 돌려주고, 그 프레임 폴더를
-  // 실제로 지우는 것은 호출자(서버)가 한다. 이 클래스는 파일시스템을 만지지 않는다(§3.1 경계).
+  // §5.5 #17-35 ⑨ — 시연(재현 절차). 검증 이력과 같은 모양이지만 디스크 그림이 딸려 있어, 잘리거나 지워지는 경로는 "지워진 레코드"를 돌려주고
+  // 프레임 폴더는 호출자(서버)가 지운다 — 이 클래스는 파일시스템을 안 만진다(§3.1).
 
   /** 한 세션 탭의 시연 목록(최신 우선). 없으면 빈 배열. */
   getVerificationDemos(subAgentId: string): VerificationDemo[] {
@@ -3705,13 +3163,8 @@ export class ProjectGraph {
   // ─── §5.5 #17-28 — 컨텍스트 주입원 오버라이드 ───
 
   /**
-   * 오버라이드 한 건 설정. `enabled` 가 `null` 이면 **그 층의 명시값 해제**(= 위층에서 물려받음)다.
-   * 끔(false)만이 아니라 켬(true)도 저장하는 이유 — 위층이 꺼 두었어도 사용자가 이 층에서
-   * 명시적으로 켠 것은 켜진 채여야 한다("아래로 갈수록 우선"의 양방향).
-   *
-   * **어느 층인지는 `scope.level` 하나로만 정한다.** `agentId` 는 층 지정과 무관하게 늘 따라오는
-   * 소유 정보(인스턴스 라우팅·세션 귀속)라, 그걸로 층을 추론하면 "에이전트 층에 걸려던 것이
-   * 프로젝트 층에 걸리는" 조용한 오적용이 생긴다.
+   * 오버라이드 한 건 — `enabled: null` 은 그 층의 명시값 해제. 켬(true)도 저장한다(위층이 꺼도 이 층에서 켠 것은 켜져야 한다).
+   * 층은 `scope.level` 로만 — 늘 따라오는 `agentId` 로 추론하면 에이전트 층 설정이 프로젝트 층에 걸린다.
    */
   setContextOverride(
     scope: { level: ContextScopeLevel; projectKey?: string; subAgentId?: string; agentId?: string },
@@ -3858,7 +3311,7 @@ export class ProjectGraph {
     return undefined;
   }
 
-  // ─── §5.5 #17-17 v4.46 — 세션 목표(Goal) ───
+  // §5.5 #17-17 — 세션 목표(Goal)
 
   /** 한 세션 탭의 목표 (없으면 undefined). */
   getSessionGoal(subAgentId: string): SessionGoal | undefined {
@@ -3875,11 +3328,11 @@ export class ProjectGraph {
     subAgentId: string;
     text: string;
     status?: SessionGoalStatus;
-    /** §5.5 #17-17 v4.47 — 최초 생성 시 함께 세우는 단계(이후 편집은 진행 갱신 경로로 간다). */
+    /** §5.5 #17-17 — 최초 생성 때 함께 세우는 단계(이후 편집은 진행 갱신 경로로 간다). */
     steps?: GoalStepInput[];
-    /** §5.5 #17-17 v4.50 — 문장을 쓴 주체. 사용자가 손대면 'user' 로 굳어 자동 교체가 멈춘다(⑧). */
+    /** §5.5 #17-17 — 문장을 쓴 주체. 사용자가 손대면 'user' 로 굳어 자동 교체가 멈춘다(⑧). */
     authoredBy?: 'session' | 'user';
-    /** §5.5 #17-17 v4.50 — 이 목표가 딸려 나온 세션 명령(자동 교체 판단 기준). */
+    /** §5.5 #17-17 — 이 목표가 딸려 나온 세션 명령(자동 교체 판단 기준). */
     sourceCommand?: string;
   }): SessionGoal {
     const now = Date.now();
@@ -3917,15 +3370,8 @@ export class ProjectGraph {
   }
 
   /**
-   * 진행 갱신 — 단계 체크리스트(우선) 또는 퍼센트 숫자(단계가 없을 때만).
-   *
-   * §5.5 #17-17 ③ 우선순위:
-   *  - **단계가 하나라도 있으면 퍼센트는 오직 `done/전체`** 다. 들어온 숫자는 무시된다.
-   *  - 단계가 없을 때만 숫자를 받되, 명시 신고(agent·user)가 지금 개정판에 한 번이라도 왔으면
-   *    `plan` 자동 폴백은 덮지 않는다(목표를 고치면 `revision` 이 올라 폴백이 다시 열린다).
-   *
-   * 사용자의 체크박스 조작·단계 추가·삭제도 이 문으로 온다(`source:'user'`) — 진행 이력이
-   * 한 곳에만 쌓이게 하기 위해서다. 실제로 바뀐 게 없으면 undefined(이력을 더럽히지 않는다).
+   * 진행 갱신 — §5.5 #17-17 ③: 단계가 있으면 퍼센트는 오직 `done/전체`. 단계가 없을 때만 숫자를 받되 지금 개정판에 명시 신고가 왔으면 `plan` 폴백은 덮지 않는다.
+   * 사용자 편집도 이 문으로 온다(`source:'user'` — 이력을 한 곳에). 바뀐 게 없으면 undefined.
    */
   noteSessionGoalProgress(
     subAgentId: string,
@@ -3933,7 +3379,7 @@ export class ProjectGraph {
       percent?: number;
       note?: string;
       steps?: GoalStepInput[];
-      /** §5.5 #17-17 v4.50 — 에이전트가 자기 목표 문장을 다듬을 때(사용자가 쓴 문장은 못 덮는다). */
+      /** §5.5 #17-17 — 에이전트가 자기 목표 문장을 다듬을 때(사용자가 쓴 문장은 못 덮는다). */
       goal?: string;
       source: SessionGoalProgressSource;
     },
@@ -3988,17 +3434,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.5 #17-17 v4.50 ① — **세션이 스스로 세운 계획을 목표 창으로 옮긴다.**
-   *
-   * 이 기능의 주인은 사용자가 아니라 세션이다: 세션이 `TodoWrite` 로 "이 일을 이렇게 하겠다"고
-   * 마음먹는 순간 훅이 이 메서드를 부르고, 그 순간 목표 카드가 **태어난다**(문장 = 지금 수행 중인
-   * 명령, 단계 = 그 계획). 이후 계획이 갱신될 때마다 체크리스트가 그대로 따라간다.
-   *
-   * 자동 교체: 세션이 쓴 목표(`authoredBy==='session'`)는 **새 명령이 오면 새 목표로 갈아탄다** —
-   * 한 세션이 명령을 여러 개 처리해도 화면은 항상 "지금 하는 일"을 가리킨다. 사용자가 문장을
-   * 고친 목표(`'user'`)는 건드리지 않는다(사용자가 준 방향을 다음 명령이 지우면 안 되므로).
-   *
-   * 반영됐으면 갱신된 목표, 바뀐 게 없으면 undefined.
+   * §5.5 #17-17 ① — 세션이 `TodoWrite` 로 세운 계획을 목표 창으로 옮긴다(문장 = 지금 명령, 단계 = 계획).
+   * 세션이 쓴 목표는 새 명령에 갈아타고 `'user'` 목표는 안 건드린다. 바뀐 게 없으면 undefined.
    */
   syncSessionGoalFromPlan(
     subAgentId: string,
@@ -4033,15 +3470,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.5 #17-17 ⑨ v4.59 — **목표는 계획을 기다리지 않는다. 명령이 뜨는 순간 태어난다.**
-   *
-   * v4.50 은 카드 출생을 `TodoWrite` 훅 **하나에** 묶었다. 그래서 계획을 세우지 않는 세션에서는
-   * 목표창이 영원히 비어 있었다(실측: 279 세션 중 계획을 세운 세션 1개 → 목표 0개). 명령이 세션
-   * 탭으로 발사되는 순간 그 명령 머리글로 카드를 세워, 사이드바가 항상 **"지금 이 세션이 하는 일"**
-   * 을 가리키게 한다. 단계는 비어 있다가 계획이 오면 `syncSessionGoalFromPlan` 이 붙인다.
-   *
-   * 자동 교체 규칙은 계획 경로와 같다 — 세션이 쓴 목표만 새 명령에 갈아타고, 사용자가 고친
-   * 문장(`authoredBy==='user'`)은 건드리지 않는다(⑧). 같은 명령이 다시 오면 아무것도 하지 않는다.
+   * §5.5 #17-17 ⑨ — 목표는 명령이 세션 탭으로 발사되는 순간 그 머리글로 태어난다(단계는 계획이 오면 붙는다).
+   * `TodoWrite` 에만 묶지 마라 — 계획을 안 세우는 세션은 목표창이 영영 빈다(실측: 279 세션 중 1개). 교체 규칙은 계획 경로와 같다(⑧).
    */
   seedSessionGoalFromCommand(
     subAgentId: string,
@@ -4076,12 +3506,7 @@ export class ProjectGraph {
     return steps;
   }
 
-  /**
-   * 새 일로 갈아타기 직전 청소 — 단계·퍼센트·진행 메모를 비운다.
-   * 계획이 함께 오는 경로는 곧바로 새 단계에서 퍼센트가 파생되지만, 계획 없이 명령만으로 태어나는
-   * 경로(`seedSessionGoalFromCommand`)에서는 이 청소가 없으면 **지난 목표의 퍼센트·메모가 새 목표에
-   * 그대로 얹힌다**(0% 여야 할 새 일이 80% 로 보이는 증상).
-   */
+  /** 새 일로 갈아타기 전 청소(단계·퍼센트·진행 메모) — 없으면 명령만으로 태어나는 경로(`seedSessionGoalFromCommand`)에 지난 목표의 퍼센트가 얹힌다. */
   private resetGoalForNewWork(subAgentId: string): void {
     const cur = this.sessionGoals.get(subAgentId);
     if (!cur) return;
@@ -4118,20 +3543,14 @@ export class ProjectGraph {
 
   /** 목표 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   /**
-   * §9 — 세션 목표의 전선용 사본 메모(`sliceCopyCache` 와 같은 규약, 객체 판).
-   *
-   * 여기는 배열이 아니라 **객체 하나가 통째로 교체**되는 자리다(`sessionGoals.set(k, next)` —
-   * `steps`/`history` 를 제자리로 고치는 곳이 한 군데도 없다). 그래서 원본 객체의 **참조 자체**가
-   * 곧 버전이고, 길이·양끝을 볼 필요가 없다. 종전에는 목표 93개를 매 스냅샷마다 3중으로 깊은
-   * 복사해(실측 171KB) 한 세션이 한 칸 나아갈 때마다 나머지 92개까지 새 참조로 다시 실렸다.
+   * §9 — 세션 목표 전선용 사본 메모(객체 판). 목표는 통째로 교체되고 `steps`/`history` 를 제자리로 고치지 않는다 — 원본 참조가 곧 버전이다.
+   * 없으면 매 스냅샷 목표 전부를 깊은 복사한다(실측 93개·171KB).
    */
   private sessionGoalViewCache = new WeakMap<SessionGoal, SessionGoal>();
 
   getSessionGoalsRecord(): Record<string, SessionGoal> | undefined {
-    // §9 (2d) — 바깥층(순회) memo. 안쪽 `sessionGoalViewCache` 는 값 하나의 사본 memo 라
-    //   **층이 다르다 — 한쪽이 있다고 다른 쪽을 지우지 마라.** 이쪽이 없으면 목표 93개 순회가
-    //   매 스냅샷마다 돌고, 저쪽이 없으면 TTL 이 지날 때마다 93개가 전부 새 참조로 바뀌어
-    //   증분이 통째로 무너진다.
+    // §9 (2d) — 바깥층(순회) memo. 안쪽 `sessionGoalViewCache`(값 사본 memo)와 층이 다르다 — **한쪽이 있다고 다른 쪽을 지우지 마라**
+    // (이쪽이 없으면 순회가 매번 돌고, 저쪽이 없으면 TTL 마다 참조가 전부 바뀌어 증분이 무너진다).
     return this.memoSlice('sessionGoals', this.sessionGoals, () => {
       if (this.sessionGoals.size === 0) return undefined;
       const out: Record<string, SessionGoal> = {};
@@ -4147,13 +3566,7 @@ export class ProjectGraph {
     });
   }
 
-  /**
-   * §5.5 #17-17 ⑪(d) — **사용자가** 단계 목록을 다시 세운다(끼워 넣기·삭제·순서 바꾸기).
-   *
-   * 본문이 같은 기존 단계의 id·상태는 재사용한다(화면 체크박스가 튀지 않게 — ⑧ 과 같은 규율).
-   * ⑲ — **소유는 본문 단위로 옮는다**: 새로 들어온 본문만 `authoredBy='user'` 이고, 재사용분은
-   * 원래 주인을 그대로 지킨다. 통째로 박던 종전 규칙이 왜 목록을 스스로 섞었는지는 아래 주석에.
-   */
+  /** §5.5 #17-17 ⑪(d) — 사용자가 단계 목록을 다시 세운다(끼워 넣기·삭제·순서). 본문이 같은 단계의 id·상태는 재사용(⑧). ⑲ — 새 본문만 `user`, 재사용분은 원래 주인. */
   setUserGoalSteps(
     subAgentId: string,
     raw: GoalStepInput[],
@@ -4177,21 +3590,8 @@ export class ProjectGraph {
       const confidence = item.confidence === 'low' || item.confidence === 'high' ? item.confidence : undefined;
       const reuse = pool.get(text)?.shift();
       /**
-       * §5.5 #17-17 ⑲ — **이 문은 소유를 옮기지 않는다.** 새 본문만 사용자 것이다.
-       *
-       * 종전에는 여기로 온 목록을 통째로 `user` 로 박았다(⑪(d)). 그 문이 끼워 넣기 전용이었다면
-       * 맞는 규칙이지만, ⑰(a) 로 **순서·행 바꾸기까지 같은 문**으로 들어오면서 뜻이 뒤집혔다 —
-       * 노드를 한 번 끌어 놓거나 빈 자리에 하나 끼워 넣는 것만으로 **에이전트가 쓴 단계 전부가**
-       * 사용자 소유가 된다. 그 뒤로 `mergeGoalSteps` 는 그것들을 영원히 붙들고(세션 목록에 없어도
-       * 지우지 않는다), 앵커 본문이 사라진 것은 꼬리에 붙인다. 그래서 에이전트가 계획을 갈아입을
-       * 때마다 지난 라운드의 단계가 목록에 쌓이고 차례가 저절로 어긋난다 — 사용자 지적
-       * "중간에 마음대로 섞여 버리던데". 무대에 삭제 손잡이가 없던 동안 이것은 **되돌릴 수 없는**
-       * 오염이었다(⑲(b) 가 그 손잡이를 낸다).
-       *
-       * 소유를 옮겨서 얻는 것도 없었다: `mergeGoalSteps` 는 같은 id 가 incoming 에 있으면 그쪽
-       * (= 에이전트가 보낸 차례)을 그대로 쓴다. 즉 이 박음은 사용자의 차례를 지켜 주지 못하면서
-       * 단계만 불멸로 만들었다. **재사용분은 원래 주인을 지키고**(표식이 없던 옛 단계는 `session`),
-       * 본문이 새로 들어온 것만 `user` 다 — 끼워 넣기·흐름 템플릿이 만드는 바로 그 단계들.
+       * §5.5 #17-17 ⑲ — 이 문은 소유를 옮기지 않는다(새 본문만 `user`, 재사용분은 원래 주인 · 표식 없는 옛 단계는 `session`).
+       * 통째로 `user` 로 박지 마라 — 순서 바꾸기(⑰(a))도 이 문이라 한 번 끌면 에이전트 단계 전부가 불멸이 되고(`mergeGoalSteps` 가 붙든다) 계획이 바뀔 때마다 쌓여 섞인다.
        */
       const owner: 'session' | 'user' = reuse ? (reuse.authoredBy ?? 'session') : 'user';
       steps.push({
@@ -4231,15 +3631,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.5 #17-17 ⑪(i) — **한 단계의 종류만 바꾼다.** 사용자가 무대에서 종류를 골랐을 때의 문.
-   *
-   * `setUserGoalSteps` 를 쓰지 않는 이유가 있다 — 그 문은 들어온 단계를 **전부 `authoredBy='user'`
-   * 로 바꾼다**(⑪(d)). 종류 하나 붙이자고 그 문을 쓰면 에이전트가 쓴 목록이 통째로 사용자 소유가
-   * 되어, 그 뒤로 세션은 자기 계획을 갱신할 수 없고 `mergeGoalSteps` 가 옛 목록을 영원히 붙들게 된다.
-   * 종류를 고르는 것은 **소유를 옮기는 일이 아니다.**
-   *
-   * `updatedAt` 도 건드리지 않는다 — 그 값은 무대가 "이 단계가 언제부터 언제까지였나"를 재는
-   * 기준이라(⑪(j) `stepWindow`), 종류를 바꿨다고 시각이 밀리면 아래 칸이 남의 단계 일을 그린다.
+   * §5.5 #17-17 ⑪(i) — 한 단계의 종류만 바꾼다(종류 고르기는 소유 이동이 아니라 목록을 다시 세우는 `setUserGoalSteps` 를 안 쓴다).
+   * `updatedAt` 은 안 건드린다 — 무대의 단계 구간 기준이라(`stepWindow`) 밀리면 남의 단계 일을 그린다.
    */
   setGoalStepKind(subAgentId: string, stepId: string, kind: string | null): SessionGoal | undefined {
     const cur = this.sessionGoals.get(subAgentId);
@@ -4268,14 +3661,8 @@ export class ProjectGraph {
   // ─── §5.5 #17-17 ⑪ 살아 있는 단계 지도 — 시각 종류 카드 ───
 
   /**
-   * ⑪(a)(i) — 없는 것만 심는다. 프로젝트가 처음 열릴 때·복원 뒤 한 번씩 불린다(있으면 no-op).
-   *
-   * **층이 둘이다.** 뿌리 씨앗(`seed:true` — `locate`/`change`/`verify`)은 시들지도 지워지지도
-   * 않고, 시작 카드(`starter:true` — `git`/`github`/… )는 처음 한 번 같이 심어 주되 **보통 카드처럼
-   * 시들고 휴지통으로 간다**(⑪(i) — 언리얼만 만드는 사용자에게 `github` 가 영영 남을 이유가 없다).
-   *
-   * 휴지통으로 간 카드도 맵에는 남으므로(`status:'trashed'`) 여기서 되살아나지 않는다 —
-   * 사용자가 버린 것을 앱을 다시 열 때마다 되심으면 그건 버릴 수 없는 카드다.
+   * ⑪(a)(i) — 없는 것만 심는다. 뿌리 씨앗(`seed:true`)은 시들지 않고, 시작 카드(`starter:true`)는 보통 카드처럼 시든다.
+   * 휴지통 카드(`trashed`)는 맵에 남아 되심지 않는다 — 열 때마다 되심으면 못 버린다.
    */
   private ensureVisualKindSeeds(): void {
     const now = Date.now();
@@ -4299,12 +3686,7 @@ export class ProjectGraph {
     for (const starter of VISUAL_KIND_STARTERS) plant(starter, false);
   }
 
-  /**
-   * ⑪(i) — 주입 블록이 실을 **지금 있는 종류 키** 목록(휴지통 제외).
-   *
-   * 이 한 줄이 없으면 모델은 있는 종류를 모른 채 매번 새 키를 지어내고(`fix`·`fixing`·`edit` …)
-   * 카드가 상한까지 불어나 서로를 휴지통으로 밀어낸다 — 진화가 아니라 흩어짐이 된다.
-   */
+  /** ⑪(i) — 주입 블록에 실을 지금 종류 키 목록(휴지통 제외). 없으면 모델이 새 키를 지어내(`fix`·`fixing` …) 카드가 상한까지 불어나 서로를 휴지통으로 민다. */
   getVisualKindKeys(): string[] {
     const out: string[] = [];
     for (const [key, card] of this.visualKinds) {
@@ -4323,13 +3705,7 @@ export class ProjectGraph {
     });
   }
 
-  /**
-   * ⑪(a)(b) — 에이전트가 새 종류를 만들거나 기존 종류를 손본다.
-   *
-   * 글리프는 `sanitizeGlyphPath` 를 통과한 것만 받는다 — 문법을 벗어나면 **카드는 만들되 글리프만
-   * 버린다**(중립 점으로 그려질 뿐 카드가 사라지지는 않는다). 휴지통에 있던 같은 키가 다시 쓰이면
-   * 되살아난다(⑪(c) — 에이전트가 같은 키를 다시 쓰는 것이 복구의 한 갈래다).
-   */
+  /** ⑪(a)(b) — 에이전트가 종류를 만들거나 손본다. 글리프는 `sanitizeGlyphPath` 를 통과한 것만 — 못 통과하면 글리프만 버리고 카드는 만든다. 휴지통의 같은 키가 다시 쓰이면 되살아난다. */
   upsertVisualKind(input: {
     key: string;
     label?: string;
@@ -4353,9 +3729,8 @@ export class ProjectGraph {
     const cur = this.visualKinds.get(key);
     const label = input.label?.trim().slice(0, 40);
     const blurb = sanitizeKindBlurb(input.blurb);
-    // ⑪(i) — 넷 다 글리프와 같은 규율이다: 못 통과한 것만 버리고 **카드는 만든다.**
-    //   ⑪(m) — 검증을 **먼저** 하고 그 뒤에 밑그림을 깐다. 순서를 뒤집으면 `color: "red"` 처럼
-    //   못 쓸 값 하나가 템플릿이 줬을 멀쩡한 색까지 밀어내고 자기도 버려져 카드가 무채색이 된다.
+    // ⑪(i) — 넷 다 글리프와 같은 규율(못 통과한 것만 버리고 카드는 만든다). ⑪(m) — 검증을 먼저, 밑그림은 그 뒤에 —
+    // 거꾸로면 `color: "red"` 같은 못 쓸 값이 템플릿의 멀쩡한 색까지 밀어내 카드가 무채색이 된다.
     const merged = applySceneTemplate(
       {
         glyph: sanitizeGlyphPath(input.glyph),
@@ -4410,16 +3785,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.5 #17-17 ⑫(a) — **무대 팔레트: 배운 행동 목록.**
-   *
-   * 집계 자체는 shared 순수 함수(`buildGoalActions`)가 하고 여기서는 **재료를 모아 넘길 뿐**이다 —
-   * 서버가 자기 산식을 따로 들면 화면에 뜬 카드와 테스트가 세는 카드가 갈린다.
-   *
-   * **TTL memo 를 쓴다(버전 memo ❌).** `memoSlice` 는 원천이 하나일 때 쓰는 것인데 팔레트는 넷
-   * (스킬 사용수·명령 이력·목표 단계·종류 표)을 함께 보므로, 그 넷에 각각 bump 를 심으면 언젠가
-   * 한 곳이 빠지고 팔레트만 조용히 옛 답을 낸다(그 실패는 화면에서 "아직 안 배웠다"와 구분되지
-   * 않는다). 대신 **몇 초 늦어도 되는 자료**라는 성질을 이용해 짧은 TTL 로 접고, 사용자가 직접
-   * 고정을 누른 순간만 즉시 무효화한다(그때는 눈으로 결과를 기다리고 있기 때문).
+   * §5.5 #17-17 ⑫(a) — 무대 팔레트. 집계는 shared `buildGoalActions` 한 벌(두 벌이면 화면과 시험이 갈린다). TTL memo 를 쓴다(버전 memo ❌) —
+   * 원천이 넷이라 bump 를 넷에 심으면 하나가 빠져 조용히 옛 답이 난다. 고정을 누를 때만 즉시 무효화한다.
    */
   getGoalActionsList(): GoalActionCard[] | undefined {
     const now = Date.now();
@@ -4512,11 +3879,8 @@ export class ProjectGraph {
   }
 
   /**
-   * ⑪(c) — 목표 단계에 실제로 쓰인 종류의 노출을 센 뒤 침전·휴지통 판정을 돌린다.
-   *
-   * §5.10 v3.49 랭킹 그대로다 — `refCount` 는 오르는데 `helpfulCount` 가 0이면 낡은 것이므로
-   * 침전시키고, 침전한 채 `VISUAL_KIND_TRASH_DAYS` 를 넘기면 휴지통으로 보낸다.
-   * **씨앗·고정은 대상이 아니다.**
+   * ⑪(c) — 목표 단계에 쓰인 종류의 노출을 센 뒤 침전·휴지통 판정(§5.10 랭킹): `refCount` 는 오르는데 `helpfulCount` 가 0 이면 침전,
+   * 침전한 채 `VISUAL_KIND_TRASH_DAYS` 를 넘기면 휴지통. 씨앗·고정은 제외.
    */
   private sweepVisualKinds(usedKeys: Iterable<string>): void {
     const now = Date.now();
@@ -4589,18 +3953,11 @@ export class ProjectGraph {
     // fallback: 첫 번째 프로젝트 or root
     const first = [...this.projects.values()][0];
     if (first?.path) return first.path;
-    // v2.62 — projects 가 아직 비어도(부팅 초기/하이드레이트 전) primary/root 로 폴백.
-    // 여기서 null 을 돌려주면 createCustomAgent 가 sessionCwds 등록을 통째로 스킵 →
-    // 그 커스텀 에이전트가 toProjectCheckpoint 의 getProjectSessionIds 필터에서 탈락 →
-    // 다음 저장 때 조용히 소멸하던 직접 원인(§3.2.1). 항상 cwd 를 확보한다.
+    // projects 가 비어도(부팅 초기) primary/root 로 폴백해 늘 cwd 를 낸다 — null 이면 createCustomAgent 가 sessionCwds 등록을 건너뛰어 다음 저장 때 그 에이전트가 사라진다(§3.2.1).
     return this.getPrimaryProject()?.path ?? this.root ?? null;
   }
 
-  /**
-   * §3.2.1-3 v2.63 — 명시 삭제 묘비 기록 + 단조 증가 상한(DELETED_AGENT_TOMBSTONE_MAX).
-   * Set 은 삽입 순서를 보존하므로 한도 초과 시 가장 오래된 묘비부터 버린다.
-   * (sessionId 는 전역 유니크라 재생성되지 않아 안전하게 prune 할 길이 없으므로 상한만 둠.)
-   */
+  /** §3.2.1-3 — 묘비 기록 + 상한(`DELETED_AGENT_TOMBSTONE_MAX`, 넘치면 가장 오래된 것부터). sessionId 는 전역 유니크라 안전하게 prune 할 길이 없어 상한만 둔다. */
   private addTombstone(sessionId: string): void {
     this.deletedCustomAgents.add(sessionId);
     while (this.deletedCustomAgents.size > DELETED_AGENT_TOMBSTONE_MAX) {
@@ -4612,11 +3969,7 @@ export class ProjectGraph {
 
   // ─── §5.10 (J) — 커스텀 에이전트 휴지통 ───
 
-  /**
-   * 커스텀 에이전트를 휴지통으로 이동(즉시 소멸/묘비 기록 ❌). identity 보존을 위해 Map·묘비를
-   * 건드리지 않고 `trashed`/`trashedAt` 플래그만 세운다(§3.2.1 급감 가드 관계 유지 — 묘비는
-   * 영구 삭제 시에만 찍는다). 활성 상태는 idle 로 내려 활성 집계에서 빠진다. 반환=성공 여부.
-   */
+  /** 커스텀 에이전트를 휴지통으로 — identity 보존을 위해 Map·묘비는 두고 `trashed`/`trashedAt` 만 세운다(묘비는 영구 삭제 때만 — §3.2.1 급감 가드). 활성은 idle 로. 반환=성공 여부. */
   trashCustomAgent(sessionId: string): boolean {
     const agent = this.agents.get(sessionId);
     if (!agent || !agent.customCreated) return false;
@@ -4672,22 +4025,16 @@ export class ProjectGraph {
     return true;
   }
 
-  /**
-   * 휴지통 에이전트 영구 삭제 — 기존 removeBubble 커스텀 분기(묘비 기록)에 위임 + 개별 기억
-   * 카드 디렉토리 삭제. 확인 팝업 승인 후 REST 에서만 호출. 반환=성공 여부.
-   */
+  /** 휴지통 에이전트 영구 삭제 — removeBubble 커스텀 분기(묘비 기록)에 위임한다. 확인 팝업 승인 뒤 REST 에서만 부른다. 반환=성공 여부. */
   permanentlyDeleteTrashedAgent(sessionIdOrBubbleId: string): boolean {
     const sessionId = this.resolveCustomAgentSessionId(sessionIdOrBubbleId);
     if (!sessionId) return false;
     const agent = this.agents.get(sessionId);
     if (!agent || !agent.customCreated) return false;
-    // v4.84 — **휴지통에 있는 것만** 지운다(복구 경로와 대칭). 종전엔 이 확인이 없어 살아 있는
-    //   커스텀 에이전트 id 가 흘러들면 휴지통을 거치지 않고 묘비까지 남기며 사라질 수 있었다.
-    //   일괄 삭제(`POST /api/trash/purge`)가 생겨 한 번에 넘어오는 id 수가 늘었으므로 여기서 막는다.
+    // 휴지통에 있는 것만 지운다(복구 경로와 대칭) — 아니면 일괄 삭제(`POST /api/trash/purge`)로 흘러든 살아 있는 에이전트가 휴지통 없이 묘비까지 남기며 사라진다.
     if (!agent.trashed) return false;
     const agentId = agent.id;
-    // v4.67 — sub-streams jsonl 정리. 영구 삭제한 에이전트의 스트림이 디스크에 남지 않게 한다.
-    // 묘비가 남아 되살아날 수 없는 이 경로에서만 지운다(복구 경로에는 배선 ❌).
+    // 영구 삭제한 에이전트의 sub-streams jsonl 을 지운다 — 묘비로 되살아날 수 없는 이 경로에서만(복구 경로엔 배선 ❌).
     try { subAgentManager.purgeAgentStreams(agentId); } catch { /* best effort */ }
     // removeBubble 커스텀 분기 = agents.delete + addTombstone + 엣지/콘티 cascade.
     this.removeBubble(agentId, { force: true, purgeTaskEdges: true });
@@ -4703,9 +4050,7 @@ export class ProjectGraph {
     return out;
   }
 
-  /** 버블 삭제 (노드 ID 기준). 에이전트가 다시 사용하면 재생성됨. 루트 버블은 삭제 불가.
-   *  v1.85 — `purgeTaskEdges`: 에이전트 분기에서 그 에이전트에 붙은 Task Edge 까지 cascade 제거할지.
-   *  **사용자 명시 삭제 경로만 true**. 자동 disappear/만료 호출은 기본 false → 엣지 dormant 보존. */
+  /** 버블 삭제(노드 ID). 에이전트는 다시 쓰면 재생성, 루트는 삭제 불가. `purgeTaskEdges` 는 사용자 명시 삭제만 true — 자동 disappear/만료는 Task Edge 를 dormant 로 보존한다. */
   removeBubble(nodeId: string, opts: { force?: boolean; purgeTaskEdges?: boolean } = {}): void {
     // 클라이언트가 위성을 렌더할 때 ID 에 'sat-' prefix 를 붙임([satellite.ts]).
     // 서버 측 위성 원본 ID 와 매칭되도록 strip — 안 그러면 iframe/file 위성 Delete 가
@@ -4720,7 +4065,7 @@ export class ProjectGraph {
       }
     }
 
-    // preserve-pin 가드 (§2.4 v1.28) — force=true(내부 이관/리네임) 외엔 삭제 거부
+    // preserve-pin 가드(§2.4) — force=true(내부 이관/리네임) 외엔 삭제 거부
     if (!opts.force) {
       for (const node of this.nodes.values()) {
         if (node.id === nodeId && node.preservePinned) {
@@ -4760,9 +4105,7 @@ export class ProjectGraph {
     // 에이전트 삭제
     for (const [sessionId, agent] of this.agents) {
       if (agent.id === nodeId) {
-        // §3.2.1-3 v2.63 — 커스텀 에이전트의 명시적 삭제는 묘비에 기록한다.
-        // 이게 없으면 identity.json shrink guard 가 정상 삭제를 복원 실패로 오인해
-        // 막아버려, 재시작 시 삭제했던 에이전트가 유령으로 부활한다.
+        // §3.2.1-3 — 커스텀 에이전트의 명시 삭제는 묘비에 기록한다 — 없으면 identity.json shrink guard 가 복원 실패로 오인해 막아 재시작 때 유령으로 부활한다.
         if (agent.customCreated) this.addTombstone(sessionId);
         this.agents.delete(sessionId);
         this.sessionCwds.delete(sessionId);
@@ -4776,8 +4119,7 @@ export class ProjectGraph {
         // 사용자 삭제 → 버블이 사라지므로 해당 엣지도 완전 제거(고아 엣지 방지)
         this.mainEdges.removeByPredicate((e) => e.source === agent.id || e.target === agent.id);
         this.innerEdges.removeByPredicate((e) => e.source === agent.id || e.target === agent.id);
-        // v1.85 — Task Edge 는 사용자 산출물. 사용자 명시 삭제(purgeTaskEdges)에서만 cascade 제거.
-        // 자동 disappear/만료(기본 false)에는 보존 → 에이전트 재등장 시 자동 재연결.
+        // Task Edge 는 사용자 산출물 — 명시 삭제(purgeTaskEdges)에서만 지우고, 자동 disappear/만료에는 보존해 에이전트가 돌아오면 다시 잇는다.
         if (opts.purgeTaskEdges) {
           for (const [tid, te] of this.taskEdges) {
             if (te.sourceAgentId === agent.id || te.targetAgentId === agent.id) {
@@ -4785,9 +4127,9 @@ export class ProjectGraph {
             }
           }
         }
-        // 에이전트 영구 위성 노드 제거 (preserve-pin 보존 — §2.4 v1.28)
+        // 에이전트 영구 위성 노드 제거(preserve-pin 보존 — §2.4)
         this.dropAgentSatellites(agent, `removeBubble agent=${agent.id}`);
-        // §5.3 #28 v1.47 — 콘티 cascade
+        // §5.3 #28 — 콘티 cascade
         const removedContis: string[] = [];
         for (const [cid, c] of this.contis) {
           if (c.agentId === agent.id) {
@@ -4798,7 +4140,7 @@ export class ProjectGraph {
         if (removedContis.length > 0) {
           logger.info(`Cascaded ${removedContis.length} conti(s) for removed agent "${agent.label}"`);
         }
-        // §5.3 #28 (L) v1.58 — 콘티 작업 트래커 cascade
+        // §5.3 #28 (L) — 콘티 작업 트래커 cascade
         this.activeContiWork.delete(agent.id);
         // 메모리 누수 방지 — 사용자 명시 삭제 시 per-agent Map/Set 정리(좀비 카드 누적 차단)
         this.agentConfigOverrides.delete(agent.id);
@@ -4827,8 +4169,7 @@ export class ProjectGraph {
     // 일반 노드 삭제 (폴더/파일)
     for (const [nodePath, node] of this.nodes) {
       if (node.id === nodeId) {
-        // worktree 버블(정상/ghost 모두) 제거 시 this.projects 엔트리도 함께 정리 —
-        // 그렇지 않으면 migrateWorktreeProjects 가 다음 스캔에서 ensureWorktreeNode 로 부활시킨다(v1.12).
+        // worktree 버블(ghost 포함)을 지우면 this.projects 엔트리도 지운다 — 아니면 다음 스캔의 migrateWorktreeProjects 가 되살린다.
         const isWorktreeNode = node.bubbleType === 'worktree'
           || (node.bubbleType === 'ghost' && node.ghostInfo?.originalBubbleType === 'worktree');
         if (isWorktreeNode) {
@@ -4887,14 +4228,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.23 접어 보기 — 접힌 웹 버블 지우기를 **지금 접혀 보이는 호스트들로** 푼다.
-   *
-   * 그 에이전트만 읽은 호스트는 호스트 버블을 지우는 것과 같다(위 노드 분기). 다른 에이전트도 읽은
-   * 호스트는 **이 에이전트와의 화살표와 소유 기록만** 걷는다 — 옆 에이전트의 접힌 버블이 따라 줄면 안 된다.
-   * "다른 에이전트"는 스냅샷에 실리지 않은 에이전트까지 센다: 숨긴 탭의 에이전트가 읽은 호스트를 지우면
-   * 그 탭을 다시 열었을 때 읽은 흔적이 사라져 있다.
-   *
-   * @returns 풀었으면 true. 접힌 버블이 지금 스냅샷에 없으면(옵션 꺼짐·호스트 만료) false.
+   * §5.23 — 접힌 웹 버블 지우기를 지금 접힌 호스트들로 푼다. 다른 에이전트(숨긴 탭 포함)도 읽은 호스트는 이 에이전트의 화살표·소유 기록만 걷는다(옆 에이전트의 접힌 버블이 줄면 안 된다).
+   * @returns 풀었으면 true, 접힌 버블이 지금 없으면(옵션 꺼짐·호스트 만료) false.
    */
   removeWebFold(foldId: string, opts: { force?: boolean; purgeTaskEdges?: boolean } = {}): boolean {
     if (!this.hasWebFoldId(foldId)) return false;
@@ -5020,18 +4355,9 @@ export class ProjectGraph {
     }
   }
 
-  /**
-   * background shell 복원.
-   * - 등록된 세션(sessionCwds)에 대해 각각 스캔
-   * - 추가로 프로젝트 JSONL 디렉터리 전체를 훑어서, sessionCwds에 없는 세션이라도
-   *   살아있는 bg shell이 있으면 에이전트를 자동 재생성하여 iframe을 복원
-   *   (이미 expire된 세션이지만 dev 서버는 살아있는 경우 대응)
-   */
+  /** background shell 복원 — 등록된 세션(sessionCwds)마다 스캔한다(JSONL 전역 스캔 ❌ — 아래 주석). */
   rehydrateAllBackgroundShells(): void {
-    // v1.2 (SCENARIO §5.7 #24): 기동 시 버블 소스는 체크포인트 단 하나.
-    // JSONL 전역 스캔으로 새 에이전트를 부활시키던 로직은 제거 — 체크포인트에 없는
-    // 세션이 "후두두둑" 생성되어 다른 프로젝트 것과 섞이는 문제를 유발했다.
-    // 체크포인트에 이미 존재하는 에이전트의 background shell만 재수화한다.
+    // §5.7 #24 — 기동 때 버블 소스는 체크포인트 하나다 — JSONL 전역 스캔으로 부활시키면 체크포인트에 없는 세션이 우르르 생겨 남의 프로젝트와 섞인다.
     for (const [sessionId, cwd] of this.sessionCwds) {
       this.rehydrateBackgroundShells(sessionId, cwd);
     }
@@ -5088,12 +4414,8 @@ export class ProjectGraph {
   /** 세션 JSONL을 스캔하여 살아있는 background shell을 iframe 위성으로 복원 */
   private rehydrateBackgroundShells(sessionId: string, cwd: string): void {
     try {
-      // §7.11 — 스캔 대상 = 오너 세션 자신 + (커스텀/서브면) 매핑된 실제 워커 claude 세션들.
-      // 커스텀 에이전트는 agents 맵·sessionCwds 에 커스텀 키(`custom-…`)로 저장되는데
-      // background shell 의 JSONL 은 워커 세션 이름으로 디스크에 있어, 오너 키로만 스캔하면
-      // JSONL 을 못 찾아 영영 watcher 가 안 붙는다(= dev 서버 iframe 위성 누락). 워커 JSONL 을
-      // 함께 훑되, 위성·ServerEntry 는 오너(sessionId)에 붙여 createIframeSatellite 의
-      // `this.agents.get(sessionId)` 가 성공하게 한다. (일반 세션은 매핑이 없어 자기만 스캔.)
+      // §7.11 — 스캔 대상 = 오너 세션 + 매핑된 실제 워커 세션(bg shell JSONL 은 워커 이름이라 오너 키로만 훑으면 watcher 가 영영 안 붙는다).
+      // 위성·ServerEntry 는 오너(sessionId)에 붙인다(`createIframeSatellite` 의 `this.agents.get(sessionId)` 가 성공하게).
       const scanTargets = new Map<string, string>(); // realSessionId → 그 세션의 cwd
       scanTargets.set(sessionId, cwd);
       const mapped = this.workerSessionsByOwner.get(sessionId);
@@ -5113,8 +4435,7 @@ export class ProjectGraph {
           // output 파일 자체가 없어졌으면 스킵
           if (!fs.existsSync(s.outputPath)) continue;
 
-          // §7.11 v2.20 — probe 명령(curl/wget/nc 등)은 rehydrate 도 skip.
-          // 명령어에서 추출되는 localhost:N 은 launch 가 아니라 probe 대상이라 서버로 보면 안 됨.
+          // §7.11 — probe 명령(curl/wget/nc 등)은 rehydrate 도 건너뛴다(명령 속 localhost:N 은 launch 가 아니라 probe 대상).
           if (isProbeCommand(s.command)) continue;
 
           // 기존 엔트리 백필 (PreToolUse에서 서버 판정되어 이미 등록된 경우)
@@ -5126,9 +4447,7 @@ export class ProjectGraph {
             if (!existing.outputFile) existing.outputFile = s.outputPath;
           }
 
-          // 명령어에서 즉시 추출 시도 — 성공하면 서버 확정 → 누락됐으면 지금 등록.
-          // §7.11 v2.20/v2.24 — extractPort 가 cmd 에서 못 잡으면 inline eval(`node -e "..."`) →
-          // script file(`node server.js`) 순으로 fallback.
+          // §7.11 — 명령에서 바로 포트 추출: extractPort → inline eval(`node -e`) → script file(`node server.js`) 순 폴백. 잡히면 서버 확정, 누락됐으면 지금 등록.
           const inlinePort = extractPort(s.command)
             ?? extractPortFromInlineEval(s.command)
             ?? extractPortFromScriptFile(s.command, scanCwd);
@@ -5140,10 +4459,7 @@ export class ProjectGraph {
             continue;
           }
 
-          // §7.11 v2.21 — looksLikeServerCommand placeholder 분기 폐기.
-          // strict 1:1: ServerEntry 는 watcher 가 isPortAlive 로 port 실제 확인한 시점에만
-          // createIframeSatellite + ensureServerEntryForShell 짝으로 등록한다.
-          // (이전 v2.1 의 placeholder 등록은 watcher 가 port 끝내 못 잡으면 영구 잔존 → 1:1 위반)
+          // §7.11 strict 1:1 — ServerEntry 는 watcher 가 isPortAlive 로 확인한 때만 위성과 짝으로 등록한다(placeholder 로 미리 넣으면 포트를 못 잡았을 때 영구히 남는다).
           this.shellWatcher.start(s.shellId, s.outputPath, (port) => {
             let log = '';
             try { log = fs.readFileSync(s.outputPath, 'utf8'); } catch { /* ignore */ }
@@ -5194,28 +4510,17 @@ export class ProjectGraph {
       // §5.1 #2-1 (F) ① — 이 이벤트를 낸 우리 sub(있으면). 그 sub 가 하는 앱 작업이 이 이벤트가 쓴 파일의 귀속이다.
       let workerSubId: string | null = null;
 
-      // 서브에이전트 세션이면 부모 에이전트 세션으로 리라이트.
-      // 서브에이전트가 fired 한 hook 의 session_id 는 자체 sessionId 라 this.agents 에 없어
-      // touchAgent 가 떠돌이 ghost 버블을 매번 새로 만들고 파일/폴더 엣지가 거기에 붙는다.
-      // 부모 agent.id → parent session_id 로 redirect 해 부모 버블이 대신 attribution 받게 한다.
+      // 서브에이전트 세션이면 부모 세션으로 리라이트한다 — 서브 훅 session_id 는 this.agents 에 없어 그대로면 touchAgent 가 떠돌이 ghost 버블을 매번 만든다.
       if (!this.agents.has(payload.session_id)) {
         const workerSessionId = payload.session_id;
-        // §4 v2.64 — CMD(인터랙티브 터미널) 소유자 태그(`_vibisualOwnerAgentId`)는 라우트
-        //   (/api/hook-event)에서 이미 session_id 를 그 CMD 버블 세션으로 rewrite 하므로
-        //   여기 도달 시점엔 agents.has(session_id) 가 참 → 이 블록을 타지 않는다. 별도 redirect 불필요.
-        // §3.5 — 그런데 커스텀 합성 키의 버블이 **다른 인스턴스에 있다면**(매니저가 알려 준다), 그 이벤트는 그
-        //   프로젝트에 사는 커스텀 버블의 것이다. 여기서 받으면 아래 `touchAgent` 가 같은 키로 **훅 버블 사본**을
-        //   찍고, 생존 판정이 그 사본을 치우며 공유 명령 큐를 쓸어 간다(실측 2026-09-30). 매니저 라우팅이 주인에게
-        //   보내므로 정상 흐름에선 오지 않지만, 이 인스턴스의 그래프에는 한 줄도 남기지 않고 흘려보낸다.
-        //   (주인이 어디에도 없으면 — 매니저 없이 혼자 쓰는 그래프 포함 — 종전 그대로 받는다.)
+        // §4 — CMD 소유자 태그(`_vibisualOwnerAgentId`)는 라우트가 이미 바꿔 이 블록을 안 탄다. §3.5 — 커스텀 합성 키의 버블이 다른 인스턴스에 있으면 받지 않는다 —
+        // 받으면 훅 버블 사본이 생기고 생존 판정이 그것을 치우며 공유 명령 큐를 쓸어 간다(실측 2026-09-30). 주인이 어디에도 없으면 받는다.
         if (isCustomSessionKey(workerSessionId) && this.sessionHeldElsewhere(workerSessionId)) {
           dbg('processHookEvent.foreignCustomKey', { sessionId: workerSessionId, cwd: payload.cwd, instanceRoot: this.root });
           return null;
         }
 
-        // v1.68: agent-view 복구 후 서브에이전트 hook 의 session_id 는 supervisor 가 준
-        // agentViewSessionId 라 sub.sessionId 매칭만으론 놓쳐 orphan 버블이 새로 생긴다.
-        // 두 키 모두로 부모를 찾아 원래 명령을 낸 커스텀 에이전트에 흡수시킨다.
+        // agent-view 복구 뒤 서브 훅 session_id 는 agentViewSessionId 라 sub.sessionId 만으론 놓친다(orphan 버블) — 두 키로 부모를 찾아 커스텀 에이전트에 흡수시킨다.
         const sub = subAgentManager.getAllSubsFlat().find(
           (s) => s.sessionId === workerSessionId || s.agentViewSessionId === workerSessionId,
         );
@@ -5229,31 +4534,16 @@ export class ProjectGraph {
           }
         }
 
-        // cwd 폴백 — sub.sessionId 가 아직 미해석(resolveSessionIdForShort 폴링 중)이거나
-        // 워크트리 격리로 hook session 이 sub 기록과 어긋나면 위 매칭이 빗나가
-        // touchAgent 가 워크트리 워커 ghost 를 만들어 커스텀 부모가 영영 고립된다.
-        // payload.cwd 가 git 워크트리면, 그 워크트리의 부모 프로젝트에 속한
-        // customCreated 에이전트(서브를 띄운 주체)에게 귀속시킨다 — 가장 최근 활동 sub 기준.
-        // §17 경계 보존 — 진짜 외부 Claude Code 훅 세션(인터랙티브 진입점)은 이 워크트리
-        // 폴백으로 커스텀 부모에 **절대** 흡수하지 않는다. 이 폴백의 정당한 대상은 우리가
-        // 띄운 헤드리스(`claude -p`) 워크트리 워커뿐 — 사용자가 직접 켠 독립 세션(VS Code·
-        // Cowork)이면 자체 Hook 에이전트 버블을 갖도록 흘려보낸다(Hook≠Custom 불합치).
+        // cwd 폴백 — 위 매칭이 빗나가면(sub.sessionId 미해석·워크트리 격리) 워커 ghost 가 생겨 커스텀 부모가 고립된다 — git 워크트리 cwd 면 그 부모 프로젝트의 customCreated 에이전트(최근 활동 sub)에 귀속.
+        // §17 — 외부 Claude Code 인터랙티브 세션은 절대 흡수하지 않는다(대상은 우리가 띄운 `claude -p` 워커뿐 — Hook≠Custom).
         if (!this.agents.has(payload.session_id) && payload.cwd
           && !isInteractiveEntrypoint(findEntrypointBySession(workerSessionId))) {
           const parentSid = this.resolveWorktreeOwnerSession(payload.cwd);
           if (parentSid) payload.session_id = parentSid;
         }
 
-        // §5.7 #23-2 — 데몬(Agent View) 워커 세션은 **절대** 새 버블을 만들지 않는다.
-        // 데몬의 목적은 "재시작 시점에 진행 중이던 1개 커스텀 에이전트 프롬프트의 연속성"
-        // 하나뿐이다. 위 redirect 들이 모두 빗나가도(부팅 직후 부모 버블 미복원 /
-        // agentViewSessionId 폴링 중) 이 세션이 (a) 매칭된 sub 의 워커이거나
-        // (b) 데몬 roster 의 살아있는 worker 면, touchAgent 가 orphan(모래시계) 버블을
-        // 찍지 못하게 이벤트를 흘려보낸다. 원래 명령을 낸 커스텀 부모 버블은 체크포인트에서
-        // 이미 복원돼 있고, reattachAgentViewOnBoot 가 watcher 를 붙이는 순간 그 버블로
-        // 스트림이 자연 귀속된다 — 새 버블을 찍으면 사용자가 금지한 "자동 막 생성" 이 된다.
-        // v1.77 (Direction A) — isManagedSession 추가: legacy 커스텀 워커도 sub.sessionId
-        // 캡처 후엔 managed 로 잡혀 새 버블을 절대 안 찍는다(데몬 외 경로까지 일반화).
+        // §5.7 #23-2 — 데몬(Agent View) 워커 세션은 절대 새 버블을 만들지 않는다 — redirect 가 다 빗나가도 매칭된 sub 의 워커·데몬 roster 의 살아 있는 worker 면 흘려보낸다
+        // (부모 버블은 체크포인트에서 복원돼 있고 reattachAgentViewOnBoot 가 스트림을 그리로 잇는다). isManagedSession — legacy 커스텀 워커도 sub.sessionId 캡처 뒤엔 같다.
         if (!this.agents.has(payload.session_id)
           && (sub
             || this.isDaemonWorkerSession(workerSessionId)
@@ -5287,12 +4577,8 @@ export class ProjectGraph {
         logger.info(`Project root set: ${this.root}`);
       }
 
-      // 워크트리 isolation 세션 명시 등록.
-      // 위 블록은 root 가 잡혀 있으면 projectCwd=root 만 등록 → 서브에이전트가
-      // `--isolation worktree` 로 만든 워크트리 cwd 는 영영 미등록 → getProjectForCwd 가
-      // 못 찾아 작업이 `(ext)` 고아로 뜨고 커스텀 에이전트 attribution/이주가 안 된다.
-      // payload.cwd 가 (경로패턴 밖이라도) git linked 워크트리면 명시 등록(registerProject 멱등 —
-      // detectWorktree 가 부모 자동 등록 + 워크트리 버블 생성 + parentProjectPath 부여).
+      // 워크트리 isolation 세션 명시 등록 — 위 블록은 root 만 등록해 `--isolation worktree` cwd 가 빠지면 작업이 `(ext)` 고아로 뜬다.
+      // git linked 워크트리면 경로 패턴 밖이라도 등록한다(registerProject 멱등).
       if (payload.cwd && this.root) {
         const cwdNorm = normalize(payload.cwd);
         if (cwdNorm !== normalize(this.root) && !this.projects.has(cwdNorm) && detectWorktree(cwdNorm)) {
@@ -5319,10 +4605,8 @@ export class ProjectGraph {
       const agent = this.touchAgent(payload.session_id, payload.cwd);
       if (!agent) return null;
       agent.lastTool = payload.tool_name;
-      // §5.1 #1-1 (D) — 그 일을 한 sub 를 **명시로** 받는다. 우리가 띄운 세션은 전부 소유자 태그를 달아 라우트가 세션을
-      //   주인 버블 키로 바꿔 쓰므로 위 워커 세션 매칭은 돌지 않는다 — 그래서 앱 작업 꼬리표가 실시간으로 한 번도 안 붙었다
-      //   (2026-10-22 실측: 꼬리표가 전부 되짚기 `retro`). 훅(헤더·본문)·라우트 폴백·방출기가 실어 온 sub 를 쓰되,
-      //   **이 에이전트의 sub 일 때만** 받는다(남의 sub id 로 꼬리표를 달지 않는다).
+      // §5.1 #1-1 (D) — 그 일을 한 sub 를 명시로 받는다(우리가 띄운 세션은 라우트가 주인 키로 바꿔 위 워커 매칭이 안 돈다 — 2026-10-22 실측: 꼬리표가 전부 `retro`).
+      // 이 에이전트의 sub 일 때만 받는다.
       if (workerSubId === null && typeof payload._vibisualSubAgentId === 'string' && payload._vibisualSubAgentId) {
         const declared = subAgentManager.getSub(payload._vibisualSubAgentId);
         if (declared && declared.parentAgentId === agent.id) workerSubId = declared.id;
@@ -5345,19 +4629,14 @@ export class ProjectGraph {
         if (specialType === 'bash') {
           if (bashEntry) this.routeCommandApps(agent, payload, bashEntry);
           const cmd = typeof payload.tool_input['command'] === 'string' ? payload.tool_input['command'] : '';
-          // `/runserver` 는 서버 재사용 시 foreground 로 즉시 종료될 수 있어
-          // run_in_background 여부와 무관하게, **이 bash 가 귀속된 바로 그 세션**
-          // (= 방금 bash 위성이 붙은 agent)에 마커→iframe 위성을 생성한다.
-          // cwd 순회/전역 탐색 없음 — "bash 보고 한다" 원칙. cold-start provisional
-          // 마커 레이스(마커 미존재)는 후속 라운드 — 현재는 서버 재사용/마커 존재 복구.
+          // `/runserver` 는 서버 재사용 때 foreground 로 바로 끝날 수 있어, 이 bash 가 귀속된 세션에 마커→iframe 위성을 만든다(cwd 순회·전역 탐색 없음). cold-start 마커 레이스는 아직 안 다룬다.
           if (/runserver\.mjs\b/i.test(cmd)) {
             const sessionCwd = this.sessionCwds.get(payload.session_id) ?? payload.cwd;
             const marker = readDevServerMarker(sessionCwd);
             if (marker) {
               const sid = payload.session_id;
               const toolUseId = payload.tool_use_id;
-              // §7.11 v2.1 — foreground runserver(서버 재사용 시 즉시 종료)도 ServerEntry 등록 → ServerList 노출.
-              // §3.5 — 등록은 위성이 선 뒤에(다른 탭이 열려 있으면 소속 판정 뒤에).
+              // §7.11 — foreground runserver 도 ServerEntry 를 등록한다(ServerList). §3.5 — 등록은 위성이 선 뒤에(다른 탭이 열려 있으면 소속 판정 뒤에).
               this.createIframeSatellite(sid, cmd, marker.port, undefined, undefined, true, undefined, {
                 onPlaced: () => { this.registerServerPort(sid, cmd, marker.port, undefined, undefined, toolUseId); },
               });
@@ -5366,10 +4645,7 @@ export class ProjectGraph {
               });
             }
           } else if (payload.tool_input?.['run_in_background'] === true) {
-            // §7.11 v2.20 — probe 명령(curl/wget/nc 등)은 inline-cmd 단축 경로 skip.
-            // 그 명령의 cmd 에 들어간 localhost:N 은 서버 launch 가 아니라 probe 대상이므로,
-            // 그 셸이 서버처럼 등록되는 false positive 를 차단(watcher 경로도 동일 셸엔 부착되지만
-            // probe 명령은 listen 소켓을 열지 않으므로 자연히 아무 포트도 안 잡힘).
+            // §7.11 — probe 명령(curl/wget/nc 등)은 inline-cmd 단축 경로를 건너뛴다(명령 속 localhost:N 은 probe 대상 — 서버로 등록하면 오탐).
             if (!isProbeCommand(cmd)) {
               // §5.1 #1-1 (C) — 스크립트 파일은 그 명령이 시작될 때의 폴더 기준이다.
               const sessionCwd = this.shellStartCwdFor(payload);
@@ -5379,10 +4655,7 @@ export class ProjectGraph {
               if (port) {
                 const sid = payload.session_id;
                 const toolUseId = payload.tool_use_id;
-                // §7.11 v2.25 — iframe ↔ ServerEntry 대칭 보강: recordBashEntry 가 같은 port 를
-                // 못 잡았거나(별도 추출기 구성) 다른 갈래로 누락된 경우에도 1:1 invariant 유지.
-                // registerServerPort 는 같은 toolUseId 면 samePort 매치로 no-op (idempotent).
-                // §3.5 — 등록은 위성이 선 뒤에(다른 탭이 열려 있으면 소속 판정 뒤에).
+                // §7.11 — iframe ↔ ServerEntry 1:1 보강: recordBashEntry 가 놓쳐도 등록한다(registerServerPort 는 같은 toolUseId 면 no-op). §3.5 — 위성이 선 뒤에 등록.
                 this.createIframeSatellite(sid, cmd, port, undefined, undefined, true, undefined, {
                   onPlaced: () => { this.registerServerPort(sid, cmd, port, undefined, undefined, toolUseId); },
                 });
@@ -5445,11 +4718,7 @@ export class ProjectGraph {
         filePath = resolveRelative(cwdForResolve, filePath);
       }
     }
-    // 워크트리 이주 검사 — 에이전트가 워크트리 내부 파일을 건드리면 그 워크트리로 이주
-    // (부모→WT, 같은 repo면 WT A→WT B 재이주 포함, v1.76).
-    // write/edit 1회 즉시, read 누적 N회. 이주 후엔 sessionCwds 가 워크트리 path 라
-    // 후속 projectPath 계산이 워크트리 기준이 되어 외부(부모) 파일은 external 로 표시된다.
-    // Bash 읽기(§2.1 #3)는 "그 워크트리로 옮겨 앉았다" 는 신호가 아니라 이주 판정을 태우지 않는다.
+    // 워크트리 이주 검사 — 워크트리 안 파일을 건드리면 이주한다(write/edit 1회 즉시, read 누적 N회 · 같은 repo 면 WT A→B 도). 이주 뒤 부모 파일은 external. Bash 읽기는 이주 판정을 안 태운다.
     if ((opts?.allowWorktreeMigration ?? true)
       && this.maybeMigrateAgentToWorktree(payload.session_id, agent.id, filePath, toolName)) {
       sessionCwd = this.sessionCwds.get(payload.session_id);
@@ -5507,10 +4776,7 @@ export class ProjectGraph {
       // 파일이 어떤 프로젝트에도 속하지 않음 → external. 워크트리 home 이면 워크트리 children scope.
       const wtKey = isHomeWorktree ? normalize(sessionProjectInfo!.path) : null;
       const wtPrefix = wtKey ? `wt${hashString(wtKey).toString(36)}__` : '';
-      // §2.1 #5 — 외부 폴더·위성도 **그 작업을 한 세션이 속한 탭 프로젝트**로 귀속시킨다.
-      //   종전엔 워크트리 home 이 아니면 null 을 넘겨 nodeProjectNames 에 안 실렸는데,
-      //   toProjectCheckpoint 의 노드 필터(getProjectNodePaths)가 그 기록으로만 소속을
-      //   판정하므로 external_folder 가 체크포인트에 0건 저장 → 재시작 시 통째로 사라졌다.
+      // §2.1 #5 — 외부 폴더·위성도 세션의 탭 프로젝트로 귀속시킨다 — null 이면 nodeProjectNames 에 안 실려 external_folder 가 체크포인트에 0건 저장되고 재시작 때 사라진다.
       const extProjName = isHomeWorktree
         ? sessionProjectInfo!.name
         : this.resolveOwnerTabProjectName(sessionCwd ?? payload.cwd);
@@ -5528,15 +4794,8 @@ export class ProjectGraph {
 
     const edge = this.mainEdges.upsert(agent.id, agent, topFolder, toolName, agent.id);
 
-    // 부모 캔버스 가시 엣지: 파일이 워크트리에 라우팅됐고 에이전트가 그 워크트리에
-    // home 이 아니면(=마스터/부모 캔버스에서 워크트리로 작업) topFolder 는 wt-prefixed
-    // 자식이라 부모 캔버스에서 숨겨져 라인이 안 뜬다. 부모 캔버스에 함께 떠 있는
-    // **워크트리 버블 노드**로도 엣지를 걸어 "이 에이전트가 이 워크트리에서 작업 중"을
-    // 보이게 한다(드릴다운 시 기존 파일 단위 엣지로 자연 상세화).
-    // 무조건 생성 — 에이전트가 워크트리에 이주(home)했든 부모 캔버스에 남아있든,
-    // 워크트리 버블은 부모 탭 스코프(nodeProjects=parent)라 어느 캔버스에서든 렌더된다.
-    // 이주 케이스에 엣지를 스킵하면 부모 캔버스에서 커스텀 버블이 워크트리와 끊겨 보인다.
-    // (agent 는 결코 worktree 버블 자신이 아니므로 self-edge 없음.)
+    // 부모 캔버스 가시 엣지 — 워크트리로 라우팅된 topFolder 는 부모 캔버스에서 숨으므로 부모에 떠 있는 워크트리 버블로도 엣지를 건다.
+    // 이주 여부와 무관하게 늘 만든다(빼면 이주한 커스텀 버블이 워크트리와 끊겨 보인다).
     if (fileProject?.parentProjectPath) {
       const wtBubble = this.nodes.get(normalize(fileProject.path));
       if (wtBubble && wtBubble.bubbleType === 'worktree' && wtBubble.id !== agent.id) {
@@ -5549,13 +4808,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.1 #1-1 (C) — 셸 명령이 **시작될 때**의 폴더(`<세션>\0<tool_use_id>` → cwd).
-   *
-   * 훅의 `cwd` 는 Claude 가 `cd` 한 뒤의 새 폴더를 따라간다(공식 문서 · `CwdChanged`). 그래서 사후 이벤트의 `cwd` 는
-   * 이미 그 명령의 `cd` 뒤라, 그것으로 상대 경로를 풀면 `cd sub && …` 의 경로가 두 번 붙는다. 반대로 세션의 첫 폴더
-   * (`sessionCwds`)로 풀면 셸이 `cd` 로 하위 폴더에 앉은 뒤의 `sed -i … package.json` 이 **루트** package.json 을 가리켰다
-   * (2026-10-22 재현). 사전 이벤트가 본 cwd 를 붙들어 사후 읽기·쓰기 화살표·diff·보험 사본·작업 폴더 훑기가 같은 기준을 쓴다.
-   * 휘발(새 영속 필드 ❌) · 상한 `BASH_WRITE_PENDING_MAX`(사후가 영영 안 오는 호출 — 거부·중단 — 의 안전망).
+   * §5.1 #1-1 (C) — 셸 명령이 시작될 때의 폴더(`<세션>\0<tool_use_id>` → cwd). 훅 `cwd` 는 `cd` 뒤를 따라가(`CwdChanged`) 사후 cwd 로 풀면 `cd sub && …` 경로가 두 번 붙고,
+   * 세션 첫 폴더로 풀면 하위 폴더의 상대 경로가 루트를 가리킨다(2026-10-22 재현). 사후의 화살표·diff·보험 사본·훑기가 이 한 기준을 쓴다. 휘발 · 상한 `BASH_WRITE_PENDING_MAX`(사후가 안 오는 호출 대비).
    */
   private shellStartCwd = new Map<string, string | null>();
 
@@ -5585,12 +4839,10 @@ export class ProjectGraph {
     if (key) this.shellStartCwd.delete(key);
   }
 
-  /** §2.1 #3 · §5.1 #1-1 — 셸 명령에서 **읽기로 확실한 경로만** 뽑아 같은 파일/폴더 버블 경로로 흘린다.
-   *  도구명을 `Read` 로 정규화해 기존 방향 규칙(`READ_TOOLS`)을 그대로 타게 한다.
-   *  디스크에 실재하는 **파일**만 채택한다 — 존재하지 않는 경로는 오탐이다. 셸 껍데기(코덱스 `pwsh -Command '…'`)는
-   *  추출기가 벗겨 안을 본다. 폴더를 준 **검색**(`grep -r`·`rg`·`Select-String`)은 Grep 도구와 같은 길로 간다 —
-   *  폴더 읽기이고, 외부 폴더는 `tool_response`(셸 출력)에서 결과 파일을 뽑으며 못 뽑으면 폴더도 세우지 않는다
-   *  (§2.1 v2.28 invariant 그대로 · 사전 이벤트에는 출력이 없어 외부 폴더는 사후에만 선다). */
+  /**
+   * §2.1 #3 · §5.1 #1-1 — 셸 명령에서 읽기로 확실한 경로만 `Read` 로 흘린다(실재하는 파일만 — 없는 경로는 오탐). 껍데기(`pwsh -Command '…'`)는 추출기가 벗긴다.
+   * 폴더 검색(`grep -r`·`rg`·`Select-String`)은 Grep 과 같은 길 — 외부 폴더는 셸 출력에서 결과를 못 뽑으면 세우지 않는다.
+   */
   private routeBashReadPaths(agent: BubbleData, payload: HookEventPayload): void {
     const cmd = typeof payload.tool_input?.['command'] === 'string' ? payload.tool_input['command'] : '';
     if (!cmd) return;
@@ -5632,19 +4884,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §2.1 #3 쓰기 축 — Bash 명령에서 **쓰기로 확실한 경로만** 뽑아 같은 파일/폴더 버블 경로로 흘린다.
-   *
-   * 도구명을 `Write` 로 정규화하면 `READ_TOOLS` **밖**이라 기존 방향 규칙이 그대로
-   * **에이전트 → 파일** 화살표를 세운다(§2.1 "한 쌍에 방향은 하나").
-   *
-   * 읽기 축과 다른 점 셋:
-   *  ① **사후에만** 돈다 — 사전에는 새로 만들 파일이 아직 없고, 실행되지 않은 명령에 화살표를
-   *     세우면 그건 거짓이다. 실패한 도구(`PostToolUseFailure`)도 사후로 센다(중간까지 쓰였을 수 있다).
-   *  ② **워크트리 이주 판정을 탄다** — 쓰기는 "그 워크트리로 옮겨 앉았다"는 신호다(읽기는 안 탄다).
-   *  ③ 사전에 떠 둔 디스크 본문과 지금을 견줘 **diff 를 합성**한다(`recordBashFileEdits`).
-   *
-   * 디스크에 실재하는 **파일**만 채택하는 것은 읽기와 같다 — 지워진 파일·`cp` 의 폴더 목적지가
-   * 파일 버블로 서지 않게.
+   * §2.1 #3 쓰기 축 — Bash 에서 쓰기로 확실한 경로만 `Write` 로 흘린다. 읽기와 달리 ① 사후에만(`PostToolUseFailure` 포함 — 실행 안 된 명령에 화살표는 거짓)
+   * ② 워크트리 이주 판정을 탄다 ③ 사전 본문과 diff 를 합성한다(`recordBashFileEdits`). 실재하는 파일만(지워진 파일·`cp` 폴더 목적지 제외).
    */
   private routeBashWritePaths(agent: BubbleData, payload: HookEventPayload, appWork?: AppWorkContext | null): void {
     if (!isPostToolPhase(payload)) return;
@@ -5664,13 +4905,7 @@ export class ProjectGraph {
     }
   }
 
-  /**
-   * §2.1 #3 쓰기 축 — 이 Bash 호출이 고친 **절대 경로**들.
-   *
-   * 사전·사후가 **같은 목록**을 봐야 diff 의 두 쪽이 같은 파일을 가리킨다. 그래서 뽑는 자리는
-   * 여기 하나다. 상대 경로는 세션 cwd 로 올린다 — 안 올리면 `recordFileEdit` 이 서버 프로세스의
-   * cwd 를 보고 엉뚱한 자리를 읽어 diff 가 통째로 빈다(§5.19 로컬 도구 경로가 겪은 그 사고).
-   */
+  /** §2.1 #3 — 이 Bash 호출이 고친 절대 경로(사전·사후가 같은 목록을 봐야 diff 두 쪽이 맞아 여기 하나다). 상대 경로는 세션 cwd 로 올린다 — 서버 cwd 로 읽으면 diff 가 빈다. */
   private bashWritePathsFor(payload: HookEventPayload): string[] {
     const cmd = typeof payload.tool_input?.['command'] === 'string' ? payload.tool_input['command'] : '';
     if (!cmd) return [];
@@ -5709,14 +4944,9 @@ export class ProjectGraph {
   // ─── §5.1 #2-1 (F) 앱 작업물 ───
 
   /**
-   * §5.1 #2-1 (F) ① — 이 sub 가 **지금 하는 앱 작업**. 이 인스턴스에 실재하는 앱 노드만 친다.
-   *
-   * 도는 명령이 싣는 앱 노드(`appNodeIds` · 옛 명령은 본문의 노드 id) → 없으면 **그 에이전트에 지금 이어진 앱 노드**
-   * (2026-10-21 — 앱 작업 보기가 잇는 순간 켜지므로(§5.4 #36 (I)) 이어진 동안 쓴 파일은 그 앱의 작업물이다). 같은 세션의
-   * 마지막 앱 명령의 노드가 아직 이어져 있으면 그 노드로 좁힌다(IDE 에서 이어 보낸 명령이 앞 작업을 잇는다 — 말풍선 작업 장부가
-   * 세션으로 작업을 잇는 것과 같은 뜻). 이어진 노드가 없으면 종전대로 그 마지막 앱 명령. 말풍선에서 이어진 앱을 모두 빼고 보낸
-   * 명령(`appNodesOff`)은 앱 작업이 아니다 — 폴백도 타지 않는다. 앱 노드가 하나도 없으면 `null`.
-   * 서버는 앱 이름도 확장자 표도 모른다 — 한 파일이 여러 노드 중 어느 것을 돌지는 화면이 고른다(§5.13 (P-4)).
+   * §5.1 #2-1 (F) ① — 이 sub 의 지금 앱 작업(실재하는 앱 노드만): 도는 명령의 `appNodeIds`(옛 명령은 본문 노드 id) → 없으면 지금 이어진 앱 노드(§5.4 #36 (I) —
+   * 마지막 앱 명령 노드가 이어져 있으면 그것으로 좁힘) → 그것도 없으면 마지막 앱 명령. `appNodesOff` 명령은 앱 작업이 아니다(폴백 ❌).
+   * 서버는 앱 이름·확장자를 모른다 — 어느 노드가 돌지는 화면이 고른다(§5.13 (P-4)).
    */
   private appWorkFor(sessionKey: string, subId: string, agentId: string): AppWorkContext | null {
     const exists = (id: string): boolean => this.appBubbles.has(id);
@@ -5841,9 +5071,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.1 #2-1 (F) ③ — 작업 폴더 훑기 본체. 기준 자리(파일이면 그 폴더 · 폴더면 그 자리)를 프로젝트 안에서만, 상한 안에서
-   * 내려가며 **그 명령이 나간 뒤 생기거나 바뀐 파일**을 쓰기로 올리고 `script` 표식을 단다. 다른 에이전트가 만진 파일은
-   * 건드리지 않는다. 프로젝트 루트 자신은 기준 자리가 아니다(`cd <루트>` 하나로 저장소 전체를 훑지 않게).
+   * §5.1 #2-1 (F) ③ — 작업 폴더 훑기: 그 명령 뒤에 생기거나 바뀐 파일을 쓰기로 올리고 `script` 표식을 단다(프로젝트 안·상한 안).
+   * 남이 만진 파일은 안 건드리고 프로젝트 루트는 기준 자리가 아니다(`cd <루트>` 하나로 저장소 전체를 훑지 않게).
    */
   private async runAppWorkScan(agentId: string, sessionKey: string, work: AppWorkContext, cwd: string | undefined): Promise<void> {
     const entry = this.appWorkAnchors.get(`${sessionKey}\u0000${work.subId}`);
@@ -5932,12 +5161,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.1 #2-1 (F) ② — 이미 떠 있던 캔버스의 꼬리표를 앱 명령 이력으로 채운다(체크포인트를 열 때 한 번).
-   *
-   * **판단이 서는 경우만** 단다. ① 그 에이전트의 명령이 **전부** 앱 명령이면(옛 명령은 본문의 노드 id) 그 에이전트 혼자 만진
-   * 쓴 파일(`writeCount` ≥ 1)에 그 노드들을 단다(여럿이면 화면이 고른다). ② 섞여 있으면 sub 가 하나일 때만 수정 이력
-   * (`fileEdits`) 의 마지막 시각이 든 명령 구간으로 가른다 — sub 가 둘 이상이면 구간이 겹쳐 가를 수 없으므로 묶지 않는다.
-   * 이미 꼬리표가 있는 파일은 건드리지 않는다.
+   * §5.1 #2-1 (F) ② — 이미 떠 있던 캔버스의 꼬리표를 앱 명령 이력으로 채운다(체크포인트를 열 때, 판단이 설 때만). 전부 앱 명령이면 그 에이전트 혼자 쓴 파일에,
+   * 섞였으면 sub 가 하나일 때만 `fileEdits` 시각의 명령 구간으로 단다(둘 이상이면 구간이 겹친다).
    */
   backfillAppWork(): number {
     if (this.appBubbles.size === 0) return 0;
@@ -6002,16 +5227,7 @@ export class ProjectGraph {
 
   // ─── §5.23 도메인 버블 ───
 
-  /**
-   * §5.23 — `WebFetch`/`WebSearch` 한 건을 도메인 버블 + 항목으로 흘린다.
-   *
-   * **사후(`PostToolUse`)에만** 흘린다 — 사전에는 결과가 없어 항목이 빈 채로 서고, 실행되지 않은
-   * 호출에 화살표를 세우면 그건 거짓이다(§2.1 #3 쓰기 축과 같은 이유).
-   *
-   * 화살표는 **도메인 → 에이전트**(읽기)다. 도구 이름을 `Read` 로 정규화해 §2.1 "한 쌍에 방향은
-   * 하나" 규칙을 그대로 태운다(Bash 읽기가 쓰는 수법 그대로) — 노드의 `lastTool` 에는 실제 도구
-   * 이름이 남는다.
-   */
+  /** §5.23 — `WebFetch`/`WebSearch` 한 건을 도메인 버블 + 항목으로 흘린다(사후에만 — 사전엔 결과가 없다). 도구명을 `Read` 로 정규화해 도메인 → 에이전트 화살표를 세운다(`lastTool` 엔 실제 이름). */
   private routeWebTool(agent: BubbleData, payload: HookEventPayload): void {
     if (!isPostToolPhase(payload)) return;
     const toolName = payload.tool_name ?? '';
@@ -6184,24 +5400,12 @@ export class ProjectGraph {
     return undefined;
   }
 
-  /**
-   * 파일 하나의 디스크 크기 — **statSync TTL 캐시의 유일한 소유자**(2a).
-   *
-   * `enrichNode` 와 `getFileSizeExtent` 가 같은 답을 봐야 한다. 두 벌로 두면 한쪽만 고쳐져
-   * "버블에 적힌 크기"와 "크기 척도"가 어긋난다 — 셸 토크나이저를 한 벌로 묶은 것과 같은 규율.
-   *
-   * @returns 크기(바이트). 파일이 없거나 파일이 아니면 `undefined`(음성 캐시).
-   */
+  /** 파일 하나의 디스크 크기 — statSync TTL 캐시의 유일한 소유자(2a). `enrichNode`·`getFileSizeExtent` 가 같은 답을 봐야 해 한 벌로 둔다. 없거나 파일이 아니면 `undefined`. */
   private lookupFileSize(absPath: string): number | undefined {
     return this.lookupFileStat(absPath)?.size;
   }
 
-  /**
-   * 파일 하나의 크기·수정 시각 — `lookupFileSize` 와 **같은 캐시·같은 stat** 이다(새 디스크 호출 ❌).
-   * §5.1 #2-1 — 수정 시각은 버블 안 미리보기의 판본이자 내용 언급 캐시의 도장이다.
-   *
-   * @returns 파일이 없거나 파일이 아니면 `undefined`(음성 캐시).
-   */
+  /** 파일 하나의 크기·수정 시각 — `lookupFileSize` 와 같은 캐시·같은 stat(새 디스크 호출 ❌). 수정 시각은 미리보기 판본·언급 캐시 도장(§5.1 #2-1). 없으면 `undefined`. */
   private lookupFileStat(absPath: string): { size: number; mtimeMs: number } | undefined {
     const now = Date.now();
     const cached = this.statCache.get(absPath);
@@ -6246,12 +5450,7 @@ export class ProjectGraph {
     this.asyncChangeCallback?.();
   }
 
-  /**
-   * §5.1 #2-1 (C) — 언급 색인. 위성·직속 자식으로 실릴 수 있는 파일 노드끼리만 푼다(같이 화면에 설 수 있는 것끼리만
-   * 관계가 뜻을 갖는다). 읽을 글 파일은 기억된 결과를 꺼내고, 없거나 낡았으면 읽기를 줄 세운다(동기 읽기 ❌ — §3.7).
-   * 판본(읽기 결과)과 `SNAPSHOT_CACHE_TTL` 로 묶어 같은 순간의 스냅샷들이 한 벌을 나눠 쓴다. 위성 상한은 이것을 보지 않는다
-   * (§5.1 #2-1 (D) — 2026-10-21 부터 자리는 경로와 종류로만 가른다). 언급은 화면의 앱 노드 사슬이 쓴다.
-   */
+  /** §5.1 #2-1 (C) — 언급 색인(같이 화면에 설 수 있는 파일끼리만). 읽기는 비동기로 줄 세운다(동기 ❌ — §3.7). 위성 상한은 이걸 안 본다(§5.1 #2-1 (D)). */
   private mentionIndex(): { ids: ReadonlyMap<string, string[]> } {
     const now = Date.now();
     const hit = this.mentionIndexCache;
@@ -6303,8 +5502,7 @@ export class ProjectGraph {
 
   /** 노드에 activeAgentIds + absolutePath + fileSize + satelliteFileCount 부착한 복사본 반환 */
   private enrichNode(nodePath: string, node: BubbleData): BubbleData {
-    // 노드 자체가 absolutePath 를 들고 있으면(§2.1 v1.55 외부 폴더) 그걸 우선 — resolve 폴백 null 로 덮어쓰지 않도록.
-    // §9 — 그 경우엔 **아예 풀지 않는다.** 종전엔 먼저 풀어 놓고 버렸다(외부 폴더 노드마다 헛일).
+    // 노드가 absolutePath 를 들고 있으면(외부 폴더) 그걸 쓰고 풀지 않는다(resolve 폴백 null 로 덮지 않게 · §9 헛일 방지).
     const absPath = node.absolutePath ?? this.resolveAbsolutePath(nodePath) ?? undefined;
     const enriched: BubbleData = { ...node, absolutePath: absPath };
 
@@ -6320,19 +5518,16 @@ export class ProjectGraph {
     if (node.bubbleType === 'file') {
       const mentions = this.mentionIndex().ids.get(nodePath);
       if (mentions !== undefined && mentions.length > 0) enriched.mentions = mentions;
+      // §5.1 #2-1 (B) — 아직 확인하지 않은 턴의 파일 표시(묶음 안이 하위 폴더를 훑을 때 이것만 줍는다). 아니면 싣지 않는다.
+      if (this.usedInOpenTurn(nodePath)) enriched.inOpenTurn = true;
     }
 
-    // 폴더 타입: satelliteFileCount 를 위성 목록으로부터 항상 최신화
-    // (§2.1 v1.55 — UI 카운트 SSOT. external_folder 는 평탄화로 satellite 만 가짐)
-    // 외부 조상이 물려받은 위성도 함께 센다 — 화면에 뜬 개수와 헤더 숫자가 어긋나면 안 된다.
+    // 폴더 satelliteFileCount 는 위성 목록에서 늘 다시 센다(§2.1 UI 카운트 SSOT) — 외부 조상이 물려받은 위성까지(화면 개수와 헤더 숫자가 맞게).
     if (node.bubbleType === 'external_folder' || node.bubbleType === 'internal_folder') {
       enriched.satelliteFileCount = this.effectiveSatelliteKeys(nodePath).length;
     }
 
-    // worktree 타입: 내부에서 도는 active 에이전트를 집계해 파일 버블과 동일하게
-    // status='active' + activeAgentIds 부착(SSOT §5.4 #26 활성 상태 집계, v1.71).
-    // 저장 노드 status(idle)는 그대로 두고 스냅샷 파생값만 덮으므로, 내부 에이전트가
-    // 모두 idle 되면 다음 enrichNode 에서 자동으로 idle 풍경으로 복귀한다.
+    // worktree: 안에서 도는 active 에이전트로 status='active' + activeAgentIds 를 단다(§5.4 #26). 스냅샷 파생값만 덮어 저장 노드(idle)는 그대로다.
     if (node.bubbleType === 'worktree') {
       const wtPrefix = `wt${hashString(nodePath).toString(36)}__`;
       const wtActive = new Set<string>();
@@ -6364,10 +5559,7 @@ export class ProjectGraph {
     }
 
     const refs = this.nodeAgentRefs.get(nodePath);
-    // active 상태 에이전트만 필터 (§5.10 휴지통 에이전트는 활성 참조로 치지 않는다 — getActiveAgentIds 와 같은 규칙)
-    // 소유 기록이 강등에서 살아남게 되면서(§2.4) `refs` 는 더 이상 대부분 비어 있지 않다 —
-    // 종전의 "ref 마다 전체 에이전트 순회" 는 노드×참조×에이전트로 곱해지므로, 판 단위로
-    // 캐시된 Set 조회로 바꾼다(같은 답, 곱셈 하나를 덜어 낸다).
+    // active 에이전트만(§5.10 휴지통 제외 — getActiveAgentIds 와 같은 규칙). `refs` 가 대부분 차 있어(§2.4) ref 마다 에이전트를 돌지 말고 판 단위 캐시 Set 을 조회한다.
     const activeIds: string[] = [];
     if (refs && refs.size > 0) {
       const live = this.activeAgentIdSet();
@@ -6380,12 +5572,8 @@ export class ProjectGraph {
       return enriched;
     }
 
-    // §2.4 — file/folder 버블의 "활동중"은 저장값이 아니라 **지금 그 파일을 만지고 있는 에이전트**에서
-    // 파생한다. 저장 status 를 그대로 믿으면, 에이전트를 idle 로 내리면서 노드까지 못 내린 경로
-    // (체크포인트 복원 · dev 서버 keep-alive · dormant 부활 등)에서 아무도 만지지 않는 파일이 계속
-    // 펄스 링을 달고 있게 된다. 바로 위 worktree 분기와 getSnapshot 의 bash/iframe 위성이 이미 쓰는
-    // 규칙을 파일/폴더에도 그대로 적용해, 새 idle 경로가 생겨도 표시가 어긋나지 않게 한다.
-    // (저장 노드는 건드리지 않고 스냅샷 파생값만 덮으므로, 다시 만지면 자동으로 active 로 복귀한다.)
+    // §2.4 — file/folder 의 "활동중"은 저장값이 아니라 지금 만지는 에이전트에서 파생한다 — 저장 status 를 믿으면 노드까지 못 내린 idle 경로
+    // (복원·keep-alive·dormant 부활)에서 펄스 링이 남는다. 스냅샷 파생값만 덮는다(worktree·bash/iframe 위성과 같은 규칙).
     if (
       (enriched.status === 'active' || enriched.status === 'completed')
       && followsActivityBubbleLifecycle(node)
@@ -6396,20 +5584,8 @@ export class ProjectGraph {
   }
 
   /**
-   * 스냅샷 생존 필터 — §2.4: file·folder·domain·명령 앱 활동 버블 공통 정리.
-   *
-   * 에이전트 완료(`setAgentStatus('completed')`) 시 `removeAgentRefs` 가 연결된
-   * 활동 버블을 `idle` 로 내리고 `lastActivity` 를 찍는다.
-   * 그 후 BUBBLE_TTL(5분) 경과하면 이 필터가 false → `getSnapshot` 에서 제외 → 클라에서 사라짐.
-   *
-   * 제외(항상 alive):
-   *  - 공통 활동 버블 외 타입(agent/root/back/ghost/iframe/pipeline/
-   *    worktree/일반 bash 위성 등)은 각자 별도 라이프사이클(세션 liveness·ghost fade·
-   *    bash 부모추종·상주 등)이 있어 이 TTL 정리 대상이 아니다.
-   *  - 고정 버블(`preservePinned`/`pinned`, §2.4 v1.28) — 모든 소멸 경로 차단.
-   *  - `active`/`completed` 노드 — 작업 중.
-   *  - 다른 active 에이전트가 쓰는 중이면 `removeAgentRefs` 가 애초에 idle 로 안 내려
-   *    (active 유지) 여기서 자연히 살아남는다.
+   * 스냅샷 생존 필터 — §2.4 활동 버블(file·folder·domain·명령 앱) 공통: 완료 때 `removeAgentRefs` 가 idle 로 내리고 BUBBLE_TTL(5분) 뒤 빠진다.
+   * 늘 alive: 다른 타입(각자 라이프사이클) · 고정(`preservePinned`/`pinned`) · `active`/`completed`.
    */
   private isAlive(node: BubbleData): boolean {
     if (!followsActivityBubbleLifecycle(node)) return true;
@@ -6480,11 +5656,8 @@ export class ProjectGraph {
       .filter((e): e is { key: string; node: BubbleData } => e.node !== undefined && this.isAlive(e.node) && !this.isNodeHidden(e.key))
       .map((e) => this.enrichNode(e.key, e.node));
 
-    // §9 폴더 스코프 — "그리는 폴더 + 한 칸 앞"만 싣는다(`folderScope.ts` 가 규칙 단일 소유).
-    //   `null` 이면 종전과 완전히 같다(전량). 좁힐 때만 아래 세 슬라이스가 걸러진다.
-    //
-    //   "한 칸 앞" 을 위한 하위 폴더 목록은 **선언된 폴더 것만** 만든다 — 전부 만들면 이 최적화가
-    //   없애려던 전수 순회를 여기서 도로 하는 셈이다(childrenMap 은 실측 459개 · 자식 2,866개).
+    // §9 폴더 스코프 — "그리는 폴더 + 한 칸 앞"만 싣는다(`folderScope.ts` 단일 소유, `null` 이면 전량).
+    // 한 칸 앞 하위 폴더 목록은 선언된 폴더 것만 만든다 — 전부 만들면 없애려던 전수 순회를 도로 한다(실측 459개·자식 2,866개).
     const scopedChildFolders = new Map<string, string[]>();
     if (folderScope !== null && folderScope.size > 0) {
       for (const [parentPath, childPaths] of this.childrenMap) {
@@ -6527,67 +5700,99 @@ export class ProjectGraph {
       if (edges.length > 0) innerEdges[parent.id] = edges;
     }
 
-    // 위성 파일 (folder ID → 최근 작업 파일 BubbleData[])
-    // ⚠ 훑는 대상은 `satelliteMap` 만이 아니다 — 외부 폴더 **조상**은 자기 위성이 없어
-    //   그 맵에 아예 없는데도, 자손이 만진 파일을 물려받아 화면에 띄워야 한다(§2.1 #5).
-    //   그래서 두 맵의 키 합집합을 돈다.
+    // 위성 파일(folder ID → 최근 작업 파일). ⚠ `satelliteMap` 만 돌지 마라 — 외부 폴더 조상은 그 맵에 없어도 자손이 만진 파일을 물려받아 띄운다(§2.1 #5). 두 맵 키의 합집합을 돈다.
     const satellites: Record<string, BubbleData[]> = {};
     const satelliteFolderKeys = new Set<string>(this.satelliteMap.keys());
     for (const k of this.externalRollupSatellites.keys()) satelliteFolderKeys.add(k);
-    // §5.1 #2-1 (B) — 미디어 위성 사본에 **그 파일이 든 폴더의 노드 id 와 그 폴더의 같은 종류 사용 수**를 싣는다(표시 전용 ·
-    //   체크포인트 ❌ — `enrichNode` 의 사본에만). 묶음 버블의 수는 위성 수가 아니라 이 수이고, 묶음 안은 이 폴더를 범위로
-    //   선언해 위성 상한으로 빠진 같은 종류까지 세운다(2026-10-22 사용자 지시 "해당 묶음 버블 내부로 들어가면 위성 규칙으로 인해
-    //   사라졌던 사용한 버블들이 눈에 보이게"). 같은 폴더·종류는 이번 스냅샷 안에서 한 번만 센다.
-    const folderKindCounts = new Map<string, number>();
-    const annotateFolderKind = (fp: string, enriched: BubbleData): void => {
-      if (enriched.bubbleType !== 'file') return;
-      const kind = fileFaceKindOf(kindBundlePathShape(fp));
-      if (!isMediaFaceKind(kind)) return;
-      const slash = fp.lastIndexOf('/');
-      if (slash <= 0) return;
-      const dirKey = fp.slice(0, slash);
-      const dirNode = this.nodes.get(dirKey);
-      // 평탄하게 붙은 외부 위성(Grep 결과의 더 깊은 폴더 — §2.1 #5)은 그 폴더 노드가 없다 — 화면은 위성 구성으로만 선다.
-      if (!dirNode || !FOLDER_BUBBLE_TYPES.has(dirNode.bubbleType)) return;
-      const countKey = `${kind}\u0000${dirKey}`;
-      let count = folderKindCounts.get(countKey);
-      if (count === undefined) {
-        count = 0;
-        for (const childKey of this.childrenMap.get(dirKey) ?? []) {
+    // §5.1 #2-1 (B) — 같은 종류 묶음의 수·이름·범위. 한 버블 위성 무리 안 같은 미디어 종류는 하위 폴더를 가리지 않고 한 묶음이다.
+    // 주인 폴더 아래(모든 깊이) 미디어를 모아(`subtreeMediaOf`) 묶음 종류의 위성 사본에 `folderNodeId`·`folderKindCount`·`folderKindDir` 를 싣고,
+    // 그 폴더가 범위로 선언됐으면 그 종류 파일을 `BUNDLE_BUBBLE.interiorMax` 까지 덧붙인다(위성 상한에 빠진 것도 묶음 안에 · 선언 안 하면 전선 불변).
+    // 덧붙이는 것은 이번 턴(`agentTurnNodes`)에 쓴 것뿐 — 살아 있음만 보면 5분 유예 안의 지난 턴 그림까지 든다(실측 227장 중 15장). 표시 전용(체크포인트 ❌).
+    const subtreeMedia = new Map<string, Map<KindBundleKind, string[]>>();
+    const subtreeMediaOf = (folderPath: string): Map<KindBundleKind, string[]> => {
+      const hit = subtreeMedia.get(folderPath);
+      if (hit) return hit;
+      const byKind = new Map<KindBundleKind, string[]>();
+      const visited = new Set<string>([folderPath]);
+      const stack = [folderPath];
+      while (stack.length > 0) {
+        for (const childKey of this.childrenMap.get(stack.pop()!) ?? []) {
+          if (visited.has(childKey)) continue;
+          visited.add(childKey);
           const child = this.nodes.get(childKey);
-          if (child && child.bubbleType === 'file' && this.isAlive(child) && fileFaceKindOf(kindBundlePathShape(childKey)) === kind) count += 1;
+          if (!child || !this.isAlive(child)) continue;
+          if (FOLDER_BUBBLE_TYPES.has(child.bubbleType)) {
+            stack.push(childKey);
+            continue;
+          }
+          if (child.bubbleType !== 'file') continue;
+          const kind = fileFaceKindOf(kindBundlePathShape(childKey));
+          if (!isMediaFaceKind(kind)) continue;
+          if (!this.usedInOpenTurn(childKey)) continue;
+          const list = byKind.get(kind);
+          if (list) list.push(childKey);
+          else byKind.set(kind, [childKey]);
         }
-        folderKindCounts.set(countKey, count);
       }
-      enriched.folderNodeId = dirNode.id;
-      enriched.folderKindCount = count;
+      const lastOf = (key: string): number => this.nodes.get(key)?.lastActivity ?? 0;
+      for (const list of byKind.values()) list.sort((a, b) => (lastOf(b) - lastOf(a)) || (a < b ? -1 : a > b ? 1 : 0));
+      subtreeMedia.set(folderPath, byKind);
+      return byKind;
     };
     for (const folderPath of satelliteFolderKeys) {
       const folder = this.nodes.get(folderPath);
       if (!folder || !this.isAlive(folder)) continue;
-      // 폴더 위성은 그 **폴더 버블이 그려질 때만** 보인다(`collectSatellites` 는 그리는 부모의
-      // 것만 읽는다). 그래서 children 과 같은 범위를 그대로 쓴다.
-      // ⚠ 바로 아래 **에이전트 영구 위성**(bash/iframe/conti)은 이 축과 무관하다 — 에이전트는
-      //   폴더 안에 들어가 있어도 메인 캔버스에 그려지므로 범위와 상관없이 항상 싣는다.
+      // 폴더 위성은 그 폴더 버블이 그려질 때만 보이므로 children 과 같은 범위를 쓴다. ⚠ 아래 에이전트 영구 위성(bash/iframe/conti)은 이 축과 무관 — 에이전트는 메인 캔버스에 그려지므로 늘 싣는다.
       if (!shipsFolder(folder.id)) continue;
       const files: BubbleData[] = [];
+      const fileKeys: string[] = [];
       for (const fp of this.effectiveSatelliteKeys(folderPath)) {
         const node = this.nodes.get(fp);
         if (node && SATELLITE_TYPES.has(node.bubbleType) && this.isAlive(node)) {
-          const enriched = this.enrichNode(fp, node);
-          annotateFolderKind(fp, enriched);
+          files.push(this.enrichNode(fp, node));
+          fileKeys.push(fp);
+        }
+      }
+      // 묶음이 될 종류 — 이 위성 목록에 같은 미디어 종류가 둘 이상(화면 `planKindBundles` 와 같은 문턱 · 텍스트는 묶지 않는다).
+      const mediaKindAt: (KindBundleKind | null)[] = files.map((f, i) => {
+        if (f.bubbleType !== 'file') return null;
+        const kind = fileFaceKindOf(kindBundlePathShape(fileKeys[i]!));
+        return isMediaFaceKind(kind) ? kind : null;
+      });
+      const inList = new Map<KindBundleKind, number>();
+      for (const kind of mediaKindAt) if (kind) inList.set(kind, (inList.get(kind) ?? 0) + 1);
+      const shipped = folderScope !== null && folderScope.has(folder.id) ? new Set(fileKeys) : null;
+      for (const [kind, n] of inList) {
+        if (n < BUNDLE_BUBBLE.minMembers) continue;
+        const all = subtreeMediaOf(folderPath).get(kind) ?? [];
+        // 수 = (위성 목록의 그 종류 중 턴의 것) ∪ (그 아래에서 턴에 쓴 그 종류). 구성도 턴의 것만 센다 — 위성 목록은 `moonMax` 까지 남의 지난 그림도 담는다. 화면도 같은 표시(`inOpenTurn`)로 구성을 거른다.
+        const listed = fileKeys.filter((_, i) => mediaKindAt[i] === kind);
+        const members = new Set(listed.filter((key) => this.usedInOpenTurn(key)));
+        for (const key of all) members.add(key);
+        const count = members.size;
+        // 이름은 턴의 것이 없으면 구성으로 짓는다 — 그때 화면은 묶음을 세우지 않지만 빈 이름을 실어 보낼 까닭도 없다.
+        const dir = kindBundleCommonDir(members.size > 0 ? [...members] : listed, HOST_PLATFORM);
+        const annotate = (enriched: BubbleData): void => {
+          enriched.folderNodeId = folder.id;
+          enriched.folderKindCount = count;
+          enriched.folderKindDir = dir;
+        };
+        files.forEach((f, i) => { if (mediaKindAt[i] === kind) annotate(f); });
+        if (!shipped) continue;
+        for (const key of all.slice(0, BUNDLE_BUBBLE.interiorMax)) {
+          if (shipped.has(key)) continue;
+          const node = this.nodes.get(key);
+          if (!node) continue;
+          shipped.add(key);
+          const enriched = this.enrichNode(key, node);
+          annotate(enriched);
           files.push(enriched);
         }
       }
       if (files.length > 0) satellites[folder.id] = files;
     }
 
-    // 에이전트 영구 위성 (bash/iframe — agent.persistSatellites에서 직접 읽기)
-    // - bash: completed 단계 없음. 부모 idle일 때만 idle, 그 외(active/completed)는 active 유지.
-    // - iframe: 부모 에이전트 상태와 무관하게 dev server 자체의 생사로 결정.
-    //   iframeAlive === true → active, false 또는 undefined → idle.
-    //   (이전 v1.29 부모 status 미러링은 사용자 작업 단계마다 위성이 같이 깜빡거리는 부작용
-    //   유발 — 사용자 요청으로 제거. iframe 은 dev server 의 독립 라이프사이클 가짐.)
+    // 에이전트 영구 위성. bash: 부모가 idle 일 때만 idle. iframe: dev server 생사로만(`iframeAlive`) — 부모 status 를 따르게 하지 마라, 작업 단계마다 위성이 깜빡인다.
     for (const agent of this.agents.values()) {
       if (!agent.persistSatellites || agent.persistSatellites.length === 0) continue;
       const bubbles = agent.persistSatellites
@@ -6774,9 +5979,7 @@ export class ProjectGraph {
       domainEntries,
       commandQueues: this.buildCommandQueuesRecord(),
       completedCommands: this.buildCompletedCommandsRecord(),
-      // §5.5 #17-9 v3.51 — 지금 백단에서 도는 Task 서브에이전트(런타임 전용, 영속화 ❌ — 체크포인트
-      //   직렬화(toCheckpoint/toProjectCheckpoint)에는 절대 넣지 않는다). 하나도 없으면 undefined →
-      //   클라 활동바 항목/배지/패널이 자동으로 사라진다.
+      // §5.5 #17-9 — 지금 백단에서 도는 Task 서브에이전트. 런타임 전용 — 체크포인트 직렬화에 절대 넣지 않는다. 없으면 undefined(클라 활동바 항목이 사라진다).
       runningSubagentTasks: subAgentManager.getRunningSubagentTasks(),
       // §5.5 #17-9 ⑦(b) — 방금 끝난 자식(부모별 최근 5건 + 결과 발췌). 같은 이유로 런타임 전용이다.
       finishedSubagentTasks: subAgentManager.getFinishedSubagentTasks(),
@@ -6785,11 +5988,7 @@ export class ProjectGraph {
       subAgents: (() => {
         const raw = subAgentManager.getSnapshot();
         const out: Record<string, SubAgent[]> = {};
-        // 이 인스턴스가 "소유한" agentId 와 해당 cwd 를 먼저 구축.
-        // 다른 인스턴스의 agent 는 여기서 건드리지 않는다 — graphManager.mergeSnapshots 에서
-        // 각 인스턴스가 자기 것만 출력하면 enrich 된 sub 가 덮어써지지 않는다.
-        // (이전엔 이 인스턴스가 해당 agent 를 모를 때 sub 를 그대로 내보내서,
-        //  실제 소유 인스턴스의 enriched sub 를 덮어쓰는 타이밍이 있었다.)
+        // 이 인스턴스가 소유한 agent 와 cwd 만 낸다 — 남의 sub 를 그대로 내보내면 mergeSnapshots 에서 소유 인스턴스의 enriched sub 를 덮는다.
         const ownedAgentCwd = new Map<string, string>();
         for (const [sid, ag] of this.agents) {
           const cwd = this.sessionCwds.get(sid);
@@ -6812,13 +6011,8 @@ export class ProjectGraph {
               ...('firstContextUsed' in info && info.firstContextUsed > 0 ? { contextFloor: info.firstContextUsed } : {}),
               modelName: codexInfo?.modelName ?? s.modelName ?? info.modelName,
               ...(isCodex ? { reasoningEffort: codexInfo?.reasoningEffort } : {}),
-              // §5.5 — **누적 토큰도 여기서 실어 준다.** `subAgentManager` 는 이 값을 명령이
-              //   *끝날 때만* 갱신한다(터미널 경로 두 곳). 그래서 (a) 도는 중인 세션은 턴이 끝날
-              //   때까지 숫자가 얼어 있었고, (b) 명령을 한 번도 마치지 않은 세션은 값이 아예 없어
-              //   IDE 상태바가 버블 값(= 모든 sub 합계)으로 굴러떨어졌다 — "세션을 넘겨도 숫자가
-              //   안 변한다"의 나머지 절반. 합산식은 `readSessionTokenData` 와 **같다**
-              //   (input + cacheRead + cacheCreate). 여기서 만드는 것은 스냅샷용 복사본이라
-              //   매니저의 누적 상태(명령별 delta 계산의 기준)는 건드리지 않는다.
+              // §5.5 — 누적 토큰도 여기서 싣는다(`subAgentManager` 는 명령이 끝날 때만 갱신해 도는 세션은 숫자가 언다). 합산식은 `readSessionTokenData` 와 같다(input + cacheRead + cacheCreate).
+              // 스냅샷 사본이라 매니저 누적 상태는 안 건드린다.
               totalInputTokens: info.cumulativeInputTokens,
               totalOutputTokens: info.cumulativeOutputTokens,
             };
@@ -6904,15 +6098,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §9 폴더 스코프 — **범위와 무관하게 항상 전량으로 재는 값 ①**: 파일 버블의 상대 크기 척도.
-   *
-   * 종전에는 클라가 스냅샷의 `satellites`+`topFolders` 에서 직접 쟀다. 폴더 범위를 좁히면 그
-   * 입력이 줄어들어 **폴더를 드나들 때마다 파일 버블 크기가 바뀐다** — 최적화가 화면을 흔드는
-   * 종류의 손상이라, 프로젝트 축이 탭 목록·전역 집계에 세운 규칙(④)을 그대로 물려받아
-   * 서버가 전량으로 재서 실어 준다.
-   *
-   * 재는 대상은 좁히기 **이전** 스냅샷이 싣던 것과 정확히 같다 — 살아 있는 폴더의 위성 파일과
-   * 최상위 파일 노드(숨긴 프로젝트 제외).
+   * §9 — 범위와 무관하게 늘 전량으로 재는 값 ①: 파일 버블 크기 척도(좁힌 스냅샷으로 재면 폴더를 드나들 때마다 크기가 바뀐다).
+   * 대상은 좁히기 전과 같다(살아 있는 폴더의 위성 파일 + 최상위 파일 노드, 숨긴 프로젝트 제외).
    */
   getFileSizeExtent(): { min: number; max: number } {
     let min = Infinity;
@@ -6944,16 +6131,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §9 폴더 스코프 — **범위와 무관하게 항상 전량으로 재는 값 ②**: §5.24 히트맵 상대 척도.
-   *
-   * 위와 같은 이유다 — 좁힌 노드로 재면 폴더를 드나들 때마다 히트맵 색이 통째로 바뀐다.
-   *
-   * **두 축을 한 번에 잰다**(§5.24 축 토글). 척도가 축마다 따로여야 하는 이유는 읽기가 쓰기보다
-   * 훨씬 큰 흔한 세션에서 한 자를 나눠 쓰면 쓰기 지도가 통째로 차갑게 눌리기 때문이고, 그렇다고
-   * 노드를 두 번 훑을 이유는 없다(같은 목록·같은 조건이다).
-   *
-   * 소유 프로젝트를 모르는 노드는 클라가 쓰던 규칙 그대로 **어느 프로젝트에나 센다**(그래서
-   * 따로 돌려주고, 합칠 때 각 프로젝트 값에 얹는다). 바닥은 언제나 0 이라 최대값만 잰다.
+   * §9 — 늘 전량으로 재는 값 ②: §5.24 히트맵 척도(좁혀 재면 색이 바뀐다). 읽기·쓰기 척도는 따로(나눠 쓰면 쓰기 지도가 차갑게 눌린다).
+   * 소유 프로젝트 모르는 노드는 따로 돌려 합칠 때 얹는다. 바닥은 0 이라 최대값만.
    */
   getHeatCountMaxes(): { read: HeatAxisMaxes; write: HeatAxisMaxes } {
     const read: HeatAxisMaxes = { byProject: {}, unowned: 0, valuesByProject: {}, unownedValues: [] };
@@ -7027,6 +6206,8 @@ export class ProjectGraph {
     // agentSpecialPaths 제거 — bash/iframe은 agent.persistSatellites에 직접 포함
     const nodeAgentRefs: Record<string, string[]> = {};
     for (const [k, v] of this.nodeAgentRefs) nodeAgentRefs[k] = [...v];
+    const agentTurnNodes: Record<string, string[]> = {};
+    for (const [k, v] of this.agentTurnNodes) if (v.size > 0) agentTurnNodes[k] = [...v];
     const sessionCwds: Record<string, string> = {};
     for (const [k, v] of this.sessionCwds) sessionCwds[k] = v;
     const nodeProjectRoots: Record<string, string> = {};
@@ -7061,6 +6242,7 @@ export class ProjectGraph {
           nodeAgentRefs,
           sessionCwds,
           nodeProjectRoots,
+          agentTurnNodes,
         },
       },
 
@@ -7102,7 +6284,7 @@ export class ProjectGraph {
         : undefined,
       uiLocale: this.uiLocale,
       commentBoxes: this.commentBoxes.size > 0 ? [...this.commentBoxes.values()] : undefined,
-      // §5.5 #17-20 ⑩ v4.94 — 이 프로젝트의 중단점(메모리 포맷)
+      // §5.5 #17-20 ⑩ — 이 프로젝트의 중단점(메모리 포맷)
       debugBreakpoints: this.debugBreakpoints.get(project.name)?.length
         ? [...(this.debugBreakpoints.get(project.name) as DebugBreakpoint[])]
         : undefined,
@@ -7166,12 +6348,10 @@ export class ProjectGraph {
     };
   }
 
-  /** 명령 큐/아카이브 키(sessionId) → 소유 agentId 해석.
-   *  직접 세션이면 그 agent. 아니면 서브에이전트(워크트리 isolation / agent-view 포함)의
-   *  sessionId·agentViewSessionId 매칭으로 부모 커스텀 에이전트에 귀속한다 —
-   *  processHookEvent(서브세션→부모 리라이트)와 동일한 robust 매핑. 이게 없으면
-   *  워크트리/agent-view 세션 키로 쌓인 result 가 `this.agents.get` 실패로 통째 누락된다
-   *  (DetailPanel "Prompts (0)" 의 직접 원인). */
+  /**
+   * 명령 큐/아카이브 키(sessionId) → 소유 agentId. 서브에이전트(워크트리·agent-view)의 sessionId·agentViewSessionId 로 부모 커스텀 에이전트에 귀속한다
+   * (processHookEvent 와 같은 매핑) — 없으면 그 키로 쌓인 result 가 통째 빠진다(DetailPanel "Prompts (0)").
+   */
   private resolveCommandOwnerAgentId(sessionId: string): string | null {
     const direct = this.agents.get(sessionId);
     if (direct) return direct.id;
@@ -7233,18 +6413,12 @@ export class ProjectGraph {
   private getProjectSessionIds(projectName: string): Set<string> {
     const result = new Set<string>();
     for (const [sessionId, cwd] of this.sessionCwds) {
-      // 세션 cwd 가 워크트리여도 그 세션의 대화/명령/결과는 부모 탭에 귀속시킨다.
-      // 안 그러면 워크트리 이주 세션의 completedCommands 가 부모 체크포인트에서 빠지고
-      // (휘발성) 워크트리 체크포인트로만 남아 워크트리 정리 시 통째 소실된다.
-      // (node/file 스코프는 getProjectNodePaths 가 워크트리별로 별도 유지 — 별개 축.)
+      // 세션 cwd 가 워크트리여도 대화/명령/결과는 부모 탭에 귀속 — 아니면 completedCommands 가 워크트리 체크포인트에만 남아 워크트리 정리 때 사라진다(node/file 스코프는 별개 축).
       const proj = this.getProjectForCwd(cwd);
       const name = this.resolveTabProjectName(proj, cwd);
       if (name === projectName) result.add(sessionId);
     }
-    // v2.62 — 안전망: customCreated 에이전트인데 sessionCwds 에 cwd 매핑이 아예 없는
-    // (등록 누락/구버전 체크포인트) 경우, primary 프로젝트 탭에 귀속시켜 저장 필터에서
-    // 탈락하지 않게 한다. cwd 가 있는 세션은 위 워크트리-귀속 규칙 그대로(중복 add 무해).
-    // 이미 다른 프로젝트로 귀속된 세션은 건드리지 않는다(sessionCwds.has 가드).
+    // 안전망 — customCreated 인데 sessionCwds 에 cwd 가 없으면(등록 누락·구버전) primary 탭에 귀속시켜 저장 필터에서 안 빠지게. 다른 프로젝트 소속은 안 건드린다.
     if (projectName === this.getPrimaryProjectName()) {
       for (const [sessionId, agent] of this.agents) {
         if (agent.customCreated && !this.sessionCwds.has(sessionId)) {
@@ -7256,10 +6430,7 @@ export class ProjectGraph {
   }
 
   /** 프로젝트에 속하는 노드 경로 집합 */
-  /** 이 탭(projectName)에 흡수되는 프로젝트명 집합 = 자기 자신 + 모든 자식 워크트리.
-   *  워크트리는 부모 탭에 흡수되므로(§3.5) 체크포인트도 부모 탭에 self-contained 로 저장돼야
-   *  서버 재시작 후 "에이전트가 워크트리 안에 있던" 상태가 복원된다. (isolation 워크트리는
-   *  repo 밖이라 discoverProjectMetas 가 독립 발견 못 함 → 부모 체크포인트가 유일 소스.) */
+  /** 이 탭에 흡수되는 프로젝트명 = 자신 + 자식 워크트리(§3.5). 체크포인트가 부모 탭에 self-contained 여야 한다 — isolation 워크트리는 repo 밖이라 부모 체크포인트가 유일 소스다. */
   private projectNamesForTab(tabName: string): Set<string> {
     const names = new Set<string>([tabName]);
     for (const info of this.projects.values()) {
@@ -7375,6 +6546,12 @@ export class ProjectGraph {
         nodeAgentRefs[nodePath] = [...agentIds];
       }
     }
+    // §5.1 #2-1 (B) — 이번 턴 장부도 이 프로젝트의 노드만(에이전트 id 는 그대로 — 프로젝트를 넘나드는 에이전트의 다른 쪽 장부는 그쪽 파일에).
+    const agentTurnNodes: Record<string, string[]> = {};
+    for (const [agentId, turn] of this.agentTurnNodes) {
+      const mine = [...turn].filter((p) => projectNodePaths.has(p));
+      if (mine.length > 0) agentTurnNodes[agentId] = mine;
+    }
 
     const sessionCwds: Record<string, string> = {};
     for (const [sessionId, cwd] of this.sessionCwds) {
@@ -7398,13 +6575,7 @@ export class ProjectGraph {
       if (projectSessions.has(sessionId)) runningServers[sessionId] = entries;
     }
 
-    // v4.67 — 노드가 실재하는 경로의 편집만 저장한다.
-    //   `projectNodePaths` 는 `nodeProjectNames`(경로→프로젝트 귀속 기록)에서 오는데, 노드가
-    //   사라진 뒤에도 이 귀속 기록은 남는다. 반면 화면으로 나가는 `buildFileEditsRecord` 는
-    //   `this.nodes.get(relPath)` 가 없으면 건너뛰고, 바로 위 노드 필터도 같은 기준으로
-    //   `graph.nodes` 에서 뺀다. 즉 노드 없는 경로의 편집은 저장·백업·복원만 되고 UI 에는
-    //   영영 도달하지 못하는 죽은 데이터였다(실측 94키 1.15MB, 백업 4벌 포함 4.6MB).
-    //   기준을 노드 필터와 일치시켜 그만큼을 덜어낸다 — 화면에 보이던 것은 하나도 줄지 않는다.
+    // 노드가 실재하는 경로의 편집만 저장한다(노드 필터와 같은 기준) — 노드 없는 경로는 화면(`buildFileEditsRecord`)이 건너뛰는 죽은 데이터다(실측 94키 1.15MB).
     const fileEdits: Record<string, FileEdit[]> = {};
     for (const [filePath, edits] of this.fileEdits) {
       if (projectNodePaths.has(filePath) && this.nodes.has(filePath)) fileEdits[filePath] = edits;
@@ -7465,8 +6636,7 @@ export class ProjectGraph {
       if (resolved) filteredAgentConfigs[agentId] = resolved;
     }
 
-    // taskEdges 필터 (v1.85) — projectId 보유 엣지는 그 값으로 스코프(엔드포인트 에이전트가
-    // 만료·소멸해도 보존). legacy(projectId 미설정) 엣지만 기존 양끝-생존 기준 폴백.
+    // taskEdges — projectId 가 있는 엣지는 그것으로 스코프(끝점 에이전트가 사라져도 보존), legacy 엣지만 양끝-생존 기준.
     const filteredTaskEdges: Record<string, TaskEdge> = {};
     for (const [id, edge] of this.taskEdges) {
       const belongs = edge.projectId !== undefined
@@ -7487,7 +6657,7 @@ export class ProjectGraph {
         nodes,
         projects,
         hierarchy: { topLevelPaths, childrenMap, satelliteMap },
-        refs: { nodeAgentRefs, sessionCwds, nodeProjectRoots },
+        refs: { nodeAgentRefs, sessionCwds, nodeProjectRoots, agentTurnNodes },
       },
 
       activity: { bashHistory, runningServers, fileEdits, domainEntries },
@@ -7525,9 +6695,7 @@ export class ProjectGraph {
             return Object.keys(out).length > 0 ? out : undefined;
           })()
         : undefined,
-      // §4 v1.50 / §5.5 #17-4 / §5.3 #10-2 — 세 줄 다 **디스크 포맷이 여기 하나뿐**이라 여기 있어야 산다.
-      //   종전에는 `toCheckpoint()`(지금은 테스트에서만 부른다)에만 있어서, 복원 코드는 멀쩡한데
-      //   저장된 값이 없어 껐다 켜면 늘 빈 맵이었다(실측: 살아 있는 checkpoint.json 에 세 키 모두 없음).
+      // §4 / §5.5 #17-4 / §5.3 #10-2 — 디스크 포맷은 여기 하나다 — `toCheckpoint()`(시험 전용)에만 두면 껐다 켜면 빈 맵이다.
       compactCounts: this.compactCounts.size > 0
         ? Object.fromEntries([...this.compactCounts].filter(([sid]) => projectSessions.has(sid)))
         : undefined,
@@ -7542,7 +6710,7 @@ export class ProjectGraph {
               .map(([k, v]) => [k, [...v]])
           )
         : undefined,
-      // v1.6: dormant 에이전트 스냅샷 — cwd가 이 프로젝트 루트 하위면 포함
+      // dormant 에이전트 스냅샷 — cwd 가 이 프로젝트 루트 하위면 포함
       dormantAgents: this.dormantAgents.size > 0
         ? Object.fromEntries(
             [...this.dormantAgents].filter(([, d]) => {
@@ -7556,12 +6724,11 @@ export class ProjectGraph {
       hiddenProjects: this.hiddenProjects.size > 0 ? [...this.hiddenProjects] : undefined,
       pipelines: pipelineManager.getPipelinesSnapshot(),
       uiLocale: this.uiLocale,
-      // v1.45 — Comment Box 필터: 이 프로젝트 소속만
       commentBoxes: (() => {
         const boxes = [...this.commentBoxes.values()].filter((b) => b.projectName === project.name);
         return boxes.length > 0 ? boxes : undefined;
       })(),
-      // §5.5 #17-20 ⑩ v4.94 — 중단점(디스크 포맷). 여기 빠뜨리면 껐다 켜면 사라진다.
+      // §5.5 #17-20 ⑩ — 중단점(디스크 포맷). 여기 빠뜨리면 껐다 켜면 사라진다.
       debugBreakpoints: (() => {
         const list = this.debugBreakpoints.get(project.name);
         return list && list.length > 0 ? [...list] : undefined;
@@ -7590,7 +6757,7 @@ export class ProjectGraph {
         const bubbles = [...this.appBubbles.values()].filter((b) => b.projectName === project.name);
         return bubbles.length > 0 ? bubbles : undefined;
       })(),
-      // §5.14 v4.62 — 플레이 버블도 이 프로젝트 소속만(디스크 포맷 — 여기 빠지면 껐다 켤 때 사라진다).
+      // §5.14 — 플레이 버블도 이 프로젝트 소속만(디스크 포맷 — 빠뜨리면 껐다 켤 때 사라진다).
       playBubbles: (() => {
         const bubbles = [...this.playBubbles.values()].filter((b) => b.projectName === project.name);
         return bubbles.length > 0 ? bubbles : undefined;
@@ -7628,8 +6795,7 @@ export class ProjectGraph {
       contextInsurance: this.insuranceService.toCheckpoint(project.name),
       layoutBoundsHalfWidth: this.layoutBoundsByProject.get(project.name)?.hw,
       layoutBoundsHalfHeight: this.layoutBoundsByProject.get(project.name)?.hh,
-      // §5.3 #28 v1.47 — 콘티: 이 프로젝트 에이전트 소유분만 필터.
-      // (v1.47 도입 시 직렬화 누락 → v1.59 hotfix. 미설정 체크포인트는 빈 contis 로 복원.)
+      // §5.3 #28 — 콘티: 이 프로젝트 에이전트 소유분만(빠뜨리면 껐다 켤 때 사라진다). 미설정 체크포인트는 빈 contis.
       contis: (() => {
         const out: Record<string, Conti> = {};
         for (const [cid, c] of this.contis) {
@@ -7637,10 +6803,7 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
-      // §5.3 #10-3 v4.98 — 검증 런: 이 프로젝트 소속 auto-agent(세션 id)분만 필터해 영속.
-      //   ⚠ 키가 버블 id 가 아니라 **sessionId** 라 projectSessions 로 거른다(아래 카드류와 다름).
-      //   여기를 빠뜨리면 화면에는 보이는데 껐다 켜면 증거가 사라진다 — v2.55·v1.59 와 같은 함정이며
-      //   실제로 이번 라운드에도 처음엔 빠뜨렸다가 왕복 테스트가 잡았다.
+      // §5.3 #10-3 — 검증 런: 이 프로젝트 auto-agent 분만. ⚠ 키가 sessionId 라 projectSessions 로 거른다(아래 카드류는 버블 id). 빠뜨리면 껐다 켤 때 증거가 사라진다.
       autoAgentRuns: (() => {
         const out: Record<string, AutoAgentRun[]> = {};
         for (const [autoAgentId, runs] of this.autoAgentRuns) {
@@ -7648,9 +6811,7 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
-      // §4 v2.52/v2.55 — 작업 신고: 이 프로젝트 소속 에이전트(버블 id)분만 필터해 영속.
-      //   (v2.52 도입 시 getSnapshot/toCheckpoint 에만 넣고 정작 디스크 포맷인 toProjectCheckpoint 에
-      //    빠뜨려, 껐다 켜면 신고 카드가 사라지던 버그 → v2.55 hotfix. contis 누락(v1.59)과 동형.)
+      // §4 — 작업 신고: 이 프로젝트 에이전트(버블 id)분만. 디스크 포맷은 여기다 — getSnapshot/toCheckpoint 에만 넣으면 껐다 켤 때 사라진다.
       agentReports: (() => {
         const out: Record<string, AgentReport[]> = {};
         for (const [agentId, reports] of this.agentReports) {
@@ -7658,8 +6819,7 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
-      // §5.4 #36 (H) ①-2 — 마지막으로 걷힌 연결: 이 프로젝트 소속 에이전트분만(agentReports 와 동형).
-      //   **디스크 포맷이 여기다** — 빠뜨리면 껐다 켠 뒤 [이전 연결 다시 보기]가 늘 흐려진다(v2.55 함정).
+      // §5.4 #36 (H) ①-2 — 마지막으로 걷힌 연결: 이 프로젝트 에이전트분만(디스크 포맷 — 빠뜨리면 [이전 연결 다시 보기]가 늘 흐려진다).
       agentLinkRecords: (() => {
         const out: Record<string, AgentLinkRecord> = {};
         for (const [agentId, rec] of this.agentLinkRecords) {
@@ -7676,7 +6836,7 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
-      // §4 v2.60 — 질문 카드: 이 프로젝트 소속 에이전트(버블 id)분만 필터해 영속(agentReports 와 동형).
+      // §4 — 질문 카드: 이 프로젝트 에이전트(버블 id)분만(agentReports 와 동형).
       agentQuestions: (() => {
         const out: Record<string, AgentQuestions[]> = {};
         for (const [agentId, qs] of this.agentQuestions) {
@@ -7684,8 +6844,7 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
-      // §4 v2.70 — 검수 요청 카드: 이 프로젝트 소속 에이전트(버블 id)분만 필터해 영속(agentReports 와 동형).
-      //   (v2.55 영속화 함정 사전 반영 — 디스크 포맷인 toProjectCheckpoint 에 반드시 포함.)
+      // §4 — 검수 요청 카드: 이 프로젝트 에이전트(버블 id)분만(agentReports 와 동형).
       agentReviews: (() => {
         const out: Record<string, AgentReview[]> = {};
         for (const [agentId, reviews] of this.agentReviews) {
@@ -7693,7 +6852,7 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
-      // §4 v2.84 — 번호 목록 정렬 카드: 이 프로젝트 소속 에이전트(버블 id)분만 필터해 영속(agentReviews 와 동형).
+      // §4 — 번호 목록 정렬 카드: 이 프로젝트 에이전트(버블 id)분만(agentReviews 와 동형).
       agentLists: (() => {
         const out: Record<string, AgentList[]> = {};
         for (const [agentId, lists] of this.agentLists) {
@@ -7701,8 +6860,7 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
-      // §4 v3.21 — 에이전트 피드백: 이 프로젝트 소속 에이전트(버블 id)분만 필터해 영속(agentReports 와 동형).
-      //   (v2.55 영속화 함정 사전 반영 — 디스크 포맷인 toProjectCheckpoint 에 반드시 포함.)
+      // §4 — 에이전트 피드백: 이 프로젝트 소속분만(agentReports 와 같다). 디스크 포맷이라 빠지면 껐다 켤 때 사라진다.
       agentFeedbacks: (() => {
         const out: Record<string, AgentFeedback[]> = {};
         for (const [agentId, fbs] of this.agentFeedbacks) {
@@ -7710,8 +6868,7 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
-      // §5.5 #17-11 v3.79 — 세션 루프: 키는 세션 탭이지만 소속 판정은 loop.agentId 로 한다
-      //   (agentReports 와 동형 — 디스크 포맷이라 여기 빠뜨리면 껐다 켜면 루프가 사라진다).
+      // §5.5 #17-11 — 세션 루프: 키는 세션 탭, 소속은 loop.agentId. 빠지면 껐다 켤 때 루프가 사라진다.
       sessionLoops: (() => {
         const out: Record<string, SessionLoop> = {};
         for (const [subId, loop] of this.sessionLoops) {
@@ -7719,8 +6876,7 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
-      // §5.5 #17-35 — 검증 이력: 루프와 동형(키는 세션 탭, 소속 판정은 run.agentId).
-      //   **디스크 포맷이라 여기 빠뜨리면 껐다 켜면 검증 이력이 통째로 사라진다**(v2.55 함정).
+      // §5.5 #17-35 — 검증 이력: 루프와 같다(소속은 run.agentId). 빠지면 껐다 켤 때 사라진다.
       verificationRuns: (() => {
         const out: Record<string, VerificationRun[]> = {};
         for (const [subId, list] of this.verificationRuns) {
@@ -7744,8 +6900,7 @@ export class ProjectGraph {
       visualKinds: this.visualKinds.size > 0 ? Object.fromEntries(this.visualKinds) : undefined,
       // §5.5 #17-17 ⑫(b) — 팔레트 고정. 목록 자체는 파생이라 저장하지 않고 **고른 것만** 저장한다.
       pinnedGoalActions: this.getPinnedGoalActions(),
-      // §5.5 #17-17 v4.46 — 세션 목표: 루프와 동형(키는 세션 탭, 소속 판정은 goal.agentId).
-      //   디스크 포맷이라 여기 빠뜨리면 껐다 켜면 목표가 통째로 사라진다(v2.55 함정).
+      // §5.5 #17-17 — 세션 목표: 루프와 같다(소속은 goal.agentId). 빠지면 껐다 켤 때 사라진다.
       sessionGoals: (() => {
         const out: Record<string, SessionGoal> = {};
         for (const [subId, goal] of this.sessionGoals) {
@@ -7756,9 +6911,7 @@ export class ProjectGraph {
       // §5.5 #17-28 — 주입원 오버라이드: 프로젝트 층은 이 프로젝트 키 하나, 세션 층은 이 프로젝트의
       //   에이전트에 속한 것만. 디스크 포맷이라 여기 빠뜨리면 껐다 켜면 껐던 것이 다시 실린다.
       contextOverrides: this.getContextOverrides({ projectKey: projectName, agentIds: projectBubbleIds }),
-      // §3.2.1-3 v2.63 — 명시 삭제된 커스텀 에이전트 묘비. 이미 삭제돼 세션이 없으므로
-      //   프로젝트 필터를 걸 키가 없다 → 전체 묘비를 그대로 싣는다(다른 프로젝트 sessionId 가
-      //   섞여도 그 프로젝트엔 해당 세션이 존재하지 않아 무해, 부활 차단에만 쓰임).
+      // §3.2.1-3 — 삭제한 커스텀 에이전트 묘비는 거를 키가 없어 전부 싣는다(부활 차단에만 쓰여 남의 것이 섞여도 무해).
       deletedCustomAgentIds: this.deletedCustomAgents.size > 0
         ? [...this.deletedCustomAgents]
         : undefined,
@@ -7790,9 +6943,7 @@ export class ProjectGraph {
       this.nodes.set(k, v);
     }
 
-    // 프로젝트 병합 — **키는 저장분을 믿지 않고 `normalize(v.path)` 로 다시 만든다.**
-    // 예전 체크포인트는 플랫폼과 무관하게 소문자 키로 적혀 있어, linux 에서 그대로 쓰면
-    // `this.projects.get(normalize(cwd))` 가 영영 못 찾아 프로젝트가 미등록으로 보인다(하위호환).
+    // 키는 `normalize(v.path)` 로 다시 만든다 — 옛 체크포인트는 소문자 키라 linux 에서 프로젝트를 못 찾는다.
     for (const [k, v] of Object.entries(cp.graph.projects)) {
       const key = v?.path ? normalize(v.path) : k;
       if (!this.projects.has(key)) this.projects.set(key, v);
@@ -7822,6 +6973,12 @@ export class ProjectGraph {
       const existing = this.nodeAgentRefs.get(k);
       if (existing) { for (const id of v) existing.add(id); }
       else this.nodeAgentRefs.set(k, new Set(v));
+    }
+    // §5.1 #2-1 (B) — 이번 턴 장부 병합(소유 기록과 같은 합집합 규칙). 칸이 없는 옛 저장분은 더할 것이 없다.
+    for (const [agentId, paths] of Object.entries(cp.graph.refs.agentTurnNodes ?? {})) {
+      const existing = this.agentTurnNodes.get(agentId);
+      if (existing) { for (const p of paths) existing.add(p); }
+      else this.agentTurnNodes.set(agentId, new Set(paths));
     }
     for (const [k, v] of Object.entries(cp.graph.refs.sessionCwds)) {
       if (!this.sessionCwds.has(k)) this.sessionCwds.set(k, v);
@@ -7858,7 +7015,6 @@ export class ProjectGraph {
       if (!this.domainEntries.has(k)) this.domainEntries.set(k, v);
     }
 
-    // v1.6: dormant 에이전트 병합
     if (cp.dormantAgents) {
       for (const [k, v] of Object.entries(cp.dormantAgents)) {
         if (!this.dormantAgents.has(k) && !this.agents.has(k)) {
@@ -7924,8 +7080,7 @@ export class ProjectGraph {
       if (!this.agentLinkRecords.has(agentId)) this.agentLinkRecords.set(agentId, rec);
     }
 
-    // §4 v2.55 — 작업 신고 병합 (agentId 키, 기존 우선 + 신규 id 만 추가, createdAt 정렬 후 캡 유지).
-    //   restoreFromCheckpoint 는 clear 후 set 이지만, merge 경로(다중 프로젝트 합치기)는 누적이어야 한다.
+    // §4 — 작업 신고 병합: 기존 우선 + 새 id 만, createdAt 정렬 후 상한. merge(여러 프로젝트)는 restore 와 달리 누적이다.
     if (cp.agentReports) {
       for (const [agentId, reports] of Object.entries(cp.agentReports)) {
         if (!Array.isArray(reports) || reports.length === 0) continue;
@@ -7960,7 +7115,7 @@ export class ProjectGraph {
       }
     }
 
-        // §4 v2.60 — 질문 카드 병합 (agentReports 와 동형).
+        // 질문 카드 병합 — agentReports 와 같은 규칙.
     if (cp.agentQuestions) {
       for (const [agentId, qs] of Object.entries(cp.agentQuestions)) {
         if (!Array.isArray(qs) || qs.length === 0) continue;
@@ -7978,7 +7133,7 @@ export class ProjectGraph {
       }
     }
 
-    // §4 v2.70 — 검수 요청 카드 병합 (agentReports/agentQuestions 와 동형).
+    // 검수 요청 카드 병합 — agentReports 와 같은 규칙.
     if (cp.agentReviews) {
       for (const [agentId, reviews] of Object.entries(cp.agentReviews)) {
         if (!Array.isArray(reviews) || reviews.length === 0) continue;
@@ -7996,7 +7151,7 @@ export class ProjectGraph {
       }
     }
 
-    // §4 v2.84 — 번호 목록 정렬 카드 병합 (agentReviews 와 동형).
+    // 번호 목록 정렬 카드 병합 — agentReviews 와 같은 규칙.
     if (cp.agentLists) {
       for (const [agentId, lists] of Object.entries(cp.agentLists)) {
         if (!Array.isArray(lists) || lists.length === 0) continue;
@@ -8014,8 +7169,7 @@ export class ProjectGraph {
       }
     }
 
-    // §4 v3.21 — 에이전트 피드백 병합. id 중복 제거 후, 같은 대상(targetType+targetId)은
-    // upsert 의미론에 맞춰 최신(createdAt 큰) 1건만 남긴다.
+    // §4 — 피드백 병합: id 중복 제거 후 같은 대상(targetType+targetId)은 최신 1건만(upsert 와 같다).
     if (cp.agentFeedbacks) {
       for (const [agentId, fbs] of Object.entries(cp.agentFeedbacks)) {
         if (!Array.isArray(fbs) || fbs.length === 0) continue;
@@ -8033,8 +7187,7 @@ export class ProjectGraph {
       }
     }
 
-    // §5.5 #17-11 v3.79 — 세션 루프 병합. 키(subAgentId)가 세션 단위로 유일하므로,
-    // 이미 메모리에 있는 쪽(현재 도는 설정)을 이기지 않게 **없는 것만** 채운다.
+    // §5.5 #17-11 — 세션 루프 병합: 메모리에 있는 쪽(지금 도는 설정)을 덮지 않게 없는 것만 채운다.
     if (cp.sessionLoops) {
       for (const [subId, loop] of Object.entries(cp.sessionLoops)) {
         if (!loop || typeof loop !== 'object') continue;
@@ -8091,8 +7244,7 @@ export class ProjectGraph {
       this.goalActionsMemo = null;
     }
     this.ensureVisualKindSeeds();
-    // §5.5 #17-17 v4.46 — 세션 목표 병합. 루프와 동일 규칙(키가 세션 단위로 유일하므로
-    // 메모리에 이미 있는 쪽을 이기지 않게 **없는 것만** 채운다).
+    // §5.5 #17-17 — 세션 목표 병합: 루프와 같이 없는 것만 채운다.
     if (cp.sessionGoals) {
       for (const [subId, goal] of Object.entries(cp.sessionGoals)) {
         if (!goal || typeof goal !== 'object') continue;
@@ -8103,33 +7255,22 @@ export class ProjectGraph {
     // §5.5 #17-28 — 주입원 오버라이드 병합(없는 키만 채우는 같은 규칙).
     this.restoreContextOverrides(cp.contextOverrides);
 
-    // §5.7 #23-2 v1.60 — agent-view 생존 sub 의 status 를 'active' 로 되돌려 orphan 봉합 회피.
-    // restore 가 status='active' → 'idle' 로 강등한 후 아래 orphan 정리가 봉합해버리므로,
-    // 그 직전에 **실제 턴 진행 중**인 worker 만 'active' 로 복원 (isShortWorking = roster + state.json).
-    // isShortAlive 만 보면 끝난 worker(roster 엔 남았지만 state='idle'/'done') 가 잘못 부활해
-    // 부모 에이전트가 idle→active→completed 사이클을 타는 버그가 발생.
-    // 실제 watcher 재부착은 postListenBoot 에서 비동기로 진행됨.
+    // §5.7 #23-2 — 실제 턴 진행 중(isShortWorking = roster + state.json)인 worker 만 'active' 로 되돌려 아래 orphan 정리를 피한다.
+    // isShortAlive 로 보면 끝난 worker 가 부활해 부모가 idle→active→completed 를 돈다. watcher 재부착은 postListenBoot 에서 한다.
     for (const sub of subAgentManager.getAllSubsFlat()) {
       if (sub.agentViewShort && isAgentViewShortWorking(sub.agentViewShort)) {
         sub.status = 'active';
       }
     }
 
-    // v1.33 reconcile: 고아 executing 정리. 서버 재기동/tsx watch 리스타트 등으로
-    // 자식 프로세스는 죽었는데 cmd.status='executing' 만 체크포인트에 남은 경우를 탐지.
-    // 참조된 subAgent 가 (a) 존재 안 함, (b) active 아님 이면 'error' 로 봉합 + 사유 기록.
+    // 고아 executing 정리: 참조 subAgent 가 없거나 active 가 아니면(재기동으로 자식이 죽음) 'error' 로 닫고 사유를 적는다.
     for (const queue of this.commandQueuesRef.values()) {
       for (const cmd of queue) {
         if (cmd.status !== 'executing') continue;
         const sub = cmd.subAgentId ? subAgentManager.getSub(cmd.subAgentId) : undefined;
         if (!sub || sub.status !== 'active') {
-          // v1.79→v1.80 (Direction A 보강) — 커스텀 에이전트의 끊긴 명령은 죽은 `[orphaned]`
-          // 에러로 두지 않고, 보존된 세션(sub.sessionId)으로 **매 재시작마다** 자동 재개한다.
-          // v1.79 의 one-shot(`!restartResumed`) 가드는 잘못이었다 — 서버를 2번 이상 재시작하면
-          // 2번째부터 무조건 `[orphaned]` 로 떨어졌다. 이 reconcile 은 **실제 서버 재시작 시에만**
-          // 도므로 자가구동 무한루프가 성립 불가(매 재개는 사용자의 실제 재시작 1건에 대응);
-          // 죽은 sessionId 는 execute() 의 스테일 세션 자가복구가 fresh 로 정상화하므로 wedge 도
-          // 없다. 따라서 횟수 캡 없이 항상 재개. `restartResumed` 는 진단용 누적 표식(게이트 ❌).
+          // 커스텀 에이전트의 끊긴 명령은 보존된 세션으로 매 재시작마다 재개한다. 1회 가드(`!restartResumed`)를 두지 마라 — 두 번째 재시작부터 `[orphaned]` 가 된다.
+          // 실제 재시작에서만 돌아 무한루프가 없고, 죽은 sessionId 는 execute() 가 새로 연다. `restartResumed` 는 진단용 표식이다.
           const parentIsCustom =
             !!sub
             && [...this.agents.values()].some((a) => a.id === sub.parentAgentId && a.customCreated);
@@ -8246,7 +7387,7 @@ export class ProjectGraph {
       }
     }
 
-    // v1.45 — Comment Box 병합 (중복 ID 는 기존 유지)
+    // Comment Box 병합(중복 ID 는 기존 유지).
     if (cp.commentBoxes) {
       for (const box of cp.commentBoxes) {
         if (this.commentBoxes.has(box.id)) continue;
@@ -8254,8 +7395,7 @@ export class ProjectGraph {
       }
     }
 
-    // §5.5 #17-20 ⑩ v4.94 — 중단점 병합(멀티프로젝트 보트에서 이 프로젝트 몫만 채운다).
-    // 이미 들고 있으면 덮어쓰지 않는다 — 켜져 있던 쪽이 최신이다.
+    // §5.5 #17-20 ⑩ — 중단점 병합: 이미 들고 있으면 덮지 않는다(켜져 있던 쪽이 최신).
     if (cp.debugBreakpoints && !this.debugBreakpoints.has(cp.project.name)) {
       this.debugBreakpoints.set(cp.project.name, cp.debugBreakpoints.map((bp) => ({ ...bp })));
     }
@@ -8317,7 +7457,7 @@ export class ProjectGraph {
       }
     }
 
-    // §5.13 v4.45 — 내부 앱 버블도 같은 규칙(있던 것을 덮지 않는 합집합).
+    // §5.13 — 내부 앱 버블도 같은 규칙(있던 것을 덮지 않는 합집합).
     if (cp.appBubbles) {
       for (const bubble of cp.appBubbles) {
         if (this.appBubbles.has(bubble.id)) continue;
@@ -8325,7 +7465,7 @@ export class ProjectGraph {
       }
     }
 
-    // §5.14 v4.62 — 플레이 버블도 같은 규칙. 프로세스는 재기동과 함께 사라졌으므로 상태만 내린다.
+    // §5.14 — 플레이 버블도 같은 규칙. 프로세스는 재기동으로 사라졌으니 상태만 내린다.
     if (cp.playBubbles) {
       for (const bubble of cp.playBubbles) {
         if (this.playBubbles.has(bubble.id)) continue;
@@ -8383,8 +7523,7 @@ export class ProjectGraph {
       }
     }
 
-    // §5.3 #28 v1.47 — 콘티 병합 (v1.59 hotfix — toProjectCheckpoint 누락 픽스와 짝).
-    // workId/updatedAt 누락 시 폴백 (restoreFromCheckpoint 와 같은 정책).
+    // §5.3 #28 — 콘티 병합(toProjectCheckpoint 저장과 짝). workId/updatedAt 이 없으면 restore 와 같은 폴백.
     if (cp.contis) {
       for (const [cid, c] of Object.entries(cp.contis)) {
         if (this.contis.has(cid)) continue;
@@ -8397,7 +7536,7 @@ export class ProjectGraph {
       }
     }
 
-    // §3.2.1-3 v2.63 — 묘비 병합(누적, 상한 적용). 여러 프로젝트 합칠 때 삭제 이력 유실 방지.
+    // §3.2.1-3 — 묘비는 누적 병합(상한 적용) — 합칠 때 삭제 이력을 잃지 않게.
     if (cp.deletedCustomAgentIds) {
       for (const sid of cp.deletedCustomAgentIds) this.addTombstone(sid);
     }
@@ -8448,15 +7587,12 @@ export class ProjectGraph {
     this.bumpMutationVersion();
     this.root = normalize(cp.project.path);
     this.seq = cp.seq;
-    // §4 (첫 실행 온보딩) — 저장된 값이 없으면 **기본값이 아니라 지금 쓰던 언어**를 유지한다.
-    //   예전에는 `?? DEFAULT_UI_LOCALE` 이라, 언어 칸이 없는 옛 체크포인트를 하나 여는 것만으로
-    //   방금 고른 한국어가 영어로 되돌아갔다(온보딩 중에 고르면 반드시 이 경로를 지난다).
+    // §4 — 저장값이 없으면 지금 언어를 유지한다. `?? DEFAULT_UI_LOCALE` 로 바꾸지 마라 — 옛 체크포인트 하나에 온보딩에서 고른 언어가 영어로 되돌아간다.
     this.uiLocale = cp.uiLocale ?? this.uiLocale;
     this.agentCounter = cp.graph.agentCounter;
     this.agents = new Map(Object.entries(cp.graph.agents));
     this.nodes = new Map(Object.entries(cp.graph.nodes));
-    // 키를 저장분에서 그대로 받지 않고 `normalize(info.path)` 로 다시 만든다 — 예전 저장분은
-    // 플랫폼과 무관하게 소문자 키라, linux 에서 그대로 실으면 조회가 전부 빗나간다(하위호환).
+    // 키는 `normalize(info.path)` 로 다시 만든다 — 옛 저장분은 소문자 키라 linux 에서 조회가 빗나간다.
     this.projects = new Map(
       Object.entries(cp.graph.projects).map(([k, v]) => [v?.path ? normalize(v.path) : k, v] as const),
     );
@@ -8469,18 +7605,13 @@ export class ProjectGraph {
         .filter(([k]) => !ProjectGraph.isRootKey(k))
         .map(([k, v]) => [k, new Set(v)]),
     );
-    // §5.1 #2-1 (D) — 옛 판정(파일 중심 별자리 = 한 자리)으로 저장된 위성 목록은 지금 판정으로 상한을 넘을 수 있다(2026-10-21
-    //   파일 중심 별자리 폐기). 실을 때 한 번 지금 규칙으로 줄인다 — 이미 맞는 목록은 그대로다(같은 판정). 파일 노드는 그대로이고
-    //   폴더 곁에 보이는 자리 수만 맞춘다. 상한은 노드의 `maxSatellites` 라 노드를 먼저 실은 뒤다.
+    // §5.1 #2-1 (D) — 옛 판정으로 저장된 위성 목록을 지금 상한으로 한 번 줄인다(파일 노드는 그대로). 상한이 노드의 `maxSatellites` 라 노드를 먼저 실은 뒤다.
     for (const [folderPath, set] of this.satelliteMap) this.trimSatellites(folderPath, set);
     // agentSpecialPaths는 agent.persistSatellites로 이동 — 복원 불필요
     this.nodeAgentRefs = new Map(
       Object.entries(cp.graph.refs.nodeAgentRefs).map(([k, v]) => [k, new Set(v)]),
     );
-    // 소유 기록은 강등에서 살아남지만(위 `removeAgentRefs` 주석), 그러면 **사라진 에이전트의 id**
-    // 가 노드에 눌러앉을 수 있다. 지우는 자리는 `removeBubble` 하나뿐이라 그 경로를 안 지난
-    // 소멸(옛 저장분·수동 편집)이 남는다 — 복원 때 한 번 훑어 살아 있는 버블 id 만 남긴다
-    // (§3.2.3 E축 "키 자체를 버린다"의 값 판). 눌러도 못 여는 id 는 소유 기록으로서 쓸모가 없다.
+    // 소유 기록은 강등에서 살아남아 사라진 에이전트 id 가 남을 수 있다(지우는 곳은 `removeBubble` 뿐). 복원 때 살아 있는 버블 id 만 남긴다(§3.2.3 E축).
     const liveAgentBubbleIds = new Set<string>();
     for (const a of this.agents.values()) liveAgentBubbleIds.add(a.id);
     for (const refs of this.nodeAgentRefs.values()) {
@@ -8488,6 +7619,14 @@ export class ProjectGraph {
         if (!liveAgentBubbleIds.has(ref)) refs.delete(ref);
       }
     }
+    // §5.1 #2-1 (B) — 이번 턴 장부(살아 있는 에이전트 것만). 칸이 없는 옛 저장분은 빈 장부 — 그 시절 쌓인 며칠치가 묶음에
+    //   되살아나지 않고, 다음 명령에 쓴 것부터 모인다. 턴 도중 표식(`promptTurnAgents`)은 런타임 사실이라 싣지 않는다.
+    this.agentTurnNodes = new Map(
+      Object.entries(cp.graph.refs.agentTurnNodes ?? {})
+        .filter(([agentId]) => liveAgentBubbleIds.has(agentId))
+        .map(([agentId, paths]) => [agentId, new Set(paths)]),
+    );
+    this.promptTurnAgents = new Set();
     this.sessionCwds = new Map(Object.entries(cp.graph.refs.sessionCwds));
     this.nodeProjectNames = new Map(Object.entries(cp.graph.refs.nodeProjectRoots ?? {}));
     this.bashHistory = new Map(Object.entries(cp.activity.bashHistory).map(([sid, entries]) =>
@@ -8505,25 +7644,17 @@ export class ProjectGraph {
       for (const e of edits) this.fileEditSeen.add(e.id);
     }
 
-    // 복원 시 lastActivity 갱신 → 클라이언트 TTL 리셋.
-    // status는 idle로 리셋 — 재시작 직후엔 아무 일도 일어나고 있지 않으므로.
-    // v1.60: completed 도 idle 로 강등. completed 는 "방금 active→끝났음" 의 60초 휘발성 셀러브레이션이지
-    // 영속 상태가 아님. 다운타임을 건너온 셀러브레이션은 의미 없음.
-    // 진짜 살아있는 sub 은 바로 아래 supervisor roster 동기 점검(2582 라인)에서 active 로 부활되고,
-    // 부모 에이전트도 reattach 직후 첫 sweep 에서 active 로 자연 승격된다.
+    // 복원 시 lastActivity 를 갱신하고 status 는 idle 로 — completed 도(60초 휘발성 표시지 영속 상태가 아니다).
+    // 진짜 살아 있는 sub 은 아래 roster 점검에서, 부모는 reattach 뒤 첫 sweep 에서 active 가 된다.
     const now = Date.now();
     for (const agent of this.agents.values()) {
       agent.lastActivity = now;
-      // v1.73 — 레거시 체크포인트에 영속된 'awaiting_input'(모래시계)도 idle 로 정규화.
-      //         이게 없으면 서버 재시작 때 죽은 모래시계가 그대로 부활해 연속성이 끊겨 보인다.
+      // 옛 'awaiting_input'(모래시계)도 idle 로 — 없으면 재시작 때 죽은 모래시계가 되살아난다.
       demoteStaleActivityOnLoad(agent);
     }
     for (const node of this.nodes.values()) {
       node.lastActivity = now;
-      // 에이전트와 **같은 규칙**을 파일/폴더 버블에도 적용한다. 종전엔 이 루프가 lastActivity 만
-      // 갱신하고 status 는 그대로 둬서, 껐다 켜면 에이전트는 idle 인데 그 에이전트가 만졌던
-      // 파일·폴더만 활동중으로 빛나 있었다(실측: 체크포인트에 active 로 굳은 노드 260개).
-      // active 노드는 isAlive 의 5분 TTL 도 통과해 영영 정리되지 않는다는 점까지 함께 풀린다.
+      // 파일/폴더도 에이전트와 같은 규칙 — status 를 두면 껐다 켤 때 만졌던 노드만 활동중으로 빛나고 isAlive TTL 도 통과해 영영 안 정리된다(실측 260개).
       demoteStaleActivityOnLoad(node);
       // 안전장치: ghost + idle(비pinned) 노드는 disappearing 재설정
       if (node.bubbleType === 'ghost' && node.status !== 'disappearing' && !node.ghostInfo?.pinned && !node.preservePinned) {
@@ -8544,7 +7675,6 @@ export class ProjectGraph {
     this.boundCommandActivity();
     this.boundCommandAppNodes();
 
-    // v1.6: dormant 에이전트 복원
     this.dormantAgents = new Map(Object.entries(cp.dormantAgents ?? {}));
     if (this.dormantAgents.size > 0) {
       logger.info(`Restored ${this.dormantAgents.size} dormant agent snapshot(s) from checkpoint`);
@@ -8554,12 +7684,7 @@ export class ProjectGraph {
     this.mainEdges.restoreFromSnapshot(cp.edges.main);
     this.innerEdges.restoreFromSnapshot(cp.edges.inner);
 
-    // subagent 복원 — cp.project로 해당 프로젝트의 sub-streams 디렉토리에서 스트림 복원
-    // archivedSubAgents(탭 닫힌 이력)도 함께 복원 → 폴더 버튼 "다시 열기" 리스트 복원
-    //
-    // subAgentManager 는 전역 싱글톤 — 부팅 시 N개 프로젝트가 순차 hydrate 되면 매 호출마다
-    // registry.clear() 가 일어나 마지막 프로젝트의 sub 만 살아남는 버그 회피용으로 mergeSnapshot 사용.
-    // (다른 프로젝트의 parent agentId 는 서로 겹치지 않으므로 누적이 항상 안전.)
+    // subagent 복원(스트림 + archivedSubAgents 의 "다시 열기" 목록). subAgentManager 는 전역 싱글톤이라 mergeSnapshot 으로 누적한다 — 덮어쓰면 마지막 프로젝트의 sub 만 남는다.
     if (cp.subAgents) {
       subAgentManager.mergeSnapshot(cp.subAgents, cp.subAgentCounter ?? 0, cp.project, cp.archivedSubAgents);
     }
@@ -8577,10 +7702,7 @@ export class ProjectGraph {
     // agentConfigs 복원 — 값이 없는 저장분도 전체 복원의 일부다. 같은 인스턴스를 다시 복원할 때
     // 이전 오버라이드를 남기면, 기본값을 상속해야 하는 에이전트가 옛 권한·실행 설정으로 돌아간다.
     this.agentConfigOverrides = this.readAgentConfigOverrides(cp);
-    // §4 v2.63 — 색 기반 레거시 토글 마이그레이션은 제거. executionMode 가 이제 PUT 에서 보존되는
-    //   에이전트 정체성이라, CMD 에이전트 색을 teal 에서 바꾸면 색 휴리스틱이 executionMode 를 잘못
-    //   지우는 footgun 이 된다. 누수 원인은 createCustomAgent(상속 차단) + userDefaultsService(잔재 정리)
-    //   에서 이미 막혔고 기존 데이터는 정리·영속화 완료. executionMode 를 그대로 신뢰한다.
+    // §4 — executionMode 는 저장값을 믿는다. 색으로 추정하는 마이그레이션을 되살리지 마라 — CMD 에이전트 색을 바꾸면 모드가 지워진다.
 
     // observedTools 복원
     if (cp.observedTools) {
@@ -8606,7 +7728,6 @@ export class ProjectGraph {
       }
     }
 
-    // v1.45 — Comment Box 복원
     this.commentBoxes = new Map();
     if (cp.commentBoxes) {
       for (const box of cp.commentBoxes) {
@@ -8614,7 +7735,7 @@ export class ProjectGraph {
       }
     }
 
-    // §5.5 #17-20 ⑩ v4.94 — 중단점 복원
+    // §5.5 #17-20 ⑩ — 중단점 복원.
     this.debugBreakpoints = new Map();
     if (cp.debugBreakpoints && cp.debugBreakpoints.length > 0) {
       this.debugBreakpoints.set(cp.project.name, cp.debugBreakpoints.map((bp) => ({ ...bp })));
@@ -8663,7 +7784,7 @@ export class ProjectGraph {
       }
     }
 
-    // §5.13 v4.45 — 내부 앱 버블 복원.
+    // §5.13 — 내부 앱 버블 복원.
     this.appBubbles = new Map();
     if (cp.appBubbles) {
       for (const bubble of cp.appBubbles) {
@@ -8671,8 +7792,7 @@ export class ProjectGraph {
       }
     }
 
-    // §5.14 v4.62 — 플레이 버블 복원. 버튼·레시피는 그대로, 실행 상태는 초기화한다
-    //   (프로세스는 앱과 함께 죽었으므로 running 인 채로 살아나면 거짓말이 된다).
+    // §5.14 — 플레이 버블 복원: 실행 상태는 초기화한다(프로세스는 앱과 함께 죽었다).
     this.playBubbles = new Map();
     if (cp.playBubbles) {
       for (const bubble of cp.playBubbles) {
@@ -8729,8 +7849,7 @@ export class ProjectGraph {
       }
     }
 
-    // v1.47 — Conti 복원
-    // §5.3 #28 (L) v1.58 — 이전 체크포인트 호환: workId/updatedAt 누락 시 폴백 채움
+    // §5.3 #28 (L) — Conti 복원. 옛 체크포인트의 빠진 workId/updatedAt 은 폴백으로 채운다.
     this.contis = new VersionedMap<string, Conti>();
     if (cp.contis) {
       for (const [cid, c] of Object.entries(cp.contis)) {
@@ -8742,10 +7861,10 @@ export class ProjectGraph {
         this.contis.set(cid, restored);
       }
     }
-    // §5.3 #28 (L) v1.58 — 인플라이트 작업 트래커는 영속화 ❌ — 서버 재기동 시 비움
+    // §5.3 #28 (L) — 진행 중 작업 트래커는 영속하지 않는다(재기동 때 비운다).
     this.activeContiWork.clear();
 
-    // §3.2.1-3 v2.63 — 명시 삭제 묘비 복원(전체 교체). 부활 차단·shrink guard 신호 유지.
+    // §3.2.1-3 — 묘비 복원(전체 교체). 부활 차단·shrink guard 신호다.
     this.deletedCustomAgents = new Set(cp.deletedCustomAgentIds ?? []);
 
     // §2.1 — 위성 버블을 끌어다 놓은 자리 복원. 저장(`toProjectCheckpoint`)과 한 쌍이다.
@@ -8759,7 +7878,7 @@ export class ProjectGraph {
       }
     }
 
-    // §4 v1.50 — compactCounts 복원 (도구 시간/한도는 런타임이라 복원 ❌)
+    // §4 — 도구 시간·한도는 런타임 값이라 복원하지 않는다.
     this.compactCounts.clear();
     if (cp.compactCounts) {
       for (const [sid, c] of Object.entries(cp.compactCounts)) {
@@ -8767,7 +7886,7 @@ export class ProjectGraph {
       }
     }
 
-    // §5.5 #17-4 v2.36 — 프로젝트별 스킬 사용 카운트 복원
+    // §5.5 #17-4 — 스킬 사용 카운트 복원.
     this.skillUsageCounts.clear();
     if (cp.skillUsageCounts) {
       for (const [name, n] of Object.entries(cp.skillUsageCounts)) {
@@ -8777,7 +7896,7 @@ export class ProjectGraph {
       }
     }
 
-    // §5.3 #10-2 v2.37 — Auto Agent 요약 메타 복원
+    // §5.3 #10-2 — Auto Agent 요약 메타 복원.
     this.autoAgentSummaries.clear();
     if (cp.autoAgentSummaries) {
       for (const [id, summary] of Object.entries(cp.autoAgentSummaries)) {
@@ -8787,8 +7906,7 @@ export class ProjectGraph {
       }
     }
 
-    // §5.3 #10-3 v4.98 — 검증 런 복원. 증거는 "무엇을 근거로 완료라고 했는가"라
-    //   세션을 넘어 남아야 한다(§3.2.1 영속 5지점 중 ④).
+    // §5.3 #10-3 — 검증 런은 "무엇을 근거로 완료라 했나"라 세션을 넘어 남긴다(§3.2.1 영속 5지점 ④).
     this.autoAgentRuns.clear();
     if (cp.autoAgentRuns) {
       for (const [id, runs] of Object.entries(cp.autoAgentRuns)) {
@@ -8798,7 +7916,6 @@ export class ProjectGraph {
       }
     }
 
-    // §4 v2.52 — 에이전트 작업 신고 복원
     this.agentReports.clear();
     if (cp.agentReports) {
       for (const [agentId, reports] of Object.entries(cp.agentReports)) {
@@ -8825,7 +7942,6 @@ export class ProjectGraph {
       }
     }
 
-        // §4 v2.60 — 에이전트 질문 카드 복원
     this.agentQuestions.clear();
     if (cp.agentQuestions) {
       for (const [agentId, qs] of Object.entries(cp.agentQuestions)) {
@@ -8835,7 +7951,6 @@ export class ProjectGraph {
       }
     }
 
-    // §4 v2.70 — 에이전트 검수 요청 카드 복원
     this.agentReviews.clear();
     if (cp.agentReviews) {
       for (const [agentId, reviews] of Object.entries(cp.agentReviews)) {
@@ -8845,7 +7960,6 @@ export class ProjectGraph {
       }
     }
 
-    // §4 v2.84 — 에이전트 번호 목록 정렬 카드 복원
     this.agentLists.clear();
     if (cp.agentLists) {
       for (const [agentId, lists] of Object.entries(cp.agentLists)) {
@@ -8855,7 +7969,6 @@ export class ProjectGraph {
       }
     }
 
-    // §4 v3.21 — 에이전트 피드백 복원
     this.agentFeedbacks.clear();
     if (cp.agentFeedbacks) {
       for (const [agentId, fbs] of Object.entries(cp.agentFeedbacks)) {
@@ -8865,13 +7978,8 @@ export class ProjectGraph {
       }
     }
 
-    // §5.5 #17-11 v3.79 — 세션 루프 복원. 서버가 죽는 동안 걸려 있던 회차는 이어받을 수 없으므로
-    //   `running` 은 `waiting` 으로 되돌리고 대조용 `pendingCommandId` 를 비운다 —
-    //   그래야 부팅 후 스윕이 "실행 중인 회차 없음"으로 보고 다음 회차를 정상 발사한다
-    //   (이걸 안 하면 죽은 명령 id 를 영원히 기다려 루프가 멈춘 채로 살아 있는 것처럼 보인다).
-    // §5.5 #17-35 — 검증 이력 복원. 서버가 죽는 동안 돌던 검증은 이어받을 수 없으므로
-    //   `queued`/`running` 은 `stopped` 로 내리고 대조용 `pendingCommandId` 를 비운다 —
-    //   그래야 그 탭에서 새 검증을 바로 시작할 수 있다(죽은 명령 id 를 영원히 기다리지 않는다).
+    // §5.5 #17-11 — 죽는 동안의 회차는 못 이어받는다: 루프는 `running` → `waiting`, 검증(§5.5 #17-35)은 `queued`/`running` → `stopped`,
+    // 둘 다 `pendingCommandId` 를 비운다 — 안 비우면 죽은 명령 id 를 영원히 기다려 멈춘다.
     this.verificationRuns.clear();
     if (cp.verificationRuns) {
       for (const [subId, list] of Object.entries(cp.verificationRuns)) {
@@ -8921,9 +8029,7 @@ export class ProjectGraph {
       }
     }
 
-    // §5.5 #17-17 v4.46 — 세션 목표 복원. 루프와 달리 진행 중인 "회차"가 없어 되돌릴 상태가 없다 —
-    //   문장·퍼센트·이력을 그대로 이어받으면 된다(구버전 체크포인트는 누락 필드를 정규화로 보충).
-    // §5.5 #17-17 ⑪(h) — 시각 종류 카드 복원. 없으면 빈 상태에서 씨앗만 심는다(구버전 호환).
+    // §5.5 #17-17 — 세션 목표는 되돌릴 회차가 없어 그대로 이어받는다(빠진 필드는 정규화). ⑪(h) 시각 종류 카드는 없으면 씨앗만 심는다.
     this.visualKinds.clear();
     if (cp.visualKinds) {
       for (const [key, card] of Object.entries(cp.visualKinds)) {
@@ -9018,28 +8124,20 @@ export class ProjectGraph {
       }
     }
 
-    // §5.7 #23-2 v1.60 — agent-view 생존 sub 의 status 복원 (위 merge 경로와 동일).
-    // isShortWorking: roster + state.json='working'/'needs-input' 둘 다 통과해야 active 복원.
+    // §5.7 #23-2 — merge 경로와 같다: roster + state.json='working'/'needs-input' 둘 다 맞아야 active.
     for (const sub of subAgentManager.getAllSubsFlat()) {
       if (sub.agentViewShort && isAgentViewShortWorking(sub.agentViewShort)) {
         sub.status = 'active';
       }
     }
 
-    // v1.33 reconcile: 고아 executing 정리 (위 merge 경로와 동일 규칙). 참조 서브가 없거나
-    // active 가 아니면 'error' 로 봉합해 무한 Executing 상태를 끊는다.
+    // 고아 executing 정리(merge 경로와 같은 규칙).
     for (const queue of this.commandQueuesRef.values()) {
       for (const cmd of queue) {
         if (cmd.status !== 'executing') continue;
         const sub = cmd.subAgentId ? subAgentManager.getSub(cmd.subAgentId) : undefined;
         if (!sub || sub.status !== 'active') {
-          // v1.79→v1.80 (Direction A 보강) — 커스텀 에이전트의 끊긴 명령은 죽은 `[orphaned]`
-          // 에러로 두지 않고, 보존된 세션(sub.sessionId)으로 **매 재시작마다** 자동 재개한다.
-          // v1.79 의 one-shot(`!restartResumed`) 가드는 잘못이었다 — 서버를 2번 이상 재시작하면
-          // 2번째부터 무조건 `[orphaned]` 로 떨어졌다. 이 reconcile 은 **실제 서버 재시작 시에만**
-          // 도므로 자가구동 무한루프가 성립 불가(매 재개는 사용자의 실제 재시작 1건에 대응);
-          // 죽은 sessionId 는 execute() 의 스테일 세션 자가복구가 fresh 로 정상화하므로 wedge 도
-          // 없다. 따라서 횟수 캡 없이 항상 재개. `restartResumed` 는 진단용 누적 표식(게이트 ❌).
+          // merge 경로와 같다 — 끊긴 커스텀 명령은 매 재시작마다 재개한다(1회 가드 ❌ — 두 번째부터 `[orphaned]` 가 된다).
           const parentIsCustom =
             !!sub
             && [...this.agents.values()].some((a) => a.id === sub.parentAgentId && a.customCreated);
@@ -9116,8 +8214,7 @@ export class ProjectGraph {
     return all;
   }
 
-  /** §7.11 v2.22 — 주어진 ServerEntry id 의 owning session 정보를 찾는다.
-   *  /api/restart-server 가 원래 명령이 실행됐던 cwd 로 respawn 하기 위해 사용. */
+  /** §7.11 — /api/restart-server 가 원래 명령의 cwd 로 다시 띄울 때 쓴다. */
   findServerOwnerSession(serverId: string): { sessionId: string; cwd: string | undefined } | null {
     for (const [sessionId, entries] of this.runningServers) {
       if (entries.some((e) => e.id === serverId)) {
@@ -9128,13 +8225,9 @@ export class ProjectGraph {
   }
 
   /**
-   * §7.11 v2.23 — /api/restart-server 가 respawn 직후 호출.
-   * 매칭 iframe 위성의 `shellId` 를 비우고 `iframeDeadAt` 을 클리어한다.
-   * Vibisual 이 직접 띄운 detached child 는 Claude JSONL 에 active 로 기록되지 않아
-   * v1.48 owning-shell 검사(`activeShellIds.has(sat.shellId)`)를 영원히 false 로 만든다.
-   * shellId 를 비우면 그 검사가 port-only fallback(`: true`)으로 떨어져 포트만 살아 있으면
-   * `checkIframesAlive` 가 정상적으로 alive 로 전환.
-   * @returns 실제로 변경된 위성이 있으면 true
+   * §7.11 — /api/restart-server 가 다시 띄운 직후 부른다. 우리가 띄운 detached 자식은 JSONL 에 active 셸로 안 남아
+   * owning-shell 검사가 영영 false 다 — shellId 를 비워 port-only 판정으로 넘긴다.
+   * @returns 바뀐 위성이 있으면 true
    */
   noteIframeRespawnedByServerId(serverId: string): boolean {
     let port: number | undefined;
@@ -9174,10 +8267,8 @@ export class ProjectGraph {
   }
 
   /**
-   * ServerEntry.id로 매칭되는 iframe 위성의 iframeAlive=false 즉시 플립.
-   * /api/stop-server 핸들러가 killByPort 직후 호출 — 5초 스윕(checkIframesAlive) 지연 없이
-   * 버블 status 가 active → idle(부모 agent.status 미러링)로 전환되도록 보장(SCENARIO §7.11 v1.29).
-   * @returns 실제로 변경된 위성이 있으면 true
+   * §7.11 — /api/stop-server 가 killByPort 직후 부른다(5초 스윕을 기다리지 않고 바로 idle 로).
+   * @returns 바뀐 위성이 있으면 true
    */
   markIframeStoppedByServerId(serverId: string): boolean {
     // ServerEntry 에서 shellId 또는 port 를 먼저 확인
@@ -9206,11 +8297,10 @@ export class ProjectGraph {
   }
 
 
-  /** 같은 서버를 가리키는 ServerEntry 중복 머지.
-   *  여러 등록 경로(PreToolUse hook / attachBackgroundShell / rehydrate / sweep)가
-   *  shellId·outputFile·port 백필 타이밍이 어긋나 같은 서버를 두 entry 로 만드는 경우 정리.
-   *  매칭 키: (1) shellId 동일 (2) outputFile 동일 (3) command 동일 (port 충돌 없을 때).
-   *  머지 시 더 풍부한 정보(shellId/outputFile/port/alive/오래된 startedAt) 보존. */
+  /**
+   * 같은 서버의 ServerEntry 중복을 합친다(등록 경로마다 백필 시점이 어긋나 둘이 생긴다).
+   * 매칭: shellId → outputFile → command(포트 충돌 없을 때). 더 풍부한 값을 남긴다.
+   */
   dedupRunningServers(): boolean {
     let changed = false;
     for (const [sid, entries] of this.runningServers) {
@@ -9225,8 +8315,7 @@ export class ProjectGraph {
         if (src.startedAt < target.startedAt) target.startedAt = src.startedAt;
       };
 
-      // §7.11 v2.1 — ServerEntry 는 포트 단위라 머지는 같은 포트끼리만.
-      // 한쪽이 포트-미상 placeholder(port null)면 실제 포트 entry 로 흡수 허용.
+      // §7.11 — 같은 포트끼리만 합친다(entry 는 포트 단위). 포트 미상(null)은 흡수한다.
       const portCompat = (a: ServerEntry, b: ServerEntry): boolean =>
         a.port == null || b.port == null || a.port === b.port;
 
@@ -9262,7 +8351,7 @@ export class ProjectGraph {
   }
 
   /** 에이전트별 bash history → bash bubble ID 기준 Record */
-  /** §9 v3.89 — bash 히스토리 사본 메모(파일편집과 동형: 앞에 추가 + 뒤 잘라내기만 일어난다). */
+  /** §9 — bash 히스토리 사본 메모(파일 편집과 같다: 앞에 추가 + 뒤 자르기만). */
   private bashHistoryViewCache = new WeakMap<
     BashEntry[],
     { len: number; head: BashEntry | undefined; out: BashEntry[] }
@@ -9289,9 +8378,7 @@ export class ProjectGraph {
     const result: Record<string, ServerEntry[]> = {};
     for (const [sessionId, entries] of this.runningServers) {
       const bubbleId = this.bashBubbleId(sessionId);
-      // §7.11 v2.4 — 죽은 entry 도 스냅샷에 포함한다. IframeServerCard 가 멈춘 서버의
-      // serverId 를 매칭해 Start/Restart 버튼을 활성화하려면 dead entry 가 필요하다.
-      // ServerList(§7.11 v2.1 — alive-only)는 클라이언트에서 alive 필터링한다.
+      // §7.11 — 죽은 entry 도 싣는다(IframeServerCard 의 Start/Restart 에 필요). ServerList 는 클라에서 alive 만 거른다.
       if (entries.length > 0) result[bubbleId] = entries.map((s) => ({ ...s }));
     }
     return result;
@@ -9300,12 +8387,8 @@ export class ProjectGraph {
   /** 에이전트 idle 전환 + 연결 노드/엣지 ref 해제 → 참조 0이면 idle.
    *  이 에이전트 버블과 파일/폴더 버블을 잇던 엣지는 **삭제**(다시 참조 시 자동 재생성). */
   /**
-   * 에이전트를 idle 로 내린다.
-   * @param purgeNodes 사용자 확인 dismiss 경로에서만 `true` — 그 에이전트가 전유하던
-   *   file/folder 버블을 idle 대신 즉시 제거(§2.4 "확인 dismiss → 전유 file/folder 즉시 소멸", v1.82).
-   *   자동 timeout idle(`expireCompletedAgents`/idle 스윕)은 `false`(기본) — 5분 TTL grace 유지.
-   * @returns 즉시 제거된 버블 id 목록(`purgeNodes=false` 면 항상 빈 배열). 호출자가 "걷을 게
-   *   있었나"를 알아야 헛 broadcast·헛 저장을 피할 수 있다.
+   * @param purgeNodes 확인 dismiss 에서만 `true` — 전유 file/folder 를 즉시 제거(§2.4). 자동 idle 은 `false`(5분 TTL 유지).
+   * @returns 즉시 제거된 버블 id — 호출자가 헛 broadcast·저장을 피하는 데 쓴다.
    */
   markAgentIdle(sessionId?: string, purgeNodes = false): string[] {
     this.bumpMutationVersion();
@@ -9317,6 +8400,9 @@ export class ProjectGraph {
         agent.status = 'idle';
         agent.fadeStartedAt = undefined;
         agent.summary = undefined;
+        // §5.1 #2-1 (B) — 유휴로 내려간 에이전트에 "문장이 연 턴이 도는 중"이 남아 있으면 안 된다(`Stop` 을 못 받은 세션).
+        //   안 지우면 다음 문장이 턴 도중으로 읽혀 지난 턴이 영영 닫히지 않는다.
+        this.promptTurnAgents.delete(agent.id);
         if (agent.persistSatellites) {
           for (const sat of agent.persistSatellites) sat.status = 'idle';
         }
@@ -9343,11 +8429,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.4 #36 (H) ①-2 — 이 에이전트의 연결을 **걷기 직전에** 한 벌 적는다([이전 연결 다시 보기]의 재료).
-   *
-   * 걷는 것과 같은 집합이다 — 소유 기록(`nodeAgentRefs`)에 이 에이전트가 오른 활동 버블마다 한 줄. 다시 세우는 길이
-   * 훅 이벤트와 같은 라우팅이라 여기 적는 것은 그 길의 입력(경로·호스트·앱)과 라우팅이 모르는 칸(횟수·자리·표식·상한)뿐이다.
-   * 하나도 없으면 **옛 기록을 그대로 둔다** — 이미 걷힌 뒤의 헛클릭이 방금 걷은 기록을 빈 것으로 덮으면 다시 볼 길이 사라진다.
+   * §5.4 #36 (H) ①-2 — 걷기 직전에 연결을 한 벌 적는다([이전 연결 다시 보기]). 다시 세우기가 훅 라우팅이라 그 입력(경로·호스트·앱)과 라우팅이 모르는 칸(횟수·자리·표식·상한)만 적는다.
+   * 하나도 없으면 옛 기록을 둔다 — 걷힌 뒤의 헛클릭이 빈 것으로 덮으면 다시 볼 길이 사라진다.
    */
   private captureAgentLinks(agentId: string): void {
     let parentsOf: Map<string, string[]> | null = null;
@@ -9373,7 +8456,7 @@ export class ProjectGraph {
         if (!abs) continue;
         entry.target = normalize(abs);
         if (ext && node.bubbleType === 'file') {
-          // Grep/Glob 결과는 직속 부모가 아니라 **훑은 폴더**에 붙는다(§2.1 v2.7) — 그 모양을 다시 세우려면 적어 둔다.
+          // Grep/Glob 결과는 훑은 폴더에 붙는다(§2.1) — 그 모양을 다시 세우려고 적는다.
           parentsOf ??= this.childParentIndex();
           const natural = this.naturalExternalFolder(entry.target);
           const parents = (parentsOf.get(key) ?? [])
@@ -9405,10 +8488,7 @@ export class ProjectGraph {
     this.agentLinkRecords.set(agentId, { at: Date.now(), entries: capAgentLinkEntries(entries) });
   }
 
-  /**
-   * 버블 id → 그 버블에 닿은 활동 선(메인·내부) 가운데 가장 늦은 시각. 파일이면 그 파일을 마지막으로 만진 때다
-   * (만질 때마다 부모 ↔ 파일 선이 그 시각을 받는다). 연결을 적을 때 한 번 짓는다.
-   */
+  /** 버블 id → 닿은 활동 선(메인·내부) 중 가장 늦은 시각(파일이면 마지막으로 만진 때). */
   private edgeTouchTimes(): Map<string, number> {
     const out = new Map<string, number>();
     for (const edge of [...this.mainEdges.getAll(), ...this.innerEdges.getAll()]) {
@@ -9441,11 +8521,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.4 #36 (H) ①-2 — 에이전트의 연결된 버블을 고정하거나 푼다.
-   *
-   * 풀 때 그 에이전트가 실행 중이 아니면 **그 자리에서 걷는다** — 확인 dismiss 와 같은 걷기(전유 버블 즉시 제거 · 다른
-   * active 에이전트가 쓰는 것과 preserve-pin 은 남김)이되 에이전트의 상태는 건드리지 않는다(고정 풀기는 확인이 아니다).
-   * 고정돼 있지 않던 것을 푸는 요청은 아무것도 걷지 않는다(늦게 도착한 중복 요청이 버블을 지우지 않게).
+   * §5.4 #36 (H) ①-2 — 연결 고정/풀기. 풀 때 실행 중이 아니면 확인 dismiss 처럼 바로 걷되 에이전트 상태는 건드리지 않는다.
+   * 고정돼 있지 않던 것을 푸는 요청은 걷지 않는다(늦게 온 중복 요청이 버블을 지우지 않게).
    */
   setAgentLinksPinned(
     nodeId: string,
@@ -9476,12 +8553,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.4 #36 (H) ①-2 — [이전 연결 다시 보기]. 마지막으로 걷힌 연결을 **훅 이벤트와 같은 라우팅**으로 다시 세운다.
-   *
-   * 노드 id 가 경로에서 지어지므로 같은 버블이 같은 자리에 선다. 다시 세운 버블은 기록의 횟수·자리·표식으로 되돌리고
-   * (그때까지 남아 있던 버블은 자기 값을 지킨다 — 다시 흘리는 것은 활동이 아니다), 끝나면 완료 직후와 같은 모양이다
-   * (버블 idle · 선 비활성). 에이전트를 완료 상태로 꾸미지 않는다 — 완료음·완료 알림이 거짓으로 울린다.
-   * 다시 세운 연결은 `linksReplay` 로 다음 확인 클릭까지 붙든다.
+   * §5.4 #36 (H) ①-2 — [이전 연결 다시 보기]: 걷힌 연결을 훅과 같은 라우팅으로 다시 세운다. 새로 선 버블만 기록의 횟수·자리·표식을 받는다(다시 흘리는 것은 활동이 아니다).
+   * 끝은 idle · 선 비활성. 에이전트를 완료로 꾸미지 않는다 — 완료음·알림이 거짓으로 울린다. `linksReplay` 가 다음 확인 클릭까지 붙든다.
    */
   replayAgentLinks(
     nodeId: string,
@@ -9595,18 +8668,9 @@ export class ProjectGraph {
     this.innerEdges.removeByPredicate(pred);
   }
 
-  /**
-   * 커스텀 에이전트 상태를 소속 서브에이전트 집계로 재계산.
-   * - sub 중 하나라도 status==='active' → 커스텀 에이전트 active (fadeStartedAt 클리어)
-   * - active 가 전혀 없고 이전이 active 였으면 → completed 로 전이(기존 setAgentStatus 와 동일한 fadeStartedAt 세팅)
-   * - 그 외(전부 idle 이고 이미 idle/completed) → 변화 없음
-   * 반환값: 상태가 바뀌면 true (호출자가 broadcast 필요 여부 판단용).
-   */
+  /** 커스텀 에이전트 상태를 소속 sub 집계로 다시 낸다(하나라도 active → active, active 가 사라지면 → completed). 바뀌면 true(broadcast 판단용). */
   recomputeCustomAgentStatus(parentAgentId: string): boolean {
-    // §4 v2.64 — CMD(인터랙티브 터미널) 에이전트는 서브 집계로 상태를 매기지 않는다.
-    //   자기 인터랙티브 claude 세션의 redirect 된 hook 스트림(touchAgent active + Stop completed)
-    //   으로 상태가 정해진다 — Hook 에이전트와 동일. 서브가 0개라 여기서 강등하면 활동 중에도
-    //   10초 sweep 마다 completed 로 튀어 엣지가 뜯기는 오완료 회귀가 난다.
+    // §4 — CMD 에이전트는 서브가 0개라 집계하지 않는다(자기 훅 스트림이 정한다) — 여기서 매기면 10초 sweep 마다 completed 로 튀어 엣지가 뜯긴다.
     if (this.agentConfigOverrides.get(parentAgentId)?.executionMode === 'interactive-terminal') {
       return false;
     }
@@ -9624,8 +8688,7 @@ export class ProjectGraph {
     // §5.10 — 휴지통에 들어간 커스텀 에이전트는 활성 집계 대상에서 제외(active/completed 로 튀지 않음).
     if (found.trashed) return false;
 
-    // §5.3 #12-1 v1.91 — 권한 승인 대기 중이면 훅이 동기 hold 중인 "블록된 활성" 상태.
-    // sub 집계가 비활성으로 보여도 completed 로 강등 ❌ — 결정/타임아웃까지 active 유지.
+    // §5.3 #12-1 — 권한 승인 대기는 훅이 붙잡은 활성이다 — 결정·타임아웃까지 completed 로 내리지 않는다.
     if (this.permissionWaitingAgents.has(parentAgentId)) {
       if (found.status !== 'active') {
         this.bumpMutationVersion();
@@ -9637,13 +8700,8 @@ export class ProjectGraph {
       return false;
     }
 
-    // §5.3 #12-1 v3.43 — 백그라운드 서브에이전트 대차대조: 부모(감독관) 턴이 끝나 sub 가 idle
-    // 이어도, 이 에이전트가 스스로 띄운 Task/Agent 서브에이전트의 SubagentStop 이 아직 안 왔으면
-    // "대기 중인 활성"이다. permissionWaitingAgents(v1.91)와 동형의 completed 강등 차단 —
-    // 별도 상태·비주얼 없이 기존 active 그대로 유지(자식이 일하는 중 = 사용자에겐 "활동 중").
-    // §5.3 #12-1 — 훅 대차대조(Task/Agent 자식) **또는** 스트림으로만 보이는 백그라운드 작업
-    //   (`Bash run_in_background` · `Monitor`). 후자를 안 보면 그 작업을 기다리는 감독관 버블이
-    //   "끝난 것"으로 내려간다 — 사용자 보고 "서브가 시킨 거 대기 중인데 끝난 걸로 착각한다".
+    // §5.3 #12-1 — 띄운 Task/Agent 자식의 SubagentStop 이 안 왔거나 스트림으로만 보이는 백그라운드 작업(`Bash run_in_background` · `Monitor`)이 살아 있으면
+    // sub 가 idle 이어도 활성이다 — 안 보면 그것을 기다리는 감독관 버블이 끝난 것으로 내려간다.
     if (subAgentManager.hasPendingSubagentTasks(parentAgentId)
       || subAgentManager.hasLiveBackgroundTasks(parentAgentId)) {
       if (found.status !== 'active') {
@@ -9658,11 +8716,8 @@ export class ProjectGraph {
     }
 
     const subs = subAgentManager.getAllSubs(parentAgentId);
-    // liveness 가드 — sub.status 가 순간 비활성으로 읽혀도 자식이 아직 한 턴을 처리 중이면 active 로 본다.
-    //   persistent result 직후 finalize→idle 과 다음 명령 dispatch 사이의 창, 또는 in-process
-    //   Task/위임 워커가 아직 도는 창에서 부모(감독관) 버블이 조기 completed 로 튀는 것을 막는다.
-    //   sweepIdle(§ isSubRunning) 이 살아있는 자식을 지키는 것과 동형. idle 대기 자식은 제외되므로
-    //   진짜 끝났을 때는 정상 완료된다.
+    // 자식이 한 턴을 처리 중이면 sub.status 가 순간 비활성이어도 active 로 본다(result 직후 finalize→idle 과 다음 dispatch 사이 등) — 없으면 부모가 조기 completed 로 튄다.
+    // sweepIdle 의 isSubRunning 과 같은 규칙.
     const anyActive = subs.some(
       (s) => s.status === 'active' || subAgentManager.isSubProcessingCommand(s.id),
     );
@@ -9682,21 +8737,13 @@ export class ProjectGraph {
       return false;
     }
 
-    // §5.5 #17-11 v3.92 — "지금 도는 게 없다" ≠ "일이 끝났다".
-    // 한 턴이 끝나면 sub 는 다음 명령이 dispatch 되기 전까지 잠깐 idle 이 된다. 그 찰나에 이 함수가
-    // 불리면 큐에 다음 명령이 줄 서 있어도(사용자가 여러 개 보냈거나 루프가 다음 회차를 예약했어도)
-    // 부모 버블이 completed 로 튀고 — 엣지가 뜯기고 완료음까지 울린 뒤 다음 명령에 다시 active 로
-    // 돌아온다 = "아직 안 끝났는데 계속 완료 처리". 완료 판정의 기준을 "지금 도는 것"에서
-    // **"이 에이전트에 낼 일이 남았는가"** 로 넓힌다.
+    // §5.5 #17-11 — 지금 도는 게 없다 ≠ 일이 끝났다. 턴 사이 찰나에 큐·루프에 다음 일이 있는데 completed 로 튀면 엣지가 뜯기고 완료음이 울린다 — 낼 일이 남았으면 완료가 아니다.
     if (this.hasPendingAgentWork(parentAgentId)) {
       found.lastActivity = Date.now();
       return false;
     }
 
-    // 실패로 끝난 세션이 하나라도 있으면 **완료가 아니라 실패**다. 종전에는 `NodeStatus` 에 `error` 가
-    // 없어서 이 경우도 아래 completed 로 내려갔고, 캔버스에서 실패가 완료로 보이는 데다 완료음까지
-    // 울렸다(`completionChime` 은 `→ completed` 전이에 반응한다). `SubAgentStatus.error` 를 그대로
-    // 버블까지 올려 두 축이 같은 말을 하게 한다.
+    // 실패한 세션이 있으면 completed 가 아니라 error 다 — completed 로 내리면 실패가 완료로 보이고 완료음(`completionChime`)까지 울린다.
     if (subs.some((s) => s.status === 'error')) {
       if (found.status !== 'error') {
         this.bumpMutationVersion();
@@ -9723,24 +8770,13 @@ export class ProjectGraph {
       return true;
     }
 
-    // v1.60: 이력 기반 idle→completed 승격은 제거.
-    // 이유: completed 는 "방금 active→끝났음" 의 휘발성 셀러브레이션이지 영속 상태가 아니다.
-    // 이 블록은 dismiss 후나 재기동 직후의 idle 을 sweep 한 번에 다시 completed 로 끌어올려
-    // 시안 글로우 무한 부활의 원흉이었다. error 는 sub 자체 배지로 보이게 두고,
-    // active → completed 한 갈래(위 블록)만 트리거로 사용한다.
+    // 이력 기반 idle→completed 승격을 넣지 마라 — dismiss·재기동 뒤의 idle 이 sweep 마다 completed 로 올라 시안 글로우가 끝없이 되살아난다. completed 는 active → completed 전이로만.
     return false;
   }
 
   /**
-   * §5.5 #17-11 v3.92 — 이 커스텀 에이전트에 **아직 낼 일**이 남았는가(= 완료로 볼 수 없는가).
-   *
-   * - ① 큐에 대기 중인 명령(`queued`) — 사용자가 여러 개 보냈거나 루프가 다음 회차를 넣어 둔 경우.
-   *   명령 사이의 빈틈은 "완료"가 아니라 "다음 것을 기다리는 중"이다.
-   * - ② 진행 중 세션 루프(`enabled && running|waiting`) — 회차 사이 대기(`intervalMs`)도 도는 중이다.
-   *   루프가 `done`/`error`/`stopped` 로 꺼지면 여기서 빠져 정상적으로 completed 로 간다.
-   *
-   * `executing` 명령은 일부러 세지 않는다 — 그건 sub liveness(`anyActive`)가 판정하는 몫이고,
-   * 자식이 죽었는데 `executing` 으로 굳은 명령까지 활성으로 치면 버블이 영영 안 끝난다.
+   * §5.5 #17-11 — 아직 낼 일이 남았는가: ① `queued` 명령 ② 진행 중 세션 루프(회차 사이 대기 포함).
+   * `executing` 은 세지 않는다 — sub liveness 몫이고, 자식이 죽어 굳은 `executing` 까지 치면 버블이 영영 안 끝난다.
    */
   private hasPendingAgentWork(parentAgentId: string): boolean {
     for (const loop of this.sessionLoops.values()) {
@@ -9766,11 +8802,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §4 v1.49 — Notification 이벤트 서브타입을 받아 에이전트 버블에 *시각 신호*만 부여.
-   * `awaiting_permission` 은 transient 상태이므로 `setAgentStatus('completed')` 의
-   * cleanup(엣지 정리·summary 추출) 경로를 타지 않는다.
-   * 후속 PreToolUse/PostToolUse 이벤트가 오면 `touchAgent` 가 자연스럽게 'active' 로 덮어쓴다.
-   * v1.73 — `awaiting_input`(모래시계) 제거. 입력 대기는 더 이상 시각 상태로 두지 않는다.
+   * §4 — Notification 은 시각 신호만 준다. `awaiting_permission` 은 일시 상태라 completed 정리 경로를 타지 않고 다음 도구 훅에서 `touchAgent` 가 덮는다.
+   * 입력 대기는 시각 상태로 두지 않는다.
    */
   setAgentNotificationStatus(
     sessionId: string,
@@ -9784,7 +8817,7 @@ export class ProjectGraph {
     agent.lastActivity = Date.now();
   }
 
-  /** §4 v1.50 — PostToolUse `duration_ms` 캡처. agent 별 ring buffer(최근 5건). */
+  /** §4 — PostToolUse `duration_ms`, 에이전트별 최근 5건. */
   recordToolDuration(sessionId: string, tool: string, durationMs: number): void {
     this.bumpMutationVersion();
     if (!this.agents.has(sessionId)) return;
@@ -9797,7 +8830,7 @@ export class ProjectGraph {
     capMapSize(this.recentToolDurations, SESSION_KEYED_MAP_MAX);
   }
 
-  /** §4 v1.50 — PreCompact 카운터 증가. 영속화 대상. */
+  /** §4 — PreCompact 카운터(영속 대상). */
   recordCompact(sessionId: string): void {
     this.bumpMutationVersion();
     if (!this.agents.has(sessionId)) return;
@@ -9810,13 +8843,7 @@ export class ProjectGraph {
 
   // ─── §5.26 — 컨텍스트 보험 ───
 
-  /**
-   * §5.26 (B) — 이 세션이 데리고 있던 팀원 이름을 모은다(합집합, 지우지 않는다).
-   *
-   * 훅 판본마다 이름이 앉는 자리가 달라 호출부가 **넓게 긁어** 넘긴다(§3.6-1 과 같은 규율).
-   * 팀 구성은 압축이 통째로 지우는 축인데 사용자가 가장 늦게 알아채는 것이기도 하다 —
-   * 그래서 놓치는 쪽보다 조금 넉넉히 담는 쪽으로 판정을 기울인다.
-   */
+  /** §5.26 (B) — 이 세션의 팀원 이름(합집합, 지우지 않는다). 훅 판본마다 자리가 달라 호출부가 넓게 긁는다(§3.6-1) — 압축이 지우고 늦게 알아채는 축이라 넉넉히 담는다. */
   noteTeammates(sessionId: string, names: readonly string[]): void {
     if (!sessionId || names.length === 0) return;
     let set = this.teammatesBySession.get(sessionId);
@@ -9831,13 +8858,7 @@ export class ProjectGraph {
     capMapSize(this.teammatesBySession, SESSION_KEYED_MAP_MAX);
   }
 
-  /**
-   * §5.26 (B) — 압축 직전 그 세션이 무엇을 붙잡고 있었는지 한 벌.
-   *
-   * **전부 이미 그래프에 있는 것만 접어 담는다.** 이 함수는 훅이 기다리는 자리에서 도므로
-   * 디스크를 새로 훑으면 그만큼 압축이 늦어진다. 그래프가 모르는 축(`runningTasks` ·
-   * `lastAssistantTail` · 모델)은 호출부가 `extra` 로 넘겨 준다.
-   */
+  /** §5.26 (B) — 압축 직전 작업셋. 이미 그래프에 있는 것만 담는다 — 훅이 기다리는 자리라 디스크를 훑으면 압축이 늦어진다. 그래프가 모르는 축은 호출부가 `extra` 로 준다. */
   buildCompactWorkingSet(
     sessionId: string,
     extra?: Partial<CompactWorkingSet> & { subAgentId?: string },
@@ -9934,25 +8955,14 @@ export class ProjectGraph {
     return this.projects.get(normalize(cwd))?.name ?? null;
   }
 
-  /**
-   * §5.26 (F) — 감시 한 줄이 **어느 프로젝트 원장에 붙는가**.
-   *
-   * `sessionCwds`·`agents` 는 훅 세션 키라 **세션 탭(sub)의 CLI 세션 UUID 로는 안 풀린다**
-   * (§ 큐 맵과 같은 namespace 함정). 그대로 두면 세션 탭 판정이 전부 여기서 조용히 버려져
-   * 화면에 한 줄도 못 닿는다 — 소유 버블(`agentId`)로 되짚는 길을 하나 더 둔다.
-   */
+  /** §5.26 (F) — 감시 한 줄의 프로젝트 원장. `sessionCwds`·`agents` 는 훅 세션 키라 세션 탭의 CLI UUID 로는 안 풀린다 — 소유 버블(`agentId`)로 되짚지 않으면 세션 탭 판정이 버려진다. */
   private projectNameForWatch(w: CompactWatchState): string | null {
     const bySession = this.projectNameForSession(w.sessionId);
     if (bySession) return bySession;
     return w.agentId ? this.getAgentProjectName(w.agentId) : null;
   }
 
-  /**
-   * §5.26 (B) 1단계 — `PreCompact` 한 건을 원장에 앉힌다.
-   *
-   * **훅을 붙잡지 않는다** — 여기서 도는 디스크 접근은 `statSync` 와 앞부분 해시뿐이다.
-   * 미러 복사는 호출부가 응답을 보낸 **뒤에** `mirrorCompactMarker()` 로 돌린다.
-   */
+  /** §5.26 (B) 1단계 — `PreCompact` 를 원장에 앉힌다. 훅을 붙잡지 않게 디스크는 `statSync`·앞부분 해시뿐, 미러 복사는 응답 뒤 `mirrorCompactMarker()` 로. */
   recordCompactMarker(input: {
     sessionId: string;
     transcriptPath?: string;
@@ -10007,12 +9017,7 @@ export class ProjectGraph {
     }
   }
 
-  /**
-   * §5.26 (B) — 트랜스크립트 미러. **응답을 보낸 뒤에** 부른다.
-   *
-   * JSONL 은 압축으로 지워지지 않고(압축은 요약 항목을 덧붙인다) append-only 라, 뒤늦게 떠도
-   * 같은 바이트다. 그래서 이 무거운 쪽을 훅 바깥으로 미룰 수 있다.
-   */
+  /** §5.26 (B) — 응답을 보낸 뒤에 부른다. JSONL 은 append-only 라 늦게 떠도 같은 바이트다. */
   mirrorCompactMarker(marker: CompactMarker): void {
     try {
       if (this.insuranceService.mirrorFor(marker.id, marker.projectName)) this.bumpMutationVersion();
@@ -10022,16 +9027,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.26 (D) — `PostCompact` 도착. **압축이 끝났다는 CLI 자신의 신고**를 마커에 새긴다.
-   *
-   * 여기서 대조를 바로 돌리지 않는 이유: 완료 훅이 온 시점에 요약이 아직 파일에 안 내려갔을 수
-   * 있다(우리가 읽으면 빈 꼬리를 요약으로 읽는다). 표식만 남기고 대조는 스윕에 맡긴다.
-   *
-   * **판정의 주인은 아니다(2026-09-23).** 이 훅은 이 프로젝트 실측에서 마커 100건 중 14건에만
-   * 왔다 — 그 하나로 실패와 판독 불가를 가르면 **같은 사건이 훅 운에 따라 색이 갈린다**(실측:
-   * 두 무리의 판정 지연도 `summaryBytes` 도 완전히 같았고 다른 것은 훅이 왔는지뿐이었다).
-   * 그래서 스윕은 파일 증거(`compact_boundary` · `isCompactSummary`)를 먼저 보고, 이 표식은
-   * 그 증거를 못 봤을 때의 **보조 증거**로만 쓴다.
+   * §5.26 (D) — `PostCompact` 는 표식만 남기고 대조는 스윕에 맡긴다(이때 요약이 아직 파일에 없을 수 있다).
+   * 판정 주인으로 쓰지 마라 — 실측(2026-09-23) 마커 100건 중 14건에만 왔다. 스윕은 파일 증거(`compact_boundary` · `isCompactSummary`)가 먼저, 이건 보조 증거다.
    */
   notePostCompact(sessionId: string, now: number = Date.now()): boolean {
     const changed = this.insuranceService.notePostCompact(sessionId, now);
@@ -10040,14 +9037,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.26 (G) — **되살아난 세션에 문맥이 정말 실렸는지** 첫 턴에 한 번 잰다.
-   *
-   * #43696 은 `--resume` 이 성공한 얼굴로 빈 문맥을 준다. 성공/실패 코드로는 못 가리므로
-   * 우리가 이미 재고 있는 수 하나로 가른다 — 되살아난 뒤 첫 턴의 입력 크기가 죽기 전의
-   * `INSURANCE_RESUME_SHORTFALL_RATIO` 에도 못 미치면 문맥이 안 실린 것이다.
-   *
-   * 못 미치면 (E) 브리핑 표식을 풀어 **그 턴에 작업셋을 다시 실어 준다.** 새 주입 통로를
-   * 만들지 않는다 — 이미 있는 브리핑이 그대로 나간다.
+   * §5.26 (G) — 되살아난 세션에 문맥이 실렸는지 첫 턴에 잰다(#43696: `--resume` 이 성공 코드로 빈 문맥을 준다).
+   * 첫 턴 입력이 죽기 전의 `INSURANCE_RESUME_SHORTFALL_RATIO` 에 못 미치면 (E) 브리핑 표식을 풀어 작업셋을 다시 싣는다(새 주입 통로 ❌).
    */
   sweepResumeChecks(now: number = Date.now()): boolean {
     let changed = false;
@@ -10068,14 +9059,8 @@ export class ProjectGraph {
 
         const shortfall = ctx.contextUsed < baseline * INSURANCE_RESUME_SHORTFALL_RATIO;
         /*
-         * 되살렸는데 비어 있다. 이때 (E) 가 집어 갈 것이 없으면 브리핑이 안 나가므로 여기서
-         * 결과를 세워 준다 — 세션이 그 문맥을 **실제로 갖고 있지 않다는 것이 방금 측정된 사실**
-         * 이라, 작업셋 전체가 곧 "안 실린 것"이다. `failed` 는 적지 않는다 — 실패한 것은
-         * 압축이 아니라 되살리기다.
-         *
-         * ⚠ 결과가 **이미 있어도** 실을 것이 없으면 덮어쓴다. 특히 `summaryUnreadable` 인 마커는
-         *   `notCarried` 가 비어 있어서(요약을 못 읽었다는 뜻), 그냥 두면 되살리기 실패를 잡아
-         *   놓고도 아무것도 못 실어 주는 상태가 된다 — 이 기능이 겨눈 #43696 이 바로 그 자리다.
+         * 되살렸는데 비었다 — 작업셋 전체를 "안 실린 것"으로 세워 (E) 브리핑이 나가게 한다. `failed` 는 적지 않는다(실패한 것은 되살리기다).
+         * 결과가 이미 있어도 실을 것이 없으면 덮는다 — `summaryUnreadable` 은 `notCarried` 가 비어 그대로면 아무것도 못 싣는다(#43696).
          */
         if (shortfall && !hasNotCarried(marker.outcome?.notCarried ?? emptyNotCarried())) {
           this.insuranceService.replaceOutcome(marker.projectName, marker.id, {
@@ -10102,19 +9087,9 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.26 (D) 2단계 — 압축이 끝났는지, 요약이 무엇을 안 실었는지를 **파일 증거로만** 가른다.
-   *
-   * 판정 사다리는 셋이고 위에서부터 본다.
-   *   ① 요약 레코드를 봤다              → 대조해서 정상 결과를 적는다.
-   *   ② 경계 레코드(또는 완료 훅)만 봤다 → 유예 뒤 `summaryUnreadable`. **우리 한계이지 사고가 아니다.**
-   *   ③ 둘 다 못 봤다                  → `INSURANCE_COMPACT_VERDICT_MS` 까지 **결론을 미룬다**(화면은 "진행 중").
-   *
-   * ⚠ 예전에는 "오프셋 뒤가 512바이트 넘게 자랐다"를 요약 도착으로 읽었다. 그 구간에는
-   *   `attachment`(실측 86KB) · `last-prompt` · `atis-latch` 가 섞여 있어 **압축이 시작도 안 한**
-   *   마커가 **1초 만에** 실패로 굳었다. 자란 바이트는 요약의 유무를 말해 주지 않는다.
-   * ⚠ 기다리는 시간도 짧았다. 이 프로젝트 실측에서 요약이 실제로 도착한 시각은 마커 기준
-   *   **+2분 · +9분 · +28분**이었는데 3분에 잘라, 실패 10건 중 7건이 오탐이었다. 세션이 사람의
-   *   다음 말을 기다리는 동안 트랜스크립트는 한 바이트도 안 자란다 — 그 정지는 교착이 아니다.
+   * §5.26 (D) 2단계 — 파일 증거로만 가른다: ① 요약 레코드 → 대조 ② 경계(또는 완료 훅)만 → 유예 뒤 `summaryUnreadable` ③ 없음 → `INSURANCE_COMPACT_VERDICT_MS` 까지 미룬다.
+   * ⚠ 자란 바이트를 요약으로 읽지 마라(`attachment` 실측 86KB 등이 섞여 1초 만에 실패로 굳는다).
+   * ⚠ 유예를 줄이지 마라 — 실측 요약 도착 +2분·+9분·+28분, 3분 시한에선 실패 10건 중 7건이 오탐이었다.
    */
   sweepCompactOutcomes(now: number = Date.now()): boolean {
     let changed = false;
@@ -10158,10 +9133,7 @@ export class ProjectGraph {
         // 끝까지 못 봤으면 결론을 내지 않는다(예산이 떨어졌거나 꼬리가 반 줄이다).
         if (!state.atEof) continue;
 
-        // ② 압축이 일어난 증거는 있는데 요약만 못 읽겠다.
-        //
-        //   `notCarried` 는 **반드시 빈다** — "잃은 것이 없다"가 아니라 "무엇을 잃었는지 모른다"이고,
-        //   여기에 작업셋을 적으면 (E) 브리핑이 "이걸 다 잃었다"는 거짓을 실어 보낸다.
+        // ② 요약을 못 읽음 — `notCarried` 는 반드시 빈다(잃은 것을 모른다). 작업셋을 적으면 (E) 브리핑이 "다 잃었다"는 거짓을 보낸다.
         const evidenceAt = state.boundaryAt ?? marker.postCompactAt;
         if (evidenceAt !== undefined) {
           if (now - evidenceAt >= INSURANCE_COMPACT_TIMEOUT_MS) {
@@ -10198,11 +9170,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.26 (D) — 마커 하나의 스캔을 **새로 붙은 바이트만큼만** 앞으로 민다.
-   *
-   * 커서는 한 번에 **온전한 줄까지만** 나아간다. 꼬리에 걸린 반 줄은 온전해진 뒤 다음 스윕이 본다.
-   *
-   * @param budget 이 스윕이 남긴 읽기 몫. 실제로 읽은 바이트를 돌려줘 호출자가 깎는다.
+   * §5.26 (D) — 새로 붙은 바이트만큼, 온전한 줄까지만 민다(반 줄은 다음 스윕).
+   * @param budget 남은 읽기 몫 — 읽은 바이트를 돌려줘 호출자가 깎는다.
    */
   private advanceCompactScan(
     marker: CompactMarker,
@@ -10259,16 +9228,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.26 (D) — **이미 실패로 적은 줄**을 늦게 온 증거로 되돌린다.
-   *
-   * 3분 시한이 요약보다 짧았던 동안 적힌 실패는 대부분 오탐이다. 그 줄을 그대로 두면 갈피에
-   * 붙는 건수가 영영 거짓말을 한다 — 요약이 뒤늦게 붙었으면 **`failed` 를 지운 채** 갈아 적고,
-   * 경계만 뒤늦게 보였으면 교착이 아니라 판독 불가로 낮춘다.
-   *
-   * **끝까지 봤다고 손을 떼지 않는다.** 늦게 오는 것이 이 버그의 본체였다 — 파일이 안 자라는
-   * 동안 되짚기는 `fileSize` 한 번뿐이라(커서가 이미 끝) 계속 지켜봐도 공짜다. 손을 떼는 자리는
-   * 둘이다: 요약을 찾았거나, **두 번째 경계**를 만났거나(커서가 다음 압축으로 넘어가 더 읽으면
-   * 남의 요약을 이 마커의 것으로 적게 된다). 그때만 `compactRechecked` 에 넣어 닫는다.
+   * §5.26 (D) — 실패로 적은 줄을 늦게 온 증거로 되돌린다(짧은 시한의 실패는 대부분 오탐): 요약이 오면 `failed` 를 지워 갈아 적고, 경계만이면 판독 불가로.
+   * 안 자라는 파일은 `fileSize` 한 번이라 계속 본다. 요약을 찾거나 두 번째 경계를 만나면(더 읽으면 남의 요약을 적는다) `compactRechecked` 로 닫는다.
    */
   private sweepCompactRechecks(now: number, budget: number): boolean {
     if (budget <= 0) return false;
@@ -10325,24 +9286,14 @@ export class ProjectGraph {
     this.compactScans.delete(markerId);
   }
 
-  /**
-   * §5.26 (E) 3단계 — 복원 브리핑을 **한 번만** 꺼낸다.
-   *
-   * 꺼내는 순간 `briefedAt` 이 찍혀 두 번째 턴에는 나오지 않는다(고르기와 못 박기가 한 동작이라
-   * 두 주입 지점이 동시에 물어도 한쪽만 가져간다).
-   */
+  /** §5.26 (E) 3단계 — 꺼내는 순간 `briefedAt` 이 찍혀 한 번만 나간다(두 주입 지점이 동시에 물어도 한쪽만). */
   takeCompactBriefing(sessionId: string, now: number = Date.now()): CompactMarker | undefined {
     const marker = this.insuranceService.takeBriefing(sessionId, now);
     if (marker) this.bumpMutationVersion();
     return marker;
   }
 
-  /**
-   * §5.26 (E) — **못 박지 않고** 고르기만 한다.
-   *
-   * 프롬프트 조립 함수는 "부작용 없음"이 계약이고(주입원 표도 같은 함수로 잰다), 그래서 그쪽은
-   * 이걸로 고른 뒤 실제로 보낸 다음에 `markCompactBriefed()` 로 못 박는다.
-   */
+  /** §5.26 (E) — 고르기만 한다. 프롬프트 조립은 부작용 없음이 계약이라 보낸 뒤 `markCompactBriefed()` 로 못 박는다. */
   peekCompactBriefing(sessionId: string): CompactMarker | undefined {
     return this.insuranceService.peekBriefing(sessionId);
   }
@@ -10354,12 +9305,7 @@ export class ProjectGraph {
     return done;
   }
 
-  /**
-   * §5.26 (C) ② — 셸/편집 도구가 파일을 덮기 **직전**의 사본.
-   *
-   * `PreToolUse` 자리에서만 부른다 — `PostToolUse` 에 오면 이미 덮인 뒤라 사본이 아니라
-   * 사후 사진이 된다(그러면 되돌릴 것이 없다).
-   */
+  /** §5.26 (C) ② — 덮기 직전 사본. `PreToolUse` 에서만 — 사후면 되돌릴 것이 없다. */
   recordFilePreimage(input: PreimageRecordInput): FilePreimage | null {
     try {
       const rec = this.insuranceService.recordPreimage(input);
@@ -10378,12 +9324,7 @@ export class ProjectGraph {
     return out;
   }
 
-  /**
-   * §7.23 — 그 프로젝트의 원장 **전문**(팝업용, 상한 없이) + 파생 두 축.
-   *
-   * 부활 목록은 디스크를 훑어야 하므로 **여기서만** 만든다 — 방송(`getSnapshot`)에 실으면
-   * 팝업을 열지도 않은 사용자가 매 프레임 그 비용을 낸다. 팝업은 한 번 열 때 한 번 부른다.
-   */
+  /** §7.23 — 원장 전문(팝업용) + 파생 두 축. 부활 목록은 디스크를 훑어 여기서만 만든다(`getSnapshot` 에 실으면 매 프레임 그 비용을 낸다). */
   getInsuranceLedger(projectName: string): ProjectInsuranceLedger | undefined {
     const led = this.insuranceService.full(projectName);
     if (!led) return undefined;
@@ -10408,14 +9349,7 @@ export class ProjectGraph {
     return { preimage, text };
   }
 
-  /**
-   * §3.2.3 — 보존 축 적용. **부팅 정리와 보존 설정 변경 두 자리에서 부른다.**
-   *
-   * 종전 주석은 "주기 스윕에서 부른다"였는데 그 스윕이 존재하지 않았고, 실제 호출자는
-   * `PUT /api/retention-settings` 하나뿐이었다 — 옵션창을 열지 않는 사용자에게는 나이 만료도
-   * 고아 회수도 영영 돌지 않았다는 뜻이다. 시점은 §3.2.3 이 정한 **부팅 시 일괄**이 정본이고,
-   * 도는 중의 회수는 캡에 밀려나는 그 자리(`trimMarkers`/`trimPreimages`)가 따로 맡는다.
-   */
+  /** §3.2.3 — 부팅 정리와 보존 설정 변경 두 자리에서 부른다(주기 스윕은 없다 — 부팅 호출이 빠지면 만료·고아 회수가 안 돈다). 도는 중 회수는 `trimMarkers`/`trimPreimages` 몫. */
   applyInsuranceRetention(now: number = Date.now()): boolean {
     const changed = this.insuranceService.applyRetention(now);
     if (changed) this.bumpMutationVersion();
@@ -10423,16 +9357,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §3.2.3 규칙 2 — **살아 있는 것은 나이와 무관하게 남긴다.** 보험 원장이 나이·고아 판정을 할 때
-   * 이 집합에 든 세션은 건드리지 않는다.
-   *
-   * ⚠ 이 배선이 없으면 `liveSessions` 는 영영 `undefined` 라 규칙 2 가 **선언만 되고 죽어 있다**
-   * (종전 상태가 그랬다). 만료가 실제로 돌기 시작하는 순간부터 그 차이가 곧 "쓰던 세션의 사본이
-   * 사라졌다"가 된다.
-   *
-   * 세는 것은 **CLI 세션 UUID** 다 — 마커·미러가 그 축으로 앉기 때문이고, `subAgentId` 와 섞으면
-   * 영원히 안 맞는 비교가 된다(§5.26 (I)(c) 가 상태바에서 겪은 그 함정). 닫아 둔 탭(archive)도
-   * 산 것으로 본다 — "다시 열기" 목록에 있는데 사본이 없으면 눌러서 빈 화면을 보게 된다.
+   * §3.2.3 규칙 2 — 살아 있는 세션은 나이와 무관하게 남긴다(이 배선이 없으면 `liveSessions` 가 `undefined` 라 규칙이 죽는다).
+   * CLI 세션 UUID 로 센다(`subAgentId` 와 섞지 마라 — §5.26 (I)(c)). 닫아 둔 탭도 산 것으로 — 아니면 "다시 열기"가 빈 화면이 된다.
    */
   private liveInsuranceSessions(): ReadonlySet<string> {
     const live = new Set<string>();
@@ -10453,22 +9379,12 @@ export class ProjectGraph {
     return svc;
   }
 
-  /**
-   * §5.26 (F) 4단계 — 자동압축이 돌아야 할 때 안 돌고 있는가.
-   *
-   * **판정에 모델을 쓰지 않는다** — 숫자 비교 셋뿐이고, 셋 다 맞아야 말을 꺼낸다.
-   * 자동 조치도 하지 않는다(사용자가 누를 손잡이 둘만 켠다 — §5.26 (F)).
-   */
+  /** §5.26 (F) 4단계 — 자동압축이 안 돌고 있는가. 모델 없이 숫자 비교 셋이 다 맞아야 말하고, 자동 조치는 하지 않는다. */
   getCompactWatch(now: number = Date.now()): CompactWatchState[] {
     const inputs: CompactWatchInput[] = [];
     /*
-     * §5.26 (F) 는 **"세션 하나에 대한 감시 판정"** 이라고 적혀 있는데, 종전에는 이 고리가
-     * `this.agents`(= 버블 하나 = 훅 세션 하나)만 돌아 **커스텀 에이전트의 세션 탭들이 통째로
-     * 감시 밖**이었다. 세션 8개짜리 버블이라면 일곱 개는 창이 꽉 차도 아무 말이 없고, 대신 버블
-     * 세션 하나의 등급이 §5.5 상태바 여덟 탭 전부에 같은 색으로 떴다(사용자 보고 "세션 넘어가도
-     * 안 사라진다"의 감시 쪽 절반). 이제 그 버블이 가진 세션 탭도 같은 판정을 각자 받는다 —
-     * 근거(`readContextInfo(부모 cwd, sub.sessionId)`)는 스냅샷이 sub 게이지를 채울 때 이미 쓰는
-     * 그 길 그대로다(새 수집기 ❌).
+     * §5.26 (F) 판정은 세션 단위다 — 버블만 돌면 커스텀 에이전트의 세션 탭이 감시 밖이고 버블 등급이 탭 전부에 같은 색으로 뜬다.
+     * 세션 탭도 각자 판정한다(근거는 sub 게이지와 같은 `readContextInfo(부모 cwd, sub.sessionId)`).
      */
     const subsByAgent = subAgentManager.getSnapshot();
     const seen = new Set<string>(); // 같은 세션을 두 번 판정하지 않는다(버블 세션 = sub 세션인 경우)
@@ -10476,7 +9392,7 @@ export class ProjectGraph {
       if (agent.trashed) continue;
       const cwd = this.sessionCwds.get(sessionId);
       if (!cwd) continue;
-      // §5.26 (F) — 끔이면 `overdue` 를 띄우지 않는다. 분모는 모델 창이라 정한 값 자체는 필요 없다((F)(a) 2026-10-05).
+      // §5.26 (F)(a) — 끔이면 `overdue` 를 띄우지 않는다(분모는 모델 창이라 정한 값은 필요 없다).
       const autoCompactOff = resolveAutoCompact(
         this.getAgentConfig(agent.id)?.autoCompact,
         userDefaultsService.get().agentConfig?.autoCompact,
@@ -10514,11 +9430,7 @@ export class ProjectGraph {
     return judgeCompactWatchAll(inputs, now);
   }
 
-  /**
-   * §5.26 (F) — 세션 하나의 **증거만** 모은다(판정은 순수 함수 `compactWatch.ts` 가 한다).
-   *
-   * 눈금(`contextMax`)을 모르면 `null` — 모르는 것을 고장으로 넘겨짚지 않는다.
-   */
+  /** §5.26 (F) — 증거만 모은다(판정은 `compactWatch.ts`). `contextMax` 를 모르면 `null` — 고장으로 넘겨짚지 않는다. */
   private buildCompactWatchInput(
     sessionId: string,
     cwd: string,
@@ -10558,29 +9470,15 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.26 (F)(b) — 이 세션에 `/compact` 를 **보냈다**고 적어 둔다.
-   *
-   * 도착(`PreCompact` 마커)과 짝을 이루는 절반이다: 보냈는데 도착이 없으면 명령이 실행되지 않은
-   * 것이고, 그것이 `rejected` 의 유일한 증거다. CLI 가 거절을 `is_error: false` 로 돌려주므로
-   * 우리 쪽에는 이 두 시각을 맞대는 것 말고 다른 사실이 없다.
-   *
-   * ⚠ 키는 **CLI 세션 UUID** 다(`subAgentId` 아님 — (I)(c) "두 id 를 맞대지 않는다").
+   * §5.26 (F)(b) — `/compact` 를 보낸 시각. 도착(`PreCompact`)이 없으면 그것이 `rejected` 의 유일한 증거다(CLI 는 거절을 `is_error: false` 로 준다).
+   * ⚠ 키는 CLI 세션 UUID(`subAgentId` 아님).
    */
   markCompactSent(sessionId: string, at: number = Date.now()): void {
     if (!sessionId) return;
     this.compactSentBySession.set(sessionId, at);
   }
 
-  /**
-   * §5.26 (G) 5단계 — **되살릴 수 있는 세션** 목록.
-   *
-   * 살아 있는 세션은 뺀다(이미 화면에 있다). 남는 것은 디스크에 대화 기록만 있고 버블이 없는
-   * 것들이다 — `/clear` 를 눌렀거나, 압축이 실패했거나, 앱이 죽은 뒤 남은 자리.
-   *
-   * **이 목록은 손잡이지 알림이 아니다.** 자동으로 되살리지 않고(§5.26 (J)), 사용자가 고른
-   * 하나만 그 탭에 앉힌다. 그래서 여기서는 판정 없이 사실만 적는다 — 크기·마지막 시각·
-   * 이어붙이기가 위험한지.
-   */
+  /** §5.26 (G) 5단계 — 되살릴 수 있는 세션(디스크 기록만 있고 버블이 없는 것). 손잡이지 알림이 아니다 — 자동으로 되살리지 않고(§5.26 (J)) 사실만 적는다. */
   listResurrectable(projectName?: string, limit: number = INSURANCE_LIST_PAGE_SIZE): ResurrectableSession[] {
     const out: ResurrectableSession[] = [];
     const targets = projectName
@@ -10618,11 +9516,7 @@ export class ProjectGraph {
       }
     }
 
-    // 원본이 지워졌지만 우리가 사본을 떠 둔 것 — 이쪽이 이 기능의 진짜 값어치다.
-    //
-    // ⚠ 전선용 스냅샷(`getSnapshot`)이 아니라 **전문**(`full`)을 훑는다. 스냅샷은 최근 30건으로
-    //   잘려 있어서, 정작 오래돼 원본이 지워진 세션 — 즉 사본이 유일하게 남은 것 — 이 그 상한
-    //   바깥에 있다.
+    // 원본은 지워지고 사본만 남은 것. ⚠ 스냅샷(최근 30건)이 아니라 전문(`full`)을 훑는다 — 사본만 남은 오래된 세션이 그 밖에 있다.
     for (const name of this.insuranceService.projects()) {
       if (projectName && name !== projectName) continue;
       const led = this.insuranceService.full(name);
@@ -10658,10 +9552,7 @@ export class ProjectGraph {
     return out.slice(0, Math.max(1, limit));
   }
 
-  /**
-   * §5.26 (F) — 감시 재판정. **5초 대조 루프가 부른다**(새 타이머를 만들지 않는다 — §5.26 (F)).
-   * 등급이 바뀐 세션이 있을 때만 `true` 를 돌려준다(무변화 방송을 만들지 않기 위해).
-   */
+  /** §5.26 (F) — 5초 대조 루프가 부른다(새 타이머 ❌). 등급이 바뀌었을 때만 `true`. */
   refreshCompactWatch(now: number = Date.now()): boolean {
     const next = this.getCompactWatch(now);
     const same = next.length === this.compactWatchCache.length
@@ -10675,13 +9566,7 @@ export class ProjectGraph {
     return true;
   }
 
-  /**
-   * 원장에 **파생 축**(감시)을 얹는다. 원장 서비스는 그래프를 모르므로 붙이는 자리는 여기다.
-   *
-   * ⚠ 감시에 걸린 프로젝트에 원장이 **아직 없을 수 있다** — 압축이 한 번도 안 돌았다는 것이
-   *   바로 (F) 가 경고하려는 그 상황이기 때문이다. 그때는 빈 원장을 지어서라도 실어 보낸다.
-   *   여기서 걸러 버리면 "자동압축이 안 돈다"는 경고가 **영영 화면에 못 닿는다.**
-   */
+  /** 원장에 감시 축을 얹는다. ⚠ 감시에 걸린 프로젝트엔 원장이 아직 없을 수 있다(압축이 한 번도 안 돈 게 바로 그 경고) — 빈 원장을 지어 싣는다. 거르면 경고가 화면에 못 닿는다. */
   private attachInsuranceDerived(ledgers: ProjectInsuranceLedger[]): ProjectInsuranceLedger[] {
     if (this.compactWatchCache.length === 0) return ledgers;
     const byProject = new Map<string, CompactWatchState[]>();
@@ -10746,21 +9631,9 @@ export class ProjectGraph {
     if (!agent) return;
 
     /*
-     * §5.5 #17-11 — 커스텀 버블의 완료 판정 주인은 하나다(`recomputeCustomAgentStatus`).
-     *
-     * 훅 `Stop` 은 그 이벤트를 낸 **세션 탭 하나**의 턴 종료일 뿐인데, 소유자 태그
-     * (`_vibisualOwnerAgentId` — 헤드리스 스폰이 `VIBISUAL_OWNER_AGENT_ID` 로 심는다)를 타고
-     * `session_id` 가 부모 버블로 rewrite 되면서 `agentTracker.markStop → 여기` 까지 닿았다.
-     * 그래서 탭이 둘 이상이면 **형제 탭이 도는 동안 버블이 completed 로 찍혔고**, 클라의
-     * `detectCustomAgentCompletions` 가 그 전이를 보고 완료음·완료 알림을 울렸다
-     * (사용자 보고: "에이전트가 활동 중인데 완료 알림이 왔다").
-     *
-     * 같은 구멍으로 v3.92 완료 조건이 통째로 우회됐다 — 큐에 남은 명령 · 진행 중 세션 루프 ·
-     * 백그라운드 Task · 권한 승인 대기 · 실패한 형제 탭은 전부 저 집계 함수 안에만 있다.
-     * 그래서 여기서 직접 찍지 않고 **집계에 넘긴다**(엣지 정리·completed 전이도 그 안에서 한다).
-     *
-     * CMD(인터랙티브 터미널)는 예외 — 서브가 0개라 집계가 일부러 비켜서 있고(그쪽 조기 return),
-     * 리다이렉트된 자기 훅 스트림이 그 버블의 유일한 상태 주인이다. 여기서 가로채면 영영 안 끝난다.
+     * §5.5 #17-11 — 커스텀 버블의 완료 판정은 `recomputeCustomAgentStatus` 하나가 한다. 훅 `Stop` 은 세션 탭 하나의 턴 종료인데 소유자 태그로 부모 버블로 와 닿는다 —
+     * 여기서 completed 로 찍으면 형제 탭이 도는 중에 완료음이 울리고 집계 조건(큐·루프·백그라운드·권한 대기·실패)이 우회된다.
+     * CMD 는 예외 — 서브가 0개라 자기 훅 스트림이 유일한 상태 주인이다(가로채면 영영 안 끝난다).
      */
     if (
       agent.customCreated
@@ -10788,11 +9661,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.3 — 사용자 인터럽트로 Stop 훅이 발사되지 않는 Claude Code 한계 보완.
-   * active 상태인 Hook 에이전트(커스텀/서브 제외) 중, 세션 JSONL 의 마지막 대화 엔트리가
-   * 사용자 인터럽트/도구 거부 sentinel 로 끝난 세션 ID 목록을 반환한다.
-   * 호출부(index.ts)가 이들에 markStop 을 걸어 "누락된 Stop 훅"을 대신 시뮬레이트한다.
-   * (커스텀/서브 에이전트는 recomputeAllCustomAgentStatuses 축이 별도라 여기서 제외.)
+   * §5.3 — 인터럽트엔 Stop 훅이 안 온다(CLI 한계): active Hook 에이전트 중 JSONL 마지막 대화가 인터럽트·도구 거부 sentinel 인 세션 ID.
+   * 호출부(index.ts)가 markStop 으로 대신한다. 커스텀/서브는 별도 축이라 뺀다.
    */
   findInterruptedActiveSessions(): string[] {
     const out: string[] = [];
@@ -10816,9 +9686,7 @@ export class ProjectGraph {
     }
   }
 
-  /** v1.86 — 이 에이전트가 살아있는 dev server(iframe 위성, `iframeAlive===true`)를 호스팅 중인가.
-   *  §812 "dev server 는 명시 stop 전까지 살아있다" — 호스팅 중이면 isSessionInUse prune 제외
-   *  (세션이 끝나 not-in-use 가 돼도 서버 프로세스는 살아있으므로 버블+위성을 제거하면 안 됨). */
+  /** §7.11 — 살아 있는 dev server(`iframeAlive===true`)를 호스팅하는가. 서버는 명시 stop 전까지 살아 있으므로 세션이 끝나도 prune 에서 뺀다. */
   private agentHasLiveIframe(agent: BubbleData): boolean {
     return (agent.persistSatellites ?? []).some(
       (s) => s.bubbleType === 'iframe' && s.iframeAlive === true,
@@ -10826,14 +9694,8 @@ export class ProjectGraph {
   }
 
   /**
-   * 비활성 에이전트 버블 제거. 시작 시 1회 + 주기적으로 호출.
-   *
-   * 활성 판정: `claude -p --session-id <id> "x"` 실행 시 "already in use" 에러가 나면 활성.
-   * 다른 Claude Code 프로세스가 이 sessionId에 연결 중이면 CLI가 즉시 거부하는 동작을 이용.
-   * timeout(1.5s) 이상 걸리면 → API 호출 시작 전에 kill → 비활성으로 판정.
-   *
-   * 사용자 요청: "활성중인 것들로 체크한다" — 이미 복원된 에이전트(this.agents)만 체크,
-   * session.json 전수 검사하지 않음.
+   * 비활성 에이전트 버블 제거(시작 시 1회 + 주기). `claude -p --session-id <id> "x"` 가 "already in use" 로 거부되면 활성, 1.5s 넘으면 API 호출 전에 kill → 비활성.
+   * 이미 복원된 에이전트만 본다(session.json 전수 ❌).
    */
   async pruneStaleRestoredAgents(): Promise<string[]> {
     type Cand = { sessionId: string; cwd: string };
@@ -10842,7 +9704,7 @@ export class ProjectGraph {
     for (const [sessionId, agent] of this.agents) {
       if (agent.bubbleType !== 'agent') continue;
       if (agent.customCreated) continue;
-      // v1.86 — 살아있는 dev server(iframe) 호스트는 prune 제외 (§812 / §7.11).
+      // dev server(iframe) 호스트는 prune 제외(§7.11).
       if (this.agentHasLiveIframe(agent)) continue;
       const cwd = this.sessionCwds.get(sessionId);
       if (!cwd) {
@@ -10897,7 +9759,7 @@ export class ProjectGraph {
     type Cand = { sessionId: string; cwd: string };
     const cands: Cand[] = [];
     for (const sessionId of this.sessionPids.keys()) {
-      // v1.86 — 살아있는 dev server(iframe) 호스트는 prune 제외 (§812 / §7.11).
+      // dev server(iframe) 호스트는 prune 제외(§7.11).
       const ag = this.agents.get(sessionId);
       if (ag && this.agentHasLiveIframe(ag)) continue;
       const cwd = this.sessionCwds.get(sessionId);
@@ -10933,20 +9795,18 @@ export class ProjectGraph {
       );
       return false;
     }
-    // iframe 위성 중 실제로 포트가 살아있는 것만 보존 근거로 인정.
-    // v1.2: 포트가 죽은 iframe 위성이 에이전트 제거를 막지 않도록 iframeAlive 체크.
+    // 포트가 살아 있는 iframe 위성만 보존 근거다(죽은 위성이 제거를 막지 않게).
     const hasLiveIframe = agent.persistSatellites?.some(
       (s) => s.bubbleType === 'iframe' && s.iframeAlive === true,
     );
     const cwd = this.sessionCwds.get(sessionId);
     const projectName = cwd ? this.projects.get(normalize(cwd))?.name : undefined;
     if (hasLiveIframe) {
-      // §7.7 v2.3 — poll 마다 반복 호출되므로 상태 진입 시 1회만 로깅(로그 도배 방지).
+      // §7.7 — poll 마다 불려 진입 때 1회만 로깅한다.
       if (!this.keepAliveLogged.has(sessionId)) {
         this.keepAliveLogged.add(sessionId);
         logger.info(`Keeping agent ${sessionId.slice(0, 8)} alive — has active iframe (dev server running)`);
-        // v4.67 — dbg 도 같은 게이트 안으로. 종전엔 게이트 밖이라 iframe 보존이 지속되는 동안
-        // 2초마다 같은 줄이 계속 쌓였다(진입 1회만 남겨도 진단에 필요한 정보는 동일).
+        // dbg 도 같은 게이트 안 — 밖이면 보존 동안 2초마다 같은 줄이 쌓인다.
         dbg('removeAgentBySession.keep-iframe', { sessionId, label: agent.label, projectName, cwd });
       }
       agent.status = 'idle';
@@ -10955,7 +9815,7 @@ export class ProjectGraph {
     // 보존 상태를 벗어나 실제 제거 경로 → 다음 보존 진입 시 다시 1회 로깅되도록 플래그 클리어.
     this.keepAliveLogged.delete(sessionId);
     dbg('removeAgentBySession.remove', { sessionId, label: agent.label, projectName, cwd, instanceRoot: this.root });
-    // v1.6: VSCode 재오픈 시 복원할 수 있도록 스냅샷 보관 후 실제 제거.
+    // VSCode 를 다시 열면 복원하도록 스냅샷을 남기고 지운다.
     const pid = this.sessionPids.get(sessionId);
     if (cwd && pid !== undefined) {
       this.dormantAgents.set(sessionId, {
@@ -10973,10 +9833,7 @@ export class ProjectGraph {
     return true;
   }
 
-  /**
-   * v1.6 SCENARIO §5.7 #24: SessionStart 훅이 cwd로 들어왔을 때, 같은 cwd로 잠들어있던
-   * dormant 에이전트 스냅샷을 다시 살린다. 복원된 에이전트 sessionId 배열 반환.
-   */
+  /** §5.7 #24 — SessionStart 의 cwd 에 잠든 dormant 에이전트를 되살린다. */
   restoreDormantForCwd(cwd: string): string[] {
     this.bumpMutationVersion();
     const target = normalize(cwd);
@@ -11016,11 +9873,7 @@ export class ProjectGraph {
     return result;
   }
 
-  /**
-   * 에이전트 persistSatellites 노드를 nodes 맵에서 제거.
-   * SSOT §2.4 v1.28: preserve-pin(`preservePinned=true`) 노드는 모든 삭제 경로에서 보존.
-   * 무로그 소멸 추적용으로 drop/kept 건수를 로깅한다.
-   */
+  /** §2.4 — preserve-pin 노드는 모든 삭제 경로에서 남긴다. 소멸 추적용으로 drop/kept 건수를 로깅한다. */
   private dropAgentSatellites(agent: BubbleData, reason: string): void {
     const sats = agent.persistSatellites ?? [];
     if (sats.length === 0) return;
@@ -11045,10 +9898,7 @@ export class ProjectGraph {
     const agent = this.agents.get(sessionId);
     if (!agent) return;
     const caller = new Error().stack?.split('\n').slice(2, 6).join(' | ');
-    // §3.2.1 (A 가드) — 커스텀 에이전트(customCreated)는 사용자 명시 삭제(removeBubble → this.agents.delete)
-    //   외 어떤 자동 경로로도 제거하지 않는다. removeAgent 는 lifecycle/liveness prune 전용이라,
-    //   여기 커스텀이 도달했다는 것 자체가 "작업 중 커스텀 버블 소실" 사고의 진원이다. 지우지 않고
-    //   caller 스택과 함께 경고만 남긴다(B 진단 — 실제 발화 경로 확정용).
+    // §3.2.1 (A 가드) — 커스텀 에이전트는 명시 삭제(removeBubble) 외 자동 경로로 지우지 않는다. 여기 닿은 것 자체가 소실 사고의 진원이라 지우지 않고 호출 스택과 함께 경고만 남긴다.
     if (agent.customCreated) {
       logger.warn(
         `removeAgent BLOCKED (custom-agent guard): "${agent.label}" (session ${sessionId.slice(0, 8)}) — ` +
@@ -11064,8 +9914,9 @@ export class ProjectGraph {
 
     // node→agent 역참조 제거
     for (const [, refs] of this.nodeAgentRefs) refs.delete(agent.id);
+    this.agentTurnNodes.delete(agent.id);
+    this.promptTurnAgents.delete(agent.id);
 
-    // persistSatellites 노드 제거 (preserve-pin 보존 — §2.4 v1.28)
     this.dropAgentSatellites(agent, `removeAgent session=${sessionId.slice(0, 8)}`);
 
     this.agents.delete(sessionId);
@@ -11093,19 +9944,15 @@ export class ProjectGraph {
     this.observedTools.delete(sessionId);
   }
 
-  /**
-   * 마지막 활동 시각으로부터 thresholdMs 초과한 active/completed 에이전트 → idle 전환.
-   * 활동 시각 = max(agent.lastActivity, 연결된 subAgent.lastActivityAt, completedCommands/queue timestamp).
-   * 수동 dismiss·좀비 제거와 별개 축. 변환된 세션 ID 목록 반환.
-   */
+  /** thresholdMs 동안 활동이 없는 active/completed 에이전트를 idle 로. 활동 = max(agent.lastActivity, sub.lastActivityAt, 명령·큐 시각). 수동 dismiss·좀비 제거와 별개 축. */
   sweepIdleAgents(thresholdMs: number): string[] {
     const now = Date.now();
     const expired: string[] = [];
     for (const [sessionId, agent] of this.agents) {
       if (agent.status !== 'active' && agent.status !== 'completed') continue;
-      // §5.3 #12-1 v1.91 — 권한 승인 대기 중인 에이전트는 idle sweep 제외(블록된 활성).
+      // §5.3 #12-1 — 권한 대기 중이면 제외(붙잡힌 활성).
       if (this.permissionWaitingAgents.has(agent.id)) continue;
-      // §5.3 #12-1 v3.43 — 백그라운드 서브에이전트가 아직 도는 에이전트도 제외(대기 중인 활성).
+      // §5.3 #12-1 — 백그라운드 서브에이전트가 도는 중이면 제외.
       if (subAgentManager.hasPendingSubagentTasks(agent.id)) continue;
       let last = agent.lastActivity ?? 0;
       const subs = subAgentManager.getAllSubs(agent.id);
@@ -11149,9 +9996,9 @@ export class ProjectGraph {
     const expired: string[] = [];
     for (const [sessionId, agent] of this.agents) {
       if (agent.status !== 'completed') continue;
-      // §5.3 #12-1 v1.91 — 권한 대기 중이면 fade/expire 보류.
+      // §5.3 #12-1 — 권한 대기 중이면 보류.
       if (this.permissionWaitingAgents.has(agent.id)) continue;
-      // §5.3 #12-1 v3.43 — 백그라운드 서브에이전트가 아직 도는 동안도 fade/expire 보류.
+      // §5.3 #12-1 — 백그라운드 서브에이전트가 도는 중이면 보류.
       if (subAgentManager.hasPendingSubagentTasks(agent.id)) continue;
       if (!agent.fadeStartedAt) continue;
       if (now - agent.fadeStartedAt >= AGENT_FADE_DURATION) {
@@ -11168,10 +10015,7 @@ export class ProjectGraph {
 
   // ─── 범용 소멸 (disappearing) ───
 
-  /**
-   * 버블을 disappearing 상태로 전환. durationSec초 후 서버가 실제 삭제.
-   * 모든 버블 타입에 동일하게 적용.
-   */
+  /** durationSec 초 뒤 서버가 실제로 지운다(모든 버블 타입). */
   setDisappear(nodeId: string, durationSec: number): void {
     for (const node of this.nodes.values()) {
       if (node.id === nodeId) {
@@ -11204,12 +10048,7 @@ export class ProjectGraph {
     }
   }
 
-  /**
-   * 사용자 preserve-pin 토글 (§2.4 v1.28).
-   * true로 올릴 때 이미 disappearing 중이면 idle로 되돌려 자동 소멸 취소.
-   * ghost 버블은 `ghostInfo.pinned`도 함께 동기화해 fade 차단.
-   * 반환: 토글 후 값(true/false). 대상 없음=null.
-   */
+  /** §2.4 preserve-pin 토글. 켤 때 disappearing 이면 idle 로 되돌리고 ghost 는 `ghostInfo.pinned` 도 맞춘다. 반환: 토글 후 값, 대상 없음=null. */
   togglePreservePinned(nodeId: string): boolean | null {
     const apply = (target: BubbleData): boolean => {
       const next = !target.preservePinned;
@@ -11225,10 +10064,7 @@ export class ProjectGraph {
       } else {
         logger.info(`Preserve-pin OFF: "${target.label}"`);
       }
-      // §2.1 (B) — 외부 폴더 핀은 **예산 밖 상시 최상위**다(사용자 결정). 그 자리가 지금 접합
-      //   아래에 있으면 트리를 다시 세워야 밖으로 나온다. 다음 외부 파일을 만질 때까지 미루면
-      //   사용자는 핀을 꾂고도 화면이 그대로인 것을 보게 된다 — 핀이 안 먹은 것으로 읽힌다.
-      //   내릴 때도 마찬가지다(예산 규칙으로 되돌아가 다시 접혀야 한다).
+      // §2.1 (B) — 외부 폴더 핀은 예산 밖 상시 최상위라 지금 트리를 다시 세운다 — 다음 외부 파일까지 미루면 핀이 안 먹은 것으로 보인다(풀 때도 같다).
       if (target.bubbleType === 'external_folder') {
         this.bumpMutationVersion();
         this.rebuildExternalFolderTree();
@@ -11241,8 +10077,7 @@ export class ProjectGraph {
     for (const agent of this.agents.values()) {
       if (agent.id === nodeId) return apply(agent);
     }
-    // §7.11 v2.4 — 위성(persistSatellites)도 대상. iframe 위성을 고정핀으로 고정하면
-    // checkIframesAlive 의 grace 자동 제거에서 제외된다(죽은 dev server 보존).
+    // §7.11 — 위성도 대상. 고정한 iframe 위성은 grace 자동 제거에서 빠진다(죽은 dev server 보존).
     for (const agent of this.agents.values()) {
       if (!agent.persistSatellites) continue;
       for (const sat of agent.persistSatellites) {
@@ -11297,12 +10132,7 @@ export class ProjectGraph {
     return toRemove.length + agentIds.length;
   }
 
-  /**
-   * disappearing 버블의 소멸 중단/재개 토글.
-   * 중단 시 status→idle, 필드 클리어.
-   * 재개 시 다시 disappearing + 타이머 리셋.
-   * 반환: true=소멸 중단됨(pinned), false=소멸 재개됨, null=대상 없음.
-   */
+  /** 소멸 중단/재개 토글(중단 = idle, 재개 = disappearing + 타이머 리셋). 반환: true=중단, false=재개, null=대상 없음. */
   toggleDisappearPause(nodeId: string, durationSec: number): boolean | null {
     for (const node of this.nodes.values()) {
       if (node.id !== nodeId) continue;
@@ -11346,7 +10176,7 @@ export class ProjectGraph {
     this.existenceMissCount.delete(nodePath);
 
     const now = Date.now();
-    // preserve-pin 가드 (§2.4 v1.28): ghost 전환은 허용하되 자동 fade 차단
+    // §2.4 preserve-pin: ghost 로는 바꾸되 자동 fade 는 막는다.
     const preserved = node.preservePinned === true;
     const ghostInfo: GhostInfo = {
       changeType,
@@ -11393,9 +10223,7 @@ export class ProjectGraph {
       if (!absPath) continue;
 
       try {
-        // v3.71: worktree 버블은 "폴더가 있는가" 가 아니라 "아직 살아있는 git 워크트리인가" 로 본다.
-        // `git worktree remove` 후 잠금 파일·잔여물로 폴더만 남은 좀비를 살아있는 것으로 오인하면
-        // 버블이 캔버스에 영구 잔존한다(사용자는 지웠는데 화면엔 남는 상태).
+        // worktree 는 폴더 존재가 아니라 살아 있는 git 워크트리인지로 본다 — `git worktree remove` 뒤 잔여 폴더만 남으면 버블이 영영 남는다.
         const missing = node.bubbleType === 'worktree'
           ? !isLiveWorktreeDir(absPath)
           : !fs.existsSync(absPath);
@@ -11480,6 +10308,10 @@ export class ProjectGraph {
       }
       for (const ref of oldRefs) newRefs.add(ref);
     }
+    // §5.1 #2-1 (B) — 이번 턴 장부도 같은 이관(옛 이름으로 턴에 쓴 파일은 새 이름으로도 그 턴의 것이다).
+    for (const turn of this.agentTurnNodes.values()) {
+      if (turn.has(bestGhost.path)) turn.add(newNodePath);
+    }
 
     // activity 이관
     const newNode = this.nodes.get(newNodePath);
@@ -11490,10 +10322,6 @@ export class ProjectGraph {
     logger.info(`Ghost rename detected: "${bestGhost.node.label}" → "${newNodePath}"`);
   }
 
-  /**
-   * idle 상태 + BUBBLE_TTL 경과한 노드/에이전트를 서버 메모리에서 실제 삭제.
-   * 반환: 삭제된 건수.
-   */
   /** 비활성화: idle 버블 자동 삭제 없음 */
   pruneExpired(): number {
     return 0;
@@ -11512,8 +10340,7 @@ export class ProjectGraph {
     if (/^wt[0-9a-z]+__/.test(key)) {
       const sep = key.indexOf('__');
       const rest = key.substring(sep + 2);
-      // 외부 폴더/파일 케이스: rest 가 `__ext__` 로 시작
-      // (§2.1 v1.55 — 평탄화된 외부 폴더 키는 `wt<hash>____ext__<absPath>` 또는 그 폴더의 satellite 파일 `wt<hash>____ext__<absPath>/<name>`)
+      // 외부 폴더/파일: rest 가 `__ext__` 로 시작한다(§2.1 키 `wt<hash>____ext__<absPath>[/<name>]`).
       if (rest.startsWith('__ext__')) {
         return rest.substring(7);
       }
@@ -11531,10 +10358,7 @@ export class ProjectGraph {
     if (ProjectGraph.isRootKey(key)) {
       const projName = ProjectGraph.projectNameFromRootKey(key);
       if (projName) {
-        // 이름이 박힌 루트 키(`__root__:<프로젝트>`)는 **그 프로젝트를 가진 인스턴스만** 답한다.
-        // 자기 root 로 물러서면 남의 루트 키에도 "안다"고 답하게 되고, Manager 의 "첫 non-null
-        // 인스턴스가 이긴다" 루프가 엉뚱한 프로젝트의 디스크 트리를 돌려준다 — 루트 패널이
-        // 다른 프로젝트의 파일 목록을 그리고, 그 경로로 체크하면 404 가 나던 버그의 뿌리다.
+        // 이름이 박힌 루트 키(`__root__:<프로젝트>`)는 그 프로젝트의 인스턴스만 답한다 — 자기 root 로 물러서면 Manager 의 "첫 non-null" 루프가 남의 파일 트리를 돌려준다(체크하면 404).
         return this.getProjectByName(projName)?.path ?? null;
       }
       // 이름 없는 레거시 루트 키(`__root__`)만 자기 루트로 해석한다.
@@ -11545,15 +10369,8 @@ export class ProjectGraph {
     const projectName = this.nodeProjectNames.get(key);
     const root = projectName ? (this.getProjectByName(projectName)?.path ?? this.root) : this.root;
     if (!root) return null;
-    // §9 — 여기가 `getSnapshot()` 의 가장 뜨거운 자리다: 노드마다 한 번씩 불려 이 저장소 실측
-    //   2,467 노드 기준 스냅샷 1건에 **3.5ms**(`path.resolve` 2회 + 정규화 + 접두 비교)를 태웠다.
-    //   같은 (키·루트)면 답이 항상 같으므로 기억해 둔다.
-    //
-    //   ⚠ **무효화 장부를 두지 않는다.** 결과가 달라지려면 `root` 나 이 키의 프로젝트 이름이
-    //   바뀌어야 하는데, 그 둘은 Map 조회 한 번이라 path 계산보다 훨씬 싸다. 그래서 캐시에 그때의
-    //   두 값을 함께 넣어 두고 **쓸 때마다 대조**한다 — 갱신 지점이 20곳 넘게 흩어져 있어(프로젝트
-    //   추가·닫기·워크트리·체크포인트 복원·노드 이동) 무효화를 손으로 심으면 한 곳만 빠져도
-    //   경로가 조용히 옛것으로 남는다. 스스로 검증하는 캐시는 그 실수를 할 수 없다.
+    // §9 — `getSnapshot()` 의 가장 뜨거운 자리(실측 2,467 노드에 스냅샷당 3.5ms)라 기억한다.
+    // ⚠ 무효화 장부를 두지 마라(갱신 지점이 20곳 넘어 하나만 빠져도 옛 경로가 남는다) — 그때의 `root`·프로젝트 이름을 함께 넣고 쓸 때마다 대조한다.
     const cached = this.absPathCache.get(key);
     if (cached !== undefined && cached.root === root && cached.projectName === projectName) {
       return cached.value;
@@ -11579,16 +10396,11 @@ export class ProjectGraph {
   ]);
 
   /**
-   * 폴더 노드의 파일 목록을 **한 겹·한 페이지**만 디스크에서 읽어 반환한다(§7.5).
-   *
-   * 종전 `listFolderFiles` 는 폴더를 통째로 재귀해 돌려줬다. 프로젝트 안에서는 `IGNORED_DIRS`
-   * 가 우연히 막아 줬을 뿐이고, **외부 폴더 버블에는 그 방벽이 없어** 사용자 홈을 고르면
-   * 61만 항목을 동기로 훑으며 메인 프로세스(=창)를 통째로 세웠다.
-   *
+   * §7.5 — 한 겹·한 페이지만 읽는다. 통째 재귀 ❌ — 외부 폴더(사용자 홈)면 61만 항목을 동기로 훑어 창이 선다.
    * @param nodePath 폴더 노드 키(`__root__:<프로젝트>` · 프로젝트 상대경로 · `__ext__<절대경로>`).
-   * @param opts.subPath 이 폴더 **아래로 펼친** 상대경로. 비면 폴더 자신의 겹.
-   * @param opts.cursor 이전 응답의 `nextCursor`(이 겹에서의 오프셋). 없으면 첫 장.
-   * @param opts.limit 이번 장의 최대 개수(`FOLDER_FILES_PAGE_MAX` 로 클램프).
+   * @param opts.subPath 폴더 아래로 펼친 상대경로. 비면 폴더 자신의 겹.
+   * @param opts.cursor 이전 응답의 `nextCursor`. 없으면 첫 장.
+   * @param opts.limit 최대 개수(`FOLDER_FILES_PAGE_MAX` 로 클램프).
    */
   listFolderFilePage(
     nodePath: string,
@@ -11597,10 +10409,7 @@ export class ProjectGraph {
     const absPath = this.resolveAbsolutePath(nodePath);
     if (!absPath) return null;
 
-    // 펼친 하위 겹 — 노드가 가리키는 폴더 **안**으로만 내려간다. 이 창구는 프로젝트 루트
-    // 가드(`isWithinOpenableRoots`)를 쓰지 않으므로(외부 폴더가 이 라우트의 전제다) 이탈 검사를
-    // 스스로 갖는다. 판정은 기존 `validatePathWithinRoot` 하나 — 새 가드를 발명하지 않는다
-    // (win/mac 은 케이스를 접고 linux 는 구분하는 pathKey 규칙이 거기 이미 들어 있다).
+    // 하위 겹은 노드 폴더 안으로만. 이 창구는 루트 가드를 안 쓰므로(외부 폴더가 전제) `validatePathWithinRoot` 로 이탈을 막는다(pathKey 의 OS별 대소문자 규칙이 거기 있다).
     const sub = (opts.subPath ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
     const targetAbs = sub ? validatePathWithinRoot(sub, absPath) : absPath;
     if (!targetAbs) return null;
@@ -11625,13 +10434,7 @@ export class ProjectGraph {
     return { entries, nextCursor: end < level.length ? String(end) : null, total: level.length };
   }
 
-  /**
-   * 디렉토리 **한 겹**을 읽어 정렬해 돌려준다 — 재귀하지 않는다.
-   *
-   * ⚠ **여기에 재귀를 다시 넣지 마라.** 종전 `readDirTree` 는 깊이·개수·시간 제한 없이 내려가,
-   * 사용자 홈이 외부 폴더 버블로 뜨면 30초로도 다 못 읽는 61만 항목을 훑었다(§7.5).
-   * 하위는 사용자가 그 폴더를 펼칠 때 `subPath` 로 다시 부른다.
-   */
+  /** 한 겹만 읽는다. ⚠ 재귀를 넣지 마라 — 사용자 홈 외부 폴더면 30초로도 못 읽는 61만 항목이다(§7.5). 하위는 `subPath` 로 다시 부른다. */
   private readDirLevel(absDir: string, relDir: string, satSet: Set<string>): FolderFileEntry[] {
     let entries: fs.Dirent[];
     try {
@@ -11849,10 +10652,7 @@ export class ProjectGraph {
     for (const [sessionId, cwd] of this.sessionCwds) {
       const agent = this.agents.get(sessionId);
       if (!agent) continue;
-      // §4 v2.68 — CMD(인터랙티브 터미널) 결과 소싱. CMD 대화는 합성 세션(custom-…)이 아니라 claude
-      //   대화 UUID(.jsonl)에 쌓인다(hook 이 session_id 를 합성 세션으로 rewrite → readUserMessages(cwd,
-      //   합성세션)은 항상 빈 배열). recordCmdTermSession 이 적어둔 termId→UUID 맵에서 UUID 들을 모아
-      //   각각 읽어 합친다(세션 탭이 여러 개면 여러 UUID). 병합 시 id 에 UUID 접두 → React 키 충돌 방지.
+      // §4 — CMD 대화는 합성 세션(custom-…)이 아니라 CLI 대화 UUID(.jsonl)에 쌓인다. recordCmdTermSession 의 termId→UUID 마다 읽어 합치고, id 에 UUID 접두로 React 키 충돌을 막는다.
       const isCmd = this.agentConfigOverrides.get(agent.id)?.executionMode === 'interactive-terminal';
       let events: AgentEvent[];
       if (isCmd) {
@@ -11914,12 +10714,8 @@ export class ProjectGraph {
   }
 
   /**
-   * 워크트리 이주 검사 + 실행.
-   * - 에이전트가 워크트리 내부 파일을 건드리면 그 워크트리로 이주. 단방향 아님(v1.76):
-   *   같은 root repo 안에서 부모→WT 뿐 아니라 WT A→WT B 도 재이주.
-   * - 자기 워크트리 내부 작업은 재이주 ❌(thrash 방지), 부모/타 repo 파일은 external 로 표시.
-   * - 트리거: write/edit 1회 즉시, read 누적 WORKTREE_READ_MIGRATION_THRESHOLD 회.
-   * - migration 이 일어났으면 true 반환 (호출자는 projectPath 재계산 가능).
+   * 워크트리 이주: 워크트리 안 파일을 만지면 그리로 옮긴다(같은 root repo 면 WT A→B 도). 자기 워크트리 안 작업은 재이주 ❌(thrash).
+   * 트리거: write/edit 1회, read 는 WORKTREE_READ_MIGRATION_THRESHOLD 회. 이주했으면 true.
    */
   private maybeMigrateAgentToWorktree(sessionId: string, agentId: string, filePath: string, toolName: string): boolean {
     const currentCwd = this.sessionCwds.get(sessionId);
@@ -11929,8 +10725,7 @@ export class ProjectGraph {
     // 파일 경로의 소속 프로젝트 — 워크트리가 아니면 무시
     const targetProject = this.getProjectForCwd(filePath);
     if (!targetProject || !targetProject.parentProjectPath) return false;
-    // 같은 root repo 안에서만 재이주. master/부모는 자기 path 가 root, 워크트리는 parentProjectPath 가 root.
-    // → master→워크트리뿐 아니라 워크트리 A→워크트리 B 도 (같은 repo면) 이주한다(단방향 락 제거, v1.76).
+    // 같은 root repo 안에서만(부모는 자기 path, 워크트리는 parentProjectPath 가 root).
     const currentRoot = normalize(currentProject.parentProjectPath ?? currentProject.path);
     if (currentRoot !== normalize(targetProject.parentProjectPath)) return false; // 다른 repo 워크트리 → 무관
     // 이미 그 워크트리 안(자기 워크트리 내부 작업)이면 재이주 안 함 — 단방향 락 대체, thrash 방지.
@@ -11960,14 +10755,8 @@ export class ProjectGraph {
   }
 
   /**
-   * 실제 이주 동작 — sessionCwds 를 워크트리 path 로 갱신하고, 에이전트가 이전 위치(마스터/부모
-   * 또는 다른 워크트리)에서 만지던 노드/엣지를 워크트리 namespace 로 carry. 단순 삭제 ❌ —
-   * 사용자가 작업해온 흔적이 워크트리 안에 그대로 보여야 함. (A→B 재이주 시 이미 namespace 된
-   * A 노드는 carry 가 skip 하여 A 캔버스에 잔존, 에이전트만 B 로 재홈 — 이중 prefix 차단.)
-   *
-   * carry 정책:
-   *  - 단독 ref(이 에이전트만 만진 노드): 키를 `wtPrefix + 기존키` 로 re-key, 워크트리 children 으로 재부착, 엣지 id 도 remap.
-   *  - 공유 ref(다른 에이전트도 만지는 노드): 마스터 캔버스에 남겨두되 이 에이전트의 ref 만 끊는다. (그 노드는 다른 에이전트의 view 를 깨면 안 되므로)
+   * 이주 — 이전 위치에서 만지던 노드·엣지를 지우지 않고 워크트리 namespace 로 옮긴다(작업 흔적이 보여야 한다). 이미 namespace 된 노드는 옮기지 않는다(이중 prefix).
+   * 단독 ref 는 re-key·재부착·엣지 remap, 공유 ref 는 남의 화면을 지키려 제자리에 두고 이 에이전트 ref 만 끊는다.
    */
   private executeWorktreeMigration(sessionId: string, agentId: string, target: ProjectInfo): void {
     const prevCwd = this.sessionCwds.get(sessionId) ?? '';
@@ -11987,10 +10776,8 @@ export class ProjectGraph {
   }
 
   /**
-   * 에이전트가 ref 한 노드를 워크트리 namespace 로 carry.
-   *  단독 ref → re-key 후 워크트리 children 으로 재부착. nodes/topLevelPaths/childrenMap/satelliteMap/nodeAgentRefs/nodeProjectNames + 엣지 id 모두 갱신.
-   *  공유 ref → 이 에이전트만 ref 에서 빠진다(다른 에이전트의 캔버스를 보존).
-   *  worktree/root 타입 또는 이미 wt-namespaced 된 키는 carry 대상이 아님.
+   * 단독 ref 는 re-key — nodes/topLevelPaths/childrenMap/satelliteMap/nodeAgentRefs/nodeProjectNames + 엣지 id 를 모두 고친다. 공유 ref 는 이 에이전트만 빠진다.
+   * worktree/root 타입·이미 wt 접두가 붙은 키는 대상이 아니다.
    */
   private carryAgentNodesToWorktree(agentId: string, worktreeBubbleKey: string, wtPrefix: string, projectName: string): void {
     const ownedKeys: string[] = [];
@@ -12058,6 +10845,9 @@ export class ProjectGraph {
       // nodeAgentRefs 이전
       this.nodeAgentRefs.delete(oldKey);
       this.nodeAgentRefs.set(newKey, new Set([agentId]));
+      // §5.1 #2-1 (B) — 이번 턴 장부도 새 키로(그 에이전트 단독 버블이라 그 에이전트의 장부만 본다).
+      const turn = this.agentTurnNodes.get(agentId);
+      if (turn?.delete(oldKey)) turn.add(newKey);
 
       // topLevelPaths: 마스터 top-level 이었으면 worktree children 으로 이전
       const wasTopLevel = this.topLevelPaths.has(oldKey);
@@ -12120,27 +10910,8 @@ export class ProjectGraph {
   }
 
   /** agent ID → project name 매핑. worktree 세션은 PID.json cwd가 부모이든 worktree이든 worktree 소속으로 stamp (todo0417 A-2). */
-  /**
-   * §9 스코프드 구독 — **범위 밖 프로젝트의 탭 배지를 위한 경량 집계**.
-   *
-   * 탭바는 프로젝트마다 "에이전트 N개 · 실행 중 N개 · 끝남 N개"를 보여 준다. 그런데 스코프드
-   * 구독은 **안 보는 프로젝트의 `agents` 배열을 스냅샷에서 뺀다** — 그대로 두면 배경 탭 배지가
-   * 전부 0 으로 보인다(최적화가 아니라 기능 손상). 그래서 무거운 슬라이스와 무관하게 이 집계만은
-   * **항상 전 프로젝트**를 싣는다. 프로젝트당 수십 바이트라 전선 비용이 사실상 없다.
-   *
-   * ⚠ 필터는 `getSnapshot()` 의 `aliveAgents` 와 **같은 기준**이어야 한다(살아 있음 · 숨김 아님 ·
-   *   파이프라인 자식 아님). 어긋나면 배지 숫자가 캔버스와 다르게 보인다.
-   */
-  /**
-   * §9 배경 탭 유휴 해제 — **지금 일하는 것이 하나라도 있는가.**
-   *
-   * 하나라도 참이면 이 프로젝트는 화면에 없어도 내려놓지 않는다. "안 보이니 꺼도 된다"가 아니라
-   * "안 보이고 **아무 일도 없을 때만**" 내려놓는다는 것이 이 정리를 자동화해도 되는 근거다.
-   *  · active 에이전트 — 지금 돌고 있는 세션
-   *  · 대기 명령 — 곧 돌 세션(비워지기 전에 내리면 그 명령이 갈 곳을 잃는다)
-   *  · 살아 있는 dev server(iframe 위성) — §7.11 "명시 stop 전까지 살아있다"
-   *  · running 플레이 버블(§5.14) — 우리가 띄운 프로세스가 물려 있다
-   */
+  /** §9 — 탭 배지 집계는 항상 전 프로젝트를 싣는다(안 보는 프로젝트의 `agents` 는 스냅샷에서 빠진다). ⚠ 필터는 `getSnapshot()` 의 `aliveAgents` 와 같은 기준 — 어긋나면 배지가 캔버스와 다르다. */
+  /** §9 배경 탭 유휴 해제 — 일하는 것이 하나라도 있으면 안 보여도 내려놓지 않는다: active 에이전트 · 대기 명령 · 살아 있는 dev server(§7.11) · running 플레이 버블(§5.14). */
   hasRunningWork(): boolean {
     if (this.getActiveAgentCount() > 0) return true;
     for (const [sessionId, cmds] of this.commandQueuesRef) {
@@ -12172,11 +10943,7 @@ export class ProjectGraph {
     return last;
   }
 
-  /**
-   * §9 — 이 인스턴스의 활성 에이전트 수. **구독 범위 밖 프로젝트도 세어야** 헤더의 "지금 몇 개
-   * 돌고 있나"가 줄지 않는다. 판정은 `getSnapshot()` 의 `activeCount` 와 같은 기준
-   * (살아 있음 · 숨김 아님 · 파이프라인 자식 아님 · active · 휴지통 아님).
-   */
+  /** §9 — 구독 범위 밖 프로젝트도 센다(헤더 숫자가 줄지 않게). `getSnapshot()` 의 `activeCount` 와 같은 기준. */
   getActiveAgentCount(): number {
     let count = 0;
     for (const [sessionId, agent] of this.agents) {
@@ -12186,16 +10953,7 @@ export class ProjectGraph {
     return count;
   }
 
-  /**
-   * §9 탭·헤더 배지의 SSOT — 프로젝트별 에이전트/세션 집계.
-   *
-   * **휴지통은 세지 않는다.** 캔버스가 `trashed` 버블을 숨기므로(BubbleMap), 숫자에만 남으면
-   * "에이전트 20개 중 1개 실행 중"처럼 화면 어디에도 없는 20 이 나온다(사용자 보고).
-   *
-   * **`sessions`/`running` 은 세션 축**이다. 사용자가 "동작 중"으로 세는 단위는 버블이 아니라
-   * 세션이라(한 커스텀 에이전트가 세션 다섯을 동시에 돌린다) 버블 축 `active` 만으로는
-   * 실제로 도는 수를 영영 못 보여준다. 판정은 공용 `isSessionRunning` 하나로 클라와 맞춘다.
-   */
+  /** §9 탭·헤더 배지 집계. 휴지통은 세지 않는다(화면에 없는 숫자가 된다). `sessions`/`running` 은 세션 축 — 한 에이전트가 세션 여럿을 돌린다. 판정은 공용 `isSessionRunning`. */
   getAgentCountsByProject(): Record<string, ProjectAgentCounts> {
     const runningTasksAll = subAgentManager.getRunningSubagentTasks();
     const result: Record<string, ProjectAgentCounts> = {};
@@ -12232,24 +10990,13 @@ export class ProjectGraph {
       const share = agentBadgeShare({ bubbleRunning, sessionRunning });
       bucket.sessions += share.sessions;
       bucket.running += share.running;
-      // §2.4 (한도 정지) — 한도로 끊긴 채 **다시 돌지 않은** 세션만 센다. 사용자가 무시하고 다시
-      //   돌린 세션은 서버가 dispatch 에서 표식을 걷으므로 여기 남지 않지만, 그 사이의 한 스냅샷이
-      //   주황과 파랑을 동시에 말하지 않도록 running 인 세션은 빼고 센다(배지의 두 색이 겹치면
-      //   "돌고 있는데 멈췄다"가 된다).
+      // §2.4 — 한도로 끊긴 채 다시 돌지 않은 세션만 센다. running 은 빼서 한 스냅샷이 주황·파랑을 함께 말하지 않게 한다.
       bucket.limited += subs.filter((sub, i) => sub.usageLimit !== undefined && !sessionRunning[i]).length;
     }
     return result;
   }
 
-  /**
-   * §5.4 #14-3 — 이 인스턴스가 들고 있는 **에이전트 버블 id 전량**.
-   *
-   * 탭 닫기 확인 팝업의 [닫기] 가 "이 탭에서 도는 것을 멈춘다"를 실행할 때 쓰는 목록이다.
-   * 위 `getAgentCountsByProject` 와 달리 **거르지 않는다** — 휴지통·숨김·파이프라인 자식도
-   * 자식 프로세스를 들고 있을 수 있고, 탭을 닫으면 이 인스턴스는 통째로 내려가므로 그 자식들이
-   * 주인 없이 남으면 안 된다. 중지는 멱등이라(`stopAll` 은 도는 게 없으면 아무 일도 하지 않는다)
-   * 넓게 잡는 쪽의 대가가 0 이다 — 반대로 좁게 잡으면 회수 못 한 자식이 남는다.
-   */
+  /** §5.4 #14-3 — 탭 닫기 [닫기] 가 멈출 에이전트 id 전량. 거르지 마라 — 휴지통·숨김·파이프라인 자식도 프로세스를 들 수 있다(`stopAll` 은 멱등이라 넓게 잡아도 된다). */
   listAgentIds(): string[] {
     const out: string[] = [];
     for (const agent of this.agents.values()) out.push(agent.id);
@@ -12297,11 +11044,7 @@ export class ProjectGraph {
     return null;
   }
 
-  /**
-   * §5.10 v3.49 — 이 에이전트가 참조한 "파일처럼 보이는" 노드 경로들(피드 related 랭킹 ctx.files 용, best-effort).
-   * nodeAgentRefs(노드→에이전트) 역방향에서 이 에이전트가 있는 키를 모아, worktree prefix 를 벗기고
-   * 확장자가 있는(=파일) 것만 반환한다. 폴더/합성 키는 제외. read-only — 스냅샷/체크포인트 무관.
-   */
+  /** §5.10 — 참조한 파일처럼 보이는 노드 경로(피드 related 랭킹용, best-effort). worktree 접두를 벗기고 확장자 있는 것만. */
   getFileRefsForAgent(agentId: string, limit = 12): string[] {
     const out: string[] = [];
     for (const [nodePath, refs] of this.nodeAgentRefs) {
@@ -12491,8 +11234,7 @@ export class ProjectGraph {
 
   /** Bash 명령을 히스토리에 기록 / output 매칭 */
   private recordBashEntry(payload: HookEventPayload): BashEntry | undefined {
-    // §3.6 v4.89 — 실패한 도구도 **끝난 도구**다. `PostToolUseFailure` 를 사후로 안 세면
-    //   같은 tool_use_id 로 사전 엔트리가 한 번 더 만들어져 히스토리에 중복으로 남는다.
+    // §3.6 — `PostToolUseFailure` 도 사후로 센다 — 아니면 같은 tool_use_id 로 사전 엔트리가 또 생겨 중복된다.
     const isPost = isPostToolPhase(payload);
     const toolUseId = payload.tool_use_id;
     const sid = payload.session_id;
@@ -12563,11 +11305,8 @@ export class ProjectGraph {
     }
     this.boundCommandActivity();
 
-    // run_in_background → 서버 판정.
-    // §7.11 v2.21 — strict 1:1: ServerEntry 는 port 가 확정된 시점에만 등록(placeholder ❌).
-    // §7.11 v2.24/v2.25 — port 추출은 (extractPort → extractPortFromInlineEval → extractPortFromScriptFile)
-    //   3단계 fallback. 같은 PreToolUse 의 Bash 특수도구 블록의 추출기 구성과 대칭이어야 1:1 깨지지 않음.
-    // §7.11 v2.20 — probe 명령(curl/wget 등)은 inline-cmd 단축 경로 전면 skip.
+    // §7.11 — ServerEntry 는 port 가 확정됐을 때만 등록(1:1). 포트 추출 3단계(extractPort → InlineEval → ScriptFile)는 PreToolUse Bash 특수도구 블록과 같아야 1:1 이 안 깨진다.
+    // probe 명령은 단축 경로를 건너뛴다.
     if (payload.tool_input?.['run_in_background'] === true && !isProbeCommand(command)) {
       const sessionCwd = cwd;
       const port = extractPort(command)
@@ -12611,11 +11350,7 @@ export class ProjectGraph {
     return known.filter((r) => !own.some((o) => samePath(o, r)));
   }
 
-  /**
-   * 포트 소유 사실 조회의 주입점 — 기본은 실제 OS(`readPortOwnership`: 리스너 + 주소 + 기동 정보).
-   * `platform` 을 인자로 받는 것과 같은 이유로 열어 둔다: 실기·실서버 없이 세 OS 의 판정을
-   * 단위 테스트로 지나가야 하고, 안에서 OS 도구를 직접 부르면 그 분기는 영영 검증되지 않는다.
-   */
+  /** 포트 소유 조회 주입점(기본은 실제 OS `readPortOwnership`). `platform` 인자와 같은 이유 — 세 OS 판정을 단위 테스트로 지나가야 한다. */
   private portOwnershipLookup?: PortOwnershipLookup;
 
   /** 위 주입점 설정(테스트 전용 — 프로덕션 경로는 기본 조회를 쓴다). */
@@ -12623,10 +11358,7 @@ export class ProjectGraph {
     this.portOwnershipLookup = fn;
   }
 
-  /**
-   * 옛 주입점 — 포트당 프로세스 하나(주소 미상)만 돌려주는 조회. 주소를 가르지 않는 시험이 그대로
-   * 쓰도록 남긴 다리다(`singleProcessOwnership`: 그 프로세스가 모든 주소의 후보).
-   */
+  /** 주소 미상 옛 주입점 — 주소를 가르지 않는 시험용 다리(`singleProcessOwnership`). */
   setPortOriginLookup(fn: (p: number) => Promise<ProcessStartInfo | null>): void {
     this.portOwnershipLookup = async (p) => singleProcessOwnership(await fn(p));
   }
@@ -12640,13 +11372,7 @@ export class ProjectGraph {
     }
   }
 
-  /**
-   * §7.11 / §3.5 — **이 주소를 이 캔버스의 위성으로 둬도 되는가.** 생성 입구 전부가 여기를 지난다
-   * (생사 sweep 은 같은 순수 판정 `judgeIframeSatellite` 를 포트별 조회 한 번으로 묶어 쓴다).
-   *
-   * 다른 탭이 하나도 안 열려 있으면 가를 대상이 없다 — 조회 없이 `keep`(혼자 쓰는 사용자의 프리뷰를
-   * 판정 비용으로 늦추지 않는다). `launch` 증거를 이번에 묶었으면 그 pid 를 기억한다.
-   */
+  /** §7.11 / §3.5 — 이 주소를 이 캔버스 위성으로 둬도 되는가(생성 입구 전부, sweep 은 `judgeIframeSatellite` 를 묶어 쓴다). 다른 탭이 없으면 조회 없이 `keep`. */
   private async judgeIframeUrl(
     url: string,
     port: number,
@@ -12716,12 +11442,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §7.11 / §3.5 — Stop/Restart 가 **무엇을 죽여도 되는가.** 이 그래프의 ServerEntry 가 아니면 null.
-   *
-   * 포트 킬은 그 포트의 리스너를 트리째 죽인다 — 한 포트에 주인이 둘이면(옆 프로젝트 vite 가 `[::1]`,
-   * 우리 서버가 `::`) 프로젝트 A 의 Stop 이 B 의 서버까지 내린다. 그래서 ① 위성 주소의 호스트로
-   * **닿는 리스너만** 죽이게 하고(`host`) ② 닿는 리스너가 다른 열린 프로젝트의 것이면 아예 죽이지
-   * 않는다(`foreign`). 위성이 없는 entry 는 호스트를 몰라 포트 전체로 판정한다.
+   * §7.11 / §3.5 — Stop/Restart 가 죽여도 되는 범위. 한 포트에 주인이 둘이면(옆 vite `[::1]`, 우리 `::`) 포트 킬이 남의 서버까지 내린다 —
+   * 위성 주소로 닿는 리스너만(`host`), 그게 다른 열린 프로젝트 것이면 안 죽인다(`foreign`). 위성 없는 entry 는 포트 전체.
    */
   async serverControlScope(serverId: string): Promise<{ host?: string; foreign: boolean } | null> {
     let entry: ServerEntry | undefined;
@@ -12750,16 +11472,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §7.11 / §3.5 — **이 프로젝트에서 연 프리뷰 탭**이 그 주소를 지금 보여 줘도 되는가.
-   *
-   * 탭은 연 순간의 주소를 들고 있고, 탭 목록은 프로젝트 탭과 상관없이 하나로 공유된다. 스냅샷은 창이
-   * 구독한 프로젝트만 싣기 때문에 B 를 보는 동안 A 에서 연 탭을 누르면 클라는 A 의 위성이 옮겨졌는지·
-   * 걷혔는지 모른다. 그 사이 A 의 서버가 내려가고 B 가 같은 주소를 잡으면 탭이 B 의 화면을 다시
-   * 불러온다 — 그래서 탭이 화면을 불러오기 직전에 여기 묻는다.
-   *
-   * ① 위성이 살아 있으면 **위성 주소가 기준**이다(서버가 판정해 둔 주소 — 옮겼으면 `follow`).
-   * ② 그 주소를 `judgeIframeTab` 으로 본다 — 남의 것이면 우리 서버에 닿는 별칭으로, 그것도 없으면 `block`.
-   * 다른 탭이 하나도 안 열려 있으면 가를 대상이 없다(조회 없이 통과).
+   * §7.11 / §3.5 — 프리뷰 탭이 불러오기 직전에 묻는다: 탭은 공유되고 스냅샷은 구독 프로젝트만 실어, 그새 B 가 같은 주소를 잡으면 A 의 탭에 B 화면이 뜬다.
+   * 위성이 살아 있으면 위성 주소가 기준(옮겼으면 `follow`), `judgeIframeTab` 이 남의 것이라 하면 별칭 또는 `block`. 다른 탭이 없으면 통과.
    */
   async checkIframeTab(satelliteId: string | null, url: string): Promise<IframeTabVerdict> {
     const target = (satelliteId ? this.iframeSatelliteUrl(satelliteId) : null) ?? url;
@@ -12795,28 +11509,9 @@ export class ProjectGraph {
   }
 
   /**
-   * §7.11 감지 폴백 확장 — **끝난 Bash 의 명령어와 출력에 찍힌 루프백 주소**로 프리뷰를 만든다.
-   *
-   * 종전 감지는 `run_in_background: true` 한 갈래에서만 출발했다. 그래서 에이전트가
-   * **이미 떠 있던 서버를 그대로 쓴 경우**(사용자 보고: "Vite 는 이미 떠 있던 것을 그대로
-   * 썼습니다 — 새로 띄우지 않았습니다")에는 붙을 셸이 없어 프리뷰가 영영 안 생겼다. 그런데
-   * 그런 세션에도 단서는 넘친다 — 에이전트는 살아있는지 확인하려고 그 주소를 반드시 한 번은
-   * 친다(`curl http://localhost:8080`). **그 주소야말로 "방금 응답한 것을 확인한 서버"** 다.
-   *
-   * 그래서 v2.20 의 probe 명령 제외(`isProbeCommand`)를 여기에는 적용하지 않는다 — 그 가드는
-   * "이 **셸**을 서버로 등록하지 마라"는 뜻이지 "이 **주소**는 서버가 아니다"가 아니기 때문이다.
-   * 대신 여기서는 위성만 만들고 `registerServerPort`(셸=서버 등록)는 하지 않는다. 기동 명령을
-   * 모르니 ServerEntry 는 `ensureReportedServerEntry` 의 "신고 전용"(Restart 불가, Stop 가능)
-   * 자리로 등록한다 — 나중에 진짜 셸이 같은 포트를 잡으면 v3.85 승격 경로가 덮어쓴다.
-   *
-   * 오탐은 네 문으로 막는다: ① 우리 자신의 포트 제외(에이전트는 카드 엔드포인트를 계속 친다)
-   * ② `isPortAlive` + `resolvePreviewUrl` 실응답 게이트 ③ (세션,포트)당 TTL probe 문
-   * ④ **프로젝트 격리**(위성 입구 `createIframeSatellite` 의 `observed` 판정 — 그 주소가 실제로 닿는
-   * 리스너로 가른다) — 다른 열린 프로젝트 안에서 도는 서버는
-   * 그 주소가 우리 출력에 스쳤을 뿐이므로 붙이지 않는다. 이 문이 없으면 **문서를 grep 한
-   * 출력**에 박힌 주소 하나로도 남의 프리뷰가 선다(실측: 옆 프로젝트의 vite 8080 이 vibisual
-   * 캔버스에 등록). v1.48 이 생사 판정에만 세워 둔 §3.5 격리 문을 생성 경로에도 세운 것.
-   * 사용자가 지운 프리뷰는 되살리지 않는다(`fromNewBash=false` → `dismissedIframes` 존중).
+   * §7.11 감지 폴백 — 끝난 Bash 의 명령어·출력에 찍힌 루프백 주소로 프리뷰를 만든다(이미 떠 있던 서버엔 붙을 셸이 없지만 확인차 친 `curl` 주소가 곧 응답한 서버다).
+   * `isProbeCommand` 제외를 적용하지 않는다(셸 등록 가드일 뿐). 위성만 만들고 entry 는 신고 전용(`ensureReportedServerEntry`).
+   * 오탐 문: ① 우리 포트 제외 ② 실응답(`isPortAlive` + `resolvePreviewUrl`) ③ (세션,포트) TTL ④ 프로젝트 격리(`observed` 판정 — 없으면 grep 출력의 주소로 남의 프리뷰가 선다). 지운 프리뷰는 되살리지 않는다.
    */
   private sniffLoopbackServers(payload: HookEventPayload, output: string): void {
     const sessionId = payload.session_id;
@@ -12859,10 +11554,7 @@ export class ProjectGraph {
         // 접는다(`resolvePreviewUrl`). `/game.html` 처럼 응답이 문서면 경로는 그대로 살아남는다.
         const servingUrl = await resolvePreviewUrl(rawUrl);
         if (!servingUrl || !this.agents.has(sessionId)) return;
-        // fromNewBash=false — 이건 "새로 띄웠다"는 신호가 아니라 "여기 서버가 있더라"는 관찰이다.
-        // 사용자가 지운 프리뷰가 그 다음 curl 한 번에 되살아나면 지운 의미가 없다.
-        // ④ 프로젝트 격리 — 위성 입구가 `observed` 증거로 판정한다. 그 주소가 남의 리스너에 닿으면
-        //    만들지 않거나, 우리 서버에 닿는 별칭으로 바꿔 만든다(짝 ServerEntry 는 그 주소로).
+        // fromNewBash=false — 새로 띄운 게 아니라 관찰이다(지운 프리뷰가 curl 에 되살아나지 않게). ④ 격리는 위성 입구의 `observed` 판정이 한다.
         this.createIframeSatellite(sessionId, command, port, undefined, output || undefined, false, servingUrl, {
           evidence: 'observed',
           onPlaced: (url) => {
@@ -12874,8 +11566,7 @@ export class ProjectGraph {
     }
   }
 
-  /** shellWatcher가 포트를 감지했을 때 매칭 ServerEntry 를 생성하거나 메타 백필한다
-   *  (§7.11 v2.21 — strict 1:1: port required). */
+  /** §7.11 — shellWatcher 가 잡은 포트의 ServerEntry 생성·백필(1:1, port 필수). */
   private ensureServerEntryForShell(
     sessionId: string,
     toolUseId: string | undefined,
@@ -12888,11 +11579,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §7.11 v2.21 — ServerEntry 를 **(sessionId, shellId?, port)** 단위로 등록/백필한다.
-   * strict 1:1: port 는 required — placeholder 등록 경로 폐기됨(v2.1 의 port=undefined 분기 삭제).
-   * 한 background 셸이 여러 포트(monorepo 4800+5173)를 열면 포트마다 entry 1개씩 만들어
-   * ServerList 가 살아있는 iframe 위성과 1:1 대응하게 한다.
-   * @returns 새 entry 생성됐으면 true(스냅샷 변경). 동일 port 기존 entry 백필이면 false.
+   * §7.11 — (sessionId, shellId?, port) 단위 등록·백필, port 필수. 한 셸이 여러 포트를 열면 포트마다 entry — iframe 위성과 1:1.
+   * @returns 새 entry 면 true, 기존 entry 백필이면 false.
    */
   private registerServerPort(
     sessionId: string,
@@ -12905,8 +11593,7 @@ export class ProjectGraph {
     let servers = this.runningServers.get(sessionId);
     if (!servers) { servers = []; this.runningServers.set(sessionId, servers); }
 
-    // §7.11 v3.85 — 같은 포트의 "신고 전용"(명령 미상) entry 가 있으면 진짜 명령으로 승격한다.
-    // 신고가 먼저 오고 watcher 가 나중에 그 서버를 잡는 순서에서 포트당 entry 가 2개로 갈라지는 것을 막는다.
+    // §7.11 — 같은 포트의 신고 전용 entry 를 승격한다(신고 → watcher 순서에서 둘로 갈라지지 않게).
     const promoted = this.promoteReportedServerEntry(command, port, shellId, outputFile);
     if (promoted) return false;
 
@@ -12937,12 +11624,7 @@ export class ProjectGraph {
     return true;
   }
 
-  /**
-   * §7.11 v3.85 — 에이전트 신고로 만들어진 iframe 위성에 짝이 되는 ServerEntry 를 보장한다.
-   * 이미 그 포트의 entry 가 있으면(감지 경로가 먼저 잡은 진짜 entry) 아무것도 하지 않는다 —
-   * 포트당 1행(§7.11 v2.1) 을 지켜야 ServerList 에 같은 서버가 두 번 뜨지 않는다.
-   * 기동 명령은 알 수 없으므로 `reportedOnly` 로 표시하고 `command` 에는 표시용 URL 을 넣는다.
-   */
+  /** §7.11 — 신고 위성의 짝 entry 를 보장한다(포트당 1행 — 있으면 그대로). 기동 명령을 몰라 `reportedOnly`, `command` 엔 표시용 URL. */
   private ensureReportedServerEntry(sessionId: string, url: string, port: number): void {
     for (const entries of this.runningServers.values()) {
       if (entries.some((e) => e.port === port)) return;
@@ -12960,22 +11642,14 @@ export class ProjectGraph {
     });
     this.bumpMutationVersion();
     logger.info(`Server registered from agent report (port ${port}): ${url.slice(0, 80)}`);
-    // §7.11 포트 인계 — **지금이 유일한 기회다.** 프로세스가 살아 있는 이 순간에 기동 명령을 읽어
-    // 두지 않으면, 사용자가 Stop 을 누른 뒤에는 OS 어디에도 그 명령이 남지 않아 Start 가 영영
-    // 열리지 않는다. 실패해도 조용히 넘어간다(종전 reportedOnly 그대로).
-    // 성공(승격)이든 실패(`takeoverFailed` 표식)든 화면에 반영해야 버튼과 툴팁이 사실과 맞는다.
+    // §7.11 포트 인계 — 살아 있을 때 기동 명령을 못 읽으면 Stop 뒤엔 어디에도 없어 Start 가 영영 안 열린다. 실패는 조용히, 결과는 화면에 반영한다(버튼·툴팁).
     void this.takeoverServerEntry(id).then(() => this.onSnapshotChange?.()).catch(() => { /* 표시 전용 */ });
   }
 
   /**
-   * §7.11 포트 인계 — **포트 인계**: 신고 전용(`reportedOnly`) entry 의 기동 명령을 OS 프로세스
-   * 테이블에서 읽어 와 진짜 entry 로 승격한다. "에이전트가 켠 서버라도 우리가 넘겨받아 껐다 켰다
-   * 할 수 있어야 한다"는 요구의 구현 지점.
-   *
-   * 살아 있는 프로세스에서만 읽을 수 있으므로 세 자리에서 호출한다 — 신고 직후 · Stop 직전 ·
-   * Restart 요청 시. 읽지 못하면 `takeoverFailed` 만 세우고 아무것도 죽이지 않는다.
-   *
-   * @returns 승격에 성공했으면 true(= 이제 Restart/Start 가능).
+   * §7.11 포트 인계 — `reportedOnly` entry 의 기동 명령을 OS 프로세스 테이블에서 읽어 승격한다. 살아 있을 때만 읽혀 신고 직후·Stop 직전·Restart 때 부른다.
+   * 못 읽으면 `takeoverFailed` 만 세우고 아무것도 죽이지 않는다.
+   * @returns 승격했으면 true.
    */
   async takeoverServerEntry(serverId: string): Promise<boolean> {
     let target: ServerEntry | undefined;
@@ -13011,8 +11685,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §7.11 v3.85 — 같은 포트의 `reportedOnly` entry 를 실제 감지된 명령으로 승격한다.
-   * @returns 승격했으면 true(= 호출자는 새 entry 를 만들지 않는다).
+   * §7.11 — 같은 포트의 `reportedOnly` entry 를 감지된 명령으로 승격.
+   * @returns 승격했으면 true(호출자는 새 entry 를 만들지 않는다).
    */
   private promoteReportedServerEntry(
     command: string,
@@ -13039,12 +11713,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §7.11 v2.29 — 에이전트가 `POST /api/agent-iframe` 로 신고한 서버 URL 로 iframe 위성을 직접 생성한다.
-   * 명령어·로그 정규식 추측 없이 결정론적(신고 = 주 경로). "진짜 서버만" 원칙: isPortAlive 로 listen 이
-   * 확인된 뒤에만 위성을 만들고(살아있는 서버만), 신고가 accept 보다 살짝 빠른 boot race 는 몇 차례 재시도로
-   * 흡수한다. "중첩 금지": createIframeSatellite 의 (세션,포트) 키 + dedupeIframeSatellitesByUrl 포트 정규화가
-   * 같은 서버 재신고·감지 폴백을 하나로 합류시킨다.
-   * @returns agentId→세션 해석 + URL 파싱이 성립하면 true(위성 자체는 probe 통과 후 async 생성).
+   * §7.11 — 에이전트 신고(`POST /api/agent-iframe`) URL 로 위성을 만든다(주 경로). listen 확인 뒤에만, boot race 는 재시도로 흡수, 같은 서버는 포트로 합친다.
+   * @returns 세션 해석 + URL 파싱이 되면 true(위성은 비동기로 선다).
    */
   reportIframeFromAgent(agentId: string, rawUrl: string): boolean {
     const sessionId = this.findSessionByAgentId(agentId);
@@ -13061,15 +11731,8 @@ export class ProjectGraph {
       void isPortAlive(port).then(async (alive) => {
         // await 중 세션이 사라졌을 수 있어 재확인
         if (!this.agents.has(sessionId)) return;
-        // 포트 listen 만으론 부족 — 신고된 정확한 URL 이 실제로 비-에러 응답(2xx/3xx)을
-        // 주는지까지 확인한다. `python -m http.server` 처럼 포트는 살아있어도 그 경로가
-        // 404 면 위성을 만들지 않는다(사용자 보고: "iframe 접속도 안 되는데 왜 켜지냐").
-        // 그리고 **접속되는 이름**으로 바꿔 가며 묻는다 — `127.0.0.1` 로 신고됐는데 서버가
-        // IPv6(`::1`) 에만 바인딩된 경우(Windows 의 Vite 가 그렇다) 한 이름만 묻고 접으면
-        // 살아있는 서버를 죽었다고 판정한다. 응답한 그 주소를 그대로 위성에 실어, 확인한
-        // 주소와 화면에 여는 주소가 갈리지 않게 한다.
-        // 신고·클릭도 같은 규칙을 탄다 — 프리뷰 버블이 여는 것은 **그 서버의 화면**이지
-        // 에이전트가 물어본 API 응답이 아니다(판정은 shared `previewUrlForServer` 한 곳).
+        // listen 만으론 부족 — URL 이 2xx/3xx 를 줄 때만 만든다(포트는 살아도 404 인 경우). 접속되는 이름으로 바꿔 묻는다 — Windows Vite 는 `::1` 에만 묶여 `127.0.0.1` 만 물으면 죽었다고 본다.
+        // 응답한 주소를 위성에 싣는다. 프리뷰는 API 응답이 아니라 서버 화면이다(shared `previewUrlForServer`).
         const servingUrl = alive ? await resolvePreviewUrl(rawUrl) : null;
         if (!this.agents.has(sessionId)) return; // HTTP probe await 사이 재확인
         if (servingUrl) {
@@ -13078,8 +11741,7 @@ export class ProjectGraph {
           // 입구 한 곳이 `observed` 증거로 한다(그 주소가 실제로 닿는 리스너로 가른다).
           this.createIframeSatellite(sessionId, servingUrl, port, undefined, undefined, true, servingUrl, {
             evidence: 'observed',
-            // §7.11 v3.85 — 위성만 만들고 끝내면 매칭 ServerEntry 가 없어 IframeServerCard 의
-            // Restart/Stop 이 통째로 disabled 된다(v2.21 strict 1:1 의 반대 방향 orphan).
+            // §7.11 — 짝 ServerEntry 가 없으면 IframeServerCard 의 Restart/Stop 이 꺼진다.
             onPlaced: (url) => {
               this.ensureReportedServerEntry(sessionId, url, port);
               this.onSnapshotChange?.();
@@ -13101,17 +11763,10 @@ export class ProjectGraph {
   }
 
   /**
-   * 에이전트 위성으로 iframe 버블 생성 — agent.persistSatellites에 직접 저장.
-   * @param fromNewBash true면 dismissed 집합을 해제하고 재생성 허용 (사용자가 Bash로
-   *   서버를 새로 시작한 경우). false면 dismissed에 포함된 포트는 skip
-   *   (shell watcher 로그 / rehydrate 경로).
-   *
-   * §7.11 / §3.5 — **입구는 전부 여기 하나다**(백그라운드 셸·PreToolUse·rehydrate·watcher·runserver
-   * 마커·감지 폴백·신고/클릭). 다른 탭이 열려 있으면 **새** 위성은 소속 판정(`judgeIframeUrl`)을 거친
-   * 뒤에 선다 — 종전엔 감지·신고 두 입구에만 문이 있어, 셸 로그의 `Port 8080 is in use` 한 줄이나
-   * 남의 포트를 가리킨 명령으로도 남의 프리뷰가 섰다. 짝 ServerEntry 는 `gate.onPlaced` 에서
-   * 등록한다(판정이 비동기라 호출부가 바로 이어 등록하면 거절된 위성의 entry 가 남는다).
-   * 다른 탭이 없거나 이미 있는 위성이면 종전처럼 즉시 처리한다(같은 틱에 `onPlaced`).
+   * agent.persistSatellites 에 iframe 위성을 만든다.
+   * @param fromNewBash true 면 dismissed 를 풀고 다시 만든다(Bash 로 새로 띄움), false 면 dismissed 포트는 건너뛴다.
+   * §7.11 / §3.5 — 입구는 여기 하나다. 다른 탭이 열려 있으면 새 위성은 `judgeIframeUrl` 뒤에 선다.
+   * 짝 entry 는 `gate.onPlaced` 에서 — 판정이 비동기라 바로 등록하면 거절된 위성의 entry 가 남는다.
    */
   private createIframeSatellite(
     sessionId: string,
@@ -13120,8 +11775,7 @@ export class ProjectGraph {
     shellId?: string,
     logText?: string,
     fromNewBash = false,
-    /** §7.11 v2.29 — 에이전트가 신고한 정확한 URL(경로·쿼리 포함). 있으면 기본 `http://localhost:{port}`
-     *  대신 이 값을 위성 url 로 쓴다(사용자가 원하던 바로 그 페이지가 프리뷰로 열리게). */
+    /** §7.11 — 신고된 정확한 URL(경로·쿼리). 있으면 기본 `http://localhost:{port}` 대신 쓴다. */
     displayUrl?: string,
     /** §7.11 / §3.5 — 증거 종류(생략 = `launch`: 우리 셸 경로) + 짝 ServerEntry 등록 자리. */
     gate: IframeSatelliteGate = {},
@@ -13163,10 +11817,7 @@ export class ProjectGraph {
       .finally(() => { this.markIframePortPending(port, -1); });
   }
 
-  /**
-   * 위성을 실제로 세운다 — 판정을 마친 뒤, 또는 판정이 필요 없을 때(`createIframeSatellite` 의 옛 본문).
-   * 위성이 서 있게 되면(새로 만들었거나 이미 있었으면) `gate.onPlaced` 를 그 주소로 부른다.
-   */
+  /** 판정 뒤(또는 필요 없을 때) 위성을 세운다. 서 있게 되면 `gate.onPlaced` 를 부른다. */
   private placeIframeSatellite(
     sessionId: string,
     command: string,
@@ -13196,10 +11847,7 @@ export class ProjectGraph {
 
     if (!agent.persistSatellites) agent.persistSatellites = [];
 
-    // 이미 존재하면 활성화만 (serverKind 재판정 — 로그가 새로 왔을 수 있음).
-    // fromNewBash=false 인 idempotent sweep 호출은 status/iframeAlive 강제 활성화 ❌ —
-    // 그대로 두면 checkIframesAlive 가 5초마다 dim 시킨 죽은 위성을 다시 active 로 깨워
-    // 10초 주기로 깜빡거리는 버그가 발생한다. 메타데이터(shellId/serverKind) 백필만 한다.
+    // 이미 있으면 serverKind 만 다시 본다. sweep 호출(fromNewBash=false)은 status/iframeAlive 를 켜지 마라 — dim 된 죽은 위성이 깨어 10초 주기로 깜빡인다.
     const existing = agent.persistSatellites.find((s) => s.path === iframeKey);
     if (existing) {
       if (fromNewBash) {
@@ -13211,10 +11859,7 @@ export class ProjectGraph {
       if (logText && existing.serverKind !== 'frontend') {
         existing.serverKind = detectServerKind(command, logText);
       }
-      // §7.11 v2.29 — 에이전트가 명시 URL(경로 포함)을 신고했으면 표시 URL 을 그걸로 갱신한다.
-      //   감지 폴백이 먼저 `http://localhost:{port}`(경로 없음)로 만들었어도, 신고가 오면
-      //   사용자가 원하던 바로 그 페이지(예: /mirror-engine-autoplay.html)로 덮어써 프리뷰가 맞게 열린다.
-      // 같은 URL을 가진 다른 에이전트의 오래된 iframe은 제거 (이 에이전트로 이동)
+      // §7.11 — 경로 있는 신고 URL 이 오면 표시 URL 을 그것으로 바꾼다. 같은 URL 의 다른 에이전트 iframe 은 이 에이전트로 옮긴다.
       if (displayUrl && displayUrl !== existing.url) {
         this.applyIframeDisplayUrl(sessionId, existing, displayUrl, port, evidence);
       } else if (existing.url) {
@@ -13247,13 +11892,7 @@ export class ProjectGraph {
     gate.onPlaced?.(url);
   }
 
-  /**
-   * 이미 선 위성의 표시 주소를 신고된 주소로 바꾼다(§7.11 v2.29 — 신고가 오면 그 페이지로).
-   *
-   * §3.5 — 다른 탭이 열려 있고 **호스트 별칭이 바뀌면** 판정 뒤에 바꾼다. 생사 sweep 이 남의 리스너를
-   * 피해 `127.0.0.1` 로 옮겨 둔 위성을, `localhost` 로 들어온 신고 한 번이 도로 남의 화면으로 돌려놓으면
-   * 신고가 올 때마다 남의 화면 ↔ 우리 화면을 오간다. 판정이 별칭을 고르므로 경로는 살리고 호스트만 지킨다.
-   */
+  /** §7.11 / §3.5 — 다른 탭이 열려 있고 호스트 별칭이 바뀌면 판정 뒤에 바꾼다 — sweep 이 옮겨 둔 `127.0.0.1` 을 `localhost` 신고가 도로 남의 화면으로 돌리지 않게. 경로만 살린다. */
   private applyIframeDisplayUrl(
     sessionId: string,
     sat: BubbleData,
@@ -13280,16 +11919,9 @@ export class ProjectGraph {
       .catch(() => { /* 표시 전용 */ });
   }
 
-  /**
-   * 동일 URL을 가진 iframe 위성이 여러 에이전트에 걸쳐 있으면, keepSessionId로 지정된
-   * 에이전트의 것만 유지하고 나머지는 제거. keepSessionId가 없으면 lastActivity가 가장
-   * 최근인 것만 유지.
-   */
+  /** 같은 URL 위성이 여러 에이전트에 있으면 keepSessionId 것(없으면 가장 최근 것)만 남긴다. */
   private dedupeIframeSatellitesByUrl(url: string, keepSessionId?: string): void {
-    // §7.11 v2.29 — 매칭을 **포트 정규화**로 한다(문자열 정확일치 ❌). 신고 경로는 `http://127.0.0.1:8777/page.html`,
-    //   감지 폴백은 `http://localhost:8777`(경로 없음)처럼 같은 서버를 다른 문자열로 만든다 — exact 비교면
-    //   둘이 안 합쳐져 **중첩 버블**이 생긴다. 한 ProjectGraph(=한 프로젝트) 안에서 포트는 서버 1개를 유일하게
-    //   가리키므로 포트로 접으면 host alias·경로차와 무관하게 하나로 합류한다.
+    // §7.11 — 포트로 맞춘다(문자열 일치 ❌) — 신고(`127.0.0.1:8777/page.html`)와 감지(`localhost:8777`)가 같은 서버를 다르게 적어 중첩 버블이 생긴다. 한 프로젝트 안에서 포트는 서버 하나다.
     const wantedPort = iframePortKey(url);
     if (wantedPort === null) return;
     // 대상 수집 — (sessionId, index, lastActivity)
@@ -13352,27 +11984,9 @@ export class ProjectGraph {
     const responseText = extractBashOutput(payload.tool_response);
     const parsed = responseText ? parseBackgroundShellResponse(responseText) : null;
     if (!parsed) {
-      // §7.11 — 현 Claude Code(SDK-CLI) 의 run_in_background Bash 는 PostToolUse hook 의
-      // tool_response 에 "Command running in background … Output is being written to: <path>"
-      // 텍스트를 주지 않고, 구조화 필드 `backgroundTaskId` + 빈 stdout/stderr 만 준다
-      // (예: {stdout:"",stderr:"",interrupted:false,backgroundTaskId:"buis02lww"}). 그래서
-      // extractBashOutput 가 빈 문자열을 돌려주고 텍스트 파싱(parseBackgroundShellResponse)이 실패한다.
-      // → 이 경로가 막히면 `npm run dev` 처럼 포트가 명령어에 없고 출력 배너에만 찍히는 dev 서버는
-      //   watcher 가 끝내 안 붙어 iframe 위성이 생기지 않는다(부팅 시 rehydrate 만 우연히 잡던 상태).
-      // shellId(=backgroundTaskId)와 output 경로는 **세션 JSONL 의 tool_result.content 문자열**에
-      // 그대로 남으므로, JSONL 을 읽는 rehydrateBackgroundShells 로 위임해 watcher 를 붙인다
-      // (§7.11 "BackgroundShellWatcher 단일 경로" + 기존 인프라 재사용). JSONL flush 레이스 대비로
-      // 즉시 + 2s 지연 1회 재시도(rehydrate·watcher.start·createIframeSatellite 모두 멱등).
-      //
-      // §7.11 — 과거엔 `tool_response.backgroundTaskId` 존재를 게이트로 두었으나, 이 구조화
-      // 필드는 Claude Code(SDK-CLI) 버전·spawn 경로(헤드리스 커스텀 에이전트 등)에 따라
-      // 이름/위치가 달라지거나 누락될 수 있어, 게이트가 어긋나면 `npm run dev` 류 dev 서버가
-      // 영영 iframe 위성을 못 얻는 회귀가 났다(실측: rehydrate 파이프라인 자체는 정상인데
-      // 호출이 안 됨). attachBackgroundShell 는 호출부(recordBashEntry)에서 이미
-      // `run_in_background === true` 일 때만 진입하므로, parse 실패 = "백그라운드 셸인데
-      // tool_response 에 텍스트가 없다"가 확정이다 → 구조화 필드 유무와 무관하게 항상
-      // JSONL(=진실원천)로 위임한다. (추가 안전망: SESSION_SCAN_INTERVAL 주기 sweep 의
-      // rehydrateAllBackgroundShells 가 이 PostToolUse 가 아예 안 닿은 경우까지 보강.)
+      // §7.11 — CLI 의 run_in_background Bash 는 tool_response 에 출력 경로 텍스트 없이 `backgroundTaskId` + 빈 stdout 만 줘 파싱이 실패한다.
+      // 경로는 세션 JSONL 의 tool_result 에 있어 rehydrateBackgroundShells 에 맡긴다(안 하면 `npm run dev` 류에 위성이 안 선다).
+      // `backgroundTaskId` 를 게이트로 두지 마라 — 판·스폰 경로마다 달라 위성을 못 얻는다. JSONL flush 레이스로 2s 뒤 1회 더(멱등), 주기 rehydrateAllBackgroundShells 가 마저 메운다.
       const sessionId = payload.session_id;
       const cwd = this.sessionCwds.get(sessionId) ?? payload.cwd;
       if (cwd) {
@@ -13392,14 +12006,10 @@ export class ProjectGraph {
       ? payload.tool_input['command'] as string
       : '';
 
-    // §7.11 v2.4 — Vibisual 자체 런처(node scripts/runapp.mjs 등)는 서버 감지 전면 제외.
-    // 그 셸의 output 파일은 실행된 Vibisual 앱 자신의 로그라, watcher 가 자기 로그를
-    // 되읽어 모든 포트를 서버로 오등록하는 self-ingestion 루프를 만든다.
+    // §7.11 — 자체 런처(scripts/runapp.mjs 등)는 감지 제외 — 출력이 앱 자신의 로그라 모든 포트를 서버로 등록한다.
     if (isVibisualLauncherCommand(command)) return;
 
-    // §7.11 v2.20 — probe 명령(curl/wget/nc 등)은 inline-cmd 단축 경로·watcher 둘 다 skip.
-    // probe 는 listen 소켓을 안 열어서 watcher 가 어차피 아무것도 못 잡지만, 그 셸을
-    // ServerEntry 로 등록해 두면 죽은 entry 가 ServerList 상단에 좀비처럼 남는다.
+    // §7.11 — probe 명령(curl/wget/nc)은 건너뛴다 — 등록하면 죽은 entry 가 좀비로 남는다.
     if (isProbeCommand(command)) return;
 
     // 이미 서버로 등록된 엔트리가 있으면 shellId/outputFile 백필
@@ -13414,16 +12024,12 @@ export class ProjectGraph {
       }
     }
 
-    // runserver 스크립트 감지 — 기존 서버가 이미 살아있으면 스크립트가 spawn 없이
-    // 즉시 종료하므로 output 감시만으로는 포트를 잡을 수 없다. 마커 파일로 현재 트리의
-    // server/client 포트를 찾아 현재 세션에 iframe 위성을 만들어 놓는다(dedup이 이어서
-    // 과거 에이전트의 동일 URL iframe을 정리).
+    // runserver — 서버가 이미 살아 있으면 spawn 없이 끝나 output 으로 포트를 못 잡는다. 마커 파일의 server/client 포트로 위성을 만든다.
     if (/runserver\.mjs\b/i.test(command)) {
       const sessionCwd = this.sessionCwds.get(sessionId) ?? payload.cwd;
       const marker = readDevServerMarker(sessionCwd);
       if (marker) {
-        // §7.11 v2.1 — server·client 두 포트 각각 ServerEntry 등록 (ServerList ↔ iframe 1:1).
-        // §3.5 — 등록은 위성이 선 뒤에(다른 탭이 열려 있으면 소속 판정 뒤에).
+        // §7.11 — 두 포트 각각 등록(1:1). §3.5 — 등록은 위성이 선 뒤에(소속 판정 뒤).
         this.createIframeSatellite(sessionId, command, marker.port, parsed.shellId, undefined, true, undefined, {
           onPlaced: () => this.ensureServerEntryForShell(sessionId, toolUseId, command, parsed.shellId, parsed.outputPath, marker.port),
         });
@@ -13434,9 +12040,7 @@ export class ProjectGraph {
       }
     }
 
-    // 명령어 문자열에서 포트 즉시 추출 시도 (--port=... / env var / inline eval / node script.js sniff)
-    // §7.11 v2.20 — 위 isProbeCommand 가드를 이미 통과한 명령만 여기 도달.
-    // §7.11 v2.24 — node -e "..." 같은 인라인 eval 도 fallback 추가.
+    // 명령어에서 포트를 바로 뽑는다(--port= · env · `node -e` · node script.js). isProbeCommand 를 통과한 명령만 온다.
     const cwdForScript = this.sessionCwds.get(sessionId) ?? payload.cwd;
     const inlinePort = extractPort(command)
       ?? extractPortFromInlineEval(command)
@@ -13495,39 +12099,10 @@ export class ProjectGraph {
   }
 
   /**
-   * 주기적 iframe 생사 확인 — 포트가 닫혀도 버블은 유지, iframeAlive 필드만 토글.
-   * (삭제는 오직 사용자 Delete 키 또는 KillShell 훅을 통해서만 일어남)
-   *
-   * v1.48: 단순 TCP probe 만으로는 §3.5 프로젝트 격리 위반 — 다른 ProjectGraph 가 같은
-   * 포트(예: Expo 8081) 를 띄우면 stale 위성이 부활. owning shellId 검증 추가:
-   * 자기 ProjectGraph 의 active background shell 집합에 포함될 때만 alive=true 인정.
-   *
-   * v3.69: 그 집합을 sessionCwds **+ 워커 세션**(workerSessionsByOwner) 에서 빌드한다 —
-   * 커스텀 에이전트의 셸 JSONL 은 워커 세션 이름으로만 존재하기 때문. 아래 상세 주석 참조.
-   */
-  /**
-   * §7.11 / §3.5 — **살아 있는 위성이라도 우리 프로젝트 것이 아니면 걷어낸다.**
-   *
-   * 생성 경로에만 문을 세우면 **이미 저장된 위성은 스스로 낫지 않는다**. 그리고 이 위성들은
-   * 시간이 지나도 사라지지 않는다 — 감지 폴백이 만든 위성에는 `shellId` 가 없어 v1.48 의
-   * owning-shell 검사가 port-only 로 떨어지고(후방호환 가지), 주인 프로젝트가 서버를 계속
-   * 띄워 두는 한 포트는 늘 살아 있어 `iframeAlive` 가 영원히 `true` 이기 때문이다.
-   * 그래서 v2.1 의 60초 grace 자동 제거가 **한 번도 발동하지 않는다**.
-   * 실측(2026-09-11): vibisual 캔버스에 옆 프로젝트 둘의 3456 과 8080 이 박힌 채
-   * 앱을 껐다 켤 때마다 체크포인트에서 되살아났고, 정작 두 주인 탭의 iframe 위성은 0개였다.
-   *
-   * 걷는 기준은 생성 입구와 **같은 판정**이다(`judgeIframeSatellite`) — 두 경로의 기준이 갈리면
-   * 한쪽만 고쳐져 이 버그가 재발한다(v3.69 가 남긴 교훈이 세 번째로 적용되는 자리다).
-   * **고정핀(`preservePinned`)은 걷지 않는다** — 사용자가 명시적으로 붙들어 둔 것이라면
-   * 그 판단이 우리 판정보다 위다(§7.11 v2.4 와 같은 예외). 주소 교정은 고정핀도 받는다.
-   * 죽은 위성은 여기서 보지 않는다 — 포트가 닫힌 서버는 소속과 무관하게 grace 가 걷는다.
-   *
-   * 2026-10-01 — 판정 단위가 (포트)에서 (위성 주소 → 그 주소가 닿는 리스너)로 바뀌었다. 한 포트에
-   * 주인이 둘이면(옆 프로젝트 vite 가 `[::1]`, 우리 서버가 `::`) `localhost` 위성은 남의 화면을 보여
-   * 주고 있다 — 우리 서버에 닿는 별칭이 있으면 걷지 않고 그리로 옮기고(`repoint`), 없으면 걷는다.
-   * 증거는 위성마다 다르다: 살아 있는 owning shell·방금 띄운 기록 = `launch`, 그 밖 = `observed`.
-   *
-   * @param activeShellIds 이 그래프 세션들의 살아 있는 background shell — `launch` 증거의 출처.
+   * §7.11 / §3.5 — 살아 있어도 우리 프로젝트 것이 아니면 걷는다. 저장된 위성은 스스로 낫지 않는다 — shellId 없는 위성은 port-only 라 주인이 서버를 띄워 두는 한 grace 가 안 돈다
+   * (실측 2026-09-11: 옆 프로젝트 3456·8080 이 재시작마다 되살아났다). 기준은 생성과 같은 `judgeIframeSatellite`(갈리면 재발). 고정핀은 걷지 않는다(주소 교정은 받는다).
+   * 판정 단위는 위성 주소가 닿는 리스너 — 우리 서버에 닿는 별칭이 있으면 `repoint`, 없으면 걷는다.
+   * @param activeShellIds 살아 있는 background shell — `launch` 증거의 출처.
    */
   private async evictDisownedIframeSatellites(
     results: readonly { t: { port: number }; portAlive: boolean }[],
@@ -13591,8 +12166,7 @@ export class ProjectGraph {
       }
     }
 
-    // 짝이 되는 ServerEntry 도 함께 걷는다(v2.21 strict 1:1 — 위성 없는 entry 는 orphan).
-    // 같은 포트를 여는 위성이 이 그래프에 아직 남아 있으면(다른 세션 · 주소를 교정해 둔 것) 그 짝은 둔다.
+    // 짝 entry 도 걷는다 — 같은 포트 위성이 남아 있으면(다른 세션·주소 교정분) 둔다.
     if (evictedPorts.size > 0) {
       const stillOpen = new Set<number>();
       for (const agent of this.agents.values()) {
@@ -13610,6 +12184,10 @@ export class ProjectGraph {
     return changed;
   }
 
+  /**
+   * 주기 iframe 생사 확인 — 버블은 두고 iframeAlive 만 바꾼다. §3.5 — TCP probe 만이면 남이 같은 포트를 띄울 때 옛 위성이 살아난다:
+   * owning shellId 가 이 그래프의 active 셸(sessionCwds + 워커 세션)에 있어야 alive.
+   */
   async checkIframesAlive(): Promise<boolean> {
     const targets: { agentSessionId: string; port: number; index: number; shellId?: string; url: string }[] = [];
     for (const [sessionId, agent] of this.agents) {
@@ -13631,17 +12209,8 @@ export class ProjectGraph {
     }
     if (targets.length === 0) return false;
 
-    // v1.48: 자기 ProjectGraph 의 active shellId 집합 빌드 (sweep 당 1회).
-    // 훑는 대상이 자기 소유 세션으로 한정되므로 다른 프로젝트 세션의 셸은 절대 들어오지 않음(§3.5).
-    //
-    // §7.11 v3.69 — 스캔 대상 = sessionCwds + workerSessionsByOwner 의 워커 세션.
-    //   커스텀 에이전트는 sessionCwds 에 커스텀 키(`custom-…`)로 저장되는데 background shell 의
-    //   JSONL 은 **워커 세션 이름**으로 디스크에 있다. 워커를 빼고 sessionCwds 만 훑으면
-    //   `getSessionJsonlPath(cwd, 'custom-…')` 파일이 아예 없어 매번 skip → 집합이 **항상 빈 채**로
-    //   남고 shellOk 가 영원히 false → 포트가 살아 있어도 dim 후 60초 grace 로 자동 제거된다
-    //   (= 커스텀 에이전트가 띄운 dev server 는 예외 없이 꺼짐).
-    //   위성 **생성** 경로인 rehydrateBackgroundShells 는 이미 워커 세션을 훑고 있었다 —
-    //   생성과 생사확인의 스캔 대상은 반드시 같이 움직여야 한다(한쪽만 바꾸면 이 버그가 재발).
+    // §3.5 — 자기 세션만 훑는다(sweep 당 1회). §7.11 — 대상에 워커 세션을 넣어라 — 커스텀 에이전트 셸 JSONL 은 워커 이름이라 `custom-…` 만 보면 집합이 늘 비어
+    // 그 dev server 가 60초 grace 로 지워진다. 생성(rehydrateBackgroundShells)과 스캔 대상은 같이 움직인다.
     const scanTargets = new Map<string, string>(); // 세션id → 그 세션의 cwd
     for (const [sid, cwd] of this.sessionCwds) {
       scanTargets.set(sid, cwd);
@@ -13667,8 +12236,7 @@ export class ProjectGraph {
       if (!agent?.persistSatellites) continue;
       const target = agent.persistSatellites[t.index];
       if (!target || target.bubbleType !== 'iframe') continue;
-      // v1.48: shellId 가 있으면 owning shell 도 살아있어야 alive 인정.
-      // shellId 없는 레거시 위성은 port-only 동작 유지(후방호환).
+      // shellId 가 있으면 owning shell 도 살아야 alive(없는 옛 위성은 port-only).
       const shellOk = t.shellId ? activeShellIds.has(t.shellId) : true;
       const alive = portAlive && shellOk;
       // §3.5 — "우리가 방금 띄웠다" 기록의 수명: 서버가 한 번 살아난 뒤 죽으면 버린다(그 포트에 새로
@@ -13689,8 +12257,7 @@ export class ProjectGraph {
         const reason = !portAlive ? 'port closed' : !shellOk ? 'owning shell dead' : 'port up + shell alive';
         logger.info(`iframe satellite ${alive ? 'revived' : 'dimmed'} (port ${t.port}, ${reason})`);
       }
-      // §7.11 v2.1 — grace 시계: 죽은 채로 처음 본 시각 기록 / 부활 시 클리어.
-      // (transition 여부와 무관 — markIframeStopped 로 이미 false 인 위성도 여기서 stamp.)
+      // §7.11 grace 시계 — 죽은 채 처음 본 시각, 살아나면 지운다(이미 false 인 위성도 찍는다).
       if (!alive) {
         if (target.iframeDeadAt === undefined) target.iframeDeadAt = Date.now();
       } else if (target.iframeDeadAt !== undefined) {
@@ -13717,18 +12284,9 @@ export class ProjectGraph {
     //   굳은 위성은 그대로 남는다(바로 아래 URL 정규화가 같은 이유로 서 있는 자리다).
     //   살아 있는 owning shell 집합을 함께 넘긴다 — 우리 셸이 띄운 서버(`launch` 증거)를 가르는 출처다.
     if (await this.evictDisownedIframeSatellites(results, activeShellIds)) changed = true;
-    // §7.11 — 이미 떠 있는 위성의 표시 URL 을 **한 번씩** 다시 판정한다(고침, self-healing).
-    //   옛 판본의 감지 폴백은 주운 주소를 통째로 실었기 때문에, 에이전트가 확인차 친 API 경로가
-    //   그대로 프리뷰 주소로 굳어 체크포인트에 남았다(사용자 보고: "iframe 버블인데 계속
-    //   `/api/backtest/state` 로 연결돼 이상한 곳으로 빠진다"). 그 위성은 서버가 다시 살아나도
-    //   스스로 낫지 않는다 — 생성 경로를 고쳐도 이미 저장된 문자열은 그대로이기 때문이다.
-    //   그래서 **살아난 그 순간 한 번** 물어 정문으로 고친다. 비용은 URL 하나당 앱 실행당 1회다.
+    // §7.11 — 옛 감지 폴백이 API 경로(`/api/backtest/state` 등)를 프리뷰 주소로 저장했고 그 문자열은 스스로 안 낫는다 — 살아난 순간 한 번 물어 정문으로 고친다(URL 당 실행당 1회).
     if (await this.normalizeIframePreviewUrls(results)) changed = true;
-    // §7.11 v2.21 — strict 1:1 self-healing:
-    //   (a) `port === undefined` orphan placeholder(기존 영속/runtime 잔존) 즉시 제거.
-    //   (b) port 가 있지만 매칭 iframe 위성이 없는 orphan ServerEntry 도 제거.
-    //   v2.21 이후 새 placeholder 는 생성되지 않지만, 체크포인트 복원이나 과거 코드로 등록된
-    //   stale entry 를 sweep 마다 정리한다.
+    // §7.11 1:1 self-healing — `port === undefined` placeholder 와 짝 위성 없는 entry(복원된 옛 것)를 sweep 마다 지운다.
     {
       const iframePorts = new Set<number>();
       for (const agent of this.agents.values()) {
@@ -13758,11 +12316,7 @@ export class ProjectGraph {
       }
     }
 
-    // §7.11 v2.1 — grace(IFRAME_DEAD_GRACE_MS) 초과한 죽은 iframe 위성 자동 제거
-    // (+ 같은 port 의 dead ServerEntry 동반 제거). 사용자 Delete / KillShell 즉시 제거와 병행.
-    // §7.11 v2.4 — 사용자가 고정핀(preservePinned)으로 고정한 위성은 grace 가 지나도
-    //   제거하지 않는다(죽은 dev server 라도 IframeServerCard 의 Restart/Start/Stop 으로
-    //   계속 다룰 수 있게). 또 제거 시 그 포트를 watcher 에 forgetPort 해 재감지를 허용한다.
+    // §7.11 — grace 를 넘긴 죽은 위성과 그 포트의 dead entry 를 지운다. 고정핀은 둔다(IframeServerCard 로 계속 다룬다). 지울 때 forgetPort 해 다시 감지되게 한다.
     const nowMs = Date.now();
     for (const agent of this.agents.values()) {
       if (!agent.persistSatellites) continue;
@@ -13805,13 +12359,7 @@ export class ProjectGraph {
     return changed;
   }
 
-  /**
-   * §7.11 — 살아 있는 iframe 위성의 표시 URL 이 **프리뷰로 열 만한 주소인지** 한 번씩 확인한다.
-   *
-   * 판정 규칙은 생성 경로와 같은 한 곳(`resolvePreviewUrl` → shared `previewUrlForServer`)이다.
-   * 경로가 없는 주소(=이미 정문)와 이미 확인한 URL 은 건너뛰므로, 평소 sweep 에서는 HTTP 를
-   * 한 번도 더 보내지 않는다. 죽어 있는 위성도 대상이 아니다 — 물어봐야 답이 없다.
-   */
+  /** §7.11 — 표시 URL 이 프리뷰로 열 만한지 한 번씩 본다(`resolvePreviewUrl`). 경로 없는 주소·확인한 URL·죽은 위성은 건너뛰어 평소엔 HTTP 를 안 보낸다. */
   private async normalizeIframePreviewUrls(
     results: { t: { agentSessionId: string; index: number; url: string }; portAlive: boolean }[],
   ): Promise<boolean> {
@@ -13856,19 +12404,8 @@ export class ProjectGraph {
   private bashWritePre = new Map<string, Map<string, string | null>>();
 
   /**
-   * §2.1 #3 쓰기 축 — 셸로 고친 파일의 **수정 이력**을 남긴다.
-   *
-   * `Edit`/`Write` 는 도구 입력에 old/new 가 실려 오지만 셸 명령에는 그런 것이 없다. 그래서
-   * `Write` 가 이미 쓰는 수법을 그대로 쓴다 — **사전에 디스크를 한 번, 사후에 다시 한 번** 떠서
-   * 그 둘을 diff 의 양쪽으로 삼는다.
-   *
-   * **내용이 그대로면 적지 않는다.** 이것이 오탐의 마지막 관문이다 — 우리가 쓰기로 잘못 읽은
-   * 명령은 파일을 바꾸지 않으므로 여기서 조용히 걸러지고, 가짜 diff 가 이력에 남지 않는다.
-   * 같은 이유로 **사전 스냅샷이 아예 없으면 적지 않는다** — 비교 대상 없이 적으면 멀쩡한 파일이
-   * "통째로 새로 쓰였다"로 보인다.
-   *
-   * 한 명령이 여러 파일을 고칠 수 있으므로 중복 방지 키는 `tool_use_id` 가 아니라 `<uid>:<경로>` 다
-   * (uid 하나로 막으면 두 번째 파일부터 조용히 사라진다).
+   * §2.1 #3 — 셸로 고친 파일의 이력: old/new 가 없어 디스크를 사전·사후로 떠 diff 한다. 내용이 같거나 사전 스냅샷이 없으면 적지 않는다(오탐 · 통째 새 파일로 보임 방지).
+   * 중복 키는 `<uid>:<경로>` — uid 만이면 두 번째 파일부터 사라진다.
    */
   private recordBashFileEdits(payload: HookEventPayload): void {
     const uid = payload.tool_use_id;
@@ -13914,15 +12451,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.26 (C) ② — 도구가 파일을 덮기 **직전**의 사본을 저장고에 앉힌다.
-   *
-   * `PreToolUse` 에서만 뜬다 — 사후에 뜨면 그건 사본이 아니라 결과 사진이고, 되돌릴 것이 없다.
-   * 대상 경로는 §2.1 #3 쓰기 축이 이미 뽑아 놓은 것을 그대로 쓴다(Bash 는 `bashWritePathsFor`,
-   * 편집 계열은 `parseEditToolObject`) — 목록을 두 벌로 두면 한쪽만 고쳐져 사본이 비는 날이 온다.
-   *
-   * ⚠ 바이트 읽기는 저장고가 자기 손으로 한다(`readDiffSideFromDisk` 를 빌리지 않는다).
-   *   그쪽은 이진 파일을 `null` 로 떨구는데, 되돌리기에서는 이진이야말로 diff 로 복구할 수 없는
-   *   유일한 부류라 **가장 먼저 사본이 필요한** 쪽이다.
+   * §5.26 (C) ② — 덮기 직전 사본(`PreToolUse` 에서만). 경로는 §2.1 #3 쓰기 축 것을 그대로 쓴다(두 벌 ❌).
+   * ⚠ 바이트는 저장고가 읽는다 — `readDiffSideFromDisk` 는 이진을 `null` 로 떨구는데 이진이 가장 사본이 필요하다.
    */
   private captureInsurancePreimages(payload: HookEventPayload): void {
     if (payload.hook_event_name !== 'PreToolUse') return;
@@ -13959,13 +12489,8 @@ export class ProjectGraph {
   }
 
   /**
-   * fileEdits 맵 키를 사용자가 클릭하는 노드 키와 동일하게 산출한다.
-   * `routeToolFilePath` 의 **세 갈래를 모두** 미러한다 —
-   *   ① internal: 파일의 owning project 기준 상대경로(+ worktree namespace prefix, processInternalFile)
-   *   ② external: 어느 프로젝트에도 없는 파일 → `__ext__<부모폴더>/<파일명>` (processExternalFile)
-   *   ③ 워크트리 home 세션이 다른 프로젝트 파일을 만진 경우 → ② 에 워크트리 prefix
-   * recordFileEdit 가 키를 따로 계산해서 scan(`manual`) 노드/워크트리 노드/외부 위성과 키가
-   * 어긋나 diff 가 안 붙던 문제 차단.
+   * fileEdits 키를 노드 키와 같게 — `routeToolFilePath` 세 갈래(internal 상대경로+wt 접두 · external `__ext__<부모>/<파일>` · 워크트리 세션의 남의 파일 = external+wt 접두)를 따른다.
+   * 따로 내면 diff 가 노드에 안 붙는다.
    */
   private canonicalFileKey(absPath: string, sessionCwd?: string): string {
     const norm = normalize(absPath);
@@ -13973,12 +12498,7 @@ export class ProjectGraph {
     const isHomeWorktree = !!sessionProject?.parentProjectPath;
     const fileProject = this.getProjectForCwd(norm);
 
-    // 라우팅(routeToolFilePath)의 갈림을 **그대로** 따라간다.
-    //  - 파일이 어느 등록 프로젝트에도 없다 → external
-    //  - 워크트리 home 세션이 **다른** 프로젝트 파일을 만졌다(= 내 워크트리에서 외부) → external
-    // 이 두 갈래를 안 따라가면 노드 키는 `__ext__…` 인데 diff 키는 절대경로라 서로 못 만난다 —
-    // 파일 버블은 떠 있는데 내용이 비고(buildFileEditsRecord 의 node 조회 실패),
-    // toProjectCheckpoint 의 노드 필터에서도 통째로 버려져 껐다 켜면 흔적조차 없다.
+    // 라우팅의 external 갈림(어느 프로젝트에도 없음 · 워크트리 세션이 다른 프로젝트 파일)을 그대로 따른다 — 어긋나면 버블 내용이 비고 체크포인트에서도 버려진다.
     const routedExternal = !fileProject
       || (isHomeWorktree && fileProject.path !== sessionProject!.path);
 
@@ -13999,11 +12519,7 @@ export class ProjectGraph {
     return this.externalFileNodeKey(norm, wtPrefix);
   }
 
-  /**
-   * 외부 파일의 **직속 부모 폴더** 절대경로 (§2.1 v1.55 평탄화 규칙).
-   * `processExternalFile` 과 `canonicalFileKey` 가 이 한 곳을 공유한다 — 규칙이 두 벌이 되면
-   * 한쪽만 고쳐져 파일 버블 키와 diff 키가 어긋난다.
-   */
+  /** 외부 파일의 직속 부모 폴더(§2.1). `processExternalFile` 과 `canonicalFileKey` 가 공유한다 — 두 벌이면 키가 어긋난다. */
   private externalParentFolder(normAbs: string): string {
     const folderAbs = path.dirname(normAbs).replace(/\\/g, '/');
     // 의미있는 부모 없음 → 경로 자체를 폴더로 폴백
@@ -14025,18 +12541,8 @@ export class ProjectGraph {
   }
 
   /**
-   * 편집 계열 도구 호출 → 파일 수정 기록 추가 (Pre/Post 모두 수용, dedup).
-   *
-   * 입력 모양은 **shared `parseEditToolObject` 한 곳**이 안다(§2.1 #3) — 네 도구를 여기서 다시
-   * 분해하면 도구 입력이 바뀔 때 클라 `IDE/diffTool.ts` 와 어긋난다.
-   * - `Edit`         old_string → new_string
-   * - `MultiEdit`    조각 여러 개 → **이력 한 줄**로 접는다(`joinEditHunks` 머리말: 조각마다
-   *                  한 줄씩 쌓으면 한 호출이 `MAX_FILE_EDITS` 를 먹고 병합창이 없는 diff 를 만든다)
-   * - `Write`        디스크 직전 내용 → tool_input.content 로 diff 합성. old 는 PreToolUse 시점
-   *                  디스크에서 읽어야 정확(Post 는 이미 새 내용). 신규/Pre 미수신/읽기 실패 → old=""
-   * - `NotebookEdit` new_source(셀 본문). `old_source` 가 없으면 old="" (없는 이전 본문 ❌)
-   *
-   * 확장자 필터 없음 — 모니터링 세션이 쓴 모든 파일(.md/.json/.ts/.ipynb/.lock 등) 캡처.
+   * 편집 도구 → 수정 기록(Pre/Post, dedup). 입력 모양은 shared `parseEditToolObject` 한 곳(§2.1 #3, 클라 `IDE/diffTool.ts` 와 맞춘다).
+   * `MultiEdit` 은 한 줄로 접는다(아니면 한 호출이 `MAX_FILE_EDITS` 를 먹는다). `Write` 의 old 는 PreToolUse 때 디스크에서(못 읽으면 ""). 확장자 필터 없음.
    */
   private recordFileEdit(payload: HookEventPayload): void {
     const tool = payload.tool_name;
@@ -14083,14 +12589,9 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.25 (F) "쓴 내용도 남는다" — 프로바이더가 고친 파일의 수정 이력 한 줄(코덱스 `apply_patch` 의 바뀐 덩어리).
-   *
-   * 버블과 쓰기 화살표는 같은 쓰기의 사후 `Write`(경로만 실린 합성 이벤트)가 **이미** 세웠다 — 그 이벤트는
-   * `content` 가 없어 `recordFileEdit` 이 버리므로, 이력은 여기서 따로 붙인다. 키는 그 버블과 **같은 함수**
-   * (`canonicalFileKey`, 같은 세션 cwd)로 낸다 — 따로 계산하면 버블은 떠 있는데 내용이 빈다.
-   * 본문은 장부(`codexPatchEdits.ts`)가 이미 잇고 잘라 왔다 — 여기서 또 자르면 표식이 두 번 붙는다.
-   *
-   * @returns 새로 적었으면 true(같은 id 가 다시 오거나 바뀐 것이 없으면 false).
+   * §5.25 (F) — 프로바이더(코덱스 `apply_patch`) 수정 이력. 버블은 경로만 실린 사후 `Write` 가 세웠고 그건 `recordFileEdit` 이 버려 여기서 붙인다.
+   * 키는 같은 `canonicalFileKey`(같은 cwd)로. 본문은 `codexPatchEdits.ts` 가 이미 잘랐다(또 자르면 표식이 둘).
+   * @returns 새로 적었으면 true.
    */
   recordProviderFileEdit(
     sessionId: string,
@@ -14116,29 +12617,18 @@ export class ProjectGraph {
     return true;
   }
 
-  /**
-   * 편집 한 건을 그 파일의 이력에 얹는다 — **병합창·항목 수·나이·경로 LRU 네 축이 여기 한 곳**이다
-   * (§3.2.3). `Edit`/`Write` 훅 경로와 §2.1 #3 Bash 쓰기 축이 같은 길을 쓴다(두 벌이 되면
-   * 한쪽만 고쳐져 상한이 어긋난다).
-   */
+  /** §3.2.3 — 병합창·항목 수·나이·경로 LRU 네 축이 여기 한 곳이다. 훅 편집과 Bash 쓰기가 같은 길을 쓴다(두 벌이면 상한이 어긋난다). */
   private appendFileEdit(key: string, entry: FileEdit, toolLabel: string): void {
     let list = this.fileEdits.get(key);
     if (!list) { list = []; this.fileEdits.set(key, list); }
 
-    // 노드별 unlimitedFileEdits=true 면 사용자가 "이 파일은 다 남겨라"를 명시한 것이므로
-    // 아래 세 축(병합창·나이·경로 LRU) 전부에서 제외한다 — 상한이 사용자 지정을 뒤집으면 안 된다.
+    // unlimitedFileEdits 노드는 세 축 모두에서 뺀다 — 상한이 사용자 지정을 뒤집지 않게.
     const fileNode = this.nodes.get(key);
     const unlimited = fileNode?.unlimitedFileEdits === true;
     const retention = appStateGetRetention();
 
-    // ─── D축 병합창 (§3.2.3) ───
-    // 같은 파일을 병합창 안에서 연달아 고치면 마지막 항목에 합친다(VS Code `mergeWindow` 와 같은 뜻).
-    // 에이전트는 한 파일을 연속 수정하는 일이 잦아, 이게 없으면 MAX_FILE_EDITS(20)가 한 턴 만에 차서
-    // 그 파일의 이력이 통째로 밀려난다. 합칠 때 **oldString 은 처음 것을 유지**해야 diff 가
-    // "그 창 전체의 변화"를 가리킨다.
-    // ⚠ head 를 **제자리 수정하지 않고 새 객체로 교체**한다 — `fileEditsViewCache` 가
-    //   (length, head 참조) 로 "안 바뀐 파일"을 판정하므로, 제자리 수정하면 스냅샷이 옛 내용을
-    //   그대로 재사용해 화면이 갱신되지 않는다(§9 v3.89 메모의 "엔트리는 불변" 전제).
+    // D축 병합창(§3.2.3) — 연속 수정은 마지막 항목에 합친다(없으면 MAX_FILE_EDITS 가 한 턴에 찬다). oldString 은 처음 것을 둔다.
+    // ⚠ head 는 새 객체로 바꾼다 — `fileEditsViewCache` 가 head 참조로 판정해 제자리 수정이면 화면이 안 바뀐다.
     const head = list[0];
     const withinMergeWindow =
       !unlimited
@@ -14165,11 +12655,7 @@ export class ProjectGraph {
     logger.debug(`Recorded file ${toolLabel}: ${key} (${list.length} total${withinMergeWindow ? ', merged' : ''})`);
   }
 
-  /**
-   * A축 — 한 파일의 편집 이력에서 보존 기간이 지난 것을 버린다(§3.2.3).
-   * 리스트는 최신순(`unshift`)이라 **뒤에서부터** 자르면 된다. 전부 만료면 키 자체를 지운다
-   * (빈 배열을 남기면 E축 경로 상한에 헛자리로 잡힌다).
-   */
+  /** A축(§3.2.3) — 기간 지난 편집을 뒤에서 자른다(최신순). 전부 만료면 키를 지운다(빈 배열은 E축 상한의 헛자리). */
   private pruneFileEditListByAge(key: string, list: FileEdit[], days: number): void {
     if (days <= 0 || list.length === 0) return; // 0 = 무제한
     let keep = list.length;
@@ -14179,12 +12665,7 @@ export class ProjectGraph {
     else list.length = keep;
   }
 
-  /**
-   * E축 — 편집 이력을 들고 있는 **파일 경로 키 개수** 상한. 마지막 편집이 가장 오래된 경로부터 버린다(LRU).
-   *
-   * 종전에 `fileEdits.delete` 는 소스에 존재조차 하지 않았고, 유일한 방벽이던 "노드 살아있는 경로만
-   * 저장"(v4.67 필터)은 `pruneExpired()` 가 비활성이라 걸러 낼 대상이 안 생겼다 — 그래서 597키까지 늘었다.
-   */
+  /** E축 — 이력을 든 경로 키 수 상한(LRU). `pruneExpired()` 가 비활성이라 산 노드 필터로는 안 준다(실측 597키). */
   private enforceFileEditPathCap(maxPaths: number): void {
     if (maxPaths <= 0 || this.fileEdits.size <= maxPaths) return; // 0 = 무제한
     const candidates: { key: string; lastAt: number }[] = [];
@@ -14200,12 +12681,7 @@ export class ProjectGraph {
     }
   }
 
-  /**
-   * §3.2.3 — 편집 이력 전체 정리. **부팅 시 1회 + 보존 설정 변경 시** 호출한다.
-   *
-   * `recordFileEdit` 경로는 "방금 손댄 파일"만 늙히므로, 한동안 건드리지 않은 경로는 여기서만 정리된다.
-   * 반환값은 저장소 사용량 화면이 "얼마나 회수했는지" 그대로 보여 주는 데 쓴다(조용히 지우지 않는다).
-   */
+  /** §3.2.3 — 이력 전체 정리(부팅 1회 + 보존 설정 변경). 오래 안 건드린 경로는 여기서만 정리된다. 반환값은 저장소 사용량 화면이 쓴다. */
   pruneFileEditRetention(): { removedEdits: number; removedPaths: number } {
     const retention = appStateGetRetention();
     let removedEdits = 0;
@@ -14236,13 +12712,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §9 v3.89 — 파일별 보정 결과 메모. 키는 원본 배열 자체(WeakMap → 파일이 사라지면 함께 수거).
-   *
-   * 종전엔 스냅샷 재구축마다 **모든 파일의 모든 edit 을 새 객체로 다시 만들었다**. 실측 저장소
-   * 기준 1,194건·2.2MB 를 매번 다시 할당·복사한 셈이고, 이건 편집한 파일이 쌓일수록 무거워진다.
-   * edit 엔트리는 만들어진 뒤 바뀌지 않고, 리스트는 **앞에 추가(unshift) + 뒤 잘라내기**만 하므로
-   * (길이, 첫 원소) 가 그대로면 내용도 그대로다 — 그때는 지난 배열을 그대로 재사용한다.
-   * 참조가 유지되므로 스냅샷 소비자(클라 structuralShare)도 "안 바뀐 파일"을 알아본다.
+   * §9 — 파일별 보정 결과 메모(WeakMap). 매번 새로 만들면 스냅샷마다 전 edit 을 복사한다(실측 1,194건·2.2MB).
+   * 엔트리 불변 + 앞 추가·뒤 자르기만이라 (길이, 첫 원소)가 같으면 재사용 — 참조가 남아 클라 structuralShare 도 알아본다.
    */
   private fileEditsViewCache = new WeakMap<
     FileEdit[],
@@ -14250,23 +12721,9 @@ export class ProjectGraph {
   >();
 
   /**
-   * §9 — 스냅샷 키맵 슬라이스의 **배열 복사본 메모**. 키는 원본 배열 자체(WeakMap → 함께 수거).
-   *
-   * 바로 위 `fileEditsViewCache` 가 파일 편집 하나에 하던 것을 **키맵 슬라이스 전반**으로 넓힌 것이다.
-   *
-   * **왜 복사가 필요한가** — 내부 배열은 *제자리로* 바뀐다(`push` + 상한 트림 `splice`). 원본을
-   * 그대로 실으면 전선 델타(`broadcastBus.encodeSnapshotMessage`)의 참조 비교가 "안 바뀜"으로 읽어
-   * **변경분이 유실된다**.
-   *
-   * **왜 캐시가 필요한가** — 반대로 매번 새로 복사하면 모든 키가 매 스냅샷마다 새 참조가 되어
-   * 그 델타도, 클라 `structuralShare` 도 통째로 무력해진다. 실측(2026-09-02 · 이 저장소의 살아
-   * 있는 checkpoint): 키맵 슬라이스 **941KB 의 참조 유지율 0%** — 한 에이전트가 한 줄을 뱉을 때마다
-   * `agentReports` 240KB · `sessionGoals` 171KB · `agentReviews` 153KB 가 통째로 다시 전선을 탔다.
-   *
-   * 무효화 판정은 **길이 + 첫 원소 + 마지막 원소**다. 이 맵들의 변경은 전부 한쪽 끝에 붙이고 다른
-   * 쪽 끝을 잘라내는 모양이라(`AGENT_REPORT_MAX_PER_AGENT` 등 상한 트림) 셋 중 하나가 반드시
-   * 달라진다. 원소 자체는 만들어진 뒤 바뀌지 않는다 — 고칠 때는 **새 객체로 교체**한다(위 `fileEdits`
-   * 가 `head` 를 제자리 수정하지 않는 것과 같은 규율).
+   * §9 — 키맵 슬라이스 복사본 메모(WeakMap). 원본은 제자리로 바뀌어 그대로 실으면 델타(`encodeSnapshotMessage`)가 변경을 놓치고,
+   * 매번 복사하면 델타·`structuralShare` 가 무력해진다(실측 2026-09-02: 941KB 유지율 0%).
+   * 무효화는 길이 + 첫·마지막 원소(한쪽에 붙이고 다른 쪽을 자르는 꼴). 원소는 불변 — 고칠 때 새 객체로.
    */
   private sliceCopyCache = new WeakMap<
     readonly unknown[],
@@ -14354,15 +12811,63 @@ export class ProjectGraph {
     let refs = this.nodeAgentRefs.get(nodePath);
     if (!refs) { refs = new Set(); this.nodeAgentRefs.set(nodePath, refs); }
     refs.add(agentId);
+    // §5.1 #2-1 (B) — 같은 자리에서 이번 턴 장부에도 적는다(소유 기록이 붙는 길은 이 한 곳이다).
+    let turn = this.agentTurnNodes.get(agentId);
+    if (!turn) { turn = new Set(); this.agentTurnNodes.set(agentId, turn); }
+    turn.add(nodePath);
+  }
+
+  /** §5.1 #2-1 (B) — 이 에이전트의 이번 턴을 닫는다. 비울 것이 있었으면 true(스냅샷 캐시도 함께 무른다). */
+  private closeAgentTurn(agentId: string): boolean {
+    const turn = this.agentTurnNodes.get(agentId);
+    if (!turn) return false;
+    this.agentTurnNodes.delete(agentId);
+    if (turn.size === 0) return false;
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  /** 이 에이전트의 세션 가운데 지금 한 턴을 실제로 처리 중인 것이 있나(`exceptSubId` 는 빼고 센다). */
+  private agentProcessingTurn(agentId: string, exceptSubId?: string): boolean {
+    return subAgentManager.getAllSubs(agentId).some(
+      (s) => s.id !== exceptSubId && subAgentManager.isSubProcessingCommand(s.id),
+    );
   }
 
   /**
-   * 지금 `active` 인(휴지통 제외) 에이전트 버블 id 집합 — **스냅샷 한 벌을 짓는 동안만** 재사용.
-   *
-   * 노드마다 다시 세면 노드×참조×에이전트로 곱해지므로 한 번만 센다. 유효 조건은 판
-   * (`mutationVersion`)이 같고 `ACTIVE_AGENT_MEMO_MS` 안일 때 — **`mutationVersion` 은 전수가
-   * 아니라서**(훅 경로 일부는 올리지 않는다) 판만 믿으면 놓친 전이가 영영 반영되지 않는다.
-   * 벽시계 상한을 함께 걸어, 이 메모가 스냅샷 캐시(§3.2 판+TTL)보다 낡을 수 없게 못 박는다.
+   * §5.1 #2-1 (B) — 명령이 처음 나갈 때. 처리 중인 턴(`busy`)이 있으면 이어 붙이고 아니면 지난 턴을 닫는다(지난 턴 것을 묶음에 끌어오지 않는다).
+   * 판정은 실행 표식을 세우기 전에 낸다.
+   * @returns 장부를 비웠으면 true(스냅샷을 다시 보낸다).
+   */
+  beginAgentTurn(agentId: string, busy: boolean): boolean {
+    if (busy) return false;
+    return this.closeAgentTurn(agentId);
+  }
+
+  /** §5.1 #2-1 (B) — `UserPromptSubmit` 이 연 턴(CMD·바깥 세션). `endAgentPromptTurn` 전의 문장은 같은 턴. 헤드리스는 `beginAgentTurn` 이 이미 열었다. */
+  beginAgentPromptTurn(agentId: string, ownerSubId?: string): boolean {
+    // 매니저가 모든 인스턴스에 돌린다 — 이 에이전트를 모르는 인스턴스에 "턴 도중" 표식을 남기지 않는다.
+    if (!this.agentTurnNodes.has(agentId) && ![...this.agents.values()].some((a) => a.id === agentId)) return false;
+    if (this.promptTurnAgents.has(agentId)) return false;
+    this.promptTurnAgents.add(agentId);
+    if (this.agentProcessingTurn(agentId, ownerSubId)) return false;
+    return this.closeAgentTurn(agentId);
+  }
+
+  /** §5.1 #2-1 (B) — 사람이 친 문장의 턴이 끝났다(그 세션의 `Stop`·`SessionEnd`). */
+  endAgentPromptTurn(agentId: string): void {
+    this.promptTurnAgents.delete(agentId);
+  }
+
+  /** §5.1 #2-1 (B) — IDE 에서 세션을 확인했다(탭 점 초록→회색) — 서버 턴도 닫아야 묶음에서 빠진다. 도는 턴이 없을 때만, 버블은 걷지 않는다. */
+  acknowledgeAgentTurn(agentId: string): boolean {
+    if (this.promptTurnAgents.has(agentId) || this.agentProcessingTurn(agentId)) return false;
+    return this.closeAgentTurn(agentId);
+  }
+
+  /**
+   * `active` 에이전트 id(휴지통 제외) — 스냅샷 한 벌 동안만 재사용(노드마다 세면 곱으로 는다).
+   * ⚠ `mutationVersion` 만 믿지 마라 — 훅 경로 일부는 판을 안 올려 전이를 놓친다. `ACTIVE_AGENT_MEMO_MS` 벽시계 상한을 같이 건다.
    */
   private activeAgentIdMemo: { version: number; at: number; ids: Set<string> } | null = null;
 
@@ -14380,16 +12885,38 @@ export class ProjectGraph {
     return ids;
   }
 
+  /** §5.1 #2-1 (B) — 턴이 열려 있을 수 있는 에이전트 id. 상태는 보지 않는다 — 턴은 확인 때 닫히므로(§2.4) `completed`·유휴여도 열려 있다. */
+  private openTurnAgentIdMemo: { version: number; at: number; ids: Set<string> } | null = null;
+
+  private openTurnAgentIdSet(): Set<string> {
+    const now = Date.now();
+    const memo = this.openTurnAgentIdMemo;
+    if (memo && memo.version === this.mutationVersion && now - memo.at < ACTIVE_AGENT_MEMO_MS) {
+      return memo.ids;
+    }
+    const ids = new Set<string>();
+    for (const agent of this.agents.values()) {
+      if (!agent.trashed) ids.add(agent.id);
+    }
+    this.openTurnAgentIdMemo = { version: this.mutationVersion, at: now, ids };
+    return ids;
+  }
+
   /**
-   * §5.4 #36 (H) ①-2 — 연결을 붙든 에이전트(고정 `linksPinned` · 다시 보기 `linksReplay`, 휴지통 제외)의
-   * **선에 매달린 활동 버블** id 집합. `isAlive` 가 이 버블들을 5분 TTL 로 빼지 않게 한다.
-   *
-   * "선에 매달린" = 그 에이전트와 활동 엣지로 이어진 버블에서 출발해 자식·위성으로 내려가며 **그 에이전트 소유**
-   * (`nodeAgentRefs`)인 것만이다. 소유 기록만으로 고르지 않는 까닭: 기록은 확인 전까지 지워지지 않아(§2.4 잔상 규칙)
-   * 오래 산 세션은 선이 끊긴 옛 버블 수백 장을 들고 있다 — 고정 한 번에 그것이 전부 되살아나면 안 된다.
-   * 선 끝이 워크트리 버블처럼 활동 버블이 아니면 그 아래로만 내려간다.
-   *
-   * 메모는 `activeAgentIdSet` 과 같은 규약(판 + `ACTIVE_AGENT_MEMO_MS`) — 붙든 에이전트가 없으면 빈 집합 하나로 끝난다.
+   * §5.1 #2-1 (B) — 아직 확인 안 한 턴에 쓰였나(묶음엔 그 턴 것만). 소유 기록(`nodeAgentRefs`)과 그 에이전트의 이번 턴 장부(`agentTurnNodes`) 둘 다에 있어야 한다 —
+   * 기록만이면 IDE 확인·새 명령을 몰라 며칠치가 한 턴이 되고, 장부만이면(경로만) 같은 경로에 다시 선 버블까지 든다. 묶음 수·묶음 안·`inOpenTurn` 이 이 한 곳을 본다.
+   */
+  private usedInOpenTurn(nodePath: string): boolean {
+    const refs = this.nodeAgentRefs.get(nodePath);
+    if (!refs || refs.size === 0) return false;
+    const open = this.openTurnAgentIdSet();
+    for (const id of refs) if (open.has(id) && this.agentTurnNodes.get(id)?.has(nodePath) === true) return true;
+    return false;
+  }
+
+  /**
+   * §5.4 #36 (H) ①-2 — 연결을 붙든 에이전트의 선에 매달린 활동 버블 id(`isAlive` 5분 TTL 예외). 활동 엣지 끝에서 내려가며 그 에이전트 소유인 것만 —
+   * 소유 기록만으로 고르면 선이 끊긴 옛 버블 수백 장이 되살아난다. 메모 규약은 `activeAgentIdSet` 과 같다.
    */
   private heldLinkMemo: { version: number; at: number; ids: Set<string> } | null = null;
 
@@ -14446,23 +12973,17 @@ export class ProjectGraph {
   }
 
   /**
-   * 특정 에이전트의 활성 표시를 내린다 → 활성 참조가 없는 노드는 idle 전환.
-   *
-   * ⚠ **소유 기록(`nodeAgentRefs`)은 지우지 않는다.** 활성 판정은 `otherActiveIds` 필터가 하므로
-   * "누가 이 버블을 만졌나"를 함께 지울 이유가 없고, 지우면 §2.4 v1.82 "확인 dismiss → 전유
-   * file/folder 즉시 소멸" 이 근거를 잃는다. 종전에는 `refs.delete(agentId)` + `refs.clear()` 로
-   * 강등 시점에 기록을 통째로 버렸고, 그래서 세션이 끝난 뒤(=`setAgentStatus('completed')` 뒤)
-   * 사용자가 그 버블을 눌러도 `removeAgentRefsPurging` 의 `refs.has(agentId)` 가 false 라 **한 장도
-   * 걷히지 않았다**(실측: 살아 있는 checkpoint.json 의 `nodeAgentRefs` 2,425칸 중 2,409칸이 빈 배열).
-   * 그 고아 버블들이 "껐다 켜도 남는 것"의 정체다.
-   *
-   * `options.forget`: 에이전트가 **영구히 사라질 때만** `true` — 그때는 죽은 id 가 노드에 눌러앉지
-   *   않도록 기록에서 지운다(`removeBubble` 의 에이전트 삭제 경로 한정).
-   * `options.wasActive`: 실제 active 종료일 때만 명령 앱의 유휴 유예를 시작한다.
+   * 활성 표시를 내린다. ⚠ 소유 기록(`nodeAgentRefs`)은 지우지 마라 — 지우면 확인 dismiss 가 한 장도 못 걷어 고아 버블이 남는다(§2.4, 실측 2,425칸 중 2,409칸이 빈 배열).
+   * `options.forget`: 영구 삭제(`removeBubble`)일 때만 기록에서 지운다. `options.wasActive`: 실제 active 종료일 때만 명령 앱 유휴 유예를 시작한다.
    */
   private removeAgentRefs(agentId: string, activeIds?: Set<string>, options: { forget?: boolean; wasActive?: boolean } = {}): void {
     const now = Date.now();
     const otherActiveIds = activeIds ?? this.getActiveAgentIds(agentId);
+    if (options.forget) {
+      // 영구히 사라지는 에이전트 — 그 턴 장부도 함께 버린다(§5.1 #2-1 (B)).
+      this.agentTurnNodes.delete(agentId);
+      this.promptTurnAgents.delete(agentId);
+    }
     for (const [nodePath, refs] of this.nodeAgentRefs) {
       const ownedByFinishingAgent = refs.has(agentId);
       if (options.forget) refs.delete(agentId);
@@ -14473,13 +12994,8 @@ export class ProjectGraph {
       if (!hasActiveRef) {
         const node = this.nodes.get(nodePath);
         const next = node?.bubbleType === 'ghost' ? 'disappearing' : 'idle';
-        // 시계는 **이번에 내려가는 노드만** 다시 감는다. 이 루프는 방금 끝난 에이전트의 노드만이
-        // 아니라 소유 기록이 남은 노드 전부를 돌므로, 이미 유휴인 노드까지 `now` 로 찍으면 턴이
-        // 끝날 때마다 프로젝트 전체의 유휴 버블이 5분 TTL(§2.4)을 처음부터 다시 받아 되살아난다
-        // (실측: 유휴 file/folder/domain 1,876장 중 1,592장이 같은 ms 를 달고 있었다).
-        // Command completion can already have cleared the app's running decoration.
-        // Start its normal grace period when the last active owner actually finishes,
-        // without refreshing it on repeated idle sweeps or unrelated agent turns.
+        // 시계는 이번에 내려가는 노드만 감는다 — 유휴 노드까지 `now` 로 찍으면 턴마다 전체 유휴 버블이 5분 TTL 을 다시 받는다(실측 1,876장 중 1,592장이 같은 ms).
+        // Command apps start their grace period only when the last active owner finishes, not on idle sweeps or unrelated turns.
         const commandOwnerFinished = !!node?.commandApp && ownedByFinishingAgent && options.wasActive;
         if (node && (node.status !== next || commandOwnerFinished)) {
           node.status = next;
@@ -14491,18 +13007,15 @@ export class ProjectGraph {
   }
 
   /**
-   * 사용자가 `completed` 에이전트를 확인(클릭/dismiss)했을 때 호출 (§2.4 "확인 dismiss → 전유 file/folder 즉시 소멸", v1.82).
-   * `removeAgentRefs` 와 동일하게 참조를 끊되, **이 에이전트가 전유하던**(다른 active 에이전트 참조 0)
-   * 파일·폴더·도메인·명령 앱 버블은 idle 로 내리지 않고 **즉시 `removeBubble`** 한다
-   * (페이드/disappearing/5분 TTL 거치지 않음). `preservePinned`/`pinned` 은 존중하여 idle 로만 둔다.
-   * 다른 수명의 노드는 기존 `removeAgentRefs` 와 동일하게 idle.
-   * 자동 timeout idle 경로에서는 호출하지 않는다(5분 TTL grace 유지).
-   * @returns 즉시 제거된 버블 id 목록
+   * §2.4 — `completed` 에이전트를 확인했을 때: 전유하던 파일·폴더·도메인·명령 앱 버블은 즉시 `removeBubble`, 핀과 나머지는 idle. 자동 idle 에선 부르지 않는다.
+   * @returns 즉시 제거된 버블 id
    */
   private removeAgentRefsPurging(agentId: string, activeIds?: Set<string>): string[] {
     const now = Date.now();
     const otherActiveIds = activeIds ?? this.getActiveAgentIds(agentId);
     const toRemove: string[] = [];
+    // §5.1 #2-1 (B) — 확인은 그 턴을 닫는다(묶음에서도 빠진다). 고정을 풀어 걷는 길도 같은 걷기라 함께 닫힌다.
+    this.closeAgentTurn(agentId);
     for (const [nodePath, refs] of this.nodeAgentRefs) {
       // 이 에이전트가 쓰던 노드만 대상 — 무관한 고아는 건드리지 않음
       if (!refs.has(agentId)) continue;
@@ -14545,42 +13058,19 @@ export class ProjectGraph {
   }
 
   /**
-   * satelliteMap set 을 폴더 상한까지 오래된 것부터 줄인다.
-   *
-   * §5.1 #2-1 (D) — 상한은 **자리** 수다. 같은 종류 묶음(같은 폴더의 같은 미디어 종류 — 2026-10-22 부터 이 폴더의 직속 파일도
-   * 포함, shared `planKindBundles`, 화면의 묶음 버블과 같은 판정)은 한 자리로 센다: 같은 폴더의 영상 다섯이 다섯 자리를 다
-   * 먹으면 화면에는 묶음 하나만 서고 나머지 자리가 빈다. 한 묶음은 `CONSTELLATION.moonMax` 까지만 남긴다 — 그보다 오래된 구성은
-   * 뺀다(묶음 곁에 같은 폴더의 같은 종류가 낱자리로 따로 서지 않게). 위성 목록에서 빠질 뿐 파일 노드는 그대로라, 묶음 안은 그
-   * 폴더의 같은 종류를 전부 세운다(스냅샷의 `folderNodeId` 로 그 폴더를 범위로 선언한다). 상한 안이면 판정 없이 지나간다(종전과
-   * 같다). 넘치면 자리마다 가장 최근 위치(set 은 오래된 것 → 최근 것 순서)를 재어 오래된 자리부터 통째로 뺀다.
-   * 판정은 경로와 종류만 본다 — 2026-10-21 파일 중심 별자리를 걷으며(사용자 지시 "사진 묶음인데 … 다른 파일들도 같이 있는게
-   * 문제") 내용 언급을 기다려 상한을 미루던 보류도 걷었다. 앱 노드 중심은 클라만 안다(`linkedItems`).
+   * §5.1 #2-1 (D) — 상한은 자리 수다: 같은 종류 묶음(shared `planKindBundles`, 하위 폴더 무관)은 한 자리, 한 묶음은 `CONSTELLATION.moonMax` 까지.
+   * 파일 노드는 남아 묶음 안은 그 폴더의 같은 종류를 다 세운다. 넘치면 가장 최근 위치로 재어 오래된 자리부터 뺀다(shared `keepSatelliteSeats` — IDE 세션 지도와 공유).
+   * 판정은 경로와 종류만 본다(앱 노드 중심은 클라만 안다 — `linkedItems`).
    */
   private trimSatellites(folderPath: string, set: Set<string>): void {
     const cap = this.folderMaxSatellites(folderPath);
     if (set.size <= cap) return;
-    const bundles = planKindBundles(
+    const keep = keepSatelliteSeats(
       [...set].map((key, i) => ({ id: key, path: key, lastActivity: i })),
+      cap,
       { platform: HOST_PLATFORM },
     );
-    // 자리 열쇠 — 묶음은 경로가 될 수 없는 머리(NUL)를 달아 파일 키와 겹치지 않게 한다.
-    const unitOf = new Map<string, string>();
-    for (const bundle of bundles) {
-      for (const key of bundle.overflowIds) set.delete(key);
-      for (const key of bundle.memberIds) unitOf.set(key, `\u0000${bundle.token}`);
-    }
-    if (set.size <= cap) return;
-    const keys = [...set];
-    const latest = new Map<string, number>();
-    keys.forEach((key, i) => latest.set(unitOf.get(key) ?? key, i));
-    if (latest.size <= cap) return;
-    const keep = new Set(
-      [...latest.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, cap)
-        .map(([unit]) => unit),
-    );
-    for (const key of keys) if (!keep.has(unitOf.get(key) ?? key)) set.delete(key);
+    for (const key of [...set]) if (!keep.has(key)) set.delete(key);
   }
 
   /**
@@ -14604,12 +13094,7 @@ export class ProjectGraph {
     return true;
   }
 
-  /**
-   * 파일 버블의 diff 무한 저장 토글 (§7.4 — 디테일 패널 체크박스).
-   * 노드에 unlimitedFileEdits 저장. limited 로 되돌리면(=false) 기존 fileEdits 리스트를
-   * 즉시 MAX_FILE_EDITS 까지 FIFO 트림(maxSatellites 즉시 트림 선례와 동일).
-   * 파일 노드를 못 찾으면 false.
-   */
+  /** §7.4 — diff 무한 저장 토글. 끌 때 기존 fileEdits 를 바로 MAX_FILE_EDITS 까지 자른다. 노드가 없으면 false. */
   setFileEditsUnlimited(nodePath: string, unlimited: boolean): boolean {
     const key = foldCase(nodePath);
     const node = this.nodes.get(key);
@@ -14623,9 +13108,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.1 명령 앱 · §7.3 — 명령 목록 체크박스(`마지막 20개만 유지`). 파일 버블 `setFileEditsUnlimited` 와 같은 규칙이지만 **기록은
-   * 자르지 않는다** — 앱별 이력은 세션 실행 기록(`bashHistory`)의 참조라, 버블 하나가 남의 앱 기록까지 지울 수 없다. 보이는
-   * 수만 정한다(클라 `commandHistoryRows`). Bash 노드를 못 찾으면 false.
+   * §5.1 · §7.3 — 명령 목록 `마지막 20개만 유지` 체크박스. 기록은 자르지 않는다 — 앱별 이력은 `bashHistory` 의 참조라 자르면 남의 앱 기록까지 지운다.
+   * 보이는 수만 정한다(클라 `commandHistoryRows`). Bash 노드가 없으면 false.
    */
   setCommandHistoryUnlimited(nodeId: string, unlimited: boolean): boolean {
     for (const node of this.nodes.values()) {
@@ -14654,10 +13138,7 @@ export class ProjectGraph {
     return rel || null;
   }
 
-  /** payload.cwd 가 git 워크트리일 때, 그 워크트리의 **부모 프로젝트에 속한
-   *  customCreated 에이전트**(서브를 띄운 주체)의 세션키를 반환. 없으면 null.
-   *  redirect 의 sub.sessionId 매칭이 빗나갈 때의 결정적 폴백 — orphan 워크트리 워커
-   *  버블 생성을 막고 작업/엣지를 커스텀 부모에 귀속시킨다. */
+  /** 워크트리 cwd 의 부모 프로젝트 customCreated 에이전트 세션키(없으면 null) — sub.sessionId 매칭이 빗나갈 때 고아 워커 버블 대신 커스텀 부모에 귀속시킨다. */
   private resolveWorktreeOwnerSession(cwd: string): string | null {
     const norm = normalize(cwd);
     // 워크트리 부모 프로젝트명 해석.
@@ -14937,18 +13418,9 @@ export class ProjectGraph {
     return topFolder;
   }
 
-  /** 외부 파일/폴더 처리 — §2.1 v1.55 평탄화 + 접합 트리.
-   *  드라이브 루트부터 펼치는 1자형 폴더 체인 ❌. 에이전트가 만진 파일의 **직속 부모 폴더 1개**만
-   *  `external_folder` 버블로 업서트하고 그 폴더에 파일을 satellite 로 등록한다.
-   *  같은 부모 폴더 안의 다른 파일이 들어오면 같은 버블에 누적 (라벨/카운트/satellite 갱신).
-   *
-   *  등록이 끝나면 `rebuildExternalFolderTree` 가 외부 폴더끼리의 조상-자손을 다시 세운다 —
-   *  부모가 같은 폴더들이 최상위에서 끝없이 쪼개지지 않게(§2.1 #5). 그래서 이 함수가 돌려주는
-   *  것은 만진 폴더가 아니라 **그 폴더가 속한 최상위 조상**이다(내부 폴더가 첫 세그먼트를
-   *  돌려주는 것과 대칭 — 에이전트 엣지는 캔버스에 실제로 뜨는 버블에 걸려야 한다).
-   *
-   *  worktreeBubbleKey + wtPrefix 가 주어지면 외부 폴더가 워크트리 버블의 children 으로 들어가고
-   *  키는 wtPrefix 로 네임스페이스됨(이주된 에이전트의 외부 접근이 부모 캔버스 top-level 을 오염시키지 않게).
+  /**
+   * §2.1 — 만진 외부 파일의 직속 부모 폴더 하나만 `external_folder` 로(드라이브 루트부터의 체인 ❌), 파일은 위성. 돌려주는 것은 다시 세운 트리(§2.1 #5)의 최상위 조상이다(엣지는 화면의 버블에).
+   * wtPrefix 가 있으면 워크트리 버블 아래에 접두를 붙여 넣는다(부모 캔버스 최상위를 더럽히지 않게).
    */
   private processExternalFile(
     absolutePath: string,
@@ -14973,9 +13445,7 @@ export class ProjectGraph {
 
     const folderKey = this.externalFolderKey(wtPrefix, folderAbs);
 
-    // §2.1 v2.28 invariant — external_folder 버블 ↔ 위성 ≥ 1.
-    // Grep/Glob 결과 0/파싱 실패면 폴더 자체도 생성하지 않는다(폴더만 떠 있고 위성 0 금지).
-    // Read/Edit/Write 단일 파일은 항상 위성 1개를 동반하므로 invariant 자동 충족.
+    // §2.1 불변식 — external_folder 는 위성 ≥ 1. Grep/Glob 결과 0·파싱 실패면 폴더도 만들지 않는다.
     let resultFiles: string[] = [];
     if (isDirectory) {
       // 폴더 노드 미존재 상태에서도 maxSatellites 기본값을 알 수 있어야 함 (folderMaxSatellites 는 폴더 없으면 default 반환).
@@ -15008,14 +13478,11 @@ export class ProjectGraph {
 
     // 파일 노드 + satellite 등록
     if (!isDirectory) {
-      // Read/Edit/Write — 만진 파일 1개를 폴더 위성으로 (§2.1 v1.55)
-      // 키 산출은 canonicalFileKey 와 같은 헬퍼로 — 두 벌이 되면 diff 가 이 버블에 안 붙는다.
+      // 키는 canonicalFileKey 와 같은 헬퍼 — 두 벌이면 diff 가 안 붙는다.
       const fileKey = this.externalFileNodeKey(normAbs, wtPrefix);
       this.registerExternalSatellite(folderKey, fileKey, toolName, agentId, projectName);
     } else {
-      // Grep/Glob — tool_response 의 매치 결과 파일을 폴더 위성으로 (§2.1 v2.7).
-      // 결과가 하위 디렉토리에 있어도 중간 폴더 버블 없이 grep 한 폴더 1개의 위성으로 평탄화.
-      // 결과 0/파싱 실패 케이스는 위에서 early return (§2.1 v2.28 invariant).
+      // Grep/Glob — 하위 디렉토리 결과도 grep 한 폴더 하나의 위성으로 평탄화한다(§2.1).
       for (const absFile of resultFiles) {
         const fileKey = this.externalFolderKey(wtPrefix, absFile);
         this.registerExternalSatellite(folderKey, fileKey, toolName, agentId, projectName);
@@ -15042,7 +13509,6 @@ export class ProjectGraph {
     const fileNode = this.nodes.get(fileKey);
     if (folderNode && fileNode) {
       this.innerEdges.upsert(folderNode.id, folderNode, fileNode, toolName, agentId);
-      // 외부 폴더의 satellite 파일 수 즉시 갱신 (§2.1 v1.55 — UI 카운트 SSOT)
       const sat = this.satelliteMap.get(folderKey);
       folderNode.satelliteFileCount = sat ? sat.size : 0;
     }
@@ -15050,12 +13516,7 @@ export class ProjectGraph {
     if (agentId) this.addAgentRef(fileKey, agentId);
   }
 
-  /** external_folder 버블을 업서트 — 라벨은 전체 절대경로(§2.1 v1.55).
-   *  과거 버그/구버전 잔존으로 file 타입으로 등록됐다면 external_folder 로 상향 보정.
-   *
-   *  `quiet` 는 접합 버블 전용 — 에이전트가 만진 적 없는 자리라 활동 카운트를 올리지도,
-   *  이미 식은 버블을 다시 `active` 로 되살리지도 않는다(가짜 활동 금지). 라벨은
-   *  `rebuildExternalFolderTree` 가 부모 관계를 보고 마지막에 확정하므로 여기서는 처음 만들 때만 적는다. */
+  /** external_folder 업서트(라벨은 절대경로). 옛 file 타입은 고친다. `quiet` 는 접합 전용 — 활동을 올리거나 식은 버블을 깨우지 않는다(가짜 활동 ❌). 라벨은 트리 재구성이 확정한다. */
   private ensureExternalFolder(
     key: string,
     absolutePath: string,
@@ -15127,15 +13588,8 @@ export class ProjectGraph {
   }
 
   /**
-   * 만진 외부 폴더 절대경로 목록 → **압축 트라이**. 반환: 재질화된 경로 → 부모 경로(null=최상위).
-   *
-   * 버블이 되는 것은 두 가지뿐이다 —
-   *  ① 에이전트가 실제로 만진 폴더(`touched`)
-   *  ② 자식이 **둘 이상**인 분기점(접합)
-   * 자식이 하나뿐인 경유 폴더는 만들지 않는다. 그래서 외부 폴더가 하나뿐이면 결과는
-   * §2.1 v1.55 평탄화와 완전히 같다(최상위 1개 · 경유 버블 0개).
-   * 드라이브 루트는 분기점이어도 접합으로 만들지 않는다 — 만진 적 없는 `c:` 가 최상위에 서면
-   * "에이전트가 실제로 사용한 위치"라는 외부 폴더의 뜻이 무너진다.
+   * 외부 폴더 → 압축 트라이(재질화 경로 → 부모, null=최상위). 버블은 만진 폴더와 자식 둘 이상인 분기점(접합)뿐.
+   * 드라이브 루트는 접합으로 만들지 않는다 — 만진 적 없는 `c:` 가 최상위에 서면 외부 폴더의 뜻이 무너진다.
    */
   private static compressExternalTrie(absPaths: string[]): Map<string, string | null> {
     interface TrieNode {
@@ -15180,17 +13634,8 @@ export class ProjectGraph {
   }
 
   /**
-   * 외부 폴더 계층을 다시 세운다 — §2.1 #5 "같은 부모면 같은 버블 밑으로".
-   *
-   * 종전에는 에이전트가 만진 외부 폴더가 **하나도 빠짐없이 최상위 버블**이 됐다. 부모가 같아도
-   * 묶이지 않아, 세션마다 새로 생기는 `…/<세션UUID>/tasks` 같은 경로가 캔버스를 끝없이 쪼갰다
-   * (실측: 한 프로젝트에서 외부 폴더 48개 · 그중 17개가 부모가 같은 형제).
-   * 이제 **내부 폴더와 같은 규율**로 조상-자손을 세운다 — 부모 버블 하나를 열고 들어간다.
-   *
-   * "만진 폴더" 판정은 **위성 ≥ 1**(§2.1 v2.28 invariant)로 한다 — 접합인지 아닌지를
-   * 새 영속 필드로 적지 않기 위해서다(체크포인트를 왕복해도 같은 답이 나온다).
-   *
-   * @returns 재질화된 외부 폴더 키 → 부모 키(null=최상위). 호출자가 최상위 조상을 되짚는 데 쓴다.
+   * §2.1 #5 — 같은 부모면 같은 버블 밑으로(전부 최상위면 `…/<세션UUID>/tasks` 류가 캔버스를 쪼갠다). 만진 폴더 = 위성 ≥ 1 — 새 영속 필드 없이 왕복에도 같은 답.
+   * @returns 외부 폴더 키 → 부모 키(null=최상위).
    */
   private rebuildExternalFolderTree(): Map<string, string | null> {
     const assigned = new Map<string, string | null>();
@@ -15280,10 +13725,7 @@ export class ProjectGraph {
           }
         }
 
-        // ③ 옛 부모-자식 배선 청소 — 다른 부모에게 옮겨 간 외부 폴더가 양쪽에 걸려 있지 않게.
-        //    워크트리 컨테이너 부착은 ②가 관리하므로 건드리지 않는다.
-        //    훑는 범위는 이 네임스페이스의 외부 폴더뿐 — 외부 폴더를 자식으로 갖는 자리는 거기와
-        //    컨테이너밖에 없다(훅 경로라 `childrenMap` 전량 순회를 피한다).
+        // ③ 옮겨 간 외부 폴더의 옛 배선 청소(컨테이너 부착은 ② 몫). 훅 경로라 이 네임스페이스만 훑는다(`childrenMap` 전량 ❌).
         for (const parentKey of group.all) {
           const children = this.childrenMap.get(parentKey);
           if (!children) continue;
@@ -15293,13 +13735,7 @@ export class ProjectGraph {
           }
         }
 
-        // ④ 접합은 자기 자손의 소속·참조·생사를 물려받는다.
-        //    - 소속·참조: 체크포인트 노드 필터(`getProjectNodePaths`)를 통과하고,
-        //      자손이 dismiss 로 사라질 때 함께 정리되려면 있어야 한다.
-        //    - 생사(`lastActivity`/`status`): 접합은 스스로 만져지는 일이 없어 TTL 만으로는
-        //      **자식이 살아 있는데 부모만 먼저 식어 사라진다**. 그러면 자식은 최상위도 아니고
-        //      부모도 없어 스냅샷에서 통째로 사라진다(자손보다 먼저 죽지 않게 물려받는다).
-        //    깊은 곳부터 —  접합이 여러 겹이면 아래에서 위로 전파돼야 한다.
+        // ④ 접합은 자손의 소속·참조·생사를 물려받는다 — 없으면 체크포인트·dismiss 정리에서 빠지고, TTL 로 부모만 먼저 사라져 자식이 스냅샷에서 빠진다. 아래에서 위로(깊은 곳부터).
         const deepFirst = [...tree.keys()].sort((a, b) => b.split('/').length - a.split('/').length);
         for (const abs of deepFirst) {
           const key = this.externalFolderKey(prefix, abs);
@@ -15339,16 +13775,8 @@ export class ProjectGraph {
   }
 
   /**
-   * 외부 폴더 조상에게 **자손이 만진 파일**을 물려준다 — §2.1 #5 "가장 밖에도 읽고 쓴 파일이 뜬다".
-   *
-   * 내부 폴더가 만진 파일을 모든 조상에 위성으로 다는 것과 **같은 규율**이다. 다른 점은 심는
-   * 자리 하나뿐 — `satelliteMap` 이 아니라 파생 맵(`externalRollupSatellites`)에 심는다.
-   * 그래야 접합/만진 폴더 판정(위성 ≥ 1)이 흔들리지 않는다(그 이유는 필드 선언부 주석에).
-   *
-   * 매번 통째로 다시 만든다. 트리가 바뀌면 조상도 바뀌므로 증분으로 고치면 옛 조상에 남은
-   * 위성이 영영 안 걷힌다 — 지워진 폴더의 파일이 최상위에 유령으로 떠 있는 종류의 손상이다.
-   *
-   * @param assigned `rebuildExternalFolderTree` 가 방금 세운 자식 키 → 부모 키(null=최상위).
+   * §2.1 #5 — 조상에 자손의 파일을 물려준다. `externalRollupSatellites` 에 심어 위성 ≥ 1 판정을 흔들지 않는다. 매번 통째로 — 증분이면 옛 조상에 유령 위성이 남는다.
+   * @param assigned 방금 세운 자식 키 → 부모 키(null=최상위).
    */
   private rebuildExternalRollupSatellites(assigned: ReadonlyMap<string, string | null>): void {
     this.externalRollupSatellites.clear();
@@ -15379,12 +13807,7 @@ export class ProjectGraph {
     }
   }
 
-  /**
-   * §2.1 (B) — 최상위 외부 폴더 **예산**을 갈아 끼운다(옵션창 → 앱 설정 → 여기).
-   *
-   * 값이 실제로 바뀐 때만 트리를 다시 세운다 — 같은 값으로 매번 rebuild 를 부르면 훅 경로가
-   * 이유 없이 무거워지고, 스냅샷 버전이 올라 클라이언트가 헛 리렌더를 한다.
-   */
+  /** §2.1 (B) — 최상위 외부 폴더 예산. 바뀐 때만 다시 세운다(헛 rebuild 는 훅을 무겁게 하고 클라를 헛 리렌더시킨다). */
   setExternalTopBudget(budget: number): void {
     const next = normalizeExternalTopBudget(budget);
     if (next === this.externalTopBudget) return;
@@ -15392,13 +13815,7 @@ export class ProjectGraph {
     this.rebuildExternalFolderTree();
   }
 
-  /**
-   * §5.23 웹 버블 묶기 설정을 바꾼다(옵션창 → 앱 설정 → 매니저 → 여기). 정규화는 shared 한 곳.
-   *
-   * 장부는 하나도 바꾸지 않고 판만 올린다 — 올리지 않으면 200ms 캐시가 옛 모양의 스냅샷을 한 번 더
-   * 돌려준다. 바뀌면 접힌 자리를 비운다 — 묶음 id 가 달라질 수 있고, 다시 설 때 그사이 옮긴 호스트 자리를
-   * 물려받게 하려는 것이다. 같은 값이면 아무것도 하지 않는다.
-   */
+  /** §5.23 웹 버블 묶기 설정. 판만 올린다 — 안 올리면 200ms 캐시가 옛 스냅샷을 준다. 바뀌면 접힌 자리를 비운다(묶음 id 가 바뀔 수 있다). */
   setWebGroupSettings(settings: WebGroupSettings): void {
     const next = normalizeWebGroupSettings(settings);
     if (sameWebGroupSettings(next, this.webGroup)) return;
@@ -15411,20 +13828,7 @@ export class ProjectGraph {
     return { ...this.webGroup };
   }
 
-  /**
-   * §2.1 (C) — `external_folder` 총량 상한. 넘치면 **가장 식은 것부터** 걷는다.
-   *
-   * 접기(휘발 자리 · 접합 트리)로도 막지 못하는 증식이 하나 남는다 — 서로 다른 자리를 계속
-   * 새로 만지는 세션이다. 그때 캔버스가 무한정 커지지 않게 두는 마지막 방어선이고, 성격은
-   * §2.4 TTL 소멸과 같다(이력이 아니라 **화면의 자리**를 회수한다 — `fileEdits`·감사 원장은 그대로).
-   *
-   * **에이전트 참조는 보지 않는다.** 참조(`nodeAgentRefs`)는 강등 때 지우지 않고 남기는 소유
-   * 기록이라(§2.4 "잔상도 눌러서 걷는다"), 그것을 조건에 넣으면 거의 모든 폴더가 제외돼 상한이
-   * 있으나 마나가 된다. 대신 **핀·지금 도는 자리**만 지키고 나머지는 점수가 지킨다 —
-   * 활발한 폴더는 애초에 가장 식은 쪽에 오지 않는다.
-   *
-   * 접합은 세지 않는다 — 스스로 만져진 적이 없고, 자식이 정리되면 트리 ⑤가 껍데기를 걷는다.
-   */
+  /** §2.1 (C) — `external_folder` 총량 상한(가장 식은 것부터, 화면 자리만 회수). 에이전트 참조는 보지 마라 — 강등에도 남아 거의 다 제외된다. 핀·도는 자리만 지킨다. 접합은 세지 않는다. */
   private enforceExternalFolderCap(): void {
     const now = Date.now();
     let total = 0;
@@ -15443,15 +13847,7 @@ export class ProjectGraph {
     for (const entry of removable.slice(0, excess)) this.removeBubble(entry.id);
   }
 
-  /**
-   * §2.1 (B) — 예산 안에서 **접합 밖으로 꺼낼** 외부 폴더를 고른다.
-   *
-   * 예산은 "최상위에 동시에 서는 외부 버블 수"다. 그래서 이미 최상위인 자리(트라이 루트 —
-   * 서로 다른 드라이브처럼 더 묶을 부모가 없는 것들)를 **먼저 세어 예산에서 뺀다**. 세지 않으면
-   * 최상위가 늘 "루트 수 + 예산"이 되어 예산이라는 말이 뜻을 잃는다.
-   *
-   * 핀은 `pickPromotedExternalFolders` 안에서 예산을 소비하지 않고 통과한다(사용자 결정).
-   */
+  /** §2.1 (B) — 접합 밖으로 꺼낼 외부 폴더 고르기. 예산 = 최상위 외부 버블 수라 트라이 루트를 먼저 빼고 센다. 핀은 예산을 쓰지 않는다. */
   private pickExternalPromotions(
     prefix: string,
     touchedAbs: readonly string[],
@@ -15485,18 +13881,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §2.1 (A) — 접합·조상 버블이 **자기 안을 말하게** 하는 요약을 세운다.
-   *
-   * 접합은 스스로 만져진 적이 없어 `activity=0` · 위성 0 이고, 화면 숫자는 직속 자식 수로
-   * 떨어졌다(`4` 가 25곳을 대표했다). 여기서 자손을 굴려 **만진 폴더 수 · 파일 수 · 이름 칩 ·
-   * 읽기/쓰기 합**을 채운다. 마지막 값이 없으면 §5.24 히트맵에서 접합은 자손이 아무리 뜨거워도
-   * 영원히 회색이다.
-   *
-   * 전부 **표시 전용 파생값**이라 체크포인트에 저장하지 않는다 — 복원 직후에도 같은 rebuild 가
-   * 돌아 같은 답을 낸다(`externalRollupSatellites` 와 같은 규율).
-   *
-   * 굴리는 방향은 **깊은 곳 → 얕은 곳** 한 번뿐이다(O(n)). 조상마다 자손을 다시 훑으면
-   * 외부 폴더가 늘수록 제곱으로 무거워지는데, 이 함수는 훅 경로에서 돈다.
+   * §2.1 (A) — 접합·조상의 요약(만진 폴더·파일 수 · 이름 칩 · 읽기/쓰기 합). 없으면 접합이 §5.24 히트맵에서 늘 회색이다.
+   * 표시 전용 파생값이라 저장하지 않는다. 깊은 곳 → 얕은 곳 한 번(O(n)) — 훅 경로다.
    */
   private rebuildExternalSummaries(assigned: ReadonlyMap<string, string | null>): void {
     // 사라진 자리의 접힘 기록을 걷는다(살아 있는 노드 것만 남긴다).
@@ -15585,16 +13971,7 @@ export class ProjectGraph {
     }
   }
 
-  /**
-   * 이 폴더 버블 주위에 실제로 뜰 위성 파일 키 — **표시의 단일 창구**.
-   *
-   * 자기 것(`satelliteMap`) + 외부 조상이 물려받은 것(`externalRollupSatellites`)을 합쳐
-   * 폴더 상한까지 최근순으로 자른다. 물려받은 것이 없으면(내부 폴더 전부·만진 외부 폴더)
-   * 자기 것 그대로라 종전 동작과 한 글자도 다르지 않다.
-   *
-   * 스냅샷의 위성 목록과 헤더 카운트(`satelliteFileCount`)가 **같은 함수**를 봐야 한다 —
-   * 두 벌이 되면 "3 files" 라고 적힌 버블 주위에 2개만 뜨는 어긋남이 생긴다.
-   */
+  /** 표시할 위성 키의 단일 창구(자기 것 + 물려받은 것, 상한까지 최근순). 헤더 카운트(`satelliteFileCount`)도 이 함수를 봐야 한다 — 두 벌이면 숫자와 위성 수가 어긋난다. */
   private effectiveSatelliteKeys(folderPath: string): string[] {
     const own = this.satelliteMap.get(folderPath);
     const inherited = this.externalRollupSatellites.get(folderPath);
@@ -15648,11 +14025,7 @@ export class ProjectGraph {
 
   // ─── Task Edge (에이전트 간 작업 흐름) ───
 
-  /** Task Edge 생성. v1.18: kind/messageFormat/returnFormat/timeoutMs/retryCount/cacheEnabled/priority 고급 옵션 지원.
-   *  v1.32: bundleId/bundleRole 로 command↔artifact 자매 엣지를 같은 번들에 묶어 생성할 수 있음. */
-  /** v1.85 — agentId → 그 에이전트 세션이 귀속되는 탭 프로젝트 이름.
-   *  getProjectSessionIds(2494-2506) 와 동일 규칙(워크트리 세션은 부모 탭 귀속)으로 산출해
-   *  toProjectCheckpoint 필터와 정합. 못 찾으면 undefined. */
+  /** getProjectSessionIds 와 같은 규칙(워크트리 세션은 부모 탭)이라 toProjectCheckpoint 필터와 맞는다. 못 찾으면 undefined. */
   private resolveAgentTabProject(agentId: string): string | undefined {
     for (const [sessionId, agent] of this.agents) {
       if (agent.id !== agentId) continue;
@@ -15689,8 +14062,7 @@ export class ProjectGraph {
     },
   ): TaskEdge {
     const id = `tedge-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    // v1.85 — 엣지를 탭 프로젝트에 귀속(소스 우선, 없으면 타겟, 그래도 없으면 인스턴스 primary).
-    // 엔드포인트 에이전트가 만료·소멸해도 toProjectCheckpoint 가 이 값으로 영속한다.
+    // 엣지를 탭 프로젝트에 귀속(소스 → 타겟 → primary) — 끝점 에이전트가 사라져도 이 값으로 영속한다.
     const projectId =
       this.resolveAgentTabProject(sourceAgentId) ??
       this.resolveAgentTabProject(targetAgentId) ??
@@ -15726,10 +14098,7 @@ export class ProjectGraph {
     return edge;
   }
 
-  /** v1.32 — returnFormat='both' 인 command 엣지에 대해 자동 artifact 자매 엣지를 생성하거나 제거해 번들 동기화.
-   *  - both 로 바뀌고 짝이 없으면 생성 (반대 방향, kind='artifact', bundleRole='auto-artifact')
-   *  - both 가 아니게 바뀌고 짝이 있으면 제거
-   *  primary 엣지 자체는 호출자가 이미 생성/수정했다고 가정. bundleId 가 없으면 primary 에 새로 부여. */
+  /** returnFormat='both' 인 command 엣지의 auto-artifact 자매(반대 방향)를 만들고 지운다. primary 는 호출자가 만든 뒤다(bundleId 가 없으면 준다). */
   syncBundleForReturnFormat(primaryEdgeId: string): void {
     const primary = this.taskEdges.get(primaryEdgeId);
     if (!primary) return;
@@ -15770,12 +14139,7 @@ export class ProjectGraph {
     }
   }
 
-  /** v1.54 — `kind='critique' + critiqueAuthority='force-rework'` 인 critique 엣지에 대해
-   *  자동 command 자매 엣지(`bundleRole='auto-rework'`)를 생성/제거해 번들 동기화.
-   *  - critiqueAuthority 가 force-rework 이고 짝이 없으면 생성 (방향 동일, kind='command', 표준 라벨)
-   *  - force-rework 가 아니게 바뀌고(또는 kind 가 critique 가 아니게 바뀌고) 짝이 있으면 제거
-   *  primary 엣지 자체는 호출자가 이미 생성/수정했다고 가정. bundleId 가 없으면 primary 에 새로 부여.
-   *  v1.32 의 syncBundleForReturnFormat 과 동일 패턴이며 서로 직교(다른 kind 를 보기 때문). */
+  /** force-rework critique 엣지의 auto-rework command 자매(같은 방향)를 만들고 지운다. syncBundleForReturnFormat 과 같은 패턴, 다른 kind 라 안 겹친다. */
   syncReworkBundleForCritique(primaryEdgeId: string): void {
     const primary = this.taskEdges.get(primaryEdgeId);
     if (!primary) return;
@@ -15822,7 +14186,7 @@ export class ProjectGraph {
     }
   }
 
-  /** v1.54 — 같은 번들의 auto-rework 자매 엣지 조회 (DetailPanel Bundle 섹션용) */
+  /** 같은 번들의 auto-rework 자매(DetailPanel Bundle 섹션용). */
   getBundleAutoRework(primaryEdgeId: string): TaskEdge | undefined {
     const primary = this.taskEdges.get(primaryEdgeId);
     if (!primary || !primary.bundleId) return undefined;
@@ -15834,8 +14198,7 @@ export class ProjectGraph {
     return undefined;
   }
 
-  /** v1.32 — 번들 동반 삭제. primary 삭제 시 auto-artifact 짝도 제거.
-   *  auto-artifact 쪽이 삭제되는 경우는 드물지만(정상 경로 아님) 똑같이 짝도 제거해 고아 방지. */
+  /** 어느 쪽을 지워도 짝을 함께 지운다(고아 방지). */
   deleteTaskEdgeCascade(id: string): boolean {
     const edge = this.taskEdges.get(id);
     if (!edge) return false;
@@ -15849,14 +14212,11 @@ export class ProjectGraph {
     return removed;
   }
 
-  /** v1.32 — edgeId → edge 직접 조회 (dispatch/result 매칭 내부용) */
   getTaskEdge(id: string): TaskEdge | undefined {
     return this.taskEdges.get(id);
   }
 
-  /** v1.55 — `targetAgentId === agentId` 이고 `kind='critique' + bundleRole='primary'` 인 엣지 목록.
-   *  타겟 에이전트가 작업을 끝냈을 때 발사할 critique 감시자 엣지를 조회. force-rework/comment-only 모두 포함
-   *  (comment-only 도 watcher 는 발사되며, 거부 시 rework 만 안 보낼 뿐). */
+  /** 이 에이전트가 타겟인 critique primary 엣지 — 작업 끝에 발사할 감시자. comment-only 도 든다(거부 때 rework 만 안 보낸다). */
   getIncomingCritiqueEdges(targetAgentId: string): TaskEdge[] {
     const result: TaskEdge[] = [];
     for (const edge of this.taskEdges.values()) {
@@ -15871,7 +14231,7 @@ export class ProjectGraph {
     return result;
   }
 
-  /** v1.55 — critique 사이클의 reworkCount 조정. fresh=true 면 0 으로 리셋, 아니면 +1 후 반환. */
+  /** 'reset' 이면 0, 'increment' 면 +1 한 reworkCount. */
   bumpCritiqueReworkCount(edgeId: string, mode: 'reset' | 'increment'): number {
     const edge = this.taskEdges.get(edgeId);
     if (!edge) return 0;
@@ -15880,8 +14240,7 @@ export class ProjectGraph {
     return edge.reworkCount;
   }
 
-  /** v1.55 — maxReworkCount 초과 시 critique 강등: `critiqueAuthority='comment-only'` 로 변경.
-   *  반환: 변경된 edge (자매 동기화는 호출자가 별도로 `syncReworkBundleForCritique` 호출). */
+  /** maxReworkCount 초과 시 comment-only 로 내린다. 자매 동기화는 호출자 몫. */
   downgradeCritiqueAuthority(edgeId: string): TaskEdge | undefined {
     const edge = this.taskEdges.get(edgeId);
     if (!edge || edge.kind !== 'critique') return undefined;
@@ -15889,7 +14248,6 @@ export class ProjectGraph {
     return edge;
   }
 
-  /** v1.32 — 같은 번들의 artifact 자매 엣지 조회 */
   getBundleArtifact(primaryEdgeId: string): TaskEdge | undefined {
     const primary = this.taskEdges.get(primaryEdgeId);
     if (!primary || !primary.bundleId) return undefined;
@@ -15901,7 +14259,7 @@ export class ProjectGraph {
     return undefined;
   }
 
-  /** v1.32 — 특정 에이전트를 source 로 가진 엣지 목록 (시스템 프롬프트 주입용) */
+  /** 이 에이전트가 source 인 엣지(시스템 프롬프트 주입용). */
   getOutboundTaskEdges(sourceAgentId: string): TaskEdge[] {
     const out: TaskEdge[] = [];
     for (const edge of this.taskEdges.values()) {
@@ -15912,7 +14270,6 @@ export class ProjectGraph {
     return out;
   }
 
-  /** Task Edge 업데이트. v1.18: 고급 옵션 전부 갱신 가능. */
   updateTaskEdge(
     id: string,
     updates: {
@@ -15994,7 +14351,7 @@ export class ProjectGraph {
     return this.memoSlice('taskEdges', this.taskEdges, () => Object.fromEntries(this.taskEdges));
   }
 
-  // ─── Comment Box (v1.45) — 언리얼 블프 스타일 주석 ───
+  // Comment Box — 언리얼 블루프린트식 주석 상자
 
   /** Comment Box 생성. 서버에서 ID 발급. */
   createCommentBox(input: {
@@ -16075,7 +14432,7 @@ export class ProjectGraph {
     return true;
   }
 
-  // ─── §5.5 #17-20 ⑩ v4.94 공통 디버그 층 — 중단점 ─────────────────────────
+  // §5.5 #17-20 ⑩ 공통 디버그 층 — 중단점
 
   /** 이 프로젝트에 찍힌 중단점(없으면 빈 배열). */
   getDebugBreakpoints(projectName: string): DebugBreakpoint[] {
@@ -16120,12 +14477,7 @@ export class ProjectGraph {
     return { ...stored };
   }
 
-  /**
-   * §5.10 — 이 프로젝트에 저장된 자동 목표 설정. 아직 아무것도 안 정했으면 undefined 다.
-   *
-   * 기본값을 여기서 채우지 않는다 — **안 정한 것이 곧 꺼짐**이고(사용자 결정), 빈 객체를 돌려주면
-   * 호출부가 "설정이 있다"로 읽어 저장이 한 번 더 돈다.
-   */
+  /** §5.10 — 안 정했으면 undefined. 기본값을 채우지 않는다 — 안 정한 것이 곧 꺼짐이고, 빈 객체면 설정이 있다고 읽혀 저장이 한 번 더 돈다. */
   getAutoGoalSettings(projectPath: string): AutoGoalSettings | undefined {
     const found = this.autoGoalSettings.get(specSettingsKey(projectPath));
     return found ? { ...found } : undefined;
@@ -16229,13 +14581,7 @@ export class ProjectGraph {
     this.bumpMutationVersion();
   }
 
-  /**
-   * §5.10 — 되풀이 분석에 넣을 **재료**(셸 명령 이력 + 세션 목표).
-   *
-   * 전선용 스코프드 스냅샷을 쓰지 않고 여기서 직접 뜨는 이유는 §9 가 세운 그대로다 — **스코프드
-   * 스냅샷은 전선에만**이고, 지금 화면이 보고 있는 폴더만 실린 목록으로 "이 프로젝트에서 무엇을
-   * 되풀이했나"를 세면 답이 화면 따라 흔들린다. 전역 집계는 항상 전량을 본다.
-   */
+  /** §5.10 — 되풀이 분석 재료(셸 이력 + 세션 목표). 스코프드 스냅샷을 쓰지 않는다(§9) — 화면에 실린 것만 세면 답이 흔들린다. */
   getAutoGoalMaterial(): { bashHistory: Record<string, BashEntry[]>; sessionGoals: Record<string, SessionGoal> } {
     const bashHistory: Record<string, BashEntry[]> = {};
     for (const [k, v] of this.bashHistory) bashHistory[k] = v;
@@ -16245,10 +14591,7 @@ export class ProjectGraph {
   // ─── §5.9 화면/프로그램 캡처 버블 — 사용자 생성 독립 캔버스 요소 (CommentBox 패턴) ───
 
   /** 캡처 버블 생성. 서버에서 ID 발급. */
-  // ─── §5.13 v4.45 내부 앱 버블 (범용) ───
-  //
-  // 앱마다 버블 타입을 새로 만들지 않는다 — `appId` 만 다른 같은 그릇이다. 앱을 계속
-  // 늘리기로 한 이상, 앱 하나가 코어에 남기는 자국이 상수여야 한다.
+  // §5.13 내부 앱 버블 — 앱마다 타입을 만들지 않고 `appId` 만 다른 그릇이다(앱이 늘어도 코어 자국이 상수).
 
   createAppBubble(input: {
     /** §5.4 #36 (F) — 매니저가 형식·중복을 본 클라 id(낙관 생성). 없거나 이 인스턴스에 이미 있으면 새로 짓는다. */
@@ -16361,12 +14704,7 @@ export class ProjectGraph {
     return bubble;
   }
 
-  /**
-   * §5.4 #36 (A) — 커스텀 에이전트의 캔버스 형태(말풍선 ↔ 버블).
-   *
-   * 대상이 아니면(없음·훅·CMD) `null` — 라우트가 404/409 로 가른다. 대상 판정은 클라
-   * `agentCard.ts` 의 `canUseAgentCard` 와 같은 조건이다(훅은 입력이 없고 CMD 입력은 터미널의 것).
-   */
+  /** §5.4 #36 (A) — 캔버스 형태(말풍선 ↔ 버블). 대상(클라 `canUseAgentCard` 와 같은 조건)이 아니면 `ok: false` → 404/409. */
   setAgentForm(nodeId: string, form: 'card' | 'bubble'): { ok: true; form: 'card' | 'bubble' } | { ok: false; reason: 'not-found' | 'not-eligible' } {
     let agent: BubbleData | undefined;
     for (const a of this.agents.values()) {
@@ -16386,12 +14724,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.4 #36 (H) — 에이전트의 연결 보기. ① `hidden` = 연결선 켜고 끄기(그 에이전트가 끝점인 활동·위성 선 + 위성줄),
-   * ② `lens` = 보기 전환("연결된 것 위주" 기본 ↔ "작업 파일"), `bubblesHidden` = 주변 버블 켜고 끄기.
-   * 모두 표시 계층만 바꾼다 — 활동 엣지·연결은 그대로다.
-   *
-   * 대상은 에이전트 버블 전부다(커스텀·CMD·훅 — 파일 선은 누구에게나 있다). 아니면 `not-eligible`(라우트가 409).
-   * 준 칸만 바꾼다(부분 페이로드가 다른 칸을 지우지 않게). 기본값은 칸을 지워서 적는다(저장본에 쓸데없는 값을 남기지 않는다).
+   * §5.4 #36 (H) — 연결 보기: `hidden` 연결선 · `lens` 보기(기본 "연결된 것 위주" ↔ "작업 파일") · `bubblesHidden` 주변 버블. 표시 계층만 바꾼다.
+   * 대상은 에이전트 버블 전부(아니면 `not-eligible`). 준 칸만 바꾸고(부분 페이로드가 다른 칸을 지우지 않게) 기본값은 칸을 지운다.
    */
   setAgentLinkView(
     nodeId: string,
@@ -16507,7 +14841,7 @@ export class ProjectGraph {
     return true;
   }
 
-  // ─── §5.14 v4.62 — 플레이 버블 ───
+  // §5.14 — 플레이 버블
 
   createPlayBubble(input: {
     projectName: string;
@@ -16538,11 +14872,7 @@ export class ProjectGraph {
     return bubble;
   }
 
-  /**
-   * 플레이 버블 부분 갱신 — 좌표·크기·제목·레시피·실행 상태 전부 이 문 하나로 들어온다.
-   *
-   * `recipe` 는 통째로 교체한다(부분 병합 ❌ — 반쪽만 바뀐 레시피는 무엇이 실행될지 알 수 없다).
-   */
+  /** 좌표·크기·제목·레시피·실행 상태 전부 이 문 하나로. `recipe` 는 통째로 교체한다(반쪽 레시피는 무엇이 실행될지 모른다). */
   updatePlayBubble(
     id: string,
     updates: Partial<Omit<PlayBubble, 'id' | 'projectName' | 'createdAt' | 'updatedAt'>>,
@@ -16641,11 +14971,8 @@ export class ProjectGraph {
   }
 
   /**
-   * 스펙 부분 갱신 — 좌표·크기·제목·본문·항목 목록이 전부 이 문 하나로 들어온다.
-   *
-   * **개정 번호는 여기서만 오른다.** `body` 또는 항목 텍스트가 실제로 달라졌을 때만 +1 하고,
-   * 좌표·크기·제목·`done` 토글은 올리지 않는다 — 그건 스펙 내용이 아니라서, 버블을 옮겼다는
-   * 이유로 하위 작업 카드가 전부 "스펙 변경됨" 이 되면 그 배지는 아무 뜻도 없어진다.
+   * 스펙 부분 갱신(좌표·크기·제목·본문·항목). **개정 번호는 여기서만** 오르고, `body`·항목 텍스트가 실제로 바뀔 때만 +1 한다
+   * — 좌표·제목·`done` 으로 올리면 하위 카드가 전부 "스펙 변경됨"이 돼 배지가 뜻을 잃는다.
    */
   updateSpecDoc(
     id: string,
@@ -16708,10 +15035,7 @@ export class ProjectGraph {
     return doc;
   }
 
-  /**
-   * 한 항목에 작업 카드를 매단다. 카드를 만든 **그 시점의 개정 번호**를 함께 박아,
-   * 이후 스펙이 바뀌면 두 숫자의 차이가 "스펙 변경됨" 의 근거가 된다.
-   */
+  /** 카드를 만든 시점의 개정 번호를 박아 둔다 — 이후 개정과의 차이가 "스펙 변경됨"의 근거다. */
   attachSpecTask(specId: string, itemId: string, taskAgentId: string, taskSessionId: string): SpecItem | null {
     const doc = this.specDocs.get(specId);
     if (!doc) return null;
@@ -16769,11 +15093,8 @@ export class ProjectGraph {
   // ─── §5.16 — 리뷰·승인 레인 (머지 전에 사람이 붙잡는 자리) ───
 
   /**
-   * §5.16 — 리뷰 한 건 생성. **id 발급은 여기서만** 한다.
-   *
-   * 개수 캡(`REVIEW_REQUESTS_MAX_PER_PROJECT`)은 같은 프로젝트 안에서만 적용하고, 넘칠 때는
-   * **결정이 끝난 것부터** 오래된 순으로 버린다 — 사람이 아직 판단하지 않은 pending 을 조용히
-   * 치우면 그 변경분이 본선에 들어갈 길이 함께 사라진다.
+   * §5.16 — **id 발급은 여기서만.** 캡(`REVIEW_REQUESTS_MAX_PER_PROJECT`)은 프로젝트별이고, 넘치면 결정이 끝난 것부터 오래된 순으로 버린다
+   * (판단 전인 pending 을 치우면 그 변경분이 본선에 갈 길이 사라진다).
    */
   createReviewRequest(input: {
     projectName: string;
@@ -16842,10 +15163,7 @@ export class ProjectGraph {
     return [...this.reviewRequests.values()];
   }
 
-  /**
-   * 그 에이전트에게 **아직 결정 안 난** 리뷰가 있나 — 있으면 새로 만들지 않는다(§5.16 조건 (d)).
-   * 보류(`held`)도 "아직 판단 중"이라 새 카드를 겹쳐 만들지 않는다.
-   */
+  /** 아직 결정 안 난 리뷰가 있으면 새로 만들지 않는다(§5.16 (d)). 보류(`held`)도 판단 중이다. */
   findOpenReviewRequestByAgent(agentId: string): ReviewRequest | undefined {
     let best: ReviewRequest | undefined;
     for (const r of this.reviewRequests.values()) {
@@ -16857,11 +15175,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.16 — 결정 한 건 적재. id/시각은 서버가 stamp 한다.
-   *
-   * `status` 는 마지막 결정에서 나오는 파생값이고 **여기서만** 계산한다(§3.1). 승인했는데 병합이
-   * 실패했으면(`mergeOk === false`) 상태를 `pending` 으로 되돌린다 — 부모를 정리한 뒤 다시 승인할
-   * 자리를 남겨야 한다(그 실패 사실은 결정 이력에 그대로 남는다).
+   * §5.16 — id/시각은 서버가 stamp. `status` 는 마지막 결정의 파생값으로 여기서만 계산한다(§3.1).
+   * 승인 후 병합이 실패하면(`mergeOk === false`) `pending` 으로 되돌려 다시 승인할 자리를 남긴다(실패는 결정 이력에 남는다).
    */
   recordReviewDecision(
     id: string,
@@ -16910,11 +15225,7 @@ export class ProjectGraph {
 
   // ─── §5.18 — 에이전트 랩 (같은 과제를 설정만 바꿔 N벌) ───
 
-  /**
-   * §5.18 — 랩 한 장을 캔버스에 놓는다. **id 발급은 여기서만** 한다.
-   *
-   * 변형 없이 시작해도 되고(패널에서 짠다), 초기 변형을 함께 받아도 된다.
-   */
+  /** §5.18 — **id 발급은 여기서만.** 초기 변형은 있어도 없어도 된다. */
   createLabRun(input: {
     projectName: string;
     x: number;
@@ -16976,12 +15287,7 @@ export class ProjectGraph {
     }
   }
 
-  /**
-   * 랩 부분 갱신 — 좌표·크기·제목·과제·기준 에이전트가 이 문 하나로 들어온다.
-   *
-   * **도는 중에는 과제를 못 바꾼다** — 그 표가 무엇을 비교한 것인지 알 수 없게 되기 때문이다.
-   * 변형 목록은 `setLabVariants` 로만 바꾼다(실행 결과를 실수로 지우지 않게 문을 나눈다).
-   */
+  /** 도는 중에는 과제를 못 바꾼다(표가 무엇을 비교했는지 모르게 된다). 변형 목록은 `setLabVariants` 로만 — 실행 결과를 실수로 지우지 않게 문을 나눈다. */
   updateLabRun(
     id: string,
     updates: Partial<Pick<LabRun, 'x' | 'y' | 'width' | 'height' | 'title' | 'task' | 'baseAgentId' | 'preservePinned'>>,
@@ -17005,10 +15311,7 @@ export class ProjectGraph {
     return run;
   }
 
-  /**
-   * 변형 목록 통째 교체(패널의 편집 결과). **이미 실행된 변형의 결과는 지키고** 설정만 덮는다 —
-   * 표에 남은 측정값이 편집 한 번에 사라지면 비교의 근거가 없어진다.
-   */
+  /** 이미 실행된 변형의 결과는 지키고 설정만 덮는다 — 편집 한 번에 측정값이 사라지면 비교 근거가 없다. */
   setLabVariants(id: string, variants: { id?: string; label?: string; config?: LabVariantConfig }[]): LabRun | null {
     const run = this.labRuns.get(id);
     if (!run) return null;
@@ -17061,10 +15364,7 @@ export class ProjectGraph {
     return run;
   }
 
-  /**
-   * 실행이 걸린 변형에 카드·워크트리 정보를 붙이고 `pending → running` 으로 올린다.
-   * 서버의 실행 경로(`/api/lab-runs/:id/start`)가 워크트리와 에이전트를 만든 직후에 부른다.
-   */
+  /** 실행이 걸린 변형에 카드·워크트리를 붙이고 `pending → running`. `/api/lab-runs/:id/start` 가 둘을 만든 직후에 부른다. */
   attachLabVariantRun(
     id: string,
     variantId: string,
@@ -17096,11 +15396,7 @@ export class ProjectGraph {
     return run;
   }
 
-  /**
-   * 그 턴이 끝났다 — 변형에 결과를 적는다. 명령 완료 콜백(`setOnComplete`)에서만 부른다.
-   *
-   * **못 읽은 값은 넣지 않는다**(§5.18) — 호출부가 `undefined` 로 주면 그 필드는 비운 채 둔다.
-   */
+  /** 명령 완료 콜백(`setOnComplete`)에서만 부른다. 못 읽은 값은 넣지 않는다(§5.18) — `undefined` 필드는 비운 채 둔다. */
   finishLabVariant(
     id: string,
     variantId: string,
@@ -17194,12 +15490,7 @@ export class ProjectGraph {
 
   // ─── §5.20 스크립트 선반 (Shelf) ───
 
-  /**
-   * §5.20 — 선반 한 장을 캔버스에 놓는다.
-   *
-   * 항목 없이 시작해도 되고(패널·우클릭에서 채운다), 초기 항목을 함께 받아도 된다
-   * (가져오기가 이 문으로 들어온다).
-   */
+  /** §5.20 — 초기 항목은 있어도 없어도 된다(가져오기가 이 문으로 들어온다). */
   createShelfBubble(input: {
     projectName: string;
     x: number;
@@ -17292,13 +15583,7 @@ export class ProjectGraph {
     return bubble;
   }
 
-  /**
-   * 항목 한 줄 수정.
-   *
-   * **실행 결과(`lastRun`)는 이 문으로 지워지지 않는다** — 이름을 고쳤다고 마지막 실행이 없던 일이
-   * 되면, 화면이 "한 번도 안 눌렀다"고 거짓말한다. 종류를 바꾸면 그때만 결과를 비운다(셸 결과와
-   * 프롬프트 결과는 서로 다른 것을 말하기 때문).
-   */
+  /** `lastRun` 은 이 문으로 지우지 않는다(이름만 고쳐도 "한 번도 안 눌렀다"가 된다). 종류를 바꿀 때만 비운다 — 셸·프롬프트 결과는 뜻이 다르다. */
   updateShelfItem(
     id: string,
     itemId: string,
@@ -17367,10 +15652,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.20 — 가져오기. 초안은 이미 `normalizeShelfImport` 를 통과한 것만 들어온다.
-   *
-   * `replace=true` 면 통째 교체, 아니면 덧붙이기(기본). 상한을 넘는 분은 조용히 버리고
-   * 몇 개가 들어갔는지 돌려준다 — 화면이 "20개 중 12개만 들어왔다"고 말할 수 있어야 한다.
+   * §5.20 — 초안은 `normalizeShelfImport` 를 거친 것만. `replace=true` 면 교체, 아니면 덧붙이기.
+   * 상한을 넘는 분은 버리고 들어간 수를 돌려준다(화면이 "20개 중 12개"를 말할 수 있게).
    */
   importShelfItems(id: string, drafts: ShelfImportDraftItem[], replace: boolean): { bubble: ShelfBubble; added: number; dropped: number } | null {
     const bubble = this.shelfBubbles.get(id);
@@ -17402,11 +15685,7 @@ export class ProjectGraph {
     return item;
   }
 
-  /**
-   * 실행 종료 — 결과를 그 줄에 적는다.
-   *
-   * **못 읽은 값은 채우지 않는다**(§5.20) — `undefined` 로 온 필드는 건드리지 않아 화면이 `—` 로 그린다.
-   */
+  /** 못 읽은 값은 채우지 않는다(§5.20) — `undefined` 필드는 그대로 두어 화면이 `—` 로 그린다. */
   finishShelfItemRun(
     id: string,
     itemId: string,
@@ -17451,12 +15730,7 @@ export class ProjectGraph {
     return removed;
   }
 
-  /**
-   * §5.20 — 이 에이전트가 지금 어느 선반 줄의 프롬프트를 처리 중인가.
-   *
-   * 도는 줄만 돌려준다 — 이미 마감된 줄까지 잡으면 그 뒤에 사람이 그 카드에 직접 시킨 일이
-   * 선반 결과로 덮어써진다(랩 변형 마감과 같은 규율).
-   */
+  /** §5.20 — 도는 줄만 돌려준다. 마감된 줄까지 잡으면 사람이 그 카드에 직접 시킨 일이 선반 결과로 덮인다(랩 변형 마감과 같은 규율). */
   findShelfItemByAgent(agentId: string): { bubble: ShelfBubble; item: ShelfItem } | undefined {
     for (const bubble of this.shelfBubbles.values()) {
       for (const item of bubble.items) {
@@ -17487,11 +15761,7 @@ export class ProjectGraph {
 
   // ─── §5.22 — 권한·감사 경계 ───
 
-  /**
-   * 훅 이벤트 한 건을 감사 원장에 적는다(`processHookEvent` 안에서만 불린다).
-   *
-   * 실패해도 그래프 처리를 멈추지 않는다 — 감사는 기록이지 판정이 아니다.
-   */
+  /** `processHookEvent` 안에서만 부른다. 실패해도 그래프 처리를 멈추지 않는다 — 감사는 기록이지 판정이 아니다. */
   private recordAuditFromHook(payload: HookEventPayload, agent: BubbleData): void {
     try {
       if (!payload.tool_name) return;
@@ -17518,12 +15788,8 @@ export class ProjectGraph {
   }
 
   /**
-   * §5.22 `outside` — 이 호출이 머물러야 할 경계.
-   *
-   * **프로젝트 루트와 그 세션의 cwd 둘 다** 돌려준다(어느 하나에라도 들어가면 안이다).
-   * 승인 창구와 훅 경로가 **같은 이 함수**를 써야 한 호출이 두 화면에서 다르게 판정되지 않는다.
-   * 루트를 못 찾으면 빈 배열 — 그때는 `outside` 판정 자체가 열리지 않는다(없는 근거로 위험을
-   * 지어내면 프로젝트 등록 전 몇 초의 호출이 전부 밖으로 찍힌다).
+   * §5.22 `outside` 경계 — 프로젝트 루트와 세션 cwd 둘 다(어느 쪽이든 들면 안). 승인 창구와 훅 경로가 **이 함수 하나**를 써야 판정이 갈리지 않는다.
+   * 루트를 못 찾으면 빈 배열 = `outside` 판정 안 함(등록 전 몇 초의 호출이 전부 밖으로 찍히지 않게).
    */
   getAuditRoots(projectName: string, cwd?: string | null): string[] {
     const roots: string[] = [];
@@ -17533,10 +15799,7 @@ export class ProjectGraph {
     return roots;
   }
 
-  /**
-   * 승인 창구(`/api/permission-check`)가 먼저 적는 줄. `tool_use_id` 가 없는 자리라
-   * 뒤따라오는 훅 이벤트가 찾아올 수 있게 표식을 걸어 둔다.
-   */
+  /** 승인 창구(`/api/permission-check`)가 먼저 적는 줄 — `tool_use_id` 가 없어 뒤따르는 훅 이벤트가 찾아올 표식을 건다. */
   recordAuditCall(input: AuditRecordInput): string | null {
     try {
       const id = this.auditLogService.record(input).id;
@@ -17613,11 +15876,8 @@ export class ProjectGraph {
   }
 
   /**
-   * 자물쇠를 걸고(`lock` — 대상)·푼다(`unlock` — id). 바뀐 게 있으면 `changed`(호출부가 방송·저장을 정한다).
-   *
-   * 상한(`PATH_LOCK_MAX_PER_PROJECT`)을 넘는 새 자물쇠는 걸지 않고 `rejected` 로 센다 — 오래된 자물쇠를
-   * 말없이 풀어 자리를 내는 일은 하지 않는다(사용자가 건 보호가 조용히 사라진다). 못 쓰는 대상(상대경로 등)도
-   * `rejected` 다. 이미 잠긴 대상은 그대로 둔다(잠근 시각을 새로 찍지 않는다).
+   * `changed` 면 방송·저장은 호출부가 정한다. 상한(`PATH_LOCK_MAX_PER_PROJECT`)을 넘는 새 자물쇠·못 쓰는 대상(상대경로 등)은 `rejected`
+   * — 오래된 것을 풀어 자리를 내지 않는다(건 보호가 조용히 사라진다). 이미 잠긴 대상은 잠근 시각을 새로 찍지 않는다.
    */
   updatePathLocks(
     projectName: string,
@@ -17650,12 +15910,7 @@ export class ProjectGraph {
 
   // ─── §5.21 — 비용·토큰 지도 ───
 
-  /**
-   * 세션 원장을 한 번 훑는다. 바뀐 게 있으면 true(호출부가 브로드캐스트·저장을 결정).
-   *
-   * **활성 세션만** 넘긴다 — 이미 원장에 있고 한동안 조용한 세션은 값이 변할 수 없다.
-   * 그 뒤로도 스캐너가 mtime·size 로 한 번 더 걸러 변화 없으면 파일을 열지 않는다.
-   */
+  /** 바뀌면 true(방송·저장은 호출부). 활성 세션만 넘긴다 — 조용한 세션은 값이 안 변하고, 스캐너도 mtime·size 가 같으면 파일을 열지 않는다. */
   sweepCostMap(registry: ModelRegistry | null, now: number = Date.now()): boolean {
     const sessions: CostSweepSession[] = [];
     for (const sub of subAgentManager.getAllSubsFlat()) {
@@ -17696,7 +15951,7 @@ export class ProjectGraph {
     return changed;
   }
 
-  // ─── §5.3 #28 v1.47 — 콘티모드 (Conti) ───
+  // §5.3 #28 — 콘티(Conti)
 
   /** 콘티 단건 조회 */
   getConti(id: string): Conti | undefined {
@@ -17742,7 +15997,7 @@ export class ProjectGraph {
     return true;
   }
 
-  /** §5.3 #28 v1.59 — 콘티 frame 순서 변경 (드래그앤드롭). 같은 인덱스/범위 밖이면 무동작. */
+  /** §5.3 #28 — 드래그앤드롭 순서 변경. 같은 인덱스·범위 밖이면 무동작. */
   moveContiFrame(contiId: string, fromIndex: number, toIndex: number): boolean {
     const c = this.contis.get(contiId);
     if (!c) return false;
@@ -17810,10 +16065,7 @@ export class ProjectGraph {
     return this.memoSlice('contis', this.contis, () => Object.fromEntries(this.contis));
   }
 
-  /**
-   * §5.3 #28 (L) v1.58 — 콘티 frames 통째 교체 (수정 케이스). title 도 같이 갱신,
-   * updatedAt 만 bump. id/agentId/workId/createdAt 은 보존.
-   */
+  /** §5.3 #28 (L) — 수정 시 frames 통째 교체. title 도 갱신, updatedAt 만 bump(id/agentId/workId/createdAt 보존). */
   updateContiFrames(contiId: string, frames: ContiFrame[], title?: string): Conti | null {
     const c = this.contis.get(contiId);
     if (!c) return null;
@@ -17823,12 +16075,7 @@ export class ProjectGraph {
     return c;
   }
 
-  /**
-   * §5.13 (Q) — 출력 프리셋 지정.
-   *
-   * `updatedAt` 은 건드리지 않는다 — 히스토리의 "edited" 마커는 *컷이 바뀐 것*을 뜻하는데,
-   * 판형만 고른 것을 수정으로 세면 사용자가 고치지도 않은 콘티가 고쳐진 것처럼 보인다.
-   */
+  /** §5.13 (Q) — `updatedAt` 은 건드리지 않는다: "edited" 마커는 컷 변경을 뜻해, 판형만 고른 콘티가 고쳐진 것처럼 보이면 안 된다. */
   setContiPreset(contiId: string, presetId: StoryboardPresetId): Conti | null {
     const c = this.contis.get(contiId);
     if (!c) return null;
@@ -17837,12 +16084,7 @@ export class ProjectGraph {
     return c;
   }
 
-  /**
-   * §5.13 (Q) — 콘티를 받아 간 앱의 산출물 기록.
-   *
-   * 한 콘티가 들고 있는 것은 **마지막 한 건**이다. 넘길 때마다 쌓으면 체크포인트가
-   * 사용자 산출물이 아닌 이력으로 부푼다(§3.2.3 보존 정책) — 지난 문서는 앱 쪽 목록에 남는다.
-   */
+  /** §5.13 (Q) — 마지막 한 건만 든다. 쌓으면 체크포인트가 이력으로 부푼다(§3.2.3) — 지난 문서는 앱 쪽 목록에 있다. */
   setContiRenderLink(contiId: string, link: ContiRenderLink): Conti | null {
     const c = this.contis.get(contiId);
     if (!c) return null;
@@ -17851,7 +16093,7 @@ export class ProjectGraph {
     return c;
   }
 
-  /** §5.3 #28 (L) v1.58 — 콘티 작업 트래커 (agentId → ActiveContiWork) */
+  /** §5.3 #28 (L) — 콘티 작업 트래커. */
   getActiveContiWork(agentId: string): ActiveContiWork | undefined {
     return this.activeContiWork.get(agentId);
   }

@@ -2,13 +2,8 @@ import { create } from 'zustand';
 import { WEB_OPEN_TARGET_DEFAULT, normalizeWebOpenTarget, type WebOpenTarget } from '@vibisual/shared';
 
 /**
- * §5.23 「더블클릭」 — 도메인 버블을 더블클릭하면 마지막 주소를 **어디서** 여는가(바깥 브라우저 · 앱 안 iframe 탭).
- *
- * **`graphStore` 에 넣지 않는다**(`keymap` 과 같은 이유). 이 값은 프로젝트가 아니라 **기계**의 것이라 스냅샷·체크포인트와
- * 무관하고, 저쪽은 스냅샷 1건에 `set()` 이 수십 번 도는 자리다.
- *
- * 영속은 서버(`~/.vibisual/app-state.json` · `/api/web-fold`)다. 창이 여럿이면 WS `web_open_target_updated` 로 다른 창도
- * 즉시 같은 곳에서 연다. 더블클릭은 이 값을 **동기로** 읽는다 — 누른 뒤 서버를 기다리지 않는다(읽어 오기 전이면 기본값).
+ * §5.23 「더블클릭」 — 도메인 버블 더블클릭 때 마지막 주소를 **어디서** 여는가(바깥 브라우저 · 앱 안 iframe 탭). `graphStore` 밖(기계의 값).
+ * 영속은 서버(`/api/web-fold`), 다른 창은 WS `web_open_target_updated`. 더블클릭은 **동기로** 읽는다(읽기 전이면 기본값).
  */
 
 interface WebOpenTargetState {

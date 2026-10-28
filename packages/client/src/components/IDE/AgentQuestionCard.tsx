@@ -19,10 +19,7 @@ import {
 
 interface AgentQuestionCardProps {
   questions: AgentQuestions;
-  /**
-   * §4 v2.89 — "즉시 전송" 동작 주입(선택). 미지정이면 기존 동작: chat 세션에 `addCommand` 로 새 명령.
-   * CMD(인터랙티브 터미널) 카드는 이 콜백으로 프롬프트를 터미널 PTY 에 prefill 한다(사람이 Enter — ToS 인루프).
-   */
+  /** §4 — "즉시 전송" 주입(선택). 없으면 chat 세션에 `addCommand`. CMD 카드는 PTY 에 prefill 만 한다(Enter 는 사람이 — ToS 인루프). */
   onSendPrompt?: (prompt: string) => void;
   /** §5.5 #17-18 ⑦-2 — 이 카드가 속한 턴이 아직 도는 중(헤더에 `작업 중` 배지). */
   live?: boolean;
@@ -102,15 +99,8 @@ function SelectionIcon(): React.JSX.Element {
 }
 
 /**
- * §4 (판올림 번호 발급 대기) — **즉시 전송은 두 번 눌러야 나간다.**
- *
- * 이 상자의 프롬프트는 **모델이 쓴 글**이다. 그런데 종전에는 한 번의 클릭이 그 글을 그대로 세션에
- * 새 명령으로 밀어 넣었다 — 아이콘 하나 옆에 나란히 붙은 복사 버튼을 겨누다 빗맞아도 전송이었다.
- * 사람이 루프 안에 있다는 것은 "화면에 떠 있었다"가 아니라 **보내겠다고 한 번 더 말했다**는 뜻이다.
- *
- * 모달을 새로 만들지 않는다(카드가 스트림 안에 있어 모달은 스크롤을 뺏는다) — 첫 클릭은 버튼을
- * **겨눔** 상태로 바꾸고, 그 상태에서 다시 눌러야 나간다. 겨눔은 `INSTANT_ARM_MS` 뒤 스스로 풀려
- * 눌러 둔 채 잊은 버튼이 나중에 오발하지 않는다.
+ * §4 — 즉시 전송은 두 번 눌러야 나간다(모델이 쓴 글이라 빗맞은 클릭 한 번에 나가면 안 된다 — 사람이 한 번 더 보내겠다고 해야 한다).
+ * 첫 클릭은 겨눔(모달 ❌ — 스트림 스크롤을 뺏는다), `INSTANT_ARM_MS` 뒤 풀린다.
  */
 const INSTANT_ARM_MS = 4000;
 
@@ -137,11 +127,7 @@ function useInstantArm(onInstant: () => void, prompt: string): { armed: boolean;
   return { armed, onArmOrSend };
 }
 
-/**
- * 복사 동작 한 벌(클립보드 쓰기 + 1.4s 체크 피드백). 카드 안 복사 버튼이 셋(헤더 / 질문 하나 /
- * 답지)이라 각자 타이머·상태를 따로 들면 피드백 시간이 제각각이 된다 — 한 곳에 둔다.
- * `getText()` 가 빈 문자열이면 아무 일도 하지 않는다(복사할 게 없을 때 헛된 체크 표시 ❌).
- */
+/** 복사 동작 한 벌(클립보드 + 1.4s 체크) — 카드 안 복사 버튼 셋의 피드백을 맞춘다. 빈 문자열이면 무동작. */
 function useCopyAction(getText: () => string): { copied: boolean; onCopy: () => void } {
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<number | null>(null);
@@ -157,14 +143,7 @@ function useCopyAction(getText: () => string): { copied: boolean; onCopy: () => 
   return { copied, onCopy };
 }
 
-/**
- * §4 v3.42 — 카드 상단 복사 버튼(카드 전체 / 질문만 / 선택 복사). 클릭 시 `getText()` 로 만든 문자열을
- * 클립보드에 넣고, 1.4s 동안 체크 아이콘으로 피드백. 헤더 톤(작은 sky 글리프)을 유지한다.
- *
- * ⚠ `onMouseDown` 에서 기본 동작을 막는다 — mousedown 은 **사용자가 방금 드래그한 선택을 풀어 버린다**.
- *   선택 복사 버튼은 그 선택이 살아 있어야 일할 수 있고, 나머지 버튼도 누를 때 포커스를 뺏지 않는 편이
- *   낫다(입력창에 쓰던 자리를 지키기 위해).
- */
+/** §4 — 카드 상단 복사 버튼(전체 / 질문만 / 선택). ⚠ `onMouseDown` 기본 동작을 막는다 — mousedown 이 방금 드래그한 선택을 풀어 선택 복사가 죽는다. */
 const HeaderCopyButton = memo(function HeaderCopyButton({
   label,
   title,
@@ -204,13 +183,7 @@ const HeaderCopyButton = memo(function HeaderCopyButton({
   );
 });
 
-/**
- * 질문 한 줄만 복사 — 질문 행에 호버(또는 키보드 포커스)했을 때만 드러나는 작은 글리프.
- *
- * 헤더의 통짜 복사(전체/질문 전부)와 드래그 선택 복사 사이의 빈칸을 메운다. 질문이 여럿인 카드에서
- * "이 질문 + 그 답지"만 인용하고 싶은 것이 가장 흔한데, 그걸 매번 정확히 드래그하게 두는 건 손이 많이
- * 간다. 상시 노출하면 카드가 시끄러워지므로 `CardHoverControls` 와 같은 감각으로 호버 때만 보인다.
- */
+/** 질문 하나(+ 답지)만 복사 — 행 호버·포커스 때만 보이는 글리프(`CardHoverControls` 감각). */
 const QuestionCopyButton = memo(function QuestionCopyButton({ getText }: { getText: () => string }): React.JSX.Element {
   const { t } = useTranslation();
   const { copied, onCopy } = useCopyAction(getText);
@@ -269,14 +242,8 @@ function SelectCheckbox({
 }
 
 /**
- * §4 v2.60 — 제안 프롬프트 1개 박스. 본문 text 의 코드 복사 박스(StreamRenderer CodeBlock)와 같은 톤.
- * 우상단에 복사 버튼 + 즉시 전송 버튼. 즉시 = 그 프롬프트를 해당 세션에 새 명령으로 바로 전송.
- *
- * 한 질문에서 한 후보를 즉시 전송하면 그 질문의 나머지 후보 박스는 `disabled` 로 회색 잠금
- * (전송 = 에이전트가 그 답으로 시작 → 다른 후보는 무의미). 선택된 박스는 `wasSent` 로 emerald 유지.
- *
- * §4 v3.42 — 다중 질문 카드에서는 왼쪽에 체크박스(`selectable`)를 달아 여러 답을 골라
- * 하단 "선택 항목 전송" 버튼으로 한 번에 보낼 수 있게 한다.
+ * §4 — 제안 프롬프트 박스(CodeBlock 톤): 복사 + 즉시 전송. 보내면 그 질문의 다른 후보는 `disabled`, 보낸 박스는 `wasSent`(emerald).
+ * 다중 질문이면 체크박스(`selectable`)로 골라 한 번에 보낸다.
  */
 const PromptBox = memo(function PromptBox({
   prompt,
@@ -324,11 +291,7 @@ const PromptBox = memo(function PromptBox({
   const { copied, onCopy } = useCopyAction(getPromptText);
   const { armed, onArmOrSend } = useInstantArm(onInstant, prompt);
 
-  // 우상단 버튼 묶음이 실제로 먹는 폭을 재서 본문이 그만큼 비켜 가게 한다.
-  //
-  // 종전엔 `pr-20`(80px) 상수로 잡았는데 즉시 전송 버튼에는 번역되는 글자 라벨이 붙는다 — 라벨이
-  // 길면 묶음이 80px 을 넘어 프롬프트 **첫 줄이 버튼 밑으로 파고들어 글자가 가려졌다**. 폭을 흔드는
-  // 것은 언어만이 아니라 전송 뒤 라벨 교체·글꼴 뒤늦은 로드까지라 상수로는 못 맞춘다(→ 실측).
+  // 버튼 묶음의 실제 폭을 재 본문을 비킨다 — 상수(`pr-20`)면 번역 라벨·라벨 교체·늦은 글꼴로 넓어져 첫 줄이 가려진다.
   const boxRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const [reserve, setReserve] = useState(PROMPT_RESERVE_FALLBACK_PX);
@@ -448,12 +411,8 @@ const PromptBox = memo(function PromptBox({
 });
 
 /**
- * 직접 입력 열기 — 접힌 보조 칸(§4 질문 카드, 2026-10-01 사용자 지시).
- *
- * 이 카드는 사용자가 **에이전트가 낸 답을 골라** 그대로 보내려고 있는 것이다. 직접 입력칸이 제안 답과
- * 같은 크기로 늘 펼쳐져 있으면, 답을 비워 보낸 질문은 **질문 + 입력칸**만 남아 "고를 답은 없고 직접 쓰는
- * 칸으로 바뀌었다"로 읽힌다. 그래서 직접 입력은 후보에 없는 답을 위한 예비 칸으로 내려, 제안 답 아래
- * 점선 버튼 한 줄로만 선다. 다중 질문에서는 답지 체크박스 폭만큼 들여 제안 답과 줄을 맞춘다.
+ * 직접 입력 열기 — 접힌 보조 칸(§4). 카드의 본체는 고를 답이라 늘 펼친 입력칸은 "직접 쓰는 칸"으로 읽힌다 —
+ * 제안 아래 점선 버튼 한 줄로만 선다(다중 질문은 체크박스 폭만큼 들인다).
  */
 const CustomAnswerToggle = memo(function CustomAnswerToggle({
   indent,
@@ -490,15 +449,8 @@ const CustomAnswerToggle = memo(function CustomAnswerToggle({
 });
 
 /**
- * 질문 1개 + 제안 프롬프트들. 한 후보를 즉시 전송하면 카드가 이 질문을 `answeredIdx` 로 잠가
- * 다른 후보 박스를 비활성화한다(질문 단위 잠금 — 같은 카드의 다른 질문은 독립적으로 답 가능).
- *
- * §4 v3.42 — 다중 질문 카드에서는 선택/잠금 상태를 카드가 소유하고 이 컴포넌트로 내려준다
- * (종합 전송이 여러 질문을 가로질러 잠가야 하기 때문).
- *
- * 직접 입력은 `CustomAnswerToggle` 로 접혀 있다가 누르면 열린다. 열린 칸은 비운 채 초점을 떠나면 다시
- * 접히고, 쓴 답이 있거나 그 답으로 보냈으면 열린 채 남는다 — 이 판정은 카드 캐시의 답 문자열에서 나오므로
- * 가상 목록이 카드를 다시 그려도 같은 모양이다(여닫기 자체는 화면 상태라 캐시에 넣지 않는다).
+ * 질문 1개 + 제안들. 보내면 이 질문만 `answeredIdx` 로 잠긴다. §4 다중 질문은 선택/잠금을 카드가 소유한다(종합 전송이 질문을 가로질러 잠근다).
+ * 직접 입력은 비운 채 초점을 떠나면 접히고 답이 있으면 열린 채 — 판정이 카드 캐시의 답 문자열이라 가상 목록이 다시 그려도 같다.
  */
 const QuestionItem = memo(function QuestionItem({
   item,
@@ -594,17 +546,8 @@ const QuestionItem = memo(function QuestionItem({
 });
 
 /**
- * §4 v2.60 — 에이전트 질문 인라인 카드.
- *
- * 커스텀/스폰 에이전트가 `POST /api/agent-questions` 로 보낸 질문(1~N) + 제안 프롬프트를 렌더.
- * 자연어 본문에 묻히기 쉬운 "사용자에게 묻는 질문"을 눈에 띄게 카드로 보여주고, 각 제안 프롬프트는
- * 복사 박스로 감싸 복사 / 즉시 전송(그 세션에 새 명령) 버튼을 단다. 기존 AskQuestionCard(선택지+동기
- * hold)와 별개 — 이쪽은 비차단.
- *
- * §4 v3.42 — 다중 질문 편의 기능: 헤더에 "카드 전체 복사"·"질문만 복사" 버튼, 질문이 2개 이상이면
- * 각 답지에 체크박스 + 하단 "선택 항목 전송"(고른 답들을 한 번에 새 명령으로 전송)을 단다.
- *
- * 카드의 본체는 에이전트가 낸 **고를 답**이다 — 직접 입력은 제안 아래 접힌 보조 칸(`CustomAnswerToggle`).
+ * §4 — 에이전트 질문 인라인 카드(`POST /api/agent-questions` — 질문 1~N + 제안 프롬프트). AskQuestionCard(동기 hold)와 별개로 비차단이다.
+ * 본체는 고를 답 — 직접 입력은 접힌 보조 칸(`CustomAnswerToggle`).
  */
 export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, onSendPrompt, live }: AgentQuestionCardProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -669,11 +612,7 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
   // 질문만 복사: 제안 답 없이 질문 텍스트(헤더 포함)만.
   const buildQuestionsText = useCallback((): string => buildQuestionsOnlyText(questions), [questions]);
 
-  // 선택 복사: 사용자가 이 카드 안에서 **고른 것**. 원천이 둘이다 —
-  //   ① 드래그 선택(카드 경계에서 자름, 줄바꿈 보존). 고른 그 순간에 텍스트를 떠 두므로, 스트림이
-  //      다시 그려져 선택이 풀린 뒤에 눌러도 그때 고른 부분이 그대로 복사된다.
-  //   ② 답지 체크박스. 체크는 화면에 그대로 남아 있는 선택인데도 이 버튼의 사정권 밖이라, 체크를
-  //      해 놓고도 버튼이 회색이었다 — 전송과 **같은 함수**로 찍어 붙여넣은 것과 보낸 것을 일치시킨다.
+  // 선택 복사의 원천 둘 — ① 드래그 선택(고른 순간 떠 둬 다시 그려져도 남는다) ② 답지 체크(전송과 같은 함수 — 붙여넣은 것 = 보낸 것).
   const rootRef = useRef<HTMLDivElement>(null);
   const buildCheckedText = useCallback(() => formatCheckedAnswers(checkedAnswers), [checkedAnswers]);
   const { enabled: canCopySelection, getText: buildSelectionText } = useCardSelectionCopy(
@@ -750,7 +689,7 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
           ))}
         </ul>
 
-        {/* §4 v3.42 — 다중 질문: 선택한 답들을 한 번에 전송하는 종합 바 */}
+        {/* §4 — 다중 질문 종합 전송 바 */}
         {multi && (
           <div className="mt-3 flex items-center justify-end gap-2 border-t border-sky-500/15 pt-2">
             {selectedCount > 0 && (

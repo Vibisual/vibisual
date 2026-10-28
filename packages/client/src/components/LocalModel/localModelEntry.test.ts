@@ -3,11 +3,7 @@ import type { AgentConfig, LocalLlmState, LocalModelEntry } from '@vibisual/shar
 
 import { localModelLabelOf, localProviderOf, localToolVerdictOf, pickDefaultModel, resolveLocalEntry } from './localModelEntry.js';
 
-/**
- * §5.19 (B) — 진입 순서가 뒤집힌 뒤로 "버블을 누르면 무엇이 열리는가"가 이 한 함수에 걸린다.
- * 잘못 갈리면 두 가지 사고가 난다: ① 준비 안 된 버블의 IDE 가 열려 첫 대화에서 죽거나,
- * ② 멀쩡히 쓰던 버블 앞에 설치 창이 다시 뜬다. 그래서 갈림 규칙을 여기서 못 박는다.
- */
+/** §5.19 (B) — 버블을 누르면 무엇이 열리는가. 틀리면 준비 안 된 IDE 가 첫 대화에서 죽거나, 쓰던 버블 앞에 설치 창이 다시 뜬다. */
 
 function model(id: string, downloadedAt: number): LocalModelEntry {
   return { id, name: id, path: `/models/${id}.gguf`, sizeBytes: 1, downloadedAt };
@@ -82,13 +78,7 @@ describe('§5.19 (B) All Model 진입 판정', () => {
   });
 });
 
-/**
- * §5.19 (G) — All Model 버블이 화면에서 **자기 정체를 어떻게 말하는가**.
- *
- * 커스텀 에이전트를 뼈대로 삼는 탓에 로컬 버블에도 `config.model`(기본값 `opus`)과 클로드 도구
- * 한 벌이 그대로 들어 있다 — 러너가 읽지도 않는 칸이다. 그것을 그대로 그렸더니 오른쪽 패널이
- * All Model 버블을 "opus" 로 소개했다(사용자 보고). 판정을 한 함수로 모으고 그 규칙을 여기서 굳힌다.
- */
+/** §5.19 (G) — All Model 버블의 정체 표시. 로컬 버블에도 러너가 안 읽는 `config.model`(기본 `opus`)·클로드 도구가 있어, 그대로 그리면 "opus" 로 소개된다. */
 describe('§5.19 (G) All Model 정체 표시', () => {
   const claudeConfig = { model: 'opus', tools: ['Read'], permissionMode: 'default', skills: [] } as unknown as AgentConfig;
   const withProvider = (provider: Record<string, unknown>): AgentConfig =>

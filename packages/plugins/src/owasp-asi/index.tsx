@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.99 — OWASP ASI Top 10: 에이전트 전용 위험 목록으로 자가 점검.
- *
- * 기존 LLM 위험 목록과 별개로, **행동하는 AI** 에 특화된 좌표계다. 눈여겨볼 점은 절반 이상이 모델이 아니라
- * **하네스의 문제**라는 것 — 그래서 우리 설정만으로도 상당 부분을 자가 점검할 수 있다.
- * 이 카드는 앞선 판정들을 ASI 축으로 다시 묶어 한 장으로 보여준다. 표시 전용.
- */
+/** §5.11 — OWASP ASI Top 10: 절반 이상이 하네스 문제라 설정만으로 자가 점검이 된다 — 앞선 판정들을 ASI 축으로 묶어 보여준다. 표시 전용. */
 import { defineInspector, ICONS } from '../sdk/index.js';
 import { judgeTrifecta } from '../sdk/index.js';
 import { judgeBlastRadius } from '../sdk/index.js';
@@ -13,10 +7,7 @@ import type { PluginBubbleContext } from '../sdk/index.js';
 
 /**
  * ASI01 목표 탈취 · ASI02 도구 오남용 · ASI03 신원 · ASI06 기억 오염 · ASI10 통제 이탈에 대응하는 관측치.
- *
- * ASI06 자리에 서는 것은 **승인 없이 실리는 절차가 있는가**다(§5.10). 자동 목표는 사용자
- * 지시대로 승인 버튼 없이 굳히므로, 굳은 것이 이 자리 프롬프트에 실리고 있다면 그 사실 자체가
- * 이 축에서 세어야 할 관측치다 — 위험하다는 뜻이 아니라 **보고 있어야 한다**는 뜻이다.
+ * ASI06 자리는 승인 없이 실리는 절차가 있는가다(§5.10) — 자동 목표는 승인 버튼 없이 굳히므로, 굳은 것이 프롬프트에 실리면 그 사실이 세어야 할 관측치다(위험이 아니라 보고 있어야 한다는 뜻).
  */
 function flags(ctx: PluginBubbleContext): number {
   const trifecta = judgeTrifecta(ctx.agentConfig);

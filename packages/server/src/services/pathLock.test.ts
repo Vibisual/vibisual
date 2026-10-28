@@ -1,9 +1,4 @@
-/**
- * §5.3 #12-3 자물쇠 — shared `pathLock.ts` 고정 시험.
- *
- * 판정기는 shared 순수 함수지만 shared 패키지에는 러너가 없어 여기서 고정한다(`bashWritePaths.test.ts`
- * 와 같은 자리). **플랫폼은 인자로 넘긴다** — 개발기 한 대에서 세 OS 를 전부 재기 위함이다(멀티플랫폼 1축).
- */
+/** §5.3 #12-3 — shared `pathLock.ts` 시험(shared 엔 러너가 없다). 플랫폼은 인자로 넘겨 세 OS 를 잰다. */
 import { describe, it, expect } from 'vitest';
 import {
   buildPathLock,

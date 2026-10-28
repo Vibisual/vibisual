@@ -9,15 +9,8 @@ import { listCoworkConfigHomes } from './claudeConfigHomes.js';
 const MARKER = '_vibisualManaged';
 
 /**
- * §3.6 — **등록 대상 훅 이벤트(33종).**
- *
- * 정본은 설치본이 함께 배포하는 설정 스키마(`claude-code-settings.schema.json`)의 `hooks`
- * propertyNames 다. 2.1.251 기준 33종이고 우리는 그중 15종만 걸고 있었다 — 나머지 18종은
- * "안 쓰기로 정한 것"이 아니라 **CLI 가 늘어나는 동안 우리가 따라가지 못한 것**이다.
- *
- * ⚠ §3.6 "알 수 없는 이벤트" — 분기에 안 걸린 이벤트는 전부 `markActive` 로 떨어진다.
- *   그래서 **종료류 이벤트를 그냥 등록만 하면 그 세션이 영영 active 로 남는다**(`StopFailure` 가
- *   그 사례였다). 새 이벤트를 넣을 때는 서버 분기(`index.ts` 의 `/api/hook-event`)를 함께 본다.
+ * §3.6 — 등록 대상 33종(정본: 설치본 `claude-code-settings.schema.json` 의 `hooks`, 2.1.251).
+ * ⚠ 분기에 안 걸리면 `markActive` 라 종료류를 등록만 하면 세션이 영영 active — 서버 분기(`/api/hook-event`)와 함께 본다.
  */
 export const HOOK_EVENTS = [
   // ── 세션 생명주기 ──
@@ -78,8 +71,7 @@ export const HOOK_EVENTS = [
   'ElicitationResult',
   // ── 설정·작업공간 ──
   'ConfigChange',
-  // 워크트리 생성·제거. `isolation: 'worktree'` 로 뜬 세션이 실제로 어디에 앉았는지 알 수 있는
-  //   유일한 훅 신호다(종전에는 스폰 인자로 추측했다).
+  // 워크트리 생성·제거 — `isolation: 'worktree'` 세션이 실제로 어디 앉았는지 알 수 있는 유일한 훅 신호다.
   'WorktreeCreate',
   'WorktreeRemove',
   // 어떤 CLAUDE.md·rules 가 실제로 로드됐는지(§3.6-1 집행 계측).
@@ -94,25 +86,14 @@ export const HOOK_EVENTS = [
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
 /**
- * §3.6 — **handler.mjs(자식 프로세스)가 반드시 필요한 이벤트.**
- *
- * 나머지는 "받은 JSON 을 우리 서버로 그대로 넘기는 것"뿐이라 CLI 가 직접 POST 하면 된다(HTTP 훅).
- * 아래 넷만은 Node 쪽에서 할 일이 있다.
- *
- *  - `PreToolUse`       — 승인 게이트(§5.3 #12-1)·질문 카드(#12-2). **동기로 결정 JSON 을 돌려준다.**
- *  - `UserPromptSubmit` — 켠 플러그인의 집행 블록을 `additionalContext` 로 얹는다(§5.11).
- *  - `Stop`             — 대기열에서 다음 명령을 꺼내 `claude --resume` 으로 띄운다.
- *  - `PostToolUse`      — 편집 직후 기억 카드 경고 주입(§5.10). **`Edit`/`Write` 에만 필요하다.**
+ * §3.6 — handler.mjs 가 꼭 필요한 넷(나머지는 HTTP 훅으로 CLI 가 직접 POST): `PreToolUse`(승인 게이트 §5.3 #12-1·질문 카드 #12-2 — 동기 결정 JSON) ·
+ * `UserPromptSubmit`(집행 블록 §5.11) · `Stop`(다음 명령을 `claude --resume`) · `PostToolUse`(기억 카드 경고 §5.10, `Edit`/`Write`).
  */
 export const HANDLER_EVENTS: ReadonlySet<string> = new Set<HookEvent>([
   'PreToolUse', 'UserPromptSubmit', 'Stop', 'PostToolUse',
 ]);
 
-/**
- * §5.3 #12-1 — 승인 게이트는 사용자 결정을 최대 60초 기다린다. 훅 타임아웃은 그보다 조금 길어야
- * 하고(짧으면 사용자가 누르기 전에 CLI 가 먼저 포기한다), CLI 기본값 600초보다는 훨씬 짧아야 한다
- * (Vibisual 이 멎으면 사용자의 CLI 가 10분간 얼어붙는다).
- */
+/** §5.3 #12-1 — 승인 게이트는 최대 60초 기다린다. 훅 타임아웃은 그보다 조금 길고(짧으면 CLI 가 먼저 포기) CLI 기본 600초보다 훨씬 짧게(서버가 멎으면 CLI 가 10분 언다). */
 const SYNC_GATE_TIMEOUT_SEC = 70;
 
 /** 프롬프트 집행 주입 — handler 가 스스로 1초로 끊으므로 그 위에 얇게 얹는다. */
@@ -124,25 +105,11 @@ const STOP_HOOK_TIMEOUT_SEC = 20;
 /** 순수 전달(추적)용 상한. 루프백이라 이보다 오래 걸리면 이미 잘못된 것이다. */
 const TRACK_TIMEOUT_SEC = 10;
 
-/**
- * §3.6 — 이벤트별 상한 예외.
- *
- * `SessionEnd` 의 기본 예산은 **1.5초**이고, 설정에 적은 per-hook timeout 중 가장 큰 값이 곧
- * 세션 종료 예산이 된다. 여기에 추적용 10초를 그대로 쓰면 **우리 서버가 멎었을 때 사용자의 세션
- * 종료·`/clear`·`/resume` 이 10초씩 멈춘다.** 우리가 하는 일은 루프백 POST 한 번뿐이라 2초면 넉넉하다.
- */
+/** §3.6 — `SessionEnd` 는 기본 예산 1.5초이고 per-hook timeout 최댓값이 종료 예산이 된다 — 10초면 서버가 멎을 때 `/clear`·`/resume` 이 10초 멈춘다. POST 한 번이라 2초. */
 const EVENT_TIMEOUT_SEC: Partial<Record<HookEvent, number>> = {
   SessionEnd: 2,
 };
-/**
- * §3.6 — HTTP 훅(`type: 'http'`)을 쓸 수 있다고 **실측으로 확인한** 최저 CLI 판올림.
- *
- * 2.1.251 확장 번들의 `claude-code-settings.schema.json` 에서 `type: 'http'` 변형을 직접 확인한
- * 값이다. 공식 문서에 도입 판올림이 적혀 있지 않아 "확인한 값"을 바닥으로 잡았고, 이보다 낮은
- * 판본에서는 **command 훅으로 떨어진다**(기능이 사라지는 게 아니라 종전 경로 그대로다).
- * 더 낮은 판본에서 확인되면 그때 이 값을 내려라 — 추측으로 내리지 마라. 모르는 `type` 을 만난
- * 옛 CLI 가 훅을 통째로 버리면 이벤트가 0건이 되고, 그건 앱이 죽은 것처럼 보인다.
- */
+/** §3.6 — HTTP 훅을 실측 확인한 최저 판(2.1.251 번들 스키마 — 공식 문서엔 없다). 낮으면 command 로. **추측으로 내리지 마라** — 모르는 `type` 에 옛 CLI 가 훅을 버리면 이벤트 0건이다. */
 export const HTTP_HOOK_MIN_CLI_VERSION = '2.1.251';
 
 /** 훅 전송 경로. `http` = CLI 가 우리 서버로 직접 POST, `command` = handler.mjs 자식 프로세스. */
@@ -209,13 +176,7 @@ export interface HookInstallOptions {
   transport?: HookTransport;
   /** 설치본 판올림(`2.1.251` 꼴). 모르면 undefined — HTTP 승격을 하지 않는다. */
   cliVersion?: string | null;
-  /**
-   * 설치할 **설정 홈**(`…/.claude`). 기본은 호스트 `~/.claude` — 종전 동작 그대로다.
-   *
-   * Cowork 는 설정 홈을 세션마다 따로 잡아 우리 `~/.claude/settings.json` 을 보지 않는다
-   * (§3.6 · anthropics/claude-code#63360). 그 세션의 홈을 여기 넘기면 **같은 블록**이 그쪽에도
-   * 깔리고, 같은 코어가 같은 훅을 쏜다 — 이벤트 처리 경로는 한 줄도 달라지지 않는다.
-   */
+  /** 설정 홈(기본 `~/.claude`). Cowork 세션 홈을 넘기면 같은 블록이 깔린다(§3.6 · anthropics/claude-code#63360). */
   settingsDir?: string;
 }
 
@@ -238,13 +199,7 @@ export function versionAtLeast(a: string | null | undefined, b: string): boolean
   return true;
 }
 
-/**
- * §3.6 — `allowedHttpHookUrls` 허용목록이 우리 URL 을 통과시키는가.
- *
- * 조직이 이 키를 걸어 두면 목록에 없는 HTTP 훅은 **조용히 안 돌고**, 우리는 이벤트가 0건인
- * 이유를 알 길이 없다. 그래서 설치 시점에 읽어 보고 안 맞으면 command 로 떨어진다.
- * 키가 아예 없으면(=undefined) 전부 허용이므로 통과.
- */
+/** §3.6 — `allowedHttpHookUrls` 통과 판정(키가 없으면 허용). 목록 밖 HTTP 훅은 조용히 안 돌아 command 로 떨어진다. */
 export function httpHookUrlAllowed(allowList: unknown, url: string): boolean {
   if (allowList === undefined || allowList === null) return true;
   if (!Array.isArray(allowList)) return true; // 형식이 이상하면 CLI 가 판단하게 둔다
@@ -257,16 +212,8 @@ export function httpHookUrlAllowed(allowList: unknown, url: string): boolean {
 }
 
 /**
- * §3.6 v2.9 / (판올림 번호 발급 대기) — handler.mjs 실행 엔트리.
- *
- * **exec 형식(`args`)으로 나간다.** 종전에는 `node "경로" --server "..." --token "..."` 한 줄을
- * 셸에 먹였는데, 그러면 경로에 공백·따옴표·`$`·백틱이 있을 때 셸 파서를 거치게 되고 OS 마다
- * 다른 규칙(POSIX 는 bash, Windows 는 Git Bash 없으면 PowerShell)을 탄다. `args` 를 주면 CLI 가
- * 실행본을 직접 spawn 하므로 셸 파서가 아예 등장하지 않는다 — 멀티플랫폼 규칙(경로를 문자열로
- * 조립하지 않는다)과 정확히 같은 이유다.
- *
- * Node가 없는 신규 설치본은 Electron 안의 Node를 helper 전용 환경으로 실행한다.
- * Claude 훅에는 env 필드가 없으므로 OS 제공 런처를 exec 형식으로 부른다(claudeHookInvocation).
+ * §3.6 — handler.mjs 엔트리는 **exec 형식(`args`)** — 한 줄 명령이면 경로의 공백·따옴표·`$` 가 OS 마다 다른 셸 파서를 탄다.
+ * Node 없는 설치본은 Electron 의 Node 로 돌고, 훅에 env 필드가 없어 OS 런처를 exec 형식으로 부른다(`claudeHookInvocation`).
  */
 function buildHandlerEntry(
   port: number,
@@ -293,17 +240,8 @@ function buildHandlerEntry(
 }
 
 /**
- * §3.6 (판올림 번호 발급 대기) — **CLI 가 우리 서버로 직접 POST 하는 엔트리.**
- *
- * 순수 전달 이벤트에서 `handler.mjs` 는 "stdin 을 읽어 그대로 POST 하는 것" 말고 하는 일이 없는데,
- * 그 한 줄을 위해 **이벤트마다 Node 프로세스가 하나씩 떴다.** 이벤트를 15종에서 33종으로 늘리면
- * 그 비용이 그대로 곱해지고, 그중 `MessageDisplay`·`FileChanged` 는 빈도가 높다. HTTP 훅은 그
- * 프로세스를 통째로 없앤다.
- *
- * **env 는 헤더로 건너간다** — handler.mjs 는 `VIBISUAL_OWNER_AGENT_ID` 를 읽어 본문에 실었지만
- * (CMD 버블 귀속·§4 v2.64), HTTP 훅은 본문을 손댈 수 없다. 대신 헤더 값에 `$VAR` 를 쓸 수 있으므로
- * 같은 값을 헤더로 보내고 서버가 본문 필드로 되돌린다. `allowedEnvVars` 에 올린 것만 치환되며,
- * 안 잡힌 변수는 빈 문자열이 되므로 서버는 빈 값을 "없음"으로 읽는다.
+ * §3.6 — CLI 가 직접 POST 하는 HTTP 훅 엔트리(순수 전달 이벤트마다 Node 를 띄우지 않는다).
+ * 본문을 못 고쳐 `VIBISUAL_OWNER_AGENT_ID`(CMD 귀속, §4)는 헤더 `$VAR` 로 보내고 서버가 본문으로 되돌린다. `allowedEnvVars` 밖 변수는 빈 문자열 = 없음.
  */
 function buildHttpEntry(port: number, token: string, opts: { if?: string; timeout: number }): HookHttpEntry {
   const entry: HookHttpEntry = {
@@ -329,10 +267,7 @@ export function hookEventUrl(port: number): string {
   return `http://127.0.0.1:${port}/api/hook-event`;
 }
 
-/**
- * §3.6 — 한 이벤트에 깔 우리 블록들. 대부분 한 장이고, `PostToolUse` 만 HTTP 경로에서 두 장이다
- * (기억 카드 주입은 `Edit`/`Write` 전용 동기 훅, 추적은 전체 도구 HTTP 훅).
- */
+/** §3.6 — 한 이벤트에 깔 우리 블록(이벤트마다 한 장). */
 export function buildVibisualBlocks(
   event: HookEvent,
   port: number,
@@ -363,17 +298,7 @@ export function buildVibisualBlocks(
     })]);
   }
 
-  /*
-   * §5.10 — `PostToolUse` 는 이제 **한 갈래**다.
-   *
-   * 종전에는 `if: Edit`/`if: Write` 전용 엔트리를 따로 심어 기억 카드 경고를 물어봤는데,
-   * 그 축이 폐기돼 물어볼 곳이 없다. 갈래가 사라지면 편집할 때마다 뜨던 Node 프로세스도
-   * 함께 사라진다 — 추적은 종전대로 HTTP(폴백은 handler)가 통째로 맡는다.
-   *
-   * **분기는 그대로 둔다**(아래 "나머지 전부"에 흘려보내지 않는다). 일반 경로는 `sync: false` ·
-   * `EVENT_TIMEOUT_SEC` 를 쓰는데, `PostToolUse` 는 종전부터 `sync: true` · `TRACK_TIMEOUT_SEC`
-   * 였다. 기억 카드를 걷는 김에 전송 방식까지 같이 바뀌면 이번 변경이 무엇을 고쳤는지 알 수 없다.
-   */
+  /* §5.10 — `PostToolUse` 는 한 갈래(기억 카드 축 폐기). 분기는 남긴다 — 일반 경로와 달리 `sync: true`·`TRACK_TIMEOUT_SEC` 라, 합치면 전송 방식이 바뀐다. */
   if (event === 'PostToolUse') {
     if (transport === 'command') {
       return wrap([buildHandlerEntry(port, handlerPath, token, { sync: true, timeout: TRACK_TIMEOUT_SEC })]);
@@ -397,20 +322,9 @@ function isOurBlock(block: HookMatcherBlock): boolean {
 }
 
 /**
- * §3.6 — 표식(`_vibisualManaged`)이 없던 시절에 깔린 **우리 옛 블록**인지 판정.
- *
- * 인스톨러는 표식 붙은 것만 갱신하므로, 표식이 없던 판본이 깔아 둔 블록은 이벤트마다 그대로
- * 남아 설치·판올림마다 한 장씩 쌓인다(실측: 이벤트당 8장 = 툴 1회 호출에 handler.mjs 프로세스 8개).
- * 우리 서명(`handler.mjs` + loopback `--server`)이 **둘 다** 보이는 블록만 걷어내므로 남의 훅은
- * 건드리지 않는다. exec 형식(`args`)으로 바뀐 뒤에는 서명이 `command` 한 줄이 아니라 `args` 배열에
- * 흩어지므로 둘을 합쳐서 본다.
- *
- * **표식이 지워진 블록도 여기서 걷힌다(2026-10-15).** settings.json 을 다른 쪽이 다시 쓰며 블록의 모르는
- * 키(`_vibisualManaged`)를 떨어뜨리면 command 블록은 위 서명으로 걷혔지만 **HTTP 블록은 서명 검사가
- * command 전용이라 사용자 훅으로 남았고**, 부팅마다 표식 붙은 새 블록이 한 장씩 붙었다(실측: HTTP
- * 이벤트마다 7벌 — 같은 POST 가 일곱 번). HTTP 블록은 주소(`/api/hook-event` on loopback)와 우리 토큰
- * 헤더가 **둘 다** 맞을 때만 우리 것이다. Node 없는 Windows 런처는 서명이 `-EncodedCommand` 안에 있어
- * 풀어서 본다(`claudeHookInvocation`).
+ * §3.6 — 표식(`_vibisualManaged`) 없는 우리 블록 판정(옛 판본 · 표식이 떨어진 것). 안 걷으면 부팅마다 쌓인다(실측 이벤트당 8장).
+ * command: 우리 서명(`handler.mjs` + loopback `--server`) **둘 다**(`command`·`args` 합쳐서). HTTP: loopback `/api/hook-event` + 우리 토큰 헤더 둘 다.
+ * Node 없는 Windows 런처는 서명이 `-EncodedCommand` 안이라 풀어 본다. 남의 훅은 건드리지 않는다.
  */
 function isLegacyVibisualBlock(block: HookMatcherBlock): boolean {
   if (!block || typeof block !== 'object') return false;
@@ -480,12 +394,7 @@ function pruneBackups(settingsDir: string, settingsPath: string): number {
   }
 }
 
-/**
- * §3.6 — 요청한 전송 경로를 실제로 쓸 수 있는지 판정. 못 쓰면 사유와 함께 `command` 로 떨어진다.
- *
- * **떨어지는 것이 기능 손실은 아니다** — command 경로가 종전 동작 그대로다. 반대로 못 도는
- * HTTP 훅을 깔면 이벤트가 0건이 되고, 그건 화면에서 앱이 죽은 것처럼 보인다.
- */
+/** §3.6 — 요청 전송 경로를 쓸 수 있는지 보고 못 쓰면 사유와 함께 `command`(손실 없음). 못 도는 HTTP 훅 = 이벤트 0건. */
 export function resolveTransport(
   requested: HookTransport,
   ctx: { cliVersion?: string | null; allowedHttpHookUrls?: unknown; url: string },
@@ -605,14 +514,8 @@ export function ensureClaudeHooksInstalled(
 }
 
 /**
- * §3.6 — settings.json 쓰기 한 벌(깔기·걷기 공용). 직전 원본을 백업하고 tmp → rename 으로 바꾼다(부분 쓰기 ❌).
- *
- * §보안 감사 2026-09-09 — 이 파일의 훅 블록에는 `x-vibisual-hook-token` 헤더가 평문으로 들어간다. 토큰 하나면
- * loopback 리스너의 화이트리스트 전체에 닿으므로 **소유자만 읽게** 좁힌다. 백업본에도 직전 판의 토큰이 그대로
- * 들어 있어 같은 권한으로 쓴다(안 그러면 백업이 토큰 유출 경로가 된다).
- *
- * `mode` 는 새로 만들 때만 먹으므로 이미 있던 `settings.json` 은 rename 뒤에 `chmodSync` 로 함께 좁힌다(rename 은
- * tmp 의 권한을 그대로 옮긴다). Windows 에서는 읽기전용 비트만 다루는 무해한 no-op 이고, 실효는 mac·linux 에서 난다.
+ * §3.6 — settings.json 쓰기(깔기·걷기 공용): 백업 후 tmp → rename. 훅 토큰이 평문이라(하나로 loopback 화이트리스트 전체에 닿는다) 본 파일·백업 모두 **소유자만 읽게**.
+ * `mode` 는 새 파일에만 먹어 rename 뒤 `chmodSync` 도 한다(Windows 는 no-op).
  */
 function writeSettingsFile(
   settingsDir: string,
@@ -641,11 +544,7 @@ function writeSettingsFile(
 
 // ── §3.6 「수명」 — 훅은 앱이 켜져 있는 동안만 둔다 ───────────────────────────────────────────────
 
-/**
- * 이 프로세스가 훅을 걷었는가. 걷은 뒤에는 `ensureClaudeHooksInstalled` 가 아무것도 깔지 않는다 — 종료 중에도
- * 타이머는 몇 번 더 돌 수 있어서, 10초 스윕이나 CLI 판올림을 확인한 전송 경로 승격이 방금 걷은 훅을 되살리면
- * 앱이 꺼진 뒤에 훅이 남는다(이 축이 막으려던 바로 그 상태다).
- */
+/** 걷은 뒤엔 `ensureClaudeHooksInstalled` 가 깔지 않는다 — 종료 중에도 스윕·승격 타이머가 돌아 훅이 되살아난다. */
 let hooksRetired = false;
 
 /** 설정 파일마다 우리가 마지막으로 맞춘 뒤의 지문(수정 시각·크기). 바뀐 홈만 다시 맞추는 데 쓴다. */
@@ -716,13 +615,7 @@ export interface HookRemovalResult {
   error?: Error;
 }
 
-/**
- * §3.6 「수명」 — 설정 홈 하나에서 우리 블록을 걷는다. 남의 훅, 다른 포트를 가리키는 우리 블록은 남긴다.
- *
- * 비어 버린 이벤트 키와 `hooks` 는 지운다 — 우리가 깔기 전 모양으로 돌려놓는다(설치기는 파일이 없으면
- * `{ "hooks": {} }` 로 만들었다). 파일이 없거나 JSON 이 깨져 있으면 손대지 않는다(§3.6 「JSON 파싱 실패」).
- * 홈 디렉터리를 만들지 않는다 — 걷기가 남의 자리에 빈 껍데기를 되살리면 안 된다.
- */
+/** §3.6 「수명」 — 홈 하나에서 이 포트의 우리 블록만 걷고 빈 이벤트 키·`hooks` 도 지운다. 파일이 없거나 JSON 이 깨졌으면 손대지 않고(§3.6), 홈을 만들지 않는다(빈 껍데기 ❌). */
 export function removeClaudeHooks(options: { port?: number | null; settingsDir?: string } = {}): HookRemovalResult {
   const settingsDir = options.settingsDir ?? path.join(os.homedir(), '.claude');
   const settingsPath = path.join(settingsDir, 'settings.json');
@@ -802,13 +695,7 @@ export interface HookReensureResult {
   hostChecked: boolean;
 }
 
-/**
- * §3.6 「수명」 ③ — **켜져 있는 동안 지킨다.** 세션 스캔 스윕(10초)이 부른다.
- *
- * 우리가 맞춰 둔 뒤 설정 파일이 바뀐 홈(수정 시각·크기)만 다시 맞춘다 — 그대로면 stat 한 번으로 끝난다.
- * Claude Code 가 settings.json 을 다시 쓰며 표식을 떨어뜨리거나 사용자가 우리 블록을 지워도 10초 안에
- * 돌아온다. 대상은 호스트와 **이 프로세스가 이미 심은** Cowork 홈뿐이다(새 홈은 `installHooksIntoNewCoworkHomes`).
- */
+/** §3.6 「수명」 ③ — 10초 스윕: 맞춘 뒤 설정 파일(수정 시각·크기)이 바뀐 홈만 다시 맞춘다. 대상은 호스트와 이 프로세스가 심은 Cowork 홈(새 홈은 `installHooksIntoNewCoworkHomes`). */
 export function reensureHooksWhereChanged(
   port: number,
   handlerPath: string,
@@ -837,11 +724,7 @@ export function reensureHooksWhereChanged(
   return out;
 }
 
-/**
- * §3.6 — **설치처가 여럿인 경우의 설치 결과.**
- *
- * 호스트 설치는 종전과 같은 한 건이고, Cowork 는 세션마다 홈이 따로라 여러 건이다.
- */
+/** §3.6 — 설치처가 여럿일 때의 결과: 호스트 한 건 + Cowork 세션 홈마다 한 건. */
 export interface HookInstallAllResult {
   /** 호스트 `~/.claude` 설치 결과 — VS Code 등 종전 경로 전부가 여기에 달렸다. */
   host: HookInstallResult;
@@ -852,27 +735,9 @@ export interface HookInstallAllResult {
 }
 
 /**
- * 우리가 아는 **모든 설정 홈**에 같은 훅 블록을 심는다 — 호스트 하나 + Cowork 세션 홈들.
- *
- * ## 왜 필요한가
- *
- * Cowork 는 Claude Code 와 같은 코어로 돌면서 **설정 홈만 세션마다 따로 잡는다**(그 물증은
- * `claudeConfigHomes.ts` 주석). 그래서 우리 `~/.claude/settings.json` 의 훅은 Cowork 에서 한 번도
- * 발화하지 않았고(anthropics/claude-code#63360 "not planned", 근본 원인 #40495), 캔버스에서
- * Cowork 작업은 **일어나지 않은 일**이었다. 같은 블록을 그 홈에 심으면 같은 코어가 같은 훅을
- * 쏘므로, 이벤트를 받는 쪽(`/api/hook-event`)은 한 줄도 고칠 게 없다.
- *
- * ## 순서와 실패 격리
- *
- * **호스트가 먼저다.** Cowork 열거는 디렉터리 3겹을 훑으므로 느리거나 실패할 수 있는데, 그때도
- * 종전 동작(호스트 설치)은 이미 끝나 있어야 한다 — 새 축이 옛 축을 볼모로 잡지 않는다.
- * 홈 하나가 실패해도 나머지는 계속 깐다(§3.6 failure-tolerant).
- *
- * ## 유령 디렉터리를 만들지 않는다
- *
- * 설치기는 설정 홈이 없으면 `mkdir -p` 로 만든다. Cowork 홈 목록은 15초 캐시라 그 사이 세션이
- * 지워졌을 수 있는데, 그때 그대로 만들면 **우리가 남의 데이터 폴더에 빈 껍데기를 되살리는** 꼴이
- * 된다. 그래서 심기 직전에 **세션 디렉터리가 아직 있는지** 한 번 더 확인한다.
+ * 모든 설정 홈(호스트 + Cowork 세션 홈)에 같은 블록을 심는다 — Cowork 는 홈을 세션마다 따로 잡아 호스트 훅이 안 돈다(anthropics/claude-code#63360).
+ * **호스트가 먼저다**(Cowork 열거가 느리거나 실패해도). 홈 하나가 실패해도 계속(§3.6 failure-tolerant).
+ * 홈 목록은 15초 캐시라 심기 직전 세션 디렉터리가 있는지 다시 본다 — 설치기는 `mkdir -p` 라 지워진 세션 폴더를 되살린다.
  */
 export function ensureHooksInstalledEverywhere(
   port: number,
@@ -908,24 +773,13 @@ export function ensureHooksInstalledEverywhere(
   return { host, cowork, coworkInstalled };
 }
 
-/**
- * 이번 프로세스에서 훅을 심어 둔 Cowork 홈 — **새로 나타난 세션만** 건드리기 위한 장부.
- *
- * Cowork 세션은 사용자가 새 대화를 열 때마다 생기므로 부팅 1회 설치로는 그 뒤에 생긴 세션이
- * 전부 새어 나간다. 그렇다고 주기마다 홈 전부를 다시 여는 것은 낭비다 — 설치기는 idempotent 라
- * 결과는 같지만, 10초 스윕이 홈 48개의 `settings.json` 을 매번 읽고 파싱한다.
- */
+/** 이 프로세스가 심은 Cowork 홈 장부 — 새 세션만 깔려고(부팅 1회는 새고, 매번 전부 열면 스윕마다 파싱한다). */
 const coworkHomesDone = new Set<string>();
 
 /** 장부가 가리키는 설치 내용(포트·토큰·전송 경로). 이게 바뀌면 전부 다시 깔아야 한다. */
 let coworkLedgerSignature = '';
 
-/**
- * 포트·토큰·핸들러·전송 경로가 바뀌었으면 장부를 비운다.
- *
- * 이게 없으면 **판올림으로 HTTP 승격이 일어난 뒤에도 Cowork 홈에는 옛 command 블록이 남는다** —
- * "이미 심었다"는 표식만 보고 건너뛰기 때문이다. 서명이 바뀌면 다음 회차가 전부 다시 깐다.
- */
+/** 포트·토큰·핸들러·전송 경로가 바뀌면 장부를 비운다 — 아니면 HTTP 승격 뒤에도 Cowork 홈에 옛 command 블록이 남는다. */
 function resetCoworkLedgerIfStale(
   port: number,
   handlerPath: string,
@@ -946,16 +800,8 @@ export function __resetCoworkInstallLedgerForTest(): void {
 }
 
 /**
- * **새로 나타난 Cowork 세션 홈에만** 훅을 심는다 — 주기 스윕이 부르는 경로.
- *
- * 사용자가 Cowork 에서 새 대화를 열면 세션 홈이 하나 생긴다. 그 홈에 우리 블록이 깔리기 전에
- * CLI 가 설정을 읽어 버리면 **그 세션은 통째로 안 보인다**(훅이 0건이라 캔버스에서는 일어나지
- * 않은 일이 된다). 그래서 부팅 1회가 아니라 세션 스캔 주기(10초)마다 새 홈을 확인한다 —
- * 사용자가 대화를 열고 첫 프롬프트를 치기까지의 시간이 그보다 짧은 경우는 드물다.
- *
- * 호스트 홈은 건드리지 않는다(부팅 설치와 전송 경로 승격이 이미 맡고 있다).
- *
- * @returns 이번 회차에 새로 심은 홈 수(0 이면 조용히 지나간다 — 로그 도배 방지).
+ * 새 Cowork 세션 홈에만 심는다(10초 주기 — 깔리기 전에 CLI 가 설정을 읽으면 그 세션은 안 보인다). 호스트는 부팅 설치·승격이 맡는다.
+ * @returns 새로 심은 홈 수(0 이면 로그 없음).
  */
 export function installHooksIntoNewCoworkHomes(
   port: number,

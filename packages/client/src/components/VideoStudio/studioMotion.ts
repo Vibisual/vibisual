@@ -2,10 +2,8 @@ import { createContext } from 'react';
 
 /**
  * §5.13 (V) 37-1 — 스튜디오의 움직임(열고 닫기 120–180ms ease-out · 바뀐 것 한 번 빛남 · 일하는 장면의 위성).
- *
- * 키프레임은 이 앱 청크가 한 번만 문서 머리에 넣는다(전역 index.css 에 앱 전용 이름을 두지 않는다). 클래스는 Tailwind 임의
- * 값(`animate-[vs-in-left_160ms_ease-out]`)으로 부른다. 움직임 줄이기 설정이면 전부 끈다. 빛남·위성 색은 셸 뿌리의
- * `--vs-accent`(레지스트리의 앱 색) 하나에서 온다 — hex 를 쓰지 않는다.
+ * 키프레임은 이 앱 청크가 문서 머리에 한 번 넣는다(전역 index.css 에 앱 전용 이름 ❌). 클래스는 Tailwind 임의 값(`animate-[vs-in-left_160ms_ease-out]`).
+ * 움직임 줄이기 설정이면 전부 끈다. 빛남·위성 색은 셸 뿌리의 `--vs-accent`(레지스트리 앱 색) 하나 — hex ❌.
  */
 
 const STYLE_ID = 'vs-studio-motion';

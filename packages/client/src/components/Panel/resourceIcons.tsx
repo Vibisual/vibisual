@@ -1,9 +1,4 @@
-/**
- * 사용량 팝업 올모델 탭의 자원 글리프 (§5.19 (F)) — CPU · 시스템 메모리 · 가속 장치.
- *
- * lucide 톤의 인라인 stroke SVG 다(이모지 금지 규약). 색은 `currentColor` 로 받아 부모의
- * `text-*` 가 정하게 둔다 — 다크/라이트와 활성/비활성을 따로 그리지 않기 위해서다.
- */
+/** §5.19 (F) — 올모델 탭 자원 글리프(CPU·메모리·가속 장치). stroke SVG, 색은 `currentColor`(부모 `text-*`). */
 
 const ICON = 'h-3.5 w-3.5 flex-shrink-0';
 

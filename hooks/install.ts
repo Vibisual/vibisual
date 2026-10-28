@@ -1,11 +1,4 @@
-/**
- * hooks/install.ts — Auto-register Vibisual hooks in ~/.claude/settings.json
- *
- * Reads the user's Claude Code settings, deep-merges our hook configuration
- * without overwriting existing hooks, and writes back.
- *
- * Run with: npx tsx hooks/install.ts
- */
+/** Registers our hooks in ~/.claude/settings.json by deep-merge (existing hooks are kept). Run: npx tsx hooks/install.ts */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -47,12 +40,7 @@ const SESSION_START_EVENT = 'SessionStart' as const;
 // ---------------------------------------------------------------------------
 
 function getProjectRoot(): string {
-  // This script lives at <PROJECT_ROOT>/hooks/install.ts
-  //
-  // `new URL(...).pathname` 을 쓰면 안 된다 — (a) Windows 에서 앞에 슬래시가 하나 더 붙고,
-  // (b) **퍼센트 인코딩이 풀리지 않아** 공백 든 경로가 `My%20Projects` 로 남는다.
-  //     (b) 는 세 OS 에서 모두 깨지는데, 개발 경로에 공백이 없으면 드러나지 않아 오래 살아남는다.
-  // `fileURLToPath` 가 둘 다 처리하는 표준 창구다 — 그래서 플랫폼 분기 자체가 사라진다.
+  // `new URL(...).pathname` ❌ — Windows 에선 앞에 `/` 가 붙고, 퍼센트 인코딩이 안 풀려 공백 경로가 `My%20Projects` 로 남는다(세 OS 모두). `fileURLToPath` 를 쓴다.
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   return path.resolve(scriptDir, '..');
 }
@@ -105,10 +93,6 @@ function buildMatcherEntry(command: string): HookMatcher {
   };
 }
 
-/**
- * Returns the index of an existing Vibisual hook matcher inside the array,
- * or -1 if none is found.
- */
 function findVibisualIndex(matchers: HookMatcher[]): number {
   return matchers.findIndex((m) =>
     m.hooks.some((h) => h.command.toLowerCase().includes(VIBISUAL_MARKER)),

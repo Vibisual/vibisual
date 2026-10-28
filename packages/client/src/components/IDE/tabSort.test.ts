@@ -4,14 +4,7 @@ import {
   DEFAULT_TAB_SORT_ANCHOR, TAB_SORT_KEYS, type TabSortFacts,
 } from './tabSort.js';
 
-/**
- * §5.5 #17-41 — 세션 탭 정렬 판정 회귀.
- *
- * 고정하는 약속 셋:
- *  ① 기준(`right`/`left`)은 **순위만** 뒤집는다 — 동률 탭의 좌우는 지금 순서 그대로다.
- *  ② 그 일이 한 번도 없던 탭(카드 없음)은 항상 반대쪽 끝으로 간다.
- *  ③ 실행 상태는 실행중 → 오류 → 완료(미확인) → 완료(확인) 순이다.
- */
+/** §5.5 #17-41 탭 정렬: 기준은 순위만 뒤집고 동률은 지금 순서 · 카드 없던 탭은 반대쪽 끝 · 실행중 → 오류 → 완료(미확인) → 완료(확인). */
 
 const facts = (over: Partial<TabSortFacts> & { id: string }): TabSortFacts => ({
   runState: 'done',

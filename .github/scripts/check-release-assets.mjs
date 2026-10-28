@@ -1,17 +1,7 @@
 #!/usr/bin/env node
-// 한 판올림이 **세 OS 전부에 도달했는가**를 세는 곳 — 자산 목록의 정본은 여기 하나다.
-//
-// 왜 한 곳이어야 하나: 종전에는 이 목록이 `/release` 스킬 문서 안에만 있었다. 문서는 실행되지
-// 않으므로 아무도 세지 않으면 아무 일도 일어나지 않았고, v0.1.12 가 Intel dmg 없이 발행됐다.
-// 이제는 `smoke.yml` 의 `publish` 잡이 **공개 전환 직전에** 이 스크립트를 돌린다 — 한 종이라도
-// 없으면 그 릴리스는 draft 로 남는다. 사람의 기억이 아니라 게이트가 센다.
-//
-// ⚠️ draft 릴리스를 봐야 하므로 `/releases/tags/<tag>` 를 쓰지 않는다 — 그 경로는 draft 에
-//    404 를 준다. 목록에서 `tag_name` 으로 찾는다(그래야 검증 전 단계의 릴리스가 보인다).
-//
-// 사용법:  node .github/scripts/check-release-assets.mjs v0.1.19
-// 환경:    GH_TOKEN (draft 를 보려면 필수 — 없으면 공개 릴리스만 보인다)
-// 종료코드: 0 = 전부 있음 · 1 = 누락 있음 · 2 = 릴리스 자체를 못 찾음
+// 한 판올림이 세 OS 전부에 도달했는가를 센다(자산 목록의 정본) — `smoke.yml` `publish` 잡이 공개 직전에 돌려 하나라도 없으면 draft 로 남긴다.
+// ⚠️ `/releases/tags/<tag>` 는 draft 에 404 — 목록에서 `tag_name` 으로 찾는다.
+// 사용법: node .github/scripts/check-release-assets.mjs v0.1.19 · GH_TOKEN(draft 에 필수) · 종료 0 = 전부 · 1 = 누락 · 2 = 릴리스 없음
 
 const OWNER = 'Vibisual';
 const REPO = 'vibisual';
@@ -25,10 +15,7 @@ if (!raw) {
 const tag = raw.startsWith('v') ? raw : `v${raw}`;
 const version = tag.slice(1);
 
-/**
- * 이름을 못 박아 세는 것들. 여기 없는 이름으로 발행되면 "없다"가 되는데, 그게 맞다 —
- * 자동 업데이트 피드와 설치 안내가 전부 이 이름을 가리키고 있다.
- */
+/** 이름을 못 박아 센다 — 업데이트 피드·설치 안내가 이 이름을 가리키므로 다른 이름이면 "없다"가 맞다. */
 const NEED_EXACT = [
   ['win   설치본', `Vibisual-${version}-setup.exe`],
   ['win   피드', 'latest.yml'],

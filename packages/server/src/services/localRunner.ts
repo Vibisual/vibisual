@@ -1,18 +1,9 @@
 /**
  * localRunner.ts — §5.19 (D)(F) All Model 로컬 턴 러너.
- *
- * **우리가 턴 루프를 돈다.** 외부 CLI 를 빌리지 않고, 설치해 둔 `llama-server` 를 우리가
- * 띄우고 우리가 말을 건다. 그래서 화면·세션·중지·카드가 전부 기존 IDE 의 것을 그대로 쓴다.
- *
- * **엔진은 자식 프로세스로 격리한다.** 메인 프로세스가 곧 서버 코어라, 모델 로드 실패나
- * 메모리 부족이 앱 전체를 끌고 내려가면 안 된다.
- *
- * **자원은 한 벌뿐이다.** 클로드 버블은 무한히 병렬이지만 로컬 모델은 아니다 — 동시 로드
- * 상한을 두고, 넘으면 거절이 아니라 앞의 모델을 내리고 자리를 만든다. 유휴 모델은 스스로
- * 내려간다. 같은 모델을 문 버블들은 한 인스턴스를 공유한다.
- *
- * **대화 이력의 주인이 바뀐다.** claude 경로는 CLI 가 `--resume` 으로 들고 있지만 여기서는
- * 우리가 `messages[]` 를 들고 있어야 한다 — 세션 단위 파일로 남겨 앱을 껐다 켜도 이어진다.
+ * **턴 루프는 우리가 돈다** — 외부 CLI 없이 설치된 `llama-server` 를 띄워 말을 건다. 화면·세션·중지·카드는 기존 IDE 것을 그대로 쓴다.
+ * **엔진은 자식 프로세스로 격리한다** — 메인 프로세스가 서버 코어라 모델 로드 실패·메모리 부족이 앱을 끌어내리면 안 된다.
+ * **자원은 한 벌뿐** — 동시 로드 상한을 두고, 넘으면 거절 대신 앞의 모델을 내린다. 유휴 모델은 스스로 내려가고 같은 모델을 문 버블들은 한 인스턴스를 공유한다.
+ * **대화 이력은 우리가 든다**(`messages[]`) — CLI 의 `--resume` 이 없으므로 세션 단위 파일로 남겨 앱을 껐다 켜도 이어진다.
  */
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -83,10 +74,8 @@ export interface ChatDelta {
   /** 이 줄에 실려 온 도구 호출 조각들(없으면 빈 배열). */
   toolCalls: ToolCallDelta[];
   /**
-   * 이 요청의 **프롬프트가 실제로 몇 토큰이었나**(엔진이 마지막 줄에 실어 준다).
-   *
-   * `timings.prompt_n` 을 쓰면 안 된다 — 캐시가 맞으면 그건 **새로 평가한 양**만 말한다
-   * (2026-08-21 실측: 같은 11토큰 프롬프트가 캐시 적중 시 `prompt_n=4` / `prompt_tokens=11`).
+   * 이 요청의 프롬프트가 **실제로** 몇 토큰이었나(엔진이 마지막 줄에 싣는다).
+   * `timings.prompt_n` 을 쓰면 안 된다 — 캐시가 맞으면 새로 평가한 양만 말한다(2026-08-21 실측: 같은 11토큰이 캐시 적중 시 `prompt_n=4` / `prompt_tokens=11`).
    */
   promptTokens: number | null;
   /** 같은 자리에서 오는 **뱉은 토큰** 수(답 + 생각). 사용량 누적이 이 값을 먹는다. */
@@ -95,13 +84,8 @@ export interface ChatDelta {
 
 /**
  * `data:` 한 줄을 읽는다. 조각난 줄이면 `null`(다음 청크에서 이어진다).
- *
- * **`content` 만 읽으면 안 된다.** 추론 모델은 생각을 `reasoning_content` 로 따로 보내므로,
- * 생각만 하다 끝난 턴이 한 글자도 없는 빈 말풍선 + "완료" 가 된다 — 사용자에겐 아무 일도
- * 일어나지 않은 것으로 보인다(2026-08-20 실측: content 0자 / reasoning_content 4,096자).
- *
- * **`tool_calls` 도 같은 자리에 온다**(§5.19 (H)). 이걸 놓치면 모델이 파일을 고치겠다고
- * 말해도 우리 쪽에서는 아무 일도 일어나지 않는다.
+ * **`content` 만 읽으면 안 된다** — 추론 모델은 생각을 `reasoning_content` 로 따로 보내, 생각만 하다 끝난 턴이 빈 말풍선 + "완료"가 된다
+ * (2026-08-20 실측: content 0자 / reasoning_content 4,096자). **`tool_calls` 도 같은 자리에 온다**(§5.19 (H)) — 놓치면 모델이 고치겠다 해도 아무 일도 안 일어난다.
  */
 export function parseChatDelta(payload: string): ChatDelta | null {
   try {
@@ -143,11 +127,8 @@ export function parseChatDelta(payload: string): ChatDelta | null {
 }
 
 /**
- * §5.19 (H) — 흩어져 오는 도구 호출 조각을 온전한 호출로 모은다.
- *
- * 인자 JSON 이 **여러 줄에 걸쳐** 쪼개져 오므로 중간에 파싱하면 늘 실패한다 — 끝까지 모으고
- * 한 번만 읽는다. 끝내 못 읽는 JSON 이면 버리지 않고 **빈 인자로** 넘긴다(도구 쪽이 "무엇이
- * 없다"고 말해 주면 모델이 고쳐 쓴다 — 우리가 조용히 삼키면 모델은 영영 모른다).
+ * §5.19 (H) — 흩어져 오는 도구 호출 조각을 온전한 호출로 모은다. 인자 JSON 이 여러 줄로 쪼개져 오므로 끝까지 모아 한 번만 읽는다.
+ * 끝내 못 읽어도 버리지 않고 **빈 인자로** 넘긴다 — 도구가 "무엇이 없다"고 말해야 모델이 고쳐 쓴다(조용히 삼키면 영영 모른다).
  */
 export function createToolCallAccumulator(): {
   push(deltas: readonly ToolCallDelta[]): void;
@@ -186,12 +167,8 @@ export interface ToolArguments {
 }
 
 /**
- * 깨진 JSON 을 고쳐 볼 후보들을 만든다. 앞에서부터 시도해 처음 읽히는 것이 답이다.
- *
- * 스트림으로 조각조각 오는 인자 JSON 은 흔하게 깨진다 — 코드펜스로 감싸 보내거나, 앞뒤에
- * 설명을 붙이거나, 마지막 쉼표를 남기거나, 창이 끝나 **중간에서 잘린다**. 이 흠들은 전부
- * 기계적으로 고칠 수 있는 것이라, 고쳐 보지도 않고 버리면 왕복 한 번(로컬에선 수십 초)을
- * 그냥 태운다.
+ * 깨진 JSON 을 고쳐 볼 후보들. 앞에서부터 시도해 처음 읽히는 것이 답이다.
+ * 흔한 흠(코드펜스·앞뒤 설명·마지막 쉼표·창이 끝나 중간에서 잘림)은 기계적으로 고칠 수 있다 — 그냥 버리면 왕복 한 번(로컬에선 수십 초)을 태운다.
  */
 export function repairJsonCandidates(raw: string): string[] {
   const out: string[] = [];
@@ -251,11 +228,8 @@ function closeTruncated(src: string): string | null {
 }
 
 /**
- * 모아 둔 인자 JSON 을 읽는다. 한 번에 안 되면 **흔한 흠부터 고쳐 보고** 다시 읽는다.
- *
- * 끝내 못 읽으면 빈 인자에 **사유를 함께** 돌려준다 — 종전에는 조용히 `{}` 만 줘서, 도구는
- * "path 가 없다"고 말하고 모델은 자기가 보낸 JSON 이 깨졌다는 사실을 **영영 모른 채** 같은
- * 모양으로 다시 보냈다. 무엇이 잘못됐는지 알려 주면 모델이 고쳐 쓴다.
+ * 모아 둔 인자 JSON 을 읽는다. 안 되면 흔한 흠부터 고쳐 보고 다시 읽는다.
+ * 끝내 못 읽으면 빈 인자에 **사유를 함께** 준다 — `{}` 만 주면 도구는 "path 가 없다"고만 하고, 모델은 JSON 이 깨진 줄 모른 채 같은 모양으로 다시 보낸다.
  */
 export function parseToolArguments(raw: string): ToolArguments {
   if (!raw.trim()) return { args: {} };
@@ -282,11 +256,8 @@ export function parseToolArguments(raw: string): ToolArguments {
 }
 
 /**
- * §5.19 (H) — **같은 도구를 같은 인자로** 되풀이하고 있는가. 실행 **전에** 부르고, 문자열이
- * 돌아오면 실행하지 말고 그 문자열을 결과로 준다.
- *
- * 한 번만 허용하면 "고치고 다시 돌려 보는" 정당한 재실행까지 막히므로 몇 번은 그대로 실행하고,
- * 그 뒤로는 실행 대신 사실을 알린다. 상한이 없으면 왕복 상한을 전부 헛돌린다.
+ * §5.19 (H) — **같은 도구를 같은 인자로** 되풀이하는가. 실행 **전에** 부르고, 문자열이 오면 실행하지 말고 그것을 결과로 준다.
+ * "고치고 다시 돌려 보는" 정당한 재실행이 있으니 몇 번은 그대로 실행하고 그 뒤로는 사실을 알린다 — 상한이 없으면 왕복 상한을 헛돌린다.
  */
 export function repeatedCallNotice(
   seen: Map<string, number>,
@@ -308,13 +279,8 @@ export interface StreamCoalescer {
 }
 
 /**
- * 엔진은 토큰 하나마다 SSE 한 줄을 보낸다. 그대로 이벤트로 옮기면 한 턴이 수천 건이 되어
- * 전선·디스크·복원 예산을 잔조각으로 채운다(복원은 마지막 N 이벤트라, 잔조각이 그 자리를 다
- * 먹으면 정작 본문이 화면에서 사라진다).
- *
- * 그래서 **빠를 때는 모으고 느릴 때는 바로 내보낸다** — 시간 조건이 있어서, 초당 몇 토큰짜리
- * 로컬 모델에서는 사실상 조각마다 흘러가고 빠른 모델에서만 뭉친다.
- * `now` 를 받는 것은 시험에서 시간을 쥐기 위해서다.
+ * 엔진은 토큰마다 SSE 한 줄을 보낸다 — 그대로 옮기면 한 턴이 수천 건이 되어, 복원 예산(마지막 N 이벤트)을 잔조각이 먹고 본문이 화면에서 사라진다.
+ * 그래서 **빠를 때는 모으고 느릴 때는 바로 내보낸다**(초당 몇 토큰짜리 로컬 모델은 사실상 조각마다 흐른다). `now` 는 시험에서 시간을 쥐려고 받는다.
  */
 export function createStreamCoalescer(
   emit: (type: 'text' | 'thinking', content: string) => void,
@@ -344,9 +310,8 @@ export function createStreamCoalescer(
 
 /** 한 세션의 대화 한 줄. OpenAI 호환 스키마 그대로 — 엔진에 그대로 실어 보낸다. */
 /**
- * §5.19 (H) — 도구가 붙으면서 이력이 **네 종류**가 됐다. 도구 왕복은 `assistant`(무엇을
- * 부르겠다) → `tool`(그 결과) 짝으로 남고, 다음 턴이 그 짝을 그대로 다시 싣는다 —
- * 짝을 깨서 하나만 실으면 엔진이 "결과 없는 호출" 이라며 요청을 통째로 거절한다.
+ * §5.19 (H) — 도구 왕복은 `assistant`(부르겠다) → `tool`(결과) 짝으로 남고 다음 턴이 그대로 다시 싣는다.
+ * 짝을 깨서 하나만 실으면 엔진이 "결과 없는 호출"이라며 요청을 통째로 거절한다.
  */
 interface ChatToolCall {
   id: string;
@@ -420,15 +385,9 @@ export interface EngineErrorInfo {
 }
 
 /**
- * 엔진의 오류 응답을 읽어 **무엇이 잘못됐는지** 가른다.
- *
- * **왜 갈라야 하나 (2026-08-21 실측)**: 종전에는 도구를 실은 요청이 거절되면 이유를 묻지 않고
- * 전부 "이 모델은 도구를 못 쓴다"로 읽어 `toolSupport='none'` 을 설정에 박았다. 그런데 실제로
- * 온 것은 문맥 초과였다 — `{"error":{"message":"request (17300 tokens) exceeds the available
- * context size (16384 tokens), try increasing it","type":"exceed_context_size_error"}}`.
- * 그래서 ① 도구를 잘 쓰던 모델이 화면에서 "도구 미지원"으로 낙인찍히고(그 낙인은 설정에 남아
- * 다음 턴까지 간다) ② 도구만 뺀 같은 요청이 같은 이유로 또 거절돼 `engine responded 400`
- * 한 줄로 죽었다. 엔진은 이유를 또박또박 말하고 있었는데 우리가 버린 것이다.
+ * 엔진의 오류 응답을 읽어 **무엇이 잘못됐는지** 가른다. 도구를 실은 요청의 거절을 전부 "도구 미지원"으로 읽으면 안 된다 — 2026-08-21 실측으로 온 것은
+ * 문맥 초과였다(`"request (17300 tokens) exceeds the available context size (16384 tokens)…","type":"exceed_context_size_error"`).
+ * 오독하면 멀쩡한 모델에 `toolSupport='none'` 이 설정에 남고, 도구만 뺀 같은 요청도 같은 이유로 `engine responded 400` 으로 죽는다.
  */
 export function classifyEngineError(status: number, rawBody: string): EngineErrorInfo {
   let message = rawBody.trim().slice(0, 400);
@@ -486,11 +445,8 @@ export function estimateMessageChars(messages: readonly ChatMessage[]): number {
 }
 
 /**
- * `from` 에서 시작하는 **한 덩이**의 끝(배타적 인덱스)을 찾는다.
- *
- * 덩이 = `assistant`(도구를 부른 것) + 그 뒤에 붙는 `tool` 결과들, 또는 낱개 메시지 하나.
- * 짝을 반쪽만 남기면 다음 요청에서 엔진이 "결과 없는 호출"이라며 통째로 거절하므로,
- * 자를 때는 **반드시 덩이 단위**로 자른다.
+ * `from` 에서 시작하는 **한 덩이**의 끝(배타적 인덱스). 덩이 = 도구를 부른 `assistant` + 뒤따르는 `tool` 결과들, 또는 낱개 메시지.
+ * 자를 때는 **반드시 덩이 단위** — 짝을 반쪽만 남기면 엔진이 "결과 없는 호출"이라며 다음 요청을 통째로 거절한다.
  */
 function groupEnd(messages: readonly ChatMessage[], from: number, limit: number): number {
   let i = from + 1;
@@ -503,12 +459,9 @@ function groupEnd(messages: readonly ChatMessage[], from: number, limit: number)
 }
 
 /**
- * §5.19 (D) — 문맥을 넘겼을 때 **오래된 쪽부터 덩이째** 덜어 낸 사본을 돌려준다.
- * 더 덜 것이 없으면 `null`(그때는 이번 턴 하나가 이미 창보다 크다는 뜻이라 사람에게 말해야 한다).
- *
- * - `system` 은 건드리지 않는다 — 규칙을 잃은 채로 이어 가면 다른 사람이 답하는 것과 같다.
- * - `keepFrom` 부터는 **이번 턴**이다. 방금 사용자가 친 질문과 그에 딸린 도구 왕복을 잘라 내면
- *   무엇에 답하는지를 모르게 되므로 절대 손대지 않는다.
+ * §5.19 (D) — 문맥을 넘겼을 때 **오래된 쪽부터 덩이째** 덜어 낸 사본. 덜 것이 없으면 `null`(이번 턴 하나가 이미 창보다 크다 — 사람에게 말한다).
+ * - `system` 은 건드리지 않는다(규칙을 잃으면 다른 사람이 답하는 것과 같다).
+ * - `keepFrom` 부터는 이번 턴 — 방금 친 질문과 그 도구 왕복을 자르면 무엇에 답하는지 잃으므로 손대지 않는다.
  */
 export function trimHistoryForRetry(
   messages: readonly ChatMessage[],
@@ -531,11 +484,8 @@ export function trimHistoryForRetry(
 }
 
 /**
- * §5.19 (D) — **저장할 때** 이력을 예산 안으로 접는다.
- *
- * 되돌아가서 자르는 것(위 `trimHistoryForRetry`)만으로는 부족하다 — 그건 이미 400 을 한 번
- * 맞은 뒤의 수습이고, 그 한 번은 사용자에게 수십 초의 프롬프트 재평가로 돌아온다. 이력이
- * 예산을 넘긴 채로 디스크에 앉으면 **다음 턴은 첫 요청부터** 넘긴 상태로 출발한다.
+ * §5.19 (D) — **저장할 때** 이력을 예산 안으로 접는다. `trimHistoryForRetry` 는 400 을 한 번 맞은 뒤의 수습이라 수십 초의 재평가가 든다 —
+ * 예산을 넘긴 채 디스크에 앉으면 다음 턴이 첫 요청부터 넘긴 상태로 출발한다.
  */
 export function capHistoryForContext(messages: readonly ChatMessage[], budgetChars: number): ChatMessage[] {
   let out = [...messages];
@@ -548,14 +498,9 @@ export function capHistoryForContext(messages: readonly ChatMessage[], budgetCha
 }
 
 /**
- * 문맥 초과 한 번에 **몇 글자를 덜어낼 것인가.**
- *
- * 한 덩이씩 깎으면서 매번 되던지면 안 된다 — 로컬 모델은 되던짐 한 번이 곧 프롬프트 전체
- * 재평가라 사용자가 그 수십 초를 고스란히 본다. 엔진이 준 수치(넘긴 토큰 / 창 크기)가 있으면
- * **한 번에** 넘긴 만큼을 덜고, 없으면 지난 이력의 4분의 1을 덜어 낸다.
- *
- * 창의 9할까지만 되돌리는 것은 여유를 남기기 위함이다 — 딱 맞게 자르면 다음 왕복의 도구 결과
- * 한 줄에 또 넘쳐서 같은 일을 되풀이한다.
+ * 문맥 초과 한 번에 **몇 글자를 덜어 낼 것인가.** 한 덩이씩 깎으며 되던지지 않는다 — 로컬은 되던짐 한 번이 프롬프트 전체 재평가(수십 초)다.
+ * 엔진이 준 수치(넘긴 토큰 / 창 크기)가 있으면 **한 번에** 넘긴 만큼, 없으면 지난 이력의 4분의 1을 덜어 낸다.
+ * 창의 9할까지만 채운다 — 딱 맞게 자르면 다음 왕복의 도구 결과 한 줄에 또 넘친다.
  */
 export function overflowDropChars(
   info: Pick<EngineErrorInfo, 'promptTokens' | 'contextTokens'>,
@@ -573,21 +518,14 @@ export function overflowDropChars(
 
 /**
  * §5.19 (H) — **이 앱을 켠 동안** 도구 판정을 이미 물어본 모델들.
- *
- * 판정은 설정에 남아 다음 실행까지 가는데, 그 판정이 틀렸을 때 되돌릴 손잡이가 화면에 없다
- * (2026-08-21 사고: 문맥 초과를 도구 미지원으로 오독해 멀쩡한 모델에 `none` 이 박혔고, 그
- * 버블은 그때부터 파일을 못 봤다). 그래서 **`none` 은 앱을 켠 동안만 믿는다** — 다시 켜면
- * 한 번 더 물어본다. 진짜로 도구를 모르는 모델이면 그 한 번은 생성 없이 즉시 거절되므로
- * 값이 거의 들지 않고, 판정이 틀렸던 모델은 스스로 회복한다.
+ * 판정은 설정에 남는데 틀렸을 때 되돌릴 손잡이가 화면에 없다(문맥 초과를 미지원으로 오독하면 멀쩡한 버블이 파일을 못 본다) — 그래서 **`none` 은 켠 동안만 믿고** 다시 켜면 한 번 더 묻는다.
+ * 진짜 못 쓰는 모델은 생성 없이 즉시 거절돼 값이 거의 들지 않고, 잘못 찍힌 모델은 스스로 회복한다.
  */
 const toolsProbedThisRun = new Set<string>();
 
 /**
- * 이 턴에 도구를 실을 것인가. **판정은 여기 한 곳에서만.**
- *
- * 루트를 알아야 하고(어디를 만질지 모르면 도구를 줄 수 없다), 사람에게 물을 창구가 있어야
- * 하고(권한 브로커 없이 파일을 고치게 두지 않는다), `none` 판정은 **이번 실행에서 확인한
- * 것일 때만** 가로막는다.
+ * 이 턴에 도구를 실을 것인가 — **판정은 여기 한 곳에서만.**
+ * 루트를 알아야 하고, 사람에게 물을 창구(권한 브로커)가 있어야 하며, `none` 판정은 **이번 실행에서 확인한 것일 때만** 막는다.
  */
 export function shouldOfferTools(opts: {
   hasRoot: boolean;
@@ -603,15 +541,9 @@ export function shouldOfferTools(opts: {
 // ─── §5.19 (D) 로컬 세션의 시스템 프롬프트 · 슬래시 명령 ───
 
 /**
- * §5.19 (D) — 이 턴의 시스템 프롬프트를 짓는다.
- *
- * **왜 순서가 중요한가**: 엔진은 프롬프트의 **앞부분이 같으면** 지난 계산을 이어 쓴다
- * (`--cache-reuse`). 그래서 턴마다 안 변하는 것(프로젝트 안내·규칙·카드 지시문·기억 브리핑)을
- * **앞에**, 턴마다 바뀌는 것(엣지·목표·의도 선언 같은 live preamble)을 **뒤에** 둔다. 순서를
- * 뒤집으면 매 턴 프롬프트 전체를 다시 계산하게 되고, 로컬에서 그건 곧 수십 초다.
- *
- * `rules` 는 보통 `contextSummary` 안에 이미 들어 있다(§5.5 주입원 표의 `agentRules` 조각).
- * 주입선이 없는 경로(시험·옛 호출)에서만 따로 붙여 **규칙이 통째로 사라지는 일**을 막는다.
+ * §5.19 (D) — 이 턴의 시스템 프롬프트. **순서가 중요하다** — 엔진은 앞부분이 같으면 지난 계산을 이어 쓴다(`--cache-reuse`).
+ * 안 변하는 것(프로젝트 안내·규칙·카드 지시문·기억 브리핑)을 앞에, 턴마다 바뀌는 live preamble(엣지·목표·의도 선언)을 뒤에 둔다 — 뒤집으면 매 턴 전체 재계산(로컬에선 수십 초).
+ * `rules` 는 보통 `contextSummary` 안에 있다(§5.5 주입원 `agentRules`). 주입선이 없는 경로(시험·옛 호출)에서만 따로 붙여 규칙이 통째로 빠지지 않게 한다.
  */
 export function buildLocalSystemPrompt(
   contextSummary?: string,
@@ -634,14 +566,9 @@ export interface LocalSlashCommand {
 }
 
 /**
- * 이 명령이 우리가 처리할 슬래시인가. 슬래시가 아니면 `null`(그대로 모델에게 간다).
- *
- * **왜 필요한가**: 클로드 경로는 `composeTurnPrompt` 가 슬래시를 가로채 CLI 에 넘기는데, 로컬
- * 갈림은 그 앞에서 빠져나가므로 지금까지 `/clear` 조차 **그냥 사용자 말로** 모델에게 갔다.
- * 대화가 꽉 찼을 때 사용자가 쓸 손잡이가 하나도 없었다는 뜻이다.
- *
- * 모르는 슬래시는 모델에게 넘기지 않고 **모른다고 말한다** — 넘기면 모델이 그것을 지시문으로
- * 읽고 엉뚱한 일을 한다(로컬 모델일수록 그렇다).
+ * 우리가 처리할 슬래시인가. 슬래시가 아니면 `null`(그대로 모델에게 간다).
+ * 로컬 갈림은 슬래시를 가로채는 `composeTurnPrompt` 앞에서 빠지므로, 여기서 받지 않으면 `/clear` 조차 사용자 말로 모델에게 간다.
+ * 모르는 슬래시는 모델에게 넘기지 않고 **모른다고 말한다** — 넘기면 모델이 지시문으로 읽고 엉뚱한 일을 한다.
  */
 export function parseLocalSlash(text: string): LocalSlashCommand | null {
   const trimmed = text.trim();
@@ -686,10 +613,8 @@ function foldedMessage(summary: string, foldedCount: number): ChatMessage {
 }
 
 /**
- * 엔진에게 이 대화를 한 문단으로 접게 시킨다. 못 접으면 `null`(그때는 부르는 쪽이 버린다).
- *
- * 스트림을 쓰지 않는다 — 이건 사용자에게 보여 줄 말이 아니라 **이력에 앉힐 값**이라,
- * 조각으로 흘릴 이유가 없고 한 번에 받는 편이 단순하다.
+ * 엔진에게 대화를 한 문단으로 접게 시킨다. 못 접으면 `null`(부르는 쪽이 버린다).
+ * 스트림을 쓰지 않는다 — 사람에게 보일 말이 아니라 이력에 앉힐 값이다.
  */
 async function summarizeMessages(
   port: number,
@@ -728,11 +653,8 @@ async function summarizeMessages(
 }
 
 /**
- * §5.19 (D) — 문맥이 넘쳤을 때 **지난 이력을 한 문단으로 접은** 사본을 돌려준다. 못 접으면 `null`
- * (그때는 부르는 쪽이 종전대로 덜어 낸다 — 접기는 더 나은 길이지 유일한 길이 아니다).
- *
- * 덜어 내기와 다른 점은 하나다: 덜면 그 대화는 **없던 일**이 되고, 접으면 줄어든 채로 남는다.
- * 사용자가 "아까 말한 그거"라고 했을 때 답할 수 있느냐가 여기서 갈린다.
+ * §5.19 (D) — 문맥이 넘쳤을 때 **지난 이력을 한 문단으로 접은** 사본. 못 접으면 `null`(부르는 쪽이 덜어 내기로 간다 — 접기는 유일한 길이 아니다).
+ * 덜면 그 대화는 없던 일이 되고, 접으면 줄어든 채 남는다 — "아까 말한 그거"에 답할 수 있느냐가 갈린다.
  */
 export async function compactMessagesForRetry(
   port: number,
@@ -904,12 +826,9 @@ async function freePort(from: number): Promise<number> {
 }
 
 /**
- * 뜨자마자 죽었을 때, 16진수 대신 **사람이 읽을 수 있는 원인과 할 일**을 붙인다.
- *
- * Windows 는 이미지를 못 매핑하면 프로세스 종료 코드로 NTSTATUS 를 그대로 돌려준다.
- * 그중 `0xC000007B` 는 사실상 "설치가 반쯤 풀렸다"는 뜻이라(2026-08-20 실측 —
- * `llama-server-impl.dll` 이 9,982,976B 중 6,361,270B 만 남아 있었다), 사용자가 할 일인
- * "엔진 다시 설치"까지 문장 안에 들어가야 한다. `code=3221225595` 만으로는 아무도 모른다.
+ * 뜨자마자 죽었을 때 16진수 대신 **사람이 읽을 원인과 할 일**을 붙인다. Windows 는 이미지를 못 매핑하면 종료 코드로 NTSTATUS 를 준다.
+ * `0xC000007B`(`code=3221225595`)는 사실상 설치가 반쯤 풀렸다는 뜻이라 "엔진 다시 설치"까지 문장에 넣는다
+ * (2026-08-20 실측: `llama-server-impl.dll` 이 9,982,976B 중 6,361,270B 만 남아 있었다).
  */
 function describeExit(code: number | null): string {
   if (code === null) return 'engine exited before ready';
@@ -982,24 +901,15 @@ const idleTimer = setInterval(() => {
 }, 30_000);
 if (typeof idleTimer.unref === 'function') idleTimer.unref();
 
-/**
- * 엔진이 그 인자를 **몰라서** 죽은 것인가.
- *
- * 모르는 CLI 플래그는 무시가 아니라 **즉시 종료**다. 옛 빌드로 설치해 둔 사용자의 엔진이
- * `--reasoning-budget` 를 모르면 모델이 통째로 안 뜬다 — 새 플래그를 더할 때마다 옛 설치를
- * 죽이는 그 사고를 여기서 막는다.
- */
+/** 엔진이 그 인자를 **몰라서** 죽었나. 모르는 CLI 플래그는 무시가 아니라 즉시 종료다 — 옛 빌드가 `--reasoning-budget` 를 모르면 모델이 통째로 안 뜬다. */
 function isUnknownArgError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return /invalid argument|unknown argument|unrecognized|error while handling argument/i.test(msg);
 }
 
 /**
- * §5.19 (D) — 엔진에 **얹기만 하는** 선택 플래그들. 없어도 모델은 돌고, 있으면 더 낫다.
- *
- * 순서가 곧 **버리는 순서**다(앞이 먼저 버려진다). 옛 빌드가 모르는 플래그를 만나면 무시가
- * 아니라 즉시 종료하므로, 가치가 낮은 것부터 하나씩 빼면서 다시 띄운다 — 캐시 재사용은
- * 빠르기의 문제지만 사고 상한은 **빈 답이냐 아니냐**의 문제라 마지막까지 붙들고 간다.
+ * §5.19 (D) — 엔진에 **얹기만 하는** 선택 플래그(없어도 돌고, 있으면 낫다). **순서가 곧 버리는 순서**다(앞이 먼저 버려진다).
+ * 옛 빌드는 모르는 플래그에서 즉시 종료하므로 가치 낮은 것부터 빼며 다시 띄운다 — 캐시 재사용은 빠르기 문제지만 사고 상한은 빈 답이냐의 문제라 마지막까지 붙든다.
  */
 export interface EngineExtraFlag {
   id: string;
@@ -1033,10 +943,8 @@ export function buildEngineArgs(
 }
 
 /**
- * 선택 플래그를 전부 얹어 띄워 보고, 이 엔진이 **모르는 플래그**를 만나면 앞에서부터 하나씩
- * 빼며 다시 띄운다. 마지막까지 안 되면 그때는 플래그 문제가 아니므로 그대로 올린다.
- *
- * 새 플래그를 더할 때 옛 설치를 죽이는 사고(§4 CLI 플래그 소실과 같은 계열)를 여기서 막는다.
+ * 선택 플래그를 전부 얹어 띄우고, 모르는 플래그를 만나면 앞에서부터 하나씩 빼며 다시 띄운다. 끝까지 안 되면 플래그 문제가 아니므로 그대로 올린다.
+ * 새 플래그가 옛 설치를 죽이지 않게 한다(§4 CLI 플래그 소실과 같은 계열).
  */
 async function bootWithFlagFallback(
   boot: (gpuLayers: number | 'auto', extras: readonly EngineExtraFlag[]) => Promise<ChildProcess>,
@@ -1064,11 +972,8 @@ async function bootWithFlagFallback(
 }
 
 /**
- * 모델을 올려 둔 인스턴스를 얻는다. 이미 올라가 있으면 그대로 쓰고, 상한을 넘으면
- * 가장 오래 안 쓴 것을 내려 자리를 만든다.
- *
- * 엔진의 자동 GPU 배치를 먼저 쓰고 CPU 실행본까지 차례로 시도한다.
- * 동시에 준비하거나 사용 중인 모델은 빼앗지 않고 반납을 기다린다.
+ * 모델을 올려 둔 인스턴스를 얻는다. 이미 있으면 쓰고, 상한을 넘으면 가장 오래 안 쓴 것을 내린다.
+ * 엔진 자동 GPU 배치부터 CPU 실행본까지 차례로 시도한다. 준비 중이거나 사용 중인 모델은 빼앗지 않고 반납을 기다린다.
  */
 async function ensureLoaded(modelId: string, context: number, signal?: AbortSignal): Promise<LoadedModel> {
   signal = signal ? AbortSignal.any([signal, poolLifetime.signal]) : poolLifetime.signal;
@@ -1119,10 +1024,8 @@ async function loadModel(modelId: string, requestedContext: number, signal?: Abo
   if (candidates.length === 0) throw new Error('local engine is not installed');
   const model = findModel(modelId);
   if (!model) throw new Error(`model not found: ${modelId}`);
-  // 쪼개진 모델은 조각이 다 있어야 열린다. 여기서 막지 않으면 엔진이 `code=1` 로 죽는 것
-  //   말고는 사용자가 무엇이 없는지 알 길이 없다(2026-08-20 실측).
-  // 부속 파일(mmproj·MTP 헤드)은 본체와 함께 쓰라고 있는 것이라 혼자 열면 엔진이 뻗는다
-  //   (2026-08-20 실측: 텐서 18개짜리 MTP 헤드 → `0xC0000005` 액세스 위반).
+  // 쪼개진 모델은 조각이 다 있어야 열린다 — 여기서 막지 않으면 엔진이 `code=1` 로 죽을 뿐 무엇이 없는지 알 길이 없다.
+  // 부속 파일(mmproj·MTP 헤드)은 혼자 열면 엔진이 뻗는다(2026-08-20 실측: 텐서 18개 MTP 헤드 → `0xC0000005`).
   if (model.companion === true) {
     throw new Error(
       `"${model.name}" is a companion file (projector / draft head), not a standalone model — pick a full model instead`,
@@ -1198,10 +1101,8 @@ async function loadModel(modelId: string, requestedContext: number, signal?: Abo
     resolveReady = res;
     rejectReady = rej;
   });
-  // 이 약속을 아무도 지켜보지 않는 경우가 있다 — 처음 부른 쪽이 예외로 빠져나가면 거절이
-  //   주인 없이 남아 `unhandledRejection` 으로 튀고, 그건 서버 코어(=메인 프로세스)를
-  //   흔든다(앱 크래시 로그에 실제로 남아 있던 그 오류다). 빈 catch 하나로 못을 박는다.
-  //   진짜 실패는 아래에서 그대로 throw 되므로 삼켜지는 것이 아니다.
+  // 아무도 이 약속을 기다리지 않을 수 있다 — 처음 부른 쪽이 예외로 빠지면 거절이 `unhandledRejection` 으로 튀어 메인 프로세스(서버 코어)를 흔든다(크래시 로그에 실제로 남았다).
+  // 빈 catch 로 막는다. 진짜 실패는 아래에서 그대로 throw 된다.
   ready.catch(() => undefined);
 
   const placeholder: LoadedModel = {
@@ -1334,23 +1235,13 @@ export interface LocalTurnArgs {
    */
   onUsage?: (promptTokens: number, completionTokens: number, contextSize: number) => void;
   /**
-   * §5.19 (H) — **서버가 대신 처리하는** 도구(`LOCAL_HOST_TOOLS`). 파일이 아니라 우리 화면·설정을
-   * 움직이므로 러너가 직접 하지 않고 밖으로 넘긴다 — 러너는 엔진과 파일만 알면 되고, 목표창·질문
-   * 카드·권한 모드가 어디 사는지는 몰라도 된다(그 지식이 여기 들어오면 러너가 서버 전체를 문다).
-   *
-   * 돌려주는 문자열이 그대로 도구 결과가 되어 모델에게 간다.
+   * §5.19 (H) — **서버가 대신 처리하는** 도구(`LOCAL_HOST_TOOLS`). 파일이 아니라 화면·설정을 움직이므로 밖으로 넘긴다 —
+   * 러너는 엔진과 파일만 안다(목표창·질문 카드·권한 모드를 알면 러너가 서버 전체를 문다). 돌려주는 문자열이 그대로 도구 결과가 된다.
    */
   onHostTool?: (toolName: string, input: Record<string, unknown>) => Promise<string>;
   /**
-   * §5.19 (H) — 이 도구 호출을 **훅 이벤트로도** 흘린다.
-   *
-   * 클로드 세션의 도구 호출은 훅을 타고 그래프에 닿아 캔버스의 파일 노드·감사 원장·Bash 이력·
-   * 서버 포트 감지를 만든다. 로컬 세션은 그 통로가 없어 **화면에 아무 자국도 남기지 않았다** —
-   * 같은 일을 하는데 한쪽만 보이지 않는 것은 "에이전트가 생각하는 것을 보여 준다"는 이 앱의
-   * 약속을 로컬에서만 깨는 일이다.
-   *
-   * 도구 이벤트만 보낸다. 생명주기(활성·종료)는 로컬 턴이 **이미 자기가** 관리하므로 여기서
-   * 또 보내면 주인이 둘이 되어 상태가 서로를 덮어쓴다.
+   * §5.19 (H) — 이 도구 호출을 **훅 이벤트로도** 흘린다 — 클로드 세션처럼 그래프에 닿아 파일 노드·감사 원장·Bash 이력·서버 포트 감지가 생기게.
+   * 도구 이벤트만 보낸다 — 생명주기(활성·종료)는 로컬 턴이 이미 관리하므로 또 보내면 주인이 둘이 되어 상태가 서로를 덮어쓴다.
    */
   onHookEvent?: (event: LocalHookToolEvent) => void;
   /** 턴이 끝나면 한 번. `error` 가 있으면 실패. `done` 은 성공으로 끝난 턴에만 싣는다. */
@@ -1369,17 +1260,9 @@ export interface LocalTurnDoneInfo {
 }
 
 /**
- * §5.19 (D) — 이 이벤트를 **화면 스트림에 실어 보낼 것인가.**
- *
- * `result` 는 이 턴의 최종 본문인데, 같은 본문은 이미 `text` 델타로 흘러 말풍선에 쌓여 있다.
- * 그것을 한 번 더 흘리면 초록 결과 상자(`ResultBlock`)가 **같은 답을 두 번째로** 그린다
- * (2026-08-21 사용자 보고: "답변 내용이 2개씩 뜬다"). 클로드 경로도 같은 이유로 `result`
- * 라인을 스트림에서 버리므로(`parseStreamLine`: "UI에 다시 그리지 않는다 — assistant text가
- * 동일 본문을 이미 스트리밍으로 렌더"), 로컬도 같은 규약을 탄다. 프로바이더마다 화면 규칙이
- * 갈라지면 그때부터 사용자는 둘 다 안 믿는다.
- *
- * 본문이 사라지는 것이 아니다 — 호출자가 `result` 를 받아 `cmd.result`·`sub.lastResult` 에
- * 남기므로, 스트림이 없는 화면(명령 말풍선 인라인 결과)은 그 값을 그대로 쓴다.
+ * §5.19 (D) — 이 이벤트를 화면 스트림에 실을 것인가.
+ * `result` 는 이미 `text` 델타로 말풍선에 쌓인 본문이라, 또 흘리면 `ResultBlock` 이 같은 답을 두 번 그린다 — 클로드 경로(`parseStreamLine`)도 같은 이유로 버린다.
+ * 본문은 사라지지 않는다 — 호출자가 `cmd.result`·`sub.lastResult` 에 남겨 스트림 없는 화면(명령 말풍선 인라인 결과)이 쓴다.
  */
 export function isRenderableLocalEvent(eventType: StreamEventType): boolean {
   return eventType !== 'result';
@@ -1425,12 +1308,8 @@ export function isLocalTurnRunning(subAgentId: string): boolean {
 }
 
 /**
- * 한 턴을 돈다 — 이력을 싣고, 스트림을 받아 조각마다 `onEvent` 를 부르고, 끝에 이력을 저장한다.
- * 예외는 던지지 않는다(호출자는 `onDone(error)` 로만 판단하면 된다).
- *
- * **§5.19 (H) 한 턴 = 여러 왕복.** 모델이 도구를 부르면 그 자리에서 실행하고 결과를 돌려준
- * 뒤 **다시 물어본다** — 그래야 "파일을 읽고 → 고치고 → 확인하는" 일이 한 턴 안에서 끝난다.
- * 왕복 수는 `LOCAL_TOOL_MAX_ROUNDS` 에서 끊는다(끝을 안 정하면 사람이 못 끊는다).
+ * 한 턴을 돈다 — 이력을 싣고, 조각마다 `onEvent`, 끝에 이력을 저장한다. 던지지 않는다(호출자는 `onDone(error)` 만 본다).
+ * §5.19 (H) **한 턴 = 여러 왕복** — 도구를 부르면 실행해 결과를 주고 다시 묻는다. 왕복은 `LOCAL_TOOL_MAX_ROUNDS` 에서 끊는다(끝이 없으면 사람이 못 끊는다).
  */
 export function runLocalTurn(args: LocalTurnArgs): void {
   const { subAgentId, prompt, modelId, onEvent, onDone } = args;
@@ -1486,10 +1365,8 @@ export function runLocalTurn(args: LocalTurnArgs): void {
         ...(args.toolSupport ? { verdict: args.toolSupport } : {}),
         probedThisRun,
       });
-      // 판정 통지는 **턴에 한 번**이다. 왕복마다 부르면 같은 값으로 방송이 여러 번 나간다
-      //   (한 턴에 세 번 나가는 것을 실측 — 도구를 세 번 왕복하면 세 번).
-      // 이번 실행에서 아직 안 물어봤으면 **결과를 알려야 한다** — 설정에 남은 지난 판정이
-      //   틀렸을 수 있고, 그것을 바로잡는 유일한 통지가 이 한 번이다.
+      // 판정 통지는 **턴에 한 번** — 왕복마다 부르면 같은 값이 여러 번 방송된다(도구 왕복 세 번이면 세 번, 실측).
+      // 이번 실행에서 아직 안 물었으면 결과를 꼭 알린다 — 설정에 남은 지난 판정이 틀렸을 수 있고, 이것이 바로잡는 유일한 통지다.
       let supportReported = (args.toolSupport === 'ok' || args.toolSupport === 'none') && probedThisRun;
       // **이 모델에서 도구가 실제로 통한 적이 있는가.** 통한 뒤에 온 오류는 "도구를 못 쓴다"의
       //   근거가 될 수 없다 — 그때 강등하면 멀쩡한 모델의 파일 접근을 영영 끊는다.
@@ -1785,10 +1662,8 @@ export function runLocalTurn(args: LocalTurnArgs): void {
       } else {
         const msg = err instanceof Error ? err.message : String(err);
         logger.error(`[localRunner] turn failed for ${subAgentId}`, err);
-        // ⚠ 여기서 `onEvent('error', msg)` 를 **직접 뱉지 않는다.** 실패 카드는 `onDone(error)` 를 받은
-        //   호출자(`failCommand`)가 `[local] 원문` 봉투로 한 장만 낸다. 원문을 여기서 한 번 더 흘리면
-        //   ① 같은 카드가 두 장 뜨고 ② 봉투가 없어 클라가 그 줄을 CLI 종료로 폴백해 로컬 모델 실패를
-        //   "Claude CLI 가 예기치 않게 종료됐습니다" 로 잘못 말한다(2026-08-20 사용자 보고).
+        // ⚠ 여기서 `onEvent('error', msg)` 를 **직접 뱉지 않는다.** 실패 카드는 `onDone(error)` 를 받은 `failCommand` 가 `[local] 원문` 봉투로 한 장만 낸다.
+        // 여기서 또 흘리면 ① 카드가 두 장 ② 봉투가 없어 클라가 CLI 종료로 폴백해 로컬 실패를 "Claude CLI 가 예기치 않게 종료"로 잘못 말한다.
         onDone(msg);
       }
     } finally {
@@ -1806,14 +1681,8 @@ const OUTPUT_CHECK_TOKENS = 48;
 const OUTPUT_CHECK_PROMPT = 'Reply with one short sentence: what is 2 plus 3?';
 
 /**
- * 뽑아낸 몇 마디가 **사람이 읽을 수 있는 말**인지 본다.
- *
- * 2026-08-21 실측 — 엔진이 못 다루는 아키텍처는 파일이 온전해도 이런 것을 뱉는다:
- * `????????????????` (한 글자 반복) · `GGGGGGGG` · `<=@F75D=4:)%B!52F%` (기호 나열).
- * 반대로 멀쩡한 답은 `2 더하기 3은 5입니다.` 처럼 **낱말과 사이 띄움**이 있다.
- *
- * 넘겨짚어 멀쩡한 모델을 못 쓰게 만들지 않도록 **좁게** 잡는다 — 여기서 `true` 가 나와도
- * 막지 않고 알리기만 한다.
+ * 사람이 읽을 수 있는 말인지 본다 — 엔진이 못 다루는 아키텍처는 파일이 온전해도 `????????`·`GGGGGGGG`·`<=@F75D=4:)%B!52F%` 같은 반복·기호를 뱉는다(2026-08-21 실측).
+ * 멀쩡한 모델을 막지 않게 **좁게** 잡고, `true` 여도 알리기만 한다.
  */
 export function looksDegenerate(sample: string): boolean {
   const text = sample.trim();
@@ -1834,11 +1703,7 @@ function rememberArch(modelPath: string, verdict: 'ok' | 'broken'): void {
   recordArchVerdict(getEngineState().build ?? 'unknown', arch, verdict);
 }
 
-/**
- * §5.19 (E) — 받자마자 한 번 말을 시켜 보고 그 결과를 남긴다.
- * **받았다는 것과 쓸 수 있다는 것은 다르다** — 이 확인이 없으면 사용자는 프롬프트를 치고
- * 빈 답을 받은 뒤에야 그 사실을 알게 된다.
- */
+/** §5.19 (E) — 받자마자 한 번 말을 시켜 보고 결과를 남긴다. 받았다고 쓸 수 있는 것은 아니다(없으면 빈 답을 받고서야 안다). */
 export async function verifyModelOutput(modelId: string): Promise<'ok' | 'broken' | 'skipped'> {
   const model = findModel(modelId);
   if (!model || model.companion === true || (model.missingParts?.length ?? 0) > 0) return 'skipped';

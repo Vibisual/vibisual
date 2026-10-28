@@ -1,14 +1,4 @@
-/**
- * 폴더 목록의 **창 자르기 + 이어 받기** 한 벌(§7.5) — `FolderFileTree`/`RootFileList` 가 함께 쓴다.
- *
- * 행의 생김새는 두 패널이 다르므로(한쪽은 펼침 버튼, 다른 쪽은 독립 버블 체크) `renderEntry` 로 받고,
- * 이 컴포넌트는 **공통인 것만** 맡는다:
- *  ① 보이는 구간만 DOM 으로 만든다(나머지는 위아래 여백 두 칸).
- *  ② 목록 바닥의 `more` 행이 시야에 들어오면 그 겹의 다음 장을 부른다.
- *
- * 바닥 감지에 `IntersectionObserver` 를 따로 걸지 않는다 — 어차피 윈도잉이 "지금 보이는 행"을
- * 알고 있으므로, 그 안에 `more` 행이 있는지 보면 그것이 곧 바닥 감지다(관측자 두 벌 ❌).
- */
+/** 폴더 목록 창 자르기 + 이어 받기(§7.5, 두 패널 공용). 바닥 감지는 윈도잉이 아는 보이는 행에서 `more` 를 찾는다(`IntersectionObserver` 따로 ❌). */
 
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';

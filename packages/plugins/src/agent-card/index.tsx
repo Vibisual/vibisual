@@ -1,9 +1,4 @@
-/**
- * §5.11 v3.99 — 에이전트 카드(Agent Card): 이 에이전트의 능력 명세.
- *
- * 자기 능력·입출력·인증 방식을 기계가 읽을 수 있게 공개하는 명세다. 다만 **비용·지연·실패 모드까지 적어야**
- * 실제로 자동 선택이 가능해진다. 이 카드는 지금 이 에이전트가 그 명세로서 얼마나 채워져 있는지 보여준다. 표시 전용.
- */
+/** §5.11 — 에이전트 카드(Agent Card): 능력 명세가 얼마나 채워졌나(비용·지연·실패 모드까지 있어야 자동 선택이 된다). 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import { effectiveTools } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

@@ -1,17 +1,6 @@
 /**
- * §5.5 #17-32 ⑤ — "그 훅이 방금 울렸다" 를 화면으로 흘려보내는 한 창구.
- *
- * **계측을 새로 만들지 않는다.** Vibisual 자신의 훅이 모든 이벤트에 함께 걸려 있으므로
- * (`hookInstaller.ts`), 우리 훅이 울렸다는 것은 그 이벤트에 걸린 **다른 훅들도 같은 순간에
- * 돌았다**는 뜻이다. 그래서 여기서는 이벤트 이름·도구 이름만 흘려보내고, 어느 줄에 불이
- * 켜질지는 화면이 `hookMatcherMatches`(shared 순수 함수)로 고른다.
- *
- * ⚠ 이 경로는 **도구를 쓸 때마다** 도착하는 폭주 경로다(§9 v3.45 가 훅마다 인라인 broadcast +
- * 동기 saveCheckpoint 로 프리즈를 냈던 바로 그 경로). 그래서 여기는 두 가지를 지킨다:
- *   ① `graph_snapshot` 을 밀지 않는다 — 자체 메시지(`hook_fired`)만 보낸다(체크포인트 미관여).
- *   ② 건건이 보내지 않는다 — 짧은 창(FLUSH_MS)으로 모아 배열 한 건으로 보내고, 같은
- *      (세션·이벤트·도구) 조합은 그 창 안에서 한 줄로 접는다.
- * 표시 전용이라 하나쯤 접혀도 잃는 것이 없다(불은 어차피 몇 초 켜져 있다).
+ * §5.5 #17-32 ⑤ — "훅이 방금 울렸다"를 화면으로 보낸다. 우리 훅이 모든 이벤트에 걸려 있어 같은 이벤트의 다른 훅도 돈 것 — 켤 줄은 화면이 `hookMatcherMatches` 로 고른다.
+ * ⚠ 도구마다 오는 폭주 경로라(인라인 broadcast·동기 saveCheckpoint 는 프리즈, §9) `graph_snapshot` 대신 `hook_fired` 만, `FLUSH_MS` 로 모아 같은 (세션·이벤트·도구)는 접는다.
  */
 import type { HookFiredPayload } from '@vibisual/shared';
 
@@ -37,11 +26,9 @@ function flush(): void {
 }
 
 /**
- * 훅 이벤트 하나가 도착했다. 표시 전용이라 실패해도 조용히 넘긴다(훅 응답을 막지 않는다).
- *
- * @param agentId    그 세션이 속한 에이전트(버블) id. 모르면 신고하지 않는다 — 화면이
- *                   자기 것을 고를 수 없는 신호는 어느 줄도 켜지 못한다.
- * @param subAgentId 세션 탭(sub) id. 알 때만 실어 보내면 화면이 탭 단위까지 좁힌다.
+ * 표시 전용 — 실패는 조용히(훅 응답을 막지 않는다).
+ * @param agentId 버블 id. 모르면 보내지 않는다(켤 줄이 없다).
+ * @param subAgentId 세션 탭 id — 있으면 화면이 탭까지 좁힌다.
  */
 export function noteHookFired(
   agentId: string | undefined,

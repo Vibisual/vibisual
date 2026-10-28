@@ -66,7 +66,9 @@
       "tooltip": "Sesión actual: {{percent}}% del límite de 5 horas usado — haz clic para ver detalles",
       "tooltipNoData": "Todavía no se recibió el uso: haz clic para ver los detalles",
       "tooltipWaiting": "Obteniendo el uso de Claude Code: el número aparecerá en un momento",
-      "tooltipCliUnavailable": "No se pudo ejecutar Claude Code para leer el uso: haz clic para ver los detalles"
+      "tooltipCliUnavailable": "No se pudo ejecutar Claude Code para leer el uso: haz clic para ver los detalles",
+      "creditActive": "Las nuevas ejecuciones usan créditos de API",
+      "creditBlocked": "Anthropic rechazó los créditos de API: las ejecuciones usan tu suscripción"
     },
     "setupBanner": {
       "text": "Claude Code no está instalado — los agentes aún no pueden ejecutarse.",
@@ -387,7 +389,8 @@
         "account": "Cuenta",
         "storage": "Almacenamiento",
         "keyboard": "Teclado",
-        "theme": "Tema"
+        "theme": "Tema",
+        "credits": "Créditos"
       },
       "appearance": {
         "intro": "Personaliza la apariencia de Vibisual.",
@@ -497,9 +500,6 @@
         "updateAvailable": "Actualización disponible",
         "upToDate": "Al día",
         "registryError": "Error al verificar npm",
-        "installations": "Instalaciones",
-        "auto": "Auto (recomendado)",
-        "autoDesc": "Dejar que Vibisual elija automáticamente",
         "activeBadge": "activo",
         "unknownVer": "desconocida",
         "restartHint": "Selección guardada. Reinicia Vibisual para aplicarla a los agentes nuevos.",
@@ -512,12 +512,51 @@
           "title": "Actualizaciones de Claude Code",
           "label": "Mantener Claude Code actualizado automáticamente",
           "onHint": "Vibisual actualiza la CLI a la última versión cada vez que abres la app.",
-          "offHint": "Las actualizaciones automáticas están desactivadas. Usa \"Actualizar ahora\" para actualizar la CLI tú mismo.",
+          "offHint": "Las actualizaciones automáticas están desactivadas. Actualiza la CLI manualmente con «{{updateNow}}».",
           "vscodeNotice": "El binario activo proviene de la extensión de VS Code, que solo el Marketplace puede actualizar. Elige otra instalación arriba para que Vibisual gestione las actualizaciones.",
           "updateNow": "Actualizar ahora",
           "updating": "Actualizando…",
           "updated": "Actualizado a {{version}}",
           "updateFailed": "Error al actualizar"
+        },
+        "sourceManaged": "Administrada por la app",
+        "managed": {
+          "title": "Copia administrada por la app",
+          "hint": "Vibisual descarga las nuevas versiones de {{engine}} desde la fuente oficial, verifica que cada una acepte todas las opciones que usa Vibisual y luego cambia a esa versión. Esto ocurre al iniciar y cada 6 horas. Tu inicio de sesión y tu configuración se siguen compartiendo.",
+          "inUse": "En uso",
+          "latest": "Más reciente (oficial)",
+          "previous": "Anterior",
+          "none": "Aún sin descargar",
+          "checkedAt": "Última verificación: {{time}}",
+          "notChecked": "Aún sin verificar",
+          "updating": "Descargando y verificando…",
+          "rollback": "Revertir a {{version}}",
+          "rollbackFailed": "No se pudo revertir",
+          "rejected": "No se cambió de versión — {{version}} rechazó: {{options}}",
+          "deferred": "Sin descargar — esta computadora aún no usa {{engine}}. Se descargará cuando lo instales.",
+          "folder": "Carpeta",
+          "nextRetry": "Próximo intento {{time}}"
+        },
+        "codexAutoUpdate": {
+          "title": "Actualizaciones de Codex",
+          "label": "Mantener Codex actualizado automáticamente",
+          "offHint": "Las actualizaciones automáticas están desactivadas. Actualiza Codex manualmente con «{{updateNow}}»."
+        },
+        "chooseBinary": "Binario que se usa",
+        "defaultManaged": "Administrada por la app (predeterminada · actualización automática)",
+        "defaultManagedReady": "Usando {{version}} — descargada de la fuente oficial y activada solo después de pasar las verificaciones de Vibisual.",
+        "defaultManagedPending": "Todavía no está lista — en cuanto se descargue y se verifique, Vibisual cambiará a ella de inmediato.",
+        "otherInstalls": "Otras instalaciones (secundarias)",
+        "otherInstallsNone": "No se encontraron otras instalaciones en esta computadora.",
+        "defaultBadge": "Predeterminada",
+        "temporaryBadge": "Temporal",
+        "codexUserSelected": "Elegiste otra instalación — su proveedor se encarga de mantenerla actualizada. Las actualizaciones administradas por la app se reanudan cuando vuelvas a la predeterminada.",
+        "pending": {
+          "downloading": "Preparando la copia administrada por la app — descargando y verificando…",
+          "failed": "No se pudo preparar la copia administrada por la app: {{error}}",
+          "retryAt": "Se volverá a intentar automáticamente a las {{time}}.",
+          "tryNow": "Usa «{{updateNow}}» abajo para volver a intentarlo ahora.",
+          "waiting": "La copia administrada por la app todavía no está lista, así que por ahora se usa esta instalación. Se descarga automáticamente."
         }
       },
       "agent": {
@@ -817,7 +856,8 @@
         "autoCompactWindow": "Plegar la conversación al llegar a",
         "autoCompactWindowOff": "Dejar como está configurado",
         "autoCompactWindowDesc": "El mayor factor de ajuste individual aquí. Medido durante tres días, las sesiones tuvieron una mediana de 186k tokens, y todo lo que superaba los 200k representó el 62% de toda la entrada — cada turno vuelve a leer eso. Reducir la ventana de 400k a 200k redujo la entrada en un 27%, y a 100k en un 59%, para el mismo trabajo. Solo puede volverse más estricto: si un agente o un valor predeterminado ya es más bajo, ese es el que se aplica. Plegar la conversación es en sí una solicitud grande, así que el ajuste más bajo no es automáticamente el más económico. Esta ventana solo decide dónde plegamos entre comandos; a mitad de tarea, la CLI solo pliega cuando se llena la ventana del modelo."
-      }
+      },
+      "creditsIntro": "Los créditos de Claude provienen de distintas billeteras. Cada página muestra una: qué es, quién la factura, dónde la administras y si Vibisual la usa."
     },
     "autoAgent": {
       "title": "Auto Agent",
@@ -2019,7 +2059,134 @@
       "hwDevicesUnknown": "Los aceleradores se leen desde el motor, así que aparecen en cuanto el motor está instalado.",
       "hwLoaded": "Cargado en RAM",
       "hwLoadedNone": "Ningún modelo está cargado en este momento.",
-      "hwHint": "All Model no tiene límite de suscripción: lo que gasta es esta PC. Las burbujas que usan modelos distintos consumen cada una su propia RAM, mientras que las burbujas que usan el mismo modelo comparten una sola instancia."
+      "hwHint": "All Model no tiene límite de suscripción: lo que gasta es esta PC. Las burbujas que usan modelos distintos consumen cada una su propia RAM, mientras que las burbujas que usan el mismo modelo comparten una sola instancia.",
+      "apiCredit": {
+        "title": "Créditos de API (Console)",
+        "status": {
+          "off": "Desactivado",
+          "standby": "En espera",
+          "active": "En uso",
+          "blocked": "Rechazado por Anthropic"
+        },
+        "enable": "Usar créditos de API",
+        "enableHint": "Si está desactivado, todas las ejecuciones usan tu suscripción, como antes.",
+        "mode": "Usar créditos primero",
+        "modeHintConsole": "Desactivado: los créditos entran solo cuando se alcanza el límite de tu suscripción. Activado: primero los créditos y luego tu suscripción cada vez que Anthropic rechace los créditos.",
+        "autoContinue": "Continuar automáticamente las ejecuciones detenidas",
+        "autoContinueHint": "Cuando una ejecución se detiene por un límite, se continúa una sola vez por la otra vía de facturación.",
+        "key": "Clave de API",
+        "keyPlaceholder": "sk-ant-api03-…",
+        "keySave": "Guardar clave",
+        "keySaved": "Guardada {{hint}}",
+        "keyRemove": "Quitar",
+        "keyVerify": "Verificar de nuevo",
+        "keyVerified": {
+          "ok": "Verificada",
+          "rejected": "Rechazada por Anthropic",
+          "unknown": "Aún sin verificar"
+        },
+        "keyUnreadable": "Esta clave no se puede leer en esta computadora. Ingrésala de nuevo.",
+        "keyProtected": "La clave se guarda en el almacenamiento seguro de tu sistema operativo.",
+        "keyUnprotected": "Esta computadora no tiene almacenamiento seguro de claves, así que la clave se guarda aquí sin cifrar.",
+        "keyCreate": "Crear una clave en Console",
+        "keyProblem": {
+          "empty": "Pega una clave de API.",
+          "notAnthropic": "Esto no parece una clave de API de Anthropic. Debe empezar con sk-ant-.",
+          "adminKey": "Las claves de administrador no pueden ejecutar modelos. Crea una clave de API normal.",
+          "oauthToken": "Este es un token de inicio de sesión, no una clave de API.",
+          "whitespace": "La clave contiene espacios. Pégala de nuevo sin ellos."
+        },
+        "keySaveFailed": "No se pudo guardar la clave. Inténtalo de nuevo.",
+        "liveRunsNow": "Ejecuciones con créditos ahora: {{count}}",
+        "reason": {
+          "off": "Los créditos están desactivados, así que todas las ejecuciones usan tu suscripción.",
+          "cloud-provider": "Claude Code en esta computadora está configurado con un proveedor de nube, así que no se usan créditos. La nube factura cada ejecución.",
+          "no-key": "Agrega una clave de API para usar créditos.",
+          "blocked": "Anthropic rechazó la última ejecución con créditos, así que las nuevas ejecuciones usan tu suscripción.",
+          "subscription-ok": "Las ejecuciones usan tu suscripción por ahora. Los créditos entran cuando esta llegue a su límite.",
+          "subscription-exhausted": "Se alcanzó el límite de tu suscripción, así que las nuevas ejecuciones usan créditos.",
+          "credits-first": "Las nuevas ejecuciones usan créditos primero."
+        },
+        "subscriptionResets": "la suscripción se restablece {{time}}",
+        "block": {
+          "balance-empty": "Anthropic rechazó la ejecución con créditos: el saldo de crédito de tu Console es demasiado bajo.",
+          "spend-limit": "Anthropic rechazó la ejecución con créditos: se alcanzó el límite de gasto mensual de tu Console.",
+          "key-invalid": "Anthropic rechazó la clave de API."
+        },
+        "blockRetryAt": "Próximo intento con créditos: {{time}}.",
+        "blockRetry": "Reintentar ahora",
+        "actionFailed": "No funcionó. Inténtalo de nuevo.",
+        "console": {
+          "title": "Gasto de este mes (Console)",
+          "asOf": "Desde {{start}} · actualizado {{time}} · mismos datos que la página de costos de la Console",
+          "used": "usados",
+          "resetsOn": "Se restablece el {{date}} (UTC)",
+          "viewSpendLimits": "Ver los límites de gasto en la Console",
+          "org": "Organización: {{name}}",
+          "refresh": "Actualizar",
+          "refreshing": "Actualizando…",
+          "pending": "Leyendo el gasto de tu Console…",
+          "limitsNote": "Tu límite de gasto y tu saldo de crédito se definen en la Console, y Anthropic no ofrece ninguna API pública para leerlos, así que Vibisual no muestra ni aplica un límite propio. Cuando se alcanza el límite o se agota el saldo, Anthropic rechaza la ejecución y Vibisual vuelve a usar tu suscripción.",
+          "needKeyTitle": "Agrega una clave de administrador para mostrar el gasto de tu Console",
+          "needKeyBody": "Vibisual lee el gasto de este mes con la Usage and Cost API oficial de Anthropic, que necesita una clave de administrador (sk-ant-admin01-…). Los administradores de la organización crean una en la página de claves de administrador de la Console. Las cuentas individuales deben configurar primero una organización en la Console.",
+          "createAdminKey": "Crear una clave de administrador en la Console",
+          "setupOrg": "Configurar una organización en la Console",
+          "adminKey": "Clave de administrador (lee el gasto)",
+          "adminKeyPlaceholder": "sk-ant-admin01-…",
+          "adminKeyHint": "Se usa solo para leer el gasto: no puede ejecutar modelos.",
+          "error": {
+            "auth": "Anthropic rechazó la clave: no es una clave de administrador o ya venció. Primero configura una organización en la Console y luego crea una clave de administrador (sk-ant-admin01-…) y agrégala aquí.",
+            "forbidden": "Esta clave no puede leer el gasto. Usa una clave de administrador creada por un administrador de la organización.",
+            "not-found": "Anthropic no encontró datos de gasto para esta clave. Las cuentas individuales deben configurar primero una organización en la Console.",
+            "rate-limited": "Anthropic pidió a Vibisual que espere antes de volver a leer el gasto. Se actualiza automáticamente.",
+            "network": "No se pudo conectar con Anthropic. Se actualiza automáticamente.",
+            "unreadable": "Esta clave de administrador no se puede leer en esta computadora. Vuelve a ingresarla.",
+            "other": "No se pudo leer el gasto de tu Console."
+          },
+          "lastValue": "Se muestra el último valor leído."
+        }
+      },
+      "creditPages": {
+        "tabsLabel": "Tipos de crédito",
+        "billedLabel": "Facturado por",
+        "manageLabel": "Administrar en",
+        "vibisualLabel": "En Vibisual",
+        "subscription": {
+          "tab": "Límites del plan",
+          "what": "Los límites de uso de 5 horas y semanales incluidos en tu plan Claude Pro o Max.",
+          "billed": "Tu suscripción de claude.ai, una tarifa mensual fija.",
+          "vibisual": "Se usa de forma predeterminada en cada ejecución de Claude, tanto headless como CMD."
+        },
+        "personal": {
+          "tab": "Créditos personales",
+          "what": "Uso adicional en tu cuenta personal de claude.ai. Lo activas en claude.ai para poder seguir trabajando después de alcanzar el límite de tu plan.",
+          "billed": "El método de pago de tu cuenta de claude.ai.",
+          "vibisual": "Vibisual no lo elige. Si está activado, Claude Code lo usa por su cuenta después del límite del plan. Esta página solo lo lee."
+        },
+        "business": {
+          "tab": "Créditos empresariales",
+          "what": "Créditos de API de tu organización de Claude Console (platform.claude.com). El crédito promocional mensual de un plan Max o Team y cualquier crédito que compres se acreditan aquí.",
+          "billed": "Se descuenta del crédito de la organización de Console. Cuando se agota, las ejecuciones se detienen. Solo se cobra a una tarjeta si activaste la recarga automática.",
+          "vibisual": "Cuando está habilitado, se usa solo para ejecuciones headless (no para CMD ni para burbujas de hooks). De forma predeterminada, solo después de alcanzar el límite de tu plan."
+        },
+        "cloud": {
+          "tab": "Créditos en la nube",
+          "what": "Claude usado a través de Amazon Bedrock, Google Cloud Vertex AI o Microsoft Foundry.",
+          "billed": "Tu cuenta en la nube. Los créditos personales y empresariales de Anthropic no aplican.",
+          "vibisual": "Vibisual sigue la configuración de Claude Code en esta computadora. Si está configurado con un proveedor de nube, cada ejecución se factura allí.",
+          "currentLabel": "Claude Code en esta computadora factura a",
+          "provider": {
+            "anthropic": "Anthropic directamente, no un proveedor de nube",
+            "unknown": "Desconocido, porque aún no se verificó el estado de inicio de sesión",
+            "bedrock": "Amazon Bedrock",
+            "vertex": "Google Cloud Vertex AI",
+            "foundry": "Microsoft Foundry"
+          },
+          "activeNote": "Cada ejecución de Claude desde Vibisual se factura a esta nube. No se usan créditos personales ni empresariales, y la ruta de créditos empresariales permanece desactivada.",
+          "inactiveNote": "Claude Code en esta computadora no está configurado con un proveedor de nube, así que no se usa ningún crédito de nube. Para usar uno, primero configura Claude Code para ese proveedor.",
+          "docs": "Cómo ejecutar Claude Code con un proveedor de nube"
+        }
+      }
     },
     "plugins": {
       "title": "Complementos",
@@ -4714,6 +4881,9 @@
       "runOutput": "Salida de ejecución",
       "runOutputNone": "Todavía no se ha ejecutado nada desde esta burbuja."
     },
+    "fileWindow": {
+      "close": "Cerrar"
+    },
     "paneOpener": {
       "tabHint": "Elige un archivo para mostrarlo aquí",
       "scope": "Archivos {{list}} de este proyecto, primero los modificados más recientemente",
@@ -5405,6 +5575,7 @@
       "openInPane": "Abrir en el panel del editor — {{path}}",
       "openFolder": "Abrir la carpeta que contiene este archivo — {{path}}",
       "readOnlyLocked": "Este archivo está bloqueado como solo lectura en el disco (checkout de Perforce, atributo de archivo).",
+      "outsideReadOnly": "Este archivo está fuera del proyecto, así que solo se puede ver.",
       "readOnlyUnlock": "Desbloquear y guardar",
       "readOnlyUnlockHint": "Quita el atributo de solo lectura y luego guarda. El bloqueo no se restaura y no se ejecuta ningún comando de control de versiones (p4 edit, …).",
       "saveError": {
@@ -5877,7 +6048,8 @@
       "orphaned": "Interrumpido cuando la app se reinició",
       "dispatchResult": "Terminó sin recibir el resultado de la tarea delegada",
       "usageLimit": "Detenido al alcanzar el límite de uso",
-      "unknown": "Falló por un motivo desconocido"
+      "unknown": "Falló por un motivo desconocido",
+      "creditCap": "Detenido en tu límite de créditos de API"
     },
     "turnStop": {
       "cancelled": "Detenido por ti",
@@ -5907,15 +6079,12 @@
       "viaTask": "A través del sub-agente: {{name}}",
       "external": "Fuera del proyecto",
       "enter": "Entrar a la carpeta",
-      "leave": "Volver a la sesión",
       "openAddress": "Abrir dirección",
       "showInConversation": "Mostrar en la conversación",
       "copyAddress": "Copiar dirección",
       "copyCommand": "Copiar comando",
       "recentQueries": "Búsquedas recientes",
       "recentCommands": "Comandos recientes",
-      "moreFiles": "{{count}} archivos más: entra a la carpeta para verlos todos",
-      "overflowHint": "Los lugares usados hace más tiempo, reunidos en una sola burbuja",
       "centerTotals": "Archivos {{files}} · Web {{webs}} · Apps {{apps}} · Sub-agentes {{tasks}}"
     },
     "density": {

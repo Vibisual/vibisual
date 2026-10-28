@@ -1,13 +1,4 @@
-/**
- * §4 v4.82 — `claude auth login` PTY 출력 훑기 (순수 함수).
- *
- * 로그인 팝업은 터미널 화면 대신 **버튼과 입력칸**을 보여주려고 이 스캐너를 쓴다. 다만 성공 판정은
- * 여기 결과가 아니라 `claude auth status` 재조회가 1차 근거다 — CLI 문구가 바뀌어도 로그인 흐름
- * 자체는 안 깨지게(여기서 못 알아보면 팝업이 터미널을 펼쳐 사용자가 직접 응답한다).
- *
- * 순수 함수로 떼어 둔 이유는 문구 규칙을 화면 없이 단위 테스트로 고정하기 위함
- * (`floatingWindowGeom` 이 좌표 계산을 그렇게 다뤘던 것과 같은 결).
- */
+/** §4 — `claude auth login` PTY 출력 훑기(순수). 버튼·입력칸을 보이려고 쓸 뿐, 성공 판정은 `claude auth status` 재조회다 — 못 알아보면 팝업이 터미널을 펼친다. */
 
 export interface LoginScan {
   /** 브라우저에서 열 OAuth 승인 URL. */
@@ -42,11 +33,7 @@ function oscPayload(body: string): string {
   return second >= 0 ? body.slice(second + 1) : '';
 }
 
-/**
- * ANSI 시퀀스 제거 — TUI 가 색·커서 이동을 섞어 찍어도 문구·URL 이 끊기지 않게.
- * 정규식 대신 스캐너인 이유: OSC 종결(BEL / ESC-백슬래시)까지 다루려면 이스케이프가 깊어져
- * 소스가 오히려 깨지기 쉬워진다.
- */
+/** ANSI 시퀀스 제거 — TUI 의 색·커서 이동에 문구·URL 이 끊기지 않게. 정규식 대신 스캐너 — OSC 종결(BEL / ESC-백슬래시)까지 넣으면 이스케이프가 깊어져 깨지기 쉽다. */
 export function stripAnsi(raw: string): string {
   let out = '';
   let i = 0;

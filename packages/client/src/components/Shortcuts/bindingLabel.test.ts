@@ -1,14 +1,6 @@
 /**
- * bindingLabel.test.ts — **바인딩 문자열 → 화면 표기.**
- *
- * 여기서 지키는 것은 셋이다:
- *  ① 자리표(`Alt+Digit`)가 사람이 읽는 범위(`Alt+1…0`)로 펴진다,
- *  ② mac 표기는 새로 만들지 않고 기존 `formatShortcut()` 이 낸 그대로다(두 벌이 되면 어긋난다),
- *  ③ 방향키 넷처럼 모디파이어가 같은 묶음은 **한 덩어리**로 적되, 하나라도 다르게 바뀌면
- *    붙여 쓰지 않고 **정직하게 따로** 나열한다.
- *
- * ③ 이 이 파일의 존재 이유다 — 묶음 표기는 완성된 라벨에서 꼬리를 떼는 문자열 수술이라,
- * 사용자가 키를 바꾼 순간 엉뚱한 글자가 남을 수 있는 자리다.
+ * 표기: `Alt+Digit` → `Alt+1…0` · mac 은 `formatShortcut()` 그대로 · 모디파이어가 같은 묶음만 한 덩어리, 하나라도 바뀌면 따로
+ * (꼬리를 떼는 문자열 수술이라 깨지기 쉬운 자리다).
  */
 import { describe, it, expect } from 'vitest';
 import { bindingLabel, bindingParts, groupBindingLabel } from './bindingLabel.js';

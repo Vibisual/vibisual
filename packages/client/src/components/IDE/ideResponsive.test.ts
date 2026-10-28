@@ -2,12 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { IDE_EDITOR_WIDTH } from '@vibisual/shared';
 import { IDE_BODY, IDE_PIECE_FOLD, diffStacked, dockGrowthOnClose, dragEditorWidth, editorGrowth, findBarStacked, ideSidebarWidth, resolveIDEBodyLayout, terminalRailOverlays, type IDEBodyInput } from './ideResponsive.js';
 
-/**
- * 창 안 반응형 판정 회귀 — 사용자 보고("사이즈 조절했더니 아예 벗어나버려")의 재현 조건을 못 박는다.
- *
- * 지켜야 하는 불변량은 하나다: **어떤 창 폭에서도 대화가 하한 아래로 찌부러지지 않는다.**
- * 그 하나가 깨질 때 화면에서는 글자가 세로로 서고 상태바가 사이드바 위로 넘친다.
- */
+/** 창 안 반응형 회귀 — 어떤 창 폭에서도 대화가 하한 아래로 찌부러지지 않는다(깨지면 글자가 세로로 서고 상태바가 넘친다). */
 
 const base: IDEBodyInput = {
   width: 1200,
@@ -56,7 +51,7 @@ describe('조각 접기 — 저마다 받은 칸 폭으로 묻는다', () => {
     expect(terminalRailOverlays(1100)).toBe(false);
     expect(terminalRailOverlays(fits)).toBe(false);
     expect(terminalRailOverlays(fits - 1)).toBe(true);
-    // 기본 도킹 두께(480px) 창 — 종전에는 레일 360px 이 터미널을 120px 로 눌렀다.
+    // 기본 도킹 두께(480px) 창 — 레일을 옆에 세우면 360px 이 터미널을 120px 로 누른다.
     expect(terminalRailOverlays(480)).toBe(true);
   });
 });
@@ -76,7 +71,7 @@ describe('resolveIDEBodyLayout — 아직 못 잰 창', () => {
 });
 
 describe('resolveIDEBodyLayout — 폰 폭', () => {
-  it('창이 아무리 넓어도 종전 서랍 거동을 유지한다(§4 v3.24)', () => {
+  it('창이 아무리 넓어도 종전 서랍 거동을 유지한다(§4)', () => {
     const r = resolveIDEBodyLayout({ ...base, width: 1400, viewportNarrow: true });
     expect(r.navDrawer).toBe(true);
     expect(r.sidebarDrawer).toBe(true);

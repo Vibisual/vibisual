@@ -1,25 +1,7 @@
 /**
- * §5.5 #17-23 — IDE 입력창 명령 히스토리(↑/↓ 재호출).
- *
- * 셸(bash/zsh/PowerShell)·CMD 창과 같은 감각으로, **그 세션에서 보낸 프롬프트**를 오래된 것 → 최신
- * 순으로 보관하고 입력창에서 ↑/↓ 로 되불러 쓴다.
- *
- * **왜 새로 두는가** — 종전 히스토리는 `queuedCommands`(= 대기·실행 중인 명령)에서 뽑았다.
- * 서버는 명령이 끝나면 큐에서 빼 완료 아카이브로 옮기므로, 보낸 명령이 끝나는 순간 히스토리에서
- * 사라졌다(= 대부분의 경우 ↑ 가 아무 것도 못 꺼냈다). 여기서는 **보내는 순간**(`addCommand`)
- * 기록하므로 완료·재시작과 무관하게 남는다.
- *
- * **범위는 세션 하나** — 키는 `agentId|sessionId`(세션 탭 = 셸 창 하나)다. 탭마다 하는 일이
- * 다르므로 옆 탭에서 친 명령이 내 ↑ 에 섞이지 않는다. 세션이 지워지면 그 히스토리도 함께 지운다
- * (`dropSessionCommandHistory` — 세션 제거의 단일 창구인 `optimisticRemoveSubAgent` 에서 부른다).
- *
- * **영속화** — `localStorage`(`vibisual:commandHistory`). 서버·스냅샷·체크포인트 미관여
- * (`vibisual:ideBookmarks`·`vibisual:tabPins` 와 동형인 순수 클라 상태).
- * 쓰기는 trailing debounce + 저장 직전 **디스크 병합**이라 여러 창이 서로의 기록을 덮지 않는다.
- *
- * **최적화** — 읽기는 모듈 캐시에서 O(1)(구독 ❌ → 입력창은 히스토리 때문에 리렌더하지 않는다),
- * 쓰기는 명령을 보낸 순간에만 일어난다. 저장고는 세 겹으로 상한을 둔다(항목 길이 / 세션당 항목 수 /
- * 전체 문자 예산·세션 수) — 붙여넣은 로그 한 덩어리나 오래 쓴 프로젝트가 저장고를 삼키지 않게.
+ * §5.5 #17-23 — 입력창 명령 히스토리(↑/↓). 보내는 순간(`addCommand`) 기록한다 — `queuedCommands` 에서 뽑으면 끝난 명령이 사라진다.
+ * 키는 `agentId|sessionId`, 세션 제거 때 함께 지운다(`optimisticRemoveSubAgent` → `dropSessionCommandHistory`). `localStorage` 전용 —
+ * 쓰기는 debounce + 저장 직전 디스크 병합(창끼리 안 덮게), 읽기는 모듈 캐시(구독 ❌ — 입력창이 리렌더하지 않는다). 상한은 길이·세션당 개수·전체 예산 세 겹.
  */
 import { registerPersistFlush } from '../../utils/persistFlush.js';
 
@@ -85,22 +67,13 @@ export function createEmptyHistoryStore(): CommandHistoryStore {
   return { v: HISTORY_STORE_VERSION, sessions: {} };
 }
 
-/**
- * 저장 대상 문자열로 정규화. 저장하지 않을 것이면 `null`.
- * - 앞뒤 공백 제거(셸도 그대로 저장하지 않는다) + 빈 값 제외.
- * - 상한 초과분은 앞부분만 보관.
- */
 export function normalizeHistoryEntry(text: string): string | null {
   const trimmed = text.trim();
   if (trimmed.length === 0) return null;
   return trimmed.length > HISTORY_MAX_ENTRY_CHARS ? trimmed.slice(0, HISTORY_MAX_ENTRY_CHARS) : trimmed;
 }
 
-/**
- * 항목 추가(불변). 같은 명령이 이미 있으면 **옛 자리를 지우고 맨 뒤**로 옮긴다
- * (zsh `hist_ignore_all_dups`·브라우저 주소창과 같은 감각 — 자주 쓰는 명령이 ↑ 한 번에 온다).
- * 개수 상한을 넘으면 가장 오래된 것부터 버린다.
- */
+/** 같은 명령은 옛 자리를 지우고 맨 뒤로(zsh `hist_ignore_all_dups`). 개수 상한은 오래된 것부터. */
 export function pushHistoryEntry(entries: readonly string[], text: string): string[] {
   const value = normalizeHistoryEntry(text);
   if (value === null) return entries.slice();
@@ -116,10 +89,7 @@ export function pushHistoryEntries(entries: readonly string[], texts: readonly s
   return out;
 }
 
-/**
- * 저장고 상한 적용(불변). 세션 수 → 전체 문자 예산 순으로 자른다.
- * 자르는 방향은 항상 **오래된 쪽**이다(최근 명령이 살아남는다).
- */
+/** 세션 수 → 전체 문자 예산 순으로, 늘 오래된 쪽부터 자른다. */
 export function trimHistoryStore(store: CommandHistoryStore): CommandHistoryStore {
   const ordered = Object.entries(store.sessions)
     .filter(([, b]) => b.entries.length > 0)
@@ -174,13 +144,7 @@ export function parseHistoryStore(raw: string | null | undefined): CommandHistor
   return trimHistoryStore({ v: HISTORY_STORE_VERSION, sessions });
 }
 
-/**
- * 두 저장고 병합(창 여러 개가 같은 키를 쓰는 경우). `base`(디스크) 위에 `ours`(이 창)를
- * 순서대로 얹는다 — 같은 명령은 최신 자리 하나로 합쳐진다.
- *
- * ⚠ 지운 세션은 **`ours` 기준으로 지운 채로 둔다**(`removed`) — 병합이 부활시키면
- * "세션을 지우면 히스토리도 지워진다"가 깨진다.
- */
+/** `base`(디스크) 위에 `ours`(이 창)를 얹는다. ⚠ `ours` 가 지운 세션(`removed`)은 지운 채로 — 병합이 되살리면 안 된다. */
 export function mergeHistoryStores(
   base: CommandHistoryStore,
   ours: CommandHistoryStore,
@@ -203,11 +167,7 @@ export function mergeHistoryStores(
   return trimHistoryStore({ v: HISTORY_STORE_VERSION, sessions });
 }
 
-/**
- * 이번 탐색이 훑을 목록. draft 가 비어 있지 않으면 **그 접두사로 시작하는 명령만**
- * 훑는다(PowerShell·fish·VS Code 터미널의 prefix 탐색). 걸리는 게 없으면 전체를 훑는다
- * — ↑ 를 눌렀는데 아무 일도 안 일어나는 것보다 셸(bash) 처럼 도는 편이 덜 놀랍다.
- */
+/** draft 가 있으면 그 접두사로 시작하는 명령만, 없으면 전체(↑ 무반응보다 낫다). */
 export function matchHistoryEntries(entries: readonly string[], draft: string): string[] {
   const all = entries.slice();
   const prefix = draft.trim();
@@ -217,15 +177,7 @@ export function matchHistoryEntries(entries: readonly string[], draft: string): 
   return filtered.length > 0 ? filtered : all;
 }
 
-/**
- * 히스토리로 **진입**. `edge`
- *  - `newest`(↑ 로 들어옴): 가장 최근 명령부터.
- *  - `oldest`(↓ 로 들어옴): 가장 오래된 명령부터.
- *
- * 꺼낼 게 없으면 `null`(호출부는 키를 가로채지 않는다).
- * ⚠ 진입은 **방향키 두 번**을 요구하는 것이 화면 쪽 규약이다(#17-23 ⑤) — 이 함수는 그 두 번째
- * 누름에서만 불린다. 첫 번째 누름은 힌트만 띄운다.
- */
+/** 진입(`newest` ↑ / `oldest` ↓). 꺼낼 게 없으면 `null` — 키를 가로채지 않는다. ⚠ 진입은 방향키 두 번째 누름에서만(첫 누름은 힌트, #17-23 ⑤). */
 export function beginHistory(
   entries: readonly string[],
   draft: string,
@@ -237,13 +189,7 @@ export function beginHistory(
   return { nav: { matches, index, draft }, text: matches[index] ?? '' };
 }
 
-/**
- * 탐색 중의 ↑/↓ 한 걸음(진입 이후에는 **한 번 누름**으로 움직인다).
- * 아무 일도 일어나지 않아야 하면 `null` — 그 경우 호출부는 커서 기본 동작을 막지 말아야 한다.
- *
- * - `prev`(↑): 한 칸 더 오래된 명령. 가장 오래된 것에서 더 가면 `null`.
- * - `next`(↓): 한 칸 더 최근. 목록 끝을 넘어가면 원래 draft 로 복귀하고 탐색을 끝낸다.
- */
+/** 한 걸음. `null` 이면 커서 기본 동작을 막지 마라. `next` 가 끝을 넘으면 원래 draft 로 돌아가 탐색을 끝낸다. */
 export function stepHistory(nav: HistoryNavState, direction: 'prev' | 'next'): HistoryStepResult | null {
   if (direction === 'prev') {
     if (nav.index <= 0) return null; // 이미 가장 오래된 것 — 커서를 붙잡지 않는다
@@ -267,16 +213,8 @@ export type ArrowOutcome =
   | { kind: 'apply'; nav: HistoryNavState | null; text: string };
 
 /**
- * 방향키 판정 — **커서 이동이 언제나 우선**이라는 규칙을 한 곳에 고정한다(#17-23 ⑥).
- *
- * `caretMoved` 는 "키를 가로채지 않고 브라우저 기본 동작을 시킨 뒤, 커서가 실제로 움직였는가"다.
- * 줄바꿈 위치로 계산하면 **워드랩으로 접힌 긴 한 줄**에서 "이미 첫 줄"로 오판해 사용자가 커서를
- * 위로 올릴 수 없게 된다 — 화면상 몇 행으로 접혔는지는 브라우저만 안다.
- *
- * 커서가 더 갈 데가 없을 때만 히스토리가 관여하며, 그때도
- *  - 탐색 중이면 **한 번 누름**으로 이동,
- *  - 탐색 중이 아니면 **첫 번째 누름은 힌트만**, 같은 방향으로 한 번 더 눌러야 진입,
- *  - 꺼낼 게 없으면 힌트조차 없다.
+ * §5.5 #17-23 ⑥ — 커서 이동이 언제나 우선. `caretMoved` 는 기본 동작 후 실제로 움직였는가 — 줄바꿈으로 계산하면 워드랩된 긴 줄에서 오판한다.
+ * 탐색 중이면 한 번에, 아니면 첫 누름은 힌트만·두 번째에 진입, 꺼낼 게 없으면 힌트도 없다.
  */
 export function decideArrowKey(input: {
   /** 기본 동작 후 커서가 실제로 움직였는가. */
@@ -428,11 +366,7 @@ export function recordCommandHistory(agentId: string, sessionId: string | null, 
   putBucket(key, pushHistoryEntry(ensureCache().sessions[key]?.entries ?? [], value));
 }
 
-/**
- * 예전 기록으로 히스토리 시드 — **저장된 게 없을 때만** 채운다.
- * 이 기능이 생기기 전에 그 세션에서 보낸 명령(서버 완료 아카이브)을 첫 사용에서 한 번 끌어오기
- * 위한 것으로, 한 번 시드된 뒤에는 `recordCommandHistory` 가 유일한 입구다.
- */
+/** 저장된 게 없을 때만 서버 완료 아카이브로 한 번 채운다(그 뒤 입구는 `recordCommandHistory` 하나). */
 export function seedCommandHistory(agentId: string, sessionId: string | null, texts: readonly string[]): void {
   if (!agentId || texts.length === 0) return;
   if (hasCommandHistory(agentId, sessionId)) return;

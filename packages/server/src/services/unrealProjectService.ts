@@ -1,20 +1,8 @@
 /**
- * §5.5 #17-20 ② ③ ⑦ — 언리얼 프로젝트 해석기.
- *
- * "이 프로젝트는 **어느 엔진으로** 여는가" 하나만 답하는 모듈이다. 이 질문에 잘못 답하면
- * 나머지가 전부 틀린다 — 5.3 프로젝트를 5.8 에디터로 열면 에셋이 상향 변환되며 되돌릴 수
- * 없고, 소스 빌드 프로젝트를 런처 설치본으로 열면 모듈 버전이 어긋나 아예 뜨지 않는다.
- *
- * 그래서 **설치된 엔진 중 최신을 고르지 않는다.** `.uproject` 의 `EngineAssociation` 이
- * 유일한 진실이고, 그 값이 가리키는 곳을 찾는 방법이 세 갈래다:
- *
- *   1. `"5.8"` 같은 버전 문자열 → 런처 설치본. 레지스트리 `HKLM\SOFTWARE\EpicGames\Unreal
- *      Engine\<ver>\InstalledDirectory` → 런처 매니페스트 → 관례 경로 순으로 찾는다.
- *   2. `"{GUID}"` → 사용자가 직접 빌드한 엔진. 레지스트리 `HKCU\SOFTWARE\Epic Games\Unreal
- *      Engine\Builds` 의 **값 이름이 그 GUID** 이고 값이 엔진 경로다.
- *   3. `""`(빈 문자열) → 프로젝트가 엔진 트리 안에 있다(`Engine/` 을 위로 거슬러 찾는다).
- *
- * 디스크·레지스트리가 SSOT 라 상태를 들지 않는다(체크포인트·broadcast 미관여).
+ * §5.5 #17-20 ② ③ ⑦ — 이 프로젝트를 **어느 엔진으로** 여는가. 잘못 열면 되돌릴 수 없어(5.3 → 5.8 에셋 상향 변환 · 소스 빌드를 런처본으로 열면 안 뜬다)
+ * 설치된 최신을 고르지 않고 `.uproject` 의 `EngineAssociation` 만 따른다:
+ * `"5.8"` → 런처 설치본(`HKLM\SOFTWARE\EpicGames\Unreal Engine\<ver>\InstalledDirectory` → 매니페스트 → 관례 경로) ·
+ * `"{GUID}"` → 직접 빌드(`HKCU\SOFTWARE\Epic Games\Unreal Engine\Builds` 의 값 이름) · `""` → 엔진 트리 안. 상태를 들지 않는다.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -246,12 +234,7 @@ export function findBuildScript(engineRoot: string): string | null {
   return candidates.find((c) => exists(c)) ?? null;
 }
 
-/**
- * 엔진 표기 — 근거 줄(`reason`)에 그대로 실린다.
- *
- * 번역하지 않는다. 이 자리는 `.vscode/launch.json › Launch Server` 처럼 **기계가 읽은 것을
- * 그대로 보여 주는 기술 흔적**이라 로케일마다 달라지면 오히려 대조가 어려워진다.
- */
+/** 엔진 표기(`reason` 줄). 번역하지 않는다 — 기계가 읽은 기술 흔적이라 로케일마다 다르면 대조가 어렵다. */
 function engineLabelOf(association: string, source: UnrealEngineSource): string {
   const assoc = association.trim();
   if (source === 'registry-source-build') return `source build ${assoc}`;
@@ -297,13 +280,7 @@ export function inspectUnrealProject(projectRoot: string): UnrealProjectInfo | n
 
 // ─── 디버거 붙이기 ──────────────────────────────────────────────────────────
 
-/**
- * 지금 이 `.uproject` 를 열고 있는 에디터 프로세스의 pid.
- *
- * 우리는 에디터를 PTY 로 띄우므로 손에 쥔 pid 는 셸의 것이지 에디터의 것이 아니다. 그래서
- * **명령줄에 이 uproject 경로를 가진 에디터 프로세스**를 찾아 그 pid 를 쓴다(다른 프로젝트를
- * 함께 열어 둔 경우에도 엉뚱한 창에 붙지 않게).
- */
+/** 이 `.uproject` 를 연 에디터의 pid — PTY 로 쥔 pid 는 셸 것이라 명령줄에 이 경로를 가진 에디터를 찾는다(다른 프로젝트 창에 안 붙게). */
 export function findRunningEditorPid(uprojectPath: string): number | null {
   if (process.platform !== 'win32') return null;
   const target = path.basename(uprojectPath).toLowerCase();
@@ -342,13 +319,7 @@ export function findJitDebugger(): string | null {
   return exists(candidate) ? candidate : null;
 }
 
-/**
- * 실행 중인 에디터에 Visual Studio 디버거를 붙인다.
- *
- * 언리얼 C++ 를 실제로 멈춰 세우는 `cppvsdbg` 는 재배포할 수 없다(⑦). 그래서 **우리가 디버깅을
- * 하는 대신, 우리가 띄운 프로세스에 남의 디버거를 붙여 준다** — 사용자는 Vibisual 에서 실행하고
- * Vibisual 에서 붙이기를 누르며, 멈춰 세우는 일만 Visual Studio 가 한다.
- */
+/** 에디터에 Visual Studio 디버거를 붙인다 — `cppvsdbg` 는 재배포할 수 없어(⑦) 멈춰 세우는 일만 Visual Studio 에 맡긴다. */
 export function attachDebuggerToEditor(projectRoot: string): { ok: boolean; error?: string; pid?: number } {
   const info = inspectUnrealProject(projectRoot);
   if (!info) return { ok: false, error: 'not-unreal-project' };

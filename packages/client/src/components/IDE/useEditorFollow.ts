@@ -12,20 +12,9 @@ import { editorFileFromAbsPath } from './editorModel.js';
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 
 /**
- * useEditorFollow.ts — §5.5 #17-27 ⑪ [추종] 토글의 **여는 쪽**.
- *
- * 편집창(`IDEEditorPane`)은 열어 둔 파일이 하나도 없으면 아예 렌더되지 않으므로(#17-27 ①),
- * "새 편집이 왔으니 파일을 열어라" 를 그 안에서 들을 수가 없다. 그래서 이 훅은 **편집창 밖**
- * (IDE 오버레이 본체)에 산다 — 여기서 열고, 다시 읽기·스크롤·강조는 편집창이 신호를 받아 한다.
- *
- * (g) — 보는 것은 **지금 열려 있는 세션**이므로 따라가는 것도 그 세션이다. 신호의 출처는 그 세션의
- * 스트림에 이미 흐르는 Edit 계열 도구 이벤트(diff 카드가 쓰는 그것)이고, 새 구독·새 REST 는 없다.
- * 세션 탭이 없는 전체 보기에서는 그 에이전트의 모든 세션을 본다(그 화면이 실제로 모두를 보여 준다).
- *
- * (h) — 이 훅은 **꺼져 있을 때도 돈다**. 꺼져 있으면 따라가는 대신 "켜면 갈 곳" 한 건을 기억해 두고
- * (`ideEditorFollowPending` — 켜는 순간 그리로 데려간다), 켜져 있는데 못 따라갔으면 **그 이유**를 자국에
- * 남긴다 — 조용히 넘어가면 사용자에게 "고장" 과 "따라갈 것이 없음" 이 같은 그림이 된다.
- * 기억은 **화면에 상주하지 않는다**(건수 배지는 스캔 창 밖으로 밀릴 때마다 흔들려 걷어냈다).
+ * §5.5 #17-27 ⑪ [추종]의 여는 쪽 — 편집창은 연 파일이 없으면 렌더되지 않아 **편집창 밖**에 산다(다시 읽기·스크롤은 편집창).
+ * 지금 열린 세션(전체 보기면 모든 세션)의 Edit 계열 도구 이벤트를 따른다(새 구독·REST ❌).
+ * **꺼져 있어도 돈다** — "켜면 갈 곳"을 기억하고(`ideEditorFollowPending`), 못 따라가면 이유를 자국에 남긴다. 기억은 화면에 상주시키지 않는다.
  */
 export function useEditorFollow(agentId: string, activeSessionId: string | null, narrow: boolean): void {
   const sessionKey = followSessionKey(agentId, activeSessionId);
@@ -38,14 +27,8 @@ export function useEditorFollow(agentId: string, activeSessionId: string | null,
     [activeSessionId, subAgents],
   );
 
-  // §9 **구독은 맵이 아니라 자기 키까지 내려간다** — 종전에는 `s.subAgentStreams` **맵 통째**를
-  //   구독했다. 그 맵은 스트림이 한 줄 흐를 때마다 새 참조가 되므로(`appendStreamEvents` 의
-  //   `{ ...s.subAgentStreams }`), **어느 버블의 어느 세션이 말하든** 열려 있는 IDE 창 전부의
-  //   이 효과가 50ms(`WS_STREAM_BATCH_INTERVAL`) 마다 다시 돌았고, 그때마다 자기 세션의 마지막
-  //   `FOLLOW_SCAN_LIMIT`(400)건을 재주사했다(`latestCompletedEdit` — `tool_use` 마다 편집 입력
-  //   `JSON.parse`). 창이 여럿이면 그 비용이 창 수만큼 곱해진다.
-  //   이제 보는 세션만 본다. 값은 **원시 문자열 하나**(합계 길이 : 가장 늦은 시각)라, 그 세션에
-  //   새 줄이 흐르지 않으면 참조가 바뀌어도 이 훅은 깨어나지 않는다(§9 「버블은 자기 것만 구독한다」).
+  // §9 **자기 키까지 내려가 구독한다** — `s.subAgentStreams` 맵은 줄마다 새 참조라, 통째로 구독하면 모든 IDE 창이 50ms(`WS_STREAM_BATCH_INTERVAL`)마다
+  // `FOLLOW_SCAN_LIMIT` 건을 다시 훑는다. 보는 세션의 원시 문자열 하나(합계 길이 : 가장 늦은 시각)만 구독한다.
   const streamsVersion = useGraphStore((s) => {
     let total = 0;
     let newest = 0;

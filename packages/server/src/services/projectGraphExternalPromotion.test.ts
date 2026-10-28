@@ -1,13 +1,6 @@
 /**
- * §2.1 (A)(B)(C)(D) — 외부 폴더 **요약 · 예산 승격 · 휘발 접기 · 읽는 이름** 회귀.
- *
- * 사용자 보고: "외부 폴더가 1개만 보여서 이게 뭔지 확정이 안 된다."
- * 실측(실행 중이던 프로젝트 체크포인트): `external_folder` 33개가 최상위 3개로 접혔고, 그중
- * 홈 하나가 **25곳을 삼킨 채** `activity=0` · 위성 0 · 화면 숫자는 직속 자식 수 `4` 였다.
- *
- * 옆 파일(`projectGraphExternalTree.test.ts`)이 보증하는 것은 **접합 트리 그 자체**라 거기서는
- * 예산을 1 로 눌러 승격을 끈다. 이 파일은 그 위에 얹히는 네 축만 본다 — 한 파일이 두 축을 함께
- * 재면 어느 쪽이 깨졌는지 알 수 없다.
+ * §2.1 (A)(B)(C)(D) — 외부 폴더 요약·예산 승격·휘발 접기·읽는 이름(실측: 33개가 최상위 3개로 접혀 홈 하나가 25곳을 삼키고 `activity=0`).
+ * 접합 트리 자체는 `projectGraphExternalTree.test.ts` 가 본다.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -96,7 +89,7 @@ describe('(B) 예산제 능동 승격 — 보이는 것은 활동이 정한다',
     expect(tops.length).toBe(1 + EXTERNAL_PROMOTION_PER_PARENT);
   });
 
-  it('핀을 꽂은 폴더는 예산과 무관하게 최상위에 남는다 (사용자 결정)', () => {
+  it('핀을 꽂은 폴더는 예산과 무관하게 최상위에 남는다', () => {
     const graph = makeGraph(1); // 승격 자리는 0
     editExternal(graph, 'alpha/a.txt', 'toolu-a');
     editExternal(graph, 'beta/b.txt', 'toolu-b');
@@ -119,7 +112,6 @@ describe('(A) 접합이 자기 안을 말한다 — 자손 롤업 요약', () =>
     editExternal(graph, 'beta/b1.txt', 'toolu-b1');
 
     const junction = topExternals(graph)[0]!;
-    // 종전에는 이 자리가 `activity=0` · 위성 0 · 숫자는 직속 자식 수뿐이었다.
     expect(junction.externalDescendantFolders).toBe(2);
     expect(junction.externalDescendantFiles).toBe(3);
     expect(junction.externalSummaryChips).toEqual(expect.arrayContaining(['alpha', 'beta']));

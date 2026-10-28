@@ -1,10 +1,4 @@
-/**
- * §5.13 (AA) 42-2 — 결과 파일 이름 (순수).
- *
- * 이름 규칙(`{title} - {scene}`)을 풀고, 세 OS 어디서나 쓸 수 있는 이름으로 다듬는다. **한 규칙**이다 — 리눅스에서 만든 파일을
- * 윈도우로 옮겨도 열려야 하므로 가장 엄한 쪽(Windows)의 규칙을 모든 OS 에 그대로 건다(플랫폼 분기가 없어 어느 개발기에서도
- * 시험이 같은 답을 낸다).
- */
+/** §5.13 (AA) 42-2 — 결과 파일 이름(순수). 가장 엄한 Windows 규칙을 모든 OS 에 건다(리눅스에서 만든 파일도 윈도우에서 열려야 한다 — 분기 없음). */
 
 import { EXPORT_FILE_NAME_MAX_BYTES } from './constants.js';
 import type { VideoFormatId } from './types.js';

@@ -2,15 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { create } from 'zustand';
 import { batchedNotify, batchStoreNotify, isBatchingStoreNotify } from './batchedNotify.js';
 
-/**
- * §9 — 스냅샷 1건이 `set()` 을 36번 부르는 경로(useWebSocket.applyGraphSnapshot)의 회귀 고정.
- *
- * 이 미들웨어가 없으면 zustand 는 `set()` 호출마다 **살아 있는 구독 전부의 선택자**를 다시 돌린다.
- * 화면에 버블 200개(버블당 구독 18개)면 스냅샷 1건에 그 재평가를 36벌 지불하는 셈이었다
- * (실측 구독 4,000개 기준 5.01ms → 0.15ms). 여기서 지키는 것은 두 가지다:
- *   ① 묶은 구간 안의 여러 set 이 **통지 1회**로 접힌다.
- *   ② 상태 자체는 **즉시** 갱신된다 — 묶는 것은 통지뿐이라 구간 안의 `getState()` 는 최신을 본다.
- */
+/** §9 — 스냅샷 1건의 `set()` 36번을 통지 1회로 접는지 고정(실측 구독 4,000개: 5.01ms → 0.15ms). 상태는 즉시 갱신 — 구간 안 `getState()` 는 최신. */
 
 interface TestState {
   a: number;
@@ -143,11 +135,7 @@ describe('batchedNotify', () => {
     expect(notifications).toBe(0);
   });
 
-  /**
-   * zustand v5 의 `useStore` 는 `useSyncExternalStore(api.subscribe, …)` 로 붙는다. 이 미들웨어는
-   * 그 `api.subscribe` 를 **바꿔 끼우므로**, React 가 기대하는 계약을 깨면 화면이 갱신을 놓친다.
-   * 이 저장소에는 컴포넌트를 실제로 그리는 테스트 환경(jsdom)이 없으므로, 그 계약을 여기서 직접 건다.
-   */
+  /** 미들웨어가 `api.subscribe` 를 바꿔 끼우므로 `useSyncExternalStore` 계약을 깨면 화면이 갱신을 놓친다 — jsdom 이 없어 여기서 직접 건다. */
   describe('useSyncExternalStore 계약', () => {
     it('subscribe 참조가 고정이다 — 매 렌더 재구독을 유발하지 않는다', () => {
       const store = makeStore();

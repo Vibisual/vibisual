@@ -1,12 +1,7 @@
 /**
- * §5.13 (R-10) — text layout for editable images. The screen, the SVG export and the PNG export all call this one
- * function with one measurer, so the three always break lines at the same places.
- *
- * - Widths come from the real font (canvas `measureText`), not from a per-character guess.
- * - Space-separated scripts break between words; Hangul/Han/Kana break between characters.
- * - Punctuation that must not start a line stays with the character before it.
- * - The font stack always ends with each OS's default Korean font so Hangul never falls back to tofu or a
- *   wider face on one OS only (Windows Malgun Gothic · macOS Apple SD Gothic Neo · Linux Noto Sans CJK KR).
+ * §5.13 (R-10) — screen, SVG and PNG export share this one function and measurer, so lines break at the same places.
+ * Widths come from the real font (`measureText`); words break between words, Hangul/Han/Kana between characters; no-start punctuation stays with the previous character.
+ * The font stack ends with each OS's Korean font so Hangul never falls back to tofu or a wider face on one OS only.
  */
 export type TextMeasure = (text: string, font: string) => number;
 

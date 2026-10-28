@@ -27,25 +27,11 @@ import { applyLocalOrder } from '../../hooks/tabPushGeom.js';
 // §5.5 #16-1 (E) — 꾹 눌러 집어 드는 손짓. 두 탭바(§5.4 #14-2)와 **같은 훅**이라 손맛이 갈리지 않는다.
 import { usePointerDragReorder } from '../../hooks/usePointerDragReorder.js';
 
-/**
- * 이 칸이 지금 무엇을 말하고 있는가 — **표기 규약 한 벌**.
- *
- * 종전에는 배지가 두 벌이었다: 어떤 칸은 우상단 원형 배지(북마크·요약·실행·루프), 어떤 칸은
- * 아이콘 아래 숫자(목표·정독·서브에이전트). 그래서 40×40 칸에 숫자가 제각각 붙어 화면에서
- * 읽히는 것이 `2 / 1` 같은 낱개 숫자의 나열이 됐다(사용자 지적). 이제 **아이콘 아래 한 줄** 하나로
- * 모은다 — SSOT 가 "사용자가 정한 읽는 방식"이라고 못박은 쪽이고(#17-9 ⑤ v5.06 · #17-17 ⑩),
- * 원형 배지와 달리 글리프를 가리지 않는다.
- *
- * `dot` 만 예외다 — 검증의 마지막 판정은 **수가 아니라 색 하나**라 숫자 자리에 넣을 것이 없다.
- */
+/** 이 칸의 표기 규약 한 벌 — 아이콘 아래 한 줄(#17-9 ⑤ · #17-17 ⑩; 원형 배지와 섞으면 낱개 숫자로 읽히고 글리프를 가린다). `dot` 만 예외 — 검증 판정은 색 하나다. */
 interface ActivityState {
   /** 아이콘 아래 한 줄. `null` 이면 아무것도 붙지 않는다(평소엔 조용히). */
   badge: string | null;
-  /**
-   * 글리프와 그 숫자에 입힐 색. `null` 이면 다른 항목과 같은 회색.
-   * **점등은 글리프에만 건다** — 버튼에 색을 걸면 40×40 칸 전체가 물들어 옆 항목과 뭉쳐 보인다
-   * (#17-17 ⑩ v4.69 가 세운 규칙).
-   */
+  /** 글리프와 숫자의 색(`null` = 회색). 점등은 글리프에만 — 버튼에 걸면 40×40 칸이 물들어 옆과 뭉친다. */
   tone: string | null;
   /** 지금 도는 중 — 글리프만 반짝인다. */
   blink: boolean;
@@ -67,12 +53,7 @@ function clampCount(n: number): string {
 
 /** 오버레이 썸의 최소 길이(px). 칸이 많아져도 이보다 짧아지면 손에 잡히지도 눈에 띄지도 않는다. */
 const ACTIVITY_THUMB_MIN_PX = 24;
-/**
- * 밀어내기 재생(`useTabPushAnimation`)이 칸을 알아보는 표식.
- *
- * 버튼의 `data-activity-view` 와 **자리가 다르다** — 재생이 미는 것은 버튼이 아니라 그것을 감싼
- * 칸(줄 하나)이고, 그 칸이 목록의 직속 자식이어야 `offsetTop` 이 곧 줄의 자리가 된다.
- */
+/** 밀어내기 재생(`useTabPushAnimation`)이 칸을 찾는 표식 — 버튼(`data-activity-view`)이 아니라 감싼 칸(목록 직속 자식)이어야 `offsetTop` 이 줄 자리다. */
 const ACTIVITY_KEY_ATTR = 'data-activity-key';
 
 export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element {
@@ -84,9 +65,7 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   //   (안 그러면 뷰만 조용히 바뀌고 화면에는 아무 일도 안 일어난 것처럼 보인다).
   const { navDrawer, sidebarDrawer, setNavOpen } = useIDEBodyLayout();
 
-  // §5.5 #17-7 v4.93 — 북마크는 덮개 패널이 아니라 사이드바 뷰('bookmarks')다. 배지 = 보관 개수.
-  //   (프로젝트별로 갈라 담기) 개수는 **지금 보고 있는 프로젝트 칸**만 센다 — 목록(IDEBookmarkView)과
-  //   같은 산식(countProjectBookmarks/selectProjectBookmarks)을 써야 배지와 목록이 어긋나지 않는다.
+  // §5.5 #17-7 — 북마크 배지 = 지금 보는 프로젝트 칸의 개수 — 목록과 같은 산식(countProjectBookmarks/selectProjectBookmarks)이라야 안 어긋난다.
   const bookmarkCount = useGraphStore(countProjectBookmarks);
 
   const agentId = useIDEPaneValue((o) => o.agentId);
@@ -98,20 +77,16 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     (view: IDEViewType) => isViewAllowedForProvider(view, providerKind),
     [providerKind],
   );
-  // §5.5 #17-20 v4.74 — 이 에이전트가 켜 둔 실행(디버그 런처)의 수. PTY 수명이라 서버 스냅샷이
-  //   아니라 런타임 스토어에서 읽는다.
+  // §5.5 #17-20 — 켜 둔 실행(디버그 런처) 수 — PTY 수명이라 런타임 스토어에서.
   const runningRuns = useRunSessions((s) => countRunning(s.sessions, agentId));
 
-  // §5.5 #17-9 ③(a) v4.95 — 백그라운드 서브에이전트: **지금 보고 있는 탭이 띄운 수** 하나로
-  //   항목 노출·점등·배지를 모두 결정한다(종전엔 노출만 에이전트 전체 수라 `(0)` 배지가 났다).
+  // §5.5 #17-9 ③(a) — 백그라운드 서브에이전트: 지금 탭이 띄운 수 하나로 노출·점등·배지를 다 정한다(따로 보면 `(0)` 배지가 난다).
   const runningCount = useRunningSubagentCount(agentId);
 
   // §5.5 #17-32 ④ — 이 세션의 훅이 지금 울리고 있는가(목록은 뷰가 읽는다 — 여기선 한 비트만).
   const hookFiring = useHookFiring(agentId);
 
-  // §5.5 #17-11 v3.79 — 세션 반복 실행(루프). 설정 단위가 **지금 열려 있는 세션 탭**이라
-  //   배지도 그 탭의 루프만 읽는다(메인 탭이면 배지 없음 — 설정 대상이 없다는 뜻).
-  //   ⑨ v4.51 — 화면은 덮개 패널이 아니라 **사이드바 뷰**('loop') 다(스킬·목표와 같은 자리).
+  // §5.5 #17-11 — 루프. 설정 단위가 열린 세션 탭이라 배지도 그 탭 것(메인 탭이면 없음).
   const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   const activeLoop = useGraphStore((s) => (activeSessionId ? s.sessionLoops[activeSessionId] : undefined));
   const loopRunning = !!activeLoop?.enabled;
@@ -119,18 +94,14 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     ? (activeLoop.mode === 'count' ? `${activeLoop.completed}/${activeLoop.total ?? 0}` : `${activeLoop.completed}`)
     : null;
 
-  // §5.5 #17-17 v4.47 — 세션 목표. 루프와 같은 세션 탭 축이라 그 탭의 목표만 읽는다.
-  //   항목은 **사이드바 뷰**(스킬창 자리)라 덮개 패널이 아니고, 아이콘은 **진행 중일 때만** 색이 켜진다
-  //   (목표가 없거나 달성·중단이면 다른 항목과 같은 회색 = 평소엔 조용히).
+  // §5.5 #17-17 — 세션 목표(그 탭 것). 아이콘은 진행 중일 때만 색(없음·달성·중단 = 회색).
   const activeGoal = useGraphStore((s) => (activeSessionId ? s.sessionGoals[activeSessionId] : undefined));
-  // §5.5 #17-17 ⑩ v4.61 — "목표가 있다"와 "지금 그 목표를 향해 돌고 있다"는 다른 상태다.
-  //   그 세션 탭(sub)이 실제로 실행 중일 때만 **아이콘 글리프가 반짝여** 셋이 한눈에 갈린다(v4.69).
+  // §5.5 #17-17 ⑩ — 목표가 있음 ≠ 돌고 있음: 그 세션 탭이 실제로 실행 중일 때만 글리프가 반짝인다.
   const goalWorking = useGraphStore((s) => {
     if (!agentId || !activeSessionId) return false;
     return s.subAgents[agentId]?.some((su) => su.id === activeSessionId && su.status === 'active') ?? false;
   });
-  // §5.5 #17-17 ⑩ v4.73 — 점등·표기 판정은 `goalIndicator` 한 곳에 산다(두 번 뒤집힌 규칙이라
-  //   순수 함수 + 테스트로 고정했다). 여기서는 그 결과를 그리기만 한다.
+  // §5.5 #17-17 ⑩ — 점등·표기 판정은 `goalIndicator` 한 곳(순수 + 시험). 여기선 그리기만.
   const goalInd = computeGoalIndicator(activeGoal, goalWorking);
   // 툴팁은 좁은 한 줄이 못 담는 "얼마나 남았는지"까지 말한다.
   const goalTitle = goalInd.steps
@@ -140,13 +111,8 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
       : t('ide.activityBar.goal');
 
   /*
-   * §5.10 (P) — **절차 감지** 칸. 목표에서 갈라져 나온 칸이라 읽는 재료도 다르다: 목표는 이 세션
-   * 탭의 진행이고, 이 칸은 **이 프로젝트에 쌓인 절차**다(`autoGoal[activeProject]` — 절차는
-   * 프로젝트별로 갈라져 저장된다).
-   *
-   * 전선에는 **에이전트 층까지만** 실려 온다(세션 층 덮어쓰기는 맵이 세션 수만큼 자라지 않도록
-   * 싣지 않는다 — §5.10 (G)). 그래서 여기 점등은 "이 프로젝트·이 에이전트에서 도는가"까지이고,
-   * 세션 한 칸까지 접은 마지막 판정은 뷰 머리글의 점이 말한다(REST 응답으로 그린다).
+   * §5.10 (P) — 절차 감지 칸: 이 프로젝트에 쌓인 절차를 읽는다(`autoGoal[activeProject]`). 전선엔 에이전트 층까지만 온다(§5.10 (G)) —
+   * 세션까지 접은 판정은 뷰 머리글의 점(REST)이 말한다.
    */
   const autoGoalSummary = useGraphStore(selectActiveAutoGoalSummary);
   const autoGoalOn = autoGoalSummary
@@ -160,11 +126,8 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     : 0;
 
   /*
-   * §5.3 #10-4 · §5.5 #16-1 (H) — **오케스트라** 칸. 점등은 "이 에이전트에 실제로 켜져 있는가"
-   * (`resolveOrchestraEnabled` — 프로젝트 칸만 켜져 있어도 이 에이전트 칸이 명시적 false 면 꺼진 채다).
-   * 숫자는 **이 에이전트가 지금 지휘 중인 런 수**(0이면 비움) — 점등이 이 에이전트 기준이라 숫자도 같은
-   * 기준이어야 한다(옆 에이전트의 지휘가 이 창에 뜨면 무엇이 도는지 읽히지 않는다).
-   * 원시값 하나만 구독한다 — 런 목록은 스냅샷마다 새 배열이다(zustand 파생 선택자 함정).
+   * §5.3 #10-4 · §5.5 #16-1 (H) — 오케스트라 칸. 점등 = 이 에이전트에 실제로 켜졌나(`resolveOrchestraEnabled`), 숫자 = 이 에이전트가 지휘 중인 런 수 —
+   * 같은 기준이어야 한다. 원시값만 구독(런 목록은 스냅샷마다 새 배열).
    */
   const paneKey = useIDEPaneKey();
   const orchestraState = useGraphStore((s) => {
@@ -179,12 +142,7 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   const orchestraOn = orchestraState.startsWith('1');
   const orchestraConducting = Number(orchestraState.slice(2)) || 0;
 
-  /*
-   * §5.3 #10-5 — **설정 덜어내기** 칸. 점등은 이 에이전트에 실제로 켜져 있는가
-   * (`resolveConfigTrimEnabled` — 세션 ?? 에이전트 ?? 프로젝트). 숫자는 **이 에이전트의 가장 최근
-   * 턴에서 실제로 덜어낸 항목 수**다 — 배제 목록은 늘 길어서 숫자로 삼으면 아무 뜻이 없다.
-   * 오케스트라와 같은 규칙으로 **원시값 하나만** 구독한다(런 목록은 스냅샷마다 새 배열이다).
-   */
+  /* §5.3 #10-5 — 설정 덜어내기 칸. 점등 = `resolveConfigTrimEnabled`(세션 ?? 에이전트 ?? 프로젝트), 숫자 = 최근 턴에 실제로 덜어낸 수(배제 목록은 늘 길어 뜻이 없다). 원시값만 구독. */
   const configTrimState = useGraphStore((s) => {
     const summary = selectPaneConfigTrimSummary(s, paneKey);
     if (!summary) return '0:0';
@@ -226,13 +184,7 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     return null;
   })();
 
-  /*
-   * §5.11 정독 게이트 — 이 세션이 **기획을 어디까지 읽었는가**.
-   *
-   * 검증 배지와 같은 규약으로 원시값 하나만 구독한다 — 정독 상태는 절 목록·구간까지 든 무거운 객체라
-   * 그대로 물면 스냅샷마다 활동바가 통째로 다시 그려진다(zustand 파생 선택자 함정).
-   * `충족/필수|인용실패|되돌림` 세 조각이면 점등·숫자·색이 전부 정해진다.
-   */
+  /* §5.11 정독 게이트 — 원시값 하나만 구독한다(무거운 객체를 물면 스냅샷마다 활동바가 다시 그려진다). `충족/필수|인용실패|되돌림` 이면 점등·숫자·색이 정해진다. */
   const readingState = useGraphStore((s) => {
     const r = activeSessionId ? s.specReading[activeSessionId] : undefined;
     if (!r || r.trust.requiredTotal === 0) return '';
@@ -254,13 +206,7 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     return { badge: ratio, tone };
   })();
 
-  /**
-   * §5.5 #17-19 ⑦ — 활동바 **파일** 우클릭 = 이 프로젝트 폴더를 OS 탐색기에서 연다.
-   *
-   * 사이드바를 열지 않아도 늘 떠 있는 자리라 여기서 답할 물음은 하나다 — "그 폴더를 열어 달라".
-   * 만들기·이름 바꾸기·삭제는 **트리 안**(탐색기 행 우클릭)에 산다: 화면에 트리가 없는 채로
-   * 파일을 만들면 만들어진 것이 어디 갔는지 보이지 않는다.
-   */
+  /** §5.5 #17-19 ⑦ — 활동바 [파일] 우클릭 = 프로젝트 폴더를 OS 탐색기로. 만들기·이름 바꾸기·삭제는 트리 안에만(트리 없이 만들면 어디 갔는지 안 보인다). */
   const filesRoot = useIDEProjectRoot();
   const [filesMenu, setFilesMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
   const handleFilesContextMenu = useCallback((e: React.MouseEvent) => {
@@ -282,8 +228,7 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   }, [filesRoot, t]);
 
   const openView = useCallback((view: IDEViewType) => {
-    // v4.93·v4.95 — 북마크·세션 요약·실행 중 서브에이전트가 차례로 덮개를 벗어, 활동바의 모든 항목이
-    // 이 한 함수를 탄다(같은 항목 재클릭 = 접힘). 상호 배타로 닫아 줄 덮개는 더 이상 없다.
+    // 모든 항목이 이 함수를 탄다(같은 항목 재클릭 = 접힘).
     if (activeView === view && !sidebarCollapsed) {
       toggleSidebar();
       // 서랍이었다면 접는 쪽도 서랍을 함께 닫는다 — 접힌 사이드바 자리에 빈 서랍만 남지 않게.
@@ -295,11 +240,7 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     }
   }, [activeView, sidebarCollapsed, sidebarDrawer, setNavOpen, setActiveView, toggleSidebar]);
 
-  /*
-   * §5.5 #17-44 ⑧(c) — **이 바에 예외는 없다.** 한때 `정독` 만 클릭 규약이 달라 켬/끔 3층 팝오버가
-   * 떴는데, 열넷 중 하나만 다른 것이 열리면 그 칸은 손에 익지 않고 고장난 칸으로 읽힌다(사용자 지시).
-   * 3층 스위치는 정독 뷰 안으로 들어갔으므로 여기서 갈릴 이유가 남지 않았다 — 모든 칸이 `openView`.
-   */
+  /* §5.5 #17-44 ⑧(c) — 예외 없음: 모든 칸이 `openView`(하나만 다르면 고장난 칸으로 읽힌다). */
 
   /* ─── §5.5 #16-1 사용자가 만들어 둔 배치(순서 · 내려놓은 칸) ─── */
 
@@ -447,17 +388,8 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   /* ─── 꾹 눌러 자리 옮기기 — 손에 붙어 따라오고, 지나는 칸이 밀린다 ─── */
 
   /*
-   * 종전에는 끄는 동안 **아무것도 움직이지 않았다** — 잡은 칸은 제자리에서 흐려지기만 하고,
-   * 놓일 자리는 파란 삽입선 한 줄로만 말했다. 그래서 "무엇을 들고 있는지"가 손이 아니라 목록
-   * 어딘가에 남아 있어, 스마트폰 앱 아이콘을 옮기는 것과 전혀 다른 손짓이 됐다(사용자 지시:
-   * "꾹 누르면 마우스에 아이콘이 붙어서 따라오고 아래로 내리면 직관적으로 아래 아이콘이 밀려야지").
-   *
-   * 이제 둘로 나뉜다.
-   *   ① **고스트** — 잡은 글리프가 원래 자리를 떠나 커서에 붙는다(잡은 지점 그대로).
-   *      원래 자리에는 점선 홈만 남아 "이 칸이 어디에 앉을지"를 말한다.
-   *   ② **밀림** — 커서가 이웃 칸의 **중앙선을 넘는 순간** 순서를 바꾸고, 바뀐 자리로 되돌아
-   *      앉는 재생을 건다. 삽입선 ❌ — §6 이 이미 탭바에 세워 둔 규칙과 같은 손맛이고,
-   *      기하·수치도 그 한 벌(`tabPushGeom` · `useTabPushAnimation`)을 **축만 세로로** 돌려 쓴다.
+   * 끌어 옮기기(스마트폰 아이콘 손짓): ① 고스트 — 잡은 글리프가 잡은 지점 그대로 커서에 붙고 원래 자리엔 점선 홈
+   * ② 밀림 — 이웃 칸 중앙선을 넘는 순간 순서를 바꾸고 되돌아 앉는 재생(삽입선 ❌). §6 탭바와 같은 `tabPushGeom` · `useTabPushAnimation` 을 세로로 쓴다.
    */
 
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -483,12 +415,7 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   const dragView = drag.dragKey as IDEViewType | null;
   const isDragging = dragView !== null;
 
-  /**
-   * 화면에 실제로 그리는 순서 — 끄는 동안에는 로컬 순서가 이긴다.
-   *
-   * 서버 목록 위에 **덧씌우는** 것이라(치환 ❌), 끄는 사이 목록 자체가 바뀌어도(엔진 교체 ·
-   * 구성 패널에서 내려놓기) 로컬에 없는 칸이 사라지지 않고 뒤에 그대로 붙는다.
-   */
+  /** 그리는 순서 — 끄는 동안은 로컬 순서를 서버 목록 위에 덧씌운다(치환 ❌ — 그 사이 늘어난 칸은 뒤에 붙는다). */
   const shown = useMemo(
     () => (drag.localOrder ? applyLocalOrder(visible, drag.localOrder as IDEViewType[], (v) => v) : visible),
     [visible, drag.localOrder],
@@ -506,19 +433,9 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   /* ─── 스크롤 레일 (오버레이 썸) ─── */
 
   /**
-   * §5.5 #16-1 (D) — **스크롤바가 아이콘의 가운데선을 밀지 않는다(사용자 지시).**
-   *
-   * 네이티브 세로 스크롤바는 **레이아웃을 점유한다**. 폭 48px 짜리 바에서 그 몇 px 은 목록의
-   * 내용 상자만 좁히므로, 스크롤이 생기는 순간 아이콘 열이 통째로 왼쪽으로 기울고 **위에 고정된
-   * 구성 버튼과 축이 어긋났다**(사용자 보고 "가운데에서 왼쪽으로 기운다 · 지금 이상해").
-   * 게다가 `.scrollbar-thin` 의 `::-webkit-scrollbar { width: 5px }` 는 지금 엔진에서 먹지 않는다 —
-   * Chromium 121+ 는 표준 `scrollbar-width`/`scrollbar-color` 가 지정돼 있으면 webkit 유사요소의
-   * 폭 지정을 통째로 무시하고 자기 `thin` 두께를 쓴다. 그래서 실제로 밀린 양은 5px 이 아니었다.
-   *
-   * 그래서 탭바(§5.5 #17-9)가 이미 세워 둔 규약을 **축만 세로로** 돌려 쓴다: 네이티브 스크롤바는
-   * `scrollbar-overlay` 로 지우고(폭 점유 0 → 목록의 내용 상자는 늘 48px, 아이콘은 스크롤 유무와
-   * 무관하게 같은 자리) 얇은 썸을 **별도 DOM 으로 목록 위에 띄운다**(VS Code 식).
-   * 갱신은 스크롤·리사이즈마다 도는 자리라 상태가 아니라 DOM 을 직접 만진다(고스트와 같은 이유).
+   * §5.5 #16-1 (D) — 스크롤바가 아이콘 가운데선을 밀지 않는다. 네이티브 스크롤바는 폭을 점유해 48px 바의 아이콘 열이 기운다 —
+   * Chromium 121+ 는 표준 `scrollbar-width` 가 있으면 `::-webkit-scrollbar` 폭을 무시해 줄일 수도 없다.
+   * `scrollbar-overlay` 로 지우고 썸을 별도 DOM 으로 띄운다(탭바 §5.5 #17-9 와 같은 규약, 갱신은 DOM 직접).
    */
   const thumbRef = useRef<HTMLDivElement | null>(null);
 
@@ -574,11 +491,8 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   }, [customizeOpen, visible.length, excluded.length]);
 
   return (
-    // §4 v3.24 — 서랍일 때는 타이틀바 토글로 열리는 오버레이(본문을 상시 짓누르지 않게).
-    //   사이드바(v3.18 오버레이, left-12)와 나란히 뜨도록 좌측 고정 + 불투명 배경.
-    //   판정은 뷰포트 미디어 쿼리가 아니라 **이 창의 폭**이다(`ideResponsive`) — 넓은 화면에서
-    //   창만 좁힌 경우에도 접혀야 하고, 그 조건은 `max-md` 가 모른다.
-    //   §5.5 #16-1 — `relative` 는 구성 패널이 이 바의 오른쪽에 붙기 위한 기준점이다.
+    // §4 — 서랍이면 토글로 여는 오버레이(사이드바 옆 좌측 고정 + 불투명). 판정은 창 폭(`ideResponsive` — `max-md` 는 창만 좁힌 경우를 모른다).
+    // `relative` 는 구성 패널의 기준점(§5.5 #16-1).
     <div className={`relative flex w-12 flex-shrink-0 flex-col items-center border-r border-gray-700 ${
       navDrawer ? 'absolute inset-y-0 left-0 z-40 bg-gray-900' : 'bg-gray-900/80'
     }`}>
@@ -601,16 +515,11 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
       </button>
       <div className="my-1.5 h-px w-6 flex-shrink-0 bg-gray-700/70" />
 
-      {/* 창 높이에 맞춰 **여기만** 스크롤한다 — 종전에는 바 전체가 고정 높이라 항목이 창 밖으로
-          잘려 나갔다(창을 줄이면 아래쪽 칸에 손이 닿지 않았다). 구성 버튼은 위에 남는다.
-          이 겉칸은 **오버레이 썸의 기준점**이다 — 썸을 스크롤 상자 안에 두면 내용과 함께 흘러간다. */}
+      {/* 창 높이에 맞춰 여기만 스크롤(구성 버튼은 위에 남는다). 이 겉칸이 오버레이 썸의 기준점 — 스크롤 상자 안이면 썸이 내용과 함께 흐른다. */}
       <div className="group/actrail relative flex w-full min-h-0 flex-1 flex-col items-center">
         <div
           ref={listRef}
-          // `relative` 는 장식이 아니다 — 이 칸이 `offsetParent` 여야 각 줄의 `offsetTop` 이 곧
-          //   목록 안의 자리가 되고, 밀림 재생·중앙선 판정이 스크롤과 무관하게 맞는다.
-          // `scrollbar-overlay` — 네이티브 스크롤바는 **폭을 점유해** 아이콘 열을 왼쪽으로 밀므로
-          //   지우고, 대신 아래 썸을 목록 위에 띄운다(위 「스크롤 레일」 주석).
+          // `relative` 는 장식이 아니다 — `offsetParent` 여야 줄의 `offsetTop` 이 목록 안 자리라 밀림·중앙선 판정이 맞는다. `scrollbar-overlay` — 폭 점유를 없앤다(썸은 따로 띄운다).
           className="scrollbar-overlay relative flex w-full min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto overflow-x-hidden pb-2"
         >
           {shown.map((view) => {

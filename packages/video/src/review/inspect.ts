@@ -1,13 +1,4 @@
-/**
- * 자동 검수 (SCENARIO.md §5.13 (G)).
- *
- * 렌더가 끝난 뒤 **컷 경계마다 한 장씩 떠서** 사람이 이상하다고 느낄 만한 것을 찾는다.
- * 발상은 이미 검증된 것을 따랐다 — 에이전트가 자기 결과물을 확인하지 않으면 "돌긴
- * 돌았는데 결과가 이상한" 영상이 그대로 사용자에게 간다.
- *
- * 이 파일은 **순수**하다. 픽셀 배열과 몇 가지 숫자만 받아 판정하므로 화면 없이 전부
- * 시험할 수 있고, 판정 기준이 바뀌었을 때 무엇이 달라지는지 테스트로 고정된다.
- */
+/** 자동 검수(§5.13 (G)) — 렌더 뒤 컷 경계마다 한 장씩 떠서 이상한 것을 찾는다. 순수(픽셀 배열·숫자만) — 판정 기준을 시험으로 고정한다. */
 
 export interface FrameStats {
   /** 평균 밝기 0~1. */
@@ -18,12 +9,7 @@ export interface FrameStats {
   readonly variedRatio: number;
 }
 
-/**
- * 픽셀에서 통계를 뽑는다.
- *
- * 전 픽셀을 다 보지 않고 `step` 간격으로 건너뛴다 — 1080p 한 장이 200만 픽셀이라
- * 컷마다 전부 훑으면 검수가 렌더보다 오래 걸린다. 통계는 표본으로 충분하다.
- */
+/** `step` 픽셀 간격의 표본만 본다 — 1080p 한 장이 200만 픽셀이라 컷마다 전부 훑으면 검수가 렌더보다 오래 걸린다. */
 export function computeFrameStats(rgba: Uint8ClampedArray, step = 16): FrameStats {
   const stride = Math.max(1, Math.floor(step)) * 4;
   let n = 0;
@@ -97,12 +83,7 @@ export const DEFAULT_REVIEW_THRESHOLDS: ReviewThresholds = {
   silentLevel: 0.002,
 };
 
-/**
- * 표본들을 보고 문제를 찾는다.
- *
- * 판정이 보수적인 이유는 오탐이 잦으면 사람이 검수 결과를 안 읽게 되기 때문이다.
- * 확실히 이상한 것만 잡고, 애매하면 넘어간다.
- */
+/** 확실히 이상한 것만 잡고 애매하면 넘어간다 — 오탐이 잦으면 사람이 검수 결과를 안 읽는다. */
 export function inspectSamples(
   samples: readonly ReviewSample[],
   thresholds: ReviewThresholds = DEFAULT_REVIEW_THRESHOLDS,

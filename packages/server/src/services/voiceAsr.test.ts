@@ -24,12 +24,8 @@ import { voiceExtractAttempts } from './voiceAsrService.js';
 import { engineEnvFor } from './voiceRecognizerService.js';
 
 /**
- * §5.5 #17-38 ⑫ — 오프라인 받아쓰기 판정 고정.
- *
- * **세 OS 를 Windows 한 대에서 확인하는 유일한 방법**이라 판정은 전부 `platform` 을 인자로
- * 받는다([multiplatform.md](../../../../docs/rules/multiplatform.md)). 자산 이름은 2026-09-02
- * `k2-fsa/sherpa-onnx` v1.13.7 릴리스에서 그대로 따 왔다 — 지어낸 이름으로 고정하면 그 표는
- * 실제 릴리스와 어긋난 채 초록으로 남는다.
+ * §5.5 #17-38 ⑫ — 오프라인 받아쓰기 판정 고정(판정은 `platform` 인자 — 세 OS 를 Windows 에서 시험).
+ * 자산 이름은 실제 `k2-fsa/sherpa-onnx` v1.13.7 릴리스에서 따 왔다(2026-09-02) — 지어낸 이름이면 실제 릴리스와 어긋난 채 초록으로 남는다.
  */
 
 // 실제 릴리스 자산 이름(발췌).
@@ -117,13 +113,7 @@ describe('엔진 자산 고르기', () => {
   });
 });
 
-/**
- * `asr-models` 릴리스의 실제 자산 이름(2026-09-03 조회 발췌).
- *
- * 지어낸 이름으로 고정하면 그 표는 실제 릴리스와 어긋난 채 초록으로 남는다 — 엔진 자산 표와
- * 같은 규율이다. 우리 것이 아닌 이웃 자산을 섞어 두는 것이 요점이다(모델을 잘못 집어 오면
- * 엔진이 한 줄도 안 남기고 죽으므로, 이 표가 그 사고를 막는 유일한 그물이다).
- */
+/** `asr-models` 릴리스의 실제 자산 이름(2026-09-03 조회 발췌). 이웃 자산을 섞어 둔 것이 요점이다 — 모델을 잘못 집으면 엔진이 말없이 죽는다. */
 const MODEL_ASSETS = [
   'sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-80ms-int8-2026-06-11.tar.bz2',
   'sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-160ms-int8-2026-06-11.tar.bz2',

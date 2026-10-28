@@ -1,13 +1,6 @@
 /**
- * §5.16 / §7.15 — 리뷰·승인 레인 구획.
- *
- * `AgentReviewCard` 안에서만 쓰인다(새 카드 계열 ❌). 서버가 격리(워크트리) 변경분을 붙잡아 만든
- * `ReviewRequest` 를 받아 ① 브랜치 줄 ② 변경 파일 목록 ③ diff 본문(기본 접힘) ④ 결정 줄
- * (**승인 / 반려 / 보류** + 반려 사유 인라인 입력창)을 그린다.
- *
- * 판정·상태 전이·병합은 전부 서버다(§3.1) — 여기서는 `POST /api/review-requests/:id/decision` 을
- * 부르고, 반려 명령 문장만 순수 모듈 `reviewRejectPrompt.ts` 로 조립해 함께 보낸다(서버가 언어를
- * 정하지 않기 위해 번역문은 클라이언트가 만든다).
+ * §5.16 / §7.15 — 리뷰·승인 레인 구획(`AgentReviewCard` 안에서만). 판정·병합은 서버(§3.1) — `POST /api/review-requests/:id/decision` 만 부른다.
+ * 반려 문장은 클라가 `reviewRejectPrompt.ts` 로 조립한다(서버는 언어를 정하지 않는다).
  */
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';

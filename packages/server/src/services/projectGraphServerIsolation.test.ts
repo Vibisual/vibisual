@@ -1,31 +1,7 @@
 /**
- * §7.11 / §3.5 — **남의 프로젝트 서버는 우리 캔버스에 서지 않는다.**
- *
- * 이 테스트가 지키는 것은 사용자 신고 한 줄이다: "다른 프로젝트에서 연 서버가 왜 앱을 껐다
- * 켜면 다른 프로젝트에서 보이는 거야."
- *
- * 실측(2026-09-11) — vibisual 체크포인트에 위성 두 개가 박혀 있었다.
- *   · `localhost:3456` = 옆 프로젝트 A 의 백엔드(`node  src/server.js`)
- *   · `localhost:8080` = 옆 프로젝트 B 의 vite(`"node" "…\Game2D\…\vite.js"`)
- * 정작 두 주인 탭의 iframe 위성은 0개였다. 두 위성 모두 `shellId` 가 없어 v1.48 의
- * owning-shell 검사가 port-only 로 떨어지고, 주인 프로젝트가 서버를 계속 띄워 두는 한
- * 포트는 늘 살아 있어 v2.1 의 60초 grace 자동 제거가 **한 번도 발동하지 않았다.**
- * 그래서 앱을 껐다 켤 때마다 체크포인트에서 그대로 되살아났다.
- *
- * 여기서 고정하는 것은 셋이다.
- *   ① 이미 저장된 남의 위성은 생사 sweep 이 걷어낸다(스스로 낫는다).
- *   ② 판정 불가(`unknown`)도 걷는다 — 상대경로로 띄운 서버가 정확히 그 구멍으로 들어왔다.
- *   ③ 우리 서버·고정핀·못 읽은 것은 건드리지 않는다(반대 방향 사고 차단).
- *
- * 포트 조회는 주입한다 — `platform` 을 인자로 받는 것과 같은 이유로, 실기·실서버 없이
- * 세 OS 의 판정이 단위 테스트를 지나가야 한다.
- *
- * 2026-10-01 — 사용자 신고 "A 에서 테스트하던 프리뷰 버블에 B 프로젝트 것이 열린다 — 지난번에도 그랬다".
- * 한 포트에 주인이 둘이었다(A 의 서버가 `::`, B 의 vite 가 `[::1]`, 둘 다 8080). 그래서 아래 뒤쪽 블록은
- * 포트가 아니라 **위성 주소가 실제로 닿는 리스너**로 가르는 것을 고정한다.
- *   ④ 남의 리스너에 닿는 위성은 우리 서버에 닿는 별칭으로 옮기고(지우지 않는다), 그런 별칭이 없으면 걷는다.
- *   ⑤ 새 위성의 입구는 하나다 — 판정 뒤에 서고, 거절되면 짝 ServerEntry 도 서지 않는다.
- *   ⑥ Stop/Restart 는 그 주소의 리스너만, 남의 것이면 아예 죽이지 않는다.
+ * §7.11 / §3.5 — 남의 프로젝트 서버는 우리 캔버스에 서지 않는다. 실측(2026-09-11): `shellId` 없는 남의 위성이 port-only 검사로 살아남아 껐다 켤 때마다 되살아났다.
+ * ① 저장된 남의 위성·판정 불가(`unknown`)는 생사 sweep 이 걷는다 ② 우리 서버·고정핀·못 읽은 것은 안 건드린다. 포트 조회는 주입한다(세 OS 를 실기 없이).
+ * 실측(2026-10-01) 한 포트 두 주인 — 뒷 블록: 주소가 실제로 닿는 리스너로 가르고, 남의 것이면 우리 쪽 별칭으로 옮기거나 걷고, 새 위성은 판정 뒤에만, Stop/Restart 는 그 리스너만.
  */
 import { describe, it, expect } from 'vitest';
 import { ProjectGraph } from './projectGraph.js';
@@ -50,10 +26,7 @@ function iframesOf(sats: BubbleData[] | undefined): BubbleData[] {
   return (sats ?? []).filter((s) => s.bubbleType === 'iframe');
 }
 
-/**
- * 체크포인트에서 복원된 모양 그대로의 위성 — 생성 경로를 타지 않고 이미 굳어 있는 것.
- * `shellId` 가 없는 것이 핵심이다(감지 폴백이 만든 위성의 모양 = port-only 후방호환 가지).
- */
+/** 체크포인트에서 복원된 그대로의 위성 — `shellId` 가 없다(감지 폴백 위성 = port-only 후방호환 가지). */
 function restoredSatellite(sessionId: string, port: number, extra: Partial<BubbleData> = {}): BubbleData {
   return {
     id: `special-${String(port)}`,
@@ -69,10 +42,7 @@ function restoredSatellite(sessionId: string, port: number, extra: Partial<Bubbl
   };
 }
 
-/**
- * 격리 sweep 만 떼어 시험한다 — `checkIframesAlive` 전체는 JSONL 스캔·실 TCP probe 를 타므로,
- * 여기서는 그 앞단이 넘겨주는 것과 같은 모양(`{t:{port}, portAlive}`)을 직접 만들어 넣는다.
- */
+/** 격리 sweep 만 떼어 본다 — `checkIframesAlive` 앞단(JSONL 스캔·TCP probe)이 넘기는 `{t:{port}, portAlive}` 를 직접 만든다. */
 async function sweep(graph: ProjectGraph, ports: number[]): Promise<boolean> {
   const results = ports.map((port) => ({ t: { port }, portAlive: true }));
   return await (graph as unknown as {
@@ -80,11 +50,7 @@ async function sweep(graph: ProjectGraph, ports: number[]): Promise<boolean> {
   }).evictDisownedIframeSatellites(results);
 }
 
-/**
- * 이 그래프가 그리는 프로젝트를 `OURS` 로 고정하고, 다른 탭 둘이 열려 있다고 알린다.
- * 루트는 private 필드로 직접 놓는다 — `registerProject` 는 세션 탐색(`discoverAndSeed`)까지
- * 끌고 들어와 이 테스트가 보려는 것과 무관한 디스크 작업을 부른다.
- */
+/** 루트는 private 필드로 직접 놓는다 — `registerProject` 는 `discoverAndSeed` 디스크 작업까지 끌고 온다. */
 function graphWithNeighbors(
   lookup: (p: number) => Promise<ProcessStartInfo | null>,
   neighbors: string[] = [OURS, TRADE_APP, GAME],
@@ -143,7 +109,7 @@ describe('§3.5 — 이미 박힌 남의 서버 위성은 생사 sweep 이 걷�
     expect(iframesOf(agent.persistSatellites)).toHaveLength(1);
   });
 
-  it('고정핀을 꽂은 위성은 남의 것이라도 건드리지 않는다(§7.11 v2.4 와 같은 예외)', async () => {
+  it('고정핀을 꽂은 위성은 남의 것이라도 건드리지 않는다(§7.11 과 같은 예외)', async () => {
     const { graph, agent } = graphWithNeighbors(async () => ({ command: GAME_VITE_CMD }));
     agent.persistSatellites = [restoredSatellite(agent.path, 8080, { preservePinned: true })];
 
@@ -180,7 +146,7 @@ describe('§3.5 — 이미 박힌 남의 서버 위성은 생사 sweep 이 걷�
     expect(iframesOf(agent.persistSatellites)).toHaveLength(1);
   });
 
-  it('위성을 걷으면 짝이 되는 ServerEntry 도 함께 걷는다(v2.21 strict 1:1)', async () => {
+  it('위성을 걷으면 짝이 되는 ServerEntry 도 함께 걷는다(strict 1:1)', async () => {
     const { graph, agent } = graphWithNeighbors(async () => ({ command: GAME_VITE_CMD }));
     agent.persistSatellites = [restoredSatellite(agent.path, 8080)];
     const running = (graph as unknown as { runningServers: Map<string, { id: string; command: string; port?: number; startedAt: number; alive: boolean }[]> }).runningServers;
@@ -195,7 +161,7 @@ describe('§3.5 — 이미 박힌 남의 서버 위성은 생사 sweep 이 걷�
   });
 });
 
-// ─── 2026-10-01: 한 포트 두 주인 — "그 주소가 실제로 닿는 리스너"로 가른다 ───
+// 한 포트 두 주인(실측 2026-10-01) — 주소가 실제로 닿는 리스너로 가른다
 
 /** 우리 서버 — 절대경로가 박힌 명령줄(ours) / 상대경로뿐인 명령줄(unknown). */
 const OURS_SERVE_CMD = '"node" "C:\\work\\vibisual\\serve.js"';
@@ -271,7 +237,7 @@ function runningOf(graph: ProjectGraph): Map<string, RunningEntry[]> {
   return (graph as unknown as { runningServers: Map<string, RunningEntry[]> }).runningServers;
 }
 
-describe('§3.5 — 한 포트 두 주인(실측 2026-10-01): A 의 프리뷰에 B 의 화면', () => {
+describe('§3.5 — 한 포트 두 주인(실측): A 의 프리뷰에 B 의 화면', () => {
   it('localhost 위성이 옆 프로젝트 vite 에 닿으면 — 걷지 않고 우리 서버에 닿는 127.0.0.1 로 옮긴다', async () => {
     const { graph, agent } = graphWithOwnership(async () => dualBind());
     agent.persistSatellites = [restoredSatellite(agent.path, 8080, { url: 'http://localhost:8080/' })];

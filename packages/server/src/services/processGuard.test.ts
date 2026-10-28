@@ -1,10 +1,6 @@
 /**
- * §5.3 #9-2 — 감시(`ProcessGuard`)가 판정을 **실제 프로세스에 잇는 방식**을 고정한다.
- *
- * Windows 는 가짜 묶음 백엔드로, mac/Linux 는 가짜 목록으로 돌린다 — 진짜 프로세스는 하나도 건드리지 않는다.
- * 핵심 계약 넷: ① 묶음에는 상한이 실리고, 정리해도 되는 자식에만 닫힘 동작이 실린다 ② 압박 때는 우리 것 중
- * 가장 큰 **하나만**, 본체보다 자식 먼저 ③ 본체가 끝나면 유예 뒤 남은 것을 끊되 코덱스처럼 턴마다 내려가는
- * 자식은 끊지 않는다 ④ 모르면(목록 실패) 아무것도 끊지 않는다.
+ * §5.3 #9-2 — 감시가 판정을 실제 프로세스에 잇는 방식(가짜 백엔드·목록만). ① 묶음엔 상한, 정리 가능한 자식에만 닫힘 ② 압박 땐 가장 큰 하나, 자식 먼저
+ * ③ 본체가 끝나면 유예 뒤 정리(턴마다 내려가는 코덱스 자식 제외) ④ 목록 실패면 안 끊는다.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { DEFAULT_PROCESS_GUARD_SETTINGS, PROCESS_GUARD_TICK_MS, SESSION_END_REAP_GRACE_MS, type ProcessGuardNotice, type ProcessSnapshotRow, type SystemMemoryReading } from '@vibisual/shared';

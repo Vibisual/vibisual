@@ -1,11 +1,6 @@
 /**
- * attachmentThumb — 첨부 이미지 썸네일 URL 해석 (v2.93).
- *
- * 썸네일은 제출 시점 클라가 만든 메모리 blob URL(`graphStore.attachmentPreviews[basename]`)을
- * 우선 쓴다. 그러나 blob URL 은 document 스코프라 detach 별창 IDE(다른 BrowserWindow)·페이지
- * 새로고침·앱 재시작·부팅 복원된 명령에선 사라진다(파일은 디스크에 보존). 그 경우 server 의
- * `GET /api/agent-attachments/:sessionId/file?rel=...` 로 파일을 받아 **현재 document 에서**
- * `URL.createObjectURL` 로 폴백 blob 을 만든다(별창 스코프까지 해소).
+ * 첨부 썸네일 — 메모리 blob(`attachmentPreviews[basename]`) 우선. blob 은 document 스코프라 별창·새로고침·재시작·복원에선 없으므로
+ * `GET /api/agent-attachments/:sessionId/file?rel=...` 로 받아 현재 document 에서 폴백 blob 을 만든다.
  */
 import { useEffect, useRef, useState } from 'react';
 import { useGraphStore } from '../../stores/graphStore.js';
@@ -18,14 +13,7 @@ export function basenameOf(p: string): string {
   return parts[parts.length - 1] ?? '';
 }
 
-/**
- * 첨부 절대경로 → server GET URL. 두 갈래를 모두 푼다.
- *
- *  · `.vibisual/attachments/<sessionId>/<rel...>` — paste 첨부(원래 경로).
- *  · `.vibisual/verify-demos/<demoId>/<file>` — §5.5 #17-35 ⑨ 시연 프레임. 검증 명령은 사본을
- *    뜨지 않고 **원본을 그대로 가리키므로**(검증마다 쌓이던 사본 제거) 이 갈래가 없으면 명령 카드에
- *    그림이 한 장도 뜨지 않는다. 서빙은 이미 있는 시연 프레임 라우트를 그대로 쓴다.
- */
+/** 첨부 절대경로 → GET URL. 두 갈래: `.vibisual/attachments/…`(paste) · `.vibisual/verify-demos/<demoId>/…`(§5.5 #17-35 ⑨ — 검증 명령은 원본을 가리켜 없으면 그림이 안 뜬다). */
 export function buildAttachmentFetchUrl(p: string): string | null {
   const norm = p.replace(/\\/g, '/');
 
@@ -57,14 +45,7 @@ export interface AttachmentThumb {
   url: string;
 }
 
-/**
- * 첨부 경로 배열 → 렌더 가능한 썸네일 목록. blob preview 우선, 없으면 server 라우트로 폴백 blob.
- * 각 경로는 인스턴스당 1회만 폴백 fetch(`doneRef`), 폴백 blob 은 언마운트 시 일괄 revoke.
- *
- * 폴백 캐시의 키는 basename 이 아니라 **전체 경로**다 — 시연 프레임은 `<demoId>/0.png` 처럼
- * 파일명이 시연마다 겹친다(`0.png`). basename 으로 캐시하면 한 화면에 두 시연이 있을 때
- * 나중 것이 앞 것의 그림을 그대로 보여 준다.
- */
+/** blob preview 우선, 없으면 폴백 blob(경로당 1회 fetch, 언마운트 때 revoke). 캐시 키는 전체 경로 — 시연 프레임은 `<demoId>/0.png` 처럼 파일명이 겹친다. */
 export function useAttachmentThumbs(paths: string[] | undefined): AttachmentThumb[] {
   const previews = useGraphStore((s) => s.attachmentPreviews);
   const [fetched, setFetched] = useState<Record<string, string>>({});

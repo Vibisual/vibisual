@@ -9,17 +9,7 @@ import { KeyCap } from './KeyCap.js';
 import { useKeyCapture } from './useKeyCapture.js';
 import { COMMAND_LABEL_EN } from './commandLabels.js';
 
-/**
- * KeyHint.tsx — **키캡 + 그 자리에서 바꾸기.**
- *
- * VS Code 는 재매핑을 설정 페이지에서만 할 수 있는데, 그 왕복이 곧 아무도 안 바꾸는 이유다.
- * 여기서는 힌트로 떠 있는 키캡을 **그 자리에서** 누르면 바뀐다.
- *
- * 디자인을 침범하지 않기 위한 두 가지:
- *  - 연필 글리프는 **호버할 때만** 나타난다(평소에는 키캡만 — 늘어난 자리 0).
- *  - 바꾸는 상자는 `createPortal` 로 띄운다(부모가 `overflow-hidden` 이어도 잘리지 않고,
- *    원래 화면 배치가 1px 도 안 움직인다).
- */
+/** 키캡 + 그 자리 재매핑. 연필은 호버 때만(자리 0), 상자는 `createPortal`(`overflow-hidden` 에 안 잘리고 배치 불변). */
 
 interface KeyHintProps {
   cmd: CommandId;
@@ -110,12 +100,7 @@ interface KeyCaptureBoxProps {
   onClose: () => void;
 }
 
-/**
- * "키를 눌러 보세요" 상자.
- *
- * `data-shortcut-scope="dialog"` 를 달아 이 안에서 난 키는 대화상자 스코프로 읽히게 한다 —
- * 다만 캡처가 켜져 있는 동안에는 디스패처가 애초에 모든 키를 삼키므로 실제로는 도달하지 않는다.
- */
+/** 캡처 상자. `data-shortcut-scope="dialog"` 는 안전망 — 캡처 중엔 디스패처가 모든 키를 먼저 삼킨다. */
 function KeyCaptureBox({ cmd, anchor, capture, onClose }: KeyCaptureBoxProps): React.JSX.Element {
   const { t } = useTranslation();
   const boxRef = useRef<HTMLDivElement>(null);
@@ -130,9 +115,7 @@ function KeyCaptureBox({ cmd, anchor, capture, onClose }: KeyCaptureBoxProps): R
   );
   const top = anchor.bottom + BOX_GAP;
 
-  // 첫 칠은 키캡 아래 — 그리기 직전에 상자의 실제 높이를 재서, 아래 자리가 모자라면 키캡 위로 뒤집는다.
-  //   종전에는 세로를 재지 않아 화면 아래쪽 키캡(오른쪽 아래 알림·목록 끝 줄)에서는 상자가 화면 밖에 열렸다.
-  //   가로는 종전과 같은 가운데 맞춤 + 가장자리 여백이다(같은 계산을 `placeAnchoredMenu` 가 한다).
+  // 그리기 직전에 실제 높이를 재서 아래가 모자라면 위로 뒤집는다(안 재면 화면 아래쪽 키캡에서 밖에 열린다). 가로는 `placeAnchoredMenu` 와 같은 계산.
   useLayoutEffect(() => {
     const box = boxRef.current;
     if (!box) return;

@@ -1,12 +1,5 @@
-// main 프로세스가 **직접** 띄우는 것들의 문구 — 네이티브 대화상자 · OS 알림.
-//
-// 이것들은 렌더러를 거치지 않으므로 i18next 가 닿지 않는다. 그래서 종전에는 한국어 상수가
-// 그대로 박혀 있었다 — 영어권 사용자가 앱을 닫으면 읽을 수 없는 경고가 떴고, 그 경고는
-// "지금 닫으면 커밋 안 한 편집이 날아간다"는 **가장 중요한** 문장이었다.
-//
-// 새 레일을 놓지 않는다. `chat/strings.ts`(§4 메신저 브리지) 가 이미 같은 문제를 같은 방법으로
-// 풀어 뒀다 — **파일이 자기 문자열을 들고 있고**, 고를 언어는 서버 코어의 `getUiLocale()` 에서
-// 읽는다. 자리표시자도 거기와 같은 `{이름}` 하나뿐이다(`fmt` 를 그대로 빌려 쓴다).
+// main 이 직접 띄우는 문구(네이티브 대화상자·OS 알림) — 렌더러를 안 거쳐 i18next 가 닿지 않는다.
+// `chat/strings.ts`(§4 메신저 브리지)와 같은 방법: 파일이 자기 문자열을 들고, 언어는 서버 코어 `getUiLocale()`, 자리표시자는 `{이름}` 하나(`fmt`).
 
 import { DEFAULT_UI_LOCALE, SUPPORTED_UI_LOCALES } from '@vibisual/shared';
 import type { UiLocale } from '@vibisual/shared';
@@ -323,10 +316,7 @@ const TABLE: Record<UiLocale, MainStrings> = {
   en, ko, ja, 'zh-CN': zhCN, es, 'es-419': es419, fr, de, hi, id, it, 'pt-BR': ptBR,
 };
 
-/**
- * 그 언어의 문자열 한 벌. 모르는 값이면 `en` 으로 떨어진다
- * (서버 코어가 아직 안 떴을 때도 여기로 온다 — 침묵보다 영어가 낫다).
- */
+/** 그 언어의 문자열 한 벌. 모르는 값이면(서버 코어가 아직 안 떴을 때 포함) `en` — 침묵보다 영어가 낫다. */
 export function mainStrings(locale: string | null | undefined): MainStrings {
   if (locale && (SUPPORTED_UI_LOCALES as readonly string[]).includes(locale)) {
     return TABLE[locale as UiLocale];
@@ -334,10 +324,7 @@ export function mainStrings(locale: string | null | undefined): MainStrings {
   return TABLE[DEFAULT_UI_LOCALE];
 }
 
-/**
- * `{이름}` 자리표시자를 채운다. 값이 없는 자리표시자는 **그대로 둔다** —
- * 지우면 문장이 조용히 뜻을 잃지만, 남아 있으면 어느 키가 빠졌는지 화면에서 바로 보인다.
- */
+/** `{이름}` 자리표시자를 채운다. 값이 없는 자리표시자는 그대로 둔다 — 남아 있어야 어느 키가 빠졌는지 화면에서 보인다. */
 export function fmt(template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (whole, key: string) => {
     const v = vars[key];

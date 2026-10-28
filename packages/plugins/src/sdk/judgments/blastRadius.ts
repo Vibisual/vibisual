@@ -1,13 +1,4 @@
-/**
- * §5.11 v4.58 — 폭발 반경 판정 (공용).
- *
- * 원래 `blast-radius/index.tsx` 안에 있었고 `containment`·`owasp-asi` 가 **그 플러그인 폴더를 직접
- * import** 하고 있었다. 플러그인 폴더를 통째로 복사해 다른 앱에 붙일 수 있어야 한다는 규약(§5.11 v4.58)
- * 에서 그것은 위반이다 — 한 폴더를 가져가면 남의 폴더가 딸려 온다. 여러 플러그인이 함께 쓰는 판정은
- * 플러그인이 아니라 **SDK** 에 있어야 한다.
- *
- * 판정 내용은 옮기기 전과 같다(순수 함수·부작용 0).
- */
+/** §5.11 — 폭발 반경 판정(공용, 순수 함수). `containment`·`owasp-asi` 도 쓰므로 플러그인 폴더가 아니라 SDK 에 둔다(자립 규약). */
 import type { AgentConfig } from '@vibisual/shared';
 import { effectiveTools } from './trifecta.js';
 

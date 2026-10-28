@@ -1,44 +1,20 @@
 /**
- * Vibistudio 타임라인 문서 스키마 (SCENARIO.md §5.13 (D)).
- *
- * **영상의 진실은 코드가 아니라 이 문서에 있다.** 코드는 이 문서를 그리는 방법일 뿐이고,
- * AI 에이전트가 편집하는 대상도 코드가 아니라 이 문서다.
- *
- * 설계에서 절대 어기지 않는 세 가지:
- *
- * 1. **시간 단위는 초(`number`)다.** 프레임과 fps 는 렌더 시점에만 존재한다. 문서에
- *    `durationInFrames` 류 표현을 두면 fps 를 바꾸는 순간 문서 전체가 거짓이 되고,
- *    AI 가 "3초 뒤"를 쓰려면 매번 fps 를 곱해야 한다.
- * 2. **참조는 안정 식별자(id)로만 한다.** 순번(index)으로 가리키면 에이전트가 아이템을
- *    하나 넣거나 뺄 때마다 그 뒤의 모든 참조가 조용히 어긋난다.
- * 3. **`scene`(코드로 그리는 것)과 `footage`(실사 파일)는 같은 자격이다.** 둘을 한 트랙
- *    모델에 동등하게 올리는 것이 이 앱의 존재 이유다(§5.13 (A) 빈자리).
+ * 타임라인 문서 스키마(§5.13 (D)) — 영상의 진실은 이 문서다(에이전트도 이 문서를 고친다). 시간은 초(`number`) — 프레임·fps 는 렌더 때만 있다
+ * (`durationInFrames` 류는 fps 를 바꾸는 순간 거짓이 된다). 참조는 안정 id 로만(순번은 넣고 뺄 때 조용히 어긋난다). `scene`(코드)과 `footage`(실사)는 같은 자격이다(§5.13 (A)).
  */
 
 /** 트랙의 성격. 렌더 시 합성 순서와 처리 경로를 가른다. */
 export type VideoTrackKind = 'visual' | 'audio' | 'caption';
 
 /**
- * 아이템 종류.
- *
- * `scene` 은 우리가 코드로 그리는 모션그래픽이고 `footage` 는 실사 파일이다.
- * **둘이 같은 유니온에 있다는 것 자체가 설계의 핵심**이며, 새 종류는 이 유니온에
- * 한 줄 추가하는 것으로만 늘린다.
- *
- * §5.13 (T-1) — `composition` 은 에이전트(또는 사람)가 HTML·CSS·JS 로 짠 모션그래픽 파일이다. 움직임은 그
- * 파일에, 언제·어디에·어떤 데이터(`props`)로는 이 문서에 있다. 기본 씬 6종과 **병행**한다(대체 ❌).
+ * `scene`·`footage` 가 같은 유니온에 있는 것이 설계의 핵심 — 새 종류는 여기 한 줄로만 늘린다.
+ * §5.13 (T-1) `composition` = HTML·CSS·JS 모션그래픽 파일(움직임은 파일에, 언제·어디·`props` 는 문서에). 기본 씬 6종과 병행한다(대체하지 않는다).
  */
 export type VideoItemKind = 'scene' | 'footage' | 'image' | 'audio' | 'caption' | 'shape' | 'text' | 'composition' | 'model';
 
 /**
- * 시각 앵커.
- *
- * 절대 초로도 쓸 수 있지만, **상대 앵커가 기본**이다. 씬을 하나 끼워 넣어도 뒤의
- * 모든 아이템이 밀리지 않는 이유가 여기 있다.
- *
- * - `3.5` — 절대 3.5초
- * - `{ after: 'intro', offset: 0.5 }` — intro 가 끝나고 0.5초 뒤
- * - `{ start: 'narration', offset: -0.2 }` — narration 과 같이 시작하되 0.2초 먼저
+ * 상대 앵커가 기본이다(씬을 끼워 넣어도 뒤가 밀리지 않는 이유). `3.5` = 절대 초 · `{ after: 'intro', offset: 0.5 }` = intro 끝 0.5초 뒤 ·
+ * `{ start: 'narration', offset: -0.2 }` = narration 시작 0.2초 전.
  */
 export type TimeAnchor =
   | number
@@ -49,26 +25,14 @@ export type TimeAnchor =
   /** §5.13 (T-8) — composition 아이템 `item` 이 알린 표지 `cue` 의 시각 + offset(음수면 앞). */
   | { readonly cue: string; readonly item: string; readonly offset?: number };
 
-/**
- * 길이.
- *
- * `'auto'` 는 그 아이템이 참조하는 소재(오디오·영상)의 실측 길이를 쓴다는 뜻이다.
- * **오디오가 시간의 주인**이라는 원칙이 이 한 값으로 구현된다 — 음성 길이가 씬 길이를
- * 정하고 비주얼이 따라간다. 길이를 사람이 손으로 맞추다 보정 스크립트를 짜게 되는
- * 부류의 사고를 구조에서 없앤다.
- */
+/** `'auto'` = 참조 소재(오디오·영상)의 실측 길이 — 오디오가 시간의 주인이다(음성 길이가 씬 길이를 정하고 비주얼이 따라간다). */
 export type VideoDuration = number | 'auto';
 
 /** 소재가 어디서 오는가. */
 export type VideoAssetSource =
   /** 이미 디스크에 있는 파일. 프로젝트 루트 기준 상대 경로를 권장한다. */
   | { readonly kind: 'file'; readonly path: string }
-  /**
-   * 외부 도구가 만들어 내는 소재(TTS·이미지 생성·얼굴 생성 등).
-   *
-   * §5.13 (H) — 앱은 무거운 생성 모델을 안지 않는다. 부를 자리만 열어 두고 실제
-   * 생성은 사용자의 기존 파이프라인이 계속한다.
-   */
+  /** 외부 도구가 만드는 소재(TTS·이미지 생성 등). §5.13 (H) — 앱은 무거운 생성 모델을 품지 않고 부를 자리만 연다. */
   | {
       readonly kind: 'external';
       readonly command: string;
@@ -78,18 +42,12 @@ export type VideoAssetSource =
     };
 
 /**
- * §5.13 (T-2) — 컴포지션이 시각을 맞추는 방식.
- *
- * - `random` — 아무 시각으로나 바로 뛴다(CSS 애니메이션·Web Animations·`__vibi.seek`·타임라인 객체만 쓴다).
- * - `forward` — 프레임 콜백(rAF·타이머)에 기대 상태를 쌓는다. 뒤로 가면 처음부터 다시 흘린다(그만큼 느리다).
+ * §5.13 (T-2) — `random` = 아무 시각으로 바로 뛴다(CSS 애니메이션·Web Animations·`__vibi.seek`·타임라인 객체만) ·
+ * `forward` = rAF·타이머로 상태를 쌓아 뒤로 가면 처음부터 다시 흘린다(그만큼 느리다).
  */
 export type CompositionSeekMode = 'random' | 'forward';
 
-/**
- * §5.13 (T-2) — 컴포지션 소스를 훑어 찾은 것 한 줄(결정성 검사).
- *
- * `code` 는 화면이 번역 키로 쓰고(`panel.videoStudio.lint.<code>`), `message` 는 에이전트가 읽는 영문이다.
- */
+/** §5.13 (T-2) — 결정성 검사 한 줄. `code` = 화면 번역 키(`panel.videoStudio.lint.<code>`), `message` = 에이전트가 읽는 영문. */
 export interface CompositionLintEntry {
   readonly level: 'error' | 'warn' | 'info';
   readonly code: string;
@@ -97,10 +55,8 @@ export interface CompositionLintEntry {
 }
 
 /**
- * §5.13 (V) 37-5 — 컴포지션이 선언한 **값** 하나(`<script type="application/json" id="vibi-props">`).
- *
- * 사람이 바꿀 만한 글자·숫자·색·글꼴·그림·시각·고르기를 코드 밖으로 꺼낸 것이다. 스튜디오는 이 선언으로 종류별 손잡이를
- * 그리고, 값은 아이템 `props[name]` 에 산다(없으면 `default`).
+ * §5.13 (V) 37-5 — 컴포지션이 선언한 값 하나(`<script type="application/json" id="vibi-props">`). 스튜디오가 종류별 손잡이를 그리고,
+ * 값은 아이템 `props[name]` 에 산다(없으면 `default`).
  */
 export type CompositionPropType = 'text' | 'number' | 'color' | 'font' | 'image' | 'time' | 'choice';
 
@@ -216,10 +172,8 @@ export interface ChapterVariant {
 }
 
 /**
- * §5.13 (V) 37-4 — **장면** 하나. 문서의 `chapters` 배열 순서가 곧 시간 순서다.
- *
- * 장면은 앞 장면 끝에서(들어오는 전환 길이만큼 겹쳐) 시작하고 `offset` 만큼 밀린다. `at` 이 숫자면 그 절대 시각이다.
- * 그래서 순서를 바꾸면 뒤 장면이 따라오고, `{ chapter }` 앵커로 묶인 아이템도 함께 움직인다(상대 앵커).
+ * §5.13 (V) 37-4 — `chapters` 배열 순서가 시간 순서다. 장면은 앞 장면 끝(들어오는 전환만큼 겹쳐) + `offset` 에서 시작하고, `at` 이 숫자면 절대 시각
+ * — 순서를 바꾸면 뒤 장면과 `{ chapter }` 앵커 아이템이 따라간다.
  */
 export interface VideoChapter {
   readonly id: string;
@@ -291,11 +245,8 @@ export interface VideoTransform {
 }
 
 /**
- * 이펙트 한 건. 종류별 파라미터는 `params` 에 담는다.
- *
- * §5.13 (W) 38-5 — 렌더가 읽는 종류(`VideoEffectKind`): `look`(`{ name }` — `VIDEO_LOOKS`) · `color`(`brightness`·`contrast`·
- * `saturation` 곱 · `hue` 도 · `temperature` -1~1) · `blur`(`radius` 문서 픽셀) · `vignette`(`amount` 0~1). 모르는 종류는 그리지
- * 않고 문서에는 남는다(지우지 않는다).
+ * §5.13 (W) 38-5 — 렌더가 읽는 종류: `look`(`{ name }` — `VIDEO_LOOKS`) · `color`(`brightness`·`contrast`·`saturation` 곱 · `hue` 도 ·
+ * `temperature` -1~1) · `blur`(`radius` 문서 픽셀) · `vignette`(`amount` 0~1). 모르는 종류는 그리지 않고 문서에는 남긴다.
  */
 export interface VideoEffect {
   readonly id: string;
@@ -312,11 +263,8 @@ export type VideoEffectKind = 'look' | 'color' | 'blur' | 'vignette';
 export type KeyframeEase = 'linear' | 'in' | 'out' | 'inOut' | 'hold';
 
 /**
- * §5.13 (W) 38-4 — 아이템 **상자**의 시간 곡선 한 점(컴포지션 안의 움직임은 여전히 코드다).
- *
- * `t` 는 아이템 시작부터의 초. 값은 기본 배치(`transform`)에 **얹는 상대값**이다 — `dx`·`dy` 는 문서 픽셀만큼 옮기고, `scale`·
- * `opacity` 는 곱하고, `rotation` 은 도를 더한다. 그래서 상자를 옮겨도 움직임은 그대로 따라오고, 판형 파생이 dx·dy 만 옮기면 된다.
- * 속성마다 그 속성을 적은 키프레임끼리만 보간한다.
+ * §5.13 (W) 38-4 — 상자의 시간 곡선 한 점(컴포지션 안 움직임은 코드). `t` = 아이템 시작부터의 초. 값은 기본 배치에 얹는 상대값 — `dx`·`dy` 문서 픽셀 이동,
+ * `scale`·`opacity` 곱, `rotation` 도 더하기(상자를 옮겨도 움직임이 따라오고 판형 파생은 dx·dy 만 옮긴다). 속성마다 그 속성을 적은 키프레임끼리만 보간한다.
  */
 export interface VideoKeyframe {
   readonly t: number;
@@ -400,12 +348,7 @@ export interface VideoDoc {
 /** 진단 심각도. `error` 는 그 아이템이 타임라인에서 빠졌다는 뜻이다. */
 export type ResolveLevel = 'error' | 'warn';
 
-/**
- * 진단 코드.
- *
- * 문자열 유니온으로 두는 이유는 UI 가 번역 키로 바로 쓰고, 테스트가 메시지 문구가
- * 아니라 코드로 고정되기 때문이다(문구를 다듬어도 테스트가 깨지지 않는다).
- */
+/** 문자열 유니온이라 UI 가 번역 키로 바로 쓰고, 시험은 문구가 아니라 코드로 고정한다(문구를 다듬어도 안 깨진다). */
 export type ResolveCode =
   | 'duplicate-item-id'
   | 'unknown-anchor'
@@ -480,12 +423,7 @@ export interface ResolvedTimeline {
 // 편집 연산 (§5.13 (G))
 // ---------------------------------------------------------------------------
 
-/**
- * 문서 편집 연산.
- *
- * 전부 안정 식별자 기반이며 순번을 쓰지 않는다. 에이전트는 이 연산 배열을
- * `baseVersion` 과 함께 보내고, 서버는 버전이 어긋나면 거절한다.
- */
+/** 안정 id 기반(순번 없음). `baseVersion` 과 함께 보내고, 버전이 어긋나면 서버가 거절한다. */
 export type VideoDocOp =
   | { readonly op: 'addTrack'; readonly track: VideoTrack; readonly beforeTrackId?: string }
   | { readonly op: 'removeTrack'; readonly trackId: string }

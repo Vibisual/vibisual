@@ -13,16 +13,7 @@ import {
   type VoiceKeyLike,
 } from '@vibisual/shared';
 
-/**
- * §5.5 #17-38 음성 받아쓰기 — **판정만 따로 고정한다.**
- *
- * 이 기능의 나머지(마이크 열기·인식·파형 그리기)는 브라우저와 화면이 하지만, 틀리면 사용자가
- * 바로 아는 자리는 전부 여기 순수 함수들이다: 단축키가 안 먹거나(세 OS), 말한 것이 엉뚱한
- * 자리에 붙거나, 실패했는데 왜 실패했는지 화면이 말하지 못하는 것.
- *
- * 특히 **단축키는 실기 없이 세 OS 를 확인할 수 있는 유일한 길**이다 — mac 은 `metaKey`,
- * win/linux 는 `ctrlKey` 로 같은 손짓이 오는데, 우리에게 mac 실기가 없다.
- */
+/** §5.5 #17-38 받아쓰기 판정 고정. 단축키는 세 OS 를 실기 없이 확인하는 유일한 길이다(mac `metaKey`, win/linux `ctrlKey`). */
 
 function key(over: Partial<VoiceKeyLike> = {}): VoiceKeyLike {
   return { code: 'KeyM', ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, ...over };

@@ -1,12 +1,4 @@
-/**
- * §5.11 v3.98 — 그라운딩(Grounding): 주장이 확인 가능한 근거에 매여 있는가.
- *
- * 근거 없이 그럴듯한 문장을 만드는 것과, 읽은 파일에 매인 문장을 만드는 것은 다르다. 여기서는 이
- * 에이전트가 **원본을 직접 읽을 수 있는지**와, 굳어진 절차가 **원본 파일로 되짚을 수 있는지**를 함께 본다.
- *
- * 뒤쪽이 §5.10 의 `files` 앵커다 — 절차 frontmatter 에 그 절차가 만진 파일이 적혀 있으면
- * "이렇게 하라"가 어디서 왔는지 확인할 수 있고, 없으면 그냥 하라는 말일 뿐이다. 표시 전용.
- */
+/** §5.11 — 그라운딩(Grounding): 원본을 직접 읽을 수 있는지와, 굳은 절차가 원본 파일로 되짚히는지(§5.10 frontmatter `files` 앵커)를 본다. 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import { effectiveTools, readAutoGoal } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

@@ -57,9 +57,8 @@ export function selectionFocusIds(
 }
 
 /**
- * Where the focus sits. The ring lights on the first click by design, but a bubble with a double-click
- * action selects only after the double-click window; until then the previous focus holds. A double-click
- * therefore never dims the map, and moving between focuses never passes through an all-lit frame.
+ * A bubble with a double-click action selects only after the double-click window; until then the previous focus holds,
+ * so a double-click never dims the map and moving between focuses never passes through an all-lit frame.
  */
 export function nextSelectionFocusCenter(
   held: string | null,

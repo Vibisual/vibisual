@@ -3,10 +3,7 @@ import { buildDrawList } from './render/drawList.js';
 import { activeItems } from './resolveTimeline.js';
 import type { ResolvedTimeline, VideoAsset, VideoDoc, VideoItem, VideoTrack } from './types.js';
 
-/**
- * §5.13 (R-10) — request checks. Every text check together samples at most this many output frames (a total, not
- * per check); what does not fit is reported as unverified, never silently passed.
- */
+/** §5.13 (R-10) — total frames all text checks may sample together (not per check); what does not fit is reported as unverified, never silently passed. */
 export const REQUEST_CHECK_FRAME_BUDGET = 20_000;
 /** Frames sampled between yields, so a long check never freezes the studio or the server. */
 const FRAMES_PER_SLICE = 250;
@@ -105,10 +102,7 @@ function itemLabel(doc: VideoDoc, id: string): string {
 }
 const defaultYield = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
-/**
- * Text presence is a document/frame-timing check, never a claim about legibility, occlusion, or visual identity.
- * Asynchronous: text checks share one frame budget and yield every few hundred frames.
- */
+/** Text presence is a document/frame-timing check, never a claim about legibility, occlusion, or visual identity. */
 export async function checkVideoRequirements(doc: VideoDoc, timeline: ResolvedTimeline, options: VideoCheckOptions = {}): Promise<VideoRequirementResult[]> {
   let remaining = options.budget ?? REQUEST_CHECK_FRAME_BUDGET;
   const yieldNow = options.yieldNow ?? defaultYield;

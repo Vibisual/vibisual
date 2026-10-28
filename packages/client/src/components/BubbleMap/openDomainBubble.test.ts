@@ -1,13 +1,6 @@
 /**
- * §5.23 「더블클릭」 — 도메인 버블 더블클릭이 **어디서** 여는가(배선 시험).
- *
- *  1. 기본(바깥 브라우저) — `window.open` 하나로 연다(앱에 하나뿐인 여는 길). iframe 탭은 만들지 않는다.
- *  2. 옵션이 앱 안이면 iframe 탭(`web-<버블 id>`)을 열어 앞에 세운다.
- *  3. 같은 버블을 다시 누르면 **같은 탭**이 그때의 마지막 주소·이름으로 옮겨 간다(탭이 늘지 않는다).
- *  4. iframe 탭 줄이 없는 창(별창·오버레이…)이면 보이지 않는 탭 대신 바깥 브라우저로 연다.
- *  5. 열 것이 없으면 아무것도 하지 않는다.
- *
- * 순수 판정(어느 주소인가)은 `domainOpenTarget.test.ts` 가 못 박는다 — 여기서는 그 판정이 여는 길에 물려 있는지만 본다.
+ * §5.23 — 도메인 버블 더블클릭이 어디서 여는가(배선만, 주소 판정은 `domainOpenTarget.test.ts`): 기본 `window.open`, 옵션이면 버블당 iframe 탭 하나,
+ * iframe 탭 줄이 없는 창은 바깥 브라우저, 열 것이 없으면 아무것도 안 한다.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WEB_SEARCH_HOST, webNodeKey, type BubbleData, type WebEntry } from '@vibisual/shared';

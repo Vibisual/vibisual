@@ -10,9 +10,8 @@ import {
 import { appMediaResponse, type MediaStreamDone } from './appMediaResponse';
 
 /**
- * §5.13 (Y) 40-1 — 앱 미디어 흘려 보내기. 종전에는 소재 바이트가 Express → `inject` → 문자열 → base64 → IPC 로 응답 전체가 건너왔고,
- * 끝이 열린 구간(`bytes=N-`)을 끊어도 나머지가 다 왔다. 이제 코어가 파일을 조각으로 **당겨** 읽는다 — 구간 · HEAD · 416 · 지문 ·
- * 끊으면 그 자리에서 멈춤을 고정한다.
+ * §5.13 (Y) 40-1 — 앱 미디어 흘려 보내기: 코어가 파일을 조각으로 **당겨** 읽는다(응답 전체를 모아 IPC 로 싣지 않는다).
+ * 구간 · HEAD · 416 · 지문 · 끊으면 그 자리에서 멈춤을 고정한다.
  */
 
 let dir: string;

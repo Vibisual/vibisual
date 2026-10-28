@@ -1,4 +1,4 @@
-// v1.96 one-shot migration: removes legacy keyword payload from old checkpoints. Safe to delete after v2.0.
+// One-shot migration: strips the legacy keyword payload from old checkpoints.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';

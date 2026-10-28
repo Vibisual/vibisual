@@ -4,14 +4,8 @@ import { DETACHED_APP_WINDOW } from '../../apps/appWindowCloseGuard.js';
 import { requestAppWindowClose } from '../../apps/appWindowCloseRetention.js';
 
 /**
- * 프레임 없는 창(`frame: false`)의 최소화 · 최대화/복원 · 닫기 버튼.
- *
- * 별창(DetachedShell) · Command Center · 내부 앱 창(§5.13)이 모두 같은
- * `vibisual:window:*-self` 채널을 쓰므로 버튼도 한 곳에서 그린다 — 창을 새로 만들 때마다
- * 이 세 개를 다시 손으로 붙이다 보면 이번처럼 통째로 빠진 창이 생긴다.
- *
- * 최대화 상태는 main 이 `maximize`/`unmaximize` 때 푸시하는 값을 그대로 따른다
- * (OS 더블클릭·스냅으로 바뀌어도 아이콘이 어긋나지 않게).
+ * 프레임 없는 창(`frame: false`)의 최소화·최대화/복원·닫기 — 별창·Command Center·내부 앱 창(§5.13)이 같은 `vibisual:window:*-self` 채널이라 한 곳에서 그린다.
+ * 최대화 상태는 main 의 `maximize`/`unmaximize` 푸시를 따른다(OS 더블클릭·스냅에도 맞게).
  */
 
 interface WindowControlsProps {

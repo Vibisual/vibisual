@@ -13,12 +13,8 @@ import {
   type TabRect,
 } from './tabSelectionMotionGeom.js';
 
-// §5.4 #14 — 고른 탭이 커지는 움직임(FLIP). 계산은 `tabSelectionMotionGeom.ts`, 여기는 재고 거는 일만 한다.
-//
-// **바뀌기 전 모양은 스토어가 바뀌는 그 순간에 잰다.** 고른 탭은 스토어(`activeProject`·`activeIframeId`)가
-// 정하고, `set()` 이 구독자를 부르는 그 자리는 React 가 화면을 고치기 전이다 — 그래서 그때 재면 지금 화면에
-// 보이는 그대로(도는 움직임의 중간값까지)가 잡힌다. 연달아 눌러도 그 자리에서 이어 간다.
-// 바뀐 뒤 모양은 커밋 직후(`useLayoutEffect`, 그리기 전)에 도는 움직임을 걷고 잰다.
+// §5.4 #14 — 고른 탭이 커지는 FLIP(계산은 `tabSelectionMotionGeom.ts`). **바뀌기 전 모양은 스토어가 바뀌는 순간 잰다** — `set()` 은 React 가 그리기 전이라
+// 보이는 그대로(도는 중간값까지) 잡힌다. 바뀐 뒤는 `useLayoutEffect` 에서 움직임을 걷고 잰다.
 
 /** TabBar 가 붙이는 표식 — 겉칸 키 · 탭 본체 · 판/이름 안쪽. 값이 갈리면 아무것도 움직이지 않는다. */
 const TAB_KEY_ATTR = 'data-tab-key';

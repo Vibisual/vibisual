@@ -3,11 +3,7 @@ import type { InspectorPickLevel, InspectorPickLevels, InspectorPickPoint } from
 import { SOUND_API } from './soundApi.js';
 import type { SoundRange } from './soundConfig.js';
 
-/**
- * §5.4 #15 (C) — Alt 인스펙터가 소리 화면 안을 집는다. 파형은 캔버스 한 장이고 트랙 줄은 SVG 라, 브라우저는 그 판만 안다 —
- * 그래서 "그 자리가 몇 초이고 거기서 무엇이 울리나"를 문서로 답한다. 복사 글은 받는 AI 가 문서 API 로 바로 고칠 수 있게
- * 문서·트랙·클립의 안정 id 와 프로젝트 초를 싣는다(에이전트 위임 규약 `audioDelegate.ts` 와 같은 좌표).
- */
+/** §5.4 #15 (C) — 소리 화면(파형 캔버스·트랙 SVG)을 문서로 답한다: 몇 초·무엇이 울리나 + 문서·트랙·클립 안정 id·프로젝트 초(`audioDelegate.ts` 와 같은 좌표). */
 
 export interface SoundInspectContext {
   readonly projectId: string;

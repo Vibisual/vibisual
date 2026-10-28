@@ -1,12 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { countRemovedFromFront, advanceFrontShift, shiftAroundView, type FrontShiftState } from './frontShift.js';
 
-/**
- * 가상 리스트 앞쪽 절단(shift) 카운트 회귀 테스트 (v3.13).
- * 재현하는 핵심 버그: 긴 세션에서 스트림 버퍼가 상한을 넘어 앞쪽이 일괄 절단되면, virtuoso 의 인덱스 기반
- * 측정 모델이 통째로 밀려 스크롤이 "위로 말려 올라갔다". countRemovedFromFront 가 제거 수를 정확히 세어
- * firstItemIndex 로 신고해야 virtuoso 가 shift 보정을 한다.
- */
+/** 앞쪽 절단 카운트 회귀 — 잘린 수를 정확히 세 firstItemIndex 로 신고해야 virtuoso 가 shift 보정을 한다(아니면 스크롤이 위로 말린다). */
 const ids = (...xs: string[]): string[] => xs;
 
 describe('countRemovedFromFront', () => {
@@ -39,10 +34,7 @@ describe('countRemovedFromFront', () => {
   });
 });
 
-/**
- * §5.5 #17-12 — 표시 밀도 전환은 선두 항목의 id 를 통째로 갈아치운다(`e1` → `toolgroup-e1`).
- * 그걸 절단으로 오인하면 있지도 않은 제거분만큼 스크롤이 보정돼 화면이 튄다 — resetKey 로 그 렌더만 건너뛴다.
- */
+/** §5.5 #17-12 — 밀도 전환은 선두 id 를 갈아치운다(`e1` → `toolgroup-e1`) — 절단으로 세면 화면이 튀므로 resetKey 로 그 렌더를 건너뛴다. */
 describe('advanceFrontShift — 밀도 전환(resetKey)', () => {
   const start = (items: string[], key?: string): FrontShiftState => ({ base: 0, prevIds: items, prevKey: key });
 
@@ -71,10 +63,7 @@ describe('advanceFrontShift — 밀도 전환(resetKey)', () => {
   });
 });
 
-/**
- * §5.5 #17-12 — 복원 창 위쪽 과거를 불러와 **앞에 붙이면** 기준값을 그만큼 줄여 신고해야 보던 줄이 제자리에 남는다.
- * 붙는 자리는 맨 앞이 아닐 수 있다 — 창 밖 턴의 명령 블록(저장된 답 폴백)이 맨 위에 서 있고 과거는 그 사이로 끼어든다.
- */
+/** §5.5 #17-12 — 과거를 앞에 붙이면 기준값을 그만큼 줄여 신고해야 보던 줄이 남는다. 붙는 자리는 맨 앞이 아닐 수 있다(맨 위 명령 블록 사이로 낀다). */
 describe('shiftAroundView — 보고 있는 자리 기준 신고', () => {
   it('꼬리에만 붙는 스트리밍은 0 — 색인을 만들지 않는 빠른 길', () => {
     expect(shiftAroundView(ids('a', 'b', 'c'), ids('a', 'b', 'c', 'd'), 1)).toBe(0);

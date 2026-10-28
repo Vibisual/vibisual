@@ -5,14 +5,8 @@ import type { ImageLayer } from '../Creation/imageSource.js';
 import { imageCandidateSummaries, readImageDoc } from './imageApi.js';
 
 /**
- * §5.4 #36 (H) ③ · §5.1 #2-1 (F) 앱별 — Vibimage 노드 아래 **구슬 줄**(종전에는 선언이 없어 비어 있었다).
- *
- * - **제안 대기**(에이전트가 낸 아직 고르지 않은 판) — 번호 구슬, 점선 테(`proposed`). 고르는 곳은 편집기다.
- * - **레이어**(앞에 그려지는 것부터) — 그림 레이어는 구슬 안 미리보기(그 그림의 바이트는 `.vibisual/creation/blobs/` 에 산다),
- *   글은 글줄 · 도형은 도형 글리프. 숨긴 레이어는 뺀다(화면에 없는 것을 버블로 말하지 않는다).
- * - **지난 결과**는 코어가 붙인다(노드의 `pastFiles`).
- *
- * 문서가 없거나 못 읽으면 `null`(그 회차는 앞 결과를 그대로 둔다).
+ * §5.4 #36 (H) ③ · §5.1 #2-1 (F) — Vibimage 노드 구슬 줄: 제안 대기(번호·점선 `proposed`) · 레이어(앞부터 — 그림 미리보기·글줄·도형, 숨긴 것은 뺀다).
+ * 지난 결과는 코어가 붙인다(`pastFiles`). 문서를 못 읽으면 `null`(앞 결과 유지).
  */
 const CREATION_BLOB_DIR = '.vibisual/creation/blobs';
 

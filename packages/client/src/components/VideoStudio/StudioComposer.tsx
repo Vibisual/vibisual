@@ -5,10 +5,7 @@ import { IME_ENTER_OWNER, isComposingKeyEvent } from '../../utils/inputCompositi
 import { useEnterSubmit } from '../../hooks/useEnterSubmit.js';
 import { StudioIcon, type StudioIconName } from './studioIcons.js';
 
-/**
- * §5.13 (V) 37-1 — AI 패널 아래의 **입력창 + 칩 + 제안 칩**. 칩은 이 말과 함께 실려 갈 것들이다 — 가리킨 것·메모·첨부·시각.
- * 제안 칩은 지난 바퀴 보고의 `suggestions`(누르면 입력창에 채운다). 보내기는 셸이 기존 명령 큐로 한다.
- */
+/** §5.13 (V) 37-1 — 입력창 + 칩(말과 함께 실려 갈 것) + 제안 칩(지난 보고의 `suggestions`). 보내기는 셸이 기존 명령 큐로. */
 export interface ComposerChip {
   readonly id: string;
   readonly icon: StudioIconName;

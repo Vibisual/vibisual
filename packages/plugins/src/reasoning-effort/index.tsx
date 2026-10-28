@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.93 — 사고 강도(Reasoning Effort)와 과잉 사고(Overthinking).
- *
- * "더 오래 생각하면 좋아진다"에는 실측된 반례가 있다 — 수확 체감을 넘어 **수확 역전** 구간이 있어,
- * 단순·조회형 작업에서는 강도를 올릴수록 비용도 늘고 품질도 떨어질 수 있다. 그래서 강도를 그냥
- * 보여주는 대신 **작업 크기와 함께** 보여주고, 짧은 작업에 최대 사고가 켜져 있으면 알린다. 표시 전용.
- */
+/** §5.11 — 사고 강도(Reasoning Effort)·과잉 사고: 단순 작업은 강도를 올릴수록 품질이 떨어지는 구간이 있어, 작업 크기와 함께 보이고 짧은 작업의 최대 사고를 알린다. 표시 전용. */
 import { defineInspector, ICONS } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';
 

@@ -6,17 +6,11 @@ import { StudioIcon } from './studioIcons.js';
 import { formatClock } from './PreviewControls.js';
 import { stripCellAt } from './stripGrid.js';
 
-/**
- * §5.13 (T-9)(V) 37-1 — **프레임 띠 보기**: 한 구간의 흐름을 한 장으로. [정밀 편집]의 코드 정보 [프레임 띠]가 연다.
- * 바깥을 누르거나 Esc 로 닫는다(셸의 Esc 도 닫는다 — 같은 상태). 띠 아래에 찍은 시각을 적는다(tabular-nums).
- */
+/** §5.13 (T-9)(V) 37-1 — 프레임 띠 보기(코드 정보 [프레임 띠]가 연다). 바깥·Esc 로 닫는다(셸의 Esc 도 같은 상태). */
 export interface FrameStripViewerProps {
   readonly strip: { readonly image: string; readonly times: readonly number[]; readonly title: string; readonly itemId?: string };
   readonly onClose: () => void;
-  /**
-   * §5.4 #15 (C) — 띠는 그림 한 장이라 Alt 인스펙터가 통째로 집었다. 칸(프레임) 하나를 집으면 그 시각의 복사 글을 이 함수가 만든다
-   * (`frame` 은 1부터). 없으면 그림 그대로 DOM 으로 집힌다.
-   */
+  /** §5.4 #15 (C) — 띠 칸(프레임, 1부터) 하나를 Alt 로 집을 때의 복사 글. 없으면 그림 통째로 집힌다. */
   readonly pickClipboard?: (t: number, frame: number, count: number) => string;
 }
 

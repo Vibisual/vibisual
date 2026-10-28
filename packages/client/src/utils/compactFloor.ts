@@ -1,14 +1,8 @@
 /**
- * §4 (CLI 사양 추종) (5) 창 하한 — 화면이 **턴 경계 판정과 같은 근거로** 명령 사이 압축의 창을 적기 위한
- * 시작 문맥 고르기.
- *
- * 보고 있는 세션의 값이 먼저다 — 서버 턴 경계 판정(index.ts `readTurnEndContext`)이 보는 그 세션의 첫 응답
- * 문맥이고, 화면은 스냅샷이 실어 준 `SubAgent.contextFloor`(projectGraph 가 같은 `readContextInfo` 로 싣는 값)로
- * 읽는다. 그 세션에 아직 응답이 없으면 같은 에이전트의 가장 최근 세션 `COMPACT_FLOOR_SIBLING_SCAN` 개 중 처음
- * 값을 빌려 **미리** 적는다 — 판정은 턴이 끝난 뒤라 언제나 그 세션 자신의 값을 보므로, 빌린 값은 예고다.
- *
- * 고르는 규칙만 여기 한 곳에 두고, 창 계산 자체는 shared `applyAutoCompactFloor` 를 그대로 부른다.
- * 2026-10-05 부터 이 창은 스폰에 실리지 않는다 — 작업 도중에는 CLI 가 모델 창 끝에서만 접는다.
+ * §4 (CLI 사양 추종) (5) 창 하한 — 화면이 턴 경계 판정과 같은 근거로 명령 사이 압축의 창을 적기 위한 시작 문맥 고르기.
+ * 보고 있는 세션의 값이 먼저다 — 서버 판정(index.ts `readTurnEndContext`)이 보는 그 세션의 첫 응답 문맥을 `SubAgent.contextFloor` 로 읽는다.
+ * 응답이 아직 없으면 같은 에이전트의 최근 세션 `COMPACT_FLOOR_SIBLING_SCAN` 개 중 처음 값을 빌려 미리 적는다(판정은 턴 뒤 자기 값을 보므로 예고다).
+ * 고르는 규칙만 여기 두고 창 계산은 shared `applyAutoCompactFloor` 를 부른다. 이 창은 스폰에 실리지 않는다 — 작업 도중엔 CLI 가 모델 창 끝에서만 접는다.
  */
 
 import { COMPACT_FLOOR_SIBLING_SCAN, type SubAgent } from '@vibisual/shared';

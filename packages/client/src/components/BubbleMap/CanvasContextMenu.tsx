@@ -26,17 +26,17 @@ interface CanvasContextMenuProps {
   canvasX: number;
   canvasY: number;
   onCreateCustomAgent: (canvasX: number, canvasY: number) => void;
-  /** §4 v2.63 — CMD(인터랙티브 터미널) 에이전트 생성 */
+  /** §4 — CMD(인터랙티브 터미널) 에이전트 생성. */
   onCreateCmdAgent: (canvasX: number, canvasY: number) => void;
-  /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 */
+  /** §5.3 #10-2 — Auto Agent 메타 버블 생성. */
   onCreateAutoAgent: (canvasX: number, canvasY: number) => void;
   onCreatePipeline: (type: PipelineType, canvasX: number, canvasY: number) => void;
   onCreateWorktree: (canvasX: number, canvasY: number) => void;
   /** §5.9 — 화면/프로그램 캡처 버블 생성(소스 picker 를 연다). */
   onCreateCapture: (canvasX: number, canvasY: number) => void;
-  /** §5.13 v4.45 — 내부 앱 버블 생성. 어떤 앱인지는 레지스트리 id 로 받는다. */
+  /** §5.13 — 내부 앱 버블 생성. 어떤 앱인지는 레지스트리 id 로 받는다. */
   onCreateAppBubble: (appId: string, canvasX: number, canvasY: number) => void;
-  /** §5.14 v4.62 — 플레이 버블(이 프로젝트를 켜는 버튼) 생성. */
+  /** §5.14 — 플레이 버블(이 프로젝트를 켜는 버튼) 생성. */
   onCreatePlay: (canvasX: number, canvasY: number) => void;
   /** §5.15 — 스펙 보드(요구사항 → 수용 기준 → 작업 카드) 생성. */
   onCreateSpec: (canvasX: number, canvasY: number) => void;
@@ -92,17 +92,8 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   const submenuRef = useRef<HTMLDivElement>(null);
   const [hoveredType, setHoveredType] = useState<PipelineType | null>(null);
   /**
-   * §5.25 (B)·(B-1) · §5.13 v4.45 — **옆으로 펼쳐지는 칸(엔진 칸 · 앱 칸) 한 벌.**
-   *
-   * 엔진 칸: 클로드 전용 항목(클로드 에이전트·워크트리)과 코덱스 전용 항목이 최상위에 평평하게
-   * 깔려 있으면 "무엇이 어느 엔진의 것인지"가 화면에서 안 보인다 — 워크트리는 git 워크트리 +
-   * 클로드 세션이라 코덱스 사용자에게는 뜻이 다르고, 반대로 코덱스 항목은 클로드만 쓰는 사람에게
-   * 잡음이다. 그래서 **엔진 이름 한 칸**을 두고 그 아래로 접는다(앱 카테고리와 같은 펼침 규약).
-   *
-   * 상태를 칸마다 나누지 않고 **한 칸**에 둔 이유: 열려 있는 칸은 하나뿐이어야 하는데(두 서브메뉴가
-   * 같은 자리에 겹쳐 뜨면 어느 쪽을 누르는지 모른다) 상태가 갈려 있으면 그 불변식을 호출자가 매번
-   * 손으로 지켜야 한다. 전이 규칙(호버로 열기 · **클릭으로 고정** · 다른 항목 호버로 풀기)은
-   * `contextMenuSubmenu.ts` 한 곳에 있고 그대로 단위 테스트된다.
+   * §5.25 (B)·(B-1) · §5.13 — 옆으로 펼쳐지는 칸(엔진·앱) 한 벌. 엔진 전용 항목은 엔진 칸 아래로 접는다.
+   * 상태는 한 칸 — 열린 칸은 하나뿐이어야 한다(겹쳐 뜨면 어느 쪽인지 모른다). 전이(호버 열기 · 클릭 고정 · 다른 항목 호버로 풀기)는 `contextMenuSubmenu.ts`(단위 테스트).
    */
   const [submenu, setSubmenu] = useState<SubmenuState>(SUBMENU_CLOSED);
   const submenuSide = useCanvasMenuPlacement(x, y, submenu.open, menuRef, listRef, triggerRef, submenuRef);
@@ -112,31 +103,22 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   const exitSubmenu = useCallback((key: SubmenuKey) => setSubmenu((s) => leaveSubmenu(s, key)), []);
   /** 칸의 머리 줄을 클릭했다 = 고정 토글(고정된 칸을 다시 누르면 닫힌다). */
   const pinSubmenu = useCallback((key: SubmenuKey) => setSubmenu((s) => toggleSubmenuPin(s, key)), []);
-  /**
-   * 서브메뉴가 없는 항목 위로 마우스가 왔다 — **고정도 풀린다.**
-   * 고정이 없던 시절에는 칸의 `mouseleave` 가 알아서 닫았으므로 이 손잡이가 필요 없었다.
-   */
+  /** 서브메뉴가 없는 항목 위로 마우스가 왔다 — 고정도 푼다(고정된 칸은 `mouseleave` 로 안 닫힌다). */
   const releaseSubmenu = useCallback(() => setSubmenu(hoverPlainItem), []);
-  // §5.13 (N) v4.47 — 설치도 여기서 한다. 별도 창을 띄우지 않고 **이 메뉴와 캔버스 버블이
-  //   유일한 관리 지점**이다 — 무엇이 깔려 있는지 캔버스에서 바로 보이는 편이 낫다는 판단.
+  // §5.13 (N) — 설치도 여기서 한다(별도 창 ❌ — 이 메뉴와 캔버스 버블이 유일한 관리 지점이라 무엇이 깔렸는지 캔버스에서 보인다).
   const createLocalAgent = useGraphStore((st) => st.createLocalAgent);
   const createCodexAgent = useGraphStore((st) => st.createCodexAgent);
   const createCodexCmdAgent = useGraphStore((st) => st.createCodexCmdAgent);
   // 노출 게이트 — 아래 네 항목(플레이·스펙·랩·선반)은 디버그 모드에서만 낸다(§7.7).
   const debugMode = useGraphStore((st) => st.debugMode);
   /**
-   * §5.7 #26 — **그릴 수 없는 자리에서는 메뉴에도 내지 않는다.**
-   * 캡처·플레이·스펙·랩·선반·앱 버블은 메인 뷰에서만 렌더되므로(각 노드 산식의 첫 줄),
-   * 워크트리·폴더 안에서 이 항목을 누르면 부모 캔버스에 유령이 앉고 이 화면엔 아무 일도 안 일어난다.
-   * 판정은 `canvasScope` 한 곳 — 여기(감추기)와 생성 손잡이(막기)가 같은 답을 써야 한다.
+   * §5.7 #26 — 그릴 수 없는 자리에선 메뉴에도 안 낸다(캡처·플레이·스펙·랩·선반·앱은 메인 뷰 전용 — 폴더 안에서 만들면 부모 캔버스에 유령이 앉는다).
+   * 판정은 `canvasScope` 한 곳(감추기와 막기가 같은 답).
    */
   const mainView = useGraphStore((st) => isMainCanvasView(st));
 
-  // 바깥 press 로 닫기(공통 규약 — 메뉴 안에서 시작한 드래그로는 안 닫힌다).
-  //  - 좌클릭(0)/중간 휠(1) 만 닫기 사유. 우클릭(2)은 메뉴 재오픈용이라 무시한다.
-  //  - capture 단계 — React Flow 가 이벤트를 선점하기 전에 처리(버블 클릭·팬 드래그 시작 포함).
-  //  - §4 v3.16 그레이스: 터치 롱프레스로 열면 손을 떼는 순간 브라우저가 합성 mousedown 을 쏴서
-  //    메뉴가 즉시 닫히던 문제 — 그 창(POPUP_DISMISS.touchOpenGraceMs)을 넘긴다.
+  // 바깥 press 로 닫기(메뉴 안에서 시작한 드래그 ❌). 좌클릭·휠만(우클릭은 재오픈용), capture 단계(React Flow 보다 먼저).
+  // 터치 롱프레스로 열면 손 뗄 때 합성 mousedown 이 오므로 `touchOpenGraceMs` 동안 넘긴다(§4).
   useOutsidePressDismiss({
     onDismiss: onClose,
     refs: [menuRef],
@@ -239,11 +221,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
     >
       {/* 메뉴 목록 */}
       <div ref={listRef} className="overflow-y-auto overscroll-contain rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40" style={{ maxHeight: 'calc(100dvh - 16px)' }}>
-        {/* §5.25 (B) — **클로드 칸.** 마우스를 올리면 클로드 전용 항목이 옆으로 펼쳐지고,
-            **클릭하면 고정**돼 마우스가 벗어나도 남는다(다른 항목에 올리면 풀린다 — (B-1)).
-            안에 드는 것: 클로드 에이전트(종전 "Custom Agent") · 워크트리.
-            둘 다 `claude` 실행본을 전제로 하는 항목이라, 코덱스만 쓰는 사람에게 최상위에
-            평평하게 깔려 있으면 무엇이 자기 것인지 화면에서 갈리지 않는다. */}
+        {/* §5.25 (B) — 클로드 칸: 클로드 에이전트 · 워크트리(둘 다 `claude` 실행본 전제). 호버로 펼치고 클릭하면 고정, 다른 항목에 올리면 풀린다((B-1)). */}
         <div
           className="relative"
           onMouseEnter={() => enterSubmenu('claude')}
@@ -313,9 +291,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
                 </div>
               </button>
 
-              {/* §5.25 (B-1) — CMD 에이전트 (인터랙티브 임베디드 터미널, teal 톤). 종전엔 최상위의
-                  "맨 셸" 항목이었으나 사용자 지시(2026-09-14)로 엔진 칸 안에 둔다 — 이 칸의 CMD 는
-                  `claude` 를 채우고, 코덱스 칸의 CMD 는 같은 버블에 `codex` 를 채운다. */}
+              {/* §5.25 (B-1) — CMD 에이전트(임베디드 터미널, teal). 엔진 칸 안에 둔다 — 이 칸의 CMD 는 `claude` 를, 코덱스 칸의 CMD 는 같은 버블에 `codex` 를 채운다. */}
               <button
                 type="button"
                 className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
@@ -405,10 +381,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           )}
         </div>
 
-        {/* §5.19 (B) — All Model (내 PC 에서 도는 로컬 LLM). 누르면 **버블이 바로 생긴다** —
-            엔진·모델이 없으면 그 버블을 눌렀을 때 설치 창이 뜬다.
-            엔진 칸으로 접지 않는 이유: 안에 들 항목이 이 한 줄뿐이라 접으면 한 번 더 눌러야
-            같은 것이 나온다(클로드·코덱스와 달리 전용 항목이 여럿이 아니다). */}
+        {/* §5.19 (B) — All Model(로컬 LLM). 누르면 버블이 바로 생긴다(엔진·모델이 없으면 그 버블을 누를 때 설치 창). 항목이 하나뿐이라 엔진 칸으로 접지 않는다. */}
         <button
           type="button"
           className={MENU_ROW_CLASS}
@@ -429,10 +402,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           </div>
         </button>
 
-        {/* §5.3 #10-2 — Auto Agent (메타 에이전트). **사용자 지시로 당분간 메뉴에서 내린다** —
-            서버 경로(`/api/create-auto-agent`)·스토어 액션·이미 놓인 버블은 그대로라, 이 게이트만
-            되돌리면 있던 자리로 돌아온다(기능을 지운 것이 아니라 만드는 입구만 닫았다).
-            디버그 모드(§7.7)에서는 계속 보인다 — 개발 중에 손이 닿아야 하는 자리다. */}
+        {/* §5.3 #10-2 — Auto Agent 는 당분간 메뉴에서 내린다(서버·스토어·놓인 버블은 그대로라 이 게이트만 되돌리면 된다). 디버그 모드(§7.7)에선 보인다. */}
         {debugMode && (
         <button
           type="button"
@@ -476,7 +446,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
             캔버스에서 함께 숨는다 — 레코드·서버·영속은 그대로라 다시 켜면 있던 자리로 돌아온다. */}
         {debugMode && mainView && (
           <>
-          {/* §5.14 v4.62 — 플레이 버블 (이 프로젝트를 켜는 버튼, emerald 톤). */}
+          {/* §5.14 — 플레이 버블(이 프로젝트를 켜는 버튼, emerald 톤). */}
           <button
             type="button"
             className={MENU_ROW_CLASS}
@@ -550,9 +520,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           </>
         )}
 
-        {/* §5.13 v4.45 — 앱 카테고리. 마우스를 올리면 등록된 내부 앱이 옆으로 펼쳐진다.
-            앱을 계속 늘릴 것이므로 메뉴에 항목을 하나씩 쌓지 않고 한 칸으로 묶는다.
-            §5.7 #26 — 앱 버블도 메인 뷰에서만 그려지므로 폴더·워크트리 안에서는 이 칸을 내지 않는다. */}
+        {/* §5.13 — 앱 카테고리(호버로 등록 앱이 펼쳐진다 — 앱이 늘어도 한 칸). §5.7 #26 — 메인 뷰에서만 그려지므로 폴더·워크트리 안에선 내지 않는다. */}
         {mainView && (
         <>
         <div className="mx-2 my-1 border-t border-gray-700" />
@@ -569,7 +537,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
             aria-haspopup="menu"
             aria-expanded={isSubmenuOpen(submenu, 'apps')}
           >
-            {/* v4.66 — 앱 카테고리는 특정 앱의 색이 아니라 중립 톤. 색은 각 앱 행이 자기 것으로 낸다. */}
+            {/* 앱 카테고리는 중립 톤 — 색은 각 앱 행이 자기 것으로 낸다. */}
             <svg className="h-4 w-4 shrink-0 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="3" width="7" height="7" rx="1.5" />
               <rect x="14" y="3" width="7" height="7" rx="1.5" />
@@ -623,66 +591,14 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
         </>
         )}
 
-        {/*
-          §5.10 — **「프로젝트 메모리 켜기/끄기」 줄은 걷었다.**
-
-          사용자 지시(전면 개편)로 기억·메모리·브레인 축이 폐기됐다. 그 자리를 대신하는 자동 목표의
-          켜고 끄는 손잡이는 **IDE `목표` 뷰 안 하나뿐**이고, 캔버스 우클릭에 한 벌 더 두지 않는다 —
-          같은 물음에 두 번 답하게 만드는 스위치가 §5.11 이 계속 잡아 온 결함이다(#17-44 ⑧(d)).
-        */}
+        {/* §5.10 — 프로젝트 메모리 켜기/끄기 줄은 두지 않는다. 자동 목표 켜기/끄기는 IDE `목표` 뷰 하나뿐(캔버스에 한 벌 더 두면 두 곳이 답한다 — #17-44 ⑧(d)). */}
 
         {/* §5.10 — "지난 커스텀 에이전트 복구" 메뉴 제거됨(휴지통 버블이 그 경로의 후신). */}
 
-        {/* 파이프라인 옵션 3개 — 나중에 다시 쓸 예정이라 주석으로 비활성화 (구분선·버튼·호버 툴팁 한 묶음) */}
-        {/*
-        <div className="mx-2 my-1 border-t border-gray-700" />
-        {PIPELINE_TYPES.map((type) => {
-          const typeInfo = PIPELINE_TYPE_INFO[type];
-          return (
-            <button
-              key={type}
-              type="button"
-              className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
-              onClick={() => handleCreatePipeline(type)}
-              onMouseEnter={() => setHoveredType(type)}
-              onMouseLeave={() => setHoveredType(null)}
-            >
-              <svg className="h-4 w-4 shrink-0 text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="7" cy="12" r="3" />
-                <circle cx="17" cy="7" r="3" />
-                <circle cx="17" cy="17" r="3" />
-                <line x1="10" y1="11" x2="14" y2="8" />
-                <line x1="10" y1="13" x2="14" y2="16" />
-              </svg>
-              <div className="flex flex-col">
-                <span>{typeInfo.label}</span>
-                <span className="text-xs text-gray-500">{typeInfo.description}</span>
-              </div>
-            </button>
-          );
-        })}
-        */}
+        {/* 파이프라인 옵션 3개(구분선·버튼)는 꺼 두었다 — 되살릴 땐 `git log -S "PIPELINE_TYPES.map"` 으로 이 자리의 JSX 를 찾는다. */}
       </div>
 
-      {/* 호버 툴팁 (장단점) — 파이프라인 메뉴와 함께 비활성화 */}
-      {/*
-      {info && (
-        <div className="absolute right-full top-0 mr-1 w-[clamp(12rem,20vw,16rem)] rounded-lg border border-gray-700 bg-gray-900 p-3 shadow-xl shadow-black/40">
-          <div className="mb-2 text-xs font-semibold text-green-400">Pros</div>
-          <ul className="mb-3 space-y-0.5">
-            {info.pros.map((p, i) => (
-              <li key={i} className="text-xs text-gray-300">+ {p}</li>
-            ))}
-          </ul>
-          <div className="mb-2 text-xs font-semibold text-red-400">Cons</div>
-          <ul className="space-y-0.5">
-            {info.cons.map((c, i) => (
-              <li key={i} className="text-xs text-gray-400">- {c}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      */}
+      {/* 장단점 호버 툴팁도 파이프라인 메뉴와 함께 꺼 두었다(`git log -S "info.pros.map"`). */}
     </div>
   );
 });

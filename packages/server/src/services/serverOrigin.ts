@@ -1,28 +1,8 @@
 /**
- * §7.11 — **이 포트의 서버가 어느 프로젝트의 것인가.**
- *
- * v1.48("owning shell 검증")은 iframe 위성의 *생사* 판정에 프로젝트 격리를 못 박았다:
- * "같은 포트를 다른 프로젝트가 점유하면 stale 위성이 부활하는 §3.5 격리 위반이 발생한다".
- * 그런데 그 문은 `checkIframesAlive`(생사) 한쪽에만 서 있고 **생성 경로**(감지 폴백
- * `sniffLoopbackServers` · 신고 `reportIframeFromAgent`)에는 없었다. 그래서 다른 프로젝트에서
- * 띄운 dev server 의 주소가 우리 Bash 출력에 한 번 스치기만 해도 — 문서를 grep 한 출력이어도 —
- * 우리 캔버스에 **남의 프리뷰**가 섰다. 실측(2026-09-09): 옆 프로젝트의 vite(8080) 가 vibisual
- * 그래프의 커스텀 에이전트 위성(`special-1620649350`)으로 등록됐고, 정작 그 프로젝트 쪽
- * 체크포인트의 iframe 위성은 0개였다.
- *
- * v3.69 가 남긴 교훈이 방향만 뒤집혀 그대로 적용된다 — "생성 경로는 알고 생사 확인 경로는
- * 모르던 비대칭이 원인이었으므로, 두 경로의 스캔 대상은 앞으로도 같이 움직여야 한다".
- * 이번엔 생사 경로가 알고 생성 경로가 몰랐다. 여기서 그 문을 생성 쪽에도 세운다.
- *
- * 판정은 **포트를 LISTEN 중인 실제 프로세스**에서 읽는다(명령어 정규식 추측 ❌).
- *
- * ── 2026-10-01: **포트가 아니라 "그 주소가 닿는 리스너"로 가른다.** ──
- * 사용자 신고 "A 에서 테스트하던 프리뷰 버블에 B 프로젝트 것이 열린다 — 지난번에도 그랬다".
- * 두 구멍이 겹쳐 있었다. ① Windows 조회가 `netstat -p TCP`(IPv4 표)만 봐서 `[::1]` 에만 묶이는
- * Vite 를 **영영 못 봤다** → 늘 `unresolved` → 붙이고 안 걷었다(위 두 문이 Windows Vite 에는 한 번도
- * 실제로 서지 않았다). ② 한 포트에 주인이 둘일 수 있다 — A 의 서버가 `::`, B 의 vite 가 `[::1]` 에
- * 같은 8080 으로 공존하면 `localhost` 는 B 에, `127.0.0.1` 은 A 에 닿는다. 그래서 판정 단위는
- * (포트)가 아니라 (위성 주소 → 그 주소가 닿는 리스너)다 — `judgeIframeSatellite`.
+ * §7.11 — 이 포트의 서버가 어느 프로젝트의 것인가. 생성 경로(`sniffLoopbackServers`·`reportIframeFromAgent`)와
+ * 생사 경로(`checkIframesAlive`) 양쪽에 같은 문을 세운다 — 한쪽만이면 Bash 출력에 스친 남의 dev server 가 프리뷰로 선다.
+ * 판정은 LISTEN 중인 실제 프로세스에서 읽고(명령어 정규식 ❌), 단위는 포트가 아니라 (위성 주소 → 그 주소가 닿는 리스너)다 —
+ * 한 포트에 `::`·`[::1]` 두 주인이 있을 수 있다. Windows 조회가 IPv4 표만 보면 `[::1]` 전용 Vite 를 못 본다.
  */
 import { isPathWithin, loopbackUrlVariants, normalizePathShape, pathKey, type IframeTabVerdict, type PlatformName } from '@vibisual/shared';
 import {
@@ -36,40 +16,22 @@ import {
 import { readProcessStart } from './portTakeover.js';
 
 /**
- * 이 서버가 누구 것인가.
- * - `ours` — 우리 프로젝트 안에서 돈다(또는 우리가 띄웠다).
- * - `foreign` — **다른 열린 프로젝트** 안에서 돈다. 우리 캔버스에 붙이면 안 된다.
- * - `unknown` — 기동 정보는 **읽었는데** 아는 프로젝트 어디에도 없다.
- * - `unresolved` — 기동 정보 자체를 **못 읽었다**(권한 없음·조회 실패·도구 없음).
- *
- * 뒤 둘을 가르는 것이 이 판정의 전부다. 종전에는 하나(`unknown`)로 뭉쳐 통과시켰고,
- * 그래서 `node src/server.js` 처럼 **명령줄에 절대경로가 없는** 남의 서버가 그대로 들어왔다
- * (실측 2026-09-11: 옆 프로젝트의 3456 이 vibisual 캔버스에 위성으로 박혀 있었다 — win32 는
- * 프로세스 cwd 를 읽는 공개 API 가 없고 조상 프로세스는 이미 죽어 추적도 끊겼다).
- * 읽고도 모르는 것(`unknown`)과 아예 못 읽은 것(`unresolved`)은 증거의 무게가 다르다.
- * 어느 쪽을 붙일지는 `admitsServer` 한 곳이 정한다.
+ * 이 서버가 누구 것인가. `ours` 우리 프로젝트(또는 우리가 띄움) · `foreign` 다른 열린 프로젝트(붙이면 안 된다) ·
+ * `unknown` 기동 정보는 읽었는데 아는 프로젝트에 없다(예: 절대경로 없는 `node src/server.js` — win32 는 cwd 공개 API 가 없다) · `unresolved` 못 읽었다.
+ * 뒤 둘은 증거 무게가 달라 뭉치면 남의 서버가 통과한다 — 붙일지는 `admitsServer` 한 곳이 정한다.
  */
 export type ServerOrigin = 'ours' | 'foreign' | 'unknown' | 'unresolved';
 
 /**
- * 이 위성이 **왜** 여기 있는가 — 우리 쪽 증거의 종류.
- * - `observed` — 감지 폴백·신고·클릭. "그 주소에 서버가 있더라"는 관찰일 뿐, 우리가 띄웠다는 증거가 아니다.
- * - `launch` — 우리 프로젝트의 셸이 띄웠다(살아 있는 owning shell, 또는 방금 우리가 띄운 기록 =
- *   PreToolUse·respawn). 상대경로로 띄운 우리 서버(`node serve.js`)는 명령줄만으로는 `unknown` 이라,
- *   이 증거가 없으면 우리 것을 우리가 걷는다.
+ * 위성이 여기 있는 근거. `observed`(감지·신고·클릭) = 서버가 있다는 관찰일 뿐 · `launch` = 우리 셸이 띄웠다(owning shell·PreToolUse·respawn).
+ * 상대경로로 띄운 우리 서버는 명령줄로는 `unknown` 이라 이 증거가 없으면 우리 것을 걷는다.
  */
 export type ServerEvidence = 'observed' | 'launch';
 
 /**
- * §3.5 — **이 서버를 우리 캔버스에 붙여도(두어도) 되는가.** 판정 해석은 여기 한 곳이다.
- *
- * - `foreign` — 증거와 무관하게 거절. 남의 프로젝트 서버다.
- * - `unknown` — `launch` 증거가 있을 때만. 사용자 결정(2026-09-11) "판정 불가는 붙이지 않는다"는
- *   **관찰**로 들어온 위성(감지·신고)에 대한 것이다 — 3456 이 정확히 그 구멍으로 들어왔다.
- *   우리 셸이 띄운 서버까지 같은 잣대로 걷으면 상대경로로 띄운 우리 서버가 걷혔다가 rehydrate 로
- *   되살아나며 깜빡인다(반대 방향 사고).
- * - `ours` · `unresolved` — 통과. 못 읽은 것은 그 서버에 대한 진술이 아니라 우리 조회 능력에 대한
- *   진술이라, 이걸로 막으면 조회가 한 번 흔들릴 때마다 멀쩡한 프리뷰가 사라진다.
+ * §3.5 — 이 서버를 캔버스에 붙여도(두어도) 되는가. 해석은 여기 한 곳. `foreign` 거절 ·
+ * `ours`·`unresolved` 통과(못 읽음은 조회 능력의 문제라 막으면 조회가 흔들릴 때마다 프리뷰가 사라진다) ·
+ * `unknown` 은 `launch` 증거가 있을 때만(우리 셸이 띄운 상대경로 서버까지 걷으면 rehydrate 로 되살아나며 깜빡인다).
  */
 export function admitsServer(origin: ServerOrigin, evidence: ServerEvidence): boolean {
   if (origin === 'foreign') return false;
@@ -88,12 +50,7 @@ export interface ProcessStartInfo {
   cwd?: string;
 }
 
-/**
- * 명령줄 문자열 안에 그 루트 경로가 **경로로서** 등장하는가.
- *
- * 단순 `includes` 는 `…/game2d` 가 `…/game2d_backup` 에 걸린다. 루트 바로 뒤가
- * 경로 문자(단어·점·하이픈)면 다른 폴더라는 뜻이라 제외한다.
- */
+/** 명령줄에 루트가 경로로서 나오는가 — 루트 바로 뒤가 경로 문자(단어·점·하이픈)면 다른 폴더다(`…/game2d` ≠ `…/game2d_backup`). */
 function commandMentionsRoot(haystack: string, root: string, platform: PlatformName): boolean {
   const key = pathKey(root, platform);
   if (key.length === 0) return false;
@@ -102,13 +59,10 @@ function commandMentionsRoot(haystack: string, root: string, platform: PlatformN
 }
 
 /**
- * 포트 점유 프로세스의 기동 정보로 **소속 프로젝트**를 가른다.
- *
- * @param start 포트를 잡고 있는 프로세스의 명령줄·작업 폴더(`null` = 못 읽음).
- * @param ownRoots 이 그래프가 그리는 프로젝트 경로들.
- * @param foreignRoots 지금 열려 있는 **다른** 프로젝트 경로들.
- * @param platform 세 OS 를 한 기기에서 단위 테스트하기 위해 인자로 받는다
- *   (`process.platform` 을 안에서 읽으면 그 분기는 영영 검증되지 않는다).
+ * 포트 점유 프로세스의 기동 정보로 소속 프로젝트를 가른다.
+ * @param start 명령줄·작업 폴더(`null` = 못 읽음).
+ * @param foreignRoots 지금 열린 다른 프로젝트 경로들.
+ * @param platform 세 OS 를 한 기기에서 시험하려고 인자로 받는다.
  */
 export function classifyServerOrigin(
   start: ProcessStartInfo | null,
@@ -130,10 +84,8 @@ export function classifyServerOrigin(
     return 'unknown';
   }
 
-  // ② win32 는 cwd 에 공개 API 가 없다(`portTakeover` 의 probe 표 참조 — PEB 를 읽어야 한다).
-  //    남은 단서는 명령줄이고, 실제로 대부분의 dev server 는 거기에 절대경로를 싣는다
-  //    (실측: `"node" "C:\…\Game2D\node_modules\…\vite.js"`).
-  //    경로 모양·케이스는 `pathKey` 규칙 하나로 접는다(Linux 에서 케이스를 접으면 남의 폴더가 통과한다).
+  // ② win32 는 cwd 공개 API 가 없어(PEB — `portTakeover` probe 표) 명령줄의 절대경로가 단서다(dev server 대부분이 싣는다).
+  // 경로는 `pathKey` 로 접는다(Linux 에서 케이스를 접으면 남의 폴더가 통과한다).
   const haystack = pathKey(normalizePathShape(start.command), platform);
   // 우리 것을 먼저 본다 — 우리 세션이 남의 폴더를 가리키며 띄운 경우, 그건 우리가 띄운 서버다.
   if (ownRoots.some((r) => commandMentionsRoot(haystack, r, platform))) return 'ours';
@@ -141,10 +93,7 @@ export function classifyServerOrigin(
   return 'unknown';
 }
 
-/**
- * 여러 리스너의 판정을 하나로 접는다. **하나라도 남의 것이면 남의 것**이다 — 같은 주소를 두
- * 프로세스가 나눠 받는 경우(SO_REUSEPORT·클러스터) 연결은 어느 쪽으로든 갈 수 있다.
- */
+/** 하나라도 남의 것이면 남의 것 — 같은 주소를 나눠 받는(SO_REUSEPORT·클러스터) 연결은 어느 쪽으로든 간다. */
 export function combineServerOrigins(origins: readonly ServerOrigin[]): ServerOrigin {
   if (origins.includes('foreign')) return 'foreign';
   if (origins.includes('ours')) return 'ours';
@@ -182,10 +131,7 @@ export function originOfListeners(
   );
 }
 
-/**
- * **그 호스트로 접속하면 닿는 서버**의 판정. 닿는 리스너가 없으면 `unresolved`(그 주소의 서버는
- * 없다 — 같은 포트의 다른 리스너는 이 주소와 무관하다).
- */
+/** 그 호스트로 닿는 서버의 판정. 닿는 리스너가 없으면 `unresolved`(같은 포트의 다른 리스너는 무관). */
 export function originForHost(
   ownership: PortOwnership | null,
   host: string,
@@ -198,12 +144,8 @@ export function originForHost(
 }
 
 /**
- * `launch` 증거가 **지금 닿는 리스너**에도 유효한가.
- *
- * 증거는 처음 본 리스너 pid 에 묶인다(`boundPids`). 닿는 리스너가 묶인 pid 안에 있으면 유효하다.
- * 아니라면 둘 중 하나다 — ① 묶인 pid 가 같은 포트에 **아직 살아 있다**: 남이 같은 포트를 다른
- * 주소로 겹쳐 묶었고 그쪽이 지금 이 주소를 받는다(한 포트 두 주인) → 무효. ② 묶인 pid 가 사라졌다:
- * 우리 서버가 재기동해 pid 가 바뀌었다(nodemon 등) → 유효(호출부가 새 pid 로 다시 묶는다).
+ * `launch` 증거가 지금 닿는 리스너에도 유효한가. 증거는 처음 본 pid(`boundPids`)에 묶인다 —
+ * 묶인 pid 가 같은 포트에 살아 있는데 다른 리스너가 받으면 남의 겹침이라 무효, 사라졌으면 재기동(nodemon 등)이라 유효(새 pid 로 다시 묶는다).
  */
 export function launchEvidenceHolds(
   reachPids: readonly number[],
@@ -229,12 +171,8 @@ export interface IframeJudgeInput {
 }
 
 /**
- * 위성 하나에 대한 결론.
- * - `keep` — 그대로 둔다(또는 그 주소로 만든다).
- * - `repoint` — 그 주소는 남의 리스너에 닿지만 **다른 루프백 별칭이 우리 서버에 닿는다** → 그 별칭으로 바꾼다.
- * - `reject` — 우리 것이라는 판정이 서지 않는다 → 만들지 않는다 / 걷는다.
- *
- * `bindPids` 는 `launch` 증거를 이번에 묶을(또는 다시 묶을) 리스너 pid 다.
+ * `keep` 그대로(또는 그 주소로 만든다) · `repoint` 그 주소는 남의 리스너지만 다른 루프백 별칭이 우리 서버에 닿아 그 별칭으로 바꾼다 ·
+ * `reject` 만들지 않는다/걷는다. `bindPids` = 이번에 `launch` 증거를 (다시) 묶을 pid.
  */
 export type IframeVerdict =
   | { action: 'keep'; origin: ServerOrigin; bindPids?: number[] }
@@ -242,16 +180,9 @@ export type IframeVerdict =
   | { action: 'reject'; origin: ServerOrigin };
 
 /**
- * §7.11 / §3.5 — **이 위성 주소를 이 캔버스에 둬도 되는가**(순수 함수 — 생성 입구·생사 sweep 공용).
- *
- * 1. 위성 주소와 그 루프백 별칭(`localhost` · `127.0.0.1` · `[::1]` — 원래 주소가 맨 앞)을 차례로 본다.
- * 2. 각 주소가 **실제로 닿는 리스너**(`reachableListeners`)를 판정한다. 닿는 것이 없는 별칭은 건너뛴다.
- * 3. 원래 주소가 통과하면 `keep`. 원래 주소가 남의 것인데 별칭이 **긍정 증거**(`ours`, 또는
- *    `launch`+`unknown`)로 통과하면 `repoint` — 테스트하던 화면을 지우지 않고 우리 서버로 되돌린다.
- *    못 읽은 별칭(`unresolved`)으로는 옮기지 않는다(옮긴 곳도 남의 것일 수 있다).
- * 4. 닿는 리스너가 하나도 없으면(주소를 모르는 도구 등) 포트 전체로 판정한다.
- *
- * 볼 것이 없으면(조회 실패·리스너 0) `keep` — 판정 불가로 지우지 않는다(사용자 결정 2026-09-11).
+ * §7.11 / §3.5 — 위성 주소를 이 캔버스에 둬도 되는가(순수, 생성·생사 공용). 원래 주소와 루프백 별칭마다 실제로 닿는 리스너로 판정한다.
+ * 원래 주소가 통과하면 `keep`, 남의 것인데 별칭이 긍정 증거(`ours`·`launch`+`unknown`)로 통과하면 `repoint`(`unresolved` 별칭으로는 안 옮긴다).
+ * 닿는 리스너가 없으면 포트 전체로 보고, 볼 것이 아예 없으면 `keep` — 판정 불가로 지우지 않는다.
  */
 export function judgeIframeSatellite(input: IframeJudgeInput): IframeVerdict {
   const { url, ownership, evidence, boundPids, ownRoots, foreignRoots, platform } = input;
@@ -305,16 +236,8 @@ export interface IframeTabJudgeInput {
 }
 
 /**
- * §7.11 / §3.5 — **열어 둔 프리뷰 탭이 이 주소를 지금 보여 줘도 되는가**(순수 함수).
- *
- * 위성과 기준이 반대다. 위성은 이 캔버스에 **새로 세울 근거**(긍정 증거)가 있어야 하지만, 탭은
- * 사용자가 이미 열어 둔 화면이라 **남의 것이라는 긍정 증거가 있을 때만** 막는다 — 주인 미상
- * (`unknown`)·못 읽음(`unresolved`)은 그대로 보여 준다(판정 불가로 지우지 않는다와 같은 원칙).
- *
- * 1. 그 주소가 닿는 리스너가 다른 열린 프로젝트의 것이 아니면 `show`.
- * 2. 남의 것이면, 루프백 별칭 중 **우리 서버(`ours`)에 닿는 것**으로 `follow`(한 포트 두 주인 —
- *    `localhost` 는 옆 프로젝트 vite, `127.0.0.1` 은 우리 서버).
- * 3. 그런 별칭도 없으면 `block` — 탭은 그 주소를 불러오지 않는다.
+ * §7.11 / §3.5 — 열어 둔 프리뷰 탭이 이 주소를 보여도 되는가(순수). 위성과 반대로 남의 것이라는 긍정 증거가 있을 때만 막는다.
+ * 남의 것이 아니면 `show`, 남의 것이면 우리 서버(`ours`)에 닿는 별칭으로 `follow`, 그것도 없으면 `block`(불러오지 않는다).
  */
 export function judgeIframeTab(input: IframeTabJudgeInput): IframeTabVerdict {
   const { url, ownership, ownRoots, foreignRoots, platform } = input;
@@ -337,16 +260,12 @@ export function judgeIframeTab(input: IframeTabJudgeInput): IframeTabVerdict {
 
 // ─── 조회 + 캐시 ───
 
-/**
- * 리스너 목록 캐시 수명. 조회는 싸다(netstat 실측 35ms) — 남이 같은 포트를 잡으면 **다음 sweep 에서**
- * 갈려야 하므로 짧게 둔다(종전 60초 동안은 남의 화면이 그대로 떠 있었다).
- */
+/** 리스너 캐시 수명. 조회는 싸고(netstat 실측 35ms) 남이 포트를 잡으면 다음 sweep 에서 갈려야 해 짧게 둔다. */
 export const PORT_LISTENER_TTL_MS = 5_000;
 
 /**
- * 프로세스 기동 정보 캐시 수명(pid 단위). 비싸다(win32 = PowerShell 기동 + WMI 질의, 바쁜 기기에서
- * 수 초). 한 pid 의 명령줄은 그 프로세스가 사는 동안 바뀌지 않으므로 길게 둔다 — 대신 그 포트의
- * 리스너에서 빠진 pid 는 바로 버린다(pid 재사용 대비).
+ * 기동 정보 캐시 수명(pid 단위). 비싸고(win32 PowerShell+WMI, 바쁜 기기 수 초) 명령줄은 pid 가 사는 동안 안 바뀐다.
+ * 리스너에서 빠진 pid 는 바로 버린다(pid 재사용).
  */
 export const PROCESS_START_TTL_MS = 10 * 60_000;
 
@@ -473,10 +392,9 @@ export function clearPortOriginCache(): void {
 }
 
 /**
- * 포트(와 그 포트를 부르는 호스트)의 소속 — **그 호스트로 접속하면 닿는 서버**를 판정한다.
- *
- * @param lookup 조회 함수(기본 = 실제 OS). 테스트가 OS 도구 없이 지나가도록 열어 둔다.
- * @param host 그 서버를 부르는 주소의 호스트(기본 `localhost` — 위성 기본 주소).
+ * 그 호스트로 그 포트에 접속하면 닿는 서버의 소속.
+ * @param lookup 조회 함수(기본 실제 OS — 시험용으로 열어 둔다).
+ * @param host 부르는 주소의 호스트(기본 `localhost` — 위성 기본 주소).
  */
 export async function resolvePortOrigin(
   port: number,

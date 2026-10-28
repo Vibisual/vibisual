@@ -1,13 +1,8 @@
 /**
- * §5.13 (W) 38-6 — 자막 파일 읽기와 자막 아이템 만들기(순수).
- *
- * 화면(가져오기·끌어 놓기)과 서버(`POST /doc/:id/captions/import` — 에이전트)가 **같은 파서**를 쓴다(두 벌 ❌ — 종전 SRT 파서는
- * 화면에만 있었다). 앱은 음성 모델을 품지 않으므로((H)) 받아쓰기는 바깥 도구가 하고, 여기서는 그 결과를 읽는다:
- *
- * - **SRT** — 엄격하게. 깨진 블록이 있으면 통째로 거절한다(조용히 자막을 잃지 않게).
- * - **VTT** — 큐 안 낱말 시각(`<00:00:01.500>`)이 있으면 낱말 단위 시각으로 옮긴다. 꾸밈 태그(`<c>`·`<v 이름>`·`<b>`)는 걷는다.
- * - **낱말 JSON** — `{ words:[{word|text,start,end}] }` · `{ segments:[{start,end,text,words?}] }` · 낱말 배열 그대로 ·
- *   `{ transcription:[{ offsets:{from,to}, text }] }`(밀리초). 낱말만 있으면 쉼·문장 부호·길이로 큐를 묶는다.
+ * §5.13 (W) 38-6 — 자막 파일 파서(순수). 화면 가져오기와 서버 `POST /doc/:id/captions/import` 가 같은 파서를 쓴다(받아쓰기는 바깥 도구 — (H)).
+ * SRT 는 깨진 블록이 있으면 통째로 거절한다(조용히 잃지 않게). VTT 는 큐 안 낱말 시각(`<00:00:01.500>`)을 살리고 꾸밈 태그(`<c>`·`<v 이름>`·`<b>`)는 걷는다.
+ * 낱말 JSON: `{ words:[{word|text,start,end}] }`·`{ segments:[{start,end,text,words?}] }`·낱말 배열·`{ transcription:[{ offsets:{from,to}, text }] }`(ms)
+ * — 낱말만 있으면 쉼·문장 부호·길이로 큐를 묶는다.
  */
 
 import { CAPTION_GROUP_MAX_CHARS, CAPTION_GROUP_MAX_SECONDS, CAPTION_GROUP_PAUSE_SECONDS } from './constants.js';
@@ -140,10 +135,7 @@ function joinWords(words: readonly TimedWord[]): string {
   return (raw ? words.map((w) => w.text).join('') : words.map((w) => w.text.trim()).join(' ')).replace(/\s+/g, ' ').trim();
 }
 
-/**
- * 낱말 → 자막 큐. 쉼(`CAPTION_GROUP_PAUSE_SECONDS` 이상)·문장 끝·글자 수(`CAPTION_GROUP_MAX_CHARS`)·길이
- * (`CAPTION_GROUP_MAX_SECONDS`)에서 끊는다. 큐마다 낱말 시각을 싣는다(단어 강조 자막이 그대로 쓴다).
- */
+/** 쉼·문장 끝·글자 수·길이(`CAPTION_GROUP_*`)에서 끊는다. 큐마다 낱말 시각을 싣는다(단어 강조 자막이 쓴다). */
 export function cuesFromWords(input: readonly TimedWord[]): CaptionCue[] {
   const words = input.filter((w) => w.text.trim() !== '').slice().sort((a, b) => a.start - b.start);
   const cues: CaptionCue[] = [];

@@ -1,10 +1,4 @@
-/**
- * §3.7 「훅 입구의 본문 상한은 문의 상한과 같다」 — 큰 파일을 고친 훅 신고가 413 으로 버려지지 않는다.
- *
- * 실측(2026-10-21): 지난 3주 우리 훅 오류 알림 2,807건 중 2,100건이 `HTTP 413 from …/api/hook-event` 였다.
- * 루프백 문은 16MB 까지 받는데, 그 뒤의 전역 `express.json()` 이 기본 100KB 에서 끊었다. 서버 본체와 같은 순서
- * (훅 입구 파서 → 전역 파서)로 앱을 세워 진짜 HTTP 로 보낸다.
- */
+/** §3.7 — 큰 파일을 고친 훅 신고가 413 으로 버려지지 않는다(실측 2026-10-21: 훅 오류 알림 대부분이 전역 `express.json()` 100KB 의 413). 서버와 같은 파서 순서로 세워 진짜 HTTP 로 보낸다. */
 import { afterEach, describe, expect, it } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';

@@ -5,7 +5,7 @@ import { logger } from '../logger.js';
 
 export type PermissionResolvedHook = (request: PermissionRequest, decision: PermissionDecision) => void;
 
-/** §5.3 #12-1 v1.43 — 권한 승인 타임아웃 (훅 HTTP 요청도 이 값을 넘지 않도록 맞춤) */
+/** §5.3 #12-1 — 권한 승인 타임아웃(훅 HTTP 요청도 이 값을 넘지 않게 맞춘다). */
 const PERMISSION_REQUEST_TIMEOUT_MS = 60_000;
 
 /** §5.3 #12-1-B — 취소로 풀린 결정의 `reason` 마커(훅·원장·스트림 줄이 이 낱말로 가른다). */
@@ -28,30 +28,16 @@ export interface PermissionRequestOptions {
 }
 
 /**
- * PermissionBroker — PreToolUse 훅이 서버에 문의하면 여기로 요청을 넣고,
- * WS 로 클라이언트에 브로드캐스트한 뒤 클라 응답을 기다린다.
- *
- * 풀리는 길은 셋이다:
- * - 사람의 답(`resolve`)
- * - 60초 무응답 → 호출부가 넘긴 `timeoutPolicy`(§5.3 #12-1 v1.90 — 훅 경로 기본 `allow`, 계획 승인·코덱스 도구는 `deny`)
- * - 답할 곳이 사라짐 → `cancel`(§5.3 #12-1-B — 에이전트 중지·요청 연결 끊김). 결정은 `deny` + `cancelled`.
+ * PermissionBroker — PreToolUse 문의를 WS 로 방송하고 답을 기다린다. 풀리는 길: 답(`resolve`) · 60초 → `timeoutPolicy`(§5.3 #12-1 — 훅 기본 `allow`, 계획 승인·코덱스 `deny`)
+ * · 답할 곳이 사라짐 → `cancel`(§5.3 #12-1-B — `deny` + `cancelled`).
  */
 export class PermissionBroker {
   private pending = new Map<string, Pending>();
 
-  /**
-   * §5.3 #12-1 v1.96 — resolve 직후 호출되는 후크. 서버 부트스트랩이 wiring 해서
-   * 사용자의 Allow/Deny 결정을 해당 sub 의 stream 에 합성 한 줄로 띄우는 데 쓴다.
-   * 클라이언트에 별도 WS broadcast 가 아닌, 정규 sub_agent_stream 경로를 타게 해서
-   * 새로고침/체크포인트 복원 후에도 결정이 stream 에 남아 있도록 한다.
-   */
+  /** §5.3 #12-1 — resolve 직후 후크. 결정을 그 sub 의 stream 에 합성 한 줄로 남긴다(정규 경로라 새로고침·복원 뒤에도 남는다). */
   onResolved: PermissionResolvedHook | null = null;
 
-  /**
-   * 새 권한 요청 등록.
-   * 반환 Promise 는 클라 응답 · 타임아웃 · 취소 중 먼저 온 것으로 resolve 된다.
-   * `timeoutPolicy`: 60초 무응답 시 자동 결정(§5.3 #12-1 v1.90). 기본 `'allow'`.
-   */
+  /** 새 권한 요청 — 응답·타임아웃·취소 중 먼저 온 것으로 풀린다. `timeoutPolicy` 기본 `'allow'`(§5.3 #12-1). */
   request(
     input: Omit<PermissionRequest, 'requestId' | 'createdAt' | 'expiresAt'>,
     timeoutPolicy: 'allow' | 'deny' = 'allow',
@@ -171,8 +157,7 @@ export class PermissionBroker {
     };
     broadcast(msg);
 
-    // §5.3 #12-1 v1.96 — 결정을 sub stream 에 합성 한 줄로 남기는 hook 호출.
-    // 후크 실패가 broker 상태를 깨면 안 되므로 try/catch 로 격리.
+    // §5.3 #12-1 — 후크 실패가 broker 상태를 깨지 않게 격리한다.
     try {
       this.onResolved?.(entry.request, decision);
     } catch (err) {

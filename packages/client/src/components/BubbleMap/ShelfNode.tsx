@@ -13,13 +13,7 @@ import { CanvasNodeMenu, CanvasNodeMenuItem, CanvasNodeMenuSeparator } from './C
 import { ShelfGlyph, ShelfItemGlyph } from './shelfIcons.js';
 import { exportShelfFile, pickShelfFile } from './shelfTransfer.js';
 
-/**
- * §5.20 / §7.18 — 스크립트 선반 버블.
- *
- * 랩·스펙과 달리 **표지가 아니라 선반 그 자체**를 캔버스에 그린다 — 항목 줄이 그대로 보이고
- * 줄을 누르면 그 자리에서 실행된다(패널 경유 ❌ — 클릭 한 번이 이 도구의 존재 이유다).
- * 항목을 짜고 고치는 것은 더블클릭으로 열리는 선반 패널의 몫이다.
- */
+/** §5.20 / §7.18 — 스크립트 선반 버블. 표지가 아니라 선반 자체를 그려 줄을 누르면 바로 실행한다(패널 경유 ❌ — 클릭 한 번이 이 도구의 이유). 편집은 더블클릭 패널. */
 
 export interface ShelfNodeData extends Record<string, unknown> {
   shelfBubbleId: string;

@@ -12,18 +12,8 @@ import { registerCaptureWindow, type CaptureWindowHandle } from './captureWindow
 import { CAPTURE_RECORD_EVENT } from './CaptureNode.js';
 import { useIsPlaytestRecording } from '../../stores/capturePlaytest.js';
 
-// §5.9 v3.34 — 캡처 버블 헤더 더블클릭 시 뜨는 "앱 내부 IDE식 창".
-//
-// 종전엔 라이브 영상을 `position:fixed; inset:0` 풀스크린으로만 확대했다(가운데 팝업·이동·크기 단계 없음).
-// 이제 IDE 오버레이(AgentIDEOverlay)의 floating/maximized 창 톤을 캡처용으로 이식해:
-//   · 처음 켜지면 화면 **가운데**에 적당한 크기의 창으로 뜬다(멀티 윈도우라 백드롭 없음 — 뒤 캔버스 그대로).
-//   · 타이틀바 **드래그로 이동**, 우하단 핸들로 **리사이즈**, 타이틀바 버튼/더블클릭으로 **최대화↔복원**.
-//   · 여러 버블의 창을 동시에 열면 계단식으로 뜨는 **멀티 윈도우** — 클릭한 창이 맨 앞으로(z-order).
-// createPortal 로 캔버스 변환 밖(document.body)에 그려 캔버스 팬/줌·노드 좌표와 무관하게 화면 기준으로 뜬다.
-//
-// §5.10 v3.77 — 위 창 거동(가운데 팝업·드래그 이동·리사이즈·최대화)의 좌표 계산은 기억 라이브러리와
-// 공유하는 `useFloatingWindow` 훅으로 옮겼다(coding.md DRY). 여기 남는 것은 캡처 고유의 관심사
-// (멀티 윈도우 z-order·Escape·라이브 영상·원격 조작)뿐이다. 크기 기본값은 훅의 기본값과 동일.
+// §5.9 — 캡처 버블을 크게 보는 앱 내부 창(가운데 팝업·이동·리사이즈·최대화, 멀티 윈도우라 백드롭 없음).
+// document.body 에 portal 해 캔버스 팬/줌과 무관하다. 좌표 거동은 공용 `useFloatingWindow` — 여기는 z-order·Escape·라이브 영상·원격 조작만.
 
 /** 원격 조작 주입 API(sendInput)가 있는 환경(데스크톱 렌더러)에서만 조작 UI 를 노출. */
 const canControl = typeof window !== 'undefined' && !!window.api?.capture?.sendInput;
@@ -31,7 +21,6 @@ const canControl = typeof window !== 'undefined' && !!window.api?.capture?.sendI
 /** 번역 함수의 최소 형태 — off/touch/mouse 3상태 라벨용(i18next 타입 의존 회피). */
 type TFn = (key: string, opts?: { defaultValue?: string }) => string;
 
-/** 조작 모드('off'/'touch'/'mouse') → 짧은 라벨. v3.43 3상태 통합 이후 타이틀바 셀렉터 라벨. */
 function modeLabel(m: CaptureControlMode, t: TFn): string {
   if (m === 'touch') return t('bubbleMap.capture.pointerModeTouch', { defaultValue: '터치' });
   if (m === 'mouse') return t('bubbleMap.capture.pointerModeMouse', { defaultValue: '마우스' });
@@ -85,9 +74,7 @@ export const CaptureWindow = memo(function CaptureWindow({
   const [z, setZ] = useState<number>(handle.initialZ);
   const bringToFront = useCallback(() => { setZ(handle.bringToFront()); }, [handle]);
 
-  // 창 좌표·3상태(가운데 팝업 → 드래그 이동 → 리사이즈 → 최대화)는 공용 훅이 담당(v3.77).
-  // 최소화(셰이드)는 캡처 창에선 쓰지 않는다 — 라이브 영상을 접어 둘 이유가 없다.
-  // 폰 폭·터치 기기에서는 화면 전체로 고정(이동·크기 조절·최대화 잠금) — 앱 창과 같은 기준.
+  // 최소화(셰이드)는 쓰지 않는다 — 라이브 영상을 접을 이유가 없다. 폰·터치에서는 화면 전체로 고정(앱 창과 같은 기준).
   const lockFullScreen = useFloatingWindowFullScreenLock();
   const fw = useFloatingWindow({ cascade: handle.cascadeOffset, onInteractStart: bringToFront, lockFullScreen });
   const maximized = fw.maximized;
@@ -95,9 +82,7 @@ export const CaptureWindow = memo(function CaptureWindow({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
 
-  // §5.9 v3.43 — 크게 본 화면에서도 원격 조작. 캔버스 노드와 **같은 런타임 축·같은 훅**을 쓴다:
-  // 기본 'off' 라 창을 열어도 마우스는 캡처 대상에 반영되지 않고(영상 위 클릭·드래그는 창/캔버스 몫),
-  // 타이틀바에서 터치/마우스 모드를 직접 고를 때만 조작이 붙는다(DetailPanel 3분할과 같은 상태).
+  // §5.9 — 창에서도 캔버스 노드와 같은 런타임 축·훅으로 원격 조작. 기본 'off' 라 영상 위 클릭·드래그는 창 몫이고, 타이틀바에서 모드를 고를 때만 조작이 붙는다.
   const [prefs] = useCapturePrefs(captureBubbleId);
   const [runtime, setRuntime] = useCaptureRuntime(captureBubbleId);
   const controlMode = runtime.controlMode;
@@ -146,11 +131,8 @@ export const CaptureWindow = memo(function CaptureWindow({
           ? `0 0 0 1px ${CAPTURE_BUBBLE_DEFAULTS.CONTROL_COLOR}55, 0 30px 70px -24px rgba(0,0,0,0.95)`
           : '0 30px 70px -24px rgba(0,0,0,0.95)',
       }}
-      // portal 은 React 트리상 CaptureNode 의 자손이라, 여기서 시작된 pointer/click/wheel 이벤트가
-      // 캔버스(노드 선택·팬·컨텍스트 메뉴)로 버블링될 수 있다 → 창 경계에서 전파를 끊고, mousedown 은
-      // 이 창을 맨 앞으로 올린다(멀티 윈도우 z-order).
-      // 조작 표면은 자기 mousedown 의 전파를 끊으므로(주입 전용), z-order 올리기는 capture 단계에서
-      // 먼저 잡는다 — 조작 중에도 창을 클릭하면 맨 앞으로 온다.
+      // portal 은 React 트리상 CaptureNode 의 자손이라 이벤트가 캔버스(선택·팬·메뉴)로 버블링된다 → 창 경계에서 끊는다.
+      // 조작 표면이 mousedown 전파를 끊으므로 맨 앞 올리기는 capture 단계에서 잡는다.
       onMouseDownCapture={bringToFront}
       onMouseDown={(e) => { e.stopPropagation(); }}
       onClick={(e) => e.stopPropagation()}
@@ -158,7 +140,7 @@ export const CaptureWindow = memo(function CaptureWindow({
       onWheel={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.stopPropagation()}
     >
-      {/* Title bar — 그래파이트 유리면(v3.56, 종전 rose 색면 대체). 드래그 이동 + 더블클릭 최대화. */}
+      {/* Title bar — 드래그 이동 · 더블클릭 최대화. */}
       <div
         {...fw.titleBarProps}
         className={`flex h-10 flex-shrink-0 select-none items-center gap-2 px-3 text-slate-200${lockFullScreen ? '' : ' cursor-grab active:cursor-grabbing'}`}
@@ -290,7 +272,7 @@ export const CaptureWindow = memo(function CaptureWindow({
         ref={surfaceRef}
         {...control.surfaceProps}
         className="relative flex min-h-0 flex-1 items-center justify-center outline-none"
-        // v3.58 — 조작 중에도 로컬 커서를 숨기지 않는다(가상 커서는 오버레이가 따로 그린다).
+        // 로컬 커서를 숨기지 않는다(가상 커서는 오버레이가 그린다).
         style={{
           cursor: control.surfaceCursor,
           background: CAPTURE_BUBBLE_DEFAULTS.STAGE_BG,

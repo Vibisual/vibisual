@@ -20,12 +20,7 @@ import {
   type CommentTokens,
 } from './editorLineOps.js';
 
-/**
- * §5.5 #17-27 ⑲ — 편집창 줄 편집 명령의 순수 계산.
- *
- * 키는 VS Code 와 같고 동작도 VS Code 를 따른다. 본문만이 아니라 **캐럿·선택이 어디로 가는지**까지
- * 고정한다 — 줄 하나 어긋나는 사고는 화면으로 잡기 어렵다.
- */
+/** §5.5 #17-27 ⑲ — 줄 편집 명령. 본문만이 아니라 캐럿·선택 위치까지 고정한다(VS Code 와 같게). */
 
 const C: CommentTokens = { line: '//', block: ['/*', '*/'] };
 

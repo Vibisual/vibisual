@@ -21,13 +21,8 @@ import { ScrollFade } from '../ScrollFade.js';
 import { isLocalModelReady } from './localModelEntry.js';
 
 /**
- * §5.19 (B) — All Model 설치 창.
- *
- * 버블은 이미 캔버스에 있다(우클릭으로 고른 순간 생겼다). 이 창은 **그 버블의 준비 과정 그 자체**다 —
- * 엔진 받기 → 모델 받기 → 고르기가 한 창에서 차례로 흐르고, **끝나는 순간 그 버블의 IDE 가 열린다.**
- * 사용자가 "이제 뭘 눌러야 하나"를 다시 묻게 두지 않는 것이 이 창의 유일한 임무다.
- *
- * 목록·상태는 전부 서버가 디스크를 읽어 내려준 것이다. 여기서 가공하지 않는다.
+ * §5.19 (B) — All Model 설치 창: 이미 캔버스에 있는 버블의 준비 과정(엔진 받기 → 모델 받기 → 고르기), 끝나는 순간 그 버블의 IDE 가 열린다.
+ * 목록·상태는 서버가 디스크에서 읽은 그대로(가공 ❌).
  */
 export function LocalModelWindow(): React.JSX.Element | null {
   const target = useGraphStore((s) => s.localModelWindow);
@@ -239,13 +234,7 @@ function LocalModelSetup(): React.JSX.Element | null {
     setPendingDownload(await downloadModel(entry.repo, entry.file, entry.partFiles));
   };
 
-  /**
-   * §5.19 (E) — 펼친 저장소에서 화면에 세울 양자화들.
-   *
-   * 걸러 내기가 켜져 있으면 **이 PC 로는 무리인 것**과 **이 엔진이 못 돌리는 구조**를 뺀다.
-   * 잴 수 없어 `unknown` 인 것은 빼지 않는다 — 넘겨짚어 감추는 쪽이 늘 더 나쁘다.
-   * 순서는 서버가 이미 많이 쓰이는 순으로 세워 보냈으므로 여기서 다시 줄 세우지 않는다.
-   */
+  /** §5.19 (E) — 펼친 저장소의 양자화들. 걸러 내기는 이 PC 로 무리인 것·엔진이 못 돌리는 구조만 뺀다(`unknown` 은 남긴다). 순서는 서버 것 그대로. */
   const shownFiles = runnableOnly
     ? files.filter((f) => classifyModelFit(f.sizeBytes, hardware) !== 'too-big' && f.archVerdict !== 'broken')
     : files;
@@ -287,7 +276,7 @@ function LocalModelSetup(): React.JSX.Element | null {
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60"
       {...backdrop}
     >
-      {/* §4 v3.16 — 폰에서는 옵션 창과 같은 전체 시트다(680px 상자가 360px 화면 양옆으로 잘려 나갔다). */}
+      {/* §4 — 폰에서는 옵션 창과 같은 전체 시트(680px 상자는 360px 화면에서 잘린다). */}
       <div
         className="flex max-h-[82vh] w-[680px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/60 max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0"
       >

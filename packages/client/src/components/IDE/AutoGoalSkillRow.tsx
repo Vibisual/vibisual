@@ -58,13 +58,7 @@ export const AutoGoalSkillRow = memo(function AutoGoalSkillRow({
   // Older servers never imply that an unreviewed file is active.
   const status = skill.status ?? 'candidate';
   const stopped = status === 'retired' || status === 'superseded';
-  /*
-   * §5.10 (R)ⓔ — 검토 대기 행에 **앞으로 가는 자리**를 둔다. 전까지는 일시정지와 삭제뿐이라
-   * 에이전트가 올려 주지 않으면 사람이 손댈 곳이 없었다. 기본은 어디까지나 자율 운영이고 이것은 부가 경로다.
-   *
-   * 근거 파일이 없는 절차는 서버가 (Q) 의 근거 규약으로 거절하므로, 눌러 보고 실패하게 두지 않고
-   * 여기서 잠가 이유를 말풍선으로 보여 준다.
-   */
+  /* §5.10 (R)ⓔ — 검토 대기 행의 앞으로 가는 자리(부가 경로 — 기본은 자율). 근거 파일 없는 절차는 서버가 (Q) 로 거절하므로 미리 잠그고 이유를 보인다. */
   const waiting = status === 'candidate' || status === 'needs-review';
   const hasEvidence = (skill.files?.length ?? 0) > 0;
   return (

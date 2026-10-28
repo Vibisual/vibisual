@@ -55,10 +55,8 @@ describe('isSetupGateOpen', () => {
   });
 
   /**
-   * 회귀 고정 — 설치를 막 끝낸 사람에게 확인을 보여 주는 구간.
-   * `justCompleted` 는 **화면 열림을 스스로 뒤집는 값**이라, 이 값을 만료 타이머의 deps 에
-   * 섞으면 타이머가 자기 자신을 지워 게이트가 "Continuing…" 에서 영원히 멈춘다(실제 발생).
-   * 판정을 여기 고정해 두고, 화면 쪽은 만료를 `justCompleted` 하나에만 매단다.
+   * 설치 직후 확인 구간 고정 — 만료 타이머 deps 에 열림 판정을 섞으면 타이머가 자기를 지워 "Continuing…" 에서 멈춘다.
+   * 만료는 `justCompleted` 하나에만 매단다.
    */
   it('준비 완료 직후 확인 구간에는 열려 있다', () => {
     expect(isSetupGateOpen({ ...base, setup: setup('ready'), justCompleted: true })).toBe(true);

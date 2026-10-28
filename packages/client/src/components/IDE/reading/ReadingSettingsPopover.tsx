@@ -14,14 +14,7 @@ interface ReadingSettingsPopoverProps {
   fontAvailability: Record<string, boolean>;
 }
 
-/**
- * §5.5 — IDE 상단 바 [읽기] 패널.
- *
- * 초광폭 창에서 한 줄이 100자를 넘어 읽기 어렵다는 문제를 사용자가 직접 조절해 푸는 자리다.
- * 각 항목에 근거 한 줄을 달아 두는 이유는 값 자체가 취향이 아니라 **연구에서 온 것**이기 때문이고,
- * 고정값을 강제하지 않고 고르게 하는 이유는 개인화된 읽기 설정이 고정값보다 읽기 속도를 실제로
- * 올린다는 결과(Readability Consortium)가 있기 때문이다.
- */
+/** §5.5 — IDE 상단 바 [읽기] 패널. 항목마다 근거(가독성 연구)를 달고 고르게 한다 — 개인화된 읽기 설정이 고정값보다 빠르다는 결과(Readability Consortium). */
 export function ReadingSettingsPopover({
   onClose, mobileAdapted, fontAvailability,
 }: ReadingSettingsPopoverProps): React.JSX.Element {

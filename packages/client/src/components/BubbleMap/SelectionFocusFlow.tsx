@@ -21,21 +21,16 @@ function clearSelectionFocus(): void {
 type SelectionFocusFlowProps = ReactFlowProps & Required<Pick<ReactFlowProps, 'onNodesChange'>>;
 
 /**
- * §5.4 #31 (K) — React Flow with the selection focus applied.
- *
- * **Why a separate component**: the focus listens to the selection ring, the double-click wait and the
- * link phase, all of which change on a single click or hover. Subscribed inside `BubbleMap`, each of them
- * re-ran the whole canvas body (node assembly included) right as the fade had to start — the same reason
- * `LinkFocusHint` lives on its own. Here only this wrapper and React Flow wake up.
+ * §5.4 #31 (K) — React Flow with the selection focus applied. A separate component because its inputs (selection ring, double-click wait,
+ * link phase) change on every click or hover; inside `BubbleMap` they re-ran the whole canvas body as the fade started (same reason as `LinkFocusHint`).
  */
 export function SelectionFocusFlow({
   nodes, edges, onNodesChange, onSelectionStart, onSelectionEnd, onPaneClick, onNodeDragStart, onKeyDownCapture,
   ...rest
 }: SelectionFocusFlowProps): React.JSX.Element {
   /**
-   * §6 — 박스 선택이 도는 중인가. 이 동안만 노드를 React Flow 가 고를 수 있다(`useSelectionFocus` 의 `marquee`).
-   * 끝은 React Flow 가 알리지만(`onSelectionEnd`), 손을 창 밖에서 떼거나 창이 포커스를 잃으면 그 알림이 안 올
-   * 수 있다 — 그대로 굳으면 클릭마다 React Flow 가 다시 스스로 고른다. 그래서 손을 뗀 모든 순간에 함께 내린다.
+   * §6 — 박스 선택 중에만 RF 가 노드를 고른다(`marquee`). `onSelectionEnd` 는 창 밖에서 떼거나 포커스를 잃으면 안 올 수 있어
+   * 손을 뗀 모든 순간에 함께 내린다(굳으면 클릭마다 RF 가 스스로 고른다).
    */
   const [marquee, setMarquee] = useState(false);
   useEffect(() => {

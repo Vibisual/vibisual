@@ -1,13 +1,5 @@
-// §5.5 #17-1 (판올림 번호 발급 대기) — IDE 창 도킹의 **순수 기하**.
-//
-// 종전 도킹은 "우측 한 곳 + 폭 하나"라 계산이 컴포넌트 안 몇 줄이면 끝났다. 네 변으로 넓히고
-// 같은 변에 여러 창을 이어 붙이게 되면서 좌표가 (변 × 스택 순서 × 반대편 도크) 의 함수가 됐다 —
-// `floatingWindowGeom` 선례대로 **window 바인딩과 분리한 순수 함수**로 모아 단위 테스트로 못 박는다.
-// 뷰포트는 전역 `window` 가 아니라 인자로 받는다(테스트에서 값만 바꿔 넣는다).
-//
-// (판올림 번호 발급 대기) **한 칸에 여러 창 — 언리얼 에디터식 탭 도킹**. 칸을 나누는 단위가
-// 창에서 **슬롯**으로 바뀌었다: 같은 변에서 `order` 가 같은 창들은 한 칸을 탭으로 겹쳐 쓴다.
-// 창이 여섯이어도 화면은 슬롯 수만큼만 잘리므로 "여러 개 띄우면 다 좁아진다"가 사라진다.
+// §5.5 #17-1 — IDE 창 도킹의 순수 기하((변 × 스택 순서 × 반대편 도크)의 함수, 뷰포트는 인자 — `floatingWindowGeom` 선례).
+// 화면을 나누는 단위는 슬롯이다(언리얼식 탭 도킹 — 같은 변 같은 `order` 창들은 한 칸을 탭으로 쓴다).
 
 import {
   WINDOW_PULL_OUT,
@@ -17,13 +9,7 @@ import {
   pullOutGhostDecision,
 } from '../../hooks/floatingWindowGeom.js';
 
-/**
- * IDE 창이 사는 겹침 층의 바닥. 창은 여기서부터 `IDE_MAX_PANES` 개까지 한 칸씩 올라간다(40~45).
- *
- * ⚠ 이 층은 **모달 층(z-50)보다 아래**여야 한다. 이 저장소에서 z-50 은 설정창·확인 대화상자·
- * 컨텍스트 메뉴가 사는 자리라, 창이 그 위로 올라가면 "설정창을 띄웠는데 창 뒤에 깔리는" 상태가 된다
- * (창이 하나였을 때는 z-50 동률 + DOM 순서로 우연히 가려졌던 문제라, 창이 여럿이 되며 드러났다).
- */
+/** IDE 창 겹침 층의 바닥(창마다 한 칸씩, 40~45). ⚠ 모달 층(z-50 — 설정창·확인 대화상자·컨텍스트 메뉴)보다 아래여야 한다(아니면 설정창이 창 뒤에 깔린다). */
 export const IDE_PANE_Z_BASE = 40;
 
 /**
@@ -68,10 +54,7 @@ export interface DockedPane {
    * **같은 값을 쓰는 창들은 한 칸을 탭으로 겹쳐 쓴다**(언리얼식 탭 도킹 — `dockSlotsOf`).
    */
   order: number;
-  /**
-   * 같은 변에서 이 창이 가져갈 **몫**(가중치, 기본 1). 종전에는 균등 분할 고정이라
-   * "위쪽 창은 길게, 아래쪽 로그 창은 짧게" 같은 배치를 만들 수 없었다.
-   */
+  /** 같은 변에서 이 창의 몫(가중치, 기본 1) — 창마다 길이를 달리 줄 수 있게. */
   span: number;
 }
 
@@ -106,23 +89,13 @@ export const IDE_DOCK = {
   SLOT_BAND_MIN_PX: 28,
   /** 그 띠의 상한(칸 길이 대비) — 띠가 칸을 다 먹어 **탭 자리(가운데)** 가 사라지지 않게. */
   SLOT_BAND_MAX_RATIO: 0.4,
-  /**
-   * **빈 변**의 도킹 버튼이 그 벽에서 떨어지는 거리 — 스냅 띠 대비.
-   *
-   * 종전 절반(0.5 → 0.25)이다. 버튼이 띠 한가운데에 서면 화면 안쪽으로 깊이 들어와, 끌고 온
-   * 창이 버튼을 가리고 "어느 벽에 붙는 버튼인가"가 손끝에서 읽히지 않았다. 벽에 바짝 붙여야
-   * 겨누는 자리와 붙는 자리가 같은 곳으로 보인다(사용자 지적 — "더 벽 라인 쪽으로").
-   */
+  /** 빈 변 도킹 버튼이 벽에서 떨어진 거리(스냅 띠 대비 비율). 벽에 바짝 — 띠 가운데면 끌고 온 창이 버튼을 가리고 어느 벽인지 안 읽힌다. */
   ZONE_EDGE_INSET_RATIO: 0.25,
   /** 그 거리의 상한(px) — 큰 화면에서도 버튼이 벽에서 멀어지지 않게. 위와 같은 까닭으로 절반(60 → 30). */
   ZONE_EDGE_INSET_MAX_PX: 30,
 } as const;
 
-/**
- * 안 붙어 있는(떠 있는) 창의 자리·크기. 종전에는 컴포넌트 로컬 상태로만 있어서 **언마운트마다
- * 초기화**됐다 — 접었다 펴거나 프로젝트 탭을 옮겼다 돌아오면 옮겨 둔 창이 화면 한가운데로
- * 되돌아갔다(사용자가 배치해 둔 것을 앱이 지우는 셈). 이제 슬롯이 들고 있는다.
- */
+/** 떠 있는 창의 자리·크기 — 슬롯이 든다(컴포넌트 로컬이면 언마운트마다 초기화돼 창이 한가운데로 돌아간다). */
 export interface FloatGeom {
   x: number;
   y: number;
@@ -143,12 +116,7 @@ export const IDE_FLOAT = {
   MAGNET_PX: 10,
   /** 바둑판·계단식 정렬에서 창 사이 여백(px). */
   TILE_GAP: 8,
-  /**
-   * (판올림 번호 발급 대기) 미는 창이 상대 창에게 남겨 주는 **여유**(px) — 자석 밀기의 사이 간격.
-   *
-   * `MAGNET_PX`(10)보다 **커야 한다**. 그래야 창끼리는 붙는 자석보다 **미는 자석이 먼저** 걸려,
-   * 선에 붙어 멎었다가 문턱을 넘기며 겹치는 종전 거동이 아예 생기지 않는다(사용자 지적 — "멈추지 말고").
-   */
+  /** 자석 밀기의 사이 간격(px). `MAGNET_PX`(10)보다 커야 미는 자석이 먼저 걸린다(작으면 붙어 멎었다가 겹친다). */
   PUSH_GAP: 12,
   /**
    * 밀린 창이 목표 자리로 따라붙는 비율(프레임당). 1 이면 순간이동이라 "밀렸다"로 읽히지 않는다 —
@@ -157,59 +125,23 @@ export const IDE_FLOAT = {
   PUSH_EASE: 0.3,
   /** 목표까지 이만큼 안이면 다 온 것으로 본다(px) — 소수점이 영영 수렴하며 rAF 가 안 멎는 것을 막는다. */
   PUSH_SETTLE_PX: 0.5,
-  /**
-   * 한 번 정해진 밀림 방향을 지키는 여유(px). 더 얕게 빠지는 축이 생겨도 이 차이 안에서는 갈아타지
-   * 않는다 — 축이 도중에 뒤집히면 밀리던 창이 손 앞에서 직각으로 튄다(끌던 사람이 가장 놀라는 순간).
-   */
+  /** 밀림 방향을 지키는 여유(px) — 이 안에서는 축을 안 갈아탄다(도중에 뒤집히면 창이 직각으로 튄다). */
   PUSH_KEEP_DIR_PX: 64,
-  /**
-   * 커서가 앱 창 밖으로 이만큼 더 나가야 "독립 창으로 꺼낸다"로 읽는다.
-   *
-   * §5.13 (S-3) — 수치는 공용 한 곳(`WINDOW_PULL_OUT`)에서 온다. 내부 앱 창도 같은 손짓으로
-   * 밖에 나가므로, 값이 두 벌이면 창 종류마다 다른 거리에서 반응한다.
-   */
+  /** 커서가 앱 창 밖으로 이만큼 더 나가야 꺼내기로 읽는다. §5.13 (S-3) — 값은 공용 `WINDOW_PULL_OUT`(내부 앱 창과 같은 거리). */
   POP_OUT_MARGIN: WINDOW_PULL_OUT.MARGIN,
-  /**
-   * 화면 끝에 **막혀** 더 나갈 수 없을 때 "밖으로 밀고 있다"로 읽어 주는 안쪽 띠(px).
-   *
-   * 단일 모니터에 앱이 최대화돼 있으면 커서는 뷰포트를 한 픽셀도 벗어나지 못한다 — 그 사람에게
-   * `POP_OUT_MARGIN` 은 영영 닿지 않는 문턱이라 끌어내기라는 손짓 자체가 없는 것과 같다.
-   */
+  /** 화면 끝에 막혔을 때 "밖으로 밀고 있다"로 읽는 안쪽 띠(px) — 최대화한 단일 모니터는 `POP_OUT_MARGIN` 에 닿을 수 없다. */
   POP_OUT_EDGE_PX: WINDOW_PULL_OUT.EDGE_PX,
   /** 그 띠에 이만큼 버티면 밖으로 나간 것과 **같이** 본다(ms). 스치기만 한 손은 걸리지 않게. */
   POP_OUT_EDGE_DWELL_MS: WINDOW_PULL_OUT.EDGE_DWELL_MS,
-  /**
-   * (판올림 번호 발급 대기) (H-6) **놓을 수 있는 자리를 이만큼 넘어서면** 가상 창 윤곽선을 켠다(px).
-   *
-   * 문턱을 뷰포트가 아니라 **클램프 한계**(`clampFloatGeom`)로 잡는 까닭: 창을 화면 오른쪽에
-   * 바짝 붙여 두는 것(80px 만 남기고 파킹)은 종전부터 정상 동작이라, 뷰포트를 기준으로 재면
-   * 그 평범한 손짓마다 윤곽선이 번쩍인다.
-   *
-   * §5.13 (S-10) — 내부 앱 창도 같은 선을 쓰므로 수치는 공용 한 곳(`WINDOW_PULL_OUT`)에서 온다.
-   */
+  /** (H-6) 놓을 수 있는 자리를 이만큼 넘으면 윤곽선을 켠다(px). 뷰포트가 아니라 `clampFloatGeom` 한계로 잰다(오른쪽 끝 파킹마다 번쩍이지 않게). §5.13 (S-10) — 값은 공용 `WINDOW_PULL_OUT`. */
   POP_OUT_GHOST_ENTER_PX: WINDOW_PULL_OUT.GHOST_ENTER_PX,
-  /**
-   * (H-6) 손을 뗐을 때 **그대로 내보낼** 문턱(px, 놓을 수 있는 자리 기준).
-   *
-   * 윤곽선이 뜨는 문턱(`POP_OUT_GHOST_ENTER_PX`=24)과 벌려 둔다: 창을 화면 끝에 바짝 붙여 두려다
-   * 몇 십 픽셀 더 간 손이 창을 밖으로 던지면 안 된다. 여기까지 끌었다면 "밖으로 뺀다" 말고 달리
-   * 읽을 여지가 없다. (H-7) 로 `popOutGhostDecision` 이 함께 쥐게 되면서 이 곳으로 왔다 —
-   * 선을 켜는 문턱과 무장 문턱이 떨어져 있으면 둘이 어긋나는지 한눈에 보이지 않는다.
-   */
+  /** (H-6) 손을 떼면 그대로 내보낼 문턱(px). 윤곽선 문턱(24)과 벌려 둔다 — 끝에 붙이려다 조금 더 간 손이 창을 던지면 안 된다. (H-7) 두 문턱은 한 곳에 둔다. */
   POP_OUT_GHOST_COMMIT_PX: WINDOW_PULL_OUT.GHOST_COMMIT_PX,
-  /**
-   * (H-6) 윤곽선이 **이미 떠 있을 때**의 가장자리 버팀(ms) — 밖으로 밀어냈다는 신호가 화면에
-   * 이미 있는데 `POP_OUT_EDGE_DWELL_MS` 를 처음부터 다시 기다릴 이유가 없다.
-   */
+  /** (H-6) 윤곽선이 이미 떠 있을 때의 가장자리 버팀(ms) — `POP_OUT_EDGE_DWELL_MS` 를 처음부터 다시 기다리지 않게. */
   POP_OUT_EDGE_DWELL_ARMED_MS: WINDOW_PULL_OUT.EDGE_DWELL_ARMED_MS,
 } as const;
 
-/**
- * 떠 있는 창을 **지금 뷰포트 안**으로 되돌린다.
- *
- * 창을 오른쪽 끝에 놓아 둔 채 앱 창을 줄이면 그 창은 화면 밖으로 나가고, 타이틀바가 안 보이니
- * 끌어 올 수도 없다(닫는 것 말고는 되찾을 길이 없다). 뷰포트가 바뀔 때마다 이 함수를 통과시킨다.
- */
+/** 떠 있는 창을 지금 뷰포트 안으로 되돌린다 — 앱 창을 줄여 밖으로 나간 창은 타이틀바가 안 보여 되찾을 수 없다. 뷰포트가 바뀔 때마다 부른다. */
 export function clampFloatGeom(geom: FloatGeom, vp: Viewport): FloatGeom {
   const w = Math.min(Math.max(geom.w, IDE_FLOAT.MIN_W), Math.max(1, vp.w));
   const h = Math.min(Math.max(geom.h, IDE_FLOAT.MIN_H), Math.max(1, vp.h - IDE_DOCK.HEADER_H));
@@ -252,12 +184,7 @@ export function snapDistance(side: IDEDockSide, vp: Viewport): number {
   return Math.max(IDE_DOCK.SNAP_MIN_PX, Math.round(base * IDE_DOCK.SNAP_RATIO));
 }
 
-/**
- * 도크 **슬롯** — 같은 변에서 `order` 가 같은 창들이 나눠 쓰는 한 칸(언리얼식 탭 도킹).
- *
- * 화면을 자르는 단위는 창이 아니라 이것이다. 그래서 창을 여섯 개 붙여도 슬롯이 둘이면
- * 화면은 둘로만 갈린다 — "여러 개 띄우면 전부 좁아진다"가 여기서 끊긴다.
- */
+/** 도크 슬롯 — 같은 변·같은 `order` 창들이 탭으로 나눠 쓰는 한 칸. 화면을 자르는 단위는 창이 아니라 슬롯이다. */
 export interface DockSlot {
   side: IDEDockSide;
   order: number;
@@ -315,13 +242,7 @@ function fitOpposite(a: number, b: number, total: number, keep: number): { a: nu
   return { a: Math.floor(a * ratio), b: Math.floor(b * ratio) };
 }
 
-/**
- * 붙어 있는 창들 → 각자의 자리 + 캔버스가 비워 줄 네 변 두께.
- *
- * 배치 규약(고전 도킹 모델): **좌·우는 헤더 아래 세로 전체**를 먹고, **상·하는 좌우 도크를 뺀 폭**을
- * 먹는다. 그래서 네 변에 동시에 붙여도 서로 겹치지 않는다. 같은 변의 **칸**들은 긴 축을 몫대로
- * 나누고, 한 칸에 겹친 창들은 **같은 자리**를 받는다(탭이라 한 번에 하나만 보인다).
- */
+/** 붙은 창들 → 각 자리 + 네 변 두께. 좌·우는 헤더 아래 세로 전체, 상·하는 좌우 도크를 뺀 폭(서로 안 겹친다). 칸은 긴 축을 몫대로, 한 칸의 창들은 같은 자리(탭). */
 export function computeDockLayout(panes: DockedPane[], vp: Viewport): DockLayout {
   const bySide: Record<IDEDockSide, DockedPane[]> = { left: [], right: [], top: [], bottom: [] };
   for (const p of panes) bySide[p.side].push(p);
@@ -383,12 +304,7 @@ function splitBySpan(total: number, spans: number[]): number[] {
   return spans.map((v) => Math.floor((total * (v > 0 ? v : 0)) / sum));
 }
 
-/**
- * 이웃한 두 칸 사이 손잡이를 끈 거리 → 두 칸의 새 몫(합은 그대로).
- *
- * 픽셀이 아니라 **몫**을 돌려주는 까닭은 그래야 창 크기가 바뀌어도 비율이 유지되기 때문이다.
- * 어느 칸도 `minSlot` 아래로는 내려가지 않는다 — 0 이 되면 그 창을 다시 잡을 수 없다.
- */
+/** 두 칸 사이 손잡이 끌기 → 새 몫(합 유지, 몫이라 창 크기가 바뀌어도 비율 유지). `minSlot` 아래로는 안 간다(0 이면 다시 못 잡는다). */
 export function splitSpansFromDrag(
   spanA: number,
   spanB: number,
@@ -448,11 +364,7 @@ export function slotBandPx(length: number): number {
   return Math.min(Math.max(byRatio, IDE_DOCK.SLOT_BAND_MIN_PX), length * IDE_DOCK.SLOT_BAND_MAX_RATIO);
 }
 
-/**
- * 이미 붙어 있는 **칸 위에서**의 판정 — 스택 축 앞/뒤 띠는 새 칸, 가운데는 탭 합류.
- * 새 칸을 못 만드는 상황(상한·너무 얇음)에서는 **탭으로 떨어진다** — 아무 일도 안 일어나는
- * 죽은 자리를 만들지 않는다(막힌 이유를 말하지 않는 무반응 ❌).
- */
+/** 붙은 칸 위 판정 — 스택 축 앞/뒤 띠는 새 칸, 가운데는 탭. 새 칸을 못 만들면 탭으로 떨어진다(죽은 자리 ❌). */
 function resolveSlotDrop(
   side: IDEDockSide,
   slots: DockSlot[],
@@ -487,12 +399,7 @@ export function dockSideDistance(side: IDEDockSide, cursor: { x: number; y: numb
   }
 }
 
-/**
- * 커서가 **스냅 폭 안에 든 변** 중 가장 가까운 것(없으면 null).
- *
- * `resolveDockDrop` ② 와 아래 (H-11) 벽 잠금이 같은 셈을 읽는다 — 두 곳에서 따로 재면
- * "잠갔다는 벽"과 "붙으려던 벽"이 어긋나 잠금이 헛돈다.
- */
+/** 스냅 폭 안의 가장 가까운 변(없으면 null). `resolveDockDrop` ② 와 (H-11) 벽 잠금이 같이 읽는다(따로 재면 잠금이 헛돈다). */
 export function nearestDockSide(cursor: { x: number; y: number }, vp: Viewport): IDEDockSide | null {
   let best: IDEDockSide | null = null;
   let bestDist = Number.POSITIVE_INFINITY;
@@ -508,15 +415,7 @@ export function nearestDockSide(cursor: { x: number; y: number }, vp: Viewport):
   return best;
 }
 
-/**
- * 커서 위치 → 도킹 자리(없으면 null).
- *
- * ① **이미 붙어 있는 칸 위**면 그 칸이 판정을 가져간다 — 가운데는 탭 합류, 스택 축 앞/뒤 띠는 새 칸.
- *    (종전에는 변에서 재는 거리 하나뿐이라, 넓은 도크 한가운데에 놓으면 아무 일도 안 일어났다.)
- * ② 그 밖이면 네 변 중 스냅 폭 안에 든 가장 가까운 변에 새 칸으로 붙는다.
- *
- * `docked` 에는 **끌고 있는 창 자신을 빼고** 넘긴다(자기 자리를 자기 기준으로 재면 안 된다).
- */
+/** 커서 → 도킹 자리(없으면 null). ① 붙은 칸 위면 그 칸이 판정(가운데 탭, 앞/뒤 띠 새 칸) ② 아니면 스냅 폭 안 가장 가까운 변에 새 칸. `docked` 에는 끄는 창 자신을 뺀다. */
 export function resolveDockDrop(
   cursor: { x: number; y: number },
   vp: Viewport,
@@ -603,13 +502,7 @@ export function previewDockRect(
   return computeDockLayout(next, vp).rects[PREVIEW_KEY] ?? null;
 }
 
-// ─── 도킹 십자 위젯 (언리얼 에디터의 방향 위젯) ───
-//
-// 종전에는 "가장자리 6~12% 안으로 들어가야 스냅"이라, 어디까지 밀어야 붙는지 손이 먼저 알아야 했다.
-// 언리얼은 끌기 시작하는 순간 **붙을 수 있는 자리를 버튼으로 보여 준다** — 겨눌 곳이 눈에 있으니
-// 처음 쓰는 사람도 헤매지 않는다. 우리도 같은 것을 그리되, **판정은 여전히 커서 위치**(`resolveDockDrop`)가
-// 한다. 그래서 버튼은 언제나 **자기 판정 영역의 한가운데**에 놓는다 — 겨눈 대로 앉는다는 보장이
-// 기하에서 나오지, 두 벌의 규칙이 우연히 맞아떨어져서가 아니다.
+// 도킹 십자 위젯(언리얼식) — 끌기 시작하면 붙을 자리를 버튼으로 보인다. 판정은 커서 위치(`resolveDockDrop`)라 버튼은 늘 자기 판정 영역 한가운데에 둔다.
 
 /** 십자 위젯 버튼 한 개. */
 export interface DockZoneButton {
@@ -628,12 +521,7 @@ function centeredRect(cx: number, cy: number, size = IDE_DOCK_ZONE_BTN): Rect {
   return { x: Math.round(cx - size / 2), y: Math.round(cy - size / 2), w: size, h: size };
 }
 
-/**
- * 지금 붙일 수 있는 자리 전부 — 드래그 중 화면에 그린다.
- *
- * 붙은 칸이 있는 변은 그 칸 위에 (앞 / 탭 / 뒤) 세 버튼이 서고, 빈 변은 그 벽에 바짝 붙어
- * 버튼 하나가 선다(긴 축으로는 가운데). 못 붙이는 자리는 **애초에 목록에 없다**(눌러도 안 되는 버튼 ❌).
- */
+/** 드래그 중 그릴 붙일 자리 전부 — 붙은 칸 위엔 (앞 / 탭 / 뒤) 셋, 빈 변엔 벽에 붙은 하나. 못 붙이는 자리는 목록에 없다. */
 export function dockZoneButtons(vp: Viewport, docked: DockedPane[]): DockZoneButton[] {
   const out: DockZoneButton[] = [];
   const layout = computeDockLayout(docked, vp);
@@ -671,14 +559,7 @@ export function dockZoneButtons(vp: Viewport, docked: DockedPane[]): DockZoneBut
   return out;
 }
 
-/**
- * (판올림 번호 발급 대기) 커서가 앱 창 **밖으로** 나갔는가 — 그 자리에서 손을 떼면 이 창은
- * 앱 안이 아니라 **독립 OS 창**으로 빠진다(§5.5 #17-6 오버레이 창).
- *
- * 여유(margin)를 두는 까닭: 0 이면 창을 화면 가장자리까지 끌기만 해도 튀어나가고, 너무 크면
- * 모니터가 하나이고 앱이 최대화된 사용자는 커서를 그만큼 밖으로 낼 수 없어 손이 닿지 않는다
- * (그 경우를 위해 붙이기 메뉴에 같은 일을 하는 손잡이를 따로 둔다).
- */
+/** 커서가 앱 창 밖인가(놓으면 독립 OS 창, §5.5 #17-6). margin 0 이면 가장자리만 가도 튀고, 크면 최대화 단일 모니터에서 닿지 않는다(붙이기 메뉴에 같은 손잡이). */
 export function isOutsideViewport(
   cursor: { x: number; y: number },
   vp: Viewport,
@@ -690,16 +571,8 @@ export function isOutsideViewport(
 }
 
 /**
- * (판올림 번호 발급 대기) 커서가 뷰포트 **가장자리에 막혀** 있는가 — 밖으로 더 밀고 싶어도
- * 화면이 없어서 못 미는 자리.
- *
- * 단일 모니터에 앱을 최대화해 쓰는 사람은 커서를 앱 밖으로 낼 수 없다. 그에게는
- * `isOutsideViewport` 가 영영 참이 되지 않아 "끌어내면 독립 창"이라는 손짓이 **없는 기능**과
- * 같았다. 가장자리에 닿은 채 잠깐 버티는 것을 같은 뜻으로 읽어, 화면 수와 창 상태에 관계없이
- * 같은 손짓이 닿게 한다(무장 여부는 부르는 쪽이 시간으로 가른다 — 이 함수는 자리만 본다).
- *
- * 오른쪽·아래 경계에서 `-1` 을 빼는 까닭: 브라우저가 주는 `clientX/Y` 의 최대값은 `w-1`/`h-1`
- * 이라, `w` 를 그대로 견주면 끝까지 밀어도 띠 안에 들어오지 않는다.
+ * 커서가 뷰포트 가장자리에 막혔는가(최대화 단일 모니터용 — 무장 시간은 부르는 쪽이 잰다).
+ * 오른쪽·아래는 `-1`: `clientX/Y` 최대값이 `w-1`/`h-1` 이라 `w` 와 견주면 끝까지 밀어도 띠에 안 든다.
  */
 export function isPinnedToViewportEdge(
   cursor: { x: number; y: number },
@@ -710,16 +583,7 @@ export function isPinnedToViewportEdge(
 }
 
 /**
- * (판올림 번호 발급 대기) (H-14) **선이 창이 되는 그 사각형** — 밖에서 끌려 들어온 창이 앱 안에
- * 설 자리를, 방금까지 화면에 떠 있던 윤곽선과 **한 픽셀도 다르지 않게** 낸다.
- *
- * (H-12) 의 윤곽선은 `밖의 창 크기` 그대로를 `커서 - 잡은 지점` 에 그려 두었다. 받는 쪽이 그
- * 값을 다시 짓지 않고 이 함수 하나를 읽어야 선과 창이 어긋나지 않는다 — 어긋나면 사용자에게는
- * 창이 한 번 튀는 것으로 보인다.
- *
- * `null` 은 "이 값으로는 자리를 못 낸다"는 뜻이다(커서가 안 넘어왔거나 이 창 밖, 또는 크기가
- * 없다). 그때는 종전대로 첫 이동이 자리를 잡는다.
- *
+ * (H-14) 선이 창이 되는 사각형 — 들어온 창 자리를 방금 윤곽선과 똑같이 낸다(다시 지으면 창이 튄다). `null` = 못 낸다(첫 이동이 잡는다).
  * @param screenOrigin 이 창 콘텐츠의 좌상단 화면 좌표(`window.screenX/Y`) — 커서는 화면 좌표로 온다.
  */
 export function resumedFloatGeom(
@@ -747,14 +611,7 @@ export function resumedFloatGeom(
   }, vp);
 }
 
-/**
- * (판올림 번호 발급 대기) (H-6) **끄는 동안**의 자리 — 크기만 정상화하고 좌표는 가두지 않는다.
- *
- * `clampFloatGeom` 은 **결과**를 위한 안전망이다(창을 화면 밖에 두고 잃지 않게). 그것을 끄는
- * **과정**에 걸어 두면 커서는 계속 가는데 창은 `KEEP_VISIBLE` 선에서 멈춰, 밖으로 빼려는 손에
- * 벽으로 잡힌다 — 그 벽을 넘는 순간 창이 독립 창으로 사라지므로 "버벅이다 튄다"가 된다.
- * 안전망은 손을 뗄 때 한 번만 건다.
- */
+/** (H-6) 끄는 동안의 자리 — 크기만 정상화, 좌표는 안 가둔다. `clampFloatGeom` 은 손을 뗄 때 한 번만(끄는 중에 걸면 `KEEP_VISIBLE` 에서 멎었다 튄다). */
 export function dragFloatGeom(geom: FloatGeom, vp: Viewport): FloatGeom {
   return {
     x: geom.x,
@@ -764,25 +621,13 @@ export function dragFloatGeom(geom: FloatGeom, vp: Viewport): FloatGeom {
   };
 }
 
-/**
- * (H-6) 이 자리가 **놓을 수 있는 자리**를 몇 px 넘어섰는가 — 두 축 중 큰 쪽(0 이면 안 넘었다).
- *
- * "밖으로 빼고 있다"의 기준이다. 뷰포트 밖으로 얼마나 나갔는지가 아니라 `clampFloatGeom` 이
- * 허락하는 자리에서 얼마나 더 갔는지를 재야, 화면 가장자리에 창을 붙여 두는 평범한 손짓과
- * 밖으로 빼내려는 손짓이 갈린다.
- */
+/** (H-6) 놓을 수 있는 자리(`clampFloatGeom`)를 넘어선 px(두 축 중 큰 쪽) — 뷰포트 기준이면 가장자리 파킹과 빼내기가 안 갈린다. */
 export function overflowPastClamp(geom: FloatGeom, vp: Viewport): number {
   const c = clampFloatGeom(geom, vp);
   return Math.max(Math.abs(geom.x - c.x), Math.abs(geom.y - c.y));
 }
 
-/**
- * (H-6) 창이 앱 화면과 **더는 겹치지 않는가** = 사용자가 완전히 빼냈다.
- *
- * 종전 이탈 판정은 커서 기준 둘(밖 `POP_OUT_MARGIN` · 가장자리 `POP_OUT_EDGE_PX` 버팀)뿐이라,
- * 최대화된 단일 모니터에서는 **기다리는 것** 말고 길이 없었다. 사용자가 실제로 한 일(창을
- * 밖으로 밀어냈다)을 그대로 읽는 판정을 하나 더 둔다.
- */
+/** (H-6) 창이 앱 화면과 더는 안 겹치나 = 완전히 빼냈다 — 최대화 단일 모니터에서 기다리지 않고 나가는 길. */
 export function isPulledFullyOut(geom: FloatGeom, vp: Viewport): boolean {
   // §5.13 (S-10) — 내부 앱 창도 같은 판정을 쓴다(공용 한 곳).
   return isWindowPulledFullyOut(geom, vp);
@@ -792,31 +637,13 @@ export function isPulledFullyOut(geom: FloatGeom, vp: Viewport): boolean {
 export interface PopOutGhostDecision {
   show: boolean;
   armed: boolean;
-  /**
-   * (H-22) 이번 판정에서 커서가 **앱 밖**이었는가 — 부르는 쪽이 이 한 비트를 걸쇠로 물어 둔다.
-   *
-   * 판정 자체는 기억을 갖지 않는다(같은 입력이면 같은 답이어야 테스트가 값을 고정할 수 있다).
-   * 기억은 한 판(드래그) 동안만 사는 것이므로 그 판을 쥔 쪽이 들고, 다음 프레임에 `escaped` 로
-   * 되먹인다.
-   */
+  /** (H-22) 이번 판정에서 커서가 앱 밖이었나 — 판정은 기억이 없고(같은 입력 = 같은 답), 판을 쥔 쪽이 걸쇠로 들고 다음 프레임 `escaped` 로 되먹인다. */
   outside: boolean;
 }
 
 /**
- * (판올림 번호 발급 대기) (H-7) **윤곽선을 켜는 이유는 셋이고, 판정은 한 곳이다.**
- *
- * (H-6) 은 이유를 둘만 알았다 — 창이 `clampFloatGeom` 한계를 `POP_OUT_GHOST_ENTER_PX` 넘게
- * 벗어났거나, 가장자리에 막힌 채 버티고 있거나. 그런데 **창 자리로만 재면 잡은 지점에 따라
- * 선이 아예 뜨지 않는다**: 창 좌상단은 `cursor - grab` 이므로, 타이틀바를 가운데쯤 잡으면
- * (`grab.x > KEEP_VISIBLE.x`=80) 커서가 오른쪽 변을 넘어 나가는 순간에도 창 좌상단은 아직
- * 클램프 한계 안이다. 실제로 오른쪽으로 뺄 때는 `grab.x < 80`, 왼쪽으로 뺄 때는
- * `w - grab.x < 80` 인 손만 선을 봤다 — 나머지 손에게는 (H-6) ⑤ 가 지키기로 한 "빈 화면 없는
- * 인계"가 **인계할 선 자체가 없는** 상태로 돌아갔다(창이 커서에서 사라진다).
- *
- * 그래서 이유를 하나 더 둔다: **커서가 앱 창 밖으로 나갔다.** 이 신호는 잡은 지점과 무관하고,
- * 창을 화면 가장자리에 파킹하는 평범한 손짓과도 섞이지 않는다(파킹하는 손은 앱 안에 있다) —
- * (H-6) 이 문턱을 뷰포트가 아니라 클램프 한계로 잡은 그 이유를 그대로 지킨다. 나가는 판정은
- * 커서가 `POP_OUT_MARGIN`(24px) 더 가야 서므로, 그 사이가 선이 먼저 서 있을 구간이 된다.
+ * (H-7) 윤곽선을 켜는 이유 셋(판정 한 곳): ① 클램프 한계를 `POP_OUT_GHOST_ENTER_PX` 넘음 ② 가장자리 버팀 ③ 커서가 앱 밖.
+ * ③ 이 없으면 타이틀바 가운데를 잡은 손(`grab.x > 80`)은 선 없이 창이 사라진다. ③ 은 파킹과 안 섞이고 나감(`POP_OUT_MARGIN` 24px)보다 먼저 선다.
  */
 export function popOutGhostDecision(input: {
   /** 가두지 않은 **지금** 창 자리(`dragFloatGeom` 결과). */
@@ -826,37 +653,12 @@ export function popOutGhostDecision(input: {
   vp: Viewport;
   /** 가장자리 버팀이 선을 띄울 만큼 진행됐는가(시간 판정은 부르는 쪽 몫). */
   edgeDwell: boolean;
-  /**
-   * (H-17) 가장자리 버팀을 **끝까지** 채웠는가 — 종전에는 이 순간이 곧 "나간다"였다.
-   *
-   * 이제 나가는 일은 손을 뗄 때만 일어나므로, 그 순간이 하는 일은 선을 밝히는 것뿐이다.
-   * 시간을 재는 것은 여전히 부르는 쪽 몫이고, 여기서는 그 결과만 읽는다.
-   */
+  /** (H-17) 가장자리 버팀을 다 채웠나 — 나감은 뗄 때만이라 이건 선을 밝히기만 한다(시간은 부르는 쪽이 잰다). */
   edgeArmed?: boolean;
-  /**
-   * (H-22) 이번 판에서 커서가 **한 번이라도 앱 밖으로 나갔는가** — 나갔으면 도로 들어와도
-   * 선은 서 있는다.
-   *
-   * (H-17) 로 "창이 바뀌는 자리는 뗌 하나"가 됐는데도 **선이 꺼지는 자리는 여전히 여럿**이었다:
-   * 밖으로 나갔다 도로 들어오면 켤 이유가 사라져 선이 꺼지고, 숨어 있던 본체가 그 자리에서
-   * 다시 나타났다(사용자 지시 — "안으로 다시 들어오면 이게 또 기존 ide창이 보인다고 마우스를
-   * 때기 전까지 계속 가상창 유지하란말야"). 한 손짓 안에서 보이는 그림이 바뀌지 않으려면,
-   * **밖으로 나간 판은 그 판이 끝날 때까지 선으로 간다**.
-   *
-   * 무장(`armed`)은 걸지 않는다 — 도로 들어와서 놓는 손은 "여기 놓겠다"이지 "밖으로
-   * 빼겠다"가 아니다. 선의 밝기가 그 차이를 미리 말한다.
-   */
+  /** (H-22) 이번 판에 커서가 한 번이라도 앱 밖에 나갔나 — 나갔으면 들어와도 판이 끝날 때까지 선(아니면 숨은 본체가 나타난다). 무장(`armed`)은 안 건다 — 들어와 놓는 손은 빼는 손이 아니다. */
   escaped?: boolean;
 }): PopOutGhostDecision {
-  // §5.13 (S-10) — 판정 자체는 공용 한 곳(`pullOutGhostDecision`)이 쥔다. 내부 앱 창도 같은 손짓으로
-  //   밖에 나가므로, 여기서 따로 재면 두 창이 다른 자리에서 선을 켜기 시작한다. IDE 에 고유한 것은
-  //   "놓을 수 있는 자리"(`clampFloatGeom`) 하나라, 그 초과량만 여기서 재서 넘긴다.
-  //
-  // 커서가 앱 밖이면 **무장**이다 — 그 자리에서 손을 떼는 것은 "여기 놓겠다"는 뜻 말고 없다.
-  // (H-17) 종전에 **그 자리에서 곧바로 나가던** 두 이유(창을 완전히 밀어냈다 · 가장자리를 다
-  //   버텼다)는 이제 나감이 아니라 무장이다. 판정을 지우지 않고 뜻만 옮긴다 — 손짓은 그대로이고
-  //   달라지는 것은 "언제 확정되는가" 하나뿐이어야 한다(사용자 지시 "마우스 놓는 순간").
-  // (H-22) 한 번 나간 판은 도로 들어와도 선으로 간다 — 꺼지는 자리는 뗌 하나뿐이어야 한다.
+  // §5.13 (S-10) — 판정은 공용 `pullOutGhostDecision`(내부 앱 창과 같게), IDE 고유는 `clampFloatGeom` 초과량뿐. 커서 밖·(H-17) 밀어냄·버팀은 무장(확정은 놓을 때), (H-22) 나간 판은 끝까지 선.
   return pullOutGhostDecision({
     beyond: overflowPastClamp(input.geom, input.vp),
     fullyOut: isPulledFullyOut(input.geom, input.vp),
@@ -896,17 +698,8 @@ export interface DockEntryLock {
 }
 
 /**
- * (판올림 번호 발급 대기) (H-11) **돌아온 그 순간의 벽 붙이기를 잠근다.**
- *
- * 되돌아오는 판정(H-4 ④)은 앱 경계에서 48px 안쪽에서 서는데, 그 48px 은 어느 변에서 재도
- * 도킹 스냅 폭(`snapDistance` — 화면의 12%, 최소 120px) **한복판**이다. 그래서 창이 앱 안에
- * 다시 서는 첫 프레임에 이미 그 벽의 파란 미리보기가 떠 있고, 들여놓자마자 손을 떼면 되돌아온
- * 창이 곧바로 벽에 붙는다 — 밖에서 안으로 들여놓는 손짓은 "여기 놓겠다"이지 "이 벽에
- * 붙이겠다"가 아니다(사용자 보고 — "나갔다 들어왔다 하는 그 순간 해당 벽에 붙이는 이벤트를
- * 나중에 하게 해").
- *
- * 잠그는 것은 **들어온 그 벽 하나**다. 네 변을 통째로 막으면 돌아오자마자 다른 벽에 붙이려는
- * 손까지 함께 막히고, 그건 사용자가 겪은 문제가 아니다.
+ * (H-11) 돌아온 순간의 벽 붙이기를 잠근다 — 되돌아옴(H-4 ④)의 48px 이 스냅 폭(`snapDistance` 12%, 최소 120px) 한복판이라 들여놓자마자 떼면 벽에 붙는다.
+ * 잠그는 것은 들어온 그 벽 하나다(네 변을 막으면 다른 벽에 붙이려는 손까지 막힌다).
  */
 export function beginDockEntryLock(
   cursor: { x: number; y: number },
@@ -920,16 +713,8 @@ export function beginDockEntryLock(
 }
 
 /**
- * (H-11) 잠금을 한 프레임 진행시킨다 — `null` 이 돌아오면 **풀렸다**(그 뒤로는 다시 걸리지 않는다).
- *
- * 푸는 이유는 둘이고, 둘 다 "이제는 붙이려는 손"이라고 읽을 수 있는 것뿐이다.
- * ① **안으로 들어왔다** — 그 벽의 스냅 띠를 벗어났다. 다시 그 벽으로 가는 것은 밖에서 들어온
- *    손짓이 아니라 붙이려는 손짓이다.
- * ② **그 자리에서 버텼다** — 띠 안에 `DWELL_MS` 동안 머물렀다. 끌고 지나가는 손과 갈리므로,
- *    좁은 화면처럼 띠가 안쪽까지 덮는 판에서도 붙이는 길이 막히지 않는다.
- *
- * 커서가 다시 **밖으로** 나가면(거리 < 0) 잠금은 그대로 둔다 — 나가는 중인 손이고, 그 판정은
- * 꺼내기(H-6·H-7)가 쥔다.
+ * (H-11) 잠금을 한 프레임 진행(`null` = 풀림, 다시 안 걸림). 풀림: ① 그 벽 스냅 띠를 벗어남 ② 띠 안에서 `DWELL_MS` 버팀(좁은 화면에서도 붙일 길).
+ * 다시 밖으로 나가면(거리 < 0) 잠금 유지 — 그건 꺼내기(H-6·H-7) 몫.
  */
 export function stepDockEntryLock(
   lock: DockEntryLock | null,
@@ -979,12 +764,7 @@ function nearestLine(edges: number[], lines: number[], threshold: number): { lin
   return best;
 }
 
-/**
- * 옮기는 중인 창을 **다른 창·도크·화면 가장자리에 딱 붙인다**(창 관리자 관용 동작).
- *
- * 손으로 픽셀을 맞추면 늘 1~2px 어긋나 두 창 사이에 실금이 남는다. 10px 안이면 선을 맞춰 주고,
- * 맞춘 선을 함께 돌려줘 화면에 안내선으로 보여 준다 — 왜 갑자기 창이 튀었는지 알 수 있게.
- */
+/** 옮기는 창을 다른 창·도크·가장자리에 10px 안이면 붙이고(손으론 1~2px 실금이 남는다), 맞춘 선을 안내선으로 돌려준다. */
 export function magnetFloatGeom(geom: FloatGeom, targets: Rect[], vp: Viewport): MagnetResult {
   const threshold = IDE_FLOAT.MAGNET_PX;
   const bandTop = IDE_DOCK.HEADER_H;
@@ -1009,10 +789,7 @@ export function magnetFloatGeom(geom: FloatGeom, targets: Rect[], vp: Viewport):
 
 // ─── 자석 밀기 — 창끼리 부딪혀도 멈추지 않는다 ───
 
-/**
- * (판올림 번호 발급 대기) 밀려나는 방향. **한 판 동안 유지**한다 — 더 얕게 빠지는 축이 생겼다고
- * 도중에 갈아타면 밀리던 창이 손 앞에서 직각으로 튄다(끄는 사람이 가장 놀라는 순간).
- */
+/** 밀려나는 방향 — 한 판 동안 유지한다(도중에 축을 바꾸면 창이 직각으로 튄다). */
 export type FloatPushDir = 'left' | 'right' | 'up' | 'down';
 
 /** 밀기 계산에 넣는 창 하나 — 누구인지와 **지금** 자리. */
@@ -1050,12 +827,7 @@ function shoveFloatGeom(target: FloatGeom, dir: FloatPushDir, depth: number): Fl
   }
 }
 
-/**
- * 미는 창 하나에 대해 이 창이 **어디로 얼마나** 빠져야 하는가 — 안 걸리면 null.
- *
- * 축은 `가장 얕게 빠지는 쪽`이다(옆에서 밀면 옆으로, 위에서 밀면 위아래로 — 손이 민 방향과 같다).
- * `prefer` 가 있으면 그 축을 지킨다 — 더 나은 축이 생겨도 `PUSH_KEEP_DIR_PX` 안에서는 갈아타지 않는다.
- */
+/** 미는 창 하나에 대해 이 창이 어디로 얼마나 빠지나(안 걸리면 null). 축은 가장 얕게 빠지는 쪽(손이 민 방향), `prefer` 가 있으면 `PUSH_KEEP_DIR_PX` 안에서는 그 축을 지킨다. */
 function resolveFloatPush(
   target: FloatGeom,
   pusher: Rect,
@@ -1075,17 +847,8 @@ function resolveFloatPush(
 }
 
 /**
- * (판올림 번호 발급 대기) **미는 창 → 밀려나는 창들.** 종전 자석(`magnetFloatGeom`)이 선에 붙여
- * **멈춰 세우던** 자리를, 상대를 밀어 **계속 가게** 하는 물리로 바꾼다.
- *
- * - 여유(`gap`)까지 먹고 겹친 창만 민다 — 딱 붙이지 않아 두 창의 테두리가 각각 보인다.
- * - **사슬**: 밀려난 창은 그 자신이 미는 쪽이 되어 다음 창을 민다(창이 셋이어도 줄줄이 밀린다).
- * - **되밀림 금지**: 자기를 민 창(또는 그보다 뒤 사슬)에게는 밀리지 않는다 — 되밀리면 두 창이
- *   서로를 밀며 제자리에서 떤다.
- * - 밀린 자리는 `clampFloatGeom` 안이라 화면 밖으로 창을 잃지 않는다. 더 갈 데가 없으면 **거기서
- *   버틴다** — 그래도 미는 창은 멎지 않는다(겹칠 뿐이다). "멈추지 말라"가 이 규칙이다.
- *
- * 뷰포트는 인자다(전역 `window` 참조 ❌ — 이 모듈의 규약). 순수 함수라 세 OS 에서 같은 값이 나온다.
+ * 미는 창 → 밀려나는 창들(멈춰 세우지 않고 민다). `gap` 까지 겹친 창만, 밀린 창이 다음을 민다(사슬), 자기를 민 사슬엔 안 밀린다(떨림 방지).
+ * 밀린 자리는 `clampFloatGeom` 안 — 막히면 버티고 미는 창은 겹칠 뿐 안 멎는다.
  */
 export function pushFloatGeoms(
   mover: FloatGeom,
@@ -1135,10 +898,7 @@ export function pushFloatGeoms(
   return { geoms, dirs };
 }
 
-/**
- * 밀림 한 프레임 — 지금 보이는 값에서 목표로 `PUSH_EASE` 만큼 다가간다(0 이면 아직 멀었다는 뜻이 아니라
- * **다 왔다**는 뜻으로 `done` 을 함께 돌려준다). 이 지연이 "자석처럼 밀린다"의 실체다.
- */
+/** 밀림 한 프레임 — 목표로 `PUSH_EASE` 만큼 다가간다(다 왔으면 `done`). 이 지연이 자석처럼 밀리는 실체다. */
 export function easeFloatPushOffset(
   now: { dx: number; dy: number },
   want: { dx: number; dy: number },
@@ -1211,16 +971,7 @@ export interface DockPushResult {
   opposite: { side: IDEDockSide; size: number } | null;
 }
 
-/**
- * (판올림 번호 발급 대기) §5.5 #17-1 — 도크 손잡이를 끝까지 밀면 **마주 보는 도크가 밀려난다.**
- *
- * 종전(`clampDockSize`)에는 "반대편 도크 + 캔버스 최소치"에서 손잡이가 **그대로 멎었다** — 화면을 다
- * 쓰고 있는데도 더 못 넓히는 이유가 화면에 없어서, 끄는 사람에게는 손잡이가 고장 난 것처럼 읽혔다.
- * 이제 그 문턱을 넘기면 반대편이 자기 하한(`MIN_SIZE`)까지 **양보한다**. 창끼리 밀리는 것(`pushFloatGeoms`)과
- * 같은 규칙이다 — 부딪히면 멈추는 것이 아니라 상대가 비켜 준다.
- *
- * **캔버스 여유(`KEEP_CANVAS`)는 끝까지 지킨다** — 밀기는 남의 자리를 얻는 일이지 캔버스를 없애는 일이 아니다.
- */
+/** §5.5 #17-1 — 도크 손잡이를 끝까지 밀면 마주 보는 도크가 `MIN_SIZE` 까지 비켜 준다(`pushFloatGeoms` 와 같은 규칙 — 멎으면 고장으로 읽힌다). 캔버스 여유(`KEEP_CANVAS`)는 끝까지 지킨다. */
 export function pushDockSize(side: IDEDockSide, wanted: number, vp: Viewport, docked: DockedPane[]): DockPushResult {
   const opp = OPPOSITE_DOCK_SIDE[side];
   const other = dockedThicknessOf(docked.filter((p) => p.side !== side), opp);
@@ -1266,13 +1017,7 @@ export type FloatResizeEdge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 export const FLOAT_RESIZE_EDGES: readonly FloatResizeEdge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const;
 
-/**
- * 손잡이를 끈 거리 → 새 자리·크기.
- *
- * 위/왼쪽을 끌면 **좌표도 함께** 움직여야 반대편 모서리가 제자리에 남는다(그러지 않으면 창이
- * 커지면서 통째로 미끄러진다). 하한에 부딪히면 좌표도 거기서 멈춘다 — 크기는 안 줄어드는데
- * 창만 계속 밀려가는 어긋남을 막는다.
- */
+/** 손잡이 끌기 → 새 자리·크기. 위/왼쪽은 좌표도 함께 옮겨 반대 모서리를 고정하고, 하한에 닿으면 좌표도 멈춘다(창만 밀려가지 않게). */
 export function resizeFloatGeom(start: FloatGeom, edge: FloatResizeEdge, dx: number, dy: number): FloatGeom {
   const minW = IDE_FLOAT.MIN_W;
   const minH = IDE_FLOAT.MIN_H;

@@ -1,18 +1,7 @@
 /**
- * §5.7 #26 — **워크트리 안에서 만든 에이전트는 워크트리 안에서 돈다.**
- *
- * 사용자 요구: "워크트리 만들면 그건 거기 내부에서 독립적으로 돌아가게 하고 싶다."
- *
- * 그 약속이 지켜지는지는 결국 사슬 하나에 달려 있다 —
- *   생성(`createCustomAgent(project=워크트리명)`) → `sessionCwds[세션] = 워크트리 경로`
- *   → `getAgentProjectName/Path(에이전트)` → **스폰 cwd**(`index.ts` 의 `setProjectResolver`)
- *   → 서브에이전트 스트림 저장 위치 · 스킬 스캔 경로.
- * 이 사슬 중 한 칸이라도 부모로 접히면 사용자는 워크트리 안에서 명령을 보냈는데 **부모 트리가**
- * 고쳐진다 — 격리를 쓰는 이유가 통째로 사라지는 사고라 여기서 못 박는다.
- *
- * 동시에 **일부러 부모로 접는 축**(대화·명령 이력의 탭 귀속)도 함께 고정한다. 그쪽까지 워크트리로
- * 갈라 두면 워크트리를 정리하는 순간 그 대화가 통째로 사라지기 때문이다(`getProjectSessionIds` 주석).
- * 둘은 반대 방향이지만 **둘 다 의도된 것**이라, 한쪽을 고치다 다른 쪽을 뒤집지 않도록 같은 파일에 둔다.
+ * §5.7 #26 — 워크트리에서 만든 에이전트는 워크트리에서 돈다: 생성 → `sessionCwds` → `getAgentProjectName/Path` → 스폰 cwd(`setProjectResolver`) → 스트림·스킬 경로.
+ * 한 칸이라도 부모로 접히면 워크트리 명령이 부모 트리를 고친다. 반대로 대화·명령 이력의 탭 귀속은 일부러 부모로 접는다(워크트리를 정리하면 대화가 사라지므로 — `getProjectSessionIds`).
+ * 둘 다 의도라 한 파일에서 고정한다.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -30,7 +19,7 @@ const WT_NAME = 'wt-iso';
 beforeEach(() => {
   parentRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vibi-wtiso-')));
   parentName = path.basename(parentRoot);
-  // 살아있는 워크트리 = `.git` 이 있는 `<parent>/.claude/worktrees/<이름>` (v3.71 판정 규칙).
+  // 살아있는 워크트리 = `.git` 이 있는 `<parent>/.claude/worktrees/<이름>`.
   wtPath = path.join(parentRoot, '.claude', 'worktrees', WT_NAME);
   fs.mkdirSync(wtPath, { recursive: true });
   fs.writeFileSync(path.join(wtPath, '.git'), `gitdir: ${parentRoot}/.git/worktrees/${WT_NAME}\n`, 'utf8');

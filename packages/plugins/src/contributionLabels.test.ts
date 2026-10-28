@@ -1,17 +1,6 @@
 /**
- * §5.11 v4.65 — **기여 칩 라벨이 실제로 번역돼 있는가.**
- *
- * `agentPrompt` 슬롯을 v4.57 에 개통하고 v4.59 에 111종 전부가 그것을 선언했는데, Plugins 창이 그리는
- * 라벨 키(`panel.plugins.contribution.agentPrompt`)는 **12로케일 어디에도 없었다.** i18next 는 없는 키를
- * 키 문자열 그대로 그리므로 창에는 `panel.plugins.contribution.agentPrompt` 가 떠 있었고, 그 상태로
- * 여섯 판(v4.57~v4.63)이 지나갔다 — 화면을 열어 본 사람이 없었다는 뜻이 아니라, **아무 검사도 이 자리를
- * 안 보고 있었다**는 뜻이다(`pluginCoverage` 는 카드 문자열만 본다).
- *
- * 그래서 여기서 못 박는다: **호스트가 연 기여 종류는 전부 12로케일에 라벨이 있어야 한다.**
- * 슬롯을 새로 열면(= `PLUGIN_SUPPORTED_CONTRIBUTIONS` 에 한 줄 추가) 이 검사가 라벨을 요구한다.
- *
- * 로케일 JSON 을 **plugins 패키지에서** 읽는 이유는 `renderAll.test.tsx`·`deadStrings.test.tsx` 와 같다 —
- * 클라 빌드는 테스트까지 컴파일하는데 거기에는 Node 타입이 없어 `node:fs` 를 쓸 수 없다.
+ * §5.11 — 호스트가 연 기여 종류(`PLUGIN_SUPPORTED_CONTRIBUTIONS`)는 전부 12로케일에 칩 라벨이 있어야 한다(i18next 는 없는 키를 그대로 그리고 `pluginCoverage` 는 카드 문자열만 본다).
+ * 로케일 JSON 은 plugins 패키지에서 읽는다 — 클라 빌드는 테스트까지 컴파일하는데 Node 타입이 없어 `node:fs` 를 못 쓴다.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -64,16 +53,8 @@ describe('기여 칩 라벨 로케일 커버리지', () => {
 });
 
 /**
- * **데이터 축 칩 라벨** — 바로 위 검사와 같은 사고가 한 줄 아래에서 그대로 재발했다.
- *
- * 창의 "켜면 뭘 보게 되는가"(`PluginUsage`)는 칩을 두 줄 그린다 — "어디에 보이나"(`contribution.*`)와
- * **"무엇을 읽나"(`need.*`)**. 위 줄은 v4.65 에 이 파일이 생기며 잠갔는데 아래 줄은 아무도 안 보고 있었고,
- * 그래서 v4.65 에 새로 뚫린 축 `pluginFacts` 는 **12로케일 어디에도 라벨이 없었다.** i18next 는 없는 키를
- * 키 문자열 그대로 그리므로, `ssot-drift` 를 고른 사용자는 칩 자리에서
- * `panel.plugins.need.pluginFacts` 를 읽고 있었다.
- *
- * 검사 대상은 **카드가 실제로 선언한 축**이다(union 전체가 아니라). 아무도 안 읽는 축은 화면에 뜨지 않으니
- * 라벨을 요구할 이유가 없고, 어떤 카드가 그 축을 읽기 시작하는 순간 이 검사가 라벨을 요구한다.
+ * 데이터 축 칩 라벨 — 창의 `PluginUsage` 는 "어디에 보이나"(`contribution.*`)와 "무엇을 읽나"(`need.*`) 두 줄을 그린다. 없으면 `panel.plugins.need.<축>` 키가 그대로 뜬다.
+ * 대상은 카드가 실제로 선언한 축만이다(union 전체 ❌) — 아무도 안 읽는 축은 화면에 안 뜨고, 읽기 시작하는 순간 라벨을 요구한다.
  */
 describe('데이터 축 칩 라벨 로케일 커버리지', () => {
   const axes = [...new Set(PLUGIN_CLIENT_MODULES.flatMap((m) => m.needs ?? []))].sort();
@@ -101,16 +82,9 @@ describe('데이터 축 칩 라벨 로케일 커버리지', () => {
 });
 
 /**
- * **창이 그리는 나머지 문자열** — 칩 두 줄만 잠가 두면 그 옆자리가 샌다.
- *
- * 실제로 셋이 새고 있었다. `category.observability`(카드 111종 중 62종이 속한 **가장 큰 분류 머리글**),
- * 그리고 창 머리 아래 적용 범위 줄 `scopeProject`·`scopeNone` — 프로젝트를 연 사람이라면 창을 열 때마다
- * 보는 자리다. 앞의 것은 분류 이름이 코드에서 `category.${m.category}` 로 조립돼 **문자열로는 어디에도
- * 안 적혀 있고**, 뒤의 둘은 v4.54 에 창이 생기며 추가됐는데 로케일에 안 들어갔다.
- *
- * 그래서 두 가지를 잠근다.
- *  ① 등록된 카드가 쓰는 **분류 전부**에 머리글 라벨이 있다(조립되는 키라 사람 눈에는 안 보인다).
- *  ② 창 소스가 **직접 적어 부르는 키**(`t('panel.plugins.…')`)가 전부 12로케일에 있다.
+ * 창이 그리는 나머지 라벨 — 칩만 잠그면 옆자리가 샌다.
+ *  ① 등록된 카드가 쓰는 분류 전부에 머리글 라벨이 있다(`category.${m.category}` 로 조립돼 문자열 검색에 안 잡힌다).
+ *  ② 창 소스가 직접 적어 부르는 키(`t('panel.plugins.…')`, 예: `scopeProject`·`scopeNone`)가 전부 12로케일에 있다.
  */
 describe('창이 그리는 나머지 라벨', () => {
   const WINDOW_SOURCES = [

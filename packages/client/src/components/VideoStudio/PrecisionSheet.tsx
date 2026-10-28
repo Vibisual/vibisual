@@ -7,11 +7,7 @@ import { VideoTimeline, type VideoTimelineProps } from './VideoTimeline.js';
 import { VideoInspector, type VideoInspectorProps } from './VideoInspector.js';
 import { memoLatest } from './studioMemo.js';
 
-/**
- * §5.13 (V) 37-1 — **[정밀 편집]** 판: 아래에서 올라온다(160ms). (U) 의 편집 기능을 하나도 빼지 않고 여기 모았다 — 도구 줄
- * (되돌리기·다시·분할·복제·켜기/끄기·삭제 — 아이콘 + 단축키 툴팁) · 트랙 타임라인(프레임 이동·확대/맞춤·스냅·이동·트림·트랙
- * 숨김/음소거) · 전체 인스펙터(판형·fps·클립 시각·내용·배치·코드 정보).
- */
+/** §5.13 (V) 37-1 — [정밀 편집] 판(160ms 로 올라온다): (U) 편집 기능 전부(도구 줄 · 트랙 타임라인 · 전체 인스펙터). */
 interface Action { readonly run: () => void; readonly disabled?: boolean }
 
 export interface PrecisionSheetProps {

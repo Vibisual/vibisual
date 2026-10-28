@@ -10,16 +10,7 @@ interface Props {
   bubble: AppBubble;
 }
 
-/**
- * §5.13 (M) v4.68 — 앱 버블 전용 DetailPanel 섹션.
- *
- * 종전에 **우클릭 메뉴에만** 있던 조작(열기·설치·이름 바꾸기·고정·삭제)을 다른 버블처럼
- * "선택 → 우측 옵션 패널"로도 낸다. 메뉴를 없애지는 않는다 — 캔버스에서 바로 쓰는 손과
- * 패널에서 차분히 고치는 손은 다르고, 둘 다 **store 의 같은 함수**를 부르므로 갈라지지 않는다.
- *
- * 특정 앱을 알지 않는다. 색·아이콘·이름·설명·용량·여는 방법은 전부 `appId` 로 레지스트리에서
- * 꺼내므로, 앱이 늘어도 이 파일은 그대로다(§5.13 (P) 독립 규약).
- */
+/** §5.13 (M) — 앱 버블 DetailPanel. 우클릭 메뉴와 같은 store 함수를 부른다. 특정 앱을 모른다 — 전부 `appId` 로 레지스트리에서(§5.13 (P)). */
 export function AppBubbleDetail({ bubble }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const app = getInternalApp(bubble.appId);

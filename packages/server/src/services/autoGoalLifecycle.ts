@@ -260,13 +260,8 @@ export function summarizeAutoGoalDocument(root: string | null, doc: AutoGoalDocu
     const reason = staleReason(root, doc, state, useEvidenceCache);
     if (reason) {
       /*
-       * §5.10 (R)ⓓ — 내려앉히되 **완료 기록은 버리지 않는다.**
-       *
-       * 버리던 때는 강등 방아쇠(근거 파일이 바뀜)와 재사용 성립 조건(입력 파일이 그대로)이 같은 축이라
-       * 서로를 배제해, 파일이 늘 바뀌는 저장소에서는 생략 창이 사실상 열리지 않았다. 기록을 남겨도
-       * 새는 곳이 없다 — `assess` 는 `status === 'active'` 일 때만 여기까지 오고, 그때도 완료의
-       * `procedureRevision`·입력 해시·산출물 존재를 다시 맞춰 본다. 본문이나 근거가 실제로 달라졌으면
-       * 재승인이 새 지문을 찍어 옛 기록이 저절로 맞지 않게 된다.
+       * §5.10 (R)ⓓ — 내려앉히되 완료 기록은 버리지 않는다(버리면 강등 방아쇠와 재사용 조건이 서로를 배제해 생략 창이 안 열린다).
+       * 남겨도 새지 않는다 — `assess` 는 `status === 'active'` 일 때만 오고 `procedureRevision`·입력 해시·산출물을 다시 맞춘다. 본문·근거가 바뀌면 재승인이 새 지문을 찍는다.
        */
       state = { ...state, status: 'needs-review', reason };
       if (persistStale) {
@@ -342,14 +337,8 @@ export function reviewAutoGoalSkill(root: string, input: AutoGoalReviewInput, ac
   return summarizeAutoGoalDocument(root, saved);
 }
 /**
- * §5.10 (R)ⓔ — **사람이 직접 올리는 부가 경로.** 없어도 돌아가야 하고, 있으면 즉시 올릴 수 있다.
- *
- * 근거를 사람에게 받아 적게 하지 않는다 — 절차가 이미 들고 있는 `files` 를 그대로 근거로 찍고,
- * 앞선 적용 조건(없으면 설명)을 적용 조건으로 삼는다. 그래서 버튼 한 번으로 끝나고, 남는 모양은
- * 에이전트 승인과 똑같다(`reviewedBy` 가 `user` 인 것만 다르다).
- *
- * 근거로 삼을 파일이 하나도 없으면 올리지 않는다 — 그건 (Q) 의 근거 규약이고, 여기만 빠져나가면
- * 지문 없는 활성 절차가 생겨 `staleReason` 이 영영 판단할 수 없게 된다.
+ * §5.10 (R)ⓔ — 사람이 직접 올리는 부가 경로. 근거는 절차의 `files`, 적용 조건은 앞선 것(없으면 설명) — 결과는 에이전트 승인과 같다(`reviewedBy` 만 `user`).
+ * 근거 파일이 없으면 올리지 않는다(§5.10 (Q)) — 지문 없는 활성 절차는 `staleReason` 이 영영 판단할 수 없다.
  */
 export function approveAutoGoalSkill(root: string, input: { skillId: string; revision: string }, actor: AutoGoalActor): AutoGoalSkillSummary {
   const doc = requiredDocument(root, input.skillId);

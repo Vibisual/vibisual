@@ -69,30 +69,19 @@ const PROJECT_DOT_STYLES: Record<ProjectDotState, string> = {
 };
 
 /**
- * §5.4 #14 — 탭 폭. 고르지 않은 탭은 한 칸으로 줄 세우고, **고른 탭만** 폭이 내용을 따라간다.
- *
- * 한 칸(128px)을 이름·배지(`1/19`)·닫기 버튼이 나눠 쓰면 이름 몫이 40px 남짓이라, 지금 보고 있는
- * 프로젝트조차 `P_M…` 로 읽혔다(사용자 지시). 고른 탭은 한 칸보다 좁아지지 않고, 이름 칸이
- * `TAB_LABEL_ACTIVE_MAX` 까지 이름 전체를 보인다 — 그보다 긴 이름은 오른쪽 끝에서 부드럽게 흐려진다.
- * 기준을 탭이 아니라 이름 칸에 거는 것은 핀·기본 글리프나 배지 자릿수가 이름 몫을 다시 깎지 않게 하려는 것이다.
- * 프로젝트 탭·iframe 탭이 같은 값을 쓴다(같은 줄에서 고른 탭의 모양이 종류마다 갈리지 않게).
+ * §5.4 #14 — 탭 폭: 쉬는 탭은 한 칸(128px), 고른 탭만 이름을 따라 넓어져 `TAB_LABEL_ACTIVE_MAX` 까지 보인 뒤 흐려진다(한 칸이면 이름이 40px 남짓).
+ * 상한을 이름 칸에 거는 것은 글리프·배지 자릿수가 이름 몫을 깎지 않게. 프로젝트·iframe 탭 공용.
  */
 const TAB_WIDTH_IDLE = 'w-32';
 const TAB_WIDTH_ACTIVE = 'min-w-32';
 /** 고른 탭 이름 칸의 최대 폭(끝 페이드 여백 포함). 넘는 이름은 툴팁으로 읽는다. */
 const TAB_LABEL_ACTIVE_MAX = 'max-w-[200px]';
 /**
- * §5.4 #14 — 고른 탭이 바뀔 때 **CSS 가 맡는 것은 글자색뿐**이다. 크기·위치·판은 `useTabSelectionMotion` 이
- * 옛 모양에서 새 모양으로 풀어 준다(FLIP — transform·opacity 만 움직여 합성 스레드가 돌린다). 종전에는 높이·
- * 바깥 여백·폭을 메인 스레드에서 바꿔 가며 움직여, 프로젝트를 바꾸며 캔버스를 다시 그리는 동안 움직임이
- * 화면에 거의 안 남았고, 움직임 줄이기(OS 설정)에서는 `motion-reduce:` 변형으로 전환이 통째로 꺼졌다.
+ * §5.4 #14 — 탭 전환 때 CSS 는 글자색만. 크기·위치·판은 `useTabSelectionMotion` 이 FLIP(transform·opacity, 합성 스레드)으로 푼다.
+ * 메인 스레드 폭·높이 전환은 프로젝트 전환에 묻힌다. `motion-reduce:` 로 끄지 마라.
  */
 const TAB_SELECTION_MOTION = 'transition-colors duration-200 ease-out';
-/**
- * §5.4 #14 — 탭의 **판**(배경·윗선·구분선·둥근 모서리). 크기가 바뀌는 순간 판만 옛 크기에서 새 크기로
- * 늘거나 줄어야 하므로 본체가 아니라 본체를 덮는 이 층이 그린다(본체의 테두리는 자리만 잡는 투명 선이다 —
- * 판이 그 자리까지 덮는다). 쉬는 판과 고른 판을 겹쳐 두고 불투명도로 갈아 끼운다.
- */
+/** §5.4 #14 — 탭의 판(배경·윗선·구분선·모서리)은 본체를 덮는 이 층이 그린다(크기 전환 때 판만 늘고 준다). 쉬는 판·고른 판을 겹쳐 불투명도로 갈아 끼운다. */
 const TAB_PLATE = 'pointer-events-none absolute -top-0.5 -right-px bottom-0 left-0 origin-top-left';
 const TAB_PLATE_LAYER = 'absolute inset-0 border-r border-t-2 border-black/30 transition-[opacity,background-color] duration-[260ms] ease-out';
 const TAB_PLATE_IDLE = `${TAB_PLATE_LAYER} rounded-t border-t-transparent bg-black/25 group-hover:bg-black/40`;
@@ -119,12 +108,7 @@ function tabPinKey(item: TabItem): string {
   return item.kind === 'iframe' ? `iframe:${item.tab.id}` : `project:${item.name}`;
 }
 
-/**
- * §5.4 #14-3 — 탭 하나를 닫기 판정용 모양으로 접는다.
- *
- * `runningCount` 는 탭 배지가 그리는 **바로 그 숫자**다(서버 집계 SSOT, §3.1). 팝업이 자기 식으로
- * 다시 세면 배지에는 `3/12` 인데 팝업은 "도는 게 없다"고 말하는 어긋남이 생긴다.
- */
+/** §5.4 #14-3 — 닫기 판정용 모양. `runningCount` 는 탭 배지의 그 숫자(서버 집계 SSOT, §3.1) — 따로 세면 배지와 팝업 말이 어긋난다. */
 function toCloseTarget(item: TabItem): TabCloseTarget {
   if (item.kind === 'project') {
     return {
@@ -139,9 +123,7 @@ function toCloseTarget(item: TabItem): TabCloseTarget {
   return { key: item.key, kind: 'iframe', label: item.tab.label, runningCount: 0 };
 }
 
-// §5.4 #14-1 v2.35 — safe-zone 은 **헤더 행 전체**(h-9 = 36px 띠, 가로 무관)다.
-// 사용자 의도: File 메뉴 등 헤더 안 어디서든 reorder 영역, 헤더 띠를 벗어나야(=캔버스로 내려와야) detach.
-// 별창에서도 동일 — 별창의 미니 타이틀바도 36px 띠지만 별창엔 TabBar 가 없으므로 이 컨테이너 자체가 마운트 안 됨.
+// §5.4 #14-1 — safe-zone 은 헤더 행 전체(36px 띠, 가로 무관): 안에서는 reorder, 띠 아래로 나가야 detach. 별창에는 TabBar 가 없다.
 const HEADER_SAFE_HEIGHT = 36;
 
 /**
@@ -209,8 +191,7 @@ export function TabBar(): React.JSX.Element | null {
   // §9 배경 탭 유휴 해제 — 내려간(stub) 프로젝트도 **탭은 그대로 보여야 한다**. 안 그리면
   //   "오래 안 봤더니 탭이 사라졌다"가 되어 정리가 아니라 손실로 보인다. 클릭하면 되살아난다.
   const stubProjects = useGraphStore((s) => s.stubProjects);
-  // §5.4 #14 v1.34 — × 를 누른 즉시 사라지게 하는 표시. 서버 왕복 + 스냅샷 배치 창(§9, 최대 250ms)
-  //   동안 탭이 그대로 남아 "닫기가 안 먹었다"로 보이던 것을 없앤다(별창 `detachedTabKeys` 와 같은 방식).
+  // §5.4 #14 — × 즉시 탭을 숨기는 표시(서버 왕복 + 스냅샷 배치 창 §9 최대 250ms 동안 남으면 안 먹은 것으로 보인다). 별창 `detachedTabKeys` 와 같은 방식.
   const closingProjectPaths = useGraphStore((s) => s.closingProjectPaths);
   const iframeTabs = useGraphStore((s) => s.iframeTabs);
   const activeIframeId = useGraphStore((s) => s.activeIframeId);
@@ -221,7 +202,7 @@ export function TabBar(): React.JSX.Element | null {
   //   선택자가 이미 있는 배열 참조를 그대로 돌려주므로(구조적 공유를 탄 appState) 매 스냅샷마다
   //   새 참조가 되어 다시 그려지는 일은 없다.
   const recentlyClosed = useGraphStore((s) => s.appState?.recentlyClosedTabs);
-  // SCENARIO.md §5.4 #14-1 (v2.29) — 별창으로 분리된 탭은 메인 TabBar 에서 숨김.
+  // §5.4 #14-1 — 별창으로 뗀 탭은 메인 TabBar 에서 숨긴다.
   const detachedTabKeys = useGraphStore((s) => s.detachedTabKeys);
   // Redock hover 상태(별창 헤더 드래그가 메인 탭바 위에 있을 때 별창이 메인에 푸시).
   const [redockHoverKey, setRedockHoverKey] = useState<string | null>(null);
@@ -229,7 +210,7 @@ export function TabBar(): React.JSX.Element | null {
   // 프로젝트 탭은 서버 appState가 SSOT, iframe 탭은 로컬 tabPins/defaultTabbarKey가 SSOT.
   const isItemPinned = useCallback((item: TabItem): boolean => {
     if (item.kind === 'project') {
-      // v1.63: appState 는 projectId(경로) 키 — item.path 로 정규화 비교.
+      // appState 는 projectId(경로) 키 — item.path 로 정규화해 비교한다.
       const k = npClient(item.path);
       return !!appState?.pinnedProjects.some((p) => npClient(p) === k);
     }
@@ -301,10 +282,7 @@ export function TabBar(): React.JSX.Element | null {
   // --- Tab ordering (local UI state) ---
   const [tabOrder, setTabOrder] = useState<string[]>([]);
 
-  // §5.4 #14-2 (C-1) — **프로젝트 탭끼리의 순서는 서버 `AppState.openProjects` 의 배열 순서**다(껐다 켜도 남는다).
-  //   종전에는 이 줄 순서가 여기 휘발 상태뿐이라, 앱을 켤 때마다 첫 스냅샷이 실어 온 순서("마지막으로 보던 프로젝트
-  //   → 나머지")로 다시 섰다 — 끌어서 맞춰 둔 자리가 흐트러지고 마지막에 본 탭이 맨 앞으로 튀었다(사용자 보고).
-  //   iframe 탭은 서버가 모르므로 종전처럼 이 로컬 순서 안의 제자리다.
+  // §5.4 #14-2 (C-1) — 프로젝트 탭끼리의 순서는 서버 `AppState.openProjects` 순서다(휘발 상태면 켤 때마다 흐트러진다). iframe 탭은 로컬 순서 안 제자리.
   const serverProjectOrder = appState?.openProjects ?? NO_PROJECT_ORDER;
   // 놓은 직후의 붙들기 — PATCH 전에 떠난 스냅샷이 옛 순서를 싣고 와 탭을 한 번 되돌리지 않게(`linkViewHold` 와 같은 규율).
   const [orderHold, setOrderHoldState] = useState<ProjectTabOrderHold | null>(null);
@@ -365,15 +343,11 @@ export function TabBar(): React.JSX.Element | null {
   /** 지금 줄에 실제로 선 탭들 — 끌 수 있는 것도, 새 순서를 되꽂을 자리도 이것뿐이다. */
   const visibleKeys = useMemo(() => orderedTabs.map((t) => t.key), [orderedTabs]);
 
-  // --- 가로 스크롤 칸 (탭 오버플로우 시 좌/우 페이드 + wheel 가로 스크롤 + hover 오버레이 썸) ---
-  // 콜백 ref 패턴 — useRef 는 DOM 마운트 시점에 effect 를 깨우지 못한다(초기 마운트 때 ref 가 null 이면
-  // observer 가 영영 등록되지 않는 버그가 있었다). state 기반 ref 는 element 가 붙는 시점에 useEffect 가
-  // 다시 돌아가서 항상 observer/scroll listener 가 정상 부착된다.
-  //   **끄는 손짓도 이 칸을 기준으로 잰다**(중앙선·가장자리 자동 스크롤)므로 선언이 여기 앞에 있다.
+  // 가로 스크롤 칸(페이드·wheel 가로 스크롤·hover 썸). 콜백(state) ref 를 쓴다 — useRef 는 마운트 때 effect 를 못 깨워 observer 가 안 붙는다.
+  // 끄는 손짓도 이 칸으로 재므로 선언이 앞에 있다.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
 
-  // §5.4 #14-1 (v2.29) — 별창이 메인에 푸시하는 redock-hover/commit 구독.
-  // 메인 윈도우의 TabBar 만 이 신호를 본다(별창은 자기 자신을 띄운 게 아니라 detach 한 측이 메인).
+  // §5.4 #14-1 — 별창이 메인에 푸시하는 redock-hover/commit 구독(메인 창 TabBar 만 본다).
   useEffect(() => {
     const api = typeof window !== 'undefined' ? window.api : undefined;
     if (!api?.window) return;
@@ -389,27 +363,15 @@ export function TabBar(): React.JSX.Element | null {
     };
   }, []);
 
-  // --- 끌어서 자리를 옮긴다 (§5.4 #14-2 (F-6) · 활동바 §5.5 #16-1 (E) 와 같은 한 벌) ---
-  //
-  // 종전에는 HTML5 네이티브 DnD 였다 — 살짝만 밀어도 탭이 즉시 "뚝 떨어져" 반투명해지고, 손에 붙어
-  // 오는 것은 탭이 아니라(그마저도 1×1 투명 캔버스로 지워 놓아서) 안내 카드 한 장뿐이었으며, 놓을
-  // 때는 네이티브 되돌리기 연출이 한 번 더 끼어들었다(사용자 지적 — "때서 붙이는 느낌이 너무
-  // 어색해"). 그 셋은 전부 네이티브 DnD 가 정하는 것이라 CSS 로는 손댈 수 없다.
-  //
-  // 이제 **탭 자신이 손에 붙어 온다** — 누른 채 끌면 곧장 집어 들고, 지나는 탭이 밀리고, 헤더 띠 밖에서
-  // 놓으면 별창으로 나간다(#14-1 detach 는 그대로다 — 판정 좌표만 `dragend` 에서 `pointerup` 으로 옮겼다).
-  // 꾹 누르는 기다림은 없다(§5.4 #14-2 (F-6)) — 문턱(`POINTER_DRAG.dragStartPx`) 안에서 떼면 평소의 클릭이다.
+  // 끌어서 옮긴다 — 활동바(§5.5 #16-1 (E))와 같은 포인터 손짓 한 벌. HTML5 네이티브 DnD 로 되돌리지 마라(고스트·되돌림 연출을 CSS 로 못 고친다).
+  // 헤더 띠 밖에서 놓으면 별창(#14-1, `pointerup` 좌표). 꾹 누르기 없음(F-6) — 문턱(`POINTER_DRAG.dragStartPx`) 안에서 떼면 클릭이다.
 
   // §5.4 #14-1 — 드래그 중 마우스가 탭바 밖에 있어 detach 가 예상되는 상태일 때 detach-hint 표시.
   const [detachHint, setDetachHint] = useState(false);
 
   /**
-   * §5.4 #14-1 (H) — 띠 밖에서 손을 따라오는 **가상 창**(곧 설 별창 크기 그대로의 선).
-   *
-   * 종전에 손에 들린 것은 탭 모양의 DOM 이라 **앱 창 경계에서 잘려 사라졌다** — 앱 밖은 렌더러가 그릴
-   * 수 없다(사용자 보고 — "앱의 경계에서 그림이 사라져서 내 마우스를 따라오지 않는 느낌"). IDE 창을 밖으로
-   * 빼는 길(§5.5 #17-6 (H-6)·(H-19))과 같이, 띠 밖에서는 탭 대신 선 하나가 손을 따라오고 그 선은 main 의
-   * 클릭통과 창이 앱 밖까지 잇는다. 놓으면 별창이 **그 선의 자리·크기 그대로** 선다((H-17) ④).
+   * §5.4 #14-1 (H) — 띠 밖에서 손을 따라오는 별창 크기의 선. 렌더러는 앱 밖을 못 그리므로 main 의 클릭통과 창이 잇는다(IDE 창 빼기 (H-6)·(H-19) 와 같다).
+   * 놓으면 별창이 그 선의 자리·크기로 선다((H-17) ④).
    */
   const [detachGhost, setDetachGhost] = useState<DetachGhostView | null>(null);
   const detachGhostRef = useRef<DetachGhostSession | null>(null);
@@ -642,11 +604,7 @@ export function TabBar(): React.JSX.Element | null {
 
   // --- Stub tab click ---
   // --- Close handlers ---
-  /**
-   * 실제 닫기 — 팝업을 거치든 안 거치든 **마지막에는 여기 한 곳**으로 들어온다.
-   * (종전 X 버튼 경로가 iframe 기본 탭 해제를 빠뜨리고 있었다 — 컨텍스트 메뉴가 이미 하던
-   *  정리를 합치면서 같이 맞춘다. 닫힌 탭이 기본 탭으로 남으면 다음 실행에 없는 탭을 가리킨다.)
-   */
+  /** 실제 닫기 — 팝업을 거치든 안 거치든 여기 한 곳으로 온다. iframe 기본 탭 해제도 여기서(닫힌 탭이 기본으로 남으면 다음 실행에 없는 탭을 가리킨다). */
   const closeTabsNow = useCallback((items: TabItem[]) => {
     const store = useGraphStore.getState();
     for (const item of items) {
@@ -686,11 +644,8 @@ export function TabBar(): React.JSX.Element | null {
   }, [closeTabsNow]);
 
   /**
-   * [닫기] — **멈추느냐를 정하는 것은 이 버튼이 아니라 위의 체크 한 칸**이다(§5.4 #14-3 (B)(C)).
-   *   체크가 켜져 있으면 열려 있는 **모든 프로젝트**의 에이전트를 멈춘 뒤 닫고, 꺼져 있으면
-   *   아무것도 멈추지 않고 탭만 닫는다 — 그 세션들은 백단에서 계속 돈다(종전 동작).
-   *   버튼을 [닫기]/[그냥 닫기] 둘로 벌리지 않는 이유는, 이름이 비슷한 두 버튼이 나란히 서면
-   *   눌러 보기 전에는 무엇이 다른지 알 수 없기 때문이다.
+   * [닫기] — 멈출지는 위의 체크 한 칸이 정한다(§5.4 #14-3 (B)(C)): 켜면 열린 모든 프로젝트의 에이전트를 멈추고 닫고, 끄면 탭만 닫는다(백단에서 계속 돈다).
+   * 버튼을 둘로 벌리지 않는다 — 비슷한 두 버튼은 차이를 알 수 없다.
    */
   const confirmClose = useCallback(() => {
     const items = pendingClose;
@@ -960,15 +915,9 @@ export function TabBar(): React.JSX.Element | null {
   // 탭이 0개여도 wrapper 는 유지 — 빈 영역이 윈도우 드래그 영역으로 동작하도록.
   // (TabBar 가 return null 하면 부모 flex-1 도 사라져 드래그 영역 자체가 없어진다.)
 
-  // §3.7 v2.13/v2.14 — Chrome 스타일 탭. 라벨 truncate, 탭 간 1px 우측 구분선.
-  //  폭은 한 칸(w-32)이되 고른 탭만 이름을 따라 넓어진다(§5.4 #14 — 위 `TAB_WIDTH_*`·`TAB_LABEL_ACTIVE_MAX`).
-  // tab-folder 연결 효과(헤더 border-b 제거 후 색·높이로만 구현 — 고정 px 폭 키우기 ❌):
-  //  · 활성 = h-full 로 헤더(h-9) 꽉 채움 + 콘텐츠 배경(gray-950) + 상단 2px 액센트 + rounded-t.
-  //    헤더 밑줄이 없어 활성 탭 바닥(gray-950)이 캔버스(BubbleMap bg-gray-950)로 끊김 없이 이어짐.
-  //  · 비활성 = mt-[5px] + h-[calc(100%-5px)] 로 위가 들여진 "작고 눌리지 않은" 탭(상대적으로 활성이 큼).
-  //  (이전엔 overflow-y-hidden 컨테이너 안에서 after 세로 브리지로 밑줄을 덮으려 했으나 잘려서 안 보였음.)
-  // §5.4 #14-1 — redock-hover 가 활성이면 탭바 자체에 드롭존 글로우. 별창 헤더가 메인 탭바 위로
-  // 옮겨와 있을 때 사용자에게 "여기 떨어뜨리면 합쳐짐" 시각 신호.
+  // §3.7 — Chrome 스타일 탭(폭은 `TAB_WIDTH_*`·`TAB_LABEL_ACTIVE_MAX`). folder 연결은 색·높이로만(고정 px 폭 ❌):
+  // 활성 = h-full + gray-950 + 상단 2px + rounded-t 로 캔버스와 이어지고, 비활성 = mt-[5px] 로 들인다.
+  // overflow-y-hidden 안의 after 브리지로 밑줄을 덮으면 잘려 안 보인다. §5.4 #14-1 — redock-hover 중이면 탭바에 드롭존 글로우.
   const tabBarRedockGlow = redockHoverKey !== null;
   return (
     <div
@@ -979,14 +928,8 @@ export function TabBar(): React.JSX.Element | null {
     >
       {/* §5.4 #14-1 — redock/detach 시 상단 바 안내 텍스트는 제거. 글로우(tabBarRedockGlow)와
           opacity(detachHint) 시각 신호만 유지하고, 안내는 손에 들린 탭 아래에만 노출. */}
-      {/*
-        §5.4 #14-2 — **손에 들린 탭.** 종전 안내 카드가 하던 일(무엇을 들고 있나 + 여기서 놓으면
-        무슨 일이 나나)을 그대로 이어받되, 카드 대신 **탭 자신의 모양**으로 온다 — 커서 옆에 뜨는
-        네모가 둘(네이티브 고스트 + 안내 카드)이던 것을 하나로 합친 셈이다.
-        `document.body` 로 내보내고 자리는 훅이 `transform` 으로 준다(프레임마다 리렌더 ❌).
-        §5.4 #14-1 (H) 띠 밖에서는 탭·안내 대신 **곧 설 별창 크기의 선** 하나가 손을 따라온다 —
-        main 의 선이 서면(`os`) 앱 밖까지 그쪽이 이으므로 여기는 비운다(같은 자리를 두 선이 그리지 않게).
-      */}
+      {/* §5.4 #14-2 — 손에 들린 탭(탭 자신의 모양). body 포털, 자리는 훅의 `transform`(프레임마다 리렌더 ❌).
+         §5.4 #14-1 (H) 띠 밖에선 별창 크기의 선이 대신 따르고, main 의 선(`os`)이 서면 여기는 비운다. */}
       {tabDrag.dragKey !== null && createPortal(
         <div
           ref={tabDrag.ghostRef}

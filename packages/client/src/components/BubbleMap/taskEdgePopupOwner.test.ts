@@ -5,15 +5,8 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { isTaskEdgePopupOwnedByActiveProject } from './taskEdgePopupOwner.js';
 
 /**
- * §3.5 · §5.3 #12 — 태스크 엣지 설정창은 연 프로젝트의 것이다.
- *
- * 사용자 보고: 독립 IDE 창을 꺼내 둔 채 엣지 편집창을 열고 다른 프로젝트로 넘기면, 편집창이 옮겨 간
- * 프로젝트 위에도 떠 있었다. 독립 창이 앞 프로젝트를 구독 범위에 붙들어 그 엣지가 메인 창 스토어에
- * 남았고, 편집창은 "엣지가 스토어에 있나"로만 그려졌기 때문이다. 그래서 아래 시험은 전부
- * **엣지를 스토어에 남겨 둔 채로**(= 합집합 스냅샷) 탭을 옮긴다 — 그 조건을 빼면 옛 코드도 통과한다.
- *
- * 소스를 읽는 규약 시험은 `node:fs` 를 쓰지 않는다 — 클라이언트 tsconfig 에는 Node 타입이 없다
- * (`canvasControlsContract.test.ts` 와 같은 방식).
+ * §3.5 · §5.3 #12 — 태스크 엣지 설정창은 연 프로젝트에서만 뜬다. 엣지를 스토어에 남겨 둔 채(합집합 스냅샷) 탭을 옮긴다 — 빼면 옛 판정도 통과한다.
+ * 소스 규약 시험은 `node:fs` 를 쓰지 않는다(클라이언트 tsconfig 에 Node 타입 없음).
  */
 
 const EDGE_ID = 'tedge-alpha-1';

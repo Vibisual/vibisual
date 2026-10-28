@@ -1,13 +1,7 @@
-// SCENARIO.md §3.7 · §9 「시작 화면(스플래시)」 — 판정만 든 순수 모듈.
-//
-// 앱을 켜면 본체 창이 곧바로 떠 그 뒤에서 일이 몰렸다(실측: 프로세스 시작부터 창이 보이기까지 약 10초 동안 아무것도
-// 안 보이다가, 창이 뜬 뒤 첫 3초에 0.2~2.9초 멈춤). 이제 작은 시작 진입점이 화면 가운데에 스플래시를 먼저 띄우고,
-// 본체 창은 숨긴 채 준비가 끝난 뒤에 보인다(언리얼·Visual Studio 와 같은 방식 — 사용자 지시 2026-10-16).
-//
-// 여기는 **electron 을 부르지 않는다**(타입만 가져온다) — 세 OS 의 가지와 공개 판정을 Windows 개발기에서 전부 단위
-// 시험할 수 있어야 한다(멀티플랫폼 규칙). 창을 실제로 만들고 메시지를 보내는 일은 `splashWindow.ts`·`mainReveal.ts`.
-//
-// ⚠ `@vibisual/shared` 는 **타입만** 가져온다 — 이 파일은 시작 진입점 청크에 실린다(`splashStrings.ts` 머리 주석).
+// SCENARIO.md §3.7 · §9 「시작 화면(스플래시)」 — 판정만 든 순수 모듈. 시작 진입점이 스플래시를 먼저 띄우고 본체 창은 숨긴 채 준비가 끝나면 보인다
+// (실측: 시작 뒤 약 10초간 아무것도 안 보이다 창이 뜬 뒤 첫 3초에 0.2~2.9초 멈췄다).
+// electron 을 부르지 않는다(타입만) — 세 OS 가지와 공개 판정을 개발기에서 단위 시험한다. 창 만들기·메시지는 `splashWindow.ts`·`mainReveal.ts`.
+// `@vibisual/shared` 도 타입만 가져온다 — 이 파일은 시작 진입점 청크에 실린다(`splashStrings.ts` 머리 주석).
 
 import type { BrowserWindowConstructorOptions } from 'electron';
 import type { AppThemeKind, BootProgress } from '@vibisual/shared';
@@ -36,9 +30,8 @@ export const MAIN_REVEAL_QUIET_MS = 400;
 /** 렌더러가 다 그렸다고 알린 뒤에도 조용해지지 않으면 이만큼 뒤에는 보인다(ms) — 조용함을 기다리다 갇히면 안 된다. */
 export const MAIN_REVEAL_SETTLE_CAP_MS = 5_000;
 /**
- * 본체 창을 만든 뒤 어떤 신호도 오지 않으면 이만큼 뒤에는 보인다(ms) — 렌더러가 말을 못 해도 창은 나와야 한다.
- * 정상 부팅은 창을 만든 뒤 몇 초 안에 끝난다(렌더러 로드 + 첫 스냅샷 + 부팅 확인 줄 ≈ 2초 남짓) — 넉넉히 잡되 사용자가
- * 앱이 죽었다고 느낄 만큼 길지는 않게.
+ * 본체 창을 만든 뒤 어떤 신호도 없으면 이만큼(ms) 뒤에는 보인다 — 렌더러가 말을 못 해도 창은 나와야 한다.
+ * 정상 부팅은 창을 만든 뒤 2초 남짓 — 넉넉히 잡되 앱이 죽었다고 느낄 만큼 길지는 않게.
  */
 export const MAIN_REVEAL_HARD_CAP_MS = 15_000;
 
@@ -168,9 +161,8 @@ export function splashPalette(background: string | null | undefined, kind: AppTh
 // ─── 표시 캐시 ──────────────────────────────────────────────────────────────
 
 /**
- * 다음 실행의 스플래시가 첫 칠에 쓸 값. 권위는 늘 따로 있다 — 언어는 프로젝트 체크포인트(`uiLocale`), 바탕은
- * 설정 창 저장값(`appearance.themeId`). 스플래시는 그 둘이 읽히기 **전에** 떠야 하므로 지난 값을 들고 있을 뿐이다
- * (렌더러가 테마를 `localStorage` 에 표시 캐시로 두는 것과 같은 성격 — 다시 계산되는 파생물).
+ * 다음 실행의 스플래시가 첫 칠에 쓸 값 — 권위는 따로다(언어 `uiLocale` 체크포인트, 바탕 `appearance.themeId`).
+ * 스플래시가 그 둘보다 먼저 떠서 지난 값을 들고 있을 뿐인 파생물이다.
  */
 export interface SplashCache {
   locale: SplashLocale;
@@ -226,13 +218,11 @@ export function splashIconFile(platform: NodeJS.Platform): 'icon.ico' | 'icon.pn
 }
 
 /**
- * 스플래시 창 옵션 — **플랫폼을 인자로 받는다**(세 OS 가지를 시험으로 고정하기 위해).
- *
- * - 셋 다: 테두리 없음 · 크기 고정 · 끌 수 없음 · 작업 표시줄/Dock 에는 보인다(앱이 켜지는 중이라는 유일한 흔적이다).
- * - Linux: 창 종류를 `splash` 로 알린다 — X11 창 관리자는 그 종류를 가운데에, 장식 없이 둔다(Electron 이 Linux 에서만
- *   받는 값). Wayland 는 자리를 컴포지터가 정하므로 좌표는 바람일 뿐이다.
- * - 자리: 작업 영역을 알면 직접 가운데에 놓는다(일부 X11 창 관리자는 `center` 를 무시한다), 모르면 `center`.
- * - 렌더러: 샌드박스 + 자기 세션(`vibisual-splash` — 앱 저장소·권한과 섞이지 않는다) + 진척 포트만 받는 preload.
+ * 스플래시 창 옵션 — 플랫폼을 인자로 받는다(세 OS 가지를 시험으로 고정).
+ * - 셋 다: 테두리 없음 · 크기 고정 · 끌 수 없음 · 작업 표시줄/Dock 에는 보인다(켜지는 중이라는 유일한 흔적).
+ * - Linux: 창 종류 `splash`(X11 창 관리자가 가운데에 장식 없이 둔다, Linux 전용 값). Wayland 는 컴포지터가 자리를 정한다.
+ * - 자리: 작업 영역을 알면 직접 가운데(일부 X11 은 `center` 를 무시), 모르면 `center`.
+ * - 렌더러: 샌드박스 + 자기 세션(`vibisual-splash` — 앱 저장소·권한과 분리) + 진척 포트만 받는 preload.
  */
 export function splashWindowOptions(input: {
   platform: NodeJS.Platform;
@@ -274,21 +264,17 @@ export function splashWindowOptions(input: {
 // ─── 첫 표시 가림(Windows) ───────────────────────────────────────────────────
 
 /**
- * 처음 보일 때의 흰 프레임을 가리는 OS. Windows 에서 숨겨 만든 창을 처음 보이면 첫 프레임들이 흰색으로 찍힌다 —
- * `backgroundColor` 를 줘도, 첫 칠을 기다려도 그렇다(Electron 28 부터 · electron#45774). 두 번째 표시부터는 깨끗하다.
- * 화면 밖 측정 창(2026-10-16, 앱과 같은 Electron 31.7.7 · PrintWindow 표본 + DWM 가림 상태): 단순한 페이지는 표시 직후
- * 한 장, **실제 스플래시 코드는 표시 뒤 40~60ms(75Hz 에서 3~4프레임)** 가 `#ffffff` 였다 — 렌더러가 보이게 된 창의 첫
- * 장을 낼 때까지다. 그래서 처음 보일 때만 DWM 가림 뒤에서 보이고 그림이 몇 프레임 올라온 뒤 걷는다(`windowCloak.ts`).
- * macOS·Linux 는 이 보고가 없고 같은 수단(DWM)도 없다 — 종전대로 보인다.
+ * 처음 보일 때의 흰 프레임을 가리는 OS. Windows 에서 숨겨 만든 창을 처음 보이면 첫 프레임들이 흰색이다 — `backgroundColor`·첫 칠 대기로도
+ * 안 된다(Electron 28 부터 · electron#45774). 측정(2026-10-16, Electron 31.7.7 · PrintWindow + DWM): 실제 스플래시는 표시 뒤 40~60ms(75Hz 3~4프레임).
+ * 그래서 첫 표시만 DWM 가림 뒤에서 보이고 몇 프레임 뒤 걷는다(`windowCloak.ts`). macOS·Linux 는 보고도 수단(DWM)도 없다.
  */
 export function coversFirstShow(platform: NodeJS.Platform): boolean {
   return platform === 'win32';
 }
 
 /**
- * 가린 채 보인 뒤 걷기 전에 렌더러가 지나야 하는 프레임 수. 렌더러 프레임을 세면 흰 구간의 원인을 직접 따라간다 —
- * 렌더러가 느리면 그만큼 늦게 걷는다. 실측: 6프레임에서 걷으면 흰 구간이 끝난 뒤 1~3프레임 여유였다(최소 시간 없이
- * 재도 흰색이 화면에 나온 적은 없다) — 여유를 두 프레임 더 둔다.
+ * 가린 채 보인 뒤 걷기 전에 렌더러가 지나야 하는 프레임 수 — 렌더러 프레임을 세므로 느리면 그만큼 늦게 걷는다.
+ * 실측: 6프레임이면 흰 구간 뒤 1~3프레임 여유였다(최소 시간 없이도 흰색이 나온 적 없음) — 두 프레임 더 둔다.
  */
 export const FIRST_SHOW_COVER_FRAMES = 8;
 /** 그리고 최소 이만큼(ms) — 주사율이 아주 높아 프레임이 빨리 지나가도 합성이 따라올 시간을 둔다. */
@@ -326,13 +312,9 @@ export type MainRevealReason = 'ready' | 'forced' | 'settle-cap' | 'hard-cap';
 export type MainRevealDecision = { reveal: false } | { reveal: true; reason: MainRevealReason };
 
 /**
- * 본체 창을 지금 보일까. 순서가 규칙이다.
- *  ① 강제(렌더러 사망·로드 실패·무응답) → 곧바로.
- *  ② 만든 지 `MAIN_REVEAL_HARD_CAP_MS` → 무엇을 기다리든 보인다.
- *  ③ 렌더러가 아직 말이 없으면 기다린다.
- *  ④ 렌더러가 말한 지 `MAIN_REVEAL_SETTLE_CAP_MS` → 조용해지지 않았어도 보인다.
- *  ⑤ 부팅 확인이 아직 남았거나 메인 스레드가 `MAIN_REVEAL_QUIET_MS` 동안 조용하지 않았으면 기다린다.
- *  ⑥ 그 밖에는 보인다.
+ * 본체 창을 지금 보일까 — 순서가 규칙이다. ① 강제(렌더러 사망·로드 실패·무응답) → 곧바로 ② 만든 지 `MAIN_REVEAL_HARD_CAP_MS` → 보인다
+ * ③ 렌더러가 아직 말이 없으면 기다린다 ④ 말한 지 `MAIN_REVEAL_SETTLE_CAP_MS` → 조용하지 않아도 보인다
+ * ⑤ 부팅 확인이 남았거나 `MAIN_REVEAL_QUIET_MS` 동안 조용하지 않았으면 기다린다 ⑥ 그 밖엔 보인다.
  */
 export function decideMainReveal(i: MainRevealInputs): MainRevealDecision {
   if (i.forced) return { reveal: true, reason: 'forced' };

@@ -1,10 +1,4 @@
-/**
- * §7.5 폴더 목록 — **행 펴기 · 창 자르기 · 버리기**를 고정한다.
- *
- * 이 세 계산이 화면 밖에서 결정되어야 "안 보는 것은 들고 있지 않는다"를 눈으로 확인하지 않고도
- * 지킬 수 있다. 특히 `dropLevelSubtree` 는 **접는 순간 메모리에서 사라지는가**를 정하는 자리라,
- * 형제 겹까지 쓸어 가면 옆 폴더가 이유 없이 다시 로딩된다.
- */
+/** §7.5 — 행 펴기 · 창 자르기 · 버리기 고정. `dropLevelSubtree` 가 형제 겹까지 쓸면 옆 폴더가 다시 로딩된다. */
 import { describe, expect, it } from 'vitest';
 import type { FolderFileEntry } from '@vibisual/shared';
 import {

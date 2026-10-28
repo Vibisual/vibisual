@@ -1,14 +1,7 @@
 /**
- * §5.13 (P) v4.49 — 내부 앱의 main 프로세스 자리.
- *
- * **코어(`ipc.ts`)가 아는 것은 `mountAppIpc(ipcMain)` 한 줄뿐이다.**
- *
- * 그리고 **안 쓰는 앱은 코드조차 로드하지 않는다** — 여기서는 경로만 알고 있다가 그 앱을
- * 실제로 부를 때 늦게 불러온다. 앱 모듈을 위에서 `import` 하면 앱이 늘어날수록 main
- * 번들이 그만큼 커지고, 그건 이 기능을 안 쓰는 사용자가 내는 비용이 된다.
- *
- * 채널은 셋으로 고정이다 — `open` / `close` / `invoke`. 앱이 늘어도 이 셋은 그대로이고,
- * 늘어나는 것은 아래 배열의 한 줄이다.
+ * §5.13 (P) — 내부 앱의 main 프로세스 자리. **코어(`ipc.ts`)가 아는 것은 `mountAppIpc(ipcMain)` 한 줄뿐이다.**
+ * 안 쓰는 앱은 코드조차 로드하지 않는다 — 경로만 알다가 부를 때 늦게 불러온다(위에서 import 하면 앱 수만큼 main 번들이 커져 안 쓰는 사용자가 비용을 낸다).
+ * 채널은 `open` / `close` / `invoke` 셋으로 고정 — 앱이 늘면 아래 배열에 한 줄이 는다.
  */
 import { join } from 'node:path';
 import { BrowserWindow, type IpcMain } from 'electron';
@@ -39,13 +32,7 @@ interface MainAppEntry {
   readonly id: string;
   /** main 프로세스 몫이 있는 앱만. **호출 전까지 로드되지 않는다.** */
   readonly load?: () => Promise<{ vibistudioApp: MainAppModule }>;
-  /**
-   * main 몫이 **없는** 앱(창만 있는 앱)의 창 규격.
-   *
-   * 화면이 렌더러에만 있는 앱까지 main 모듈 파일을 만들게 하면, 실제로 하는 일이 "창 크기 네 줄"
-   * 뿐인 파일이 앱 수만큼 생긴다. 그런 앱은 여기 한 줄로 끝낸다 — 코어가 앱 코드를 부르지 않는다는
-   * 성질은 그대로다(부를 모듈 자체가 없다).
-   */
+  /** main 몫이 **없는** 앱(창만 있는 앱)의 창 규격 — 창 크기 몇 줄뿐인 main 모듈을 앱마다 만들지 않게 여기 한 줄로 끝낸다(코어는 여전히 앱 코드를 부르지 않는다). */
   readonly window?: (params: Record<string, string>) => AppWindowSpec;
 }
 

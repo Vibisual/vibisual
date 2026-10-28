@@ -1,16 +1,5 @@
-// §5.5 — IDE 상태바가 **세션마다 다른 숫자**를 그리기 위해 기대는 한 가지 사실을 고정한다.
-//
-// 배경: `projectGraph.getSnapshot()` 의 sub enrich 는 세션 JSONL 을 한 번 읽고
-// (`readContextInfo`) 그 결과의 누적 토큰을 sub 에 실어 준다. 종전에는 그 자리를
-// `subAgentManager` 만 채웠는데, 그쪽은 **명령이 끝날 때만** 갱신한다 — 그래서 도는 중인 세션은
-// 숫자가 얼어 있고, 한 번도 명령을 마치지 않은 세션은 값이 아예 없어 상태바가 버블 값
-// (= 그 에이전트의 **모든 세션 합계**)으로 굴러떨어졌다. 사용자 보고가 그것이다:
-// "세션을 넘겨도 입력 1267.2M / 출력 7.4M 가 그대로다".
-//
-// 그래서 두 경로가 **같은 수를 내야** 한다 — 안 그러면 명령이 끝나는 순간 상태바 숫자가 튄다.
-//   ① `readContextInfo` 의 누적 == `readSessionTokenData` 턴 합산 (subAgentManager 의 공식)
-//   ② `contextUsed` 는 **마지막 턴 하나**의 입력 크기 (누적이 아니다)
-//   ③ 세션이 다르면 수도 다르다 (= 상태바가 세션을 넘길 때 실제로 변한다)
+// §5.5 — 상태바가 세션마다 다른 숫자를 그리는 근거: `readContextInfo` 누적 == `readSessionTokenData` 턴 합산(다르면 명령이 끝날 때 숫자가 튄다) ·
+// `contextUsed` 는 마지막 턴 입력 크기 · 세션이 다르면 수도 다르다.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';

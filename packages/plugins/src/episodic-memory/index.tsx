@@ -1,9 +1,4 @@
-/**
- * §5.11 v3.95 — 일화 기억(Episodic Memory): 원 경험이 남아 있는가.
- *
- * 요약본만 남기면 나중에 "정말 그랬나"를 검증할 근거가 사라지고 요약의 오류를 되돌릴 방법도 없어진다.
- * 원 경험이 1급 증거이므로, 추출된 지식에는 **출처 세션과 시각**이 붙어 원본으로 되돌아갈 수 있어야 한다. 표시 전용.
- */
+/** §5.11 — 일화 기억(Episodic Memory): 원 경험이 남았는가 — 추출된 지식에는 출처 세션과 시각이 붙어 원본으로 돌아갈 수 있어야 한다. 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';
 

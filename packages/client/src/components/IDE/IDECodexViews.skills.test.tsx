@@ -137,7 +137,7 @@ describe('Codex skills pane — own engine first, other engine behind a tab', ()
     await switchTo('agent-2');
     await switchTo('agent');
     expect(tab('claude').props['aria-selected']).toBe(true);
-    // 다른 에이전트에서도 탭을 골랐다 와도 결과가 같다(종전에는 여기서 사라졌다).
+    // 다른 에이전트로 갔다 와도 결과가 같다.
     await switchTo('agent-2');
     await openSharingTab();
     await switchTo('agent');

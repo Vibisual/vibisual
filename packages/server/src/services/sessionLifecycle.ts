@@ -1,16 +1,7 @@
 /**
- * sessionLifecycle.ts — 3-Layer 세션 생명주기 통합 관리자
- *
- * Layer 1 (SessionStart hook):  POST /api/session-start   → registerFromHook()
- * Layer 2 (JSONL watcher):      chokidar                   → JsonlWatcher
- * Layer 3 (liveness scan):      sessionDiscovery           → readAliveSessionIds()
- *
- * 통합 규칙:
- *   - Layer 1이 가장 권위 있음 (PID, sessionId, cwd 동시 제공)
- *   - Layer 2는 JSONL 활동 → 살아있음 갱신 (훅 미설치 보험)
- *   - Layer 3은 최종 판결: PID가 실제 Claude 프로세스 목록에 없으면 dead
- *   - 세션이 SessionStart로만 등록됐고 tool-use 훅이 아직 없어 PID 미확보라면
- *     60초 후 'unknown' 표시, 120초 후 자동 제거
+ * 3-Layer 세션 생명주기 관리자 — ① SessionStart hook(`registerFromHook`, PID·sessionId·cwd 를 주는 최고 권위)
+ * ② JSONL watcher(활동 = 살아있음, 훅 미설치 보험) ③ liveness scan(`readAliveSessionIds` — PID 가 claude 프로세스 목록에 없으면 dead, 최종 판결).
+ * PID 를 못 얻은 SessionStart 세션은 60초 뒤 'unknown', 120초 뒤 제거.
  */
 
 import type { SessionSource, SessionLifeStatus } from '@vibisual/shared';
@@ -36,19 +27,15 @@ export interface LifecycleSession {
   source: SessionSource;
   /** 현재 생명 상태 — idle 스타일링 용 */
   status: SessionLifeStatus;
-  /** 세션 진입점 (표시용). v1.2부터는 정책이 일원화되어 vscode/cli 모두 PID 사망 시 제거. */
+  /** 진입점(표시용) — 진입점과 무관하게 PID 사망 시 제거한다. */
   entrypoint: SessionEntrypoint;
 }
 
 /** 외부(ProjectGraph)에 알릴 이벤트 콜백 */
 export interface LifecycleCallbacks {
-  /** 세션 PID 사망 — 버블 제거 (v1.2부터 vscode/cli 구분 없이 공통). */
+  /** PID 사망 → 버블 제거(진입점 무관). */
   onDead: (sessionId: string) => void;
-  /**
-   * §9 「창이 뜬 직후의 메인 스레드」 ③ — 한 폴링 주기에서 죽은 세션을 **다 걷은 뒤** 한 번 불린다
-   * (걷은 것이 있을 때만). 세션마다 저장하던 체크포인트를 여기서 한 번으로 묶는다 — 부팅 직후 첫 폴링이
-   * 복원된 죽은 세션을 여럿 걷으면 그 수만큼 전 프로젝트 재구축·직렬화가 메인 스레드에서 돌았다.
-   */
+  /** §9 「창이 뜬 직후의 메인 스레드」 ③ — 한 주기의 죽은 세션을 다 걷은 뒤 한 번(걷은 게 있을 때만). 체크포인트 저장을 여기서 한 번으로 묶는다. */
   onDeadSettled?: () => void;
   /**
    * @deprecated v1.2 — 호출되지 않음. 이전 정책(VSCode 닫아도 유지) 흔적.
@@ -57,11 +44,7 @@ export interface LifecycleCallbacks {
   onVSCodeClosed: (sessionId: string) => void;
   /** source/status 맵이 바뀌어 스냅샷 재브로드캐스트가 필요할 때 호출 */
   onMetaChange: () => void;
-  /**
-   * v1.2 — 현재 에이전트 버블로 살아있는 모든 sessionId를 반환.
-   * 체크포인트 복원 직후처럼 lifecycle.sessions엔 없지만 버블은 떠 있는 케이스를
-   * 커버하기 위해 폴링의 실제 기준으로 사용.
-   */
+  /** 버블로 떠 있는 모든 sessionId — 폴링의 실제 기준(복원 직후 lifecycle.sessions 에 없는 버블도 덮는다). */
   listAgentSessionIds: () => string[];
 }
 
@@ -228,9 +211,7 @@ export class SessionLifecycleManager {
     if (this.probing) return;
     this.probing = true;
     try {
-      // v1.2 정책 (SCENARIO §5.7 #24): ~/.claude/sessions/<PID>.json 존재 + PID alive = 살아있음.
-      // 기준을 graphManager의 실제 에이전트 버블 목록에 두어, 체크포인트 복원 후
-      // lifecycle.sessions에 없지만 버블은 떠있는 케이스도 정리한다.
+      // §5.7 #24: sessions/<PID>.json + PID alive = 살아있음. 기준은 실제 버블 목록(복원 버블도 정리).
       const aliveIds = readAliveSessionIds();
       const bubbleIds = this.callbacks.listAgentSessionIds();
       const dead: string[] = [];
@@ -238,10 +219,7 @@ export class SessionLifecycleManager {
         if (!aliveIds.has(sessionId)) dead.push(sessionId);
       }
 
-      // v4.67 — 2초마다 도는 폴링이라 매 주기 기록하면 로그가 무한히 자란다(실측 전체의 87%).
-      // `readAliveSessionIds.diff` 선례대로 **직전과 달라졌을 때만** 남긴다 — 변화 지점만
-      // 있으면 타임라인은 그대로 재구성되고, dead 가 생긴 주기는 signature 가 반드시 바뀌므로
-      // 제거 사고 진단에 필요한 기록은 하나도 잃지 않는다.
+      // 2초 폴링이라 달라졌을 때만 기록한다(실측 로그의 87%). dead 가 생긴 주기는 signature 가 반드시 바뀌어 진단 기록은 안 잃는다.
       const alive = [...aliveIds];
       dbgOnChange(
         'pollOnce',
@@ -258,7 +236,7 @@ export class SessionLifecycleManager {
       );
 
       for (const sessionId of dead) {
-        // SCENARIO §5.7 #24 v1.9: 조건 탈락 시 즉시 제거. Dormant 스냅샷이 복구를 담당.
+        // §5.7 #24: 탈락 즉시 제거 — 복구는 Dormant 스냅샷이 맡는다.
         logger.info(`Lifecycle: PID file gone or dead → removed ${sessionId.slice(0, 8)}`);
         dbg('pollOnce.remove', { sessionId });
         this.sessions.delete(sessionId);

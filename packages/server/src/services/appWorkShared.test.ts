@@ -1,9 +1,4 @@
-/**
- * §5.1 #2-1 (F)(G) — shared `appWork.ts` · `previewPolicy.ts` · 갈래(`fileFaceFamilyOf`) · 넓힌 종류 표 고정 시험.
- *
- * shared 패키지에는 러너가 없으므로 여기서 고정한다(`constellation.test.ts` 와 같은 자리). 플랫폼은 인자로 넘긴다 —
- * 개발기 한 대에서 win32·darwin·linux 셋의 경로 규칙을 다 재기 위함이다(멀티플랫폼 1축).
- */
+/** §5.1 #2-1 (F)(G) — shared `appWork.ts`·`previewPolicy.ts`·`fileFaceFamilyOf`·넓힌 종류 표. 플랫폼을 인자로 넘겨 win32·darwin·linux 경로 규칙을 다 잰다. */
 import { describe, it, expect } from 'vitest';
 import {
   APP_WORK,

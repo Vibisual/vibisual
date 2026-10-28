@@ -1,10 +1,4 @@
-/**
- * §7.11 / §3.5 — 셸 로그에서 포트를 뽑을 때 **"이미 쓰이고 있다" 줄에만 나온 포트는 뺀다.**
- *
- * 2026-10-01 사고의 또 다른 입구: Vite 는 포트가 차 있으면 `Port 8080 is in use, trying another one...`
- * 을 찍고 다음 포트로 옮긴다. 그 줄의 8080 은 **남의 서버가 쥔 포트**라는 진술인데, 종전 추출은
- * 포트 숫자만 보고 probe 로 넘겼고 probe 는 "살아 있다"만 보므로 남의 프리뷰가 우리 캔버스에 섰다.
- */
+/** §7.11 / §3.5 — "이미 쓰이고 있다" 줄(Vite `Port 8080 is in use, trying another one...`)에만 나온 포트는 뺀다 — 남의 서버 포트라 probe 를 통과해 남의 프리뷰가 선다. */
 import { describe, it, expect } from 'vitest';
 import { extractAllPortsFromLog } from './backgroundShellWatcher.js';
 

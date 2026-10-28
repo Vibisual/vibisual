@@ -8,15 +8,9 @@ import { clampSpan } from './panelPopupPlacement.js';
 interface Props {
   /** 현재 선택된 hex (#RRGGBB) */
   value: string;
-  /**
-   * 현재 불투명도(0~1). **주면 알파 슬라이더가 뜬다** — 안 주면 종전대로 색만 고르는 도구다.
-   * (코멘트 박스는 알파 축이 없고, 스티키 메모(§5.5 #17-36)는 있다.)
-   */
+  /** 불투명도(0~1). 주면 알파 슬라이더가 뜨고 안 주면 색만 고른다. */
   alpha?: number;
-  /**
-   * 맨 윗줄에 놓을 호출부 전용 빠른 칸. 주면 그 화면의 팔레트가 먼저 보이고, 아래의 범용
-   * 확장 팔레트는 그대로 남는다(자유색을 고를 길을 막지 않는다).
-   */
+  /** 호출부 전용 빠른 칸(맨 윗줄). 아래 범용 팔레트는 그대로 남는다. */
   presets?: readonly { id: string; label: string; color: string }[];
   /** 슬라이더/드래그 라이브 갱신 (PATCH 없음) — 알파를 안 쓰는 호출부는 두 번째 인자를 무시하면 된다. */
   onLive: (hex: string, alpha: number) => void;
@@ -32,12 +26,7 @@ interface Props {
 const CHECKERBOARD =
   'repeating-conic-gradient(#94A3B8 0% 25%, #E2E8F0 0% 50%) 50% / 8px 8px';
 
-/**
- * 색 칸의 테두리. **회색 테두리를 두르지 않는 것이 요점**이다 — 종전 `border-gray-700/50` 은
- * 16px 칸에서 색의 23% 를 먹으면서, 정작 필요한 자리(`#0F172A` 같은 어두운 칸이 `bg-gray-900`
- * 바닥에 녹는 것)에서는 회색끼리라 경계가 서지 않았다. 흰색 반투명 헤어라인은 반대로 군다:
- * 어두운 칸에서는 또렷하고 밝은 칸에서는 스스로 사라진다(밝은 칸은 이미 바닥과 갈린다).
- */
+/** 회색 테두리 ❌ — 작은 칸에서 색을 먹고 어두운 칸에선 경계가 안 선다. 흰 반투명 헤어라인은 어두운 칸에서 또렷하고 밝은 칸에선 사라진다. */
 const SWATCH_EDGE = 'inset 0 0 0 1px rgba(255,255,255,0.18)';
 
 // ─── HSV ↔ RGB ↔ HEX 유틸 ───
@@ -90,23 +79,9 @@ function hsvToHex(h: number, s: number, v: number): string {
 }
 
 /**
- * 색 한 칸.
- *
- * **칸에서 색이 차지하는 넓이가 이 도구의 성능이다.** 종전 칸은 격자 한 칸(23.5px)
- * 안에 16×16 으로 고정돼 있었고 거기에 1px 테두리까지 둘러, 실제로 보이는 색은
- * 14×14(196px²) — 칸(552px²)의 **35%** 뿐이고 나머지는 여백과 회색 테두리였다.
- * 이제 칸을 꽉 채우고(`aspect-square w-full`) 테두리를 안쪽 헤어라인으로 바꾼다.
- *
- * **고른 표시가 색을 덮지 않는다.** 종전 `border-white` 2px + ring 은 16px 칸에서
- * 색의 44% 를 지웠고, 하필 가장 밝은 칸(`#F8FAFC`)에서는 흰 테두리가 흰 색 위에 얹혀
- * **골랐는지조차 보이지 않았다.** 표식의 색은 그 칸의 밝기가 정한다
- * (`pickReadableTextColor` — 코멘트 박스·스티키 메모가 이미 쓰는 그 함수. 판정 기준을
- * 새로 만들면 같은 색을 두 곳이 다르게 읽는다).
- *
- * **호버는 색을 한 픽셀도 가리지 않는다** — 칸을 키우고 그림자로 띄운다. 종전
- * `scale-110` 은 16px 칸에서 1.6px 이라 눈에 잡히지 않았다. 그림자는 `filter` 계열이라
- * 인라인 `boxShadow`(헤어라인·선택 링)와 겹치지 않는다 — ring 유틸은 같은 `box-shadow`
- * 속성을 쓰므로 인라인에 덮여 그려지지 않는다.
+ * 색 한 칸 — 색이 차지하는 넓이가 이 도구의 성능이다: 칸을 꽉 채우고 테두리는 안쪽 헤어라인.
+ * 선택 표식 색은 칸 밝기로 정한다(`pickReadableTextColor` — 흰 테두리는 밝은 칸에서 안 보인다).
+ * 호버는 확대 + 그림자(`filter`) — ring 유틸은 `box-shadow` 라 인라인 `boxShadow` 에 덮여 안 그려진다.
  */
 function Swatch({ color, label, selected, onPick }: {
   color: string;
@@ -148,20 +123,7 @@ function Swatch({ color, label, selected, onPick }: {
   );
 }
 
-/**
- * 어두운 톤 패널에 맞춘 자체 색 선택 팝오버 (네이티브 OS 다이얼로그 완전 대체).
- * - 2D 채도/명도 패드 (자유 색 선택)
- * - Hue 슬라이더 (무지개 바)
- * - 확장 팔레트 + 그레이스케일 (빠른 선택)
- * - HEX 직접 입력
- * - 외부 클릭 / Esc 닫기
- *
- * **색을 고르는 도구에서 가장 커야 하는 것은 색이다** (사용자 지시 — "색 선택툴의 색이
- * 좀더 잘보이게"). 그래서 이 파일의 치수는 전부 "색이 몇 픽셀을 차지하는가"로 정해진다:
- * 칸은 격자를 꽉 채우고, 테두리·선택 표시·손잡이는 색을 덮지 않는 쪽으로 그린다
- * (자세한 근거는 `Swatch`·`SWATCH_EDGE` 주석). §9 의 "'안 보인다'를 색부터 손대서 풀지
- * 말라 — 크기 문제다"가 글자에 대해 세운 규율을 색 칸에 그대로 적용한 것이다.
- */
+/** 어두운 패널용 자체 색 선택 팝오버(네이티브 다이얼로그 대체). 가장 커야 하는 것은 색이다 — 테두리·표식·손잡이는 색을 덮지 않는다(§9 크기 규율). */
 export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit, onClose, anchor }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const popRef = useRef<HTMLDivElement>(null);
@@ -335,9 +297,7 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
   // 폭 240 → 264: 격자 한 칸이 23.5 → 26.5px 이 되어 칸을 꽉 채우는 것과 합쳐 색 면적이
   // 196 → 702px²(약 3.6배)가 된다. 24px 넓어질 뿐이라 앵커 옆에 붙는 성격은 그대로다.
   const POP_W = 264;
-  // 키는 그려 본 뒤 잰다 — 종전에는 칸 수로 짐작했는데(431 + 알파 22 + 빠른 칸 52) 글꼴·번역·칸이 바뀌면
-  //   짐작이 어긋나 아래가 잘리거나 덜 올라갔다. 첫 페인트 전(layout effect)에 실측(`scrollHeight` —
-  //   maxHeight 클램프와 무관한 콘텐츠 키)으로 바로잡는다. 짐작은 실측 전 한 번만 쓴다.
+  // 키는 그려 본 뒤 잰다(짐작은 글꼴·번역에 어긋난다) — 첫 페인트 전에 `scrollHeight` 로 바로잡는다.
   const [measuredH, setMeasuredH] = useState<number | null>(null);
   const hasPresets = !!presets;
   useLayoutEffect(() => {
@@ -349,8 +309,7 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
   const POP_H = measuredH ?? 431 + (hasAlpha ? 22 : 0) + (presets ? 52 : 0);
   const screenW = typeof window !== 'undefined' ? window.innerWidth : 1024;
   const screenH = typeof window !== 'undefined' ? window.innerHeight : 768;
-  // 칸이 커지며 키가 자랐다 — 낮은 창에서 아래가 잘리지 않게 화면 안으로 묶고 넘치면 스크롤한다
-  // (종전에는 `top` 하한 8 에 걸린 뒤 남는 만큼 그냥 화면 밖으로 나갔다 — HEX 입력칸이 대상이다).
+  // 낮은 창에서 아래(HEX 입력칸)가 잘리지 않게 화면 안으로 묶고 넘치면 스크롤한다.
   const maxHeight = Math.max(200, screenH - 16);
   // 오른쪽에 자리가 없으면 왼쪽으로 뒤집고, 그래도 넘치면(폰 폭) 화면 안으로 접는다.
   const left = clampSpan(anchor.x + POP_W + 8 < screenW ? anchor.x + 8 : anchor.x - POP_W - 8, POP_W, screenW);
@@ -464,9 +423,7 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
         </div>
       )}
 
-      {/* 호출부 전용 빠른 칸(있을 때만) — 그 화면이 쓰는 색부터 눈에 들어오게 맨 위.
-          종전에는 동그라미라 범용 팔레트와 구분됐는데, 칸을 꽉 채우려면 네모여야 하므로
-          (원은 같은 칸에서 색 면적을 21% 잃는다) 그 구분은 아래 경계선이 대신한다. */}
+      {/* 호출부 빠른 칸(있을 때만, 맨 위). 네모라 범용 팔레트와의 구분은 아래 경계선이 한다. */}
       {presets && (
         <div className="mt-3 grid grid-cols-8 gap-1 border-b border-gray-800 pb-3">
           {presets.map((p) => (
@@ -509,10 +466,7 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
 
       {/* HEX 입력 + 미리보기 */}
       <div className="mt-3 flex items-center gap-2">
-        {/* 미리보기는 **실제로 나올 모습**이어야 한다 — 종전에는 알파를 무시하고 원색을 칠해,
-            30% 로 낮춰 놓고도 여기만 진하게 보였다(고른 색과 나올 색이 달랐다). 체커보드 위에
-            같은 알파로 얹어 얼마나 뚫렸는지까지 그대로 보인다. 알파를 안 쓰는 호출부는 1 이라
-            종전과 완전히 같은 그림이다. */}
+        {/* 미리보기는 실제로 나올 모습이다 — 체커보드 위에 같은 알파로 얹는다. */}
         <div
           className="relative h-8 w-8 flex-shrink-0 overflow-hidden rounded border border-gray-700"
           style={{ background: CHECKERBOARD }}

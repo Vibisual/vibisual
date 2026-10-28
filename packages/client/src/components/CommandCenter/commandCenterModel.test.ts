@@ -62,7 +62,7 @@ function sub(id: string, parentAgentId: string, over: Partial<SubAgent> = {}): S
   };
 }
 
-/** 정렬·자동정리처럼 항목만 필요한 테스트용 — 픽스처도 타입체크를 받게 한다(v4.41 교훈). */
+/** 픽스처도 타입체크를 받게 한다. */
 function item(over: Partial<CommandCenterItem> = {}): CommandCenterItem {
   return {
     key: 'a1::main',
@@ -321,7 +321,7 @@ describe('카드의 subAgentId 귀속', () => {
   });
 });
 
-describe('살아 있는 카드만 대기로 센다 (§5.12 (B) v4.55)', () => {
+describe('살아 있는 카드만 대기로 센다 (§5.12 (B))', () => {
   // "지금 나를 기다리는가" 의 자 = IDE 스트림이 카드를 놓는 자리(`turnEndSortTs`).
   // 카드 뒤에 프롬프트가 있으면 그 카드는 스트림 중간으로 밀린 것 = 이미 답한 것.
   const agents = [agent('a1', 'Alpha', { status: 'idle' })];
@@ -563,7 +563,7 @@ describe('보조', () => {
   });
 });
 
-// §5.12 (H) v4.44 — 분류 막대·키보드 이동·긴급도. 화면 없이 검증할 수 있게 전부 순수 함수다.
+// §5.12 (H) — 분류 막대·키보드 이동·긴급도.
 describe('분류 막대(§5.12 (H))', () => {
   it('토글은 그 레인만 남기고 다른 레인 토큰을 걷어낸다 — 알약은 라디오처럼 동작해야 한다', () => {
     expect(toggleLaneToken('', 'needs-review')).toBe('needs:review');
@@ -619,8 +619,7 @@ describe('키보드 이동 순서 · 대기 긴급도(§5.12 (H))', () => {
   });
 });
 
-// §5.12 (I) v4.47 — "작업 중 카드가 엎치락뒤치락한다"의 근본 원인은 정렬 키가 **작업 중에 변하는 값**
-// (lastActivityAt)이었다는 것. 아래 테스트가 그 회귀를 막는다.
+// §5.12 (I) — 정렬 키가 작업 중 변하는 값(lastActivityAt)이면 카드가 엎치락뒤치락한다.
 describe('우선순위 기준 고정(§5.12 (I))', () => {
   it('laneRank 는 표의 급한 순 그대로다', () => {
     expect(laneRank('needs-answer')).toBe(0);

@@ -8,20 +8,8 @@ import { WINDOW_NAV_BODY, WINDOW_NAV_LIST, WINDOW_NAV_PANE, windowNavItemClass }
 import { MobileAccessSection } from './MobileAccessSection';
 import { ChatChannelSection } from './ChatChannelSection';
 
-// 원격 접속 창 — SCENARIO.md §4 (판올림 번호 발급 대기).
-//
-// **두 창을 하나로 합친 자리다.** 종전에는 File 메뉴에 "Mobile Access"(§4 v3.16)와
-// "Remote Control"(메신저 브리지) 두 항목이 나란히 서 있었다. 둘 다 "폰으로 이 PC 를 만진다"는
-// 같은 일을 하는데 이름만으로는 무엇이 무엇인지 알 수 없었고, 메신저 쪽은 그 안에서 다시
-// 좌우 탭으로 갈렸다 — 같은 종류의 선택이 **두 층에 흩어져 있었다.**
-//
-// 이제 한 창 안에서 **옵션 창과 같은 구조**(§4 v2.42 — 좌측 카테고리 사이드바 + 우측 패널)로
-// 나눈다. 칸은 셋이고 각 칸이 "이 PC 에 닿는 한 가지 길"이다 — 폰 브라우저 · 텔레그램 · 디스코드.
-// 방향이 서로 반대라는 것(웹은 우리가 포트를 열고, 메신저는 우리가 나가서 붙는다)은 각 칸의
-// 설명이 말한다. 새 상태·새 IPC 는 없다 — 기존 `window.api.mobile` / `window.api.chat` 그대로다.
-//
-// 상태 구독은 **셸이 한 번만** 한다. 사이드바의 점이 세 칸의 상태를 동시에 보여 줘야 하므로
-// 칸마다 따로 구독하면 안 보이는 칸의 점이 영영 회색으로 남는다.
+// §4 — 원격 접속 창: 이 PC 에 닿는 길 셋(폰 브라우저·텔레그램·디스코드)을 옵션 창 구조(좌측 카테고리 + 우측 패널)로. IPC 는 기존 `window.api.mobile` / `window.api.chat`.
+// 상태 구독은 셸이 한 번 — 칸마다 하면 안 보이는 칸의 사이드바 점이 회색으로 남는다.
 
 /** 사이드바의 칸 하나 = 이 PC 에 닿는 한 가지 길. */
 export type RemoteAccessCategory = 'mobile' | ChatChannelKind;
@@ -83,7 +71,7 @@ export function RemoteAccessWindow({ open, onClose }: RemoteAccessWindowProps): 
   const [mobileState, setMobileState] = useState<MobileAccessState | null>(null);
   const [chatState, setChatState] = useState<ChatBridgeState | null>(null);
 
-  // §4 v3.71 가시성 LOD — 열려 있는 동안 캔버스를 전면으로 덮으므로 덮개로 등록한다.
+  // §4 가시성 LOD — 열려 있는 동안 캔버스를 전면으로 덮으므로 덮개로 등록한다.
   useEffect(() => {
     setCanvasCover('remote-access', open);
     return () => setCanvasCover('remote-access', false);

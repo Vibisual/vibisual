@@ -5,13 +5,8 @@ import { normalizeSnipRect } from './snipRect.js';
 import type { PreviewSnip } from './usePreviewSnip.js';
 
 /**
- * §5.17 (B) — 프리뷰 본체 위에 덮이는 조준 레이어.
- *
- * 덮여 있는 동안 프리뷰 조작은 멈춘다 — 사각형을 긋는 클릭이 그 앱의 버튼을 눌러 버리면
- * "보던 화면" 자체가 달라진다. 손을 떼면 그 사각형만 찍어 첨부하고 레이어는 스스로 꺼진다.
- *
- * 좌표는 창 기준 CSS px(`clientX/clientY`) 을 그대로 쓴다 — Electron `capturePage(rect)` 가
- * 받는 좌표계와 같아 변환이 없고, 캔버스 줌·스크롤은 이미 그 값에 반영돼 있다.
+ * §5.17 (B) — 조준 레이어. 덮인 동안 프리뷰 조작을 막는다(긋는 클릭이 앱을 누르지 않게).
+ * 좌표는 창 기준 CSS px — `capturePage(rect)` 와 같고 캔버스 줌·스크롤도 이미 반영돼 있어 변환하지 않는다.
  */
 
 interface Point { x: number; y: number }

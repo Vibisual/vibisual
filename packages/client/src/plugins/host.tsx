@@ -1,17 +1,7 @@
 /**
- * §5.11 v3.88 — 플러그인 호스트 (클라이언트).
- *
- * 코어는 이 파일의 **슬롯 컴포넌트만** 알면 된다. 어떤 플러그인이 무엇을 그리는지는 코어가 몰라야
- * 플러그인이 늘어도 코어 파일이 자라지 않는다(§5.11 을 만든 이유 자체).
- *
- * - 활성 판정 SSOT = `UserDefaults.enabledPluginsByProject`(**프로젝트별**, 서버 저장, WS `user_defaults_updated` 로 즉시 반영).
- * - 비활성 = 기여 미등록일 뿐 **데이터 삭제 아님**. 다시 켜면 그대로 돌아온다.
- * - 기여가 하나도 없으면 **DOM 을 아예 만들지 않는다**(빈 래퍼조차 남기지 않아 캔버스 렌더 비용 0).
- *
- * ⚠ 마지막 줄은 오래 **사실이 아니었다**(v4.30 에서 고침). 슬롯이 한 컴포넌트였을 때는 `return null`
- * 앞에서 이미 훅이 다 돌아, 켠 플러그인이 하나도 없어도 버블마다 스토어 구독 열두 개가 열렸다. 지금은
- * 슬롯을 바깥(사전 판정)과 안쪽(무거운 훅)으로 갈라, 낼 기여가 없으면 안쪽을 아예 그리지 않는다.
- * **슬롯에 훅을 추가할 때는 반드시 안쪽 컴포넌트에 넣을 것** — 바깥에 넣으면 그 비용이 다시 전역이 된다.
+ * §5.11 — 플러그인 호스트(클라). 코어는 슬롯 컴포넌트만 안다. 활성 판정 SSOT = `UserDefaults.enabledPluginsByProject`(프로젝트별, WS `user_defaults_updated` 로 반영).
+ * 비활성은 기여 미등록일 뿐 데이터 삭제가 아니다. 슬롯은 바깥(사전 판정)·안쪽(무거운 훅)으로 갈라, 낼 기여가 없으면 안쪽을 안 그린다.
+ * **훅은 반드시 안쪽 컴포넌트에** — 바깥에 넣으면 버블마다 구독이 열린다.
  */
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -37,12 +27,7 @@ import { useMinuteNow } from './minuteClock.js';
 import { useStableSlice } from './stableSlice.js';
 
 
-/**
- * 플러그인에 넘길 번역 함수.
- *
- * i18next 의 `t` 는 옵션에 따라 문자열이 아닌 결과 타입도 가질 수 있어 그대로는 좁혀지지 않는다.
- * 플러그인 계약은 "키를 주면 문자열"이라는 단순한 형태여야 하므로 여기서 한 번만 좁혀 준다.
- */
+/** i18next `t` 는 문자열 아닌 결과 타입도 가지므로 플러그인 계약("키를 주면 문자열")으로 여기서 한 번 좁힌다. */
 export function usePluginTranslate(): PluginTranslate {
   const { t } = useTranslation();
   return useMemo(
@@ -52,15 +37,7 @@ export function usePluginTranslate(): PluginTranslate {
   );
 }
 
-/**
- * 지금 활성인 클라이언트 기여 모듈들.
- *
- * v4.54 부터 켬/끔은 **프로젝트별**이라, 어느 프로젝트를 보고 있느냐가 판정에 들어간다. 프로젝트를
- * 옮기면 배지·패널이 그 프로젝트에서 켠 것으로 즉시 갈아탄다(창을 다시 열 필요 없음).
- *
- * 구독은 필요한 두 조각만 잡는다 — `userDefaults` 통짜를 구독하면 다른 옵션 한 글자에도 모든 버블의
- * 기여 맵이 다시 계산된다.
- */
+/** 켬/끔은 프로젝트별이라 보고 있는 프로젝트가 판정에 들어간다. 두 조각만 구독한다 — `userDefaults` 통짜면 옵션 한 글자에도 모든 버블이 다시 계산된다. */
 export function useActivePluginModules(): PluginClientModule[] {
   const byProject = useGraphStore((s) => s.userDefaults?.enabledPluginsByProject);
   const legacyGlobal = useGraphStore((s) => s.userDefaults?.enabledPlugins);
@@ -85,12 +62,7 @@ interface BubbleSlotProps {
   agentConfig: AgentConfig | undefined;
 }
 
-/**
- * 활성 모듈들이 선언한 데이터만 스토어에서 꺼낸다.
- *
- * 아무도 요청하지 않으면 구독 자체가 값을 안 읽어 렌더 비용이 0 에 가깝다 — 플러그인이 늘어도
- * 캔버스가 무거워지지 않게 하는 지점이라, 여기서 전부 실어 보내는 편의를 택하면 안 된다.
- */
+/** 활성 모듈이 선언한 데이터만 꺼낸다 — 전부 실어 보내지 마라(요청 없는 축은 안 읽어야 캔버스가 무거워지지 않는다). */
 function usePluginData(modules: PluginClientModule[], bubbleId: string): PluginAgentData {
   const needs = useMemo(() => new Set(modules.flatMap((m) => m.needs ?? [])), [modules]);
 
@@ -101,7 +73,7 @@ function usePluginData(modules: PluginClientModule[], bubbleId: string): PluginA
   const agentReviews = useGraphStore((s) => (needs.has('agentReviews') ? s.agentReviews[bubbleId] : undefined));
   // §5.10 — 되풀이가 절차로 굳은 정도. 프로젝트 단위라 버블과 무관하게 같은 값이 온다.
   const autoGoal = useGraphStore((s) => (needs.has('autoGoal') ? selectActiveAutoGoalSummary(s) : undefined));
-  // §5.11 v4.65 — 집행이 실제로 무엇을 보고 판단했는지. 프로젝트 단위라 버블과 무관하게 같은 값이 온다.
+  // §5.11 — 집행이 실제로 무엇을 보고 판단했는지(프로젝트 단위 — 버블과 무관하게 같은 값).
   const pluginFacts = useGraphStore((s) => (needs.has('pluginFacts') ? selectActivePluginFacts(s) : undefined));
   const captureBubbles = useGraphStore((s) => (needs.has('captureBubbles') ? s.captureBubbles : undefined));
   // bash 는 세션 id 로 저장돼 있고 에이전트는 자기 세션 목록을 갖고 있다 — 여기서 그 둘을 잇는다.
@@ -137,8 +109,7 @@ function useBubbleContext(props: BubbleSlotProps, modules: PluginClientModule[])
   const t = usePluginTranslate();
   const { bubbleId, bubbleType, label, customCreated, agentConfig } = props;
   const data = usePluginData(modules, bubbleId);
-  // 분 단위로 굳힌 '지금'. 같은 분 안에서는 값이 같아 렌더가 안 흔들리고, 분이 바뀌면 실제로 바뀐다
-  // — 예전에는 `useMemo(…, [])` 라 마운트 시점에 굳어 **영영 안 바뀌었다**(§5.11 v4.31).
+  // 분 단위로 굳힌 '지금'. `useMemo(…, [])` 로 바꾸지 마라 — 마운트 시점에 굳어 영영 안 바뀐다(§5.11).
   const now = useMinuteNow();
   return useMemo(
     () => ({ bubbleId, bubbleType, label, customCreated, agentConfig, data, now, t }),
@@ -146,15 +117,11 @@ function useBubbleContext(props: BubbleSlotProps, modules: PluginClientModule[])
   );
 }
 
-/**
- * 버블 배지 슬롯 — 버블 우하단. 여러 플러그인이 배지를 내면 가로로 이어 붙는다.
- * `pointer-events-none` 컨테이너 위에 배지만 `auto` 로 살려 툴팁은 뜨되 드래그는 안 막는다.
- */
+/** 버블 우하단 배지 슬롯(여럿이면 가로로). 컨테이너는 `pointer-events-none`, 배지만 `auto` — 툴팁은 뜨되 드래그는 안 막는다. */
 export function PluginBubbleBadgeSlot(props: BubbleSlotProps): React.JSX.Element | null {
   const modules = useActivePluginModules();
   const badgeModules = useMemo(() => modulesForSlot(modules, 'bubbleBadge'), [modules]);
-  // 이 슬롯은 **모든 버블 안에** 들어간다. 배지를 내는 모듈이 없으면 여기서 끝내야 한다 —
-  // 아래 안쪽 컴포넌트가 버블마다 스토어 구독 열두 개를 열기 때문이다(§5.11 v4.30).
+  // 모든 버블 안에 들어가므로 배지 모듈이 없으면 여기서 끝낸다 — 안쪽이 버블마다 스토어 구독 열두 개를 연다(§5.11).
   if (badgeModules.length === 0) return null;
   return <BadgeSlotInner {...props} modules={badgeModules} />;
 }
@@ -188,14 +155,8 @@ function BadgeSlotInner(props: BubbleSlotProps & { modules: PluginClientModule[]
 }
 
 /**
- * DetailPanel 섹션 슬롯.
- *
- * 카드가 111종이 되면 "켠 것을 등록 순서대로 전부 펼치기"는 못 쓴다. 그래서 호스트가 두 가지를 한다.
- *  ① **문제부터 위로** — 심각도 순으로 정렬한다. 무엇을 봐야 하는지가 스크롤 없이 먼저 보인다.
- *  ② **조용한 카드는 접는다** — 경고가 아닌 카드가 문턱을 넘게 많으면 접어 두고 펼치기 버튼을 준다.
- *
- * 정렬 근거는 카드가 렌더 전에 알려 주는 `severity` 뿐이다 — 호스트가 카드 내용을 열어 보지 않는다는
- * 경계는 그대로 유지된다.
+ * DetailPanel 섹션 슬롯 — 심각도 순으로 문제부터 위로, 경고 아닌 카드가 문턱을 넘게 많으면 접는다.
+ * 정렬 근거는 카드가 렌더 전에 알려 주는 `severity` 뿐이다(호스트는 카드 내용을 열어 보지 않는다).
  */
 export function PluginPanelSectionSlot(props: BubbleSlotProps): React.JSX.Element | null {
   const modules = useActivePluginModules();
@@ -265,12 +226,7 @@ function PanelSlotInner(props: BubbleSlotProps & { modules: PluginClientModule[]
   );
 }
 
-/**
- * 호스트가 여는 동작들 — 플러그인은 이 이름들만 부를 수 있다.
- *
- * 새 엔드포인트를 만들지 않고 이미 있는 정지 경로를 조합한다. 예약된 루프까지 끊는 이유는,
- * 현재 실행만 죽이고 스케줄러가 살아 있으면 다음 회차가 다시 뜨기 때문이다.
- */
+/** 플러그인이 부를 수 있는 동작들(기존 정지 경로 조합). 예약된 루프까지 끊는다 — 실행만 죽이면 스케줄러가 다음 회차를 띄운다. */
 function usePluginActions(): PluginActions {
   return useMemo<PluginActions>(
     () => ({

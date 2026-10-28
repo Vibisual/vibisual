@@ -4,13 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { findWorkspaceFiles } from './workspaceFind.js';
 
-/**
- * §5.5 #17-27 ⑱ — 판 쪽에서 파일 찾기.
- *
- * 지키는 것: (a) 고르는 판정이 화면과 한 벌이다(갈래 · 앱 선언 · 산출물 빼기), (b) 들어가지 않는 폴더와
- * 링크를 건너뛴다, (c) 최근 고친 순이다, (d) 상한 셋 중 하나라도 걸리면 `truncated` 로 **말한다**,
- * (e) 루트가 아니면 `null` 이다.
- */
+/** §5.5 #17-27 ⑱ — 판 쪽 파일 찾기: 화면과 한 벌 판정 · 폴더·링크 건너뛰기 · 최근 순 · 상한에 걸리면 `truncated` · 루트가 아니면 `null`. */
 
 let root: string;
 

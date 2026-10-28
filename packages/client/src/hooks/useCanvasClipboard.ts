@@ -1,18 +1,6 @@
 /**
- * §5.4 #29 v1.51 — Vibisual 내부 캔버스 클립보드 훅.
- *
- * 키 배정은 §6 단축키 레지스트리(`canvas.copy` / `canvas.paste`)가 정한다 — 사용자가 설정에서
- * 바꾸면 이 파일을 한 줄도 안 고치고 그대로 따라간다. 아래 설명의 키는 **기본값**이다.
- *
- * Ctrl/Cmd+C : 선택된 커스텀 에이전트 + Task Edge + Comment Box 묶음을
- *              localStorage 단일 슬롯에 직렬화 (시스템 클립보드와 분리).
- * Ctrl/Cmd+V : 활성 프로젝트 캔버스의 마우스 위치에 anchor 를 두고
- *              POST /api/canvas/paste 로 새 ID 부여하여 일괄 복원.
- *
- * - 복사 대상은 customCreated=true 에이전트, 양 끝이 모두 선택된 Task Edge,
- *   ReactFlow 에서 selected=true 인 Comment Box 노드.
- * - 메인 뷰(currentFolderId === null) + 비-INPUT/TEXTAREA 포커스에서만 동작.
- * - rulesHistory 등 런타임 데이터는 strip — 클립보드를 타고 누적되지 않도록.
+ * §5.4 #29 — 내부 캔버스 클립보드(키는 §6 `canvas.copy` / `canvas.paste`). 복사: 선택한 customCreated 에이전트 + 양 끝이 다 선택된 Task Edge + 선택된 Comment Box 를 localStorage 한 슬롯에(시스템 클립보드와 분리).
+ * 붙여넣기: 마우스 위치를 anchor 로 POST /api/canvas/paste(새 ID). 메인 뷰 + 비-INPUT/TEXTAREA 포커스에서만. rulesHistory 등 런타임 데이터는 벗긴다(누적 방지).
  */
 
 import { useCallback, useEffect, useRef } from 'react';
@@ -110,13 +98,7 @@ export function useCanvasClipboard({
   const copyRef = useRef<(() => void) | null>(null);
   const pasteRef = useRef<(() => void | Promise<void>) | null>(null);
 
-  /**
-   * 지금 캔버스 클립보드를 써도 되는 자리인가.
-   *
-   * `false` 를 돌려주면 `useCommand` 는 **처리하지 않은 것으로 보고 키를 흘려보낸다** —
-   * 그래서 텍스트를 선택해 둔 상태의 `Ctrl+C` 는 종전대로 네이티브 복사가 된다(가로채면
-   * 캔버스 위에서 글자를 복사할 방법이 사라진다).
-   */
+  /** 캔버스 클립보드를 써도 되는 자리인가. `false` 면 `useCommand` 가 키를 흘려 텍스트 선택 중 `Ctrl+C` 는 네이티브 복사가 된다(가로채면 글자를 복사할 길이 없다). */
   const clipboardUsable = useCallback((): boolean => {
     if (currentFolderId !== null) return false; // 메인 뷰 전용
     // IDE 오버레이가 열려 있으면 캔버스 클립보드 비활성 — 출력 영역(div/span/pre) 텍스트 선택 후

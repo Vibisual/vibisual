@@ -1,9 +1,4 @@
-/**
- * §4 앱 테마 — 사용자 테마 파일을 읽다 생긴 문제 목록.
- *
- * 서버는 **문장이 아니라 코드**(`AppThemeIssue.code`)를 보낸다 — 문장은 여기서 사용자 언어로 짓는다.
- * `error` 는 그 파일을 못 쓴 것, `warning` 은 그 칸만 버리고 테마는 쓴 것이다.
- */
+/** §4 앱 테마 — 테마 파일 문제 목록. 서버는 코드(`AppThemeIssue.code`)만 보내고 문장은 여기서 짓는다. `error` = 파일을 못 씀, `warning` = 그 칸만 버림. */
 import { useTranslation } from 'react-i18next';
 import { APP_THEME_LIMITS, type AppThemeIssue } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';

@@ -2,13 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { SessionGoal, SessionGoalStepStatus } from '@vibisual/shared';
 import { computeGoalIndicator } from './goalIndicator.js';
 
-/**
- * §5.5 #17-17 ⑩ v4.73 — 활동바 목표 아이콘 점등 규칙 회귀.
- *
- * 두 번 뒤집힌 규칙이라 여기서 고정한다: **불은 "목표가 있다"가 아니라 "보여줄 내용이 들어왔다"에
- * 켜진다.** 명령마다 목표 카드가 자동 생성되므로(⑨ b), 카드 존재로 켜면 빈 `0%` 에도 불이 켜져
- * 사용자가 눌러 보고 빈 화면을 만난다.
- */
+/** §5.5 #17-17 ⑩ — 목표 아이콘은 목표 존재가 아니라 보여줄 내용이 들어왔을 때 켜진다(카드는 명령마다 자동 생성 ⑨ b — 존재로 켜면 빈 `0%` 에도 켜진다). */
 
 function goal(over: Partial<SessionGoal> = {}): SessionGoal {
   const steps = (over.steps ?? []).map((s, i) => ({
@@ -87,13 +81,7 @@ describe('computeGoalIndicator — 활동바 목표 아이콘', () => {
   });
 });
 
-/**
- * §5.5 #17-17 ⑩ 3차 정정 — **끝난 목록에는 불을 남기지 않는다**.
- *
- * `achieved` 로 닫는 것은 사용자의 몫이라 세션이 마지막 단계까지 끝내고 꺼져도 `status` 는 `active` 로
- * 남는다. 그래서 v4.73 판정은 이미 끝난 목표에도 계속 불을 켜고 `5/5` 를 띄웠다(실측: 저장된 목표
- * 66건 중 전 단계 `done` + sub `idle` 인 카드가 다수). 켜 두는 쪽과 끄는 쪽 모두 여기서 고정한다.
- */
+/** §5.5 #17-17 ⑩ — 끝난 목록(전 단계 done)은 끈다: `achieved` 는 사용자 몫이라 다 끝나도 `status` 는 `active` 로 남는다. 켜는 쪽·끄는 쪽 모두 고정한다. */
 describe('computeGoalIndicator — 완수한 목표의 소등', () => {
   const fiveOfFive = [
     { id: 'a', text: 'A', status: 'done' as SessionGoalStepStatus, updatedAt: 0 },

@@ -7,12 +7,8 @@ import {
   type MachoArch,
 } from '@vibisual/shared';
 
-// shared 의 순수 판정 로직은 server 테스트에서 검증한다(pathCase.test.ts·updateDelivery.test.ts 선례).
-//
-// **이 파일이 왜 있는가.** `self-install` 이 어긋난 아키텍처의 번들을 깔면 앱은 다시 뜨지 않는다
-// (`koffi` 가 제 바이너리를 못 찾아 main 프로세스가 즉사 — 이 저장소가 v0.1.12 에서 겪은 사고).
-// 그런데 우리에게는 mac 실기가 없다. 판정을 **바이트에서만** 하도록 짜 둔 덕분에 헤더를 손으로
-// 조립해 Windows 개발기에서 thin x64 · thin arm64 · universal 세 경우를 전부 잰다.
+// Mach-O 아키텍처 판정(shared 순수 로직 — shared 에 러너가 없어 server 에서 시험). `self-install` 이 다른 아키텍처 번들을 깔면
+// `koffi` 가 제 바이너리를 못 찾아 main 이 즉사해 앱이 다시 안 뜬다. 판정이 바이트만 보므로 헤더를 손으로 조립해 thin x64·thin arm64·universal 을 잰다.
 
 // ── 헤더 조립 도구 ──────────────────────────────────────────────────────────
 // 실제 macOS 실행본은 **리틀엔디언**이라 디스크에 `cf fa ed fe`(= LE 로 읽으면 0xfeedfacf)로 시작한다.

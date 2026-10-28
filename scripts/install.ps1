@@ -39,7 +39,7 @@ Write-Host "  downloading $($asset.name)"
 
 $dest = Join-Path ([System.IO.Path]::GetTempPath()) $asset.name
 $progress = $ProgressPreference
-# Invoke-WebRequest's progress bar makes large downloads crawl in some hosts.
+# The progress bar makes large downloads crawl in some hosts.
 $ProgressPreference = 'SilentlyContinue'
 try {
     Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $dest -Headers $headers

@@ -1,11 +1,6 @@
 /**
- * §5.11 v3.88 — 장기 지평 작업(Long-Horizon Task) 플러그인.
- *
- * 긴 작업의 실패는 대개 능력 부족이 아니라 맥락 소진·누적 오차에서 온다. 그래서 "지금 이 세션이
- * 얼마나 길어졌는가"를 먼저 보이게 한다 — 턴 수, 첫 지시 이후 경과, 마지막 할일 진행률.
- *
- * 이 플러그인은 `agentEvents` 를 요구한다(`needs`). 요청하지 않으면 호스트가 데이터를 채우지 않으므로
- * 꺼져 있는 동안에는 스토어를 읽는 비용조차 들지 않는다.
+ * §5.11 — 장기 지평 작업(Long-Horizon Task): 이 세션이 얼마나 길어졌나(턴 수 · 첫 지시 이후 경과 · 마지막 할일 진행률).
+ * `needs` 에 `agentEvents` 를 선언한다 — 선언하지 않으면 호스트가 데이터를 안 채우고, 꺼져 있는 동안엔 스토어를 읽는 비용도 없다.
  */
 import type { AgentEvent } from '@vibisual/shared';
 import type { PluginClientModule, PluginBubbleContext, PluginManifest, PluginSeverity } from '../sdk/index.js';
@@ -82,10 +77,7 @@ function Badge({ ctx }: { ctx: PluginBubbleContext }): React.JSX.Element {
   );
 }
 
-/**
- * 호스트는 카드 내용을 열어 보지 않고 이 등급만으로 정렬·접힘을 정한다. 등급을 안 주면 `neutral` 로 떨어져
- * **문제를 보고하는 순간에도 조용한 카드로 분류돼 접힘 대상이 된다.** 카드가 이미 계산해 둔 판정을 그대로 넘긴다.
- */
+/** 호스트는 이 등급만으로 정렬·접힘을 정한다 — 안 주면 `neutral` 로 떨어져 문제를 보고할 때도 접힌다. */
 function severity(ctx: PluginBubbleContext): PluginSeverity {
   return TONE[computeLongHorizon(ctx.data.agentEvents, ctx.now).level];
 }

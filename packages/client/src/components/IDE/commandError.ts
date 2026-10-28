@@ -7,23 +7,12 @@ import {
 import type { AgentEngineKind, CommandError, CommandErrorCode } from '@vibisual/shared';
 import { providerErrorGuidance, type ProviderErrorGuidance } from './providerError.js';
 
-/**
- * §5.5 #17-12 ③ — "오류" 한 단어를 사람이 읽을 수 있는 사유로 바꾸는 순수 모듈.
- *
- * 서버는 사유를 **코드 + 원문**으로만 싣는다(로케일을 모른다). 문장은 여기서 만들되, 이 모듈도
- * `t()` 를 부르지 않고 **키와 파라미터만** 돌려준다 — 그래야 i18n 없이 단위 테스트가 되고,
- * 부르는 화면(하단 상태바 · 스트림 · 메인 타임라인)이 저마다 자기 방식으로 문장을 붙일 수 있다.
- */
+/** §5.5 #17-12 ③ — 사유를 문장 키 + 파라미터로(`t()` ❌ — i18n 없이 시험되고 화면마다 문장을 붙인다). 서버는 코드 + 원문만 싣는다. */
 
 /** 엔진 이름을 채울 수 있는 엔진 종류 — 표에 없는 값(옛 데이터·미래 엔진)은 중립 이름으로 떨어진다. */
 const ENGINE_KINDS: ReadonlySet<string> = new Set(Object.keys(AGENT_ENGINE_CLI_LABEL));
 
-/**
- * §5.5 #17-12 ③-7 — 문장이 부를 **엔진의 이름**. 모르면 `CLI` 라고만 말한다.
- *
- * 엔진 이름은 제품 고유명사라 로케일마다 달라지지 않는다 — 그래서 번역 파일이 아니라 shared 의
- * 표에서 온다(문장은 `{{engine}}` 한 칸만 비워 두고 12 로케일이 그 칸을 공유한다).
- */
+/** §5.5 #17-12 ③-7 — 문장이 부를 엔진 이름(모르면 `CLI`). 고유명사라 번역 파일이 아니라 shared 표에서. */
 export function engineLabelOf(engine: AgentEngineKind | undefined): string {
   return engine && ENGINE_KINDS.has(engine) ? AGENT_ENGINE_CLI_LABEL[engine] : UNKNOWN_ENGINE_CLI_LABEL;
 }
@@ -39,28 +28,16 @@ export interface CommandErrorText {
   guidance?: ProviderErrorGuidance;
 }
 
-// 목록은 shared 한 벌뿐이다 — 여기에 자기 집합을 또 두면 코드가 늘 때마다 한쪽만 늘어나고,
-//   빠진 코드는 조용히 `unknown` 으로 떨어지거나 **다른 엔진의 실패를 Claude CLI 종료로 잘못 말한다**
-//   (§5.19 `local` 이 실제로 그랬다 — 2026-08-20 사용자 보고).
+// 목록은 shared 한 벌 — 여기 따로 두면 빠진 코드가 `unknown` 이 되거나 다른 엔진 실패를 Claude CLI 종료로 말한다(§5.19 `local`).
 const KNOWN_CODES: ReadonlySet<string> = new Set<string>(COMMAND_ERROR_CODES);
 
 /** 종료 코드가 있느냐로 문장이 갈리는 코드 — 없는데 `{{code}}` 를 쓰면 "code undefined" 가 뜬다. */
 const CODE_AWARE: ReadonlySet<string> = new Set<string>(COMMAND_ERROR_CODES_WITH_EXIT);
 
-/**
- * 사유를 특정할 수 없는 줄에 붙이는 코드. `CommandErrorCode` 유니언 밖의 값이라 캐스트하지만,
- * 이 값은 **화면 문장을 고르는 데에만** 쓰인다(`describeCommandError` 가 `unknown` 으로 받는다).
- * 실행·판정 로직은 `CommandError` 를 읽지 않는다(표시 전용).
- */
+/** 유니언 밖이라 캐스트하지만 화면 문장 고르기에만 쓰인다(실행·판정은 `CommandError` 를 읽지 않는다). */
 const UNTYPED_ERROR_CODE = 'unknown' as CommandErrorCode;
 
-/**
- * 사유 → 화면 재료. 모르는 코드(옛 데이터·미래 코드)도 버리지 않고 `unknown` 문장 + 원문으로 남긴다.
- *
- * **엔진 이름은 언제나 함께 간다.** 문장에 이름이 없는 사유(`maxTurns`·`local` 등)도 `{{engine}}` 을
- * 쓰지 않을 뿐이라 파라미터가 남아도 해가 없고, 반대로 이름을 쓰는 문장(`cli`·`spawn`·`exit`)에
- * 파라미터가 빠지면 화면에 `{{engine}}` 이 그대로 뜬다 — 빠지는 쪽의 대가가 크므로 늘 싣는다.
- */
+/** 모르는 코드도 `unknown` 문장 + 원문으로. 엔진 파라미터는 늘 싣는다 — 빠지면 `cli`·`spawn`·`exit` 문장에 `{{engine}}` 이 그대로 뜬다. */
 export function describeCommandError(error: CommandError): CommandErrorText {
   const code = KNOWN_CODES.has(error.code) ? error.code : 'unknown';
   const detail = error.detail && error.detail.trim() !== '' ? error.detail.trim() : null;
@@ -83,19 +60,13 @@ export function describeCommandError(error: CommandError): CommandErrorText {
   return { labelKey: `ide.cmdError.${code}`, labelParams: { engine }, detail };
 }
 
-/**
- * 서버가 `error` 스트림 이벤트 본문에 실어 보낸 `[code]` / `[code:exit] detail` 을 되돌린다.
- * system 줄의 `[subtype]` 규약과 같은 모양이라, 형식이 안 맞으면 전체를 원문 detail 로 본다
- * (사유를 통째로 잃느니 원문이라도 보여주는 편이 낫다).
- */
+/** `[code]` / `[code:exit] detail` 을 되돌린다(system `[subtype]` 과 같은 꼴). 형식이 안 맞으면 전체를 원문 detail 로. */
 export function parseStreamErrorContent(content: string): CommandError {
   // `@engine` 은 **선택 꼬리**다(§5.5 #17-12 ③-7). 그것이 없는 옛 줄은 종전과 똑같이 읽히고,
   //   엔진이 비면 화면이 엔진 이름 없이 `CLI` 라고만 말한다 — 모르는 것을 클로드로 단정하지 않는다.
   const m = /^\[([A-Za-z]+)(?::(-?\d+))?(?:@([A-Za-z]+))?\]\s*([\s\S]*)$/.exec(content.trim());
   if (!m) {
-    // 봉투가 없는 줄 = 누가 낸 실패인지 모른다. 예전엔 `exit` 로 떨어뜨려 "Claude CLI 가 예기치 않게
-    //   종료됐습니다" 라고 단정했는데, 로컬 모델처럼 CLI 가 아예 없는 경로의 실패까지 Claude 탓으로
-    //   말하게 된다. 모르면 모른다고 하고(사유는 `unknown`) 원문을 그대로 보여준다.
+    // 봉투 없는 줄은 누구 실패인지 모른다 — `unknown` + 원문(`exit` 면 CLI 없는 경로까지 Claude 탓이 된다).
     const raw = content.trim();
     return raw ? { code: UNTYPED_ERROR_CODE, detail: raw } : { code: UNTYPED_ERROR_CODE };
   }

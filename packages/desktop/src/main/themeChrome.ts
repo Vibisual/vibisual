@@ -1,11 +1,6 @@
 /**
- * §4 앱 테마 — 창 바탕(`backgroundColor`)과 제목줄 단추(`titleBarOverlay`)를 테마 색으로 칠한다.
- *
- * 화면 안은 렌더러가 CSS 변수로 칠하지만, **창 바탕은 렌더러가 그리기 전의 빈 창**이고 제목줄 단추는
- * OS 가 그린다 — 그 둘은 main 만 칠할 수 있다. 색은 서버 코어가 화면과 **같은 해석**으로 낸 값
- * (`getAppThemeChrome`)이라 창 바탕과 화면이 서로 다른 테마를 칠하지 않는다.
- *
- * 투명 창(오버레이 버블·윤곽선 · `#00000000`)은 등록하지 않는다 — 바탕을 칠하면 그 창의 정체가 무너진다.
+ * §4 앱 테마 — 창 바탕(`backgroundColor`)·제목줄 단추(`titleBarOverlay`)를 칠한다(렌더러 전의 빈 창과 OS 단추는 main 만 칠한다).
+ * 색은 서버 코어가 화면과 같은 해석으로 낸 값(`getAppThemeChrome`). 투명 창(`#00000000`)은 등록하지 않는다 — 칠하면 그 창이 무너진다.
  */
 import type { BrowserWindow } from 'electron';
 import type { AppThemeChrome } from '@vibisual/shared';

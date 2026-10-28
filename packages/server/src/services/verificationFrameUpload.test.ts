@@ -146,10 +146,8 @@ describe('verification demo frame uploads', () => {
     expect(fixture.saved).not.toHaveBeenCalled();
   });
 
-  // Windows answers EPERM to the `lstat` that `rm` starts with whenever an entry is pending deletion,
-  // and `rm` throws that straight through — its retry options never sleep (measured 0.2ms). Nothing on
-  // POSIX produces that state, so it is staged here: the refusal has to leave the cleanup still running,
-  // because the entry disappears on close and only a later pass can see the directory empty.
+  // Windows answers EPERM to `rm`'s first `lstat` while an entry is pending deletion (its retries never sleep, 0.2ms); POSIX never does, so it is
+  // staged here — the refusal must leave cleanup running, since only a later pass sees the directory empty.
   it('takes the directory down even after the frame removal is refused once', async () => {
     const fixture = await harness();
     const upload = await fixture.beginUpload(100, 'in-flight-frame');
@@ -186,12 +184,7 @@ describe('verification demo frame uploads', () => {
     expect(source).not.toMatch(/\bfs\.(rmSync|rmdirSync|unlinkSync)\b/);
   });
 
-  // Both calls advertise `maxRetries`/`retryDelay` and neither honours them for what this path raises.
-  // Measured: `rm(file, { force: true, maxRetries: 5, retryDelay: 20 })` against a path whose parent
-  // denies access came back EPERM in 0.2ms, and `rmdir(dir, { maxRetries: 3, retryDelay: 200 })` against
-  // a directory that could never be emptied came back ENOTEMPTY in 0.1ms. Neither ever slept once, so
-  // passing those options reads like a retry budget while buying exactly one attempt — and one attempt
-  // is what the Windows runner cannot afford. POSIX never shows it, so only this can hold the line.
+  // `rm`/`rmdir` ignore `maxRetries`/`retryDelay` for these errors (measured EPERM 0.2ms, ENOTEMPTY 0.1ms, no sleep) — one attempt, which the Windows runner cannot afford.
   it.each(['await fs.promises.rm(', 'await fs.promises.rmdir('])(
     'does not hand %s a retry budget it ignores — the waiting is written out',
     (call) => {
@@ -209,10 +202,7 @@ describe('verification demo frame uploads', () => {
     },
   );
 
-  // The frame and its directory are two separate removals, and the first one failing is exactly when the
-  // second matters most: Windows can leave the frame pending deletion, where its entry only disappears
-  // once the handle closes and nothing but a later directory attempt can see it. Letting the frame's
-  // error escape skipped the directory step outright, which is how CI run #49 orphaned the folder.
+  // If the frame's removal error escapes, the directory step is skipped — yet a frame pending deletion on Windows is exactly when only the directory step can finish.
   it('does not let a frame that will not go stop its directory from going', () => {
     const source = fs.readFileSync(new URL('./verificationFrameUpload.ts', import.meta.url), 'utf8')
       .replace(/\r\n/g, '\n');

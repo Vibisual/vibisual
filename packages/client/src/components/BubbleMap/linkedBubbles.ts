@@ -1,20 +1,7 @@
 /**
- * **연결 무리(link group) 계산 한 벌** — "이 에이전트에 지금 무엇이 매달려 있는가".
- *
- * 캔버스에서 에이전트 버블은 자기가 만진 파일·폴더, 자기 위성(기억·휴지통·프리뷰),
- * 위임을 주고받는 다른 커스텀 에이전트와 **선으로 이어져 있다**. 사용자가 그 덩어리를
- * 통째로 옮기거나 눈으로 가려내려면 "무엇이 한 덩어리인가"를 한 곳에서 정해야 한다.
- *
- * **판정 근거는 화면에 실제로 그려진 엣지다.** 스토어의 관계(`nodeAgentRefs` 등)가 아니라
- * React Flow 에 올라간 엣지 목록을 그대로 읽는다 — 사용자가 "연결돼 있다"고 보는 것은
- * 눈에 보이는 선이고, 뷰(메인/폴더 내부/파이프라인)마다 그려지는 선이 다르기 때문이다.
- * 근거를 스토어로 바꾸면 폴더 안에서는 화면에 없는 버블까지 무리에 들어간다.
- *
- * **범위는 1촉(1-hop) + 그 이웃의 위성이다.** 전이적으로 따라가면 활동이 조금만 겹쳐도
- * 캔버스 전체가 한 덩어리가 되어 강조가 아무 말도 하지 않게 되고, 반대로 위성을 빼면
- * 부모 폴더만 움직이고 그 위에 붙은 파일 점들이 제자리에 남아 무리가 찢어져 보인다.
- *
- * React 없이 단위 테스트할 수 있도록 **순수 함수**로 둔다.
+ * 연결 무리 계산 — "이 에이전트에 지금 무엇이 매달려 있는가"(React 없이 시험하는 순수 함수).
+ * 근거는 **화면에 그려진 엣지**다 — 뷰마다 선이 달라, 스토어 관계(`nodeAgentRefs` 등)로 바꾸면 폴더 안에서 화면에 없는 버블까지 든다.
+ * 범위는 1촉 + 그 이웃의 위성 — 전이적이면 캔버스 전체가 한 덩어리가 되고, 위성을 빼면 부모만 움직여 무리가 찢어진다.
  */
 
 import { LINK_FOCUS } from '@vibisual/shared';
@@ -49,11 +36,8 @@ export const EMPTY_LINK_GROUP: LinkGroup = {
 };
 
 /**
- * `focusId` 를 중심으로 한 연결 무리를 계산한다.
- *
- * @param focusId    사용자가 잡은 버블 id
- * @param edges      지금 화면에 그려진 엣지 전부(활동 엣지 · 위성 엣지 · Task Edge · 소유 엣지)
- * @param satellites 위성 → 부모 관계(부모가 무리에 들면 그 위성도 함께 든다)
+ * @param edges      지금 화면에 그려진 엣지 전부(활동 · 위성 · Task Edge · 소유)
+ * @param satellites 위성 → 부모(부모가 무리에 들면 그 위성도 든다)
  */
 export function computeLinkGroup(
   focusId: string,
@@ -94,12 +78,7 @@ export function computeLinkGroup(
 /** 이 버블이 무리에서 맡은 자리 — 강조 세기를 이 한 글자로 가른다. */
 export type LinkRole = 'off' | 'focus' | 'linked' | 'dim';
 
-/**
- * `nodeId` 의 자리를 판정한다. 무리가 없으면 `'off'`(강조 자체가 꺼진 상태).
- *
- * 반환이 **문자열 원시값**인 것이 중요하다 — 노드 컴포넌트가 이걸 그대로 구독하면
- * 자기 자리가 바뀔 때만 깨어난다(§9 "버블은 자기 것만 구독한다").
- */
+/** 반환은 **문자열 원시값**이어야 한다 — 노드가 그대로 구독해 자기 자리가 바뀔 때만 깨어난다(§9). */
 export function linkRoleOf(group: LinkGroup | null, nodeId: string): LinkRole {
   if (group === null || group.focusId === '') return 'off';
   if (nodeId === group.focusId) return 'focus';
@@ -140,13 +119,7 @@ export interface LinkNodeVisual {
 
 const NO_NODE_VISUAL: LinkNodeVisual = { opacityMul: 1, filter: null, boxShadow: null };
 
-/**
- * 버블 한 장의 강조 표현을 계산한다.
- *
- * 불투명도를 **곱으로** 돌려주는 것이 중요하다 — 버블은 이미 사라지는 중이거나(`disappearing`)
- * 죽은 프리뷰(`iframeAlive===false`)라서 자기 몫의 투명도를 갖고 있을 수 있고, 그걸 덮어쓰면
- * 무리 강조가 그 상태를 지워 버린다.
- */
+/** 불투명도는 **곱으로** 돌려준다 — 덮어쓰면 사라지는 중(`disappearing`)·죽은 프리뷰(`iframeAlive===false`)의 제 투명도가 지워진다. */
 export function linkFocusNodeStyle(role: LinkRole, phase: LinkFocusStrengthPhase): LinkNodeVisual {
   if (role === 'off' || phase === 'off') return NO_NODE_VISUAL;
   const k = linkFocusStrength(phase);

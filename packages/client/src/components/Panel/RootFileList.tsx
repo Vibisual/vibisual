@@ -24,26 +24,13 @@ interface RootFileListProps {
   folderPath: string;
   /** 프로젝트 이름 (API 호출용) */
   projectName: string;
-  /**
-   * 이 루트/폴더의 **절대 경로**(스냅샷 값 그대로).
-   *
-   * 서버 노드 키는 프로젝트 루트 기준 **상대 경로**라 `docs` 처럼 흔한 이름은 어느 프로젝트
-   * 것인지 알 수 없다 — 프로젝트를 여러 개 열어 두면 먼저 등록된 인스턴스가 답해 **남의
-   * 프로젝트 파일 목록**이 그려졌다(`open-node-file` 이 `absolutePath` 를 함께 보내는 것과 같은
-   * 이유). 이 값을 실어 보내면 서버가 인스턴스를 정확히 찍는다.
-   */
+  /** 절대 경로를 실어야 서버가 인스턴스를 찍는다(상대 키 `docs` 는 여러 프로젝트에서 남의 목록을 그린다). */
   folderAbsPath?: string | undefined;
   /** 폴더 내부 Root인 경우: 폴더 노드 ID (children에서 visible 판단) */
   parentNodeId?: string;
 }
 
-/**
- * Root 패널 — 1단계 플랫 리스트, 체크 시 캔버스에 독립 버블 생성/삭제.
- *
- * 목록은 `FOLDER_FILES_PAGE_SIZE` 단위로 이어 받는다(§7.5). 종전에는 서버가 폴더를 통째로
- * 재귀해 보냈는데, **이 패널은 그중 최상위 한 겹만 그렸다** — 읽고·보내고·파싱한 나머지는
- * 전부 버려졌고, 사용자 홈이 외부 폴더 버블이면 그 헛일 하나가 창을 세웠다.
- */
+/** Root 패널 — 체크하면 독립 버블. 목록은 `FOLDER_FILES_PAGE_SIZE` 장씩(§7.5). */
 export function RootFileList({ folderPath, projectName, folderAbsPath, parentNodeId }: RootFileListProps): React.JSX.Element {
   const { t } = useTranslation();
   const { levels, rootLoading, loadMore } = useFolderFilePages(folderPath, folderAbsPath);
@@ -73,11 +60,7 @@ export function RootFileList({ folderPath, projectName, folderAbsPath, parentNod
   /** 지금까지 받아 온 루트 겹의 항목들 — "표시됨" 행의 이름 보강에 쓴다. */
   const entries = useMemo(() => levels.get('')?.entries ?? [], [levels]);
 
-  // 독립 버블 토글 → /api/root/toggle (폴더 내부면 parentPath 포함).
-  //
-  // ⚠ 토글 뒤에 목록을 **다시 읽지 않는다**. 체크 여부는 store(캔버스 렌더 집합)에서 오고 이
-  //   토글은 디스크를 건드리지 않는다 — 종전의 재조회는 트리를 통째로 다시 걷는 헛일이었고,
-  //   페이지 방식에서는 그때까지 스크롤해 받아 둔 장들까지 되돌린다(§7.5 · §7.6 같은 규율).
+  // ⚠ 토글 뒤 목록을 다시 읽지 않는다(체크는 store, 디스크 무관 — 재조회는 받아 둔 장까지 되돌린다).
   const handleToggle = useCallback((filePath: string, show: boolean) => {
     fetch(`${API_BASE}/api/root/toggle`, {
       method: 'POST',

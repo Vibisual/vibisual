@@ -7,17 +7,9 @@ import { runClaudeCli } from './claudeCliRun.js';
 import { logger } from '../logger.js';
 
 /**
- * §4 v4.82 — 앱 안 Claude 로그인. 상태 판정 · 로그아웃의 서버 창구.
- *
- * **자격증명은 우리가 읽지도 쓰지도 않는다.** 판정은 `claude auth status --json`, 로그아웃은
- * `claude auth logout` 으로 전부 CLI 에 위임한다(§4 v3.62 사용량 조회가 세운 "토큰 파일은 읽기
- * 전용" 원칙보다 한 걸음 더 — 여기선 읽지도 않는다). 로그인은 브라우저 왕복이 필요한 인터랙션
- * 이라 서버가 아니라 임베디드 PTY(desktop terminalManager, §4 v2.63 · §5.5 #17-20 ④ v4.74 실행
- * 런처)에서 돌고, 그 성패는 다시 이 서비스의 재조회로 확인한다.
- *
- * `error` 가 있는 상태는 "로그아웃"이 아니라 **"모름"** 이다 — CLI 를 못 찾거나 응답이 없을 때
- * 로그인 팝업을 띄우면 멀쩡히 일하던 사용자를 모달로 막게 되므로, 클라는 `error` 가 없을 때만
- * 팝업을 연다.
+ * §4 — 앱 안 Claude 로그인: 상태 판정 · 로그아웃의 서버 창구.
+ * **자격증명은 읽지도 쓰지도 않는다** — 판정은 `claude auth status --json`, 로그아웃은 `claude auth logout` 으로 CLI 에 위임한다. 로그인은 브라우저 왕복이 필요해 임베디드 PTY(desktop terminalManager, §5.5 #17-20 ④)에서 돌고, 성패는 이 서비스의 재조회로 확인한다.
+ * `error` 가 있는 상태는 "로그아웃"이 아니라 **"모름"** 이다 — CLI 를 못 찾거나 무응답일 때 팝업을 띄우면 일하던 사용자를 모달로 막으므로, 클라는 `error` 가 없을 때만 연다.
  */
 
 /** `claude auth status --json` 원문 → ClaudeAuthStatus. 형식이 다르면 null(파싱 실패). */
@@ -52,11 +44,8 @@ export function parseAuthStatus(raw: string, now: number): ClaudeAuthStatus | nu
 }
 
 /**
- * 판정 실패("모름")가 **마지막 정상 판정을 지우지 않게** 한다.
- *
- * 종전에는 탐침 한 번이 실패하면 캐시가 통째로 모름으로 덮여, 다음 폴링(10분)이나 사용자가
- * 새로고침을 누를 때까지 준비 여부를 보는 쪽이 전부 막혔다. 직전 판정을 `staleLoggedIn` 으로
- * 이어 실어 두면 표시는 여전히 "모름"이되 준비 검사는 이어 갈 수 있다.
+ * 판정 실패("모름")가 **마지막 정상 판정을 지우지 않게** 한다 — 캐시를 모름으로 덮으면 다음 폴링(10분)·새로고침까지 준비 검사가 전부 막힌다.
+ * 직전 판정을 `staleLoggedIn` 으로 이어 실어, 표시는 "모름"이되 준비 검사는 이어 간다.
  */
 function unknownStatus(error: ClaudeAuthProbeError, prev: ClaudeAuthStatus | null): ClaudeAuthStatus {
   const carried = prev?.error !== undefined ? prev.staleLoggedIn : prev?.loggedIn;
@@ -103,10 +92,8 @@ class ClaudeAuthService {
   }
 
   /**
-   * `claude auth logout` 실행 후 상태 재조회.
-   *
-   * 사용자가 옵션창에서 명시적으로 누른 경우에만 호출된다(확인 1회 후). 로그아웃 자체가 실패해도
-   * 재조회한 현재 상태를 그대로 돌려준다 — 화면이 실제 상태와 어긋나지 않게.
+   * `claude auth logout` 실행 후 상태 재조회. 옵션창에서 명시적으로 누른 경우에만(확인 1회 후) 호출된다.
+   * 로그아웃이 실패해도 재조회한 현재 상태를 돌려준다 — 화면이 실제와 어긋나지 않게.
    */
   async logout(): Promise<{ ok: boolean; status: ClaudeAuthStatus; error?: string }> {
     const res = await runClaudeCli(['auth', 'logout'], CLAUDE_AUTH_LOGOUT_TIMEOUT_MS);

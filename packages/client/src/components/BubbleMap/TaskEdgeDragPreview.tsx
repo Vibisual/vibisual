@@ -9,16 +9,8 @@ import { computeTaskEdgePath } from './taskEdgePath.js';
 import { bubbleEdgeAppearance, bubbleEdgeMarkerStyle } from './bubbleEdgeAppearance.js';
 
 /**
- * Task Edge 드래그 프리뷰 — 스크린 좌표계 고정 SVG 오버레이.
- *
- * 왜 이 방식?
- *   - React Flow 엣지 + 가상 타겟 노드로 구현했을 때 노드 측정 lifecycle과
- *     zoom 반영 타이밍이 엇갈려 커서 추적이 부자연스러웠음.
- *   - 여기선 mouseX/Y(스크린) + 소스 버블의 스크린 좌표/반지름만 알면 되므로
- *     한 프레임 내에 확정적으로 렌더된다.
- *
- * 스타일/geometry는 TaskEdgeComponent 와 동일한 헬퍼를 써서 확정 엣지로 넘어가도
- * 모양이 이어지도록 맞춘다.
+ * Task Edge 드래그 프리뷰 — 화면 고정 SVG. RF 엣지 + 가상 노드는 측정·zoom 타이밍이 엇갈려 커서를 늦게 따른다.
+ * TaskEdgeComponent 와 같은 헬퍼라 확정 엣지로 모양이 이어진다.
  */
 
 const PREVIEW_COLOR = '#3B82F6';
@@ -27,13 +19,8 @@ const PREVIEW_MARKER_ID = 'task-edge-drag-preview-arrow';
 interface TaskEdgeDragPreviewProps {
   rfRef: RefObject<ReactFlowInstance | null>;
   /**
-   * 메인 BubbleMap 의 ReactFlow 컨테이너 ref.
-   *
-   * 왜 필요한가: debug 모드가 켜지면 DebugPanel 이 자체 `<ReactFlow>` 를 또 렌더하므로
-   * `document.querySelector('.react-flow')` 가 먼저 DOM 에 나타나는 DebugPanel 쪽을 잡아
-   * 소스 오프셋(offX/offY) 이 0 근처로 계산된다. 결과적으로 드래그 프리뷰 출발점이
-   * 실제 버블에서 좌하단으로 어긋나 보인다. 이 ref 내부에서만 `.react-flow` 를 탐색해
-   * 해당 혼선을 제거한다.
+   * 메인 캔버스 컨테이너 ref — debug 의 DebugPanel 도 `<ReactFlow>` 를 그려 `document.querySelector('.react-flow')` 가 그쪽을 잡으면 출발점이 어긋난다.
+   * 이 ref 안에서만 찾는다.
    */
   rfContainerRef: RefObject<HTMLDivElement | null>;
   flowNodes: Node[];

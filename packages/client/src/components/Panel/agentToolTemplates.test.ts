@@ -1,10 +1,4 @@
-/**
- * §4 (도구 목록 템플릿) — shared `agentToolTemplates.ts` 의 목록 규약과 선택 판정 고정 시험.
- *
- * shared 에는 러너가 없어 그 목록을 쓰는 화면(에이전트 설정 창) 옆에서 돌린다.
- * 이 목록이 틀리는 방향은 조용하다 — 템플릿에 `AVAILABLE_AGENT_TOOLS` 밖 이름이 끼면 CLI 가 모르는
- * 도구를 받고, 읽기 전용에 쓰기 도구가 끼면 이름과 달리 파일을 고친다. 둘 다 화면에는 멀쩡히 보인다.
- */
+/** §4 (도구 목록 템플릿) — 목록 규약·선택 판정 고정. 틀려도 화면은 멀쩡하다(모르는 도구 이름, 읽기 전용에 쓰기 도구). */
 import { describe, it, expect } from 'vitest';
 import {
   AGENT_TOOL_TEMPLATE_CUSTOM,

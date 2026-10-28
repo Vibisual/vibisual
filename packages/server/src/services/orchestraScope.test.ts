@@ -37,13 +37,8 @@ import {
 import type { OrchestraPlanContext, OrchestraRun, OrchestraSettings } from '@vibisual/shared';
 
 /**
- * §5.3 #10-4 — 오케스트라 켬/끔 2층 판정 + 설정·런·계획 신고 계약.
- *
- * 못 박는 계약:
- *  ① 기본은 꺼짐 — 어느 층도 정하지 않았으면 이 기능이 없던 때와 같다.
- *  ② 에이전트 층의 명시적 false 가 프로젝트 켬을 이긴다(지휘자가 만든 멤버의 재귀 방지가 이것에 기댄다).
- *  ③ 설정 patch 는 보낸 칸만 바꾸고, 어긋난 값은 조용히 버리지 않고 칸 이름으로 실패한다.
- *  ④ 계획 신고는 조용히 고쳐 받지 않는다 — 틀린 id 목록을 돌려줘 지휘자가 스스로 고치게 한다.
+ * §5.3 #10-4 — 켬/끔 2층 + 설정·런·계획 신고 계약: 기본 꺼짐 · 에이전트 층 false 가 프로젝트 켬을 이긴다(멤버 재귀 방지) ·
+ * patch 는 보낸 칸만, 틀리면 칸 이름으로 실패 · 계획 신고는 고쳐 받지 않고 틀린 id 를 돌려준다.
  */
 
 function run(partial: Partial<OrchestraRun> = {}): OrchestraRun {

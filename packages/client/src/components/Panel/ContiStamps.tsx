@@ -1,16 +1,6 @@
 /**
- * §5.3 #28 v1.60 — Conti Stamp SVG 컴포넌트.
- *
- * STAMP_CATALOG (shared/constants.ts) 의 각 stampName 에 대응하는 prebuilt SVG.
- * LLM 이 좌표 합성으로 UI 컴포넌트를 매번 새로 그리지 않도록 강제하기 위한 것.
- *
- * 좌표계: 모든 stamp 는 자신의 bounding box 좌상단 (0,0) → (w,h) 기준으로 그리고,
- * StampSvg 가 부모 SVG 의 viewBox 320×180 위로 `<g transform="translate(x,y)">` 로 배치.
- *
- * 새 stamp 추가 시:
- *   1) shared/constants.ts 의 STAMP_CATALOG 에 항목 추가
- *   2) CONTI_AGENT_RULES 의 STAMP_CATALOG 섹션에 한 줄 추가
- *   3) 본 파일의 `RENDERERS` 맵에 함수 추가
+ * §5.3 #28 — `STAMP_CATALOG` stampName 마다 prebuilt SVG(LLM 이 UI 를 좌표로 매번 그리지 않게). stamp 는 자기 bbox (0,0)→(w,h) 로 그린다.
+ * 새 stamp 는 셋을 함께: `STAMP_CATALOG` · `CONTI_AGENT_RULES` 의 STAMP_CATALOG 섹션 · 이 파일 `RENDERERS`.
  */
 import type { JSX } from 'react';
 import { STAMP_CATALOG } from '@vibisual/shared';
@@ -30,8 +20,7 @@ type StampProps = {
 
 type Renderer = (props: StampProps) => JSX.Element;
 
-// §5.3 #28 v1.61 — Conti Design System 토큰 (다크 3-레이어 + 보라/민트 의미)
-// CONTI_AGENT_RULES 의 Color Palette 섹션과 1:1 동기화.
+// §5.3 #28 — Conti Design System 토큰. `CONTI_AGENT_RULES` Color Palette 와 1:1 — 함께 고칠 것.
 const C = {
   // 3-layer dark
   bgOuter:  '#0F1117',
@@ -207,7 +196,7 @@ const card: Renderer = ({ w, h, label, selected }) => {
 // ──────────────────────────────────────────────────────────────────
 
 const textInput: Renderer = ({ w, h, label, variant, selected }) => {
-  // v1.61 — 다크 row. focused = action(보라) ring.
+  // 다크 row. focused = action(보라) ring.
   const focused = variant === 'focused' || selected;
   const stroke = focused ? C.action : C.border;
   const sw = focused ? 2 : 1;
@@ -310,7 +299,7 @@ const toggleSwitch: Renderer = ({ w, h, variant, selected }) => {
 
 function buttonBase(fill: string, textColor: string, borderColor: string): Renderer {
   return ({ w, h, label, variant, selected }) => {
-    // v1.61 — active = 약간 어두운 톤, disabled = opacity. 색 의미(action) 유지.
+    // active = 약간 어두운 톤, disabled = opacity. 색 의미(action)는 유지.
     let actualFill = fill;
     const actualText = textColor;
     let opacity = 1;
@@ -335,7 +324,7 @@ function buttonBase(fill: string, textColor: string, borderColor: string): Rende
   };
 }
 
-// v1.61 — primary = action(보라), text = bgOuter(거의 검정, 보라 위 대비 OK)
+// primary = action(보라), text = bgOuter(보라 위 대비 OK).
 const buttonPrimary = buttonBase(C.action, C.bgOuter, 'none');
 // secondary = bgDemo(어둡), text = text(밝음), border = subtle
 const buttonSecondary = buttonBase(C.bgDemo, C.text, C.border);
@@ -367,7 +356,7 @@ const iconButton: Renderer = ({ w, h, label, variant, selected }) => {
 // ──────────────────────────────────────────────────────────────────
 
 const userAvatar: Renderer = ({ w, h, label, variant, selected }) => {
-  // v1.61 — 사용자는 시각적으로 중립(흰 톤). Agent 만 보라.
+  // 사용자는 중립(흰 톤), Agent 만 보라.
   const active = variant === 'active' || selected;
   const ringColor = 'rgba(255,255,255,0.18)';
   const ringWidth = active ? 2 : 1.5;
@@ -390,7 +379,7 @@ const userAvatar: Renderer = ({ w, h, label, variant, selected }) => {
 };
 
 const agentAvatar: Renderer = ({ w, h, label, variant, selected }) => {
-  // v1.61 — Agent = action(보라) hero. ring 은 항상 점선, 채움은 accentBg (rgba(보라,0.15)).
+  // Agent = action(보라) hero. ring 은 늘 점선, 채움은 accentBg.
   const isActive = variant === 'active' || selected;
   const ringColor = C.action;
   const fillColor = C.accentBg;
@@ -693,7 +682,7 @@ export function StampSvg({
   onClick?: (e: React.MouseEvent) => void;
 }): JSX.Element {
   const spec = STAMP_CATALOG[stampName as keyof typeof STAMP_CATALOG];
-  // v1.62 — defensive: NaN/undefined 가 흘러와도 SVG 좌표 깨지지 않게 클램프 (≥ 1px).
+  // NaN/undefined 가 흘러와도 SVG 좌표가 깨지지 않게 클램프(≥ 1px).
   const wRaw = typeof w === 'number' && Number.isFinite(w) ? w : (spec?.defaultW ?? 60);
   const hRaw = typeof h === 'number' && Number.isFinite(h) ? h : (spec?.defaultH ?? 40);
   const actualW = Math.max(1, wRaw);

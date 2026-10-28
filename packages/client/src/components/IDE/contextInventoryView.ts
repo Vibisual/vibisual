@@ -1,8 +1,4 @@
-/**
- * §5.5 #17-28 v4.96 — 주입원 목록의 **화면 로직**(정렬·검색·묶음).
- *
- * React 를 물지 않는 순수 함수라 단위 테스트로 고정된다. 화면(`IDEContextView`)은 이 결과를 그리기만 한다.
- */
+/** §5.5 #17-28 — 주입원 목록의 정렬·검색·묶음(순수). `IDEContextView` 는 그리기만. */
 import type { ContextSourceCategory, ContextSourceItem } from '@vibisual/shared';
 
 /** 정렬 축 — 사용자가 말한 "분류·검색·우선순위·날짜·토큰" 을 그대로 축으로 세운다. */
@@ -45,10 +41,7 @@ export function matchesQuery(item: ContextSourceItem, translatedTitle: string, q
   return hay.includes(q);
 }
 
-/**
- * 정렬. **같은 값이면 항상 같은 순서**가 되도록 마지막에 id 로 못 박는다 —
- * 목록이 새로 고쳐질 때마다 줄이 자리를 바꾸면 토글을 누르기 어렵다.
- */
+/** 같은 값이면 마지막에 id 로 순서를 못 박는다 — 줄이 자리를 바꾸면 토글을 누르기 어렵다. */
 export function sortItems(items: ContextSourceItem[], key: ContextSortKey, desc: boolean, titleOf: (i: ContextSourceItem) => string): ContextSourceItem[] {
   const dir = desc ? -1 : 1;
   return [...items].sort((a, b) => {

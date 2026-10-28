@@ -1,11 +1,6 @@
-// §3.7 · §9 「시작 화면(스플래시)」 — 스플래시 창과, 본체를 못 읽었을 때의 오류 상자 문구.
-//
-// 스플래시는 렌더러(i18next)가 뜨기 **전에** 그려지므로 `strings.ts`·`consentStrings.ts` 와 같은 방법을 쓴다 —
-// 파일이 자기 표를 든다. 고를 언어는 지난 실행이 남긴 표시 캐시(`splash.json`)에서, 없으면 OS 언어에서 온다.
-//
-// ⚠ `@vibisual/shared` 를 import 하지 않는다. 이 파일은 시작 진입점(bootstrap)이 정적으로 끌어오므로, shared 를
-//   부르면 그 덩어리가 통째로 첫 청크에 실려 "본체보다 먼저 뜬다"는 스플래시의 뜻이 흐려진다. 로케일 목록이
-//   shared 의 `SUPPORTED_UI_LOCALES` 와 같은지는 `splashStrings.test.ts` 가 지킨다.
+// §3.7 · §9 「시작 화면(스플래시)」 — 스플래시 창과 본체 로드 실패 상자의 문구. 렌더러(i18next)보다 먼저 그려져 파일이 자기 표를 든다.
+// 언어는 지난 실행의 `splash.json`, 없으면 OS 언어. `@vibisual/shared` 를 import 하지 않는다 — bootstrap 이 정적으로 끌어와 첫 청크에 통째로 실린다.
+// 로케일 목록 일치는 `splashStrings.test.ts` 가 지킨다.
 
 export const SPLASH_LOCALES = ['en', 'ko', 'ja', 'zh-CN', 'es', 'es-419', 'fr', 'de', 'hi', 'id', 'it', 'pt-BR'] as const;
 export type SplashLocale = (typeof SPLASH_LOCALES)[number];

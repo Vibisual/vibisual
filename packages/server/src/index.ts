@@ -26,10 +26,8 @@ import { readCmdTerminal, sendCmdTerminal, waitCmdTerminal, getCmdTerminalContro
 import { reapWorktree, selectWorktreeAgents, EMPTY_REAP, type WorktreeReapResult } from './services/worktreeReaper.js';
 
 /**
- * §4 (CMD ⑥ QA) — loopback 으로 들어온 termId 가 **우리가 발급하는 모양**인지 검사한다.
- * 임의 문자열을 그대로 받으면 오타 하나로 엉뚱한 터미널을 훑게 되고, 형식 밖 값이
- * PTY 맵의 키로 쓰이는 것 자체가 통제를 잃는 자리다. `term:<agentId>:<session>[#pane]` 과
- * 실행 런처(`run:<agentId>:<configId>`) 두 모양만 통과시킨다.
+ * §4 — loopback 으로 들어온 termId 가 우리가 발급하는 모양인지 검사한다(형식 밖 값을 PTY 맵 키로 쓰지 않는다).
+ * `term:<agentId>:<session>[#pane]` 과 실행 런처 `run:<agentId>:<configId>` 두 모양만 통과.
  */
 function isCmdTermId(v: string): boolean {
   return /^(?:term|run):[\w.-]{1,64}:[\w.-]{1,64}(?:#[\w-]{1,32})?$/.test(v);
@@ -52,13 +50,13 @@ import { normalizeStoryboardPresetId, CONTI_SCRIPT_EXCERPT_MAX } from '@vibisual
 import type { ContiRenderLink, ContiRenderStatus } from '@vibisual/shared';
 import type { StorageCleanupResult, ProjectInfo } from '@vibisual/shared';
 import { scanStorageUsage, runStorageCleanup, listTrash, restoreFromTrash } from './services/storageRetention.js';
-// §5.5 #17-20 ⑥ v4.74 — MCP 프리셋 검증(모르는 id 는 설정에 남기지 않는다).
+// §5.5 #17-20 ⑥ — MCP 프리셋 검증(모르는 id 는 설정에 남기지 않는다).
 import { findMcpPreset, normalizeAgentProvider, normalizeAgentMemoryScope, normalizeSubagentDepth, normalizeBashTimeoutMs, normalizePluginDirs, AVAILABLE_SETTING_SOURCES, AVAILABLE_AUTOCOMPACT_VALUES } from '@vibisual/shared';
-// §5.5 #17-20 ⑫ v4.94 — 디버그 포트 기본값(비어 있는 자리 찾기의 출발점)
+// §5.5 #17-20 ⑫ — 디버그 포트 기본값(비어 있는 자리 찾기의 출발점)
 import { DEBUG_PORT_BASE } from '@vibisual/shared';
 import { REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES } from '@vibisual/shared';
 import { createReviewDecisionHandler } from './services/reviewDecisionRoute.js';
-// §5.5 #17-11 v3.79 — 세션 반복 실행(루프).
+// §5.5 #17-11 — 세션 반복 실행(루프).
 import type { SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoalStatus, SessionGoalProgressSource, SessionGoalStepStatus } from '@vibisual/shared';
 import { TOKEN_SAVER_LIMITS, DEFAULT_TOKEN_SAVER_SETTINGS, normalizeTokenSaverSettings, TOKEN_SAVER_PRESET_VALUES, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, SESSION_LOOP_MAX_ITERATIONS, SESSION_LOOP_DEFAULT_TOTAL, SESSION_LOOP_DEFAULT_INTERVAL_MS, SESSION_LOOP_MAX_INTERVAL_MS, SESSION_LOOP_COMMAND_MAX, SESSION_LOOP_COMPACT_COMMAND, SESSION_LOOP_CLEAR_COMMAND, SESSION_LOOP_PATH_MAX, SESSION_LOOP_MAX_COST_USD_LIMIT, SESSION_LOOP_MAX_DURATION_LIMIT_MS, AGENT_COMPACT_COMMAND, buildAgentSelfCompactRule, shouldCompactAfterTurn, planSilentPreCompact, silentPreCompactHeirs, heirCutByImmediate, isInternalSlashCommand, withoutSlashCommandFlag } from '@vibisual/shared';
 // §5.5 #17-11 ⑫(a)(g) — 루프 회차 프롬프트 합성(순수 모듈) + 누적 비용 추정(모델 레지스트리 가격).
@@ -84,7 +82,7 @@ export type { VerificationAutomationAdapter, VerificationObservation } from './s
 import { parseVerificationTarget, parseVerificationAction, parseVerificationCheck, type VerificationTarget } from '@vibisual/shared';
 import { resolveVerificationDemoFrames } from './services/verificationFrames.js';
 import { calculateTokenCost, resolveAliasToLatest } from '@vibisual/shared';
-// §5.5 #17-18 v4.68 — 덧말 처리 방식(대기/합치기/즉시).
+// §5.5 #17-18 — 덧말 처리 방식(대기/합치기/즉시).
 import type { CommandDispatchMode } from '@vibisual/shared';
 // §5.13 (R-10) — 명령 한 건의 턴·시간 상한(제작 앱의 '빠른 초안 / 정교하게').
 import { normalizeRunLimits } from './services/commandRunLimits.js';
@@ -242,7 +240,7 @@ import {
   type MeasuredPart,
 } from './services/contextInventory.js';
 import { ensureCardRulesDoc } from './services/cardRulesDoc.js';
-// §5.11 v4.67 훅 세션 집행 판정 — 라우트 클로저 밖으로 빼 두어야 그 행동을 테스트가 잡는다.
+// §5.11 훅 세션 집행 판정 — 라우트 클로저 밖에 둬야 테스트가 그 행동을 잡는다.
 import { buildHookEnforcementBlock as buildHookBlock } from './services/hookEnforcement.js';
 import {
   recordInstructionsLoaded,
@@ -263,7 +261,7 @@ import { mountHookIngressBodyParser } from './services/hookIngressBody.js';
 import { sessionMemoBodyParser } from './services/sessionMemoBodyParser.js';
 import { distillFeedbackToRules } from './services/feedbackDistillService.js';
 import { isPortAlive, killByPort, respawn, setVibisualOwnPorts } from './services/processChecker.js';
-// §5.14 v4.62 — 플레이 버블(이 프로젝트를 켜는 버튼).
+// §5.14 — 플레이 버블(이 프로젝트를 켜는 버튼).
 import type { PlayBubble, PlayRecipe, SpecDoc } from '@vibisual/shared';
 import type { ReviewFileChange, ReviewFileChangeType } from '@vibisual/shared';
 import { SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH, SPEC_ITEM_TEXT_MAX, SPEC_RULES_BEGIN, SPEC_RULES_END, SPEC_TASK_GAP_Y, SPEC_TASK_LABEL_MAX, SPEC_TASK_OFFSET_X, buildSpecTaskRules } from '@vibisual/shared';
@@ -280,7 +278,7 @@ import {
   isWorktreeUnderConstruction,
 } from './services/worktreeLiveness.js';
 import { listWorkspaceDir, resolveWorkspacePath, statExternalPath, statWorkspacePath } from './services/workspaceExplorer.js';
-import { resolveWorkspaceMediaRead, setWorkspaceMediaReadGuards, type WorkspaceMediaReadGuards } from './services/workspaceMediaRead.js';
+import { resolveWorkspaceFileRead, resolveWorkspaceMediaRead, setWorkspaceMediaReadGuards, type WorkspaceMediaReadGuards } from './services/workspaceMediaRead.js';
 // §5.5 #17-27 ⑱ — 판 쪽에서 그 갈래의 파일을 찾는다(빈 탭의 파일 고르기).
 import { findWorkspaceFiles } from './services/workspaceFind.js';
 import { WORKSPACE_FIND_PATH, isEditorPaneFileKind, parseClaimedExtensions } from '@vibisual/shared';
@@ -303,7 +301,7 @@ import type {
 // §5.5 #17-33 ⑦ / #17-2·#17-4 — 플러그인 갱신 + "이 스킬이 실제로 실리는가" 판정.
 import type { AvailableSkill, ClaudePluginInventory, ClaudePluginPlacement } from '@vibisual/shared';
 import { normalizePluginRefreshSettings, placementAppliesHere } from '@vibisual/shared';
-// §5.5 #17-20 v4.74 — 디버그·실행 런처(실행 구성 스캔 + 외부 디버거 위임).
+// §5.5 #17-20 — 디버그·실행 런처(실행 구성 스캔 + 외부 디버거 위임).
 import { scanRunConfigs } from './services/runConfigScanner.js';
 import { listExternalDebuggers, launchExternalDebugger } from './services/externalDebuggerService.js';
 import { scanMcpInventory, setMcpServerEnabled } from './services/mcpInventoryService.js';
@@ -328,11 +326,11 @@ import {
   isClaudePluginRefreshRunning,
 } from './services/claudePluginRefresh.js';
 import { attachDebuggerToEditor } from './services/unrealProjectService.js';
-// §5.5 #17-20 ⑩ v4.94 — 공통 디버그 층(런타임 무관 중단점·스텝·변수)
+// §5.5 #17-20 ⑩ — 공통 디버그 층(런타임 무관 중단점·스텝·변수)
 import { debugSessionManager, findFreePort, type DebugControlAction } from './services/debug/debugSessionManager.js';
 import { listDebugAdapters, findPidByCommandLine, commandFingerprint } from './services/debug/adapterProbe.js';
 import { releaseWaitingNodeProcess } from './services/debug/cdpClient.js';
-import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetTokenSaver, appStateSetTokenSaver, appStateGetBgTaskProbe, appStateSetBgTaskProbe, appStateGetSessionProbe, appStateSetSessionProbe, appStateGetProcessGuard, appStateSetProcessGuard, appStateGetExternalTopBudget, appStateSetExternalTopBudget, appStateGetWebGroup, appStateSetWebGroup, appStateGetWebOpenTarget, appStateSetWebOpenTarget, appStateGetKeymap, appStateSetKeymap, appStateResetKeymap, appStateGetIDEActivityBar, appStateSetIDEActivityBar, appStateResetIDEActivityBar, appStateGetClaudePluginRefresh, appStateSetClaudePluginRefresh, appStateGetClosedTabs, appStatePushClosedTab, appStateTakeClosedTab, appStateClearClosedTabs, appStatePruneMissingClosedTabs, appStateReorderOpenProjects } from './services/appState.js';
+import { loadAppState, publicAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetTokenSaver, appStateSetTokenSaver, appStateGetBgTaskProbe, appStateSetBgTaskProbe, appStateGetSessionProbe, appStateSetSessionProbe, appStateGetProcessGuard, appStateSetProcessGuard, appStateGetExternalTopBudget, appStateSetExternalTopBudget, appStateGetWebGroup, appStateSetWebGroup, appStateGetWebOpenTarget, appStateSetWebOpenTarget, appStateGetKeymap, appStateSetKeymap, appStateResetKeymap, appStateGetIDEActivityBar, appStateSetIDEActivityBar, appStateResetIDEActivityBar, appStateGetClaudePluginRefresh, appStateSetClaudePluginRefresh, appStateGetClosedTabs, appStatePushClosedTab, appStateTakeClosedTab, appStateClearClosedTabs, appStatePruneMissingClosedTabs, appStateReorderOpenProjects } from './services/appState.js';
 import { ensureHooksInstalledEverywhere, installHooksIntoNewCoworkHomes } from './services/hookInstaller.js';
 // §3.6 (판올림 번호 발급 대기) — 훅 이벤트 생명주기 분류(순수 모듈 + 단위 테스트).
 //   라우트 안에 부등호로 흩어져 있으면 새 이벤트를 등록할 때마다 조용히 틀린다.
@@ -350,12 +348,16 @@ import { readUsageCollectorStatus } from './services/statusLineInstaller.js';
 import { keepVibisualHooksInPlace, setCodexHooksEnabled, setUsageCollectorEnabled } from './services/hookLifetime.js';
 import { buildClaudeUsage } from './services/claudeUsageService.js';
 import { probeClaudeUsage, readCachedUsageSnapshot } from './services/claudeUsageProbe.js';
+import { apiCreditService } from './services/apiCreditService.js';
+import { API_CREDIT_CONTINUE_PROMPT, API_CREDIT_CONSOLE_MIN_INTERVAL_MS, API_CREDIT_CONSOLE_REFRESH_MS } from '@vibisual/shared';
 import type { UsageProbeFailure, UsageProbeSnapshot } from './services/claudeUsageProbe.js';
 import { getMemoryDiagnostics, startMemoryMonitor, pressureLevelOf, sampleMemory } from './services/memoryMonitor.js';
 import { claudeAuthService } from './services/claudeAuthService.js';
 import { claudeSetupService } from './services/claudeSetupService.js';
 import { codexAuthService } from './services/codexAuthService.js';
-import { codexSetupService } from './services/codexSetupService.js';
+import { codexSetupService, getCodexInstallsInfo } from './services/codexSetupService.js';
+import { invalidateCodexBinCache } from './services/codexCli.js';
+import { managedEngineService } from './services/managedEngineService.js';
 import { codexModelService } from './services/codexModelService.js';
 import { codexInventoryService } from './services/codexInventoryService.js';
 import { SkillSharingService } from './services/skillSharingService.js';
@@ -472,18 +474,20 @@ export {
 // desktop in-process 모드는 hook 전용 loopback 리스너 포트로 직접 훅을 설치한다.
 export { ensureClaudeHooksInstalled, ensureHooksInstalledEverywhere } from './services/hookInstaller.js';
 export type { HookInstallAllResult } from './services/hookInstaller.js';
-// §4 v3.60 — 사용량 수집기(statusLine). desktop main 이 부팅 시 "이미 설치된 경우에만" 포트·토큰을 갱신한다.
+// §4 — 사용량 수집기(statusLine). desktop main 이 부팅 시 이미 설치된 경우에만 포트·토큰을 갱신한다.
 export { refreshStatusLineIfInstalled } from './services/statusLineInstaller.js';
 // §3.6 「수명」 · §5.7 #24-3 — 훅은 앱이 켜져 있는 동안만 둔다. desktop main 이 켤 때(상태 줄 켬 동기화)·
 //   끌 때(정상 종료·OS 종료)·제거기 정리 모드에서 부른다.
 export { retireVibisualHooks, removeVibisualHooksForUninstall, syncUsageCollectorAtBoot, syncCodexHooksAtBoot } from './services/hookLifetime.js';
 export type { HookRetireSummary } from './services/hookLifetime.js';
-// §4 v1.98 — 진단 에러 로그: desktop main 이 자기 프로세스 에러를 recordDiagnostic 으로 적재.
+// §4 — 진단 에러 로그: desktop main 이 자기 프로세스 에러를 recordDiagnostic 으로 적재.
 export { recordDiagnostic, diagnosticService } from './services/diagnosticService.js';
 // Persistent SubAgent child — desktop main 의 before-quit 핸들러가
 // `subAgentManager.shutdownAllPersistentChildren()` 으로 long-lived claude 자식들을 깨끗이 종료.
+// §4 API 크레딧 — 데스크톱 main 이 키를 OS 보안 저장소(safeStorage)로 감싸는 손을 꽂는다.
+export { setApiCreditCipher, type ApiCreditCipher } from './services/apiCreditService.js';
 export { subAgentManager, buildInteractiveClaudeArgs, buildInteractiveCliPrefill, parseCmdTermId, buildBashTimeoutEnv, buildAgentTokenSaverEnv, buildVerificationGateEnv, prepareInteractiveRulesDir, recordCmdTermSession, getCmdResumeSession } from './services/subAgentManager.js';
-// §5.11 v4.65 — CMD 세션에도 집행 플러그인의 지시를 싣는다(desktop 터미널 매니저가 rules 파일에 함께 기록).
+// §5.11 — CMD 세션에도 집행 플러그인의 지시를 싣는다(desktop 터미널 매니저가 rules 파일에 함께 기록).
 export { buildInteractivePluginBlockForAgent } from './services/pluginHost.js';
 // § 프로세스 트리 누수 — desktop 의 PTY(cmd.exe→claude) 종료 시 Windows 트리 전체를 회수하는 데 재사용.
 export { killTree } from './services/processTree.js';
@@ -497,10 +501,7 @@ export {
   type ContainmentEvent,
   type ProcessGuardOwner,
 } from './services/processGuard.js';
-/**
- * desktop main 이 **직접** 띄우는 네이티브 대화상자·OS 알림의 언어. 렌더러의 i18next 는 main 에서
- * 못 쓰므로, 언어만 여기서 읽어 `main/strings.ts` 표에서 문구를 고른다(새 레일 ❌ — 이미 있는 값).
- */
+/** desktop main 이 직접 띄우는 네이티브 대화상자·OS 알림의 언어. main 에서는 i18next 를 못 쓰므로 언어만 읽어 `main/strings.ts` 표에서 문구를 고른다. */
 export function getUiLocale(): UiLocale {
   return graphManager.getUiLocale();
 }
@@ -510,16 +511,9 @@ export function getUiLocale(): UiLocale {
  */
 export { currentAppThemeChrome as getAppThemeChrome, subscribeAppThemeChrome } from './services/appThemeService.js';
 /**
- * §4 메신저 브리지 — 폰에서 고를 수 있는 **명령 대상 전량**(프로젝트 → 에이전트 → 세션).
- *
- * **왜 팬아웃 스냅샷을 쓰지 않나.** 브리지의 다른 조회는 전부 `setBroadcastSink` 로 받은
- * 스냅샷에서 하지만(별도 레일 ❌), 그것은 §9 **스코프드** 스냅샷이라 붙어 있는 창이 선언하지
- * 않은 프로젝트의 `agents`·`subAgents` 가 **필드째 빠져 있다**. 밖에서 폰으로 고르는 목록이
- * 집 PC 에 지금 어떤 탭이 열려 있느냐로 달라지면, 사용자에게는 에이전트가 사라진 것으로 보인다
- * — 그건 최적화가 아니라 기능 손상이다(§9 ④ "전역 집계는 범위와 무관하게 항상 전량"과 같은 칸).
- * 그래서 이 한 조회만 `getSnapshot()`(범위 미적용 · 서버 내부용)에서 만든다.
- *
- * `getUiLocale()` 과 같은 얇은 주입이다 — desktop main 은 `graphManager` 를 직접 알지 못한다.
+ * §4 메신저 브리지 — 폰에서 고를 수 있는 명령 대상 전량(프로젝트 → 에이전트 → 세션).
+ * 팬아웃 스냅샷을 쓰지 마라 — §9 스코프드라 창이 선언하지 않은 프로젝트의 `agents`·`subAgents` 가 빠져, 열린 탭에 따라 폰 목록에서 에이전트가 사라진다(§9 ④ 전역 집계는 항상 전량).
+ * 그래서 이 조회만 `getSnapshot()`(범위 미적용·서버 내부용)에서 만든다. desktop main 은 `graphManager` 를 직접 알지 못한다.
  */
 export function listChatCommandTargets(): ChatCommandTarget[] {
   const snap = graphManager.getSnapshot();
@@ -547,13 +541,13 @@ export function listChatCommandTargets(): ChatCommandTarget[] {
   return out;
 }
 /**
- * §5.5 #17-20 ⑩ v4.94 — 앱이 접힐 때 붙어 있던 디버그 세션을 정리한다.
+ * §5.5 #17-20 ⑩ — 앱이 접힐 때 붙어 있던 디버그 세션을 정리한다.
  * 남겨 두면 어댑터 자식 프로세스와 소켓이 그대로 살아 다음 실행에서 포트를 물고 있다.
  */
 export { debugSessionManager } from './services/debug/debugSessionManager.js';
 // Desktop's pre-start consent record needs the same durable write before the server is running.
 export { atomicWriteFileSync } from './services/statePersistence.js';
-// §3.5 v4.67 — 버블 생명주기 진단 로그 위치. 프로젝트 데이터가 아니라 앱 진단이므로 desktop main 이
+// §3.5 — 버블 생명주기 진단 로그 위치. 프로젝트 데이터가 아니라 앱 진단이므로 desktop main 이
 // 부팅 시 userData/logs 로 고정한다(미주입 시 cwd 상대 폴백 — 서버 단독 실행 호환).
 export { setDebugLogDir } from './services/debugLog.js';
 
@@ -572,14 +566,17 @@ export { setAppMainInvoker, resolveAppMediaFile, type AppMainInvoker } from './s
 // §5.13 40-1 — 코어 미디어 창구의 읽기를 데스크톱 main 의 vibproxy 미디어 갈래가 흘려 보낼 때 낼 파일(라우트와 같은 판정).
 export { resolveWorkspaceMediaStreamFile } from './services/workspaceMediaRead.js';
 
-// §5.14 v4.62 — 앱 종료 시 플레이 버블이 띄운 서버·정적 호스트 정리(main 이 before-quit 에서 호출).
+// §5.14 — 앱 종료 시 플레이 버블이 띄운 서버·정적 호스트 정리(main 이 before-quit 에서 호출).
 export { stopAllPlays } from './services/playRunner.js';
 // §5.19 — 앱 종료 시 로컬 엔진 자식(llama-server) 정리. 안 내리면 모델이 메모리를 물고 남는다.
 export { unloadAllLocalModels } from './services/localRunner.js';
 export { closeStaticHost } from './services/playStaticHost.js';
-// §4 v2.63 — desktop main 의 임베디드 터미널 매니저가 인터랙티브 claude 를 스폰할 때
-// 같은 바이너리(버전 체크/헤드리스 스폰과 동일 SSOT)를 쓰도록 경로 resolver 를 노출.
-export { resolveClaudeBin, getClaudeBin, invalidateClaudeBinCache } from './services/claudeBin.js';
+// §4 — desktop 임베디드 터미널이 인터랙티브 claude 를 띄울 때 버전 체크·헤드리스 스폰과 같은 바이너리를 쓰도록 resolver 를 노출.
+export { resolveClaudeBin, getClaudeBin, invalidateClaudeBinCache, claudeManagedEnvFor, claudeSpawnEnv } from './services/claudeBin.js';
+// §4 (앱 전용 엔진) — CMD 터미널이 앱 전용 코덱스 경로를 셸에 넣고, 앱 전용 claude 에 갱신 끄기를 얹을 때 쓴다.
+export { findManagedBin, isManagedEngineBin } from './services/managedEngineLayout.js';
+// §4 (앱 전용 엔진) ④ — CMD 코덱스가 사용자가 Version 탭에서 보조로 고른 실행본을 먼저 띄울 때 쓴다.
+export { codexBinOverride } from './services/codexCli.js';
 export { knownBinDirs } from './services/binLocator.js';
 
 // §4 (CMD 터미널 업그레이드 ⑥) — 임베디드 PTY 제어 주입 지점. desktop main 이 terminalManager 를
@@ -587,11 +584,8 @@ export { knownBinDirs } from './services/binLocator.js';
 export { setCmdTerminalController, getCmdTerminalController, readCmdTerminal, sendCmdTerminal, waitCmdTerminal, stripTerminalAnsi } from './services/cmdTerminalController.js';
 export type { CmdTerminalController } from './services/cmdTerminalController.js';
 
-// §3.7 v2.8 — hook loopback 리스너 포트. 통합(in-process) 모델에서 외부 `claude` 프로세스
-// (hook curl·커스텀 위임 엣지 dispatch)가 in-process 서버에 닿는 유일한 네트워크 포트다.
-// desktop main 이 startHookListener 직후 주입한다. 폐기된 서버-클라 모델엔 DEFAULT_PORT(4800)
-// listen 소켓이 있었으나 in-process 모델에선 없어졌으므로, 위임 엣지 dispatch curl URL 은
-// 반드시 이 리스너 포트를 써야 한다(`buildOutboundEdgesRulesSection` 참조).
+// §3.7 — hook loopback 리스너 포트. 외부 `claude` 프로세스(hook curl·위임 엣지 dispatch)가 in-process 서버에 닿는 유일한 포트다(desktop main 이 startHookListener 직후 주입).
+// 위임 엣지 dispatch curl URL 은 반드시 이 포트를 쓴다 — DEFAULT_PORT(4800)에는 listen 소켓이 없다(`buildOutboundEdgesRulesSection`).
 let hookListenerPort: number | null = null;
 export function setHookListenerPort(port: number): void {
   hookListenerPort = port;
@@ -601,20 +595,15 @@ export function setHookListenerPort(port: number): void {
   setVibisualOwnPorts([port, DEFAULT_PORT]);
 }
 
-// §5.3 #10-2 v2.47 — loopback 리스너 per-launch 토큰. desktop main 의 hookToken 을 주입받아
-// 하네스 빌더 rules 의 구축 curl 헤더(x-vibisual-hook-token)에 실어 보낸다(§3.7 v2.47).
+// §5.3 #10-2 — loopback 리스너 per-launch 토큰. desktop main 의 hookToken 을 받아 하네스 빌더 rules 의 curl 헤더(x-vibisual-hook-token)에 싣는다(§3.7).
 let hookListenerToken: string | null = null;
 export function setHookListenerToken(token: string): void {
   hookListenerToken = token;
 }
 
 /**
- * §4 (CMD 터미널 업그레이드 ④) — CMD 세션이 `blocked` 로 **전이할 때** 부를 알림 콜백.
- *
- * 실제 알림은 Electron `Notification` 이라 desktop main 만 띄울 수 있다(§3.4 — server 는
- * desktop 을 import 하지 않는다). `setBroadcastSink`·`setHookListenerToken` 과 같은 주입 방식이며,
- * 주입이 없으면(웹·테스트) 아무 일도 일어나지 않는다. 스팸 방지(백그라운드 여부·opt-out 판정)는
- * 창 포커스와 사용자 설정을 아는 main 쪽에서 한다.
+ * §4 — CMD 세션이 `blocked` 로 전이할 때 부를 알림 콜백. Electron `Notification` 은 desktop main 만 띄운다(§3.4 — server 는 desktop 을 import 하지 않는다).
+ * 주입이 없으면(웹·테스트) 아무 일도 없다. 스팸 방지(백그라운드·opt-out)는 창 포커스와 설정을 아는 main 쪽에서 한다.
  */
 export interface CmdBlockedNotice {
   termId: string;
@@ -632,18 +621,15 @@ export function setCmdBlockedNotifier(fn: ((notice: CmdBlockedNotice) => void) |
   cmdBlockedNotifier = fn;
 }
 
-// §4 v2.71 — hook 신원 파일(hook-listener.json)의 절대 경로(forward-slash 정규화). desktop main 이
-// 주입한다. 카드 엔드포인트(작업 신고/질문/검수) curl 이 dispatch 시점 상수가 아니라 "호출 시점"에
-// 이 파일에서 현재 포트·토큰을 읽도록 빌더에 넘긴다 → 재기동으로 포트가 바뀐 뒤 resume 으로 도는
-// 옛 세션도 live 서버로 닿아 카드를 "또 못 받는" 일이 사라진다. 미주입(서버 단독 모드) 시 상수 폴백.
+// §4 — hook 신원 파일(hook-listener.json) 절대 경로(forward-slash). desktop main 이 주입하고, 미주입(서버 단독)이면 상수 폴백.
+// 카드 엔드포인트 curl 이 dispatch 시점 상수가 아니라 호출 시점에 이 파일의 포트·토큰을 읽게 한다 — 재기동으로 포트가 바뀐 뒤 resume 된 옛 세션도 카드가 닿는다.
 let hookListenerIdentityFile: string | null = null;
 export function setHookListenerIdentityFile(filePath: string): void {
   hookListenerIdentityFile = filePath;
 }
 
-// §4 v3.60 — hooks/handler.mjs 절대 경로. desktop main 이 훅 설치와 같은 값을 주입한다.
-// 사용량 수집기(statusLine)는 사용자가 팝업에서 켤 때 REST 로 설치되므로, 그 시점에
-// 명령 문자열(`node <handlerPath> --statusline …`)을 조립할 핸들러 경로가 필요하다.
+// §4 — hooks/handler.mjs 절대 경로(desktop main 이 훅 설치와 같은 값을 주입).
+// statusLine 수집기는 팝업에서 켤 때 REST 로 설치되므로 그때 `node <handlerPath> --statusline …` 를 조립할 경로가 필요하다.
 let hookHandlerPath: string | null = null;
 export function setHookHandlerPath(filePath: string): void {
   hookHandlerPath = filePath;
@@ -712,18 +698,9 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §4 v1.49 — Notification 이벤트 서브타입 분류.
-   *
-   * Anthropic Agent SDK 2026-04~05 부터 `type` 필드(permission_prompt | idle_prompt |
-   * auth_success | elicitation_dialog)가 명시적으로 들어오지만 구버전 페이로드는 `message`
-   * 만 가질 수 있어 폴백 heuristic 으로 분류한다.
-   *
-   * - awaiting_permission: 도구 호출 권한 요청
-   * - other:               분류 불가(또는 입력 대기) — 시각 상태 변경 없음
-   *
-   * v1.73 — `awaiting_input`(모래시계) 분류 제거. idle_prompt / 입력대기 메시지는 더 이상
-   * 별도 시각 상태로 승격하지 않고 'other'(무시)로 떨군다. 데몬 단일-세션은 `--resume`
-   * 으로 항상 이어지므로 "입력 대기" 모래시계가 오히려 연속성 끊김으로 보였다.
+   * §4 — Notification 서브타입 분류. `type` 필드(permission_prompt | idle_prompt | auth_success | elicitation_dialog, 2026-04~ 실림)를 우선하고, 구버전 페이로드는 `message` heuristic 으로 폴백한다.
+   * awaiting_permission = 도구 권한 요청 · other = 그 밖(시각 상태 변경 없음).
+   * idle_prompt·입력 대기는 별도 상태로 올리지 않는다 — `--resume` 으로 늘 이어지는 세션에 모래시계가 끊김으로 보인다.
    */
   function classifyNotification(
     type: string | undefined,
@@ -739,15 +716,11 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * 3-Layer 세션 생명주기 매니저.
-   * 정책: entrypoint(cli/vscode) 무관. 활성 판정은 OR 조건 —
-   *   claude.exe가 매칭 PID로 실행 중이거나 세션 JSONL 파일이 잠겨 있으면 활성.
-   *   둘 다 아니면 onDead로 즉시 제거. VSCode를 다시 열면 새 프로세스가 뜨고
-   *   SessionStart 훅으로 재등록되므로 손실 없음.
+   * 3-Layer 세션 생명주기 — entrypoint(cli/vscode) 무관. 활성 = claude.exe 가 매칭 PID 로 실행 중 OR 세션 JSONL 이 잠겨 있음.
+   * 둘 다 아니면 onDead 로 즉시 제거한다 — VSCode 를 다시 열면 SessionStart 훅으로 재등록되므로 손실 없다.
    */
-  // §9 「창이 뜬 직후의 메인 스레드」 ③ — 걷은 세션마다 체크포인트를 통째로 저장하던 것을 주기 끝 한 번으로
-  //   묶는다. 부팅 직후 첫 폴링이 복원된 죽은 세션을 여럿 걷으면 그 수만큼 전 프로젝트 재구축·직렬화가
-  //   메인 스레드에서 돌았다(그동안 창이 제목줄로 안 움직였다). 걷는 순서와 방송은 그대로다.
+  // §9 「창이 뜬 직후의 메인 스레드」 ③ — 걷은 세션마다가 아니라 주기 끝에 한 번 저장한다(부팅 직후 죽은 세션 여럿을
+  //   걷을 때 그 수만큼 전 프로젝트 재구축·직렬화가 메인 스레드를 막는다).
   let deadRemovedSinceSave = false;
   const lifecycle = new SessionLifecycleManager({
     onDead: (sessionId) => {
@@ -775,18 +748,17 @@ export async function runServer(): Promise<RunServerHandle> {
     sessionStatuses: lifecycle.getStatusesSnapshot(),
   }));
   graphManager.setGitDirtyProvider(() => gitStatusService.getDirtyMap());
-  // §5.11 v4.65 — 집행 플러그인이 무엇을 보고 판단했는지를 카드가 그릴 수 있게 스냅샷에 실어 보낸다.
+  // §5.11 — 집행 플러그인이 무엇을 보고 판단했는지를 카드가 그릴 수 있게 스냅샷에 실어 보낸다.
   //   열려 있는 프로젝트만 묻고, 켠 집행 모듈이 없으면 undefined 라 필드 자체가 생기지 않는다.
   graphManager.setPluginFactsProvider(() => getPluginFactsForProjects(graphManager.getProjectRoots()));
   // §5.11 정독 게이트 — 세션별 정독 상태도 같은 provider 방식으로 한 곳에서 얹는다(방송 지점 누락 방지).
   graphManager.setSpecReadingProvider(() => getSpecReadingStates());
   graphManager.setOnMutated(() => broadcastSnapshot());
   gitStatusService.setChangeListener(() => broadcastSnapshot());
-  // §9 v3.45 — agentTracker 의 Stop/dismiss 스냅샷 송신도 디바운스 경로로 위임.
+  // §9 — agentTracker 의 Stop/dismiss 스냅샷 송신도 디바운스 경로로 보낸다.
   setAgentTrackerSnapshotScheduler(() => broadcastSnapshot());
 
-  // §4 v2.38 — 모델 레지스트리 부팅 시 비동기 refresh (시드는 이미 적재됨).
-  // 완료/실패 무관, listener 가 WS 푸시 담당.
+  // §4 — 모델 레지스트리 부팅 시 비동기 refresh(시드는 이미 적재됨). 결과와 무관하게 WS 푸시는 listener 가 한다.
   modelRegistryService.refreshIfStale().catch((err) => {
     logger.warn(`[modelRegistry] refresh error: ${err instanceof Error ? err.message : String(err)}`);
   });
@@ -796,7 +768,7 @@ export async function runServer(): Promise<RunServerHandle> {
     broadcastSnapshot();
   });
 
-  // §4 v2.42 — 사용자 옵션 갱신 broadcast (다른 창/탭 즉시 반영)
+  // §4 — 사용자 옵션 갱신 broadcast(다른 창·탭 즉시 반영)
   userDefaultsService.subscribe((d) => {
     broadcast({ type: 'user_defaults_updated', timestamp: Date.now(), payload: d });
   });
@@ -837,7 +809,7 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ status: 'ok', timestamp: Date.now() });
   });
 
-  // §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT)
+  // §4 — 사용자 글로벌 옵션(Options 창 SSOT)
   app.get('/api/codex-usage', async (_req, res) => {
     try { res.json(await readCodexUsage()); } catch { res.status(500).json({ windows: [], fetchedAt: Date.now(), error: 'unavailable' }); }
   });
@@ -853,11 +825,15 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
       const next = await userDefaultsService.update(patch);
-      // §4 (첫 실행 설치 온보딩) — 실행본 override 가 바뀌면 캐시된 해석 결과를 버린다.
-      //   v2.43 은 "선택은 다음 실행에 적용"이었지만, 이제 해석이 지연 캐시라 **즉시** 반영된다.
+      // §4 — 실행본 override 가 바뀌면 캐시된 해석 결과를 버린다(해석이 지연 캐시라 즉시 반영된다).
       if ('claudeBinPath' in patch) {
         invalidateClaudeBinCache();
         void claudeSetupService.refresh().catch(() => {});
+      }
+      // §4 (앱 전용 엔진) ④ — 코덱스 보조 선택도 같은 규칙: 저장 즉시 다음 스폰부터 그 실행본(재시작 불필요).
+      if ('codexBinPath' in patch) {
+        invalidateCodexBinCache();
+        void codexSetupService.refresh().catch(() => {});
       }
       res.json({ ok: true, userDefaults: next });
     } catch (err) {
@@ -866,10 +842,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 앱 테마 — 사용자 테마 폴더. 세 라우트 모두 **렌더러 전용**이다(hook 리스너 화이트리스트 ❌):
-   * 바깥 claude 프로세스가 사용자 디스크에 파일을 쓰거나 탐색기를 띄울 이유가 없다.
-   * 고른 테마 자체는 기존 `PUT /api/user-defaults {appearance:{themeId}}` 로 저장한다(새 저장소 ❌).
-   *
+   * §4 앱 테마 — 사용자 테마 폴더. 세 라우트 모두 렌더러 전용이다 — hook 리스너 허용 목록에 넣지 마라(바깥 claude 가 디스크에 쓰거나 탐색기를 띄울 이유가 없다).
+   * 고른 테마는 `PUT /api/user-defaults {appearance:{themeId}}` 로 저장한다.
    * GET — 마지막으로 읽은 목록. `?rescan=1` 이면 폴더를 다시 읽는다(바뀌었으면 WS 로도 민다).
    */
   app.get('/api/app-themes', (req, res) => {
@@ -899,10 +873,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * POST — [폴더 열기]. 없으면 만들고 연다. 여는 실행부는 이미 있는 `openFolder` 하나다(새 열기 레일 ❌) —
-   * Windows `explorer` · macOS `open` · 그 밖 `xdg-open`.
-   */
+  /** POST — [폴더 열기]. 없으면 만들고 연다. 여는 실행부는 `openFolder` 하나다(Windows `explorer` · macOS `open` · 그 밖 `xdg-open`). */
   app.post('/api/app-themes/open-folder', (_req, res) => {
     try {
       const dir = appThemeService.ensureDir();
@@ -914,10 +885,10 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  // §5.11 v3.88 — 플러그인 기여 라우트 (`/api/plugins/*`). 코어가 아는 것은 이 한 줄뿐.
+  // §5.11 — 플러그인 기여 라우트(`/api/plugins/*`). 코어가 아는 것은 이 한 줄뿐.
   mountPluginRoutes(app);
 
-  // §5.13 (O) v4.48 — 내부 앱 라우트. 앱이 늘어도 코어가 아는 것은 이 한 줄뿐이다.
+  // §5.13 (O) — 내부 앱 라우트. 앱이 늘어도 코어가 아는 것은 이 한 줄뿐이다.
   mountAppRoutes(app);
 
   app.put('/api/ui-locale', (req, res) => {
@@ -929,8 +900,7 @@ export async function runServer(): Promise<RunServerHandle> {
     const changed = graphManager.setUiLocale(locale as UiLocale);
     if (changed) {
       broadcastSnapshot();
-      // §4 (첫 실행 온보딩) — 고른 언어를 그 자리에서 디스크에 앉힌다. 예전에는 다음 저장 때까지
-      //   메모리에만 있어, 온보딩 중에 고르고 앱이 죽으면 흔적 없이 사라졌다.
+      // §4 — 고른 언어를 그 자리에서 디스크에 앉힌다(다음 저장까지 메모리에만 두면 온보딩 중 앱이 죽을 때 사라진다).
       saveCheckpoint();
     }
     res.json({ ok: true, uiLocale: locale });
@@ -952,23 +922,19 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(400).json({ error: 'Invalid payload' });
         return;
       }
-      // v1.77 (Direction A) — Vibisual 이 스폰한 sub(커스텀 에이전트 워커 등)의 SessionStart 는
-      // 독립 훅 에이전트 버블로 등록하지 않는다. 그 세션의 활동은 명령 흐름을 통해 부모
-      // 커스텀 버블에 귀속된다. 이 가드가 없으면 워커 세션이 "Continue from where you left.."
-      // 훅 버블로 증식한다(사용자 보고 증상). 사용자 인터랙티브 세션은 managed 가 아니라 영향 없음.
+      // 우리가 스폰한 sub(커스텀 에이전트 워커 등)의 SessionStart 는 독립 훅 버블로 등록하지 않는다 — 활동은 명령 흐름으로 부모 커스텀 버블에 귀속된다.
+      // 이 가드가 없으면 워커 세션이 "Continue from where you left.." 훅 버블로 증식한다. 사용자 인터랙티브 세션은 managed 가 아니라 영향 없다.
       if (subAgentManager.isManagedSession(sessionId)) {
         res.json({ ok: true, managed: true, restored: 0 });
         return;
       }
       lifecycle.registerFromHook({ sessionId, pid, cwd });
-      // AppState: hook 으로 처음 감지된 프로젝트도 openProjects 에 추가되도록 보장.
-      // registerProject 는 idempotent — 이미 있으면 기존 인스턴스 반환, 새로 만들면 appStateAddOpenProject 트리거.
-      // 이전엔 tool 이벤트(/api/hook-event) 가 오기 전까지 appState 에 기록되지 않아, SessionStart 만 발생하고 서버 재시작 시 사라지는 문제가 있었음.
-      // §3.5 — 훅 cwd 는 열린 프로젝트의 하위 폴더일 수 있다. 그 폴더를 새 프로젝트로 세우지 않게 훅 전용 문으로 연다.
+      // hook 으로 처음 감지된 프로젝트도 SessionStart 에서 AppState openProjects 에 넣는다(tool 이벤트까지 미루면 그 전에 재시작될 때 사라진다). 등록은 idempotent.
+      // §3.5 — 훅 cwd 는 열린 프로젝트의 하위 폴더일 수 있다. 새 프로젝트로 세우지 않게 훅 전용 문으로 연다.
       try { graphManager.registerProjectForHookCwd(cwd); } catch (err) {
         logger.warn(`session-start: registerProject("${cwd}") failed: ${err instanceof Error ? err.message : String(err)}`);
       }
-      // v1.6 SCENARIO §5.7 #24: VSCode 재오픈 시 같은 cwd로 잠들어있던 에이전트 복원.
+      // §5.7 #24 — VSCode 재오픈 시 같은 cwd 로 잠들어 있던 에이전트를 복원한다.
       const restored = graphManager.restoreDormantForCwd(cwd);
       if (restored.length > 0) {
         logger.info(
@@ -985,13 +951,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * §5.11 v4.67 — 훅 세션에 실을 집행 블록.
-   *
-   * 판정 자체는 `services/hookEnforcement.ts` 에 있다 — 여기 클로저 안에 있던 동안에는 테스트가 닿지 못해
-   * 배선 검사가 "소스에 이름이 있는가"만 보고 있었다(그 검사는 판정이 늘 빈 문자열이어도 초록이다).
-   * 여기서는 그래프·호스트를 그 판정에 **연결만** 한다.
-   */
+  /** §5.11 — 훅 세션에 실을 집행 블록. 판정은 `services/hookEnforcement.ts` 에 둔다(테스트가 닿게) — 여기서는 그래프·호스트를 연결만 한다. */
   function buildHookEnforcementBlock(body: HookEventPayload): string {
     return buildHookBlock(body, {
       agentBySession: (sessionId) => {
@@ -1016,15 +976,8 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       /*
-       * §3.6 (판올림 번호 발급 대기) — **HTTP 훅으로 들어온 이벤트의 env 보강.**
-       *
-       * `handler.mjs` 는 `VIBISUAL_OWNER_AGENT_ID` 같은 env 를 읽어 본문에 실어 보냈지만,
-       * HTTP 훅은 CLI 가 원문 JSON 을 그대로 POST 하므로 본문을 손댈 수 없다. 대신 헤더 값에
-       * `$VAR` 를 쓸 수 있어 같은 값이 헤더로 온다 — 여기서 본문 필드로 되돌려, 아래 로직 전체가
-       * 어느 경로로 들어왔는지 모른 채 종전 그대로 돌게 한다.
-       *
-       * 잡히지 않은 env 는 **빈 문자열**로 치환되므로 빈 값은 "없음"으로 읽는다(빈 문자열을 그대로
-       * 실으면 소유자 조회가 빈 id 로 빗나가고, 그게 CMD 버블 귀속을 통째로 깬다).
+       * §3.6 — HTTP 훅 이벤트의 env 보강. HTTP 훅은 CLI 가 원문 JSON 을 POST 해 본문을 손댈 수 없지만 헤더에 `$VAR` 를 쓸 수 있다 — 헤더 값을 본문 필드로 되돌려 아래 로직이 `handler.mjs` 경로와 똑같이 돌게 한다.
+       * 풀리지 않은 env 는 빈 문자열이 되므로 빈 값은 "없음"으로 읽는다 — 그대로 실으면 소유자 조회가 빈 id 로 빗나가 CMD 버블 귀속이 깨진다.
        */
       const headerValue = (name: string): string | undefined => {
         const v = req.headers[name];
@@ -1051,64 +1004,41 @@ export async function runServer(): Promise<RunServerHandle> {
         const subAgentId = headerValue('x-vibisual-subagent-id');
         if (subAgentId) body._vibisualSubAgentId = subAgentId;
       }
-      // §4 v2.64 — CMD(인터랙티브 터미널) 소유자 태그면 상태/그래프 귀속을 그 CMD 버블 세션으로
-      //   일원화한다. 이후 markActive/markStop·Notification·processHookEvent 가 모두 CMD 버블을
-      //   가리켜 별개 Hook 버블/오완료(recompute) 대신 Hook 에이전트와 동일한 라이프사이클
-      //   (tool→active, Stop→completed→idle)을 탄다. lifecycle 만은 OS 세션 liveness 추적이라
-      //   claude 원본 session(아래 claudeSessionId)을 그대로 쓴다(합성 custom 세션 미주입).
+      // §4 — CMD(인터랙티브 터미널) 소유자 태그면 상태·그래프 귀속을 그 CMD 버블 세션으로 모은다 — markActive/markStop·Notification·processHookEvent 가 모두 CMD 버블을 가리켜 Hook 에이전트와 같은 라이프사이클을 탄다.
+      // lifecycle 만은 OS 세션 liveness 추적이라 claude 원본 session(`claudeSessionId`)을 그대로 쓴다.
       const claudeSessionId = body.session_id;
       if (body._vibisualOwnerAgentId) {
         const ownerSession = graphManager.findSessionByAgentId(body._vibisualOwnerAgentId);
         if (ownerSession) body.session_id = ownerSession;
       }
 
-      // 서브에이전트(Task/Agent 도구)가 끝날 때 오는 Stop 은 부모(감독관) 세션의 "자기 턴 종료"가
-      // 아니다. Claude Code 는 서브 컨텍스트의 Stop 을 `SubagentStop` 으로 변환하며(또는 구버전은
-      // `agent_id`/`parent_tool_use_id` 를 단 Stop 으로), 이 이벤트가 부모 CMD 버블 세션으로 귀속
-      // (_vibisualOwnerAgentId rewrite)되면 아래 markStop / CMD 서브-도트가 부모를 서브 종료 시점에
-      // 완료로 튕긴다(= 헤드리스 감독관 버블 조기 완료의 근본 원인). 서브 마커가 있으면 "부모 자기 종료"로
-      // 취급하지 않는다.
+      // 서브에이전트(Task/Agent)가 끝날 때 오는 Stop(`SubagentStop`, 구버전은 `agent_id`/`parent_tool_use_id` 를 단 Stop)은 부모 세션의 턴 종료가 아니다.
+      // 부모 CMD 버블로 귀속된 채 종료로 읽으면 markStop·서브-도트가 부모를 서브 종료 시점에 완료로 튕긴다(감독관 버블 조기 완료).
       const isSubagentStop =
         body.hook_event_name === 'SubagentStop' ||
         typeof body.agent_id === 'string' ||
         typeof body.parent_tool_use_id === 'string';
-      // §3.6 v4.89 — `StopFailure` 는 API 오류로 턴이 끝난 것이라 **종료의 일종**이다.
+      // §3.6 — `StopFailure` 는 API 오류로 턴이 끝난 것이라 **종료의 일종**이다.
       //   분기에 안 넣으면 아래 `markActive` 로 떨어져 그 세션이 영영 active 로 남는다.
       const isTurnEndEvent = isTurnEndEventName(body.hook_event_name);
       /*
-       * §3.6 (판올림 번호 발급 대기) — `SessionEnd` 는 **턴이 아니라 세션 자체**가 끝났다는 신고다.
-       *
-       * `StopFailure` 가 겪은 함정과 같은 자리다 — 등록만 하고 분기를 안 두면 아래 `markActive` 로
-       * 떨어져 **방금 끝난 세션이 영영 도는 것처럼 보인다.** `/clear`·`/resume` 로 갈아탄 경우도
-       * 그 대화는 끝난 것이므로 같게 취급한다(`reason` 은 표시용으로만 남는다).
-       *
-       * `isTurnEndEvent` 에는 넣지 않는다 — 그 변수는 아래에서 "서브에이전트 종료인가"를 가르는 데
-       * 쓰이는데, 세션 종료는 서브 마커와 무관하게 언제나 부모의 끝이다.
+       * §3.6 — `SessionEnd` 는 턴이 아니라 세션 자체의 끝이다. 분기가 없으면 `markActive` 로 떨어져 끝난 세션이 영영 도는 것처럼 보인다. `/clear`·`/resume` 도 같게 취급(`reason` 은 표시용).
+       * `isTurnEndEvent` 에는 넣지 않는다 — 그 변수는 서브에이전트 종료를 가르는 데 쓰이고, 세션 종료는 언제나 부모의 끝이다.
        */
       const isSessionEnd = isSessionEndEvent(body.hook_event_name);
       // 부모(감독관) 세션의 자기 턴이 실제로 끝났는가 — 서브에이전트 종료는 제외.
       const isOwnStop = (isTurnEndEvent && !isSubagentStop) || isSessionEnd;
-      // §5.3 #12-1 v3.43 — 헤드리스 감독관 배경 서브에이전트 대차대조.
-      // 부모 턴이 끝나(sub idle) 자식 Task/Agent 서브에이전트만 백단에서 도는 동안, 부모 버블이
-      // completed 로 강등되지 않게 pending 을 센다: PreToolUse(Task|Agent) ↑ / SubagentStop ↓ /
-      // 그 외 이벤트는 quiet-window 신호 갱신. Vibisual 이 스폰한(managed) 세션·CMD 소유 세션만
-      // 해석되므로 일반 훅 세션엔 소규모 역조회 스캔 외 비용이 없다.
-      // 세션 탭(sub) 도트도 이 대차대조를 따라가야 한다 — 이 훅을 낸 세션의 sub 를 함께 해석해
-      // 넘긴다(부모 버블만 active 이고 탭 도트는 녹색으로 어긋나던 버그).
-      // §5.5 #17-9 ③(c) v4.95 — CMD(인터랙티브 터미널) 세션은 JSONL 파이프가 없어 `sub.sessionId` 가
-      //   비어 있어 세션 조회가 늘 빗나갔다(= 그 탭이 띄운 서브에이전트가 소유 미상으로 남아 세션
-      //   필터에 전부 걸러지던 원인). 훅이 이미 싣고 오는 termId(끝 토큰 = sub.id)로 폴백한다.
+      // §5.3 #12-1 — 배경 서브에이전트 대차대조. 부모 턴이 끝나도 자식 Task/Agent 가 백단에서 도는 동안 부모 버블이 completed 로 강등되지 않게 pending 을 센다: PreToolUse(Task|Agent) ↑ / SubagentStop ↓ / 그 외는 quiet-window 신호.
+      // managed·CMD 소유 세션만 해석된다. 세션 탭(sub) 도트도 이 대차대조를 따르도록 그 세션의 sub 를 함께 넘긴다.
+      // §5.5 #17-9 ③(c) — CMD 세션은 JSONL 파이프가 없어 `sub.sessionId` 가 비어 있다 — 훅의 termId(끝 토큰 = sub.id)로 폴백한다(없으면 그 탭의 서브에이전트가 소유 미상으로 걸러진다).
       const bgOwnerSub = subAgentManager.findSubBySessionId(claudeSessionId)
         ?? (body._vibisualOwnerTermId ? subAgentManager.findSubByTermId(body._vibisualOwnerTermId) : undefined);
       const bgOwnerAgentId = body._vibisualOwnerAgentId ?? bgOwnerSub?.parentAgentId;
       // §5.1 #1-1 (D) — 훅이 sub 를 못 실어 왔으면(옛 훅 블록 · 헤더 env 를 막는 정책) 여기서 찾은 sub 로 채운다.
       if (!body._vibisualSubAgentId && bgOwnerSub) body._vibisualSubAgentId = bgOwnerSub.id;
 
-      // §5.5 #17-32 ⑤ — 이 이벤트가 여기 도착했다는 것은 **같은 이벤트에 걸린 다른 훅들도 그
-      //   순간에 함께 돌았다**는 뜻이다(우리 훅이 그들과 같은 자리에 걸려 있으므로 — 새 계측 ❌).
-      //   어느 줄에 불이 켜질지는 화면이 `hookMatcherMatches` 로 고르므로 여기서는 이벤트·도구
-      //   이름만 흘려보낸다. 짧은 창으로 모아 자체 메시지로만 나가고 graph_snapshot·체크포인트에는
-      //   손대지 않는다(§9 v3.45 가 고친 그 폭주 경로 위라 이 규율이 곧 안전장치다).
+      // §5.5 #17-32 ⑤ — 이 이벤트가 왔다면 같은 이벤트에 걸린 다른 훅들도 그 순간 돌았다. 불 켤 줄은 화면이 `hookMatcherMatches` 로 고르므로 이벤트·도구 이름만 흘린다.
+      // 짧은 창으로 모아 자체 메시지로만 보낸다 — graph_snapshot·체크포인트는 건드리지 마라(§9 폭주 경로 위다).
       noteHookFired(
         bgOwnerAgentId ?? graphManager.getAgentBySession(body.session_id)?.id,
         bgOwnerSub?.id,
@@ -1122,8 +1052,7 @@ export async function runServer(): Promise<RunServerHandle> {
         const isSubagentEnd = body.hook_event_name === 'SubagentStop'
           || (isTurnEndEvent && isSubagentStop);
         if (isSubagentSpawn) {
-          // §5.5 #17-9 v3.51 — "무슨 내용인지"를 IDE 에 띄우려면 대차대조 항목에 tool_input 메타를
-          //   같이 실어야 한다. 판정 로직엔 관여하지 않는 표시 전용 필드.
+          // §5.5 #17-9 — IDE 에 무슨 내용인지 띄우도록 대차대조 항목에 tool_input 메타를 싣는다(표시 전용, 판정에 관여하지 않는다).
           const ti = body.tool_input;
           const pickStr = (k: string): string | undefined => {
             const v = ti?.[k];
@@ -1150,7 +1079,7 @@ export async function runServer(): Promise<RunServerHandle> {
           );
           // 마지막 자식 종료 — 부모가 재호출되지 않으면 이 시점이 진짜 완료. 즉시 재계산해 반영.
           if (drained) graphManager.recomputeCustomAgentStatus(bgOwnerAgentId);
-          // §5.5 #17-9 v3.51 — 상태 변화가 없어도 실행 중 목록이 한 건 줄었으므로 항상 broadcast
+          // §5.5 #17-9 — 상태 변화가 없어도 실행 중 목록이 한 건 줄었으므로 항상 broadcast
           //   (마지막 항목이 끝나면 클라 활동바 아이콘·배지·패널이 이 스냅샷으로 사라진다).
           broadcastSnapshot();
         } else if (
@@ -1178,7 +1107,7 @@ export async function runServer(): Promise<RunServerHandle> {
                 })()
               : {}),
           });
-          // 도구 이벤트는 아래 공통 경로가 어차피 코얼레스 broadcast 를 태우므로(§9 v3.45) 여기서
+          // 도구 이벤트는 아래 공통 경로가 어차피 코얼레스 broadcast 를 태우므로(§9) 여기서
           // 따로 즉시 발사하지 않는다 — 자식 도구는 폭주 경로다.
           if (!changed) subAgentManager.noteSubagentSignal(bgOwnerAgentId);
         } else {
@@ -1186,12 +1115,8 @@ export async function runServer(): Promise<RunServerHandle> {
         }
       }
 
-      // §5.5 #17-17 v4.50 ① — **세션이 세운 계획이 곧 목표 창이다.** 세션이 `TodoWrite` 로
-      //   "이 일을 이렇게 하겠다"고 마음먹는 순간 목표 카드가 태어나고(문장 = 지금 수행 중인 명령,
-      //   단계 = 그 계획), 이후 계획이 갱신될 때마다 체크리스트가 따라간다. 사용자가 목표를 미리
-      //   적어 둘 필요가 없다 — 자동으로 나타나는 것이 이 기능의 핵심이다.
-      //   §9 v3.45 — 훅 경로라 인라인 broadcast·동기 saveCheckpoint 를 하지 않는다. 아래 도구 이벤트
-      //   공통 경로의 코얼레스 broadcast + scheduleCheckpoint 에 그대로 얹힌다(폭주 시 프리즈 차단).
+      // §5.5 #17-17 ① — 세션이 `TodoWrite` 로 세운 계획이 곧 목표 카드다(문장 = 지금 명령, 단계 = 그 계획). 계획이 갱신될 때마다 체크리스트가 따라간다.
+      // §9 — 훅 경로라 인라인 broadcast·동기 saveCheckpoint 를 하지 않는다. 공통 경로의 코얼레스 broadcast + scheduleCheckpoint 에 얹힌다(폭주 시 프리즈 방지).
       if (body.hook_event_name === 'PreToolUse' && body.tool_name === 'TodoWrite' && bgOwnerSub) {
         const steps = parsePlanStepsFromTodos((body.tool_input as { todos?: unknown } | undefined)?.todos);
         if (steps.length > 0) {
@@ -1203,9 +1128,8 @@ export async function runServer(): Promise<RunServerHandle> {
         }
       }
 
-      // §4 v2.64 — CMD 터미널 연속성: 이 인터랙티브 claude 대화의 sessionId(rewrite 전 원본)를
-      //   termId 별로 기록해 둔다. 앱을 완전히 종료하면 PTY 는 죽지만, 재시작 후 같은 termId 로
-      //   터미널을 다시 열 때 terminalManager 가 이 값으로 `claude --resume <id>` 를 prefill 한다.
+      // §4 — CMD 터미널 연속성: 인터랙티브 claude 대화의 원본 sessionId(rewrite 전)를 termId 별로 기록한다.
+      // 재시작 후 같은 termId 로 터미널을 열면 terminalManager 가 이 값으로 `claude --resume <id>` 를 prefill 한다.
       if (body._vibisualOwnerTermId && claudeSessionId) {
         recordCmdTermSession(body._vibisualOwnerTermId, claudeSessionId);
         // §4 — CMD 세션 탭(sub) 도트 연속 동기화: tool 이벤트→active, Stop→idle(녹색).
@@ -1231,9 +1155,7 @@ export async function runServer(): Promise<RunServerHandle> {
         lifecycle.registerFromToolUse(claudeSessionId, body.cwd, null);
       }
 
-      // §4 v1.49 — Notification 서브타입 → 버블 시각 신호.
-      // SDK 신규 `type` 필드 우선, 누락 시 message heuristic 폴백.
-      // permission 차단 자체는 v1.43 PreToolUse 경로가 담당하므로 본 분기는 시각화 전용.
+      // §4 — Notification 서브타입 → 버블 시각 신호(`type` 필드 우선, 없으면 message heuristic). 시각화 전용 — permission 차단은 PreToolUse 경로가 한다.
       if (body.hook_event_name === 'Notification') {
         const subtype = classifyNotification(body.type, body.message);
         if (subtype === 'awaiting_permission') {
@@ -1242,7 +1164,7 @@ export async function runServer(): Promise<RunServerHandle> {
         }
       }
 
-      // §4 v1.50 — PostToolUse `duration_ms` 캡처 (Anthropic SDK 2026-04 신규 필드).
+      // §4 — PostToolUse `duration_ms` 캡처(2026-04 부터 실리는 필드).
       if (
         body.hook_event_name === 'PostToolUse'
         && typeof body.tool_name === 'string'
@@ -1259,10 +1181,8 @@ export async function runServer(): Promise<RunServerHandle> {
         if (names.length > 0) graphManager.noteTeammates(body.session_id, names);
       }
 
-      // §4 v1.50 — PreCompact 카운터 증가.
-      // §5.26 (B) 1단계 — **같은 자리에서 압축 직전 사본을 뜬다.** 이 한 번을 놓치면 그 세션이
-      //   무엇을 붙잡고 있었는지 다시 알 길이 없다: 컨텍스트 눈금은 훅에 실려 오지 않고
-      //   (claude-code#44790), 압축이 끝나면 원문 자리에 요약이 앉는다.
+      // §4 — PreCompact 카운터 증가.
+      // §5.26 (B) 1단계 — 같은 자리에서 압축 직전 사본을 뜬다. 놓치면 되찾을 길이 없다: 컨텍스트 눈금은 훅에 안 실리고(claude-code#44790) 압축 뒤엔 원문 자리에 요약이 앉는다.
       if (body.hook_event_name === 'PreCompact') {
         graphManager.recordCompact(body.session_id);
         const ownerAgentId = bgOwnerAgentId ?? graphManager.getAgentBySession(body.session_id)?.id;
@@ -1280,10 +1200,8 @@ export async function runServer(): Promise<RunServerHandle> {
           ...(runningTasks.length > 0 ? { runningTasks } : {}),
           ...(body.last_assistant_message ? { lastAssistantTail: body.last_assistant_message } : {}),
         });
-        // ⚠ 미러 복사는 **응답을 보낸 뒤**에 돈다. `PreCompact` 는 막을 수 있는 훅이라(비정상 종료면
-        //   압축이 통째로 취소된다) 여기서 파일을 통째로 긁으면 사용자의 압축이 우리 I/O 만큼
-        //   늦어지고, 최악에는 우리 때문에 압축이 안 돈다. JSONL 은 append-only 라 조금 늦게 떠도
-        //   같은 바이트다 — 그래서 무거운 쪽만 뒤로 미룰 수 있다(§5.26 (B)).
+        // 미러 복사는 응답을 보낸 뒤에 돈다 — `PreCompact` 는 막을 수 있는 훅이라 여기서 파일을 긁으면 압축이 우리 I/O 만큼 늦고, 비정상 종료면 압축이 통째로 취소된다.
+        // JSONL 은 append-only 라 늦게 떠도 같은 바이트다(§5.26 (B)).
         if (marker) setImmediate(() => graphManager.mirrorCompactMarker(marker));
         // §5.5 #17-24 ⑥ — 라이브 1줄의 "압축 중". 스트림 `status:"compacting"` 과 겹치면 먼저 온 쪽이 세운다
         //   (agent-view 처럼 status 줄이 없는 경로는 이 훅이 유일한 시작 신호다).
@@ -1294,12 +1212,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
       if (body.hook_event_name === 'PostCompact') {
         /*
-         * §5.26 (D) — **압축이 끝났다는 CLI 자신의 신고.** 이 한 줄이 (D) 판정의 신뢰도를 가른다.
-         *
-         * 이것이 없으면 스윕은 "요약을 우리가 못 읽었다"와 "압축이 아예 안 됐다"를 트랜스크립트
-         * 성장 여부만으로 갈라야 하는데, 그 둘은 결말이 정반대다(전자는 그냥 계속 일하면 되고,
-         * 후자는 `/clear` 말고 길이 없는 교착이다). 표식만 남기고 대조는 스윕에 맡긴다 —
-         * 지금 읽으면 요약이 아직 파일에 안 내려가 빈 꼬리를 요약으로 읽을 수 있다.
+         * §5.26 (D) — 압축이 끝났다는 CLI 자신의 신고. 이것이 있어야 스윕이 "요약을 못 읽었다"(계속 일하면 됨)와 "압축이 안 됐다"(`/clear` 밖에 없는 교착)를 가른다.
+         * 표식만 남기고 대조는 스윕에 맡긴다 — 지금 읽으면 요약이 아직 파일에 안 내려가 빈 꼬리를 요약으로 읽는다.
          */
         if (graphManager.notePostCompact(body.session_id)) saveCheckpoint();
       }
@@ -1312,31 +1226,11 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       /*
-       * §3.6 v4.89 — 신규 훅 3종의 표시 처리.
-       *
-       *  - `PermissionRequest` — 승인 대기를 버블에 띄운다. §5.3 #12-1 의 동기 `PreToolUse`
-       *    게이트를 **대체하지 않는다**(그쪽이 실제 판정, 여기는 표시 전용). `Notification` 의
-       *    `awaiting_permission` 과 같은 상태를 쓰므로 두 경로가 같은 그림을 그린다.
-       *  - `PermissionDenied` — 거부로 대기가 풀렸다. 위 markActive 가 이미 상태를 되돌리므로
-       *    여기서는 스냅샷만 밀어 화면이 대기 표시에 멈춰 있지 않게 한다.
-       *  - `PostCompact` — 압축이 끝났다. 카운터는 PreCompact 가 이미 올렸으므로 재방송만.
-       */
-      /*
-       * §3.6 (판올림 번호 발급 대기) — 신규 18종의 표시 처리.
-       *
-       * 판정은 `hookEventClass.ts` 가 갖는다(라우트 안에 부등호로 흩어져 있으면 새 이벤트를
-       * 등록할 때마다 조용히 틀린다 — `StopFailure` 가 그렇게 샜다).
-       *
-       *  - `Elicitation`       — MCP 서버가 도구 실행 도중 사용자에게 되묻는 순간. 답이 오기 전까지
-       *    세션이 멈춰 있는 것은 승인 대기와 같은 상태라 **같은 표시**를 쓴다(새 상태 ❌).
-       *  - `ElicitationResult` — 답이 왔다. 위 markActive 가 상태를 되돌리므로 재방송만.
-       *  - `PreModelSwitch` / `PostModelSwitch` / `WorktreeCreate` / `WorktreeRemove` /
-       *    `ConfigChange` / `CwdChanged` / `DirectoryAdded` / `SessionEnd` — 버블에 적힌 내용이
-       *    달라지는 사건이다. 종전에는 하나도 등록돼 있지 않아 화면이 **다음 도구 호출까지** 옛 값을
-       *    보여 줬다. 스냅샷 방송은 이미 디바운스+적응 backoff 를 타므로 부담이 늘지 않는다.
-       *  - `MessageDisplay` / `PostToolBatch` / `UserPromptExpansion` / `Setup` / `FileChanged` —
-       *    별도 표시가 없다(앞의 셋은 활동 갱신으로 충분하고, `MessageDisplay`·`FileChanged` 는
-       *    빈도가 높아 활동 갱신에서도 빠진다 — `hookEventClass` 주석 참고).
+       * §3.6 — 훅 표시 처리. 판정은 `hookEventClass.ts` 한 곳 — 라우트 안에 흩으면 새 이벤트를 등록할 때마다 조용히 틀린다.
+       * - `PermissionRequest`·`Elicitation`(MCP 가 도구 도중 되묻는다) — 승인 대기 표시. 표시 전용, 실제 판정은 §5.3 #12-1 동기 `PreToolUse` 게이트.
+       * - `PermissionDenied`(상태는 markActive 가 되돌렸다 — 대기 표시에 멈추지 않게)·`PostCompact`·`ElicitationResult` — 재방송만.
+       * - `PreModelSwitch`·`PostModelSwitch`·`WorktreeCreate`·`WorktreeRemove`·`ConfigChange`·`CwdChanged`·`DirectoryAdded`·`SessionEnd` — 버블 내용이 바뀌어 재방송(없으면 다음 도구 호출까지 옛 값).
+       * - `MessageDisplay`·`PostToolBatch`·`UserPromptExpansion`·`Setup`·`FileChanged` — 표시 없음(빈도는 `hookEventClass` 주석).
        */
       if (raisesAwaitingInput(body.hook_event_name)) {
         graphManager.setAgentNotificationStatus(body.session_id, 'awaiting_permission');
@@ -1350,7 +1244,7 @@ export async function runServer(): Promise<RunServerHandle> {
       if (isTaskLedgerEvent(body.hook_event_name)) {
         ingestTaskLedgerHook(body, bgOwnerAgentId ?? null, bgOwnerSub?.id ?? null);
       }
-      // §3.6-1 v4.89 — 어떤 CLAUDE.md·rules 가 실제로 로드됐는지 계측(표시 전용, 영속화 ❌).
+      // §3.6-1 — 어떤 CLAUDE.md·rules 가 실제로 로드됐는지 계측(표시 전용, 영속화하지 않는다).
       if (body.hook_event_name === 'InstructionsLoaded') {
         recordInstructionsLoaded(body.session_id, body as unknown as Record<string, unknown>);
       }
@@ -1359,9 +1253,8 @@ export async function runServer(): Promise<RunServerHandle> {
       if (isToolEvent(body)) {
         const result = graphManager.processHookEvent(body);
 
-        // PostToolUse Bash 후 파일 존재 확인 (삭제/rename 감지).
-        // §9 v3.45 — Bash 폭주(전수조사) 시 전 노드 existsSync 스윕이 이벤트마다 돌지
-        // 않도록 최소 간격 스로틀. miss 임계(FILE_EXISTENCE_MISS_THRESHOLD) 의미 불변.
+        // PostToolUse Bash 후 파일 존재 확인(삭제/rename 감지).
+        // §9 — Bash 폭주 시 전 노드 existsSync 스윕이 이벤트마다 돌지 않게 최소 간격으로 스로틀한다(miss 임계 `FILE_EXISTENCE_MISS_THRESHOLD` 의미는 그대로).
         let ghosted = 0;
         let pruned = 0;
         if (
@@ -1373,13 +1266,28 @@ export async function runServer(): Promise<RunServerHandle> {
           pruned = graphManager.pruneDisappearing();
         }
 
-        // §9 v3.45 — 이 경로는 모델 도구 사용 빈도로 도착하는 유일한 폭주 경로.
-        // 인라인 즉시 broadcast(getSnapshot()) 로 §9 디바운스를 우회하던 것을 디바운스
-        // 경로로 통일하고, 체크포인트도 코얼레스 저장으로 묶는다(그 외 지점은 즉시 저장 유지).
+        // §9 — 모델 도구 사용 빈도로 도착하는 폭주 경로다. 인라인 broadcast(getSnapshot())로 디바운스를 우회하지 마라 — 방송은 디바운스, 체크포인트는 코얼레스 저장(그 외 지점은 즉시 저장).
         if (ghosted > 0 || pruned > 0 || result) {
           broadcastSnapshot();
         }
         scheduleCheckpoint();
+      }
+
+      /*
+       * §5.1 #2-1 (B) — 묶음의 이번 턴 장부. 사람이 친 문장이 그 에이전트의 새 턴을 열고(CMD 터미널·바깥 세션 — 헤드리스는 발송
+       *   자리가 이미 열었다), 그 세션의 자기 턴 끝(`Stop`·`SessionEnd` — 서브에이전트 종료 제외)이 "턴 도중"을 내린다.
+       *   그래프 처리 뒤라 첫 문장에 막 생긴 바깥 세션의 버블도 찾는다.
+       */
+      const turnAgentId = bgOwnerAgentId ?? graphManager.getAgentBySession(body.session_id)?.id;
+      if (turnAgentId) {
+        if (body.hook_event_name === 'UserPromptSubmit') {
+          if (graphManager.beginAgentPromptTurn(turnAgentId, bgOwnerSub?.id)) {
+            broadcastSnapshot();
+            scheduleCheckpoint();
+          }
+        } else if (isOwnStop) {
+          graphManager.endAgentPromptTurn(turnAgentId);
+        }
       }
 
       /*
@@ -1397,14 +1305,8 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       /*
-       * §5.11 정독 게이트 — **읽기 영수증은 여기서만 쌓인다.**
-       *
-       * "기획을 끝까지 읽었는가"는 파일을 봐서는 알 수 없다 — 그건 도구 호출 이력이고, 그 이력이
-       * 서버에 도착하는 자리가 이 훅 하나뿐이다. 우리가 띄운 세션이든 사용자가 자기 에디터에서 돌리는
-       * 세션이든 같은 문으로 오므로, 여기 한 번 붙이면 두 경우가 같은 원장을 쓴다.
-       *
-       * 판정은 하지 않는다(절을 자르고 커버율을 재는 것은 플러그인 순수 함수 하나뿐이다). 여기서는
-       * **무엇을 열었는지**만 남긴다.
+       * §5.11 정독 게이트 — 읽기 영수증은 여기서만 쌓인다. 도구 호출 이력이 서버에 닿는 자리가 이 훅 하나라, 우리 세션과 바깥 에디터 세션이 같은 원장을 쓴다.
+       * 판정은 하지 않는다(절 자르기·커버율은 플러그인 순수 함수 몫) — 무엇을 열었는지만 남긴다.
        */
       const specSubId = bgOwnerSub?.id;
       const specAgentId = bgOwnerAgentId ?? graphManager.getAgentBySession(body.session_id)?.id;
@@ -1432,11 +1334,8 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       /*
-       * §5.11 정독 게이트 — 강도 `경고`의 집행 자리.
-       *
-       * 안 연 필수 절을 남긴 채 턴을 끝내려 하면 `Stop` 을 되돌려 보낸다. 되돌림 횟수는 상한이 있고,
-       * 상한에 닿으면 **더 막지 않는다** — 끝내지 못하는 세션이 이 기능이 낼 수 있는 최악의 결과다.
-       * 서브에이전트 종료·세션 종료는 대상이 아니다(부모의 자기 턴이 끝날 때만 묻는다).
+       * §5.11 정독 게이트 — 강도 `경고`의 집행 자리: 안 연 필수 절을 남긴 채 턴을 끝내려 하면 `Stop` 을 되돌린다.
+       * 되돌림은 상한에 닿으면 더 막지 않는다 — 끝내지 못하는 세션이 최악의 결과다. 서브에이전트·세션 종료는 대상이 아니다.
        */
       if (isTurnEndEvent && !isSubagentStop && !isSessionEnd && specSubId && specProject) {
         const gate = specStopGate(specSubId, specProject);
@@ -1448,19 +1347,9 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       /*
-       * §5.11 v4.67 — **집행의 네 번째 주입 지점: 훅으로 붙은 외부 세션.**
-       *
-       * 그전까지 집행이 닿는 곳은 우리가 띄운 세션 셋뿐이었다(첫 스폰 `contextSummary` · 이어지는 턴
-       * `livePreamble` · CMD `CLAUDE.md`). 그래서 사용자가 자기 에디터에서 직접 돌리는 Claude Code
-       * 세션 — 이 앱이 **버블로 그리고 있는 바로 그 세션** — 에는 SSOT 규율이 한 글자도 안 갔다.
-       * "우리 프로젝트에서 SSOT 가 훅으로 동작하냐"는 물음의 정직한 답이 "아니오"였던 이유다.
-       *
-       * 통로는 이미 있다. 훅은 매 프롬프트마다 여기로 오고, Claude Code 는 `UserPromptSubmit` 응답의
-       * `additionalContext` 를 그 턴의 맥락에 넣어 준다(§5.10 파일 경고가 `PostToolUse` 에서 쓰는 것과
-       * 같은 방식). 새 엔드포인트·새 리스너 경로를 만들지 않고 **이 응답 한 줄**로 닿는다.
-       *
-       * **우리가 띄운 세션에는 붙이지 않는다** — 그쪽은 프롬프트에 이미 실려 있어서, 여기서 또 주면
-       * 같은 블록이 매 턴 두 번 실린다.
+       * §5.11 — 집행의 네 번째 주입 지점: 훅으로 붙은 외부 세션(나머지 셋은 첫 스폰 `contextSummary` · 이어지는 턴 `livePreamble` · CMD `CLAUDE.md`).
+       * `UserPromptSubmit` 응답의 `additionalContext` 가 그 턴 맥락에 들어간다(§5.10 파일 경고의 `PostToolUse` 와 같은 방식).
+       * 우리가 띄운 세션에는 붙이지 마라 — 프롬프트에 이미 실려 같은 블록이 매 턴 두 번 실린다.
        */
       if (body.hook_event_name === 'UserPromptSubmit') {
         // §5.5 #17-28 — 이 줄도 주입원 창의 한 항목이다. 그 세션이 속한 프로젝트에서 껐으면
@@ -1473,16 +1362,9 @@ export async function runServer(): Promise<RunServerHandle> {
           ? buildHookEnforcementBlock(body)
           : '';
         /*
-         * §5.26 (E) 3단계 — **훅으로 붙은 외부 세션에도** 복원 브리핑이 닿아야 한다.
-         *
-         * 압축은 우리가 띄운 세션보다 사용자가 자기 에디터에서 직접 돌리는 세션에서 더 자주 겪는
-         * 일이고, 그쪽은 우리가 프롬프트를 조립해 주지 않으므로 이 응답이 유일한 통로다.
-         *
-         * 집행 블록과 **스위치를 나눠 둔다** — 하나로 묶으면 플러그인 집행을 껐다는 이유로
-         * 복원까지 함께 꺼진다(사용자가 끈 것은 그게 아니다).
-         *
-         * 여기서는 고르기와 못 박기를 한 동작으로 한다(`take`) — 조립과 발송이 이 한 줄 안에서
-         * 끝나 그 사이에 표를 재는 경로가 끼어들 수 없기 때문이다.
+         * §5.26 (E) 3단계 — 훅으로 붙은 외부 세션에도 복원 브리핑을 보낸다(그쪽은 프롬프트를 조립해 주지 않아 이 응답이 유일한 통로).
+         * 집행 블록과 스위치를 나눈다 — 묶으면 플러그인 집행을 끌 때 복원까지 꺼진다.
+         * 고르기와 못 박기를 한 동작(`take`)으로 한다 — 조립과 발송 사이에 표를 재는 경로가 끼어들 수 없게.
          */
         let recovery = '';
         if (isContextSourceOn(overrides, ctxScope, CONTEXT_SOURCE_IDS.compactRecovery)) {
@@ -1526,10 +1408,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 v4.89 — `subagentStatusLine` 수집기 ingress.
-   *
-   * 핸들러가 `--subagent-statusline` 모드로 틱마다 보이는 서브에이전트 행 전체를 넘긴다.
-   * 계측 전용이라 판정 로직은 이 값을 읽지 않으며, 응답도 화면에 영향을 주지 않는다.
+   * §4 — `subagentStatusLine` 수집기 ingress. 핸들러가 `--subagent-statusline` 모드로 틱마다 보이는 서브에이전트 행 전체를 넘긴다.
+   * 계측 전용 — 판정 로직은 이 값을 읽지 않고, 응답도 화면에 영향을 주지 않는다.
    */
   app.post('/api/subagent-statusline', (req, res) => {
     try {
@@ -1544,7 +1424,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** §4 v4.89 — 수집된 서브에이전트 행 조회(세션 지정 시 그 세션, 없으면 전체). */
+  /** §4 — 수집된 서브에이전트 행 조회(세션 지정 시 그 세션, 없으면 전체). */
   app.get('/api/subagent-statusline/:sessionId?', (req, res) => {
     try {
       const sessionId = (req.params as Record<string, string | undefined>)['sessionId'];
@@ -1560,10 +1440,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §3.6-1 v4.89 — `InstructionsLoaded` 계측 조회.
-   *
-   * 세션을 지정하면 그 세션의 로드 기록(오래된 것부터), 없으면 전체 요약.
-   * 계측·표시 전용이라 어떤 판정 로직도 이 값을 읽지 않는다.
+   * §3.6-1 — `InstructionsLoaded` 계측 조회. 세션 지정 시 그 세션의 로드 기록(오래된 것부터), 없으면 전체 요약.
+   * 표시 전용 — 어떤 판정 로직도 이 값을 읽지 않는다.
    */
   app.get('/api/instructions-loaded/:sessionId?', (req, res) => {
     try {
@@ -1580,15 +1458,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 v1.50 — Claude.ai 한도 사용률 푸시.
-   * 외부 statusline 스크립트(또는 사용자 자체 도구)가 5h/7d 윈도우 사용률을 보고한다.
-   * 한도는 사용자 단위라 프로젝트 무관 글로벌 1건만 보관.
-   *
-   * Body: { used5h?: number; resetAt5h?: number; used7d?: number; resetAt7d?: number }
-   *  - used5h / used7d: **퍼센트(0~100)**. v3.64 이전엔 "0~1 이면 비율" 도 받아 클라이언트가
-   *    추측 정규화했으나, 그 추측이 `1`(=1%)을 100% 로 부풀려 표시하는 사고를 냈다. 값 1 은
-   *    두 해석 모두 가능해 추측으로 풀 수 없으므로 단위를 퍼센트로 고정한다.
-   *  - resetAt*: 한도 리셋 epoch ms.
+   * §4 — Claude.ai 한도 사용률 푸시. 외부 statusline 스크립트가 5h/7d 윈도우 사용률을 보고한다. 한도는 사용자 단위라 글로벌 1건만 둔다.
+   * Body: { used5h?, resetAt5h?, used7d?, resetAt7d? } — used*: 퍼센트(0~100), resetAt*: 리셋 epoch ms.
+   * 0~1 을 비율로 추측하지 마라 — 값 1 은 1% 와 100% 둘 다 되어 부풀려 보인다.
    */
   app.post('/api/rate-limits', (req, res) => {
     try {
@@ -1615,11 +1487,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * 한도 사용률을 **한 자리**에 쓴다 — statusLine 수집기(`/api/rate-limits`)와 §4 엔진 다리가 같은 길을 탄다.
-   *
-   * §4 v3.60 — statusLine 은 렌더마다(최대 300ms 주기) 돌 수 있다. 값이 실제로 바뀐 경우에만 표시용
-   * 사용량을 다시 만들어(안에서 broadcastSnapshot) 전체 스냅샷이 초당 여러 번 나가는 것을 막는다(핸들러 측
-   * 전송 스로틀과 2중 방어). updatedAt 만 갱신되는 경우는 조용히 흡수.
+   * 한도 사용률을 한 자리에 쓴다 — statusLine 수집기(`/api/rate-limits`)와 §4 엔진 다리가 같은 길을 탄다.
+   * statusLine 은 최대 300ms 주기로 돌 수 있어, 값이 실제로 바뀐 때만 사용량을 다시 만들고 방송한다(updatedAt 만 바뀌면 흡수 — 핸들러 쪽 스로틀과 2중 방어).
    * @returns 값이 실제로 바뀌었는가.
    */
   function applyRateLimitPayload(payload: Partial<Record<'used5h' | 'resetAt5h' | 'used7d' | 'resetAt7d', number>>): boolean {
@@ -1689,31 +1558,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 v3.60 — 사용량 수집기(statusLine) 상태 조회 / opt-in 토글.
-   *
-   * 한도 사용률은 Claude Code 의 statusLine stdin JSON 으로만 나오므로, 위 `/api/rate-limits`
-   * 를 채우려면 `~/.claude/settings.json` 의 `statusLine` 에 우리 핸들러가 걸려 있어야 한다.
-   * 훅(§3.6)과 달리 **자동 설치하지 않는다** — 사용량 팝업의 스위치로만 켜고 끈다.
-   *
-   * GET  → UsageCollectorStatus
-   * POST { enable: boolean } → 설치/해제 후 UsageCollectorStatus
-   */
-  /**
-   * §4 v3.62 — Claude 사용량 직접 조회(Claude 앱 `/usage` 와 같은 원천).
-   *
-   * GET  → 캐시된 값 즉시 반환(없으면 그 자리에서 1회 조회).
-   * POST → 강제 재조회(팝업의 새로고침 버튼).
-   *
-   * 값은 `GraphSnapshot.claudeUsage` 로도 흘러가므로 클라이언트는 평소 스냅샷만 봐도 된다.
-   * 여기서 받은 세션/주간 창은 §4 v1.50 `rateLimits` 에도 미러링해 DetailPanel 루트 게이지가
-   * statusLine 없이도 채워지게 한다.
-   */
-  /**
-   * §4 v3.63 — 한도가 리셋되는 순간을 노려 한 번 더 받아온다.
-   *
-   * 5분 폴링만 두면 "시간이 지나 초기화됐는데 화면은 아직 100%" 구간이 최대 5분 생기고,
-   * 폴링이 어떤 이유로 멈추면 영구히 남는다. 가장 이른 리셋 시각 + 10초에 일회성 타이머를
-   * 걸어 그 순간 바로 새 값을 집는다(리셋 후에는 서버가 새 창의 값을 주므로 0% 로 떨어진다).
+   * §4 — 한도가 리셋되는 순간 한 번 더 받아온다: 가장 이른 리셋 시각 + 10초에 일회성 타이머(리셋 뒤엔 서버가 새 창 값을 줘 0% 로 떨어진다).
+   * 5분 폴링만 두면 리셋 뒤에도 화면이 최대 5분 100% 로 남고, 폴링이 멎으면 영구히 남는다.
    */
   let claudeUsageResetTimer: NodeJS.Timeout | null = null;
   function scheduleResetRefresh(info: ClaudeUsageInfo): void {
@@ -1731,17 +1577,12 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * statusLine 이 보고한 창(`rateLimits`)에서 표시용 사용량을 다시 만든다.
-   *
-   * 네트워크 호출은 없다 — `rateLimits` 가 갱신됐을 때(그리고 리셋 시각이 지났을 때) 다시
-   * 부르면 되는 순수 파생이다. 그래서 `Promise` 도 필요 없지만, 호출부가 여럿이라 반환값만
-   * 돌려주고 호출부의 `void`·`await` 는 그대로 둔다.
+   * statusLine 이 보고한 창(`rateLimits`)에서 표시용 사용량을 다시 만든다. 네트워크 호출 없는 순수 파생 — `rateLimits` 갱신·리셋 시각 경과 때 다시 부른다.
+   * Promise 가 아니어도 호출부가 여럿이라 반환값만 돌려주고 호출부의 `void`·`await` 는 그대로 둔다.
    */
   /**
    * §4 — `/usage` probe 로 받아 둔 마지막 스냅샷과 그 실패 사유.
-   *
-   * 부팅 직후에는 CLI 를 돌리기 전에 **이미 디스크에 있는 캐시**(직전 실행분)를 먼저 집어
-   * 넣는다 — 그래야 앱을 켜자마자 헤더 필이 값을 들고 뜬다(probe 결과는 몇 초 뒤 덮어쓴다).
+   * 부팅 때는 디스크 캐시(직전 실행분)를 먼저 넣어 헤더 필이 곧바로 값을 들고 뜬다(probe 결과가 몇 초 뒤 덮어쓴다).
    */
   let usageProbeSnapshot: UsageProbeSnapshot | null = readCachedUsageSnapshot();
   let usageProbeFailure: UsageProbeFailure | undefined;
@@ -1796,6 +1637,10 @@ export async function runServer(): Promise<RunServerHandle> {
     return info;
   }
 
+  /**
+   * §4 — Claude 사용량 직접 조회(Claude 앱 `/usage` 와 같은 원천). GET → 캐시 즉시(없으면 1회 조회) · POST → 강제 재조회.
+   * 값은 `GraphSnapshot.claudeUsage` 로도 흐른다. 세션·주간 창은 `rateLimits` 에도 미러링해 DetailPanel 게이지가 statusLine 없이도 찬다.
+   */
   app.get('/api/claude-usage', (_req, res) => {
     const cached = graphManager.getClaudeUsage();
     res.json(cached ?? refreshClaudeUsage());
@@ -1807,19 +1652,101 @@ export async function runServer(): Promise<RunServerHandle> {
       .catch(() => res.json(refreshClaudeUsage()));
   });
 
-  // 부팅 직후 1회 + 주기 probe + 리셋 시각 일회성(scheduleResetRefresh).
-  // probe 는 `claude -p "/usage"` 1회 실행이고 모델 호출이 0턴이라 과금이 없다(실측).
-  // statusLine 이 켜져 있으면 `POST /api/rate-limits` 가 그 사이사이를 더 촘촘히 메운다.
+  // 부팅 직후 1회 + 주기 probe + 리셋 시각 일회성(scheduleResetRefresh). probe 는 모델 호출 0턴이라 과금이 없다(실측).
+  // statusLine 이 켜져 있으면 `POST /api/rate-limits` 가 그 사이를 더 촘촘히 메운다.
   // §9 「창이 뜬 직후의 메인 스레드」 ② — 부팅 1회분은 창이 보인 뒤 한 칸씩 도는 줄에 세운다(`startupJobs.ts`).
   deferStartupJob('claude-usage', 2_000, () => { void probeAndRefreshClaudeUsage(); });
   setInterval(() => { void probeAndRefreshClaudeUsage(); }, CLAUDE_USAGE_POLL_INTERVAL_MS);
 
   /**
-   * §4 v4.82 — 앱 안 Claude 로그인.
-   *
-   * 상태 판정·로그아웃은 서버가 CLI(`claude auth …`)에 위임하고, 로그인 자체는 브라우저 왕복이
-   * 필요해 임베디드 PTY(desktop terminalManager)에서 돈다 — 이 REST 는 그 성패를 확인하는 창구다.
-   * 값은 `GraphSnapshot.claudeAuth` 로도 흘러가므로 클라는 평소 스냅샷만 봐도 된다.
+   * §4 API 크레딧 — 구독 한도가 막히면 Console 크레딧으로 잇는다(금액·한도·잔액은 Console 이 정한다). 값은 `GraphSnapshot.apiCredits` 로도 흐른다.
+   * **렌더러 IPC 전용** — loopback 리스너 허용 목록에 올리지 마라. 토큰을 쥔 에이전트가 키를 바꾸거나 거절 기억을 걷으면 사용자 몰래 크레딧이 쓰인다.
+   * 구독 소진 판정 재료(`/usage` 표)는 여기서 주입한다 — 서비스가 다른 서비스를 끌어오지 않게.
+   */
+  apiCreditService.setSubscriptionSource(() => {
+    const usage = graphManager.getClaudeUsage();
+    return usage ? { limits: usage.limits, fetchedAt: usage.fetchedAt } : {};
+  });
+  // 클라우드 제공자로 도는 PC 면 크레딧 경로를 닫는다 — 그 판정의 한 근거가 CLI 가 말한 `apiProvider` 다.
+  apiCreditService.setProviderSource(() => graphManager.getClaudeAuth()?.apiProvider);
+  apiCreditService.setChangeListener(() => broadcastSnapshot());
+  // Console 이번 달 지출 — 관리자 키가 있을 때만 읽는다(없으면 바로 돌아온다). 부팅 1회분은 창이 보인 뒤 한 칸씩
+  //   도는 줄에 세우고(§9 「창이 뜬 직후의 메인 스레드」), 그 뒤로는 5분마다 — 자료는 보통 5분 안에 반영된다(공식 FAQ).
+  deferStartupJob('api-credit-console', 4_000, () => { void apiCreditService.refreshConsole({ force: true }); });
+  setInterval(() => {
+    void apiCreditService.refreshConsole({ maxAgeMs: API_CREDIT_CONSOLE_REFRESH_MS - API_CREDIT_CONSOLE_MIN_INTERVAL_MS });
+  }, API_CREDIT_CONSOLE_REFRESH_MS).unref?.();
+
+  /** 지금 상태. 페이지를 열 때 부르므로 지출이 1분보다 오래됐으면 다시 읽기를 건다(응답은 기다리지 않는다). */
+  app.get('/api/api-credits', (_req, res) => {
+    void apiCreditService.refreshConsole({ maxAgeMs: API_CREDIT_CONSOLE_MIN_INTERVAL_MS });
+    res.json(apiCreditService.getState());
+  });
+
+  /** 설정 부분 갱신 — 보낸 칸만 바뀐다(정규화는 shared `normalizeApiCreditSettings`). 금액 칸은 없다 — Console 이 정한다. */
+  app.put('/api/api-credits/settings', (req, res) => {
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+    const patch: Record<string, unknown> = {};
+    for (const k of ['enabled', 'mode', 'autoContinue'] as const) {
+      if (k in body) patch[k] = body[k];
+    }
+    res.json(apiCreditService.updateSettings(patch));
+  });
+
+  /** 키 저장 — 모양이 틀리면 400 + 사유. 저장 뒤 공개 `GET /v1/models` 로 확인이 비동기로 돈다. 키는 응답에 없다. */
+  app.post('/api/api-credits/key', (req, res) => {
+    const raw = typeof (req.body as { key?: unknown } | undefined)?.key === 'string' ? (req.body as { key: string }).key : '';
+    const out = apiCreditService.setKey(raw);
+    if (out.problem) {
+      res.status(400).json({ ok: false, problem: out.problem, state: out.state });
+      return;
+    }
+    res.json({ ok: true, state: out.state });
+  });
+
+  app.delete('/api/api-credits/key', (_req, res) => {
+    res.json(apiCreditService.clearKey());
+  });
+
+  app.post('/api/api-credits/verify', (_req, res) => {
+    void apiCreditService.verifyKey()
+      .then(() => res.json(apiCreditService.getState()))
+      .catch(() => res.json(apiCreditService.getState()));
+  });
+
+  /**
+   * 지출 읽기용 관리자 키 저장 — 모양이 틀리면 400 + 사유. 저장하면 이번 달 지출 읽기가 비동기로 돈다(그 결과는
+   * 스냅샷으로 온다 — 응답은 기다리지 않는다). 키는 응답에 없다.
+   */
+  app.post('/api/api-credits/admin-key', (req, res) => {
+    const raw = typeof (req.body as { key?: unknown } | undefined)?.key === 'string' ? (req.body as { key: string }).key : '';
+    const out = apiCreditService.setAdminKey(raw);
+    if (out.problem) {
+      res.status(400).json({ ok: false, problem: out.problem, state: out.state });
+      return;
+    }
+    res.json({ ok: true, state: out.state });
+  });
+
+  app.delete('/api/api-credits/admin-key', (_req, res) => {
+    res.json(apiCreditService.clearAdminKey());
+  });
+
+  /** [새로고침] — Console 이번 달 지출을 지금 다시 읽는다(연달아 눌러도 5초에 한 번까지). */
+  app.post('/api/api-credits/console/refresh', (_req, res) => {
+    void apiCreditService.refreshConsole({ force: true })
+      .then(() => res.json(apiCreditService.getState()))
+      .catch(() => res.json(apiCreditService.getState()));
+  });
+
+  /** [다시 시도] — Anthropic 거절 기억을 지금 걷는다(Console 에서 충전·한도를 바꾼 뒤). 다음 실행이 크레딧을 다시 묻는다. */
+  app.post('/api/api-credits/retry', (_req, res) => {
+    res.json(apiCreditService.clearBlock());
+  });
+
+  /**
+   * §4 — 앱 안 Claude 로그인. 상태 판정·로그아웃은 CLI(`claude auth …`)에 위임하고, 로그인은 브라우저 왕복이 필요해 임베디드 PTY(desktop terminalManager)에서 돈다 — 이 REST 는 성패 확인 창구다.
+   * 값은 `GraphSnapshot.claudeAuth` 로도 흐른다.
    */
   async function refreshClaudeAuth(): Promise<ClaudeAuthStatus> {
     const before = graphManager.getClaudeAuth();
@@ -1872,22 +1799,15 @@ export async function runServer(): Promise<RunServerHandle> {
   );
 
   /**
-   * §4 (첫 실행 설치 온보딩) — `claude` CLI 자체가 없는 사람을 위한 설치 창구.
-   *
-   * 로그인(위)보다 **한 단계 앞**이다: CLI 가 없으면 `claude auth status` 는 spawn 실패라
-   * 로그인 팝업이 뜨지 않도록 설계돼 있어(§4 v4.82 — 판정 불가는 모달로 막지 않는다) 사용자가
-   * 아무 신호도 못 받는 구멍이 있었다. 여기서 "없다"를 1급 상태로 세워 게이트가 뜨게 한다.
-   * 값은 `GraphSnapshot.claudeSetup` 으로도 흘러가므로 클라는 평소 스냅샷만 봐도 된다.
+   * §4 — `claude` CLI 자체가 없는 사람을 위한 설치 창구(로그인보다 한 단계 앞).
+   * CLI 가 없으면 `claude auth status` 가 spawn 실패라 로그인 팝업이 안 뜬다(판정 불가는 모달로 막지 않는다) — 그래서 "없다"를 1급 상태로 세워 게이트가 뜨게 한다.
+   * 값은 `GraphSnapshot.claudeSetup` 으로도 흐른다.
    */
   claudeSetupService.onChange((state) => {
     graphManager.setClaudeSetup(state);
     broadcastSnapshot();
-    // 없다 → 쓸 수 있다 로 **바뀐** 순간이 온보딩 사슬의 이음매다. 이때 CLI 파생 캐시를 다시
-    // 태우지 않으면 방금 설치한 사용자가 다음 실행 전까지 로그인 창도 못 본다(아래 함수 주석 참고).
-    //
-    // ⚠ 첫 판정(`lastSetupPhase === null`)은 **전이가 아니라 기준점**이다. 이미 CLI 가 깔린
-    //   사용자는 부팅 첫 판정이 곧바로 'ready' 라, 이걸 전이로 세면 **모든 실행마다** 부팅 직후
-    //   캐시를 한 번 더 태우게 된다(`claude --help` 재스캔 + auth 재조회 + 명령 재스캔 = 헛일).
+    // 없다 → 쓸 수 있다로 바뀐 순간 CLI 파생 캐시를 다시 태운다 — 안 하면 방금 설치한 사용자가 다음 실행 전까지 로그인 창도 못 본다.
+    // 첫 판정(`lastSetupPhase === null`)은 전이가 아니라 기준점이다 — 전이로 세면 CLI 가 깔린 사용자도 매 실행 부팅 직후 캐시를 헛되이 다시 태운다.
     const isFirstJudgement = lastSetupPhase === null;
     const becameReady = !isFirstJudgement && lastSetupPhase !== 'ready' && state.phase === 'ready';
     lastSetupPhase = state.phase;
@@ -1895,18 +1815,10 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 (첫 실행 설치 온보딩 / CLI 자동 업데이트) — **CLI 에서 파생된 캐시를 다시 태운다.**
-   *
-   * 아래 셋은 모두 "부팅 시 1회" 전제로 만들어졌는데, 이제 앱을 켠 뒤에 CLI 가 **새로 깔리거나
-   * 최신으로 바뀌는** 경로가 생겨 그 전제가 깨졌다. 다시 태우지 않으면 이렇게 끊긴다:
-   *  · `claudeAuth` — `claude auth status` 는 spawn 실패 시 `error: 'cli-missing'` 로 캐시되고
-   *    재조회는 10분 주기다. 그런데 `LoginWindow` 는 `error` 가 있으면 뜨지 않으므로(§4 v4.82),
-   *    **설치를 끝내도 로그인 창이 최대 10분간 안 뜬다** — 사슬이 여기서 끊긴다.
-   *  · `modelRegistry` — 모델 목록과 effort 등급을 `claude --help` 에서 긁어 오므로
-   *    CLI 가 없던 부팅에서는 시드만 남는다(설정창 드롭다운이 빈약해진다).
-   *
-   * (슬래시 내장 명령은 이제 공개 문서 기반 정적 목록 `BUILTIN_SLASH_COMMANDS` 라 CLI 설치
-   *  여부와 무관하다 — 다시 태울 것이 없다.)
+   * §4 — CLI 에서 파생된 캐시를 다시 태운다(앱을 켠 뒤 CLI 가 새로 깔리거나 갱신되면 "부팅 시 1회" 전제가 깨진다).
+   * · `claudeAuth` — spawn 실패는 `error: 'cli-missing'` 로 캐시되고 재조회는 10분 주기다. `LoginWindow` 는 `error` 가 있으면 안 뜨므로, 안 태우면 설치 뒤 로그인 창이 최대 10분 안 뜬다.
+   * · `modelRegistry` — 모델 목록·effort 등급을 `claude --help` 에서 긁으므로 CLI 없던 부팅에선 시드만 남는다.
+   * 슬래시 내장 명령(`BUILTIN_SLASH_COMMANDS`)은 공개 문서 기반 정적 목록이라 대상이 아니다.
    */
   let lastSetupPhase: string | null = null;
   async function reprimeClaudeDerivedCaches(reason: string): Promise<void> {
@@ -1919,33 +1831,15 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §3.6 (판올림 번호 발급 대기) — **훅 전송 경로를 HTTP 로 승격한다.**
-   *
-   * 부팅 최초 설치(desktop main)는 설치본 판올림을 아직 모른다. 모르는 채로 HTTP 훅을 깔면,
-   * 그 `type` 을 모르는 옛 CLI 가 훅을 통째로 버려 **이벤트가 0건**이 될 수 있다 — 화면에서는
-   * 앱이 죽은 것과 구별되지 않는다. 그래서 최초 설치는 종전 그대로 command 로 깔고, 판올림을
-   * 확인한 뒤 여기서 다시 부른다(인스톨러는 idempotent 라 바뀔 게 없으면 파일도 안 쓴다).
-   *
-   * 승격되면 순수 전달 이벤트에서 `handler.mjs` 자식 프로세스가 사라진다 — 이벤트를 15종에서
-   * 33종으로 늘린 지금 그 차이가 크다.
-   */
-  /**
-   * §3.6 — 마지막으로 **성공한** 설치 조건(전송 경로·CLI 판올림).
-   *
-   * 새로 생긴 Cowork 홈에도 **같은 조건**으로 깔아야 한다. 이게 없으면 HTTP 로 승격된 뒤에
-   * 열린 Cowork 세션만 옛 command 블록을 받아, 같은 앱 안에서 세션마다 전송 경로가 갈린다.
+   * §3.6 — 마지막으로 **성공한** 설치 조건(전송 경로·CLI 판올림). 새로 생긴 Cowork 홈에도 같은 조건으로 깐다 —
+   * 없으면 HTTP 승격 뒤 열린 Cowork 세션만 옛 command 블록을 받아 세션마다 전송 경로가 갈린다.
    */
   let lastHookInstallOptions: { transport: 'http' | 'command'; cliVersion: string | null } = {
     transport: 'command',
     cliVersion: null,
   };
 
-  /**
-   * 지금 훅을 설치해도 되는가 — 되면 그 대상(포트·핸들러·토큰)을, 아니면 null.
-   *
-   * 불리언을 돌려주면 호출부에서 타입 좁히기가 풀려 `as number` 를 쓰게 된다. 값으로 돌려주면
-   * 게이트와 좁히기가 한 번에 끝난다.
-   */
+  /** 지금 훅을 설치해도 되는가 — 되면 그 대상(포트·핸들러·토큰), 아니면 null(불리언이면 호출부의 타입 좁히기가 풀려 `as number` 를 쓰게 된다). */
   function hookInstallTarget(): { port: number; handlerPath: string; token: string } | null {
     const skip = process.env['VIBISUAL_SKIP_HOOK_INSTALL'];
     if (skip === '1' || skip === 'true') return null;
@@ -1976,6 +1870,11 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   }
 
+  /**
+   * §3.6 — 훅 전송 경로를 HTTP 로 승격한다. 부팅 최초 설치(desktop main)는 CLI 판올림을 모르므로 command 로 깔고, 판올림을 확인한 뒤 여기서 다시 부른다(인스톨러는 idempotent).
+   * 모르는 채 HTTP 훅을 깔지 마라 — 그 `type` 을 모르는 옛 CLI 가 훅을 통째로 버려 이벤트가 0건이 된다(앱이 죽은 것과 구별되지 않는다).
+   * 승격되면 순수 전달 이벤트(33종)에서 `handler.mjs` 자식 프로세스가 사라진다.
+   */
   async function refreshHookTransport(reason: string): Promise<void> {
     const t = hookInstallTarget();
     if (!t) return;
@@ -2055,12 +1954,7 @@ export async function runServer(): Promise<RunServerHandle> {
   // §9 「창이 뜬 직후의 메인 스레드」 ② — 창이 보인 뒤 한 칸씩 도는 줄에서도 이 순서는 그대로다.
   deferStartupJob('claude-setup', 1_200, () => { void claudeSetupService.refresh().catch(() => {}); });
 
-  /**
-   * §5.25 — 코덱스 창구 셋(설치·로그인·모델 목록·훅).
-   *
-   * 클로드 쪽과 **같은 모양**이다: 상태는 스냅샷으로도 흘러가므로 클라는 평소 스냅샷만 봐도 되고,
-   * REST 는 사용자가 버튼을 눌렀을 때의 즉시 확인 창구다. 새 전달 방식을 만들지 않는다.
-   */
+  /** §5.25 — 코덱스 창구(설치·로그인·모델 목록·훅). 클로드 쪽과 같은 모양 — 상태는 스냅샷으로도 흐르고, REST 는 버튼을 눌렀을 때의 즉시 확인 창구다. */
   function refreshCodexCatalogAfterAuth(invalidate = true): void {
     // login status may omit account ids. Explicit login refresh/logout must still invalidate discovery.
     if (invalidate) codexModelService.invalidate();
@@ -2181,10 +2075,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * §4 v2.38 / §4 (상태바 모델 칸 ③) — 클로드 모델 레지스트리. v2.38 이 적어 두고 만들지 않았던 조회 창구다.
-   * 스냅샷·WS(`model_registry_updated`)가 이미 나르므로 이것은 **WS 도착 전 빈 화면 방지**용이다.
-   */
+  /** §4 (상태바 모델 칸 ③) — 클로드 모델 레지스트리 조회. 스냅샷·WS(`model_registry_updated`)가 이미 나르므로 WS 도착 전 빈 화면 방지용이다. */
   app.get('/api/models', (_req, res) => {
     res.json({ ok: true, registry: modelRegistryService.getRegistry() });
   });
@@ -2372,27 +2263,63 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 (Claude Code CLI 자동 업데이트) — 앱을 켤 때 1회 CLI 를 최신으로 맞춘다(기본 켬).
-   * 설치·로그인 판정보다 뒤에 둔다 — 안 깔린 사람은 설치 온보딩이 먼저 맡아야 하고, 갓 설치한
-   * 실행본은 이미 최신이라 곧바로 갱신할 이유가 없다. 실패해도 기동엔 무관.
-   * ⚠ §4 v2.44 **앱** 자동 업데이트(electron-updater)와는 별개 축 — 그쪽은 종전 그대로 항상 자동.
+   * §4 — 앱을 켤 때 1회 CLI 를 최신으로 맞춘다(기본 켬). 설치·로그인 판정보다 뒤에 둔다(안 깔린 사람은 설치 온보딩이 먼저, 갓 설치한 실행본은 이미 최신). 실패해도 기동엔 무관.
+   * 앱 자동 업데이트(electron-updater, 항상 자동)와는 별개 축이다.
    */
-  setTimeout(() => {
-    void autoUpdateClaudeIfEnabled()
+  // §4 (앱 전용 엔진) — 같은 자리에서 코덱스 앱 전용 사본도 맞추고, 켜 둔 동안 6시간마다 두 엔진을 다시 본다.
+  //   판을 바꾸는 권한이 앱에 있어(점검 통과 후 전환) 새 모델이 최신 CLI 를 요구해도 다음 실행까지 기다리지 않는다.
+  //   각 엔진의 판단(스위치 · 그 엔진을 쓰는 PC 인가 · 이미 최신인가)은 그 서비스가 한다.
+  const runEngineAutoUpdate = (engine: 'claude' | 'codex', when: 'boot' | 'periodic' | 'retry'): void => {
+    const run = engine === 'claude' ? autoUpdateClaudeIfEnabled() : codexSetupService.autoUpdateIfEnabled();
+    void run
       .then((r) => {
         if (!r.started && r.reason && r.reason !== 'up-to-date') {
-          logger.info(`[claudeVersionService] auto-update skipped (${r.reason})`);
+          logger.info(`[${engine === 'claude' ? 'claudeVersionService' : 'codexSetup'}] auto-update skipped (${r.reason}, ${when})`);
         }
       })
       .catch(() => {});
-  }, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS);
+  };
+  const runEngineAutoUpdates = (when: 'boot' | 'periodic'): void => {
+    runEngineAutoUpdate('claude', when);
+    runEngineAutoUpdate('codex', when);
+  };
+  setTimeout(() => runEngineAutoUpdates('boot'), CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS);
+  managedEngineService.startPeriodic(() => runEngineAutoUpdates('periodic'));
+  // 받기가 오류로 끝나면 6시간을 기다리지 않고 짧게 다시 해 본다(5분 → 15분 → 60분). 다시 할 때도 같은 판단을 탄다 —
+  //   스위치를 껐거나 그 사이 최신이 깔렸으면 아무것도 하지 않는다.
+  managedEngineService.setRetryHandler((engine) => runEngineAutoUpdate(engine, 'retry'));
+
+  // 앱 전용 판이 바뀌거나(받기 끝 · 되돌리기) 받기가 시작 · 끝나면, 그 엔진의 판정을 다시 돌려 화면 상태
+  //   (`codexSetup.managed` · `claudeSetup` 의 판)를 맞춘다. 받는 도중에는 다시 묻지 않는다(판은 아직 그대로다).
+  managedEngineService.onChange((engine) => {
+    if (managedEngineService.status(engine).updating) return;
+    if (engine === 'codex') void codexSetupService.refresh().catch(() => {});
+    else void claudeSetupService.refresh().catch(() => {});
+  });
 
   /**
-   * §3.2.4 H축 — 힙 표본 + 캐시 점유 진단.
-   *
-   * 이 창구가 없어서 3GB 진단을 프로세스 I/O 카운터와 소거법으로 해야 했다. 읽기 전용이고
-   * 부작용이 없으므로 언제 불러도 안전하다.
+   * §4 (앱 전용 엔진) ⑦ — Version 탭 [이전 판으로]. 지금 판에 되돌림 표식을 달고 바로 앞 판을 쓴다(다음 스폰부터).
+   * 렌더러 IPC 전용이다 — 루프백 리스너 화이트리스트에 없으므로 바깥 프로세스(에이전트)는 엔진 판을 바꿀 수 없다.
    */
+  app.post('/api/managed-engines/:engine/rollback', (req, res) => {
+    const engine = req.params.engine;
+    if (engine !== 'claude' && engine !== 'codex') {
+      res.status(400).json({ error: 'unknown engine' });
+      return;
+    }
+    void managedEngineService.rollback(engine)
+      .then((result) => {
+        if (result.ok && engine === 'claude') {
+          // 판이 바뀌면 그 판에서 나온 캐시(모델 · effort · 로그인 판정)와 훅 전송 방식도 다시 맞춘다.
+          void reprimeClaudeDerivedCaches('cli-rollback');
+          void refreshHookTransport('cli-updated');
+        }
+        res.status(result.ok ? 200 : 409).json(result);
+      })
+      .catch(() => res.status(500).json({ error: 'Internal server error' }));
+  });
+
+  /** §3.2.4 H축 — 힙 표본 + 캐시 점유 진단. 읽기 전용이라 언제 불러도 안전하다. */
   app.get('/api/diagnostics/memory', (_req, res) => {
     try {
       res.json(getMemoryDiagnostics());
@@ -2408,6 +2335,11 @@ export async function runServer(): Promise<RunServerHandle> {
     logger.warn(`memoryMonitor start failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  /**
+   * §4 — 사용량 수집기(statusLine) 상태 / opt-in 토글. 한도 사용률은 statusLine stdin JSON 으로만 나와, `~/.claude/settings.json` `statusLine` 에
+   * 우리 핸들러가 걸려야 `/api/rate-limits` 가 찬다. 훅(§3.6)과 달리 자동 설치하지 않는다 — 사용량 팝업 스위치로만.
+   * GET → UsageCollectorStatus · POST { enable: boolean } → 설치/해제 후 UsageCollectorStatus
+   */
   app.get('/api/usage-collector', (_req, res) => {
     try {
       res.json(readUsageCollectorStatus());
@@ -2447,9 +2379,8 @@ export async function runServer(): Promise<RunServerHandle> {
           s.alive = s.port ? await isPortAlive(s.port) : false;
         }),
       );
-      // §7.11 v2.4 — 죽은 ServerEntry 를 즉시 제거하지 않는다. iframe 위성이 살아 있는
-      // 동안(고정핀 / grace 이내) 매칭 entry 가 남아야 IframeServerCard 의 Start/Restart
-      // 가 동작한다. 정리는 위성 grace 제거(checkIframesAlive)가 위성과 함께 수행.
+      // §7.11 — 죽은 ServerEntry 를 즉시 제거하지 않는다. iframe 위성이 살아 있는 동안(고정핀 / grace 이내) 매칭 entry 가 남아야
+      // IframeServerCard 의 Start/Restart 가 동작한다. 정리는 위성 grace 제거(checkIframesAlive)가 위성과 함께 한다.
       broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       saveCheckpoint();
       res.json({ servers: graphManager.getRunningServers() });
@@ -2511,10 +2442,9 @@ export async function runServer(): Promise<RunServerHandle> {
       if (target.reportedOnly) await graphManager.takeoverServerEntry(id);
       const killed = await killByPort(target.port, scope?.host ? { host: scope.host } : {});
       target.alive = false;
-      // §7.11 v1.29 — 매칭 iframe 위성 iframeAlive=false 즉시 반영 (5초 스윕 대기 없이 active→idle 전환)
+      // §7.11 — 매칭 iframe 위성 iframeAlive=false 즉시 반영(5초 스윕 대기 없이 active→idle)
       graphManager.markIframeStoppedByServerId(id);
-      // §7.11 v2.4 — removeDeadServers 제거: 죽은 entry 는 iframe 위성(고정핀/grace)이
-      // 살아 있는 한 보존해야 Start/Restart 버튼의 serverId 매칭이 동작한다.
+      // §7.11 — 여기서 죽은 entry 를 지우지 않는다: iframe 위성(고정핀/grace)이 살아 있는 한 남아야 Start/Restart 의 serverId 매칭이 동작한다.
       logger.info(`Stop server port=${target.port} killed=${killed}`);
       broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       saveCheckpoint();
@@ -2546,9 +2476,8 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(409).json({ error: 'port held by another project', refused: 'foreign' });
         return;
       }
-      // §7.11 포트 인계 — 에이전트가 켠 서버를 **여기서 넘겨받는다.** 신고 전용 entry 는 기동 명령을
-      // 모르지만, 그 프로세스가 아직 살아 있다면 OS 프로세스 테이블에 명령이 그대로 있다.
-      // 읽어 내면 그때부터 우리 서버처럼 껐다 켤 수 있다(v3.85 는 여기서 그냥 거절했다).
+      // §7.11 포트 인계 — 에이전트가 켠 서버를 여기서 넘겨받는다. 신고 전용 entry 는 기동 명령을 모르지만, 그 프로세스가 살아 있다면
+      // OS 프로세스 테이블에 명령이 그대로 있다. 읽어 내면 그때부터 우리 서버처럼 껐다 켤 수 있다.
       if (target.reportedOnly) await graphManager.takeoverServerEntry(id);
       // 인계에 실패했을 때만 거절한다. 여기서 kill 부터 하면 respawn 이 불가능해
       // 사용자의 서버만 죽는다 — kill 없이 거절한다(클라도 버튼 disabled).
@@ -2562,24 +2491,21 @@ export async function runServer(): Promise<RunServerHandle> {
       }
       // kill — 그 주소가 닿는 리스너만(§7.11 / §3.5 — 같은 포트의 다른 주인은 건드리지 않는다)
       if (target.port) await killByPort(target.port, scope?.host ? { host: scope.host } : {});
-      // §7.11 v2.22 — owning session 의 cwd 로 respawn. 누락 시 명령이 의존하는 파일/스크립트
-      // (`node my-server.js` 등)을 못 찾고 즉시 종료된다. windowsHide 는 respawn 내부에서 처리.
-      // §7.11 포트 인계 — 인계로 알아낸 **그 프로세스의 실제 cwd** 가 있으면 그쪽이 우선이다
-      // (에이전트가 하위 폴더에서 띄운 서버는 세션 cwd 로 되살리면 파일을 못 찾는다).
+      // §7.11 — respawn cwd 는 포트 인계로 알아낸 그 프로세스의 실제 cwd → owning session 의 cwd 순이다.
+      // 없으면 `node my-server.js` 같은 명령이 파일을 못 찾고 즉시 죽는다(하위 폴더에서 띄운 서버는 세션 cwd 로도 못 찾는다). windowsHide 는 respawn 내부에서 처리.
       const owner = graphManager.findServerOwnerSession(id);
       respawn(target.command, target.cwd ?? owner?.cwd);
       target.startedAt = Date.now();
       target.alive = true;
-      // §7.11 v2.23 — respawn 직후 매칭 iframe 위성의 owning-shell 분리. Vibisual detached child 는
-      // Claude JSONL 에 active 로 기록 안 돼 v1.48 검사가 영원히 false → 포트가 살아도 idle 고정.
+      // §7.11 — respawn 직후 매칭 iframe 위성의 owning-shell 을 끊는다. 우리 detached child 는 Claude JSONL 에 active 로 기록되지 않아,
+      // 남겨 두면 owning-shell 검사가 늘 false → 포트가 살아도 idle 로 굳는다.
       graphManager.noteIframeRespawnedByServerId(id);
       logger.info(`Restart server port=${target.port ?? '?'} cwd="${owner?.cwd ?? '(default)'}" cmd="${target.command}"`);
       broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       saveCheckpoint();
 
-      // §7.11 v2.22 — 5초 정기 sweep 외에 빠른 수렴: 0.5s / 1.5s / 3s 에 추가 probe.
-      // respawn 된 서버가 부팅해 listen 시점이 임의 (Vite ~1s, python http.server 즉시,
-      // node 무거운 의존성 2-3s) 인 점 cover. fire-and-forget — 응답 지연 방지.
+      // §7.11 — 5초 정기 sweep 외에 0.5s / 1.5s / 3s 추가 probe 로 빨리 수렴한다(listen 시점: Vite ~1s, python http.server 즉시, 무거운 node 2-3s).
+      // fire-and-forget — 응답을 늦추지 않는다.
       for (const delayMs of [500, 1500, 3000]) {
         setTimeout(() => {
           void graphManager.checkIframesAlive().then((changed) => {
@@ -2596,11 +2522,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * 열기 계열 엔드포인트 공용 경계 검사 — resolved 절대경로가 등록된 프로젝트 루트(또는
-   * extraRoots 로 명시 허용한 디렉토리) 내부인지 확인한다. 로컬 IPC(renderer)는 신뢰되지만,
-   * opt-in 모바일 리스너로 페어링된 기기도 이 라우트에 도달하므로 임의 절대경로가 에디터·
-   * 탐색기로 열리는 것을 막기 위한 방어선이다(§ open-in-editor 의 기존 가드를 형제 라우트에 통일).
-   * Windows 는 대소문자 무시 비교.
+   * 열기 계열 엔드포인트 공용 경계 검사 — resolved 절대경로가 등록된 프로젝트 루트(또는 extraRoots 로 명시 허용한 디렉토리) 안인지 본다.
+   * renderer IPC 는 신뢰되지만 opt-in 모바일 리스너로 페어링된 기기도 이 라우트에 닿는다 — 임의 절대경로가 에디터·탐색기로 열리지 않게 막는다.
    */
   function isWithinOpenableRoots(resolved: string, extraRoots: string[] = []): boolean {
     const roots: string[] = [];
@@ -2610,8 +2533,7 @@ export async function runServer(): Promise<RunServerHandle> {
     for (const proj of Object.values(graphManager.getProjects())) {
       roots.push(path.resolve(proj.path));
     }
-    // 대소문자는 그 플랫폼이 실제로 무시할 때만 접는다 — 예전에는 win32 만 봐서 mac(APFS)에서
-    // 같은 폴더가 다른 경로로 읽혀 열기가 거절됐고, linux 에서는 남의 폴더가 통과할 수 있었다.
+    // 대소문자는 그 플랫폼이 실제로 무시할 때만 접는다 — win32 만 보면 mac(APFS)에서 같은 폴더의 열기가 거절되고, linux 에서 접으면 남의 폴더가 통과한다.
     const rKey = pathKey(resolved);
     return roots.some((r) => {
       const rootKey = pathKey(r);
@@ -2662,10 +2584,8 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
 
-      // 프로젝트 루트 내부이거나, 루트 밖이라도 **지금 버블로 그리고 있는 노드의 경로**면 허용.
-      // (§2.1 #5 v1.55 — 외부 파일 클릭 시 IDE 열기. external_folder/그 위성은 정의상 루트 밖이라
-      //  루트 경계만 보는 가드로는 늘 403 이었다.) 화면에 없는 임의 절대경로는 여전히 차단 —
-      //  페어링된 모바일 기기도 이 라우트에 닿는다.
+      // 프로젝트 루트 안이거나, 루트 밖이라도 지금 버블로 그리고 있는 노드의 경로면 허용한다(§2.1 #5 — external_folder 와 그 위성은 정의상 루트 밖이다).
+      // 화면에 없는 임의 절대경로는 막는다 — 페어링된 모바일 기기도 이 라우트에 닿는다.
       const resolved = path.resolve(absPath);
       if (!isWithinOpenableRoots(resolved) && !graphManager.hasNodeAbsolutePath(resolved)) {
         logger.warn(`open-node-file blocked (not a project root / known bubble path): "${absPath}"`);
@@ -2698,9 +2618,8 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
 
-      // 프로젝트 루트 내부이거나, 루트 밖이라도 **지금 버블로 그리고 있는 노드의 경로**면 허용.
-      // (§2.1 #5 v1.55 — 외부 폴더 클릭 시 OS 탐색기에서 그 절대경로 열기.) 화면에 없는 임의
-      // 절대경로는 여전히 차단 — 페어링된 모바일 기기도 이 라우트에 닿는다.
+      // 프로젝트 루트 안이거나, 루트 밖이라도 지금 버블로 그리고 있는 노드의 경로면 허용한다(§2.1 #5 — 외부 폴더를 OS 탐색기로 연다).
+      // 화면에 없는 임의 절대경로는 막는다 — 페어링된 모바일 기기도 이 라우트에 닿는다.
       const resolved = path.resolve(absPath);
       if (!isWithinOpenableRoots(resolved) && !graphManager.hasNodeAbsolutePath(resolved)) {
         logger.warn(`open-node-folder blocked (not a project root / known bubble path): "${absPath}"`);
@@ -2761,8 +2680,8 @@ export async function runServer(): Promise<RunServerHandle> {
   const verificationGate = new VerificationGate({ findExecutingCommand: findExecutingCommandForSub, isEnforced: verificationGateOn });
 
   /**
-   * §5.3 #12-4 (D) — 이 세션이 Auto Agent 하네스의 멤버면, 그 하네스를 부른 **가장 최근 빌더 명령**(사용자 원문).
-   * 하네스의 검증 런이 열려 있을 때만 찾는다 — 런이 닫혔으면(그 요청이 끝났으면) 물려줄 것이 없다.
+   * §5.3 #12-4 (D) — 이 세션이 Auto Agent 하네스의 멤버면, 그 하네스를 부른 가장 최근 빌더 명령(사람이 친 본문 그대로).
+   * 하네스의 검증 런이 열려 있을 때만 찾는다 — 런이 닫혔으면 물려줄 것이 없다.
    */
   function findAutoAgentBuilderCommandFor(memberSessionId: string): QueuedCommand | undefined {
     for (const [autoAgentId, summary] of Object.entries(graphManager.getAutoAgentSummaries())) {
@@ -2777,11 +2696,8 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §3.2.3 — 완료 명령(사용자 말풍선)을 아카이브에 넣는 **유일한 창구**.
-   *
-   * 종전엔 세 곳에서 각자 `archive.push(...)` 했고 **상한 검사가 어디에도 없었다**(주석도
-   * "체크포인트에 사실상 무제한"이라 인정). IDE 스트림 복원이 2,000 이벤트인데 말풍선만
-   * 무제한이라 짝이 맞지 않던 자리다. 넘치면 오래된 것부터(배열 앞) 버린다 — 설정값 `0` 이면 무제한.
+   * §3.2.3 — 완료 명령(사용자 말풍선)을 아카이브에 넣는 유일한 창구 — 직접 `archive.push` 하지 마라(상한 검사가 여기만 있다).
+   * 넘치면 오래된 것부터(배열 앞) 버린다. 설정값 `0` 이면 무제한.
    */
   function archiveCompletedCommands(sessionId: string, cmds: QueuedCommand[]): void {
     if (cmds.length === 0) return;
@@ -2804,9 +2720,10 @@ export async function runServer(): Promise<RunServerHandle> {
 
   // ─── SubAgent 명령 실행 ───
 
-  /** v1.38 — 엣지의 타겟이 실제로 위임 수행이 가능한지 판정.
-   *  명시적으로 저장된 `AgentConfig.tools === []` 는 "모든 도구 제거" → skip 대상.
-   *  cfg 자체가 undefined(한 번도 저장 안 됨)이면 CLI 기본 툴셋 상속이라 skip 아님. */
+  /**
+   * 엣지의 타겟이 실제로 위임을 수행할 수 있는가.
+   *  저장된 `AgentConfig.tools === []` 는 "모든 도구 제거"라 skip, cfg 가 undefined(저장된 적 없음)면 CLI 기본 툴셋 상속이라 skip 아님.
+   */
   function isEdgeTargetViable(edgeTargetAgentId: string): boolean {
     return hasUsableTools(graphManager.getAgentConfig(edgeTargetAgentId));
   }
@@ -2819,10 +2736,10 @@ export async function runServer(): Promise<RunServerHandle> {
     return hasUsableTools(graphManager.getAgentConfig(edge.sourceAgentId));
   }
 
-  /** v1.33 — outbound Task Edge 자동 rules 섹션. subagent 스폰 직전에 호출되어 런타임 조회로
-   *  해당 agent 의 primary(outbound) 엣지 목록을 markdown 블록으로 조립. 엣지 0개면 빈 문자열.
-   *  엣지 변경은 이 함수가 다음 호출에서 자동 반영 — 별도 파일/cleanup 불필요.
-   *  v1.38 — 타겟 도구가 빈 배열인 엣지는 viability 필터로 제외(프롬프트 정책 소실 == 삭제와 동등). */
+  /**
+   * outbound Task Edge 자동 rules 섹션 — 스폰 직전 런타임 조회로 그 에이전트의 outbound 엣지 목록을 markdown 블록으로 조립한다.
+   *  엣지 0개면 빈 문자열. 엣지 변경은 다음 호출에 반영된다. 타겟 도구가 빈 배열인 엣지는 viability 필터로 뺀다(삭제와 같다).
+   */
   function buildOutboundEdgesRulesSection(agentId: string): string {
     const allOutbound = graphManager.getOutboundTaskEdges(agentId);
     const outbound = allOutbound.filter((e) => isTaskEdgeViable(e));
@@ -2838,14 +2755,11 @@ export async function runServer(): Promise<RunServerHandle> {
     // §5.3 #12 — 배지는 실제 집행 결과를 따라간다(박탈이 안전선에 걸려 취소됐을 수 있다).
     const stripDecision = computeDelegationStripDecision(agentId);
     const allAgents = graphManager.getSnapshot().agents;
-    // §3.7 v2.8 — dispatch curl 은 소스 커스텀 에이전트(외부 `claude` 프로세스)가 실행한다.
-    // 외부 프로세스는 renderer↔server IPC 를 못 쓰므로 in-process 서버에 닿으려면 hook
-    // loopback 리스너를 거쳐야 한다. 폐기된 서버-클라 모델의 DEFAULT_PORT(4800)를 쓰면
-    // listen 소켓이 없어 connection refused — desktop main 이 setHookListenerPort()로
-    // 주입한 동적 포트를 쓴다. (미주입 시 port 폴백 — 통합 모델에선 부팅 시 항상 주입됨.)
+    // §3.7 — dispatch curl 은 외부 `claude` 프로세스가 실행하므로 hook loopback 리스너 포트(setHookListenerPort 주입)를 쓴다.
+    // DEFAULT_PORT(4800)를 쓰지 마라 — listen 소켓이 없어 connection refused. 미주입 시 port 폴백(통합 모델에선 부팅 때 늘 주입된다).
     const serverBase = `http://127.0.0.1:${hookListenerPort ?? port}`;
 
-    // v1.33 — 엣지별 policy. 같은 소스라도 엣지마다 다른 policy 가능. 엣지 목록에 각각 Policy 태그 표시.
+    // 엣지별 policy — 같은 소스라도 엣지마다 다를 수 있어 엣지 목록에 각각 Policy 태그를 단다.
     const lines: string[] = [
       '',
       '',
@@ -2893,8 +2807,7 @@ export async function runServer(): Promise<RunServerHandle> {
       //   "판단 위임"으로 표시되면서 실제로는 도구가 걷히던 어긋남이 여기서 없어진다.
       const policy = resolveEffectiveDelegationPolicy(edge);
       const policyBadge = policy === 'strict' ? '**[Policy=STRICT — 의무 위임]**' : '**[Policy=AUTO — 판단 위임]**';
-      // v1.44 — commandMode (kind='command' 한정) 안내. mode-delegation 의 경우 LLM 이 도구는 가지고 있어도
-      //         "이 작업은 반드시 위임" 임을 인지하도록 명시.
+      // commandMode(kind='command' 한정) 안내 — mode-delegation 이면 도구를 갖고 있어도 이 작업은 반드시 위임해야 함을 명시한다.
       const cmdMode = resolveEdgeCommandMode(edge);
       // 박탈이 안전선에 걸려 취소됐으면 "박탈됨"이라고 말하지 않는다 — 있지도 않은 제약을 믿고
       //   모델이 제 도구를 안 쓰게 된다(그 상태가 곧 "계획만 말하고 끝나는 턴"이다).
@@ -2915,7 +2828,7 @@ export async function runServer(): Promise<RunServerHandle> {
       lines.push(`- **→ ${targetLabel}** ${policyBadge}${cmdModeBadge ? ' ' + cmdModeBadge : ''} (model: ${modelStr}, tools: ${toolsStr})`);
       lines.push(`  - 용도: ${edge.command || '(미기재)'}`);
       lines.push(`  - returnFormat: ${returnFmt} — ${waitNote}`);
-      // v1.48 — messageSchema 가 비어있지 않으면 발신 본문(instruction) 포맷을 강제. messageFormat='free' 거나 빈 값이면 생략.
+      // messageSchema 가 있으면 발신 본문(instruction) 양식을 강제한다. messageFormat='free' 거나 빈 값이면 생략.
       if (edge.messageFormat === 'schema' && edge.messageSchema && edge.messageSchema.trim().length > 0) {
         lines.push(`  - **메시지 스키마 (필수)**: 이 엣지로 보낼 때 \`instruction\` 본문은 아래 양식을 따르세요:`);
         lines.push('    ```');
@@ -2927,17 +2840,13 @@ export async function runServer(): Promise<RunServerHandle> {
     return lines.join('\n');
   }
 
-  /** v1.37 — 박탈 모드 outbound 엣지 기반 tools strip 결정.
-   *  - 박탈 모드 엣지의 각 타겟 agentConfig.tools 합집합이 후보
-   *  - 엣지 삭제/모드 전환 시 다음 호출에서 자동 축소/소멸 (매 턴 재계산)
-   *  - 박탈 모드가 아닌 엣지는 도구 변경 없음 (프롬프트 권고만)
-   *  v1.38 — 양끝 도구가 빈 엣지는 대칭 viability 로 skip (`isTaskEdgeViable`).
-   *  v1.44 — 박탈 게이트를 `delegationPolicy` 에서 `commandMode` 로 이동. 그 해석은
-   *          `resolveEdgeCommandMode` **한 곳**에만 있다 — 프롬프트 배지도 같은 함수를 쓴다.
-   *  §5.3 #12 — **안전선 둘은 `computeDelegationStrip` 안에 있다**: ① 위임 수단(Bash) 불가침
-   *          ② 박탈이 소스 도구를 전멸시키면 그 박탈을 통째로 취소. 이 둘이 없으면 타겟이
-   *          기본값(전체 48종)일 때 소스가 `--tools ""` 로, 즉 도구 0개로 스폰돼 직접 작업도
-   *          위임도 못 한다(Codex 소스는 `restrictedTools` 를 타고 shell·web 까지 꺼진다). */
+  /**
+   * 박탈 모드 outbound 엣지 기반 tools strip 결정. 후보 = 박탈 모드 엣지 타겟들의 agentConfig.tools 합집합(매 턴 재계산 — 엣지 삭제·모드 전환은 다음 턴에 반영).
+   *  박탈 모드가 아닌 엣지는 도구를 바꾸지 않는다(프롬프트 권고만). 양끝 도구가 빈 엣지는 `isTaskEdgeViable` 로 skip.
+   *  박탈 여부는 `commandMode` 이고 해석은 `resolveEdgeCommandMode` 한 곳에만 있다(프롬프트 배지도 같은 함수).
+   *  §5.3 #12 — 안전선 둘은 `computeDelegationStrip` 안에 있다: ① 위임 수단(Bash) 불가침 ② 소스 도구가 전멸하면 박탈 통째 취소.
+   *  없으면 타겟이 기본값(48종)일 때 소스가 `--tools ""`(도구 0개)로 스폰된다(Codex 소스는 `restrictedTools` 로 shell·web 까지 꺼진다).
+   */
   function computeDelegationStripDecision(agentId: string): DelegationStripDecision {
     const sourceCfg = graphManager.getAgentConfig(agentId);
     const sourceViable = hasUsableTools(sourceCfg);
@@ -2951,51 +2860,28 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /*
-   * §5.10 — **기억 카드 브리핑·세션 리플렉션은 걷었다.**
-   *
-   * 사용자 지시(전면 개편)로 기억·메모리·브레인 축이 폐기됐다. 여기 있던 두 함수는
-   * ① 스폰마다 카드 top-K 를 프롬프트에 얹고 ② 세션이 끝날 때마다 `claude -p` 자식을 띄워
-   * 대화를 되짚게 했다. ②는 끈 사람에게도 토큰이 새던 축이라 **함수째** 없앤다 — 판정 한 줄만
-   * 남겨 두면 다음 사람이 그 줄을 되살리는 것으로 자식 스폰이 통째로 돌아온다.
-   *
-   * 되풀이한 절차를 굳히는 일은 `autoGoalService` 가 이어받았다. 그쪽은 LLM 을 부르지 않는다.
+   * §5.10 — 기억 카드 브리핑·세션 리플렉션은 없다(기억·브레인 축 폐기).
+   * 세션 끝마다 `claude -p` 자식을 띄우는 리플렉션을 되살리지 마라 — 끈 사람에게도 토큰이 샌다.
+   * 되풀이한 절차를 굳히는 일은 `autoGoalService` 가 한다(LLM 을 부르지 않는다).
    */
 
   /**
-   * §5.5 #17-18 v4.68 — **즉시(immediate) 덧말**: 지금 도는 턴을 끊는다(soft interrupt).
-   *
-   * Claude CLI 는 `--input-format stream-json` 의 stdin 으로 도는 턴을 끊는 수단을 주지 않는다
-   * (`{"type":"interrupt"}` 는 미구현 요청). 그래서 **이미 있는 세션 중지 경로**를 그대로 쓴다:
-   * 자식 트리 종료 → close 핸들러가 끊긴 명령을 `[Stopped by user]` 로 봉합 → `setOnComplete` 가
-   * 큐에 남은 이 덧말을 `--resume` 으로 dispatch(대화 맥락은 유지, 그 턴의 진행 중 도구만 버려진다).
-   *
-   * `stop-session` 라우트와 달리 **큐를 비우지 않는다** — 즉시로 보낸 그 덧말이 함께 지워지면
-   * 사용자가 방금 친 말이 사라진다.
-   *
-   * 순서는 **덜 죽이는 것부터** 셋이다 — ① 그 턴이 이미 답을 내고 봉인만 붙들려 있으면 봉인을 확정해
-   * 그 자리에서 다음 턴으로 넘긴다(죽는 것 없음), ② 도는 턴이면 soft interrupt 로 그 턴만 끊는다
-   * (프로세스·감시 유지), ③ 그것도 못 보내면 종전 하드 킬. ① 이 없던 동안은 봉인 대기 상태에도
-   * 인터럽트가 나가 3초 뒤 ③ 으로 떨어졌고, 그 결과가 사용자에게는 "즉시를 누르면 대화가 끝나고
-   * 세션이 멈춘다"였다.
-   *
-   * @returns 실제로 끊었으면(또는 봉인을 확정해 그 자리에서 넘겼으면) true — 호출자는 `processNextCommand`
-   *          를 다시 부르지 않는다. 그냥 대기 중이었으면 false(평소 dispatch 가 이어받는다).
+   * §5.5 #17-18 — 즉시(immediate) 덧말: 지금 도는 턴을 끊는다. 덜 죽이는 것부터 셋이다:
+   * ① 그 턴이 이미 답을 내고 봉인만 붙들려 있으면 봉인을 확정해 다음 턴으로 넘긴다(죽는 것 없음) ② 도는 턴이면 soft interrupt(프로세스·감시 유지)
+   * ③ 못 보내면 하드 킬 — close 핸들러가 `[Stopped by user]` 로 봉합하고 `setOnComplete` 가 이 덧말을 `--resume` 으로 보낸다(대화 맥락 유지).
+   * `stop-session` 과 달리 큐를 비우지 않는다 — 비우면 방금 친 덧말이 함께 사라진다.
+   * @returns 끊었거나 봉인을 확정해 넘겼으면 true(호출자는 `processNextCommand` 를 다시 부르지 않는다), 대기 중이었으면 false.
    */
   function interruptForImmediateCommand(cmd: QueuedCommand, sessionId: string): boolean {
     const subId = cmd.subAgentId;
     if (!subId) return false;
     // 한 턴을 실제로 처리 중일 때만 — 명령 사이에 idle 로 살아 있는 persistent 자식은 끊을 이유가 없다.
     if (!subAgentManager.isSubProcessingCommand(subId)) return false;
-    // §5.3 #9-1 (P)(b) — 도는 것이 조용한 압축이면 사용자에게 "도는 턴"은 그 진행을 물려받은 명령이다.
-    //   아래 세 갈래는 CLI 에 있는 압축만 끊으므로, 그 명령을 그대로 두면 압축이 끝나자마자 대기열 맨
-    //   앞에서 나가고 이 덧말은 그 뒤에 섰다("즉시로 끊었는데 계속 돈다"). 먼저 그 명령을 실행 중에 멈춘
-    //   명령과 똑같이 중지됨으로 봉합해 두면, 끊긴 압축 다음 턴이 이 덧말이 된다.
+    // §5.3 #9-1 (P)(b) — 도는 것이 조용한 압축이면 사용자에게 "도는 턴"은 그 진행을 물려받은 명령이다. 아래 세 갈래는 CLI 의 압축만 끊으므로,
+    //   그 명령을 먼저 중지됨으로 봉합한다 — 안 하면 압축이 끝나자마자 그 명령이 맨 앞에서 나가 덧말이 뒤로 밀린다.
     sealHeirCutByImmediate(cmd, sessionId);
-    // 그 턴이 **이미 답을 내고** 백단 여운 때문에 봉인만 붙들려 있는 상태라면 **끊을 턴이 없다.**
-    //   여기에 인터럽트를 쏘면 CLI 가 답할 것이 없어 3초 뒤 하드 킬 폴백으로 내려가고, 프로세스와
-    //   그 세션의 감시까지 죽은 뒤 남는 것은 창구가 닫힌 자식뿐이다 — 그 창구로 이 덧말을 쓰려다
-    //   `write after end` 로 dispatch 가 끊긴 것이 "즉시를 누르면 대화가 끝나고 세션이 멈춘다"의 실체였다.
-    //   붙든 봉인을 지금 확정하면 그 자리에서 이 덧말이 다음 턴으로 나간다(끊은 것과 같은 효과, 죽는 것 없음).
+    // 그 턴이 이미 답을 내고 백단 여운 때문에 봉인만 붙들려 있으면 끊을 턴이 없다 — 붙든 봉인을 지금 확정해 이 덧말을 다음 턴으로 보낸다.
+    //   여기에 인터럽트를 쏘지 마라 — 3초 뒤 하드 킬로 떨어져 감시까지 죽고, 닫힌 창구에 덧말을 쓰다 `write after end` 로 세션이 멈춘다.
     if (subAgentManager.sealHeldTurnNow(subId)) {
       logger.info(`[follow-up] held turn sealed sub=${subId} cmd=${cmd.id} — dispatched without killing the child`);
       return true;
@@ -3013,12 +2899,9 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §5.3 #9-1 (P)(b) — [즉시] 덧말이 끊을 턴이 조용한 압축을 물려받은 명령이면, 그 명령을 큐에서 빼
-   * 실행 중에 멈춘 명령처럼 `[Stopped by user]` 로 봉합해 대화에 남긴다. 봉합했으면 true.
-   *
-   * 고르는 규칙은 화면·두 [중지]와 같은 `silentPreCompactHeirs` 를 타는 `heirCutByImmediate` 한 곳이다.
-   * 위임 장부는 두 [중지]처럼 "나가기 전 취소"로 내린다(CLI 에 닿은 적이 없다). 지휘(오케스트라) 명령은
-   * 런 정산이 따로 있어(`DELETE /api/commands` 참조) 봉합하지 않는다 — 종전 동작 그대로 둔다.
+   * §5.3 #9-1 (P)(b) — [즉시] 덧말이 끊을 턴이 조용한 압축을 물려받은 명령이면, 큐에서 빼 `[Stopped by user]` 로 봉합해 대화에 남긴다. 봉합했으면 true.
+   * 고르는 규칙은 화면·두 [중지]와 같은 `silentPreCompactHeirs` 를 타는 `heirCutByImmediate` 한 곳. 위임 장부는 "나가기 전 취소"로 내린다(CLI 에 닿은 적이 없다).
+   * 지휘(오케스트라) 명령은 런 정산이 따로 있어(`DELETE /api/commands`) 봉합하지 않는다.
    */
   function sealHeirCutByImmediate(cmd: QueuedCommand, sessionId: string): boolean {
     const queue = commandQueues.get(sessionId);
@@ -3035,13 +2918,9 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §5.5 #17-28 — **이 세션의 프롬프트에 실릴 조각 전부**를 이름표와 함께 조립한다(부작용 없음).
-   *
-   * 프롬프트를 만드는 쪽(`processNextCommand`)과 그것을 보여 주는 쪽(`GET /api/context-inventory`)이
-   * **같은 함수**를 쓴다. 두 벌로 갈라 두면 화면은 "9,000자"라고 말하는데 실제로는 다른 것이 실리는
-   * 상태가 생기고, 그것이 이 기능의 유일한 실패 방식이다(§5.11 v4.65 가 배운 것과 같은 교훈).
-   *
-   * 켬/끔은 여기서 보지 않는다 — 목록은 "존재하는 것 전부"이고, 무엇을 뺄지는 호출부의 게이트가 정한다.
+   * §5.5 #17-28 — 이 세션 프롬프트에 실릴 조각 전부를 이름표와 함께 조립한다(부작용 없음).
+   * `processNextCommand` 와 `GET /api/context-inventory` 가 같은 함수를 쓴다 — 두 벌로 가르면 화면 표와 실제 프롬프트가 어긋난다.
+   * 켬/끔은 여기서 보지 않는다 — 목록은 존재하는 것 전부이고, 뺄 것은 호출부 게이트가 정한다.
    */
   function assembleContextParts(input: {
     agent: { id: string; label: string; customCreated?: boolean };
@@ -3147,7 +3026,7 @@ export async function runServer(): Promise<RunServerHandle> {
       parts.push({ id: `${CONTEXT_PLUGIN_ID_PREFIX}${p.id}`, text: p.block, title: p.id });
     }
 
-    // 아래는 커스텀/스폰 에이전트에만 실리는 것들(§4 v2.52 하이브리드 경계) — 훅 에이전트는 빈 줄로 선다.
+    // 아래는 커스텀/스폰 에이전트에만 실리는 것들(§4 하이브리드 경계) — 훅 에이전트는 빈 줄로 선다.
     const ruleArgs = {
       shell: agentRuleShell(agentConfig?.provider?.kind === 'codex-cli' ? 'codex' : 'claude', HOST_PLATFORM),
       serverBase: `http://127.0.0.1:${hookListenerPort ?? port}`,
@@ -3183,9 +3062,7 @@ export async function runServer(): Promise<RunServerHandle> {
           percent: goal.percent,
           ...(goal.steps.length > 0
             ? {
-              // §5.5 #17-17 ⑪(d)(i) — `authoredBy`·`kind` 를 **떨어뜨리지 않는다.**
-              //   종전에는 `{text,status}` 만 넘겨, ⑪(d) 가 세운 `[사용자 추가]` 표시가 주입
-              //   블록에 영영 뜨지 않았다(모델은 "지울 수 없는 단계"라는 말을 들은 적이 없다).
+              // §5.5 #17-17 ⑪(d)(i) — `authoredBy`·`kind` 를 떨어뜨리지 않는다 — 빠지면 ⑪(d) 의 `[사용자 추가]`(지울 수 없는 단계) 표시가 주입 블록에 안 뜬다.
               //   `kind` 는 무대가 읽는 축이라 자기가 붙였던 종류를 봐야 같은 키를 이어 쓴다.
               steps: goal.steps.map((s, i) => ({
                 text: s.text,
@@ -3220,12 +3097,8 @@ export async function runServer(): Promise<RunServerHandle> {
     parts.push({ id: CONTEXT_SOURCE_IDS.verificationPolicy, text: verificationParts.rules + verificationParts.state });
 
     /*
-     * §5.10 — **자동 목표**: 이 프로젝트에서 되풀이해 온 절차의 목록.
-     *
-     * 위 네 줄과 달리 여기 실리는 것은 이름과 한 줄 설명뿐이고, 꺼져 있으면 `undefined` 라
-     * **한 글자도 실리지 않는다**(3층 어디에도 켬이 없으면 이 기능은 없는 것과 같아야 한다).
-     * 판정은 shared 순수 함수 하나(`resolveAutoGoalEnabled`)가 소유한다 — 화면·집행이 같은
-     * 답을 봐야 "켜졌다는데 프롬프트엔 안 실린다"가 안 생긴다.
+     * §5.10 — 자동 목표: 이 프로젝트에서 되풀이해 온 절차 목록(이름과 한 줄 설명뿐). 꺼져 있으면 `undefined` 라 한 글자도 안 실린다.
+     * 켬 판정은 shared 순수 함수 `resolveAutoGoalEnabled` 하나가 갖는다 — 화면과 집행이 같은 답을 봐야 한다.
      */
     // 같은 프로젝트 뿌리를 본다 — 절차는 프로젝트의 것이고, 뿌리가 갈리면 옆 프로젝트의 절차가 실린다.
     const autoGoalRoot = projectRoot;
@@ -3252,8 +3125,7 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     }
 
-    // §5.11 v4.67 — 훅으로 붙은 외부 세션의 주입 통로. 글자 수로 잴 수 있는 블록이 아니라 **경로 스위치**라
-    //   0자여도 켜져 있는 것이 맞다(실제 내용은 위 플러그인 줄들이 보여 준다).
+    // §5.11 — 훅으로 붙은 외부 세션의 주입 통로. 글자 수로 재는 블록이 아니라 경로 스위치라 0자여도 켜져 있는 것이 맞다(내용은 위 플러그인 줄들).
     //   우리가 띄운 세션(custom)에는 해당이 없으므로 줄 자체를 세우지 않는다.
     if (!custom) {
       parts.push({ id: CONTEXT_SOURCE_IDS.hookEnforcement, text: '', defaultEnabled: true });
@@ -3265,11 +3137,8 @@ export async function runServer(): Promise<RunServerHandle> {
   /** 큐에서 dispatch 가능한 명령을 전부 실행.
    *  동일 subAgentId는 직렬(한 세션당 한 명령), 서로 다른 subAgentId끼리는 병렬로 시작.
    *  null subAgentId는 하나의 슬롯으로 묶어 기존 직렬 동작 유지. */
-  // ─── §5.3 #9-1 토큰 절약 런타임 (N 동시 가동 상한 · O 스폰 시차 · P 턴 예산) ───
-  //
-  // 셋 다 **명령을 버리지 않는다** — 미루기만 한다. 거절된 명령은 `queued` 그대로 남고,
-  // 슬롯이 비거나(N) 시차가 지나면(O) 같은 큐에서 그대로 나간다. 사용자가 보낸 것이 조용히
-  // 사라지면 그건 절약이 아니라 사고다.
+  // §5.3 #9-1 토큰 절약 런타임(N 동시 가동 상한 · O 스폰 시차 · P 턴 예산).
+  // 셋 다 명령을 버리지 않고 미루기만 한다 — 거절된 명령은 `queued` 로 남아 슬롯이 비거나(N) 시차가 지나면(O) 같은 큐에서 나간다.
 
   /**
    * (O) 마지막 **첫 스폰** 시각. 세션이 아니라 **앱 단위**다 — 접두 캐시는 세션이 아니라 계정이
@@ -3281,13 +3150,7 @@ export async function runServer(): Promise<RunServerHandle> {
   /** (P) sub 별 "마지막 압축 이후 턴 수". 압축이 큐에 들어가는 순간 0 으로 돌아간다. */
   const turnsSinceCompact = new Map<string, number>();
 
-  /**
-   * (N) 지금 턴을 처리 중인 세션 수.
-   *
-   * 사용자가 직접 치는 CMD(PTY) 세션은 **세지 않는다** — 우리가 dispatch 하는 자식이 아니라
-   * 사람의 터미널이라, 그것을 슬롯으로 세면 사용자가 터미널을 하나 열어 둔 것만으로 에이전트가
-   * 굶는다(§2.4 `cmdDrivenSubs` 제외 목록과 같은 판단).
-   */
+  /** (N) 지금 턴을 처리 중인 세션 수. 사람이 치는 CMD(PTY) 세션은 세지 않는다 — 세면 터미널 하나 열어 둔 것만으로 에이전트가 굶는다(§2.4 `cmdDrivenSubs` 제외와 같은 판단). */
   function countRunningTurns(): number {
     const running = new Set<string>();
     for (const [sid, queue] of commandQueues) {
@@ -3343,10 +3206,8 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * (N) 슬롯이 비었다 — 상한에 걸려 기다리던 세션을 깨운다.
-   *
-   * **턴이 끝나는 자리에서만** 부른다(새 주기 타이머 ❌ — §2.4 "새 타이머 ❌" 와 같은 규율).
-   * 슬롯이 다시 차면 즉시 멈춘다: 한 바퀴에 상한을 넘겨 내보내면 상한이 있으나 마나가 된다.
+   * (N) 슬롯이 비었다 — 상한에 걸려 기다리던 세션을 깨운다. 턴이 끝나는 자리에서만 부른다(새 주기 타이머 ❌, §2.4).
+   * 슬롯이 다시 차면 즉시 멈춘다 — 한 바퀴에 상한을 넘겨 내보내면 상한이 무의미해진다.
    */
   function pumpTokenSaverQueues(): void {
     const saver = appStateGetTokenSaver();
@@ -3394,11 +3255,8 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * 준비 판정이 "모름"으로 나왔을 때 그 엔진만 **그 자리에서 한 번** 다시 묻는다.
-   *
-   * 탐침 한 번이 실패하면(CLI 를 잠깐 못 찾음·타임아웃) 캐시가 통째로 모름이 되고, 다음
-   * 폴링(10분)이나 사용자가 새로고침을 누르기 전까지 편성·계획 신고가 막혔다. 지휘자에게는
-   * 그 사이 이어 갈 길이 없어 런이 보고 없이 닫힌다 — 그래서 막기 전에 한 번은 다시 묻는다.
+   * 준비 판정이 "모름"이면 그 엔진만 그 자리에서 한 번 다시 묻는다 — 탐침 한 번 실패(CLI 잠깐 못 찾음·타임아웃)로 캐시가 모름이 되면
+   * 다음 폴링(10분)까지 편성·계획 신고가 막혀 런이 보고 없이 닫힌다.
    */
   async function reprobeOrchestraEngine(engine: OrchestraCliEngine): Promise<void> {
     const before = currentOrchestraReadiness();
@@ -3442,11 +3300,9 @@ export async function runServer(): Promise<RunServerHandle> {
     const readyEngines = orchestraReadyEngines(currentOrchestraReadiness());
     const agents = graphManager.getSnapshot().agents;
     /*
-     * 재사용 후보는 **프로젝트 전체**다. ④ 계획 신고의 재사용 검사가 보는 것이 프로젝트 소속
-     *   하나뿐이라(`reused-agent-not-in-project` — 판정 집합은 아래 plan 엔드포인트와 같은 술어),
-     *   내 이전 런의 멤버만 실으면 *서버가 받아 줄 후보*를 지휘자에게 감추는 셈이 된다. 그러면
-     *   이미 있는 검수자 곁에 똑같은 것을 또 만들고, 멤버 상한만 축낸다.
-     *   순서는 내 것이 앞이고, 표에는 `own` 으로 갈라 적는다 — "다시 쓰기 우선"의 차례는 그대로다.
+     * 재사용 후보는 프로젝트 전체다 — ④ 계획 신고의 재사용 검사(`reused-agent-not-in-project`, 아래 plan 엔드포인트와 같은 술어)가 프로젝트 소속만 보므로,
+     *   내 이전 런 멤버만 실으면 서버가 받아 줄 후보를 감춰 같은 검수자를 또 만들고 멤버 상한만 축낸다.
+     *   순서는 내 것이 앞이고 표에는 `own` 으로 갈라 적는다.
      */
     const ownMemberIds = collectOrchestraMemberIds(graphManager.getOrchestraRuns(run.projectPath), agent.id);
     const ownMemberSet = new Set(ownMemberIds);
@@ -3505,11 +3361,8 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §5.3 #10-5 — 이 명령의 자리에 **설정 덜어내기**가 켜져 있으면 이 턴 사본을 깎고 기록을 남긴다.
-   * 꺼져 있으면(기본) 아무것도 하지 않고 `null` — 이 기능이 없던 때와 조립 결과가 같다.
-   *
-   * 기록은 **덜어낸 게 없어도** 남긴다(배제 목록만 보여 주는 턴이 있다).
-   * 사본은 실제로 덜어낸 게 있을 때만 돌려준다 — 없으면 원본을 그대로 쓰는 편이 싸고 같다.
+   * §5.3 #10-5 — 설정 덜어내기가 켜져 있으면 이 턴 사본을 깎고 기록을 남긴다. 꺼져 있으면(기본) 아무것도 하지 않고 `null`.
+   * 기록은 덜어낸 게 없어도 남긴다(배제 목록만 보여 주는 턴이 있다). 사본은 실제로 덜어낸 게 있을 때만 돌려준다.
    * 저장된 `AgentConfig` 는 이 함수 어디에서도 쓰이지 않는다(`computeConfigTrim` 이 얕은 사본을 판다).
    */
   function prepareConfigTrimTurn(
@@ -3597,15 +3450,12 @@ export async function runServer(): Promise<RunServerHandle> {
 
     const agentConfig = graphManager.getAgentConfig(agent.id);
 
-    // §5.5 #17-28 — **주입원 통제**: 사용자가 이 창에서 끈 줄은 여기서 빠진다. 이 게이트가 마지막
-    //   관문이라 다른 화면(플러그인 창·에이전트 설정)에서 켜져 있어도 결과는 여기서 정해진다.
-    //   오버라이드가 하나도 없으면 모든 판정이 기본값(켜짐)이라 조립 결과가 이 기능이 생기기 전과
-    //   바이트 단위로 같다 — 이 기능을 안 쓰는 사용자는 아무 차이도 겪지 않는다.
+    // §5.5 #17-28 — 주입원 통제: 이 창에서 끈 줄은 여기서 빠진다. 마지막 관문이라 다른 화면(플러그인 창·에이전트 설정)에서 켜져 있어도 여기서 정해진다.
+    //   오버라이드가 없으면 전부 기본값(켜짐)이라 조립 결과가 바이트 단위로 같다.
     const contextOverrides = graphManager.getContextOverrides();
     const contextProjectKey = graphManager.getAgentProjectName(agent.id);
 
-    // v1.37 — 박탈 모드 outbound 엣지가 있으면 타겟이 가진 도구를 소스 allowedTools 에서 박탈.
-    // 매 턴 재계산이라 엣지 삭제·모드 전환 시 다음 턴에 자동 복귀 — 별도 cleanup 불필요.
+    // 박탈 모드 outbound 엣지가 있으면 타겟이 가진 도구를 소스 allowedTools 에서 뺀다(매 턴 재계산 — 엣지 삭제·모드 전환은 다음 턴에 복귀).
     // §5.3 #12 — 위임 수단(Bash)은 절대 걷지 않고, 박탈이 소스를 도구 0개로 만들면 통째로 취소한다.
     const stripDecision = computeDelegationStripDecision(agent.id);
     const stripSet = stripDecision.strip;
@@ -3623,7 +3473,7 @@ export async function runServer(): Promise<RunServerHandle> {
     const waitsForEarlierWork = (command: QueuedCommand): boolean => hasUnfinishedCommandDependencies(
       command, commandQueues, sessionId, (id) => graphManager.findAgentIdBySession(id) ?? subAgentManager.findSubBySessionId(id)?.parentAgentId,
     );
-    // §5.5 #17-18 v4.68 — 합치기가 뒤엣것을 큐에서 지우므로 **스냅샷**을 순회한다(라이브 배열을
+    // §5.5 #17-18 — 합치기가 뒤엣것을 큐에서 지우므로 **스냅샷**을 순회한다(라이브 배열을
     //   splice 하며 돌면 항목을 건너뛴다). 지워진 항목은 아래 `queue.includes` 가 걸러낸다.
     for (const next of [...queue]) {
       if (next.status !== 'queued') continue;
@@ -3635,7 +3485,7 @@ export async function runServer(): Promise<RunServerHandle> {
       if (!tokenSaverAdmits(next, sessionId)) continue;
       const freshSpawn = isFreshSpawn(next);
       busy.add(next.subAgentId); // 같은 sub에 두 개 동시 dispatch 금지
-      // §5.5 #17-18 v4.68 — 뒤따르는 합치기 덧말을 이 명령에 흡수(= 한 턴에 함께 보낸다).
+      // §5.5 #17-18 — 뒤따르는 합치기 덧말을 이 명령에 흡수(= 한 턴에 함께 보낸다).
       //   프롬프트 조립(목표 시딩·브리핑)보다 **먼저** 해야 합쳐진 본문이 그 입력으로 쓰인다.
       const merged = absorbMergeFollowUps(queue, next);
       if (merged.length > 0) {
@@ -3645,13 +3495,9 @@ export async function runServer(): Promise<RunServerHandle> {
         const mergedScope = mergeVerificationScopes([next.verificationScope, ...merged.map((m) => m.verificationScope)]);
         if (mergedScope) next.verificationScope = mergedScope;
       }
-      // §5.5 #17-17 ⑨ v4.59 — 목표 카드는 계획(TodoWrite)을 기다리지 않고 **이 명령이 뜨는
-      //   순간** 태어난다. 그래야 사이드바가 "지금 이 세션이 하는 일"을 항상 가리킨다(계획을
-      //   세우지 않는 짧은 작업에서도 빈 화면이 되지 않는다). 세션이 쓴 목표만 새 명령에
-      //   갈아타고 사용자가 고친 문장은 건드리지 않는다 — 판단은 전부 그래프 쪽에 있다.
-      //   조각 조립보다 **먼저** 세워야 이번 턴 프롬프트에 그 목표가 실린다.
-      //   (주입원 창에서 목표 블록을 껐더라도 카드 자체는 세운다 — 끈 것은 "프롬프트에 싣는 것"이지
-      //    화면의 목표 창이 아니다.)
+      // §5.5 #17-17 ⑨ — 목표 카드는 계획(TodoWrite)을 기다리지 않고 이 명령이 뜨는 순간 세운다(짧은 작업에서도 사이드바가 비지 않게).
+      //   세션이 쓴 목표만 새 명령에 갈아타고 사용자가 고친 문장은 두는 판단은 전부 그래프 쪽에 있다.
+      //   조각 조립보다 먼저 세워야 이번 턴 프롬프트에 실린다. 주입원 창에서 목표 블록을 꺼도 카드는 세운다(끈 것은 프롬프트 싣기다).
       if (agent.customCreated && next.subAgentId && next.text?.trim()) {
         graphManager.seedSessionGoalFromCommand(next.subAgentId, {
           agentId: agent.id,
@@ -3702,20 +3548,11 @@ export async function runServer(): Promise<RunServerHandle> {
       const rulesBlock = take(CONTEXT_SOURCE_IDS.agentRules) + edgesBlock + take(CONTEXT_SOURCE_IDS.feedback) + pluginBlock;
       const contextSummary = `${take(CONTEXT_SOURCE_IDS.skillsPrefix)}You are a sub-agent working in project at: ${cwd}\nParent agent: ${agent.label}${rulesBlock}\n\nExecute the following task.`;
 
-      // §4 v2.52 — 커스텀/스폰 에이전트에만 "작업 신고" 지시문 주입(Hook 에이전트 제외 = 하이브리드 경계).
-      //   하네스 빌더와 동일 인프라(토큰 인증 loopback)로 did/userActions 를 POST /api/agent-report 신고 →
-      //   IDE 가 색 구분 카드 렌더. agentId=부모 버블, subAgentId=이 세션(탭) 키로 baked.
-      // §5.5 #17-12 v3.83 — "의도 먼저" 선언 규칙이 카드 지시문보다 앞에 온다(턴의 첫 출력이 의도 선언이 되도록).
-      // §5.5 #17-17 ② v4.69 — 목표 블록은 **live preamble 에도** 실어야 한다. `dispatchContext` 는
-      //   첫 스폰에서만 쓰이므로(이어지는 턴은 preamble 만 간다), 여기에만 넣으면 "매 턴 재조립"이
-      //   실제로는 **세션 첫 턴 1회**가 된다 — 세션이 목록을 유지할 지시를 받지 못해 목표창의 단계가
-      //   영영 비어 있던 진짜 원인(실측: 목표 5건 전부 steps=0). 집행 블록(§5.11 v4.65)과 같은 자리.
-      // §5.5 #17-28 ⑧(c) — 의도 선언과 목표 **규약**은 세션 내내 한 글자도 안 변한다. 종전에는 둘 다
-      //   `livePreamble` 을 타고 **매 턴 사용자 메시지에 새로 쌓여** 턴이 늘수록 같은 문장이 이력에
-      //   N벌 남았다(실측 249 세션에서 4.6M 토큰 노출). 이제 `--append-system-prompt` 로 프로세스당
-      //   한 벌만 실어 보낸다 — 캐시 프리픽스의 맨 앞이고, **압축(compact)에도 쓸려 나가지 않는다**
-      //   (사용자 메시지에 있던 규칙은 쓸려 나가면 세션 중반부터 아무도 그 방법을 말해 주지 않는다).
-      //   매 턴 남는 것은 목표의 **상태**(문장·진행률·단계)뿐 — 실측 154 토큰.
+      // §4 — 커스텀/스폰 에이전트에만 "작업 신고" 지시문을 싣는다(Hook 에이전트 제외 = 하이브리드 경계). 토큰 인증 loopback 으로 POST /api/agent-report → IDE 색 구분 카드.
+      //   agentId=부모 버블, subAgentId=이 세션(탭). §5.5 #17-12 — "의도 먼저" 규칙이 카드 지시문보다 앞에 온다(턴의 첫 출력이 의도 선언이 되게).
+      // §5.5 #17-17 ② — 목표 상태는 live preamble 에도 싣는다 — `dispatchContext` 는 첫 스폰에만 쓰여, 거기만 넣으면 세션 첫 턴 1회로 끝나 단계가 비어 있다.
+      // §5.5 #17-28 ⑧(c) — 안 변하는 의도 선언·목표 규약은 `--append-system-prompt` 로 프로세스당 한 벌 — 매 턴 사용자 메시지에 쌓지 마라(이력에 N벌, 실측 249 세션 4.6M 토큰).
+      //   압축에도 쓸려 나가지 않는다. 매 턴 남는 것은 목표 상태(문장·진행률·단계)뿐 — 실측 154 토큰.
       const intentBlock = take(CONTEXT_SOURCE_IDS.intentFirst);
       const goalOn = !!take(CONTEXT_SOURCE_IDS.goal);
       const goalBlock = goalOn ? assembled.goalParts.state : '';
@@ -3747,11 +3584,9 @@ export async function runServer(): Promise<RunServerHandle> {
         configTrimTurnConfigs.set(next.subAgentId, { agentId: agent.id, commandId: next.id, config: configTrim.config });
         logger.info('[configTrim] turn ' + next.id + ' trimmed ' + configTrim.run.trimmed.length + ' field(s) (sub=' + next.subAgentId + ')');
       }
-      // §5.5 #17-28 ⑧(a) — 공통 규약은 **카드가 하나라도 켜져 있을 때만** 앞세운다. 전부 꺼 두면
-      //   공통 규약도 함께 빠져 "끈 기능의 설명만 남는" 상태가 생기지 않는다.
-      // §5.5 #17-28 ⑧(d) — 번호 목록·서버 iframe 규약은 걷었다. 목록 정렬은 클라의 마크다운 렌더가,
-      //   서버 프리뷰는 백그라운드 셸 포트 감지(§7.11 v2.29)가 **에이전트 없이** 이미 해내던 일이다.
-      //   엔드포인트(`/api/agent-list`·`/api/agent-iframe`)와 카드 렌더는 그대로 살아 있다.
+      // §5.5 #17-28 ⑧(a) — 공통 규약은 카드가 하나라도 켜져 있을 때만 앞세운다(전부 끄면 함께 빠진다).
+      // §5.5 #17-28 ⑧(d) — 번호 목록·서버 iframe 규약은 싣지 않는다 — 마크다운 렌더와 백그라운드 셸 포트 감지(§7.11)가 에이전트 없이 해낸다.
+      //   엔드포인트(`/api/agent-list`·`/api/agent-iframe`)와 카드 렌더는 살아 있다.
       const cardBodies = take(CONTEXT_SOURCE_IDS.cardReport) + take(CONTEXT_SOURCE_IDS.cardQuestion)
         + take(CONTEXT_SOURCE_IDS.cardReview);
       const cardsRules = cardBodies ? take(CONTEXT_SOURCE_IDS.cardCommon) + cardBodies : '';
@@ -3770,14 +3605,10 @@ export async function runServer(): Promise<RunServerHandle> {
       const additionalContext = take(CONTEXT_SOURCE_IDS.compactSelf) + take(CONTEXT_SOURCE_IDS.autoGoalSkills);
       const dispatchContext = contextSummary + cardsRules + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + additionalContext + verificationStateBlock;
 
-      // v1.33 — edgesBlock 을 separately 전달해 resume(--resume) 경로에서도 매 턴 prepend.
-      //         엣지가 생기거나 바뀌었을 때 세션 재시작 없이도 즉시 인지하도록.
-      // v1.77 (Direction A) — 커스텀 에이전트면 customParent=true → execute 가 --bg 우회, legacy 고정.
-      // §5.11 v4.65 — 집행 블록을 **live preamble 에도** 싣는다. `contextSummary` 는 첫 스폰에만 쓰이므로
-      //   여기 안 넣으면 이어지는 턴(resume)에는 한 글자도 안 실려 "매 턴"이 세션 첫 턴 1회가 된다.
-      //   (첫 스폰 경로는 preamble 을 쓰지 않으니 중복되지 않는다 — `execute` 가 sessionId 유무로 갈라 쓴다.)
-      // §5.5 #17-17 ②-2 v4.72 — "의도 먼저 + 계획을 세워라"도 같은 함정 위에 있었다(첫 스폰에만 실리면
-      //   두 번째 턴부터는 계획을 세우라는 말을 아무도 안 한다). 짧은 블록이라 매 턴 실어도 비용이 미미하다.
+      // live preamble 은 resume 경로에서도 매 턴 앞에 붙는다 — 엣지가 생기거나 바뀌면 세션 재시작 없이 바로 알도록 edgesBlock 을 여기 싣는다.
+      // 커스텀 에이전트면 customParent=true → execute 가 --bg 를 우회한다.
+      // §5.11 — 집행 블록도 여기 싣는다: `contextSummary` 는 첫 스폰에만 쓰여 안 넣으면 이어지는 턴엔 한 글자도 안 실린다.
+      //   첫 스폰 경로는 preamble 을 쓰지 않아 중복되지 않는다(`execute` 가 sessionId 유무로 갈라 쓴다).
       const livePreamble = edgesBlock + pluginBlock + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + additionalContext + verificationStateBlock;
       // §5.5 #17-28 — `control: 'spawn'` 으로 끈 줄(CLAUDE.md·자동 기억·스킬 등)은 CLI 인자·환경변수로
       //   나간다. 헤드리스는 매 턴 새 프로세스라 다음 프롬프트부터 그대로 먹는다.
@@ -3785,18 +3616,14 @@ export async function runServer(): Promise<RunServerHandle> {
       const spawnSwitches = codexTurn
         ? { args: [], env: {} }
         : buildSpawnContextSwitches(contextOverrides, ctxScope);
-      // §5.5 #17-28 ⑩ (c) — 우리가 내부적으로 쏘는 `/compact`·`/clear` 가 실리는 턴에는
-      //   **슬래시 차단 플래그 하나만** 뺀다. 그 플래그는 사용자 스킬만이 아니라 CLI 내장 명령의
-      //   등록까지 막아, 이 표의 어느 줄도 "자동 압축"이라 적혀 있지 않은데 자동 압축이 꺼졌다
-      //   (실측: 322k 세션 24시간 `compact_boundary` 0건 — 발사 2회가 모두 거절).
-      //   폭은 **이 한 턴**이다(헤드리스는 `--resume` 도 매 턴 새 프로세스). 그 턴에 실리는 것은
-      //   명령 한 줄뿐이라 사용자 스킬이 낄 자리가 없고, 나머지 스위치는 그대로 꺼진 채 간다.
+      // §5.5 #17-28 ⑩ (c) — 우리가 쏘는 `/compact`·`/clear` 턴에는 슬래시 차단 플래그 하나만 뺀다 — 그 플래그는 CLI 내장 명령 등록까지 막아
+      //   자동 압축이 꺼진다(실측: 322k 세션 24시간 `compact_boundary` 0건, 발사 2회 모두 거절).
+      //   폭은 이 한 턴이다(헤드리스는 `--resume` 도 매 턴 새 프로세스). 그 턴은 명령 한 줄뿐이라 사용자 스킬이 낄 자리가 없다.
       const spawnArgs = isInternalSlashCommand(next.text)
         ? withoutSlashCommandFlag(spawnSwitches.args)
         : spawnSwitches.args;
-      // §5.5 #17-28 ⑧(b) — 카드 curl 이 쓸 주소·토큰을 **환경변수로** 자식에게 넘긴다. 종전에는 이
-      //   두 값을 프롬프트 안 bash 프렐류드(596 토큰 × 8벌)가 매번 파일에서 읽어 왔다. 환경은 자식이
-      //   뜰 때 정해지므로 `--resume` 재스폰마다 최신값이고, 프롬프트에는 한 글자도 실리지 않는다.
+      // §5.5 #17-28 ⑧(b) — 카드 curl 이 쓸 주소·토큰을 환경변수로 자식에게 넘긴다(프롬프트에 안 실린다).
+      //   환경은 자식이 뜰 때 정해지므로 `--resume` 재스폰마다 최신값이다.
       const cardEnv: Record<string, string> = {
         [AGENT_CARD_ENV_BASE]: `http://127.0.0.1:${hookListenerPort ?? port}`,
         [AGENT_CARD_ENV_TOKEN]: hookListenerToken ?? '',
@@ -3875,15 +3702,10 @@ export async function runServer(): Promise<RunServerHandle> {
     if (dispatched) broadcastSnapshot();
   }
 
-  // ─── §5.5 #17-11 v3.79 — 세션 반복 실행(루프) 런타임 ───
-  //
-  // 한 회차 = `POST /api/commands/:sessionId` 와 **똑같은 모양의 QueuedCommand** 를 그 세션 큐에
-  // 넣는 것뿐이다. 새 실행 레일을 만들지 않으므로 dispatch·스트림·중지·아카이브·과금이 사용자가
-  // 직접 보낸 명령과 완전히 같은 길을 탄다.
-  //
-  // 자기 증식 방지(§5.10 v3.76 리플렉션 순환의 교훈): ① 회차는 **직렬** — 그 세션에 queued/executing
-  // 명령이 하나라도 있으면 새 회차를 쏘지 않는다, ② 다음 회차는 직전 회차의 `pendingCommandId` 가
-  // 완료로 확인될 때만 예약된다, ③ [중지] 계열은 루프 자체를 끈다(아래 stop 라우트).
+  // §5.5 #17-11 — 세션 반복 실행(루프) 런타임. 한 회차 = `POST /api/commands/:sessionId` 와 같은 모양의 QueuedCommand 를 그 세션 큐에 넣는 것뿐이다
+  // (dispatch·스트림·중지·아카이브·과금이 직접 보낸 명령과 같은 길).
+  // 자기 증식 방지: ① 회차는 직렬 — queued/executing 명령이 하나라도 있으면 쏘지 않는다 ② 다음 회차는 직전 `pendingCommandId` 완료 확인 뒤에만 예약
+  // ③ [중지] 계열은 루프 자체를 끈다(아래 stop 라우트).
   const sessionLoopTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   /**
@@ -4051,12 +3873,9 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §5.5 #17-11 ⑪·⑫(b) — 회차 사이 컨텍스트 정리 1건 발사(`contextMode ≠ 'none'` 인 루프만).
-   *
-   * 정리도 **회차와 같은 명령 큐**에 얹는 `QueuedCommand` 한 건일 뿐이다(새 레일 ❌) — 사용자가
-   * 입력창에 `/compact`(요약 유지) 또는 `/clear`(완전 초기화)를 치는 것과 완전히 같은 길.
-   * 이 명령이 끝나야 다음 회차를 예약하므로 대조용 id 를 남긴다. 큐에 넣었으면 true
-   * (넣지 못했으면 호출자가 곧바로 다음 회차를 예약한다).
+   * §5.5 #17-11 ⑪·⑫(b) — 회차 사이 컨텍스트 정리 1건 발사(`contextMode ≠ 'none'` 인 루프만). 회차와 같은 큐에 얹는 `QueuedCommand` 한 건이다
+   * — 입력창에 `/compact`(요약 유지)·`/clear`(완전 초기화)를 치는 것과 같은 길.
+   * 이 명령이 끝나야 다음 회차를 예약하므로 대조용 id 를 남긴다. 큐에 넣었으면 true(못 넣으면 호출자가 곧바로 다음 회차를 예약한다).
    */
   function fireSessionLoopContextReset(subAgentId: string): boolean {
     const loop = graphManager.getSessionLoop(subAgentId);
@@ -4100,39 +3919,25 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §4 (CLI 사양 추종) — **에이전트가 스스로 요청한 압축**의 대기표.
-   *
-   * `POST /api/agent-compact` 는 턴이 도는 **도중에** 들어온다(에이전트가 일하다 부른다). 그때는
-   * 그 세션에 실행 중 명령이 있어 압축을 겹쳐 쏠 수 없으므로, 여기 적어 두었다가 그 턴이 끝나는
-   * 자리에서 `maybeCompactAfterTurn` 이 소비한다. 여러 번 불러도 Set 이라 한 번만 돈다.
-   * 런타임 전용(재시작하면 사라짐) — 못 돈 요청은 다음 턴에 에이전트가 다시 부르면 그만이다.
+   * §4 — 에이전트가 스스로 요청한 압축의 대기표. `POST /api/agent-compact` 는 턴 도중에 들어와 겹쳐 쏠 수 없으므로,
+   * 적어 두었다가 그 턴이 끝나는 자리에서 `maybeCompactAfterTurn` 이 소비한다(Set 이라 여러 번 불러도 한 번만).
+   * 런타임 전용 — 재시작으로 잃으면 에이전트가 다음 턴에 다시 부르면 된다.
    */
   const compactRequestedSubs = new Set<string>();
 
   /**
-   * §5.3 #9-1 (P) — **접기로 정해졌으나 아직 안 접은 세션**(subAgentId).
-   *
-   * 종전에는 턴이 끝나는 자리에서 판정과 실행이 한 몸이었다 — 참이면 그 자리에서 `/compact` 를
-   * 큐에 얹었다. 그 자리는 **사용자가 결과를 받아 든 다음**이라, 아무도 기다리지 않는 시간에
-   * 화면이 혼자 2~3분 더 도는 것으로 보였다(압축 1회 실측 평균 150초 정지).
-   *
-   * 이제 판정은 그대로 턴 경계에서 하되 결과를 여기 적어 두기만 하고, 실제 압축은 그 세션에
-   * **다음 명령이 나가기 직전**에 `injectSilentPreCompact` 가 조용히 끼워 넣는다. 그 명령은 어차피
-   * 사용자가 기다리는 턴이라, 압축은 그 대기 안으로 숨고 화면에는 "생각 중"만 보인다.
-   *
-   * 런타임 전용(영속 ❌ · 새 필드 ❌) — 재시작하면 사라지지만 컨텍스트 축은 다음 턴 끝에 같은
-   * 판정이 다시 나오고, 턴 예산 축도 카운터와 함께 0부터 다시 센다. 잃어도 대화는 그대로다.
+   * §5.3 #9-1 (P) — 접기로 정해졌으나 아직 안 접은 세션(subAgentId). 판정은 턴 경계에서 하고 여기 적어 두기만 한다 —
+   * 실제 압축은 그 세션의 다음 명령이 나가기 직전 `injectSilentPreCompact` 가 조용히 끼운다(사용자가 기다리는 턴 안으로 숨는다).
+   * 턴 끝에서 바로 `/compact` 를 큐에 얹지 마라 — 결과를 받은 뒤 아무도 기다리지 않는 시간에 화면이 혼자 2~3분 돈다(실측 압축 1회 평균 150초).
+   * 런타임 전용(영속 ❌) — 잃어도 다음 턴 끝에 같은 판정이 다시 나오고 턴 예산 카운터도 0부터 센다.
    */
   const pendingPreCompact = new Set<string>();
 
   /**
-   * §4 (CLI 사양 추종) — 이 세션의 컨텍스트가 **지금 몇 토큰 차 있는가**(창 크기와 함께).
-   *
-   * 화면 게이지(IDEStatusBar)가 보는 값과 **같은 출처**를 쓴다 — 판정과 표시가 어긋나면
-   * "400k 라고 적혀 있는데 왜 안 접히지"를 아무도 설명할 수 없다.
-   *  - claude CLI 세션 — 세션 JSONL 의 마지막 assistant 엔트리(증분 캐시라 매 턴 읽어도 싸다).
-   *  - 로컬 모델(§5.19) — JSONL 이 없다. 엔진이 왕복마다 실어 준 값이 `AgentConfig.provider` 에 있다.
-   * 둘 다 없으면 `null` — **모르면 쏘지 않는다**(모르는 채로 쏘면 종전의 매 턴 압축이다).
+   * §4 — 이 세션 컨텍스트가 지금 몇 토큰 찼는가(창 크기와 함께). 화면 게이지(IDEStatusBar)와 같은 출처를 쓴다 — 판정과 표시가 어긋나지 않게.
+   *  - claude CLI — 세션 JSONL 의 마지막 assistant 엔트리(증분 캐시라 매 턴 읽어도 싸다).
+   *  - 로컬 모델(§5.19) — JSONL 이 없다. 엔진이 왕복마다 실은 값이 `AgentConfig.provider` 에 있다.
+   * 둘 다 없으면 `null` — 모르면 쏘지 않는다(모르는 채 쏘면 매 턴 압축이 된다).
    */
   function readTurnEndContext(sub: { id: string; sessionId?: string }, config?: AgentConfig): { used: number; max?: number; floor?: number } | null {
     const local = config?.provider;
@@ -4154,31 +3959,11 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §4 (CLI 사양 추종) — 턴이 끝났다. 압축을 걸어야 하면 **다음 명령 앞에 접으라고 적어 둔다.**
-   *
-   * §5.3 #9-1 (P) — 여기서 큐에 얹지 않는 것이 핵심이다. 판정만 하고 `pendingPreCompact` 에
-   * 표식을 남기면, 그 세션에 다음 명령이 나가기 직전에 `injectSilentPreCompact` 가 조용한
-   * `/compact` 를 그 앞에 끼운다. 사용자 눈에는 자기가 방금 넣은 명령이 진행 중일 뿐이다.
-   *
-   * **켜고 끄는 스위치가 없다.** 사용자가 고르는 숫자는 자동 압축 값 하나뿐이고, 접는 자리는 언제나
-   * 턴 경계다 — 창 크기와 턴 경계 체크박스가 같은 일을 하며 헷갈리게 하던 것을 하나로 합쳤다.
-   * 발동 조건 둘은 `shouldCompactAfterTurn`(shared) 한 곳이 판정한다:
-   *  - 에이전트가 이번 턴에 요청(`agentCanCompact`) — **무조건** 쏜다. 판단을 맡긴 축이라 되묻지 않는다.
-   *  - 발동선 도달 — 자동 압축 값의 80%(`turnCompactTriggerTokens`)를 넘긴 채 턴이 끝났을 때.
-   *    2026-10-05 부터 그 창은 스폰에 실리지 않는다 — 작업 도중에는 CLI 가 모델 창 끝에서만 접고, 고른
-   *    창은 여기(명령 사이 압축)에만 쓴다(사용자 지시). 80% 는 CLI 가 같은 창으로 돌던 때 생긴 비율이고
-   *    명령 사이 압축 자리를 바꾸지 않으려고 그대로 둔다.
-   *
-   * 새 실행 레일이 아니라 §5.5 #17-11 ⑪ 이 쓰는 그 명령 큐다(사용자가 입력창에 치는 것과 같은 길).
-   *
-   * 안 적는 자리를 분명히 한다:
-   *  - 방금 끝난 것이 **압축 자신**이면 ❌ — 압축이 압축을 부르는 무한 고리가 된다.
-   *  - 그 세션에 **루프가 `contextMode` 로 이미 압축을 담당**하면 ❌ — 회차 경계에서 두 번 돈다.
-   *  - 컨텍스트를 **못 재면** ❌ — 아래 `readTurnEndContext` 참고(모르면 쏘지 않는다).
-   *
-   * ⚠ 종전에 있던 "큐에 안 끝난 명령이 있으면 ❌"는 **없앴다.** 그 가드는 "지금 큐에 얹으면 겹쳐
-   * 쏜다"를 막던 것인데, 이제 얹는 것이 아니라 적어 두는 것이라 겹칠 자리가 없다. 오히려 그때가
-   * 적어 둬야 할 자리다 — 기다리는 명령이 이미 있다는 것은 곧 **압축이 숨을 대기가 있다**는 뜻이다.
+   * §4 — 턴이 끝났다. 압축을 걸어야 하면 큐에 얹지 않고 `pendingPreCompact` 에 적어만 둔다 — 다음 명령 직전 `injectSilentPreCompact` 가 조용한 `/compact` 를 끼운다(§5.3 #9-1 (P)).
+   * 켜고 끄는 스위치는 없다 — 고르는 숫자는 자동 압축 값 하나, 접는 자리는 언제나 턴 경계. 발동 조건은 `shouldCompactAfterTurn`(shared) 한 곳: 에이전트가 이번 턴에 요청(`agentCanCompact`)했거나
+   * 자동 압축 값의 80%(`turnCompactTriggerTokens`)를 넘긴 채 끝남. 그 창은 스폰에 싣지 않는다(작업 도중엔 CLI 가 모델 창 끝에서만 접는다). 80% 는 명령 사이 압축 자리를 바꾸지 않으려 둔 비율.
+   * 안 적는 자리: 방금 끝난 것이 압축 자신(무한 고리) · 루프가 `contextMode` 로 압축을 맡음(회차 경계에서 두 번 돈다) · 컨텍스트를 못 잼.
+   * 큐에 안 끝난 명령이 있어도 적는다 — 기다리는 명령이 곧 압축이 숨을 대기다.
    */
   function maybeCompactAfterTurn(cmd: QueuedCommand, sessionId: string): boolean {
     const subAgentId = cmd.subAgentId;
@@ -4232,26 +4017,17 @@ export async function runServer(): Promise<RunServerHandle> {
     //   않는다 — 되돌리면 거절당한 세션이 매 턴 압축을 재예약해 그 자체가 토큰 폭식이 된다.
     turnsSinceCompact.set(subAgentId, 0);
     logger.info(`[turn-compact] pending ${AGENT_COMPACT_COMMAND} before next command sub=${subAgentId} by=${requested ? 'agent' : 'config'}${ctx ? ` used=${ctx.used}` : ''}`);
-    // ⚠ `markCompactSent`(§5.26 (F)(b))는 여기서 찍지 않는다 — 아직 **보내지 않았다.** 여기서
-    //   찍으면 "보냈는데 `PreCompact` 가 안 온다"를 재는 그 축이, 사용자가 다음 명령을 넣기
-    //   전까지의 조용한 시간을 전부 거절로 읽는다(늑대소년). 찍는 자리는 실제로 끼우는 순간이다.
-    //
-    // 큐를 두드리지도 않는다 — 지금 새로 나갈 것이 없고, 기다리던 명령이 있었다면 그것은 이 턴이
-    //   끝나는 기존 경로가 이어서 두드린다. 그 두드림이 아래 `injectSilentPreCompact` 를 지난다.
+    // `markCompactSent`(§5.26 (F)(b))는 여기서 찍지 않는다 — 아직 안 보냈다. 찍으면 다음 명령 전까지의 조용한 시간을 전부
+    //   "보냈는데 `PreCompact` 가 안 온다"(거절)로 읽는다. 찍는 자리는 실제로 끼우는 순간이다.
+    // 큐도 두드리지 않는다 — 기다리던 명령은 이 턴이 끝나는 기존 경로가 두드리고, 그 길이 `injectSilentPreCompact` 를 지난다.
     return true;
   }
 
   /**
-   * §5.3 #9-1 (P) — **다음 명령이 나가기 직전, 그 앞에 조용한 `/compact` 를 끼운다.**
-   *
-   * `processNextCommand` 가 큐 스냅샷을 뜨기 **전에** 돈다(뜬 뒤에 넣으면 끼운 명령이 그 스냅샷에
-   * 없어 이번 라운드에 안 나가고, 사용자 명령이 먼저 실려 압축이 뒤로 밀린다).
-   *
-   * 끼우지 않는 자리:
-   *  - 그 sub 가 **이미 돌고 있으면** ❌ — 지금 나갈 자리가 아니다. 그 턴이 끝나면 다시 여기를 지난다.
-   *  - 앞에 설 명령이 **우리 내부 슬래시 명령**이면 ❌ — 압축 앞의 압축·`/clear` 앞의 압축은 낭비다.
-   *  - 그 sub 에 **기다리는 명령이 하나도 없으면** ❌ — 끼울 앞자리가 없다. 표식은 그대로 남아
-   *    다음 명령을 기다린다(사용자가 오늘 더 안 쓰면 압축도 안 돈다 — 그것이 이 축의 의도다).
+   * §5.3 #9-1 (P) — 다음 명령이 나가기 직전 그 앞에 조용한 `/compact` 를 끼운다.
+   * `processNextCommand` 가 큐 스냅샷을 뜨기 전에 돌아야 한다 — 뒤에 넣으면 이번 라운드에 안 나가고 사용자 명령이 먼저 실린다.
+   * 끼우지 않는 자리: sub 가 이미 도는 중(그 턴이 끝나면 다시 지난다) · 앞에 설 명령이 내부 슬래시 명령(압축 앞 압축은 낭비) ·
+   * 기다리는 명령이 없음(표식은 남아 다음 명령을 기다린다 — 더 안 쓰면 압축도 안 돈다).
    */
   function injectSilentPreCompact(queue: QueuedCommand[], sessionId: string): void {
     if (pendingPreCompact.size === 0) return;
@@ -4267,11 +4043,8 @@ export async function runServer(): Promise<RunServerHandle> {
         timestamp: Date.now(),
         subAgentId: slot.subAgentId,
         status: 'queued',
-        // §5.5 #17-18 v4.68 — **자기 턴으로 나간다.** 기본값(합치기)로 두면 `absorbMergeFollowUps`
-        //   가 이 압축을 base 로 삼아 **뒤에 선 사용자 명령을 자기 텍스트에 흡수하고 큐에서 지운다.**
-        //   그러면 CLI 에는 `/compact` 로 시작하는 한 덩어리가 나가고, CLI 는 맨 앞의 슬래시 명령만
-        //   읽고 끝내므로 **그 턴의 사용자 지시가 통째로 사라진다**(실측: 화면에 압축 거절 한 줄만
-        //   남고 자기가 친 말은 없어졌다). `followUpMerge` 쪽에도 같은 가드가 있다 — 둘 다 둔다.
+        // §5.5 #17-18 — 자기 턴(`wait`)으로 나간다. 합치기면 `absorbMergeFollowUps` 가 이 압축을 base 로 뒤에 선 사용자 명령을 흡수하고 큐에서 지워,
+        //   CLI 가 맨 앞 `/compact` 만 읽고 그 턴의 사용자 명령이 통째로 사라진다. `followUpMerge` 쪽에도 같은 가드가 있다 — 둘 다 둔다.
         dispatchMode: 'wait',
         // §5.3 #9-1 (P) — 화면에는 그리지 않는다. 실행 경로는 다른 명령과 완전히 같다.
         silent: true,
@@ -4346,9 +4119,7 @@ export async function runServer(): Promise<RunServerHandle> {
    * `pendingCommandId` 가 일치하는 회차만 인정 — 사용자가 중간에 직접 보낸 명령이 회차로
    * 오인 계수되지 않는다.
    */
-  // ─── §5.5 #17-35 — 검증(Verify) ───
-  //
-  // 기존 세션 큐가 양 엔진을 실행하고, 새 검수는 앱 소유 도구의 실제 조작·검사·PNG 기록으로 판정한다.
+  // §5.5 #17-35 — 검증(Verify). 기존 세션 큐가 양 엔진을 실행하고, 검수는 앱 소유 도구의 실제 조작·검사·PNG 기록으로 판정한다.
   // 대상 없는 구형 이력은 아래 완료 경로에서 기존 판정 파서로 읽는다.
 
   /**
@@ -4409,15 +4180,9 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * 시연의 프레임을 **있는 자리 그대로** 가리킨다(⑨-4) — 경로 + 클립 안 시각.
-   *
-   * 종전엔 검증할 때마다 첨부 폴더로 사본을 떴다. 그때는 완료 시 첨부 파일을 지웠기 때문에(v1.35/
-   * v1.38) 원본을 보호할 유일한 방법이 사본이었다. 그러나 v2.61 이후 첨부는 **지워지지 않고**,
-   * 프레임 경로는 이제 첨부 레일이 아니라 프롬프트 본문으로 나간다 — 사본을 쓸 곳이 하나도 없다.
-   * 그대로 두면 검증 한 번마다 못 쓰는 그림 N 장이 순수하게 쌓인다(§9).
-   *
-   * 원본은 시연 레코드와 수명이 같다(`removeDemoFrames` 가 유일한 회수 지점). 두 번째 검증에도
-   * 같은 파일이 그 자리에 있으므로 사본이 지키려던 것이 저절로 지켜진다.
+   * 시연의 프레임을 있는 자리 그대로 가리킨다(⑨-4) — 경로 + 클립 안 시각.
+   * 사본을 뜨지 않는다 — 첨부는 지워지지 않고 프레임 경로는 프롬프트 본문으로 나가므로, 사본은 검증마다 못 쓰는 그림만 쌓는다(§9).
+   * 원본은 시연 레코드와 수명이 같다(`removeDemoFrames` 가 유일한 회수 지점).
    * 실제로 없는 파일이 하나라도 있으면 시작을 거절한다 — 원래 시연을 줄인 채 판정하면 안 된다.
    */
   function demoFrameRefsForCommand(demo: VerificationDemo): ReturnType<typeof resolveVerificationDemoFrames> {
@@ -4580,6 +4345,40 @@ export async function runServer(): Promise<RunServerHandle> {
     );
   }
 
+  /**
+   * §4 API 크레딧 — 한도로 멈춘 헤드리스 명령을 다른 결제 경로로 한 번 잇는다(설정 `autoContinue`, 기본 켬).
+   * - 구독 한도로 멈췄고(§5.5 #17-47 표식이 이 명령 시작 뒤) 지금 판정이 크레딧 → 크레딧으로. 크레딧 실행이 거절됐고(`creditCap` — 잔액 부족·월 지출 한도) 구독이 살아 있음 → 구독으로.
+   * 원래 명령은 다시 보내지 않고 이어가기 지시(`API_CREDIT_CONTINUE_PROMPT`)만 같은 세션에 넣는다. 이어가기가 다시 멈추면 또 잇지 않는다(`autoContinueOf`).
+   * 사용자가 끊은 턴·다른 엔진은 잇지 않고, 그 탭에 기다리거나 도는 명령이 있으면 넣지 않는다(직렬 보장).
+   */
+  function maybeAutoContinueOnQuota(cmd: QueuedCommand, queue: QueuedCommand[]): boolean {
+    if (!cmd.subAgentId || cmd.autoContinueOf || cmd.silent) return false;
+    const settings = apiCreditService.settings();
+    if (!settings.enabled || !settings.autoContinue) return false;
+    if (typeof cmd.result === 'string' && cmd.result.startsWith('[Stopped by user]')) return false;
+    const sub = subAgentManager.getSub(cmd.subAgentId);
+    if (!sub) return false;
+    if (graphManager.getAgentConfig(sub.parentAgentId)?.provider) return false; // 코덱스·로컬은 이 축 밖
+    const startedAt = cmd.startedAt ?? cmd.timestamp;
+    const bySubscription = cmd.billingRoute !== 'credits' && !!sub.usageLimit && sub.usageLimit.at >= startedAt;
+    const byCredits = cmd.billingRoute === 'credits' && cmd.error?.code === 'creditCap';
+    if (!bySubscription && !byCredits) return false;
+    const next = apiCreditService.decide();
+    if (bySubscription && next.route !== 'credits') return false;
+    if (byCredits && (next.route !== 'subscription' || apiCreditService.subscriptionState().exhausted)) return false;
+    if (queue.some((c) => c.subAgentId === cmd.subAgentId && (c.status === 'queued' || c.status === 'executing'))) return false;
+    queue.push({
+      id: `cmd-${Date.now()}-autocontinue`,
+      text: API_CREDIT_CONTINUE_PROMPT,
+      timestamp: Date.now(),
+      subAgentId: cmd.subAgentId,
+      status: 'queued',
+      autoContinueOf: cmd.id,
+    });
+    logger.info(`[api-credit] auto-continue sub=${cmd.subAgentId} after cmd=${cmd.id} (${bySubscription ? 'subscription limit → credits' : 'credit cap → subscription'})`);
+    return true;
+  }
+
   function advanceSessionLoop(cmd: QueuedCommand): void {
     if (!cmd.subAgentId) return;
     const subAgentId = cmd.subAgentId;
@@ -4708,18 +4507,11 @@ export async function runServer(): Promise<RunServerHandle> {
     return fired;
   }
 
-  // §9 — graph_snapshot 16ms trailing 디바운스. 커스텀 에이전트 다중 실행 시 매 mutation
-  // (setOnMutated)마다 풀 getSnapshot()+broadcast 하던 것을 16ms 창 1회로 합친다.
-  // 30+ 호출 사이트는 그대로 — 본체만 큐잉. flush 시점에 getSnapshot()을 읽으므로
-  // 창 안의 모든 변경이 최신 상태로 반영(스케줄 시점 캡처 ❌ → 누락 0).
-  // 인라인 직송 broadcast({type:'graph_snapshot'...}) 13곳은 즉시 송신이지만, trailing 이
-  // 그 뒤에 떠도 최신 상태를 다시 읽어 보내므로 stale 덮어쓰기 없음.
-  // §9 v3.40 — 부하 적응형 배치 창. getSnapshot()+IPC 직렬화는 Electron 메인 스레드에서 돌므로,
-  // 전수조사급 다중 세션에서 flush 비용이 16ms 를 넘기면 다음 창을 비용 비례로 늘려(상한 250ms)
-  // 스냅샷 파이프라인이 입력 스레드를 독점하지 못하게 한다. 경부하에선 항상 16ms 로 복귀.
-  // [perf-snapshot] 계측 — VIBISUAL_PERF=1 일 때만. 서버는 Electron 메인 프로세스에서 돌므로
-  // getSnapshot()+직렬화 비용이 그대로 창 입력 스레드를 잡는다. 전수조사 다중 세션에서 이 값이
-  // 프레임 예산(16ms)을 잡아먹는지 확인하기 위한 임시 계측(델타/utilityProcess 착수 전 범인 확정용).
+  // §9 — graph_snapshot 16ms trailing 디바운스: mutation(setOnMutated)마다의 getSnapshot()+broadcast 를 창 1회로 합친다.
+  // flush 시점에 getSnapshot() 을 읽어야 한다 — 스케줄 시점에 캡처하면 창 안의 변경이 빠진다.
+  // 인라인 직송 broadcast 는 즉시 나가지만 trailing 이 뒤에 최신 상태를 다시 보내므로 stale 덮어쓰기가 없다.
+  // 부하 적응형 창 — getSnapshot()+IPC 직렬화는 Electron 메인 스레드에서 돌아, flush 비용이 16ms 를 넘으면 다음 창을 비용 비례로 늘린다(상한 250ms, 경부하면 16ms 로 복귀).
+  // [perf-snapshot] 계측은 VIBISUAL_PERF=1 일 때만.
   const PERF_SNAPSHOT = process.env.VIBISUAL_PERF === '1';
   const snapshotBroadcast = createSnapshotBroadcastScheduler({
     minDelayMs: WS_BATCH_INTERVAL,
@@ -4730,12 +4522,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 (첫 실행 온보딩) ③ — "고른 프로젝트 폴더가 없다" 로 생성 요청을 돌려보낸다.
-   *
-   * **화면에서만 막으면 절반만 사실이 된다** — 캔버스 우클릭 말고도 이 REST 로 들어오는 길이
-   * 있고(모바일 웹·원격조작·바깥 도구), 그 길로 들어오면 종전처럼 임시로 지어낸 작업 폴더에
-   * 매인 유령 버블이 다시 생긴다. 코드는 shared 한 곳(`NO_PROJECT_FOLDER_ERROR`)에서 오고,
-   * 클라 생성 손잡이는 그 코드를 보고 폴더 선택 게이트를 연다.
+   * §4 (첫 실행 온보딩) ③ — "고른 프로젝트 폴더가 없다"로 생성 요청을 돌려보낸다.
+   * 서버에서도 막아야 한다 — 이 REST 는 모바일 웹·원격조작·바깥 도구로도 들어와, 화면만 막으면 임시 작업 폴더에 매인 유령 버블이 생긴다.
+   * 코드는 shared `NO_PROJECT_FOLDER_ERROR` 한 곳이고, 클라 생성 손잡이는 그 코드를 보고 폴더 선택 게이트를 연다.
    */
   function respondNoProjectFolder(res: express.Response, where: string): void {
     logger.info(`${where}: 열린 프로젝트 폴더가 없어 생성을 거절 — 폴더 선택으로 유도`);
@@ -4765,7 +4554,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   }
 
-  // §5.3 #10-2 v2.37 — Auto Agent 런타임. 사용자 메시지 → 서브 군 자동 생성·dispatch.
+  // §5.3 #10-2 — Auto Agent 런타임. 사용자 메시지 → 서브 군 자동 생성·dispatch.
   // enqueueCommand 는 기존 `commandQueues` Map 에 push + processNextCommand 즉시 발사.
   const autoAgentRuntime = new AutoAgentRuntime({
     graphManager,
@@ -4807,8 +4596,8 @@ export async function runServer(): Promise<RunServerHandle> {
     },
     broadcastSnapshot,
     saveCheckpoint: () => saveCheckpoint(),
-    // §5.3 #10-2 v2.45 — 빌더가 curl 로 닿을 loopback 베이스. buildOutboundEdgesRulesSection 과 동일 근거
-    // (외부 claude 프로세스는 hook 리스너 동적 포트로만 in-process 서버에 닿음).
+    // §5.3 #10-2 — 빌더가 curl 로 닿을 loopback 베이스. buildOutboundEdgesRulesSection 과 같은 근거
+    // (외부 claude 프로세스는 hook 리스너 동적 포트로만 in-process 서버에 닿는다).
     getServerBase: () => `http://127.0.0.1:${hookListenerPort ?? port}`,
     getServerToken: () => hookListenerToken ?? '',
     broadcastAutoAgentProgress: (autoAgentId, summary) => {
@@ -4850,10 +4639,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * v1.35 — 에이전트 프롬프트 이미지 paste 업로드.
-   * sessionId 는 URL param (multer 가 body 를 이미지 다음에 파싱하므로 body 에 두면 destination 콜백에서 못 읽음).
-   * 저장 위치: `<agentCwd>/.vibisual/attachments/<sessionId>/<uuid>.<ext>` 절대경로.
-   * 응답의 `path` 를 클라이언트가 `QueuedCommand.attachments[]` 로 보내면 dispatch 시 프롬프트에 주입되고 완료 후 cleanup.
+   * 에이전트 프롬프트 이미지 paste 업로드. sessionId 는 URL param 이다 — multer 가 body 를 이미지 다음에 파싱해 body 에 두면 destination 콜백에서 못 읽는다.
+   * 저장: `<agentCwd>/.vibisual/attachments/<sessionId>/<uuid>.<ext>` 절대경로. 응답의 `path` 를 `QueuedCommand.attachments[]` 로 보내면 dispatch 때 프롬프트에 주입된다.
    */
   const attachmentsUpload = multer({
     storage: multer.diskStorage({
@@ -4905,7 +4692,7 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * v1.35 — 업로드 취소/대기 중 삭제.
+   * 업로드 취소/대기 중 삭제.
    * 제출 전 사용자가 썸네일을 제거하거나 팝업을 닫을 때 호출.
    * 제출 응답을 잃으면 복원된 초안에서도 호출될 수 있다. 큐/완료 기록의 첨부는 보존한다.
    */
@@ -4950,11 +4737,11 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true });
   });
 
-  /** GET /api/agent-attachments/:sessionId/file?rel=<subId/uuid.ext | uuid.ext> — v2.93
-   *  제출 후에도 디스크에 보존된 첨부 이미지를 서빙(영구 폴백). 클라 썸네일은 원래 제출 시점
-   *  메모리 blob URL 에만 의존해 detach 별창·새로고침·재시작·부팅복원에서 소실됐다 → 이 라우트로
-   *  파일을 직접 받아 현재 document 에서 blob 재생성. 경로 검증: 해당 세션 attachments 디렉토리
-   *  내부 파일만 허용(트래버설 차단). IPC 트랜스포트가 비텍스트 응답을 base64 로 무손실 전달. */
+  /**
+   * GET /api/agent-attachments/:sessionId/file?rel=<subId/uuid.ext | uuid.ext> — 디스크에 보존된 첨부 이미지를 서빙한다.
+   *  메모리 blob URL 은 별창·새로고침·재시작에서 사라지므로 클라가 이 파일로 현재 document 에서 blob 을 다시 만든다.
+   *  그 세션 attachments 디렉토리 안 파일만 허용(트래버설 차단). IPC 트랜스포트는 비텍스트 응답을 base64 로 무손실 전달한다.
+   */
   app.get('/api/agent-attachments/:sessionId/file', (req, res) => {
     const { sessionId } = req.params;
     const rel = typeof req.query.rel === 'string' ? req.query.rel : '';
@@ -5007,10 +4794,12 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** POST /api/commands/:sessionId — 명령 추가.
+  /**
+   * POST /api/commands/:sessionId — 명령 추가.
    *  두 경로 수용: (1) JSON `{ text, subAgentId?, attachments?, dispatchMode? }`,
-   *  (2) raw text/plain 본문 — 하네스 빌더(§5.3 #10-2 v2.45) 가 엔트리 노드를 escape-free 로 kickoff.
-   *  §5.5 #17-18 v4.68 — `dispatchMode` 미지정/알 수 없는 값이면 기본(합치기)으로 떨어진다. */
+   *  (2) raw text/plain 본문 — 하네스 빌더(§5.3 #10-2)가 엔트리 노드를 escape-free 로 kickoff.
+   *  §5.5 #17-18 — `dispatchMode` 미지정/알 수 없는 값이면 기본(합치기)으로 떨어진다.
+   */
   app.post('/api/commands/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     let text: string | undefined;
@@ -5115,10 +4904,9 @@ export async function runServer(): Promise<RunServerHandle> {
     let resolvedSubId = subAgentId ?? null;
     if (!resolvedSubId && agentId) {
       if (agentBubble?.customCreated) {
-        // v1.77 (Direction A) — 커스텀 에이전트 = 하나의 안정 대화. 명령마다 새 sub 를
-        // 만들면 sub.sessionId 가 매번 비어 새 Claude 세션이 생기고(연속성 상실) 그게
-        // 또 새 훅 버블로 증식한다. 정규 sub(대화 성립된 것 우선) 하나만 계속 재사용.
-        // 진행 중이면 processNextCommand 의 busy 가드가 자동 큐잉(동시 dispatch 방지).
+        // 커스텀 에이전트 = 하나의 안정 대화: 정규 sub(대화 성립된 것 우선) 하나만 재사용한다.
+        // 명령마다 새 sub 를 만들면 새 Claude 세션이 생겨 연속성을 잃고 새 훅 버블로 증식한다.
+        // 진행 중이면 processNextCommand 의 busy 가드가 큐잉한다(동시 dispatch 방지).
         const primary = subAgentManager.getPrimarySub(agentId);
         resolvedSubId = (primary ?? subAgentManager.create(agentId)).id;
       } else {
@@ -5133,10 +4921,8 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     }
 
-    // v1.35 — attachments 경로 검증: 해당 세션의 attachments 디렉토리 내부인 것만 허용.
-    // 위조된 경로로 CLI 에게 임의 파일 경로 주입 방지.
-    // v1.38 — 제출 확정 시 <agentPath>/<subId>/<uuid>.<ext> 로 이동하여 서브세션별 격리.
-    //         이동 실패(권한/크로스 디바이스)시 원본 경로 유지.
+    // attachments 경로 검증: 그 세션 attachments 디렉토리 안만 허용(위조 경로로 CLI 에 임의 파일을 넣지 못하게).
+    // 제출 확정 시 <agentPath>/<subId>/<uuid>.<ext> 로 옮겨 서브세션별로 격리한다. 이동 실패(권한/크로스 디바이스)면 원본 경로 유지.
     let resolvedAttachments: string[] | undefined;
     if (Array.isArray(attachments) && attachments.length > 0) {
       const cwd = graphManager.getAgentCwd(sessionId);
@@ -5191,11 +4977,9 @@ export async function runServer(): Promise<RunServerHandle> {
     let queue = commandQueues.get(sessionId);
     if (!queue) { queue = []; commandQueues.set(sessionId, queue); }
     /*
-     * §5.3 #9 (판올림 번호 발급 대기) — **대기열 상한은 loopback 유입에만 건다.**
-     *   에이전트는 이 창구로 **자기 세션에** 명령을 넣을 수 있고 Stop 훅이 그것을 꺼내 다시 띄우므로,
-     *   상한이 없으면 "끝나면 나를 다시 불러라"가 끊기지 않는 고리가 된다. 사용자가 손으로 쌓는
-     *   명령(렌더러 IPC)은 실측 한 자릿수라 여기서 막지 않는다 — 사람이 스스로 멈출 수 있는 축에
-     *   상한을 걸면 그저 불편해질 뿐이다.
+     * §5.3 #9 — 대기열 상한은 loopback 유입에만 건다. 에이전트가 자기 세션에 명령을 넣으면 Stop 훅이 꺼내 다시 띄우므로,
+     *   상한이 없으면 "끝나면 나를 다시 불러라"가 끊기지 않는 고리가 된다.
+     *   손으로 쌓는 명령(렌더러 IPC)은 막지 않는다 — 실측 한 자릿수이고 사람이 스스로 멈출 수 있다.
      */
     if (req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE
       && queue.filter((c) => c.status === 'queued').length >= COMMAND_QUEUE_MAX_PER_SESSION) {
@@ -5213,7 +4997,7 @@ export async function runServer(): Promise<RunServerHandle> {
       subAgentId: resolvedSubId,
       status: 'queued' as const,
       ...(resolvedAttachments ? { attachments: resolvedAttachments } : {}),
-      // §5.5 #17-18 v4.68 — 항상 명시 저장. 화면의 [대기|합치기|즉시] 칩이 이 값을 그대로 그린다.
+      // §5.5 #17-18 — 항상 명시 저장. 화면의 [대기|합치기|즉시] 칩이 이 값을 그대로 그린다.
       dispatchMode,
       // §5.13 (R-10) — 제작 앱의 '빠른 초안 / 정교하게'가 실은 명령 한 건의 상한(실행할 때 엔진이 지원하면 건다).
       ...(runLimits ? { runLimits } : {}),
@@ -5271,11 +5055,10 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     }
     queue.push(cmd);
-    // §5.5 #17-18 v4.68 — '즉시'면 도는 턴을 먼저 끊는다. 끊긴 뒤 close 핸들러 → setOnComplete 가
+    // §5.5 #17-18 — '즉시'면 도는 턴을 먼저 끊는다. 끊긴 뒤 close 핸들러 → setOnComplete 가
     //   이 명령을 `--resume` 으로 dispatch 하므로, 여기서 또 밀면 죽어가는 자식과 겹칠 수 있다.
     const interrupted = dispatchMode === 'immediate' && interruptForImmediateCommand(cmd, sessionId);
-    // §5.5 #17-4 v2.36 — 명령 텍스트의 `/skill-name` 토큰들을 프로젝트 사용 카운트에 반영.
-    //                    SkillsView 가 정렬 키·배지로 사용.
+    // §5.5 #17-4 — 명령 텍스트의 `/skill-name` 토큰을 프로젝트 사용 카운트에 반영(SkillsView 정렬 키·배지).
     graphManager.recordSkillUsageFromCommandText(sessionId, cmd.text);
     res.json({ ok: true, command: cmd });
     broadcastSnapshot();
@@ -5285,11 +5068,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.5 #17-18 v4.68 — PATCH /api/commands/:sessionId/:commandId/mode — 대기 중인 명령의 처리 방식 변경.
-   *
-   * body `{ dispatchMode: 'wait' | 'merge' | 'immediate' }`. **아직 큐에 있는(`queued`) 명령만** 대상 —
-   * 이미 나간 턴의 방식을 되돌릴 방법은 없다(409). `immediate` 로 바꾸면 그 자리에서 도는 턴을 끊고
-   * 이 명령이 다음 턴이 된다.
+   * §5.5 #17-18 — PATCH /api/commands/:sessionId/:commandId/mode — 대기 중인 명령의 처리 방식 변경.
+   * body `{ dispatchMode: 'wait' | 'merge' | 'immediate' }`. `queued` 명령만 대상 — 이미 나간 턴은 되돌릴 수 없다(409).
+   * `immediate` 로 바꾸면 그 자리에서 도는 턴을 끊고 이 명령이 다음 턴이 된다.
    */
   app.patch('/api/commands/:sessionId/:commandId/mode', (req, res) => {
     const { sessionId, commandId } = req.params;
@@ -5376,11 +5157,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * PUT /api/commands/:sessionId/reorder — 순서 변경.
-   *
-   * §5.3 #9-1 (P) — **자리(index)가 아니라 명령(id)으로 받는다.** 화면이 큐를 그대로 그리던 때에는
-   * 둘이 같았지만, 이제 우리가 끼운 조용한 압축은 화면에서 빠지므로 **화면의 3번째와 큐의 3번째가
-   * 다르다**. 자리로 받으면 사용자가 옮긴 것과 서버가 옮기는 것이 어긋난다.
-   * 옛 클라이언트가 보내는 `fromIndex`/`toIndex` 도 그대로 받는다(id 가 없을 때만).
+   * §5.3 #9-1 (P) — 자리(index)가 아니라 명령(id)으로 받는다 — 우리가 끼운 조용한 압축은 화면에서 빠져 화면의 N번째와 큐의 N번째가 다르다.
+   * 옛 클라이언트의 `fromIndex`/`toIndex` 도 받는다(id 가 없을 때만).
    */
   app.put('/api/commands/:sessionId/reorder', (req, res) => {
     const { sessionId } = req.params;
@@ -5408,13 +5186,11 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.5 #17-11 v3.79 — PUT /api/session-loop/:agentId/:subId — 세션 반복 실행(루프) 설정 저장.
-   *
+   * §5.5 #17-11 — PUT /api/session-loop/:agentId/:subId — 세션 반복 실행(루프) 설정 저장.
    * body: `{ command, mode:'count'|'infinite', total?, intervalMs?, stopOnError?, contextMode?,
    *   maxCostUsd?, maxTokens?, maxDurationMs?, progressFile?, oneTaskPerRound?, commitEachRound?,
    *   commandFile?, enabled? }` (전체 저장 — 한 필드만 보내면 나머지는 기본값으로 되돌아간다).
-   * `enabled:true` 면 저장 즉시 1회차를 발사한다(사용자가 [시작]을 눌렀다는 뜻).
-   * 렌더러 in-process fetch 라 loopback 화이트리스트 불요(§4 v3.21 agent-feedback 선례).
+   * `enabled:true` 면 저장 즉시 1회차를 발사한다([시작]). 렌더러 in-process fetch 라 loopback 허용 목록이 필요 없다.
    */
   app.put('/api/session-loop/:agentId/:subId', subAgentOwnerGuard((id) => subAgentManager.getSub(id)), (req, res) => {
     const { agentId, subId } = req.params;
@@ -5538,7 +5314,7 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.5 #17-11 v3.79 — DELETE /api/session-loop/:agentId/:subId — 루프 설정 삭제.
+   * §5.5 #17-11 — DELETE /api/session-loop/:agentId/:subId — 루프 설정 삭제.
    * body `{ stopOnly: true }` 면 설정은 남기고 정지만(사용자 [정지] 버튼). 없는 루프여도 200(멱등).
    */
   app.delete('/api/session-loop/:agentId/:subId', subAgentOwnerGuard((id) => subAgentManager.getSub(id)), (req, res) => {
@@ -5550,7 +5326,7 @@ export async function runServer(): Promise<RunServerHandle> {
       clearSessionLoopTimer(subId);
       graphManager.deleteSessionLoop(subId);
     }
-    // §5.5 #17-11 v3.92 — 루프가 꺼졌으니 그동안 보류돼 있던 완료 판정을 같은 스냅샷에서 낸다.
+    // §5.5 #17-11 — 루프가 꺼졌으니 그동안 보류돼 있던 완료 판정을 같은 스냅샷에서 낸다.
     //   (늦게 실리면 클라가 "루프 종료(침묵)" 와 "버블 완료(발화)" 를 별개 사건으로 보고 소리를 낸다.)
     graphManager.recomputeCustomAgentStatus(agentId);
     broadcastSnapshot();
@@ -5559,7 +5335,7 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.5 #17-17 v4.50 — 세션의 `TodoWrite` 계획을 목표 단계로 옮긴다.
+   * §5.5 #17-17 — 세션의 `TodoWrite` 계획을 목표 단계로 옮긴다.
    * claude 의 todo 상태(`pending`/`in_progress`/`completed`) → 목표 단계 상태 매핑.
    * 형식이 다르면 조용히 빈 배열(목표 창은 표시용이라 훅 경로를 막을 이유가 없다).
    */
@@ -5579,7 +5355,7 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §5.5 #17-17 v4.47 — 외부(에이전트 curl·렌더러)에서 온 단계 배열을 신뢰 가능한 형태로 정리.
+   * §5.5 #17-17 — 외부(에이전트 curl·렌더러)에서 온 단계 배열을 신뢰 가능한 형태로 정리.
    * 잡스러운 항목은 조용히 버린다 — 신고 하나가 형식이 틀렸다고 진행 갱신 전체를 막을 이유는 없다.
    */
   function parseGoalSteps(
@@ -5617,18 +5393,10 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §5.5 #17-17 / §3.6 (판올림 번호 발급 대기) — **작업 장부(Task) 훅을 목표 단계로 흘린다.**
-   *
-   * `TaskCreate`/`TaskUpdate` 도구가 `TaskCreated`/`TaskCompleted` 훅을 낸다. 이것이 목표 창이
-   * 지금까지 REST 로 흉내 내던 것의 **원본**이다 — 종전에는 그 도구도 목록에 없었고 훅도 걸려
-   * 있지 않아, 세션이 작업 장부를 써도 화면에는 한 줄도 오지 않았다.
-   *
-   * 단계 목록은 **본문(제목)으로 이어 붙인다** — 목표 창 규약이 "같은 본문이 같은 항목"이고,
-   * `rebuildGoalSteps` 가 그 규칙으로 id 를 물려주므로 여기서 별도 장부를 들 이유가 없다
-   * (새 저장소를 만들면 그것만 따로 비워지거나 따로 새는 자리가 하나 더 생긴다).
-   *
-   * 우리 관할이 아닌 세션(agentId·subAgentId 미상)은 조용히 지나간다 — 목표 창은 우리가 띄운
-   * 세션의 것이고, 남의 세션 훅으로 남의 카드를 만들지 않는다.
+   * §5.5 #17-17 / §3.6 — 작업 장부(Task) 훅을 목표 단계로 흘린다(`TaskCreate`/`TaskUpdate` 도구가 `TaskCreated`/`TaskCompleted` 훅을 낸다).
+   * 단계 목록은 본문(제목)으로 이어 붙인다 — "같은 본문이 같은 항목"이고 `rebuildGoalSteps` 가 그 규칙으로 id 를 물려준다.
+   * 별도 장부(새 저장소)를 들지 마라 — 그것만 따로 비워지거나 새는 자리가 하나 더 생긴다.
+   * 우리 관할이 아닌 세션(agentId·subAgentId 미상)은 지나간다 — 남의 세션 훅으로 카드를 만들지 않는다.
    */
   function ingestTaskLedgerHook(
     body: HookEventPayload,
@@ -5671,10 +5439,9 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §5.5 #17-17 v4.46 — PUT /api/session-goal/:agentId/:subId — 세션 목표 저장(생성·수정·상태 변경).   *
-   * body: `{ text, status? }`. 목표 문장이 실제로 바뀌면 서버가 `revision++` 으로
-   * plan 자동 폴백을 다시 연다(#17-17 ③). 진행률·이력은 보존한다 — 문장을 다듬는 것과
-   * 진행을 되감는 것은 다른 일이다. loopback 화이트리스트에는 오르지 않는다(목표는 사용자 것).
+   * §5.5 #17-17 — PUT /api/session-goal/:agentId/:subId — 세션 목표 저장(생성·수정·상태 변경).
+   * body: `{ text, status? }`. 문장이 실제로 바뀌면 서버가 `revision++` 으로 plan 자동 폴백을 다시 연다(#17-17 ③).
+   * 진행률·이력은 보존한다(문장 다듬기 ≠ 진행 되감기). loopback 허용 목록에는 올리지 않는다(목표는 사용자 것).
    */
   app.put('/api/session-goal/:agentId/:subId', subAgentOwnerGuard((id) => subAgentManager.getSub(id)), (req, res) => {
     const { agentId, subId } = req.params;
@@ -5715,11 +5482,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.5 #17-17 v4.46 — POST /api/session-goal/:agentId/:subId/progress — 진행률 갱신.
-   *
-   * 두 호출자가 같은 문을 쓴다: (a) 주입 지시문을 받은 **에이전트**(외부 프로세스 → loopback,
-   * 토큰 필수 — 화이트리스트에 오르는 유일한 목표 경로), (b) 패널에서 직접 끄는 **사용자**
-   * (렌더러 in-process fetch, `source:'user'`). 우선순위 판정은 서버(ProjectGraph)가 한다.
+   * §5.5 #17-17 — 진행률 갱신. 호출자 둘: 에이전트(loopback, 토큰 필수 — 화이트리스트에 오르는 유일한 목표 경로) ·
+   * 패널의 사용자(렌더러 in-process, `source:'user'`). 우선순위는 서버(ProjectGraph)가 정한다.
    */
   app.post('/api/session-goal/:agentId/:subId/progress', subAgentOwnerGuard((id) => subAgentManager.getSub(id)), (req, res) => {
     const { agentId, subId } = req.params;
@@ -5754,10 +5518,7 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true, goal: goal ?? existing });
   });
 
-  /**
-   * §5.5 #17-17 v4.46 — DELETE /api/session-goal/:agentId/:subId — 목표 해제(삭제).
-   * 없는 목표여도 200(멱등) — 사용자가 두 번 눌러도 에러가 뜨지 않게.
-   */
+  /** §5.5 #17-17 — 목표 해제. 없는 목표여도 200(멱등). */
   app.delete('/api/session-goal/:agentId/:subId', subAgentOwnerGuard((id) => subAgentManager.getSub(id)), (req, res) => {
     const { subId } = req.params;
     graphManager.deleteSessionGoal(subId);
@@ -5766,18 +5527,12 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true });
   });
 
-  // ─── §5.5 #17-17 ⑪ 살아 있는 단계 지도 REST ───
-  //
-  // ⑪(d) — 단계 편집(`/steps`)은 **loopback 화이트리스트 밖**이다: 끼워 넣기는 사용자만 하는 일이고,
-  // 에이전트는 종전대로 `/progress` 로만 자기 목록을 갱신한다(⑤ 의 "목표는 사용자의 것" 유지).
+  // §5.5 #17-17 ⑪ 단계 지도 REST — `/steps` 는 loopback 화이트리스트 밖이다(⑪(d)): 끼워 넣기는 사용자만, 에이전트는 `/progress` 로만 갱신한다(⑤).
 
   /**
-   * ⑪(d) — PUT /api/session-goal/:agentId/:subId/steps — 사용자가 단계 목록을 통째로 다시 세운다.
-   *
-   * ⑲ — **새로 들어온 본문만** `authoredBy='user'` 로 선다(그래야 다음 턴에 세션이 자기 계획을
-   * 보내도 지워지지 않고, 주입 블록이 "네가 지울 수 없다"고 말할 근거가 된다). 재사용분은 원래
-   * 주인을 지킨다 — 순서·행 바꾸기도 이 문으로 오기 때문에, 통째로 박으면 노드 한 번 끄는 것으로
-   * 에이전트 단계 전부가 불멸이 되어 목록이 라운드마다 저절로 섞였다.
+   * ⑪(d) — 사용자가 단계 목록을 통째로 다시 세운다.
+   * ⑲ — 새 본문만 `authoredBy='user'`(다음 턴 세션 계획이 못 지운다 — 주입 블록의 "지울 수 없다" 근거). 재사용분은 원래 주인을 지킨다 —
+   * 순서 바꾸기도 이 문으로 오므로 전부 user 로 박으면 에이전트 단계가 모두 불멸이 된다.
    */
   app.put('/api/session-goal/:agentId/:subId/steps', subAgentOwnerGuard((id) => subAgentManager.getSub(id)), (req, res) => {
     const { subId } = req.params;
@@ -5791,11 +5546,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * ⑪(i) — PUT /api/session-goal/:agentId/:subId/steps/:stepId/kind — 한 단계의 **종류만** 바꾼다.
-   *
-   * `/steps`(⑪(d)) 와 일부러 갈라 둔 문이다 — 그쪽은 목록을 통째로 다시 세우면서 **전부 사용자
-   * 소유로 바꾼다.** 종류를 고르는 것은 소유를 옮기는 일이 아니므로 여기로 온다. `kind` 를 비우면
-   * 종류가 떨어진다(중립 점으로 되돌아간다). loopback 화이트리스트 밖 — 고르는 것은 사용자다.
+   * ⑪(i) — 한 단계의 종류만 바꾼다. `/steps` 와 일부러 가른 문 — 그쪽은 소유를 사용자로 옮기고, 종류 고르기는 소유를 옮기지 않는다.
+   * `kind` 를 비우면 중립 점으로. loopback 화이트리스트 밖(고르는 것은 사용자).
    */
   app.put('/api/session-goal/:agentId/:subId/steps/:stepId/kind', subAgentOwnerGuard<{ agentId: string; subId: string; stepId: string }>((id) => subAgentManager.getSub(id)), (req, res) => {
     const { subId, stepId } = req.params;
@@ -5808,10 +5560,7 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true, goal });
   });
 
-  /**
-   * ⑪(a)(b) — PUT /api/visual-kind/:key — 종류 카드 생성·수정.
-   * 에이전트가 새 종류를 만들 때도 이 문으로 온다(글리프는 `sanitizeGlyphPath` 통과분만).
-   */
+  /** ⑪(a)(b) — 종류 카드 생성·수정. 에이전트가 새 종류를 만들 때도 이 문으로 온다(글리프는 `sanitizeGlyphPath` 통과분만). */
   app.put('/api/visual-kind/:key', (req, res) => {
     const card = graphManager.upsertVisualKind({
       key: req.params.key,
@@ -5850,13 +5599,7 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true, card });
   });
 
-  /**
-   * §5.5 #17-17 ⑫(b) — POST /api/goal-action/pin — 팔레트 한 칸 고정·해제.
-   *
-   * 팔레트 **목록을 고치는 문은 없다** — 목록은 배운 것에서 파생되므로 사용자가 칸을 만들거나
-   * 지우는 것이 아니라, 자주 쓰는 것이 저절로 오르고 안 쓰면 내려간다(⑫(a)). 사용자가 손댈 수
-   * 있는 것은 "이건 항상 앞에 둬라"뿐이고 그것이 이 문이다.
-   */
+  /** §5.5 #17-17 ⑫(b) — 팔레트 한 칸 고정·해제. 목록을 고치는 문은 없다 — 목록은 배운 것에서 파생돼 자주 쓰면 오르고 안 쓰면 내려간다(⑫(a)). */
   app.post('/api/goal-action/pin', (req, res) => {
     const id = typeof req.body?.id === 'string' ? req.body.id.trim() : '';
     if (!id) return res.status(400).json({ error: 'id required' });
@@ -5866,17 +5609,9 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true, id, pinned });
   });
 
-  // ─── §5.5 #17-28 — 컨텍스트 주입원 통제 REST ───
-  //
-  // 조회는 **매번 다시 잰다**(캐시 ❌). 사용자가 이 창을 여는 순간이 "지금 무엇이 실리는가"를 묻는
-  // 순간이고, 캐시된 표는 그 물음에 옛날 답을 준다. 파일 스캔은 사용자가 창을 열 때만 돈다.
+  // §5.5 #17-28 — 컨텍스트 주입원 통제 REST. 조회는 매번 다시 잰다(캐시 ❌ — 창을 여는 순간의 답이어야 한다). 파일 스캔은 창을 열 때만.
 
-  /**
-   * 목록과 상세가 **같은 실측**을 보게 하는 한 곳.
-   *
-   * 표(`GET /api/context-inventory`)와 상세창(`GET /api/context-source`)이 각자 재면, 그 사이에
-   * 파일이 바뀌었을 때 "표는 9,000자라는데 본문은 다른 것"이 된다. 두 라우트가 이 함수를 함께 쓴다.
-   */
+  /** 목록(`/api/context-inventory`)과 상세(`/api/context-source`)가 함께 쓰는 한 실측 — 따로 재면 그 사이 파일이 바뀔 때 둘이 어긋난다. */
   function measureContextForAgent(agentId: string, subAgentId?: string): { inventory: ContextInventory; parts: MeasuredPart[] } | null {
     // 버블 id 로 에이전트를 찾는 표준 경로는 스냅샷의 `agents` 배열이다(다른 라우트와 같은 방식).
     const agent = graphManager.getSnapshot().agents.find((a) => a.id === agentId);
@@ -5929,11 +5664,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.5 #17-28 ⑦ — GET /api/context-source/:agentId?source=<id>&sub=<subAgentId>&file=<절대경로>
-   *
-   * 상세창이 "이 줄이 대체 무엇인가"에 **실물로** 답하기 위한 창구. 돌려주는 본문은 설명용 사본이
-   * 아니라 이 턴에 실제로 조립된 문자열이고, 파일은 **그 순간 인벤토리에 실제로 들어 있는 경로**만
-   * 열린다(⑤ — 이 창의 권한은 이미 실리고 있는 것을 보여 주는 데까지다). 읽기 전용.
+   * §5.5 #17-28 ⑦ — `?source=<id>&sub=<subAgentId>&file=<절대경로>` — 상세창 원문(읽기 전용).
+   * 본문은 이 턴에 실제로 조립된 문자열이고, 파일은 그 순간 인벤토리에 든 경로만 연다(⑤).
    */
   app.get('/api/context-source/:agentId', (req, res) => {
     try {
@@ -6004,11 +5736,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * 요청이 말한 층을 **정본 어휘로만** 받는다 — 모르는 값은 가장 넓은 층(프로젝트)으로 떨어진다.
-   * 층을 문자열 비교로 그때그때 판정하면(`scope === 'session'` 식) 층이 늘 때마다 분기가 갈라져
-   * 한 곳을 빠뜨리게 된다.
-   */
+  /** 층은 정본 어휘로만 받고 모르는 값은 가장 넓은 층(프로젝트)으로 — 자리마다 문자열로 비교하면 층이 늘 때 한 곳을 빠뜨린다. */
   function parseContextScopeLevel(raw: unknown): ContextScopeLevel {
     return CONTEXT_SCOPE_LEVELS.includes(raw as ContextScopeLevel) ? (raw as ContextScopeLevel) : 'project';
   }
@@ -6077,8 +5805,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** POST /api/create-custom-agent — 캔버스에서 커스텀 에이전트 생성.
-   *  §4 v2.63 — `executionMode:'interactive-terminal'` 이면 CMD(인터랙티브 터미널) 에이전트로 baked. */
+  /** §4 — 캔버스에서 커스텀 에이전트 생성. `executionMode:'interactive-terminal'` 이면 CMD(인터랙티브 터미널) 에이전트로 굽는다. */
   app.post('/api/create-custom-agent', (req, res) => {
     try {
       const { label, x, y, project, executionMode, provider: providerRaw, cliKind: cliKindRaw, orchestraRunId: orchestraRunIdRaw } = req.body as {
@@ -6103,11 +5830,8 @@ export async function runServer(): Promise<RunServerHandle> {
             : undefined;
       if (!graphManager.hasOpenProject()) return respondNoProjectFolder(res, 'create-custom-agent');
       /*
-       * §5.3 #10 (판올림 번호 발급 대기) — **정원.** 이 창구는 §3.7 빌더 구축 경로라 loopback
-       *   토큰만 있으면 닿는데 개수 제한이 없었다. "끝나면 새 에이전트를 둘 만들어라" 한 줄이면
-       *   버블과 자식 프로세스가 기하급수로 늘고, 만들어진 자식이 같은 규칙을 물려받아 자기증식이
-       *   성립한다. 정원은 프로젝트별로 세고 **커스텀만** 센다 — 훅으로 붙은 외부 세션 버블은
-       *   우리가 띄운 것이 아니라 사용자의 에디터가 띄운 것이라 우리가 정원으로 막을 자리가 아니다.
+       * §5.3 #10 — 정원. loopback 토큰만으로 닿는 경로라 제한이 없으면 "새 에이전트 둘을 만들어라" 한 줄로 자기증식한다.
+       * 프로젝트별로 커스텀만 센다 — 훅으로 붙은 외부 세션은 사용자 에디터가 띄운 것이라 막을 자리가 아니다.
        */
       const liveCustom = graphManager.getSnapshot().agents
         .filter((a) => a.customCreated && graphManager.getAgentProjectName(a.id) === (project ?? graphManager.getPrimaryProjectName()))
@@ -6156,12 +5880,8 @@ export async function runServer(): Promise<RunServerHandle> {
         );
         logger.info(`[orchestra] member ${memberId} created for run ${orchestraRun.runId}`);
         /*
-         * §5.3 #10-4 — **사용자 설정의 집행.** 멤버가 태어날 때 작업 폴더 격리(`isolation`)와
-         *   도구 목록(`tools`)을 여기서 박는다. 지휘자가 ② PATCH 로 넣을 수 없는 칸이라 서버가
-         *   대신 심는다 — `tools` 는 권한 축이라 loopback 유입에서 얼려 있고(§5.3 #12-1), 멤버는
-         *   빈 오버라이드로 태어나 그 얼림의 "첫 구성은 통과" 길조차 열리지 않는다. 유입을 푸는
-         *   것이 아니라 **그 바깥의 다른 길**이다 — 값의 출처가 지휘자가 아니라 사용자 스위치라
-         *   권한 상승이 아니고, `tools` 는 좁히는 방향만 있다(`'all'` 은 기본값과 같아 박지 않는다).
+         * §5.3 #10-4 — 멤버가 태어날 때 사용자 스위치의 `isolation`·`tools` 를 서버가 심는다 — `tools` 는 loopback 유입에서 얼려 있고(§5.3 #12-1)
+         * 멤버는 빈 오버라이드로 태어나 "첫 구성 통과"도 안 열린다. 권한 상승이 아니다(출처가 사용자 스위치, `tools` 는 좁히기만). `'all'` 은 기본값이라 박지 않는다.
          */
         const birth = orchestraMemberBirthConfig(currentOrchestra);
         if (birth) {
@@ -6221,10 +5941,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * POST /api/trash/purge — 휴지통 일괄 영구 삭제(§5.10 v4.84 — [모두 삭제] · Delete 키 다중 선택).
-   * `sessionIds` 는 세션 키·버블 id 혼재를 허용(단건 경로와 동일). 개별 DELETE 를 N 번 쏘면 서버가
-   * 스냅샷을 N 번 브로드캐스트해 버블이 여러 번 나눠 사라지므로, 여기서 모아 지우고 **한 번만** 알린다
-   * (§5.7 `/api/bubbles/delete` 와 같은 문법). 확인 팝업은 클라가 이미 거친 뒤다.
+   * §5.10 — 휴지통 일괄 영구 삭제([모두 삭제] · 다중 선택). `sessionIds` 는 세션 키·버블 id 혼재 허용.
+   * 모아 지우고 한 번만 알린다 — 개별 DELETE N 번이면 버블이 나눠 사라진다(§5.7 `/api/bubbles/delete` 와 같다). 확인 팝업은 클라 몫.
    */
   app.post('/api/trash/purge', (req, res) => {
     try {
@@ -6252,15 +5970,9 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /*
-   * §5.10 — **기억 카드 REST 는 통째로 걷었다.**
-   *
-   * 카드·주제·규칙·큐레이터·이주·근거·회상·파일 메모까지 37개 경로가 여기 있었다. 그것을 부르는
-   * 화면이 하나도 남지 않은 지금, 남겨 두면 화면 없는 열린 문이 될 뿐이다.
-   * 되풀이한 절차를 굳히는 일은 `/api/auto-goal/*` 다섯 경로가 이어받았다(위쪽, 정독 옆).
-   */
+  /* §5.10 — 기억 카드 REST 는 두지 않는다(부르는 화면이 없으면 열린 문일 뿐). 절차 굳히기는 `/api/auto-goal/*` 가 맡는다. */
 
-  /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 (캔버스 우클릭 메뉴) */
+  /** §5.3 #10-2 — Auto Agent 메타 버블 생성(캔버스 우클릭 메뉴) */
   app.post('/api/create-auto-agent', (req, res) => {
     try {
       const { label, x, y, project } = req.body as { label?: string; x?: number; y?: number; project?: string };
@@ -6277,7 +5989,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** §5.3 #10-2 v2.37 — Auto Agent 에게 사용자 메시지 전달 → 자동 spawn + dispatch */
+  /** §5.3 #10-2 — Auto Agent 에게 사용자 메시지 전달 → 자동 spawn + dispatch */
   app.post('/api/auto-agent/:sessionId/message', (req, res) => {
     try {
       const { sessionId } = req.params;
@@ -6293,7 +6005,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** §5.3 #10-2 v2.37 — Auto Agent "질문하기" 토글 */
+  /** §5.3 #10-2 — Auto Agent "질문하기" 토글 */
   app.post('/api/auto-agent/:sessionId/toggle-questions', (req, res) => {
     try {
       const { sessionId } = req.params;
@@ -6310,7 +6022,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** §5.3 #10-2 v2.37 — Auto Agent 명확화 질문에 사용자 답을 보내고 spawn 재개 */
+  /** §5.3 #10-2 — Auto Agent 명확화 질문에 사용자 답을 보내고 spawn 재개 */
   app.post('/api/auto-agent/:sessionId/answer-questions', (req, res) => {
     try {
       const { sessionId } = req.params;
@@ -6326,7 +6038,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  // ── §5.3 #10-3 v4.98 — 검증 런 ─────────────────────────────────────────────
+  // §5.3 #10-3 — 검증 런
 
   /** GET /api/auto-agent/:sessionId/runs — 그 auto-agent 의 검증 런 목록(최신이 뒤) */
   app.get('/api/auto-agent/:sessionId/runs', (req, res) => {
@@ -6339,13 +6051,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * POST /api/auto-agent/:sessionId/verification — 검증 증거 1건 적재.
-   *
-   * 에이전트(tester 등)가 실제로 명령을 돌린 뒤 **명령 + 종료 코드**를 신고하는 자리다.
-   * 통과 여부(`ok`)는 요청 본문에서 받지 않고 서버가 `exitCode === 0` 으로 계산한다 —
-   * "통과했다"는 주장과 실제 통과를 구분하는 지점이 여기다.
-   */
+  /** 검증 증거 1건(실제로 돌린 명령 + 종료 코드). `ok` 는 본문에서 받지 않고 서버가 `exitCode === 0` 으로 계산한다 — 주장과 실제 통과를 가르는 자리. */
   app.post('/api/auto-agent/:sessionId/verification', (req, res) => {
     try {
       const { sessionId } = req.params;
@@ -6383,13 +6089,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * POST /api/auto-agent/:sessionId/self-test — **게이트 자가진단**.
-   *
-   * 게이트가 정말 막는지는 통과 화면이 아니라 **차단 화면**으로만 증명된다. 그래서 일부러
-   * 실패하는 가짜 런 2건을 돌린다:
-   *   ① `exitCode=1` 증거만 있는 런에 `verified` 를 요청 → `escalated(no-evidence)` 여야 한다.
-   *   ② `REJECT` 와 `PASS` 가 섞인 판정 텍스트 → `held` 여야 한다(승인으로 흐르면 실패).
-   * 두 결과 모두 `selfTest` 런으로 남아 화면에서 실제 작업 런과 배지로 구분된다.
+   * 게이트 자가진단 — 막는지는 차단으로만 증명되므로 일부러 실패하는 가짜 런 2건을 돌린다(`selfTest` 배지):
+   * ① `exitCode=1` 증거만 있는 런에 `verified` 요청 → `escalated(no-evidence)` ② `REJECT`·`PASS` 섞인 판정 → `held`(승인이면 실패).
    */
   app.post('/api/auto-agent/:sessionId/self-test', (req, res) => {
     try {
@@ -6502,15 +6203,7 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /** POST /api/create-worktree — 캔버스에서 `master` 기준 새 git worktree + 버블 생성 */
-  /**
-   * 워크트리 한 벌을 만든다 — **`/api/create-worktree` 와 §5.18 에이전트 랩이 같이 쓰는 한 함수.**
-   *
-   * 예전에는 이 본체가 라우트 안에 인라인으로만 있어서, 다른 기능이 워크트리를 만들려면 코드를
-   * 한 벌 더 베끼는 수밖에 없었다(그러면 한 쪽만 고쳐지는 사고가 난다). 랩이 변형마다 격리를
-   * 필요로 하게 되면서 헬퍼로 뽑았고, 라우트는 이 함수를 부르는 얇은 껍데기가 됐다.
-   *
-   * 브로드캐스트·체크포인트 저장은 **호출부의 몫**이다 — 랩은 N개를 만든 뒤 한 번만 저장한다.
-   */
+  /** 워크트리 한 벌 만들기 — `/api/create-worktree` 와 §5.18 랩이 같이 쓴다(베끼면 한쪽만 고쳐진다). 브로드캐스트·저장은 호출부 몫(랩은 N개 뒤 한 번). */
   async function createWorktreeUnder(input: {
     project?: string | undefined;
     name?: string | undefined;
@@ -6560,10 +6253,8 @@ export async function runServer(): Promise<RunServerHandle> {
     const finalName = path.basename(targetDir);
     const branch = `wt/${finalName}`;
 
-    // 4) `git worktree add -b <branch> <target> <base>` — base 후보: 사용자 지정 → master → main.
-    //    도는 동안은 이 폴더를 아무도 발견하지 못하게 막는다(생성 유예). git 은 `.git` 을 먼저
-    //    붙이고 파일을 나중에 푸는데, 그 사이 10초 세션 스윕이 폴더를 주우면 **좌표가 정해지기
-    //    전에** 버블이 태어나 사용자가 고른 자리가 아닌 곳에 앉는다. 해제는 반드시 `finally`.
+    // 4) `git worktree add` — base 후보: 지정값 → master → main. 도는 동안 생성 유예로 폴더를 숨긴다 — git 이 `.git` 을 먼저 붙여,
+    // 그 사이 10초 스윕이 주우면 좌표가 정해지기 전에 버블이 엉뚱한 자리에 태어난다. 해제는 반드시 `finally`.
     const baseCandidates = input.base ? [input.base, 'master', 'main'] : ['master', 'main'];
     beginWorktreeCreation(targetDir);
     const result = await runGitWorktreeAdd(parentCwd, targetDir, branch, baseCandidates)
@@ -6573,7 +6264,7 @@ export async function runServer(): Promise<RunServerHandle> {
       return { ok: false, status: 500, error: `git worktree add failed: ${result.error}` };
     }
 
-    // v3.71: 방금 만든 워크트리가 "죽은 폴더" 판정 캐시에 걸려 발견에서 밀리지 않도록 즉시 무효화.
+    // 방금 만든 워크트리가 "죽은 폴더" 캐시에 걸려 발견에서 밀리지 않게 즉시 무효화.
     invalidateWorktreeLiveness(targetDir);
 
     // 5) 등록 + 버블 생성
@@ -6582,7 +6273,7 @@ export async function runServer(): Promise<RunServerHandle> {
     try {
       graphManager.registerProject(parentCwd); // 부모 인스턴스 확보 (idempotent)
     } catch (err) {
-      // §3.2.1-4 (v3.03) — 부모가 read-only 격리(load-error)면 워크트리 생성 불가.
+      // §3.2.1-4 — 부모가 read-only 격리(load-error)면 워크트리 생성 불가.
       logger.warn(`create-worktree: parent registerProject("${parentCwd}") failed: ${err instanceof Error ? err.message : String(err)}`);
       return { ok: false, status: 409, error: `parent project not available (possibly read-only isolated): ${parentCwd}` };
     }
@@ -6673,12 +6364,8 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §7.6 (판올림 번호 발급 대기) — 그 워크트리에서 일하던 **커스텀 에이전트** 하나.
-   *
-   * 합치기가 충돌했을 때 "충돌을 그 에이전트에게 넘기기"의 상대다. 워크트리는 자기 이름의
-   * 프로젝트로 등록되므로 `agentProjects`(에이전트 → 프로젝트명) 로 고르면 된다 — 새 상태·새
-   * 매핑을 만들지 않는다. 훅 버블(`customCreated` 아님)과 휴지통은 제외한다(§5.5 #17-29 경계:
-   * 관측 대상에는 명령을 넣지 않는다). 후보가 없으면 null 이고, 화면은 버튼 자체를 렌더하지 않는다.
+   * §7.6 — 그 워크트리에서 일하던 커스텀 에이전트(충돌 넘기기의 상대). `agentProjects` 로 고른다 — 새 매핑 ❌.
+   * 훅 버블·휴지통은 제외(§5.5 #17-29: 관측 대상에는 명령을 넣지 않는다). 없으면 화면은 버튼을 그리지 않는다.
    */
   function findWorktreeOwnerAgentId(wtAbs: string): string | undefined {
     const wtName = path.basename(wtAbs);
@@ -6694,12 +6381,8 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §7.10 — 워크트리를 지우기 **직전에** 그 안에서 돌던 것을 강제로 끝낸다.
-   *
-   * 사용자는 삭제 팝업에서 이미 확인했다 — 여기서 다시 묻지 않는다. 고르는 규칙은
-   * `worktreeReaper` 가 쥐고(시험 가능), 여기서는 그래프·PTY 다리를 물려 주기만 한다.
-   * 반드시 `removeBubble` **전에** 불러야 한다 — 워크트리 프로젝트 등록이 사라지면
-   * 소유 판정에 쓸 `agentProjects` 가 부모로 접혀 아무도 못 고른다.
+   * `reapWorktreeBeforeDelete` — §7.10 지우기 직전에 그 안에서 돌던 것을 강제로 끝낸다(팝업에서 확인됨). 고르는 규칙은 `worktreeReaper`.
+   * 반드시 `removeBubble` 전에 — 프로젝트 등록이 사라지면 `agentProjects` 가 부모로 접혀 아무도 못 고른다.
    */
   /** 그 워크트리 경로의 **프로젝트 표시명**. 예고(status)와 실행(delete)이 같은 답을 써야 한다. */
   function resolveWorktreeProjectName(wtAbs: string): string {
@@ -6709,10 +6392,7 @@ export async function runServer(): Promise<RunServerHandle> {
     ) ?? path.basename(wtAbs);
   }
 
-  /**
-   * §7.10 — 지금 지우면 **무엇이 강제 종료되는가**(죽이지 않고 세기만 한다).
-   * 팝업이 확인을 받기 전에 이 숫자를 보여 준다 — 모르고 눌러 dev 서버가 꺼지면 그건 사고다.
-   */
+  /** §7.10 — 지금 지우면 무엇이 강제 종료되는지 세기만 한다 — 팝업이 확인 전에 보여 준다(모르고 dev 서버를 끄지 않게). */
   function countWorktreeReapTargets(wtAbs: string): { agents: number; terminals: number } {
     try {
       const snap = graphManager.getSnapshot();
@@ -6755,8 +6435,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   }
 
-  /** 삭제 후에도 남아 있는 파일 경로(디렉토리 기준 상대경로)를 최대 `max`개 수집.
-   *  v3.71 — 잠금 파일로 인한 부분 삭제를 사용자에게 그대로 보여주기 위한 진단용. */
+  /** 삭제 뒤 남은 파일(상대경로)을 최대 `max`개 — 잠금 파일로 반만 지워진 것을 보여 주는 진단용. */
   function listRemainingFiles(dir: string, max: number): string[] {
     const out: string[] = [];
     const walk = (cur: string): void => {
@@ -6834,10 +6513,8 @@ export async function runServer(): Promise<RunServerHandle> {
           }
         }
 
-        // 2) §7.10 — **여기서 강제 종료한다.** 사용자는 팝업에서 이미 확인했고, 이 폴더 안에서
-        //    도는 dev 서버·빌드·CLI 가 파일을 잡고 있으면 아래 삭제가 반만 성공해 좀비 폴더가 남는다.
-        //    합치기가 실패하면 위에서 이미 돌아갔으므로(삭제 안 함) **아무것도 죽이지 않는다** —
-        //    "합치다 실패했는데 내 dev 서버만 죽었다" 가 되지 않도록 순서를 이렇게 둔다.
+        // 2) §7.10 — 여기서 강제 종료한다 — 안에서 도는 dev 서버·빌드가 파일을 잡으면 삭제가 반만 된다.
+        // 합치기 실패는 위에서 이미 돌아가므로 아무것도 죽이지 않는다 — 이 순서를 지킬 것.
         const reaped = reapWorktreeBeforeDelete(info.wtAbs);
         // 트리째 죽인 직후에는 OS 가 아직 핸들을 놓지 않았을 수 있다(Windows). 한 박자 기다린 뒤
         //   지운다 — 이 대기 없이 바로 rmSync 하면 방금 죽인 프로세스 탓에 또 반만 지워진다.
@@ -6870,9 +6547,7 @@ export async function runServer(): Promise<RunServerHandle> {
         }
         invalidateWorktreeLiveness(info.wtAbs);
 
-        // v3.71: Windows 에서는 잠긴 파일(에디터·dev 서버·node_modules 바이너리) 하나 때문에
-        // 폴더가 반만 지워지고 좀비로 남는다. 이 경우를 조용한 성공으로 처리하면 사용자는
-        // "지웠는데 폴더가 남아 있다"는 사실을 모른 채 지나간다 — 남은 파일을 그대로 보고한다.
+        // Windows 는 잠긴 파일 하나로 폴더가 반만 지워진다 — 조용한 성공으로 넘기지 말고 남은 파일을 보고한다.
         const stillExists = ((): boolean => { try { return fs.existsSync(info.wtAbs); } catch { return false; } })();
         const remaining = stillExists ? listRemainingFiles(info.wtAbs, 30) : [];
 
@@ -6896,11 +6571,7 @@ export async function runServer(): Promise<RunServerHandle> {
     })();
   });
 
-  /**
-   * POST /api/worktree/cleanup-folder — 잠금 파일로 반만 지워진 워크트리 폴더 재삭제 (v3.71).
-   * 버블은 이미 사라진 뒤라 nodeId 로는 다시 찾을 수 없으므로 경로를 직접 받는다.
-   * 안전을 위해 `.claude/worktrees/<name>` 패턴 경로만 허용한다.
-   */
+  /** 반만 지워진 워크트리 폴더 재삭제 — 버블이 이미 없어 경로를 직접 받으므로 `.claude/worktrees/<name>` 패턴만 허용. */
   app.post('/api/worktree/cleanup-folder', (req, res) => {
     try {
       const raw = (req.body as { path?: unknown })?.path;
@@ -6944,11 +6615,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * POST /api/worktree/:nodeId/sync — worktree 에 원격/로컬 base(master→main) 를 머지.
-   * v1.23 §7.6 Sync 액션. base 후보: origin/master → origin/main → master → main.
-   * 충돌 시 `merge --abort` 로 자동 원복 후 409 + stderr 반환.
-   */
+  /** §7.6 Sync — base 를 머지(origin/master → origin/main → master → main). 충돌이면 `merge --abort` 후 409 + stderr. */
   app.post('/api/worktree/:nodeId/sync', (req, res) => {
     void (async () => {
       try {
@@ -7002,14 +6669,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §7.6 (판올림 번호 발급 대기) — 워크트리 브랜치를 **부모(본선)** 로 합치는 본문.
-   *
-   * 엔드포인트(`POST /api/worktree/:nodeId/merge`)와 §5.16 리뷰 승인이 **같은 함수**를 쓴다 —
-   * 두 벌로 갈라 두면 승인 병합만 선행 거부·충돌 원복 규칙에서 벗어나는 상태가 생긴다.
-   *
-   * - `--no-ff` 고정: 워크트리 한 벌이 커밋 하나로 뭉개지지 않고 갈래가 남아야 되돌릴 수 있다.
-   * - 선행 거부 2종(둘 다 409, 손대기 전에 판정): 부모가 dirty(`parent-dirty`) / 합칠 것 없음(`nothing-to-merge`).
-   * - 충돌이면 부모에서 `merge --abort` 로 **원복**하고 충돌 파일 목록을 돌려준다(사용자 본선을 충돌 상태로 두지 않는다).
+   * §7.6 — 워크트리 브랜치를 본선으로 합친다. merge 라우트와 §5.16 승인이 같이 쓴다 — 가르면 한쪽이 아래 규칙에서 벗어난다.
+   * `--no-ff` 고정(갈래가 남아야 되돌린다) · 손대기 전 409 두 가지 `parent-dirty`/`nothing-to-merge` · 충돌이면 `merge --abort` 로 원복하고 파일 목록을 돌려준다.
    */
   type WorktreeMergeOutcome =
     | { ok: true; branch: string }
@@ -7081,12 +6742,7 @@ export async function runServer(): Promise<RunServerHandle> {
     return { ok: true, branch };
   }
 
-  /**
-   * POST /api/worktree/:nodeId/merge — 위 본문을 그대로 HTTP 로 낸다. §7.6 (판올림 번호 발급 대기).
-   *
-   * 바로 위 sync 의 **반대 방향**이다. 종전에는 이 방향이 없어, 격리해서 일을 다 시켜 놓고도 마지막
-   * 합치기만 사용자가 터미널을 따로 열어서 했다.
-   */
+  /** §7.6 — 위 본문의 HTTP 창구(sync 의 반대 방향). */
   app.post('/api/worktree/:nodeId/merge', (req, res) => {
     void (async () => {
       try {
@@ -7103,11 +6759,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   // ─── §5.16 — 리뷰·승인 레인 (머지 전에 사람이 붙잡는 자리) ───
 
-  /**
-   * §5.16 — 워크트리 변경분 한 벌. `merge-base` 기준 커밋분 + 미커밋분을 합친 결과.
-   *
-   * **읽기 전용**이다 — 리뷰를 만들기 위해 워킹트리·인덱스를 건드리지 않는다(add/stash ❌).
-   */
+  /** §5.16 — 워크트리 변경분(`merge-base` 기준 커밋분 + 미커밋분). 읽기 전용 — add/stash ❌. */
   interface WorktreeChangeSet {
     files: ReviewFileChange[];
     diff: string;
@@ -7166,11 +6818,7 @@ export async function runServer(): Promise<RunServerHandle> {
     return map;
   }
 
-  /**
-   * `git status --porcelain` → 미커밋 변경(스테이지·워킹트리·추적 안 된 파일 전부).
-   *
-   * `git diff HEAD` 는 추적되지 않은 새 파일을 못 보므로, 미커밋 목록의 근거는 이쪽이 맡는다.
-   */
+  /** 미커밋 목록은 `git status --porcelain` 이 근거다 — `git diff HEAD` 는 추적 안 된 새 파일을 못 본다. */
   function parsePorcelainStatus(out: string): { path: string; changeType: ReviewFileChangeType }[] {
     const rows: { path: string; changeType: ReviewFileChangeType }[] = [];
     for (const line of out.split(/\r?\n/)) {
@@ -7188,12 +6836,7 @@ export async function runServer(): Promise<RunServerHandle> {
     return rows;
   }
 
-  /**
-   * §5.16 — 그 워크트리의 변경분을 모은다. git 이 이미 아는 것만 읽는다(새 계산 ❌).
-   *
-   * 커밋분은 부모와 갈라진 지점(`merge-base`) 기준이라 부모의 최신 커밋이 섞여 들어오지 않는다.
-   * 미커밋분은 따로 표시(`uncommitted`)해 "승인해도 병합에는 안 들어간다"를 화면이 말할 수 있게 한다.
-   */
+  /** §5.16 — git 이 아는 것만 읽는다. 커밋분은 `merge-base` 기준(부모 최신 커밋이 안 섞인다), 미커밋분은 `uncommitted` 표시(승인해도 병합에 안 들어간다). */
   async function collectWorktreeChanges(
     parentAbs: string,
     wtAbs: string,
@@ -7260,10 +6903,8 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §5.16 — 격리에서 일한 에이전트가 그 턴을 끝냈다. **조건 넷을 다 만족할 때만** 리뷰를 만든다.
-   *
-   * (a) 커스텀 에이전트 · (b) 그 프로젝트가 워크트리 · (c) 실제 변경분 있음 · (d) 미결정 리뷰 없음.
-   * 하나라도 어긋나면 조용히 만들지 않는다 — 턴마다 카드를 쌓으면 레인이 그 순간 소음이 된다.
+   * §5.16 — 턴이 끝났을 때 넷 다 맞을 때만 리뷰를 만든다: 커스텀 에이전트 · 워크트리 프로젝트 · 실제 변경분 · 미결정 리뷰 없음.
+   * 아니면 조용히 넘긴다(턴마다 카드가 쌓이면 소음이다).
    */
   async function maybeCreateReviewRequest(agentId: string, subAgentId?: string): Promise<void> {
     const snap = graphManager.getSnapshot();
@@ -7302,7 +6943,7 @@ export async function runServer(): Promise<RunServerHandle> {
     });
     if (!created) return;
 
-    // 표시는 §4 v2.70 검수 카드 그 자리 — `reviewRequestId` 한 줄로 레코드를 가리킨다(새 카드 계열 ❌).
+    // 표시는 §4 검수 카드 자리 — `reviewRequestId` 로 레코드를 가리킨다(새 카드 계열 ❌).
     const shown = changes.files
       .slice(0, 8)
       .map((f) => `${f.path} (+${f.additions}/-${f.deletions})${f.uncommitted === true ? ' *' : ''}`);
@@ -7323,11 +6964,7 @@ export async function runServer(): Promise<RunServerHandle> {
     logger.info(`[review-lane] created review=${created.id} agent=${agent.label} branch=${branch ?? '?'} files=${changes.files.length}`);
   }
 
-  /**
-   * 그 에이전트의 명령 큐에 한 건 넣고 바로 발사. 반려 재작업이 쓰는 경로(새 전송 경로 ❌).
-   * §5.3 #12-4 — 검증 범위는 부른 쪽이 정한다. 반려 재작업은 고치기만이라 범위가 없고, 랩은 사람이 적은
-   *   과제 문장에서 만든 범위를 넘긴다.
-   */
+  /** 명령 큐에 한 건 넣고 바로 발사(반려 재작업 경로, 새 전송 경로 ❌). §5.3 #12-4 — 검증 범위는 부른 쪽이 정한다(랩은 과제 문장에서 만든 범위). */
   function enqueueAgentCommand(agentId: string, text: string, idTag: string, subAgentId?: string, verificationScope?: VerificationScope): boolean {
     const agent = graphManager.getSnapshot().agents.find((a) => a.id === agentId);
     if (!agent) return false;
@@ -7352,14 +6989,9 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * POST /api/review-requests/:id/decision — 승인 / 반려(사유) / 보류. §5.16.
-   *
-   * - 승인: §7.6 `performWorktreeMerge()` 를 **그대로** 부른다(선행 거부·충돌 원복 동일). 결과는
-   *   결정 레코드에 `mergeOk`/`mergeError`/`conflicts` 로 남고, 실패면 상태가 `pending` 으로 돌아가
-   *   부모를 정리한 뒤 다시 승인할 수 있다.
-   * - 반려: 사유 필수. 클라이언트가 번역문으로 조립한 `reworkPrompt` 를 기존 명령 큐로 그 에이전트에게
-   *   보낸다(없으면 사유 본문만 보낸다 — 서버가 언어를 정하지 않는다).
-   * - 보류: 적재만. 병합·재작업 어느 쪽도 발사하지 않는다.
+   * §5.16 — 승인 / 반려 / 보류.
+   * 승인: §7.6 `performWorktreeMerge()` 를 그대로 — 실패면 `pending` 으로 돌아가 다시 승인할 수 있다.
+   * 반려: 사유 필수, 클라가 번역해 조립한 `reworkPrompt` 를 명령 큐로(없으면 사유만 — 서버는 언어를 정하지 않는다). 보류: 적재만.
    */
   app.post('/api/review-requests/:id/decision', createReviewDecisionHandler({
     getReview: (id) => graphManager.getReviewRequest(id),
@@ -7418,11 +7050,7 @@ export async function runServer(): Promise<RunServerHandle> {
     })();
   });
 
-  /**
-   * POST /api/git-commit — body { projectName, message? }.
-   * v1.25 §7.6 Commit 액션 (v1.24 Snapshot 리네임). `git add -A && git commit -m "wip: <ts>"` 일괄 실행.
-   * 실패 시 stderr 를 409 로 반환하여 클라이언트가 GitErrorModal 로 노출.
-   */
+  /** §7.6 Commit — body { projectName, message? }, `git add -A && git commit -m "wip: <ts>"`. 실패면 stderr 를 409 로(GitErrorModal). */
   app.post('/api/git-commit', (req, res) => {
     void (async () => {
       try {
@@ -7511,11 +7139,8 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
       const sessionId = graphManager.findSessionByAgentId(agentId);
-      // 실패 표식은 **버블이 아니라 sub 에 걸려 있다.** 부모 버블의 `error` 는
-      // `recomputeCustomAgentStatus` 가 `subs.some(s => s.status === 'error')` 로 매 스윕(10초)
-      // 다시 만들어 내는 파생값이라, 버블만 idle 로 내리면 그 자리에서 빨강이 되살아난다
-      // (사용자 보고 "확인해서 껐는데 프로젝트를 오가면 다시 빨간불"). 근거를 함께 걷어야
-      // 확인이 확인으로 남는다. 세션 유무와 무관하므로 아래 `if (sessionId)` 밖에서 부른다.
+      // 실패 표식은 sub 에 걸려 있다 — 버블의 `error` 는 `recomputeCustomAgentStatus` 가 매 스윕(10초) subs 에서 다시 만드는 파생값이라,
+      // 버블만 idle 로 내리면 빨강이 되살아난다. 세션 유무와 무관해 `if (sessionId)` 밖에서 부른다.
       const clearedErrors = subAgentManager.acknowledgeErrorSubs(agentId);
       let purged = 0;
       let wasSessionEnd = false;
@@ -7526,11 +7151,8 @@ export async function runServer(): Promise<RunServerHandle> {
         wasSessionEnd = statusBefore === 'completed' || statusBefore === 'error';
         purged = agentTracker.dismiss(sessionId).length;
       }
-      // markAgentIdle 이 파일/폴더 엣지를 삭제 → 클라에 즉시 반영해야
-      // 완료 에이전트 dismiss 시 폴더 버블이 화면에서 사라진다(고정 제외).
-      // 형제 변이 엔드포인트와 동일하게 broadcast + saveCheckpoint 쌍으로 마감.
-      // 걷을 것도 끝낼 세션도 없었으면(이미 idle + 전유 버블 0 + 실패 sub 0) 저장까지 갈 이유가 없다.
-      // `clearedErrors` 를 조건에 넣지 않으면 sub 의 `error` 가 디스크에 남아 재기동 때 되살아난다.
+      // markAgentIdle 이 파일/폴더 엣지를 지우므로 바로 알려야 dismiss 때 폴더 버블이 사라진다(고정 제외).
+      // 변한 게 없으면 저장하지 않는다. `clearedErrors` 를 조건에서 빼면 sub `error` 가 디스크에 남아 재기동 때 되살아난다.
       if (wasSessionEnd || purged > 0 || clearedErrors > 0) {
         broadcastSnapshot();
         saveCheckpoint();
@@ -7543,18 +7165,34 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * POST /api/usage-limit-ack — §2.4 (한도 정지) **사용자가 주황불을 확인했다.**
-   *
-   * body `{ subAgentIds?: string[], agentIds?: string[] }` — 둘 다 줘도 되고 합집합으로 걷는다.
-   *  · `subAgentIds` : 세션 하나를 콕 짚은 손짓(탭 클릭·목록 줄).
-   *  · `agentIds`    : 그 버블에 달린 **멈춘 세션 전부**(에이전트 줄 클릭·"전부 확인").
-   *
-   * **어느 세션을 걷을지는 서버가 정한다** — 클라는 대상만 가리키고, "그게 지금 멈춰 있는가"는
-   * `listUsageLimitedSubIds` 가 판정한다(§3.1 서버 = SSOT).
-   *
-   * 표식은 체크포인트에 실리므로(§5.5 #17-47 (C) — 앱을 껐다 켜도 참인 사실이라 일부러 살려 둔다)
-   * 걷었으면 **반드시 저장까지 간다**. 저장을 빼면 재기동 때 확인이 없던 일이 된다
-   * (`/api/dismiss-agent` 의 `clearedErrors` 가 같은 이유로 저장 조건에 들어가 있다).
+   * §5.1 #2-1 (B) — IDE 에서 세션을 확인했다(탭 점 초록→회색). body `{ subAgentId }`.
+   * 도는 턴이 없으면 묶음의 이번 턴을 닫는다(버블은 걷지 않는다) — 안 닫으면 확인한 지난 그림이 새 명령의 묶음에 들어온다. 판정은 서버(§3.1).
+   */
+  app.post('/api/agent-turn-ack', (req, res) => {
+    try {
+      const { subAgentId } = (req.body ?? {}) as { subAgentId?: unknown };
+      if (typeof subAgentId !== 'string' || subAgentId.length === 0) {
+        res.status(400).json({ error: 'subAgentId required' });
+        return;
+      }
+      const sub = subAgentManager.getSub(subAgentId);
+      const closed = sub ? graphManager.acknowledgeAgentTurn(sub.parentAgentId) : false;
+      if (closed) {
+        broadcastSnapshot();
+        scheduleCheckpoint();
+      }
+      res.json({ ok: true, closed });
+    } catch (err) {
+      logger.error('POST /api/agent-turn-ack failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/usage-limit-ack — §2.4 한도 정지 표식(주황불)을 사용자가 확인했다.
+   * body `{ subAgentIds?, agentIds? }` — 합집합으로 걷는다. `subAgentIds` = 세션 하나, `agentIds` = 그 버블의 멈춘 세션 전부.
+   * 어느 세션을 걷을지는 서버가 정한다 — "지금 멈춰 있는가"는 `listUsageLimitedSubIds` 가 판정(§3.1).
+   * 표식은 체크포인트에 실리므로(§5.5 #17-47 (C)) 걷었으면 **반드시 저장까지 간다** — 빼면 재기동 때 확인이 없던 일이 된다(`/api/dismiss-agent` 의 `clearedErrors` 와 같은 이유).
    */
   app.post('/api/usage-limit-ack', (req, res) => {
     try {
@@ -7630,13 +7268,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.3 #9-1 (P)(b) — 조용한 압축이 도는 동안 **실행 중으로 보이던** 명령을 [중지]가 봉합한다.
-   *
-   * 큐의 사실은 `queued`(아직 CLI 에 안 나갔다)지만, 사용자에게 이 명령은 넣은 순간부터 도는 턴이었다
-   * (`displayCommands` 가 실행 중으로 그렸다 — 가려내는 규칙은 같은 `silentPreCompactHeirs`). 다른 대기
-   * 명령처럼 버리면 말풍선이 통째로 사라져 "보낸 글이 증발했다"가 되므로, 실행 중에 멈춘 명령과 똑같이
-   * `[Stopped by user]` 로 대화에 남긴다. 자리는 실행 중으로 그려지던 그 자리(압축이 나간 시각)다.
-   * 위임 장부는 호출자가 종전대로 "나가기 전 취소"로 내린다 — 실제로 CLI 에 닿은 적이 없다.
+   * §5.3 #9-1 (P)(b) — 조용한 압축이 도는 동안 실행 중으로 보이던 명령을 [중지]가 봉합한다.
+   * 큐의 사실은 `queued` 지만 화면은 실행 중으로 그렸다(`displayCommands`, 가려내는 규칙은 같은 `silentPreCompactHeirs`) — 다른 대기 명령처럼 버리면 말풍선이 통째로 사라지므로 `[Stopped by user]` 로 대화에 남긴다. 자리는 압축이 나간 시각.
+   * 위임 장부는 호출자가 "나가기 전 취소"로 내린다 — CLI 에 닿은 적이 없다.
    */
   function sealStoppedHeir(c: QueuedCommand, silentStartedAt: number | undefined): QueuedCommand {
     c.status = 'completed';
@@ -7647,27 +7281,16 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §5.5 #17-10 v3.53 — POST /api/subagents/:agentId/:subId/stop-session — **세션 스코프 전체 중지**.
-   *
-   * v3.51 의 `stop-all` 은 [중지] 를 에이전트 단위로 올려, 지금 보고 있지도 않은 **다른 세션 탭까지**
-   * 함께 끊었다("이 세션만 멈추라는 건데 왜 다른 세션까지 죽냐"). 이 라우트는 stop-all 의 3단을
-   * **열려 있는 그 세션 하나에만** 적용한다:
-   *   1) 이 세션의 반복 루프를 끄고, 이 세션의 `queued` 명령만 폐기 — 중지 직후 **이 세션의** 다음
-   *      명령이 자동 dispatch 되지 않게. 다른 세션의 큐는 그대로 둔다(그 탭은 계속 돌아야 한다).
-   *   2) `subAgentManager.stop(subId)` — 그 탭의 자식 프로세스 트리 / agent-view worker 만 종료
-   *      + 그 세션이 띄운 백그라운드 서브에이전트 대차대조만 해제(§5.5 #17-10 ②).
-   *   3) 살아있는 자식 없이 `executing` 에 굳어 있던 **이 세션의** 명령만 `[Stopped by user]` 봉합.
-   * 1) 이 2) 보다 **먼저**인 이유(§5.5 #17-18): `stop()` 은 그 턴을 그 자리에서 마감하고, 그 마감이
-   *   부르는 `onComplete` 가 곧바로 다음 차례를 집는다. 큐·루프가 남아 있으면 그 한 번에 이 세션의 다음
-   *   명령이 나가거나(죽어 가는 자식 때문에 큐로 되돌아왔다가 나중에 저절로 실행된다) 루프가 다음 회차를
-   *   밀어 넣는다 — "멈췄는데 조금 뒤 뭔가 저절로 돈다"가 된다.
-   * 실행 중인 게 없어도 200 (멱등) — 사용자가 두 번 눌러도 에러 카드가 뜨지 않게.
+   * §5.5 #17-10 — POST /api/subagents/:agentId/:subId/stop-session — 열려 있는 그 세션 하나만 중지한다(`stop-all` 은 다른 세션 탭까지 끊는다).
+   *   1) 이 세션의 반복 루프를 끄고 이 세션의 `queued` 명령만 폐기. 2) `subAgentManager.stop(subId)` — 그 탭의 자식 프로세스 트리 / agent-view worker 종료 + 백그라운드 서브에이전트 대차대조 해제.
+   *   3) 살아있는 자식 없이 `executing` 에 굳은 이 세션의 명령만 `[Stopped by user]` 봉합.
+   * 1) 이 2) 보다 먼저다(§5.5 #17-18): `stop()` 마감이 부르는 `onComplete` 가 곧바로 다음 차례를 집으므로, 큐·루프가 남아 있으면 멈춘 뒤 다음 명령이나 루프 회차가 저절로 돈다.
+   * 실행 중인 게 없어도 200(멱등) — 두 번 눌러도 에러 카드가 뜨지 않게.
    */
   app.post('/api/subagents/:agentId/:subId/stop-session', subAgentOwnerGuard((id) => subAgentManager.getSub(id)), (req, res) => {
     const { agentId, subId } = req.params;
     cancelOrchestraForSession(agentId, subId);
-    // §5.5 #17-11 v3.79 — 이 세션의 반복 루프도 함께 끈다. 안 끄면 중지 직후 루프가 다음 회차를
-    //   다시 밀어 넣어 §5.5 #17-10 이 고친 "눌러도 안 멈춘다"가 그대로 재발한다.
+    // §5.5 #17-11 — 이 세션의 반복 루프도 함께 끈다. 안 끄면 중지 직후 루프가 다음 회차를 밀어 넣어 "눌러도 안 멈춘다"가 재발한다.
     const loopStopped = stopSessionLoop(subId, 'stopped');
 
     let cancelledQueued = 0;
@@ -7741,28 +7364,10 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.5 #17-9 v3.51 — POST /api/subagents/:agentId/stop-all — **에이전트 전체 중지**.
-   *
-   * 세션 1개만 끊던 위 `/stop` 으로는 (a) 다른 탭의 실행, (b) 감독관이 백단에 띄운 Task 서브에이전트,
-   * (c) 큐에 남아 곧바로 dispatch 될 `queued` 명령이 계속 살아 "Stop 을 눌러도 안 멈추는" 것처럼 보였다.
-   * 이 라우트는 셋을 한 번에 끊는다(순서도 이대로 — 큐가 프로세스보다 먼저다, §5.5 #17-18):
-   *   1) 이 에이전트 세션 큐의 `queued` 전량 폐기(루프도 함께 끔) — 중지 직후 다음 명령이 자동으로 튀어나오지 않게.
-   *   2) `subAgentManager.stopAll` — 모든 탭의 자식 프로세스 트리 / agent-view worker 종료
-   *      + 백그라운드 서브에이전트 대차대조(§5.3 #12-1 v3.43) 해제.
-   *   3) 살아있는 자식 없이 `executing` 에 걸려 있던 명령은 `[Stopped by user]` 로 봉합 + sub idle 복귀
-   *      (자식이 있는 건은 건드리지 않는다 — close 핸들러가 정상 경로로 마무리).
-   * 실행 중인 게 없어도 200 (멱등) — 사용자가 두 번 눌러도 에러 카드가 뜨지 않게.
-   *
-   * §5.5 #17-10 v3.53 — 이제 이 라우트는 **스코프를 좁힐 세션이 없는 메인 탭 전용**이다.
-   * 세션 탭이 열려 있을 때의 [중지] 는 위 `/:subId/stop-session` 으로 간다(다른 탭 보호).
-   */
-  /**
-   * 위 3단 중지의 **몸통** — 에이전트 하나에 적용한다.
-   *
-   * `POST /api/subagents/:agentId/stop-all` 과 §5.4 #14-3 프로젝트 탭 닫기 확인 팝업의 [닫기] 가
-   * 같은 함수를 쓴다. 두 벌로 나뉘면 한쪽만 고쳐져 "[중지]로 멈춘 것과 탭을 닫아 멈춘 것이 다르다"가
-   * 된다(§2.1 셸 토크나이저 한 벌과 같은 규율). broadcast·저장은 **호출자가** 한 번만 한다 —
-   * 프로젝트 단위로 수십 개를 돌 때 에이전트마다 스냅샷을 뿌리면 그 자체가 부하다.
+   * 에이전트 하나의 3단 중지 — 순서도 이대로(큐가 프로세스보다 먼저, §5.5 #17-18): ① 세션 큐의 `queued` 전량 폐기(루프도 끔 — 다음 명령이 튀어나오지 않게)
+   * ② `subAgentManager.stopAll` — 모든 탭의 자식 트리·agent-view worker 종료 + 백그라운드 서브에이전트 대차대조(§5.3 #12-1) 해제
+   * ③ 자식 없이 `executing` 에 걸린 명령은 `[Stopped by user]` 봉합 + sub idle(자식이 있으면 close 핸들러가 마무리).
+   * `stop-all` 과 §5.4 #14-3 프로젝트 탭 [닫기]가 함께 쓴다 — 두 벌이면 한쪽만 고쳐진다. broadcast·저장은 호출자가 한 번만(수십 개를 돌 때의 부하).
    */
   function stopAllSessionsForAgent(agentId: string): {
     stopped: number;
@@ -7771,10 +7376,8 @@ export async function runServer(): Promise<RunServerHandle> {
     loopsStopped: number;
   } {
     cancelOrchestraForSession(agentId);
-    // §5.5 #17-11 v3.79 — 이 에이전트의 모든 세션 루프도 함께 끈다(전체 중지의 의미 그대로).
-    // §5.5 #17-18 — 루프와 큐를 **프로세스보다 먼저** 비운다. `stopAll` 은 탭마다 그 턴을 그 자리에서
-    //   마감하고, 그 마감의 `onComplete` 가 곧바로 다음 차례를 집는다 — 큐가 남아 있으면 아직 멈추지 않은
-    //   다른 탭으로 명령이 나가거나, 이미 멈춘 탭의 명령이 큐로 되돌아왔다가 나중에 저절로 실행된다.
+    // §5.5 #17-11 — 이 에이전트의 모든 세션 루프도 함께 끈다.
+    // §5.5 #17-18 — 루프와 큐를 프로세스보다 먼저 비운다. `stopAll` 마감의 `onComplete` 가 곧바로 다음 차례를 집으므로, 큐가 남아 있으면 아직 안 멈춘 탭으로 명령이 나가거나 멈춘 탭의 명령이 큐로 돌아왔다가 저절로 실행된다.
     const loopsStopped = stopSessionLoopsForAgent(agentId);
 
     let cancelledQueued = 0;
@@ -7840,6 +7443,10 @@ export async function runServer(): Promise<RunServerHandle> {
     return { stopped: stopped.length, cancelledQueued, sealedExecuting, loopsStopped };
   }
 
+  /**
+   * §5.5 #17-9 — 에이전트 전체 중지. 메인 탭 전용 — 세션 탭이 열려 있으면 `/:subId/stop-session` 으로 간다(§5.5 #17-10, 다른 탭 보호).
+   * 실행 중인 게 없어도 200(멱등).
+   */
   app.post('/api/subagents/:agentId/stop-all', (req, res) => {
     const { agentId } = req.params;
     const r = stopAllSessionsForAgent(agentId);
@@ -7853,14 +7460,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.4 #14-3 — POST /api/projects/:name/stop-agents — **탭 하나(또는 전체)의 에이전트를 멈춘다.**
-   *
-   * 프로젝트 탭 × 확인 팝업의 [닫기] 가 부르는 자리다. 클라가 에이전트 목록을 만들어 하나씩 부르지
-   * 않는 이유는 §3.1(서버 = SSOT) 이다 — 배경 탭의 에이전트 버블은 클라 스냅샷에 안 실려 오는
-   * 경우가 있어(§9 스코프드 구독) 클라가 세면 "멈출 게 없다"가 되고, 정작 프로세스는 살아남는다.
-   *
-   * body `{ scope: 'project' | 'all' }` — `'all'` 이면 팝업의 **모든 에이전트 강제 종료** 옵션이라
-   * 열려 있는 모든 인스턴스를 훑는다. 도는 게 없어도 200(멱등) — 두 번 눌러도 에러가 뜨지 않게.
+   * §5.4 #14-3 — POST /api/projects/:name/stop-agents — 탭 하나(또는 전체)의 에이전트를 멈춘다(프로젝트 탭 × 확인 팝업의 [닫기]).
+   * 목록은 서버가 만든다(§3.1) — 배경 탭의 버블은 클라 스냅샷에 안 실려 올 수 있어(§9 스코프드 구독) 클라가 세면 프로세스가 살아남는다.
+   * body `{ scope: 'project' | 'all' }` — `'all'` 은 열린 모든 인스턴스를 훑는다. 도는 게 없어도 200(멱등).
    */
   app.post('/api/projects/:name/stop-agents', (req, res) => {
     try {
@@ -7894,11 +7496,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * DELETE /api/subagents/:agentId/running-task/:taskId — 실행 중 목록에서 **그 항목 하나만** 내린다.
-   *
-   * 종전에는 자식 하나가 응답 없이 매달리면 손쓸 방법이 **세션/에이전트 전체 중지**뿐이라 멀쩡한
-   * 형제 작업까지 함께 죽여야 했다. 이 라우트는 우리 장부에서만 내린다 — 프로세스를 끊지 않는다
-   * (개별 자식을 끊는 것은 그 자식을 띄운 에이전트가 `TaskStop` 으로 한다).
+   * DELETE /api/subagents/:agentId/running-task/:taskId — 실행 중 목록에서 그 항목 하나만 내린다(매달린 자식 하나 때문에 형제 작업까지 죽이지 않게).
+   * 우리 장부에서만 내린다 — 프로세스는 끊지 않는다(개별 자식은 그 자식을 띄운 에이전트가 `TaskStop` 으로 끊는다).
    */
   app.delete('/api/subagents/:agentId/running-task/:taskId', (req, res) => {
     const { agentId, taskId } = req.params;
@@ -7935,12 +7534,12 @@ export async function runServer(): Promise<RunServerHandle> {
       res.status(404).json({ ok: false, error: 'sub not found' });
       return;
     }
-    // §5.5 #17-11 v3.79 — 탭이 사라지면 그 탭의 루프도 사라진다(좀비 루프 차단).
+    // §5.5 #17-11 — 탭이 사라지면 그 탭의 루프도 사라진다(좀비 루프 차단).
     clearSessionLoopTimer(subId);
     graphManager.deleteSessionLoop(subId);
-    // §5.5 #17-17 v4.46 — 목표도 같은 수명(탭이 없으면 향할 세션도 없다).
+    // §5.5 #17-17 — 목표도 같은 수명(탭이 없으면 향할 세션도 없다).
     graphManager.deleteSessionGoal(subId);
-    // §5.5 #17-28 v4.96 — 그 탭에만 걸어 둔 주입원 오버라이드도 함께(좀비 설정 차단 — 같은 규칙).
+    // §5.5 #17-28 — 그 탭에만 걸어 둔 주입원 오버라이드도 함께(좀비 설정 차단).
     graphManager.deleteContextOverridesForSession(subId);
     // §5.11 정독 게이트 — 읽기 영수증 원장도 같은 수명이다. 남겨 두면 없는 탭의 정독 숫자가
     //   활동바·정독 뷰에 계속 뜬다(닫은 탭의 좀비 상태 — 루프·목표와 같은 규칙).
@@ -7950,11 +7549,10 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true });
   });
 
-  /** POST /api/subagents/:agentId/remove-bulk — 여러 탭을 한 번에 닫기
-   *  (컨텍스트 메뉴 "다른 탭 닫기 / 오른쪽 닫기 / 모두 닫기").
-   *  N개를 개별 DELETE 로 닫으면 매 요청마다 broadcastSnapshot + saveCheckpoint(전체 직렬화 +
-   *  worktree prune)가 돌아 "닫닫 닫" 하며 한 개씩 느리게 닫히는 체감을 만든다. 한 요청으로 모두
-   *  제거한 뒤 broadcast/checkpoint 는 1회만 수행한다. */
+  /**
+   * POST /api/subagents/:agentId/remove-bulk — 여러 탭을 한 번에 닫기(다른 탭 / 오른쪽 / 모두 닫기).
+   * 개별 DELETE N번이면 요청마다 broadcastSnapshot + saveCheckpoint(전체 직렬화 + worktree prune)가 돌아 한 개씩 느리게 닫힌다 — 모두 제거한 뒤 1회만 한다.
+   */
   app.post('/api/subagents/:agentId/remove-bulk', (req, res) => {
     const body = req.body as { ids?: unknown } | undefined;
     const ids = Array.isArray(body?.ids)
@@ -7974,12 +7572,12 @@ export async function runServer(): Promise<RunServerHandle> {
     for (const id of ids) {
       if (!subAgentManager.remove(id)) continue;
       removed++;
-      // §5.5 #17-11 v3.79 — 닫은 탭의 루프 동반 삭제(개별 DELETE 경로와 동일).
+      // §5.5 #17-11 — 닫은 탭의 루프 동반 삭제(개별 DELETE 경로와 같다).
       clearSessionLoopTimer(id);
       graphManager.deleteSessionLoop(id);
-      // §5.5 #17-17 v4.46 — 목표도 동반 삭제.
+      // §5.5 #17-17 — 목표도 동반 삭제.
       graphManager.deleteSessionGoal(id);
-      // §5.5 #17-28 v4.96 — 세션 층 오버라이드도 동반 삭제.
+      // §5.5 #17-28 — 세션 층 오버라이드도 동반 삭제.
       graphManager.deleteContextOverridesForSession(id);
       // §5.11 정독 게이트 — 원장도 동반 삭제(개별 DELETE 경로와 같은 규칙).
       specReadingService.forget(id);
@@ -8096,11 +7694,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * GET /api/subagent-streams/:agentId/:subId — **한 세션의 깊은 복원분** (§5.5 v4.92).
-   *
-   * 위 전체 조회는 에이전트의 모든 세션을 한 번에 싣기 때문에 세션마다 얕게 준다(그 중 9할은
-   * 클라가 비활성 상한으로 곧장 깎는다). 사용자가 실제로 열어 보는 세션만 이 경로로 상한
-   * 전체(`MAX_STREAM_BUFFER`)를 받아, 오래된 대화가 "말풍선과 카드만 남고" 비지 않게 한다.
+   * GET /api/subagent-streams/:agentId/:subId — 한 세션의 깊은 복원분(§5.5).
+   * 전체 조회는 세션마다 얕게 준다 — 실제로 여는 세션만 여기서 `MAX_STREAM_BUFFER` 전체를 받아, 오래된 대화가 말풍선과 카드만 남지 않게 한다.
    */
   app.get('/api/subagent-streams/:agentId/:subId', (req, res) => {
     const { agentId, subId } = req.params;
@@ -8110,11 +7705,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * GET /api/subagent-streams/:agentId/:subId/older?beforeId=&beforeTs=&limit= — §5.5 #17-12 복원 창 **위쪽** 한 쪽.
-   *
-   * 깊은 복원분(마지막 `MAX_STREAM_BUFFER` 건)보다 오래된 대화는 종전엔 받아 올 길이 없어, 긴 대화를 다시
-   * 열면 앞 턴들이 말풍선과 저장된 마지막 답만 남았다. 사용자가 그 경계 가까이 올라왔을 때만 클라가 부른다
-   * (IDE 여는 비용은 그대로). 컴팩션으로 보관 파일에 옮겨진 앞부분까지 거슬러 읽는다.
+   * GET /api/subagent-streams/:agentId/:subId/older?beforeId=&beforeTs=&limit= — §5.5 #17-12 복원 창 위쪽 한 쪽.
+   * 깊은 복원분(마지막 `MAX_STREAM_BUFFER` 건)보다 오래된 대화. 사용자가 그 경계 가까이 올라왔을 때만 클라가 부른다(IDE 여는 비용은 그대로).
+   * 컴팩션으로 보관 파일에 옮겨진 앞부분까지 거슬러 읽는다.
    */
   app.get('/api/subagent-streams/:agentId/:subId/older', (req, res) => {
     const { agentId, subId } = req.params;
@@ -8131,15 +7724,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * GET /api/codex-image/:agentId/:subId/:eventId — §5.25 (O) 엔진이 대화에 내건 그림 한 장.
-   *
-   * **클라가 준 경로를 열지 않는다.** 여는 파일은 오직 **우리 스트림이 스스로 적어 둔 것**이다 —
-   * 이벤트 id 로 그 세션의 스트림을 되짚어 거기 적힌 `imagePath` 만 연다. 그래서 이 문으로는
-   * 코덱스가 그 대화에서 실제로 보여 준 그림 말고는 아무것도 나오지 않는다(경로를 인자로 받으면
-   * 그 순간 이 라우트는 "아무 파일이나 읽어 주는 문"이 된다 — 시연 프레임 라우트가 `rel` 을
-   * 레코드와 대조하는 것과 같은 규율).
-   *
-   * 스트림은 디스크에 남고 `getStreamBuffer` 가 그것을 되읽으므로, **서버를 껐다 켜도** 옛 대화의
-   * 그림이 그대로 뜬다(따로 등록부를 두면 그 등록부만 사라지는 날이 온다).
+   * **클라가 준 경로를 열지 않는다** — 이벤트 id 로 그 세션 스트림을 되짚어 거기 적힌 `imagePath` 만 연다(경로를 인자로 받으면 아무 파일이나 읽어 주는 문이 된다 — 시연 프레임 라우트의 `rel` 대조와 같은 규율).
+   * 스트림은 디스크에 남아 `getStreamBuffer` 가 되읽으므로 재기동 뒤에도 옛 그림이 뜬다(따로 등록부를 두지 않는다).
    */
   app.get('/api/codex-image/:agentId/:subId/:eventId', (req, res) => {
     const { agentId, subId, eventId } = req.params;
@@ -8185,11 +7771,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   // ─── Skills Discovery ───
 
-  /**
-   * §5.5 #17-2/#17-4 — 목록 한 줄. 정의는 `@vibisual/shared` 의 `AvailableSkill` 하나이고
-   * (#17-33 ⑦ 에서 `installed`/`enabled`/`pluginId` 가 붙었다) 여기서는 별칭만 둔다 —
-   * 서버와 화면이 각자 모양을 들면 새 칸이 한쪽에만 생겨 조용히 어긋난다.
-   */
+  /** §5.5 #17-2/#17-4 — 목록 한 줄. 정의는 `@vibisual/shared` 의 `AvailableSkill` 하나이고 여기서는 별칭만 둔다 — 서버와 화면이 각자 모양을 들면 새 칸이 한쪽에만 생겨 조용히 어긋난다. */
   type SkillInfo = AvailableSkill;
 
   /** SKILL.md frontmatter에서 name/description 파싱 */
@@ -8280,20 +7862,13 @@ export async function runServer(): Promise<RunServerHandle> {
     return results;
   }
 
-  // ─── §5.5 #17-33 ⑦ — "이 플러그인 스킬이 실제로 실리는가" 판정 ───
-  //
-  // 종전 목록은 `~/.claude/plugins/marketplaces/**` 폴더를 그대로 훑어 **깔지도 켜지도 않은
-  // 스킬까지** plugin 그룹에 실었다. 고르면 프롬프트 앞에 `/이름` 이 붙어 나가지만(`skillsPrefix`)
-  // CLI 는 그 슬래시를 풀지 못한다 — 화면은 "있다" 고 하고 실제로는 안 먹는 자리였다.
-  // #17-33 ② 가 세운 "진실은 CLI 자신의 답" 을 이 목록도 따르게 한다.
+  // §5.5 #17-33 ⑦ — "이 플러그인 스킬이 실제로 실리는가" 판정.
+  // 안 깔리거나 꺼진 스킬을 고르면 프롬프트에 `/이름` 이 붙어 나가도(`skillsPrefix`) CLI 가 풀지 못한다 — 이 목록도 #17-33 ② 대로 CLI 자신의 답을 따른다.
 
   /**
    * 플러그인 설치·활성 상태 메모.
-   *
-   * `/api/claude-plugins`(플러그인 창) 은 ② 대로 **캐시 없이** 매번 CLI 에 다시 묻는다 — 그 화면의
-   * 새로고침이 곧 그 호출이기 때문이다. 반면 이 목록은 IDE 를 열 때마다, 세션 입력창을 띄울 때마다
-   * 불리므로 그때마다 461ms 짜리 스폰을 태울 수 없다. **소비자가 다르면 계약도 다르다** — 여기서만
-   * 짧게 들고, 플러그인을 바꾸는 아홉 동작과 자동 갱신이 끝날 때 **한 곳에서** 버린다.
+   * `/api/claude-plugins`(플러그인 창)는 캐시 없이 매번 CLI 에 묻지만, 이 목록은 IDE·세션 입력창을 띄울 때마다 불려 그때마다 461ms 짜리 스폰을 태울 수 없다.
+   * 그래서 여기서만 짧게 들고, 플러그인을 바꾸는 아홉 동작과 자동 갱신이 끝날 때 한 곳에서 버린다.
    */
   const pluginStateCache = new Map<string, { at: number; inv: ClaudePluginInventory }>();
   const PLUGIN_STATE_TTL_MS = 60_000;
@@ -8325,11 +7900,7 @@ export async function runServer(): Promise<RunServerHandle> {
     return st.enabled ? 2 : 1;
   }
 
-  /**
-   * 플러그인 이름 → 이 세션에서의 상태. CLI 에 못 물었으면 `null` 을 돌려주고, 그때는
-   * **아무 표식도 달지 않는다** — "안 깔렸다" 고 잘못 적어 멀쩡한 스킬에 설치 단추를 붙이는 것이
-   * 목록이 잠깐 비는 것보다 나쁘다.
-   */
+  /** 플러그인 이름 → 이 세션에서의 상태. CLI 에 못 물었으면 `null` 이고 그때는 아무 표식도 달지 않는다 — "안 깔렸다"고 잘못 적어 멀쩡한 스킬에 설치 단추를 붙이는 것이 목록이 잠깐 비는 것보다 나쁘다. */
   async function pluginSkillStatus(
     projectPath: string | null,
   ): Promise<Map<string, SkillPluginStatus> | null> {
@@ -8363,10 +7934,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * GET /api/available-skills — 프로젝트 + 설치 플러그인 스킬 목록.
-   * §5.5 #17-2/#17-4 v2.59 — `?agent=<id>`(권위) 또는 `?project=<name>` 지정 시 그 프로젝트의
-   * `.claude/skills/` + `.claude/commands/`(Claude Code 슬래시 커맨드) 를 프로젝트 스킬로 반환.
-   * 미지정 시 전 프로젝트 병합(하위 호환 fallback).
-   * plugin 스킬은 `~/.claude/plugins` 전역이라 project 와 무관하게 항상 동일.
+   * §5.5 #17-2/#17-4 — `?agent=<id>`(권위) 또는 `?project=<name>` 이면 그 프로젝트의 `.claude/skills/` + `.claude/commands/` 를 프로젝트 스킬로, 미지정이면 전 프로젝트 병합.
+   * plugin 스킬은 `~/.claude/plugins` 전역이라 project 와 무관하다.
    */
   mountSkillSharingRoutes(app, {
     service: new SkillSharingService(),
@@ -8380,11 +7949,8 @@ export async function runServer(): Promise<RunServerHandle> {
       const skills: SkillInfo[] = [];
       const seen = new Set<string>();
 
-      // 1) 프로젝트 스킬 — 스캔할 프로젝트 경로 결정.
-      //    우선순위: agent(권위) → project(표시명/path 해소) → 미지정 시 전 프로젝트.
-      //    v2.59 클라는 스냅샷의 전역 유일 표시명을 보내는데, 활성 프로젝트 오염·이름 충돌·
-      //    미해소로 어긋날 수 있다. agentId 가 있으면 그 에이전트의 소속 인스턴스(=cwd 기준
-      //    실제 프로젝트)에서 path 를 직접 얻어 "그 프로젝트의 .claude/skills" 만 정확히 읽는다.
+      // 1) 프로젝트 스킬 — 스캔할 경로: agent(권위) → project(표시명/path 해소) → 미지정 시 전 프로젝트.
+      //    표시명은 활성 프로젝트 오염·이름 충돌·미해소로 어긋날 수 있어, agentId 가 있으면 그 에이전트의 소속 인스턴스에서 path 를 직접 얻는다.
       const agentParam = typeof req.query.agent === 'string' ? req.query.agent : '';
       const projectParam = typeof req.query.project === 'string' ? req.query.project : '';
       const scoped = agentParam || projectParam;
@@ -8422,13 +7988,8 @@ export async function runServer(): Promise<RunServerHandle> {
       }
       logger.info(`[skills] agent="${agentParam}" project="${projectParam}" → path=${scopedPath ?? 'null'} dirs=${projectDirs.length} projectSkills=${projectSkillCount} globalSkills=${skills.length - projectSkillCount}`);
 
-      // 2) 설치된 플러그인 스킬: ~/.claude/plugins/marketplaces/*/
-      //
-      // 카탈로그(무엇이 있는가)는 여전히 이 폴더에서 읽는다 — 마켓 클론은 스킬 본문을 들고 있는
-      // 유일한 자리이고, 여기서 읽는 것은 파일일 뿐이라 값이 싸다. **바뀐 것은 그 다음이다**:
-      // 읽은 항목마다 #17-33 ⑦ 의 판정(`pluginSkillStatus`)을 붙여 **깔렸는지·켜졌는지**를 함께
-      // 싣는다. 종전에는 이 표식이 없어, 안 깔린 스킬을 고르면 프롬프트에 `/이름` 만 붙고
-      // CLI 는 그것을 풀지 못한 채 평문으로 흘려보냈다.
+      // 2) 설치된 플러그인 스킬: `~/.claude/plugins/marketplaces/` 아래 각 마켓.
+      // 카탈로그는 이 폴더에서 읽는다(스킬 본문이 있는 유일한 자리, 파일 읽기라 싸다). 항목마다 #17-33 ⑦ 판정(`pluginSkillStatus`)으로 깔렸는지·켜졌는지를 싣는다 — 없으면 안 깔린 스킬의 `/이름` 이 CLI 에서 평문으로 흘러간다.
       const pluginsBase = path.join(os.homedir(), '.claude', 'plugins', 'marketplaces');
       const pluginStatus = await pluginSkillStatus(scopedPath);
       /** 카탈로그 한 줄에 이 세션에서의 상태를 새긴다. CLI 에 못 물었으면 아무 표식도 안 단다. */
@@ -8475,12 +8036,9 @@ export async function runServer(): Promise<RunServerHandle> {
       } catch { /* ignore */ }
 
       /*
-       * §5.5 #17-2 (보강) — **이 프로젝트에서 슬래시가 꺼져 있는가.**
-       *
-       * 꺼져 있으면 스폰마다 `--disable-slash-commands` 가 붙어 아래 `skills`·`builtins` 가
-       * **전부** 거절된다(내장 명령도 — 실측 2.1.263). 드롭다운은 그 축을 아예 몰라 죽은 목록을
-       * 멀쩡히 그렸다. 판정은 주입원 표를 그리는 그 함수 그대로다(두 벌이 되면 화면과 실제가 갈린다).
-       * 목록을 **걸러내지는 않는다** — 무엇이 있었는지는 그대로 보이고, 안 된다는 사실만 더한다.
+       * §5.5 #17-2 (보강) — 이 프로젝트에서 슬래시가 꺼져 있는가.
+       * 꺼져 있으면 스폰마다 `--disable-slash-commands` 가 붙어 `skills`·`builtins` 가 전부 거절된다(내장 명령도 — 실측 2.1.263).
+       * 판정은 주입원 표를 그리는 그 함수 그대로다(두 벌이면 화면과 실제가 갈린다). 목록은 거르지 않고 안 된다는 사실만 더한다.
        */
       const slashProjectKey = agentParam
         ? graphManager.getAgentProjectName(agentParam)
@@ -8492,8 +8050,7 @@ export async function runServer(): Promise<RunServerHandle> {
         true,
       );
 
-      // §5.5 #17-2 v3.19 — CLI 내장 슬래시 명령은 별도 배열로. skills 에 섞지 않아
-      // Skills 사이드바(#17-4)는 불변, `/` 자동완성 드롭다운만 병행 표시한다.
+      // §5.5 #17-2 — CLI 내장 슬래시 명령은 별도 배열로. skills 에 섞지 않아 Skills 사이드바(#17-4)는 그대로, `/` 자동완성 드롭다운에만 함께 보인다.
       res.json({
         ok: true,
         skills,
@@ -8554,11 +8111,9 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  // ─── §5.5 #17-4 — 스킬을 다른 프로젝트로 복사 ───
-  //
-  // 목록을 만든 스캐너(scanSkillsDir / scanCommandsDir)와 **같은 규칙**으로 원본을 되찾는다 —
-  // 화면에 보이는 항목은 전부 복사할 수 있어야 하기 때문. 스킬은 폴더 통째(보조 파일·하위 폴더 포함),
-  // 슬래시 커맨드는 `.md` 파일 1개가 단위다.
+  // §5.5 #17-4 — 스킬을 다른 프로젝트로 복사.
+  // 목록을 만든 스캐너(scanSkillsDir / scanCommandsDir)와 같은 규칙으로 원본을 되찾는다 — 화면의 항목은 전부 복사할 수 있어야 한다.
+  // 단위: 스킬은 폴더 통째(보조 파일·하위 폴더 포함), 슬래시 커맨드는 `.md` 파일 1개.
 
   /** 대상 목록에서 "전역(모든 프로젝트)" 을 가리키는 예약 ref — 클라와 공유하는 약속 값. */
   const SKILL_COPY_GLOBAL_TARGET = 'global';
@@ -8740,7 +8295,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** §5.5 #17-4 v2.93 — PUT /api/skill-favorites — SkillsView 즐겨찾기 목록 전체 치환(클라가 별 누른 순서대로 전송). */
+  /** §5.5 #17-4 — PUT /api/skill-favorites — SkillsView 즐겨찾기 목록 전체 치환(별 누른 순서대로). */
   app.put('/api/skill-favorites', (req, res) => {
     try {
       const { favorites } = req.body as { favorites?: unknown };
@@ -8776,15 +8331,12 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(400).json({ error: 'config body required' });
         return;
       }
-      // §4 (설정 3층) — **빠진 칸의 기준선.** 이 핸들러는 body 로 config 한 벌을 새로 짓는데,
-      //   종전에는 없는 칸을 `'sonnet'`·`'default'`·`[]` 같은 상수로 메웠다. 그래서 이 창을 모르는
-      //   경로(루프백 빌더처럼 일부만 보내는 곳)가 저장하면 모델이 조용히 강등되고 도구가 비었다.
-      //   기준선은 상수가 아니라 **그 에이전트의 지금 값**(없으면 설정 창 기본값)이어야 한다.
+      // §4 (설정 3층) — 빠진 칸의 기준선은 상수가 아니라 그 에이전트의 지금 값(없으면 설정 창 기본값)이다.
+      //   상수(`'sonnet'`·`'default'`·`[]`)로 메우면 일부만 보내는 경로(루프백 빌더)가 저장할 때 모델이 조용히 강등되고 도구가 빈다.
       const base = graphManager.getAgentConfig(agentId) ?? resolveAgentDefaults(userDefaultsService.get());
-      // v1.37 — Bash 자동 포함 제거: 툴 구성은 사용자 책임.
-      //         Bash 를 제거하면 dispatch curl 경로가 동작 안 할 수 있음 — 사용자가 인지하고 선택.
+      // Bash 를 자동으로 넣지 않는다 — 도구 구성은 사용자 몫. Bash 를 빼면 dispatch curl 경로가 동작하지 않을 수 있다.
       const tools = Array.isArray(body.tools) ? body.tools.filter((t): t is string => typeof t === 'string') : [...base.tools];
-      // §5.3 #28 (K) v1.48 — prev config snapshot (rules diff + customMode 전이 감지용)
+      // §5.3 #28 (K) — 이전 config(rules diff + customMode 전이 감지용).
       const prev = graphManager.getAgentConfig(agentId);
       const prevRules = typeof prev?.rules === 'string' ? prev.rules : '';
       const prevHistory: RulesHistoryEntry[] = Array.isArray(prev?.rulesHistory) ? [...prev.rulesHistory] : [];
@@ -8795,10 +8347,10 @@ export async function runServer(): Promise<RunServerHandle> {
           : undefined;
       const userRules = typeof body.rules === 'string' ? body.rules : '';
 
-      // §5.3 #28 (K) v1.48 — 콘티모드 전이 자동 룰 처리.
-      // (i) → 'conti' 진입: rules 를 CONTI_AGENT_RULES 로 강제 덮어쓰기.
-      // (ii) 'conti' → 그 외: rules 를 빈 문자열로 비움 (자동 복원 ❌, 사용자가 히스토리에서 직접).
-      // (iii) 그 외 변경 없음: 사용자 입력 그대로 보존.
+      // §5.3 #28 (K) — 콘티모드 전이 자동 룰.
+      // (i) → 'conti' 진입: rules 를 CONTI_AGENT_RULES 로 덮어쓴다.
+      // (ii) 'conti' → 그 외: rules 를 비운다(자동 복원 ❌, 사용자가 히스토리에서 직접).
+      // (iii) 그 외: 입력 그대로.
       let nextRules = userRules;
       let autoLabel: 'auto:conti-on' | 'auto:conti-off' | null = null;
       if (incomingCustomMode === 'conti' && prevCustomMode !== 'conti') {
@@ -8809,8 +8361,7 @@ export async function runServer(): Promise<RunServerHandle> {
         autoLabel = 'auto:conti-off';
       }
 
-      // §5.3 #28 (K) v1.48 — rules 가 실제로 변경되었고 prev 가 비어있지 않으면 history push.
-      // 빈 → 빈 또는 동일 본문은 push 하지 않음(노이즈 방지). 라벨: 자동 전이면 auto:*, 아니면 manual.
+      // §5.3 #28 (K) — rules 가 실제로 바뀌었고 prev 가 비어있지 않을 때만 history push(빈→빈·동일 본문은 노이즈). 라벨: 자동 전이면 auto:*, 아니면 manual.
       const nextHistory: RulesHistoryEntry[] = [...prevHistory];
       if (prevRules !== nextRules && prevRules !== '') {
         nextHistory.push({
@@ -8823,12 +8374,9 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       /*
-       * §5.3 #12-1 — **권한 축은 사용자만 올린다.**
-       *
-       * 이 창구는 §3.7 빌더 구축 경로라 loopback 토큰만 있으면 닿고, 그 토큰은 우리가 스폰한
-       * 에이전트의 env·프롬프트에 실려 나간다 — 토큰 보유가 곧 사용자 의사가 아니다. 표식은
-       * desktop main 의 리스너가 재디스패치 직전에 **덮어써서** 심는다(클라가 보낸 같은 이름의
-       * 헤더는 신뢰하지 않는다). 판정 자체는 화면 없이 시험되는 shared 순수 함수 한 곳에 있다.
+       * §5.3 #12-1 — 권한 축은 사용자만 올린다.
+       * 이 창구는 §3.7 빌더 경로라 loopback 토큰만 있으면 닿는데, 그 토큰은 우리가 스폰한 에이전트의 env·프롬프트에 실려 나간다 — 토큰 보유가 사용자 의사가 아니다.
+       * 표식은 desktop main 리스너가 재디스패치 직전에 덮어써 심는다(클라가 보낸 같은 이름의 헤더는 믿지 않는다). 판정은 shared 순수 함수 한 곳.
        */
       const fromLoopback = req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE;
       const guarded = applyIngressPermissionGuard(
@@ -8877,44 +8425,34 @@ export async function runServer(): Promise<RunServerHandle> {
         disallowedTools: guarded.disallowedTools,
         /*
          * §5.3 #12-1-A — 도구별 확인 목록. **여기 없으면 저장할 때마다 사라진다.**
-         *
-         * 이 핸들러는 body 로 `AgentConfig` 한 벌을 새로 짓고 `setAgentConfig` 는 저장분을 병합
-         * 없이 통째로 갈아치운다. 그래서 이 칸이 빠져 있던 동안에는 설정창이 목록을 제대로
-         * 보내도 매 저장마다 조용히 비워졌고, `shouldAskForTool` 은 늘 false 를 냈다 —
-         * 화면에는 "켰는데 안 먹는다"로만 보인다. `PUT → GET` 왕복 회귀가 이 자리를 지킨다.
+         * 이 핸들러는 `AgentConfig` 한 벌을 새로 짓고 `setAgentConfig` 는 병합 없이 통째로 갈아치운다 — 빠지면 매 저장마다 비워져 `shouldAskForTool` 이 늘 false 다. `PUT → GET` 왕복 회귀가 지킨다.
          */
         askTools: guarded.askTools,
         memory: normalizeAgentMemoryScope(body.memory),
-        // §5.3 v4.89 — 서브에이전트 중첩 깊이. 범위를 벗어난 값은 저장하지 않는다(CLI 기본 3층 유지).
+        // §5.3 — 서브에이전트 중첩 깊이. 범위를 벗어난 값은 저장하지 않는다(CLI 기본 3층 유지).
         subagentDepth: normalizeSubagentDepth(body.subagentDepth),
         // §4 (설정 3층) — 빈 규칙을 `undefined` 로 접으면 **위층이 깔아 둔 규칙을 이 버블에서
         //   지울 수 없다**(저장분에 키가 없으면 읽는 순간 위층이 도로 얹힌다). 빈 문자열은
         //   기본값과 대조돼 필요할 때만 남는다.
         rules: nextRules,
         rulesHistory: nextHistory.length > 0 ? nextHistory : undefined,
-        // §5.3 #12-1 v1.87 — permissionPromptMode/permissionPromptAllowPatterns 제거. 권한 축은 permissionMode 단일.
-        // §5.3 #12-1 v1.90 — 60초 무응답 fallback. 'deny' 만 유효, 그 외(기본)는 undefined=allow 로 저장.
+        // §5.3 #12-1 — 권한 축은 permissionMode 하나다.
+        // §5.3 #12-1 — 60초 무응답 fallback 정책. 미설정(undefined)은 allow.
         permissionTimeoutPolicy: body.permissionTimeoutPolicy === 'deny' ? 'deny'
           : body.permissionTimeoutPolicy === 'allow' ? 'allow' : undefined,
-        // §5.3 #28 v1.47 — Custom Mode (conti/review/debug). 그 외는 undefined.
+        // §5.3 #28 — Custom Mode (conti/review/debug). 그 외는 undefined.
         customMode: incomingCustomMode,
-        // §4 v1.53 — 1M 컨텍스트 토글. **기본 1M** (undefined → 1M 적용).
-        //   - '200k' = 명시적 opt-out (저장됨)
-        //   - '1m' = 명시적 opt-in (저장됨, undefined 와 동일 동작)
-        //   - 그 외(undefined 포함) = undefined 저장 = 기본 1M
+        // §4 — 1M 컨텍스트 토글, 기본 1M. '200k' = 명시적 opt-out · '1m' = 명시적 opt-in(undefined 와 같은 동작) · 그 외 = undefined(기본 1M).
         contextWindow: body.contextWindow === '200k' ? '200k' : body.contextWindow === '1m' ? '1m' : undefined,
-        // §4 v1.53 — 프리셋 트레이스 메타. 값 검증은 클라에 위임(자유 문자열).
+        // §4 — 프리셋 트레이스 메타. 값 검증은 클라 몫(자유 문자열).
         presetId: typeof body.presetId === 'string' && body.presetId.trim() ? body.presetId.trim() : undefined,
         /*
-         * §4 v2.38 — 모델 풀ID 핀. **여기 없으면 저장할 때마다 사라진다** — `askTools` 와 같은
-         * 사고이며(이 핸들러는 body 로 한 벌을 새로 짓고 저장은 통째로 갈아치운다), 그동안 설정
-         * 창에서 버전을 박아도 다음 저장 한 번에 alias 로 되돌아갔다. `''` 는 alias=latest 라
-         * 빈 문자열을 그대로 받아야 위층의 핀을 이 버블에서 풀 수 있다.
+         * §4 — 모델 풀ID 핀. **여기 없으면 저장할 때마다 사라진다**(`askTools` 와 같은 이유 — 다음 저장 한 번에 alias 로 되돌아간다).
+         * `''` 는 alias=latest 라 빈 문자열을 그대로 받아야 위층의 핀을 이 버블에서 풀 수 있다.
          */
         modelVersion: typeof body.modelVersion === 'string' ? body.modelVersion.trim() : undefined,
-        // §4 v2.63 — executionMode 는 에이전트 정체성(CMD vs 헤드리스)이라 AgentConfigPopup 이 보내지 않는다.
-        //   PUT 이 config 를 새로 빌드하므로 여기서 prev 값을 명시 보존하지 않으면 설정 저장 시 CMD→커스텀 으로
-        //   되돌아간다(회귀). body 에 명시값이 오면 그걸, 아니면 이전 값을 유지.
+        // §4 — executionMode 는 에이전트 정체성(CMD vs 헤드리스)이라 AgentConfigPopup 이 보내지 않는다.
+        //   PUT 이 config 를 새로 지으므로 body 에 명시값이 없으면 이전 값을 유지한다 — 안 하면 설정 저장 때 CMD→커스텀으로 되돌아간다.
         executionMode:
           body.executionMode === 'interactive-terminal' || body.executionMode === 'headless'
             ? body.executionMode
@@ -8927,26 +8465,17 @@ export async function runServer(): Promise<RunServerHandle> {
         //   규약**이다: body 에 유효값이 오면 그걸, 없으면 이전 값을 유지한다. 이 축을 모르는 창이
         //   저장하는 순간 고른 CLI 가 조용히 claude 로 되돌아가는 것을 막는다.
         cliKind: CMD_CLI_KINDS.some((k) => k.value === body.cliKind) ? (body.cliKind as CmdCliKind) : prev?.cliKind,
-        // §4 v2.88 — API 비용 상한(달러). 양수만 저장, 그 외(0/미설정)는 undefined = 무제한.
-        //   0 = 무제한. 위층이 건 상한을 이 버블에서 푸는 표기라 그대로 받는다(음수만 버린다).
+        // §4 — API 비용 상한(달러). 0 = 무제한 — 위층이 건 상한을 이 버블에서 푸는 표기라 그대로 받는다(음수만 버린다).
         maxBudgetUsd: typeof body.maxBudgetUsd === 'number' && body.maxBudgetUsd >= 0 ? body.maxBudgetUsd : undefined,
-        // §5.5 #17-20 ⑥ v4.74 — MCP 디버그 도구 선택. 알 수 없는 id 는 여기서 걸러 두면
-        //   스폰 인자 조립(`prepareMcpConfig`)이 옛 설정에 흔들리지 않는다. `executionMode` 와
-        //   같은 이유로 **body 에 없으면 이전 값을 유지**한다 — 이 필드를 모르는 창(에이전트
-        //   설정 팝업 구버전)이 저장해도 켜 둔 도구가 조용히 꺼지지 않게.
+        // §5.5 #17-20 ⑥ — MCP 디버그 도구 선택. 알 수 없는 id 는 걸러 스폰 인자 조립(`prepareMcpConfig`)이 옛 설정에 흔들리지 않게 한다.
+        //   `executionMode` 와 같은 이유로 body 에 없으면 이전 값을 유지한다 — 이 필드를 모르는 창이 저장해도 켜 둔 도구가 꺼지지 않게.
         mcpServers: Array.isArray(body.mcpServers)
           ? body.mcpServers.filter((id): id is string => typeof id === 'string' && !!findMcpPreset(id))
           : prev?.mcpServers,
         /*
-         * §4 (설정 3층) — 설치된 CLI 가 받는 옵션들. 값 검증은 여기서 좁게 하고, 실제 인자
-         * 조립은 `buildConfigArgs` 한 곳이다.
-         *
-         * ⚠ **"안 보냈다"와 "비워서 보냈다"를 가른다.** 저장은 `sparsifyAgentConfig` 가 위층
-         * (설정 창 › Agent Defaults)과 대조해 갈라진 칸만 남기는데, 빈 값을 `undefined` 로
-         * 접으면 그 비교에 **아예 오르지 못한다** — 저장분에 키가 없으니 읽는 순간 위층이 도로
-         * 얹히고, 사용자 눈에는 "껐는데 프로젝트 설정을 계속 따라간다"로 보인다. 그래서 키가
-         * **있으면** 그 값을(빈 값 포함) 그대로 받고, **없을 때만** undefined 다 — 키를 일부만
-         * 보내는 경로(루프백 빌더)는 종전대로 위층을 따른다.
+         * §4 (설정 3층) — 설치된 CLI 가 받는 옵션들. 검증은 여기서 좁게, 인자 조립은 `buildConfigArgs` 한 곳.
+         * ⚠ "안 보냈다"와 "비워서 보냈다"를 가른다 — 빈 값을 `undefined` 로 접으면 `sparsifyAgentConfig` 의 위층 대조에 오르지 못해, 읽는 순간 위층이 도로 얹힌다("껐는데 프로젝트 설정을 따라간다").
+         * 키가 있으면 그 값을(빈 값 포함) 그대로, 없을 때만 undefined — 일부만 보내는 경로(루프백 빌더)는 위층을 따른다.
          */
         fallbackModel: typeof body.fallbackModel === 'string' ? body.fallbackModel.trim() : undefined,
         //   `''` 는 목록의 첫 값 = "미설정(위층을 따름)" 이라 유효값이다. 알 수 없는 값만 버린다.
@@ -8972,8 +8501,7 @@ export async function runServer(): Promise<RunServerHandle> {
         promptSuggestions: typeof body.promptSuggestions === 'boolean' ? body.promptSuggestions : undefined,
         /*
          * §4 (CLI 사양 추종) — 훅 생명주기를 스트림에 끼운다(`--include-hook-events`).
-         * **여기 없으면 저장할 때마다 사라진다** — `subAgentManager` 가 실제로 읽어 플래그를
-         * 붙이는 축인데 이 핸들러가 짓지 않아, 켜도 다음 저장 한 번에 도로 꺼졌다.
+         * **여기 없으면 저장할 때마다 사라진다** — `subAgentManager` 가 읽어 플래그를 붙이는 축이다.
          */
         includeHookEvents: typeof body.includeHookEvents === 'boolean' ? body.includeHookEvents : undefined,
         // §4 (CLI 사양 추종) — Bash 타임아웃(ms). 0/범위 밖은 미설정이고, 그 0 이 위층의
@@ -8981,9 +8509,8 @@ export async function runServer(): Promise<RunServerHandle> {
         bashDefaultTimeoutMs: body.bashDefaultTimeoutMs === undefined ? undefined : (normalizeBashTimeoutMs(body.bashDefaultTimeoutMs) ?? 0),
         bashMaxTimeoutMs: body.bashMaxTimeoutMs === undefined ? undefined : (normalizeBashTimeoutMs(body.bashMaxTimeoutMs) ?? 0),
         /*
-         * §5.3 #9-1 (J~M) — 이 에이전트만의 토큰 절약. 숫자 축은 **0 이 "전역을 따른다"** 는
-         * 표기라 그대로 받아 저장한다(범위 클램프는 `buildTokenSaverEnv` 가 env 를 만들 때 건다 —
-         * 판정을 두 곳에 두면 한쪽만 고쳐져 어긋난다).
+         * §5.3 #9-1 (J~M) — 이 에이전트만의 토큰 절약. 숫자 축은 0 이 "전역을 따른다"라 그대로 저장한다.
+         * 범위 클램프는 `buildTokenSaverEnv` 가 env 를 만들 때 한 곳에서 건다 — 두 곳에 두면 한쪽만 고쳐져 어긋난다.
          */
         bashMaxOutputChars: typeof body.bashMaxOutputChars === 'number' ? Math.max(0, Math.floor(body.bashMaxOutputChars)) : undefined,
         mcpMaxOutputTokens: typeof body.mcpMaxOutputTokens === 'number' ? Math.max(0, Math.floor(body.mcpMaxOutputTokens)) : undefined,
@@ -8995,10 +8522,8 @@ export async function runServer(): Promise<RunServerHandle> {
           ? body.betas.filter((b): b is string => typeof b === 'string' && b.trim().length > 0).map((b) => b.trim())
           : undefined,
         /*
-         * §4 (CLI 사양 추종) — 세션 한정 서브에이전트 정의(`--agents`)와 플러그인 폴더
-         * (`--plugin-dir`). 둘 다 **여기 없으면 저장할 때마다 사라졌다**(스폰부는 읽는데 이
-         * 핸들러가 짓지 않았다). 필수 칸이 빈 정의는 서버에서도 한 번 더 접는다 — 반쯤 채운
-         * 채로 나가면 CLI 가 인자 파싱에서 거부해 그 에이전트가 통째로 못 뜬다.
+         * §4 (CLI 사양 추종) — 세션 한정 서브에이전트 정의(`--agents`)와 플러그인 폴더(`--plugin-dir`). 둘 다 여기 없으면 저장할 때마다 사라진다.
+         * 필수 칸이 빈 정의는 서버에서도 접는다 — 반쯤 채운 채 나가면 CLI 가 인자 파싱에서 거부해 에이전트가 통째로 못 뜬다.
          */
         agentDefinitions: Array.isArray(body.agentDefinitions)
           ? (body.agentDefinitions as AgentDefinition[]).filter(
@@ -9011,8 +8536,7 @@ export async function runServer(): Promise<RunServerHandle> {
           ? normalizePluginDirs(body.pluginDirs.filter((d): d is string => typeof d === 'string'))
           : undefined,
       };
-      // §5.3 #28 v1.47 — Custom Mode 는 커스텀 에이전트(customCreated=true) 에만 켤 수 있음.
-      // Hook 에이전트는 사용자가 직접 만든 게 아니라 모드 강제 부착 ❌.
+      // §5.3 #28 — Custom Mode 는 커스텀 에이전트(customCreated=true)에만 켤 수 있다. Hook 에이전트는 사용자가 만든 게 아니라 모드를 붙이지 않는다.
       if (config.customMode) {
         const snap = graphManager.getSnapshot();
         const agent = snap.agents.find((a) => a.id === agentId);
@@ -9022,7 +8546,7 @@ export async function runServer(): Promise<RunServerHandle> {
         }
       }
       graphManager.setAgentConfig(agentId, config);
-      // §5.3 #28 v1.47 — customMode='conti' 최초 활성화 시 빈 conti 1건 자동 생성 (LLM 호출 ❌)
+      // §5.3 #28 — customMode='conti' 최초 활성화 때 빈 conti 1건 자동 생성(LLM 호출 ❌).
       if (config.customMode === 'conti') {
         const existing = graphManager.getContisByAgent(agentId);
         if (existing.length === 0) {
@@ -9041,9 +8565,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.3 #12-1 v1.43 — POST /api/permission-check
-   * PreToolUse 훅이 동기 호출. 해당 세션/subagent 가 Vibisual 관할 + ask 모드면 broker 에 큐잉 후
-   * 사용자 결정을 기다렸다가 `{decision:'allow'|'deny'}` 반환. 그 외는 즉시 allow.
+   * §5.3 #12-1 — POST /api/permission-check
+   * PreToolUse 훅이 동기 호출. 그 세션/subagent 가 우리 관할 + ask 모드면 broker 에 큐잉하고 사용자의 답을 기다려 `{decision:'allow'|'deny'}` 반환. 그 외는 즉시 allow.
    */
   /**
    * §5.3 #12-1-B — 카드를 기다리는 요청 연결이 **답을 받기 전에** 닫히면 울리는 신호.
@@ -9178,9 +8701,8 @@ export async function runServer(): Promise<RunServerHandle> {
           return;
         }
         /*
-         * §5.3 #12-4 (E) ④ — 우리 CMD 터미널의 AI 호출도 같은 검증 정책을 탄다. 훅이 그 터미널 id 를 실어 오면
-         * 그 턴(사람이 친 문장 → Stop)의 범위로 판정한다. 터미널 id 가 없는 세션(사용자 에디터·터미널의 훅
-         * 세션)은 우리 세션이 아니라 막지 않는다(§5.3 #12-1 절대 규칙).
+         * §5.3 #12-4 (E) ④ — 우리 CMD 터미널의 AI 호출도 같은 검증 정책을 탄다. 훅이 터미널 id 를 실어 오면 그 턴(사람이 친 문장 → Stop)의 범위로 판정한다.
+         * 터미널 id 가 없는 세션(사용자 에디터·터미널의 훅 세션)은 막지 않는다(§5.3 #12-1 절대 규칙).
          */
         const cmdSub = typeof body.ownerTermId === 'string' && body.ownerTermId
           ? subAgentManager.findSubByTermId(body.ownerTermId)
@@ -9194,10 +8716,8 @@ export async function runServer(): Promise<RunServerHandle> {
           }
         }
         /*
-         * §5.3 #12-3 — 관할 밖 세션(사용자 에디터·터미널의 훅 세션, 우리 CMD 터미널)도 자물쇠는 지난다.
-         * **우리 팝업은 띄우지 않는다**(#12-1 "훅 버블은 막지 않는다" — 자물쇠만 사용자 지시로 둔 예외다).
-         * 그 엔진 자신의 강제 허락 장치로 돌려준다: 클로드는 `ask`(그 CLI 의 승인 창 — bypass 에서도 뜬다),
-         * 코덱스는 `ask` 를 읽기만 하고 도구를 그대로 실행하므로 거부 + 사유.
+         * §5.3 #12-3 — 관할 밖 세션(사용자 에디터·터미널의 훅 세션, 우리 CMD 터미널)도 자물쇠는 지난다. 우리 팝업은 띄우지 않는다(#12-1 "훅 버블은 막지 않는다"의 예외는 자물쇠뿐).
+         * 그 엔진 자신의 강제 허락 장치로 돌려준다: 클로드는 `ask`(CLI 승인 창 — bypass 에서도 뜬다), 코덱스는 `ask` 를 읽기만 하고 실행하므로 거부 + 사유.
          */
         const lockAnswer = unmanagedLockAnswer(lockHits(), { engine: body.engine, turnId: body.turnId });
         if (lockAnswer) {
@@ -9218,9 +8738,7 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
 
-      // §5.3 #12-1 v1.87 — 권한 승인 팝업은 **커스텀 에이전트 전용**.
-      // 훅으로 생성된 에이전트 버블(사용자의 Claude Code 세션 시각화)은 view-only —
-      // 절대 승인 모달을 띄우지 않는다(이 세션 자신의 도구 호출을 막아선 안 됨).
+      // §5.3 #12-1 — 권한 승인 팝업은 커스텀 에이전트 전용. 훅으로 생긴 버블(사용자의 Claude Code 세션 시각화)은 view-only — 승인 모달을 띄우지 않는다(그 세션의 도구 호출을 막으면 안 된다).
       const agentNode = graphManager.getSnapshot().agents.find((a) => a.id === agentId);
       if (!agentNode || !agentNode.customCreated) {
         passUnmanaged('view-only-agent');
@@ -9247,14 +8765,9 @@ export async function runServer(): Promise<RunServerHandle> {
 
       /*
        * §5.25 (H) — 코덱스 버블의 권한 모드·감사 경계.
-       *
-       * 이 버블의 주인은 앱이 턴마다 싣는 권한 훅(`codex-edges.mjs permission`)이다. 사용자가 켠 전역
-       * 코덱스 훅(§5.25 (I), `handler.mjs`)도 같은 호출로 여기 오므로 그쪽은 비켜 선다 — 안 비키면 한
-       * 호출에 승인 카드가 두 장 뜬다(`codex-app-hook` 은 handler.mjs 가 개입하지 않는 통과 사유다).
-       *
-       * 판정은 `planCodexPermission` 한 곳이 한다. 모드는 코덱스 샌드박스·승인 정책이 집행하고, 이
-       * 창구는 코덱스가 샌드박스 밖을 물을 때(PermissionRequest)만 카드를 띄운다. 감사 경계는 모드와
-       * 따로, 실행 전(PreToolUse) 위험 호출을 붙잡는다. 카드·60초 정책·원장은 아래 클로드 경로와 같다.
+       * 주인은 앱이 턴마다 싣는 권한 훅(`codex-edges.mjs permission`)이다. 전역 코덱스 훅(§5.25 (I), `handler.mjs`)도 여기 오므로 그쪽은 비켜 선다 — 안 비키면 승인 카드가 두 장 뜬다(`codex-app-hook` 은 handler.mjs 가 개입하지 않는 통과 사유).
+       * 판정은 `planCodexPermission` 한 곳. 모드는 코덱스 샌드박스·승인 정책이 집행하고, 카드는 샌드박스 밖을 물을 때(PermissionRequest)만 뜬다.
+       * 감사 경계는 모드와 따로 실행 전(PreToolUse) 위험 호출을 붙잡는다. 카드·60초 정책·원장은 클로드 경로와 같다.
        */
       if (!codexEvent && config.provider?.kind === 'codex-cli') {
         res.json({ ok: true, decision: 'allow', reason: 'codex-app-hook' });
@@ -9264,9 +8777,8 @@ export async function runServer(): Promise<RunServerHandle> {
         const codexSessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
         const codexSubAgentId = typeof body.subAgentId === 'string' && body.subAgentId ? body.subAgentId : undefined;
         /*
-         * §5.25 (F) "쓴 내용도 남는다" — 적용이 **허락된** `apply_patch` 만 그 sub 의 장부에 적는다(거부된 패치는
-         * 칸을 남기지 않는다). 코덱스는 이 답을 받은 뒤에야 패치를 적용하므로 적기가 늘 `file_change` 완료보다 앞선다.
-         * 패치 도구가 아니면 장부가 알아서 버린다.
+         * §5.25 (F) — 적용이 허락된 `apply_patch` 만 그 sub 의 장부에 적는다(거부된 패치는 남기지 않는다). 코덱스는 이 답을 받은 뒤 패치를 적용하므로 적기가 늘 `file_change` 완료보다 앞선다.
+         * 패치 도구가 아니면 장부가 버린다.
          */
         const noteAllowedPatch = (): void => {
           if (codexEvent !== 'PreToolUse' || !codexSubAgentId) return;
@@ -9386,11 +8898,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
       /*
        * §5.22 — 권한·감사 경계.
-       *
-       * 원장 줄은 **모드 단축보다 먼저** 적는다. 통과시킨 호출까지 남아야 "그때 무슨 일이
-       * 있었나"에 답할 수 있고, 묻지 않은 것과 허용한 것이 다른 상태로 구분된다.
-       * (훅으로만 붙은 세션은 이 창구에 오지 않지만 `processHookEvent` 가 같은 원장에 적는다 —
-       *  이 창구가 커스텀 에이전트 전용이라는 기존 경계는 그대로 둔다.)
+       * 원장 줄은 모드 단축보다 먼저 적는다 — 통과시킨 호출까지 남아야 하고, 묻지 않은 것과 허용한 것이 다른 상태로 구분된다.
+       * (훅으로만 붙은 세션은 여기 오지 않지만 `processHookEvent` 가 같은 원장에 적는다.)
        */
       const auditProject = graphManager.getAgentProjectName(agentId) ?? '';
       // §5.22 `outside` — 이 호출이 머물러야 할 경계(프로젝트 루트 + 이 세션의 cwd).
@@ -9419,39 +8928,25 @@ export async function runServer(): Promise<RunServerHandle> {
         if (auditEntryId) graphManager.recordAuditDecision(auditProject, auditEntryId, decision, source, reason);
       };
 
-      // §5.3 #12-1 v1.87 — 권한 축 = permissionMode 단일. CC 정식 권한모델에 팝업 발동을 매핑:
-      //   bypassPermissions → 무확인 / plan → 실행차단은 CC 자체 / 읽기전용 → 자동 allow
-      //   acceptEdits → 편집계열 자동 allow / default·acceptEdits(비편집 가변) → 사용자 확인 팝업
+      // §5.3 #12-1 — 권한 축은 permissionMode 하나. CC 권한 모델에 팝업 발동을 매핑:
+      //   bypassPermissions → 무확인 / plan → 실행 차단은 CC 자체 / 읽기 전용 → 자동 allow
+      //   acceptEdits → 편집 계열 자동 allow / default·acceptEdits(비편집 가변) → 사용자 확인 팝업
       const mode = config.permissionMode || 'default';
       const EDIT_TOOLS = new Set(['Write', 'Edit', 'NotebookEdit', 'MultiEdit']);
 
       /*
-       * §5.3 #12-1-A — **도구별 확인 목록.** 사용자가 이 버블의 설정창에서 지목한 도구는
-       * 모드가 무엇이든 아래 단축을 타지 않고 사람에게 간다.
-       *
-       * 자리가 여기인 이유가 이 항목의 전부다 — `bypassPermissions`·`auto`·`acceptEdits` 의
-       * 편집 통과 **앞**이어야 그 셋에서 실제로 붙잡힌다(뒤에 두면 영영 안 탄다). 반대로
-       * 관할·커스텀 가드(`not-managed`·`view-only-agent`)보다는 **뒤**라, 훅 버블은 이 목록을
-       * 가질 수 없고 붙잡히지도 않는다(§12-1 절대 규칙 불변 — 위에서 이미 돌아섰다).
-       *
-       * `plan`·`dontAsk` 는 아래에서 종전대로 처리된다 — 전자는 실행 자체가 없어 일어나지도
-       * 않을 호출에 사람을 세우는 일이고, 후자는 이미 사람 없이 안전한 답을 낸다(되물으면
-       * 무인 실행에 60초 팝업이 쌓인다). 읽기 전용 도구 통과보다는 **앞**이다 — 사용자가
-       * `Read` 를 굳이 골랐다면 "읽는 것도 보고 싶다"는 뜻이고, 안 고르면 종전 그대로다.
+       * §5.3 #12-1-A — 도구별 확인 목록. 이 버블 설정창에서 지목한 도구는 모드와 무관하게 아래 단축을 타지 않고 사람에게 간다.
+       * 자리가 핵심이다 — `bypassPermissions`·`auto`·`acceptEdits` 의 편집 통과 **앞**이어야 그 셋에서 붙잡힌다(뒤면 영영 안 탄다). 관할·커스텀 가드(`not-managed`·`view-only-agent`)보다는 뒤라 훅 버블은 해당 없다(§12-1).
+       * `plan`·`dontAsk` 는 제외 — plan 은 실행이 없고, dontAsk 는 이미 사람 없이 답을 낸다(되물으면 무인 실행에 60초 팝업이 쌓인다).
+       * 읽기 전용 통과보다는 앞이다 — `Read` 를 골랐다면 읽기도 묻는다.
        */
       const askedByTool = shouldAskForTool(config.askTools, toolName)
         && mode !== 'plan' && mode !== 'dontAsk';
 
       /*
-       * §5.11 정독 게이트 — 강도 `차단`의 집행 자리.
-       *
-       * 안 연 필수 절을 남긴 채 **코드를 고치려 하면** 그 편집을 거부한다. 자리가 여기인 이유는
-       * 도구별 확인 목록과 같다 — `bypassPermissions`·`acceptEdits` 의 편집 통과보다 **앞**이어야
-       * 그 모드들에서 실제로 붙잡힌다(뒤에 두면 켜 두고도 영영 안 탄다).
-       *
-       * **커스텀 에이전트 전용**이라는 경계는 위에서 이미 서 있다(`view-only-agent`). 사용자가 자기
-       * 에디터에서 하던 편집을 우리 설정으로 거부하는 일은 이 기능에서도 일어나지 않는다 —
-       * 그쪽에는 알림과 `Stop` 되돌림(강도 2)까지만 간다.
+       * §5.11 정독 게이트 — 강도 `차단`의 집행 자리. 안 연 필수 절을 남긴 채 코드를 고치려 하면 그 편집을 거부한다.
+       * `bypassPermissions`·`acceptEdits` 의 편집 통과보다 앞이어야 그 모드에서 붙잡힌다(도구별 확인 목록과 같은 이유).
+       * 커스텀 에이전트 전용(`view-only-agent` 가 위에서 막는다) — 사용자 에디터의 편집은 거부하지 않고 알림과 `Stop` 되돌림(강도 2)까지만 간다.
        */
       if (EDIT_TOOLS.has(toolName) && typeof body.subAgentId === 'string' && body.subAgentId) {
         const target = toolInput?.['file_path'] ?? toolInput?.['notebook_path'];
@@ -9467,9 +8962,8 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       /*
-       * §5.3 #12-1-B — **금지 목록은 모드 단축보다 먼저.** `--disallowedTools` 는 스폰 때 실리므로
-       * 카드에서 [항상 거절]을 누른 뒤에도 오래 사는 자식은 그 도구를 계속 가진다. 여기서 한 번 더
-       * 봐야 누른 순간부터 먹는다. `reason` 은 훅이 문구를 고르는 약속된 마커다(사람이 누른 척 ❌).
+       * §5.3 #12-1-B — 금지 목록은 모드 단축보다 먼저. `--disallowedTools` 는 스폰 때 실리므로 [항상 거절] 뒤에도 오래 사는 자식은 그 도구를 계속 가진다 — 여기서 다시 봐야 누른 순간부터 먹는다.
+       * `reason` 은 훅이 문구를 고르는 약속된 마커다(사람이 누른 척 ❌).
        */
       if (isToolDisallowed(config.disallowedTools, toolName)) {
         noteAuditDecision('deny', 'policy', 'disallowed');
@@ -9478,12 +8972,9 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       /*
-       * §5.3 #12-4 (E) ① — **검증은 시킬 때만.** 금지 목록 바로 뒤, 자물쇠·모든 모드 단축(`bypassPermissions`·
-       *   `auto`·`acceptEdits`·읽기 전용 통과·세션 기억)보다 먼저다 — 뒤에 두면 그 모드들에서 영영 안 탄다.
-       *   `plan` 은 실행이 없어 보지 않는다. 사람에게 묻지 않는다("검증할까요?" 팝업 ❌) — 범위 밖이면 실행 전에
-       *   거부하고, 무엇으로 읽었는지·우회하지 말라는 사유는 서버가 짓는다(`message`). 도는 명령을 못 찾으면
-       *   검증은 거부한다(fail-closed). 검증이 아닌 호출은 아무 영향 없이 아래로 흐른다.
-       *   (J) 옵션에서 차단을 꺼 두면(기본) 판정 객체가 거부 없이 실행으로만 센다 — 스위치는 그 객체가 쥔다.
+       * §5.3 #12-4 (E) ① — 검증은 시킬 때만. 금지 목록 바로 뒤, 자물쇠·모든 모드 단축(`bypassPermissions`·`auto`·`acceptEdits`·읽기 전용 통과·세션 기억)보다 먼저다 — 뒤면 그 모드들에서 안 탄다.
+       *   `plan` 은 실행이 없어 보지 않는다. 묻지 않는다(팝업 ❌) — 범위 밖이면 실행 전 거부하고 사유는 서버가 짓는다(`message`). 도는 명령을 못 찾으면 거부(fail-closed). 검증이 아닌 호출은 그대로 흐른다.
+       *   (J) 차단을 꺼 두면(기본) 판정 객체가 거부 없이 실행으로만 센다 — 스위치는 그 객체가 쥔다.
        */
       if (mode !== 'plan') {
         const verification = verificationGate.checkSubAgentCall(
@@ -9498,10 +8989,8 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       /*
-       * §5.3 #12-3 — **자물쇠는 모든 모드 단축보다 먼저**(`bypassPermissions`·`auto`·`plan`·`acceptEdits`·
-       * 읽기 전용 통과·세션 기억). 금지 목록 뒤인 이유는 그쪽이 이미 사람 없이 안전한 답(거부)을 냈기 때문이다.
-       * `plan` 도 묻는다 — 계획 모드의 읽기는 실제로 일어나는 접근이다. 묻지 않는 모드(`dontAsk`)는 거부한다.
-       * 위험·확인 목록과 겹쳐도 카드는 한 장이고 자물쇠 규칙이 이긴다(무응답 거부 · "항상"은 잠금 풀기뿐).
+       * §5.3 #12-3 — 자물쇠는 모든 모드 단축보다 먼저(`bypassPermissions`·`auto`·`plan`·`acceptEdits`·읽기 전용 통과·세션 기억). 금지 목록 뒤인 것은 그쪽이 이미 거부를 냈기 때문이다.
+       * `plan` 도 묻는다(계획 모드의 읽기도 실제 접근). `dontAsk` 는 거부한다. 위험·확인 목록과 겹쳐도 카드는 한 장이고 자물쇠 규칙이 이긴다(무응답 거부 · "항상"은 잠금 풀기뿐).
        */
       const managedLockHits = lockHits();
       if (managedLockHits.length > 0) {
@@ -9603,10 +9092,10 @@ export async function runServer(): Promise<RunServerHandle> {
         : permissionSubAgentId ? 'session'
         : undefined;
 
-      // §5.3 #12-1 v1.90 — 60초 무응답 fallback 정책 (기본 allow).
+      // §5.3 #12-1 — 60초 무응답 fallback 정책(기본 allow).
       const timeoutPolicy = config.permissionTimeoutPolicy === 'deny' ? 'deny' : 'allow';
       const signal = callerGoneSignal(res);
-      // §5.3 #12-1 v1.91 — 팝업 대기 동안 에이전트를 "블록된 활성"으로 고정(completed 강등 방지).
+      // §5.3 #12-1 — 팝업 대기 동안 에이전트를 "블록된 활성"으로 고정(completed 강등 방지).
       graphManager.setPermissionWaiting(agentId, true);
       // §5.22 — 모드가 통과시켰을 호출을 경계가 되돌려 물었다는 표식(타임라인에서 구분된다).
       if (escalate && auditEntryId) graphManager.markAuditEscalated(auditProject, auditEntryId);
@@ -9615,8 +9104,7 @@ export async function runServer(): Promise<RunServerHandle> {
       try {
         decision = await permissionBroker.request({
           agentId,
-          // §5.3 #12-1 v1.96 — sub 인스턴스 ID 를 stamp 해서 broker resolve 후
-          // 사용자의 Allow/Deny 결정을 그 sub 의 stream 라인으로 합성할 수 있게 한다.
+          // §5.3 #12-1 — sub 인스턴스 ID 를 찍어 두어 broker resolve 뒤 Allow/Deny 결정을 그 sub 의 stream 라인으로 합성할 수 있게 한다.
           subAgentId: permissionSubAgentId,
           agentLabel,
           agentColor,
@@ -9651,11 +9139,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.3 #12-1-B — [항상 허용]/[항상 거절]을 **카드가 뜬 이유가 정한 칸**에 적는다.
-   *
-   * 칸은 대기 중인 요청에서 읽는다(`alwaysAllow`·`alwaysReject` — 서버가 카드를 띄울 때 찍었다). 결정
-   * 본문의 도구 이름·칸 이름은 받지 않는다 — 창구가 이름을 바꿔 보내 다른 도구를 풀 수 없게.
-   * 설정은 지금 값 한 벌을 통째로 새로 지어 저장한다(#12-1-A ⚠ — 부분 객체로 갈아치우면 칸이 사라진다).
+   * §5.3 #12-1-B — [항상 허용]/[항상 거절]을 카드가 뜬 이유가 정한 칸에 적는다.
+   * 칸은 대기 요청의 `alwaysAllow`·`alwaysReject`(카드를 띄울 때 서버가 찍었다)에서 읽는다 — 결정 본문의 도구·칸 이름은 받지 않는다(이름을 바꿔 보내 다른 도구를 풀 수 없게).
+   * 설정은 지금 값 한 벌을 통째로 새로 지어 저장한다(부분 객체로 갈아치우면 칸이 사라진다).
    */
   function applyPermissionAlways(
     request: PermissionRequest,
@@ -9719,8 +9205,7 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §5.3 #12-1 v1.43 — POST /api/permission-decide
-   * 클라 모달에서 버튼 클릭 시 호출. broker 의 pending 요청 해제.
+   * §5.3 #12-1 — POST /api/permission-decide — 클라 모달 버튼. broker 의 pending 요청을 푼다.
    * §5.3 #12-1-B — 본문은 답 넷(`choice`)이고 `decision` 은 서버가 접는다. `decision` 만 보내는 옛 클라는 한 번짜리다.
    */
   app.post('/api/permission-decide', (req, res) => {
@@ -9771,10 +9256,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.3 #12-3 — POST /api/path-locks  `{ projectName, lock?: PathLockTarget[], unlock?: string[] }`
-   * 버블 위 우클릭 [잠그기]/[잠금 풀기]. 걸고 푸는 손은 **사람뿐**이다 — loopback 유입(토큰을 가진 에이전트가
-   * 닿는 길)은 403 이다. 이 경로는 loopback 화이트리스트에도 없지만 권한 축은 두 겹으로 막는다(#12-1-B "항상"과
-   * 같은 규율). `projectName` 은 표시명·원래 이름·경로 무엇이든 된다(클라는 표시명을 보낸다).
+   * §5.3 #12-3 — POST /api/path-locks `{ projectName, lock?: PathLockTarget[], unlock?: string[] }` — 버블 우클릭 [잠그기]/[잠금 풀기].
+   * 걸고 푸는 손은 사람뿐 — loopback 유입은 403(화이트리스트에도 없지만 두 겹으로 막는다, #12-1-B "항상"과 같은 규율).
+   * `projectName` 은 표시명·원래 이름·경로 무엇이든 된다(클라는 표시명을 보낸다).
    */
   app.post('/api/path-locks', (req, res) => {
     try {
@@ -9835,10 +9319,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  // ─── §5.26 / §7.23 — 컨텍스트 보험 창구 ───
-  //
-  // 전부 **사용자가 눌렀을 때만** 도는 길이다. 이 절의 자동 동작은 사본을 뜨는 것과 대조하는
-  // 것까지이고, 되돌리기·부활·압축 보내기는 여기 여섯 라우트로만 일어난다(§5.26 (J)).
+  // §5.26 / §7.23 — 컨텍스트 보험 창구. 전부 사용자가 눌렀을 때만 돈다 — 자동 동작은 사본 뜨기·대조까지이고, 되돌리기·부활·압축 보내기는 이 여섯 라우트로만 일어난다(§5.26 (J)).
 
   /**
    * GET /api/insurance/:projectName — 그 프로젝트의 원장 전문 + 파생 두 축(감시·부활 후보).
@@ -9861,9 +9342,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * GET /api/insurance/:projectName/preimage/:id — 사본 한 건의 내용(§7.23 `[미리보기]`).
-   *
-   * `text: null` 은 **이진이거나 예산에 밀려 사라진 것**이다 — 화면은 그때 "미리볼 수 없다"고
-   * 적어야지 빈 문서를 그리면 안 된다(사본이 비었다는 뜻으로 읽힌다).
+   * `text: null` 은 이진이거나 예산에 밀려 사라진 것 — 화면은 "미리볼 수 없다"고 적어야 한다(빈 문서는 사본이 비었다는 뜻으로 읽힌다).
    */
   app.get('/api/insurance/:projectName/preimage/:id', (req, res) => {
     try {
@@ -9887,9 +9366,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * POST /api/insurance/restore-file — 사본으로 되돌린다(§7.23 `[다시 읽히기]`).
-   *
-   * 되돌리기 자체가 파일을 바꾸는 일이므로 **되돌리기 직전의 내용도 사본으로 뜬다**
-   * (`undoId`) — 잘못 눌러도 한 번 더 되돌아갈 자리가 있어야 한다.
+   * 되돌리기 직전 내용도 사본으로 뜬다(`undoId`) — 잘못 눌러도 한 번 더 되돌아갈 자리가 있어야 한다.
    */
   app.post('/api/insurance/restore-file', (req, res) => {
     try {
@@ -9916,10 +9393,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * POST /api/insurance/resurrect — 죽은 세션 하나를 탭에 입힌다(§5.26 (G) 5단계).
-   *
-   * `mode: 'resume'` 은 그 대화를 그대로 이어받고(다음 명령이 `--resume` 로 나간다),
-   * `'fresh'` 는 새 탭만 열고 사본은 팝업에서 읽게 둔다 — 이어붙이기가 위험할 만큼 큰
-   * 기록(`resumeRisky`)이나 사본만 남은 것(`mirroredOnly`)에는 이쪽이 정직한 선택이다.
+   * `mode: 'resume'` 은 대화를 이어받고(다음 명령이 `--resume`), `'fresh'` 는 새 탭만 열고 사본은 팝업에서 읽게 둔다 — 큰 기록(`resumeRisky`)·사본만 남은 것(`mirroredOnly`)엔 이쪽이 맞다.
    */
   app.post('/api/insurance/resurrect', (req, res) => {
     try {
@@ -9945,12 +9419,7 @@ export async function runServer(): Promise<RunServerHandle> {
       const adopted = mode === 'resume'
         ? subAgentManager.adoptSession(sub.id, sessionId, label)
         : false;
-      /*
-       * §5.26 (G) — 이어받은 경우에만 확인을 건다.
-       *
-       * `fresh` 는 새 대화라 죽기 전 크기와 비교할 것이 애초에 없다(비어 있는 게 정상이다).
-       * `resume` 만 "성공한 얼굴로 빈 문맥"이 가능한 경로라 여기서만 재는 것이 맞다(#43696).
-       */
+      /* §5.26 (G) — 이어받은 경우에만 확인을 건다. `fresh` 는 새 대화라 비교할 것이 없고(비어 있는 게 정상), `resume` 만 "성공한 얼굴로 빈 문맥"이 가능하다(#43696). */
       if (adopted) graphManager.armResumeCheck(sessionId);
       broadcastSnapshot();
       saveCheckpoint();
@@ -9963,9 +9432,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * POST /api/insurance/snapshot — 지금 이 세션의 사본을 손으로 뜬다(§7.23 `[지금 사본 뜨기]`).
-   *
-   * `PreCompact` 를 기다리지 않고 같은 마커를 만든다. 자동압축이 안 도는 것 같을 때 (F) 가
-   * 내주는 손잡이 둘 중 하나이며, `trigger: 'manual'` 로 적혀 이력에서 구분된다.
+   * `PreCompact` 를 기다리지 않고 같은 마커를 만든다(자동압축이 안 도는 것 같을 때 (F) 가 내주는 손잡이). `trigger: 'manual'` 로 이력에서 구분된다.
    */
   app.post('/api/insurance/snapshot', (req, res) => {
     try {
@@ -10000,10 +9467,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * POST /api/insurance/compact — 사용자가 직접 압축을 보낸다(§7.23 `[압축 보내기]`).
-   *
-   * `/api/agent-compact` 와 **같은 대기표**를 쓴다(턴이 끝나는 자리에서 `/compact` 가 큐에
-   * 얹힌다 — 일하던 것이 도중에 잘리지 않는다). 다만 그쪽의 `agentCanCompact` 관문은 없다:
-   * 그 스위치는 "에이전트가 스스로 부를 수 있는가"이고, 여기서 누른 것은 사용자다.
+   * `/api/agent-compact` 와 같은 대기표를 쓴다(턴이 끝나는 자리에서 `/compact` 가 큐에 얹혀 일하던 것이 잘리지 않는다). `agentCanCompact` 관문은 없다 — 그건 에이전트가 스스로 부를 수 있는가의 스위치다.
    */
   app.post('/api/insurance/compact', (req, res) => {
     try {
@@ -10064,11 +9528,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * §5.7 #23-1 v1.59 — GET /api/claude-version
-   * 현재 사용 중인 `claude` 바이너리 버전 + npm registry latest 비교 결과.
-   * latest 는 5분 TTL 캐시 — `?refresh=1` 로 무효화 가능.
-   */
+  /** §5.7 #23-1 — GET /api/claude-version — 지금 쓰는 `claude` 버전 + npm registry latest 비교. latest 는 5분 TTL 캐시(`?refresh=1` 로 무효화). */
   app.get('/api/claude-version', async (req, res) => {
     try {
       const force = req.query['refresh'] === '1';
@@ -10081,9 +9541,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 v2.43 — GET /api/claude-installs
-   * 옵션창 Version 탭 데이터: PC 에 깔린 모든 claude 설치본 + 현재 활성/선택 + Vibisual·런타임 메타 + npm latest.
-   * `?refresh=1` 로 registry 캐시 무효화. 선택 저장은 기존 `PUT /api/user-defaults {claudeBinPath}` 재사용.
+   * §4 — GET /api/claude-installs — 옵션창 Version 탭: PC 의 모든 claude 설치본 + 현재 활성/선택 + 앱·런타임 메타 + npm latest.
+   * `?refresh=1` 로 registry 캐시 무효화. 선택 저장은 기존 `PUT /api/user-defaults {claudeBinPath}`.
    */
   app.get('/api/claude-installs', async (req, res) => {
     try {
@@ -10097,10 +9556,20 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.7 #23-1 v1.59 — POST /api/claude-version/install
-   * `npm install -g @anthropic-ai/claude-code` 1회 발사. 단일 in-flight 락 — 동시 호출은 같은 installId 반환.
-   * 진행 상황은 WS `claude_install_progress` 로 푸시.
+   * §4 (앱 전용 엔진) ④ — GET /api/codex-installs. Version 탭 코덱스 칸의 고르기 목록(기본 = 앱 전용 · 나머지 = 보조).
+   * 선택 저장은 `PUT /api/user-defaults {codexBinPath}`(빈 문자열 = 기본). 렌더러 전용(루프백 화이트리스트 ❌).
    */
+  app.get('/api/codex-installs', async (_req, res) => {
+    try {
+      invalidateCodexBinCache(); // 앱 밖에서 깔거나 지웠을 수 있다 — 들어올 때마다 다시 찾는다
+      res.json({ ok: true, info: await getCodexInstallsInfo() });
+    } catch (err) {
+      logger.error('GET /api/codex-installs failed', err);
+      res.status(500).json({ ok: false, error: (err as Error).message });
+    }
+  });
+
+  /** §5.7 #23-1 — POST /api/claude-version/install — `npm install -g @anthropic-ai/claude-code` 1회. 단일 in-flight 락(동시 호출은 같은 installId). 진행은 WS `claude_install_progress`. */
   app.post('/api/claude-version/install', (_req, res) => {
     try {
       const progress = installLatestClaude();
@@ -10111,28 +9580,18 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * §5.7 #23-1 v1.59 — GET /api/claude-version/install
-   * 진행 중인 설치 작업 상태 조회 (WS 재연결/페이지 reload 복구용).
-   */
+  /** §5.7 #23-1 — GET /api/claude-version/install — 진행 중 설치 상태(WS 재연결/새로고침 복구용). */
   app.get('/api/claude-version/install', (_req, res) => {
     res.json({ ok: true, progress: getInflightInstall() });
   });
 
-  /**
-   * §5.7 #23-1 v1.59 — POST /api/claude-version/dismiss-session
-   * 사용자가 "이번 세션 건너뛰기" 또는 "이 버전 계속 쓰기" 선택 — registry 캐시 무효화로
-   * 다음 세션(페이지 새로고침) 시 신선한 결과를 받게 한다.
-   */
+  /** §5.7 #23-1 — POST /api/claude-version/dismiss-session — "이번 세션 건너뛰기"/"이 버전 계속 쓰기". registry 캐시를 비워 다음 세션(새로고침)에 신선한 결과를 받게 한다. */
   app.post('/api/claude-version/dismiss-session', (_req, res) => {
     invalidateLatestCache();
     res.json({ ok: true });
   });
 
-  // ─── §5.19 All Model — 로컬 LLM (엔진 설치 · 모델 카탈로그 · 내려받기) ───
-  //
-  // 전부 조회/조작 전용이라 그래프 상태를 건드리지 않는다. 목록이 바뀌는 조작(설치 시작·
-  // 내려받기·삭제) 뒤에는 스냅샷을 한 번 밀어 화면이 곧바로 따라오게 한다.
+  // §5.19 All Model — 로컬 LLM(엔진 설치 · 모델 카탈로그 · 내려받기). 그래프 상태는 건드리지 않고, 목록이 바뀌는 조작(설치·내려받기·삭제) 뒤에는 스냅샷을 한 번 민다.
 
   // §5.19 (E) — 내려받기가 끝나면 그 모델에게 실제로 몇 마디 시켜 본다.
   //   러너와 모델 서비스가 서로 물지 않도록 배선은 여기 한 곳에서 한다.
@@ -10206,10 +9665,7 @@ export async function runServer(): Promise<RunServerHandle> {
     })();
   });
 
-  // ── §5.5 #17-38 ⑫ 오프라인 받아쓰기 ──────────────────────────────────────
-  //
-  // 마이크를 누르면 화면이 먼저 여기에 묻는다. 준비돼 있으면 곧장 듣기 시작하고, 아니면
-  // 설치 창이 뜬다(§5.19 (B) "준비됐는지는 그 버블을 눌렀을 때 판정한다" 와 같은 흐름).
+  // §5.5 #17-38 ⑫ 오프라인 받아쓰기 — 마이크를 누르면 화면이 먼저 여기에 묻는다. 준비돼 있으면 곧장 듣고, 아니면 설치 창이 뜬다(§5.19 (B) 와 같은 흐름).
 
   /** GET /api/voice-asr — 지금 이 PC 가 받아쓰기를 할 수 있는가. 판정 근거는 **디스크의 실물**. */
   app.get('/api/voice-asr', (_req, res) => {
@@ -10254,10 +9710,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * POST /api/voice-asr/session/start — 받아쓰기 한 번을 시작한다.
-   *
-   * 엔진이 안 떠 있으면 **여기서 띄운다**(모델 적재에 몇 초 든다). 돌려주는 것은 포트 하나이고,
-   * 표본은 화면이 그 포트로 곧장 보낸다 — 초당 64KB 를 메인 스레드에 붓지 않기 위해서다.
+   * POST /api/voice-asr/session/start — 받아쓰기 한 번을 시작한다. 엔진이 안 떠 있으면 여기서 띄운다(모델 적재에 몇 초).
+   * 돌려주는 것은 포트 하나이고 표본은 화면이 그 포트로 곧장 보낸다 — 초당 64KB 를 메인 스레드에 붓지 않기 위해서다.
    */
   app.post('/api/voice-asr/session/start', (req, res) => {
     void (async (): Promise<void> => {
@@ -10288,8 +9742,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * GET /api/local-llm/catalog?q=&sort= — 받을 수 있는 저장소 검색(조회로 만든다, 하드코딩 목록 ❌).
-   * `sort` 는 §5.19 (E) 의 네 축(내려받기·하트·트렌딩·최근) 중 하나. 모르는 값이 오면
-   * 내려받기 순으로 떨어뜨린다 — 낯선 문자열을 카탈로그에 그대로 넘기지 않는다.
+   * `sort` 는 §5.19 (E) 네 축(내려받기·하트·트렌딩·최근) 중 하나 — 모르는 값은 내려받기 순으로 떨어뜨린다(낯선 문자열을 카탈로그에 넘기지 않는다).
    */
   app.get('/api/local-llm/catalog', (req, res) => {
     void (async (): Promise<void> => {
@@ -10384,10 +9837,7 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
 
-  /**
-   * §5.3 #12-1 v1.43 — GET /api/permission-pending
-   * 클라 재연결 시 현재 대기 중인 권한 요청 복구용.
-   */
+  /** §5.3 #12-1 — GET /api/permission-pending — 클라 재연결 때 대기 중인 권한 요청 복구용. */
   app.get('/api/permission-pending', (_req, res) => {
     try {
       res.json({ ok: true, pending: permissionBroker.listPending() });
@@ -10398,11 +9848,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.3 #12-2 v2.26 — POST /api/ask-user-question
-   * PreToolUse 훅이 `tool_name === 'AskUserQuestion'` 분기에서 동기 호출.
-   * 커스텀 에이전트가 호출자면 broker 큐잉 → 사용자 응답 또는 60s 타임아웃까지 대기.
-   * 응답은 `{ decision: 'answer' | 'timeout' | 'reject', selectedLabels: string[], note?: string }`.
-   * 훅은 이 결과를 `permissionDecisionReason` 으로 합성해 모델 transcript 로 도달시킨다.
+   * §5.3 #12-2 — POST /api/ask-user-question — PreToolUse 훅이 `tool_name === 'AskUserQuestion'` 에서 동기 호출.
+   * 커스텀 에이전트면 broker 큐잉 → 사용자 응답 또는 60s 타임아웃까지 대기. 응답 `{ decision: 'answer' | 'timeout' | 'reject', selectedLabels: string[], note?: string }`.
+   * 훅은 이 결과를 `permissionDecisionReason` 으로 합성해 모델 transcript 에 닿게 한다.
    */
   app.post('/api/ask-user-question', async (req, res) => {
     try {
@@ -10425,15 +9873,14 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
 
-      // 2) 커스텀 에이전트 가드(view-only 제외) — §5.3 #12-1 v1.87 패턴 재사용.
+      // 2) 커스텀 에이전트 가드(view-only 제외) — §5.3 #12-1 과 같은 패턴.
       const agentNode = graphManager.getSnapshot().agents.find((a) => a.id === agentId);
       if (!agentNode || !agentNode.customCreated) {
         res.json({ ok: true, decision: 'reject', reason: 'view-only-agent', selectedLabels: [] });
         return;
       }
 
-      // 3) toolInput 유효성 — claude-code v2.1.145+ 스키마는 `questions: AskUserQuestionItem[]`.
-      //    CLI 와 동일하게 모든 질문을 순차로 surface — 본 라운드는 한 카드에 step 으로 묶어 답한다.
+      // 3) toolInput 유효성 — claude-code v2.1.145+ 스키마는 `questions: AskUserQuestionItem[]`. CLI 처럼 모든 질문을 차례로 — 한 카드에 step 으로 묶어 답한다.
       const questionsRaw = Array.isArray(rawInput.questions) ? rawInput.questions : [];
       const items: AskUserQuestionItem[] = questionsRaw
         .map((q): AskUserQuestionItem | null => {
@@ -10469,7 +9916,7 @@ export async function runServer(): Promise<RunServerHandle> {
       const agentColor = config?.color ?? BUBBLE_COLORS.agent;
       const projectName = graphManager.getAgentProjectName(agentId) ?? '';
 
-      // §5.3 #12-1 v1.91 — 훅 hold 중 "블록된 활성" 으로 고정.
+      // §5.3 #12-1 — 훅 hold 중 "블록된 활성"으로 고정.
       graphManager.setPermissionWaiting(agentId, true);
       broadcastSnapshot();
       let decision: AskUserQuestionDecision;
@@ -10508,10 +9955,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * §5.3 #12-2 v2.26 — POST /api/ask-user-question/decide
-   * 클라 IDE 카드의 Send 버튼이 호출. broker pending 해제.
-   */
+  /** §5.3 #12-2 — POST /api/ask-user-question/decide — 클라 IDE 카드의 Send. broker pending 해제. */
   app.post('/api/ask-user-question/decide', (req, res) => {
     try {
       const body = (req.body ?? {}) as Partial<AskUserQuestionDecision>;
@@ -10547,10 +9991,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * §5.3 #12-2 v2.26 — GET /api/ask-user-question/pending
-   * 클라 재연결 시 대기 중인 질문 복구용.
-   */
+  /** §5.3 #12-2 — GET /api/ask-user-question/pending — 클라 재연결 때 대기 중 질문 복구용. */
   app.get('/api/ask-user-question/pending', (_req, res) => {
     try {
       res.json({ ok: true, pending: askUserQuestionBroker.listPending() });
@@ -10561,16 +10002,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 (CLI 사양 추종) — POST /api/agent-compact
-   *
-   * `agentCanCompact` 를 켠 에이전트가 **일하는 도중** "이제 접자"고 신고하는 창구. 지금은 그
-   * 세션에 실행 중 명령(자기 턴)이 있어 압축을 바로 못 쏘므로 대기표에만 적고, 그 턴이 끝나는
-   * 자리에서 `maybeCompactAfterTurn` 이 큐에 `/compact` 를 얹는다 — 작업이 도중에 잘리지 않는
-   * 이유가 이것이다. 여러 번 불러도 Set 이라 한 번만 돈다.
-   *
-   * 카드 5경로와 **같은 규율**의 loopback ingress(127.0.0.1 바인드 + 토큰)이며 §10 의
-   * 'HTTP/REST API 외부 노출' 이 아니다. 표시 전용은 아니지만(실제로 압축이 돈다) 실패해도
-   * 에이전트의 일에는 영향이 없다.
+   * §4 (CLI 사양 추종) — POST /api/agent-compact — `agentCanCompact` 를 켠 에이전트가 일하는 도중 "이제 접자"고 신고하는 창구.
+   * 그 세션엔 자기 턴이 돌고 있어 바로 못 쏘므로 대기표에만 적고, 턴이 끝나는 자리에서 `maybeCompactAfterTurn` 이 큐에 `/compact` 를 얹는다(작업이 잘리지 않는다). Set 이라 여러 번 불러도 한 번.
+   * 카드 5경로와 같은 loopback ingress(127.0.0.1 바인드 + 토큰)라 §10 의 'HTTP/REST API 외부 노출'이 아니다. 실패해도 에이전트 일에는 영향이 없다.
    */
   app.post('/api/agent-compact', (req, res) => {
     try {
@@ -10603,10 +10037,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 v2.52 — POST /api/agent-report
-   * 커스텀/스폰 에이전트가 작업 완료 시 did/userActions 를 구조화 신고(loopback curl, 토큰 인증).
-   * 서버는 id/createdAt 을 stamp 해 ProjectGraph 에 적재하고 broadcast → IDE 가 색 구분 카드 렌더.
-   * 표시 전용 — 게임플레이/판정 로직과 무관. Hook 에이전트는 신고 지시문이 없어 호출하지 않음.
+   * §4 — POST /api/agent-report — 커스텀/스폰 에이전트가 작업 완료 때 did/userActions 를 구조화 신고(loopback curl, 토큰 인증).
+   * 서버가 id/createdAt 을 찍어 ProjectGraph 에 적재·broadcast → IDE 가 색 구분 카드로 그린다. 표시 전용. Hook 에이전트는 신고 지시문이 없어 부르지 않는다.
    */
   app.post('/api/agent-report', subAgentBodyOwnerGuard((id) => subAgentManager.getSub(id)), (req, res) => {
     try {
@@ -10622,9 +10054,9 @@ export async function runServer(): Promise<RunServerHandle> {
       const nextSteps = toStrArray(body.nextSteps);
       // §5.10 — 에이전트가 신고에 담아 보낸 "배운 것"(교훈). Brain 개별 기억 카드로 저장(중복 검사 경유).
       const learned = toStrArray(body.learned).slice(0, 3).map((s) => s.trim());
-      // §5.10 v3.49 — 브리핑/주입으로 받은 카드 중 실제 도움된 id. 랭킹 "도움됨" 신호(markHelpful).
+      // §5.10 — 브리핑/주입으로 받은 카드 중 실제로 도움된 id(랭킹 "도움됨" 신호, markHelpful).
       const helpfulMemoryIds = toStrArray(body.helpfulMemoryIds).map((s) => s.trim());
-      // §5.10 v3.78 — 대칭 채널. 브리핑으로 받았지만 **지금 코드와 어긋난** 카드 id(재검증 1비트 회수).
+      // §5.10 — 대칭 채널. 브리핑으로 받았지만 지금 코드와 어긋난 카드 id(재검증 1비트 회수).
       const staleMemoryIds = toStrArray(body.staleMemoryIds).map((s) => s.trim());
       // 내용이 전혀 없으면 무시 (빈 신고로 카드만 늘리지 않음)
       if (did.length === 0 && userActions.length === 0 && nextSteps.length === 0 && learned.length === 0) {
@@ -10649,8 +10081,7 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(404).json({ ok: false, error: 'agent not found' });
         return;
       }
-      // §5.10 — 교훈(`learned`)·도움/낡음 신고는 **신고 카드 안에 그대로 남는다.**
-      //   기억 카드로 옮겨 심던 갈래만 걷었다(카드 저장고가 폐기됐다).
+      // §5.10 — 교훈(`learned`)·도움/낡음 신고는 신고 카드 안에 그대로 남는다 — 기억 카드 저장고는 폐기돼 그리로 옮겨 심지 않는다.
       broadcast({ type: 'agent_report', payload: { agentId: report.agentId, subAgentId: report.subAgentId } } as WSMessage);
       broadcastSnapshot();
       saveCheckpoint();
@@ -10662,10 +10093,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 v2.60 — POST /api/agent-questions
-   * 커스텀/스폰 에이전트가 사용자에게 던지는 질문(1~N) + 제안 프롬프트를 구조화 신고(loopback curl, 토큰 인증).
-   * 서버는 id/createdAt 을 stamp 해 ProjectGraph 에 적재하고 broadcast → IDE 가 질문 카드 렌더.
-   * 표시 전용. Hook 에이전트는 지시문이 없어 호출하지 않음. agent-report 와 동형 골격.
+   * §4 — POST /api/agent-questions — 커스텀/스폰 에이전트가 사용자에게 던지는 질문(1~N) + 제안 프롬프트 신고(loopback curl, 토큰 인증).
+   * agent-report 와 같은 골격(id/createdAt 을 찍어 적재·broadcast → IDE 질문 카드). 표시 전용. Hook 에이전트는 지시문이 없어 부르지 않는다.
    */
   app.post('/api/agent-questions', subAgentBodyOwnerGuard((id) => subAgentManager.getSub(id)), (req, res) => {
     try {
@@ -10718,10 +10147,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 v2.70 — POST /api/agent-review
-   * 커스텀/스폰 에이전트가 사용자 지시 작업을 완료한 뒤 changes/checkpoints 검수 요청을 구조화 신고(loopback curl, 토큰 인증).
-   * 서버는 id/createdAt 을 stamp 해 ProjectGraph 에 적재하고 broadcast → IDE 가 보라색 검수 카드 렌더.
-   * userActions("직접 해")와 성격이 다르다 — 이쪽은 "AI 가 완료한 결과를 검수". agent-report/agent-questions 와 동형 골격.
+   * §4 — POST /api/agent-review — 커스텀/스폰 에이전트가 맡은 작업을 끝낸 뒤 changes/checkpoints 검수 요청 신고(loopback curl, 토큰 인증). IDE 가 보라색 검수 카드로 그린다.
+   * userActions("직접 해")와 성격이 다르다 — 이쪽은 AI 가 끝낸 결과의 검수다. agent-report/agent-questions 와 같은 골격.
    */
   app.post('/api/agent-review', subAgentBodyOwnerGuard((id) => subAgentManager.getSub(id)), (req, res) => {
     try {
@@ -10764,12 +10191,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * §4 v2.84 — POST /api/agent-list
-   * 커스텀/스폰 에이전트가 답변의 번호/순서 목록을 items 배열로 구조화 신고(loopback curl, 토큰 인증).
-   * 서버가 id/createdAt 을 stamp 해 ProjectGraph 에 적재하고 broadcast → IDE 가 번호를 자동으로 매겨 정렬 카드 렌더.
-   * 번호 매김은 IDE 가 하므로 항목 텍스트만 받는다. agent-report/agent-questions/agent-review 와 동형 골격.
-   */
+  /** §4 — POST /api/agent-list — 커스텀/스폰 에이전트가 답변의 번호/순서 목록을 items 로 신고(loopback curl, 토큰 인증). 번호는 IDE 가 매기므로 항목 텍스트만 받는다. agent-report 와 같은 골격. */
   app.post('/api/agent-list', (req, res) => {
     try {
       const body = (req.body ?? {}) as Partial<AgentList>;
@@ -10810,11 +10232,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 (CMD 터미널 업그레이드 ①) — POST /api/cmd-terminal-state
-   *
-   * 임베디드 터미널 뷰가 **감지한** 상태(`working|idle|blocked`)를 올린다. 판정·쓰기·전파는
-   * 서버가 한다(§3.1 서버 = SSOT) — 클라는 바이트 흐름만 보고 신호를 보낼 뿐이다.
-   * 훅이 없는 CLI(codex·gemini 등)도 이 경로로 상태가 보인다는 것이 ⑧과 맞물리는 핵심이다.
+   * §4 (CMD 터미널 업그레이드 ①) — POST /api/cmd-terminal-state — 임베디드 터미널 뷰가 감지한 상태(`working|idle|blocked`)를 올린다.
+   * 판정·쓰기·전파는 서버가 한다(§3.1) — 클라는 바이트 흐름만 보고 신호를 보낸다. 훅이 없는 CLI(codex·gemini 등)도 이 경로로 상태가 보인다(⑧ 과 맞물린다).
    */
   app.post('/api/cmd-terminal-state', (req, res) => {
     try {
@@ -10886,14 +10305,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.5 #17-36 — PUT /api/session-memos
-   *
-   * 그 화면(세션 탭 또는 메인 탭)에 붙여 둔 **스티키 메모 목록 전량**을 저장한다. 부분 갱신을
-   * 받지 않는 것은 의도다 — 한 필드만 보내면 나머지가 빈 값으로 강등되는 사고를 규약으로 막는다.
-   *
-   * 자리는 둘로 갈린다: `subAgentId` 가 오면 **그 세션의 소지품**(`SubAgent.memos`)이라 세션이
-   * 사라질 때 함께 사라지고, 없으면(메인 탭) 에이전트 쪽(`ProjectGraph.agentMemos`)에 둔다.
-   * 신뢰할 수 없는 입력이므로 `sanitizeSessionMemos` 로 걸러 넣는다(장수·크기·색·좌표 상한).
+   * §5.5 #17-36 — PUT /api/session-memos — 그 화면(세션 탭 또는 메인 탭)의 스티키 메모 목록 전량을 저장한다(부분 갱신 ❌ — 한 필드만 보내면 나머지가 빈 값으로 강등된다).
+   * `subAgentId` 가 오면 그 세션의 소지품(`SubAgent.memos`, 세션과 함께 사라짐), 없으면 메인 탭 → `ProjectGraph.agentMemos`.
+   * 신뢰할 수 없는 입력이라 `sanitizeSessionMemos` 로 거른다(장수·크기·색·좌표 상한).
    */
   app.put('/api/session-memos', (req, res) => {
     try {
@@ -10935,12 +10349,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 (CMD 터미널 업그레이드 ⑥) — POST /api/cmd/send
-   *
-   * 에이전트가 CMD 터미널에 **prefill** 한다. herdr 의 `pane send-text` 자리지만
-   * **개행·Enter 는 절대 넣지 않는다**(`sendCmdTerminal` 이 개행을 걷어 낸다) — 사람이 Enter 를
-   * 치는 것이 §4 v2.63 이 세운 Anthropic ToS 합법선이고, herdr 의 `agent prompt --wait` 를
-   * 의도적으로 따라가지 않는 지점이다.
+   * §4 (CMD 터미널 업그레이드 ⑥) — POST /api/cmd/send — 에이전트가 CMD 터미널에 prefill 한다.
+   * **개행·Enter 는 절대 넣지 않는다**(`sendCmdTerminal` 이 걷어 낸다) — 사람이 Enter 를 치는 것이 §4 의 Anthropic ToS 합법선이다(herdr 의 `agent prompt --wait` 는 따라가지 않는다).
    */
   app.post('/api/cmd/send', (req, res) => {
     try {
@@ -11013,11 +10423,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §7.11 v2.29 — POST /api/agent-iframe
-   * 커스텀/스폰 에이전트가 "사용자가 열어볼 로컬 서버" 를 띄웠을 때 그 URL 을 신고(loopback curl, 토큰 인증).
-   * 서버는 agentId 소속 세션을 찾아 그 URL 로 iframe 위성을 **직접** 생성한다(정규식 추측 없이 결정론적).
-   * 진짜 서버만: isPortAlive 로 확인된 뒤에만 위성 생성(reportIframeFromAgent 가 boot race 재시도). 중복 없음:
-   * 위성 키가 (세션,포트)라 같은 포트 재신고·감지 폴백과 하나로 합류. agent-report 와 동형 골격.
+   * §7.11 — POST /api/agent-iframe — 커스텀/스폰 에이전트가 띄운 로컬 서버 URL 신고(loopback curl, 토큰 인증). 서버가 그 세션에 iframe 위성을 직접 만든다(정규식 추측 없이 결정론적).
+   * isPortAlive 로 확인된 뒤에만 만든다(reportIframeFromAgent 가 boot race 재시도). 위성 키가 (세션,포트)라 같은 포트 재신고·감지 폴백과 하나로 합쳐진다.
    */
   app.post('/api/agent-iframe', (req, res) => {
     try {
@@ -11044,11 +10451,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 v3.21 — POST /api/agent-feedback
-   * 사용자가 IDE 에서 AI 작업 결과(작업 신고/검수 카드/스트림 result)에 남기는 좋아요/싫어요.
-   * targetId 별 upsert — 같은 대상 재평가는 verdict 교체, `verdict:null` 은 평가 철회(제거).
-   * 클라 UI 발신(렌더러 in-process fetch)이라 loopback 토큰 화이트리스트 불필요.
-   * 표시·학습 보조 전용 — 실제 작업/판정 로직 무관.
+   * §4 — POST /api/agent-feedback — IDE 에서 AI 작업 결과(작업 신고/검수 카드/스트림 result)에 남기는 좋아요/싫어요.
+   * targetId 별 upsert — 재평가는 verdict 교체, `verdict:null` 은 철회. 렌더러 in-process fetch 라 loopback 토큰 화이트리스트 불필요. 표시·학습 보조 전용.
    */
   app.post('/api/agent-feedback', (req, res) => {
     try {
@@ -11111,10 +10515,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §4 v3.21 — POST /api/agent-feedback/:agentId/distill
-   * 이 에이전트의 싫어요 피드백을 one-shot claude CLI(haiku)로 규칙 문장으로 증류해 **제안만 반환**.
-   * 적용은 사용자가 클라 확인 모달에서 승인 후 기존 `PUT /api/agent-config/:agentId` rules append 로
-   * (rulesHistory 롤백 가능). 자동 append 금지 — 일회성 싫어요의 영구 규칙화 방지.
+   * §4 — POST /api/agent-feedback/:agentId/distill — 싫어요 피드백을 one-shot claude CLI(haiku)로 규칙 문장으로 증류해 제안만 돌려준다.
+   * 적용은 사용자가 확인 모달에서 승인한 뒤 기존 `PUT /api/agent-config/:agentId` rules append 로(rulesHistory 롤백 가능). 자동 append 금지 — 일회성 싫어요가 영구 규칙이 되지 않게.
    */
   app.post('/api/agent-feedback/:agentId/distill', async (req, res) => {
     try {
@@ -11325,7 +10727,7 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(400).json({ error: 'nodeId required' });
         return;
       }
-      // preserve-pin 가드 (§2.4 v1.28)
+      // preserve-pin 가드(§2.4)
       if (graphManager.isPreservePinned(nodeId)) {
         logger.info(`DELETE /api/bubble/${nodeId} blocked: preserve-pinned`);
         res.status(409).json({ error: 'bubble preserved', reason: 'preserve-pinned' });
@@ -11339,7 +10741,7 @@ export async function runServer(): Promise<RunServerHandle> {
         res.json({ ok: true, trashed: true });
         return;
       }
-      // v1.85 — 사용자 명시 버블 삭제: 에이전트면 그 Task Edge 까지 cascade 제거(고아 방지).
+      // 사용자가 지운 버블이 에이전트면 그 Task Edge 까지 cascade 제거(고아 방지).
       graphManager.removeBubble(nodeId, { purgeTaskEdges: true });
       broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       saveCheckpoint();
@@ -11362,7 +10764,7 @@ export async function runServer(): Promise<RunServerHandle> {
       const blocked: string[] = [];
       for (const nodeId of ids) {
         if (!nodeId) continue;
-        // preserve-pin 가드 (§2.4 v1.28) — 차단된 건 건너뛰고 나머지는 계속 삭제
+        // preserve-pin 가드(§2.4) — 막힌 건 건너뛰고 나머지는 계속 삭제
         if (graphManager.isPreservePinned(nodeId)) {
           blocked.push(nodeId);
           continue;
@@ -11372,7 +10774,7 @@ export async function runServer(): Promise<RunServerHandle> {
           deleted.push(nodeId);
           continue;
         }
-        // v1.85 — 사용자 명시 일괄 삭제: 에이전트면 Task Edge 까지 cascade 제거.
+        // 일괄 삭제도 에이전트면 Task Edge 까지 cascade 제거.
         graphManager.removeBubble(nodeId, { purgeTaskEdges: true });
         deleted.push(nodeId);
       }
@@ -11387,7 +10789,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** PATCH /api/bubble/:nodeId/preserve-pin — preserve-pin 토글 (§2.4 v1.28) */
+  /** PATCH /api/bubble/:nodeId/preserve-pin — preserve-pin 토글(§2.4) */
   app.patch('/api/bubble/:nodeId/preserve-pin', (req, res) => {
     try {
       const { nodeId } = req.params;
@@ -11560,19 +10962,11 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** GET /api/folder-files — 폴더의 파일 트리 (디스크 기반).
-   *  `absolutePath` 를 함께 받으면 그것으로 프로젝트 인스턴스를 먼저 찍는다 —
-   *  노드 키는 프로젝트 루트 기준 상대 경로라 `docs` 처럼 흔한 이름은 다른 프로젝트 것이
-   *  먼저 답할 수 있다(`open-node-file` 과 같은 규약, 프로젝트 컨텍스트 보존). */
   /**
-   * GET /api/folder-files — §7.5 폴더 목록: 디렉터리 **한 겹**의 **한 페이지**.
-   *
-   * `?nodePath=<폴더 노드 키>` 에 세 가지를 더 받는다 — `relPath`(그 폴더 아래로 펼친 자리),
-   * `cursor`(이전 응답의 `nextCursor`), `limit`(장당 개수). 답은 `FolderFilePage` 다.
-   *
-   * 종전에는 폴더를 통째로 재귀해 `{ files }` 한 벌로 돌려줬고, 외부 폴더 버블이 사용자 홈이면
-   * 그 동기 열거가 메인 프로세스를 세워 창이 "응답 없음"이 됐다. 이 창구를 나누지 않고 그대로
-   * 페이지화한 것은 `absolutePath` 인스턴스 라우팅·위성 매칭 규약을 두 벌로 만들지 않기 위함이다.
+   * GET /api/folder-files — §7.5 폴더 목록: 디렉터리 한 겹의 한 페이지(`FolderFilePage`). 통째 재귀는 홈 폴더 버블에서 메인 프로세스를 세워 창이 "응답 없음"이 된다.
+   * `?nodePath=<폴더 노드 키>` + `relPath`(그 아래 펼친 자리)·`cursor`(이전 응답의 `nextCursor`)·`limit`(장당 개수).
+   * `absolutePath` 를 주면 그것으로 프로젝트 인스턴스를 먼저 찍는다 — 노드 키가 루트 기준 상대 경로라 `docs` 같은 흔한 이름은 다른 프로젝트가 먼저 답한다(`open-node-file` 과 같은 규약).
+   * 창구를 나누지 않고 페이지화한 것은 인스턴스 라우팅·위성 매칭 규약을 두 벌로 만들지 않기 위함이다.
    */
   app.get('/api/folder-files', (req, res) => {
     try {
@@ -11607,11 +11001,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * GET /api/workspace-dir — §5.5 #17-19 v4.71 IDE 탐색기: 디렉터리 **한 겹** 조회.
-   *
-   * `root` 는 클라가 아는 프로젝트 루트를 그대로 받는다(`open-node-file` 이 `absolutePath` 를
-   * 받는 것과 같은 규약) — 대신 등록된 프로젝트 루트 안인지 여기서 검사하고, 루트를 벗어나는
-   * `path`(`..`) 는 `listWorkspaceDir` 이 한 번 더 막는다. 조회 전용이라 broadcast·checkpoint 없음.
+   * GET /api/workspace-dir — §5.5 #17-19 IDE 탐색기: 디렉터리 한 겹 조회.
+   * `root` 는 클라가 아는 프로젝트 루트를 그대로 받고(`open-node-file` 의 `absolutePath` 와 같은 규약) 등록된 루트 안인지 여기서 검사한다. `..` 는 `listWorkspaceDir` 이 한 번 더 막는다. 조회 전용 — broadcast·checkpoint 없음.
    */
   app.get('/api/workspace-dir', (req, res) => {
     try {
@@ -11642,13 +11033,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * GET /api/workspace-find — §5.5 #17-27 ⑱ 판 쪽에서 **그 갈래의 파일**을 찾는다.
-   *
-   * `?root=<절대경로>&kind=code|html|image|pdf&claimed=<.확장자,…>` → `WorkspaceFindResult`
-   * (파일만 · 최근 고친 순 · 상한에 걸리면 `truncated`). `claimed` 는 앱이 받겠다고 선언한 확장자로,
-   * 등록표가 화면에 있어 화면이 실어 보낸다 — 판정은 서버도 같은 `isEditorPaneListable` 한 벌이다.
-   * 가드는 탐색기와 같은 `isWithinOpenableRoots` + `resolveWorkspacePath`(새 가드 ❌). 조회 전용이라
-   * broadcast·checkpoint 없음 · loopback 화이트리스트 밖(렌더러 전용). 걷기는 비동기라 창을 세우지 않는다.
+   * GET /api/workspace-find — §5.5 #17-27 ⑱ 판 쪽에서 그 갈래의 파일을 찾는다.
+   * `?root=<절대경로>&kind=code|html|image|pdf&claimed=<.확장자,…>` → `WorkspaceFindResult`(파일만 · 최근 고친 순 · 상한이면 `truncated`). `claimed` 는 앱이 받겠다는 확장자(등록표가 화면에 있어 화면이 보낸다) — 판정은 서버도 같은 `isEditorPaneListable`.
+   * 가드는 탐색기와 같은 `isWithinOpenableRoots` + `resolveWorkspacePath`(새 가드 ❌). 조회 전용 · loopback 화이트리스트 밖(렌더러 전용). 걷기는 비동기라 창을 세우지 않는다.
    */
   app.get(WORKSPACE_FIND_PATH, async (req, res) => {
     try {
@@ -11683,12 +11070,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * GET /api/workspace-path — §5.5 #17-27 ⑬ 스트림 본문의 경로: **한 경로의 정체** 조회.
-   *
-   * `?root=<절대경로>&path=<상대경로>` → `{ root, path, absPath, kind: 'file' | 'directory' }`.
-   * 없으면 404 이고, 화면은 그 조각을 **평범한 인라인 코드로 그대로 둔다**(가짜 손잡이를 만들지 않는다).
-   * 가드는 탐색기(`/api/workspace-dir`)와 같은 `isWithinOpenableRoots` + `resolveWorkspacePath` 하나다.
-   * 조회 전용이라 broadcast·checkpoint 없음.
+   * GET /api/workspace-path — §5.5 #17-27 ⑬ 스트림 본문의 경로 하나의 정체.
+   * `?root=<절대경로>&path=<상대경로>` → `{ root, path, absPath, kind: 'file' | 'directory' }`. 없으면 404 — 화면은 평범한 인라인 코드로 둔다(가짜 손잡이 ❌).
+   * 가드는 탐색기와 같은 `isWithinOpenableRoots` + `resolveWorkspacePath`. 조회 전용.
    */
   app.get('/api/workspace-path', (req, res) => {
     try {
@@ -11720,18 +11104,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * GET /api/external-path — §5.5 #17-27 ⑬ (d) 프로젝트 루트 **밖** 경로의 존재·정체 조회.
-   *
-   * `?path=<절대경로>` → `{ absPath, kind: 'file' | 'directory' }`, 없으면 404(화면은 그 조각을
-   * 종전과 같은 평문 인라인 코드로 둔다 — (b) 의 "가짜 손잡이를 만들지 않는다" 그대로).
-   *
-   * **`isWithinOpenableRoots` 를 쓰지 않는다** — 루트 밖인 것이 이 라우트의 전제다. 그 대신 경계는
-   * **닿을 수 있는 자가 누구인가**로 세운다: 이 경로는 loopback 리스너 화이트리스트에 **올리지 않으므로**
-   * 외부 `claude` 프로세스는 404 를 받고, 페어링된 기기는 REST 가 아니라 채팅 명령 파서로만 들어온다.
-   * 즉 부를 수 있는 것은 렌더러(사용자 자신의 창)뿐이다(§3.7 경계 유지).
-   *
-   * 답에 `executable` 이 없는 것은 누락이 아니라 **설계**다 — 루트 밖은 탐색기 한 갈래로만 가고,
-   * 실행 여부를 알려 주는 순간 그 갈래가 늘어난다. 조회 전용이라 broadcast·checkpoint 미관여.
+   * GET /api/external-path — §5.5 #17-27 ⑬ (d) 프로젝트 루트 밖 경로의 존재·정체. `?path=<절대경로>` → `{ absPath, kind: 'file' | 'directory' }`, 없으면 404(화면은 평문 인라인 코드로 둔다).
+   * `isWithinOpenableRoots` 를 쓰지 않는다(루트 밖이 전제) — 경계는 누가 닿는가다: loopback 화이트리스트에 올리지 않으므로 외부 `claude` 는 404, 페어링 기기는 채팅 명령 파서로만 들어온다 → 렌더러만 부른다(§3.7).
+   * 답에 `executable` 이 없는 것은 설계다 — 루트 밖은 탐색기 한 갈래로만 가고, 실행 여부를 알려 주면 갈래가 는다. 조회 전용.
    */
   app.get('/api/external-path', (req, res) => {
     try {
@@ -11754,16 +11129,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * POST /api/reveal-path — §5.5 #17-27 ⑬ (d) 루트 밖 경로를 **시스템 탐색기에 보여준다**.
-   *
-   * 여는 실행부는 이미 있는 `editorLauncher.openFolder` 하나다(**새 열기 레일 ❌**) — Windows 는
-   * `explorer /select` + 포그라운드 보정, macOS 는 `open -R`, Linux 는 FileManager1 을 사용해
-   * **파일을 주면 상위 폴더에서 그 파일을 선택**한다(선택 미지원 시 폴더 열기).
-   * 이 라우트가 하는 일은 "있는가"를 한 번 더 확인하고 넘기는 것뿐이다.
-   *
-   * 경계는 위 `GET /api/external-path` 와 같다 — 화이트리스트 밖이라 렌더러만 닿는다. 그리고 여기서
-   * **여는 갈래를 늘리지 않는다**: 연결 프로그램(`openWithDefaultApp`)·실행(`startRun`)으로는 가지 않는다.
-   * 본문 글자를 눌러 임의 경로가 실행되는 길을 만들지 않는 것이 ⑬ (d) 개정의 조건이었다.
+   * POST /api/reveal-path — §5.5 #17-27 ⑬ (d) 루트 밖 경로를 시스템 탐색기에 보여준다.
+   * 실행부는 기존 `editorLauncher.openFolder` 하나(새 열기 레일 ❌) — Windows `explorer /select` + 포그라운드 보정, macOS `open -R`, Linux FileManager1. 파일이면 상위 폴더에서 그 파일을 선택(미지원이면 폴더 열기). 여기서는 있는지만 한 번 더 본다.
+   * 경계는 `GET /api/external-path` 와 같다(렌더러만). 여는 갈래를 늘리지 않는다 — 연결 프로그램(`openWithDefaultApp`)·실행(`startRun`)으로 가지 않는다(본문 글자를 눌러 임의 경로가 실행되면 안 된다).
    */
   app.post('/api/reveal-path', (req, res) => {
     try {
@@ -11790,10 +11158,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * GET /api/workspace-file — §5.5 #17-27 v4.87 IDE 내장 편집창: 파일 **한 개** 읽기.
-   *
-   * 가드는 탐색기(`/api/workspace-dir`)와 같은 `isWithinOpenableRoots` + `resolveWorkspacePath` 하나다.
-   * 조회 전용이라 broadcast·checkpoint 없음.
+   * GET /api/workspace-file — §5.5 #17-27 IDE 내장 편집창: 파일 한 개 읽기. 가드는 탐색기와 같은 `isWithinOpenableRoots` + `resolveWorkspacePath`.
+   * §5.5 #17-27 ⑥ — 루트 밖이라도 그 파일이 지금 버블로 떠 있으면 읽기만 연다(`outside: true`, 판정은 `resolveWorkspaceFileRead` 한 곳) — 캔버스 파일 버블 더블클릭이 이 편집창으로 연다(§5.1 #2-1 (A)).
+   * 쓰기(PUT)는 루트 안만. 조회 전용 — broadcast·checkpoint 없음.
    */
   app.get('/api/workspace-file', (req, res) => {
     try {
@@ -11805,8 +11172,12 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       const resolvedRoot = path.resolve(root);
-      if (!isWithinOpenableRoots(resolvedRoot)) {
-        logger.warn(`workspace-file blocked (outside project root): "${root}"`);
+      const read = resolveWorkspaceFileRead(root, relPath, {
+        isOpenableRoot: (r) => isWithinOpenableRoots(r),
+        isBubblePath: (absPath) => graphManager.hasNodeAbsolutePath(absPath),
+      });
+      if (!read) {
+        logger.warn(`workspace-file blocked (not a project root / known bubble path): "${root}" "${relPath}"`);
         res.status(403).json({ error: 'Path outside project root' });
         return;
       }
@@ -11816,7 +11187,7 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(404).json({ error: 'File not found' });
         return;
       }
-      res.json(file);
+      res.json(read.outside ? { ...file, outside: true } : file);
     } catch (err) {
       logger.error('GET /api/workspace-file failed', err);
       res.status(500).json({ error: 'Internal server error' });
@@ -11824,15 +11195,10 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * PUT /api/workspace-file — §5.5 #17-27 v4.87 IDE 내장 편집창: 파일 **한 개** 저장.
-   *
-   * `baseMtimeMs` 는 클라이언트가 읽을 때 본 수정 시각이라, 그 사이 디스크가 바뀌었으면 409 로 막는다
-   * (에이전트가 같은 파일을 고친 경우 = 사용자의 편집이 그 작업을 조용히 덮어쓰는 사고). 사용자가
-   * 화면에서 "그래도 저장" 을 고르면 `baseMtimeMs: 0` 으로 다시 온다. 사용자 소스 파일이라
-   * §3.2.1 체크포인트 창구가 아니라 평범한 쓰기이고, 그래프 상태가 아니므로 broadcast 도 없다.
-   *
-   * §5.5 #17-27 ⑫ — 디스크가 잠근 파일(Perforce 체크아웃 전 파일 등)은 423 으로 갈라 답하고,
-   * 사용자가 [읽기 전용 해제하고 저장] 을 고르면 `clearReadOnly: true` 로 다시 온다.
+   * PUT /api/workspace-file — §5.5 #17-27 IDE 내장 편집창: 파일 한 개 저장.
+   * `baseMtimeMs` 는 읽을 때 본 수정 시각 — 그 사이 디스크가 바뀌었으면 409(에이전트가 고친 내용을 조용히 덮어쓰지 않게). "그래도 저장"이면 `baseMtimeMs: 0` 으로 다시 온다.
+   * 사용자 소스 파일이라 §3.2.1 체크포인트 창구가 아닌 평범한 쓰기이고 broadcast 도 없다.
+   * §5.5 #17-27 ⑫ — 디스크가 잠근 파일(Perforce 체크아웃 전 등)은 423, [읽기 전용 해제하고 저장]이면 `clearReadOnly: true` 로 다시 온다.
    */
   app.put('/api/workspace-file', (req, res) => {
     try {
@@ -11884,12 +11250,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * GET /api/workspace-image — §5.5 #17-27 ⑭ IDE 내장 편집창: 이미지 **한 장**의 원본 바이트.
-   *
-   * 텍스트 창구(`/api/workspace-file`)와 갈라 둔 이유는 돌려주는 것이 JSON 이 아니라 바이트라서다.
-   * 가드는 같은 `isWithinOpenableRoots` + `resolveWorkspacePath` 하나를 그대로 쓴다(새 가드 발명 ❌).
-   * 조회 전용이라 broadcast·checkpoint 없음. 캐시하지 않는다 — 주석을 저장하면 **같은 URL 의 내용만**
-   * 바뀌므로 캐시가 남으면 방금 그린 표시가 화면에 안 나타난다.
+   * GET /api/workspace-image — §5.5 #17-27 ⑭ IDE 내장 편집창: 이미지 한 장의 원본 바이트(JSON 이 아니라 바이트라 텍스트 창구와 가른다).
+   * 가드는 같은 `isWithinOpenableRoots` + `resolveWorkspacePath`. §5.5 #17-27 ⑥ — 루트 밖이라도 그 파일이 버블로 떠 있으면 읽기만 연다(`resolveWorkspaceFileRead`). 덮어쓰기(PUT)는 루트 안만.
+   * 캐시하지 않는다 — 주석을 저장하면 같은 URL 의 내용만 바뀌어, 캐시가 남으면 방금 그린 표시가 안 나타난다.
    */
   app.get('/api/workspace-image', (req, res) => {
     try {
@@ -11901,8 +11264,12 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       const resolvedRoot = path.resolve(root);
-      if (!isWithinOpenableRoots(resolvedRoot)) {
-        logger.warn(`workspace-image blocked (outside project root): "${root}"`);
+      const read = resolveWorkspaceFileRead(root, relPath, {
+        isOpenableRoot: (r) => isWithinOpenableRoots(r),
+        isBubblePath: (absPath) => graphManager.hasNodeAbsolutePath(absPath),
+      });
+      if (!read) {
+        logger.warn(`workspace-image blocked (not a project root / known bubble path): "${root}" "${relPath}"`);
         res.status(403).json({ error: 'Path outside project root' });
         return;
       }
@@ -11924,16 +11291,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * PUT /api/workspace-image — §5.5 #17-25 ④-1 라이트박스 주석본으로 그 이미지 파일 덮어쓰기.
-   *
-   * 본문은 **이미지 바이트 그대로**이고 나머지 값은 쿼리로 온다. JSON+base64 로 싣지 않는 이유는 둘이다 —
-   * base64 가 33% 를 부풀리고, 앱 전역 `express.json()` 상한(100kb)에 스크린샷 한 장이 바로 걸린다.
-   * 그래서 이 라우트에만 `express.raw` 를 물린다(전역 상한은 손대지 않는다 — 한 기능 때문에 모든
-   * 엔드포인트의 방벽을 낮추지 않는다).
-   *
-   * 덮어쓰기 규율은 텍스트 저장(`PUT /api/workspace-file`)과 **같다** — 읽을 때 본 `mtimeMs` 가
-   * 디스크와 다르면 409, 사용자가 [그래도 저장]을 고르면 `baseMtimeMs=0` 으로 다시 온다.
-   * 굽지 못하는 형식(svg·gif·ico·bmp·avif)은 415 로 갈라 답한다.
+   * PUT /api/workspace-image — §5.5 #17-25 ④-1 라이트박스 주석본으로 그 이미지 파일을 덮어쓴다.
+   * 본문은 이미지 바이트 그대로, 나머지는 쿼리 — base64 는 33% 를 부풀리고 전역 `express.json()` 상한(100kb)에 스크린샷 한 장이 걸린다. 그래서 이 라우트에만 `express.raw` 를 물린다(전역 상한은 낮추지 않는다).
+   * 덮어쓰기 규율은 `PUT /api/workspace-file` 과 같다(`mtimeMs` 가 다르면 409, [그래도 저장]은 `baseMtimeMs=0`). 굽지 못하는 형식(svg·gif·ico·bmp·avif)은 415.
    */
   app.put(
     '/api/workspace-image',
@@ -11991,19 +11351,10 @@ export async function runServer(): Promise<RunServerHandle> {
   );
 
   /**
-   * GET /api/workspace-media — §5.13 (R) 영상·음악·3D·PDF 파일의 **바이트**(구간 요청 지원).
-   *
-   * 이미지 창구(`/api/workspace-image`)와 갈라 둔 이유는 크기와 재생 방식이다 — 이미지는 통째로
-   * 읽어 한 번에 보내면 되지만, 영상·음악은 몇백 MB 가 예사이고 `<video>`·`<audio>` 는 **Range**
-   * 요청으로 필요한 구간만 집어 간다(그래야 되감기·구간 반복이 즉시 반응한다). 통째로 보내면
-   * 서버 메모리에 파일 전체가 올라오고 첫 프레임까지 몇 초가 걸린다.
-   *
-   * 가드는 탐색기·편집창과 같은 `isWithinOpenableRoots` + `resolveWorkspacePath` 하나 그대로다.
-   * §5.1 #2-1 (A) — 루트 밖이라도 **그 파일 자체가 지금 버블로 떠 있으면** 읽기는 연다(열기 라우트 셋과 같은 두 번째
-   * 기준 `hasNodeAbsolutePath` — 판정은 `resolveWorkspaceMediaRead` 한 곳). 쓰기(PUT)는 그대로 루트 안만이다.
-   *
-   * §5.13 40-1 — 패키지 앱은 이 읽기를 vibproxy 미디어 갈래로 흘려 받는다(IPC 는 응답 전체를 메인에 모았다가 한 번에 넘긴다).
-   * 그 갈래도 **이 판정 한 벌**을 쓴다(`setWorkspaceMediaReadGuards` — 미디어 표 밖은 그쪽에서 더 막는다).
+   * GET /api/workspace-media — §5.13 (R) 영상·음악·3D·PDF 파일의 바이트(Range 요청 지원).
+   * 이미지 창구와 가른 이유: 몇백 MB 파일을 `<video>`·`<audio>` 가 Range 로 구간만 집어 가야 되감기·구간 반복이 즉시 반응한다(통째면 서버 메모리에 전체가 올라오고 첫 프레임까지 몇 초).
+   * 가드는 같은 `isWithinOpenableRoots` + `resolveWorkspacePath`. §5.1 #2-1 (A) — 루트 밖이라도 그 파일이 버블로 떠 있으면 읽기는 연다(`hasNodeAbsolutePath`, 판정은 `resolveWorkspaceMediaRead` 한 곳). 쓰기(PUT)는 루트 안만.
+   * §5.13 40-1 — 패키지 앱은 vibproxy 미디어 갈래로 받는다(IPC 는 응답 전체를 메인에 모았다가 넘긴다). 그 갈래도 이 판정 한 벌을 쓴다(`setWorkspaceMediaReadGuards`).
    */
   const workspaceMediaReadGuards: WorkspaceMediaReadGuards = {
     isOpenableRoot: (resolvedRoot) => isWithinOpenableRoots(resolvedRoot),
@@ -12077,11 +11428,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * PUT /api/workspace-media — §5.13 (R-4) 음악 편집기가 만든 **새 파일**을 프로젝트 안에 쓴다.
-   *
-   * 본문은 바이트 그대로(이미지 저장과 같은 이유 — base64 는 33% 를 부풀리고 `express.json()`
-   * 상한에 바로 걸린다). **덮어쓰기를 허용하지 않는다** — 편집 결과는 항상 새 이름으로 남고
-   * 원본은 그대로 있어야 한다(사람의 창작물을 잃지 않는다는 §5.13 (I) 와 같은 판단).
+   * PUT /api/workspace-media — §5.13 (R-4) 음악 편집기가 만든 새 파일을 프로젝트 안에 쓴다. 본문은 바이트 그대로(이미지 저장과 같은 이유).
+   * 덮어쓰기를 허용하지 않는다 — 편집 결과는 늘 새 이름으로 남고 원본은 그대로 있어야 한다(§5.13 (I) 와 같은 판단).
    */
   app.put(
     '/api/workspace-media',
@@ -12128,16 +11476,9 @@ export async function runServer(): Promise<RunServerHandle> {
   );
 
   /**
-   * GET /api/workspace-site/<루트>/<파일…> — §5.5 #17-27 ⑮ HTML 을 **페이지로** 내보내는 창구.
-   *
-   * 이 앱의 다른 파일 창구는 전부 질의형(`?root=&path=`)인데 여기만 **경로형**인 이유는
-   * 하나다 — 페이지는 자기 옆의 파일을 상대 경로로 부른다. 질의형에서는
-   * `<link href="style.css">` 가 `/api/style.css` 로 풀려 CSS·그림·스크립트가 전멸한다.
-   * 경로형이면 `./`·`../` 가 브라우저의 규칙 그대로 풀린다(규약·왕복 검증은 shared
-   * `workspaceSite.ts` — 조립하는 쪽과 해석하는 쪽이 갈라지지 않게 한 파일에 있다).
-   *
-   * 가드는 탐색기·편집창·미디어와 **같은 `isWithinOpenableRoots` + `resolveWorkspacePath`**
-   * 하나 그대로다(새 가드 발명 ❌). 열린 프로젝트 밖은 어떤 경로로도 나가지 못한다.
+   * GET /api/workspace-site/<루트>/<파일…> — §5.5 #17-27 ⑮ HTML 을 페이지로 내보내는 창구.
+   * 여기만 경로형인 이유: 질의형(`?root=&path=`)이면 `<link href="style.css">` 가 `/api/style.css` 로 풀려 CSS·그림·스크립트가 전멸한다. 경로형이면 `./`·`../` 가 브라우저 규칙대로 풀린다(규약·왕복 검증은 shared `workspaceSite.ts` 한 파일).
+   * 가드는 같은 `isWithinOpenableRoots` + `resolveWorkspacePath`(새 가드 ❌) — 열린 프로젝트 밖으로는 못 나간다.
    */
   app.get(`${WORKSPACE_SITE_PATH}/*`, (req, res) => {
     try {
@@ -12205,10 +11546,8 @@ export async function runServer(): Promise<RunServerHandle> {
           res.send(rewriteWorkspaceSiteCss(text, base));
           return;
         }
-        // 순서가 규칙이다. ① **원본 그대로** 시작 태그마다 줄:칸을 적는다(⑮ (i)) — 재작성이
-        // 먼저 돌면 늘어난 글자만큼 위치가 밀려 엉뚱한 줄을 가리킨다. ② 루트 절대 경로 재작성.
-        // ③ 부모와 말하는 조각((b) 위치 신고 · (i) 요소 집기)은 **맨 마지막** — 먼저 얹으면 그
-        // 안의 문자열이 재작성 정규식에 걸린다.
+        // 순서가 규칙이다. ① 원본 그대로 시작 태그마다 줄:칸을 적는다(⑮ (i)) — 재작성이 먼저면 늘어난 글자만큼 위치가 밀린다. ② 루트 절대 경로 재작성.
+        // ③ 부모와 말하는 조각((b) 위치 신고 · (i) 요소 집기)은 맨 마지막 — 먼저 얹으면 그 안의 문자열이 재작성 정규식에 걸린다.
         const annotated = annotateWorkspaceSiteSource(text);
         res.send(injectWorkspaceSiteAgents(rewriteWorkspaceSiteHtml(annotated, base)));
         return;
@@ -12246,11 +11585,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.5 #17-19 ⑦ — 탐색기 우클릭이 디스크에 내는 세 변경(만들기 · 이름 바꾸기 · 삭제)의 공용 앞단.
-   *
-   * `root` 는 조회 창구(`/api/workspace-dir`)와 **같은 규약**으로 클라가 아는 프로젝트 루트를 그대로
-   * 받고, 등록된 루트 안인지 여기서 검사한다(루트를 벗어나는 `path` 는 서비스가 한 번 더 막는다).
-   * 디스크가 SSOT 라 broadcast·checkpoint 미관여(#17-19 ⑥ 그대로).
+   * §5.5 #17-19 ⑦ — 탐색기 우클릭의 세 변경(만들기 · 이름 바꾸기 · 삭제) 공용 앞단.
+   * `root` 는 `/api/workspace-dir` 과 같은 규약으로 받고 등록된 루트 안인지 검사한다(루트를 벗어나는 `path` 는 서비스가 한 번 더 막는다). 디스크가 SSOT 라 broadcast·checkpoint 미관여.
    */
   function readWorkspaceMutateRoot(
     body: { root?: unknown },
@@ -12332,10 +11668,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * POST /api/workspace-entry/move — §5.5 #17-19 ⑧ 옮기기(끌어다 폴더에 놓기).
-   *
-   * 이름 바꾸기(`PATCH`)와 **다른 창구**다 — 이름은 그대로 두고 사는 폴더만 바뀌며, 화면의 되물음도
-   * 다르다. 되물음 자체는 화면의 몫이고 여기서는 시키는 대로 옮긴다(#17-19 ⑦ 삭제와 같은 분담).
+   * POST /api/workspace-entry/move — §5.5 #17-19 ⑧ 옮기기(끌어다 폴더에 놓기). 이름 바꾸기(`PATCH`)와 다른 창구 — 이름은 그대로, 사는 폴더만 바뀌고 되물음도 다르다.
+   * 되물음은 화면 몫이고 여기서는 시키는 대로 옮긴다(⑦ 삭제와 같은 분담).
    */
   app.post('/api/workspace-entry/move', (req, res) => {
     try {
@@ -12359,12 +11693,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * DELETE /api/workspace-entry — §5.5 #17-19 ⑦ 삭제.
-   *
-   * 데스크톱 앱에서는 **OS 휴지통**으로 간다(Electron `shell.trashItem` 주입 — `setWorkspaceTrash`).
-   * 그 통로가 없는 실행 형태에서는 영구 삭제이고, 어느 쪽이었는지는 `trashed` 로 화면까지 전해진다.
-   */
+  /** DELETE /api/workspace-entry — §5.5 #17-19 ⑦ 삭제. 데스크톱 앱은 OS 휴지통으로(Electron `shell.trashItem` 주입 — `setWorkspaceTrash`), 그 통로가 없으면 영구 삭제 — 어느 쪽이었는지는 `trashed` 로 화면에 전한다. */
   app.delete('/api/workspace-entry', (req, res) => {
     void (async () => {
       try {
@@ -12387,23 +11716,14 @@ export async function runServer(): Promise<RunServerHandle> {
     })();
   });
 
-  /**
-   * GET /api/workspace-trash — §5.5 #17-19 ⑦ 이 실행 형태가 **휴지통을 쓸 수 있는가**.
-   *
-   * 되물음 문구가 갈리는 자리라 화면이 미리 알아야 한다 — "휴지통으로 보냅니다"와 "영구히
-   * 지웁니다"는 사용자가 다른 결정을 내리는 문장이다. 조회 전용.
-   */
+  /** GET /api/workspace-trash — §5.5 #17-19 ⑦ 이 실행 형태가 휴지통을 쓸 수 있는가. 되물음 문구("휴지통으로 보냅니다" vs "영구히 지웁니다")가 갈려 화면이 미리 알아야 한다. 조회 전용. */
   app.get('/api/workspace-trash', (_req, res) => {
     res.json({ available: isWorkspaceTrashAvailable() });
   });
 
   /**
-   * POST /api/open-external — §5.13 (R-6) 그 파일을 **OS 연결 프로그램**으로 연다.
-   *
-   * `/api/open-node-file`(외부 **에디터**로 열기)과 병행이다. 그쪽은 코드를 고치러 가는 길이라
-   * VS Code 를 찾고 없으면 메모장으로 떨어지는데, zip·폰트·xlsx 를 그리로 보내면 이진 바이트가
-   * 메모장에 쏟아진다. 가드는 열기 라우트 둘과 같은 것(`isWithinOpenableRoots` 또는 화면에 있는
-   * 버블 경로)을 그대로 쓴다 — 페어링된 모바일 기기도 이 라우트에 닿기 때문이다.
+   * POST /api/open-external — §5.13 (R-6) 그 파일을 OS 연결 프로그램으로 연다(`/api/open-node-file` 의 외부 에디터 열기와 병행).
+   * 에디터 길은 VS Code 가 없으면 메모장으로 떨어져 zip·폰트·xlsx 의 이진 바이트가 쏟아진다. 가드는 열기 라우트 둘과 같다(`isWithinOpenableRoots` 또는 화면의 버블 경로) — 페어링된 모바일 기기도 이 라우트에 닿는다.
    */
   app.post('/api/open-external', (req, res) => {
     try {
@@ -12432,11 +11752,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * GET /api/mic-settings — §5.5 #17-38 ⑮ 이 PC 에서 마이크 설정 창을 열 수 있는가.
-   *
-   * 화면이 [설정 열기] 버튼을 그릴지 정하는 근거다. linux 는 열 창이 데스크톱 환경마다 갈려
-   * 열 수 없다고 답하고(`openable: false`), 그때 화면은 버튼 대신 **무엇을 확인해야 하는지**를
-   * 글로 보여 준다 — 눌러도 아무 일이 없는 버튼을 그리지 않기 위해서다.
+   * GET /api/mic-settings — §5.5 #17-38 ⑮ 이 PC 에서 마이크 설정 창을 열 수 있는가([설정 열기] 버튼을 그릴지).
+   * linux 는 데스크톱 환경마다 창이 갈려 `openable: false` — 화면은 버튼 대신 무엇을 확인할지 글로 보여 준다(눌러도 아무 일 없는 버튼 ❌).
    */
   app.get('/api/mic-settings', (_req, res) => {
     res.json({
@@ -12447,10 +11764,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * POST /api/mic-settings/open — §5.5 #17-38 ⑮ OS 의 마이크 설정 창을 연다.
-   *
-   * **본문에서 URL 을 받지 않는다.** 여는 주소는 `micSettingsTarget()` 이 플랫폼으로 정한
-   * 그 하나뿐이고, 그래서 이 라우트는 임의 URI 를 여는 문이 되지 않는다(페어링된 모바일 기기도
-   * 이 라우트에 닿는다 — `/api/open-external` 의 가드 주석과 같은 이유).
+   * 본문에서 URL 을 받지 않는다 — 여는 주소는 `micSettingsTarget()` 이 플랫폼으로 정한 하나뿐이라 임의 URI 를 여는 문이 되지 않는다(페어링된 모바일 기기도 닿는다 — `/api/open-external` 과 같은 이유).
    */
   app.post('/api/mic-settings/open', (_req, res) => {
     try {
@@ -12462,10 +11776,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * GET /api/media-tools — §5.13 (R-8) (e) 이 PC 에 **변환기(ffmpeg)** 가 있는가.
-   *
-   * "코덱이 깔렸는가"가 아니다 — Chromium 은 시스템 코덱을 쓰지 않으므로 코덱팩은 무효이고,
-   * 우리가 찾는 것은 포장을 바꿔 줄 도구다. `?force=1` 이면 캐시를 무시하고 다시 훑는다(설치 직후).
+   * GET /api/media-tools — §5.13 (R-8) (e) 이 PC 에 변환기(ffmpeg)가 있는가. 코덱이 아니다 — Chromium 은 시스템 코덱을 안 쓰므로 코덱팩은 무효다.
+   * `?force=1` 이면 캐시를 무시하고 다시 훑는다(설치 직후).
    */
   app.get('/api/media-tools', (req, res) => {
     try {
@@ -12476,12 +11788,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * POST /api/media-tools/install — 변환기를 설치한다(**사용자가 눌렀을 때만**).
-   *
-   * 우리가 바이너리를 나르지 않고 그 OS 의 표준 창구(winget·brew)에 맡긴다 — 라이선스·용량 때문이며
-   * 그 판단은 §5.13 (R-8) (e) 에 적혀 있다. 끝나면 다시 훑은 결과를 함께 돌려준다.
-   */
+  /** POST /api/media-tools/install — 변환기 설치(사용자가 눌렀을 때만). 바이너리를 나르지 않고 OS 표준 창구(winget·brew)에 맡긴다 — 라이선스·용량(§5.13 (R-8) (e)). 끝나면 다시 훑은 결과를 돌려준다. */
   app.post('/api/media-tools/install', (_req, res) => {
     void installMediaTools()
       .then((result) => res.json(result))
@@ -12492,11 +11799,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * GET /api/media-convert/cached — 이 파일의 변환 결과가 **이미 있는가**.
-   *
-   * 화면이 팝업을 띄울지 그냥 열지 가르는 자리다. 변환을 시작하지 않는 순수 조회라,
-   * 두 번째부터는 사용자가 아무것도 누르지 않아도 바로 열린다.
-   * (라우트 순서 주의 — `/:jobId` 보다 **먼저** 서야 `cached` 가 작업 id 로 읽히지 않는다.)
+   * GET /api/media-convert/cached — 이 파일의 변환 결과가 이미 있는가(팝업을 띄울지 그냥 열지). 변환을 시작하지 않는 순수 조회.
+   * 라우트 순서 주의 — `/:jobId` 보다 먼저 서야 `cached` 가 작업 id 로 읽히지 않는다.
    */
   app.get('/api/media-convert/cached', (req, res) => {
     try {
@@ -12519,12 +11823,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * POST /api/media-convert — 변환을 시작한다(또는 이미 있는 결과·작업을 돌려준다).
-   *
-   * 같은 파일을 두 번 갈지 않고, 캐시가 있으면 곧바로 `done` 으로 답한다 — 호출부는 셋을 구분할
-   * 필요 없이 `status` 만 보면 된다.
-   */
+  /** POST /api/media-convert — 변환 시작(또는 이미 있는 결과·작업 반환). 같은 파일을 두 번 갈지 않고 캐시가 있으면 곧바로 `done` — 호출부는 `status` 만 본다. */
   app.post('/api/media-convert', (req, res) => {
     try {
       const { root, path: relPath, kind } = req.body as { root?: string; path?: string; kind?: string };
@@ -12571,11 +11870,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
 
   /**
-   * GET /api/run-configs — §5.5 #17-20 ② v4.74 디버그·실행 런처: 이 프로젝트의 실행 구성.
-   *
-   * `.vscode/launch.json`·`tasks.json`(JSONC)·`package.json` scripts·`.vibisual/run.json` 과
-   * §5.14 탐지기 결과를 한 목록으로 낸다. 디스크가 SSOT 라 조회 전용 — broadcast·checkpoint 없음.
-   * 경로 가드는 탐색기(`/api/workspace-dir`)와 같은 `isWithinOpenableRoots` 를 그대로 쓴다.
+   * GET /api/run-configs — §5.5 #17-20 ② 디버그·실행 런처: 이 프로젝트의 실행 구성.
+   * `.vscode/launch.json`·`tasks.json`(JSONC)·`package.json` scripts·`.vibisual/run.json` + §5.14 탐지기 결과를 한 목록으로. 디스크가 SSOT 라 조회 전용. 가드는 탐색기와 같은 `isWithinOpenableRoots`.
    */
   app.get('/api/run-configs', (req, res) => {
     try {
@@ -12647,12 +11943,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * GET /api/mcp-servers — §5.5 #17-31: 이 프로젝트에서 쓸 수 있는 MCP 전부.
-   *
-   * 글로벌(`~/.claude.json` 최상위) · 로컬(그 프로젝트 엔트리) · 프로젝트(`.mcp.json`) · 프리셋을
-   * 한 목록으로 낸다. **매 호출마다 디스크를 다시 읽는다** — 화면의 새로고침이 곧 이 호출이다
-   * (앱 밖 터미널에서 `claude mcp add` 를 한 직후에도 누르면 바로 보이게).
-   * 경로 가드는 탐색기·실행 런처와 같은 `isWithinOpenableRoots` 하나를 그대로 쓴다.
+   * GET /api/mcp-servers — §5.5 #17-31: 이 프로젝트에서 쓸 수 있는 MCP 전부 — 글로벌(`~/.claude.json` 최상위) · 로컬(그 프로젝트 엔트리) · 프로젝트(`.mcp.json`) · 프리셋.
+   * 매 호출마다 디스크를 다시 읽는다(앱 밖에서 `claude mcp add` 한 직후에도 새로고침으로 보이게). 가드는 `isWithinOpenableRoots`.
    */
   app.get('/api/mcp-servers', (req, res) => {
     try {
@@ -12681,11 +11973,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * POST /api/mcp-servers/toggle — §5.5 #17-31 ④: 그 서버를 이 프로젝트에서 켜거나 끈다.
-   *
-   * 쓰는 곳은 `~/.claude.json` 의 그 프로젝트 엔트리 하나뿐이다(= `/mcp disable` 과 같은 자리).
-   * 레포의 `.mcp.json`·`.claude/settings*.json` 은 읽기만 한다. 프리셋(`scope='preset'`)은 축이
-   * 달라 여기서 받지 않는다 — 기존 `PUT /api/agent-config/:agentId` 가 그 통로다.
-   * 응답은 갱신된 인벤토리라 화면이 따로 다시 묻지 않는다.
+   * 쓰는 곳은 `~/.claude.json` 의 그 프로젝트 엔트리 하나뿐(= `/mcp disable` 과 같은 자리) — `.mcp.json`·`.claude/settings*.json` 은 읽기만. 프리셋(`scope='preset'`)은 받지 않는다 — `PUT /api/agent-config/:agentId` 가 통로다.
+   * 응답은 갱신된 인벤토리라 화면이 다시 묻지 않는다.
    */
   app.post('/api/mcp-servers/toggle', (req, res) => {
     try {
@@ -12721,12 +12010,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * GET /api/hooks — §5.5 #17-32: 지금 이 프로젝트(=이 세션)에 적용되는 Claude Code 훅 전부.
-   *
-   * 글로벌(`~/.claude/settings.json`) · 프로젝트(`<루트>/.claude/settings.json`) · 로컬
-   * (`settings.local.json`) · 관리자 정책을 한 목록으로 낸다. **매 호출마다 디스크를 다시 읽는다** —
-   * 화면의 새로고침이 곧 이 호출이다(앱 밖에서 훅을 추가한 직후에도 눌러서 보이게, #17-32 ③).
-   * 경로 가드는 탐색기·MCP 인벤토리와 같은 `isWithinOpenableRoots` 하나를 그대로 쓴다.
+   * GET /api/hooks — §5.5 #17-32: 이 프로젝트(=이 세션)에 적용되는 Claude Code 훅 전부 — 글로벌(`~/.claude/settings.json`)·프로젝트·로컬(`settings.local.json`)·관리자 정책.
+   * 매 호출마다 디스크를 다시 읽는다(앱 밖에서 훅을 추가한 직후에도 보이게, #17-32 ③). 가드는 `isWithinOpenableRoots`.
    */
   app.get('/api/hooks', (req, res) => {
     try {
@@ -12750,11 +12035,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * POST /api/hooks/toggle — §5.5 #17-32 ④: 그 훅을 이 컴퓨터에서 켜거나 끈다.
-   *
-   * Claude Code 에는 훅을 끄는 손잡이가 없으므로, 명령 객체를 **같은 블록 안**
-   * `hooks` ↔ `_vibisualDisabled` 사이로 옮긴다(지우지 않는다 = 되돌리기가 항상 가능하다).
-   * 관리자 정책(`managed`)과 Vibisual 자신의 블록은 여기서 받지 않는다.
-   * 응답은 갱신된 인벤토리라 화면이 따로 다시 묻지 않는다.
+   * Claude Code 에는 훅 끄기 손잡이가 없어 명령 객체를 같은 블록 안 `hooks` ↔ `_vibisualDisabled` 사이로 옮긴다(지우지 않는다 = 늘 되돌릴 수 있다).
+   * 관리자 정책(`managed`)과 우리 자신의 블록은 받지 않는다. 응답은 갱신된 인벤토리.
    */
   app.post('/api/hooks/toggle', (req, res) => {
     try {
@@ -12792,17 +12074,11 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * GET /api/claude-plugins — §5.5 #17-33: 이 프로젝트에서 본 Claude Code 플러그인 + 마켓.
-   *
-   * 진실은 CLI 자신의 답이다(`claude plugin list --json --available`) — 매 호출마다 다시 묻는다
-   * (화면의 새로고침이 곧 이 호출). CLI 는 `cwd` 로 `project`/`local` 범위를 해석하므로 그 프로젝트에서 띄운다.
-   * 경로 가드는 탐색기·MCP·훅과 같은 `isWithinOpenableRoots` 하나를 그대로 쓴다.
+   * 진실은 CLI 자신의 답(`claude plugin list --json --available`) — 매 호출마다 다시 묻는다. CLI 가 `cwd` 로 `project`/`local` 범위를 해석하므로 그 프로젝트에서 띄운다. 가드는 `isWithinOpenableRoots`.
    */
   /**
-   * §5.5 #17-33 ⑦ — 인벤토리에 **마지막 마켓 갱신 시각**을 얹는다.
-   *
-   * CLI 는 클론이 언제 끌려왔는지 알려 주지 않고 `known_marketplaces.json` 을 읽는 것은 ② 가
-   * 막으므로, **우리가 부른 시각을 우리가 적는다.** 이 한 줄이 없어서 실측 클론이 36일 멈춰 있는
-   * 동안 화면은 아무 말도 하지 않았다.
+   * §5.5 #17-33 ⑦ — 인벤토리에 마지막 마켓 갱신 시각을 얹는다.
+   * CLI 는 클론 시각을 알려 주지 않고 `known_marketplaces.json` 읽기는 ② 가 막으므로 우리가 부른 시각을 우리가 적는다(없으면 클론이 오래 멈춰도 화면이 말이 없다 — 실측 36일).
    */
   async function inventoryWithRefreshMarks(projectPath: string): Promise<ClaudePluginInventory> {
     const inv = await scanClaudePlugins(projectPath);
@@ -12836,12 +12112,7 @@ export async function runServer(): Promise<RunServerHandle> {
     })();
   });
 
-  /**
-   * §5.5 #17-33 ⑦ — 자동 갱신 설정 읽기/쓰기.
-   *
-   * 플러그인은 사용자 컴퓨터에서 임의 코드를 도는 물건이라 **끌 자리가 반드시 있어야 한다.**
-   * 다만 기본은 켬이다 — 켤 자리를 못 찾아 36일 멈춰 있는 것보다 끄고 싶은 사람이 끄는 편이 낫다.
-   */
+  /** §5.5 #17-33 ⑦ — 자동 갱신 설정 읽기/쓰기. 플러그인은 사용자 컴퓨터에서 임의 코드를 도는 물건이라 끌 자리가 반드시 있어야 한다. 기본은 켬. */
   app.get('/api/claude-plugin-refresh', (_req, res) => {
     res.json({ ok: true, ...appStateGetClaudePluginRefresh(), running: isClaudePluginRefreshRunning() });
   });
@@ -12867,9 +12138,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * POST /api/claude-plugins/action — §5.5 #17-33 ④⑤: 켜기·끄기·설치·제거·마켓 추가/제거.
-   *
-   * 다섯 동작이 **전부 CLI 위임**이라 창구를 하나로 둔다(우리가 git clone 과 설치 상태 파일 쓰기를
-   * 흉내 내면 CLI 의 상태와 두 갈래로 갈린다). 응답에는 갱신된 인벤토리를 함께 실어 화면이 다시 묻지 않는다.
+   * 전부 CLI 위임이라 창구 하나 — git clone·설치 상태 파일 쓰기를 흉내 내면 CLI 상태와 갈린다. 응답에 갱신된 인벤토리를 싣는다.
    */
   app.post('/api/claude-plugins/action', (req, res) => {
     void (async () => {
@@ -12984,12 +12253,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * POST /api/unreal/attach — §5.5 #17-20 ③⑦: 실행 중인 언리얼 에디터에 디버거를 붙인다.
-   *
-   * `-WaitForDebugger` 로 띄운 에디터는 디버거가 붙을 때까지 멈춰 서 있다. 그 "붙이는" 한 동작을
-   * 사용자가 Vibisual 안에서 하게 하는 자리 — 멈춰 세우는 일 자체는 재배포할 수 없는
-   * 네이티브 디버거(⑦)의 몫이므로, 우리는 pid 를 찾아 JIT 디버거에 넘기기만 한다.
-   * 조회·위임 전용이라 broadcast·checkpoint 미관여.
+   * POST /api/unreal/attach — §5.5 #17-20 ③⑦: 실행 중인 언리얼 에디터에 디버거를 붙인다(`-WaitForDebugger` 로 띄우면 붙을 때까지 멈춰 있다).
+   * 멈춰 세우는 일은 재배포할 수 없는 네이티브 디버거(⑦) 몫이라 우리는 pid 를 찾아 JIT 디버거에 넘기기만 한다. 조회·위임 전용.
    */
   app.post('/api/unreal/attach', (req, res) => {
     try {
@@ -13016,11 +12281,8 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  // ─── §5.5 #17-20 ⑩⑫ v4.94 — 공통 디버그 층 ────────────────────────────────
-  //
-  // 연결은 서버가 소유한다(소켓·자식 프로세스는 브라우저가 못 연다). 여기 있는 것은 전부
-  // **런타임 무관** 창구다 — 어느 언어든 같은 엔드포인트를 쓰고, 갈리는 것은 표(`DEBUG_ADAPTERS`)
-  // 안에서다. 세션은 프로세스 수명이라 broadcast 는 `debug_event` 로만 하고 checkpoint 미관여.
+  // §5.5 #17-20 ⑩⑫ — 공통 디버그 층. 연결은 서버가 소유한다(소켓·자식 프로세스는 브라우저가 못 연다).
+  // 전부 런타임 무관 창구 — 언어가 갈리는 것은 표(`DEBUG_ADAPTERS`) 안에서다. 세션은 프로세스 수명이라 broadcast 는 `debug_event` 로만, checkpoint 미관여.
 
   /** GET /api/debug/adapters — 이 컴퓨터에서 쓸 수 있는 디버그 어댑터 목록(없으면 없다고 답한다). */
   app.get('/api/debug/adapters', (_req, res) => {
@@ -13038,15 +12300,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /*
-   * §5.11 정독 게이트 — 설정 창구.
-   *
-   * 자리가 플러그인 폴더가 아니라 여기인 이유: **이 값은 호스트 소유**다(체크포인트에 저장되고,
-   * 게이트가 훅·권한 경로에서 읽는다). 플러그인 폴더의 REST(`/api/plugins/<id>/*`)는 그 카드가
-   * 자기 파일을 다루는 창구이고, 이것은 `verificationRuns`·`sessionLoops` 와 같은 축의 세션 설정이다.
-   *
-   * 저장소의 `.vibisual/spec.json`(팀이 git 으로 공유하는 기획 뿌리·경로 매핑)은 **여기서 쓰지 않는다** —
-   * 화면 토글 하나로 사용자의 작업 트리를 건드리면 안 되기 때문이다. 그 파일은 손으로 적고, 이 창구가
-   * 저장하는 것은 이 기기의 선택(강도·면제·상한)이며, 판정에서는 파일이 바닥·이 값이 덮개다.
+   * §5.11 정독 게이트 — 설정 창구. 이 값은 호스트 소유라(체크포인트에 저장, 게이트가 훅·권한 경로에서 읽는다) 플러그인 REST(`/api/plugins/<id>/…`)가 아니라 여기다 — `verificationRuns`·`sessionLoops` 와 같은 축.
+   * 저장소의 `.vibisual/spec.json`(팀이 git 으로 공유하는 기획 뿌리·경로 매핑)은 여기서 쓰지 않는다 — 화면 토글로 작업 트리를 건드리면 안 된다.
+   * 이 창구는 이 기기의 선택(강도·면제·상한)만 저장하고, 판정은 파일이 바닥·이 값이 덮개다.
    */
   app.get('/api/spec-reading/settings', (req, res) => {
     try {
@@ -13063,11 +12319,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * PUT /api/spec-reading/settings — **전량 교체.**
-   *
-   * 부분 페이로드를 받지 않는 이유는 `agent-config` 가 겪은 그대로다 — 한 칸만 보내면 나머지가
-   * 기본값으로 강등되고, 그 사고는 조용하다. 값 검증은 플러그인의 `normalizeSpecSettings` 하나가 한다
-   * (서버가 자기 검증을 따로 들면 화면이 저장했다고 말한 값과 게이트가 읽는 값이 갈린다).
+   * PUT /api/spec-reading/settings — 전량 교체(부분 페이로드 ❌ — 한 칸만 보내면 나머지가 조용히 기본값으로 강등된다, `agent-config` 와 같다).
+   * 값 검증은 플러그인의 `normalizeSpecSettings` 하나 — 서버가 따로 검증하면 화면이 저장한 값과 게이트가 읽는 값이 갈린다.
    */
   app.put('/api/spec-reading/settings', (req, res) => {
     try {
@@ -13116,12 +12369,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * POST /api/spec-reading/waive — 절 하나를 면제한다(또는 되돌린다).
-   *
-   * **면제는 사용자만 줄 수 있다.** 에이전트가 스스로 면제할 수 있으면 이 게이트는 아무것도 아니게
-   * 되므로, 이 창구는 화면에서만 불린다(에이전트에게는 이 경로를 알려 주지 않는다).
-   */
+  /** POST /api/spec-reading/waive — 절 하나를 면제한다(또는 되돌린다). 면제는 사용자만 — 이 창구는 화면에서만 불리고 에이전트에게 알려 주지 않는다(스스로 면제하면 게이트가 무의미). */
   app.post('/api/spec-reading/waive', (req, res) => {
     try {
       const body = req.body as { projectPath?: unknown; unitId?: unknown; waived?: unknown };
@@ -13151,14 +12399,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * POST /api/spec-reading/scope — §5.5 #17-44 ⑧ **켬/끔 3층을 한 칸만** 갈아 끼운다.
-   *
-   * 왜 전용 창구인가 — 위 `PUT /settings` 는 전량 교체라, 활동바 팝오버가 그것으로 켜면 강도·면제·뿌리가
-   * 함께 실려 나간다. 화면이 그 셋을 모르는 상태에서 보내면 **나머지가 기본값으로 강등**되고 그 사고는
-   * 조용하다(§4 `agent-config` PUT 이 겪은 그대로). 여기서는 서버가 지금 값을 읽어 그 한 칸만 바꾼다.
-   *
-   * `enabled: null` 은 **그 칸을 지운다**(= 위 층에서 물려받도록 되돌린다). `false` 와 다르다 —
-   * 그 둘을 구분하지 못하면 "프로젝트에서 켜고 이 세션만 끄기"를 표현할 수 없다.
+   * POST /api/spec-reading/scope — §5.5 #17-44 ⑧ 켬/끔 3층을 한 칸만 갈아 끼운다.
+   * `PUT /settings` 는 전량 교체라 팝오버가 그것으로 켜면 모르는 강도·면제·뿌리가 기본값으로 강등된다 — 여기서는 서버가 지금 값을 읽어 한 칸만 바꾼다.
+   * `enabled: null` 은 그 칸을 지운다(위 층 상속) — `false` 와 다르다(그래야 "프로젝트는 켜고 이 세션만 끄기"가 된다).
    */
   app.post('/api/spec-reading/scope', (req, res) => {
     try {
@@ -13215,17 +12458,12 @@ export async function runServer(): Promise<RunServerHandle> {
     material: (root) => graphManager.getAutoGoalMaterial(root),
     changed: () => { broadcastSnapshot(); },
   });
-  //
-  // 창구가 넷인 이유는 정독(#17-44 ⑧(e))과 같다: **켬/끔은 전용 창구가 한 칸만 갈아 끼운다.**
-  // 전량 교체로 켜면 화면이 모르는 값(물린 후보 목록)이 함께 실려 나가 기본값으로 강등되고,
-  // 그 사고는 조용하다(§4 `agent-config` PUT 이 겪은 그대로).
+  // 창구가 넷인 이유는 정독(#17-44 ⑧(e))과 같다: 켬/끔은 전용 창구가 한 칸만 갈아 끼운다 — 전량 교체로 켜면 화면이 모르는 값(물린 후보 목록)이 조용히 기본값으로 강등된다.
 
   /**
    * GET /api/auto-goal/state — 이 자리에서 자동 목표가 무엇을 보고 있는가.
-   *
-   * **꺼져 있으면 훑지 않는다** — 후보 0건·`observed` 0 이고, 이미 지어진 스킬 목록만 돌려준다
-   * (껐다고 그동안 만든 것까지 사라지면 안 된다). 켜져 있으면 이 호출이 분석을 돌리고, 문턱을
-   * 넘은 후보를 그 자리에서 스킬로 굳힌다(쿨다운이 걸려 있어 창을 껐다 켜도 다시 세지 않는다).
+   * 꺼져 있으면 훑지 않는다 — 후보 0건·`observed` 0, 이미 지은 스킬 목록만 준다(껐다고 만든 것이 사라지면 안 된다).
+   * 켜져 있으면 이 호출이 분석을 돌리고 문턱을 넘은 후보를 스킬로 굳힌다(쿨다운이 있어 창을 다시 열어도 다시 세지 않는다).
    */
   app.get('/api/auto-goal/state', (req, res) => {
     try {
@@ -13252,12 +12490,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * POST /api/auto-goal/scope — **켬/끔 3층을 한 칸만** 갈아 끼운다(정독과 같은 규약).
-   *
-   * `enabled: null` 은 **그 칸을 지운다**(= 위 층에서 물려받도록 되돌린다). `false` 와 다르다 —
-   * 그 둘을 구분하지 못하면 "프로젝트에서 켜고 이 세션만 끄기"를 표현할 수 없다.
-   */
+  /** POST /api/auto-goal/scope — 켬/끔 3층을 한 칸만 갈아 끼운다(정독과 같은 규약). `enabled: null` 은 그 칸을 지운다(상속) — `false` 와 다르다. */
   app.post('/api/auto-goal/scope', (req, res) => {
     try {
       const body = req.body as { projectPath?: unknown; scope?: unknown; id?: unknown; enabled?: unknown };
@@ -13293,12 +12526,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * POST /api/auto-goal/dismiss — 후보 하나를 물린다(또는 그 물림을 푼다).
-   *
-   * **지우는 것이 아니라 덮는 것이다** — 같은 절차가 계속 관찰돼도 제안만 멈춘다. 이 창구는
-   * 화면에서만 불린다(에이전트가 스스로 자기 제안을 물릴 수 있으면 이 목록은 아무것도 아니게 된다).
-   */
+  /** POST /api/auto-goal/dismiss — 후보 하나를 물린다(또는 푼다). 지우지 않고 덮는다 — 계속 관찰돼도 제안만 멈춘다. 화면에서만 불린다(에이전트가 자기 제안을 물릴 수 있으면 무의미). */
   app.post('/api/auto-goal/dismiss', (req, res) => {
     try {
       const body = req.body as { projectPath?: unknown; candidateId?: unknown; dismissed?: unknown };
@@ -13350,11 +12578,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * DELETE /api/auto-goal/skills/:id — 굳어진 절차 한 장을 지운다.
-   *
-   * **사용자만 지운다.** 자동으로 지우는 경로는 두지 않는다 — 총량은 예산(`AUTO_GOAL_SKILL_BUDGET`)
-   * 으로 묶고, 넘치면 더 짓지 않을 뿐 있던 것을 없애지 않는다(§5.10 "자동 삭제 금지" 승계).
-   * 지운 절차는 함께 물려 둔다 — 안 그러면 다음 분석이 같은 것을 곧바로 다시 짓는다.
+   * DELETE /api/auto-goal/skills/:id — 굳어진 절차 한 장을 지운다. 사용자만 지운다 — 자동 삭제 경로는 없다(총량은 `AUTO_GOAL_SKILL_BUDGET` 으로 묶고 넘치면 더 짓지 않을 뿐, §5.10).
+   * 지운 절차는 함께 물려 둔다 — 안 그러면 다음 분석이 곧바로 다시 짓는다.
    */
   app.delete('/api/auto-goal/skills/:id', (req, res) => {
     try {
@@ -13708,13 +12933,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * GET /api/debug/free-port?base= — 실제로 비어 있는 디버그 포트.
-   *
-   * 종전에는 클라가 **자기 실행 세션 안에서만** 겹치는지 봐서, 밖에서 이미 그 포트를 쓰는
-   * 프로세스와 부딪혔다(그러면 디버거가 엉뚱한 프로세스에 붙는다). 실제 리슨 여부는
-   * 서버만 볼 수 있으므로 이 창구로 옮긴다.
-   */
+  /** GET /api/debug/free-port?base= — 실제로 비어 있는 디버그 포트. 실제 리슨 여부는 서버만 볼 수 있다 — 클라가 자기 실행 세션 안에서만 보면 밖에서 그 포트를 쓰는 프로세스와 부딪혀 디버거가 엉뚱한 프로세스에 붙는다. */
   app.get('/api/debug/free-port', (req, res) => {
     const base = Number(req.query['base']);
     void findFreePort(Number.isFinite(base) && base > 0 ? base : DEBUG_PORT_BASE)
@@ -13722,12 +12941,7 @@ export async function runServer(): Promise<RunServerHandle> {
       .catch(() => res.status(409).json({ error: 'no-free-port' }));
   });
 
-  /**
-   * POST /api/debug/attach — 이미 떠 있는 디버기에 붙는다.
-   *
-   * `attach:'pid'` 런타임인데 pid 를 모르면 실행 명령에서 뽑은 조각으로 한 번 찾아 본다
-   * (PTY 로 띄우므로 우리 손의 pid 는 셸의 것이다). 그래도 못 찾으면 그 사실을 그대로 답한다.
-   */
+  /** POST /api/debug/attach — 이미 떠 있는 디버기에 붙는다. `attach:'pid'` 런타임인데 pid 를 모르면 실행 명령에서 뽑은 조각으로 찾아 본다(PTY 로 띄워 우리 손의 pid 는 셸의 것). 못 찾으면 그대로 답한다. */
   app.post('/api/debug/attach', (req, res) => {
     const body = req.body as {
       runId?: string; root?: string; runtime?: string; port?: number; pid?: number; command?: string;
@@ -13776,12 +12990,7 @@ export async function runServer(): Promise<RunServerHandle> {
     void debugSessionManager.stop(sessionId).then(() => res.json({ ok: true }));
   });
 
-  /**
-   * PUT /api/debug/breakpoints — 프로젝트의 중단점을 **저장**한다(세션 유무와 무관).
-   *
-   * 세션이 없어도 찍어 둘 수 있어야 하고(그래야 다음에 붙을 때 그대로 걸린다), 껐다 켜도
-   * 남아야 한다 — 그래서 여기만 broadcast + saveCheckpoint 를 탄다.
-   */
+  /** PUT /api/debug/breakpoints — 프로젝트의 중단점을 저장한다(세션 유무와 무관). 다음에 붙을 때 걸리고 재기동 뒤에도 남아야 해서 여기만 broadcast + saveCheckpoint 를 탄다. */
   app.put('/api/debug/breakpoints', (req, res) => {
     const { projectName, breakpoints } = req.body as { projectName?: string; breakpoints?: unknown };
     if (typeof projectName !== 'string' || !Array.isArray(breakpoints)) {
@@ -13872,11 +13081,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * POST /api/debug/release — §5.5 #17-20 ⑫ **붙지 않고 그냥 진행**.
-   *
-   * `--inspect-brk` 로 멈춰 선 Node 프로세스를 죽였다 다시 켜지 않고 풀어 준다.
-   * (다른 런타임의 `suspend=y`·`--wait-for-client` 는 디버거가 붙어야만 풀리므로, 그쪽은
-   * [디버그 연결] 이 답이다 — 여기서 거짓으로 성공을 답하지 않는다.)
+   * POST /api/debug/release — §5.5 #17-20 ⑫ 붙지 않고 그냥 진행. `--inspect-brk` 로 멈춘 Node 프로세스를 재시작 없이 풀어 준다.
+   * 다른 런타임(`suspend=y`·`--wait-for-client`)은 디버거가 붙어야만 풀리므로 [디버그 연결]이 답이다 — 거짓 성공을 답하지 않는다.
    */
   app.post('/api/debug/release', (req, res) => {
     const { port } = req.body as { port?: number };
@@ -14111,17 +13317,14 @@ export async function runServer(): Promise<RunServerHandle> {
   /** GET /api/app-state — 현재 서버의 탭 라이프사이클 상태 반환 */
   app.get('/api/app-state', (_req, res) => {
     try {
-      res.json(loadAppState());
+      res.json(publicAppState(loadAppState())); // §4 API 크레딧 — 키가 든 칸은 빼고 보낸다.
     } catch (err) {
       logger.error('GET /api/app-state failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
 
-  // ─── §3.2.3 보존 정책 ───
-  //
-  // Claude Code 가 `cleanupPeriodDays` 를 끌 수 없게 만들어 반발을 산 자리(#59248·#64999)를
-  // 의도적으로 비껴간다 — 모든 축을 사용자가 조절하고, `0` 이면 그 축은 정리하지 않는다.
+  // §3.2.3 보존 정책 — 모든 축을 사용자가 조절하고 `0` 이면 그 축은 정리하지 않는다(Claude Code 가 `cleanupPeriodDays` 를 끌 수 없게 해 반발을 산 자리 #59248·#64999 를 비껴간다).
 
   /** GET /api/retention-settings — 현재 설정 + 입력 한계 + 기본값(설정 UI 가 "되돌리기"에 쓴다). */
   app.get('/api/retention-settings', (_req, res) => {
@@ -14165,10 +13368,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  // ─── §5.3 #9-1 토큰 절약 ───
-  //
-  // 보존 정책(§3.2.3)과 **같은 모양**의 창구다 — 머신 단위 설정 하나, 정규화는 shared 한 곳,
-  // `0` 은 "그 축 끔". 다른 점은 대상이 디스크가 아니라 스폰 정책이라는 것뿐이다.
+  // §5.3 #9-1 토큰 절약 — 보존 정책(§3.2.3)과 같은 모양의 창구(머신 단위 설정 하나, 정규화는 shared 한 곳, `0` = 그 축 끔). 대상이 디스크가 아니라 스폰 정책일 뿐이다.
 
   /** GET /api/token-saver-settings — 현재 설정 + 입력 한계 + 기본값 + 프리셋 세 벌. */
   app.get('/api/token-saver-settings', (_req, res) => {
@@ -14187,10 +13387,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * PUT /api/token-saver-settings — 부분 갱신. 정규화(범위 클램프·바닥·프리셋 재판정)는 shared 한 곳.
-   *
-   * `preset` 이름을 주면 **그 벌의 값으로 통째 교체**한다(칸을 하나씩 보내는 것과 같은 결과라
-   * 판정 경로가 둘로 갈리지 않는다). 이름과 개별 값이 함께 오면 **개별 값이 이긴다** — 사용자가
-   * 프리셋을 고른 뒤 한 칸을 고친 그 순서를 그대로 따르는 것이 덜 놀랍다.
+   * `preset` 이름을 주면 그 벌의 값으로 통째 교체(칸을 하나씩 보낸 것과 같은 결과라 판정 경로가 하나다). 이름과 개별 값이 함께 오면 개별 값이 이긴다 — 프리셋을 고른 뒤 한 칸을 고친 순서를 따른다.
    */
   app.put('/api/token-saver-settings', (req, res) => {
     try {
@@ -14226,11 +13423,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  // ─── §6 단축키 재매핑 ───
-  //
-  // 정본은 `shared/keymap.ts` 의 `COMMANDS` 표다. 서버는 **사용자가 바꾼 것만** 들고 있고,
-  // 기본값은 코드에 있으므로 여기 오지 않는다 — 그래야 다음 판올림에서 기본 바인딩을 고치면
-  // 사용자가 안 건드린 칸이 자동으로 새 값을 따라간다.
+  // §6 단축키 재매핑 — 정본은 `shared/keymap.ts` 의 `COMMANDS` 표. 서버는 사용자가 바꾼 것만 든다 — 기본값은 코드에 있어, 기본 바인딩을 고치면 안 건드린 칸이 자동으로 새 값을 따라간다.
 
   /** GET /api/keymap — 사용자 덮어쓰기 + 기본값(설정 UI 가 "되돌리기"에 쓴다). */
   app.get('/api/keymap', (_req, res) => {
@@ -14243,12 +13436,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * PUT /api/keymap — 부분 갱신.
-   *
-   * 본문은 `{ overrides?: Record<CommandId, string|null>, reset?: CommandId[] }`.
-   * `overrides` 의 `null` 은 **해제**(키보드에서 내림)이고, `reset` 은 **기본값 복귀**다 —
-   * 둘을 한 값으로 뭉개면 "되돌리기"가 "해제"가 되어 사용자가 그 명령을 영영 못 쓰게 된다.
-   * 정규화(모르는 명령·못 읽는 바인딩 버리기)는 shared 한 곳에서.
+   * PUT /api/keymap — 부분 갱신. 본문 `{ overrides?: Record<CommandId, string|null>, reset?: CommandId[] }`.
+   * `overrides` 의 `null` 은 해제(키보드에서 내림), `reset` 은 기본값 복귀 — 한 값으로 뭉개면 "되돌리기"가 "해제"가 되어 그 명령을 영영 못 쓴다.
+   * 정규화(모르는 명령·못 읽는 바인딩 버리기)는 shared 한 곳.
    */
   app.put('/api/keymap', (req, res) => {
     try {
@@ -14286,12 +13476,8 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  // ─── §5.5 #16-1 IDE 활동바 구성(순서·제외) ───
-  //
-  // 단축키와 **같은 모양의 창구**다 — 머신 단위 설정이고, 저장되는 것은 사용자가 바꾼 것뿐이며,
-  // 창이 여럿이면 WS 로 다른 창도 즉시 같은 배치를 쓴다. 다른 점은 하나: **서버는 항목 이름을
-  // 모른다**(문자열 배열만 정규화한다). 무엇이 실재하는 뷰인지는 클라의 정본 표가 판정하므로,
-  // 다음 판올림에서 활동바 칸이 늘어도 이 라우트는 안 고친다(`/api/skill-order` 와 같은 규약).
+  // §5.5 #16-1 IDE 활동바 구성(순서·제외) — 단축키와 같은 모양의 창구(머신 단위, 바꾼 것만 저장, 창이 여럿이면 WS 로 즉시 같은 배치).
+  // 서버는 항목 이름을 모른다(문자열 배열만 정규화) — 실재하는 뷰는 클라 정본 표가 판정하므로 칸이 늘어도 이 라우트는 안 고친다(`/api/skill-order` 와 같은 규약).
 
   /** GET /api/ide-activity-bar — 사용자가 정한 활동바 순서·제외 목록. */
   app.get('/api/ide-activity-bar', (_req, res) => {
@@ -14303,12 +13489,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * PUT /api/ide-activity-bar — 부분 갱신.
-   *
-   * 본문은 `{ order?: string[], hidden?: string[], reset?: true }`. `order`·`hidden` 은 **언급한
-   * 칸만** 치환한다(순서를 바꿨다고 제외 목록이 함께 날아가면 안 된다).
-   */
+  /** PUT /api/ide-activity-bar — 부분 갱신. 본문 `{ order?: string[], hidden?: string[], reset?: true }`. `order`·`hidden` 은 언급한 칸만 치환한다(순서를 바꿨다고 제외 목록이 날아가면 안 된다). */
   app.put('/api/ide-activity-bar', (req, res) => {
     try {
       const body = (req.body ?? {}) as { order?: unknown; hidden?: unknown; reset?: unknown };
@@ -14490,9 +13671,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.23 웹 버블 묶기 — GET /api/web-fold. 같은 사이트 · 비슷한 종류 · 에이전트마다 최대 N개(머신 단위 앱 설정)
-   * + 옵션창의 "되돌리기"용 기본값 + 최대 개수의 범위. 종전 `{ enabled }`(접어 보기)는 최대 1개로 흡수됐다.
-   * §5.23 「더블클릭」 — 같은 칸의 [더블클릭하면 열 곳](`openTarget`)과 그 기본값도 함께 싣는다(옵션창 한 칸 = 창구 하나).
+   * §5.23 웹 버블 묶기 — GET /api/web-fold. 같은 사이트 · 비슷한 종류 · 에이전트마다 최대 N개(머신 단위 앱 설정) + 되돌리기용 기본값 + 최대 개수의 범위.
+   * §5.23 「더블클릭」 — 같은 칸의 [더블클릭하면 열 곳](`openTarget`)과 그 기본값도 싣는다(옵션창 한 칸 = 창구 하나).
    */
   app.get('/api/web-fold', (_req, res) => {
     try {
@@ -14587,9 +13767,8 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * GET /api/retention-trash — 휴지통 목록(= 복원 가능한 것 목록). §3.2.3 규칙 4 "조용히 지우지 않는다".
-   *
-   * 별도 기록 파일을 두지 않고 휴지통 폴더를 훑어 만든다 — 파일 자체가 사실이라 기록과 실제가 어긋날 수 없다.
+   * GET /api/retention-trash — 휴지통 목록(= 복원 가능한 것). §3.2.3 규칙 4 "조용히 지우지 않는다".
+   * 기록 파일 없이 휴지통 폴더를 훑어 만든다 — 파일 자체가 사실이라 기록과 실제가 어긋날 수 없다.
    */
   app.get('/api/retention-trash', (_req, res) => {
     try {
@@ -14653,7 +13832,7 @@ export async function runServer(): Promise<RunServerHandle> {
         if (Array.isArray(v) && v.every((n) => typeof n === 'string')) patch.pinnedProjects = v as string[];
       }
       const updated = patchAppState(patch);
-      res.json(updated);
+      res.json(publicAppState(updated)); // §4 API 크레딧 — 키가 든 칸은 빼고 보낸다.
       broadcastSnapshot();
     } catch (err) {
       logger.error('PATCH /api/app-state failed', err);
@@ -14662,9 +13841,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * PATCH /api/projects/order — §5.4 #14-2 (C-1) 프로젝트 탭 순서 저장(끌어서 놓은 순서). 껐다 켜도 그 자리에 선다.
-   * body `{ order: string[] }` = 화면에 선 프로젝트 탭의 경로(보이는 순서). **순서만** 바꾼다 — 목록 치환 ❌
-   * (위 `PATCH /api/app-state` 가 `openProjects` 를 받지 않는 규약 그대로, `appStateReorderOpenProjects`).
+   * PATCH /api/projects/order — §5.4 #14-2 (C-1) 프로젝트 탭 순서 저장(끌어서 놓은 순서, 재기동 뒤에도 그 자리).
+   * body `{ order: string[] }` = 화면에 선 탭의 경로(보이는 순서). 순서만 바꾼다 — 목록 치환 ❌(`PATCH /api/app-state` 가 `openProjects` 를 받지 않는 규약, `appStateReorderOpenProjects`).
    * 바뀐 것이 있을 때만 저장·방송한다 — 클라는 방송된 순서가 놓은 순서를 따르면 붙들기를 놓는다.
    */
   app.patch('/api/projects/order', (req, res) => {
@@ -14691,7 +13869,7 @@ export async function runServer(): Promise<RunServerHandle> {
   /** DELETE /api/projects/:name — 프로젝트 탭 닫기 (데이터 보존, 스냅샷에서만 숨김 + AppState에서 제거) */
   app.delete('/api/projects/:name', (req, res) => {
     try {
-      // v1.63: 클라는 projectId(path)를 보냄. path 우선 해소, 이름 폴백.
+      // 클라는 projectId(path)를 보낸다. path 우선 해소, 이름 폴백.
       const ref = decodeURIComponent(req.params.name);
       const resolved = graphManager.resolveProjectRef(ref);
       const rawName = resolved?.rawName ?? ref;
@@ -14705,10 +13883,8 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
       if (appStateRemoved) logger.info(`AppState: openProjects -= ${idPath} ("${rawName}")`);
-      // §5.4 #14-4 — 닫은 탭을 "다시 열기" 스택에 올린다. **여기가 유일한 등록 지점**이다:
-      //   × 버튼·컨텍스트 메뉴(닫기/다른 탭/좌우/모두)·별창 X(#14-1 (E)) 가 전부 이 DELETE 를
-      //   지나므로, 닫는 길이 늘어도 기록이 새지 않는다. 분리(detach)는 이 길로 오지 않는다 —
-      //   #14-1 (F) 대로 분리는 닫기가 아니라 표시 라우팅이라 스택에 들어가면 안 된다.
+      // §5.4 #14-4 — 닫은 탭을 "다시 열기" 스택에 올리는 유일한 등록 지점 — × 버튼·컨텍스트 메뉴(닫기/다른 탭/좌우/모두)·별창 X(#14-1 (E))가 전부 이 DELETE 를 지난다.
+      //   분리(detach)는 이 길로 오지 않는다 — 분리는 닫기가 아니라 표시 라우팅(#14-1 (F))이라 스택에 들어가면 안 된다.
       appStatePushClosedTab({
         key: `p:${rawName}`,
         kind: 'project',
@@ -14725,19 +13901,10 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  // ─── §5.4 #14-4 "닫은 탭 다시 열기" ───
-  //
-  // 브라우저의 Ctrl+Shift+T 와 같은 동작. 목록의 SSOT 는 머신 단위 `AppState.recentlyClosedTabs`
-  // 이고(탭을 여닫는 다른 상태와 같은 축), 클라이언트는 스냅샷에 실려 오는 그 목록을 **그리기만**
-  // 한다. 프로젝트 탭의 등록은 `DELETE /api/projects/:name` 이 서버에서 직접 하므로, 클라가
-  // 따로 신고하는 것은 서버가 모르는 iframe 탭뿐이다.
+  // §5.4 #14-4 "닫은 탭 다시 열기"(브라우저 Ctrl+Shift+T 와 같은 동작). 목록 SSOT 는 머신 단위 `AppState.recentlyClosedTabs` — 클라는 스냅샷의 목록을 그리기만 한다.
+  // 프로젝트 탭은 `DELETE /api/projects/:name` 이 서버에서 직접 등록하므로 클라가 신고하는 것은 서버가 모르는 iframe 탭뿐이다.
 
-  /**
-   * POST /api/closed-tabs — 닫은 탭 1건 등록(**iframe 탭 전용**).
-   *
-   * 프로젝트 탭은 이 창구를 쓰지 않는다 — DELETE 가 이미 올린 것을 한 번 더 올리면 같은 항목이
-   * 두 번 접히며 `closedAt` 만 흔들린다. 그래서 `kind: 'project'` 는 여기서 거절한다.
-   */
+  /** POST /api/closed-tabs — 닫은 탭 1건 등록(iframe 탭 전용). `kind: 'project'` 는 거절한다 — DELETE 가 이미 올린 것을 또 올리면 같은 항목이 두 번 접히며 `closedAt` 만 흔들린다. */
   app.post('/api/closed-tabs', (req, res) => {
     try {
       const body = (req.body ?? {}) as { key?: unknown; label?: unknown; url?: unknown; serverKind?: unknown; projectPath?: unknown };
@@ -14766,14 +13933,9 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * POST /api/closed-tabs/reopen — 한 건을 되연다. `key` 를 안 주면 **가장 최근에 닫은 것**.
-   *
-   * 프로젝트면 여기서 `registerProject` → `showProject` 까지 한다. §5.4 #14 v1.34 가 정한 대로
-   * `hiddenProjects` 를 푸는 것은 **사용자 명시 액션뿐**이고, 이 창구가 폴더 선택과 나란한 그
-   * 두 번째 경로다(문서가 예고해 둔 "Recently closed 복원 UI").
-   *
-   * ⚠ **폴더가 사라졌으면 열지 않고 항목을 버린다.** 없는 경로로 `registerProject` 를 부르면
-   *   유령 프로젝트가 생기고, 목록에 그대로 두면 눌러도 깨지기만 하는 항목이 남는다.
+   * POST /api/closed-tabs/reopen — 한 건을 되연다(`key` 가 없으면 가장 최근에 닫은 것).
+   * 프로젝트면 `registerProject` → `showProject` 까지 — `hiddenProjects` 를 푸는 것은 사용자 명시 액션뿐이고(§5.4 #14), 이 창구가 폴더 선택과 나란한 두 번째 경로다.
+   * ⚠ 폴더가 사라졌으면 열지 않고 항목을 버린다 — 없는 경로로 `registerProject` 하면 유령 프로젝트가 생기고, 남겨 두면 눌러도 깨지기만 한다.
    */
   app.post('/api/closed-tabs/reopen', (req, res) => {
     try {
@@ -14826,8 +13988,7 @@ export async function runServer(): Promise<RunServerHandle> {
     const registerPicked = (selected: string): void => {
       try {
         const info = graphManager.registerProject(selected);
-        // SSOT §5.4 #14 (v1.34): 사용자가 명시적으로 폴더를 선택해서 "열기" 한 경로 —
-        // 과거에 닫아서 hidden 상태였다면 여기서만 복구한다.
+        // §5.4 #14 — 사용자가 폴더를 골라 "열기" 한 경로 — 닫아서 hidden 이던 프로젝트는 여기서만 되살린다.
         graphManager.showProject(info.name);
         broadcastSnapshot();
         saveCheckpoint();
@@ -14838,12 +13999,8 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     };
 
-    // ─── macOS / Linux ───
-    // 아래 Windows 경로(IFileDialog COM)가 **유일한 구현이면** mac·Linux 에서는 `powershell` 이
-    // 없어 ENOENT → 500 이 되고, 클라이언트(FileMenu)는 그 실패를 catch 로 삼켜 **File → 폴더
-    // 열기가 눌러도 아무 일도 없는 버튼**이 된다 — 그 두 플랫폼에는 프로젝트를 추가할 수단이
-    // UI 에 하나도 남지 않는다는 뜻이다. 새 의존성 없이 OS 가 이미 들고 있는 대화상자를 부른다:
-    // macOS 는 내장 `osascript`, Linux 는 데스크톱 환경 표준인 `zenity` → `kdialog` 순.
+    // macOS / Linux — 아래 Windows 경로(IFileDialog COM)만 있으면 `powershell` 이 없어 ENOENT → 500 이고, FileMenu 가 그 실패를 삼켜 폴더 열기가 아무 일도 없는 버튼이 된다(프로젝트를 추가할 수단이 UI 에 없다).
+    // 새 의존성 없이 OS 대화상자를 부른다: macOS 는 내장 `osascript`, Linux 는 `zenity` → `kdialog` 순.
     if (process.platform !== 'win32') {
       const attempts = process.platform === 'darwin'
         ? [{ cmd: 'osascript', args: ['-e', 'POSIX path of (choose folder with prompt "Select project folder")'] }]
@@ -15038,10 +14195,8 @@ export async function runServer(): Promise<RunServerHandle> {
           return pickedPath;
       }
   }`;
-    // [Console]::OutputEncoding 을 UTF-8 로 강제 — 기본 OEM 코드페이지(한국어 Windows=CP949 등)
-    // 로 stdout 을 쓰면 한글/일어/중국어 경로가 Node 의 utf8 디코딩에서 깨져, 깨진 경로로
-    // registerProject 가 호출되고 디스크 fs.existsSync 가 false → 부팅 시 ghost 로 제거되어
-    // 다음 실행 때 탭이 사라진다. PowerShell 내부는 UTF-16 이므로 출력 단계만 UTF-8 로 맞춘다.
+    // [Console]::OutputEncoding 을 UTF-8 로 강제 — 기본 OEM 코드페이지(한국어 Windows=CP949 등)로 쓰면 한글·일어·중국어 경로가 Node utf8 디코딩에서 깨져, 부팅 때 ghost 로 제거되고 다음 실행에 탭이 사라진다.
+    // PowerShell 내부는 UTF-16 이라 출력 단계만 UTF-8 로 맞춘다.
     const psScript = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n$OutputEncoding = [System.Text.Encoding]::UTF8\nAdd-Type -TypeDefinition @'\n${csSource}\n'@\nWrite-Output ([FolderPicker]::Pick('Select project folder'))`;
     const tmpFile = path.join(process.env['TEMP'] || '.', `vibisual-picker-${Date.now()}.ps1`);
     // BOM 포함 UTF-8 로 저장 — PowerShell 5.1 의 -File 은 BOM 없는 파일을 ANSI 로 해석할 수
@@ -15071,7 +14226,7 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true, data: graphManager.getTaskEdgesSnapshot() });
   });
 
-  /** POST /api/task-edges — Task Edge 생성. v1.18: 고급 옵션(kind/messageFormat/returnFormat/timeoutMs/retryCount/cacheEnabled/priority) 선택적 수용. */
+  /** POST /api/task-edges — Task Edge 생성. 고급 옵션(kind/messageFormat/returnFormat/timeoutMs/retryCount/cacheEnabled/priority)은 선택. */
   app.post('/api/task-edges', (req, res) => {
     const {
       sourceAgentId, targetAgentId, command, forwardMode, templateId,
@@ -15101,13 +14256,8 @@ export async function runServer(): Promise<RunServerHandle> {
       res.status(400).json({ ok: false, error: 'sourceAgentId, targetAgentId, command required' });
       return;
     }
-    // §5.3 #12 — `commandMode` **기본값을 생성 시점에 박는다.** 안 박으면 `undefined` 로 남고,
-    //   그 값은 "v1.44 이전에 저장된 엣지"용 legacy fallback 을 타서 `delegationPolicy` 기본값
-    //   `'strict'` → `'tool-delegation'` 으로 읽힌다. 즉 REST 로 만든 신규 엣지가 전부 박탈
-    //   대상이 됐다(빌더·auto-agent·오케스트라가 만든 엣지가 여기 걸렸다).
-    //   **후방호환 의도와의 충돌**: fallback 자체는 그대로 둔다 — 디스크에 이미 `undefined` 로
-    //   저장된 옛 엣지의 거동(v1.37~v1.43)을 바꾸면 그쪽이 사용자 설정을 뒤엎는다. 새로 만드는
-    //   것에만 SSOT 기본값(`'shared'`)을 박아 두 요구를 함께 만족시킨다.
+    // §5.3 #12 — `commandMode` 기본값을 생성 시점에 박는다. `undefined` 로 두면 옛 엣지용 legacy fallback 을 타 `delegationPolicy` 기본 `'strict'` → `'tool-delegation'` 으로 읽혀, REST 로 만든 새 엣지(빌더·auto-agent·오케스트라)가 전부 박탈 대상이 된다.
+    //   fallback 자체는 그대로 둔다 — 디스크에 `undefined` 로 저장된 옛 엣지의 거동을 바꾸면 사용자 설정을 뒤엎는다. 새 엣지에만 SSOT 기본값(`'shared'`)을 박는다.
     const resolvedCommandMode = commandMode ?? TASK_EDGE_DEFAULTS.commandMode;
     let edge;
     try {
@@ -15126,7 +14276,7 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true, data: edge });
   });
 
-  /** PUT /api/task-edges/:id — Task Edge 업데이트. v1.18: 고급 옵션 전부 갱신 가능. */
+  /** PUT /api/task-edges/:id — Task Edge 업데이트. 고급 옵션 전부 갱신 가능. */
   app.put('/api/task-edges/:id', (req, res) => {
     const {
       command, forwardMode,
@@ -15149,7 +14299,7 @@ export async function runServer(): Promise<RunServerHandle> {
       maxReworkCount?: number;
       commandMode?: TaskEdgeCommandMode;
     };
-    // v1.32 / v1.54 — auto-artifact / auto-rework 자매 엣지는 사용자 편집 금지 (primary 에서만 수정 가능).
+    // auto-artifact / auto-rework 자매 엣지는 사용자 편집 금지(primary 에서만 수정).
     const existing = graphManager.getTaskEdge(req.params['id']!);
     if (existing && (existing.bundleRole === 'auto-artifact' || existing.bundleRole === 'auto-rework')) {
       res.status(400).json({ ok: false, error: 'cannot edit auto-generated bundle edge — modify the primary edge instead' });
@@ -15166,7 +14316,7 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true, data: edge });
   });
 
-  /** DELETE /api/task-edges/:id — Task Edge 삭제. v1.32 / v1.54: 자매(auto-artifact/auto-rework) 단독 삭제 금지 — primary 측에서만. */
+  /** DELETE /api/task-edges/:id — Task Edge 삭제. 자매(auto-artifact/auto-rework)는 단독 삭제 금지 — primary 쪽에서만. */
   app.delete('/api/task-edges/:id', (req, res) => {
     const existing = graphManager.getTaskEdge(req.params['id']!);
     if (existing && (existing.bundleRole === 'auto-artifact' || existing.bundleRole === 'auto-rework')) {
@@ -15180,7 +14330,7 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true });
   });
 
-  // ─── §5.3 #28 v1.47 — 콘티모드 (Conti) ───
+  // §5.3 #28 — 콘티모드(Conti)
 
   /**
    * 콘티 생성 in-flight 락 (agentId → Promise). 같은 에이전트의 동시 generateConti 1건만 허용.
@@ -15218,8 +14368,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
     const input: ContiContextInput = { sessionId, cwd, agentLabel: agent.label };
 
-    // §5.3 #28 (L) v1.58 — 사용자 명시 "새 콘티" 트리거. 항상 새 workId 발급
-    // (기존 인플라이트 항목이 있어도 폐기 후 새로 — 사용자 의도가 '새'로 명시됨).
+    // §5.3 #28 (L) — 사용자가 명시한 "새 콘티". 늘 새 workId 를 발급한다(인플라이트 항목이 있어도 폐기 후 새로).
     const work_meta = graphManager.resetContiWork(agentId, 'user_new');
     const newWorkId = work_meta?.workId ?? '';
 
@@ -15277,8 +14426,7 @@ export async function runServer(): Promise<RunServerHandle> {
       res.status(404).json({ ok: false, error: 'conti/frame/element not found' });
       return;
     }
-    // v1.62 — patchContiElement 는 더 이상 부모 세션에 붙지 않는다.
-    //   harness 기반 일회용 sub-agent (tmpdir 격리 + Read/Edit only) 가 element.json 을 직접 Edit 한다.
+    // patchContiElement 는 부모 세션에 붙지 않는다 — harness 기반 일회용 sub-agent(tmpdir 격리 + Read/Edit only)가 element.json 을 직접 Edit 한다.
     try {
       const next = await patchContiElement(
         found.element,
@@ -15346,7 +14494,7 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true });
   });
 
-  /** §5.3 #28 v1.59 — POST /api/conti/:contiId/frames/reorder — frame 드래그앤드롭 순서 변경 */
+  /** §5.3 #28 — POST /api/conti/:contiId/frames/reorder — frame 드래그앤드롭 순서 변경 */
   app.post('/api/conti/:contiId/frames/reorder', (req, res) => {
     const cid = req.params['contiId']!;
     const body = (req.body ?? {}) as { fromIndex?: unknown; toIndex?: unknown };
@@ -15417,10 +14565,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.13 (Q) POST /api/conti/from-script — 대본 텍스트에서 콘티 1건 생성.
-   *
-   * 기존 "새 콘티 생성"과 같은 저장소·같은 히스토리에 쌓인다. 다른 것은 입력뿐이라
-   * (세션 회고 → 대본) 부모 세션 resume 없이 돌고, 그래서 세션이 없는 에이전트에서도 된다.
+   * §5.13 (Q) POST /api/conti/from-script — 대본 텍스트에서 콘티 1건 생성. "새 콘티 생성"과 같은 저장소·히스토리에 쌓인다.
+   * 입력만 다르므로(세션 회고 → 대본) 부모 세션 resume 없이 돌고, 세션이 없는 에이전트에서도 된다.
    */
   app.post('/api/conti/from-script', async (req, res) => {
     const body = req.body as { agentId?: unknown; script?: unknown; presetId?: unknown; frameCount?: unknown };
@@ -15510,12 +14656,7 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true, conti: updated });
   });
 
-  /**
-   * §5.13 (Q) POST /api/conti/:contiId/render-link — 콘티를 받아 간 앱의 산출물 기록.
-   *
-   * **어느 앱인지는 몸통이 알려 준다**(§5.13 (P-4)) — 코어는 `appId` 를 해석하지 않고
-   * 그대로 적어 둘 뿐이라, 앱이 늘어도 이 라우트는 그대로다.
-   */
+  /** §5.13 (Q) POST /api/conti/:contiId/render-link — 콘티를 받아 간 앱의 산출물 기록. 어느 앱인지는 몸통이 알려 준다(§5.13 (P-4)) — 코어는 `appId` 를 해석하지 않고 적어 둘 뿐이라 앱이 늘어도 라우트는 그대로다. */
   app.post('/api/conti/:contiId/render-link', (req, res) => {
     const body = req.body as {
       appId?: unknown;
@@ -15549,7 +14690,7 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true, conti: updated });
   });
 
-  // ─── Comment Box (v1.45) — 언리얼 블프 스타일 주석 컨테이너 ───
+  // Comment Box — 언리얼 블프 스타일 주석 컨테이너
 
   /** GET /api/comment-boxes — 모든 Comment Box 조회(디버그용). 일반적으로 snapshot 으로 받음. */
   app.get('/api/comment-boxes', (_req, res) => {
@@ -15645,9 +14786,7 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /** POST /api/capture-bubbles — 새 캡처 버블 생성. */
-  // ─── §5.13 v4.45 내부 앱 버블 (범용) ───
-  //
-  // 앱마다 라우트를 새로 만들지 않는다 — 앱이 늘어도 코어에 남는 자국은 이 네 개뿐이다.
+  // §5.13 내부 앱 버블(범용) — 앱마다 라우트를 새로 만들지 않는다. 앱이 늘어도 코어에 남는 자국은 이 네 개뿐이다.
 
   app.post('/api/app-bubbles', (req, res) => {
     const body = req.body as {
@@ -15707,11 +14846,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * §5.4 #36 (C) — 결과 전달. 위성줄로 이어진 에이전트가 만든 파일을 그 앱 노드에 담는다.
-   *
-   * 외부 `claude`/`codex` 프로세스가 부르는 자리라 loopback 화이트리스트에 열려 있다(토큰 필수 —
-   * 카드 경로들과 같은 규율). **프로젝트 안의 존재하는 파일만** 받는다 — 앱 노드를 열면 그 파일이
-   * 앱으로 열리므로, 아무 경로나 적히면 노드가 프로젝트 밖을 가리키게 된다.
-   * 코어는 앱 이름을 모르므로 확장자는 보지 않는다(어느 앱이 무엇을 여는지는 클라 레지스트리의 것).
+   * 외부 `claude`/`codex` 가 부르는 자리라 loopback 화이트리스트에 열려 있다(토큰 필수). 프로젝트 안의 존재하는 파일만 받는다 — 노드를 열면 그 파일이 앱으로 열리므로 프로젝트 밖을 가리키면 안 된다.
+   * 코어는 앱 이름을 모르므로 확장자는 보지 않는다(무엇을 여는지는 클라 레지스트리 몫).
    */
   app.post('/api/app-bubbles/:id/output', (req, res) => {
     const body = (req.body ?? {}) as { file?: unknown; ref?: unknown };
@@ -15830,11 +14966,8 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true });
   });
 
-  // ─── §5.14 v4.62 — 플레이 버블 (이 프로젝트를 켜는 버튼) ───
-  //
-  // **경계**: 여기서 `start` 는 loopback 화이트리스트에 없다 — 즉 외부 프로세스(에이전트)는
-  // 레시피를 **등록**만 할 수 있고(`/api/play-recipe`), 실제로 켜는 것은 렌더러(사용자의 클릭)뿐이다.
-  // 시키지도 않은 서버가 켜지는 사고를 구조로 막는 자리다.
+  // §5.14 — 플레이 버블(이 프로젝트를 켜는 버튼).
+  // 경계: `start` 는 loopback 화이트리스트에 없다 — 외부 프로세스(에이전트)는 레시피를 등록만 하고(`/api/play-recipe`) 켜는 것은 렌더러(사용자 클릭)뿐이다. 시키지 않은 서버가 켜지는 사고를 구조로 막는다.
 
   /** 이 프로젝트의 절대 경로. 탐지·실행의 기준점이라 없으면 아무것도 못 한다. */
   function playProjectPath(projectName: string): string | null {
@@ -16066,10 +15199,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * POST /api/play-bubbles/:id/ask-agent — 4단 계단 ④.
-   *
-   * 탐지가 빈손일 때만 쓰는 마지막 계단이다. **새 위임 레이어를 만들지 않는다** — 기존 명령 큐로
-   * 프롬프트를 넣고, 답은 아래 `/api/play-recipe` 로 받는다(에이전트가 직접 서버를 띄우는 것 ❌).
+   * POST /api/play-bubbles/:id/ask-agent — 4단 계단 ④. 탐지가 빈손일 때만 쓰는 마지막 계단.
+   * 새 위임 레이어 ❌ — 기존 명령 큐로 프롬프트를 넣고 답은 `/api/play-recipe` 로 받는다(에이전트가 직접 서버를 띄우는 것 ❌).
    */
   app.post('/api/play-bubbles/:id/ask-agent', (req, res) => {
     const id = req.params['id']!;
@@ -16115,10 +15246,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * POST /api/play-recipe — 에이전트가 알아낸 실행법을 등록한다(loopback + 토큰).
-   *
-   * `/api/agent-iframe` 과 **같은 인프라**를 쓴다(새 통신 레이어 ❌). 등록만 가능하고 기동은
-   * 불가능하다 — start 는 화이트리스트 밖이라 렌더러(사용자)만 부를 수 있다.
+   * POST /api/play-recipe — 에이전트가 알아낸 실행법 등록(loopback + 토큰). `/api/agent-iframe` 과 같은 인프라(새 통신 레이어 ❌).
+   * 등록만 되고 기동은 안 된다 — start 는 화이트리스트 밖이라 렌더러(사용자)만 부른다.
    */
   // ─── §5.5 #17-35 — 검증(Verify) REST ───
 
@@ -16156,12 +15285,7 @@ export async function runServer(): Promise<RunServerHandle> {
     } catch (error) { res.status(409).json({ ok: false, error: error instanceof Error ? error.message : String(error) }); }
   });
 
-  /**
-   * GET /api/verification-recipe/:agentId — 지금 보내면 **무엇이 실릴지** 미리 알려 준다.
-   *
-   * 판정은 서버가 한다(§3.1) — 클라가 플레이 버블을 뒤져 스스로 답을 만들면 실제로 나가는 것과
-   * 어긋난다. 사용자는 보내기 전에 이 한 줄을 먼저 읽는다(#17-35 ⑦).
-   */
+  /** GET /api/verification-recipe/:agentId — 지금 보내면 무엇이 실릴지 미리 알려 준다. 판정은 서버가 한다(§3.1) — 클라가 플레이 버블을 뒤져 스스로 만들면 실제로 나가는 것과 어긋난다(#17-35 ⑦). */
   app.get('/api/verification-recipe/:agentId', (req, res) => {
     const agentId = req.params.agentId;
     const projectName = graphManager.getAgentProjectName(agentId) ?? '';
@@ -16318,11 +15442,8 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true });
   });
 
-  // ─── §5.5 #17-35 ⑨ — 시연(재현 절차) REST ───
-  //
-  // 만드는 순서는 **레코드 먼저, 그림 나중**이다: 그림은 몇 장이 될지 클라가 뽑아 봐야 알고,
-  // 한 장씩 올라오는 동안 사용자는 진행을 봐야 한다. 중간에 끊기면 그림이 덜 붙은 시연이 남는데,
-  // 그건 목록에 그대로 보이고 지울 수 있다 — 조용히 사라지는 것보다 낫다.
+  // §5.5 #17-35 ⑨ — 시연(재현 절차) REST. 레코드 먼저, 그림 나중 — 그림 수는 클라가 뽑아 봐야 알고, 올라오는 동안 진행을 보여야 한다.
+  // 중간에 끊긴 시연은 목록에 그대로 보이고 지울 수 있다(조용히 사라지는 것보다 낫다).
 
   /** 시연에서 사람이 적은 단계 배열을 안전한 모양으로. 잘못된 항목은 조용히 버린다. */
   function sanitizeDemoSteps(raw: unknown): VerificationDemoStep[] {
@@ -16446,10 +15567,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * GET /api/verification-demos/:demoId/frame?rel=<demoId/0.png> — 저장된 프레임 서빙.
-   *
-   * 녹화 직후에는 렌더러에 blob 이 있지만 앱을 다시 켜면 없다 — 그때 목록의 썸네일이 이 길로 온다.
-   * 경로 검증: 그 시연의 폴더 안 파일만(트래버설 차단, 첨부 서빙과 같은 규약).
+   * GET /api/verification-demos/:demoId/frame?rel=<demoId/0.png> — 저장된 프레임 서빙(재기동 뒤 렌더러에 blob 이 없을 때 목록 썸네일이 이 길로 온다).
+   * 그 시연 폴더 안 파일만(트래버설 차단, 첨부 서빙과 같은 규약).
    */
   app.get('/api/verification-demos/:demoId/frame', (req, res) => {
     const demo = graphManager.findVerificationDemo(req.params.demoId);
@@ -16503,15 +15622,9 @@ export async function runServer(): Promise<RunServerHandle> {
         ...(typeof body.port === 'number' && Number.isFinite(body.port) ? { port: body.port } : {}),
         ...(typeof body.openPath === 'string' && body.openPath.trim() ? { openPath: body.openPath.trim() } : {}),
         /*
-         * §보안 감사 2026-09-09 — **에이전트가 등록한 명령에는 별명을 붙이지 못한다.**
-         *
-         * 이 창구는 loopback 토큰만 있으면 닿고, 그 토큰은 우리가 스폰한 에이전트의 env·프롬프트에
-         * 실려 나간다. 버블에 보이는 이름이 곧 사용자가 누를 때 기대하는 것인데, 이름을 명령과 따로
-         * 정할 수 있으면 `label:"개발 서버"` 를 달아 두고 `command` 에는 다른 것을 넣을 수 있다 —
-         * 사용자는 무엇이 도는지 모르는 채로 누르게 된다.
-         *
-         * 실행할 명령이 없는 정적 서빙(`kind='static'`)에는 가릴 것이 없으므로 그대로 받는다.
-         * 화면 쪽 짝은 `PlayNode` 의 `subLabel` — 이름이 명령과 다르면 명령 원문을 함께 보여 준다.
+         * 보안 — 에이전트가 등록한 명령에는 별명을 붙이지 못한다.
+         * loopback 토큰은 우리가 스폰한 에이전트에 실려 나가므로, 이름을 명령과 따로 정하게 하면 `label:"개발 서버"` 를 달고 `command` 에 다른 것을 넣을 수 있다 — 사용자는 무엇이 도는지 모르고 누른다.
+         * 정적 서빙(`kind='static'`)은 실행할 명령이 없어 그대로 받는다. 화면 짝은 `PlayNode` 의 `subLabel`(이름이 명령과 다르면 명령 원문을 함께 보인다).
          */
         ...(kind === 'static' && typeof body.label === 'string' && body.label.trim()
           ? { label: body.label.trim() }
@@ -16647,12 +15760,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * POST /api/spec-docs/:id/generate-tasks — 수용 기준 → 작업 카드.
-   *
-   * 항목 하나당 커스텀 에이전트 버블을 **기존 `createCustomAgent` 경로**로 한 장 만들고,
-   * 만들어진 순서대로 **기존 Task Edge** 로 사슬처럼 잇는다(새 스폰 경로·새 엣지 타입 ❌).
-   * 이미 카드가 붙은 항목은 건너뛴다 — `itemIds` 를 주면 그 항목만, 주지 않으면 카드 없는 전부.
-   * `regenerate` 가 참이면 이미 카드가 있어도 **개정 번호만 지금 값으로 올린다**(카드 재생성 ❌ —
-   * 사람이 만든 작업물을 스펙 한 장이 갈아엎지 않는다는 §5.15 규율).
+   * 항목 하나당 기존 `createCustomAgent` 로 버블 한 장, 만든 순서대로 기존 Task Edge 로 사슬처럼 잇는다(새 스폰 경로·엣지 타입 ❌).
+   * 이미 카드가 붙은 항목은 건너뛴다(`itemIds` 를 주면 그 항목만). `regenerate` 면 개정 번호만 지금 값으로 올린다 — 카드 재생성 ❌(사람이 만든 작업물을 스펙이 갈아엎지 않는다, §5.15).
    */
   app.post('/api/spec-docs/:id/generate-tasks', (req, res) => {
     try {
@@ -16698,7 +15807,7 @@ export async function runServer(): Promise<RunServerHandle> {
         // 스펙 보드는 프로젝트 안에서만 사니 여기서 폴더가 없을 일은 없다 — 그래도 임시 폴더를
         // 지어내지 않는 규약(§4 온보딩 ③)이라 없으면 이 항목만 건너뛴다.
         if (!agent) continue;
-        // 카드가 무엇을 만족시켜야 하는지는 rules 자동 섹션으로 얹는다(§7.9 v1.33 과 같은 문법).
+        // 카드가 만족시킬 것은 rules 자동 섹션으로 얹는다(§7.9 와 같은 문법).
         const cfg = graphManager.getAgentConfig(agent.id);
         if (cfg) {
           const rules = buildSpecTaskRules({
@@ -16717,8 +15826,7 @@ export async function runServer(): Promise<RunServerHandle> {
         graphManager.attachSpecTask(doc.id, item.id, agent.id, agent.path);
         created.push({ itemId: item.id, agentId: agent.id });
 
-        // 앞 고리가 있으면 사슬로 잇는다. `delegationPolicy='auto'` 고정 — 기본값 strict 는
-        // §7.9 v1.36 에서 소스의 도구를 런타임에 박탈해 형제 카드끼리 서로를 무력화한다.
+        // 앞 고리가 있으면 사슬로 잇는다. `delegationPolicy='auto'` 고정 — 기본값 strict 는 소스의 도구를 런타임에 박탈해(§7.9) 형제 카드끼리 서로를 무력화한다.
         if (prevAgentId) {
           try {
             const edge = graphManager.createTaskEdge(
@@ -16750,10 +15858,8 @@ export async function runServer(): Promise<RunServerHandle> {
   // ─── §5.18 — 에이전트 랩 (같은 과제를 설정만 바꿔 N벌) ───
 
   /**
-   * §5.18 — 변형 하나의 설정을 조립한다. **기준 config 전량을 스프레드**한 위에 변형 축만 덮는다.
-   *
-   * `AgentConfig` 는 부분 페이로드를 저장하면 나머지 필드(도구·스킬 등)가 통째로 날아가는 것이
-   * 이미 실측된 함정이라, 랩의 두 쓰기 경로(실행 스폰 · 승격)는 **항상 이 함수 하나**를 지난다.
+   * §5.18 — 변형 하나의 설정 조립. 기준 config 전량을 스프레드한 위에 변형 축만 덮는다.
+   * 부분 페이로드를 저장하면 나머지 필드(도구·스킬 등)가 날아가므로 랩의 두 쓰기 경로(실행 스폰 · 승격)는 늘 이 함수를 지난다.
    */
   function mergeLabVariantConfig(base: AgentConfig, variant: LabVariant, extraRules?: string): AgentConfig {
     const cfg = variant.config;
@@ -16776,10 +15882,8 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §5.18 — 그 턴이 끝났다. 이 에이전트가 랩 변형이면 결과를 적는다.
-   *
-   * 리뷰 레인과 **같은 자리**(`setOnComplete`)에서 부르고, 변경분도 **같은 함수**(`collectWorktreeChanges`)로
-   * 읽는다 — 새 수집기를 만들지 않는다. 못 읽은 값은 그대로 비워 둔다(§5.18 "측정 없음과 0 을 구분한다").
+   * §5.18 — 그 턴이 끝났다. 랩 변형이면 결과를 적는다. 리뷰 레인과 같은 자리(`setOnComplete`)·같은 함수(`collectWorktreeChanges`) — 새 수집기 ❌.
+   * 못 읽은 값은 비워 둔다(§5.18 "측정 없음과 0 을 구분한다").
    */
   async function maybeFinishLabVariant(agentId: string, done: QueuedCommand[]): Promise<void> {
     const hit = graphManager.findLabVariantByAgent(agentId);
@@ -16979,10 +16083,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * POST /api/lab-runs/:id/start — 변형마다 워크트리 + 카드 + 과제 발사.
-   *
-   * 새 스폰 경로 ❌ — ① 격리는 `createWorktreeUnder`(라우트와 **같은 함수**), ② 카드는
-   * `createCustomAgent` + `setAgentConfig`, ③ 발사는 기존 명령 큐(`enqueueAgentCommand`).
-   * 변형 하나가 실패해도 나머지는 계속 돈다(그 줄만 `failed` 로 남는다).
+   * 새 스폰 경로 ❌ — 격리는 `createWorktreeUnder`(라우트와 같은 함수), 카드는 `createCustomAgent` + `setAgentConfig`, 발사는 기존 명령 큐(`enqueueAgentCommand`).
+   * 변형 하나가 실패해도 나머지는 계속 돈다(그 줄만 `failed`).
    */
   app.post('/api/lab-runs/:id/start', (req, res) => {
     void (async () => {
@@ -17087,11 +16189,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * POST /api/lab-runs/:id/variants/:vid/promote — 이긴 설정을 그 에이전트의 기본값으로.
-   *
-   * 대상은 body 의 `targetAgentId`, 없으면 랩의 기준 에이전트다. **현재 config 전량을 스프레드**한
-   * 뒤 그 변형이 바꾼 축만 덮는다(자동 규칙 블록은 얹지 않는다 — 승격은 설정을 옮기는 것이지
-   * 그 카드를 랩 변형으로 만드는 것이 아니다).
+   * POST /api/lab-runs/:id/variants/:vid/promote — 이긴 설정을 그 에이전트의 기본값으로(대상은 `targetAgentId`, 없으면 랩의 기준 에이전트).
+   * 현재 config 전량을 스프레드한 뒤 바꾼 축만 덮는다. 자동 규칙 블록은 얹지 않는다 — 승격은 설정을 옮기는 것이지 그 카드를 랩 변형으로 만드는 것이 아니다.
    */
   app.post('/api/lab-runs/:id/variants/:vid/promote', (req, res) => {
     try {
@@ -17156,12 +16255,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   // ─── §5.20 스크립트 선반 (Shelf) ───
 
-  /**
-   * §5.20 — 선반 항목의 작업 디렉터리를 정한다.
-   *
-   * 항목이 `cwd` 를 들고 있어도 **그 프로젝트 밖이면 받지 않는다**(가져온 선반 파일이 남의 기계
-   * 경로를 들고 오는 것을 막는 것과 같은 이유). 기존 `validatePathWithinRoot` 를 그대로 쓴다.
-   */
+  /** §5.20 — 선반 항목의 작업 디렉터리. 항목의 `cwd` 가 프로젝트 밖이면 받지 않는다(가져온 선반 파일이 남의 기계 경로를 들고 올 수 있다). 기존 `validatePathWithinRoot` 를 쓴다. */
   function resolveShelfCwd(projectName: string, cwd?: string): { ok: true; cwd: string } | { ok: false; error: string } {
     const info = graphManager.getProjectByName(projectName);
     const root = info?.path;
@@ -17174,9 +16268,7 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §5.20 — 셸 항목 한 번 실행. **끝나는 일**이라 출력을 모아 결과로 돌려준다
-   * (서버를 띄우는 detached 기동은 §5.14 플레이 버블의 몫 — 여기서 하지 않는다).
-   *
+   * §5.20 — 셸 항목 한 번 실행. 끝나는 일이라 출력을 모아 결과로 돌려준다(서버를 띄우는 detached 기동은 §5.14 플레이 버블 몫).
    * `SHELF_RUN_TIMEOUT_MS` 를 넘기면 프로세스 트리를 정리하고 그때까지의 출력과 함께 실패로 적는다.
    */
   function runShelfCommand(command: string, cwd: string): Promise<{
@@ -17250,12 +16342,7 @@ export async function runServer(): Promise<RunServerHandle> {
     });
   }
 
-  /**
-   * §5.20 — 프롬프트 항목의 그 턴이 끝났다. 그 줄의 결과를 마감한다.
-   *
-   * §5.18 랩과 **같은 자리**(`setOnComplete`)에서 부른다 — 발사만 하고 성공으로 적으면 화면이
-   * "끝났다"고 먼저 말해 버린다(사용자는 카드를 보고 끝난 줄 안다).
-   */
+  /** §5.20 — 프롬프트 항목의 그 턴이 끝났다. 그 줄의 결과를 마감한다(§5.18 랩과 같은 자리 `setOnComplete`) — 발사 시점에 성공으로 적으면 화면이 먼저 "끝났다"고 말한다. */
   function maybeFinishShelfPromptRun(agentId: string, done: QueuedCommand[]): void {
     const hit = graphManager.findShelfItemByAgent(agentId);
     if (!hit) return;
@@ -17441,12 +16528,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * POST /api/shelf-bubbles/:id/import — 가져온 JSON 한 장을 이 선반에 얹는다.
-   *
-   * 파일 내용을 **믿지 않는다** — shared 순수 함수 `normalizeShelfImport` 가 스키마 버전·아이콘·색·
-   * 길이·개수를 전부 훑은 뒤에야 항목이 된다(클라이언트도 같은 함수로 미리 보여 준다).
-   */
+  /** POST /api/shelf-bubbles/:id/import — 가져온 JSON 한 장을 이 선반에 얹는다. 파일 내용을 믿지 않는다 — shared `normalizeShelfImport` 가 스키마 버전·아이콘·색·길이·개수를 훑은 뒤에야 항목이 된다(클라도 같은 함수로 미리 보인다). */
   app.post('/api/shelf-bubbles/:id/import', (req, res) => {
     try {
       const id = req.params['id']!;
@@ -17471,12 +16553,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /**
-   * POST /api/shelf-bubbles/:id/items/:itemId/run — 그 줄을 누른다.
-   *
-   * 갈래는 둘뿐이고 **둘 다 이미 있는 경로**다(§5.20) — 셸은 여기서 돌려 출력을 결과로 적고,
-   * 프롬프트는 기존 명령 큐로 보낸 뒤 그 턴이 끝날 때 `setOnComplete` 가 결과를 마감한다.
-   */
+  /** POST /api/shelf-bubbles/:id/items/:itemId/run — 그 줄을 누른다. 갈래는 둘이고 둘 다 기존 경로다(§5.20) — 셸은 여기서 돌려 출력을 결과로, 프롬프트는 기존 명령 큐로 보내고 턴 끝에 `setOnComplete` 가 마감한다. */
   app.post('/api/shelf-bubbles/:id/items/:itemId/run', (req, res) => {
     void (async () => {
       try {
@@ -17591,15 +16668,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * §5.4 #29 v1.51 — Canvas 복사·붙여넣기.
-   * 클라가 localStorage 에 저장한 CanvasClipboardPayload + 대상 projectName + anchor(캔버스 좌표)
-   * 를 받아 커스텀 에이전트/Task Edge/Comment Box 묶음을 새 ID 로 한 번에 복원한다.
-   *
-   * 처리 순서:
-   *   1) agents 루프 → createCustomAgent + setAgentConfig (oldId→newId 매핑)
-   *   2) taskEdges 루프 → createTaskEdge (graphManager 가 returnFormat='both' 자매 엣지 자동 생성)
-   *   3) commentBoxes 루프 → childOldIds 매핑 후 createCommentBox
-   *   4) broadcastSnapshot + saveCheckpoint
+   * §5.4 #29 — Canvas 복사·붙여넣기. 클라 localStorage 의 CanvasClipboardPayload + 대상 projectName + anchor(캔버스 좌표)를 받아 커스텀 에이전트/Task Edge/Comment Box 묶음을 새 ID 로 한 번에 복원한다.
+   * 순서: 1) agents → createCustomAgent + setAgentConfig(oldId→newId 매핑) 2) taskEdges → createTaskEdge(returnFormat='both' 자매 엣지는 자동) 3) commentBoxes → childOldIds 매핑 후 createCommentBox 4) broadcastSnapshot + saveCheckpoint
    */
   app.post('/api/canvas/paste', (req, res) => {
     try {
@@ -17764,9 +16834,8 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  // §5.3 #10-2 (위임 결과 복구) — 결과는 대기 소켓이 아니라 장부가 쥔다. 대기는 여럿이 걸 수 있고 하나가
-  //   풀려도(제한시간·연결 끊김) 작업은 그대로 돈다. 끝나면 장부에 적히고 그때 남아 있는 대기에만 건넨다.
-  //   (v1.32 의 `pendingDispatches` — cmdId 하나에 소켓 하나 — 를 대체한다.) 메모리 장부라 앱 재시작을 넘지 않는다.
+  // §5.3 #10-2 (위임 결과 복구) — 결과는 대기 소켓이 아니라 장부가 쥔다. 대기는 여럿이 걸 수 있고 하나가 풀려도(제한시간·연결 끊김) 작업은 돈다 — 끝나면 장부에 적고 남은 대기에만 건넨다.
+  //   메모리 장부라 앱 재시작을 넘지 않는다.
   const dispatchJobs = createDispatchJobRegistry();
   const dispatchWaiters = createDispatchWaiterHub<DispatchJob>();
   const orchestraResults = new OrchestraResultCollector();
@@ -17952,11 +17021,8 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * 큐를 떠난 위임 명령 하나의 끝을 장부에 적고 기다리던 대기에 건넨다. 명령이 큐를 떠나는 **모든 자리**
-   * (완료 콜백 · 중지 · 좀비 봉합 · 큐에서 지우기 · 취소)가 여기를 지난다 — 한 곳이라도 빠지면 그 작업은
-   * 장부에서 영영 진행 중이고 동기 대기는 풀리지 않는다.
-   * `updateEdge` — 완료 콜백은 엣지를 스스로 내리므로 끄고, 완료 콜백을 거치지 않는 자리만 켠다. 규칙은 완료 콜백과
-   *   같다(`completed`→completed · 그 외→error). 한 번도 나가지 않고 걷힌 명령(`neverStarted`)은 `idle` 로 돌린다.
+   * 큐를 떠난 위임 명령 하나의 끝을 장부에 적고 기다리던 대기에 건넨다. 큐를 떠나는 모든 자리(완료 콜백 · 중지 · 좀비 봉합 · 큐에서 지우기 · 취소)가 여기를 지난다 — 하나라도 빠지면 장부에서 영영 진행 중이고 동기 대기가 안 풀린다.
+   * `updateEdge` — 완료 콜백은 엣지를 스스로 내리므로 끄고, 그 밖의 자리만 켠다(`completed`→completed · 그 외→error). 한 번도 안 나간 명령(`neverStarted`)은 `idle`.
    */
   const settleDispatchCommand = (
     cmd: QueuedCommand,
@@ -17999,10 +17065,8 @@ export async function runServer(): Promise<RunServerHandle> {
   };
 
   /**
-   * 끝날 때까지 이 응답을 붙든다. 제한시간·연결 close 는 **대기만** 푼다 — 엣지·장부는 건드리지 않는다
-   * (종전: 제한시간이 엣지를 `error` 로 내렸다 — 기다림의 끝을 일의 실패로 적은 것이라 폐기).
-   * loopback 리스너는 요청을 in-process 로 다시 주입한다 — dispatch 경로는 리스너가 바깥 연결 끊김을 안쪽 응답에 넘겨
-   * 여기 `close` 로 온다(끊긴 호출자에게 결과를 "건넸다"고 적지 않게). 넘겨받지 못한 대기는 제한시간이나 작업 끝에 걷힌다.
+   * 끝날 때까지 이 응답을 붙든다. 제한시간·연결 close 는 대기만 푼다 — 엣지·장부는 건드리지 않는다(기다림의 끝은 일의 실패가 아니다).
+   * loopback 리스너는 요청을 in-process 로 다시 주입한다 — dispatch 경로는 바깥 연결 끊김이 안쪽 응답의 `close` 로 넘어온다(끊긴 호출자에게 건넸다고 적지 않게). 넘겨받지 못한 대기는 제한시간이나 작업 끝에 걷힌다.
    */
   const holdForDispatchResult = (
     res: express.Response,
@@ -18043,15 +17107,13 @@ export async function runServer(): Promise<RunServerHandle> {
     });
   };
 
-  /** v1.32 — POST /api/task-edges/dispatch — 소스 세션이 직접 호출해 엣지 위임 실행.
-   *  body: { edgeId, instruction }
+  /**
+   * POST /api/task-edges/dispatch — 소스 세션이 직접 불러 엣지 위임 실행. body `{ edgeId, instruction }`.
    *  - 타겟 에이전트 세션 큐에 edgeId 포함 명령 푸시 → subagent 가 실제 Claude 프로세스로 실행
-   *  - `returnFormat='both'` 번들에 artifact 자매 엣지가 있고 그 target이 실에이전트면 완료까지 응답 홀드
-   *  - 그 외(artifact 미연결)에는 즉시 { dispatched: true } 반환 → 소스는 다른 일 진행
-   *  §5.3 #10-2 (위임 결과 복구) — 어느 쪽이든 결과는 장부에 남고 `statusUrl` 로 다시 받는다.
-   *  - `?wait=false`(JSON `wait:false`) → 홀드 대상이어도 즉시 반환
-   *  - `requestKey`(`?requestKey=`·`x-vibisual-request-key`·JSON) → 같은 (소스·엣지·키)면 새로 띄우지 않고 기존 작업
-   *  - 요청자 id(`x-vibisual-source-agent`·`?agentId=`·JSON `agentId`)는 소스와 같아야 한다 */
+   *  - `returnFormat='both'` 번들에 artifact 자매 엣지가 있고 그 target 이 실에이전트면 완료까지 응답 홀드, 아니면 즉시 `{ dispatched: true }`
+   *  §5.3 #10-2 — 어느 쪽이든 결과는 장부에 남고 `statusUrl` 로 다시 받는다. `?wait=false`(JSON `wait:false`)면 홀드 대상이어도 즉시 반환.
+   *  - `requestKey`(`?requestKey=`·`x-vibisual-request-key`·JSON) → 같은 (소스·엣지·키)면 새로 띄우지 않고 기존 작업. 요청자 id(`x-vibisual-source-agent`·`?agentId=`·JSON `agentId`)는 소스와 같아야 한다.
+   */
   app.post('/api/task-edges/dispatch', (req, res) => {
     // 두 경로 수용:
     //  (1) 신규(권장) — raw text 본문 + `?edgeId=` 쿼리. instruction 손escape 불필요(heredoc 그대로).
@@ -18132,11 +17194,8 @@ export async function runServer(): Promise<RunServerHandle> {
     const artifactTargetLive = artifact
       ? Boolean(allAgents.find((a) => a.id === artifact.targetAgentId))
       : false;
-    // v1.84 — 엣지 timeoutMs 가 양수면 그 ms 로 제한, 미설정/0 이면
-    // TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS(기본 0=무제한) 적용.
-    // 유효 timeout 이 ≤0 이면 타이머를 아예 설치하지 않고 타겟 완료까지 무한 홀드
-    // (§5.3 line 236/837 — 미설정=무제한, i18n placeholder "unlimited" 와 정합).
-    // §5.3 #10-2 — 제한시간이 지나면 **대기만** 푼다(엣지를 error 로 내리지 않는다).
+    // 엣지 timeoutMs 가 양수면 그 ms, 미설정/0 이면 TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS(기본 0=무제한). 유효 timeout ≤0 이면 타이머 없이 타겟 완료까지 홀드(§5.3 미설정=무제한, i18n placeholder "unlimited").
+    // §5.3 #10-2 — 제한시간이 지나면 대기만 푼다(엣지를 error 로 내리지 않는다).
     const timeoutMs = edge.timeoutMs && edge.timeoutMs > 0
       ? edge.timeoutMs
       : TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS;
@@ -18210,9 +17269,7 @@ export async function runServer(): Promise<RunServerHandle> {
       res.status(429).json({ ok: false, error: 'command-queue-full', limit: COMMAND_QUEUE_MAX_PER_SESSION });
       return;
     }
-    // v1.32 dispatch 수정 — /api/commands 핸들러와 동일하게 subAgent 를 새로 create 해서
-    // cmd.subAgentId 에 실어 큐잉. 그래야 `processNextCommand → subAgentManager.execute` 가
-    // 새 Claude 서브프로세스를 스폰하고 IDE 에 탭이 뜬다. null 로 두면 execute 가 조용히 return.
+    // /api/commands 핸들러처럼 subAgent 를 새로 만들어 cmd.subAgentId 에 싣는다 — 그래야 `processNextCommand → subAgentManager.execute` 가 새 Claude 서브프로세스를 띄우고 IDE 에 탭이 뜬다(null 이면 execute 가 조용히 return).
     const newSub = subAgentManager.create(targetAgent.id);
     // §5.3 #12-4 (D) — 위임은 보낸 명령(요청자 탭에서 지금 도는 명령)의 검증 범위를 **물려받기만** 한다 —
     //   종류는 같고 남은 횟수만큼. 요청자를 모르거나 그 명령에 권한이 없으면 받은 쪽도 없다(위임 지시문이
@@ -18254,8 +17311,7 @@ export async function runServer(): Promise<RunServerHandle> {
     graphManager.setTaskEdgeStatus(edgeId, 'executing');
     if (artifact) graphManager.setTaskEdgeStatus(artifact.id, 'executing');
 
-    // §5.3 #28 (L) v1.58 — 타겟 에이전트가 conti-mode 면 task_edge 출처로 workId 발급.
-    // 이미 인플라이트가 있으면 그대로 유지(같은 work 연속) — 사용자 명시 '새 콘티' 만 reset 한다.
+    // §5.3 #28 (L) — 타겟이 conti-mode 면 task_edge 출처로 workId 발급. 인플라이트가 있으면 그대로(같은 work 연속) — reset 은 사용자 명시 '새 콘티'뿐.
     const targetCfg = graphManager.getAgentConfig(targetAgent.id);
     if (targetCfg?.customMode === 'conti') {
       graphManager.startContiWork(targetAgent.id, 'task_edge');
@@ -18382,15 +17438,14 @@ export async function runServer(): Promise<RunServerHandle> {
 
   const port = Number(process.env['PORT']) || DEFAULT_PORT;
 
-  // §5.7 #23-2 v1.60 — Agent View 게이트 판정. 두 모드 공통(probe + 로그).
-  // 부팅 직후 1회 reattach 는 `postListenBoot()` 안에서 호출.
+  // §5.7 #23-2 — Agent View 게이트 판정(두 모드 공통, probe + 로그). 부팅 직후 1회 reattach 는 `postListenBoot()` 안에서.
   void isAgentViewEnabled(true).then((res) => {
     logger.info(`[agent-view] enabled=${res.enabled} reason="${res.reason}"`);
   }).catch((err) => {
     logger.warn(`[agent-view] gate probe failed: ${err instanceof Error ? err.message : String(err)}`);
   });
 
-  // v1.96 §5.8 — 폐기된 keyword 데이터 1회성 디스크 cleanup. 다음 차수에서 호출과 모듈 모두 제거.
+  // §5.8 — 폐기된 keyword 데이터 1회성 디스크 cleanup. 다음 차수에서 호출과 모듈 모두 제거.
   (await import('./services/keywordCleanup.js')).runKeywordCleanupOnce();
 
   // ─── 상태 저장 ───
@@ -18402,15 +17457,9 @@ export async function runServer(): Promise<RunServerHandle> {
   // 아닌 성능 리스크였을 뿐이라 정상 동작에 영향 없음(별도 분기·코얼레스 ❌, 단순=안전).
   /** 체크포인트 저장 (이벤트 발생 시 호출, 동기 즉시 저장). */
   /**
-   * §3.2.3 — 디스크 파일 쪽 정리(부팅 1회 + 사용자가 [정리] 를 누를 때).
-   *
-   * 살아있는 서브에이전트의 스트림 파일은 **나이와 무관하게 보존**한다 — 그 목록을 여기서 모아 넘긴다.
-   * 화면에 떠 있는 대화를 지우면 IDE 를 다시 열었을 때 빈 화면이 되기 때문(`deleteAgentStreams` 주석과 같은 이유).
-   *
-   * ⚠ **`getSnapshot()`(registry) 만으로는 부족하다.** 탭을 닫은 서브에이전트는 `archive` 로 옮겨져
-   *   폴더 버튼의 "다시 열기" 목록 소스가 되는데, registry 에는 없으므로 보호에서 새어 나갔다.
-   *   그 결과가 "목록에는 항목이 보이는데 누르면 빈 화면" 이다(실측 2026-08-19: 아카이브 102개 중
-   *   실제로 돌았던 2개가 이미 기록 소실, 91개가 같은 시계 위). 두 벌을 합쳐 넘긴다.
+   * §3.2.3 — 디스크 파일 쪽 정리(부팅 1회 + [정리] 누를 때).
+   * 살아있는 서브에이전트의 스트림 파일은 나이와 무관하게 보존한다 — 화면의 대화를 지우면 IDE 를 다시 열 때 빈 화면이다(`deleteAgentStreams` 와 같은 이유).
+   * ⚠ `getSnapshot()`(registry) 만으로는 부족하다 — 탭을 닫은 서브에이전트는 `archive` 로 옮겨져 "다시 열기" 목록 소스가 되는데 registry 에 없어 보호에서 샌다(목록엔 있는데 누르면 빈 화면, 실측 2026-08-19). 두 벌을 합쳐 넘긴다.
    */
   function runProjectStorageCleanup(): StorageCleanupResult {
     const stubInfos = Object.values(graphManager.getStubProjects()).map((m) => m.project);
@@ -18432,25 +17481,16 @@ export async function runServer(): Promise<RunServerHandle> {
   const lastSavedProjectState = new Map<string, { version: number; at: number }>();
 
   /**
-   * @param opts.dirtyOnly **훅 이벤트 폭주 경로 전용** — 이번 창에서 실제로 바뀐 프로젝트만 저장한다.
-   *
-   * 종전에는 호출마다 열린 프로젝트 **전부**를 `toProjectCheckpoint()` 로 재구축 + 전체 직렬화했다
-   * (실측 2026-08-19 · 열린 탭 7개: 직렬화만 21.8ms, 활성 1개면 3.8ms). 서버가 Electron 메인
-   * 프로세스와 한 몸이라 그 시간이 곧 UI 정지다.
-   *
-   * ⚠ **기본값은 종전 그대로(전부 저장)** 이고, 좁히는 것은 `scheduleCheckpoint()`(훅 도구 이벤트
-   *   코얼레스) 한 경로뿐이다. 이유: 판정 근거인 `mutationVersion` 은 **모든** 변경 지점이 올리지
-   *   않는다(예: `createCustomAgent` 는 올리지 않는다). 훅 경로는 `processHookEvent` 가 반드시
-   *   올리므로 그 경로에서만 신뢰할 수 있고, 사용자 조작·설정·정체성 변경(§3.2.1 #4 즉시 저장)은
-   *   종전대로 전부 저장한다. 좁힌 경로에서도 조용한 프로젝트는 `CHECKPOINT_QUIET_SWEEP_MS`
-   *   마다 한 번은 무조건 재구축한다(싱글턴발 변경의 안전망).
+   * @param opts.dirtyOnly 훅 이벤트 폭주 경로 전용 — 이번 창에서 실제로 바뀐 프로젝트만 저장한다.
+   * 전부 재구축 + 직렬화는 비싸다(실측 2026-08-19 · 열린 탭 7개: 직렬화만 21.8ms, 1개면 3.8ms) — 서버가 Electron 메인과 한 몸이라 그 시간이 곧 UI 정지다.
+   * ⚠ 기본값은 전부 저장이고 좁히는 것은 `scheduleCheckpoint()`(훅 도구 이벤트 코얼레스) 한 경로뿐 — `mutationVersion` 은 모든 변경 지점이 올리지 않는다(예: `createCustomAgent`). 훅 경로는 `processHookEvent` 가 반드시 올리므로 거기서만 믿는다.
+   *   사용자 조작·설정·정체성 변경(§3.2.1 #4 즉시 저장)은 전부 저장한다. 좁힌 경로에서도 조용한 프로젝트는 `CHECKPOINT_QUIET_SWEEP_MS` 마다 한 번 무조건 재구축한다(싱글턴발 변경의 안전망).
    */
   function saveCheckpoint(opts?: { dirtyOnly?: boolean }): void {
     const fallbackProject = graphManager.getPrimaryProjectName();
     if (!fallbackProject) return;
 
-    // §3.2.1-4 (v3.03) — read-only 격리 프로젝트는 자동 저장 동결(빈/손상 인스턴스가 디스크 덮어쓰기 방지).
-    // readOnly 는 stub 상태라 보통 getProjectNames(인스턴스 기반)에 안 잡히지만, 방어적으로 필터한다.
+    // §3.2.1-4 — read-only 격리 프로젝트는 자동 저장 동결(빈/손상 인스턴스가 디스크를 덮어쓰지 않게). readOnly 는 stub 이라 보통 getProjectNames 에 안 잡히지만 방어적으로 거른다.
     const projectNames = graphManager.getProjectNames().filter((n) => !graphManager.isProjectReadOnly(n));
     if (projectNames.length === 0) return;
 
@@ -18495,11 +17535,8 @@ export async function runServer(): Promise<RunServerHandle> {
     const stubInfos = Object.values(graphManager.getStubProjects()).map((m) => m.project);
     pruneOrphanWorktreeDirs([...Object.values(graphManager.getProjects()), ...stubInfos]);
 
-    // 탭으로 떠 있는 top-level 프로젝트는 openProjects 에 반드시 포함되도록 보정한다.
-    // registerProject 펀넬(SessionStart/hook-event)을 놓친 경로(예: 세션 라우팅으로 이미 라우팅돼
-    // registerProject 가 재호출되지 않는 경우)로 활성 탭이 openProjects 에서 누락돼 재시작 시
-    // 탭이 사라지는 문제 방지. × 로 닫은 hidden 프로젝트는 getVisibleTopLevelProjects 가 이미 제외하므로
-    // 닫은 탭을 되살리지 않는다. appStateAddOpenProject 는 이미 있으면 no-op(디스크 미기록).
+    // 탭으로 떠 있는 top-level 프로젝트는 openProjects 에 반드시 들어가게 보정한다 — registerProject 펀넬을 놓친 경로(이미 세션 라우팅돼 재호출되지 않는 경우 등)면 재시작 때 탭이 사라진다.
+    // × 로 닫은 hidden 프로젝트는 getVisibleTopLevelProjects 가 이미 빼므로 되살리지 않는다. appStateAddOpenProject 는 이미 있으면 no-op(디스크 미기록).
     for (const info of graphManager.getVisibleTopLevelProjects()) {
       if (appStateAddOpenProject(info.path, info.name)) {
         logger.info(`AppState: openProjects += ${info.path} ("${info.name}") [reconcile]`);
@@ -18507,20 +17544,10 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   }
 
-  // §9 v3.45 — hook-event 도구 이벤트 경로 전용 체크포인트 코얼레스(부하 적응형,
-  // broadcastSnapshot 동형). saveCheckpoint() 는 체크포인트 build + 전체 stringify +
-  // fsync 원자쓰기를 메인 스레드에서 동기 수행하므로, 도구 이벤트가 초당 수~수십 건
-  // 도착하는 전수조사에선 이벤트당 저장이 스레드를 포화시켜 앱 전체가 동결됐다.
-  // #4 원칙(이벤트 동기 즉시 저장)은 사용자 조작·설정·정체성 변경 등 나머지 모든 호출
-  // 지점에서 그대로 — 여기서 묶는 것은 hook-event 도구 이벤트뿐이다. 비정상 종료로 잃을
-  // 수 있는 건 최대 창 하나(≤5s) 분량의 휘발성 그래프 상태이고, 정상 종료는 desktop main 의
-  // `before-quit` 가 `flushPendingCheckpointSave()` 를 **명시적으로 불러** 보장한다.
-  //
-  // ⚠ 종전에는 그 보장이 아래 `process 'exit'` 한 곳에만 있었다. 그런데 Electron 의 모든
-  //   종료 경로는 `app.exit(0)` 으로 끝나고 그때 Node 의 `exit` 이벤트는 돌지 않을 수 있어,
-  //   정상 종료·업데이트 설치마다 마지막 창(0.5~5초) 분량이 조용히 사라질 수 있었다.
-  //   창 관리는 `checkpointCoalescer.ts` 가 단독 소유하고(테스트로 고정), 아래 'exit' 는
-  //   최후 그물로 남는다 — 같은 `flushSync()` 를 지나므로 두 번 불려도 두 번 저장되지 않는다.
+  // §9 — hook-event 도구 이벤트 경로 전용 체크포인트 코얼레스(부하 적응형, broadcastSnapshot 과 같은 꼴). saveCheckpoint() 는 build + 전체 stringify + fsync 원자쓰기를 메인 스레드에서 동기로 하므로, 초당 수~수십 건 도구 이벤트마다 저장하면 앱 전체가 동결된다.
+  // #4 원칙(동기 즉시 저장)은 나머지 모든 호출 지점에서 그대로 — 묶는 것은 hook-event 도구 이벤트뿐이다. 비정상 종료 때 잃는 것은 최대 창 하나(≤5s) 분량의 휘발성 그래프 상태.
+  // ⚠ 정상 종료는 desktop main 의 `before-quit` 가 `flushPendingCheckpointSave()` 를 명시적으로 불러 보장한다 — Electron 종료는 `app.exit(0)` 이라 Node `exit` 이벤트가 안 돌 수 있다. 아래 'exit' 는 최후 그물이다.
+  // 창 관리는 `checkpointCoalescer.ts` 단독 소유(테스트로 고정) — 같은 `flushSync()` 를 지나므로 두 번 불려도 두 번 저장되지 않는다.
   const checkpointCoalescer = new CheckpointCoalescer({
     save: saveCheckpoint,
     baseIntervalMs: CHECKPOINT_BATCH_INTERVAL,
@@ -18544,7 +17571,7 @@ export async function runServer(): Promise<RunServerHandle> {
     try { flushPendingDiskWritesSync(); } catch { /* 마지막 방어선 — 실패해도 다음 부팅이 백업으로 복구 */ }
   });
 
-  // §9 v3.45 — PostToolUse Bash 전 노드 existsSync 스윕 최소 간격.
+  // §9 — PostToolUse Bash 전 노드 existsSync 스윕 최소 간격(ms).
   const EXISTENCE_SWEEP_MIN_INTERVAL_MS = 2000;
   let lastExistenceSweepAt = 0;
 
@@ -18553,10 +17580,9 @@ export async function runServer(): Promise<RunServerHandle> {
   graphManager.setCommandQueuesRef(commandQueues);
   graphManager.setCompletedCommandArchiveRef(completedCommandArchive);
 
-  // v1.52: 1회 마이그레이션 — 구 `<Vibisual>/save/` 단일 루트 → 각 프로젝트의 `.vibisual/save/` 분산 저장.
-  // 순서 주의:
-  //   (1) `loadAppState()` 를 먼저 호출 — 구 `<Vibisual>/save/_app-state.json` 이 살아있는 동안 `~/.vibisual/app-state.json` 으로 이전.
-  //   (2) 그 다음 `migrateLegacySaveRootToProjectDirs()` — 체크포인트 디렉토리들을 각 프로젝트로 분산 후 SAVE_ROOT 를 `save.bak-v1.52` 로 백업.
+  // 1회 마이그레이션 — 구 `<Vibisual>/save/` 단일 루트 → 각 프로젝트의 `.vibisual/save/` 분산 저장. 순서 주의:
+  //   (1) `loadAppState()` 먼저 — 구 `<Vibisual>/save/_app-state.json` 이 살아있는 동안 `~/.vibisual/app-state.json` 으로 옮긴다.
+  //   (2) 그다음 `migrateLegacySaveRootToProjectDirs()` — 체크포인트 디렉토리를 각 프로젝트로 분산 후 SAVE_ROOT 를 `save.bak-v1.52` 로 백업.
   {
     loadAppState(); // (1) AppState 먼저 끌어올림 (구 _app-state.json 이 save/ 백업으로 묻히기 전에).
     const result = migrateLegacySaveRootToProjectDirs(); // (2) 체크포인트 분산 + SAVE_ROOT 백업.
@@ -18565,18 +17591,13 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   }
 
-  // §9 「창이 뜬 직후의 메인 스레드」 ① — 아무 창도 범위를 선언하기 전의 스냅샷(부팅 직후의 방송·첫 연결)은
-  //   마지막으로 보던 프로젝트 하나만 짓는다. 종전에는 열린 프로젝트 전부를 대화 기록 재파싱까지 하며 지어,
-  //   창이 막 뜬 그 순간 메인 스레드를 붙잡았다. 첫 선언이 오면 종전 규칙 그대로다(`ProjectGraphManager`).
+  // §9 「창이 뜬 직후의 메인 스레드」 ① — 아무 창도 범위를 선언하기 전의 스냅샷(부팅 직후 방송·첫 연결)은 마지막으로 보던 프로젝트 하나만 짓는다 — 전부 지으면 대화 기록 재파싱으로 창이 뜬 순간 메인 스레드를 붙잡는다.
+  //   첫 선언 뒤는 `ProjectGraphManager` 규칙대로.
   graphManager.setBootViewProject(loadAppState().lastActiveProject);
 
-  // Lazy boot: project.json 메타만 읽어 stub 등록. 체크포인트 본문은 hydrate 시점까지 로드하지 않는다.
-  // openProjects 필터 — `~/.vibisual/app-state.json` 에 기록된 "사용자가 열어둔" 프로젝트만 stub으로 등록.
-  // 사용자가 × 로 닫은 프로젝트는 체크포인트는 보존되되 탭으로 뜨지 않는다 (다시 파일 열기 또는 hook 이벤트로 복귀 가능).
-  //
-  // v1.63: 식별 = projectId(절대경로). loadAppState().normalize 가 구 name-array AppState 를
-  // path-array 로 1회 마이그레이션(구 projectPaths name→path 사용)하므로, 부팅은 openProjects(=경로)
-  // 를 그대로 스캔 목록으로 쓴다. discoverProjectMetas 는 각 path 의 `.vibisual/save/` 만 읽는다.
+  // Lazy boot: project.json 메타만 읽어 stub 등록, 체크포인트 본문은 hydrate 때까지 안 읽는다.
+  // openProjects(`~/.vibisual/app-state.json` 의 "사용자가 열어둔" 경로)만 stub 으로 등록 — × 로 닫은 프로젝트는 체크포인트는 보존되되 탭으로 뜨지 않는다(파일 열기·hook 이벤트로 복귀).
+  // 식별 = projectId(절대경로) — 구 이름 배열은 `loadAppState()` normalize 가 경로로 옮기므로 openProjects 를 그대로 스캔 목록으로 쓴다. discoverProjectMetas 는 각 path 의 `.vibisual/save/` 만 읽는다.
   {
     const np = (p: string): string => pathKey(p);
     const appStateInitial = loadAppState();
@@ -18630,9 +17651,7 @@ export async function runServer(): Promise<RunServerHandle> {
       if (result.ok) {
         hydratedCount += 1;
       } else if (result.reason === 'load-error') {
-        // §3.2.1-4 (v3.03) — 로드 실패(디스크 손상/일시 실패)는 데이터가 살아있을 수 있다.
-        // stub 을 제거하지 않고 read-only 격리하여 빈 인스턴스가 디스크를 덮어쓰지 못하게 하고,
-        // openProjects 도 유지해 다음 부팅에 백업 복구를 재시도한다(과거엔 제거 → 빈 인스턴스 덮어쓰기 손실).
+        // §3.2.1-4 — 로드 실패(디스크 손상/일시 실패)여도 데이터는 살아있을 수 있다. stub 을 지우지 않고 read-only 격리해 빈 인스턴스가 디스크를 덮어쓰지 못하게 하고, openProjects 도 유지해 다음 부팅에 백업 복구를 재시도한다(지우면 빈 인스턴스가 덮어써 잃는다).
         logger.warn(`Boot hydrate failed for "${meta.project.name}" @ ${meta.project.path} (load-error) — isolating read-only (data-loss guard), keeping stub + openProjects`);
         graphManager.markStubReadOnly(meta.project.path, 'load-error');
       } else {
@@ -18642,11 +17661,8 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     }
     reportBootProgress({ phase: 'projects', done: filtered.length, total: filtered.length });
-    // meta 가 없는데 openProjects 에만 남은 경로도 청소 (정규화 경로 매칭).
-    // §3.2.1-4 손실방지 (v3.29): 메타(project.json)를 못 읽었어도 경로가 디스크에 실재하면
-    // 크래시로 project.json 이 truncate/일시 손상됐을 수 있으므로 openProjects 에서 지우지 않고
-    // 다음 부팅에 재시도한다. 경로 자체가 사라진 것만 영구 청소한다(과거엔 무조건 제거 →
-    // 크래시 후 재시작 시 멀쩡한 프로젝트가 목록에서 영영 빠지던 손실 경로).
+    // meta 가 없는데 openProjects 에만 남은 경로 청소(정규화 경로 매칭).
+    // §3.2.1-4 손실방지 — 메타를 못 읽어도 경로가 실재하면 크래시로 project.json 이 반파됐을 수 있어 지우지 않고 다음 부팅에 재시도한다. 경로 자체가 사라진 것만 영구 청소한다(무조건 지우면 멀쩡한 프로젝트가 목록에서 영영 빠진다).
     const metaKeys = new Set(metas.map((m) => np(m.project.path)));
     const unknownInOpen = appState.openProjects.filter((p) => !metaKeys.has(np(p)));
     if (unknownInOpen.length > 0) {
@@ -18657,10 +17673,9 @@ export async function runServer(): Promise<RunServerHandle> {
         let onDisk = false;
         try { onDisk = !!p && fs.existsSync(p); } catch { onDisk = false; }
         if (!onDisk) { goneUnknown.push(p); continue; }
-        // v3.63: 경로는 있는데 메타를 못 읽는 두 경우를 가른다.
-        //  - save 디렉토리에 파일이 있다 → 크래시로 project.json 만 반파됐을 수 있다 → 재시도 보존.
-        //  - save 디렉토리 자체가 없다 → 저장된 적 없는 경로(훅 세션 cwd 로 한 번 등록된 흔적 등).
-        //    잃을 데이터가 없으므로 제거해도 §3.2.1 손실 방지에 저촉되지 않는다(하이드레이트는 영원히 실패).
+        // 경로는 있는데 메타를 못 읽는 두 경우를 가른다.
+        //  - save 디렉토리에 파일이 있다 → project.json 만 반파됐을 수 있다 → 재시도 보존.
+        //  - save 디렉토리가 없다 → 저장된 적 없는 경로(훅 세션 cwd 로 한 번 등록된 흔적 등) — 잃을 데이터가 없어 제거해도 §3.2.1 에 저촉되지 않는다(hydrate 는 영원히 실패).
         if (hasProjectSaveData(p)) keptUnknown.push(p); else neverProject.push(p);
       }
       if (goneUnknown.length > 0) {
@@ -18694,11 +17709,8 @@ export async function runServer(): Promise<RunServerHandle> {
     try {
       runProjectStorageCleanup();
       for (const inst of graphManager.getInstancesForRetention()) inst.pruneFileEditRetention();
-      // §5.26 (H) 보험 저장고도 같은 자리에서. 종전에는 이 줄이 없어 `applyInsuranceRetention()` 의
-      //   유일한 호출자가 `PUT /api/retention-settings` 뿐이었다 — 사용자가 옵션창에서 보존 값을
-      //   손으로 바꾸지 않는 한 나이 만료(14일)도 고아 회수도 영영 돌지 않았다(실측 2026-09-09:
-      //   금고 76MB 중 고아 blob 177개 22.5MB). 보험은 우리가 프로젝트 폴더에 쓰는 것 중 가장
-      //   커질 수 있는 물건이라 이 자리를 비워 두면 안 된다.
+      // §5.26 (H) 보험 저장고 보존도 부팅 때 같은 자리에서 돌린다 — 안 돌리면 `applyInsuranceRetention()` 이 `PUT /api/retention-settings` 때만 돌아 나이 만료(14일)·고아 회수가 영영 안 돈다(실측 2026-09-09: 금고 76MB 중 고아 blob 177개 22.5MB).
+      // 보험은 우리가 프로젝트 폴더에 쓰는 것 중 가장 커질 수 있는 물건이다.
       if (graphManager.applyInsuranceRetention()) saveCheckpoint();
     } catch (err) {
       // 정리 실패는 기동을 막지 않는다 — 용량이 조금 더 남을 뿐이다.
@@ -18708,27 +17720,9 @@ export async function runServer(): Promise<RunServerHandle> {
   // §9 「시작 화면(스플래시)」 — 복원과 보존 정리를 마쳤다. 남은 기동(세션 복원·감시·타이머)으로 넘어간다(표시 전용).
   reportBootProgress({ phase: 'services' });
 
-  // v1.2 (SCENARIO §5.7 #24): 기동 시 체크포인트만 유일한 버블 소스.
-  // 이전엔 scanAllProjects로 ~/.claude/sessions/를 긁어 추가 시딩했으나, 체크포인트 외의
-  // stale/타 프로젝트 세션이 섞여 들어가는 문제가 있어 비활성화. 새 세션은 SessionStart 훅이 담당.
-  // graphManager.scanAllProjects();
+  // §5.7 #24 — 기동 때 버블 소스는 체크포인트뿐이다. `scanAllProjects` 로 ~/.claude/sessions/ 를 긁어 시딩하지 않는다 — stale·타 프로젝트 세션이 섞인다. 새 세션은 SessionStart 훅이 맡는다.
 
-  // [DISABLED] 활성 체크 전면 비활성화 — 동시 다발 spawn이 문제를 일으키는 것으로 보여 조사 중.
-  // 재활성화 시 동시성 제한(예: 직렬 실행 or p-limit) 고려 필요.
-  // const startupPrune = graphManager.pruneStaleRestoredAgents()
-  //   .then((removed) => {
-  //     if (removed.length > 0) {
-  //       logger.info(`Startup prune removed ${removed.length} stale agents`);
-  //       saveCheckpoint();
-  //     }
-  //   })
-  //   .catch((err) => logger.error('Startup prune failed', err));
-  // setInterval(() => {
-  //   void graphManager.pruneStaleRestoredAgents().then((removed) => {
-  //     broadcastSnapshot();
-  //     if (removed.length > 0) saveCheckpoint();
-  //   });
-  // }, 10_000);
+  // [DISABLED] 시작 시 활성 체크(`pruneStaleRestoredAgents` + 10초 주기)는 꺼 둔다 — 동시 다발 spawn 이 문제를 일으키는 것으로 보인다(조사 중). 다시 켜려면 동시성 제한(직렬 실행·p-limit)부터.
   const startupPrune = Promise.resolve();
 
   // 이미 실행 중인 background shell(dev 서버 등) JSONL 스캔으로 복원
@@ -18740,10 +17734,8 @@ export async function runServer(): Promise<RunServerHandle> {
     broadcast(msg);
   });
 
-  // subAgentManager 스트림 이벤트 → WS로 실시간 중계 (성능: 40ms 창 coalescing).
-  // 과거엔 이벤트마다 즉시 broadcast → 멀티에이전트 스트림 폭주 시 초당 수백~수천 IPC/WS
-  // 메시지가 나가 클라 큐가 밀림. 짧은 창에 모아 sub_agent_stream_batch 1건으로 묶어 보낸다
-  // (도착 순서 보존). 200건 초과 시 창을 기다리지 않고 즉시 flush 해 지연 상한을 건다.
+  // subAgentManager 스트림 이벤트 → WS 실시간 중계, 40ms 창으로 묶는다 — 이벤트마다 보내면 멀티에이전트 폭주 때 초당 수백~수천 IPC/WS 메시지로 클라 큐가 밀린다.
+  // sub_agent_stream_batch 1건으로 보내고(도착 순서 보존) 200건을 넘으면 창을 기다리지 않고 즉시 flush(지연 상한).
   const STREAM_BROADCAST_INTERVAL = 40;
   const STREAM_BATCH_MAX = 200;
   let streamBatch: SubAgentStreamEvent[] = [];
@@ -18756,18 +17748,12 @@ export async function runServer(): Promise<RunServerHandle> {
     broadcast({ type: 'sub_agent_stream_batch', timestamp: Date.now(), payload: batch });
   };
   /**
-   * §5.5 #17-17 ⑪(l) — **무대 블록.** 에이전트가 말하다가 코드블록처럼 끼워 넣은 신고를 수확한다.
-   *
-   * 블록이 여는 펜스와 닫는 펜스가 서로 다른 이벤트에 실려 오므로(토큰 델타) 세션별 꼬리 버퍼가
-   * 필요하고, 같은 블록을 두 번 적용하지 않도록 원문 지문을 기억한다 — 둘 다 `StageBlockIngest` 가 한다.
+   * §5.5 #17-17 ⑪(l) — 무대 블록. 에이전트가 말하다가 코드블록처럼 끼워 넣은 신고를 수확한다.
+   * 여는·닫는 펜스가 다른 이벤트(토큰 델타)에 실려 와 세션별 꼬리 버퍼가 필요하고, 같은 블록을 두 번 적용하지 않게 원문 지문을 기억한다 — 둘 다 `StageBlockIngest` 몫.
    */
   const stageBlockIngest = new StageBlockIngest();
 
-  /**
-   * ⑪(l) — 수확한 지시를 **기존 문으로** 적용한다. 새 저장 경로를 만들지 않는 것이 요점이다 —
-   * REST(`/progress`·`/api/visual-kind`)로 들어온 신고와 **같은 검증·같은 병합**을 통과해야
-   * "블록으로 냈을 때만 다르게 동작하는" 두 번째 진실이 생기지 않는다.
-   */
+  /** ⑪(l) — 수확한 지시를 기존 문으로 적용한다(새 저장 경로 ❌). REST(`/progress`·`/api/visual-kind`) 신고와 같은 검증·병합을 지나야 "블록으로 냈을 때만 다르게 동작하는" 두 번째 진실이 안 생긴다. */
   const applyStageDirective = (
     agentId: string,
     subAgentId: string,
@@ -18824,18 +17810,15 @@ export async function runServer(): Promise<RunServerHandle> {
         for (const directive of stageBlockIngest.push(event.subAgentId, event.content, event.turnId)) {
           if (applyStageDirective(event.parentAgentId, event.subAgentId, directive)) touched = true;
         }
-        // 저장은 부르지 않는다 — 여기는 답변 텍스트가 전부 지나가는 자리라, 아래 계획 경로와 같은
-        //   규율(§9 v3.45)로 브로드캐스트만 하고 디스크는 기존 스윕에 맡긴다.
+        // 저장은 부르지 않는다 — 답변 텍스트가 전부 지나가는 자리라 계획 경로와 같은 규율(§9)로 브로드캐스트만 하고 디스크는 기존 스윕에 맡긴다.
         if (touched) broadcastSnapshot();
       } catch (err) {
         // 표시용이라 스트림을 막지 않는다 — 블록 하나가 이상해도 대화는 그대로 흘러야 한다.
         logger.warn(`[stage-block] ingest failed sub=${event.subAgentId}: ${String(err)}`);
       }
     }
-    // §5.5 #17-17 ⑨ v4.59 — 목표 단계 동기화의 **두 번째 입구**. 훅(PreToolUse/TodoWrite)이 늦거나
-    //   닿지 않아도(훅 미설치·스테일 포트·외부 세션) 세션이 세운 계획이 목표창에 그대로 반영된다.
-    //   두 입구가 같은 syncSessionGoalFromPlan 으로 모이므로 어느 쪽이 먼저 와도 결과가 같고,
-    //   바뀐 게 없으면 그래프가 undefined 를 돌려줘 broadcast 도 일어나지 않는다(중복 비용 0).
+    // §5.5 #17-17 ⑨ — 목표 단계 동기화의 두 번째 입구. 훅(PreToolUse/TodoWrite)이 늦거나 안 닿아도(훅 미설치·스테일 포트·외부 세션) 세션의 계획이 목표창에 반영된다.
+    //   두 입구가 같은 syncSessionGoalFromPlan 으로 모여 순서와 무관하게 결과가 같고, 바뀐 게 없으면 undefined 라 broadcast 도 없다.
     if (event.eventType === 'tool_use' && event.toolName === 'TodoWrite') {
       try {
         const input = JSON.parse(event.content) as { todos?: unknown };
@@ -18865,40 +17848,18 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  // subAgent 영속화 경로 해석 — 부모 에이전트 소속 프로젝트를 찾아 save/<project>/(worktrees/<wt>/)sub-streams/<agentId>/ 로 라우팅
   /**
-   * §5.19 (H) — All Model 세션의 **호스트 도구** 처리기.
-   *
-   * 클로드 세션은 이 세 가지를 CLI 내장 도구로 하고, 그 결과가 훅을 타고 우리에게 온다.
-   * 로컬에는 CLI 도 훅도 없으므로 **우리가 도구를 주고 우리가 받는다** — 새 엔드포인트를 세우지
-   * 않고 이미 REST 로 서 있는 것들(목표 · 질문 카드 · 권한 브로커)을 그대로 부른다.
-   *
-   * 실패는 던지지 않는다. 무엇이 안 됐는지를 **말로** 돌려주면 모델이 다른 수를 고른다.
-   */
-  /**
-   * §5.19 (H) — All Model(로컬) 세션의 도구 호출을 **훅 경로에 이어 준다.**
-   *
-   * 그전까지 로컬 세션은 파일을 읽고 고치고 명령을 돌려도 캔버스에 **자국을 하나도 안 남겼다** —
-   * 파일 노드도, 감사 원장도, Bash 이력도, 띄운 서버의 프리뷰 버블도 클로드 세션에만 있었다.
-   * 같은 일을 하는데 한쪽만 안 보이는 것은 "에이전트가 생각하는 것을 보여 준다"는 이 앱의 약속을
-   * 로컬에서만 깨는 일이다.
-   *
-   * **HTTP 라우트를 거치지 않는다.** 같은 프로세스 안이라 그래프를 직접 부르면 되고, 그 대신
-   * 라우트가 하던 귀속(`_vibisualOwnerAgentId` → 소유 버블 세션)을 여기서 그대로 한다 — CMD
-   * 터미널이 오늘 다니는 길과 같은 길이다.
-   *
-   * **도구 이벤트만 보낸다.** 생명주기(`markActive`/`markStop`)와 `Stop` 은 보내지 않는다 —
-   * 로컬 턴은 자기 상태를 스스로 관리하므로 주인이 둘이 되면 서로를 덮어쓰고, `Stop` 은 두뇌
-   * 리플렉션(`claude -p` 자식)을 깨워 **공짜로 쓰려던 세션이 클로드 토큰을 쓰게** 만든다.
+   * §5.19 (H) — All Model(로컬) 세션의 도구 호출을 훅 경로에 이어 준다 — 없으면 로컬 세션은 파일 노드·감사 원장·Bash 이력·프리뷰 버블 어느 자국도 캔버스에 안 남긴다.
+   * HTTP 라우트를 거치지 않는다(같은 프로세스라 그래프를 직접 부른다) — 대신 라우트가 하던 귀속(`_vibisualOwnerAgentId` → 소유 버블 세션)을 여기서 한다(CMD 터미널과 같은 길).
+   * 도구 이벤트만 보낸다 — 생명주기(`markActive`/`markStop`)와 `Stop` 은 보내지 않는다. 로컬 턴은 자기 상태를 스스로 관리해 주인이 둘이면 서로 덮어쓰고, `Stop` 은 두뇌 리플렉션(`claude -p` 자식)을 깨워 로컬 세션이 클로드 토큰을 쓰게 만든다.
    */
   subAgentManager.setLocalHookEmitter((ctx, event) => {
     // 버블이 캔버스에서 사라졌으면 붙일 곳이 없다(조용히 흘려보낸다 — 표시용 경로다).
     const session = graphManager.findSessionByAgentId(ctx.agentId);
     if (!session) return;
-    // 변환은 `localHookPayload` 한 곳에만 있다 — 그 모양이 그래프가 기대하는 모양과 한 칸이라도
-    //   어긋나면 **아무 오류 없이 조용히 아무 일도 안 일어나므로**(2026-08-24: 원장엔 남고 파일
-    //   노드는 0개였다), 시험도 같은 함수를 쓰게 해 사본이 어긋날 자리를 없앤다.
-    // §5.1 #1-1 (D) — 그 일을 한 sub 를 함께 싣는다(앱 작업 귀속). 세션 키는 이미 주인 버블 것이라 그래프가 sub 를 못 찾는다.
+    // 변환은 `localHookPayload` 한 곳뿐이다 — 그래프가 기대하는 모양과 한 칸만 어긋나도 오류 없이 아무 일도 안 일어나므로
+    // (원장엔 남고 파일 노드는 0개) 시험도 같은 함수를 써서 사본이 어긋날 자리를 없앤다.
+    // §5.1 #1-1 (D) — 그 일을 한 sub 를 함께 싣는다(앱 작업 귀속). 세션 키는 주인 버블 것이라 그래프가 sub 를 못 찾는다.
     const payload: HookEventPayload = toLocalHookPayload(session, event, { subAgentId: ctx.subAgentId });
 
     const result = graphManager.processHookEvent(payload);
@@ -18930,6 +17891,10 @@ export async function runServer(): Promise<RunServerHandle> {
     scheduleCheckpoint();
   });
 
+  /**
+   * §5.19 (H) — All Model 세션의 호스트 도구 처리기. 클로드는 이 셋을 CLI 내장 도구로 하고 결과가 훅으로 오지만, 로컬엔 CLI 도 훅도 없어 우리가 도구를 주고 받는다.
+   * 새 엔드포인트 ❌ — 이미 REST 로 선 것(목표 · 질문 카드 · 권한 브로커)을 그대로 부른다. 실패는 던지지 않고 말로 돌려준다(모델이 다른 수를 고른다).
+   */
   subAgentManager.setLocalHostToolHandler(async (ctx, toolName, input) => {
     if (toolName === 'TodoWrite') {
       const raw = Array.isArray(input['todos']) ? (input['todos'] as unknown[]) : [];
@@ -19049,33 +18014,27 @@ export async function runServer(): Promise<RunServerHandle> {
   subAgentManager.setVerificationChecker((cmd, toolName, toolInput, cwd) => (
     verificationGate.checkCommandCall(cmd, { toolName, toolInput, cwd })
   ));
-  // 위 해석이 `null` 을 줄 때의 **되찾기 후보**(§5.5 `findStreamDirFor` ③). 소속은 `sessionCwds`·
-  // `agents` 맵을 훑어 찾는데, 프로젝트 탭을 닫았다 오가면 그 에이전트가 두 맵에서 빠져 폴더를
-  // 짚지 못한다 — 그러면 디스크에 온전한 대화가 있는데도 빈 배열이 나가 화면이 굳는다.
-  // 워크트리도 독립 프로젝트로 등록되므로 이 목록에 함께 들어온다.
-  // §5.5 #17-12 — **stub 으로 내려간 프로젝트도** 후보에 넣는다. 백그라운드 프로젝트는 15분(메모리 압박 시 3분)
-  //   뒤 내려가는데, 로드된 프로젝트만 훑으면 그 사이 그 프로젝트 세션의 과거를 되찾을 자리가 없었다.
+  // 위 해석이 `null` 일 때의 되찾기 후보(§5.5 `findStreamDirFor` ③). 탭을 닫았다 오가면 에이전트가 `sessionCwds`·`agents` 에서 빠져
+  // 폴더를 못 짚고, 디스크에 대화가 있는데도 빈 배열이 나가 화면이 굳는다. 워크트리도 독립 프로젝트로 함께 들어온다.
+  // §5.5 #17-12 — stub 으로 내려간 프로젝트도 넣는다(백그라운드는 15분, 메모리 압박 시 3분 뒤 내려간다 — 로드분만 훑으면 그 세션 과거를 못 찾는다).
   subAgentManager.setAllProjectsProvider(() => [
     ...Object.values(graphManager.getProjects()),
     ...Object.values(graphManager.getStubProjects()).map((meta) => meta.project),
   ]);
 
-  // 커스텀 에이전트 상태 = 소속 서브에이전트 집계.
-  // 서브 활동 시작/종료 시마다 부모 커스텀 버블의 active/completed 전이를 재계산.
-  // 기존 에이전트 버블처럼 completed 후 dismiss/fade 흐름은 그대로 동작(동일 setAgentStatus 세팅).
-  //
-  // **부모 버블이 안 바뀌어도 세션 도트가 바뀌었으면 내보낸다.** 종전에는 broadcast 가
-  // `recomputeCustomAgentStatus()` 의 반환값 하나에 걸려 있었는데, 그 함수는 버블이 **이미 active 면**
-  // false 를 낸다(다른 탭이 돌거나 백그라운드 Task 가 살아 있는 동안 계속 그렇다). 그래서 그동안
-  // sub 의 active↔idle 전이가 서버에만 반영되고 **클라로 나가지 않아** 탭 점이 낡은 색으로 굳었다
-  // (클라는 스트림 이벤트로 status 를 자가보정하지 않는다 — §3.1 대로 스냅샷이 유일한 창구).
-  //
-  // `broadcastSnapshot` 은 이미 코얼레스(leading guard + trailing flush)라 호출이 늘어도 흡수되지만,
-  // `saveCheckpoint` 는 동기 저장이라 **조건을 넓히지 않는다**(§5.5 v3.45 훅 경로 프리즈 재발 방지).
-  // 도트 상태는 어차피 dispatch·finalize 경로가 저장하므로 여기서 또 저장할 이유가 없다.
-  // §5.3 #10-2 — 턴이 끝나는 자리에서 "이 세션이 띄운 위임의 결과를 받았는가"를 묻는 창구. 받지 못했으면 그 턴은
-  //   완료가 아니라 실패(`dispatchResult`, 사유에 cmdId)로 끝난다 — 다음 턴 안내와 같은 목록이다.
+  // (아래 `setOnSubStatusChange`) 커스텀 에이전트 상태 = 소속 sub 집계 — sub 활동이 바뀔 때마다 부모 버블의 active/completed 를 다시 낸다.
+  // 부모 버블이 안 바뀌어도 세션 도트가 바뀌었으면 내보낸다 — `recomputeCustomAgentStatus()` 는 이미 active 면 false 라, 거기에만 걸면
+  // sub 의 active↔idle 이 클라로 안 나가 탭 점이 굳는다(클라는 스냅샷으로만 status 를 받는다, §3.1).
+  // `broadcastSnapshot` 은 코얼레스라 호출이 늘어도 되지만 `saveCheckpoint` 는 동기라 조건을 넓히지 않는다(§5.5 훅 경로 프리즈 — 도트는 dispatch·finalize 가 저장).
+  // §5.3 #10-2 — 턴 끝에서 "띄운 위임의 결과를 받았는가"를 묻는 창구. 못 받았으면 그 턴은 실패(`dispatchResult`, 사유에 cmdId)다 — 다음 턴 안내와 같은 목록.
   subAgentManager.setPendingDispatchResultsProvider(pendingDispatchResultsFor);
+  // §5.1 #2-1 (B) — 사용자 명령이 처음 나가는 순간 묶음의 이번 턴을 연다(지난 턴의 그림은 묶음에서 빠진다). 바로 뒤의 상태 통지가
+  //   스냅샷을 다시 보내지만, 상태가 그대로면(이미 active) 건너뛰므로 비웠을 때는 여기서 보낸다. 저장은 코얼레스.
+  subAgentManager.setOnCommandStart((parentAgentId, busy) => {
+    if (!graphManager.beginAgentTurn(parentAgentId, busy)) return;
+    broadcastSnapshot();
+    scheduleCheckpoint();
+  });
   const lastSubStatusFingerprint = new Map<string, string>();
   subAgentManager.setOnSubStatusChange((parentAgentId) => {
     const bubbleChanged = graphManager.recomputeCustomAgentStatus(parentAgentId);
@@ -19089,17 +18048,14 @@ export async function runServer(): Promise<RunServerHandle> {
     if (bubbleChanged) saveCheckpoint();
   });
 
-  // v1.74 — agent-view 매핑(agentViewShort/SessionId) 을 spawn 직후 무조건 영속화.
-  // onSubStatusChange 는 status 변화가 없으면 저장을 건너뛰므로 데몬 reattach 가능 윈도우에
-  // 구멍이 생긴다. 이 훅은 조건 없이 즉시 saveCheckpoint() — 서버가 spawn 직후 크래시해도
-  // 재시작 시 reattachAgentViewOnBoot 가 supervisor 의 살아있는 워커를 되찾는다.
+  // agent-view 매핑(agentViewShort/SessionId)을 spawn 직후 조건 없이 저장한다 — onSubStatusChange 는 status 변화가 없으면 저장을 건너뛰어,
+  // spawn 직후 크래시하면 재시작 때 `reattachAgentViewOnBoot` 가 supervisor 의 살아 있는 워커를 못 되찾는다.
   subAgentManager.setOnPersistNeeded(() => {
     saveCheckpoint();
   });
 
-  // §5.3 #12-1 v1.96 — 권한 결정 직후 sub stream 에 합성 system 라인 한 줄.
-  // 사용자가 팝업에서 뭘 눌렀는지 (또는 자동 결정 사유) 가 stream 패널 / 체크포인트에 남는다.
-  // subAgentId 미상(레거시 hook env 결손) 인 경우엔 건너뜀 — broadcast permission_resolved 만 남는다.
+  // §5.3 #12-1 — 권한 결정 직후 sub stream 에 합성 system 줄 하나(팝업 선택 또는 자동 결정 사유가 패널·체크포인트에 남는다).
+  // subAgentId 를 모르면(레거시 hook env 결손) 건너뛴다 — broadcast `permission_resolved` 만 남는다.
   permissionBroker.onResolved = (request, decision) => {
     if (!request.subAgentId) return;
     const toolLabel = request.toolName || 'tool';
@@ -19134,36 +18090,18 @@ export async function runServer(): Promise<RunServerHandle> {
     subAgentManager.emitSystemMessage(request.agentId, request.subAgentId, line);
   };
 
-  // ─── v1.55 critique 런타임 강제 ──────────────────────────────────────────────
-  //
-  // SCENARIO §5.3 line 218/224 의 후속 라운드. 기존 v1.42(저장/UI) + v1.54(자매 엣지 동기화) 위에
-  // 실제 reject 이벤트 → rework 트리거를 얹는다.
-  //
-  // 흐름:
-  //   1) 타겟(작업자) 세션 완료 → `getIncomingCritiqueEdges(targetAgentId)` 로 critique primary 엣지 조회
-  //   2) 각 watcher(=sourceAgent) 에게 `dispatchCritiqueWatcher` 로 비평 지시 송신 (cmd.edgeId=critique.id)
-  //   3) watcher 응답 완료 → cmd.edgeId 가 critique 엣지면 `handleCritiqueCompletion` 로 verdict 파싱
-  //   4) verdict='reject' + critiqueAuthority='force-rework':
-  //        - reworkCount + 1 이 maxReworkCount 이하면 auto-rework 자매 엣지로 작업자에게 재작업 dispatch
-  //        - 초과 시 critiqueAuthority='comment-only' 강등 + 자매 엣지 동기 제거 + 에스컬레이션 알림
-  //   5) 작업자가 rework 완료 → 다시 critique 엣지 발사 (사이클 연속, count 누적)
-  //
-  // v1.55 라운드 한계:
-  //   - `critiqueTiming='intermediate'` 도 사실상 'final' 과 동일하게 "Stop 훅 = 1회 완료" 시점에 발사.
-  //     진정한 중간 milestone 발사(PostToolUse 스트림 후킹)는 후속 라운드.
+  // critique 런타임(§5.3) — reject 판정이 실제 재작업을 일으킨다.
+  // 작업자 완료 → `getIncomingCritiqueEdges` 의 primary 엣지마다 `dispatchCritiqueWatcher`(cmd.edgeId=critique.id) → watcher 응답 →
+  // `handleCritiqueCompletion` 판정 파싱 → reject + 'force-rework' 면 상한 안에서 auto-rework 자매 엣지로 재작업, 넘으면 'comment-only' 강등
+  // + 자매 엣지 제거 + 에스컬레이션 → 재작업이 끝나면 다시 critique(횟수 누적).
+  // 한계: `critiqueTiming='intermediate'` 도 'final' 처럼 Stop 훅(1회 완료) 시점에 발사된다.
 
   type CritiqueVerdict = VerificationVerdict;
 
   /**
-   * §5.3 #10-3 v4.98 — Watcher 응답에서 **구조화 판정 + 검증 증거** 추출.
-   *
-   * 종전 구현은 자유 텍스트를 정규식으로 긁어 판정했고, 해석에 실패하면 `unknown` 을 돌려준 뒤
-   * 호출부가 `verdict !== 'reject'` 로 흘려보내 **판정 불명이 승인과 같은 길**을 탔다(fail-open).
-   * 이제 셋이 달라진다:
-   *   1) `attempts`(실행 명령 + exit code)까지 함께 뽑는다 — 이것만이 증거다.
-   *   2) 증거 없는 `approve` 는 승인이 아니라 **`held`(보류)** 다. "봤더니 괜찮다"는 증거가 아니다.
-   *   3) 키워드 폴백은 하위호환으로 남기되, 폴백 approve 도 증거가 없으므로 `held` 로 떨어진다.
-   *      (`reject` 는 폴백으로도 그대로 인정한다 — 막는 쪽으로 틀리는 것은 안전하다.)
+   * §5.3 #10-3 — Watcher 응답에서 구조화 판정 + 검증 증거를 뽑는다. 판정 불명을 승인처럼 흘려보내지 않는다(fail-open ❌).
+   * - `attempts`(실행 명령 + exit code)만이 증거다. 증거 없는 `approve` 는 **`held`(보류)** 다.
+   * - 키워드 폴백은 하위호환으로 두되 폴백 approve 도 증거가 없어 `held`. `reject` 는 폴백도 인정한다(막는 쪽으로 틀리는 것은 안전).
    */
   function parseCritiqueVerdict(text: string): {
     verdict: CritiqueVerdict;
@@ -19266,10 +18204,8 @@ export async function runServer(): Promise<RunServerHandle> {
   ): void {
     if (orchestraRunId && graphManager.findOrchestraRun(orchestraRunId)?.phase !== 'dispatched') return;
     /*
-     * §5.3 #12-4 (D) — **완료 뒤 자동 후속이 검증을 새로 시작하지 않는다.** 비평(리뷰)은 검증이고, 끝난 작업의
-     *   정책을 켠 동안만 사용자가 연 검증 범위를 요구한다. 띄울 때는 그 범위를 물려받기만 한다
-     *   (종류는 같고 남은 횟수만큼 — 재작업 사이클도 같은 몫을 나눠 쓴다). 런이 기다리지 않도록 이 판정은
-     *   `expectCritique` 보다 **앞**이다.
+     * §5.3 #12-4 (D) — 완료 뒤 자동 후속은 검증을 새로 시작하지 않는다. 비평(리뷰)도 검증이라, 정책이 켜진 동안 사용자가 연 검증 범위를
+     * 물려받기만 한다(종류 같고 남은 횟수만큼 — 재작업 사이클도 같은 몫). 런이 기다리지 않게 이 판정은 `expectCritique` 보다 **앞**이다.
      */
     const inheritedScope = sourceCommand
       ? inheritVerificationScope(sourceCommand.verificationScope, sourceCommand.verification, sourceCommand.id)
@@ -19304,8 +18240,7 @@ export async function runServer(): Promise<RunServerHandle> {
       ? `\n\n=== Target [${targetLabel}] just completed work ===\n${contextResult.trim()}\n`
       : `\n\n=== Target [${targetLabel}] just completed work (no result snippet captured) ===\n`;
 
-    // §5.3 #10-3 v4.98 — 구조화 판정 요구. 종전 문구는 마지막 줄이 "판정이 애매하면 APPROVE 를
-    //   쓰라"고 지시하고 있었다 — fail-open 이 프롬프트에까지 박혀 있던 셈이다.
+    // §5.3 #10-3 — 구조화 판정을 요구한다. "애매하면 APPROVE" 같은 문구를 넣지 마라 — fail-open 이 프롬프트에 박힌다.
     const responseGuide = `\n\n${VERIFICATION_VERDICT_SCHEMA_GUIDE}\n`;
 
     const instruction = `${edge.command}${cyclePhase}${contextBlock}${responseGuide}`;
@@ -19333,9 +18268,8 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §5.3 #10-3 v4.98 — 이 에이전트(세션)를 품고 있는 auto-agent 의 **활성 검증 런**을 찾는다.
-   * auto-agent 가 스폰한 워커들의 sessionId 는 `AutoAgentSummary.spawnedAgentIds` 에 있다.
-   * 어느 런에도 속하지 않는 수동 엣지면 null — 그 경우 종전 동작(엣지별 카운트)을 그대로 쓴다.
+   * §5.3 #10-3 — 이 세션을 품은 auto-agent 의 활성 검증 런(워커 sessionId 는 `AutoAgentSummary.spawnedAgentIds`).
+   * 어느 런에도 안 속하는 수동 엣지면 null — 그때는 엣지별 카운트를 쓴다.
    */
   function findActiveRunForAgentSession(agentSessionId: string | undefined): { runId: string; autoAgentId: string } | null {
     if (!agentSessionId) return null;
@@ -19348,11 +18282,7 @@ export async function runServer(): Promise<RunServerHandle> {
     return null;
   }
 
-  /**
-   * §5.3 #10-3 v4.98 — 런이 사람을 부른다.
-   * 종전에는 재작업 상한 초과 시 감시 권한을 조용히 낮추고 로그 한 줄만 남겼다(= 포기한 줄도 모름).
-   * 이제 기존 질문 카드 경로를 그대로 써서 화면에 띄운다(새 카드 계열 ❌).
-   */
+  /** §5.3 #10-3 — 런이 사람을 부른다. 재작업 상한을 넘으면 권한만 조용히 낮추고 로그로 끝내지 않는다(포기한 줄도 모른다) — 기존 질문 카드 경로로 띄운다(새 카드 계열 ❌). */
   function escalateAutoAgentRun(autoAgentId: string, runId: string, reason: EscalationReason, detail?: string): void {
     const run = graphManager.closeAutoAgentRun(runId, 'escalated', reason);
     if (!run) return;
@@ -19390,8 +18320,7 @@ export async function runServer(): Promise<RunServerHandle> {
     const authority = edge.critiqueAuthority ?? 'force-rework';
     logger.info(`[critique] verdict=${verdict} authority=${authority} edge=${edge.id} evidence=${attempts.length}`);
 
-    // §5.3 #10-3 v4.98 — 이 판정이 어느 검증 런에 속하는지 찾아 **증거를 서버에 적재**한다.
-    //   대상(작업자) 세션 기준으로 찾는다 — 검수자가 아니라 검수받는 쪽이 런의 주인이다.
+    // §5.3 #10-3 — 이 판정의 검증 런을 찾아 증거를 서버에 적재한다. 대상(작업자) 세션 기준 — 검수받는 쪽이 런의 주인이다.
     const targetAgent = graphManager.getSnapshot().agents.find((a) => a.id === edge.targetAgentId);
     const runRef = orchestraRunId ? null : findActiveRunForAgentSession(targetAgent?.path);
     if (runRef) {
@@ -19411,7 +18340,7 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
       if (verdict === 'held') {
-        // 판정 불명 — 종전에는 여기서 조용히 통과했다. 이제 런을 열어 둔 채 화면에 보류로 남긴다.
+        // 판정 불명 — 통과시키지 않는다. 런을 연 채 화면에 보류로 남긴다.
         logger.warn(`[critique] verdict held (no structured evidence) — run=${runRef.runId} edge=${edge.id}`);
         broadcastSnapshot();
         saveCheckpoint();
@@ -19432,8 +18361,7 @@ export async function runServer(): Promise<RunServerHandle> {
     const maxRework = Math.min(edge.maxReworkCount ?? 3, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT);
     const nextCount = (orchestraRunId ? orchestraResults.reworkCount(orchestraRunId, edge.id) : edge.reworkCount ?? 0) + 1;
 
-    // §5.3 #10-3 v4.98 — 예산은 **런 단위**로 센다. 종전에는 엣지마다 따로 세어
-    //   reviewer·tester 가 각각 3번씩 = 실제 6번이 됐다.
+    // §5.3 #10-3 — 예산은 런 단위로 센다(엣지마다 세면 reviewer·tester 각 3번 = 실제 6번이 된다).
     if (orchestraRunId) {
       if (!orchestraResults.consumeRework(orchestraRunId, edge.id, maxRework)) return;
     } else if (runRef) {
@@ -19509,9 +18437,8 @@ export async function runServer(): Promise<RunServerHandle> {
       const done = queue.filter((c) => c.status === 'completed' || c.status === 'error');
       if (done.length === 0) continue;
 
-      // v1.32 — Task Edge dispatch 매칭: edgeId 실린 명령이면 엣지 상태 갱신 + 대기 중 dispatch promise resolve
-      // v1.55 — critique 엣지(watcher 응답) / auto-rework 엣지(작업자 rework) 분류해 별도 처리 hook 마련.
-      // v1.56b — 사용자 강제 중단(`[Stopped by user]`)은 critique 트리거 대상에서 제외 — 중단된 결과를 watcher 가 review 할 가치 없음.
+      // Task Edge dispatch 매칭: edgeId 가 실린 명령이면 엣지 상태를 갱신하고 대기 중 dispatch promise 를 푼다.
+      // critique 엣지(watcher 응답)·auto-rework 엣지(작업자 재작업)는 따로 모은다. 강제 중단(`[Stopped by user]`)은 critique 대상이 아니다.
       // §5.3 #12-4 (D) — 감시자 명령도 함께 든다. 자동 재작업은 그 명령의 검증 범위를 물려받기만 한다.
       const completedCritiqueEdges: { edge: TaskEdge; result: string | undefined; orchestraRunId?: string; command: QueuedCommand }[] = [];
       let sawNonCritiqueResponse = false;
@@ -19533,7 +18460,7 @@ export async function runServer(): Promise<RunServerHandle> {
         if (artifact) graphManager.setTaskEdgeStatus(artifact.id, edgeStatus, cmd.result, errMsg);
         // §5.3 #10-2 (위임 결과 복구) — 장부에 끝을 적고 기다리던 대기에 건넨다(엣지는 바로 위에서 이미 내렸다).
         settleDispatchCommand(cmd);
-        // v1.55 분류 (v1.56b — 사용자 강제 중단은 critique 사이클에서 전부 배제)
+        // critique 분류 — 강제 중단은 critique 사이클에서 뺀다.
         const cmdEdge = graphManager.getTaskEdge(cmd.edgeId);
         if (cmdEdge?.kind === 'critique' && (cmdEdge.bundleRole ?? 'primary') === 'primary') {
           // watcher 의 critique 응답 — verdict 처리 대상. 작업자 watcher 발사 후보 ❌.
@@ -19554,13 +18481,9 @@ export async function runServer(): Promise<RunServerHandle> {
         }
       }
 
-      // §5.3 #28 (K) v1.48 + (L) v1.58 — 콘티모드 에이전트의 응답을 conti 레코드로 자동 추출.
-      // sessionId → owning agentId → customMode==='conti' 이면 cmd.result 에서 JSON 파싱.
-      // 작업 ID(workId) 트래커로 신규/수정 분기:
-      //   - 트래커 + contiId 있음 → 기존 Conti.frames 통째 교체 + conti_updated 브로드캐스트
-      //   - 트래커 + contiId 없음 → 새 Conti 생성 + 트래커에 contiId 머지 + conti_generated
-      //   - 트래커 없음 (외부 트리거 없는 agent_session 첫 응답) → workId 자체 발급 + 새 Conti
-      // 부트스트랩(title='(empty)') 1건은 첫 진짜 응답이 들어올 때 폐기.
+      // §5.3 #28 (K)(L) — 콘티모드(customMode==='conti') 에이전트의 응답 `cmd.result` 에서 JSON 을 뽑아 conti 레코드로.
+      // workId 트래커로 가른다: contiId 있음 → frames 통째 교체 + conti_updated · contiId 없음 → 새 Conti + 트래커에 contiId + conti_generated ·
+      // 트래커 없음(외부 트리거 없는 첫 응답) → workId 를 발급해 새 Conti. 부트스트랩(title='(empty)') 1건은 첫 진짜 응답 때 버린다.
       const ownerAgentId = graphManager.findAgentIdBySession(sessionId);
       if (ownerAgentId) {
         const ownerCfg = graphManager.getAgentConfig(ownerAgentId);
@@ -19611,16 +18534,11 @@ export async function runServer(): Promise<RunServerHandle> {
         }
       }
 
-      // v2.61 — attachments 보존: 종전(v1.35/v1.38)엔 완료 시 paste 이미지 파일을 unlink + cmd.attachments
-      //   필드 클리어해 "전송 직후 사라져 무엇을 보냈는지 확인 불가"(사용자 보고)였다. 이제 파일·필드를
-      //   모두 보존하여 archive(완료 명령)에 attachments 경로가 남고, 클라(StreamRenderer CommandBlock)가
-      //   대화 스트림에 썸네일을 인라인 표시 + 클릭 시 라이트박스 확대한다.
-      //   누적 파일 정리(세션 종료/주기) 정책은 후속 과제.
+      // attachments 는 완료 뒤에도 지우지 않는다 — 파일·필드가 archive 에 남아야 클라(StreamRenderer CommandBlock)가 보낸 그림을 썸네일로 보인다
+      // (지우면 무엇을 보냈는지 확인할 수 없다). 누적 파일 정리 정책은 아직 없다.
 
-      // §5.3 #10-2 v2.45 — auto-agent 빌더 완료 감지. 빌더는 auto-agent 버블 자기 세션의 sub 로
-      //   돌므로, 그 명령이 끝나면(= done 에 등장) phase 를 building → completed 로 전이하고 마지막
-      //   응답을 요약으로 합성한다. 이 전이를 빠뜨리면 빌더가 끝나도 진행 표시가 영원히 'building'
-      //   으로 남아 패널 스피너가 계속 돈다(사용자 보고: "명령 후 아무 동작 없이 빙글빙글만").
+      // §5.3 #10-2 — auto-agent 빌더 완료 감지. 빌더는 버블 자기 세션의 sub 라, 그 명령이 done 에 오면 phase 를 building → completed 로
+      // 옮기고 마지막 응답을 요약으로 합성한다. 빠뜨리면 진행 표시가 'building' 에 남아 패널 스피너가 영영 돈다.
       const autoSummary = graphManager.getAutoAgentSummary(sessionId);
       if (autoSummary && autoSummary.phase === 'building') {
         let finalText: string | undefined;
@@ -19631,14 +18549,16 @@ export async function runServer(): Promise<RunServerHandle> {
         autoAgentRuntime.handleCompletion(sessionId, finalText);
       }
 
-      // §5.5 #17-11 v3.79 — 루프 회차 전진. 아카이브로 옮기기 전에 `pendingCommandId` 대조로
-      //   "이번 회차가 끝났다"를 확정하고 다음 회차를 예약한다(중지·오류·목표 도달이면 정지).
+      // §5.5 #17-11 — 루프 회차 전진. 아카이브로 옮기기 **전에** `pendingCommandId` 대조로 회차 끝을 확정하고 다음 회차를 예약한다(중지·오류·목표 도달이면 정지).
       for (const cmd of done) advanceSessionLoop(cmd);
       // §5.5 #17-35 — 검증 닫기. 루프와 같은 자리에서 `pendingCommandId` 대조로 판정을 읽는다.
       for (const cmd of done) advanceVerificationRun(cmd);
       // §4 (CLI 사양 추종) — 턴 경계 압축. 루프 전진 **뒤**에 본다 — 루프가 이 회차로 `contextMode`
       //   정리를 걸었으면 그쪽이 이미 큐에 있어 직렬 가드에 막히므로 두 벌로 쏘지 않는다.
       for (const cmd of done) maybeCompactAfterTurn(cmd, sessionId);
+      // §4 API 크레딧 — 한도로 멈춘 명령을 다른 결제 경로로 한 번 잇는다. 같은 큐에 넣으면 아래에서 남는
+      //   명령(`remaining`)에 실리고, 이 처리기 끝의 `processNextCommand` 가 내보낸다.
+      for (const cmd of done) maybeAutoContinueOnQuota(cmd, queue);
       // §5.3 #9-1 (N) — 이 턴이 슬롯 하나를 비웠다. 상한에 걸려 기다리던 **다른 세션**을 깨운다.
       //   자기 세션은 아래 기존 경로가 이미 두드리므로 여기서 하는 일은 "남의 큐" 뿐이다.
       // §5.3 #10-4 — 오케스트라 정산(토큰 귀속 · 지휘 턴 단계 닫기 · 덮어쓴 설정 내리기). 아카이브로 옮기기
@@ -19650,16 +18570,11 @@ export async function runServer(): Promise<RunServerHandle> {
       const remaining = queue.filter((c) => c.status === 'queued' || c.status === 'executing');
       commandQueues.set(sessionId, remaining);
 
-      // §5.5 #17-11 v3.92 — 큐/루프가 이 회차로 비었는지 반영해 부모 버블의 완료 판정을 여기서 한 번 더 낸다.
-      //   sub 가 idle 로 떨어진 시점(onSubStatusChange)엔 아직 이 회차의 루프가 살아 있어
-      //   hasPendingAgentWork 가 강등을 보류했으므로, 루프가 꺼진 뒤인 지금 다시 불러야
-      //   "마지막 회차 종료 = 완료" 가 아래 broadcastSnapshot 과 **같은 스냅샷**에 실린다
-      //   (늦게 실리면 클라가 루프 종료음과 버블 완료음을 두 번 울린다).
+      // §5.5 #17-11 — 부모 버블의 완료 판정을 여기서 한 번 더 낸다. sub 가 idle 이 된 시점엔 루프가 살아 있어 `hasPendingAgentWork` 가 강등을 보류했으므로,
+      // 루프가 꺼진 지금 불러야 "마지막 회차 끝 = 완료"가 아래 broadcastSnapshot 과 같은 스냅샷에 실린다(늦으면 루프 종료음과 완료음이 두 번 울린다).
       if (ownerAgentId) graphManager.recomputeCustomAgentStatus(ownerAgentId);
-      // §5.16 — 리뷰·승인 레인: 격리(워크트리)에서 일한 커스텀 에이전트가 그 턴을 끝냈으면
-      //   변경분을 붙잡아 리뷰 카드를 만든다. 판정 넷은 `maybeCreateReviewRequest` 안에 있고,
-      //   여기서는 **사용자 명령 완료(비-critique)** 인 회차만 후보로 넘긴다 — watcher 응답이나
-      //   중단된 턴으로는 리뷰를 만들지 않는다(sawNonCritiqueResponse 가 그 판정을 이미 들고 있다).
+      // §5.16 — 격리(워크트리)에서 일한 커스텀 에이전트가 턴을 끝내면 변경분으로 리뷰 카드를 만든다(판정 넷은 `maybeCreateReviewRequest`).
+      // 여기서는 사용자 명령 완료(비-critique) 회차만 넘긴다 — watcher 응답·중단된 턴으로는 만들지 않는다(`sawNonCritiqueResponse`).
       if (ownerAgentId && sawNonCritiqueResponse) {
         const lastSub = [...done].reverse().find((c) => typeof c.subAgentId === "string" && c.subAgentId)?.subAgentId;
         void maybeCreateReviewRequest(ownerAgentId, lastSub ?? undefined).catch((err) => {
@@ -19685,9 +18600,7 @@ export async function runServer(): Promise<RunServerHandle> {
         }
       }
 
-      // v1.55 — critique 런타임:
-      //   (1) watcher critique 응답 완료들 처리(reject 판정 시 자매 auto-rework 발사 / 강등)
-      //   (2) 작업자 본 완료(=critique 응답 외)가 있으면 incoming critique watcher 발사
+      // critique 런타임: (1) watcher 응답 완료 처리(reject 면 자매 auto-rework 발사 또는 강등) (2) 작업자 본 완료가 있으면 incoming critique watcher 발사.
       for (const { edge, result, orchestraRunId, command } of completedCritiqueEdges) {
         try {
           handleCritiqueCompletion(edge, result, orchestraRunId, command);
@@ -19768,10 +18681,8 @@ export async function runServer(): Promise<RunServerHandle> {
     }
     lifecycle.start();
 
-    // §5.5 #17-33 ⑦ — 공식 마켓·설치본 자동 갱신. **부를 자리가 없어서** 실측 마켓 클론이
-    // 36일 멈춰 있었고, 그동안 Anthropic 이 낸 스킬은 앱 어디에도 나타나지 않았다.
-    // CLI 는 `cwd` 로 범위를 해석하므로 어느 프로젝트에서 띄울지를 여기서 정해 넘긴다 —
-    // 마켓 클론(`~/.claude/plugins`)은 어차피 하나뿐이라 어느 프로젝트든 같은 것을 끌어온다.
+    // §5.5 #17-33 ⑦ — 공식 마켓·설치본 자동 갱신(부르는 자리가 없으면 마켓 클론이 멈춰 새 스킬이 앱에 안 나타난다).
+    // CLI 는 `cwd` 로 범위를 해석하므로 띄울 프로젝트를 여기서 넘긴다 — 마켓 클론(`~/.claude/plugins`)은 하나라 어느 프로젝트든 같다.
     startClaudePluginAutoRefresh(() => {
       const snap = graphManager.getSnapshot();
       const last = loadAppState().lastActiveProject;
@@ -19787,12 +18698,10 @@ export async function runServer(): Promise<RunServerHandle> {
       saveCheckpoint();
     }
 
-    // §5.7 #23-2 v1.60 — Agent View reattach. 영속화된 agentViewShort 들 중 supervisor 에 살아있는
-    // worker 의 JSONL watcher 를 재부착 → 서버가 죽어있던 동안 진행된 turn 도 새 라인부터 따라잡음.
-    // 죽은 worker 는 state.json 최종 상태로 마무리. projectResolver 가 set 된 후 호출 보장.
+    // §5.7 #23-2 — Agent View reattach: 저장된 agentViewShort 중 supervisor 에 살아 있는 워커의 JSONL watcher 를 다시 붙여
+    // 서버가 죽어 있던 동안의 턴도 따라잡는다. 죽은 워커는 state.json 최종 상태로 마무리. projectResolver 가 set 된 뒤에 불러야 한다.
     void subAgentManager.reattachAgentViewOnBoot((subId) => {
-      // §5.7 #23-2 v1.60 — agent-view terminal 시점에 cmd 도 함께 봉합하기 위한 lookup.
-      // 같은 sub 의 executing 명령이 commandQueues 어딘가에 있다고 가정(보통 그 sub 의 sessionId 큐).
+      // §5.7 #23-2 — agent-view 가 끝날 때 cmd 도 함께 봉합하려는 조회. 같은 sub 의 executing 명령이 commandQueues 어딘가(보통 그 sub 의 sessionId 큐)에 있다고 본다.
       for (const queue of commandQueues.values()) {
         for (const cmd of queue) {
           if (cmd.status === 'executing' && cmd.subAgentId === subId) return cmd;
@@ -19845,12 +18754,9 @@ export async function runServer(): Promise<RunServerHandle> {
         saveCheckpoint();
       }
 
-      // §7.11 — background shell(dev 서버) 발견 sweep(안전망). attachBackgroundShell 의
-      // PostToolUse 트리거가 어긋나거나(이벤트 미도달·tool_response 형식 변화) 세션 등록
-      // **이후** 떠서 startup rehydrate 가 놓친 dev 서버를, 등록된 모든 세션의 JSONL 을
-      // 다시 훑어 잡는다. rehydrate·watcher.start·createIframeSatellite 전부 멱등이라
-      // 매 주기 재호출해도 중복 위성/중복 watcher 가 생기지 않는다. 포트 탐지 시 broadcast 는
-      // watcher 콜백의 onSnapshotChange 가 담당하므로 여기선 needsBroadcast 를 세우지 않는다.
+      // §7.11 — background shell(dev 서버) 발견 안전망. PostToolUse 트리거가 어긋났거나(이벤트 미도달·tool_response 형식 변화) 세션 등록 뒤에 떠서
+      // 놓친 dev 서버를 모든 세션 JSONL 에서 다시 잡는다. rehydrate·watcher.start·createIframeSatellite 가 멱등이라 매 주기 불러도 중복이 없다.
+      // broadcast 는 watcher 콜백(onSnapshotChange) 몫이라 여기선 needsBroadcast 를 세우지 않는다.
       graphManager.rehydrateAllBackgroundShells();
 
       // SubAgent: 대기열에 queued 명령 있으면 실행 — 큐 등록된 모든 세션(커스텀 포함) 대상
@@ -19858,8 +18764,7 @@ export async function runServer(): Promise<RunServerHandle> {
         processNextCommand(sessionId);
       }
 
-      // §5.5 #17-11 v3.79 — 세션 루프 안전망. 정확한 예약은 setTimeout 이 하고, 여기서는
-      //   재시작으로 타이머가 사라졌거나 예약이 유실된 루프만 주워 다음 회차를 굴린다.
+      // §5.5 #17-11 — 세션 루프 안전망. 예약은 setTimeout 이 하고, 여기서는 재시작 등으로 예약을 잃은 루프만 주워 다음 회차를 굴린다.
       if (sweepSessionLoops() > 0) {
         broadcastSnapshot();
         saveCheckpoint();
@@ -19906,8 +18811,7 @@ export async function runServer(): Promise<RunServerHandle> {
     setInterval(() => {
       const expiredParents = graphManager.sweepIdleAgents(AGENT_IDLE_THRESHOLD_MS);
       const expiredSubs = subAgentManager.sweepIdle(AGENT_IDLE_THRESHOLD_MS);
-      // v1.60: completed → idle 자동 페이드 (AGENT_FADE_DURATION=60s 경과 분).
-      // 사용자 클릭 dismiss 없어도 시안 글로우가 자연 소멸 → 다음 작업이 깨끗한 상태에서 시작.
+      // completed → idle 자동 페이드(AGENT_FADE_DURATION 60초 경과분) — 클릭 dismiss 가 없어도 글로우가 꺼진다.
       const expiredCompleted = graphManager.expireCompletedAgents();
       if (expiredParents.length > 0 || expiredSubs.length > 0 || expiredCompleted.length > 0) {
         broadcastSnapshot();
@@ -19961,34 +18865,24 @@ export async function runServer(): Promise<RunServerHandle> {
     // §5.23 — 웹 버블 묶기도 같은 규약이다. 빠지면 엔진 씨앗(묶지 않음)이 그대로 남아, 저장값도 기본값(켬)도
     //   먹지 않고 재기동마다 호스트마다 버블 하나로 돌아간다.
     graphManager.setWebGroupSettings(appStateGetWebGroup());
-    //   10분마다 **한 건**만 물어본다. 이 축이 메우는 자리는 위 다섯 장치가 손댈 수 없는 곳이다 —
-    //   `hasLivingWork` 이 참이라 아무도 못 걷는데 실제로는 끝났거나 멈춘 세션. 그 판정은 마지막
-    //   기록의 *뜻*을 읽어야 나오므로 코드가 아니라 모델이 답한다(§2.4 · `sessionLivenessProbe.ts`).
-    //   비동기라 여기서 기다리지 않는다 — 착수만 하고 즉시 넘어간다.
+    // §2.4 — 실행 중 세션 생존 확인(`sessionLivenessProbe.ts`): 10분마다 한 건만 묻는다. `hasLivingWork` 이 참이라 다른 정리 장치가 못 걷는데
+    // 실제로는 끝났거나 멈춘 세션을 잡는다 — 마지막 기록의 뜻을 읽어야 해서 코드가 아니라 모델이 답한다. 비동기라 착수만 하고 넘어간다.
     setInterval(() => {
       subAgentManager.maybeProbeRunningSessions(commandQueues);
     }, SESSION_PROBE_INTERVAL_MS);
 
-    // §5.3 — 사용자 인터럽트(Esc/Ctrl+C)·도구 거부 시 Claude Code 는 Stop 훅을 발사하지 않아
-    // Hook 에이전트 버블이 active(파란 링)로 stuck 된다. 세션 JSONL 마지막 엔트리가 인터럽트
-    // sentinel 이면 누락된 Stop 훅을 대신 시뮬레이트(markStop → completed → 60초 fade → idle).
-    // markStop 이 내부에서 스냅샷을 broadcast 하므로 별도 broadcast 불필요.
+    // §5.3 — 인터럽트(Esc/Ctrl+C)·도구 거부 때 Claude Code 는 Stop 훅을 안 쏴 Hook 버블이 active 로 굳는다.
+    // 세션 JSONL 마지막 줄이 인터럽트 sentinel 이면 Stop 을 대신 흉내 낸다(markStop → completed → 60초 fade). markStop 이 broadcast 한다.
     setInterval(() => {
-      // 헤드리스 세션의 실행 표시를 **실제 프로세스 생존**과 대조한다. 어떤 경로가 `active` 를 남긴 채
-      //   자식을 잃으면, 종전에는 5분 무활동 sweep 이 걷을 때까지 화면이 "돌고 있다"고 거짓말했고
-      //   그동안 [중지]는 멈출 게 없는 헛버튼이었다. 여기서 5초 안에 사실로 되돌린다.
-      // 프로세스가 사라진 세션에 남은 백그라운드 작업 표시(끝 통지가 영영 오지 않는 것)를 **먼저** 걷는다 —
-      //   그게 남아 있는 동안은 아래 생존 대조가 그 세션을 "아직 도는 중"으로 보고 건너뛰므로,
-      //   순서가 뒤집히면 유령이 세션·버블을 계속 활동 중으로 붙든다.
+      // 헤드리스 세션의 실행 표시를 실제 프로세스 생존과 대조해 5초 안에 바로잡는다(자식을 잃고 `active` 가 남으면 [중지]가 헛버튼이 된다).
+      // 프로세스가 사라진 세션의 백그라운드 작업 표시를 **먼저** 걷는다 — 남아 있으면 생존 대조가 "아직 도는 중"으로 보고 건너뛰어 유령이 버블을 붙든다.
       const orphanParents = subAgentManager.sweepOrphanedBackgroundTasks();
       const deadActive = subAgentManager.reconcileDeadActiveSubs();
       // §5.5 #17-9 ⑭ — 위 둘이 못 걷은 것(표식도 없고 세션은 살아 있는 것) 중 **가장 오래 조용한
       //   하나**를 골라 물어본다. 비동기라 여기서 기다리지 않는다 — 착수만 하고 즉시 넘어간다.
       subAgentManager.maybeProbeQuietBackgroundTasks();
-      // 턴은 끝났는데 `executing` 으로 굳은 명령을 걷는다. 굳어 있는 동안 그 탭은 `busy` 로 잠겨
-      //   **새 명령을 영영 못 받으므로**(앞 명령이 안 끝났으니 다음이 안 나간다), 종전에는 사용자가
-      //   앱을 재기동하거나 [중지]를 눌러야만 풀렸다. 아래 잠듦 판정이 `executing` 을 "곧 쓸 자식"
-      //   으로 읽으므로 **그보다 먼저** 걷어야 재우기까지 함께 막히지 않는다.
+      // 턴은 끝났는데 `executing` 으로 굳은 명령을 걷는다 — 굳으면 그 탭이 `busy` 로 잠겨 새 명령을 영영 못 받는다.
+      // 아래 잠듦 판정이 `executing` 을 "곧 쓸 자식"으로 읽으므로 **그보다 먼저** 걷어야 재우기도 막히지 않는다.
       const zombieCmds = subAgentManager.sealZombieExecutingCommands(
         commandQueues,
         ZOMBIE_EXECUTING_GRACE_MS,
@@ -20008,17 +18902,10 @@ export async function runServer(): Promise<RunServerHandle> {
         for (const cmd of sealed) settleDispatchCommand(cmd, { updateEdge: true });
         archiveCompletedCommands(sessionId, sealed);
       }
-      // §5.5 #17-18 ⑪ — **대기 워치독.** 위 봉합이 `executing` 잠금을 풀어도 **그 자리에서 다음
-      //   명령을 밀어 주는 곳이 없었다.** `processNextCommand` 로 다시 들어가는 길은 턴 종료
-      //   콜백·토큰 절약 펌프·정지 라우트 셋뿐이라, 잠금을 쥔 턴이 그 셋 중 어느 것도 거치지 않고
-      //   사라지면 뒤에 선 덧말은 **영영 대기로 남는다** — 사용자 보고 "완료 표시를 믿고 추가 작업을
-      //   시켰는데, 즉시 들어가지 않고 대기로 빠지고 «작업 중» 만 뜬 채 일을 안 한다"의 정체다.
-      //   막다른 길은 봉합 뒤 재점화 누락 하나가 아니다 — `processNextCommand` 는 에이전트/cwd 를
-      //   못 찾거나 토큰 절약이 거절하면 **아무 예약도 없이 그냥 돌아간다**. 그 전부를 한 자리에서
-      //   메운다: 5초마다 **나갈 수 있는데 안 나간 명령**이 있는 세션을 한 번 더 민다.
-      //   `processNextCommand` 는 게이트를 전부 다시 보므로 반복 호출이 안전하고(거절은 그대로
-      //   거절된다), **새 타이머·새 상태·새 REST ❌** — 이미 도는 리컨사일 루프에 얹은 한 겹이다.
-      //   판정은 부작용이 없어 따로 시험한다(`services/queueWatchdog.ts`).
+      // §5.5 #17-18 ⑪ — 대기 워치독: 5초마다 나갈 수 있는데 안 나간 명령이 있는 세션을 한 번 더 민다.
+      // `processNextCommand` 로 들어가는 길은 턴 종료 콜백·토큰 절약 펌프·정지 라우트뿐이고, 그것도 에이전트/cwd 를 못 찾거나 토큰 절약이
+      // 거절하면 예약 없이 돌아간다 — 그러면 뒤에 선 덧말이 영영 대기로 남아 "작업 중"만 뜬다.
+      // `processNextCommand` 는 게이트를 전부 다시 보므로 반복 호출이 안전하다. 새 타이머·상태·REST ❌. 판정은 `services/queueWatchdog.ts`(따로 시험).
       for (const sid of sessionsNeedingKick(commandQueues)) processNextCommand(sid);
       // §2.4 (잠듦) — 대화가 끝난 지 오래된 세션의 자식 프로세스를 회수해 메모리를 돌려준다.
       //   다음 명령이 오면 `--resume` fresh spawn 으로 그대로 이어지므로 사용자가 잃는 것은 없다.
@@ -20052,13 +18939,9 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       /*
-       * §5.26 (D)(F) — 컨텍스트 보험의 주기 몫. **새 타이머를 만들지 않는다** — 이 루프가 이미
-       * 5초마다 "화면에 적힌 것과 사실"을 대조하는 자리라, 보험의 두 판정도 같은 성질이다.
-       *
-       *  - 2단계 대조: `PreCompact` 를 받아 둔 마커 중 아직 결과가 없는 것만 본다(모델 호출 ❌ —
-       *    마커의 바이트 오프셋 뒤에 붙은 요약 구간에 항목이 나타나는지만 훑는다).
-       *  - 4단계 감시: 컨텍스트가 찼는데 압축이 안 도는 세션을 등급으로 매긴다. **자동 조치 ❌** —
-       *    사용자가 누를 손잡이만 켠다(§5.26 (F)).
+       * §5.26 (D)(F) — 컨텍스트 보험의 주기 몫. 새 타이머 ❌ — 이미 5초마다 화면과 사실을 대조하는 이 루프에 얹는다.
+       * - 2단계 대조: `PreCompact` 마커 중 결과가 없는 것만, 마커 바이트 오프셋 뒤 요약 구간에 항목이 나타나는지만 훑는다(모델 호출 ❌).
+       * - 4단계 감시: 문맥이 찼는데 압축이 안 도는 세션에 등급을 매긴다. 자동 조치 ❌ — 사용자가 누를 손잡이만 켠다(§5.26 (F)).
        */
       const outcomeChanged = graphManager.sweepCompactOutcomes();
       // §5.26 (G) — 되살아난 세션이 정말 문맥을 받았는지. 첫 턴이 돌면 그때 판정된다.
@@ -20089,9 +18972,8 @@ export async function runServer(): Promise<RunServerHandle> {
       });
     }, 5000);
 
-    // §5.14 v4.62 — 플레이 버블 생사 확인. running 인데 포트가 죽었으면 idle 로 되돌린다.
-    //   **버블 자체는 지우지 않는다** — 버튼은 사용자가 지울 때까지 그 자리에 남는 것이 이 기능의 약속이다
-    //   (§7.11 iframe 위성의 60초 grace 자동 제거와 다른 점).
+    // §5.14 — 플레이 버블 생사 확인: running 인데 포트가 죽었으면 idle 로. 버블은 지우지 않는다 — 사용자가 지울 때까지 남는 것이 이 기능의 약속이다
+    // (§7.11 iframe 위성의 60초 grace 자동 제거와 다르다).
     setInterval(() => {
       const running = graphManager.getAllPlayBubbles().filter((b) => b.status === 'running');
       if (running.length === 0) return;
@@ -20116,7 +18998,7 @@ export async function runServer(): Promise<RunServerHandle> {
       saveCheckpoint();
     });
 
-    // §4 v1.98 — 진단 에러 로그 변경 시 스냅샷 broadcast (영속화 ❌ — saveCheckpoint 안 함)
+    // §4 — 진단 에러 로그가 바뀌면 스냅샷만 보낸다(saveCheckpoint ❌).
     diagnosticService.setOnChange(() => {
       snapshotBroadcast.requestDiagnostic();
     });

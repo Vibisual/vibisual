@@ -3,13 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { STREAM_COMPACT_SUMMARY_CHARS } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 
-/**
- * AgentCardParts — §5.5 #17-12 카드 다이어트 공용 조각.
- *
- * 작업 신고·검수 카드가 각자 5~3개 구획을 상시 펼쳐 놓아 한 턴 끝에 읽을 게 두 배로 늘던 문제를 고친다.
- * **행동 구획**(사용자가 할 일 / 검수 포인트)만 기본 노출, 나머지 맥락은 [자세히]로 펼친다.
- * 신고·검수 두 카드가 같은 규칙을 쓰도록 여기 한 곳에 둔다(DRY).
- */
+/** §5.5 #17-12 — 신고·검수 카드 공용 조각: 행동 구획만 기본 노출, 나머지는 [자세히]로. */
 
 interface CardSectionProps {
   title: string;
@@ -77,11 +71,7 @@ export function CardDetails({ count, children }: CardDetailsProps): React.JSX.El
   );
 }
 
-/**
- * §5.5 #17-21 ④ — 지금 밀도가 `간결`인가. 카드가 "행동만 남길지"를 이걸로 정한다.
- * 카드는 Sub 탭·메인 탭 양쪽에서 같은 컴포넌트로 쓰이므로, prop 배선 대신 store 를 직접 읽어
- * 두 탭이 자동으로 같은 규칙을 따르게 한다(#17-12 ⑦).
- */
+/** §5.5 #17-21 ④ — prop 대신 store 를 직접 읽어 Sub·메인 탭이 같은 규칙을 따른다(#17-12 ⑦). */
 export function useCompactCards(): boolean {
   return useGraphStore((s) => s.ideStreamDensity) === 'compact';
 }
@@ -92,13 +82,7 @@ export function compactSummary(parts: (string | undefined)[]): string {
   return first.length > STREAM_COMPACT_SUMMARY_CHARS ? `${first.slice(0, STREAM_COMPACT_SUMMARY_CHARS)}…` : first;
 }
 
-/**
- * §5.5 #17-18 ⑦-2 — "이 카드가 속한 턴은 **아직 도는 중**" 배지.
- *
- * ⑦-1 로 카드가 신고된 자리에 못 박히면서 카드는 화면 한가운데에 앉을 수 있게 됐다. 그 자리에서
- * 카드가 아무 말도 안 하면 사용자는 종전처럼 "카드가 떴으니 끝났겠지"로 읽는다 — 그래서 도는 중에
- * 나온 카드는 **자신이 끝을 뜻하지 않는다는 것**을 스스로 말한다. 턴이 끝나면 이 배지는 사라진다.
- */
+/** §5.5 #17-18 ⑦-2 — 턴이 아직 도는 중인 카드 배지. 카드가 신고된 자리(⑦-1)에 앉아 화면 가운데일 수 있어, 없으면 "끝났다"로 읽힌다. */
 export function CardLiveBadge(): React.JSX.Element {
   const { t } = useTranslation();
   return (
@@ -123,10 +107,7 @@ interface CompactCardLineProps {
   live?: boolean;
 }
 
-/**
- * §5.5 #17-21 ④ — **행동 구획이 없는 카드**가 간결에서 접히는 한 줄 모양.
- * 라벨 + 요약만 남기고, 클릭하면 원래 카드가 그대로 펼쳐진다(내용을 버리지 않는다).
- */
+/** §5.5 #17-21 ④ — 행동 구획 없는 카드의 간결 한 줄(라벨 + 요약). 누르면 원래 카드가 펼쳐진다(내용을 버리지 않는다). */
 export function CompactCardLine({ icon, label, labelClass, summary, onExpand, live }: CompactCardLineProps): React.JSX.Element {
   const { t } = useTranslation();
   return (
@@ -147,10 +128,7 @@ export function CompactCardLine({ icon, label, labelClass, summary, onExpand, li
   );
 }
 
-/**
- * 좋아요/싫어요 등 보조 컨트롤 — 호버(또는 포커스) 때만 드러나 상시 잡음을 없앤다.
- * 터치에는 hover 가 없어 늘 보인다 — 숨겨 두면 보이지 않는 단추가 손가락에 눌린다(투명해도 눌린다).
- */
+/** 호버·포커스 때만 드러난다. 터치엔 hover 가 없어 늘 보인다 — 숨기면 투명한 단추가 손가락에 눌린다. */
 export function CardHoverControls({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
     <div className="mt-1.5 border-t border-gray-800/60 pt-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/card:opacity-100 pointer-coarse:opacity-100">

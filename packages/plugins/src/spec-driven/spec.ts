@@ -1,28 +1,8 @@
 /**
- * §5.11 정독 게이트 — `spec-driven` 의 **판정 전부**(순수 함수).
- *
- * 사용자 지적 — "클로드가 기획 정보를 **끝까지 탐색하지 않고 대충 보고 끝내는** 경우가 있어서 기획대로
- * 개발을 못 하고 있다. 파일은 많은데 그 많은 파일 중에서 정확하게 데이터를 찾아서 하는 게 아니라
- * 대충 본다는 거야."
- *
- * 이 실패는 셋으로 갈린다.
- *  ① **조기 종료** — 몇 개 열어 보고 "다 봤다"로 넘어간다.
- *  ② **중간 유실** — 긴 문서를 통째로 실으면 가운데가 사실상 안 읽힌다.
- *  ③ **확인 불가능한 완료 선언** — "확인했습니다"가 참인지 거짓인지 **잴 방법이 없다.**
- *
- * 프롬프트로 부탁하는 방식은 셋 다 못 고친다(부탁은 ③ 을 만들 뿐이다). 그래서 이 파일은 ③ 을
- * **기계로 갈리는 문제**로 바꾼다 — 기획 문서를 절로 잘라 닫힌 목록을 만들고(색인), 이번 턴에 무엇이
- * 필수인지 지목하고(라우팅), 훅이 남긴 열람 구간과 대조하고(영수증), 에이전트가 낸 인용을 원문과
- * 맞춰 본다(확증). 그 넷이 화면의 신뢰도 네 성분이 된다.
- *
- * **왜 순수 함수인가.** 같은 판정을 프롬프트 조립(서버)·카드 계기판(클라)·게이트(서버)가 각자 계산하면
- * 셋이 갈린다 — 화면은 초록인데 게이트는 막는 상태가 만들어지고, 그러면 사용자는 이 기능을 못 믿는다.
- * 그래서 판정은 여기 하나뿐이고, `spec.test.ts` 가 그것을 고정한다. 파일 접근은 호스트가 넘긴 좁은
- * 탐침(`listFiles`/`readFile`/`fileExists`/`fileMtimeMs`)만 쓴다 — 이 패키지는 `node:fs` 를 모른다.
- *
- * **이 기능의 유일한 실패 방식은 오탐이다.** 안 읽어도 될 절을 필수로 걸어 매 턴 잔소리하면 사용자는
- * 기능을 꺼 버리고, 그 순간 ①②③ 이 전부 돌아온다. 그래서 지목이 없으면 **아무 말도 하지 않고**,
- * 기본 강도는 아무것도 막지 않는 `observe` 다.
+ * §5.11 정독 게이트 — `spec-driven` 의 판정 전부(순수 함수). 대충 보고 끝내기(조기 종료·중간 유실·확인할 수 없는 완료 선언)를 기계로 가른다:
+ * 절 색인 → 필수 지목(라우팅) → 훅 열람 대조(영수증) → 인용 대조(확증) = 신뢰도 네 성분.
+ * 판정은 여기 하나뿐(따로 계산하면 "화면은 초록인데 게이트는 막는다"). 파일 접근은 호스트 탐침뿐(`node:fs` ❌).
+ * **유일한 실패 방식은 오탐이다** — 지목이 없으면 말하지 않고, 기본 강도는 아무것도 막지 않는 `observe`.
  */
 import {
   pathKey,
@@ -118,11 +98,7 @@ const ITEM_RE = new RegExp(SPEC_ITEM_PATTERN_DEFAULT);
 /** 색인에서 빼는 파일 이름 꼴 — 상수표의 정규식을 한 번만 컴파일한다(소문자 basename 에 대고 검사). */
 const SKIP_FILE_RE = new RegExp(SPEC_DOC_SKIP_FILE_PATTERN);
 
-/**
- * 프롬프트 낱말 끝에 붙는 한국어 조사 — 「정독이」가 제목의 「정독」에 맞아야 한다.
- * 로직 분기가 아니라 **언어 표**다(사용자 설정으로 바꿀 값이 아니라 여기 둔다). 긴 것부터 견주고,
- * 떼고 남는 쪽이 낱말 최소 길이 이상일 때만 뗀다.
- */
+/** 프롬프트 낱말 끝의 한국어 조사(「정독이」가 「정독」에 맞게) — 설정이 아니라 언어 표다. 긴 것부터 견주고, 남는 쪽이 낱말 최소 길이 이상일 때만 뗀다. */
 const KO_PARTICLES: readonly string[] = [
   '으로', '에서', '까지', '부터', '이나', '에게', '처럼', '보다',
   '은', '는', '이', '가', '을', '를', '의', '에', '로', '와', '과', '도', '만',
@@ -154,11 +130,8 @@ export function shapePath(p: string): string {
 }
 
 /**
- * 이 호스트의 경로 케이스 정책.
- *
- * 호스트가 알려 주면 그것을 쓰고, 안 알려 주면 `projectPath` 의 모양으로 추정한다(`C:/…` 면 Windows).
- * 추정도 못 하면 **접지 않는 쪽**으로 떨어진다 — 접어서 서로 다른 두 문서를 하나로 뭉개는 것이,
- * 안 접어서 같은 문서를 두 번 세는 것보다 나쁘다(Linux 에서는 실제로 다른 파일이다).
+ * 경로 케이스 정책 — 호스트가 알려 주면 그것, 아니면 `projectPath` 모양으로 추정(`C:/…` 면 Windows), 그것도 못 하면 **접지 않는다**
+ * (다른 두 문서를 뭉개는 것이 두 번 세는 것보다 나쁘다 — Linux 에선 다른 파일).
  */
 export function specPlatform(ctx: PluginPromptContext): PlatformName {
   if (ctx.platform) return ctx.platform;
@@ -170,12 +143,8 @@ export function specPlatform(ctx: PluginPromptContext): PlatformName {
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * 이 프로젝트의 정독 설정.
- *
- * **파일이 바닥이고 사용자 설정이 덮는다.** `.vibisual/spec.json` 은 저장소와 함께 옮겨 다니는 팀의
- * 약속이라 기본으로 이겨야 하고, 사용자가 화면에서 강도를 직접 고르면(체크포인트에 값이 생기면)
- * 그 사람의 기기에서는 그 선택이 이긴다 — 안 그러면 "껐는데 계속 막는다"가 된다.
- * 체크포인트에 값이 없으면 호스트가 아예 안 넘기므로 팀 설정이 그대로 산다.
+ * 정독 설정 — **파일이 바닥, 사용자 설정이 덮는다.** `.vibisual/spec.json` 은 저장소와 함께 다니는 팀 약속이고,
+ * 화면에서 고른 강도(체크포인트 값)는 그 기기에서 이긴다(안 그러면 "껐는데 계속 막는다"). 값이 없으면 호스트가 안 넘긴다.
  */
 export function readSpecSettings(ctx: PluginPromptContext): SpecReadingSettings {
   const base: SpecReadingSettings = { ...DEFAULT_SPEC_READING_SETTINGS };
@@ -231,14 +200,7 @@ export function normalizeSpecSettings(input: Partial<SpecReadingSettings>): Spec
   return out;
 }
 
-/**
- * §5.5 #17-44 ⑧ — 이 세션에서 정독이 켜져 있는가.
- *
- * 판정은 shared 순수 함수 하나(`resolveSpecReadingEnabled`)가 소유하고, 여기서는 설정을 읽어 그 함수에
- * 넘기기만 한다. 이 카드가 자기 판정을 따로 들면 화면·게이트·프롬프트가 갈린다(v4.65 규율).
- *
- * **기본은 꺼짐이다** — 어느 층도 정하지 않은 프로젝트에서는 이 카드가 아무것도 하지 않는다.
- */
+/** §5.5 #17-44 ⑧ — 이 세션에서 정독이 켜져 있는가. 판정은 shared `resolveSpecReadingEnabled` 하나(따로 들면 화면·게이트·프롬프트가 갈린다). **기본은 꺼짐.** */
 export function specReadingEnabledFor(ctx: PluginPromptContext): boolean {
   return resolveSpecReadingEnabled(readSpecSettings(ctx), {
     agentId: ctx.agentId,
@@ -263,13 +225,8 @@ function compilePattern(source: string): RegExp | null {
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * 마크다운 한 장을 **겹치지 않는 절**로 자른다.
- *
- * 헤딩 하나가 절 하나를 열고 다음 헤딩 직전에서 닫는다(깊이를 따지지 않는다). 부모 절이 자식 절을
- * 품게 하면 같은 줄이 두 번 세어져 커버율이 1을 넘고, 그러면 화면의 숫자가 곧 거짓이 된다.
- *
- * 코드 울타리(``` / ~~~) 안의 `#` 은 헤딩이 아니다 — 예제 코드 한 줄이 절을 통째로 갈라 놓는다.
- * 헤딩이 하나도 없는 문서는 파일 전체가 절 하나다(자를 자리가 없다고 안 세면 그 문서는 영영 안 걸린다).
+ * 마크다운을 겹치지 않는 절로 — 헤딩 하나가 다음 헤딩 직전까지(깊이 무관, 부모가 자식을 품으면 커버율이 1을 넘는다).
+ * 코드 울타리(``` / ~~~) 안 `#` 은 헤딩이 아니다. 헤딩이 없는 문서는 통째로 절 하나다(안 세면 영영 안 걸린다).
  */
 export function splitUnits(file: string, text: string, idPattern?: string): SpecUnit[] {
   const rel = shapePath(file);
@@ -352,13 +309,9 @@ function makeUnit(
 }
 
 /**
- * 상한(`SPEC_UNIT_TOKEN_MAX`)을 넘는 절을 **다시 자른다** — 헤딩이 성긴 문서의 한 절이 27만 토큰을 품는
- * 것이 실측이고, 그 절에 "줄 범위 전체를 열어라"를 시키는 것이 컨텍스트를 삼키던 자리다.
- *
- * 순서는 셋이다. ① **항목 줄**(`17-44.`·`①`·`(a)` — 척추 §5 목차의 찾기 정규식과 같은 꼴)에서, 들여쓰기가
- * 가장 얕은 것부터 자르고 넘는 조각은 한 단계 아래 항목으로 내려간다. ② 항목이 없으면 **문단**(빈 줄)을
- * 상한 안으로 묶는다. ③ 문단 하나가 상한을 넘으면 `oversized` 로 표시한다 — 그 절은 통째 Read 대신 Grep 으로
- * 좁혀 열라고 시킨다. 잘린 조각의 제목은 `부모 › 항목 표지`, id 는 `부모id/항목슬러그` 라 원문에서 되짚을 수 있다.
+ * 상한(`SPEC_UNIT_TOKEN_MAX`)을 넘는 절을 다시 자른다(헤딩이 성긴 문서는 한 절이 27만 토큰 — 실측).
+ * ① 항목 줄(`17-44.`·`①`·`(a)`, 척추 §5 목차 정규식과 같은 꼴)의 얕은 들여쓰기부터 ② 없으면 문단 묶기 ③ 문단 하나가 넘으면 `oversized`(Grep 으로 좁혀 열게).
+ * 조각 제목은 `부모 › 항목 표지`, id 는 `부모id/항목슬러그`(원문에서 되짚게).
  */
 function resplitUnit(
   unit: SpecUnit,
@@ -445,12 +398,7 @@ function itemLinesIn(lines: string[], fromLine: number, toLine: number): { line:
   return out;
 }
 
-/**
- * 항목 줄에서 제목에 붙일 표지 — 목록·굵게·코드 표식을 걷은 **전문**(자르지 않는다).
- *
- * 자르는 일은 `clipLabel` 이 따로 한다. 여기서 잘라 버리면 잘린 꼬리가 색인 어디에도 안 남아
- * 라우팅이 그 낱말을 영영 못 본다(§5.11 실측 — `활동바 정독` → `활동바 정`).
- */
+/** 항목 줄의 표지 — 목록·굵게·코드 표식만 걷은 전문. 자르기는 `clipLabel` 몫이다(여기서 자르면 꼬리 낱말이 색인에서 사라진다: `활동바 정독` → `활동바 정`). */
 function itemLabel(raw: string): string {
   const label = raw
     .trim()
@@ -461,12 +409,7 @@ function itemLabel(raw: string): string {
   return label === '' ? 'item' : label;
 }
 
-/**
- * 표시용 표지 — `SPEC_ITEM_LABEL_MAX` 안으로 **낱말 경계에서** 자른다.
- *
- * 글자 수로 뚝 자르면 `정독` 이 `정` 이 되어 사람도 못 알아본다. 상한 안에 낱말 경계가 없을 때만
- * 어쩔 수 없이 글자 수로 자른다(한 낱말이 상한보다 긴 경우).
- */
+/** 표시용 표지 — `SPEC_ITEM_LABEL_MAX` 안에서 낱말 경계로 자른다(글자 수로 자르면 `정독` 이 `정`). 경계가 없을 때만 글자 수로. */
 function clipLabel(label: string): string {
   if (label.length <= SPEC_ITEM_LABEL_MAX) return label;
   const head = label.slice(0, SPEC_ITEM_LABEL_MAX);
@@ -562,12 +505,7 @@ export function countRequirements(text: string): number {
   return n;
 }
 
-/**
- * 같은 id 가 두 번 나오면 뒤엣것에 꼬리를 붙인다.
- *
- * `REQ-14` 가 두 문서에서 언급되는 일은 흔하다. id 가 겹치면 열람 판정이 엉뚱한 절로 붙으므로
- * 반드시 갈라야 하고, 갈라진 사실이 id 에 그대로 보여야 사용자가 원문에서 되짚을 수 있다.
- */
+/** 같은 id(두 문서의 `REQ-14` 등)가 또 나오면 뒤엣것에 꼬리를 붙인다 — 겹치면 열람 판정이 엉뚱한 절로 붙는다. */
 function dedupeIds(units: SpecUnit[]): SpecUnit[] {
   const seen = new Map<string, number>();
   return units.map((u) => {
@@ -578,13 +516,8 @@ function dedupeIds(units: SpecUnit[]): SpecUnit[] {
 }
 
 /**
- * 이 프로젝트의 기획 절 전집.
- *
- * 뿌리는 설정이 있으면 그것, 없으면 후보 표를 **권위 순서대로** 훑는다. 후보를 손으로 나열하는 방식이
- * `docs/기획/전투.md` 같은 이름 앞에서 헛도는 것은 `ssot-drift` 가 v4.67 에 이미 겪었으므로, 여기서는
- * 파일 이름이 아니라 **폴더**를 훑고(`listFiles`) 그 안의 마크다운을 전부 절로 자른다.
- *
- * `listFiles` 를 안 넘기는 호스트에서는 색인이 비고, 그러면 이 카드는 규칙만 싣는다(그 축만 접힌다).
+ * 기획 절 전집. 뿌리는 설정, 없으면 후보 표(권위 순). 이름이 아니라 폴더를 훑어(`listFiles`) 마크다운을 전부 자른다(`docs/기획/전투.md` 같은 이름도 잡게).
+ * `listFiles` 가 없는 호스트에선 색인이 비고 규칙만 싣는다.
  */
 export function buildSpecIndex(ctx: PluginPromptContext, settings: SpecReadingSettings, now = Date.now()): SpecIndex {
   const platform = specPlatform(ctx);
@@ -691,10 +624,8 @@ function safeMtime(ctx: PluginPromptContext, rel: string): number | null {
 }
 
 /**
- * 색인 캐시 — 같은 턴에 `buildBlock` 과 `survey` 가 각각 부르므로 그대로 두면 문서를 두 번 읽는다.
- *
- * mtime 만으로는 안 된다(실시간으로 덧붙는 문서에서는 매 턴 빗나가 동기 읽기가 반복된다 — §5.11 v4.65).
- * 그래서 짧은 수명을 함께 쓴다. 서버는 메인 프로세스와 한 몸이라, 이 한 번의 동기 읽기가 곧 UI 정지다.
+ * 색인 캐시 — 같은 턴에 `buildBlock`·`survey` 가 각각 부른다. mtime 에 짧은 수명을 더한다(덧붙는 문서는 mtime 이 매 턴 빗나간다)
+ * — 서버가 메인 프로세스와 한 몸이라 동기 읽기가 곧 UI 정지다.
  */
 const indexCache = new Map<string, { at: number; index: SpecIndex }>();
 
@@ -774,13 +705,8 @@ interface Hit {
 }
 
 /**
- * 이번 턴 필수 절 — 세 축에서 후보를 모아 **점수 순으로 상한까지** 자른다.
- *
- * 전집을 다 읽으라는 요구는 실패한다(서두가 이미 2만 토큰이다). 그래서 필수는 항상 짧은 목록이고,
- * 짧기 때문에 "끝까지 읽어라"가 지킬 수 있는 요구가 된다.
- *
- * **아무 축에도 안 걸리면 빈 목록을 낸다.** 그때 억지로 무거운 절을 고르면 그것이 곧 오탐이고,
- * 오탐이 이 기능의 유일한 실패 방식이다.
+ * 이번 턴 필수 절 — 세 축 후보를 점수 순으로 상한까지. 짧아야 "끝까지 읽어라"가 지킬 수 있는 요구다(서두만 2만 토큰).
+ * **아무 축에도 안 걸리면 빈 목록** — 억지로 고르면 곧 오탐이다.
  */
 export function routeRequiredUnits(
   index: SpecIndex,
@@ -808,11 +734,8 @@ export function routeRequiredUnits(
     }
   }
 
-  // 낱말의 무게 — **몇 절 제목에 나오는가(df)** 로 정한다. 온 색인의 몇 절에만 있는 낱말은 그 자체로
-  //   "이 절을 말한 것"이고, 어디에나 있는 낱말은 혼자선 아무것도 못 가린다. 한 번 센 값은 들고 있는다
-  //   (낱말 열 개 × 절 수천 개를 축마다 다시 세면 매 턴 그만큼 늦어진다).
-  // 절이 적은 색인에서는 희귀도를 아예 안 센다(0) — 모집단이 없으면 모든 낱말이 "드문 낱말"이 되어
-  //   문턱이 통째로 사라진다. 그때는 낱말 둘을 요구하는 종전 문턱이 옳다.
+  // 낱말 무게는 몇 절 제목에 나오는가(df)로 — 드문 낱말은 혼자 절을 가리키고 흔한 낱말은 못 가린다. 센 값은 들고 있는다(매 턴 다시 세면 느리다).
+  // 절이 적은 색인은 희귀도를 안 센다(0) — 모집단이 없으면 모든 낱말이 드물어 문턱이 사라지니 낱말 둘 문턱을 쓴다.
   const rareMax = index.units.length >= SPEC_RARE_TITLE_MIN_UNITS
     ? Math.floor(index.units.length * SPEC_RARE_TITLE_DF_RATIO)
     : 0;
@@ -878,12 +801,7 @@ function matchTextOf(unit: SpecUnit): string {
   return (unit.matchText ?? unit.title).toLowerCase();
 }
 
-/**
- * 제목 사슬의 **머리** — `문서 › 절` 까지. 이 절이 **무엇에 대한 절인가**를 말하는 칸이다.
- *
- * 말단 항목 표지는 그 절 **안의 세부**라, 거기 스친 낱말은 절의 주제가 아니다. 드문 낱말이 혼자
- * 절을 세울 수 있는가는 이 구분으로 가른다(`SPEC_TITLE_HEAD_PARTS`).
- */
+/** 제목 사슬의 머리(`문서 › 절`) — 이 절의 주제. 말단 항목 표지에 스친 낱말은 주제가 아니라서, 드문 낱말이 혼자 절을 세울지 이것으로 가른다(`SPEC_TITLE_HEAD_PARTS`). */
 function headTextOf(unit: SpecUnit): string {
   const full = matchTextOf(unit);
   const parts = full.split(TITLE_CHAIN_SEP);
@@ -900,16 +818,10 @@ function isStopword(token: string): boolean {
 }
 
 /**
- * 절 하나가 이 낱말들과 얼마나 맞물리는가. id 를 그대로 부르거나 문서를 통째로 부르면 크게 이긴다.
- *
- * 제목 겹침은 **문턱**이 있다 — 프롬프트 축은 겹침 무게가 `SPEC_TITLE_MIN_HITS` 이상이어야 하고
- * (부분 문자열 ❌ · 조사 붙은 낱말은 떼고 봄), 경로 축은 파일 이름 하나가 **통낱말**로 서야 한다.
- * 낱말 하나로 걸리게 두면 `정독`·`문서` 같은 낱말에 온 제목이 걸려 매 턴 무관한 절이 선다(실측 8개).
- *
- * 무게는 `weightOf` 가 낸다 — 접착제 0 · 드문 낱말 `SPEC_RARE_TITLE_HIT_WEIGHT` · 나머지 1.
- * **개수**만 세면 `지금`+`기능` 둘로 문턱이 뚫리고, 정작 기능 이름을 콕 집은 한 낱말이 떨어진다(실측).
- *
- * 견주는 글은 `title` 이 아니라 `matchTextOf` 다 — 표시 제목은 표지를 잘라 꼬리 낱말이 없다.
+ * 절 하나가 이 낱말들과 얼마나 맞물리는가(id·문서를 통째로 부르면 크게 이긴다).
+ * 제목 겹침엔 문턱이 있다 — 프롬프트 축은 무게 `SPEC_TITLE_MIN_HITS` 이상(부분 문자열 ❌, 조사는 떼고), 경로 축은 파일 이름이 통낱말로(낱말 하나면 매 턴 무관한 절이 선다).
+ * 무게는 `weightOf`(접착제 0 · 드문 낱말 `SPEC_RARE_TITLE_HIT_WEIGHT` · 나머지 1) — 개수만 세면 `지금`+`기능` 으로 뚫리고 기능 이름 한 낱말은 떨어진다.
+ * 견주는 글은 `matchTextOf`(표시 `title` 은 표지가 잘려 꼬리 낱말이 없다).
  */
 function scoreUnit(
   unit: SpecUnit,
@@ -942,12 +854,7 @@ function scoreUnit(
   return score;
 }
 
-/**
- * 제목에 이 낱말이 **낱말 시작**에서 서는가(`whole` 이면 끝도 낱말 경계여야 한다).
- *
- * `정독 게이트` 에 `정독` 은 서지만 `기획정독` 에는 서지 않는다. 프롬프트 낱말 `정독이` 는 조사를 떼고
- * 다시 본다 — 그래야 한국어 문장에서 나온 낱말이 제목의 같은 낱말에 붙는다.
- */
+/** 제목에 이 낱말이 낱말 시작에서 서는가(`whole` 이면 끝도 경계) — `정독 게이트` 엔 서고 `기획정독` 엔 안 선다. `정독이` 처럼 조사가 붙으면 떼고 다시 본다. */
 function titleHas(title: string, token: string, whole: boolean): boolean {
   const at = (t: string): boolean => {
     if (t.length < TOKEN_MIN_CHARS) return false;
@@ -994,13 +901,7 @@ function mergeSpans(ranges: [number, number][]): number {
   return total;
 }
 
-/**
- * 절 하나가 **어디까지 실제로 열렸는가**.
- *
- * `covered` 는 정독으로 인정된 줄만 센다. 통째 Read 강등·Grep 문맥은 "봤다"에 가깝지 "읽었다"가
- * 아니어서 여기에 들지 않고, 그것뿐이면 `partial` 로 따로 말한다 — 화면이 "열긴 열었다"와
- * "끝까지 읽었다"를 구분해 보여 줄 수 있어야 사용자가 이 숫자를 믿는다.
- */
+/** 절 하나가 어디까지 열렸는가. `covered` 는 정독으로 인정된 줄만 — 통째 Read 강등·Grep 문맥은 빠지고, 그것뿐이면 `partial`("열긴 열었다"와 "끝까지 읽었다"를 가르게). */
 export function classifySpans(
   unit: Pick<SpecUnit, 'file' | 'startLine' | 'endLine'>,
   spans: Readonly<Record<string, readonly SpecReadSpan[]>> | undefined,
@@ -1030,11 +931,8 @@ export function classifySpans(
 }
 
 /**
- * 훅의 도구 호출 하나를 열람 구간으로 옮긴다 — **여기가 "대충 봤다"를 기계로 가르는 자리**다.
- *
- * `offset` 없이 긴 파일을 통째로 Read 하면 도구가 앞부분만 돌려주고 나머지는 잘린다. 그것을 열람으로
- * 인정하면 이 게이트는 막으려던 실패(중간 유실)를 그대로 통과시킨다. 그래서 **부분 열람으로 강등**한다.
- * `Grep` 은 매치 앞뒤 몇 줄이라 애초에 정독이 아니다. `Glob` 은 파일 이름만 보는 것이라 열람이 아니다.
+ * 훅 도구 호출 하나를 열람 구간으로 — "대충 봤다"를 기계로 가르는 자리. `offset` 없는 긴 파일 통째 Read 는 앞부분만 돌아오므로 부분 열람으로 강등한다.
+ * `Grep`(매치 앞뒤)은 정독이 아니고 `Glob`(이름만)은 열람이 아니다.
  */
 export function spanFromRead(
   file: string,
@@ -1083,12 +981,7 @@ export function spanFromGrep(file: string, line: number, at: number, contextLine
 /** 공백만 접는다 — 줄바꿈·들여쓰기 때문에 참인 인용이 거짓으로 떨어지면 안 된다. */
 const squeeze = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
-/**
- * 인용 한 건을 파일과 대조한다.
- *
- * 여기서 거짓이 나오면 그것은 **지어낸 근거**다. 프롬프트로 "인용하라"고만 하면 인용도 지어낼 수 있으니,
- * 요구와 대조는 반드시 한 벌이어야 한다. 너무 짧은 인용은 아무 문장에나 걸리므로 근거로 세지 않는다.
- */
+/** 인용 한 건을 파일과 대조한다(거짓이면 지어낸 근거) — "인용하라"는 요구와 대조는 반드시 한 벌이다. 너무 짧은 인용은 아무 문장에나 걸려 근거로 세지 않는다. */
 export function verifyCitation(ctx: PluginPromptContext, citation: SpecCitation, now = Date.now()): SpecCitation {
   const fail = (failure: NonNullable<SpecCitation['failure']>): SpecCitation => ({
     ...citation,
@@ -1134,13 +1027,8 @@ function excerpt(body: string, hitAt: number): string {
 }
 
 /**
- * 에이전트가 낸 글에서 **인용을 뽑는다.**
- *
- * 뽑는 형식은 프롬프트가 시키는 형식과 **같은 파일 안에** 있어야 한다. 둘이 갈리면 에이전트는 시킨 대로
- * 적었는데 우리는 못 알아보고 "인용 없음"으로 판정한다 — 그러면 게이트가 성실한 쪽을 벌한다.
- *
- * 두 순서를 다 받는다(`위치 "인용"` · `"인용" 위치`). 모델은 문장 흐름에 따라 순서를 바꿔 쓰고,
- * 그 차이로 근거가 버려지면 안 된다. 따옴표는 곧은 것과 둥근 것을 함께 본다.
+ * 에이전트 글에서 인용을 뽑는다. 형식은 프롬프트가 시키는 형식과 같은 파일에 둔다(갈리면 시킨 대로 적은 쪽을 "인용 없음"으로 벌한다).
+ * 두 순서(`위치 "인용"` · `"인용" 위치`)와 곧은·둥근 따옴표를 다 받는다.
  */
 export function extractCitations(text: string, index: SpecIndex, platform: PlatformName, now = Date.now()): SpecCitation[] {
   const LOC_FIRST = /`([^`\n]{1,200}?):(\d+)(?:\s*[-–~]\s*(\d+))?`[\s:—·,]*["“”']([^"“”'\n]{1,800})["“”']/g;
@@ -1193,13 +1081,7 @@ export function unitAt(index: SpecIndex, file: string, fromLine: number, toLine:
 // ⑥ 신뢰도 — 하나의 점수로 뭉개지 않는다
 // ────────────────────────────────────────────────────────────────────────────
 
-/**
- * 넷을 따로 낸다.
- *
- * 단일 점수는 **무엇이 부족한지** 말하지 못한다. "신뢰도 62%" 는 사용자에게 아무 행동도 시키지 못하지만,
- * "필수 5절 중 3절 열람 · 인용 2건 중 1건 불일치" 는 어디를 다시 보라고 말한다. 신뢰는 하나의 숫자가
- * 아니라 **반증 가능한 분모**에서 온다.
- */
+/** 넷을 따로 낸다 — "신뢰도 62%"는 행동을 못 시키지만 "필수 5절 중 3절 열람 · 인용 2건 중 1건 불일치"는 어디를 볼지 말한다. */
 export function computeTrust(
   required: readonly SpecRequiredEntry[],
   citations: readonly SpecCitation[],
@@ -1235,12 +1117,7 @@ export interface SpecReadingEvaluation {
   trust: SpecTrust;
 }
 
-/**
- * 이번 턴의 정독 판정 한 벌.
- *
- * 프롬프트 블록도, 카드 실측도, 서버의 게이트도 전부 이것을 부른다. 두 번 계산하면 두 답이 나오고,
- * 그러면 "화면은 초록인데 게이트가 막는" 상태가 만들어진다 — 그 순간 사용자는 이 기능을 못 믿는다.
- */
+/** 이번 턴의 정독 판정 한 벌 — 프롬프트 블록·카드 실측·서버 게이트가 모두 이것을 부른다(두 번 계산하면 "화면은 초록인데 게이트가 막는다"). */
 export function evaluateSpecReading(ctx: PluginPromptContext, now = Date.now()): SpecReadingEvaluation {
   const settings = readSpecSettings(ctx);
   const index = buildSpecIndexCached(ctx, settings, now);
@@ -1260,12 +1137,7 @@ export function evaluateSpecReading(ctx: PluginPromptContext, now = Date.now()):
   return { settings, index, required, citations, trust: computeTrust(required, citations, staleDocsOf(ctx, required, platform)) };
 }
 
-/**
- * 열람한 뒤에 고쳐진 문서 수.
- *
- * 읽고 나서 문서가 바뀌면 그 열람은 **이미 낡았다.** 화면이 초록인 채로 낡은 근거를 들고 있는 것이
- * 가장 위험한 상태라, 신뢰도 넷 중 하나를 통째로 여기에 쓴다.
- */
+/** 열람 뒤에 고쳐진 문서 수 — 초록인 채 낡은 근거를 든 것이 가장 위험해 신뢰도 넷 중 하나를 통째로 쓴다. */
 function staleDocsOf(
   ctx: PluginPromptContext,
   required: readonly SpecRequiredEntry[],
@@ -1319,11 +1191,8 @@ const SPEC_RULE_LINES: readonly string[] = [
 ];
 
 /**
- * 시스템 프롬프트(`--append-system-prompt`)에 한 번 실을 정독 규칙 — §5.5 #17-28 ⑧(c) 목표 규약과 같은 자리.
- *
- * 매 턴 사용자 메시지에 규칙 다섯 줄을 되풀이하면 턴 수만큼 이력에 쌓이고 압축에 쓸려 나간다. 여기 실으면
- * 캐시 앞머리 한 벌이고 압축에도 남는다. 호스트는 이것을 실을 때 `ctx.promptRulesInSystem` 을 켜서
- * 매 턴 블록이 목록·강도만 싣게 한다 — 둘은 한 벌이다(하나만 하면 규칙이 두 번 실리거나 아예 없다).
+ * 시스템 프롬프트(`--append-system-prompt`)에 한 번 실을 정독 규칙(§5.5 #17-28 ⑧(c) 목표 규약과 같은 자리) — 매 턴 되풀이하면 이력에 쌓이고 압축에 쓸린다.
+ * 호스트는 이것을 실을 때 `ctx.promptRulesInSystem` 을 함께 켠다 — 하나만 하면 규칙이 두 번 실리거나 아예 없다.
  */
 export function buildSpecSystemRules(): string {
   return [
@@ -1336,13 +1205,7 @@ export function buildSpecSystemRules(): string {
   ].join('\n');
 }
 
-/**
- * 매 턴 프롬프트에 실을 정독 규율.
- *
- * 규칙은 짧게(`- ` 줄 여섯이 상한 — §5.11 v4.59). 이번 턴 필수 절은 규칙이 아니라 **자료**라
- * 번호 목록으로 따로 싣는다. 목록이 길어지면 규칙까지 안 읽히므로 상한 안에서만 지목한다.
- * 호스트가 규칙을 시스템 프롬프트에 실었으면(`promptRulesInSystem`) 목록·강도 한 줄만 싣는다.
- */
+/** 매 턴 정독 규율 — 규칙은 `- ` 줄 여섯이 상한(§5.11), 필수 절은 자료라 번호 목록으로(길면 규칙까지 안 읽혀 상한 안에서만). `promptRulesInSystem` 이면 목록·강도 한 줄만. */
 export function buildSpecPromptBlock(ctx: PluginPromptContext): string | undefined {
   // §5.5 #17-44 ⑧ — 꺼진 층이면 **여기서 끝난다.** 아래 `evaluateSpecReading` 은 색인을 세우려고
   //   `docs/**` 를 훑으므로, 꺼 둔 프로젝트가 매 턴 그것을 도는 것만으로 서버가 멈칫한다.

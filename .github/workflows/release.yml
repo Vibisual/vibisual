@@ -1,43 +1,16 @@
-# SCENARIO.md §4 v2.44 — 자동 업데이트 릴리스 자동화.
-#
-# `v*` 태그(예: v0.1.1)를 푸시하면 win/mac/linux 빌드 산출물(setup/dmg/AppImage + latest*.yml
-# + blockmap)을 GitHub Releases 에 자동 업로드한다. 그제서야 설치된 앱의 electron-updater 가
-# 새 버전을 감지·다운로드한다.
-#
-# ⚠️ 소스 main 푸시만으로는 릴리스가 만들어지지 않는다 — 반드시 버전 bump 후 태그 푸시:
-#     1) packages/desktop/package.json 의 "version" 을 올린다 (예: 0.1.0 → 0.1.1)
-#     2) git tag v0.1.1 && git push origin v0.1.1
-#   (버전 숫자 0.1.1 은 예시일 뿐, 어떤 값으로 올릴지는 전적으로 사용자가 정한다.)
-#
-# ⚠️ Windows 미서명 빌드는 자동 업데이트는 동작하나 SmartScreen 경고가 뜬다. macOS 는
-#    서명+공증이 없으면 자동 업데이트가 차단된다(현재 코드서명 슬롯 미배선 — SCENARIO §3.7 / task §7).
-#    그래도 빌드/발행 자체는 성공한다.
-#
-# ⚠️ v0.1.0~v0.1.9 의 mac 잡이 전부 실패한 진짜 원인은 서명이 아니라 **아이콘 크기**였다 —
-#    `resources/icons/icon.png` 가 256×256 이라 electron-builder 의
-#    "image ... must be at least 512x512" 검사에서 죽었다(2026-08-19, v0.1.9 로그 163줄에서 확인).
-#    아이콘을 1024×1024 로 재생성해 해소. 서명 탓으로 적어 둔 아래 주석 때문에 10번의 릴리스 동안
-#    아무도 로그를 열어보지 않았다 — 실패를 "예상된 것"으로 적어 두면 그 실패는 조사되지 않는다.
+# SCENARIO.md §4 — `v*` 태그를 푸시하면 win/mac/linux 산출물(+ latest*.yml·blockmap)을 GitHub Releases 에 올린다 — 설치된 앱의 electron-updater 가 그것을 본다.
+# ⚠️ main 푸시만으로는 릴리스가 안 생긴다: packages/desktop/package.json 의 "version" 을 올린 뒤 그 태그를 푸시한다.
+# ⚠️ Windows 미서명은 SmartScreen 경고가 뜬다. mac 은 미서명이라 업데이트를 앱이 직접 받아 교체한다(`macSelfInstall.ts`) — 빌드·발행 자체는 성공한다.
+# ⚠️ mac 아이콘(`resources/icons/icon.png`)은 512×512 이상 — 256×256 이면 electron-builder 가 "must be at least 512x512" 로 죽는다.
+#    실패를 "예상된 것"으로 적어 두지 마라 — 그 실패는 조사되지 않는다.
 
-# ⚠️ mac 은 **아키텍처마다 그 아키텍처의 러너에서** 짓는다(2026-08-26). 한 러너에서
-#    `--arm64 --x64` 를 함께 뽑으면 두 dmg 에 **같은 node_modules** 가 들어가는데, 네이티브
-#    모듈 중에는 설치 시점의 플랫폼·아키텍처 것만 깔리는 것이 있다 — `koffi` 가 그렇다
-#    (`@koromix/koffi-<platform>-<arch>` optionalDependency 라 arm64 러너에는 darwin-arm64 만
-#    깔린다). 그렇게 만든 x64 dmg 를 Intel Mac 에서 열면 `koffi` 가 제 바이너리를 못 찾아
-#    **main 프로세스가 뜨자마자 죽는다** — 빌드는 초록, 앱은 실행 불가. 그래서 arm64 는
-#    macos-latest, x64 는 macos-15-intel 에서 각각 짓는다(둘 다 공개 저장소 무료 표준 러너).
-#    node-pty 는 모든 플랫폼 prebuild 를 한 패키지에 담아 이 문제가 없다 — 판단은 패키지마다.
+# ⚠️ mac 은 아키텍처마다 그 아키텍처의 러너에서 짓는다. 한 러너에서 `--arm64 --x64` 를 함께 뽑으면 두 dmg 에 같은
+#    node_modules 가 들어가, `koffi`(`@koromix/koffi-<platform>-<arch>` optionalDependency)가 Intel Mac 에서 제 바이너리를
+#    못 찾아 main 이 뜨자마자 죽는다 — 빌드는 초록이다. node-pty 는 전 플랫폼 prebuild 를 담아 괜찮다 — 판단은 패키지마다.
 
-# ⚠️ mac 잡만 재시도로 감싼다 — `hdiutil: couldn't eject "diskN" - Resource busy` (2026-08-26).
-#    v0.1.12 의 x64 잡이 12분 15초를 빌드한 뒤 **마지막 단계**에서 이 오류로 죽었다(arm64 는 같은
-#    커밋으로 통과). dmg 를 다 만들고 디스크 이미지를 떼어내는 자리인데, 그 순간 볼륨을 붙들고 있는
-#    프로세스가 있으면 detach 가 거절된다. electron-builder 24.13.3 은 이미 `hdiutil detach -force`
-#    를 5회 재시도하지만(dmg-builder/out/dmgUtil.js) 그것을 다 소진하고도 실패했다.
-#    상류에 수정본이 없는 **간헐 실패**이고(electron-userland/electron-builder#7137 — "rerunning the
-#    build generally passes"), 원인이 우리 설정에 없으므로 고칠 자리는 워크플로다. 그래서 mac 잡만
-#    최대 3회 재시도하고, 시도 사이에 **붙어 있는 볼륨을 떼고 반쯤 쓰인 dmg 를 지운다** — 죽은 시도가
-#    볼륨을 남겨 두면 다음 시도는 같은 자리에서 또 막히므로 재시도 자체가 무의미해진다.
-#    win/linux 는 종전 스텝 그대로다(이번 변경으로 동작이 바뀌지 않는다).
+# ⚠️ mac 잡만 재시도(최대 3회)로 감싼다 — dmg 를 다 만든 뒤 `hdiutil: couldn't eject "diskN" - Resource busy` 로 간헐적으로
+#    죽는다(electron-builder 의 detach -force 5회 재시도도 소진, 상류 미해결 electron-userland/electron-builder#7137).
+#    시도 사이에 붙은 볼륨을 떼고 반쯤 쓰인 dmg 를 지운다 — 남겨 두면 다음 시도가 같은 자리에서 또 막힌다.
 
 name: Release
 
@@ -52,27 +25,9 @@ permissions:
   contents: write
 
 jobs:
-  # ── 올릴 자리를 먼저 하나 만든다 ──────────────────────────────────────────────
-  # ⚠️ 이 잡이 없으면 **네 잡이 각자 릴리스를 만든다.** v0.1.21 이 실제로 그렇게 갈라졌다 —
-  #    draft 가 둘이 되고(자산 12개 + Linux 자산 4개), Linux 것만 태그 없는 쪽에 남아
-  #    스모크의 `gh release download <TAG> --pattern '*.AppImage'` 가
-  #    `no assets match the file pattern` 으로 죽었다. 검증이 실패했으니 공개 전환도 없었고,
-  #    사이트의 최신 버전 배지는 v0.1.20 에 멈춘 채였다.
-  #
-  #    원인은 경합이 아니라 **찾는 방법**이다. electron-publish 의 `getOrCreateRelease()` 는
-  #    릴리스 목록을 훑어 `release.tag_name === tag || release.tag_name === version` 인 것만
-  #    재사용한다(electron-publish/out/gitHubPublisher.js). 그런데 GitHub 은 draft 를 만들 때
-  #    `tag_name` 을 받고도 태그를 걸지 않고 `untagged-<id>` 로 남긴다 — 태그를 실제로 거는 것은
-  #    "공개"의 일부이기 때문이다. 그래서 먼저 도착한 잡이 만든 draft 를 뒤따라온 잡이
-  #    **자기 것이 아니라고 판단하고 새로 만든다.** 넷이 동시에 출발하므로 몇 개로 갈릴지는
-  #    그날의 타이밍이 정한다(v0.1.20 은 운 좋게 하나였다).
-  #
-  #    고칠 자리는 그 판정식이다: draft 를 **우리가 먼저 만들면서 `tag_name` 을 태그로 박아 두면**
-  #    네 잡이 전부 첫 번째 조건에 걸려 같은 릴리스에 올린다. GitHub 은 draft 를
-  #    `/releases/tags/<tag>` 로 조회시켜 주지는 않지만(404), **목록에는 그 값을 그대로 실어 준다** —
-  #    electron-publish 가 보는 것이 정확히 그 목록이라 이 방법이 통한다.
-  #
-  # 🔒 `release` 잡에서 `needs: prepare` 를 떼지 마라. 떼는 순간 네 잡이 다시 각자 만든다.
+  # 올릴 draft 를 먼저 하나 만든다. ⚠️ 없으면 네 빌드 잡이 각자 릴리스를 만든다 — electron-publish `getOrCreateRelease()` 는 목록에서
+  # `tag_name === tag || === version` 만 재사용하는데 먼저 온 잡의 draft 는 `untagged-<id>` 다. `tag_name` 을 박은 draft 를 먼저 만들면
+  # (목록엔 실린다 — `/releases/tags/<tag>` 는 draft 에 404) 모두 거기 올린다. `release` 잡에서 `needs: prepare` 를 떼지 마라.
   prepare:
     name: 올릴 draft 를 하나 만든다
     runs-on: ubuntu-latest
@@ -86,8 +41,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 수동 트리거(workflow_dispatch)는 태그가 없다. 그때는 자리를 만들지 않고 지나간다 —
-          # electron-builder 가 종전처럼 스스로 만든다(테스트 빌드라 갈라져도 잃을 것이 없다).
+          # 수동 트리거는 태그가 없어 draft 를 만들지 않는다 — electron-builder 가 스스로 만든다(테스트 빌드라 갈라져도 무해).
           if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
             echo "태그 푸시가 아니다 — draft 를 미리 만들지 않는다."
             exit 0
@@ -96,10 +50,8 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           VER="${TAG#v}"
 
-          # 이미 있으면 그것을 쓴다 — 재실행(re-run)으로 이 잡이 두 번 돌 때 자리가 늘어나면
-          # 애초에 막으려던 그 상황이 된다. draft 는 태그 단건 조회에 안 잡히므로 목록에서 찾는다.
-          # electron-publish 와 **같은 판정식**을 쓴다(tag_name 이 태그 또는 버전) — 판정이 갈리면
-          # 우리는 "있다"고 보고 그쪽은 "없다"고 봐서 결국 또 하나가 더 생긴다.
+          # 이미 있으면 그것을 쓴다(재실행 때 늘면 안 된다). draft 는 태그 단건 조회에 안 잡혀 목록에서 찾는다.
+          # electron-publish 와 같은 판정식(tag_name 이 태그 또는 버전)이어야 한다 — 갈리면 또 하나가 생긴다.
           ID=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
                  --jq "[.[] | select(.draft == true and (.tag_name == \"$TAG\" or .tag_name == \"$VER\"))][0].id")
 
@@ -107,15 +59,13 @@ jobs:
             echo "이미 $TAG 로 묶인 draft 가 있다 (release #$ID) — 그대로 쓴다."
           else
             echo "draft 를 새로 만든다 — tag_name=$TAG"
-            # name 은 electron-builder 가 만들 때와 같은 `<version>` 으로 맞춘다. 뒤따르는
-            # release-notes.mjs · notes 잡이 이름으로도 찾기 때문에 여기서 어긋나면 안 된다.
+            # name 은 electron-builder 와 같은 `<version>` — release-notes.mjs · notes 잡이 이름으로도 찾는다.
             ID=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
                    -f tag_name="$TAG" -f name="$VER" -F draft=true -F prerelease=false \
                    --jq .id)
           fi
 
-          # 만들어 두기만 하고 tag_name 이 안 실렸으면 이 잡은 아무 것도 안 한 것과 같다 —
-          # 그 상태로 넘어가면 네 잡이 또 각자 만든다. 여기서 끊는다.
+          # tag_name 이 안 실렸으면 네 잡이 또 각자 만든다 — 여기서 끊는다.
           BOUND=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID" --jq .tag_name)
           [ "$BOUND" = "$TAG" ] || { echo "::error::draft #$ID 의 tag_name 이 $BOUND 다 — $TAG 로 묶이지 않았다"; exit 1; }
 
@@ -131,7 +81,7 @@ jobs:
           - os: windows-latest
             script: release:win
             artifact: installer-win-x64
-          # mac 은 **아키텍처마다 그 아키텍처의 러너에서** 짓는다 — 아래 주석 참고.
+          # mac 은 아키텍처마다 그 러너에서 짓는다(머리말 참고).
           - os: macos-latest        # Apple Silicon (arm64)
             script: release:mac:arm64
             artifact: installer-mac-arm64
@@ -142,9 +92,7 @@ jobs:
             script: release:linux
             artifact: installer-linux-x64
     runs-on: ${{ matrix.os }}
-    # continue-on-error 는 걷어냈다(2026-08-26). 이 줄이 걸어 둔 조건 — "mac 이 실제로 초록으로
-    # 도는 것을 한 번 확인하면" — 은 v0.1.11 에서 충족됐다(run 32344953534, mac 잡 success).
-    # fail-fast: false 라 mac 이 넘어져도 win/linux 발행은 그대로 끝나고, 다만 **런이 빨갛게** 남는다.
+    # continue-on-error 를 걸지 않는다 — fail-fast: false 라 mac 이 넘어져도 win/linux 발행은 끝나고 런만 빨갛게 남는다.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -163,21 +111,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # rpm 타깃은 러너에 `rpmbuild` 가 있어야 만들어진다(deb 는 dpkg 계열이 기본 탑재).
-      # 없으면 electron-builder 가 rpm 만 조용히 건너뛰는 게 아니라 **그 잡 전체가 죽는다.**
-      # AppImage 하나만 내보내던 시절에는 필요 없던 스텝이다 — deb/rpm 을 추가한 순간부터 필수.
+      # rpm 타깃은 러너에 `rpmbuild` 가 있어야 한다(deb 는 기본 탑재) — 없으면 rpm 만이 아니라 잡 전체가 죽는다.
       - name: Install Linux packaging tools
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq rpm
 
-      # win/linux — 종전 그대로. 여기에 재시도를 걸지 않는 이유는, 이 두 잡의 실패는
-      # 지금까지 전부 **결정적 실패**(고쳐야 나가는 것)였기 때문이다. 재시도로 감싸면
-      # 같은 실패를 두 번 겪느라 시간만 배로 쓴다.
+      # win/linux 는 재시도하지 않는다 — 지금까지 실패가 전부 결정적이라 재시도는 시간만 배로 쓴다.
       - name: Build and publish
         if: runner.os != 'macOS'
         run: pnpm run ${{ matrix.script }}
         env:
-          # electron-builder 가 GitHub Releases 에 업로드할 때 쓰는 토큰.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS 코드서명 자동 탐색 비활성(미서명 빌드를 실패시키지 않음).
           CSC_IDENTITY_AUTO_DISCOVERY: false
@@ -188,17 +131,13 @@ jobs:
         shell: bash
         run: |
           set -u
-          # ── 코드 서명 슬롯 ──────────────────────────────────────────────
-          # 인증서 시크릿이 있으면 **서명 + 공증**으로, 없으면 지금까지와 똑같이 미서명으로 짓는다.
-          # 미서명 dmg 는 Gatekeeper 가 첫 실행을 막고(실측: `open` 이 다이얼로그를 띄운 채 응답 없음)
-          # 사용자가 `xattr -cr` 을 손으로 쳐야 열린다 — 그걸 없애는 유일한 길이 이 서명이다.
-          # 서명이 붙으면 자동 업데이트도 notify-only 에서 무인 설치로 승격된다(같은 뿌리).
-          # 필요한 시크릿 넷: MAC_CSC_LINK(base64 .p12) · MAC_CSC_KEY_PASSWORD
-          #                 · APPLE_ID · APPLE_APP_SPECIFIC_PASSWORD · APPLE_TEAM_ID
+          # 코드 서명 슬롯 — 인증서 시크릿이 있으면 서명 + 공증, 없으면 미서명. 미서명 dmg 는 Gatekeeper 가 첫 실행을 막아
+          # `xattr -cr` 이 필요하고(실측), 서명이 붙으면 자동 업데이트도 notify-only 에서 무인 설치가 된다.
+          # 시크릿: MAC_CSC_LINK(base64 .p12) · MAC_CSC_KEY_PASSWORD · APPLE_ID · APPLE_APP_SPECIFIC_PASSWORD · APPLE_TEAM_ID
           EXTRA=""
           if [ -n "${MAC_CSC_LINK:-}" ]; then
             echo "코드 서명 인증서 감지 — 서명해서 짓는다."
-            # 여기서**만** electron-builder 가 읽는 이름으로 옮긴다(아래 env 주석 참고).
+            # 여기서만 electron-builder 가 읽는 이름으로 옮긴다(아래 env 주석 참고).
             export CSC_LINK="$MAC_CSC_LINK"
             export CSC_KEY_PASSWORD="${MAC_CSC_KEY_PASSWORD:-}"
             export CSC_IDENTITY_AUTO_DISCOVERY=true
@@ -228,44 +167,31 @@ jobs:
               exit 1
             fi
             echo "::warning::attempt $i failed — 붙어 있는 디스크 이미지를 떼고 재시도한다"
-            # 죽은 시도가 볼륨을 붙여 둔 채 끝나면 다음 시도는 같은 자리에서 또 막힌다.
-            # productName 은 electron-builder.yml 의 `Vibisual` — 볼륨 이름이 그것으로 시작한다.
+            # 볼륨 이름은 productName(electron-builder.yml 의 `Vibisual`)으로 시작한다.
             for vol in /Volumes/Vibisual*; do
               [ -d "$vol" ] || continue
               echo "detaching $vol"
               hdiutil detach -force "$vol" || diskutil unmount force "$vol" || true
             done
-            # 반쯤 쓰인 산출물은 지운다 — 다음 시도가 새로 만든다.
             rm -f packages/desktop/dist/*.dmg packages/desktop/dist/*.dmg.blockmap || true
             # 붙들고 있던 쪽이 손을 뗄 틈을 준다("should go away soon" — #7137).
             sleep 30
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 기본은 미서명. 위 스크립트가 인증서를 확인하면 true 로 덮어쓴다.
+          # 기본은 미서명 — 위 스크립트가 인증서를 확인하면 true 로 덮는다.
           CSC_IDENTITY_AUTO_DISCOVERY: false
-          # ⚠️ 서명 값을 **electron-builder 가 읽는 이름(CSC_*·APPLE_*)으로 여기 두지 마라.**
-          #    없는 시크릿을 GitHub 은 "정의 안 됨"이 아니라 **빈 문자열**로 넣는다. 그런데
-          #    electron-builder 는 `cscLink == null` 로만 걸러서 그 빈 문자열을 진짜 경로로
-          #    받아들이고 projectDir 로 풀어 버린다 — v0.1.15 의 mac 두 잡이 실제로
-          #    `⨯ …/packages/desktop not a file` 로 3회 재시도를 다 쓰고 전멸했고, 자산이
-          #    통째로 빠진 채 릴리스가 "성공"으로 보였다(win·linux 는 발행됐으므로).
-          #    셸의 `[ -n ... ]` 가드는 옳게 걸렀지만, env 에 이름이 있는 한 electron-builder 는
-          #    가드를 거치지 않고 직접 읽는다. 그래서 **MAC_ 접두사로 받아 두고**, 위 스크립트가
-          #    비어 있지 않을 때만 CSC_*/APPLE_* 로 export 한다.
+          # ⚠️ 서명 값을 electron-builder 가 읽는 이름(CSC_*·APPLE_*)으로 여기 두지 마라 — 없는 시크릿은 빈 문자열로 들어오고
+          #    electron-builder 는 `cscLink == null` 로만 걸러 빈 값을 projectDir 경로로 풀어 mac 잡이 `not a file` 로 죽는다.
+          #    MAC_ 접두사로 받아 두고 위 스크립트가 비어 있지 않을 때만 CSC_*/APPLE_* 로 export 한다.
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           MAC_APPLE_ID: ${{ secrets.APPLE_ID }}
           MAC_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           MAC_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      # ── 체크섬 ────────────────────────────────────────────────────────────────
-      # winget · Homebrew Cask · Flathub 는 매니페스트에 **sha256** 을 적어야 한다. 그 값을
-      # 나중에 구하려면 발행된 자산을 다시 받아야 하는데, 그건 우리가 방금 없앤 오염(다운로드
-      # 수)을 다른 문으로 되살리는 짓이다. 여기서는 방금 지은 파일이 손에 있으므로 공짜다.
-      #
-      # 사용자에게도 쓸모가 있다 — 받은 설치본이 우리가 낸 그 파일인지 확인할 수단이 지금까지
-      # 없었다(미서명 배포라 더 그렇다). 발행되는 `SHA256SUMS.txt` 가 그 자리다.
+      # 체크섬 — winget · Homebrew Cask · Flathub 매니페스트의 sha256 공급원이자 받은 설치본 확인 수단(`SHA256SUMS.txt`).
+      # 지은 직후에 잰다 — 나중에 재려면 발행 자산을 다시 받아야 해 다운로드 수가 오염된다.
       - name: Checksums
         shell: bash
         run: |
@@ -279,8 +205,7 @@ jobs:
           for f in *-setup.exe *.dmg *.AppImage *.deb *.rpm; do sum "$f" >> "$out"; done
           cat "$out"
 
-      # 체크섬만 따로 올린다(몇 KB). 설치본 아티팩트와 합쳐 두면 이걸 쓰는 `notes` 잡이
-      # 700MB 를 받아야 한다.
+      # 체크섬만 따로 올린다 — 설치본과 합치면 `notes` 잡이 700MB 를 받아야 한다.
       - name: Upload checksums
         uses: actions/upload-artifact@v4
         with:
@@ -289,28 +214,14 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
-      # ── 스모크가 검증할 사본 (릴리스 자산 카운터를 건드리지 않는 경로) ────────────
-      # ⚠️ 스모크가 `gh release download` 로 받으면 **그 다운로드가 릴리스 자산 카운터에 잡힌다.**
-      #    릴리스 한 번마다 6회가 쌓였다 — win setup.exe 1 · linux deb+AppImage 2 · mac arm64 dmg 1 ·
-      #    mac x64 는 `--pattern '*.dmg'` 가 arm64 것까지 함께 집어 2. 재시도·`/reinstall-*`
-      #    까지 더하면 릴리스당 10~15회다.
-      #
-      #    실측(2026-09-07): 공개 릴리스 설치본 다운로드 134회 중, **릴리스가 없는 날의 증가는 0**
-      #    이었고(metrics 브랜치 traction.csv 9/3→9/4, 9/5→9/6), 릴리스당 합계는 스모크가 들어온
-      #    2026-08-27(v0.1.14) 을 경계로 0~6 에서 7~40 으로 뛰었다. 즉 공개 지표인 "설치 수"를
-      #    우리 CI 가 채우고 있었다 — 사이트(`vibisual-site` 의 stats.json)가 그 숫자를 그대로
-      #    노출하므로 남에게도 틀린 수를 보여 준다.
-      #
-      #    그래서 검증용 사본은 **Actions 아티팩트**로 넘긴다(업계 통상 경로). 게이트가 약해지지
-      #    않는다 — 아티팩트는 릴리스에 올라간 바로 그 파일에서 같은 자리에 올라가고, 업로드가
-      #    깨졌을 가능성은 사용자 쪽 electron-updater 가 `latest*.yml` 의 sha512 로 설치 직전에
-      #    다시 검사한다(그 검사는 우리가 아니라 사용자 기기에서 도는 것이라 CI 로 대체할 수 없다).
+      # 스모크가 검증할 사본은 Actions 아티팩트로 넘긴다 — ⚠️ `gh release download` 로 받으면 그 다운로드가 릴리스 자산
+      # 카운터(공개 설치 수)에 잡힌다. 같은 파일이라 검증은 약해지지 않고, 업로드 손상은 electron-updater 가 `latest*.yml` 의
+      # sha512 로 설치 직전에 다시 잰다.
       - name: Upload installers for smoke
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          # 러너마다 자기 OS 산출물만 있다 — mac arm64 러너에는 `-arm64.dmg`, Intel 러너에는
-          # 접미사 없는 `.dmg` 만 나오므로 같은 글롭으로 각자 제 것만 집는다.
+          # 러너마다 제 OS 산출물만 있어(arm64 러너 `-arm64.dmg`, Intel 은 접미사 없는 `.dmg`) 같은 글롭으로 제 것만 집는다.
           path: |
             packages/desktop/dist/*-setup.exe
             packages/desktop/dist/*.dmg
@@ -318,44 +229,23 @@ jobs:
             packages/desktop/dist/*.AppImage
             packages/desktop/dist/*.deb
             packages/desktop/dist/*.rpm
-          # 이미 압축된 설치본이라 다시 압축해 봐야 시간만 쓴다.
+          # 이미 압축된 설치본이다.
           compression-level: 0
-          # 스모크는 릴리스 직후에 돈다. 손으로 옛 태그를 검증할 때만 만료가 문제인데,
-          # 그때는 스모크가 릴리스 자산 폴백으로 떨어지고 경고를 남긴다.
+          # 옛 태그를 손으로 검증할 때 만료됐으면 스모크가 릴리스 자산 폴백으로 떨어지고 경고를 남긴다.
           retention-days: 14
           if-no-files-found: warn
 
-  # ── 릴리스 본문 ───────────────────────────────────────────────────────────────
-  # electron-builder 는 자산만 올리고 **본문을 쓰지 않는다.** 그대로 두면 릴리스 페이지는
-  # 이름순으로 흩어진 파일 16개가 전부이고, "내 OS 것"을 고르는 데 필요한 지식
-  # (arm64=Apple Silicon, 접미사 없는 dmg=Intel, zip/blockmap/yml 은 받는 게 아님)이
-  # 어디에도 없다. 자산 목록의 정렬은 GitHub 이 정하므로 우리가 쓸 수 있는 자리는 본문뿐이다.
-  #
-  # ⚠️ `if: always()` — 한 OS 가 넘어져도 나머지는 발행되므로(fail-fast: false) 그때도
-  #    본문은 붙어야 한다. 표는 **실제로 올라간 자산에서** 만들어지니, mac 이 빠진 릴리스는
-  #    표에서도 mac 줄이 빠진다(없는 파일로 가는 죽은 링크가 생기지 않는다).
+  # 릴리스 본문 — electron-builder 는 자산만 올린다. "내 OS 것" 고르는 법(arm64=Apple Silicon, 접미사 없는 dmg=Intel,
+  # zip/blockmap/yml 은 받는 것 아님)을 실을 자리는 본문뿐이다.
+  # `if: always()` — 한 OS 가 넘어져도 나머지는 발행되므로 본문도 붙는다. 표는 실제 올라간 자산에서 만들어 죽은 링크가 없다.
   notes:
     needs: release
     if: always()
     runs-on: ubuntu-latest
     steps:
-      # ⚠️ **draft 릴리스에는 태그가 붙지 않는다.** GitHub 은 draft 를 만들 때 `tag_name` 을 받고도
-      #    태그에 묶지 않고 `untagged-<id>` 로 남겨 둔다 — 태그를 실제로 거는 것은 "공개"의 일부라서다.
-      #    (우리가 태그를 **먼저 밀어 두었는데도** 그렇다. 확인함: v0.1.20 의 draft 가 그 상태였다.)
-      #
-      #    그래서 이 한 스텝이 없으면 그 뒤가 **전부** 빗나간다. 태그로 찾는 것들이기 때문이다:
-      #      · 스모크 4종의 `gh release download <TAG>`  → `release not found` 로 넷 다 즉사
-      #      · `check-release-assets.mjs <TAG>`          → 릴리스 자체를 못 찾음(exit 2)
-      #      · `gh release edit <TAG> --draft=false`     → 공개 전환이 영영 일어나지 않음
-      #      · `release-notes.mjs`                       → 본문 없이 지나감
-      #    v0.1.20 이 실제로 그렇게 됐다 — 설치본은 멀쩡했는데 **검증이 시작조차 못 했다.**
-      #    releaseType 을 draft 로 바꾼 순간 생긴 자리이고, 고칠 곳은 여기 하나다.
-      #
-      # ⚠️ 묶는 일 자체는 이제 **`prepare` 잡이 자산보다 먼저** 한다(위 머리말 참고). 여기 남은 것은
-      #    "정말 하나로 모였는가"를 재는 일이다. 순서를 이렇게 나눈 이유: 자산이 다 올라온 **뒤에**
-      #    묶으면, 그 사이에 잡들이 이미 각자 릴리스를 만들어 버렸을 수 있고 그때는 늦다.
-      #    v0.1.21 이 정확히 그랬다 — 이 스텝은 갈라진 둘 중 `[0]` 하나만 태그에 묶었고,
-      #    Linux 자산 4종이 든 나머지 하나는 `untagged-…` 로 남아 스모크에서 발견됐다.
+      # ⚠️ draft 에는 태그가 붙지 않는다(`untagged-<id>`, 태그를 먼저 밀어 둬도). 태그로 찾는 뒤 단계 — 스모크의
+      #    `gh release download <TAG>`, `check-release-assets.mjs <TAG>`, `gh release edit <TAG> --draft=false`, `release-notes.mjs` —
+      #    가 전부 빗나가므로 묶기는 `prepare` 잡이 자산보다 먼저 한다(뒤에 묶으면 이미 갈라졌을 수 있다). 여기서는 하나로 모였는지 잰다.
       - name: 자산이 한 릴리스에 모였는지 확인한다 (갈라졌으면 여기서 끊는다)
         if: github.ref_type == 'tag'
         env:
@@ -365,9 +255,7 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           VER="${TAG#v}"
 
-          # 이번 버전에 해당하는 draft 를 **전부** 센다. `prepare` 가 하나를 태그로 묶어 두었으므로
-          # 정상이면 그 하나뿐이다. 이름(=버전)까지 함께 보는 이유는, 갈라진 쪽은 태그가 없고
-          # `name` 만 버전으로 남기 때문이다 — 그게 v0.1.21 의 두 번째 draft 를 찾아낸 손잡이였다.
+          # 이번 버전의 draft 를 전부 센다(정상이면 `prepare` 가 묶은 하나). 갈라진 쪽은 태그 없이 `name` 만 버전이라 이름도 본다.
           MATCHES=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
                       --jq "[.[] | select(.draft == true and (.tag_name == \"$TAG\" or .name == \"$VER\"))]")
           COUNT=$(echo "$MATCHES" | jq 'length')
@@ -390,10 +278,7 @@ jobs:
           [ "$BOUND" = "$TAG" ] || { echo "::error::release #$ID 가 $TAG 로 안 묶여 있다 (tag_name=$BOUND)"; exit 1; }
           echo "확인 — release #$ID 하나에 모였다 (tag_name=$BOUND, assets=$(echo "$MATCHES" | jq '.[0].assets|length'))"
 
-      # ── SHA256SUMS.txt 발행 ───────────────────────────────────────────────
-      # 네 잡이 각자 낸 체크섬을 한 파일로 모아 릴리스 자산으로 올린다. 이 파일이
-      # winget · Homebrew Cask · Flathub 매니페스트의 sha256 공급원이고(그래서 그쪽이
-      # 설치본을 다시 받을 필요가 없다), 사용자가 받은 파일을 확인하는 수단이기도 하다.
+      # 빌드 잡들의 체크섬을 SHA256SUMS.txt 하나로 모아 릴리스 자산으로 올린다(패키지 매니페스트의 sha256 공급원).
       - name: Collect checksums
         if: github.ref_type == 'tag'
         uses: actions/download-artifact@v4
@@ -418,9 +303,7 @@ jobs:
           cat sums/SHA256SUMS-*.txt | sort -k2 > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-          # ⚠️ `gh release upload <TAG>` 를 쓰지 마라 — 그 경로는 `/releases/tags/<tag>` 라
-          #    **draft 에 404** 다(이 워크플로가 여러 번 걸렸던 자리와 같은 함정).
-          #    릴리스 id 로 직접 올린다.
+          # ⚠️ `gh release upload <TAG>` 를 쓰지 마라 — `/releases/tags/<tag>` 경로라 draft 에 404 다. 릴리스 id 로 올린다.
           ID=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
                  --jq "[.[] | select(.draft == true and (.tag_name == \"$TAG\" or .name == \"$VER\"))][0].id")
           if [ -z "$ID" ] || [ "$ID" = "null" ]; then
@@ -444,8 +327,7 @@ jobs:
         with:
           node-version: 20
 
-      # 태그 푸시면 태그에서 버전을 뽑고, 수동 트리거면 인자 없이 부른다
-      # (스크립트가 packages/desktop/package.json 의 version 을 읽는다).
+      # 태그 푸시면 태그의 버전으로, 수동 트리거면 인자 없이(스크립트가 packages/desktop/package.json version 을 읽는다).
       - name: Write download notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

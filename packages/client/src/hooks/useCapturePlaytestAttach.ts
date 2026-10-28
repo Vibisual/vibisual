@@ -5,11 +5,8 @@ import type { PlaytestClip } from '../stores/capturePlaytest.js';
 import { frameFileName, frameTimesFor, type ClipRange } from '../components/BubbleMap/playtestClip.js';
 import { extractClipFrames } from './clipFrames.js';
 
-// §5.9 플레이테스트 — 고른 구간을 프레임 PNG 로 뽑아 **그 에이전트의 입력창에 첨부**한다.
-//
-// 새 업로드 레일을 만들지 않는다. 붙는 곳은 붙여넣기 이미지·프리뷰 스닙(§5.17 (B))이 쓰는 그
-// 첨부 엔드포인트 하나이고, 첨부만 하고 **자동 전송 ❌** — 무엇이 잘못됐는지는 사용자가 문장으로
-// 얹어 직접 보낸다. 영상 파일이 아니라 프레임을 붙이는 이유는 모델이 읽는 것이 그림이기 때문이다.
+// §5.9 플레이테스트 — 고른 구간을 프레임 PNG 로 뽑아 **그 에이전트 입력창에 첨부**만 한다(자동 전송 ❌). 엔드포인트는 붙여넣기·스닙(§5.17 (B))과 같은 하나.
+// 프레임인 이유: 모델이 읽는 것은 그림이다.
 
 /** 첨부는 IDE 입력창의 메인 탭(요소 집기·스닙 첨부가 가는 그 자리)에 붙는다. */
 const DRAFT_SESSION: string | null = null;

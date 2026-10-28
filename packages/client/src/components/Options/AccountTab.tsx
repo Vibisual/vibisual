@@ -10,18 +10,8 @@ import { accountPortalLinks, type AccountPortalLink } from './accountPortals.js'
 const API_BASE = '';
 
 /**
- * §4 v4.82 · §5.25 (C)(E) — 옵션창 Account 탭.
- *
- * 로그인한 계정을 보여주고 **로그인·로그아웃을 여기서 한다**(사용자 요청: "로그인 정보는 파일
- * 옵션에 넣어서 쉽게 로그아웃 가능하게"). 상태는 스냅샷 `claudeAuth`·`codexAuth` 를 그대로 읽고,
- * 값이 늦게 올 수 있으니 탭을 열 때 한 번 재조회한다.
- *
- * **엔진이 둘이면 계정도 둘이다.** 클로드와 코덱스는 서로 다른 회사의 서로 다른 계정이고, 한쪽만
- * 이 화면에 있으면 나머지 하나는 "로그아웃할 자리가 없는 계정"이 된다 — §5.25 (C) 가 "고른 것은
- * 기본값이지 자물쇠가 아니다"로 세운 규율이 계정 화면에서도 지켜지려면 두 칸이 **같은 모양으로**
- * 나란히 서야 한다. 그래서 카드 한 벌(`AccountCard`)을 엔진별로 두 번 그린다.
- *
- * 자격증명은 우리가 만지지 않는다 — 로그아웃도 서버가 각 CLI 의 로그아웃 명령을 대신 실행할 뿐이다.
+ * §4 · §5.25 (C)(E) — 옵션창 Account 탭: 계정 확인·로그인·로그아웃. 스냅샷 `claudeAuth`·`codexAuth` 를 읽고 탭을 열 때 한 번 재조회한다(늦게 올 수 있다).
+ * 엔진마다 같은 모양의 `AccountCard` — 한쪽만 있으면 로그아웃할 자리가 없는 계정이 생긴다. 자격증명은 만지지 않는다(로그아웃도 각 CLI 명령).
  */
 export function AccountTab(): React.JSX.Element {
   const { t } = useTranslation();
@@ -154,12 +144,7 @@ const AUTH_ENDPOINTS: Record<'claude' | 'codex', { refresh: string; logout: stri
   codex: { refresh: '/api/codex-auth/refresh', logout: '/api/codex-auth/logout' },
 };
 
-/**
- * 상태 재조회·로그아웃 두 창구를 엔진 하나로 묶는다.
- *
- * 두 서버 창구의 응답 모양이 이미 같아서(`{ ok, status }`) 화면 쪽이 갈라질 이유가 없다 —
- * 갈라 두면 한쪽만 고쳐지는 날이 온다.
- */
+/** 재조회·로그아웃 창구를 엔진 하나로 묶는다(두 응답 모양이 `{ ok, status }` 로 같다). */
 function useAccountActions<S extends ClaudeAuthStatus | CodexAuthStatus>(
   engine: 'claude' | 'codex',
   apply: (status: S) => void,
@@ -199,12 +184,7 @@ function useAccountActions<S extends ClaudeAuthStatus | CodexAuthStatus>(
   return { busy, error, refresh, logout };
 }
 
-/**
- * 엔진 하나의 계정 칸.
- *
- * 아이콘 → 이름 → 상태 → 세부 → 버튼의 순서를 두 엔진이 공유한다. 로그인돼 있으면 초록,
- * 판정 불가는 노랑(§5.25 (E) "모름은 로그아웃이 아니다"), 로그아웃은 회색이다.
- */
+/** 엔진 하나의 계정 칸(순서 공유). 로그인 = 초록, 판정 불가 = 노랑(§5.25 (E) 모름은 로그아웃이 아니다), 로그아웃 = 회색. */
 function AccountCard({ engine, title, loggedIn, unknown, primary, badge, rows, unknownDesc, logoutConfirm, onLogin, loginLabel, portals, state }: {
   engine: AgentEngineKind;
   title: string;

@@ -1,12 +1,6 @@
-// SCENARIO.md §5.21 — 비용·토큰 지도.
-//
-// **새 수집기가 아니다.** 세션 JSONL 증분 스캐너(`readSessionTokenData` — §5.5 컨텍스트 게이지가
-// 이미 쓰는 그 함수)가 준 턴들을 §4 v2.38 레지스트리 우선 단가(`calculateTokenCost`)로 환산해
-// 원장에 쌓을 뿐이다. 계측 훅을 새로 심지 않고, 트랜스크립트를 우리가 다시 파싱하지도 않는다.
-//
-// 원장은 **세션 하나**이고 에이전트·프로젝트 합계와 날짜 버킷은 전부 그 원장에서 접은 파생이다.
-// 파생을 따로 누적하지 않는 이유는 단순하다 — 두 군데서 더하면 한쪽이 틀어졌을 때 어느 쪽이
-// 진실인지 판정할 방법이 없다.
+// §5.21 — 비용·토큰 지도. 새 수집기가 아니다 — 세션 JSONL 증분 스캐너(`readSessionTokenData`, §5.5 컨텍스트 게이지와 같은 함수)가 준 턴을
+// §4 레지스트리 우선 단가(`calculateTokenCost`)로 환산해 원장에 쌓을 뿐이다(계측 훅·재파싱 없음).
+// 원장은 세션 하나이고 에이전트·프로젝트 합계와 날짜 버킷은 전부 거기서 접은 파생이다 — 따로 누적하면 어긋났을 때 어느 쪽이 진실인지 가릴 수 없다.
 
 import type {
   CostAgentTotal,
@@ -56,11 +50,8 @@ export type TurnReader = (cwd: string, sessionId: string, provider?: CostSweepSe
 type LedgerEntry = CostSessionEntry & { days: Record<string, CostTotals> };
 
 /**
- * 이 턴의 금액이 **추정**인가 — 단가를 모르는 모델로 환산했으면 true.
- *
- * **토큰이 0인 턴은 보지 않는다.** `<synthetic>`(대답 없이 끝난 턴)이 모델 자리에 그대로 앉는데,
- * 실측(2026-09-02 로컬 대화록)상 240건 전부 0토큰이었다. 금액에 1원도 못 보태는 줄 때문에 세션
- * 전체가 "추정"으로 물들면 그 표식은 늑대소년이 되고, 정작 새 모델이 왔을 때 아무도 안 본다.
+ * 이 턴의 금액이 추정인가 — 단가를 모르는 모델로 환산했으면 true.
+ * 토큰 0 인 턴은 보지 않는다 — `<synthetic>`(대답 없이 끝난 턴)이 모델 자리에 앉는데 실측(2026-09-02) 240건 전부 0토큰이었다. 그것으로 세션 전체가 "추정"으로 물들면 표식이 의미를 잃는다.
  */
 function turnEstimated(turn: TurnTokenUsage, registry: ModelRegistry | null): boolean {
   const tokens = turn.inputTokens + turn.outputTokens + turn.cacheReadTokens + turn.cacheCreateTokens;
@@ -86,12 +77,7 @@ function turnCost(turn: TurnTokenUsage, registry: ModelRegistry | null): number 
   ).total;
 }
 
-/**
- * 합계에 턴 하나를 더한 **새** 객체.
- *
- * `estimated` 는 호출부가 이미 판정해 넘긴다 — 세션 합과 날짜 버킷이 같은 턴을 두 번 먹으므로
- * 여기서 다시 계산하면 레지스트리 조회가 턴마다 두 번 돈다.
- */
+/** 합계에 턴 하나를 더한 새 객체. `estimated` 는 호출부가 판정해 넘긴다 — 세션 합과 날짜 버킷이 같은 턴을 두 번 먹어, 여기서 다시 재면 레지스트리 조회가 턴마다 두 번 돈다. */
 function accrueTurn(
   base: CostTotals,
   turn: TurnTokenUsage,
@@ -124,19 +110,12 @@ export class CostMapService {
   private retired = new Map<string, CostTotals>();
   private updatedAt = new Map<string, number>();
   /**
-   * 마지막 스윕이 쓴 레지스트리 — `build()` 가 "이 모델이 **아직도** 표에 없나"를 되물을 때만 쓴다.
-   * 표가 갱신되면 원장에 박힌 옛 ID 는 더 이상 미상이 아니므로, 툴팁이 이미 고친 이름을 계속
-   * 부르지 않게 하려면 그리는 시점의 표를 봐야 한다(금액 자체는 그때 값 그대로 둔다 — 그 돈은
-   * 실제로 폴백 단가로 계산됐다).
+   * 마지막 스윕이 쓴 레지스트리 — `build()` 가 "이 모델이 아직도 표에 없나"를 되물을 때만 쓴다.
+   * 표가 갱신되면 원장의 옛 ID 는 더 이상 미상이 아니므로 그리는 시점의 표를 본다(금액은 그때 폴백 단가로 계산된 값 그대로 둔다).
    */
   private lastRegistry: ModelRegistry | null = null;
 
-  /**
-   * 세션들을 훑어 원장을 갱신한다. 바뀐 게 있으면 true.
-   *
-   * 턴 배열은 append-only 이므로 **이미 읽은 턴 수 다음부터만** 이어서 더한다. 파일이 줄어
-   * 턴 수가 되레 작아졌으면(재작성·rotate) 그 세션만 처음부터 다시 센다.
-   */
+  /** 세션들을 훑어 원장을 갱신한다(바뀐 게 있으면 true). 턴 배열은 append-only 라 이미 읽은 턴 수 다음부터 더한다 — 턴 수가 줄었으면(재작성·rotate) 그 세션만 처음부터 센다. */
   sweep(
     sessions: readonly CostSweepSession[],
     readTurns: TurnReader,
@@ -318,12 +297,7 @@ export class CostMapService {
     return out.sort((a, b) => b.costUsd - a.costUsd).slice(0, COST_MAP_AGENTS_MAX);
   }
 
-  /**
-   * 프로젝트 한 벌의 지도.
-   *
-   * `withSessionDays=false`(전선용)면 세션 원장에서 날짜 분해를 뗀다 — 세션 × 날짜라 스냅샷마다
-   * 실어 보내기엔 크고, 화면이 쓰는 것은 프로젝트·에이전트 쪽 버킷이다.
-   */
+  /** 프로젝트 한 벌의 지도. `withSessionDays=false`(전선용)면 세션 원장의 날짜 분해를 뗀다 — 세션 × 날짜라 스냅샷마다 싣기엔 크고, 화면은 프로젝트·에이전트 버킷을 쓴다. */
   private build(projectName: string, withSessionDays: boolean, now: number): ProjectCostMap {
     const ledger = this.ledgers.get(projectName);
     const days = this.buildDays(projectName);

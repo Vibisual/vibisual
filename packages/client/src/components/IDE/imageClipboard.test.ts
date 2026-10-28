@@ -1,9 +1,4 @@
-/**
- * imageClipboard.test.ts — §5.5 #17-25 ④-2 클립보드 복사의 갈래를 DOM 없이 고정한다.
- *
- * 이 모듈이 클립보드를 **인자로 받는** 유일한 이유가 이 파일이다 — 실기(mac·linux)가 없으므로
- * "권한이 거절됐다"·"이 런타임엔 API 가 없다"를 win 개발기에서 재현할 방법이 이것뿐이다.
- */
+/** §5.5 #17-25 ④-2 클립보드 갈래(권한 거절·API 없음)를 DOM 없이 고정 — 클립보드를 인자로 받는 이유다(mac·linux 실기 없음). */
 import { describe, it, expect } from 'vitest';
 import {
   CLIPBOARD_IMAGE_MIME,

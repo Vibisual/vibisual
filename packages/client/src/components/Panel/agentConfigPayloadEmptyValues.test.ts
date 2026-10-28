@@ -1,16 +1,6 @@
 /**
- * §4 (설정 3층) — 에이전트 설정 팝업이 **"이 버블은 안 쓴다"를 전선에 실어 보내는가.**
- *
- * 저장은 `sparsifyAgentConfig` 가 위층(설정 창 › Agent Defaults)과 대조해 갈라진 칸만 남기는
- * 방식이라, 창이 미설정을 `undefined` 로 담으면 `JSON.stringify` 가 그 키를 통째로 버려
- * **비교에 아예 오르지 못한다.** 저장분에 키가 없으니 읽는 순간 위층이 도로 얹히고, 사용자
- * 눈에는 "개별 설정을 바꿨는데 계속 프로젝트 설정을 따라간다"로 보인다. 설정 창이 `null` 로
- * 푼 것과 같은 문제이며(§4 "전역 옵션을 다시 끌 수 없던 것"), 아래층은 그 축의 **미설정 표기**
- * (false · '' · [] · 0)를 명시로 보내 푼다.
- *
- * ⚠ 클라 vitest 에는 DOM 이 없고 `buildPayload` 는 컴포넌트 안의 `useCallback` 이라 부를 수
- * 없다. 그래서 소스를 `?raw` 로 읽어 그 블록만 본다 — glob 이 비면 경로가 바뀐 것이므로
- * 조용히 통과시키지 않고 실패한다(검사가 사라지는 쪽이 가장 위험하다).
+ * §4 (설정 3층) — 설정 팝업이 미설정을 `undefined` 가 아닌 명시 표기로 싣는가(`JSON.stringify` 가 키를 버리면 위층이 도로 얹힌다).
+ * DOM 이 없어 소스를 `?raw` 로 읽어 `buildPayload` 블록만 본다 — glob 이 비면 실패한다(검사가 사라지지 않게).
  */
 import { describe, it, expect } from 'vitest';
 
@@ -32,12 +22,7 @@ function payloadBlock(): string {
   return source.slice(start, end);
 }
 
-/**
- * 미설정을 `undefined` 로 접으면 안 되는 축 — **설정 창에 같은 칸이 있어 위층이 값을 가질 수
- * 있는 것들.** 위층이 없는 축(`customMode`·`memory`·`subagentDepth`)은 되돌릴 상위값 자체가
- * 없으므로 이 목록에 넣지 않는다. `effort` 는 Effort 칸이 닫힌 모델(클로드 네 패밀리 밖)에서만,
- * `contextWindow` 는 Opus 가 아닐 때만 접히는데 그때는 축 자체가 무의미해 제외한다.
- */
+/** 위층이 값을 가질 수 있는 축만(`customMode`·`memory`·`subagentDepth` 는 위층이 없어 제외). `effort`·`contextWindow` 는 접힐 때 축이 무의미해 제외. */
 const MUST_NOT_FOLD = [
   'agentCanCompact',
   'excludeDynamicSystemPromptSections',

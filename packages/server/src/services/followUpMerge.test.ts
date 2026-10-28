@@ -2,14 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { QueuedCommand } from '@vibisual/shared';
 import { absorbMergeFollowUps } from './followUpMerge.js';
 
-/**
- * §5.5 #17-18 v4.68 — 합치기(merge) 덧말 흡수 회귀 테스트.
- *
- * 핵심 계약 두 가지를 못 박는다:
- *  ① 덧말 N개가 **한 턴**으로 합쳐진다(= 완료 보고 카드 N장 도배가 사라진 이유).
- *  ② 합쳐도 **base 의 id 가 살아남는다** — 루프 회차(`pendingCommandId`)·태스크 엣지(`edgeId`)
- *     완료 매칭이 그 id 를 기다리므로, 새 id 로 갈아치우면 그 대기가 영영 안 풀린다.
- */
+/** §5.5 #17-18 — 덧말 N개가 한 턴으로 합쳐지고 **base 의 id 가 산다**(`pendingCommandId`·`edgeId` 완료 매칭이 그 id 를 기다린다). */
 
 let seq = 0;
 
@@ -180,17 +173,7 @@ describe('absorbMergeFollowUps', () => {
     expect(base.mergedCount).toBe(2);
   });
 
-  /**
-   * §5.3 #9-1 (P) — **조용한 내부 명령은 남의 본문과 섞이지 않는다.**
-   *
-   * 실제로 난 사고(2026-09-13 사용자 신고): 선행 압축이 `dispatchMode` 없이 큐에 끼어
-   * 기본값(합치기)으로 떨어졌고, 이 함수가 그 압축을 base 로 삼아 **뒤에 선 사용자 명령을
-   * 자기 텍스트에 흡수하고 큐에서 지웠다.** CLI 에는 `/compact` 로 시작하는 한 덩어리가
-   * 나갔고, CLI 는 맨 앞의 슬래시 명령만 읽고 끝냈다 — 화면에는 압축이 거절당한
-   * `Not enough messages to compact.` 한 줄만 남고 사용자가 친 지시는 어디에도 없었다.
-   *
-   * 화면에 안 보이는 명령이 일으키는 사고라 눈으로 잡을 자리가 없다. 여기서 고정한다.
-   */
+  /** §5.3 #9-1 (P) — 조용한 내부 명령(`dispatchMode` 없는 선행 압축)이 base 가 돼 뒤 사용자 명령을 흡수하면 CLI 는 `/compact` 만 읽어 지시가 사라진다. 화면에 안 보여 여기서 고정한다. */
   describe('조용한 내부 명령(silent)', () => {
     it('조용한 압축이 앞에 서도 뒤의 사용자 명령을 흡수하지 않는다', () => {
       const compact = cmd({ id: 'cmd-precompact', text: '/compact', silent: true });

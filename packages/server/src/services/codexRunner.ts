@@ -21,15 +21,8 @@ import { codexLocalTransportNetwork } from './codexLocalTransport.js';
 import type { CommandExecutionRequirements } from '@vibisual/shared';
 
 /**
- * §5.25 (F) — 코덱스 턴 하나를 돌린다.
- *
- * 클로드 경로와 같은 모양(외부 CLI 를 자식으로 띄우고 JSONL 을 읽는다)이지만, **턴 루프를 우리가
- * 돌지 않는다**는 점이 §5.19 로컬 러너와 다르다 — 대화 이력·컨텍스트 자르기·재개는 CLI 몫이라
- * 우리가 `messages[]` 를 들지 않는다.
- *
- * **프롬프트는 stdin 으로 준다.** 인자로 주면 OS 별 명령줄 길이 상한(Windows 는 약 32K)에 걸려
- * 긴 프롬프트가 조용히 잘린다. 인자와 stdin 을 **함께** 주면 코덱스가 stdin 을 별도 블록으로
- * 덧붙이므로(공식 동작), 프롬프트는 stdin **한 곳**으로만 보낸다.
+ * §5.25 (F) — 코덱스 턴 하나를 돌린다. 턴 루프를 우리가 돌지 않는다(§5.19 로컬 러너와 다름) — 이력·문맥 자르기·재개는 CLI 몫이라 `messages[]` 를 들지 않는다.
+ * 프롬프트는 stdin 한 곳으로만 준다 — 인자로 주면 명령줄 상한(Windows 약 32K)에 조용히 잘리고, 둘 다 주면 코덱스가 stdin 을 별도 블록으로 덧붙인다(공식 동작).
  */
 
 type CodexOverrides = Pick<AgentProvider, 'webSearch' | 'networkAccess' | 'modelVerbosity' | 'reasoningSummary' | 'personality' | 'serviceTier' | 'autoCompactTokenLimit'>;
@@ -66,12 +59,8 @@ export interface CodexTurnArgs extends CodexOverrides {
   /** Agent Studio 카드/목표 프로토콜 등이 사용하는 턴별 환경변수. */
   env?: Record<string, string>;
   /**
-   * §5.25 (I) — 이 자식이 물려받을 소유자 태그.
-   *
-   * 사용자가 코덱스 훅을 켜 두면 **우리가 띄운 세션의 훅도** 우리 서버로 들어온다. 이 값이 없으면
-   * 그 이벤트가 주인 없는 세션으로 읽혀 같은 대화에 **버블이 하나 더** 생긴다(클로드 CMD 버블이
-   * 이미 겪은 자리 — `VIBISUAL_OWNER_AGENT_ID` 가 그 해법이었다). `handler.mjs` 가 이 env 를 읽어
-   * 본문에 실어 주므로 서버는 기존 귀속 경로를 그대로 탄다.
+   * §5.25 (I) — 이 자식이 물려받을 소유자 태그. 코덱스 훅이 켜져 있으면 우리가 띄운 세션의 훅도 서버로 들어오는데,
+   * 이 값이 없으면 주인 없는 세션으로 읽혀 같은 대화에 버블이 하나 더 생긴다(`VIBISUAL_OWNER_AGENT_ID` 와 같은 해법). `handler.mjs` 가 이 env 를 본문에 싣는다.
    */
   ownerAgentId?: string;
   ownerTermId?: string;
@@ -85,21 +74,17 @@ export interface CodexTurnArgs extends CodexOverrides {
   /** Actual stdout/stderr activity, including chunks without a mapped UI event. */
   onActivity?: (at: number) => void;
   /**
-   * **자식은 살아 있는데 출력이 끊겼다.** 두 단계로 온다:
-   *  - `stalled: false` — 1단계(`CODEX_TURN_IDLE_NOTICE_MS`). 알림일 뿐 아무것도 닫지 않는다.
-   *  - `stalled: true` — 2단계(`CODEX_TURN_IDLE_SETTLE_MS`). 이 호출 **직후** 우리가 트리를 종료하고
-   *    마감 경로를 태운다. 받는 쪽은 이걸 **2차 마감 입구**로 써도 된다 — `onDone` 은 멱등해야 한다.
+   * 자식은 살아 있는데 출력이 끊겼다. 두 단계로 온다:
+   *  - `stalled: false` — `CODEX_TURN_IDLE_NOTICE_MS`. 알림일 뿐 아무것도 닫지 않는다.
+   *  - `stalled: true` — `CODEX_TURN_IDLE_SETTLE_MS`. 이 호출 직후 트리를 종료하고 마감한다. 받는 쪽은 2차 마감 입구로 써도 되며 `onDone` 은 멱등해야 한다.
    */
   onIdle?: (info: { idleMs: number; stalled: boolean }) => void;
 }
 
 /**
- * 턴 마감 대기 시간과 트리 종료 함수. 기본값으로 돌고, 테스트만 줄여 넣는다.
- *
- * 왜 `close` 하나만 기다리지 않는가 — Node 의 `close` 는 **stdio 가 전부 닫혀야** 온다. 코덱스가 띄운
- * 셸 명령 중 하나가 우리 파이프를 물려받은 채 트리에서 빠져나가면(중간 프로세스가 먼저 끝나 부모를
- * 잃은 손자는 `taskkill /T` 가 못 찾는다), 코덱스 본체가 죽어도 `close` 는 그 손자가 끝날 때까지 안 온다.
- * 그동안 턴은 "실행 중"으로 남고 [중지]는 이미 죽은 pid 만 다시 죽인다 — 실제로 14분을 붙잡혔다.
+ * 턴 마감 대기 시간과 트리 종료 함수. 기본값으로 돌고 시험만 줄여 넣는다.
+ * `close` 만 기다리지 마라 — `close` 는 stdio 가 전부 닫혀야 오는데, 코덱스가 띄운 명령이 파이프를 물려받은 채 트리에서 빠지면(부모 잃은 손자는 `taskkill /T` 가 못 찾는다)
+ * 본체가 죽어도 안 온다. 그동안 턴은 "실행 중"으로 남고 [중지]는 죽은 pid 만 다시 죽인다(실제로 14분 붙잡혔다).
  */
 export interface CodexTurnLifecycleOptions {
   /** 완료·실패 이벤트 뒤 CLI 가 스스로 종료할 때까지의 유예. 진행 중인 턴에는 적용하지 않는다. */
@@ -142,8 +127,7 @@ export function isCodexTurnRunning(subAgentId: string): boolean {
 }
 
 /**
- * §5.25 (F) — [중지]. 클로드 경로와 같이 **자식을 트리째 종료**한다
- * (로컬 러너의 "생성 중단"과 다르다 — 여기서 도는 것은 남의 프로세스다).
+ * §5.25 (F) — [중지]. 자식을 트리째 종료한다(로컬 러너의 "생성 중단"과 다르다 — 남의 프로세스다).
  * 마감은 `close` 를 기다리지 않는다 — {@link CodexTurnLifecycleOptions} 참조.
  */
 export function stopCodexTurn(subAgentId: string): boolean {
@@ -155,10 +139,7 @@ export function stopCodexTurn(subAgentId: string): boolean {
   return true;
 }
 
-/**
- * 스폰 인자 조립. **순수 함수라 테스트로 고정한다** — 여기가 틀리면 모든 코덱스 턴이 같은
- * 방식으로 죽고, 그 사고는 실행해 보지 않으면 안 보인다.
- */
+/** 스폰 인자 조립. 순수 함수라 시험으로 고정한다 — 틀리면 모든 코덱스 턴이 같은 방식으로 죽고, 실행해 보지 않으면 안 보인다. */
 export function buildCodexExecArgs(args: {
   executionRequirements?: CommandExecutionRequirements;
   configuredNetworkAccess?: readonly boolean[];
@@ -201,10 +182,9 @@ export function buildCodexExecArgs(args: {
   // `exec` 에는 `--ask-for-approval` 플래그가 없다(루트 명령 전용) — 같은 값을 설정 오버라이드로
   //   싣는다. 사용자의 설정 파일은 건드리지 않는다(§5.25 (G)).
   out.push('-c', `approval_policy=${approval}`);
-  // §5.25 (H) — `exec` 는 승인 검토자가 사람(user, 기본값)이면 on-request 를 never 로 낮춘다(0.154 실측) —
-  //   그래서 "요청 시 승인" 모드가 한 번도 묻지 않았다. 검토자를 auto_review 로 두면 on-request 가 살고,
-  //   검토자 모델보다 **먼저** 도는 PermissionRequest 훅이 우리 승인 카드로 답한다. 훅이 없으면 모델이
-  //   사람 대신 판정하게 되므로 권한 다리가 붙는 턴에만 싣는다(훅은 실패해도 반드시 거부로 답한다).
+  // §5.25 (H) — `exec` 는 승인 검토자가 사람(user, 기본값)이면 on-request 를 never 로 낮춘다(0.154 실측) — 그러면 "요청 시 승인"이 한 번도 묻지 않는다.
+  // 검토자를 auto_review 로 두면 on-request 가 살고, 검토자 모델보다 먼저 도는 PermissionRequest 훅이 승인 카드로 답한다.
+  // 훅이 없으면 모델이 사람 대신 판정하므로 권한 다리가 붙는 턴에만 싣는다(훅은 실패해도 반드시 거부로 답한다).
   if (approval === 'on-request' && args.permissionHook) out.push('-c', 'approvals_reviewer="auto_review"');
   if (args.reasoningEffort) out.push('-c', `model_reasoning_effort=${args.reasoningEffort}`);
   if (args.webSearch) out.push('-c', `web_search=${args.webSearch}`);
@@ -216,11 +196,9 @@ export function buildCodexExecArgs(args: {
   if (sandbox === 'workspace-write' && typeof networkAccess === 'boolean') {
     out.push('-c', `sandbox_workspace_write.network_access=${networkAccess}`);
   }
-  // Windows 는 `[windows] sandbox` 가 없으면 `-s workspace-write` 를 **읽기 전용으로 내려** 돈다(0.159.2 실측 —
-  //   turn_context 의 sandbox_policy 가 read-only, 셸은 `blocked by policy`, 패치는 `read-only sandbox` 로 거절,
-  //   둘 다 stdout 항목이 없어 화면엔 아무것도 안 남았다). 기본·편집 허용·자동 진행이 파일을 하나도 못 고쳤다.
-  //   비었을 때만 공개 문서의 대안 `unelevated`(관리자 설정 없이 도는 쪽)를 싣는다 — 적혀 있으면 손대지 않는다.
-  //   mac(Seatbelt)·linux(Landlock)는 이 키가 없고 그대로 돈다.
+  // Windows 는 `[windows] sandbox` 가 없으면 `-s workspace-write` 를 읽기 전용으로 내려 돈다(0.159.2 실측 — 셸은 `blocked by policy`,
+  // 패치는 `read-only sandbox` 거절, stdout 항목도 없어 화면에 아무것도 안 남는다). 비었을 때만 공개 문서의 대안 `unelevated`(관리자 설정 없이 도는 쪽)를 싣고,
+  // 적혀 있으면 손대지 않는다. mac(Seatbelt)·linux(Landlock)는 이 키가 없다.
   if (sandbox === 'workspace-write' && args.windowsSandboxUnset && (args.platform ?? process.platform) === 'win32') {
     out.push('-c', 'windows.sandbox="unelevated"');
   }
@@ -237,8 +215,8 @@ export function buildCodexExecArgs(args: {
 }
 
 /**
- * Windows 에서 코덱스가 읽을 설정 겹 어디에도 `[windows] sandbox` 가 없는가({@link buildCodexExecArgs} 의
- * `windowsSandboxUnset`). 다른 OS 는 묻지 않는다. 못 읽으면 `false` — 덧붙이지 않는 종전 동작으로 둔다.
+ * Windows 에서 코덱스 설정 겹 어디에도 `[windows] sandbox` 가 없는가({@link buildCodexExecArgs} 의 `windowsSandboxUnset`).
+ * 다른 OS 는 묻지 않는다. 못 읽으면 `false` — 덧붙이지 않는다.
  */
 function windowsSandboxUnsetFor(cwd: string, platform: NodeJS.Platform): boolean {
   if (platform !== 'win32') return false;
@@ -392,15 +370,11 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
 }
 
 /**
- * 띄운 자식에 턴 수명을 건다 — 출력 해석, [중지], 마감. **`onDone` 은 정확히 한 번** 부른다.
- *
- * 마감 경로는 넷이고 먼저 온 것이 이긴다:
- *   ① `close` — 평소 경로. 출력이 전부 흘러든 뒤라 판정이 가장 정확하다.
- *   ② `exit` 뒤 `exitCloseGraceMs` — 본체는 끝났는데 물려받은 파이프 때문에 `close` 가 안 오는 경우.
- *   ③ [중지] 뒤 `exit` 즉시, 또는 그것도 없으면 `stopSettleTimeoutMs` — 사용자가 멈추라 했다.
- *   ④ 턴 완료 뒤 `completionExitGraceMs` — 끝난 CLI 가 남으면 트리 회수 후 같은 시한으로 마감한다.
- *
- * 테스트가 가짜 자식으로 이 수명을 고정하도록 내보낸다(스폰·실행본 탐색과 분리).
+ * 띄운 자식에 턴 수명(출력 해석·[중지]·마감)을 건다. `onDone` 은 정확히 한 번 부른다. 마감 경로는 넷, 먼저 온 것이 이긴다:
+ *   ① `close` — 평소 경로(출력이 다 흘러든 뒤라 가장 정확하다). ② `exit` 뒤 `exitCloseGraceMs` — 물려받은 파이프 때문에 `close` 가 안 올 때.
+ *   ③ [중지] 뒤 `exit` 즉시, 그것도 없으면 `stopSettleTimeoutMs`.
+ *   ④ 턴 완료 뒤 `completionExitGraceMs` — 끝난 CLI 가 남으면 트리 회수 후 마감.
+ * 시험이 가짜 자식으로 이 수명을 고정하도록 내보낸다(스폰·실행본 탐색과 분리).
  */
 export function attachCodexTurn(
   child: ChildProcess,
@@ -518,10 +492,7 @@ export function attachCodexTurn(
     finish(undefined, finalText);
   };
 
-  /**
-   * `close` 없이 마감한다. 타이머 뒤 한 번 더 `setImmediate` 로 미루는 이유 — 이벤트 루프가 오래 막혔다
-   * 풀리면 타이머가 파이프 읽기보다 먼저 돈다. 한 칸 미루면 그 사이 도착한 출력(마지막 답)을 먼저 읽는다.
-   */
+  /** `close` 없이 마감한다. 타이머 뒤 `setImmediate` 로 한 번 더 미룬다 — 이벤트 루프가 오래 막혔다 풀리면 타이머가 파이프 읽기보다 먼저 돌아, 그 사이 도착한 마지막 답을 놓친다. */
   const settleWithoutClose = (): void => {
     settleTimer = undefined;
     setImmediate(() => {
@@ -576,12 +547,8 @@ export function attachCodexTurn(
   running.set(args.subAgentId, turn);
 
   /**
-   * **정지 워치독** — 완료·종료 신호가 아직 없는 진행 중 턴을 감시한다.
-   *
-   * 종전에는 마감 타이머가 `exit`(:child.on) 과 [중지] 두 곳에서만 걸렸다. 그래서 자식이
-   * 살아 있는데 출력만 끊기면 **타이머가 하나도 돌지 않아** 턴이 영원히 열려 있었다
-   * (2026-09-20 MCP `CONNECT_TIMEOUT` 사고). 두 단계로 나누는 이유는, 조용한 것이 곧
-   * 멈춘 것은 아니기 때문이다 — 1단계는 알리기만 하고 2단계만 걷는다.
+   * 정지 워치독 — 완료·종료 신호가 없는 진행 중 턴을 감시한다. 마감 타이머가 `exit`·[중지]에만 걸리면 자식이 살아 있고 출력만 끊긴 턴이 영원히 열린다(2026-09-20 MCP `CONNECT_TIMEOUT`).
+   * 두 단계인 이유 — 조용한 것이 곧 멈춘 것은 아니다. 1단계는 알리기만, 2단계만 걷는다.
    */
   const watchdogTick = (): void => {
     if (settled) return;
@@ -688,10 +655,7 @@ export function attachCodexTurn(
   });
 }
 
-/**
- * 한 줄에서 "고친 파일 경로"만 뽑는다. 캔버스 파일 버블용이라 **쓰기만** 센다
- * (읽기는 코덱스가 별도 item 으로 말해 주지 않는다 — 없는 것을 넘겨짚지 않는다).
- */
+/** 한 줄에서 고친 파일 경로만 뽑는다. 캔버스 파일 버블용이라 쓰기만 센다(읽기는 코덱스가 별도 item 으로 말하지 않는다 — 넘겨짚지 않는다). */
 export function extractFileWrites(line: string): string[] {
   const trimmed = line.trim();
   if (!trimmed.startsWith('{')) return [];

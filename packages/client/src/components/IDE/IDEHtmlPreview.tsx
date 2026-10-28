@@ -15,15 +15,8 @@ import {
 } from './htmlPreviewNav.js';
 
 /**
- * IDEHtmlPreview.tsx — §5.5 #17-27 ⑮ 편집창 안의 **작은 브라우저**.
- *
- * `CodeEditor`·`IDEImagePreview` 와 형제다 — 같은 자리에 셋 중 하나만 선다. 여기가 하는 일은
- * 둘뿐이다: 페이지를 그리는 iframe 하나와, 그 위의 얇은 조작 줄(뒤로·앞으로·새로고침·주소·
- * 처음으로·바깥 브라우저).
- *
- * **렌더링 엔진을 우리가 만들지 않는다** — Chromium 이 이미 한다(PDF 를 내장 뷰어에 맡긴
- * §5.13 (R) 과 같은 판단). 폭 프리셋·요소 집기 같은 프리뷰 도구도 여기 없다 — 그 자리의
- * 주인은 §7.11 프리뷰이고, 여기는 **파일 한 장**을 보는 자리다.
+ * IDEHtmlPreview.tsx — §5.5 #17-27 ⑮ 편집창 안 작은 브라우저(iframe + 조작 줄). 렌더는 Chromium(§5.13 (R) 과 같은 판단).
+ * 폭 프리셋·요소 집기는 넣지 않는다 — §7.11 프리뷰의 몫이고 여기는 파일 한 장을 보는 자리다.
  */
 
 interface IDEHtmlPreviewProps {
@@ -35,10 +28,7 @@ interface IDEHtmlPreviewProps {
   mtimeMs: number;
   /** OS 기본 브라우저로 넘긴다(§5.13 (R-6) 재사용 — 새 레일 ❌). */
   onOpenExternal: () => void;
-  /**
-   * §5.5 #17-27 ⑰ — 편집창을 최대화하면 브라우저 줄(주소 칸)을 걷는다. 걷히는 것은 줄뿐이고
-   * iframe 은 그 자리 그대로다 — 보던 페이지·기록이 다시 실리지 않는다.
-   */
+  /** §5.5 #17-27 ⑰ — 최대화하면 브라우저 줄만 걷는다(iframe 은 그대로 — 보던 페이지·기록이 다시 실리지 않게). */
   barHidden?: boolean;
 }
 
@@ -78,10 +68,7 @@ export const IDEHtmlPreview = memo(function IDEHtmlPreview({
   const { t } = useTranslation();
   const frameRef = useRef<HTMLIFrameElement>(null);
 
-  /**
-   * 캐시 무력화 토큰. 처음에는 디스크 수정 시각이고, [새로고침] 을 누르면 지금 시각이 된다 —
-   * 저장 → 화면이 안 바뀜(브라우저 캐시)이 이 항목에서 가장 흔한 실패라 URL 자체를 바꾼다.
-   */
+  /** 캐시 무력화 토큰(처음 = 디스크 수정 시각, [새로고침] = 지금). 저장했는데 안 바뀜(브라우저 캐시)이 가장 흔한 실패라 URL 자체를 바꾼다. */
   const [token, setToken] = useState(() => mtimeMs);
   // 아래 효과와 **같은 식**으로 시작한다 — 다르면 마운트 직후 한 번 더 실어 오게 된다.
   const [src, setSrc] = useState(() => withCacheToken(workspaceSiteSrc(root, relPath), token));
@@ -99,10 +86,7 @@ export const IDEHtmlPreview = memo(function IDEHtmlPreview({
     setToken(mtimeMs);
   }, [mtimeMs]);
 
-  /**
-   * 토큰이 바뀌면 **지금 보고 있는 곳**을 다시 연다(열었던 파일이 아니라). 페이지 안 링크를 타고
-   * 다른 파일에 가 있는데 저장 한 번에 첫 페이지로 튕기면, 고치면서 확인하는 흐름이 매번 끊긴다.
-   */
+  /** 토큰이 바뀌면 지금 보는 곳을 다시 연다(처음 연 파일 ❌ — 링크로 옮겨 간 페이지가 저장마다 튕기지 않게). */
   const currentRef = useRef<string | null>(null);
   currentRef.current = current;
   useEffect(() => {
@@ -110,11 +94,7 @@ export const IDEHtmlPreview = memo(function IDEHtmlPreview({
     // 열었던 파일이 아니라 token 을 보는 이유 — 위 설명대로 "지금 보고 있는 곳"을 다시 열기 위해서다.
   }, [token, root, relPath]);
 
-  /**
-   * ⑮ (b) — 페이지가 알려 온 위치. **우리 창구 안의 주소만** 받는다(`readHtmlPreviewReport`) —
-   * iframe 안에서는 사용자의 프로젝트 코드가 돌고, 아무 스크립트나 우리 주소 칸에 제 글자를
-   * 적어 넣게 두지 않는다.
-   */
+  /** ⑮ (b) — 페이지가 알려 온 위치는 우리 창구 주소만 받는다(`readHtmlPreviewReport` — iframe 안 프로젝트 스크립트가 주소 칸을 쓰지 못하게). */
   useEffect(() => {
     const onMessage = (e: MessageEvent): void => {
       if (e.source !== frameRef.current?.contentWindow) return;
@@ -195,13 +175,8 @@ export const IDEHtmlPreview = memo(function IDEHtmlPreview({
       </div>
       )}
 
-      {/*
-        페이지. `sandbox` 로 **최상위 이동을 막는다**(⑮ (f)) — 워크스페이스 안의 HTML 이 우리 앱을
-        다른 곳으로 끌고 갈 수 없다. `allow-same-origin` 을 남기는 이유는 그것을 빼면 문서가 불투명
-        오리진이 되어 `localStorage` 한 줄에 사용자의 멀쩡한 페이지가 죽기 때문이다(패키지 앱에서
-        이 프레임은 어차피 `vibproxy://` 라 우리 창과 다른 오리진이다).
-        `target="_blank"` 는 main 의 `setWindowOpenHandler` 가 OS 브라우저로 넘긴다(§3.7).
-      */}
+      {/* `sandbox` 로 최상위 이동을 막는다(⑮ (f)). `allow-same-origin` 은 남긴다 — 빼면 불투명 오리진이라 `localStorage` 한 줄에 페이지가 죽는다
+         (패키지 앱은 `vibproxy://` 라 어차피 다른 오리진). `target="_blank"` 는 main `setWindowOpenHandler` 가 OS 브라우저로(§3.7). */}
       <iframe
         ref={frameRef}
         src={src}

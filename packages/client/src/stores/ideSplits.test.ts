@@ -5,13 +5,8 @@ import { useGraphStore, DEFAULT_IDE_OVERLAY, isIDESplitMenuSameTab } from './gra
 import { listCells } from '../components/IDE/splitLayout.js';
 
 /**
- * §5.5 #17-34 — 창 **안** 화면 분할의 스토어 규약.
- *
- * 사용자 지시: "이 ide창 내부에서 해당 서브 세션을 드래그 하면 … 화면 분할로 여기저기 멀티뷰처럼
- * 이어붙이고 싶어". 여기서 못 박는 것은 화면이 아니라 **약속**이다 —
- * ① 분할은 두 칸 이상일 때만 존재하고 ② 한 칸만 남으면 창이 그 세션을 이어받으며
- * ③ 칸을 옮기는 것은 칸 수를 늘리지 않고 ④ 창이 다른 버블로 바뀌면 남의 분할은 무시된다.
- * 이 넷 중 하나라도 어긋나면 "분할을 껐는데 안 꺼진다 / 탭과 화면이 서로 다른 말을 한다"가 된다.
+ * §5.5 #17-34 — 창 **안** 화면 분할의 약속: ① 두 칸 이상일 때만 있다 ② 한 칸이 남으면 창이 그 세션을 이어받는다
+ * ③ 칸 옮기기는 칸 수를 안 늘린다 ④ 창이 다른 버블로 바뀌면 남의 분할은 무시된다.
  */
 
 const PROJ = 'proj';
@@ -171,9 +166,7 @@ describe('QA — 실제로 겪는 잘못된 떨구기', () => {
 });
 
 describe('탭 메뉴의 "같은 탭" 판정 = 스토어의 제자리 판정 (§5.5 #17-34 ⑬)', () => {
-  // 탭 우클릭 [나누기]는 대상 칸 없이(`cellId=null`) 스토어를 부른다. 메뉴가 흐리게 하는 경우와 스토어가
-  //   아무 일도 하지 않는 경우가 어긋나면, 흐린 항목이 실제로는 되거나 눌리는 항목이 헛눌린다(사용자 보고의 뿌리).
-  //   이 창 자신의 세션·칸 상한 아래에서 잰다 — 남의 세션·상한은 메뉴가 판정하지 않는 다른 이유다.
+  // 탭 우클릭 [나누기]는 `cellId=null` 로 스토어를 부른다 — 메뉴가 흐리게 하는 경우와 스토어가 아무것도 안 하는 경우가 같아야 한다(이 창의 세션·칸 상한 기준).
   function menuThenStore(sessionId: string | null): { menuSame: boolean; storeIdle: boolean } {
     const menuSame = isIDESplitMenuSameTab(store(), PROJ, sessionId);
     const before = { splits: store().ideSplits, overlays: store().ideOverlays };

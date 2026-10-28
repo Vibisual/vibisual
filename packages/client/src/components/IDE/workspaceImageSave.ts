@@ -1,12 +1,11 @@
 import { isWorkspaceImageBakeable, workspaceImageMime } from '@vibisual/shared';
 import type { WorkspaceFileSaveResult } from '@vibisual/shared';
 
+import { workspaceMediaQuery } from '../../utils/workspaceMedia.js';
+
 /**
- * workspaceImageSave.ts — §5.5 #17-25 ④-1 주석본으로 **그 이미지 파일을 덮어쓴다**.
- *
- * 라이트박스(`ImageAnnotator`)가 이미 700줄이라 서버 대화만 떼어 둔다. 굽는 형식은 원본 확장자를
- * 따르고(png·jpeg·webp), 굽지 못하는 확장자는 애초에 `canOverwrite` 가 false 라 버튼이 흐려진다 —
- * 조용히 PNG 로 바꿔 확장자와 내용이 어긋난 파일을 만들지 않기 위함이다.
+ * §5.5 #17-25 ④-1 — 주석본으로 그 이미지 파일을 덮어쓴다. 굽는 형식은 원본 확장자(png·jpeg·webp)를 따른다.
+ * 못 굽는 확장자는 `canOverwrite` 가 false 다 — PNG 로 구우면 확장자와 내용이 어긋난다.
  */
 
 const API_BASE = '';
@@ -36,9 +35,11 @@ export async function putWorkspaceImage(
   baseMtimeMs: number,
   baseRevision?: string,
 ): Promise<WorkspaceImageSaveOutcome> {
+  // §5.5 #17-27 ⑥ — 절대경로 탭(캔버스에서 연 이 창의 루트 밖 파일)은 그 파일의 폴더 + 이름으로 푼다(읽기와 같은 도우미).
+  const query = workspaceMediaQuery(root, relPath);
   const url =
-    `${API_BASE}/api/workspace-image?root=${encodeURIComponent(root)}` +
-    `&path=${encodeURIComponent(relPath)}&baseMtimeMs=${encodeURIComponent(String(baseMtimeMs))}` +
+    `${API_BASE}/api/workspace-image?root=${encodeURIComponent(query.root)}` +
+    `&path=${encodeURIComponent(query.path)}&baseMtimeMs=${encodeURIComponent(String(baseMtimeMs))}` +
     (baseMtimeMs !== 0 && baseRevision ? `&baseRevision=${encodeURIComponent(baseRevision)}` : '');
   try {
     const res = await fetch(url, {

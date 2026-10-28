@@ -25,10 +25,7 @@ export function hiddenActivityBubbleIds(
   edges: readonly ActivityLink[],
   agents: readonly AgentVisibility[],
   satellites: Readonly<Record<string, readonly Satellite[]>> = {},
-  /**
-   * 숨길 수 있는 버블 종류 — 기본은 모든 활동 버블. §5.4 #36 (I) 앱 작업 보기의 접기는 파일·폴더·도메인(·잔상)만 접는다
-   * (iframe·콘티 같은 다른 축은 그대로). 소유를 잇는 관계는 이 값과 무관하게 같은 그래프를 탄다.
-   */
+  /** 기본은 모든 활동 버블. §5.4 #36 (I) 접기는 파일·폴더·도메인(·잔상)만 — 소유 관계 그래프는 이 값과 무관하다. */
   eligibleTypes: ReadonlySet<BubbleType> = ACTIVITY_BUBBLE_TYPES,
 ): ReadonlySet<string> {
   const hiddenAgents = new Set<string>();

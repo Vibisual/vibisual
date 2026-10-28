@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.99 — 프롬프트 인젝션(Prompt Injection): 이 에이전트가 읽는 외부 텍스트는 어디서 오는가.
- *
- * 원인이 구조적이다 — 모델은 명령과 데이터를 같은 토큰 스트림으로 받으므로 둘을 원리적으로 구분할 수 없다.
- * "해결됐다"는 주장은 신뢰하지 않는 것이 기본이고, 대신 **어떤 경로로 외부 텍스트가 들어오는지**를 세어
- * 공격면을 눈에 보이게 한다. 표시 전용.
- */
+/** §5.11 — 프롬프트 인젝션(Prompt Injection): 외부 텍스트가 들어오는 경로를 세어 공격면을 보인다(명령·데이터는 원리적으로 못 가른다). 표시 전용. */
 import { defineInspector, ICONS } from '../sdk/index.js';
 import { effectiveTools } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

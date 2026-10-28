@@ -12,13 +12,7 @@ import {
 } from './splitLayout.js';
 import { useSplitDrop } from './useSplitDrop.js';
 
-/**
- * §5.5 #17-34 — IDE 창 **안**의 화면 분할.
- *
- * 분할이 없으면(`ideSplits` 에 항목이 없으면) 종전과 똑같이 `IDEMainArea` 한 벌만 그린다 —
- * 이 기능을 안 쓰는 사용자의 화면은 픽셀 단위로 같다. 세션 탭을 끌어다 본문 가장자리에 떨구는
- * 순간 그 자리가 갈라지고, 그때부터 칸마다 `IDEMainArea` 가 자기 세션을 그린다.
- */
+/** §5.5 #17-34 — IDE 창 안 화면 분할. `ideSplits` 가 비면 `IDEMainArea` 한 벌(안 쓰는 사람 화면은 그대로). */
 
 interface IDESplitViewProps {
   agentId: string;

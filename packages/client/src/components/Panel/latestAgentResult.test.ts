@@ -1,10 +1,4 @@
-/**
- * §7.1 — 에이전트 패널 "마지막 결과" 한 건을 고르는 규칙을 고정한다.
- *
- * 이 칸은 종전 결과 목록(전부 · 최신순)을 대체했다. 고르는 기준이 흔들리면 패널이 "방금 끝낸 것"이
- * 아니라 엉뚱한 한 건을 내민다 — 특히 ① 우리가 끼운 조용한 압축 명령 ② 아직 응답이 없는 대화
- * ③ 큐에 넣은 시각만 앞선 덧말이 그 자리를 차지하면 안 된다.
- */
+/** §7.1 — "마지막 결과" 고르기 고정: 조용한 압축 명령 · 응답 없는 대화 · 큐 시각만 앞선 덧말은 그 자리를 못 차지한다. */
 import { describe, expect, it } from 'vitest';
 import type { AgentEvent, QueuedCommand, SubAgent } from '@vibisual/shared';
 import { pickLatestAgentResult, stripStageBlocks } from './latestAgentResult.js';

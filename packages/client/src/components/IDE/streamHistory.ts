@@ -1,13 +1,6 @@
 /**
- * §5.5 #17-12 — **복원 창 위쪽의 과거를 거슬러 불러온다.**
- *
- * 세션을 다시 열면 서버는 그 세션의 마지막 2,000건(깊은 복원)만 내려 준다. 그보다 앞은 턴마다 저장된 답
- * (명령 블록 폴백)만 남아, 긴 대화를 위로 올려 보면 **말풍선과 결론만 있고 사이의 대화가 사라진** 모양이
- * 됐다(사용자 보고 — "과거 대화를 다시 보면 기존 내용이 제거되어 안 보인다"). 기록은 디스크에 온전히 있었다.
- *
- * 여기서는 사용자가 창의 윗끝 가까이 올라왔을 때 그 앞 한 쪽(`STREAM_HISTORY_PAGE_EVENTS`)을
- * `GET /api/subagent-streams/:agentId/:subId/older` 로 받아 버퍼 앞에 붙인다(`prependStreamHistory`).
- * 판정과 병합은 순수 함수로 두어 DOM 없이 시험한다(`streamHistory.test.ts`).
+ * §5.5 #17-12 — 복원 창 위쪽의 과거를 거슬러 불러온다(서버는 마지막 2,000건만 주고 그 앞은 명령 블록 폴백뿐이다).
+ * 창의 윗끝 가까이 오면 앞 한 쪽(`STREAM_HISTORY_PAGE_EVENTS`)을 `GET /api/subagent-streams/:agentId/:subId/older` 로 받아 앞에 붙인다.
  */
 import type { SubAgentStreamEvent } from '@vibisual/shared';
 import { STREAM_HISTORY_PAGE_EVENTS } from '@vibisual/shared';
@@ -18,11 +11,7 @@ import { olderHistoryUrl, restoreStreamWindow } from './streamRestore.js';
 /** 못 찾음·오류 뒤 같은 세션을 다시 묻기까지 기다리는 시간. 스크롤 한 번마다 서버를 두드리지 않게 한다. */
 export const STREAM_HISTORY_RETRY_MS = 8_000;
 
-/**
- * 창의 **윗끝 항목** — 버퍼 첫 이벤트 시각 이후로 처음 선 항목의 순번. 그 위에 선 것은 창 밖 턴의 폴백
- * (명령 블록·카드)뿐이라, 거기까지 올라왔다는 것은 사이의 대화를 불러와야 한다는 뜻이다. 버퍼가 비었거나
- * 그런 항목이 없으면 -1.
- */
+/** 창의 윗끝 항목 — 버퍼 첫 이벤트 시각 이후 처음 선 항목의 순번(그 위는 창 밖 턴의 폴백뿐이라 여기까지 오면 과거를 불러온다). 없으면 -1. */
 export function olderHistoryBoundary(
   items: readonly { timestamp: number }[],
   events: readonly { timestamp: number }[],

@@ -1,14 +1,6 @@
 /**
- * §5.19 (D)(H) 로컬 세션이 **클로드 세션만큼 행동할 수 있는가.**
- *
- * 2026-08-21 대조에서 드러난 것: 로컬 갈림(`executeLocalProvider`)은 `execute()` 맨 앞에서
- * 곧장 return 해서, 클로드 경로가 매 턴 받는 `contextSummary`·`livePreamble` 이 **인자로 들어오지도**
- * 않았고 슬래시 명령을 가로채는 `composeTurnPrompt` 도 그 아래라 통과하지 못했다. 그래서 로컬
- * 버블은 프로젝트 규칙·카드 지시문·목표·기억을 한 글자도 못 받았고 `/clear` 조차 그냥 사용자
- * 말로 모델에게 갔다.
- *
- * 여기서 지키는 것: **주입 순서**(캐시가 걸린 문제) · **슬래시를 모델에게 흘리지 않기** ·
- * **계획 모드에서 나올 길** · **바깥에서 받아 온 글을 읽을 수 있는 형태로 접기.**
+ * §5.19 (D)(H) — 로컬 세션이 클로드 세션만큼 행동하는가(`contextSummary`·`livePreamble`·`composeTurnPrompt` 를 건너뛰면 규칙을 못 받고 `/clear` 가 모델로 간다).
+ * 주입 순서(캐시) · 슬래시 차단 · 계획 모드 탈출 · 바깥 글 접기를 지킨다.
  */
 import { describe, it, expect } from 'vitest';
 import { resolveLocalToolGate, LOCAL_TOOL_NAMES, LOCAL_HOST_TOOLS, normalizeTodoStatus } from '@vibisual/shared';

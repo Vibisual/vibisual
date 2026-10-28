@@ -1,13 +1,4 @@
-/**
- * 그리기 목록 (SCENARIO.md §5.13 (E)).
- *
- * "시각 t 에 무엇을 어디에 그리는가"를 **순수 함수 하나**로 만든다. 백엔드가 셋이나
- * 되므로 이 계산이 백엔드 안에 흩어지면 같은 문서가 방식마다 다르게 보인다.
- *
- * 여기가 "매 프레임 재실행을 폐기한다"가 실제로 구현되는 자리다 — 씬 컴포넌트를 매
- * 프레임 다시 실행하는 대신, 선언된 값에 시각 t 를 먹여 **그릴 것의 목록만** 뽑는다.
- * 목록을 만드는 비용은 아이템 수에 비례할 뿐 씬 내부 복잡도와 무관하다.
- */
+/** §5.13 (E) 그리기 목록 — "시각 t 에 무엇을 어디에"를 순수 함수 하나로(백엔드 셋에 흩어지면 같은 문서가 방식마다 달라진다). 씬을 재실행하지 않고 목록만 뽑는다. */
 
 import type { CaptionCue, ResolvedChapter, ResolvedItem, ResolvedTimeline, VideoDoc, VideoItemKind, VideoKeyframe, VideoTransform } from '../types.js';
 import { chapterIdOf, chapterMap, isUnpickedVariant } from '../chapters.js';
@@ -134,13 +125,7 @@ function trackDepth(doc: VideoDoc): Map<string, number> {
   return depth;
 }
 
-/**
- * 시각 t 에 그릴 것을 뽑는다.
- *
- * 오디오 트랙은 화면에 그릴 것이 없으므로 여기서 빠진다(소리는 별도 경로로 섞인다).
- * 꺼 둔 아이템과 숨긴 트랙도 빠지지만, **시각 계산은 이미 끝난 상태**라 그것들을
- * 빼도 남은 것의 위치가 흔들리지 않는다.
- */
+/** 오디오 트랙·꺼 둔 아이템·숨긴 트랙은 빠진다. 시각 계산이 끝난 뒤라 빼도 남은 것의 위치가 흔들리지 않는다. */
 export function buildDrawList(doc: VideoDoc, timeline: ResolvedTimeline, t: number): DrawOp[] {
   const depth = trackDepth(doc);
   const hidden = new Set<string>();
@@ -229,14 +214,8 @@ export function buildDrawList(doc: VideoDoc, timeline: ResolvedTimeline, t: numb
 }
 
 /**
- * 지금 소리 나야 할 오디오 아이템.
- *
- * 화면과 분리해 두는 이유는 오디오가 프레임 단위가 아니라 구간 단위로 섞이기
- * 때문이다 — 프레임마다 물어볼 필요가 없다.
- *
- * §5.13 (Y) 40-2 ① — **실효 이득이 0 인 아이템은 뺀다**(볼륨 0 · 트랙 음소거 · 꺼 둔 아이템 · 고르지 않은 갈래). 그 소리는 결과에
- * 아무것도 더하지 않는데도, 종전에는 볼륨 0 실사까지 파일을 통째로 받아 디코딩했다(164MB·247MB 실사 둘 — 판마다). 미리보기와
- * 렌더가 이 한 함수를 쓰므로 둘의 결과는 그대로 같다(37-12 같은 믹서).
+ * §5.13 (Y) 40-2 ① — 실효 이득 0(볼륨 0·트랙 음소거·꺼 둔 아이템·고르지 않은 갈래)은 뺀다 — 안 빼면 볼륨 0 실사까지 통째로 받아 디코딩한다.
+ * 미리보기와 렌더가 이 한 함수를 쓴다(37-12 같은 믹서).
  */
 export function audioItemsAt(doc: VideoDoc, timeline: ResolvedTimeline): readonly ResolvedItem[] {
   const muted = new Set<string>();

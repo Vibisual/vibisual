@@ -1,14 +1,6 @@
 /**
- * 폴더 목록의 **겹별 페이지 로딩**(§7.5) — `FolderFileTree`/`RootFileList` 가 함께 쓴다.
- *
- * 규약 셋을 이 훅 하나가 지킨다:
- *  ① **한 겹만** 부른다. 하위는 사용자가 펼칠 때 그 겹을 따로 부른다.
- *  ② **한 장씩** 이어 받는다(`nextCursor`). 목록 바닥이 보이면 화면이 `loadMore` 를 부른다.
- *  ③ **안 보는 것은 들고 있지 않는다.** 접으면 그 겹과 그 아래를 즉시 버리고(`dropLevelSubtree`),
- *     대상 폴더가 바뀌거나 패널이 닫히면 통째로 사라진다(컴포넌트 로컬 상태 — 전역 store 캐시 ❌).
- *
- * 종전에는 폴더 하나를 통째로 재귀해 한 번에 받았고, 사용자 홈이 외부 폴더 버블로 뜨면 그 요청이
- * 영영 돌아오지 않아 화면이 "불러오는 중" 에서 멈춘 채 창까지 함께 굳었다.
+ * §7.5 — 폴더 목록 겹별 페이지 로딩: 한 겹씩, 한 장씩(`nextCursor`), 접으면 버린다(`dropLevelSubtree`). 로컬 상태다(전역 store 캐시 ❌).
+ * 통째 재귀로 받지 마라 — 사용자 홈 같은 큰 외부 폴더에서 요청이 안 돌아와 창이 굳는다.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -72,10 +64,8 @@ export function useFolderFilePages(
   }, []);
 
   /**
-   * 한 겹의 한 장을 받아 온다.
-   *
    * @param subPath 받을 겹(`''` = 폴더 자신).
-   * @param cursor  `null` 이면 첫 장(기존 항목을 갈아 끼운다), 그 외면 뒤에 이어 붙인다.
+   * @param cursor  `null` 이면 첫 장(갈아 끼운다), 그 외면 이어 붙인다.
    */
   const fetchPage = useCallback((subPath: string, cursor: string | null) => {
     // 같은 겹의 요청이 이미 떠 있으면 그것을 끊고 새로 건다(마지막 의도가 이긴다).

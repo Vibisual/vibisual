@@ -10,11 +10,7 @@ import { formatClock } from './PreviewControls.js';
 import { diffLineText } from './diffText.js';
 import { historyStill, readHistoryDoc } from './studioApi.js';
 
-/**
- * §5.13 (V) 37-3 — **두 판 나란히 보기**: 같은 시각의 정지 화면 둘(그 판의 문서·코드로 일꾼이 찍는다)과 둘 사이의 차이 줄.
- * 시각은 막대로 옮기고, 손을 떼면 그 시각을 다시 찍는다.
- * 반응형 — 폰 폭 창에서는 두 그림을 위아래로 쌓고(나란히 두면 한 장이 손톱만 해진다) 창 안에서 스크롤한다.
- */
+/** §5.13 (V) 37-3 — 두 판 나란히(같은 시각 정지 화면 둘 + 차이 줄 — 일꾼이 그 판의 문서·코드로 찍는다). 폰 폭은 위아래로 쌓는다. */
 export interface HistoryCompareProps {
   readonly project: string;
   readonly docId: string;

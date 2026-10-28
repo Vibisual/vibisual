@@ -49,9 +49,8 @@ describe('IME owns candidate keys without cancelling native editing', () => {
   });
 
   /**
-   * 신고된 증상의 **정확한 차례**다. 지금까지의 시험은 compositionend 와 확정 Enter 사이에서 늘
-   * `h.view.frame()` 을 한 번 돌렸다 — 실제 입력 버스트에는 그 프레임이 없다. 그 한 칸 때문에
-   * "확정 직후 Enter" 가 한 번도 시험된 적이 없었고, 한글 사용자에겐 그게 매번이었다.
+   * 확정 직후 Enter 의 실제 차례 — compositionend 와 확정 Enter 사이에 `h.view.frame()` 을 돌리지 않는다(실제 입력 버스트엔 그 프레임이 없다).
+   * 그 한 칸을 끼우면 "확정 직후 Enter"(한글 입력에선 매번)가 시험되지 않는다.
    */
   it('the commit Enter in the same frame as compositionend is a send, not a line break', () => {
     const h = harness();

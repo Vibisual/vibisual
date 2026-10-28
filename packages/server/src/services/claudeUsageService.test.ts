@@ -89,7 +89,7 @@ describe('buildClaudeUsage', () => {
     expect(buildClaudeUsage({ used5h: -3, updatedAt: NOW }, NOW).limits[0]?.percent).toBe(0);
   });
 
-  it('1%는 1%로 남는다 — v3.64 가 고친 비율/퍼센트 중의성 회귀 못', () => {
+  it('1%는 1%로 남는다 — 비율/퍼센트 중의성 회귀 못', () => {
     expect(buildClaudeUsage({ used5h: 1, updatedAt: NOW }, NOW).limits[0]?.percent).toBe(1);
   });
 

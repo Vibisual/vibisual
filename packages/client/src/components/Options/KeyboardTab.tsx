@@ -21,15 +21,7 @@ import {
 } from '../Shortcuts/commandLabels.js';
 import { clientKeyPlatform } from '../../utils/platform.js';
 
-/**
- * KeyboardTab.tsx — §6 **단축키 설정.**
- *
- * 표는 `COMMANDS` 하나에서 나오므로 여기 목록을 손으로 적을 일이 없다 — 새 단축키를 만들면
- * 이 화면에 저절로 나타난다(그래서 다시는 도움말과 구현이 어긋나지 않는다).
- *
- * 저장은 즉시다(옵션창의 다른 탭처럼 [저장]을 누를 필요 없음) — 키 하나를 바꾸는 일은
- * 되돌리기가 쉬운 조작이라, 확정 단계를 하나 더 두면 오히려 손이 무거워진다.
- */
+/** §6 단축키 설정 — 표는 `COMMANDS` 에서 나온다(손으로 적지 않는다). 저장은 즉시다(키 바꾸기는 되돌리기 쉬워 확정 단계가 없다). */
 
 type Filter = 'all' | 'conflicts' | 'changed';
 

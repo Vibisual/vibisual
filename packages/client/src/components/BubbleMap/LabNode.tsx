@@ -11,13 +11,7 @@ import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
 import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
 import { CanvasNodeMenu, CanvasNodeMenuItem, CanvasNodeMenuSeparator } from './CanvasNodeMenu.js';
 
-/**
- * §5.18 / §7.17 — 에이전트 랩 표지 버블.
- *
- * 스펙·플레이 버블과 같은 "사용자가 만든 독립 캔버스 요소"다. 캔버스에서는 **표지만** 보여 준다
- * (제목·변형 수·끝난 개수·가장 싼 성공 변형). 과제를 쓰고 변형을 짜고 비교 표를 읽는 것은
- * 더블클릭으로 열리는 랩 패널의 몫이다 — 캔버스는 지도이지 편집기가 아니다.
- */
+/** §5.18 / §7.17 — 랩 표지 버블. 캔버스엔 표지만 — 과제·변형·비교 표는 더블클릭 랩 패널 몫(캔버스는 지도지 편집기가 아니다). */
 
 export interface LabNodeData extends Record<string, unknown> {
   labRunId: string;

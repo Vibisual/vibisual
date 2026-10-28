@@ -1,9 +1,4 @@
-/**
- * §5.5 #17-4 — 스킬을 다른 프로젝트로 복사할 때의 **순수 규칙**.
- *
- * 화면(`IDESkillCopyPanel`)은 여기서 정한 대상 목록·결과 요약을 그대로 그린다. 무엇을 왜 걸렀는지
- * (worktree · 원본 자신)와 결과를 어떻게 세는지가 컴포넌트 안에 흩어지면 시험할 수 없기 때문이다.
- */
+/** §5.5 #17-4 — 스킬을 다른 프로젝트로 복사할 때의 순수 규칙(대상 목록·결과 요약, `IDESkillCopyPanel` 이 그대로 그린다). */
 import type { ProjectInfo } from '@vibisual/shared';
 import type { SkillInfo, SkillCopyResult, SkillCopyStatus } from '../../hooks/useAvailableSkills.js';
 import { clientPathKey } from '../../utils/platform.js';

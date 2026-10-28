@@ -1,21 +1,6 @@
 /**
- * §5.5 #17-17 ⑭(c)·⑰(a)(d) — **무대 캔버스의 우클릭 메뉴.** 걷어낸 세 칸(화면 골격·종류 서랍·행동 팔레트)이
- * 하던 일이 전부 여기로 들어왔다.
- *
- * 언리얼 블루프린트의 그 손짓 그대로다 — **빈 자리에서 우클릭**하면 검색칸이 달린 노드 목록이
- * 뜨고 고른 것이 **누른 그 자리에** 선다. **노드 위에서 우클릭**하면 그 단계의 메뉴다(비추기 ·
- * 나란히 놓기/줄에서 떼기 · 종류 바꾸기). 두 메뉴를 한 조각에 둔 이유는 하나다: 검색·키보드·닫기
- * 규약이 두 벌이 되면 그중 하나는 반드시 뒤처진다.
- *
- * ⑰(d) — 빈 자리 메뉴의 검색 한 칸이 **여섯 원천**을 함께 거른다: 직접 쓰기 · 배운 행동 · 흐름 템플릿 ·
- * **설치된 스킬**(Claude Code 가 답한 그 목록) · **자동 목표 스킬**(되풀이한 행동이 절차로
- * 승격된 것) · 종류. 목록은 부모가 기존 훅·REST 로 받아 넘긴다 — 이 조각은 그리기만 한다.
- *
- * 착지하는 문은 **이미 있는 둘뿐**이다(⑫(c) 그대로) — 새 단계·행 바꾸기는 사용자 전용 문(`PUT …/steps`),
- * 종류만 바꾸는 것은 좁은 문(`PUT …/steps/:stepId/kind`). 이 조각은 부르기만 하고 스토어를
- * 직접 만지지 않는다(그래야 "메뉴일 때만 다르게 도는" 두 번째 진실이 안 생긴다).
- *
- * 아이콘은 이모지 ❌ — 전부 우리 좌표계의 stroke path 다(CLAUDE.md UI 아이콘 규칙 · ⑪(b)).
+ * §5.5 #17-17 ⑭(c)·⑰(a)(d) — 무대 캔버스 우클릭 메뉴. 빈 자리 = 검색 노드 목록(누른 자리에 선다), 노드 위 = 단계 메뉴. 두 메뉴를 한 조각에 둔다(규약이 두 벌이면 하나는 뒤처진다).
+ * ⑰(d) 검색은 여섯 원천을 거르고 목록은 부모가 넘긴다. 착지는 기존 두 문뿐(`PUT …/steps`·`…/steps/:stepId/kind`) — 스토어를 직접 만지지 않는다.
  */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -147,12 +132,7 @@ export interface StageCanvasMenuProps {
   onFocusStep: (stepId: string) => void;
   /** ⑰(a) — 앞 단계와 같은 행에 붙이거나(`true`) 뗀다(`false`). 사용자 문으로 간다(행은 차례의 일부). */
   onToggleParallel: (stepId: string, parallel: boolean) => void;
-  /**
-   * ㉖(e) — **그 단계에 붙은 선을 전부 끊는다**(들어오는 것도 나가는 것도). ⑱ 이 선 몸통의 판정
-   * 띠를 0 으로 만든 뒤로 선을 눌러 지우는 길이 없으므로(그 결정은 유지 — 선 근처 우클릭이 노드
-   * 메뉴를 못 열던 사고가 그것으로 풀렸다), 선 끝을 빈 자리에 놓는 손짓과 함께 이 칸이 두 번째
-   * 길이다. **차례는 건드리지 않는다** — 끊자마자 목록이 뒤섞이면 ⑲ 가 고친 그 오염의 재발이다.
-   */
+  /** ㉖(e) — 그 단계의 선을 전부 끊는다. 선 몸통의 판정 띠가 0 이라(⑱ — 되살리지 마라) 선 끝을 빈 자리에 놓는 손짓과 이 칸이 지우는 길이다. 차례는 건드리지 않는다(⑲ 오염 재발). */
   onClearWires: (stepId: string) => void;
   /** ㉖(e) — 이 단계에 붙은 선이 하나라도 있는가. 없으면 칸을 세우지 않는다(눌러도 아무 일 없는 칸 ❌). */
   stepHasWires: boolean;
@@ -163,11 +143,7 @@ export interface StageCanvasMenuProps {
   onBreakPin: (stepId: string, side: GoalPinSide) => void;
   /** ㉖(h) — 이 핀에 끊을 것이 있는가. 없으면 칸 대신 "끊을 선이 없습니다" 한 줄이다. */
   canBreakPin: boolean;
-  /**
-   * ⑲(b) — **단계를 목록에서 뺀다.** ⑪(d) 는 이 문을 "끼워 넣기·삭제·순서 바꾸기"라고 적어 두고도
-   * 삭제 손잡이를 한 번도 세우지 않았다. 그래서 한 번 들어온 단계는 화면에서 지울 방법이 없었고,
-   * 사용자 소유로 박힌 단계는 세션도 못 지워 **영영 남았다**(⑲ 가 고친 그 오염의 다른 절반).
-   */
+  /** ⑲(b) — 단계 삭제. 없으면 사용자 소유 단계는 세션도 못 지워 영영 남는다. */
   onDeleteStep: (stepId: string) => void;
   onPinKind: (key: string, pinned: boolean) => void;
   onTrashKind: (key: string, trashed: boolean) => void;
@@ -494,10 +470,7 @@ export const StageCanvasMenu = memo(function StageCanvasMenu({
 
   const first = shown.find((g) => g.rows.length > 0)?.rows[0];
 
-  // 화면 밖으로 넘치지 않게 **보이는 화면** 안으로 당긴다(캔버스 생성 메뉴와 같은 규약·같은 함수).
-  //   아래 상한은 메뉴의 최대 높이(`max-h-[22rem]` = 352px)로 잡는다 — 그보다 작게 잡으면 긴 메뉴의 꼬리가
-  //   화면 밖으로 나가 [자동 정렬]처럼 맨 아래 칸에 영영 닿지 못한다. 보이는 화면이 그보다 낮으면(키보드가 덮은 폰)
-  //   메뉴 높이를 그 화면에 맞춰 줄이고 안에서 스크롤한다.
+  // 보이는 화면 안으로 당긴다(캔버스 생성 메뉴와 같은 함수). 아래 상한은 메뉴 최대 높이(352px) — 작게 잡으면 꼬리가 밖으로 나가 맨 아래 칸에 못 닿는다. 화면이 더 낮으면 높이를 줄이고 스크롤.
   const viewport = typeof window !== 'undefined' ? visibleViewport() : null;
   const maxHeight = viewport ? Math.min(STAGE_MENU_SIZE.height, viewportMaxHeight(viewport)) : STAGE_MENU_SIZE.height;
   const { left, top } = viewport

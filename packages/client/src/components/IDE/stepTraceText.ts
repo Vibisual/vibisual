@@ -1,12 +1,4 @@
-/**
- * stepTraceText.ts — §5.5 #17-39 단계 자국의 **문구 조립**(순수 로직).
- *
- * `turnSteps.ts` 가 숫자를 정하고, 이 파일이 그 숫자를 로케일 문장으로 만든다. 두 탭(Sub·메인)이
- * **같은 함수**를 쓰므로 같은 대화가 탭에 따라 다르게 적히지 않는다(#17-12 ⑦ 과 같은 이유).
- *
- * i18next 를 import 하지 않고 `t` 를 인자로 받는다 — React 없이 Vitest 로 문구 규칙을 검증하기 위함
- * (클라 테스트에는 DOM 이 없다).
- */
+/** §5.5 #17-39 단계 자국의 문구 조립(순수, 숫자는 `turnSteps.ts`). Sub·메인 두 탭이 같은 함수를 쓴다. `t` 를 인자로 받아 React 없이 시험한다. */
 import { describeStepDuration, TRACE_SHOW_MS, type StepDuration } from './turnSteps.js';
 
 /** i18next `t` 와 같은 모양만 요구한다(라이브러리 결합 ❌). */
@@ -37,10 +29,7 @@ export function elapsedText(t: TranslateFn, ms: number): string {
   return durationText(t, describeStepDuration(ms));
 }
 
-/**
- * 사고 자국 — 사진 그대로의 형태. `1분 13초 동안 사고함 · 4,182자`
- * 분량은 **셌을 때만** 붙인다(0자면 붙일 말이 없다).
- */
+/** 사고 자국 — `1분 13초 동안 사고함 · 4,182자`(분량은 셌을 때만). */
 export function thinkTraceText(t: TranslateFn, locale: string, ms: number, chars: number): string {
   const head = t(`${KEY}.thought`, { duration: elapsedText(t, ms) });
   if (chars <= 0) return head;
@@ -66,12 +55,8 @@ export function toolElapsedText(t: TranslateFn, ms: number): string {
 }
 
 /**
- * §5.5 #17-39 ⑪ — 도구 상자 **하나**의 머리줄에 붙는 경과 — `12초` / `1초 미만`.
- *
- * 묶음 경과(`toolElapsedText`)와 달리 **1초 미만도 적는다.** 묶음의 0 은 "잴 수 없었다"(호출 하나뿐)
- * 이지만, 여기의 0.3초는 결과 시각까지 실제로 잰 값이고 "곧바로 끝났다"는 것 자체가 알려 주는 사실이다
- * (대부분의 Read·Edit·Write 가 여기에 든다 — 비우면 머리줄마다 시간이 있다 없다 한다).
- * 잴 수 없으면(`null` — 진행 중·결과 없음) 빈 문자열을 돌려 호출측이 아무것도 붙이지 않게 한다.
+ * §5.5 #17-39 ⑪ — 도구 상자 하나의 경과(`12초`/`1초 미만`). 묶음과 달리 1초 미만도 적는다 — 실제로 잰 값이고, 비우면 대부분의 Read·Edit·Write 에서 시간이 들쭉날쭉하다.
+ * `null`(진행 중·결과 없음)이면 빈 문자열.
  */
 export function toolCallElapsedText(t: TranslateFn, ms: number | null): string {
   return ms === null ? '' : elapsedText(t, ms);

@@ -3,12 +3,8 @@ import type { ComponentType } from 'react';
 import { getInternalApp, type AppShellProps } from './registry.js';
 
 /**
- * §5.13 (X) 39-2 — 앱 화면 청크를 **누르기 전에** 받아 둔다.
- *
- * 캔버스의 앱 노드에 손이 올라가면 한가할 때(`requestIdleCallback`), 누르면 그 자리에서 레지스트리의 늦은 로더를 부른다. 두 번째
- * 누름(더블클릭)이 창을 열 때는 청크가 이미 읽혀 해석돼 있다. 받아 둔 화면은 `AppShellHost` 가 `lazy` 를 거치지 않고 **바로**
- * 그린다(`peekPrefetchedShell`) — React 18 의 `lazy` 는 이미 풀린 약속이어도 첫 렌더에서 한 번 멈췄다 다시 그리기 때문이다.
- * 코어는 앱 이름을 모른다 — 로더를 부를 뿐이다.
+ * §5.13 (X) 39-2 — 앱 화면 청크를 누르기 전에 받아 둔다(손이 오르면 한가할 때, 누르면 즉시) — 더블클릭이 창을 열 때는 이미 해석돼 있다.
+ * 받아 둔 화면은 `AppShellHost` 가 `lazy` 없이 바로 그린다(`peekPrefetchedShell`) — React 18 `lazy` 는 풀린 약속이어도 첫 렌더에서 한 번 멈춘다.
  */
 type Shell = ComponentType<AppShellProps>;
 

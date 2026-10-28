@@ -2,11 +2,9 @@ import { useCallback, type KeyboardEvent } from 'react';
 
 /**
  * §5.13 (V) 37-1 — 스튜디오 단축키(판정은 `ctrlKey || metaKey`, 표시는 툴팁의 `shortcutLabel()`).
- *
- * 재생 `Space` · 프레임 `←`/`→`(Shift 10프레임) · 반복 `L` · 음소거 `M`(§5.13 (AA) 42-3) · 안전 영역 `G` · 맞춤/100% `F` · 가리키기 `P` ·
- * 메모 `N` · 나가기 `Esc`
- * + 정밀 편집의 되돌리기 `Ctrl/Cmd+Z`·다시 `Ctrl/Cmd+Shift+Z`·`Ctrl/Cmd+Y` · 복제 `Ctrl/Cmd+D` · 지우기 `Delete`/`Backspace` ·
- * 분할 `S`. 맨 숫자 키는 쓰지 않는다(캔버스 북마크가 먼저 가져간다). 입력칸·한글 조합 중에는 비켜 선다.
+ * 재생 `Space` · 프레임 `←`/`→`(Shift 10프레임) · 반복 `L` · 음소거 `M`((AA) 42-3) · 안전 영역 `G` · 맞춤/100% `F` · 가리키기 `P` · 메모 `N` · 나가기 `Esc`
+ * + 정밀 편집: 되돌리기 `Ctrl/Cmd+Z`·다시 `Ctrl/Cmd+Shift+Z`·`Ctrl/Cmd+Y` · 복제 `Ctrl/Cmd+D` · 지우기 `Delete`/`Backspace` · 분할 `S`.
+ * 맨 숫자 키는 쓰지 않는다(캔버스 북마크가 먼저 가져간다). 입력칸·한글 조합 중에는 비켜 선다.
  */
 export interface StudioKeyActions {
   readonly disabled: boolean;

@@ -1,12 +1,5 @@
-// SCENARIO.md §5.26 — 컨텍스트 보험 원장.
-//
-// **새 수집기가 아니다.** `PreCompact`/`PostCompact` 는 §3.6 33종에 이미 등록돼 서버까지 들어오고
-// 있었고(지금까지는 횟수만 세고 버렸다), 셸 쓰기의 직전 디스크 본문은 §2.1 Bash 쓰기 축이 이미 한 번
-// 읽는다. 이 서비스는 **그것들이 이미 만지고 있는 것을 버리지 않고 한 저장고에 앉힐 뿐**이다.
-//
-// 원장이 두 배열인 이유: §5.22 가 "요청과 결정을 따로 두지 마라"고 한 것은 *같은 사건의 두 기록*을
-// 가른 경우다. 압축과 파일 쓰기는 **애초에 다른 사건**이라 캡·나이·복원 수단이 전부 다르고,
-// 하나로 뭉치면 캡 하나가 다른 갈래를 밀어낸다.
+// §5.26 — 보험 원장. 새 수집기 없이 이미 오는 `PreCompact`/`PostCompact` 와 §2.1 Bash 쓰기 축의 직전 본문을 앉힌다.
+// 두 배열인 이유: 압축과 파일 쓰기는 캡·나이·복원이 달라 뭉치면 한 캡이 다른 갈래를 밀어낸다.
 
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -111,25 +104,12 @@ export class InsuranceLedgerService {
 
   // ─── (B) 1단계 — 압축 직전 사본 ───
 
-  /**
-   * `PreCompact` 한 번을 원장에 앉힌다.
-   *
-   * **훅을 붙잡지 않는다** — 여기서 하는 디스크 접근은 `statSync` 와 앞부분 해시뿐이고,
-   * 미러 복사는 호출부가 응답을 보낸 **뒤에** `mirrorFor()` 로 돌린다. JSONL 은 압축으로
-   * 지워지지 않으므로(압축은 요약 항목을 덧붙인다) 뒤에 떠도 같은 바이트다.
-   */
+  /** `PreCompact` 기록 — **훅을 붙잡지 않는다**(stat·앞부분 해시만, 미러는 응답 뒤 `mirrorFor()`). JSONL 은 압축에도 지워지지 않아 뒤에 떠도 같다. */
   recordCompact(input: CompactRecordInput): CompactMarker | null {
     if (!input.projectName || !input.sessionId) return null;
     const at = input.at ?? Date.now();
     const bytes = fileSize(input.transcriptPath);
-    /*
-     * ⚠ 기록을 못 보면 마커를 세우지 않는다.
-     *
-     * 마커의 값은 **바이트 오프셋**에 있다 — (D) 스캔이 이 자리에서 출발해 경계와 요약 레코드를
-     * 찾는다. 기록이 없다고 `0` 을 적어 두면, 그 파일이 나중에 나타나는 순간 스캔이 압축 **이전**
-     * 대화까지 훑어 옛 경계와 남의 요약을 이 마커의 것으로 적는다.
-     * 압축이 있었다는 사실 자체는 §4 의 `compactCounts` 가 따로 세므로 여기서 잃는 것이 없다.
-     */
+    /* ⚠ 기록을 못 보면 마커를 세우지 않는다 — `0` 오프셋이면 나중에 나타난 파일에서 (D) 스캔이 압축 이전까지 훑어 남의 요약을 적는다. 횟수는 §4 `compactCounts` 가 센다. */
     if (bytes === null) return null;
     const marker: CompactMarker = {
       id: randomUUID(),
@@ -161,12 +141,7 @@ export class InsuranceLedgerService {
     return marker;
   }
 
-  /**
-   * 미러를 뜬다 — 훅 응답 **뒤에** 부른다.
-   *
-   * 스위치가 꺼져 있으면 아무것도 하지 않고 `mirrored` 는 `false` 로 남는다. 화면이
-   * "색인만"이라고 정직하게 말하는 것이 없는 사본을 있다고 적는 것보다 낫다.
-   */
+  /** 미러를 뜬다 — 훅 응답 **뒤에** 부른다. 스위치가 꺼져 있으면 `mirrored` 는 `false` 로 남는다(화면은 "색인만"). */
   mirrorFor(markerId: string, projectName: string): boolean {
     if (!this.retention().insuranceMirror) return false;
     const marker = this.ledgers.get(projectName)?.markerById.get(markerId);
@@ -196,13 +171,7 @@ export class InsuranceLedgerService {
     return out;
   }
 
-  /**
-   * §5.26 (D) — **실패로 적혔지만 증거가 늦게 올 수 있는** 마커들. 스윕이 한 번 더 되짚는다.
-   *
-   * 요약은 마커보다 한참 뒤에 내려앉는다(이 프로젝트 실측: +2분 · +9분 · +28분). 판정 시한이
-   * 3분이던 동안 적힌 실패는 그래서 대부분 오탐이었고, 그 줄을 그대로 두면 화면의 건수가
-   * 영영 거짓말을 한다. `transcript-gone` 은 뺀다 — 사라진 파일에 요약이 붙는 일은 없다.
-   */
+  /** §5.26 (D) — 실패로 적혔지만 증거가 늦을 수 있는 마커(스윕이 되짚는다 — 요약은 +2·+9·+28분 뒤에도 앉는다, 실측). `transcript-gone` 은 뺀다. */
   recheckableOutcomes(): CompactMarker[] {
     const out: CompactMarker[] = [];
     for (const state of this.ledgers.values()) {
@@ -215,14 +184,7 @@ export class InsuranceLedgerService {
     return out;
   }
 
-  /**
-   * 결과를 **덮어쓴다.** 나중에 알게 된 **더 강한 사실**만 이 문을 쓴다.
-   *
-   * `attachOutcome` 은 이미 붙은 결과를 지킨다 — 대조는 한 번뿐이다. 두 자리만 예외다.
-   *   · (G) 되살리기 측정 — "이 세션은 지금 그 문맥을 갖고 있지 않다"를 방금 쟀다.
-   *   · (D) 되짚기 — 실패로 적은 뒤에 요약 레코드가 파일에 붙었다(`recheckableOutcomes`).
-   * 둘 다 **뒤에 일어난 관측**이라 앞의 추정을 이긴다.
-   */
+  /** 결과 **덮어쓰기** — 뒤에 관측한 더 강한 사실만: (G) 되살리기 측정 · (D) 실패 뒤 붙은 요약. 그 밖은 `attachOutcome` 이 붙은 결과를 지킨다. */
   replaceOutcome(projectName: string, markerId: string, outcome: CompactOutcome): boolean {
     const marker = this.ledgers.get(projectName)?.markerById.get(markerId);
     if (!marker) return false;
@@ -252,13 +214,7 @@ export class InsuranceLedgerService {
     return best;
   }
 
-  /**
-   * `PostCompact` 도착을 그 세션의 **아직 결과가 안 붙은** 최근 마커에 새긴다.
-   *
-   * 결과가 이미 붙은 마커는 건너뛴다 — 대조가 끝난 뒤에 온 완료 훅은 그 마커의 것이 아니라
-   * 다음 압축의 것이거나 중복이다. 마커가 없으면(우리가 `PreCompact` 를 놓친 세션) 아무 일도
-   * 하지 않는다. 지어낸 마커를 세우면 오프셋이 없어 (D) 가 트랜스크립트 전체를 요약으로 읽는다.
-   */
+  /** `PostCompact` 를 결과 없는 최근 마커에 새긴다(결과가 붙은 마커면 다음 압축 것이거나 중복). 마커가 없으면 아무것도 안 한다 — 지어낸 마커는 오프셋이 없어 (D) 가 전체를 요약으로 읽는다. */
   notePostCompact(sessionId: string, now: number = Date.now()): boolean {
     const marker = this.findLatestMarker(sessionId);
     if (!marker || marker.outcome || marker.postCompactAt) return false;
@@ -268,12 +224,7 @@ export class InsuranceLedgerService {
 
   // ─── (G) 5단계 — 되살린 뒤 "정말 실렸는가" ───
 
-  /**
-   * `--resume` 으로 되살린 직후 확인을 건다. 기준선은 마커가 적어 둔 죽기 전 `contextUsed` 다.
-   *
-   * 기준선이 없으면 걸지 않는다 — 비교할 수가 없는데 표식만 걸어 두면 스윕이 영영 매 회차
-   * 그 세션의 트랜스크립트를 여는 일만 한다.
-   */
+  /** `--resume` 직후 확인(기준선 = 마커의 `contextUsed`). 기준선이 없으면 걸지 않는다 — 스윕이 영영 트랜스크립트만 연다. */
   armResumeCheck(sessionId: string, now: number = Date.now()): boolean {
     const m = this.findLatestMarker(sessionId);
     if (!m?.contextUsed) return false;
@@ -314,13 +265,7 @@ export class InsuranceLedgerService {
 
   // ─── (E) 3단계 — 복원 브리핑은 한 번만 ───
 
-  /**
-   * 아직 브리핑하지 않은, 결과가 있고 잃은 것이 있는 마커를 집어 **그 자리에서 표식을 건다**.
-   *
-   * 집는 것과 표식을 거는 것이 한 동작인 이유: 두 번 실으면 그 글이 다음 압축을 앞당긴다.
-   * 실제로 프롬프트에 실렸는지는 호출부가 알 수 없으므로(조립 실패·주입원 끔) **집어 간 순간**을
-   * 기준으로 삼는다 — 한 번 더 싣는 쪽보다 한 번 덜 싣는 쪽이 안전하다.
-   */
+  /** 브리핑할 마커를 집으며 **바로 표식을 건다** — 두 번 실으면 다음 압축이 당겨진다. 실렸는지 모르니 집은 순간이 기준(덜 싣는 쪽이 안전). */
   takeBriefing(sessionId: string, now: number = Date.now()): CompactMarker | undefined {
     const m = this.peekBriefing(sessionId);
     if (!m) return undefined;
@@ -328,13 +273,7 @@ export class InsuranceLedgerService {
     return m;
   }
 
-  /**
-   * 같은 고르기를 **못 박지 않고** 한다.
-   *
-   * ⚠ 이 짝이 반드시 필요하다 — 프롬프트 조립 함수는 실제 주입뿐 아니라 **주입원 표를 재는 데도**
-   *   불린다(§5.5 #17-28: 표와 프롬프트가 어긋날 수 없게 같은 함수를 쓴다). 표를 여는 것만으로
-   *   `briefedAt` 이 찍히면, 사용자가 창 한 번 열었다는 이유로 그 세션의 브리핑이 영영 사라진다.
-   */
+  /** 못 박지 않는 고르기. ⚠ 조립은 주입원 표를 잴 때도 불려(§5.5 #17-28), 여기서 `briefedAt` 을 찍으면 창을 열기만 해도 브리핑이 사라진다. */
   peekBriefing(sessionId: string): CompactMarker | undefined {
     for (const state of this.ledgers.values()) {
       const m = state.latestBySession.get(sessionId);
@@ -344,12 +283,7 @@ export class InsuranceLedgerService {
     return undefined;
   }
 
-  /**
-   * §5.26 (E) — 브리핑을 **실제로 보낸 뒤** 못 박는다.
-   *
-   * `peekBriefing` 으로 고른 것을 조립만 하고 못 박지 않는 경로(프롬프트 조립 = 부작용 없음)를
-   * 위한 짝이다. 이미 찍혀 있으면 `false` — 두 주입 지점이 동시에 물어도 한 번만 나간다.
-   */
+  /** §5.26 (E) — 실제로 보낸 뒤 못 박는다(`peekBriefing` 짝). 이미 찍혔으면 `false` — 동시에 물어도 한 번만 나간다. */
   markBriefed(projectName: string, markerId: string, now: number = Date.now()): boolean {
     const m = this.ledgers.get(projectName)?.markerById.get(markerId);
     if (!m || m.briefedAt) return false;
@@ -426,13 +360,7 @@ export class InsuranceLedgerService {
 
   // ─── (H) 보존 정책 ───
 
-  /**
-   * 캡·나이·예산을 한 바퀴 적용한다. 바뀐 게 있으면 `true`(호출부가 저장·방송을 정한다).
-   *
-   * **부팅 시 한 번 도는 것이 정본 시점이다**(§3.2.3 "정리는 부팅 시 모든 프로젝트에 일괄 적용").
-   * 종전에는 이 함수를 부르는 곳이 `PUT /api/retention-settings` **하나뿐**이라, 사용자가 옵션창에서
-   * 보존 값을 손으로 바꾸지 않는 한 나이 만료(14일)와 고아 회수가 **영영 돌지 않았다.**
-   */
+  /** 캡·나이·예산 한 바퀴(바뀌면 `true`). **부팅 시 한 번이 정본 시점**(§3.2.3) — 설정 변경 때만 돌면 나이 만료·고아 회수가 영영 안 돈다. */
   applyRetention(now: number = Date.now()): boolean {
     const days = this.retention().insuranceRetentionDays;
     let changed = false;
@@ -465,24 +393,10 @@ export class InsuranceLedgerService {
     return changed;
   }
 
-  /**
-   * "지금 화면에 떠 있는 세션" 을 알려 주는 함수 — 없으면 나이만으로 판정한다.
-   * 주입으로 받는 이유는 §5.22 가 상한 해석기를 주입으로 받은 것과 같다(시험이 실제 그래프를 물지 않게).
-   */
+  /** 화면에 뜬 세션(없으면 나이만). 주입이라 시험이 실제 그래프를 안 문다. */
   liveSessions?: () => ReadonlySet<string>;
 
-  /**
-   * ⚠ **줄을 버리면 그 바이트도 같이 버린다.**
-   *
-   * 종전에는 줄만 잘라 내고 미러·blob 은 디스크에 남겼다. 그것을 걷어 내는 자리는 `pruneOrphans`
-   * 하나였는데, 그건 ① `applyRetention`(아무도 안 불렀다) ② 예산 초과 분기 안에만 있었다 —
-   * 즉 **예산(256MB)에 닿기 전까지는 회수가 한 번도 일어나지 않았다.** 실측(2026-09-09): 사본 줄은
-   * 상한 500 을 지키고 있는데 디스크 blob 은 513개였고 그중 **177개 22.5MB 가 고아**였다.
-   *
-   * 걷어 내는 자리를 여기로 옮긴 이유는 **여기가 "무엇이 밀려났는지" 를 아는 유일한 자리**이기
-   * 때문이다. 폴더를 훑지 않고 밀려난 것만 표적으로 놓으므로, 캡에 닿아 매 쓰기마다 한 줄씩
-   * 밀려나는 상태에서도 비용이 줄 수에 비례하지 않는다.
-   */
+  /** ⚠ **줄을 버리면 그 바이트도 버린다**(실측 2026-09-09: blob 177개 22.5MB 고아). 무엇이 밀려났는지 아는 유일한 자리라 밀려난 것만 놓는다 — 폴더를 안 훑어 비용이 줄 수에 비례하지 않는다. */
   private trimMarkers(projectName: string, state: LedgerState): boolean {
     const cap = INSURANCE_MARKERS_MAX_PER_PROJECT;
     if (cap <= 0 || state.markers.length <= cap) return false;
@@ -506,11 +420,7 @@ export class InsuranceLedgerService {
     return true;
   }
 
-  /**
-   * 밀려난 사본 줄의 blob 을 놓는다 — **남은 줄이 아직 가리키는 해시는 건드리지 않는다.**
-   * 내용 주소 지정이라 같은 파일을 두 번 고쳐도 내용이 같으면 한 벌이고, 그 한 벌을 두 줄이
-   * 가리킨다. 한 줄이 밀려났다고 지우면 살아 있는 다른 줄의 되돌리기가 조용히 죽는다.
-   */
+  /** 밀려난 줄의 blob 을 놓되 **남은 줄이 가리키는 해시는 남긴다**(내용 주소라 여러 줄이 한 벌을 가리킨다). */
   private releaseDroppedBlobs(
     projectName: string,
     state: LedgerState,
@@ -582,15 +492,8 @@ export class InsuranceLedgerService {
   }
 
   /**
-   * 참조되지 않는 **바이트**를 지운다 — 삭제 후보는 고아뿐이다(§5.26 (H)).
-   *
-   * 폴더를 통째로 훑는 길이라 **`applyRetention`(부팅 한 번)과 예산 초과 때만** 부른다. 평소의
-   * 회수는 `trimMarkers`/`trimPreimages` 가 밀려난 것만 표적으로 놓는다 — 이 길은 그 표적 회수가
-   * 놓친 것(옛 판본이 남긴 것·바깥에서 어긋난 것)을 걷어 내는 그물이다.
-   *
-   * **blob 과 미러 둘 다 본다.** 종전에는 blob 만 봐서, 마커가 밀려난 세션의 `.jsonl` 은 아무도
-   * 열 수 없는데 디스크에는 영영 남았다(부활 후보 목록이 `markers` 를 돌기 때문에 마커가 없으면
-   * 그 미러에는 닿을 길이 아예 없다).
+   * 고아 바이트 그물(§5.26 (H)) — 폴더를 훑어 부팅 `applyRetention`·예산 초과 때만, 평소는 `trimMarkers`/`trimPreimages` 표적 회수.
+   * blob 과 미러 **둘 다** — 마커 없는 미러는 부활 목록이 닿지 못한다.
    */
   private pruneOrphans(projectName: string, state: LedgerState): boolean {
     const referenced = new Set<string>();
@@ -821,27 +724,12 @@ export class InsuranceLedgerService {
 // ─── 순수 헬퍼 ───
 
 /**
- * §5.26 (B) — 훅 payload 에서 **팀원 이름으로 보이는 것**을 넓게 긁는다.
- *
- * 판본마다 자리가 다르다(`teammate` · `teammate_name` · `agent_name` · `teammates[]` ·
- * `agents[].name`). 한 모양만 고집하면 판올림 한 번에 조용히 빈 목록이 되고, 그러면 압축이
- * 팀 구성을 지웠다는 사실을 우리가 영영 모른다 — `instructionsLoadedService.extractPaths`
- * 와 같은 규율로 합집합을 만든다(§3.6-1).
- *
- * 세션 id 처럼 보이는 것은 담지 않는다 — 화면에 그대로 보이는 값이라 사람이 읽을 수 있는
- * 이름만 쓸모가 있다.
+ * §5.26 (B) — 팀원 이름을 넓게 긁는다(판마다 `teammate`·`teammate_name`·`agent_name`·`teammates[]`·`agents[].name` — 한 모양만 보면 조용히 빈다).
+ * `extractPaths` 처럼 합집합(§3.6-1). 세션 id 꼴은 담지 않는다(사람이 읽을 이름만).
  */
 /**
- * §5.26 (I) — 마커를 **세션별로** 접는다. 순수 함수라 시험이 상태만 만들어 부를 수 있다.
- *
- * **자르기 전 전체**(`state.markers`)에서 센다 — 전선 목록은 `INSURANCE_SNAPSHOT_MARKERS` 로
- * 잘려 있어 그걸 세면 서버가 아는 수와 어긋난다(§7.23 "집계는 서버가 접어서 실어 준다").
- *
- * **실패가 0 인 세션은 싣지 않는다.** 화면이 쓰는 축이 실패 칩(보험 창 「압축 기록」 갈피) 하나뿐이고, 압축은 겪지만
- * 실패하지 않는 세션이 대다수라 그것까지 실으면 세션 수만큼 자라는 배열을 매 방송에 얹게 된다.
- *
- * `subAgentId`/`agentId` 는 **가장 최근 마커의 것**을 쓴다 — 세션 하나가 여러 버블에 걸치는 일은
- * 없고, 옛 마커에만 있고 새 마커에는 없는 경우(훅 payload 결손)에는 있는 쪽을 살린다.
+ * §5.26 (I) — 세션별로 접는다(순수). 잘리기 전 `state.markers` 에서 센다(전선 목록은 `INSURANCE_SNAPSHOT_MARKERS` 로 잘린다, §7.23).
+ * 실패 0 세션은 싣지 않는다(매 방송 배열이 세션 수만큼 는다). `subAgentId`/`agentId` 는 최근 마커 것, 없으면 옛 마커 것.
  */
 export function foldSessionCounts(markers: readonly CompactMarker[]): InsuranceSessionCounts[] {
   const bySession = new Map<string, InsuranceSessionCounts>();
@@ -960,7 +848,7 @@ function sanitizePreimage(raw: FilePreimage): FilePreimage {
     at: Number.isFinite(raw.at) ? raw.at : 0,
     projectName: raw.projectName ?? '',
     path: raw.path,
-    // 옛 판본이 다른 규칙으로 접었을 수 있어 **여기서 다시 만든다**(플랫폼 규칙 한 곳 — §멀티플랫폼 1축).
+    // 저장된 키를 믿지 않고 여기서 다시 만든다 — 다른 규칙으로 접힌 값일 수 있다(멀티플랫폼 1축).
     pathKey: pathKey(raw.path),
     size: Number.isFinite(raw.size) ? Math.max(0, raw.size) : 0,
     sessionId: raw.sessionId ?? '',

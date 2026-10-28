@@ -2,10 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { appNodeForm } from './appNodeForm.js';
 
-/**
- * §5.13 (L) — 작업 문서(`ref`)가 묶인 노드도 화면이다. 결과 파일이 없어도 지금 고치는 문서를 비춘다.
- * 명패로 접히면 사용자는 AI 가 짓고 있는 영상을 캔버스에서 볼 길이 없다.
- */
+/** §5.13 (L) — `ref` 만 묶인 노드도 결과 파일 없이 화면이다(명패로 접히면 AI 가 짓는 것을 캔버스에서 볼 길이 없다). */
 describe('§5.13 (L) 작업 문서가 묶인 노드의 형태', () => {
   it('ref 가 있으면 줄이 끊기고 파일이 없어도 화면이다', () => {
     expect(appNodeForm({ ref: 'vid-1' })).toBe('screen');

@@ -23,15 +23,7 @@ interface InfoTooltipProps {
   children: React.ReactNode;
 }
 
-/**
- * InfoTooltip.tsx — §5.5 #17-28 ⑦ **설명을 띄우는** 호버 툴팁.
- *
- * 옆에 있는 `HoverTooltip` 과 역할이 다르다 — 그쪽은 **잘린 라벨의 전문**을 보여 주는 것이라
- * 안 잘렸으면 뜨지 않는다. 이쪽은 라벨과 **다른 내용**(그 줄이 무엇인지)을 말하므로 항상 뜬다.
- *
- * 자리는 오른쪽을 먼저 보고, 폭이 모자라면 왼쪽 → 아래 순으로 물러난다. 사이드바(`w-72`)처럼 좁고
- * 스크롤되는 상자 안에서도 잘리지 않도록 `createPortal` 로 body 에 그린다.
- */
+/** §5.5 #17-28 ⑦ — 설명 툴팁. `HoverTooltip`(잘렸을 때만)과 달리 항상 뜬다. 오른쪽 → 왼쪽 → 아래로 물러나고, 잘리지 않게 body 포털. */
 export function InfoTooltip({
   title,
   body,
@@ -73,11 +65,7 @@ export function InfoTooltip({
     }, delay);
   }, [body, clear, delay]);
 
-  /**
-   * 터치에는 hover 가 없다 — 탭하면 흉내 `mouseenter` 가 타이머를 걸자마자 뒤따르는 `mousedown` 이 `hide` 로 지워 한 번도
-   * 뜨지 않았다. 감싼 줄을 탭하는 것은 그 줄의 원래 동작(켜기·끄기 등)이므로, 터치에서는 **길게 누르면** 곧바로 띄우고
-   * 다음 터치에서 접는다(마우스는 종전 그대로).
-   */
+  /** 터치에는 hover 가 없다 — 흉내 `mouseenter` 뒤의 `mousedown` 이 `hide` 로 지운다. 탭은 줄의 원래 동작이라, 터치는 길게 눌러 띄우고 다음 터치에 접는다. */
   const showByLongPress = useCallback(() => {
     const el = anchorRef.current;
     if (!body || !el) return;

@@ -6,14 +6,8 @@ import type { ChatCard } from '@vibisual/shared';
 import { chunk, renderCard } from './cards';
 import type { ChatChannel, ChatChannelContext, ChatPairLink, ChatVerifyResult } from './types';
 
-// §4 메신저 원격제어 브리지 — 텔레그램 드라이버 (판올림 번호 발급 대기)
-//
-// 이 드라이버가 이 축의 존재 이유를 가장 잘 보여 준다: **우리는 아무 포트도 열지 않는다.**
-// `getUpdates` 를 30초씩 붙잡는 long-poll 로 우리가 나가서 받아오므로, 공유기 설정·인증서·
-// CGNAT 이 전부 무관하다(§4 v3.16 모바일 웹이 인바운드라 막히던 자리).
-//
-// 공개 문서 API 만 쓴다(https://core.telegram.org/bots/api) — 화면 긁기·비공개 엔드포인트 ❌.
-// 의존성도 없다(`fetch` 하나).
+// §4 메신저 원격제어 브리지 — 텔레그램 드라이버. **우리는 아무 포트도 열지 않는다** — `getUpdates` 를 30초씩 붙잡는 long-poll 로 나가서 받아오므로
+// 공유기 설정·인증서·CGNAT 이 무관하다(§4 모바일 웹은 인바운드라 막힌다). 공개 문서 API 만(https://core.telegram.org/bots/api — 화면 긁기·비공개 엔드포인트 ❌), 의존성 없음(`fetch` 하나).
 
 interface TgResponse<T> { ok: boolean; result?: T; error_code?: number; description?: string }
 interface TgUser { id: number; first_name?: string; username?: string }
@@ -48,23 +42,16 @@ export class TelegramChannel implements ChatChannel {
   private abort: AbortController | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   /**
-   * 백오프 대기 전용 타이머와 그 promise 의 resolve.
-   *
-   * 예전에는 `sleep` 이 `retryTimer` 를 함께 썼는데, `stop()` 이 그것을 `clearTimeout` 하면
-   * **resolve 가 영영 안 불려** poll 루프가 그 자리에 매달린 채 `ctx` 를 붙잡았다(백오프 중에
-   * 끌 때마다 하나씩 샜다). 타이머를 나누고, 끊을 때는 지우는 대신 **깨운다**.
+   * 백오프 대기 전용 타이머와 그 promise 의 resolve. `retryTimer` 와 같이 쓰지 마라 — `stop()` 이 `clearTimeout` 하면 resolve 가 영영 안 불려
+   * poll 루프가 매달린 채 `ctx` 를 붙잡는다(백오프 중 끌 때마다 샌다). 끊을 때는 지우는 대신 **깨운다**.
    */
   private sleepTimer: ReturnType<typeof setTimeout> | null = null;
   private sleepWake: (() => void) | null = null;
   private backoff = CHAT_RECONNECT_MIN_MS;
 
   /**
-   * 토큰은 **인자로 받는다**. 예전에는 `this.token` 을 읽었는데, `verify()` 가 검증 동안
-   * 그 필드를 후보 토큰으로 바꿨다 되돌리는 구조라, 그 창에 폴링 루프가 URL 을 조립하면
-   * 틀린 토큰으로 나가고 → 401 → 401 분기는 재시도 없이 끝나 **멀쩡하던 채널이 죽었다**.
-   * 토큰이 인자면 그 경합 자체가 성립하지 않는다.
-   *
-   * 토큰이 경로에 실리므로 **이 함수 밖으로 URL 을 내보내지 않는다**(로그에 토큰 유출 방지).
+   * 토큰은 **인자로 받는다** — `this.token` 을 읽으면 `verify()` 가 후보 토큰을 시험하는 동안 폴링 루프가 틀린 토큰으로 나가 401 → 재시도 없이 끝나
+   * 멀쩡한 채널이 죽는다. 토큰이 경로에 실리므로 **이 함수 밖으로 URL 을 내보내지 않는다**(로그에 토큰 유출 방지).
    */
   private async call<T>(token: string, method: string, body?: unknown, signal?: AbortSignal): Promise<TgResponse<T>> {
     const url = `${CHAT_TELEGRAM_API_BASE}/bot${token}/${method}`;

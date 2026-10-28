@@ -1,18 +1,7 @@
 /**
- * §5.13 Vibistudio — 서버 서비스.
- *
- * 코어(`index.ts`)는 `mountVideoRoutes(app)` 한 줄만 안다(플러그인 호스트 선례).
- *
- * **서버는 그리지 않는다.** 그리기는 캔버스와 WebCodecs 가 있는 렌더러 몫이고, 여기서는
- * 문서를 보관하고 편집을 중재하고 작업을 줄 세운다. §3.7 단일 프로세스 원칙상 렌더용
- * 자식 프로세스를 띄우지 않으므로, 스틸·프레임 띠·렌더 요청은 **일감(job)** 으로 쌓아 두고
- * 숨은 일꾼 창(§5.13 (T-4) — main 몫이 띄운다)이 가져가 처리한 뒤 결과를 돌려준다.
- *
- * 편집 중재의 핵심은 낙관적 잠금이다 — 여러 에이전트가 같은 문서를 동시에 만지는 것이
- * 이 앱의 기본 상황이라, 마지막에 쓴 쪽이 조용히 이기면 작업이 소리 없이 사라진다.
- *
- * §5.13 (T) — 코드 컴포지션: 내주기(샌드박스 iframe 이 여는 정적 콘텐츠 — CSP + 런타임 심 주입)·탐침·뼈대 만들기·
- * 규약 글. 에이전트가 코드로 모션을 짓고 문서에 올리는 길이 전부 여기 있다.
+ * §5.13 Vibistudio — 서버 서비스(코어는 `mountVideoRoutes(app)` 한 줄만 안다). 서버는 그리지 않는다 — §3.7 단일 프로세스라 렌더 자식을 띄우지 않고
+ * 스틸·띠·렌더를 일감(job)으로 쌓아 숨은 일꾼 창(§5.13 (T-4))이 처리한다. 편집은 낙관적 잠금으로 중재한다 — 여러 에이전트가 같은 문서를 동시에
+ * 만지는 게 기본이라 마지막 쓰기가 조용히 이기면 작업이 사라진다. 코드 컴포지션(§5.13 (T))의 내주기·탐침·뼈대도 여기 있다.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -138,10 +127,8 @@ const JOB_RETENTION_MS = 10 * 60_000;
 const NO_DOC = '_';
 
 /**
- * §5.13 (V) 37-9 — `review` = 프레임 검수 표본(일꾼이 찍고 재서 JSON 으로 돌려준다 — 판정은 서버의 순수 함수).
- * §5.13 (T-8) — `cues` = 표지 모으기(컴포지션 하나를 끝까지 한 번 흘려 받은 표지·오류를 JSON 으로 — 길이에 비례해 렌더 줄).
- * §5.13 (X) 39-4 — `stills` = 여러 시각을 **한 무대에서 차례로** 찍어 그림 목록(JSON)으로 — 장면 대표 프레임을 장면마다 일감
- *   하나(= 숨은 렌더 창 하나)씩 걸던 것을 한 번으로 묶는다(스틸 줄).
+ * `review` = 검수 표본(§5.13 (V) 37-9 — 판정은 서버의 순수 함수) · `cues` = 표지 모으기(§5.13 (T-8) — 길이에 비례해 렌더 줄) ·
+ * `stills` = 여러 시각을 한 무대에서 차례로(§5.13 (X) 39-4 — 장마다 숨은 렌더 창을 세우지 않게).
  */
 export type VideoJobKind = 'render' | 'still' | 'strip' | 'review' | 'cues' | 'stills';
 /** §5.13 (T-4) — 일감 두 줄. 스틸·프레임 띠는 렌더 뒤에 줄 서지 않는다(4분짜리 렌더 중에도 스틸이 온다). */
@@ -294,9 +281,8 @@ function h(): AppServerHost {
 }
 
 /**
- * §5.13 (Y) 40-1 — 앱 **미디어** 요청(`/media?project=…&path=…`)이 가리키는 파일의 절대 경로. 패키지 앱은 코어의 vibproxy 미디어
- * 갈래가 이 답으로 파일을 흘려 보내고(구간 지원 — IPC 를 타지 않는다), 그 밖(웹·모바일)은 아래 `/media` 라우트가 같은 답으로
- * 낸다. 규칙은 `/asset` 과 같다 — 글자 경로도 실제 경로도 프로젝트 안의 파일만. 못 찾으면 null(404).
+ * §5.13 (Y) 40-1 — `/media` 가 가리키는 파일 경로(규칙은 `/asset` 과 같다 · 못 찾으면 null = 404). 패키지 앱은 코어 vibproxy 미디어 갈래가 이 답으로
+ * 흘려 보내고(구간 지원, IPC 를 타지 않는다), 웹·모바일은 `/media` 라우트가 같은 답을 쓴다.
  */
 export async function resolveVideoMedia(serverHost: AppServerHost, query: URLSearchParams): Promise<string | null> {
   const p = serverHost.resolveProjectPath(query.get('project'));
@@ -325,10 +311,7 @@ function parseDocText(text: string, docId: string): VideoDoc | null {
   }
 }
 
-/**
- * §5.13 (Y) 40-7 ② — 문서 판 기억(`versionBook.ts`). `/version` 은 이것으로만 답하고(비동기 stat 한 번), 이 서버가 적으면 바뀐다.
- * 알림은 호스트의 기존 방송 한 줄(`notify` — 새 통로 ❌)이다.
- */
+/** §5.13 (Y) 40-7 ② — 문서 판 기억(`versionBook.ts`). `/version` 은 이것으로만 답한다(비동기 stat 한 번). 알림은 호스트의 기존 방송(`notify`) — 새 통로를 만들지 않는다. */
 export const versionBook = new VersionBook({
   fileOf: (projectPath, docId) => docPath(projectPath, docId),
   parse: (text, docId) => parseDocText(text, docId),
@@ -450,12 +433,7 @@ class VideoService {
   /** §5.13 (R-10) — 편집 원본 참조의 공통 색인(거울). 연결이 있는 문서만, 잦은 저장은 합쳐서, 그대로면 쓰지 않는다. */
   readonly sourceSync = new VideoSourceSync();
 
-  /**
-   * 문서를 저장한다.
-   *
-   * §3.2.1 원자적 쓰기를 처음부터 쓴다 — 영상 문서는 사람의 창작물이라 반파되면
-   * 되돌릴 방법이 없다. 이전 판은 `.bak` 한 벌로 남겨 둔다.
-   */
+  /** §3.2.1 원자적 쓰기 — 영상 문서는 사람의 창작물이라 반쯤 쓰이면 되돌릴 길이 없다. 이전 판은 `.bak` 한 벌로 남긴다. */
   writeDoc(projectPath: string, doc: VideoDoc): void {
     const file = docPath(projectPath, doc.id);
     if (fs.existsSync(file)) {
@@ -471,13 +449,7 @@ class VideoService {
     versionBook.noteWrite(projectPath, doc);
   }
 
-  /**
-   * 문서를 만든다.
-   *
-   * `requestedId` 가 오면 **그 id 로** 만들고, 이미 있으면 만들지 않고 그것을 그대로 돌려준다.
-   * §5.13 (R-3) — 눌러서 연 영상 파일은 경로에서 파생한 안정 id(`file-<해시>`)를 갖는다. 같은
-   * 파일을 다시 누를 때마다 새 문서가 생기면 프로젝트가 문서 무덤이 되므로 그 자리를 여기서 막는다.
-   */
+  /** 이미 있으면 그것을 돌려준다 — §5.13 (R-3) 눌러서 연 영상 파일은 경로 파생 안정 id(`file-<해시>`)라 다시 눌러도 새 문서가 쌓이지 않게. */
   createDoc(projectPath: string, title: string, requestedId?: string): VideoDoc {
     if (requestedId !== undefined && isSafeId(requestedId)) {
       const existing = this.readDoc(projectPath, requestedId);
@@ -505,10 +477,7 @@ class VideoService {
     }
   }
 
-  /**
-   * §5.13 (T-5) — 컴포지션 코드가 바뀌었으면(지문) 소재를 다시 탐침해 문서에 적는다. 바뀐 게 없으면 그대로.
-   * 에이전트가 파일만 고치고 탐침을 다시 부르지 않아도, 문서를 읽는 쪽(스튜디오·노드·일꾼)이 새 코드를 본다.
-   */
+  /** §5.13 (T-5) — 컴포지션 지문이 바뀌었으면 소재를 다시 탐침해 적는다 — 에이전트가 파일만 고쳐도 스튜디오·노드·일꾼이 새 코드를 본다. */
   refreshCompositions(projectPath: string, doc: VideoDoc): VideoDoc {
     const ops = compositionRefreshOps(projectPath, doc);
     if (ops.length === 0) {
@@ -676,9 +645,8 @@ class VideoService {
   }
 
   /**
-   * §5.13 (T-4) — 일감이 들어오면 같은 앱의 main 몫에게 숨은 일꾼 창을 깨워 달라고 한다(이미 떠 있으면 아무 일 없음).
-   * main 이 없는 실행 형태면 일감은 줄에 그대로 남는다 — 다른 일꾼(시험의 가짜 일꾼 등)이 집어 갈 수 있다.
-   * 깨우기가 실패하면 줄에 선 일감을 이유와 함께 닫는다 — `queued` 로 조용히 썩지 않게.
+   * §5.13 (T-4) — main 몫에게 숨은 일꾼 창을 깨워 달라고 한다. main 이 없으면 일감은 줄에 남고(시험의 가짜 일꾼 등이 집는다),
+   * 깨우기가 실패하면 줄에 선 일감을 이유와 함께 닫는다(`queued` 로 조용히 썩지 않게).
    */
   private ensureWorker(): void {
     const current = host;
@@ -705,8 +673,8 @@ class VideoService {
   }
 
   /**
-   * `after` — 먼저 끝나야 하는 일감(낡은 표지 모으기 — §5.13 (T-8)). `hideCaptions` — 자막 따로 내기(§5.13 (V) 37-15).
-   * `transparent` — 투명 배경 WebM(§5.13 (W) 38-3). `extra` — §5.13 (AA) 42 그리는 방법·놓는 방법·멈춤·예약.
+   * `after` = 먼저 끝나야 할 일감(낡은 표지 모으기 — §5.13 (T-8)) · `hideCaptions` = 자막 따로 내기(37-15) · `transparent` = 투명 배경 WebM(38-3) ·
+   * `extra` = §5.13 (AA) 42 그리는 방법·놓는 방법·멈춤·예약.
    */
   enqueueRender(projectPath: string, docId: string, after: string[] = [], hideCaptions = false, transparent = false, extra: RenderEnqueueExtra = {}): VideoJob {
     this.ensureQueueLoaded(projectPath);
@@ -901,10 +869,7 @@ class VideoService {
     }
   }
 
-  /**
-   * 일꾼이 가져갈 다음 일감. 줄 순서(`order` — 먼저 들어온 것부터, 사람이 위·아래로 바꿀 수 있다). `lane` 을 주면 그 줄만.
-   * §5.13 (AA) 42-5 — 멈춘 것·예약 시각 전인 것은 집지 않는다.
-   */
+  /** 줄 순서(`order` — 들어온 순, 사람이 위·아래로 바꾼다). `lane` 을 주면 그 줄만. §5.13 (AA) 42-5 — 멈춘 것·예약 시각 전인 것은 집지 않는다. */
   claimNext(projectPath?: string, lane?: VideoJobLane): VideoJob | null {
     this.reap();
     const now = Date.now();
@@ -1025,12 +990,7 @@ class VideoService {
     });
   }
 
-  /**
-   * 스틸 한 장을 요청하고 기다린다.
-   *
-   * 에이전트가 "2.4초 지점 보여 줘"라고 물으면 그 자리에서 답이 와야 루프가 성립하므로,
-   * 권한 승인 팝업과 같은 방식으로 일감을 걸어 두고 응답을 기다린다. 일꾼 창은 일감이 들어올 때 깨어난다.
-   */
+  /** 에이전트가 한 시각의 스틸을 물으면 그 자리에서 답이 와야 루프가 돈다 — 권한 승인 팝업처럼 일감을 걸어 두고 응답을 기다린다. */
   requestStill(projectPath: string, docId: string, t: number, opts: { maxEdge?: number; revId?: string } = {}): Promise<VideoJob> {
     const job = this.newJob('still', projectPath, docId, {
       t,
@@ -1046,10 +1006,7 @@ class VideoService {
     return this.waitFor(job, STILL_TIMEOUT_MS, '영상 일꾼이 정지 화면을 돌려주지 않았습니다.');
   }
 
-  /**
-   * §5.13 (X) 39-4 — 여러 시각을 **한 무대에서 차례로** 찍어 그림 목록으로 받는다(스틸 줄). 결과(`result`)는 그림 데이터 주소의
-   * JSON 배열이고 순서는 `times` 순서다. 장면 대표 프레임처럼 여러 장이 한꺼번에 필요할 때 숨은 렌더 창을 장마다 다시 세우지 않는다.
-   */
+  /** §5.13 (X) 39-4 — 스틸 줄(한 무대에서 차례로). `result` = 그림 데이터 주소의 JSON 배열(`times` 순). */
   requestStills(projectPath: string, docId: string, times: number[], maxEdge: number, imageType: 'png' | 'webp' = 'png'): Promise<VideoJob> {
     const job = this.newJob('stills', projectPath, docId, { times, maxEdge, imageType });
     return this.waitFor(job, CHAPTER_THUMBS_TIMEOUT_MS, '영상 일꾼이 장면 그림을 돌려주지 않았습니다.');
@@ -1088,10 +1045,7 @@ class VideoService {
     }
   }
 
-  /**
-   * §5.13 (AA) 42-2 — 렌더 결과를 놓는다(종전 자리 + 고른 폴더 — 비동기). 그 사이 사람이 취소했으면 결과를 받지 않는다(409).
-   * 놓은 뒤 일감을 끝낸다 — 끝난 뒤(알림·폴더 열기)는 `updateJob` 이 한다.
-   */
+  /** §5.13 (AA) 42-2 — 그 사이 사람이 취소했으면 결과를 받지 않는다(409). 놓은 뒤 일감을 끝내고, 끝난 뒤(알림·폴더 열기)는 `updateJob` 이 한다. */
   async completeRenderOutput(job: VideoJob, bytes: Buffer): Promise<{ status: number; job: VideoJob | null; error?: string }> {
     const doc = this.readDoc(job.projectPath, job.docId);
     const placed = await placeRenderOutput({
@@ -1163,9 +1117,8 @@ function resolveProjectPath(raw: unknown): string | null {
 }
 
 /**
- * §5.13 (G)(T-9) — 스틸·프레임 띠 PNG 를 프로젝트 안에 쓴다. 에이전트가 자기 Read 도구로 그 파일을 열어 **눈으로** 본다
- * (응답에 수백 KB 짜리 data URL 을 실으면 에이전트의 문맥만 태운다). 같은 이름이면 덮어쓴다 — 지우는 코드 없이도 끝없이
- * 쌓이지 않는다((K) 자동 삭제 ❌).
+ * §5.13 (G)(T-9) — PNG 를 프로젝트 안에 쓴다 — 에이전트가 Read 로 열어 본다(수백 KB data URL 을 응답에 실으면 문맥만 태운다).
+ * 같은 이름은 덮어써 지우는 코드 없이도 끝없이 쌓이지 않는다((K) 자동 삭제 없음).
  */
 function saveReviewImage(projectPath: string, docId: string, name: string, dataUrl: string | undefined): string | null {
   if (typeof dataUrl !== 'string') return null;
@@ -1246,12 +1199,7 @@ const CONTENT_HEADERS: Readonly<Record<string, string>> = {
   'Access-Control-Allow-Origin': '*',
 };
 
-/**
- * 이 앱의 서버 몫을 붙인다.
- *
- * **처음 요청이 올 때만 불린다** — 안 쓰면 이 파일 자체가 로드되지 않는다
- * (`appHost` 가 늦게 import 한다). 그래서 안 쓰는 사용자는 이 코드의 비용을 0으로 낸다.
- */
+/** 처음 요청이 올 때만 불린다(`appHost` 가 늦게 import) — 안 쓰면 이 파일이 로드되지 않아 비용이 0 이다. */
 export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void {
   host = serverHost;
   /** 공통 — 프로젝트를 못 찾으면 404. */
@@ -1399,10 +1347,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     });
   });
 
-  /**
-   * §5.13 (T-7) — 문서의 판본만. 스튜디오·노드 화면이 몇 초마다 물어 **에이전트가 고친 것을 저절로 다시 읽는다**.
-   * 컴포지션 코드가 바뀐 것도 여기서 알아챈다(지문이 바뀌면 소재를 다시 적어 판본이 오른다).
-   */
+  /** §5.13 (T-7) — 문서의 판본만. 스튜디오·노드가 몇 초마다 물어 에이전트가 고친 것을 저절로 다시 읽는다(컴포지션 지문이 바뀌어도 판본이 오른다). */
   app.get('/doc/:docId/version', async (req, res) => {
     const p = project(req.query['project']);
     if (!p) {
@@ -1496,12 +1441,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     res.json({ ok });
   });
 
-  /**
-   * 소재 파일을 내준다.
-   *
-   * 경로는 **프로젝트 루트 안으로만** 허용한다 — 상대 경로에 `..` 를 섞어 프로젝트
-   * 밖 파일을 읽어 가는 길을 막는다(§3.5 프로젝트 독립성이 여기서도 그대로 적용).
-   */
+  /** 소재 파일 — 경로는 프로젝트 루트 안으로만 허용한다(§3.5): `..` 를 섞어 프로젝트 밖 파일을 읽어 가는 길을 막는다. */
   app.put('/assets', express.raw({ type: 'application/octet-stream', limit: VIDEO_UPLOAD_LIMIT }), (req, res) => {
     const p = project(req.query['project']);
     if (!p) { res.status(404).json({ ok: false, error: 'unknown project' }); return; }
@@ -1511,10 +1451,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     } catch (error) { res.status(400).json({ ok: false, error: String(error) }); }
   });
 
-  /**
-   * §5.13 (V) 37-2 — 시작 화면에 끌어 놓은 **소재 아닌 재료**(CSV·표·JSON·글·SVG 로고)를 프로젝트 안에 둔다. 에이전트는 그 경로를
-   * 읽는다(데이터 설명·로고 등장 레시피). 미디어는 종전 `PUT /assets`. 사람이 놓은 것만 받는다(루프백 유입 거절).
-   */
+  /** §5.13 (V) 37-2 — 끌어 놓은 소재 아닌 재료(CSV·표·JSON·글·SVG 로고)를 프로젝트 안에 둔다(에이전트는 그 경로를 읽는다). 사람이 놓은 것만 받는다(루프백 거절). */
   app.put('/materials', express.raw({ type: 'application/octet-stream', limit: MATERIAL_UPLOAD_LIMIT }), (req, res) => {
     if (rejectAgent(req, res, 'Read project files directly; materials are dropped by the user.')) return;
     const p = project(req.query['project']);
@@ -1535,10 +1472,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     } catch (error) { res.status(500).json({ ok: false, error: String(error) }); }
   });
 
-  /**
-   * §5.13 (G) — 프로젝트 안의 파일(사용자가 첨부한 그림·영상·소리 등)을 영상 소재 자리로 **복사**한다.
-   * 에이전트가 바이트를 실어 나르지 않고 경로만 준다. 첨부 폴더는 보존 정책으로 정리될 수 있어 원본을 가리키지 않는다.
-   */
+  /** §5.13 (G) — 프로젝트 안 파일을 소재 자리로 복사한다(에이전트는 바이트 대신 경로만 준다 · 첨부 원본은 보존 정책이 지울 수 있다). */
   app.post('/assets/import', (req, res) => {
     const body = req.body as { project?: unknown; path?: unknown };
     const p = project(body.project);
@@ -1572,10 +1506,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     res.sendFile(target, { dotfiles: 'allow' });
   });
 
-  /**
-   * §5.13 (Y) 40-1 — 같은 소재의 **미디어** 모양(`/media`). 패키지 앱은 이 경로를 vibproxy 가 가로채 파일을 흘려 보내므로 여기까지
-   * 오지 않는다. 웹·모바일 접속은 여기서 `sendFile`(구간 요청 지원)로 낸다 — 해석은 `resolveVideoMedia` 한 곳.
-   */
+  /** §5.13 (Y) 40-1 — 패키지 앱은 이 경로를 vibproxy 가 가로채 여기까지 안 온다. 웹·모바일만 여기서 `sendFile`(구간 요청 지원) — 해석은 `resolveVideoMedia` 한 곳. */
   app.get('/media', (req, res) => {
     const query = new URLSearchParams();
     for (const key of ['project', 'path'] as const) {
@@ -1593,9 +1524,8 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
   // ─── §5.13 (T) 코드 컴포지션 ───
 
   /**
-   * §5.13 (T-5) — 기본 자리에 컴포지션 폴더와 뼈대 `index.html`(meta 셋 + `@keyframes` 예시 + `__vibi.seek` 예시)을 만든다.
-   * `docId` 를 주면 그 문서에 소재까지 올린다(탐침 결과와 함께). 에이전트가 파일을 직접 써도 된다 — 자리와 meta 를
-   * 틀리지 않게 하는 지름길일 뿐이다.
+   * §5.13 (T-5) — 기본 자리에 뼈대 `index.html`(meta 셋 + `@keyframes`·`__vibi.seek` 예시)을 만든다. `docId` 면 소재까지 올린다.
+   * 지름길일 뿐이다 — 에이전트가 파일을 직접 써도 된다.
    */
   app.post('/composition', (req, res) => {
     const body = req.body as {
@@ -1651,10 +1581,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     res.json({ ok: true, path: rel, assetId, docVersion: updated.version });
   });
 
-  /**
-   * §5.13 (T-5) — 탐침. 길이·판형(meta)·시각 맞춤 방식·결정성 검사(lint)·지문을 돌려준다. `docId` 를 주면 그 문서의
-   * 같은 경로 소재(없으면 새 소재)를 낙관적 잠금 경로로 채운다. 창을 띄우지 않는다(문자열만 읽는다).
-   */
+  /** §5.13 (T-5) — 탐침(창 없이 문자열만 읽는다). `docId` 를 주면 그 문서의 같은 경로 소재(없으면 새 소재)를 낙관적 잠금 경로로 채운다. */
   app.post('/composition/probe', (req, res) => {
     const body = req.body as { project?: unknown; path?: unknown; docId?: unknown; assetId?: unknown };
     const p = project(body.project);
@@ -1688,13 +1615,9 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
   });
 
   /**
-   * §5.13 (T-3) — 컴포지션 콘텐츠를 내준다(샌드박스 iframe 이 여는 정적 파일만 — API 는 내지 않는다).
-   *
-   * 주소: `…/content/<프로젝트>/<문서 id 또는 _>/<프로젝트 기준 경로>?item=<아이템 id>&v=<판>`
-   * ① 뿌리 — 그 문서의 컴포지션 폴더들 + 기본 자리 + 라이브러리 자리만(그 밖은 404)
-   * ② 형식 — 알려진 웹 형식만(`nosniff`)
-   * ③ CSP — 응답 헤더와 문서 맨 앞 meta 두 겹, 그리고 HTML 이면 런타임 심과 그 아이템의 props·seed 를 맨 앞에 넣는다.
-   * 패키지 앱에서는 `vibproxy://proxy` 로 들어온다(코어의 vibproxy 허용 목록은 앱 이름 없이 이 모양만 안다).
+   * §5.13 (T-3) — 컴포지션 콘텐츠(샌드박스 iframe 이 여는 정적 파일만 — API 는 내지 않는다): `…/content/<프로젝트>/<문서 id 또는 _>/<경로>?item=<아이템 id>&v=<판>`.
+   * 뿌리는 그 문서의 컴포지션 폴더 + 기본·라이브러리 자리만(그 밖 404), 알려진 웹 형식만(`nosniff`). CSP 는 응답 헤더 + 맨 앞 meta 두 겹,
+   * HTML 이면 런타임 심과 그 아이템의 props·seed 를 맨 앞에 넣는다. 패키지 앱은 `vibproxy://proxy` 로 온다(코어 허용 목록은 앱 이름 없이 이 모양만 안다).
    */
   app.get('/content/:project/:docId/*', async (req, res) => {
     const notFound = (): void => {
@@ -1825,10 +1748,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
       .catch((err: unknown) => res.status(500).json({ ok: false, error: String(err) }));
   });
 
-  /**
-   * §5.13 (W) 38-7 — 장면 정지 화면 한 장(`chapter` 의 `frame` 컴포지션 — 스틸과 같은 일꾼·같은 응답 모양). 기획 단계에서 움직임을
-   * 짓기 전에 모양을 승인받는 그림이다. 정지 화면이 없거나 컴포지션이 아니면 400 + 이유(진단과 같은 말).
-   */
+  /** §5.13 (W) 38-7 — 장면 정지 화면 한 장(`chapter` 의 `frame` 컴포지션 — 스틸과 같은 일꾼·응답 모양). 없거나 컴포지션이 아니면 400 + 이유. */
   app.get('/doc/:docId/frame', (req, res) => {
     const p = project(req.query['project']);
     if (!p) { res.status(404).json({ ok: false, error: 'unknown project' }); return; }
@@ -1860,10 +1780,8 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
   });
 
   /**
-   * §5.13 (X) 39-4 — 장면 대표 프레임 **한 번에**(장면 구슬·기획 카드). 열쇠는 순수 층 `chapterThumbWants`(보이는 것이 같으면 같은
-   * 열쇠)이고, 디스크에 남은 것은 바로 돌려준다(`thumbs`: 열쇠 → 그림). `render=1` 이면 빠진 것을 굽는다 — 일반 장면은 **일감
-   * 하나**(`stills` — 한 무대에서 차례로)로, 기획 장면의 정지 화면은 장면마다(서로 다른 문서라 무대를 나눠 쓸 수 없다). 구운 것은
-   * 남기고, 상한을 넘으면 지금 장면이 쓰지 않는 옛 그림부터 지운다. `missing` 은 그래도 없는 열쇠다(일꾼이 못 왔다·실패).
+   * §5.13 (X) 39-4 — 장면 대표 프레임 한 번에. 디스크에 있는 것은 바로 준다(`thumbs`). `render=1` 이면 빠진 것을 굽는다 — 일반 장면은 일감 하나(`stills`),
+   * 기획 장면 정지 화면은 장면마다(서로 다른 문서라 무대를 나눠 쓸 수 없다). 상한을 넘으면 지금 장면이 안 쓰는 옛 그림부터 지운다. `missing` = 그래도 없는 열쇠.
    */
   app.get('/doc/:docId/chapter-thumbs', (req, res) => {
     const p = project(req.query['project']);
@@ -1912,10 +1830,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     })().catch((err: unknown) => res.status(500).json({ ok: false, error: String(err) }));
   });
 
-  /**
-   * §5.13 (T-9) — 프레임 띠: 한 구간에서 고르게 고른 시각 N 개를 찍어 시각이 적힌 격자 한 장으로. 스틸 한 장은 순간을,
-   * 띠 한 장은 흐름을 보여 준다. `item` 이면 그 아이템 구간, 아니면 `from`/`to`(초). 끝 시각은 한 프레임 앞으로 당긴다.
-   */
+  /** §5.13 (T-9) — 프레임 띠: 구간에서 고르게 고른 시각 N 개를 시각이 적힌 격자 한 장으로. `item` 이면 그 구간, 아니면 `from`/`to`(초). 끝 시각은 한 프레임 앞으로 당긴다. */
   app.get('/doc/:docId/strip', (req, res) => {
     const p = project(req.query['project']);
     if (!p) { res.status(404).json({ ok: false, error: 'unknown project' }); return; }
@@ -1962,10 +1877,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
       .catch((err: unknown) => res.status(500).json({ ok: false, error: String(err) }));
   });
 
-  /**
-   * §5.13 (V) 37-9 — 모션 검수. 기본은 문서만 보는 판정(읽을 시간·안전 영역·겹침·빈 구간·자막 잘림·무음·비트 어긋남), `frames=1`
-   * 이면 일꾼이 표본 시각을 찍어 대비·평평한 화면·컴포지션 안 글자까지 본다. 스튜디오의 장면 줄 표시와 같은 결과다.
-   */
+  /** §5.13 (V) 37-9 — 모션 검수. 기본은 문서만, `frames=1` 이면 일꾼이 표본을 찍어 대비·평평한 화면·컴포지션 안 글자까지 본다(스튜디오 표시와 같은 결과). */
   app.get('/doc/:docId/review', async (req, res) => {
     const p = project(req.query['project']);
     if (!p) { res.status(404).json({ ok: false, error: 'unknown project' }); return; }
@@ -2019,10 +1931,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     res.json({ ok: true, version: doc.version, duration: timeline.duration, sentences: buildTranscript(doc, timeline) });
   });
 
-  /**
-   * §5.13 (V) 37-13 — 문장을 지우면 잘릴 연산을 **계산만** 한다(쓰지 않는다). 경계는 문장 경계, 길이는 문서에서 계산한다 — 에이전트는
-   * 돌려받은 `ops` 를 `baseVersion` 과 함께 `/patch` 로 보낸다(쓰는 문은 하나). 스튜디오는 같은 순수 함수를 화면에서 돌린다.
-   */
+  /** §5.13 (V) 37-13 — 계산만 한다(쓰지 않는다). 경계는 문장 경계 — 에이전트는 받은 `ops` 를 `baseVersion` 과 함께 `/patch` 로 보낸다(쓰는 문은 하나). */
   app.post('/doc/:docId/transcript/cut', (req, res) => {
     const body = req.body as { project?: unknown; sentenceIds?: unknown };
     const p = project(body.project);
@@ -2043,10 +1952,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     res.json({ ok: true, baseVersion: doc.version, ...plan });
   });
 
-  /**
-   * §5.13 (W) 38-6 — 자막 파일(SRT · VTT · 낱말 시각 JSON)을 자막 아이템으로 얹는 연산을 **계산만** 한다(쓰지 않는다 — 37-13 과 같다).
-   * 앱은 음성 모델을 품지 않는다((H)) — 받아쓰기는 바깥 도구가 프로젝트 안에 만든 파일을 여기로 들인다. 파서는 화면과 같은 순수 함수.
-   */
+  /** §5.13 (W) 38-6 — 자막 파일(SRT·VTT·낱말 시각 JSON)을 얹는 연산을 계산만 한다. 앱은 음성 모델을 품지 않는다((H)) — 받아쓰기는 바깥 도구가 만든 파일을 들인다. */
   app.post('/doc/:docId/captions/import', (req, res) => {
     const body = req.body as { project?: unknown; path?: unknown; label?: unknown };
     const p = project(body.project);
@@ -2082,10 +1988,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     res.json({ ok: true, baseVersion: doc.version, ops, cues: parsed.cues.length, words: parsed.words });
   });
 
-  /**
-   * §5.13 (T-8) — 표지를 지금 모은다(끝날 때까지 기다린다). `assetId` 를 주면 그 컴포지션만 다시(낡지 않았어도), 없으면 낡은
-   * 것 전부. 정밀 편집의 표지 줄 [다시 모으기]와 에이전트가 같은 길을 쓴다. 평소에는 판본을 물을 때 저절로 걸린다.
-   */
+  /** §5.13 (T-8) — 표지를 지금 모은다(끝날 때까지 기다린다). `assetId` 면 그 컴포지션만(낡지 않았어도), 없으면 낡은 것 전부. 평소에는 판본을 물을 때 저절로 걸린다. */
   app.post('/doc/:docId/cues', (req, res) => {
     const body = req.body as { project?: unknown; assetId?: unknown; all?: unknown };
     const p = project(body.project);
@@ -2110,8 +2013,8 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
   });
 
   /**
-   * §5.13 (V) 37-12 — 화면이 잰 소재 사실(음악 비트)을 그 소재에 얹는다. 판본을 받지 않는다 — 서버가 최신 문서에 그 칸만
-   * 합쳐 적는다(사람의 편집과 부딪히지 않고 되돌리기 이력에도 들어가지 않는다 — 길이 실측과 같은 성격). 허용 칸만 받는다.
+   * §5.13 (V) 37-12 — 화면이 잰 소재 사실(음악 비트)을 판본 없이 최신 문서의 그 칸에만 합친다 — 사람의 편집과 부딪히지 않고 되돌리기 이력에도
+   * 들지 않는다(길이 실측과 같은 성격). 허용 칸만 받는다.
    */
   app.post('/doc/:docId/asset-facts', (req, res) => {
     const body = req.body as { project?: unknown; assetId?: unknown; facts?: unknown };
@@ -2132,10 +2035,7 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
     res.json({ ok: true, doc: updated });
   });
 
-  /**
-   * §5.13 (V) 37-15 — 판형 파생: `<docId>-<판형>` 문서를 만든다(이미 있으면 그것 — 사람이 고친 자리를 덮지 않는다). 실사·그림은
-   * 가운데 덮기 상자, 글자·도형은 비율로 옮기고 크기는 짧은 변 비율로, 컴포지션은 새 문서 크기를 받는다(`deriveFormatDoc`).
-   */
+  /** §5.13 (V) 37-15 — 판형 파생 `<docId>-<판형>`(이미 있으면 그것 — 사람이 고친 자리를 덮지 않는다). 옮기는 규칙은 `deriveFormatDoc`. */
   app.post('/doc/:docId/derive', (req, res) => {
     const body = req.body as { project?: unknown; format?: unknown };
     const p = project(body.project);

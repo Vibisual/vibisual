@@ -31,26 +31,16 @@ export interface CaptureNodeData {
 /** CaptureNode 가 "다시 선택"을 요청할 때 BubbleMap 이 듣는 커스텀 이벤트. */
 export const CAPTURE_REPICK_EVENT = 'vibisual:capture:repick';
 
-/**
- * DetailPanel(CaptureBubbleDetail)의 "스냅샷 저장" 버튼이 발행 → 해당 CaptureNode 가 듣고
- * 자기 <video> 프레임을 PNG 로 저장한다. 스냅샷은 노드의 videoRef 에 묶여 있어 패널에서 직접
- * 못 하므로 repick 과 동일한 window CustomEvent 위임 패턴을 쓴다(detail.id 로 대상 버블 매칭).
- */
+/** DetailPanel "스냅샷 저장" → 이 노드가 <video> 프레임을 PNG 로 저장한다. 프레임은 노드의 videoRef 에만 있어 repick 과 같은 window CustomEvent 위임(detail.id 매칭). */
 export const CAPTURE_SNAPSHOT_EVENT = 'vibisual:capture:snapshot';
 
 /**
- * DetailPanel 의 "실제 비율 맞추기" 버튼이 발행 → 해당 CaptureNode 가 자기 <video> 의
- * videoWidth/Height 로 버블 높이를 다시 잡아 **레터박스(검은 띠)를 없앤다**. 이어 붙이기(§5.9
- * 자석 스냅)로 버블을 맞대 붙여도 각 버블 안에 검은 띠가 남아 있으면 화면이 이어져 보이지 않으므로,
- * 비율 맞추기는 이어 붙이기와 한 짝이다. 비율은 실제 프레임에만 있으므로 스냅샷과 같은 위임 패턴.
+ * DetailPanel "실제 비율 맞추기" → videoWidth/Height 로 버블 높이를 다시 잡아 레터박스를 없앤다.
+ * 이어 붙이기(§5.9 자석 스냅)와 한 짝 — 검은 띠가 남으면 맞대 붙여도 화면이 이어지지 않는다.
  */
 export const CAPTURE_FIT_EVENT = 'vibisual:capture:fit';
 
-/**
- * §5.9 플레이테스트 — DetailPanel·크게 보기 창의 녹화 버튼이 발행 → 그 버블의 CaptureNode 가 듣고
- * **자기 스트림**을 녹화한다(녹화기는 스트림을 쥔 이 노드에만 있다 — 두 번째 getUserMedia ❌).
- * detail.action 이 없으면 토글. 스냅샷·비율 맞추기와 같은 위임 패턴.
- */
+/** §5.9 플레이테스트 녹화 요청 — 녹화기는 스트림을 쥔 이 노드에만 둔다(두 번째 getUserMedia ❌). detail.action 이 없으면 토글. */
 export const CAPTURE_RECORD_EVENT = 'vibisual:capture:record';
 
 /** 데이터 절감 화질 프리셋(외부·모바일 접속). 낮출수록 해상도·FPS↓ → CPU/대역폭↓. */
@@ -69,17 +59,9 @@ const CAPTURE_QUALITY_PRESETS: readonly CaptureQualityPreset[] = [
 const TOOLBAR_MIN_WIDTH = 220;
 
 /**
- * §5.9 화면/프로그램 캡처 버블 — 네모난 라이브 영상 노드(CommentBox 패턴).
- *
- * 헤더 strip 에서만 드래그/선택(캔버스 팬 보존). 본체는 getUserMedia(desktop) 라이브 MediaStream 을
- * <video> 로 그린다(useCaptureStream). 소스를 못 찾으면(창 닫힘/재시작으로 핸들 변경) "다시 선택"
- * 안내를 띄우고, 클릭 시 커스텀 이벤트로 BubbleMap 의 소스 picker 를 연다.
- *
- * v3.56 외형 개편 — ① 크롬(테두리·헤더)을 rose 색면에서 **그래파이트 글라스**로 바꿔 영상이 주인공이
- * 되게 하고, 색은 라이브 도트(붉음)·선택 링(스카이)·조작 중 링(에메랄드)에만 남긴다. ② 헤더 오른쪽에
- * **호버 시 떠오르는 아이콘 툴바**(일시정지·스냅샷·크게 보기·소스 변경·설정)를 둬서, 우측 패널을
- * 모르는 사람도 버블 위에서 바로 조작할 수 있게 한다(종전엔 모든 조작이 패널에만 있어 발견 불가).
- * ③ 상태(라이브·일시정지·조작 중·보기 전용·핀)를 글리프 칩으로 한눈에 보여준다.
+ * §5.9 화면/프로그램 캡처 버블 — 라이브 영상 노드. 헤더 strip 에서만 드래그/선택(캔버스 팬 보존).
+ * 소스를 못 찾으면(창 닫힘·재시작으로 핸들 변경) "다시 선택" 안내 → 커스텀 이벤트로 BubbleMap 의 소스 picker 를 연다.
+ * 헤더의 호버 툴바는 패널을 모르는 사람의 입구다 — 조작을 패널에만 두면 발견되지 않는다.
  */
 export const CaptureNode = memo(function CaptureNode({
   id,
@@ -108,9 +90,8 @@ export const CaptureNode = memo(function CaptureNode({
   // 설정 편집 UI 는 DetailPanel(CaptureBubbleDetail)이 본진이고, 자주 쓰는 몇 개만 헤더 툴바에 둔다.
   const [prefs, setPrefs] = useCapturePrefs(d.captureBubbleId);
 
-  // 일시정지(freeze)·원격 조작(controlMode)·크게 보기(expanded)는 DetailPanel 과 공유해야 하므로
-  // 지역 useState 대신 버블 id 별 런타임 스토어에서 읽는다(비영속).
-  // 캔버스 줌 — 복제 커서를 진짜 커서와 같은 크기로 그리려면 1/zoom 으로 되돌려야 한다(v3.65).
+  // freeze·controlMode·expanded 는 DetailPanel 과 공유하므로 버블 id 별 런타임 스토어(비영속)에서 읽는다.
+  // 복제 커서를 진짜 커서 크기로 그리려면 1/zoom 으로 되돌려야 한다.
   const canvasZoom = useStore((s) => s.transform[2]);
   const [runtime, setRuntime] = useCaptureRuntime(d.captureBubbleId);
   const { frozen, controlMode, expanded } = runtime;
@@ -133,9 +114,8 @@ export const CaptureNode = memo(function CaptureNode({
   const quality: CaptureQuality = idle && prefs.stillSaver
     ? { maxWidth: basePreset.maxWidth, maxHeight: basePreset.maxHeight, maxFrameRate: Math.min(2, basePreset.maxFrameRate) }
     : basePreset;
-  // §4 v3.71 가시성 LOD — IntersectionObserver(onScreen)는 "뷰포트 밖"만 보고 "다른 UI 에 덮임"은
-  //   못 본다. IDE 를 최대화한 채 라이브 화면을 계속 디코딩하던 낭비를 끊는다. 단 크게보기 창은
-  //   캔버스 밖(body portal)에 떠 있어 덮임과 무관하게 보이고, 원격 조작 중이면 끊으면 안 된다.
+  // §4 가시성 LOD — onScreen 은 뷰포트 밖만 알고 "다른 UI 에 덮임"은 모른다(IDE 최대화 중 디코딩 낭비).
+  // 단 크게보기 창(body portal)이 떠 있거나 원격 조작 중이면 끊지 않는다.
   const canvasCovered = useCanvasCovered();
   // §5.9 플레이테스트 — 녹화 중에는 절전(일시정지·오프스크린·덮임 LOD)이 스트림을 내리지 않는다.
   //   중간에 끊기면 그 구간이 통째로 비고, 사용자는 무엇이 빠졌는지 알 방법이 없다.
@@ -147,13 +127,9 @@ export const CaptureNode = memo(function CaptureNode({
   const videoRef = useRef<HTMLVideoElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
-  // §5.9 v3.34 — 헤더 더블클릭 시 라이브 영상을 "앱 내부 IDE식 창"(CaptureWindow)으로 크게 본다.
-  // 캔버스 노드는 그대로 두고 같은 MediaStream 을 창의 <video> 로 그린다. 창은 가운데 뜬 뒤 이동·확대·
-  // 리사이즈되고, 여러 버블의 창을 동시에 열면 멀티 윈도우가 된다(종전 풀스크린 확대를 대체).
-  // expanded 는 위 런타임 스토어에서 온다 — 헤더 더블클릭·DetailPanel "크게 보기" 양쪽에서 연다.
+  // §5.9 — 헤더 더블클릭·DetailPanel "크게 보기" → 같은 MediaStream 을 앱 내부 창(CaptureWindow)에 그린다(노드는 그대로, 여러 창 동시 가능).
 
-  // §5.9 Phase B(v3.43) — 원격 조작은 `off/touch/mouse` 3상태 한 축이고 기본은 off. 조작 로직은
-  // 크게 보기 창(CaptureWindow)과 공유하는 useCaptureRemoteControl 훅이 전부 들고 있다.
+  // §5.9 — 원격 조작은 `off/touch/mouse` 한 축(기본 off). 로직은 크게 보기 창과 공유하는 useCaptureRemoteControl 훅에 있다.
   const control = useCaptureRemoteControl({
     mode: controlMode,
     sourceId: d.sourceId,
@@ -297,13 +273,7 @@ export const CaptureNode = memo(function CaptureNode({
     return () => window.removeEventListener(CAPTURE_RECORD_EVENT, onRecord);
   }, [d.captureBubbleId, recorder]);
 
-  /**
-   * 헤더의 선택·더블클릭 — 에이전트(IDE) 버블과 **같은 상태기계 한 벌**(`bubbleSelectGesture`).
-   *
-   * 종전에는 헤더 `onClick` 이 곧바로 선택해서, 창을 열려고 더블클릭하면 1타에서 우측 설정
-   * 패널이 함께 열렸다. 이제 실제 선택은 240ms 뒤이고, 그 안에 두 번째 누름이 오면 접힌다.
-   * 헤더의 아이콘 툴바(일시정지·스냅샷·크게 보기…)에서 시작한 누름은 `ignore` 로 걸러 낸다.
-   */
+  /** 헤더 선택·더블클릭 — 에이전트 버블과 같은 `bubbleSelectGesture`. 선택이 240ms 뒤라 더블클릭 1타에 우측 패널이 안 열린다. 툴바에서 시작한 누름은 `ignore`. */
   // §6 — 고른 묶음은 다른 버블과 같은 칸이다(보통 클릭 = 이 노드 하나로, Ctrl/Cmd 클릭 = 넣고 빼기).
   const canvasSelection = useCanvasNodeSelection(id, d.captureBubbleId);
   const gesture = useBubbleSelectGesture({
@@ -414,10 +384,8 @@ export const CaptureNode = memo(function CaptureNode({
   const showToolbar = liveWidth >= TOOLBAR_MIN_WIDTH;
 
   /**
-   * §5.9 이음새 숨기기 — 버블을 이어 붙여 하나의 큰 화면처럼 볼 때, 모서리 라운드·테두리·그림자·
-   * 헤더 띠가 이음선마다 겹쳐 "붙인 티"가 난다. 켜면 크롬을 평상시엔 감추고(테두리는 두께를 유지한
-   * 채 투명 — 켜고 끌 때 기하가 밀리지 않게), 영상이 버블 전체를 채우며 헤더는 **호버할 때만** 뜬다
-   * (헤더가 드래그 핸들이므로 없애지는 않는다). 선택 중·조작 중엔 어느 버블인지 알아야 하므로 유지.
+   * §5.9 이음새 숨기기 — 크롬을 감춰 이어 붙인 버블이 한 화면처럼 보이게 한다. 테두리는 두께를 둔 채 투명(켜고 끌 때 기하가 밀리지 않게),
+   * 헤더는 드래그 핸들이라 없애지 않고 호버 때만 뜬다. 선택·조작 중엔 어느 버블인지 보여야 해서 끈다.
    */
   const seam = prefs.seamless && !isSelected && !control.active;
 
@@ -620,9 +588,7 @@ export const CaptureNode = memo(function CaptureNode({
           right: 0,
           bottom: 0,
           pointerEvents: control.active ? 'auto' : 'none',
-          // v3.58 — 조작 중에도 **사용자의 로컬 커서를 숨기지 않는다**(종전 `cursor:none` 철회).
-          // 자기 마우스가 사라지면 어디를 조작하는지 오히려 헷갈린다는 사용자 지적. 대상에 찍히는
-          // 지점은 오버레이 가상 커서가 따로 보여 준다.
+          // 조작 중에도 로컬 커서를 숨기지 않는다(`cursor:none` ❌) — 자기 마우스가 사라지면 어디를 조작하는지 헷갈린다. 대상 지점은 오버레이 가상 커서가 보인다.
           cursor: control.surfaceCursor,
           // 모바일 — 조작 중엔 손가락 끌기를 브라우저 스크롤/팬에 뺏기지 않게(터치 모드가 폰에서
           // 데스크톱과 똑같이 동작하려면 필수).

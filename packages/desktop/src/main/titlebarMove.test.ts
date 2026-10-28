@@ -200,10 +200,8 @@ describe('titlebar restore and move', () => {
     expect(main).not.toMatch(/mainWindow\.on\(['"]unmaximize['"]/);
   });
 
-  // §3.7 (2026-10-12) — the logo handle once handed a drag past 4 DIP to the native move loop on
-  // Windows and cut this path at once. The handoff reported success when a message was merely
-  // queued, so in the real app the logo stopped moving the window (user report). Pin the wiring;
-  // comments are stripped because the reasons written there name what was removed.
+  // §3.7 — the logo handle never hands a drag to the native move loop (that handoff reported success on a queued message and the window
+  // stopped moving). Comments are stripped before matching because they name what was removed.
   it('the logo handle moves the window itself — move-self never hands the gesture to a native move loop', () => {
     const code = (file: string): string => readFileSync(new URL(file, import.meta.url), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -216,10 +214,8 @@ describe('titlebar restore and move', () => {
   });
 });
 
-// §3.7 ③ (2026-10-12) — the renderer measures the press and the drop. The server shares this main
-// thread, so a busy main receives move-self late: by then the OS cursor is wherever the hand went
-// next. Reading the press there made a finished drag move 0px (user report: "the app never moves
-// when I drag it right after launch"). These pin how the renderer's points are used.
+// §3.7 ③ — the renderer measures press and drop. A busy main (the server shares it) receives move-self late, when the OS cursor has
+// moved on; reading the press there made a finished drag move 0px.
 describe('renderer-measured press and drop points', () => {
   it('the press comes from the renderer even when main receives it late', () => {
     const f = fixture({ maximized: false, press: { x: 960, y: 12 }, cursorAtStart: { x: 1100, y: 200 } });
@@ -278,11 +274,8 @@ describe('renderer-measured press and drop points', () => {
   });
 });
 
-// §3.7 (2026-10-16) — main follows the hand on its own beat too. The logo handle used to move the window
-// only on the page's `move`; restoring a maximized window resizes it under the hand, the page can lose the
-// gesture right there, and the window stopped following (user instruction: make the logo do what the rest
-// of the title bar does). The app-window drag already follows this way — a fixed beat that reads the OS
-// cursor itself, and the physical button for the release. These pin that beat.
+// §3.7 — main follows on its own beat (OS cursor + physical button for the release), like the app-window drag: restoring a maximized
+// window resizes it under the hand and the page can lose the gesture.
 describe("main's own beat — follows without the page, ends on the physical release", () => {
   it('a maximized window restores and keeps following with no page move at all', () => {
     const f = fixture({ sync: true });

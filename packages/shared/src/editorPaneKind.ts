@@ -1,14 +1,6 @@
 /**
- * editorPaneKind.ts — §5.5 #17-27 ⑱ 우측 판이 **무엇으로** 그리는가, 그리고 판 쪽에서 파일을 찾는 규약.
- *
- * 우측 판(`IDEEditorPane`)은 파일 하나를 넷 중 하나로 그린다 — 코드(⑤) · 웹 페이지(⑮) · 그림(⑭) ·
- * PDF(§5.13 (R)). 탭 줄의 [우측 판] 목록과 빈 탭의 파일 고르기는 "이 갈래로 그릴 수 있는 파일"을
- * 골라야 하므로 그 판정이 필요하다. 판정을 화면과 서버가 **각자** 들면 같은 파일이 목록에는 웹
- * 페이지로 서고 열면 코드로 뜨는 어긋남이 생긴다 — 그래서 여기 **한 벌**만 둔다.
- *
- * 판정은 새로 짓지 않고 §5.13 (R-1) `resolveWorkspaceOpen`(클릭 지점 전부의 갈림길) 위에 선다.
- * 그 함수가 "편집창으로 간다"고 한 것만 판에 오고, 그중 무엇으로 그릴지는 판이 실제로 쓰는 규칙
- * 그대로다(HTML = 페이지 · 그 밖 텍스트 = 코드 · `.svg` 는 텍스트라 코드).
+ * §5.5 #17-27 ⑱ — 우측 판(`IDEEditorPane`)이 무엇으로 그리나(코드·웹 페이지·그림·PDF) — 화면·서버가 각자 들면 목록과 열기가 어긋나 한 벌만 둔다.
+ * §5.13 (R-1) `resolveWorkspaceOpen` 이 편집창으로 보낸 것만 판에 온다(HTML = 페이지, 그 밖 텍스트·`.svg` = 코드).
  */
 
 import {
@@ -28,11 +20,8 @@ export function isEditorPaneFileKind(value: unknown): value is EditorPaneFileKin
 }
 
 /**
- * 이 파일을 우측 판이 **무엇으로** 그리는가. 판에 오지 않는 파일(앱 · 변환 · 연결 프로그램 · 실행 ·
- * 폴더)이면 `null`.
- *
- * @param apps 앱이 받겠다고 선언한 확장자(§5.13 (R-1) — 코어는 대응표를 들지 않는다). 화면은 등록표를,
- *             서버는 화면이 실어 보낸 것을 넘긴다.
+ * 판이 무엇으로 그리나 — 판에 오지 않는 파일(앱·변환·연결 프로그램·실행·폴더)은 `null`.
+ * @param apps 앱이 선언한 확장자(§5.13 (R-1) — 코어는 대응표를 들지 않는다). 화면은 등록표를, 서버는 화면이 보낸 것을 넘긴다.
  */
 export function editorPaneKindOf(
   relPath: string,
@@ -45,13 +34,7 @@ export function editorPaneKindOf(
   return isWorkspaceHtmlPath(relPath) ? 'html' : 'code';
 }
 
-/**
- * 코드 갈래 **목록에서만** 빼는 확장자 — 컴파일 산출물이라 열면 이진 안내 한 줄뿐인 것들.
- *
- * 판정(`editorPaneKindOf`)에서 빼지 않는 이유: 탐색기에서 `.dll` 을 누르면 지금도 편집창으로 간다
- * (§5.13 (R-1) — 모르는 것을 바깥으로 던지지 않는다). 그 길은 그대로 두고, "열 파일을 고르는" 목록이
- * 빌드 산출물로 덮이지 않게만 한다(최근 고친 순이라 빌드 한 번에 목록 머리가 통째로 그것들이 된다).
- */
+/** 코드 목록에서만 빼는 확장자(컴파일 산출물). 판정에선 안 뺀다(§5.13 (R-1) — 누르면 편집창으로 간다). 안 빼면 최근 고친 순 목록 머리가 빌드 산출물로 덮인다. */
 export const EDITOR_PANE_CODE_SKIP_EXTENSIONS: readonly string[] = [
   '.exe', '.dll', '.so', '.dylib', '.o', '.a', '.lib', '.exp', '.ilk', '.pch', '.gch', '.idb', '.res', '.suo',
   '.class', '.pyc', '.pyo', '.pyd', '.wasm', '.node', '.bin', '.dat', '.pak', '.sym',
@@ -72,13 +55,7 @@ export function isEditorPaneListable(
 /** 조회 창구 경로 — 화면의 URL 조립과 서버 라우트가 같은 값을 본다. */
 export const WORKSPACE_FIND_PATH = '/api/workspace-find';
 
-/**
- * 찾기가 **들어가지 않는** 폴더(이름 한 칸 그대로 견준다).
- *
- * 탐색기·도구 쪽 목록(`ProjectGraph.IGNORED_DIRS` · 로컬 도구 `SKIP_DIRS`)과 **일부러 다르다** —
- * 그쪽은 `dist`·`build`·`out` 을 건너뛰는데, 웹 페이지·PDF 결과물이 놓이는 곳이 바로 거기다.
- * 여기는 버전 관리 · 의존성 · 우리 저장소 · 엔진/언어 캐시처럼 **사람이 열어 볼 결과물이 없는** 곳만 든다.
- */
+/** 찾기가 안 들어가는 폴더(이름 한 칸 비교). `IGNORED_DIRS`·`SKIP_DIRS` 와 일부러 다르다 — `dist`·`build`·`out` 에 웹 페이지·PDF 결과물이 있다. */
 export const WORKSPACE_FIND_SKIP_DIRS: readonly string[] = [
   '.git', '.hg', '.svn', 'node_modules', '.pnpm-store', '.vibisual',
   '__pycache__', '.venv', 'venv', '.gradle', '.turbo',

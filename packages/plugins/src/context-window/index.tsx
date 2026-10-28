@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.96 — 컨텍스트 창(Context Window): 상한이지 목표가 아니다.
- *
- * 창이 100만 토큰이 돼도 다 채우면 안 된다. "이 모델은 200k 창이니 150k 를 넣어도 된다"는 추론은 틀렸고,
- * 실제 작업으로 직접 측정해 **자기 유효 창**을 찾아야 한다. 여기서는 설정된 창과 실제 최대 사용량을
- * 나란히 놓는다. 표시 전용.
- */
+/** §5.11 — 컨텍스트 창(Context Window): 상한이지 목표가 아니다 — 설정된 창과 실제 최대 사용량을 나란히 놓는다. 표시 전용. */
 import { getModelContextLimit } from '@vibisual/shared';
 import { defineInspector } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

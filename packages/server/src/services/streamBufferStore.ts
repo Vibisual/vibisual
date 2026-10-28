@@ -1,16 +1,6 @@
 /**
- * streamBufferStore.ts — SubAgentStreamEvent 영속화.
- *
- * 각 subagent가 emit하는 스트림 이벤트를 프로젝트 save 디렉토리 하위
- * `sub-streams/<parentAgentId>/<subId>.jsonl` 에 append-only로 기록한다.
- * 부모 에이전트별로 독립된 폴더로 분리 — 커스텀 에이전트가 여러 개여도 섞이지 않음.
- *
- * 경로 규약 (statePersistence.projectDirForInfo 재사용):
- *   일반     : save/<project>/sub-streams/<agentId>/<subId>.jsonl
- *   worktree : save/<parent>/worktrees/<wt>/sub-streams/<agentId>/<subId>.jsonl
- *   보관     : 같은 폴더의 <subId>.archive.jsonl — 컴팩션으로 본 파일에서 밀려난 앞부분(지우지 않는다)
- *
- * 이 모듈은 순수 파일시스템 유틸 — ProjectInfo 해석은 호출자(subAgentManager) 담당.
+ * SubAgentStreamEvent 영속화 — save 아래 `sub-streams/<parentAgentId>/<subId>.jsonl` 에 append-only(부모별 폴더).
+ * 컴팩션으로 밀려난 앞부분은 `<subId>.archive.jsonl` 에 보관한다(지우지 않는다). 순수 fs 유틸 — ProjectInfo 해석은 호출자 몫.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -45,12 +35,7 @@ function ensureDir(dir: string): void {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-// ─── 디스크 append 배칭 (성능) ───
-// 과거: 스트림 이벤트마다 fs.appendFileSync(open→write→close)를 동기로 실행 →
-// 멀티에이전트가 초당 수백~수천 이벤트를 뿜으면 Node 이벤트 루프가 통째로 블로킹(서버 멈칫).
-// 지금: 파일별 pending 큐에 직렬화된 줄을 모아 (a) 250ms 주기 (b) 파일당 100줄 초과
-// (c) loadBuffer/deleteBuffer 직전 (d) 프로세스 종료 시 — 중 먼저 오는 시점에 한 번에 기록.
-// 순서는 append 순서 그대로 보존된다(배열 push 순).
+// append 배칭 — 이벤트마다 동기 append 면 초당 수천 이벤트에 이벤트 루프가 막힌다. 250ms·100줄 초과·load/delete 직전·종료 중 먼저 오는 때 한꺼번에 쓴다(순서 보존).
 const FLUSH_INTERVAL_MS = 250;
 const FLUSH_MAX_LINES = 100;
 /** filePath → 아직 디스크에 안 쓴 직렬화 줄들(도착 순서). */
@@ -69,8 +54,7 @@ function flushFile(fp: string): void {
   const batch = pending.get(fp);
   const arr = batch?.lines;
   if (!batch || !arr || arr.length === 0) return;
-  // v3.71: 죽은 워크트리(`.git` 없음)에는 기록하지 않는다 — ensureDir 이 폴더를 새로 만들어
-  // 사용자가 지운 워크트리 디렉토리를 되살리는 경로였다(writeCheckpoint 가드와 같은 판정).
+  // 죽은 워크트리엔 기록하지 않는다 — ensureDir 이 지운 폴더를 되살린다.
   if (isUnderDeadWorktree(fp)) {
     pending.delete(fp);
     if (shouldReportDeadWorktree(`stream:${path.dirname(fp)}`)) {
@@ -97,22 +81,9 @@ function flushFile(fp: string): void {
   }
 }
 
-// ─── 컴팩션 (v4.67) ───
-// 이 jsonl 은 append-only 라 상한이 없었고, 긴 세션 하나가 2.6MB 까지 자랐다(총 295개 44MB).
-// 그래서 파일이 커지면 넉넉히 뒤 KEEP 줄만 본 파일에 남기고 원자적으로 다시 쓴다.
-//
-// ⚠ KEEP 은 반드시 MAX_STREAM_BUFFER 보다 커야 한다. 작게 잡으면 그때부터는 복원 창이
-//   실제로 깎인다(= 기존 동작 변경).
-// §5.5 v4.92 — 읽기 상한이 500 → 2,000 으로 오르면서 KEEP 도 1,000 → 3,000 으로 함께 올린다.
-//   (KEEP 을 그대로 뒀다면 상한만 올린 쪽이 헛돌아 복원 대화가 1,000 줄에서 잘렸다.)
-//
-// §3.2.3 — **밀려난 앞부분은 지우지 않고 보관 파일로 옮긴다.** 종전엔 "읽기 경로가 마지막 2,000건
-//   하나뿐이라 앞부분은 어차피 안 읽힌다"는 전제로 지웠다. 그 전제 때문에 3MB 를 넘긴 긴 대화는
-//   다시 열었을 때 앞 몇 시간이 말풍선만 남은 채 **디스크에서도 영영 사라졌다**(실측 2026-09-12 —
-//   `sub-mtpny1dz-er2x3b` 머리 약 5시간·`sub-mtrf4f0q-og5w77` 약 48분이 이미 없었다). 이제 IDE 가
-//   복원 창 위쪽을 거슬러 읽으므로(`loadEventsBefore`) 앞부분도 읽기 경로가 닿는 범위다.
-//   순서가 곧 안전장치다 — 보관 파일에 옮겨 적고 디스크에 내려앉은 것(`fsync`)을 확인한 **뒤에만**
-//   본 파일을 줄인다. 그 사이에 꺼지면 같은 줄이 두 곳에 남을 뿐(읽을 때 id 로 거른다) 사라지지 않는다.
+// 컴팩션 — 파일이 커지면 뒤 KEEP 줄만 남겨 원자적으로 다시 쓴다. ⚠ KEEP 은 MAX_STREAM_BUFFER 보다 커야 한다(작으면 복원 창이 깎인다 — 상한을 올리면 같이 올린다).
+// 밀려난 앞부분은 보관 파일로 옮긴다(§3.2.3 — `loadEventsBefore` 가 읽는다). 보관 쪽 `fsync` 확인 뒤에만 본 파일을 줄인다 —
+// 중간에 꺼지면 중복될 뿐(id 로 거른다) 사라지지 않는다.
 const COMPACT_KEEP_LINES = 3_000;
 /** 이 크기를 넘을 때만 재작성 — 매 flush 마다 전체를 다시 쓰면 배칭의 이점이 사라진다. */
 const COMPACT_TRIGGER_BYTES = 3 * 1024 * 1024;
@@ -237,10 +208,7 @@ function readTailEvents(fp: string, subAgentId: string, max: number): SubAgentSt
   try {
     if (!fs.existsSync(fp)) return [];
     const events: SubAgentStreamEvent[] = [];
-    // §3.2.4 G축 — 쓰는 것은 마지막 `max` 줄뿐인데 종전엔 파일을 통째로 읽고(`readFileSync`)
-    // 전 줄을 `JSON.parse` 한 뒤 앞을 잘랐다. 2.5MB 짜리 한 벌을 읽을 때마다 그 4~5배 피크와
-    // 전 줄 파싱 비용을 냈고, 이 경로가 반복 호출되며 메인 프로세스 읽기가 누적 537GB
-    // (디스크 총량의 약 230배)까지 갔다(실측 2026-08-15). 이제 꼬리만 읽어 꼬리만 파싱한다.
+    // §3.2.4 G축 — 꼬리만 읽어 꼬리만 파싱한다(통째 읽기는 메인 프로세스 누적 읽기 537GB 까지 갔다, 실측 2026-08-15).
     scanTailLines(fp, max, (line) => {
       try {
         const evt = JSON.parse(line) as SubAgentStreamEvent;
@@ -295,13 +263,8 @@ export interface OlderEventsPage {
 const LINKED_IMAGE_ID = /:image:\d+$/;
 
 /**
- * §5.5 #17-12 — 복원 창 **위쪽**을 거슬러 읽는다: 기준 이벤트 바로 앞의 최대 `limit` 건.
- *
- * 본 파일을 뒤에서부터 읽고, 모자라면 보관 파일(컴팩션으로 밀려난 앞부분)로 이어 간다.
- *  - 기준점은 `beforeId`(클라가 들고 있는 가장 오래된 이벤트). 파일 순서로 **그 줄보다 앞**의 줄만 담는다.
- *  - 그 id 를 어디서도 못 찾으면(디스크에 안 내려간 줄이었다) `beforeTs` 보다 이른 줄로 대신 고른다.
- *  - 같은 id 는 한 번만 싣는다 — 컴팩션 도중 꺼지면 같은 줄이 두 파일에 남을 수 있다(`compactIfNeeded`).
- *    기준점보다 뒤에서 이미 본 id 도 거른다(클라가 이미 들고 있는 것이다).
+ * §5.5 #17-12 — 기준 이벤트(`beforeId`, 못 찾으면 `beforeTs`) 앞의 최대 `limit` 건을 거슬러 읽는다(본 파일 → 보관 파일).
+ * 같은 id 는 한 번만 — 컴팩션 중 꺼지면 두 파일에 남고, 기준점 뒤 id 는 클라가 이미 들고 있다.
  */
 export function loadEventsBefore(
   dir: string,
@@ -390,12 +353,7 @@ export function loadEventsBefore(
   return { events: restoreLinkedImages(picked, process.platform), hasMore };
 }
 
-/**
- * 이 폴더에 그 세션의 스트림 파일이 실재하는가 — **읽지 않고 존재만** 본다.
- *
- * 소속 프로젝트를 잃은 세션의 스트림을 되찾을 때 쓴다(`subAgentManager.findStreamDirFor`).
- * 후보 폴더를 여럿 훑어야 하므로 파싱까지 하면 헛일이 커진다 — 있는 자리를 고른 다음 한 번만 읽는다.
- */
+/** 스트림 파일 존재만 본다(읽지 않는다) — 소속 잃은 세션의 후보 폴더를 여럿 훑을 때 쓴다(`findStreamDirFor`). */
 export function hasBuffer(dir: string, subAgentId: string): boolean {
   const fp = subFile(dir, subAgentId);
   // 아직 디스크에 안 내려간 첫 줄이 pending 에만 있을 수 있다 — 그것도 "있다"로 친다.
@@ -417,14 +375,8 @@ export interface BufferLoadResult {
 }
 
 /**
- * `loadBuffer` 와 같되 **파일이 지난번과 같으면 읽지 않는다**(`stat` 한 번으로 끝).
- *
- * **왜**: 읽기 경로(`getStreamBuffer`·`getStreamBuffersForAgent`)가 결과가 비면 캐시하지 않아,
- * 파일이 없거나 빈 세션은 호출마다 파일을 다시 열었다. 내용이 있는 세션도 호출마다 꼬리를 다시
- * 파싱했다. 지문이 같으면 그 두 경우 모두 `stat` 한 번으로 끝난다.
- *
- * `prevStamp` 가 `undefined` 면 "읽은 적 없음"이라 항상 읽는다. `null` 은 "지난번엔 파일이 없었다"는
- * 유효한 지문이라, 여전히 없으면 변화 없음으로 친다.
+ * 지난번과 같으면 `stat` 한 번으로 끝난다(빈 결과는 캐시되지 않아 호출마다 다시 열던 자리).
+ * `prevStamp` `undefined` = 읽은 적 없음(항상 읽음), `null` = 지난번에도 없었다(여전히 없으면 변화 없음).
  */
 export function loadBufferIfChanged(
   dir: string,
@@ -441,12 +393,8 @@ export function loadBufferIfChanged(
 }
 
 /**
- * 부모 에이전트의 sub-streams 폴더를 통째로 삭제 — **휴지통 영구 삭제 전용**(v4.67).
- *
- * ⚠ 탭 닫기(`remove`)·idle 회수(`sweepIdle`)·lifecycle 제거에는 절대 배선하지 말 것.
- *   그 셋은 "메모리는 비우고 디스크에서 다시 읽는다"가 명세된 복구 경로라, 여기서 파일을 지우면
- *   IDE 재오픈·아카이브 부활·크래시 복구가 빈 화면이 된다. 묘비가 남아 되살아날 수 없는
- *   영구 삭제(`permanentlyDeleteTrashedAgent`)에서만 호출한다.
+ * sub-streams 폴더 통째 삭제 — 영구 삭제(`permanentlyDeleteTrashedAgent`) 전용.
+ * ⚠ 탭 닫기·idle 회수·lifecycle 제거에 배선하지 마라 — 그들은 디스크에서 다시 읽는 복구 경로라 재오픈·부활·크래시 복구가 빈 화면이 된다.
  */
 export function deleteAgentStreams(dir: string): void {
   try {

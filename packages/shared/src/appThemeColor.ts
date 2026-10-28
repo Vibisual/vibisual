@@ -1,16 +1,7 @@
 /**
- * appThemeColor.ts — §4 앱 테마의 **색 문법·변환** (순수 함수).
- *
- * 테마 파일은 사용자가 넣는 입력이고, 그 값은 CSS 변수로 화면 전체에 실린다. 그래서 여기서 두 가지를 한다.
- *  1. **엄격한 문법만 받는다** — hex · rgb()/rgba() · hsl()/hsla() · oklch() · transparent.
- *     세미콜론·중괄호·url()·var() 처럼 선언 밖으로 새거나 다른 값을 끌어오는 글자가 문법에 자리가 없다.
- *  2. **받은 값을 우리가 다시 쓴다** — 원문을 내보내지 않고 해석한 숫자로 새로 짓는다(`formatThemeColor`).
- *
- * 그리고 CSS 색 전부를 읽지 못하는 곳(Electron 창 바탕·제목줄 버튼, xterm)에 줄 sRGB 로 옮긴다.
- *
- * OKLCH ↔ sRGB 변환식은 Björn Ottosson 이 공개한 OKLab 정의(공개 수식)를 그대로 쓴다 — Tailwind v4 의
- * 기본 팔레트가 OKLCH 로 적혀 있어 이 변환이 있어야 같은 값을 창 바탕과 화면에 똑같이 칠할 수 있다.
- * 디스크·시각·`process.platform` 을 읽지 않는다 — 값이 결정적이라 단위 테스트로 고정된다.
+ * §4 앱 테마 색 문법·변환(순수). 사용자 입력이 CSS 변수로 화면 전체에 실리므로 엄격한 문법만 받는다(hex·rgb·hsl·oklch·transparent — `;`·`{}`·url()·var() 자리 없음).
+ * 원문을 내보내지 않고 해석한 숫자로 새로 짓는다(`formatThemeColor`). CSS 색을 다 못 읽는 곳(Electron 창 바탕·제목줄·xterm)엔 sRGB 로.
+ * OKLCH ↔ sRGB 는 Björn Ottosson 의 공개 OKLab 수식(Tailwind v4 팔레트가 OKLCH). 디스크·시각·`process.platform` 을 읽지 않는다.
  */
 
 /** 해석된 색 한 개. sRGB·OKLCH 를 둘 다 들고 있어 어느 쪽 변환이든 다시 계산하지 않는다. */

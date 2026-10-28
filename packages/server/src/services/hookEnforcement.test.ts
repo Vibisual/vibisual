@@ -1,10 +1,4 @@
-/**
- * §5.11 v4.67 훅 세션 집행 판정의 **행동** 고정.
- *
- * 이 판정은 집행 주입 네 지점 중 유일하게 동작 검사가 없던 자리다. 배선 검사(`mounted.test.ts`)는
- * 서버 소스에 이름이 있는지만 보므로, 프로젝트 판정이 어긋나 **늘 빈 문자열**을 돌려줘도 초록이었다.
- * 그 상태는 화면에서도 안 보인다 — 외부 세션에 집행이 안 실렸다는 것은 아무 데도 안 뜬다.
- */
+/** §5.11 — 훅 세션 집행 판정의 행동 고정(배선 검사는 이름만 봐서 늘 빈 문자열이어도 초록이고, 화면에도 안 뜬다). */
 import { describe, it, expect } from 'vitest';
 import { buildHookEnforcementBlock, type HookEnforcementDeps } from './hookEnforcement.js';
 

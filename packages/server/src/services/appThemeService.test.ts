@@ -1,15 +1,6 @@
 /**
- * §4 앱 테마 — 사용자 테마 폴더 읽기(`scanAppThemesDir`)와 [새로 만들기](`createFromTheme`)의 계약.
- *
- * 실제 홈(`~/.vibisual`)을 건드리지 않는다 — 임시 폴더를 넘기고, 설정 저장소는 가짜로 바꾼다
- * (진짜 `userDefaultsService` 는 import 되는 순간 사용자 파일을 읽는다).
- *
- * 잠그는 계약:
- *  1. 폴더가 없으면 빈 목록이 정상이다(문제 ❌).
- *  2. 파일마다 따로 실패한다 — 깨진 JSON·너무 큰 파일이 있어도 나머지 테마는 쓴다. `.json` 이 아닌 파일은 본다.
- *  3. 같은 id 가 둘이면 뒤의 것을 `duplicateId` 로 알리고 건너뛴다.
- *  4. [새로 만들기]는 남의 파일을 덮지 않는다(`-2` 를 붙인다) · 쓴 파일은 곧바로 목록에 오른다.
- *  5. 다시 읽어도 내용이 같으면 알리지 않는다(창마다 헛 방송을 돌리지 않게).
+ * §4 앱 테마 — `scanAppThemesDir`·`createFromTheme`: 폴더 없음 = 빈 목록 · 파일마다 따로 실패(`.json` 아닌 파일은 건너뜀) · 같은 id 는 뒤의 것이 `duplicateId` ·
+ * 남의 파일을 덮지 않는다(`-2`) · 내용이 같으면 알리지 않는다. 임시 폴더와 가짜 설정 저장소를 쓴다(진짜 `userDefaultsService` 는 import 순간 사용자 파일을 읽는다).
  */
 import fs from 'node:fs';
 import os from 'node:os';

@@ -33,17 +33,9 @@ import {
   type CommandCenterView,
 } from './commandCenterSettings.js';
 
-// SCENARIO.md §5.12 (B)(C)(E)(H) — 레인 보드 + 검색 + 정리. 데이터는 전부 graph_snapshot 파생이다.
-//
-// v4.44 (H) 화면 구성 v2:
-//   · 분류 막대 — 레인 개수 알약. 누르면 (C) 의 같은 질의 토큰을 검색 문자열에 넣고 뺀다
-//     (알약 전용 상태를 따로 두지 않는다 — 두면 검색창과 어긋난다).
-//   · board(칸반 열) / list(세로 구역) 두 보기. 창이 좁으면 코드가 list 로 접는다.
-//   · 카드를 고르면 오른쪽 상세 패널이 근거 원문을 펼친다.
-//   · 키보드 이동 — ↑↓/jk · Enter 점프 · c 명령창 · / 검색 · Esc.
-//
-// v4.47 (I) 우선순위 기준 고정: 기본 정렬이 `priority` 라 **작업이 도는 동안 순서가 변하지 않는다**.
-// 여기서는 그 위에 두 가지를 얹는다 — 레인 정착(`stabilizeLanes`, 창이 기억한다)과 순서 번호 표시.
+// SCENARIO.md §5.12 (B)(C)(E)(H) — 레인 보드 + 검색 + 정리(전부 graph_snapshot 파생).
+// 분류 알약은 검색 문자열에 질의 토큰을 넣고 뺀다 — 알약 전용 상태를 두면 검색창과 어긋난다. 좁으면 board → list 로 접는다.
+// (I) 기본 정렬 `priority` 위에 레인 정착(`stabilizeLanes`)과 순서 번호를 얹는다.
 
 /** 상대 시간·대기 긴급도가 굳지 않게 하는 최소 주기. 정착이 풀리는 것도 이 틱이 보장한다. */
 const TICK_MS = 15_000;
@@ -79,10 +71,7 @@ const LANE_DOT: Record<CommandCenterLane, string> = {
 
 export interface CommandCenterBoardProps {
   projectId: string;
-  /**
-   * 설정은 **shell 이 소유**한다 — 프로젝트 고정(pinnedProject)은 타이틀바가, 보기·정리는 여기가
-   * 건드리는데 둘이 각자 localStorage 를 읽어 쓰면 나중에 저장한 쪽이 상대 변경을 덮는다.
-   */
+  /** 설정은 **shell 이 소유**한다 — 타이틀바(고정)와 여기(보기·정리)가 각자 localStorage 를 쓰면 나중 쪽이 상대 변경을 덮는다. */
   settings: CommandCenterSettings;
   onUpdate: (patch: Partial<CommandCenterSettings>) => void;
 }
@@ -115,7 +104,7 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
   const agentConfigs = useGraphStore((s) => s.agentConfigs);
   const subAgents = useGraphStore((s) => s.subAgents);
   const queuedCommands = useGraphStore((s) => s.queuedCommands);
-  // §5.12 (B) v4.55 — 카드가 아직 스트림 맨 끝인지(살아 있는지) 재는 데만 쓴다(대기 개수 ❌).
+  // §5.12 (B) — 카드가 스트림 맨 끝인지(살아 있는지) 재는 데만 쓴다(대기 개수 ❌).
   const completedCommands = useGraphStore((s) => s.completedCommands);
   const subAgentStreams = useGraphStore((s) => includeHistoryText ? s.subAgentStreams : undefined);
   const runningSubagentTasks = useGraphStore((s) => s.runningSubagentTasks);
@@ -210,8 +199,7 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
     [ordered, selectedKey],
   );
 
-  // §5.12 (H) v4.56 — 상세 패널은 **고른 카드가 있을 때만** 열린다.
-  // 닫히는 동안에도 마지막으로 보던 항목을 그대로 그려야 미끄러져 나가는 중에 내용이 사라지지 않는다.
+  // §5.12 (H) — 닫히는 동안에도 마지막 항목을 그려야 미끄러져 나가며 내용이 사라지지 않는다.
   const lastDetailRef = useRef<CommandCenterItem | null>(null);
   if (selected) lastDetailRef.current = selected;
   const detailItem = selected ?? lastDetailRef.current;

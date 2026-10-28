@@ -3,10 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { soundLaneLevels, soundWaveLevels, SOUND_LANE_VIEW, type SoundInspectContext } from './soundInspect.js';
 
-/**
- * §5.4 #15 (C) — 소리 앱의 파형(캔버스)·트랙 줄(SVG)을 Alt 인스펙터로 집으면 그 자리의 시각·클립을 답한다. 종전에는 파형이
- * 통째로, 트랙 줄은 어느 클립인지 모르는 `<rect>` 로 집혔다.
- */
+/** §5.4 #15 (C) — 소리 앱의 파형(캔버스)·트랙 줄(SVG)을 Alt 로 집으면 그 자리의 시각·클립을 답한다. */
 
 const labels = { track: '트랙', range: (start: string, end: string) => `구간 ${start}–${end}` };
 

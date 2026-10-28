@@ -18,20 +18,9 @@ import { useCodexLoginSession } from './useCodexLoginSession.js';
 const Z = 100_600;
 
 /**
- * §5.25 (E) — 앱 안 코덱스 로그인 창.
- *
- * `LoginWindow`(클로드)의 대칭물이고 **같은 조각을 그대로 쓴다**: 상태는 서버
- * `codex login status`(스냅샷 `codexAuth`), 실행은 기존 임베디드 PTY, 출력 훑기는 같은
- * `scanLoginOutput`. 새 인증 레일도 새 스캐너도 만들지 않는다.
- *
- * 화면 규칙(클로드와 같은 것):
- *  - `loggedIn === false && !error` 일 때만 자동으로 뜬다. `error` 는 "모름"이라 앱을 막지 않는다.
- *  - 예외는 설치 게이트의 인계(`forced`) 하나 — 갓 깐 실행본에 자격증명이 있을 리 없다.
- *  - 성공의 1차 근거는 출력 문구가 아니라 **`login status` 재조회**다(진행 중 3초 폴링).
- *  - URL 을 제때 못 찾으면 같은 PTY 를 터미널로 펼친다 — 어떤 경우에도 앱 밖으로 나갈 일이 없다.
- *
- * **자격증명은 우리가 만지지 않는다.** 코덱스 홈의 `auth.json` 을 읽지도 쓰지도 않고, 로그인은
- * 코덱스 자신의 명령이 자기 방식대로 처리한다(§5.25 경계).
+ * §5.25 (E) — 코덱스 로그인 창. `LoginWindow`(클로드)와 같은 조각(`codex login status`·임베디드 PTY·`scanLoginOutput`) — 새 레일·스캐너 ❌.
+ * `error` 는 "모름"이라 자동으로 뜨지 않는다(예외는 설치 게이트 인계 `forced`). 성공 근거는 출력이 아니라 `login status` 재조회(3초 폴링).
+ * URL 을 못 찾으면 같은 PTY 를 터미널로 펼친다(앱 밖으로 나가지 않는다). **자격증명은 만지지 않는다** — `auth.json` 을 읽지도 쓰지도 않는다(§5.25 경계).
  */
 export function CodexLoginWindow(): React.JSX.Element | null {
   const { t } = useTranslation();
@@ -42,13 +31,7 @@ export function CodexLoginWindow(): React.JSX.Element | null {
   const setLoginGate = useGraphStore((s) => s.setCodexLoginGate);
   const refreshAuth = useGraphStore((s) => s.refreshCodexAuth);
   const refreshModels = useGraphStore((s) => s.refreshCodexModels);
-  /**
-   * PATH 의 `codex` 가 아니라 **설치 판정이 고른 절대경로**로 로그인한다.
-   *
-   * 방금 npm 전역 설치를 마친 경우 PATH 변화는 **이미 떠 있는 앱의 환경에 반영되지 않는다** —
-   * 이름만 던지면 PTY 가 못 찾아 온보딩의 마지막 칸이 거기서 끊긴다(클로드 쪽이 같은 자리에서
-   * 겪은 사고다). 설치 판정은 절대경로를 들고 있다.
-   */
+  /** PATH 이름이 아니라 **설치 판정의 절대경로**로 — 방금 전역 설치한 PATH 는 떠 있는 앱 환경에 반영되지 않아 PTY 가 못 찾는다. */
   const codexBinPath = useGraphStore((s) => s.codexSetup?.binPath);
 
   const [mode, setMode] = useState<CodexAuthLoginMode>('browser');

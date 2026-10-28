@@ -1,11 +1,6 @@
 /**
- * §5.3 #12-1-A — **도구별 확인 목록**의 판정 회귀.
- *
- * 이 축의 값은 전부 **순서**에 있다. 모드 단축(`bypassPermissions`·`auto`·`acceptEdits` 의 편집
- * 통과)보다 앞서야 실제로 붙잡히고, 안전한 답을 이미 낸 자리(`plan`·`dontAsk`)보다는 뒤여야
- * 없는 팝업을 만들지 않는다. 그 순서가 훅 경로와 로컬 경로에서 **같아야** 한다 — 어긋나면
- * 헤드리스에서는 물어보고 로컬 모델에서는 안 묻는 상태가 되고, 사용자에게는 "켰는데 안
- * 먹는다"로만 보인다. 그래서 두 경로가 부르는 판정을 여기서 함께 고정한다.
+ * §5.3 #12-1-A — 도구별 확인 목록은 순서가 전부다: 모드 단축(`bypassPermissions`·`auto`·`acceptEdits` 편집 통과)보다 앞, 안전한 답을 낸 자리(`plan`·`dontAsk`)보다 뒤.
+ * 훅 경로와 로컬 경로의 순서가 같아야 한다 — 어긋나면 한쪽만 묻는다. 두 경로의 판정을 함께 고정한다.
  */
 import fs from 'node:fs';
 import { describe, it, expect } from 'vitest';
@@ -107,12 +102,8 @@ describe('canPromptForPermission — 60초 정책 토글을 볼 수 있는가', 
 });
 
 /**
- * §5.3 #12-1 — **권한 축은 사용자만 올린다.**
- *
- * `PUT /api/agent-config/:id` 는 §3.7 빌더 구축 경로라 loopback 토큰만 있으면 닿고, 그 토큰은
- * 우리가 스폰한 에이전트의 env·프롬프트에 실려 나간다. 그 에이전트가 읽는 것은 프로젝트
- * 파일·웹 문서라, 거기 심긴 한 줄이 그대로 이 창구의 입력이 된다 — 감시받는 쪽이 감시 장치를
- * 끌 수 있으면 그건 게이트가 아니다. 아래가 그 경계를 고정한다.
+ * §5.3 #12-1 — 권한 축은 사용자만 올린다. `PUT /api/agent-config/:id` 는 loopback 토큰만 있으면 닿고 그 토큰은 스폰한 에이전트에 실려 나가므로,
+ * 프로젝트 파일·웹 문서에 심긴 한 줄로 감시받는 쪽이 게이트를 열 수 없어야 한다.
  */
 describe('applyIngressPermissionGuard — 감시받는 쪽은 게이트를 못 연다', () => {
   const axes = (over: Partial<AgentPermissionAxes> = {}): AgentPermissionAxes => ({
@@ -211,14 +202,7 @@ describe('applyIngressPermissionGuard — 감시받는 쪽은 게이트를 못 �
   });
 });
 
-/**
- * §5.3 #12-1-A — **저장 창구가 `askTools` 를 실어 보내는가.**
- *
- * `PUT /api/agent-config/:id` 는 body 로 `AgentConfig` 한 벌을 새로 짓고 `setAgentConfig` 는
- * 저장분을 병합 없이 통째로 갈아치운다. 그래서 재구축 객체에서 이 칸이 빠지면 설정창이 목록을
- * 제대로 보내도 매 저장마다 조용히 비워지고, 위의 판정들은 전부 초록인 채로 기능만 죽는다
- * (실제로 그렇게 죽어 있었다). 판정 테스트가 못 잡는 자리라 배선을 따로 고정한다.
- */
+/** §5.3 #12-1-A — PUT 핸들러가 재구축 객체에 `askTools` 를 싣는가. `setAgentConfig` 는 병합 없이 갈아치워, 빠지면 매 저장마다 조용히 비워진다(판정 시험은 초록인 채). */
 describe('agent-config 저장 배선 — askTools 가 재구축 객체에 실려 있다', () => {
   it('PUT 핸들러가 askTools 를 저장한다', () => {
     const src = fs.readFileSync(new URL('../index.ts', import.meta.url), 'utf8');

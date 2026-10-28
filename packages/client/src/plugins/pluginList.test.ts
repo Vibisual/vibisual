@@ -1,9 +1,4 @@
-/**
- * §5.11 v4.24 — Plugins 창 목록 계산 고정 테스트.
- *
- * 111종을 고르는 화면이라 "찾기"와 "켠 것 먼저"가 곧 사용성이다. 규칙이 흔들리면 사용자는 켜 둔 카드를
- * 다시 찾지 못한다. 순수 함수로 떼어 여기서 못 박는다.
- */
+/** §5.11 — Plugins 창 목록 계산 고정(찾기·켠 것 먼저 — 흔들리면 켜 둔 카드를 못 찾는다). */
 import { describe, it, expect } from 'vitest';
 import type { PluginManifest } from '@vibisual/shared';
 import { groupPlugins, resolveSelection, PLUGIN_CATEGORY_ORDER } from './pluginList.js';
@@ -110,13 +105,7 @@ describe('선택 유지', () => {
   });
 });
 
-/**
- * §5.11 노출 게이트 — "켜면 실제로 프로젝트에 손대는 것"만 기본 목록에 선다.
- *
- * 111칸이 다 서 있으면 사용자는 "다 만들어졌다"로 읽는다. 실제로 프로젝트를 훑는 것은 한 장뿐이었고,
- * 나머지는 켜도 고정 문장만 실렸다. 그래서 기본 목록은 만들어진 것만 세우고 나머지는 §7.7 디버그
- * 모드에서만 보인다 — 다만 **켜 둔 것은 언제나 보인다**(안 보이면 끌 자리가 없어진다).
- */
+/** §5.11 노출 게이트 — 켜면 실제로 프로젝트에 손대는 것만 기본 목록에(나머지는 §7.7 디버그 모드). 켜 둔 것은 언제나 보인다 — 끌 자리가 있어야 한다. */
 const live = (id: string, name: string, category: PluginManifest['category']): PluginManifest =>
   ({ ...m(id, name, category), enforcesProject: true });
 

@@ -3,16 +3,9 @@ import { APP_NODE_RESIZE, type AppBubble } from '@vibisual/shared';
 import type { InternalApp } from './registry.js';
 
 /**
- * §5.4 #36 (F) — 앱 노드의 **형태 판정 한 벌**.
- *
- * - `nameplate`(명패) — 캔버스에 놓아 둔 물건. §5.13 (M) v4.66 의 1/3 크기 그대로다.
- * - `screen`(화면) — 에이전트의 앱 위성. 이어졌거나(`linkedAgentIds`) 결과를 담았으면(`file`) 커져서 그 결과를 비춘다.
- *
- * 형태는 저장값이 아니라 **파생**이다 — 껐다 켜도 같은 답이 나오고 새 영속 칸이 없다. 그리는 쪽(캔버스 노드 목록)과
- * 옮기는 쪽(잇기·끊기의 가운데 지키기)이 같은 판정을 써야 해서 여기 한 곳에 둔다.
- *
- * §5.4 #36 (G) — 크기는 사용자가 바꿀 수 있고 **형태에 붙는다**(`AppBubble.sizedForm`). 정한 형태가 지금 형태와 같을 때만
- * 저장된 width/height 를 믿는다 — 정한 적 없는 버블의 width/height 는 생성 시점의 선언값일 뿐이다(옛 200×200·240×150).
+ * §5.4 #36 (F) — 앱 노드 형태 판정 한 벌: `nameplate`(놓아 둔 물건) · `screen`(이어졌거나 결과를 담은 위성 — 커져서 결과를 비춘다).
+ * 파생이라 영속 칸이 없고, 그리는 쪽과 옮기는 쪽(잇기·끊기의 가운데 지키기)이 같은 판정을 쓴다.
+ * (G) 크기는 형태에 붙는다(`AppBubble.sizedForm`) — 같은 형태일 때만 저장 width/height 를 믿는다(그 밖은 생성 때 선언값일 뿐).
  */
 export type AppNodeForm = 'nameplate' | 'screen';
 
@@ -31,10 +24,7 @@ export interface AppNodeResizeBounds {
   readonly maxHeight: number;
 }
 
-/**
- * §5.13 (L) — 작업 문서(`ref`)가 묶인 노드도 화면이다. 결과 파일이 없어도 지금 고치는 중인 문서를 비춘다
- * (앱이 `faceShowsRef` 로 그리는 길을 낸다 — 내지 않는 앱은 빈 화면에 "결과가 여기 뜹니다").
- */
+/** §5.13 (L) — `ref` 가 묶인 노드도 화면이다(앱이 `faceShowsRef` 로 문서를 그린다 — 안 그리는 앱은 빈 화면에 "결과가 여기 뜹니다"). */
 export function appNodeForm(b: Pick<AppBubble, 'linkedAgentIds' | 'file' | 'ref'>): AppNodeForm {
   const linked = (b.linkedAgentIds ?? []).length > 0;
   const holds = typeof b.file === 'string' && b.file !== '';
@@ -64,10 +54,8 @@ function clamp(v: number, lo: number, hi: number): number {
 }
 
 /**
- * 그 형태의 렌더 치수.
- * - 사용자가 **이 형태에서** 크기를 정했으면 저장값(그 형태의 한도로 자른다 — 손으로 고친 체크포인트도 화면을 덮지 않게).
- * - 아니면 앱 선언이 곧 값이다(v4.66).
- * - 등록되지 않은 앱은 저장값 — 경고 버블이 자기 자리를 잃지 않게.
+ * 렌더 치수: 이 형태에서 정한 크기면 저장값(형태 한도로 자른다 — 손으로 고친 체크포인트도 화면을 덮지 않게), 아니면 선언값.
+ * 등록되지 않은 앱은 저장값 — 경고 버블이 자리를 잃지 않게.
  */
 export function appNodeSize(
   app: Pick<InternalApp, 'defaultSize' | 'screenSize'> | undefined,
@@ -82,12 +70,7 @@ export function appNodeSize(
   return form === 'screen' ? app.screenSize : app.defaultSize;
 }
 
-/**
- * 크기가 바뀔 때 **가운데를 지키는** 새 좌상단. 크기가 같으면 `null`(옮기지 않는다).
- *
- * React Flow 노드는 좌상단에 붙어 자라므로, 그대로 두면 빈 명패에 위성을 놓는 순간 노드가 오른쪽 아래로만
- * 부풀어 놓은 자리에서 비켜 선다(#36 (A) 말풍선이 원 중심을 지키는 것과 같은 규칙).
- */
+/** 크기가 바뀔 때 가운데를 지키는 새 좌상단(같으면 `null`) — React Flow 노드는 좌상단에 붙어 자라 그대로 두면 오른쪽 아래로만 부푼다(#36 (A) 와 같은 규칙). */
 export function centerKeepingMove(
   pos: { readonly x: number; readonly y: number },
   from: NodeSize,
@@ -97,10 +80,7 @@ export function centerKeepingMove(
   return { x: pos.x + (from.width - to.width) / 2, y: pos.y + (from.height - to.height) / 2 };
 }
 
-/**
- * 잇기·끊기·결과 비우기로 **형태가 바뀌면** 옮길 자리. 형태가 그대로면 `null`.
- * `after` 는 바뀐 뒤의 연결·파일 칸만 보면 된다(좌표·크기·정한 형태는 `before` 의 것 — 잇기·끊기는 그 칸을 바꾸지 않는다).
- */
+/** 형태가 바뀌면 옮길 자리(그대로면 `null`). `after` 는 연결·파일 칸만 본다 — 좌표·크기·정한 형태는 `before` 의 것(잇기·끊기는 그 칸을 안 바꾼다). */
 export function formChangeMove(
   app: Pick<InternalApp, 'defaultSize' | 'screenSize'> | undefined,
   before: Pick<AppBubble, 'x' | 'y' | 'width' | 'height' | 'sizedForm' | 'linkedAgentIds' | 'file' | 'ref'>,

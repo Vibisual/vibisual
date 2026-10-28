@@ -1,17 +1,7 @@
 /**
- * §5.5 #17-27 ①-1 · ⑪ (e) — 창 컴포넌트(`AgentIDEOverlay`)의 **편집창 자리 배선**.
- *
- *  ① 판 때문에 창을 넓힌 기억은 **창 슬롯**(`editorRoom`)에서 읽고 쓴다. 종전 ref 는 창을 접었다 펴거나 프로젝트
- *     탭을 오가 컴포넌트가 내려가면 사라져, 판을 닫아도 되돌리지 못했고 다시 설 때 또 넓혔다.
- *  ② 판을 닫은 도크 창은 두께를 직접 되돌리지 않고 `settleIDEDockGrowth` 에 맡긴다 — 두께는 같은 변의 창들이 나눠
- *     쓰므로 옆 창을 봐야 한다(되돌리면 그 넓힘에 기대 판을 연 옆 창이 찌부러졌다).
- *  ③ [추종] 은 열면 덮개가 되는 폭뿐 아니라 **창이 자라는 폭**에서도 스스로 판을 열지 않는다 — AI 활동이 창 크기를
- *     바꾸지 않는다. "자랄 수 있는 창" 의 판정은 넓히기 효과가 실제로 넓히는 모양과 같아야 한다.
- *
- * 수치 규칙은 순수 함수 시험이 본다(`ideResponsive.test.ts` 의 `editorGrowth`·`dockGrowthOnClose`,
- * `idePanes.test.ts` 의 슬롯·같은 변 시험). 여기는 그 함수들이 창에 **이어져 있는지**만 본다.
- *
- * ⚠ 이 스위트에는 DOM 이 없다(jsdom 미설치). 컴포넌트는 소스 스캔으로 본다 — `overlayPinButton.test.ts` 와 같은 계열.
+ * §5.5 #17-27 ①-1 · ⑪ (e) — `AgentIDEOverlay` 편집창 자리 배선(수치는 순수 함수 시험이, 여기는 이어졌는지만 — 소스 스캔).
+ * ① 넓힌 기억은 창 슬롯(`editorRoom`)에 — ref 면 컴포넌트가 내려갈 때 사라져 못 되돌리고 또 넓힌다. ② 도크 창 두께는 `settleIDEDockGrowth` 에(같은 변 창이 나눠 쓴다).
+ * ③ [추종] 은 창이 자라는 폭에서도 판을 열지 않는다(AI 활동이 창 크기를 바꾸지 않는다) — "자랄 수 있는 창" 판정은 넓히기 효과와 같아야 한다.
  */
 import { describe, it, expect } from 'vitest';
 
@@ -71,7 +61,7 @@ describe('③ [추종] 은 창이 자라는 폭에서 스스로 판을 열지 �
     expect(src).toContain(
       "useEditorFollow(agentId ?? '', activeSessionId, editorWouldCover || (paneCanGrow && editorWouldGrow));",
     );
-    // 옛 판정(덮개만)으로 부르는 자리가 남아 있으면 그쪽이 창을 넓힌다.
+    // 덮개만 보는 판정으로 부르는 자리가 남으면 그쪽이 창을 넓힌다.
     expect(src.match(/useEditorFollow\(/g)).toHaveLength(1);
   });
 

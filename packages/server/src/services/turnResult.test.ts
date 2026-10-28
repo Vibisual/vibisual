@@ -1,11 +1,4 @@
-/**
- * §5.5 #17-12 ③-4 — **답 없는 턴이 앞 턴의 답을 물려받지 않는다.**
- *
- * 회귀의 모양(2026-09-08 18:52 실측): 턴 경계 압축이 얹은 `/compact` 턴은 스트림 이벤트가
- * `compact_boundary`·`command_received` 두 줄뿐이고 트랜스크립트에 붙는 assistant 줄이 0 인데,
- * 마감의 복구 폴백이 "마지막 user 이후의 assistant"를 읽어 **직전 답**을 그 턴의 결과로 저장했다.
- * 화면은 저장된 결과를 그 말풍선의 답으로 그리므로(③-3) 자동 압축 직후 같은 말이 두 번 읽혔다.
- */
+/** §5.5 #17-12 ③-4 — **답 없는 턴이 앞 턴의 답을 물려받지 않는다**(실측 2026-09-08: `/compact` 턴은 assistant 줄 0 인데 폴백이 직전 답을 저장했다). */
 
 import { describe, it, expect } from 'vitest';
 import type { QueuedCommand } from '@vibisual/shared';

@@ -14,17 +14,8 @@ interface StepDraft {
 }
 
 /**
- * §5.3 #12-2 v2.26 — AskUserQuestion 인라인 카드 (다중 질문 step 지원).
- *
- * claude-code 본체는 `tool_input.questions` 배열 — 한 호출에 여러 질문 가능. CLI 가 순차로
- * 물어보는 것처럼 카드도 step 으로 하나씩 surface 한다. items.length === 1 이면 step UI 가
- * 숨어 단일 질문 카드와 동일.
- *
- * "Other (직접 입력)" 옵션을 자동으로 마지막에 append. Other 선택 시 note textarea 가 primary
- * answer 입력으로 승격(required), 그렇지 않으면 supplemental(optional).
- *
- * 마지막 step 의 Send → POST /api/ask-user-question/decide (answers 배열) → broker resolve →
- * 훅이 deny + reason 합성으로 모델 transcript 도달.
+ * §5.3 #12-2 — AskUserQuestion 카드. `tool_input.questions` 배열을 step 으로 하나씩 묻는다(1개면 step UI 숨김). 마지막에 "Other" — 고르면 note 가 필수.
+ * 마지막 Send → POST /api/ask-user-question/decide → broker → 훅이 deny + reason 으로 모델에 전한다.
  */
 export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.Element {
   const { t } = useTranslation();

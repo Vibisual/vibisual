@@ -10,7 +10,7 @@ import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError
 import { buildVerificationPolicyRules, isVerificationGateEnabled, VERIFICATION_GATE_ENV } from '@vibisual/shared';
 import { appStateGetTokenSaver } from './appState.js';
 import { userDefaultsService } from './userDefaultsService.js';
-import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, isToolDisallowed, readTurnStopSignal, resolveTurnStopReason, normalizeModelStopReason, type TurnStopSignal, type ModelStopReason, readCompactionSignal, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText, engineForProvider, USAGE_LIMIT_PROMOTABLE_ERROR_CODES, buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX, TURN_STREAM_STALL_MS } from '@vibisual/shared';
+import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, isToolDisallowed, readTurnStopSignal, resolveTurnStopReason, normalizeModelStopReason, type TurnStopSignal, type ModelStopReason, readCompactionSignal, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText, engineForProvider, USAGE_LIMIT_PROMOTABLE_ERROR_CODES, buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX, TURN_STREAM_STALL_MS, CODEX_MANAGED_TUI_ARGS } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed, hasLiveAgentTasks, countLiveShells,
   listDisplayableLiveTasks, hasLiveTasks, turnIdOfLiveTask, takeOrphanLiveTasks, LIVE_TASK_ORPHAN_GRACE_MS,
@@ -68,7 +68,7 @@ import { modelRegistryService } from './modelRegistryService.js';
 import { readLastAssistantMessage, readLastAssistantEntry, readSessionTokenData, getSessionJsonlPath } from './sessionDiscovery.js';
 import type { LastAssistantEntry } from './sessionDiscovery.js';
 import * as streamBufferStore from './streamBufferStore.js';
-import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { claudeSpawnEnv, getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { buildShellCommandLine, interactiveShellFamily } from './interactiveCommandLine.js';
 // §5.5 #17-2 — 턴 프롬프트 조립(슬래시 명령은 앞말 없이 원문 그대로). 순수 모듈 + 단위 테스트.
 import { composeTurnPrompt, isSlashCommandText } from './turnPrompt.js';
@@ -76,6 +76,9 @@ import { resolveTurnResult, isAnswerlessTurnText } from './turnResult.js';
 import { isAgentViewEnabled, spawnBackground, stopSession, rmSession } from './claudeAgentViewService.js';
 import { attach as attachWatcher, detach as detachWatcher, resumeWatch as resumeAgentViewWatch } from './claudeAgentViewWatcher.js';
 import { killTree, terminateChildTree, forceCloseAfterExit, registerSpawnedPid, unregisterSpawnedPid, processGroupSpawnOptions } from './processTree.js';
+import { apiCreditService, withCreditKeyEnv, type ApiCreditRunEnd } from './apiCreditService.js';
+// 경로 대소문자 정책과 같은 자리의 호스트 플랫폼 — 스폰 env 의 키 이름 규칙(Windows 는 대소문자 무시)에 쓴다.
+import { HOST_PLATFORM } from './pathKey.js';
 import { processGuard } from './processGuard.js';
 import { prepareMcpConfig } from './mcpConfigService.js';
 import { decideVerificationReuse, verificationMcpKeyOf, verificationMcpServer, verificationToolsAvailable, type VerificationToolsConfig } from './verificationToolsConfig.js';
@@ -88,21 +91,12 @@ import { engineBridge } from './engineBridge.js';
 export type AgentProjectResolver = (parentAgentId: string) => ProjectInfo | null;
 
 /**
- * 지금 서버가 아는 **모든 프로젝트**. `AgentProjectResolver` 가 소속을 못 풀 때의 **되찾기 후보**다.
- *
- * 왜 따로 두는가 — `AgentProjectResolver` 는 `sessionCwds`·`agents` 맵을 훑어 소속을 찾는데,
- * 프로젝트 탭을 닫았다 다른 곳을 오가면 그 에이전트가 두 맵에서 빠져 `null` 이 된다. 그러면
- * `sub-streams/<agentId>/<subId>.jsonl` 이 디스크에 멀쩡히 있는데도 폴더를 짚지 못해 빈 배열이
- * 나가고, 화면은 "대화 내역이 통째로 날아간" 모양이 된다. 소속을 잃어도 **파일이 있는 자리**는
- * 후보를 훑으면 찾을 수 있다 — 그 길을 여는 주입선이다.
+ * 모든 프로젝트 — `AgentProjectResolver` 가 소속을 못 풀 때(탭을 닫았다 오가면 `null`) 디스크의 `sub-streams/` 를 찾을 후보.
+ * 없으면 파일이 멀쩡한데도 대화가 통째로 빈 것처럼 보인다.
  */
 export type AllProjectsProvider = () => ProjectInfo[];
 
-/**
- * §5.3 #12-1-B — 부모 에이전트의 **지금** 설정(세 층을 겹친 완성본). 로컬 턴은 시작할 때 설정 한 벌을
- * 받아 끝까지 쓰는데, 카드에서 누른 "항상 거절"은 턴 도중에 저장된다 — 그 턴의 다음 도구 호출이
- * 그걸 보려면 판정 자리가 저장분을 다시 읽어야 한다. `index.ts` 가 `graphManager` 로 주입한다.
- */
+/** §5.3 #12-1-B — 부모 에이전트의 지금 설정(세 층 완성본). 카드의 "항상 거절"은 턴 도중 저장되므로 판정 자리가 이걸 다시 읽는다. `index.ts` 가 주입. */
 export type AgentConfigResolver = (parentAgentId: string) => AgentConfig | undefined;
 
 /**
@@ -129,18 +123,10 @@ export type VerificationCallChecker = (
 ) => { verdict: 'none' | 'allow' | 'deny'; message?: string };
 
 /**
- * §5.19 (H) — 로컬 세션의 **호스트 도구** 한 건. 파일이 아니라 우리 화면·설정을 움직인다
- * (`TodoWrite` → 목표창 · `AskUserQuestion` → 질문 카드 · `ExitPlanMode` → 권한 모드).
- *
- * 돌려주는 문자열이 그대로 도구 결과가 되어 모델에게 간다 — 실패도 던지지 말고 **말로** 돌려라
- * (모델이 다른 수를 고를 수 있어야 한다).
+ * §5.19 (H) — 로컬 세션의 호스트 도구 한 건(`TodoWrite` → 목표창 · `AskUserQuestion` → 질문 카드 · `ExitPlanMode` → 권한 모드).
+ * 반환 문자열이 곧 도구 결과 — 실패도 던지지 말고 말로 돌려라(모델이 다른 수를 고를 수 있게).
  */
-/**
- * §5.19 (H) — 로컬 세션의 도구 호출 한 건을 **훅 이벤트로** 흘리는 자리. `index.ts` 가 그래프에
- * 이어 준다(이 매니저는 그래프를 모른다 — `setProjectResolver` 와 같은 주입선).
- *
- * 도구 이벤트만이다. 생명주기는 로컬 턴이 이미 자기가 관리하므로 여기로 보내지 않는다.
- */
+/** §5.19 (H) — 로컬 세션의 도구 호출을 훅 이벤트로 흘린다(`index.ts` 가 그래프에 잇는다). 도구 이벤트만 — 생명주기는 로컬 턴이 관리한다. */
 export type LocalHookEmitter = (
   ctx: { agentId: string; subAgentId: string },
   event: LocalHookToolEvent,
@@ -157,12 +143,7 @@ const DEFAULT_SUB_LABEL_RE = /^Sub #\d+$/;
 /** 자동 탭 제목 최대 길이(초과분은 … 로 컷). 탭은 CSS truncate 하지만 라벨 자체도 과하게 길지 않게 보관. */
 const AUTO_TITLE_MAX = 60;
 
-/**
- * §5.5 #17-5 v2.68 — 첫 사용자 프롬프트에서 서브에이전트 탭 제목을 추론.
- * VS Code 가 Claude Code 세션 이름을 주제로 정하는 동작을 무과금(요약 LLM 호출 ❌)으로 모사한다.
- * 첫 비어있지 않은 줄을 취해 마크다운 장식·감싼 따옴표를 벗기고 ~60자로 컷.
- * 추출 실패(빈 결과) 시 빈 문자열 반환 → 호출부가 기본 라벨(Sub #N)을 유지한다.
- */
+/** §5.5 #17-5 — 첫 프롬프트로 탭 제목을 정한다(LLM 호출 없이). 첫 비지 않은 줄의 장식·따옴표를 벗겨 ~60자. 빈 문자열이면 호출부가 기본 라벨(Sub #N)을 둔다. */
 function deriveTabTitle(text: string): string {
   const firstLine = text
     .split('\n')
@@ -179,19 +160,11 @@ function deriveTabTitle(text: string): string {
   return title;
 }
 
-/**
- * §4 — CLI `--model` 이 **bare alias 로** 인식·해소하는 패밀리.
- * 이 셋은 `--model opus` 처럼 짧은 이름만 줘도 CLI 가 현재 latest 로 알아서 해소한다.
- * 이 목록 밖의 패밀리(fable/mythos 등)는 CLI 가 bare alias 를 모르므로 그대로 넘기면
- * 기본 모델(opus)로 조용히 폴백된다 → 반드시 레지스트리 latest 풀ID 로 치환해서 넘겨야 한다.
- */
+/** §4 — CLI `--model` 이 bare alias 로 latest 해소하는 패밀리. 밖의 패밀리(fable 등)를 bare 로 넘기면 opus 로 조용히 폴백된다 — 레지스트리 풀ID 로 바꿀 것. */
 const CLI_NATIVE_ALIASES = new Set<string>(['opus', 'sonnet', 'haiku']);
 
-/**
- * AgentConfig → claude CLI 인자 배열 변환.
- * 기본값과 같은 항목은 CLI 인자로 넘기지 않음 (불필요한 제한 방지).
- */
-/** 스폰 맥락 — 기억 폴더를 프로젝트 아래에 잡으려면 이름과 루트가 필요하다(§5.3 v4.89). */
+/** AgentConfig → claude CLI 인자(`buildConfigArgs`). 기본값과 같은 항목은 넘기지 않는다 — 권한 모드·도구는 예외로 항상 명시. */
+/** 스폰 맥락 — 기억 폴더를 프로젝트 아래에 잡을 이름·루트(§5.3). */
 interface ConfigArgsContext {
   verificationConfig?: VerificationToolsConfig;
   /** 기억 폴더 이름이 될 에이전트 식별자. */
@@ -200,13 +173,7 @@ interface ConfigArgsContext {
   projectRoot?: string;
 }
 
-/**
- * §4 (Fast 모드) — 이 설정이 실제로 Fast 를 요청하는가.
- *
- * 사용자가 켜 뒀더라도 **Opus 계열이 아니면 CLI 가 사유도 없이 조용히 무시**하므로, 그런 조합에서는
- * 애초에 키를 만들지 않는다 — 안 그러면 sonnet 에이전트가 아무 효과도 없는 `--settings` 를 달고 뜬다.
- * 판정 대상은 `--model` 로 나가는 값과 같아야 하니 풀ID 핀(`modelVersion`)을 alias 보다 먼저 본다.
- */
+/** §4 (Fast 모드) — Opus 계열이 아니면 CLI 가 조용히 무시하므로 키를 만들지 않는다. `--model` 로 나가는 값과 같게 핀(`modelVersion`)을 먼저 본다. */
 function wantsFastMode(config: AgentConfig): boolean {
   if (!config.fastMode) return false;
   return supportsFastMode(config.modelVersion?.trim() || config.model);
@@ -215,19 +182,11 @@ function wantsFastMode(config: AgentConfig): boolean {
 function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[] {
   const args: string[] = [];
 
-  // 모델 — §4 v2.40: alias 해소를 CLI 에 위임. Vibisual 측 변환 ❌.
-  //   - `--model opus` → CLI 가 자체적으로 현재 latest Opus(=4.8) 로 해소
-  //   - `--model opus[1m]` → alias + 1M 도 그대로 작동 (CLI 2.1.154 확인됨)
-  //   - 사용자가 `modelVersion` 으로 풀ID 핀했으면 그것 우선
-  //   - 정적 가드(`AVAILABLE_AGENT_MODEL_IDS.includes(...)`) 제거 — 신규 모델 출시 시 코드 수정 불필요.
-  //     CLI 가 모델명 검증 담당. 잘못된 값이면 spawn 시점에 에러.
+  // 모델 — §4: alias 해소는 CLI 에 맡긴다(`opus[1m]` 도 작동, 2.1.154 확인). 핀(`modelVersion`) 우선. 정적 목록으로 거르지 않는다 — 검증은 CLI 가 spawn 때 한다.
   if (config.model) {
     const pinned = config.modelVersion?.trim();
     let base = pinned || config.model;
-    // §4 — 신규 패밀리(fable/mythos 등) bare alias 는 CLI 가 못 알아들어 기본 모델(opus)로 폴백된다.
-    //   modelVersion 풀ID 핀이 없고 CLI-native alias(opus/sonnet/haiku)도 아니면, 레지스트리에서
-    //   그 패밀리 latest 풀ID(예: fable → claude-fable-5)로 치환해 실제로 그 모델이 뜨게 한다.
-    //   레지스트리에 해당 패밀리가 없으면 bare 그대로 둔다(CLI 가 검증·에러 노출).
+    // §4 — 핀도 native alias 도 아니면 레지스트리 latest 풀ID 로 바꾼다(fable → claude-fable-5). 레지스트리에 없으면 bare 그대로(CLI 가 에러).
     if (!pinned && !CLI_NATIVE_ALIASES.has(base)) {
       const resolved = resolveAliasToLatest(base, modelRegistryService.getRegistry());
       if (resolved) base = resolved;
@@ -239,13 +198,8 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
     args.push('--model', modelArg);
   }
 
-  // 퍼미션 모드 — **항상 명시한다.** 종전에는 `'default'`(표시명 Manual)일 때 플래그를 생략하고
-  //   "CLI 기본값이 곧 Manual" 이라고 가정했는데, 2026-08-14 부터 **CLI 무플래그 기본이 `auto`**
-  //   (분류기가 스스로 승인)로 바뀌면서 그 가정이 깨졌다 — 화면에 "Manual — 위험한 동작마다 확인"
-  //   이라고 적힌 에이전트가 실제로는 자동 승인으로 돌 수 있었다. 표시 오류가 아니라 안전 문제라
-  //   무플래그 자리를 없앤다. 변환표는 `toCliPermissionMode`(shared) 한 곳이고,
-  //   `bypassPermissions` 만 전용 플래그로 빠진다. 판정 의미는 CLI 가 갖고, 우리 승인 게이트의
-  //   대응 매핑은 §5.3 #12-1(`/api/permission-check`)에 있다.
+  // 퍼미션 모드 — **항상 명시한다.** CLI 무플래그 기본이 `auto`(자동 승인, 2026-08-14 부터)라 `'default'`(Manual)에서 빼면 자동 승인으로 돈다.
+  // 변환표는 `toCliPermissionMode`(shared) 한 곳, `bypassPermissions` 만 전용 플래그. 승인 게이트 매핑은 §5.3 #12-1.
   if (config.permissionMode === 'bypassPermissions') {
     args.push('--dangerously-skip-permissions');
   } else {
@@ -257,10 +211,7 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
     args.push('--effort', config.effort);
   }
 
-  // 허용 도구 — CLI `--tools` 플래그로 에이전트 가시 툴 제한.
-  // UI 에 노출된 AVAILABLE_AGENT_TOOLS 는 CLI 전체 툴셋의 부분집합일 수 있으므로
-  // "전체 매칭 시 플래그 생략" 최적화는 사용 안 함 — 항상 명시해 UI 와 런타임 일치 보장.
-  // 빈 배열은 `--tools ""` 로 전부 disable.
+  // 허용 도구 — `--tools` 는 늘 명시한다(UI 목록이 CLI 툴셋의 부분집합일 수 있어 "전부면 생략"하면 어긋난다). 빈 배열은 `--tools ""` = 전부 끔.
   if (config.tools) {
     args.push('--tools', config.tools.join(','));
   }
@@ -270,12 +221,8 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
     args.push('--disallowedTools', config.disallowedTools.join(','));
   }
 
-  // §5.5 #17-20 ⑥ v4.74 — MCP 디버그 도구 연결.
-  //   이 함수는 **헤드리스 경로와 CMD 인터랙티브 경로가 공유하는 단 하나의 조립 지점**이라
-  //   여기 한 번 꽂으면 두 경로가 동시에 도구를 갖는다(§5.11 v4.65 가 "한 곳만 배선하면 첫 턴
-  //   1회로 끝난다"고 배운 함정의 반대편 — 여기는 진짜로 한 곳이다).
-  //   `--tools` 는 **내장 도구 전용**이라 MCP 도구를 막지 않는다. 대신 승인 팝업이 매 호출마다
-  //   뜨지 않도록 `--allowedTools mcp__<서버>` 로 그 서버의 도구를 통째로 열어 준다.
+  // §5.5 #17-20 ⑥ — MCP 도구. 이 함수가 헤드리스·CMD 공유의 유일한 조립 지점이라 여기 한 번이면 된다.
+  // `--tools` 는 MCP 를 막지 않는다 — 매 호출 승인 팝업이 없게 `--allowedTools mcp__<서버>` 로 연다.
   const mcp = prepareMcpConfig(config.mcpServers, ctx?.verificationConfig ? verificationMcpServer(ctx.verificationConfig) : undefined);
   if (ctx?.verificationConfig && !mcp) throw new Error('Verification tools unavailable: could not prepare the MCP connection');
   if (mcp) {
@@ -283,37 +230,17 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
     args.push('--allowedTools', mcp.allowedTools.join(','));
   }
 
-  // 격리 모드 — worktree 면 별도 git worktree 에서 실행.
-  //   ⚠ 옛 `--isolation <값>` 은 현 CLI 에 **없는 플래그**다. 붙이면 파싱 단계에서
-  //   `error: unknown option '--isolation'` 로 스폰이 즉시 죽는다(실측 2.1.223) — 그동안
-  //   Isolation=worktree 로 설정한 커스텀 에이전트가 뜨지 못한 원인. 현행 표현은 `-w, --worktree [name]`
-  //   이며 이름은 CLI 가 붙인다. `'none'` 은 플래그 없음 = 부모 cwd 실행.
-  //   우리 축(`AgentConfig.isolation`)의 값 이름은 사용자 의미라 그대로 두고 CLI 표현만 옮긴다.
+  // 격리 — worktree 면 `--worktree`(이름은 CLI 가), `'none'` 은 플래그 없음. ⚠ `--isolation` 은 없는 플래그라 스폰이 즉시 죽는다(실측 2.1.223).
   if (config.isolation === 'worktree') {
     args.push('--worktree');
   }
 
-  // §4 (CLI 사양 추종) — 아래 플래그들은 인터랙티브·헤드리스 양쪽에서 유효한 일반 플래그라 여기서 붙인다.
-  //   (`--fallback-model` 은 `--print` 전용이라 여기가 아니라 스폰부 printFlags 에 있다.)
-  // §4 (CLI 사양 추종) (5) — **자동 압축 창은 스폰에 싣지 않는다**(2026-10-05 사용자 지시: 작업 도중에는
-  //   CLI 가 모델 창 끝에서만 접고, 고른 창은 명령 사이 조용한 압축에만 쓴다). 종전에는 해소한 창(3층 →
-  //   토큰 절약 Q → 창 하한)을 `--autocompact` 로 실어 CLI 가 작업 도중 그 창 근처에서 접었는데, Opus 5.5
-  //   부터 호출 한 번이 문맥을 약 70% 더 늘려 200k 창은 약 19호출마다 접혔고 1~2시간 지시의 35~47% 가
-  //   압축이었다(접힐 때마다 읽던 문서를 다시 읽는다). 플래그가 없으면 CLI 기본(모델 창 전체)이고, 고른
-  //   창은 턴 경계 판정(index.ts `maybeCompactAfterTurn` → shared `shouldCompactAfterTurn`)만 본다.
-  //   ⚠ 다시 싣는다면 `off` 는 CLI 값이 아니다 — `--autocompact off` 는 `argument 'off' is invalid` 로
-  //   **즉시 종료**한다(실측 2.1.252). `agentCliArgs.test.ts` 가 이 플래그를 허용 목록 밖에 두고 막는다.
+  // §4 — 아래는 양쪽 경로에 유효한 플래그(`--fallback-model` 은 `--print` 전용이라 printFlags).
+  // (5) 자동 압축 창(`--autocompact`)은 싣지 않는다 — 실으면 Opus 5.5 에서 200k 창이 ~19호출마다 접혔다(실측). 고른 창은 턴 경계 판정(`shouldCompactAfterTurn`)만 본다.
+  // ⚠ `--autocompact off` 는 즉시 종료(실측 2.1.252) — `agentCliArgs.test.ts` 가 막는다.
 
-  // §4 (CLI 사양 추종) — **시스템 프롬프트를 박제하지 않는다.** 설치본 기본은 `on` 이고, 그 뜻은
-  //   `--help` 원문대로 "대화의 첫 요청에서 (`--append-system-prompt` 를 포함해) 프롬프트를 렌더해
-  //   기록해 두고, 이후 **모든 요청과 resume 은 나중 실행이 다른 글을 넘겨도 그 기록을 그대로 보낸다**,
-  //   압축될 때까지" 이다. 우리는 매 턴 `--resume` 으로 이어 붙이면서 그때그때 달라진 집행 문구를
-  //   `--append-system-prompt` 로 싣기 때문에(이 파일의 스폰부), 기본값을 그대로 두면 **첫 턴 문구가
-  //   굳고 이후 턴의 집행이 조용히 사라진다** — 플래그 오류도 로그도 없이 글만 안 바뀌는 자리라
-  //   증상으로는 영영 못 찾는다. `off` 는 매 요청 새로 렌더한다.
-  //   ⚠ 값이 아니라 **선택지**다 — `on|off` 밖의 값을 주면 `argument … is invalid` 로 즉시 종료한다
-  //   (실측 2.1.278: `off` 는 `--print` probe 통과, `--version` 조합도 통과해 인터랙티브 경로에서도
-  //   안전하다. 그래서 헤드리스 전용 printFlags 가 아니라 두 경로가 공유하는 여기에 붙인다).
+  // §4 — `--system-prompt-snapshot off`: 기본 `on` 은 첫 요청의 프롬프트를 압축 전까지 resume 에도 그대로 보내, 매 턴 `--append-system-prompt` 로 바뀌는 집행 문구가 조용히 굳는다.
+  // ⚠ 값은 `on|off` 뿐(밖이면 즉시 종료). `off` 는 `--print`·`--version` probe 통과(실측 2.1.278)라 두 경로 공유 자리에 둔다.
   args.push('--system-prompt-snapshot', 'off');
   if (config.excludeDynamicSystemPromptSections) {
     args.push('--exclude-dynamic-system-prompt-sections');
@@ -330,11 +257,8 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
     args.push('--betas', ...betas);
   }
 
-  // §4 (CLI 사양 추종) — 이 세션에만 존재하는 서브에이전트 정의. 배열(우리) → 객체(CLI) 변환은
-  //   `buildAgentsFlagJson`(shared) 한 곳이고, 넘길 게 없으면 **플래그 자체를 안 붙인다**.
-  //   ⚠ argv 로 나가는 JSON 이라 셸을 거치지 않는 spawn(배열 인자)이라야 안전하다 — 헤드리스 스폰이
-  //   그렇다. 문자열 명령줄로 조립하는 CMD 터미널 prefill 은 실제로 여기서 깨졌다(cmd.exe·bash 가 안쪽
-  //   따옴표를 먹어 `Invalid --agents configuration`) — 그 길은 `interactiveCommandLine.ts` 가 셸별로 감싼다.
+  // §4 — 세션 전용 서브에이전트 정의(`--agents`, 변환은 shared `buildAgentsFlagJson`, 없으면 안 붙인다).
+  // ⚠ argv JSON 이라 배열 인자 spawn 에서만 안전하다 — 셸 한 줄인 CMD prefill 은 따옴표가 먹혀 깨지므로 `interactiveCommandLine.ts` 가 셸별로 감싼다.
   const agentsJson = buildAgentsFlagJson(config.agentDefinitions);
   if (agentsJson) {
     args.push('--agents', agentsJson);
@@ -348,12 +272,7 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
   // §4 엔진 다리 — 우리 모드(`vibisual-bridge`)를 이 세션에만 싣는다. 스위치를 껐거나·판올림이 낮거나·
   //   모르거나·파일을 못 옮겼으면 아무것도 붙지 않는다(종전 스폰과 바이트 단위로 같다).
   appendEngineBridgeArgs(args);
-  // §5.3 v4.89 자기 기억 + §4 Fast 모드 — **설정 파일 한 장**으로 나간다.
-  //   `--settings` 로 들어간 값은 사용자 설정 계층과 병합되므로 사용자 설정을 지우지 않고
-  //   필요한 키만 바꿔 끼운다. 기억 `'off'` 는 파일이 아니라 환경변수 쪽이라 여기서는 인자가
-  //   늘지 않는다(스폰부가 처리).
-  //   ⚠ `--settings` 를 **두 번 붙이면 병합이 아니라 뒤엣것이 앞엣것을 통째로 덮는다**(실측).
-  //   그래서 기억용·Fast 용을 따로 붙일 수 없고 `prepareAgentSettings` 가 한 장으로 조립한다.
+  // §5.3 기억 + §4 Fast — `--settings` 한 장(사용자 설정과 병합). ⚠ 두 번 붙이면 뒤엣것이 통째로 덮는다(실측) — `prepareAgentSettings` 가 한 장으로 만든다.
   const settingsPlan = prepareAgentSettings({
     memory: config.memory,
     fastMode: wantsFastMode(config),
@@ -381,14 +300,7 @@ function appendEngineBridgeArgs(args: string[]): void {
   args.push('--plugin-dir', dir);
 }
 
-/**
- * §4 (CLI 사양 추종) — Bash 도구 타임아웃 env.
- *
- * CLI 는 `timeout` 미지정 명령에 2분, 지정하더라도 **10분(600,000ms)을 상한**으로 자른다.
- * 그 둘을 각각 `BASH_DEFAULT_TIMEOUT_MS` / `BASH_MAX_TIMEOUT_MS` 로 푼다 — 플래그가 아니라
- * 환경변수라 헤드리스(`claude -p`) 와 인터랙티브 PTY 두 스폰 경로가 같은 함수를 공유한다.
- * 미설정(undefined) 이면 키 자체를 넣지 않아 종전과 바이트 단위로 같은 env 로 뜬다.
- */
+/** §4 — Bash 타임아웃 env(`BASH_DEFAULT_TIMEOUT_MS`/`BASH_MAX_TIMEOUT_MS`): CLI 는 기본 2분·상한 10분으로 자른다. env 라 헤드리스·PTY 가 공유. 미설정이면 키를 안 넣는다. */
 export function buildBashTimeoutEnv(config: AgentConfig | undefined): Record<string, string> {
   if (!config) return {};
   const env: Record<string, string> = {};
@@ -400,38 +312,22 @@ export function buildBashTimeoutEnv(config: AgentConfig | undefined): Record<str
 }
 
 /**
- * §5.3 #9-1 (J~M) — 토큰 절약 축을 스폰 env 로.
- *
- * 조립 자체는 shared 순수 함수(`buildTokenSaverEnv`)가 하고 여기서는 **전역 설정을 읽어 3층을
- * 완성**하기만 한다(에이전트 값 → 전역 값 → 미설정). 순수 함수를 밖에 둔 이유는 `normalize` 와
- * 같다 — 서버·클라·테스트가 같은 답을 내야 하고, 두 벌이 되면 화면과 실제가 어긋난다.
- *
- * ⚠ **켠 축이 하나도 없으면 빈 객체**다. 이 기능을 안 쓰는 사용자의 스폰 env 는 이 절이 생기기
- * 전과 바이트 단위로 같다(§5.3 #9-1 "미설정이면 키 자체를 넣지 않는다").
- *
- * 이 함수를 부르는 자리는 둘이고 그 둘이 **클로드 CLI 로 나가는 모든 경로**다 —
- * 헤드리스(`buildConfigEnv`)와 CMD 인터랙티브 PTY(`terminalManager`). 코덱스 경로는 부르지
- * 않는다(이 env 들은 클로드 CLI 의 규약이라 코덱스에는 뜻이 없다).
+ * §5.3 #9-1 (J~M) — 토큰 절약 env. 조립은 shared `buildTokenSaverEnv`(화면과 같은 답), 여기는 3층(에이전트 → 전역)만 채운다. 켠 축이 없으면 빈 객체.
+ * 클로드 CLI 두 경로(헤드리스 `buildConfigEnv` · CMD PTY `terminalManager`)만 부른다 — 코덱스엔 뜻이 없다.
  */
 export function buildAgentTokenSaverEnv(config: AgentConfig | undefined): Record<string, string> {
   return buildTokenSaverEnv(config, appStateGetTokenSaver());
 }
 
 /**
- * §5.3 #12-4 (J) — 실행 전 차단을 켠 채 띄우는 세션의 표식 env.
- *
- * 훅 안전망(`hooks/handler.mjs`)은 서버와 저장된 최신 설정을 모두 읽지 못할 때 이 표식으로 판단한다.
- * 부르는 자리는 위 토큰 절약과 같은 둘 — 헤드리스(index.ts 디스패치의 `extraEnv`)와
- * CMD 인터랙티브 PTY(`terminalManager`). 끔도 0을 명시해 부모 프로세스의 낡은 1을 물려받지 않는다.
+ * §5.3 #12-4 (J) — 실행 전 차단 표식 env. 훅 안전망(`hooks/handler.mjs`)이 서버·설정을 못 읽을 때 본다. 헤드리스·CMD PTY 가 부른다.
+ * 끔도 `0` 을 명시 — 부모의 낡은 `1` 을 물려받지 않게.
  */
 export function buildVerificationGateEnv(): Record<string, string> {
   return { [VERIFICATION_GATE_ENV]: isVerificationGateEnabled(userDefaultsService.get()) ? '1' : '0' };
 }
 
-/**
- * §5.3 v4.89 — 스폰 env 에 얹을 항목(중첩 깊이 · 자동 기억 끄기).
- * 인자가 아니라 환경변수로 가는 축이라 `buildConfigArgs` 와 분리한다.
- */
+/** §5.3 — 스폰 env 항목(중첩 깊이 · 자동 기억 끄기). env 축이라 `buildConfigArgs` 와 따로. */
 function buildConfigEnv(config: AgentConfig | undefined, ctx?: ConfigArgsContext): Record<string, string> {
   if (!config) return {};
   const env: Record<string, string> = {};
@@ -458,16 +354,7 @@ function buildConfigEnv(config: AgentConfig | undefined, ctx?: ConfigArgsContext
   return env;
 }
 
-/**
- * §4 v2.63 — 인터랙티브(임베디드 PTY) 스폰용 claude CLI 인자.
- *
- * 헤드리스 경로(`buildConfigArgs` + `-p --print --input-format … --output-format …`)와 달리
- * **`-p`/stream 플래그를 붙이지 않는다** — 진짜 인터랙티브 REPL 로 띄워 사용자가 직접 몰게 한다
- * (구독 과금 + Anthropic ToS 합법선, §4 v2.63). `buildConfigArgs` 가 만드는 설정 인자
- * (model/permission/effort/tools/disallowedTools/isolation)는 그대로 공유 — "내가 설정한 세팅 그대로".
- * 헤드리스 경로는 rules 를 매 턴 프롬프트(contextSummary)에 주입하지만 인터랙티브는 그 경로가 없으므로
- * rules 를 `--append-system-prompt` 로 1회 주입한다.
- */
+/** §4 — 인터랙티브 PTY 스폰 인자. `-p`/stream 플래그를 붙이지 않는다(진짜 REPL — 구독 과금 + ToS 합법선). 설정 인자는 `buildConfigArgs` 공유, rules 는 `--append-system-prompt` 로 1회. */
 export function buildInteractiveClaudeArgs(
   config: AgentConfig,
   opts: { includeRules?: boolean } = {},
@@ -484,17 +371,9 @@ export function buildInteractiveClaudeArgs(
 }
 
 /**
- * §4 (CMD 터미널 업그레이드 ⑧) — CMD 터미널 셸에 **prefill 할 한 줄**을 조립한다.
- *
- * 종전에는 `claude` 가 코드에 박혀 있어 CMD 버블이 다른 에이전트 CLI 를 못 띄웠다. 이제
- * `AgentConfig.cliKind` 가 `CMD_CLI_KINDS` 표의 어느 줄인지만 고르고, 실행 파일·훅 귀속 여부는
- * 그 표가 정한다(§3.3 하드코딩 금지 — 새 CLI 는 표에 한 줄 추가로 끝난다).
- *
- * `managed === false`(claude 가 아닌 CLI)면 **우리 훅의 자식이 아니다** — `--resume`·rules
- * `--add-dir`·우리가 조립한 claude 인자를 일절 붙이지 않는다(§5.5 #17-20 ④ v4.74 실행 런처와
- * 같은 규율). `'shell'` 은 아무것도 넣지 않아 순수 셸이 된다.
- *
- * 개행은 **절대 붙이지 않는다** — 사람이 Enter 를 치는 것이 §4 v2.63 이 세운 ToS 합법선이다.
+ * §4 (CMD ⑧) — CMD 셸에 prefill 할 한 줄. 실행 파일·훅 귀속은 `CMD_CLI_KINDS` 표가 정한다(§3.3). `managed === false` 면 우리 훅의 자식이 아니라
+ * claude 인자(`--resume`·rules `--add-dir` 등)를 일절 안 붙인다. `'shell'` 은 순수 셸.
+ * 개행은 **절대 붙이지 않는다** — 사람이 Enter 를 치는 것이 ToS 합법선이다(§4).
  */
 export function buildInteractiveCliPrefill(opts: {
   config: AgentConfig;
@@ -511,11 +390,30 @@ export function buildInteractiveCliPrefill(opts: {
   shell?: string;
   /** 판정할 OS — 시험이 세 OS 를 다 돌 수 있게 인자로 받는다. 없으면 이 프로세스의 OS. */
   platform?: NodeJS.Platform;
+  /** §4 (앱 전용 엔진) — 앱 전용 코덱스 실행본 경로. 있으면 맨 `codex` 대신 이 경로 + 업데이트 확인 끄기(`CODEX_MANAGED_TUI_ARGS`). */
+  managedCodexBin?: string | null;
+  /**
+   * §4 (앱 전용 엔진) ④ — 사용자가 Version 탭 코덱스 칸에서 **보조로 고른** 실행본(`codexBinOverride()`).
+   * 있으면 앱 전용보다 먼저 그 경로로 띄운다 — 그 설치본의 갱신은 그 주인의 것이라 업데이트 확인 끄기는 붙이지 않는다.
+   */
+  selectedCodexBin?: string | null;
 }): { prefill: string; managed: boolean; kind: CmdCliKind } {
   const row = resolveCmdCliKind(opts.config.cliKind);
   const kind = row.value as CmdCliKind;
 
   if (!row.managed) {
+    if (row.value === 'codex' && (opts.selectedCodexBin || opts.managedCodexBin)) {
+      // 우리 훅의 자식이 아닌 것은 그대로다(`--resume`·rules 없음) — 바뀌는 것은 무엇을 띄우는가뿐이다.
+      const family = interactiveShellFamily(opts.shell, opts.platform ?? process.platform);
+      const argv = opts.selectedCodexBin
+        ? [opts.selectedCodexBin]
+        : [opts.managedCodexBin as string, ...CODEX_MANAGED_TUI_ARGS];
+      return {
+        prefill: buildShellCommandLine(argv, family),
+        managed: false,
+        kind,
+      };
+    }
     // 순수 셸(`bin === ''`)이면 빈 prefill — 사용자가 직접 친다.
     return { prefill: row.bin, managed: false, kind };
   }
@@ -535,7 +433,7 @@ export function buildInteractiveCliPrefill(opts: {
   };
 }
 
-/** §4 v2.64 — CMD 에이전트 로컬 스토어 폴더(`~/.vibisual/cmd-agents/<agentId>/`). rules·세션맵 공용. */
+/** §4 — CMD 에이전트 로컬 스토어 폴더(`~/.vibisual/cmd-agents/<agentId>/`). rules·세션맵 공용. */
 function cmdAgentDir(agentId: string): string {
   // agentId 는 `agent-<hash>`(콜론/슬래시 없음)지만 방어적으로 안전한 문자만 남긴다.
   const safeId = agentId.replace(/[^\w.-]/g, '_');
@@ -543,13 +441,8 @@ function cmdAgentDir(agentId: string): string {
 }
 
 /**
- * termId → { agentId, sessionToken, paneId, resumeKey }. 형식이 어긋나면 null.
- *
- * §4 (CMD 터미널 업그레이드 ⑤) — pane 분할 termId 는 `term:<agentId>:<session>#<paneId>` 다.
- * pane 토큰은 **세션 소유 해석과 무관**하므로 여기서 먼저 떼어 낸다 — 떼지 않으면
- * `slice(2).join(':')` 이 sessionToken 에 pane 을 먹어 `index.get(sessionToken)`(소유 탭 해석)이
- * 영영 빗나간다. 반대로 `--resume` 세션맵은 pane 마다 **다른 claude 대화**를 물므로 pane 을
- * 포함한 `resumeKey` 로 키를 잡는다(pane `'0'` = 종전 키 그대로라 기존 sessions.json 과 호환).
+ * termId → { agentId, sessionToken, paneId, resumeKey } | null. pane 분할 termId 는 `term:<agentId>:<session>#<paneId>`(§4 CMD ⑤) —
+ * pane 을 먼저 떼야 소유 탭 해석이 맞고, `--resume` 세션맵은 pane 별 대화라 `resumeKey` 에 pane 을 넣는다(`'0'` 은 옛 키와 같다).
  */
 function parseTermId(termId: string): { agentId: string; sessionToken: string; paneId: string; resumeKey: string } | null {
   const cut = termId.indexOf(CMD_PANE_SEPARATOR);
@@ -576,21 +469,9 @@ export function parseCmdTermId(termId: string): { agentId: string; sessionToken:
 }
 
 /**
- * §4 v2.63 — CMD(인터랙티브 터미널) 에이전트의 Agent Rules 를 **파일 기반**으로 claude 에 전달.
- *
- * 인터랙티브 prefill 은 셸 한 줄이라 멀티라인 rules 를 `--append-system-prompt` 인자로 못 넣는다
- * (개행이 셸 명령을 조기 제출시킴). 대신 Vibisual 관리 폴더(`~/.vibisual/cmd-agents/<agentId>/CLAUDE.md`)에
- * rules 를 써 두고, 터미널 매니저가 `--add-dir <dir>` 로 그 폴더를 물려준다. claude 는 add-dir 된 폴더의
- * CLAUDE.md 를 자동 참조(메모리/지시)하므로 멀티라인·따옴표·레포 오염 문제 없이 rules 가 적용된다.
- *   - 사용자 레포가 아니라 `~/.vibisual` 아래라 공개/커밋 위험 없음.
- *   - 에이전트 단위 폴더라 그 에이전트의 모든 CMD 세션이 같은 rules 공유. 새 세션 스폰 때마다 최신 rules 로 재기록
- *     → AgentSettings 에서 rules 수정 후 "+" 새 세션을 열면 반영(이미 떠 있는 세션엔 소급 X).
- *
- * §4 v2.83 — 사용자 rules 유무와 무관하게 **카드 신고 프로토콜**(`buildCmdCardProtocolRules`)을 항상 덧붙인다.
- * 그래야 인터랙티브 claude 가 작업 신고/질문/검수 카드를 터미널 한 줄 인쇄로 띄울 수 있다(IDE 가 캡처해 카드화).
- * 따라서 이제 rules 가 비어도 폴더 경로를 반환한다(=`--add-dir` 항상 켜짐).
- *
- * @returns 폴더 절대경로(쓰기 실패 시에만 null = `--add-dir` 생략).
+ * §4 — CMD 에이전트의 Agent Rules 를 파일로: prefill 은 셸 한 줄이라 멀티라인을 못 넣는다(개행이 제출). `~/.vibisual/cmd-agents/<agentId>/CLAUDE.md` 에 쓰고 `--add-dir` 로 물린다.
+ * 새 세션 스폰마다 다시 쓴다(떠 있는 세션엔 소급 안 됨). 카드 신고 프로토콜을 늘 덧붙이므로 rules 가 비어도 폴더를 돌려준다.
+ * @returns 폴더 절대경로(쓰기 실패 때만 null = `--add-dir` 생략).
  */
 export function prepareInteractiveRulesDir(
   agentId: string,
@@ -603,10 +484,7 @@ export function prepareInteractiveRulesDir(
     fs.mkdirSync(dir, { recursive: true });
     const sections = ['# Agent Rules (Vibisual CMD agent)'];
     if (rules) sections.push(rules);
-    // §5.11 v4.65 — 켠 집행 플러그인의 지시. 헤드리스는 매 턴 프롬프트로 싣지만 CMD 는 우리가 프롬프트를
-    //   조립하지 않으므로(사람이 REPL 을 직접 몬다) rules 와 **같은 통로**로 넣는다. 켠 것이 없으면
-    //   빈 문자열이라 이 절이 생기지 않는다(종전 파일과 바이트 단위로 같다). 이미 떠 있는 세션에는
-    //   소급되지 않고 다음 세션부터 적용 — rules 와 같은 규칙이다.
+    // §5.11 — 켠 집행 플러그인 지시. CMD 는 프롬프트를 우리가 조립하지 않아 rules 와 같은 통로로 넣는다(다음 세션부터).
     const enforcement = opts.enforcementBlock?.trim();
     if (enforcement) sections.push(enforcement);
     // 카드 신고 프로토콜(터미널 한 줄) — 항상 주입. claude 가 echo 한 줄로 IDE 카드를 띄울 수 있게.
@@ -624,13 +502,8 @@ export function prepareInteractiveRulesDir(
 }
 
 /**
- * §4 v2.64 — CMD(인터랙티브 터미널) 세션 연속성. 인터랙티브 claude 가 쏘는 hook 의 session_id
- * (claude 대화 UUID)를 termId 별로 `~/.vibisual/cmd-agents/<agentId>/sessions.json` 에 저장한다.
- * 앱을 완전히 종료하면 PTY(cmd.exe+claude) 자체는 죽지만 claude 는 대화를 JSONL 로 남기므로,
- * 재시작 후 같은 termId 로 터미널을 다시 열 때 `claude --resume <id>` 로 prefill 해 직전 대화를
- * 이어받는다(SCENARIO §23-2 의 헤드리스 `--resume` 연속성 패턴을 인터랙티브로 확장).
- * 그래프 상태가 아니라 터미널 프로세스 부기라 체크포인트가 아닌 CMD 로컬 스토어(rules CLAUDE.md
- * 와 같은 폴더)에 둔다. 값이 바뀔 때만 write — 같은 REPL 의 session id 는 안정적이라 사실상 1회.
+ * §4 — CMD 세션 연속성: 훅 session_id 를 termId 별로 `sessions.json` 에 적어, 다시 켤 때 `claude --resume <id>` 로 prefill.
+ * 터미널 부기라 체크포인트가 아닌 CMD 로컬 스토어에, 바뀔 때만 쓴다.
  */
 export function recordCmdTermSession(termId: string, claudeSessionId: string): void {
   const parsed = parseTermId(termId);
@@ -666,14 +539,7 @@ export function getCmdResumeSession(termId: string): string | null {
   }
 }
 
-/**
- * §4 v2.68 — CMD 에이전트의 모든 claude 대화 sessionId(UUID) 목록(중복 제거).
- *
- * `recordCmdTermSession` 이 termId(=세션 탭) 별로 `sessions.json` 에 적어둔 값(=claude 대화 UUID)을 모은다.
- * CMD 결과 목록 소싱 전용: hook 이 session_id 를 CMD 버블 합성 세션으로 rewrite 하므로 대화 본문은
- * 합성 세션이 아니라 이 UUID 의 JSONL 에만 쌓인다 → `buildAgentEvents` 가 이 UUID 로 `readUserMessages`
- * 해야 CMD 대화(프롬프트/응답)가 Results 패널에 뜬다. 파일/맵이 없으면 빈 배열.
- */
+/** §4 — CMD 에이전트의 claude 대화 UUID 목록(`sessions.json`). 훅이 session_id 를 합성 세션으로 바꿔 쓰므로 본문은 이 UUID 의 JSONL 에만 있다 — Results 패널이 이걸로 읽는다. */
 export function getCmdSessionIds(agentId: string): string[] {
   const file = path.join(cmdAgentDir(agentId), 'sessions.json');
   try {
@@ -686,31 +552,18 @@ export function getCmdSessionIds(agentId: string): string[] {
   }
 }
 
-/** claude CLI 경로 — `services/claudeBin.ts` 가 SSOT (§5.7 #23-1 v1.59 버전 체크와 동일 바이너리). */
+/** claude CLI 경로 — `services/claudeBin.ts` 가 정본(§5.7 #23-1 버전 체크와 같은 바이너리). */
 const CLAUDE_BIN = (): string => getClaudeBin().binPath;
 
 /**
- * Persistent child process — VS Code Claude Code 확장과 같은 long-lived 모델.
- * 매 턴 fresh spawn (`claude -p --print --resume <id>`) 대신 에이전트당 1개 자식을 띄워두고
- * stdin 으로 다음 턴 메시지만 추가. 2턴째부터 node boot + claude init + JSONL 재로드 +
- * MCP 재연결 + hook 재초기화 비용이 0.
- *
- * 안전장치 — `VIBISUAL_PERSISTENT_CHILD=0` 으로 즉시 옛 동작(매 턴 fresh spawn) 복원.
- * claude 바이너리가 multi-turn stdin 을 지원 안 하는 버전이면 자식이 result 후 자연 종료 →
- * crash 복구 경로가 sub.sessionId 보존 → 다음 턴이 --resume 으로 자동 폴백.
+ * Persistent child — 매 턴 fresh spawn 대신 자식 하나를 두고 stdin 으로 다음 턴만 넣는다(부팅·재로드 비용 0). `VIBISUAL_PERSISTENT_CHILD=0` 이면 매 턴 spawn.
+ * multi-turn stdin 을 못 하는 CLI 면 result 후 끝나고 다음 턴이 `--resume` 으로 폴백한다.
  */
 const PERSISTENT_CHILD_ENABLED = process.env['VIBISUAL_PERSISTENT_CHILD'] !== '0';
 
 /**
- * soft interrupt(`control_request`)를 보낸 뒤 그 턴이 마감되기를 기다리는 시간. 이 창을 넘기면
- * **종전 하드 킬로 폴백**한다 — CLI 가 인터럽트에 `result` 를 안 돌려주는 판본에서도 세션이
- * "영원히 도는 중"으로 남지 않게 하는 안전판이다(폴백하면 감시는 종전처럼 함께 죽는다).
- *
- * **반드시 `TURN_RESUME_GRACE_MS` 보다 길어야 한다.** 마감은 `result` 도착이 아니라 **봉인**에서
- * 일어나고, 백단 여운이 있으면 그 봉인이 유예 창만큼 붙들린다. 두 창이 같으면(둘 다 3,000ms 였다)
- * "인터럽트가 먹었지만 아직 봉인 전"인 찰나에 폴백이 먼저 깨어나 **멀쩡히 응답한 세션을 하드 킬**
- * 하고, 곧 만료된 봉인이 그 죽어가는 자식에게 다음 턴을 써 넣었다 — 그것이 [즉시] 를 누르면 대화가
- * 끝나 버린 사고의 방아쇠다. 관계를 값으로 못 박아 두 창이 다시 겹치지 않게 한다.
+ * soft interrupt 뒤 마감을 기다리는 시간 — 넘으면 하드 킬로 폴백. **반드시 `TURN_RESUME_GRACE_MS` 보다 길어야 한다** —
+ * 같으면 봉인 유예 중인 멀쩡한 세션을 폴백이 죽이고, 만료된 봉인이 그 자식에 다음 턴을 써 [즉시] 가 대화를 끝낸다.
  */
 const SOFT_INTERRUPT_FALLBACK_MS = TURN_RESUME_GRACE_MS + 1500;
 
@@ -731,12 +584,7 @@ interface PersistentInFlight {
   interrupted?: boolean;
   /** §5.5 #17-18 — 활동 없이 온 `result` 를 건너뛴 뒤 걸어 둔 안전 마감(`EARLY_RESULT_SAFETY_MS`). */
   earlyResultTimer?: ReturnType<typeof setTimeout>;
-  /**
-   * §5.5 #17-18 ⑩-5 — 붙들어 둔 그 `result` 가 **남의 턴 도장**을 달고 있었는가.
-   *
-   * 안전 마감이 끝내 이 명령을 봉인할 때, 이 값이 참이면 그 본문을 답으로 싣지 않는다 —
-   * 주인이 확인되지 않은 글을 이 명령의 답으로 얼리면 사용자는 자기 질문 아래에서 남의 답을 본다.
-   */
+  /** §5.5 #17-18 ⑩-5 — 붙든 `result` 가 남의 턴 도장이었나. 참이면 안전 마감이 그 본문을 이 명령의 답으로 싣지 않는다. */
   earlyResultForeign?: boolean;
 }
 
@@ -755,17 +603,8 @@ type StdinBearingChild = {
 };
 
 /**
- * §5.5 #17-18 — **이 자식이 지금 다음 턴을 받을 수 있는 창구를 갖고 있는가.**
- *
- * `terminateChildTree`(사용자 [중지] · [즉시] 덧말의 하드 킬 폴백 · 앱 종료)는 SIGTERM 보다
- * **`stdin.end()` 를 먼저** 부른다. 그래서 프로세스가 아직 살아 있고(`close` 가 오기 전) 우리 장부에도
- * 그대로 남아 있는데 **창구만 먼저 닫힌 창**이 존재한다. 그 창에 다음 턴을 써 버리면 Node 는
- * `ERR_STREAM_WRITE_AFTER_END` 를 **stream 의 `error` 이벤트로** 올리므로 감싼 `try/catch` 가 못 잡고
- * 메인 프로세스 `uncaughtException` 이 된다 — 그 순간 dispatch 체인이 끊겨 **사용자가 방금 친 덧말이
- * 한 글자도 나가지 못한 채 대화가 끝난 것처럼 멈춘다**(실측: 2026-08-14 `crash.log` 2건, 스택이
- * 잠정 봉인 타이머 → finalize → `processNextCommand` → 이 write 로 이어진다).
- *
- * 그래서 재사용 판정은 "자식이 장부에 있는가"가 아니라 **"쓸 수 있는 창구인가"** 여야 한다.
+ * §5.5 #17-18 — 다음 턴을 쓸 창구(stdin)가 열려 있는가. `terminateChildTree` 가 `stdin.end()` 를 먼저 불러 `close` 전까지 창구만 닫힌 창이 있다 —
+ * 거기 쓰면 `ERR_STREAM_WRITE_AFTER_END` 가 `error` 이벤트로 올라 try/catch 를 지나 `uncaughtException`, dispatch 가 끊긴다(실측 2026-08-14).
  */
 export function isChildStdinWritable(child: StdinBearingChild | null | undefined): boolean {
   if (!child) return false;
@@ -787,35 +626,14 @@ let subCounter = 0;
 /** 세션 id 를 다시 뽑아 보는 횟수 상한 — 난수 꼬리가 겹치는 것은 사실상 없지만 무한 루프는 만들지 않는다. */
 const SUB_ID_MINT_ATTEMPTS = 50;
 
+/** SubAgent 매니저 — 부모 에이전트별 실행 세션의 생성·상태·명령 실행(`claude -p`/`--resume`)·결과 수집. */
 /**
- * SubAgent 매니저 — 부모 에이전트별 독립 실행 세션 관리.
- *
- * 책임:
- * - subagent 생성/조회/상태 관리
- * - 명령 실행 (claude -p / --resume)
- * - 실행 완료 시 결과 수집 + 콜백
- */
-/**
- * 스트림 이벤트 버퍼 최대 크기 (subagent당) = **IDE 가 되살릴 수 있는 대화의 전부**.
- *
- * §5.5 v4.92 — 500 → 2000. 사용자 말풍선(completedCommands)과 카드는 체크포인트에 사실상 무제한
- * 남는데 AI 본문·도구만 이 창에 갇혀 있어, 긴 세션을 다시 열면 **말풍선과 카드만 남고 그 사이
- * 대화가 통째로 빈** 화면이 됐다(실측: 1시간 1,015 이벤트 세션에서 500 창이 마지막 10분만 덮음).
- * 탭을 옮기면 클라 비활성 컷(300) 뒤 이 복원분이 유일한 소스라 여기가 곧 상한이다.
- *
- * ⚠ 올릴 때는 `streamBufferStore.COMPACT_KEEP_LINES`(디스크에 남기는 줄 수)가 항상 이 값보다
- *   커야 한다 — 작으면 복원이 그 줄 수로 조용히 깎인다.
+ * sub 당 스트림 버퍼 상한 = IDE 가 되살릴 수 있는 대화 전부(§5.5). 작으면 긴 세션의 말풍선 사이 대화가 빈다(실측: 500 은 1시간 세션의 마지막 10분).
+ * ⚠ `streamBufferStore.COMPACT_KEEP_LINES` 가 늘 이 값보다 커야 한다 — 작으면 복원이 조용히 깎인다.
  */
 const MAX_STREAM_BUFFER = 2000;
 
-/**
- * **전체 세션을 한 번에** 싣는 조회(`getStreamBuffersForAgent` — IDE 열 때 1회)의 세션당 상한.
- *
- * §5.5 v4.92 — 상한을 올리면서도 IDE 여는 비용은 종전 그대로 두기 위한 분리. 그 응답은 에이전트의
- * 모든 세션을 담는데, 클라는 보고 있지 않은 세션을 곧바로 `STREAM_EVENTS_MAX_PER_INACTIVE_SESSION`
- * 으로 깎는다 — 세션 10개에 2,000개씩 실어 보내야 9할이 버려진다. 깊은 복원분은 사용자가 실제로
- * 여는 세션만 `getStreamBuffer`(단건 경로)로 받아 간다.
- */
+/** 전체 세션 일괄 조회(`getStreamBuffersForAgent`)의 세션당 상한 — 클라가 안 보는 세션을 곧 깎으므로 꼬리만. 깊은 복원분은 단건 `getStreamBuffer`. */
 const MAX_STREAM_BUFFER_BULK = 500;
 
 /**
@@ -833,9 +651,7 @@ function makeEventId(): string {
  *  side-by-side diff 를 그린다. 여기서 자르면 JSON 이 깨져 파싱 실패 → diff 미표시(한 줄만/누락). */
 const DIFF_INPUT_TOOLS = new Set([
   'Edit', 'MultiEdit', 'Write', 'NotebookEdit',
-  // §5.5 #17-17 ⑨ v4.59 — TodoWrite 도 전문이 필요하다. input 은 계획 전체(todos 배열)라
-  //   300자에서 자르면 JSON 이 깨져 클라 계획 블록(`parsePlanTodos`)과 목표 단계 동기화가
-  //   **둘 다 조용히 실패**한다(항목 두어 개만 넘어도 발생 — 계획이 일반 도구 상자로 폴백하던 원인).
+  // §5.5 #17-17 ⑨ — TodoWrite 도 전문 — 자르면 JSON 이 깨져 계획 블록(`parsePlanTodos`)·목표 동기화가 조용히 실패한다.
   'TodoWrite',
 ]);
 /** 비-Edit 도구 input 미리보기 상한(문자). Edit 계열은 자르지 않는다(위 참조). */
@@ -857,13 +673,10 @@ function summarizeToolInput(name: string, input: unknown): string {
 }
 
 /**
- * §5.5 #17-13 ⑤-3 — CLI 작업 이벤트에서 **화면이 그리는 것만** 추린다.
- *
- * 실행본 스키마(claude.exe 2.1.223):
+ * §5.5 #17-13 ⑤-3 — 작업 이벤트에서 화면이 그리는 것만(모양 claude.exe 2.1.223):
  *   task_started      : task_id · description · subagent_type? · task_type? · prompt? · skip_transcript?
  *   task_notification : task_id · status(completed|failed|stopped) · summary · usage.duration_ms · skip_transcript?
- * 두 이벤트는 CLI 자신의 표현으로 한 작업의 **edge bookends**(시작·끝 한 쌍)라, 클라가 `task_id` 로 접는다.
- * 나머지 subtype 은 payload 없이 종전 그대로 `[subtype]` 한 줄이다.
+ * 시작·끝 한 쌍이라 클라가 `task_id` 로 접는다. 다른 subtype 은 `[subtype]` 한 줄.
  */
 function readTaskInfo(subtype: string, obj: Record<string, unknown>): StreamTaskInfo | null {
   if (subtype !== TASK_CHIP_START_SUBTYPE && subtype !== TASK_CHIP_END_SUBTYPE) return null;
@@ -883,15 +696,8 @@ function readTaskInfo(subtype: string, obj: Record<string, unknown>): StreamTask
 }
 
 /**
- * §4 (CLI 사양 추종) — `--include-hook-events` 로 흘러든 훅 줄에서 **화면이 그리는 것만** 추린다.
- *
- * ⚠ 공식 문서가 이름을 셋(`hook_started`/`hook_progress`/`hook_response`)까지만 못 박았고 **본문
- *   필드는 문서화돼 있지 않다.** 그래서 `prompt_suggestion` 과 같은 자세를 취한다 — 흔한 이름을
- *   순서대로 훑고, 아무것도 못 찾으면 **줄을 만들지 않는다**(모양이 달라도 잘못된 본문을 지어내지
- *   않는 쪽). 판본이 바뀌어 필드 이름이 달라져도 앱이 이상한 글자를 그리지 않는다.
- *
- * 라벨 자리에는 **어떤 훅이 떴는지**(`hook_event_name`)를 세운다 — 사용자가 이 플래그를 켜는 이유가
- * 정확히 그것이다. `id` 는 훅 이름 + 자리표라 같은 훅의 시작·응답이 한 이름으로 묶여 보인다.
+ * §4 — `--include-hook-events` 훅 줄에서 그릴 것만. ⚠ 본문 필드는 문서화돼 있지 않다 — 흔한 이름을 훑고 못 찾으면 줄을 만들지 않는다.
+ * 라벨은 `hook_event_name`, `id` 는 훅 이름 + 자리표(시작·응답이 한 이름으로 묶인다).
  */
 function readHookChipInfo(obj: Record<string, unknown>): StreamTaskInfo | null {
   const text = (key: string): string | undefined => {
@@ -913,9 +719,7 @@ function readHookChipInfo(obj: Record<string, unknown>): StreamTaskInfo | null {
   };
 }
 
-/** stream-json 라인 → SubAgentStreamEvent 배열 변환. *  하나의 assistant 메시지는 thinking + text + tool_use 블록을 동시에 담을 수 있어 배열로 반환.
- *  §5.7 #23-2 v1.60 — Agent View JSONL tail 경로(`claudeAgentViewWatcher`)에서도 동일 함수 재사용
- *  하려고 export. JSONL 은 stream-json 의 상위셋(메타 라인 추가)이라 모르는 type 은 자연스럽게 [] 반환. */
+/** stream-json 한 줄 → 이벤트 배열(메시지 하나에 thinking·text·tool_use 가 함께 온다). Agent View JSONL tail(§5.7 #23-2)도 쓴다 — 모르는 type 은 []. */
 export function parseStreamLine(
   obj: Record<string, unknown>,
   subAgentId: string,
@@ -925,10 +729,7 @@ export function parseStreamLine(
   const type = obj['type'] as string | undefined;
   if (!type) return [];
 
-  // §4 v2.88 — `--include-partial-messages` 가 켜진 스폰(legacy --print)에서만 true.
-  //   true 면 토큰 델타(content_block_delta / stream_event)를 텍스트로 흘리고, 뒤따라오는
-  //   완성 `assistant` 메시지의 text/thinking 는 **억제**한다(둘 다 그리면 본문이 2번 누적).
-  //   false(persistent · Agent View JSONL)면 델타가 애초에 안 와서 기존 그대로 완성 메시지만 렌더.
+  // §4 — `--include-partial-messages` 스폰(legacy)에서만 true: 델타를 흘리고 완성 메시지의 text/thinking 은 억제한다(둘 다면 두 번). persistent·JSONL 은 델타가 없다.
   const partial = opts.partialMessages === true;
 
   const makeBase = (): Omit<SubAgentStreamEvent, 'eventType' | 'content'> => ({
@@ -944,11 +745,7 @@ export function parseStreamLine(
     const content = msg?.['content'];
     if (!Array.isArray(content)) return [];
     const events: SubAgentStreamEvent[] = [];
-    // §4 (스트림 3종 ①) — 중첩 서브에이전트(Task)가 한 말인가.
-    //   `--forward-subagent-text` 가 켜져 있으면 원문이 `parent_tool_use_id` 로 소속을 알려 준다.
-    //   ⚠ **이 줄들은 델타가 없다**(실측: 전달된 서브에이전트 텍스트는 완성 `assistant` 메시지로만 온다).
-    //   그래서 아래 partial 가드를 그대로 두면 켜도 화면에 아무것도 안 나온다 — 플래그만 붙이면
-    //   되는 줄 알기 쉬운 자리이고, 실제로 그렇게 하면 조용히 통째로 사라진다.
+    // §4 (스트림 ①) — 중첩 서브에이전트의 말(`--forward-subagent-text` → `parent_tool_use_id`). ⚠ 델타 없이 완성 메시지로만 온다(실측) — partial 가드에 태우면 통째로 사라진다.
     const nestedUnder = typeof obj['parent_tool_use_id'] === 'string' ? (obj['parent_tool_use_id'] as string) : undefined;
     /** 중첩 줄은 델타가 없으므로 완성 블록을 반드시 방출해야 한다. */
     const skipComplete = partial && !nestedUnder;
@@ -957,8 +754,7 @@ export function parseStreamLine(
       if (!block || typeof block !== 'object') continue;
       const b = block as Record<string, unknown>;
       const bt = b['type'] as string | undefined;
-      // §4 v2.88 — partial 모드면 text/thinking 은 이미 델타로 흘렸으므로 완성 블록은 건너뛴다(중복 방지).
-      //   tool_use 는 델타(input_json_delta)가 부분 JSON 이라 못 쓰므로 항상 완성 블록에서 방출.
+      // §4 — partial 이면 text/thinking 은 델타로 흘렸으니 건너뛴다. tool_use 는 델타가 부분 JSON 이라 늘 완성 블록에서.
       if (bt === 'text' && typeof b['text'] === 'string' && b['text']) {
         if (!skipComplete) events.push({ ...makeBase(), ...nest, eventType: 'text', content: b['text'] as string });
       } else if (bt === 'thinking' && typeof b['thinking'] === 'string' && b['thinking']) {
@@ -974,9 +770,7 @@ export function parseStreamLine(
     return events;
   }
 
-  // §4 v2.88 — content_block_delta 의 텍스트/사고 조각을 이벤트로.
-  //   partial 모드에서만 처리(아니면 완성 assistant 메시지와 중복). delta 는 두 형태로 올 수 있다:
-  //   ① 최상위 `{type:'content_block_delta', delta:{…}}`  ② `{type:'stream_event', event:{type:'content_block_delta', delta:{…}}}`(`--include-partial-messages` 래핑).
+  // §4 — partial 모드의 델타 조각. 두 형태: ① 최상위 `content_block_delta` ② `stream_event` 로 감싼 것(`--include-partial-messages`).
   if (partial && (type === 'content_block_delta' || type === 'stream_event')) {
     const inner = type === 'stream_event'
       ? (obj['event'] as Record<string, unknown> | undefined)
@@ -1005,10 +799,7 @@ export function parseStreamLine(
 
   // 도구 결과 — user 메시지(content 배열) 또는 최상위 tool_result 모두 커버
   if (type === 'user') {
-    // §4 (스트림 3종 ②) — `--replay-user-messages` 가 되돌려 준 **접수 확인**.
-    //   원문 실측: `{"type":"user", …, "isReplay":true}`. 이 줄이 오면 "우리가 보낸 명령이 CLI 에
-    //   실제로 들어갔다"가 스트림으로 증명된다 — 본문은 우리가 이미 화면에 그려 둔 그 명령이므로
-    //   되풀이하지 않고 **칩 한 줄**로만 남긴다(대화록 중복 방지).
+    // §4 (스트림 ②) — `--replay-user-messages` 접수 확인(`isReplay:true`) — 본문은 이미 그린 명령이라 칩 한 줄만.
     if (obj['isReplay'] === true) {
       return [{ ...makeBase(), eventType: 'system', content: formatSystemChip('command_received') }];
     }
@@ -1026,10 +817,7 @@ export function parseStreamLine(
         const text = typeof bc === 'string'
           ? bc.slice(0, 500)
           : (Array.isArray(bc) ? JSON.stringify(bc).slice(0, 500) : '');
-        // §5.5 #17-27 ⑪ — 결과가 **어느 호출의 것인지**를 함께 보낸다. `SubAgentStreamEvent.toolUseId` 규약은
-        //   처음부터 양쪽(호출·결과)을 전제했는데 결과 쪽이 비어 있어, 클라 추종이 호출 순서(FIFO)로
-        //   짐작할 수밖에 없었다 — 결과가 끝내 오지 않는 호출(중지·거부)이 하나만 있어도 그 뒤로 계속
-        //   한 칸씩 밀려 **직전 파일을 따라가는** 사고가 났다. 원문에 이미 있는 값이라 새로 만들 것이 없다.
+        // §5.5 #17-27 ⑪ — 결과에 `toolUseId` 를 싣는다 — 없으면 클라가 FIFO 로 짐작해, 결과가 안 오는 호출 하나에 뒤가 밀려 직전 파일을 따라간다.
         const forId = typeof b['tool_use_id'] === 'string' ? (b['tool_use_id'] as string) : undefined;
         events.push({ ...makeBase(), ...nest, eventType: 'tool_result', content: text, toolUseId: forId });
       }
@@ -1049,11 +837,8 @@ export function parseStreamLine(
     return [{ ...makeBase(), eventType: 'tool_result', content: text, toolName: name || undefined, toolUseId: forId }];
   }
 
-  // 시스템 메시지 — hook_started/hook_response/init 같은 세션 메타는 UI 노이즈라 버린다.
-  // session_id는 클라가 필요로 하지 않음(서버가 내부적으로 subAgent.sessionId에 저장).
-  // notification: index.ts classifyNotification 이 이미 버블 뱃지 + 브라우저 알림으로 처리 → 본문 중복.
-  // turn_duration: claudeAgentViewWatcher 의 "턴 종료" 내부 신호 → 사용자에게 의미 없음.
-  // 나머지 subtype(task_started 등)은 [subtype] 형태로 보내고, 클라가 왼쪽 레일 노드로 렌더한다(SystemNode).
+  // 시스템 메시지 — 세션 메타(hook_started/hook_response/init)·notification(index.ts 가 처리)·turn_duration(내부 신호)은 버린다.
+  // 나머지 subtype 은 `[subtype]` 으로 보낸다(SystemNode).
   if (type === 'system') {
     const subtype = obj['subtype'] as string | undefined;
     // §4 (CLI 사양 추종) — 훅 줄은 **기본 소음**이지만 `--include-hook-events` 로 일부러 켠 세션에서는
@@ -1077,10 +862,7 @@ export function parseStreamLine(
     return [{ ...makeBase(), eventType: 'system', content }];
   }
 
-  // §4 (스트림 3종 ③) — `--prompt-suggestions` 가 턴마다 보내는 "다음에 칠 만한 프롬프트" 예측.
-  //   ⚠ 이 계정 probe 에서는 실제 메시지가 오지 않아(서버 측 게이팅 추정) **payload 모양을 단정하지
-  //   않는다** — 흔한 이름 몇 개를 순서대로 훑고, 문자열을 못 찾으면 아무것도 만들지 않는다.
-  //   모양이 달라도 잘못된 본문을 지어내지 않고 조용히 넘어가는 쪽을 택했다.
+  // §4 (스트림 ③) — `--prompt-suggestions` 예측. ⚠ probe 에서 실제 메시지가 안 와 모양을 모른다 — 흔한 이름을 훑고 없으면 만들지 않는다.
   if (type === 'prompt_suggestion') {
     for (const key of ['suggestion', 'prompt', 'text', 'content']) {
       const v = obj[key];
@@ -1104,14 +886,7 @@ export function parseStreamLine(
   return [];
 }
 
-/**
- * **소유 탭이 미상인 항목**의 절대 상한 — 장부가 무한히 자라지 않게 하는 마지막 누수 방지.
- *
- * 종전에는 여기에 30분 quiet-window 가 함께 있어 "이만큼 조용하면 끝난 걸로 친다"고 추정했다.
- * 그 추정은 긴 빌드·패키징·폴링처럼 **정상적으로 조용한** 자식을 끝난 것으로 만들어 폐기했다
- * (`hasPendingSubagentTasks` 머리말). 이 상한은 그 대체물이 아니다 — 우리가 프로세스를 볼 수 없어
- * **사실로 판정할 길이 아예 없는** 항목에만 걸리고, 소유 탭을 아는 항목은 프로세스 소멸로만 걷힌다.
- */
+/** 소유 탭 미상 항목의 절대 상한 — 누수 방지일 뿐 조용함으로 끝을 추정하지 않는다. 소유 탭을 아는 항목은 프로세스 소멸로만 걷힌다. */
 const PENDING_SUBAGENT_MAX_AGE_MS = 4 * 60 * 60 * 1000;
 /** §5.5 #17-9 ⑦(b) — 부모별로 남겨 두는 "방금 끝난 자식" 수. 목록이 아니라 **꼬리**라서 짧게 둔다. */
 const MAX_FINISHED_SUBAGENT_TASKS = 5;
@@ -1123,12 +898,7 @@ interface PendingSubagentEntry {
   description?: string;
   subagentType?: string;
   prompt?: string;
-  /**
-   * §5.5 #17-9 ⑧ — 이 자식이 `run_in_background: true` 로 떠났는가(`tool_input` 그대로).
-   * 배경 스폰은 **띄우자마자** `PostToolUse` 가 "띄웠다" 접수증을 물고 돌아오므로, ⑦(b) 의
-   * "결과가 왔다 = 끝났다" 폴백을 그대로 태우면 항목이 수 밀리초 만에 내려간다(= 활동바가
-   * 내내 `(0)`). 이 표식이 붙은 항목은 `SubagentStop` 으로만 내린다.
-   */
+  /** §5.5 #17-9 ⑧ — `run_in_background` 자식인가. 배경 스폰의 `PostToolUse` 는 접수증이라 ⑦(b) 폴백을 태우면 곧바로 내려간다 — `SubagentStop` 으로만 내린다. */
   background?: boolean;
   /** ⑦(a) 자식 훅의 `agent_id` — 한 번 각인되면 이후 그 자식의 활동은 이 키로 곧장 찾는다. */
   agentId?: string;
@@ -1182,28 +952,24 @@ export class SubAgentManager {
   /** sub.status 가 변하면 부모 에이전트 ID 와 함께 호출 — 커스텀 부모 버블의 active/completed 갱신용 */
   private onSubStatusChange: ((parentAgentId: string) => void) | null = null;
   /**
+   * §5.1 #2-1 (B) — 사용자 명령이 **처음 나가는** 순간(부모 에이전트 ID · 그 순간 같은 에이전트에 이미 처리 중인 턴이 있었나).
+   * 묶음 버블의 이번 턴 장부가 여기서 열린다. 이 매니저는 그래프를 모르므로 index.ts 가 주입한다.
+   */
+  private onCommandStart: ((parentAgentId: string, busy: boolean) => void) | null = null;
+  /**
    * §5.3 #10-2 — 이 세션이 띄우고 **아직 받지 못한** 위임 결과(cmdId·상태). 장부는 index.ts 가 쥐어 주입한다.
    * 턴이 완료로 끝나려는 자리마다 묻는다 — 결과를 받지 못한 턴을 완료로 적지 않기 위해서다.
    */
   private pendingDispatchResults: ((subAgentId: string) => Parameters<typeof formatUndeliveredDispatchJobs>[0]) | null = null;
-  /** v1.74 — "지금 즉시 체크포인트 저장" 요청. agent-view 매핑(agentViewShort/SessionId)을
-   *  spawn 직후 영속화하기 위한 무조건 저장 훅. onSubStatusChange 는 status 변화가 없으면
-   *  저장을 건너뛰어, 데몬 매핑이 디스크에 안 남는 윈도우(서버 크래시 시 reattach 불가)가 생긴다. */
+  /** agent-view 매핑을 spawn 직후 무조건 저장하는 훅 — `onSubStatusChange` 는 상태가 그대로면 저장을 건너뛰어, 그 사이 크래시면 reattach 할 수 없다. */
   private onPersistNeeded: (() => void) | null = null;
   /** subagentId → 최근 스트림 이벤트 버퍼 (late-join용) */
   private streamBuffers = new Map<string, SubAgentStreamEvent[]>();
   /** 조회·출력·회수 검증 시계. WeakMap이라 버퍼가 없어지면 시계도 함께 회수된다. */
   private streamBufferAccessAt = new WeakMap<SubAgentStreamEvent[], number>();
   /**
-   * subagentId → 마지막으로 디스크에서 읽었을 때의 파일 지문(`streamBufferStore` 규약).
-   *
-   * 읽기 경로가 **결과가 비면 캐시하지 않아**(`if (loaded.length > 0)`) 파일이 없거나 빈 세션은
-   * 호출마다 파일을 다시 열었고, 내용이 있는 세션도 호출마다 꼬리를 다시 파싱했다. 지문이 그대로면
-   * `stat` 한 번으로 끝낸다. ⚠ 버퍼를 버리는 곳(`sweepIdle`·제거·`restore`)에서는 **이 지문도 함께
-   * 지워야** 한다 — 안 지우면 "변화 없음"으로 판정해 디스크에 멀쩡한 과거를 못 읽어 온다.
-   *
-   * `dir` 를 함께 들고 있는 이유: 복원 직후처럼 부모를 힌트로만 알 때는 폴더가 나중에 달라질 수
-   * 있다. 폴더가 바뀌면 지난 지문은 **다른 파일의 것**이라 무효로 보고 다시 읽는다.
+   * sub → 마지막으로 읽은 파일 지문(`streamBufferStore`). 그대로면 `stat` 한 번으로 끝낸다.
+   * ⚠ 버퍼를 버리는 곳(`sweepIdle`·제거·`restore`)에서 지문도 지운다 — 안 지우면 "변화 없음"으로 디스크 과거를 못 읽는다. 폴더가 바뀌면 지문은 무효(`dir`).
    */
   private streamDiskStamps = new Map<string, { dir: string; stamp: string | null }>();
 
@@ -1214,12 +980,7 @@ export class SubAgentManager {
   }
   /** subagentId → 실행 중인 자식 프로세스 (탭 닫기 시 종료용) */
   private runningChildren = new Map<string, ChildProcess>();
-  /**
-   * §5.5 #17-9 ⑭ — 항목별 판정 상태. 키는 `<subId>::<taskId>`.
-   *
-   * `thresholdMult` 가 지수 백오프다 — `alive` 로 나온 항목은 조용한 시간이 이 배수만큼 더
-   * 길어져야 다시 묻는다. 이 값이 없으면 몇 시간짜리 정당한 대기 하나가 판정을 계속 태운다.
-   */
+  /** §5.5 #17-9 ⑭ — 항목별 판정 상태(`<subId>::<taskId>`). `thresholdMult` 지수 백오프 — 긴 정당한 대기가 판정을 계속 태우지 않게. */
   private probeStates = new Map<string, { result?: BackgroundTaskProbeResult; thresholdMult: number }>();
   /** 지금 판정이 도는 항목들 — 같은 항목을 두 번 띄우지 않고, 화면에 "확인 중"을 세운다. */
   private probesInFlight = new Set<string>();
@@ -1235,28 +996,30 @@ export class SubAgentManager {
   private sessionProbeHistory: number[] = [];
   /** 사용자 설정(머신 단위). 부팅 때 `AppState` 에서 주입되고, 없으면 기본값. */
   private bgTaskProbeSettings: BackgroundTaskProbeSettings = DEFAULT_BG_TASK_PROBE_SETTINGS;
-  /**
-   * §5.3 v4.89 — sub.id → 이번 스폰에 얹을 환경변수(중첩 깊이 · 자동 기억 끄기).
-   * 인자(`configArgs`)와 달리 env 는 spawn 시점에만 필요해 조립 지점과 사용 지점이 떨어져 있다.
-   */
+  /** §5.3 — sub.id → 이번 스폰의 env(중첩 깊이 · 기억 끄기). spawn 때만 필요해 조립과 사용 자리가 떨어져 있다. */
   private pendingConfigEnv = new Map<string, Record<string, string>>();
-  /** §5.7 #23-2 v1.60 — subagentId → 진행 중인 agent-view watcher 메타.
-   *  legacy path 의 runningChildren 와 짝. cancel/remove 시 `claude stop` + `detachWatcher` 발사. */
+  /**
+   * §4 API 크레딧 — `execute` 가 이 턴을 크레딧 경로로 정했다(자식은 아직 안 섰다). legacy 경로가 이 표식을 보고
+   * 매 턴 `--print` 새 스폰으로 가고, 스폰 자리가 크레딧 실행을 연다(`creditRuns`). 큐로 되돌려진 턴은 다음 `execute`
+   * 가 다시 정한다.
+   */
+  private pendingCreditRoute = new Map<string, { cmdId: string }>();
+  /** §4 API 크레딧 — 지금 크레딧으로 도는 자식(sub → 크레딧 실행 id + 그 자식). 다른 자식의 줄은 보지 않는다. */
+  private creditRuns = new Map<string, { runId: string; child: ChildProcess }>();
+  /**
+   * §4 API 크레딧 — 기능이 켜진 채 **구독 경로**로 나가는 스폰. env 에서 `ANTHROPIC_API_KEY` 를 걷는다 — 경로는
+   * 앱이 정하므로, 셸·secrets.json 에 남은 키가 몰래 크레딧을 쓰지 않게(키가 구독 로그인보다 우선이다).
+   */
+  private stripCreditKeyEnv = new Set<string>();
+  /** §5.7 #23-2 — sub → 진행 중인 agent-view watcher(legacy `runningChildren` 의 짝). cancel/remove 때 `claude stop` + `detachWatcher`. */
   private runningAgentViewWatchers = new Map<string, { short: string; sessionId: string }>();
   /** 사용자가 stop() 호출로 명시 중지한 subagentId — close 핸들러에서 '유저 중지' vs '에러' 를 구분해
    *  cmd.result 를 `[Stopped by user]` 로 채우고 sub.status 를 idle 로 복귀시키기 위함. */
   private stoppedByUser = new Set<string>();
-  /** §5.3 #12-1 v3.43 — 헤드리스 감독관의 "백그라운드 서브에이전트" 대차대조.
-   *  parentAgentId → (부모 Task/Agent tool_use_id → 시작 시각). PreToolUse(Task|Agent) ↑ /
-   *  SubagentStop(서브의 parent_tool_use_id 로 매칭) ↓. size>0 인 동안 recompute/sweep/expire 가
-   *  부모 버블을 completed/idle 로 강등하지 않는다 — 부모 턴이 끝나 sub 가 idle 이어도 자식들이
-   *  백단에서 도는 중 = "대기 중인 활성". 런타임 전용(영속화 ❌ — 재시작 시 리셋, 살아있는
-   *  워커는 reattach 경로가 별도 복구).
-   *  §5.5 #17-9 v3.51 — 항목에 `tool_input` 메타(description/subagentType/prompt)를 함께 싣는다.
-   *  대차대조 판정에는 쓰이지 않고 오직 IDE 표시(`getRunningSubagentTasks`)용이다.
-   *  §5.5 #17-9 ⑦(a) — 자식이 도구를 쓸 때마다 오는 `PreToolUse`(공통 필드 `agent_id`/`agent_type`)로
-   *  `agentId`·`agentType`·`currentTool`·`currentToolDetail`·`toolCount`·`lastActivityAt` 가 갱신된다.
-   *  전부 표시 전용 — 대차대조 증감(PreToolUse(Task|Agent) ↑ / SubagentStop ↓)은 그대로다. */
+  /**
+   * §5.3 #12-1 — 백그라운드 서브에이전트 대차대조: parent → (Task tool_use_id → 항목). PreToolUse(Task|Agent) ↑ / SubagentStop ↓.
+   * 비어 있지 않은 동안 부모 버블을 completed/idle 로 내리지 않는다. 런타임 전용. 항목의 메타·자식 도구 정보(⑦(a))는 표시 전용.
+   */
   private pendingSubagentTasks = new Map<string, Map<string, PendingSubagentEntry>>();
   /** §5.5 #17-9 ⑦(b) — 방금 끝난 자식(부모별 최근 `MAX_FINISHED_SUBAGENT_TASKS` 건, 새 것이 앞).
    *  결과(`PostToolUse(Task|Agent)` 의 `tool_response`)는 `SubagentStop` 보다 늦게 오므로 **여기 있는
@@ -1278,24 +1041,11 @@ export class SubAgentManager {
   /** Persistent child — 자식이 turn 사이 idle(다음 stdin write 대기) 인가. true 면 reuse 가능.
    *  result 라인 도착 시 true, 새 stdin write 직전 false. */
   private persistentChildReady = new Map<string, boolean>();
-  /**
-   * §4 (상태바 모델 칸 ④) — 지금 살아 있는 지속 자식이 **뜰 때 실린 모델 축 인자의 지문**(`modelAxesKeyOf`).
-   *
-   * 재사용 경로는 인자를 다시 싣지 않으므로, 설정창에서 모델·강도를 바꿔도 이 값과 새 지문이 달라질 뿐
-   * 자식은 모른다 — 그 차이를 재사용 직전에 보고 자식을 갈아 끼운다. 스폰 자리 한 곳에서만 쓴다.
-   * sub.id 가 키라 스폰할수록 늘므로 `SESSION_KEYED_MAP_MAX` 로 캡한다(§3.2.4 F축).
-   */
+  /** §4 (모델 칸 ④) — 지속 자식이 뜰 때의 모델 축 인자 지문. 재사용은 인자를 다시 싣지 않으므로 지문이 달라지면 자식을 갈아 끼운다. `SESSION_KEYED_MAP_MAX` 캡. */
   private persistentSpawnModelKey = new Map<string, string>();
   /** Stable connection definition; run ids and credentials never enter this key. */
   private persistentSpawnVerificationKey = new Map<string, string>();
-  /**
-   * §4 (CLI 사양 추종) — 이 sub 의 자식이 `--include-hook-events` 로 떴는가.
-   *
-   * 파서는 훅 줄을 **기본적으로 버린다**(플래그를 안 켠 세션에도 일부가 흘러들어와 대화록을
-   * 채우던 자리다). 그래서 "사용자가 일부러 켰는가"를 파싱 시점에 알아야 하는데, 지속 자식
-   * 경로의 라인 처리기는 설정을 손에 들고 있지 않다 — 스폰 때 정한 값을 여기에 적어 둔다.
-   * sub.id 가 키라 스폰할수록 늘므로 `SESSION_KEYED_MAP_MAX` 로 캡한다(§3.2.4 F축).
-   */
+  /** §4 — 자식이 `--include-hook-events` 로 떴는가(파서는 훅 줄을 기본으로 버린다 — 라인 처리기가 설정을 모르므로 스폰 때 적어 둔다). `SESSION_KEYED_MAP_MAX` 캡. */
   private streamHookEventsOn = new Map<string, boolean>();  /** Persistent child — 의도적 종료 마킹(stop/remove/shutdownAll). close 핸들러에서 crash 와 구분하기 위함.
    *  마킹 없이 close 되면 crash 경로로 sub.sessionId 보존(다음 execute 가 --resume 으로 복구). */
   private intentionalKill = new Set<string>();
@@ -1306,19 +1056,8 @@ export class SubAgentManager {
    *  fresh spawn 또는 reuse 시점에 새 값으로 set, result 라인 도착 시 delete. */
   private persistentInFlightCmd = new Map<string, PersistentInFlight>();
   /**
-   * §5.19 (D) — **로컬(All Model) 턴의 in-flight 표식.** `persistentInFlightCmd` 의 로컬 판본이다.
-   *
-   * 로컬 턴은 자식 프로세스도 워처도 없다. 그래서 "지금 도는가"를 묻는 술어들
-   * (`isSubRunning` · `isSubProcessingCommand`)이 **전부 false** 를 냈고, 5초마다 도는
-   * `reconcileDeadActiveSubs` 가 멀쩡히 돌던 세션을 "자식 없는 죽은 active" 로 읽어 idle 로
-   * 강등했다. 그 idle 을 `recomputeCustomAgentStatus` 가 부모 버블의 `completed` 로 세탁하고,
-   * 곧이어 러너의 다음 도구 이벤트가 `touchAgent` 로 버블을 다시 `active` 로 올린다 —
-   * 명령 한 번에 **완료 ↔ 동작이 5초마다 되풀이**되던 자리가 여기다(2026-08-25 사용자 보고;
-   * 체크포인트 실측: 25초 사이 도구 5건 + `fadeStartedAt` 재각인 2회).
-   *
-   * 러너에도 같은 사실을 아는 `isLocalTurnRunning` 이 있지만 **판정의 주인으로 쓰지 않는다** —
-   * 러너의 정리는 `finally` 라 `onDone` **뒤**에 돌고, 그러면 `finish()` 가 부르는 상태 재계산이
-   * 아직 "도는 중"을 보고 완료를 건너뛴다. 여기서 `finish()` 맨 앞에 지우면 순서가 정확하다.
+   * §5.19 (D) — 로컬(All Model) 턴의 in-flight 표식. 자식·워처가 없어 이게 없으면 생존 대조가 도는 세션을 idle 로 내려 버블이 5초마다 완료 ↔ 동작을 오간다.
+   * 러너의 `isLocalTurnRunning` 을 쓰지 않는다 — `finally` 정리가 `onDone` 뒤라 `finish()` 의 재계산이 완료를 건너뛴다. `finish()` 맨 앞에서 지운다.
    */
   private localInFlightCmd = new Map<string, QueuedCommand>();
   /**
@@ -1339,28 +1078,11 @@ export class SubAgentManager {
   private pathLockResolver: PathLockResolver | null = null;
   /** §5.3 #12-4 — 로컬 도구 판정이 부르는 검증 판정. 없으면 검증 판정을 하지 않는다(주입 전 단위 테스트 등). */
   private verificationChecker: VerificationCallChecker | null = null;
-  /**
-   * subId → 그 세션의 스트림을 **마지막으로 읽어 낸 폴더**(`findStreamDirFor` ②).
-   *
-   * `streamDiskStamps` 와 겹쳐 보이지만 **수명이 다르다** — 저 맵은 idle 회수·탭 닫기에서 지문과
-   * 함께 지워진다(지워야 회수한 과거를 다시 읽는다). 이쪽은 "그 파일이 어느 폴더에 있나"라는
-   * 사실이라 세션이 사는 동안 변하지 않으므로 지우지 않는다. 지우면 소속을 잃은 순간
-   * 되찾을 실마리가 함께 사라진다.
-   */
+  /** sub → 스트림을 마지막으로 읽은 폴더(`findStreamDirFor` ②). `streamDiskStamps` 와 달리 회수·탭 닫기에서 지우지 않는다 — 소속을 잃었을 때의 실마리다. */
   private lastKnownStreamDirs = new Map<string, string>();
-  /**
-   * 부모 에이전트 → 그 에이전트의 sub-streams 폴더를 **마지막으로 짚어 낸 자리**.
-   *
-   * 폴더는 `sub-streams/<parentAgentId>` 라 같은 부모의 세션은 모두 한 폴더를 쓴다. 그래서 막 생긴
-   * 세션이라 아직 파일이 없어도(`findStreamDirFor` ③ 은 파일이 있어야 찾는다) 소속 해석이 끊긴 동안
-   * 이 자리로 이어 쓸 수 있다. `lastKnownStreamDirs` 와 같은 이유로 지우지 않는다.
-   */
+  /** 부모 → sub-streams 폴더를 마지막으로 짚은 자리. 같은 부모는 한 폴더라 파일이 아직 없는 새 세션도 소속 해석이 끊긴 동안 여기로 쓴다. 지우지 않는다. */
   private lastKnownAgentStreamDirs = new Map<string, string>();
-  /**
-   * 디스크의 과거를 **못 이어붙인 채** 시작된 메모리 버퍼(폴더를 못 짚은 채 첫 줄이 들어왔다).
-   * 이 표식이 있는 버퍼는 "그 세션의 전부"가 아니므로 읽기 경로가 믿고 돌려주면 안 된다 —
-   * 종전엔 그 몇 줄짜리 버퍼가 그대로 나가, 클라가 들고 있던 긴 대화를 통째로 갈아엎었다.
-   */
+  /** 과거를 못 이어붙인 채 시작된 버퍼 — 그 세션의 전부가 아니므로 읽기 경로가 믿고 돌려주면 클라의 긴 대화를 갈아엎는다. */
   private partialStreamBuffers = new Set<string>();
   /** 쓰기 폴더 훑기(`findStreamDirFor` ③)가 마지막으로 헛친 시각 — 줄마다 다시 훑지 않게 잠깐 쉰다. */
   private streamWriteDirMissAt = new Map<string, number>();
@@ -1389,19 +1111,10 @@ export class SubAgentManager {
    */
   private noticeResumeHolds = new Map<string, ReturnType<typeof setTimeout>>();
 
-  /**
-   * **PTY(CMD 인터랙티브 터미널)로 도는 세션.** 이 탭들은 우리가 헤드리스 자식을 띄운 게 아니라
-   * 사용자가 직접 치는 터미널이라 `runningChildren`·`runningAgentViewWatchers` 어디에도 없다.
-   * 아래 생존 대조가 "자식이 없으니 죽었다"로 잘못 강등하지 않도록 여기 표식을 남긴다
-   * (표식은 `markCmdSubActivity` 가 그 탭을 처음 만질 때 붙는다).
-   */
+  /** PTY(CMD) 세션 — 우리 자식이 아니라 장부 어디에도 없으므로 생존 대조가 죽었다고 내리지 않게 표식(`markCmdSubActivity` 가 붙인다). */
   private cmdDrivenSubs = new Set<string>();
 
-  /**
-   * §4 (CMD ① QA) — **pane 별** 마지막 감지 상태(subId → paneId → 상태).
-   * 분할 탭에서 pane 마다 감지기가 따로 돌아 같은 sub 를 서로 덮어쓰던 것을 막는 자리다.
-   * 런타임 전용 — 영속하지 않는다(PTY 가 없는 부팅 직후엔 어차피 의미가 없다).
-   */
+  /** §4 (CMD ① QA) — pane 별 마지막 감지 상태 — pane 감지기들이 같은 sub 를 서로 덮어쓰지 않게. 런타임 전용. */
   private cmdPaneStates = new Map<string, Map<string, { state: CmdTerminalState; reason?: string }>>();
 
   /**
@@ -1411,14 +1124,7 @@ export class SubAgentManager {
    */
   private dispatchingSubs = new Set<string>();
 
-  /**
-   * §5.5 #17-2 — **슬래시 턴이 미뤄 둔 브리핑**(subAgentId).
-   *
-   * `contextSummary`(카드 지시문·의도 선언·목표·Brain 브리핑)는 그 세션의 **첫 프롬프트에만** 실린다.
-   * 그래서 세션의 첫 턴이 `/compact` 같은 슬래시 명령이면 — 그 턴은 원문만 나가야 CLI 가 명령으로
-   * 집으므로 — 브리핑을 실을 자리가 없고, 그대로 두면 그 세션은 브리핑을 **영영** 못 받는다.
-   * 여기 담아 두었다가 다음 비슬래시 턴에 실어 보낸다. 런타임 전용(세션이 사라지면 함께 지운다).
-   */
+  /** §5.5 #17-2 — 슬래시 턴이 미룬 브리핑. 첫 턴이 슬래시면 원문만 나가야 하므로 `contextSummary` 를 다음 비슬래시 턴에 싣는다(안 그러면 영영 못 받는다). */
   private contextSummaryPending = new Set<string>();
 
   /** 스폰 진행 표식 해제 — 자식/워처 등록 시점과 모든 실패 경로가 부른다. */
@@ -1426,28 +1132,12 @@ export class SubAgentManager {
     this.dispatchingSubs.delete(subId);
   }
 
-  /**
-   * **턴 세대 도장** — 지금 이 세션에서 도는 명령의 id. 스트림 한 줄 한 줄에 각인해,
-   * 클라가 도착 시각이 아니라 **자기 턴**으로 명령 블록을 고르게 한다.
-   *
-   * dispatch 에서 세우고 마감에서 지운다. 마감 뒤에 늦게 흘러드는 줄(백단 작업의 여운)은
-   * 도장이 비는데, 그때는 그 작업을 시작한 턴을 `liveTasks` 에서 되찾아 찍는다.
-   */
+  /** 턴 세대 도장 — 도는 명령 id 를 스트림 줄마다 찍어 클라가 시각이 아니라 턴으로 블록을 고른다. 마감 뒤 늦은 줄은 시작한 턴을 `liveTasks` 에서 되찾는다. */
   private currentTurnId = new Map<string, string>();
 
   /**
-   * §5.3 #9-1 (P) — **우리가 끼운 조용한 명령의 턴 id**(선행 `/compact`).
-   *
-   * 이 도장이 찍힌 줄은 버퍼·디스크·화면 **어디에도 남기지 않는다.** 스트림은 명령이 아니라
-   * **세션** 단위로 쌓이므로, 명령을 감추는 것(`QueuedCommand.silent` + `displayCommands`)
-   * 만으로는 그 명령이 뱉은 줄이 그대로 사용자 대화에 섞인다 — 실측으로 압축이 거절당한
-   * `Not enough messages to compact.` 한 줄이 남의 대화에 떴다(사용자 신고 2026-09-13).
-   * 기획이 "말풍선·**스트림**·대기열·명령 센터·입력 히스토리·완료 아카이브 전부"라고 못 박은
-   * 그 스트림이 여기다.
-   *
-   * 지우지 않는다 — turnId 는 명령마다 고유해 되쓰이지 않으므로 남아 있어도 오탐이 없고,
-   * 지우는 자리를 다섯 곳(마감·실패·중지·회수)에 흩으면 하나만 놓쳐도 조용히 샌다. 늘기만
-   * 하는 파생물이라 §3.2.4 F′축 상한만 건다.
+   * §5.3 #9-1 (P) — 우리가 끼운 조용한 명령(선행 `/compact`)의 턴 id — 이 줄은 버퍼·디스크·화면에 남기지 않는다(스트림은 세션 단위라 명령만 감추면 줄이 섞인다).
+   * 지우지 않는다 — turnId 는 되쓰이지 않고, 지우는 자리를 흩으면 샌다. §3.2.4 F′축 상한만.
    */
   private silentTurnIds = new Set<string>();
 
@@ -1461,6 +1151,10 @@ export class SubAgentManager {
 
   setOnSubStatusChange(cb: (parentAgentId: string) => void): void {
     this.onSubStatusChange = cb;
+  }
+
+  setOnCommandStart(cb: (parentAgentId: string, busy: boolean) => void): void {
+    this.onCommandStart = cb;
   }
 
   setPendingDispatchResultsProvider(cb: (subAgentId: string) => Parameters<typeof formatUndeliveredDispatchJobs>[0]): void {
@@ -1525,12 +1219,8 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.5 #17-12 — 스트림 줄을 **디스크에 쓸 폴더**. 소속 해석이 잠깐 끊겨도 쓰기를 건너뛰지 않는다.
-   *
-   * 종전엔 `resolveStreamDir` 하나에 기대, 프로젝트 탭을 닫았다 오가거나 백그라운드 프로젝트가 stub 으로
-   * 내려간 동안 들어온 줄이 **메모리에만** 남았다. idle 회수·재시작 뒤 디스크에서 다시 읽으면 그 구간이
-   * 통째로 비어, 대화 중간이 말풍선만 남았다. 순서: ① 소속 해석 ② 이 세션·이 부모가 마지막으로 쓴 폴더
-   * ③ 모든 프로젝트 훑기(파일이 실재하는 자리). ③ 이 헛치면 줄마다 다시 훑지 않게 잠깐 쉰다.
+   * §5.5 #17-12 — 스트림을 쓸 폴더 — 소속 해석이 끊겨도 쓰기를 건너뛰지 않는다(건너뛴 구간은 회수·재시작 뒤 빈다).
+   * 순서: ① 소속 해석 ② 마지막으로 쓴 폴더 ③ 전체 훑기(헛치면 쉰다).
    */
   private resolveStreamWriteDir(subAgentId: string, parentAgentId: string): string | null {
     const direct = this.resolveStreamDir(parentAgentId);
@@ -1552,12 +1242,7 @@ export class SubAgentManager {
     return null;
   }
 
-  /**
-   * 디스크의 과거를 못 이어붙인 채 시작된 메모리 버퍼(`partialStreamBuffers`)를, 폴더를 되찾은 지금 메운다.
-   *
-   * 디스크 꼬리 뒤에 **메모리에만 있던 줄**(id 로 거른다)을 잇는다 — 그 줄들은 폴더를 잃은 동안 들어와
-   * 디스크에 없는, 가장 새로운 줄이다. 그 줄을 이 자리에서 디스크에도 적어 다음 회수·재시작 뒤에도 남긴다.
-   */
+  /** 과거 없이 시작된 버퍼를 폴더를 되찾은 지금 메운다 — 디스크 꼬리 뒤에 메모리에만 있던 줄을 잇고 디스크에도 적는다. */
   private healPartialStreamBuffer(subAgentId: string, dir: string): SubAgentStreamEvent[] {
     const mem = this.streamBuffers.get(subAgentId) ?? [];
     const r = streamBufferStore.loadBufferIfChanged(dir, subAgentId, MAX_STREAM_BUFFER, undefined);
@@ -1575,20 +1260,8 @@ export class SubAgentManager {
   }
 
   /**
-   * 그 세션의 스트림이 **실제로 놓인 폴더**를 찾는다 — 소속 해석이 실패해도 포기하지 않는다.
-   *
-   * **왜 이게 있어야 하나**: `resolveStreamDir` 하나에 기대면, 프로젝트 탭을 닫았다 여러 곳을
-   * 오간 뒤 그 세션으로 돌아왔을 때 `projectResolver` 가 `null` 을 줘서 **디스크에 온전한 대화가
-   * 있는데도 빈 배열이 나간다**. 클라는 그 빈 응답을 몇 번 되묻다 포기하고, 화면은 말풍선과
-   * 카드만 남은 채 굳는다(2026-09-08 사용자 보고 — "대화 내역이 다 날아갔다"). 대화는 지워진 적이
-   * 없었고 **가는 길만 끊겨 있었다.**
-   *
-   * 세 순서로 찾는다. ① 소속 해석(평소 길 — 거의 항상 여기서 끝난다) ② 이 세션의 스트림을 마지막에
-   * 읽어 낸 폴더(`lastKnownStreamDirs` — 한 번이라도 읽혔으면 소속을 잃어도 자리는 안 변한다)
-   * ③ 서버가 아는 모든 프로젝트를 훑어 그 파일이 실재하는 자리(마지막 그물).
-   *
-   * ③ 은 `hasBuffer` 로 **존재만** 보므로 후보가 많아도 `stat` 몇 번이고, 찾으면 ② 에 적어 둬
-   * 다음부터는 훑지 않는다.
+   * 스트림이 실제로 놓인 폴더 — 소속 해석이 `null` 이어도 포기하지 않는다(빈 배열이 나가면 화면이 말풍선만 남아 굳는다).
+   * 순서: ① 소속 해석 ② `lastKnownStreamDirs` ③ 모든 프로젝트를 `hasBuffer` 로 훑고 찾으면 ② 에 적는다.
    */
   private findStreamDirFor(subAgentId: string, parentAgentId: string): string | null {
     const direct = this.resolveStreamDir(parentAgentId);
@@ -1613,12 +1286,7 @@ export class SubAgentManager {
     return null;
   }
 
-  /**
-   * 이 부모 에이전트의 sub-streams 파일을 통째로 삭제 — **휴지통 영구 삭제 전용**(v4.67).
-   * 종전엔 jsonl 을 지우는 경로가 아예 없어(`deleteBuffer` 호출부 0곳) 한 번 만들어진 스트림
-   * 파일이 영원히 남았다. 되살아날 수 없는 영구 삭제에서만 정리한다 — 탭 닫기·idle 회수·
-   * lifecycle 제거는 디스크에서 다시 읽는 복구 경로라 여기에 배선하면 안 된다.
-   */
+  /** 부모의 sub-streams 파일 통째 삭제 — **휴지통 영구 삭제 전용.** 탭 닫기·idle 회수·lifecycle 제거는 디스크에서 다시 읽는 경로라 여기 배선하면 안 된다. */
   purgeAgentStreams(parentAgentId: string): void {
     const dir = this.resolveStreamDir(parentAgentId);
     if (!dir) return;
@@ -1626,16 +1294,8 @@ export class SubAgentManager {
   }
 
   /**
-   * 특정 subagent의 버퍼된 스트림 이벤트 반환 (REST API용).
-   *
-   * `parentAgentIdHint` — 라우트가 아는 부모 에이전트 id. 세션을 **복원한 직후**에는 클라가
-   * 곧바로 깊은 복원분을 요청하는데 서버 `index` 에는 아직 그 sub 가 없을 수 있고, 그러면
-   * 디스크에 파일이 멀쩡히 있는데도 빈 배열이 나가 화면이 얕은 창에 갇혔다. 부모를 알면
-   * 폴더는 정해지므로(`sub-streams/<agentId>/<subId>.jsonl`) 힌트로 그대로 읽는다.
-   *
-   * 폴더는 `findStreamDirFor` 로 짚는다 — 소속 해석이 실패해도(프로젝트 탭을 닫았다 오간 뒤)
-   * 기억해 둔 자리·후보 훑기로 되찾는다. 이 경로가 빈 배열을 돌려주는 순간 화면의 과거가
-   * 통째로 사라지므로, **여기서는 쉽게 포기하지 않는다.**
+   * 한 sub 의 스트림(REST) — 빈 배열은 화면 과거를 지우므로 쉽게 포기하지 않는다.
+   * 복원 직후 `index` 에 sub 가 없으면 `parentAgentIdHint` 로 폴더를 정하고, 폴더는 `findStreamDirFor` 로 짚는다.
    */
   getStreamBuffer(subAgentId: string, parentAgentIdHint?: string): SubAgentStreamEvent[] {
     const events = this.readStreamBuffer(subAgentId, parentAgentIdHint);
@@ -1670,13 +1330,7 @@ export class SubAgentManager {
     return buf ?? [];
   }
 
-  /**
-   * §5.5 #17-12 — 복원 창(`MAX_STREAM_BUFFER`) **위쪽**의 과거 한 쪽(REST `…/:subId/older`).
-   *
-   * 메모리 버퍼는 창 안쪽만 들고 있으므로 디스크(본 파일 + 컴팩션 보관 파일)에서 읽는다. 폴더는 깊은
-   * 복원과 같은 길(`findStreamDirFor`)로 짚는다. 폴더를 못 찾았으면 `unresolved` 를 세워 돌려준다 —
-   * "더 없다"(`hasMore: false`)와 갈라야 클라가 그 세션의 과거를 영영 포기하지 않는다.
-   */
+  /** §5.5 #17-12 — 복원 창 위쪽의 과거 한 쪽(REST `…/older`, 디스크 본 파일 + 보관 파일). 폴더를 못 찾으면 `unresolved` — `hasMore: false` 와 갈라야 클라가 포기하지 않는다. */
   getOlderStreamEvents(
     subAgentId: string,
     parentAgentIdHint: string | undefined,
@@ -1697,12 +1351,7 @@ export class SubAgentManager {
     const result: Record<string, SubAgentStreamEvent[]> = {};
     for (const sub of subs) {
       let buf = this.streamBuffers.get(sub.id);
-      // idle 회수로 메모리에서 비워진 sub 는 디스크에서 복구 + 재캐시(IDE 재오픈 시 빈 화면 방지).
-      // ⚠ 이 조회는 그 에이전트의 **모든 sub** 를 도므로, 한 번 부를 때마다 세션 수만큼 파일을 열었다.
-      //   지문이 그대로면 `stat` 한 번으로 넘어간다(반복 호출 비용이 세션 수 × 파일 크기 → 세션 수 × stat).
-      //   폴더는 세션마다 `findStreamDirFor` 로 짚는다 — 소속 해석이 실패해도(탭을 닫았다 오간 뒤)
-      //   되찾은 자리로 읽어, IDE 를 열자마자 뜨는 첫 화면이 비지 않게 한다.
-      // 과거를 못 이어붙인 버퍼는 단건 경로와 같은 규칙 — 폴더를 되찾으면 메우고, 못 찾으면 싣지 않는다.
+      // idle 회수로 비운 sub 는 디스크에서 다시 채운다(IDE 재오픈 시 빈 화면 방지). 모든 sub 를 도므로 지문이 그대로면 `stat` 만. 과거 없는 버퍼는 단건 경로와 같은 규칙.
       if (this.partialStreamBuffers.has(sub.id)) {
         const dir = this.findStreamDirFor(sub.id, agentId);
         buf = dir ? this.healPartialStreamBuffer(sub.id, dir) : undefined;
@@ -1718,8 +1367,7 @@ export class SubAgentManager {
           }
         }
       }
-      // §5.5 v4.92 — 메모리 캐시는 상한 전체를 들고 있어도 **여기서는 꼬리만** 실어 보낸다.
-      //   보고 있는 세션의 깊은 복원분은 단건 경로(`getStreamBuffer`)가 따로 준다.
+      // §5.5 — 여기서는 꼬리만 싣는다(깊은 복원분은 단건 `getStreamBuffer`).
       if (buf) this.streamBufferAccessAt.set(buf, Date.now());
       if (buf && buf.length > 0) {
         result[sub.id] = buf.length > MAX_STREAM_BUFFER_BULK ? buf.slice(buf.length - MAX_STREAM_BUFFER_BULK) : buf;
@@ -1728,11 +1376,7 @@ export class SubAgentManager {
     return result;
   }
 
-  /**
-   * §5.3 #12-1 v1.96 — 외부에서 합성 system 라인을 sub stream 에 끼워 넣는 진입점.
-   * 권한 승인 broker 가 사용자의 Allow/Deny 결정을 그 sub 의 stream 에 한 줄로 남길 때 호출.
-   * 정규 emit 경로(`emitStreamEvent`)를 그대로 타서 버퍼·디스크·WS broadcast 가 일관되게 처리됨.
-   */
+  /** §5.3 #12-1 — 밖에서 합성 system 줄(권한 Allow/Deny)을 끼우는 진입점 — `emitStreamEvent` 를 타서 버퍼·디스크·WS 가 한 벌. */
   emitSystemMessage(parentAgentId: string, subAgentId: string, content: string): void {
     const event: SubAgentStreamEvent = {
       id: `sys-${randomUUID()}`,
@@ -1745,17 +1389,7 @@ export class SubAgentManager {
     this.emitStreamEvent(event);
   }
 
-  /**
-   * §5.5 #17-12 ③ — 명령을 오류로 마감하면서 **왜** 인지를 함께 남긴다.
-   *
-   * 두 표면에 같은 사유를 싣는다:
-   *  1) `cmd.error` — 명령과 함께 아카이브·체크포인트로 남아, 하단 상태바가 "오류" 대신 사유를 말한다.
-   *  2) `error` 스트림 이벤트 — 실패한 그 시점(턴 끝)에 대화 안에 한 줄로 남는다.
-   *
-   * 사람이 읽을 문장은 만들지 않는다 — 로케일이 있는 쪽(클라)이 코드로 만들고, 여기서는
-   * `[code:exitCode@engine] detail` 형식으로 코드·엔진·원문만 실어 보낸다(system 줄의 `[subtype]` 규약과 동형).
-   * `@engine` 은 **선택 꼬리**라 그것이 없는 옛 줄도 종전대로 읽힌다.
-   */
+  /** §5.5 #17-12 ③ — 오류 마감 사유를 `cmd.error`(상태바)와 `error` 스트림 줄 두 곳에 싣는다. 문장은 클라가 만든다 — 여기는 `[code:exitCode@engine] detail`(`@engine` 은 선택). */
   private failCommand(sub: SubAgent, cmd: QueuedCommand, error: CommandError): void {
     const detail = error.detail ? error.detail.trim().slice(-COMMAND_ERROR_DETAIL_LIMIT) : undefined;
     const code = this.usageLimitCodeFor(sub, error.code, detail);
@@ -1779,35 +1413,16 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.5 #17-12 ③-7 — **이 실패를 낸 것은 어느 엔진인가.**
-   *
-   * 사유 코드는 엔진 중립이다(`cli`·`spawn`·`exit` 은 클로드도 코덱스도 낸다). 그런데 화면 문장은
-   * `Claude CLI` 를 글자로 박고 있어서, 코덱스 턴이 실패하면 **남의 이름으로 불렸다**
-   * (2026-09-22 사용자 보고 — GPT 버블이 한도로 멈춘 자리에 「Claude CLI 가 실패를 알렸습니다」).
-   * 판정 근거는 §5.25 (C) 의 `engineForProvider` 하나뿐이다 — 화면의 모델 이름(`agentModelLabelOf`)이
-   * 보는 것과 같은 값이라 두 자리가 갈리지 않는다. 설정을 못 읽는 자리(훅 버블)는 `claude` 인데,
-   * 그 버블이 실제로 비추는 것이 Claude Code 세션이라 맞는 답이다.
+   * §5.5 #17-12 ③-7 — 실패를 낸 엔진 — 사유 코드가 엔진 중립이라 없으면 코덱스 실패가 `Claude CLI` 로 불린다.
+   * 근거는 `engineForProvider`(§5.25 (C), 모델 이름과 같은 값). 설정 없는 훅 버블은 `claude`.
    */
   private engineOf(sub: SubAgent): AgentEngineKind {
     return engineForProvider(this.agentConfigResolver?.(sub.parentAgentId)?.provider);
   }
 
   /**
-   * §2.4 (한도 정지) — 실패로 들어왔지만 **원인이 한도**면 사유를 그 이름으로 바꿔 적는다.
-   *
-   * 클로드는 한도에 닿아도 exit 0 으로 끝나 `completed` + `stopReason: 'usage_limit'` 이 된다
-   * (§5.5 #17-12 ③-6). 그런데 코덱스는 같은 사건을 `{"type":"error"}` 로 신고해(§5.25 (F))
-   * 실패 경로로 들어오고, 거기서 `cli` 로 적히면 화면은 「CLI 가 실패를 알렸습니다」라고 말한다 —
-   * 같은 사건이 엔진마다 다른 말로 불린다. 멈춘 이유는 실패가 아니라 한도다.
-   *
-   * **상태는 한 글자도 바꾸지 않는다**(③-1 의 「표시 계층 한정」). 바뀌는 것은 사유 낱말뿐이다.
-   *
-   * 근거는 둘이고 둘 다 이번 턴의 것이다 — ① 세션 깃발(`execute` 가 턴을 시작할 때 걷으므로 닫을 때
-   * 서 있으면 이 턴에 걸린 것 · ③-6 의 `usage_limit` 판정과 같은 근거), ② 원문 자체가 한도 통지
-   * (`detectUsageLimitInText` — 짧은 한 줄만 인정해 통지를 인용한 긴 글을 세지 않는다).
-   *
-   * **원인이 이미 분명한 사유는 건드리지 않는다** — 턴 상한·위임 결과 누락·스폰 실패는 그쪽 이름이
-   * 더 정확하다. 바꾸는 것은 「엔진이 실패를 신고했다」 부류뿐이다.
+   * §2.4 — 실패로 들어왔어도 원인이 한도면 사유를 `usageLimit` 으로(코덱스는 한도를 `{"type":"error"}` 로 낸다, §5.25 (F)). 상태는 그대로 — 사유 낱말만(③-1).
+   * 근거는 이번 턴의 세션 깃발 또는 짧은 한도 통지 원문(`detectUsageLimitInText`). 원인이 분명한 사유(턴 상한·위임 누락·스폰 실패)는 건드리지 않는다.
    */
   private usageLimitCodeFor(sub: SubAgent, code: CommandError['code'], detail: string | undefined): CommandError['code'] {
     if (!USAGE_LIMIT_PROMOTABLE_ERROR_CODES.has(code)) return code;
@@ -1828,14 +1443,7 @@ export class SubAgentManager {
     this.onComplete?.();
   }
 
-  /**
-   * §5.3 #10-2 — 완료로 끝나려는 턴이 띄운 위임의 결과를 받지 못했으면 **완료가 아니라 실패**로 고쳐 적는다.
-   *
-   * 결과가 돌아올 반환 엣지가 있는 위임은 대기가 풀려도(제한시간·조회 거절·연결 끊김) 작업이 계속 돈다.
-   * 그 자리에서 모델이 턴을 마치면 부모가 초록 "완료"로 끝나 결과를 받지 않은 채 끝난 것이 가려졌다.
-   * 사유에는 이어 받을 cmdId 와 그 순간의 상태를 싣는다 — 다음 턴이 같은 cmdId 로 조회하고 다시 띄우지 않게.
-   * 사용자 중지·이미 실패한 턴은 건드리지 않는다(호출부가 거른다).
-   */
+  /** §5.3 #10-2 — 띄운 위임의 결과를 못 받은 채 완료로 끝나려는 턴은 실패로 적는다(위임은 대기가 풀려도 돈다). 사유에 cmdId·상태를 실어 다음 턴이 다시 띄우지 않고 조회하게. */
   private failIfDispatchResultMissing(sub: SubAgent, cmd: QueuedCommand): void {
     if (cmd.status !== 'completed' || !this.pendingDispatchResults) return;
     const pending = this.pendingDispatchResults(sub.id);
@@ -1864,13 +1472,7 @@ export class SubAgentManager {
     };
   }
 
-  /**
-   * 작업 칩(`task_started` / `task_notification`) 한 장을 그 세션의 백그라운드 장부에 반영한다.
-   *
-   * 이 장부는 두 가지를 동시에 몰고 간다 — ① 턴 봉인 지연(`turnSeal.ts`), ② **화면**(실행 목록·세션
-   * 도트·부모 버블 완료 판정). ② 는 나중에 붙은 것이라, 칩이 오갈 때 상태 갱신을 함께 태우지 않으면
-   * 백단 작업이 늘거나 줄어도 화면이 꿈쩍하지 않는다(= 끝난 것처럼 보인다).
-   */
+  /** 작업 칩을 세션의 백그라운드 장부에 반영 — 장부가 턴 봉인 지연과 화면(목록·도트·버블 완료)을 함께 몰므로 칩마다 상태 갱신도 태운다. */
   noteStreamTaskChip(subAgentId: string, subtype: string, task: StreamTaskInfo | null): void {
     const state = this.getTurnSealState(subAgentId);
     // 끝 칩은 `task_id` 만 들고 온다(종류·이름은 시작 칩에만 있다) — 지워지기 전에 읽어 둔다.
@@ -1882,14 +1484,8 @@ export class SubAgentManager {
     if (!changed) return;
     const sub = this.index.get(subAgentId);
     if (!sub) return;
-    // §5.5 #17-9 ⑪ — Task/Agent 자식의 **끝 통지**를 훅 대차대조에도 내려 준다.
-    //   배경 스폰(`run_in_background`)은 `PostToolUse` 가 접수증이라 ⑧ 이 내리지 않으므로 내리는
-    //   길이 `SubagentStop` 하나뿐인데, 그 신호가 유실되거나 `parent_tool_use_id` 가 우리 열쇠와
-    //   어긋나면 항목이 **영영** 남았다(세션이 살아 있으면 `sweepOrphanedBackgroundTasks` 도
-    //   손대지 않고, 소유 탭을 아는 항목이라 절대 상한도 비껴간다). 그래서 사용자 화면에는 이미
-    //   끝난 자식이 몇 시간째 "실행 중"으로 붙어 있었다(사용자 보고).
-    //   끝 통지는 **추정이 아니라 사실**이라(§ turnSeal.ts 머리말의 두 근거 중 ①) 이 자리에서
-    //   내리는 것은 "조용하니 죽었겠지"와 전혀 다르다.
+    // §5.5 #17-9 ⑪ — Task/Agent 자식의 끝 통지를 훅 대차대조에도 내린다 — 배경 스폰은 `SubagentStop` 만 내리는데 그게 유실되면 몇 시간째 "실행 중"으로 남는다.
+    // 끝 통지는 추정이 아니라 사실이다.
     if (ending?.subagentType) {
       this.dropPendingBySubagentEndChip(sub.parentAgentId, subAgentId, ending, task?.summary);
     }
@@ -1907,16 +1503,8 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.5 #17-9 ⑱ — 백그라운드 자식의 끝 통지가 왔다. 쉬는 세션이면 CLI 가 그 통지로 **곧 새 턴을 연다.**
-   *
-   * 실측(2026-09-23, `/release` 탭): 끝 칩 06:53:02.597 → CLI 가 3ms 만에 새 턴을 열었지만 그 턴의
-   * 첫 모델 줄은 24초 뒤(첫 토큰)에야 stdout 에 왔다. 그 사이 장부가 비었다는 이유로 탭을 내리면
-   * 버블이 `completed` 로 넘어가 **일하는 중에 완료음이 울린다**(사용자 보고).
-   *
-   * 두 자리를 덮는다 —
-   *  ① 턴이 막 끝나 봉인이 유예(`deferredSeals`) 중이면 그 유예를 첫 모델 줄까지 늘린다.
-   *  ② 쉬는 persistent 자식이면 탭을 붙들어 둔다(`shouldHoldForNoticeResume`). 풀리는 것은
-   *     실제 신호(첫 모델 줄)이고, 안 오면 `NOTICE_RESUME_WINDOW_MS` 뒤에 종전처럼 내린다.
+   * §5.5 #17-9 ⑱ — 끝 통지가 오면 쉬는 세션은 곧 새 턴을 연다(3ms 뒤 열고 첫 모델 줄은 24초 뒤, 실측 2026-09-23) — 그 사이 내리면 완료음.
+   * 봉인 유예 중이면 유예를 늘리고, 쉬는 persistent 자식이면 탭을 붙든다(첫 모델 줄이 풀고 없으면 `NOTICE_RESUME_WINDOW_MS` 뒤).
    */
   private noteNoticeAwaitingResume(sub: SubAgent): void {
     this.stretchDeferredSeal(sub.id, NOTICE_RESUME_WINDOW_MS, 'task notification arrived during the grace');
@@ -1948,12 +1536,8 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.5 #17-9 ⑱ — 되살아난 턴이 실제로 말하기 시작했다. 붙듦을 풀고 **승격 표식도 함께 지운다** —
-   * 표식을 남기면 곧바로 이어지는 `syncBgSubStatus` 가 "자식이 다 끝났다"로 읽어 탭을 내린다.
-   * 탭은 `active` 그대로 그 턴을 돌고, 그 턴의 `result` 에서 `shouldSleepResumedTurn` 이 재운다.
-   *
-   * `deliveredNotices` 는 비우지 않는다 — 통지 턴이 둘 이어질 때 첫 턴의 `result` 가 그 셈으로
-   * 3초 유예를 받아야 둘째 턴이 그 유예를 거둔다(봉인 뒤 깨우기 경로도 비우지 않는다).
+   * §5.5 #17-9 ⑱ — 되살아난 턴이 말하기 시작 — 붙듦과 승격 표식을 함께 지운다(남기면 `syncBgSubStatus` 가 탭을 내린다). `result` 에서 `shouldSleepResumedTurn` 이 재운다.
+   * `deliveredNotices` 는 비우지 않는다 — 통지 턴이 둘 이어질 때 그 셈으로 첫 턴의 `result` 가 3초 유예를 받아야 둘째 턴이 거둔다.
    * @returns 붙든 것이 있었으면 true.
    */
   private releaseNoticeResumeHold(subAgentId: string, cause: string): boolean {
@@ -1978,14 +1562,8 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.5 #17-9 ⑪ — 스트림 끝 통지로 훅 대차대조 항목 하나를 내린다.
-   *
-   * 두 장부는 열쇠가 다르다 — 훅 항목은 부모의 `tool_use_id`, 스트림 칩은 CLI 가 발급한 `task_id`.
-   * 그래서 **그 자식이 무엇이었는지**로 짝을 찾는다: 같은 탭(`subId`)이 띄운, 같은 `subagent_type`
-   * 항목 중 이름(`description`)이 같은 것 → 없으면 최고령. 범위를 탭+종류로 좁히므로 다른 종류의
-   * 자식을 대신 내리는 일은 없고, 같은 종류가 여럿이면 어차피 모두 이 통지를 한 번씩 받는다.
-   *
-   * 아무것도 못 찾으면 조용히 지나간다 — `SubagentStop` 이 이미 제때 내렸다는 뜻이다(정상 경로).
+   * §5.5 #17-9 ⑪ — 끝 칩으로 훅 항목 하나를 내린다. 열쇠가 달라(`tool_use_id` ↔ `task_id`) 같은 탭·`subagent_type`·`description` → 최고령으로 짝짓는다.
+   * 못 찾으면 `SubagentStop` 이 이미 내린 것.
    */
   private dropPendingBySubagentEndChip(
     parentAgentId: string,
@@ -2019,16 +1597,7 @@ export class SubAgentManager {
     return state;
   }
 
-  /**
-   * 스트림 한 줄이 턴 봉인 판정에 주는 영향을 반영한다 — `emitStreamEvent` 의 **모든** 경로
-   * (legacy / persistent / agent-view JSONL)가 여기를 지나므로 이 한 곳이면 전부 덮인다.
-   *
-   * 두 가지를 한다:
-   *  1) 작업 칩(`task_started` / `task_notification`)을 대차대조에 반영.
-   *  2) 실제 작업 이벤트가 오면 **잠정 봉인을 취소**하고 "턴이 이어졌다"로 기록한다.
-   *     이미 봉인이 끝난 뒤(늦게 깨어난 백그라운드 작업)라면 sub 를 다시 `active` 로 올려
-   *     화면이 "끝났다"고 거짓말하지 않게 한다.
-   */
+  /** 스트림 줄이 턴 봉인에 주는 영향 — 모든 경로가 여기를 지난다. 작업 칩은 대차대조에, 실제 작업 이벤트는 잠정 봉인 취소(이미 봉인 뒤면 sub 를 다시 `active`). */
   private noteTurnSealSignal(event: SubAgentStreamEvent): void {
     if (event.eventType === 'system') {
       const subtype = parseSystemSubtype(event.content);
@@ -2038,10 +1607,7 @@ export class SubAgentManager {
       return;
     }
     if (!isTurnResumeSignal(event.eventType)) return;
-    // 곁가지(비동기 서브에이전트 안쪽) 줄은 **본 대화가 이어졌다는 신호가 아니다.** 본 턴이 끝난 뒤에도
-    //   곁가지는 수 분씩 흐르는데, 그 줄마다 잠정 봉인을 풀면 끝난 명령이 `executing` 으로 붙들린다
-    //   (다음 입력이 그 뒤에 줄 서고, [중지] 전까지 풀리지 않았다 — §5.5 #17-18). 곁가지가 살아 있다는
-    //   사실은 작업 칩 장부(`liveTasks`)가 따로 들고 있다.
+    // 곁가지(비동기 서브에이전트 안쪽) 줄은 본 대화가 이어졌다는 신호가 아니다 — 그걸로 봉인을 풀면 끝난 명령이 `executing` 으로 붙들린다(§5.5 #17-18). 생존은 `liveTasks` 가 든다.
     if (event.nestedUnderToolUseId) {
       const nestedOwner = this.index.get(event.subAgentId);
       if (nestedOwner) nestedOwner.lastActivityAt = Date.now();
@@ -2063,13 +1629,7 @@ export class SubAgentManager {
     }
   }
 
-  /**
-   * 턴 종료를 **봉인하거나 잠정으로 미룬다**(`turnSeal.ts` 의 정책을 실행하는 자리).
-   *
-   * `canResume` 은 "자식이 아직 살아 있어 이 턴이 다시 돌 수 있는가" 다 — 자식이 이미 죽은
-   * 마감 경로(legacy `--print` 종료 · 크래시 · 사용자 중지)는 재진입이 물리적으로 불가능하므로
-   * 종전 그대로 즉시 봉인한다.
-   */
+  /** 턴 종료를 봉인하거나 잠정으로 미룬다(`turnSeal.ts`). `canResume` 거짓(legacy 종료·크래시·중지 — 자식이 이미 죽었다)이면 즉시 봉인. */
   private sealTurn(sub: SubAgent, canResume: boolean, seal: () => void, onResume?: () => void): void {
     this.cancelDeferredSeal(sub.id);
     const state = this.getTurnSealState(sub.id);
@@ -2103,13 +1663,7 @@ export class SubAgentManager {
     return timer;
   }
 
-  /**
-   * §5.5 #17-9 ⑱(d) — 붙들어 둔 잠정 봉인의 만료를 `ms` 뒤로 **다시 건다.** 붙든 게 없으면 false.
-   *
-   * 유예 중에 끝 통지가 오면 CLI 는 그 통지로 새 턴을 여는데, 첫 토큰이 3초 유예보다 늦게 와서
-   * 유예가 먼저 봉인했다(완료음) — 되살아난 턴이 끝나며 한 번 더 울렸다. 늘린 유예도 거두는 것은
-   * 종전 그대로 첫 모델 줄(`resumeHeldSeal`)이다.
-   */
+  /** §5.5 #17-9 ⑱(d) — 붙든 봉인의 만료를 `ms` 뒤로 다시 건다(없으면 false) — 유예 중 끝 통지의 새 턴은 첫 토큰이 3초보다 늦다. 거두는 것은 첫 모델 줄(`resumeHeldSeal`). */
   private stretchDeferredSeal(subAgentId: string, ms: number, cause: string): boolean {
     const deferred = this.deferredSeals.get(subAgentId);
     if (!deferred) return false;
@@ -2119,12 +1673,7 @@ export class SubAgentManager {
     return true;
   }
 
-  /**
-   * 붙들어 둔 잠정 봉인을 **턴이 이어졌다**는 이유로 거둔다. 붙든 게 없으면 false.
-   *
-   * 부르는 곳은 둘이다 — 파싱된 작업 이벤트(`noteTurnSealSignal`)와, 그보다 이른 persistent stdout 의
-   * 본 대화 모델 줄(`_handlePersistentStdoutLine`). 둘이 같은 뜻이라 같은 정리를 태운다.
-   */
+  /** 붙든 봉인을 "턴이 이어졌다"로 거둔다(없으면 false). 부르는 곳: `noteTurnSealSignal`, 그보다 이른 persistent stdout 모델 줄. */
   private resumeHeldSeal(subAgentId: string, cause: string): boolean {
     const deferred = this.deferredSeals.get(subAgentId);
     if (!deferred) return false;
@@ -2158,14 +1707,7 @@ export class SubAgentManager {
     deferred.seal();
   }
 
-  /**
-   * 이 줄에 **자기 턴**을 각인한다. 우선순위는 하나뿐이다 — **그 일을 시킨 턴이 주인**이다.
-   *
-   *  ① 백그라운드 작업의 끝 통지(`task_notification`)는 그 작업을 **시작한 턴**의 도장을 쓴다.
-   *     통지는 몇 턴 뒤에 올 수 있고, 도착 시점의 턴에 붙이면 남의 명령이 한 일로 보인다.
-   *  ② 그 밖의 줄은 **지금 도는 턴**의 것이다(한 세션의 본 대화는 한 번에 하나만 돈다).
-   *  ③ 도는 턴이 없으면(마감 뒤 여운) 도장을 비워 둔다 — 클라가 종전 시각 기준으로 폴백한다.
-   */
+  /** 줄에 자기 턴을 찍는다 — 시킨 턴이 주인: ① 끝 통지는 그 작업을 시작한 턴(몇 턴 뒤에 온다) ② 그 밖은 지금 도는 턴 ③ 없으면 비운다(클라가 시각으로 폴백). */
   private stampTurnId(event: SubAgentStreamEvent): void {
     if (event.turnId) return;
     if (event.eventType === 'system') {
@@ -2189,20 +1731,14 @@ export class SubAgentManager {
     this.stampTurnId(event);
     // 턴 봉인 판정은 **버려지는 칩까지 포함해** 모든 줄을 봐야 한다 — 아래 복원 예산 컷보다 먼저.
     this.noteTurnSealSignal(event);
-    // §5.3 #9-1 (P)(a) — 조용한 압축이 뱉은 줄은 **버퍼·디스크·화면 어디에도 남기지 않는다.**
-    //   봉인 판정(바로 위)보다는 **뒤**다 — 그 턴도 끝나야 다음 명령이 나가므로 마감 신호는
-    //   그대로 받아야 한다. 감추는 것은 보이는 줄이지 "끝났다"는 사실이 아니다.
-    //   `lastActivityAt` 은 갱신한다 — 압축은 2~3분씩 걸리는데(실측 평균 150초) 이 갱신을
-    //   빠뜨리면 그동안 흐르는 줄이 하나도 없어 idle sweep 이 도는 세션을 죽은 것으로 읽는다.
+    // §5.3 #9-1 (P)(a) — 조용한 압축의 줄은 어디에도 남기지 않되, 봉인 판정 뒤에 둔다(마감 신호는 받아야 다음 명령이 나간다).
+    // `lastActivityAt` 은 갱신한다 — 압축은 평균 150초(실측)라 빠뜨리면 idle sweep 이 죽은 것으로 읽는다.
     if (event.turnId && this.silentTurnIds.has(event.turnId)) {
       const silentSub = this.index.get(event.subAgentId);
       if (silentSub && options.recordActivity !== false) silentSub.lastActivityAt = Date.now();
       return;
     }
-    // §5.5 v4.92 — 내용 없는 SDK 상태 칩(`[task_progress]`·`[thinking_tokens]` 등)은 **복원 예산에서 뺀다**.
-    //   어느 밀도에서도 한 글자도 안 그려지면서 버퍼의 38%(실측)를 먹어 대화를 밀어내던 것들이다.
-    //   라이브 중계(onStreamEvent)는 그대로 — 진행 표시·라이브 1줄은 이 칩들로 움직이므로 끊으면 안 된다.
-    //   버퍼·디스크에만 안 남기므로, 다시 열었을 때 같은 슬롯이 실제 대화로 채워진다.
+    // §5.5 — 안 그려지는 상태 칩(`[task_progress]` 등)은 버퍼·디스크에 남기지 않는다(버퍼의 38%, 실측). 라이브 중계는 그대로 — 진행 표시가 이걸로 움직인다.
     if (isNeverRenderedStreamEvent(event)) {
       const liveOnlySub = this.index.get(event.subAgentId);
       if (liveOnlySub && options.recordActivity !== false) liveOnlySub.lastActivityAt = Date.now();
@@ -2211,10 +1747,7 @@ export class SubAgentManager {
     }
     let buf = this.streamBuffers.get(event.subAgentId);
     if (!buf) {
-      // idle 회수(sweepIdle)로 비워진 뒤 재개되는 경우, 디스크에서 과거를 복원해 이어붙인다 —
-      // 메모리 버퍼 완전성 보장(이게 없으면 재개 후 getStreamBuffersForAgent 가 과거 누락분만 반환).
-      // 폴더는 `findStreamDirFor` 로 짚는다 — 소속 해석이 실패하면 과거를 못 이어붙여 **그 세션은
-      // 지금부터의 몇 줄만 남는다**(읽기 경로를 고쳐도 여기가 비면 같은 빈 화면이 된다).
+      // idle 회수 뒤 재개면 디스크의 과거를 먼저 잇는다 — 폴더(`findStreamDirFor`)를 못 짚으면 그 세션은 지금부터의 몇 줄만 남는다.
       const dir0 = this.findStreamDirFor(event.subAgentId, event.parentAgentId);
       if (dir0) {
         const r = streamBufferStore.loadBufferIfChanged(dir0, event.subAgentId, MAX_STREAM_BUFFER, undefined);
@@ -2251,10 +1784,7 @@ export class SubAgentManager {
     return subCounter;
   }
 
-  /** 체크포인트에서 복원 — SubAgent 메타 + 디스크 persist된 스트림 버퍼도 함께 로드.
-   *  project 인자: 해당 체크포인트 소속 프로젝트. 프로젝트별 save 디렉토리에서 스트림 파일을 찾기 위해 필요.
-   *  미지정(= 1.x 호환 호출)이면 스트림 복원을 건너뛰고 메타만 복원한다.
-   *  archived 인자: 아카이브된(탭 닫힌) 서브에이전트 목록(폴더 버튼 소스). */
+  /** 체크포인트 복원 — 메타 + 디스크 스트림. `project` 가 없으면 메타만, `archived` 는 탭 닫힌 sub(폴더 버튼). */
   restore(
     data: Record<string, SubAgent[]>,
     counter: number,
@@ -2297,16 +1827,9 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.7 #23-2 v1.60 — 서버 부팅 시 호출.
-   * 영속화된 subagent 중 `agentViewShort` 가 있는 것들에 대해 supervisor roster 와 cross-reference 해서
-   * 살아있으면 watcher 재부착하고 sub.status = 'active' 로 되돌린다.
-   * 죽었으면 state.json 최종 상태를 마지막 결과로 흡수하고 sub.status 는 idle/error 로 마무리.
-   *
-   * 내부에서 `projectResolver` 로 부모 에이전트 → cwd 를 해석한다(인덱스에 set 되어 있어야 함).
-   *
-   * @param findExecutingCmd subAgentId → 그 sub 의 가장 최근 executing 명령. 없으면 null.
-   *                         호출자(index.ts) 가 graphManager 의 commandQueues 를 스캔하는 함수 주입.
-   *                         이게 있어야 terminal 시점에 cmd.status='completed' 로 마무리 가능.
+   * §5.7 #23-2 — 부팅 때 `agentViewShort` 가 있는 sub 를 roster 와 대조: 살아 있으면 재부착 + `active`, 죽었으면 state.json 을 결과로 받고 idle/error.
+   * `projectResolver` 가 먼저 set 돼 있어야 한다.
+   * @param findExecutingCmd sub 의 최근 executing 명령(없으면 null) — 있어야 끝날 때 cmd 를 completed 로 닫는다.
    */
   async reattachAgentViewOnBoot(
     findExecutingCmd?: (subAgentId: string) => QueuedCommand | null,
@@ -2354,10 +1877,7 @@ export class SubAgentManager {
       if (!cwd) { failedCount++; continue; }
 
       if (aliveShorts.has(short)) {
-        // v1.60 fix: alive ≠ working. roster 에 있어도 state.json 의 state 가 'idle'/'done' 등
-        // 비-working 이면 턴은 이미 끝난 것 — sub 를 'active' 로 부활시키면 부모 에이전트가
-        // idle→active→completed 사이클을 타게 된다. state 가 'working' 또는 'needs-input' 일 때만
-        // 실제 진행 중으로 보고 watcher 재부착. 그 외엔 gone 경로와 동일하게 cmd 봉합 + idle 마무리.
+        // alive ≠ working — state 가 'working'·'needs-input' 일 때만 재부착한다. 그 밖은 gone 처럼 봉합 + idle(부활시키면 부모가 완료 사이클을 한 번 더 탄다).
         const currentState = readJobState(short);
         const stateStr = String(currentState?.state || '');
         const stillWorking = stateStr === 'working' || stateStr === 'needs-input';
@@ -2417,9 +1937,7 @@ export class SubAgentManager {
           }
           if (resultText && !sub.lastResult) sub.lastResult = resultText;
           finalizeCmd(sub, stateStr, resultText, currentState?.detail, cwd, sessionId);
-          // v1.62 fix — 다른 terminal 경로(stillWorking/finishTerminal/legacy)와 동일하게
-          // 부모 커스텀 버블 재계산 + cmd 아카이브를 즉시 트리거. 누락 시 부모 배지가
-          // 다음 10초 주기 sweep 까지 stale 상태로 남는다.
+          // 다른 종료 경로처럼 부모 재계산 + 아카이브를 즉시 — 빠뜨리면 배지가 다음 10초 sweep 까지 낡는다.
           this.onSubStatusChange?.(sub.parentAgentId);
           this.onComplete?.();
           aliveCount++;
@@ -2435,7 +1953,7 @@ export class SubAgentManager {
           const resultText = (typeof finalState.output?.result === 'string' && finalState.output.result) || undefined;
           if (resultText && !sub.lastResult) sub.lastResult = resultText;
           finalizeCmd(sub, stateStr, resultText, finalState.detail, cwd, sessionId);
-          // v1.62 fix — gone 경로도 부모 재계산 + 아카이브 즉시 트리거 (위 분기와 동일 이유).
+          // gone 경로도 부모 재계산 + 아카이브를 즉시(위와 같은 이유).
           this.onSubStatusChange?.(sub.parentAgentId);
           this.onComplete?.();
         }
@@ -2461,23 +1979,9 @@ export class SubAgentManager {
   }
 
   /**
-   * **확인 dismiss — 실패 표식의 근거까지 걷는다 (§2.4).**
-   *
-   * 부모 버블의 `error` 는 저장된 상태가 아니라 **파생값**이다 — `recomputeCustomAgentStatus` 가
-   * 매 스윕(`SESSION_SCAN_INTERVAL`=10초)마다 `subs.some(s => s.status === 'error')` 로 다시
-   * 계산한다. 그래서 확인 dismiss 가 버블만 `idle` 로 내리면 **다음 스윕이 같은 근거로 빨강을
-   * 그 자리에 되살린다**(사용자 보고 "확인해서 껐는데 왔다 갔다 하면 다시 빨간불"). 게다가 그
-   * `error` 는 체크포인트에 그대로 저장되므로 앱을 껐다 켜도 되살아난다. 걷어야 하는 것은
-   * 파생값이 아니라 그 **근거**다.
-   *
-   * `error` 인 sub 만 `idle` 로 되돌린다 — `active` 는 건드리지 않고(도는 세션을 끝난 것으로
-   * 만드는 일이 된다), `lastResult`·명령 이력·스트림 버퍼는 그대로 남는다. **지우는 것이 아니라
-   * 확인한 것**이다(§2.4 "정보를 지우지 않는다").
-   *
-   * 이 길은 **사용자 클릭 전용**이다. 자동 idle 스윕은 여기를 타지 않는다 — 시간이 흘렀다는
-   * 이유로 실패를 idle 로 세탁하지 않기 위함(§2.4 "거짓 idle 세탁 금지").
-   *
-   * @returns 실제로 내려간 sub 개수. 0이면 호출자가 broadcast·저장을 건너뛴다.
+   * 확인 dismiss — 근거까지 걷는다(§2.4). 버블 `error` 는 sub 상태의 파생값이라 버블만 내리면 다음 10초 스윕·재시작이 되살린다.
+   * `error` sub 만 `idle` 로(`active`·결과·이력·스트림은 그대로). 사용자 클릭 전용 — 스윕이 실패를 세탁하지 않는다.
+   * @returns 내린 sub 수(0이면 broadcast·저장 생략).
    */
   acknowledgeErrorSubs(parentAgentId: string): number {
     let cleared = 0;
@@ -2497,16 +2001,13 @@ export class SubAgentManager {
     return [...this.index.values()];
   }
 
-  /** v1.33 — subAgentId 로 직접 조회. projectGraph reconcile 경로용. 없으면 undefined. */
   getSub(subAgentId: string): SubAgent | undefined {
     return this.index.get(subAgentId);
   }
 
   /**
-   * §5.3 #9-1 (P)(b) — 이 세션의 "마지막 명령"(탭·세션 목록·명령 센터·대화 연결이 읽는다)을 이 글로
-   * 적고, 라벨이 아직 기본값이면 그 글로 제목을 붙인다. 조용한 사전 압축이 끼는 순간 서버가 **뒤에 선
-   * 명령의 글**로 부른다 — 압축이 도는 동안에도 그 명령이 이미 도는 것처럼 보여야 하고, `execute` 는
-   * 조용한 턴에 이 두 칸을 건드리지 않는다(`/compact` 가 탭 이름·마지막 명령으로 새지 않게).
+   * §5.3 #9-1 (P)(b) — "마지막 명령"을 이 글로 적고 기본 라벨이면 제목도 붙인다. 조용한 사전 압축 때 서버가 뒤에 선 명령의 글로 부른다
+   * (`execute` 는 조용한 턴에 두 칸을 안 건드린다 — `/compact` 가 새지 않게).
    */
   noteLastCommand(subAgentId: string, text: string): void {
     const sub = this.index.get(subAgentId);
@@ -2515,9 +2016,7 @@ export class SubAgentManager {
 
   private applyLastCommand(sub: SubAgent, text: string): void {
     sub.lastCommand = text;
-    // §5.5 #17-5 v2.68 — 라벨이 아직 기본값(Sub #N)이면 첫 프롬프트로 주제명 자동 부여.
-    //   사용자가 직접 바꾼 이름은 클라(subAgentLabels)가 displayLabel 에서 항상 우선하므로
-    //   서버는 기본 라벨만 갱신하면 "직접 바꾼 게 아니라면 자동 명명"이 성립한다.
+    // §5.5 #17-5 — 기본 라벨(Sub #N)이면 첫 프롬프트로 이름을 붙인다(직접 바꾼 이름은 클라 `subAgentLabels` 가 우선).
     if (DEFAULT_SUB_LABEL_RE.test(sub.label)) {
       const title = deriveTabTitle(text);
       if (title) sub.label = title;
@@ -2535,17 +2034,10 @@ export class SubAgentManager {
       || this.localInFlightCmd.has(subId);
   }
 
-  /** 이 sub 가 **지금 한 턴(명령)을 실제로 처리 중**인가 — `isSubRunning` 보다 좁다.
-   *  `isSubRunning` 은 idle 로 대기하는 persistent 자식(명령 사이 살아만 있는)도 true 라
-   *  완료 판정 가드로 쓰면 부모가 영영 completed 로 못 간다. 이 술어는 "처리 중"만 잡는다:
-   *   - persistent: in-flight 명령 보유(`persistentInFlightCmd`).
-   *   - local(All Model): in-flight 턴 보유(`localInFlightCmd`) — 자식이 없어 다른 근거가 없다.
-   *   - legacy: 자식 생존 && persistent-ready 가 아님(legacy 자식은 명령 동안만 존재).
-   *   - agent-view: watcher 보유.
-   *  용도 — `recomputeCustomAgentStatus` 가 sub.status 가 순간 비활성으로 읽혀도(예: result 직후
-   *  finalize→idle 과 다음 명령 dispatch 사이) 자식이 아직 턴을 돌리는 중이면 부모를 완료로
-   *  강등하지 않게 한다(= 헤드리스 감독관 조기 완료 차단). idle 대기 자식은 여기서 제외되므로
-   *  진짜 끝났을 때는 정상적으로 완료된다. */
+  /**
+   * 지금 한 턴을 처리 중인가 — `isSubRunning` 보다 좁다(그건 idle 대기 자식도 참이라 완료 가드로 쓰면 부모가 못 끝난다).
+   * persistent/local: in-flight 명령 · legacy: 자식 생존 && persistent-ready 아님 · agent-view: watcher. 순간 비활성(result ~ 다음 dispatch)의 조기 완료를 막는다.
+   */
   isSubProcessingCommand(subId: string): boolean {
     if (this.persistentInFlightCmd.has(subId)) return true;
     // 로컬(All Model): 러너가 한 턴을 도는 중. persistent 의 in-flight 와 **같은 뜻**이라 같은 자리에 둔다.
@@ -2555,8 +2047,7 @@ export class SubAgentManager {
     return false;
   }
 
-  /** §5.3 #12-1 v3.43 — sessionId 로 managed sub 역조회 (훅 이벤트의 소유 에이전트 해석용).
-   *  isManagedSession 과 동일 스캔 — index 는 수십 건 규모라 훅 이벤트당 비용 무시 가능. */
+  /** §5.3 #12-1 — sessionId 로 managed sub 역조회(훅 소유 해석). index 가 수십 건이라 선형 스캔. */
   findSubBySessionId(sessionId: string): SubAgent | undefined {
     if (!sessionId) return undefined;
     for (const s of this.index.values()) {
@@ -2565,19 +2056,17 @@ export class SubAgentManager {
     return undefined;
   }
 
-  /** §5.5 #17-9 ③(c) v4.95 — termId 로 세션 탭(sub) 역조회.
-   *  CMD(인터랙티브 터미널) 세션은 JSONL 파이프가 없어 `sub.sessionId` 가 끝내 비어 있으므로
-   *  `findSubBySessionId` 로는 소유 탭이 항상 미상이다. 훅이 실어 오는 `_vibisualOwnerTermId`
-   *  (끝 토큰 = sub.id)로 푸는 폴백 — `markCmdSubActivity` 와 같은 조회를 재사용한다. */
+  /** §5.5 #17-9 ③(c) — termId 로 sub 역조회 — CMD 세션은 `sessionId` 가 비어 있어 훅의 `_vibisualOwnerTermId`(끝 토큰 = sub.id)로 푼다. */
   findSubByTermId(termId: string): SubAgent | undefined {
     const parsed = parseTermId(termId);
     if (!parsed) return undefined;
     return this.index.get(parsed.sessionToken);
   }
 
-  /** §5.3 #12-1 v3.43 — 부모의 Task/Agent PreToolUse: 백그라운드 서브에이전트 대차대조 ↑.
-   *  `ownerSubId` 는 이 Task 를 띄운 세션 탭(sub) — 그 탭 도트를 대차대조와 함께 구동한다.
-   *  @returns sub 도트 상태가 바뀌었으면 true (호출자 broadcast 판단용). */
+  /**
+   * §5.3 #12-1 — 부모의 Task/Agent PreToolUse: 대차대조 ↑, 띄운 탭(`ownerSubId`)의 도트도 함께.
+   * @returns 탭 도트가 바뀌었으면 true.
+   */
   noteSubagentTaskStart(
     parentAgentId: string,
     toolUseId?: string,
@@ -2590,10 +2079,7 @@ export class SubAgentManager {
       this.pendingSubagentTasks.set(parentAgentId, m);
     }
     const key = toolUseId ?? `anon-${++this.pendingSubagentAnonSeq}`;
-    // 소유 세션 역조회가 실패하면(훅이 `session_id`/termId 로 탭을 못 풀 때) 그 자식은 **주인이 없는 채**
-    //   장부에 오른다. 그러면 부모 버블만 active 로 오르고 **그 탭 도트는 계속 꺼져 있어**, 자식이 도는
-    //   내내 세션이 끝난 것처럼 보였다(사용자 보고). 지금 한 턴을 처리 중인 탭이 딱 하나면 그 탭이
-    //   주인일 수밖에 없으므로 그리로 귀속한다 — 둘 이상이면 추측하지 않고 미상으로 둔다.
+    // 소유 세션을 못 풀면 처리 중인 탭이 딱 하나일 때만 그 탭에 귀속한다(없으면 도트가 꺼진 채 끝난 것처럼 보인다). 둘 이상이면 미상.
     const resolvedSubId = ownerSubId ?? this.soleProcessingSubId(parentAgentId);
     m.set(key, {
       ts: Date.now(),
@@ -2609,13 +2095,7 @@ export class SubAgentManager {
     return this.syncBgSubStatus(parentAgentId);
   }
 
-  /**
-   * 이 에이전트에서 **지금 한 턴을 처리 중인 탭이 딱 하나면** 그 id — 아니면 `undefined`.
-   *
-   * 훅이 소유 세션을 못 풀었을 때의 폴백 근거다. 자식을 띄우는 것은 "지금 도는 턴"이므로,
-   * 도는 탭이 하나뿐이면 그 탭이 주인인 것이 확실하다. 둘 이상이면 **추측하지 않는다** —
-   * 남의 탭에 자식을 붙이면 그 탭 도트가 거짓으로 켜지고, 그건 안 켜지는 것보다 나쁘다.
-   */
+  /** 처리 중인 탭이 딱 하나면 그 id, 아니면 `undefined` — 추측하지 않는다(남의 도트를 거짓으로 켜는 것이 더 나쁘다). */
   private soleProcessingSubId(parentAgentId: string): string | undefined {
     let found: string | undefined;
     for (const sub of this.registry.get(parentAgentId) ?? []) {
@@ -2627,18 +2107,9 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.3 #12-1 — 백그라운드 대차대조를 **세션 탭(sub) 도트에도** 반영.
-   *
-   * 배경: v3.43 대차대조는 부모 **버블**만 active 로 유지했다. 부모(감독관) 턴이 끝나면
-   * `_finalizeLegacyCommand` 가 sub.status 를 idle 로 내리므로, 자식이 백단에서 도는 동안
-   * 버블은 동작 이펙트인데 **탭 도트만 녹색(idle=완료·미확인)** 으로 어긋났다. v2.64 의
-   * `markCmdSubActivity`(CMD 탭 도트 연속 동기화)와 같은 부류의 누락 — 여기서 메운다.
-   *
-   * pending 이 걸린 sub 는 active 로 올리고(그 사실을 `bgPromotedSubs` 에 표식), pending 이
-   * 비면 **표식이 있는 sub 만** idle 로 되돌린다. 실제 명령을 처리 중인 sub 는
-   * `isSubProcessingCommand` 로 보호 — 진행 중인 턴을 거짓 idle 로 세탁하지 않는다.
-   *
-   * @returns 하나라도 바뀌었으면 true (호출자 broadcast 판단용).
+   * §5.3 #12-1 — 대차대조를 세션 탭 도트에도 반영 — pending 이 있으면 active 로 올려 `bgPromotedSubs` 에 표식, 비면 표식 있는 sub 만 idle 로.
+   * 처리 중인 sub 는 `isSubProcessingCommand` 로 보호.
+   * @returns 바뀌었으면 true.
    */
   private syncBgSubStatus(parentAgentId: string): boolean {
     const m = this.pendingSubagentTasks.get(parentAgentId);
@@ -2648,16 +2119,8 @@ export class SubAgentManager {
         if (e.subId) pendingSubIds.add(e.subId);
       }
     }
-    // 스트림으로만 보이는 **모델 자식**을 가진 탭도 같은 자격이다 — 그 탭은 자기 턴이 끝났어도
-    //   그 자식이 끝나면 다시 깨어난다. 훅이 소유 세션을 못 푼 경우(백그라운드 자식 **안에서**
-    //   다시 스폰된 자식)에는 이 스트림 신호가 유일한 증인이라, `listDisplayableLiveTasks` 처럼
-    //   `subagentType` 을 빼는 *표시용* 목록을 여기 쓰면 그 탭이 도는 채로 초록 "완료"로 굳는다
-    //   (§5.5 #17-9 ⑮).
-    // **그러나 셸은 여기 들어오지 않는다**(⑰ — `hasLiveTasks` ❌ → `hasLiveAgentTasks` ⭕).
-    //   셸은 명령이 돌 뿐 모델이 돌지 않아 그 턴의 답은 이미 나와 있다. 종전처럼 셸까지 올리면
-    //   끝 표식이 영영 안 오는 명령(`grep … | sort`) 하나가 그 탭을 영구히 "실행 중"으로 붙들어
-    //   입력창이 [중지]로 굳고 3분 무응답 경고가 선다 — 사용자 보고의 바로 그 증상이다.
-    //   셸은 활동바 배지와 백그라운드 목록으로 **따로** 보여 주고 `KillShell` 로 따로 끊는다.
+    // 스트림으로만 보이는 모델 자식도 같은 자격(훅이 못 푼 자식의 유일한 증인) — 표시용 목록(`listDisplayableLiveTasks`)을 쓰면 도는 탭이 "완료"로 굳는다(⑮).
+    // **셸은 넣지 않는다**(⑰ — `hasLiveAgentTasks`): 끝 표식이 안 오는 셸 하나가 탭을 영구히 "실행 중"으로 붙든다. 셸은 활동바·목록·`KillShell` 이 따로 맡는다.
     for (const [subId, state] of this.turnSealStates) {
       if (this.index.get(subId)?.parentAgentId !== parentAgentId) continue;
       if (hasLiveAgentTasks(state)) { pendingSubIds.add(subId); continue; }
@@ -2697,10 +2160,10 @@ export class SubAgentManager {
     return changed;
   }
 
-  /** §5.3 #12-1 v3.43 — SubagentStop: 대차대조 ↓. 서브의 parent_tool_use_id 가 부모 Task 의
-   *  tool_use_id 와 같아 그걸로 매칭, id 미상(구버전 페이로드)이면 최고령 항목 회수.
-   *  @returns drained = 이 감소로 pending 이 0 이 됐다(호출자가 즉시 recompute 해 진짜 완료를 반영),
-   *           subChanged = 세션 탭 도트가 바뀌었다(호출자 broadcast 판단용). */
+  /**
+   * §5.3 #12-1 — SubagentStop: 대차대조 ↓(`parent_tool_use_id` 로 짝, id 없는 구버전은 최고령).
+   * @returns drained = pending 이 0 이 됐다(즉시 recompute), subChanged = 탭 도트가 바뀌었다.
+   */
   noteSubagentTaskStop(
     parentAgentId: string,
     toolUseId?: string,
@@ -2716,10 +2179,7 @@ export class SubAgentManager {
       m.delete(toolUseId as string);
       this.archiveSubagentTask(parentAgentId, toolUseId as string, hit, result);
     } else if (toolUseId) {
-      // **id 를 들고 왔는데 우리 장부에 없다** = 이미 정리된 옛 턴의 자식이다(사용자가 [중지]로 끊었거나
-      //   덧말 `즉시` 가 그 턴을 갈아치웠다 — 그때 `clearPendingSubagentTasksForSession` 가 장부를 비운다).
-      //   여기서 아래 최고령 폴백으로 떨어지면 **지금 턴이 방금 띄운 자식을 대신 지워** 그 자식의 카드에
-      //   남의 결과를 붙인다(사용자 보고: "뒤섞여서 뭐가 어떤 작업인지 모른다"). 모르는 id 는 버린다.
+      // 장부에 없는 id = 이미 정리된 옛 턴의 자식([중지]·`즉시` 뒤 비워짐). 최고령 폴백으로 떨어지면 지금 턴의 자식을 지워 남의 결과를 붙이므로 버린다.
       logger.info(`[bg-subagent] stop for unknown key parent=${parentAgentId} key=${toolUseId} — stale child of a replaced turn, ignored`);
       return { drained: false, subChanged: false };
     } else {
@@ -2744,19 +2204,9 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.5 #17-9 ⑦(a) — **자식 안에서 난 도구 이벤트**를 그 자식의 대차대조 항목에 얹는다.
-   *
-   * 공식 훅 공통 입력 필드 `agent_id` 는 서브에이전트 안에서 훅이 발화할 때만 존재하고, 그 이벤트는
-   * 부모와 **같은 `session_id`** 로 도착한다(우리 SubagentStop 귀속이 이미 그 사실 위에 서 있다).
-   * 그래서 새 수집 경로 없이 "지금 무슨 도구를 무엇에 대고 쓰는지"를 알 수 있다.
-   *
-   * 어느 항목의 자식인지는 세 단계로 푼다:
-   *   ① 이미 같은 `agentId` 가 각인된 항목 (한 번 붙으면 그 뒤로는 항상 여기서 끝난다)
-   *   ② `agent_type` 이 그 항목의 `subagent_type` 과 같고 아직 각인 전인 것 중 최고령
-   *   ③ 그래도 없으면 각인 전 항목 중 최고령
-   * 셋 다 실패하면 아무것도 하지 않는다(남의 자식을 아무 카드에나 붙이지 않는다).
-   *
-   * @returns 표시가 실제로 바뀌었으면 true (호출자 broadcast 판단용).
+   * §5.5 #17-9 ⑦(a) — 자식 안의 도구 이벤트(훅 `agent_id`, 부모와 같은 `session_id`)를 그 항목에 얹는다.
+   * 짝: ① 같은 `agentId` 각인 ② `agent_type` = `subagent_type` 인 각인 전 최고령 ③ 각인 전 최고령 — 없으면 아무것도 안 한다.
+   * @returns 표시가 바뀌었으면 true.
    */
   noteSubagentChildActivity(
     parentAgentId: string,
@@ -2792,19 +2242,9 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.5 #17-9 ⑦(b) — `PostToolUse(Task|Agent)` 로 도착한 **자식의 최종 보고**를 보관한다.
-   *
-   * 순서상 `SubagentStop`(대차대조 ↓)이 먼저 오고 이 이벤트가 뒤따르므로, 대개 대상은 이미 "끝난 것"
-   * 목록에 있다. 그래도 아직 pending 이면(SubagentStop 유실) 여기서 내려 준다 — 결과가 왔다는 것은
-   * 그 자식이 확실히 끝났다는 뜻이기 때문이다.
-   *
-   * ⑧ **예외 — 배경 스폰**(`run_in_background: true`): 이 도구는 자식을 띄우자마자 반환하므로
-   * 여기 오는 `tool_response` 는 최종 보고가 아니라 **"띄웠다" 접수증**이다. 그걸 완료로 읽으면
-   * 항목이 수 밀리초 만에 내려가 자식이 도는 내내 활동바가 `(0)` 이 된다(사용자 보고). 배경
-   * 항목은 내리지 않고 "살아 있다" 신호만 갱신하며, 내리는 것은 `SubagentStop` 하나다.
-   *
-   * @param background 이 `PostToolUse` 가 배경 스폰의 것이었나(`tool_input.run_in_background`).
-   *                   항목에 이미 표식이 있으면 그쪽이 우선 — 인자는 표식이 없는 항목의 폴백이다.
+   * §5.5 #17-9 ⑦(b) — `PostToolUse(Task|Agent)` 의 최종 보고를 보관하고, 아직 pending 이면(Stop 유실) 내린다.
+   * ⑧ 배경 스폰의 응답은 "띄웠다" 접수증이라 내리지 않는다(내리면 활동바가 `(0)`) — `SubagentStop` 만 내린다.
+   * @param background 배경 스폰이었나 — 항목의 표식이 우선, 이건 폴백.
    * @returns 표시가 바뀌었으면 true.
    */
   noteSubagentTaskResult(
@@ -2844,10 +2284,7 @@ export class SubAgentManager {
     /** §5.5 #17-9 ⑭ — 무엇 때문에 내려갔는가. 정상 보고(`notification`)면 굳이 적지 않는다. */
     closedBy?: FinishedSubagentTask['closedBy'],
   ): void {
-    // §5.5 #17-9 ⑦(b) 확장 — 결과를 못 받고 내려가는 항목은 **디스크에서 한 번 건져 본다**.
-    //   훅(`SubagentStop` / `PostToolUse`)은 자식이 제 발로 끝났을 때만 오므로, 프로세스 트리가
-    //   끊긴 자리(사용자 [중지] · 탭 닫기 · 크래시)에서는 결과 칸이 영영 빈다 — 정작 자식이 해 놓은
-    //   일은 트랜스크립트로 온전히 남아 있는데도. `subagentResultRescue.ts` 머리말의 실측 참조.
+    // §5.5 #17-9 ⑦(b) — 결과 없이 내려가는 항목은 트랜스크립트에서 건진다([중지]·탭 닫기·크래시엔 훅이 안 온다 — `subagentResultRescue.ts`).
     const rescued = result ? undefined : this.rescueLostSubagentResult(id, e);
     const finished: FinishedSubagentTask = {
       id,
@@ -2874,13 +2311,7 @@ export class SubAgentManager {
     this.finishedSubagentTasks.set(parentAgentId, list);
   }
 
-  /**
-   * §5.5 #17-9 ⑦(b) 확장 — 훅으로 끝내 오지 않은 자식의 최종 보고를 그 세션의 트랜스크립트에서 건진다.
-   *
-   * 세션을 아는 항목(`subId`)만 시도한다 — 소유 세션이 미상이면 어느 세션의 `subagents/` 를 뒤져야
-   * 할지 알 수 없고, 남의 자식 보고를 이 카드에 붙이는 것이 빈 카드보다 나쁘다(§5.5 #17-9: "뒤섞여서
-   * 뭐가 어떤 작업인지 모른다"). 실패는 조용히 `undefined` — 종전과 같은 빈 카드로 돌아갈 뿐이다.
-   */
+  /** §5.5 #17-9 ⑦(b) — 트랜스크립트에서 최종 보고를 건진다. 소유 세션(`subId`)을 아는 항목만 — 남의 보고를 붙이는 것이 빈 카드보다 나쁘다. 실패는 `undefined`. */
   private rescueLostSubagentResult(id: string, e: PendingSubagentEntry): string | undefined {
     if (!e.subId) return undefined;
     const sessionId = this.index.get(e.subId)?.sessionId;
@@ -2905,7 +2336,7 @@ export class SubAgentManager {
     return Object.keys(out).length > 0 ? out : undefined;
   }
 
-  /** §5.3 #12-1 v3.43 — 그 외 훅 이벤트 = 살아있다는 신호. quiet-window 기준 시각만 갱신(pending 없으면 no-op). */
+  /** §5.3 #12-1 — 그 밖의 훅 이벤트는 생존 신호 — 마지막 신호 시각만 갱신. */
   noteSubagentSignal(parentAgentId: string): void {
     if (this.pendingSubagentTasks.has(parentAgentId)) {
       this.pendingSubagentLastSignal.set(parentAgentId, Date.now());
@@ -2913,19 +2344,8 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.3 #12-1 v3.43 — 완료 강등 차단 술어: 이 에이전트가 스스로 띄운 서브에이전트가 아직 도는가.
-   *
-   * **조용함은 죽음의 증거가 아니다.** 종전에는 항목별 30분 quiet-window 로 "이만큼 조용하면 끝난
-   * 걸로 친다"고 추정했는데, 자식은 긴 빌드·패키징·폴링·대기로 얼마든지 조용할 수 있어서 그 추정은
-   * **멀쩡히 도는 자식을 끝난 것으로** 만든다(사용자 지시: "루프 대기 중일 수도 있잖아, 시간으로
-   * 잡아내면 엄청난 문제가 생긴다"). 그 창은 폐기했다 — 자동 회수의 근거는 **실제 종료 신고**
-   * (`SubagentStop`/`PostToolUse`)와 그 자식을 담고 있던 **세션 프로세스의 소멸**
-   * (`sweepOrphanedBackgroundTasks`) 둘뿐이고, 둘 다 추정이 아니라 사실이다.
-   *
-   * 남는 시간 기준은 **소유 탭이 미상이라 프로세스로 판정할 길이 아예 없는 항목**의 절대 상한
-   * 하나뿐이다(외부 훅 세션이 띄운 자식 — 우리는 그 프로세스를 모른다). 이것은 "끝났다는 판정"이
-   * 아니라 장부가 무한히 자라지 않게 하는 마지막 누수 방지이며, 프로세스를 아는 항목에는 적용되지
-   * 않는다.
+   * §5.3 #12-1 — 완료 강등 차단: 이 에이전트가 띄운 서브에이전트가 아직 도는가. **조용함은 죽음의 증거가 아니다**(긴 빌드·루프 대기).
+   * 회수 근거는 종료 신고(`SubagentStop`/`PostToolUse`)와 세션 프로세스 소멸 둘뿐. 시간 기준은 소유 탭 미상 항목의 누수 상한 하나.
    */
   hasPendingSubagentTasks(parentAgentId: string): boolean {
     const m = this.pendingSubagentTasks.get(parentAgentId);
@@ -2946,16 +2366,9 @@ export class SubAgentManager {
     return true;
   }
 
-  /**
-   * §5.5 #17-9 v3.51 — 대차대조(pendingSubagentTasks)를 IDE 표시용 스냅샷으로 투영.
-   * 실행 중인 항목이 하나도 없으면 `undefined` 를 돌려 스냅샷 필드 자체를 생략한다
-   * (클라 활동바 항목/배지가 자동으로 사라지는 근거). 런타임 전용 — 체크포인트에 담지 않는다.
-   */
+  /** §5.5 #17-9 — 대차대조의 IDE 표시 투영. 없으면 `undefined` 로 필드를 생략한다(활동바 항목·배지가 사라진다). 런타임 전용. */
   getRunningSubagentTasks(): Record<string, RunningSubagentTask[]> | undefined {
-    // **이 함수는 읽기만 한다.** 장부를 걷는 일은 `sweepOrphanedBackgroundTasks` 한 곳이 하고,
-    //   그 호출자(5초 대조 루프)가 세션 도트·부모 버블 재계산·broadcast 까지 한 벌로 끝낸다.
-    //   여기서 걷으면 **한 스냅샷 안에서 어긋난다** — 부모 버블(`agents`)은 이 객체를 조립하기 전에
-    //   이미 계산돼 있어서, 목록만 0 이 되고 버블은 여전히 도는 중인 채로 나간다.
+    // **읽기만 한다.** 걷기는 `sweepOrphanedBackgroundTasks` 몫 — 여기서 걷으면 이미 계산된 버블과 한 스냅샷 안에서 어긋난다.
     const out: Record<string, RunningSubagentTask[]> = {};
     // 스트림 기반 백그라운드 작업을 먼저 깐다 — 훅이 보지 못하는 것들이라 이게 없으면
     //   그 작업을 기다리는 세션이 화면에서 "끝난 것"이 된다(§5.3 #12-1).
@@ -2993,14 +2406,7 @@ export class SubAgentManager {
     return Object.keys(out).length > 0 ? out : undefined;
   }
 
-  /**
-   * 스트림 칩(`task_started`)으로만 보이는 백그라운드 작업을 부모별로 모은다.
-   *
-   * 훅 대차대조(`pendingSubagentTasks`)는 `PreToolUse(Task|Agent)` 만 보므로
-   * `Bash run_in_background` · `Monitor` 처럼 **도구가 Task 가 아닌** 백그라운드 작업은 잡지 못한다.
-   * 그 작업들은 CLI 가 스트림에 흘리는 칩으로만 존재하고, 종전에는 그 신호가 봉인을 3초 미루는 데만
-   * 쓰였다 — 그래서 그것을 기다리는 세션이 화면에서 완료로 보였다(사용자 보고).
-   */
+  /** 스트림 칩으로만 보이는 백그라운드 작업(`Bash run_in_background`·`Monitor` — 훅 대차대조는 Task 만 본다)을 부모별로 모은다. 없으면 기다리는 세션이 완료로 보인다. */
   private collectLiveBackgroundTasks(): Map<string, RunningSubagentTask[]> {
     const byParent = new Map<string, RunningSubagentTask[]>();
     for (const [subId, state] of this.turnSealStates) {
@@ -3032,19 +2438,8 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.5 #17-9 ⑭ — **표식 없이 오래 조용한 작업**을 하나 골라 물어보고, 답에 따라 유지·정리한다.
-   *
-   * ⓪(⑬)이 "끝났다고 적힌 것"을 걷고 ①이 "세션 프로세스가 없는 것"을 걷고 나면 마지막으로 남는
-   * 자리다. 여기는 코드가 답할 수 없다 — 조용함은 죽음의 증거가 아니고(⑩), 실측된 전형이 하필
-   * **정당한 대기**(`until [ 파일 11개 ]; do sleep 10; done`, 그때 8개)다. 그래서 이 축만 모델이 판정한다.
-   *
-   * **비동기라 sweep 밖에 있다.** `sweepOrphanedBackgroundTasks` 는 동기 함수이고 그 자리에서
-   * 몇 초짜리 모델 호출을 기다리면 5초 리컨사일 루프 전체가 멈춘다. 여기서는 **한 건만 띄우고
-   * 즉시 반환**하며, 결과는 도착한 뒤에 반영된다(그때 `onSubStatusChange` 로 화면을 민다).
-   *
-   * 예산이 이 기능의 안전장치다 — 동시 1건 · 시간당 상한 · 같은 항목은 지수 백오프.
-   * (선례: 매 Stop 마다 haiku 를 스폰해 토큰을 태운 리플렉션 · 90분에 Monitor 를 309번 띄운
-   * anthropics/claude-code#55151.)
+   * §5.5 #17-9 ⑭ — 표식 없이 오래 조용한 작업 하나를 모델에게 묻는다(⓪·① 뒤 남은 자리 — 실측 전형이 정당한 대기다).
+   * 비동기라 sweep 밖 — 한 건만 띄우고 즉시 반환(기다리면 5초 루프가 멈춘다). 예산이 안전장치: 동시 1건 · 시간당 상한 · 지수 백오프(anthropics/claude-code#55151).
    */
   maybeProbeQuietBackgroundTasks(now: number = Date.now()): void {
     const settings = this.bgTaskProbeSettings;
@@ -3072,16 +2467,7 @@ export class SubAgentManager {
       });
   }
 
-  /**
-   * 조사할 항목 하나를 고른다 — **가장 오래 조용한 것 하나**.
-   *
-   * 고르는 조건: 표시 목록에 선 스트림 작업이고 · 종료 표식이 없고(있으면 ⓪ 소관) ·
-   * 조용한 시간이 임계(백오프 배수 포함)를 넘었고 · 그 명령을 트랜스크립트에서 읽어 낼 수 있다.
-   *
-   * 마지막 조건이 안 맞으면 판정 근거 자체가 없어 건너뛰되, **사유를 로그로 남긴다**(⑰ —
-   * `pickSessionForProbe` 와 같은 규약). 조용히 빠지면 "왜 이 항목만 영영 조사가 안 붙나"를
-   * 못 쫓는다 — 실제로 타임아웃 승격 셸이 이 자리에서 소리 없이 빠져 몇 시간을 남아 있었다.
-   */
+  /** 조사할 항목 하나 — 가장 오래 조용한 스트림 작업(표식 없음 · 임계 초과 · 명령을 트랜스크립트에서 읽을 수 있음). 건너뛰면 사유를 로그로(⑰) — 조용히 빠지면 못 쫓는다. */
   private pickQuietTaskForProbe(
     now: number,
     quietMinutes: number,
@@ -3256,16 +2642,7 @@ export class SubAgentManager {
     return this.sessionProbeStates.get(subId)?.result;
   }
 
-  /**
-   * §2.4 — **돌고 있다고 표시되는 세션 하나**를 골라 에이전트에게 물어보고, 답에 따라 유지·종료한다.
-   *
-   * 고르는 대상이 핵심이다 — `hasLivingWork` 이 **참**인 세션만 본다. 그 술어가 거짓이면 이미
-   * `reconcileDeadActiveSubs`·`sealZombieExecutingCommands` 가 걷어 갔다. 즉 여기 남는 것은
-   * **기존 다섯 장치가 손댈 수 없는 자리**뿐이고, 그래서 이 축만 모델이 판정한다.
-   *
-   * **비동기라 스윕 밖에 있다.** 여기서 몇 초짜리 모델 호출을 기다리면 주기 루프가 멈춘다 —
-   * 한 건만 띄우고 즉시 반환하며, 결과는 도착한 뒤에 반영된다.
-   */
+  /** §2.4 — 도는 중으로 표시된 세션 하나를 에이전트에게 묻는다. `hasLivingWork` 참인 것만(거짓이면 기존 장치가 걷었다). 비동기 — 한 건 띄우고 즉시 반환. */
   maybeProbeRunningSessions(
     queues: Map<string, QueuedCommand[]>,
     now: number = Date.now(),
@@ -3300,16 +2677,7 @@ export class SubAgentManager {
       });
   }
 
-  /**
-   * 이 세션의 명령을 **큐 전체에서** 훑는다 — 키를 짐작하지 않는다.
-   *
-   * `commandQueues` 의 키는 **훅 세션 id**(`graphManager.findSessionByAgentId`)이고 `SubAgent.sessionId`
-   * 는 **CLI 가 발급한 세션 UUID** 다. 이름이 같아서 헷갈리지만 서로 다른 namespace 라, 후자로
-   * 조회하면 늘 빈 배열이 나온다. 그러면 ⓐ 큐에 명령이 쌓여 있어도 증거에는 `0` 으로 실려 모델이
-   * "기다리는 것이 없다"로 읽고 ⓑ 종료 판정에서 붙들린 명령을 못 풀어 그 탭이 "쉬는 중"인데 새
-   * 명령은 못 받는 자리에 갇힌다. 소유는 `cmd.subAgentId` 로만 가른다 —
-   * `sealZombieExecutingCommands` 가 쓰는 것과 같은 방식이다.
-   */
+  /** 명령은 큐 전체에서 `cmd.subAgentId` 로 찾는다 — `commandQueues` 키(훅 세션 id)와 `SubAgent.sessionId`(CLI UUID)는 다른 namespace 라 후자로 조회하면 늘 빈다. */
   private commandsOfSub(queues: Map<string, QueuedCommand[]>, subId: string): QueuedCommand[] {
     const out: QueuedCommand[] = [];
     for (const queue of queues.values()) {
@@ -3352,14 +2720,7 @@ export class SubAgentManager {
     });
   }
 
-  /**
-   * 물어볼 세션 하나를 고른다 — **가장 오래 조용한 것 하나**.
-   *
-   * 조건: 화면에 도는 중으로 서 있고(`status==='active'`) · `hasLivingWork` 이 참이라 기존 장치가
-   * 못 걷고 · 대화록을 찾을 수 있고 · 조용한 시간이 임계(백오프 배수 포함)를 넘었을 것.
-   * 대화록을 못 찾으면 판정 근거 자체가 없어 건너뛰되, **사유를 로그로 남긴다** — 조용히 빠지면
-   * "왜 이 세션만 판정이 안 오나"를 영영 못 쫓는다(코덱스 세션이 통째로 빠져 있던 원인).
-   */
+  /** 물어볼 세션 하나 — 가장 오래 조용한 것(`active` · `hasLivingWork` · 대화록 있음 · 임계 초과). 대화록이 없어 건너뛰면 사유를 로그로. */
   private pickSessionForProbe(
     queues: Map<string, QueuedCommand[]>,
     now: number,
@@ -3395,10 +2756,8 @@ export class SubAgentManager {
       const lastWriteAt = transcriptLastWriteMs(tx.file, tx.mtimeMs, now);
       quietMin = Math.floor((now - lastWriteAt) / 60_000);
       if (quietMin < threshold) continue;
-      // §4 엔진 다리 (D)① — 다리는 턴 가장자리만 진척으로 센다(도구를 보던 `tool.call` 은 2026-10-15 걷었다 — 막을 수
-      //   있는 훅이라 2.1.299 부터 답을 못 돌려주면 도구 호출이 거부된다). 도는 턴 안의 진척은 대화록에 붙는 줄이
-      //   말하므로, 다리가 "턴이 돈다"고 말하는 동안은 마지막 쓰기 시각으로도 보증한다 — 묻는 것은 대화록이
-      //   30분 넘게 조용할 때(긴 도구 하나)뿐이다.
+      // §4 엔진 다리 (D)① — 턴 가장자리만 진척으로 센다(`tool.call` 은 막을 수 있는 훅이라 2.1.299 부터 답이 없으면 도구가 거부된다).
+      // 다리가 턴이 돈다고 하면 대화록이 30분 조용할 때만 묻는다.
       if (engineBridge.vouchesRunning(sub.id, now, lastWriteAt)) continue;
       if (best && best.evidence.quietMin !== undefined && quietMin <= best.evidence.quietMin) continue;
 
@@ -3458,18 +2817,14 @@ export class SubAgentManager {
       || isCodexTurnRunning(sub.id)
       // §4 엔진 다리 — 엔진이 직접 "턴이 돈다"고 말하는 동안 모델의 해석으로 닫지 않는다.
       || engineBridge.isTurnRunning(sub.id))) {
-      // 모델의 해석은 실제 진행 작업·재개 대기보다 강한 종료 근거가 될 수 없다.
-      // 코덱스 `exec` 은 턴이 끝나면 스스로 나간다(남으면 러너가 거둔다) — 그 프로세스가 살아 있다는 것이
-      //   곧 턴이 안 끝났다는 뜻이다. 여기서 닫으면 다음 명령이 같은 스레드에 두 번째 writer 로 붙어
-      //   `already has an active writer` 로 거절되고, 옛 턴은 [중지]로도 닿지 않은 채 혼자 돈다(2026-10-02
-      //   실측 — 닫힌 뒤 20분을 더 돌았다). 정말 멎은 턴은 러너의 워치독(§5.25 (F) 20분)이 닫는다.
+      // 모델 해석은 실제 진행 작업·재개 대기보다 강한 근거가 못 된다. 코덱스 `exec` 이 살아 있으면 턴이 안 끝났다 — 닫으면 다음 명령이
+      // `already has an active writer` 로 거절된다(실측 2026-10-02). 멎은 턴은 워치독(§5.25 (F))이 닫는다.
       logger.info(`[session-probe] 종료 판정 거부 sub=${candidate.subId} — 살아 있는 작업 또는 재개 대기가 남음`);
       this.bumpSessionProbeBackoff(candidate.subId);
       return;
     }
     if (result.verdict === 'finished' && candidate.evidence && !candidate.evidence.tail) {
-      // 꼬리를 하나도 못 읽었으면(큰 기록 줄뿐이거나 읽기 실패) 모델이 본 것은 "없음"뿐이다 — 없음은 끝남의
-      //   근거가 아니다. 예전에 빈 꼬리가 "끝났다"로 읽혀 도는 턴을 닫았다(2026-10-02, §2.4 생존 판정).
+      // 꼬리를 못 읽었으면 모델이 본 것은 "없음"뿐 — 끝남의 근거가 아니다(§2.4).
       logger.info(`[session-probe] 종료 판정 거부 sub=${candidate.subId} — 대화록 꼬리를 못 읽음(근거 없음)`);
       this.bumpSessionProbeBackoff(candidate.subId);
       return;
@@ -3501,9 +2856,7 @@ export class SubAgentManager {
       if (cmd.status !== 'executing') continue;
       cmd.status = 'completed';
       cmd.result = `[확인] 에이전트 판정으로 종료: ${result.reason}`;
-      // §2.4 — **스스로 끝난 턴과 구분되는 끝 사유를 남긴다.** 이 자리는 끝 신호가 끝내 오지
-      //   않아 우리가 대신 닫은 것이다. 종전에는 사유가 비어 있어 화면상 진짜 완료와 한 글자도
-      //   다르지 않았고, 사용자는 "정말 끝난 것인가"를 확인할 길이 없었다(그 불신이 이 버그다).
+      // §2.4 — 대신 닫은 턴은 끝 사유를 남긴다 — 비면 진짜 완료와 구별할 수 없다.
       this.stampTurnStopReason(sub, cmd, { userStopped: false, disconnected: true });
       this.failIfDispatchResultMissing(sub, cmd);
     }
@@ -3521,14 +2874,7 @@ export class SubAgentManager {
     capMapSize(this.sessionProbeStates, SESSION_KEYED_MAP_MAX);
   }
 
-  /**
-   * 이 세션의 스트림 기반 백그라운드 작업 장부를 비운다 — **사용자가 그 턴을 끊었을 때**.
-   *
-   * 끊긴 자식들은 프로세스 트리와 함께 죽으므로 끝 통지(`task_notification`)가 오지 않는다.
-   * 비우지 않으면 그 항목이 유령으로 남아 다음 턴에 섞여 든다(실행 목록에 남의 작업이 뜨고,
-   * 버블이 완료로 못 가고, 봉인도 계속 미뤄진다). `deliveredNotices` 도 함께 초기화한다 —
-   * 끊긴 턴이 남긴 통지 셈을 다음 턴이 물려받을 이유가 없다.
-   */
+  /** 사용자가 턴을 끊었을 때 스트림 백그라운드 장부와 `deliveredNotices` 를 비운다 — 끊긴 자식은 끝 통지가 없어 유령으로 다음 턴에 섞인다. */
   private clearLiveBackgroundTasks(subAgentId: string): void {
     const state = this.turnSealStates.get(subAgentId);
     if (!state) return;
@@ -3539,18 +2885,9 @@ export class SubAgentManager {
   }
 
   /**
-   * **이 세션의 프로세스가 끝났다** — 그 자식인 백그라운드 작업도 함께 끝났다는 뜻이므로 장부에서 내린다.
-   *
-   * 이것이 **주 경로**다. 추정이 아니라 규약이다: `claude -p` 는 최종 결과를 낸 뒤 **약 5초에 배경 Bash
-   * 셸을 종료한다**(공식 문서 "Background tasks at exit"). 즉 그 작업들은 우리 자식 프로세스보다 오래
-   * 살 수 없고, 프로세스 종료 이벤트가 곧 그것들의 실제 종료 시점이다. 배경 **서브에이전트**는 예외로
-   * `claude -p` 가 끝날 때까지 기다려 주므로(기본 상한 10분), 그것이 도는 동안에는 프로세스가 살아 있고
-   * 이 함수도 불리지 않는다 — 두 규약이 정확히 우리 판정과 같은 방향이다.
-   *
-   * 끝 통지(`task_notification`)를 받아 이미 내려간 항목은 여기 남아 있지 않으므로, 남은 것만 꼬리로
-   * 옮긴다(소리 없이 사라지지 않게).
-   *
-   * @returns 실제로 내린 것이 있으면 true.
+   * 세션 프로세스가 끝났다 = 그 백그라운드 작업도 끝났다(주 경로). `claude -p` 는 결과 뒤 ~5초에 배경 셸을 끝내고 배경 서브에이전트는 끝날 때까지 기다린다
+   * (공식 문서 "Background tasks at exit"). 남은 것은 꼬리로.
+   * @returns 내린 것이 있으면 true.
    */
   retireLiveBackgroundTasks(subAgentId: string, now: number = Date.now()): boolean {
     const state = this.turnSealStates.get(subAgentId);
@@ -3607,14 +2944,7 @@ export class SubAgentManager {
     });
   }
 
-  /**
-   * 지금 **끊기면 잃는 일**의 요약 — 앱을 닫기 전에 물어볼지 판단하는 근거.
-   *
-   * 헤드리스 자식은 우리 프로세스의 자식이라 앱이 내려가면 함께 죽는다. 대화 자체는 `sub.sessionId`
-   * 로 남아 다음 턴이 `--resume` 으로 잇지만(그 재개는 부팅 reconcile 이 자동으로 한다),
-   * **커밋 전 편집처럼 그 턴이 만들던 결과물은 돌아오지 않는다.** 그러니 닫기 전에 한 번 묻는 것이
-   * 유일한 예방이다 — 판정은 여기서 사실로 내고, 묻는 것은 데스크톱 쪽이 한다.
-   */
+  /** 끊기면 잃는 일의 요약 — 앱 닫기 전에 물을지의 근거. 대화는 `--resume` 으로 잇지만 그 턴이 만들던 결과물은 안 돌아온다. 묻는 것은 데스크톱 쪽. */
   getRunningWorkSummary(): { sessions: number; backgroundTasks: number; labels: string[] } {
     const labels: string[] = [];
     for (const sub of this.index.values()) {
@@ -3630,15 +2960,8 @@ export class SubAgentManager {
   }
 
   /**
-   * 실행 중 목록에서 **그 항목 하나만** 내린다 — 사용자가 "이건 더 안 기다린다"고 판단했을 때.
-   *
-   * **프로세스를 죽이는 것이 아니다.** CLI 는 개별 자식을 밖에서 끊는 수단을 주지 않으므로(끊는 것은
-   * 그 자식을 띄운 에이전트 자신이 `TaskStop` 으로 한다), 여기서 하는 일은 **우리 장부에서 내리는 것**
-   * 뿐이다. 그래야 그 세션·버블이 완료로 갈 수 있고 [중지]가 헛돌지 않는다. 유일한 대안이 "세션 전체를
-   * 끊기"뿐이라 멀쩡한 형제 작업까지 죽여야 했던 자리를 메운다.
-   *
-   * 훅 장부와 스트림 칩 장부 **양쪽**에서 찾는다(사용자에게는 같은 목록의 한 줄이다).
-   * @returns 실제로 내렸으면 true.
+   * 실행 목록에서 그 항목만 내린다 — **프로세스는 안 죽인다**(CLI 가 밖에서 끊을 수단을 안 준다). 세션·버블이 완료로 갈 수 있게, 훅·스트림 장부 양쪽에서.
+   * @returns 내렸으면 true.
    */
   dismissRunningTask(parentAgentId: string, taskId: string): boolean {
     const m = this.pendingSubagentTasks.get(parentAgentId);
@@ -3669,45 +2992,14 @@ export class SubAgentManager {
   }
 
   /**
-   * **프로세스가 사라진 세션에 남은 백그라운드 작업 표시를 걷는다** — 끝 통지가 영영 오지 않는 자리.
-   *
-   * 배경(사용자 보고 — "명령은 한참 전에 끝난 것 같은데 계속 활동 중으로 떠 있다"). 백그라운드 작업
-   * (`Bash run_in_background` · `Monitor` · `Task` 자식)은 그 세션 CLI 프로세스의 자식이라 **프로세스가
-   * 죽으면 함께 죽는다**. 그런데 그 죽음은 `task_notification` 이나 `SubagentStop` 으로 오지 않는다 —
-   * 통지를 보낼 CLI 가 이미 없기 때문이다. 그래서 장부에 남은 시작 기록이 유령이 되고, 그 유령이
-   * `hasLiveBackgroundTasks`/`hasPendingSubagentTasks` 를 타고 세션 도트와 **부모 버블까지 active 로
-   * 붙들었다**.
-   *
-   * **이 함수는 그물이지 주 경로가 아니다.** 정상 경로는 둘이고 둘 다 이벤트다 — 끝 통지
-   * (`task_notification`)를 받거나, 그 세션의 **프로세스 종료 이벤트**에서 `retireLiveBackgroundTasks`
-   * 가 내린다. 여기 남는 것은 그 두 이벤트를 **놓친** 자리뿐이다(앱 재시작으로 장부만 복원됐거나,
-   * 종료 이벤트가 유실됐거나, 우리가 스폰하지 않은 세션).
-   *
-   * **끝 통지는 정상적으로 온다 — 못 오는 경우만 여기서 다룬다.** 실측(2026-08-14, P_MPS_GPT
-   * 69개 세션 스트림)에서 시작 칩과 끝 칩은 대부분 정확히 짝을 이뤘다(예: 한 세션 16/16, 다른
-   * 세션 228/223). CLI 는 `[task_notification] {"status":"completed","summary":"… exit code 0"}` 로
-   * 확실히 알려 준다. 짝이 안 맞는 것은 **그 통지가 도착하기 전에 세션이 끝난** 경우뿐이다 —
-   * 통지는 다음 턴 경계에 실려 오는데 그 턴이 마지막이면 실어 보낼 자리가 없다.
-   *
-   * 그래서 **시간으로는 판정하지 않는다.** 종전 안전판(스트림 칩 4시간 · 훅 30분 quiet-window)은
-   * 전부 폐기했다 — 백그라운드 작업은 몇 시간짜리 패키징이거나 끝을 정하지 않은 폴링일 수 있어,
-   * 조용하거나 오래됐다는 이유로 걷으면 **도는 작업을 끝난 것으로** 표시한다(사용자 지시). 여기서
-   * 쓰는 근거는 사실 하나다: 그 세션에 프로세스가 없으면 그 자식인 작업도 없다.
-   *
-   * 판정 제외는 `reconcileDeadActiveSubs` 와 **같은 목록**이다(두 곳이 갈리면 한쪽이 거짓말한다).
-   * 소유 탭이 미상인 훅 항목은 어느 세션의 프로세스를 봐야 할지 알 수 없으므로 건드리지 않는다 —
-   * 그쪽만 절대 상한(`PENDING_SUBAGENT_MAX_AGE_MS`)이 누수를 막는다.
-   *
-   * @returns 정리가 일어난 부모 에이전트 id 목록(호출자의 broadcast·상태 재계산 판단용).
+   * 프로세스가 사라진 세션의 백그라운드 표시를 걷는 그물 — CLI 가 없어 끝 통지가 안 오는 자리. 주 경로는 끝 통지와 프로세스 종료 이벤트(`retireLiveBackgroundTasks`).
+   * **시간으로 판정하지 않는다** — 근거는 "프로세스가 없으면 자식도 없다" 하나. 제외 목록은 `reconcileDeadActiveSubs` 와 같다. 소유 미상 훅 항목은 절대 상한 몫.
+   * @returns 정리한 부모 id 목록.
    */
   sweepOrphanedBackgroundTasks(now: number = Date.now()): string[] {
     const touched = new Set<string>();
 
-    // ⓪ **끝났다고 적힌 것은 걷는다** (§5.5 #17-9 ⑬ · `backgroundTaskOutput.ts`).
-    //    ①② 는 "그 세션에 프로세스가 없으면"이 전제인데, 세션은 상주 프로세스라 **탭이 열려 있는
-    //    한 그 전제가 결코 성립하지 않는다** — 그래서 끝 통지를 놓친 작업이 영영 남았다. 이 단계만이
-    //    세션이 살아 있는 동안에도 내릴 수 있고, 근거는 시간이 아니라 **하니스 자신이 파일에 쓴 종료
-    //    표식**이라 도는 작업을 끝난 것으로 만드는 방향으로는 틀릴 수 없다(표식 없음 = 모름 = 그대로).
+    // ⓪ 끝났다고 적힌 것은 걷는다(⑬ · `backgroundTaskOutput.ts`) — 상주 세션에선 ①② 가 성립하지 않는다. 근거가 하니스의 종료 표식이라 도는 작업을 끝냈다고 틀릴 수 없다.
     for (const [subId, state] of this.turnSealStates) {
       if (state.liveTasks.size === 0) continue;
       const sub = this.index.get(subId);
@@ -3723,9 +3015,8 @@ export class SubAgentManager {
         state.liveTasks.delete(id);
         this.archiveStreamTask(sub.parentAgentId, subId, id, info, endedAt, probe.end, { closedBy: 'end-marker' });
         const how = probe.end.kind === 'killed' ? 'killed' : `exit=${probe.end.exitCode}`;
-        // §5.3 #9-2 (C-1) — 하니스가 `[killed]` 를 적었다 = 끊으려 한 작업이다. 장부만 걷으면 남은 프로세스가
-        //   계속 산다(2026-10-12 사고의 grep 이 18:32 에 정확히 이 자리를 빠져나가 5시간 동안 72GB 까지 갔다).
-        //   `exited with code N` 은 스스로 끝난 명령이라 그대로 둔다 — 일부러 남긴 데몬일 수 있다.
+        // §5.3 #9-2 (C-1) — `[killed]` 면 남은 프로세스도 거둔다(장부만 걷으면 산다 — 실측 2026-10-12, grep 하나가 5시간 72GB).
+        // `exited with code N` 은 둔다 — 일부러 남긴 데몬일 수 있다.
         if (probe.end.kind === 'killed') void this.reapStoppedTaskProcesses(sub, subId, id);
         logger.info(`[bg-subagent] end-marker swept sub=${subId} key=${id} ${how} desc=${info.description ?? '-'} (출력 파일이 종료를 적었다 — 끝 통지 미도달)`);
         touched.add(sub.parentAgentId);
@@ -3793,16 +3084,8 @@ export class SubAgentManager {
   }
 
   /**
-   * 이 에이전트가 **스트림으로 보이는 모델 자식**을 기다리는 중인가.
-   *
-   * 버블 완료 판정이 훅 대차대조와 함께 이 신호도 봐야 "끝난 걸로 착각"이 사라진다. 훅이 소유
-   * 세션을 못 푼 자식(백그라운드 자식 **안에서** 다시 스폰된 경우)은 이 스트림 신호가 유일한
-   * 증인이다(§5.5 #17-9 ⑮).
-   *
-   * **셸은 세지 않는다**(⑰). 버블은 표시 축이고, 백단 셸 하나가 감독관 버블을 영원히 도는
-   * 것으로 붙들면 캔버스가 끝내 가라앉지 않는다. 셸은 활동바 배지가 따로 말한다.
-   * 회수 축(`hasLiveBackgroundWork` · `hasLivingWork`)은 이 분리를 따르지 않는다 — 그쪽은
-   * 셸까지 안 거른 채 봐야 `--resume` 이 못 살리는 백그라운드 명령이 조용히 죽지 않는다.
+   * 스트림으로 보이는 모델 자식을 기다리는가 — 버블 완료 판정용(⑮). **셸은 세지 않는다**(⑰ — 셸 하나가 버블을 영원히 붙들면 안 된다).
+   * 회수 축(`hasLiveBackgroundWork`·`hasLivingWork`)은 셸까지 센다 — `--resume` 이 못 살리는 명령을 죽이지 않게.
    */
   hasLiveBackgroundTasks(parentAgentId: string): boolean {
     for (const [subId, state] of this.turnSealStates) {
@@ -3812,7 +3095,7 @@ export class SubAgentManager {
     return false;
   }
 
-  /** §5.3 #12-1 v3.43 — 사용자 중지/에이전트 정리 시 대차대조 즉시 해제(잔존 활성 고착 방지). */
+  /** §5.3 #12-1 — 중지·정리 때 대차대조를 즉시 비운다. */
   clearPendingSubagentTasks(parentAgentId: string): void {
     // §5.5 #17-9 ⑦(b) — 사용자가 중지시킨 자식도 "이 자식은 끝났다"는 사실은 같다. 결과 없이 꼬리로
     //   옮겨 화면에서 소리 없이 사라지지 않게 한다(quiet-window/max-age 안전장치 경로는 제외 —
@@ -3830,14 +3113,8 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.5 #17-10 v3.53 — **세션 스코프** 대차대조 해제. 그 세션 탭(`subId`)이 띄운 항목만 지운다.
-   *
-   * 종전 세션 1개 중지가 `clearPendingSubagentTasks(parentAgentId)` 로 **부모 전체** 대차대조를 지워,
-   * 한 탭을 멈추면 다른 탭이 띄운 백그라운드 서브에이전트 표시·활성 판정까지 함께 사라졌다.
-   * 소유 세션이 미상(`subId` 없음)인 항목은 어느 탭 것인지 알 수 없으므로 **건드리지 않는다**
-   * (다른 탭 것을 오삭제하느니 quiet-window 안전장치에 맡긴다).
-   *
-   * @returns 실제로 지운 항목 수.
+   * §5.5 #17-10 — 그 탭(`subId`)이 띄운 항목만 지운다(부모 전체를 지우면 다른 탭 것까지 사라진다). 소유 미상 항목은 건드리지 않는다(절대 상한 몫).
+   * @returns 지운 항목 수.
    */
   clearPendingSubagentTasksForSession(parentAgentId: string, subId: string): number {
     const m = this.pendingSubagentTasks.get(parentAgentId);
@@ -3865,11 +3142,7 @@ export class SubAgentManager {
     return removed;
   }
 
-  /** v1.77 (Direction A) — sessionId 가 Vibisual 이 스폰한 sub 의 세션이면 true.
-   *  모든 훅 캡처 입구(session-start / liveness / processHookEvent)에서 이 술어로
-   *  "managed 세션은 새 훅 버블 금지, 부모 커스텀 버블에 귀속" 을 강제 → 증식 차단.
-   *  Vibisual 이 직접 스폰한 세션만 매칭하므로 사용자 인터랙티브 세션(나=Claude Code)은
-   *  영향 없음. agentViewSessionId 도 포함(레거시 --bg 잔여 호환). */
+  /** 우리가 스폰한 sub 의 세션인가 — 훅 캡처 입구가 이걸로 새 훅 버블을 만들지 않고 부모 버블에 귀속한다(증식 차단). `agentViewSessionId` 포함. */
   isManagedSession(sessionId: string): boolean {
     if (!sessionId) return false;
     for (const s of this.index.values()) {
@@ -3878,10 +3151,7 @@ export class SubAgentManager {
     return false;
   }
 
-  /** v1.77 (Direction A) — 커스텀 에이전트의 "정규(하나의) 대화 sub".
-   *  이미 대화가 성립된 sub(sessionId 보유)를 최우선, 없으면 가장 오래된 sub.
-   *  커스텀 에이전트는 명령마다 새 sub 를 만들지 않고 이 하나를 계속 재사용해야
-   *  sub.sessionId 가 안정되고 `--resume` 연속성이 유지된다(없으면 undefined → 호출자 create). */
+  /** 커스텀 에이전트의 정규 대화 sub(sessionId 있는 것 → 가장 오래된 것). 이 하나를 재사용해야 `--resume` 연속성이 유지된다. */
   getPrimarySub(parentAgentId: string): SubAgent | undefined {
     const subs = this.registry.get(parentAgentId) ?? [];
     if (subs.length === 0) return undefined;
@@ -3942,17 +3212,8 @@ export class SubAgentManager {
   }
 
   /**
-   * **실행 표시를 실제 프로세스 생존과 대조한다** — 화면이 "돌고 있다"고 말하는데 아무것도 안 도는
-   * 상태를 걷어 내는 자리.
-   *
-   * `sweepIdle` 은 이 일을 **시간**으로만 했다(5분 무활동). 그래서 어떤 경로가 `active` 를 남긴 채
-   * 자식을 잃으면 최대 5분 동안 화면이 거짓말을 했고, 그동안 [중지]는 멈출 게 없는 헛버튼이었다.
-   * 여기서는 **사실**로 판정한다 — 자식도 워처도 없고, 처리 중인 턴도, 붙들어 둔 봉인도, 이 탭이
-   * 띄운 백그라운드 자식도 없으면 그 세션은 끝난 것이다.
-   *
-   * 잘못 강등하지 않기 위한 제외 목록은 `hasLivingWork` 이 들고 있다(명령 봉합과 공유).
-   *
-   * @returns 강등된 sub.id 목록(호출자 broadcast 판단용).
+   * 실행 표시를 실제 생존과 대조한다(시간 기준 `sweepIdle` 이 아니라 사실로). 자식·워처·처리 중 턴·봉인·백그라운드 자식이 모두 없으면 끝. 제외 목록은 `hasLivingWork`.
+   * @returns 강등한 sub.id 목록.
    */
   reconcileDeadActiveSubs(): string[] {
     const demoted: string[] = [];
@@ -3970,12 +3231,8 @@ export class SubAgentManager {
   }
 
   /**
-   * 이 sub 에 **살아 있는 일감**이 하나라도 있는가 — "자식이 붙어 있나"보다 넓다.
-   *
-   * `reconcileDeadActiveSubs`(상태 강등)와 `sealZombieExecutingCommands`(명령 봉합)가 반드시
-   * 같은 답을 써야 한다. 두 곳이 갈리면 한쪽이 거짓말한다 — 상태는 idle 로 내려갔는데 명령은
-   * `executing` 으로 붙들려 있으면, 그 탭은 "쉬는 중"으로 보이면서 새 명령은 못 받는 자리에 갇힌다.
-   * (`sweepOrphanedBackgroundTasks` 의 제외 목록도 같은 이유로 이 목록에 맞춰져 있다.)
+   * 살아 있는 일감이 있는가 — 상태 강등(`reconcileDeadActiveSubs`)과 명령 봉합(`sealZombieExecutingCommands`)이 반드시 같은 답을 쓴다
+   * (갈리면 탭이 쉬는데 명령을 못 받는다). `sweepOrphanedBackgroundTasks` 제외 목록도 맞춘다.
    */
   private hasLivingWork(subId: string, now: number = Date.now()): boolean {
     // PTY(CMD) 세션 — 우리가 띄운 자식이 아니라 사용자가 치는 터미널이다. 상태는 훅이 몰고 가므로
@@ -4001,17 +3258,8 @@ export class SubAgentManager {
   }
 
   /**
-   * **"프로세스가 살아 있다"와 "실제로 일하고 있다"를 가르는 축** (`TURN_STREAM_STALL_MS`).
-   *
-   * 종전에 `hasLivingWork` 은 `localInFlightCmd`·`persistentInFlightCmd` 가 서 있다는 것만으로
-   * 살아 있음을 인정했다. 그래서 자식이 살아만 있고 출력이 끊긴 턴은 좀비 봉합의 **후보로도**
-   * 올라오지 못했고, 그 탭은 `busy` 로 잠긴 채 영원히 "실행 중"으로 남았다(2026-09-20 보고).
-   *
-   * 근거는 `SubAgent.lastActivityAt` 하나다 — `emitStreamEvent` 가 **모든 경로에서**(감춘 줄·
-   * 안 그리는 칩 포함) 갱신하므로 "이 세션이 마지막으로 무언가를 뱉은 시각"의 정직한 값이다.
-   *
-   * 이 축을 먼저 쓰는 장치가 둘 더 있다(코덱스 워치독 20분 · 생존 판정 프로브 10분). 여기가
-   * 30분인 것은 **마지막 그물**이기 때문이다 — 도는 세션을 죽이는 쪽이 굳는 것보다 나쁘다.
+   * 프로세스 생존과 실제 일을 가르는 축(`TURN_STREAM_STALL_MS`) — in-flight 표식만 보면 출력이 끊긴 턴이 `busy` 로 영원히 잠긴다. 근거는 모든 경로에서 갱신되는 `lastActivityAt`.
+   * 30분은 마지막 그물이라서다(워치독 20분·프로브 10분이 먼저) — 도는 세션을 죽이는 쪽이 더 나쁘다.
    */
   private isTurnStreamStalled(subId: string, now: number = Date.now()): boolean {
     const sub = this.index.get(subId);
@@ -4022,23 +3270,10 @@ export class SubAgentManager {
   }
 
   /**
-   * **좀비 `executing` 봉합** — 턴은 끝났는데 명령만 실행 중으로 굳은 것을 런타임에 되돌린다.
-   *
-   * 이 굳음이 왜 치명적인가: dispatch 는 같은 sub 에 두 명령을 동시에 보내지 않으려고 `executing`
-   * 인 subAgentId 를 `busy` 로 잠근다. 그래서 완료 신호가 한 번 유실되면 그 탭은 **영구히** 새
-   * 명령을 못 받는다 — 사용자에게는 "입력해도 아무 반응이 없는 탭"으로 보인다.
-   *
-   * 종전에 이걸 푸는 길은 둘뿐이었다: 앱 재기동(restore reconcile)이나 사용자가 [중지]를 누르는 것.
-   * 둘 다 사용자가 이상을 눈치채고 행동해야 한다. 여기서 5초 스윕이 스스로 걷는다.
-   *
-   * 안전 3중 — 정상 명령을 죽이는 쪽이 굳는 것보다 나쁘다:
-   *  1. `executing` 이고 소유 탭이 분명할 것,
-   *  2. 실제로 나간 지 `graceMs` 가 지났을 것(`dispatch → spawn` 창에서 걷지 않는다),
-   *  3. `hasLivingWork` 이 전부 false 일 것(PTY·백그라운드·봉인 유예까지 살아있음으로 친다).
-   *
-   * @param queues 세션별 명령 큐(호출자 소유 — 이 클래스는 큐를 들고 있지 않다).
-   * @returns 봉합한 명령들. 큐에서 빼내 아카이브로 옮기는 것은 **호출자 몫**이라 세션 id 를 함께
-   *   돌려준다(정지 라우트가 `archiveCompletedCommands` 로 하는 처리와 같은 자리).
+   * 좀비 `executing` 봉합 — dispatch 가 `executing` sub 를 `busy` 로 잠가 완료 신호 하나만 잃어도 탭이 영영 막히므로 5초 스윕이 되돌린다.
+   * 안전 3중: 소유 탭이 분명 · 나간 지 `graceMs` 경과 · `hasLivingWork` 거짓(PTY·백그라운드·봉인 유예 포함).
+   * @param queues 세션별 명령 큐(호출자 소유).
+   * @returns 봉합한 명령 + 세션 id — 큐에서 빼 아카이브로 옮기는 것은 호출자 몫.
    */
   sealZombieExecutingCommands(
     queues: Map<string, QueuedCommand[]>,
@@ -4080,28 +3315,11 @@ export class SubAgentManager {
   }
 
   /**
-   * §2.4 (잠듦) — **유휴가 길어진 세션의 claude 자식 프로세스를 회수한다.**
-   *
-   * persistent-child 모델(§5.3)은 다음 턴의 부팅 비용을 없애려고 자식을 살려 두는데, 그 "다음 턴"이
-   * 영영 오지 않는 세션도 앱을 켜 둔 내내 자리를 차지했다(실측: 세션 11개 약 5.5GB, CPU 전부 0%).
-   * 유휴가 길어지면 프롬프트 캐시가 이미 만료돼(서브에이전트는 구독에서도 5분 TTL) 살려 둬서 아끼는
-   * 것은 부팅·JSONL 재로드·MCP 재연결(수 초)뿐이고, 그 대가가 세션당 500MB 안팎이다.
-   *
-   * **사용자가 잃는 것은 없다** — 대화는 디스크 JSONL 에 있고 `sub.sessionId` 를 그대로 두므로, 다음
-   * 명령이 기존 크래시 복구 경로와 **같은** `--resume` fresh spawn 으로 이어 간다(새 복귀 경로 ❌).
-   * 종료는 반드시 **의도된 것으로 마킹**한다(`intentionalKill`) — 안 하면 close 핸들러가 크래시로 읽어
-   * 멀쩡히 끝난 세션을 `error` 로 물들인다.
-   *
-   * 제외는 `reconcileDeadActiveSubs` 와 **같은 사실 목록**에 백그라운드 한 항목을 더한 것이다. 그
-   * 마지막 항목이 핵심인데, `--resume` 은 대화는 되살려도 **백그라운드 Bash·Monitor 작업은 복원하지
-   * 않는다**(공식 문서 "Background Bash and monitor tasks aren't"). 그것을 무시하고 회수한 Claude
-   * Desktop 은 "작업이 조용히 죽는데 화면엔 running 으로 남는" 버그를 안았다(claude-code#68625) —
-   * 그 자리를 처음부터 피한다.
-   *
-   * @param thresholdMs 마지막 활동으로부터 이만큼 지나면 회수(`SUBAGENT_DORMANT_IDLE_MS`).
-   * @param hasPendingWork 이 sub 가 곧 쓸 자식인가 — 대기 중인 명령이나 켜져 있는 반복 명령(루프).
-   *                       매니저는 큐도 루프도 모르므로(§3.4 의존성 방향) 호출자가 주입한다.
-   * @returns 재운 sub.id 목록(호출자 broadcast 판단용).
+   * §2.4 (잠듦) — 오래 쉰 claude 자식을 회수한다(실측: 11세션 5.5GB, CPU 0%). 캐시는 이미 만료(5분 TTL)라 아끼는 것은 부팅 수 초뿐 — 다음 명령은 `--resume` 으로 잇는다.
+   * 반드시 `intentionalKill` 로 마킹 — 안 하면 크래시로 읽혀 `error` 가 된다. 백그라운드 작업이 있으면 제외 — `--resume` 은 배경 Bash·Monitor 를 못 살린다(claude-code#68625).
+   * @param thresholdMs 마지막 활동 뒤 이만큼 지나면 회수(`SUBAGENT_DORMANT_IDLE_MS`).
+   * @param hasPendingWork 곧 쓸 자식인가(대기 명령·루프) — 매니저는 큐·루프를 모르므로 호출자가 준다.
+   * @returns 재운 sub.id 목록.
    */
   sweepDormantIdleSubs(thresholdMs: number, hasPendingWork?: (subId: string) => boolean): string[] {
     if (!Number.isFinite(thresholdMs) || thresholdMs <= 0) return [];
@@ -4151,24 +3369,10 @@ export class SubAgentManager {
   }
 
   /**
-   * §2.4 (잠듦) · §4 (상태바 모델 칸 ④) — **이 sub 의 자식 안에서 백그라운드 작업이 도는가.**
-   *
-   * 지속 자식을 내리는 자리가 둘이다 — 잠듦 회수와, 모델을 바꿨을 때의 갈아 끼우기. 둘 다 `--resume` 으로
-   * 이어 가는데 `--resume` 은 대화는 되살려도 **배경 Bash·Monitor·배경 서브에이전트는 되살리지 못한다**
-   * (공식 문서 "Background Bash and monitor tasks aren't"). 그래서 두 자리가 **같은 판정 한 벌**을 본다 —
-   * 한쪽에만 항목이 늘면 다른 쪽이 작업을 조용히 죽인다.
-   *
-   * 판정은 자식 **안의** 사정만 본다. 명령 처리 중·dispatch 중 같은 "지금 이 턴" 사정은 부르는 쪽 몫이다
-   * (갈아 끼우기는 바로 그 턴을 들고 부르므로, 그 표식까지 여기서 보면 영영 못 갈아 끼운다).
+   * §2.4 · §4 (모델 칸 ④) — `hasLiveBackgroundWork`: 자식 안에서 백그라운드 작업이 도는가. 잠듦 회수와 모델 갈아 끼우기가 같은 판정을 쓴다 —
+   * `--resume` 은 배경 작업을 못 살리므로 한쪽에만 항목을 늘리면 다른 쪽이 죽인다. "이 턴" 사정(처리 중·dispatch)은 부르는 쪽 몫.
    */
-  /**
-   * §5.5 #17-9 ⑰ — **상태를 올려도 되는가**(≠ 자식을 회수해도 되는가).
-   *
-   * `hasLiveBackgroundWork` 의 거울이다. 저쪽은 회수 축이라 셸까지 세고(셸을 죽이면 안 되니까),
-   * 이쪽은 표시 축이라 **모델 자식만** 센다(셸은 사용자를 기다리게 만들 이유가 없으니까).
-   * 둘을 섞어 쓰면 둘 중 하나가 반드시 거짓말한다 — 회수 축을 표시에 빌려 쓰면 끝난 대화가
-   * 영영 도는 것으로 보이고, 표시 축을 회수에 빌려 쓰면 도는 셸이 소리 없이 죽는다.
-   */
+  /** §5.5 #17-9 ⑰ — 상태를 올려도 되는가(≠ 회수). `hasLiveBackgroundWork`(회수 축, 셸 포함)의 거울로 모델 자식만 센다 — 섞으면 끝난 대화가 돌거나 도는 셸이 죽는다. */
   private hasLiveAgentBackgroundWork(sub: Pick<SubAgent, 'id' | 'parentAgentId'>): boolean {
     if (this.deferredSeals.has(sub.id)) return true;
     const seal = this.turnSealStates.get(sub.id);
@@ -4184,10 +3388,7 @@ export class SubAgentManager {
     if (this.deferredSeals.has(sub.id)) return true;
     const seal = this.turnSealStates.get(sub.id);
     if (seal && hasLiveTasks(seal)) return true;
-    // 훅이 소유 세션을 못 푼 자식(`subId` 미상)은 **누구의 것인지 모른다**(§5.5 #17-9 ③(c) —
-    //   session_id/termId 로 탭을 못 풀고 처리 중인 탭도 하나가 아니면 미상으로 남는 실재 경로).
-    //   그럴 땐 이 부모의 **어느 세션도** 내리지 않는다 — 모르는 채 내리면 그 자식을 띄운 세션의
-    //   프로세스를 뺏어 백단에서 돌던 서브에이전트가 통지도 없이 죽는다.
+    // 소유 미상 자식(③(c))이 있으면 이 부모의 어느 세션도 내리지 않는다 — 모르는 채 내리면 백단 서브에이전트가 통지 없이 죽는다.
     const pending = this.pendingSubagentTasks.get(sub.parentAgentId);
     if (pending && [...pending.values()].some((e) => e.subId === undefined || e.subId === sub.id)) return true;
     return false;
@@ -4205,11 +3406,8 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.5 #17-24 ⑥ — 스트림 한 줄이 **압축의 시작·끝**을 말하면 그 세션의 `compactingSince` 를 세우고 걷는다.
-   *
-   * CLI 가 턴 도중에 접는 2.4~6분 동안은 스트림에 아무 줄도 오지 않아, 라이브 1줄이 "생각 중"으로 경과만
-   * 키웠다(2026-10-04 사용자 보고 "생각 중을 1시간 넘게"). 판정은 shared `readCompactionSignal` 한 곳이고,
-   * 세 스트림 경로(persistent · legacy · agent-view)가 같이 부른다 — 한도 통지(`noteUsageLimitLine`)와 같은 규율.
+   * §5.5 #17-24 ⑥ — 스트림 줄이 압축 시작·끝을 말하면 `compactingSince` 를 세우고 걷는다(압축 2.4~6분은 줄이 없어 "생각 중"으로만 보인다).
+   * 판정은 shared `readCompactionSignal`, 세 경로가 부른다.
    */
   private noteCompactionLine(sub: SubAgent, obj: unknown): void {
     const signal = readCompactionSignal(obj);
@@ -4241,17 +3439,9 @@ export class SubAgentManager {
   }
 
   /**
-   * §2.4 (한도 정지) — **CLI 가 뱉은 한 줄이 한도 통지면 그 세션에 표식을 세운다.**
-   *
-   * 한도에 닿으면 CLI 는 실패하지 않는다 — 합성 통지 한 줄(`model:"<synthetic>"`)을 적고 정상
-   * 종료하므로, 이 자리가 없으면 그 명령은 `completed` 로 봉인되고 화면에는 초록 "끝남"만 남는다.
-   * 판정 자체는 shared 한 곳(`detectUsageLimitStop`)이 소유한다 — 스트림 경로가 셋(persistent
-   * stdout · legacy stdout · agent-view JSONL watcher)이라 여기서 따로 알아보면 갈라진다.
-   *
-   * **한 턴에 한 번만 세운다.** 같은 통지가 스트림과 결과 본문에 두 번 오므로 덮어쓰면 `at` 이
-   * 뒤로 밀린다. 표식을 걷는 곳은 다음 명령이 나가는 순간(`clearUsageLimit`) 하나뿐이다.
-   *
-   * @returns 이번 호출로 표식이 새로 섰으면 `true`(호출자 broadcast 판단용).
+   * §2.4 — 한도 통지 줄이면 표식을 세운다(CLI 는 합성 통지 한 줄 후 정상 종료해 없으면 초록 "끝남"). 판정은 shared `detectUsageLimitStop`.
+   * 한 턴에 한 번만 — 같은 통지가 두 번 와 덮으면 `at` 이 밀린다. 걷는 곳은 `clearUsageLimit`·`acknowledgeUsageLimits`.
+   * @returns 새로 섰으면 `true`.
    */
   private noteUsageLimitLine(sub: SubAgent, obj: unknown): boolean {
     if (sub.usageLimit) return false;
@@ -4259,6 +3449,8 @@ export class SubAgentManager {
     if (!stop) return false;
     sub.usageLimit = stop;
     sub.lastActivityAt = Date.now();
+    // §4 API 크레딧 — 구독이 막혔다는 사실이 경로 판정의 재료다(크레딧 실행이 받은 통지는 구독 얘기가 아니다).
+    if (!this.creditRuns.has(sub.id)) apiCreditService.noteSubscriptionLimit(stop);
     logger.warn(
       `SubAgent ${sub.id} stopped by ${stop.kind} limit${
         stop.resetsAt ? ` (resets ${new Date(stop.resetsAt).toISOString()})` : ''
@@ -4266,6 +3458,71 @@ export class SubAgentManager {
     );
     this.onSubStatusChange?.(sub.parentAgentId);
     return true;
+  }
+
+  /**
+   * §4 API 크레딧 — 이 턴의 결제 경로(크레딧이면 키, 아니면 null). 판정은 shared `decideCreditRoute` 하나. 금액 상한은 없다 — Console 이 정하고 Anthropic 이 거절한다.
+   * 기능이 꺼져 있으면 아무것도 안 바꾼다. 켜져 있고 구독이면 키를 걷는다(`stripCreditKeyEnv`).
+   */
+  private resolveCreditRoute(sub: SubAgent, cmd: QueuedCommand): { key: string } | null {
+    this.pendingCreditRoute.delete(sub.id);
+    this.stripCreditKeyEnv.delete(sub.id);
+    if (!apiCreditService.isEnabled()) return null;
+    const toSubscription = (why: string): null => {
+      cmd.billingRoute = 'subscription';
+      this.stripCreditKeyEnv.add(sub.id);
+      if (why) logger.info(`SubAgent ${sub.id} cmd=${cmd.id} billing → subscription (${why})`);
+      return null;
+    };
+    const decision = apiCreditService.decide();
+    if (decision.route !== 'credits') return toSubscription(decision.reason === 'blocked' ? 'Anthropic refused credits recently' : '');
+    // 구독으로 떠서 놀던 자식에 백그라운드 작업이 살아 있으면 이번 턴은 그 자식으로 보낸다 — 크레딧으로 가려면
+    //   자식을 갈아 끼워야 하는데, 그러면 그 자식의 백그라운드 셸·감시가 함께 죽는다(§5.5 #17-9 ⑩).
+    if (this.persistentChildReady.get(sub.id) === true && this.hasLiveBackgroundWork(sub)) {
+      return toSubscription('idle child still holds background work');
+    }
+    const key = apiCreditService.keyForSpawn();
+    if (!key) return toSubscription('stored key is not readable on this machine');
+    cmd.billingRoute = 'credits';
+    this.pendingCreditRoute.set(sub.id, { cmdId: cmd.id });
+    logger.info(`SubAgent ${sub.id} cmd=${cmd.id} billing → API credits (${decision.reason})`);
+    return { key };
+  }
+
+  /**
+   * §4 API 크레딧 — 스폰 env 마무리. 구독 경로로 정해진 스폰이면 키를 걷고, 크레딧 경로면 우리 키 하나만 남긴다
+   * (Windows 의 다른 대소문자 이름까지 — `withCreditKeyEnv`). 기능이 꺼진 스폰은 손대지 않는다.
+   */
+  private creditSpawnEnv(subId: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+    if (this.stripCreditKeyEnv.has(subId)) return withCreditKeyEnv(env, HOST_PLATFORM);
+    const run = this.pendingCreditRoute.get(subId);
+    const key = env['ANTHROPIC_API_KEY'];
+    if (run && key !== undefined) return withCreditKeyEnv(env, HOST_PLATFORM, key);
+    return env;
+  }
+
+  /**
+   * §4 API 크레딧 — 이 자식이 크레딧 실행이면 그 줄을 서비스에 넘긴다(실패를 말한 result 줄에서 Anthropic 의 거절을
+   * 읽는다). 금액은 세지 않는다 — Console 이 센다.
+   */
+  private noteCreditLine(sub: SubAgent, obj: unknown, child: ChildProcess): void {
+    const run = this.creditRuns.get(sub.id);
+    if (!run || run.child !== child) return;
+    apiCreditService.noteRunLine(run.runId, obj);
+  }
+
+  /**
+   * §4 API 크레딧 — 크레딧 실행을 닫는다(어떤 경로로 끝났든 한 번). stderr 꼬리에서 Anthropic 의 거절(잔액 부족·지출
+   * 한도·키 거부)을 마지막으로 읽는다. 크레딧 실행이 아니었으면 undefined.
+   */
+  private settleCreditRun(sub: SubAgent): ApiCreditRunEnd | undefined {
+    const run = this.creditRuns.get(sub.id);
+    this.pendingCreditRoute.delete(sub.id);
+    if (!run) return undefined;
+    this.creditRuns.delete(sub.id);
+    const stderrTail = this.childStderrTails.get(sub.id);
+    if (stderrTail) apiCreditService.noteFailureText(run.runId, stderrTail);
+    return apiCreditService.endRun(run.runId);
   }
 
   /**
@@ -4311,53 +3568,27 @@ export class SubAgentManager {
     else delete cmd.stopReason;
   }
 
-  /**
-   * §2.4 (한도 정지) — 턴 **결과 본문**으로 한 번 더 본다.
-   *
-   * 스트림을 놓치는 경로가 실제로 있다(legacy `--print` 는 완성 assistant 블록을 억제하고,
-   * agent-view 는 watcher 가 붙기 전 줄을 못 본다). 결과 본문에는 봉투가 없으므로 판정은
-   * **짧은 통지 한 줄**만 인정한다(`detectUsageLimitInText`) — 통지를 인용한 긴 답변까지 세면
-   * 멀쩡히 끝난 세션이 주황으로 물든다.
-   */
+  /** §2.4 — 결과 본문으로 한 번 더 본다(legacy·agent-view 는 스트림을 놓칠 수 있다). 짧은 통지 한 줄만 인정 — 통지를 인용한 긴 답까지 세면 멀쩡한 세션이 주황이 된다. */
   private noteUsageLimitText(sub: SubAgent, text: string | undefined): void {
     if (!text || sub.usageLimit) return;
     const stop = detectUsageLimitInText(text, Date.now());
     if (!stop) return;
     sub.usageLimit = stop;
+    if (!this.creditRuns.has(sub.id)) apiCreditService.noteSubscriptionLimit(stop);
     logger.warn(`SubAgent ${sub.id} stopped by ${stop.kind} limit (from turn result): ${stop.message ?? ''}`);
     this.onSubStatusChange?.(sub.parentAgentId);
   }
 
-  /**
-   * §2.4 (한도 정지) — **다음 명령이 나가면 표식을 걷는다.**
-   *
-   * 시간으로 만료시키지 않는다. 한도가 풀려도 그 세션은 끊긴 자리에 그대로 서 있으므로("풀렸다"와
-   * "이어서 했다"는 다르다), 시간이 흘렀다는 이유로 걷지 않는다.
-   *
-   * 걷는 길은 둘이다 — 이 자리(다시 돌렸다)와 아래 `acknowledgeUsageLimits`(사용자가 확인했다).
-   * 둘 다 **사용자의 손짓**이라는 점이 같다. 자동으로 걷히는 길은 없다.
-   */
+  /** §2.4 — 다음 명령이 나가면 표식을 걷는다. 시간으로 만료하지 않는다(풀려도 세션은 끊긴 자리다). 걷는 길은 이것과 `acknowledgeUsageLimits` 뿐. */
   private clearUsageLimit(sub: SubAgent): void {
     if (sub.usageLimit === undefined) return;
     delete sub.usageLimit;
   }
 
   /**
-   * §2.4 (한도 정지) — **사용자가 확인하면 그 세션의 표식을 걷는다.**
-   *
-   * 주황불은 "손대야 다시 간다"를 말하는 자리다. 그 말을 **사용자가 읽은 순간** 그 불은 제 할 일을
-   * 다 한 것이라, 다시 돌리기 전이라도 평상태로 돌아가야 한다(사용자 지시 — "내가 클릭해서
-   * 확인하면 다시 idle 로 돌아가야지"). 종전에는 걷는 곳이 `execute` 하나뿐이라, 그 세션을 다시
-   * 돌리지 않는 한 배지가 영영 주황이었다.
-   *
-   * **끄는 것은 표식뿐이다.** `status`·`lastResult`·명령 이력·스트림은 그대로 남는다 — 지우는 것이
-   * 아니라 확인한 것이다(`acknowledgeErrorSubs` 와 같은 규율).
-   *
-   * 이 길도 **사용자 클릭 전용**이다. 어떤 스윕도 여기를 타지 않는다(시간이 흘렀다는 이유로 멈춘
-   * 사실을 세탁하지 않기 위함 — §2.4 "거짓 idle 세탁 금지").
-   *
-   * @param subAgentIds 확인할 세션들. 이미 표식이 없는 것은 조용히 건너뛴다.
-   * @returns 실제로 걷힌 sub.id 목록. 비면 호출자가 broadcast·저장을 건너뛴다.
+   * §2.4 — 사용자가 확인하면 표식을 걷는다(다시 돌리기 전이라도). 표식만 끈다 — 상태·결과·이력·스트림은 남는다. 클릭 전용 — 스윕은 타지 않는다.
+   * @param subAgentIds 확인할 세션들(표식 없으면 건너뜀).
+   * @returns 걷힌 sub.id 목록(비면 broadcast·저장 생략).
    */
   acknowledgeUsageLimits(subAgentIds: Iterable<string>): string[] {
     const cleared: string[] = [];
@@ -4378,31 +3609,21 @@ export class SubAgentManager {
     return cleared;
   }
 
-  /**
-   * §2.4 (한도 정지) — 이 에이전트에서 **한도로 멈춘 채 남아 있는** 세션 id 들.
-   *
-   * 확인 창구가 "이 줄을 눌렀다"(에이전트 하나)와 "전부 확인"(여러 에이전트) 두 손짓을 받는데,
-   * 그때마다 호출부가 `getAllSubs().filter(...)` 를 다시 적으면 판정이 갈라진다. 여기 하나로 둔다.
-   */
+  /** §2.4 (한도 정지) — 이 에이전트에서 한도로 멈춘 채 남은 세션 id. 확인 손짓 둘(한 줄 · 전부)이 같은 판정을 쓰게 여기 하나로 둔다. */
   listUsageLimitedSubIds(parentAgentId: string): string[] {
     return (this.registry.get(parentAgentId) ?? [])
       .filter((s) => s.usageLimit !== undefined)
       .map((s) => s.id);
   }
 
-  /**
-   * 마지막 활동 시각으로부터 thresholdMs 초과한 active/completed subagent → idle 전환.
-   * 변경된 sub.id 목록 반환.
-   */
+  /** `thresholdMs` 넘게 조용한 active/completed sub 를 idle 로 내리고 바뀐 id 를 돌려준다. */
   sweepIdle(thresholdMs: number): string[] {
     const now = Date.now();
     const changed: string[] = [];
     for (const sub of this.index.values()) {
       if (sub.status !== 'active' && sub.status !== 'completed') continue;
-      // 거짓-완료 방지 — 살아있는 자식 프로세스/watcher 를 가진 sub 는 절대 idle 로 강등하지 않는다.
-      // lastActivityAt staleness 는 추측이고 isSubRunning 은 확정 진실 — 확정이 이긴다.
-      // (이 가드가 없으면 5분 넘게 도는 명령이 idle 처리되고 recomputeCustomAgentStatus 가
-      //  그 idle 을 부모 커스텀 버블의 'completed' 로 세탁 → 동작 중인데 완료 거짓보고.)
+      // 살아 있는 자식/watcher 가 있는 sub 는 idle 로 내리지 않는다 — 활동 시각은 추측, `isSubRunning` 은 사실이다.
+      // 없으면 5분 넘게 도는 명령이 idle 이 되고 `recomputeCustomAgentStatus` 가 부모 버블을 'completed' 로 바꿔 거짓 완료가 뜬다.
       if (this.isSubRunning(sub.id)) continue;
       // §4 엔진 다리 — 같은 원칙(확정이 이긴다). 엔진이 "턴이 돈다"고 말하면 활동 시각이 오래돼도
       //   내리지 않는다 — 훅 없이 긴 도구 하나를 도는 CMD 탭이 5분 뒤 '쉬는 중'으로 거짓 강등되던 자리.
@@ -4453,17 +3674,9 @@ export class SubAgentManager {
   }
 
   /**
-   * §4 — CMD(인터랙티브 터미널) 세션 탭의 per-sub 상태를 그 세션의 redirect 된 hook 스트림으로
-   * **연속 동기화**. termId(`term:<agentId>:<subId>`)로 그 탭의 sub 를 찾아 tool 이벤트→active,
-   * Stop→idle(완료·미확인=녹색) 로 매긴다.
-   *
-   * 배경: CMD 에이전트의 hook 은 session_id 를 부모 CMD 버블 세션으로 rewrite 하므로
-   * (`_vibisualOwnerAgentId`) 부모 버블만 active/idle 이 갱신되고 **각 세션 탭(sub)의 status 는
-   * hook 과 연결돼 있지 않았다** → 탭 도트가 생성 시 idle(녹색) 에 멈춰, 동작 중에도 파란 active 로
-   * 바뀌지 않던 버그. termId 의 끝 토큰이 곧 sub.id 라(`term:agentId:subId`) 이걸로 그 탭만 정확히
-   * 구동한다. lastActivityAt 도 매 이벤트마다 갱신 → 5분 idle sweep 의 거짓-강등도 자연히 막힌다.
-   *
-   * @returns 상태가 바뀌었으면 true (호출자 broadcast 판단용).
+   * §4 — CMD 세션 탭의 sub 상태를 hook 스트림으로 맞춘다(tool→active, Stop→idle). CMD hook 은 session_id 가 부모 버블로 바뀌므로
+   * termId(`term:<agentId>:<subId>`) 끝의 sub.id 로 탭을 찾는다. `lastActivityAt` 도 밀어 idle sweep 의 거짓 강등을 막는다.
+   * @returns 바뀌었으면 true(broadcast 판단용).
    */
   markCmdSubActivity(termId: string, isStop: boolean): boolean {
     const parsed = parseTermId(termId);
@@ -4486,22 +3699,10 @@ export class SubAgentManager {
   }
 
   /**
-   * §4 (CMD 터미널 업그레이드 ①) — 터미널 출력에서 읽어 낸 상태 신호를 **서버가 확정**한다.
-   *
-   * 클라(터미널 뷰)는 바이트 흐름만 보고 `working|idle|blocked` 를 *감지*해 올릴 뿐이고,
-   * 무엇을 세울지는 여기서 정한다(§3.1 서버 = SSOT). `SubAgentStatus` 유니온은 늘리지 않는다 —
-   * blocked 는 §2.4 '잠듦'(dormant)과 같은 **직교 플래그**다.
-   *
-   * - `working` : 바이트가 흐르는 중 → `status='active'` + blocked 걷기(훅 판본과 같은 결론).
-   * - `blocked` : 사용자 입력을 기다리며 멈춤 → `status` 는 `active` 유지(세션은 살아 있다) +
-   *   `blocked=true`. 훅이 없는 CLI(codex·gemini 등)도 이 경로로 상태가 보인다.
-   * - `idle`    : 조용해진 지 오래 → `status='idle'`(단 `error` 는 보존 — 거짓 idle 세탁 금지).
-   *
-   * `cmdDrivenSubs` 표식은 `markCmdSubActivity` 와 **같은 이유**로 여기서도 붙인다(생존 대조·
-   * 잠듦 회수 제외). 다만 `lastActivityAt` 은 실제 출력이 있었던 `working` 에서만 밀어 — idle
-   * 판정이 자기 자신을 영원히 되살리는 것을 막는다.
-   *
-   * @returns 화면에 보이는 값이 하나라도 바뀌었으면 true(호출자 broadcast 판단용).
+   * §4 (CMD 터미널 업그레이드 ①) — 클라가 바이트 흐름에서 감지한 `working|idle|blocked` 를 서버가 확정한다(§3.1).
+   * blocked 는 직교 플래그다(`SubAgentStatus` 를 늘리지 않는다): working→active · blocked→active + `blocked=true` · idle→idle(`error` 보존).
+   * `cmdDrivenSubs` 도 붙인다(생존 대조·잠듦 회수 제외). `lastActivityAt` 은 working 에서만 민다 — 아니면 idle 판정이 스스로를 되살린다.
+   * @returns 보이는 값이 바뀌었으면 true.
    */
   applyCmdTerminalSignal(signal: CmdTerminalSignal): boolean {
     const parsed = parseTermId(signal.termId);
@@ -4542,9 +3743,7 @@ export class SubAgentManager {
       if (v.state === 'blocked' && state !== 'blocked') { state = 'blocked'; reason = v.reason; }
     }
 
-    // §4 엔진 다리 — 엔진이 턴 시작·끝을 직접 알려 주는 탭에서는 화면의 바이트 흐름이 status 를 뒤집지
-    //   않는다(입력창에 글자를 치는 것도 바이트다). blocked 표식과 활동 시각만 이 자리가 보탠다 —
-    //   위 CMD 터미널 ① 이 적어 둔 "권위가 있으면 화면 감지는 blocked 만" 규칙이다.
+    // §4 엔진 다리 — 엔진이 턴을 직접 알리는 탭은 바이트 흐름이 status 를 못 뒤집는다(타이핑도 바이트). blocked·활동 시각만 보탠다.
     const engineOwnsStatus = engineBridge.ownsCmdStatus(sub.id);
 
     if (state === 'working') {
@@ -4580,12 +3779,7 @@ export class SubAgentManager {
   forgetCmdPaneStates(subAgentId: string): void {
     this.cmdPaneStates.delete(subAgentId);
   }
-  /**
-   * §4 (CMD 터미널 업그레이드 ⑤) — 세션 탭의 pane 분할 트리를 갈아 끼운다.
-   * 그 탭의 **표시 상태**라 체크포인트에 그대로 실린다(`getSnapshot` 이 SubAgent 를 통째 복제).
-   * `null` 이면 단일 pane 으로 되돌린다.
-   * @returns 실제로 바뀌었으면 true.
-   */
+  /** §4 (CMD 터미널 업그레이드 ⑤) — pane 분할 트리를 바꾼다(표시 상태라 체크포인트에 실린다). `null` = 단일 pane. 바뀌었으면 true. */
   setCmdPaneTree(subAgentId: string, tree: CmdPaneNode | null): boolean {
     const sub = this.index.get(subAgentId);
     if (!sub) return false;
@@ -4601,14 +3795,8 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.5 #17-36 — 이 세션 탭에 붙은 **스티키 메모 전체를 갈아 끼운다**(부분 갱신 ❌).
-   *
-   * 부분 페이로드를 받지 않는 것은 의도다 — 필드 하나만 보내면 나머지가 빈 값으로 강등되는
-   * 사고(`PUT /api/agent-config` 에서 실제로 겪었다)를 규약으로 차단한다. 호출자는 언제나
-   * **그 탭의 메모 목록 전량**을 보낸다.
-   *
-   * 메모는 `sub` 객체 안에 살기 때문에 세션이 사라지는 어떤 경로로도 뒤에 남지 않는다
-   * (별도 정리 코드가 필요 없다 = 지우는 것을 잊을 자리가 없다).
+   * §5.5 #17-36 — 탭의 메모를 **통째로** 바꾼다(부분 페이로드는 나머지를 지운다 — `PUT /api/agent-config` 와 같은 사고).
+   * 메모는 `sub` 안에 살아 세션과 함께 사라진다.
    */
   setSessionMemos(subAgentId: string, memos: SessionMemo[]): boolean {
     const sub = this.index.get(subAgentId);
@@ -4644,14 +3832,7 @@ export class SubAgentManager {
     return result;
   }
 
-  /**
-   * 이 id 를 이미 누가 쓰고 있는가 — **살아 있는 세션과 아카이브를 모두** 본다.
-   *
-   * 종전 판정은 `index`(살아 있는 세션)만 봤다. 그런데 닫힌 세션은 지워지지 않고 아카이브로
-   * 옮겨 가며(`remove`), 그 세션의 대화는 여전히 디스크에 `sub-streams/<agentId>/<subId>.jsonl`
-   * 로 남아 있다. 그래서 아카이브를 안 보면 새 세션이 **닫힌 세션의 id 를 물려받아** 남의
-   * 대화 파일에 이어 쓰고, 나중에 그 세션을 되살리면 두 세션이 한 파일을 다툰다.
-   */
+  /** 살아 있는 세션과 **아카이브까지** 본다 — 닫힌 세션의 대화는 `sub-streams/<agentId>/<subId>.jsonl` 에 남아, id 를 물려받으면 남의 대화 파일에 이어 쓴다. */
   private isSubIdTaken(id: string): boolean {
     if (this.index.has(id)) return true;
     for (const list of this.archive.values()) {
@@ -4661,16 +3842,8 @@ export class SubAgentManager {
   }
 
   /**
-   * 아직 아무도 쓰지 않는 세션 id 하나.
-   *
-   * 종전 발급식은 `sub-<밀리초>` **하나뿐**이라 같은 밀리초에 만든 두 세션이 **같은 id** 를 받았다.
-   * 그러면 뒤에 만든 쪽이 `index` 에서 앞의 것을 덮어써 탭 하나가 조용히 사라지고, 대화 파일·명령
-   * 큐·메모(#17-36)까지 둘이 뒤섞인다. 사람이 손으로 두 번 누르기는 어렵지만 **코드가 연달아
-   * 만드는 자리**(파이프라인 워커·워처·dispatch 자동 생성)는 실제로 같은 밀리초에 들어간다.
-   *
-   * 고침은 `projectGraph` 의 다른 id 들이 이미 물고 있던 그 조각과 같다 — 시각 뒤에 **난수 꼬리**를
-   * 붙이고, 그래도 겹치면 다시 뽑는다. id 의 **모양**을 파싱하는 코드는 없으므로(세션 판별은 전부
-   * 맵 조회다) 꼬리를 덧붙여도 안전하고, 이미 저장된 옛 id 도 그대로 유효하다.
+   * 시각 + 난수 꼬리로 id 를 뽑고 겹치면 다시 뽑는다 — `sub-<밀리초>` 만이면 코드가 연달아 만드는 자리(워커·워처·dispatch)에서 겹쳐 탭이 덮인다.
+   * id 모양을 파싱하는 코드는 없어(판별은 맵 조회) 옛 id 도 그대로 유효하다.
    */
   private mintSubId(): string {
     for (let i = 0; i < SUB_ID_MINT_ATTEMPTS; i += 1) {
@@ -4707,17 +3880,8 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.26 (G) 5단계 — 죽은 세션 하나를 이 탭에 **입힌다**(부활).
-   *
-   * 새 대화를 만들지 않는다 — `sessionId` 만 채워 두면 다음 명령이 `--resume <sessionId>` 로
-   * 나가 그 대화를 그대로 이어받는다(스폰 경로가 이미 `sub.sessionId` 유무로 갈라 쓴다).
-   * 그래서 이 기능에는 새 실행 경로가 없다: 있는 길에 옛 id 를 놓아 줄 뿐이다.
-   *
-   * ⚠ **살아 있는 세션 id 를 입히면 한 대화를 두 탭이 민다.** 생사 판정은 호출부 몫이다
-   *   (여기서 하면 이 함수가 프로세스 조회를 물어야 하고, 그러면 단위 시험이 기계를 탄다).
-   *
-   * 이미 다른 대화가 붙어 있는 탭은 건드리지 않는다 — 되살리려다 멀쩡한 탭을 덮으면
-   * 그게 더 큰 손실이다. 빈 탭에만 앉는다.
+   * §5.26 (G) 5단계 — 죽은 세션을 이 탭에 입힌다: `sessionId` 만 채우면 다음 명령이 `--resume` 으로 잇는다.
+   * ⚠ 살아 있는 세션 id 면 한 대화를 두 탭이 민다 — 생사 판정은 호출부 몫(단위 시험이 프로세스 조회를 안 타게). 빈 탭에만 앉는다.
    */
   adoptSession(subAgentId: string, sessionId: string, label?: string): boolean {
     const sub = this.index.get(subAgentId);
@@ -4730,12 +3894,7 @@ export class SubAgentManager {
     return true;
   }
 
-  /**
-   * 서브에이전트 탭 닫기 — 소프트 아카이브.
-   * 실행 중이면 SIGTERM으로 자식 종료 → 레지스트리/index/in-memory 스트림 버퍼에서 제거 →
-   * 메타를 archive Map으로 이동. disk stream buffer는 유지(restore 시 재로드).
-   * 제거(archive) 성공 시 true.
-   */
+  /** 탭 닫기 = 소프트 아카이브: 자식을 끊고 메모리에서 빼 archive 로 옮긴다. 디스크 스트림은 남긴다(restore 때 읽는다). */
   remove(subAgentId: string): boolean {
     const sub = this.index.get(subAgentId);
     if (!sub) return false;
@@ -4777,7 +3936,7 @@ export class SubAgentManager {
       this.stampTurnStopReason(sub, providerCommand, { userStopped: true });
     }
 
-    // §5.7 #23-2 v1.60 — agent-view 정리: supervisor 의 worker + worktree 도 함께 제거.
+    // §5.7 #23-2 — agent-view: supervisor 의 worker + worktree 도 제거.
     const av = this.runningAgentViewWatchers.get(subAgentId);
     if (av) {
       void detachWatcher(av.short);
@@ -4826,24 +3985,9 @@ export class SubAgentManager {
   }
 
   /**
-   * **도는 턴만 끊는다(soft interrupt) — 프로세스는 살려 둔다.**
-   *
-   * 종전의 [즉시] 덧말은 자식 트리를 SIGTERM 으로 끊었는데, 그 트리 안에는 그 세션이 띄워 둔
-   * **백그라운드 감시**(`Monitor` · `Bash run_in_background`)도 들어 있다(§5.5 #17-9 ⑩). 그래서
-   * 사용자가 도중에 말 한마디를 얹을 때마다 감시가 조용히 함께 죽고, 다음 명령에서 CLI 가
-   * `No completion record was found …` 를 밀어 넣었다. 감시를 살리려면 **프로세스를 죽이지 않고**
-   * 그 턴만 끊어야 한다.
-   *
-   * CLI(2.1.228)는 stream-json stdin 으로 SDK 제어 메시지를 받는다 —
-   * `{"type":"control_request","request_id":…,"request":{"subtype":"interrupt"}}`. 실제 구현을 확인해
-   * 보면 이 경로는 진행 중 쿼리를 abort 하고 **에이전트/워크플로 작업만** 정리하며, 셸 계열 작업
-   * (`Monitor`·백그라운드 Bash)은 건드리지 않는다 — 우리가 원하는 그 경계다.
-   *
-   * stdin 이 열려 있는 **persistent 자식에게만** 통한다(legacy 는 write 직후 `end()` 라 창구가 없다).
-   * 보낸 뒤 `SOFT_INTERRUPT_FALLBACK_MS` 안에 그 명령이 마감되지 않으면 종전 하드 킬로 넘어간다.
-   *
-   * @returns 인터럽트를 실제로 보냈으면 true. 이때 호출자는 **끊었다**로 취급하면 되고, 큐에 남은
-   *          덧말은 그 턴이 마감되는 시점에 종전 경로 그대로 이어진다.
+   * **도는 턴만 끊는다 — 프로세스는 살린다.** 트리를 SIGTERM 하면 백그라운드 감시(`Monitor`·`Bash run_in_background`)도 죽는다(§5.5 #17-9 ⑩).
+   * CLI(2.1.228)는 stdin `control_request`(`subtype: interrupt`)로 쿼리를 끊고 셸 작업은 건드리지 않는다. persistent 자식에게만 통한다.
+   * `SOFT_INTERRUPT_FALLBACK_MS` 안에 마감되지 않으면 하드 킬. @returns 보냈으면 true(덧말은 그 턴 마감 때 이어 나간다).
    */
   softInterrupt(subAgentId: string): boolean {
     const child = this.runningChildren.get(subAgentId);
@@ -4889,14 +4033,8 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.5 #17-18 — **붙들어 둔 턴 끝을 지금 확정한다**([즉시] 덧말이 먼저 시도하는 길). 붙든 게 없으면 false.
-   *
-   * `result` 는 이미 왔고 백단 여운 때문에 봉인만 미뤄 둔 상태라면 **끊을 턴이 없다.** 그런데 종전
-   * [즉시] 는 이 상태도 "처리 중"으로 읽어 인터럽트를 쏘고, CLI 는 답할 턴이 없으니 3초 뒤 하드 킬
-   * 폴백으로 내려가 **프로세스와 그 세션의 백그라운드 감시까지 죽였다**(§5.5 #17-9 ⑩ 이 없애려 한 바로
-   * 그 죽음). 그 자리에서 할 일은 죽이는 게 아니라 **봉인을 확정해 다음 턴으로 넘기는 것**이다 —
-   * 봉인의 `seal()` 이 `onComplete` → `processNextCommand` 를 부르므로, 큐에 있는 그 덧말이 같은 자식에게
-   * 이어서 나간다(대화·감시 모두 그대로).
+   * §5.5 #17-18 — 붙들어 둔 턴 끝을 지금 확정한다([즉시] 덧말의 첫 길). 없으면 false.
+   * `result` 뒤 봉인만 미룬 상태엔 끊을 턴이 없다 — 인터럽트하면 3초 뒤 하드 킬이 감시까지 죽인다. `seal()` 이 다음 명령을 같은 자식에 잇는다.
    */
   sealHeldTurnNow(subAgentId: string): boolean {
     if (!this.deferredSeals.has(subAgentId)) return false;
@@ -4905,15 +4043,8 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.5 #17-18 — **아직 내려가는 중인 자식 때문에 이 턴을 지금 보낼 수 없을 때** 큐로 되돌린다.
-   *
-   * `execute` 가 세워 둔 것(dispatch 표식 · 턴 도장 · `executing`)을 원위치로 돌려, 그 자식의 `close` 가
-   * 부르는 `onComplete` → `processNextCommand` 가 이 명령을 **fresh spawn(`--resume`)으로** 그대로 다시
-   * 집게 한다. 대화 맥락도, 사용자가 방금 친 덧말도 잃지 않는다 — 종전엔 이 자리가 write-after-end
-   * 예외였고, 그 예외가 덧말을 통째로 삼킨 채 세션을 멈춰 세웠다.
-   *
-   * in-flight 는 **이 명령 것일 때만** 지운다 — 직전 턴이 붙들려 있으면 그 마감의 대상이라 건드리면
-   * 그 명령이 `executing` 인 채로 굳는다.
+   * §5.5 #17-18 — 내려가는 자식 때문에 못 보낼 때 큐로 되돌린다: `execute` 가 세운 것을 되돌려 그 `close` 의 `onComplete` 가 `--resume` 으로 다시 집게 한다.
+   * in-flight 는 이 명령 것일 때만 지운다 — 붙들린 직전 턴 것을 지우면 그 명령이 `executing` 으로 굳는다.
    */
   private _requeueForDyingChild(sub: SubAgent, cmd: QueuedCommand): void {
     if (this.persistentInFlightCmd.get(sub.id)?.cmd.id === cmd.id) {
@@ -4936,11 +4067,8 @@ export class SubAgentManager {
   }
 
   /**
-   * 실행 중인 서브에이전트를 사용자가 중지. 자식 프로세스 트리 종료, sub/cmd 는 registry 에 그대로 둔다.
-   * persistent 자식의 턴은 여기서 바로 `[Stopped by user]` 로 마감한다(`settleStoppedPersistentTurn`) —
-   * 그 마감의 `onComplete` 가 다음 차례를 집으므로, 큐·루프를 비울 호출자는 **이 호출 전에** 비워야 한다.
-   * legacy(`--print`) 는 close 핸들러가 stoppedByUser 플래그를 보고 status/result 를 맞춘다.
-   * 실행 중이 아니면 false (큐잉된 명령은 이 API 로 취소하지 않음 — CommandQueue 의 삭제 UI 로 처리).
+   * `stop()` — 사용자 중지: 자식 트리를 끊고 sub/cmd 는 남긴다. persistent 턴은 바로 `[Stopped by user]` 로 마감하고 그 `onComplete` 가
+   * 다음 차례를 집으므로, 큐·루프를 비울 호출자는 **이 호출 전에** 비운다. 실행 중이 아니면 false.
    */
   /**
    * §5.13 (R-10) — 명령 한 건의 시간 상한. 그 명령이 아직 실행 중이면 사용자 중지와 같은 길(`stop`)로 끊고, 끊은 이유를
@@ -4964,20 +4092,11 @@ export class SubAgentManager {
     const sub = this.index.get(subAgentId);
     if (!sub) return false;
 
-    // §5.3 #12-1 v3.43 — 사용자 명시 중지: 백그라운드 서브에이전트 대차대조도 즉시 해제.
-    // 여기서 안 비우면 그 항목은 **끊긴 자식이라 끝 신고를 못 하고**, 시간 만료도 없으므로
-    // (조용함으로 걷지 않는다) 다음 프로세스 대조가 올 때까지 활성으로 붙잡는다.
-    // §5.5 #17-10 v3.53 — 단, **이 세션이 띄운 항목만**. 종전엔 부모 전체를 지워 한 탭을 멈추면
-    // 다른 탭이 띄운 백그라운드 서브에이전트 표시까지 함께 사라졌다.
-    // §5.5 #17-9 ⑱ — 끝 통지로 "곧 다시 돈다"며 붙든 것도 중지 앞에서는 성립하지 않는다. 아래 정리가
-    //   부르는 `syncBgSubStatus` 가 이 탭을 붙든 채로 세지 않도록 먼저 걷는다.
+    // §5.3 #12-1 — 중지 때 백그라운드 대차대조도 비운다(끊긴 자식은 끝 신고를 못 한다). §5.5 #17-10 — **이 세션 것만**(다른 탭 표시를 지우지 않게).
+    // §5.5 #17-9 ⑱ — 끝 통지 붙듦도 먼저 걷는다(아래 `syncBgSubStatus` 가 붙든 채로 세지 않게).
     this.clearNoticeResumeHold(subAgentId);
     this.clearPendingSubagentTasksForSession(sub.parentAgentId, subAgentId);
-    // 스트림 칩으로만 보이던 백그라운드 작업(`Bash run_in_background` · `Monitor`)도 함께 정리한다.
-    //   이 자식들은 우리가 죽이는 프로세스 트리 안에 있어 실제로 끝나는데, 장부를 안 비우면
-    //   **끝 통지가 영영 안 와** 그 항목이 유령으로 남는다(시간 만료가 없으므로 스스로 사라지지 않는다).
-    //   이제 이 장부는 화면(실행 목록·도트·버블 완료 판정)까지 몰기 때문에, 안 비우면 중지 뒤에도
-    //   "아직 N개 도는 중"이 뜨고 버블이 완료로 못 간다.
+    // 스트림 칩의 백그라운드 작업도 비운다 — 트리째 끝나지만 끝 통지는 안 와, 안 비우면 중지 뒤에도 "N개 도는 중"이 남는다.
     this.clearLiveBackgroundTasks(subAgentId);
     // §5.3 #12-1-B — 그 세션이 띄워 둔 권한 카드는 취소로 닫는다. 안 닫으면 60초 뒤 기본 허용으로 풀려
     //   일어나지도 않을 호출이 원장에 "시간 초과 · 허용"으로 남는다. 세션 기억은 지우지 않는다(세션은 이어진다).
@@ -4999,7 +4118,7 @@ export class SubAgentManager {
       return true;
     }
 
-    // §5.7 #23-2 v1.60 — agent-view 경로: supervisor 에 stop 요청. finishTerminal 에서 후처리.
+    // §5.7 #23-2 — agent-view: supervisor 에 stop 요청, 후처리는 finishTerminal.
     const av = this.runningAgentViewWatchers.get(subAgentId);
     if (av) {
       this.stoppedByUser.add(subAgentId);
@@ -5017,29 +4136,16 @@ export class SubAgentManager {
     // 자식 트리 종료 — Windows 는 부모가 살아 있을 때 트리째(`taskkill /T`), POSIX 는 SIGTERM 뒤 그룹 회수.
     terminateChildTree(child);
     this.settleStoppedPersistentTurn(sub);
-    // §5.5 #17-9 ⑱(c) — 쉬던 자식이면 마감할 턴이 없어 위 마감이 상태를 건드리지 않는다. 그 탭을 `active` 로 올려 둔
-    //   것(끝 통지 붙듦 · 백단 자식 장부)은 이미 걷었으니 **다시 세어** 지금 내린다 — 대차대조 정리는 남은 항목이 있을
-    //   때만 다시 세고 스트림 장부 정리는 세지 않아, `close` 가 올 때까지 [중지] 그대로였다(⑤-1 이 막은 그 기다림).
-    //   그 사이 죽어 가는 자식이 흘린 늦은 끝 칩은 남은 승격 표식을 보고 붙듦을 다시 걸었다.
+    // §5.5 #17-9 ⑱(c) — 쉬던 자식이면 위 마감이 상태를 안 건드리니 **다시 세어** 지금 내린다(안 세면 `close` 까지 [중지]가 남고 늦은 끝 칩이 붙듦을 다시 건다).
     if (this.syncBgSubStatus(sub.parentAgentId)) this.onSubStatusChange?.(sub.parentAgentId);
     logger.info(`SubAgent stop requested by user: ${subAgentId}`);
     return true;
   }
 
   /**
-   * §5.5 #17-18 — [중지]한 persistent 턴을 **자식의 `close` 를 기다리지 않고 지금** 마감한다.
-   *
-   * 종전엔 마감이 `close` 에만 걸려 있었는데, Windows 에서 `close` 는 **파이프를 물려받은 손자가 모두
-   * 죽어야** 온다. 직접 자식만 끊기면 손자는 고아가 되어 파이프를 쥔 채 남고, 그동안 화면은 중지가
-   * 안 된 채 도는 중으로 남았다. 사용자가 그 사이 새로 친 입력은 그 명령 뒤에 줄을 서, 늦게 온 `close`
-   * 가 둘을 한꺼번에 풀었다.
-   *
-   * 끊긴 자식은 이제 이 명령에 답할 수 없으므로 기다릴 이유가 없다. 붙든 봉인이 있으면 그 봉인이 곧
-   * 마감이고(답은 이미 왔다), 없으면 in-flight 를 `[Stopped by user]` 로 닫는다. 뒤늦은 `close` 는
-   * in-flight 가 비어 있어 세션만 쉬게 한다. 새 명령은 창구가 닫힌 자식을 보고 큐로 돌아가
-   * (`_requeueForDyingChild`) 그 `close` 뒤에 `--resume` 으로 뜬다.
-   *
-   * persistent 자식이 아니면(legacy `--print`) 아무것도 안 한다 — 그 마감은 `close` 가 쌓은 stdout 을 읽어야 한다.
+   * §5.5 #17-18 — [중지]한 persistent 턴을 `close` 를 기다리지 않고 지금 마감한다 — Windows 의 `close` 는 파이프를 쥔 손자까지 죽어야 온다.
+   * 붙든 봉인이 있으면 그게 마감, 없으면 `[Stopped by user]`. 새 명령은 큐로 돌아가(`_requeueForDyingChild`) `close` 뒤 `--resume` 으로 뜬다.
+   * legacy(`--print`)면 아무것도 안 한다 — 그 마감은 `close` 의 stdout 이 필요하다.
    */
   private settleStoppedPersistentTurn(sub: SubAgent): void {
     if (!this.persistentLineBuf.has(sub.id)) return;
@@ -5060,15 +4166,8 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.5 #17-9 v3.51 — **에이전트 전체 중지**. 한 부모(감독관) 아래 **모든 세션 탭**의 실행을 끊는다.
-   *
-   * 배경: 종전 [중지] 는 `stop(subId)` 로 그 탭 하나의 자식만 끊어, 다른 탭이 돌고 있거나 감독관이
-   * 백단에 Task 서브에이전트를 여러 개 띄워 둔 상태에선 "눌러도 안 멈추는" 것처럼 보였다.
-   *
-   * 대차대조(§5.3 #12-1 v3.43)는 여기서 한 번만 해제한다 — `stop()` 을 세션마다 부르면 같은
-   * `clearPendingSubagentTasks` 가 N번 돌아 낭비되므로, 자식 종료는 세션별로 직접 수행한다.
-   *
-   * @returns 실제로 종료 신호를 보낸 세션 id 목록.
+   * §5.5 #17-9 — 한 부모 아래 **모든 세션 탭**을 끊는다. 대차대조(§5.3 #12-1)를 한 번만 비우려고 `stop()` 대신 자식을 직접 끊는다.
+   * @returns 종료 신호를 보낸 세션 id.
    */
   stopAll(parentAgentId: string): string[] {
     // 백그라운드 서브에이전트 대차대조 즉시 해제 — 끊긴 자식은 끝 신고를 못 하므로, 안 비우면
@@ -5178,10 +4277,7 @@ export class SubAgentManager {
     return result;
   }
 
-  /**
-   * 서브에이전트 탭 순서 변경 — orderedIds가 현재 레지스트리 구성과 일치해야 함.
-   * 일치(set 동등)하면 재배열 후 true, 아니면 무시하고 false.
-   */
+  /** `orderedIds` 가 지금 레지스트리와 같은 집합일 때만 재배열하고 true. */
   reorder(parentAgentId: string, orderedIds: string[]): boolean {
     const list = this.registry.get(parentAgentId);
     if (!list || list.length !== orderedIds.length) return false;
@@ -5195,12 +4291,10 @@ export class SubAgentManager {
     return true;
   }
 
-  /** 명령 실행 — subagent 세션에서. agentConfig가 있으면 CLI 인자로 적용.
-   *  v1.77 (Direction A): opts.customParent=true 면 `--bg`(Agent View) 경로를 절대 타지 않고
-   *  legacy `claude -p` 로만 실행한다. 이유 — supervisor 가 spawn 마다 sessionId 를 새로
-   *  발급해(=대화 연속성 상실 + 각 세션이 새 훅 버블로 증식) 커스텀 에이전트의 "하나의
-   *  안정 세션" 목표와 구조적으로 충돌. legacy 는 sub.sessionId 를 첫 턴에 캡처해 이후
-   *  `--resume <동일 id>` 로 같은 대화를 잇는다(서버 재시작해도 sub.sessionId 영속 → 재개). */
+  /**
+   * sub 세션에서 명령 실행(agentConfig → CLI 인자). `opts.customParent` 면 Agent View(`--bg`) 대신 legacy `claude -p` 만 탄다 —
+   * supervisor 는 spawn 마다 sessionId 를 새로 발급해 대화가 끊긴다. legacy 는 첫 턴의 `sub.sessionId` 로 `--resume` 한다.
+   */
   execute(
     cmd: QueuedCommand,
     parentCwd: string,
@@ -5270,22 +4364,17 @@ export class SubAgentManager {
       capSetSize(this.silentTurnIds, SESSION_KEYED_MAP_MAX);
     }
 
-    // §5.5 #17-18 ⑥ — 이 명령이 **실제로 나간** 시각. 화면은 큐에 넣은 시각(`timestamp`)이 아니라
-    //   이 값으로 말풍선 자리를 고정해 "여기서 턴이 끊겼다"를 그린다(대기·합치기는 둘 사이가
-    //   몇 분씩 벌어진다). 흡수된 덧말은 이 명령에 실려 나가므로 base 의 이 값 하나가 그 턴의 시작이다.
-    //
-    // §5.19 (D) — **로컬 갈림보다 먼저** 둔다. 종전에는 아래 `return` 뒤에 있어서 로컬 턴만
-    //   시작 시각을 못 받고, 시작을 알리는 상태 통지도 못 나갔다 — 사용자가 명령을 보내도 버블이
-    //   곧바로 "실행중"으로 바뀌지 않고 러너의 첫 도구 이벤트를 기다렸다. 두 경로가 같은 순간에
-    //   같은 말을 하게 한다(실행 → 실행중).
-    //
-    // §5.5 #17-18 ⑥-5 — **한 명령에 한 번만** 찍는다. 종전엔 dispatch 마다 덮어써서, 앱이 내려가
-    //   끊긴 명령을 부팅 reconcile 이 되살려 다시 보낼 때(§5.3 #12-1 `restartResumed`) 이 값이
-    //   **재개한 시각**으로 갈아 끼워졌다 — 말풍선이 그 명령이 이미 뱉어 놓은 출력보다 **아래**로
-    //   내려가, 사용자에겐 "내가 친 명령이 제 결과 밑에 있는" 뒤죽박죽 화면이 됐다(사용자 보고).
-    //   재개는 **같은 턴의 이어달리기**지 새 턴이 아니므로 자리는 처음 나간 그 시각이 옳다.
-    //   창구가 닫혀 큐로 되돌린 재시도(#17-18 ② 큐 되돌림)도 같은 이유로 첫 시각을 유지한다.
+    // §5.5 #17-18 ⑥ — 이 명령이 **실제로 나간** 시각. 말풍선 자리는 큐 시각(`timestamp`)이 아니라 이 값으로 고정한다.
+    // §5.19 (D) — 로컬 갈림(아래 `return`)보다 먼저 둔다 — 뒤면 로컬 턴만 시작 시각·시작 통지를 못 받는다.
+    // §5.5 #17-18 ⑥-5 — **한 명령에 한 번만** — 재개(§5.3 #12-1 `restartResumed`)·큐 되돌림에서 덮으면 말풍선이 제 출력 아래로 간다.
+    const firstDispatch = cmd.startedAt === undefined;
     if (cmd.startedAt === undefined) cmd.startedAt = Date.now();
+    // §5.1 #2-1 (B) — 새 명령이 묶음의 이번 턴을 연다(이 명령 때의 사진만, 지난 턴 것은 안 가져온다). 처음 나갈 때만 —
+    //   재개·큐 되돌림은 같은 턴, 조용한 명령은 사용자 턴이 아니다. 처리 중인 앞 턴이 있으면 그 턴에 이어 붙는다.
+    if (firstDispatch && !cmd.silent) {
+      const busy = this.getAllSubs(sub.parentAgentId).some((s) => this.isSubProcessingCommand(s.id));
+      this.onCommandStart?.(sub.parentAgentId, busy);
+    }
     this.armRunTimeLimit(sub, cmd);
     this.onSubStatusChange?.(sub.parentAgentId);
 
@@ -5306,10 +4395,7 @@ export class SubAgentManager {
       return;
     }
 
-    // 스테일 세션 자가복구 — 저장된 sessionId 에 해당하는 Claude CLI JSONL 이 사라졌으면
-    // `--resume <id>` 가 exit 1 + "No conversation found" 로 확정 실패한다.
-    // (원인: Claude Code 내부 세션 정리 / cwd 슬러그 매칭 실패 / worktree→master 이동 등.)
-    // 여기서 sub.sessionId 를 비워 fresh-spawn 경로로 강제 전환 — 다음 프롬프트가 자동 정상화.
+    // 저장된 sessionId 의 CLI JSONL 이 없으면 `--resume` 이 "No conversation found" 로 실패한다 — 비워서 fresh spawn 으로 보낸다.
     if (sub.sessionId) {
       const jsonlPath = getSessionJsonlPath(parentCwd, sub.sessionId);
       if (!fs.existsSync(jsonlPath)) {
@@ -5318,16 +4404,8 @@ export class SubAgentManager {
       }
     }
 
-    // v1.33 — resume 경로에도 최신 "live preamble" (outbound 엣지 등 매 턴 바뀌는 정보) 은 prepend.
-    // contextSummary 전체는 첫 스폰에서만, livePreamble 은 매 턴 반복 — 엣지 추가/삭제 즉시 반영.
-    // v1.35 — paste 첨부 이미지 경로를 프롬프트 말미에 append.
-    // Claude CLI 는 argv 로 이미지 자체를 받지 않지만 경로를 읽어 Read 툴로 해석한다.
-    // 경로는 개행으로 구분 — 공백 포함 경로(Windows 등)가 토큰 쪼개지는 것을 방지.
-    //
-    // §5.5 #17-2 — 조립 자체는 순수 모듈 `composeTurnPrompt` 하나가 맡는다. 슬래시 명령이면
-    //   앞말도 `Task:` 래핑도 붙이지 않고 **원문 그대로** 보낸다 — 맨 앞 한 글자라도 앞서면
-    //   CLI 가 내장 명령으로 집지 못하고 모델에게 평문으로 넘긴다(실측: 앞선 한 줄에 turns 0·$0 →
-    //   turns 1·$0.0125). 슬래시가 아니면 종전 조립과 바이트 단위로 같다.
+    // `contextSummary` 는 첫 스폰에만, `livePreamble`(매 턴 바뀌는 엣지 등)은 매 턴. 첨부 그림 경로는 말미에 줄마다(공백 든 경로가 안 쪼개지게).
+    // §5.5 #17-2 — 조립은 `composeTurnPrompt`. 슬래시 명령은 원문 그대로 — 앞서는 글자가 있으면 CLI 가 명령으로 못 집는다(실측 turns 0·$0 → 1·$0.0125).
     const turn = composeTurnPrompt({
       text: cmd.text,
       attachments: cmd.attachments ?? [],
@@ -5347,10 +4425,8 @@ export class SubAgentManager {
       logger.info(`SubAgent ${sub.id} slash passthrough — sending "${cmd.text.trim().slice(0, 40)}" to CLI verbatim (no preamble)`);
     }
 
-    // AgentConfig → CLI 인자 변환
-    // §5.3 v4.89 — 기억 폴더는 "어느 에이전트가, 어느 프로젝트에서" 로 갈리므로 맥락을 함께 넘긴다.
-    //   §4 (CLI 사양 추종) (5) — 자동 압축 창은 여기서 넘기지 않는다(스폰에 안 싣는다 — 2026-10-05).
-    //   설정 창 전역 기본·토큰 절약 Q·창 하한은 턴 경계 판정(index.ts `maybeCompactAfterTurn`)이 매번 읽는다.
+    // AgentConfig → CLI 인자. §5.3 — 기억 폴더가 에이전트·프로젝트로 갈려 그 맥락을 함께 넘긴다.
+    //   §4 (CLI 사양 추종) (5) — 자동 압축 창은 스폰에 싣지 않는다(턴 경계 판정 index.ts `maybeCompactAfterTurn` 이 읽는다).
     const configCtx: ConfigArgsContext = {
       verificationConfig: opts?.verificationConfig,
       agentName: sub!.parentAgentId,
@@ -5383,20 +4459,18 @@ export class SubAgentManager {
     // 값이라 오래된 것은 버려도 안전하다 — 되살아난 sub 는 그 시점 설정으로 새로 만든다.
     capMapSize(this.pendingConfigEnv, SESSION_KEYED_MAP_MAX);
 
-    // ──────────────────────────────────────────────────────────────
-    // maxTurns 턴 제한 — 무한루프 방지 안전장치
-    //
-    // - 각 execute() 호출(= 프롬프트 명령 1건)마다 독립적인 turnCount 생성
-    // - 서브에이전트가 여러 개여도 각자 execute()가 호출되므로 카운트 간섭 없음
-    // - assistant 메시지 = 1턴
-    // - maxTurns > 0 일 때만 제한 — turnCount >= maxTurns 도달 시 강제 종료(legacy: SIGTERM / agent-view: `claude stop`)
-    // - config 없으면 DEFAULT_AGENT_CONFIG.maxTurns(0=무제한) 사용. 사용자가 양수 지정 시에만 캡.
-    // ──────────────────────────────────────────────────────────────
-    // §5.13 (R-10) — 명령 한 건의 턴 상한(제작 앱의 '빠른 초안 / 정교하게')은 설정 상한과 함께 걸리고 더 좁은 쪽이 이긴다.
+    // maxTurns — 무한 루프 안전장치. 명령 한 건마다 assistant 메시지를 세고, 0 = 무제한, 양수면 닿을 때 끊는다(legacy SIGTERM / agent-view `claude stop`).
+    // §5.13 (R-10) — 명령 한 건의 턴 상한과 설정 상한 중 좁은 쪽이 이긴다.
     const maxTurns = effectiveMaxTurns(agentConfig?.maxTurns ?? DEFAULT_AGENT_CONFIG.maxTurns ?? 0, cmd.runLimits);
     if (cmd.runLimits?.maxTurns) cmd.runLimitsApplied = { ...cmd.runLimitsApplied, maxTurns };
-    // §4 v2.88 — API 비용 상한(달러). undefined/0 = 무제한(기존 동작). 양수면 헤드리스 --print 스폰에 --max-budget-usd 전달.
+    // §4 — API 비용 상한(달러). 0/undefined = 무제한, 양수면 `--print` 스폰에 `--max-budget-usd`.
     const maxBudgetUsd = (agentConfig?.maxBudgetUsd && agentConfig.maxBudgetUsd > 0) ? agentConfig.maxBudgetUsd : 0;
+    // §4 API 크레딧 — 크레딧이면 키를 env 로 싣는다. 금액 상한은 안 붙인다 — 한도·잔액은 Console 이 정하고 Anthropic 이 거절한다.
+    //   크레딧 턴은 `--print` 새 스폰으로 보낸다 — 떠 있던 자식·Agent View 엔 그 키가 없다.
+    const credit = this.resolveCreditRoute(sub, cmd);
+    if (credit) {
+      this.pendingConfigEnv.set(sub.id, { ...(this.pendingConfigEnv.get(sub.id) ?? {}), ANTHROPIC_API_KEY: credit.key });
+    }
     // §4 (CLI 사양 추종) — 과부하 폴백 모델. `--print` 전용 플래그라 legacy 헤드리스 경로에만 실린다
     //   (Agent View `--bg` 경로에는 안 붙는다 — maxBudgetUsd 와 같은 제약).
     const fallbackModel = agentConfig?.fallbackModel?.trim() ?? '';
@@ -5407,30 +4481,23 @@ export class SubAgentManager {
     if (isForwardSubagentTextEnabled(agentConfig?.forwardSubagentText)) streamFlags.push('--forward-subagent-text');
     if (agentConfig?.replayUserMessages) streamFlags.push('--replay-user-messages');
     if (agentConfig?.promptSuggestions) streamFlags.push('--prompt-suggestions', 'true');
-    // §4 (CLI 사양 추종) — 훅 생명주기를 스트림에도 싣는다. `--output-format stream-json` 에서만
-    //   동작하는데 우리 두 스폰 형태가 모두 그 형식이라 여기(공용 묶음)가 자리다.
-    //   ⚠ 플래그만 붙이면 화면은 그대로다 — 파서가 훅 줄을 소음으로 버려 왔다. 아래 `hookEvents`
-    //   기억과 한 쌍으로 움직인다.
+    // §4 (CLI 사양 추종) — 훅 생명주기를 스트림에 싣는다(stream-json 전용, 두 스폰 공용). ⚠ 플래그만으로는 안 보인다 — 아래 `streamHookEventsOn` 과 한 쌍이다.
     if (agentConfig?.includeHookEvents) streamFlags.push('--include-hook-events');
     this.streamHookEventsOn.set(sub!.id, agentConfig?.includeHookEvents === true);
     capMapSize(this.streamHookEventsOn, SESSION_KEYED_MAP_MAX);
-    // v1.77 (Direction A) — 커스텀 에이전트는 Agent View 게이트를 건너뛰고 무조건 legacy.
-    // (supervisor sessionId 회전 → 증식·연속성 상실. 위 docstring 참조.)
+    // 커스텀 에이전트는 늘 legacy — supervisor 의 sessionId 회전(`execute` 주석).
     if (opts?.customParent || opts?.verificationConfig) {
       this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns, maxBudgetUsd, fallbackModel, streamFlags);
       return;
     }
 
-    // §4 v2.88 — 비용 상한이 걸린 에이전트는 Agent View(`--bg`, --print 아님)로 보내면 --max-budget-usd 가
-    //   안 먹는다 → legacy fresh `--print` 스폰으로 강제해 상한이 매 턴 실제 적용되게 한다.
-    if (maxBudgetUsd > 0) {
+    // §4 — 비용 상한·크레딧 턴은 legacy `--print` 새 스폰으로 — Agent View(`--bg`)엔 `--max-budget-usd` 가 안 먹고, 키는 그 스폰 env 에만 실린다.
+    if (maxBudgetUsd > 0 || credit) {
       this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns, maxBudgetUsd, fallbackModel, streamFlags);
       return;
     }
 
-    // §5.7 #23-2 v1.60 — Agent View 게이트 (커스텀이 아닌 SubAgent/Team/Pipeline 전용).
-    // 활성화 시 `claude --bg` 로 dispatch 후 supervisor 가 자식을 보유 → 서버 재시작 시에도 turn 보존.
-    // 게이트는 캐시되므로 매 execute() 마다 호출해도 비싸지 않음(60s memoized).
+    // §5.7 #23-2 — Agent View 게이트(커스텀 외 SubAgent/Team/Pipeline). `claude --bg` 면 supervisor 가 자식을 쥐어 서버 재시작에도 턴이 산다. 게이트는 60초 memo.
     void isAgentViewEnabled().then((gate) => {
       if (gate.enabled) {
         void this._executeViaAgentView(cmd, sub!, parentCwd, prompt, configArgs, maxTurns);
@@ -5443,10 +4510,7 @@ export class SubAgentManager {
     });
   }
 
-  /**
-   * §5.7 #23-2 v1.60 — Agent View 경로: `claude --bg` dispatch + JSONL watcher.
-   * supervisor 가 자식 process 를 보유하므로 Vibisual 서버 재시작 시점에도 turn 이 끊기지 않는다.
-   */
+  /** §5.7 #23-2 — Agent View 경로: `claude --bg` dispatch + JSONL watcher(서버 재시작에도 턴이 산다). */
   private async _executeViaAgentView(
     cmd: QueuedCommand,
     sub: SubAgent,
@@ -5480,10 +4544,7 @@ export class SubAgentManager {
       // 워처가 섰으니 이제 생존 대조가 이 sub 를 사실로 판정할 수 있다.
       this.clearDispatching(sub.id);
       logger.info(`SubAgent ${sub.id} agent-view spawned: short=${short} sessionId=${sessionId}`);
-      // v1.74 — 매핑을 **즉시** 영속화. 이게 없으면 spawn 후 다음 (무관한) 체크포인트
-      // 트리거 전에 서버가 죽을 때 agentViewShort/SessionId 가 디스크에 안 남아
-      // reattachAgentViewOnBoot 가 supervisor 의 살아있는 워커를 못 찾고 세션이 유실된다
-      // (= 사용자 보고 "재시작 시 세션 먹통/연속성 없음" 의 근본 원인).
+      // 매핑을 즉시 영속한다 — 다음 체크포인트 전에 죽으면 `reattachAgentViewOnBoot` 가 살아 있는 워커를 못 찾아 세션을 잃는다.
       this.onPersistNeeded?.();
 
       // 진짜 마감 — 재진입 가드(`terminalProcessed`)는 호출부(`onTerminal`)가 든다.
@@ -5610,27 +4671,9 @@ export class SubAgentManager {
   }
 
   /**
-   * §5.7 #23-2 v1.60 — Legacy `claude -p` 경로(stream-json over stdin).
-   *
-   * v2.x persistent-child 모델 — `VIBISUAL_PERSISTENT_CHILD` 가 켜져 있으면 매 턴 fresh spawn 대신
-   * sub 당 자식 1개를 long-lived 로 유지하고 stdin 으로 다음 턴만 추가.
-   *   • 1st turn (no sessionId)            : persistent fresh spawn (--resume 없이, no --print).
-   *   • 2nd turn (sessionId, no live child): persistent fresh spawn (--resume, no --print).
-   *   • 3rd+ turn (live ready child)       : reuse — stdin 으로 prompt 만 write, return.
-   *
-   * **첫 턴도 persistent 인 이유 — 백그라운드 감시의 동반 사망**(§5.5 #17-9 ⑩). `Monitor` ·
-   * `Bash run_in_background` 은 그 세션 CLI 프로세스의 **자식**이라 프로세스가 죽으면 함께 죽고,
-   * 그 죽음은 통지로도 오지 않는다. 종전엔 첫 턴만 legacy(`--print` + `stdin.end()`)여서 자식이
-   * result 직후 반드시 종료했고, **그 턴에 띄운 감시는 예외 없이 죽었다** — 다음 명령을 내리는
-   * 순간 CLI 가 재개 부팅에서 그것을 찾아 `No completion record was found for this background
-   * shell command from the previous session` 을 세션에 밀어 넣는다(사용자 보고: "백단에서 뭐 쓴 적
-   * 없는 세션인데 명령만 내리면 이 경고가 뜬다"). 첫 턴도 자식을 살려 두면 이 자리가 사라진다.
-   * sessionId 는 종전에도 첫 `system/init` 라인에서 캡처하고 있어(아래 stdout 핸들러) 연속성은 그대로다.
-   *
-   * 안전장치: VIBISUAL_PERSISTENT_CHILD=0 → 매 턴 fresh spawn 으로 즉시 폴백.
-   * 크래시 복구: persistent child 가 의도치 않게 종료되면 sub.sessionId 보존 → 다음 execute 가
-   * 자동으로 fresh persistent spawn 으로 복구. claude 바이너리가 multi-turn stdin 미지원이면
-   * 자연히 이 경로를 타게 됨(기능적으로는 옛 매 턴 spawn 과 동등).
+   * §5.7 #23-2 — legacy `claude -p`(stream-json stdin). `VIBISUAL_PERSISTENT_CHILD` 면 sub 당 자식 하나를 살려 두고 다음 턴은 stdin 으로 쓴다(`=0` 이면 매 턴 spawn).
+   * **첫 턴도 persistent 다** — `Monitor`·`Bash run_in_background` 는 CLI 의 자식이라 result 뒤 종료하면 통지 없이 죽고
+   * 다음 명령에 `No completion record was found …` 가 뜬다(§5.5 #17-9 ⑩). 자식이 뜻밖에 죽어도 `sub.sessionId` 가 남아 다음 execute 가 새 spawn 으로 잇는다.
    */
   private _executeViaLegacy(
     cmd: QueuedCommand,
@@ -5645,31 +4688,35 @@ export class SubAgentManager {
     /** §4 (스트림 3종) — persistent·legacy **양쪽**에 실리는 스트림 확장 플래그. 빈 배열이면 종전과 같다. */
     streamFlags: string[] = [],
   ): void {
-    // §4 v2.88 — 비용 상한(maxBudgetUsd>0)이 걸리면 매 턴 fresh `--print` 스폰이어야 `--max-budget-usd` 가
-    //   실제 적용된다(CLI 제약: --max-budget-usd 는 --print 전용). persistent 재사용은 --print 를 떼므로 끈다.
-    // sessionId 유무는 더 이상 조건이 아니다 — 첫 턴부터 자식을 살려 둬야 그 턴에 띄운
-    //   백그라운드 감시가 다음 명령까지 살아남는다(위 함정 주석).
-    const usePersistent = PERSISTENT_CHILD_ENABLED && maxBudgetUsd <= 0;
+    // §4 — 비용 상한·크레딧 턴은 매 턴 fresh `--print` 다(`--max-budget-usd` 는 `--print` 전용, 상주 자식은 키를 다음 턴까지 들고 간다).
+    // sessionId 유무는 조건이 아니다 — 첫 턴부터 살려야 그 턴의 감시가 산다.
+    const creditTurn = this.pendingCreditRoute.get(sub.id)?.cmdId === cmd.id;
+    const usePersistent = PERSISTENT_CHILD_ENABLED && maxBudgetUsd <= 0 && !creditTurn;
 
     // ─── REUSE PATH ─────────────────────────────────────────────────────
     // 살아있는 자식 + ready=true 면 fresh spawn 없이 stdin write 만으로 다음 턴 시작.
     // node boot + claude init + JSONL 재로드 + MCP 재연결 + hook 재초기화 비용 = 0.
     const existingChild = this.runningChildren.get(sub.id);
-    // §5.5 #17-18 — **창구가 닫힌 자식은 재사용도, 덮어쓰기도 하지 않는다.** 장부에 있는 그 자식이
-    //   [중지] · [즉시] 덧말의 하드 킬 폴백 · 앱 종료로 `stdin.end()` 를 이미 받았다면, 여기에 쓰는 것은
-    //   write-after-end 이고 그 예외는 `try/catch` 를 지나쳐 프로세스를 흔든다. fresh spawn 으로 덮는 것도
-    //   답이 아니다 — 곧 도착할 **옛 자식의 close 핸들러가 새 자식의 장부를 지운다**. 그 `close` 는
-    //   SIGTERM + 트리 강제 종료로 반드시 오므로, 이 명령은 큐로 되돌려 그 마감이 부르는 `onComplete`
-    //   에 다음 차례를 맡긴다(그때는 자식이 없어 `--resume` fresh spawn 으로 그대로 이어진다).
+    // §5.5 #17-18 — **창구가 닫힌 자식(`stdin.end()` 받음)은 재사용도 덮어쓰기도 안 한다** — 쓰면 write-after-end 가 프로세스를 흔들고,
+    //   덮어 띄우면 옛 자식의 close 핸들러가 새 장부를 지운다. 큐로 되돌려 반드시 오는 `close` 의 `onComplete` 에 맡긴다.
     if (existingChild && !isChildStdinWritable(existingChild)) {
       this._requeueForDyingChild(sub, cmd);
       this.onSubStatusChange?.(sub.parentAgentId);
       return;
     }
-    // §4 (상태바 모델 칸 ④) — **설정창에서 모델 축을 바꿨으면 놀던 자식을 갈아 끼운다.** 재사용은 인자를
-    //   다시 싣지 않으므로 그대로 쓰면 옛 모델·옛 강도로 답한다. 이 턴은 큐로 되돌리고 자식은 의도된
-    //   종료로 내린다 — 뒤따르는 close 의 `onComplete` 가 같은 명령을 `--resume` fresh spawn 으로 다시
-    //   집는다(바로 위 창구 닫힘 · §2.4 잠듦 회수와 같은 길이다). 배경 작업이 살아 있으면 내리지 않는다.
+    // §4 API 크레딧 — `--print` 새 스폰이 필요한데 놀던 persistent 자식이 있으면 내리고 명령은 큐로 돌린다(덮으면 옛 자식·인증이 장부 밖에 남는다).
+    //   배경 작업이 살아 있으면 내리지 않는다 — 함께 죽는다.
+    if (!usePersistent && existingChild && this.persistentChildReady.get(sub.id) === true && !this.hasLiveBackgroundWork(sub)) {
+      logger.info(`SubAgent ${sub.id} per-turn --print spawn needed (budget/credits) — retiring idle persistent child; cmd=${cmd.id} resumes on a fresh spawn`);
+      this.persistentSpawnModelKey.delete(sub.id);
+      this.intentionalKill.add(sub.id);
+      this._requeueForDyingChild(sub, cmd);
+      terminateChildTree(existingChild);
+      this.onSubStatusChange?.(sub.parentAgentId);
+      return;
+    }
+    // §4 (상태바 모델 칸 ④) — 모델 축이 바뀌면 놀던 자식을 갈아 끼운다(재사용은 인자를 다시 안 실어 옛 모델로 답한다).
+    //   턴은 큐로, 자식은 의도된 종료로 — `close` 가 `--resume` 으로 다시 집는다. 배경 작업이 살아 있으면 내리지 않는다.
     if (usePersistent && existingChild && this.persistentChildReady.get(sub.id) === true) {
       const verificationDecision = decideVerificationReuse(
         this.persistentSpawnVerificationKey.get(sub.id), verificationMcpKeyOf(configArgs), this.hasLiveBackgroundWork(sub),
@@ -5727,10 +4774,7 @@ export class SubAgentManager {
         this.persistentInFlightCmd.delete(sub.id);
         this.persistentChildReady.delete(sub.id);
         cmd.status = 'error';
-        // sub 도 함께 내린다 — `execute` 가 방금 `active` 로 올려 둔 참이라 여기서 안 내리면
-        //   **자식이 죽었는데 화면은 계속 실행 중**으로 남는다. 뒤따르는 close 핸들러는 위에서
-        //   in-flight 를 이미 지웠으므로 그 분기에서 sub 를 손대지 않아, 5분 idle sweep 전까지
-        //   아무도 이 거짓말을 걷지 않는다(그 사이 [중지]는 멈출 게 없는 헛버튼이 된다).
+        // sub 도 내린다 — close 핸들러는 in-flight 가 지워져 sub 를 안 건드리므로, 안 내리면 죽은 자식이 idle sweep 까지 "실행 중"이다.
         sub.status = 'error';
         sub.lastActivityAt = Date.now();
         this.clearDispatching(sub.id);
@@ -5741,19 +4785,9 @@ export class SubAgentManager {
       return;
     }
 
-    // ─── FRESH SPAWN ────────────────────────────────────────────────────
-    // v1.33 Windows 인코딩 픽스 — 기존엔 prompt 를 argv(-p <prompt>) 로 넘겼으나 claude.exe 가
-    // Windows 에서 argv 를 OEM(cp949) 로 해석하는 경로가 있어 한글/CJK 가 mojibake 됨.
-    // 대신 `--input-format stream-json` 으로 stdin 에 user 메시지를 UTF-8 로 써 넘기면 argv 경로를
-    // 완전히 우회해 UTF-8 가 보존된다. output-format 은 기존처럼 stream-json 사용.
-    //
-    // persistent: --print 없음. 자식이 result 후 stdin 대기 상태로 살아있어 다음 턴 재사용 가능.
-    // legacy:     기존대로 --print 포함. 자식이 result 후 자연 종료.
-    // §4 v2.88 — `--print` 전용 헤드리스 플래그(CLI: 둘 다 --print 필수).
-    //   --include-partial-messages: 토큰 단위 스트리밍(버블 본문 실시간 누적). parseStreamLine partial 가드와 짝.
-    //   --max-budget-usd <n>: API 비용 상한(양수일 때만). persistent(no --print) 경로엔 못 붙으므로 위에서 끔.
-    //   --fallback-model <m>: 기본 모델 과부하/불가 시 대체 모델(§4 CLI 사양 추종). 역시 --print 전용이라
-    //     이 자리에서만 붙는다 — persistent 경로(--print 없음)에는 실리지 않는다.
+    // FRESH SPAWN — 프롬프트는 argv 대신 stream-json stdin 으로 쓴다(Windows 에서 argv 가 OEM(cp949)로 읽혀 한글이 깨진다).
+    // persistent 는 `--print` 없이 살아 재사용, legacy 는 `--print` 로 result 뒤 끝난다. `--include-partial-messages` 는 parseStreamLine partial 가드와 짝.
+    // §4 — `--max-budget-usd`·`--fallback-model` 은 `--print` 전용이라 persistent 엔 못 싣는다(그래서 비용 상한이면 persistent 를 끈다).
     const printFlags = ['--include-partial-messages', ...streamFlags];
     if (maxBudgetUsd > 0) printFlags.push('--max-budget-usd', String(maxBudgetUsd));
     if (fallbackModel) printFlags.push('--fallback-model', fallbackModel);
@@ -5763,11 +4797,8 @@ export class SubAgentManager {
           // 첫 턴은 이어붙일 대화가 없다 — `--resume` 만 빼고 나머지는 같다(스폰 형태 한 벌).
           ...(sub.sessionId ? ['--resume', sub.sessionId] : []),
           ...configArgs,
-          // 토큰 단위 스트리밍은 persistent 에서도 실린다. CLI 의 "requires --print" 검사는 실제로는
-          //   **비대화형 판정**(`!process.stdout.isTTY` 포함)이라, 파이프로 띄우는 우리 자식은 통과한다
-          //   (2.1.228 실측). 이 줄이 없으면 첫 턴이 persistent 로 오면서 말풍선 실시간 누적을 잃는다.
-          //   §4 (스트림 3종) 도 같은 성질이라 여기 함께 실린다 — persistent 가 기본 경로이므로
-          //   여기에 안 실으면 "켰는데 대부분의 턴에서 안 온다"가 된다.
+          // 토큰 스트리밍은 persistent 에도 싣는다 — CLI 의 "requires --print" 검사는 실은 비대화형 판정이라 파이프 자식은 통과한다(2.1.228 실측).
+          //   빼면 기본 경로인 persistent 턴이 실시간 누적을 잃는다. §4 스트림 3종도 같다.
           '--include-partial-messages', ...streamFlags,
           '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
         ]
@@ -5786,29 +4817,35 @@ export class SubAgentManager {
     try {
       const child = spawn(triedBin, args, {
         cwd: parentCwd,
-        stdio: ['pipe', 'pipe', 'pipe'], // v1.33 — stdin 으로 prompt 주입하려 pipe.
+        stdio: ['pipe', 'pipe', 'pipe'], // stdin 으로 프롬프트를 쓴다.
         shell: false,
-        // POSIX 한정 detached — 이 자식은 우리가 `terminateChildTree`/`killTree` 로 회수하는데,
-        //   그룹 리더가 아니면 `-pid` 가 ESRCH 로 실패해 단일 pid 킬로 강등되고 claude 가 띄운
-        //   MCP 서버·node worker(손자)가 mac/linux 에서 고아로 남는다. detached 는 그룹만 만들 뿐
-        //   stdio 파이프(위 stdin prompt 주입)에는 영향이 없다. unref() 는 절대 붙이지 말 것.
+        // POSIX 한정 detached — 그룹 리더가 아니면 `-pid` 킬이 ESRCH 로 단일 pid 킬이 되어 MCP 서버·node worker(손자)가 mac/linux 에 고아로 남는다.
+        //   stdio 파이프엔 영향 없다. `unref()` 는 절대 붙이지 말 것.
         ...processGroupSpawnOptions(),
-        env: {
+        // §4 (앱 전용 엔진) ⑤ — 앱 전용 실행본이면 엔진 자체 갱신을 끈다(`claudeSpawnEnv`). 판은 앱이 바꾼다.
+        // §4 API 크레딧 — 구독 경로로 정해진 스폰이면 마지막에 키를 걷는다(`creditSpawnEnv`). 크레딧 경로의 키는
+        //   위 `pendingConfigEnv` 에 실려 온다.
+        env: this.creditSpawnEnv(sub.id, claudeSpawnEnv({
           ...process.env,
           LANG: 'en_US.UTF-8',
           LC_ALL: 'en_US.UTF-8',
           PYTHONIOENCODING: 'utf-8',
-          // §5.3 #12-1 v1.43 — 글로벌 PreToolUse 훅이 Vibisual 관할 세션을 식별하기 위한 마커.
-          // 세션ID 가 아직 claude 쪽에 발급되기 전(첫 실행) 에도 구분 가능.
+          // §5.3 #12-1 — 전역 PreToolUse 훅이 우리 세션을 알아보는 표식(CLI 세션 id 가 나오기 전에도).
           VIBISUAL_SUBAGENT_ID: sub.id,
           VIBISUAL_PARENT_AGENT_ID: sub.parentAgentId,
           VIBISUAL_OWNER_AGENT_ID: sub.parentAgentId,
-          // §5.3 v4.89 — 중첩 깊이(CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH) · 자동 기억 끄기.
-          //   설정이 없으면 빈 객체라 종전 스폰과 동일하다.
+          // §5.3 — 중첩 깊이(`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`) · 자동 기억 끄기. 설정이 없으면 빈 객체.
           ...(this.pendingConfigEnv.get(sub.id) ?? {}),
-        },
+        }, triedBin)),
       });
       this.runningChildren.set(sub.id, child);
+      // §4 API 크레딧 — 이 명령을 크레딧으로 띄웠으면 지금 장부에 실행을 연다(자식이 실제로 선 순간이 시작이다).
+      //   persistent 자식에는 열지 않는다 — 크레딧 경로는 언제나 `--print` 한 턴짜리다.
+      const creditPending = this.pendingCreditRoute.get(sub.id);
+      if (creditPending && creditPending.cmdId === cmd.id && !usePersistent) {
+        this.pendingCreditRoute.delete(sub.id);
+        this.creditRuns.set(sub.id, { runId: apiCreditService.beginRun(sub.id, cmd.id), child });
+      }
       // 콜백은 sub id 가 아니라 이 스폰의 소유권을 확인한다. 이전 자식의 늦은 출력·오류·close 가
       //   재개한 자식의 세션·턴·백그라운드 작업 장부를 바꾸면 안 된다.
       const isCurrentChild = (): boolean => this.runningChildren.get(sub.id) === child;
@@ -5817,11 +4854,8 @@ export class SubAgentManager {
       this.stoppedByUser.delete(sub.id);
       this.intentionalKill.delete(sub.id);
       this.wakeSub(sub); // §2.4 (잠듦) — 자식이 다시 섰으니 표식 해제
-      // §5.5 #17-18 — **stdin 오류는 예외가 아니라 이벤트로 온다.** `write-after-end` · `EPIPE` 는
-      //   `write()` 를 감싼 try/catch 를 지나쳐 이 stream 의 `error` 로 올라오고, 듣는 사람이 없으면
-      //   메인 프로세스 `uncaughtException` 이 되어 **그 순간 돌던 dispatch 체인을 끊는다**(사용자에게는
-      //   "덧말을 넣었더니 대화가 끝나고 세션이 멈췄다"로 보인다 — 실측 crash.log). 여기서 받아 로그로만
-      //   남기고, 뒷정리는 반드시 오는 `close` 핸들러 한 곳에 맡긴다.
+      // §5.5 #17-18 — **stdin 오류는 예외가 아니라 이벤트로 온다** — 안 들으면 `uncaughtException` 이 돌던 dispatch 체인을 끊는다(실측 crash.log).
+      //   로그만 남기고 뒷정리는 반드시 오는 `close` 에 맡긴다.
       child.stdin?.on('error', (err: Error) => {
         logger.warn(`SubAgent ${sub.id} stdin error: ${err.message} — child is going down; close handler settles it`);
       });
@@ -5852,10 +4886,7 @@ export class SubAgentManager {
         });
       }
 
-      // v1.33 — prompt 를 stream-json 한 줄로 stdin 에 UTF-8 바이트로 write.
-      // content 를 text block 배열로 감싸서 보내면 Claude 가 단일 user 턴으로 처리.
-      // legacy: stdin.end() 로 더 이상 입력 없음을 통지 → Claude 가 응답 후 종료.
-      // persistent: stdin 을 열어둔다 → 자식이 result 후 다음 user 라인을 기다리며 살아있음.
+      // 프롬프트를 stream-json 한 줄로 stdin 에 쓴다. legacy 는 `stdin.end()` 로 닫아 응답 뒤 끝나고, persistent 는 열어 두어 다음 줄을 기다린다.
       try {
         const inputLine = JSON.stringify({
           type: 'user',
@@ -5879,8 +4910,7 @@ export class SubAgentManager {
 
       child.stdout?.on('data', (chunk: Buffer) => {
         if (!isCurrentChild()) return;
-        // v1.33 — 명시적 UTF-8 디코딩. 기본 toString() 은 보통 utf8 이지만 플랫폼/Node 버전에
-        // 따라 OEM fallback 될 수 있어 안전하게 고정.
+        // UTF-8 을 명시한다 — 기본 toString() 이 플랫폼에 따라 OEM 으로 떨어질 수 있다.
         const text = chunk.toString('utf8');
 
         // ── PERSISTENT 경로: 맵 기반 line 버퍼 + result 라인 인라인 검출 ──
@@ -5935,12 +4965,13 @@ export class SubAgentManager {
             // §2.4 (한도 정지) — 한도 통지는 실패가 아니라 **정상 종료로 오는 합성 한 줄**이라
             //   종료 코드만 보는 마감 경로가 놓친다. 세 스트림 경로에서 같은 판정을 태운다.
             this.noteUsageLimitLine(sub!, obj);
+            // §4 API 크레딧 — 크레딧 실행이면 계량기에 먹인다(한도에 닿으면 이 자리에서 멈춤이 걸린다).
+            this.noteCreditLine(sub!, obj, child);
             // §5.5 #17-12 ③-6 — 모델이 적어 보낸 끝 사유를 봉인 때까지 들고 있는다.
             this.noteTurnStopLine(cmd.id, obj);
             // §5.5 #17-24 ⑥ — 압축 시작(`status:"compacting"`)·끝을 세 스트림 경로에서 같은 판정으로.
             this.noteCompactionLine(sub!, obj);
-            // 스트림 이벤트 파싱 + 클라이언트 중계 (한 라인이 여러 블록 가능)
-            // §4 v2.88 — legacy --print 스폰은 `--include-partial-messages` 가 붙어 토큰 델타가 온다 → partialMessages:true.
+            // §4 — legacy `--print` 스폰은 `--include-partial-messages` 라 토큰 델타가 온다(`partialMessages: true`). 한 줄이 여러 블록일 수 있다.
             const streamEvts = parseStreamLine(obj, sub!.id, sub!.parentAgentId, { partialMessages: true, hookEvents: this.streamHookEventsOn.get(sub!.id) === true });
             for (const evt of streamEvts) this.emitStreamEvent(evt);
           } catch { /* 불완전 JSON — 다음 라인에서 처리 */ }
@@ -5959,11 +4990,8 @@ export class SubAgentManager {
       child.on('error', (err) => {
         if (!isCurrentChild()) return;
         logger.warn(`SubAgent ${sub!.id} spawn error: ${err.message}`);
-        // §4 (실행본 자가 복구) — ENOENT = 우리가 든 `claude` 가 그 사이 사라졌다(확장 자동 갱신이 옛
-        //   폴더를 통째로 지운다). 캐시를 버린 뒤 **재해석 결과가 방금 실패한 경로와 다를 때만** 되태운다
-        //   — 같으면 되태워도 같은 곳에서 죽으므로, 이 비교가 곧 무한 재시도 방지 퓨즈다.
-        //   실제 requeue 는 'close' 에서 한 번만 한다: ENOENT 는 'error' 다음에 'close'(code -4058) 가
-        //   이어 오므로, 여기서 큐에 돌려놓으면 뒤이은 'close' 가 그 명령을 다시 마감해 버린다.
+        // §4 (실행본 자가 복구) — ENOENT = 쥔 `claude` 가 사라졌다(확장 자동 갱신). 재해석 경로가 **방금 실패한 경로와 다를 때만** 되태운다(무한 재시도 퓨즈).
+        //   requeue 는 뒤이어 오는 'close'(code -4058)에서 한 번만 — 여기서 하면 그 'close' 가 명령을 다시 마감한다.
         if (noteClaudeSpawnFailure(err) && getClaudeBin().binPath !== triedBin) {
           retryForMissingBin = true;
           logger.warn(
@@ -5976,6 +5004,8 @@ export class SubAgentManager {
         sub!.lastActivityAt = Date.now();
         cmd.status = 'error';
         this.clearDispatching(sub!.id);
+        // §4 API 크레딧 — 뜨지 못한 실행도 장부에서 닫는다(쓴 돈은 0 이지만 도는 실행으로 남으면 한도를 붙든다).
+        this.settleCreditRun(sub!);
         this.failCommand(sub!, cmd, { code: 'spawn', detail: err.message });
         // 형제 종료 경로들과 같은 짝 — 이 호출이 빠지면 sub 도트 변화가 부모 재계산·broadcast 를 못 탄다.
         this.onSubStatusChange?.(sub!.parentAgentId);
@@ -5997,30 +5027,24 @@ export class SubAgentManager {
         //   (여기서 걸러 두면 이어지는 persistent/legacy 마감 분기가 이 명령을 실패로 못박지 않는다.)
         if (retryForMissingBin) {
           if (this.runningChildren.get(sub!.id) === child) this.runningChildren.delete(sub!.id);
+          // §4 API 크레딧 — 이 실행은 닫고, 되태운 실행은 다음 execute 가 경로를 다시 정해 새로 연다.
+          this.settleCreditRun(sub!);
           this._requeueForDyingChild(sub!, cmd);
           this.onSubStatusChange?.(sub!.parentAgentId);
           this.onComplete?.();
           return;
         }
 
-        // §5.5 #17-9 ⑱ — 자식이 내려갔으니 끝 통지로 열릴 턴도 없다. 붙듦을 걷어 아래 정리가 탭을 제대로 내리게 한다.
-        //   걷었으면 **상태를 다시 센다** — 아래 정리는 남은 항목이 있을 때만 다시 세고, 쉬던 자식의 크래시 분기(진행 중
-        //   명령 없음)는 탭을 건드리지 않는다. 그래서 붙듦이 올려 둔 `active` 가 영영 남았다(주기 대조
-        //   `reconcileDeadActiveSubs` 도 이 탭을 내리지 않았다 — 실측 2분 뒤에도 `active`).
+        // §5.5 #17-9 ⑱ — 자식이 내려갔으니 붙듦을 걷고 **다시 센다** — 아래 정리는 쉬던 자식의 크래시를 안 세어 `active` 가 남는다(실측 2분 뒤에도).
         if (this.clearNoticeResumeHold(sub!.id) && this.syncBgSubStatus(sub!.parentAgentId)) {
           this.onSubStatusChange?.(sub!.parentAgentId);
         }
 
-        // **이 자리가 백그라운드 작업의 실제 종료 시점이다.** 배경 Bash 셸은 이 프로세스의 자식이라
-        //   프로세스가 사라지면 함께 사라진다(공식 규약: `claude -p` 는 최종 결과 뒤 약 5초에 그 셸을
-        //   종료한다). 그러니 여기서 장부를 내리면 시간 추정도, 주기 대조가 우리를 따라잡기를 기다릴
-        //   일도 없다 — `sweepOrphanedBackgroundTasks` 는 이 이벤트를 놓쳤을 때의 그물일 뿐이다.
+        // **여기가 백그라운드 작업의 실제 종료 시점이다** — 배경 셸은 이 프로세스의 자식이라 함께 끝난다(공식: 결과 약 5초 뒤).
+        //   `sweepOrphanedBackgroundTasks` 는 이 이벤트를 놓쳤을 때의 그물이다.
         if (this.retireLiveBackgroundTasks(sub!.id)) this.onSubStatusChange?.(sub!.parentAgentId);
-        // 훅 대차대조(Task/Agent 자식)도 **같은 사실 위에 있다.** 배경 서브에이전트는 그 결과가 최종
-        //   출력의 일부라 `claude -p` 가 끝날 때까지 기다려 주므로(공식 규약, 기본 상한 10분), 이
-        //   프로세스가 내려갔다는 것은 그 자식들이 끝났거나 상한에 걸려 회수됐다는 뜻이다. 종전에는
-        //   이 정리가 사용자 [중지] 경로에만 있어서, `SubagentStop` 을 놓친 항목이 주기 대조가 걷어
-        //   줄 때까지 그 세션을 활동 중으로 붙들었다 — 두 장부가 같은 이벤트를 보게 맞춘다.
+        // 훅 대차대조도 같다 — `claude -p` 는 배경 서브에이전트를 끝까지 기다리므로(공식, 기본 상한 10분) 프로세스가 내려갔으면 그 자식도 끝났다.
+        //   안 비우면 `SubagentStop` 을 놓친 항목이 세션을 활동 중으로 붙든다.
         this.clearPendingSubagentTasksForSession(sub!.parentAgentId, sub!.id);
 
         // ── PERSISTENT 경로: intentional vs crash 분기 ──
@@ -6079,6 +5103,7 @@ export class SubAgentManager {
       sub.lastActivityAt = Date.now();
       cmd.status = 'error';
       this.clearDispatching(sub.id);
+      this.settleCreditRun(sub); // §4 API 크레딧 — 뜨지 못한 실행도 닫는다(도는 실행 수가 남지 않게).
       this.failCommand(sub, cmd, { code: 'spawn', detail: err instanceof Error ? err.message : String(err) });
       this.onSubStatusChange?.(sub.parentAgentId);
       this.onComplete?.();
@@ -6086,12 +5111,8 @@ export class SubAgentManager {
   }
 
   /**
-   * Persistent child stdout 라인 핸들러.
-   * `result` 라인 도착이 turn 의 종료 신호 — child 는 죽이지 않고 다음 stdin write 대기 상태로 둔다.
-   *
-   * 순서 함정: `_finalizeLegacyCommand` → `onComplete` → `processNextCommand` → `execute` 가 동기 호출 체인이라,
-   * 다음 execute 의 reuse 분기가 `persistentChildReady === true` 를 보려면 finalize **전** 에 ready=true 가
-   * set 되어 있어야 한다. 그 다음 턴이 이미 큐에 쌓여 있으면 그 자리에서 stdin write 로 즉시 reuse 됨.
+   * persistent 자식의 stdout 한 줄 — `result` 가 턴 끝, 자식은 살려 둔다.
+   * 순서 함정: finalize → `onComplete` → `processNextCommand` → `execute` 가 동기라 `persistentChildReady = true` 를 **finalize 전에** 세워야 재사용된다.
    */
   private _handlePersistentStdoutLine(line: string, sub: SubAgent, child: ChildProcess): void {
     if (!line.trim()) return;
@@ -6169,10 +5190,8 @@ export class SubAgentManager {
       if (typeof obj['total_input_tokens'] === 'number') sub.totalInputTokens = obj['total_input_tokens'] as number;
       if (typeof obj['total_output_tokens'] === 'number') sub.totalOutputTokens = obj['total_output_tokens'] as number;
 
-      // `result` 는 **턴 경계**일 뿐 아직 "명령 종료"가 아니다 — 백그라운드 작업 통지가 밀려 있으면
-      //   CLI 가 이 자리에서 세션을 다시 돌린다(`turnSeal.ts` 의 실측 타임라인). 그래서 아래 마감은
-      //   통째로 `sealTurn` 에 맡기고, 잠정이면 붙들어 둔다. 붙들린 동안 `persistentInFlightCmd` 도
-      //   그대로 살려 둔다 — 미리 지우면 이어진 턴의 다음 `result` 를 못 알아봐서 진짜 종료를 놓친다.
+      // `result` 는 턴 경계일 뿐 명령 끝이 아니다 — 밀린 백그라운드 통지가 있으면 CLI 가 다시 돈다(`turnSeal.ts`). 마감은 `sealTurn` 에 맡긴다.
+      //   붙든 동안 `persistentInFlightCmd` 를 살려 둔다 — 지우면 이어진 턴의 `result` 를 못 알아본다.
       const sealInFlightTurn = (text: string | undefined, error: string | undefined, unownedResult = false): void => {
         clearEarlyResultWait(inFlight);
         this.sealTurn(sub, /*canResume=*/true, () => {
@@ -6189,12 +5208,8 @@ export class SubAgentManager {
         });
       };
 
-      // §5.5 #17-18 — **이 명령이 한 마디도 하기 전에 온 `result` 는 이 명령의 끝이 아니다.** `--resume`
-      //   으로 뜬 자식이 밀린 백그라운드 통지를 먼저 한 차례 처리하고 낸 끝이다(`isResultBeforeOwnTurn`).
-      //   여기서 봉인하면 명령이 답도 토큰도 없이 완료음과 함께 끝나고, 곧이어 진짜 답이 세션을 다시
-      //   깨운다. 통지 셈은 그 처리가 받아 갔으므로 비우고, 명령은 in-flight 로 둔 채 진짜 끝을 기다린다.
-      // §5.5 #17-18 ⑩-1 — 이 `result` 에 찍힌 턴 세대 도장. 이 명령의 것이 아니면 **남의 끝**이다.
-      //   도장이 비어 있으면(마감 뒤 여운) 이 명령의 것으로 본다 — 없는 주인을 만들지 않는다.
+      // §5.5 #17-18 — 이 명령이 말하기 전에 온 `result` 는 끝이 아니다 — `--resume` 자식이 밀린 통지를 먼저 처리한 끝이다(`isResultBeforeOwnTurn`).
+      //   봉인하면 답 없이 완료음이 난다. ⑩-1 — 도장이 이 명령 것이 아니면 남의 끝, 비었으면(마감 뒤 여운) 이 명령 것으로 본다.
       const resultStamp = this.currentTurnId.get(sub.id);
       const foreignTurn = resultStamp !== undefined && resultStamp !== inFlight.cmd.id;
       if (isResultBeforeOwnTurn({
@@ -6230,13 +5245,8 @@ export class SubAgentManager {
       logger.info(`SubAgent ${sub.id} persistent result detected (turns=${inFlight.turnCount}) — child stays alive`);
       sealInFlightTurn(resultText, cliError);
     } else if (obj['type'] === 'result') {
-      // **되살아난 턴의 종료.** 백그라운드 통지로 봉인 뒤 다시 돌기 시작한 턴은 그 턴을 시킨 명령이
-      //   이미 마감돼 `inFlight` 가 없다. 그래서 위 블록이 통째로 건너뛰어지고, 재진입이 올려 둔
-      //   (`noteTurnSealSignal`) `active` 를 내려 줄 자리가 **어디에도 없었다** — 세션이 사용자 답을
-      //   기다리는 내내 탭 점이 파랗게 돌았다. persistent 자식은 일부러 살려 두므로 생존 대조
-      //   (`reconcileDeadActiveSubs`)도 이 세션을 걷지 못한다.
-      //   닫아 줄 명령이 없을 뿐 턴은 분명히 끝났으니, 같은 봉인 정책으로 **세션 상태만** 재운다
-      //   (명령·토큰 마감은 주인이 없어 할 일이 없다).
+      // **되살아난 턴의 끝** — 명령이 이미 마감돼 `inFlight` 가 없으니 여기서 세션만 재운다. 안 그러면 재진입이 올린 `active` 가 남는다
+      //   (persistent 자식은 살아 있어 `reconcileDeadActiveSubs` 도 못 걷는다).
       this.sealTurn(sub, /*canResume=*/true, () => {
         // 유예 사이에 다음 명령이 나갔을 수 있으므로 재우기 직전에 다시 판정한다.
         if (!shouldSleepResumedTurn({
@@ -6259,26 +5269,6 @@ export class SubAgentManager {
     }
   }
 
-  /**
-   * turn 종료 시 cmd/sub 마무리 + 콜백 트리거.
-   * legacy(child 종료 후)·persistent(child 살림) 양쪽이 공유 — `deleteRunningChild` 가 분기.
-   *
-   * @param stdout  legacy 경로는 누적 stdout 을 줘서 init/result 라인을 재파싱하게 한다.
-   *                persistent 경로는 result 라인을 이미 인라인 처리했으므로 빈 문자열 + resultText 미리 채워서 호출.
-   * @param initialCliError §5.5 #17-12 ③ — CLI 가 result 라인에서 `is_error` 로 신고한 실패 본문(있을 때).
-   *                persistent 경로는 그 라인을 인라인 처리하므로 여기로 넘겨주고, legacy 경로는 stdout 에서 직접 줍는다.
-   */
-  /**
-   * §5.19 (D) — 로컬 LLM 턴. `claude` 를 띄우지 않고 우리 러너가 직접 돈다.
-   *
-   * **화면은 하나도 새로 만들지 않는다** — `SubAgentStreamEvent` 일곱 종이 이미 프로바이더
-   * 중립이라, 여기서 그 이벤트만 뱉으면 말풍선·턴 봉인·바닥 추종·검색·카드 레일이 그대로
-   * 붙는다. 끝맺음도 기존 계약(`clearDispatching` → 상태 → `onSubStatusChange` → `onComplete`)
-   * 그대로라 명령 큐가 다음 명령으로 자연히 넘어간다.
-   *
-   * 자식 프로세스가 없는 경로라 `runningChildren` 에 등록하지 않는다. 대신 스폰 진행 표식을
-   * 즉시 걷어 "죽은 active" 대조가 이 세션을 오해하지 않게 한다.
-   */
   /**
    * §5.25 (F) — 코덱스 턴. `executeLocalProvider` 와 **같은 뼈대**(스폰 표식 · 생존 근거 ·
    * finish 한 곳)를 쓰되, 턴 루프를 우리가 돌지 않아 훨씬 짧다 — 대화 이력·컨텍스트 자르기·재개는
@@ -6346,13 +5336,8 @@ export class SubAgentManager {
     };
 
     /**
-     * 이 턴을 끝맺는다. 성공·실패·중지가 전부 여기로 모인다(로컬 경로와 같은 규율).
-     *
-     * **멱등하다.** 종전에는 `onDone` 이 이 턴의 **유일한** 마감 입구였다 — 그 한 줄이 안 오면
-     * `cmd.status` 는 영원히 `executing` 이었다(2026-09-20 사용자 보고). 이제 정지 워치독
-     * (`onIdle({stalled:true})`)도 같은 문으로 들어오므로, 늦게 온 `onDone` 이 이미 닫힌 턴을
-     * **두 번 닫지 않게** 여기서 막는다. 두 번 닫히면 완료 통지·토큰 적산·다음 명령 펌프가
-     * 두 번 돌아 큐가 어긋난다.
+     * 이 턴을 끝맺는다(성공·실패·중지 모두). **멱등하다** — `onDone` 과 정지 워치독(`onIdle({stalled:true})`)이 같은 문으로 와서,
+     * 두 번 닫으면 완료 통지·토큰 적산·다음 명령 펌프가 두 번 돈다.
      */
     let closed = false;
     const finish = (error: string | undefined, finalText: string): void => {
@@ -6454,10 +5439,8 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       },
       onUsage: (usage) => {
         if (!isCurrentTurn()) return;
-        // §5.19 (D) 와 **같은 자리·같은 방식** — `getAgentConfig` 가 돌려주는 살아 있는 객체에
-        //   적으면 스냅샷·체크포인트를 그대로 탄다(새 영속 필드 발명 없음).
-        // Cached input and reasoning output are subsets of input/output totals.
-        // The rollout snapshot supplies current context; exec usage is a turn aggregate.
+        // §5.19 (D) 와 같은 방식 — `getAgentConfig` 의 살아 있는 객체에 적어 스냅샷·체크포인트를 탄다.
+        //   Cached input and reasoning output are subsets of input/output totals; exec usage is a turn aggregate (current context comes from the rollout).
         provider.tokensIn = (provider.tokensIn ?? 0) + usage.inputTokens;
         provider.tokensOut = (provider.tokensOut ?? 0) + usage.outputTokens;
         cmd.inputTokens = usage.inputTokens;
@@ -6512,6 +5495,10 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
     });
   }
 
+  /**
+   * §5.19 (D) 로컬 LLM 턴(우리 러너). 중립 `SubAgentStreamEvent` 만 뱉고 끝맺음도 기존 계약이라 화면을 새로 만들지 않는다.
+   * 자식이 없어 `runningChildren` 에 안 넣고, 스폰 표식을 바로 걷어 "죽은 active" 대조가 오해하지 않게 한다.
+   */
   private executeLocalProvider(
     sub: SubAgent,
     cmd: QueuedCommand,
@@ -6567,10 +5554,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
     /** 이 턴을 끝맺는다. 성공·실패·중지가 전부 여기로 모인다. */
     const finish = (error: string | undefined, finalText: string, done?: LocalTurnDoneInfo): void => {
       if (!isCurrentTurn()) return;
-      // **맨 먼저** 내린다 — 아래 상태 통지가 부르는 `recomputeCustomAgentStatus` 는 이 표식을
-      //   "아직 도는 중"으로 읽으므로, 남겨 둔 채 통지하면 진짜 완료가 그 자리에서 묻힌다.
-      //   (러너의 `isLocalTurnRunning` 을 주인으로 못 쓰는 이유도 같다 — 그쪽 정리는 `finally` 라
-      //    `onDone` 뒤에 돈다.) 같은 턴이 두 번 끝맺어도 지우기는 멱등이다.
+      // **맨 먼저** 지운다 — 아래 `recomputeCustomAgentStatus` 가 이 표식을 "도는 중"으로 읽는다(러너의 `isLocalTurnRunning` 은 `finally` 라 늦다).
       if (this.localInFlightCmd.get(sub.id) === cmd) this.localInFlightCmd.delete(sub.id);
       this.cancelDeferredSeal(sub.id);
       if (this.currentTurnId.get(sub.id) === cmd.id) this.currentTurnId.delete(sub.id);
@@ -6600,9 +5584,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       this.onComplete?.();
     };
 
-    // §5.19 (D) ① — 클로드 세션이 받는 것을 로컬도 받는다. 종전에는 이 버블의 `rules` 한 칸이
-    //   전부라, 로컬 모델은 프로젝트 규칙도 카드 지시문도 목표도 기억도 한 글자를 못 봤다.
-    //   순서(안정 → 가변)는 `buildLocalSystemPrompt` 가 정한다 — 프리픽스 캐시가 걸린 문제다.
+    // §5.19 (D) ① — 클로드 세션이 받는 것(규칙·지시문·목표·기억)을 로컬도 받는다. 순서(안정 → 가변)는 프리픽스 캐시 때문에 `buildLocalSystemPrompt` 가 정한다.
     const systemPrompt = buildLocalSystemPrompt(contextSummary, livePreamble, config.rules);
 
     // 큐 적재 후 제공자를 바꾼 경우도 이미지를 조용히 빼고 실행하지 않는다.
@@ -6617,8 +5599,7 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       return;
     }
 
-    // §5.19 (D) ④ — 로컬에서 뜻이 있는 슬래시 명령은 **우리가** 처리한다. 종전에는 갈림이
-    //   `composeTurnPrompt` 앞이라 `/clear` 조차 사용자 말로 모델에게 갔다.
+    // §5.19 (D) ④ — 로컬에서 뜻 있는 슬래시 명령은 우리가 처리한다(안 그러면 `/clear` 도 모델에게 간다).
     const slash = parseLocalSlash(cmd.text);
     if (slash) {
       void (async (): Promise<void> => {
@@ -6635,11 +5616,8 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
     }
 
     /**
-     * §5.19 (H) — 도구 실행 직전의 판정. **모드가 먼저, 사람이 그다음**이다.
-     *
-     * 판정 규칙은 `resolveLocalToolGate` 한 곳에 있고, 여기서는 `ask` 일 때만 **기존 권한
-     * 브로커**를 부른다 — 훅이 없는 로컬 경로에서도 같은 승인 팝업이 뜨는 이유가 이 한 줄이다.
-     * 거절 사유는 던지지 않고 **모델에게 돌려준다**(모델이 다른 수를 고를 수 있어야 한다).
+     * §5.19 (H) — 도구 실행 직전 판정: 모드가 먼저, 사람이 그다음(규칙은 `resolveLocalToolGate`). `ask` 면 기존 권한 브로커를 불러 같은 팝업이 뜬다.
+     * 거절 사유는 던지지 않고 모델에게 돌려준다.
      */
     const requestTool = async (
       toolName: string,
@@ -6704,12 +5682,8 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       }
       const gate = resolveLocalToolGate(config.permissionMode, toolName);
       /*
-       * §5.3 #12-1-A — 사용자가 이 버블의 설정창에서 지목한 도구는 모드가 통과시켰어도 묻는다.
-       * 훅 경로(`/api/permission-check`)와 **같은 순수 함수**를 부른다 — 두 벌이 되면 헤드리스와
-       * 로컬 모델이 서로 다르게 판정하고, 사용자에게는 "켰는데 안 먹는다"로만 보인다.
-       *
-       * `deny` 는 되돌리지 않는다 — 그쪽은 이미 사람 없이 안전한 답을 낸 자리다(`plan` 의 실행
-       * 차단, `dontAsk` 의 즉시 거부). 되무를 값이 있는 것은 **통과시킨 것**뿐이다.
+       * §5.3 #12-1-A — 설정창에서 지목한 도구는 모드가 통과시켜도 묻는다 — 훅 경로(`/api/permission-check`)와 같은 순수 함수(두 벌이면 판정이 갈린다).
+       * `deny` 는 되묻지 않는다(이미 안전한 답) — 되물을 것은 통과시킨 것뿐이다.
        */
       const askedByTool = gate === 'allow' && shouldAskForTool(askTools, toolName);
       if (gate === 'allow' && !askedByTool) return { allowed: true };
@@ -6822,17 +5796,9 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
   }
 
   /**
-   * §5.5 #17-12 ③-4 — **이 턴의 답은 무엇인가.** 마감하는 모든 경로가 여기 하나를 거친다.
-   *
-   * 규칙 둘:
-   *  1. **제 답이 없는 턴(`/compact`·`/clear`)은 결과가 없다** — CLI 는 대화록을 접거나 비우기만
-   *     하고 모델은 한 마디도 하지 않는다. 종전에는 이 턴이 아래 폴백을 타고 **앞 턴의 답**을 제
-   *     결과로 저장했고, 화면은 저장된 결과를 그 말풍선의 답으로 그려(③-3) 자동 압축 직후 같은
-   *     말이 두 번 읽혔다(2026-09-09 사용자 보고 · 실측: 이 저장소 `/compact` 27건 전부 직전 답과
-   *     바이트 동일 · 그 턴의 스트림은 `compact_boundary`·`command_received` 두 줄뿐).
-   *  2. **트랜스크립트 폴백은 이번 턴에 쓰인 글만 받는다** — CLI 결과 줄을 놓친 턴의 답을 되찾는
-   *     것이 이 폴백의 일이고, 그 답은 언제나 턴이 시작된 뒤에 쓰인다. 시각이 없는 옛 줄(`ts` 0)은
-   *     가를 근거가 없으므로 종전대로 받는다.
+   * §5.5 #17-12 ③-4 — 이 턴의 답(마감하는 모든 경로가 거친다).
+   * ① 답 없는 턴(`/compact`·`/clear`)은 결과가 없다 — 폴백을 타면 앞 턴 답을 저장한다(실측 `/compact` 27건 전부 직전 답과 동일).
+   * ② 트랜스크립트 폴백은 턴 시작 뒤에 쓰인 글만 받는다(시각 없는 옛 줄 `ts` 0 은 받는다).
    */
   private turnResultText(
     cmd: QueuedCommand,
@@ -6848,6 +5814,11 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
     return resolveTurnResult(cmd.text, reported, recovered, cmd.startedAt ?? cmd.timestamp);
   }
 
+  /**
+   * 턴 끝 마무리 + 콜백. legacy·persistent 가 함께 쓰고 `deleteRunningChild` 로 가른다.
+   * @param stdout legacy 는 누적 stdout(재파싱), persistent 는 빈 문자열 + resultText.
+   * @param initialCliError §5.5 #17-12 ③ — result 의 `is_error` 본문. persistent 만 넘긴다(legacy 는 stdout 에서 줍는다).
+   */
   private _finalizeLegacyCommand(
     sub: SubAgent,
     cmd: QueuedCommand,
@@ -6951,12 +5922,19 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
     }
 
     const userStopped = this.stoppedByUser.delete(sub.id);
-    const isErr = killed || (code !== null && code !== 0);
+    // §4 API 크레딧 — 크레딧 실행이었으면 여기서 닫는다(정상·실패·중지 무엇이든 한 번). Anthropic 이 그 실행을
+    //   거절했으면(Console 의 크레딧 잔액 부족·월 지출 한도) 그것은 알 수 없는 실패가 아니라 **Console 의 한도**다 —
+    //   아래에서 `creditCap` 으로 적는다. 키 거부는 종전대로 CLI 실패다(Console 의 금액 한도가 아니다).
+    const credit = this.settleCreditRun(sub);
+    const refusal = credit?.refusal && credit.refusal.reason !== 'key-invalid' ? credit.refusal : undefined;
+    const creditCap = !!refusal && !userStopped && !killed;
+    const isErr = killed || creditCap || (code !== null && code !== 0);
     sub.status = userStopped ? 'idle' : (isErr ? 'error' : 'idle');
     sub.lastActivityAt = Date.now();
-    cmd.status = userStopped ? 'completed' : (killed ? 'error' : ((code === null || code === 0) ? 'completed' : 'error'));
+    cmd.status = userStopped ? 'completed' : ((killed || creditCap) ? 'error' : ((code === null || code === 0) ? 'completed' : 'error'));
     if (userStopped) cmd.result = `[Stopped by user]${resultText ? `\n\n${resultText}` : ''}`;
     else if (killed) cmd.result = `[Stopped: max turns reached (${turnCount}/${maxTurns})]${resultText ? `\n\n${resultText}` : ''}`;
+    else if (creditCap) cmd.result = `[Stopped: API credits refused by Anthropic]${resultText ? `\n\n${resultText}` : ''}`;
 
     // §5.5 #17-12 ③ — 오류로 끝났으면 **왜** 인지를 명령에 남긴다. 종전엔 상태만 error 로 바꾸고
     //   종료 코드·stderr 를 통째로 버려서, 화면에는 "오류" 한 단어만 남고 사용자가 원인을 알 길이 없었다.
@@ -6964,6 +5942,9 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       const stderrTail = this.childStderrTails.get(sub.id)?.trim();
       if (killed) {
         this.failCommand(sub, cmd, { code: 'maxTurns', detail: `${turnCount}/${maxTurns}` });
+      } else if (creditCap && refusal) {
+        // 사유 문장은 Anthropic 원문 그대로 — 무엇이 막았는지(잔액·한도)와 언제 다시 열리는지가 거기 있다.
+        this.failCommand(sub, cmd, { code: 'creditCap', detail: refusal.detail ?? refusal.reason });
       } else if (cliError) {
         this.failCommand(sub, cmd, {
           code: 'cli',

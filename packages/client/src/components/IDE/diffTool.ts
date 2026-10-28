@@ -1,29 +1,16 @@
-/**
- * diffTool.ts — Edit 계열 도구(Edit/MultiEdit/Write/NotebookEdit) input(JSON) → 좌우 비교 diff 파생(순수 로직).
- *
- * StreamRenderer 의 ToolBlock 은 종전에 도구 input/output 을 raw `<pre>` 로만 보여줬다 → "이전 코드 vs 고친 코드"
- * 비교가 안 보여 답답했다. 여기서 old_string/new_string 을 라인 단위 LCS 로 정렬해(추가=초록·삭제=빨강),
- * 변경된 라인 쌍은 단어 단위 LCS 로 바뀐 토큰만 강조하는 side-by-side diff 행 배열을 만든다.
- *
- * React/DOM 의존 없는 순수 함수 → diffTool.test.ts 로 단독 검증. 렌더는 DiffView.tsx.
- */
+/** Edit 계열 도구 input(JSON) → side-by-side diff 행(순수, 렌더는 DiffView.tsx). 라인 LCS 로 정렬하고 바뀐 라인 쌍은 단어 LCS 로 토큰만 강조한다. */
 
 // ─── 알고리즘 상한 (거대 diff 방어 — 초과 시 naive 전량-삭제+전량-추가 폴백) ───
 const MAX_DP_CELLS = 1_200_000;
 
 // ─── 타입 ───
 
-// 도구 입력 모양은 **shared 가 안다**(§2.1 #3) — 종전에는 이 파일에만 있어서 서버 그래프가
-// `MultiEdit`/`NotebookEdit` 를 아예 모르는 채로 살았다(버블·쓰기 화살표·수정 이력 0). 아래 이름은
-// 이 모듈의 기존 사용처(DiffView·StreamRenderer·editorFollow)를 위한 별칭이다.
+// 도구 입력 모양은 shared 가 안다(§2.1 #3 — 여기만 알면 서버 그래프가 MultiEdit/NotebookEdit 를 모른다). 아래는 기존 사용처용 별칭.
 export type { EditToolHunk as EditHunk, EditToolMode as EditMode } from '@vibisual/shared';
 export type { ParsedEditToolInput as ParsedEdit } from '@vibisual/shared';
 import { parseEditToolInputJson, type ParsedEditToolInput } from '@vibisual/shared';
 
-/**
- * §5.5 #17-12 — 이 편집이 몇 줄짜리인지(자동 펼침 판정용 어림값).
- * 조각마다 이전/이후 중 큰 쪽 줄 수를 더한다 — LCS 를 돌리지 않고도 "긴 diff 인가"를 가릴 수 있다.
- */
+/** §5.5 #17-12 — 편집 줄 수 어림값(자동 펼침 판정용): 조각마다 이전/이후 중 큰 쪽을 더한다(LCS 없이 긴 diff 를 가린다). */
 export function editSizeLines(parsed: ParsedEditToolInput): number {
   let total = 0;
   for (const h of parsed.hunks) {
@@ -60,12 +47,7 @@ export interface DiffRow {
 
 // ─── 입력 파싱 ───
 
-/**
- * 도구 이름 + input(JSON 문자열) → ParsedEdit. Edit 계열이 아니거나 JSON 파싱 실패(스트리밍 중 미완성 등)면 null.
- *
- * 모양을 아는 것은 shared `parseEditToolInputJson` 하나다 — 서버 그래프(`recordFileEdit`)도 같은
- * 파서를 본다. 여기 다시 분해하면 도구 입력이 바뀔 때 **한쪽만 고쳐져** 캔버스와 IDE 가 어긋난다.
- */
+/** 모양은 shared `parseEditToolInputJson` 하나(서버 `recordFileEdit` 와 공용) — 여기서 다시 분해하면 캔버스와 IDE 가 어긋난다. 파싱 실패(스트리밍 중 미완성)면 null. */
 export const parseEditToolInput = parseEditToolInputJson;
 
 // ─── 시퀀스 LCS diff (라인·단어 공용) ───
@@ -140,10 +122,7 @@ function computeWordSpans(oldLine: string, newLine: string): { left: WordSpan[];
   return { left, right };
 }
 
-/**
- * 이전/이후 텍스트 → side-by-side diff 행 배열.
- * 라인 LCS 로 equal/delete/insert 를 낸 뒤, 연속 삭제/추가 런을 나란히 짝지어 replace 행으로 압축(나머지는 순수 삭제/추가).
- */
+/** 라인 LCS 뒤 연속 삭제/추가 런을 나란히 짝지어 replace 행으로 압축한다. */
 export function computeLineDiff(oldText: string, newText: string): DiffRow[] {
   const ops = diffSeq(toLines(oldText), toLines(newText));
   const rows: DiffRow[] = [];

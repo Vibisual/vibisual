@@ -1,11 +1,4 @@
-/**
- * §5.11 v3.98 — 벡터 DB(Vector Database): 규모가 저장 방식을 정한다.
- *
- * 수백 건 규모에서는 마크다운 + 텍스트 검색이 운영 비용 대비 더 낫고, 수십만 건이면 벡터 DB 가 맞다.
- * **규모를 재기 전에 인프라부터 고르는 것**이 가장 흔한 과잉 설계다. §5.10 의 절차 저장고는
- * 파일 기반(`.vibisual/skills/<절차>/SKILL.md`)이므로, 여기서는 지금 규모가 그 선택을 여전히 정당화하는지 본다.
- * 표시 전용.
- */
+/** §5.11 — 벡터 DB(Vector Database): 규모가 저장 방식을 정한다 — §5.10 파일 기반 저장고(`.vibisual/skills/<절차>/SKILL.md`)를 지금 규모가 정당화하는지 본다. 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import { readAutoGoal } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

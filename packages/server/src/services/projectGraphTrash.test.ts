@@ -1,11 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ProjectGraph } from './projectGraph.js';
 
-/**
- * §5.10 휴지통 — 복구가 "원래 자리로" 돌아오는지에 대한 회귀 테스트.
- *  1) 클라(DetailPanel)는 세션 키가 아니라 **버블 id**(`agent-…`) 만 들고 있다 → 두 형태 모두 받아야 한다.
- *  2) 휴지통에 있는 동안 들어오는 위치 저장(휴지통 내부 뷰의 임시 배치)은 무시돼야 원래 좌표가 남는다.
- */
+/** §5.10 휴지통 복구: 클라(DetailPanel)는 버블 id(`agent-…`)만 들어 두 형태 다 받는다 · 휴지통 안의 위치 저장은 무시해 원래 좌표를 남긴다. */
 describe('ProjectGraph — 커스텀 에이전트 휴지통', () => {
   it('버블 id 로도 복구된다(세션 키를 모르는 클라 경로)', () => {
     const graph = new ProjectGraph();
@@ -14,7 +10,7 @@ describe('ProjectGraph — 커스텀 에이전트 휴지통', () => {
     expect(graph.trashCustomAgentByBubbleId(agent.id)).toBe(true);
     expect(graph.getTrashedCustomAgents().map((a) => a.id)).toEqual([agent.id]);
 
-    // 세션 키가 아닌 버블 id 로 복구 요청 — 예전엔 404(무반응)였다.
+    // 세션 키가 아닌 버블 id 로 복구 요청.
     expect(graph.restoreTrashedAgent(agent.id)).toBe(true);
     expect(graph.getTrashedCustomAgents()).toHaveLength(0);
     expect(agent.trashed).toBeUndefined();
@@ -53,11 +49,7 @@ describe('ProjectGraph — 커스텀 에이전트 휴지통', () => {
     expect(graph.permanentlyDeleteTrashedAgent('agent-nope')).toBe(false);
   });
 
-  /**
-   * v4.84 — [모두 삭제] · Delete 키 다중 선택이 타는 배치 경로(`POST /api/trash/purge`)의 알맹이.
-   * 라우트는 이 메서드를 목록만큼 돌린 뒤 스냅샷을 **한 번** 보내므로, 여기서 확인할 것은
-   * ⓐ 여러 건이 한 번에 다 지워지는지 ⓑ 중간에 없는 id 가 섞여도 나머지가 계속 지워지는지다.
-   */
+  /** [모두 삭제]·Delete 다중 선택의 배치 경로(`POST /api/trash/purge`) 알맹이 — 여러 건이 다 지워지고, 없는 id 가 섞여도 나머지는 계속 지워진다. */
   it('여러 건을 이어서 영구 삭제해도 전부 지워진다(배치 경로)', () => {
     const graph = new ProjectGraph();
     const agents = ['A', 'B', 'C'].map((label) => graph.createCustomAgent(label));

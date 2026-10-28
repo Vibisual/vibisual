@@ -1,11 +1,6 @@
 /**
- * §5.11 v3.88 — 폭발 반경(Blast Radius) 플러그인.
- *
- * "이 에이전트가 완전히 장악되면 무엇에 접근하고, 무엇을 바꾸고, 어디로 보낼 수 있는가"를 열거하면
- * 그게 곧 반경이다. 치명적 3요소가 **경로가 성립하는가**를 본다면, 여기서는 **성립했을 때 얼마나 큰가**를 본다.
- *
- * 치명적 3요소와 달리 여기서는 **격리(worktree)를 감쇄로 반영한다** — 반경은 "피해 범위"의 척도이고
- * 격리는 그 범위를 실제로 좁히기 때문. 3요소 판정에서 격리를 분리한 규칙과 모순이 아니라 역할이 다르다.
+ * §5.11 — 폭발 반경(Blast Radius): 장악되면 무엇에 접근·변경·전송할 수 있나 — 3요소가 경로의 성립을 본다면 여기서는 크기를 본다.
+ * 격리(worktree)를 감쇄로 반영한다 — 반경은 피해 범위라 격리가 실제로 좁힌다(3요소 판정에서 격리를 뺀 것과 모순이 아니다).
  */
 import type { PluginClientModule, PluginBubbleContext, PluginManifest, PluginSeverity } from '../sdk/index.js';
 import { judgeBlastRadius, type BlastRadiusVerdict } from '../sdk/index.js';
@@ -25,17 +20,11 @@ export const blastRadiusManifest: PluginManifest = {
 const K = 'panel.plugins.blastRadius';
 
 /*
- * **배지를 달지 않는다.** `Bash` 는 잠긴 도구라 어떤 설정에서도 유효 도구에 남고, 그 하나가
- * `canExecute` 와 `canSend` 를 동시에 켠다. 그래서 읽기 도구가 하나라도 있으면 점수가 3 이상이 되어
- * **모든 에이전트가 '큼'으로 판정된다** — 판정 자체는 사실이지만, 모든 버블에 똑같이 붙는 배지는
- * 버블을 구분해 주지 못한다. 값은 패널 카드에서 그대로 보여 준다.
+ * 배지를 달지 않는다 — 잠긴 도구 `Bash` 가 늘 남아 `canExecute`·`canSend` 를 함께 켜므로, 읽기 도구가 하나만 있어도
+ * 점수가 3 이상이 되어 모든 에이전트가 '큼'이 된다. 모든 버블에 같은 배지는 구분이 안 된다 — 값은 패널 카드에서 보여 준다.
  */
 
-/*
- * 판정(`judgeBlastRadius`)은 v4.58 에서 **SDK 로 올라갔다.** `containment`·`owasp-asi` 가 이 폴더를
- * 직접 import 하고 있었는데, 폴더 하나를 복사하면 남의 폴더가 딸려 오는 형태라 자립 규약에 어긋난다.
- * 여러 카드가 함께 쓰는 판정은 어느 한 카드의 소유가 아니다.
- */
+/* 판정(`judgeBlastRadius`)은 SDK 에 둔다 — 여러 카드(`containment`·`owasp-asi`)가 함께 쓰므로, 이 폴더에 두면 폴더 복사 시 남의 폴더가 딸려 와 자립 규약이 깨진다. */
 
 const TONE: Record<BlastRadiusVerdict['level'], PluginTone> = { small: 'good', medium: 'warn', large: 'bad' };
 
@@ -43,10 +32,7 @@ function judgeable(ctx: PluginBubbleContext): boolean {
   return ctx.bubbleType === 'agent' && ctx.agentConfig !== undefined;
 }
 
-/**
- * 호스트는 카드 내용을 열어 보지 않고 이 등급만으로 정렬·접힘을 정한다. 등급을 안 주면 `neutral` 로 떨어져
- * **문제를 보고하는 순간에도 조용한 카드로 분류돼 접힘 대상이 된다.** 카드가 이미 계산해 둔 판정을 그대로 넘긴다.
- */
+/** 호스트는 이 등급만으로 정렬·접힘을 정한다 — 안 주면 `neutral` 로 떨어져 문제를 보고할 때도 접힌다. */
 function severity(ctx: PluginBubbleContext): PluginSeverity {
   return TONE[judgeBlastRadius(ctx.agentConfig).level];
 }

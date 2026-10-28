@@ -7,12 +7,9 @@ import { bakeCoverPicture } from '../../apps/thumbnailBake.js';
 import { workspaceMediaUrl } from '../../utils/workspaceMedia.js';
 
 /**
- * §5.4 #36 (F) — Vibistudio 노드 화면의 미리보기: 앞부분 한 프레임 + 길이.
- *
- * 편집 화면과 같은 디코더(Mediabunny 래퍼)를 쓰되 두 가지가 다르다.
- * - **구간을 묶어 읽는다**(`boundedRangeFetch`) — 패키지 앱의 fetch 는 응답을 통째로 싣기 때문에, 끝이 열린 구간 요청이면
- *   대표 프레임 하나에 파일 전체가 건너온다. 묶으면 머리(·꼬리 색인)와 그 프레임 근처만 읽는다.
- * - **첫 프레임이 아니다** — 길이의 10%(최대 1초) 지점. 영상의 첫 프레임은 검은 화면·페이드 인이 흔하다.
+ * §5.4 #36 (F) — 노드 화면의 미리보기: 앞부분 한 프레임 + 길이. 편집 화면과 같은 디코더(Mediabunny 래퍼)를 쓰되 둘이 다르다.
+ * - 구간을 묶어 읽는다(`boundedRangeFetch`) — 패키지 앱 fetch 는 응답을 통째로 실어, 끝이 열린 구간이면 대표 프레임 하나에 파일 전체가 건너온다. 묶으면 머리(·꼬리 색인)와 그 프레임 근처만 읽는다.
+ * - 첫 프레임이 아니라 길이의 10%(최대 1초) 지점 — 첫 프레임은 검은 화면·페이드 인이 흔하다.
  */
 const THUMB_ASSET = 'thumb';
 

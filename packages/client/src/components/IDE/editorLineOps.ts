@@ -1,14 +1,8 @@
 import { applyDedent, INDENT_UNIT, type EditResult } from './editorModel.js';
 
 /**
- * editorLineOps.ts — §5.5 #17-27 ⑲ 편집창 **줄 편집 명령의 순수 계산**.
- *
- * 줄 복사·이동·삭제 · 줄 주석/블록 주석 · 들여쓰기/내어쓰기 · 아래/위에 줄 넣기 · 줄 고르기 ·
- * Enter 의 들여쓰기 잇기 · 파일의 들여쓰기 단위 알아보기 · 줄 번호로 가기. 키는 VS Code 와 같고
- * (`shared/keymap.ts` editor 묶음) 동작도 VS Code 를 따른다(사용자 지시 — "기존 편집 툴들처럼").
- *
- * 모든 편집은 (본문, 선택 시작, 선택 끝) → `EditResult`(새 본문 + 새 선택)이고, 할 일이 없으면 `null` 이다.
- * 캐럿이 어디로 가는지까지 단위 테스트로 못 박는다 — 줄 하나 어긋나는 사고는 화면으로 잡기 어렵다.
+ * §5.5 #17-27 ⑲ 편집창 줄 편집 명령의 순수 계산. 키(`shared/keymap.ts` editor 묶음)와 동작은 VS Code 를 따른다.
+ * 모든 편집은 (본문, 선택 시작, 끝) → `EditResult`(새 본문 + 새 선택), 할 일이 없으면 `null` — 캐럿 위치까지 시험으로 고정한다.
  */
 
 /** 주석 기호 — 줄 주석(`//`)과 블록 주석(`/*`·`*\/`). 언어에 없으면 `null`. */
@@ -35,10 +29,7 @@ export function lineNumberAt(text: string, offset: number): number {
   return line;
 }
 
-/**
- * 고른 범위가 덮는 줄 묶음 [from, to) — `to` 는 마지막 줄의 끝(줄바꿈 앞).
- * 여러 줄을 고른 끝이 **다음 줄 첫 칸**이면 그 줄은 묶음에 넣지 않는다(줄 단위로 고른 모양 — VS Code 와 같다).
- */
+/** 덮는 줄 [from, to) — `to` 는 마지막 줄 끝(줄바꿈 앞). 여러 줄 선택의 끝이 다음 줄 첫 칸이면 그 줄은 넣지 않는다(VS Code 와 같다). */
 export function selectedLineBlock(text: string, start: number, end: number): { from: number; to: number } {
   const last = end > start && end === lineStartAt(text, end) ? end - 1 : end;
   const from = lineStartAt(text, start);
@@ -68,11 +59,7 @@ interface Splice {
   insert: string;
 }
 
-/**
- * 위치가 편집들을 지나 어디로 가는가. 지운 구간 안이면 그 자리의 시작으로 간다.
- * `stayBeforeInsert` — 바로 그 자리에 넣은 글자 **앞**에 남는다(고른 범위의 시작이 줄 머리일 때,
- * 넣은 주석 기호·들여쓰기까지 범위에 들어 있어야 다시 눌러 되돌릴 수 있다).
- */
+/** 편집을 지난 위치(지운 구간 안이면 그 시작). `stayBeforeInsert` — 그 자리에 넣은 글자 앞에 남는다(줄 머리 선택이 넣은 기호까지 덮어야 다시 눌러 되돌린다). */
 function mapThrough(offset: number, splices: readonly Splice[], stayBeforeInsert: boolean): number {
   let delta = 0;
   for (const s of splices) {
@@ -166,10 +153,7 @@ export function insertLine(text: string, start: number, end: number, where: 'bel
   return { text: `${text.slice(0, ls)}${indent}\n${text.slice(ls)}`, selectionStart: caret, selectionEnd: caret };
 }
 
-/**
- * 줄 고르기(Ctrl+L) — 지금 줄을 줄바꿈까지 통째로 고르고, 이미 줄 단위로 골라 둔 상태면 한 줄 더 넓힌다.
- * 본문은 바꾸지 않는다(선택만 옮긴다).
- */
+/** 줄 고르기(Ctrl+L) — 줄바꿈까지 통째로, 이미 줄 단위면 한 줄 더. 본문은 바꾸지 않는다. */
 export function selectLines(text: string, start: number, end: number): EditResult {
   const { from, to } = selectedLineBlock(text, start, end);
   const wholeLines = start === from && end > start && end === to + 1;
@@ -179,10 +163,7 @@ export function selectLines(text: string, start: number, end: number): EditResul
 
 // ─── 들여쓰기 ─────────────────────────────────────────────────────────────────
 
-/**
- * 줄 묶음을 한 단계 민다(Ctrl+]) — `Tab` 과 달리 캐럿 자리가 아니라 **줄 머리**에 넣는다.
- * 여러 줄이면 빈 줄은 건드리지 않는다(줄 끝 공백만 늘리는 일이 된다 — VS Code 와 같다).
- */
+/** 줄 머리에 민다(Ctrl+] — `Tab` 과 달리 캐럿 자리가 아니다). 여러 줄이면 빈 줄은 건드리지 않는다(VS Code 와 같다). */
 export function indentLines(text: string, start: number, end: number, unit: string = INDENT_UNIT): EditResult | null {
   const { from, to } = selectedLineBlock(text, start, end);
   const lines = linesIn(text, from, to);
@@ -199,11 +180,7 @@ export function outdentLines(text: string, start: number, end: number, unit: str
   return out.text === text ? null : out;
 }
 
-/**
- * 이 파일이 쓰는 들여쓰기 한 단계 — 탭인가, 스페이스 몇 칸인가(VS Code 의 들여쓰기 알아보기와 같은 일).
- * 앞에서부터 `scanLines` 줄만 본다. 들여쓴 줄이 없으면 `fallback`(우리 저장소 규약 두 칸).
- * 언리얼 소스처럼 탭으로 들여쓴 파일에서 `Tab` 이 스페이스 두 칸을 넣으면 그 파일의 모양이 깨진다.
- */
+/** 파일의 들여쓰기 한 단계(탭/스페이스 몇 칸)를 앞 `scanLines` 줄에서 알아본다(없으면 `fallback`). 탭 파일에 스페이스를 넣으면 모양이 깨진다(언리얼 소스). */
 export function detectIndentUnit(text: string, fallback: string = INDENT_UNIT, scanLines = 5000): string {
   let tabs = 0;
   let spaced = 0;
@@ -242,10 +219,7 @@ export function detectIndentUnit(text: string, fallback: string = INDENT_UNIT, s
   return best > 0 ? ' '.repeat(best) : fallback;
 }
 
-/**
- * Enter — 줄바꿈과 함께 지금 줄의 들여쓰기를 잇는다. 여는 괄호(`{`·`[`·`(`) 뒤면 한 단계 더 밀고,
- * 캐럿 바로 뒤가 그 짝 닫는 괄호면 닫는 괄호를 제 들여쓰기의 다음 줄로 내린다(VS Code 와 같다).
- */
+/** Enter — 지금 줄 들여쓰기를 잇고, 여는 괄호(`{`·`[`·`(`) 뒤면 한 단계 더. 캐럿 뒤가 짝 닫는 괄호면 그것을 다음 줄로 내린다(VS Code 와 같다). */
 export function newlineWithIndent(text: string, start: number, end: number, unit: string = INDENT_UNIT): EditResult {
   const ls = lineStartAt(text, start);
   const before = text.slice(ls, start);
@@ -271,12 +245,7 @@ export function newlineWithIndent(text: string, start: number, end: number, unit
 
 // ─── 주석 ─────────────────────────────────────────────────────────────────────
 
-/**
- * 줄 주석 켜고 끄기(Ctrl+/) — 글이 있는 줄이 **전부** 주석이면 걷고, 하나라도 아니면 단다.
- * 달 때는 그 줄들의 가장 얕은 들여쓰기 자리에 맞춰 `// ` 를 넣는다(줄마다 들쭉날쭉하지 않게).
- * 빈 줄은 건드리지 않는다. 줄 주석이 없는 언어(HTML·CSS·마크다운)는 블록 기호로 줄마다 감싼다.
- * 주석 기호가 아예 없으면 `null`.
- */
+/** 줄 주석(Ctrl+/) — 글 있는 줄이 전부 주석이면 걷고 아니면 단다. 가장 얕은 들여쓰기 자리에 맞춰 넣고 빈 줄은 건너뛴다. 줄 주석이 없는 언어는 블록 기호로 줄마다 감싼다. */
 export function toggleLineComment(text: string, start: number, end: number, tokens: CommentTokens): EditResult | null {
   const { from, to } = selectedLineBlock(text, start, end);
   const lines = linesIn(text, from, to);
@@ -382,10 +351,7 @@ export function toggleBlockComment(text: string, start: number, end: number, tok
 
 // ─── 줄 번호로 가기 ───────────────────────────────────────────────────────────
 
-/**
- * 줄 번호 입력 → 갈 자리. `12` · `12:5` · `12,5`(열까지) · `-1`(끝에서 첫째 줄) — VS Code 와 같다.
- * 숫자가 아니면 `null`. 줄·열은 파일 안으로 당긴다(없는 줄로 가지 않는다).
- */
+/** 줄 번호 입력: `12` · `12:5` · `12,5` · `-1`(끝에서 첫째) — VS Code 와 같다. 숫자가 아니면 `null`, 줄·열은 파일 안으로 당긴다. */
 export function parseGotoLine(input: string, lineCount: number): { line: number; column: number } | null {
   const m = /^\s*(-?\d+)\s*(?:[:,]\s*(\d+))?\s*$/.exec(input);
   if (!m || lineCount < 1) return null;
@@ -410,12 +376,7 @@ export function offsetOfLineColumn(text: string, line: number, column: number): 
 
 // ─── 되돌리기가 이어지는 한 번의 바꿔 끼우기 ─────────────────────────────────
 
-/**
- * 두 본문의 차이를 **한 군데 바꿔 끼우기**로 줄인다(앞뒤 같은 부분을 뺀다). 편집창은 이 범위를 고른 뒤
- * `insertText` 한 번으로 넣는다 — 그래야 브라우저의 되돌리기 기록에 명령 한 번이 한 걸음으로 남는다
- * (값을 통째로 갈아 끼우면 `Ctrl+Z` 가 그 걸음을 잃는다, §5.5 #17-27 ⑨ (d) 와 같은 이유).
- * 대리쌍 한가운데에서 자르지 않는다.
- */
+/** 차이를 한 군데 바꿔 끼우기로 줄인다 — 편집창이 `insertText` 한 번으로 넣어야 되돌리기 기록에 한 걸음으로 남는다(통째 교체면 `Ctrl+Z` 가 잃는다, ⑨ (d)). 대리쌍 한가운데에서 자르지 않는다. */
 export function diffEdit(prev: string, next: string): { from: number; to: number; insert: string } {
   const max = Math.min(prev.length, next.length);
   let p = 0;

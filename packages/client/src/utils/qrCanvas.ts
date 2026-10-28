@@ -1,8 +1,6 @@
-// §4 v3.66 모바일 QR 페어링 — QR 매트릭스를 canvas 에 그리는 유틸.
-//
-// 인코딩은 `qrcode-generator`(의존성 0·MIT)를 **동적 import** 로 가져온다 — Mobile Access
-// 모달을 열 때만 로드되므로 초기 번들과 모바일 첫 로드에 영향이 없다. 화면 표시와 PNG 저장이
-// 같은 canvas 를 쓰기 때문에(§5.9 캡처 스냅샷 저장 관행 재사용) 별도 이미지 경로가 없다.
+// §4 모바일 QR 페어링 — QR 매트릭스를 canvas 에 그리는 유틸.
+// 인코딩은 `qrcode-generator`(의존성 0·MIT)를 동적 import 로 가져온다 — Mobile Access 모달을 열 때만 로드돼 초기 번들·모바일 첫 로드에 영향이 없다.
+// 화면 표시와 PNG 저장이 같은 canvas 를 쓴다(§5.9 캡처 스냅샷 저장 관행) — 별도 이미지 경로가 없다.
 
 /** QR 한 변의 표시 크기(CSS px). 폰 카메라가 30cm 거리에서 무리 없이 잡는 크기. */
 export const QR_RENDER_SIZE = 208;

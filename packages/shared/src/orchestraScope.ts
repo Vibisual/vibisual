@@ -1,17 +1,6 @@
 /**
- * §5.3 #10-4 — 오케스트라 켬/끔의 **2층 판정** + 설정·런·계획 신고의 계약(순수 함수).
- *
- * 층은 **프로젝트 → 에이전트** 둘뿐이다. 절차 감지(§5.10 `autoGoalScope`)와 해석 모양은 같되
- * 세션 층이 없다 — 지휘는 에이전트가 하는 일이라, 같은 에이전트의 세션마다 지휘 여부가 갈리면
- * 사용자가 어느 탭에서 친 명령이 편성될지 예측할 수 없다.
- *
- * **절차 감지 모듈을 빌려 쓰지 않고 한 벌 더 두는 이유** — autoGoalScope 머리말과 같다. 다른 기능의
- * 다른 설정이고, 한 함수에 묶으면 오케스트라에만 필요한 칸(지휘자·멤버 엔진·꺼둔 방안)이 절차 감지
- * 타입으로 새어 들어간다. 오케스트라 안에서의 판정은 여기 **하나**다 — 가로채기·REST·화면이 전부 이
- * 함수들을 부른다.
- *
- * 이 파일은 `node:fs`·플랫폼·시간을 모른다 — 서버·클라가 같은 함수를 그대로 부른다.
- * 시각이 필요한 곳은 부르는 쪽이 `now` 를 넘긴다.
+ * §5.3 #10-4 — 오케스트라 켬/끔 2층 판정 + 설정·런·계획 신고 계약(순수). 층은 프로젝트 → 에이전트뿐 — 세션마다 갈리면 어느 탭 명령이 편성될지 모른다.
+ * `autoGoalScope`(§5.10)를 빌리지 않는다 — 묶으면 오케스트라 전용 칸이 그 타입으로 샌다. 판정은 여기 하나, 시각은 부르는 쪽이 `now` 로.
  */
 import {
   ORCHESTRA_DEFAULT_MAX_MEMBERS,
@@ -77,9 +66,8 @@ const ORCHESTRA_STRING_FIELDS = [
 type OrchestraStringField = (typeof ORCHESTRA_STRING_FIELDS)[number];
 
 /**
- * 모델·강도 문자열의 모양. 모델 목록은 CLI 에서 동적으로 오므로(§4 모델·Effort 동적화) 목록으로
- * 막지 않고 **모양만** 본다 — `claude-opus-5[1m]`·`gpt-5.1-codex`·`high` 가 모두 지나가야 한다.
- * 줄바꿈·따옴표를 막는 것이 목적이다(이 값은 지휘 규칙 본문과 CLI 인자로 흘러간다).
+ * 모델·강도 문자열은 모양만 본다 — 목록은 CLI 에서 동적으로 온다(§4, `claude-opus-5[1m]`·`gpt-5.1-codex`·`high` 통과).
+ * 목적은 줄바꿈·따옴표 차단이다(지휘 규칙 본문·CLI 인자로 흘러간다).
  */
 const ORCHESTRA_MODEL_TOKEN_RE = /^[A-Za-z0-9._:/\-[\]]{1,100}$/;
 
@@ -105,13 +93,7 @@ function own(map: Record<string, boolean> | undefined, id: string | null | undef
   return typeof v === 'boolean' ? v : null;
 }
 
-/**
- * 이 에이전트에 오케스트라가 켜져 있는가 — `agent ?? project ?? false`.
- *
- * **기본은 꺼짐이다.** 어느 층도 정하지 않았으면 가로채지도, 규칙을 싣지도 않는다 — 이 기능이
- * 없던 때와 완전히 같아야 한다. 지휘자가 만든 멤버는 에이전트 칸에 **명시적 false** 가 적혀
- * 프로젝트를 켜 둬도 지휘하지 않는다(재귀 방지).
- */
+/** `agent ?? project ?? false`. 기본은 꺼짐 — 아무도 안 정했으면 가로채지도 싣지도 않는다. 지휘자가 만든 멤버는 에이전트 칸이 명시적 `false` 다(재귀 방지). */
 export function resolveOrchestraEnabled(
   settings: OrchestraEnablement | null | undefined,
   agentId?: string | null,
@@ -213,22 +195,14 @@ export function resolveOrchestraMemberEngine(
 }
 
 /**
- * 멤버가 태어날 때 받는 작업 폴더 격리 — 없으면 `none`(지휘자와 같은 워킹트리).
- *
- * `parallel` 편성에서 워커들이 한 워킹트리를 동시에 고치는 것을 막는 유일한 축이다. 지휘자의
- * 손잡이가 아니라 사용자 스위치인 이유: 새 워크트리는 디스크·빌드 캐시를 쓰고, 그 비용을 질지는
- * 이 PC 의 주인이 정한다.
+ * 멤버의 작업 폴더 격리 — 없으면 `none`(지휘자와 같은 워킹트리). `parallel` 편성의 동시 수정을 막는 유일한 축이고,
+ * 디스크·빌드 캐시 비용이라 지휘자가 아니라 사용자가 정한다.
  */
 export function resolveOrchestraMemberIsolation(settings: OrchestraSettings | null | undefined): OrchestraMemberIsolation {
   return settings?.memberIsolation === 'worktree' ? 'worktree' : 'none';
 }
 
-/**
- * 멤버가 태어날 때 받는 도구 목록 템플릿 — 없거나 목록에 없는 id 면 `undefined`(설정 창 기본값 그대로).
- *
- * `'all'`(= 공식 표 전체)은 기본값과 같은 목록이라 **못 박지 않는다.** 못 박으면 그 뒤에 설정 창의
- * 도구 목록을 고쳐도 이 멤버에게 닿지 않는다(§4 설정 3층).
- */
+/** 멤버의 도구 목록 템플릿 — 없거나 모르는 id 면 `undefined`(설정 창 기본값). `'all'` 은 못 박지 않는다 — 박으면 나중에 고친 기본 목록이 안 닿는다(§4 설정 3층). */
 export function resolveOrchestraMemberToolTemplate(settings: OrchestraSettings | null | undefined): string | undefined {
   const id = settings?.memberToolTemplate;
   if (typeof id !== 'string' || id === '' || id === 'all') return undefined;
@@ -236,13 +210,8 @@ export function resolveOrchestraMemberToolTemplate(settings: OrchestraSettings |
 }
 
 /**
- * 멤버 하나가 **태어날 때** 서버가 박아 주는 설정 칸 — 없으면 `null`(아무것도 박지 않는다).
- *
- * 이 두 칸은 지휘자가 ② PATCH 로 넣을 수 없다. `tools` 는 권한 축이라 loopback 유입에서 얼려 있고
- * (§5.3 #12-1), `isolation` 은 편성 전체에 걸리는 비용이라 사용자가 정한다. 그래서 **사용자 설정의
- * 집행**으로 서버가 생성 시점에 한 번 심는다 — 유입 얼림을 푸는 것이 아니라 그 바깥의 다른 길이다.
- *
- * 순수 함수다 — 서버가 부르고, 시험이 세 조합(끔·격리만·도구만)을 그대로 읽는다.
+ * 멤버 생성 때 서버가 심는 설정 칸(없으면 `null`). 지휘자 PATCH 로는 못 넣는 두 칸이다 — `tools` 는 loopback 유입에서 얼린 권한 축(§5.3 #12-1),
+ * `isolation` 은 사용자가 정하는 비용. 유입 얼림을 푸는 게 아니라 사용자 설정을 집행하는 별도 길이다.
  */
 export function orchestraMemberBirthConfig(
   settings: OrchestraSettings | null | undefined,
@@ -328,12 +297,8 @@ export type OrchestraSettingsPatchResult =
   | { ok: false; field: string };
 
 /**
- * 설정 patch 를 적용한다 — **보낸 칸만** 바뀐다(부분 페이로드가 나머지를 지우지 않게 — §4 agent-config PUT 사고).
- *
- * - 값 `null` 또는 빈 문자열 = 그 칸을 지운다("정하지 않음"으로 되돌린다).
- * - 켬/끔 칸(`enabledProject`·`enabledAgents`)은 여기서 받지 않는다 — 스위치는 `withOrchestraScope`
- *   한 길로만 바뀐다(같은 칸을 두 창구가 쓰면 한쪽이 다른 쪽을 덮는다).
- * - 모양이 어긋난 값은 **조용히 버리지 않고** 그 칸 이름으로 실패한다(REST 400).
+ * 설정 patch — 보낸 칸만 바뀐다(부분 페이로드가 나머지를 지우지 않게, §4 agent-config PUT 사고). `null`·빈 문자열 = 그 칸 지움.
+ * 켬/끔 칸은 받지 않는다(`withOrchestraScope` 한 길 — 두 창구면 서로 덮는다). 모양이 틀린 값은 버리지 않고 칸 이름으로 실패(REST 400).
  */
 export function applyOrchestraSettingsPatch(
   current: OrchestraSettings,
@@ -423,7 +388,7 @@ export function orchestraRunsForSnapshot(runs: readonly OrchestraRun[]): Orchest
   return runs.length > ORCHESTRA_RUN_SNAPSHOT_MAX ? runs.slice(runs.length - ORCHESTRA_RUN_SNAPSHOT_MAX) : [...runs];
 }
 
-/** 런에 적어 두는 사용자 원문 사본 — 명령 본문은 자르지 않고 이 기록용 사본만 자른다. */
+/** 런에 적어 두는 요청 원문 사본 — 명령 본문은 자르지 않고 이 기록용 사본만 자른다. */
 export function clipOrchestraRequest(text: string): string {
   return text.length > ORCHESTRA_RUN_REQUEST_MAX ? text.slice(0, ORCHESTRA_RUN_REQUEST_MAX) : text;
 }
@@ -512,9 +477,8 @@ export function normalizeOrchestraRuns(input: unknown): OrchestraRun[] {
 }
 
 /**
- * 앱을 다시 켰을 때 편성·결과 회수 중인 런 — 그 턴은 프로세스와 함께 죽었다.
- * 조용히 "돌고 있음"으로 남겨 두면 활동바 숫자가 영영 줄지 않으므로 `unreported` 로 닫는다.
- * 옛 버전이 종료 시각을 찍은 `dispatched` 기록은 당시의 위임 기록으로 보존한다.
+ * 재시작 때 편성·회수 중이던 런은 프로세스와 함께 죽었다 — "돌고 있음"으로 두면 활동바 숫자가 안 줄어 `unreported` 로 닫는다.
+ * 종료 시각이 찍힌 옛 `dispatched` 기록은 그대로 둔다.
  */
 export function settleStaleOrchestraRuns(runs: readonly OrchestraRun[], now: number): OrchestraRun[] {
   return runs.map((r) => (
@@ -536,12 +500,7 @@ export type OrchestraPlanValidation =
   | { ok: true; plan: OrchestraPlan; reusedAgentIds: string[] }
   | { ok: false; error: string; ids?: string[] };
 
-/**
- * `POST /api/orchestra/runs/:runId/plan` 본문 검사 — 런 단계 검사는 부르는 쪽이 먼저 한다.
- *
- * 조용히 고쳐 받지 않는다. 지휘자가 틀린 id 를 담았으면 **그 id 목록**을 돌려줘 스스로 고치게 한다 —
- * 조용히 빼 버리면 신고한 계획과 저장된 계획이 어긋나고, 사용자는 지휘자가 고르지 않은 방안을 본다.
- */
+/** 계획 신고 본문 검사(런 단계 검사는 부르는 쪽이 먼저). 조용히 고쳐 받지 않고 틀린 id 목록을 돌려준다 — 빼 버리면 신고와 저장이 어긋난다. */
 export function validateOrchestraPlan(body: unknown, ctx: OrchestraPlanContext): OrchestraPlanValidation {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { ok: false, error: 'body-not-object' };
   const b = body as Record<string, unknown>;

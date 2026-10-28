@@ -1,10 +1,4 @@
-/**
- * §5.5 #17-25 — 라이트박스는 **연 자리 하나**에만 선다(`lightboxHostMatches`).
- *
- * 라이트박스를 그리는 호스트는 대화 본문마다 있다 — 창이 여럿이거나 한 창을 칸으로 나누면(#17-34) 여럿이 된다.
- * 종전에는 모두가 전역 상태 하나를 보고 저마다 그려, 한 번 연 그림이 창·칸 수만큼 겹쳐 떴고 맨 위에 선 것의
- * [저장]이 **누른 곳이 아닌** 창·세션의 입력창으로 갔다.
- */
+/** §5.5 #17-25 — 라이트박스는 연 자리 하나에만 선다(`lightboxHostMatches`). 호스트가 본문마다 있어 전역 하나를 다 보면 겹쳐 뜨고 [저장]이 엉뚱한 입력창으로 간다. */
 import { describe, it, expect } from 'vitest';
 import type { ImageLightboxOrigin } from '../../stores/graphStore.js';
 import { lightboxHostMatches, type ImageLightboxHostSpot } from './imageLightboxOrigin.js';

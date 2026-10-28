@@ -15,11 +15,7 @@ interface Props {
   screenY: number;
   onClose: () => void;
   onCommit: (next: number) => void;
-  /**
-   * 허용 범위. 안 주면 §7.5 폴더 위성 상한(`SATELLITE_MAX_BOUNDS`).
-   * §7.22 도메인 버블은 `WEB_ENTRY_MAX_BOUNDS`(1~100)를 준다 — **같은 일에 창을 두 벌 만들지
-   * 않는다**(한쪽만 고쳐져 어긋난다).
-   */
+  /** 범위 — 기본 `SATELLITE_MAX_BOUNDS`, 도메인 버블은 `WEB_ENTRY_MAX_BOUNDS`(같은 일에 창 두 벌 ❌). */
   bounds?: { MIN: number; MAX: number };
   /** 제목 i18n 키. 안 주면 폴더 위성 문구. */
   titleKey?: string;
@@ -32,7 +28,7 @@ interface Props {
   noteKey?: string;
 }
 
-/** §7.5 v1.62 — 버블별 표시 상한을 포인터 옆 작은 팝업에서 편집(§7.22 도메인 버블 공용) */
+/** §7.5 — 버블별 표시 상한 편집 팝업(§7.22 도메인 버블 공용). */
 export function SatelliteMaxPopup({
   value,
   screenX,

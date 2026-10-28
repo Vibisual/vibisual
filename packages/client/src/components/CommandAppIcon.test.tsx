@@ -61,6 +61,31 @@ describe('bundled marks for commands without an icon of their own', () => {
     expect(COMMAND_APP_BRAND_ICONS.curl.dark).not.toBe(COMMAND_APP_BRAND_ICONS.curl.light);
   });
 
+  it('puts a black-on-white mark on its white disc only where the background is dark (Ollama)', async () => {
+    const frame = (): { className: string; plate: unknown } => {
+      const span = renderer!.root.findByType('span');
+      return { className: String(span.props.className), plate: span.props['data-plate'] };
+    };
+    await act(async () => { renderer = create(<CommandAppIcon executable="ollama" />); });
+    expect(sources()).toEqual([COMMAND_APP_BRAND_ICONS.ollama.dark]);
+    expect(frame().plate).toBe('pad');
+    expect(frame().className).toContain('bg-white');
+    expect(renderer!.root.findByType('img').props.className).toContain('p-[16%]');
+    await act(async () => { renderer!.update(<CommandAppIcon executable="ollama" tone="light" />); });
+    expect(frame().plate).toBeUndefined();
+    expect(frame().className).not.toContain('bg-white');
+    // A mark with its own dark variant never gets a disc.
+    await act(async () => { renderer!.update(<CommandAppIcon executable="bun" />); });
+    expect(frame().plate).toBeUndefined();
+  });
+
+  it('a mark that fails to load takes its disc with it', async () => {
+    await act(async () => { renderer = create(<CommandAppIcon executable="lua" />); });
+    expect(renderer!.root.findByType('span').props['data-plate']).toBe('flush');
+    await act(async () => { renderer!.root.findByType('img').props.onError(); });
+    expect(renderer!.root.findByType('span').props['data-plate']).toBeUndefined();
+  });
+
   it('falls back to the glyph if a bundled file fails to load', async () => {
     await act(async () => { renderer = create(<CommandAppIcon executable="pnpm.cmd" />); });
     await act(async () => { renderer!.root.findByType('img').props.onError(); });

@@ -1,12 +1,6 @@
 /**
- * §7.11 v1.44 Iframe 서버 로그 팝업 — 포트 하나의 dev server stdout/stderr 라이브 tail.
- *
- * 라이프사이클:
- *  - mount: WS `subscribe_iframe_log { port }` → 서버가 `iframe_log_init` 으로 현재 버퍼 전송
- *  - 이후 새 라인은 `iframe_log_append` delta 로 도착(50ms 마이크로배치)
- *  - unmount: `unsubscribe_iframe_log { port }` → 서버가 tail 타이머 해제 + 버퍼 폐기
- *
- * 클라 측 ring buffer 는 IFRAME_LOG_CLIENT_BUFFER_MAX 상한 — 초과분은 앞에서 버려 메모리 고정.
+ * §7.11 iframe 서버 로그 팝업(포트 하나의 tail). mount 에 `subscribe_iframe_log`, unmount 에 `unsubscribe_iframe_log`(서버가 버퍼 폐기).
+ * 클라 버퍼는 `IFRAME_LOG_CLIENT_BUFFER_MAX` 상한.
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -23,7 +17,7 @@ import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 interface IframeServerLogsPopupProps {
   port: number;
-  /** §7.11 v2.5 — 스트림 식별자의 셸. 없으면(레거시 위성) port 단독 구독. */
+  /** §7.11 — 스트림 식별자의 셸. 없으면(레거시 위성) port 단독 구독. */
   shellId?: string;
   url?: string;
   onClose: () => void;

@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, CommandError, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest, RunningSubagentTask } from '@vibisual/shared';
 import { STREAM_DENSITIES, displayCommands, slashCommandNeedsTerminal, SESSION_MEMO, VOICE_INPUT, isVoiceToggleKey, mergeVoiceText, polishVoiceChunk, isMicAccessFixable, isNoDeviceError, type StreamDensity } from '@vibisual/shared';
-import { isBackgroundShellTask, isSessionRunning, BUBBLE_STYLES, HOOK_AGENT_STYLE } from '@vibisual/shared';
+import { isBackgroundShellTask, isSessionRunning } from '@vibisual/shared';
 import { verificationNotRun } from '@vibisual/shared';
 import {
   useSessionRunning, useSessionWork, useSessionExecuting, useSessionLivenessFacts,
@@ -72,7 +72,7 @@ import { SystemNode, parseSystemSubtype, parseSystemTaskInfo } from './SystemNod
 import { ThinkingLiveLine, StepTraceLine, WriteTraceLine } from './ThinkingIndicator.js';
 import { collectThinkRuns, mergeAdjacentThinkTraces, shouldTraceWriting, toolGroupElapsedMs, toolCallElapsedMs, type ThinkTraceView } from './turnSteps.js';
 import { thinkTraceText, writeTraceText, toolElapsedText, toolCallElapsedText } from './stepTraceText.js';
-// §5.5 #17-18 ⑤ v4.77 — 대기 중 덧말의 상태·컨트롤은 이 말풍선이 갖는다(옛 대기 줄 대체).
+// §5.5 #17-18 ⑤ — 대기 중 덧말의 상태·컨트롤은 이 말풍선이 갖는다.
 import { CollapsiblePrompt, AiSpeakerGlyph, type PromptCommandState } from './CollapsiblePrompt.js';
 import { INPUT_FIELD_SIZING, INPUT_MAX_HEIGHT, autosizeInput } from './inputAutosize.js';
 import { decideArrowKey, getCommandHistory, hasCommandHistory, seedCommandHistory, type HistoryNavState } from './commandHistory.js';
@@ -114,7 +114,7 @@ function isHiddenSystemEvent(evt: { eventType: string; content: string }): boole
   return subtype !== null && isHiddenSystemSubtype(subtype);
 }
 
-/** §5.5 #17-2 v3.19 — 슬래시 드롭다운 항목: 디스크 스킬/커맨드 또는 CLI 내장(built-in) 명령. */
+/** §5.5 #17-2 — 슬래시 드롭다운 항목: 디스크 스킬/커맨드 또는 CLI 내장(built-in) 명령. */
 type SlashItem =
   | { kind: 'skill'; name: string; skill: SkillInfo }
   | { kind: 'builtin'; name: string; builtin: BuiltinCommandInfo };
@@ -128,8 +128,7 @@ const EMPTY_QUESTIONS: import('@vibisual/shared').AgentQuestions[] = [];
 const EMPTY_REVIEWS: import('@vibisual/shared').AgentReview[] = [];
 const EMPTY_LISTS: import('@vibisual/shared').AgentList[] = [];
 
-// v3.05 — 바닥 추종 의도 판정 임계(px). 스크롤 후 바닥과의 거리가 이보다 가까우면 "추종 중"으로 본다.
-//   콘텐츠 성장은 scroll 이벤트를 안 내므로 이 값은 사용자 스크롤-업/다운 제스처에만 반응한다.
+// 바닥 추종 의도 판정 임계(px). 스크롤 후 바닥과의 거리가 이보다 가까우면 "추종 중"으로 본다.
 const FOLLOW_BOTTOM_THRESHOLD = 80;
 
 interface IDEMainAreaProps {
@@ -137,11 +136,7 @@ interface IDEMainAreaProps {
   isCustom: boolean;
 }
 
-/**
- * OS 드래그앤드롭으로 들어온 File 의 절대경로 해석. 통합 앱(Electron)에서는 preload 가 노출한
- * `window.api.getPathForFile`(webUtils) 로, 그 외(브라우저 dev)는 비표준 `File.path` 폴백.
- * 둘 다 없으면 빈 문자열(브라우저 dev 에선 OS 경로가 없어 첨부 불가).
- */
+/** 드롭된 File 의 절대경로 — Electron 은 preload `window.api.getPathForFile`(webUtils), 브라우저 dev 는 비표준 `File.path`. 둘 다 없으면 빈 문자열(첨부 불가). */
 function resolveDroppedFilePath(file: File): string {
   const bridge = (window as unknown as { api?: { getPathForFile?: (f: File) => string } }).api;
   try {
@@ -168,11 +163,8 @@ function formatTime(ts: number): string {
 }
 
 /**
- * 북마크 "이동" 의 실제 스크롤 — anchorId(출처 항목)가 있으면 그 엘리먼트로 컨테이너 중앙 스크롤 +
- * 외곽선 플래시, 없거나 못 찾으면 보관 텍스트를 컨테이너에서 검색(공백/노드 경계 관용)해 선택+스크롤.
- * 가상 리스트는 호출 전에 scrollToIndex 로 그 항목을 렌더시켜 둔다.
- * `preserveFocus` 는 인-페이지 검색용 — 찾은 텍스트를 selection 대신 CSS 하이라이트로 칠해 검색
- * 입력창의 포커스/caret 을 건드리지 않는다(`markRange` 주석 참고).
+ * 북마크 이동 스크롤 — anchorId 엘리먼트로 중앙 + 플래시, 없으면 보관 텍스트 검색(공백·노드 경계 관용). 가상 리스트는 먼저 scrollToIndex.
+ * `preserveFocus` = 검색용 — selection 대신 CSS 하이라이트로 칠해 검색창 caret 을 지킨다(`markRange`).
  */
 function performBookmarkScroll(container: HTMLElement, anchorId: string | undefined, text: string, preserveFocus = false): boolean {
   if (anchorId) {
@@ -209,38 +201,19 @@ interface TerminalEntry {
   toolName?: string;
   transportRecovery?: StreamTransportRecovery;
   error?: CommandError;
-  /**
-   * §5.5 #17-39 — **마지막 조각이 도착한 시각**. `timestamp`(첫 조각) 와의 차이가 곧 걸린 시간이다.
-   * 사고 자국(`type==='step'`)과 합쳐진 본문(`type==='text'`) 둘 다 이 필드를 쓴다(Sub 탭 `endedAt` 과 대칭).
-   */
+  /** §5.5 #17-39 — 마지막 조각 도착 시각(`timestamp` 와의 차 = 걸린 시간). step·text 둘 다 쓴다(Sub 탭 `endedAt` 과 대칭). */
   endedAt?: number;
   /** §5.5 #17-39 — 사고 자국의 분량(글자). `text` 는 비어 있다 — 사고 **원문은 담지 않는다**. */
   stepChars?: number;
-  /**
-   * §5.5 #17-39 ⑩ — 사고 자국의 **주인 키**(세션 id + 중첩 Task 호출 id). 간결에서 이어 붙은 자국을 합칠 때
-   * 주인이 다르면 섞지 않는다. 이름표(`sessionLabel`)는 세션끼리 겹칠 수 있어 키로 쓰지 않는다.
-   */
+  /** §5.5 #17-39 ⑩ — 사고 자국의 주인 키(세션 id + 중첩 Task id). 주인이 다르면 합치지 않는다(`sessionLabel` 은 겹칠 수 있어 키 ❌). */
   stepOwner?: string;
-  /**
-   * §5.25 (O) — `type==='image'` 일 때 그 그림이 나온 세션. 그림을 청하는 주소가
-   * `<agentId>/<subAgentId>/<eventId>` 라, 전체 보기에서는 어느 세션의 줄인지 여기 적어야 한다
-   * (`sessionLabel` 은 사람이 읽는 이름이라 주소로 못 쓴다).
-   */
+  /** §5.25 (O) — 그림이 나온 세션(주소가 `<agentId>/<subAgentId>/<eventId>` 라 필요, `sessionLabel` 은 주소로 못 쓴다). */
   imageSubAgentId?: string;
-  /**
-   * §5.5 #17-18 ⑦-7 — 스트림에서 온 줄이면 그 줄이 나온 세션. 전체 보기에서는 여러 세션의 도구가 한
-   * 타임라인에 섞이므로, 카드를 보낸 도구를 **같은 세션 안에서만** 찾을 때 쓴다(`sessionLabel` 은 겹칠 수 있다).
-   */
+  /** §5.5 #17-18 ⑦-7 — 줄이 나온 세션. 전체 보기에서 카드 발신 도구를 같은 세션 안에서만 찾을 때 쓴다(`sessionLabel` 은 겹친다). */
   subAgentId?: string;
-  /**
-   * `type==='command'` 일 때 **내가 보낸 시각**. 위 `timestamp` 는 §5.5 #17-18 ⑥ 대로 말풍선이 설
-   * 자리(= 나간 시각 · 대기 중이면 `PENDING_COMMAND_TS` 꼬리 표식)라 시각 표기에 쓸 수 없다.
-   */
+  /** command 의 보낸 시각. `timestamp` 는 말풍선 자리(#17-18 ⑥ — 나간 시각, 대기 중이면 `PENDING_COMMAND_TS`)라 시각 표기에 못 쓴다. */
   submittedAt?: number;
-  /**
-   * §5.5 #17-18 ⑤ v4.77 — `type==='command'` 일 때 그 명령의 큐 상태. 말풍선이 이 값으로 색을 정하고,
-   * 대기 중이면 [대기|합치기|즉시]·삭제 컨트롤을 스스로 띄운다(옛 입력창 위 대기 줄 대체).
-   */
+  /** §5.5 #17-18 ⑤ — command 의 큐 상태. 말풍선이 색을 정하고 대기 중이면 [대기|합치기|즉시]·삭제를 띄운다. */
   command?: PromptCommandState;
 }
 
@@ -279,10 +252,7 @@ interface TerminalThinkingLive {
   compactingSince?: number;
 }
 
-/**
- * 라이브 1줄의 세 모습 → i18n 키. **Sub 탭(`StreamRenderer` 의 `liveLabels`)과 같은 키를 쓴다** —
- * 두 경로가 다른 낱말을 내면 같은 세션이 탭을 옮길 때마다 말이 바뀐다(§5.5 #17-18 ⑪).
- */
+/** 라이브 1줄의 세 모습 → i18n 키. Sub 탭 `liveLabels` 와 같은 키여야 한다(다르면 탭을 옮길 때 말이 바뀐다, #17-18 ⑪). */
 const MAIN_LIVE_LABEL_KEY: Record<TerminalThinkingLive['mode'], string> = {
   working: 'ide.streamRenderer.working',
   waiting: 'ide.streamRenderer.waiting',
@@ -396,11 +366,8 @@ function dropCardEchoNodes(nodes: MainTimelineNode[]): MainTimelineNode[] {
   return out ?? nodes;
 }
 
-// ─── §5.5 #17-18 ⑦-7: 카드를 보낸 도구 찾기(메인 탭 판본) ───
-//   Sub 탭은 `mergeCardsIntoItems` 가 같은 일을 한다. 판정은 **같은 함수**(`cardPlacementTs`)이고, 여기는
-//   도구 묶음에서 후보를 뽑아 세션별로 나누기만 한다. 후보의 자리는 그 도구가 든 **묶음의 자리**다 —
-//   묶음 안 한가운데에는 카드를 끼울 수 없으므로 카드는 묶음 아래로 간다. 간결은 묶음을 화면에서 빼므로
-//   후보가 없고 카드는 신고 시각 그대로다(감춘 줄 아래로 옮길 이유가 없다).
+// §5.5 #17-18 ⑦-7 — 카드 발신 도구 후보(메인 탭 판). 판정은 Sub 탭과 같은 `cardPlacementTs`, 후보 자리는 그 도구가 든 묶음(카드는 묶음 아래).
+// 간결은 묶음이 없어 신고 시각 그대로.
 
 /** 도구 묶음에서 카드 발신 후보를 세션별로 뽑는다. */
 export function collectMainCardSenderCalls(items: readonly TerminalItem[]): Map<string, CardSenderCall[]> {
@@ -449,11 +416,7 @@ function writeMainStepTrace(n: MainTimelineNode, ms: number, chars: number): Mai
   return { t: 'item', item: { ...n.item, endedAt: n.item.timestamp + ms, stepChars: chars } };
 }
 
-/**
- * §5.5 읽기 설정 — 메인 탭 노드의 폭 취급.
- * 메인 탭은 Sub 탭과 달리 마크다운 컨테이너(`.ide-md`)를 쓰지 않으므로 안쪽에 폭을 넘길 그리드가 없다.
- * 그래서 **도구 줄·도구 묶음만** 칼럼 밖으로 내보내고 나머지는 전부 칼럼 안에 남긴다.
- */
+/** §5.5 읽기 설정 — 메인 탭은 `.ide-md` 그리드가 없어 도구 줄·도구 묶음만 칼럼 밖으로, 나머지는 칼럼 안. */
 function mainTimelineReadingKind(n: MainTimelineNode): string {
   if (n.t !== 'item') return n.t;
   if (n.item.kind === 'group') return n.item.groupType === 'tool' ? 'toolgroup' : n.item.groupType;
@@ -515,11 +478,7 @@ export function buildEntries(
     pushThinkTraces(events, subId, label);
   };
 
-  /**
-   * §5.5 #17-39 — 사고 런 → 단계 자국 항목. 런 판정은 Sub 탭 파서와 **같은 규칙**을 담은
-   * `collectThinkRuns` 한 곳에서 하므로, 같은 대화가 탭에 따라 자국 개수가 달라지지 않는다.
-   * 건너뛸 이벤트도 파서와 같은 둘(펄스·숨김 system)을 넘긴다.
-   */
+  /** §5.5 #17-39 — 사고 런 → 단계 자국. 판정은 Sub 탭과 같은 `collectThinkRuns`(펄스·숨김 system 제외) — 탭마다 자국 수가 달라지지 않게. */
   const pushThinkTraces = (events: SubAgentStreamEvent[], subId: string, label?: string): void => {
     for (const run of collectThinkRuns(events, (e) => isThinkingPulse(e) || isHiddenSystemEvent(e))) {
       entries.push({
@@ -558,10 +517,7 @@ export function buildEntries(
     }
   }
 
-  // 명령 대기열 프롬프트 — 상태 무관하게 항상 "내 메시지" 말풍선으로 표시한다.
-  //   §5.5 #17-18 ⑤ v4.77 — 대기 중(queued)도 종전 system 잔줄이 아니라 같은 말풍선이다.
-  //   상태는 `command` 로 실어 보내 말풍선이 **색**으로 구분하고(대기/합치기/즉시/실행 중),
-  //   대기 중이면 방식 칩·삭제까지 그 말풍선 안에서 조작한다.
+  // 대기열 프롬프트는 상태 무관(대기 포함) 내 말풍선으로(§5.5 #17-18 ⑤). 상태는 `command` 로 — 색과 대기 중 방식 칩·삭제는 말풍선이 그린다.
   const targetCmds = activeSessionId === null
     ? commands
     : commands.filter((c) => c.subAgentId === activeSessionId);
@@ -605,9 +561,7 @@ export function buildEntries(
     }
   }
 
-  // completed/error 명령의 결과 — **그 턴의 말이 스트림에 남아 있지 않을 때만** cmd.result 폴백 (프롬프트는 위에서 이미 push).
-  //   §5.5 #17-12 ③-3 — Sub 탭과 같은 턴 단위 판정(`turnCoverageOf`). 종전에는 세션 전체에 result 줄이 하나라도
-  //   있으면 모든 말풍선의 결과를 숨겼고, 반대로 없으면 창 안의 턴까지 본문과 결과를 두 번 실었다.
+  // 완료/오류 결과 — 그 턴의 말이 스트림에 없을 때만 cmd.result 폴백(§5.5 #17-12 ③-3, Sub 탭과 같은 턴 단위 `turnCoverageOf`).
   const coverageBySub = new Map<string, TurnCoverage>();
   const coverageFor = (subId: string): TurnCoverage => {
     let cov = coverageBySub.get(subId);
@@ -651,10 +605,7 @@ export function buildEntries(
 
   entries.sort((a, b) => a.timestamp - b.timestamp);
 
-  // AI 설명(text)은 같은 세션에서 연달아 오면 **한 말풍선으로 합친다**. 스트림이 한 응답을 여러 text
-  // 이벤트(델타)로 쪼개 보내도 박스 말풍선이 조각조각 나뉘지 않게 한다(StreamRenderer 의 textBuf 합치기와
-  // 동일 동작). 세션(sessionLabel)이 다르거나 사이에 비-text 항목(도구·프롬프트 등)이 끼면 거기서 끊긴다
-  // → 도구가 설명 사이에 있으면 의미상 별개 말풍선으로 자연스럽게 분리.
+  // 같은 세션의 연속 text 는 한 말풍선으로 합친다(델타 조각 — StreamRenderer textBuf 와 같다). 세션이 다르거나 비-text 가 끼면 끊는다.
   const coalesced: TerminalEntry[] = [];
   for (const e of entries) {
     const prev = coalesced[coalesced.length - 1];
@@ -673,12 +624,7 @@ export function buildEntries(
 
 /** tool_use+tool_result 쌍을 접을 수 있는 그룹으로, 연속 text를 하나로 묶기.
  *  §5.5 #17-15 — 사고는 buildEntries 단계에서 이미 빠졌다(묶을 대상이 없다). */
-/**
- * §5.5 #17-12 — 메인 탭 밀도 적용(Sub 탭 streamDensity 와 같은 규칙, 자료형만 다르다).
- *  - 연속 동종 도구 묶음(진행 중 제외)을 `도구 ×N` 한 줄로 합친다.
- *  - 같은 턴(명령 경계)의 옛 계획은 접는다.
- * `raw` 밀도에서는 아무것도 하지 않는다.
- */
+/** §5.5 #17-12 — 메인 탭 밀도(Sub 탭 streamDensity 와 같은 규칙): 연속 동종 도구(진행 중 제외) → `도구 ×N`, 같은 턴의 옛 계획은 접기. `raw` 는 그대로. */
 export function applyMainDensity(items: TerminalItem[], density: StreamDensity): TerminalItem[] {
   // §5.5 #17-13 ⑤-3 — 작업 칩(시작·끝)을 한 줄로 접는다. Sub 탭(`applyStreamDensity`)과 **같은 함수**라
   //   두 탭이 같은 스트림을 같은 모양으로 접는다.
@@ -754,11 +700,8 @@ export function applyMainDensity(items: TerminalItem[], density: StreamDensity):
     i++;
   }
 
-  // §5.5 #17-21 ① / #17-24 ① — 간결은 **도구 묶음을 진행 중이든 완료든 화면에서 뺀다**(Sub 탭
-  //   applyStreamDensity 와 같은 규칙). 진행 중 한 줄을 남겨 두면 도구가 시작·완료할 때마다 그 줄이
-  //   생겼다 사라지며 화면이 깜빡인다 — 지금 작동 중이라는 사실은 상시 라이브 1줄이 알린다.
-  //   런에 흡수됐던 **내용 있는 system 본문**(오류·권한 결정)은 묶음 밖으로 꺼내 남긴다 — 사용자가 읽어야
-  //   하는 내용이라 묶음과 함께 사라지면 안 된다(Sub 탭과 동일).
+  // §5.5 #17-21 ① / #17-24 ① — 간결은 도구 묶음을 진행 중이든 뺀다(남기면 시작·완료마다 깜빡인다 — 작동 중은 라이브 1줄이 알린다).
+  // 흡수된 오류·권한 결정 system 본문은 묶음 밖으로 꺼내 남긴다.
   if (density === 'compact') {
     const compacted: TerminalItem[] = [];
     for (const it of out) {
@@ -843,21 +786,14 @@ const TYPE_STYLES: Record<string, { color: string; prefix: string }> = {
   system:      { color: 'text-gray-500',       prefix: '*' },
 };
 
-/**
- * §5.5 #17-39 — 메인 탭 단계 자국. 훅(`useTranslation`)을 쓰므로 `TerminalLine` 안이 아니라 별도 조각
- * (그쪽은 분기마다 early return 이라 훅을 부를 수 없다 — `TerminalTextLine` 과 같은 이유).
- */
+/** §5.5 #17-39 — 메인 탭 단계 자국. 훅을 써서 별도 조각이다(`TerminalLine` 은 분기마다 early return). */
 function TerminalStepLine({ entry }: { entry: TerminalEntry }): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const ms = (entry.endedAt ?? entry.timestamp) - entry.timestamp;
   return <StepTraceLine text={thinkTraceText(t, i18n.language, ms, entry.stepChars ?? 0)} />;
 }
 
-/**
- * 메인 탭 AI 본문. §5.5 #17-49 — 어느 밀도에서도 본문을 접지 않는다(간결의 가운데 접기 #17-46 폐기 —
- * Sub 탭 `TextBlock` 과 같은 규칙). 훅을 쓰므로 별도 컴포넌트(TerminalLine 은 분기마다 early return 이라
- * 그 안에서 훅을 부를 수 없다).
- */
+/** 메인 탭 AI 본문 — §5.5 #17-49 어느 밀도에서도 접지 않는다(Sub 탭 `TextBlock` 과 같다). 훅을 써서 별도 컴포넌트. */
 function TerminalTextLine({ entry, density, run }: { entry: TerminalEntry; density: StreamDensity; run: SpeechRunPos }): React.JSX.Element {
   const { t, i18n } = useTranslation();
   // §5.5 #17-39 — 작성 자국(Sub 탭 TextBlock 과 같은 문턱·같은 문구 함수). 메인 탭의 본문 항목은
@@ -915,7 +851,7 @@ export function TerminalLine({ entry, density, run, agentId }: { entry: Terminal
       ? (agentId ? { ...entry.command, agentId } : entry.command)
       : undefined;
     return (
-      // §4 v3.24 — 폰(max-md)에선 좌우 여백 압축(Sub 탭 블록들과 동일 방침).
+      // §4 — 폰(max-md)에선 좌우 여백 압축(Sub 탭 블록들과 같은 방침).
       <div className="px-3 py-1 max-md:px-1.5">
         <CollapsiblePrompt prompt={entry.text} command={command} submittedAt={entry.submittedAt} />
       </div>
@@ -1175,32 +1111,20 @@ interface TerminalInputProps {
   activeSessionId: string | null;
 }
 
-/**
- * §5.5 #17-38 — **이미 누가 먹은 키인가.**
- *
- * 한 문서에 IDE 판이 둘 이상 떠 있으면(분할·중첩) window 리스너도 그 수만큼 서고, 같은
- * 키 하나에 받아쓰기가 켜졌다 곧바로 꺼진다. 먼저 잡은 쪽이 그 이벤트에 표시를 남기면
- * 뒤엣것은 비켜선다. 창이 여럿인 경우는 여기 걸리지 않는다 — 초점 없는 창은 애초에
- * 키 이벤트를 받지 않는다.
- */
+/** §5.5 #17-38 — 이미 먹은 키. 한 문서에 IDE 판이 여럿이면 window 리스너도 여럿이라 받아쓰기가 켜졌다 꺼진다 — 먼저 잡은 쪽이 이벤트에 표시를 남긴다. */
 const handledVoiceKeys = new WeakSet<KeyboardEvent>();
 
 const API_BASE = '';
 
 /**
- * v1.35 — paste 된 이미지 1장의 업로드/미리보기 상태.
- * CommandInputPopup 과 동일 계약. 서버 endpoints: POST /api/agent-attachments/:sid/upload, DELETE /api/agent-attachments/:sid.
- * v1.38 — 제출 시 blob URL 은 graphStore.attachmentPreviews 로 이관, 입력창 상태는 즉시 비움.
- *         실행중 상태바(StreamStatusBar)가 스토어에서 basename 으로 조회해 썸네일 표시.
- * v1.48 — 타입을 graphStore.AgentSessionInputAttachment 와 동치 alias 로 통합 (세션별 store 보관).
+ * paste 이미지 1장의 업로드/미리보기 상태(= `AgentSessionInputAttachment`, CommandInputPopup 과 같은 계약:
+ * POST /api/agent-attachments/:sid/upload · DELETE /api/agent-attachments/:sid). 제출하면 blob URL 은 `attachmentPreviews` 로 넘긴다.
  */
 type PastedAttachment = AgentSessionInputAttachment;
 
 export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
-  // §5.5 #17-12 ③ v4.64 — 중지 동작은 공용 훅(useSessionStop)이 단일 창구이자, 이제 화면에서도 유일한 [중지].
-  // §2.4 — 이제 **응답을 읽는다.** 종전에는 보내고 1.5초 뒤 버튼만 되돌려, 서버가 "멈출 것이 없다"고
-  //   답해도 화면에는 아무 일도 일어나지 않았다(사용자 체감 1순위: 눌러도 안 멈추고 말도 없다).
+  // §5.5 #17-12 ③ — 중지는 useSessionStop 하나(화면의 유일한 [중지]). §2.4 응답을 읽어 "멈출 것 없음"도 알린다.
   const {
     stopping, stop: handleStop, outcome: stopOutcome, clearOutcome: clearStopOutcome, forceStop,
   } = useSessionStop(agentId, activeSessionId);
@@ -1210,8 +1134,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
   const lightboxOrigin = useImageLightboxOrigin();
   const markSubAcknowledged = useGraphStore((s) => s.markSubAcknowledged);
-  // §5.3 #28 v1.48 — 세션 스코프 draft (text + attachments) store 구독.
-  // 세션 탭 전환 시 입력 내용이 해당 세션에 매여 유지된다. key = agentSessionInputKey(agentId, activeSessionId).
+  // §5.3 #28 — 세션 스코프 draft(text + attachments), key = agentSessionInputKey(agentId, activeSessionId).
   const draftKey = agentSessionInputKey(agentId, activeSessionId);
   const sessionDraft = useGraphStore((s) => s.agentSessionInputs[draftKey]);
   const inputProviderKind = useGraphStore((s) => s.agentConfigs[agentId]?.provider?.kind);
@@ -1233,23 +1156,13 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
       updateAgentSessionInputAttachments(agentId, activeSessionId, updater),
     [agentId, activeSessionId, updateAgentSessionInputAttachments],
   );
-  // §5.3 #28 v1.47 — 외부 트리거(예: ContiHistoryDetail "새 콘티 생성")가 setAgentInputDraft 로
-  // 시드 프롬프트를 넣었으면 마운트/agent 변경 시 textarea 에 hydrate 후 consume.
-  // 자동 send ❌ — 사용자가 직접 Send 눌러야 dispatch (사용자 작성 흐름 보존).
+  // §5.3 #28 — 외부 트리거가 setAgentInputDraft 로 넣은 시드를 textarea 로 옮기고 consume 한다. 자동 send ❌(사용자가 Send 를 누른다).
   const draftForAgent = useGraphStore((s) => s.agentInputDrafts[agentId]);
   const consumeAgentInputDraft = useGraphStore((s) => s.consumeAgentInputDraft);
-  // 이 탭(activeSessionId) 이 **지금 돌고 있는가** — Run/Stop 토글 판정.
-  // 메인 탭(activeSessionId===null) 은 여러 서브가 병렬 실행될 수 있으므로 Stop 대상이 모호 → Run 유지.
-  //
-  // 종전에는 `QueuedCommand.status === 'executing'` **하나만** 봤다. 그런데 턴 봉인이 만료된 뒤
-  // 세션이 다시 깨어나면 서버는 `SubAgent.status` 만 `active` 로 되돌리고(명령은 이미 아카이브로
-  // 옮겨져 되돌릴 수 없다), 그 결과 **아직 돌고 있는 세션에서 [중지]가 사라졌다**. 판정을
-  // 공유 모듈(`isSessionRunning`)로 옮겨 세션 축까지 함께 보게 한다.
+  // 이 탭이 돌고 있나(Run/Stop). 메인 탭은 대상이 모호해 Run. `executing` 만 보지 마라 — 봉인 만료 뒤 깨어난 세션은
+  // 명령 없이 `SubAgent.status` 만 active 라 [중지]가 사라진다(`isSessionRunning` 이 세션 축까지 본다).
   const sessionRunning = useSessionRunning(agentId, activeSessionId) && activeSessionId !== null;
-  // §5.5 #17-10 v3.53 — 컴팩트 [중지] 노출 조건. **버튼이 실제로 멈출 수 있는 게 있을 때만** 뜬다.
-  //   이제 세션 탭의 "이 세션이 띄운 백그라운드 Task" 도 위 `sessionRunning` 이 함께 보므로, 이 조건은
-  //   **스코프를 좁힐 세션이 없는 메인 탭 전용**으로 남는다 — 어느 세션 탭이든 executing 이거나
-  //   백그라운드 Task 가 하나라도 살아있으면 `stop-all` 을 낼 수 있다.
+  // §5.5 #17-10 — 컴팩트 [중지](멈출 게 있을 때만). 세션 탭은 `sessionRunning` 이 백그라운드 Task 까지 보므로 이것은 메인 탭 전용 `stop-all`.
   const agentBusyElsewhere = useSessionRunning(agentId, null) && activeSessionId === null;
   const sid = useMemo(() => agents.find((a) => a.id === agentId)?.path ?? null, [agents, agentId]);
   const sidRef = useRef<string | null>(sid);
@@ -1298,19 +1211,12 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
   //   않게 ref 로 읽는다(같은 이유로 훅 안에서도 콜백은 전부 ref 다).
   const voiceRespaceRef = useRef(voiceRespace);
   voiceRespaceRef.current = voiceRespace;
-  /**
-   * 확정된 말은 **커서 자리에** 들어간다(항상 맨 뒤 ❌ — 문장 가운데를 고치다 마이크를 켜는
-   * 일이 실제로 있고, 그때 말한 것이 끝에 붙으면 그 문장을 다시 손봐야 한다).
-   * 끼우는 규칙 자체는 shared `mergeVoiceText` 한 곳이고, 여기서는 그 결과를 스토어와
-   * 커서 위치로 옮겨 놓기만 한다.
-   */
+  /** 확정된 말은 커서 자리에(맨 뒤 ❌ — 문장 가운데를 고치다 켜기도 한다). 규칙은 shared `mergeVoiceText`, 여기선 결과만 옮긴다. */
   const handleVoiceCommit = useCallback((chunk: string) => {
     const el = textareaRef.current;
     if (!el) return;
-    // §5.5 #17-38 ⑱ — **끼우기 전에** 토막 안의 띄어쓰기를 복원한다. 엔진은 공백을 내지 않아
-    //   한국어가 통째로 붙어 온다(엔진 `--help` 실측: spacing 옵션 없음). 순서가 중요하다 —
-    //   `mergeVoiceText` 는 **토막과 기존 글 사이**의 경계만 다루므로, 여기서 먼저 다듬어야
-    //   사람이 손으로 쓴 앞뒤 글은 건드리지 않고 새로 들어온 말만 끊긴다.
+    // §5.5 #17-38 ⑱ — 끼우기 전에 토막의 띄어쓰기를 복원한다(엔진은 공백을 안 낸다 — `--help` 실측, spacing 옵션 없음).
+    // `mergeVoiceText` 는 토막과 기존 글의 경계만 다루므로 먼저 다듬어야 손으로 쓴 글을 안 건드린다.
     const polished = polishVoiceChunk(chunk, voiceRespaceRef.current);
     afterInputComposition(el, () => {
       if (!isCurrentInput(el, draftKey)) return;
@@ -1329,11 +1235,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
   const voiceAsrRef = useRef(voiceAsr);
   voiceAsrRef.current = voiceAsr;
 
-  /**
-   * 누름 → 마이크 사이의 왕복을 하나로 줄인다. 이미 "준비됨"을 물어 둔 판에서는 다시 묻지 않고
-   * 곧장 엔진을 띄우고, 그 값이 거짓말이었으면(폴더를 지웠으면) 실패한 자리에서 서버에게
-   * 되묻는다 — 판정의 정본은 여전히 서버(디스크)다([voiceOpenGate.ts](../../hooks/voiceOpenGate.ts)).
-   */
+  /** 누름 → 마이크 왕복을 하나로: "준비됨"을 알면 곧장 띄우고, 틀렸으면(폴더 삭제) 실패한 자리에서 서버에 되묻는다(정본은 서버 — `hooks/voiceOpenGate.ts`). */
   const requestVoicePort = useCallback(async (): Promise<VoicePortResult> => resolveVoicePort({
     knownReady: voiceAsrRef.current.state?.ready ?? null,
     refresh: async () => (await voiceAsrRef.current.refresh())?.ready ?? null,
@@ -1375,10 +1277,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
   const handleOpenMicSettings = useCallback((): void => {
     void micSettings.open();
   }, [micSettings]);
-  /**
-   * 마이크 버튼 **우클릭** — 설정 판을 연다.
-   * 전역 입력칸 메뉴가 이 자리를 가로채지 않게 기본 메뉴를 막는다(입력창의 `data-text-menu` 와 같은 규율).
-   */
+  /** 마이크 우클릭 = 설정 판. 전역 입력칸 메뉴가 가로채지 않게 기본 메뉴를 막는다(`data-text-menu` 와 같은 규율). */
   const handleMicContextMenu = useCallback((e: React.MouseEvent): void => {
     e.preventDefault();
     e.stopPropagation();
@@ -1386,14 +1285,8 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
   }, []);
 
   /**
-   * 단축키(#17-38 ③) — **초점이 입력창에 없어도** 같은 손짓이 먹는다.
-   *
-   * ⚠ 창이 여럿일 수 있다(버블 오버레이 창 #17-6). window 리스너 하나만 두고 "이 칸이
-   *   초점"만 보면 **떠 있는 IDE 수만큼 켜졌다 꺼진다** — 그래서 초점이 실제로 이 판
-   *   안에 있는지(data-ide-main)까지 함께 본다. 판정이 하나뿐이라 두 번 토글될 자리가 없다.
-   *
-   * ⚠ capture 단계다. 듣는 중의 Escape 는 "받아쓰기 취소"가 먼저여야 하는데, bubble 로 받으면
-   *   입력창의 Escape(슬래시 목록 열림 시 입력 비우기)가 먼저 돌아 쓰던 글까지 날아간다.
+   * 단축키(#17-38 ③) — 초점이 입력창 밖이어도 먹되 초점이 이 판 안(data-ide-main)인지 본다(아니면 IDE 수만큼 토글된다).
+   * capture 로 받는다 — bubble 이면 입력창 Escape(비우기)가 받아쓰기 취소보다 먼저 돌아 쓰던 글이 날아간다.
    */
   useEffect(() => {
     if (!voiceCellFocused) return;
@@ -1423,9 +1316,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
     return () => window.removeEventListener('keydown', onKey, true);
   }, [voiceCellFocused]);
 
-  // §5.5 #17-2 v2.30 / #17-4 v2.32 — 슬래시 자동완성. `useAvailableSkills` 가 모듈 캐시를 공유.
-  // v2.59 — 이 에이전트가 속한 프로젝트의 스킬만 자동완성(탭별 개별 조회).
-  // v3.19 — CLI 내장 슬래시 명령(builtins)도 병행 표시(드롭다운 전용 — Skills 사이드바 불변).
+  // §5.5 #17-2 / #17-4 — 슬래시 자동완성(`useAvailableSkills` 모듈 캐시, 이 에이전트 프로젝트의 스킬만) + CLI 내장 명령(드롭다운 전용).
   const slashProjectName = useGraphStore((s) => s.agentProjects[agentId]);
   const { skills: availableSkills, builtins: builtinCommands, loaded: skillsLoaded, slashCommandsEnabled } = useAvailableSkills(slashProjectName, agentId);
   const [slashIndex, setSlashIndex] = useState(0);
@@ -1443,9 +1334,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
     autosizeInput(el);
   }, [activeSessionId, text]);
 
-  // §5.3 #28 v1.47 — draft hydrate. 외부 트리거가 setAgentInputDraft 로 넣은 시드를
-  // textarea 에 옮기고 store 에서 consume(중복 prefill 방지). 사용자가 보고 수정 가능.
-  // v1.48 — 시드 수신은 "현재 활성 세션" 의 draft 로 들어간다.
+  // §5.3 #28 — draft hydrate. 시드를 지금 활성 세션의 draft 로 옮기고 consume 한다(중복 prefill 방지).
   useEffect(() => {
     if (draftForAgent === undefined) return;
     if (typeof draftForAgent === 'string' && draftForAgent.length > 0) {
@@ -1464,8 +1353,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
   // 초안은 입력창의 수명이 아니라 세션에 속한다. 프로젝트 이동·창 교체·닫기에서
   // unmount 되어도 글과 첨부를 함께 보존한다. 첨부 제거는 사용자의 삭제/제출에서만 한다.
 
-  // v1.48 — paste 시점 세션을 캡처해 그 세션 draft 의 attachments 로 update.
-  // 업로드 중 사용자가 세션을 바꿔도 완료 시 원래 세션에 기록된다.
+  // paste 시점 세션을 잡아 그 draft 의 attachments 를 고친다 — 업로드 중 세션을 바꿔도 원래 세션에 기록된다.
   const uploadFile = useCallback(async (file: File, targetSessionId: string | null) => {
     const s = sidRef.current;
     if (!s) return;
@@ -1510,8 +1398,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
     }
     if (files.length === 0) return;
     e.preventDefault();
-    // v1.49 — 첨부 미리보기 row 가 sibling 으로 삽입되며 textarea 가 일시적으로 focus 를 잃는 케이스가 있어
-    //         paste 동기 + 다음 프레임(re-render 후) 양쪽에서 명시적으로 focus 복구.
+    // 첨부 미리보기 줄이 끼며 textarea 가 focus 를 잃을 수 있어 paste 직후와 다음 프레임에 focus 를 되돌린다.
     const el = e.currentTarget;
     const sessionAtPaste = activeSessionId;
     const valueAtPaste = el.value;
@@ -1563,9 +1450,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
     if (useGraphStore.getState().agentConfigs[agentId]?.provider?.kind === 'local-llama' && pending.length > 0) return;
     const submitted = pending.filter((a) => !a.uploading && a.serverPath && !a.error);
     const paths = submitted.map((a) => a.serverPath);
-    // v1.38 — 제출한 첨부의 blob URL 을 스토어로 이관 (basename 키).
-    //         입력창 draft 에서는 즉시 비우되 revoke 하지 않음 — 소유권 이전.
-    //         StreamStatusBar 가 실행중 커맨드의 cmd.attachments basename 으로 조회해 렌더.
+    // 제출한 첨부의 blob URL 은 스토어로 넘긴다(basename 키) — draft 에서 비우되 revoke ❌(소유권 이전, StreamStatusBar 가 읽는다).
     const basenameOf = (p: string): string => {
       const parts = p.split(/[/\\]/);
       return parts[parts.length - 1] ?? '';
@@ -1575,7 +1460,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
     }
     clearStopOutcome(); // A delayed answer to the previous stop must not describe this new command.
     addCommand(agentId, trimmed, activeSessionId, paths);
-    // v1.48 — 에러/업로드중 첨부 없으면 draft 전체 제거(키 정리), 있으면 text 만 비우고 attachments 남김.
+    // 에러·업로드 중 첨부가 없으면 draft 를 지우고(키 정리), 있으면 text 만 비운다.
     const remaining = pending.filter((a) => a.uploading || a.error || !a.serverPath);
     if (remaining.length === 0) {
       clearAgentSessionInput(agentId, activeSessionId);
@@ -1594,20 +1479,10 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
     setHint(null);
   }, [draftKey, isCurrentInput, agentId, activeSessionId, addCommand, clearStopOutcome, registerAttachmentPreview, clearAgentSessionInput, setText, setAttachments, setHint]);
 
-  // §5.5 #17-10 v3.53 — [중지] = **열려 있는 세션 하나 + 그 세션이 띄운 서브에이전트** 중지.
-  //   v3.51 은 이걸 에이전트 전체(stop-all)로 올려 다른 세션 탭까지 함께 끊었다 — 중지의 기본 단위는
-  //   사용자가 보고 있는 세션이다. 세션 탭이면 stop-session(그 탭의 자식 + 그 세션 대차대조 + 그 세션
-  //   큐만), 스코프를 좁힐 세션이 없는 메인 탭에서만 종전 stop-all.
-  //   둘 다 실행 중인 게 없어도 멱등(200)이라 에러 처리 분기가 필요 없다.
+  // §5.5 #17-10 — [중지] 단위는 보고 있는 세션(+ 그 서브): 세션 탭은 stop-session, 메인 탭만 stop-all(올리면 다른 탭까지 끊긴다). 둘 다 멱등(200).
 
-  // §5.5 #17-2 v2.30 — text 가 `/` 로 시작하고 첫 토큰을 아직 타이핑 중이면 드롭다운 활성.
-  // 매칭 0개여도 드롭다운은 열려 "No matching skills" hint 표기.
-  // v3.19 — 디스크 스킬 뒤에 CLI 내장 명령을 병행 매칭(별칭 포함). 같은 이름은 스킬이 이긴다
-  //   (Claude Code 규칙: project/personal 커맨드가 built-in 을 가림).
-  // §5.19 (G) · §5.25 (B) — 프로바이더 버블(All Model·코덱스)에는 **클로드 CLI 의** 슬래시 명령·스킬이
-  //   없다. 목록을 띄우면 고를 수 있는 것처럼 보이지만 실제로는 그 텍스트가 엔진에게 그대로 흘러갈 뿐이다.
-  //   코덱스에는 코덱스의 슬래시 명령이 따로 있으나 그 목록은 그쪽 CLI 가 쥐고 있어 우리에게 오지 않는다 —
-  //   모르는 목록을 지어내느니 목록을 띄우지 않는다.
+  // §5.5 #17-2 — `/` 로 시작해 첫 토큰을 치는 중이면 연다(0건이어도). 스킬 뒤에 CLI 내장 명령(별칭 포함), 같은 이름은 스킬이 이긴다(Claude Code 규칙).
+  // §5.19 (G) · §5.25 (B) — 프로바이더 버블엔 띄우지 않는다(클로드 명령이 없고 코덱스 목록은 우리에게 안 온다).
   const isProviderAgent = useGraphStore((s) => (agentId ? !!s.agentConfigs[agentId]?.provider : false));
   // §4 (슬래시 명령 가용성) — CMD 버블(`interactive-terminal`)은 진짜 REPL 이라 화면 있는 명령도 전부 된다.
   //   헤드리스일 때만 "터미널 필요" 배지를 단다 — 되는 곳에서 안 된다고 하면 그게 더 나쁜 거짓말이다.
@@ -1660,24 +1535,15 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
     restoreCaret(el, next, next.length);
   }, [agentId, activeSessionId, setAgentSessionInputText, restoreCaret]);
 
-  // §5.5 #17-23 — 입력 명령 히스토리: **이 세션에서** 보낸 사용자 프롬프트를 ↑/↓ 로 재호출(셸/CMD 관례).
-  //   커서가 첫 줄일 때 ↑(더 오래된 것), 마지막 줄일 때 ↓(더 최근/원래 draft)에만 반응해 멀티라인 편집을
-  //   깨지 않는다. 슬래시 드롭다운/한글 IME 조합 중엔 비활성.
-  //   ⚠ 진입은 **두 번 누름** — 경계에서 첫 번째 방향키는 힌트만 띄우고(historyHint), 두 번째에 실제로
-  //     히스토리로 들어간다. 꺼낼 게 없으면 힌트조차 뜨지 않고 키도 가로채지 않는다(#17-23 ⑤).
-  //   ⚠ 목록은 **구독하지 않는다**(commandHistory 모듈 캐시에서 키를 누른 순간 읽는다) — 종전엔
-  //     queuedCommands 를 구독해 명령 상태가 바뀔 때마다 입력창이 리렌더됐고, 완료된 명령은 서버가
-  //     큐에서 빼 가므로 정작 히스토리는 비어 있었다.
-  // 세션 탭을 옮기면 그 탭의 히스토리로 갈아타므로 탐색·힌트 상태를 버린다.
+  // §5.5 #17-23 — 이 세션의 프롬프트를 ↑/↓ 로(첫 줄 ↑ · 끝 줄 ↓ 만, 슬래시·IME 중엔 쉼). 진입은 두 번 누름(첫 키는 힌트, 꺼낼 게 없으면 안 가로챈다).
+  // 목록은 구독 ❌ — 키를 누를 때 commandHistory 캐시에서 읽는다(큐 구독은 리렌더만 늘고 완료분이 빠진다). 탭을 옮기면 탐색 상태를 버린다.
   useEffect(() => {
     historyNavRef.current = null;
     historyHintRef.current = null;
     setHistoryHint(null);
   }, [agentId, activeSessionId]);
-  // 이 기능 이전에 보낸 명령을 첫 사용에서 한 번 끌어온다(저장분이 없을 때만 — 이후엔 addCommand 가 유일 입구).
-  //   완료 아카이브를 의존성에 두는 이유: 창을 여는 순간엔 아직 서버 스냅샷이 안 왔을 수 있어
-  //   마운트 1회로 끝내면 "첫 실행에서만 히스토리가 비는" 창이 생긴다. 이 값은 명령이 끝날 때만
-  //   바뀌고 구조적 공유로 동일성이 유지되므로 리렌더 부담이 없다(큐를 구독하던 종전과 다르다).
+  // 저장분이 없으면 완료 아카이브에서 한 번 끌어온다(이후 입구는 addCommand). 아카이브를 의존성에 둔다 — 창을 연 순간엔 스냅샷이 없을 수 있다
+  // (구조적 공유라 리렌더 부담 없음).
   const completedForAgent = useGraphStore((s) => s.completedCommands[agentId]);
   useEffect(() => {
     if (activeSessionId === null) return; // 메인 탭은 보낼 때마다 새 세션이 생기므로 시드할 과거가 없다
@@ -1702,11 +1568,8 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
   }, [setText, restoreCaret]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // §6(조합 입력 보호) — **Enter 는 이 칸의 것이다.** 줄을 만드는 손짓은 Shift+Enter 하나뿐.
-    //   가르는 기준은 "조합 중이냐"가 아니라 **"입력기가 이 키를 먹었느냐"**다: 먹힌 키(일본어·중국어
-    //   변환 확정)는 줄만 막고 흘려보내고, 한글 확정처럼 입력기를 빠져나온 진짜 Enter 는 그 자리에서
-    //   보낸다. 둘을 뭉뚱그려 입력기에 넘기면 브라우저 기본 동작만 남아 **첫 Enter 가 늘 줄바꿈**이
-    //   된다. 판정은 순수 함수 한 곳(decideEnterKey)에 있고 여기서는 결과만 집행한다.
+    // §6 — Enter 는 보내기, 줄바꿈은 Shift+Enter 뿐. 기준은 "입력기가 키를 먹었나": 먹힌 키(일·중 변환 확정)는 흘려보내고
+    // 빠져나온 Enter(한글 확정)는 보낸다 — 뭉뚱그리면 첫 Enter 가 줄바꿈이 된다(`decideEnterKey`).
     const imeConsumed = isImeConsumedKey(e.nativeEvent);
     const composing = imeConsumed || isInputComposing(e.currentTarget);
     const slashMatched = slashOpen && slashState ? slashState.matched : [];
@@ -1724,8 +1587,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
         const picked = slashMatched[Math.min(slashIndex, slashMatched.length - 1)];
         if (picked) confirmSlash(picked);
       } else {
-        // 실행 중에도 Enter 는 "덧말"(추가 대화) 로 동작 — 중지하지 않고 후속 메시지를 큐에 넣는다.
-        // 중지는 마우스로 좌측 중지 버튼을 눌러야만 — Enter 로 실행을 끊지 않는다(사용자 보고 흐름).
+        // 실행 중 Enter 는 덧말(큐에 넣기) — Enter 로 중지하지 않는다(중지는 [중지] 버튼).
         handleSubmit((e.currentTarget as HTMLTextAreaElement).value);
       }
       return;
@@ -1770,10 +1632,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
     if (!slashOpen && isArrow) {
       const el = textareaRef.current;
       if (el && el.selectionStart === el.selectionEnd) {
-        // ⚠ **커서 이동이 언제나 우선이다** — 키를 가로채지 않고(preventDefault ❌) 브라우저가
-        //   기본 동작을 하게 둔 뒤, 커서가 **실제로 움직였는지**로 경계를 판정한다.
-        //   줄바꿈(`\n`) 위치로 계산하면 워드랩으로 접힌 긴 한 줄에서 "이미 첫 줄"로 오판해
-        //   사용자가 커서를 위로 못 올린다(실제 사용자 신고 지점). 화면상 몇 행인지는 브라우저만 안다.
+        // 커서 이동이 우선 — 가로채지 않고(preventDefault ❌) 커서가 실제로 움직였는지로 경계를 본다(`\n` 계산은 워드랩 줄에서 틀린다).
         const direction = e.key === 'ArrowUp' ? 'prev' : 'next';
         const beforeCaret = el.selectionStart ?? 0;
         const beforeValue = el.value;
@@ -1801,10 +1660,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
         }, 0);
       }
     }
-    // Shift+Enter = 줄 추가(브라우저가 줄바꿈 삽입 — preventDefault ❌). field-sizing 이 간헐적으로
-    //   새 줄만큼 높이 재계산을 즉시 못 해 방금 친 줄이 아래로 가려지는 문제 안전판.
-    //   커밋 후(rAF) caret 이 값의 끝이면 바닥으로 스크롤해 새 줄이 항상 보이게 한다.
-    //   ⚠ 타이핑 핫패스가 아니라 **엔터 1회**에만 도는 레이아웃 읽기라 입력 지연 회귀 없음.
+    // Shift+Enter 줄 추가 — field-sizing 이 높이를 늦게 늘려 새 줄이 가려질 수 있어 rAF 뒤 caret 이 끝이면 바닥으로 스크롤(엔터 때만 도는 레이아웃 읽기).
     if (e.key === 'Enter' && e.shiftKey) {
       const el = textareaRef.current;
       if (el) {
@@ -1842,9 +1698,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
     clearFieldText(el);
   }, [draftKey, isCurrentInput]);
 
-  // §5.5 #17-3 v2.79 — 입력 textarea 우클릭 컨텍스트 메뉴 (Cut/Copy/Paste/Select All).
-  //   Electron packaged 빌드엔 브라우저 기본 메뉴가 없어 우클릭 시 아무 것도 안 떴다 →
-  //   일반 IDE 입력창처럼 우클릭 메뉴를 직접 그린다. 출력 영역 메뉴(handleContextMenu)와 별개.
+  // §5.5 #17-3 — 입력 textarea 우클릭 메뉴를 직접 그린다(Electron 패키지엔 기본 메뉴가 없다). 출력 영역 메뉴와 별개.
   const [inputCtx, setInputCtx] = useState<
     { x: number; y: number; start: number; end: number; hasSel: boolean; field: HTMLTextAreaElement; value: string; owner: string } | null
   >(null);
@@ -1935,8 +1789,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
 
   return (
     <div ref={inputRootRef} className="relative flex flex-col gap-1.5 border-t border-gray-700 bg-gray-900/80 px-3 py-2">
-      {/* §5.5 #17-38 — "지금 듣고 있다"는 입력창 **위**에 뜬다. 말한 것은 아래 입력창의 글이 되고,
-          아직 확정되지 않은 말만 이 줄에 머문다(사용자 지시 — 텍스트는 창에, 이펙트는 창 위에). */}
+      {/* §5.5 #17-38 — "듣는 중"은 입력창 위에, 확정된 말은 입력창 글로, 미확정만 이 줄에. */}
       <VoiceInstallDialog
         open={voiceInstallOpen}
         state={voiceAsr.state}
@@ -2007,7 +1860,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
           <span>{t(historyHint === 'prev' ? 'ide.mainArea.historyHintPrev' : 'ide.mainArea.historyHintNext')}</span>
         </div>
       )}
-      {/* §5.5 #17-2 v2.30 — 슬래시 자동완성 드롭다운 (입력행 바로 위) */}
+      {/* §5.5 #17-2 — 슬래시 자동완성 드롭다운(입력행 바로 위) */}
       {slashOpen && slashState && (
         <div ref={slashListRef} className={`absolute bottom-full left-0 right-0 max-h-72 overflow-y-auto rounded-t border border-b-0 border-gray-700 bg-gray-900 shadow-lg scrollbar-thin ${voiceActive ? 'mb-[46px]' : 'mb-1'}`}>
           {/* §5.5 #17-2 (보강) — 주입원 통제로 슬래시가 꺼진 프로젝트에서는 **목록 전부**가 거절된다.
@@ -2039,7 +1892,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
           ) : (
             slashState.matched.map((item, idx) => {
               const isActive = idx === Math.min(slashIndex, slashState.matched.length - 1);
-              // v3.19 — 내장 명령은 sky, 스킬은 기존 emerald(project)/purple(그 외) 유지.
+              // 내장 명령은 sky, 스킬은 emerald(project)/purple(그 외).
               const accentBg = item.kind === 'builtin'
                 ? 'bg-sky-500/15'
                 : item.skill.source === 'project' ? 'bg-emerald-500/15' : 'bg-purple-500/15';
@@ -2069,11 +1922,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
                         {item.skill.pluginName}
                       </span>
                     )}
-                    {/*
-                      §5.5 #17-33 ⑦ — 이 항목을 골라도 CLI 가 슬래시를 못 푸는 경우를 말해 준다.
-                      여기서는 **알리기만** 한다 — 타이핑 중에 뜬 드롭다운의 한 항목이 git 을 타는
-                      설치를 시작하면 그게 더 놀랍다. 깔러 가는 자리는 Skills 사이드바와 플러그인 창이다.
-                    */}
+                    {/* §5.5 #17-33 ⑦ — CLI 가 슬래시를 못 푸는 항목은 알리기만 한다(설치는 Skills 사이드바·플러그인 창 — 드롭다운이 git 설치를 시작하면 안 된다). */}
                     {item.kind === 'skill' && <SkillStateTag skill={item.skill} />}
                     {item.kind === 'builtin' && (
                       <span className="rounded bg-sky-500/15 px-1 py-0.5 text-[12px] uppercase tracking-wide text-sky-400/80">
@@ -2085,8 +1934,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
                         {item.builtin.aliases.map((a) => `/${a}`).join(' ')}
                       </span>
                     )}
-                    {/* §4 (슬래시 명령 가용성) — 헤드리스에서 CLI 가 거절하는 명령. 종전에는 화면이
-                        아무 말도 안 해 사용자가 고른 뒤에야 죽는 걸 알았다. */}
+                    {/* §4 (슬래시 명령 가용성) — 헤드리스에서 CLI 가 거절하는 명령을 고르기 전에 표시한다. */}
                     {item.kind === 'builtin' && slashCommandNeedsTerminal(item.name, isInteractiveTerminalAgent) && (
                       <span className="flex items-center gap-0.5 rounded bg-amber-500/15 px-1 py-0.5 text-[12px] tracking-wide text-amber-400/90">
                         <svg
@@ -2120,8 +1968,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
           </div>
         </div>
       )}
-      {/* §5.5 #17-18 ⑤ v4.77 — 옛 "대기 줄"은 없앴다. 대기 중 덧말의 상태·방식 칩·삭제는 그 덧말의
-          **말풍선(CollapsiblePrompt)** 안에 있다 — 같은 내용을 두 곳에 그리지 않는다. */}
+      {/* §5.5 #17-18 ⑤ — 대기 덧말의 상태·칩·삭제는 말풍선(CollapsiblePrompt) 안에 있다 — 여기 대기 줄을 다시 그리지 마라. */}
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {attachments.map((a) => (
@@ -2133,8 +1980,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
               <img
                 src={attachmentPreviewUrl(a) || undefined}
                 alt=""
-                // §5.5 #17-25 v4.80 — 아직 안 보낸 첨부는 "어느 자리인지"를 함께 넘긴다
-                //   → 라이트박스에서 주석을 저장하면 새로 붙지 않고 **이 자리를 교체**한다.
+                // §5.5 #17-25 — 안 보낸 첨부는 자리를 넘겨, 라이트박스 주석 저장이 이 자리를 교체한다.
                 onClick={() => {
                   if (a.uploading || a.error) return;
                   const previewUrl = attachmentPreviewUrl(a);
@@ -2183,23 +2029,10 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
             : sessionDraft?.sendFailure === 'rejected' ? 'ide.mainArea.sendRejected' : 'ide.mainArea.sendUnconfirmed')}
         </div>
       )}
-      {/*
-        §5.5 #17-9 ⑰(c-1) — 여기에 백단 셸 띠를 두지 않는다(2026-09-29 사용자 지시). 셸 개수 하나만 보고
-        떠서, 턴이 아직 도는 중에도 "답은 이미 나왔으니 계속 입력하셔도 된다"고 적었고 그 말을 믿고 보낸
-        말은 줄에 섰다. 셸이 돈다는 사실은 활동바 "백그라운드 작업"의 숫자와 사이드바 목록([셸] 칩)이
-        말한다. 되살리지 마라 — `sessionRunTruth.test.ts` (K) 가 고정한다.
-      */}
-      {/*
-        §5.5 #17-10 ⑥-6 — 여기에 무응답 띠(경과 · [더 기다리기] · [중지])를 두지 않는다(2026-09-23 사용자 지시).
-        그 [중지]는 바로 아래 입력줄의 [중지](같은 `handleStop`)와 같은 기능 두 벌이었다. 경과·무응답은
-        스트림 "작업 중…" 줄이 말한다. 되살리지 마라 — `sessionRunTruth.test.ts` (G) 가 고정한다.
-      */}
-      {/*
-        §2.4 — [중지]를 눌렀는데 서버에 멈출 것이 없었거나(`nothing`) 요청이 실패했을 때(`failed`).
-        종전에는 둘 다 **아무 말 없이** 버튼만 되돌아와, 사용자는 같은 버튼을 계속 누르는 수밖에
-        없었다. `nothing` 은 곧 **화면의 "실행 중"이 거짓**이라는 뜻이므로 에이전트 전체를 끊는
-        강제 마감을 함께 연다(새 API ❌ — 이미 있는 `stop-all` 이다).
-      */}
+      {/* §5.5 #17-9 ⑰(c-1) — 백단 셸 띠를 두지 마라(셸 수만 보고 "계속 입력해도 된다"고 적어 말이 줄에 섰다).
+         셸은 활동바 숫자·사이드바 [셸] 칩이 말한다(`sessionRunTruth.test.ts` (K)). */}
+      {/* §5.5 #17-10 ⑥-6 — 무응답 띠를 두지 마라(그 [중지]는 입력줄 [중지]와 두 벌). 경과는 "작업 중…" 줄이 말한다(`sessionRunTruth.test.ts` (G)). */}
+      {/* §2.4 — [중지] 결과가 `nothing`·`failed` 면 알린다. `nothing` = 화면의 "실행 중"이 거짓이라 강제 마감(기존 `stop-all`)을 함께 연다. */}
       {(stopOutcome.kind === 'nothing' || stopOutcome.kind === 'failed') && (
         <div role="status" className="mb-1 flex flex-wrap items-center gap-2 text-[12px] leading-relaxed text-amber-300">
           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -2248,10 +2081,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
       )}
       <div className="flex items-center gap-2">
         <span className="text-[13px] font-bold text-blue-400">{'>'}</span>
-        {/* v3.31 — flex 축소(min-w-0)를 wrapper 로 옮기고 textarea 는 w-full(definite width)로 고정.
-            field-sizing:content 가 textarea 를 flex 항목으로 두면 내용 폭까지 넓혀 긴 붙여넣기/삽입이
-            줄바꿈되지 않아 1줄로 잘리고 세로로 안 늘어났다. 폭을 wrapper 로 확정하면 field-sizing 은
-            높이만 계산 → 내용이 줄바꿈되며 세로로 자동 확장. */}
+        {/* textarea 는 w-full, 축소(min-w-0)는 wrapper — textarea 가 flex 항목이면 field-sizing 이 폭을 늘려 줄바꿈·세로 확장이 안 된다. */}
         <div className="min-w-0 flex-1">
           <textarea
             key={draftKey}
@@ -2336,7 +2166,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
               onClick={handleStop}
               disabled={stopping}
               className="flex h-7 flex-shrink-0 items-center gap-1 rounded bg-red-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40"
-              // §5.5 #17-10 v3.53 — 이 버튼은 이 세션 탭이 실행 중일 때만 뜬다 = 항상 세션 스코프.
+              // §5.5 #17-10 — 이 버튼은 이 세션 탭이 실행 중일 때만 뜬다 = 항상 세션 스코프.
               title={t('ide.mainArea.stopSessionTitle')}
               aria-label={t('ide.mainArea.stop')}
             >
@@ -2365,8 +2195,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
           </>
         ) : (
           <>
-            {/* §5.5 #17-10 v3.53 — 이 탭 입력은 노는데 멈출 게 남아 있으면 전송 옆에 컴팩트 [중지].
-                세션 탭 = 이 세션이 띄운 백그라운드 서브에이전트만, 메인 탭 = 에이전트 전체. 다 끝나면 사라진다. */}
+            {/* §5.5 #17-10 — 입력은 노는데 멈출 게 남으면 전송 옆 컴팩트 [중지](세션 탭 = 그 세션의 백그라운드 서브, 메인 탭 = 에이전트 전체). */}
             {agentBusyElsewhere && (
               <button
                 type="button"
@@ -2411,93 +2240,60 @@ interface StreamStatusBarProps {
   scrollRef: React.RefObject<HTMLDivElement>;
   /** Sub 탭 가상 리스트 핸들 — 점프 시 미렌더 항목을 scrollToIndex 로 먼저 렌더시키기 위함. */
   streamRef: React.RefObject<StreamRendererHandle>;
-  /** v3.14 — 점프 직전 호출: 부모가 바닥 추종을 해제해 워치독이 점프 위치를 되끌지 않게 한다. */
+  /** 점프 직전 호출: 부모가 바닥 추종을 해제해 워치독이 점프 위치를 되끌지 않게 한다. */
   onJump?: () => void;
   /** §5.5 #17-12 — 이 세션의 스트림 이벤트(마지막 TodoWrite 로 "지금 무엇을" 판정). */
   events: SubAgentStreamEvent[];
-  /**
-   * 이 세션이 **지금 돌고 있는가**(`isSessionRunning` 판정 결과).
-   *
-   * 명령 상태(`executing`)만으로는 부족하다 — 턴 봉인이 만료된 뒤 세션이 다시 깨어나면 명령은
-   * `completed` 로 굳은 채 스트림만 계속 흐른다. 그때 이 줄이 초록 "완료"를 띄우면 화면이
-   * 거짓말을 한다(탭 점은 파랗게 도는데 여기만 끝났다고 말하던 그 불일치).
-   */
+  /** 이 세션이 돌고 있나(`isSessionRunning`) — 명령 상태만 보면 봉인 만료 뒤 깨어난 세션이 "완료"로 보인다. */
   sessionRunning: boolean;
-  /**
-   * §2.4 — 이 세션에 **정말로** `executing` 인 명령이 있는가(원본 큐 기준, 세션 필터 적용).
-   *
-   * 위 `commands` 로는 이 질문에 답할 수 없다 — 그 배열은 조용한 압축을 감추고 첫 대기 명령을
-   * 실행 중으로 승격시킨 **표시용 사본**이다. 종전에 이 줄이 그 사본을 세면서, 아무 명령도 돌지
-   * 않는 세션이 "되살아난 턴"으로도 잡히지 않고 영영 파란 스피너로 남았다.
-   */
+  /** §2.4 — 정말 `executing` 인 명령이 있나(원본 큐 + 세션 필터). 표시용 사본 `commands` 로 세면 영영 스피너가 남는다. */
   hasExecutingCommand: boolean;
-  /**
-   * §5.5 #17-50 — 이 칸이 지금 버블 지도를 보이고 있으면 받는다. 그때 줄을 누르면 대화가 화면에 없으므로
-   * 스크롤 대신 **대화로 돌아가 그 프롬프트로** 간다(지도 위에서 헛클릭이 되지 않게).
-   */
+  /** §5.5 #17-50 — 칸이 버블 지도를 보이고 있으면 받는다: 줄을 누르면 대화로 돌아가 그 프롬프트로 간다. */
   returnToStream?: (cmdId: string) => void;
 }
 
 const STATUS_SUMMARY_MAX = 80;
 
 /**
- * §5.5 #17-50 — [버블]. 밀도 토글 **왼쪽**에 선다(사용자 지시 — 낱말은 짧게 「버블」).
- * 켜면 이 칸의 대화 자리에 **이 세션만의 버블 지도**가 선다(`SessionBubbleView` — 프로젝트 캔버스 노드는 빌려 오지 않는다).
- * 켜짐은 칸(세션)마다 따로이고 휘발이다 — 키는 [추종]과 같은 꼴이라 분할 칸마다 따로 켠다.
- * 바깥 줄이 `role="button"`(프롬프트로 점프)이라 클릭은 밀도 토글과 같이 `stopPropagation` 한다.
+ * §5.5 #17-12 · #17-50 — 보기 묶음 [버블 | 간결 | 표준 | 원문](넷 중 하나). [버블] = 이 세션만의 버블 지도(`SessionBubbleView`, 캔버스 부품),
+ * 켜진 [버블]을 다시 누르면 지금 밀도로. 버블 켜짐은 칸마다 휘발, 밀도는 전역. 바깥 줄이 `role="button"` 이라 `stopPropagation`.
  */
-function StreamBubbleToggle(): React.JSX.Element {
+function StreamViewToggle(): React.JSX.Element {
   const { t } = useTranslation();
   const agentId = useIDEPaneValue((o) => o.agentId);
   const paneSessionId = useIDEPaneValue((o) => o.activeSessionId);
   // §5.5 #17-34 — 창을 나눴으면 **이 칸의** 세션, 안 나눴으면 종전대로 창의 활성 세션.
   const activeSessionId = useSplitCellSession(paneSessionId);
   const viewKey = followSessionKey(agentId ?? '', activeSessionId);
-  const on = useGraphStore((s) => s.ideBubbleView[viewKey] === true);
-  const setOn = useGraphStore((s) => s.setIdeBubbleView);
-  return (
-    <button
-      type="button"
-      aria-pressed={on}
-      onClick={(e) => { e.stopPropagation(); setOn(viewKey, !on); }}
-      title={on ? t('ide.bubbles.tipOn') : t('ide.bubbles.tipOff')}
-      className={`flex flex-shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] font-semibold transition-colors ${
-        on
-          ? 'border-blue-400/80 bg-blue-500/25 text-blue-100'
-          : 'border-gray-600/70 text-gray-400 hover:bg-gray-800 hover:text-gray-100'
-      }`}
-    >
-      {/* lucide `orbit` — 원 · 궤도 · 위성(버블 언어). */}
-      <svg
-        className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden
-      >
-        <circle cx="12" cy="12" r="3" />
-        <circle cx="19" cy="5" r="2" />
-        <circle cx="5" cy="19" r="2" />
-        <path d="M10.4 21.9a10 10 0 0 0 9.941-15.416" />
-        <path d="M13.5 2.1a10 10 0 0 0-9.841 15.416" />
-      </svg>
-      {t('ide.bubbles.toggle')}
-    </button>
-  );
-}
-
-/** §5.5 #17-12 — 표시 밀도 3단 토글(간결/표준/원문). 상태바 우측에 상주 — 스트림이 길어지는 자리에서 바로 조절. */
-function StreamDensityToggle(): React.JSX.Element {
-  const { t } = useTranslation();
+  const bubbleOn = useGraphStore((s) => s.ideBubbleView[viewKey] === true);
+  const setBubbleView = useGraphStore((s) => s.setIdeBubbleView);
   const density = useGraphStore((s) => s.ideStreamDensity);
   const setDensity = useGraphStore((s) => s.setIdeStreamDensity);
+  const segmentClass = (active: boolean): string => `rounded px-1.5 py-0.5 text-[12px] font-medium transition-colors pointer-coarse:py-1 ${
+    active ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
+  }`;
   return (
     <div className="flex flex-shrink-0 items-center gap-0.5 rounded border border-gray-700/60 p-0.5" title={t('ide.density.label')}>
+      <button
+        type="button"
+        aria-pressed={bubbleOn}
+        onClick={(e) => { e.stopPropagation(); setBubbleView(viewKey, !bubbleOn); }}
+        title={bubbleOn ? t('ide.bubbles.tipOn') : t('ide.bubbles.tipOff')}
+        className={segmentClass(bubbleOn)}
+      >
+        {t('ide.bubbles.toggle')}
+      </button>
       {STREAM_DENSITIES.map((d) => (
         <button
           key={d}
           type="button"
-          onClick={(e) => { e.stopPropagation(); setDensity(d); }}
-          className={`rounded px-1.5 py-0.5 text-[12px] font-medium transition-colors ${
-            density === d ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
-          }`}
+          aria-pressed={!bubbleOn && density === d}
+          onClick={(e) => {
+            e.stopPropagation();
+            setDensity(d);
+            if (bubbleOn) setBubbleView(viewKey, false);
+          }}
+          className={segmentClass(!bubbleOn && density === d)}
         >
           {t(`ide.density.${d}`)}
         </button>
@@ -2506,24 +2302,8 @@ function StreamDensityToggle(): React.JSX.Element {
   );
 }
 
-/**
- * §5.19 (G) — All Model(로컬 LLM) 버블이 **지금 문 모델**. 종전에는 창 타이틀바의 정체 뱃지였으나
- * 사용자 지시로 **밀도 토글 옆**(하단 상태바)으로 내려왔다 — 모델을 바꾸는 일은 창의 이름표보다
- * "지금 이 대화를 무엇으로 굴리나"에 가깝고, 그 조절 손잡이(밀도·추종)가 모여 있는 자리가 여기다.
- *
- * 로컬 버블이 아니면 **아무것도 그리지 않는다** — 클로드 버블의 상태바는 종전과 한 픽셀도 다르지 않다.
- * 바깥 줄이 `role="button"`(프롬프트로 점프)이라 클릭은 밀도 토글과 같이 `stopPropagation` 한다.
- */
-/**
- * §5.19 (D) — 이 버블의 **대화 창이 얼마나 찼나.**
- *
- * 종전에는 창을 넘긴 **뒤에야** 한 줄이 떴다 — 그때는 이미 오래된 말을 덜어 낸 뒤라 사용자는
- * 무엇이 사라졌는지 모른 채 결과만 본다. 엔진이 왕복마다 프롬프트 토큰 수를 공짜로 알려 주므로,
- * 넘치기 전에 보여 주는 것이 옳다.
- *
- * 값이 없으면 **아무것도 그리지 않는다** — 첫 턴을 돌기 전에는 잴 것이 없고, 빈 막대는
- * "0% 찼다"는 거짓말이 된다.
- */
+/** §5.19 (G) — 로컬 LLM 버블이 문 모델(하단 상태바, 밀도·추종 옆). 로컬이 아니면 안 그린다. 바깥 줄 클릭은 `stopPropagation`. */
+/** §5.19 (D) — 대화 창이 얼마나 찼나(넘치기 전에 보인다 — 엔진이 왕복마다 프롬프트 토큰 수를 준다). 값이 없으면 안 그린다(빈 막대 = "0%" 거짓말). */
 function StreamLocalContextGauge({ used, limit }: { used: number; limit: number }): React.JSX.Element | null {
   const { t } = useTranslation();
   if (!(limit > 0) || used <= 0) return null;
@@ -2551,15 +2331,8 @@ function StreamLocalContextGauge({ used, limit }: { used: number; limit: number 
 }
 
 /**
- * §5.19 (G) · §5.25 (B) — 이 창을 문 **프로바이더 버블의 정체 뱃지.** 창 이름 옆이 아니라
- * 하단 상태바에 선다(사용자 지시).
- *
- * **`!!provider` 로 묶지 않는다.** 프로바이더가 둘이 된 뒤로 그 판정은 코덱스 버블에게
- * `All Model` 이라고 말하고, 눌리면 **로컬 모델 설치 창**을 연다 — 자기 정체를 틀리게 말하는
- * 화면이다(`openIDEOverlay` 가 같은 이유로 `kind` 로 갈린 그 자리와 한 쌍이다).
- *
- * 코덱스 쪽이 **누를 수 없는** 것은 일부러다 — 로컬은 여기서 바로 바꿀 창(`localModelWindow`)이
- * 있지만 코덱스 모델은 버블 설정 창에서 고른다. 없는 창을 약속하느니 사실만 적는다.
+ * §5.19 (G) · §5.25 (B) — 프로바이더 버블 정체 뱃지. `!!provider` 로 묶지 마라 — 코덱스가 `All Model` 로 뜨고 로컬 설치 창이 열린다
+ * (`openIDEOverlay` `kind` 분기와 한 쌍). 코덱스 뱃지는 일부러 못 누른다(모델은 버블 설정 창에서).
  */
 function StreamProviderModelButton(): React.JSX.Element | null {
   const { t } = useTranslation();
@@ -2601,13 +2374,8 @@ function StreamProviderModelButton(): React.JSX.Element | null {
 const FOLLOW_FLYOUT_MS = 2200;
 
 /**
- * §5.5 #17-27 ⑪ — [추종] 토글. 밀도 토글 **옆에** 서지만 밀도 축이 아니다(별개 on/off).
- * 켜면 **이 세션이** 고치는 파일을 오른쪽 편집창이 따라 연다 — 끄면 종전처럼 사용자가 눌러야 열린다.
- *
- * (h) — **옆에는 아무것도 붙지 않는다.** 한때 자국 칩과 대기 건수 배지를 상주시켰지만, 좁은 상태바가
- * 셋으로 붐볐고 그 수는 스캔 창 밖으로 밀릴 때마다 줄어 흔들렸다. 상시 표시는 정보가 아니라 배경이 된다 —
- * 그래서 지금은 **따라간 그 순간에만** 버튼 위로 한 줄이 떠올랐다 사라진다(`absolute` 라 줄을 밀지 않고,
- * 사라지는 요소라 클릭 대상도 아니다). 켜짐 자체는 파란 채움 + 맥동하는 점이 말한다.
+ * §5.5 #17-27 ⑪ — [추종](밀도와 별개): 이 세션이 고치는 파일을 편집창이 따라 연다. (h) 옆에 칩·배지를 상주시키지 않는다 —
+ * 따라간 순간만 버튼 위에 한 줄(`absolute`). 켜짐은 파란 채움 + 맥동 점.
  */
 function StreamFollowToggle(): React.JSX.Element {
   const { t } = useTranslation();
@@ -2731,34 +2499,19 @@ function StreamFollowToggle(): React.JSX.Element {
   );
 }
 
-/**
- * 하단 상태바 한 줄의 뼈대 — **넘치지 않고 접힌다.**
- *
- * 종전에는 `flex ... gap-2` 한 줄에 손잡이 셋이 전부 `flex-shrink-0` 으로 서 있었다. 창을 좁혀
- * 대화가 얇아지면 그 셋이 줄 밖으로 밀려났는데, 대상 없음 줄은 `justify-end` 라 넘친 만큼이
- * **왼쪽으로** 흘러 옆 사이드바 위를 덮었다(사용자 스크린샷 아래쪽 표시). 이제 줄이 `flex-wrap`
- * 이라 자리가 모자라면 손잡이 묶음이 **다음 줄로 내려간다** — 아무것도 잘리지 않고, 밖으로도
- * 나가지 않는다. 넓은 창에서는 한 줄에 다 들어가므로 종전 화면과 같다.
- */
+/** 하단 상태바 한 줄 — `flex-wrap` 으로 접힌다(한 줄 고정이면 좁은 창에서 손잡이가 밀려나 `justify-end` 줄이 사이드바를 덮는다). */
 const STATUS_ROW_CLASS = 'flex w-full flex-shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-gray-800 bg-gray-900/70 px-4';
 
-/**
- * 요약 글줄 — `min-w-*` 가 있어야 **손잡이보다 먼저 사라지지 않는다.** `flex-1` 만 두면 기준 폭이
- * 0 이라 줄바꿈 셈에서 없는 것으로 쳐, 좁은 칸에서 글줄이 0px 로 접히고 손잡이만 남는다.
- */
+/** 요약 글줄 — `min-w-*` 가 있어야 손잡이보다 먼저 사라지지 않는다(`flex-1` 만이면 기준 폭 0 이라 0px 로 접힌다). */
 const STATUS_SUMMARY_CLASS = 'min-w-[6rem] flex-1 truncate text-[12px]';
 
-/**
- * 밀도·추종·(로컬이면) 모델 — 한 묶음으로 움직인다. 줄이 모자라면 이 묶음째 다음 줄로 내려가고,
- * 묶음 자신도 `flex-wrap` 이라 분할 칸(하한 280px)처럼 좁은 자리에서도 밖으로 나가지 않는다.
- */
+/** 밀도·추종·(로컬)모델 한 묶음 — 모자라면 묶음째 다음 줄로, 묶음도 `flex-wrap`(분할 칸 하한 280px 에서도 안 넘친다). */
 function StreamControls({ jumpHint = false }: { jumpHint?: boolean }): React.JSX.Element {
   return (
     <div className="ml-auto flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
       <StreamProviderModelButton />
-      {/* §5.5 #17-50 — [버블]은 밀도 토글 바로 왼쪽(사용자 지시). */}
-      <StreamBubbleToggle />
-      <StreamDensityToggle />
+      {/* §5.5 #17-12 · #17-50 — [버블 | 간결 | 표준 | 원문] 한 묶음([버블]을 따로 두지 않는다). */}
+      <StreamViewToggle />
       <StreamFollowToggle />
       {jumpHint && (
         <span className="flex-shrink-0 text-[12px] text-gray-600 group-hover:text-gray-300">{'↑'}</span>
@@ -2771,13 +2524,8 @@ function StreamControls({ jumpHint = false }: { jumpHint?: boolean }): React.JSX
 const VERIFY_REQUEST_TASK_EXCERPT_MAX = 300;
 
 /**
- * §5.3 #12-4 (F) — 끝난 명령의 검증 상태 한 칩. 서버가 적은 기록(`QueuedCommand.verification`)을 그대로 그린다.
- *
- * - 파일을 고쳤거나 막은 시도가 있는데 검증을 하나도 안 돌렸으면 **"검증 미실행"** + (최신 명령이면) [검증 실행].
- * - 사용자가 연 범위 안에서 돌렸으면 **"검증 N회 실행"** — 통과라고 말하지 않는다(결과는 본문이 말한다).
- * - 둘 다 아니면(읽기·질문만 한 턴) 아무것도 그리지 않는다. 팝업·질문은 띄우지 않는다.
- *
- * 바깥 줄이 `role="button"`(프롬프트로 점프)이라 버튼 클릭은 `stopPropagation` 한다(밀도 토글과 같다).
+ * §5.3 #12-4 (F) — 끝난 명령의 검증 칩(`QueuedCommand.verification` 그대로). 고쳤는데 0회면 "검증 미실행"(+ 최신이면 [검증 실행]),
+ * 돌렸으면 "검증 N회 실행"(통과라 말하지 않는다), 읽기·질문만이면 없음. 버튼은 `stopPropagation`.
  */
 function StreamVerificationChip({ command, canRun }: { command: QueuedCommand; canRun: boolean }): React.JSX.Element | null {
   const { t } = useTranslation();
@@ -2868,10 +2616,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
     const measure = (): void => {
       const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
       if (atBottom) { setViewedId((p) => (p === null ? p : null)); return; }
-      // Sub 탭 — 가상 리스트(virtuoso)는 뷰포트 밖 항목을 렌더하지 않으므로 **DOM 에 있는 명령 블록만**
-      //   훑으면 틀린다: 응답이 긴 턴 사이에서는 명령 블록이 한 장도 렌더되지 않아, 위로 올려 내 말풍선을
-      //   지나쳐도 이 줄이 옛 프롬프트로 바뀌지 않았다(옛 말풍선이 선렌더 버퍼 1600px 안에 들어와야 바뀜
-      //   = "중간쯤 올라가야 바뀐다"). 렌더러가 맨 위 항목의 **소속 명령을 인덱스로** 되짚어 준다.
+      // Sub 탭 — DOM 의 명령 블록만 훑지 마라(virtuoso 는 밖을 안 그려 긴 턴에선 줄이 안 바뀐다). 렌더러가 맨 위 항목의 소속 명령을 인덱스로 준다.
       const owned = streamRef.current?.viewedCommandId() ?? null;
       if (owned !== null) { setViewedId((p) => (p === owned ? p : owned)); return; }
       // 메인(Agent) 탭 — 스트림 렌더러가 없고 타임라인에 명령 블록도 없다. 종전 DOM 판정을 그대로 둔다.
@@ -2900,9 +2645,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
     };
   }, [scrollRef, streamRef, commands]);
 
-  // §5.5 #17-12 ③-2 (a) — 이 줄이 **실행 중**을 말하는 동안은 스크롤 위치를 묻지 않는다. 종전에는 명령을
-  //   내려 두고 위로 올려 앞 턴을 읽는 순간 `완료 / 옛 프롬프트` 로 바뀌어, 돌고 있는 일이 사라진 것처럼
-  //   보였다. 측정(viewedId)은 계속 돌리므로 실행이 끝나는 순간 보고 있는 턴으로 곧장 넘어간다.
+  // §5.5 #17-12 ③-2 (a) — 실행 중을 말하는 동안 스크롤 위치를 묻지 않는다(앞 턴을 보면 돌던 일이 사라진 듯 보인다). 측정은 계속해 끝나면 보는 턴으로.
   const pinnedToRunning = statusBarPinsToRunning({
     defaultStatus: defaultTarget?.status ?? null,
     sessionRunning,
@@ -2918,8 +2661,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
     return defaultTarget;
   }, [viewedId, commands, defaultTarget, pinnedToRunning]);
 
-  // v1.38 — 첨부 썸네일(basename 으로 조회). v2.93 — blob preview 우선 + server 파일 라우트 폴백.
-  //          훅은 조건부 return 위에서 호출(target 없으면 빈 배열).
+  // 첨부 썸네일(basename 조회, blob preview 우선 + 서버 파일 라우트 폴백). 훅은 조건부 return 위에서 부른다(target 없으면 빈 배열).
   const attachmentThumbs = useAttachmentThumbs(target?.attachments);
 
   // §5.5 #17-12 — 마지막 TodoWrite 기준 "지금 무엇을 하는 중" + 완료/전체. 이벤트가 바뀔 때만 재계산.
@@ -2929,9 +2671,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
   const paneSessionId = useIDEPaneValue((o) => o.activeSessionId);
   // §5.5 #17-34 — 창을 나눴으면 **이 칸의** 세션, 안 나눴으면 종전대로 창의 활성 세션.
   const activeSessionId = useSplitCellSession(paneSessionId);
-  // §5.5 #17-9 ⑰ — **기다릴 것**(모델 자식)만 센다. 셸은 이 줄이 말할 것이 아니다(입력창 위 회색
-  //   줄이 따로 말한다). 종전에는 둘을 합쳐 세서, 답이 이미 나온 턴에 `tail -f` 하나 때문에
-  //   "백그라운드 작업 1개를 기다리는 중"이라는 줄이 영영 서 있었다.
+  // §5.5 #17-9 ⑰ — 기다릴 것(모델 자식)만 센다 — 셸까지 세면 `tail -f` 하나로 "기다리는 중"이 영영 선다.
   const bgTaskCount = useGraphStore((s) => {
     const tasks = agentId ? s.runningSubagentTasks[agentId] : undefined;
     if (!tasks) return 0;
@@ -2945,7 +2685,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
     if (!target) return;
     // §5.5 #17-50 — 버블 지도를 보고 있으면 대화가 화면에 없다. 대화로 돌아가 그 프롬프트로 간다.
     if (returnToStream) { returnToStream(target.id); return; }
-    // v3.14 — 점프 전 부모 추종 해제(워치독이 점프 위치를 바닥으로 되끌지 않게).
+    // 점프 전 부모 추종 해제(워치독이 점프 위치를 바닥으로 되끌지 않게).
     onJump?.();
     // 가상 리스트는 뷰포트 밖 항목을 렌더하지 않는다 — DOM 조회만으로는 바닥에서 누를 때 타깃 프롬프트가
     //   미렌더라 el===null → 안 올라간다. virtuoso scrollToIndex(렌더 보장)+정밀 스크롤을 한 핸들이 담당.
@@ -2972,18 +2712,12 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
     );
   }
 
-  // **되살아난 턴** — 세션은 도는데 이 세션 소유의 `executing` 명령이 없는 상태(봉인 만료 후 재진입).
-  //   이때 마지막 완료 명령을 그대로 "완료"로 그리면 화면이 거짓말을 하므로 실행 중 줄로 되돌린다.
-  //   단 **사용자가 위로 스크롤해 과거 명령을 보고 있을 때(`target !== defaultTarget`)는 건드리지 않는다** —
-  //   그 줄은 "지금"이 아니라 "그때"를 가리키는 자리라, 지나간 명령에 스피너가 돌면 그게 또 거짓이 된다.
+  // 되살아난 턴(세션은 도는데 이 세션의 executing 명령이 없음 — 봉인 만료 후) = 실행 중 줄. 단 과거 명령을 보는 중(`target !== defaultTarget`)이면 그대로.
   const resumedTurn = sessionRunning
     && target === defaultTarget
     && !hasRealExecuting;
-  // §2.4 (생존 판정 단일화) — `target.status === 'executing'` 하나로 스피너를 돌리면 두 가지로 거짓이 된다:
-  //   ① 이 `commands` 는 **표시용 사본**이라 조용한 압축이 도는 동안 뒤에 선 대기 명령이 `executing`
-  //      으로 승격돼 있다(버블 표시 전용 승격 — `constants.ts` 의 경고 그대로).
-  //   ② 서버가 미처 마감하지 못한 좀비 명령이 남으면 그 칸은 영영 `executing` 이다(사용자 보고).
-  //   그래서 **세션이 실제로 도는가**(공유 술어 한 벌)를 함께 본다 — 둘 다 참일 때만 실행 중 줄이다.
+  // §2.4 — `executing` 만으로 스피너를 돌리지 마라: 표시용 사본은 조용한 압축 중 대기 명령을 승격시키고(`constants.ts`), 좀비 명령은 영영 executing 이다.
+  // 세션이 실제로 도는가와 둘 다 참일 때만.
   const isExecuting = (target.status === 'executing' && sessionRunning) || resumedTurn;
   const isError = target.status === 'error' && !resumedTurn;
   // §5.5 #17-12 ③-6 — 실패가 아닌데 평범하게 끝나지 않은 턴(중지·상한·거절·한도)은 초록 "끝남" 대신
@@ -2992,9 +2726,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
   // §5.5 #17-12 — 실행 중에는 "내가 친 프롬프트" 대신 **에이전트가 지금 하는 단계**를 보여준다(계획이 있을 때).
   //   계획이 없으면 종전대로 프롬프트 앞부분 — 어떤 경우에도 빈 줄이 되지 않게.
   const plan = isExecuting ? planProgress : null;
-  // §5.5 #17-12 ③ — 오류로 끝났으면 이 줄이 말할 것은 **내가 친 프롬프트가 아니라 실패 사유**다.
-  //   "오류"라는 단어만 놓고 원인을 삼키면 사용자는 무엇이 잘못됐는지 알 길이 없다(사용자 지적).
-  //   사유가 없는 옛 명령은 결과 텍스트 → 프롬프트 순으로 폴백해 종전 화면과 같아진다.
+  // §5.5 #17-12 ③ — 오류면 프롬프트 대신 실패 사유를 말한다. 사유 없는 옛 명령은 결과 → 프롬프트 폴백.
   const errorDesc = isError && target.error ? describeCommandError(target.error) : null;
   const errorGuidance = errorDesc?.guidance;
   const errorLine = errorDesc
@@ -3047,8 +2779,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
             {t('ide.plan.progress', { done: plan.done, total: plan.total })}
           </span>
         )}
-        {/* §5.5 #17-12 ③ v4.64 — 이 줄에는 [중지]를 두지 않는다. 실행 중이면 바로 아래 입력창에 같은 동작의
-            [중지]가 뜨므로 버튼이 둘로 보였다("왜 중지가 2개냐"). 중지 창구는 입력창 하나(#17-10). */}
+        {/* §5.5 #17-12 ③ — 이 줄에 [중지]를 두지 마라(입력창 [중지]와 두 벌, #17-10). */}
         <StreamControls jumpHint />
       </div>
     );
@@ -3091,15 +2822,13 @@ ${t('ide.mainArea.scrollPrompt')}` : t('ide.mainArea.scrollPrompt')}
   );
 }
 
-// ─── 우클릭 컨텍스트 메뉴 — §5.5 #17-27 ⑨ v4.97 로 `IDEContextMenu` 공용 컴포넌트로 이사(편집창과 공유). ───
+// 우클릭 컨텍스트 메뉴는 `IDEContextMenu` 공용 컴포넌트에 있다(§5.5 #17-27 ⑨, 편집창과 공유).
 
 // ─── 메인 영역 ───
 
-// ─── v2.61 첨부 이미지 라이트박스 — 전역 transient state(imageLightbox)를 body 로 portal. ───
-//      입력칩 · 실행 상태바 · 대화 스트림의 어떤 썸네일을 클릭해도 여기서 전체화면 확대.
-//      §5.5 #17-25 v4.80 — 확대만 하던 자리에 주석 도구를 얹었다(ImageLightboxView). 여기는
-//      "store 를 읽어 body 로 portal" 만 하고, 도구·저장 배선은 그 컴포넌트가 갖는다.
-function ImageLightboxHost({ agentId, activeSessionId, canAttach }: ImageLightboxHostProps): React.JSX.Element | null {
+// 첨부 이미지 라이트박스 — 전역 imageLightbox 를 body 로 portal 만 한다(어느 썸네일이든). 주석 도구·저장은 ImageLightboxView(§5.5 #17-25).
+/** §5.5 #17-27 ⑳ — 파일 창도 같은 호스트를 쓴다(붙일 입력창이 없어 `canAttach=false` — 덮어쓰기·내려받기만). */
+export function ImageLightboxHost({ agentId, activeSessionId, canAttach, zIndex }: ImageLightboxHostProps): React.JSX.Element | null {
   const lightbox = useGraphStore((s) => s.imageLightbox);
   const close = useGraphStore((s) => s.closeImageLightbox);
   // 호스트는 대화 본문마다 있다 — **연 자리의 것만** 그린다(창·분할 칸 수만큼 겹쳐 뜨고 [저장]이 남의 입력창으로 가던 것).
@@ -3113,6 +2842,7 @@ function ImageLightboxHost({ agentId, activeSessionId, canAttach }: ImageLightbo
       agentId={agentId}
       activeSessionId={activeSessionId}
       canAttach={canAttach}
+      {...(zIndex !== undefined ? { zIndex } : {})}
       onClose={() => close(lightbox)}
     />,
     document.body,
@@ -3124,18 +2854,14 @@ interface ImageLightboxHostProps {
   activeSessionId: string | null;
   /** 붙일 입력창이 있는가 — 읽기 전용(Hook 에이전트 메인 탭)이면 [내려받기]만 남는다. */
   canAttach: boolean;
+  /** §5.5 #17-27 ⑳ — 겹침 높이(파일 창이 연 팝업은 그 창 한 칸 위). 생략하면 종전 그대로. */
+  zIndex?: number;
 }
 
-/**
- * §5.5 #17-36 ⑫ — 메인 탭에서 메모 링크로 갈 때, 가상 리스트를 그 항목으로 옮긴 뒤 **그려지기를 기다리는** 틈(ms).
- * 북마크 이동이 같은 단계 사이에 두는 간격(옮기기 60ms → 찾기 340ms)과 같은 280ms 다.
- */
+/** §5.5 #17-36 ⑫ — 메모 링크 이동에서 리스트를 옮긴 뒤 그려지기를 기다리는 틈(ms). 북마크 이동의 간격(60ms → 340ms)과 같은 280ms. */
 const MEMO_LINK_JUMP_SETTLE_MS = 280;
 
-/**
- * §5.5 #17-50 — 버블 지도에서 [대화에서 보기]·상태바 줄로 돌아온 뒤 그 프롬프트로 옮기기까지 기다리는 틈(ms).
- * 대화가 다시 서고 가상 리스트가 첫 측정을 마치는 동안이다(북마크 이동이 세션을 세운 뒤 120ms 를 기다리는 것과 같은 결).
- */
+/** §5.5 #17-50 — 버블 지도에서 대화로 돌아와 프롬프트로 옮기기 전 기다리는 틈(ms) — 대화가 서고 첫 측정을 마치는 동안. */
 const BUBBLE_RETURN_SETTLE_MS = 180;
 /** 지도가 꺼져 있을 때의 빈 재료 — 매 렌더 새 배열이면 지도 쪽 memo 가 헛돈다. */
 const EMPTY_BUBBLE_STREAMS: readonly SessionBubbleStream[] = [];
@@ -3182,8 +2908,7 @@ export const IDEMainArea = memo(function IDEMainArea({
   // §5.5 #17-34 — 이 본문이 창 단위 단축키(Ctrl+F 검색·Ctrl± 배율)의 임자인가. 분할 중이면 초점 칸만
   //   참이다(칸마다 window 리스너를 달아 두면 한 번 누른 확대가 칸 수만큼 먹는다).
   const cellFocused = useSplitCellFocused();
-  // 하단 상태바가 "완료"라고 말할지 "실행 중"이라고 말할지의 근거. 입력창의 [중지] 토글과 **같은 훅**을
-  //   써서 두 자리가 어긋나지 않게 한다(종전에는 각자 명령 상태만 따로 봐서 갈라졌다).
+  // 하단 상태바의 "완료"/"실행 중" 근거. 입력창 [중지] 토글과 같은 훅을 써야 두 자리가 어긋나지 않는다.
   const streamSessionRunning = useSessionRunning(agentId, activeSessionId);
   // §2.4 (생존 판정 단일화) — **원본 큐 + 세션 필터 + 공유 술어**로 낸 "작동 중"(도는 중 ∪ 줄 서 있음).
   //   라이브 1줄(작업 중)과 스트림 렌더러가 이 값 하나를 본다. 화면용 사본(`displayCommands`)을
@@ -3191,19 +2916,13 @@ export const IDEMainArea = memo(function IDEMainArea({
   const sessionHasWork = useSessionWork(agentId, activeSessionId);
   // §2.4 — "진짜 도는 명령이 있는가"(원본 큐). 하단 상태바가 되살아난 턴을 가려낼 때 쓴다.
   const sessionExecuting = useSessionExecuting(agentId, activeSessionId);
-  // §2.4 (무응답) — "얼마나 조용한가"를 재는 시작점. 서버가 준 세션 활동 시각이라 여기서 만들지 않는다.
-  // §5.5 #17-18 ⑪ — **줄만 서 있는가.** 같은 훅에서 함께 받는다(`isSessionWaiting` — 도는 중 ∩
-  //   여집합). 이 값이 라이브 1줄의 세 번째 모습을 고르고, Sub 탭에도 그대로 내려간다.
-  // §5.3 #9-1 (P) — 감춘 턴(조용한 사전 압축)이 도는 중인가. 그동안의 움직임은 클라에 오지 않으므로
-  //   라이브 1줄은 입력한 순간부터 경과만 세고 무응답으로 뒤집지 않는다(`liveLineStalled`).
-  // §5.5 #17-10 ⑥-6 (턴 시계) — 라이브 1줄이 평소 적는 경과의 시작점. 원본 큐 + 세션 필터로 낸 값이라
-  //   메인 탭·Sub 탭이 같은 사실을 본다(줄이 와도 되감기지 않는다 — 활동 시각은 무응답 판정에만).
+  // §2.4 `lastActivityAt` 무응답 시작점(서버 값) · §5.5 #17-18 ⑪ `waiting` 줄만 섰나(라이브 1줄 세 번째 모습, Sub 탭에도) ·
+  // §5.3 #9-1 (P) `hiddenTurn` 감춘 턴 중(경과만 세고 무응답 ❌) · §5.5 #17-10 ⑥-6 턴 시계(원본 큐 + 세션 필터, 줄이 와도 되감기지 않는다).
   const {
     lastActivityAt: sessionLastActivityAt, waiting: sessionWaiting, hiddenTurn: sessionHiddenTurn,
     turnStartedAt: sessionTurnStartedAt, compactingSince: sessionCompactingSince,
   } = useSessionLivenessFacts(agentId, activeSessionId);
-  // §5.5 #17-12 ③ v4.64 — 하단 상태바의 [중지]를 없애면서 여기서 쓰던 useSessionStop 도 함께 제거.
-  //   중지 창구는 입력창(TerminalInput)의 [중지] 하나뿐이다(#17-10 범위 규칙 그대로).
+  // §5.5 #17-12 ③ — 여기엔 useSessionStop 이 없다(중지 창구는 TerminalInput 의 [중지] 하나, #17-10).
   const markSubAcknowledged = useGraphStore((s) => s.markSubAcknowledged);
   // 사용자가 메인 영역(스크롤 영역) 안을 클릭하면 현재 sub 의 완료 알림을 확인 처리(녹색→회색).
   const handleAckClick = useCallback(() => {
@@ -3213,10 +2932,7 @@ export const IDEMainArea = memo(function IDEMainArea({
   const completedCmds = useGraphStore((s) => s.completedCommands[agentId] ?? EMPTY_COMMANDS);
   const runningTasks = useGraphStore((s) => s.runningSubagentTasks[agentId]);
   const originalCommands = useMemo(() => [...queuedCmds, ...completedCmds], [queuedCmds, completedCmds]);
-  // queued/executing + completed/error 를 시간순으로 합친다 — 완료 후에도 프롬프트 이력 유지 (CommandQueue와 동일).
-  // §5.3 #9-1 (P) — 우리가 끼운 조용한 압축은 **말풍선이 되지 않는다.** 사용자가 넣은 적이 없는
-  //   명령이라, 여기 뜨면 자기가 치지도 않은 `/compact` 가 자기 대화에 섞여 보인다. 세션이 "돌고
-  //   있다"는 판정(useSessionRunning)은 그 명령을 그대로 세므로 화면은 계속 "작업 중"이다.
+  // queued/executing + completed/error 시간순(완료 뒤에도 프롬프트가 남게). §5.3 #9-1 (P) 우리가 끼운 조용한 압축은 말풍선 ❌ — "작업 중" 판정은 그대로 센다.
   const commands = useMemo(
     () => [...displayCommands(queuedCmds), ...completedCmds].sort((a, b) => a.timestamp - b.timestamp),
     [queuedCmds, completedCmds],
@@ -3229,11 +2945,7 @@ export const IDEMainArea = memo(function IDEMainArea({
       ? (s.subAgentStreams[activeSessionId] ?? EMPTY_STREAM_EVENTS)
       : EMPTY_STREAM_EVENTS,
   );
-  // §5.5 v3.72 — 메인 탭(activeSessionId===null) 전용 스트림 갱신 신호.
-  //   종전엔 메인 탭이 스트림을 **직접 구독하지 않고** `subAgents` 배열의 참조가 매 스냅샷마다
-  //   새로 만들어지는 것에 얹혀 갱신됐다. loadSnapshot 에 구조적 공유가 들어가 그 참조가 안정되면
-  //   그 우연한 신호가 끊겨 메인 탭에 출력이 안 흐른다 → 실제 데이터 의존성을 명시한다.
-  //   이벤트 **개수 합**(원시 number)이라 내용이 안 늘면 리렌더를 유발하지 않는다.
+  // §5.5 — 메인 탭 전용 스트림 갱신 신호(이벤트 개수 합). `subAgents` 참조 변화에 기대지 마라 — 구조적 공유로 안정되면 출력이 멎는다.
   const mainStreamVersion = useGraphStore((s) => {
     if (activeSessionId !== null) return 0;
     let total = 0;
@@ -3242,9 +2954,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     }
     return total;
   });
-  // v2.99 — scrollRef/scrollEl 은 이제 virtuoso 가 단독 소유한 **내부 스크롤러 DOM**(옛 외부 overflow
-  //   컨테이너 대체). Sub 탭=StreamRenderer onScrollerRef, 메인 탭=메인 Virtuoso scrollerRef 가 이 콜백으로
-  //   같은 노드를 올린다. StreamStatusBar·북마크 이동·Select All 이 이 컨테이너 한정으로 작동한다.
+  // scrollRef/scrollEl = virtuoso 내부 스크롤러(Sub 탭 onScrollerRef · 메인 scrollerRef 가 올린다). 상태바·북마크·Select All 이 이 안에서만 돈다.
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
   const setScrollNode = useCallback((node: HTMLElement | Window | null) => {
@@ -3253,10 +2963,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     setScrollEl(el);
   }, []);
 
-  // IDE 본문 텍스트 줌 — Ctrl+휠로 스트림/대화 글자 배율 조절(캔버스·창 UI 와 무관). 배율은 각 항목 래퍼에
-  //   zoom 으로 적용(StreamRenderer renderStreamItem / 아래 메인 타임라인 itemContent). 스크롤러는 그대로 둬
-  //   가상화 측정과 충돌하지 않게 한다. 본문 출력 영역에 native 비-passive wheel 리스너(capture)를 달아
-  //   preventDefault + stopPropagation 으로 가로채고(스크롤·markUpIntent 미발화), 부호로 확대/축소한다.
+  // 본문 텍스트 줌(Ctrl+휠) — 배율은 항목 래퍼의 zoom(스크롤러에 걸면 가상화 측정과 부딪힌다). 비-passive capture wheel 로 preventDefault + stopPropagation.
   const ideTextZoom = useGraphStore((s) => s.ideTextZoom);
   // §5.5 #17-12 — 메인 탭도 같은 표시 밀도를 따른다(계획 접기·동종 도구 합치기).
   const density = useGraphStore((s) => s.ideStreamDensity);
@@ -3303,10 +3010,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     el.addEventListener('wheel', onWheelZoom, { passive: false, capture: true });
     return () => el.removeEventListener('wheel', onWheelZoom, { capture: true });
   }, [setIdeTextZoom]);
-  // §4 v3.24 — 두 손가락 핀치 = 본문 텍스트 줌(모바일 웹, Ctrl+휠의 터치 짝). 같은 store 경로
-  //   (setIdeTextZoom, 0.6~2.4 클램프)라 배율 표시·localStorage 영속·다중 창 동기화가 그대로 붙는다.
-  //   두 터치 거리비를 핀치 시작 시점 배율에 곱하고, 핀치 중 touchmove 는 preventDefault(스크롤 정지)
-  //   + stopPropagation(capture — 스크롤러의 위로-제스처 추종 해제 판정 미발화)으로 가로챈다.
+  // §4 — 핀치 = 텍스트 줌(Ctrl+휠의 짝, 같은 setIdeTextZoom 0.6~2.4). 핀치 중 touchmove 는 preventDefault + stopPropagation(capture — 추종 해제 판정이 돌지 않게).
   useEffect(() => {
     const el = ideBodyRef.current;
     if (!el) return;
@@ -3374,16 +3078,8 @@ export const IDEMainArea = memo(function IDEMainArea({
     window.addEventListener('keydown', onKeyZoom);
     return () => window.removeEventListener('keydown', onKeyZoom);
   }, [setIdeTextZoom, cellFocused]);
-  // v3.05 — 바닥 추종의 SSOT 를 "스크롤 의도"(followRef)로 바꾼다. 옛 코드는 virtuoso 의
-  //   atBottomStateChange 가 주는 순간 바닥 여부(atBottomRef)로 추종을 판정했는데, 새 메시지/블록이
-  //   스트리밍돼 본문이 뷰포트 아래로 자라면 바닥과의 거리가 40px 임계를 넘겨 라이브러리가 곧장
-  //   atBottom=false 를 쏘고, 그 false 때문에 추종 effect 가 즉시 빠져나가 다시 바닥으로 붙지 못했다
-  //   → 새 답변에 포커싱은커녕 화면이 "스스로 위로 올라가" 보였다. 핵심 통찰: **콘텐츠가 자라기만 하면
-  //   scroll 이벤트는 안 난다(높이만 변하고 scrollTop 은 그대로)** → followRef 는 scroll 이벤트에서만
-  //   갱신하므로 콘텐츠 성장으로는 절대 꺼지지 않고, **사용자가 직접 위로 올릴 때만**(scroll 이벤트 +
-  //   바닥에서 멂) 꺼진다. 다시 바닥으로 내리면(scroll 이벤트 + 바닥 근접) 자동 재무장. = 사용자가 말한
-  //   3상태 그대로: ①안 건들면 자동추종 ②위로 올리면 그 자리 고정 ③다시 내리면 자동추종 재개.
-  // v2.99 — 활성 세션(탭) key. 메인 탭은 '__main__'. 세션별 스냅샷/추종상태 맵의 공통 키.
+  // 바닥 추종의 SSOT = 스크롤 의도(followRef): 안 건들면 추종 · 올리면 고정 · 내리면 재개. atBottomStateChange 순간값으로 판정하지 마라 —
+  // 본문이 자라 40px 를 넘는 순간 추종이 풀린다(끄는 조건은 아래 markUpIntent). `sessionKey` = 탭 키(메인 '__main__').
   const sessionKey = activeSessionId ?? '__main__';
   // 추종 의도(SSOT) — 스크롤 핸들러가 갱신. 추종 effect / 자기메시지 점프가 이 값을 본다.
   const followRef = useRef(true);
@@ -3399,27 +3095,18 @@ export const IDEMainArea = memo(function IDEMainArea({
     if (performance.now() < expandHoldUntilRef.current) return;
     if (atBottom) { followRef.current = true; sessionAtBottomRef.current.set(sessionKey, true); setShowJumpBottom(false); }
   }, [sessionKey]);
-  // v3.14 — 바닥 붙이기의 **유일한 집행 프리미티브**: virtuoso 측정 모델 좌표(scrollToIndex LAST)가 아니라
-  //   **실제 DOM**(scrollHeight-clientHeight)으로 붙인다. 모델이 DOM 과 어긋난 순간(측정 지연·추정 오차·절단
-  //   등 원인 불문) 모델 좌표 집행은 "모델이 생각하는 바닥"=실제보다 위로 스크롤을 역주행시켰다(thinking 중
-  //   "내리는 순간 위로 올려버림"의 구조적 원인). DOM 좌표 쓰기는 최댓값으로의 idempotent 이동이라 위로
-  //   역주행이 물리적으로 불가능하고, 쓰기 후 virtuoso 는 scroll 이벤트를 받아 그 위치의 창을 그린다.
+  // 바닥 붙이기는 실제 DOM(scrollHeight-clientHeight)으로만 — virtuoso 모델 좌표(scrollToIndex LAST)는 DOM 과 어긋나면 위로 역주행한다. DOM 쓰기는 idempotent.
   const glueToBottomDom = useCallback((): void => {
     const el = scrollEl;
     if (!el) return;
     const target = el.scrollHeight - el.clientHeight;
     if (el.scrollTop < target - 0.5) el.scrollTop = target;
   }, [scrollEl]);
-  // v2.99 — 세션(탭)별 virtuoso 상태 스냅샷(측정된 항목 높이 + 스크롤 위치). 스크롤 중 throttled 로 갱신 저장,
-  //   복귀 때 restoreStateFrom 으로 복원 → 재측정 출렁임 없이 보던 위치로 즉시 정착(옛 rAF 정착 루프 + 덮개,
-  //   세션별 {top,atBottom} 맵, 복원 중 저장 금지 플래그를 모두 대체).
-  //   §5.5 #17-12 — 키는 **세션 × 표시 밀도**다. 스냅샷은 순번별 항목 높이라, 간결에서 떠난 세션을 원문으로
-  //   돌아와 열면 남의 목록 좌표로 복원돼 엉뚱한 곳(대개 바닥 근처)에 떨어졌다(sessionSnapshotKey).
+  // 세션별 virtuoso 스냅샷(스크롤 중 throttled 저장 → restoreStateFrom). 키는 세션 × 밀도(sessionSnapshotKey) — 밀도가 다른 목록에 쓰면 엉뚱한 곳에 떨어진다.
   const sessionSnapshotsRef = useRef<Map<string, StateSnapshot>>(new Map());
   const densityRef = useRef(density);
   densityRef.current = density;
-  // v2.99 — 세션 복원 스냅샷 결정: 떠날 때 바닥이었으면(또는 첫 진입) undefined → 자식이 새 바닥(LAST)에서
-  //   시작, 아니면(위로 올려둔 세션) 저장 스냅샷으로 그 위치 복원.
+  // 세션 복원 스냅샷: 떠날 때 바닥이었거나 첫 진입이면 undefined(자식이 LAST 에서 시작), 위로 올려 둔 세션이면 저장 스냅샷.
   const restoreStateFor = useCallback((key: string): StateSnapshot | undefined => {
     if (sessionAtBottomRef.current.get(key) ?? true) return undefined;
     return sessionSnapshotsRef.current.get(sessionSnapshotKey(key, density));
@@ -3432,8 +3119,7 @@ export const IDEMainArea = memo(function IDEMainArea({
   //   않은 부모에 자식을 매달았다(스폰 주입·완료 신고 경로가 통째로 없는 세션). 커스텀만 interactive.
   const isReadOnly = !isCustom;
 
-  // §4 v2.63 — CMD(interactive-terminal) 에이전트는 **모든 탭**이 임베디드 PTY 터미널.
-  // 탭(세션)마다 독립 termId → "+"=새 cmd 터미널, IDE 닫았다 열어도 reattach 로 보존.
+  // §4 — CMD 에이전트는 모든 탭이 임베디드 PTY(탭마다 termId, IDE 를 닫아도 reattach 로 보존).
   const executionMode = useGraphStore((s) => s.agentConfigs[agentId]?.executionMode);
   const showInteractiveTerminal = isCustom && executionMode === 'interactive-terminal';
 
@@ -3448,7 +3134,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     if (bubbleOn) setScrollNode(null);
   }, [bubbleOn, setScrollNode]);
 
-  // §5.5 #17-3 v2.31 — 우클릭 컨텍스트 메뉴. anchorId = 선택 출처 항목(§17-7 북마크 이동용).
+  // §5.5 #17-3 — 우클릭 컨텍스트 메뉴. anchorId = 선택 출처 항목(§17-7 북마크 이동용).
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; selection: string; anchorId?: string } | null>(null);
   // §5.5 #17-36 — 우클릭 메뉴가 찍은 스티키 메모 생성 지점(화면 좌표). 판(SessionMemoLayer)이 소비하고 비운다.
   const [memoSpawn, setMemoSpawn] = useState<{ x: number; y: number } | null>(null);
@@ -3670,10 +3356,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     const _PERF = !!(globalThis as unknown as { __VIBI_PERF__?: boolean }).__VIBI_PERF__;
     const _t0 = _PERF ? performance.now() : 0;
     const flat = buildEntries(commands, subAgents, streams, activeSessionId, agentEvents, formatError, originalCommands, runningTasks);
-    // §2.4 (생존 판정 단일화) — 종전에는 여기서 `commands.some(executing||queued)` 를 손으로 적었다.
-    //   그 목록은 ① `displayCommands` 를 거친 **표시용 사본**이고 ② **세션 필터가 전혀 없어서**,
-    //   다른 세션에 남은 좀비 명령 하나가 지금 보는 탭을 영영 "작업 중"으로 칠했다(이 버그의 직접 원인).
-    //   이제 공유 술어(`hasSessionWork`)가 원본 큐 + 세션 필터 위에서 낸 답 하나만 본다.
+    // §2.4 — `hasSessionWork`(원본 큐 + 세션 필터)만 본다. `commands.some(...)` 로 되돌리지 마라 — 표시용 사본에 세션 필터도 없어 남의 좀비 명령이 이 탭을 "작업 중"으로 칠한다.
     const agentBusy = sessionHasWork;
     const grouped = applyMainDensity(groupEntries(flat), density);
     if (_PERF && activeSessionId === null) {
@@ -3686,14 +3369,9 @@ export const IDEMainArea = memo(function IDEMainArea({
       );
     }
 
-    // §5.5 #17-24 ② — 라이브 1줄은 **에이전트가 작동하는 동안 항상** 뜬다(Sub 탭 computeThinkingLive 와 동형).
-    //   §5.5 #17-24 ⑦ — 가장 최근 이벤트는 켜고 끄지도, 라벨을 고르지도 않는다(작동 중이면 늘 `작업 중`).
-    //   사고 이벤트면 `생각 중`이라 적던 것이 턴 시계와 붙어 `생각 중… 53m 59s` 로 서서 멈춘 것으로 읽혔다.
-    //   최근 이벤트는 정렬 시각과 무응답 시계의 재료로만 쓴다.
+    // §5.5 #17-24 ②⑦ — 라이브 1줄은 작동 중 늘 `작업 중`(최근 이벤트로 켜고 끄거나 `생각 중`을 고르지 않는다 — 턴 시계와 붙으면 멈춘 듯 읽힌다).
     if (agentBusy) {
-      // v3.72 — 종전엔 "가장 최근 이벤트" 를 찾으려고 **전 세션 이벤트를 매번 완주**했다(O(전체)).
-      //   스트림 배열은 도착 순서대로 append 되므로 각 배열의 **마지막 원소**만 보면 된다(O(세션 수)).
-      //   세션이 길어질수록 커지던 비용이 사라진다.
+      // 가장 최근 이벤트는 각 스트림 배열의 마지막 원소만 본다(도착 순 append — O(세션 수)).
       let latest: SubAgentStreamEvent | null = null;
       for (const evts of Object.values(streams)) {
         const tail = evts[evts.length - 1];
@@ -3702,10 +3380,7 @@ export const IDEMainArea = memo(function IDEMainArea({
       // §5.5 #17-18 ⑪ — 줄 선 것이 먼저다(Sub 탭 `computeThinkingLive` 와 동형).
       // §5.5 #17-24 ⑥ ⑦ — 접는 중이면 압축 중. 고르는 규칙은 Sub 탭과 같은 함수 한 곳(`liveLineMode`).
       const mode = liveLineMode(sessionWaiting, sessionCompactingSince !== null);
-      // §2.4 (무응답) — 경과 시계는 **마지막 활동 시각**이다: 보인 줄과 세션 활동(명령 시작 포함) 중 늦은 쪽.
-      //   감춘 턴이 도는 동안에도 입력한 순간부터 세고 무응답으로만 안 뒤집는다(`hiddenTurn`). Sub 탭과 같은
-      //   함수다. 근거가 없으면 `null` — 여기서 `Date.now()` 를 넣으면 매 프레임 "방금 움직였다"가 되어
-      //   영영 무응답이 될 수 없다.
+      // §2.4 — 경과 시계 = 마지막 활동(보인 줄·세션 활동 중 늦은 쪽, Sub 탭과 같은 함수). 근거 없으면 `null` — `Date.now()` 면 영영 무응답이 안 된다.
       grouped.push({
         kind: 'thinking-live', id: 'thinking-live', mode,
         timestamp: latest?.timestamp ?? Date.now(),
@@ -3719,24 +3394,18 @@ export const IDEMainArea = memo(function IDEMainArea({
     return grouped;
   }, [commands, subAgents, streams, activeSessionId, agentEvents, density, formatError, originalCommands, runningTasks, sessionHasWork, sessionWaiting, sessionLastActivityAt, sessionHiddenTurn, sessionTurnStartedAt, sessionCompactingSince]);
 
-  // §5.3 #12-2 v2.26 — 이 에이전트 (+ 활성 세션) 의 AskUserQuestion 카드 목록.
-  // 메인 탭(activeSessionId === null): 이 에이전트의 모든 sub 질문을 시간순.
-  // sub 탭: 그 sub 의 질문만.
+  // §5.3 #12-2 — AskUserQuestion 카드. 메인 탭: 이 에이전트의 모든 sub 질문 시간순, sub 탭: 그 sub 의 질문만.
   const pendingAskQuestions = useGraphStore((s) => s.pendingAskQuestions);
   const askCards = useMemo(() => {
     const matches = Object.values(pendingAskQuestions).filter((r) => {
       if (r.agentId !== agentId) return false;
-      // sub 탭: 그 세션(subAgentId)의 질문만. 메인 탭: 이 에이전트의 **모든** 질문(작업 신고 카드와 동일).
-      //   메인 탭에서 subIdSet 멤버십으로 거르던 옛 로직은, 막 스폰돼 아직 subAgents 스냅샷에 안 들어온
-      //   세션의 AskUserQuestion 을 조용히 누락시켜 사용자가 못 보고 60s 타임아웃되던 버그의 직접 원인.
-      //   r.agentId === agentId 로 이미 소속이 보장되므로 메인 탭에선 무조건 노출한다(§5.3 #12-2).
+      // 메인 탭은 이 에이전트의 질문 전부(소속은 `r.agentId` 가 보장). subIdSet 으로 거르지 마라 — 막 스폰된 세션의 질문이 빠져 60s 타임아웃된다.
       return activeSessionId !== null ? r.subAgentId === activeSessionId : true;
     });
     return matches.sort((a, b) => a.createdAt - b.createdAt);
   }, [pendingAskQuestions, agentId, activeSessionId]);
 
-  // §4 v2.52 — 이 에이전트의 작업 신고 카드. agentReports 는 agentId 1차 키.
-  // 메인 탭(activeSessionId === null): 이 에이전트의 모든 신고. sub 탭: 그 세션(subAgentId) 신고만.
+  // §4 — 작업 신고 카드(agentReports 는 agentId 1차 키). 메인 탭: 모든 신고, sub 탭: 그 세션 신고만.
   const agentReportsForAgent = useGraphStore((s) => s.agentReports[agentId] ?? EMPTY_REPORTS);
   const reportCards = useMemo(() => {
     const matches = agentReportsForAgent.filter((r) =>
@@ -3745,7 +3414,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     return [...matches].sort((a, b) => a.createdAt - b.createdAt);
   }, [agentReportsForAgent, activeSessionId]);
 
-  // §4 v2.60 — 이 에이전트의 질문 카드. reportCards 와 동일 필터/정렬.
+  // §4 — 질문 카드. reportCards 와 같은 필터/정렬.
   const agentQuestionsForAgent = useGraphStore((s) => s.agentQuestions[agentId] ?? EMPTY_QUESTIONS);
   const questionCards = useMemo(() => {
     const matches = agentQuestionsForAgent.filter((q) =>
@@ -3754,7 +3423,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     return [...matches].sort((a, b) => a.createdAt - b.createdAt);
   }, [agentQuestionsForAgent, activeSessionId]);
 
-  // §4 v2.70 — 이 에이전트의 검수 요청 카드. reportCards/questionCards 와 동일 필터/정렬.
+  // §4 — 검수 요청 카드. reportCards 와 같은 필터/정렬.
   const agentReviewsForAgent = useGraphStore((s) => s.agentReviews[agentId] ?? EMPTY_REVIEWS);
   const reviewCards = useMemo(() => {
     const matches = agentReviewsForAgent.filter((r) =>
@@ -3763,7 +3432,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     return [...matches].sort((a, b) => a.createdAt - b.createdAt);
   }, [agentReviewsForAgent, activeSessionId]);
 
-  // §4 v2.84 — 이 에이전트의 번호 목록 정렬 카드. reviewCards 와 동일 필터/정렬.
+  // §4 — 번호 목록 정렬 카드. reviewCards 와 같은 필터/정렬.
   const agentListsForAgent = useGraphStore((s) => s.agentLists[agentId] ?? EMPTY_LISTS);
   const listCards = useMemo(() => {
     const matches = agentListsForAgent.filter((l) =>
@@ -3784,15 +3453,10 @@ export const IDEMainArea = memo(function IDEMainArea({
     return all.sort((a, b) => a.createdAt - b.createdAt);
   }, [reportCards, questionCards, reviewCards, listCards]);
 
-  // §4 v2.53/v2.57 · §5.5 #17-18 ⑦-1 — 메인 탭: 터미널 항목 + 카드를 합쳐 정렬. 카드는 **신고된 그 시각**
-  //   (`createdAt`)에 못 박히고, 그 뒤 출력은 전부 카드 아래로 쌓인다 — StreamRenderer 와 동일 규칙.
-  //   옛 "그 턴 끝으로 미루기"(`turnEndSortTs`)는 도는 턴에 뒤에 올 명령이 없어 카드를 화면 바닥에
-  //   붙박아 두었고, 그 탓에 "안 끝났는데 카드부터 나와 끝난 줄 착각"·"언제 나온 카드인지 모름"이 됐다.
+  // §4 · §5.5 #17-18 ⑦-1 — 카드는 신고 시각(`createdAt`)에 못 박는다(StreamRenderer 와 같다). 턴 끝으로 미루지 마라(`turnEndSortTs`) — 도는 턴에선 바닥에 붙어 끝난 듯 보인다.
   const mainTimeline = useMemo(() => {
-    // §5.5 #17-18 ⑥-3 — 턴 경계는 **이미 나간 명령**의 dispatch 시각이다. 대기 중 덧말은 아직
-    //   아무것도 끊지 않았으므로 경계에서 뺀다. Ask 의 "맨 끝" 폴백은 대기 말풍선(꼬리)보다 **위**여야 한다.
-    //   ⑥-5 — "나갔는가" 판정은 `hasDispatched` 한 곳(Sub 탭과 같은 함수). 앱이 내려가 재개 대기로
-    //   큐에 돌아간 명령은 이미 한 번 턴을 끊었으므로 경계에 남는다.
+    // §5.5 #17-18 ⑥-3 — 턴 경계 = 나간 명령의 dispatch 시각(대기 덧말 제외, Ask 의 "맨 끝" 폴백은 대기 말풍선보다 위).
+    // ⑥-5 판정은 `hasDispatched` 하나(Sub 탭과 같다) — 재개 대기로 큐에 돌아간 명령도 경계에 남는다.
     const cmdTsAsc = commands
       .filter(hasDispatched)
       .map((c) => commandAnchorTs(c))
@@ -3811,8 +3475,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     };
     // §5.5 #17-18 ⑦-2 — 이 카드가 속한 턴이 아직 도는 중인가(뒤에 나간 명령이 없고 지금 실행 중).
     const lastAnchor = cmdTsAsc[cmdTsAsc.length - 1];
-    // §2.4 — 종전에는 **표시용 사본**(`displayCommands`)에서 `executing` 을 세어, 승격된 대기 명령
-    //   하나가 지나간 카드들까지 "지금 도는 중"으로 만들었다. 원본 큐로 낸 답 하나만 본다.
+    // §2.4 — 원본 큐 답만 본다(표시용 사본의 executing 은 승격된 대기 명령으로 지나간 카드까지 "도는 중"으로 만든다).
     const turnRunning = sessionExecuting;
     const isLive = (createdAt: number): boolean =>
       turnRunning && !(lastAnchor !== undefined && lastAnchor > createdAt);
@@ -3859,9 +3522,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     return density === 'compact' ? mergeAdjacentThinkTraces(nodes, readMainStepTrace, writeMainStepTrace) : nodes;
   }, [items, reportCards, questionCards, reviewCards, listCards, askCards, commands, density, sessionExecuting]);
 
-  // v3.13 — 스트림 버퍼 앞쪽 절단(상한 초과 시 오래된 이벤트 일괄 제거)을 메인 Virtuoso 에도 shift 로 신고.
-  //   인덱스 기반 sizeTree 가 절단마다 밀려 측정 모델이 붕괴 → 긴 세션에서 스크롤이 "위로 말려 올라가던" 원인.
-  //   §5.5 #17-12 — 밀도를 리셋 키로 함께(전환 시 항목 id 가 통째로 갈리는 걸 절단으로 오인 방지).
+  // 앞쪽 절단을 메인 Virtuoso 에 shift 로 알린다(안 하면 sizeTree 가 밀려 스크롤이 말린다). 밀도도 리셋 키로(전환을 절단으로 오인하지 않게).
   const mainFirstItemIndex = useVirtuosoFrontShift(mainTimeline, mainTimelineNodeId, density);
 
   // §5.5 #17-45 — 연속 발화 런(Sub 탭과 **같은 순수 함수**). 간결에서만 켠다.
@@ -3878,12 +3539,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     [mainTimeline, density],
   );
 
-  // v2.99 — 세션(탭) 전환 시 위치 복원: 자식(StreamRenderer / 메인 Virtuoso)을 key={sessionKey} 로 재마운트하고
-  //   restoreStateFrom 으로 그 세션의 저장 스냅샷(측정된 항목 높이 + 스크롤 위치)을 받아 **재측정 출렁임 없이**
-  //   보던 위치로 즉시 정착시킨다(옛 rAF 정착 루프 + 불투명 덮개 + 픽셀 앵커 대체).
-  //   스냅샷은 "떠날 때"가 아니라 **스크롤이 일어나는 동안 throttled 로 갱신 저장**한다 — getState 는 virtuoso 가
-  //   마운트돼 있는 동안에만 유효한데, 언마운트 cleanup 시점엔 자식 virtuoso 가 이미 해제돼 잡을 수 없기 때문.
-  //   탭을 바꾸면 그 세션에서 마지막으로 스크롤된 위치가 이미 맵에 들어 있어 복귀 시 그대로 복원된다.
+  // 세션 전환 = key={sessionKey} 재마운트 + restoreStateFrom. 스냅샷은 스크롤 중 throttled 로 저장한다 — 언마운트 cleanup 땐 getState 가 이미 무효다.
   const mainTimelineRef = useRef(mainTimeline);
   mainTimelineRef.current = mainTimeline;
   useEffect(() => {
@@ -3896,20 +3552,11 @@ export const IDEMainArea = memo(function IDEMainArea({
       const key = sessionSnapshotKey(sessionKey, densityRef.current);
       handle?.getState((snap) => { sessionSnapshotsRef.current.set(key, snap); });
     };
-    // v3.08 — 추종 해제는 **사용자 직접 제스처**(휠 위로/터치 드래그/PageUp·Home 등)가 있었을 때만. 옛 v3.05 는
-    //   scroll 이벤트의 dist 만 보고 followRef 를 껐는데, 그 전제("콘텐츠 성장으로는 scroll 이 안 난다")가 틀렸다 —
-    //   virtuoso 는 스트리밍으로 마지막 항목이 자라면 위쪽 선렌더 버퍼(increaseViewportBy top:1600)를 재측정하며
-    //   **스스로 scrollTop 을 보정**해 scroll 이벤트를 쏜다. 그 순간 콘텐츠가 막 자라 dist≥임계라 추종이 꺼지고,
-    //   이후 pin(v3.04/ResizeObserver)이 전부 bail 해 새 단어가 바닥에 안 붙고 화면이 "위로 말려 올라가" 보였다
-    //   (사용자: "새 단어 쓰면 왜 위로 올라가냐"). → 프로그램/측정이 만든 scroll 로는 절대 끄지 않고, 사용자가
-    //   실제로 위로 올린 제스처가 최근(700ms)에 있었을 때만 끈다. 바닥에 닿으면(직접 내렸든 pin 이 붙였든) 항상 재무장.
+    // 추종 해제는 최근 700ms 안의 직접 위로-제스처(휠·터치·PageUp·Home 등)로만. scroll 거리로 끄지 마라 — virtuoso 가 버퍼(top:1600)를
+    // 재측정하며 스스로 scroll 을 쏜다. 바닥에 닿으면 늘 재무장.
     let userUpIntentUntil = 0;
     const markUpIntent = (): void => { userUpIntentUntil = performance.now() + 700; };
-    // §5.5 #17-16 ③ — 접이식 블록을 **펼치는 클릭**은 "이걸 읽겠다"는 사용자 의도다. 종전엔 펼침으로
-    //   높이가 늘어난 만큼 바닥 추종 워치독(v3.14)이 매 프레임 스크롤을 바닥에 붙여, 펼친 내용이 한순간
-    //   보였다가 곧장 위로 밀려났다(사용자: "쫙 보였다가 바로 사라져"). 펼침 클릭이면 ① 추종을 **먼저**
-    //   끄고 ② 클릭한 헤더의 뷰포트 오프셋을 짧게(400ms) 유지해 그 자리를 잡아 둔다. 접는 클릭은 손대지
-    //   않는다(높이가 줄 뿐이라 추종이 그대로 옳다). 사용자가 직접 스크롤하면 즉시 앵커를 놓는다.
+    // §5.5 #17-16 ③ — 펼치는 클릭은 추종을 먼저 끄고 헤더 위치를 400ms 붙든다(안 하면 워치독이 펼친 내용을 밀어낸다). 접기는 그대로, 직접 스크롤하면 놓는다.
     let holdRaf = 0;
     let holdEl: HTMLElement | null = null;
     let holdOffset = 0;
@@ -3927,12 +3574,8 @@ export const IDEMainArea = memo(function IDEMainArea({
       if (Math.abs(delta) > 1) el.scrollTop += delta;
       holdRaf = requestAnimationFrame(holdTick);
     };
-    // §5.5 #17-12 — 표시 밀도 전환의 자리 지키기. 위로 올려 읽던 화면에서 간결/표준/원문을 바꾸면 같은 대화가
-    //   다른 높이의 목록으로 다시 접히며 화면이 튀었고, 튄 자리가 바닥 가까이면 추종이 다시 켜져 최신으로
-    //   끌려 내려갔다(사용자에게는 "읽던 과거가 사라짐"). 바꾸기 **직전**(스토어 구독은 리렌더보다 먼저 온다)
-    //   화면에 선 항목들을 적어 두고, 새 목록이 가라앉는 동안 그중 새 목록에도 있는 첫 항목을 같은 높이에
-    //   붙든다. 두 프레임 연속 DOM 에서 못 찾으면(선렌더 버퍼 밖) 순번으로 한 번 옮겨 그리게 한다.
-    //   구간 표식은 펼침 앵커와 같은 `expandHoldUntilRef` — 사용자 제스처(cancelHold)가 곧장 놓게 한다.
+    // §5.5 #17-12 — 밀도 전환 자리 지키기: 바꾸기 직전(구독이 리렌더보다 먼저) 화면 항목을 적고, 새 목록에도 있는 첫 항목을 같은 높이에 붙든다.
+    // 2프레임 못 찾으면 순번으로 한 번 옮긴다. 표식은 `expandHoldUntilRef`(cancelHold 가 놓는다).
     let anchorRaf = 0;
     let anchor: { entries: DensityAnchorEntry[]; until: number; misses: number; jumped: boolean } | null = null;
     const jumpToDensityAnchor = (entries: readonly DensityAnchorEntry[]): void => {
@@ -4008,9 +3651,7 @@ export const IDEMainArea = memo(function IDEMainArea({
       if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home') markUpIntent();
       cancelHold();
     };
-    // v3.14 — 스크롤바 드래그는 wheel/touch/key 어디에도 안 잡히던 제스처 구멍: 포인터를 누른 채
-    //   scrollTop 이 감소하면(=바를 위로 끎) 위로-제스처로 편입한다. 안 하면 추종이 살아있는 동안
-    //   워치독이 매 프레임 바닥으로 되끌어 사용자가 스크롤바로는 위로 못 올라간다.
+    // 스크롤바 드래그는 wheel/touch/key 로 안 잡혀, 누른 채 scrollTop 이 줄면 위로-제스처로 친다(안 하면 워치독이 되끈다).
     let pointerDown = false;
     let prevScrollTop = el.scrollTop;
     const onPointerDown = (): void => { pointerDown = true; cancelHold(); };
@@ -4063,23 +3704,15 @@ export const IDEMainArea = memo(function IDEMainArea({
     };
   }, [scrollEl, activeSessionId, sessionKey]);
 
-  // v3.00 — 세션(탭) 진입 시 가변 높이(마크다운/도구 블록) 측정 reflow 로 본문이 위아래로 출렁이던(통통 튀던)
-  //   증상 제거. v2.99 가 단독 스크롤러로 가면서 v2.97 의 "정착 덮개" 를 걷어냈더니, restoreStateFrom 스냅샷이
-  //   덮지 못한 화면 밖 항목(increaseViewportBy 로 선렌더되는 위/아래 버퍼)이 마운트 후 뒤늦게 측정되며
-  //   ① 통통 튀는 출렁임 ② 바닥이 살짝 위 ③ 복원 위치가 밀려 보임 — 세 증상이 한 뿌리로 재발했다. 출력 영역을
-  //   잠깐 불투명 덮개로 가린 채 scrollHeight 가 연속 프레임(=5) 안 바뀔 때(측정 정착, 상한 1200ms)까지 기다렸다
-  //   페이드아웃해 정돈된 본문을 한 번에 드러낸다(VS Code 식 "레이아웃 준비 전 미표시"). 진입 시 바닥이던 세션은
-  //   그동안 LAST 로 재고정해 "바닥이 살짝 위" 까지 해소하고, 위로 올려둔 세션은 restoreStateFrom 복원 위치를
-  //   그대로 유지한다(LAST 재고정 ❌). useLayoutEffect 라 전환 첫 프레임부터 덮여 pre-settle 깜빡임이 없다.
+  // 세션 진입 정착 덮개 — 버퍼 항목이 늦게 측정되며 출렁이므로 scrollHeight 가 5프레임 안정(상한 1200ms)될 때까지 가렸다 드러낸다.
+  // 바닥이던 세션은 그동안 다시 붙이고, 올려 둔 세션은 복원 위치 그대로. useLayoutEffect(첫 프레임부터 덮는다).
   const [covering, setCovering] = useState(true);
   useLayoutEffect(() => {
     const el = scrollEl;
     if (!el) { setCovering(true); return; }
     setCovering(true);
     const atBottomOnEntry = sessionAtBottomRef.current.get(sessionKey) ?? true;
-    // v3.06 — 진입 세션의 추종 의도로 followRef 를 즉시 정렬(layout 단계라 paint 전). 이게 없으면 위로
-    //   올려둔 세션으로 돌아왔을 때 followRef 가 직전 세션의 stale true 로 남아, 아래 ResizeObserver/스트림
-    //   추종이 restoreStateFrom 복원 위치를 무시하고 바닥으로 끌어내린다.
+    // 진입 즉시 followRef 를 그 세션의 의도로(layout 단계) — 직전 세션의 true 가 남으면 복원 위치를 무시하고 바닥으로 끈다.
     followRef.current = atBottomOnEntry;
     let raf = 0;
     let stable = 0;
@@ -4087,8 +3720,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     const start = performance.now();
     const tick = (): void => {
       raf = 0;
-      // v3.14 — 재고정도 DOM 진실로(모델 좌표 scrollToIndex 금지). initialTopMostItemIndex=LAST 가 첫
-      //   위치를 잡고, 측정 정착 동안의 재고정은 실제 바닥 좌표로 붙인다.
+      // 재고정도 실제 DOM 바닥으로(모델 좌표 scrollToIndex 금지). 첫 위치는 initialTopMostItemIndex=LAST 가 잡는다.
       if (atBottomOnEntry) glueToBottomDom();
       const h = el.scrollHeight;
       if (h === lastH) stable += 1; else { stable = 0; lastH = h; }
@@ -4112,12 +3744,10 @@ export const IDEMainArea = memo(function IDEMainArea({
     if (grew) {
       // §5.5 #17-12 — 붙들던 자리(펼침·밀도 전환)는 놓는다. 보낸 말을 보여 주는 것이 먼저다.
       expandHoldUntilRef.current = 0;
-      // v3.05 — 자기 메시지 전송은 추종을 무조건 재무장(위로 올려둔 상태였어도 바닥으로 끌어내려 따라간다).
+      // 자기 메시지 전송은 추종을 무조건 재무장한다(위로 올려 둔 상태여도).
       followRef.current = true;
       sessionAtBottomRef.current.set(sessionKey, true);
-      // v3.14 — 실제 바닥 붙이기는 아래 워치독이 매 프레임 수행하므로, 여기선 추종 재무장 + 즉시 1회
-      //   접착만 한다. 전송 직후 400ms 동안은 스트레이 위로-제스처 오탐이 추종을 꺼도 매 프레임 되살린다
-      //   (엔터 직후라 사용자 스크롤-업일 수 없음 — v3.07 교훈 유지).
+      // 접착은 워치독 몫이라 여기선 재무장 + 1회 접착. 전송 후 400ms 는 위로-제스처 오탐이 꺼도 되살린다(엔터 직후라 스크롤-업일 수 없다).
       glueToBottomDom();
       let raf = 0;
       const start = performance.now();
@@ -4131,16 +3761,8 @@ export const IDEMainArea = memo(function IDEMainArea({
     }
   }, [userCmdCount, activeSessionId, sessionKey, glueToBottomDom]);
 
-  // v3.14 — 바닥 추종의 **유일한 집행자: DOM 진실 워치독**. followRef 가 살아있는 동안 매 프레임 실제
-  //   바닥(scrollHeight-clientHeight)과의 편차를 재고 어긋났을 때만 붙인다(xterm/VS Code 터미널 방식).
-  //   역사: v3.04(데이터 effect)→v3.06(RO)→v3.12(totalListHeightChanged pin)까지 모든 집행이 virtuoso
-  //   측정 모델 좌표(scrollToIndex LAST)를 목표로 삼았는데, 모델이 실제 DOM 과 어긋나는 순간(측정 지연·
-  //   추정 오차 등 원인 불문) "모델이 생각하는 바닥"=실제보다 위쪽으로 스크롤을 역주행시켰다 — thinking 중
-  //   "추종이 안 내려가고, 내리면 위로 되끌려 올라감"의 구조적 원인. DOM 좌표 접착은 최댓값으로의
-  //   idempotent 이동이라 ① 위로 역주행이 불가능하고 ② epsilon 띠 없이(>0.5px) 바닥이 '선'으로 유지되며
-  //   ③ 뷰포트 리사이즈·콘텐츠 성장·측정 정착·절단 보정 등 모든 높이 변화를 원인 구분 없이 흡수한다
-  //   (옛 totalListHeightChanged pin + 뷰포트 RO 를 함께 대체). followRef=false(사용자가 위로 올려 읽는 중)
-  //   면 DOM 읽기조차 하지 않아 "그 자리 고정"이 보장되고 per-frame 비용도 없다(입력 지연 회귀 방지).
+  // 바닥 추종의 유일한 집행자 = DOM 워치독: followRef 가 켜진 동안 매 프레임 실제 바닥과 0.5px 넘게 어긋나면 붙인다(xterm 방식, 모든 높이 변화 흡수).
+  // 모델 좌표를 목표로 삼지 마라(역주행). followRef=false 면 DOM 도 안 읽는다(그 자리 고정, 프레임 비용 0).
   useEffect(() => {
     const el = scrollEl;
     if (!el) return;
@@ -4166,10 +3788,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     return () => { if (raf) cancelAnimationFrame(raf); };
   }, [scrollEl]);
 
-  // 북마크 "이동" 소비 — 타깃 세션이 활성화되면, 출처 항목(anchorId)으로 가상 리스트를 직접 스크롤한다.
-  //   Sub 탭: StreamRenderer 가 자체 Virtuoso 로 처리. 메인 탭: 여기서 메인 Virtuoso scrollToIndex 후
-  //   컨테이너 스크롤+하이라이트. nonce 로 1회만 처리(스토어 clear 가 effect 재실행→cleanup 으로 타이머를
-  //   취소하는 회귀를 피하려 clear 대신 handledNonce 가드).
+  // 북마크 이동 소비 — 출처 항목으로 스크롤(메인 탭은 scrollToIndex 후). nonce 로 1회 — 스토어를 clear 하면 effect cleanup 이 타이머를 취소해 handledNonce 로 가른다.
   const bookmarkScrollTarget = useGraphStore((s) => s.bookmarkScrollTarget);
   const streamRef = useRef<StreamRendererHandle>(null);
   const mainVirtuosoRef = useRef<VirtuosoHandle>(null);
@@ -4182,8 +3801,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     //   (nonce 를 아직 처리하지 않았으므로 bubbleOn 이 바뀌어 이 효과가 다시 돌 때 이어서 간다).
     if (bubbleOn) { setBubbleView(bubbleViewKey, false); return; }
     handledBookmarkNonceRef.current = target.nonce;
-    // v3.14 — 점프 동안 워치독이 점프 위치를 바닥으로 되끌지 않게 추종을 명시 해제. 점프한 곳이 바닥
-    //   근처면 atBottomStateChange 가 자동 재무장한다.
+    // 점프 동안 워치독이 되끌지 않게 추종을 해제한다(바닥 근처에 닿으면 atBottomStateChange 가 재무장).
     followRef.current = false;
     sessionAtBottomRef.current.set(sessionKey, false);
     const { anchorId, text } = target;
@@ -4213,11 +3831,8 @@ export const IDEMainArea = memo(function IDEMainArea({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookmarkScrollTarget, activeSessionId, bubbleOn, bubbleViewKey, setBubbleView]);
 
-  // ── §5.5 대화 인-페이지 검색 (Ctrl+F) ──────────────────────────────────────
-  //   가상 리스트(Virtuoso)라 화면 밖 항목은 DOM 에 없어 브라우저 Ctrl+F 로 못 잡는다 → 항목 **데이터**
-  //   기준으로 매칭한 뒤 scrollToIndex 로 렌더시키고 performBookmarkScroll 로 중앙 정렬 + 텍스트 선택/플래시.
-  //   Sub 탭은 StreamRenderer 핸들(searchMatchIds/scrollToBookmark)에, 메인 탭은 mainTimeline 로컬 계산에 위임.
-  //   터미널 모드는 IDETerminalView 가 자체 Ctrl+F 를 가지므로 이 검색을 걸지 않는다.
+  // §5.5 대화 검색(Ctrl+F) — 화면 밖은 DOM 이 없어 데이터로 매칭 → scrollToIndex + performBookmarkScroll(Sub 탭은 StreamRenderer 핸들, 메인은 mainTimeline).
+  // 터미널 모드는 IDETerminalView 자체 검색.
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMatches, setSearchMatches] = useState<string[]>([]);
@@ -4225,10 +3840,7 @@ export const IDEMainArea = memo(function IDEMainArea({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchCaretRef = useRef(0);
 
-  // 검색창 포커스 유지 — 이동(가상 리스트 렌더 → 스크롤 → 하이라이트)은 비동기라 그 사이에 포커스가
-  //   빠지면 사용자가 이어서 타이핑을 못 한다(브라우저 찾기막대는 늘 입력칸에 머문다). 이동이 끝나는
-  //   시점들에서 "검색창이 포커스를 잃었고, 사용자가 다른 입력칸으로 옮겨간 것도 아닐 때"만 되돌린다.
-  //   이미 포커스면 아무것도 하지 않는다 — focus/setSelectionRange 는 IME(한글) 조합을 깨뜨린다.
+  // 검색창 포커스 — 비동기 이동 끝에 포커스를 잃었고 다른 입력칸으로 간 것도 아니면 되돌린다. 이미 포커스면 손대지 않는다(focus/setSelectionRange 는 IME 조합을 깬다).
   const restoreSearchFocus = useCallback(() => {
     const el = searchInputRef.current;
     if (!el || document.activeElement === el) return;
@@ -4267,7 +3879,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     requestAnimationFrame(restoreSearchFocus);
     window.setTimeout(restoreSearchFocus, 340);
     window.setTimeout(restoreSearchFocus, 620);
-    // v3.14 — 검색 이동 동안 워치독이 바닥으로 되끌지 않게 추종 명시 해제(바닥 근처 도착 시 자동 재무장).
+    // 검색 이동 동안 워치독이 되끌지 않게 추종을 해제한다(바닥 근처에 닿으면 재무장).
     followRef.current = false;
     sessionAtBottomRef.current.set(sessionKey, false);
     // preserveFocus=true — 찾은 텍스트는 selection 이 아니라 CSS 하이라이트로 칠한다(검색창 caret 보존).
@@ -4324,13 +3936,13 @@ export const IDEMainArea = memo(function IDEMainArea({
     return () => window.removeEventListener('keydown', onKey);
   }, [showInteractiveTerminal, cellFocused, bubbleOn, bubbleViewKey, setBubbleView]);
 
-  // v3.14 — 상태바 "프롬프트로 이동" 등 위쪽으로의 점프 전에 추종을 명시 해제(워치독 되끌림 방지).
+  // 위로 점프(상태바 "프롬프트로 이동" 등) 전에 추종을 해제한다(워치독 되끌림 방지).
   const releaseFollowForJump = useCallback(() => {
     followRef.current = false;
     sessionAtBottomRef.current.set(sessionKey, false);
   }, [sessionKey]);
 
-  // "맨 아래로" 점프 — 추종 재무장 + 즉시 1회 접착(v3.14 — 이후 프레임은 워치독이 실제 바닥에 유지).
+  // "맨 아래로" 점프 — 추종 재무장 + 즉시 1회 접착(이후는 워치독이 붙든다).
   const jumpToBottom = useCallback(() => {
     followRef.current = true;
     sessionAtBottomRef.current.set(sessionKey, true);
@@ -4397,6 +4009,12 @@ export const IDEMainArea = memo(function IDEMainArea({
     }
     setBubbleView(bubbleViewKey, false);
   }, [sessionKey, setBubbleView, bubbleViewKey]);
+  // 가운데 에이전트 버블 더블클릭 = 보기 묶음의 [표준] 칸을 누른 것과 같다. 밀도는 전역이라 다른 칸의 대화도 표준이 된다.
+  const setStreamDensity = useGraphStore((s) => s.setIdeStreamDensity);
+  const showStandardFromBubbles = useCallback(() => {
+    setStreamDensity('standard');
+    returnFromBubbles(null);
+  }, [setStreamDensity, returnFromBubbles]);
   useEffect(() => {
     if (bubbleOn || bubbleReturnRef.current === undefined) return;
     // 대화가 다시 서고(가상 리스트 첫 측정) 난 뒤에 옮긴다 — 북마크 이동이 세션을 세운 뒤 기다리는 것과 같은 결.
@@ -4425,9 +4043,6 @@ export const IDEMainArea = memo(function IDEMainArea({
     if (activeSessionId === null) return agentLabel;
     return s.subAgents[agentId]?.find((x) => x.id === activeSessionId)?.label || agentLabel;
   });
-  const agentCustomColor = useGraphStore((s) => s.agentConfigs[agentId]?.color);
-  // 가운데 원은 캔버스의 그 에이전트와 같은 색(사용자 색 · 훅이면 훅 톤 — §2.2 v2.67).
-  const bubbleColor = isCustom ? (agentCustomColor ?? BUBBLE_STYLES.agent.color) : HOOK_AGENT_STYLE.color;
 
   // §5.5 #17-36 ⑫ — 메모 링크의 "세션 글 위치"로 가기. 같은 화면 안이라 북마크 이동(#17-7)과 **같은 손잡이**를
   //   기다림 없이 부른다(북마크는 세션을 세운 뒤라 소비 효과가 타이머로 기다린다). 추종부터 놓는다.
@@ -4474,24 +4089,15 @@ export const IDEMainArea = memo(function IDEMainArea({
     }, idx >= 0 ? 260 : 40);
   }, [activeSessionId, mainTimeline, sessionKey]);
 
-  // §4 v2.63 — 인터랙티브 터미널 모드: 활성 탭(세션)을 임베디드 PTY 로 렌더.
-  //   key=termId 라 탭 전환 시 그 세션 터미널로 교체(PTY 는 main 에서 보존 → reattach).
-  //   모든 hook 은 위에서 이미 호출됐으므로 여기서 조기 return 해도 Rules of Hooks 안전.
+  // §4 — 터미널 모드: 활성 탭을 PTY 로(key=termId, PTY 는 main 이 보존 → reattach). 훅은 전부 위에서 불러 이 조기 return 이 안전하다.
   if (showInteractiveTerminal) {
-    // §4 (CMD) — 세션 탭이 아직 정해지지 않았으면(창을 연 직후의 찰나) **터미널을 세우지 않는다**.
-    //   CMD 는 커스텀이라 탭바에 메인 탭 자체가 없고(IDETabBar 의 `!isCustom` 조건), 세션은 곧
-    //   자동으로 골라지거나 새로 열린다(AgentIDEOverlay 의 자동 선택·자동 생성). 그 찰나에
-    //   `'main'` 으로 터미널을 한 벌 세우면 `term:<agent>:main` PTY 가 실제로 떠서 셸 배너와
-    //   prefill 명령까지 그린 뒤, 세션이 정해지는 순간 key 가 바뀌며 통째로 갈아엎힌다 —
-    //   사용자 눈에는 "처음 열면 자동으로 적힌 명령이 지워진다"로 보인다. 게다가 버려진 PTY 는
-    //   회수되지도 않는다(unmount 는 reattach 를 위해 PTY 를 살려 두는 것이 규약이라, 아무도
-    //   보지 않는 셸이 그대로 남는다).
+    // §4 (CMD) — 세션 탭이 정해지기 전엔 터미널을 세우지 않는다(CMD 는 메인 탭이 없고 세션은 곧 자동 선택·생성된다).
+    // 'main' 으로 세우면 실제 PTY 가 떠 prefill 까지 그린 뒤 갈아엎히고, 그 PTY 는 회수되지 않는다(unmount 는 PTY 를 살려 두는 규약).
     if (!activeSessionId) {
       // 배경색은 터미널과 같은 값 — 이 찰나의 자리바꿈이 깜빡임으로 드러나지 않게.
       return <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-vb-terminal" />;
     }
-    // §4 v2.83 — CMD 카드는 외부 레일이 아니라 **터미널 안 ANSI 색 박스**로 인라인 렌더된다
-    //   (IDETerminalView 의 TerminalCardSniffer 가 마커 줄을 박스로 대체). 여기선 터미널만 렌더.
+    // §4 — CMD 카드는 터미널 안 ANSI 박스(IDETerminalView 의 TerminalCardSniffer). 여기선 터미널만.
     return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* §4 (CMD ⑤) — 탭 하나가 pane 트리를 갖는다. 분할이 없으면 pane '0' 단일 렌더라
@@ -4526,8 +4132,7 @@ export const IDEMainArea = memo(function IDEMainArea({
           </div>
         </div>
       )}
-      {/* Terminal output — v2.99: virtuoso 가 자기 내부 스크롤러를 단독 소유. 이 div 는 클릭/우클릭 위임 +
-          레이아웃(flex 높이)만 담당하고 직접 스크롤하지 않는다(옛 overflow 컨테이너 + onScroll 폐기). */}
+      {/* 출력 영역 — 스크롤은 virtuoso 단독. 이 div 는 클릭/우클릭 위임 + flex 높이만. */}
       <div
         ref={ideBodyRef}
         data-ide-text-viewport=""
@@ -4544,10 +4149,10 @@ export const IDEMainArea = memo(function IDEMainArea({
             streams={bubbleStreams}
             olderSessionIds={bubbleOlderSessionIds}
             title={bubbleTitle}
-            color={bubbleColor}
             running={streamSessionRunning}
             pendingAsks={askCards.length}
             onReturnToStream={returnFromBubbles}
+            onShowStandard={showStandardFromBubbles}
           />
         ) : (<>
         {/* §5.5 #17-36 — 이 화면에 붙여 둔 스티키 메모. 대화 위에 떠 있고 함께 스크롤되지 않는다.
@@ -4562,10 +4167,7 @@ export const IDEMainArea = memo(function IDEMainArea({
           onSpreadConsumed={clearMemoSpread}
           linkHost={memoLinkHost}
         />
-        {/* 본문 텍스트 줌 배율 표시 — Ctrl+휠/Ctrl±/핀치로 배율이 바뀐 직후에만 우측 상단에 떠 "지금 몇 배인지"
-            기준을 잡아주고, 손을 떼면 잠시 뒤 스르륵 사라진다(zoomBadgeVisible). 페이드 전환을 위해 항상
-            마운트해 두고 opacity 만 굴린다(조건부 마운트면 나타날 때 전환이 없음). 검색바(같은 코너)와
-            겹치지 않게 searchOpen 이면 양보. pointer-events-none 으로 본문 클릭/스크롤을 가리지 않는다. */}
+        {/* 줌 배율 배지 — 바뀐 직후만 떴다 사라진다. 페이드를 위해 늘 마운트(opacity 만), 검색바가 열리면 양보, pointer-events-none. */}
         {!searchOpen && (
           <div
             className={`absolute right-3 top-2 z-20 flex select-none items-center gap-1 rounded-md bg-gray-900/60 py-0.5 pl-2 pr-1 shadow-sm backdrop-blur-sm transition-opacity duration-500 ${zoomBadgeVisible ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}
@@ -4645,19 +4247,15 @@ export const IDEMainArea = memo(function IDEMainArea({
         {activeSessionId !== null ? (
           /* ── Sub 탭: CLI 스타일 스트림 렌더러 (마크다운 + 접이식 도구) ── */
           <>
-            {/* §4 v2.53 — 작업 신고 카드는 StreamRenderer 안에서 createdAt 기준 인라인 합류(하단 고정 ❌). */}
-            {/* v2.99 — StreamRenderer 의 Virtuoso 가 height:100% 로 자기 스크롤러를 단독 소유. onScrollerRef 로
-                그 스크롤러 DOM 을 받아 StreamStatusBar·북마크가 쓰고, key={sessionKey} 재마운트 + restoreState 로
-                세션 위치를 복원한다. §5.3 #12-2 — AskUserQuestion 카드는 askRequests 로 가상 리스트 안에 합류. */}
+            {/* §4 — 작업 신고 카드는 StreamRenderer 안에서 createdAt 기준 인라인 합류(하단 고정 ❌). */}
+            {/* StreamRenderer Virtuoso 가 스크롤러를 단독 소유(onScrollerRef 로 상태바·북마크에), key={sessionKey} + restoreState 로 복원.
+               §5.3 #12-2 AskUserQuestion 카드는 askRequests 로 리스트 안에. */}
             <StreamRenderer
               key={sessionKey}
               ref={streamRef}
               events={activeStreamEvents}
               commands={commands.filter((c) => c.subAgentId === activeSessionId)}
-              // §2.4 (생존 판정 단일화) — 위 `commands` 는 **표시용 사본**(조용한 압축을 감추고 첫 대기건을
-              //   실행 중으로 승격시킨 것)이다. 스트림 바닥의 "작업 중..." 을 그 사본으로 판정하면 ① 승격 탓에
-              //   안 도는 세션이 돈다고 나오고 ② 조용한 압축만 도는 동안엔 반대로 꺼져 버린다.
-              //   진짜 답은 원본 큐를 보는 공유 술어 하나뿐이라 그것을 내려보낸다.
+              // §2.4 — 바닥 "작업 중..." 은 원본 큐 공유 술어로 정한다(표시용 사본이면 승격 탓에 켜지거나 조용한 압축 중 꺼진다).
               sessionBusy={sessionHasWork}
               // §5.5 #17-18 ⑪ — 같은 원본 큐 + 세션 필터에서 나온 "줄만 서 있는가".
               sessionWaiting={sessionWaiting}
@@ -4669,7 +4267,7 @@ export const IDEMainArea = memo(function IDEMainArea({
               sessionTurnStartedAt={sessionTurnStartedAt}
               // §5.5 #17-24 ⑥ — 접는 중이면 라이브 1줄이 `압축 중`(메인 탭과 같은 값).
               sessionCompactingSince={sessionCompactingSince}
-              // §4 v3.21 — result 블록 좋아요/싫어요 피드백 컨텍스트(소유 에이전트 + 이 세션 탭).
+              // §4 — result 블록 좋아요/싫어요 피드백 컨텍스트(소유 에이전트 + 이 세션 탭).
               agentId={agentId}
               subAgentId={activeSessionId ?? undefined}
               reports={reportCards}
@@ -4687,8 +4285,8 @@ export const IDEMainArea = memo(function IDEMainArea({
         ) : (
           /* ── Agent 탭(메인): 기존 터미널 라인 + AskUserQuestion 카드. 비어있을 땐 그냥 빈 배경(미니멀) ── */
           <>
-            {/* §4 v2.53 — 터미널 항목과 작업 신고 카드를 시간순으로 합친 mainTimeline 을 렌더(신고 하단 고정 ❌). */}
-            {/* v2.99 — 메인 Virtuoso 도 height:100% 로 자기 스크롤러 단독 소유. mainTimeline 이 비면 그리지 않아 미니멀 배경 유지. */}
+            {/* §4 — 터미널 항목과 작업 신고 카드를 시간순으로 합친 mainTimeline(신고 하단 고정 ❌). */}
+            {/* 메인 Virtuoso 도 스크롤러를 단독 소유(height:100%). mainTimeline 이 비면 그리지 않는다. */}
             {mainTimeline.length > 0 && (
               <Virtuoso
                 key={sessionKey}
@@ -4696,10 +4294,10 @@ export const IDEMainArea = memo(function IDEMainArea({
                 className="scrollbar-thin"
                 style={{ height: '100%' }}
                 scrollerRef={setScrollNode}
-                // v3.14 — 바닥 추종 집행은 DOM 워치독 단일 권한(followOutput 위임 제거 — 모델 좌표 역주행 차단).
+                // 바닥 추종 집행은 DOM 워치독 단독 — followOutput 을 주지 마라(모델 좌표로 역주행한다).
                 atBottomStateChange={handleAtBottomChange}
                 atBottomThreshold={40}
-                // v3.17 — 마지막 줄과 하단 입력부 사이 여백(리스트 일부라 바닥 접착에 포함).
+                // 마지막 줄과 하단 입력부 사이 여백(리스트 일부라 바닥 접착에 포함).
                 components={{ Footer: StreamEndGap }}
                 // 복원 스냅샷이 있으면(위로 올려둔 세션) 그 위치/측정값으로, 없으면(첫 진입/바닥 추종 세션)
                 //   마지막 항목(새 바닥)에서 시작 — 둘은 배타.
@@ -4707,7 +4305,7 @@ export const IDEMainArea = memo(function IDEMainArea({
                   ? { restoreStateFrom: restoreStateFor(sessionKey) }
                   : { initialTopMostItemIndex: { index: 'LAST' as const, align: 'end' as const } })}
                 data={mainTimeline}
-                // v3.13 — 앞쪽 절단 누적 수. virtuoso 가 공식 shift 경로로 sizeTree 키 재정렬 + scrollTop 보정.
+                // 앞쪽 절단 누적 수 — virtuoso 가 공식 shift 경로로 sizeTree 키 재정렬 + scrollTop 보정을 한다.
                 firstItemIndex={mainFirstItemIndex}
                 computeItemKey={(_i, n) => mainTimelineNodeId(n)}
                 itemContent={(_i, n) => {
@@ -4751,8 +4349,7 @@ export const IDEMainArea = memo(function IDEMainArea({
           </>
         )}
 
-        {/* v3.00 — 진입 측정 정착 덮개: 본문이 정돈될 때까지 같은 배경색(gray-950)으로 가렸다 페이드인.
-            가릴 본문이 있을 때만 불투명·클릭 차단, 정착(또는 빈 세션)이면 투명+pointer-events-none 로 무영향. */}
+        {/* 진입 정착 덮개(gray-950) — 가릴 본문이 있을 때만 불투명·클릭 차단, 아니면 투명 + pointer-events-none. */}
         <div
           aria-hidden
           className={`absolute inset-0 z-10 bg-gray-950 transition-opacity duration-150 ${
@@ -4769,10 +4366,8 @@ export const IDEMainArea = memo(function IDEMainArea({
             클릭하면 그 카드 위치로 이동하고 pill 은 사라진다(입력창 위, 우하단 "맨 아래로" 버튼과 안 겹침). */}
         <UnseenCardPills scrollEl={scrollEl} cards={unseenCandidateCards} onJump={scrollToCard} />
 
-        {/* §5.5 "맨 아래로" 점프 버튼 — 위로 스크롤해 바닥에서 멀어졌을 때만(showJumpBottom) 우하단에 뜬다.
-            클릭 시 추종 재무장 + 바닥으로. 덮개(z-10)·검색바(z-20) 위(z-20).
-            §5.5 #17-48 — 그 위에 내 입력 레일(맨 위 · 이전 · 입력 눈금 · 다음). 입력이 없으면 종전 버튼 하나뿐.
-            key 로 세션마다 새로 세워 붙든 자리·팝업이 다른 세션으로 새지 않게 한다. */}
+        {/* §5.5 #17-48 — 입력 레일 알약(맨 위·이전·입력 점·다음·맨 아래로). "맨 아래로"는 바닥에서 멀면 켜진다(입력이 없으면 그것만).
+           key 로 세션마다 새로 세운다(붙든 자리·팝업이 새지 않게). */}
         <PromptRail
           key={sessionKey}
           prompts={railPrompts}
@@ -4786,8 +4381,7 @@ export const IDEMainArea = memo(function IDEMainArea({
         </>)}
       </div>
 
-      {/* Stream 하단 상태바 — §5.5 #17-12 로 메인 탭에도 상주(밀도 토글이 어느 탭에서도 닿게).
-          메인 탭은 스코프를 좁힐 세션이 없어 명령 전체를 본다. v4.64 — [중지]는 이 줄에서 빠지고 입력창 하나로. */}
+      {/* 하단 상태바 — §5.5 #17-12 메인 탭에도(밀도 토글이 닿게, 명령 전체). [중지]는 입력창에만. */}
       <StreamStatusBar
         commands={activeSessionId !== null ? commands.filter((c) => c.subAgentId === activeSessionId) : commands}
         scrollRef={scrollRef}
@@ -4814,10 +4408,8 @@ export const IDEMainArea = memo(function IDEMainArea({
         </div>
       )}
 
-      {/* v2.61 — 첨부 이미지 라이트박스 (입력칩·상태바·대화 썸네일 클릭 시 전체화면 확대) */}
       <ImageLightboxHost agentId={agentId} activeSessionId={activeSessionId} canAttach={!isReadOnly} />
 
-      {/* §5.5 #17-3 v2.31 — 우클릭 컨텍스트 메뉴 */}
       {ctxMenu && (
         <IDEContextMenu
           x={ctxMenu.x}

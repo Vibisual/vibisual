@@ -1,14 +1,6 @@
 /**
- * html-in-canvas 백엔드 (SCENARIO.md §5.13 (F) 기본 경로).
- *
- * **이 앱의 차별점이 사는 자리다.** 살아 있는 DOM 을 그대로 캔버스에 그려 넣으므로
- * CSS 를 하나도 잃지 않으면서 WebCodecs 로 GPU 인코딩까지 간다. 다른 도구가 이걸
- * 못 쓰는 이유는 임의의 브라우저에서 돌아야 하기 때문이고(Firefox·Safari 는 구현
- * 의사가 없다), 우리는 Chromium 버전과 플래그를 직접 고정하는 Electron 앱이라 쓸 수 있다.
- *
- * 아직 오리진 트라이얼 단계라 **API 이름이 바뀔 수 있다.** 그래서 탐지를 넉넉하게
- * 하고(이름 후보를 여러 개 본다), 없으면 조용히 실패하는 대신 이유를 남기고 다음
- * 백엔드로 내려간다.
+ * §5.13 (F) html-in-canvas(기본 경로) — 살아 있는 DOM 을 캔버스에 그려 CSS 를 잃지 않고 GPU 인코딩까지 간다(Chromium 을 고정하는 Electron 이라 쓸 수 있다).
+ * 오리진 트라이얼이라 API 이름이 바뀔 수 있다 — 후보를 여럿 보고, 없으면 이유를 남기고 다음 백엔드로 내려간다.
  */
 
 import type { BackendProbe, RenderBackend, RenderBackendCapabilities, RenderSurface } from './backend.js';
@@ -22,12 +14,7 @@ export interface DomStage {
   readonly element: HTMLElement;
 }
 
-/**
- * 컨텍스트에서 요소 그리기 함수를 찾는다.
- *
- * 사양이 정착하기 전이라 이름이 흔들린다 — 지금 후보는 `drawElementImage` 이고
- * 초안 시절 `drawElement` 로 불리던 시기가 있었다. 둘 다 본다.
- */
+/** 사양 정착 전이라 이름이 흔들린다 — 지금 `drawElementImage`, 초안 때 `drawElement`. 둘 다 본다. */
 function findDrawElement(ctx: CanvasRenderingContext2D): ((el: Element) => void) | null {
   const bag = ctx as unknown as Record<string, unknown>;
   for (const name of ['drawElementImage', 'drawElement']) {

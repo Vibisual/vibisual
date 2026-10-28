@@ -1,14 +1,4 @@
-/**
- * 질문 카드 "선택 복사" — 고른 것을 언제 복사할 수 있어야 하는가.
- *
- * 사용자 보고: 드래그로 골랐는데 버튼이 **회색으로 잠겨** 있어 복사할 수 없었다. 종전 판정은
- * "지금 이 순간 살아 있는 선택"만 봤는데, 스트림은 살아 있는 동안 계속 다시 그려지고 가상 리스트가
- * 항목을 재활용하면 카드 DOM 이 갈리면서 document 선택이 소리 없이 사라진다 — 사용자가 버튼으로
- * 손을 옮기는 그 사이에 잠기는 것이다. 그래서 **고른 순간에 떠 둔 것**을 판정과 복사에 함께 쓴다.
- *
- * DOM(Range/Selection)은 node 환경에 없으므로 순수 판정과 기억 저장고를 검증하고,
- * 입력칸 선택은 최소 문서 모형을 실제 훅에 연결해 이벤트·복사·기억의 흐름을 확인한다.
- */
+/** "선택 복사" — 카드 DOM 이 다시 그려지면 선택이 사라져 버튼이 잠기므로, 고른 순간 떠 둔 것을 판정·복사에 쓴다. DOM 이 없어 순수 판정·저장고·최소 문서 모형으로 본다. */
 import { createElement } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';

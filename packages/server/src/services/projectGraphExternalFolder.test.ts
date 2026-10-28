@@ -1,12 +1,6 @@
 /**
- * §2.1 #3 · #5 — 캔버스가 "지금 읽는 중"을 못 보던 두 구멍 회귀 테스트.
- *
- * ① **Bash 로 읽어도 그 파일이 뜬다**: 파일 버블은 `FILE_PATH_KEYS` 다섯 도구의 경로 인자에서만
- *    생겼는데, 실사용에서 에이전트는 `sed`/`cat` 으로 읽는 일이 잦다. 그 동안 캔버스는 직전
- *    `Edit`/`Write` 상태로 얼어붙어, 화면 화살표가 쓰기 방향인 채 읽기를 못 보여 줬다.
- * ③ **외부 폴더 버블도 그 탭의 것이다**: `external_folder` 와 그 위성은 캔버스에 떠 있으면서도
- *    체크포인트에 **0건** 저장됐다(소속 미기재 → `getProjectNodePaths` 필터 탈락). 앱을 껐다 켜면
- *    그대로 사라졌다.
+ * §2.1 #3 · #5 — ① Bash(`sed`/`cat`) 읽기도 파일 버블이 선다
+ * ③ `external_folder`·위성도 그 탭 소속으로 체크포인트에 실린다(소속이 없으면 `getProjectNodePaths` 에서 0건).
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';

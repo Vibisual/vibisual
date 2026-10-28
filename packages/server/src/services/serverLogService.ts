@@ -1,17 +1,6 @@
 /**
- * ServerLogService — §7.7 v1.99 Vibisual 서버 코어 로그 라이브 스트리밍.
- *
- * `logger.ts` 가 **모든 레벨**(info/warn/error/debug)의 라인을 `record()` 로 흘려보내고,
- * 이 서비스는 ring buffer(`SERVER_LOG_BUFFER_MAX`)에 적재한다. 진단 서비스(§4 v1.98)는
- * error/warn 만 모으지만 이쪽은 전량 — "서버가 하는 일 전부" 가 보여야 하기 때문.
- *
- * Lazy pub/sub: 클라 `ServerLogPopup` 이 WS `subscribe_server_log` 로 구독하면 현재
- * 버퍼를 `server_log_init` 으로 즉시 받고, 이후 새 라인은 `SERVER_LOG_BATCH_MS`
- * 마이크로배치 `server_log_append` 로 받는다. 구독자가 0 이면 배치 타이머를 돌리지
- * 않는다 — 평상시 비용 0. `diagnosticService` 와 달리 GraphSnapshot 에 싣지 않아
- * 매 broadcast 를 부풀리지 않는다(§7.11 iframe 로그 선례).
- *
- * 영속화 ❌ (휘발성 런타임 로그). GraphSnapshot/ProjectCheckpoint 미관여.
+ * ServerLogService — §7.7 서버 코어 로그 라이브 스트리밍(전 레벨 ring buffer `SERVER_LOG_BUFFER_MAX`, 진단 서비스는 error/warn 만).
+ * 첫 구독엔 `server_log_init`, 이후 구독자가 있을 때만 `SERVER_LOG_BATCH_MS` 배치 `server_log_append`. 휘발성 — 스냅샷·체크포인트 미관여.
  * **`logger` 를 import 하지 않는다** — `record()` 안에서 로깅하면 무한 재귀.
  */
 import type { WebSocket } from 'ws';
@@ -34,12 +23,7 @@ const WS_OPEN = 1 as const;
 /** 훅 수신·처리 관련 라인 식별 — Claude Code 훅 이벤트 이름/경로. */
 const HOOK_LINE = /\bhooks?\b|HookEvent|PreToolUse|PostToolUse|UserPromptSubmit|PreCompact|\bSessionStart\b|\/api\/hook-event/i;
 
-/**
- * §7.7 v2.3 — 로그 라인 분류. 캡처 시점 1회 판정 (로깅 호출부 무수정).
- *  - error / warn: `level` 승격.
- *  - hook: 훅 관련 라인.
- *  - event: 그 외 info/debug 전부.
- */
+/** §7.7 — 캡처 시점 1회 분류(호출부 무수정): error/warn 은 `level`, hook 은 훅 라인, 나머지 info/debug 는 event. */
 function classifyLogCategory(level: ServerLogLevel, message: string): ServerLogCategory {
   if (level === 'error') return 'error';
   if (level === 'warn') return 'warn';

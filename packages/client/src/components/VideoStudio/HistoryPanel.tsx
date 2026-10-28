@@ -6,10 +6,7 @@ import { ScrollFade } from '../ScrollFade.js';
 import { StudioIcon } from './studioIcons.js';
 import { StudioIconButton } from './StudioIconButton.js';
 
-/**
- * §5.13 (V) 37-3 — **판 기록** 서랍: 세로 구슬 줄(나 = 실버 테, AI = 앱 색 테). 판마다 정지 화면·누가·요약·시각, [이 판으로
- * 돌아가기](되돌림도 새 판) · [나란히 보기](둘을 고르면 비교) · [지우기](사람만 — 자동 삭제는 없다). 맨 위 [저장점 찍기].
- */
+/** §5.13 (V) 37-3 — 판 기록 서랍(나 = 실버 테, AI = 앱 색 테). 되돌림도 새 판이고, 지우기는 사람만(자동 삭제 ❌). */
 export interface HistoryPanelProps {
   readonly entries: readonly HistoryEntry[];
   readonly stills: Readonly<Record<string, string | null>>;

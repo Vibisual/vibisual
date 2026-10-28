@@ -11,14 +11,7 @@ import type { LabResult, LabVariant, LabVariantConfig } from '@vibisual/shared';
 
 import { useGraphStore } from '../../stores/graphStore.js';
 
-/**
- * §5.18 / §7.17 — 에이전트 랩 패널.
- *
- * 랩 버블 더블클릭으로 열리는 전체 화면 오버레이(§7.14 `SpecBoardPanel` 과 같은 골격).
- * 위는 모든 변형에 **똑같이** 나가는 과제, 아래는 변형별 결과 비교 표다 — 그리고 거기서
- * **이긴 줄의 설정을 기본값으로 승격**한다. 상태·성공 여부·비용은 전부 서버가 판정한 값이고
- * 이 화면은 그리기만 한다(§3.1).
- */
+/** §5.18 / §7.17 — 에이전트 랩: 같은 과제를 변형마다 돌려 비교하고 이긴 설정을 기본값으로 승격한다. 판정은 서버(§3.1). */
 
 function CloseGlyph(): React.JSX.Element {
   return (

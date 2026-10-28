@@ -1,27 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-/**
- * 스크롤하는 동안 스크롤바를 띄우는 상태 — 앱 공용 `.scrollbar-thin`(기본 숨김 + hover 페이드인)의
- * **두 번째 입구**.
- *
- * 스크롤바를 숨기면 화면은 깨끗해지지만, 마우스를 올리기 전에는 "여기 더 있다"는 신호도 함께
- * 사라진다. 휠·터치·키보드로 굴리기만 하는 경로에는 hover 가 오지 않기 때문이다. 그래서 스크롤이
- * 오는 동안 `data-scrolling` 을 켜고, 멎은 뒤 잠깐 더 두었다가 끈다 — 색은 hover 와 같은 값이라
- * (index.css `.scrollbar-thin[data-scrolling='true']`) 어느 경로로 떠도 모양이 같다.
- *
- * 스크롤 컨테이너에 그대로 펼쳐 쓴다:
- * ```tsx
- * const reveal = useScrollReveal();
- * <div className="scrollbar-thin overflow-auto" {...reveal}>…</div>
- * ```
- */
+/** 스크롤 중 스크롤바를 띄운다 — `.scrollbar-thin` 의 두 번째 입구(휠·터치·키보드엔 hover 가 없다). 스크롤 동안 `data-scrolling` 을 켜고 멎은 뒤 잠깐 두었다 끈다(색은 hover 와 같다). */
 
-/**
- * 스크롤이 멎은 뒤 스크롤바를 더 두는 시간(ms).
- *
- * 경합을 미루는 값이 아니라 **눈이 따라올 시간**이다 — 손을 떼는 즉시 사라지면 방금 어디까지 왔는지
- * 확인할 틈이 없고, 너무 길면 숨김이 무의미해진다.
- */
+/** 스크롤이 멎은 뒤 스크롤바를 더 두는 시간(ms) — 경합을 미루는 값이 아니라 눈이 따라올 시간이다. */
 const SCROLL_REVEAL_HOLD_MS = 900;
 
 /** 스크롤 컨테이너에 그대로 펼치는 props. */

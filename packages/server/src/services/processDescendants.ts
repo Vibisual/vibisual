@@ -1,26 +1,8 @@
 /**
- * §5.5 #17-9 ⑭(e) — **그 작업의 프로세스를 찾아 끊는다.**
- *
- * ⑭ 의 판정이 `finished` 여도 장부만 지우면 그 셸은 계속 산다. 실측(2026-09-01)에서 목적을 다한
- * `tail`/`grep` 6개가 그렇게 남아 있었다. 그래서 판정과 짝이 되는 회수 경로가 여기 있다.
- *
- * ## 왜 `killTree` 로 충분하지 않은가
- *
- * `killTree` 는 Windows 에서 `taskkill /PID <pid> /T /F` 로 **살아 있는 PPID 사슬**을 따라 내려간다.
- * 그런데 Git Bash(msys2)의 fork 흉내는 중간 셸이 먼저 사라지는 일이 잦아, 손자인 `tail.exe`·`grep.exe`
- * 의 부모 PID 가 이미 없는 번호를 가리킨다 — 사슬이 끊겨 있으니 `/T` 가 영영 못 찾는다(실측 고아 6개).
- * 그래서 여기서는 **프로세스 목록을 한 번 통째로 떠서 우리가 직접 자손 집합을 만든다.**
- *
- * ## 무엇을 죽여도 되는가 (폭발 반경)
- *
- * 두 갈래만 대상이다.
- *  ① **그 세션 자식(claude 프로세스)의 자손** 중 명령줄에 그 작업의 명령이 통째로 들어 있는 것
- *     — 우리가 띄운 나무 안이라 남의 프로세스에 닿을 수 없다.
- *  ② **부모가 이미 죽은 고아** 중 명령줄이 그 작업 명령의 **일부인** 것(위 msys 손자가 여기 걸린다).
- *     길이 하한(`ORPHAN_MIN_MATCH`)을 둬서 짧은 조각이 우연히 걸리지 않게 한다.
- *
- * 판정은 전부 순수 함수라 세 OS 를 개발기 한 대에서 단위 테스트한다 —
- * `process.platform` 을 함수 안에서 읽지 않는다(멀티플랫폼 규칙).
+ * §5.5 #17-9 ⑭(e) — 그 작업의 프로세스를 찾아 끊는다(장부만 지우면 셸이 계속 산다 — 실측 2026-09-01 `tail`/`grep` 6개).
+ * `killTree` 로는 부족하다 — msys2 fork 흉내로 손자의 PPID 가 없는 번호라 `taskkill /T` 가 못 찾는다. 그래서 목록을 통째로 떠 자손을 직접 모은다.
+ * 대상은 둘뿐: ① 세션 claude 자식의 자손 중 명령줄에 작업 명령이 통째로 든 것 ② 고아 중 명령줄이 작업 명령의 일부인 것(`ORPHAN_MIN_MATCH` 하한으로 우연 매칭을 막는다).
+ * 판정은 순수 함수 — `process.platform` 을 안에서 읽지 않는다.
  */
 import { spawn } from 'node:child_process';
 import { killTree } from './processTree.js';
@@ -40,12 +22,7 @@ export const PROCESS_LIST_TIMEOUT_MS = 8_000;
 /** 고아 매칭에 요구하는 최소 정규화 길이 — 짧은 조각의 우연한 일치를 막는다. */
 export const ORPHAN_MIN_MATCH = 25;
 
-/**
- * 비교용 정규화 — 공백·따옴표·역슬래시를 전부 지운다.
- *
- * 하니스는 명령을 `eval '…'` 안에 감싸 넣으면서 `"` 를 `\"` 로 바꾸고 줄바꿈을 접는다.
- * 원문과 명령줄을 **글자 그대로** 비교하면 그 차이 때문에 늘 어긋난다.
- */
+/** 공백·따옴표·역슬래시를 지운다 — 하니스가 명령을 `eval '…'` 로 감싸며 `"` → `\"`·줄바꿈 접기를 해서 글자 그대로는 어긋난다. */
 export function normalizeForMatch(s: string): string {
   return s.replace(/[\s"'`\\]+/g, '').toLowerCase();
 }
@@ -69,14 +46,7 @@ export function parseWindowsProcessLines(text: string): ProcessRow[] {
   return rows;
 }
 
-/**
- * 명령줄 앞의 **실행본 경로**를 떼고 인자만 남긴다.
- *
- * 고아 매칭(②)이 이것 없이는 성립하지 않는다 — OS 가 돌려주는 명령줄은
- * `"C:\Program Files\Git\usr\bin\tail.exe" -f C:/…/pkg.log` 처럼 **절대경로가 붙어** 오는데,
- * 우리가 아는 원문은 `tail -f "C:/…/pkg.log" | grep …` 라 통째로는 절대 겹치지 않는다.
- * 인자 부분(`-f C:/…/pkg.log`)만 남기면 그것은 원문의 부분 문자열이 된다(실측으로 확인).
- */
+/** 실행본 경로를 떼고 인자만 남긴다 — OS 명령줄엔 `"C:\…\tail.exe"` 같은 절대경로가 붙어 원문(`tail -f …`)과 통째로는 안 겹친다. 고아 매칭(②)의 전제다(실측 확인). */
 export function stripProgramPath(command: string): string {
   const s = command.trim();
   if (s.startsWith('"')) {
@@ -162,11 +132,8 @@ export function descendantsOf(rows: readonly ProcessRow[], rootPid: number): Pro
 }
 
 /**
- * 그 작업의 명령을 담고 있는 프로세스들.
- *
- * @param rows       전체 목록(고아 판정에 필요하다 — 부모가 목록에 없으면 고아다)
- * @param sessionPid 그 세션의 claude 자식 PID. 이 나무 밖은 ①에서 손대지 않는다.
- * @param command    작업의 원본 명령
+ * @param rows 전체 목록(부모가 목록에 없으면 고아다)
+ * @param sessionPid 그 세션의 claude 자식 PID — 이 나무 밖은 ①에서 손대지 않는다.
  */
 export function matchTaskProcesses(
   rows: readonly ProcessRow[],

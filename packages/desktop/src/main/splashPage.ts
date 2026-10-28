@@ -1,14 +1,8 @@
-// SCENARIO.md §3.7 · §9 「시작 화면(스플래시)」 — 스플래시 창이 띄우는 한 장짜리 문서(순수 함수).
-//
-// 동의 창(`consentPage.ts`)과 같은 규율이다 — data: 문서 · nonce CSP · 바깥 자원 0(글꼴·그림·주소 없음) · 글자는
-// textContent 로만. 진척은 preload 가 넘겨 주는 메시지 포트로 받는다(`window.vibSplash.onUpdate`). 그 포트는 본체가
-// 메인 스레드를 붙잡고 있어도 곧바로 닿으므로, 프로젝트 복원 중에도 막대와 문구가 실제 진척대로 움직인다.
-//
-// 막대는 "다음 소식이 올 때까지 천장 쪽으로 천천히" 다가간다 — 소식이 끊긴 구간(본체 모듈을 읽는 동기 구간 등)에도
-// 멎어 보이지 않게. 천장은 다음 단계의 시작을 넘지 않으므로 막대가 뒤로 가지 않는다(`SPLASH_STAGE_BANDS`).
-// 움직임은 전부 합성 단계에서 도는 transform 이다(SVG 회전 ❌ — 배율이 100% 가 아니면 메인 스레드에서 돈다).
-//
-// 아이콘은 이모지 ❌ — 로고는 앱 아이콘과 같은 버블 그라데이션(`favicon.svg`), 그 둘레를 위성 하나가 돈다.
+// SCENARIO.md §3.7 · §9 「시작 화면(스플래시)」 — 스플래시 창의 한 장짜리 문서(순수 함수).
+// 동의 창(`consentPage.ts`)과 같은 규율: data: 문서 · nonce CSP · 바깥 자원 0 · 글자는 textContent 로만.
+// 진척은 preload 의 메시지 포트(`window.vibSplash.onUpdate`)로 받는다 — 본체가 메인 스레드를 붙잡아도 곧바로 닿는다.
+// 막대는 소식이 끊겨도 천장 쪽으로 천천히 다가가고, 천장은 다음 단계 시작을 넘지 않아 뒤로 가지 않는다(`SPLASH_STAGE_BANDS`).
+// 움직임은 전부 합성 단계 transform(SVG 회전 ❌ — 배율이 100% 가 아니면 메인 스레드에서 돈다). 로고는 `favicon.svg` 그라데이션 + 도는 위성(이모지 ❌).
 
 import type { SplashPalette, SplashView } from './splashPolicy';
 

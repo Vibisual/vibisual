@@ -1,19 +1,7 @@
 /**
- * §5.11 정독 게이트 — **읽기 영수증 원장**(서버).
- *
- * 플러그인은 파일을 볼 수 있어도 "이 세션이 그 구간을 열었는가"는 알 수 없다. 그것은 도구 호출 이력이고
- * 호스트만 갖고 있다. 이 파일이 그 이력을 모으는 자리다 — 훅의 `PostToolUse`(Read/Grep)에서 열람 구간을,
- * `UserPromptSubmit` 에서 이번 턴 프롬프트를, 편집 도구에서 건드린 경로를 받아 세션별로 쌓는다.
- *
- * **판정은 여기 없다.** 절을 자르고 지목하고 커버율을 재는 것은 전부 `@vibisual/plugins` 의 순수 함수이고,
- * 그것을 부르는 것은 파일 탐침을 가진 `pluginHost` 다. 이 파일이 판정까지 하면 프롬프트에 실린 판단과
- * 게이트가 막는 근거가 갈린다 — "화면은 초록인데 막힌다"가 만들어지는 정확한 경로다.
- *
- * **영속하지 않는다.** 원장은 그 세션 동안의 사실이라 재시작하면 처음부터 다시 쌓는 것이 맞다
- * (영속하는 것은 프로젝트 설정 하나뿐 — `ProjectCheckpoint.specReadingSettings`).
- *
- * 키는 **`SubAgent.id`** 다. `verificationRuns`(#17-35)·`sessionLoops`(#17-11)와 같은 축이라 활동바가
- * 키 하나로 셋을 읽는다. 훅 세션(CLI 세션 UUID)은 호출부가 `findSubBySessionId` 로 옮겨 담아 넘긴다.
+ * §5.11 정독 게이트 — 읽기 영수증 원장(서버). 훅에서 열람 구간(Read/Grep)·이번 턴 프롬프트·편집 경로를 세션별로 쌓는다.
+ * 판정은 여기 없다(`@vibisual/plugins` 순수 함수를 `pluginHost` 가 부른다 — 여기서 판정하면 프롬프트와 게이트 근거가 갈린다).
+ * 영속하지 않는다(설정만 `specReadingSettings`). 키는 `SubAgent.id` — 훅 세션은 호출부가 `findSubBySessionId` 로 옮긴다.
  */
 import {
   SPEC_GATE_EVENT_MAX,
@@ -30,14 +18,7 @@ import { shapePath, spanFromGrep, spanFromRead } from '@vibisual/plugins';
 import { extractTaskText } from './turnPrompt.js';
 import { logger } from '../logger.js';
 
-/**
- * 도구가 말한 경로를 **프로젝트 루트 기준 상대경로**로 바꾼다.
- *
- * 색인은 상대경로로 서 있고 훅은 절대경로를 준다 — 여기서 축을 맞추지 않으면 열람 영수증이 색인의
- * 어느 절에도 안 붙어 **모든 절이 영원히 미열람**이 된다(게이트가 성실한 쪽을 벌하는 최악의 오작동).
- * 루트 밖은 null — 이 게이트가 말하는 기획 문서가 아니다.
- * 케이스는 접지 않는다(비교는 뒤에서 `pathKey` 가 그 플랫폼 규칙대로 한다).
- */
+/** 도구 경로 → 프로젝트 루트 상대경로(색인은 상대·훅은 절대라 안 맞추면 전 절 미열람). 루트 밖은 null. 케이스는 접지 않는다(`pathKey` 가 뒤에서 비교). */
 function toProjectRelative(root: string, raw: string): string | null {
   const value = raw.trim();
   if (value === '') return null;
@@ -105,10 +86,7 @@ class SpecReadingService {
     return fresh;
   }
 
-  /**
-   * 이번 턴 프롬프트. **턴마다 갈아 끼운다** — 지난 턴의 프롬프트로 이번 턴 절을 고르면
-   * 사용자가 화제를 바꾼 뒤에도 옛 절이 계속 필수로 남는다(그것이 곧 오탐이다).
-   */
+  /** 턴마다 갈아 끼운다 — 옛 프롬프트로 고르면 화제가 바뀐 뒤에도 옛 절이 필수로 남는다. */
   notePrompt(subAgentId: string, projectPath: string, text: string, at = Date.now(), source: 'hook' | 'assembly' = 'hook'): void {
     if (!subAgentId || typeof text !== 'string') return;
     const l = this.ledger(subAgentId, projectPath);
@@ -118,12 +96,8 @@ class SpecReadingService {
   }
 
   /**
-   * 훅 `UserPromptSubmit` 이 준 프롬프트 — **조립본이면 건드리지 않는다.**
-   *
-   * 우리가 띄운 세션은 조립 시점에 본문만 이미 적혀 있고(`notePrompt(…, 'assembly')`), 훅이 주는 것은
-   * 그 본문 앞에 앞말(정독 블록 포함)이 붙은 조립 결과다. 그것으로 덮으면 지난 정독 블록의 제목들이
-   * 이번 라우팅 재료가 된다(자기 참조). 원장의 본문이 이 프롬프트 안에 그대로 있으면 조립본이다.
-   * 아니면(외부 세션·CMD·첫 스폰) 첫 스폰 꼴만 벗겨 적는다.
+   * 조립본이면 건드리지 않는다 — 훅이 주는 것은 앞말(정독 블록)이 붙은 조립 결과라 덮으면 지난 정독 블록이 라우팅 재료가 된다.
+   * 원장 본문이 들어 있으면 조립본, 아니면(외부·CMD·첫 스폰) 첫 스폰 꼴만 벗겨 적는다.
    */
   notePromptFromHook(subAgentId: string, projectPath: string, prompt: string, at = Date.now()): void {
     if (!subAgentId || typeof prompt !== 'string') return;
@@ -145,12 +119,7 @@ class SpecReadingService {
     l.updatedAt = at;
   }
 
-  /**
-   * 도구 호출 하나를 열람 구간으로 옮긴다.
-   *
-   * `Read`·`Grep` 만 열람이다. `Glob` 은 파일 이름만 보는 것이라 열람이 아니고, 그것을 세면 "목록만
-   * 훑고 다 읽었다"가 통과한다 — 이 게이트가 막으려는 바로 그 동작이다.
-   */
+  /** `Read`·`Grep` 만 열람이다 — `Glob` 을 세면 목록만 훑고 통과한다. */
   noteToolUse(
     subAgentId: string,
     projectPath: string,
@@ -195,13 +164,7 @@ class SpecReadingService {
       list = [];
       l.spans.set(key, list);
     }
-    /*
-     * 겹치거나 맞닿은 구간은 **합쳐서** 든다.
-     *
-     * 같은 절을 두 번 열면 구간이 두 줄로 쌓이는데, 그 둘은 화면에서도 판정에서도 한 줄과 같은 뜻이다.
-     * 안 합치면 긴 문서를 훑는 세션 하나가 파일당 상한(200)을 금세 채우고, 그 목록이 **매 브로드캐스트마다
-     * 통째로 전선을 탄다**(§9 전선 예산). 합치면 실제 열람 모양은 그대로 두면서 줄 수만 준다.
-     */
+    /* 겹치거나 맞닿은 구간은 합친다 — 안 합치면 긴 문서 세션이 파일당 상한(200)을 금세 채우고 매 방송마다 전선을 탄다(§9 전선 예산). */
     const merged = list.find(
       (s) => s.tool === span.tool && s.partial === span.partial
         && span.fromLine <= s.toLine + 1 && s.fromLine <= span.toLine + 1,
@@ -270,13 +233,7 @@ class SpecReadingService {
     return this.sessions.get(subAgentId)?.projectPath ?? null;
   }
 
-  /**
-   * 이 원장의 **판 번호**(마지막으로 바뀐 시각).
-   *
-   * 스냅샷이 매 16~250ms 방송되는데 그때마다 정독 상태 객체를 새로 지으면 참조가 매번 달라져
-   * 증분이 걸리지 않는다(§9 전선 예산 — 키맵 슬라이스는 참조를 지켜야 이득이 난다).
-   * 부르는 쪽은 이 값이 그대로면 **직전 객체를 그대로 돌려준다.**
-   */
+  /** 원장의 판 번호(마지막 변경 시각) — 같으면 부르는 쪽이 직전 객체를 그대로 준다(16~250ms 방송마다 새로 지으면 참조가 바뀌어 증분이 안 걸린다). */
   versionOf(subAgentId: string): number {
     return this.sessions.get(subAgentId)?.updatedAt ?? 0;
   }
@@ -286,12 +243,7 @@ class SpecReadingService {
     return [...this.sessions.keys()];
   }
 
-  /**
-   * 판정을 부르는 쪽(`pluginHost`)에 넘길 **원장 그대로의 재료**.
-   *
-   * 여기서 절·커버율을 계산하지 않는다. 계산은 플러그인 순수 함수 하나뿐이어야 하고, 그래야 프롬프트·
-   * 화면·게이트가 같은 답을 말한다.
-   */
+  /** `pluginHost` 에 넘길 원장 재료 그대로 — 계산은 플러그인 순수 함수 하나여야 프롬프트·화면·게이트가 같은 답을 한다. */
   contextFieldsFor(subAgentId: string): {
     promptText: string;
     touchedPaths: string[];
@@ -330,12 +282,7 @@ class SpecReadingService {
   }
 }
 
-/**
- * `Read` 한 번이 연 구간.
- *
- * `offset`·`limit` 을 준 Read 는 그 구간을 정확히 연 것이고, 안 준 Read 는 도구가 앞부분만 돌려주므로
- * 긴 파일에서는 **부분 열람으로 강등**된다(판정은 플러그인의 `spanFromRead` 하나가 한다).
- */
+/** `Read` 한 번의 구간 — `offset`·`limit` 이 없으면 도구가 앞부분만 주므로 긴 파일은 부분 열람으로 강등(판정은 `spanFromRead`). */
 function readSpans(
   root: string,
   input: Record<string, unknown> | undefined,
@@ -358,12 +305,7 @@ function readSpans(
   return [span];
 }
 
-/**
- * `Grep` 한 번이 덮은 구간들.
- *
- * 매치 줄 번호는 `output_mode: 'content'` + `-n` 일 때만 응답에 있다. 없으면 아무 구간도 만들지 않는다 —
- * 모르는 것을 "봤다"로 세면 그 순간 이 게이트의 숫자가 거짓이 된다.
- */
+/** 매치 줄 번호는 `output_mode: 'content'` + `-n` 일 때만 있다 — 없으면 구간을 만들지 않는다(모르는 것을 봤다고 세지 않는다). */
 function grepSpans(
   root: string,
   input: Record<string, unknown> | undefined,
@@ -388,11 +330,8 @@ function grepSpans(
 }
 
 /**
- * ripgrep 한 줄에서 파일·줄 번호를 읽는다.
- *
- * `docs/a.md:120:본문` · `C:\\Users\\<you>\\docs\\a.md:120:본문`(드라이브 콜론 — 종전 정규식은 `C` 에서 끊겨 Windows
- * 절대경로를 한 건도 못 읽었다) · 문맥 줄 `docs/a.md-118-앞줄` · 단일 파일 `120:본문`(경로는 입력의 `path`).
- * 경로로 보이려면 구분자나 확장자 점이 있어야 한다 — `120:45 minutes` 같은 본문을 파일 "120" 으로 읽지 않는다.
+ * ripgrep 줄의 파일·줄 번호 — `docs/a.md:120:본문` · `C:\\Users\\<you>\\docs\\a.md:120:본문`(드라이브 콜론에서 끊지 않는다) · 문맥 줄 `a.md-118-` · 단일 파일 `120:본문`.
+ * 경로엔 구분자나 확장자 점이 있어야 한다(`120:45 minutes` 는 파일이 아니다).
  */
 function grepLine(line: string, singlePath: string | null): { file: string; line: number } | null {
   const m = /^((?:[A-Za-z]:)?[^:\n]+?):(\d+)[:-]/.exec(line);
@@ -431,23 +370,14 @@ function textOf(response: Record<string, unknown> | undefined): string | null {
   return typeof raw === 'string' ? raw : null;
 }
 
-/**
- * Read 응답의 **실제 모양**에서 셋을 읽는다 — `file.totalLines`(파일 길이) · `file.startLine`·`file.numLines`
- * (실제로 돌려준 범위). 종전에는 최상위 `totalLines` 만 봐서 축척이 영영 비었고, 그래서 히트맵도
- * 통째 Read 강등도 한 번도 서지 않았다. 최상위 키는 옛 픽스처·다른 도구 모양을 위해 그대로 받는다.
- */
+/** Read 응답의 `file.totalLines`·`file.startLine`·`file.numLines` 를 읽는다(최상위 `totalLines` 만 보면 축척이 비어 히트맵·강등이 안 선다). 최상위 키는 옛 픽스처용으로 받는다. */
 function readResponseFile(response: Record<string, unknown> | undefined): { totalLines: number | null; startLine: number | null; numLines: number | null } {
   const file = fileOf(response);
   const totalLines = numberOf(file?.['totalLines'] ?? response?.['totalLines'] ?? response?.['total_lines']) ?? responseLineCount(response);
   return { totalLines, startLine: numberOf(file?.['startLine']), numLines: numberOf(file?.['numLines']) };
 }
 
-/**
- * 응답 본문에서 파일의 **총 줄 수**를 읽어 낸다(축척 필드가 없을 때의 폴백).
- *
- * Read 도구는 `cat -n` 꼴로 돌려주므로 마지막 줄의 번호가 곧 "여기까지 봤다"이다. 파일이 그보다 길면
- * 잘린 것이고, 그 판정은 플러그인이 상한과 비교해 내린다.
- */
+/** 축척 필드가 없을 때의 총 줄 수 폴백 — `cat -n` 마지막 줄 번호 = 여기까지 봤다(잘림 판정은 플러그인). */
 function responseLineCount(response: Record<string, unknown> | undefined): number | null {
   const text = textOf(response);
   if (text === null) return null;

@@ -1,15 +1,4 @@
-/**
- * usePointerDragReorder.test.ts — §5.4 #14-2 (F-6) **탭은 꾹 누르지 않고 끌어서 든다 — 그 손짓을 실제로 돌려 본다.**
- *
- * `tabPointerDrag.test.ts` 는 소스 문자열로 "두 탭바가 끌기 문을 켰는가"를 보고, `pointerDragGeom.test.ts`
- * 는 문턱의 값을 본다. 그 둘로는 **훅이 손짓 순서대로 무엇을 하는가**(문턱 안에서 떼면 클릭이 살아남는가 ·
- * 넘기면 기다림 없이 드는가 · 터치는 여전히 기다리는가)가 잡히지 않는다.
- *
- * 클라 테스트에는 DOM 이 없다(jsdom 미설치). 그래서 ⓐ React 는 **한 번만 그리는** 가짜로 바꾸고
- * (`useRef`·`useCallback` 은 받은 것을 그대로 돌려주고, `useState` 의 setter 와 effect 는 아무것도 하지 않는다)
- * ⓑ 창은 리스너·타이머를 받아 두는 `window` 스텁으로 세운다(`detachedFollowRelease.test.ts` 와 같은 방식).
- * 훅의 판정은 전부 ref 와 창 리스너 위에서 돌므로, 이 둘만으로 탭바가 타는 **그 코드 경로**를 그대로 탄다.
- */
+/** §5.4 #14-2 (F-6) — 탭 끌어 들기를 손짓 순서대로 돌린다(문턱 안 떼면 클릭 · 넘기면 바로 든다 · 터치는 기다린다). React 는 한 번만 그리는 가짜, 창은 `window` 스텁(`detachedFollowRelease.test.ts` 와 같은 방식). */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { usePointerDragReorder, type PointerDragReorderOptions } from './usePointerDragReorder.js';
 import { POINTER_DRAG } from './pointerDragGeom.js';

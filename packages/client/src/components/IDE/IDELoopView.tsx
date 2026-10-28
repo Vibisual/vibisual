@@ -13,21 +13,9 @@ import { useIDEPaneValue } from './idePane.js';
 import { useSessionFormDraft } from '../../stores/sessionFormDrafts.js';
 import { ScrollFade } from '../ScrollFade.js';
 
-// §5.5 #17-11 ⑨ v4.51 — 세션 반복 실행(루프) 설정 뷰.
-//
-// 스킬(#17-4)·목표(#17-17 ④) 뷰와 같은 자리(사이드바 `w-52`)에 뜬다 — 루프 설정은 화면을
-// 가로채는 것이 아니라 **세션이 지금 무엇을 하는지 보면서** 곁눈으로 만지는 것이기 때문
-// (v4.51 이전의 덮개 패널 `IDELoopPanel` 은 폐지).
-//
-// 설정 단위는 **지금 열려 있는 IDE 세션 탭 하나**다. 탭을 바꾸면 그 탭의 루프가 보인다.
-//
-// §5.5 #17-11 ⑬ — 폼 값은 `서버 값(바탕) ← 세션별 초안(사용자가 건드린 칸)` 병합이다.
-// 종전엔 12개 `useState` 를 activeSessionId 가 바뀔 때마다 서버 값으로 되채웠는데, [시작] 전
-// 입력은 서버에 없으므로 **다른 탭에 다녀오면 쳐 둔 값이 전부 사라졌다**. 이제 손댄 칸은
-// `useSessionFormDraft` 가 탭·뷰·앱 재시작을 건너 붙잡고, 손대지 않은 칸만 스냅샷을 따라간다.
-//
-// 실행·계수·정지는 전부 서버(SSOT)가 한다. 이 컴포넌트는 폼을 PUT 으로 보내고,
-// 되돌아오는 graph_snapshot 의 `sessionLoops` 를 그대로 그린다(낙관적 진행 표시 ❌).
+// §5.5 #17-11 ⑨ — 세션 탭 하나의 루프 설정 뷰(사이드바 `w-52` — 세션을 보면서 만진다).
+// ⑬ 폼 = 서버 값 ← 세션별 초안(`useSessionFormDraft` — [시작] 전 입력이 탭 이동에 사라지지 않게).
+// 실행·계수·정지는 서버가 하고 화면은 `sessionLoops` 를 그대로 그린다(낙관적 진행 표시 ❌).
 
 const EMPTY_SUBS: SubAgent[] = [];
 
@@ -208,13 +196,8 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
 
   return (
     <div className="flex min-h-0 flex-col">
-      {/* 제목 + 상태 배지 — 이 줄의 폭은 고정이 아니다. 사이드바가 서랍으로 뜨면 상한이 창 크기를
-          따라가고(`max-w-[calc(100%-5rem)]`), 상태 문구 길이는 로케일마다 다르다("정지됨" ↔
-          "Presupuesto agotado"). 종전엔 제목이 줄지 않아(`min-w-0` 없음) 긴 쪽에서 배지가 패널
-          오른쪽 테두리 **밖으로 밀려 잘렸다** — 이제 제목이 먼저 줄고, 그래도 둘이 한 줄에 못 서면
-          배지가 아랫줄로 내려간다(`flex-wrap`, 오른쪽 정렬은 `ml-auto` 가 지킨다).
-          `pb-1.5` 는 아래 스크롤 영역 상단의 그라데이션(`.scroll-fade-top`, 12px·z-10)이 스크롤을
-          내리는 순간 배지 밑변에 달라붙어 겹쳐 보이지 않도록 띄워 둔 자리다. */}
+      {/* 제목 + 상태 배지 — 폭이 유동적이다(서랍 `max-w-[calc(100%-5rem)]`, 로케일별 문구 길이). 제목이 먼저 줄고(`min-w-0`)
+         모자라면 배지가 아랫줄로(`flex-wrap` + `ml-auto`). `pb-1.5` = `.scroll-fade-top` 이 배지에 겹치지 않는 틈. */}
       <div className="flex flex-shrink-0 flex-wrap items-center gap-x-1.5 gap-y-1 px-3 pb-1.5 pt-2">
         <span
           title={t('ide.loop.title')}

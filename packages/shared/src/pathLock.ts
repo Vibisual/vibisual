@@ -1,17 +1,7 @@
 /**
- * pathLock.ts — §5.3 #12-3 · 자물쇠의 **공용 판정기**.
- *
- * 버블 위 우클릭으로 건 자물쇠(파일·폴더·호스트)에 **어느 AI 의 어느 도구 호출이 닿는가**를 정한다.
- * 승인 창구(`/api/permission-check` 의 클로드·코덱스 갈래 · 로컬 모델의 `requestTool`)와 훅 세션에
- * 돌려주는 `ask` 가 모두 이 한 함수(`findToolLockHits`)를 부른다 — 두 벌이 되면 한쪽에서는 잠겼는데
- * 다른 쪽에서는 열리고, 사용자에게는 "잠갔는데 열렸다"로만 보인다(§5.22 `classifyToolRisk` 와 같은 규율).
- *
- * 판정의 기울기는 감사 경계와 **반대**다. 그쪽은 "모르는 것을 위험으로 넘겨짚지 않는다"였지만,
- * 자물쇠는 사용자가 "여기는 묻고 열어라"라고 손으로 그은 선이라 **놓치는 쪽의 대가가 더 크다** —
- * 잠긴 곳을 가리키는 낱말이 보이면 센다. 더 묻는 대가는 카드 한 장이다.
- *
- * 순수 함수 모듈(디스크 접근 ❌ · `process.platform` 읽기 ❌ — 플랫폼·홈은 **인자로 받는다**)이라
- * 개발기 한 대에서 세 OS 를 전부 단위 테스트할 수 있다(멀티플랫폼 1축 — `pathLock.test.ts`).
+ * §5.3 #12-3 — 자물쇠(파일·폴더·호스트)에 어느 도구 호출이 닿는가의 공용 판정기. 승인 창구(`/api/permission-check` 클로드·코덱스 갈래 ·
+ * 로컬 `requestTool`)와 훅 `ask` 가 모두 `findToolLockHits` 를 부른다 — 두 벌이면 "잠갔는데 열렸다"가 된다(§5.22 `classifyToolRisk` 규율).
+ * 감사 경계와 반대로 기운다 — 놓치는 대가가 커서 잠긴 곳을 가리키는 낱말이 보이면 센다. 순수 모듈(플랫폼·홈은 인자 — `pathLock.test.ts`).
  */
 import { normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
 import {
@@ -95,11 +85,8 @@ function collapseLockPath(shaped: string): string {
 }
 
 /**
- * 호출 안의 경로 낱말 하나를 자물쇠와 견줄 수 있는 **절대경로**로 편다. 못 펴면 `null`.
- *
- * - `~` → `homeDir`(모르면 못 편다 — 모르는 홈을 지어내지 않는다)
- * - win32 의 msys 경로(`/c/x`) → `c:/x`(Git Bash 로 도는 셸이 이 모양을 쓴다)
- * - 상대경로 → `base`(그 호출의 cwd)에 붙인다. `base` 가 없으면 못 편다.
+ * 경로 낱말을 절대경로로 편다(못 펴면 `null`). `~` → `homeDir`(모르면 못 편다 — 지어내지 않는다) · win32 msys `/c/x` → `c:/x`(Git Bash) ·
+ * 상대경로는 `base`(그 호출의 cwd)에 붙인다(없으면 못 편다).
  */
 export function resolveLockPath(
   raw: string,
@@ -385,12 +372,9 @@ function indexLocks(locks: PathLocksByProject, platform: PlatformName): { paths:
 
 /**
  * 경로 하나를 견주는 방식.
- * - `direct` — 그 경로가 자물쇠 자신이거나 그 안일 때만(파일 도구 · 셸 낱말). 글롭은 **펼쳐져서**
- *   자물쇠 자신에 닿을 수 있으면 센다(`cat *.env` → `secret.env`).
- * - `tree`   — 위 + 그 경로가 자물쇠를 **덮을 때**(폴더째 검색·복사·삭제). 글롭은 자물쇠나 그 상위
- *   폴더로 펼쳐질 수 있으면 센다(`rm -rf build/*` → `build/keep`).
- * - `list`   — 이름만 훑는 도구(`Glob`·`LS`). 잠긴 곳 **안**을 가리킬 때만 센다 — 글롭도 고정
- *   앞머리가 자물쇠 안일 때만(상위 폴더를 훑는 것은 이름뿐이다).
+ * - `direct` 자물쇠 자신이거나 그 안(파일 도구·셸 낱말). 글롭은 펼쳐져 자물쇠에 닿을 수 있으면(`cat *.env` → `secret.env`).
+ * - `tree` 위 + 경로가 자물쇠를 덮을 때(폴더째 검색·복사·삭제). 글롭은 자물쇠나 그 상위로 펼쳐질 수 있으면(`rm -rf build/*`).
+ * - `list` 이름만 훑는 도구(`Glob`·`LS`) — 잠긴 곳 안을 가리킬 때만(글롭은 고정 앞머리가 그 안일 때만).
  */
 type MatchMode = 'direct' | 'tree' | 'list';
 
@@ -619,15 +603,9 @@ class HitCollector {
 }
 
 /**
- * §5.3 #12-3 — 이 도구 호출이 닿는 자물쇠들. 비었으면 자물쇠와 무관한 호출이다.
- *
- * 세는 것(SSOT #12-3 (F)):
- *  - 경로 도구와 **모든 도구의** 경로 칸: 그 경로가 자물쇠이거나 그 안.
- *  - `Grep`: 범위(경로 · 없으면 cwd)가 자물쇠를 덮어도(내용을 읽는다).
- *  - `Glob`·`LS`: 잠긴 폴더 **안**을 가리킬 때만(상위를 훑는 것은 이름뿐이다).
- *  - `apply_patch`: 머리줄 경로.
- *  - 셸 명령: 모든 낱말(`cd` 반영 · 글롭은 펼쳐질 수 있는 곳) + 폴더째 다루는 명령의 범위.
- *  - 호스트: URL 칸과 명령 안의 `http(s)` 주소.
+ * §5.3 #12-3 — 이 도구 호출이 닿는 자물쇠들(비면 무관). 세는 것(SSOT #12-3 (F)): 모든 도구의 경로 칸이 자물쇠이거나 그 안 ·
+ * `Grep` 은 범위가 자물쇠를 덮어도 · `Glob`·`LS` 는 잠긴 폴더 안일 때만 · `apply_patch` 머리줄 경로 ·
+ * 셸은 모든 낱말(`cd` 반영·글롭) + 폴더째 명령의 범위 · 호스트는 URL 칸과 명령 안 `http(s)` 주소.
  */
 export function findToolLockHits(
   toolName: string,

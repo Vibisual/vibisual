@@ -1,10 +1,6 @@
 import { CAPTURE_PLAYTEST } from '@vibisual/shared';
 
-// §5.9 플레이테스트(녹화 + 구간 프레임 첨부) — 순수 계산 한 벌.
-//
-// 녹화기·창·첨부 훅 셋이 같은 답을 봐야 하므로(구간이 화면에서 보이는 자리와 실제로 뽑히는 프레임이
-// 어긋나면 그 즉시 못 믿는 화면이 된다) 계산은 여기 한 곳에만 두고 단위 테스트로 굳힌다.
-// `captureSnap`(이어 붙이기 기하)이 같은 이유로 여기 사는 것과 같은 자리다.
+// §5.9 플레이테스트 순수 계산 — 녹화기·창·첨부 훅이 같은 답을 봐야 해(보이는 구간과 뽑힌 프레임이 어긋나면 안 된다) 여기 한 곳에 둔다.
 
 /** 구간(밀리초). 클립 안에서 잘라낼 시작·끝. */
 export interface ClipRange {
@@ -12,12 +8,7 @@ export interface ClipRange {
   endMs: number;
 }
 
-/**
- * 이 환경이 지원하는 첫 번째 녹화 컨테이너를 고른다. 하나도 없으면 `null` —
- * 호출부는 mimeType 을 지정하지 않고 브라우저 기본값으로 녹화한다(막지 않는다).
- *
- * @param isSupported `MediaRecorder.isTypeSupported` (테스트에서 갈아 끼우려고 인자로 받는다)
- */
+/** 없으면 `null` — 호출부는 mimeType 없이 브라우저 기본값으로 녹화한다(막지 않는다). */
 export function pickRecorderMime(
   isSupported: (mime: string) => boolean,
   candidates: readonly string[] = CAPTURE_PLAYTEST.MIME_CANDIDATES,
@@ -32,10 +23,7 @@ export function pickRecorderMime(
   return null;
 }
 
-/**
- * 손잡이로 잡은 구간을 클립 안으로 접어 넣는다. 밖으로 나가지 않고, 최소 길이보다 좁아지지 않는다
- * (같은 그림 N 장을 붙이는 일 방지). 클립이 최소 길이보다 짧으면 클립 전체를 돌려준다.
- */
+/** 최소 길이보다 좁아지지 않는다(같은 그림 N 장 방지). 클립이 최소 길이보다 짧으면 클립 전체. */
 export function clampRange(
   range: ClipRange,
   durationMs: number,
@@ -59,11 +47,7 @@ export function clampRange(
   return { startMs: start, endMs: end };
 }
 
-/**
- * 구간에서 프레임을 뽑을 시각들. **양 끝이 아니라 등분한 칸의 한가운데**를 찍는다 —
- * 정확히 끝(=클립 길이)으로 seek 하면 마지막 프레임을 못 받는 경우가 있고, 한가운데를 찍으면
- * 장수가 1이어도 자연히 "구간의 대표 한 장"이 된다.
- */
+/** **등분한 칸의 한가운데**를 찍는다 — 끝(=클립 길이)으로 seek 하면 마지막 프레임을 못 받을 수 있다. */
 export function frameTimesFor(range: ClipRange, count: number): number[] {
   const n = Math.max(1, Math.min(Math.floor(count), CAPTURE_PLAYTEST.MAX_FRAME_COUNT));
   const start = Math.min(range.startMs, range.endMs);
@@ -74,14 +58,8 @@ export function frameTimesFor(range: ClipRange, count: number): number[] {
 }
 
 /**
- * §5.5 #17-35 ⑨-4 — **시연 저장**이 쓰는 프레임 시각. 등간격이 아니라 **사람이 표시한 순간** 우선.
- *
- * 왜 다른가: 검증 프롬프트는 단계를 `1. (0:03) …` 처럼 시각과 함께 적고, 그림도 시각과 함께 적는다.
- * 그런데 그림을 등간격으로 뽑으면 그 둘이 **같은 순간을 가리키지 않는다** — 0:03 에 무엇을 눌렀다고
- * 써 놓고 붙는 그림은 0:03 이 아닌 화면이라, 모델이 단계와 그림을 짝지을 수 없다.
- * 단계가 하나도 없을 때만 종전대로 구간을 등분한다(그때는 대표 장면 말고 기댈 것이 없다).
- *
- * @param stepTimes 구간 시작을 0 으로 본 단계 시각들(ms). 비어 있으면 등간격.
+ * §5.5 #17-35 ⑨-4 — 시연 저장 프레임은 **단계 시각**에서 뽑는다 — 프롬프트가 단계를 `(0:03)` 처럼 시각과 적어, 등간격이면 모델이 단계와 그림을 짝짓지 못한다.
+ * @param stepTimes 구간 시작 기준 단계 시각(ms). 비면 등간격.
  */
 export function demoFrameTimes(
   range: ClipRange,

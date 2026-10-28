@@ -8,18 +8,9 @@ import { getInternalApp, type AppThumbnail, type AppThumbnailRenderer } from './
 import { isThumbnailSkip } from './thumbnailSkip.js';
 
 /**
- * §5.4 #36 (F) — 앱 위성 화면의 **미리보기 기억 장소**.
- *
- * 무엇을 어떻게 굽는지는 앱이 레지스트리 `thumbnail` 로 선언하고(늦은 로더), 여기는 **언제·몇 번** 굽는지만 맡는다.
- * 코어는 앱 이름을 모른다(§5.13 (P-4)) — 결과 두 모양(그림·파형)만 안다.
- *
- * - **한 번 굽고 기억한다.** 열쇠 = 앱 · 프로젝트 경로키 · 파일 · 결과 버전 · 크기. 같은 결과를 다시 보내지 않는 한 다시 굽지 않는다.
- * - **화면 밖에서 돌아와도 바로 보인다.** 캔버스는 화면 밖 노드를 언마운트하지만 이 장소는 모듈에 산다.
- * - **동시 건수 상한.** 영상 디코더·WebGL 문맥이 노드 수만큼 한꺼번에 뜨지 않게 줄을 세운다.
- * - **못 구운 것도 기억한다.** 읽지 못하는 형식을 마운트마다 다시 조르지 않는다(결과 버전이 바뀌면 새 열쇠라 다시 시도한다).
- * - **상한을 넘으면 오래 안 본 것부터 버린다** — 지금 그려지고 있는 것은 버리지 않고, 버린 그림의 blob URL 은 되돌린다.
- *
- * 경로 비교는 `clientPathKey`(멀티플랫폼 1축) — 같은 루트가 `C:\proj`·`C:/proj` 로 와도 한 장, linux 는 대소문자를 접지 않는다.
+ * §5.4 #36 (F) — 앱 위성 미리보기 기억(무엇을 굽는지는 앱의 `thumbnail`, 여기는 언제·몇 번 — 코어는 그림·파형 두 모양만 안다).
+ * 열쇠 = 앱 · 경로키 · 파일 · 결과 버전 · 크기로 한 번 굽고 모듈에 기억한다(못 구운 것도 — 결과 버전이 바뀌면 다시). 동시 건수 상한으로 디코더·WebGL 문맥이
+ * 노드 수만큼 뜨지 않게 하고, 상한 초과는 오래 안 본 것부터 버리고(그리는 것 제외) blob URL 을 되돌린다. 경로는 `clientPathKey`(linux 는 대소문자 유지).
  */
 
 export type ThumbStatus = 'loading' | 'ready' | 'none';
@@ -27,10 +18,7 @@ export type ThumbStatus = 'loading' | 'ready' | 'none';
 export interface ThumbState {
   readonly status: ThumbStatus;
   readonly thumb: AppThumbnail | null;
-  /**
-   * §5.1 #2-1 (G) ① — 못 구운(`none`) 이유가 "앱 성능 기준보다 커서 일부러 굽지 않았다"면 `tooLarge`(굽는 함수가
-   * `THUMB_SKIPPED_TOO_LARGE` 를 돌려줬다). 파일 버블이 이 값으로 "미리보기 생략" 툴팁을 단다. 없으면 이유를 모른다.
-   */
+  /** §5.1 #2-1 (G) ① — `none` 의 이유가 성능 기준 초과(굽는 함수가 `THUMB_SKIPPED_TOO_LARGE`)면 `tooLarge` — 파일 버블의 "미리보기 생략" 툴팁. 없으면 이유를 모른다. */
   readonly reason?: 'tooLarge';
 }
 
@@ -299,10 +287,7 @@ export function thumbPixelSize(width: number, height: number, devicePixelRatio: 
   return { width: Math.round(width * ratio), height: Math.round(height * ratio) };
 }
 
-/**
- * §5.4 #36 (G) — 구울 자리(캔버스 px)를 `APP_THUMB.bakeStep` 단위로 **올려** 잡는다. 노드 크기를 바꿀 때마다 1px 단위로
- * 열쇠가 바뀌어 다시 굽지 않게 — 같은 칸 안의 크기는 앞서 구운 한 장을 그대로 쓴다(올려 잡으므로 흐려지지 않는다).
- */
+/** §5.4 #36 (G) — 구울 자리(캔버스 px)를 `APP_THUMB.bakeStep` 단위로 올려 잡는다 — 크기를 바꿀 때마다 1px 단위로 다시 굽지 않게(올려 잡아 흐려지지 않는다). */
 export function thumbBakeBox(width: number, height: number): { width: number; height: number } {
   const step = APP_THUMB.bakeStep;
   const up = (v: number): number => Math.max(step, Math.ceil((Number.isFinite(v) && v > 0 ? v : step) / step) * step);
@@ -314,11 +299,7 @@ function resultIdentity(job: ThumbJob): string {
   return JSON.stringify([job.appId, clientPathKey(job.projectId), job.file, job.version]);
 }
 
-/**
- * §5.4 #36 (G) — {@link useAppThumbnail} 와 같되, 크기가 바뀌어 **다시 굽는 동안에는 앞 그림을 그대로** 보인다.
- * 같은 결과의 것만 붙든다 — 다른 결과(다른 파일·새 버전)가 오면 놓는다(옛 결과가 새 결과 행세를 하지 않게).
- * 못 구웠으면(`none`) 붙든 것도 놓는다 — 굽지 못한 것을 옛 그림으로 덮어 감추지 않는다.
- */
+/** §5.4 #36 (G) — 크기가 바뀌어 다시 굽는 동안 앞 그림을 붙든다. 같은 결과의 것만(다른 파일·새 버전이면 놓는다), 못 구웠으면(`none`) 놓는다 — 옛 그림으로 감추지 않는다. */
 export function useSteadyThumbnail(job: ThumbJob | null): ThumbState {
   const state = useAppThumbnail(job);
   const identity = job ? resultIdentity(job) : null;
@@ -342,11 +323,8 @@ export function formatMediaDuration(seconds: number): string {
 }
 
 /**
- * 파형 막대들을 SVG path 하나로 — 막대마다 가운데에서 위아래로 같은 길이(`M x,y1 V y2`), 둥근 끝은 그리는 쪽이 준다.
- * path 하나라 막대가 몇 개든 DOM 노드는 하나다.
- *
- * §5.4 #36 (G) — `range` 를 주면 그 막대 구간(`from` 이상 `to` 미만)만 그린다. 자리는 전체 막대 기준 그대로라,
- * 들은 구간(밝게)과 남은 구간(흐리게)을 두 path 로 겹쳐 그리면 한 파형으로 보인다.
+ * 파형 막대를 SVG path 하나로(`M x,y1 V y2` — 막대 수와 무관하게 DOM 노드 하나, 둥근 끝은 그리는 쪽).
+ * §5.4 #36 (G) — `range`(`from` 이상 `to` 미만)도 전체 막대 기준 자리라 들은·남은 두 path 를 겹치면 한 파형이 된다.
  */
 export function wavePath(
   peaks: readonly number[],

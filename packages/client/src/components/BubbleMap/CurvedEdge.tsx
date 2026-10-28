@@ -19,24 +19,14 @@ function stableRandom(id: string): number {
 }
 
 /**
- * 소스/타겟 중심점에서 원 둘레 교차점을 계산해서
- * 엣지가 버블 외곽선을 따라 360도 자유롭게 나가도록 하는 커스텀 엣지.
- *
- * 주의: React Flow 가 주는 sourceX/Y, targetX/Y 는 "핸들" 좌표다.
- * 핸들이 Position.Top 이라 RF 는 핸들 박스의 윗변 중점을 돌려주고,
- * 게다가 버블 크기 애니메이션 중엔 캐시된 핸들 bound 라 실제 원 중심과
- * 몇 px 어긋난다 → 끝점이 둘레를 빗나가 타원처럼 보임.
- * 그래서 핸들 대신 노드의 실측 지오메트리(measured + positionAbsolute)로
- * 진짜 원 중심·반지름을 잡는다. 실측이 없을 때만 props 로 폴백.
+ * 끝점이 원 둘레에서 끝나는 커스텀 엣지. RF 의 sourceX/Y 는 핸들(Position.Top 윗변) 좌표이고 크기 애니메이션 중엔 캐시된 bound 라 원 중심과 어긋난다
+ * — 노드 실측(measured + positionAbsolute)으로 원 중심·반지름을 잡고, 없을 때만 props 폴백.
  */
 
 /** 기본 반지름 추정 — 노드 크기 정보 없을 때 */
 const DEFAULT_RADIUS = 45;
 
-/**
- * 노드 상자. `w`·`h` 가 있으면 실측이라 끝점을 **그 방향의 테두리**에서 끊는다 — 정사각(버블)은 원 반지름,
- * 말풍선(§5.4 #36)은 말풍선 + 궤도의 실루엣. 실측이 없으면 반지름 폴백만 있다.
- */
+/** `w`·`h` 가 있으면 실측 — 끝점을 그 방향 테두리에서 끊는다(버블은 원, 말풍선 §5.4 #36 은 말풍선 + 궤도 실루엣). 없으면 반지름 폴백. */
 interface Circle { cx: number; cy: number; r: number; w?: number; h?: number }
 
 /** 노드의 실측 지오메트리에서 원 중심·반지름. 실측 없으면 null → 폴백. */
@@ -56,12 +46,8 @@ function edgeReach(c: Circle, nx: number, ny: number): number {
 }
 
 /**
- * 타겟 끝점만 버블 외곽선에서 바깥으로 떼는 여백.
- * 버블 DOM 은 SVG 엣지 위에 그려지므로, 끝점이 외곽선에 딱 붙으면
- * 화살촉(ArrowClosed ~14px)이 버블 몸체에 가려 Read/Write 방향이 안 보인다.
- * 화살촉이 통째로 빠지는 정도면 충분 — 과하면 라인이 버블에서 동떨어져 보인다.
- * 소스 쪽은 여백 0: 선은 자기 소스 버블에는 잘리지 않으므로(가림 원을 고를 때 소스를 뺀다)
- * 라인이 외곽선에서 그대로 뻗어 나와 버블에 뿌리내린 것처럼 보인다.
+ * 타겟 끝점만 띄운다 — 버블 DOM 이 엣지 위라 붙이면 화살촉(~14px)이 가려 방향이 안 보인다(과하면 선이 떠 보인다).
+ * 소스는 0 — 선은 자기 소스 버블에 안 잘려 외곽선에서 뻗어 나온다.
  */
 const ARROW_CLEARANCE = 13;
 function targetEndpointGap(radius: number): number {

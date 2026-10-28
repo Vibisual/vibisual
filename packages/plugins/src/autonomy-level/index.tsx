@@ -1,11 +1,6 @@
 /**
- * §5.11 v3.88 — 자율성 등급(Autonomy Level) 플러그인.
- *
- * "제안만 / 승인 후 실행 / 자율 실행 후 보고" 를 한눈에. 자율성을 전부 아니면 전무로 두는 것이
- * 가장 흔한 설계 실패라, 지금 이 에이전트가 어느 칸에 있는지 먼저 보이게 한다.
- *
- * 등급은 `permissionMode` 가 정하고, 무응답 정책·턴 상한·격리는 **같은 등급 안의 세부**로 보여준다
- * (등급을 흔들지 않는다 — 흔들면 왜 그 등급인지 추적이 안 된다).
+ * §5.11 — 자율성 등급(Autonomy Level): 제안만 / 승인 후 실행 / 자율 실행 후 보고 중 어느 칸인가.
+ * 등급은 `permissionMode` 만 정한다. 무응답 정책·턴 상한·격리는 같은 등급 안의 세부로 보여준다 — 등급을 흔들면 왜 그 등급인지 추적이 안 된다.
  */
 import type { AgentConfig } from '@vibisual/shared';
 import type { PluginClientModule, PluginBubbleContext, PluginManifest, PluginSeverity } from '../sdk/index.js';
@@ -51,10 +46,7 @@ function judgeable(ctx: PluginBubbleContext): boolean {
   return ctx.bubbleType === 'agent' && ctx.agentConfig !== undefined;
 }
 
-/**
- * 배지는 버블 위에 직접 붙는다 — 판정과 무관하게 항상 붙으면 111종을 켠 화면은 배지 띠가 되고,
- * "배지가 떴다"가 더는 신호로 읽히지 않는다. 눈여겨볼 상태일 때만 붙인다.
- */
+/** 배지는 눈여겨볼 상태일 때만 붙인다 — 늘 붙으면 카드를 다 켠 화면이 배지 띠가 되어 신호로 읽히지 않는다. */
 function badgeMatch(ctx: PluginBubbleContext): boolean {
   return judgeable(ctx) && judgeAutonomy(ctx.agentConfig).level === 'autonomous';
 }
@@ -71,10 +63,7 @@ function Badge({ ctx }: { ctx: PluginBubbleContext }): React.JSX.Element {
   );
 }
 
-/**
- * 호스트는 카드 내용을 열어 보지 않고 이 등급만으로 정렬·접힘을 정한다. 등급을 안 주면 `neutral` 로 떨어져
- * **문제를 보고하는 순간에도 조용한 카드로 분류돼 접힘 대상이 된다.** 카드가 이미 계산해 둔 판정을 그대로 넘긴다.
- */
+/** 호스트는 이 등급만으로 정렬·접힘을 정한다 — 안 주면 `neutral` 로 떨어져 문제를 보고할 때도 접힌다. */
 function severity(ctx: PluginBubbleContext): PluginSeverity {
   return TONE[judgeAutonomy(ctx.agentConfig).level];
 }

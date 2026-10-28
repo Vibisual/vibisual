@@ -3,11 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { SplitNode } from './splitLayout.js';
 import { streamResyncTargets } from './streamResync.js';
 
-/**
- * 재연결 뒤 **무엇을 다시 받을지** 고르는 판정을 못 박는다. 그리는 자리마다 받는 길이 다르다 —
- * 창의 활성 세션은 창이 깊은 복원 표식을 보고 스스로 받고, 메인 탭은 에이전트 벌크, 분할의 초점 밖 칸은
- * 그 세션의 깊은 창이다. 빠뜨리면 그 칸만 글이 중간에서 끊긴 채 남는다.
- */
+/** 재연결 뒤 다시 받을 대상 판정(창 활성 세션 = 창이 · 메인 탭 = 에이전트 벌크 · 분할 초점 밖 칸 = 그 세션 깊은 창)을 고정한다. */
 
 const cell = (id: string, sessionId: string | null): SplitNode => ({ kind: 'cell', id, sessionId });
 const row = (...children: SplitNode[]): SplitNode => ({
@@ -20,7 +16,7 @@ const row = (...children: SplitNode[]): SplitNode => ({
 
 const noCustom = (): boolean => false;
 
-describe('재연결 뒤 스트림 재수신 대상 (§4 v3.16)', () => {
+describe('재연결 뒤 스트림 재수신 대상 (§4)', () => {
   it('메인 탭을 보고 있는 훅 버블은 에이전트 벌크를 다시 받는다', () => {
     const t = streamResyncTargets({
       overlays: [{ paneKey: 'p', agentId: 'hook', activeSessionId: null }],

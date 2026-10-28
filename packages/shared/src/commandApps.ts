@@ -59,18 +59,35 @@ const APP_NAMES: Readonly<Record<string, string>> = {
   rustc: 'Rust', go: 'Go', cmake: 'CMake', ninja: 'Ninja', make: 'Make', msbuild: 'MSBuild',
   docker: 'Docker', podman: 'Podman', curl: 'curl', wget: 'wget', python: 'Python', py: 'Python',
   ruby: 'Ruby', perl: 'Perl', php: 'PHP', sqlite3: 'SQLite', psql: 'PostgreSQL',
+  // Commands that gained a bundled mark (COMMAND_APP_BRANDS) are recognized by bare name too.
+  bunx: 'Bun', vite: 'Vite', vitest: 'Vitest', esbuild: 'esbuild', prettier: 'Prettier', nx: 'Nx',
+  uv: 'uv', uvx: 'uv', ruff: 'Ruff', pdm: 'PDM', pytest: 'pytest', 'py.test': 'pytest', rscript: 'R',
+  zig: 'Zig', ocaml: 'OCaml', ocamlc: 'OCaml', ocamlopt: 'OCaml', ocamlfind: 'OCaml', lua: 'Lua', luac: 'Lua',
+  composer: 'Composer', stack: 'Stack', erl: 'Erlang', erlc: 'Erlang', escript: 'Erlang',
+  brew: 'Homebrew', scoop: 'Scoop', choco: 'Chocolatey', netlify: 'Netlify CLI', ntl: 'Netlify CLI',
+  ollama: 'Ollama', nix: 'Nix', 'nix-shell': 'Nix', 'nix-build': 'Nix', 'nix-env': 'Nix', adb: 'adb',
+  emcc: 'Emscripten', 'em++': 'Emscripten', emcmake: 'Emscripten', emmake: 'Emscripten', emconfigure: 'Emscripten',
 };
 
 /**
- * Commands drawn with a bundled mark instead of an OS icon — their executables carry none (git.exe,
- * curl.exe; POSIX command-line programs never do). Listed only where the mark's owner licenses the
- * artwork for this use: sources, licenses and the marks left out are in the client's
- * `assets/command-app-icons/README.md`. Keyed by the same base name as APP_NAMES.
+ * Commands drawn with a bundled mark — most executables carry no OS icon, and shims may carry their runtime's (pnpm.exe → Node.js).
+ * Only marks whose owner licenses this use; sources and licenses: client `assets/command-app-icons/README.md`. Keyed like APP_NAMES.
  */
-export type CommandAppBrand = 'git' | 'curl' | 'php' | 'ruby' | 'perl' | 'yarn' | 'pnpm' | 'godot';
+export type CommandAppBrand = 'git' | 'curl' | 'php' | 'ruby' | 'perl' | 'yarn' | 'pnpm' | 'godot'
+  | 'bun' | 'vite' | 'vitest' | 'esbuild' | 'prettier' | 'nx' | 'uv' | 'ruff' | 'pdm' | 'pytest' | 'r' | 'zig'
+  | 'ocaml' | 'lua' | 'composer' | 'stack' | 'erlang' | 'homebrew' | 'scoop' | 'chocolatey' | 'netlify'
+  | 'ollama' | 'nix' | 'wget' | 'adb' | 'emscripten';
 const COMMAND_APP_BRANDS: Readonly<Record<string, CommandAppBrand>> = {
   git: 'git', curl: 'curl', php: 'php', ruby: 'ruby', irb: 'ruby', perl: 'perl',
   yarn: 'yarn', pnpm: 'pnpm', pnpx: 'pnpm', godot: 'godot',
+  bun: 'bun', bunx: 'bun', vite: 'vite', vitest: 'vitest', esbuild: 'esbuild', prettier: 'prettier', nx: 'nx',
+  uv: 'uv', uvx: 'uv', ruff: 'ruff', pdm: 'pdm', pytest: 'pytest', 'py.test': 'pytest',
+  // Bare `r` stays out of APP_NAMES (zsh builtin, PowerShell alias of Invoke-History) — only R.exe paths reach here.
+  r: 'r', rscript: 'r', zig: 'zig', ocaml: 'ocaml', ocamlc: 'ocaml', ocamlopt: 'ocaml', ocamlfind: 'ocaml',
+  lua: 'lua', luac: 'lua', composer: 'composer', stack: 'stack', erl: 'erlang', erlc: 'erlang', escript: 'erlang',
+  brew: 'homebrew', scoop: 'scoop', choco: 'chocolatey', netlify: 'netlify', ntl: 'netlify', ollama: 'ollama',
+  nix: 'nix', 'nix-shell': 'nix', 'nix-build': 'nix', 'nix-env': 'nix', wget: 'wget', adb: 'adb',
+  emcc: 'emscripten', 'em++': 'emscripten', emcmake: 'emscripten', emmake: 'emscripten', emconfigure: 'emscripten',
 };
 
 /** Bundled-mark key for an executable path or command name; undefined → ask the OS for its icon. */
@@ -78,6 +95,7 @@ export function commandAppBrandOf(executable: string | undefined): CommandAppBra
   if (!executable || executable.length > COMMAND_ACTIVITY_LIMITS.pathChars) return undefined;
   const base = normalizeShellCommandName(executable).replace(/\.(?:com|ps1|sh)$/, '');
   if (Object.prototype.hasOwnProperty.call(COMMAND_APP_BRANDS, base)) return COMMAND_APP_BRANDS[base];
+  if (/^luac?(?:5\d|5\.\d)$/.test(base)) return 'lua';
   return /^godot(?:\d+|_v\d[^\\/]*)$/.test(base) ? 'godot' : undefined;
 }
 
@@ -331,7 +349,8 @@ function identify(exe: string, args: readonly Token[], options: DetectOptions): 
     || (/^(?:runuat|build)$/.test(base) && !!(engineRoot || projectPath))
     || !!(assembly && engineRoot);
   const knownName = APP_NAMES[base] ?? (/^python(?:\d+(?:\.\d+)*)?$/.test(base) ? 'Python' : undefined)
-    ?? (/^godot(?:_v\d[^\\/]*)?$/.test(base) ? 'Godot' : undefined);
+    ?? (/^godot(?:_v\d[^\\/]*)?$/.test(base) ? 'Godot' : undefined)
+    ?? (/^luac?(?:5\d|5\.\d)$/.test(base) ? 'Lua' : undefined);
   // Only explicit executable/script filenames or recognized CLI names. Arbitrary
   // PowerShell cmdlets and strings are not guessed to be installed applications.
   if (!unreal && !knownName && !/\.(?:exe|com|cmd|bat|sh|ps1)$/i.test(exe)) return undefined;

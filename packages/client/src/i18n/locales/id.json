@@ -66,7 +66,9 @@
       "tooltip": "Sesi saat ini: {{percent}}% dari batas 5 jam terpakai — klik untuk detail",
       "tooltipNoData": "Belum ada data penggunaan — klik untuk detail",
       "tooltipWaiting": "Mengambil penggunaan dari Claude Code — angkanya segera muncul",
-      "tooltipCliUnavailable": "Tidak dapat menjalankan Claude Code untuk membaca penggunaan — klik untuk detail"
+      "tooltipCliUnavailable": "Tidak dapat menjalankan Claude Code untuk membaca penggunaan — klik untuk detail",
+      "creditActive": "Eksekusi baru memakai kredit API",
+      "creditBlocked": "Anthropic menolak kredit API — eksekusi memakai langganan Anda"
     },
     "setupBanner": {
       "text": "Claude Code belum terinstal — agent belum bisa berjalan.",
@@ -387,7 +389,8 @@
         "account": "Akun",
         "storage": "Penyimpanan",
         "keyboard": "Keyboard",
-        "theme": "Tema"
+        "theme": "Tema",
+        "credits": "Kredit"
       },
       "appearance": {
         "intro": "Sesuaikan tampilan Vibisual.",
@@ -497,9 +500,6 @@
         "updateAvailable": "Pembaruan tersedia",
         "upToDate": "Sudah terbaru",
         "registryError": "Pemeriksaan npm gagal",
-        "installations": "Instalasi",
-        "auto": "Otomatis (direkomendasikan)",
-        "autoDesc": "Biarkan Vibisual memilih secara otomatis",
         "activeBadge": "aktif",
         "unknownVer": "tidak diketahui",
         "restartHint": "Pilihan disimpan. Mulai ulang Vibisual untuk menerapkannya ke agent yang baru dimunculkan.",
@@ -512,12 +512,51 @@
           "title": "Pembaruan Claude Code",
           "label": "Perbarui Claude Code secara otomatis",
           "onHint": "Vibisual memperbarui CLI ke versi terbaru setiap kali Anda membuka aplikasi.",
-          "offHint": "Pembaruan otomatis nonaktif. Gunakan \"Perbarui sekarang\" untuk memperbarui CLI secara manual.",
+          "offHint": "Pembaruan otomatis nonaktif. Gunakan \"{{updateNow}}\" untuk memperbarui CLI secara manual.",
           "vscodeNotice": "Binary yang aktif berasal dari ekstensi VS Code, yang hanya bisa diperbarui melalui Marketplace. Pilih instalasi lain di atas agar Vibisual dapat mengelola pembaruan.",
           "updateNow": "Perbarui sekarang",
           "updating": "Memperbarui…",
           "updated": "Diperbarui ke {{version}}",
           "updateFailed": "Pembaruan gagal"
+        },
+        "sourceManaged": "Dikelola aplikasi",
+        "managed": {
+          "title": "Salinan yang dikelola aplikasi",
+          "hint": "Vibisual mengunduh rilis {{engine}} baru dari sumber resmi, memeriksa apakah setiap rilis menerima semua opsi yang digunakan Vibisual, lalu beralih ke rilis tersebut — saat aplikasi dibuka dan setiap 6 jam. Login dan pengaturan Anda tetap dipakai bersama.",
+          "inUse": "Digunakan",
+          "latest": "Terbaru (resmi)",
+          "previous": "Sebelumnya",
+          "none": "Belum diunduh",
+          "checkedAt": "Terakhir diperiksa {{time}}",
+          "notChecked": "Belum diperiksa",
+          "updating": "Mengunduh dan memeriksa…",
+          "rollback": "Kembalikan ke {{version}}",
+          "rollbackFailed": "Gagal mengembalikan versi",
+          "rejected": "Tidak beralih — {{version}} menolak: {{options}}",
+          "deferred": "Belum diunduh — PC ini belum menggunakan {{engine}}. Akan diunduh saat Anda menginstalnya.",
+          "folder": "Folder",
+          "nextRetry": "Percobaan berikutnya {{time}}"
+        },
+        "codexAutoUpdate": {
+          "title": "Pembaruan Codex",
+          "label": "Perbarui Codex secara otomatis",
+          "offHint": "Pembaruan otomatis nonaktif. Gunakan \"{{updateNow}}\" untuk memperbarui Codex secara manual."
+        },
+        "chooseBinary": "Biner yang digunakan",
+        "defaultManaged": "Dikelola aplikasi (default · pembaruan otomatis)",
+        "defaultManagedReady": "Menggunakan {{version}} — diunduh dari sumber resmi dan baru dialihkan setelah lolos pemeriksaan Vibisual.",
+        "defaultManagedPending": "Belum siap — begitu selesai diunduh dan diperiksa, Vibisual langsung beralih ke sana.",
+        "otherInstalls": "Instalasi lain (cadangan)",
+        "otherInstallsNone": "Tidak ditemukan instalasi lain di PC ini.",
+        "defaultBadge": "Default",
+        "temporaryBadge": "Sementara",
+        "codexUserSelected": "Anda memilih instalasi lain — pembaruannya diurus oleh penyedianya. Pembaruan yang dikelola aplikasi berlanjut saat Anda kembali ke default.",
+        "pending": {
+          "downloading": "Menyiapkan salinan yang dikelola aplikasi — sedang mengunduh dan memeriksa…",
+          "failed": "Salinan yang dikelola aplikasi tidak dapat disiapkan: {{error}}",
+          "retryAt": "Akan dicoba lagi otomatis pada {{time}}.",
+          "tryNow": "Gunakan \"{{updateNow}}\" di bawah untuk mencoba lagi sekarang.",
+          "waiting": "Salinan yang dikelola aplikasi belum siap, jadi instalasi ini dipakai untuk sementara. Pengunduhannya berjalan otomatis."
         }
       },
       "agent": {
@@ -817,7 +856,8 @@
         "autoCompactWindow": "Compact percakapan begitu mencapai",
         "autoCompactWindowOff": "Biarkan sesuai konfigurasi",
         "autoCompactWindowDesc": "Tuas tunggal terbesar di sini. Diukur selama tiga hari, sesi berada di median 186k token, dan semua yang di atas 200k menyumbang 62% dari seluruh input — setiap giliran membacanya ulang. Menurunkan window dari 400k ke 200k mengurangi input sebesar 27%, dan ke 100k sebesar 59%, untuk pekerjaan yang sama. Ini hanya pernah makin ketat: agent atau default yang sudah lebih rendah yang berlaku. Compact itu sendiri adalah permintaan besar, jadi pengaturan paling rendah tidak otomatis menjadi yang paling murah. Window ini hanya menentukan di mana kami melipat di antara perintah — di tengah tugas, CLI hanya melipat saat window model penuh."
-      }
+      },
+      "creditsIntro": "Kredit Claude berasal dari dompet yang berbeda. Setiap halaman menampilkan satu dompet: apa itu, siapa yang menagihnya, tempat mengelolanya, dan apakah Vibisual menggunakannya."
     },
     "autoAgent": {
       "title": "Auto Agent",
@@ -2019,7 +2059,134 @@
       "hwDevicesUnknown": "Akselerator dibaca dari engine, sehingga baru muncul begitu engine terpasang.",
       "hwLoaded": "Termuat di RAM",
       "hwLoadedNone": "Saat ini tidak ada model yang termuat.",
-      "hwHint": "All Model tidak memiliki batas langganan — yang dipakainya adalah PC ini. Bubble yang menggunakan model berbeda masing-masing memakai RAM sendiri, sedangkan bubble dengan model yang sama berbagi satu instance."
+      "hwHint": "All Model tidak memiliki batas langganan — yang dipakainya adalah PC ini. Bubble yang menggunakan model berbeda masing-masing memakai RAM sendiri, sedangkan bubble dengan model yang sama berbagi satu instance.",
+      "apiCredit": {
+        "title": "Kredit API (Console)",
+        "status": {
+          "off": "Nonaktif",
+          "standby": "Siaga",
+          "active": "Digunakan",
+          "blocked": "Ditolak oleh Anthropic"
+        },
+        "enable": "Gunakan kredit API",
+        "enableHint": "Jika dimatikan, setiap eksekusi tetap memakai langganan seperti biasa.",
+        "mode": "Pakai kredit lebih dulu",
+        "modeHintConsole": "Nonaktif: kredit hanya mengambil alih setelah batas langganan Anda tercapai. Aktif: kredit dipakai lebih dulu, lalu langganan Anda setiap kali Anthropic menolak kredit.",
+        "autoContinue": "Lanjutkan eksekusi yang terhenti secara otomatis",
+        "autoContinueHint": "Saat eksekusi terhenti di batas, lanjutkan sekali lewat jalur penagihan yang lain.",
+        "key": "Kunci API",
+        "keyPlaceholder": "sk-ant-api03-…",
+        "keySave": "Simpan kunci",
+        "keySaved": "Tersimpan {{hint}}",
+        "keyRemove": "Hapus",
+        "keyVerify": "Periksa lagi",
+        "keyVerified": {
+          "ok": "Terverifikasi",
+          "rejected": "Ditolak oleh Anthropic",
+          "unknown": "Belum diperiksa"
+        },
+        "keyUnreadable": "Kunci ini tidak dapat dibaca di komputer ini. Masukkan lagi.",
+        "keyProtected": "Kunci disimpan di penyimpanan aman milik sistem operasi.",
+        "keyUnprotected": "Komputer ini tidak memiliki penyimpanan kunci yang aman, sehingga kunci disimpan di sini tanpa enkripsi.",
+        "keyCreate": "Buat kunci di Console",
+        "keyProblem": {
+          "empty": "Tempel kunci API.",
+          "notAnthropic": "Ini tidak terlihat seperti kunci API Anthropic. Kunci seharusnya diawali dengan sk-ant-.",
+          "adminKey": "Kunci admin tidak dapat menjalankan model. Buat kunci API biasa.",
+          "oauthToken": "Ini adalah token masuk, bukan kunci API.",
+          "whitespace": "Kunci berisi spasi. Tempel lagi tanpa spasi."
+        },
+        "keySaveFailed": "Kunci tidak dapat disimpan. Coba lagi.",
+        "liveRunsNow": "Sedang berjalan dengan kredit: {{count}}",
+        "reason": {
+          "off": "Kredit nonaktif, jadi setiap eksekusi memakai langganan.",
+          "cloud-provider": "Claude Code di komputer ini diatur ke penyedia cloud, sehingga kredit tidak digunakan. Cloud menagih setiap eksekusi.",
+          "no-key": "Tambahkan kunci API untuk memakai kredit.",
+          "blocked": "Anthropic menolak eksekusi terakhir dengan kredit, jadi eksekusi baru memakai langganan Anda.",
+          "subscription-ok": "Eksekusi memakai langganan saat ini. Kredit mengambil alih saat langganan mencapai batasnya.",
+          "subscription-exhausted": "Batas langganan tercapai, jadi eksekusi baru memakai kredit.",
+          "credits-first": "Eksekusi baru memakai kredit lebih dulu."
+        },
+        "subscriptionResets": "langganan direset {{time}}",
+        "block": {
+          "balance-empty": "Anthropic menolak eksekusi dengan kredit: saldo kredit Console Anda terlalu rendah.",
+          "spend-limit": "Anthropic menolak eksekusi dengan kredit: batas pengeluaran bulanan Console Anda tercapai.",
+          "key-invalid": "Anthropic menolak kunci API."
+        },
+        "blockRetryAt": "Kredit akan dicoba lagi pada {{time}}.",
+        "blockRetry": "Coba lagi sekarang",
+        "actionFailed": "Gagal. Coba lagi.",
+        "console": {
+          "title": "Pengeluaran bulan ini (Console)",
+          "asOf": "Sejak {{start}} · diperbarui {{time}} · data yang sama dengan halaman Biaya di Console",
+          "used": "terpakai",
+          "resetsOn": "Direset pada {{date}} (UTC)",
+          "viewSpendLimits": "Lihat batas pengeluaran di Console",
+          "org": "Organisasi: {{name}}",
+          "refresh": "Segarkan",
+          "refreshing": "Menyegarkan…",
+          "pending": "Membaca pengeluaran Console Anda…",
+          "limitsNote": "Batas pengeluaran dan saldo kredit Anda diatur di Console, dan Anthropic tidak menyediakan API publik untuk membaca keduanya, sehingga Vibisual tidak menampilkan maupun memberlakukan batas sendiri. Saat batas tercapai atau saldo habis, Anthropic menolak eksekusi dan Vibisual beralih kembali ke langganan Anda.",
+          "needKeyTitle": "Tambahkan kunci admin untuk menampilkan pengeluaran Console Anda",
+          "needKeyBody": "Vibisual membaca pengeluaran bulan ini melalui Usage and Cost API resmi dari Anthropic, dan API tersebut memerlukan kunci admin (sk-ant-admin01-…). Admin organisasi membuat kunci tersebut di halaman Kunci admin pada Console. Akun individu harus menyiapkan organisasi di Console terlebih dahulu.",
+          "createAdminKey": "Buat kunci admin di Console",
+          "setupOrg": "Siapkan organisasi di Console",
+          "adminKey": "Kunci admin (untuk membaca pengeluaran)",
+          "adminKeyPlaceholder": "sk-ant-admin01-…",
+          "adminKeyHint": "Hanya digunakan untuk membaca pengeluaran — kunci ini tidak dapat menjalankan model.",
+          "error": {
+            "auth": "Anthropic menolak kunci ini: bukan kunci admin atau sudah kedaluwarsa. Siapkan organisasi di Console terlebih dahulu, lalu buat kunci admin (sk-ant-admin01-…) dan tambahkan di sini.",
+            "forbidden": "Kunci ini tidak dapat membaca pengeluaran. Gunakan kunci admin yang dibuat oleh admin organisasi.",
+            "not-found": "Anthropic tidak menemukan data pengeluaran untuk kunci ini. Akun individu harus menyiapkan organisasi di Console terlebih dahulu.",
+            "rate-limited": "Anthropic meminta Vibisual menunggu sebelum membaca pengeluaran lagi. Data akan disegarkan secara otomatis.",
+            "network": "Anthropic tidak dapat dihubungi. Data akan disegarkan secara otomatis.",
+            "unreadable": "Kunci admin ini tidak dapat dibaca di komputer ini. Masukkan ulang kunci tersebut.",
+            "other": "Pengeluaran Console Anda tidak dapat dibaca."
+          },
+          "lastValue": "Menampilkan nilai terakhir yang dibaca."
+        }
+      },
+      "creditPages": {
+        "tabsLabel": "Jenis kredit",
+        "billedLabel": "Ditagih oleh",
+        "manageLabel": "Kelola di",
+        "vibisualLabel": "Di Vibisual",
+        "subscription": {
+          "tab": "Batas paket",
+          "what": "Batas penggunaan 5 jam dan mingguan yang termasuk dalam paket Claude Pro atau Max Anda.",
+          "billed": "Langganan claude.ai Anda, biaya bulanan tetap.",
+          "vibisual": "Digunakan secara default untuk setiap eksekusi Claude, baik headless maupun CMD."
+        },
+        "personal": {
+          "tab": "Kredit pribadi",
+          "what": "Penggunaan ekstra pada akun claude.ai pribadi Anda. Anda mengaktifkannya di claude.ai agar tetap bisa bekerja setelah batas paket tercapai.",
+          "billed": "Metode pembayaran pada akun claude.ai Anda.",
+          "vibisual": "Vibisual tidak memilihnya. Jika aktif, Claude Code menggunakannya sendiri setelah batas paket. Halaman ini hanya membacanya."
+        },
+        "business": {
+          "tab": "Kredit bisnis",
+          "what": "Kredit API dari organisasi Claude Console (platform.claude.com) Anda. Kredit promosi bulanan dari paket Max atau Team dan kredit yang Anda beli masuk ke sini.",
+          "billed": "Dipotong dari kredit organisasi Console. Jika habis, eksekusi berhenti. Kartu hanya ditagih jika Anda mengaktifkan isi ulang otomatis.",
+          "vibisual": "Jika diaktifkan, hanya digunakan untuk eksekusi headless (bukan CMD atau gelembung hook). Secara default hanya setelah batas paket Anda tercapai."
+        },
+        "cloud": {
+          "tab": "Kredit cloud",
+          "what": "Claude yang digunakan melalui Amazon Bedrock, Google Cloud Vertex AI, atau Microsoft Foundry.",
+          "billed": "Akun cloud Anda. Kredit pribadi dan bisnis dari Anthropic tidak berlaku.",
+          "vibisual": "Vibisual mengikuti cara Claude Code di komputer ini diatur. Jika diatur ke penyedia cloud, setiap eksekusi ditagih di sana.",
+          "currentLabel": "Claude Code di komputer ini menagih",
+          "provider": {
+            "anthropic": "Anthropic langsung, bukan penyedia cloud",
+            "unknown": "Tidak diketahui, karena status masuk belum diperiksa",
+            "bedrock": "Amazon Bedrock",
+            "vertex": "Google Cloud Vertex AI",
+            "foundry": "Microsoft Foundry"
+          },
+          "activeNote": "Setiap eksekusi Claude dari Vibisual ditagih ke cloud ini. Kredit pribadi dan bisnis tidak digunakan, dan jalur kredit bisnis tetap nonaktif.",
+          "inactiveNote": "Claude Code di komputer ini tidak diatur ke penyedia cloud, jadi tidak ada kredit cloud yang digunakan. Untuk menggunakannya, atur Claude Code untuk penyedia tersebut terlebih dahulu.",
+          "docs": "Cara menjalankan Claude Code di penyedia cloud"
+        }
+      }
     },
     "plugins": {
       "title": "Plugin",
@@ -4714,6 +4881,9 @@
       "runOutput": "Output eksekusi",
       "runOutputNone": "Belum ada yang dijalankan dari bubble ini."
     },
+    "fileWindow": {
+      "close": "Tutup"
+    },
     "paneOpener": {
       "tabHint": "Pilih file untuk ditampilkan di sini",
       "scope": "File {{list}} di proyek ini, diurutkan dari yang terakhir diubah",
@@ -5405,6 +5575,7 @@
       "openInPane": "Buka di panel editor — {{path}}",
       "openFolder": "Buka folder yang berisi file ini — {{path}}",
       "readOnlyLocked": "File ini terkunci hanya-baca di disk (checkout Perforce, atribut file).",
+      "outsideReadOnly": "File ini berada di luar proyek, jadi hanya bisa dilihat.",
       "readOnlyUnlock": "Buka kunci dan simpan",
       "readOnlyUnlockHint": "Menghapus atribut hanya-baca lalu menyimpan. Kunci tidak dipasang kembali, dan tidak ada perintah version control (p4 edit, …) yang dijalankan.",
       "saveError": {
@@ -5877,7 +6048,8 @@
       "orphaned": "Terinterupsi saat aplikasi dimulai ulang",
       "dispatchResult": "Berakhir tanpa menerima hasil tugas yang didelegasikan",
       "usageLimit": "Berhenti di batas penggunaan",
-      "unknown": "Gagal karena alasan yang tidak diketahui"
+      "unknown": "Gagal karena alasan yang tidak diketahui",
+      "creditCap": "Berhenti di batas kredit API"
     },
     "turnStop": {
       "cancelled": "Dihentikan oleh Anda",
@@ -5907,15 +6079,12 @@
       "viaTask": "Melalui sub-agent: {{name}}",
       "external": "Di luar proyek",
       "enter": "Masuk ke folder",
-      "leave": "Kembali ke sesi",
       "openAddress": "Buka alamat",
       "showInConversation": "Tampilkan di percakapan",
       "copyAddress": "Salin alamat",
       "copyCommand": "Salin perintah",
       "recentQueries": "Pencarian terbaru",
       "recentCommands": "Perintah terbaru",
-      "moreFiles": "{{count}} file lagi — masuk ke folder untuk melihat semuanya",
-      "overflowHint": "Tempat yang paling lama tidak dipakai, dilipat menjadi satu",
       "centerTotals": "File {{files}} · Web {{webs}} · Aplikasi {{apps}} · Sub-agent {{tasks}}"
     },
     "density": {

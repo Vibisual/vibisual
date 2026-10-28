@@ -2,19 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { ProjectGraph } from './projectGraph.js';
 import type { SessionLoop } from '@vibisual/shared';
 
-/**
- * §5.5 #17-11 v3.79 — 세션 반복 실행(루프)의 보관 계층 회귀 테스트.
- *
- * 이 기능에서 조용히 깨지기 쉬운 곳은 실행 로직이 아니라 **영속화**다(§3.2 v1.59/v2.55 재발 자리):
- * `getSnapshot` 에만 넣고 디스크 포맷인 `toProjectCheckpoint` 를 빠뜨리면 화면엔 잘 보이다가
- * 껐다 켜면 루프가 사라진다. 그리고 서버가 죽는 동안 걸려 있던 회차(`running`)를 그대로 복원하면
- * 죽은 명령 id 를 영원히 기다려 "켜져 있는데 아무 일도 안 하는" 루프가 된다.
- */
+/** §5.5 #17-11 — 세션 루프 보관 계층: `toProjectCheckpoint` 왕복, 그리고 죽기 전 `running` 회차는 복원하지 않는다(죽은 명령 id 를 영원히 기다린다). */
 
-/**
- * 프로젝트가 붙은 그래프 — 체크포인트 필터(`projectBubbleIds`)를 통과하려면 에이전트가
- * 실제 프로젝트에 귀속돼야 한다. 실행 중인 저장소 루트를 그대로 프로젝트로 시드한다.
- */
+/** 체크포인트 필터(`projectBubbleIds`)를 지나려면 에이전트가 실제 프로젝트에 귀속돼야 한다 — 저장소 루트를 프로젝트로 시드한다. */
 function seededGraph(): { graph: ProjectGraph; projectName: string } {
   const graph = new ProjectGraph();
   const projectName = graph.registerProject(process.cwd()).name;

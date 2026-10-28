@@ -1,11 +1,6 @@
 /**
- * §5.11 v3.88 — 플러그인 등록부.
- *
- * **플러그인 추가 = 이 파일에 한 줄.** 코드젠·자동 스캔을 쓰지 않는 이유는 언리얼과 같다 —
- * 무엇이 빌드에 들어가 있는지가 한눈에 보여야 하고, 등록되지 않은 채 도는 플러그인이 없어야 한다.
- *
- * 여기 있는 것은 **매니페스트(선언)뿐**이다. 구현 모듈은 `client.ts` / `server.ts` 배럴이 따로 모은다 —
- * PluginsWindow 가 비활성 플러그인의 구현을 건드리지 않고도 목록을 그릴 수 있어야 하기 때문.
+ * §5.11 — 플러그인 등록부. **플러그인 추가 = 이 파일에 한 줄**(코드젠·자동 스캔 ❌ — 무엇이 빌드에 들었는지 한눈에 보여야 한다).
+ * 매니페스트(선언)만 둔다 — 구현은 `client.ts`/`server.ts` 배럴이 모아, PluginsWindow 가 비활성 구현을 안 건드리고 목록을 그린다.
  */
 import type { PluginManifest } from '@vibisual/shared';
 import type { PluginDataNeed } from './types.js';
@@ -124,12 +119,7 @@ import { mcpServerManifest } from './mcp-server/index.js';
 import { killSwitchManifest } from './kill-switch/index.js';
 import { agentRegistryManifest } from './agent-registry/index.js';
 
-/**
- * 호스트가 실제로 채워 주는 데이터 축의 **단일 출처**.
- *
- * 이 목록을 손으로 두 곳(타입 유니온 + 검증)에 두면 축을 늘릴 때 한쪽을 빠뜨린다 — 실제로 한 축을 더하고
- * 검증 목록을 안 고쳐 테스트가 걸린 적이 있다. 축 추가는 여기 한 줄 + 호스트 `usePluginData` 한 줄.
- */
+/** 호스트가 채워 주는 데이터 축의 단일 출처 — 축 추가는 여기 한 줄 + 호스트 `usePluginData` 한 줄(유니온·검증을 따로 두면 한쪽을 빠뜨린다). */
 export const PLUGIN_DATA_NEEDS: readonly PluginDataNeed[] = [
   'agentEvents',
   'subAgents',
@@ -141,7 +131,7 @@ export const PLUGIN_DATA_NEEDS: readonly PluginDataNeed[] = [
   'taskEdges',
   'captureBubbles',
   'bashCommands',
-  // v4.65 — 집행이 프로젝트 파일을 훑어 낸 실측. 카드가 집행과 같은 것을 세게 하는 유일한 통로다.
+  // 집행이 프로젝트 파일을 훑어 낸 실측 — 카드가 집행과 같은 것을 세는 유일한 통로.
   'pluginFacts',
 ];
 
@@ -264,15 +254,8 @@ export function getPluginManifest(id: string): PluginManifest | undefined {
 }
 
 /**
- * 사용자가 아직 Plugins 창을 건드리지 않았을 때(=`enabledPlugins` 가 undefined) 적용할 기본 활성 집합.
- * 배열이 한 번이라도 저장되면 **그 배열이 진실**이고 기본값은 더 보지 않는다.
- *
- * **등록부에 없는 id 는 걸러낸다.** 저장된 목록에는 이제 없는 카드의 id 가 남을 수 있다 — 이름이 바뀌었거나,
- * 빠졌거나, 새 판에서 켠 뒤 옛 판으로 되돌아간 경우다. 거르지 않으면 켠 개수 표시가 등록 수를 넘어서고
- * (`112 / 111`), 서버 관문도 존재하지 않는 플러그인을 "켜짐"으로 읽는다.
- *
- * 걸러진 id 는 사용자가 다음에 무언가를 토글할 때 저장소에서도 사라진다 — 어차피 켤 대상이 없으므로
- * 잃는 것이 없다. 플러그인은 컴파일 시점에 등록되므로 "잠깐 안 보이는" 상태란 것이 존재하지 않는다.
+ * `enabledPlugins` 가 undefined(Plugins 창을 안 건드림)일 때의 기본 활성 집합 — 한 번 저장되면 그 배열이 진실이다.
+ * 등록부에 없는 id 는 걸러낸다 — 안 거르면 켠 개수가 등록 수를 넘고(`112 / 111`) 서버 관문이 없는 플러그인을 켜짐으로 읽는다.
  */
 export function resolveEnabledPlugins(enabled: string[] | undefined): Set<string> {
   const known = new Set(PLUGIN_MANIFESTS.map((m) => m.id));
@@ -286,27 +269,19 @@ export function isPluginEnabled(id: string, enabled: string[] | undefined): bool
   return resolveEnabledPlugins(enabled).has(id);
 }
 
-// ─── 프로젝트별 활성 (§5.11 v4.54) ───
+// ── 프로젝트별 활성 (§5.11) ──
 
-/**
- * 켬/끔의 출처 — `UserDefaults` 중 이 판정에 필요한 두 필드만 구조적으로 받는다.
- * 플러그인 패키지가 `UserDefaults` 전체를 알 필요는 없고, 알면 테스트가 무거워진다.
- */
+/** 켬/끔의 출처 — `UserDefaults` 중 이 판정에 필요한 두 필드만 구조적으로 받는다(전체를 알면 테스트가 무거워진다). */
 export interface PluginEnablementSource {
-  /** 프로젝트 절대경로 → 켠 플러그인 id 목록 (v4.54 SSOT). */
+  /** 프로젝트 절대경로 → 켠 플러그인 id 목록. */
   enabledPluginsByProject?: Record<string, string[]>;
   /** @deprecated 구 전역 목록 — 아직 프로젝트별 설정이 없는 프로젝트의 시드로만 읽는다. */
   enabledPlugins?: string[];
 }
 
 /**
- * 이 프로젝트에 적용할 **원본 배열**(해석 전)을 고른다.
- *
- * 순서는 `프로젝트별 → 구 전역 시드 → undefined(=기본값 적용)`. 시드를 남기는 이유는 v4.54 이전에
- * 켜 둔 것이 판올림 한 번에 전부 꺼지면 사용자가 무엇을 잃었는지조차 알 수 없기 때문이다. 프로젝트
- * 키가 한 번이라도 저장되면 그 뒤로 시드는 보지 않는다 — 그래야 "이 프로젝트에서 전부 끔"이 성립한다.
- *
- * `projectId` 가 없으면(프로젝트 미선택) 시드만 본다. 아무 프로젝트에도 안 매인 켬/끔을 새로 만들지 않는다.
+ * 원본 배열(해석 전) — `프로젝트별 → 구 전역 시드 → undefined(=기본값)`. 시드는 프로젝트별 설정 이전에 켠 것을 판올림에 잃지 않게 둔다.
+ * 프로젝트 키가 한 번 저장되면 시드는 안 본다("전부 끔"이 서게). `projectId` 가 없으면 시드만(안 매인 켬/끔을 만들지 않는다).
  */
 export function selectProjectEnabledList(
   source: PluginEnablementSource | null | undefined,
@@ -323,9 +298,8 @@ export function selectProjectEnabledList(
     for (const [k, v] of Object.entries(byProject)) {
       if (normalizeProjectKey(k, platform) === key) return v;
     }
-    // 하위호환 — 예전 저장분은 플랫폼과 무관하게 **소문자 키**로 적혀 있다. 정확 일치가 없을 때만,
-    // 그리고 **그 칸 자체가 이미 소문자일 때만** 본다(대소문자 섞인 칸은 새 방식으로 적힌 남의 칸이다).
-    // 이게 없으면 업그레이드한 linux 사용자가 켜 둔 플러그인이 통째로 꺼진 것으로 읽힌다.
+    // 하위호환 — 옛 저장분은 플랫폼 무관 소문자 키다. 정확 일치가 없고 칸 자체가 소문자일 때만 본다(섞인 칸은 새 방식의 남의 칸)
+    // — 없으면 업그레이드한 linux 사용자의 켠 플러그인이 꺼진 것으로 읽힌다.
     const legacy = legacyLowerPathKey(projectId);
     for (const [k, v] of Object.entries(byProject)) {
       if (isLegacyLowerKey(k) && k === legacy) return v;
@@ -335,19 +309,13 @@ export function selectProjectEnabledList(
 }
 
 /**
- * 프로젝트 키 비교용 정규화 — forward slash + 끝 슬래시 제거 + **그 플랫폼이 실제로 무시할 때만** 소문자.
- *
- * Linux 는 `Feature-X` 와 `feature-x` 가 실재하는 별개 폴더라 무조건 접으면 두 프로젝트가 플러그인
- * 활성 상태를 공유한다. 이 패키지는 브라우저에서도 로드되므로 `process.platform` 을 읽을 수 없어
- * **인자를 생략하면 예전대로 접는다**(기존 호출부 회귀 없음). 서버는 `process.platform` 을 넘긴다.
+ * `normalizeProjectKey`(아래): `/` 통일 + 끝 슬래시 제거 + 플랫폼이 실제로 무시할 때만 소문자(Linux 는 `Feature-X` ≠ `feature-x`).
+ * 브라우저에서도 로드돼 `process.platform` 을 못 읽는다 — 인자를 생략하면 무조건 접고, 서버는 `process.platform` 을 넘긴다.
  */
 
 /**
- * 저장 키가 **예전 방식(플랫폼 무관 무조건 소문자)** 으로 적힌 것일 수 있는가 — 읽기 폴백 대상 판정.
- *
- * 대소문자가 섞인 키는 새 방식으로 적힌 것이므로 폴백에서 제외한다. 이 조건이 없으면 linux 에서
- * `feature-x` 조회가 `Feature-X` 칸을 집어 들어, 케이스만 다른 두 프로젝트를 가르려던 수정이
- * 원래 결함을 그대로 되살린다. 폴백은 "조회 경로에 대문자가 있는데 그 칸이 없을 때"만 의미가 있다.
+ * 옛 방식(플랫폼 무관 소문자) 키일 수 있는가 — 읽기 폴백 대상. 대소문자 섞인 키는 제외한다
+ * — 안 그러면 linux 에서 `feature-x` 조회가 `Feature-X` 칸을 집어 케이스만 다른 두 프로젝트가 다시 합쳐진다.
  */
 function isLegacyLowerKey(k: string): boolean {
   return k === legacyLowerPathKey(k);
@@ -358,11 +326,7 @@ function normalizeProjectKey(p: string, platform?: PlatformName): string {
   return p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
 }
 
-/**
- * 저장할 때 쓸 **실제 키** — 이미 같은 폴더를 가리키는 칸이 있으면 그 이름을 그대로 쓴다.
- * 부분 저장(한 칸만 PUT)이 기존 칸을 갱신하지 않고 새 칸을 만드는 것을 막는다.
- * 예전 소문자 키도 한 번 더 찾는다 — 못 찾으면 새 칸이 생겨 linux 사용자의 기존 설정이 통째로 밀린다.
- */
+/** 저장에 쓸 실제 키 — 같은 폴더를 가리키는 칸(옛 소문자 키 포함)이 있으면 그 이름을 쓴다. 못 찾으면 부분 저장(한 칸 PUT)이 새 칸을 만들어 기존 설정이 밀린다. */
 export function resolveProjectKey(
   source: PluginEnablementSource | null | undefined,
   projectId: string,
@@ -396,24 +360,14 @@ export function isPluginEnabledFor(
 }
 
 /**
- * §5.5 #17-44 ⑧(d) — 켬/끔 손잡이가 **이 기능 자신의 화면**에 있는가.
- *
- * 그런 카드는 Plugins 창 목록에 서지 않고(디버그 모드에서도), 집행 배럴·클라 카드 호스트가 켬 집합을
- * 묻지 않고 통과시킨다 — 판정은 그 기능 자신의 스위치 하나로 좁혀진다. 관문이 둘이면 뷰에서 켠 것이
- * 왜 안 도는지가 화면 밖에 남는다.
- *
- * **판정이 여기 하나뿐이어야** 목록·집행·카드가 같은 답을 말한다(§5.11 v4.65 규율).
+ * §5.5 #17-44 ⑧(d) — 켬/끔 손잡이가 이 기능 자신의 화면에 있는가(그런 카드는 Plugins 목록에 안 서고 집행·카드 호스트가 켬 집합 없이 통과시킨다).
+ * **판정은 여기 하나뿐** — 그래야 목록·집행·카드가 같은 답을 말한다.
  */
 export function hasOwnToggle(manifest: PluginManifest | undefined): boolean {
   return manifest?.ownToggle === true;
 }
 
-/**
- * 한 프로젝트의 목록만 갈아 끼운 새 맵을 만든다 — **다른 프로젝트 칸은 그대로 둔다.**
- *
- * 저장 경로가 이 함수 하나로 모이면 "한 칸만 보냈는데 나머지가 날아갔다"(§4 agent-config PUT 강등)
- * 계열의 사고가 구조적으로 안 생긴다.
- */
+/** 한 프로젝트 목록만 갈아 끼운 새 맵(다른 칸은 그대로) — 저장 경로를 여기 하나로 모아 "한 칸만 보냈는데 나머지가 날아갔다"(§4 agent-config PUT 강등)를 막는다. */
 export function withProjectEnabled(
   source: PluginEnablementSource | null | undefined,
   projectId: string,
@@ -421,8 +375,7 @@ export function withProjectEnabled(
   platform?: PlatformName,
 ): Record<string, string[]> {
   const prev = source?.enabledPluginsByProject ?? {};
-  // 읽는 쪽과 **같은 함수**로 칸을 고른다 — 아니면 켠 것이 다른 칸에 적혀 안 켜진 것으로 읽힌다.
-  // (`resolveProjectKey` 안에 예전 소문자 키 폴백까지 들어 있다.)
+  // 읽는 쪽과 같은 함수로 칸을 고른다(옛 소문자 키 폴백 포함) — 아니면 켠 것이 다른 칸에 적혀 꺼진 것으로 읽힌다.
   return { ...prev, [resolveProjectKey(source, projectId, platform)]: enabled };
 }
 
@@ -431,10 +384,7 @@ export function unsupportedContributions(manifest: PluginManifest): string[] {
   return manifest.contributes.filter((c) => !PLUGIN_SUPPORTED_CONTRIBUTIONS.includes(c));
 }
 
-/**
- * 등록부 자체 검증 — id 규약 위반·중복은 개발 중에 즉시 드러나야 한다.
- * 던지지 않고 문제 목록을 돌려준다(플러그인 하나 때문에 앱이 못 뜨는 일은 없어야 하므로).
- */
+/** 등록부 자체 검증(id 규약 위반·중복). 던지지 않고 문제 목록을 돌려준다 — 플러그인 하나 때문에 앱이 못 뜨면 안 된다. */
 export function validateRegistry(manifests: readonly PluginManifest[] = PLUGIN_MANIFESTS): string[] {
   const problems: string[] = [];
   const seen = new Set<string>();

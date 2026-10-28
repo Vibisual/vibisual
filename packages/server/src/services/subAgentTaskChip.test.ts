@@ -1,11 +1,4 @@
-/**
- * §5.5 #17-13 ⑤-3 — CLI 작업 이벤트 → 작업 칩 변환 회귀 방지.
- *
- * (A) CLI 가 `skip_transcript` 로 "인라인 대화록에서는 숨기라"고 표시한 살림성 작업은 **이벤트 자체를
- *     만들지 않는다**(버퍼·디스크·복원 예산에서 함께 빠진다).
- * (B) 남는 작업 칩은 payload(작업 이름·결과·요약·소요 시간)를 싣고 나가야 클라가 시작·끝을 한 줄로 접는다.
- *     payload 를 버리면 화면에는 뜻 없는 `작업 시작`·`작업 알림` 두 줄이 다시 쌓인다.
- */
+/** §5.5 #17-13 ⑤-3 — (A) `skip_transcript` 작업은 이벤트를 안 만든다 (B) 남는 칩은 payload(이름·결과·요약·소요)를 실어야 시작·끝이 한 줄로 접힌다. */
 import { describe, it, expect } from 'vitest';
 import { parseSystemTaskInfo } from '@vibisual/shared';
 import { parseStreamLine } from './subAgentManager.js';

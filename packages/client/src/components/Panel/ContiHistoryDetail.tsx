@@ -21,7 +21,7 @@ function formatDateTime(ts: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** §5.3 #28 (L) v1.58 — 상대 시각 표시 ("3m ago"). 1시간 이내만 분, 이후는 시간/일. */
+/** §5.3 #28 (L) — 상대 시각("3m ago"). 1시간 이내는 분, 이후는 시간/일. */
 function relativeFromNow(ts: number, now: number): string {
   const delta = Math.max(0, Math.floor((now - ts) / 1000));
   if (delta < 60) return `${delta}s ago`;
@@ -30,7 +30,7 @@ function relativeFromNow(ts: number, now: number): string {
   return `${Math.floor(delta / 86400)}d ago`;
 }
 
-/** §7.12 v1.47 — 콘티 히스토리 (단일 클릭 시 DetailPanel 본문) */
+/** §7.12 — 콘티 히스토리(단일 클릭 시 DetailPanel 본문). */
 export function ContiHistoryDetail({ agentId }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const contis = useGraphStore((s) => s.contis);
@@ -38,7 +38,7 @@ export function ContiHistoryDetail({ agentId }: Props): React.JSX.Element {
   const openContiBoard = useGraphStore((s) => s.openContiBoard);
   const openIDEOverlay = useGraphStore((s) => s.openIDEOverlay);
 
-  /** §5.3 #28 (L) v1.58 — 이 에이전트의 인플라이트 콘티 작업 (있으면 "Working…" 인디케이터) */
+  /** §5.3 #28 (L) — 인플라이트 콘티 작업(있으면 "Working…"). */
   const work = activeContiWork[agentId];
 
   const list = useMemo(
@@ -50,15 +50,8 @@ export function ContiHistoryDetail({ agentId }: Props): React.JSX.Element {
   );
 
   /**
-   * §5.3 #28 (L) v1.58 — "새 콘티 생성" 클릭.
-   * 에이전트는 이미 `customMode='conti'` + `CONTI_AGENT_RULES` 가 박혀 있어 어떤 프롬프트든
-   * conti JSON 으로만 응답한다. 따라서 chat 입력창 prefill ❌ — 빈 새 세션만 띄우면 된다.
-   * IDETabBar 의 '+' 버튼과 동일 경로: `POST /api/subagents/<agentId>` → 그 새 세션으로 IDE 를 연다.
-   *
-   * §5.5 #17-6 (H-27) ⑦ 새 세션은 여는 길에 **실어** 보낸다. 종전에는 창을 먼저 열고 응답이 온 뒤
-   * 키 없이 세웠는데, 그 에이전트의 IDE 가 밖에 나가 있는 판에는 앱 안의 **남의 창**이 그 세션으로
-   * 바뀌었다. 그래서 응답을 받은 뒤 **한 번** 연다(두 번 열면 밖의 창이 두 번 앞으로 서며 두 번
-   * 비친다). 응답이 실패해도 창은 종전대로 연다.
+   * §5.3 #28 (L) — 새 콘티 = 빈 새 세션(에이전트가 이미 conti 규칙이라 prefill ❌). IDETabBar '+' 와 같은 `POST /api/subagents/<agentId>`.
+   * §5.5 #17-6 (H-27) ⑦ — 응답을 받은 뒤 그 세션을 실어 한 번만 연다(먼저 열면 밖에 나간 남의 창이 바뀐다). 실패해도 창은 연다.
    */
   const handleGenerate = useCallback(() => {
     fetch(`/api/subagents/${agentId}`, { method: 'POST' })
@@ -167,7 +160,7 @@ export function ContiHistoryDetail({ agentId }: Props): React.JSX.Element {
               })}
               className="w-full resize-y rounded border border-gray-700 bg-gray-900/70 p-2 font-mono text-[12px] leading-relaxed text-gray-200 placeholder:text-gray-600 focus:border-emerald-600/60 focus:outline-none"
             />
-            {/* 패널이 240px 까지 좁아진다 — 넘치면 줄을 바꾼다(종전에는 글자 수 칸이 패널 밖으로 밀려났다). */}
+            {/* 패널이 240px 까지 좁아져 넘치면 줄을 바꾼다. */}
             <div className="flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-1.5 text-[12px] text-gray-400">
                 <span>{t('panel.contiHistory.scriptPreset', { defaultValue: '출력' })}</span>
@@ -240,7 +233,7 @@ export function ContiHistoryDetail({ agentId }: Props): React.JSX.Element {
             const isLatest = idx === 0;
             const seq = String(list.length - idx).padStart(3, '0');
             const subtitle = c.title ?? c.frames[0]?.action ?? '';
-            // §5.3 #28 (L) v1.58 — updatedAt > createdAt 인 콘티는 수정 이력 마커
+            // §5.3 #28 (L) — updatedAt > createdAt 이면 수정 이력 마커.
             const wasEdited = c.updatedAt > c.createdAt + 1000; // 1초 노이즈 여유
             // 현재 인플라이트 작업의 대상 콘티인지
             const isWorkTarget = work?.contiId === c.id;

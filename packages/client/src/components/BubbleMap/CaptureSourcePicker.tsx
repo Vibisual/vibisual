@@ -4,12 +4,8 @@ import { useTranslation } from 'react-i18next';
 import type { CaptureSourceInfo } from '@vibisual/shared';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
-// §5.9 화면/프로그램 캡처 — 소스 선택 팝업(OBS/디스코드식).
-//
-// window.api.capture.listSources()(desktopCapturer, main 전용)로 캡처 가능한 화면·창을
-// 받아 썸네일 그리드로 보여주고, 사용자가 하나 고르면 onPick 으로 넘긴다. 실제 라이브
-// 스트림은 캡처 버블(BubbleNode)이 고른 소스 id 로 getUserMedia 해서 붙인다(useCaptureStream).
-// packaged Electron 한정 — window.api.capture 가 없으면 안내만 표시한다.
+// §5.9 캡처 소스 선택 팝업 — `window.api.capture.listSources()`(desktopCapturer, main 전용)의 화면·창을 고른다.
+// 스트림은 캡처 버블이 그 id 로 getUserMedia 해서 붙인다(useCaptureStream). `window.api.capture` 가 없으면(packaged Electron 밖) 안내만.
 
 interface CaptureSourcePickerProps {
   open: boolean;

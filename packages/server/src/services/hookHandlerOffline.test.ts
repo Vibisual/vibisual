@@ -1,11 +1,4 @@
-/**
- * §5.3 #12-1 — 앱이 꺼져 있으면(루프백 포트가 닫힘) 훅 도우미는 통과 답을 내고 **곧바로 끝난다.**
- *
- * 2026-10-15 실측(Claude Code 2.1.300): 권한 문의·질문 카드 문의의 65초 타이머가 실패 경로에서 걷히지 않아,
- * 답(`{"continue":true}`)은 48ms 에 나가는데 프로세스는 65초 뒤에야 끝났다. CLI 는 훅 프로세스가 끝나야 도구를
- * 돌리므로, 앱을 꺼 둔 동안 이 PC 의 모든 Claude Code 세션이 도구 호출마다 그만큼(실측 68.9초) 멈췄다.
- * 훅이 남은 채 앱이 꺼진 것은 평범한 상황이라(앱을 닫았을 뿐이다) 이 시험이 그 자리를 지킨다.
- */
+/** §5.3 #12-1 — 앱이 꺼져 있으면 훅 도우미는 통과 답을 내고 **곧바로 끝난다.** 2026-10-15 실측(2.1.300): 실패 경로 65초 타이머가 남아 모든 세션이 도구마다 68.9초 멈췄다. */
 import { describe, it, expect } from 'vitest';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
@@ -14,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const handlerPath = fileURLToPath(new URL('../../../../hooks/handler.mjs', import.meta.url));
 
-/** 곧바로 끝났다고 볼 상한 — 연결 거부는 수십 ms 면 오지만 느린 CI 를 위해 넉넉히 둔다(옛 판은 65초). */
+/** 곧바로 끝났다고 볼 상한 — 연결 거부는 수십 ms 지만 느린 CI 를 위해 넉넉히 둔다(회귀면 65초가 걸린다). */
 const QUICK_EXIT_MS = 15_000;
 
 /** 잠깐 열었다 닫은 포트 — 연결이 거부되는 루프백 주소(앱이 꺼진 자리). */

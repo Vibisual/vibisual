@@ -9,10 +9,8 @@ export interface AudioAsset {
 }
 
 /**
- * A cut keeps the original fade coordinate system. This represents the exact
- * product of the original linear fades, including overlapping fades; it avoids
- * approximating their product with a new piecewise-linear curve.
- * When present this replaces (does not multiply) fadeIn/fadeOut for rendering.
+ * A cut keeps the original fade coordinates: this is the exact product of the original linear fades (overlaps included),
+ * not a new piecewise-linear approximation. When present it replaces (does not multiply) fadeIn/fadeOut for rendering.
  */
 export interface AudioGainEnvelope {
   readonly offset: number;

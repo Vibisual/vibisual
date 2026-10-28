@@ -1,9 +1,4 @@
-/**
- * §4 앱 테마 — 테마 파일 쓰는 법(접혀 있다가 펼친다).
- *
- * 형식의 정본은 shared `AppThemeDefinition`·`APP_THEME_TOKEN_SPECS` 다. 여기서는 키 이름과 기본 테마
- * id 를 **그 정본에서 꺼내** 보여 준다 — 손으로 적어 두면 토큰이 늘어날 때 안내만 낡는다.
- */
+/** §4 앱 테마 — 테마 파일 쓰는 법. 키 이름·기본 테마 id 는 정본(`AppThemeDefinition`·`APP_THEME_TOKEN_SPECS`)에서 꺼낸다(손으로 적으면 낡는다). */
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { APP_THEME_TOKENS, BUILTIN_APP_THEMES } from '@vibisual/shared';

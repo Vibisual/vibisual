@@ -1,12 +1,6 @@
 /**
- * §5.3 #12-3 자물쇠 — **집행** 고정 시험.
- *
- * 판정기(`pathLock.test.ts`)가 "닿았다"를 정하면, 여기서는 그 답이 엔진마다 **그 엔진의 강제 허락 장치**로
- * 제대로 나가는지를 본다. 이 기능이 조용히 깨질 자리는 넷이다.
- *  ① 모드 단축이 자물쇠를 건너뜀 — `plan`·`bypassPermissions` 에서 잠긴 파일을 묻지 않고 연다.
- *  ② 코덱스에 `ask` 를 돌려줌 — 코덱스는 `ask` 를 읽기만 하고 도구를 그대로 실행한다(fail-open).
- *  ③ 훅 도우미가 `ask` 를 모름 — 서버는 물으라고 했는데 `{continue:true}` 로 떨어져 그냥 열린다.
- *  ④ 자물쇠가 있는데 코덱스 턴이 권한 훅 없이 돈다 — 읽기 전용 샌드박스도 읽기는 막지 않는다.
+ * §5.3 #12-3 자물쇠 집행 시험 — 판정이 엔진마다 그 엔진의 강제 허락 장치로 나가는가. 깨질 자리: 모드 단축(`plan`·`bypassPermissions`)이 건너뜀 ·
+ * 코덱스에 `ask`(무시하고 실행 — fail-open) · 훅 도우미가 `ask` 를 몰라 `{continue:true}` · 자물쇠가 있는데 코덱스 턴에 권한 훅이 없음.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';

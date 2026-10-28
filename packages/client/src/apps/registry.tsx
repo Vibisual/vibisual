@@ -1,18 +1,7 @@
 /**
- * §5.13 (N) — 내부 앱 레지스트리.
- *
- * **앱을 앞으로 계속 늘릴 것**이므로, 앱 하나가 코어에 남기는 자국이 상수여야 한다.
- * 새 앱을 추가하는 일은 이 배열에 항목 하나를 더하는 것으로 끝난다 — Apps 창의 목록도,
- * 우클릭 메뉴의 앱 카테고리도, 캔버스 버블의 색·아이콘·이름도, 더블클릭했을 때 열리는
- * 창도, **어떤 파일을 그 앱이 여는지**도 전부 이 선언 하나에서 나온다.
- *
- * 플러그인(§5.11)과 다르다. 플러그인은 배지·패널·설정 세 슬롯에 기여하는 얇은 층이라
- * 코드가 항상 앱 안에 있다. **내부 앱은 무거워서 기본 번들에 넣을 수 없는 것들**이고,
- * 그래서 화면 코드는 늦은 `import()` 로만 온다.
- *
- * §5.13 (H) 개정 — **설치라는 단계는 없다.** 앱은 프로젝트에 기본으로 귀속되어 있고,
- * 파일을 누르거나 버블을 열면 그 자리에서 바로 열린다. "안 쓰면 비용이 없다"는 규율은
- * 설치 여부가 아니라 **늦은 로더**가 지킨다(안 부르면 그 청크는 내려오지 않는다).
+ * §5.13 (N) — 내부 앱 레지스트리. 새 앱은 이 배열에 항목 하나다(목록·메뉴·버블 모양·창·여는 파일이 다 여기서 나온다) — 앱이 코어에 남기는 자국은 상수여야 한다.
+ * 플러그인(§5.11)과 달리 무거워 기본 번들에 못 넣는다 — 화면 코드는 늦은 `import()` 로만 온다.
+ * §5.13 (H) — 설치 단계는 없다. "안 쓰면 비용이 없다"는 늦은 로더가 지킨다(안 부르면 청크가 안 내려온다).
  */
 
 import type { ComponentType, JSX, ReactNode } from 'react';
@@ -29,23 +18,12 @@ export interface AppShellProps {
 export type AppShellLoader = () => Promise<ComponentType<AppShellProps>>;
 
 /**
- * 캔버스 버블의 생김새(§5.13 (M) v4.60).
- *
- * **원은 없다.** 커스텀 에이전트 버블이 원이라, 앱 버블이 원이면 캔버스에서 둘을 구별할
- * 방법이 사라진다. 조작 감각(더블클릭·우클릭·드래그)은 에이전트와 같게 두되 형태는 갈라 놓는다.
- *
- * - `film` — 위아래 필름 퍼포레이션 띠(네모 구멍)가 있는 가로 프레임. 영상 앱용. 화면(§5.4 #36 (G))에서는 머리줄 위
- *   가장자리의 네모 구멍 한 줄이 같은 신호를 잇는다.
- * - `plate` — 사각 명패(4px 모서리 — §5.4 #36 (G) 컴팩트). 아직 자기 형태가 없는 앱의 기본값.
+ * 캔버스 버블 모양(§5.13 (M)). 원은 쓰지 않는다 — 원은 커스텀 에이전트 버블이라 구별이 사라진다(조작 감각은 같게).
+ * `film` — 위아래 퍼포레이션 띠의 가로 프레임(영상 앱용, 화면 형태에선 머리줄 위 구멍 한 줄) · `plate` — 4px 모서리 사각 명패(기본값).
  */
 export type AppBubbleShape = 'film' | 'plate';
 
-/**
- * §5.13 (Q) — 캔버스의 스토리보드(콘티) 한 벌을 앱에게 넘길 때 건네는 것.
- *
- * 코어는 **어떤 앱이 이것을 받는지 모른다**(§5.13 (P-4)). "받겠다고 선언한 앱"을
- * 레지스트리에서 찾아 부를 뿐이고, 앱은 자기 id 를 결과에 담아 돌려준다.
- */
+/** §5.13 (Q) — 스토리보드 한 벌을 앱에 넘길 때 건네는 것. 코어는 누가 받는지 모른다(§5.13 (P-4)) — 선언한 앱을 부르고 앱이 자기 id 를 결과에 담는다. */
 export interface StoryboardHandoffArgs {
   /** 프로젝트 루트 절대 경로(= projectId). */
   readonly projectId: string;
@@ -69,13 +47,8 @@ export interface StoryboardCapability {
 }
 
 /**
- * §5.4 #36 (F) — 앱 위성 화면에 비출 **미리보기 한 장**. 코어는 이 두 모양만 그린다(앱 이름을 모른다).
- *
- * - `picture` — 앱이 구운 그림의 blob URL. 코어 캐시가 밀어낼 때 되돌린다(`URL.revokeObjectURL`).
- *   `fit` 은 화면에 담는 법 — 사진·영상 프레임은 꽉 채우고(`cover`), 배경이 투명한 정지 화면은 통째로(`contain`).
- * - `wave` — 0~1 로 맞춘 막대 높이들(소리).
- *
- * `durationSec` 은 길이가 있는 결과(영상·소리)의 길이 — 화면 모서리 숫자가 된다.
+ * §5.4 #36 (F) — 위성 화면 미리보기 한 장(코어는 이 두 모양만 그린다): `picture` — blob URL(밀려나면 revoke), `fit` 은 사진·영상 `cover` · 투명 정지 화면 `contain`.
+ * `wave` — 0~1 막대 높이(소리). `durationSec` — 영상·소리 길이(화면 모서리 숫자).
  */
 export type AppThumbnail =
   | { readonly kind: 'picture'; readonly url: string; readonly fit?: 'cover' | 'contain'; readonly durationSec?: number }
@@ -89,36 +62,23 @@ export interface AppThumbnailRequest {
   readonly file: string;
   readonly width: number;
   readonly height: number;
-  /**
-   * §5.1 #2-1 (G) ① — 이미 아는 파일 크기(bytes, 스냅샷의 `fileSize`). 있으면 굽는 함수가 크기를 다시 묻지 않고 성능 기준
-   * (`PREVIEW_POLICY.maxBytes`)으로 바로 가른다. 없으면 굽는 함수가 먼저 묻는다.
-   */
+  /** §5.1 #2-1 (G) ① — 이미 아는 파일 크기(bytes, 스냅샷 `fileSize`). 있으면 다시 묻지 않고 `PREVIEW_POLICY.maxBytes` 로 바로 가른다. */
   readonly bytes?: number | undefined;
 }
 
-/**
- * 못 구우면 `null` — 코어가 아이콘 + 파일 이름으로 대신한다. 던져도 `null` 과 같다. 성능 기준(§5.1 #2-1 (G) ①)을 넘어 일부러
- * 굽지 않았으면 `THUMB_SKIPPED_TOO_LARGE` — 아이콘은 같고, 파일 버블이 "미리보기 생략" 툴팁으로 이유를 말한다.
- */
+/** 못 구우면 `null`(던져도 같다 — 아이콘 + 파일 이름). 성능 기준(§5.1 #2-1 (G) ①)을 넘어 일부러 안 구웠으면 `THUMB_SKIPPED_TOO_LARGE` — 툴팁이 이유를 말한다. */
 export type AppThumbnailRenderer = (req: AppThumbnailRequest) => Promise<AppThumbnail | AppThumbnailSkip | null>;
 
 /**
- * §5.4 #36 (G) — 앱 위성 화면의 **안쪽**을 앱이 그릴 때 받는 것. 결과가 담긴 화면에서만 그려진다.
- *
- * 앱은 여기서 **캔버스에서 바로 하는 간단한 조작**(재생·재생 위치·돌려 보기·맞춤·복사)을 낸다. 편집은 하지 않는다 —
- * 편집은 더블클릭·[에디터에서 열기]로 여는 앱 창의 몫이다. 공용 부품(조작줄·단추·재생 위치 막대·정지 미리보기)은
- * `apps/canvasFaceKit.tsx` 한 벌을 쓴다 — 앱마다 생김새가 갈리지 않게.
+ * §5.4 #36 (G) — 앱이 위성 화면 안쪽을 그릴 때 받는 것(결과가 담긴 화면에서만). 캔버스에선 간단한 조작(재생·위치·돌려 보기·맞춤·복사)만 — 편집은 앱 창 몫.
+ * 공용 부품은 `apps/canvasFaceKit.tsx` 한 벌(앱마다 생김새가 갈리지 않게).
  */
 export interface AppCanvasFaceProps {
   /** 프로젝트 루트 절대 경로. */
   readonly projectId: string;
   /** 루트 기준 상대 경로(`AppBubble.file`). 담긴 결과 파일이 없으면 빈 문자열(`faceShowsRef` 앱의 문서 모드). */
   readonly file: string;
-  /**
-   * §5.13 (L) — 노드가 가리키는 앱의 **작업 문서**(`AppBubble.ref` — 영상 앱이면 문서 id). `faceShowsRef` 를 선언한
-   * 앱만 받는다 — 결과 파일이 아니라 지금 고치는 중인 문서를 비춘다. (이름이 `ref` 가 아닌 까닭: React 가 그 이름을
-   * 컴포넌트에 넘기지 않고 가로챈다.)
-   */
+  /** §5.13 (L) — 노드가 가리키는 작업 문서(`AppBubble.ref`) — `faceShowsRef` 를 선언한 앱만 받는다. 이름이 `ref` 가 아닌 까닭: React 가 그 prop 을 가로챈다. */
   readonly workRef?: string | undefined;
   /** 노드를 보여 주는 프로젝트의 표시 이름(앱 REST 의 `project` 값). */
   readonly projectName?: string | undefined;
@@ -140,12 +100,7 @@ export interface AppCanvasFaceProps {
 /** §5.4 #36 (G) — 앱 위성 화면의 안쪽 그림. 늦은 로더로만 온다(안 보이면 안 내려온다). */
 export type AppCanvasFace = ComponentType<AppCanvasFaceProps>;
 
-/**
- * §5.4 #36 (C) 개정 — 에이전트에게 **이 노드가 무엇인지** 말하는 앱 몫의 브리프를 지을 때 받는 것.
- *
- * 종전에는 모든 앱 노드에 같은 문구("결과 파일을 만들어 넣어라")를 붙였다. 그래서 영상 앱 노드에도 에이전트가
- * 완성 mp4 를 구워 넣었다 — 사용자가 원한 것은 코드로 짓고 검수·편집하며 다듬는 **작업 문서**였다.
- */
+/** §5.4 #36 (C) — 앱 몫 브리프의 입력. 공통 문구("결과 파일을 넣어라")면 영상 노드에도 완성 mp4 를 구워 넣는다 — 필요한 것은 짓고 다듬는 작업 문서다. */
 export interface AppAgentBriefArgs {
   /** Original user request, before linked app instructions are appended. */
   readonly request: string;
@@ -196,15 +151,9 @@ export interface AppTaskDocumentArgs {
 export type AppTaskDocumentBuilder = (args: AppTaskDocumentArgs) => Promise<AppTaskTarget>;
 
 /**
- * §5.4 #36 (H) ③ — 앱 노드 아래 **구슬 줄**에 꿸 "연결된 것" 하나. 코어는 이 모양만 그린다(앱 이름을 모른다).
- *
- * - `group` — 묶음. 구슬 줄은 `scene` → `part` 순서로 늘어서고 묶음 사이를 띄운다(코어의 "지난 결과"는 맨 끝에 붙는다).
- * - `kind` — 구슬 안 아이콘과 툴팁의 종류 이름.
- * - `index` — 차례가 있는 것(장면)의 번호(1부터). 있으면 아이콘 대신 번호가 적힌다.
- * - `stage` — 진행 단계. 구슬 테의 모양이 된다(기획 = 점선 · 승인 = 실선 · 짓는 중 = 반쯤 참 · 끝 = 채움).
- * - `active` — AI 가 지금 만지는 것(문서의 활동 표식). 구슬이 숨 쉰다.
- * - `file` — 프로젝트 루트 기준 상대 경로(`/` 구분). 그림·영상이면 구슬 안에 작은 미리보기를 굽는다.
- * - `label` — 툴팁에 쓰는 이름(장면 제목·파일 이름 — 사용자 내용이라 번역하지 않는다).
+ * §5.4 #36 (H) ③ — 구슬 하나(코어는 이 모양만 그린다). `group` — `scene` → `part` 순, 묶음 사이를 띄우고 "지난 결과"는 맨 끝 · `index` — 장면 번호(1부터, 아이콘 대신)
+ * · `stage` — 테 모양(기획 점선 · 승인 실선 · 짓는 중 반쯤 참 · 끝 채움) · `active` — AI 가 지금 만지는 것(숨 쉰다)
+ * · `file` — 루트 기준 상대 경로(`/`), 그림·영상이면 미리보기를 굽는다 · `label` — 툴팁 이름(사용자 내용이라 번역하지 않는다).
  */
 export type AppLinkedItemKind = 'scene' | 'image' | 'video' | 'audio' | 'model' | 'font' | 'code' | 'text' | 'shape' | 'file';
 /** 장면·단계의 진행. `proposed` = 에이전트가 낸 판이 사람의 고르기를 기다린다(3D 의 제안 대기 단계 · 그림의 제안). */
@@ -221,10 +170,7 @@ export interface AppLinkedItem {
   readonly active?: boolean | undefined;
   /** 길이(초) — 툴팁에 덧붙는다. */
   readonly durationSec?: number | undefined;
-  /**
-   * 구슬 안 그림의 파일. 장면·단계 구슬도 가질 수 있다 — 그러면 번호는 구슬 테두리의 작은 표식으로 내려가고 안은 그 그림이다
-   * (§5.1 #2-1 (F) 앱별 — Vibi3D 단계의 대표 캡처).
-   */
+  /** 구슬 안 그림 파일. 장면·단계 구슬에 있으면 번호는 테두리의 작은 표식으로 내려간다(§5.1 #2-1 (F)). */
   readonly file?: string | undefined;
   /** 이 구슬이 대표하는 그림 수(단계의 캡처 등) — 툴팁에 덧붙는다. */
   readonly pictureCount?: number | undefined;
@@ -244,10 +190,7 @@ export interface AppLinkedItemsRequest {
   readonly file?: string | undefined;
 }
 
-/**
- * 읽은 결과. `key` 는 이 목록의 판본(문서 판본·활동 표식 등) — 앞 결과와 같으면 코어가 다시 그리지 않는다.
- * 못 읽었으면 `null` 을 돌려준다(그 회차는 앞 결과를 그대로 둔다). 던져도 `null` 과 같다.
- */
+/** 읽은 결과. `key` = 목록 판본(앞과 같으면 다시 안 그린다). 못 읽으면 `null`(던져도 같다) — 그 회차는 앞 결과를 둔다. */
 export interface AppLinkedItemsSnapshot {
   readonly key: string;
   readonly items: readonly AppLinkedItem[];
@@ -260,13 +203,7 @@ export interface InternalApp {
   readonly id: string;
   /** i18n 키(`panel.apps.<id>.name`). */
   readonly nameKey: string;
-  /**
-   * 화면에 그대로 쓰는 **제품 이름**. 번역 대상이 아니라 브랜드다.
-   *
-   * `nameKey` 가 아직 로케일에 없으면 i18n 이 defaultValue 로 떨어지는데, 그 자리에
-   * `id` 를 넣어 두면 버블에 소문자 식별자(`vibistudio`)가 그대로 찍힌다 — 사용자가 보는
-   * 것은 제품 이름이어야 한다. 로케일이 채워지면 번역이 이 값을 덮는다.
-   */
+  /** 화면에 쓰는 제품 이름(번역 ❌, 브랜드). `nameKey` 가 로케일에 없을 때의 defaultValue 라, `id` 를 넣으면 소문자 식별자가 버블에 찍힌다. */
   readonly name: string;
   readonly descKey: string;
   /** 버블·메뉴 색. Tailwind 클래스가 아니라 색 값 — 캔버스가 인라인으로 쓴다. */
@@ -276,108 +213,48 @@ export interface InternalApp {
   readonly icon: () => JSX.Element;
   /** 캔버스 버블의 형태. 생략하면 `plate` — 어떤 앱도 원(에이전트)으로는 그려지지 않는다. */
   readonly bubbleShape?: AppBubbleShape;
-  /** 명패 크기 — 캔버스에 놓아 둔 앱 버블(§5.13 (M) v4.66). 선언이 곧 렌더 치수다. */
+  /** 명패 크기(§5.13 (M)) — 선언이 곧 렌더 치수다. */
   readonly defaultSize: { readonly width: number; readonly height: number };
-  /**
-   * §5.4 #36 (F) — 앱 위성 **화면** 크기. 에이전트에 이어졌거나 결과를 담은 노드는 명패 대신 이 크기로
-   * 그려져 담긴 결과를 비춘다. `defaultSize` 와 같이 선언이 곧 렌더 치수다.
-   */
+  /** §5.4 #36 (F) — 위성 화면 크기(이어졌거나 결과를 담은 노드). `defaultSize` 처럼 선언이 곧 렌더 치수다. */
   readonly screenSize: { readonly width: number; readonly height: number };
   /**
-   * §5.13 (R-1) — **이 앱이 여는 확장자**(소문자, 마침표 포함).
-   *
-   * 확장자와 앱의 대응표를 코어에 두지 않기 위한 자리다. 코어(`resolveWorkspaceOpen`)는
-   * "받겠다고 선언한 앱이 있는가"만 훑으므로, 앱이 늘어도 클릭 판정 코드는 그대로다.
-   *
-   * **열 수 있는 것만 적는다.** 브라우저가 디코드하지 못하는 컨테이너(mkv·avi·wma…)를 적으면
-   * 눌렀을 때 검은 화면이 뜬다 — 그런 것은 OS 연결 프로그램의 몫이다(§5.13 (R-6)).
+   * §5.13 (R-1) — 이 앱이 여는 확장자(소문자, 마침표 포함). 코어(`resolveWorkspaceOpen`)는 선언만 훑는다.
+   * 브라우저가 못 푸는 컨테이너(mkv·avi·wma…)는 적지 않는다 — 검은 화면이 된다(OS 연결 프로그램 몫 — §5.13 (R-6)).
    */
   readonly opens?: readonly string[];
-  /**
-   * §5.13 (S-6) — 이 앱이 `ref` 를 받는 **이름**(창 hash·shell params 의 키).
-   *
-   * 영상 앱이면 `docId`, 소리면 `clipId` 처럼 뜻이 앱마다 다르므로 앱이 선언한다. 종전에는
-   * `open()` 안에만 문자열로 적혀 있어서, **앱 안 창**이 같은 앱을 열려 해도 그 이름을 알 길이
-   * 없었다(코어가 앱마다 표를 드는 순간 (P-4) 가 깨진다).
-   */
+  /** §5.13 (S-6) — `ref` 를 받는 이름(창 hash·shell params 키 — `docId`·`clipId` 등). 앱이 선언해야 앱 안 창도 알고 코어가 표를 들지 않는다((P-4)). */
   readonly refKey: string;
-  /**
-   * 이 앱의 화면들. 키는 `mode`(기본 `main`)이고 값은 늦게 부르는 로더다.
-   *
-   * **코어의 `main.tsx` 는 앱 이름을 모른다** — `#app=<id>&mode=<mode>` 를 보고 여기서
-   * 로더를 꺼내 쓸 뿐이라, 앱이 늘어도 부팅 분기는 하나 그대로다.
-   */
+  /** 화면들 — 키 `mode`(기본 `main`), 값은 늦은 로더. 코어 `main.tsx` 는 `#app=<id>&mode=<mode>` 로 여기서 꺼낼 뿐이다. */
   readonly shells: Readonly<Record<string, AppShellLoader>>;
   /**
-   * 이 앱의 **독립 OS 창**을 연다(§5.13 (S-5) — 끌어내기·[별도 창으로] 가 부르는 길).
-   *
-   * `ref` 는 앱이 해석하는 열쇠(영상 앱이면 문서 id)이고, `file` 은 **프로젝트 루트 기준
-   * 상대 경로**다(§5.13 (R-2)). 코어는 둘 다 뜻을 모르고 그대로 넘긴다.
-   * 창을 못 여는 환경(웹·구버전 preload)이면 false 를 돌려준다 — 조용히 아무 일도
-   * 안 일어나는 대신 호출부가 안내를 띄울 수 있게.
+   * 독립 OS 창을 연다(§5.13 (S-5) 끌어내기·[별도 창으로]). `ref`·`file`(루트 기준 상대 — (R-2))은 코어가 뜻을 모르고 넘긴다.
+   * 못 여는 환경(웹·구버전 preload)이면 false — 호출부가 안내를 띄울 수 있게.
    */
   readonly open: (args: AppOpenArgs) => Promise<boolean>;
-  /**
-   * §5.13 (Q) — 이 앱이 캔버스의 스토리보드를 받아 자기 문서로 옮길 수 있는가.
-   *
-   * 선언하지 않은 앱은 콘티 보드의 [렌더] 대상에서 그냥 빠진다 — 코어에 분기가 늘지 않는다.
-   */
+  /** §5.13 (Q) — 스토리보드를 자기 문서로 받을 수 있는가. 선언이 없으면 콘티 보드의 [렌더] 대상에서 빠진다. */
   readonly storyboard?: StoryboardCapability;
-  /**
-   * §5.4 #36 (C) — 참조 노드로서 **결과로 받는 확장자**(소문자, 마침표 포함).
-   *
-   * 생략하면 `opens` 를 쓴다. 따로 두는 이유는 (R-9) 이미지 앱처럼 파일 클릭의 갈래(`opens`)는 가로채지
-   * 않되 노드에 담길 결과는 받는 앱이 있기 때문이다. 에이전트에게 "이 노드는 무엇을 받는다"를 말할 때 쓴다.
-   */
+  /** §5.4 #36 (C) — 노드 결과로 받는 확장자(생략하면 `opens`). (R-9) 이미지 앱처럼 파일 클릭은 가로채지 않되 결과는 받는 앱이 있어 따로 둔다. */
   readonly outputs?: readonly string[];
   /**
-   * §5.1 #2-1 (A) — 이 앱은 **프로젝트 밖 파일을 보기 전용으로** 연다 — 여는 것만으로 아무것도 쓰지 않는다. 캔버스에 떠 있는
-   * 바깥 미디어 파일을 더블클릭하면 이 선언이 있는 앱만 열린다(`file` 은 절대경로, 창의 주인은 지금 탭의 프로젝트).
-   * `file` 을 받으면 그 파일로 프로젝트 문서를 짓는 앱(영상·소리·3D 편집기)은 선언하지 않는다 — 바깥 파일은 폴더로 들어간다.
-   * 코어는 앱 이름을 모르고 이 선언만 본다(§5.13 (P-4)).
+   * §5.1 #2-1 (A) — 프로젝트 밖 파일을 보기 전용(아무것도 쓰지 않음)으로 연다 — 바깥 미디어 더블클릭은 이 선언이 있는 앱만 연다(`file` 은 절대경로).
+   * 그 파일로 프로젝트 문서를 짓는 편집기(영상·소리·3D)는 선언하지 않는다 — 바깥 파일은 폴더로 들어간다.
    */
   readonly viewsOutsideFiles?: boolean;
-  /**
-   * §5.13 (R-9) → §5.4 #36 (F) 개정 — 화면에 담긴 결과를 **어떻게 비출지** 앱이 굽는 늦은 로더.
-   *
-   * 첫 판은 `'image'` 한 값(그림만)이었고 영상·3D 는 디코딩 비용 때문에 뺐다. 이제 앱이 자기 디코더로 한 장을
-   * 굽고 코어가 기억한다 — 비용은 "보이는 화면만 · 한 번 굽고 캐시 · 동시 건수 상한"(`APP_THUMB`)이 묶는다.
-   * 늦은 로더라 그 화면이 보이기 전에는 앱 코드가 내려오지 않는다. 선언하지 않은 앱의 화면은 아이콘 + 파일 이름.
-   */
+  /** §5.13 (R-9) · §5.4 #36 (F) — 결과 미리보기를 굽는 늦은 로더(앱 디코더로 한 장, 코어가 기억 — 비용은 `APP_THUMB` 이 묶는다). 없으면 아이콘 + 파일 이름. */
   readonly thumbnail?: () => Promise<AppThumbnailRenderer>;
-  /**
-   * §5.1 #2-1 (G) ⑦ — 받는 확장자(`outputs ?? opens`) 중 **굽는 함수가 풀지 못하는 것**(소문자, 마침표 포함). 그 파일은 굽지
-   * 않고 처음부터 아이콘이다(요청 0건). 여는 것(`opens`)·색·더블클릭은 그대로다 — 미리보기만 뺀다.
-   */
+  /** §5.1 #2-1 (G) ⑦ — 받는 확장자(`outputs ?? opens`) 중 굽는 함수가 못 푸는 것 — 처음부터 아이콘이다(요청 0건). 여는 것·색·더블클릭은 그대로. */
   readonly thumbnailSkips?: readonly string[];
-  /**
-   * §5.4 #36 (G) — 결과가 담긴 화면에서 **캔버스에서 바로 하는 간단한 조작**을 그리는 늦은 로더(재생·돌려 보기·맞춤 등).
-   * 선언하지 않은 앱의 화면은 정지 미리보기만 보인다. 그 화면이 보일 때만 청크가 내려온다(§5.13 (P-1)).
-   */
+  /** §5.4 #36 (G) — 결과 화면에서 캔버스 간단 조작(재생·돌려 보기·맞춤 등)을 그리는 늦은 로더. 없으면 정지 미리보기만, 보일 때만 청크(§5.13 (P-1)). */
   readonly canvasFace?: () => Promise<AppCanvasFace>;
-  /**
-   * §5.13 (L) — 결과 파일 없이 **작업 문서(`ref`)만 묶인 노드**도 `canvasFace` 가 그린다(문서 모드 — 지금 고치는 중인
-   * 문서를 비춘다). 선언하지 않은 앱은 종전대로 결과 파일이 있을 때만 그린다.
-   */
+  /** §5.13 (L) — `ref` 만 묶인 노드도 `canvasFace` 가 그린다(문서 모드). 선언이 없으면 결과 파일이 있을 때만. */
   readonly faceShowsRef?: boolean;
-  /**
-   * §5.4 #36 (C) 개정 — 이어진 에이전트에게 이 앱 노드가 무엇인지 말하는 **앱 몫 브리프**(늦은 로더). 선언하지 않은 앱은
-   * 종전 공통 문구(결과 파일을 만들어 `/output` 으로 넣어라)를 쓴다. 코어는 앱 이름을 모르고 이 선언만 부른다(§5.13 (P-4)).
-   */
+  /** §5.4 #36 (C) — 이어진 에이전트에게 노드를 설명하는 앱 몫 브리프(늦은 로더). 없으면 공통 문구(결과 파일을 만들어 `/output` 으로). */
   readonly agentBrief?: () => Promise<AppAgentBriefBuilder>;
   /** Prepare an independent document without rebinding or clearing the source node. */
   readonly taskDocument?: () => Promise<AppTaskDocumentBuilder>;
-  /**
-   * §5.13 (V) 37-1·37-17 — 이 앱의 **편집 화면(`main`)이 앱 테마를 따른다.** 선언하지 않은 앱 화면은 종전대로 어두운 판에
-   * 묶인다(`DARK_THEME_LOCK` — 고정 어두운 바탕을 전제로 칠한 화면). 렌더·일꾼 같은 다른 화면은 선언과 무관하게 묶인다
-   * (그림은 테마가 아니다). 코어는 앱 이름을 모르고 이 선언만 본다(§5.13 (P-4)).
-   */
+  /** §5.13 (V) 37-1·37-17 — 편집 화면(`main`)이 앱 테마를 따른다. 없으면 `DARK_THEME_LOCK`. 렌더·일꾼 화면은 늘 묶인다(그림은 테마가 아니다). */
   readonly followsTheme?: boolean;
-  /**
-   * §5.4 #36 (H) ③ — 이 앱 노드에 **연결된 것**(장면·소재 등)을 노드 아래 구슬 줄로 띄울 때 읽는 늦은 로더. 무엇이 버블로
-   * 떠야 하는지는 앱이 안다 — 코어는 앱 이름을 모르고 목록만 그린다(§5.13 (P-4)). 선언하지 않은 앱 노드에는 코어의
-   * "지난 결과"(`AppBubble.pastFiles`)만 뜬다. 그 노드가 화면에 있을 때만 청크가 내려온다.
-   */
+  /** §5.4 #36 (H) ③ — 노드 아래 구슬 줄(장면·소재 등)을 읽는 늦은 로더 — 노드가 화면에 있을 때만 청크. 없으면 코어의 "지난 결과"(`AppBubble.pastFiles`)만 뜬다. */
   readonly linkedItems?: () => Promise<AppLinkedItemsReader>;
 }
 
@@ -460,24 +337,13 @@ export interface AppOpenArgs {
   /** Durable editor draft identity, including models that do not have a source document yet. */
   draftKey?: string | undefined;
   title?: string | undefined;
-  /**
-   * §5.13 (L) — 이 창을 연 캔버스 노드(`AppBubble.id`). 앱이 다른 작업 문서를 고르면 그 노드가 그 문서를 기억한다
-   * (다음에 열면 그 문서로 연다). 노드에서 연 것이 아니면 비어 있다.
-   */
+  /** §5.13 (L) — 이 창을 연 노드(`AppBubble.id`) — 다른 문서를 고르면 그 노드가 기억한다. 노드에서 연 것이 아니면 비어 있다. */
   bubbleId?: string | undefined;
-  /**
-   * 밖에 뜰 창의 크기·자리. `fromGhost` 면 §5.13 (S-10) 끌어낸 판이라 main 의 선(가상 창)이 그 자리에
-   * 멈춰 서 있다 — main 은 x/y 대신 그 선의 자리·크기를 쓴다(렌더러 좌표는 배율이 다른 모니터에서 어긋난다).
-   */
+  /** 밖에 뜰 창의 크기·자리. `fromGhost`(§5.13 (S-10))면 main 이 x/y 대신 멈춰 선 선의 자리·크기를 쓴다 — 렌더러 좌표는 배율이 다른 모니터에서 어긋난다. */
   placement?: { width: number; height: number; x?: number; y?: number; fromGhost?: boolean } | undefined;
 }
 
-/**
- * §5.13 (S-6) — 앱 화면에 넘길 파라미터 한 벌.
- *
- * **OS 창과 앱 안 창이 같은 것을 받아야 한다.** 두 곳에서 따로 만들면 `docId` 를 한쪽만 실어
- * "밖에서 열면 그 문서, 안에서 열면 빈 화면" 같은 어긋남이 생긴다.
- */
+/** §5.13 (S-6) — 앱 화면 파라미터 한 벌 — OS 창과 앱 안 창이 같이 써야 한다(따로면 한쪽만 `docId` 를 실어 "안에서 열면 빈 화면"이 된다). */
 /** §5.13 (L) — 앱 화면 파라미터에서 그 창을 연 캔버스 노드 id 를 싣는 이름(앱이 늘어도 같은 이름). */
 export const APP_BUBBLE_PARAM = 'appBubbleId';
 
@@ -490,15 +356,7 @@ export function appShellParams(app: Pick<InternalApp, 'refKey'>, args: AppOpenAr
   return params;
 }
 
-/**
- * 앱의 **독립 OS 창**을 여는 공통 경로(§5.13 (O) 세 통로 중 "창").
- *
- * 앱마다 이 여덟 줄을 베끼면 파라미터 이름이 앱마다 갈린다(`docId` 냐 `doc` 이냐). 여는 방법은
- * 하나여야 하므로 여기 모은다.
- *
- * §5.13 (S-1) — 이제 이 길은 **더블클릭이 아니라 끌어내기**가 부른다. 앱은 앱 안 창으로 먼저
- * 열리고(`apps/appWindows.ts`), 밖이 필요한 사람만 이 문을 지난다.
- */
+/** 앱 OS 창을 여는 공통 경로(§5.13 (O) "창") — 앱마다 베끼면 파라미터 이름이 갈린다(`docId` 냐 `doc` 이냐). (S-1) 더블클릭이 아니라 끌어내기가 부른다. */
 async function openAppOsWindow(appId: string, refKey: string, args: AppOpenArgs): Promise<boolean> {
   // 노드 id(`bubbleId`)도 `appShellParams` 가 함께 싣는다 — 밖에 나간 창에서 문서를 바꿔도 노드가 그 문서를 기억한다.
   const api = window.api?.app;
@@ -509,29 +367,20 @@ async function openAppOsWindow(appId: string, refKey: string, args: AppOpenArgs)
   return true;
 }
 
-/**
- * 등록된 내부 앱들.
- *
- * 새 앱은 여기에 한 항목만 추가하면 Apps 창·우클릭 메뉴·버블·창 열기·파일 열기가 전부 따라온다.
- */
+/** 등록된 내부 앱 — 새 앱은 항목 하나면 Apps 창·우클릭 메뉴·버블·창 열기·파일 열기가 따라온다. */
 export const INTERNAL_APPS: readonly InternalApp[] = [
   {
     id: 'vibistudio',
     nameKey: 'panel.apps.vibistudio.name',
     name: 'Vibistudio',
     descKey: 'panel.apps.vibistudio.desc',
-    // §5.13 (M) v4.66 — 필름 스톡 그레이파이트 + 실버 엣지.
-    //   구 푸시아(#D946EF)는 채도가 높아 캔버스에서 겉돌았고 "제대로 만든 도구"의 인상과
-    //   반대였다(사용자 지적). 같은 이유로 이미 한 번 걷어낸 색이다 — §5.10 Brain 버블의
-    //   핑크(#EC4899)→인디고. 영상 도구의 표준 인상은 채도 높은 색이 아니라 어두운 무채색
-    //   본체 + 금속 엣지이고, 그래야 프레임 안의 흰 퍼포레이션·아이콘이 주인공이 된다.
+    // §5.13 (M) — 그레이파이트 + 실버 엣지. 채도 높은 색(예: #D946EF)은 캔버스에서 겉돈다 — 무채색 본체라야 프레임 안 흰 퍼포레이션·아이콘이 산다.
     color: '#2C3446',
     glow: '#A8B4CC',
     icon: VideoIcon,
     // 영상 앱이므로 필름 프레임. 가로가 긴 것 자체가 "영상"이라는 신호다.
     bubbleShape: 'film',
-    // v4.66 — 240×150 의 1/3(사용자 지시). 캔버스의 주인공은 에이전트 버블이고 앱 버블은
-    //   "놓아 두는 물건"이라 이 정도가 맞다. 이 치수에서 읽히도록 프레임 안쪽을 다시 짰다.
+    // 240×150 의 1/3 — 앱 버블은 놓아 두는 물건이다(주인공은 에이전트 버블). 이 치수에서 읽히게 프레임 안쪽을 짰다.
     defaultSize: { width: 80, height: 50 },
     // §5.4 #36 (F) — 앱 위성 화면. 명패와 같은 1.6:1 이라 필름 프레임 인상이 그대로 커진다.
     screenSize: { width: 208, height: 130 },
@@ -641,8 +490,7 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
     //   갈래를 이 앱이 가로챈다. 이 앱은 **노드에 담긴 그림**을 여는 자리다(§5.13 (R-9)).
     // §5.1 #2-1 (G) ⑦ — 브라우저가 그대로 푸는 이름만 다른 형식(JPEG 의 다른 확장자 · 움직이는 PNG).
     outputs: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.bmp', '.avif', '.jfif', '.jpe', '.apng'],
-    // §5.1 #2-1 (A) — 그림 노드·파일은 (R-9) 보기 화면으로 열리고 그 화면은 아무것도 쓰지 않는다. 그래서 프로젝트 밖 그림도
-    //   연다(2026-10-21 사용자 보고 — "png 인데 더블클릭해도 이미지 보는 창이 안 열린다"). 바깥 그림에서는 [편집]을 숨긴다(셸).
+    // §5.1 #2-1 (A) — 그림은 (R-9) 보기 화면(아무것도 쓰지 않음)으로 열리므로 프로젝트 밖 그림도 연다. 바깥 그림에선 [편집]을 숨긴다(셸).
     viewsOutsideFiles: true,
     // 그 그림을 화면 크기로 줄여 구운 한 장(원본을 노드마다 통째로 디코딩해 들고 있지 않게).
     thumbnail: async () => (await import('../components/Vibimage/imageThumbnail.js')).renderImageThumbnail,
@@ -661,10 +509,7 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
   },
 ];
 
-/**
- * §5.4 #36 (C) — 참조 노드로서 받는 확장자. `outputs` 가 없으면 `opens`(그 앱이 여는 것이 곧 받는 것).
- * 아이콘·로더를 건드리지 않으므로 앱 코드를 끌어오지 않는다.
- */
+/** §5.4 #36 (C) — 받는 확장자(`outputs ?? opens`). 아이콘·로더를 건드리지 않아 앱 코드를 끌어오지 않는다. */
 export function appOutputExtensions(app: Pick<InternalApp, 'outputs' | 'opens'>): readonly string[] {
   return app.outputs ?? app.opens ?? [];
 }
@@ -673,12 +518,7 @@ export function getInternalApp(appId: string): InternalApp | undefined {
   return INTERNAL_APPS.find((a) => a.id === appId);
 }
 
-/**
- * §5.13 (R-1) — 앱들이 선언한 "내가 여는 확장자" 목록.
- *
- * 클릭 판정(`resolveWorkspaceOpen`)에 그대로 넘긴다. 코어가 표를 들지 않는다는 규약이
- * 실제로 지켜지는 자리이며, 이 함수는 **아이콘·로더를 건드리지 않으므로** 앱 코드를 끌어오지 않는다.
- */
+/** §5.13 (R-1) — 앱들이 선언한 여는 확장자 목록(`resolveWorkspaceOpen` 용). 아이콘·로더를 건드리지 않아 앱 코드를 끌어오지 않는다. */
 export function workspaceOpenClaims(): readonly WorkspaceOpenAppClaim[] {
   const claims: WorkspaceOpenAppClaim[] = [];
   for (const app of INTERNAL_APPS) {
@@ -687,15 +527,7 @@ export function workspaceOpenClaims(): readonly WorkspaceOpenAppClaim[] {
   return claims;
 }
 
-/**
- * §5.13 (Q) — 스토리보드를 받을 수 있는 앱들.
- *
- * 콘티 보드는 이 목록이 비었는지만 보고 [렌더] 를 켜고 끈다. 앱 이름을 묻지 않으므로
- * 두 번째 영상 앱이 와도 보드 쪽 코드는 그대로다.
- *
- * (H) 개정 전에는 여기서 **설치된 것만** 골랐다. 설치가 사라졌으므로 선언이 곧 자격이다.
- * 인자는 호출부 세 곳의 시그니처를 흔들지 않기 위해 남겨 두고 쓰지 않는다.
- */
+/** §5.13 (Q) — 스토리보드를 받는 앱들(보드는 비었는지만 본다). (H) 설치가 없어 선언이 곧 자격 — 인자는 호출부 세 곳의 시그니처 때문에 남겨 두고 쓰지 않는다. */
 export function listStoryboardApps(_defaults?: UserDefaults | null | undefined): readonly InternalApp[] {
   return INTERNAL_APPS.filter((a) => a.storyboard !== undefined);
 }

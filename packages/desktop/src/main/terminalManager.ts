@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import * as pty from 'node-pty';
 import { observePtyTransportErrors } from './ptyTransportErrors';
-import { getClaudeBin, buildInteractiveCliPrefill, buildBashTimeoutEnv, buildAgentTokenSaverEnv, buildVerificationGateEnv, prepareInteractiveRulesDir, buildInteractivePluginBlockForAgent, getCmdResumeSession, parseCmdTermId, recordDiagnostic, killTree, processGuard, type CmdTerminalController } from '@vibisual/server';
+import { getClaudeBin, claudeManagedEnvFor, findManagedBin, codexBinOverride, buildInteractiveCliPrefill, buildBashTimeoutEnv, buildAgentTokenSaverEnv, buildVerificationGateEnv, prepareInteractiveRulesDir, buildInteractivePluginBlockForAgent, getCmdResumeSession, parseCmdTermId, recordDiagnostic, killTree, processGuard, type CmdTerminalController } from '@vibisual/server';
 import { isPathWithin } from '@vibisual/shared';
 import type { AgentConfig } from '@vibisual/shared';
 import {
@@ -16,36 +16,12 @@ import {
   cmdPrefillDelay,
 } from '@vibisual/shared';
 
-// 임베디드 인터랙티브 터미널 매니저 — SCENARIO.md §4 v2.63.
-//
-// 6/15 프로그래매틱 과금 분리 대응. `AgentConfig.executionMode === 'interactive-terminal'` 인
-// 커스텀 에이전트를 더블클릭하면 IDE 창 안 xterm.js 가 이 매니저의 PTY 에 붙는다.
-//
-// 왜 셸(cmd.exe)을 띄우고 CLI 를 *prefill* 하나:
-//   1) Windows 의 claude 는 보통 `claude.cmd` shim 이라 node-pty(ConPTY/CreateProcess)로 직접
-//      spawn 하면 실패한다 → 시스템 셸을 거친다.
-//   2) prefill(명령을 미리 입력해두고 사용자가 Enter)은 "사람이 루프 안" 을 보장 — 진짜
-//      인터랙티브 세션이라 **구독 과금** + Anthropic ToS 합법선(헤드리스 위장 ❌, §4 v2.63).
-//   3) claude 인터랙티브 REPL 도 hook 을 발사하므로 버블맵 시각화는 그대로 유지된다.
-//
-// 터미널 I/O 는 GraphSnapshot/WS 가 아니라 §5.4 #14-1 별창·§4 v2.44 업데이트 선례대로 shell-state
-// 전용 IPC 채널(`vibisual:term:*`)로 흐른다(고빈도 바이트 스트림이 graph broadcast 를 부풀리지 않게).
-//
-// §4 v3.33 — 출력 대상을 `WebContents` 고정에서 `TermSink` 로 추상화. 데스크톱은 IPC 싱크
-// (`vibisual:term:*`, ipc.ts), 모바일 웹 접속(§4 v3.16)은 `/ws` 싱크(mobileAccess.ts)로 같은
-// PTY 바이트를 흘린다. 부착은 termId 당 1개(마지막 부착자 승) — 재부착 시 buffer replay.
-//
-// §4 (CMD 터미널 업그레이드) — herdr 벤치마킹 3축이 이 파일에 닿는 부분:
-//   ② 전경 프로세스명을 주기 표본해 탭 라벨 보조 표기로 올린다(`getTerminalInfo`).
-//   ③ scrollback 상한이 xterm 과 **같은 값**(`TERMINAL_SCROLLBACK_LINES` 파생)에서 나온다.
-//   ⑥ `cmdTerminalController` 로 PTY 를 loopback REST 에 연다(prefill 까지만 — Enter 주입 ❌).
-//   ⑦ 카드 신고용 loopback 신원(포트·토큰·agentId·subAgentId)을 PTY env 로 실어 준다.
-//   ⑧ 무엇을 prefill 할지는 `buildInteractiveCliPrefill` 이 `CMD_CLI_KINDS` 표를 보고 정한다.
+// 임베디드 인터랙티브 터미널 매니저 — SCENARIO.md §4. `interactive-terminal` 에이전트의 IDE xterm.js 가 이 PTY 에 붙는다.
+// 셸을 띄우고 CLI 를 prefill 한다: Windows `claude.cmd` shim 은 node-pty 로 직접 spawn 하면 실패하고, 사람이 Enter 를 쳐야 진짜 인터랙티브
+// 세션이다(구독 과금 · ToS 합법선, 헤드리스 위장 ❌). I/O 는 전용 IPC(`vibisual:term:*`) — 고빈도 바이트가 graph broadcast 를 부풀리지 않게.
+// 출력은 `TermSink`(데스크톱 IPC · 모바일 `/ws`), termId 당 부착 1개(마지막 승), 재부착 시 buffer replay.
 
-/**
- * 터미널 출력을 받는 쪽 추상화(§4 v3.33). id 는 부착자 식별(창 파괴/연결 종료 시 일괄 정리용),
- * isAlive 는 이미 사라진 대상에 send 하지 않기 위한 가드.
- */
+/** 터미널 출력을 받는 쪽. id 는 부착자 식별(창 파괴/연결 종료 시 일괄 정리용), isAlive 는 사라진 대상에 send 하지 않는 가드. */
 export interface TermSink {
   id: string;
   sendData(termId: string, data: string): void;
@@ -56,14 +32,13 @@ export interface TermSink {
 interface TermSession {
   pty: pty.IPty;
   /**
-   * §7.10 — 이 PTY 가 **어느 폴더에서 도는가**. 워크트리를 지울 때 "그 안에서 돌던 것"을 골라
-   * 강제 종료하는 유일한 단서다(dev 서버·빌드가 살아 있으면 Windows 는 폴더를 반만 지운다).
-   * `spec.cwd` 가 없거나 사라진 폴더면 홈으로 떨어지므로, **실제로 넘긴 값**을 그대로 적는다.
+   * §7.10 — 이 PTY 가 도는 폴더(실제로 넘긴 값 — `spec.cwd` 가 없으면 홈). 워크트리 삭제 때 안에서 돌던 것을 골라 죽이는 유일한 단서다
+   * (살아 있으면 Windows 는 폴더를 반만 지운다).
    */
   cwd: string;
   /** 현재 붙어있는 출력 대상. IDE 를 닫았다 열거나 다른 뷰어가 붙으면 같은 termId 로 reattach 하며 갱신. */
   sink: TermSink;
-  /** scrollback 링버퍼 — reattach 시 새 xterm 에 한 번에 replay 해 이전 출력을 복원(§4 v2.63). */
+  /** scrollback 링버퍼 — reattach 시 새 xterm 에 한 번에 replay 해 이전 출력을 복원(§4). */
   buffer: string;
   /** 이 세션의 링버퍼 상한(바이트). §4 (③) scrollback 설정에서 파생 — 세션마다 다를 수 있다. */
   bufferMax: number;
@@ -71,10 +46,8 @@ interface TermSession {
   cols: number;
   rows: number;
   /**
-   * §4 (CMD ③) — 마지막 `pty.resize()` 시각(ms, 0 = 없음). ConPTY 는 리사이즈마다 화면을 통째로
-   * 다시 뱉으므로, 이 뒤 `CMD_RESIZE_REPAINT_MS` 안에 오는 리페인트 청크는 **화면에는 보내되
-   * 링버퍼에는 안 쌓는다**(`shouldBufferPtyChunk`). 안 그러면 재부착 replay 가 같은 배너를
-   * 리사이즈 횟수만큼 되풀이한다.
+   * §4 (CMD ③) — 마지막 `pty.resize()` 시각(ms, 0 = 없음). ConPTY 는 리사이즈마다 화면을 다시 뱉으므로 `CMD_RESIZE_REPAINT_MS` 안의 청크는
+   * 링버퍼에 안 쌓는다(`shouldBufferPtyChunk`) — 쌓으면 replay 가 배너를 리사이즈 횟수만큼 되풀이한다.
    */
   resizedAt: number;
   /** §4 (②) 마지막으로 표본한 전경 프로세스명. 표본 실패 시 직전 값 유지. */
@@ -82,13 +55,8 @@ interface TermSession {
   /** §4 (②) 표본 시각(ms) — `CMD_PROCESS_POLL_MS` 스로틀. */
   processAt: number;
   /**
-   * §4 (CMD) — 아직 입력줄에 넣지 않은 prefill(명령 한 줄)과 그 예약.
-   *
-   * 셸이 프롬프트를 그릴 틈을 준 뒤 채우는데, **그 사이에 리사이즈가 오면 다시 미룬다** —
-   * ConPTY 는 리사이즈마다 보이는 화면을 통째로 다시 그리고, 그때 입력줄에 글자가 들어 있으면
-   * 새 폭에 맞춰 재배치되며 잘려 나간다(사용자 눈에는 "적어 둔 명령이 지워진다"). 크기가 멎은
-   * 뒤에 넣으면 그 재배치 자체가 일어나지 않는다. `deadline` 은 창을 계속 끌고 있어도 영영
-   * 안 채워지지는 않게 하는 한도 시각이다.
+   * §4 (CMD) — 아직 입력줄에 넣지 않은 prefill 과 그 예약. 그 사이 리사이즈가 오면 다시 미룬다 — ConPTY 가 다시 그리며 입력줄 글자를 잘라 낸다.
+   * `deadline` 은 창을 계속 끌어도 결국 채워지게 하는 한도 시각.
    */
   pendingPrefill?: { text: string; deadline: number; timer: ReturnType<typeof setTimeout> };
 }
@@ -96,13 +64,8 @@ interface TermSession {
 const sessions = new Map<string, TermSession>();
 
 /**
- * §4 (CMD) — 셸 입력줄 채우기를 예약(또는 **재예약**)한다.
- *
- * 크기가 멎은 뒤에 한 번만 넣기 위한 단일 창구다: `resizeTerminal` 이 아직 안 쓴 prefill 을
- * 발견하면 이 함수를 다시 불러 타이머를 되감는다. 되감기는 최초 예약 때 정해진 `deadline`
- * 안에서만 일어나므로(`cmdPrefillDelay`), 창을 계속 끌고 있어도 명령은 결국 채워진다.
- *
- * @param deadline 되감기 한도 시각. 처음 예약할 때는 생략(지금부터 `CMD_PREFILL_MAX_DEFER_MS`).
+ * §4 (CMD) — 입력줄 채우기를 예약·재예약하는 단일 창구(`resizeTerminal` 이 안 쓴 prefill 을 보면 다시 불러 되감는다).
+ * @param deadline 되감기 한도 시각(`cmdPrefillDelay`). 처음엔 생략 — 지금부터 `CMD_PREFILL_MAX_DEFER_MS`.
  */
 function schedulePrefill(termId: string, text: string, deadline?: number): void {
   const s = sessions.get(termId);
@@ -125,20 +88,15 @@ function cancelPrefill(s: TermSession): void {
   s.pendingPrefill = undefined;
 }
 
-/**
- * §4 (② QA) — node-pty 의 `process` 는 플랫폼에 따라 콘솔 제목/전체 경로를 준다
- * (Windows 의 ConPTY 는 `C:\\WINDOWS\\system32\\cmd.exe` 같은 값을 흘린다).
- * 탭 옆에 붙는 **보조 표기**라 경로째 실으면 읽히지 않으므로 파일명만 남기고 확장자를 뗀다.
- */
+/** §4 (② QA) — node-pty `process` 는 플랫폼에 따라 전체 경로(`C:\\WINDOWS\\system32\\cmd.exe`)를 준다 — 탭 보조 표기라 파일명만, 확장자 없이. */
 function prettyProcessName(raw: string): string {
   const base = raw.trim().split(/[\\/]/).pop() ?? raw.trim();
   return base.replace(/\.(exe|cmd|bat|com)$/i, '').slice(0, 32);
 }
 
 /**
- * §4 (③) — scrollback 줄 수를 링버퍼 바이트 상한으로 환산한다.
- * 종전 상수 256KB 는 xterm 기본 1000줄과 어긋나 "화면엔 있는데 Ctrl+F 로는 안 찾히는" 구간을
- * 만들었다. 이제 **한 값**(`TERMINAL_SCROLLBACK_LINES` 또는 사용자 설정)에서 둘 다 나온다.
+ * §4 (③) — scrollback 줄 수를 링버퍼 바이트 상한으로 환산한다. xterm 과 같은 한 값(`TERMINAL_SCROLLBACK_LINES` 또는 사용자 설정)에서
+ * 둘 다 나와야 한다 — 어긋나면 화면엔 있는데 Ctrl+F 로는 안 찾히는 구간이 생긴다.
  */
 function bufferMaxFor(scrollbackLines: number | undefined): number {
   return clampTerminalScrollback(scrollbackLines ?? TERMINAL_SCROLLBACK_LINES) * TERMINAL_SCROLLBACK_BYTES_PER_LINE;
@@ -153,9 +111,8 @@ export interface CreateTerminalSpec {
   cols?: number;
   rows?: number;
   /**
-   * §5.5 #17-20 ④ v4.74 — 실행 런처. 이 값이 있으면 **CLI 를 띄우지 않고** 이 명령을 그대로
-   * 셸에 넣는다(사용자의 dev 서버·빌드·언리얼 실행). claude 경로의 rules `--add-dir` 와
-   * `VIBISUAL_OWNER_AGENT_ID` 태그도 함께 건너뛴다 — 사용자의 서버는 우리 훅의 자식이 아니다.
+   * §5.5 #17-20 ④ — 실행 런처. 있으면 CLI 대신 이 명령을 그대로 셸에 넣고, rules `--add-dir`·`VIBISUAL_OWNER_AGENT_ID` 태그도 건너뛴다
+   * (사용자의 서버는 우리 훅의 자식이 아니다).
    */
   command?: string;
   /** command 를 사용자 Enter 없이 바로 실행할지(실행 런처 = true). CLI prefill 은 언제나 false. */
@@ -167,9 +124,8 @@ export interface CreateTerminalSpec {
 }
 
 /**
- * §4 (⑦) — 카드 신고용 loopback 신원. desktop main 이 리스너를 띄운 뒤 1회 주입한다.
- * 이 값이 있어야 PTY 안의 에이전트가 헤드리스와 **같은** 카드 엔드포인트를 curl 로 부를 수 있다
- * (없으면 종전대로 `::VIBISUAL-CARD::` 마커 인쇄 폴백 — 두 경로 모두 같은 카드를 띄운다).
+ * §4 (⑦) — 카드 신고용 loopback 신원(main 이 리스너를 띄운 뒤 1회 주입). 있어야 PTY 안 에이전트가 헤드리스와 같은 카드 엔드포인트를 curl 로 부른다
+ * (없으면 `::VIBISUAL-CARD::` 마커 인쇄 폴백).
  */
 let cardIdentity: { port: number; token: string; identityFile?: string } | null = null;
 
@@ -179,39 +135,17 @@ export function setTerminalCardIdentity(next: { port: number; token: string; ide
 
 /**
  * 이 터미널에 띄울 셸 + 인자.
- *
- * **macOS 는 로그인 셸(`-l`)로 띄운다 — 지우지 말 것.**
- * Finder/Dock 으로 실행한 앱은 사용자의 셸이 아니라 `launchd` 에서 나오므로 PATH 가
- * `/usr/bin:/bin:/usr/sbin:/sbin` 넉 줄뿐이다. 그 PATH 를 그대로 물려받은 비로그인 셸에서는
- * Homebrew 로만 깐 `node`·`git`·`python`·`claude` 가 전부 `command not found` 로 나온다
- * (임베디드 터미널만 안 되고 사용자의 iTerm 에서는 되니, 원인을 우리 쪽으로 의심하기도 어렵다).
- * Homebrew 의 `eval "$(brew shellenv)"` 는 관례상 `~/.zprofile` / `~/.bash_profile` 에 들어가는데
- * **그 파일들은 로그인 셸일 때만** 읽힌다. VS Code 통합 터미널이 macOS 기본 프로필에만 `-l` 을
- * 붙이는 이유가 정확히 이것이다.
- *
- * **Linux 는 일부러 그대로 둔다.** 리눅스 데스크톱 세션은 이미 `~/.profile` 을 태운 PATH 를
- * 물려주므로 얻을 것이 없는 반면, bash 는 **로그인이 되는 순간 `~/.bashrc` 를 읽지 않는다** —
- * `~/.bash_profile` 이 그것을 source 하지 않는 사용자(리눅스에선 흔하다)의 별칭·프롬프트가
- * 통째로 사라진다. 잃는 쪽이 더 크다.
- *
- * prefill 규약에는 영향이 없다: 우리는 `-c` 로 명령을 주는 것이 아니라 대화형 셸을 띄운 뒤
- * 350ms 후 stdin 에 문자열만 넣는다(Enter 는 사람이 친다 — §4 v2.63 ToS 합법선).
+ * **macOS 는 로그인 셸(`-l`) — 지우지 말 것.** Finder/Dock 실행은 `launchd` 최소 PATH 라 Homebrew 의 `node`·`git`·`claude` 가 `command not found` 이고,
+ * `brew shellenv` 는 로그인 셸만 읽는 `~/.zprofile` 에 있다. Linux 는 그대로 — 세션이 이미 PATH 를 주고, 로그인 bash 는 `~/.bashrc` 를 안 읽는다.
+ * prefill 과 무관하다(`-c` 가 아니라 대화형 셸의 stdin 에 넣고 Enter 는 사람이 친다).
  */
 /** 실행 권한 확인은 프로세스당 한 번이면 된다(파일은 그 사이에 바뀌지 않는다). */
 let spawnHelperChecked = false;
 
 /**
- * node-pty 의 `spawn-helper` 에 실행 권한이 없으면 돌려준다 — **macOS 에서 터미널이 하나도
- * 안 뜨는 것**을 막는 마지막 방벽(2026-08-29 실기: v0.1.14 mac 설치본에서 로그인 창이
- * "로그인 절차를 시작하지 못했습니다" 로 끝났고, 실제 오류는 `posix_spawnp failed.` 였다).
- *
- * npm 은 배포 tarball 을 만들 때 파일 모드를 644 로 눌러 버리는데, node-pty 는 그것을 되돌리는
- * 스크립트가 없다. macOS 의 node-pty 는 이 helper 를 실행해 제어 터미널을 얻으므로 권한이
- * 없으면 모든 `pty.spawn` 이 실패한다. 정본 수리는 패키징(after-pack.cjs)에서 하고, 여기서는
- * 그 그물을 빠져나온 배치(로컬 `pnpm install` 직후 · 손으로 옮긴 설치본)를 구한다.
- *
- * 실패해도 던지지 않는다 — 권한을 못 고치는 자리(읽기 전용 설치)라면 spawn 이 원래 오류를
- * 내게 두고, 진단에는 남긴다.
+ * node-pty `spawn-helper` 에 실행 권한이 없으면 돌려준다 — 없으면 mac 에서 모든 `pty.spawn` 이 `posix_spawnp failed.` 로 죽는다(2026-08-29 실기).
+ * npm tarball 이 모드를 644 로 누르고 node-pty 는 안 되돌린다. 정본 수리는 after-pack.cjs, 여기는 그물을 빠져나온 배치(로컬 `pnpm install` 등)를 구한다.
+ * 실패해도 던지지 않는다(읽기 전용 설치면 spawn 이 원래 오류를 내게 두고 진단에 남긴다).
  */
 function ensureSpawnHelperExecutable(platform: NodeJS.Platform = process.platform): void {
   if (platform === 'win32' || spawnHelperChecked) return;
@@ -252,11 +186,8 @@ export function pickShell(
 }
 
 /**
- * 임베디드 터미널 생성 또는 **재부착(attach)**.
- *
- * 같은 termId 가 이미 살아있으면(=IDE 를 닫았다 다시 열었거나 탭을 다시 그린 경우) **재스폰하지 않고**
- * 그 PTY 에 다시 붙어 scrollback 버퍼를 replay 한다 → 진행 중이던 세션이 그대로 보존된다(§4 v2.63).
- * 없을 때만 셸을 cwd 에서 새로 띄우고 CLI 실행 명령을 prefill 한다.
+ * 임베디드 터미널 생성 또는 재부착. 같은 termId 가 살아 있으면 재스폰하지 않고 붙어 scrollback 을 replay 한다(진행 중 세션 보존, §4).
+ * 없을 때만 셸을 cwd 에서 띄우고 CLI 명령을 prefill 한다.
  */
 export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: boolean; error?: string } {
   try {
@@ -267,10 +198,8 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
       // §4 (③) — 설정이 바뀌었으면 이번 부착부터 새 상한을 적용한다(다음 write 에서 잘린다).
       existing.bufferMax = bufferMaxFor(spec.scrollbackLines);
       if (sink.isAlive() && existing.buffer) {
-        // replay 전에 xterm 을 비운다(화면 clear + scrollback clear + 커서 home). 같은 termId 가
-        // 여러 번 재부착(remount)돼도 직전 화면 위에 buffer 가 덧쌓이지 않고 항상 현재 세션 출력만
-        // 한 벌 보이게 한다("재마운트 때마다 같은 배너가 또 찍힘" 버그 차단). buffer 안의 커서/erase
-        // 시퀀스는 그대로 재생되므로 최종 화면은 CLI 의 현재 상태와 동일하다.
+        // replay 전에 xterm 을 비운다(화면·scrollback clear + 커서 home) — 안 그러면 재마운트마다 직전 화면 위에 같은 배너가 또 찍힌다.
+        // buffer 안의 커서/erase 시퀀스가 재생되므로 최종 화면은 CLI 현재 상태와 같다.
         sink.sendData(spec.termId, `\x1b[2J\x1b[3J\x1b[H${existing.buffer}`);
       }
       // 크기는 **측정된 값이 왔을 때만** 반영한다. 클라가 아직 레이아웃되지 않아 xterm 기본
@@ -288,29 +217,24 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
     const cols = spec.cols && spec.cols > 0 ? spec.cols : 80;
     const rows = spec.rows && spec.rows > 0 ? spec.rows : 24;
 
-    // §5.5 #17-20 ④ v4.74 — 실행 런처인가(=CLI 가 아니라 사용자의 명령을 띄우는가).
-    //   이 갈래는 아래에서 rules 폴더·소유자 태그·CLI 인자를 전부 건너뛴다.
+    // §5.5 #17-20 ④ — 실행 런처인가(CLI 가 아니라 사용자의 명령). 이 갈래는 아래에서 rules 폴더·소유자 태그·CLI 인자를 전부 건너뛴다.
     const runCommand = spec.command?.trim();
     const isRunLauncher = !!runCommand;
 
-    // §4 v2.64 — 이 CMD 버블의 agentId / 세션 탭 id. termId 파서는 서버와 **한 벌**을 쓴다
-    //   (§4 ⑤ pane 구분자 규칙이 두 곳으로 갈라지면 소유 해석이 조용히 어긋난다).
+    // §4 — 이 CMD 버블의 agentId / 세션 탭 id. termId 파서는 서버와 한 벌을 쓴다(§4 ⑤ pane 구분자 규칙이 갈라지면 소유 해석이 조용히 어긋난다).
     const parsed = parseCmdTermId(spec.termId);
     const agentId = parsed?.agentId ?? '';
     const subAgentId = parsed?.sessionToken ?? '';
 
-    // §4 (⑧) — 무엇을 띄울지 먼저 정한다. claude 가 아니면 우리 훅의 자식이 아니므로
-    //   rules 폴더·소유자 태그·카드 토큰을 붙이지 않는다(v4.74 실행 런처와 같은 규율).
+    // §4 (⑧) — 무엇을 띄울지 먼저 정한다. claude 가 아니면 우리 훅의 자식이 아니므로 rules 폴더·소유자 태그·카드 토큰을 붙이지 않는다.
     const { binPath } = getClaudeBin();
     const rulesDirNeeded = !isRunLauncher && !!agentId;
     // rules 는 claude 갈래에서만 의미가 있다 — managed 판정을 위해 prefill 을 먼저 만들어 본다.
     const probe = buildInteractiveCliPrefill({ config: spec.config, claudeBinPath: binPath });
     const managed = probe.managed && !isRunLauncher;
 
-    // §4 v2.64 — rules(시스템 프롬프트)를 파일로 미리 써 둔다(있으면 그 폴더 절대경로). 아래 prefill 의
-    //   `--add-dir <rulesDir>` 와 짝. spawn 전에 계산하는 이유: rulesDir 유무로 아래 env 플래그를 켜기 위함.
-    // §5.11 v4.65 — 이 프로젝트에서 켠 집행 플러그인의 지시도 같은 파일에 함께 쓴다(켠 것이 없으면 빈 문자열).
-    //   프로젝트 해결은 서버가 그래프로 한다 — 터미널이 아는 cwd 는 워크트리·하위 폴더일 수 있어 켬/끔 키와 어긋난다.
+    // §4 — rules 를 파일로 미리 써 둔다(prefill 의 `--add-dir <rulesDir>` 와 짝, spawn 전에 있어야 아래 env 플래그를 켠다).
+    // §5.11 — 켠 집행 플러그인의 지시도 같은 파일에. 프로젝트는 서버가 그래프로 푼다 — 터미널 cwd 는 워크트리·하위 폴더라 켬/끔 키와 어긋난다.
     const rulesDir = rulesDirNeeded && managed
       ? prepareInteractiveRulesDir(agentId, spec.config, { enforcementBlock: buildInteractivePluginBlockForAgent(agentId) })
       : null;
@@ -320,19 +244,13 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
       cols,
       rows,
       cwd,
-      // process.env 를 그대로 물려줘 사용자 OAuth/PATH 가 CLI 에 닿게 한다(별도 인증 대행 ❌).
-      // + 소유자 태그(VIBISUAL_OWNER_AGENT_ID/_TERM_ID) 주입 — 이 PTY 의 자식(claude/hook)만 영향.
-      //   AGENT_ID: hook 이벤트를 CMD 버블에 귀속(§4 v2.64). TERM_ID: claude 대화 sessionId 를
-      //   termId 별로 기록 → 앱 재시작 후 `--resume` 연속성.
-      // + CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1 — `--add-dir` 폴더의 CLAUDE.md 를 claude 가
-      //   **시작 시 컨텍스트에 자동 주입**하게 하는 플래그. 이게 없으면 add-dir 는 폴더를 "읽을 수 있게"만
-      //   열 뿐 rules 가 자동 적용되지 않아 "참고용"에 그친다(강제 X). rules 가 있을 때만 켠다.
+      // process.env 를 그대로 물려 사용자 OAuth/PATH 가 CLI 에 닿게 한다(인증 대행 ❌). 소유자 태그는 이 PTY 의 자식에만 — AGENT_ID: hook 을 CMD 버블에 귀속,
+      // TERM_ID: sessionId 를 termId 별로 적어 재시작 뒤 `--resume`. CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1 이 없으면 `--add-dir` 의 CLAUDE.md 가
+      // 컨텍스트에 안 들어가 rules 가 강제되지 않는다(rules 가 있을 때만 켠다).
       env: {
         ...(process.env as Record<string, string>),
-        // UTF-8 강제 — legacy(subAgentManager) / agent-view(claudeAgentViewService) spawn 경로와 동일.
-        //   이게 없으면 PTY 안의 claude → python Stop 훅(verify_gate.py 등)이 한글을 Windows 콘솔
-        //   기본 코드페이지(cp949)로 찍고, node-pty 가 UTF-8 로 디코딩하면서 전부 ◆(U+FFFD)로 깨진다.
-        //   PYTHONIOENCODING 이 핵심(파이썬 stdout 을 코드페이지와 무관하게 UTF-8 로 고정).
+        // UTF-8 강제(다른 spawn 경로와 같다) — 없으면 PTY 안 python Stop 훅이 한글을 cp949 로 찍어 node-pty 의 UTF-8 디코딩에서 U+FFFD 로 깨진다.
+        // PYTHONIOENCODING 이 핵심이다.
         LANG: 'en_US.UTF-8',
         LC_ALL: 'en_US.UTF-8',
         PYTHONIOENCODING: 'utf-8',
@@ -360,6 +278,11 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
         ...(managed ? buildAgentTokenSaverEnv(spec.config) : {}),
         // §5.3 #12-4 (J) — 검증 실행 전 차단을 켠 채 여는 터미널이면 훅 안전망 표식. 헤드리스와 같은 함수(끄면 빈 객체).
         ...(managed ? buildVerificationGateEnv() : {}),
+        // §4 (앱 전용 엔진) ⑤ — 앱 전용 claude 를 띄우는 세션이면 엔진 자체 갱신을 끈다(판은 앱이 바꾼다).
+        //   CMD 의 claude 갈래와, 로그인 창이 넘겨 준 실행본(`VIBISUAL_CLAUDE_LOGIN_BIN`)이 앱 전용일 때만 —
+        //   사용자가 고른 자기 설치본에는 얹지 않는다(판정은 경로 — `claudeManagedEnvFor`).
+        ...(managed ? claudeManagedEnvFor(binPath) : {}),
+        ...(spec.env?.['VIBISUAL_CLAUDE_LOGIN_BIN'] ? claudeManagedEnvFor(spec.env['VIBISUAL_CLAUDE_LOGIN_BIN']) : {}),
         // 디버그 모드가 실어 보내는 것(NODE_OPTIONS 등) + 실행 구성의 env.
         ...(spec.env ?? {}),
       },
@@ -409,19 +332,14 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
       if (session.sink.isAlive()) session.sink.sendExit(spec.termId, exitCode);
     });
 
-    // §5.5 #17-20 ④ v4.74 — 실행 런처 갈래. CLI 를 부르지 않고 사용자의 명령을 그대로 넣는다.
-    //   `autoRun` 이면 개행까지 붙여 바로 실행하고(사용자가 [실행]을 이미 눌렀으므로),
-    //   아니면 CLI prefill 과 같은 규약으로 입력만 채워 둔다.
+    // §5.5 #17-20 ④ — 실행 런처 갈래. `autoRun` 이면 개행까지 붙여 바로 실행하고(사용자가 [실행]을 이미 눌렀다), 아니면 CLI prefill 처럼 입력만 채운다.
     if (isRunLauncher && runCommand) {
       schedulePrefill(spec.termId, spec.autoRun === false ? runCommand : `${runCommand}\r`);
       return { ok: true };
     }
 
-    // CLI 실행 명령 prefill — 셸 배너/프롬프트가 먼저 그려지도록 살짝 지연 후 write.
-    // newline 미포함 = 사용자가 직접 Enter(사람이 루프 안 — ToS 합법선).
-    // 최초 spawn 시에만 — reattach 경로는 위에서 이미 return.
-    // §4 v2.64 — 앱 재시작 후 이 termId 의 직전 claude 대화가 있으면 `--resume <id>` 로 이어받는다
-    //   (PTY 는 죽지만 대화는 JSONL 에 남는다). claude 가 아닌 CLI 는 우리가 대화를 부기하지 않으므로 생략.
+    // CLI 명령 prefill — 셸 프롬프트가 먼저 그려지게 지연 후 write, 개행 없음(Enter 는 사람이 — ToS 합법선). 최초 spawn 때만.
+    // §4 — 재시작 뒤 이 termId 의 직전 claude 대화가 있으면 `--resume <id>`(PTY 는 죽어도 대화는 JSONL 에 남는다). claude 가 아니면 생략.
     const resumeId = managed ? getCmdResumeSession(spec.termId) : null;
     const { prefill } = buildInteractiveCliPrefill({
       config: spec.config,
@@ -430,6 +348,10 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
       resumeId,
       // 이 줄을 받을 셸 — 인용 규칙이 cmd.exe·POSIX 셸·fish 마다 다르다(`interactiveCommandLine.ts`).
       shell,
+      // §4 (앱 전용 엔진) — 앱 전용 코덱스가 있으면 코덱스 갈래가 맨 이름 대신 그 실행본을 띄운다.
+      managedCodexBin: findManagedBin('codex'),
+      // ④ — 사용자가 Version 탭에서 다른 설치본을 보조로 골라 두었으면 그것이 먼저다.
+      selectedCodexBin: codexBinOverride(),
     });
     if (prefill) schedulePrefill(spec.termId, prefill);
 
@@ -483,13 +405,8 @@ export function resizeTerminal(termId: string, cols: number, rows: number): void
 }
 
 /**
- * §4 (CMD 터미널 업그레이드 ②) — 그 터미널의 전경 프로세스명·크기.
- *
- * herdr 의 `pane process-info` 자리다. CMD 탭은 사람이 직접 치므로 첫 프롬프트 기반 자동 이름
- * (§5.5 #17-5)의 근거가 없어 `Sub #N` 에 머물렀다 — 이 값이 탭 라벨 **보조** 표기가 된다
- * (라벨 자체를 덮어쓰지 않는다). `CMD_PROCESS_POLL_MS` 로 스로틀해 표본 비용을 묶는다.
- *
- * node-pty 의 `process` 는 플랫폼에 따라 셸 이름만 주기도 한다 — 값이 비면 직전 표본을 유지한다.
+ * §4 (CMD ②) — 전경 프로세스명·크기. CMD 탭은 자동 이름(§5.5 #17-5)이 없어 이 값이 라벨 **보조** 표기가 된다(덮어쓰지 않는다).
+ * `CMD_PROCESS_POLL_MS` 로 스로틀, `process` 가 비면 직전 표본 유지.
  */
 export function getTerminalInfo(termId: string): { process?: string; cols: number; rows: number } | null {
   const s = sessions.get(termId);
@@ -505,7 +422,7 @@ export function getTerminalInfo(termId: string): { process?: string; cols: numbe
   return { ...(s.process ? { process: s.process } : {}), cols: s.cols, rows: s.rows };
 }
 
-/** 터미널 1개 종료 — 탭 명시 닫기 전용(§4 v2.63: IDE 닫기로는 죽이지 않음, 재부착 위해 보존). */
+/** 터미널 1개 종료 — 탭 명시 닫기 전용(§4: IDE 닫기로는 죽이지 않는다, 재부착 위해 보존). */
 export function killTerminal(termId: string): void {
   const s = sessions.get(termId);
   if (!s) return;
@@ -526,15 +443,8 @@ export function killTerminalsForSink(sinkId: string): void {
 }
 
 /**
- * §7.10 — **그 폴더 안에서 도는 터미널을 전부 강제 종료한다.** 종료한 개수를 돌려준다.
- *
- * 워크트리 삭제의 앞단이다. 사용자는 이미 팝업에서 삭제를 확인했으므로 여기서 다시 묻지 않고
- * 트리째 회수한다(`killTerminal` → `killTree`). 이 단계가 없으면 워크트리 안에서 띄운 dev 서버·
- * 빌드가 파일을 잡고 있어 `git worktree remove` 와 폴더 삭제가 **반만 성공**하고, 사용자에게는
- * `node_modules` 만 남은 좀비 폴더가 돌아온다(v3.71 부분 삭제의 직접 원인).
- *
- * 포함 판정은 `isPathWithin` 한 곳 — 대소문자를 접을지는 플랫폼이 정한다(linux 에서 접으면
- * 케이스만 다른 남의 폴더의 터미널까지 죽인다).
+ * §7.10 — 그 폴더 안의 터미널을 전부 트리째 죽이고 개수를 돌려준다(워크트리 삭제 앞단, 확인은 팝업이 받았다). 없으면 dev 서버·빌드가 파일을 잡아
+ * 삭제가 반만 되고 `node_modules` 만 남는다. 포함 판정은 `isPathWithin` 한 곳 — linux 에서 대소문자를 접으면 남의 폴더 터미널까지 죽인다.
  */
 export function killTerminalsUnder(rootPath: string): number {
   const ids = listTerminalsUnder(rootPath);
@@ -542,10 +452,7 @@ export function killTerminalsUnder(rootPath: string): number {
   return ids.length;
 }
 
-/**
- * §7.10 — 죽이지 않고 **세기만** 한다. 삭제 팝업이 "무엇이 강제 종료되는지" 를 미리 말할 때 쓴다.
- * 죽이는 쪽과 같은 판정을 써야 예고한 숫자와 실제로 죽는 것이 어긋나지 않는다.
- */
+/** §7.10 — 죽이지 않고 세기만 한다(삭제 팝업의 예고용). 죽이는 쪽과 같은 판정이어야 예고한 숫자와 실제가 어긋나지 않는다. */
 export function listTerminalsUnder(rootPath: string): string[] {
   if (!rootPath) return [];
   return [...sessions]
@@ -559,11 +466,8 @@ export function killAllTerminals(): void {
 }
 
 /**
- * §4 (CMD 터미널 업그레이드 ⑥) — loopback REST(`/api/cmd/*`)가 쓰는 제어 인터페이스.
- *
- * server 코어는 desktop 을 import 하지 않으므로(§3.4) main 이 부팅 시 이것을 주입한다.
- * `write` 는 받은 문자열을 **그대로** 넣을 뿐이며, 개행을 걷어 내는 것은 호출부
- * (`sendCmdTerminal`)의 책임이다 — Enter 는 사람이 친다(§4 v2.63 ToS 합법선).
+ * §4 (CMD ⑥) — loopback REST(`/api/cmd/*`)의 제어 인터페이스(server 코어는 desktop 을 import 하지 않아 main 이 주입, §3.4).
+ * `write` 는 받은 그대로 넣는다 — 개행 걷기는 호출부 `sendCmdTerminal` 의 책임(Enter 는 사람이).
  */
 export const terminalController: CmdTerminalController = {
   list: () => [...sessions.keys()],

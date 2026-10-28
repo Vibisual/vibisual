@@ -6,16 +6,8 @@ import { isWithinRoot } from './pathKey.js';
 import { resolvePathWithLinks } from './pathValidator.js';
 
 /**
- * §5.5 #17-19 v4.71 — IDE 워크스페이스 탐색기의 디스크 조회.
- *
- * 이미 있는 `ProjectGraph.listFolderFiles`(§7.5 위성 선택용)를 쓰지 않는 이유는 세 가지다 —
- * 그쪽은 (a) 폴더를 **통째로 재귀**해 읽고(대형 저장소에서 수만~수십만 엔트리),
- * (b) 경로를 **소문자로 정규화**하며(위성 매칭 규약), (c) 숨김 폴더·`node_modules` 류를
- * **걸러 낸다**. 위성 토글에는 맞지만 "VS Code 처럼 보이는 탐색기"에는 셋 다 틀리다.
- *
- * 그래서 여기서는 **한 겹만**, **원본 대소문자 그대로**, **숨김 항목까지** 읽는다.
- * 상태를 갖지 않는 순수 조회라 클래스가 아니라 함수 하나로 둔다(서비스 클래스 규칙은
- * 상태를 가진 도메인에 대한 것이다).
+ * §5.5 #17-19 — IDE 탐색기의 디스크 조회. `listFolderFiles`(§7.5 위성용)는 통째 재귀·소문자 접기·숨김 거르기라 쓰지 않는다.
+ * 한 겹만, 원본 대소문자 그대로, 숨김 항목까지 읽는다.
  */
 
 /** `relPath` 를 forward slash 로 정규화하고 앞뒤 구분자를 떨어낸다. */
@@ -24,19 +16,15 @@ function normalizeRel(relPath: string): string {
 }
 
 /**
- * `root` 아래 `relPath`(디렉터리든 파일이든)를 해석한다. 루트를 벗어나면(`..` 등) null.
- * 반환값은 { abs: 절대경로, rel: 정규화된 상대경로 }.
- *
- * §5.5 #17-27 v4.87 — 내장 편집창(`workspaceFile.ts`)도 **이 가드 하나**를 그대로 쓴다
- * (탐색기와 편집창이 서로 다른 경로 검사를 갖는 순간 둘 중 하나는 반드시 뒤처진다).
+ * `root` 아래 `relPath` 를 `{ abs, rel }` 로. 루트를 벗어나면 null.
+ * §5.5 #17-27 — 내장 편집창(`workspaceFile.ts`)도 이 가드 하나를 쓴다(두 벌이면 하나는 뒤처진다).
  */
 export function resolveWorkspacePath(root: string, relPath: string): { abs: string; rel: string } | null {
   const rootAbs = path.resolve(root);
   const rel = normalizeRel(relPath);
   const abs = rel ? path.resolve(rootAbs, rel) : rootAbs;
 
-  // path traversal 방지 — 접을지 말지는 플랫폼이 정한다(win/mac 은 무시, linux 는 구분).
-  //   예전에는 win32 만 접어 **mac 에서 케이스만 다른 정상 경로가 조용히 null** 이 됐다.
+  // path traversal 방지 — 대소문자 접기는 플랫폼이 정한다(win/mac 무시, linux 구분). win32 만 접으면 mac 의 정상 경로가 null 이 된다.
   if (!isWithinRoot(abs, rootAbs)) return null;
 
   // A project-local link may point into another project. Resolve both sides so linked
@@ -59,22 +47,10 @@ function isDirEntry(dirent: fs.Dirent, absPath: string): boolean {
   }
 }
 
-/**
- * §5.5 #17-27 ⑬ (h) — Windows 에서 **누르면 그대로 도는** 확장자.
- *
- * `.msi`(설치 마법사)·`.ps1`(연결 프로그램이 편집기인 경우가 흔하다)은 일부러 뺐다 —
- * 본문의 경로를 눌렀을 때 벌어질 일이 사용자의 예상과 갈리는 것들이다.
- */
+/** §5.5 #17-27 ⑬ (h) — Windows 에서 누르면 도는 확장자. `.msi`·`.ps1` 은 뺐다(설치 마법사·편집기 연결이 흔해 결과가 예상과 갈린다). */
 const WIN_EXECUTABLE_EXT = new Set(['.exe', '.com', '.bat', '.cmd']);
 
-/**
- * POSIX 에서 **실행 비트가 서 있을 때만** 실행으로 볼 확장자(`''` = 확장자 없음).
- *
- * 실행 비트 하나만으로 판정하지 않는 이유는 트리마다 그 비트의 뜻이 다르기 때문이다 —
- * NTFS 마운트·`umask` 설정에 따라 저장소의 **모든 파일**이 `755` 로 보이는 트리가 흔하고,
- * 그러면 본문의 `App.tsx` 까지 실행 손잡이가 된다(⑬ (b) 가 막으려던 "가짜 손잡이" 가
- * 실행이라는 더 나쁜 형태로 돌아온다). 진짜 실행 파일은 POSIX 에서 확장자가 없거나 이 목록 안이다.
- */
+/** POSIX 에서 실행 비트가 있을 때만 실행으로 볼 확장자(`''` = 없음). 비트만 보지 않는다 — NTFS 마운트·`umask` 로 모든 파일이 `755` 인 트리가 흔하다. */
 const POSIX_EXECUTABLE_EXT = new Set(['', '.sh', '.command', '.appimage', '.bin', '.run']);
 
 /** `fs.Stats` 중 이 판정에 필요한 부분만 — 테스트가 실제 파일 없이 표를 짤 수 있게. */
@@ -83,13 +59,7 @@ export interface ExecutableStatLike {
   mode: number;
 }
 
-/**
- * §5.5 #17-27 ⑬ (h) — 이 경로를 **눌러서 실행할 수 있는가**.
- *
- * 화면이 아니라 여기서 정하는 이유는 규칙이 플랫폼마다 갈리기 때문이다 — 클라이언트가 글자 모양으로
- * 흉내 내면 같은 판정이 두 벌이 되고, 둘 중 하나는 반드시 뒤처진다(⑬ (b)(c) 와 같은 판단).
- * 참이면 화면은 편집창·탐색기 대신 #17-20 ④ 실행 세션으로 간다.
- */
+/** §5.5 #17-27 ⑬ (h) — 눌러서 실행할 수 있는가. 플랫폼마다 규칙이 갈려 서버가 정한다(클라 흉내는 판정 두 벌 — ⑬ (b)(c)). 참이면 #17-20 ④ 실행 세션으로 간다. */
 export function isExecutableWorkspacePath(
   absPath: string,
   st: ExecutableStatLike,
@@ -103,13 +73,7 @@ export function isExecutableWorkspacePath(
   return POSIX_EXECUTABLE_EXT.has(ext);
 }
 
-/**
- * §5.5 #17-27 ⑬ — 경로 **한 개**의 정체(파일/폴더)를 잰다. 없거나 루트 밖이면 null.
- *
- * 스트림 본문에 적힌 경로가 진짜인지, 진짜라면 편집창으로 열지 탐색기로 열지 가르는 유일한 판정이다.
- * `listWorkspaceDir` 처럼 디렉터리를 **읽지 않는다** — 폴더 하나를 확인하려고 수만 엔트리를 걷는 것은
- * 본문에 경로가 여러 개 박힌 화면에서 그대로 비용이 된다. 심볼릭 링크는 `statSync` 가 대상까지 따라간다.
- */
+/** §5.5 #17-27 ⑬ — 경로 한 개의 정체(파일/폴더), 없거나 루트 밖이면 null. 디렉터리를 읽지 않는다(경로가 많은 본문에서 비용이 된다). */
 export function statWorkspacePath(root: string, relPath: string): WorkspacePathInfo | null {
   const resolved = resolveWorkspacePath(root, relPath);
   if (!resolved) return null;
@@ -131,16 +95,8 @@ export function statWorkspacePath(root: string, relPath: string): WorkspacePathI
 }
 
 /**
- * §5.5 #17-27 ⑬ (d) — 프로젝트 루트 **밖** 절대 경로 한 개의 정체를 잰다. 없으면 null.
- *
- * `statWorkspacePath` 와 갈라 둔 이유는 **답에 담기는 것이 다르기 때문**이다. 여기서 잰 경로가 갈 수 있는
- * 곳은 시스템 탐색기 하나뿐이라(⑬ (d)), `executable` 을 재지 않는다 — 재서 실어 보내면 화면이 "실행할 수
- * 있나" 를 묻게 되고, 그 순간 본문 글자로 임의 경로를 실행하는 길이 열린다. **재지 않는 것이 그 갈래를 막는
- * 방법**이다. 루트 검사도 하지 않는다(루트 밖인 것이 전제) — 대신 이 함수를 부르는 라우트가
- * loopback 화이트리스트 밖이라 **렌더러(사용자 창)만** 닿는다(§3.7).
- *
- * 상대 경로는 받지 않는다. 기준 없는 상대 경로는 서버의 cwd 를 뿌리로 삼아 엉뚱한 곳을 가리키므로,
- * 절대 경로가 아니면 그 자리에서 null 이다.
+ * §5.5 #17-27 ⑬ (d) — 루트 밖 절대 경로 한 개의 정체(없으면 null). `executable` 을 재지 않는다 — 실어 보내면 본문 글자로 임의 경로를 실행하는 길이 열린다.
+ * 루트 검사 없음(루트 밖이 전제) — 라우트가 loopback 화이트리스트 밖이라 렌더러만 닿는다(§3.7). 상대 경로는 null(서버 cwd 기준으로 엉뚱한 곳을 가리킨다).
  */
 export function statExternalPath(absPath: string): ExternalPathInfo | null {
   if (!path.isAbsolute(absPath)) return null;

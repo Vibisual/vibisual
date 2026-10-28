@@ -1,15 +1,4 @@
-/**
- * IDEMcpView.tsx — §5.5 #17-31: 이 프로젝트에서 쓸 수 있는 MCP 를 보고, 그 자리에서 켠다.
- *
- * 활동바 첫 항목(종전 `터미널` = 세션 목록)의 자리다. 세션 목록은 탭 바(#17-5)와 세션 요약
- * (#17-8)이 이미 두 벌로 보여 주고 있었고, 앱 안에서 확인할 길이 전혀 없던 것은 "이 프로젝트에
- * MCP 가 무엇이 붙어 있고 무엇이 켜져 있는가" 였다.
- *
- * 화면이 지키는 것 셋:
- *   ① **어디서 왔는지 말한다** — 글로벌 / 로컬 / 프로젝트(`.mcp.json`) / 프리셋을 묶어 세운다.
- *   ② **꺼짐과 승인 대기를 구분한다** — 사용자가 할 일이 다르다.
- *   ③ **켜기까지 남은 일을 적는다** — 켰는데 안 되는 이유를 화면에서 읽을 수 있어야 한다.
- */
+/** IDEMcpView.tsx — §5.5 #17-31 이 프로젝트의 MCP 를 보고 켠다. ① 출처(글로벌·로컬·`.mcp.json`·프리셋) ② 꺼짐 vs 승인 대기 ③ 켜기까지 남은 일을 적는다. */
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentConfig, McpInventory, McpServerEntry, McpServerScope } from '@vibisual/shared';
@@ -84,10 +73,7 @@ export const IDEMcpView = memo(function IDEMcpView({ agentId }: { agentId: strin
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  /**
-   * 목록 조회 — 서버가 매번 디스크를 다시 읽으므로 이 호출 하나가 곧 새로고침이다.
-   * 프리셋 줄의 켜짐은 파일이 아니라 이 에이전트의 설정이 진실이라 `agentId` 를 함께 보낸다.
-   */
+  /** 목록 조회 = 새로고침(서버가 매번 디스크를 읽는다). 프리셋 켜짐은 에이전트 설정이 진실이라 `agentId` 도 보낸다. */
   const load = useCallback(() => {
     if (!rootPath) {
       setInventory(null);
@@ -109,10 +95,8 @@ export const IDEMcpView = memo(function IDEMcpView({ agentId }: { agentId: strin
   useEffect(() => { load(); }, [load, projectId]);
 
   /**
-   * 토글. 범위마다 진실이 사는 곳이 달라 통로도 갈린다 —
-   *   글로벌·로컬·프로젝트 → `~/.claude.json` 의 그 프로젝트 엔트리(서버가 쓴다)
-   *   프리셋              → `AgentConfig.mcpServers`(#17-20 ⑥ 이 이미 쓰는 그 통로)
-   * ⚠ agent-config PUT 은 body 로 config 를 전량 재구축하므로 **항상 전체를 보낸다**.
+   * 토글 통로 — 글로벌·로컬·프로젝트는 `~/.claude.json` 의 그 프로젝트 엔트리(서버가 쓴다), 프리셋은 `AgentConfig.mcpServers`(#17-20 ⑥).
+   * agent-config PUT 은 config 를 전량 재구축하므로 항상 전체를 보낸다.
    */
   const handleToggle = useCallback(
     (entry: McpServerEntry) => {
@@ -233,8 +217,7 @@ export const IDEMcpView = memo(function IDEMcpView({ agentId }: { agentId: strin
                   //   나머지 범위의 이름은 사용자가 직접 지은 것이라 번역 대상이 아니다.
                   const preset = entry.presetId ? findMcpPreset(entry.presetId) : undefined;
                   const label = preset ? t(preset.labelKey) : entry.name;
-                  // 켜면 **이 명령이 뜬다** — 프리셋도 예외가 아니다. 종전에는 프리셋만 다정한 이름
-                  //   (`preset.name`)을 보여 줘, 무엇이 실행되는지 모르는 채로 켤 수 있었다.
+                  // 켜면 뜨는 명령을 보인다 — 프리셋도 이름(`preset.name`)보다 명령이 먼저다(무엇이 실행되는지 모른 채 켜지 않게).
                   const commandLine = entry.url ?? [entry.command, ...(entry.args ?? [])].filter(Boolean).join(' ');
                   const subtitle = commandLine || (preset ? preset.name : '');
                   return (

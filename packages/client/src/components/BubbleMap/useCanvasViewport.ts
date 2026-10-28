@@ -64,9 +64,7 @@ export function useCanvasViewport({ viewKey, ready, mobileZoom, flow, nodes, con
       const instance = flow.current;
       const element = container.current;
       const committed = instance?.getNodes() ?? [];
-      // §5.4 #14-5 (B) · §5.1 #2-1 (B) — 숨긴 노드(숨기기·앱 작업 보기 접기의 `hidden`)도 이미 선 것이다. 그려지지 않을 뿐이라,
-      //   그것이 그려지기를 기다리면 복원이 영영 오지 않는다(2026-10-21 사용자 지시 "묶음 버블은 안으로 들어갔다가 나오면 처음
-      //   들어간 위치에서 나와야해" — 숨긴 버블이 있는 화면은 나와도 카메라가 안의 자리에 남았다). 재고 맞추는 것은 보이는 노드만.
+      // §5.4 #14-5 (B) · §5.1 #2-1 (B) — 숨긴 노드(`hidden`)도 이미 선 것이다. 그려지기를 기다리면 복원이 영영 오지 않는다. 재고 맞추는 것은 보이는 노드만.
       const committedIds = new Set(committed.map((node) => node.id));
       const rendered = committed.filter((node) => !node.hidden);
       // Wait for actual commit/measurement, not a timer guessing when remote data will arrive.

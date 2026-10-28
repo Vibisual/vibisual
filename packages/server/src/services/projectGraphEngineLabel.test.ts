@@ -7,17 +7,7 @@ vi.mock('./userDefaultsService.js', () => ({
   userDefaultsService: { get: () => ({ updatedAt: 1 }), subscribe: () => () => {} },
 }));
 
-/**
- * §5.25 (B) — **엔진마다 자기 이름으로 태어난다.**
- *
- * 종전 `createCustomAgent` 는 `options.provider` 가 **있기만 하면** 로컬로 봤다. 코덱스가
- * 같은 축(`AgentConfig.provider`)에 두 번째 값으로 실려 들어오면서, 모델을 아직 안 문 코덱스
- * 버블이 `All Model N` 이라는 **남의 엔진 이름**을 달고 태어났다 — 캔버스가 정체를 거짓으로
- * 말하는 자리다(§5.19 (G) 가 All Model 배지에 대해 세운 것과 같은 규율).
- *
- * 그리고 엔진 축이 없는 에이전트는 실제로 클로드가 도는 것이므로 이름도 `Claude Agent N` 이다.
- * "Custom" 은 엔진이 하나뿐이던 시절의 이름이라 무엇으로 도는지를 말해 주지 않는다.
- */
+/** §5.25 (B) — 엔진마다 자기 이름: provider 가 있다고 로컬로 보면 코덱스 버블이 `All Model N` 을 단다(§5.19 (G)). 엔진 축이 없으면 `Claude Agent N`. */
 
 const PROJECT_CWD = '/tmp/example-engine-label';
 

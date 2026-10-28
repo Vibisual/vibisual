@@ -1,20 +1,6 @@
 /**
- * 선언 해시 (SCENARIO.md §5.13 (E) 부분 렌더).
- *
- * 아이템 하나가 "무엇을 그리는지"를 문자열 하나로 요약한다. 이 값이 그대로면 지난번
- * 렌더 결과를 다시 쓸 수 있고, 바뀌면 그 구간만 다시 그린다. 4분짜리 영상에서 자막
- * 한 줄을 고쳤는데 4분을 다시 기다리는 일을 없애는 장치다.
- *
- * 만족해야 하는 성질:
- *
- * - **결정적** — 같은 입력이면 언제 어느 기기에서 돌려도 같은 값. 그래서 키 순서에
- *   의존하지 않도록 직렬화 단계에서 정렬한다(`JSON.stringify` 는 삽입 순서를 따르므로
- *   그대로 쓰면 의미가 같은 두 객체가 다른 해시를 낸다).
- * - **소재 내용까지 반영** — 파일 경로만 같고 내용이 바뀐 경우에도 무효가 되어야 한다.
- *   그래서 참조하는 소재의 `contentHash` 를 함께 접는다.
- * - **충돌이 실질적으로 없어야** — 캐시 충돌은 "엉뚱한 프레임이 조용히 나오는" 형태로
- *   드러나서 가장 찾기 어렵다. 32비트는 아이템이 수천 개일 때 무시할 수 없는 확률이라
- *   서로 다른 두 해시를 이어 붙여 64비트로 쓴다.
+ * §5.13 (E) 부분 렌더의 선언 해시 — 그대로면 지난 렌더를 다시 쓴다. 결정적이어야 한다: 키를 정렬해 직렬화한다(`JSON.stringify` 는 삽입 순서).
+ * 참조 소재의 `contentHash` 를 접는다(경로가 같아도 내용이 바뀌면 무효). 32비트는 수천 아이템에서 충돌을 무시 못 해 두 해시를 이어 64비트(충돌 = 엉뚱한 프레임이 조용히).
  */
 
 import type { VideoAsset, VideoItem } from './types.js';
@@ -63,14 +49,7 @@ export function stableHash(input: string): string {
   return a.toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0');
 }
 
-/**
- * 아이템의 렌더 캐시 키.
- *
- * `resolvedDuration` 을 함께 받는 이유는 애니메이션이 길이에 정규화되는 경우
- * (0%~100% 진행) 길이가 바뀌면 같은 지역 시각의 그림도 달라지기 때문이다.
- * 반면 **시작 시각은 넣지 않는다** — 아이템을 통째로 뒤로 미뤄도 그려지는 그림
- * 자체는 같으므로, 넣으면 재사용할 수 있는 캐시를 버리게 된다.
- */
+/** `resolvedDuration` 을 넣는다(길이에 정규화된 애니메이션은 길이가 바뀌면 그림도 바뀐다). 시작 시각은 넣지 않는다 — 통째로 미뤄도 그림은 같다. */
 export function hashItem(
   item: VideoItem,
   assets: Readonly<Record<string, VideoAsset>>,
@@ -104,12 +83,7 @@ export function hashItem(
   return stableHash(stableStringify(shape));
 }
 
-/**
- * 문서 전체의 그림 해시.
- *
- * 아이템 해시를 모아 접되 **크기와 fps 도 포함**한다 — 해상도나 프레임률이 바뀌면
- * 모든 프레임이 달라지므로 캐시를 통째로 버려야 한다.
- */
+/** 크기와 fps 도 넣는다(바뀌면 캐시를 통째로 버려야 한다). */
 export function hashDocShape(
   size: { readonly width: number; readonly height: number },
   fps: number,

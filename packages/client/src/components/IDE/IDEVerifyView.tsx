@@ -13,19 +13,8 @@ import { VerifyTargetConnection } from './VerifyTargetConnection.js';
 import { VerifyRunEvidence } from './VerifyRunEvidence.js';
 import { canRecordVerificationRun, validVerificationTarget, verificationOperationKey } from './verificationConnection.js';
 
-// §5.5 #17-35 ⑦⑨-5 — 검증(Verify) 사이드바 뷰.
-//
-// 스킬(#17-4)·목표(#17-17 ④)·루프(#17-11 ⑨)와 **같은 자리**(`w-52`)에 뜬다 — 검증은 화면을
-// 가로채는 것이 아니라 세션이 지금 무엇을 하는지 보면서 곁눈으로 돌리는 것이기 때문이다.
-//
-// 단위는 **지금 열려 있는 IDE 세션 탭 하나**다. 탭을 바꾸면 그 탭의 검증 이력이 보인다.
-//
-// 실행·판정·정리는 전부 서버(SSOT)가 한다. 이 컴포넌트는 시작 요청을 보내고, 되돌아오는
-// `graph_snapshot` 의 `verificationRuns`·`verificationDemos` 를 **그대로** 그린다(낙관적 판정 표시 ❌ —
-// 통과했다고 먼저 칠해 놓고 뒤집히면 그 화면은 거짓말을 한 것이 된다).
-//
-// ⑨ 시연은 **여기서 시작하고 여기서 고른다.** 다만 실제 스트림·녹화기는 `VerifyRecorderHost` 가
-// 쥔다 — 이 뷰가 접혀도 녹화가 끊기지 않아야 하기 때문이다(⑩ 은 몇 분씩 돈다).
+// §5.5 #17-35 ⑦⑨-5 — 검증 사이드바 뷰(단위는 지금 세션 탭). 실행·판정은 서버, 여기는 `verificationRuns`·`verificationDemos` 를 그대로 그린다(낙관 판정 ❌).
+// ⑨ 녹화기는 `VerifyRecorderHost` 가 쥔다 — 뷰가 접혀도 녹화가 이어져야 한다.
 
 /** 통합 앱은 같은 오리진에서 서빙된다 — 형제 IDE 컴포넌트와 같은 규약. */
 const API_BASE = '';
@@ -415,11 +404,7 @@ const IDEVerifyExecution = memo(function IDEVerifyExecution({ agentId }: Props):
               {recipe.label && (
                 <p className="mt-0.5 break-all text-[12px] leading-relaxed text-gray-500">{recipe.label}</p>
               )}
-              {/*
-                고른 시연에 실을 내용이 하나도 없으면 그렇다고 말한다 — 서버 `buildVerifyPrompt` 도
-                같은 판정으로 그 블록을 통째로 빼므로, 여기서 "함께 보냅니다" 라고만 하면 화면이
-                없는 것을 있다고 말하는 셈이 된다(⑨ `demoHasContent` 가 있던 이유).
-              */}
+              {/* 시연에 실을 내용이 없으면 그렇다고 말한다 — 서버 `buildVerifyPrompt` 도 같은 판정(`demoHasContent`)으로 그 블록을 뺀다. */}
               <p className={`mt-0.5 text-[12px] leading-relaxed ${pickedEmptyDemo ? 'text-amber-400' : 'text-gray-500'}`}>
                 {!pickedDemoId
                   ? t('ide.verify.demo.willNotSend')

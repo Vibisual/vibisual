@@ -1,13 +1,4 @@
-/**
- * §4 (스트림 3종 ①) — **중첩 서브에이전트가 한 말이 부모 말과 섞이지 않는가.**
- *
- * 전달을 켜는 순간 자식의 말이 부모 스트림에 그대로 흘러든다. 우리 말풍선은 연속된 text 를 하나로
- * 합치므로, 주인을 따지지 않으면 자식이 한 말과 부모가 한 말이 **한 덩어리**가 되어 "누가 한 말인지"가
- * 사라진다 — 화면상 아무 오류도 안 나면서 대화록만 조용히 뒤섞이는 종류의 사고다.
- *
- * 전량 빌더(`buildBaseItems`)와 증분 빌더(`IncrementalStreamParser`)가 **같은 결과**를 내야 하므로
- * 두 경로를 나란히 검사한다 — 한쪽만 고치면 여기서 걸린다.
- */
+/** §4 (스트림 3종 ①) — 중첩 서브에이전트 말이 부모 말과 합쳐지지 않는가(주인을 안 보면 연속 text 가 조용히 섞인다). 전량(`buildBaseItems`)·증분(`IncrementalStreamParser`) 빌더를 나란히 본다. */
 import { describe, it, expect } from 'vitest';
 import type { SubAgentStreamEvent } from '@vibisual/shared';
 import { buildBaseItems, IncrementalStreamParser } from './streamItems';

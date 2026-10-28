@@ -1,16 +1,6 @@
 /**
- * offscreen-capture 백엔드 (SCENARIO.md §5.13 (F) 확실한 폴백).
- *
- * 오프스크린 창을 띄워 화면을 찍는다. 느리지만 **CSS 가 온전하고 실험 API 에 기대지
- * 않는다.** html-in-canvas 가 막히는 날 영상이 계속 나오게 하는 자리다.
- *
- * 실제 창은 Electron main 이 들고 있으므로 여기서는 다리(bridge)만 부른다. 이 층을
- * 인터페이스로 끊어 두면 렌더러 코드가 Electron 을 직접 알지 않아도 되고, 테스트에서
- * 가짜 다리를 끼울 수 있다.
- *
- * §5.13 (W) 38-1 — 다리는 이제 **날 비트맵**(`RawFrame`)을 돌려준다(main 의 PNG 굽기 332ms → 수 ms). PNG(`ArrayBuffer`)를
- * 돌려주는 옛 다리도 그대로 받는다. 찍힌 픽셀이 문서보다 적으면(창을 문서 크기로 못 키운 기기) 그 비율을 기억해 렌더가
- * "해상도를 낮췄다"고 알린다 — 조용히 흐려지지 않게.
+ * §5.13 (F) offscreen-capture(확실한 폴백) — 느리지만 CSS 가 온전하고 실험 API 에 기대지 않는다. 창은 main 이 들고 여기선 다리만 부른다(시험은 가짜 다리).
+ * (W) 38-1 — 다리는 `RawFrame` 도 PNG 도 받는다. 찍힌 픽셀이 문서보다 적으면 그 비율을 기억해 "해상도를 낮췄다"고 알린다(조용히 흐려지지 않게).
  */
 
 import type { BackendProbe, RenderBackend, RenderBackendCapabilities, RenderSurface } from './backend.js';

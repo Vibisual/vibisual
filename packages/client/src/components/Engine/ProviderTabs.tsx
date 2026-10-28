@@ -5,11 +5,8 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { EngineIcon } from './engineIcons.js';
 export const ENGINES: AgentEngineKind[] = ['claude', 'codex', 'local'];
 /**
- * 제공자 탭 줄. 탭은 **보기만 바꾼다**(§5.25 (C)) — 메인 제공자를 바꾸는 것은 `showSetMain` 을 켠 자리의
- * [기본으로 설정] 하나다. tablist 안에는 tab 만 두므로 그 버튼은 바깥, 같은 줄 오른쪽 끝에 선다.
- *
- * `engines` — 보일 탭(기본 세 엔진 전부). 옵션창 버전 칸처럼 일부만 뜻이 있는 자리는 그 몇만 넘긴다.
- * `labelOf` — 탭 이름(기본 제공자 이름 `providers.*`). 실행본 버전을 말하는 버전 칸은 제품 이름으로 부른다.
+ * 탭은 **보기만 바꾼다**(§5.25 (C)) — 메인 제공자는 `showSetMain` 의 [기본으로 설정]으로만 바꾼다(tablist 안엔 tab 만이라 버튼은 바깥).
+ * `engines` — 보일 탭(기본 세 엔진), `labelOf` — 탭 이름(기본 `providers.*`).
  */
 export function ProviderTabs({ value, onChange, disabled = false, showSetMain = false, engines = ENGINES, labelOf }: { value: AgentEngineKind; onChange: (engine: AgentEngineKind) => void; disabled?: boolean; showSetMain?: boolean; engines?: readonly AgentEngineKind[]; labelOf?: (engine: AgentEngineKind) => string }): React.JSX.Element {
   const { t } = useTranslation();
@@ -19,10 +16,7 @@ export function ProviderTabs({ value, onChange, disabled = false, showSetMain = 
   </div>;
 }
 
-/**
- * §5.25 (C) — 보고 있는 제공자를 메인 제공자로 남긴다. 저장은 옵션창 [적용]·첫 실행 관문과 같은
- * `chooseEngine` 한 벌이다(새 저장 길 ❌). 이미 메인이면 누를 것이 없으니 버튼 대신 "기본" 표시만 둔다.
- */
+/** §5.25 (C) — 저장은 옵션창 [적용]·첫 실행 관문과 같은 `chooseEngine` 한 벌(새 저장 길 ❌). 이미 메인이면 "기본" 표시만. */
 function SetMainProvider({ engine }: { engine: AgentEngineKind }): React.JSX.Element {
   const { t } = useTranslation();
   const main = useGraphStore(s => s.userDefaults?.engineChoice?.kind ?? 'claude');

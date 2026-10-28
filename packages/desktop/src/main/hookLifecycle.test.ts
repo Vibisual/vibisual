@@ -1,13 +1,8 @@
 /**
- * SCENARIO §3.6 「수명」 · §5.7 #24-3 — 끌 때 언제·몇 번 걷나(데스크톱 쪽 판정).
- *
- * 못 박는 것:
- *  1) OS 종료·로그오프 신호 — Windows 는 창의 `session-end`(그때 before-quit 가 오지 않는다), mac·linux 는
- *     `powerMonitor` `shutdown`. 개발기 한 대에서 세 OS 판정을 다 돈다.
- *  2) 이 프로세스가 깔았을 때만 · 한 번만 걷는다 — 잠금을 못 잡고 끝나는 두 번째 실행이 떠 있는 앱의 훅을
- *     걷지 않게, 정상 종료와 OS 종료가 겹쳐도 두 번 돌지 않게. 실패는 종료를 막지 않는다.
- *  3) 제거기 인자 — `installer.nsh` 가 부르는 글자와 같다.
- *  4) 코덱스 전역 훅 — 끌 때 이 앱의 핸들러 경로로 걷고, 켤 때 켬 값대로 다시 깐다(사용자 지시 2026-10-22).
+ * SCENARIO §3.6 「수명」 · §5.7 #24-3 — 끌 때 언제·몇 번 걷나(데스크톱 쪽 판정)를 고정한다:
+ * ① OS 종료 신호(Windows 창 `session-end` — before-quit 가 안 온다 · mac·linux `powerMonitor` `shutdown`)
+ * ② 이 프로세스가 깔았을 때만·한 번만, 실패는 종료를 막지 않음 ③ 제거기 인자가 `installer.nsh` 와 같은 글자
+ * ④ 코덱스 전역 훅은 끌 때 이 앱 핸들러 경로로 걷고 켤 때 켬 값대로 다시 깐다.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

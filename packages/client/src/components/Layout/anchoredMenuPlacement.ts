@@ -7,17 +7,8 @@ import {
 } from '../BubbleMap/canvasMenuPlacement.js';
 
 /**
- * 트리거에 매달려 펼쳐지는 상자(드롭다운·더보기 메뉴·바꾸기 상자)를 화면 안에 넣는 순수 계산.
- *
- * 종전에는 이런 상자들이 트리거 기준 `absolute right-0`/`left-0` 이라 **트리거가 화면 어디에 있든 같은
- * 쪽으로** 펼쳐졌다. 폰(360px)에서는 288px 목록이 화면 왼쪽 밖으로 밀렸고, 지휘통제실 카드 안 메뉴는
- * 카드의 `overflow-hidden` 에 잘려 아래 항목을 누를 수 없었다(데스크톱에서도). 그래서 상자는
- * `position: fixed` 로 띄우고 **실제로 잰 크기**로 자리를 정한다(`useAnchoredMenuPlacement`).
- *
- * 자리가 넉넉하면 결과는 종전과 같다 — 트리거 아래 `gap` 만큼 띄우고 `end` 는 오른쪽 변을, `start` 는
- * 왼쪽 변을, `center` 는 가운데를 트리거에 맞춘다. 아래가 모자라면 위로 뒤집고, 둘 다 모자라면 넓은 쪽을
- * 쓴 뒤 화면 안으로 당긴다. 가장자리 여백은 캔버스 메뉴와 같은 `MENU_VIEWPORT_MARGIN` 이다
- * (두 벌이면 메뉴마다 화면 끝에 붙는 자리가 갈린다). 렌더 없이 시험할 수 있게 기하만 여기 둔다.
+ * 트리거에 매달린 상자를 화면 안에 넣는 순수 계산(렌더 없이 시험). 상자는 `position: fixed` + 잰 크기 — `absolute` 면 폰에서 밀리고 `overflow-hidden` 에 잘린다.
+ * 트리거 아래 `gap`, `end`/`start`/`center` 로 변 맞춤. 아래가 모자라면 위로, 둘 다면 넓은 쪽 뒤 당긴다. 여백은 캔버스 메뉴와 같은 `MENU_VIEWPORT_MARGIN`.
  */
 
 export type AnchoredMenuAlign = 'start' | 'end' | 'center';

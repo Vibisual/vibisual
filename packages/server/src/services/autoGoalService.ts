@@ -1,23 +1,7 @@
 /**
- * §5.10 — **자동 목표.** 되풀이한 일을 스킬로 굳혀 둔다.
- *
- * 사용자 지시(전면 개편): "기억·메모리·브레인 이런 거 다 버리고 자동 목표라는 이름으로 —
- * 사용자의 행동이나 에이전트의 행동 중 자동으로 분석을 통해서 스킬을 만들어 주는 것. 기본 off."
- *
- * **무엇이 달라졌나** — §5.10 의 기억 카드는 *누가 읽어 주기를 기다리는 자산*이었고, 실측에서
- * 327장 중 263장(80%)이 한 번도 안 읽혔다. 스킬은 그 반대다: 그 작업을 시작할 때 **저절로 걸린다.**
- * 그래서 이 기능은 "무엇을 기억할까"를 묻지 않고 **"무엇을 되풀이하는가"** 만 본다.
- *
- * **모델을 부르지 않는다.** 되풀이를 알아보는 데 추론이 필요 없고, 이 기능은 켜 두고 잊는 물건이라
- * 켜 둔 동안 토큰이 들면 안 된다(리플렉션이 매 턴 자식을 띄워 아무도 켠 적 없는 기능이 토큰을
- * 태우던 그 실패를 되밟지 않는다). 분석은 전부 shared 순수 함수(`mineAutoGoalCandidates`)다.
- *
- * **꺼져 있으면 아무것도 하지 않는다.** 3층(프로젝트·에이전트·세션) 어디에도 켬이 없으면 훑지도,
- * 짓지도, 프롬프트에 싣지도 않는다 — 이 기능이 없던 때와 완전히 같아야 한다.
- *
- * **저장하는 것과 안 하는 것** — 설정(3층 켬/끔 + 물린 후보)은 `ProjectCheckpoint.autoGoalSettings`
- * 한 칸(§3.2 단일 창구). 후보는 이력에서 매번 다시 세는 파생이라 저장하지 않고, 스킬은 디스크의
- * `SKILL.md` 가 원본이다.
+ * §5.10 — 자동 목표: 되풀이한 일을 스킬로 굳힌다(기본 꺼짐). 스킬은 그 작업을 시작할 때 저절로 걸린다.
+ * 모델을 부르지 않는다 — 켜 두고 잊는 기능이라 토큰이 들면 안 된다(분석은 shared 순수 함수 `mineAutoGoalCandidates`). 3층 어디에도 켬이 없으면 아무것도 하지 않는다.
+ * 설정은 `ProjectCheckpoint.autoGoalSettings` 한 칸(§3.2), 후보는 이력에서 매번 다시 세는 파생(저장 ❌), 스킬 원본은 디스크 `SKILL.md`.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -54,12 +38,7 @@ import {
 /** Authorship is provenance, never permission to overwrite edited instructions. */
 const AUTO_SOURCE = 'auto-goal';
 
-/**
- * 다시 훑기까지의 최소 간격.
- *
- * 뷰를 열 때마다 이력 전량을 다시 세면 창을 껐다 켜는 것만으로 디스크·CPU 가 돈다. 되풀이는
- * 분 단위로 바뀌는 것이 아니라 이 정도면 화면이 늘 최신이면서 비용이 없다.
- */
+/** 다시 훑기 최소 간격(ms) — 뷰를 열 때마다 이력 전량을 세면 창을 껐다 켜는 것만으로 디스크·CPU 가 돈다. */
 const ANALYZE_COOLDOWN_MS = 30_000;
 
 /** 이 프로젝트의 마지막 분석 결과 — 쿨다운 안에서는 이것을 그대로 돌려준다. */
@@ -111,11 +90,7 @@ export function serializeAutoGoalSkill(skill: AutoGoalSkillSummary, body: string
   lines.push('status: candidate');
   if (skill.candidateId) lines.push(`candidateId: ${skill.candidateId}`);
   if (skill.origin) lines.push(`origin: ${skill.origin}`);
-  /*
-   * 파일 앵커 — 본문에도 같은 목록이 적히지만 본문은 사람이 고치는 자리다. 세는 근거는 여기여야
-   * "이 절차를 원본으로 되짚을 수 있나"가 사람의 편집에 흔들리지 않는다. 쉼표로 이어 한 줄에 두는
-   * 것은 frontmatter 파서를 `key: value` 한 줄짜리로 유지하기 위해서다(남의 도구도 그대로 읽는다).
-   */
+  /* 파일 앵커는 frontmatter 에 둔다 — 본문 목록은 사람이 고쳐 흔들린다. 쉼표로 한 줄에 — 파서를 `key: value` 한 줄짜리로 유지한다(남의 도구도 읽는다). */
   if (skill.files && skill.files.length > 0) lines.push(`files: ${escapeScalar(skill.files.join(', '))}`);
   lines.push(`runs: ${skill.runs}`);
   lines.push(`steps: ${skill.steps}`);
@@ -133,12 +108,7 @@ export function parseAutoGoalSkill(text: string, fallbackId: string): AutoGoalSk
   return doc ? summarizeAutoGoalDocument(null, doc) : null;
 }
 
-/**
- * 디스크의 스킬 전부 — 새 자리와 옛 브레인 자리를 **함께** 읽는다(통폐합).
- *
- * 같은 id 가 양쪽에 있으면 새 자리가 이긴다. 검토·상태·근거는 실제 원본 위치에 기록한다.
- * 각 파일의 현재 근거를 확인하므로 옛 verified 표식은 활성 판정을 대신하지 않는다.
- */
+/** 새 자리와 옛 브레인 자리를 함께 읽는다(같은 id 면 새 자리). 기록은 실제 원본 위치에. 옛 verified 표식은 활성 판정을 대신하지 않는다(파일마다 현재 근거를 확인). */
 export function listAutoGoalSkills(root: string): AutoGoalSkillSummary[] {
   const byId = new Map<string, AutoGoalSkillSummary>();
   // 옛 자리를 먼저 읽고 새 자리로 덮는다 — 뒤에 읽은 쪽이 이긴다.
@@ -168,12 +138,7 @@ function skillForCandidate(skills: readonly AutoGoalSkillSummary[], candidateId:
   return skills.find((s) => s.candidateId === candidateId);
 }
 
-/**
- * 후보 하나를 **스킬로 굳힌다.**
- *
- * 이미 있으면 관찰 횟수만 올린다 — 본문과 검토 상태는 자동으로 개정하지 않는다.
- * 쓰기는 전부 `atomicWriteFileSync`(§3.2.1 ①)를 지난다.
- */
+/** 이미 있으면 관찰 횟수만 올린다 — 본문·검토 상태는 자동 개정하지 않는다. 쓰기는 `atomicWriteFileSync`(§3.2.1 ①). */
 export function writeAutoGoalSkill(
   root: string,
   candidate: AutoGoalCandidate,
@@ -246,13 +211,7 @@ export function autoGoalMetrics(skills: readonly AutoGoalSkillSummary[]): AutoGo
   };
 }
 
-/**
- * **이 프로젝트의 자동 목표 현황** — 뷰가 읽는 전부이고, 스킬을 굳히는 것도 여기서 한다.
- *
- * 꺼져 있으면 **훑지 않는다**: 후보는 빈 목록이고 `observed` 는 0 이다. 이미 지어진 스킬 목록만
- * 돌려주는데, 그것은 디스크를 읽는 일이라 토큰이 0 이고 "껐더니 그동안 만든 것까지 사라졌다"를
- * 막는다(§5.10 "끄기는 동작 정지이지 삭제가 아니다" 승계).
- */
+/** 뷰가 읽는 현황 전부(스킬 굳히기도 여기서). 꺼지면 훑지 않고 지은 스킬 목록만 준다 — 디스크 읽기라 토큰 0, 끄기는 정지이지 삭제가 아니다(§5.10). */
 export function getAutoGoalState(
   root: string,
   settings: AutoGoalSettings | undefined,
@@ -290,12 +249,7 @@ export function getAutoGoalState(
     caches.set(root, { at: now, candidates, observed, fingerprint });
   }
 
-  /*
-   * 문턱을 넘은 관찰은 검토할 후보 파일이 된다. 활성화는 근거를 갖춘 검토 API만 한다.
-   *
-   * 총량에 상한을 걸어(`AUTO_GOAL_SKILL_BUDGET`) 디스크와 주입 양쪽이 무한히 늘지 않게 한다 — 넘으면 더 짓지
-   * 않을 뿐 이미 있는 것을 지우지는 않는다(자동 삭제 ❌).
-   */
+  /* 문턱을 넘은 관찰은 검토 후보 파일이 된다(활성화는 근거를 갖춘 검토 API만). 총량 상한(`AUTO_GOAL_SKILL_BUDGET`)을 넘으면 더 짓지 않을 뿐 지우지 않는다. */
   const known = [...skills];
   const linked: AutoGoalCandidate[] = [];
   for (const c of candidates) {
@@ -327,15 +281,7 @@ export function getAutoGoalState(
   };
 }
 
-/**
- * 이 세션의 프롬프트에 실을 **스킬 목록 한 조각**.
- *
- * 카드를 밀어넣던 §5.10 의 브리핑과 다르다 — 본문을 싣지 않고 **이름과 한 줄 설명만** 싣는다.
- * 그래야 스무 장이 있어도 프롬프트가 얇고, 에이전트는 필요할 때 그 파일을 열어 읽는다
- * (§5.10 v3.74 가 "밀어넣기 ❌ 색인 ⭕"로 옮겨간 그 결론을 스킬에 그대로 적용한 것).
- *
- * 꺼져 있으면 `undefined` 를 돌려 **한 글자도 싣지 않는다.**
- */
+/** 프롬프트엔 스킬 이름과 한 줄 설명만 싣는다(§5.10 밀어넣기 ❌ 색인 ⭕) — 에이전트가 필요할 때 파일을 연다. 꺼지면 `undefined`. */
 export function buildAutoGoalPromptBlock(
   root: string,
   settings: AutoGoalSettings | undefined,
@@ -347,14 +293,7 @@ export function buildAutoGoalPromptBlock(
   const scored = listAutoGoalSkills(root)
     .map((skill) => ({ skill, score: task === undefined ? 1 : autoGoalRelevanceScore(skill, task) }))
     .filter((entry) => entry.score > 0);
-  /*
-   * §5.10 (R)ⓑ — **관련도 순위**로 고른다.
-   *
-   * 앞에서 세 개를 자르던 때는 지금 만지는 파일의 절차가 실리지 않는 턴이 대부분이었고,
-   * 그래서 규약이 검토를 지시해도 실릴 자리가 없어 아무 일도 일어나지 않았다. 폭을 넓히는 대신
-   * 순위를 매기므로 무관한 절차가 더 실리지는 않는다 — 점수 0 은 위에서 이미 걸러졌다.
-   * 동점이면 `listAutoGoalSkills` 의 순서(최근 수정 순)가 그대로 남는다(정렬이 안정적이다).
-   */
+  /* §5.10 (R)ⓑ — 앞에서 자르지 않고 관련도 순위로 고른다(앞에서 자르면 지금 만지는 파일의 절차가 빠진다). 점수 0 은 이미 걸렀고, 동점은 `listAutoGoalSkills` 순서(안정 정렬). */
   const rank = (a: { score: number }, b: { score: number }): number => b.score - a.score;
   const pick = (want: (s: AutoGoalSkillSummary) => boolean, max: number): AutoGoalSkillSummary[] =>
     scored.filter((e) => want(e.skill)).sort(rank).slice(0, max).map((e) => e.skill);
@@ -365,7 +304,7 @@ export function buildAutoGoalPromptBlock(
   lines.push('# 이 프로젝트에서 되풀이해 온 절차 (절차 감지)');
   lines.push('');
   lines.push('현재 사용자 지시가 우선이다. 관련 절차만 읽고 적용 조건을 확인하라. 반복 관찰은 검토 통과나 완료 증거가 아니다.');
-  // §5.3 #12-4 — 절차 속 검증 단계도 현재 검증 정책의 켬/끔과 사용자 지시를 따른다.
+  // §5.3 #12-4 — 절차 속 검증 단계도 검증 정책의 켬/끔과 사용자의 직접 지시를 따른다.
   lines.push('Vibisual 검증 정책이 켜져 있으면 절차 속 검증 단계(테스트·빌드·린트·브라우저 확인)는 최신 [검증 권한] 범위 안에서만 실행한다. 최신 [검증 정책]이 꺼짐이면 이 절차 규약은 별도의 검증 요청 요건을 추가하지 않는다. 사용자 직접 지시의 검증 요청·금지·작업 범위는 항상 따른다.');
   lines.push('실행 전 사전 판정을 받고, 서버가 같은 작업·판본·입력과 완료 출력을 확인해 skip을 반환한 경우에만 완료 결과를 재사용할 수 있다.');
   lines.push('이 턴에 이미 읽은 근거로 판정할 수 있는 절차가 있으면 판정 1건을 남긴다 — 사용자 요청을 기다리지 않는다.');
@@ -385,12 +324,7 @@ export function buildAutoGoalPromptBlock(
   return lines.join('\n');
 }
 
-/**
- * §5.10 (R)ⓒ — 이 절차를 지금 걷어야 하는지에 대한 **한 줄 사유**. 없으면 `undefined`.
- *
- * 서버가 걷지 않는다 — 판단은 근거를 쥔 에이전트가 하고, 여기서는 그 자리에 표시만 한다.
- * 상태를 바꾸는 것은 언제나 `/api/auto-goal/review` 한 창구다(§5.10 (Q)).
- */
+/** §5.10 (R)ⓒ — 걷어야 할 한 줄 사유(없으면 `undefined`). 서버는 걷지 않는다 — 판단은 에이전트, 상태 변경은 `/api/auto-goal/review` 한 창구(§5.10 (Q)). */
 function autoGoalRetireHint(
   root: string,
   skill: AutoGoalSkillSummary,
@@ -423,12 +357,8 @@ export function autoGoalSkillRelevant(skill: AutoGoalSkillSummary, task: string)
 }
 
 /**
- * 이 절차가 지금 작업과 얼마나 가까운가 — 0 이면 무관(싣지 않는다).
- *
- * `autoGoalSkillRelevant` 가 쓰던 판정을 그대로 두되 **점수**로 돌려준다. 통과/탈락만 알면
- * 주입 자리가 모자랄 때 무엇을 버릴지 고를 수 없고, 그때 버려지는 것이 하필 지금 만지는 파일의
- * 절차였다(§5.10 (R)ⓑ). 가중치는 겹친 낱말 3, 한글 두 글자 짝 1, 근거 파일 이름이 걸리면 5 —
- * 파일 이름이 문장에 나오는 것이 가장 강한 신호라서 가장 높다.
+ * 작업과의 가까움(0 = 무관, 싣지 않는다 · `autoGoalSkillRelevant` = 점수 > 0). 점수여야 자리가 모자랄 때 지금 만지는 파일의 절차를 남길 수 있다(§5.10 (R)ⓑ).
+ * 가중치: 겹친 낱말 3 · 한글 두 글자 짝 1 · 근거 파일 이름 5(가장 강한 신호).
  */
 export function autoGoalRelevanceScore(skill: AutoGoalSkillSummary, task: string): number {
   const ignored = new Set(['this', 'that', 'with', 'from', 'what', 'when', 'please', 'project', 'agent', 'procedure',
@@ -456,11 +386,7 @@ export function autoGoalRelevanceScore(skill: AutoGoalSkillSummary, task: string
   let matches = 0;
   for (const pair of koreanPairs(terms)) if (a.has(pair)) matches += 1;
   if (matches >= 2) score += matches;
-  /*
-   * 근거 파일은 **낱말로** 견준다 — 경로 문자열을 접어 비교하면 Linux 에서 `Feature-X ≠ feature-x`
-   * 를 놓친다(멀티플랫폼 ①). 확장자를 뗀 파일 이름을 위 토크나이저에 그대로 태우면 경로 동일성
-   * 판정이 아니라 자연어 낱말 비교가 되어 세 운영체제에서 같은 답이 나온다.
-   */
+  /* 근거 파일은 확장자를 뗀 이름을 낱말로 견준다 — 경로 문자열을 접어 비교하면 Linux 의 `Feature-X ≠ feature-x` 를 놓친다(멀티플랫폼 ①). */
   for (const file of skill.files ?? []) {
     const base = (file.replace(/\\/g, '/').split('/').pop() ?? '').replace(/\.[^.]+$/, '');
     if (words(base).some((token) => taskWords.has(token))) score += 5;
@@ -475,17 +401,8 @@ export function dropAutoGoalCache(root: string): void {
 }
 
 /**
- * §5.10 — 스냅샷에 싣는 **경량 요약**. 폐기된 브레인 요약이 앉아 있던 자리를 잇는다.
- *
- * 전문(`getAutoGoalState`)과 갈라 둔 이유는 하나다 — 전문은 후보·스킬 **목록**을 들고 있어
- * 매 브로드캐스트에 태우면 전선이 목록 길이만큼 무거워진다. 여기서는 숫자 몇 개만 센다.
- *
- * **어느 층도 켜지 않은 프로젝트에서는 `undefined`** 다. 없음이 곧 "이 축은 이 프로젝트에 없다"이고,
- * 그래야 기본 off 가 화면·전선·프롬프트 세 군데에서 같은 뜻이 된다. 프로젝트 층만 보고 판단하지
- * 않는다 — 아래 층이 위를 덮으므로 "프로젝트 끔 + 이 에이전트만 켬"이 정상 상태이고, 그 자리를
- * 숨기면 켜 둔 에이전트가 화면에서 통째로 사라진다.
- *
- * 분석은 전문과 **같은 캐시**를 타므로(30초) 스냅샷이 자주 지어져도 채굴이 다시 돌지 않는다.
+ * §5.10 — 스냅샷용 경량 요약(숫자만 — 전문 `getAutoGoalState` 의 목록을 매 브로드캐스트에 싣지 않는다). 어느 층도 안 켰으면 `undefined` — 기본 off 를 화면·전선·프롬프트가 같게 읽는다.
+ * 프로젝트 층만 보고 판단하지 마라 — "프로젝트 끔 + 이 에이전트만 켬"이 정상이고, 숨기면 켜 둔 에이전트가 사라진다. 분석은 전문과 같은 30초 캐시.
  */
 export function getAutoGoalSummary(
   root: string,
@@ -505,14 +422,7 @@ export function getAutoGoalSummary(
   // 굳은 것은 후보 목록에도 남아 있다(진행 막대가 100% 로 서야 하므로) — 두 번 세지 않는다.
   const brewing = state.candidates.filter((c) => !c.skillId);
 
-  /*
-   * 원천·앵커는 **디스크의 스킬**에서 센다(분석 창의 후보 ❌).
-   *
-   * 후보는 30초 창 안에서 관찰된 것만 들어 있어, 잠깐 손을 멈추면 0 으로 떨어진다. 그러면 카드가
-   * "이 프로젝트는 절차가 없다"고 말하는데 저장고에는 스무 장이 있다 — 같은 화면에서 두 숫자가
-   * 어긋난다. frontmatter 에 `origin`·`files` 를 적어 둔 것이 바로 이 안정성을 위해서다.
-   * 아직 굳지 않은 후보는 그 위에 더한다(후보에도 원천·파일이 있다).
-   */
+  /* 원천·앵커는 디스크 스킬에서 센다 — 30초 창의 후보만 세면 손을 멈출 때 0 이 되어 저장고와 숫자가 어긋난다. 굳지 않은 후보는 그 위에 더한다. */
   const grown = [
     ...skills.map((s) => ({ origin: s.origin, files: s.files })),
     ...brewing.map((c) => ({ origin: c.source as AutoGoalSource | undefined, files: c.files })),

@@ -1,8 +1,4 @@
-// §5.5 #17-34 — "여기에 떨어뜨릴 수 있다"를 담당하는 손.
-//
-// 칸(과 아직 안 나뉜 창 전체)이 이 훅 하나를 쓴다. `dragover` 중에는 짐의 **값**을 읽을 수 없고
-// 종류만 보이므로, 판정은 전용 MIME 으로 하고 값은 손을 뗄 때 읽는다. 자리 계산은 전부
-// `splitDrop` 순수 함수가 하고 여기서는 이벤트만 받는다.
+// §5.5 #17-34 — 세션을 떨어뜨릴 자리의 손. `dragover` 중엔 짐의 값을 못 읽어 판정은 전용 MIME 으로, 값은 놓을 때 읽는다. 계산은 `splitDrop`.
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import { useGraphStore } from '../../stores/graphStore.js';
@@ -140,12 +136,7 @@ export function useSplitDrop(
 
   /* ─── 포인터로 끌어 온 세션 (§5.4 #14-2) ─── */
 
-  /*
-   * 세션 탭이 네이티브 DnD 를 떠났으므로(꾹 눌러 집어 들기) 그 짐이 본문 위에 왔을 때의 판정을
-   * 여기서 받는다. **판정 규칙은 위 네이티브 경로와 한 벌이다** — 같은 순서로 같은 셋을 묻는다
-   * (남의 세션인가 → 이미 그것을 보고 있나 → 들어갈 자리가 되나). 두 벌이 되면 탭에서 끈 것과
-   * 칸 머리띠에서 끈 것이 같은 자리에서 다른 답을 낸다.
-   */
+  /* 세션 탭(꾹 눌러 집기)의 짐이 본문 위에 왔을 때의 판정. **위 네이티브 경로와 한 벌이다**(남의 세션 → 이미 보고 있나 → 자리가 되나) — 두 벌이면 답이 갈린다. */
   const nodeRef = useRef<HTMLElement | null>(null);
   const [targetNode, setTargetNode] = useState<HTMLElement | null>(null);
   // 최신 판정 근거를 리스너가 늘 보게 한다(등록을 매 렌더 다시 걸지 않게).
@@ -211,13 +202,7 @@ export function previewBoxStyle(box: DropPreviewBox): CSSProperties {
   };
 }
 
-/**
- * 탭을 눌렀을 때 무엇이 일어나는가 — 분할이 없으면 종전 그대로 창의 활성 세션만 바뀐다.
- *
- * 분할 중이면 한 걸음 더 간다: 그 세션이 **이미 떠 있는 칸**이 있으면 그 칸으로 초점을 옮기고,
- * 없으면 **초점 칸의 내용**을 그 세션으로 갈아 끼운다. 이게 없으면 탭바 강조는 X 를 가리키는데
- * 화면의 칸들은 전부 다른 세션을 보여 주는 상태가 된다(같은 화면이 두 가지를 말한다).
- */
+/** 탭 누름 — 분할이 없으면 활성 세션만 바꾼다. 분할 중이면 그 세션이 떠 있는 칸으로 초점을, 없으면 초점 칸을 갈아 끼운다(탭바와 칸이 다른 세션을 말하지 않게). */
 export function useSelectSessionInSplit(slotKey: string): (sessionId: string | null) => void {
   const { setSession } = useIDEPaneActions();
   const focusCell = useGraphStore((s) => s.focusIDESplitCell);

@@ -1,13 +1,7 @@
 /**
- * 상자 폭 등급 — 앱 창·별창처럼 **뷰포트가 아니라 그 상자의 폭**으로 칸을 접어야 하는 자리의 판정.
- *
- * 왜 `@container`(CSS 컨테이너 쿼리)가 아닌가: Chromium 126(Electron 31)에서 `container-type` 을 단 상자는
- * `position: fixed` 자손을 화면이 아니라 **자기 기준**으로 세운다(2026-10-17 실측 — `fixed; left:0` 이 화면 0 이
- * 아니라 상자 왼쪽 200px 에 섰다). 앱 화면 안에서 포털 없이 fixed 로 뜨는 메뉴·팝오버가 창 위치만큼 밀린다.
- * 그래서 폭은 `ResizeObserver` 로 재고(`hooks/useBoxTier.ts`), 결과를 `data-box` 토큰으로 달아 Tailwind 변형
- * (`box-compact:` · `box-narrow:` · `box-wide:` — `index.css`)이 읽게 한다.
- *
- * 기준값은 **여기 한 곳**이다 — CSS 는 토큰 이름만 안다(숫자를 두 군데 적으면 한쪽만 고쳐져 어긋난다).
+ * 상자 폭 등급 — **뷰포트가 아니라 상자 폭**으로 칸을 접는 자리(앱 창·별창)의 판정. 기준값은 **여기 한 곳**(CSS 는 토큰 이름만 안다).
+ * `@container` 를 쓰지 않는다 — Chromium 126(Electron 31)에서 `container-type` 상자는 `position: fixed` 자손을 자기 기준으로 세워 메뉴가 밀린다(2026-10-17 실측).
+ * 폭은 `hooks/useBoxTier.ts`(ResizeObserver)가 재 `data-box` 토큰으로 달고, `box-compact:`·`box-narrow:`·`box-wide:`(`index.css`)가 읽는다.
  */
 export const BOX_TIER = {
   /** 이 폭(px) 미만이면 `narrow` — 폰 한 손 폭. 칸을 한 줄로 쌓는다. */

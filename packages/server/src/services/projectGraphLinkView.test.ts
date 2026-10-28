@@ -2,13 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { APP_BUBBLE_PAST_FILE_MAX } from '@vibisual/shared';
 
 /**
- * §5.4 #36 (H) — 연결 보기의 서버 쪽 회귀 시험.
- *
- * ① 켜고 끄기(`linksHidden` — 에이전트·앱 노드) · ② 보기 전환(`linkLens`) · ③ 지난 결과(`pastFiles`).
- * 전부 표시 형태라 새 영속 창구가 없다 — 에이전트 노드·앱 버블이 **객체째** 실리는지를 왕복으로 못 박는다
- * (§3.2 함정: 스냅샷에만 보이고 껐다 켜면 사라지는 칸).
- *
- * 에이전트를 만들면 설정 창 기본값을 읽으므로, 사용자 홈의 실제 파일에 닿지 않게 막는다.
+ * §5.4 #36 (H) — 연결 보기(`linksHidden`·`linkLens`·`pastFiles`)가 노드·앱 버블에 객체째 왕복한다(§3.2 함정).
+ * 설정 창 기본값 읽기는 사용자 홈에 닿지 않게 막는다.
  */
 vi.mock('./userDefaultsService.js', () => ({
   userDefaultsService: { get: () => ({ updatedAt: 1 }), subscribe: () => () => {} },

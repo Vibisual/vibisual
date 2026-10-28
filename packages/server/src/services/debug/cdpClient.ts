@@ -1,13 +1,6 @@
 /**
- * §5.5 #17-20 ⑩ v4.94 — Chrome DevTools Protocol 클라이언트(Node 계열 전용).
- *
- * Node 는 **런타임 자체가 인스펙터를 갖고 있다**(`--inspect-brk`). 그래서 이 백엔드만은
- * 사용자가 설치할 것이 하나도 없고, 라이선스 위험도 없다 — 우리가 하는 일은 이미 열려 있는
- * 인스펙터 포트에 WebSocket 으로 붙는 것뿐이다.
- *
- * 붙는 절차: `GET /json/list` 로 대상 목록을 받아 `webSocketDebuggerUrl` 을 얻고 그리로 연결.
- * (인스펙터는 `--inspect-brk` 로 **멈춰 서 있는 동안에도** 이 HTTP 창구를 연다 — 그래서
- * "붙기 전에 목록부터 확인" 이 가능하다.)
+ * §5.5 #17-20 ⑩ — Chrome DevTools Protocol 클라이언트(Node 계열 전용). Node 런타임 자체의 인스펙터(`--inspect-brk`)에 WebSocket 으로 붙을 뿐이라 설치할 것도 라이선스 위험도 없다.
+ * 절차: `GET /json/list` → `webSocketDebuggerUrl` 로 연결. 인스펙터는 `--inspect-brk` 로 멈춰 있는 동안에도 이 HTTP 창구를 연다(붙기 전에 목록을 확인할 수 있다).
  */
 import http from 'node:http';
 
@@ -246,11 +239,8 @@ export class CdpClient {
 }
 
 /**
- * §5.5 #17-20 ⑫ — **붙지 않고 그냥 진행시킨다.**
- *
- * `--inspect-brk` 는 "누가 붙을 때까지 첫 줄에서 정지" 라, 디버깅할 생각이 없는데 그렇게 뜬
- * 프로세스는 사용자 눈에 "켰는데 아무 일도 안 일어남" 으로 보인다. 종전에는 죽였다 다시 켜는
- * 수밖에 없었다. 붙었다가 한 마디만 하고 끊으면 프로세스는 그대로 달린다.
+ * §5.5 #17-20 ⑫ — 붙지 않고 그냥 진행시킨다. `--inspect-brk` 는 누가 붙을 때까지 첫 줄에서 멈춰, 디버깅할 생각이 없으면 "켰는데 아무 일도 안 일어남"으로 보인다.
+ * 붙었다가 한 마디만 하고 끊으면 프로세스는 그대로 달린다.
  */
 export async function releaseWaitingNodeProcess(port: number): Promise<{ ok: boolean; error?: string }> {
   const client = new CdpClient(() => { /* 이벤트는 볼 필요가 없다 */ }, () => { /* 곧 끊는다 */ });

@@ -3,11 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ScrollFade } from '../ScrollFade.js';
 import { StudioIcon, type StudioIconName } from './studioIcons.js';
 
-/**
- * §5.13 (V) 37-11 — **부품 서랍**. '기본'(장면 6종·글자·도형·빈 코드 컴포지션 — 종전 라이브러리, [제목 추가] 는 여기 '제목' 하나)
- * · 우리가 쓴 부품(썸네일 = 그 부품의 실제 정지 화면) · 전환(고른 이음매에 입힌다) · 내 부품([부품으로 저장]한 장면).
- * 무지개 그라데이션 타일은 없다.
- */
+/** §5.13 (V) 37-11 — 부품 서랍(기본 · 우리 부품 — 썸네일은 실제 정지 화면 · 전환 · 내 부품). 무지개 그라데이션 타일은 쓰지 않는다. */
 export interface DrawerPart {
   readonly id: string;
   readonly name: string;

@@ -1,10 +1,4 @@
-/**
- * §5.11 v4.00 — 혼합 워크플로(Hybrid Workflow): 어디까지 명세, 어디부터 자유인가.
- *
- * 순수 명세는 느리고 순수 즉흥은 무너지므로, **어디에 선을 긋느냐**가 실력이 된다. 실무 기준은 대체로 —
- * 인터페이스·데이터 모델·권한 경계가 바뀌면 명세, 그 안쪽 구현은 자유. 이 카드는 이 에이전트가 그 선의
- * 어느 쪽에 서 있는지 보여준다. 표시 전용.
- */
+/** §5.11 — 혼합 워크플로(Hybrid Workflow): 인터페이스·데이터 모델·권한 경계가 바뀌면 명세, 그 안쪽은 자유 — 이 에이전트가 선의 어느 쪽인지 보여준다. 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import { toneIfActive } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

@@ -6,15 +6,8 @@ import {
 } from '@vibisual/shared';
 import { drawQrToCanvas, downloadCanvasPng } from '../../utils/qrCanvas';
 
-// §4 메신저 원격제어 브리지 — **원격 접속 창의 한 칸**(판올림 번호 발급 대기).
-//
-// 종전에는 두 메신저가 한 모달 안의 **좌우 탭**이었고, 그 모달은 모바일 웹과 **별개의 창**이었다.
-// 이제 텔레그램·디스코드가 각각 사이드바의 자기 칸을 갖는다 — 채널마다 봇도 토큰도 페어링도
-// 따로이므로 탭보다 칸이 맞는 단위다(옵션 창이 카테고리를 나누는 것과 같은 이유).
-//
-// 이 화면의 목적은 그대로다: **봇 설정에서 사람이 가장 많이 막히는 자리를 없애는 것.**
-// ① 봇 만들기 링크와 명령을 복사 버튼으로 → ② 토큰을 넣는 즉시 검증해 봇 이름을 보여 줌 →
-// ③ QR 을 찍으면 chat id 가 자동으로 묶인다. 단계는 셋이고, 각 단계는 앞 단계가 끝나야 열린다.
+// §4 메신저 원격제어 — 원격 접속 창의 채널별 칸(봇·토큰·페어링이 채널마다 따로).
+// 단계 셋(링크·명령 복사 → 토큰 즉시 검증 → QR 로 chat id 묶기)은 앞 단계가 끝나야 열린다.
 
 /** 봇을 만드는 곳 — 채널마다 다르다. 새 창은 main 의 setWindowOpenHandler 가 OS 브라우저로 보낸다. */
 const CREATE_URL: Record<ChatChannelKind, string> = {
@@ -307,11 +300,7 @@ export function ChatChannelSection({ kind, state, onState }: ChatChannelSectionP
                       </button>
                     </div>
                   </div>
-                  {/*
-                    §4 ④ — 페어링은 두 채널 모두 **1:1 DM 에서만** 받는다. 길드 채널·그룹에서
-                    묶으면 화이트리스트의 단위가 사람이 아니라 그 방의 구성원 전원이 되는데,
-                    아래 목록에는 명령을 친 한 사람 이름만 떠서 화면이 범위를 잘못 말한다.
-                  */}
+                  {/* §4 ④ — 페어링은 1:1 DM 에서만 — 그룹에서 묶으면 허용 범위가 방 전원인데 목록엔 한 사람만 뜬다. */}
                   <p className="mt-3 flex items-start gap-1.5 border-t border-white/[0.06] pt-3 text-[12px] leading-relaxed text-amber-300/90">
                     <svg className="mt-0.5 h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M12 9v4" /><path d="M12 17h.01" />
@@ -349,11 +338,7 @@ export function ChatChannelSection({ kind, state, onState }: ChatChannelSectionP
                   <div key={`${p.kind}:${p.chatId}`} className="flex items-center justify-between rounded-md border border-white/[0.06] bg-white/[0.03] px-3 py-2">
                     <span className="flex min-w-0 items-center gap-1.5">
                       <span className="truncate text-[12px] text-gray-200">{p.label}</span>
-                      {/*
-                        DM 전용 규칙이 생기기 전에 묶인 대화는 방 전체가 조작할 수 있다.
-                        끊지 않고 남기되(사용자의 것이다) **그렇다고 말은 해 준다** —
-                        이름 하나만 보여 주면 화면이 범위를 잘못 말하게 된다.
-                      */}
+                      {/* DM 전용 이전에 묶인 대화는 방 전체가 조작할 수 있다 — 끊지 않되 그렇다고 적는다. */}
                       {p.direct !== true && (
                         <span
                           title={t('panel.remoteControl.sharedChatWarning')}

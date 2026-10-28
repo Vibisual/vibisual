@@ -1,16 +1,6 @@
 /**
- * §2.1 #3 — **`MultiEdit`/`NotebookEdit` 로 고쳐도 그 파일이 뜬다** 회귀 테스트.
- *
- * 종전에는 `FILE_PATH_KEYS` 가 `Read`/`Write`/`Edit`/`Grep`/`Glob` 다섯뿐이라, 이 두 도구는
- * 감사 원장(`AUDIT_WRITE_TOOLS`)과 IDE 스트림(`DIFF_INPUT_TOOLS`)에는 남는데 **캔버스에는
- * 한 획도 안 그려졌다** — 파일 버블 ✗ 쓰기 화살표 ✗ 수정 이력 ✗.
- *
- * 여기서 고정하는 것 다섯:
- *  ① 파일 버블 + **에이전트 → 파일**(쓰기) 엣지가 선다.
- *  ② `MultiEdit` 조각 여러 개는 **이력 한 줄**로 접힌다(호출 하나 = 한 줄).
- *  ③ `NotebookEdit` 는 `notebook_path` 에서 경로를 꺼내고, `file_path` 로 와도 받는다.
- *  ④ `old_source` 가 없으면 이전 본문을 지어내지 않는다(old='').
- *  ⑤ 기존 `Edit`/`Write` 동작은 그대로다.
+ * §2.1 #3 — `MultiEdit`/`NotebookEdit` 도 버블·쓰기 엣지·이력이 선다(`FILE_PATH_KEYS`).
+ * `MultiEdit` 은 이력 한 줄, `NotebookEdit` 는 `notebook_path`(또는 `file_path`), `old_source` 가 없으면 old=''.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';

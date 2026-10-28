@@ -1,25 +1,14 @@
-// perfProfiler — DebugPanel FPS 저하 자동 프로파일러 (SCENARIO §7.7 DebugPanel 확장).
-//
-// 목적: 캔버스/IDE 가 40 FPS 아래로 떨어질 때 "왜 느려지는지" 를 사람이 복붙해 분석할 수 있는
-// 리포트로 남긴다. 상시 프로파일링은 하지 않는다 — 평상시 비용 0, **트리거된 순간에만** 1분간
-// PerformanceObserver 를 붙였다 뗀다(사용자 성능 우려 반영).
-//
-// 주 수집원: LoAF(Long Animation Frames) — Chromium 123+/Electron 31 지원. longtask 와 달리
-// 프레임을 늘린 **스크립트(sourceURL·functionName·duration)** attribution 을 준다("어느 함수가
-// 프레임을 잡았나"). 미지원 환경은 longtask 로 폴백(스크립트 attribution 없음, blocking 시간만).
-//
-// React <Profiler> 는 쓰지 않는다 — 프로덕션 react-dom 은 onRender 를 호출하지 않고, 쓰려면
-// 상시 오버헤드가 붙는 profiling 빌드가 필요하다. LoAF 가 함수 단위까지 더 정확히 잡는다.
+// perfProfiler — DebugPanel FPS 저하 자동 프로파일러(SCENARIO §7.7).
+// 캔버스/IDE 가 40 FPS 아래로 떨어질 때 원인을 복붙해 분석할 리포트로 남긴다. 상시 프로파일링 ❌ — 트리거된 순간에만 1분간 PerformanceObserver 를 붙였다 뗀다(평상시 비용 0).
+// 주 수집원은 LoAF(Chromium 123+/Electron 31) — longtask 와 달리 프레임을 늘린 스크립트(sourceURL·functionName·duration)를 준다. 미지원이면 longtask 폴백(blocking 시간만).
+// React <Profiler> 는 쓰지 않는다 — 프로덕션 react-dom 은 onRender 를 부르지 않고, profiling 빌드는 상시 오버헤드가 붙는다.
 
 /** 40 FPS 아래로 떨어질 때 자동 진입하는 임계 FPS. */
 export const PERF_TRIGGER_FPS = 40;
 /**
- * v3.72 — 입력 지연(Event Timing) 자동 트리거 임계(ms).
- *
- * FPS 만으로는 "타자가 밀린다" 를 **구조적으로 못 잡는다**. rAF FPS 는 합성기의 프레임 간격이라
- * 키 입력 → 화면 반영 지연과 별개다: 키 하나가 150ms 걸려도 rAF 는 계속 75fps 로 돈다.
- * 그래서 사용자가 "버벅인다" 고 느끼는 순간에 수집해도 리포트는 "FPS 정상 / 긴 프레임 없음" 이 된다.
- * 입력 지연은 Event Timing API 로 직접 재야 한다(이 상수 이상 걸린 인터랙션이 트리거).
+ * 입력 지연(Event Timing) 자동 트리거 임계(ms).
+ * rAF FPS 는 합성기 프레임 간격이라 키 입력 → 화면 반영 지연과 별개다(키 하나가 150ms 걸려도 75fps 로 돈다) — FPS 만으로는 타자 밀림을 못 잡는다.
+ * 입력 지연은 Event Timing API 로 직접 잰다(이 상수 이상 걸린 인터랙션이 트리거).
  */
 export const PERF_SLOW_INTERACTION_MS = 200;
 /** 세션 중 수집할 인터랙션 하한(ms). Event Timing 스펙 최소값이 16. */
@@ -50,17 +39,13 @@ export interface PerfWorstFrame {
   blockingMs: number;
   /** 이 프레임에서 가장 오래 잡은 스크립트 요약 */
   topScript?: string;
-  /** v3.72 LoAF 단계 분해(ms) — 스크립트가 안 잡힌 긴 프레임의 "그럼 어디서 갔나" 를 답한다. */
+  /** LoAF 단계 분해(ms) — 스크립트가 안 잡힌 긴 프레임의 시간이 어디서 갔나를 답한다. */
   phases?: PerfFramePhases;
 }
 
 /**
- * v3.72 — LoAF 프레임 1개의 단계 분해(ms).
- *
- * 종전엔 duration/blocking/scripts 만 남겨서, 스크립트가 안 잡힌 긴 프레임은 리포트에 원인칸이
- * 전부 `-` 로 찍혔다(정확히 사용자가 받은 그 리포트). LoAF 는 `renderStart`·`styleAndLayoutStart`·
- * `desiredRenderStart` 를 함께 주므로 프레임을 아래 4구간으로 쪼갤 수 있다 — 스크립트가 0 이어도
- * 스타일/레이아웃인지, 페인트인지, 애초에 프레임 시작이 밀린 건지(queue wait)가 드러난다.
+ * LoAF 프레임 1개의 단계 분해(ms). `renderStart`·`styleAndLayoutStart`·`desiredRenderStart` 로 프레임을 4구간으로 쪼갠다 —
+ * 스크립트가 0 이어도 스타일/레이아웃·페인트·프레임 시작 지연(queue wait) 중 어디인지 드러난다(duration/blocking/scripts 만으로는 원인칸이 전부 `-`).
  */
 export interface PerfFramePhases {
   /** desiredRenderStart → startTime: 프레임 시작 자체가 밀린 시간(합성기/메인 큐 대기). */
@@ -74,13 +59,11 @@ export interface PerfFramePhases {
 }
 
 /**
- * v3.72 — 인터랙션(Event Timing) 1건. "타자 칠 때 버벅인다" 를 직접 재는 유일한 지표.
- *
- * 3구간으로 쪼갠다:
+ * 인터랙션(Event Timing) 1건 — 타자 칠 때의 버벅임을 직접 재는 유일한 지표. 3구간:
  *   inputDelayMs   startTime → processingStart : 메인스레드가 이벤트를 집기까지 밀린 시간
  *   processingMs   processingStart → processingEnd : 핸들러(= React setState·렌더 커밋)
  *   presentationMs processingEnd → 프레임 표시 : 스타일/레이아웃/페인트
- * 어디가 큰지에 따라 처방이 완전히 갈린다(핸들러=상태/렌더 구조, 표시=DOM 규모/CSS 효과).
+ * 어디가 큰지에 따라 처방이 갈린다(핸들러=상태/렌더 구조, 표시=DOM 규모/CSS 효과).
  */
 export interface PerfInteraction {
   /** 이벤트 종류(keydown/input/compositionupdate/pointerdown …). */
@@ -141,12 +124,12 @@ export interface PerfReport {
     totalBlockingMs: number;
     maxDurationMs: number;
   };
-  /** v3.72 — 긴 프레임 전체의 단계별 합(ms). 스크립트 attribution 이 비어도 병목 구간은 나온다. */
+  /** 긴 프레임 전체의 단계별 합(ms). 스크립트 attribution 이 비어도 병목 구간은 나온다. */
   framePhaseTotals: PerfFramePhases;
   topScripts: PerfScriptAgg[];
   worstFrames: PerfWorstFrame[];
   /**
-   * v3.72 — 입력 지연 요약. `supported=false` 면 Event Timing 미지원 환경.
+   * 입력 지연 요약. `supported=false` 면 Event Timing 미지원 환경.
    * `inp` = 인터랙션별 최대 지연들의 98퍼센타일(웹 표준 INP 와 같은 계산). 200ms 초과면 체감 렉.
    */
   interactions: {
@@ -198,9 +181,8 @@ interface EventTimingLike {
   processingEnd: number;
   interactionId?: number;
   /**
-   * 스펙상 Element 지만 실제로는 `document`·텍스트 노드처럼 **tagName·hasAttribute 가 없는 대상**이
-   * 실려 오기도 한다(그대로 Element 로 믿었다가 리포트 생성이 통째로 터진 원인). 런타임 판별을
-   * 강제하려고 `unknown` 으로 받는다 — 해석은 describeTarget 이 한다.
+   * 스펙상 Element 지만 `document`·텍스트 노드처럼 tagName·hasAttribute 가 없는 대상도 온다(Element 로 믿으면 리포트 생성이 통째로 터진다).
+   * `unknown` 으로 받아 런타임 판별을 강제한다 — 해석은 describeTarget 이 한다.
    */
   target?: unknown;
 }
@@ -226,8 +208,8 @@ class PerfProfiler {
   private startContext: PerfContext | null = null;
   private ctxProvider: ContextProvider | null = null;
 
-  // v3.72 — 상시 감시(sentinel). DebugPanel 이 열려 있는 동안에만 무장한다(닫히면 비용 0 유지).
-  //   느린 인터랙션 1건이면 즉시 세션을 연다 — 사용자가 "지금이다" 하고 60초를 맞춰 누를 필요가 없다.
+  // 상시 감시(sentinel) — DebugPanel 이 열려 있는 동안에만 무장한다(닫히면 비용 0).
+  //   느린 인터랙션 1건이면 즉시 세션을 연다(60초를 맞춰 누를 필요가 없다).
   private sentinel: PerformanceObserver | null = null;
   private sentinelCtx: ContextProvider | null = null;
   private lastFps = 0;
@@ -277,9 +259,8 @@ class PerfProfiler {
   }
 
   /**
-   * v3.72 — 느린 인터랙션 감시 무장(DebugPanel mount 시). 임계 초과 인터랙션이 관측되면
-   * 쿨다운을 지켜 자동으로 수집 세션을 연다. 브라우저가 어차피 INP 용으로 재고 있는 값을 받아만
-   * 보므로(durationThreshold 로 느린 것만 통지) 상시 비용은 사실상 0 이다.
+   * 느린 인터랙션 감시 무장(DebugPanel mount 시). 임계 초과가 관측되면 쿨다운을 지켜 수집 세션을 연다.
+   * 브라우저가 INP 용으로 이미 재는 값을 받기만 하므로(durationThreshold 로 느린 것만 통지) 상시 비용은 사실상 0 이다.
    */
   armSentinel(ctxProvider: ContextProvider): void {
     this.sentinelCtx = ctxProvider;
@@ -380,8 +361,7 @@ class PerfProfiler {
     }
     this.observedType = type;
 
-    // v3.72 — 입력 지연 수집. LoAF 와 별개 관측원이다: 프레임이 길지 않아도(FPS 정상이어도)
-    //   키 입력이 밀리는 경우가 있고, 그게 바로 "타자 칠 때 버벅인다" 의 정체다.
+    // 입력 지연 수집 — LoAF 와 별개 관측원이다. FPS 가 정상이어도 키 입력이 밀리는 경우가 있다.
     try {
       this.eventObserver = new PerformanceObserver((list) => {
         for (const e of list.getEntries() as unknown as EventTimingLike[]) {
@@ -570,8 +550,7 @@ class PerfProfiler {
   }
 
   /**
-   * v3.72 — Event Timing 집계. INP 는 웹 표준과 같은 방식으로 계산한다:
-   * 같은 `interactionId` 의 이벤트들(keydown/input/keyup 한 묶음)은 **가장 긴 것 1건**으로 접고,
+   * Event Timing 집계 — INP 는 웹 표준과 같이 계산한다: 같은 `interactionId` 의 이벤트(keydown/input/keyup 한 묶음)는 가장 긴 것 1건으로 접고,
    * 그 값들의 98퍼센타일을 취한다. interactionId 가 0 인 이벤트(스크롤 등 비인터랙션)는 제외.
    */
   private buildInteractions(): PerfReport['interactions'] {
@@ -663,12 +642,8 @@ function toInteraction(e: EventTimingLike): PerfInteraction {
 const TARGET_ATTRS = ['data-ide-input', 'data-slash-active', 'data-testid'] as const;
 
 /**
- * 이벤트 대상 요소를 사람이 읽을 짧은 셀렉터로. IDE 입력창(`data-ide-input`)처럼 진단에 결정적인
- * data 속성은 살려 둔다 — "IDE 입력창에서 밀린다" 를 리포트만 보고 판정할 수 있어야 한다.
- *
- * 대상은 **Element 라고 믿을 수 없다**: Event Timing 은 `document`·텍스트 노드처럼 `tagName` 도
- * `hasAttribute` 도 없는 값을 준다. 종전엔 `el.tagName.toLowerCase()` 를 바로 불러 TypeError 로
- * 리포트 생성 전체가 죽었으므로(수집 60초가 통째로 버려짐), 여기서는 필드마다 런타임 판별한다.
+ * 이벤트 대상 요소를 짧은 셀렉터로. 진단에 결정적인 data 속성(IDE 입력창 `data-ide-input`)은 살려 리포트만으로 판정할 수 있게 한다.
+ * 대상은 Element 라고 믿을 수 없다 — `document`·텍스트 노드처럼 `tagName`·`hasAttribute` 가 없는 값이 오면 TypeError 로 리포트 전체가 죽으므로 필드마다 런타임 판별한다.
  */
 export function describeTarget(target: unknown): string | undefined {
   if (!target || typeof target !== 'object') return undefined;
@@ -790,11 +765,7 @@ function buildMarkdown(r: Omit<PerfReport, 'markdown'>): string {
   return lines.join('\n');
 }
 
-/**
- * 리포트 첫머리에 붙는 한 줄 판정. 종전 리포트의 가장 큰 문제는 "숫자는 많은데 그래서 뭐가
- * 문제인지" 가 없었다는 것 — 특히 **아무 문제도 안 잡힌 수집**(정상인 순간을 60초 잰 경우)이
- * 정상이라고 말해주지 않아, 읽는 쪽이 원인을 찾아 헤매게 된다. 그 경우를 명시적으로 말한다.
- */
+/** 리포트 첫머리의 한 줄 판정 — 숫자만으로는 무엇이 문제인지 안 읽힌다. 아무 문제도 안 잡힌 수집(정상인 순간을 잰 경우)은 정상이라고 명시한다. */
 function verdict(r: Omit<PerfReport, 'markdown'>): string {
   const it = r.interactions;
   const jank = r.frames.jankSeconds > 0;

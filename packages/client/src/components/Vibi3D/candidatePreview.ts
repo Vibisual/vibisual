@@ -6,9 +6,8 @@ import { visibleModelBounds } from './modelBounds.js';
 import { applyModelCameraView, readActiveModelShot, readModelCamera } from './modelCamera.js';
 
 /**
- * §5.13 (R-10) — the candidate review's preview lifecycle, apart from React and WebGL so it can be tested as is:
- * one renderer for the whole review (created on first draw, released once), the shown source swapped in one scene,
- * and parsed sources cached by key so switching before/after never parses again.
+ * §5.13 (R-10) — candidate preview lifecycle without React/WebGL (testable): one renderer per review, one scene swapping the shown source,
+ * parsed sources cached by key so switching never parses again.
  */
 export interface PreviewRenderer {
   render(scene: THREE.Scene, camera: THREE.Camera): void;

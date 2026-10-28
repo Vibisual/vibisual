@@ -17,10 +17,8 @@ import {
   type CmdPaneNode,
 } from '@vibisual/shared';
 
-// §4 (CMD 터미널 업그레이드 ⑤⑧) — pane 트리 편집·정합과 CLI 표.
-//
-// 이 트리는 체크포인트에 실려 **다음 부팅에도 살아 돌아온다**. 그래서 "옛 파일·손댄 REST body 를
-// 그대로 믿지 않는다"가 여기서 가장 중요한 계약이다 — 깨진 트리 하나가 CMD 탭 전체를 못 열게 한다.
+// §4 (CMD 터미널 업그레이드 ⑤⑧) — pane 트리 편집·바로잡기와 CLI 표.
+// 트리는 체크포인트에 실려 다음 부팅에도 돌아오므로 옛 파일·손댄 REST body 를 그대로 믿지 않는다 — 깨진 트리 하나가 CMD 탭 전체를 못 열게 한다.
 
 describe('cmdPaneTermId', () => {
   it("pane '0' 은 접미사가 없다 — 기존 termId·resume 키와 바이트 단위로 같아야 한다", () => {

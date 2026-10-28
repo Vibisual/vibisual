@@ -1,9 +1,4 @@
-/**
- * §5.13 (R-8) — 변환 명령과 진행률 판독 테스트.
- *
- * 여기가 틀리면 사용자는 "변환했는데 안 열린다"나 "진행률이 안 움직인다"만 본다. ffmpeg 을 실제로
- * 돌리지 않고 고정할 수 있는 부분(인자 조립·출력 파싱·캐시 이름)을 여기서 못 박는다.
- */
+/** §5.13 (R-8) — 변환 인자 조립·진행률 파싱·캐시 이름 시험(ffmpeg 없이). */
 import { describe, expect, it } from 'vitest';
 import { mediaCacheRelPath } from '@vibisual/shared';
 

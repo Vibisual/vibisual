@@ -1,14 +1,8 @@
 import type { MaskCircle } from './edgeMaskGeometry.js';
 
 /**
- * §5.4 #31 (K) — 버블 밑을 지나는 선을 그 원 안에서 **잘라** 그린다(SVG 마스크 ❌).
- *
- * 종전에는 출발 버블마다 `<mask>`(버블 수만큼의 검은 원)를 짓고 선마다 걸었다. 겉모습은 같지만
- * 마스크가 걸린 선은 다시 그릴 때마다 선마다 오프스크린 두 장(내용 + 휘도 마스크)을 거쳐야 해서
- * GPU 래스터가 포화했다 — 가만히 있어도 흐르는 점선·물결 때문에 초당 12~15 프레임이었고, 선택
- * 초점 전환에서는 선 수백 개가 저마다 합성 레이어로 올라가며 마스크째 다시 래스터돼 1초 가까이
- * 끊겼다. 여기서는 곡선이 원 안에 드는 구간을 계산해 **그 구간을 뺀 경로**만 돌려준다 — 그리는
- * 쪽에는 평범한 경로 하나만 남는다.
+ * §5.4 #31 (K) — 선을 원 안 구간을 뺀 경로로 잘라 그린다(SVG 마스크 ❌). 마스크면 선마다 오프스크린 두 장으로 GPU 래스터가 포화한다
+ * (정지 중에도 초당 12~15 프레임, 초점 전환 때 1초 가까이 끊김) — 되돌리지 마라.
  */
 
 /** 3차 베지어. 직선·2차 곡선도 이 꼴로 올려 같은 계산을 탄다. */
@@ -77,11 +71,7 @@ export function curveBox(c: CubicCurve): CurveBox {
   };
 }
 
-/**
- * 이 곡선을 가릴 수 있는 원만 고른다. **출발 버블은 빼고** 고른다 — 선이 그 버블에서 뻗어 나와야
- * 한다(종전 마스크가 소스별로 갈라 지은 이유와 같다). 원의 상자가 곡선 상자에 닿지 않으면 그 원은
- * 곡선과 만날 수 없다.
- */
+/** 출발 버블은 뺀다 — 선이 거기서 뻗어 나와야 한다. 상자가 닿지 않는 원은 곡선과 만날 수 없다. */
 export function occludersFor(circles: readonly MaskCircle[], box: CurveBox, excludeId: string): MaskCircle[] {
   const picked: MaskCircle[] = [];
   for (const circle of circles) {
@@ -178,10 +168,7 @@ function cubicPath(c: CubicCurve): string {
   return `M ${fmt(c.x0)},${fmt(c.y0)} C ${fmt(c.x1)},${fmt(c.y1)} ${fmt(c.x2)},${fmt(c.y2)} ${fmt(c.x3)},${fmt(c.y3)}`;
 }
 
-/**
- * 원 밖 구간만 남긴 경로. 가려지는 데가 없으면 `fullPath` 를 **그대로** 돌려준다 — 대부분의 선은
- * 아무 버블 밑도 지나지 않으므로, 그 선들의 렌더 결과는 종전과 글자 하나 다르지 않다.
- */
+/** 가리는 데가 없으면 `fullPath` 를 그대로 — 대부분의 선은 렌더 결과가 같다. */
 export function clipCurvePath(c: CubicCurve, circles: readonly MaskCircle[], fullPath: string): ClippedPath {
   if (circles.length === 0) return { path: fullPath, startVisible: true, endVisible: true };
   const spans = visibleSpans(c, circles);

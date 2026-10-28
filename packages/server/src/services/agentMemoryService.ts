@@ -6,27 +6,10 @@ import type { AgentMemoryScope } from '@vibisual/shared';
 import { logger } from '../logger.js';
 
 /**
- * §5.3 v4.89 — 커스텀 에이전트의 **자기 기억** 배선.
- *
- * `AgentConfig.memory` 는 v4.89 이전까지 타입에만 있고 아무도 읽지 않는 죽은 필드였다. Claude Code
- * 의 서브에이전트 `memory:` 프론트매터와 같은 뜻을 우리 스폰 경로(헤드리스 `claude -p` = **주 스레드**)
- * 에서 내려면, 프론트매터가 아니라 `autoMemoryDirectory` 설정을 에이전트마다 다르게 줘야 한다.
- *
- * `--settings` 로 들어간 값은 사용자 설정 계층과 **병합**되므로 이 파일 한 장으로 사용자 설정을
- * 지우지 않고 필요한 키만 바꿔 끼울 수 있다. `prepareMcpConfig` 와 같은 방식(내용 해시 파일명 +
- * 같은 내용이면 다시 쓰지 않음)이라 새 인프라를 들이지 않는다.
- *
- * §4 (Fast 모드) — 이 파일이 기억 전용이 아니게 된 이유.
- *   Fast 모드는 CLI 플래그가 없고 settings 키(`fastMode`)로만 켜지는데, 헤드리스 스폰은 CLI 가
- *   Agent SDK 세션으로 분류해 **`--settings` 가 만드는 `flagSettings` 층으로 들어온 opt-in 만**
- *   인정한다. 그런데 `--settings` 는 **두 번 주면 병합이 아니라 뒤엣것이 앞엣것을 통째로 덮는다**
- *   (실측). 그래서 기억용 한 장 + Fast 용 한 장으로 나눌 수 없고, 이 모듈이 **설정 파일 한 장을
- *   조립하는 단일 창구**가 된다. 새 settings 키가 필요해지면 여기 `SettingsBody` 에 한 줄 더한다.
- *
- * §4 (Thinking on/off) — 그 "한 줄 더" 의 첫 사례.
- *   확장 사고를 끄는 것도 CLI 플래그가 없고 settings 키(`alwaysThinkingEnabled`) 하나뿐이라
- *   같은 파일에 실린다. Fast 와 방향만 반대다 — Fast 는 **켤 때만**, 사고는 **끌 때만** 키를 만든다
- *   (둘 다 "사용자가 자기 settings 에 적어 둔 값을 우리가 덮지 않는다"는 같은 규율의 두 얼굴).
+ * §5.3 — 에이전트 자기 기억·Fast·Thinking 을 실은 스폰 설정 파일 한 장의 단일 창구. 헤드리스 `claude -p`(주 스레드)는 서브에이전트 `memory:`
+ * 프론트매터가 아니라 `autoMemoryDirectory` 로 에이전트마다 기억을 가른다. `--settings` 는 사용자 설정과는 병합되지만 두 번 주면 뒤엣것이 통째로 덮는다(실측) —
+ * 키마다 파일을 나누지 말고 `SettingsBody` 에 한 줄 더한다. Fast(`fastMode`)는 헤드리스에서 이 `flagSettings` 층 opt-in 만 인정된다.
+ * Fast 는 켤 때만, 사고(`alwaysThinkingEnabled`)는 끌 때만 키를 만든다 — 사용자 settings 값을 덮지 않는다.
  */
 
 /** 생성 파일이 사는 곳 — 사용자 레포 밖(`~/.vibisual`), MCP 생성 파일과 같은 자리. */
@@ -58,11 +41,8 @@ export function resolveAgentMemoryDir(
 }
 
 /**
- * §5.10 (O) — 화면(기억 정리 칸)과 주입원 표가 "이 에이전트의 자동 기억 폴더는 어디인가"를 물을 때 쓰는 한 줄.
- *
- * `undefined`/`'off'` 면 `undefined` — 기본은 레포 공용 폴더(`scanAutoMemory` 의 기본 경로)를 그대로 쓰고, 끔은
- * 폴더가 없다(호출부가 따로 말한다). 나머지 셋은 위 `resolveAgentMemoryDir` 와 **같은 답**이다 — 스폰이 넘기는
- * `agentName`·`projectRoot` 를 그대로 주면 실제로 쓰이는 그 폴더가 나온다(두 곳이 따로 조립하면 화면이 엉뚱한 폴더를 센다).
+ * §5.10 (O) — 화면·주입원 표가 묻는 이 에이전트의 자동 기억 폴더. `undefined`/`'off'` 면 `undefined`(기본은 레포 공용 폴더, 끔은 폴더 없음).
+ * 나머지는 `resolveAgentMemoryDir` 와 같은 답이어야 한다 — 따로 조립하면 화면이 엉뚱한 폴더를 센다.
  */
 export function resolveAgentMemoryDirOverride(
   memory: AgentMemoryScope | undefined,
@@ -83,15 +63,11 @@ export interface AgentSettingsPlan {
 
 /** 이 에이전트를 위해 조립할 settings 키들. 한 장으로 합쳐 나간다. */
 interface SettingsBody {
-  /** §5.3 v4.89 — 이 에이전트 전용 자동 기억 폴더. */
+  /** §5.3 — 이 에이전트 전용 자동 기억 폴더. */
   autoMemoryDirectory?: string;
   /** §4 (Fast 모드) — 헤드리스 스폰이 Fast 를 쓰려면 반드시 이 층에 있어야 하는 opt-in. */
   fastMode?: boolean;
-  /**
-   * §4 (Thinking on/off) — 확장 사고를 끄는 유일한 창구.
-   * 설치본 설정 스키마 원문: *"When false, thinking is disabled. When absent or true, thinking is
-   * enabled automatically for supported models."* → **끌 때만 `false` 를 적고**, 켬은 키를 안 만든다.
-   */
+  /** §4 (Thinking on/off) — 확장 사고를 끄는 유일한 창구. 키가 없거나 true 면 지원 모델에서 자동으로 켜지므로(설치본 스키마) 끌 때만 `false` 를 적는다. */
   alwaysThinkingEnabled?: boolean;
 }
 
@@ -108,12 +84,7 @@ export interface AgentSettingsInput {
   projectRoot?: string;
 }
 
-/**
- * 이 에이전트의 설정 파일(+env)을 준비한다.
- *
- * 반환이 `null` 이면 **아무것도 하지 않는다**(= 종전 동작 그대로). 파일을 못 쓰는 경우에도 `null` 을
- * 돌려 스폰 자체는 평소대로 되게 한다 — 설정 파일 실패가 작업을 막으면 안 된다.
- */
+/** `null` 이면 아무것도 붙이지 않는다. 파일을 못 써도 `null` — 설정 파일 실패가 스폰을 막으면 안 된다. */
 export function prepareAgentSettings(input: AgentSettingsInput): AgentSettingsPlan | null {
   const { memory, fastMode, thinking, agentName, projectRoot } = input;
   const body: SettingsBody = {};

@@ -12,15 +12,8 @@ vi.mock('./appState.js', async (importOriginal) => {
 });
 
 /**
- * §5.4 #14 v1.34 — **프로젝트 탭 × 는 한 번에 닫힌다**(닫힘 = `hiddenProjects` SSOT).
- *
- * 탭 닫기는 두 단계로 흐른다 — `DELETE /api/projects/:name`(hide + stub 제거 + openProjects 제거)
- * 뒤에 클라가 `unload-project` 를 보내 인메모리 그래프를 해제한다. 그런데 `unloadProject` 는
- * 해제한 프로젝트를 **stub 으로 강등**(= 탭에 다시 등장)하므로, 방금 사용자가 닫은 프로젝트가
- * 그 강등으로 되살아나 "한 번 눌러선 안 닫히고 두 번 눌러야 닫히는" 증상이 된다.
- * 사용자가 닫은 프로젝트(hidden)는 강등 대상이 아니라는 것이 이 테스트가 못 박는 규약이다.
- * 반대로 **유휴 해제**(사용자가 닫지 않은 배경 탭)는 종전대로 stub 이 남아야 한다 —
- * 그 stub 이 사라지면 열어 둔 탭이 저절로 없어진다.
+ * §5.4 #14 — 탭 × 는 한 번에 닫힌다: `unloadProject` 는 hidden 프로젝트를 stub 으로 되살리지 않고,
+ * 닫지 않은 배경 탭의 유휴 해제는 stub 을 남긴다.
  */
 
 const tmpDirs: string[] = [];
@@ -50,7 +43,7 @@ afterEach(() => {
   }
 });
 
-describe('§5.4 #14 v1.34 — 프로젝트 탭 닫기', () => {
+describe('§5.4 #14 — 프로젝트 탭 닫기', () => {
   it('닫기(× 1회) 뒤 이어지는 unload 가 탭을 stub 으로 되살리지 않는다', () => {
     const manager = new ProjectGraphManager();
     const dir = makeProjectDir('once');

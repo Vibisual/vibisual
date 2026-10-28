@@ -1,9 +1,4 @@
-/**
- * §5.11 v3.98 — 이벤트 기반(Event-Driven): 신호가 흐르고 있는가.
- *
- * 서비스가 서로를 직접 호출하지 않고 이벤트를 내보내고 반응하는 구조다. Vibisual 자체가 훅 이벤트로 도는
- * 시스템이므로, 여기서는 이 에이전트에서 실제로 흐른 신호의 양과 종류를 보여준다. 표시 전용.
- */
+/** §5.11 — 이벤트 기반(Event-Driven): 이 에이전트에서 실제로 흐른 신호의 양과 종류를 보여준다. 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';
 

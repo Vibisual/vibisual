@@ -32,40 +32,17 @@ import {
 } from './bubbleDeleteAction.js';
 
 /**
- * BubbleContextMenu.tsx — §5.4 #34 (판올림 번호 발급 대기) **버블 위 우클릭 메뉴.**
- *
- * 종전에 캔버스 우클릭 메뉴(§5.4 #13)는 **빈 곳 전용**이었고(`isCanvasSurfaceTarget` 이 버블 위를
- * 걸러낸다), 버블 위 우클릭은 브라우저 기본 메뉴만 막고 아무 일도 하지 않았다. 그래서 버블을
- * 치우는 손은 `Delete` 키 하나뿐이었는데, 키는 **어디를 눌러야 하는지 화면이 말해 주지 않는다**.
- * 이제 버블 위에서 우클릭하면 그 버블에 할 수 있는 일이 목록으로 뜬다.
- *
- * **묶어 고른 상태에서도 뜬다** — 여러 개를 고르면 React Flow 가 그 위에 상자
- * (`.react-flow__nodesselection-rect`)를 덮는데, 그것이 버블을 가려 우클릭이 빈 곳 메뉴(만들기)로
- * 새던 것이 2026-09-11 사용자 보고다. 이제 그 상자 위 우클릭은 **고른 것 전부**를 대상으로 하는
- * 한 줄을 낸다(대상 추림은 `Delete` 키와 같은 `planSelectionDelete` 한 벌).
- *
- * **자물쇠도 여기 선다(§5.3 #12-3)** — 잠글 수 있는 버블(파일·폴더·워크트리·Ghost·도메인)이면 삭제 위에
- * [잠그기]/[잠금 풀기]. 판정은 `bubbleLockAction.ts`(shared `pathLockTargetOf`·`findPathLockCover` 한 벌)다.
- *
- * **우더블클릭(기억 화면, §5.10)과 겹치지 않는다** — 여는 쪽(`BubbleNode`)이 우더블클릭 대상
- * 버블에서는 `RIGHT_DBLCLICK_MS` 만큼 기다렸다 연다. 그 창 안에 두 번째 우클릭이 오면 메뉴 요청은
- * 취소되고 기억 화면이 열린다.
- *
- * **형태 전환은 맨 아래 한 줄이다(§5.4 #36 (A), 2026-10-10 사용자 지시)** — 우클릭이 곧바로 무언가를
- * 바꾸지 않는다. 혼자 고른 커스텀 에이전트면 버블에서는 [말풍선으로 전환], 말풍선에서는 **같은 자리에**
- * [버블로 되돌리기]. 말풍선 입력칸 위 우클릭이면 맨 위에 글자 항목(잘라내기·복사·붙여넣기·전체 선택)이 선다 —
- * 말풍선은 거의 전부가 입력칸이라, 그 자리에서 이 메뉴가 안 열리면 되돌리는 길이 숨는다.
+ * §5.4 #34 — 버블 위 우클릭 메뉴. 묶음 상자 위면 고른 것 전부가 대상(추림은 `Delete` 와 같은 `planSelectionDelete`).
+ * §5.3 #12-3 — 잠글 수 있는 버블은 삭제 위에 [잠그기]/[잠금 풀기](`bubbleLockAction.ts`). 우더블클릭 대상은 `BubbleNode` 가 `RIGHT_DBLCLICK_MS` 기다렸다 연다.
+ * §5.4 #36 (A) — 형태 전환은 맨 아래 한 줄. 말풍선 입력칸 위면 맨 위에 글자 항목(되돌리는 길이 숨지 않게).
  */
 
 /** `BubbleNode`·묶음 상자가 "이 자리에 메뉴를 열어 달라"고 알릴 때 `BubbleMap` 이 듣는 이벤트. */
 export const BUBBLE_MENU_EVENT = 'vibisual:bubble:menu';
 
 /**
- * 위 이벤트의 `detail`. 좌표는 **화면(client) 좌표** — 메뉴는 fixed 로 뜬다.
- *
- * `nodeId` 가 `null` 이면 **묶음 상자 위에서 부른 것**이라 대상은 지금 고른 것 전부다. 값이 있으면
- * 그 버블 위에서 부른 것이고, 그 버블이 묶음 안에 들어 있는지는 받는 쪽(`BubbleMap`)이 가린다 —
- * 고르지 않은 버블 위 우클릭이 남의 묶음을 지우면 안 되기 때문이다(탐색기·파인더와 같은 규칙).
+ * 위 이벤트의 `detail`(좌표는 client — 메뉴는 fixed). `nodeId` 가 `null` = 묶음 상자 위(고른 것 전부).
+ * 값이 있으면 그 버블이 묶음 안인지 `BubbleMap` 이 가린다(남의 묶음을 지우지 않게).
  */
 export interface BubbleMenuRequest {
   nodeId: string | null;
@@ -77,21 +54,15 @@ export interface BubbleMenuRequest {
    */
   textField?: BubbleMenuTextField;
   /**
-   * §6 — 자기 메뉴가 따로 있는 노드(앱·플레이·스펙·랩·선반·캡처)가 "여럿을 고른 묶음 안에서 눌렸으면 묶음
-   * 메뉴를 열어 달라"고 물을 때 켠다. 캔버스는 그 노드가 묶음 안일 때만 메뉴를 열고 `handled` 를 켠다 —
-   * 아니면 아무것도 하지 않고, 노드가 자기 메뉴를 연다(`openGroupMenuIfGrouped`).
+   * §6 — 자기 메뉴가 있는 노드(앱·플레이·스펙·랩·선반·캡처)가 "묶음 안이면 묶음 메뉴를" 물을 때 켠다.
+   * 캔버스는 묶음 안일 때만 열고 `handled` 를 켠다(`openGroupMenuIfGrouped`).
    */
   groupOnly?: boolean;
   /** 캔버스가 이 요청으로 메뉴를 열었는가 — 받는 쪽(`BubbleMap`)이 동기로 채운다. */
   handled?: boolean;
 }
 
-/**
- * §6 — 묶음 안에서 눌린 우클릭이면 **묶음 메뉴**를 연다. 열었으면 `true`(호출한 노드는 자기 메뉴를 열지 않는다).
- *
- * "묶음 위 우클릭은 어느 버블 위에서 눌러도 같다"(§5.4 #34)를 자기 메뉴를 가진 노드에도 지키는 길이다 —
- * 판정(그 노드가 여럿을 고른 묶음에 들었나)은 묶음을 아는 캔버스가 하고, 이벤트는 동기라 답이 곧바로 돌아온다.
- */
+/** §6 — 묶음 안의 우클릭이면 묶음 메뉴를 열고 `true`(노드는 자기 메뉴를 안 연다). 판정은 묶음을 아는 캔버스가 하고, 이벤트가 동기라 답이 바로 온다. */
 export function openGroupMenuIfGrouped(nodeId: string, screenX: number, screenY: number): boolean {
   if (typeof window === 'undefined') return false;
   const detail: BubbleMenuRequest = { nodeId, screenX, screenY, groupOnly: true, handled: false };
@@ -105,10 +76,7 @@ export interface BubbleMenuTextField {
   sel: FieldSelection;
 }
 
-/**
- * 휴지통 글리프. **새 모양을 만들지 않는다** — `TrashToolbar` 의 [모두 삭제]와 같은 path 라,
- * 앱 안에서 "버리는 일"은 어디서 보든 같은 그림이다(이모지 ❌ · lucide 톤 stroke SVG).
- */
+/** 휴지통 글리프 — `TrashToolbar` [모두 삭제]와 같은 path(버리는 일은 어디서나 같은 그림). */
 function TrashGlyph(): React.JSX.Element {
   return (
     <svg
@@ -164,10 +132,7 @@ function SpeechBalloonGlyph(): React.JSX.Element {
   );
 }
 
-/**
- * §5.4 #36 (H) ① — [연결선 숨기기]/[연결선 보이기] 글리프. 끊기(`unlink`)가 아니라 **눈**이다 — 연결은 그대로 두고
- * 보이기만 바꾼다는 뜻이 그림에서 읽혀야 한다(lucide `eye-off` / `eye` 톤).
- */
+/** §5.4 #36 (H) ① — [연결선 숨기기]/[보이기] 글리프. 끊기가 아니라 눈이다(연결은 두고 보이기만 바꾼다 — lucide `eye-off`/`eye` 톤). */
 function LinksVisibilityGlyph({ hidden }: { hidden: boolean }): React.JSX.Element {
   return (
     <svg
@@ -199,10 +164,7 @@ function LinksVisibilityGlyph({ hidden }: { hidden: boolean }): React.JSX.Elemen
   );
 }
 
-/**
- * §5.4 #36 (H) ② — 보기 전환 글리프. 갈 곳을 그린다: "연결된 것 위주로"는 궤도와 위성(우리 캔버스의 연결 언어 —
- * lucide `orbit` 톤), "작업 파일 위주로"는 겹친 문서(lucide `files` 톤).
- */
+/** §5.4 #36 (H) ② — 보기 전환 글리프. 갈 곳을 그린다: "연결된 것 위주로" = 궤도(lucide `orbit` 톤), "작업 파일 위주로" = 겹친 문서(`files` 톤). */
 function LinkLensGlyph({ to }: { to: 'linked' | 'files' }): React.JSX.Element {
   return (
     <svg
@@ -234,10 +196,7 @@ function LinkLensGlyph({ to }: { to: 'linked' | 'files' }): React.JSX.Element {
   );
 }
 
-/**
- * §5.4 #36 (H) ①-2 — [연결된 버블 ▸] 묶음 글리프. 원 셋이 선으로 이어진 그림(lucide `share-2` 톤) — 에이전트와 그 선에
- * 매달린 버블이라는 우리 캔버스의 연결 언어 그대로다(②의 궤도 글리프와 겹치지 않게 궤도는 쓰지 않는다).
- */
+/** §5.4 #36 (H) ①-2 — [연결된 버블 ▸] 글리프. 선으로 이은 원 셋(lucide `share-2` 톤) — ②의 궤도 글리프와 겹치지 않게 궤도는 쓰지 않는다. */
 function LinkedBubblesGlyph(): React.JSX.Element {
   return (
     <svg
@@ -258,10 +217,7 @@ function LinkedBubblesGlyph(): React.JSX.Element {
   );
 }
 
-/**
- * §5.4 #36 (H) ①-2 — [고정]/[고정 풀기] 글리프. 앱 안 다른 고정 손잡이(앱 노드·탭·메모)와 **같은 핀 path** 다 — 고정은
- * 어디서 보든 같은 그림이다. 풀기는 그 핀에 빗금(lucide `pin-off` 톤).
- */
+/** §5.4 #36 (H) ①-2 — [고정]/[고정 풀기] 글리프. 다른 고정 손잡이(앱 노드·탭·메모)와 같은 핀 path, 풀기는 빗금(lucide `pin-off` 톤). */
 function LinksPinGlyph({ pinned }: { pinned: boolean }): React.JSX.Element {
   return (
     <svg
@@ -337,10 +293,7 @@ export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, textField, 
   const pathLocks = useGraphStore((s) => s.pathLocks);
   const activeProject = useGraphStore((s) => s.activeProject);
 
-  /**
-   * §5.3 #12-3 — 자물쇠 계획. 대상은 **여는 순간의 노드 데이터**에서 뽑는다(위성 파일처럼 `nodeMap` 에
-   * 없는 버블도 흐름 노드가 자기 버블 데이터를 들고 있다). 판정은 순수 함수 한 곳(`planBubbleLock`).
-   */
+  /** §5.3 #12-3 — 자물쇠 계획. 대상은 여는 순간의 노드 데이터에서 뽑는다(`nodeMap` 에 없는 위성도 노드가 데이터를 든다). 판정은 `planBubbleLock`. */
   const lockPlan = useMemo(() => {
     const bubbles = nodes
       .filter((n) => n.type === 'bubble')
@@ -394,8 +347,7 @@ export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, textField, 
         label: t(labelKey),
         icon: <TrashGlyph />,
         onClick: handleDelete,
-        // §2.4 v1.28 — 고정한 버블은 서버가 `409 bubble preserved` 로 막는다. 눌러 본 뒤에
-        //   아무 일도 안 일어나는 것보다, 왜 못 누르는지 미리 말해 주는 편이 낫다.
+        // §2.4 — 고정한 버블은 서버가 `409 bubble preserved` 로 막으므로 미리 끄고 이유를 보인다.
         disabled: single.pinned,
         disabledTitle: single.pinned ? t('canvas.bubbleMenu.pinnedTitle') : undefined,
         // §5.24 #32 — 키는 문장에 적지 않는다. 레지스트리에서 읽어 키캡으로 그려야 사용자가
@@ -485,10 +437,8 @@ export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, textField, 
   }, [nodes, edges, lockPlan, activeProject, handleLock, handleUnlock, t]);
 
   /**
-   * §5.4 #36 (A) — 형태 전환 한 줄. **맨 아래**에 서고(사용자 지시 — 우클릭은 기존 메뉴를 그대로 연다),
-   * 버블이면 [말풍선으로 전환], 말풍선이면 같은 자리 [버블로 되돌리기]. 두 방향이 같은 자리라 되돌리는 길을
-   * 찾지 않는다. 메인 뷰에서만 — 폴더·워크트리·휴지통 안은 말풍선을 그리지 않는다(바꿔도 화면이 그대로다).
-   * 판정은 `agentCard.ts`(서버 `setAgentForm` 과 같은 조건) 한 벌.
+   * §5.4 #36 (A) — 형태 전환 한 줄은 맨 아래, 두 방향이 같은 자리. 메인 뷰에서만(폴더·워크트리·휴지통 안은 말풍선을 안 그린다).
+   * 판정은 `agentCard.ts`(서버 `setAgentForm` 과 같은 조건).
    */
   const mainView = useGraphStore((s) => isMainCanvasView(s));
   const soleExecutionMode = useGraphStore((s) => (soleBubbleId ? s.agentConfigs[soleBubbleId]?.executionMode : undefined));
@@ -515,10 +465,8 @@ export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, textField, 
   }, [onAgentForm, soleBubbleId, mainView, soleExecutionMode, nodes, nodeMap, t]);
 
   /**
-   * §5.4 #36 (H) — [숨기기] 하위 메뉴에 버블·연결선 표시를 모은다. children 배열에 항목을 더해 확장한다.
-   * 앱 노드가 이어진 에이전트면 그 아래 [버블 전부 보기] ↔ [앱 관련 버블만 보기], 끝에 ①-2 [연결된 버블 ▸].
-   * 혼자 고른 에이전트에서만이고(묶음 일괄 ❌), 휴지통 안에서는 뜨지 않는다(그 화면에는 선이 없다).
-   * 상태는 **연 순간의 노드 데이터**에서 읽고(누르면 메뉴는 닫힌다), 판정은 `linkView.ts`, 저장은 store 한 경로다.
+   * §5.4 #36 (H) — [숨기기] 하위 메뉴(버블·연결선 표시). 앱이 이어진 에이전트면 [버블 전부 보기] ↔ [앱 관련 버블만 보기] + ①-2 [연결된 버블 ▸].
+   * 혼자 고른 에이전트만, 휴지통 안 ❌. 상태는 연 순간의 노드 데이터, 판정은 `linkView.ts`, 저장은 store 한 경로.
    */
   const soleHasAppLinks = useGraphStore((s) => (soleBubbleId ? agentHasAppLinks(s.appBubbles, soleBubbleId, s.activeProject) : false));
   const linkItems = useMemo<ContextMenuItem[]>(() => {
@@ -594,10 +542,7 @@ export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, textField, 
     return out;
   }, [soleBubbleId, inTrashView, nodes, nodeMap, soleHasAppLinks, t]);
 
-  /**
-   * §5.4 #36 (A) — 카드 입력칸에서 열었으면 맨 위에 글자 항목. 전역 입력칸 메뉴와 같은 함수·같은 문구라,
-   * 이 칸만 다른 동작을 하지 않는다. 선택 범위는 **연 순간**의 것(누르는 순간 초점이 옮겨가도 그대로).
-   */
+  /** §5.4 #36 (A) — 카드 입력칸에서 열었으면 맨 위에 글자 항목(전역 입력칸 메뉴와 같은 함수·문구). 선택 범위는 연 순간의 것. */
   const textItems = useMemo<ContextMenuItem[]>(() => {
     if (!textField) return [];
     return buildTextFieldMenuItems(

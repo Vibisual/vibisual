@@ -12,10 +12,7 @@ interface ReadingRowProps {
   value?: string;
   /** 이 설정의 근거 한 줄 — 사용자가 "왜 이 값인지" 읽고 고르게 한다. */
   note?: string;
-  /**
-   * 이 항목**만** 기본값으로 되돌린다. 패널 위쪽 전체 초기화와 달리 다른 항목은 건드리지 않는다 —
-   * 하나를 시험해 보다 마음에 안 들 때 나머지 설정까지 잃지 않고 그 줄만 물릴 수 있어야 한다.
-   */
+  /** 이 항목만 기본값으로(패널 위 전체 초기화와 달리 다른 항목은 그대로). */
   onReset?: () => void;
   /** 지금 값이 이미 기본값인가 — 그러면 버튼을 눌러도 바뀔 게 없으므로 비활성으로 알린다. */
   isDefault?: boolean;
@@ -81,11 +78,7 @@ interface ReadingSegmentedProps<T extends string> {
   value: T | undefined;
   options: readonly SegmentedOption<T>[];
   onChange: (id: T) => void;
-  /**
-   * 줄바꿈. 기본은 **넘칠 때만** 다음 줄로 넘긴다 — 한 줄에 들어가면 종전과 같은 한 줄이고, 좁힌 창에서
-   * 패널이 줄어 버튼 글(`whitespace-nowrap`)이 다 안 들어가면 패널 밖으로 삐져나가는 대신 쌓인다.
-   * `false` 면 한 줄을 고집한다.
-   */
+  /** 줄바꿈 — 기본은 넘칠 때만 다음 줄로(좁은 패널에서 `whitespace-nowrap` 버튼이 밖으로 삐져나가지 않게). `false` 면 한 줄 고집. */
   wrap?: boolean;
 }
 
@@ -126,10 +119,7 @@ interface ReadingSelectProps<T extends string> {
   onChange: (id: T) => void;
 }
 
-/**
- * 항목이 많은 축(글꼴처럼 열 개가 넘는 것)은 버튼을 늘어놓으면 패널이 버튼밭이 된다.
- * 한 줄 드롭다운으로 접어 **고르는 값이 하나임을 형태로** 말한다(선택지 수가 늘어도 높이가 고정).
- */
+/** 선택지가 많은 축(글꼴처럼 열 개 넘는 것)용 한 줄 드롭다운 — 늘어도 높이가 고정이다. */
 export function ReadingSelect<T extends string>({
   label, value, options, onChange,
 }: ReadingSelectProps<T>): React.JSX.Element {

@@ -20,12 +20,7 @@ import {
   type LinePiece,
 } from './editorFind.js';
 
-/**
- * §5.5 #17-27 ⑲ — 편집창 찾기·바꾸기의 순수 계산.
- *
- * 엉뚱한 자리를 칠하거나 바꾸는 사고는 화면으로 잡기 어렵다. 무엇이 맞고 · 어디로 가고 · 무엇으로
- * 바뀌고 · 어느 글자를 칠하는지를 여기서 못 박는다.
- */
+/** §5.5 #17-27 ⑲ — 찾기·바꾸기: 무엇이 맞고 · 어디로 가고 · 무엇으로 바뀌고 · 어느 글자를 칠하는지. */
 
 const opts = (over: Partial<FindOptions> = {}): FindOptions => ({ ...DEFAULT_FIND_OPTIONS, ...over });
 const spans = (text: string, query: string, over: Partial<FindOptions> = {}): string[] =>

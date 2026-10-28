@@ -1,18 +1,8 @@
 /**
- * projectTabOrder.ts — §5.4 #14-2 (C-1) 프로젝트 탭 줄의 순서(클라 순수 로직).
- *
- * 프로젝트 탭끼리의 순서는 서버 `AppState.openProjects` 의 배열 순서가 SSOT 다. 종전에는 줄 순서를 컴포넌트의
- * 휘발 상태(`tabOrder`)만 들고 있었고, 그 첫 값은 첫 스냅샷이 실어 온 순서("마지막으로 보던 프로젝트 → 나머지")
- * 였다 — 그래서 끌어서 맞춰 둔 자리가 앱을 켤 때마다 흐트러지고 마지막에 본 탭이 맨 앞으로 튀었다.
- *
- * 이 모듈이 하는 일은 둘이다.
- *  1. `syncTabOrder` — 지금 줄의 순서(iframe 탭과 섞여 있다)를 들어온 탭 목록과 서버 순서에 맞춘다.
- *  2. 붙들기 — 드롭 직후, PATCH 전에 떠난 스냅샷이 옛 순서를 싣고 와 탭을 한 번 되돌리지 않게 서버 순서 위에
- *     놓은 순서를 얹어 그린다(§5.4 #36 (H) `stores/linkViewHold.ts` 와 같은 규율 — 다 답한 뒤 서버가 그 순서를
- *     따르면 놓고, 실패면 곧바로, 그 밖엔 `PROJECT_TAB_ORDER.pendingMs`).
- *
- * 놓은 순서를 서버 순서에 얹는 계산은 shared `reorderOpenProjects` 한 벌이다 — 서버가 PATCH 를 받으면 똑같이
- * 계산하므로, 붙드는 동안 그린 줄과 저장된 줄이 갈리지 않는다. DOM·store 를 만지지 않아 그대로 단위 테스트된다.
+ * §5.4 #14-2 (C-1) — 프로젝트 탭 줄 순서(순수 로직). 프로젝트 탭끼리는 서버 `AppState.openProjects` 순서가 SSOT.
+ * `syncTabOrder` 는 지금 줄(iframe 섞임)을 탭 목록·서버 순서에 맞추고, 붙들기는 PATCH 전 스냅샷이 되돌리지 않게 놓은 순서를 얹는다
+ * (`stores/linkViewHold.ts` 와 같은 규율 — 다 답한 뒤 따르면 놓고, 실패면 곧바로, 그 밖엔 `PROJECT_TAB_ORDER.pendingMs`).
+ * 얹는 계산은 shared `reorderOpenProjects` 한 벌 — 서버도 같게 계산해 그린 줄과 저장된 줄이 안 갈린다.
  */
 import { pathKey, projectOrderFollows, reorderOpenProjects, type PlatformName } from '@vibisual/shared';
 
@@ -34,15 +24,9 @@ export function sameTabOrder(a: readonly string[], b: readonly string[]): boolea
 }
 
 /**
- * 다음 줄 순서.
- *
- * ① 사라진 탭은 뺀다. ② **프로젝트 탭끼리는 `projectOrder` 순서로** — 프로젝트 탭이 차지한 자리들 안에서만 다시
- * 줄 세우므로 iframe 탭은 제자리다. 순서에 없는 프로젝트(아직 목록에 안 실린 것)는 지금 앞뒤 그대로 뒤로 간다.
- * ③ 처음 보는 프로젝트 탭은 그 순서의 **제자리**에 끼운다(앞에 올 탭보다 뒤 · 뒤에 올 첫 프로젝트 탭 앞). 표시명이
- * 바뀌어 키가 갈린 탭도 이 길을 타므로 줄 끝으로 튀지 않는다. 뒤에 올 프로젝트 탭이 없거나 순서를 모르면 종전처럼
- * 줄 끝이다 — 새로 연 프로젝트는 서버 목록 끝에 붙으므로 줄 끝에 선다. iframe 탭은 언제나 줄 끝에 붙는다.
- *
- * 바뀐 것이 없으면 내용이 같은 새 배열을 돌려준다 — 같은지는 부르는 쪽이 `sameTabOrder` 로 가린다.
+ * 다음 줄 순서: ① 사라진 탭은 뺀다 ② 프로젝트 탭끼리는 그 자리들 안에서 `projectOrder` 순으로(iframe 탭은 제자리, 순서에 없는 것은 뒤로)
+ * ③ 처음 보는 프로젝트 탭은 순서의 제자리에 끼운다(표시명이 바뀐 탭도 끝으로 안 튄다) — 자리를 모르면 줄 끝, iframe 탭은 늘 줄 끝.
+ * 늘 새 배열을 준다 — 같은지는 `sameTabOrder` 로 가린다.
  */
 export function syncTabOrder(
   prev: readonly string[],

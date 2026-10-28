@@ -1,9 +1,4 @@
-/**
- * §5.13 (V) 37-10 — **스타일 카드**의 순수 층: 프로젝트에서 찾은 후보(색·글꼴·로고)를 모양으로 묶고, 그중에서 한 벌을 제안한다.
- *
- * 찾기(파일 훑기)는 서버가 하고, 여기서는 문자열만 다룬다 — 색 정규화·밝기·채도, 제안 규칙. 사용자가 고르고 확정하면 그 한 벌이
- * 문서 `style` 로 적히고(같은 문서 = 같은 프레임), 런타임 심이 모든 컴포지션에 `--vibi-*` 변수로 넣는다.
- */
+/** §5.13 (V) 37-10 — 스타일 카드의 순수 층(문자열만 — 파일 훑기는 서버): 후보를 묶고 한 벌을 제안한다. 확정본은 문서 `style` 로 적히고 런타임 심이 `--vibi-*` 변수로 넣는다. */
 import type { DocStyle } from './types.js';
 
 export interface ColorCandidate {
@@ -84,11 +79,7 @@ export function hexToHsl(hex: string): { h: number; s: number; l: number } {
   return { h: h / 6, s, l };
 }
 
-/**
- * 후보에서 한 벌을 제안한다 — 강조 = 가장 자주 쓰인 선명한 색(채도 0.35↑·밝기 0.3~0.7), 바탕 = 가장 자주 쓰인 어두운 색
- * (밝기 0.2↓), 글 = 가장 자주 쓰인 밝은 색(밝기 0.85↑), 흐린 글 = 채도 낮은 가운데 밝기. 없으면 기본 한 벌의 그 칸.
- * 글꼴 = 가장 자주 쓰인 이름(일반 글꼴군 이름은 건너뛴다), 로고 = svg 먼저, 짧은 경로 먼저.
- */
+/** 칸마다 조건에 맞는 색 중 가장 자주 쓰인 것, 없으면 기본 한 벌의 그 칸. 글꼴은 일반 글꼴군 이름을 건너뛰고, 로고는 svg·짧은 경로 먼저. */
 export function suggestStyle(c: Pick<StyleCandidates, 'colors' | 'fonts' | 'logos'>): DocStyle {
   const byCount = [...c.colors].sort((a, b) => b.count - a.count);
   const pick = (test: (hsl: { h: number; s: number; l: number }) => boolean): string | undefined =>

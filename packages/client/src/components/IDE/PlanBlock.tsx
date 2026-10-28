@@ -53,13 +53,7 @@ const ROW_STYLE: Record<TodoItem['status'], { text: string; glyph: string; icon:
   pending: { text: 'text-gray-400', glyph: 'text-gray-600', icon: <PendingGlyph /> },
 };
 
-/**
- * §5.5 #17-12 — 계획 블록(`TodoWrite` 승격 렌더).
- *
- * "에이전트가 무엇을 하려는지"를 실행 초반에 보여줘 사용자가 멈출지 말지 판단하게 하는 표면.
- * 진행 중 단계를 강조하고 완료/전체를 함께 띄운다. 같은 턴의 옛 계획(`superseded`)은 한 줄로 접혀,
- * 펼치면 그때의 계획을 그대로 볼 수 있다(계획은 하나, 갱신 이력은 소음).
- */
+/** §5.5 #17-12 — 계획 블록(`TodoWrite` 승격). 진행 단계 강조 + 완료/전체. 같은 턴의 옛 계획(`superseded`)은 한 줄로 접는다. */
 export const PlanBlock = memo(function PlanBlock({ item }: PlanBlockProps): React.JSX.Element {
   const { t } = useTranslation();
   // 기본 펼침 여부는 "지금 유효한 계획인가"로 정해진다 — 더 새 계획이 오면(superseded) 사용자가 따로 건드리지

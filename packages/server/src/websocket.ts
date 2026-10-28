@@ -22,21 +22,10 @@ export interface ClientConnection {
   send(data: string): void;
 }
 
-/** §7.11 v1.44 / v2.5 — `(shellId, port)` 별 lazy iframe 서버 로그 스트리머.
- *
- *  resolveOutputFile: 구독한 `(port, shellId)` 에 대응하는 ServerEntry 를
- *  `runningServers` 에서 §7.11 "ServerEntry 매칭" 규칙으로 찾아 그 `outputFile` 만 쓴다.
- *    - shellId 있음: `(shellId AND port)` 정확 일치 → 같은 shellId 의 다른 entry
- *      (한 셸이 FE/BE 다중 포트를 열어도 outputFile 은 셸 단위로 동일) 순.
- *      bare-port fallback 은 하지 않는다 — 다른 셸의 같은 포트로 새면 §3.5 격리 위반.
- *    - shellId 없음(레거시 위성): `port` 일치 entry.
- *  죽은 서버도 ServerEntry 는 보존(§7.11)되므로 그 마지막 outputFile 을 tail —
- *  서버가 꺼져 있으면 파일이 자라지 않아 새 라인도 없다. 매칭 실패 시 null →
- *  init 이 `unavailable:'no-server-entry'` 로 표기.
- *
- *  v2.5 이전의 디스크 `.output` 스캔(`scanDiskForPort` — 포트 숫자를 sniff 해
- *  "가장 최근 자란 파일" 선택)은 폐기됐다: 꺼진 서버의 팝업이 무관한 live 프로세스
- *  (다른 셸·에이전트 task 출력)의 로그를 흘리는 버그의 직접 원인이었다.
+/**
+ * §7.11 — `(shellId, port)` 별 lazy iframe 서버 로그 스트리머. `runningServers` 에서 ServerEntry 를 찾아 그 `outputFile` 만 tail 한다:
+ * shellId 있으면 `(shellId AND port)` → 같은 shellId 의 다른 entry 순, bare-port fallback ❌(다른 셸로 새면 §3.5 격리 위반). 없으면(레거시) `port` 일치.
+ * 죽은 서버도 entry 가 남아 마지막 파일을 본다. 못 찾으면 null(`unavailable:'no-server-entry'`). 디스크 `.output` 포트 스캔은 쓰지 않는다 — 무관한 로그가 샌다.
  */
 const iframeLogStreamer = new IframeLogStreamer(
   (port: number, shellId?: string): string | null => {
@@ -72,15 +61,12 @@ export function shutdownIframeLogStreamer(): void {
   iframeLogStreamer.shutdown();
 }
 
-/** graceful shutdown — §7.7 v1.99 서버 코어 로그 스트리머 타이머·구독 정리. */
+/** graceful shutdown — §7.7 서버 코어 로그 스트리머 타이머·구독 정리. */
 export function shutdownServerLogService(): void {
   serverLogService.shutdown();
 }
 
-/**
- * ws.on('message') 콜백 본문을 독립 함수로 추출 — desktop inprocess 모드에서
- * Electron IPC 메시지 수신 시에도 같은 로직을 재사용한다.
- */
+/** ws.on('message') 본문 — desktop inprocess 모드의 Electron IPC 수신도 같은 로직을 쓴다. */
 export function handleClientMessage(
   message: { type?: string; payload?: unknown },
   conn: ClientConnection,
@@ -109,12 +95,8 @@ export function handleClientMessage(
   if (message.type === 'set-project-scope') {
     const { projects, folders, slices } = (message.payload ?? {}) as SetProjectScopePayload;
     if (!Array.isArray(projects)) return;
-    // §9 폴더 스코프 — 같은 선언에 얹혀 온다. 배열이 아니면(구버전 클라) 그대로 넘겨
-    //   "미선언 = 전량" 으로 처리되게 한다(여기서 `[]` 로 정규화하면 그 창의 폴더 내부가 빈다).
-    // §9 슬라이스 스코프 — 셋째 축도 **같은 메시지에** 얹는다(한 메시지 = 한 왕복). 새 메시지
-    //   타입을 만들면 세 축이 따로 도착해 그 사이의 스냅샷이 어긋난 범위로 나간다.
-    //   `slices` 도 배열이 아니면 미선언 그대로 넘긴다 — 침묵을 `[]` 로 바꾸면 그 창이 읽는
-    //   슬라이스가 영영 안 온다(폴더 축과 같은 함정).
+    // §9 폴더·슬라이스 스코프 — 같은 메시지에 얹는다(따로 오면 그 사이 스냅샷이 어긋난 범위로 나간다).
+    // 배열이 아니면(구버전 클라) 미선언 그대로 넘긴다 — `[]` 로 바꾸면 그 창의 폴더 내부가 비고 읽는 슬라이스가 영영 안 온다.
     graphManager.setClientProjectScope(
       conn,
       projects,
@@ -150,7 +132,7 @@ export function handleClientMessage(
     return;
   }
 
-  // §7.11 v1.44 / v2.5 iframe 서버 로그 스트리밍 — 식별자 (shellId, port)
+  // §7.11 iframe 서버 로그 스트리밍 — 식별자 (shellId, port)
   if (message.type === 'subscribe_iframe_log') {
     const { port, shellId } = (message.payload ?? {}) as IframeLogSubscribePayload;
     if (typeof port === 'number' && Number.isFinite(port)) {
@@ -166,7 +148,7 @@ export function handleClientMessage(
     return;
   }
 
-  // §7.7 v1.99 — Vibisual 서버 코어 로그 스트리밍 (단일 전역 스트림)
+  // §7.7 — 서버 코어 로그 스트리밍(단일 전역 스트림)
   if (message.type === 'subscribe_server_log') {
     serverLogService.subscribe(conn as unknown as WebSocket);
     return;
@@ -176,7 +158,7 @@ export function handleClientMessage(
     return;
   }
 
-  // §4 v1.98 — renderer 가 잡은 JS 에러를 진단 로그(diagnosticService)에 적재.
+  // §4 — renderer 가 잡은 JS 에러를 진단 로그(diagnosticService)에 적재.
   if (message.type === 'client_error') {
     const p = (message.payload ?? {}) as { level?: unknown; message?: unknown; stack?: unknown };
     if (typeof p.message === 'string' && p.message.trim()) {
@@ -191,11 +173,7 @@ export function handleClientMessage(
   }
 }
 
-/**
- * 신규 클라이언트 접속 직후 보내는 초기 메시지(연결 ack + 현재 그래프 스냅샷).
- * standalone ws(`wss.on('connection')`) 와 desktop IPC(renderer 구독 시점) 양쪽이 공유 —
- * desktop in-process 모드엔 ws 'connection' 이벤트가 없으므로 IPC 레이어가 이걸 직접 보낸다.
- */
+/** 접속 직후 초기 메시지(ack + 스냅샷). standalone ws 와 desktop IPC 가 공유한다(in-process 엔 'connection' 이 없어 IPC 가 직접 보낸다). */
 export function buildConnectionMessages(): WSMessage[] {
   return [
     { type: 'connection_ack', timestamp: Date.now(), payload: { message: 'Connected to Vibisual server' } },

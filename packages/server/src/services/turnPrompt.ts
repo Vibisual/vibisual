@@ -1,24 +1,7 @@
 /**
- * §5.5 #17-2 (판올림 번호 발급 대기) — 한 턴에 실제로 나갈 프롬프트 조립 (순수 모듈).
- *
- * 종전에는 `subAgentManager.execute` 안에서 인라인으로 조립했는데, 그 조립이 **앞말을 항상 붙였다**:
- * 이어지는 턴은 `livePreamble`(엣지·집행 플러그인·의도 선언·세션 목표) + `---`, 첫 스폰은
- * `contextSummary … Task: <본문>`. 그래서 사용자가 친 `/compact` 는 메시지 **맨 앞**에 서지 못했고,
- * CLI 는 그것을 내장 명령이 아니라 평문으로 보고 모델에게 그대로 넘겼다 — `/` 드롭다운(#17-2 v3.19)이
- * 노출하는 내장 명령이 한 번도 실행된 적이 없던 이유이며, 루프의 회차 사이 압축(#17-11 ⑪)이
- * 압축 대신 모델 턴을 하나씩 더 태우던 이유다.
- *
- * 실측(CLI 2.1.231, stream-json stdin) — 맨 앞 `/context`: `model=<synthetic>` · turns 0 · $0
- * (CLI 자체 처리) / 앞에 한 줄만 붙인 같은 본문: turns 1 · $0.0125 (모델이 평문으로 답한다).
- *
- * 규칙은 셋뿐이다:
- *
- *  1. **슬래시 명령이면 원문 그대로** — 앞말도, `Task:` 래핑도, 첨부 경로도 붙이지 않는다.
- *     맨 앞 한 글자라도 앞서면 CLI 가 명령으로 집지 못한다.
- *  2. **슬래시가 아니면 종전 조립과 바이트 단위로 같다** — 이 모듈을 끼운 것만으로 기존 턴의
- *     프롬프트가 한 글자도 달라지면 안 된다.
- *  3. 부수 효과 0 — 상태도 시각도 보지 않는다. 세션 브리핑을 이월할지 말지도 **판단만** 돌려주고
- *     들고 있는 것은 호출자의 몫이다. 그래야 단위 테스트가 이 조립을 통째로 지킬 수 있다.
+ * §5.5 #17-2 — 한 턴의 프롬프트 조립(순수 모듈). 앞말이 슬래시 명령 앞에 서면 CLI 가 명령으로 못 집는다
+ * (실측 CLI 2.1.231: 맨 앞 `/context` = `<synthetic>` · turns 0 · $0 / 한 줄 앞서면 turns 1 · $0.0125).
+ * ① 슬래시는 원문 그대로(앞말·`Task:`·첨부 ❌) ② 아니면 기존 조립과 바이트 단위로 같다 ③ 부수 효과 0 — 브리핑 이월도 판단만 돌려준다.
  */
 
 /**
@@ -73,12 +56,8 @@ export function isSlashCommandText(text: string): boolean {
 }
 
 /**
- * §5.11 정독 게이트 — 조립된 프롬프트에서 **본문만** 되찾는다.
- *
- * 훅 `UserPromptSubmit` 은 우리가 조립한 결과(브리핑·앞말 포함)를 그대로 준다. 그것을 라우팅 재료로 쓰면
- * 앞말에 실린 정독 블록의 제목들이 다음 턴의 "필수 절"을 고르는 자기 참조가 된다. 첫 스폰 꼴
- * (`브리핑 --- Task: 본문`)만 여기서 벗기고, 이어지는 턴의 본문은 조립 시점에 원장이 직접 받는다
- * (`specReadingService.notePrompt` · 앞말 꼴은 마커가 없어 여기서 못 가른다). 우리 꼴이 아니면 그대로 돌려준다.
+ * §5.11 정독 게이트 — 조립된 프롬프트에서 본문만 되찾는다(앞말째 라우팅하면 정독 블록 제목이 다음 "필수 절"을 고르는 자기 참조).
+ * 첫 스폰 꼴(`브리핑 --- Task: 본문`)만 벗긴다 — 이어지는 턴은 원장이 조립 때 받는다(`specReadingService.notePrompt`).
  */
 export function extractTaskText(prompt: string): string {
   const marker = `${PREAMBLE_SEPARATOR}${TASK_LEAD}`;
@@ -86,12 +65,7 @@ export function extractTaskText(prompt: string): string {
   return at >= 0 ? prompt.slice(at + marker.length) : prompt;
 }
 
-/**
- * 이 턴에 실제로 나갈 프롬프트를 만든다.
- *
- * 슬래시 명령이면 `text.trim()` 을 그대로 돌려주고(문자열 동일성 보장), 그 턴이 첫 스폰이었다면
- * 브리핑을 다음 턴으로 미룬다 — 세션에 한 번뿐인 브리핑을 슬래시 한 줄에 잃지 않기 위해서다.
- */
+/** 슬래시면 `text.trim()` 그대로, 첫 스폰이었으면 브리핑을 다음 턴으로 미룬다(한 번뿐인 브리핑을 잃지 않게). */
 export function composeTurnPrompt(input: TurnPromptInput): TurnPrompt {
   const needsSummary = !input.hasSession || input.carryContextSummary === true;
 

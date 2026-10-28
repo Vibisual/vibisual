@@ -5,20 +5,15 @@ import { releaseSceneLook } from './sceneLook.js';
 import { preserveEnvironmentRenderer } from './sceneEnvironmentState.js';
 
 /**
- * §5.13 (R-10) — one studio light for every place a 3D source becomes a picture: the Vibi3D view, the candidate
- * preview, video model scenes and product image stills. Metals need something to reflect — without an environment a
- * 0.8-metalness gold renders as dark brown — so all of them use three's RoomEnvironment through PMREM (MIT, part
- * of three) plus the same two direct lights. Preview and output then match.
+ * §5.13 (R-10) — one studio light for every 3D picture (view, candidate preview, video scenes, product stills) so preview and output match.
+ * Metals need an environment — without it 0.8-metalness gold renders dark brown — so all use three's RoomEnvironment via PMREM.
  */
 export { STUDIO_LIGHT };
 export { renderStudioView, type StudioViewOptions } from './sceneLook.js';
 export { readStudioViewRaster } from './sceneLookRaster.js';
 
 const environments = new WeakMap<THREE.WebGLRenderer, THREE.WebGLRenderTarget | null>();
-/**
- * The prefiltered environment for one renderer (PMREM textures belong to the GL context that made them). Null when the
- * renderer cannot prefilter (lost or limited context): the view then shows the direct studio lights only, never fails.
- */
+/** Per renderer (PMREM textures belong to the GL context that made them). Null when it cannot prefilter (lost or limited context) — the view then uses only the direct studio lights, never fails. */
 export function studioEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture | null {
   if (environments.has(renderer)) return environments.get(renderer)?.texture ?? null;
   let target: THREE.WebGLRenderTarget | null = null;

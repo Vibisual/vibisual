@@ -1,12 +1,6 @@
 /**
- * §5.13 (T-2) — 컴포지션 결정성 검사(lint) + 시각 맞춤 방식 판정 (순수).
- *
- * 컴포지션 코드는 에이전트가 썼거나 바깥에서 왔다. 샌드박스(T-3)가 막거나 런타임 심이 삼키는 것을 **렌더 전에**
- * 알려 주는 것이 목적이다 — "왜 빈 화면이지"를 렌더 30초 뒤에 알게 하지 않는다. 문자열 훑기라 거짓 양성이 있을 수
- * 있지만, 막히는 것을 놓치는 쪽(거짓 음성)이 더 비싸므로 넓게 잡는다.
- *
- * 결과는 소재(`VideoAsset.lint`)에 실려 에이전트가 `GET /doc` 으로 바로 보고, 스튜디오 아이템 패널이 같은 목록을
- * 번역해 보인다(`code` → `panel.videoStudio.lint.<code>`). `message` 는 에이전트가 읽는 영문이다.
+ * §5.13 (T-2) — 컴포지션 결정성 검사 + 시각 맞춤 방식 판정(순수). 샌드박스가 막거나 심이 삼키는 것을 렌더 전에 알린다 — 놓치는 쪽이 비싸 넓게 잡는다(거짓 양성 감수).
+ * 결과는 `VideoAsset.lint`(에이전트는 `GET /doc`, 패널은 `panel.videoStudio.lint.<code>`). `message` 는 에이전트용 영문.
  */
 
 import type { CompositionLintEntry, CompositionSeekMode } from '../types.js';
@@ -87,8 +81,8 @@ const RULES: readonly Rule[] = [
     message: 'localStorage / sessionStorage / indexedDB / cookies are unavailable in the sandbox.',
     codePatterns: [/\b(?:localStorage|sessionStorage|indexedDB)\b/, /\bdocument\.cookie\b/],
   },
-  // §5.13 (W) 38-9 — `module-script` 경고를 걷었다: 샌드박스 iframe + vibproxy 에서 `type="module"`·import map 이 로드되는 것을
-  //   실측했다(2026-10-13, Electron 31). 남겨 두면 에이전트가 ES 모듈 전용 라이브러리를 피하게 만든다.
+  // §5.13 (W) 38-9 — `module-script` 경고를 두지 않는다: 샌드박스 iframe + vibproxy 에서 `type="module"`·import map 이 로드된다
+  // (실측 2026-10-13, Electron 31). 경고하면 에이전트가 ES 모듈 전용 라이브러리를 피한다.
   {
     level: 'warn',
     code: 'css-transition',

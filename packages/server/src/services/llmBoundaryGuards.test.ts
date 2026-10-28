@@ -1,15 +1,6 @@
 /**
- * OWASP LLM Top 10(2025) 감사에서 나온 **경계 함수들**의 회귀 고정.
- *
- * 여기 모인 다섯은 서로 다른 축을 막지만 성질이 같다 — **모델·바깥이 준 문자열을 우리가 정한
- * 모양으로 접는 순수 함수**다. 그래서 한 파일에 둔다: 이 파일이 통째로 통과하면 "바깥 문자열이
- * 우리 쪽 결정을 바꾸는" 다섯 갈래가 전부 닫혀 있다는 뜻이 된다.
- *
- * - `redactSecrets` — LLM02(민감정보 노출): 회상 발췌·경고문이 토큰을 다른 세션으로 실어 나르지 않게.
- * - `resolveAutoGoalProjectRoot` — LLM08(저장고 경계): 아무 경로나 지목해 남의 절차 저장고를 열지 못하게.
- * - `detectLocalBashEscape` — LLM05(출력 무검증 처리): 로컬 모델이 낸 명령이 프로젝트 밖으로 나가지 못하게.
- * - `sanitizeCmdPrefill` — LLM06(과도한 권한): prefill 이 사람의 Enter 없이 스스로 실행되지 못하게.
- * - `parseAssetSha256` — LLM03(공급망): 발행처 지문이 아닌 값으로 검증했다고 착각하지 않게.
+ * OWASP LLM Top 10(2025) 경계 함수 회귀 — 바깥 문자열을 정한 모양으로 접는 순수 함수 다섯: `redactSecrets`(LLM02) · `resolveAutoGoalProjectRoot`(LLM08 — 남의 저장고 ❌)
+ * `detectLocalBashEscape`(LLM05 — 프로젝트 밖 명령 ❌) · `sanitizeCmdPrefill`(LLM06 — Enter 없는 실행 ❌) · `parseAssetSha256`(LLM03 — 발행처 지문만).
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -60,12 +51,7 @@ describe('redactSecrets — 발췌가 토큰을 실어 나르지 않는다', () 
 
 // ─── LLM08 · 절차 저장고의 프로젝트 경계 ───
 
-/*
- * 폐기된 브레인이 `resolveBrainQueryProject` 로 막던 자리를 자동 목표가 이어받았다(§5.10).
- * 막는 것은 같다 — **지목한 경로가 지금 열려 있는 프로젝트가 아니면 아무것도 돌려주지 않는다.**
- * 저장고가 `.vibisual/brain` 의 카드 더미에서 `.vibisual/skills` 의 절차 파일로 바뀌었을 뿐,
- * "경로 문자열 하나로 남의 폴더를 읽어 간다"는 사고 모양은 그대로이기 때문이다.
- */
+/* §5.10 — 지목한 경로가 열린 프로젝트가 아니면 아무것도 돌려주지 않는다(경로 문자열로 남의 `.vibisual/skills` 를 읽는 사고). */
 describe('resolveAutoGoalProjectRoot — 열려 있는 프로젝트만 연다', () => {
   const LOADED = ['/repos/app', '/repos/other'];
 

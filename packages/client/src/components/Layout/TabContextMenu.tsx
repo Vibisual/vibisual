@@ -13,12 +13,8 @@ import { shortcutLabel } from '../../utils/platform.js';
 import { formatSince } from '../../formatSince.js';
 
 /**
- * 메뉴 한 줄의 식별자.
- *
- * `reopenClosed`·`recentlyClosed` 는 **`onAction` 으로 나가지 않는다**(§5.4 #14-4) — 전용
- * 콜백(`onReopen`)이 있고, 이 둘은 "어느 항목을 여느냐"라는 인자를 함께 넘겨야 하기 때문이다.
- * 유니온에 넣어 두는 이유는 `actions` 배열이 이 타입으로 키를 잡기 때문이고, 실제 분기는
- * 아래 `handleClick` 이 `onAction` 에 닿기 전에 가른다.
+ * 메뉴 한 줄의 식별자. `reopenClosed`·`recentlyClosed` 는 `onAction` 이 아니라 인자를 받는 `onReopen` 으로 간다(§5.4 #14-4) — `handleClick` 이 먼저 가른다.
+ * 유니온에 둔 것은 `actions` 배열의 키 타입이라서다.
  */
 export type TabContextAction = 'close' | 'closeOthers' | 'closeLeft' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault' | 'detach' | 'rename' | 'splitRight' | 'splitDown' | 'reopenClosed' | 'recentlyClosed';
 
@@ -192,7 +188,7 @@ export const TabContextMenu = memo(function TabContextMenu({
       label: isDefault ? t('tabMenu.unsetDefault') : t('tabMenu.setDefault'),
       tooltip: t('tabMenu.defaultTooltip'),
     },
-    // §5.4 #14-1 (v2.29) — Drag-out 외에 컨텍스트 메뉴로도 분리 가능. showDetach=false 면 항목 제외.
+    // §5.4 #14-1 — 컨텍스트 메뉴로도 분리한다(showDetach=false 면 뺀다).
     ...(showDetach
       ? [
           {

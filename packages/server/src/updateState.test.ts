@@ -8,16 +8,8 @@ import {
 } from '@vibisual/shared';
 
 /**
- * **받아 둔 업데이트는 체크 결과로 지워지지 않는다.**
- *
- * 실제로 겪은 흐름이다: 0.1.18 을 쓰는 중에 0.1.19 를 받아 두면 우상단에 파란
- * "재시작하여 업데이트" 가 뜬다. 그걸 안 누르고 계속 쓰면 4시간 뒤 주기 체크가 도는데,
- * 종전에는 그 체크가 `phase` 를 `checking` → (실패 시) `error` 로 밀어 버려 **버튼이 사라졌다.**
- * 디스크에는 0.1.19 가 멀쩡히 있는데 `quitAndInstall` 이 `phase !== 'downloaded'` 로 거절해서
- * 다음 성공 체크까지 못 깔았다.
- *
- * 여기 테스트들은 그 전이를 하나씩 못 박는다. `updaterManager` 는 electron 이 있어야 돌지만
- * 규칙은 순수 함수로 뽑혀 있어 세 OS 분기 없이 전부 재진다.
+ * 받아 둔 업데이트는 체크 결과로 지워지지 않는다 — 주기 체크가 `phase` 를 `checking`/`error` 로 밀면 "재시작하여 업데이트"가 사라지고
+ * `quitAndInstall` 이 `phase !== 'downloaded'` 로 거절한다. 규칙이 순수 함수라 electron 없이 전이를 고정한다.
  */
 
 const base = (over: Partial<UpdateState> = {}): UpdateState => ({
@@ -70,7 +62,7 @@ describe('받아 둔 업데이트는 지워지지 않는다', () => {
 
   it('주기 체크가 시작돼도 버튼이 사라지지 않는다', () => {
     const s = reduceUpdateState(ready(), { kind: 'checking' });
-    // 종전에는 여기서 'checking' 이 되어 UpdateButton 이 null 을 그렸다(버튼 소멸).
+    // 여기서 'checking' 이 되면 UpdateButton 이 null 을 그린다(버튼 소멸).
     expect(s.phase).toBe('downloaded');
     expect(s.readyVersion).toBe('0.1.19');
   });

@@ -14,7 +14,7 @@ import { splitRelPath } from './explorerModel.js';
 import { useEditorDocs } from './useEditorDocs.js';
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 import { openFileByPath, openFolderByPath } from './useWorkspaceExplorer.js';
-import { workspaceMediaUrl } from '../../utils/workspaceMedia.js';
+import { isAbsoluteMediaPath, workspaceMediaUrl } from '../../utils/workspaceMedia.js';
 import { workspaceSiteSrc } from '../../utils/workspaceSite.js';
 import { clientPathKey } from '../../utils/platform.js';
 import { confirmDialog } from '../../utils/appDialog.js';
@@ -47,45 +47,26 @@ import { OpenFileGlyph } from './paneKinds.js';
 import { requestOpenerFocus } from './paneOpenerModel.js';
 
 /**
- * IDEEditorPane.tsx — §5.5 #17-27 v4.87 메인 영역 **오른쪽에 붙는 판**.
- *
- * 덮개가 아니라 형제다(§5.5 #17-27 ①) — 사용자는 에이전트가 말하는 것을 보면서 그 파일을 읽는다.
- * 이 컴포넌트가 하는 일은 셋: 탭 줄(열어 둔 것들) · 손잡이 줄(저장·다시 읽기·밖에서 열기·닫기) ·
- * 본문(`CodeEditor`). 읽기·저장은 `useEditorDocs` 가, 색 구분은 `codeHighlight` 가 맡는다.
- *
- * §5.5 #17-17 ㉔ — **우측에 서는 판은 이것 하나다.** 종전에는 무대(`IDEStageView`)가 자기 껍데기·자기
- * 폭 손잡이·자기 [닫기] 를 들고 이 판과 **나란히** 섰다 — 둘 다 열면 대화가 두 번 좁아졌고, 같은 자리에
- * 뜨는 것들(무대·파일·이미지·HTML·PDF)이 서로 다른 문법으로 열리고 닫혔다(사용자 지시: "이쪽에 열리는
- * 탭들은 전부 하나의 탭 안에 들어가야지"). 이제 그 전부가 **이 판의 탭**이다 — 맨 앞이 무대, 그 뒤가 파일.
- * 무엇을 비추는가는 `activePath` 하나가 정한다: `null` 이면 무대(열려 있을 때), 아니면 그 파일.
- * 새 상태를 만들지 않았으므로 "무대인 동시에 파일" 같은 어긋난 조합이 애초에 없다.
+ * IDEEditorPane.tsx — §5.5 #17-27 메인 영역 오른쪽의 판(덮개가 아닌 형제, ①). 탭 줄 · 손잡이 줄 · 본문(`CodeEditor`).
+ * §5.5 #17-17 ㉔ — 우측 판은 이것 하나: 무대·파일·이미지·HTML·PDF 가 전부 이 판의 탭이다(맨 앞이 무대).
+ * 비추는 것은 `activePath` 하나(`null` = 무대) — 따로 플래그를 두면 "무대이면서 파일" 조합이 생긴다.
  */
 
 /**
- * 폭 조절 손잡이의 **잡히는 여유**(px). 보이는 띠는 4px 그대로 두고 양옆으로만 넓힌다.
- *
- * 4px 짜리 표적을 정확히 겨누게 하는 것은 눈에 안 보이는 마찰이고(피츠의 법칙) 사용자는
- * "손잡이가 잘 안 잡힌다"로만 느낀다 — 분할 손잡이(§5.5 #17-27 ⑪ (a))가 같은 이유로 이미
- * 이 모양이고, 여기만 종전 4px 로 남아 있었다. 바깥 띠가 배경·강조를 그리고, 안쪽의 넓은
- * 절대배치 자식이 포인터를 받는다(부모의 `:hover` 는 자식 위에서도 켜지므로 강조도 함께 넓어진다).
+ * 폭 손잡이의 잡히는 여유(px) — 보이는 띠는 4px, 잡는 자리만 넓힌다(분할 손잡이 ⑪ (a) 와 같은 모양).
+ * 바깥 띠가 그리고 안쪽 절대배치 자식이 포인터를 받는다(부모 `:hover` 는 자식 위에서도 켜진다).
  */
 const RESIZE_HIT_PAD = {
   /** 대화 쪽(바깥)으로 넓히는 여유 — 그 자리에는 겹칠 손잡이가 없어 넉넉히 준다. */
   OUT: 8,
-  /**
-   * 본문 쪽(안쪽) 여유는 **작게**. 이 띠는 편집창 왼쪽 끝을 가리는데, 그 자리에는 탭의 왼쪽 끝과
-   * 코드 편집기의 여백(줄 번호·중단점을 찍는 곳)이 있다 — 넓게 잡으면 중단점이 안 찍힌다.
-   */
+  /** 본문 쪽 여유는 작게 — 편집창 왼쪽 끝의 줄 번호·중단점 여백을 가려 넓으면 중단점이 안 찍힌다. */
   IN: 2,
 } as const;
 
 /** §5.5 #17-27 ⑪ — 강조가 머무는 시간(ms). `index.css` 의 `edit-follow-flash` 길이와 맞춘다. */
 const FOLLOW_FLASH_MS = 1800;
 
-/**
- * §5.5 #17-27 ⑰ — 최대화한 직후 [원래대로] 가 드러나 있는 시간(ms). 평소에는 구석에 숨어 있으므로
- * 켠 그 순간 한 번 보여 줘야 "어디로 돌아오는지"를 안다. 그 뒤로는 마우스를 올려야 떠오른다.
- */
+/** §5.5 #17-27 ⑰ — 최대화 직후 구석의 [원래대로] 를 드러내 두는 시간(ms). 돌아갈 자리를 한 번 보여 준다. */
 const RESTORE_HINT_MS = 1500;
 
 export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
@@ -97,12 +78,8 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   const files = useIDEPaneValue((o) => o.editorFiles);
   const activePath = useIDEPaneValue((o) => o.activeEditorPath);
   /**
-   * 나란히 설 자리가 없으면(`editorDrawer`) 대화 위를 덮는 오버레이로 뜬다 — 폰뿐 아니라
-   * **창을 좁힌 데스크톱**도 여기로 온다(§5.5 #17-27 ① 의 `max-md` 판정을 창 폭 판정으로 넓혔다).
-   *
-   * `width` 는 사용자가 저장해 둔 폭이 아니라 **이 창에서 실제로 쓸 폭**이다 — 저장값(기본 520px)을
-   * 그대로 그리면 창보다 넓은 패널이 대화를 0px 로 밀어낸다(사용자 스크린샷의 그 상태). 저장값
-   * 자체는 손대지 않으므로 창을 다시 넓히면 끌어 둔 폭이 그대로 돌아온다.
+   * 자리가 없으면(`editorDrawer` — 폰·좁힌 창, ①) 대화 위 오버레이. `width` 는 저장값(기본 520px)이 아니라 이 창에서 쓸 폭이다
+   * — 저장값을 그대로 그리면 대화가 0px 로 밀린다(저장값은 그대로 둔다).
    */
   const { editorDrawer: narrow, editorWidth: width, editorMaxWidth, navDrawer } = useIDEBodyLayout();
   const setWidth = useGraphStore((s) => s.setIdeEditorWidth);
@@ -115,11 +92,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
     openPaneOpener,
   } = useIDEPaneActions();
   const paneKey = useIDEPaneKey();
-  /**
-   * §5.5 #17-17 ㉔ — 무대가 이 판의 탭으로 서 있나. 비추고 있는가는 **활성 파일이 없는가**로 정한다
-   * (새 플래그 ❌ — 두 값을 따로 들면 "무대이면서 파일"이 되는 조합이 생기고, 그 조합은 화면에
-   * 둘 중 무엇을 그릴지 아무도 모른다). 여닫는 것은 그래서 곧 탭을 고르고 놓는 일이다(스토어 쪽 주석).
-   */
+  /** §5.5 #17-17 ㉔ — 무대를 비추는가 = 무대 탭이 섰고 활성 파일이 없는가(새 플래그 ❌ — "무대이면서 파일" 조합이 생긴다). */
   const stageOpen = useIDEPaneValue((o) => o.stageOpen);
   const stageActive = stageOpen && activePath === null;
   /** §5.5 #17-27 ⑯ — 탭 줄이 세션을 따라 바뀌지 않게 붙들어 두었는가. */
@@ -129,10 +102,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   }, [setEditorTabsPinned, tabsPinned]);
 
   // ─── §5.5 #17-27 ⑰ — 최대화: 탭·경로·주소 줄을 걷고 본문만 ──────────────
-  /**
-   * 폭은 건드리지 않는다 — 걷는 것은 판 안의 머리 줄들뿐이다. 영속화 ❌(⑦ 그대로 그 창의 화면 상태).
-   * `restoreHint` 는 켠 직후 [원래대로] 를 잠깐 드러내 두는 표식이다(`RESTORE_HINT_MS`).
-   */
+  /** 폭은 두고 머리 줄만 걷는다. 영속 ❌(⑦). `restoreHint` = 켠 직후 [원래대로] 를 잠깐 드러내는 표식(`RESTORE_HINT_MS`). */
   const [maximized, setMaximized] = useState(false);
   const [restoreHint, setRestoreHint] = useState(false);
   const handleMaximize = useCallback((): void => {
@@ -148,10 +118,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
     const timer = window.setTimeout(() => setRestoreHint(false), RESTORE_HINT_MS);
     return () => window.clearTimeout(timer);
   }, [restoreHint]);
-  /**
-   * 판이 내려가면(비출 파일도 무대도 없음) 최대화도 푼다 — 다음에 열 때 탭 줄 없이 뜨면 사용자는
-   * 탭이 사라진 줄 안다. 아래 조기 반환(판이 서는 조건)을 **뒤집은 것과 같은 식**이다.
-   */
+  /** 판이 내려가면 최대화도 푼다(다음에 탭 줄 없이 뜨면 탭이 사라진 줄 안다). 아래 조기 반환 조건을 뒤집은 식이다. */
   const paneShown = stageActive || (files.length > 0 && !!activePath);
   useEffect(() => {
     if (!paneShown) handleRestore();
@@ -183,9 +150,8 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
 
   const active = useMemo(() => files.find((f) => f.relPath === activePath) ?? null, [files, activePath]);
   /**
-   * §5.5 #17-27 ⑱ — 지금 탭이 **빈 탭**이면 그 갈래. 빈 탭은 파일이 아니므로 디스크를 읽지 않고, 손잡이
-   * 줄·추종 띠·알림 줄을 세우지 않고, 본문 자리에 그 갈래의 파일 고르기(`IDEPaneOpener`)를 그린다.
-   * 판정은 언제나 `opener` 칸이다(키를 읽지 않는다 — `stores/editorOpener.ts`).
+   * §5.5 #17-27 ⑱ — 빈 탭이면 그 갈래: 디스크를 읽지 않고 손잡이·추종·알림 줄 없이 `IDEPaneOpener` 를 그린다.
+   * 판정은 늘 `opener` 칸이다(키를 읽지 않는다 — `stores/editorOpener.ts`).
    */
   const openerKind = active?.opener ?? null;
   const doc = activePath && !openerKind ? docs[activePath] : undefined;
@@ -193,15 +159,9 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   const language = useMemo(() => (active && !openerKind ? languageFromPath(active.relPath) : 'plain'), [active, openerKind]);
   /** §5.5 #17-27 ⑲ — 이 파일의 주석 기호(확장자까지 본다 — lua 는 `--`, 언리얼 `.ini` 는 `;`). */
   const comments = useMemo(() => commentTokensFor(active?.relPath ?? null, language), [active, language]);
-  /**
-   * §5.5 #17-27 ⑲ — 판의 찾기 기억(찾을 말·바꿀 말·스위치). 편집창은 파일마다 새로 서므로(`key={activePath}`)
-   * 여기 둬야 파일 탭을 바꿔도 같은 말로 이어 찾는다. 화면 안 휘발 상태다(영속 ❌).
-   */
+  /** §5.5 #17-27 ⑲ — 판의 찾기 기억. 편집창은 파일마다 새로 서므로(`key={activePath}`) 여기 둬야 탭을 바꿔도 이어 찾는다(휘발). */
   const findMemoryRef = useRef<EditorFindMemory | null>(null);
-  /**
-   * §5.5 #17-27 ⑱ (e) — 지금 파일 탭의 갈래. 손잡이 줄의 [파일 열기] 가 **같은 갈래**의 빈 탭을 그 옆에
-   * 세운다. 판정은 목록·서버와 같은 한 벌(`editorPaneKindOf` — 앱 선언은 등록표에서)이다.
-   */
+  /** §5.5 #17-27 ⑱ (e) — 지금 파일 탭의 갈래([파일 열기] 가 같은 갈래의 빈 탭을 세운다). 판정은 목록·서버와 같은 `editorPaneKindOf`. */
   const activeFileKind = useMemo(
     () => (active && !openerKind ? editorPaneKindOf(active.relPath, workspaceOpenClaims()) : null),
     [active, openerKind],
@@ -224,13 +184,11 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   const isPdf = !openerKind && activePath !== null && activePath.toLowerCase().endsWith('.pdf');
 
   // ─── §5.5 #17-27 ⑮ — HTML 은 글자가 아니라 페이지로 연다 ────────────────
-  /**
-   * 기본은 **그려진 페이지**이고, [소스] 를 누르면 ⑤ 의 편집창이 그대로 돌아온다(대체 ❌ 병행).
-   *
-   * 어느 쪽을 보고 있었는지는 **탭마다** 기억한다 — 한 벌로 두면 소스를 보다 다른 탭에 다녀온
-   * 순간 페이지로 되돌아가, 고치던 자리를 매번 다시 찾게 된다. 영속화 ❌(⑦ 그대로 — 그 창의 화면 상태).
-   */
-  const isHtml = activePath !== null && doc?.status === 'ready' && !doc.binary && isWorkspaceHtmlPath(activePath);
+  /** 기본은 그려진 페이지, [소스] 로 ⑤ 편집창(병행). 어느 쪽인지는 탭마다 기억한다(한 벌이면 탭을 옮길 때 페이지로 돌아간다). 영속 ❌(⑦). */
+  // ⑥ — 절대경로 탭(캔버스 파일 버블로 연 이 창의 루트 밖 파일)은 페이지로 그리지 않고 소스로 연다 — 페이지 창구(`workspaceSiteSrc`)는
+  //   이 창의 루트 기준 상대 경로만 풀기 때문이다.
+  const isHtml = activePath !== null && doc?.status === 'ready' && !doc.binary && isWorkspaceHtmlPath(activePath)
+    && !isAbsoluteMediaPath(activePath);
   const [htmlSourceTabs, setHtmlSourceTabs] = useState<ReadonlySet<string>>(new Set<string>());
   const showHtmlSource = activePath !== null && htmlSourceTabs.has(activePath);
   const toggleHtmlSource = useCallback((): void => {
@@ -303,10 +261,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
     doc?.mtimeMs ?? 0,
   );
 
-  /**
-   * §5.5 #17-25 ④-1 — 라이트박스가 이 파일을 덮어썼다. 새 `mtimeMs` 를 받아야 미리보기가
-   * 방금 그린 표시를 보여 준다(같은 시각을 두 번 처리하지 않도록 마지막 값을 기억한다).
-   */
+  /** §5.5 #17-25 ④-1 — 라이트박스가 덮어쓴 파일의 새 `mtimeMs` 로 미리보기를 다시 그린다(같은 시각은 한 번만). */
   const imageReloadedAtRef = useRef<Record<string, number>>({});
   useEffect(() => {
     if (!activePath || !imageFileKey || !imageSavedAt || imageReloadedAtRef.current[imageFileKey] === imageSavedAt) return;
@@ -327,7 +282,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
     });
   }, [imageBlob.url, imageBlob.mtimeMs, imageBlob.revision, rootPath, activePath, doc?.mtimeMs, openImageLightbox, lightboxOrigin]);
 
-  // ─── §5.5 #17-20 ⑩ v4.94 — 줄 번호 칸이 곧 중단점 gutter ─────────────────
+  // §5.5 #17-20 ⑩ — 줄 번호 칸이 곧 중단점 gutter.
   const projectName = useIDEPaneProjectName();
   const breakpoints = useGraphStore((s) => (projectName ? s.debugBreakpoints[projectName] : undefined));
   const toggleBreakpoint = useGraphStore((s) => s.toggleBreakpoint);
@@ -342,10 +297,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
     return set;
   }, [breakpoints, activePath]);
 
-  /**
-   * 지금 멈춰 서 있는 줄 — **이 파일일 때만**. 여러 세션이 떠 있으면 먼저 멈춘 것을 따르고,
-   * 프레임은 사용자가 콜스택에서 고른 것을 존중한다(안 골랐으면 맨 위 프레임).
-   */
+  /** 멈춰 선 줄 — 이 파일일 때만. 세션이 여럿이면 먼저 멈춘 것, 프레임은 콜스택에서 고른 것(없으면 맨 위). */
   const stoppedLine = useMemo(() => {
     if (!activePath || !rootPath) return null;
     for (const session of Object.values(debugSessions)) {
@@ -388,19 +340,15 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   const clearFollowSignal = useGraphStore((s) => s.clearIdeEditorFollowSignal);
   const setFollowLast = useGraphStore((s) => s.setIdeEditorFollowLast);
   const followMark = useGraphStore((s) => s.ideEditorFollowLast);
-  /**
-   * 지금 강조 중인 줄 범위(그 파일에 한정) — 잠깐 뒤 스스로 사라진다.
-   * `focus` 는 ⑬ (g) 사용자가 눌러 온 이동일 때만 선다(캐럿·초점까지 그 줄로 — 추종은 초점을 뺏지 않는다).
-   */
+  /** 강조 중인 줄 범위(잠깐 뒤 사라진다). `focus` 는 ⑬ (g) 눌러 온 이동에만 선다 — 추종은 초점을 뺏지 않는다. */
   const [follow, setFollow] = useState<{ relPath: string; range: FollowRange; token: number; focus?: boolean } | null>(null);
   /** (h) ④ 잔상 — 강조가 꺼진 뒤에도 **다음 편집까지** 남는 "여기가 방금 바뀐 자리" 표시. */
   const [recent, setRecent] = useState<{ relPath: string; range: FollowRange } | null>(null);
   /** 이미 접수한 신호의 시각 — 같은 신호를 두 번 처리하지 않는다. */
   const followSeenRef = useRef(0);
   /**
-   * 접수했지만 아직 **다시 읽기가 끝나지 않은** 신호.
-   * `awaitReload` 는 "reload 를 불렀으니 문서가 `loading` 으로 바뀌는 것을 먼저 보고 가라" 는 뜻이다 —
-   * 이 한 걸음이 없으면 아래 효과가 **다시 읽기 전의 옛 본문**에서 줄을 찾아 엉뚱한 곳으로 스크롤한다.
+   * 접수했지만 다시 읽기가 안 끝난 신호. `awaitReload` = 문서가 `loading` 으로 바뀌는 것을 먼저 보고 가라 —
+   * 없으면 다시 읽기 전 옛 본문에서 줄을 찾아 엉뚱한 곳으로 스크롤한다.
    */
   const followPendingRef = useRef<
     { relPath: string; absPath: string; newString: string; token: number; awaitReload: boolean; reloaded: boolean } | null
@@ -494,11 +442,8 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
 
   // ─── §5.5 #17-27 ⑬ (g) — 줄을 들고 온 열기: 그 줄로 · 캐럿 · 강조 · 칠하기 ───────────────
   /**
-   * 본문 링크(`X.h#L806-L807`)·오류 줄(#17-20 ⑪)이 `openIDEEditorFile` 에 줄 범위를 실어 보내면 스토어에
-   * 요청 한 건이 선다. **이 창의 것만** 받는다 — 옆 창의 편집창이 가로채면 엉뚱한 창이 스크롤한다.
-   * 스크롤·강조는 위 추종과 **같은 길**(`follow` → `CodeEditor`)을 타고, 다른 것은 셋이다: 캐럿·초점까지
-   * 그 줄로(`focus`), 그 범위를 칠해 둔다(`mark`), 추종의 자국·잔상은 건드리지 않는다(누른 이동은 에이전트
-   * 편집이 아니다).
+   * 본문 링크·오류 줄(#17-20 ⑪)의 줄 범위 요청 — 이 창의 것만 받는다(옆 창이 가로채면 엉뚱한 창이 스크롤).
+   * 추종과 같은 길이되 캐럿·초점(`focus`)·칠하기(`mark`)까지 하고 추종의 자국·잔상은 남기지 않는다.
    */
   const ownPaneKey = useIDEPaneValue((o) => o.paneKey);
   const reveal = useGraphStore((s) => (s.ideEditorReveal?.paneKey === ownPaneKey ? s.ideEditorReveal : null));
@@ -547,7 +492,8 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
   /** (h) — 끝까지 못 간 사유. 있으면 띠가 파란색이 아니라 호박색으로, 한 일 대신 **왜 안 했는지**를 말한다. */
   const bannerSkip = bannerMark?.skip ?? null;
 
-  const readOnly = !doc || doc.status !== 'ready' || doc.truncated || doc.binary;
+  // ⑥ 루트 밖 파일(캔버스에서 연 프로젝트 밖 파일)은 보기만 한다 — 쓰기는 루트 안만이다.
+  const readOnly = !doc || doc.status !== 'ready' || doc.truncated || doc.binary || doc.outside;
   const dirty = !!doc && doc.status === 'ready' && doc.draft !== doc.diskText;
 
   const handleChange = useCallback((next: string): void => {
@@ -565,18 +511,12 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
     ? t('ide.editor.save', { shortcut: saveKeyLabel })
     : t('ide.editor.ctx.save');
 
-  /**
-   * §5.5 #17-27 ⑫ — 디스크의 읽기 전용 잠금을 풀고 저장한다(Perforce 체크아웃 전 파일 등).
-   * 충돌 대조는 그대로 지난다 — 잠겼다는 이유로 남의 편집을 덮지 않는다.
-   */
+  /** §5.5 #17-27 ⑫ — 읽기 전용 잠금을 풀고 저장(Perforce 등). 충돌 대조는 그대로 — 잠김을 이유로 남의 편집을 덮지 않는다. */
   const handleUnlockSave = useCallback((): void => {
     if (activePath) save(activePath, { clearReadOnly: true });
   }, [activePath, save]);
 
-  /**
-   * 탭 닫기 공통 — 저장할 것이 남은 탭이 있으면 **한 번만** 되묻는다(③ 규칙).
-   * 여러 탭을 한꺼번에 닫는 우클릭 항목도 같은 문을 지나므로, 확인 없이 사라지는 편집분은 없다.
-   */
+  /** 탭 닫기 공통 — 저장할 탭이 있으면 한 번만 묻는다(③). 여러 탭 닫기 메뉴도 이 문을 지난다. */
   const closeTabs = useCallback(async (relPaths: string[]): Promise<boolean> => {
     if (closePending.current) return false;
     if (relPaths.length === 0) return true;
@@ -621,10 +561,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
     void closeTabs([relPath]);
   }, [closeTabs]);
 
-  /**
-   * 탭 줄 오른쪽의 [판 닫기] — 이 판에 서 있는 것을 **전부** 내린다.
-   * ㉔ 이후로 그 "전부"에는 무대도 든다(파일만 닫으면 무대만 남은 판에서 이 손잡이가 헛버튼이 된다).
-   */
+  /** [판 닫기] — 무대까지 전부 내린다(㉔ — 파일만 닫으면 무대만 남아 헛버튼이 된다). */
   const handleCloseAll = useCallback(async (): Promise<void> => {
     if (!await closeTabs(files.map((f) => f.relPath))) return;
     if (!mountedRef.current || closeStateRef.current.scope !== editorScope) return;
@@ -635,10 +572,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
     if (active) openFileByPath(active.absPath, active.relPath);
   }, [active]);
 
-  /**
-   * 손잡이 줄의 경로 — 상대 경로가 아니라 **파일이 실제로 있는 전체 경로**를 적는다.
-   * 툴팁에만 있던 것을 꺼낸 이유는 그 다음 줄과 한 쌍이다: 이 줄이 곧 폴더를 여는 손잡이다.
-   */
+  /** 손잡이 줄 경로 — 상대 경로가 아닌 실제 전체 경로(이 줄이 곧 폴더를 여는 손잡이). */
   const fullPath = active?.absPath ?? activePath ?? '';
   const pathParts = useMemo(() => splitPathTail(fullPath), [fullPath]);
 
@@ -647,7 +581,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
     if (active) openFolderByPath(active.absPath, active.relPath);
   }, [active]);
 
-  // ─── §5.5 #17-27 ⑨ v4.97 우클릭 메뉴 3종 ───────────────────────────────────
+  // §5.5 #17-27 ⑨ — 우클릭 메뉴 3종.
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
 
   const copyText = useCallback((text: string): void => {
@@ -725,21 +659,9 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
 
   // ─── 좌측 손잡이 드래그 — 왼쪽으로 끌면 넓어진다(패널이 오른쪽에 붙어 있으므로) ──────────
   /**
-   * 종전 구현은 세 가지 이유로 손을 따라오지 못했다(사용자 보고 — "잘 조절이 안돼 뭔가 버벅여").
-   *
-   * ⓐ **iframe 이 손짓을 삼켰다.** 편집창 안에는 미리보기 iframe 이 산다(HTML ⑮ · PDF §5.13 (R)).
-   *    `window` 의 `mousemove` 로 듣고 있으면 커서가 그 위로 들어가는 순간 이벤트가 **iframe 문서**로
-   *    가 버려 드래그가 그 자리에서 멎는다. 좁히는 방향은 패널 가장자리가 손보다 늘 반 박자 뒤라
-   *    커서가 곧바로 패널 **안쪽**(=iframe 위)에 들어가므로, 이 경로에서는 거의 매번 걸린다.
-   *    → 캡처를 **손잡이 자신**에 건다(`setPointerCapture`). 그러면 커서가 무엇 위에 있든 이 요소가
-   *      받는다(CMD 패널 경계선이 xterm 을 상대로 이미 쓰는 그 방법).
-   * ⓑ **매 이동마다 디스크에 썼다.** `setIdeEditorWidth` 는 값이 바뀔 때마다 `localStorage` 에
-   *    **동기로** 쓴다. 마우스 이동은 초당 수백 번 오므로 그 동기 쓰기가 프레임을 통째로 먹었다.
-   *    → 끄는 동안에는 스토어를 건드리지 않고, 손을 뗄 때 **한 번만** 저장한다.
-   * ⓒ **매 이동마다 창을 다시 그렸다.** 폭이 스토어 값이라 이동마다 편집창(색 구분이 붙은
-   *    `CodeEditor`)과 창 레이아웃 판정이 전부 다시 돌았다.
-   *    → 끄는 동안 폭은 **DOM 에 직접** 쓴다(프레임당 한 번, `requestAnimationFrame` 로 묶어서).
-   *      리렌더가 나도 화면이 튀지 않게, 그때의 `style` 은 같은 값을 들고 있는 ref 를 읽는다.
+   * 폭 끌기: ⓐ 캡처는 손잡이에(`setPointerCapture`) — `window` mousemove 면 커서가 미리보기 iframe 위로 가는 순간 드래그가 멎는다.
+   * ⓑ 끄는 동안 스토어를 안 건드리고 손을 뗄 때 한 번 저장한다(`setIdeEditorWidth` 는 `localStorage` 동기 쓰기).
+   * ⓒ 끄는 동안 폭은 DOM 에 직접(rAF 당 한 번) 쓰고, 리렌더 때 `style` 은 같은 값을 든 ref 를 읽는다.
    */
   const shellRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<EditorResizeDrag | null>(null);
@@ -792,10 +714,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
     if (final !== null) setWidth(final);
   }, [setWidth]);
 
-  /**
-   * 끄는 동안 손끝을 붙잡아 둔다 — 지나간 자리의 글자가 선택되고 커서가 본문 것으로 바뀌면
-   * "지금 크기를 조절하는 중"이라는 감각이 끊긴다(분할 손잡이 ⑪ (b) 와 같은 처리).
-   */
+  /** 끄는 동안 글자 선택·커서 바뀜을 막는다(분할 손잡이 ⑪ (b) 와 같은 처리). */
   useEffect(() => {
     if (!resizing) return;
     const { body } = document;
@@ -893,10 +812,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
       />
       )}
 
-      {/* §5.5 #17-27 ⑪ (h) ③ — 추종 띠. 켜져 있는 동안만 서고, 방금 무엇을 했는지(자동으로 다시 읽었다는
-          사실까지) 이 한 줄이 말한다 — 사용자가 "내가 안 건드렸는데 내용이 바뀌었다" 고 놀라지 않도록.
-          ㉔ — 무대 탭에는 서지 않는다: 문구가 "그 파일을 다시 읽었다"라 비추는 것이 파일일 때만 참이고,
-          무대는 그 자체가 도는 단계를 따라가므로 따로 알릴 것이 없다(⑯ 이 두 축을 한 스위치로 묶었다). */}
+      {/* §5.5 #17-27 ⑪ (h) ③ — 추종 띠: 켜진 동안 방금 한 일(자동 다시 읽기까지)을 말한다. ㉔ 무대 탭에는 안 선다(문구가 파일 얘기다). */}
       {!maximized && !stageActive && !openerKind && followOn && (
         <div className={`flex items-center gap-1.5 border-b px-2 py-1 text-[12px] ${
           bannerSkip
@@ -948,11 +864,8 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
         </div>
       )}
 
-      {/* 손잡이 줄 — 전체 경로(누르면 그 폴더가 열린다) + 저장·다시 읽기·밖에서 열기.
-          ㉔ — 무대 탭에는 이 줄이 서지 않는다(무대에는 경로도 저장도 없다). 그 자리에는 무대가
-          자기 손잡이 줄을 같은 높이·같은 톤으로 세운다(`IDEStageView` — 탭을 옮겨도 줄이 안 튄다).
-          ⑰ 최대화 중에는 걷힌다(경로 = 사용자가 가리고 싶어 한 "주소").
-          ⑱ — 빈 탭에도 서지 않는다(경로가 없다). 빈 탭은 자기 머리 줄을 같은 높이·같은 톤으로 세운다. */}
+      {/* 손잡이 줄 — 전체 경로(누르면 폴더) + 저장·다시 읽기·밖에서 열기. ⑰ 최대화 중엔 걷힌다.
+         ㉔ 무대·⑱ 빈 탭에는 안 선다 — 그쪽이 같은 높이·톤의 자기 머리 줄을 세운다(탭을 옮겨도 줄이 안 튄다). */}
       {!maximized && !stageActive && !openerKind && (
       <div className="flex items-center gap-1 border-b border-gray-800 bg-gray-900/60 px-1.5 py-1">
         <button
@@ -1149,8 +1062,18 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
           )}
         </div>
       )}
+      {/* ⑥ 바깥 띠 — 캔버스에서 연 프로젝트 밖 파일은 보기만 한다. 풀 손잡이가 없다(⑫ 잠금과 다르다 — 쓰기는 루트 안만이다). */}
+      {doc?.status === 'ready' && doc.outside && !doc.binary && (
+        <div className="flex items-center gap-2 border-b border-gray-700 bg-gray-800/60 px-2 py-1 text-[12px] text-gray-400">
+          <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+          <span className="min-w-0 flex-1">{t('ide.editor.outsideReadOnly')}</span>
+        </div>
+      )}
       {/* ⑫ 잠금 띠 — 열자마자 "이 파일은 디스크가 잠갔다"를 말한다(타이핑은 막지 않는다). */}
-      {doc?.status === 'ready' && doc.readOnly && !doc.binary && !doc.truncated && !doc.saveError && (
+      {doc?.status === 'ready' && doc.readOnly && !doc.outside && !doc.binary && !doc.truncated && !doc.saveError && (
         <div className="flex items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[12px] text-amber-200">
           <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="11" width="18" height="11" rx="2" />
@@ -1187,12 +1110,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
       ) : doc.status === 'error' ? (
         <p className="px-3 py-4 text-center text-[12px] text-gray-600">{t('ide.editor.readError')}</p>
       ) : isPdf ? (
-        /**
-         * §5.13 (R) — PDF 는 **Chromium 이 이미 싣고 다니는 뷰어**로 그린다.
-         *
-         * 우리가 PDF 를 렌더하는 코드를 쓰지 않는다((C) 표의 판단과 같다 — 남이 끝낸 문제).
-         * 창 설정에서 `plugins` 를 켜 두면 이 iframe 하나로 열람·검색·인쇄가 전부 붙는다.
-         */
+        /** §5.13 (R) — PDF 는 Chromium 내장 뷰어로(렌더 코드 ❌). 창 설정 `plugins` 가 켜져 있어야 열람·검색·인쇄가 붙는다. */
         <iframe
           key={activePath}
           src={pdfUrl ?? ''}
@@ -1208,11 +1126,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
           onOpen={handleOpenImageEditor}
         />
       ) : isHtml && !showHtmlSource && rootPath !== null && activePath !== null ? (
-        /**
-         * §5.5 #17-27 ⑮ — HTML 은 **그려진 페이지**로 연다. 렌더링은 Chromium 이 하고
-         * (PDF 를 내장 뷰어에 맡긴 §5.13 (R) 과 같은 판단), 우리는 그 위에 브라우저 줄만 얹는다.
-         * 태그 원문이 필요하면 손잡이 줄의 [소스] 로 ⑤ 의 편집창이 그대로 돌아온다.
-         */
+        /** §5.5 #17-27 ⑮ — HTML 은 그려진 페이지로(렌더는 Chromium — §5.13 (R) 과 같은 판단). 원문은 [소스] → ⑤ 편집창. */
         <IDEHtmlPreview
           key={activePath}
           root={rootPath}
@@ -1252,13 +1166,8 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
       )}
 
       </div>
-      {/* ⑰ [원래대로] — 판 오른쪽 위 구석에 숨어 있다가 마우스가 들어오면 떠오른다.
-          구석을 잡는 것은 본문 위에 겹친 **이 층**이다: 페이지는 iframe(별도 문서)이라 판이 그 위의
-          마우스 움직임을 받지 못한다. 그래서 층은 버튼 하나 들어갈 만큼만 작게 둔다(본문을 덜 가린다).
-          켠 직후에는 `restoreHint` 로 잠깐 드러나 있다가 같은 전환으로 가라앉는다.
-          **이 층은 본문을 감추는 겹 밖에 선다** — 안에 두면 실행 출력이 뜬 사이 판이 통째로
-          `hidden` 이 되면서 최대화를 푸는 손잡이까지 함께 사라진다(출력을 닫기 전에는 돌아갈
-          길이 없다). 출력이 떠 있는 동안에는 최대화가 보이는 것이 없으므로 층도 함께 쉰다. */}
+      {/* ⑰ [원래대로] — 구석에 숨었다가 마우스가 오면 뜬다. 구석은 본문 위 작은 층이 잡는다(iframe 위 움직임은 판이 못 받는다).
+         층은 본문을 감추는 겹 밖에 둔다 — 안이면 실행 출력이 뜰 때 함께 `hidden` 이 되어 최대화를 못 푼다. */}
       {maximized && !runOutput && (
         <div className="group/restore absolute right-0 top-0 z-30 flex h-9 w-14 items-start justify-end p-1">
           <button

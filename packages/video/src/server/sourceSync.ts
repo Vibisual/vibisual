@@ -17,12 +17,8 @@ export const VIDEO_SOURCE_SYNC_DELAY_MS = 1_500;
 interface Waiting { host: AppServerHost; project: string; doc: VideoDoc; signature: string }
 
 /**
- * §5.13 (R-10) — keeps the creation index (mirror) of a video document's references current.
- *
- * - Only the references are indexed (title + links); the video document stays the owner of its content.
- * - Bursts of saves are coalesced: the latest document wins after a short quiet period.
- * - Nothing is sent when title and links did not change since the last successful sync.
- * - Writes for one document are serialized; a failure is reported by `status` and retried by the next save.
+ * §5.13 (R-10) — keeps the creation index (title + links only) current; the document owns its content. Saves coalesce (latest wins
+ * after a quiet period), unchanged title/links send nothing, writes are serialized per document, failures show in `status` and retry on the next save.
  */
 export class VideoSourceSync {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();

@@ -1,15 +1,7 @@
 /**
- * overlaySlot.test.ts — §5.5 #17-6 (H-10) **빠르게 오갈 때** 무너지던 자리들의 회귀.
- *
- * 앱 안 IDE 창을 밖으로 빼고 다시 넣는 손짓을 **빠르게** 반복하면, 창을 닫으라고 말한 순간과
- * 실제로 닫히는 순간 사이의 틈에서 세 가지가 한꺼번에 무너졌다(사용자 보고 — "빠르게 왔다갔다
- * 하면 바로 에러나고 마우스에 화면이 달려버린다"):
- *   ⓐ 닫히는 중인 창을 "이미 있는 창"으로 알고 다시 씀 → 새 창이 서지 않은 채 죽어 IDE 가 사라짐
- *   ⓑ 늦게 온 `closed` 가 그 사이 들어선 새 창의 자리를 지움 → 뗌 신호가 닿지 못해 창이 커서에 달라붙음
- *   ⓒ 윤곽선(가상 창)의 주인이 `ready-to-show` 에서 정해져, 그 전에 합쳐지면 선이 고아가 됨
- *
- * 판정은 `overlaySlot.ts` 순수 함수가 쥐고, 그 규칙을 **실제로 부르는지**는 소스로 집행한다
- * (windowManager 는 electron 에 붙어 있어 여기서 실행할 수 없다 — `vitest.config.ts` 의 전제).
+ * §5.5 #17-6 (H-10) — 창을 빠르게 빼고 넣을 때 닫기 요청과 실제 `closed` 사이의 틈에서 무너지던 세 자리를 고정한다:
+ * ⓐ 닫히는 창 재사용(IDE 가 사라짐) ⓑ 늦은 `closed` 가 새 창 자리를 지움(창이 커서에 달라붙음) ⓒ 윤곽선 주인이 `ready-to-show` 에서 정해져 고아가 됨.
+ * 판정은 `overlaySlot.ts` 순수 함수, 실제로 부르는지는 소스로 집행한다(windowManager 는 electron 에 붙어 있다).
  */
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -116,9 +108,8 @@ describe('windowManager 소스 집행 — 규칙을 실제로 부르는가', () 
   });
 
   it('재사용의 활성화 갈래는 `overlayReuseActivation` 한 곳이 정한다 — 밟을 손짓은 그 목록이 정한다', () => {
-    // (H-16) 종전에는 여기서 `showInactive()`/`show()+focus()` 를 직접 갈랐다. 이제는 밟을 순서
-    //   전체를 `overlayRaiseSteps` 가 정하고(OS 마다 다르다) 이곳은 실행만 한다 — 갈림이 두 곳에
-    //   있으면 한쪽만 고쳐지는 날이 온다.
+    // (H-16) 밟을 순서는 `overlayRaiseSteps` 가 정하고(OS 마다 다르다) 이곳은 실행만 한다 — 여기서 `showInactive()`/`show()+focus()` 를
+    //   직접 가르면 갈림이 두 곳이 되어 한쪽만 고쳐진다.
     const reuse = block(wm, 'const existing = overlaysByAgentId.get(opts.agentId);', 'return { windowId: existing.id');
     expect(reuse).toContain('overlayReuseActivation(');
     expect(reuse).toContain('raiseOverlayWindow(existing, activation);');
@@ -134,9 +125,8 @@ describe('windowManager 소스 집행 — 규칙을 실제로 부르는가', () 
   });
 
   it('되돌아온 창은 **선을 넘겨 두고** 그 자리에서 닫힌다 — `closed` 를 기다리지 않는다', () => {
-    // (H-10) 은 여기서 선을 곧바로 걷었다. (H-12) 로 들어오는 길에도 구간이 생기면서, 선은
-    //   앱 안 창이 그 자리를 이어받아 다 그릴 때까지 살아 있어야 한다 — 주인을 **메인 창**으로
-    //   적어 두므로 방금 닫는 이 독립 창의 `closed` 가 그 선을 걷지 않는다.
+    // (H-12) 선은 앱 안 창이 그 자리를 이어받아 다 그릴 때까지 살아 있어야 한다 — 주인을 메인 창으로 적어 두므로
+    //   방금 닫는 이 독립 창의 `closed` 가 선을 걷지 않는다.
     const redock = block(wm, 'function redockFollowedOverlay(', '\nexport function startOverlayDragByWindowId');
     // (H-15) 그물의 **길이는 들어오는 길의 것**이다 — 나가는 길의 4초를 그대로 쓰면, 렌더러가
     //   말 못 한 판에서 클릭통과 선이 그만큼 커서에 붙어 있다(사용자에게는 그것이 곧 고장이다).
@@ -146,18 +136,14 @@ describe('windowManager 소스 집행 — 규칙을 실제로 부르는가', () 
     expect(redock).not.toContain('finishGhostHandoff();\n  closeOverlayEntry(entry);');
   });
 
-  // ─── §5.5 #17-6 (H-12) 들어오는 길의 구간 ───────────────────────────────────
-  //
-  // 판정은 shared 순수 함수(`stepRedockDwell`)가 쥐고 서버 테스트가 고정한다. 여기서 볼 것은
-  // main 이 그 판정을 **실제로 그렇게 쓰는가** 하나다 — 세 마디를 각각 다른 일에 이어야 한다.
+  // §5.5 #17-6 (H-12) 들어오는 길의 구간 — 판정은 shared `stepRedockDwell`(서버 시험이 고정), 여기서는 main 이 세 마디를 각각 제 일에 잇는지만 본다.
 
   it('들어오는 판정은 `stepRedockDwell` 하나가 쥔다 — 절벽(`stepAppEntry`) 직접 호출 ❌', () => {
     const follow = block(wm, 'function startOverlayFollow(', '\nfunction finishOverlayFollow(');
     expect(follow).toContain('stepRedockDwell(');
     expect(follow).not.toContain('stepAppEntry(');
     // 세 마디가 각각 제 일로 간다(하나라도 빠지면 구간이 아니라 지연이 된다).
-    // (H-17) 셋째 마디는 **무장**이다 — 합치는 일은 손을 뗄 때 한 곳으로 옮겼다(사용자 지시).
-    //   자세한 계약은 `redockCommit.test.ts`.
+    // (H-17) 셋째 마디는 무장이다 — 합치는 일은 손을 뗄 때 한 곳에서만 한다(계약은 `redockCommit.test.ts`).
     expect(follow).toContain('if (step.start) beginRedockDwell(entry, drag);');
     expect(follow).toContain('else if (step.cancel) cancelRedockDwell(entry, drag);');
     expect(follow).toContain('else if (step.arm && !drag.dwellArmed) armRedockDwell(entry, drag);');
@@ -269,16 +255,12 @@ describe('ghostFrame 소스 집행 — 다시 쓰는 선은 수명도 다시 잰
   });
 });
 
-// ─── §5.5 #17-6 (H-16) 밖의 그 창을 **앞으로 세우기** ────────────────────────────
-//
-// (H-13) 은 "앱 안에서 IDE 를 여는 손짓 = 밖의 그 창을 앞으로 세우기" 까지 정했는데, 세우는
-// 손짓이 `show()` + `focus()` 둘뿐이라 다른 프로그램 뒤에 깔린 창이 그대로 깔려 있는 경우가
-// 있었다(사용자 보고). 세 OS 가 각각 다른 이유로 그렇게 되므로, 밟을 순서를 순수 함수가 쥐고
-// 여기서 세 OS 를 전부 시험한다 — 실기가 없는 우리에겐 이것이 분기를 확인하는 유일한 방법이다.
+// §5.5 #17-6 (H-16) 밖의 그 창을 앞으로 세우기 — `show()` + `focus()` 만으로는 다른 프로그램 뒤에 깔린 창이 그대로 남는다(OS 마다 이유가 다르다).
+// 밟을 순서를 순수 함수가 쥐고 여기서 세 OS 를 전부 시험한다 — 실기 없이 분기를 확인하는 유일한 방법이다.
 describe('overlayRaiseSteps — 앞세우기가 밟는 순서', () => {
   it('Windows: 보이기 → 포커스 뒤에 **상시-위 재단언 → 맨 위로** 가 온다', () => {
-    // `show`·`focus` 자체가 상태 전이라 topmost 를 조용히 푼다(§17-6 (E) v2.80) — 먼저 박으면
-    //   그 전이가 도로 풀어 버린다. 그리고 층을 박는 것과 그 층 안에서 맨 위로 오는 것은 다른 일이다.
+    // `show`·`focus` 자체가 상태 전이라 topmost 를 조용히 푼다(§17-6 (E)) — 먼저 박으면 도로 풀린다.
+    //   층을 박는 것과 그 층 안에서 맨 위로 오는 것은 다른 일이다.
     const steps = overlayRaiseSteps({ platform: 'win32', activation: 'foreground', minimized: false });
     expect(steps).toEqual(['show', 'focus', 'reassertTop', 'moveTop']);
   });
@@ -447,16 +429,15 @@ describe('(E)·(E-2) 소스 집행 — 층을 박는 자리가 규칙을 빠뜨�
   it('층 값을 정하는 곳은 `overlayTopMostFor` 하나다 — 창은 그 답을 실행만 한다', () => {
     const fn = block(wm, 'function keepOverlayOnTop(', '\n}');
     expect(fn).toContain('overlayTopMostFor(expanded, pinned)');
-    // 값을 손으로 다시 적으면 갈림이 두 곳이 된다((E) v2.80 이 겪은 그 회귀).
+    // 값을 손으로 다시 적으면 갈림이 두 곳이 된다((E) 의 회귀).
     expect(fn).not.toContain("'screen-saver'");
     // (H-28) 고정한 창의 층 이름도 판정 안에만 있다.
     expect(fn).not.toContain("'floating'");
   });
 
   it('오버레이 창의 층 재단언은 **한 곳도 빠짐없이** `expanded` 와 `pinned` 를 넘긴다', () => {
-    // 인자 하나짜리 호출이 하나라도 남으면 그 전이만 옛 규칙(늘 상시-위)으로 돈다 —
-    //   그 창을 띄워 보기 전에는 드러나지 않는 부류의 누락이다. (H-28) 두 인자짜리도 같다 —
-    //   사용자가 고정한 창이 그 전이(최대화·접었다 펴기 등) 한 번에 뒤로 깔린다.
+    // 인자 하나짜리 호출이 남으면 그 전이만 늘 상시-위로 돈다(창을 띄워 보기 전엔 안 드러난다).
+    //   (H-28) 두 인자짜리도 남으면 안 된다 — 고정한 창이 그 전이(최대화·접었다 펴기 등) 한 번에 뒤로 깔린다.
     expect(wm).not.toMatch(/keepOverlayOnTop\([^,)]*(,[^,)]*)?\)/);
   });
 

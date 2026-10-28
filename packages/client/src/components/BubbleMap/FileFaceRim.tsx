@@ -6,13 +6,7 @@ import type { FileFace } from '../../utils/fileFaceView.js';
 import { satelliteOrbitRadius } from '../../utils/satellite.js';
 import { FileKindGlyph } from './fileFaceGlyphs.js';
 
-/**
- * §5.1 #2-1 (A) — 미디어 파일 버블의 **원 밖** 표식: 오른쪽 아래 림의 종류 배지와 원 아래 이름 줄.
- *
- * 렌즈가 원 안을 그림으로 채우므로 이름은 그림 위에 얹지 않고 **원 아래**에 둔다 — 말풍선의 원 아래 이름과 같은
- * 버블 문법이고 같은 글꼴(`text-[12px] text-gray-200` — 테마를 따른다)이다. 영상·소리는 길이를 덧붙인다.
- * 둘 다 손짓을 받지 않는다(끌기·선택·더블클릭은 본체가 받는다 — 툴팁도 본체가 말한다).
- */
+/** §5.1 #2-1 (A) — 원 밖 표식: 림의 종류 배지 + 원 아래 이름 줄(말풍선과 같은 문법·글꼴 `text-[12px] text-gray-200`). 손짓은 본체가 받는다. */
 export interface FileFaceRimProps {
   readonly face: FileFace;
   readonly thumb: ThumbState;
@@ -37,10 +31,11 @@ export const FileFaceRim = memo(function FileFaceRim({ face, thumb, size, ts, la
       >
         <FileKindGlyph kind={face.kind} px={Math.max(8, Math.round(badge * 0.62))} color={face.glow} strokeWidth={2.2} />
       </span>
+      {/* 줄 높이 `leading-[14px]` = `FILE_FACE.captionLineHeight` · 최대 폭 = `captionMaxWidth` — 묶음 안 배치가 같은 값으로 이 줄을 피한다. */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute left-1/2 z-20 flex -translate-x-1/2 items-center whitespace-nowrap text-[12px] font-medium leading-[14px] text-gray-200"
-        style={{ top: size + FILE_FACE.captionGap, maxWidth: Math.max(size * 1.8, 96) }}
+        style={{ top: size + FILE_FACE.captionGap, maxWidth: Math.max(size * FILE_FACE.captionMaxWidth.ratio, FILE_FACE.captionMaxWidth.min) }}
       >
         <span className="min-w-0 truncate">{label}</span>
         {duration !== '' ? <span className="shrink-0 text-gray-400">&nbsp;·&nbsp;{duration}</span> : null}
@@ -50,12 +45,8 @@ export const FileFaceRim = memo(function FileFaceRim({ face, thumb, size, ts, la
 });
 
 /**
- * §5.1 #2-1 (B) — 별자리 중심의 **궤도**. 위성들이 앉는 고리에 흐린 점선 원을 그린다. 위성이 흩어져도 "이것들이 한 무리"가
- * 읽히게 하는 선이다. 손짓은 받지 않는다.
- *
- * §5.1 #2-2 (J) — 반지름은 달이 앉는 격자의 고리 0(`satelliteOrbitRadius` — 중심 반경 + `SATELLITE_ORBIT_GAP` + 칸 반경, 달이
- * 많으면 다 담도록 넓힌 고리)이다. 종전에는 가장 작은 파일이 앉는 반지름이라 미디어 달(56px 이상)의 안쪽 가장자리를 스쳤다.
- * `moons` 를 모르면 달 하나로 본다.
+ * §5.1 #2-1 (B) — 별자리 궤도: 위성 고리의 흐린 점선 원(손짓 ❌).
+ * §5.1 #2-2 (J) — 반지름은 달 격자 고리 0(`satelliteOrbitRadius`). 가장 작은 파일 반지름을 쓰면 미디어 달(56px↑) 안쪽을 스친다. `moons` 를 모르면 1.
  */
 export const ConstellationOrbit = memo(function ConstellationOrbit({ size, glow, moons }: { size: number; glow: string; moons?: number }): React.JSX.Element {
   const radius = satelliteOrbitRadius(size / 2, Math.max(1, Math.floor(moons ?? 1)));

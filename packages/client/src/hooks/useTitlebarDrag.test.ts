@@ -130,8 +130,7 @@ describe('로고 창 이동 — 최대화 복원 중에도 같은 손짓을 이�
     expect(rig.bodyClasses.has('vib-titlebar-drag')).toBe(false);
   });
 
-  // §3.7 (2026-10-16) — capture 로 듣는 blur 에는 페이지 안 요소의 blur 도 온다. 최대화를 풀며 화면이 다시 놓일 때
-  //   입력칸이 포커스를 잃는 일이 있는데, 그것으로 손짓을 끝내면 창이 복원된 자리에 멈춘다.
+  // §3.7 — capture 로 듣는 blur 에는 페이지 안 요소의 blur 도 온다. 최대화를 풀 때 입력칸이 포커스를 잃는데, 그걸로 끝내면 창이 복원된 자리에 멈춘다.
   it('페이지 안 요소의 blur 는 손을 뗀 것이 아니다 — 창이 포커스를 잃을 때만 끝낸다', () => {
     const rig = setup();
     rig.down(press());

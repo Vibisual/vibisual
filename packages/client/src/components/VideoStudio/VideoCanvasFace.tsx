@@ -31,10 +31,7 @@ import { onAppEvent } from '../../apps/appEvents.js';
 import { runWhenIdle } from './studioIdle.js';
 import { GLOW_ONCE_MS, ensureStudioMotion } from './studioMotion.js';
 
-/**
- * §5.13 (L) — 노드 화면의 안쪽: 묶인 **작업 문서**가 있으면 문서 모드(지금 그 문서의 한 장 + 길이·판본), 없으면 담긴 결과
- * 파일을 캔버스에서 바로 튼다(종전 그대로). 문서 모드에서도 렌더본이 담겨 있으면 [▶] 로 그 결과를 튼다.
- */
+/** §5.13 (L) — 묶인 작업 문서가 있으면 문서 모드(한 장 + 길이·판본, 렌더본이 있으면 [▶]), 없으면 결과 파일을 바로 튼다. */
 export function VideoCanvasFace(props: AppCanvasFaceProps): React.JSX.Element {
   const [showExport, setShowExport] = useState(false);
   const { t } = useTranslation();
@@ -62,10 +59,7 @@ export function VideoCanvasFace(props: AppCanvasFaceProps): React.JSX.Element {
   return <VideoFileFace {...props} />;
 }
 
-/**
- * 문서 판본을 묻는 간격(ms) — 판본만 묻는 가벼운 요청이다. 보이는 노드만 묻는다(화면 밖이면 언마운트). §5.13 (Y) 40-7 ② — 주 신호는
- * 서버의 앱 알림이고(받는 즉시 묻는다), 이 간격은 소켓이 끊겼을 때의 안전망이다(종전 5초).
- */
+/** 판본만 묻는 간격(ms), 보이는 노드만. §5.13 (Y) 40-7 ② — 주 신호는 서버 앱 알림이고 이건 소켓이 끊겼을 때의 안전망. */
 const DOC_POLL_MS = 15_000;
 /** 판본이 바뀐 뒤 이만큼 잠잠하면 포스터를 새로 찍는다(ms) — 에이전트가 연달아 고치는 동안 매번 찍지 않게. */
 const POSTER_SETTLE_MS = 1200;
@@ -114,10 +108,7 @@ function useLinkedAgentActive(projectName: string, docId: string): boolean | nul
   });
 }
 
-/**
- * §5.13 (V) 37-1 — 버블 언어: AI 가 이 문서를 만지는 동안 노드 모서리를 작은 위성이 돌고, 끝나면 **한 번** 빛나고 사라진다
- * (스튜디오의 장면 구슬과 같은 표시). 색은 레지스트리의 앱 색(`glow`) 하나다.
- */
+/** §5.13 (V) 37-1 — AI 가 만지는 동안 노드 모서리에 위성이 돌고 끝나면 한 번 빛난다(장면 구슬과 같은 표시). 색은 레지스트리 앱 색(`glow`) 하나. */
 function WorkingSatellite({ working, glow }: { readonly working: boolean; readonly glow: string }): React.JSX.Element | null {
   const { t } = useTranslation();
   const [flash, setFlash] = useState(false);
@@ -251,16 +242,8 @@ function VideoDocFace({
 }
 
 /**
- * §5.4 #36 (G) — Vibistudio 노드 화면의 안쪽: **캔버스에서 바로 본다.**
- *
- * 재생 전에는 코어가 구운 대표 프레임(정지 미리보기)이고, [재생] 을 처음 누를 때 결과 파일을 받아(`useMediaBlobUrl` —
- * 패키지 앱에서 `<video src="/api/…">` 는 비므로 fetch → blob URL) 그 자리에 `<video>` 를 건다. 디코더는 브라우저의 것이라
- * 무거운 의존성이 없다. 할 수 있는 것은 넷 — 재생/일시정지 · 재생 위치 끌기 · 음소거 · 지난 시간/길이. 자르기·자막 같은
- * 편집은 더블클릭·[에디터에서 열기]로 여는 편집 화면의 몫이다.
- *
- * 영상 위는 조작 자리가 아니다(`pointer-events: none`) — 거기서 끌면 노드가 움직이고, 두 번 누르면 편집기가 열린다.
- * 상한(`APP_CANVAS_FACE.playMaxBytes`)을 넘거나 못 읽으면 조작줄이 "에디터에서 여세요"로 말한다.
- * 노드가 화면 밖으로 나가 언마운트되면 엘리먼트와 함께 멈추고, 받은 URL 은 훅이 되돌린다.
+ * §5.4 #36 (G) — Vibistudio 노드 화면: 대표 프레임 → 처음 [재생]에 결과 파일을 받아 `<video>`(`useMediaBlobUrl` — 패키지 앱에서 `<video src="/api/…">` 는 빈다).
+ * 영상 위는 `pointer-events: none`(끌기·더블클릭 자리). `APP_CANVAS_FACE.playMaxBytes` 초과·못 읽음이면 "에디터에서 여세요". URL 은 훅이 되돌린다.
  */
 function VideoFileFace({
   projectId,

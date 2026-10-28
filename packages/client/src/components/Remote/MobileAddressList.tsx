@@ -2,16 +2,8 @@ import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isMobileAddressReachable, type MobileAddressEntry, type MobileAddressKind } from '@vibisual/shared';
 
-// §4 (판올림 번호 발급 대기) — 모바일 접속 주소 목록.
-//
-// 종전에는 `MobileAccessState.urls` 를 그대로 `map` 해서 **똑같이 생긴 파란 줄**로 쌓았다.
-// 그래서 진짜 랜(`192.168.x.x`)과 Tailscale 이 만든 `100.77.x.x`, WSL 의 `172.30.x.x` 가 화면에서
-// 완전히 같은 물건으로 보였고, 목록은 "무엇을 찍어야 하는지"를 한 글자도 말하지 않았다
-// (사용자 보고 "설명이 없다고 설명이, 인터페이스도 너무 구리고 알아볼 수가 없잖아").
-//
-// 이 컴포넌트는 서버(desktop main)가 판정해 넘긴 `MobileAddressEntry` 를 **가공 없이** 그린다.
-// 세 덩어리다 — ① 추천 하나를 크게, ② 조건이 붙는 나머지를 그 조건과 함께, ③ 폰에서 구조적으로
-// 안 되는 것은 접어서. 안 되는 것도 **지우지 않는다**(감추면 진짜로 되는 예외까지 사라진다).
+// §4 — 모바일 접속 주소 목록. 진짜 랜·Tailscale·WSL 주소가 구별되게, 서버(desktop main)가 판정한 `MobileAddressEntry` 를 가공 없이 셋으로 그린다
+// (추천 하나 · 조건부 · 폰에서 안 되는 것은 접어서 — 지우지 않는다: 감추면 되는 예외까지 사라진다).
 
 /** 종류 배지 문구의 i18n 키 — QR 대상 칩도 같은 말을 써야 두 목록이 어긋나지 않는다. */
 export function mobileAddressKindLabelKey(kind: MobileAddressKind): string {
@@ -84,7 +76,6 @@ function toneOf(kind: MobileAddressKind): { text: string; border: string; bg: st
   return { text: 'text-gray-400', border: 'border-white/[0.06]', bg: 'bg-black/20' };
 }
 
-/** 복사 버튼 — 주소를 손으로 옮겨 적게 두지 않는다(종전에는 복사할 방법이 아예 없었다). */
 function CopyButton({ url, copied, onCopy }: { url: string; copied: boolean; onCopy: (url: string) => void }): React.JSX.Element {
   const { t } = useTranslation();
   return (

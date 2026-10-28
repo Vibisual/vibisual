@@ -1,14 +1,7 @@
 /**
- * §5.13 (V) 37-10 — 스타일 카드 REST(앱 라우트 — `/api/app/vibistudio/…`).
- *
- * - `POST /style/scan { project }` — 프로젝트에서 색(CSS 변수·tailwind 설정의 colors·자주 쓴 16진)·글꼴(`font-family`·`@font-face`·
- *   글꼴 파일)·로고(`logo` 가 이름에 든 svg/png)를 **상한 안에서** 훑어 후보와 제안 한 벌을 돌려준다(읽기만 — 아무것도 쓰지 않는다).
- * - `GET  /style?project=` — 확정된 스타일(없으면 null).
- * - `PUT  /style { project, style }` — 사람만(루프백 유입 403). 글꼴·로고 파일은 `.vibisual/video/libs/style/` 로 복사(컴포지션이
- *   읽을 수 있는 뿌리 — (T-3) ①)하고 `.vibisual/video/style.json` 에 원자적으로 적는다.
- *
- * 훑기 규칙: `node_modules`·숨김 폴더·빌드 산출 폴더는 건너뛴다, 파일 수·파일 크기·총 바이트 상한, 경로 비교는 `isPathWithin`
- * (pathKey 규칙 — 멀티플랫폼 1축). 새 문서는 확정된 스타일을 받아 태어난다(`POST /docs` — routes.ts).
+ * §5.13 (V) 37-10 — 스타일 카드 REST. `POST /style/scan` 은 색·글꼴·로고 후보를 상한 안에서 훑어 제안과 함께 돌려준다(읽기만 · `node_modules`·숨김·빌드
+ * 폴더는 건너뜀 · 경로 비교는 `isPathWithin` — pathKey, 멀티플랫폼 1축). `PUT /style` 은 사람만 — 글꼴·로고를 `libs/style/`(컴포지션이 읽는 뿌리, (T-3) ①)로
+ * 복사하고 `style.json` 에 원자적으로 적는다. 새 문서는 확정된 스타일을 받아 태어난다(`POST /docs`).
  */
 import fs from 'node:fs';
 import path from 'node:path';

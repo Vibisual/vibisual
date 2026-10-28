@@ -4,7 +4,7 @@ import { creationValueAt, validateVibi3DSnapshot, type CreationValue } from '@vi
 import { ModelEditor } from './modelEditor.js';
 import { loadModelSource, modelLockedPaths, serializeModelSource } from './modelSource.js';
 
-/** §5.13 (R-10) 2026-10-15 — regressions for the 10-14 review of the 3D editor. */
+/** §5.13 (R-10) — regressions found in the review of the 3D editor. */
 function editor(): ModelEditor { return new ModelEditor(new THREE.Group(), [], { projectId: 'project', fileName: 'bottle' }); }
 const material = (object: THREE.Object3D | undefined): THREE.MeshStandardMaterial => (object as THREE.Mesh).material as THREE.MeshStandardMaterial;
 

@@ -1,13 +1,6 @@
 /**
- * §5.13 (V) 37-11 — 부품 서랍 REST(앱 라우트 — `/api/app/vibistudio/…`).
- *
- * - `GET  /parts?project=` — 우리가 쓴 부품 아홉 + 이 프로젝트의 내 부품(`[부품으로 저장]`)
- * - `GET  /parts/:partId/thumb?project=` — 그 부품의 **실제 정지 화면**(일꾼 스틸로 한 번 굽고 `.vibisual/video/parts/<id>/thumb-<지문>.png`
- *   로 기억 — 같은 이름은 덮어쓴다, 자동 삭제 ❌). 무지개 타일은 없다.
- * - `POST /parts/use { project, docId, partId }` — 부품을 그 문서의 **사본**으로 들인다(`compositions/<부품>-n/` — 사람·AI 가 고쳐도
- *   서랍 원본은 그대로) → 탐침 → 소재. 아이템을 얹는 것은 화면의 평소 편집 경로다(되돌릴 수 있다). 돌려준 `items` 는 얹을 틀.
- * - `POST /parts/save { project, docId, chapterId, name }` — 사람만. 그 장면의 컴포지션 폴더와 아이템 틀(장면 기준 시각·props)을
- *   `.vibisual/video/parts/<id>/` 로 저장 → 같은 서랍의 '내 부품'.
+ * §5.13 (V) 37-11 — 부품 서랍 REST. `thumb` 은 일꾼 스틸로 한 번 구운 실제 정지 화면(`thumb-<지문>.png` 덮어쓰기 · 자동 삭제 없음 · 무지개 타일 없음).
+ * `use` 는 부품을 그 문서의 사본(`compositions/<부품>-n/`)으로 들인다(고쳐도 서랍 원본은 그대로) — 아이템은 화면의 평소 편집 경로가 얹는다(되돌릴 수 있게). `save` 는 사람만.
  */
 import fs from 'node:fs';
 import path from 'node:path';

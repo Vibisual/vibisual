@@ -2,16 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { agentEngineOf, agentModelLabelOf, CODEX_DEFAULT_LABEL_RE } from '@vibisual/shared';
 
 /**
- * §5.25 (J) — **"이 버블은 어느 모델로 도는가"의 회귀.**
- *
- * `AgentConfig.model` 은 클로드 칸이고 기본값이 `opus` 다. 엔진을 안 보고 그대로 적으면
- * 코덱스·로컬 버블이 자기를 클로드로 말한다 — 사용자 보고가 정확히 그것이었다
- * ("GPT 에이전트 버블인데 왜 이름에 opus 가 뜨냐"). `config.model` 은 코덱스·로컬 턴이
- * 읽지도 않는 칸이라 거짓이 아니라 **남의 값**이다.
- *
- * 종전에는 화면마다 `localProviderOf`/`codexProviderOf` 를 각자 부르는 구조였고, 그 둘을
- * 부르는 것을 잊은 자리(버블 하단 idle 줄 · IDE 상태바)가 그대로 `opus` 를 적었다.
- * 판정을 한 곳으로 모은 뒤, 그 한 곳을 여기서 못 박는다.
+ * §5.25 (J) — 버블이 자기 엔진의 모델을 말하는가. `config.model` 은 클로드 칸(기본 `opus`)이라 코덱스·로컬 버블에 적으면 남의 값이다.
+ * 화면마다 따로 판정하면 잊은 자리(버블 idle 줄·IDE 상태바)가 `opus` 를 적는다 — 한 곳에 모은 판정을 여기서 못 박는다.
  */
 
 const FALLBACKS = { codex: 'Codex', local: 'All Model' };
@@ -97,11 +89,7 @@ describe('§5.25 (B-1) agentModelLabelOf — CMD 버블은 셸에 채울 CLI 가
   });
 });
 
-/*
- * §5.25 (B-1) · (M-1) — 스킬 칸·스킬 공유·비용 지도가 함께 쓰는 "실제로 도는 엔진" 판정.
- * 종전에는 서버는 실행 방식을 안 보고 cliKind 를 읽고 화면은 공급자만 봐서, Codex CMD 의 스킬 칸 둘째 탭이 늘
- * 거절되고 헤드리스로 되돌린 클로드 버블의 비용은 코덱스 원장에서 찾았다.
- */
+/* §5.25 (B-1) · (M-1) — "실제로 도는 엔진" 판정. 서버가 cliKind 만·화면이 공급자만 보면 Codex CMD 스킬 칸이 거절되고 클로드 비용을 코덱스 원장에서 찾는다. */
 describe('§5.25 (M-1) agentEngineOf — 터미널이 띄우는 CLI 가 먼저, cliKind 는 CMD 에서만', () => {
   it('Codex CMD 는 공급자 칸이 비어 있어도 코덱스다', () => {
     expect(agentEngineOf({ executionMode: 'interactive-terminal', cliKind: 'codex' })).toBe('codex');

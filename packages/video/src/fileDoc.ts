@@ -1,18 +1,7 @@
 /**
- * 파일 한 개 → 문서 (SCENARIO.md §5.13 (R-3)).
- *
- * IDE 에서 영상 파일을 눌러 스튜디오가 열리면, 그 파일은 `footage` 아이템 한 개짜리
- * 문서가 된다. 이 파일은 그 문서를 채울 §5.13 (G) 편집 연산만 만드는 순수 함수다 —
- * 문서를 직접 쓰지 않으므로 낙관적 잠금·검증이 평소 경로 그대로 걸린다(`storyboard.ts` 와 같은 판단).
- *
- * 지키는 것 둘:
- *
- * 1. **"손대지 않은 문서"는 트랙 수가 아니라 아이템 수로 판정한다.** 새 문서는 빈 트랙
- *    셋(visual·audio·caption)을 달고 태어난다(`createEmptyDoc`). 트랙 수로 판정하면 새 문서도
- *    "이미 편집된 문서"로 읽혀 영상이 영영 실리지 않는다 — 실제로 그래서 화면이 비어 있었다.
- * 2. **`duration:'auto'` 는 실측 길이가 있어야 풀린다.** 소재에 길이를 적지 않고 아이템만
- *    얹으면 해소기가 그 아이템을 빼 버린다(`auto-without-duration`). 그래서 실측값을
- *    받아 소재에 함께 적고, 문서 판형도 그 영상의 크기로 맞춘다.
+ * §5.13 (R-3) — 영상 파일 하나 → `footage` 아이템 하나짜리 문서의 편집 연산(순수 — 낙관적 잠금·검증이 평소 경로로 걸린다).
+ * "손대지 않은 문서"는 아이템 수로 판정한다(새 문서도 빈 트랙 셋이 있어 트랙 수로 보면 영상이 영영 안 실린다).
+ * `duration:'auto'` 는 실측 길이가 있어야 풀리므로(`auto-without-duration`) 실측값을 소재에 적고 판형도 영상 크기로 맞춘다.
  */
 
 import type { VideoAsset, VideoDoc, VideoDocOp } from './types.js';
@@ -57,12 +46,7 @@ function withMeasurement(asset: VideoAsset, m: MediaMeasurement): VideoAsset {
   };
 }
 
-/**
- * 손대지 않은 문서에 그 영상 파일을 담는 연산.
- *
- * 길이를 못 쟀으면 빈 배열이다 — 풀리지 않을 `'auto'` 아이템을 얹어 두면 문서가 "편집된
- * 문서"가 되어 다음에 다시 눌러도 재지 않게 된다. 비워 두면 다음 클릭이 다시 시도한다.
- */
+/** 길이를 못 쟀으면 빈 배열 — 풀리지 않을 `'auto'` 아이템을 얹으면 "편집된 문서"가 되어 다음 클릭이 다시 재지 않는다. */
 export function buildFileDocOps(
   doc: VideoDoc,
   file: { readonly path: string; readonly label: string },

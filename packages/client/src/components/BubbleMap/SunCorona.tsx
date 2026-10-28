@@ -17,16 +17,10 @@ interface SunCoronaProps {
 }
 
 /**
- * 선택 하이라이트 — 태양 코로나(외곽선이 일렁이는 플레어).
- * feTurbulence + feDisplacementMap 으로 외곽선을 진짜 일렁이게(태양 표면/플레어).
- * 픽셀 기준(viewBox=px)이라 버블 크기와 무관하게 일렁임 진폭이 일정.
- *
- * §5.4 #31 (K) 2026-10-09 — 도는 것은 **감싼 div** 다. SVG 요소(바깥 <svg> 포함)의 transform 애니메이션은
- * 화면 배율이 100% 가 아니면(Windows 150% 등) Chromium 이 합성으로 못 돌려(compositeFailed 1024) 메인
- * 스레드가 매 프레임 회전을 계산하고 캔버스 레이어를 통째로 다시 짰다 — 초점이 켜져 있는 내내 큰 지도에서
- * 프레임마다 7ms. HTML 요소는 합성으로 돈다(필터는 처음 한 번만 그려진다). 마스크는 원 대칭이라 함께
- * 돌아도 모양이 같다. 첫 선택 예열(`CoronaWarmup`)도 이 컴포넌트를 그대로 그린다 — 모양이 어긋나면
- * GPU 가 미리 준비한 것과 실제 코로나가 달라 예열이 헛돈다.
+ * 선택 하이라이트 — 태양 코로나(feTurbulence + feDisplacementMap, viewBox=px 라 진폭이 크기와 무관).
+ * §5.4 #31 (K) — 도는 것은 감싼 div 다: SVG 요소 transform 애니메이션은 배율 ≠100%(Windows 150% 등)에서 합성이 안 돼 메인 스레드를 먹는다
+ * (2026-10-09 실측: 큰 지도 프레임당 7ms). 마스크는 원 대칭이라 함께 돌아도 같다.
+ * `CoronaWarmup` 이 이 컴포넌트를 그대로 그린다 — 모양이 어긋나면 예열이 헛돈다.
  */
 export function SunCorona({ filterId, size, glow, className, style }: SunCoronaProps): React.JSX.Element {
   const sunBox = size + SUN_MARGIN * 2;

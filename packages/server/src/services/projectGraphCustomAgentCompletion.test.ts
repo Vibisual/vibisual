@@ -3,14 +3,7 @@ import { ProjectGraph } from './projectGraph.js';
 import { subAgentManager } from './subAgentManager.js';
 import type { QueuedCommand, SessionLoop } from '@vibisual/shared';
 
-/**
- * §5.5 #17-11 v3.92 — 커스텀 에이전트의 **거짓 완료** 회귀 테스트.
- *
- * `recomputeCustomAgentStatus` 는 "지금 도는 sub 가 0" 이면 부모 버블을 completed 로 내렸다.
- * 그런데 한 턴이 끝나고 다음 명령이 dispatch 되기까지 sub 는 잠깐 idle 이라, 큐에 명령이 줄 서
- * 있거나 루프가 다음 회차를 기다리는 동안에도 그 찰나가 매번 "완료"로 잡혔다 = 사용자 보고
- * "완료도 안 했는데 계속 완료 처리". 완료의 기준은 **낼 일이 남았는가** 여야 한다.
- */
+/** §5.5 #17-11 — 거짓 완료: 턴 사이 잠깐 idle 인 sub 를 완료로 보지 않는다 — 기준은 **낼 일이 남았는가**(큐·루프 대기). */
 
 function makeCmd(subAgentId: string, status: QueuedCommand['status']): QueuedCommand {
   return {
@@ -206,16 +199,8 @@ describe('커스텀 에이전트 완료 판정 — 낼 일이 남았으면 완�
 });
 
 /**
- * §5.5 #17-11 — 훅 `Stop` 이 집계를 건너뛰고 버블을 완료로 찍던 회귀.
- *
- * 헤드리스 서브는 `VIBISUAL_OWNER_AGENT_ID` 를 달고 뜨고, 그 태그가 훅 라우트에서 `session_id` 를
- * **부모 버블의 세션키로 rewrite** 한다. 그래서 세션 탭 하나가 턴을 마칠 때마다
- * `agentTracker.markStop → setAgentStatus(버블, 'completed')` 가 불렸고, 형제 탭이 멀쩡히 도는
- * 중에도 버블이 completed 로 찍혀 완료음·완료 알림이 울렸다(사용자 보고).
- * 같은 경로로 v3.92 완료 조건(큐·루프·백그라운드 Task·실패 형제)도 전부 우회됐다.
- *
- * 그래서 커스텀 버블의 `setAgentStatus` 는 직접 찍지 않고 `recomputeCustomAgentStatus` 에 넘긴다.
- * CMD(인터랙티브 터미널)와 일반 Hook 에이전트는 예외 — 훅이 그 버블의 유일한 상태 주인이다.
+ * §5.5 #17-11 — 훅 `Stop` 은 탭 하나의 종료일 뿐이다. 헤드리스 서브의 `session_id` 는 부모 버블 키로 rewrite 되므로,
+ * 커스텀 버블은 `markStop` 이 completed 를 직접 찍지 않고 `recomputeCustomAgentStatus` 가 정한다(CMD·일반 Hook 에이전트는 훅이 상태 주인).
  */
 describe('커스텀 에이전트 완료 판정 — 훅 Stop 은 탭 하나의 종료일 뿐이다', () => {
   /** 세션 탭 두 개가 동시에 도는 버블. 둘 다 active 인 상태로 돌려준다. */

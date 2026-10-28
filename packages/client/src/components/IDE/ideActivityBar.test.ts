@@ -4,17 +4,7 @@ import { IDE_ACTIVITY_ITEMS, DEFAULT_ACTIVITY_ORDER, activityItem } from './ideA
 import { migrateIDEViewType } from '../../stores/graphStore.js';
 import { viewsForProviderKind } from './ideProviderViews.js';
 
-/**
- * §5.5 #16-1 — **활동바가 데이터가 됐다**는 약속을 잠근다.
- *
- * 종전에는 항목이 두 벌로 살았다(배열 넷 + 손으로 적은 JSX 열하나). 그 상태에서는 순서·제외가
- * 구조적으로 불가능했고, 기억 정리 칸만 `mt-auto` 로 바닥에 떨어져 다른 규칙으로 살았다.
- * 여기서 막는 것은 **되돌아감**이다 — 새 칸을 표 밖에 손으로 적으면 그 칸은 순서에도 구성
- * 패널에도 영영 안 나타나는데, 화면에는 멀쩡히 떠 있어서 사람 눈으로는 안 잡힌다.
- *
- * 클라 테스트에는 DOM 이 없으므로(jsdom 미설치) 렌더가 아니라 **소스 문자열**을 읽는다 —
- * `ideProviderViews.test.ts` 가 쓰는 그 방식 그대로다.
- */
+/** §5.5 #16-1 — 활동바 항목은 정본 표의 데이터다. 표 밖 JSX 로 칸을 적지 마라 — 순서·구성 패널엔 안 나오는데 화면엔 떠 있어 눈으로 안 잡힌다(소스 문자열로 본다). */
 const activityBarSource = import.meta.glob('./IDEActivityBar.tsx', {
   query: '?raw', import: 'default', eager: true,
 }) as Record<string, string>;
@@ -27,12 +17,7 @@ const storeSource = import.meta.glob('../../stores/graphStore.ts', {
   query: '?raw', import: 'default', eager: true,
 }) as Record<string, string>;
 
-/**
- * §5.4 #14-2 — 제스처 자체는 **활동바 안에 있지 않다.** 프로젝트 탭·IDE 세션 탭이 같은 손맛을
- * 써야 하므로 한 벌(`hooks/usePointerDragReorder.ts` + 순수 기하 `pointerDragGeom.ts`)로 옮겼다.
- * 그래서 아래 회귀는 **두 층**을 나눠 본다 — 훅에는 "손짓이 어떻게 도는가", 활동바에는 "그 훅을
- * 세로축으로 쓰고, 저장은 보이는 자리에만 되꽂는다"는 활동바만의 약속.
- */
+/** §5.4 #14-2 — 끌어 순서 바꾸기는 활동바 밖 한 벌(`usePointerDragReorder.ts` + `pointerDragGeom.ts`, 탭과 같은 손맛). 훅의 손짓과 활동바의 세로축·보이는 자리 저장을 나눠 본다. */
 const dragHookSource = import.meta.glob('../../hooks/usePointerDragReorder.ts', {
   query: '?raw', import: 'default', eager: true,
 }) as Record<string, string>;
@@ -40,12 +25,7 @@ const dragHookSource = import.meta.glob('../../hooks/usePointerDragReorder.ts', 
 const barSrc = (): string => Object.values(activityBarSource)[0] ?? '';
 const customizeSrc = (): string => Object.values(customizeSource)[0] ?? '';
 const dragSrc = (): string => Object.values(dragHookSource)[0] ?? '';
-/**
- * 스타일시트 원문은 **설정이 넘겨 주는 통로**로 받는다 — `?raw` 도 `?inline` 도 빈 문자열이 온다
- * (실측 길이 0: `.css` 는 Tailwind 플러그인과 vitest 의 CSS 스텁을 차례로 지나며 원문이 사라진다).
- * 클라 tsconfig 에는 Node 타입이 없어 `node:fs` 로 직접 열 수도 없다 —
- * `titlebarDragSelection.test.ts` 가 쓰는 그 통로를 그대로 쓴다(`vitest.config.ts`).
- */
+/** CSS 원문은 설정의 통로(`vitest.config.ts`)로 받는다 — `?raw`·`?inline` 은 빈 문자열이다(실측 길이 0). tsconfig 에 Node 타입이 없어 `node:fs` 도 ❌. */
 const cssSrc = (): string => indexCss;
 
 describe('§5.5 #16-1 활동바 정본 표', () => {
@@ -99,7 +79,7 @@ describe('§5.5 #16-1 활동바 화면 규약', () => {
     expect(src).not.toMatch(/\{show\('[a-zA-Z]+'\)\s*&&/);
   });
 
-  it('창 높이에 맞춰 목록이 스크롤된다 (사용자 지시 2026-09-09)', () => {
+  it('창 높이에 맞춰 목록이 스크롤된다', () => {
     const src = barSrc();
     // `min-h-0` 이 없으면 flex 자식이 내용 높이만큼 버텨 `overflow-y-auto` 가 먹지 않는다
     // (창을 줄이면 아래쪽 칸이 그대로 잘려 손이 닿지 않는다).
@@ -116,12 +96,9 @@ describe('§5.5 #16-1 활동바 화면 규약', () => {
     expect(button).toBeLessThan(list);
   });
 
-  it('스크롤바가 아이콘의 가운데선을 밀지 않는다 — 폭 점유 0 + 오버레이 썸 (사용자 지시 2026-09-09)', () => {
+  it('스크롤바가 아이콘의 가운데선을 밀지 않는다 — 폭 점유 0 + 오버레이 썸', () => {
     const src = barSrc();
-    // 네이티브 세로 스크롤바는 **레이아웃을 점유해** 목록의 내용 상자만 좁힌다. 폭 48px 짜리 바에서
-    //   그만큼 아이콘 열이 왼쪽으로 기울어, 위에 고정된 구성 버튼과 축이 어긋났다(사용자 보고).
-    //   `.scrollbar-thin` 은 폭을 5px 로 줄인 것처럼 보이지만 Chromium 121+ 는 `scrollbar-width` 가
-    //   있으면 그 webkit 폭 지정을 무시하므로, 얇게 만드는 것으로는 기울기가 사라지지 않는다.
+    // 네이티브 세로 스크롤바는 레이아웃을 점유해 48px 바의 아이콘 열이 기운다. `.scrollbar-thin` 으로는 안 된다 — Chromium 121+ 는 `scrollbar-width` 가 있으면 webkit 폭을 무시한다.
     expect(src).toContain('scrollbar-overlay');
     // 주석에서 그 이름을 설명하는 것은 괜찮다 — 막는 것은 **클래스로 다시 쓰는 것**이다.
     expect(src).not.toMatch(/className="[^"]*scrollbar-thin/);
@@ -155,7 +132,7 @@ describe('§5.5 #16-1 활동바 화면 규약', () => {
     expect(src).not.toMatch(/activation:\s*'drag'/);
   });
 
-  it('아이콘이 손에 붙어 따라온다 — 고스트는 body 로 내보내고 렌더 없이 움직인다 (사용자 지시)', () => {
+  it('아이콘이 손에 붙어 따라온다 — 고스트는 body 로 내보내고 렌더 없이 움직인다', () => {
     const src = barSrc();
     // 활동바는 DOM 상 캔버스의 자식이라 조상에 `transform` 이 걸려 있다 — 거기서 `fixed` 를 쓰면
     // 뷰포트가 아니라 그 변환 기준이 돼 고스트가 커서에서 어긋난다(§5.5 #17-6).
@@ -194,7 +171,7 @@ describe('§5.5 #16-1 활동바 화면 규약', () => {
     expect(barSrc()).toMatch(/ref=\{listRef\}[\s\S]{0,400}\brelative\b/);
   });
 
-  it('벗어나거나 자리가 갈렸다고 취소되지 않는다 — 끌기의 이벤트원은 창이다 (사용자 보고)', () => {
+  it('벗어나거나 자리가 갈렸다고 취소되지 않는다 — 끌기의 이벤트원은 창이다', () => {
     const src = barSrc();
     // 자리가 한 번 갈리면 React 가 그 줄의 DOM 노드를 옮기고, 그때 브라우저가 캡처를 자동으로
     // 푼다. 그 `lostpointercapture` 를 취소로 읽으면 위아래로 한 번 오간 것만으로 끌던 것이

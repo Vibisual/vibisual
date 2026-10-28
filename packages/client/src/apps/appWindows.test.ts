@@ -4,13 +4,7 @@ import { canPopOutAppWindow, openAppWindow, useAppWindowsStore } from './appWind
 import { INTERNAL_APPS, appShellParams } from './registry.js';
 import { registerAppWindowTransferGuard } from './appWindowTransfer.js';
 
-/**
- * §5.13 (S) — 앱은 **앱 안 창**으로 먼저 열리고, 꺼낼 때만 밖으로 나간다.
- *
- * 여기서 못 박는 것 셋: ① 같은 것을 두 번 열어도 창은 하나(앞으로 올 뿐) ② 꺼내면 종전의 그
- * OS 창 경로(`InternalApp.open()`)를 지나고 앱 안 창은 닫힌다 ③ 등록되지 않은 앱은 열지 않는다
- * (부르는 쪽이 연결 프로그램 같은 다른 길로 갈 수 있어야 한다).
- */
+/** §5.13 (S) — 앱 안 창 먼저, 꺼낼 때만 밖: ① 두 번 열어도 창 하나 ② 꺼내면 `InternalApp.open()` 을 지나고 앱 안 창은 닫힌다 ③ 미등록 앱은 열지 않는다(다른 길로 가게). */
 
 const APP = INTERNAL_APPS[0]!;
 const PROJECT = 'C:/proj';
@@ -280,8 +274,7 @@ describe('밖으로 꺼내기', () => {
   });
 });
 
-// §5.13 (S-11) — 사용자 보고: 스튜디오 창이 IDE 창과 달리 "포커싱"이 빠졌다. 그 문서가 이미 밖에 떠 있으면 앱 안에 한 벌
-//   더 세우지 않고 밖의 그 창을 앞으로 세운다(IDE §5.5 #17-6 (H-13) 과 같다). 그 사이 닫혔으면 종전대로 앱 안에 연다.
+// §5.13 (S-11) — 이미 밖에 떠 있는 문서를 다시 열면 그 창을 앞으로 세운다(IDE (H-13) 과 같다). 그 사이 닫혔으면 앱 안에 연다.
 describe('이미 밖에 떠 있는 문서를 다시 열면 — 포커싱', () => {
   beforeEach(() => {
     reset();

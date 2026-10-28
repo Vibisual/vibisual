@@ -6,12 +6,8 @@ import { findAuditLog } from '../../utils/auditLog.js';
 import { AuditShieldGlyph } from '../AuditShieldGlyph.js';
 import { AuditTimelinePopup } from '../Panel/AuditTimelinePopup.js';
 
-// SCENARIO.md §5.22 / §7.20 — 헤더 감사 필.
-//
-// 비용 필(§7.19) 오른쪽에 붙어 **오늘 위험 호출 수** 한 값만 보여준다. 값이 없어도 숨기지
-// 않는다 — 필이 사라지면 타임라인으로 들어갈 입구도 같이 사라지기 때문이고, 그 상태에선
-// dim 한 `—` 로 둔다. 경계가 꺼진 프로젝트에서는 방패에 사선을 그어 "지금은 안 묻는다"를
-// 필 하나로 알린다(§5.22 — **기본이 꺼짐**이라 손대지 않은 프로젝트는 사선이 정상이다).
+// SCENARIO.md §5.22 / §7.20 — 헤더 감사 필: **오늘 위험 호출 수** 한 값.
+// 값이 없어도 숨기지 않는다(필이 타임라인 입구다) — dim `—`. 경계가 꺼진 프로젝트는 방패에 사선(기본이 꺼짐이라 사선이 정상).
 
 export function AuditPill(): React.JSX.Element {
   const { t } = useTranslation();

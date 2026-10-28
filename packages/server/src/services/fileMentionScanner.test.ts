@@ -1,9 +1,4 @@
-/**
- * §5.1 #2-1 (C) — `FileMentionScanner` 고정 시험. 읽기 함수를 갈아 끼워 디스크 없이 잰다.
- *
- * 고정하는 것: ① 처음엔 모른다(줄만 선다) → 다 읽으면 알린다 ② 같은 도장은 다시 읽지 않는다 ③ 도장이 바뀌면 앞 결과를
- * 쥔 채 다시 읽는다 ④ 못 읽으면 언급 없음(알리지 않는다) ⑤ 동시 건수 상한 ⑥ 읽는 사이 바뀌면 새 도장으로 한 번 더.
- */
+/** §5.1 #2-1 (C) — `FileMentionScanner` 고정 시험(가짜 읽기 함수): 다 읽으면 알림 · 같은 도장은 재읽기 ❌ · 도장이 바뀌면 앞 결과를 쥔 채 재읽기 · 못 읽으면 언급 없음 · 동시 상한 · 읽는 사이 바뀌면 한 번 더. */
 import { describe, it, expect, vi } from 'vitest';
 import { CONSTELLATION } from '@vibisual/shared';
 import { FileMentionScanner } from './fileMentionScanner.js';

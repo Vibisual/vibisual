@@ -2,19 +2,8 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 /**
- * §5.5 — "놓친 카드" 점프 pill 스택.
- *
- * 배경(사용자 보고): 에이전트가 카드(작업 신고·질문·검수·목록)를 IDE 에 보내면 스트림 바닥에 잠깐 깔리지만,
- *   그 뒤로 생각·대화가 계속 쌓이며 카드가 화면 위로 밀려 올라가 사용자가 **놓친다**. 카드가 지금 사용자
- *   눈앞(뷰포트)에 실제로 머물러 있으면 "봤다(확인)"로 치고 아무것도 안 띄우지만, 잠깐 스쳐 지나가
- *   버렸거나 사용자가 위를 읽는 사이 바닥에 도착해 못 본 카드는 **채팅 입력창 위에 pill** 로 쌓아
- *   눌러서 그 카드 위치로 이동하게 한다. 이동(또는 뷰포트 체류)으로 확인되면 그 pill 은 사라진다.
- *
- * "봤다" 판정 = IntersectionObserver 로 카드 엘리먼트가 뷰포트에 `DWELL_MS` 이상 **머무르면** 확정.
- *   빠른 스트리밍 추종 중 바닥에서 순간 스쳐 지나가는 건(체류 X) 놓친 것으로 남긴다. 화면 밖(위/아래 버퍼)
- *   카드는 애초에 intersecting=false 라 pill 대상. pill 클릭(onJump)은 즉시 seen 처리해 바로 사라진다.
- *
- * 스크롤 중 잦은 visibility state 변경은 이 컴포넌트 내부에 가둬(부모 IDEMainArea 재렌더 유발 X) 입력 지연 회귀를 막는다.
+ * §5.5 — "놓친 카드" pill 스택. 뷰포트에 `DWELL_MS` 이상 머문 카드만 "봤다"(IntersectionObserver) — 스쳐 간 카드·화면 밖 카드는 입력창 위 pill 로.
+ * 잦은 visibility 변경은 이 컴포넌트 안에 가둔다(부모 IDEMainArea 가 다시 그려지면 입력이 늦어진다).
  */
 
 export type UnseenCardKind = 'report' | 'question' | 'review' | 'list';

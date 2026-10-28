@@ -2,18 +2,8 @@ import { useCallback, useMemo } from 'react';
 import { create } from 'zustand';
 import { registerPersistFlush } from '../utils/persistFlush.js';
 
-// §5.5 #17-11 ⑬ — 세션 스코프 폼 초안(제출 전 입력 보존).
-//
-// IDE 사이드바의 폼(루프 설정 등)은 [시작]·[저장] 을 누르기 전까지 서버에 없는 값이다.
-// 그 값을 컴포넌트 `useState` 로만 들고 있으면 **세션 탭을 바꾸거나 뷰를 접는 순간**
-// 리셋·언마운트로 통째로 사라진다 — 사용자가 공들여 쳐 둔 명령·경로·상한이 "다른 세션
-// 확인하고 오니 비어 있는" 사고가 그것이다.
-//
-// 여기는 그 손글씨를 기기 로컬에 붙잡아 두는 자리다. 서버는 관여하지 않는다(초안은 SSOT 가
-// 아니라 아직 제출하지 않은 입력이다). 터미널 입력창의 세션별 draft(§5.3 #28 v2.69)와 같은
-// 약속을 폼 전반으로 넓힌 것이라, 영속화 규약(쓰기 debounce + 창 숨김·종료 시 flush)도 같다.
-//
-// 새 폼은 `useSessionFormDraft(폼id, 스코프id, 바탕값)` 한 줄만 붙이면 된다.
+// §5.5 #17-11 ⑬ — 세션 스코프 폼 초안(제출 전 입력 보존) — `useState` 로만 들면 세션 탭을 바꾸거나 뷰를 접는 순간 사라진다.
+// 기기 로컬·서버 비관여. 영속 규약은 터미널 입력창 draft(§5.3 #28)와 같다(쓰기 debounce + 창 숨김·종료 시 flush).
 
 /** 초안이 담는 값 — 폼 컨트롤이 실제로 다루는 원시 타입만(객체·배열은 초안 대상이 아니다). */
 export type FormDraftValue = string | number | boolean;
@@ -204,13 +194,8 @@ export const useSessionFormDraftStore = create<SessionFormDraftState>((set, get)
 }));
 
 /**
- * 폼 하나를 스코프(세션 탭 등)별 초안과 묶는다.
- *
- * 돌려주는 값은 `바탕값 ← 초안(건드린 칸만)` 병합 결과라, 사용자가 손대지 않은 칸은 서버
- * 스냅샷을 계속 따라가고 손댄 칸만 초안이 이긴다. `scopeId` 가 `null` 이면(대상 세션 없음)
- * 바탕값을 그대로 쓰고 쓰기는 무시한다.
- *
- * `base` 는 `useMemo` 로 안정화해 넘겨라 — 매 렌더 새 객체를 만들면 병합도 매번 새 객체가 된다.
+ * 폼 하나를 스코프(세션 탭 등)별 초안과 묶는다 — `바탕값 ← 초안(건드린 칸만)`, 손대지 않은 칸은 서버 스냅샷을 따라간다.
+ * `scopeId` 가 `null` 이면 바탕값 그대로·쓰기 무시. `base` 는 `useMemo` 로 안정화해 넘겨라(아니면 병합도 매번 새 객체).
  */
 export function useSessionFormDraft<T extends FormDraftValues>(
   formId: string,

@@ -1,16 +1,8 @@
 import { useTranslation } from 'react-i18next';
 
 /**
- * §5.3 #12-4 (J) — 옵션창 권한 탭의 검증 정책 옵트인 손잡이.
- *
- * 스위치(`UserDefaults.permissions.verificationGate`, 기본 끔)는 옵션창의 [적용]과 **함께** 저장된다. 같은
- * 창의 다른 칸과 한 벌로 보내야 서로를 덮지 않으므로, 값은 창이 들고 여기는 그리기만 한다(`EngineBridgeSection`
- * 과 같은 문법). 켬/끔 판정은 shared `isVerificationGateEnabled` 한 곳이다.
- *
- * 제목은 주입원 창의 같은 줄 이름(`ide.context.src.verificationPolicy`)을 그대로 쓴다 — 같은 정책을 두 이름으로
- * 부르면 사용자가 둘을 잇지 못한다. 이 스위치를 켠 경우에만 Codex·Claude Code 양쪽에 제한 안내와 실행 전
- * 차단을 적용한다. 주입원 창은 켜진 정책의 안내만 숨길 수 있다. 저장 뒤 차단은 다음 도구 호출부터,
- * 프롬프트 안내는 다음 턴부터 바뀐다.
+ * §5.3 #12-4 (J) — 검증 정책 옵트인(기본 끔). 옵션창 [적용]과 한 벌로 저장되므로 값은 창이 들고 여기는 그리기만 한다.
+ * 판정은 shared `isVerificationGateEnabled` 한 곳, 제목은 주입원 창과 같은 이름. 켠 경우에만 Codex·Claude Code 양쪽에 안내 + 실행 전 차단.
  */
 
 interface VerificationGateSectionProps {

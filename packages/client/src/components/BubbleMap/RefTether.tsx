@@ -1,12 +1,8 @@
 import { REF_LINK_STYLE } from '@vibisual/shared';
 
 /**
- * §5.4 #36 (B) — **위성줄 한 가닥**을 그리는 조각. 확정 줄(`RefLinkEdge`)·끄는 중 미리보기(`RefLinkDragPreview`)·
- * 꽃잎을 고르는 동안의 보류 줄(`RefLinkBloom`)이 이 하나를 쓴다 — 놓는 순간 모양이 다른 줄로 튀지 않게.
- *
- * 가는 실 + 그 위에 꿴 둥근 구슬. 구슬은 `stroke-dasharray: 0 간격` + 둥근 끝이라 path 하나다 — 구슬마다 원 요소를
- * 만들지 않고, 필터·마스크도 쓰지 않는다(§5.4 #31 (K) — 선마다 필터는 래스터를 포화시킨다).
- * 경로는 `refLinkPath`(처지는 2차 곡선)가 만든다. `<svg>` 안에서 쓴다.
+ * §5.4 #36 (B) — 위성줄 한 가닥. 확정 줄·끄는 미리보기·보류 줄이 함께 쓴다(놓는 순간 튀지 않게).
+ * 구슬은 `stroke-dasharray: 0 간격` + 둥근 끝의 path 하나 — 원 요소·필터·마스크 ❌(§5.4 #31 (K) 래스터 포화). 경로는 `refLinkPath`.
  */
 export interface RefTetherProps {
   /** 줄 경로. */

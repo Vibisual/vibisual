@@ -1,9 +1,4 @@
-/**
- * §5.11 v3.97 — 트레이스·스팬(Trace / Span): 한 요청의 경로가 재구성되는가.
- *
- * 한 요청의 전체 경로가 트레이스이고 그 안의 개별 구간이 스팬이다. 모든 모델 호출·도구 실행·판정이
- * 스팬이 되며, **스팬에 비용·토큰을 함께 실어야 관측이 곧 원가 분석이 된다.** 표시 전용.
- */
+/** §5.11 — 트레이스·스팬(Trace / Span): 한 요청의 경로가 재구성되는가(스팬에 비용·토큰을 싣는다). 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';
 

@@ -1,21 +1,9 @@
 /**
- * **Cowork + VS Code 양쪽 훅 감지** 회귀 테스트 (§5.7 #24 (c) · §3.6 설치처).
- *
- * ## 무엇이 깨져 있었나
- *
- * §5.7 #24 의 (c) 조건은 `entrypoint === 'vscode'` 한 줄이었다. 그 조건이 뜻하려던 것은
- * "사용자가 직접 연 인터랙티브 세션"인데 **VS Code 라는 한 제품의 이름으로 적혀 있어서**,
- * 같은 성격인 Cowork(Claude Desktop 로컬 세션)가 들어오자 그대로 탈락했다.
- *
- * 그리고 Cowork 는 설정 홈을 **세션마다 따로** 잡아 우리 `~/.claude/settings.json` 도 보지 않는다
- * (anthropics/claude-code#63360 "not planned", 근본 원인 #40495). 두 증상의 원인은 하나다.
- *
- * ## 이 파일이 고정하는 계약
- *
- * 1. 기존 VS Code 판정은 **한 줄도 바뀌지 않는다**(회귀 방지).
- * 2. Cowork 판정은 `entrypoint` **문자열 추측에 의존하지 않는다** — 출처 홈이 정한다.
- * 3. 경로 규약은 **세 OS 전부** 계산된다. 실기가 없으므로 이 테스트가 유일한 검증 수단이다
- *    (CLAUDE.md 멀티플랫폼 규칙 — 플랫폼을 인자로 받는 이유가 바로 이것).
+ * §5.7 #24 (c) · §3.6 — Cowork + VS Code 양쪽 훅 감지 회귀 시험.
+ * (c) 조건이 뜻하는 것은 "사용자가 직접 연 인터랙티브 세션"이다 — `entrypoint === 'vscode'` 로만 적으면 Cowork(Claude Desktop 로컬 세션)가 빠진다.
+ * Cowork 는 설정 홈을 세션마다 따로 잡아 `~/.claude/settings.json` 도 보지 않는다(anthropics/claude-code#63360 "not planned", 근본 원인 #40495).
+ * 계약: 1. VS Code 판정은 그대로다. 2. Cowork 판정은 `entrypoint` 문자열 추측이 아니라 출처 홈이 정한다.
+ * 3. 경로 규약은 세 OS 전부 계산된다 — 실기가 없어 이 시험이 유일한 검증이다(플랫폼을 인자로 받는 이유).
  */
 import { describe, it, expect } from 'vitest';
 import {

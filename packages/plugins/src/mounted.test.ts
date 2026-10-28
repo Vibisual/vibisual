@@ -1,16 +1,6 @@
 /**
- * §5.11 v4.37 — 호스트 슬롯이 코어 화면에 실제로 물려 있는가.
- *
- * 카드를 111장 만들고 검사를 열 겹으로 둘렀지만, **슬롯이 코어에서 빠지면 전부 화면에 없는 것과 같다.**
- * 그리고 그 사고는 조용히 일어난다 — 빌드도 타입체크도 통과하고, 플러그인 쪽 테스트도 전부 초록이다.
- * 카드가 안 보이는 것을 사람이 알아채는 수밖에 없는데, **전부 기본 비활성이라 안 보이는 게 정상**이라서
- * 알아챌 방법이 없다.
- *
- * 검사 대상은 클라이언트 파일이지만 이 파일은 **plugins 패키지**에 둔다 — 클라이언트 빌드는 테스트까지
- * 컴파일하는데 그 설정에는 Node 타입이 없어 `node:fs` 를 쓸 수 없다. plugins 쪽은 이미 같은 이유로
- * 클라이언트의 `en.json` 을 읽고 있다(`renderAll.test.tsx`).
- *
- * 렌더 동작이 아니라 **배선의 존재**를 본다 — 빠지는 사고의 대부분은 배선이 통째로 사라지는 형태다.
+ * §5.11 — 호스트 슬롯이 코어 화면에 실제로 물려 있는가(렌더가 아니라 배선의 존재를 본다). 슬롯이 빠져도 빌드·타입체크·플러그인 테스트는 통과하고, 카드가 기본 비활성이라 안 보여도 정상으로 보인다.
+ * plugins 패키지에 둔다 — 클라 빌드는 테스트까지 컴파일하는데 Node 타입이 없어 `node:fs` 를 못 쓴다.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -44,14 +34,8 @@ describe('플러그인 슬롯 배선', () => {
 });
 
 /**
- * §5.11 v4.65 — **집행이 실제로 프롬프트에 실리는 자리**가 서버에 물려 있는가.
- *
- * v4.57 은 집행 블록을 `contextSummary` 한 곳에만 얹었다. 그 값은 `subAgentManager.execute` 에서
- * **첫 스폰에만** 쓰이고, 이어지는 턴(resume)은 `livePreamble` 만 붙는다 — 그래서 "매 턴 실린다"고
- * 적어 둔 것이 실제로는 **세션 첫 턴 1회**였고, 이미 돌고 있는 세션에서 켜면 아무 일도 없었다.
- * 배선이 다시 한 곳으로 줄어드는 것을 막기 위해 두 자리를 모두 못 박는다.
- *
- * 렌더가 아니라 **배선의 존재**를 보는 이유는 위 슬롯 검사와 같다 — 빠지는 사고는 배선이 사라지는 형태다.
+ * §5.11 — 집행이 실제로 프롬프트에 실리는 서버 자리 두 곳을 모두 못 박는다.
+ * `contextSummary` 는 `subAgentManager.execute` 의 첫 스폰에만 쓰이고 이어지는 턴(resume)은 `livePreamble` 만 붙는다 — 한 곳만 있으면 "매 턴"이 첫 턴 1회가 되고 돌던 세션에서 켜도 아무 일이 없다.
  */
 describe('집행 주입 지점 배선', () => {
   const SERVER_SRC = path.resolve(__dirname, '../../server/src');
@@ -64,8 +48,7 @@ describe('집행 주입 지점 배선', () => {
   it('이어지는 턴 — 집행 블록이 live preamble 로도 넘어간다', () => {
     const text = fs.readFileSync(path.join(SERVER_SRC, 'index.ts'), 'utf8');
     // execute(cmd, cwd, dispatchContext, config, livePreamble, opts) 의 다섯 번째 인자.
-    // v4.72 — preamble 조립이 변수(`livePreamble`)로 빠졌다(§5.5 #17-17 목표 블록·의도 규칙이 같은
-    //   자리에 합류하면서). 인라인 concat 이든 변수든 **pluginBlock 이 preamble 로 간다**만 지키면 된다.
+    // preamble 은 인라인 concat 이든 변수(`livePreamble`, §5.5 #17-17 목표 블록·의도 규칙도 합류)든 pluginBlock 이 거기로 가기만 하면 된다.
     const inline = /\.execute\([^)]*edgesBlock \+ pluginBlock/.test(text);
     const viaVar = /const livePreamble =[\s\S]{0,400}?pluginBlock/.test(text)
       && /\.execute\([^)]*livePreamble/.test(text);
@@ -79,11 +62,8 @@ describe('집행 주입 지점 배선', () => {
   });
 
   /**
-   * v4.67 — **네 번째 지점: 훅으로 붙은 외부 세션.**
-   *
-   * 앞의 셋은 전부 "우리가 띄운 세션"이다. 사용자가 자기 에디터에서 직접 돌리는 Claude Code 세션 —
-   * 이 앱이 버블로 그리고 있는 바로 그 세션 — 에는 집행이 한 글자도 안 갔다. `UserPromptSubmit` 응답의
-   * `additionalContext` 가 그 통로이고, 서버·훅 양쪽이 다 있어야 닿는다(한쪽만 있으면 조용히 무효다).
+   * 네 번째 지점: 훅으로 붙은 외부 세션(사용자가 자기 에디터에서 돌리는 Claude Code 세션). 앞의 셋은 우리가 띄운 세션이다.
+   * 통로는 `UserPromptSubmit` 응답의 `additionalContext` — 서버·훅 양쪽이 다 있어야 닿는다(한쪽만 있으면 조용히 무효).
    */
   it('훅 세션 — UserPromptSubmit 응답에 집행 블록이 실린다', () => {
     const server = fs.readFileSync(path.join(SERVER_SRC, 'index.ts'), 'utf8');

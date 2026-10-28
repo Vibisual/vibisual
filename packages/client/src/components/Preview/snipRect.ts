@@ -1,17 +1,8 @@
 import { PREVIEW_SNIP_MIN_PX, type PreviewSnipRect } from '@vibisual/shared';
 
 /**
- * §5.17 (B) — 드래그 두 점에서 캡처할 사각형 한 개.
- *
- * 화면 없이 시험할 수 있게 순수 함수로 떼어 둔다(§5.16 `reviewRejectPrompt` 와 같은 골격).
- * - 어느 방향으로 끌어도(오른쪽↓ · 왼쪽↑) 같은 사각형이 나온다.
- * - `bounds` 를 주면 프리뷰 밖으로 나간 부분을 잘라 낸다 — 옆 패널이나 캔버스 배경이 함께
- *   찍히면 "이 화면의 이 부분" 이라는 말이 어긋난다.
- * - `PREVIEW_SNIP_MIN_PX` 보다 작으면 **오조작으로 보고 null** — 캡처 모드에서 무심코 누른
- *   클릭과 "여기를 찍겠다" 를 가르는 선이다.
- *
- * 좌표는 `getBoundingClientRect()` 와 같은 CSS px(창 문서 좌상단 기준)이며, Electron
- * `capturePage(rect)` 가 받는 좌표계와 같아 변환이 없다. 정수로 반올림해 돌려준다.
+ * §5.17 (B) — 드래그 두 점 → 캡처 사각형(순수). 방향 무관 · `bounds` 밖은 자른다 · `PREVIEW_SNIP_MIN_PX` 미만은 오조작으로 `null`.
+ * 좌표는 창 기준 CSS px(`capturePage(rect)` 와 같다), 정수로 반올림.
  */
 export function normalizeSnipRect(
   start: { x: number; y: number },

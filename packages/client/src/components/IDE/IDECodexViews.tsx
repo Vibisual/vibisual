@@ -1,20 +1,7 @@
 /**
- * IDECodexViews.tsx — §5.25 (M): 코덱스 버블의 좌측 사이드바의 MCP·훅·플러그인·스킬 목록.
- *
- * 이 파일이 생긴 이유는 §5.19 (G) 를 코덱스에 그대로 적용한 것이 틀렸기 때문이다. 그 규칙은
- * "클로드 CLI 에 매인 항목은 프로바이더 버블 IDE 에 뜨지 않는다"였고 근거는 **없는 기능의
- * 입구는 거짓말**이라는 것이었다. 로컬 모델에는 정말 없어 맞는 규칙이지만 **코덱스에는 다섯이
- * 전부 있다** — 그대로 감추면 사용자가 자기 코덱스에 깔아 둔 MCP·스킬·플러그인을 우리 창에서
- * 못 본다. 없는 것을 그리지 않는 규율과 **있는 것을 감추지 않는 규율은 같은 원칙의 양면**이다.
- *
- * 이 파일의 목록이 함께 지키는 것(컨텍스트 제어는 IDEContextView):
- *   ① **클로드 목록을 빌려 쓰지 않는다** — 전부 코덱스 쪽 실물(`codex mcp` · `codex plugin` ·
- *      `~/.codex/skills` · `~/.codex/hooks.json` · `AGENTS.md`)에서 읽은 값이다. 빌려 쓰면
- *      이 대화에 실리지도 않는 것이 뜬다.
- *   ② 설치·제거·켜고 끄기는 코덱스가 소유한다. 사용자 스킬 공유만 명시 요청으로 확장한다.
- *      우리 훅 스위치는 이미 옵션창 엔진 칸에 있다(같은 버튼을 두 곳에 두지 않는다).
- *   ③ **아직 못 읽은 것과 비어 있는 것을 구분한다** — `null` 이면 "읽어 보자", 빈 배열이면
- *      "이 기계엔 없다". 둘을 같은 화면으로 그리면 사용자는 고장과 정상을 구별할 수 없다.
+ * IDECodexViews.tsx — §5.25 (M) 코덱스 버블 사이드바의 MCP·훅·플러그인·스킬. 코덱스에는 다섯이 다 있어 §5.19 (G)(프로바이더 버블엔 안 띄움)를 적용하지 않는다 — 있는 것을 감추지 않는다.
+ * ① 클로드 목록을 빌리지 않는다(코덱스 실물 `codex mcp`·`codex plugin`·`~/.codex/skills`·`~/.codex/hooks.json`·`AGENTS.md`)
+ * ② 설치·켜고 끄기는 코덱스 소유(우리 훅 스위치는 옵션창에만) ③ `null`(못 읽음)과 빈 배열(없음)을 다르게 그린다.
  */
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -99,8 +86,7 @@ function CodexPane({
           <p className="px-2 py-3 text-[12px] text-gray-500">{t('ide.codex.loading')}</p>
         ) : (
           <>
-            {/* 사유 줄은 빈 목록 판정보다 **먼저** 선다 — 서버는 못 읽은 갈래를 "빈 목록 + 사유"로 보낸다.
-                종전에는 이 줄이 목록(children) 안에 있어 "없습니다" 안내에 가려 한 번도 보이지 않았다. */}
+            {/* 사유 줄은 빈 목록 판정보다 먼저 — 서버는 못 읽은 갈래를 "빈 목록 + 사유"로 보낸다(안에 두면 "없습니다"에 가린다). */}
             <CodexReadError reason={error} />
             {count === 0
               ? (error ? null : <p className="px-2 py-3 text-[12px] text-gray-500">{t(emptyKey)}</p>)
@@ -123,12 +109,7 @@ function CodexReadError({ reason }: { reason: string | undefined }): React.JSX.E
   );
 }
 
-/**
- * MCP — `codex mcp list --json`.
- *
- * 클로드 쪽 화면과 달리 **켜고 끄는 손잡이가 없다.** 코덱스의 MCP 는 그쪽 `config.toml` 이
- * 소유하고 우리는 그 파일을 고치지 않기로 했다(§5.25 안전선) — 없는 손잡이를 그리느니 읽기만 한다.
- */
+/** MCP — `codex mcp list --json`. 켜고 끄기 ❌ — 그쪽 `config.toml` 은 고치지 않는다(§5.25 안전선). */
 export const IDECodexMcpView = memo(function IDECodexMcpView(): React.JSX.Element {
   const { t } = useTranslation();
   const { inventory, agentId } = useCodexInventory();
@@ -164,19 +145,8 @@ export const IDECodexMcpView = memo(function IDECodexMcpView(): React.JSX.Elemen
 });
 
 /**
- * 스킬 — 코덱스의 스킬 칸. 코덱스는 **폴더가 곧 스킬**이다.
- *
- * §5.25 (M-1) — 이 칸은 한 번 다시 지어졌다. 종전에는 홈(`~/.codex/skills`) 하나만 읽는
- * **읽기 전용 정적 목록**이라 두 가지가 동시에 잘못돼 있었다:
- *   ① **대부분이 안 보였다** — 실측(2026-09-08 · `codex-cli 0.152.1`)에서 코덱스가 실제로 이
- *      대화에 싣는 스킬은 15개인데 화면에는 3개만 떴다(코덱스 기본 5 · 플러그인 7이 통째로 없었다).
- *   ② **쓸 수가 없었다** — 클로드 칸에는 클릭 삽입·즐겨찾기·검색이 있는데 여기엔 하나도 없어,
- *      스킬 이름을 눈으로 읽고 입력창에 손으로 옮겨 적어야 했다.
- *
- * 그래서 **클로드 칸과 같은 조작**을 준다(클릭하면 `$이름 ` 이 입력창에 들어가고, 별을 켜면 위로
- * 오고, 검색이 걸린다). 다만 **없는 권한의 손잡이는 만들지 않는다** — 삭제·복사·순서 끌기·사용
- * 횟수는 코덱스 몫이거나 우리가 모르는 값이라 그대로 뺐다. 사용자 스킬 공유는 두 번째(Claude) 탭이다
- * — 첫째·기본 탭은 늘 이 에이전트의 Codex 스킬이다(`IDESkillProviderTabs`).
+ * 스킬 — 코덱스는 폴더가 곧 스킬. §5.25 (M-1) 홈만 읽으면 대부분 빠진다(실측 2026-09-08 · `codex-cli 0.152.1`: 15개 중 홈 3 · 기본 5 · 플러그인 7).
+ * 클로드 칸과 같은 조작(클릭 `$이름 ` 삽입·별·검색), 없는 권한(삭제·복사·순서·횟수) ❌. 첫째·기본 탭은 늘 Codex 스킬(`IDESkillProviderTabs`).
  */
 export const IDECodexSkillsView = memo(function IDECodexSkillsView(): React.JSX.Element {
   const { t } = useTranslation();

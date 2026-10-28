@@ -9,17 +9,7 @@ import {
   type InteractiveShellFamily,
 } from './interactiveCommandLine.js';
 
-/**
- * §4 (CMD) — CMD 터미널에 미리 쳐 넣는 한 줄의 인용.
- *
- * 사용자를 때린 것: 서브에이전트를 정의한 CMD 버블은 Enter 를 치는 순간 claude 가
- * `Invalid --agents configuration: invalid JSON` 으로 끝났고(cmd.exe·bash 둘 다 안쪽 따옴표를 먹었다),
- * mac 기본 셸 zsh 에서는 맨몸 `opus[1m]` 이 글롭으로 읽혀 `no matches found` 로 명령이 아예 돌지 않았다.
- *
- * 기대 문자열만으로는 셸이 실제로 그렇게 읽는지 모른다 — 그래서 **진짜 셸에 그 줄을 넣고 argv 가 그대로
- * 돌아오는지** 왕복으로 잰다(Windows 는 cmd.exe, POSIX 는 sh · 있으면 zsh · fish). CI 의 세 OS 매트릭스가
- * 셋을 다 돈다.
- */
+/** §4 (CMD) — 미리 쳐 넣는 한 줄의 인용 시험. **진짜 셸에 넣어 argv 가 그대로 돌아오는지** 잰다(cmd.exe · sh · 있으면 zsh·fish) — 깨지면 `--agents` JSON 이 쪼개지고 zsh 는 `opus[1m]` 을 글롭으로 읽는다. */
 
 /**
  * 받은 argv 를 JSON 으로 찍는 프로그램 — `node -e <코드> -- <인자들>` 의 argv 는 실행 파일 다음부터가 넘긴 인자다.

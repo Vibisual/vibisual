@@ -1,18 +1,4 @@
-// §9 — 세션 토큰 데이터 증분 캐시 등가성 테스트.
-//
-// `readSessionTokenData` 는 `/api/tokens/:sessionId` 의 본체다. DetailPanel 이 에이전트
-// activity(=도구 이벤트) 마다 이 엔드포인트를 때리는데, 종전엔 호출마다 세션 JSONL **전체**를
-// readFileSync + 전 줄 JSON.parse ×2벌(turns 루프 + collectSessionMeta) 했다. 자체 턴이 비면
-// 서브에이전트 세션까지 연쇄 호출돼, 수 MB 파일 수십 개를 한 번에 읽으며 Electron 메인 스레드가
-// 수백 ms 씩 멈췄다(= "1~2초마다 뚝뚝 끊긴다"의 정체).
-//
-// 증분화의 유일한 위험은 "빨라졌지만 값이 달라지는 것" 이므로 여기서는 성능이 아니라
-// **전체 재파싱과 같은 결과가 나오는지**만 본다(sessionJsonlCache.test 와 같은 구성):
-//   ① 한 번에 다 쓴 파일 == 여러 번 나눠 append 한 파일
-//   ② 같은 파일을 다시 물어도 턴이 중복 누적되지 않는지
-//   ③ 개행 없이 끝난 마지막 줄도 결과에 반영되되 캐시엔 커밋되지 않는지
-//   ④ 파일이 줄어들면(재작성) 전체 재파싱으로 안전 복귀하는지
-//   ⑤ meta 누적(도구 호출 수 등)이 증분 경로에서도 전체 파싱과 같은지
+// §9 — `readSessionTokenData`(`/api/tokens`) 증분 캐시 등가성: 나눠 append·재조회·개행 없는 꼬리(반영하되 커밋 안 함)·파일 축소·meta 누적이 전체 재파싱과 같은가.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';

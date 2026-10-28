@@ -54,10 +54,7 @@ describe('skill sharing HTTP boundary', () => {
     expect(list).toHaveBeenCalledWith({ projectCwd: `/workspace/${agentId}`, targetProvider: agentId });
   });
 
-  /*
-   * 받는 엔진은 IDE 스킬 칸과 같은 판정(`agentEngineOf`)이다. 종전에는 실행 방식을 안 보고 `cliKind` 를 읽어,
-   * 헤드리스로 되돌린 클로드 버블에서 칸(클로드)과 응답(코덱스)이 갈려 둘째 탭이 늘 거절됐다.
-   */
+  /* 받는 엔진은 IDE 스킬 칸과 같은 `agentEngineOf` — `cliKind` 만 보면 헤드리스 클로드 버블에서 칸과 응답이 갈려 거절된다. */
   it('receives into the engine the terminal actually runs, and ignores a cliKind left on a headless bubble', async () => {
     const cmd = await fetch(`${base}/api/skill-sharing?agentId=codex-cmd`);
     expect(await cmd.json()).toEqual({ ok: true, provider: 'codex', skills: [] });

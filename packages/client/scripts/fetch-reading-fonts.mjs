@@ -1,21 +1,8 @@
 #!/usr/bin/env node
 /**
- * §5.5 — 읽기 설정 글꼴을 저장소에 **동봉**하기 위한 내려받기 스크립트.
- *
- * 예전에는 글꼴 이름만 부르고(`font-family: 'Pretendard', …`) OS 에 설치돼 있기를 기대했다.
- * 그러면 고른 글꼴이 조용히 폴백돼 "골랐는데 안 바뀐다"가 되고, 오프라인 데스크톱 앱에서는
- * 되돌릴 방법도 없다. 그래서 웹폰트 파일을 받아 `src/assets/fonts/` 에 넣고 앱이 스스로 싣는다.
- *
- * 받는 것은 전부 **SIL Open Font License 1.1** 글꼴이라 재배포가 허용된다. 라이선스 전문도 같이
- * 받아 글꼴 옆에 둔다(OFL 의 재배포 조건).
- *
- * 용량 규율: 자모별로 쪼갠 수백 개 조각 대신 **묶음 서브셋 파일**(한글 1개 · 라틴 1개)을 받는다.
- * 그래서 글꼴 10종 전체가 40여 개 파일 · 7MB 남짓으로 들어온다. 라틴 면에는 표준 unicode-range 를
- * 달아 뒤에 선언하므로 라틴 글자는 라틴 조각이, 나머지(한글 등)는 한글 조각이 맡는다.
- *
- * 실행:  node packages/client/scripts/fetch-reading-fonts.mjs
- * 결과:  packages/client/src/assets/fonts/<가족>/*.woff2 + LICENSE.txt, 그리고 생성된 fonts.css
- *        (fonts.css 는 손으로 고치지 말고 이 스크립트를 다시 돌릴 것)
+ * §5.5 — 읽기 글꼴을 저장소(`src/assets/fonts/`)에 동봉하려고 받는다(OS 설치에 기대면 조용히 폴백돼 "골랐는데 안 바뀐다"). 전부 OFL 1.1 — 라이선스 전문을 옆에 둔다.
+ * 묶음 서브셋(한글 1 · 라틴 1)만 받고, 라틴 조각은 unicode-range 를 달아 뒤에 선언한다.
+ * 실행: node packages/client/scripts/fetch-reading-fonts.mjs — 생성되는 fonts.css 는 손으로 고치지 말 것.
  */
 
 import { mkdir, writeFile, rm } from 'node:fs/promises';
@@ -102,16 +89,8 @@ const FONTSOURCE_VARIABLE = [
 ];
 
 /**
- * §5.5 #17-22 ⑤-3 — **문자 폴백 글꼴**. 읽기 목록(`READING_FONTS`)에는 안 나온다.
- * 사용자가 *고르는* 글꼴이 아니라, UI 언어를 中文·日本語·हिन्दी 로 바꿨을 때 **글자가 두부로
- * 사라지지 않게 하는** 폴백이다(윈도우·맥은 OS 글꼴이 조용히 메우지만 최소 설치 리눅스는
- * `fc-list :lang=zh-cn|ja|hi` 가 0 이다).
- *
- * 위 두 갈래와 달리 **파일 목록을 우리가 적지 않고 fontsource 가 발행한 CSS 를 읽어 온다.**
- * 한자는 묶음 서브셋 한 덩어리로 받으면 한 글자를 그리려고 수 MB 를 통째로 해독해야 해서,
- * 조각별 `unicode-range` 가 있어야 브라우저가 쓰는 조각만 해독한다 — 그 범위를 손으로 옮겨
- * 적으면 100 조각이 넘고 갱신 때마다 어긋나므로, 발행자의 CSS 를 정본으로 삼는다.
- * 굵기는 400/700 두 벌 대신 **가변 축 하나(100~900)** 로 받아 용량을 2/3 로 줄인다.
+ * §5.5 #17-22 ⑤-3 — 문자 폴백 글꼴: 中文·日本語·हिन्दी UI 가 최소 설치 리눅스(`fc-list :lang=zh-cn|ja|hi` 가 0)에서 두부가 되지 않게.
+ * 목록 대신 fontsource 발행 CSS 를 읽는다 — 한자는 조각별 `unicode-range` 라야 쓰는 조각만 해독하고, 100 조각을 손으로 옮기면 어긋난다. 굵기는 가변 축 하나.
  */
 const FONTSOURCE_SPLIT = [
   {
@@ -196,12 +175,7 @@ async function download(url) {
   return Buffer.from(await res.arrayBuffer());
 }
 
-/**
- * §5.5 ⑤-3 — 조각으로 쪼개 발행된 가족은 **발행자의 CSS 가 정본**이다.
- * `index.css` 를 받아 `@font-face` 블록마다 (woff2 파일 이름 · `unicode-range`) 만 뽑아 온다.
- * 파일 이름을 우리가 규칙으로 만들지 않는 이유는 조각 번호가 글꼴 갱신마다 달라지기 때문이고,
- * 범위를 우리가 적지 않는 이유는 100 조각이 넘어 손으로 옮기면 반드시 어긋나기 때문이다.
- */
+/** §5.5 ⑤-3 — 조각 가족은 발행자 `index.css` 가 정본이다 — `@font-face` 마다 (파일 이름 · `unicode-range`) 만 뽑는다(조각 번호는 갱신마다 바뀐다). */
 async function planSplitFamilies() {
   const plan = [];
   for (const f of FONTSOURCE_SPLIT) {
@@ -237,13 +211,8 @@ function faceBlock(family, dir, face) {
 /* ---------------------------------------------------------------- 커버리지 */
 
 /**
- * §5.5 ⑤-3 — **어느 가족이 어떤 글자를 실제로 그릴 수 있는가**를 여기서 재어 `fonts.coverage.json`
- * 으로 내보낸다. 두부(□)는 화면을 띄워야만, 그것도 리눅스에서만 보이는 결함이라 회귀 테스트가
- * 필요한데, 클라이언트 tsconfig 에는 Node 타입이 없어 테스트가 woff2 를 직접 못 연다.
- * 그래서 **파일을 이미 손에 쥔 이 스크립트가** 재고, 테스트는 그 결과만 읽는다.
- *
- * `unicode-range` 선언은 "이 조각을 이 범위에 쓰겠다"일 뿐 그 안에 글자가 다 있다는 뜻이 아니므로
- * `선언 범위 ∩ 실제 cmap` 으로 잡는다(브라우저가 폴백을 정하는 방식과 같다).
+ * §5.5 ⑤-3 — 가족별 실제 그릴 수 있는 글자(`선언 unicode-range ∩ cmap` — 브라우저 폴백과 같은 방식)를 `fonts.coverage.json` 으로 낸다.
+ * 클라 시험은 Node 타입이 없어 woff2 를 못 연다 — 이 결과만 읽는다.
  */
 const WOFF2_KNOWN_TAGS = [
   'cmap', 'head', 'hhea', 'hmtx', 'maxp', 'name', 'OS/2', 'post', 'cvt ', 'fpgm', 'glyf', 'loca',

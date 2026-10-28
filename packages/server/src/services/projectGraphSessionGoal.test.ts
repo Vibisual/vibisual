@@ -11,14 +11,8 @@ vi.mock('./userDefaultsService.js', () => ({
 const { ProjectGraph } = await import('./projectGraph.js');
 
 /**
- * §5.5 #17-17 v4.46 — 세션 목표(Goal) 회귀 테스트.
- *
- * 조용히 깨지는 자리가 둘이다:
- *  (1) **영속화** — `getSnapshot` 에만 넣고 디스크 포맷인 `toProjectCheckpoint` 를 빠뜨리면
- *      화면엔 보이다가 껐다 켜면 목표가 사라진다(§3.2 v1.59/v2.55 재발 자리).
- *  (2) **출처 우선순위(③)** — 에이전트가 신고를 시작한 뒤에도 계획 폴백(plan)이 퍼센트를 덮으면
- *      사용자가 보는 숫자가 제멋대로 오르내린다. 목표 문장을 바꿨을 때는 반대로 폴백이 **다시**
- *      열려야 한다(새 목표엔 아직 아무도 신고한 적이 없으므로).
+ * §5.5 #17-17 — 세션 목표: (1) 영속(`toProjectCheckpoint` 누락) (2) 출처 우선순위(③) — 에이전트 신고가 시작되면 계획 폴백이 퍼센트를 덮지 않고,
+ * 목표 문장이 바뀌면 폴백이 다시 열린다.
  */
 
 function seededGraph(): { graph: InstanceType<typeof ProjectGraph>; projectName: string } {
@@ -298,7 +292,7 @@ describe('ProjectGraph — 세션 목표(Goal)', () => {
     expect(revived.getSessionGoal('sub-a')?.steps.map((s) => s.status)).toEqual(['done', 'pending']);
     expect(revived.getSessionGoal('sub-a')?.percent).toBe(50);
 
-    // v4.46 판본(steps 필드 자체가 없는 체크포인트)도 그대로 열려야 한다.
+    // steps 필드가 없는 옛 체크포인트도 열려야 한다.
     const legacyCp = JSON.parse(JSON.stringify(cp)) as typeof cp;
     delete (legacyCp.sessionGoals!['sub-a'] as { steps?: unknown }).steps;
     legacyCp.sessionGoals!['sub-a']!.percent = 45;
@@ -324,11 +318,8 @@ describe('ProjectGraph — 세션 목표(Goal)', () => {
     expect(live.getSessionGoal('sub-c')?.text).toBe('only live');
   });
 
-  // ─── §5.5 #17-17 ⑨ v4.59 — 목표는 계획을 기다리지 않는다 ───
-  //
-  // v4.50 은 카드 출생을 `TodoWrite` 훅 하나에 묶었고, 스폰 세션에는 그 도구가 아예 없어서
-  // (AVAILABLE_AGENT_TOOLS 누락 → `--tools` 에서 제외) 목표가 **한 번도 태어난 적이 없었다**.
-  // 실측 279 세션 중 계획을 세운 세션 1개, 저장된 목표 0개. 아래는 그 회귀를 고정한다.
+  // §5.5 #17-17 ⑨ — 목표는 계획을 기다리지 않는다.
+  // `TodoWrite` 에 묶으면 그 도구가 없는 스폰 세션에선 목표가 안 태어난다(실측 279 세션 중 목표 0개).
 
   it('명령이 발사되면 계획 없이도 목표 카드가 태어난다', () => {
     const graph = new ProjectGraph();
@@ -393,9 +384,8 @@ describe('ProjectGraph — 세션 목표(Goal)', () => {
   it('판올림 전 설정에도 계획 도구가 백필돼 목표가 태어날 수 있다', () => {
     const { graph, projectName } = seededGraph();
     const agent = graph.createCustomAgent('Goalie', undefined, projectName);
-    // v4.59 이전 설정 — 화면에 체크박스가 없어서 TodoWrite 가 빠져 있다(사용자가 끈 것이 아니다).
-    //   §4 (설정 3층) 이후로 그 모양은 **디스크에서만** 온다: 지금 창으로 저장하면 "직접 고른
-    //   목록"이라는 세대 도장이 함께 찍히기 때문이다(그래서 setAgentConfig 로는 재현되지 않는다).
+    // ⑨ 이전 설정 — 체크박스가 없어 TodoWrite 가 빠진 것(사용자가 끈 게 아니다).
+    //   지금 창으로 저장하면 "직접 고른 목록" 도장이 찍혀 setAgentConfig 로는 재현되지 않아 디스크 모양으로 만든다(§4 설정 3층).
     const legacy = {
       ...graph.toProjectCheckpoint(projectName)!,
       agentConfigOverrides: undefined,
@@ -444,11 +434,8 @@ describe('ProjectGraph — 세션 목표(Goal)', () => {
 });
 
 /**
- * §5.5 #17-17 ⑰(a) — **나란히 놓인 행**은 순서 목록 위의 표식 하나(`parallel`)다.
- *
- * 조용히 깨지는 자리가 셋이다: (1) 에이전트가 목록을 다시 신고할 때 표식을 안 적으면 사용자가
- * 나란히 놓은 행이 풀린다(→ 안 적으면 물려받는다). (2) 순서가 같다고 표식 변화를 버리면 [나란히 놓기]가
- * 화면에 안 선다. (3) 체크포인트를 왕복하며 사라지거나, 손으로 고친 파일의 `"true"` 가 표식으로 선다.
+ * §5.5 #17-17 ⑰(a) — 나란히(`parallel`) 표식: 재신고에 표식이 없으면 물려받고, 순서가 같아도 표식 변화는 반영하고,
+ * 체크포인트 왕복에서 살아남되 손으로 쓴 `"true"` 는 받지 않는다.
  */
 describe('ProjectGraph — 나란히 놓인 행(parallel)', () => {
   it('사용자 문(setUserGoalSteps)은 표식을 그대로 싣고, 없으면 필드도 없다', () => {
@@ -505,15 +492,7 @@ describe('ProjectGraph — 나란히 놓인 행(parallel)', () => {
     expect(again?.steps.every((s) => s.authoredBy === 'user')).toBe(true);
   });
 
-  /**
-   * §5.5 #17-17 ⑲ — **차례를 바꾼다고 남의 단계가 내 것이 되지는 않는다.**
-   *
-   * ⑰(a) 로 순서·행 바꾸기가 끼워 넣기와 같은 문(`setUserGoalSteps`)으로 들어오면서, 무대에서
-   * 노드를 한 번 끄는 것만으로 에이전트가 쓴 단계 **전부**가 `authoredBy='user'` 로 박혔다.
-   * 그 뒤로는 `mergeGoalSteps` 가 그것들을 영원히 붙들어, 에이전트가 다음 라운드에 계획을
-   * 갈아입어도 지난 단계가 목록에 남고 앵커가 사라진 것은 꼬리로 밀린다 — 화면에서는 여러
-   * 라운드의 단계가 뒤섞여 보인다(사용자 지적 "중간에 마음대로 섞여 버리던데").
-   */
+  /** §5.5 #17-17 ⑲ — 순서만 바꾼 것은 소유(`authoredBy`)를 옮기지 않는다 — 옮기면 `mergeGoalSteps` 가 에이전트 단계를 영원히 붙들어 다음 라운드에 옛 단계가 섞인다. */
   it('⑲ 순서만 바꾼 것은 소유를 옮기지 않는다 — 다음 라운드에 옛 단계가 따라오지 않는다', () => {
     const graph = new ProjectGraph();
     const agent = graph.createCustomAgent('Goalie');
@@ -598,11 +577,7 @@ describe('ProjectGraph — 나란히 놓인 행(parallel)', () => {
   });
 });
 
-/**
- * §5.5 #17-17 ⑰(c) — **목표 변천**(`pastTexts`). 문장이 바뀔 때 옛 문장이 링으로 밀린다 — 밀어 넣는
- * 자리가 하나(`pushPastText`)라, 여기서는 그 자리를 지나는 세 길(사용자 문·에이전트 다듬기·새 명령)을
- * 전부 지난다. 링의 길이는 `SESSION_GOAL_PAST_TEXT_MAX` 하나가 정한다.
- */
+/** §5.5 #17-17 ⑰(c) — 목표 변천(`pastTexts`). 밀어 넣는 자리는 `pushPastText` 하나라 세 길(사용자 문·에이전트 다듬기·새 명령)을 다 지난다. 길이는 `SESSION_GOAL_PAST_TEXT_MAX`. */
 describe('ProjectGraph — 목표 변천(pastTexts)', () => {
   it('문장이 실제로 바뀔 때만 옛 문장이 밀려 들어간다(같은 문장 재저장은 아니다)', () => {
     const graph = new ProjectGraph();

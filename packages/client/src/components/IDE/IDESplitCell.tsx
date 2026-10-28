@@ -13,20 +13,11 @@ import { IDE_SPLIT, type SplitCell } from './splitLayout.js';
 import { previewBoxStyle, useSplitDrop, type SplitDropState } from './useSplitDrop.js';
 import { useIDEPaneActions } from './idePane.js';
 
-/**
- * §5.5 #17-34 — 칸 하나. 머리띠(무엇을 보고 있는가 + 옮기는 손잡이 + 닫기) 위에 본문 한 벌.
- *
- * 본문은 종전 `IDEMainArea` **그대로**다 — 분할을 위해 새 대화 화면을 만들지 않는다. 칸은 자기 세션을
- * 컨텍스트로 깔아 주고(`splitCellContext`), 본문은 그걸 읽어 그 세션을 그린다.
- */
+/** §5.5 #17-34 — 분할 칸: 머리띠 + 본문. 본문은 `IDEMainArea` 그대로(새 대화 화면 ❌) — 칸이 `splitCellContext` 로 세션을 깐다. */
 
 const EMPTY_SUBS: SubAgent[] = [];
 
-/**
- * 손을 떼면 앉을 자리를 그리는 파란 박스 — #17-1 도킹 미리보기와 같은 시각 언어.
- * 막힌 자리는 호박색 + **왜 막혔는지**. 칸과 "아직 안 나뉜 창"이 이 하나를 함께 쓴다(문구가 갈리면
- * 같은 상황에서 화면마다 다른 말을 하게 된다).
- */
+/** 손을 떼면 앉을 자리(파란 박스, 막히면 호박색 + 이유). 칸과 "안 나뉜 창"이 함께 쓴다 — 문구를 한 곳에 둔다. */
 export function SplitDropPreview({ state }: { state: SplitDropState }): React.JSX.Element | null {
   const { t } = useTranslation();
   if (!state.side || !state.box) return null;

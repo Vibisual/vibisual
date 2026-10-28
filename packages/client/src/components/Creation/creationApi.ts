@@ -13,10 +13,7 @@ import {
 } from '@vibisual/shared';
 import { externalizeForSave, forgetKnownBlobs } from './creationBlobs.js';
 
-/**
- * §5.13 (R-10) — the one client for `/api/app/creation`. App screens never assemble these URLs themselves, so a
- * contract change (light head polls, payload-free lists, candidate bodies on demand) lands in one file.
- */
+/** §5.13 (R-10) — the one client for `/api/app/creation`; screens never assemble these URLs, so a contract change lands in one file. */
 export const CREATION_DOCS = `${CREATION_API_PREFIX}/docs`;
 
 export class CreationApiError extends Error {
@@ -41,10 +38,7 @@ function post<T>(url: string, projectId: string, body: object = {}): Promise<T> 
   return call<T>(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, projectId }) });
 }
 
-/**
- * A request id derived from what the request means (doc, base revision, operation, body), so a retry after a lost
- * response replays on the server instead of failing as a conflict. Different content → different id.
- */
+/** Derived from the request's meaning, so a retry after a lost response replays on the server instead of failing as a conflict. */
 export function creationIntentId(...parts: unknown[]): string {
   const text = creationStableJson(parts);
   let a = 0x811c9dc5, b = 0x01000193;

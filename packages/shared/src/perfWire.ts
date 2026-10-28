@@ -1,8 +1,6 @@
 /**
- * §5.13 (Y) 40-12 — 계측 메모리 한 벌(main · preload → 렌더러). 단위는 KB(Electron 이 주는 그대로).
- *
- * 렌더러 칸은 preload 의 `process.getProcessMemoryInfo()`(`residentSet` 은 Linux·Windows 만) · `process.getBlinkMemoryInfo()`,
- * 프로세스 칸은 main 의 `app.getAppMetrics()` 를 종류별로 묶은 것(`privateBytes` 는 Windows 만 준다 — 다른 OS 에서는 비어 있다).
+ * §5.13 (Y) 40-12 — 계측 메모리(main·preload → 렌더러), 단위 KB(Electron 그대로). 렌더러 칸은 preload `process.getProcessMemoryInfo()`
+ * (`residentSet` 은 Linux·Windows 만)·`getBlinkMemoryInfo()`, 프로세스 칸은 main `app.getAppMetrics()` 종류별 묶음(`privateBytes` 는 Windows 만).
  */
 export interface PerfProcessMemoryWire {
   /** 프로세스 종류(`Browser` · `Tab` · `GPU` · `Utility` …). */

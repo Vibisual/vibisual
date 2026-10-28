@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.93 — 구조화 출력(Structured Output): 보고가 자유 서술인가 스키마인가.
- *
- * 에이전트 출력이 다음 단계의 입력이 되는 순간 파싱 실패는 곧 파이프라인 중단이다. Vibisual 은
- * 작업 신고·질문·검수·목록을 구조화된 형식으로 받으므로, 여기서는 이 에이전트가 그 통로를
- * 실제로 쓰고 있는지를 센다. 표시 전용.
- */
+/** §5.11 — 구조화 출력(Structured Output): 작업 신고·질문·검수·목록 같은 구조화 통로를 실제로 쓰는지 센다. 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';
 

@@ -1,34 +1,18 @@
 /**
- * §4 엔진 다리 — Claude Code 모드(2.1.287+)로, **우리가 띄운 세션 안에서 엔진이 직접 사실을 올린다.**
- *
- * 훅은 바깥에서 가장자리(edge) 사건만 본다. 사용자가 Esc 로 끊은 턴에는 `Stop` 훅이 오지 않고,
- * 긴 도구 호출 동안에는 아무 신호도 없다. 모드는 엔진 **안에서** 턴 시작·끝(이유 포함)·도는 도구·
- * 사용량을 준다 — 그 자리를 감지기로만 쓴다(관찰만 · 화면에 그리지 않는다).
- *
- * 이 모듈은 **순수 판정만** 든다(파일·네트워크·시계 ❌ — 시각은 인자로 받는다). 서버가 상태를
- * 세우고, 클라가 상태 줄을 그리고, 시험이 같은 답을 내야 하기 때문이다.
- *
- * 모드 본체(`hooks/mods/vibisual-bridge/hooks/register.js`)는 엔진이 직접 읽는 ES 모듈이라 이 파일을
- * import 하지 못한다. 그래서 **전선 모양의 정본은 여기 `parseEngineBridgeReport` 다** — 모양을 바꾸면
- * 둘을 함께 고친다.
+ * §4 엔진 다리 — Claude Code 모드(2.1.287+)로 우리 세션 안에서 엔진이 사실(턴 시작·끝·도구·사용량)을 올린다(감지기 전용). 훅은 Esc 로 끊은 턴·긴 도구 호출을 못 본다.
+ * 순수 판정만(시각은 인자). 모드 본체(`hooks/mods/vibisual-bridge/hooks/register.js`)는 이 파일을 import 못 하니 전선 모양 정본 `parseEngineBridgeReport` 와 함께 고친다.
  */
 import type { RateLimitInfo } from './types.js';
 
 /** 동봉 모드의 플러그인 이름(`.claude-plugin/plugin.json` 의 `name`). */
 export const ENGINE_BRIDGE_PLUGIN_NAME = 'vibisual-bridge';
-/**
- * 모드가 기본으로 켜진 첫 판. 공식 문서: "Mods are on by default. In the terminal, use Claude Code
- * v2.1.287 or later." 그 아래 판에 `hooks.json` 의 `modules` 를 넘기면 무엇이 될지 모르므로 싣지 않는다.
- */
+/** 모드가 기본으로 켜진 첫 판(공식 문서: "Mods are on by default … v2.1.287 or later") — 그 아래 판엔 `hooks.json` 의 `modules` 를 싣지 않는다. */
 export const ENGINE_BRIDGE_MIN_CLI_VERSION = '2.1.287';
 /** 모드가 생존 신호를 보내는 간격. 서버가 답에 실어 내려 준다(모드의 기본값과 같은 값). */
 export const ENGINE_BRIDGE_HEARTBEAT_MS = 30_000;
 /** 이보다 오래 소식이 없으면 그 다리는 끊긴 것으로 본다(생존 신호 세 번 + 여유). */
 export const ENGINE_BRIDGE_STALE_MS = 95_000;
-/**
- * 엔진이 "턴이 돈다"고 말해도 이만큼 진척(도구 시작·끝, 턴 가장자리)이 없으면 보증하지 않는다 —
- * 그때는 §2.4 생존 판정이 종전대로 묻는다(멈춘 턴을 찾는 일은 그쪽 몫이다).
- */
+/** 엔진이 턴이 돈다 해도 이만큼 진척이 없으면 보증하지 않는다 — §2.4 생존 판정에 맡긴다. */
 export const ENGINE_BRIDGE_VOUCH_PROGRESS_MS = 30 * 60_000;
 /** 서버가 들고 있는 다리 상태 수 상한(§3.2.4 F′ — 키가 세션 수만큼 는다). */
 export const ENGINE_BRIDGE_STATE_MAX = 500;
@@ -83,10 +67,7 @@ export interface EngineBridgeSnapshotWire {
   turnState: EngineBridgeTurnState;
   turnAgeMs?: number;
   progressAgeMs?: number;
-  /**
-   * 도는 도구. 동봉 모드는 2026-10-15 부터 보내지 않는다(`tool.call` 을 걷었다 — 막을 수 있는 훅은 2.1.299 부터
-   * 답을 못 돌려주면 도구 호출이 거부된다). 그 전 판의 모드가 실린 채 도는 세션이 있어 받기는 그대로 둔다.
-   */
+  /** 도는 도구 — 동봉 모드는 보내지 않는다(2.1.299 부터 막을 수 있는 훅이 답을 못 하면 도구가 거부된다). 옛 모드 세션 때문에 받기는 둔다. */
   toolsInFlight: number;
   toolInFlight?: { name: string; ageMs: number };
 }
@@ -259,11 +240,7 @@ function parseUsage(v: unknown): EngineBridgeUsageWire | undefined {
   return usage;
 }
 
-/**
- * 모드가 보낸 본문을 검사해 한 벌로 접는다. **신뢰할 수 없는 입력**이다 — 모양이 어긋나면 `null`,
- * 글자는 길이를 자르고, 수는 범위로 접고, 모르는 사건은 버린다. 신원의 진위(그 sub 가 정말 있나)는
- * 여기서 보지 않는다 — 그것은 상태를 아는 서버가 대조한다.
- */
+/** 모드 본문 검사(신뢰할 수 없는 입력) — 모양이 어긋나면 `null`, 글자는 자르고 수는 범위로 접고 모르는 사건은 버린다. sub 실재 여부는 서버가 대조한다. */
 export function parseEngineBridgeReport(body: unknown): EngineBridgeReport | null {
   if (!isRecord(body)) return null;
   if (body['v'] !== 1) return null;
@@ -324,13 +301,8 @@ export function isEngineBridgeTurnRunning(state: TurnFields, now: number): boole
 }
 
 /**
- * §2.4 — 생존 판정을 **묻지 않아도 되는가.** 턴이 돌고, 최근(`ENGINE_BRIDGE_VOUCH_PROGRESS_MS`)에
- * 진척이 있었으면 그 세션은 끝난 것이 아니다. 진척이 오래 없으면 보증하지 않는다 — 멈춘 턴을
- * 찾는 일은 판정의 몫이라 그 길을 막지 않는다.
- *
- * `observedProgressAt` — 다리 밖에서 관측한 진척 시각(대화록 마지막 쓰기). 다리는 턴 가장자리만 진척으로 센다
- * (도구를 보던 `tool.call` 은 2026-10-15 걷었다). 도는 턴 안의 진척은 대화록에 붙는 줄이 말하므로 둘 중 늦은 쪽을
- * 본다. 턴이 도는지는 여전히 다리만 말한다 — 대화록이 쓰여도 다리가 쉰다면 보증하지 않는다.
+ * §2.4 — 생존 판정을 생략해도 되나: 턴이 돌고 최근(`ENGINE_BRIDGE_VOUCH_PROGRESS_MS`)에 진척이 있을 때만(멈춘 턴 찾기는 판정 몫).
+ * `observedProgressAt`(대화록 마지막 쓰기)와 다리 진척 중 늦은 쪽을 본다 — 턴이 도는지는 다리만 말한다.
  */
 export function engineBridgeVouchesRunning(state: TurnFields, now: number, observedProgressAt?: number): boolean {
   if (!isEngineBridgeTurnRunning(state, now)) return false;
@@ -372,11 +344,7 @@ export function describeEngineBridgeForProbe(
   return `the engine itself reports (heard ${heard} s ago): turn state unknown`;
 }
 
-/**
- * 엔진이 잰 한도(5시간·7일)를 §4 v1.50 `RateLimitInfo` 모양으로 옮긴다 — `/api/rate-limits` 와 **같은
- * 저장 자리**에 들어가게. 단위는 퍼센트(0~100) 그대로, 리셋은 ISO → epoch ms. 게이트웨이의 지출 한도
- * 같은 다른 창은 그 자리에 칸이 없으니 옮기지 않는다. 옮길 것이 없으면 `null`.
- */
+/** 엔진 한도(5시간·7일)를 §4 `RateLimitInfo` 로 옮긴다(`/api/rate-limits` 와 같은 자리, 퍼센트 그대로, 리셋 ISO → epoch ms). 칸이 없는 창은 버린다 — 없으면 `null`. */
 export function rateLimitsFromEngine(
   list: readonly EngineBridgeRateLimitWire[] | undefined,
 ): Partial<Omit<RateLimitInfo, 'updatedAt'>> | null {

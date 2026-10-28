@@ -1,20 +1,6 @@
 /**
- * §5.19 (D)(H) 엔진이 거절했을 때 — **이유를 읽고, 문맥은 우리가 잘라 준다.**
- *
- * 2026-08-21 사용자 보고("all 모델 버블인데 왜 에러난거야"): 화면에는 `[local] this model does
- * not support tools` 다음에 `engine responded 400` 이 떴다. 그런데 그 모델은 바로 앞 턴까지
- * `Bash` 를 잘 부르고 있었고, 엔진(llama.cpp b10509)이 실제로 보낸 것은 도구 이야기가 아니라
- * 이것이었다 —
- * `{"error":{"message":"request (3010 tokens) exceeds the available context size (2048 tokens),
- * try increasing it","type":"exceed_context_size_error","n_prompt_tokens":3010,"n_ctx":2048}}`
- * (같은 빌드에 같은 요청을 넣어 그대로 받아 낸 본문이다).
- *
- * 사고는 셋이 겹쳤다 — ① 거절 이유를 안 읽고 **전부 "도구 미지원"으로** 읽어 멀쩡한 모델에
- * 낙인을 찍었고 ② 그 낙인이 설정에 박혀 다음 턴까지 갔고 ③ 도구만 뺀 같은 요청이 같은 이유로
- * 또 거절되자 `engine responded 400` 한 줄로 죽었다. §5.19 (D) 는 "컨텍스트를 넘기면 잘라
- * 주는 일도 우리 몫이다" 라고 이미 말하고 있었는데 그 몫이 비어 있었다.
- *
- * 그래서 이 시험이 지키는 것: **이유를 가른다 · 짝을 깨지 않고 자른다 · 이번 턴은 안 건드린다.**
+ * §5.19 (D)(H) — 거절은 **이유를 읽고**, 문맥은 우리가 자른다. 실측(2026-08-21 b10509): 400 본문은 `exceed_context_size_error` — "도구 미지원"으로 읽으면 멀쩡한 모델에 낙인이 박힌다.
+ * 이유를 가른다 · 짝을 깨지 않고 자른다 · 이번 턴은 안 건드린다.
  */
 import { describe, it, expect } from 'vitest';
 import {

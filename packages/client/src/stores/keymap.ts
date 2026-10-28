@@ -11,18 +11,9 @@ import {
 import { clientKeyPlatform } from '../utils/platform.js';
 
 /**
- * §6 — **지금 이 앱에서 실제로 도는 단축키.**
- *
- * 정본 표는 `shared/keymap.ts` 의 `COMMANDS` 이고, 이 스토어가 들고 있는 것은 **사용자가 바꾼
- * 것만**(`overrides`)이다. 기본값은 코드에 있으므로 여기 오지 않는다 — 그래야 다음 판올림에서
- * 기본 바인딩을 고치면 사용자가 안 건드린 칸이 자동으로 새 값을 따라간다.
- *
- * **`graphStore` 에 넣지 않는다**(`linkFocus`·`canvasVisibility` 와 같은 이유). 단축키는
- * 프로젝트가 아니라 **기계**의 것이라 스냅샷·체크포인트와 무관하고, 저쪽은 스냅샷 1건에 `set()`
- * 이 수십 번 도는 자리라 여기 구독을 얹으면 키를 누를 때마다 그 통지에 묻어 다시 계산된다.
- *
- * 영속은 서버(`~/.vibisual/app-state.json`)다 — 창이 여럿이면 WS `keymap_updated` 로 다른 창도
- * 즉시 같은 키를 쓴다(창마다 다른 단축키가 되면 그게 곧 버그 신고다).
+ * §6 — **지금 도는 단축키.** 정본 표는 `shared/keymap.ts` 의 `COMMANDS`, 여기는 **사용자가 바꾼 것만**(`overrides`) — 기본값을 담지 않아야
+ * 판올림에서 기본 바인딩을 고치면 안 건드린 칸이 따라간다. `graphStore` 밖(기계의 값 · 저쪽은 스냅샷마다 `set()` 수십 번).
+ * 영속은 서버, 다른 창은 WS `keymap_updated`.
  */
 
 interface KeymapState {

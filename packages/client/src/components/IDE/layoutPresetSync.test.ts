@@ -1,16 +1,6 @@
 /**
- * 헤더 [창과 버블] 메뉴의 **레이아웃 프리셋**이 화면까지 닿는지 못 박는다.
- *
- * 왜 필요한가: 프리셋은 스토어(`applyIDEWindowLayout`)만 고치고, 창의 모양(모달/플로팅/도킹)은
- * `AgentIDEOverlay` 의 **로컬 state** 다. 둘을 잇는 것은 `ideLayoutEpoch` 를 보는 효과 하나뿐인데,
- * 그 효과가 **도크 sync 효과보다 뒤에** 서 있으면 붙이는 프리셋이 통째로 죽는다 —
- * 한 커밋 안에서 효과는 선언 순서로 돌고, 그때 sync 가 보는 `mode` 는 아직 옛것(floating)이라
- * "모드는 안 붙었는데 변이 생겼다"로 읽어 **방금 적힌 `dockSide` 를 도로 지운다**.
- * 그 결과가 사용자 보고 그대로다: [오른쪽 한 칸에 탭으로 모으기]·[좌우로 나눠 붙이기]·[전부 떼어
- * 내기] 세 개가 눌러도 아무 일이 안 일어난다(스토어 단위 테스트는 전부 통과한 채로).
- *
- * jsdom 이 없어 렌더로는 못 잡는다 — 순서와 가드가 소스에 남아 있는지 문자열로 고정한다
- * (`promptBubbleCollapse.test.ts` 와 같은 방식). 스토어 쪽 결과는 `stores/idePanes.test.ts` 가 본다.
+ * 헤더 레이아웃 프리셋이 화면까지 닿는가 — `ideLayoutEpoch` 효과(`AgentIDEOverlay`)가 도크 sync 효과보다 앞에 서야 한다(뒤면 sync 가 옛 `mode` 로 방금 적힌 `dockSide` 를 지운다).
+ * jsdom 이 없어 순서를 소스로 본다(스토어 결과는 `stores/idePanes.test.ts`).
  */
 import { describe, it, expect } from 'vitest';
 

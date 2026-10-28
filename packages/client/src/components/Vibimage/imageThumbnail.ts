@@ -8,20 +8,9 @@ import { THUMB_SKIPPED_TOO_LARGE, type AppThumbnailSkip } from '../../apps/thumb
 import { fetchWorkspaceMediaBlob, fetchWorkspaceMediaHead, workspaceMediaSize } from '../../utils/workspaceMedia.js';
 
 /**
- * §5.4 #36 (F) — Vibimage 노드 화면의 미리보기: 담긴 그림을 화면 크기로 줄여 구운 한 장.
- *
- * 바이트는 `fetch` 로 받는다 — 패키지 앱(file://)에서 `<img src="/api/…">` 는 IPC 를 타지 않아 빈다. 그 `fetch` 는 패키지 앱에서
- * 흘려 받는 미디어 갈래다(§5.13 40-1 — IPC 처럼 파일 전체를 메인에 모으지 않는다).
- *
- * §5.1 #2-1 (G) ① — **앱을 무겁게 하는 그림은 굽지 않는다.** 크기 상한(`PREVIEW_POLICY.maxBytes` — SVG 는 더 작다 · 그리는
- * 비용이 메인 스레드다)을 먼저 보고, 래스터는 머리만 읽어 픽셀 상한(`imageMaxPixels`)을 넘으면 아이콘으로 둔다. 넘지 않으면
- * **줄여 푼다**(`createImageBitmap` resize — 원본 해상도 비트맵을 들지 않는다).
- *
- * §5.1 #2-1 (G) ⑧ — 줄여 풀 크기는 **EXIF 회전을 세운 뒤의** 가로×세로로 잡는다(돌아간 사진을 필요보다 크게 풀지 않게). SVG 는
- * 원본을 기억 장소에 쥐지 않고 굽는 크기로 한 번 래스터한다(줌할 때마다 메인 스레드가 벡터를 다시 그리지 않게) — 못 하면 종전대로 원본.
- *
- * 크기·픽셀 상한에 걸리면 `null`(못 구웠다)이 아니라 `THUMB_SKIPPED_TOO_LARGE` 를 돌려준다 — 파일 버블이 "미리보기 생략"
- * 툴팁으로 이유를 말한다(2026-10-21 — 픽셀 상한은 이 함수만 알아 종전에는 이유 없이 아이콘만 남았다).
+ * §5.4 #36 (F) — Vibimage 노드 미리보기(줄여 구운 한 장). 바이트는 `fetch`(패키지 앱에서 `<img src="/api/…">` 는 빈다 — 미디어 갈래, §5.13 40-1).
+ * §5.1 #2-1 (G) ① 크기 상한(SVG 는 더 작다) → 래스터는 머리만 읽어 `imageMaxPixels` → 넘지 않으면 `createImageBitmap` resize. ⑧ 크기는 EXIF 회전 뒤 기준.
+ * 상한에 걸리면 `null` 이 아니라 `THUMB_SKIPPED_TOO_LARGE` — 파일 버블 툴팁이 이유를 말한다(픽셀 상한은 이 함수만 안다).
  */
 export async function renderImageThumbnail(req: AppThumbnailRequest): Promise<AppThumbnail | AppThumbnailSkip | null> {
   const bytes = typeof req.bytes === 'number' ? req.bytes : await workspaceMediaSize(req.projectId, req.file);

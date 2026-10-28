@@ -1,20 +1,8 @@
 /**
- * §5.3 #9-2 — **에이전트가 띄운 프로세스는 손자까지 우리가 책임진다.**
- *
- * 2026-10-12 19:11 앱이 메모리 부족으로 꺼졌다. 우리 에이전트 둘이 돌린 grep 두 개가 커밋 97GB 를 먹었고,
- * 그중 하나는 Claude Code 가 작업을 `[killed]` 로 적은 뒤에도 고아로 5시간을 살았다. Windows 에서 상류는
- * `bash.exe` 만 끊고(anthropics/claude-code#76353 — #62659·#66151 은 not planned), Node 기본 묶음은 직계
- * 자식만 묶는다(libuv 전역 Job 의 `SILENT_BREAKAWAY_OK`). 그래서 세 겹을 여기서 진다.
- *
- *  (A) 묶음 — Windows 는 자식마다 Job Object(`KILL_ON_JOB_CLOSE` + 프로세스당 메모리 상한). 바인딩은
- *      desktop main 의 koffi 라 **주입**받는다(`setProcessContainmentBackend` — server 는 desktop 을 모른다).
- *      mac/Linux 는 종전 detached 그룹 그대로이고, 그룹을 빠져나간 자손은 본 대로 기억한다.
- *  (B) 상한·감시 — `PROCESS_GUARD_TICK_MS` 마다 **우리 묶음 안만** 잰다. 상한은 Windows 에선 커널이,
- *      그 밖에선 이 감시가 지킨다. 시스템 여유가 바닥나면 가장 큰 것 하나를 끊는다.
- *  (C) 정리 — 본체가 내려가면 유예 뒤 남은 것을 전부 끊는다(그렇게 해도 되는 자식만 — `reapOnExit`).
- *
- * 판정은 shared `processGuardPolicy.ts` 의 순수 함수이고, 여기는 그 판정을 실제 프로세스에 잇는 자리다.
- * 플랫폼은 생성자에서 한 번 받는다 — 시험이 세 OS 를 다 고정한다(멀티플랫폼 규칙).
+ * §5.3 #9-2 — 에이전트가 띄운 프로세스는 손자까지 우리가 책임진다. Windows 상류는 `bash.exe` 만 끊고(anthropics/claude-code#76353) Node 묶음은 직계만 묶는다(`SILENT_BREAKAWAY_OK`) — 2026-10-12 실측: grep 둘이 커밋 97GB 로 앱을 내렸다.
+ * (A) 묶음: Windows 는 자식마다 Job Object(`KILL_ON_JOB_CLOSE` + 메모리 상한), koffi 바인딩은 주입(`setProcessContainmentBackend` — server 는 desktop 을 모른다). mac/Linux 는 detached 그룹(빠져나간 자손은 기억).
+ * (B) 감시: `PROCESS_GUARD_TICK_MS` 마다 우리 묶음 안만 잰다(상한: Windows 는 커널, 그 밖은 이 감시). 여유가 바닥나면 가장 큰 하나를 끊는다. (C) 정리: 본체가 내려가면 유예 뒤 `reapOnExit` 자식의 남은 것을 끊는다.
+ * 판정은 shared `processGuardPolicy.ts`, 플랫폼은 생성자에서 받는다.
  */
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import os from 'node:os';
@@ -52,13 +40,7 @@ export interface ProcessGuardOwner {
 export type ProcessGuardRootKind = 'claude' | 'codex' | 'pty' | 'shelf';
 
 export interface ProcessGuardAdoptOptions {
-  /**
-   * 본체가 내려가면 남은 자손을 끊어도 되는가.
-   *
-   * claude 상주 자식·CMD 터미널·스크립트 선반은 **참** — 그 자식이 끝났다는 것이 곧 그 세션이 끝났다는 뜻이다.
-   * 코덱스·claude 일회성 실행은 **거짓** — 턴마다 새 프로세스라, 끊으면 에이전트가 띄운 개발 서버가 매 턴
-   * 꺼진다. 그 자리는 상한·압박 감시만 받는다.
-   */
+  /** 본체가 내려가면 남은 자손을 끊어도 되나. claude 상주·CMD 터미널·스크립트 선반은 참. 코덱스·claude 일회성은 거짓 — 턴마다 새 프로세스라 끊으면 에이전트의 개발 서버가 매 턴 꺼진다. */
   reapOnExit: boolean;
 }
 
@@ -198,9 +180,8 @@ export function parseMacMemoryLevel(text: string, totalBytes: number): SystemMem
 }
 
 /**
- * 짧은 조회(`ps`·`sysctl`·PowerShell 목록)를 돌린다. **그룹 스폰(`processGroupSpawnOptions`)을 일부러 안 붙인다** —
- * 몇 초 안에 끝나는 일회성 조회라 손자를 만들지 않고, 시간 초과는 `execFile` 의 `timeout` 이 끊는다.
- * 실행본은 세 OS 의 기본 위치(`/bin/ps`·`/usr/sbin/sysctl`·System32)에 있어 Finder 로 띄운 mac 앱의 최소 PATH 로도 닿는다.
+ * 짧은 조회라 그룹 스폰(`processGroupSpawnOptions`)을 일부러 안 붙인다(손자가 없고 시간 초과는 `execFile` `timeout`).
+ * 실행본이 세 OS 기본 위치(`/bin/ps`·`/usr/sbin/sysctl`·System32)라 mac 앱의 최소 PATH 로도 닿는다.
  */
 function runFile(file: string, args: string[]): Promise<string | null> {
   return new Promise((resolve) => {

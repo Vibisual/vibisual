@@ -1,15 +1,7 @@
-// SCENARIO.md §3.7 · §9 「시작 화면(스플래시)」 ② 첫 표시 — **처음 보일 때의 흰 프레임을 DWM 가림 뒤로 보낸다.**
-//
-// Windows 에서 숨겨 만든 창을 처음 보이면 첫 프레임이 흰색으로 찍힌다 — `backgroundColor` 를 줘도, 첫 칠(`ready-to-show`)을
-// 기다려도 그렇다(Electron 28 부터 · electron#45774 — 두 번째 표시부터는 깨끗하다). 렉으로 늦게 그리는 것이 아니라 엔진이
-// 첫 장을 흰 바탕으로 합성하는 것이라, 기다리는 시간을 늘려서는 못 없앤다. 그 몇 장이 화면에 나오지 않게 가린다.
-//
-// 가림(DWMWA_CLOAK — 앱이 쓰라고 공개된 DWM 특성, Windows 8+)은 창을 숨기지 않는다. 창은 보이는 상태라 Chromium 이 계속
-// 그리고(앱이 건 가림은 Chromium 가림 판정에서 숨김이 아니다 — 지금 데스크톱의 창으로 친다), 화면에만 안 나온다. 창 모양
-// (테두리·그림자·둥근 모서리)은 건드리지 않는다 — 투명도(`setOpacity`)로 가리면 창이 영영 layered 창이 된다.
-//
-// 판정·숫자는 `splashPolicy.ts`(electron 없이 세 OS 가지를 시험한다). koffi 묶음(`dwmCloak.ts`)은 Windows 에서 처음 가릴 때만
-// 동적으로 읽는다 — 이 파일은 시작 진입점 청크에 실리지만 다른 OS 에서는 koffi 를 읽지 않는다.
+// SCENARIO.md §3.7 · §9 「시작 화면(스플래시)」 ② 첫 표시 — 처음 보일 때의 흰 프레임을 DWM 가림 뒤로 보낸다. Windows 는 숨겨 만든 창의
+// 첫 프레임을 바탕색·`ready-to-show` 와 무관하게 흰색으로 합성한다(Electron 28+ · electron#45774) — 기다려서는 못 없앤다.
+// DWMWA_CLOAK 은 창을 숨기지 않아 Chromium 이 계속 그린다. `setOpacity` 로 가리지 마라 — 영영 layered 창이 된다.
+// 판정은 `splashPolicy.ts`, koffi(`dwmCloak.ts`)는 Windows 에서 처음 가릴 때만 동적으로 읽는다(시작 청크에 실리는 파일).
 
 import type { BrowserWindow } from 'electron';
 import type { DwmSetWindowAttribute } from './dwmCloak';
@@ -62,8 +54,8 @@ function setCloak(fn: DwmSetWindowAttribute, win: BrowserWindow, cloaked: boolea
 }
 
 /**
- * 아직 보인 적 없는 창을 가린다. Windows 가 아니거나 · 이미 보이거나 · 못 걸면 `false` — 부르는 쪽은 가리지 않은 채
- * 종전대로 보인다. **보이는 창은 가리지 않는다** — 걷을 때까지 화면에서 사라진다.
+ * 아직 보인 적 없는 창을 가린다. Windows 가 아니거나 · 이미 보이거나 · 못 걸면 `false`(부르는 쪽은 가리지 않고 보인다).
+ * 보이는 창은 가리지 않는다 — 걷을 때까지 화면에서 사라진다.
  */
 export async function cloakBeforeFirstShow(win: BrowserWindow, platform: NodeJS.Platform): Promise<boolean> {
   try {
@@ -83,20 +75,14 @@ export function uncloakWindow(win: BrowserWindow): boolean {
 }
 
 /**
- * 첫 표시가 어떻게 끝났나.
- *  - `plain` — 가리지 않았다(Windows 밖 · 가림을 못 걸었다 · 이미 보이던 창). 창은 종전대로 나온다.
- *  - `uncovered` — 가린 채 보였고, 렌더러가 프레임을 지난 뒤 걷었다.
- *  - `forced` — 가린 채 보였지만 프레임 소식이 상한 안에 안 왔거나 렌더러가 답하지 못해 그냥 걷었다(창은 나와야 한다).
- *  - `closed` — 보이기 전에(또는 걷기 전에) 창이 닫혔다.
+ * 첫 표시 결과: `plain` 가리지 않았다(Windows 밖·가림 실패·이미 보임) · `uncovered` 가린 채 보이고 프레임 뒤 걷었다 ·
+ * `forced` 프레임 소식이 상한 안에 없어 그냥 걷었다(창은 나와야 한다) · `closed` 보이기(걷기) 전에 닫혔다.
  */
 export type FirstShowCover = 'plain' | 'uncovered' | 'forced' | 'closed';
 
 /**
- * 이 창이 **처음 보일 때**의 첫 프레임들을 가린다 — 누가 어떤 길로 보이든(`show`·`showInactive`·다른 손잡이) 그 첫 `show` 에
- * 맞춰 돈다. 약속은 창이 화면에 나온 때 풀린다(가리지 않았으면 곧바로). 창을 만든 **직후**, 보이기 전에 부른다.
- *
- * 걷는 조건: 첫 `show` 뒤 렌더러가 `FIRST_SHOW_COVER_FRAMES` 를 지나고 `FIRST_SHOW_COVER_MIN_MS` 가 흐른 때. 상한
- * `FIRST_SHOW_COVER_CAP_MS` 를 넘기면 그래도 걷는다 — 흰 프레임보다 안 나오는 창이 훨씬 나쁘다.
+ * 첫 `show` 의 첫 프레임들을 가린다(어떤 길로 보이든). 창을 만든 직후·보이기 전에 부르고, 약속은 화면에 나온 때 풀린다.
+ * 걷기: `FIRST_SHOW_COVER_FRAMES` + `FIRST_SHOW_COVER_MIN_MS` 뒤, `FIRST_SHOW_COVER_CAP_MS` 를 넘기면 무조건 — 안 나오는 창이 흰 프레임보다 나쁘다.
  */
 export function coverFirstShow(win: BrowserWindow, opts: { platform: NodeJS.Platform }): Promise<FirstShowCover> {
   return cloakBeforeFirstShow(win, opts.platform).then((covered) => {

@@ -8,14 +8,7 @@ import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { computeTaskEdgePath } from './taskEdgePath.js';
 import { bubbleEdgeAppearance, bubbleEdgeMarkerStyle } from './bubbleEdgeAppearance.js';
 
-/**
- * Task Edge 팝업 프리뷰 — popup(입력창)이 열려있는 동안 source↔target 을 잇는
- * 점선 엣지 예시를 스크린 좌표로 유지 렌더한다.
- *
- * 왜 필요한가: 드롭 순간 endTaskEdgeDrag() 로 DragPreview 가 사라지면 popup 뒤에
- * 연결될 엣지 모양이 전혀 안 보여서 사용자 멘탈 모델이 끊긴다. Connect 확정 시에만
- * 실제 엣지가 남고, Cancel 이면 이 프리뷰도 같이 사라지므로 popup 과 생명주기를 맞춘다.
- */
+/** 팝업이 열린 동안 연결될 점선 엣지를 계속 보인다 — 드롭에 DragPreview 가 사라지면 모양이 끊긴다. 팝업과 생명주기를 같이한다. */
 
 const PREVIEW_COLOR = '#3B82F6';
 const PREVIEW_MARKER_ID = 'task-edge-popup-preview-arrow';

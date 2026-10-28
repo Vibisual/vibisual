@@ -1,12 +1,6 @@
 import type { ShelfIconName } from '@vibisual/shared';
 
-/**
- * §5.20 — 선반 항목 글리프.
- *
- * 저장되는 것은 **이름 하나**(`SHELF_ICONS` 안의 값)이고 모양은 여기서만 나온다 — 이모지를
- * 저장하지 않는 이유가 이것이다(OS·폰트마다 다른 모양으로 새어 나오고, 남이 준 선반 파일이
- * 우리 화면에 아무 글리프나 그리게 된다). 전부 lucide 톤 인라인 stroke SVG.
- */
+/** §5.20 — 선반 글리프. 저장은 **이름 하나**(`SHELF_ICONS`)뿐 — 이모지를 저장하면 OS·폰트마다 모양이 다르고 남의 선반 파일이 아무 글리프나 그린다. */
 const PATHS: Record<ShelfIconName, React.JSX.Element> = {
   terminal: (
     <>

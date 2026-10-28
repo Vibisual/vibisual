@@ -1,24 +1,7 @@
 #!/usr/bin/env node
-// 배포 채널(winget · Homebrew Cask · Flathub) 매니페스트를 한 릴리스에서 만든다.
-//
-// ## 왜 스크립트인가
-//
-// 세 채널 모두 매니페스트에 **파일마다의 sha256** 을 적어야 한다. 손으로 하면 판올림마다
-// 여섯 개의 해시를 옮겨 적어야 하고, 한 번 틀리면 그 채널의 설치가 "손상된 파일"로 죽는다.
-// 실제로 이런 일은 문서에 적어 두면 지켜지지 않는다 — 그래서 실행되는 것으로 만든다.
-//
-// ## 해시를 어디서 가져오나 — 설치본을 다시 받지 않는다
-//
-// 릴리스 잡이 지은 직후에 계산해 `SHA256SUMS.txt` 로 발행해 둔다. 그 파일만 읽으므로
-// 이 스크립트는 180MB 짜리 설치본을 한 번도 내려받지 않는다. 그게 중요한 이유는,
-// 릴리스 자산 다운로드 수가 우리가 밖에 내보이는 유일한 채택 지표이기 때문이다 —
-// 자동화가 그 숫자를 채우기 시작하면 지표는 다시 의미를 잃는다(2026-09-07 에 정확히
-// 그 상태에서 빠져나왔다: 설치본 다운로드 134회 중 사실상 전부가 우리 CI 였다).
-//
-// 사용법:
-//   node .github/scripts/build-packaging-manifests.mjs v0.1.23 [--out packaging/generated]
-// 환경:
-//   GH_TOKEN (선택 — 없으면 공개 릴리스만 보인다)
+// 배포 채널(winget · Homebrew Cask · Flathub) 매니페스트를 한 릴리스에서 만든다(파일마다 sha256 — 손으로 옮기면 틀린다).
+// 해시는 `SHA256SUMS.txt` 에서만 읽는다 — 설치본을 받으면 릴리스 다운로드 수(밖에 보이는 채택 지표)가 오염된다.
+// 사용법: node .github/scripts/build-packaging-manifests.mjs v0.1.23 [--out packaging/generated] · GH_TOKEN 선택(없으면 공개 릴리스만)
 
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -42,12 +25,7 @@ if (!rawTag) {
 const tag = rawTag.startsWith('v') ? rawTag : `v${rawTag}`;
 const version = tag.slice(1);
 
-/**
- * 매니페스트에 적히는 발행일. **오늘이 아니라 그 릴리스가 공개된 날**이다 — 지난 태그를
- * 손으로 다시 지을 때 오늘 날짜가 박히면, 채널 쪽에는 없던 판올림이 오늘 나온 것처럼 보이고
- * winget 쪽 검사는 그 날짜로 "새 판올림"을 판정한다. 릴리스를 못 보는 로컬(`--sums`) 모드에서만
- * 오늘로 떨어진다 — 그 모드는 제출용이 아니라 확인용이다.
- */
+/** 발행일은 오늘이 아니라 그 릴리스의 공개일 — 지난 태그를 다시 지을 때 오늘이 박히면 winget 이 "새 판올림"으로 판정한다(`--sums` 확인 모드만 오늘). */
 let releaseDate = new Date().toISOString().slice(0, 10);
 
 function ghHeaders() {
@@ -57,13 +35,7 @@ function ghHeaders() {
   return h;
 }
 
-/**
- * `SHA256SUMS.txt` 를 읽어 `{파일이름: 해시}` 로 만든다.
- *
- * 로컬 경로를 주면 그것을 읽고(릴리스 잡 안에서 쓰는 길), 아니면 릴리스에서 받는다.
- * 이 파일은 몇 KB 짜리 텍스트라 설치 수 집계(`classify()` 가 `.txt` 를 `null` 로 버린다)에
- * 잡히지 않는다 — 그래서 자동화가 이걸 몇 번을 읽어도 지표가 흔들리지 않는다.
- */
+/** `SHA256SUMS.txt` → `{파일이름: 해시}`(로컬 경로가 있으면 그것, 없으면 릴리스). `.txt` 는 설치 수 집계(`classify()`)에서 빠지므로 몇 번 읽어도 된다. */
 async function loadChecksums() {
   const local = args.indexOf('--sums');
   // 로컬 모드는 릴리스를 안 보므로 자산 크기를 알 수 없다 — flatpak 의 `size` 는 0 으로 남고,
@@ -179,10 +151,7 @@ ManifestVersion: 1.6.0
   return files;
 }
 
-// ── Homebrew Cask ─────────────────────────────────────────────────────────────
-// ⚠️ 이 파일은 **우리 tap**(`Vibisual/homebrew-tap`) 용이다. 공식 `homebrew-cask` 는
-//    notability 요건(별 75 · 포크 30 · 워처 30 중 하나)을 요구하고 우리는 아직 못 넘는다.
-//    자기 tap 에는 그 요건이 없고, 넘긴 뒤 같은 파일을 그대로 올리면 된다.
+// 우리 tap(`Vibisual/homebrew-tap`) 용 — 공식 `homebrew-cask` 의 notability 요건(별 75 · 포크 30 · 워처 30 중 하나)을 넘기면 같은 파일을 올린다.
 function homebrew(sums) {
   const arm = `Vibisual-${version}-arm64.dmg`;
   const intel = `Vibisual-${version}.dmg`;

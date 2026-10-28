@@ -20,12 +20,7 @@ import {
   type SplitRect,
 } from './splitDrop.js';
 
-/**
- * §5.5 #17-34 — 드롭 판정 기하 회귀.
- *
- * 고정하는 약속: 판정(`resolveDropSide`)과 미리보기(`dropPreviewBox`)가 **같은 표**를 읽어,
- * 파란 박스가 가리킨 자리에 정확히 앉는다. 좁은 칸에서도 네 변과 가운데가 모두 집힌다.
- */
+/** §5.5 #17-34 — 판정(`resolveDropSide`)과 미리보기(`dropPreviewBox`)가 같은 표를 읽는가, 좁은 칸에서도 네 변·가운데가 집히는가. */
 
 const rect: SplitRect = { left: 100, top: 50, width: 400, height: 300 };
 const cx = rect.left + rect.width / 2;

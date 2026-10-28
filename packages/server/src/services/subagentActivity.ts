@@ -1,9 +1,6 @@
 /**
- * §5.5 #17-9 ⑦ — 백그라운드 서브에이전트의 "지금 무엇을" · "무엇이 나왔나" 를 훅 페이로드에서 뽑는 순수 함수 두 벌.
- *
- * 둘 다 **표시 전용**이다 — 대차대조 증감(§5.3 #12-1)이나 완료 판정에는 한 글자도 관여하지 않는다.
- * 순수 함수로 떼어 둔 이유는 판본마다 흔들리는 것이 바로 이 페이로드 모양이기 때문이다(도구 인자 이름,
- * `tool_response` 가 문자열인지 블록 배열인지). 모양이 바뀌면 여기 한 곳과 그 테스트만 고치면 된다.
+ * §5.5 #17-9 ⑦ — 백그라운드 서브에이전트의 "지금 무엇을"·"무엇이 나왔나"를 훅 페이로드에서 뽑는 순수 함수 둘.
+ * **표시 전용**(대차대조·완료 판정 ❌). 판마다 흔들리는 페이로드 모양을 여기 한 곳에 가둔다.
  */
 
 /** 화면 한 줄에 실을 대상 설명의 최대 길이. 넘치면 말줄임. */
@@ -80,12 +77,7 @@ function clampOr(value: string | undefined): string | undefined {
   return value ? clamp(value, TARGET_MAX) : undefined;
 }
 
-/**
- * §5.5 #17-9 ⑦(b) — `PostToolUse(Task|Agent)` 의 `tool_response` 에서 자식의 최종 보고 본문을 뽑는다.
- *
- * 판본에 따라 문자열 그대로 오기도 하고, `{ content: [{ type:'text', text }] }` 블록 배열로도 온다.
- * 어느 쪽도 아니면 **아무것도 돌려주지 않는다** — 못 읽은 것을 JSON 덩어리로 화면에 뱉느니 비워 둔다.
- */
+/** §5.5 #17-9 ⑦(b) — `tool_response` 에서 자식의 최종 보고를 뽑는다(문자열 또는 `{ content: [{ type:'text', text }] }`). 아니면 `undefined`. */
 export function extractTaskResultText(toolResponse: unknown): string | undefined {
   const text = collectText(toolResponse);
   if (!text) return undefined;

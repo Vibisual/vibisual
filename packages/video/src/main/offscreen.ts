@@ -1,18 +1,7 @@
 /**
- * §5.13 (F) — offscreen-capture 백엔드의 main 프로세스 다리.
- *
- * 보이지 않는 창 하나를 띄워 렌더 전용 화면을 열고, 시각을 맞춘 뒤 한 장씩 찍는다.
- * 실험 API(HTML-in-Canvas)가 막히는 날에도 **CSS 를 온전히 살린 채** 영상이 계속
- * 나오게 하는 자리다.
- *
- * §3.7 과의 관계: 이건 **자식 프로세스 spawn 이 아니라** 우리 앱 안의 BrowserWindow 라
- * 단일 프로세스 원칙과 부딪히지 않는다(별창·지휘통제실과 같은 성질).
- *
- * §5.13 (W) 38-1 — 실측으로 찾은 두 결함을 고쳤다.
- * - **창이 화면 크기로 줄어들었다** — 1920×1080 을 청하면 작업 영역(예: 1707×912)이 됐고, 그 창을 찍어 늘였다(잘림·늘어남).
- *   이제 창을 만든 뒤 크기를 다시 키우고(`growWindowToContent`), 그래도 작으면 맞춤 배율(`fit`)을 렌더 화면에 넘긴다.
- * - **프레임마다 메인 스레드에서 PNG 를 구웠다**(332ms) — 이제 `toBitmap()`(수 ms) 날 비트맵과 바이트 순서를 넘긴다.
- *   순서는 처음 한 번 1×1 빨간 점으로 판정한다(플랫폼 가정 ❌). 판정이 안 되면 PNG 로 물러선다.
+ * §5.13 (F) — offscreen-capture 백엔드의 main 다리(숨은 창을 시각마다 찍는다). 자식 프로세스가 아니라 앱 안 BrowserWindow 라 §3.7 과 부딪히지 않는다.
+ * (W) 38-1 — 창이 작업 영역으로 줄어 `growWindowToContent` 로 키우고(그래도 작으면 `fit` 배율), PNG 대신 `toBitmap()` 날 비트맵을 넘긴다
+ * (바이트 순서는 처음 한 번 1×1 빨간 점으로 판정 — 플랫폼 가정 ❌, 안 되면 PNG).
  */
 import { BrowserWindow, nativeImage } from 'electron';
 
@@ -40,17 +29,13 @@ interface OffscreenSession {
   alpha?: boolean;
 }
 
-/**
- * §5.13 (T-4) — 세션 열쇠별 오프스크린 창. 종전에는 한 벌뿐이라, 렌더가 도는 중에 스틸 하나를 찍으려고 창을 열면
- * 렌더의 창이 닫혀 버렸다. 이제 일감마다 자기 열쇠로 연다(열쇠가 없으면 종전 한 벌 자리 `default`).
- */
+/** §5.13 (T-4) — 세션 열쇠별 창. 한 벌이면 렌더 중 스틸을 찍으려 열 때 렌더 창이 닫힌다(열쇠가 없으면 `default`). */
 const sessions = new Map<string, OffscreenSession>();
 const DEFAULT_SESSION = 'default';
 
 /**
- * §5.13 (Y) 40-7 ③ — 쉬는 렌더 창(풀). 종전에는 still·stills·strip·review 일감마다 창을 새로 띄우고 끝나면 부숴, 창마다 본체 엔트리
- * (13MB)를 코드 캐시 없이 다시 해석했다. 이제 끝난 창은 무대만 내려놓고 쉬다가, 다음 일감은 새 문서만 건네받는다
- * (`__vibiRenderOpen`). 투명 창은 만들 때 정해지므로 배경 종류(`alpha`)마다 따로 쉰다.
+ * §5.13 (Y) 40-7 ③ — 쉬는 렌더 창(풀). 새 창마다 본체 엔트리(13MB)를 캐시 없이 다시 해석하므로, 끝난 창은 무대만 내리고 다음 일감에 새 문서만 받는다
+ * (`__vibiRenderOpen`). 투명은 창을 만들 때 정해지므로 `alpha` 마다 따로 쉰다.
  */
 interface IdleWindow {
   readonly window: BrowserWindow;
@@ -231,8 +216,7 @@ export async function openOffscreen(opts: {
       offscreen: false,
     },
   });
-  // §5.13 (Y) 40-7 ③ — 읽기·준비 중 무엇이 던지든 창을 반드시 닫는다(종전에는 `loadFile`·`executeJavaScript` 가 던지면 창이
-  //   `sessions` 에 들지 않은 채 남아 `closeAllOffscreen` 도 못 찾는 고아가 됐다).
+  // §5.13 (Y) 40-7 ③ — 읽기·준비 중 무엇이 던지든 창을 닫는다(안 그러면 `sessions` 밖의 고아가 되어 `closeAllOffscreen` 도 못 찾는다).
   let committed = false;
   try {
     // §5.13 (W) 38-1 — Windows 는 창을 화면 작업 영역으로 줄인다(실측). 최대 크기를 연 뒤 내용 크기를 다시 준다.
@@ -278,10 +262,7 @@ function renderParams(opts: { project: string; docId: string; width: number; hei
   };
 }
 
-/**
- * 시각 t 로 맞추고 한 장 찍는다. `format: 'raw'` 면 날 비트맵(새 길 — 메인 스레드에서 PNG 를 굽지 않는다), 아니면 PNG(옛 길).
- * 바이트 순서를 판정할 수 없는 환경이면 raw 를 청해도 PNG 로 돌려준다(일꾼은 둘 다 받는다).
- */
+/** `format: 'raw'` 면 날 비트맵(메인 스레드에서 PNG 를 굽지 않는다). 바이트 순서를 판정 못 한 환경이면 raw 를 청해도 PNG(일꾼은 둘 다 받는다). */
 export async function captureOffscreenAt(t: number, session?: string, format?: 'raw' | 'png'): Promise<Buffer | RawFrame> {
   const current = sessions.get(sessionKey(session));
   if (!current || current.window.isDestroyed()) throw new Error('렌더 창이 열려 있지 않습니다.');

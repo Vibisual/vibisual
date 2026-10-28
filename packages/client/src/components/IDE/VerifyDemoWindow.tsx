@@ -20,18 +20,8 @@ import { registerCaptureWindow, type CaptureWindowHandle } from '../BubbleMap/ca
 import { clampRange, formatClipDuration, formatClipTime, type ClipRange } from '../BubbleMap/playtestClip.js';
 import { defaultDemoLabel, demoStepsInRange, formatDemoTime, insertDemoStep, removeDemoStep } from './verifyDemo.js';
 
-// §5.5 #17-35 ⑨-5 — 시연 창.
-//
-// **왜 창인가**: 검증 뷰는 `w-52` 사이드바다. 영상을 되돌려 보며 구간을 좁히고 단계를 적는 일은
-// 거기서 할 수 없다. 그래서 §5.9 `PlaytestClipWindow`(§7.21)와 **같은 문법**의 앱 내부 창으로 띄운다 —
-// 창 거동(가운데 팝업 → 드래그 → 리사이즈 → 최대화)도 z-order·Escape 도 같은 훅·같은 매니저를 쓴다.
-//
-// **캡처 버블은 만들지 않는다**(⑨-1) — 이 창이 보는 클립은 검증 뷰가 `verify:<subAgentId>` 키로
-// 녹화해 `capturePlaytest` 에 넣어 둔 것이고, 캔버스에는 아무것도 서지 않는다.
-//
-// 두 가지 모드로 산다:
-//   · `save`  — 방금 녹화한 시연을 **검증 절차로 저장**한다(구간 + 단계 + 기대 결과 + 프레임).
-//   · `view`  — ⑩ 검증이 도는 동안 찍힌 화면을 **되돌려 보기만** 한다(저장 손잡이 없음).
+// §5.5 #17-35 ⑨-5 — 시연 창. 사이드바(`w-52`)에선 되돌려 보며 단계를 적을 수 없어 `PlaytestClipWindow`(§7.21)와 같은 훅·매니저의 앱 내부 창으로 띄운다.
+// 캡처 버블은 만들지 않는다(⑨-1, 클립은 `verify:<subAgentId>` 키로 `capturePlaytest` 에). `save` = 절차로 저장 · `view` = ⑩ 증거 되돌려 보기만.
 
 export interface VerifyDemoWindowProps {
   agentId: string;
@@ -206,10 +196,7 @@ export const VerifyDemoWindow = memo(function VerifyDemoWindow({
     seekTo(msFromClientX(e.clientX));
   }, [msFromClientX, seekTo]);
 
-  // ── 단계 ────────────────────────────────────────────────────────────────────
-  //
-  // 단계는 **지금 보고 있는 지점**에 박힌다. 되돌려 보다가 "여기서 이걸 눌렀다"를 적는 것이 이 창의
-  // 핵심 동작이라, 시각을 따로 입력하게 만들지 않는다(순서 정렬은 `insertDemoStep` 이 맡는다).
+  // 단계는 지금 보는 지점에 박힌다(시각 입력 ❌, 정렬은 `insertDemoStep`).
   const addStep = useCallback(() => {
     const text = stepDraft.trim();
     if (!text) return;

@@ -6,11 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { detectPlayRecipes } from './playRecipeDetector.js';
 
 /**
- * §5.14 v4.62 — 4단 계단 1~3단의 계약.
- *
- * 여기서 지키는 약속은 두 가지다: **실측이 추측을 이긴다**(실제로 떠 있던 명령이 1등),
- * 그리고 **probe 는 서버가 아니다**(curl 이 서버 기동 명령으로 둔갑하면 §7.11 v2.20 이
- * 겪은 사고가 이 기능에서 재현된다).
+ * §5.14 — 4단 계단 1~3단의 계약: **실측이 추측을 이긴다**(실제로 떠 있던 명령이 1등),
+ * **probe 는 서버가 아니다**(curl 이 서버 기동 명령으로 둔갑하면 §7.11 이 겪은 사고가 여기서 재현된다).
  */
 
 let dir: string;

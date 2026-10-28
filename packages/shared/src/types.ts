@@ -5,6 +5,7 @@ import type { UsageLimitStop } from './usageLimitStop.js';
 import type { TurnStopReason } from './turnStopReason.js';
 import type { BubbleSkin, BubbleEdgeStyle } from './bubbleAppearance.js';
 import type { CommandAppTarget } from './commandApps.js';
+import type { ApiCreditPersisted, ApiCreditRoute, ApiCreditState } from './apiCredit.js';
 /** UI 표시 언어 — 서버 ProjectCheckpoint에 저장, 클라이언트는 서버 SSOT를 따름 */
 export type UiLocale =
   | 'ko'
@@ -34,23 +35,15 @@ export interface HookEventPayload {
   cwd?: string;
   /** Notification 이벤트의 메시지 */
   message?: string;
-  /**
-   * Notification 이벤트 서브타입 (Anthropic Agent SDK 2026-04~05 신규).
-   * permission_prompt | idle_prompt | auth_success | elicitation_dialog 등.
-   * 구버전 SDK 페이로드에는 없을 수 있어 optional. 누락 시 `message` heuristic 폴백.
-   */
+  /** Notification 서브타입(permission_prompt · idle_prompt · auth_success · elicitation_dialog 등). 구버전 SDK 엔 없다 — 없으면 `message` 휴리스틱. */
   type?: string;
-  /**
-   * §4 v1.50 — PostToolUse/PostToolUseFailure 의 도구 실행 시간(ms).
-   * Anthropic SDK 2026-04 신규 필드. 구버전 SDK 에는 없어 optional.
-   */
+  /** §4 — PostToolUse(Failure) 도구 실행 시간(ms). 구버전 SDK 엔 없다. */
   duration_ms?: number;
   /** Stop 이벤트의 중단 사유 */
   stop_reason?: string;
   /**
-   * 서브에이전트(Task/Agent 도구) 식별자. **서브에이전트 컨텍스트에서 발화한 이벤트에만** 존재한다.
-   * 메인 세션의 Stop 에는 없다 — 이 필드(또는 `parent_tool_use_id`)가 있으면 "서브에이전트의 종료"이지
-   * 부모(감독관) 세션의 자기 턴 종료가 아니다. 서버는 이걸로 부모 버블 조기 완료(markStop)를 막는다.
+   * 서브에이전트(Task/Agent) 식별자 — 서브 컨텍스트 이벤트에만 있다. 이것(또는 `parent_tool_use_id`)이 있는 Stop 은 자식의 종료라
+   * 부모 버블을 완료(markStop)시키지 않는다.
    */
   agent_id?: string;
   /** 서브에이전트 이름(예: `Explore`, `general-purpose`, 커스텀 에이전트명). 서브 컨텍스트에만 존재. */
@@ -60,67 +53,42 @@ export interface HookEventPayload {
   /** UserPromptSubmit 이벤트의 프롬프트 본문 */
   prompt?: string;
   /**
-   * §5.5 #17-9 ⑦(b) — `Stop`/`SubagentStop` 이 싣고 오는 그 턴의 마지막 assistant 텍스트.
-   * 서브에이전트 종료에서는 **자식의 최종 보고**라, 부모의 `PostToolUse(Task).tool_response` 가
-   * 유실된 판본에서 결과 표시의 폴백이 된다.
+   * §5.5 #17-9 ⑦(b) — `Stop`/`SubagentStop` 의 마지막 assistant 텍스트. 서브 종료에선 자식의 최종 보고라
+   * `PostToolUse(Task).tool_response` 가 빠질 때 결과 폴백이 된다.
    */
   last_assistant_message?: string;
   /**
-   * §4 v2.64 — CMD(인터랙티브 터미널) 에이전트 소유자 태그.
-   * Vibisual 이 띄운 CMD 터미널의 claude 는 env `VIBISUAL_OWNER_AGENT_ID`(=그 CMD 버블의 agentId)
-   * 를 물려받고, handler.mjs 가 /api/hook-event 본문에 이 필드로 실어 보낸다. 서버는 이 agentId 의
-   * CMD 버블 세션으로 이벤트를 직접 귀속해 별개 Hook 버블(touchAgent orphan)을 만들지 않는다.
-   * **명시 토큰**이라 §17 Hook≠Custom 경계의 cwd 휴리스틱 흡수와 달리 외부 세션 오흡수 위험이 없다.
+   * §4 — CMD 에이전트 소유자 태그(env `VIBISUAL_OWNER_AGENT_ID` → handler.mjs → /api/hook-event). 서버가 그 CMD 버블 세션으로 귀속해
+   * 별개 Hook 버블을 안 만든다. 명시 토큰이라 cwd 휴리스틱(§17 Hook≠Custom)과 달리 외부 세션을 잘못 흡수하지 않는다.
    */
   _vibisualOwnerAgentId?: string;
   /**
-   * §4 v2.64 — CMD 터미널 소유자 termId(`term:<agentId>:<session>`). PTY env `VIBISUAL_OWNER_TERM_ID`
-   * 로 셸→claude→handler 상속. 서버가 이 termId 별로 claude 대화 sessionId 를 기록해 두면,
-   * 앱 재시작 후 같은 termId 의 터미널을 다시 열 때 `claude --resume <id>` 로 직전 대화를 이어받는다.
+   * §4 — CMD 소유자 termId(`term:<agentId>:<session>`, PTY env `VIBISUAL_OWNER_TERM_ID`). 서버가 termId 별 sessionId 를 적어
+   * 재시작 후 `claude --resume <id>` 로 잇는다.
    */
   _vibisualOwnerTermId?: string;
   /**
-   * §5.1 #1-1 (D) — 이 이벤트를 낸 **우리 sub**(그 일을 한 세션 탭). 우리가 띄운 세션은 env `VIBISUAL_SUBAGENT_ID` 를
-   * 물려받고, 훅이 그것을 헤더 `x-vibisual-subagent-id`(HTTP 훅)나 본문(command 훅 `handler.mjs`)으로 싣는다. 라우트가
-   * 못 받으면 이미 찾아 둔 sub(세션 id·터미널 id)로 채우고, 코덱스·로컬 모델은 방출기가 싣는다.
-   * 라우트가 소유자 태그로 `session_id` 를 주인 버블 키로 바꿔 쓴 뒤에도 앱 작업 귀속(§5.1 #2-1 (F))이 그 sub 를 잃지
-   * 않게 하는 **명시 상관 id** 다. 그래프는 그 sub 가 이 에이전트의 것일 때만 쓴다.
+   * §5.1 #1-1 (D) — 이 이벤트를 낸 우리 sub(세션 탭). env `VIBISUAL_SUBAGENT_ID` 를 훅이 헤더 `x-vibisual-subagent-id`·본문으로 싣고,
+   * 없으면 라우트가 찾아 둔 sub 로 채운다(코덱스·로컬은 방출기). `session_id` 가 주인 버블 키로 바뀐 뒤에도 앱 작업 귀속(§5.1 #2-1 (F))이
+   * sub 를 잃지 않게 하는 명시 id — 이 에이전트의 sub 일 때만 쓴다.
    */
   _vibisualSubAgentId?: string;
-  /**
-   * §5.26 (B) — 그 세션의 트랜스크립트(JSONL) 절대경로.
-   *
-   * Claude Code 는 이 필드를 여러 이벤트에 실어 보내는데(특히 `PreCompact`), 우리는 지금까지
-   * 선언조차 하지 않아 **압축 직전의 상태를 뜰 수 있는 유일한 열쇠를 버리고 있었다**.
-   * 값이 없으면 세션 id 로 `~/.claude/projects` 를 되짚는다(그쪽이 폴백이지 정본이 아니다).
-   */
+  /** §5.26 (B) — 트랜스크립트(JSONL) 절대경로. 압축 직전 상태를 뜨는 열쇠다(특히 `PreCompact`). 없으면 세션 id 로 `~/.claude/projects` 를 되짚는다(폴백). */
   transcript_path?: string;
-  /**
-   * §5.26 (B) — `PreCompact` 가 자동압축인지 `/compact` 인지.
-   *
-   * 자동압축이 실제로 도는지를 (F) 자동압축 미발동 감시가 판정할 때 **유일한 사실 증거**다.
-   * 값이 없으면 `auto` 로 본다(자동이 더 흔하고, 틀려도 감시가 한 번 더 볼 뿐이다).
-   */
+  /** §5.26 (B) — `PreCompact` 가 자동압축인지 `/compact` 인지 — (F) 미발동 감시의 유일한 증거. 없으면 `auto`(틀려도 감시가 한 번 더 볼 뿐). */
   trigger?: string;
   /** §5.26 (D) — `/compact <지시>` 로 사용자가 준 요약 지침. 기록만 하고 우리가 고치지 않는다(§5.26 (J)). */
   custom_instructions?: string;
 }
 
-/**
- * §4 v1.50 — 도구 실행 시간 ring buffer 엔트리.
- * agent 별 최근 5건만 보관(서버 ring buffer). 영속화 ❌.
- */
+/** §4 — 도구 실행 시간 ring buffer 엔트리(agent 별 최근 5건, 영속 ❌). */
 export interface ToolDurationEntry {
   ts: number;
   tool: string;
   durationMs: number;
 }
 
-/**
- * §4 v1.98 — 진단 에러 로그 1건. DebugPanel(§7.7) 에러 뷰어가 표시.
- * renderer JS 에러 / main 프로세스 에러 / server 코어 에러를 `source` 로 구분.
- * 서버 `diagnosticService` 가 ring buffer(`DIAGNOSTIC_LOG_MAX`)로 수집 — 영속화 ❌.
- */
+/** §4 — 진단 에러 로그 1건(§7.7). `source` = renderer/main/server. 서버 ring buffer(`DIAGNOSTIC_LOG_MAX`), 영속 ❌. */
 export interface DiagnosticEntry {
   /** 고유 id (서버 채번). 클라 리스트 key. */
   id: string;
@@ -135,22 +103,15 @@ export interface DiagnosticEntry {
   stack?: string;
 }
 
-/**
- * §4 v1.50 — PreCompact 누적 카운트.
- * agent 별로 컨텍스트 컴팩션이 몇 번 일어났는지 + 마지막 시각.
- * `ProjectCheckpoint.compactCounts?` 로 영속화.
- */
+/** §4 — agent 별 PreCompact 횟수 + 마지막 시각(`ProjectCheckpoint.compactCounts` 로 영속). */
 export interface CompactCount {
   count: number;
   lastAt: number;
 }
 
-/**
- * §4 v1.50 — Claude.ai 한도 사용률 (외부 statusline 스크립트가 푸시).
- * 한도는 사용자 단위라 GraphSnapshot 1건 글로벌. 영속화 ❌(런타임 캐시).
- */
+/** §4 — Claude.ai 한도 사용률(statusline 스크립트가 푸시). 사용자 단위라 글로벌 1건, 영속 ❌. */
 export interface RateLimitInfo {
-  /** 사용률 **퍼센트(0~100)**. v3.64 — 0~1 비율 표기는 폐기(값 1 의 중의성으로 오표시 사고). */
+  /** **퍼센트(0~100).** 0~1 비율 ❌ — 값 1 이 1%인지 100%인지 갈리지 않는다. */
   used5h?: number;
   resetAt5h?: number;
   used7d?: number;
@@ -159,28 +120,13 @@ export interface RateLimitInfo {
 }
 
 /**
- * §4 v3.60 — 사용량 수집기(statusLine) 설치 상태.
- *
- * Claude Code 는 한도 사용률을 **statusLine 스크립트의 stdin JSON**(`rate_limits.five_hour…`)
- * 으로만 노출한다 — JSONL 트랜스크립트에도, CLI 서브커맨드에도 없다. 따라서 §4 v1.50 의
- * `POST /api/rate-limits` 를 채우려면 `~/.claude/settings.json` 의 `statusLine` 에 Vibisual
- * 핸들러를 걸어야 하고, 그건 훅과 달리 **사용자 opt-in**(§4 v1.50 원문)이다.
- *
- * `foreign` = 사용자가 이미 자기 statusLine 을 쓰고 있는 상태. 이 경우 설치는 그 명령을
- * `_vibisualPrevStatusLine` 으로 보존하고 핸들러가 **passthrough 실행**하므로 화면 출력은
- * 그대로 유지된다(해제 시 원복).
+ * §4 — 사용량 수집기(statusLine) 설치 상태. 한도 사용률은 statusLine stdin JSON(`rate_limits.five_hour…`)으로만 나와
+ * `~/.claude/settings.json` 의 `statusLine` 에 핸들러를 걸어야 한다(opt-in). `foreign` = 이미 다른 statusLine 을 쓰는 중 —
+ * `_vibisualPrevStatusLine` 에 보존하고 passthrough 실행한다(해제 시 원복).
  */
 /**
- * §4 — 화면에 그리는 Claude 사용량.
- *
- * **원천은 statusLine 하나다**(§4 v3.60) — Claude Code 가 플랜 한도를 외부에 노출하는 공식
- * 경로가 그것뿐이다. 서버 `claudeUsageService.buildClaudeUsage` 가 `RateLimitInfo` 를 이 모양으로
- * 옮겨 담는다. 그래서 값을 받으려면 사용자가 수집기(statusLine)를 켜야 하고, 켜지 않았으면
- * `error: 'no-credentials'` 로 와서 화면이 그 스위치를 노출한다.
- *
- * 구 v3.62 는 `GET /api/oauth/usage` 를 OAuth 토큰으로 직접 불러 모델별 주간 한도와 사용
- * 크레딧까지 담았으나, 문서화되지 않은 내부 엔드포인트에 대한 자동 접속이라 약관에 걸려
- * 걷어냈다. 그 두 항목(`weekly_scoped`·`extraCredits`)은 지금 채워지지 않는다.
+ * §4 — 화면용 Claude 사용량(`buildClaudeUsage` 가 `RateLimitInfo` 를 옮긴다). 수집기가 꺼지면 `error: 'no-credentials'`.
+ * `GET /api/oauth/usage` 직접 호출 ❌ — 문서에 없는 엔드포인트라 약관에 걸린다(그래서 `weekly_scoped`·`extraCredits` 는 비어 있다).
  */
 export interface ClaudeUsageLimit {
   /** session / weekly_all / weekly_scoped / seven_day_opus … (서버 원문 그대로) */
@@ -209,29 +155,15 @@ export interface ClaudeUsageExtraCredits {
 }
 
 /**
- * 값의 원천.
- *
- * - `'cli'` — **공식 CLI 의 `/usage` 를 print 모드로 실행**해 받은 값(`claude -p "/usage"`).
- *   모델 호출이 0턴이라 과금도 없고(실측 `num_turns:0` · `total_cost_usd:0`), 대화형 세션이
- *   없어도 값이 들어온다. 실행 결과는 Claude Code 자신이 `~/.claude.json` 의
- *   `cachedUsageUtilization` 에 적어 두므로 우리는 그 파일을 읽는다 — 남의 화면 긁기도,
- *   문서에 없는 엔드포인트 호출도 아닌 **공개 인터페이스 + 로컬 파일** 경로다.
- * - `'statusline'` — 대화형 세션이 상태줄을 그릴 때 밀어 주는 값(§4 v3.60). 더 빨리 도착하는
- *   창이 있으므로 폐기하지 않고 **둘 중 더 최근 것**을 쓴다.
- *
- * 구 v3.62 의 `'oauth'`(내부 엔드포인트 직접 조회)는 약관 문제로 폐기했다.
+ * 값의 원천 — 더 최근 것을 쓴다. `'cli'` = `claude -p "/usage"`(0턴·과금 0 실측) 뒤 CLI 가 적는 `~/.claude.json` 의
+ * `cachedUsageUtilization` 을 읽는다(공개 인터페이스 + 로컬 파일). `'statusline'` = 대화형 세션이 밀어 주는 값(더 빨리 올 때가 있다).
+ * 내부 엔드포인트 조회는 약관 문제로 ❌.
  */
 export type ClaudeUsageSource = 'statusline' | 'cli';
 
 /**
- * no-credentials = 수집기가 꺼져 있어 표시할 값이 없음(mac 키체인 환경 포함).
- * awaiting-statusline = **수집기는 켜져 있는데 아직 첫 값이 안 들어왔다.** 값의 원천이
- *   statusLine 이라 대화형 Claude Code 세션이 화면에 한 번 그려져야 들어온다 — 그때까지는
- *   "켜라" 가 아니라 "기다리는 중" 이라고 말해야 사용자가 스위치를 헛클릭하지 않는다.
- * cli-unavailable = `claude` 실행본을 못 찾았거나 `/usage` probe 가 실패했다(타임아웃 포함).
- *   "켜라" 도 "기다려라" 도 아닌 **실행 경로 문제**라 화면이 다르게 말해야 한다.
- * unauthorized / network 는 구 v3.62 직접 조회 시절의 코드라 지금은 발생하지 않지만,
- * 화면이 이미 문구를 들고 있어 유니온에 남긴다.
+ * no-credentials 수집기 꺼짐(mac 키체인 포함) · awaiting-statusline 켜졌는데 첫 값 전(대화형 세션이 한 번 그려져야 온다 —
+ * "켜라"가 아니라 "기다리는 중") · cli-unavailable `claude` 없음·`/usage` probe 실패 · unauthorized/network 는 지금 안 나지만 화면 문구가 있어 남긴다.
  */
 export type ClaudeUsageError =
   | 'no-credentials'
@@ -251,12 +183,7 @@ export interface ClaudeUsageInfo {
   error?: ClaudeUsageError;
 }
 
-/**
- * §4 v4.82 — Claude 계정 로그인 상태. `claude auth status --json` 원문을 그대로 옮긴 것.
- *
- * 우리가 자격증명을 읽거나 쓰지 않는다 — 판정도 로그인/로그아웃 실행도 전부 CLI 위임.
- * 글로벌 1건(계정은 머신 단위)이고 영속화 ❌(런타임 캐시).
- */
+/** §4 — Claude 로그인 상태(`claude auth status --json` 그대로). 자격증명을 직접 읽거나 쓰지 않는다 — 판정·로그인·로그아웃 전부 CLI. 글로벌 1건, 영속 ❌. */
 export interface ClaudeAuthStatus {
   loggedIn: boolean;
   /** 예: 'claude.ai' | 'console' | 'apiKey' — CLI 원문 그대로(우리가 재해석 ❌). */
@@ -274,9 +201,8 @@ export interface ClaudeAuthStatus {
    */
   error?: ClaudeAuthProbeError;
   /**
-   * 판정을 못 한 직전 탐침이 **덮어쓰기 전에 들고 있던** 마지막 정상 판정(있을 때만).
-   * "모름"이 마지막 정상 판정을 지우면 다음 폴링(10분)까지 준비 판정이 통째로 막히므로,
-   * 준비 여부만 보는 쪽(오케스트라 등)은 `error` 가 있어도 이 값을 이어 쓴다.
+   * 판정 못 한 탐침이 덮기 전의 마지막 정상 판정. "모름"이 이것까지 지우면 다음 폴링(10분)까지 준비 판정이 막히므로,
+   * 준비만 보는 쪽(오케스트라)은 `error` 가 있어도 이걸 쓴다.
    */
   staleLoggedIn?: boolean;
   checkedAt: number;
@@ -301,43 +227,28 @@ export interface UsageCollectorStatus {
 }
 
 /**
- * 노드 상태:
- *   idle(대기) → active(작업중) → completed(에이전트만) → disappearing(소멸 중)
- *
- * §4 v1.49 — Anthropic Agent SDK Notification 이벤트 시각 신호:
- *   awaiting_permission — Claude Code 가 도구 호출 권한을 사용자에게 묻는 중
- *                         (v1.43 PreToolUse 동기 차단과는 별개 축, 본 상태는 *시각 신호*만)
- *
- * v1.73 — `awaiting_input`(모래시계) 제거. 데몬 단일-세션 연속성 경로에서 서버 재시작 시
- * 모래시계가 떠 연속성이 끊겨 보이던 원인. 입력 대기는 더 이상 별도 시각 상태로 두지 않는다
- * (세션은 `--resume` 으로 항상 이어지므로 "대기" 신호 자체가 불필요).
+ * idle → active → completed(에이전트만) → disappearing. awaiting_permission = 권한을 묻는 중(시각 신호만, PreToolUse 차단과 별개).
+ * 입력 대기 상태는 두지 않는다 — `--resume` 으로 늘 이어지고, 두면 재시작 때 모래시계가 떠 끊겨 보인다.
  */
 export type NodeStatus =
   | 'idle'
   | 'active'
   | 'completed'
-  /**
-   * 소속 세션이 **실패로** 끝났다. `SubAgentStatus` 에는 처음부터 `error` 가 있었지만 이 유니온에는
-   * 없어서, 세션이 실패해도 부모 버블은 `completed` 로 내려갔다 — 캔버스에서 **실패가 완료로 세탁**되고
-   * 완료음(`completionChime`)까지 울렸다. 두 축의 값 집합을 맞춰 그 세탁을 없앤다.
-   */
+  /** 소속 세션이 실패로 끝났다 — `SubAgentStatus` 와 값 집합을 맞춘다(없으면 실패가 `completed` 로 내려가 완료음까지 울린다). */
   | 'error'
   | 'disappearing'
   | 'awaiting_permission';
 
 /** 버블 타입 — 시각 카테고리 */
 /**
- * 버블 종류. `bundle` 은 **화면만 짓는** 종류다(§2.2 · §5.1 #2-1 (B)) — 같이 묶인 파일들(별자리 · 연속 번호)의 자리로,
- * 서버는 만들지도 저장하지도 않는다. 파일이 묶음의 부모로 서면 png·mp4 가 폴더처럼 읽혔다(2026-10-21 사용자 지시).
+ * `bundle` 은 화면만 짓는 종류(§2.2 · §5.1 #2-1 (B)) — 서버는 만들지도 저장하지도 않는다.
+ * 파일을 묶음의 부모로 세우지 마라 — png·mp4 가 폴더처럼 읽힌다.
  */
 export type BubbleType = 'agent' | 'internal_folder' | 'external_folder' | 'file' | 'bash' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'worktree' | 'conti' | 'auto' | 'trash' | 'video' | 'spec' | 'lab' | 'shelf' | 'domain' | 'bundle';
 
 /**
- * §5.1 #2-1 (A) — 파일 버블의 **얼굴**(무엇을 담았나). `BubbleType` 과 별개 축이다 — 버블 타입은 여전히 `file` 이고,
- * 얼굴은 그 파일을 어떻게 그릴지만 정한다. 앞의 넷(영상·사진·소리·3D)은 버블 안에 미리보기를 굽는 **미디어**다.
- *
- * 판정은 shared `fileFaceKindOf` 한 곳(확장자 표 `FILE_FACE_EXTENSIONS`). 어느 앱이 굽고 여는지는 이 값이 아니라
- * 레지스트리 선언이 정한다(§5.13 (R-1) — 코어는 확장자→앱 표를 들지 않는다).
+ * §5.1 #2-1 (A) — 파일 버블의 얼굴(`BubbleType` 은 여전히 `file`, 그리는 법만). 앞의 넷(영상·사진·소리·3D)은 미리보기를 굽는 미디어.
+ * 판정은 `fileFaceKindOf` 한 곳 · 굽고 여는 앱은 레지스트리가 정한다(§5.13 (R-1), 코어에 확장자→앱 표 ❌).
  */
 export type FileFaceKind =
   | 'video'
@@ -352,11 +263,8 @@ export type FileFaceKind =
   | 'other';
 
 /**
- * §5.1 #2-1 (G) ⑤ — 종류 안의 **갈래**. 미리보기가 없을 때(굽지 않는 확장자 · 성능 기준이 막았을 때 · 굽는 중) 그 파일이
- * 무엇인지 아이콘이 말하는 단위다. 종류(`FileFaceKind`)와 직교하지 않는다 — 갈래는 아이콘만 정하고, 별자리·역할 판정은
- * 여전히 종류가 한다(`.musicxml` 은 데이터 종류지만 악보 갈래 아이콘이다).
- *
- * 판정은 shared `fileFaceFamilyOf` 한 곳(표 `FILE_FACE_FAMILY_EXTENSIONS`). 표에 없는 확장자는 그 종류의 기본 갈래다.
+ * §5.1 #2-1 (G) ⑤ — 종류 안의 갈래: 미리보기가 없을 때 아이콘만 정한다(별자리·역할은 종류가 — `.musicxml` 은 데이터 종류·악보 아이콘).
+ * 판정 `fileFaceFamilyOf` 한 곳, 표에 없으면 기본 갈래.
  */
 export type FileFaceFamily =
   // 영상
@@ -379,9 +287,8 @@ export type FileFaceFamily =
   | 'archive' | 'other';
 
 /**
- * §5.1 #2-1 (F) ① — 이 파일이 **어느 앱 작업 중에 생겼나**(앱 노드 id 마다 한 표식). 서버가 훅 귀속으로 단다 — sub 의 도는
- * 명령이 싣는 앱 노드(`QueuedCommand.appNodeIds`), 없으면 같은 세션의 마지막 앱 명령. 노드 객체째 체크포인트에 실린다
- * (새 영속 창구 ❌). 화면은 앱 작업 보기(§5.4 #36 (I))에서만 읽는다.
+ * §5.1 #2-1 (F) ① — 이 파일이 생긴 앱 작업(앱 노드 id 마다). 서버가 훅 귀속으로 단다(`QueuedCommand.appNodeIds`, 없으면 같은 세션 마지막 앱 명령).
+ * 노드째 체크포인트, 화면은 앱 작업 보기(§5.4 #36 (I))에서만 읽는다.
  */
 export interface AppWorkMark {
   /** 그 작업 중에 쓴 횟수(사후 이벤트 기준 · 되짚기는 노드의 `writeCount`). */
@@ -395,25 +302,15 @@ export interface AppWorkMark {
 }
 
 /**
- * §5.1 #2-1 (F) ⑤ — 앱 작업 위성의 **역할**. 앱 노드 위쪽 반원에서 왼쪽부터 이 순서로 앉는다(`APP_WORK_ROLES`).
- * - `result` — 그 앱 노드에 담긴 파일(결과 · 지난 결과).
- * - `sibling` — 그 앱이 다루는 종류와 같은 종류인데 아직 안 담긴 것(시안 · 원본 · 판본 · 스템).
- * - `material` — 다른 미디어 · 자막 · 글꼴(소재).
- * - `code` · `data` · `memo`(문서) · `other`.
+ * §5.1 #2-1 (F) ⑤ — 앱 작업 위성 역할, 위쪽 반원에 왼쪽부터 이 순서(`APP_WORK_ROLES`). result 담긴 파일 ·
+ * sibling 같은 종류인데 안 담긴 것 · material 다른 미디어·자막·글꼴 · code · data · memo · other.
  */
 export type AppWorkRole = 'result' | 'sibling' | 'material' | 'code' | 'data' | 'memo' | 'other';
 
 /**
- * §5.1 #2-1 (B) — 파일이 그 별자리 중심을 **왜** 도는가. 위성의 툴팁이 이 값으로 이유를 말한다(판정 안 한 사실을
- * 단정하지 않는다). 점수는 `CONSTELLATION.score` 가 정본이고 판정은 shared `planConstellations` 한 곳이다.
- *
- * - `appResult`/`appPart` — 앱 노드가 선언한 것(결과·지난 결과 / "연결된 것"의 파일과 코드 소재의 폴더).
- * - `mention`/`mentioned` — 이 파일이 중심을 적고 있다 / 중심이 이 파일을 적고 있다(서버 내용 언급).
- * - `chain` — 이미 묶인 재료가 이 파일을 적고 있다(또는 그 반대).
- * - `sameStem`/`stemFamily` — 이름이 같다 / 이름의 낱말을 나눠 가진다.
- * - `sameFolder` — 같은 폴더의 곁 파일·재료 미디어(앱 노드로 이어지는 사슬 — 파일은 중심이 되지 않는다, 2026-10-21) · 같은 종류
- *   묶음(`kindBundle.ts`)의 구성(같은 하위 폴더의 같은 미디어 종류). 사진 묶음 `album` 은 2026-10-21 에 걷었다.
- * - `appWork` — 그 앱 노드의 작업 중에 생긴 파일(§5.1 #2-1 (F) — 앱 작업 보기에서만 넘어온다).
+ * §5.1 #2-1 (B) — 파일이 별자리 중심을 도는 이유(툴팁 — 판정 안 한 사실은 단정 ❌). 점수 `CONSTELLATION.score`, 판정 `planConstellations`.
+ * appResult/appPart 앱 노드 선언 · mention/mentioned 서로 이름을 적음 · chain 묶인 재료가 적음 · sameStem/stemFamily 이름 같음/낱말 공유 ·
+ * sameFolder 같은 폴더 곁 파일·종류 묶음 구성(파일은 중심 ❌) · appWork 앱 작업 중 생김(앱 작업 보기에서만).
  */
 export type ConstellationReason =
   | 'appResult'
@@ -426,59 +323,26 @@ export type ConstellationReason =
   | 'stemFamily'
   | 'sameFolder';
 
-/**
- * §5.4 #33 버블 정리 — 정리했을 때 그 버블이 앉는 **띠**.
- *
- * 버블 타입(§2.2 20종)과 별개 축이다. 같은 `agent` 라도 도는 중이면 `running`, 결과를 봐 줘야
- * 하면 `attention`, 쉬면 `waiting` 으로 갈린다 — 캔버스를 보는 이유가 "무엇이 있나"가 아니라
- * "무엇이 지금 움직이나"이기 때문이다. 위→아래(줄 세우기) 순서는 `TIDY_BAND_ORDER` 가 정본.
- */
+/** §5.4 #33 — 정리 때 앉는 띠(버블 타입과 별개 축 — 같은 `agent` 도 running/attention/waiting 으로 갈린다). 순서 정본 `TIDY_BAND_ORDER`. */
 export type TidyBand = 'running' | 'attention' | 'waiting' | 'folder' | 'other';
 
-/**
- * §5.4 #33 (I) 버블 정리 — **무엇을 기준으로 앉힐 것인가**.
- *
- * (A) 의 띠 순서는 "지금 뭐가 돌고 있지" 하나에만 답한다. 같은 지도를 보는 이유는 그것만이
- * 아니라서("이 파일들 다 어디 있더라" · "뭘 제일 많이 고쳤지" · "방금 뭘 만졌더라" ·
- * "이 에이전트가 건드린 게 뭐뭐지"), 기준을 코드에 박으면 나머지 넷은 영영 답을 못 얻는다.
- *
- * 정본은 `TIDY_SORTS`(§3.3 상수 테이블)이고 판정은 순수 모듈 `tidySort.ts` 한 곳이다.
- */
+/** §5.4 #33 (I) — 정리 기준. 띠 순서는 "지금 뭐가 도나"에만 답하므로 기준을 코드에 박지 않는다. 정본 `TIDY_SORTS`(§3.3), 판정 `tidySort.ts` 한 곳. */
 export type TidySort = 'status' | 'kind' | 'heat' | 'recent' | 'lineage';
 
 /**
- * §5.4 #33 (I) — 정리한 무리를 **어떤 기하로** 앉히나. 이 축이 `TidySort` 와 별개인 것이
- * 그 항목의 핵심 결정이다.
- *
- * **줄 세우기(`rows`)** — 순위가 있는 기준(`status`·`heat`·`recent`). 칸이 위에서 아래로
- * 순위 순으로 쌓이고, 칸 안은 왼쪽에서 오른쪽으로 순위 순이다. 글을 읽는 순서라 배우지 않아도
- * 읽히고, 모든 줄의 왼쪽 끝이 한 선에 맞아 칸 경계가 눈에 선으로 보인다.
- *
- * **덩어리(`clusters`)** — 순위가 없는 분류(`kind`·`lineage`). 무리마다 제 구역을 차지하고
- * 그 구역들이 다시 동심으로 놓인다. 분류를 줄로 세우면 "왜 파일이 윗줄이고 폴더가 아랫줄인가"
- * 라는 **뜻 없는 서열**이 생긴다.
- *
- * 종전의 동심 띠(`rings`)는 2026-09-12 에 폐기했다 — 고리에는 시작점이 없고, 같은 칸이 원
- * 둘레를 따라 서로 가장 멀리 갈라져 앉고, 이웃 고리의 반경 차이가 화면에서 거의 같아 보여
- * **칸이 몇 개인지도 세어지지 않았다**(사용자 지적 "기준도 없고 정리도 안 된다"). 고리 자체는
- * 덩어리를 앉히는 자리와 위성 궤도(`packRings`)에 그대로 남아 있다 — §5.4 #33 (B).
+ * §5.4 #33 (I) — 정리 기하(`TidySort` 와 별개 축). `rows` = 순위 있는 기준(`status`·`heat`·`recent`), 위→아래·왼→오.
+ * `clusters` = 순위 없는 분류(`kind`·`lineage`), 무리별 구역을 동심으로(줄로 세우면 뜻 없는 서열이 생긴다).
+ * 동심 띠(`rings`)로 되돌리지 마라 — 시작점이 없어 칸 수조차 안 세어진다.
  */
 export type TidyGeometry = 'rows' | 'clusters';
 
-// ─── 화면/프로그램 캡처 (§5.9 capture 버블) ───
-//
-// capture 버블은 그래프 노드(에이전트/폴더/파일)나 위성이 아니라, CommentBox 처럼 사용자가
-// 캔버스에 직접 만드는 **독립 요소**다(전용 React Flow 노드 타입 'captureNode'). 라이브 영상은
-// 렌더러가 getUserMedia(desktop)로 붙이며(useCaptureStream), 여기 타입은 위치/크기/소스 식별만 나른다.
+// §5.9 화면/프로그램 캡처 — CommentBox 처럼 캔버스에 직접 만드는 독립 요소('captureNode', parent/child 없이 절대좌표).
+// 라이브 영상은 렌더러가 getUserMedia 로 붙이고, 이 타입은 위치·크기·소스만 나른다.
 
 /** 캡처 대상 종류 — 전체 화면 vs 개별 창/프로그램(OBS/디스코드식 소스 선택). */
 export type CaptureSourceKind = 'screen' | 'window';
 
-/**
- * Electron `desktopCapturer.getSources()` 한 항목을 렌더러 소스 선택 UI 로 나르는 계약.
- * main(desktopCapturer) → preload(window.api.capture) → 클라이언트 picker. 썸네일은
- * NativeImage 를 data URL(PNG)로 직렬화해 IPC 텍스트 와이어로 무손실 전달한다.
- */
+/** `desktopCapturer.getSources()` 한 항목의 IPC 계약(main → preload `window.api.capture` → picker). 썸네일은 data URL(PNG). */
 export interface CaptureSourceInfo {
   /** desktopCapturer 소스 id (getUserMedia chromeMediaSourceId 로 그대로 사용). */
   id: string;
@@ -492,30 +356,18 @@ export interface CaptureSourceInfo {
   appIconDataUrl?: string;
 }
 
-// ─── 캡처 원격 조작(§5.9 Phase B) — 렌더러→main 입력 주입 계약 ───
-//
-// 캡처 버블 본체 위 사용자 제스처를 정규화 좌표(u,v ∈ [0,1])로 담아 main 으로 보내면,
-// main 이 소스(화면/창)의 실제 화면 좌표로 매핑해 nut.js 로 OS 레벨 마우스/키보드를 주입한다.
+// §5.9 Phase B — 렌더러→main 입력 주입 계약. 정규화 좌표(u,v ∈ [0,1])를 main 이 소스 실제 좌표로 옮겨 nut.js 로 주입한다.
 
 /**
- * 캡처 버블 마우스 주입 — u,v 는 캡처 콘텐츠 기준 정규화 좌표.
- *
- * **v3.58 — 모든 주입은 "사용자가 물리 버튼을 뗀 뒤"에 원자적으로 일어난다.** Windows 는 사용자가
- * 우리 창에서 버튼을 누르는 순간 그 창으로 **마우스 캡처(SetCapture)** 를 걸어 버려, 버튼이 눌려 있는
- * 동안 SendInput 으로 주입한 마우스 이벤트까지 **전부 우리 창으로 되돌아온다**(대상 앱에 닿지 않음).
- * v3.57 이 `mousedown → down 주입 / mousemove → 손이 직접 / mouseup → up 주입` 으로 설계를 옮긴 순간
- * 클릭·우클릭·드래그가 전부 먹통이 된 근본 원인이 이것이다. 그래서 제스처는 렌더러가 **끝까지 지켜본
- * 뒤**(release) 한 방에 재생한다 — 그 시점엔 캡처가 풀려 있어 주입이 대상에 그대로 닿는다.
+ * u,v 는 캡처 콘텐츠 기준 정규화 좌표. **주입은 물리 버튼을 뗀 뒤 한 번에** — Windows 는 누르는 순간 우리 창에 SetCapture 를 걸어,
+ * 눌린 동안 SendInput 한 마우스 이벤트가 우리 창으로 되돌아온다(나눠 주입하면 클릭·드래그가 먹통).
  */
 export interface CaptureMouseInput {
   type: 'mouse';
   sourceId: string;
   sourceKind: CaptureSourceKind;
   sourceName: string;
-  /**
-   * `click`/`dblclick`/`drag`/`wheel` 이 실사용 경로다(전부 원자적·커서 반납 포함).
-   * `move`/`down`/`up` 은 v3.57 사슬 모델의 잔여 계약으로 남겨 두지만 렌더러는 더 이상 쓰지 않는다.
-   */
+  /** 실사용은 `click`/`dblclick`/`drag`/`wheel`(원자적·커서 반납). `move`/`down`/`up` 은 남은 계약 — 렌더러는 안 쓴다. */
   action: 'move' | 'down' | 'up' | 'click' | 'dblclick' | 'drag' | 'wheel';
   u: number;
   v: number;
@@ -525,54 +377,28 @@ export interface CaptureMouseInput {
   button?: 'left' | 'right' | 'middle';
   /** wheel 델타(양수=아래로 스크롤). */
   deltaY?: number;
-  /**
-   * 주입 후 사용자의 실제 커서를 원래 자리로 되돌릴지(v3.55). 이 PC 의 OS 커서는 하나뿐이라
-   * 주입 지점에 그냥 두면 사용자의 마우스가 캡처 대상 화면으로 끌려가 갇힌다. **v3.58 부터는 모든
-   * 원자적 동작(click/dblclick/drag/wheel)이 예외 없이 반납한다** — 사용자의 마우스는 버블 위에서
-   * 잠시 깜빡였다가 늘 제자리로 돌아온다(갇히지 않음).
-   */
+  /** 주입 후 커서를 제자리로 돌릴지. OS 커서는 하나라 두면 대상 화면으로 끌려가 갇힌다 — 원자적 동작은 늘 반납한다. */
   restoreCursor?: boolean;
-  /**
-   * u,v 로 커서를 옮기지 말고 **지금 커서가 있는 자리에서** 버튼만 처리한다(v3.57 사슬 모델 잔여).
-   * v3.58 원자 주입 경로에서는 쓰지 않는다.
-   */
+  /** u,v 로 옮기지 않고 지금 커서 자리에서 버튼만(남은 계약, 원자 경로는 안 쓴다). */
   inPlace?: boolean;
-  /**
-   * "커서 안 움직이기"(v3.62) — 켜면 main 이 **대상 창에 마우스 메시지를 직접 넣어** 사용자의 커서를
-   * 전혀 건드리지 않는다. 일반 Win32 앱엔 잘 먹지만 게임·보호된 창은 무시하므로, 그런 창이면 자동으로
-   * 기본(커서를 잠깐 빌리는) 경로로 되돌아가고 결과의 `fallback` 으로 이유를 알린다.
-   */
+  /** "커서 안 움직이기" — 대상 창에 마우스 메시지를 직접 넣는다. 게임·보호된 창은 무시하므로 그땐 커서 경로로 돌아가 `fallback` 으로 알린다. */
   preferBackgroundClick?: boolean;
 }
 
 /**
- * 캡처 대상(화면/창)의 실제 사각형 — 렌더러가 **드래그 중 손 움직임만 뽑아내기 위해** 쓴다(v3.57).
- *
- * 드래그를 하려면 OS 커서를 대상 위로 옮겨 둔 채로 손 움직임을 계속 읽어야 하는데, 커서가 이미
- * 대상으로 가 있으므로 브라우저가 주는 좌표는 "버블 안"이 아니라 "대상 화면 위"의 좌표다. 렌더러는
- * 자기가 방금 커서를 어디에 놓았는지(=기대 좌표)를 알아야 그 차이만큼만 손이 움직였다고 계산할 수
- * 있다(닫힌 루프 → 우리가 주입한 이동이 되먹임되어 커서가 폭주하는 것을 원천 차단).
- *
- * - `dip`: Electron DIP 좌표계 사각형. 브라우저 `MouseEvent.screenX/screenY` 와 같은 공간이라 이걸로 계산한다.
- * - `physical`: nut.js 주입에 쓰는 물리 픽셀 사각형(진단·표시용).
+ * 캡처 대상 실제 사각형 — 드래그 중 손 움직임만 뽑는다. 커서가 대상 위라 브라우저 좌표가 대상 기준이므로 기대 좌표와의 차이만 센다
+ * (안 그러면 주입한 이동이 되먹여 폭주). `dip` = 계산용(`screenX/Y` 와 같은 공간) · `physical` = nut.js 픽셀(진단용).
  */
-/**
- * 주입 결과(v3.61) — 종전엔 실패해도 조용히 아무 일도 안 일어나 "클릭이 안 먹는다"로만 보였다.
- * 렌더러가 이 값을 받아 **왜 안 됐는지**를 오버레이 칩으로 알린다.
- */
+/** 주입 결과 — 렌더러가 실패 이유를 오버레이 칩으로 알린다. */
 export interface CaptureInjectResult {
   ok: boolean;
   /** 'nut-unavailable'=주입 엔진 로드 실패, 'target-not-found'=대상 화면/창 못 찾음, 'error'=주입 중 예외. */
   reason?: 'nut-unavailable' | 'target-not-found' | 'error';
-  /**
-   * 어떤 경로로 넣었는지(v3.62) — 'background'=커서를 안 건드리고 대상 창에 메시지 직접 전달,
-   * 'cursor'=커서를 잠깐 빌려 쓰는 기본 경로.
-   */
+  /** 'background' = 커서 없이 대상 창에 메시지 직접 · 'cursor' = 커서를 잠깐 빌리는 기본 경로. */
   method?: 'cursor' | 'background';
   /**
-   * "커서 안 움직이기"를 켰는데 배경 클릭이 불가능해 커서 경로로 되돌아갔을 때의 사유.
-   * 'message-deaf-app'=게임/보호된 창처럼 합성 메시지를 무시하는 앱, 'no-window'=그 지점에 창이 없음,
-   * 'ffi-unavailable'=배경 클릭 경로 자체를 못 씀.
+   * 배경 클릭을 못 해 커서 경로로 돌아간 사유. 'message-deaf-app' 합성 메시지를 무시(게임·보호된 창) · 'no-window' 그 지점에 창 없음 ·
+   * 'ffi-unavailable' 배경 클릭 경로 자체 불가.
    */
   fallback?: 'ffi-unavailable' | 'no-window' | 'message-deaf-app';
 }
@@ -605,19 +431,8 @@ export interface CaptureKeyInput {
 export type CaptureInputEvent = CaptureMouseInput | CaptureKeyInput;
 
 /**
- * 사용자가 캔버스에 만든 화면/프로그램 캡처 버블(§5.9). CommentBox 와 같은 독립 캔버스 요소로,
- * React Flow parent/child 없이 절대좌표(x/y)로 배치된다. 렌더러가 `sourceId` 로 라이브 MediaStream 을
- * 붙여 네모난 본체에 <video> 로 표시한다. 서버는 위치/크기/소스 식별만 SSOT 로 들고 영속한다.
- */
-/**
- * §5.13 v4.45 — 내부 앱 버블.
- *
- * CommentBox·CaptureBubble 과 같은 "사용자가 캔버스에 직접 만드는 독립 요소"다(그래프
- * 노드도 위성도 아니다). **특정 앱 전용이 아니라 범용**인 이유는 내부 앱을 앞으로 계속
- * 늘릴 것이기 때문이다 — 앱이 하나 늘 때마다 새 버블 타입·새 영속 필드·새 REST 를
- * 만들면 코어가 앱 수만큼 뚱뚱해진다. 여기서는 `appId` 한 글자만 달라진다.
- *
- * 더블클릭하면 그 앱의 전용 창이 열린다(무엇이 열리는지는 클라이언트 앱 레지스트리가 안다).
+ * §5.13 — 내부 앱 버블(캔버스에 직접 만드는 독립 요소). 앱마다 타입·영속 필드·REST 를 늘리지 않는다 — 범용 한 벌에 `appId` 만 다르다.
+ * 더블클릭하면 클라 레지스트리가 아는 전용 창이 열린다.
  */
 export interface AppBubble {
   /** 고유 id (예: "app-lp3x9-a1b2"). */
@@ -637,41 +452,30 @@ export interface AppBubble {
   /** 앱이 해석하는 열쇠(영상 앱이면 문서 id). 코어는 뜻을 모른다. */
   ref?: string;
   createdAt: number;
-  /** §2.4 v1.28 — 사용자 preserve-pin. 소멸·삭제 경로 차단. */
+  /** §2.4 — 사용자 preserve-pin. 소멸·삭제 경로를 막는다. */
   preservePinned?: boolean;
   /**
-   * §5.4 #36 (B) — 이 앱 노드가 **참조하는 에이전트**들(위성줄의 출발점).
-   * 중복 없이 `APP_BUBBLE_LINK_MAX` 개까지. 에이전트가 사라져도 지우지 않는다 — 휴지통에서
-   * 되살리면 선도 돌아온다(그리는 쪽이 지금 화면에 있는 끝점만 고른다).
+   * §5.4 #36 (B) — 참조하는 에이전트들(위성줄 출발점, 중복 없이 `APP_BUBBLE_LINK_MAX` 개). 에이전트가 사라져도 지우지 않는다 —
+   * 휴지통에서 되살리면 선도 돌아온다.
    */
   linkedAgentIds?: string[];
   /**
-   * §5.4 #36 (C) — 이 노드에 **담긴 결과 파일**(프로젝트 루트 기준 상대 경로, `/` 구분).
-   * 에이전트가 `POST /api/app-bubbles/:id/output` 으로 넣는다(존재하는 프로젝트 안 파일만).
-   * 노드를 열면 이 파일로 앱이 열린다(§5.13 (R-2) `file`).
+   * §5.4 #36 (C) — 담긴 결과 파일(프로젝트 루트 기준 상대, `/`). `POST /api/app-bubbles/:id/output` 으로 넣고(프로젝트 안 실제 파일만),
+   * 노드를 열면 이 파일로 앱이 열린다(§5.13 (R-2)).
    */
   file?: string;
-  /**
-   * §5.4 #36 (F) — 담긴 결과의 **버전**(그 파일의 수정 시각, ms). 결과 전달 창구가 `file` 과 함께 적는다.
-   * 같은 이름으로 다시 만들어 다시 보내도 노드 화면의 미리보기가 바뀌게 하는 열쇠다. `file` 을 비우면 함께 지운다.
-   */
+  /** §5.4 #36 (F) — 결과의 판본(그 파일 mtime, ms). 같은 이름으로 다시 보내도 미리보기가 바뀌게 하는 열쇠 — `file` 과 함께 적고 함께 지운다. */
   fileAt?: number;
   /**
-   * §5.4 #36 (G) — 사용자가 **크기를 정한 형태**(명패 `'nameplate'` · 화면 `'screen'`).
-   * 지금 형태와 같으면 `width`/`height` 가 곧 렌더 치수이고, 다르거나 없으면 앱 선언 크기를 쓴다 —
-   * 정한 적 없는 옛 버블의 `width`/`height` 는 생성 시점의 선언값일 뿐이라(v4.66) 그대로 믿지 않는다.
-   * 형태가 바뀌어도 지우지 않는다(그 형태로 돌아오면 다시 그 크기). [기본 크기로] 가 지운다.
+   * §5.4 #36 (G) — 크기를 정한 형태('nameplate'/'screen'). 지금 형태와 같을 때만 `width`/`height` 가 렌더 치수, 아니면 앱 선언 크기
+   * (정한 적 없는 버블의 치수는 생성 때 값일 뿐). 형태가 바뀌어도 남고 [기본 크기로] 가 지운다.
    */
   sizedForm?: 'nameplate' | 'screen';
-  /**
-   * §5.4 #36 (H) ① — 이 노드의 위성줄과 구슬 줄(연결된 것 위성)을 **감췄다**. 연결(`linkedAgentIds`)·결과 전달은 그대로다.
-   * 없거나 false 면 보인다.
-   */
+  /** §5.4 #36 (H) ① — 위성줄·구슬 줄을 감췄다(연결·결과 전달은 그대로). 없거나 false 면 보인다. */
   linksHidden?: boolean;
   /**
-   * §5.4 #36 (H) ③ — **지난 결과**. 결과 전달(`/output {file}`)이 `file` 을 바꾸기 전에 담겨 있던 파일들(최근 것부터,
-   * `APP_BUBBLE_PAST_FILE_MAX` 까지). 같은 파일을 다시 보낸 것은 쌓지 않는다(그 파일은 이미 덮였다). 노드 아래 구슬 줄에
-   * 뜬다 — 문서가 없는 앱(이미지·3D)도 에이전트가 다시 만든 판들이 버블로 남는다.
+   * §5.4 #36 (H) ③ — 지난 결과: `/output` 이 `file` 을 바꾸기 전 파일들(최근 것부터, `APP_BUBBLE_PAST_FILE_MAX` 까지, 같은 파일 재전송은 안 쌓는다).
+   * 노드 아래 구슬 줄에 뜬다.
    */
   pastFiles?: AppBubblePastFile[];
 }
@@ -682,18 +486,12 @@ export interface AppBubblePastFile {
   at?: number;
 }
 
-/**
- * §5.4 #36 (H) ② — 연결 버블의 보기. `'linked'` = 연결된 것 위주(기본), `'files'` = 작업 파일 위주.
- * 저장되는 값은 `'files'` 하나뿐이다(`BubbleData.linkLens`) — 이 유니온은 판정·창구가 주고받는 말이다.
- */
+/** §5.4 #36 (H) ② — 연결 버블 보기('linked' 기본 · 'files'). 저장값은 `'files'` 뿐(`BubbleData.linkLens`) — 이 유니온은 판정·창구 사이 말이다. */
 export type LinkLens = 'linked' | 'files';
 
 /**
- * §5.4 #36 (H) ①-2 — [이전 연결 다시 보기]가 다시 세울 **연결된 버블 한 장**. 서버가 연결을 걷는 순간(확인 dismiss ·
- * 고정 풀기 걷기 · 자동 유휴가 선을 지울 때) 그 에이전트가 소유한 활동 버블마다 한 줄씩 적는다.
- *
- * 노드 객체를 통째로 두지 않는다 — 다시 세우는 길은 훅 이벤트와 같은 라우팅이고(구조 장부 7곳을 손으로 되돌리지
- * 않는다), 여기 남는 것은 그 라우팅이 모르는 칸(횟수·자리·표식·상한)뿐이다.
+ * §5.4 #36 (H) ①-2 — [이전 연결 다시 보기]가 다시 세울 버블 한 장(연결을 걷는 순간 서버가 적는다). 노드째 두지 않는다 —
+ * 다시 세우기는 훅 라우팅을 타고, 여기엔 라우팅이 모르는 칸(횟수·자리·표식·상한)만.
  */
 export interface AgentLinkEntry {
   /** 그래프 노드 키(경로 키). 다시 세운 뒤 이 키로 찾아 칸을 되돌린다. */
@@ -702,10 +500,7 @@ export interface AgentLinkEntry {
   bubbleType: BubbleType;
   /** 파일·폴더는 절대 경로, 도메인은 호스트. 명령 앱에는 없다. */
   target?: string;
-  /**
-   * 외부 파일이 위성으로 붙어 있던 외부 폴더 중 **직속 부모가 아닌 것**의 절대 경로(Grep/Glob 결과가 훑은 폴더 하나에
-   * 평탄하게 붙는 §2.1 v2.7 규칙). 다시 세울 때 그 폴더를 훑은 것처럼 그 밑에 다시 붙인다.
-   */
+  /** 외부 파일이 붙어 있던, 직속 부모가 아닌 외부 폴더의 절대 경로(§2.1 평탄화). 다시 세울 때 그 밑에 다시 붙인다. */
   folders?: string[];
   /** 직속 부모(또는 휘발 접기 자리) 밑에는 없었다 — `folders` 밑으로만 다시 선다. */
   folderOnly?: boolean;
@@ -756,13 +551,9 @@ export interface CaptureBubble {
   updatedAt: number;
 }
 
-// ─── §5.14 v4.62 — 플레이 버블 (이 프로젝트를 켜는 버튼) ───
+// §5.14 — 플레이 버블(이 프로젝트를 켜는 버튼)
 
-/**
- * 실행 방식.
- * - `static`: 명령이 없다. Vibisual 의 loopback 정적 호스트가 폴더를 그대로 서빙한다(HTML 앱).
- * - `command`: 셸 명령을 띄운다(dev 서버 등).
- */
+/** `static` = loopback 정적 호스트가 폴더를 그대로 서빙(HTML 앱) · `command` = 셸 명령(dev 서버 등). */
 export type PlayRecipeKind = 'static' | 'command';
 
 /** 이 레시피를 누가 정했나 — 화면에 그대로 보여 사용자가 "무엇이 실행되는지" 알게 한다. */
@@ -771,11 +562,7 @@ export type PlayRecipeSource = 'detected' | 'observed' | 'agent' | 'user';
 /** 플레이 버블의 실행 상태. 버튼 색·아이콘이 이것만 보고 결정된다. */
 export type PlayBubbleStatus = 'idle' | 'starting' | 'running' | 'failed';
 
-/**
- * 실행 레시피 — "이 프로젝트를 어떻게 켜는가" 한 벌.
- *
- * 버블 하나가 레시피 하나를 가진다(웹·스토리북·API 를 따로 켜려면 버블을 여러 개 놓는다).
- */
+/** 버블 하나에 레시피 하나(웹·스토리북·API 를 따로 켜려면 버블을 여럿 놓는다). */
 export interface PlayRecipe {
   kind: PlayRecipeKind;
   /** 사람이 읽는 한 줄(예: "pnpm dev · package.json scripts"). */
@@ -801,13 +588,7 @@ export interface PlayRecipeCandidate extends PlayRecipe {
   reason: string;
 }
 
-/**
- * §5.14 v4.62 — 플레이 버블.
- *
- * 캡처 버블·앱 버블과 같은 "사용자가 캔버스에 직접 만드는 독립 요소"다(그래프 노드도 위성도
- * 아니다). 레코드는 하나지만 캔버스에는 **두 개**로 그려진다 — 누르는 **버튼**(x/y/width/height)과
- * 그 옆에 뜨는 **프리뷰 iframe**(preview*). 프리뷰를 닫아도 버튼은 사용자가 지울 때까지 남는다.
- */
+/** §5.14 — 플레이 버블(독립 캔버스 요소). 레코드 하나가 버튼(x/y/width/height)과 프리뷰 iframe(preview*) 둘로 그려진다 — 프리뷰를 닫아도 버튼은 남는다. */
 export interface PlayBubble {
   /** 고유 id (예: "play-lp3x9-a1b2"). */
   id: string;
@@ -838,24 +619,15 @@ export interface PlayBubble {
   previewHeight?: number;
   createdAt: number;
   updatedAt: number;
-  /** §2.4 v1.28 — 사용자 preserve-pin. 삭제 경로 차단. */
+  /** §2.4 — 사용자 preserve-pin. 삭제 경로를 막는다. */
   preservePinned?: boolean;
-  /**
-   * §5.17 (C) — 이 화면을 만든(=실행법을 알아내 준) 에이전트. 프리뷰가 열려 있으면 캔버스가
-   * 여기로 점선을 긋는다. 사용자가 `[실행법 알아내기]` 로 물은 그 시각에 적히고, 그 에이전트가
-   * 캔버스에 없으면 선은 그리지 않는다(없는 끝점으로 향하는 선 ❌).
-   */
+  /** §5.17 (C) — 실행법을 알아내 준 에이전트. 프리뷰가 열려 있으면 여기로 점선을 긋는다(캔버스에 없으면 안 긋는다). */
   ownerAgentId?: string;
 }
 
 // ─── §5.15 — 스펙 보드 (요구사항 → 수용 기준 → 작업 카드 → 실행) ───
 
-/**
- * 수용 기준 한 줄. **이 한 줄이 작업 카드 한 장의 씨앗**이다.
- *
- * 카드를 만들면 `taskAgentId`/`taskSessionId` 가 채워지고, 그때의 스펙 개정 번호가
- * `generatedRevision` 에 박힌다 — 이후 스펙이 바뀌면 두 숫자의 차이가 곧 "낡았다"는 뜻이다.
- */
+/** 수용 기준 한 줄. 카드를 만들면 `taskAgentId`/`taskSessionId` 가 채워지고 그때 스펙 개정 번호가 `generatedRevision` 에 박힌다 — 이후 번호가 다르면 낡은 카드다. */
 export interface SpecItem {
   /** 고유 id (예: "sitem-lp3x9-a1b2"). */
   id: string;
@@ -871,13 +643,7 @@ export interface SpecItem {
   generatedRevision?: number;
 }
 
-/**
- * §5.15 — 스펙 한 장.
- *
- * 캡처 버블·앱 버블·플레이 버블과 같은 "사용자가 캔버스에 직접 만드는 독립 요소"다
- * (그래프 노드도 위성도 아니다). 캔버스에는 표지 한 장으로 그려지고, 더블클릭하면
- * 전체 화면 보드가 열려 본문과 수용 기준을 고친다.
- */
+/** §5.15 — 스펙 한 장(독립 캔버스 요소). 표지로 그려지고 더블클릭하면 전체 화면 보드. */
 export interface SpecDoc {
   /** 고유 id (예: "spec-lp3x9-a1b2"). */
   id: string;
@@ -894,14 +660,11 @@ export interface SpecDoc {
   body: string;
   /** 수용 기준 목록. 순서가 곧 작업 사슬의 순서다. */
   items: SpecItem[];
-  /**
-   * 스펙 내용 개정 번호. `body` 또는 `items[].text` 가 **실제로 달라질 때만** 서버가 +1 한다.
-   * 좌표·크기·제목·`done` 토글은 스펙 내용이 아니므로 올리지 않는다.
-   */
+  /** `body`·`items[].text` 가 실제로 달라질 때만 서버가 +1(좌표·크기·제목·`done` 은 ❌). */
   bodyRevision: number;
   createdAt: number;
   updatedAt: number;
-  /** §2.4 v1.28 — 사용자 preserve-pin. 삭제 경로 차단. */
+  /** §2.4 — 사용자 preserve-pin. 삭제 경로를 막는다. */
   preservePinned?: boolean;
 }
 
@@ -910,12 +673,7 @@ export interface SpecDoc {
 /** 변경 파일 한 줄의 변경 종류. git 의 status 문자를 우리 말로 옮긴 것. */
 export type ReviewFileChangeType = 'added' | 'modified' | 'deleted' | 'renamed' | 'unknown';
 
-/**
- * §5.16 — 리뷰에 실린 변경 파일 한 줄.
- *
- * `merge-base` 기준 커밋분과 미커밋분을 합쳐 한 목록으로 만든다. 증감(`additions`/`deletions`)은
- * `git diff --numstat` 이 준 숫자 그대로이며, 바이너리 파일은 둘 다 0 이다(numstat 가 `-` 를 준다).
- */
+/** §5.16 — 리뷰 변경 파일 한 줄(`merge-base` 기준 커밋분 + 미커밋분). 증감은 `git diff --numstat` 그대로 — 바이너리는 둘 다 0. */
 export interface ReviewFileChange {
   /** 워크트리 기준 상대 경로(POSIX 구분자). */
   path: string;
@@ -932,12 +690,7 @@ export interface ReviewFileChange {
 /** 사람이 내리는 결정 세 갈래. 승인=병합 절차, 반려=사유와 함께 재작업, 보류=아무것도 안 함. */
 export type ReviewDecisionKind = 'approve' | 'reject' | 'hold';
 
-/**
- * §5.16 — 결정 한 건. **이력으로 쌓인다**(보류했다가 승인해도 앞의 보류가 지워지지 않는다).
- *
- * 승인일 때는 그 자리에서 §7.6 병합을 시도하므로 결과(`mergeOk`/`mergeError`/`conflicts`)가
- * 같은 레코드에 함께 남는다 — "승인했는데 왜 안 들어갔는지"를 카드가 그대로 보여 준다.
- */
+/** §5.16 — 결정 한 건(이력으로 쌓인다). 승인은 그 자리에서 §7.6 병합을 시도해 결과를 같은 레코드에 남긴다. */
 export interface ReviewDecision {
   /** 결정 고유 id (서버 발급). */
   id: string;
@@ -961,11 +714,8 @@ export interface ReviewDecision {
 export type ReviewRequestStatus = 'pending' | 'approved' | 'rejected' | 'held';
 
 /**
- * §5.16 — 리뷰 한 건.
- *
- * 격리(워크트리)에서 일한 커스텀 에이전트가 그 턴을 끝냈고 실제 변경분이 있을 때 서버가 만든다.
- * 표시는 §4 v2.70 검수 카드 그 자리이고(`AgentReview.reviewRequestId` 로 연결), 승인 병합은 §7.6
- * 워크트리 merge 경로, 반려 재작업은 기존 명령 큐 경로를 그대로 쓴다 — 새 레이어 없음.
+ * §5.16 — 리뷰 한 건: 워크트리 커스텀 에이전트가 턴을 끝냈고 변경분이 있을 때 서버가 만든다.
+ * 표시는 §4 검수 카드(`AgentReview.reviewRequestId`), 승인은 §7.6 merge, 반려는 기존 명령 큐.
  */
 export interface ReviewRequest {
   /** 고유 id (예: "review-lp3x9-a1b2"). */
@@ -1005,12 +755,7 @@ export interface ReviewRequest {
 
 // ─── §5.18 — 에이전트 랩 (같은 과제를 설정만 바꿔 N벌) ───
 
-/**
- * §5.18 — 한 변형이 흔드는 설정 축. `AgentConfig` 의 **부분집합 넷 + 덧말**이다.
- *
- * 나머지 설정(도구·스킬·MCP·기억 범위 등)은 기준 에이전트의 현재 설정을 그대로 물려받는다 —
- * 랩은 설정 창을 새로 짓는 자리가 아니라 §5.3 `AgentConfig` 를 몇 축만 흔들어 보는 자리다.
- */
+/** §5.18 — 변형이 흔드는 설정 축(`AgentConfig` 부분집합 넷 + 덧말). 나머지는 기준 에이전트 설정을 물려받는다 — 랩은 설정 창을 새로 짓지 않는다. */
 export interface LabVariantConfig {
   /** 모델 id/alias. 비우면 기준 에이전트 값 그대로. */
   model?: string;
@@ -1027,13 +772,7 @@ export interface LabVariantConfig {
 /** 변형 한 벌의 실행 결과 상태. 판정은 서버만 한다(§3.1). */
 export type LabResultStatus = 'pending' | 'running' | 'success' | 'failed' | 'stopped';
 
-/**
- * §5.18 — 변형 한 벌의 실행 결과.
- *
- * **못 읽은 값은 채우지 않는다.** 토큰·비용·변경분이 없으면 필드를 비워 두고 화면이 `—` 로 그린다 —
- * 0 으로 채우면 "공짜로 끝났다"·"아무것도 안 고쳤다"는 거짓말이 되고, 그 위에서 설정을 승격하면
- * 랩 전체가 무의미해진다.
- */
+/** §5.18 — 변형 실행 결과. **못 읽은 값은 비워 둔다**(화면 `—`) — 0 이면 "공짜"·"안 고쳤다"는 거짓이 되고 그 위의 승격이 무의미해진다. */
 export interface LabResult {
   /** 현재 상태. */
   status: LabResultStatus;
@@ -1063,12 +802,7 @@ export interface LabResult {
   error?: string;
 }
 
-/**
- * §5.18 — 설정 조합 한 벌 = 표의 한 줄.
- *
- * 실행 전에는 `config` 만 있고, 실행하면 그 변형 전용 워크트리와 커스텀 에이전트 카드가 생겨
- * `agentId`/`sessionId`/`worktreePath` 가 채워진다. 결과는 그 턴이 끝날 때 `result` 로 들어온다.
- */
+/** §5.18 — 설정 조합 한 벌 = 표 한 줄. 실행하면 전용 워크트리·에이전트 카드가 생겨 `agentId`/`sessionId`/`worktreePath` 가 차고, 턴이 끝나면 `result`. */
 export interface LabVariant {
   /** 고유 id (예: "lvar-lp3x9-a1b2"). */
   id: string;
@@ -1093,13 +827,7 @@ export interface LabVariant {
 /** 랩 한 장의 현재 상태 — 변형들의 결과에서 나오는 파생값. 서버만 계산한다(§3.1). */
 export type LabRunStatus = 'draft' | 'running' | 'done';
 
-/**
- * §5.18 — 랩 한 장 = 과제 하나 + 설정 조합 N개.
- *
- * 캡처·앱·플레이·스펙 버블과 같은 "사용자가 캔버스에 직접 만드는 독립 요소"다. 캔버스에는
- * 표지 한 장으로 그려지고, 더블클릭하면 전체 화면 보드가 열려 과제를 쓰고 변형을 짜고
- * 결과 표를 읽는다(§7.17).
- */
+/** §5.18 — 랩 한 장 = 과제 + 설정 조합 N개(독립 캔버스 요소, 더블클릭하면 보드 — §7.17). */
 export interface LabRun {
   /** 고유 id (예: "lab-lp3x9-a1b2"). */
   id: string;
@@ -1118,10 +846,7 @@ export interface LabRun {
   variants: LabVariant[];
   /** 파생 상태. */
   status: LabRunStatus;
-  /**
-   * 설정을 물려받을 기준 에이전트 버블 id(선택). 지정하면 그 에이전트의 현재 `AgentConfig` 전량을
-   * 바탕에 깔고 변형 축만 덮으며, 승격의 기본 대상도 이 에이전트다.
-   */
+  /** 기준 에이전트 id(선택) — 그 `AgentConfig` 전량 위에 변형 축만 덮고, 승격 기본 대상도 이것. */
   baseAgentId?: string;
   /** 마지막으로 승격한 변형 id — 표에 `기본값` 배지로 남는다. */
   promotedVariantId?: string;
@@ -1130,29 +855,20 @@ export interface LabRun {
   finishedAt?: number;
   createdAt: number;
   updatedAt: number;
-  /** §2.4 v1.28 — 사용자 preserve-pin. 삭제 경로 차단. */
+  /** §2.4 — 사용자 preserve-pin. 삭제 경로를 막는다. */
   preservePinned?: boolean;
 }
 
 
 // ─── §5.20 — 스크립트 선반 (자주 쓰는 명령·프롬프트를 캔버스에 고정) ───
 
-/**
- * §5.20 — 선반 항목이 하는 일. **갈래는 둘뿐이다.**
- * - `command`: 셸 한 줄. **끝나는 일**이라 출력이 결과로 남는다(서버를 띄우는 일은 §5.14 플레이 버블의 몫).
- * - `prompt`: 에이전트에게 보낼 프롬프트 한 벌. 기존 명령 큐로 나간다.
- */
+/** §5.20 — 갈래는 둘뿐: `command` 끝나는 셸 한 줄(출력이 결과, 서버 띄우기는 §5.14 몫) · `prompt` 기존 명령 큐로 가는 프롬프트. */
 export type ShelfItemKind = 'command' | 'prompt';
 
 /** 선반 항목 한 번의 실행 결과 상태. 판정은 서버만 한다(§3.1). */
 export type ShelfRunStatus = 'running' | 'success' | 'failed';
 
-/**
- * §5.20 — 항목의 **마지막** 실행 결과. 이력은 쌓지 않는다(§9 무한 성장 금지).
- *
- * **못 읽은 값은 채우지 않는다** — 소요·종료 코드가 없으면 필드를 비워 두고 화면이 `—` 로 그린다.
- * 0 으로 채우면 "즉시 끝났다"·"정상 종료했다"는 거짓말이 된다(§5.18 과 같은 규율).
- */
+/** §5.20 — 마지막 실행 결과만(§9 무한 성장 금지). 못 읽은 소요·종료 코드는 비워 둔다(§5.18 과 같은 규율). */
 export interface ShelfItemRun {
   status: ShelfRunStatus;
   /** 실행이 시작된 시각. */
@@ -1176,9 +892,8 @@ export interface ShelfItemRun {
 }
 
 /**
- * §5.20 — 선반 항목 글리프 이름. **고정 목록**이다 — 클라이언트가 같은 이름의 인라인 stroke SVG
- * (lucide 톤)를 그린다. 이모지·임의 문자열 저장 ❌(OS·폰트마다 다른 모양으로 새어 나오고, 남이 준
- * 선반 파일이 우리 화면에 아무 글리프나 그리는 통로가 된다). 실물 목록은 `SHELF_ICONS`.
+ * §5.20 — 글리프 이름 고정 목록(`SHELF_ICONS`, 클라가 stroke SVG 로 그림). 이모지·임의 문자열 ❌ — OS·폰트마다 다르고,
+ * 남의 선반 파일이 아무 글리프나 그리는 통로가 된다.
  */
 export type ShelfIconName =
   | 'terminal'
@@ -1194,12 +909,7 @@ export type ShelfIconName =
   | 'doc'
   | 'shield';
 
-/**
- * §5.20 — 선반 항목 한 줄 = 클릭 한 번으로 실행되는 것 하나.
- *
- * 아이콘·색은 **고정 목록**(`SHELF_ICONS` / `SHELF_ITEM_COLORS`)의 값만 담는다 — 임의 문자열·이모지
- * 저장 ❌(OS·폰트마다 다른 모양으로 새어 나오고, 남이 준 선반 파일이 아무 글리프나 그리는 통로가 된다).
- */
+/** §5.20 — 선반 항목 한 줄(클릭 한 번에 실행). 아이콘·색은 고정 목록(`SHELF_ICONS`/`SHELF_ITEM_COLORS`) 값만. */
 export interface ShelfItem {
   /** 고유 id (예: "sitem-lp3x9-a1b2"). */
   id: string;
@@ -1224,12 +934,7 @@ export interface ShelfItem {
   updatedAt: number;
 }
 
-/**
- * §5.20 — 선반 한 장.
- *
- * 캡처·앱·플레이·스펙·랩 버블과 같은 "사용자가 캔버스에 직접 만드는 독립 요소"다. 랩·스펙과 달리
- * 캔버스에 **표지가 아니라 선반 그 자체**가 그려지고, 줄을 누르면 그 자리에서 실행된다(§7.18).
- */
+/** §5.20 — 선반 한 장(독립 캔버스 요소). 표지가 아니라 선반 자체가 그려지고 줄을 누르면 실행된다(§7.18). */
 export interface ShelfBubble {
   /** 고유 id (예: "shelf-lp3x9-a1b2"). */
   id: string;
@@ -1246,15 +951,13 @@ export interface ShelfBubble {
   items: ShelfItem[];
   createdAt: number;
   updatedAt: number;
-  /** §2.4 v1.28 — 사용자 preserve-pin. 삭제 경로 차단. */
+  /** §2.4 — 사용자 preserve-pin. 삭제 경로를 막는다. */
   preservePinned?: boolean;
 }
 
 /**
- * §5.20 — 내보내기 파일 한 장의 스키마. 팀 공유는 **여기까지**다(계정·서버 동기화 ❌).
- *
- * 런타임 필드(id·lastRun·에이전트 id·절대 경로 cwd)는 담지 않는다 — 남의 기계에서 의미가 없거나
- * 그대로 밀어 넣으면 우리 상태를 덮어쓴다. 가져오기는 `normalizeShelfImport()` 를 반드시 통과한다.
+ * §5.20 — 내보내기 스키마(공유는 파일까지 — 계정·동기화 ❌). 런타임 필드(id·lastRun·에이전트 id·절대 cwd)는 담지 않는다.
+ * 가져오기는 반드시 `normalizeShelfImport()` 를 거친다.
  */
 export interface ShelfExportItem {
   label: string;
@@ -1275,12 +978,7 @@ export interface ShelfExport {
 
 // ─── §5.21 비용·토큰 지도 (Cost Map) ───
 
-/**
- * §5.21 — 어느 단위에서든 같은 모양의 토큰 4종 + 비용.
- *
- * **입력을 뭉개지 않는다.** 캐시 읽기 단가는 입력의 1/10, 캐시 생성은 1.25배라 셋을 합쳐 버리면
- * 청구액과 자리수가 어긋난다(실측상 청구액의 대부분이 캐시 읽기에서 나온다).
- */
+/** §5.21 — 토큰 4종 + 비용. 입력을 뭉개지 마라 — 캐시 읽기 1/10·생성 1.25배라 합치면 청구액과 자릿수가 어긋난다. */
 export interface CostTotals {
   inputTokens: number;
   outputTokens: number;
@@ -1289,16 +987,8 @@ export interface CostTotals {
   /** `calculateTokenCost` 로 4종을 각각 환산한 합(USD). */
   costUsd: number;
   /**
-   * 이 합계 안에 **단가를 모르는 모델**의 몫이 섞여 있는가 — 화면은 금액 옆에 "추정"을 붙인다.
-   *
-   * `measured` 와 **직교한 축**이다. `measured:false` 는 "턴을 하나도 못 읽었다"이고, 이 깃발은
-   * "턴은 읽었는데 그 모델의 단가가 우리 표에 없어 패밀리 디폴트·`DEFAULT_PRICING` 으로
-   * 환산했다"이다. 새 모델이 나온 직후가 정확히 이 상태이며(`/v1/models` 는 가격을 돌려주지
-   * 않으므로 단가 표는 손으로 갱신할 수밖에 없다), 그때 금액을 말없이 그리면 그 자릿수를
-   * 사실로 읽게 된다.
-   *
-   * `addCostTotals` 가 OR 로 전파하므로 날짜 버킷·기간 합·에이전트 합·프로젝트 합까지 저절로
-   * 따라간다 — 접는 자리마다 따로 세지 않는다(두 군데서 세면 어긋났을 때 진실을 못 가린다).
+   * 단가 미상 모델 몫이 섞였나(화면 "추정"). `measured`(턴을 읽었나)와 직교 — 읽었지만 단가가 없어 `DEFAULT_PRICING` 등으로 환산한 것
+   * (`/v1/models` 는 가격을 안 준다). `addCostTotals` 가 OR 로 전파하니 접는 자리마다 따로 세지 마라.
    */
   estimated?: boolean;
 }
@@ -1319,10 +1009,7 @@ export interface CostDayBucket extends CostTotals {
   date: string;
 }
 
-/**
- * §5.21 — 원장 한 줄 = 세션 하나. 에이전트·프로젝트 합계는 전부 여기서 접은 파생이며
- * 파생을 따로 누적하지 않는다(두 군데서 더하면 어긋났을 때 진실을 판정할 수 없다).
- */
+/** §5.21 — 원장 한 줄 = 세션 하나. 에이전트·프로젝트 합은 여기서 접은 파생 — 따로 누적하지 마라(어긋나면 진실을 못 가린다). */
 export interface CostSessionEntry extends CostTotals {
   /** Claude Code 세션 ID 또는 Codex thread ID. */
   sessionId: string;
@@ -1339,12 +1026,8 @@ export interface CostSessionEntry extends CostTotals {
   /** 마지막 턴이 말한 모델. */
   model?: string;
   /**
-   * 이 세션이 쓴 모델 중 **단가 표에 없던** 것들(`COST_MAP_UNSEEDED_MODELS_MAX` 로 자른다).
-   *
-   * `estimated` 가 "믿지 마라"까지만 말한다면 이 목록은 **무엇을 고쳐야 하는지**를 말한다 —
-   * 화면 툴팁이 그 ID 를 그대로 보여 주고, `scripts/model-table-check.mjs` 가 같은 ID 로
-   * 시드에 붙일 줄을 찍어 준다. 원장에 실어 두는 이유는 스윕이 증분이기 때문이다:
-   * 체크포인트에서 되살아난 세션은 이미 읽은 턴을 다시 읽지 않으므로, 여기 없으면 영영 못 만든다.
+   * 이 세션이 쓴, 단가 표에 없던 모델(`COST_MAP_UNSEEDED_MODELS_MAX` 로 자름) — 툴팁이 ID 를 보여 무엇을 고칠지 말한다.
+   * 원장에 싣는다 — 스윕이 증분이라 되살아난 세션은 읽은 턴을 다시 안 읽는다.
    */
   unseededModels?: string[];
   /** 읽어들인 턴 수. 0 이면 `measured:false`. */
@@ -1353,10 +1036,7 @@ export interface CostSessionEntry extends CostTotals {
   lastAt: number;
   /** 턴을 하나라도 읽었는가. false 면 화면은 `$0.00` 이 아니라 "측정 없음"을 쓴다. */
   measured: boolean;
-  /**
-   * 날짜 키(`YYYY-MM-DD`) → 그 날 몫. **체크포인트에만 실린다** — 스냅샷에서는 생략해
-   * 전선 용량을 아끼고(세션 × 날짜), 캡에 밀릴 때 이 분해가 `retired` 로 접힌다.
-   */
+  /** 날짜 키(`YYYY-MM-DD`) → 그 날 몫. 체크포인트에만(스냅샷 생략), 캡에 밀리면 `retired` 로 접힌다. */
   days?: Record<string, CostTotals>;
 }
 
@@ -1378,10 +1058,7 @@ export interface CostAgentTotal extends CostTotals {
   periods: CostPeriodTotals;
 }
 
-/**
- * §5.21 — 프로젝트 한 벌의 지도. `ProjectCheckpoint.costMap` 으로 영속되고
- * `GraphSnapshot.costMaps` 로 전선에 실린다(스냅샷 판에는 세션 `days` 가 없다).
- */
+/** §5.21 — 프로젝트 지도(`ProjectCheckpoint.costMap` 영속 · `GraphSnapshot.costMaps` 전선, 스냅샷엔 세션 `days` 없음). */
 export interface ProjectCostMap {
   projectName: string;
   /** 세션 원장 — 최근 활동 순. `COST_MAP_SESSIONS_MAX` 로 자른다. */
@@ -1410,27 +1087,15 @@ export interface ProjectCostMap {
 // ─── 권한·감사 경계 (§5.22) ───
 
 /**
- * §5.22 — 위험 동작 4종.
- *  - `delete`  지우는 명령·도구
- *  - `network` 바깥으로 나가거나 바깥에서 받아 오는 호출(루프백은 바깥이 아니다)
- *  - `config`  설정 파일 수정
- *  - `outside` 고른 프로젝트 폴더 **밖**을 읽거나 고치는 호출 — `config` 와 달리 **읽기도 본다**
- *              (밖의 파일은 고치는 것뿐 아니라 읽는 것 자체가 사용자가 그은 선을 넘는 일이다)
- * 다섯째를 늘리기 전에 그것이 정말 "실행 전에 사람을 세울 일"인지 먼저 묻는다.
+ * §5.22 — 위험 동작 4종: delete · network(루프백 ❌) · config 설정 파일 수정 · outside 프로젝트 밖 읽기·고치기(읽기도 센다).
+ * 다섯째는 정말 "실행 전에 사람을 세울 일"일 때만.
  */
 export type AuditRiskKind = 'delete' | 'network' | 'config' | 'outside';
 
-/**
- * §5.22 — 그 줄의 결정이 어디서 왔는가. `policy` = 모드·목록·세션 기억이 사람 없이 답한 것.
- * `cancelled` = 답할 곳이 사라져 카드가 닫혔다(§5.3 #12-1-B) — 결정은 `deny` 로 적지만
- * **거부 수에는 세지 않는다**(아무도 거부하지 않았다).
- */
+/** §5.22 — 결정 출처. `policy` = 모드·목록·세션 기억이 답함 · `cancelled` = 답할 곳이 사라져 닫힘(§5.3 #12-1-B) — `deny` 로 적되 거부 수엔 안 센다. */
 export type AuditDecisionSource = 'user' | 'timeout' | 'policy' | 'cancelled';
 
-/**
- * §5.22 — 감사 원장 한 줄. "무슨 도구로 어디를 만졌나"와 "사람이 뭐라 답했나"가 같은 줄에 앉는다.
- * 도구 입력 전문은 담지 않는다 — 원장이 두 번째 트랜스크립트가 되면 그 자체가 부담이 된다.
- */
+/** §5.22 — 감사 원장 한 줄(도구·대상·사람의 답). 도구 입력 전문은 담지 않는다 — 두 번째 트랜스크립트가 된다. */
 export interface AuditEntry {
   id: string;
   /** 호출이 도착한 시각(epoch ms). */
@@ -1463,10 +1128,7 @@ export interface AuditEntry {
   toolUseId?: string;
 }
 
-/**
- * §5.22 — 프로젝트별 경계 스위치. 위험 동작을 **실행 전에 물을지**만 정한다 —
- * 기록을 끄는 스위치는 두지 않는다(감사의 값은 다 남는 데 있다).
- */
+/** §5.22 — 프로젝트별 경계: 위험 동작을 실행 전에 물을지만. 기록 끄기 스위치는 두지 않는다. */
 export interface AuditBoundaryConfig {
   /** 전체 스위치. 끄면 위험 동작도 묻지 않고 지나간다(기록은 계속). */
   escalateRisky: boolean;
@@ -1491,10 +1153,7 @@ export interface AuditCounts {
   todayRisky: number;
 }
 
-/**
- * §5.22 — 프로젝트 한 벌의 감사 원장. `ProjectCheckpoint.auditLog` 로 영속되고
- * `GraphSnapshot.auditLogs` 로 전선에 실린다.
- */
+/** §5.22 — 감사 원장(`ProjectCheckpoint.auditLog` 영속 · `GraphSnapshot.auditLogs` 전선). */
 export interface ProjectAuditLog {
   projectName: string;
   /** 최신 순. `AUDIT_ENTRIES_MAX_PER_PROJECT` 로 자른다. */
@@ -1507,10 +1166,7 @@ export interface ProjectAuditLog {
 
 // ─── 컨텍스트 보험 (§5.26 Context Insurance) ───
 
-/**
- * §5.26 (B) — 압축이 날릴 수 있는 것들의 목록. **그 순간 우리 그래프가 이미 아는 것만** 담는다.
- * 새 수집기를 만들지 않는다는 뜻이고, 모르는 축은 빈 배열로 남긴다(지어내지 않는다).
- */
+/** §5.26 (B) — 압축이 날릴 수 있는 것. 그 순간 그래프가 이미 아는 것만 담는다(새 수집기 ❌, 모르면 빈 배열). */
 export interface CompactWorkingSet {
   /** 그 세션이 만지고 있던 파일 경로(최근 우선). */
   openFiles: string[];
@@ -1524,10 +1180,7 @@ export interface CompactWorkingSet {
   goal?: string;
   /** 그 목표의 단계들(끝난 것 포함 — 무엇이 남았는지가 복원의 핵심이다). */
   goalSteps: string[];
-  /**
-   * §3.6 `TeammateIdle` 로 들어온 팀원 이름. 압축이 팀 구성을 실제로 날리므로 함께 뜬다.
-   * 신고가 없으면 **빈 배열**이다.
-   */
+  /** §3.6 `TeammateIdle` 팀원 이름(압축이 팀 구성을 날린다). 신고가 없으면 빈 배열. */
   teammates: string[];
   /** 마지막으로 쓴 도구 이름. */
   lastTool?: string;
@@ -1535,10 +1188,7 @@ export interface CompactWorkingSet {
   lastAssistantTail?: string;
 }
 
-/**
- * §5.26 (D) — 압축 요약이 **싣지 않은** 것. "잃어버린 것"이 아니다 —
- * 요약이 바꿔 말했을 수 있으므로 우리가 아는 것은 "요약 본문에 나타나지 않았다"까지다.
- */
+/** §5.26 (D) — 요약 본문에 나타나지 않은 것("잃었다"가 아니다 — 요약이 바꿔 말했을 수 있다). */
 export interface CompactNotCarried {
   openFiles: string[];
   recentEdits: string[];
@@ -1551,35 +1201,19 @@ export interface CompactNotCarried {
 /** §5.26 (D) — 압축이 끝난 뒤 되돌려 적는 결과. 대조가 불가능하면 **적지 않는다**. */
 export interface CompactOutcome {
   at: number;
-  /**
-   * **요약 레코드 한 줄**의 바이트 수.
-   *
-   * ⚠ 2026-09-23 이전에는 "마커 오프셋 뒤에 자란 총량"이었다. 그 구간에는 `attachment`(실측
-   *   86KB)·`last-prompt`·`atis-latch` 가 섞여 있어 숫자가 요약의 크기를 전혀 말하지 못했고,
-   *   그 숫자로 요약의 유무까지 갈라 오탐을 만들었다. 지금은 고른 그 줄의 크기만 적는다.
-   */
+  /** 요약 레코드 한 줄의 바이트 수. 마커 뒤 자란 총량으로 재지 마라 — `attachment`(실측 86KB) 등이 섞여 요약 유무까지 오탐한다. */
   summaryBytes: number;
   notCarried: CompactNotCarried;
   /** 요약이 실제로 실은 항목 수(전부 실렸으면 `notCarried` 가 빈다). */
   carriedCount: number;
   /**
-   * `PostCompact` 도 트랜스크립트 성장도 없이 시간이 지난 경우 = 압축 실패 교착.
-   *
-   * 참/거짓이 아니라 **이유**를 담는다 — §7.23 이 "왜 실패로 봤는지"를 그대로 적어야
-   * 사용자가 재시도할지 되살릴지를 고를 수 있다(둘은 손잡이가 다르다).
-   *
-   * ⚠ `PostCompact` 가 온 마커에는 **절대 쓰지 않는다**(`summaryUnreadable` 을 대신 쓴다).
-   *   완료 훅이 왔다는 것은 압축이 끝났다는 CLI 자신의 신고라, 그걸 받고도 실패라고 적으면
-   *   화면이 멀쩡한 압축을 교착으로 부른다 — 이 기능이 이름 붙이려던 바로 그 사건을 흐린다.
+   * `PostCompact` 도 성장도 없이 시간이 지남 = 압축 실패 교착 — 이유를 담는다(§7.23, 재시도/되살리기 선택).
+   * ⚠ `PostCompact` 가 온 마커엔 쓰지 마라 — CLI 의 완료 신고라 멀쩡한 압축을 교착으로 부른다(그땐 `summaryUnreadable`).
    */
   failed?: CompactFailReason;
   /**
-   * 압축은 **끝났는데**(완료 훅이 왔다) 요약 본문을 우리가 못 읽은 경우.
-   *
-   * 실패와 갈라 두는 이유: 이건 세션의 사고가 아니라 **우리 파서의 한계**다. 둘을 한 칸에
-   * 적으면 사용자가 멀쩡한 세션을 되살리려 든다. 이때 `notCarried` 는 비어 있는데, 그것은
-   * "잃은 것이 없다"가 아니라 **"무엇을 잃었는지 우리가 모른다"** 이므로 화면도 그렇게 적고
-   * (E) 브리핑도 싣지 않는다(모르는 것을 알려 줄 수는 없다).
+   * 완료 훅은 왔는데 요약을 못 읽음 — 파서 한계라 실패와 가른다(합치면 멀쩡한 세션을 되살리려 든다).
+   * 이때 빈 `notCarried` 는 "모름"이라 (E) 브리핑에 싣지 않는다.
    */
   summaryUnreadable?: boolean;
 }
@@ -1617,21 +1251,9 @@ export interface CompactMarker {
   outcome?: CompactOutcome;
   /** (E) 복원 브리핑을 실은 턴이 있었는가 — 두 번 싣지 않기 위한 표식. */
   briefedAt?: number;
-  /**
-   * §5.26 (D) — `PostCompact` 가 도착한 시각. **압축이 끝났다는 CLI 자신의 신고**다.
-   *
-   * 이 한 필드가 (D) 판정의 신뢰도를 가른다. 이것이 없으면 "요약을 못 읽었다"와 "압축이
-   * 아예 안 됐다"를 가릴 근거가 트랜스크립트 성장 여부뿐인데, 그 둘은 결말이 정반대다
-   * (전자는 그냥 계속 일하면 되고, 후자는 `/clear` 말고 길이 없는 교착이다).
-   */
+  /** §5.26 (D) — `PostCompact` 도착 시각(CLI 의 완료 신고). 없으면 "요약 못 읽음"과 "압축 안 됨"(`/clear` 뿐인 교착)을 성장만으로 가려야 한다. */
   postCompactAt?: number;
-  /**
-   * §5.26 (G) — 이 마커의 세션을 `--resume` 으로 되살렸고, **문맥이 실렸는지 아직 확인 전**인 시각.
-   *
-   * #43696 은 `--resume` 이 **성공한 얼굴로 빈 문맥을 준다**. 성공/실패 코드로는 못 가리고,
-   * 가릴 수 있는 수는 하나뿐이다 — 되살아난 세션의 첫 턴 입력 크기가 죽기 전 크기에 한참
-   * 못 미치는가. 그 비교를 하려고 표식을 건다.
-   */
+  /** §5.26 (G) — `--resume` 으로 되살렸고 문맥 확인 전. #43696: 성공한 얼굴로 빈 문맥을 준다 — 첫 턴 입력 크기가 죽기 전보다 한참 작은지로만 가린다. */
   resumeArmedAt?: number;
   /** 확인이 끝난 시각. 있으면 다시 재지 않는다(첫 턴 한 번만 유효한 비교다). */
   resumeCheckedAt?: number;
@@ -1673,12 +1295,7 @@ export interface InsuranceRetired {
   bytes: number;
 }
 
-/**
- * §5.26 (F) — 자동압축이 돌아야 하는데 안 도는가. 증거만 본다(모델 호출 ❌).
- *
- * `rejected` 는 나머지 둘과 **급이 다르다** — `overdue`·`stalled` 는 "곧 벽이다"라는 예측이고,
- * 이것은 **이미 일어난 실패**다(우리가 `/compact` 를 보냈는데 `PreCompact` 가 오지 않았다).
- */
+/** §5.26 (F) — 자동압축 미발동 감시(증거만, 모델 ❌). `overdue`·`stalled` 는 예측, `rejected` 는 일어난 실패(`/compact` 를 보냈는데 `PreCompact` 가 안 옴). */
 export type CompactWatchLevel = 'ok' | 'overdue' | 'stalled' | 'rejected';
 
 /** §5.26 (F) — 세션 하나에 대한 감시 판정. 서버가 접어서 실어 준다(§3.1). */
@@ -1720,19 +1337,8 @@ export interface ResurrectableSession {
 }
 
 /**
- * §5.26 (I) — **세션 한 칸이 자기 것만 말하게 하는 집계.**
- *
- * IDE 상태바는 **보고 있는 세션 하나**를 주어로 삼는데(§5.5), 실패 압축 배지만 `counts`(프로젝트
- * 전체 합)를 읽어 **세션을 넘겨도 같은 숫자가 남았다**(사용자 보고 — 세션 8개짜리 버블에서 `1` 이
- * 여덟 탭 전부에 떴다). 같은 부류의 사고가 모델·토큰 칸에서 한 번 났던 자리라(`statusBarContext.ts`)
- * 고치는 방법도 같다 — 주어를 세션으로 내리고, **집계는 클라가 다시 세지 않고 서버가 접어 준다**
- * (§3.1 · §7.23 데이터 경로).
- *
- * **읽는 자리는 이제 보험 창이다(§5.26 (I) ⑤).** 상태바 배지는 사용자 지시로 걷었고, 창의
- * 「압축 기록」 갈피 옆 칩이 좁힌 눈금(세션·에이전트)에서 이 줄들만 골라 더한다.
- *
- * **0 인 세션은 싣지 않는다** — 실패가 없는 세션이 대다수라 배열은 평소 비어 있고 전선 비용이 0 이다.
- * 파생이라 체크포인트에는 넣지 않는다(`watch`/`resurrectable` 와 같은 규율).
+ * §5.26 (I) — 세션별 실패 압축 집계. 프로젝트 합(`counts`)을 읽으면 모든 탭에 같은 숫자가 남는다 — 서버가 세션 단위로 접어 주고
+ * 클라는 다시 세지 않는다(§3.1). 읽는 곳은 보험 창 칩(§5.26 (I) ⑤). 0 인 세션은 싣지 않고 체크포인트 ❌(파생).
  */
 export interface InsuranceSessionCounts {
   /** CLI 세션 UUID(= `CompactMarker.sessionId` · `SubAgent.sessionId`). */
@@ -1759,11 +1365,7 @@ export interface InsuranceCounts {
   restorable: number;
 }
 
-/**
- * §5.26 — 프로젝트 한 벌의 보험 원장. `ProjectCheckpoint.contextInsurance` 로 영속되고
- * `GraphSnapshot.contextInsurance` 로 전선에 실린다(전선에는 최근 몫만).
- * **두 배열을 하나로 합치지 않는다** — 압축과 파일 쓰기는 다른 사건이라 캡·나이·복원 수단이 다르다.
- */
+/** §5.26 — 보험 원장(`ProjectCheckpoint.contextInsurance` 영속 · 전선엔 최근 몫만). 두 배열을 합치지 마라 — 압축과 파일 쓰기는 캡·나이·복원 수단이 다르다. */
 export interface ProjectInsuranceLedger {
   projectName: string;
   /** 최신 순. `INSURANCE_MARKERS_MAX_PER_PROJECT` 로 자른다. */
@@ -1772,23 +1374,14 @@ export interface ProjectInsuranceLedger {
   preimages: FilePreimage[];
   counts: InsuranceCounts;
   /**
-   * (I) 세션별 집계 — **보험 창의 실패 칩이 좁힌 눈금(세션·에이전트)의 것만 세게 하는 유일한 근거**
-   * (§5.26 (I) ⑤ — 종전에는 상태바 배지가 읽었다).
-   *
-   * 전선 목록(`markers`)은 `INSURANCE_SNAPSHOT_MARKERS` 로 잘려 있어 클라가 그걸 세면 서버가 아는
-   * 수와 어긋난다. 그래서 **자르기 전 전체**에서 접어 여기 싣는다. 실패가 0 인 세션은 생략하므로
-   * 평소에는 아예 없는 필드다. 파생이라 체크포인트에는 넣지 않는다(`watch` 와 같은 규율).
+   * (I) 세션별 집계 — 보험 창 칩이 세는 유일한 근거(§5.26 (I) ⑤). `markers` 는 잘려 있어 클라가 세면 어긋난다 — 자르기 전 전체에서 접는다.
+   * 0 인 세션 생략, 체크포인트 ❌.
    */
   sessionCounts?: InsuranceSessionCounts[];
   retired?: InsuranceRetired;
   /** (F) 지금 감시에 걸린 세션들. 파생이라 체크포인트에는 넣지 않는다. */
   watch?: CompactWatchState[];
-  /**
-   * (G) 부활 가능한 세션들. 파생이라 체크포인트에는 넣지 않는다.
-   *
-   * ⚠ **방송 스냅샷에는 실리지 않는다** — 만들려면 디스크를 훑어야 해서, 팝업을 열지도 않은
-   * 사용자가 매 프레임 그 값을 내게 된다. `GET /api/insurance` 응답에만 채워진다.
-   */
+  /** (G) 부활 가능한 세션(파생, 체크포인트 ❌). ⚠ 방송 스냅샷엔 싣지 마라 — 디스크를 훑어야 해서 안 연 사용자도 매 프레임 치른다. `GET /api/insurance` 에만. */
   resurrectable?: ResurrectableSession[];
   updatedAt: number;
 }
@@ -1866,12 +1459,7 @@ export type TaskEdgeStatus = 'idle' | 'executing' | 'completed' | 'error';
 /** Task Edge 자동 전파 모드 (UI에서는 "Gate"로 노출 — 동일 데이터) */
 export type TaskEdgeForwardMode = 'manual' | 'auto';
 
-/** Task Edge 의미(종류) — 엣지가 무엇을 주고받는지. v1.18.
- * - command: 지시/명령 (기본)
- * - artifact: 결과물(파일/diff) 전달
- * - request: 역요청/도움 요청 (소스가 타겟에게 막힌 부분 요청)
- * - critique: 리뷰/비평 (감사·레드팀)
- */
+/** command 지시(기본) · artifact 결과물 전달 · request 역요청(막힌 부분) · critique 리뷰(감사·레드팀). */
 export type TaskEdgeKind = 'command' | 'artifact' | 'request' | 'critique';
 
 /** Task Edge 메시지 형식 — 자유 작문 vs 정해진 양식 (schema는 structured payload 기대) */
@@ -1883,27 +1471,16 @@ export type TaskEdgeReturnFormat = 'artifact' | 'summary' | 'both';
 /** Task Edge 우선순위 — 동시 실행 시 순서 */
 export type TaskEdgePriority = 'low' | 'normal' | 'high';
 
-/** Critique 엣지 타이밍 — 리뷰를 언제 수행할지. v1.41 (kind='critique' 일 때만 의미).
- * - intermediate: 타겟 작업 중간 milestone마다 끼어들어 리뷰. 기본값.
- * - final: 타겟 작업 완료 후 final review 만.
- */
+/** kind='critique' 만. intermediate(기본) 중간 milestone 마다 · final 완료 후 한 번. */
 export type TaskEdgeCritiqueTiming = 'intermediate' | 'final';
 
-/** Critique 엣지 권한 — reject 발생 시 타겟에게 무엇을 강제할지. v1.41 (kind='critique' 일 때만 의미).
- * - force-rework: critique가 reject 하면 타겟은 재작업 의무. maxReworkCount 초과 시 코멘트 모드로 강등 + 부모 세션 에스컬레이션.
- * - comment-only: reject 해도 타겟은 참고만. 재작업 강제 없음.
- */
+/** kind='critique' 만. force-rework 재작업 의무(maxReworkCount 초과 시 comment-only 강등 + 에스컬레이션) · comment-only 참고만. */
 export type TaskEdgeCritiqueAuthority = 'force-rework' | 'comment-only';
 
-/** Command 엣지 위임 형태 — 부모와 자식이 도구를 어떻게 나눠 가질지. v1.44 (kind='command' 일 때만 의미).
- * `delegationPolicy`(강제 정도: strict/auto)와 **직교**하는 축. 강제 정도는 그대로 두고 "어떤 형태로 강제하는가"만 표현.
- * - shared (기본): 부모와 자식이 같은 도구를 공유. 부모도 직접 호출 가능. 도구 박탈 ❌. (= v1.37 이전 거동)
- * - tool-delegation: 부모에서 자식의 도구를 박탈. v1.37 strip 로직 재사용 — 자식.tools ∩ 부모.tools 가 박탈 대상.
- * - mode-delegation: 자식이 같은 도구를 가지지만 모드(plan/acceptEdits/특정 model/skill)가 다른 케이스.
- *   박탈할 게 없으니 strip 비활성. 시스템 프롬프트로 위임 강제 + (후속) PreToolUse hook 게이트.
- *
- * 후방호환: `commandMode === undefined` 인 기존 엣지는 `delegationPolicy === 'strict'` 일 때
- * 'tool-delegation' 으로 해석(v1.37~v1.43 거동 보존), 그 외에는 'shared' 로 해석.
+/**
+ * kind='command' 만 — 부모·자식의 도구 분배(`delegationPolicy` 와 직교). shared(기본) 공유·박탈 ❌ ·
+ * tool-delegation 부모에서 자식.tools ∩ 부모.tools 박탈 · mode-delegation 모드만 다름 — 박탈 없이 시스템 프롬프트로 강제.
+ * 값이 없으면 `delegationPolicy==='strict'` → tool-delegation, 그 외 shared.
  */
 export type TaskEdgeCommandMode = 'shared' | 'tool-delegation' | 'mode-delegation';
 
@@ -1923,28 +1500,23 @@ export interface TaskEdge {
   forwardMode: TaskEdgeForwardMode;
   /** 사용된 템플릿 ID (null이면 커스텀) */
   templateId: string | null;
-  /** v1.85 — 이 엣지가 속한 탭 프로젝트 이름. 생성 시 소스 에이전트의 세션 cwd 로 확정.
-   *  엔드포인트 에이전트 버블이 만료·소멸해도 `toProjectCheckpoint` 가 이 값으로 엣지를
-   *  해당 프로젝트 체크포인트에 보존한다(§3.5/§5 line 226 수명 규칙).
-   *  legacy(미설정) 엣지는 양끝 에이전트 생존 기준으로 폴백 필터. */
+  /** 탭 프로젝트 이름(생성 때 소스 세션 cwd). 끝점 버블이 소멸해도 `toProjectCheckpoint` 가 이걸로 엣지를 남긴다(§3.5). 없으면 양끝 생존으로 폴백. */
   projectId?: string;
-  /** 엣지 의미 (v1.18, optional — 미설정 시 'command'로 간주) */
+  /** 없으면 'command'. */
   kind?: TaskEdgeKind;
-  /** 메시지 형식 (v1.18, optional — 기본 'free') */
+  /** 기본 'free'. */
   messageFormat?: TaskEdgeMessageFormat;
-  /** v1.48 — 자유 형식 스키마 본문 (optional). `messageFormat='schema'` 인 엣지에서 source 가
-   *  발신할 때 따라야 할 양식. 자유 텍스트(JSON 템플릿/자연어 명세 등). 빈 값 또는
-   *  `messageFormat='free'` 면 형식 강제 없음. 엣지 삭제 시 같이 사라짐(엣지 본인에 영구 저장). */
+  /** `messageFormat='schema'` 일 때 source 가 따를 양식(자유 텍스트). 비었거나 'free' 면 강제 없음. */
   messageSchema?: string;
-  /** 반환 형식 (v1.18, optional — 기본 'summary') */
+  /** 기본 'summary'. */
   returnFormat?: TaskEdgeReturnFormat;
-  /** 최대 실행 시간 ms (v1.18, optional — 미설정 시 무제한) */
+  /** ms — 없으면 무제한. */
   timeoutMs?: number;
-  /** 실패 시 재시도 횟수 (v1.18, optional — 기본 0) */
+  /** 기본 0. */
   retryCount?: number;
-  /** 같은 입력이면 이전 결과 재사용 (v1.18, optional — 기본 false) */
+  /** 같은 입력이면 이전 결과 재사용 — 기본 false. */
   cacheEnabled?: boolean;
-  /** 실행 우선순위 (v1.18, optional — 기본 'normal') */
+  /** 기본 'normal'. */
   priority?: TaskEdgePriority;
   /** 소스 에이전트의 마지막 결과 (컨텍스트 전달용) */
   lastSourceResult?: string;
@@ -1952,35 +1524,27 @@ export interface TaskEdge {
   lastResult?: string;
   /** 에러 메시지 (status='error'일 때) */
   errorMessage?: string;
-  /** v1.32 / v1.54 — Bundle ID. 자매 엣지가 공유. 단독 엣지는 undefined.
-   *  - v1.32: `kind='command' + returnFormat='both'` → command(primary) ↔ artifact(auto-artifact) 자매
-   *  - v1.54: `kind='critique' + critiqueAuthority='force-rework'` → critique(primary) ↔ command(auto-rework) 자매
+  /**
+   * 자매 엣지가 공유하는 Bundle ID(단독이면 undefined). command + returnFormat='both' → command ↔ auto-artifact ·
+   * critique + force-rework → critique ↔ auto-rework.
    */
   bundleId?: string;
-  /** v1.32 / v1.54 — Bundle 내 역할.
-   *  - 'primary': 편집/표시 주체 (사용자가 만든 엣지). 삭제 시 자매도 cascade.
-   *  - 'auto-artifact' (v1.32): command primary 의 결과 반환 채널. 방향 반대, 편집/삭제 잠금.
-   *  - 'auto-rework' (v1.54): critique primary 의 force-rework 명령 채널. 방향 동일(감시자→작업자), kind='command', 편집/삭제 잠금. `command` 본문은 서버가 표준 라벨로 자동 채움.
+  /**
+   * 'primary' 사용자가 만든 엣지(지우면 자매도) · 'auto-artifact' command 의 결과 반환 채널(반대 방향, 편집·삭제 잠금) ·
+   * 'auto-rework' critique 의 재작업 명령 채널(같은 방향, kind='command', 잠금, 본문은 서버 표준 라벨).
    */
   bundleRole?: 'primary' | 'auto-artifact' | 'auto-rework';
-  /** v1.33 — 이 엣지의 위임 정책. 엣지별로 독립 설정.
-   * - 'strict' (기본): 이 엣지의 용도에 매칭되는 작업은 반드시 위임. 소스가 자체 Read/Grep 금지.
-   * - 'auto': 소스 판단 — 탐색 비용 클 때만 위임. 간단한 건 자체 처리.
-   * 미설정 시 'strict' 로 해석. */
+  /** 엣지별 위임 정책(없으면 'strict'). strict 맞는 작업은 반드시 위임(소스 자체 Read/Grep ❌) · auto 탐색 비용이 클 때만. */
   delegationPolicy?: 'strict' | 'auto';
-  /** v1.41 — Critique 전용: 리뷰 타이밍 (optional, kind='critique' 일 때만 해석). 기본 'intermediate'. */
+  /** kind='critique' 만. 기본 'intermediate'. */
   critiqueTiming?: TaskEdgeCritiqueTiming;
-  /** v1.41 — Critique 전용: reject 권한 (optional, kind='critique' 일 때만 해석). 기본 'force-rework'. */
+  /** kind='critique' 만. 기본 'force-rework'. */
   critiqueAuthority?: TaskEdgeCritiqueAuthority;
-  /** v1.41 — Critique 전용: force-rework 시 최대 재작업 횟수. 초과 시 comment-only로 강등 + 에스컬레이션.
-   *  기본 3. kind='critique' + critiqueAuthority='force-rework' 일 때만 의미. */
+  /** force-rework 최대 재작업(기본 3) — 넘으면 comment-only 강등 + 에스컬레이션. */
   maxReworkCount?: number;
-  /** v1.55 — Critique 런타임 강제: 현재 사이클의 누적 재작업 횟수. 새 사이클(타겟이 fresh 완료)에서 0으로 리셋,
-   *  watcher 가 reject 판정 + auto-rework 발사 시 +1. `maxReworkCount` 초과 시 자동 강등.
-   *  `kind='critique' + bundleRole='primary'` 엣지에서만 의미. 영속화는 TaskEdge 직렬화 편승. */
+  /** 이번 사이클 누적 재작업 — 타겟이 새로 완료하면 0, auto-rework 발사마다 +1, `maxReworkCount` 초과 시 강등. critique primary 에서만. */
   reworkCount?: number;
-  /** v1.44 — Command 전용: 위임 형태 (shared/tool-delegation/mode-delegation). kind='command' 일 때만 의미.
-   *  미설정 시 후방호환 해석: delegationPolicy='strict' → 'tool-delegation', 그 외 → 'shared'. */
+  /** kind='command' 만. 없으면 delegationPolicy='strict' → 'tool-delegation', 그 외 'shared'. */
   commandMode?: TaskEdgeCommandMode;
   createdAt: number;
   lastExecutedAt?: number;
@@ -2000,23 +1564,20 @@ export interface TaskEdgeTemplate {
   targetRole: AgentRole | null;
   /** 기본 전파 모드 */
   defaultForwardMode: TaskEdgeForwardMode;
-  /** 기본 엣지 의미 (v1.18, optional — 미설정 시 'command') */
+  /** 없으면 'command'. */
   defaultKind?: TaskEdgeKind;
-  /** 기본 메시지 형식 (v1.18, optional) */
   defaultMessageFormat?: TaskEdgeMessageFormat;
-  /** 기본 반환 형식 (v1.18, optional) */
   defaultReturnFormat?: TaskEdgeReturnFormat;
-  /** 기본 우선순위 (v1.18, optional) */
   defaultPriority?: TaskEdgePriority;
-  /** 기본 Critique 타이밍 (v1.41, optional — kind='critique' 프리셋용) */
+  /** kind='critique' 프리셋용. */
   defaultCritiqueTiming?: TaskEdgeCritiqueTiming;
-  /** 기본 Critique 권한 (v1.41, optional — kind='critique' 프리셋용) */
+  /** kind='critique' 프리셋용. */
   defaultCritiqueAuthority?: TaskEdgeCritiqueAuthority;
-  /** 기본 최대 재작업 횟수 (v1.41, optional — kind='critique' + force-rework 프리셋용) */
+  /** kind='critique' + force-rework 프리셋용. */
   defaultMaxReworkCount?: number;
-  /** 기본 Command 위임 형태 (v1.44, optional — kind='command' 프리셋용). 미설정 시 TASK_EDGE_DEFAULTS.commandMode. */
+  /** kind='command' 프리셋용. 없으면 TASK_EDGE_DEFAULTS.commandMode. */
   defaultCommandMode?: TaskEdgeCommandMode;
-  /** 기본 위임 정책 (v1.83, optional — strict/auto). 미설정 시 TASK_EDGE_DEFAULTS.delegationPolicy. */
+  /** 없으면 TASK_EDGE_DEFAULTS.delegationPolicy. */
   defaultDelegationPolicy?: 'strict' | 'auto';
 }
 
@@ -2092,59 +1653,26 @@ export interface BubbleData {
   /** External executable identified from a shell invocation; never an internal app registry id. */
   commandApp?: CommandAppTarget;
   childCount?: number;
-  /**
-   * 폴더에 satellite 로 매달린 파일 수 (§2.1 v1.55).
-   * 외부 폴더(`external_folder`)는 평탄화 정책상 직속 child 가 없고 satellite 만 가지므로
-   * `childCount` 가 항상 0/1 로 퇴화한다. 이 필드가 해당 폴더에서 실제 에이전트가 만진
-   * 외부 파일 수를 가리킨다. 내부 폴더는 satellite 가 있으면 함께 채워지나
-   * UI 카운트는 기본적으로 childCount(직속 하위 폴더 수)를 우선한다.
-   */
+  /** §2.1 — 위성으로 매달린 파일 수. 외부 폴더는 평탄화로 직속 child 가 없어 이 값이 만진 외부 파일 수다(UI 는 `childCount` 우선). */
   satelliteFileCount?: number;
-  /**
-   * 폴더 버블별 위성 표시 상한 (사용자가 디테일 패널에서 편집, §7.5).
-   * undefined 면 `DEFAULT_MAX_SATELLITES`. internal_folder/external_folder 만 의미.
-   * 초과 시 서버 `registerSatellite` 가 FIFO(오래된 것부터) 제거.
-   * 노드 직렬화로 ProjectCheckpoint 에 자동 영속(별도 toCheckpoint 로직 불요).
-   */
+  /** 폴더 위성 표시 상한(§7.5, 없으면 `DEFAULT_MAX_SATELLITES`). 넘으면 `registerSatellite` 가 오래된 것부터 뺀다. 노드째 영속. */
   maxSatellites?: number;
-  /**
-   * 파일 버블별 diff 저장 무한 토글 (사용자가 디테일 패널 체크박스로 편집, §7.4).
-   * undefined/false 면 `MAX_FILE_EDITS`(=20) 상한 적용(기본). true 면 해당 파일은
-   * 트림 없이 무한 누적. `file` 타입만 의미. 노드 직렬화로 ProjectCheckpoint 에
-   * 자동 영속(별도 toCheckpoint 로직 불요 — maxSatellites/preservePinned 선례).
-   */
+  /** diff 무한 보관(§7.4). 없거나 false 면 `MAX_FILE_EDITS`(=20) 상한. `file` 만, 노드째 영속. */
   unlimitedFileEdits?: boolean;
   /**
-   * §5.1 명령 앱 · §7.3 — 명령 목록을 `MAX_COMMAND_APP_HISTORY` 개로 줄이지 않고 남아 있는 기록을 모두 보인다(디테일 패널의
-   * `마지막 20개만 유지` 체크박스를 끈 것 — 파일 버블 `unlimitedFileEdits` 와 같은 규칙, 2026-10-21 사용자 지시). 기록은 지우지
-   * 않고 보이는 수만 정한다(보관 상한은 세션당 50건 그대로). `bash` 타입만 의미 · 노드째 체크포인트에 실린다.
+   * §5.1 명령 앱 · §7.3 — 남은 기록을 `MAX_COMMAND_APP_HISTORY` 로 줄이지 않고 다 보인다(`unlimitedFileEdits` 와 같은 규칙).
+   * 보이는 수만 — 보관 상한(세션당 50)은 그대로. `bash` 만, 노드째 영속.
    */
   unlimitedCommandHistory?: boolean;
-  /**
-   * 도메인 버블별 항목 표시 상한 (사용자가 디테일 패널에서 편집, §5.23 · §7.22).
-   * undefined 면 `DEFAULT_MAX_WEB_ENTRIES`(=20). `domain` 타입만 의미.
-   * 초과 시 서버 `appendWebEntry` 가 FIFO(오래된 것부터) 제거.
-   * 노드 직렬화로 ProjectCheckpoint 에 자동 영속(별도 toCheckpoint 로직 불요 — maxSatellites 선례).
-   */
+  /** 도메인 버블 항목 표시 상한(§5.23 · §7.22, 없으면 `DEFAULT_MAX_WEB_ENTRIES`=20). 넘으면 `appendWebEntry` 가 오래된 것부터. 노드째 영속. */
   maxWebEntries?: number;
-  /**
-   * §5.24 — 읽기 도구가 이 버블을 건드린 누적 횟수. 히트맵 모드의 **유일한** 축이다.
-   * `activity`(읽기+쓰기 합산)와 별개 칸 — 합산값으로는 "30번 읽은 파일"과 "30번 고친 파일"이
-   * 구별되지 않아 읽기 히트맵이 성립하지 않는다. 판정은 shared `toolAxis()` 한 곳.
-   * 노드 직렬화로 ProjectCheckpoint 에 자동 영속(별도 toCheckpoint 로직 불요 — maxSatellites 선례).
-   */
+  /** §5.24 — 읽기 도구 누적 횟수(읽기 히트맵의 유일한 축). `activity`(합)와 따로 둔다 — 합으로는 읽은 것과 고친 것이 같아진다. 판정 `toolAxis()`. */
   readCount?: number;
   /** §5.24 — 쓰기 도구가 이 버블을 건드린 누적 횟수. `readCount` 와 한 쌍. */
   writeCount?: number;
   /**
-   * §2.1 (A) — 이 외부 폴더 **아래에서** 에이전트가 만진 폴더 수(자기 포함 ❌).
-   *
-   * 접합은 스스로 만져진 적이 없어 `activity=0` · 위성 0 이고, 화면 숫자는 직속 자식 수로
-   * 떨어졌다(`4` 가 25곳을 대표했다). 이 칸이 그 자리를 대신한다.
-   *
-   * **표시 전용 파생값이다** — `rebuildExternalFolderTree` 가 돌 때마다 통째로 다시 계산하고
-   * 체크포인트에 저장하지 않는다(복원 후 같은 rebuild 가 같은 답을 낸다 — 새 영속 필드 ❌,
-   * `externalRollupSatellites` 선례).
+   * §2.1 (A) — 이 외부 폴더 아래에서 만진 폴더 수(자기 ❌). 접합은 스스로 만져지지 않아 직속 자식 수로는 규모를 못 말한다.
+   * 표시 전용 — `rebuildExternalFolderTree` 가 매번 다시 내고 체크포인트 ❌.
    */
   externalDescendantFolders?: number;
   /** §2.1 (A) — 그 아래에서 만진 **파일** 수(중복 제거). 표시 전용 파생값. */
@@ -2154,66 +1682,48 @@ export interface BubbleData {
    * "그 안에 무엇이 있나"를 말하는 유일한 글자다. 표시 전용 파생값.
    */
   externalSummaryChips?: string[];
-  /**
-   * §2.1 (A) — 자손의 `readCount` 합. 접합은 `quiet` 로 태어나 자기 히트가 영원히 0 이라,
-   * 이 칸이 없으면 §5.24 히트맵에서 **자손이 아무리 뜨거워도 회색**이다. 표시 전용 파생값.
-   */
+  /** §2.1 (A) — 자손 `readCount` 합. 접합은 `quiet` 라 자기 히트가 0 — 없으면 §5.24 히트맵에서 늘 회색이다. 표시 전용. */
   externalRollupReadCount?: number;
   /** §2.1 (A) — 자손의 `writeCount` 합. `externalRollupReadCount` 와 한 쌍. 표시 전용 파생값. */
   externalRollupWriteCount?: number;
-  /**
-   * §2.1 (C) — 이 폴더가 흡수한 **휘발 자리 수**("세션 N곳").
-   * 세션마다 새로 생기는 `…/<세션UUID>/tasks` 는 자기 버블을 갖지 않고 가장 가까운 비휘발
-   * 조상에 모인다. 그 수가 여기 남아 "몇 곳이 접혔는지"를 화면이 말할 수 있다. 표시 전용 파생값.
-   */
+  /** §2.1 (C) — 흡수한 휘발 자리 수("세션 N곳" — `…/<세션UUID>/tasks` 는 비휘발 조상에 모인다). 표시 전용. */
   externalFoldedPlaces?: number;
-  /**
-   * §2.1 (D) — 알려진 자리 사전(`EXTERNAL_PLACE_PATTERNS`)에 걸린 **i18n 키 접미사**.
-   * 화면 문구는 클라이언트가 `canvas.externalPlace.<키>` 로 고른다(서버에는 i18n 런타임이 없고
-   * 문구는 12개 로케일이다). 없으면 종전 라벨 그대로. 표시 전용 파생값.
-   */
+  /** §2.1 (D) — `EXTERNAL_PLACE_PATTERNS` 에 걸린 i18n 키 접미사(클라가 `canvas.externalPlace.<키>` — 서버엔 i18n 없음). 없으면 기본 라벨. 표시 전용. */
   externalPlaceKey?: string;
-  /**
-   * §2.1 (B) — 예산제 승격으로 최상위에 선 폴더인가.
-   * 조상 접합 아래에 있었지만 활동 점수가 높아 밖으로 나온 상태를 화면이 표시할 수 있게 한다.
-   * 표시 전용 파생값(핀으로 올라온 것은 `preservePinned` 가 이미 말한다).
-   */
+  /** §2.1 (B) — 예산제 승격으로 최상위에 선 폴더인가(조상 접합에서 활동 점수로 나옴). 표시 전용 — 핀은 `preservePinned` 가 말한다. */
   externalPromoted?: boolean;
   /**
-   * §5.23 접어 보기·웹 버블 묶기 — 이 버블이 **한 에이전트가 읽은 호스트들을 묶은 것**이면 그 내역
-   * (무엇으로 묶었나는 `scope`). 묶기 설정(`AppState.webGroup`)이 묶을 것을 낼 때만 서버 `getSnapshot` 이
-   * 호스트 버블들 대신 싣는다. **표시 전용 파생값이다** — 체크포인트에 저장하지 않고, 기록(`domainEntries`)은
-   * 속한 호스트 노드 id 에 그대로 남는다(`externalPromoted` 선례). 없으면 보통 버블.
+   * §5.23 웹 버블 묶기 — 묶인 버블이면 그 내역(`scope`). `AppState.webGroup` 이 낼 때만 `getSnapshot` 이 호스트 버블 대신 싣는다.
+   * 표시 전용 — 기록(`domainEntries`)은 호스트 노드에 남는다.
    */
   webFold?: WebFoldInfo;
   fileSize?: number;
-  /**
-   * §5.1 #2-1 (A) — 파일의 디스크 수정 시각(epoch ms). 버블 안 미리보기의 **판본**이다 — 같은 이름으로 다시 만들면
-   * 다시 굽는다. 서버가 `fileSize` 와 같은 stat 에서 스냅샷 사본에만 싣는 **표시 전용 파생값**이라 체크포인트에
-   * 저장하지 않는다(`externalSummaryChips` 선례).
-   */
+  /** §5.1 #2-1 (A) — 디스크 mtime(ms) = 미리보기 판본(다시 만들면 다시 굽는다). 스냅샷 사본에만, 체크포인트 ❌. */
   fileMtime?: number;
   /**
-   * §5.1 #2-1 (C) — 이 글 파일의 내용이 **이름으로 적고 있는** 다른 파일 노드의 id. 별자리 판정(`planConstellations`)의
-   * 가장 강한 근거다("이 json 이 저 영상·그림을 쓴다"). 서버가 앞부분만 비동기로 읽어 뽑고 같은 프로젝트 안에서만
-   * 푼다. 스냅샷 사본에만 싣는 **표시 전용 파생값** — 체크포인트 ❌. 못 읽었거나 없으면 생략.
+   * §5.1 #2-1 (C) — 이 글 파일이 이름으로 적은 다른 파일 노드 id(별자리의 가장 강한 근거). 앞부분만 비동기로 읽어 같은 프로젝트 안에서 푼다.
+   * 스냅샷 사본에만, 체크포인트 ❌.
    */
   mentions?: string[];
   /**
-   * §5.1 #2-1 (B) — 이 미디어 파일이 든 **폴더의 노드 id**. 묶음 안(`interiorView` `bundle`)이 이 폴더를 화면 범위로 선언해
-   * 위성 상한으로 빠진 같은 종류 파일까지 받는다(2026-10-22 사용자 지시 "해당 묶음 버블 내부로 들어가면 위성 규칙으로 인해
-   * 사라졌던 사용한 버블들이 눈에 보이게"). 서버가 폴더 위성 사본에만 싣는 **표시 전용 파생값** — 체크포인트 ❌.
+   * §5.1 #2-1 (B) — 이 위성이 도는 폴더(위성 무리의 주인) 노드 id — 바로 위 폴더가 아니다. 묶음 안이 이 폴더를 범위로 선언해
+   * 위성 상한으로 빠진 같은 종류 파일까지 보인다. 묶음이 될 종류의 위성 사본에만, 체크포인트 ❌.
    */
   folderNodeId?: string;
   /**
-   * §5.1 #2-1 (B) — 같은 폴더에서 사용한(살아 있는) **같은 종류 파일 수**(이 파일 포함). 묶음 버블의 `종류 묶음 · 수` 가 위성
-   * 수가 아니라 이 수를 말한다. `folderNodeId` 와 같은 자리에서 싣는 표시 전용 파생값 — 체크포인트 ❌.
+   * §5.1 #2-1 (B) — 그 폴더 아래(모든 깊이)에서 확인 안 한 턴에 쓴 같은 종류 파일 수(위성 + 구성의 합집합).
+   * 묶음 버블의 `종류 묶음 · 수` 가 이것이다. 표시 전용, 체크포인트 ❌.
    */
   folderKindCount?: number;
+  /** §5.1 #2-1 (B) — 그 파일들이 함께 든 가장 가까운 폴더(`kindBundleCommonDir`) — 묶음 버블 이름·툴팁. 표시 전용. */
+  folderKindDir?: string;
   /**
-   * §5.1 #2-1 (F) ① — 이 파일이 생긴 **앱 작업**(앱 노드 id → 표식). 서버가 훅 귀속·되짚기·작업 폴더 훑기로 단다.
-   * 노드 객체째 체크포인트에 실린다(`preservePinned` 선례 — 새 영속 창구 ❌). 파일 노드에만 있다.
+   * §5.1 #2-1 (B) — 확인 안 한 턴(에이전트의 마지막 명령 — 새 명령이나 캔버스·IDE 확인이 닫는다)에 쓰였다.
+   * 서버가 `nodeAgentRefs` 와 휴지통 아닌 에이전트의 이번 턴 장부 둘 다에 있을 때만 `true`. 캔버스 묶음은 이 파일만 담는다(`openTurnOnly`).
+   * 표시 전용, 체크포인트 ❌.
    */
+  inOpenTurn?: boolean;
+  /** §5.1 #2-1 (F) ① — 이 파일이 생긴 앱 작업(앱 노드 id → 표식 — 훅 귀속·되짚기·작업 폴더 훑기). 노드째 영속, 파일 노드만. */
   appWork?: Record<string, AppWorkMark>;
   /** fade 시작 시각 (completed → 60초 후 idle 전환) */
   fadeStartedAt?: number;
@@ -2245,54 +1755,28 @@ export interface BubbleData {
   /** 사용자가 루트 패널에서 수동 고정한 노드 (엣지 없이도 캔버스에 표시) */
   pinned?: boolean;
   /**
-   * 사용자 preserve-pin (§2.4 v1.28). true면 이 버블은
-   * (a) setDisappear / 자동 status='disappearing' 전환 스킵,
-   * (b) DELETE /api/bubble/:nodeId 에서 409로 거부,
-   * (c) convertToGhost 시 ghostInfo.pinned=true 자동 동기화로 fade 차단.
-   * 기존 ghostInfo.pinned(Persist, ghost fade-out 만 제어)와 독립 축.
+   * §2.4 preserve-pin. true 면 setDisappear·자동 'disappearing' 을 건너뛰고, DELETE /api/bubble/:nodeId 는 409, convertToGhost 때 ghostInfo.pinned=true 로
+   * fade 를 막는다(ghostInfo.pinned 와는 독립 축).
    */
   preservePinned?: boolean;
   /** 캔버스에서 사용자가 직접 생성한 에이전트 (훅 이벤트가 아닌 UI 생성) */
   customCreated?: boolean;
-  /**
-   * §5.4 #36 (A) — 커스텀 에이전트의 캔버스 형태. `'card'` 면 원 옆에 입력 **말풍선**을 펼쳐 그린다(값 이름은 첫 판 그대로).
-   * 없으면 버블이다(그래서 값은 `'card'` 하나뿐 — 버블로 돌릴 때는 칸을 지운다).
-   * 서버 소유(§3.1). 에이전트 노드째 체크포인트에 실리므로 별도 영속 로직이 없다(`preservePinned` 선례).
-   * 표시 형태라 identity 대상이 아니다 — 잃으면 버블로 돌아올 뿐이다.
-   */
+  /** §5.4 #36 (A) — 캔버스 형태. `'card'` = 원 옆 입력 말풍선, 없으면 버블(되돌릴 땐 칸을 지운다). 서버 소유, 노드째 영속, identity ❌. */
   agentForm?: 'card';
-  /**
-   * 에이전트 주변의 연결된 파일·위성 버블을 감춘다. 에이전트와 실제 연결·작업 기록은 그대로 유지한다.
-   * 서버 소유의 표시 상태이며 에이전트 노드째 체크포인트에 실린다. 없거나 false 면 보인다.
-   */
+  /** 연결된 파일·위성 버블만 감춘다(연결·작업 기록은 그대로). 서버 소유, 노드째 영속. */
   bubblesHidden?: boolean;
-  /**
-   * §5.4 #36 (H) ① — 이 에이전트의 **연결선을 감췄다**(그 에이전트가 끝점인 활동·위성 선 + 위성줄). 표시 계층만 바꾼다 —
-   * 서버의 활동 엣지·`linkedAgentIds`·위성 칩·결과 전달은 그대로다. 서버 소유(§3.1), 에이전트 노드째 체크포인트에 실린다
-   * (`agentForm` 선례). 표시 형태라 identity 대상이 아니다. 없거나 false 면 보인다.
-   */
+  /** §5.4 #36 (H) ① — 이 에이전트의 연결선을 감췄다(표시만 — 엣지·`linkedAgentIds`·결과 전달은 그대로). 서버 소유, 노드째 영속, identity ❌. */
   linksHidden?: boolean;
-  /**
-   * §5.4 #36 (H) ② — 앱 노드가 이어진 에이전트의 보기. `'files'` 면 "작업 파일 위주"(활동 선 또렷 · 앱 노드 구슬 줄 접음),
-   * 없으면 기본 "연결된 것 위주"다(그래서 값은 `'files'` 하나뿐 — 되돌릴 때는 칸을 지운다). 앱 노드가 이어지지 않은
-   * 에이전트에는 뜻이 없다(늘 작업 파일 — 위주로 볼 연결된 것이 없다).
-   */
+  /** §5.4 #36 (H) ② — `'files'` = 작업 파일 위주(활동 선 또렷·구슬 줄 접음), 없으면 연결된 것 위주. 앱 노드가 안 이어진 에이전트엔 뜻이 없다. */
   linkLens?: 'files';
   /**
-   * §5.4 #36 (H) ①-2 — 이 에이전트의 **연결된 버블을 고정했다**. 고정한 동안 그 에이전트의 선에 매달린 활동 버블과 선을
-   * 확인 dismiss·자동 유휴·5분 TTL 이 걷지 않는다(삭제 키·우클릭 삭제는 그대로). 풀 때 실행 중이 아니면 서버가 그 자리에서
-   * 걷는다. 서버 소유(§3.1), 에이전트 노드째 체크포인트에 실린다(`linksHidden` 선례 — identity ❌). 없거나 false 면 평소대로다.
+   * §5.4 #36 (H) ①-2 — 연결 버블 고정: 확인 dismiss·자동 유휴·5분 TTL 이 걷지 않는다(삭제는 그대로).
+   * 풀 때 실행 중이 아니면 서버가 바로 걷는다. 노드째 영속.
    */
   linksPinned?: boolean;
-  /**
-   * §5.4 #36 (H) ①-2 — [이전 연결 다시 보기]로 다시 세운 연결을 **다음 확인 클릭까지** 붙든다(TTL·자동 유휴가 걷지 않는다).
-   * 확인 dismiss·고정 풀기 걷기가 지운다. 서버 소유, 에이전트 노드째 체크포인트에 실린다.
-   */
+  /** §5.4 #36 (H) ①-2 — 다시 세운 연결을 다음 확인 클릭까지 붙든다(TTL·자동 유휴 ❌). 확인·고정 풀기가 지운다. */
   linksReplay?: boolean;
-  /**
-   * §5.4 #36 (H) ①-2 — 다시 세울 수 있는 이전 연결의 버블 수(`ProjectCheckpoint.agentLinkRecords` 의 줄 수). 메뉴가
-   * [이전 연결 다시 보기]를 켤지 정한다. 서버 `getSnapshot` 이 에이전트 사본에만 싣는 **표시 전용 파생값**(체크포인트 ❌).
-   */
+  /** §5.4 #36 (H) ①-2 — 다시 세울 이전 연결 버블 수(`agentLinkRecords` 줄 수 — 메뉴 활성 판정). 스냅샷 사본에만, 체크포인트 ❌. */
   prevLinkCount?: number;
   /** Ghost 메타데이터 — bubbleType이 'ghost'일 때만 존재 */
   ghostInfo?: GhostInfo;
@@ -2308,20 +1792,11 @@ export interface BubbleData {
   shellId?: string;
   /** iframe 버블: 대상 서버 포트가 실제 살아있는지 (false면 opacity 낮춰서 비활성 표시) */
   iframeAlive?: boolean;
-  /**
-   * iframe 버블: `iframeAlive` 가 false 로 떨어진 시각(epoch ms). §7.11 v2.1.
-   * checkIframesAlive 가 죽은 위성 발견 시 1회 기록 → `IFRAME_DEAD_GRACE_MS` 경과 시 위성 자동 제거.
-   * 위성이 다시 살아나면(`iframeAlive` false→true) 서버가 클리어. 클라이언트는 읽지 않는다(서버 전용).
-   */
+  /** §7.11 — `iframeAlive` 가 false 가 된 시각(ms, 서버 전용). `IFRAME_DEAD_GRACE_MS` 가 지나면 위성을 지우고, 살아나면 비운다. */
   iframeDeadAt?: number;
   /** 에이전트 영구 위성 (bash/iframe) — 에이전트와 함께 체크포인트 저장/복원 */
   persistSatellites?: BubbleData[];
-  /**
-   * §5.7 #26 — worktree **생성 실패** 표식(클라이언트 전용, 2.2초 뒤 스스로 사라짐).
-   * 서버는 이 필드를 설정하지 않는다. 성공 경로엔 아무 표식도 없다 — 진행 연출(`'creating'` +
-   * 불확정 물결)은 폐기됐다. 스탠드인과 실물이 같은 좌표를 두고 겹치는 구간이 남아,
-   * 새 버블이 옆으로 튀어 보였기 때문이다.
-   */
+  /** §5.7 #26 — worktree 생성 실패 표식(클라 전용, 2.2초). 성공 진행 연출은 두지 마라 — 스탠드인과 실물이 겹쳐 새 버블이 튀어 보인다. */
   creatingStatus?: 'error';
   /** 파이프라인 부모 버블: 실행 전략 타입 — bubbleType='pipeline'일 때만 */
   pipelineType?: PipelineType;
@@ -2331,47 +1806,23 @@ export interface BubbleData {
   pipelineParentId?: string;
   /** Hook 부모 에이전트: 더블클릭 진입 가능 여부 (서브에이전트 보유 시 true) */
   isParentAgent?: boolean;
-  /**
-   * §5.7 #23-2 v1.60 — Claude Code Agent View 짧은 식별자 (8 hex).
-   * `claude --bg` 가 인쇄한 `backgrounded · <short>` 의 short. supervisor 가 자식을 들고 있고
-   * 우리는 이 short 로 `claude stop|respawn|rm <short>` 를 호출한다.
-   * legacy `-p` 경로에선 항상 undefined.
-   */
+  /** §5.7 #23-2 — Agent View short id(8 hex, `claude --bg` 의 `backgrounded · <short>`). `claude stop|respawn|rm <short>` 에 쓴다. `-p` 경로엔 없다. */
   agentViewShort?: string;
-  /**
-   * §5.7 #23-2 v1.60 — Agent View 가 할당한 풀 sessionId (UUID).
-   * `~/.claude/projects/<cwdKey>/<sessionId>.jsonl` 경로 계산 + reconcile 매칭 키.
-   * legacy `-p` 경로에선 sessionId 자체는 있어도(우리가 지정) 이 필드는 채우지 않는다 —
-   * 서로 다른 발급 주체이므로 분리해 둔다.
-   */
+  /** §5.7 #23-2 — Agent View 가 발급한 sessionId(UUID) — jsonl 경로·reconcile 키. `-p` 경로는 우리가 지정한 id 라 채우지 않는다(발급 주체가 다르다). */
   agentViewSessionId?: string;
-  /**
-   * 에이전트 활성 체크 디버그 정보 — `claude -p --session-id <id>` 결과.
-   * 10초마다 갱신, 클라이언트 debugMode에서 버블 위에 표시.
-   * - inUse=true  → 다른 Claude Code가 점유 중 → 활성 → 버블 유지
-   * - inUse=false → 세션 점유 없음 → 비활성 → 이번 주기에 제거
-   */
+  /** `claude -p --session-id <id>` 활성 체크(10초마다, debugMode 표시). inUse=true 면 다른 Claude Code 가 점유 중이라 유지, false 면 이번 주기에 제거. */
   lastLivenessCheck?: {
     timestamp: number;
     inUse: boolean;
     durationMs: number;
   };
-  /**
-   * §5.10 Project Brain — 커스텀 에이전트 휴지통. 커스텀 에이전트를 삭제하면 즉시 소멸/묘비
-   * 기록 대신 이 플래그로 "휴지통 이동"(identity 보존). 묘비(`deletedCustomAgents`)는
-   * 영구 삭제 시에만 찍는다(§3.2.1 급감 가드 관계 유지). BubbleData 는 그래프 직렬화로
-   * ProjectCheckpoint·identity 에 자동 영속되므로 이 플래그도 재시작 시 함께 복원된다.
-   */
+  /** §5.10 — 커스텀 에이전트 휴지통(identity 보존). 묘비(`deletedCustomAgents`)는 영구 삭제 때만(§3.2.1 급감 가드). 노드째 영속. */
   trashed?: boolean;
   /** §5.10 — 휴지통 이동 시각(epoch ms). trashed=true 일 때만 의미. */
   trashedAt?: number;
 }
 
-/**
- * §5.5 #17-12 — IDE 스트림 표시 밀도. **표시 계층 전용**(서버 미전달, 클라 localStorage 영속)이지만
- * 의존성 방향(stores → shared)상 store 와 컴포넌트가 함께 쓰려면 여기 있어야 한다.
- * `compact`=가장 많이 접음 / `standard`=기본 / `raw`=아무것도 접지 않음.
- */
+/** §5.5 #17-12 — IDE 스트림 표시 밀도(compact 가장 많이 접음 · raw 안 접음). 클라 localStorage 만 — store·컴포넌트가 함께 쓰려고 shared 에 둔다. */
 export type StreamDensity = 'compact' | 'standard' | 'raw';
 
 /** TodoWrite 도구의 개별 항목 */
@@ -2437,18 +1888,10 @@ export interface FileEdit {
 
 // ─── 도메인 버블 (§5.23) ───
 
-/**
- * 웹 항목의 갈래 — 검색인가, 가져오기인가. **셋째 갈래를 늘리기 전에** 그것이 정말
- * "에이전트가 웹을 읽은 일"인지 §5.23 경계와 먼저 대조한다(브라우저가 아니다).
- */
+/** 셋째 갈래를 늘리기 전에 "에이전트가 웹을 읽은 일"인지 §5.23 경계와 대조한다(브라우저가 아니다). */
 export type WebEntryKind = 'search' | 'fetch';
 
-/**
- * 도메인 버블에 쌓이는 한 줄 = 그 호스트에서 한 번 일어난 일 (§5.23).
- *
- * 못 읽은 값은 **채우지 않는다** — 결과 파싱에 실패하면 `result` 를 비운 채 저장하고
- * 화면이 `—` 로 그린다(0·빈 문자열로 채우면 "결과가 없었다"는 거짓말이 된다).
- */
+/** §5.23 — 도메인 버블 한 줄 = 그 호스트에서 한 번. 파싱 실패면 `result` 를 비워 둔다(화면 `—` — 빈 값은 "결과 없음"이라는 거짓). */
 export interface WebEntry {
   id: string;
   kind: WebEntryKind;
@@ -2487,20 +1930,10 @@ export interface WebFoldHost {
   maxWebEntries?: number;
 }
 
-/**
- * §5.23 웹 버블 묶기 (B) — **비슷한 종류**. 넘친 웹 버블을 아무렇게나 자르지 않고 이 종류로 묶는다.
- * 판정은 shared `webHostKind.ts` 한 곳, 표는 §3.3 상수(`WEB_KIND_HOSTS`·`WEB_KIND_SUBDOMAINS`·`WEB_KIND_SITES`·
- * `WEB_KIND_PATHS`)다. 화면 낱말은 클라가 `canvas.webFold.kind.<종류>` 로 번역한다.
- */
+/** §5.23 웹 버블 묶기 (B) — 비슷한 종류. 판정 `webHostKind.ts` 한 곳, 표는 §3.3 `WEB_KIND_HOSTS` 등, 화면 낱말은 `canvas.webFold.kind.<종류>`. */
 export type WebKind = 'search' | 'docs' | 'code' | 'package' | 'qa' | 'spec' | 'article' | 'video';
 
-/**
- * §5.23 웹 버블 묶기 — 접힌 버블이 **무엇으로** 묶였나. 제목이 이것을 말한다.
- * - `agent` 그 에이전트가 읽은 전부(종전 접어 보기 · 최대 1개)
- * - `site` 같은 사이트(등록 도메인)의 호스트들
- * - `kind` 비슷한 종류의 사이트들
- * - `rest` 다른 묶음·버블 옆에 남은 나머지("그 밖의 웹")
- */
+/** §5.23 — 묶인 기준(제목이 말한다). agent 그 에이전트가 읽은 전부 · site 같은 등록 도메인 · kind 비슷한 종류 · rest 나머지("그 밖의 웹"). */
 export type WebFoldScope = 'agent' | 'site' | 'kind' | 'rest';
 
 /** §5.23 접어 보기 — 접힌 웹 버블의 내역. `hosts` 는 최신 호스트가 앞이다. */
@@ -2516,10 +1949,7 @@ export interface WebFoldInfo {
   kind?: WebKind;
 }
 
-/**
- * §5.23 웹 버블 묶기 — 한 에이전트가 읽은 호스트들을 **무엇으로, 몇 개까지** 묶어 보일지.
- * 기계 단위 앱 설정(`AppState.webGroup`). 정규화는 shared `normalizeWebGroupSettings` 한 곳.
- */
+/** §5.23 — 호스트 묶기 설정(기계 단위 `AppState.webGroup`), 정규화 `normalizeWebGroupSettings` 한 곳. */
 export interface WebGroupSettings {
   /** (A) 같은 사이트 — 등록 도메인이 같은 호스트를 버블 하나로(`docs.github.com` + `github.com`). */
   sameSite: boolean;
@@ -2529,11 +1959,7 @@ export interface WebGroupSettings {
   maxPerAgent: number;
 }
 
-/**
- * §5.23 「더블클릭」 — 도메인 버블을 더블클릭하면 마지막으로 읽은 주소를 **어디서** 여는가.
- * `external` = 바깥 브라우저(기본) · `iframe` = 탭 줄의 iframe 탭(인터넷 페이지는 격리 웹뷰).
- * 기계 단위 앱 설정(`AppState.webOpenTarget`). 정규화는 shared `normalizeWebOpenTarget` 한 곳.
- */
+/** §5.23 — 더블클릭 때 여는 곳: `external` 바깥 브라우저(기본) · `iframe` 탭 줄 iframe(인터넷은 격리 웹뷰). `AppState.webOpenTarget`, 정규화 `normalizeWebOpenTarget`. */
 export type WebOpenTarget = 'external' | 'iframe';
 
 /** 실행 중인 서버 프로세스 항목 */
@@ -2550,40 +1976,22 @@ export interface ServerEntry {
   /** run_in_background 출력 파일 절대 경로 (포트 탐지용) */
   outputFile?: string;
   /**
-   * §7.11 v3.85 — 에이전트 신고(`POST /api/agent-iframe`)로만 알게 된 서버.
-   * 기동 명령을 모르므로 `command` 는 신고 URL(표시용)이고 respawn(Restart/Start)은 불가하다.
-   * Stop 은 `killByPort` 라 정상 동작. watcher 가 나중에 진짜 명령을 잡으면 승격되며 이 플래그는 사라진다.
-   *
-   * §7.11 포트 인계 — 이 상태는 이제 **잠정**이다. 프로세스가 살아 있는 동안 OS 프로세스 테이블에서
-   * 기동 명령을 읽어 내면(포트 인계) 승격되어 이 플래그가 사라지고 Restart/Start 가 열린다.
+   * §7.11 — 에이전트 신고로만 알게 된 서버: `command` 는 신고 URL 이고 Restart/Start 불가(Stop 은 `killByPort`).
+   * watcher 나 포트 인계가 기동 명령을 읽으면 승격되어 사라진다.
    */
   reportedOnly?: boolean;
-  /**
-   * §7.11 포트 인계 — 포트 인계를 시도했지만 기동 명령을 읽지 못했다(권한 부족·조회 도구 부재).
-   * 표시 전용 — 버튼 툴팁을 "명령 미상"과 "읽지 못함"으로 갈라 주기 위한 것이며,
-   * 인계 재시도를 막지는 않는다(다음 요청에서 다시 시도한다). 인계 성공/승격 시 지워진다.
-   */
+  /** §7.11 — 포트 인계에서 기동 명령을 못 읽음(권한·도구 부족). 툴팁 구분용이고 재시도를 막지 않는다. */
   takeoverFailed?: boolean;
   /**
-   * §7.11 포트 인계 — 인계로 알아낸 그 프로세스의 실제 작업 폴더. respawn 시 세션 cwd 보다 우선한다.
-   * (에이전트가 하위 폴더에서 띄운 서버는 세션 cwd 로 respawn 하면 파일을 못 찾고 즉시 죽는다.)
-   * Windows 는 프로세스 cwd 를 읽는 공개 API 가 없어 비어 있다 — 그때는 세션 cwd 로 폴백.
+   * §7.11 — 인계로 알아낸 실제 cwd(respawn 때 세션 cwd 보다 우선 — 하위 폴더 서버는 세션 cwd 면 즉시 죽는다).
+   * Windows 는 공개 API 가 없어 비어 있다(세션 cwd 폴백).
    */
   cwd?: string;
 }
 
 /**
- * §5.5 #17-36 ⑫ — 메모 링크가 **가리키는 곳**. 종류는 `SESSION_MEMO_LINK_KINDS` 한 표가 정하고,
- * 그 순서가 곧 [링크 ▸] 목록의 순서다(첫 자리 = 세션 글 위치).
- *
- *  - `stream`  — 대화의 한 자리. 북마크(#17-7)와 **같은 두 값**으로 기억한다: 항목 id
- *    (`data-stream-item-id` — 가상 리스트를 그 항목으로 먼저 옮긴다)와 그 자리의 글(도착해서 칠할
- *    글자이자 링크 상자에 보일 요약). `sessionId` 가 null 이면 메인 탭이다.
- *  - `session` — 같은 에이전트의 세션 탭 하나(null = 메인 탭). `label` 은 걸 때의 탭 이름이다 —
- *    탭이 닫혀도 무엇을 가리켰는지 말하려고 둔다(보일 때는 살아 있는 이름이 이긴다).
- *  - `file`    — 프로젝트 파일. 본문 경로 링크(#17-27 ⑬)와 같은 글자 규칙이라 루트 기준 상대 경로·
- *    절대 경로·줄 표기(`src/App.tsx:42`)를 그대로 받는다.
- *  - `url`     — 웹 주소. http(s) 만 받는다(정화가 `javascript:`·`file:` 을 버린다).
+ * §5.5 #17-36 ⑫ — 메모 링크 대상(종류·순서 `SESSION_MEMO_LINK_KINDS`). stream = 대화 한 자리(북마크 #17-7 처럼 항목 id + 그 자리 글,
+ * `sessionId` null = 메인) · session = 세션 탭(`label` 은 걸 때 이름 — 닫혀도 무엇이었나 말한다) · file = 본문 경로 링크(#17-27 ⑬) 규칙 · url = http(s) 만.
  */
 export type SessionMemoLinkTarget =
   | { kind: 'stream'; sessionId: string | null; anchorId?: string; text: string }
@@ -2594,12 +2002,7 @@ export type SessionMemoLinkTarget =
 /** §5.5 #17-36 ⑫ — 링크 종류 이름(`SessionMemoLinkTarget['kind']`). */
 export type SessionMemoLinkKind = SessionMemoLinkTarget['kind'];
 
-/**
- * §5.5 #17-36 ⑫ — 메모 본문의 글자 한 토막에 건 링크.
- *
- * 범위는 **본문 오프셋**(UTF-16 — textarea 의 `selectionStart/End` 와 같은 단위)이다. 글자를 표식으로
- * 본문에 박지 않는 이유: 그러면 사용자가 치는 칸에 `[글](주소)` 같은 문법이 그대로 보인다.
- */
+/** §5.5 #17-36 ⑫ — 메모 본문 토막 링크. 범위는 본문 오프셋(UTF-16, `selectionStart/End` 단위) — 본문에 표식을 박으면 `[글](주소)` 가 그대로 보인다. */
 export interface SessionMemoLink {
   /** 링크 고유 id(메모 안에서 유일). 클라이언트가 발급한다. */
   id: string;
@@ -2611,26 +2014,15 @@ export interface SessionMemoLink {
 }
 
 /**
- * §5.5 #17-36 — 스트림 본문 위에 붙이는 **스티키 메모** 1장.
- *
- * 이 메모는 **그것을 만든 세션 탭의 소지품**이다. 그래서 자리도 `SubAgent` 안이다(별도 맵 ❌) —
- * 탭 닫기·아카이브에는 세션과 함께 보존하고, 소유 세션이 최종 삭제되면 메모와 닫은 기록도 함께 지운다.
- * 메인 탭(세션 미선택)에서 만든 메모만 예외로 에이전트 쪽(`ProjectGraph.agentMemos`)에 산다.
- *
- * 좌표계는 **스트림 본문 컨테이너의 좌상단(px)** 이다. 대화 내용과 함께 스크롤되지 않는다 —
- * 모니터 가장자리에 붙여 둔 포스트잇처럼 그 자리에 머무는 것이 이 기능의 요점이다.
+ * §5.5 #17-36 — 스티키 메모. 세션 탭의 소지품이라 `SubAgent` 안에 산다(닫기·아카이브엔 보존, 최종 삭제 때 함께).
+ * 메인 탭 메모만 `ProjectGraph.agentMemos`. 좌표는 스트림 본문 좌상단(px), 스크롤과 무관.
  */
 export interface SessionMemo {
   /** 메모 고유 id (예: `memo-lz3k9-a1b2`). 낙관 표시를 위해 클라이언트가 발급한다. */
   id: string;
   /** 본문. 상한 `SESSION_MEMO.TEXT_MAX`. */
   text: string;
-  /**
-   * 사람이 붙인 이름(제목줄에 보인다). **없으면 본문 첫 줄**이 대신 서고, 그것마저 없으면 라벨이다
-   * — 그래서 이름을 지우는 것이 곧 "자동 제목으로 되돌리기"다(별도 스위치 ❌).
-   * 한 줄로 접어 상한 `SESSION_MEMO.NAME_MAX` 까지만 저장하고, 빈 값이면 **필드를 남기지 않는다**
-   * (`collapsed`·`alpha` 와 같은 규약 — 옛 체크포인트가 새 필드로 부풀지 않는다).
-   */
+  /** 이름(없으면 본문 첫 줄 → 라벨 — 지우는 것이 곧 자동 제목). `SESSION_MEMO.NAME_MAX` 까지, 비면 필드를 남기지 않는다. */
   name?: string;
   /** 컨테이너 좌상단 기준 위치(px). */
   x: number;
@@ -2640,24 +2032,15 @@ export interface SessionMemo {
   h: number;
   /** 종이색 hex(`#RRGGBB`). 실제로 보이는 색은 아래 `alpha` 와 섞은 결과다. */
   color: string;
-  /**
-   * 종이의 불투명도(0.2~1). **없으면 `SESSION_MEMO.DEFAULT_ALPHA`** — 기본값은 저장하지 않는다
-   * (`collapsed` 와 같은 규약). 글자색은 `color` 가 아니라 이 값을 섞은 **실제로 보이는 색**을
-   * 기준으로 정해진다(`memoSurface`) — 그래야 투명하게 낮춰도 대비가 무너지지 않는다.
-   */
+  /** 불투명도(0.2~1), 없으면 `DEFAULT_ALPHA`(기본값은 저장 ❌). 글자색은 섞인 실제 색 기준(`memoSurface`) — 낮춰도 대비가 산다. */
   alpha?: number;
   /** 제목줄만 남기고 접은 상태. */
   collapsed?: boolean;
   /** 닫은 시각(ms). 있으면 화면 대신 이 세션의 다시 열기 목록에 보관하며, 세션 최종 삭제 때 함께 지운다. */
   closedAt?: number;
   /**
-   * **합쳐진 묶음의 이름표.** 같은 값을 가진 장들은 화면에서 **한 카드**가 되고 제목줄이 탭 줄이
-   * 된다(브라우저 탭과 같은 언어). 없으면 혼자 서 있는 장이다.
-   *
-   * 별도의 `MemoGroup` 레코드를 두지 않는 것이 의도다 — 묶음이 자기 레코드를 가지면 마지막 장이
-   * 빠진 뒤 **빈 묶음이 남고**(지우는 것을 잊을 자리), 그것이 체크포인트에 실려 영영 따라다닌다.
-   * 이름표만 두면 묶음은 장들의 파생값이라 저절로 사라진다. 장수가 1 이면 묶음이 아니므로 정화
-   * 단계에서 이름표를 지운다.
+   * 합쳐진 묶음 이름표(같은 값 = 한 카드, 제목줄이 탭 줄). `MemoGroup` 레코드를 따로 두지 마라 — 마지막 장이 빠지면 빈 묶음이 체크포인트에 남는다.
+   * 장수 1 이면 정화가 지운다.
    */
   groupId?: string;
   /**
@@ -2665,12 +2048,7 @@ export interface SessionMemo {
    * 혼자인 장에는 없다.
    */
   groupActive?: boolean;
-  /**
-   * §5.5 #17-36 ⑫ — 본문의 고른 글자에 건 **링크**. 범위는 본문 오프셋이라 글을 고치면 화면이
-   * 그 편집만큼 옮긴다(`memoLinks.ts`). 범위는 시작 순이고 서로 겹치지 않으며(정화가 보정한다),
-   * **비면 필드를 남기지 않는다**(`collapsed`·`alpha` 와 같은 규약 — 옛 체크포인트가 부풀지 않는다).
-   * 합쳐진 묶음(⑩)에서도 본문과 함께 **장마다 따로** 산다.
-   */
+  /** §5.5 #17-36 ⑫ — 본문 링크(오프셋 — 편집만큼 옮긴다, `memoLinks.ts`). 시작 순·겹침 없음, 비면 필드 ❌. 묶음에서도 장마다 따로. */
   links?: SessionMemoLink[];
   createdAt: number;
   updatedAt: number;
@@ -2709,85 +2087,49 @@ export interface SubAgent {
   /** 모델 최대 컨텍스트 (토큰) */
   contextMax?: number;
   /**
-   * §4 (CLI 사양 추종) (5) 창 하한 — 이 세션의 **시작 문맥**(첫 응답의 문맥 크기, 토큰). `contextUsed` 와
-   * 같은 자리(스냅샷 조립)에서 JSONL 로 매번 다시 잰다 — 영속하지 않는다. 화면은 이 값으로 스폰과 같은
-   * 함수(`applyAutoCompactFloor`)를 불러 실제로 실리는 압축 창을 적는다.
+   * §4 (CLI 사양 추종) (5) — 시작 문맥(첫 응답 문맥 크기, 토큰). 스냅샷 조립 때 JSONL 로 다시 잰다(영속 ❌).
+   * 화면은 스폰과 같은 `applyAutoCompactFloor` 로 압축 창을 적는다.
    */
   contextFloor?: number;
-  /**
-   * §2.4 (잠듦) — 유휴가 길어 **이 세션의 claude 자식 프로세스를 회수한 상태**.
-   * 상태 유니온(`status`)은 건드리지 않는다(회수된 세션은 `idle`) — 화면 표시용 직교 축이다.
-   * 다음 명령이 나가면 스폰 시점에 걷히고, `sessionId` 로 `--resume` 되어 대화가 이어진다.
-   */
+  /** §2.4 (잠듦) — 유휴로 claude 자식을 회수한 상태. `status` 와 직교(회수돼도 `idle`). 다음 명령 스폰 때 걷히고 `--resume` 으로 잇는다. */
   dormant?: boolean;
   /** 잠든 시각(ms). `dormant` 가 false 면 의미 없다. */
   dormantSince?: number;
   /**
-   * §4 (CMD 터미널 업그레이드 ①) — 이 세션이 **사용자 입력을 기다리며 멈춰 있는가**.
-   * herdr 의 `blocked` 축 대응. `status` 유니온은 건드리지 않는다 — §2.4 '잠듦'(`dormant`)과
-   * 같은 **직교 플래그**다(새 모양 발명 ❌). CMD(PTY) 세션에서만 세워지며 판정 근거는
-   * 터미널 출력이다: 무출력 `CMD_BLOCKED_IDLE_MS` 경과 + 화면 꼬리가 `CMD_BLOCK_PATTERNS` 매치.
-   * 바이트가 다시 흐르면 즉시 걷힌다. blocked 는 **살아 있는** 세션이라 §2.4 dormant 회수
-   * 대상이 아니다(오히려 사용자를 부르는 상태다).
+   * §4 (CMD 터미널 업그레이드 ①) — 입력을 기다리며 멈췄나(`status` 와 직교, `dormant` 와 같은 꼴). PTY 무출력 `CMD_BLOCKED_IDLE_MS` + 꼬리가 `CMD_BLOCK_PATTERNS` 일 때
+   * 세우고 바이트가 흐르면 걷는다. 살아 있는 세션이라 dormant 회수 ❌.
    */
   blocked?: boolean;
   /** blocked 로 바뀐 시각(ms). `blocked` 가 false 면 의미 없다. */
   blockedSince?: number;
   /** blocked 로 본 근거 한 줄(마지막 화면 꼬리 발췌). 표시·진단 전용. */
   blockedReason?: string;
-  /**
-   * §4 (CMD 터미널 업그레이드 ②) — 이 CMD 세션 PTY 의 전경 프로세스명(예: `claude`, `node`).
-   * 탭 라벨 **보조** 표기 전용 — 라벨을 덮어쓰지 않는다(사용자 rename 우선).
-   */
+  /** §4 (CMD 터미널 업그레이드 ②) — PTY 전경 프로세스명. 탭 라벨 보조 표기만(rename 이 우선). */
   foregroundProcess?: string;
-  /**
-   * §4 (CMD 터미널 업그레이드 ⑤) — 이 CMD 세션 탭의 pane 분할 트리.
-   * undefined = 단일 pane(종전 동작). 그 탭의 표시 상태라 체크포인트에 영속된다.
-   */
+  /** §4 (CMD 터미널 업그레이드 ⑤) — pane 분할 트리(undefined = 단일). 체크포인트에 실린다. */
   paneTree?: CmdPaneNode;
-  /** §5.7 #23-2 v1.60 — Agent View short id (해당 SubAgent 가 `--bg` 경로로 dispatch 된 경우) */
+  /** §5.7 #23-2 — Agent View short id(`--bg` 경로일 때). */
   agentViewShort?: string;
-  /** §5.7 #23-2 v1.60 — Agent View 가 할당한 풀 sessionId (UUID) — `sessionId` 와 일치하지만
-   *  발급 주체 구분 위해 별도 필드. legacy `-p` 경로에선 undefined. */
+  /** §5.7 #23-2 — Agent View sessionId(`sessionId` 와 같지만 발급 주체 구분). `-p` 경로엔 없다. */
   agentViewSessionId?: string;
-  /**
-   * §5.5 #17-36 — 이 세션의 열린 스티키 메모와 닫은 기록. `paneTree` 와 같이 체크포인트에 실리고,
-   * 탭을 닫아 아카이브해도 보존한다. 소유 세션/에이전트가 최종 제거될 때 함께 정리한다.
-   */
+  /** §5.5 #17-36 — 열린 메모와 닫은 기록. 체크포인트에 실리고 아카이브해도 남는다 — 소유자가 최종 제거될 때 함께 지운다. */
   memos?: SessionMemo[];
-  /**
-   * §2.4 — **"실행중…"이 진짜인가**를 에이전트가 낸 마지막 판정. 런타임 표시용이라 영속하지
-   * 않는다(앱을 껐다 켜면 그 세션은 어차피 돌고 있지 않다 — 옛 판정을 되살리면 거짓말이 된다).
-   */
+  /** §2.4 — "실행중…" 진위 판정. 영속 ❌ — 재시작하면 그 세션은 돌지 않으니 옛 판정은 거짓이 된다. */
   probe?: SessionLivenessProbeResult;
   /** 지금 그 판정을 물어보는 중인가 — 화면에 "확인 중"을 곧바로 세우기 위한 런타임 플래그. */
   probing?: boolean;
-  /**
-   * §5.5 #17-24 ⑥ — CLI 가 이 세션을 **지금 접는 중**이면 그 시작 시각(ms). 라이브 1줄의 넷째 모드
-   * (`압축 중`)와 그 경과의 근거다. 세우고 걷는 곳은 서버 한 곳(`noteCompactionLine` — 스트림
-   * `status:"compacting"`·`compact_boundary`, 훅 `PreCompact`·`PostCompact`, 자식 종료)이다.
-   * 런타임 표식이라 영속하지 않는다 — 부팅 직후에는 접는 자식 자체가 없다(`mergeSnapshot` 이 걷는다).
-   */
+  /** §5.5 #17-24 ⑥ — 압축 중이면 시작 시각(ms, 라이브 `압축 중`). 세우고 걷는 곳은 `noteCompactionLine` 한 곳. 영속 ❌(부팅 땐 압축하는 자식이 없다). */
   compactingSince?: number;
   /**
-   * §2.4 (한도 정지) — 이 세션이 **요금제 한도에 닿아 끊긴 채 아직 다시 돌지 않았다**.
-   * `status` 유니온은 건드리지 않는다 — '잠듦'(`dormant`)·'막힘'(`blocked`)과 같은 **직교 플래그**다.
-   *
-   * 세우는 곳은 서버의 스트림 판정 한 곳(`detectUsageLimitStop`)이고, 걷는 곳은 **다음 명령이 나가는
-   * 순간**(`execute`)뿐이다. 시간으로 만료시키지 않는다 — 한도가 풀려도 그 세션은 **끊긴 자리에
-   * 그대로 서 있기** 때문이다("풀렸다"와 "이어서 했다"는 다르다). 그래서 체크포인트를 왕복해도
-   * 살려 둔다(`dormant`/`blocked` 와 다른 점 — 저 둘은 부팅 직후 사라진 런타임 자원을 가리키지만,
-   * 이것은 **지난 턴에 일어난 사실**이라 앱을 껐다 켜도 여전히 참이다).
+   * §2.4 (한도 정지) — 한도에 끊긴 채 아직 안 돌았다(`status` 와 직교). 세우는 곳 `detectUsageLimitStop`, 걷는 곳 다음 명령(`execute`)뿐.
+   * 시간으로 만료시키지 마라 — 풀려도 세션은 끊긴 자리다. 그래서 체크포인트를 왕복해도 산다(지난 턴의 사실).
    */
   usageLimit?: UsageLimitStop;
 }
 
 /**
- * §5.5 #17-9 ⑭ — **표식 없이 오래 조용한 작업**을 한 번 물어보고 내린 판정.
- *
- * ⑬ 이 "끝났다고 적힌 것"을 걷고 나면 남는 것은 **아무 표식도 없이 조용한 항목**이다. 그 자리는
- * 코드가 답할 수 없다 — 조용함은 죽음의 증거가 아니고(⑩), 실측된 전형이 하필 `until [ 파일 11개 ];
- * do sleep 10; done` 같은 **정당한 대기**다. 그래서 이 축만은 **모델이 판정한다**(⑭(c)).
+ * §5.5 #17-9 ⑭ — 표식 없이 오래 조용한 작업의 판정. 조용함은 죽음이 아니고(⑩) 전형이 `until …; do sleep 10; done` 같은 정당한 대기라
+ * 이 축만은 모델이 판정한다.
  */
 export type BackgroundTaskVerdict = 'alive' | 'finished' | 'unknown';
 
@@ -2798,20 +2140,13 @@ export interface BackgroundTaskProbeResult {
   verdict: BackgroundTaskVerdict;
   /** 한 줄 사유 — 모델이 쓴 문장 그대로(최대 `BG_TASK_PROBE_REASON_MAX` 자). */
   reason: string;
-  /**
-   * 모델이 명령에서 읽어 낸 **스스로 끝나는 조건**. 이것이 판정의 뼈대다 —
-   * "쓸모 있나"라는 열린 질문은 실측에서 정당한 대기를 `finished` 로 오판했고(⑭(c)),
-   * "끝나는 조건이 무엇이고 지금 충족됐는가"로 쪼개자 오판이 사라졌다.
-   */
+  /** 모델이 읽은 스스로 끝나는 조건. "쓸모 있나"로 묻지 마라 — 정당한 대기를 `finished` 로 오판했다(⑭(c)). */
   exitCondition?: string;
   /** 어느 모델이 냈는가 — 나중에 "왜 이렇게 판정했나"를 되짚는 유일한 단서. */
   model?: string;
 }
 
-/**
- * §5.5 #17-9 ⑭(g) — 이 기능을 켜고 끄고 세게/약하게 하는 손잡이. **머신 단위**라
- * `AppState` 에 산다(§3.2.3 설정 SSOT — 같은 사용자가 프로젝트마다 다르게 둘 이유가 없다).
- */
+/** §5.5 #17-9 ⑭(g) — 켜기·세기 손잡이. 머신 단위라 `AppState`(§3.2.3). */
 export interface BackgroundTaskProbeSettings {
   /** 꺼 두면 조사 자체를 하지 않는다(모델 호출 0). */
   enabled: boolean;
@@ -2826,18 +2161,13 @@ export interface BackgroundTaskProbeSettings {
 }
 
 /**
- * §5.3 #9-2 — **에이전트가 띄운 프로세스의 보호** 손잡이(머신 단위 `AppState.processGuard`).
- *
- * 프로세스를 자동으로 끊는 기능이라 §5.5 #17-9 ⑭(g) 와 같은 이유로 **끌 수 있어야 한다**.
- * 넷은 자동의 세기 순이다: 끄기 → 프로세스 하나의 상한 → 압박 때 가장 큰 것 끊기 → 끝나면 남은 것 정리.
+ * §5.3 #9-2 — 에이전트 프로세스 보호(`AppState.processGuard`). 자동으로 끊으니 끌 수 있어야 한다.
+ * 세기 순: 끄기 → 하나의 상한 → 압박 때 가장 큰 것 → 끝나면 정리.
  */
 export interface ProcessGuardSettings {
   /** 끄면 묶음을 만들지 않고 감시·정리도 하지 않는다(이 기능이 생기기 전과 같은 동작). */
   enabled: boolean;
-  /**
-   * 프로세스 하나가 쓸 수 있는 메모리 — **실메모리의 백분율**. 0 = 상한 없음.
-   * 실제 상한은 `PROCESS_MEMORY_CAP_FLOOR_BYTES` 아래로 내려가지 않는다(정당한 큰 작업을 막지 않게).
-   */
+  /** 프로세스 하나의 메모리 상한(실메모리 %, 0 = 없음). `PROCESS_MEMORY_CAP_FLOOR_BYTES` 아래로는 안 내린다. */
   memoryCapPercent: number;
   /** 시스템 메모리 여유가 바닥나면 우리 묶음에서 가장 큰 프로세스 하나를 끊는다. */
   pressureKill: boolean;
@@ -2856,10 +2186,7 @@ export type ProcessGuardNoticeReason =
   /** 하니스가 끊었다고 적은 작업의 남은 프로세스를 거뒀다. */
   | 'task-killed';
 
-/**
- * §5.3 #9-2 — 세션 스트림에 남기는 알림 한 줄의 **사실**. 문장은 클라가 로케일로 만든다
- * (서버는 숫자·이름만 싣는다 — §5.5 #17-12 ③ 실패 사유와 같은 규율).
- */
+/** §5.3 #9-2 — 알림 한 줄의 사실(숫자·이름만, 문장은 클라 로케일). */
 export interface ProcessGuardNotice {
   reason: ProcessGuardNoticeReason;
   /** `kernel` = Windows 묶음이 할당을 거부했다(프로세스가 스스로 끝난다) · `watchdog` = 우리가 끊었다. */
@@ -2877,12 +2204,7 @@ export interface ProcessGuardNotice {
   count?: number;
 }
 
-/**
- * §2.4 — **"실행중…"이 진짜인가**를 에이전트가 낸 판정.
- *
- * `isSessionRunning` 의 근거 셋은 전부 우리가 켜고 꺼야 하는 깃발이라, 끄는 쪽이 한 번 실패하면
- * 세션이 영영 도는 것처럼 보인다. 이 판정만이 **깃발 밖의 답**이다.
- */
+/** §2.4 — "실행중…" 진위 판정. `isSessionRunning` 근거는 다 우리 깃발이라 끄기가 실패하면 영영 도는 것처럼 보인다 — 깃발 밖의 유일한 답. */
 export type SessionLivenessVerdict =
   /** 지금도 일하는 중 — 그대로 둔다. */
   | 'working'
@@ -2898,10 +2220,7 @@ export interface SessionLivenessProbeResult {
   /** 판정을 받은 시각(ms epoch). */
   at: number;
   verdict: SessionLivenessVerdict;
-  /**
-   * 모델이 읽어 낸 **이 세션이 기다리는 것**. 판정의 뼈대다 — 열린 질문("아직 도나")으로 물으면
-   * 값싼 모델이 정당한 대기를 끝난 것으로 오판하므로, 「무엇을 기다리나 → 그것이 오고 있나」로 쪼갠다.
-   */
+  /** 모델이 읽은 세션이 기다리는 것. 열어 묻지 마라("아직 도나") — 값싼 모델이 정당한 대기를 끝난 것으로 본다. */
   waitingFor?: string;
   /** 한 줄 사유 — 모델이 쓴 문장 그대로(최대 `SESSION_PROBE_REASON_MAX` 자). */
   reason: string;
@@ -2913,10 +2232,7 @@ export interface SessionLivenessProbeResult {
 export interface SessionLivenessProbeSettings {
   /** 꺼 두면 판정 자체를 하지 않는다(모델 호출 0). */
   enabled: boolean;
-  /**
-   * 대화록이 이만큼 조용해야 **판정 착수**. 0 이면 조용함과 무관하게 주기마다 묻는다.
-   * 방금 출력한 세션까지 물으면 답이 뻔한 자리에 토큰을 태운다.
-   */
+  /** 대화록이 이만큼(분) 조용해야 판정한다. 0 이면 주기마다(방금 출력한 세션까지 물으면 토큰만 탄다). */
   quietMinutes: number;
   /** `finished` 판정을 실제로 반영해 세션을 내릴지. 끄면 판정만 화면에 적고 그대로 둔다. */
   autoClose: boolean;
@@ -2924,12 +2240,7 @@ export interface SessionLivenessProbeSettings {
   model: string;
 }
 
-/**
- * §5.5 #17-9 v3.51 — 지금 백그라운드에서 도는 서브에이전트 1건.
- * 감독관(커스텀 에이전트)이 `Task`/`Agent` 도구로 띄운 자식 하나에 대응하며, PreToolUse 훅의
- * `tool_use_id` + `tool_input` 에서 그대로 뽑는다(새 수집 경로 신설 ❌ — §5.3 #12-1 v3.43 대차대조 재사용).
- * 런타임 전용 — 영속화 대상이 아니다.
- */
+/** §5.5 #17-9 — 백그라운드 서브에이전트 1건. PreToolUse 의 `tool_use_id`·`tool_input` 에서 뽑는다(§5.3 #12-1 대차대조 — 새 수집 ❌). 런타임 전용. */
 export interface RunningSubagentTask {
   /** 부모 Task 도구의 `tool_use_id`. 미상 페이로드면 서버가 만든 합성 키(`anon-N`). */
   id: string;
@@ -2946,18 +2257,11 @@ export interface RunningSubagentTask {
   /** 시작 시각(ms epoch) — 경과 시간 표시용. */
   startedAt: number;
   /**
-   * 이 항목을 무엇이 잡았는가.
-   *  - `'hook'`   : `PreToolUse(Task|Agent)` 대차대조 — Task/Agent 서브에이전트.
-   *  - `'stream'` : CLI 가 스트림에 흘린 `task_started` 칩 — `Bash run_in_background` · `Monitor` 처럼
-   *    **훅으로는 보이지 않는** 백그라운드 작업. 종전에는 이 신호가 봉인을 3초 미루는 데만 쓰이고
-   *    화면에는 한 글자도 안 나가, 그런 작업을 기다리는 세션이 **끝난 것처럼 보였다**.
-   * 미지정이면 `'hook'`(기존 항목과 호환).
+   * 잡은 곳(없으면 `'hook'`). hook = `PreToolUse(Task|Agent)` · stream = `task_started` — `run_in_background`·`Monitor` 처럼
+   * 훅에 안 보이는 작업(안 띄우면 기다리는 세션이 끝난 듯 보인다).
    */
   origin?: 'hook' | 'stream';
-  /**
-   * §5.5 #17-9 ⑦(a) — 공식 훅 공통 입력 필드 `agent_id`. 서브에이전트 **안에서** 훅이 발화할 때만
-   * 존재하므로, 이 값이 붙었다는 것은 그 자식이 실제로 도구를 쓰기 시작했다는 뜻이다(항목 각인 키).
-   */
+  /** §5.5 #17-9 ⑦(a) — 훅 공통 `agent_id`(서브 안에서만 붙는다 — 자식이 도구를 쓰기 시작했다는 뜻, 각인 키). */
   agentId?: string;
   /** 공식 훅 공통 입력 필드 `agent_type` — 자식이 스스로 밝힌 에이전트 이름(`subagent_type` 보강). */
   agentType?: string;
@@ -2971,27 +2275,17 @@ export interface RunningSubagentTask {
   lastActivityAt?: number;
 
   /**
-   * §5.5 #17-9 ⑭ — 이 작업의 **출력 파일이 마지막으로 바뀐 시각**(ms epoch).
-   *
-   * `lastActivityAt` 과 다르다 — 그쪽은 훅이 본 **자식의 도구 사용**이라 셸에는 영영 안 붙는다.
-   * 이 값은 그 셸이 마지막으로 **무언가를 찍은** 때라, 화면의 "N분째 조용"과 조사 착수 판정이
-   * 함께 쓰는 단 하나의 시계다. 출력 파일을 못 찾으면 없다(= 조사도 하지 않는다).
+   * §5.5 #17-9 ⑭ — 출력 파일 마지막 변경(ms). `lastActivityAt`(훅의 도구 사용 — 셸엔 없음)과 다르다.
+   * "N분째 조용"과 조사 착수가 함께 쓰는 단 하나의 시계, 없으면 조사 ❌.
    */
   lastOutputAt?: number;
   /** 지금 판정 에이전트가 돌고 있는가 — 화면에 "확인 중" 한 줄이 선다. */
   probing?: boolean;
-  /**
-   * 마지막 판정 1건. `alive`/`unknown` 이면 항목은 그대로 남고 이 줄만 붙는다
-   * (사용자가 "왜 아직 떠 있나"를 그 자리에서 읽는다). `finished` 면 곧 아래칸으로 내려간다.
-   */
+  /** 마지막 판정. alive/unknown 이면 항목에 이 줄만 붙고, finished 면 아래칸으로 간다. */
   probe?: BackgroundTaskProbeResult;
 }
 
-/**
- * §5.5 #17-9 ⑦(b) — 방금 끝난 백그라운드 서브에이전트 1건.
- * `RunningSubagentTask` 가 대차대조에서 내려오는 순간 이 모양으로 옮겨지고, 부모가 받아 든 결과
- * (`PostToolUse(Task|Agent)` 의 `tool_response`)가 뒤따라 붙는다. 런타임 전용 — 영속화 대상이 아니다.
- */
+/** §5.5 #17-9 ⑦(b) — 방금 끝난 백그라운드 서브에이전트(대차대조에서 내려온 항목 + 뒤따르는 `tool_response`). 런타임 전용. */
 export interface FinishedSubagentTask {
   /** 내려온 항목의 키(부모 Task 의 `tool_use_id` 또는 합성 키) 그대로. */
   id: string;
@@ -3001,34 +2295,18 @@ export interface FinishedSubagentTask {
   description?: string;
   subagentType?: string;
   agentType?: string;
-  /**
-   * 도는 항목(`RunningSubagentTask.origin`)과 **같은 값을 그대로 물려받는다**.
-   * 끝난 뒤에도 "그게 AI 자식이었나 셸이었나"는 달라지지 않는데, 이 필드가 없으면 목록의 위칸(도는 것)만
-   * 종류를 말하고 아래칸(방금 끝난 것)은 못 말해 같은 화면에서 잣대가 갈린다.
-   */
+  /** 도는 항목의 `origin` 을 물려받는다 — 없으면 끝난 칸만 종류를 못 말한다. */
   origin?: 'hook' | 'stream';
   /** 시작·종료 시각(ms epoch) — 둘의 차가 소요 시간이다. */
   startedAt: number;
   endedAt: number;
   /** 끝날 때까지 쓴 도구 호출 수. */
   toolCount?: number;
-  /**
-   * §5.5 #17-9 ⑬ — 하니스가 작업 출력 파일 끝에 적어 둔 **종료 코드**.
-   *
-   * 끝 통지(`task_notification`)를 못 받고 **파일 표식으로** 회수한 셸에만 붙는다. 그런 항목은
-   * 결과 칸이 영영 비어 있어("결과가 오지 않았습니다") 성공인지 실패인지 알 길이 없었는데,
-   * 표식에는 그 답이 들어 있다.
-   */
+  /** §5.5 #17-9 ⑬ — 출력 파일 끝의 종료 코드. 끝 통지 없이 파일 표식으로 회수한 셸에만(결과 칸이 비어 이것으로만 안다). */
   exitCode?: number;
   /** 표식이 `[killed]` 였는가 — 스스로 끝난 것이 아니라 **끊긴** 것이다(종료 코드 없음). */
   killed?: boolean;
-  /**
-   * §5.5 #17-9 ⑭ — 이 항목이 **무엇 때문에** 내려갔는가.
-   *
-   * 내리는 길이 다섯으로 늘었는데(끝 통지 · 세션 프로세스 소멸 · 종료 표식 · 판정 · 사용자 ×)
-   * 카드에는 전부 똑같이 "끝남"으로만 보이면, 사용자는 **자동으로 닫힌 것**과 **스스로 끝난 것**을
-   * 구별할 수 없다. 그 구별이 없으면 자동 정리는 신뢰를 잃는다.
-   */
+  /** §5.5 #17-9 ⑭ — 내려간 이유. 다 "끝남"으로 보이면 자동 닫힘과 스스로 끝남이 안 갈려 자동 정리가 신뢰를 잃는다. */
   closedBy?: 'notification' | 'process-gone' | 'end-marker' | 'probe' | 'user';
   /** `closedBy==='probe'` 일 때 그 판정(사유·끝나는 조건·모델)을 그대로 들고 내려온다. */
   probe?: BackgroundTaskProbeResult;
@@ -3037,20 +2315,13 @@ export interface FinishedSubagentTask {
   /** 부모가 받아 든 자식의 최종 보고 발췌(최대 1,200자). 아직 안 붙었으면 undefined. */
   result?: string;
   /**
-   * 이 `result` 를 **훅이 아니라 디스크 트랜스크립트에서 건져 왔는가**(`subagentResultRescue.ts`).
-   *
-   * 프로세스 트리가 끊기면(사용자 [중지] · 탭 닫기 · 크래시) `SubagentStop` 도 `PostToolUse` 도
-   * 발화하지 않아 결과 칸이 영영 비는데, 정작 자식이 해 놓은 일은 트랜스크립트에 온전히 남는다.
-   * 그때 건져 온 본문이라는 표식 — 사용자가 "부모가 실제로 받아 든 보고"와 구별할 수 있게 한다
-   * (이 보고는 **부모 세션에는 전달되지 않았다**).
+   * 트랜스크립트에서 건진 `result` 인가(`subagentResultRescue.ts`). 트리가 끊기면 훅이 안 와 결과가 비지만 일은 트랜스크립트에 남는다 —
+   * 부모 세션엔 전달되지 않은 보고다.
    */
   resultRescued?: boolean;
 }
 
-/**
- * §5.7 #23-2 v1.60 — `~/.claude/daemon/roster.json` 의 한 worker 항목.
- * Anthropic 가 schema 를 흔들 수 있어 우리는 우리가 쓰는 필드만 좁게 잡음(나머지는 unknown).
- */
+/** §5.7 #23-2 — `~/.claude/daemon/roster.json` worker 항목. 스키마가 흔들려 쓰는 필드만 잡는다. */
 export interface AgentViewRosterEntry {
   /** worker 프로세스 PID */
   pid: number;
@@ -3070,10 +2341,7 @@ export interface AgentViewRosterEntry {
   };
 }
 
-/**
- * §5.7 #23-2 v1.60 — `~/.claude/jobs/<short>/state.json` 의 우리가 보는 부분.
- * Anthropic 가 schema 를 확장할 수 있으므로 알려진 필드만 좁게 잡음.
- */
+/** §5.7 #23-2 — `~/.claude/jobs/<short>/state.json` 의 아는 필드만. */
 export interface AgentViewJobState {
   state: 'working' | 'idle' | 'needs-input' | 'done' | 'failed' | 'stopped' | string;
   detail?: string;
@@ -3114,29 +2382,13 @@ export interface SubAgentHistoryItem {
 }
 
 /** 대기열 명령 항목 (서버가 관리, 클라이언트는 읽기만) */
-/**
- * §5.5 #17-18 v4.68 — 큐에 든 명령(주로 실행 중에 넣은 "덧말")을 어떻게 꺼낼지.
- *  - `wait`      : 혼자 한 턴 (v4.68 이전 동작)
- *  - `merge`     : 뒤따르는 merge 명령과 한 프롬프트로 합쳐 한 턴에 (기본값)
- *  - `immediate` : 지금 도는 턴을 끊고(중지 + `--resume` 재개) 바로 이어서
- */
+/** §5.5 #17-18 — 덧말을 꺼내는 법. wait 혼자 한 턴 · merge(기본) 뒤따르는 merge 와 한 프롬프트 · immediate 도는 턴을 끊고(중지 + `--resume`) 바로. */
 export type CommandDispatchMode = 'wait' | 'merge' | 'immediate';
 
 /**
- * §5.5 #17-12 ③ — 명령이 오류로 끝난 **이유**의 분류.
- * 화면이 "오류" 한 단어만 띄우고 원인을 삼키던 것을 막기 위한 표시용 코드 —
- * 서버는 코드·종료코드·원문 꼬리만 싣고, 사람이 읽을 문장은 클라가 로케일로 만든다.
- *  - `spawn`     : CLI 프로세스를 띄우지 못함(경로·권한·실행 실패)
- *  - `stdin`     : 살아있는 자식에 프롬프트를 넣지 못함(파이프가 이미 닫힘)
- *  - `exit`      : CLI 가 0 이 아닌 코드로 종료(사유는 stderr 꼬리)
- *  - `crash`     : 재사용 중이던 자식이 예기치 않게 죽음
- *  - `cli`       : CLI 가 result 라인에서 `is_error` 로 실패를 신고(본문이 사유)
- *  - `maxTurns`  : 설정한 최대 턴에 닿아 우리가 중단
- *  - `agentView` : agent-view 잡이 `failed` 로 끝남
- *  - `orphaned`  : 서버 재기동으로 실행 컨텍스트가 끊김
- *  - `dispatchResult` : 결과를 받아야 하는 위임(§5.3 #10-2)의 끝난 결과를 받지 못한 채 턴이 끝남(사유는 cmdId·상태)
- *  - `usageLimit` : 요금제 한도에 닿아 멈춤(§2.4). 실패로 마감되는 경로에서만 쓴다 — 클로드처럼
- *                   exit 0 으로 끝나는 엔진은 종전대로 `completed` + `stopReason: 'usage_limit'` 이다.
+ * §5.5 #17-12 ③ — 오류 사유 코드(표시용 — 서버는 코드·종료 코드·꼬리만, 문장은 클라 로케일). stdin = 살아 있는 자식의 파이프가 닫힘 ·
+ * crash = 재사용 중 자식이 죽음 · cli = result 줄 `is_error` · orphaned = 서버 재기동으로 끊김 · dispatchResult = 받아야 할 위임 결과(§5.3 #10-2) 없이 턴 끝 ·
+ * usageLimit = 한도(§2.4), 실패로 마감되는 경로만 — exit 0 엔진은 `completed` + `stopReason:'usage_limit'`.
  */
 export type CommandErrorCode =
   | 'spawn' | 'stdin' | 'exit' | 'crash' | 'cli' | 'maxTurns' | 'agentView' | 'orphaned'
@@ -3145,19 +2397,16 @@ export type CommandErrorCode =
   | 'dispatchResult'
   // §2.4 — 한도 정지. 코덱스는 한도를 `{"type":"error"}` 로 신고해(§5.25 (F)) 실패 경로로 들어오는데,
   //   그것을 `cli` 로 적으면 화면이 "CLI 가 실패를 알렸습니다" 라고 말한다. 멈춘 이유는 실패가 아니라 한도다.
-  | 'usageLimit';
+  | 'usageLimit'
+  // §4 API 크레딧 — Anthropic 이 크레딧 경로를 거절(Console 잔액·월 한도). 앱 한도가 아니다 — 앱은 금액을 세지도 막지도 않는다.
+  | 'creditCap';
 
 /** §5.5 #17-12 ③ — 오류로 끝난 명령의 사유(표시 전용, 실행·판정 로직 미관여). */
 export interface CommandError {
   code: CommandErrorCode;
   /**
-   * §5.25 (J) 와 같은 규율 — **이 실패를 낸 것이 어느 엔진인가.**
-   *
-   * 사유 코드는 엔진 중립인데(`cli`·`spawn`·`exit` 은 클로드도 코덱스도 낸다) 문장만 `Claude CLI` 를
-   * 못박고 있어서, GPT 버블이 한도로 멈춘 자리에 **"Claude CLI 가 실패를 알렸습니다"** 가 떴다
-   * (2026-09-22 사용자 보고 — GPT 버블 아래에 `opus` 가 뜬 그 사고와 같은 부류). 문장을 만드는 쪽이
-   * 엔진을 알아야 제 이름을 부른다. **모르면 비워 둔다** — 그때 화면은 엔진 이름 없이 `CLI` 라고만 말한다
-   * (옛 명령·세션이 사라진 봉합분을 클로드로 단정하지 않기 위함).
+   * §5.25 (J) — 실패를 낸 엔진. 사유 코드는 엔진 중립이라 문장이 엔진을 알아야 이름을 부른다(못박으면 GPT 버블에 "Claude CLI" 가 뜬다).
+   * 모르면 비워 두고 `CLI` 라고만 — 봉합분을 클로드로 단정 ❌.
    */
   engine?: AgentEngineKind;
   /** 프로세스 종료 코드(있을 때만). */
@@ -3178,126 +2427,70 @@ export interface QueuedCommand {
   /** 실행할 subagent ID (null이면 새 세션 자동 생성) */
   subAgentId: string | null;
   /**
-   * §5.5 #17-18 ⑥ — 이 명령이 **실제로 나간** 시각(`queued → executing` 전이 시점).
-   * `timestamp`(= 큐에 넣은 시각)와 다르다: 실행 중에 넣은 덧말은 둘 사이가 몇 분씩 벌어진다.
-   * 화면은 이 값으로 말풍선 자리를 고정해 **턴이 끊긴 자리**를 만든다 — 없으면(이 필드 이전의
-   * 옛 명령) 종전대로 `timestamp` 로 정렬한다.
-   *
-   * ⑥-5 — **한 명령에 한 번만 찍는다.** 앱이 내려가 재개하거나(`restartResumed`) 창구가 닫혀 큐로
-   * 되돌린 재시도는 **같은 턴의 이어달리기**라, 다시 찍으면 말풍선이 자기가 이미 뱉어 놓은 출력
-   * 아래로 내려앉는다. 값이 있다는 것은 곧 "이 명령은 나간 적이 있다"는 뜻이다.
+   * §5.5 #17-18 ⑥ — 실제로 나간 시각(`queued → executing`). 말풍선 자리를 이걸로 고정한다(덧말은 `timestamp` 와 몇 분씩 벌어진다, 없으면 `timestamp`).
+   * ⑥-5 한 번만 찍어라 — 재개·재시도는 같은 턴이라 다시 찍으면 말풍선이 자기 출력 아래로 간다.
    */
   startedAt?: number;
   /** 실행 상태 */
   status: 'queued' | 'executing' | 'completed' | 'error';
   /** 실행 결과 (completed 시) */
   result?: string;
-  /**
-   * §5.5 #17-12 ③ — `status === 'error'` 로 끝난 이유. 없으면 사유를 알 수 없는 옛 명령이다.
-   * 하단 상태바·스트림·메인 타임라인이 이걸 읽어 "오류" 한 단어 대신 무슨 오류인지 말한다.
-   */
+  /** §5.5 #17-12 ③ — error 로 끝난 사유(없으면 옛 명령). 상태바·스트림·타임라인이 무슨 오류인지 말한다. */
   error?: CommandError;
   /**
-   * §5.5 #17-12 ③-6 — 턴이 끝난 이유(`resolveTurnStopReason`). `status`·`error` 와 직교한다 —
-   * 사용자 중지는 `completed` + `cancelled`, 턴 상한은 `error(maxTurns)` + `max_turns` 로 함께 앉는다.
-   * 없으면 이 필드 이전의 옛 명령이거나, 실패로 끝났는데 오류 코드 말고는 이유를 모르는 턴이다.
+   * §5.5 #17-12 ③-6 — 턴이 끝난 이유(`resolveTurnStopReason`, `status`·`error` 와 직교 — 중지 = completed + cancelled,
+   * 상한 = error(maxTurns) + max_turns). 없으면 옛 명령이거나 이유 모름.
    */
   stopReason?: TurnStopReason;
+  /** §4 API 크레딧 — 나간 결제 경로(크레딧 기능이 켜진 Claude 헤드리스만). 표시·자동 이어가기용 — 금액은 Console 이 센다. */
+  billingRoute?: ApiCreditRoute;
+  /** §4 API 크레딧 — 자동 이어가기 명령이면 원래 명령 id. 이게 있으면 다시 멈춰도 또 잇지 않는다(연쇄 ❌). */
+  autoContinueOf?: string;
   /** 이 명령 실행에 사용된 입력 토큰 (이전 누적 대비 증분) */
   inputTokens?: number;
   /** 이 명령 실행에 사용된 출력 토큰 (이전 누적 대비 증분) */
   outputTokens?: number;
-  /** v1.32 — Task Edge dispatch로 주입된 경우 해당 엣지 ID. 완료 시 대기 promise resolve + 엣지 status 동기화. */
+  /** Task Edge dispatch 명령의 엣지 ID(완료 때 대기 promise 해제 + 엣지 status 동기화). */
   edgeId?: string;
-  /**
-   * v1.35 — 클립보드 paste 로 첨부된 이미지 파일 경로 목록.
-   * 서버 `.vibisual/attachments/<sessionId>/<uuid>.<ext>` 절대경로.
-   * dispatch 시 프롬프트 텍스트 말미에 공백 구분으로 append 하여 CLI 에 전달되고,
-   * 명령 완료/에러 시 `setOnComplete` 콜백이 파일 unlink + 이 필드를 undefined 로 되돌림.
-   * 결과 아카이브(completedCommands)에는 남지 않음.
-   */
+  /** paste 이미지 절대경로(`.vibisual/attachments/<sessionId>/…`). dispatch 때 프롬프트 끝에 붙이고, 끝나면 `setOnComplete` 가 지운다(아카이브엔 없음). */
   attachments?: string[];
   /**
-   * v1.79→v1.80 — 서버 재시작으로 끊긴 커스텀 에이전트 명령을 `[orphaned]` 에러로 봉합하지 않고
-   * 보존된 세션(sub.sessionId)으로 자동 재개(re-queue)했음을 표시. **게이트가 아니라 진단용
-   * 누적 표식이다** — v1.79 의 one-shot 가드는 서버를 두 번 재시작하면 2번째부터 무조건
-   * `[orphaned]` 로 떨어뜨려 잘못이었고, 재개는 사용자의 실제 재시작 1건에 대응하므로 횟수 캡이
-   * 없다(`projectGraph` reconcile 참조).
-   *
-   * §5.5 #17-18 ⑥-5 — 이 표식이 붙은 명령은 **이미 한 번 나간** 명령이다. 재개하려고 `status` 가
-   * `queued` 로 돌아가 있어도 말풍선 자리는 `startedAt`(처음 나간 시각) 그대로여야 한다 —
-   * 재개는 같은 턴의 이어달리기지 새 턴이 아니다.
+   * 재시작으로 끊긴 명령을 `[orphaned]` 대신 sub.sessionId 로 다시 큐에 넣었다는 진단 표식 — one-shot 가드로 쓰지 마라(두 번째 재시작부터 다 orphaned).
+   * ⑥-5: 이미 나간 명령이라 `queued` 로 돌아가도 말풍선은 `startedAt` 그대로.
    */
   restartResumed?: boolean;
-  /**
-   * §5.5 #17-18 v4.68 — 이 명령의 dispatch 방식. 미지정이면 `DEFAULT_COMMAND_DISPATCH_MODE`(=`merge`).
-   * 큐에 있는 동안 `PATCH /api/commands/:sessionId/:commandId/mode` 로 바꿀 수 있다.
-   */
+  /** §5.5 #17-18 — dispatch 방식(없으면 `merge`). 큐에 있는 동안 `PATCH /api/commands/:sessionId/:commandId/mode`. */
   dispatchMode?: CommandDispatchMode;
   /** Server-captured unfinished commands that preceded a new task. Later submissions never extend this wait. */
   waitForCommandIds?: string[];
-  /**
-   * §5.5 #17-18 v4.68 — 합치기로 이 명령에 흡수된 뒤따른 덧말 수(표시 전용 배지).
-   * 0/undefined = 단독 dispatch.
-   */
+  /** §5.5 #17-18 — 흡수된 덧말 수(배지). 0/undefined = 단독. */
   mergedCount?: number;
   /**
-   * §5.3 #9-1 (P) — **우리가 사용자 명령 앞에 끼워 넣은 조용한 내부 명령**(자동 압축).
-   *
-   * 실행 경로는 다른 명령과 **완전히 같다**(같은 큐 · 같은 dispatch · 같은 직렬 가드) — 다른 것은
-   * **화면에 그리지 않는다**는 것 하나뿐이다. 사용자가 입력창에 직접 친 `/compact` 는 이 표식이
-   * 없으므로 종전대로 말풍선이 뜬다(둘을 텍스트로 가를 수 없어 필드가 필요하다).
-   *
-   * ⚠ **"돌고 있는가" 판정에서는 빼지 마라.** 이 명령이 도는 동안 화면이 "생각 중"으로 보이는 것이
-   * 이 기능의 전부다 — running 에서 빼면 압축이 도는 내내 세션이 멈춘 것처럼 보인다.
+   * §5.3 #9-1 (P) — 끼워 넣은 조용한 내부 명령(자동 압축). 실행은 같고 그리지만 않는다(친 `/compact` 와 글자로 못 가른다).
+   * ⚠ "도는가" 판정에서 빼지 마라 — 압축 내내 멈춘 듯 보인다.
    */
   silent?: boolean;
-  /**
-   * §5.3 #10-4 — 이 명령이 오케스트라 런에 속한다(`OrchestraRun.runId`).
-   * 사용자 입력이 가로채인 **지휘 명령**과, 지휘자가 `?orchestraRunId=` 로 넣은 **킥오프**에 찍힌다.
-   * 이 표식이 있는 명령은 덧말 합치기의 경계다(흡수하지도 흡수되지도 않는다).
-   */
+  /** §5.3 #10-4 — 오케스트라 런(`OrchestraRun.runId`). 지휘 명령·킥오프(`?orchestraRunId=`)에 찍히고, 덧말 합치기의 경계다. */
   orchestraRunId?: string;
-  /**
-   * §5.13 (R-10) — 이 명령 한 건의 **턴·시간 상한**(제작 앱의 '빠른 초안 / 정교하게'). 에이전트 설정의 상한과 함께
-   * 걸리면 더 좁은 쪽이 이긴다. 턴 수를 세고 끊을 수 있는 엔진에서만 적용되며(`runLimitsApplied`), 비용을 수치로
-   * 약속하지 않는다.
-   */
+  /** §5.13 (R-10) — 명령 한 건의 턴·시간 상한. 에이전트 상한과 겹치면 좁은 쪽, 끊을 수 있는 엔진만(`runLimitsApplied`), 비용 약속 ❌. */
   runLimits?: { maxTurns?: number; maxMinutes?: number };
   /** Optional app capability requirements for this command only. */
   executionRequirements?: CommandExecutionRequirements;
-  /**
-   * §5.1 #2-1 (F) ① — 이 명령이 **어느 앱 노드의 작업**인가(말풍선이 보낼 때 넣은 노드 · `APP_WORK.commandNodeMax` 까지).
-   * 서버가 그 명령 중 쓴 파일에 `appWork` 꼬리표를 다는 열쇠다. 없으면 본문에 적힌 앱 노드 id(옛 명령)를 읽는다.
-   */
+  /** §5.1 #2-1 (F) ① — 이 명령의 앱 노드(`APP_WORK.commandNodeMax` 까지) — 쓴 파일에 `appWork` 를 다는 열쇠. 없으면 본문의 앱 노드 id(옛 명령). */
   appNodeIds?: string[];
-  /**
-   * §5.1 #2-1 (F) ① — 말풍선에서 이어진 앱을 **모두 빼고** 보낸 명령(칩을 다 끈 뜻). 서버는 이 명령 중 쓴 파일에 꼬리표를
-   * 달지 않고, "이어진 앱 노드"·"마지막 앱 명령" 폴백도 타지 않는다. `appNodeIds` 가 있으면 싣지 않는다(일부만 뺀 명령).
-   */
+  /** §5.1 #2-1 (F) ① — 이어진 앱을 모두 뺀 명령 — 꼬리표도 폴백(이어진 앱·마지막 앱 명령)도 없다. `appNodeIds` 가 있으면 싣지 않는다. */
   appNodesOff?: true;
   /** 서버가 실제로 건 상한(없으면 이 엔진은 상한을 지원하지 않았다). 화면은 이것만 "적용됨"으로 말한다. */
   runLimitsApplied?: { maxTurns?: number; maxMinutes?: number };
   /** 시간 상한에 닿아 서버가 멈춘 명령(턴 상한은 기존 `error.code === 'maxTurns'` 가 말한다). */
   runLimitHit?: 'maxMinutes';
-  /**
-   * §5.3 #12-4 (C) — 이 명령에 열린 **검증 범위**. 서버만 찍는다(요청 본문의 같은 이름 칸은 읽지 않는다).
-   * 없으면 이 명령에서는 검증(테스트·린트·타입 검사·빌드·E2E·브라우저·스크린샷·검증 에이전트)을 실행할
-   * 권한이 없다. 판정은 이 명령이 `executing` 인 동안만 이 값을 본다 — 끝나면 그대로 만료된다.
-   */
+  /** §5.3 #12-4 (C) — 열린 검증 범위(서버만 찍는다 — 요청 본문 칸은 무시). 없으면 검증 실행 권한 ❌. `executing` 동안만 유효. */
   verificationScope?: VerificationScope;
-  /**
-   * §5.3 #12-4 (F) — 이 명령에서 검증을 몇 번 돌렸고 몇 번 막았으며 파일을 고쳤는가. 서버가 판정마다 적고
-   * 화면은 그대로 그린다. **통과 여부는 담지 않는다** — 돌렸다는 사실과 통과했다는 사실은 다르다.
-   */
+  /** §5.3 #12-4 (F) — 검증 횟수·막음·고침. 통과 여부는 담지 않는다(돌렸다 ≠ 통과했다). */
   verification?: CommandVerificationSummary;
 }
 
-/**
- * §5.3 #12-4 — 앱이 "검증"으로 세는 실행 종류. 사용자가 그 명령에서 요청했을 때만 열린다.
- * `agent` 는 검증·리뷰 역할의 서브에이전트를 띄우는 것이다.
- * (이름이 `VerificationKind` 가 아닌 이유 — 그 이름은 검증 증거(`VerificationAttempt.kind`)가 이미 쓴다.)
- */
+/** §5.3 #12-4 — 검증으로 세는 실행 종류(요청한 명령에서만 열린다). `VerificationKind` 는 증거(`VerificationAttempt.kind`)가 쓰는 이름이다. */
 export type VerificationPolicyKind = 'test' | 'lint' | 'typecheck' | 'build' | 'e2e' | 'browser' | 'screenshot' | 'agent';
 
 /** §5.3 #12-4 (C) — 범위가 어디서 왔나. 사용자 문장 · [검증 실행] 버튼 · 보낸 명령에서 물려받음. */
@@ -3334,41 +2527,19 @@ export interface CommandVerificationSummary {
   edited?: boolean;
 }
 
-/**
- * §5.5 #17-11 v3.79 — 세션 반복 실행(루프) 방식.
- * - `count`: `total` 회 채우면 자연 종료.
- * - `infinite`: 사용자가 멈추기 전까지 계속.
- */
+/** §5.5 #17-11 — `count` = `total` 회면 끝 · `infinite` = 멈출 때까지. */
 export type SessionLoopMode = 'count' | 'infinite';
 
 /**
- * §5.5 #17-11 v3.79 — 루프 진행 상태 (서버가 판정, 클라는 표시만).
- * - `idle`: 설정만 있고 꺼져 있음.
- * - `running`: 지금 한 회차가 세션에서 실행 중.
- * - `waiting`: 회차 사이 대기(`nextRunAt` 까지).
- * - `done`: `count` 목표 도달로 정상 종료.
- * - `stopped`: 사용자 중지(세션 중지/전체 중지/정지 버튼)로 멈춤.
- * - `error`: 회차가 실패했고 `stopOnError` 라서 멈춤.
- * - `budget`: §5.5 #17-11 ⑫(a) 예산(비용·토큰·시간) 상한에 닿아 회차 경계에서 멈춤.
+ * §5.5 #17-11 — 루프 상태(서버 판정). waiting = 회차 사이(`nextRunAt`) · stopped = 사용자 중지 · error = 실패 + `stopOnError` ·
+ * budget = ⑫(a) 예산 상한(회차 경계에서 멈춤).
  */
 export type SessionLoopStatus = 'idle' | 'running' | 'waiting' | 'done' | 'stopped' | 'error' | 'budget';
 
-/**
- * §5.5 #17-11 ⑫(b) — 회차 사이 컨텍스트 처리.
- * - `none`: 아무것도 하지 않는다(기본 — 종전 동작).
- * - `compact`: `/compact` 로 요약 압축(대화 맥락을 요약으로 남긴다).
- * - `clear`: `/clear` 로 완전 초기화(회차마다 새 컨텍스트 — 기억은 진행 파일·git 에 둔다).
- */
+/** §5.5 #17-11 ⑫(b) — 회차 사이 컨텍스트: none(기본) · compact(`/compact`) · clear(`/clear` — 기억은 진행 파일·git 에). */
 export type SessionLoopContextMode = 'none' | 'compact' | 'clear';
 
-/**
- * §5.5 #17-11 v3.79 — IDE 내부 세션(탭) 하나에 붙는 반복 명령 설정.
- *
- * 소유 단위가 **에이전트가 아니라 세션 탭(subAgentId)** 인 것이 이 기능의 핵심 —
- * 탭마다 다른 명령·다른 횟수를 갖고, 탭을 바꾸면 그 탭의 루프가 보인다.
- * 한 회차는 기존 명령 큐(`QueuedCommand`)에 그대로 얹히므로 dispatch·스트림·중지·아카이브
- * 경로가 사용자가 직접 보낸 명령과 완전히 동일하다(새 실행 레일 없음).
- */
+/** §5.5 #17-11 — 세션 탭(subAgentId) 단위 반복 명령. 회차는 기존 명령 큐(`QueuedCommand`)에 얹힌다 — 새 실행 레일 ❌. */
 export interface SessionLoop {
   /** 소유 (부모) 에이전트 버블 ID — 프로젝트 필터·영속 분류 키. */
   agentId: string;
@@ -3388,51 +2559,33 @@ export interface SessionLoop {
   intervalMs: number;
   /** 회차가 error 로 끝나면 자동 정지할지. */
   stopOnError: boolean;
-  /**
-   * §5.5 #17-11 ⑪·⑫(b) — 한 회차가 끝날 때마다 다음 회차 **전에** 컨텍스트를 어떻게 할지.
-   * 기본 `'none'`(기존 루프 동작 무변경). 이 정리 명령은 회차로 계수하지 않는다.
-   */
+  /** §5.5 #17-11 ⑪·⑫(b) — 회차 전 컨텍스트 처리(기본 'none'). 이 정리 명령은 회차로 세지 않는다. */
   contextMode: SessionLoopContextMode;
-  /**
-   * §5.5 #17-11 ⑫(a) — 누적 비용 상한(USD). 미설정·0 이면 무제한.
-   * 넘으면 회차 경계에서 `status='budget'` 으로 정지한다(돌고 있는 회차는 끊지 않는다).
-   */
+  /** §5.5 #17-11 ⑫(a) — 누적 비용 상한(USD, 0 = 무제한). 넘으면 회차 경계에서 'budget'(도는 회차는 안 끊는다). */
   maxCostUsd?: number;
   /** §5.5 #17-11 ⑫(a) — 누적 토큰(입력+출력) 상한. 미설정·0 이면 무제한. */
   maxTokens?: number;
   /** §5.5 #17-11 ⑫(a) — 사이클 시작(`cycleStartedAt`)부터의 벽시계 상한(ms). 미설정·0 이면 무제한. */
   maxDurationMs?: number;
-  /**
-   * §5.5 #17-11 ⑫(a) — 이번 사이클에서 지금까지 쓴 **추정** 비용(USD).
-   * 명령 단위 토큰 델타에 캐시 읽기/쓰기 구분이 없어 전부 입력가로 환산하므로 실제보다 크게 잡힌다.
-   */
+  /** §5.5 #17-11 ⑫(a) — 이번 사이클 추정 비용(USD). 캐시 구분 없이 입력가로 환산해 실제보다 크다. */
   spentCostUsd: number;
   /** §5.5 #17-11 ⑫(a) — 이번 사이클 누적 토큰(입력+출력). */
   spentTokens: number;
   /** §5.5 #17-11 ⑫(a) — 이번 사이클이 시작된 시각(epoch ms) — 벽시계 상한의 기준. */
   cycleStartedAt?: number;
-  /**
-   * §5.5 #17-11 ⑫(c) — 진행 파일 경로(프로젝트 기준 상대). 설정하면 회차 프롬프트에
-   * "시작 전에 읽고 끝나면 갱신하라"는 규약이 붙는다 — 압축·초기화로 대화가 날아가도 이어진다.
-   */
+  /** §5.5 #17-11 ⑫(c) — 진행 파일(프로젝트 상대). 회차 프롬프트에 "읽고 시작, 끝나면 갱신" 규약이 붙어 압축·초기화 뒤에도 잇는다. */
   progressFile?: string;
   /** §5.5 #17-11 ⑫(d) — "한 회차엔 한 가지 일만" 규칙을 회차 프롬프트에 주입할지. */
   oneTaskPerRound: boolean;
   /** §5.5 #17-11 ⑫(e) — 회차에서 실제 변경이 있으면 커밋하라는 규약을 주입할지(커밋 주체는 에이전트). */
   commitEachRound: boolean;
-  /**
-   * §5.5 #17-11 ⑫(f) — 매 회차 본문을 읽어올 파일 경로(프로젝트 기준 상대).
-   * 설정하면 루프가 도는 중에 파일만 고쳐도 다음 회차부터 반영된다. 읽기 실패 시 `command` 로 계속.
-   */
+  /** §5.5 #17-11 ⑫(f) — 회차 본문 파일(프로젝트 상대, 고치면 다음 회차부터). 읽기 실패면 `command`. */
   commandFile?: string;
   /** 진행 상태 (서버 판정). */
   status: SessionLoopStatus;
   /** 지금 도는 회차의 `QueuedCommand.id` — 완료 대조용(이 id 가 끝나야 다음 회차). */
   pendingCommandId?: string;
-  /**
-   * §5.5 #17-11 ⑪ — 회차 사이에 끼워 넣은 압축 명령의 `QueuedCommand.id`.
-   * 이 명령이 끝나야 다음 회차를 예약한다(런타임 대조용 — 복원 시에는 비운다).
-   */
+  /** §5.5 #17-11 ⑪ — 끼워 넣은 압축 명령 id. 끝나야 다음 회차를 예약한다(런타임 — 복원 때 비운다). */
   pendingCompactCommandId?: string;
   /** `waiting` 중일 때 다음 회차 예정 시각 (epoch ms). */
   nextRunAt?: number;
@@ -3446,36 +2599,16 @@ export interface SessionLoop {
   updatedAt: number;
 }
 
-/**
- * §5.5 #17-17 v4.46 — 세션 목표의 생애 상태.
- * - `active`: 진행 중 — 매 턴 dispatchContext 에 주입돼 세션이 이 목표를 향해 간다.
- * - `achieved`: 사용자가 "달성"으로 닫음(기록은 남되 주입은 멈춘다).
- * - `abandoned`: 사용자가 접음(같은 이유로 주입 멈춤).
- */
+/** §5.5 #17-17 — active 일 때만 매 턴 주입(achieved·abandoned 는 기록만 남는다). */
 export type SessionGoalStatus = 'active' | 'achieved' | 'abandoned';
 
-/**
- * §5.5 #17-17 v4.46 — 진행률이 어디서 왔는가.
- * - `agent`: 주입 지시문을 받은 에이전트가 턴 끝에 스스로 신고.
- * - `user`: 사용자가 목표 패널에서 직접 보정.
- * - `plan`: 아직 아무 신고도 없을 때의 자동 폴백 — `TodoWrite` 계획의 완료/전체.
- */
+/** §5.5 #17-17 — agent 턴 끝 신고 · user 직접 보정 · plan 신고가 없을 때 `TodoWrite` 완료/전체. */
 export type SessionGoalProgressSource = 'agent' | 'user' | 'plan';
 
-/**
- * §5.5 #17-17 v4.47 — 목표 단계 하나의 상태 (todo 와 같은 3단).
- * - `pending`: 아직 안 함.
- * - `in_progress`: 지금 하는 중(화면에서 강조).
- * - `done`: 끝남 — 퍼센트를 올리는 것은 이것뿐이다.
- */
+/** §5.5 #17-17 — 퍼센트를 올리는 것은 `done` 뿐(`in_progress` 는 강조). */
 export type SessionGoalStepStatus = 'pending' | 'in_progress' | 'done';
 
-/**
- * §5.5 #17-17 v4.47 — 최종 목표로 가는 단계 하나(체크리스트 항목).
- *
- * 사용자가 직접 적어 넣기도 하고, 에이전트가 진행 신고에 `steps` 를 실어 통째로 갱신하기도 한다.
- * 서버가 본문이 같은 기존 단계의 `id` 를 재사용하므로, 목록이 다시 와도 화면의 체크박스가 튀지 않는다.
- */
+/** §5.5 #17-17 — 목표 단계. 서버가 본문이 같은 단계의 `id` 를 재사용해 목록이 다시 와도 체크박스가 안 튄다. */
 export interface SessionGoalStep {
   /** 단계 고유 id — 화면 key·부분 갱신용. */
   id: string;
@@ -3485,61 +2618,27 @@ export interface SessionGoalStep {
   status: SessionGoalStepStatus;
   /** 마지막 상태 변경 시각 (epoch ms). */
   updatedAt: number;
-  /**
-   * §5.5 #17-17 ⑪(a) — 이 단계가 **무슨 성격의 일**인가 (`VisualKindCard.key`).
-   *
-   * 유니온이 아니라 **카드를 가리키는 자유 키**다 — 사람마다 만드는 것이 다르므로 종류를 코드에
-   * 박지 않고 데이터로 둔다(에이전트가 상황에 맞게 새 종류를 만든다). 없으면 지금과 똑같이
-   * 중립 점으로 그린다(저장된 목표를 옮겨 심을 필요 없음).
-   */
+  /** §5.5 #17-17 ⑪(a) — 단계의 성격(`VisualKindCard.key`) — 유니온이 아니라 자유 키(에이전트가 종류를 만든다). 없으면 중립 점. */
   kind?: string;
-  /**
-   * §5.5 #17-17 ⑪(d) — 이 **단계**를 쓴 주체. `SessionGoal.authoredBy`(문장의 주인)를 한 단 내린 것.
-   *
-   * `user` 인 단계는 세션이 보낸 목록에 없어도 **지우지 않는다** — 사용자가 작업 도중 끼워 넣은
-   * 일을 에이전트가 자기 목록으로 덮어 지우면 안 되기 때문. 주입 블록이 "지울 수 없다"고 못 박는다.
-   * 없으면 `session` 으로 본다(하위호환 — 기존 단계는 전부 세션이 쓴 것).
-   */
+  /** §5.5 #17-17 ⑪(d) — 단계를 쓴 주체(없으면 session). `user` 단계는 세션 목록에 없어도 지우지 마라 — 끼워 넣은 일을 에이전트가 덮어 지운다. */
   authoredBy?: 'session' | 'user';
   /** §5.5 #17-17 ⑪(d) — 사용자가 끼워 넣은 시각 (epoch ms). `authoredBy==='user'` 일 때만 의미. */
   injectedAt?: number;
-  /**
-   * §5.5 #17-17 ⑪(e) — 이 단계를 해낼 확신. **이진**이다(숫자·색 그라데이션보다 고/저 두 값이 잘 읽힌다).
-   * `low` 는 빗금 테두리로 그린다. 없으면 실선(지금과 같다). **퍼센트 산식에 관여하지 않는다.**
-   */
+  /** §5.5 #17-17 ⑪(e) — 확신(이진). `low` 는 빗금 테두리, 퍼센트 산식엔 관여 ❌. */
   confidence?: 'high' | 'low';
   /**
-   * §5.5 #17-17 ⑰(a) — **바로 앞 단계와 같은 행**이다(나란히 = 병렬).
-   *
-   * 순서 목록 위에 얹히는 표식 하나다 — 그래프 자료구조를 새로 들이지 않는다(id 재사용·
-   * `mergeGoalSteps`·체크포인트 왕복이 그대로 산다). 한 행 = 표식 없는 단계 하나 + 표식 붙은 0..N.
-   * 주입 블록에는 `∥` 로 찍히고, 규약이 그 행을 서브에이전트·백그라운드로 갈라 돌리게 한다(⑰(b)).
-   * 목록의 첫 단계에 붙은 표식은 뜻이 없다(앞이 없다) — 그리는 쪽이 무시한다.
+   * §5.5 #17-17 ⑰(a) — 앞 단계와 같은 행(병렬). 목록 위 표식일 뿐 그래프 구조 ❌(id·`mergeGoalSteps`·왕복이 그대로).
+   * 주입엔 `∥`(⑰(b)), 첫 단계 표식은 무시.
    */
   parallel?: boolean;
 }
 
-/**
- * §5.5 #17-17 ⑪(c) — 시각 종류 카드의 생애 상태.
- * - `active`: 아이콘 레인에 그린다.
- * - `dormant`: 노출은 많았는데 도움이 된 적 없어 침전 — 중립 점으로 그린다(카드는 남는다).
- * - `trashed`: 휴지통으로 갔다 — 그리지 않는다. 사용자가 꺼내거나 에이전트가 같은 키를 다시 쓰면 되살아난다.
- */
+/** §5.5 #17-17 ⑪(c) — dormant = 노출은 많은데 도움 된 적 없음(중립 점) · trashed = 안 그림(꺼내거나 같은 키를 다시 쓰면 산다). */
 export type VisualKindStatus = 'active' | 'dormant' | 'trashed';
 
 /**
- * §5.5 #17-17 ⑪(i) — 종류 카드가 **펴는 화면 골격**. 여기만은 유한한 유니온이다.
- *
- * 종류(`VisualKindCard.key`)는 에이전트가 무한히 늘리지만, **우리가 그릴 줄 아는 화면은 우리가
- * 만든 수만큼**이라 그 축은 유한하다. (a) 의 "유니온으로 두면 확장이 멈춘다"와 어긋나지 않는다 —
- * 늘어나는 축(종류)과 그리는 축(골격)을 갈라 둔 것이고, 새 종류는 골격을 **고르기만** 하면 된다.
- *
- * - `source` 그 단계가 건드린 파일 · `log` 출력(언리얼 로그 포함) · `diff` 변경분
- * - `web` 그 주소 · `terminal` 그 세션의 터미널 · `docs` 그 문서 · `none` 골격 없음(지금과 같은 그림)
- *
- * ㉒(a) — **산출물 넷**(`image`·`model3d`·`video`·`audio`). 에이전트가 만든 것을 앱 밖으로 나가지
- * 않고 무대 안에서 본다 — 뒤 셋은 **이미 있는 내부 앱**(§5.13 `vibi3d`·`vibistudio`·`vibisound`)을
- * `AppShellHost fill` 로 펴고, `image` 는 편집창의 그림 칸을 그대로 부른다. 새 뷰어 ❌ · 새 창 ❌.
+ * §5.5 #17-17 ⑪(i) — 종류가 펴는 화면 골격. 여기만은 유한 유니온 — 종류는 늘어도 그릴 줄 아는 화면은 만든 만큼이다.
+ * ㉒(a) 산출물 넷은 기존 내부 앱(§5.13 `vibi3d`·`vibistudio`·`vibisound`)을 `AppShellHost fill` 로 편다(`image` 는 편집창 그림 칸) — 새 뷰어·새 창 ❌.
  */
 export type VisualKindSurface =
   | 'source'
@@ -3555,61 +2654,30 @@ export type VisualKindSurface =
   | 'none';
 
 /**
- * §5.5 #17-17 ⑪(a) — **단계의 "종류"**. 타입 유니온이 아니라 **카드**다.
- *
- * 유니온으로 새기면 리터럴 하나를 늘릴 때마다 shared·서버·클라·12 로케일이 함께 움직여 확장이 멈춘다.
- * 대신 데이터로 두어 **에이전트가 상황에 맞게 만들고**(게임이면 `shader`, 백엔드면 `migration`),
- * §5.10 기억 카드와 **같은 진화 축**(`refCount`/`helpfulCount`/`pinned`)으로 안 쓰이면 시들게 한다.
- *
- * ⑪(i) — 카드는 글리프 하나로 끝나지 않는다. **그 종류가 펴는 화면까지 카드가 들고 있다**
- * (`scene`·`surface`·`blurb`) — 그것이 없으면 `git` 이든 `unreal` 이든 지도 위에서 같은 점이다.
+ * §5.5 #17-17 ⑪(a) — 단계 종류 카드. 유니온이면 리터럴마다 shared·서버·클라·12 로케일이 움직여 확장이 멈춘다 — 데이터로 두고 안 쓰이면 시든다.
+ * ⑪(i) 그 종류가 펴는 화면(`scene`·`surface`·`blurb`)까지 카드가 든다.
  */
 export interface VisualKindCard {
   /** 안정 키 — 단계의 `kind` 가 이것을 가리킨다. 에이전트가 짓는다(`shader`·`migration` …). */
   key: string;
   /** 화면에 뜨는 이름. */
   label: string;
-  /**
-   * 인라인 stroke SVG path 문자열 (`viewBox="0 0 24 24"` 기준).
-   *
-   * **에이전트가 직접 그린다 — 웹 이미지 ❌**(무료 배포 제품이라 출처 불명 에셋의 라이선스를 우리가
-   * 뒤집어쓴다). `sanitizeGlyphPath` 가 경로 문법 문자만 통과시키고 `SVG_PATH_MAX` 로 자른다.
-   * 문법을 벗어나면 카드는 만들되 글리프만 버린다(중립 점).
-   */
+  /** stroke path(`viewBox 0 0 24 24`). 에이전트가 그린다 — 웹 이미지 ❌(출처 불명 라이선스). `sanitizeGlyphPath`·`SVG_PATH_MAX`, 벗어나면 글리프만 버린다. */
   glyph?: string;
   /** 아이콘 색 (`#RRGGBB`). 없으면 중립색. */
   color?: string;
-  /**
-   * §5.5 #17-17 ⑪(i) — **장면 그림.** 무대 배경에 크게 그리는 stroke SVG path 들
-   * (`viewBox="0 0 96 96"` 기준 — 목록·노드에 쓰는 24px `glyph` 와는 별개의 그림이다).
-   *
-   * (b) 의 규율 그대로 **에이전트가 직접 그리고 웹 이미지는 받지 않는다.** path 마다
-   * `sanitizeGlyphPath` 를 통과시키고 개수는 `VISUAL_SCENE_PATHS_MAX` 로 자른다 —
-   * 통과 못 한 path 만 버리고 카드는 남는다(글리프와 같은 처리).
-   */
+  /** §5.5 #17-17 ⑪(i) — 무대 배경 장면 path 들(`viewBox 0 0 96 96`). `glyph` 와 같은 규율(웹 이미지 ❌·`sanitizeGlyphPath`), 개수 `VISUAL_SCENE_PATHS_MAX`. */
   scene?: string[];
-  /**
-   * §5.5 #17-17 ⑪(i) — 이 종류가 **펴는 화면 골격**. 없거나 모르는 값이면 `none` 으로 읽는다.
-   * `git` 이면 `diff`, 언리얼이면 `log`, C++ 이면 `source` — 무대가 이 값을 보고 아래 칸을 고른다.
-   */
+  /** §5.5 #17-17 ⑪(i) — 펴는 골격(없거나 모르면 `none`). 무대가 이 값으로 아래 칸을 고른다. */
   surface?: VisualKindSurface;
-  /**
-   * §5.5 #17-17 ⑪(i) — **미리 표현하는 한 줄.** 그 단계에 들어선 순간, 실제로 손대기 **전에** 뜬다
-   * ("변경분을 살펴봅니다"). 사용자가 화면만 보고 "이제 git 을 만지겠구나"를 아는 근거다.
-   * `VISUAL_KIND_BLURB_MAX` 로 자른다.
-   */
+  /** §5.5 #17-17 ⑪(i) — 단계에 들어서 손대기 전에 뜨는 한 줄(`VISUAL_KIND_BLURB_MAX` 로 자른다). */
   blurb?: string;
   /**
    * 씨앗 카드인가 — `locate`/`change`/`verify` 셋. **시들지도 지워지지도 않는다**
    * (전부 사라지면 지도가 백지가 되므로).
    */
   seed?: boolean;
-  /**
-   * §5.5 #17-17 ⑪(i) — **시작 카드인가**(`git`·`github`·`source`·`log`·`build`·`test`).
-   *
-   * 씨앗과 다르다 — 처음 한 번 함께 심어 주지만 **보통 카드처럼 시들고 휴지통으로 간다.**
-   * 언리얼만 만드는 사용자에게 `github` 카드가 영원히 남아 있을 이유가 없다("쓰는 대로 진화한다").
-   */
+  /** §5.5 #17-17 ⑪(i) — 시작 카드(`git`·`github`·`source`·`log`·`build`·`test`). 씨앗과 달리 보통 카드처럼 시들고 휴지통으로 간다. */
   starter?: boolean;
   /** 이 종류가 단계에 붙어 화면에 나온 누적 횟수(§5.10 랭킹의 임프레션과 같은 뜻). */
   refCount: number;
@@ -3626,36 +2694,16 @@ export interface VisualKindCard {
   updatedAt: number;
 }
 
-/**
- * §5.5 #17-17 ⑫(a) — 팔레트 한 칸이 **어디서 배운 것인가.**
- *
- * `skill` 이 세션이 부른 스킬(`skillUsageCounts`) · `command` 이 되풀이된 셸 명령(`bashHistory`) ·
- * `step` 이 사용자가 되풀이해 꽂은 단계(`authoredBy==='user'`). 셋 다 **이미 세고 있는 것**이라
- * 새 수집 경로가 없다.
- */
+/** §5.5 #17-17 ⑫(a) — 팔레트 출처(skill `skillUsageCounts` · command `bashHistory` · step 사용자 단계) — 이미 세는 것만, 새 수집 ❌. */
 export type GoalActionSource = 'skill' | 'command' | 'step';
 
-/**
- * §5.5 #17-17 ⑫(b) — **팔레트 한 칸.** 무대에 끌어다 놓을 수 있는 "배운 행동".
- *
- * 그림·색은 자기가 갖지 않고 `kind` 가 가리키는 `VisualKindCard` 에서 빌린다 — 팔레트가 자기 색
- * 규칙을 새로 가지면 같은 일이 무대와 팔레트에서 다른 색으로 서고, 그것이 ⑪(n) ④ 가 그림 조각을
- * 한 벌로 모은 이유다.
- *
- * **저장하지 않는다**(`pinned` 만 예외) — 집계는 파생이라 매번 다시 계산한다(⑪(f) 좌표와 같은 규칙).
- */
+/** §5.5 #17-17 ⑫(b) — 팔레트 한 칸. 그림·색은 `kind` 카드에서 빌린다(제 색을 가지면 무대와 어긋난다). 저장 ❌(`pinned` 만) — 집계는 파생. */
 export interface GoalActionCard {
-  /**
-   * 안정 키 — `skill:vibisual-qa` 처럼 **원천을 접두어로** 둔다.
-   * 같은 이름의 스킬과 명령이 한 칸을 다투면 안 된다(고정 목록도 이 키로 저장된다).
-   */
+  /** 원천 접두 안정 키(`skill:<이름>`) — 같은 이름의 스킬과 명령이 한 칸을 다투지 않게. */
   id: string;
   /** 화면에 뜨는 이름. */
   label: string;
-  /**
-   * 떨궜을 때 **단계 본문이 될 글**. 스킬이면 `/이름`, 명령이면 그 명령줄, 단계면 그 문장.
-   * 스킬 카드의 이 값이 곧 "실시간 스킬로 동작 제어"의 실체다(⑫(e)).
-   */
+  /** 떨궜을 때 단계 본문(스킬 `/이름` · 명령줄 · 문장). 스킬 카드는 이것이 곧 실시간 스킬 제어다(⑫(e)). */
   payload: string;
   source: GoalActionSource;
   /** 가리키는 `VisualKindCard.key` — 그림·색을 여기서 빌린다. 없으면 중립. */
@@ -3668,7 +2716,7 @@ export interface GoalActionCard {
   pinned?: boolean;
 }
 
-/** §5.5 #17-17 v4.46 — 진행률 갱신 1건 (ring buffer 로 `SessionGoal.history` 에 쌓인다). */
+/** §5.5 #17-17 — 진행률 갱신 1건(ring buffer 로 `SessionGoal.history` 에 쌓인다). */
 export interface SessionGoalProgress {
   /** 갱신 시각 (epoch ms). */
   at: number;
@@ -3680,30 +2728,13 @@ export interface SessionGoalProgress {
   source: SessionGoalProgressSource;
 }
 
-/**
- * §5.5 #17-35 — 검증 한 건의 진행 상태.
- *
- * `queued` 큐에 넣었고 아직 그 턴이 시작되지 않음 · `running` 도는 중 ·
- * `done` 판정까지 끝남 · `stopped` 사람이 중지 · `error` 애초에 보낼 수 없었다.
- * 상태 전이는 **서버만** 한다(§3.1) — 클라는 이 값을 그리기만 한다.
- */
+/** §5.5 #17-35 — 검증 상태(`error` = 애초에 못 보냄). 전이는 서버만(§3.1). */
 export type VerificationRunStatus = 'queued' | 'running' | 'done' | 'stopped' | 'error';
 
-/**
- * §5.5 #17-35 ⑤ — 검증 결론. **fail-closed** 다.
- *
- * `pass` 는 에이전트가 **실제로 돌린 시도(attempts)** 를 하나라도 내놓았을 때만 나온다.
- * 증거 없는 approve 도, 해석 자체가 안 되는 응답도 `held`(보류)로 떨어진다 —
- * "봤더니 괜찮다"는 증거가 아니다(§5.3 #10-3 이 세운 규율의 재사용).
- */
+/** §5.5 #17-35 ⑤ — fail-closed: `pass` 는 실제 시도(attempts)가 있을 때만, 증거 없는 approve·해석 불가는 `held`(§5.3 #10-3). */
 export type VerifyVerdict = 'pass' | 'fail' | 'held' | 'unknown';
 
-/**
- * §5.5 #17-35 ④ — 실행법(레시피)을 어디서 얻어 프롬프트에 실었나.
- *
- * `play-recipe` 우리 §5.14 플레이 버블의 확정 레시피 · `recorded-skill` 리포에 이미 기록된
- * `.claude/skills/verify/SKILL.md` · `none` 둘 다 없어 `/verify` 에게 맡김.
- */
+/** §5.5 #17-35 ④ — 레시피 출처: §5.14 플레이 버블 · 리포의 `.claude/skills/verify/SKILL.md` · 없으면 `/verify` 에 맡김. */
 export type VerificationRecipeSource = 'play-recipe' | 'recorded-skill' | 'none';
 
 /** A connection explicitly selected by the user; desktop handles are rechecked on every run. */
@@ -3778,13 +2809,7 @@ export interface VerificationAttemptRecord {
   detail?: string;
 }
 
-/**
- * §5.5 #17-35 — 검증 한 건.
- *
- * 소유 단위가 **에이전트가 아니라 세션 탭(subAgentId)** 인 것은 루프(`SessionLoop`)·목표
- * (`SessionGoal`)와 같은 축이다. 실행은 그 탭의 **기존 명령 큐**에 `QueuedCommand` 한 건을
- * 넣는 것이 전부이고(새 스폰 레일 ❌), 이 레코드는 그 한 건의 시작·판정·증거를 붙잡는다.
- */
+/** §5.5 #17-35 — 검증 한 건(세션 탭 단위). 실행은 기존 명령 큐에 한 건 넣기뿐(새 레일 ❌) — 이 레코드가 시작·판정·증거를 든다. */
 export interface VerificationRun {
   /** New runs use the app-owned tools; legacy records have no target. */
   target?: VerificationTarget;
@@ -3815,10 +2840,7 @@ export interface VerificationRun {
   reason?: string;
   /** 실제로 돌린 시도 목록(상한 `VERIFICATION_ATTEMPTS_MAX`). */
   attempts: VerificationAttemptRecord[];
-  /**
-   * §5.5 #17-35 ⑨-4 — 이 검증에 실어 보낸 시연(`VerificationDemo.id`). 없으면 안 실었다는 뜻이고,
-   * 그때의 프롬프트는 ⑨ 이전과 완전히 같다.
-   */
+  /** §5.5 #17-35 ⑨-4 — 실어 보낸 시연 id(없으면 시연 없는 프롬프트). */
   demoId?: string;
   /** 그 시연의 이름 한 줄(시연이 나중에 지워져도 "무엇을 실어 보냈는지"는 이 줄로 남는다). */
   demoLabel?: string;
@@ -3832,12 +2854,7 @@ export interface VerificationRun {
   durationMs?: number;
 }
 
-/**
- * §5.5 #17-35 ⑨-3 — 시연 한 단계.
- *
- * `atMs` 는 **클립 안에서의 시각**이다(벽시계 ❌). 프롬프트에 `(0:03)` 로 찍혀 나가, 함께 붙는
- * 프레임 그림과 단계 문장이 같은 순간을 가리키게 한다.
- */
+/** §5.5 #17-35 ⑨-3 — `atMs` 는 클립 안 시각(벽시계 ❌) — `(0:03)` 으로 찍혀 프레임과 같은 순간을 가리킨다. */
 export interface VerificationDemoStep {
   action?: VerificationAction;
   check?: VerificationCheck;
@@ -3847,13 +2864,7 @@ export interface VerificationDemoStep {
   text: string;
 }
 
-/**
- * §5.5 #17-35 ⑨-3 — 시연에서 뽑아 **디스크에 남긴** 프레임 한 장.
- *
- * 영상 자체는 렌더러 메모리에만 살지만(⑨-2) 그림은 다음 검증에도 실려야 하므로 파일로 남는다.
- * `rel` 은 `.vibisual/verify-demos/` 기준 상대 경로 — 절대 경로를 레코드에 박으면 앱을 다른
- * 컴퓨터·다른 경로에서 열었을 때 그대로 깨진다.
- */
+/** §5.5 #17-35 ⑨-3 — 디스크에 남긴 프레임(다음 검증에도 실린다). `rel` 은 `.vibisual/verify-demos/` 기준 — 절대 경로면 다른 PC·경로에서 깨진다. */
 export interface VerificationDemoFrame {
   /** `.vibisual/verify-demos/` 기준 상대 경로(`<demoId>/0.png`). */
   rel: string;
@@ -3861,15 +2872,7 @@ export interface VerificationDemoFrame {
   atMs: number;
 }
 
-/**
- * §5.5 #17-35 ⑨ — 사람이 한 번 해 보인 **재현 절차** 한 벌.
- *
- * `/verify` 는 "앱을 어떻게 켜는가"(④ `PlayRecipe`)는 받아도 "그 다음 무엇을 어떤 순서로 눌러
- * 보는가"는 매번 다시 추론한다. 그 지식은 사람 머릿속에만 있으므로, 한 번 화면을 녹화하며
- * 해 보이면 그것이 **다음 검증부터 계속 실리는 절차**가 된다.
- *
- * 소유 단위는 실행 이력(`VerificationRun`)과 같은 **세션 탭(subAgentId)** 이다.
- */
+/** §5.5 #17-35 ⑨ — 한 번 해 보인 재현 절차(`/verify` 가 매번 추론하는 "무엇을 어떤 순서로"를 다음 검증부터 싣는다). 세션 탭 단위. */
 export interface VerificationDemo {
   target?: VerificationTarget;
   /** 이 시연의 ID(`demo-<ts>-<rand>`). 프레임 폴더 이름이기도 하다. */
@@ -3896,44 +2899,21 @@ export interface VerificationDemo {
   recordedAt: number;
 }
 
-/**
- * §5.5 #17-17 v4.46 — IDE 내부 세션(탭) 하나가 향하는 목표.
- *
- * 소유 단위가 **에이전트가 아니라 세션 탭(subAgentId)** 인 것은 루프(`SessionLoop`)와 같은 축이다.
- * 목표는 명령을 발사하지 않는다 — 매 턴 dispatchContext 에 다시 실려 세션의 *방향*만 잡고,
- * 그 방향으로 얼마나 왔는지를 `percent` 하나로 사용자에게 답한다.
- */
+/** §5.5 #17-17 — 세션 탭의 목표. 명령을 쏘지 않는다 — 매 턴 dispatchContext 에 실려 방향만 잡고 `percent` 로 답한다. */
 export interface SessionGoal {
   /** 소유 (부모) 에이전트 버블 ID — 프로젝트 필터·영속 분류 키. */
   agentId: string;
   /** 이 목표가 붙은 IDE 내부 세션(탭) ID. 맵의 키와 동일. */
   subAgentId: string;
-  /**
-   * 지금 이 세션이 향하는 목표 한 문장.
-   * §5.5 #17-17 v4.50 — **원칙적으로 세션이 쓴다**(계획을 세우는 순간 자동 생성 / 에이전트가 신고로 다듬음).
-   * 사용자도 사이드바에서 고칠 수 있고, 그러면 `authoredBy='user'` 가 되어 자동 교체가 멈춘다.
-   */
+  /** 목표 한 문장 — 원칙적으로 세션이 쓴다(§5.5 #17-17). 사용자가 고치면 `authoredBy='user'` 가 되어 자동 교체가 멈춘다. */
   text: string;
-  /**
-   * §5.5 #17-17 v4.50 — 목표 문장을 마지막으로 쓴 주체.
-   * - `session`: 세션이 스스로 쓴 것 — 새 명령이 오면 새 목표로 **자동 교체**된다.
-   * - `user`: 사용자가 손댄 것 — 세션이 덮어쓰지 않는다(사용자가 준 방향을 다음 명령이 지우면 안 되므로).
-   */
+  /** §5.5 #17-17 — session 은 새 명령에 자동 교체, user 는 세션이 덮어쓰지 않는다. */
   authoredBy: 'session' | 'user';
-  /**
-   * §5.5 #17-17 v4.50 — 이 목표가 딸려 나온 세션 명령(자동 생성·자동 교체 판단 기준).
-   * 세션의 현재 명령이 이것과 달라지면 "새 일을 시작했다"는 뜻이다.
-   */
+  /** §5.5 #17-17 — 목표가 나온 명령(자동 생성·교체 기준 — 현재 명령이 다르면 새 일). */
   sourceCommand?: string;
-  /**
-   * §5.5 #17-17 v4.47 — 최종 목표로 가는 단계 체크리스트(todo 모양).
-   * 비어 있을 수 있다(그때만 퍼센트가 신고·계획 폴백에서 온다 — ③).
-   */
+  /** §5.5 #17-17 — 단계 체크리스트. 비어 있을 때만 퍼센트가 신고·계획 폴백(③). */
   steps: SessionGoalStep[];
-  /**
-   * 현재 진행률 (0~100 정수, 서버 판정).
-   * `steps` 가 하나라도 있으면 **항상** `done/전체` 파생값이다(신고 숫자보다 체크리스트가 우선).
-   */
+  /** 진행률(0~100 정수, 서버). `steps` 가 있으면 늘 `done/전체`(신고보다 우선). */
   percent: number;
   /** 생애 상태 — `active` 일 때만 주입된다. */
   status: SessionGoalStatus;
@@ -3941,27 +2921,15 @@ export interface SessionGoal {
   note?: string;
   /** 진행 갱신 이력 (오래된 것부터, `SESSION_GOAL_HISTORY_MAX` ring buffer). */
   history: SessionGoalProgress[];
-  /**
-   * 목표 문장이 바뀐 횟수 — "수시로 바꾼다"는 사용 양상을 그대로 드러내는 카운터이자,
-   * plan 자동 폴백의 재개통 기준(아래 `lastExplicitRevision` 과 짝).
-   */
+  /** 목표 문장 변경 횟수 — plan 폴백 재개통 기준(`lastExplicitRevision` 과 짝). */
   revision: number;
-  /**
-   * 마지막 **명시** 신고(agent·user)가 온 시점의 `revision`. 이 값이 현재 `revision` 과 같으면
-   * plan 자동 폴백은 더 이상 퍼센트를 덮지 않는다(§5.5 #17-17 ③ 우선순위).
-   * 시각이 아니라 개정 번호로 판정하는 이유 — 목표 수정과 신고가 같은 밀리초에 들어오면
-   * 타임스탬프 비교로는 갈리지 않는다(실제로 그렇게 막혔다).
-   */
+  /** 마지막 명시 신고 때의 `revision` — 같으면 plan 폴백이 퍼센트를 덮지 않는다(③). 시각으로 판정하지 마라 — 같은 밀리초면 안 갈린다. */
   lastExplicitRevision?: number;
   /** 마지막 명시 신고 시각 (epoch ms, 표시용). */
   lastExplicitAt?: number;
   /** 마지막 진행 갱신 시각 (출처 무관). */
   lastProgressAt?: number;
-  /**
-   * §5.5 #17-17 ⑰(c) — **목표의 변천.** 문장이 바뀔 때마다(세션이 다듬든 · 사용자가 고치든 · 새 명령으로
-   * 갈아타든) 옛 문장이 뒤로 밀려 쌓인다 — 오래된 것이 앞, 최근 것이 뒤. `SESSION_GOAL_PAST_TEXT_MAX`
-   * 를 넘으면 앞부터 버린다. `revision` 이 "몇 번 바뀌었나"라면 이것은 "무엇에서 왔나"다.
-   */
+  /** §5.5 #17-17 ⑰(c) — 지난 목표 문장(오래된 것이 앞, `SESSION_GOAL_PAST_TEXT_MAX` 넘으면 앞부터 버림). */
   pastTexts?: string[];
   /** 생성 시각. */
   createdAt: number;
@@ -3969,16 +2937,8 @@ export interface SessionGoal {
   updatedAt: number;
 }
 
-// ─── §5.5 #17-28 컨텍스트 주입원 통제 (Context Inventory) ───
-//
-// "이 세션의 프롬프트에 실제로 무엇이 실리는가"를 **매번 읽어** 목록으로 세우고, 각 줄을 사용자가
-// 끄고 켤 수 있게 하는 축. 하드코딩 목록이 아니라 그때그때의 실측이라 프로젝트·세션마다 다르다.
-//
-// 규율 셋:
-//  · **최종 권한** — 여기서 끈 항목은 다른 화면(플러그인 창·에이전트 설정 등)에서 켜져 있어도 안 실린다.
-//  · **읽어서 만든다** — 항목·글자수·토큰은 파일과 그 턴의 조립 결과에서 나온다(고정 표 ❌).
-//  · **못 끄는 것은 못 끈다고 말한다** — Claude Code 내부 프롬프트처럼 우리가 손댈 수 없는 줄은
-//    계측만 하고 토글을 잠근다(`control: 'none'`). 끌 수 있는 척하지 않는다.
+// §5.5 #17-28 컨텍스트 주입원 통제 — 프롬프트에 실리는 것을 매번 읽어 세운다(고정 표 ❌).
+// 여기서 끄면 다른 화면에서 켜져 있어도 안 실린다. 못 끄는 줄(CLI 내부)은 계측만 하고 잠근다(`control: 'none'`).
 
 /** 주입원 분류 — 화면의 묶음이자 필터 축. */
 export type ContextSourceCategory =
@@ -3997,13 +2957,7 @@ export type ContextSourceCategory =
   /** §5.11 집행 플러그인. */
   | 'plugins';
 
-/**
- * 이 줄을 끄는 수단 — 곧 "언제 반영되는가"이기도 하다.
- * - `session`: 우리가 프롬프트를 조립하며 그 자리에서 뺀다 → **다음 프롬프트부터 즉시**.
- * - `spawn`: CLI 인자·환경변수로 끈다 → 매 턴 새 프로세스를 띄우므로 이 역시 다음 프롬프트부터.
- * - `external`: 여기서 끄는 대신 다른 설정 화면이 주인인 값(예: 도구 목록) — 토글은 잠기고 안내만.
- * - `none`: 끌 수단이 없다(Claude Code 내부). 계측·표시 전용.
- */
+/** 끄는 수단 = 반영 시점. session·spawn 은 다음 프롬프트부터 · external 다른 화면이 주인(잠금·안내) · none 못 끔(CLI 내부). */
 export type ContextSourceControl = 'session' | 'spawn' | 'external' | 'none';
 
 /** 한 주입원 안의 내역 한 줄 — 표시 전용(개별 토글 없음). */
@@ -4025,10 +2979,7 @@ export interface ContextSourceItem {
   /** 안정 키 — 토글 오버라이드의 저장 키다(파일 경로가 바뀌어도 유지되도록 종류 기반). */
   id: string;
   category: ContextSourceCategory;
-  /**
-   * i18n 키(고정 항목). 있으면 화면이 이것을 번역해 제목으로 쓴다.
-   * 파일·플러그인처럼 실측에서 나온 이름은 `title` 을 그대로 쓴다.
-   */
+  /** 고정 항목 i18n 키(실측 이름은 `title` 그대로). */
   labelKey?: string;
   /** 실측 제목(번역 대상이 아닌 고유명 — 파일명·플러그인 id 등). */
   title: string;
@@ -4049,30 +3000,15 @@ export interface ContextSourceItem {
   enabled: boolean;
   /** 최종 값을 정한 층(= 그 층에 명시값이 걸려 있다). 아무 층에도 없으면 undefined. */
   overrideScope?: ContextScopeLevel;
-  /**
-   * 층마다 "여기서 보면 켜져 있나" — **위층에서 물려받은 값까지 반영한** 결과.
-   *
-   * 화면은 사용자가 고른 층의 스위치를 이 값으로 그린다. 이게 없던 동안 화면은 어느 층을 골랐든
-   * 최종값(`enabled`)만 그렸고, 그래서 세션에 명시값이 걸린 줄은 프로젝트 층에서 아무리 눌러도
-   * 스위치가 안 움직였다 — "동작을 안 한다"의 정체가 그것이었다.
-   */
+  /** 층마다 물려받은 값까지 반영한 켜짐. 스위치는 이걸로 그린다 — `enabled` 로 그리면 아래층 명시값 때문에 위층 스위치가 안 움직인다. */
   scopeStates?: Record<ContextScopeLevel, boolean>;
-  /**
-   * 층마다 **명시적으로** 걸린 값. 없는 층은 위에서 물려받는 중이라는 뜻이다.
-   *
-   * 화면이 "이 층에서 껐다가 다시 위와 같은 값으로 되돌리면 명시값을 지운다"를 판정하는 근거이고
-   * (되돌리기가 곧 삭제 — 설정이 쌓이지 않게), 위층을 보고 있을 때 "아래층이 따로 정해 뒀다"를
-   * 알려 주는 근거이기도 하다.
-   */
+  /** 층마다 명시값(없으면 상속 중). 위와 같은 값으로 되돌리면 명시값을 지운다(쌓이지 않게). */
   scopeOverrides?: Partial<Record<ContextScopeLevel, boolean>>;
   /** 가장 최근 변경 시각(파일 mtime 등). 날짜 정렬 기준. */
   updatedAt?: number;
   /** 내역(파일 목록 등) — 접었다 펼치는 자리. */
   children?: ContextSourceChild[];
-  /**
-   * 끌 때 알아야 할 주의 한 줄의 i18n 키(예: 훅을 끄면 화면 갱신이 끊긴다).
-   * 화면이 경고 색으로 보여 준다.
-   */
+  /** 끌 때 주의 i18n 키(예: 훅을 끄면 화면 갱신이 끊긴다), 경고 색으로 보인다. */
   warnKey?: string;
   /** `external` 일 때 어디서 조절하는지 알려 주는 i18n 키. */
   hintKey?: string;
@@ -4100,24 +3036,10 @@ export interface ContextInventory {
 /** 주입원 id → 켬(true)/끔(false). 없는 키는 오버라이드 없음(= 기본값 따름). */
 export type ContextOverrideMap = Record<string, boolean>;
 
-/**
- * 주입원 통제의 층 — **아래로 갈수록 좁고, 좁은 쪽이 이긴다.**
- *
- * `project`(프로젝트 전체) → `agent`(이 에이전트 버블) → `session`(이 세션 탭). 위층을 바꾸면
- * 자기 값을 따로 정하지 않은 아래층은 **그대로 따라 움직인다**(상속). 아래층이 한 번이라도
- * 자기 값을 정했으면 그때부터 그 층은 위층을 무시한다 — 그것이 "아래로 갈수록 우선"의 뜻이다.
- */
+/** 주입원 층: project → agent → session, 좁은 쪽이 이긴다. 제 값이 없으면 위를 따르고, 한 번 정하면 위를 무시한다. */
 export type ContextScopeLevel = 'project' | 'agent' | 'session';
 
-/**
- * 주입원 오버라이드 묶음(영속 대상). 층이 셋인 것은 사용자가 말한 그대로다 —
- * "프로젝트 전체 · 이 에이전트 버블 · 이 세션". **세션 > 에이전트 > 프로젝트**이고,
- * 셋 다 없으면 그 항목의 기본값을 쓴다.
- *
- * 프로젝트별 체크포인트에 실릴 때는 그 프로젝트의 몫만 담기고(키 하나짜리 `projects` + 그
- * 프로젝트의 버블·세션만), 스냅샷에는 열려 있는 프로젝트들의 것이 함께 실린다 — 모양이 같으므로
- * 병합이 곧 키 합치기다.
- */
+/** 주입원 오버라이드(영속, 셋 다 없으면 그 항목 기본값). 체크포인트엔 그 프로젝트 몫만, 스냅샷엔 열린 프로젝트들 것 — 모양이 같아 병합 = 키 합치기. */
 export interface ContextOverrides {
   /** 프로젝트 키(ProjectInfo.name) → 그 프로젝트의 모든 에이전트·세션에 걸리는 오버라이드. */
   projects: Record<string, ContextOverrideMap>;
@@ -4129,12 +3051,7 @@ export interface ContextOverrides {
   updatedAt: number;
 }
 
-/**
- * §5.5 #17-28 ⑦ — 주입원 한 줄의 **상세**(상세창이 받는 것).
- *
- * `text` 는 설명용으로 따로 만든 사본이 아니라 **그 턴에 실제로 조립된 문자열**이다. 사본을 보여 주면
- * 그 순간부터 화면이 프롬프트와 다른 말을 하기 시작하고, 그것이 이 기능의 유일한 실패 방식이다(①).
- */
+/** §5.5 #17-28 ⑦ — 상세. `text` 는 그 턴에 실제로 조립된 문자열이다 — 사본을 보이면 화면이 프롬프트와 다른 말을 한다. */
 export interface ContextSourcePreview {
   /** 어느 줄인가 — `ContextSourceItem.id` 와 같다. */
   sourceId: string;
@@ -4146,10 +3063,7 @@ export interface ContextSourcePreview {
   chars: number;
   /** 자르기 전 전체 기준 추정 토큰. */
   tokens: number;
-  /**
-   * 본문을 읽을 수 없는 줄인가(Claude Code 실행본 안에 있어 계측만 하는 것들 — 시스템 프롬프트·
-   * 번들 스킬·도구 스키마·MCP·워크플로). 화면은 빈 칸 대신 "왜 못 보여 주는가"를 적는다.
-   */
+  /** 본문을 못 읽는 줄(CLI 실행본 안 — 시스템 프롬프트·번들 스킬·도구 스키마·MCP·워크플로). 화면은 이유를 적는다. */
   unreadable: boolean;
   /** 지금 담긴 본문이 파일 하나의 내용이면 그 절대경로. */
   filePath?: string;
@@ -4165,10 +3079,7 @@ export interface AgentStatus {
   lastSeen: number;
 }
 
-// ─── Comment Box (언리얼 블프 스타일 주석 컨테이너) ───
-// §4 확장 포인트 — 새 엔티티(커스텀 노드) + 새 영속 데이터 조합.
-// 기존 BubbleType 과는 별개 축. 버블을 시각적으로 "감싸는" 배경 레이어.
-// parent/child 관계가 아니라 offset 기반 공간 휴리스틱(드래그 시 동반 이동).
+// Comment Box(블프식 주석 컨테이너) — 버블을 감싸는 배경 레이어. parent/child 없이 offset 으로 함께 움직인다.
 
 /** Comment Box — 영역 선택 + C 키로 생성되는 주석 컨테이너. */
 export interface CommentBox {
@@ -4176,10 +3087,7 @@ export interface CommentBox {
   id: string;
   /** 소속 프로젝트 이름 (탭 필터링용). ProjectInfo.name 기준. */
   projectName: string;
-  /**
-   * 메인 캔버스 기준 위치(React Flow 좌상단). 폴더 내부에는 배치 금지 — 메인 뷰 전용.
-   * 같은 맥락에서 Task Edge 도 메인 뷰에서만 렌더됨(§5.3 #12).
-   */
+  /** 메인 캔버스 좌표 — 폴더 내부 배치 ❌(Task Edge 처럼 메인 뷰 전용, §5.3 #12). */
   x: number;
   y: number;
   /** 박스 크기(픽셀). 리사이즈 시 업데이트. */
@@ -4195,10 +3103,7 @@ export interface CommentBox {
   fontSize?: number;
   /** 배경 투명도 0..1. 기본 COMMENT_BOX_DEFAULTS.opacity. */
   opacity?: number;
-  /**
-   * 감싸고 있는 버블 ID 목록. 드래그 시 동반 이동 대상.
-   * React Flow parent/child 관계는 쓰지 않음 — 기존 폴더/위성 계층과 꼬이지 않도록 offset-only.
-   */
+  /** 감싼 버블 ID(드래그 동반). parent/child 를 쓰지 않는다 — 폴더/위성 계층과 꼬인다. */
   childNodeIds: string[];
   createdAt: number;
   updatedAt: number;
@@ -4222,25 +3127,25 @@ export type WSMessageType =
   | 'project-unloaded'
   // §9 스코프드 스냅샷 구독 — 창이 "내가 지금 필요한 프로젝트"를 선언(클라→서버, 응답 없음)
   | 'set-project-scope'
-  // §5.3 #12-1 v1.43 — 권한 승인 UX
+  // §5.3 #12-1 — 권한 승인 UX
   | 'permission_request'
   | 'permission_resolved'
-  // §7.11 v1.44 — iframe 서버 로그 스트리밍 (lazy pub/sub)
+  // §7.11 — iframe 서버 로그 스트리밍(lazy pub/sub)
   | 'subscribe_iframe_log'
   | 'unsubscribe_iframe_log'
   | 'iframe_log_init'
   | 'iframe_log_append'
-  // §7.7 v1.99 — Vibisual 서버 코어 로그 스트리밍 (lazy pub/sub)
+  // §7.7 — 서버 코어 로그 스트리밍(lazy pub/sub)
   | 'subscribe_server_log'
   | 'unsubscribe_server_log'
   | 'server_log_init'
   | 'server_log_append'
-  // §5.3 #28 v1.47 — 콘티모드 토스트 신호 (식별자만, 본체는 다음 snapshot)
+  // §5.3 #28 — 콘티모드 토스트 신호(식별자만, 본체는 다음 snapshot)
   | 'conti_generated'
   | 'conti_patched'
-  // §5.3 #28 (L) v1.58 — 같은 workId 의 후속 응답이 들어와 기존 Conti.frames 가 교체됨
+  // §5.3 #28 (L) — 같은 workId 의 후속 응답으로 Conti.frames 가 교체됐다
   | 'conti_updated'
-  // §5.7 #23-1 v1.59 — Claude Code 버전 업데이트 설치 진행 상황 푸시
+  // §5.7 #23-1 — Claude Code 업데이트 설치 진행 푸시
   | 'claude_install_progress'
   | 'claude_setup_progress'
   /** §5.25 (D) — 코덱스 설치 진행. 클로드 쪽과 같은 모양(새 전달 방식 발명 없음). */
@@ -4251,14 +3156,14 @@ export type WSMessageType =
   // §5.5 #17-38 ⑫ — 오프라인 받아쓰기: 설치 진행 / 인식 결과(중간·확정)
   | 'voice_asr_progress'
   | 'voice_asr_transcript'
-  // §5.3 #12-2 v2.26 — AskUserQuestion IDE 인라인 카드
+  // §5.3 #12-2 — AskUserQuestion IDE 인라인 카드
   | 'ask_user_question'
   | 'ask_user_question_resolved'
-  // §5.3 #10-2 v2.37 — Auto Agent 진행/완료 신호 (요약은 graph_snapshot.autoAgentSummaries 로 전달)
+  // §5.3 #10-2 — Auto Agent 진행/완료(요약은 graph_snapshot.autoAgentSummaries)
   | 'auto_agent_progress'
-  // §4 v2.38 — 모델 레지스트리 갱신 (시드 + /v1/models 머지 결과). payload = ModelRegistry
+  // §4 — 모델 레지스트리 갱신(시드 + /v1/models). payload = ModelRegistry
   | 'model_registry_updated'
-  // §4 v2.42 — Options 창에서 사용자 글로벌 디폴트 갱신. payload = UserDefaults
+  // §4 — Options 창 글로벌 디폴트 갱신. payload = UserDefaults
   | 'user_defaults_updated'
   // §4 앱 테마 — 사용자 테마 폴더를 다시 읽었다(바뀐 것이 있을 때만). payload = AppThemeCatalog
   | 'app_themes_updated'
@@ -4272,40 +3177,34 @@ export type WSMessageType =
   // §5.5 #16-1 — IDE 활동바 구성(순서·제외) 변경. payload = IDEActivityBarPrefs. 단축키와 같은 이유로
   //   창이 여럿이면 다른 창도 즉시 같은 배치를 쓴다(창마다 항목 순서가 다르면 그게 곧 버그 신고다).
   | 'ide_activity_bar_updated'
-  // §4 v2.52 — 에이전트 작업 신고(did/userActions) 수신 신호. 본체는 graph_snapshot.agentReports
+  // §4 — 작업 신고(did/userActions). 본체는 graph_snapshot.agentReports
   | 'agent_report'
-  // §4 v2.60 — 에이전트 질문 카드 수신 신호. 본체는 graph_snapshot.agentQuestions
+  // §4 — 질문 카드. 본체는 graph_snapshot.agentQuestions
   | 'agent_questions'
-  // §4 v2.70 — 에이전트 검수 요청 카드 수신 신호. 본체는 graph_snapshot.agentReviews
+  // §4 — 검수 요청 카드. 본체는 graph_snapshot.agentReviews
   | 'agent_review'
-  // §4 v2.84 — 에이전트 번호 목록 정렬 카드 수신 신호. 본체는 graph_snapshot.agentLists
+  // §4 — 번호 목록 정렬 카드. 본체는 graph_snapshot.agentLists
   | 'agent_list'
-  // §4 v3.21 — 에이전트 피드백(좋아요/싫어요) 갱신 신호. 본체는 graph_snapshot.agentFeedbacks
+  // §4 — 피드백(좋아요/싫어요). 본체는 graph_snapshot.agentFeedbacks
   | 'agent_feedback'
-  // §5.5 #17-20 ⑩ v4.94 — 공통 디버그 층의 상태/출력 푸시. 본체는 DebugEventPayload.
-  // 세션은 프로세스 수명이라 graph_snapshot 에 싣지 않고 이 메시지로만 흐른다.
+  // §5.5 #17-20 ⑩ — 공통 디버그 층 상태/출력(DebugEventPayload). 프로세스 수명이라 graph_snapshot 에 싣지 않는다.
   | 'debug_event'
   // §5.5 #17-32 ⑤ — 훅이 방금 발동했다는 순간 신호. 본체는 HookFiredPayload[] (짧은 창으로 모아 한 건).
   //   세션 수명의 표시 전용 신호라 graph_snapshot 에 싣지 않는다(debug_event 와 같은 규약).
   | 'hook_fired';
 
-/** §5.3 #28 v1.47 — 콘티 생성/패치 완료 토스트용 페이로드. 본체는 graph_snapshot 에서 받는다. */
+/** §5.3 #28 — 콘티 생성/패치 완료 토스트 페이로드(본체는 graph_snapshot). */
 export interface ContiEventPayload {
   contiId: string;
   agentId: string;
   /** patch 인 경우만 */
   frameId?: string;
   elementId?: string;
-  /** §5.3 #28 (L) v1.58 — `conti_generated` / `conti_updated` 에 동봉, patch 에는 부재 */
+  /** §5.3 #28 (L) — `conti_generated`/`conti_updated` 에만(patch 엔 없다). */
   workId?: string;
 }
 
-/**
- * §5.3 #12-3 — 자물쇠가 거는 대상의 종류.
- * - `file`   파일 하나(그 경로 그대로)
- * - `folder` 폴더와 그 아래 전부
- * - `host`   웹 호스트와 그 하위 도메인
- */
+/** §5.3 #12-3 — `folder` 는 그 아래 전부, `host` 는 하위 도메인까지. */
 export type PathLockKind = 'file' | 'folder' | 'host';
 
 /** §5.3 #12-3 — 잠글 대상. `id`·`lockedAt` 은 서버가 짓는다(메뉴·REST 바디가 이 모양으로 보낸다). */
@@ -4317,25 +3216,14 @@ export interface PathLockTarget {
   label?: string;
 }
 
-/**
- * §5.3 #12-3 — 자물쇠 한 개. 사용자가 손으로 건 보호라 체크포인트와 `identity.json` 양쪽에 산다.
- * `id` 는 종류 + 플랫폼 경로 키로 정해진다(`pathLockId`) — 같은 대상은 한 번만 잠긴다.
- */
+/** §5.3 #12-3 — 자물쇠(손으로 건 보호라 체크포인트·`identity.json` 양쪽). `id` = 종류 + 플랫폼 경로 키(`pathLockId`) — 같은 대상은 한 번만. */
 export interface PathLock extends PathLockTarget {
   id: string;
   /** 잠근 시각(ms). */
   lockedAt: number;
 }
 
-/**
- * §5.3 #12-3 — 그 호출이 자물쇠에 닿은 방식(카드가 "무엇을 하려는지"를 말한다).
- * - `read`    파일을 읽는다
- * - `write`   파일을 고치거나 만든다
- * - `list`    잠긴 폴더 안의 이름을 훑는다
- * - `search`  잠긴 곳을 덮는 범위의 내용을 검색한다
- * - `shell`   셸 명령이 그 경로를 가리키거나 그 폴더째 다룬다
- * - `network` 잠긴 호스트에 요청한다
- */
+/** §5.3 #12-3 — 닿은 방식(카드가 무엇을 하려는지 말한다). `search` 는 잠긴 곳을 덮는 범위 검색, `shell` 은 경로를 가리키거나 폴더째 다루는 명령. */
 export type PathLockAccess = 'read' | 'write' | 'list' | 'search' | 'shell' | 'network';
 
 /** §5.3 #12-3 — 한 호출이 한 자물쇠에 닿은 사실(판정은 shared `findToolLockHits` 한 곳). */
@@ -4352,17 +3240,13 @@ export interface PathLockHit {
   matched: string;
 }
 
-/** §5.3 #12-1 v1.43 — 권한 승인 요청 (서버→클라 브로드캐스트용) */
+/** §5.3 #12-1 — 권한 승인 요청(서버→클라 브로드캐스트). */
 export interface PermissionRequest {
   /** 요청 고유 ID (서버가 발급, UUID) */
   requestId: string;
   /** 요청한 에이전트 ID (Vibisual 관할 subagent id 또는 hook agent id) */
   agentId: string;
-  /**
-   * §5.3 #12-1 v1.96 — 호출 sub 인스턴스 ID (env `VIBISUAL_SUBAGENT_ID`).
-   * 사용자의 Allow/Deny 결정을 어느 sub 의 stream 라인에 합성할지 식별하는 키.
-   * 훅 env 가 비어 도착하지 않은 경우(레거시/외부 호출) undefined 가능 — 그땐 stream 합성을 건너뜀.
-   */
+  /** §5.3 #12-1 — 호출 sub(env `VIBISUAL_SUBAGENT_ID`) — 결정을 합성할 stream 의 키. 비어 오면(외부 호출) 합성을 건너뛴다. */
   subAgentId?: string;
   /** 에이전트 라벨 (UI 표시용, 서버가 조회해서 stamp) */
   agentLabel: string;
@@ -4378,43 +3262,21 @@ export interface PermissionRequest {
   createdAt: number;
   /** 타임아웃 만료 시각 (서버 계산, UI countdown 용) */
   expiresAt: number;
-  /**
-   * §5.22 — 이 호출의 위험 판정(`classifyToolRisk` 결과). 비었으면 평범한 호출이고,
-   * 값이 있으면 승인 카드 위에 위험 배지가 붙는다.
-   */
+  /** §5.22 — 위험 판정(`classifyToolRisk`). 있으면 카드에 위험 배지. */
   risk?: AuditRiskKind[];
-  /**
-   * §5.22 — 모드가 통과시켰을 호출을 감사 경계가 되돌려 물은 것인가.
-   * 카드가 "왜 지금 묻는지"를 한 줄로 말할 수 있게 하는 표식.
-   */
+  /** §5.22 — 모드는 통과시켰을 호출을 감사 경계가 되물었나(카드가 이유를 말한다). */
   escalated?: boolean;
   /** §5.22 — 이 요청이 원장의 어느 줄인지(결정을 그 줄에 적기 위한 키). */
   auditEntryId?: string;
-  /**
-   * §5.3 #12-1-A — 이 카드가 뜬 이유가 **사용자가 그 도구를 확인 목록에 넣었기 때문**인가.
-   * 카드가 "왜 지금 묻는지"를 한 줄로 말할 수 있게 하는 표식(§5.22 `escalated` 와 같은 자리).
-   * 모드가 원래 묻는 호출(`default` 의 가변 도구 등)에는 붙지 않는다 — 그건 종전 그대로다.
-   */
+  /** §5.3 #12-1-A — 확인 목록에 넣은 도구라 뜬 카드인가(§5.22 `escalated` 와 같은 자리). 모드가 원래 묻는 호출엔 안 붙는다. */
   askedByTool?: boolean;
-  /**
-   * §5.3 #12-1-B — [항상 허용]이 어디에 적히는지(서버가 정한다). 없으면 그 버튼이 없다.
-   * - `ask-tools`   확인 목록(`askTools`)에서 그 도구를 뺀다
-   * - `session`     이 세션 동안 같은 도구는 다시 묻지 않는다(런타임 기억, 영속 ❌)
-   * - `codex-tools` 코덱스 도구 정책의 그 묶음(`codexToolGroup`)을 `allow` 로
-   */
+  /** §5.3 #12-1-B — [항상 허용]이 적히는 곳(서버가 정한다, 없으면 버튼 없음). session = 런타임 기억(영속 ❌) · codex-tools = 그 묶음(`codexToolGroup`)을 allow. */
   alwaysAllow?: PermissionAlwaysAllowScope;
-  /**
-   * §5.3 #12-1-B — [항상 거절]이 어디에 적히는지. 없으면 그 버튼이 없다.
-   * - `disallowed-tools` `disallowedTools` 에 넣는다(확인 목록에서도 뺀다)
-   * - `codex-tools`      코덱스 도구 정책의 그 묶음을 `deny` 로
-   */
+  /** §5.3 #12-1-B — [항상 거절]이 적히는 곳(없으면 버튼 없음). disallowed-tools 는 확인 목록에서도 뺀다. */
   alwaysReject?: PermissionAlwaysRejectScope;
   /** §5.3 #12-1-B — `codex-tools` 범위일 때 그 도구가 속한 묶음 id(`CODEX_TOOL_GROUPS`). */
   codexToolGroup?: string;
-  /**
-   * §5.3 #12-3 — 이 카드를 세운 자물쇠들(`PATH_LOCK_CARD_HITS_MAX` 까지). 있으면 자물쇠 카드다 —
-   * 무응답은 언제나 거부, [항상 허용]은 `unlock`(그 자물쇠를 푼다)뿐이다.
-   */
+  /** §5.3 #12-3 — 카드를 세운 자물쇠(`PATH_LOCK_CARD_HITS_MAX` 까지). 자물쇠 카드는 무응답 = 거부, [항상 허용] = `unlock` 뿐. */
   lockHits?: PathLockHit[];
 }
 
@@ -4430,29 +3292,22 @@ export type PermissionAlwaysAllowScope = 'ask-tools' | 'session' | 'codex-tools'
 /** §5.3 #12-1-B — [항상 거절]이 적히는 자리. */
 export type PermissionAlwaysRejectScope = 'disallowed-tools' | 'codex-tools';
 
-/**
- * §5.3 #12-1-B — 답할 곳이 사라져 카드가 닫힌 이유.
- * - `agent-stopped` 사용자 [중지]·[즉시] 덧말의 끊기로 그 세션이 멈췄다
- * - `caller-gone`   카드를 기다리던 요청 연결이 답을 받기 전에 닫혔다
- */
+/** §5.3 #12-1-B — 답할 곳이 사라져 닫힌 이유. agent-stopped [중지]·[즉시] 덧말로 세션이 멈춤 · caller-gone 기다리던 요청 연결이 닫힘. */
 export type PermissionCancelReason = 'agent-stopped' | 'caller-gone';
 
-/** §5.3 #12-1 v1.43 — 권한 승인 결정 (클라→서버 REST 바디 + 서버→클라 broadcast payload) */
+/** §5.3 #12-1 — 권한 승인 결정(클라→서버 REST 바디 + 서버→클라 broadcast). */
 export interface PermissionDecision {
   requestId: string;
   decision: 'allow' | 'deny';
   /** 거부 시 이유 (선택) — UI 에서 입력받아 훅으로 전달, Claude 에게 표시됨 */
   reason?: string;
-  /**
-   * §5.3 #12-1-B — 카드가 고른 답. 없으면 `decision` 을 한 번짜리로 읽는다(옛 클라·모바일).
-   * 서버는 이 값으로 `decision` 을 다시 접는다 — 둘이 어긋나면 `choice` 가 이긴다.
-   */
+  /** §5.3 #12-1-B — 고른 답(없으면 `decision` 을 한 번짜리로 — 옛 클라·모바일). 어긋나면 `choice` 가 이긴다. */
   choice?: PermissionChoice;
   /** §5.3 #12-1-B — 아무도 답하지 않고 닫혔다(그때 `decision` 은 `deny`). 서버만 싣는다. */
   cancelled?: PermissionCancelReason;
 }
 
-/** §5.3 #12-2 v2.26 — AskUserQuestion 옵션 한 개 */
+/** §5.3 #12-2 — AskUserQuestion 옵션 한 개. */
 export interface AskUserQuestionOption {
   /** 사용자에게 보이는 라벨. 모델에게 답으로 회신될 식별자. */
   label: string;
@@ -4460,7 +3315,7 @@ export interface AskUserQuestionOption {
   description?: string;
 }
 
-/** §5.3 #12-2 v2.26 — AskUserQuestion 요청 (서버→클라 브로드캐스트용). 본체는 한 호출에 여러 질문 가능. */
+/** §5.3 #12-2 — AskUserQuestion 요청(서버→클라 브로드캐스트). 한 호출에 질문이 여럿일 수 있다. */
 export interface AskUserQuestionRequest {
   /** 요청 고유 ID (서버가 발급, UUID) */
   requestId: string;
@@ -4478,10 +3333,7 @@ export interface AskUserQuestionRequest {
   agentColor: string;
   /** 소속 프로젝트 이름 (UI 필터링/표시용) */
   projectName: string;
-  /**
-   * 모델이 던진 질문 batch. claude-code v2.1.145+ 본체는 `tool_input.questions` 가 배열 —
-   * CLI 와 동일하게 카드 UI 에서 순차 응답한다. 길이 ≥ 1 보장.
-   */
+  /** 질문 batch(claude-code v2.1.145+ `tool_input.questions` 배열) — 카드에서 차례로 답한다. 길이 ≥ 1. */
   items: AskUserQuestionItem[];
   /** 요청 생성 시각 (Date.now()) */
   createdAt: number;
@@ -4489,19 +3341,15 @@ export interface AskUserQuestionRequest {
   expiresAt: number;
 }
 
-/** §5.3 #12-2 v2.26 — AskUserQuestion 한 질문에 대한 사용자 답. */
+/** §5.3 #12-2 — AskUserQuestion 한 질문의 답. */
 export interface AskUserQuestionAnswer {
-  /**
-   * 사용자가 고른 옵션 라벨들. 단일 선택이면 길이 1, 다중 선택이면 1+ 개.
-   * "Other(직접 입력)" 선택 시엔 사용자가 입력한 자유 텍스트가 라벨로 합성된다.
-   * 타임아웃 시 빈 배열.
-   */
+  /** 고른 라벨(단일 1개·다중 1+). Other 면 입력 문구가 라벨, 타임아웃이면 빈 배열. */
   selectedLabels: string[];
   /** Other 가 아닐 때 supplemental 메모 (optional) */
   note?: string;
 }
 
-/** §5.3 #12-2 v2.26 — AskUserQuestion 결정 (클라→서버 REST 바디 + 서버→클라 broadcast payload) */
+/** §5.3 #12-2 — AskUserQuestion 결정(클라→서버 REST 바디 + 서버→클라 broadcast). */
 export interface AskUserQuestionDecision {
   requestId: string;
   /** request.items 와 1:1 길이/순서 매칭되는 답 배열. timeout 이면 빈 배열. */
@@ -4510,7 +3358,7 @@ export interface AskUserQuestionDecision {
   reason?: 'user' | 'timeout';
 }
 
-/** §5.3 #12-2 v2.26 — AskUserQuestion 도구 의 단일 질문 아이템. */
+/** §5.3 #12-2 — AskUserQuestion 질문 한 개. */
 export interface AskUserQuestionItem {
   question: string;
   header?: string;
@@ -4518,36 +3366,98 @@ export interface AskUserQuestionItem {
   options: AskUserQuestionOption[];
 }
 
-/**
- * §5.3 #12-2 v2.26 — AskUserQuestion 도구 입력 스키마 (claude-code v2.1.145+ 본체 호환).
- * 본체는 한 호출에 여러 질문을 배치로 던질 수 있으므로 `questions` 가 **배열** 이다.
- * Vibisual 본 라운드는 첫 질문만 카드로 surface (배치 처리는 후속).
- */
+/** §5.3 #12-2 — AskUserQuestion 입력 스키마(claude-code v2.1.145+). 한 호출에 질문이 여럿이라 `questions` 는 배열. */
 export interface AskUserQuestionToolInput {
   questions: AskUserQuestionItem[];
 }
 
 /**
- * §4 (첫 실행 설치 온보딩) — `claude` 실행본의 출처. `resolveClaudeBin()` 이 경로 패턴으로 판정.
- *
- * - `'native'` = 공식 네이티브 인스톨러가 깐 위치(`~/.local/bin`, `~/.local/share/claude/versions` 등).
- *   **우리 앱이 직접 설치·관리하는 출처라 우선순위 최상위**(사용자 override 다음).
- * - `'vscode-extension'` = `~/.vscode/extensions/anthropic.claude-code-*` 하위. 마켓플레이스 밖에서
- *   갱신할 수 없어 자동 업데이트 ❌ — 안내만 한다. 우선순위는 native 뒤로 내려간다.
- * - `'path'` = PATH / npm global 등 그 밖의 실제 설치본. `npm install -g` 자동 갱신 가능.
- * - `'unknown'` = 검출 자체 실패(어디에도 없음) — 설치 온보딩 게이트가 뜨는 상태.
+ * §4 — `claude` 실행본 출처(`resolveClaudeBin()` 경로 패턴). 우선순위: override → managed → native, vscode-extension 은 native 뒤.
+ * vscode-extension 은 마켓플레이스 밖에서 못 갱신(자동 업데이트 ❌, 안내만) · path 는 `npm install -g` 로 갱신 · unknown = 설치 온보딩.
+ * managed = 앱 전용 엔진(`~/.vibisual/cli-engines/claude`) — 판 전환은 앱이, 자체 갱신은 끈 채 띄운다.
  */
-export type ClaudeBinSource = 'native' | 'vscode-extension' | 'path' | 'unknown';
+export type ClaudeBinSource = 'native' | 'vscode-extension' | 'path' | 'unknown' | 'managed';
 
 /**
- * §4 (첫 실행 설치 온보딩) — `claude` CLI 설치 여부 판정 결과. 글로벌 1건.
- *
- * 앱만 내려받은 사람은 CLI 가 없을 수 있는데, §4 v4.82 로그인 팝업은 `error`(판정 불가)면 뜨지
- * 않도록 설계돼 있어 **아무 안내도 못 받는 구멍**이 있었다. 이 상태가 그 구멍을 메운다 —
- * `phase === 'missing'` 이면 클라가 권장형 설치 게이트를 띄운다(차단 ❌, 닫으면 상단 배너로 잔류).
- *
- * 영속화 ❌ — 설치 여부는 디스크를 보면 알 수 있는 파생 사실이고, 프로젝트가 아니라 기기에
- * 매인 값이라 `ProjectCheckpoint` 에 넣지 않는다(런타임 캐시 + 스냅샷 전달).
+ * §4 (앱 전용 엔진) — 앱이 받아 깔고 판을 맡는 CLI 엔진.
+ * 로그인·설정 홈(`~/.claude` · `~/.codex`)은 사용자 것을 그대로 쓰고, 따로 두는 것은 실행 파일뿐이다.
+ */
+export type ManagedEngineId = 'claude' | 'codex';
+
+/** §4 (앱 전용 엔진) — 앱 전용 폴더에 깔린 판 하나(`versions/<판>/`). 폴더가 진실이라 매번 훑어 만든다. */
+export interface ManagedEngineVersionEntry {
+  /** 판("2.1.310" · "0.164.0"). */
+  version: string;
+  /** 그 판의 실행본 절대 경로. */
+  binPath: string;
+  /** 깐 시각(설치 메타, 없으면 폴더 시각). */
+  installedAt: number;
+  /** 사용자가 [이전 판으로] 로 물린 판 — 자동 업데이트가 다시 가지 않는다. */
+  rolledBack?: boolean;
+}
+
+/**
+ * §4 (앱 전용 엔진) — 엔진 하나의 앱 전용 사본 상태(화면엔 `ClaudeInstallsInfo.managed`·`CodexSetupState.managed` 로 간다, 새 창구 ❌).
+ * 영속 ❌ — 판은 폴더가, 스위치는 `UserDefaults` 가 기억한다.
+ */
+export interface ManagedEngineStatus {
+  engine: ManagedEngineId;
+  /** 앱 전용 폴더(`~/.vibisual/cli-engines/<engine>`). */
+  root: string;
+  /** 지금 쓰는 판 — 아직 안 받았으면 null. */
+  active: ManagedEngineVersionEntry | null;
+  /** 바로 앞 판(되돌릴 자리) — 없으면 null. */
+  previous: ManagedEngineVersionEntry | null;
+  /** 깔린 판 전부(새 판 먼저). */
+  installed: ManagedEngineVersionEntry[];
+  /** 공식 배포처의 최신 판 — 마지막 확인 값. 확인 전·실패면 null. */
+  latest: string | null;
+  /** 마지막으로 배포처를 확인한 시각(ms). 확인 전이면 null. */
+  checkedAt: number | null;
+  /** 이 기기의 배포 식별자(Claude `win32-x64` · 코덱스 `x86_64-pc-windows-msvc`). 지원 밖이면 null. */
+  platformTarget: string | null;
+  /** 받기·대조·점검이 도는 중인가. */
+  updating: boolean;
+  /** 마지막 실패 사유(받기·대조·점검) — 성공하면 비운다. */
+  lastError: string | null;
+  /** 마지막 점검에서 떨어진 플래그(있을 때만). */
+  failedProbes?: string[];
+  /** 자동 업데이트 스위치(`UserDefaults.<engine>AutoUpdate.enabled`, 미설정 = 켬). */
+  autoUpdate: boolean;
+  /** 받기를 미뤄 둔 이유 — 그 엔진을 쓰지 않는 PC 면 `'not-in-use'`(사용자가 [설치]를 누르면 받는다). */
+  deferred?: 'not-in-use';
+  /** 받기가 오류로 끝나 다시 해 볼 시각(ms) — 예약이 있을 때만(`MANAGED_ENGINE_RETRY_BACKOFF_MS`). */
+  nextRetryAt?: number;
+}
+
+/** §4 (앱 전용 엔진) ④ — 코덱스 실행본 출처: `managed` = 앱 전용 사본(기본) · `standalone` = 공식 독립 설치(install.ps1/sh) · `path` = PATH(npm 전역 등). */
+export type CodexBinSource = 'managed' | 'standalone' | 'path';
+
+/** Version 탭 코덱스 칸의 설치본 한 줄 — Claude 의 `ClaudeInstall` 과 같은 모양. */
+export interface CodexInstall {
+  binPath: string;
+  source: CodexBinSource;
+  /** `codex --version` 으로 확인한 판 — 못 읽었으면 null. */
+  version: string | null;
+  detectError?: string;
+  /** 지금 이 실행본이 쓰이는가. */
+  active: boolean;
+  /** 사용자가 보조로 고른 실행본인가(`UserDefaults.codexBinPath`). */
+  selected: boolean;
+}
+
+/** `GET /api/codex-installs` — 코덱스 칸의 고르기 목록. */
+export interface CodexInstallsInfo {
+  installs: CodexInstall[];
+  /** 사용자가 고른 경로(`UserDefaults.codexBinPath`) — 없으면 null(= 기본). */
+  overridePath: string | null;
+  managed?: ManagedEngineStatus;
+  scannedAt: number;
+}
+
+/**
+ * §4 (첫 실행 설치 온보딩) — `claude` CLI 설치 판정(글로벌 1건). 로그인 팝업은 `error` 면 안 뜨므로 CLI 가 없는 사람에겐 이것이 유일한 안내다 —
+ * `missing` 이면 권장형 설치 게이트(차단 ❌, 닫으면 상단 배너). 영속 ❌ — 디스크로 아는 기기 값이라 `ProjectCheckpoint` 밖이다.
  */
 export type ClaudeSetupPhase =
   /** 아직 판정 전(부팅 직후) — 게이트를 띄우지 않는다. */
@@ -4570,16 +3480,9 @@ export interface ClaudeSetupState {
   version?: string;
   /** 실행본 출처 — 배지 표시용. */
   source?: ClaudeBinSource;
-  /**
-   * 이 플랫폼에서 자동 설치를 시도할 수 있는가. 지원 플랫폼(win32/darwin/linux)이면 true.
-   * false 면 게이트는 [설치하기] 대신 수동 명령만 보여준다.
-   */
+  /** 자동 설치를 시도할 수 있는 플랫폼(win32/darwin/linux)인가. false 면 게이트가 [설치하기] 대신 수동 명령만 보인다. */
   canAutoInstall: boolean;
-  /**
-   * 자동 설치가 실행할(또는 사용자가 직접 칠) 공식 네이티브 인스톨러 명령 — **플랫폼별 동적**.
-   * 화면의 "직접 설치" 안내와 서버가 실제로 spawn 하는 명령이 **같은 문자열**이어야 안내와 동작이
-   * 어긋나지 않으므로 서버가 조립해 내려보낸다.
-   */
+  /** 자동 설치가 실행할 공식 인스톨러 명령(플랫폼별). 화면의 "직접 설치" 안내와 실제 spawn 이 같은 문자열이어야 해서 서버가 조립한다. */
   installCommand: string;
   /** 공식 설치 문서 URL — 자동 설치가 막혔을 때의 탈출구. */
   docsUrl: string;
@@ -4589,11 +3492,7 @@ export interface ClaudeSetupState {
   error?: string;
 }
 
-/**
- * §4 (첫 실행 설치 온보딩) — 네이티브 인스톨러 실행 진행 상황.
- * WS `claude_setup_progress` payload + REST 동기 응답 dual-use
- * (§5.7 #23-1 `ClaudeInstallProgress` 와 같은 모양 — 같은 in-flight 세션 패턴을 쓴다).
- */
+/** §4 — 네이티브 인스톨러 진행 상황. WS `claude_setup_progress` + REST 동기 응답 겸용(§5.7 #23-1 `ClaudeInstallProgress` 와 같은 in-flight 패턴). */
 export interface ClaudeSetupProgress {
   /** 설치 시도 식별자 — 중복 호출 시 같은 in-flight 작업 ID 반환 */
   setupId: string;
@@ -4610,10 +3509,7 @@ export interface ClaudeSetupProgress {
   error?: string;
 }
 
-/**
- * §5.7 #23-1 v1.59 — Claude Code CLI 의 현재/최신 버전 비교 결과.
- * 서버 `claudeVersionService` 가 발급, `GET /api/claude-version` 응답 + 클라 모달 표시.
- */
+/** §5.7 #23-1 — CLI 현재/최신 버전 비교(`claudeVersionService` 발급, `GET /api/claude-version`). */
 export interface ClaudeVersionInfo {
   /** 현재 사용 중인 바이너리 버전 ("2.1.139" 등). 검출 실패 시 null. */
   current: string | null;
@@ -4633,10 +3529,7 @@ export interface ClaudeVersionInfo {
   detectError?: string;
 }
 
-/**
- * §5.7 #23-1 v1.59 — `npm install -g @anthropic-ai/claude-code` 진행 상황.
- * WS `claude_install_progress` payload + REST 동기 응답 dual-use.
- */
+/** §5.7 #23-1 — `npm install -g @anthropic-ai/claude-code` 진행. WS `claude_install_progress` + REST 동기 응답 겸용. */
 export interface ClaudeInstallProgress {
   /** 설치 시도 식별자 — 중복 호출 시 같은 in-flight 작업 ID 반환 */
   installId: string;
@@ -4652,11 +3545,7 @@ export interface ClaudeInstallProgress {
   error?: string;
 }
 
-/**
- * §4 v2.43 — PC 에서 발견된 단일 `claude` 설치본. 옵션창 Version 탭의 선택 목록 항목.
- * `claudeBin.discoverAllClaudeBins()` 가 모든 후보(VS Code 변종 확장 + PATH 전체 + 알려진 위치)를
- * realpath dedupe 후 각각 `--version` probe 하여 만든다.
- */
+/** §4 — 발견된 `claude` 설치본 하나(Version 탭 목록 항목). `discoverAllClaudeBins()` 가 후보(VS Code 변종 확장·PATH·알려진 위치)를 realpath 로 겹침 제거하고 각각 `--version` probe 한다. */
 export interface ClaudeInstall {
   /** 절대 경로 (realpath 정규화) */
   binPath: string;
@@ -4672,10 +3561,7 @@ export interface ClaudeInstall {
   selected: boolean;
 }
 
-/**
- * §4 v2.43 — `GET /api/claude-installs` 응답 = 옵션창 Version 탭 전체 데이터.
- * 하드코딩 0 — 모든 필드 런타임 동적(설치본 probe / package.json / process / npm registry).
- */
+/** §4 — `GET /api/claude-installs` = Version 탭 전체 데이터. 하드코딩 없이 전부 런타임(probe·package.json·process·npm registry). */
 export interface ClaudeInstallsInfo {
   /** 발견된 모든 설치본 (active 우선, 그다음 source·version 정렬) */
   installs: ClaudeInstall[];
@@ -4687,6 +3573,8 @@ export interface ClaudeInstallsInfo {
   latest: string | null;
   /** registry 조회 실패 시 원인 (UI 노출용) */
   registryError?: string;
+  /** §4 (앱 전용 엔진) — Claude Code 앱 전용 사본의 상태(Version 탭 "앱 전용" 칸). */
+  managed?: ManagedEngineStatus;
   /** 런타임 환경 — About 섹션 표준 요소. 전부 `process.*` 에서 동적. */
   runtime: {
     /** process.versions.node */
@@ -4749,48 +3637,25 @@ export interface ProjectUnloadedPayload {
 }
 
 /**
- * §9 스코프드 스냅샷 구독 — 클라→서버: **이 창이 지금 필요한 프로젝트 집합**.
- *
- * 메인 창은 활성 탭 하나, Command Center(§5.12 A)는 따라가기/고정 대상 하나를 싣는다.
- * 서버는 붙어 있는 모든 창의 선언을 **합집합**해 그것만 무거운 슬라이스에 담는다.
- *
- * ⚠ 규약 셋 — 어기면 최적화가 아니라 기능 손상이 된다:
- *  1. **아무도 선언하지 않았으면 전부 보낸다.** 침묵(구버전 클라·부팅 직후)이 축소로 해석되면 안 된다.
- *  2. 범위 밖 프로젝트도 **탭·전역 집계는 그대로** 흐른다(`projects`/`stubProjects`/`activeAgentCount` 등).
- *  3. 값은 **표시명**(`GraphSnapshot.projects` 의 키)이다 — 경로가 아니다.
+ * §9 스코프드 구독 — 클라→서버: 이 창이 지금 필요한 프로젝트(메인 창은 활성 탭, Command Center(§5.12 A)는 따라가기/고정 대상). 서버는 합집합만 무거운 슬라이스에 담는다.
+ * ⚠ 어기면 기능이 깨진다: ① 아무도 선언하지 않았으면 전부 보낸다(침묵 ≠ 축소) ② 범위 밖도 탭·전역 집계(`projects`/`stubProjects`/`activeAgentCount`)는 흐른다 ③ 값은 표시명이지 경로가 아니다.
  */
 export interface SetProjectScopePayload {
   /** 이 창이 필요한 프로젝트 표시명 목록. 빈 배열 = "지금은 아무것도 안 본다"(탭 0개). */
   projects: string[];
   /**
-   * §9 폴더 스코프 — 이 창이 **지금 열어 둔 폴더의 내비 경로**(조상 → 현재 폴더 순, 노드 id).
-   * 메인 뷰(폴더 밖)면 빈 배열이다.
-   *
-   * 프로젝트 축과 같은 선언에 얹는 이유는 둘이 늘 함께 바뀌기 때문이다 — 탭을 옮기면 폴더도
-   * 풀리고, 폴더에 들어가도 프로젝트는 그대로다. 한 메시지 = 한 왕복이라 드릴다운이 두 번
-   * 왕복하지 않는다.
-   *
-   * ⚠ **optional 인 것이 계약이다.** 이 필드를 안 보내는 창(구버전 클라)이 하나라도 붙어 있으면
-   *   서버는 폴더 범위를 **적용하지 않는다**(= 전량). 침묵이 축소로 읽히면 그 창의 폴더 내부가
-   *   빈 채로 굳는다 — 프로젝트 축이 세운 안전 기본값과 같은 규칙.
+   * §9 폴더 스코프 — 이 창이 열어 둔 폴더의 내비 경로(조상 → 현재, 노드 id). 폴더 밖이면 빈 배열. 프로젝트 축과 늘 함께 바뀌어 한 메시지(한 왕복)에 싣는다.
+   * ⚠ optional 이 계약이다 — 안 보내는 창(구버전)이 하나라도 있으면 폴더 범위를 적용하지 않는다(= 전량). 침묵을 축소로 읽으면 그 창의 폴더가 빈 채로 굳는다.
    */
   folders?: string[];
   /**
-   * §9 슬라이스 스코프 — 이 창이 **지금 읽고 있는 슬라이스 묶음**(`SliceScopeGroup` 이름 목록).
-   * 서버는 모든 창 선언의 합집합에 든 슬라이스만 싣고, 나머지는 스냅샷에서 지운다.
-   *
-   * 값의 뜻·목록·근거는 `sliceScope.ts` 가 단독 소유한다. 여기서 `string[]` 인 것은 **전선에서
-   * 온 값을 그대로 믿지 않기 때문**이다 — 서버가 `isSliceScopeGroup` 으로 걸러 받는다.
-   *
-   * ⚠ **optional 인 것이 계약이다.** 폴더 축의 `folders` 와 같은 규칙 — 이 필드를 안 보내는 창이
-   *   하나라도 붙어 있으면 서버는 슬라이스 범위를 **적용하지 않는다**(= 전량). 그 창은 자기가
-   *   무엇을 읽는지 말할 방법이 없고, 침묵이 축소로 읽히면 그 창의 데이터가 영영 안 온다.
-   *   빈 배열(`[]`)은 "나는 스코프 대상 슬라이스를 하나도 안 읽는다"는 **유효한 선언**이다.
+   * §9 슬라이스 스코프 — 이 창이 읽는 `SliceScopeGroup` 이름(뜻·목록은 `sliceScope.ts` 소유, 전선 값이라 서버가 `isSliceScopeGroup` 으로 거른다). 서버는 합집합만 싣는다.
+   * ⚠ optional 이 계약이다(`folders` 와 같은 규칙) — 안 보내는 창이 있으면 전량(침묵을 축소로 읽으면 그 창 데이터가 영영 안 온다). `[]` 은 "하나도 안 읽는다"는 유효한 선언이다.
    */
   slices?: string[];
 }
 
-// ─── §7.11 v1.44 Iframe 서버 로그 스트리밍 ───
+// ─── §7.11 Iframe 서버 로그 스트리밍 ───
 
 /** 로그 레벨 (정규식 추론 — 미상이면 undefined) */
 export type IframeLogLevel = 'error' | 'warn' | 'info';
@@ -4807,10 +3672,7 @@ export interface IframeLogLine {
   level?: IframeLogLevel;
 }
 
-/** 클라→서버: 특정 dev server 의 로그 구독 시작.
- *  스트림 식별자는 `(shellId, port)` — 다른 프로젝트가 같은 포트(예: Vite 5173)를
- *  써도 셸이 다르면 스트림이 분리된다(§7.11 v2.5). `shellId` 미상(레거시 위성)이면
- *  `port` 단독으로 후방호환. */
+/** 클라→서버 dev server 로그 구독. 스트림 키는 `(shellId, port)` — 같은 포트(예: Vite 5173)라도 셸이 다르면 갈린다(§7.11). `shellId` 미상(레거시 위성)이면 `port` 만. */
 export interface IframeLogSubscribePayload {
   port: number;
   shellId?: string;
@@ -4840,35 +3702,24 @@ export interface IframeLogAppendPayload {
   lines: IframeLogLine[];
 }
 
-// ─── §7.7 v1.99 Vibisual 서버 코어 로그 스트리밍 ───
+// ─── §7.7 서버 코어 로그 스트리밍 ───
 
-/**
- * 로그 레벨. iframe 로그(IframeLogLevel)와 달리 정규식 추론이 아니라
- * `logger.*` 호출이 알려준 정확한 레벨 — undefined 없음. `debug` 포함.
- */
+/** `IframeLogLevel` 과 달리 추론이 아니라 `logger.*` 호출이 준 정확한 레벨 — undefined 없음. */
 export type ServerLogLevel = 'info' | 'warn' | 'error' | 'debug';
 
 /**
- * 로그 라인 분류 (§7.7 v2.3) — ServerLogPopup 의 배지·필터 축.
- * `serverLogService` 가 라인 캡처 시점에 `level`+메시지 패턴으로 1회 판정한다.
- *  - `error` / `warn`: `level` 을 그대로 승격.
- *  - `hook`: Claude Code 훅 수신·처리 관련 라인.
- *  - `event`: 그 외 info/debug 전부(부팅·에이전트·세션·서버·iframe 등).
- * 새 분류 축 추가 시 이 유니온 + serverLogService 분류기 패턴 1줄.
+ * §7.7 — ServerLogPopup 배지·필터 축. 캡처 때 `level`+메시지 패턴으로 1회 판정: `error`/`warn` = level 그대로 · `hook` = 훅 수신·처리 · `event` = 그 외.
+ * 분류를 늘리면 `serverLogService` 분류기 패턴도 함께 고친다.
  */
 export type ServerLogCategory = 'error' | 'warn' | 'hook' | 'event';
 
-/**
- * Vibisual 서버 코어 로그 한 줄. 서버 `serverLogService` 가 모든 `logger.*`
- * 호출을 ring buffer(`SERVER_LOG_BUFFER_MAX`)로 수집 — 영속화 ❌.
- */
+/** 서버 코어 로그 한 줄. `serverLogService` 가 모든 `logger.*` 호출을 ring buffer(`SERVER_LOG_BUFFER_MAX`)에 모은다 — 영속 ❌. */
 export interface ServerLogEntry {
   /** monotonic seq (서버 전역 증가) — 클라 dedupe/순서 보장 + 리스트 key. */
   seq: number;
   /** epoch ms */
   ts: number;
   level: ServerLogLevel;
-  /** 분류 (§7.7 v2.3) — 배지·필터 축. serverLogService 가 캡처 시 판정. */
   category: ServerLogCategory;
   /** 본문 (meta 합성 포함, 4000자 상한 트림). */
   message: string;
@@ -4891,21 +3742,9 @@ export interface ServerLogAppendPayload {
 }
 
 /**
- * 앱 전역 상태 (`~/.vibisual/app-state.json` 영속, v1.52). 프로젝트 탭 라이프사이클 SSOT.
- *
- * **식별 모델 (v1.52(c) 정합 완성, v1.63):** 프로젝트 식별자 = **정규화 절대경로(projectId)**.
- * 과거엔 `path.basename` 이름을 PK 로 썼으나, 같은 basename 다른 경로 프로젝트(예: Vibisual
- * 체크아웃 2개)가 동시에 열리면 이름 1슬롯을 공유해 한쪽이 탭·재부팅 모두에서 소실됐다(§3.5 격리 위반).
- * 이제 `openProjects`/`pinnedProjects`/`lastActiveProject`/`defaultProject` 모두 **절대경로**(projectId)이며,
- * 표시 이름은 `path.basename`로 도출(중복 가능, 비식별). 비교·중복제거는 정규화(대소문자 무시) 기준.
- *
- * - 부팅 시 `openProjects`에 기록된 경로만 stub으로 등록 (닫은 프로젝트는 스킵).
- * - `lastActiveProject`는 부팅 직후 자동 hydrate 대상.
- * - `defaultProject`는 lastActive가 유효하지 않을 때 fallback hydrate 대상.
- * - `pinnedProjects`는 "Close Others / Close to the Right / Close All"에서 제외.
- * - `projectNames`(v1.63): projectId(절대경로) → 표시 이름 캐시. hydrate 전에도 탭 라벨을 그리기 위함
- *   (디스크 project.json 미가용 시 폴백). 식별엔 쓰지 않음 — 순수 표시용.
- * SSOT §3.2 line 101 / §3.5 / §5.7 #24 / feedback_boot_no_autoload_projects.
+ * 앱 전역 상태(`~/.vibisual/app-state.json`) — 프로젝트 탭 라이프사이클 SSOT(§3.2 / §3.5 / §5.7 #24).
+ * 프로젝트 키는 전부 정규화 절대경로(projectId) — basename 을 키로 쓰면 같은 이름 다른 경로가 한 슬롯을 공유해 한쪽이 사라진다. 표시 이름은 basename(비식별).
+ * 부팅: `openProjects` 만 stub 등록 → `lastActiveProject` hydrate(무효면 `defaultProject`). `pinnedProjects` 는 Close Others/Right/All 에서 뺀다.
  */
 export interface AppState {
   /** 열린 프로젝트 절대경로(projectId) 목록 (기본 탭바에 노출). forward-slash, 원본 케이스. 비교는 정규화. */
@@ -4916,208 +3755,97 @@ export interface AppState {
   defaultProject: string | null;
   /** Pin된 프로젝트 절대경로(projectId) 목록 (bulk close 방어). */
   pinnedProjects: string[];
-  /**
-   * projectId(절대경로) → 표시 이름 캐시 (v1.63). hydrate 전 탭 라벨 렌더용 — 식별엔 미사용.
-   * - 키: forward-slash 절대경로(`ProjectInfo.path` 동일 포맷). 비교는 정규화.
-   * - 값: `path.basename` 표시 이름(중복 가능).
-   * - `registerProject` 시점에 자동 갱신. optional — 구 AppState 하위호환(마이그레이션으로 채움).
-   */
+  /** projectId → 표시 이름 캐시. hydrate 전(project.json 을 못 읽을 때) 탭 라벨용 — 식별엔 쓰지 않는다. 키는 `ProjectInfo.path` 포맷, 값은 basename(중복 가능). `registerProject` 때 갱신. */
   projectNames?: Record<string, string>;
   /**
    * @deprecated v1.63 이전: 이름 → 절대경로 매핑. 부팅 마이그레이션 입력으로만 1회 읽고 더는 쓰지 않음.
    */
   projectPaths?: Record<string, string>;
   /**
-   * §5.5 #17-4 — SkillsView 사용자 고정 순서 (드래그 재정렬). 머신 단위 전역.
-   * type(`project`/`global`/`plugin`)별 스킬명 배열. 배열에 들어있는 스킬은 그 순서로 고정 렌더,
-   * 없는(새로 추가된) 스킬은 기본 정렬(count desc → name asc) 후 뒤에 append.
-   * 사용자가 한 번이라도 드래그하면 그 타입의 전체 가시 순서를 캡처해 여기에 저장.
-   * §5.5 #17-5 — `global` = 사용자 홈 `~/.claude/skills/`·`~/.claude/commands/` (모든 프로젝트 공통).
+   * §5.5 #17-4 — SkillsView 고정 순서(type 별 스킬명 배열, 머신 단위). 없는(새) 스킬은 기본 정렬(count desc → name asc)로 뒤에 붙고, 한 번 끌면 그 타입의 가시 순서 전체를 저장한다.
+   * §5.5 #17-5 — `global` = `~/.claude/skills/`·`~/.claude/commands/`(모든 프로젝트 공통).
    */
   skillOrder?: { project?: string[]; global?: string[]; plugin?: string[] };
-  /**
-   * §5.5 #17-4 v2.93 — SkillsView 즐겨찾기 스킬명 목록 (머신 단위 전역, 프로젝트 무관).
-   * 출처(project/global/plugin) 무관하게 스킬명 키(병합 목록은 name 유일). 별을 누른 순서 보존 —
-   * SkillsView 가 이 순서로 최상단 "Favorites" 카테고리에 렌더하고, 해당 스킬은 출처 그룹에서 제외.
-   */
+  /** §5.5 #17-4 — SkillsView 즐겨찾기(머신 단위, 출처와 무관한 스킬명 키). 별 누른 순서로 최상단 "Favorites" 에 그리고 출처 그룹에서 뺀다. */
   skillFavorites?: string[];
-  /**
-   * §5.5 #17-33 ⑦ — Claude Code 플러그인 자동 갱신의 설정 + 마지막 결과.
-   *
-   * **머신 단위**라 프로젝트 체크포인트가 아니라 여기 산다 — 마켓 클론(`~/.claude/plugins`)은
-   * 어느 프로젝트를 열든 하나뿐이라 프로젝트마다 다른 주기를 둘 이유가 없다(`retention` 과 같은 결).
-   * optional — 없으면 `CLAUDE_PLUGIN_REFRESH_DEFAULTS`(구버전 AppState 하위호환).
-   */
+  /** §5.5 #17-33 ⑦ — Claude Code 플러그인 자동 갱신 설정 + 마지막 결과. 머신 단위(마켓 클론 `~/.claude/plugins` 은 하나뿐). 없으면 `CLAUDE_PLUGIN_REFRESH_DEFAULTS`. */
   claudePluginRefresh?: ClaudePluginRefreshState;
-  /**
-   * §3.2.3 보존 정책 — 저장 데이터를 얼마나 오래/얼마나 많이 들고 있을지.
-   *
-   * **머신 단위**라 프로젝트 체크포인트가 아니라 여기 산다(같은 사용자가 프로젝트마다 다른 보존일을
-   * 원할 이유가 없고, 정리는 부팅 시 모든 프로젝트에 일괄 적용된다). optional — 없으면
-   * `DEFAULT_RETENTION_SETTINGS`(구버전 AppState 하위호환).
-   */
+  /** §3.2.3 보존 정책. 머신 단위(정리는 부팅 때 모든 프로젝트에 일괄). 없으면 `DEFAULT_RETENTION_SETTINGS`. */
   retention?: RetentionSettings;
-  /**
-   * §5.3 #9-1 — 토큰 절약 설정. **머신 단위**라 여기 산다(`retention` 과 같은 결).
-   * optional — 없으면 `DEFAULT_TOKEN_SAVER_SETTINGS`(전 축 끔 = 이 기능이 생기기 전과 같은 동작).
-   */
+  /** §5.3 #9-1 — 토큰 절약 설정(머신 단위). 없으면 `DEFAULT_TOKEN_SAVER_SETTINGS`(전 축 끔). */
   tokenSaver?: TokenSaverSettings;
-  /**
-   * §5.5 #17-9 ⑭(g) — 표식 없이 조용한 백그라운드 작업을 스스로 판정할지.
-   *
-   * 보존 설정과 같은 이유로 **머신 단위**다. optional — 없으면 `DEFAULT_BG_TASK_PROBE_SETTINGS`.
-   */
+  /** §5.5 #17-9 ⑭(g) — 표식 없이 조용한 백그라운드 작업을 스스로 판정할지(머신 단위). 없으면 `DEFAULT_BG_TASK_PROBE_SETTINGS`. */
   bgTaskProbe?: BackgroundTaskProbeSettings;
-  /**
-   * §2.4 — "실행중…"이 진짜인지 에이전트에게 물어 확인할지.
-   *
-   * 위 판정과 같은 이유로 **머신 단위**다. optional — 없으면 `DEFAULT_SESSION_PROBE_SETTINGS`.
-   */
+  /** §2.4 — "실행중…"이 진짜인지 에이전트에게 물어 확인할지(머신 단위). 없으면 `DEFAULT_SESSION_PROBE_SETTINGS`. */
   sessionProbe?: SessionLivenessProbeSettings;
-  /**
-   * §5.3 #9-2 — 에이전트가 띄운 프로세스의 묶음·메모리 상한·정리.
-   *
-   * 위 판정들과 같은 이유로 **머신 단위**다. optional — 없으면 `DEFAULT_PROCESS_GUARD_SETTINGS`(켬).
-   */
+  /** §4 API 크레딧 — 사용 설정·OS 보안 저장소로 암호화한 두 키(실행용·지출 읽기용)·Anthropic 거절 기억(머신 단위). 금액은 담지 않는다(Console 이 센다). 없으면 꺼짐(`API_CREDIT_DEFAULTS`). */
+  apiCredits?: ApiCreditPersisted;
+  /** §5.3 #9-2 — 에이전트가 띄운 프로세스의 묶음·메모리 상한·정리(머신 단위). 없으면 `DEFAULT_PROCESS_GUARD_SETTINGS`(켬). */
   processGuard?: ProcessGuardSettings;
-  /**
-   * §2.1 (B) — 최상위에 동시에 세울 **외부 폴더 예산**.
-   *
-   * 위 설정들과 같은 이유로 **머신 단위**다(어느 프로젝트를 열든 같은 화면 밀도가 되어야 한다).
-   * optional — 없으면 `EXTERNAL_TOP_BUDGET_DEFAULT`(=12). 핀은 이 수에 들지 않는다.
-   */
+  /** §2.1 (B) — 최상위에 동시에 세울 외부 폴더 예산(머신 단위). 없으면 `EXTERNAL_TOP_BUDGET_DEFAULT`(=12). 핀은 세지 않는다. */
   externalTopBudget?: number;
-  /**
-   * §5.23 접어 보기 — 켜면 한 에이전트가 읽은 호스트들을 **에이전트마다 웹 버블 하나**로 접는다.
-   *
-   * **종전 설정이다(2026-10-16 `webGroup.maxPerAgent = 1` 로 흡수).** 이제 읽기만 한다 — `webGroup` 이 저장된 적
-   * 없고 이 값이 `true` 면 최대 1개로 읽는다(설정 이주). 새로 쓰지 않는다.
-   */
+  /** §5.23 — 종전 "에이전트마다 웹 버블 하나로 접기". 읽기만 한다: `webGroup` 이 저장된 적 없고 이 값이 `true` 면 `webGroup.maxPerAgent = 1` 로 이주. 새로 쓰지 않는다. */
   webFoldPerAgent?: boolean;
   /**
-   * §3.6 「수명」 · §5.7 #24-3 — 사용량 수집기(`statusLine`·`subagentStatusLine`)를 켜 두었는가.
-   *
-   * 종전에는 `~/.claude/settings.json` 에 우리 상태 줄이 깔려 있는지가 곧 켬 여부였다. 이제 앱을 끌 때 원래 상태 줄로
-   * 되돌리므로(앱이 켜져 있는 동안만 둔다) 파일만 보고는 켜져 있었는지 알 수 없다 — 그래서 여기 기억한다.
-   * optional — 없으면 첫 부팅에 지금 깔려 있는지로 옮겨 적는다(종전 사용자의 켬이 그대로 이어진다).
+   * §3.6 「수명」 · §5.7 #24-3 — 사용량 수집기(`statusLine`·`subagentStatusLine`)를 켜 두었는가. 앱을 끌 때 원래 상태 줄로 되돌리므로 `settings.json` 으로는 알 수 없어 여기 기억한다.
+   * 없으면 첫 부팅에 지금 깔려 있는지로 옮겨 적는다.
    */
   usageCollector?: boolean;
   /**
-   * §3.6 「수명」 · §5.25 (I) — 코덱스 전역 훅(앱 밖 코덱스 세션 표시)을 켜 두었는가.
-   *
-   * 사용량 수집기와 같은 사정이다 — 앱을 끌 때 코덱스 `hooks.json` 의 우리 항목을 걷으므로 파일만 보고는 켜져
-   * 있었는지 알 수 없다. optional — 없으면 첫 부팅에 지금 깔려 있는지로 옮겨 적는다.
+   * §3.6 「수명」 · §5.25 (I) — 코덱스 전역 훅(앱 밖 코덱스 세션 표시)을 켜 두었는가. 끌 때 `hooks.json` 의 우리 항목을 걷으므로 파일로는 알 수 없다.
+   * 없으면 첫 부팅에 지금 깔려 있는지로 옮겨 적는다.
    */
   codexHooks?: boolean;
-  /**
-   * §5.23 웹 버블 묶기 — 같은 사이트 · 비슷한 종류 · 에이전트마다 최대 N개.
-   *
-   * 위 설정들과 같은 이유로 **머신 단위**다(어느 프로젝트를 열든 같은 화면 밀도여야 한다).
-   * optional — 없으면 `WEB_GROUP_DEFAULTS`(켬). 종전 `webFoldPerAgent: true` 만 있으면 최대 1개(위 이주).
-   */
+  /** §5.23 웹 버블 묶기 — 같은 사이트 · 비슷한 종류 · 에이전트마다 최대 N개(머신 단위). 없으면 `WEB_GROUP_DEFAULTS`(켬), 종전 `webFoldPerAgent: true` 만 있으면 최대 1개. */
   webGroup?: WebGroupSettings;
-  /**
-   * §5.23 「더블클릭」 — 도메인 버블 더블클릭이 마지막 주소를 여는 곳.
-   *
-   * 위 묶기와 같은 이유로 **머신 단위**다(어느 프로젝트의 버블을 누르든 같은 곳에서 열려야 한다).
-   * optional — 없으면 `WEB_OPEN_TARGET_DEFAULT`(바깥 브라우저).
-   */
+  /** §5.23 「더블클릭」 — 도메인 버블 더블클릭이 마지막 주소를 여는 곳(머신 단위). 없으면 `WEB_OPEN_TARGET_DEFAULT`(바깥 브라우저). */
   webOpenTarget?: WebOpenTarget;
-  /**
-   * §6 — 사용자가 바꾼 **단축키**만. 안 건드린 칸은 여기 없고 코드의 기본값을 따라간다.
-   *
-   * 위 설정들과 같은 이유로 **머신 단위**다(손에 익은 키가 프로젝트마다 달라질 이유가 없다).
-   * 값이 `null` 이면 **해제**(그 명령을 키보드에서 내림) — "기본값으로 되돌림"(키 삭제)과 다르다.
-   * optional — 없으면 전부 기본값(`defaultKeymap()`).
-   */
+  /** §6 — 사용자가 바꾼 단축키만(머신 단위). 안 건드린 칸은 없고 `defaultKeymap()` 을 따른다. `null` = 해제(키보드에서 내림) — 키 삭제(기본값으로 되돌림)와 다르다. */
   keymap?: KeymapOverrides;
-  /**
-   * §5.5 #16-1 — IDE 좌측 **활동바의 구성**(사용자가 정한 순서 + 내려놓은 항목).
-   *
-   * 위 설정들과 같은 이유로 **머신 단위**다 — 활동바는 프로젝트의 것이 아니라 그 사람이 손에
-   * 익힌 자리라, 프로젝트마다 항목 순서가 달라질 이유가 없다(`keymap` 과 같은 결).
-   * optional — 없으면 코드의 기본 순서 그대로 전부 보인다.
-   */
+  /** §5.5 #16-1 — IDE 좌측 활동바 구성(순서 + 내려놓은 항목). 머신 단위(`keymap` 과 같은 결). 없으면 기본 순서로 전부 보인다. */
   ideActivityBar?: IDEActivityBarPrefs;
-  /**
-   * §5.4 #14-4 — **최근에 닫은 탭**(브라우저의 "닫은 탭 다시 열기"). 최신이 앞(index 0).
-   *
-   * 탭을 여닫는 다른 상태(`openProjects`·`pinnedProjects`·`defaultProject`)와 **같은 축**이라
-   * 프로젝트 체크포인트가 아니라 여기 산다 — 닫은 탭은 이미 어느 프로젝트의 것도 아니고,
-   * 되열 대상은 "이 기계에서 내가 닫은 것"이라 머신 단위다.
-   * optional — 없으면 빈 목록(구버전 AppState 하위호환).
-   */
+  /** §5.4 #14-4 — 최근에 닫은 탭(최신이 index 0). `openProjects` 등 탭 여닫기 상태와 같은 축이라 여기 산다 — 닫은 탭은 어느 프로젝트의 것도 아니다. 없으면 빈 목록. */
   recentlyClosedTabs?: ClosedTabEntry[];
   /** 마지막 업데이트 타임스탬프 (epoch ms). */
   updatedAt: number;
 }
 
-/**
- * §5.5 #16-1 — IDE 좌측 활동바를 사용자가 어떻게 배치해 뒀는가.
- *
- * **서버는 항목 이름을 모른다.** 여기 담기는 것은 문자열 배열뿐이고, 어떤 뷰가 있는지·기본 순서가
- * 무엇인지는 클라의 정본 표(`ideActivityItems.ts`) 한 곳이 소유한다 — `skillOrder` 가 스킬 이름을
- * 서버에 알리지 않는 것과 같은 규약이다. 그래야 다음 판올림에서 항목을 늘려도 서버를 안 고친다.
- */
+/** §5.5 #16-1 — IDE 활동바 배치. **서버는 항목 이름을 모른다** — 문자열 배열만 담고 뷰 목록·기본 순서는 클라 `ideActivityItems.ts` 소유(`skillOrder` 와 같은 규약). 항목을 늘려도 서버를 안 고치게. */
 export interface IDEActivityBarPrefs {
-  /**
-   * 사용자가 끌어 만든 순서(뷰 이름 배열). 여기 없는 항목(새로 생긴 것)은 **버려지지 않고**
-   * 클라의 기본 순서 자리에 끼워 넣어진다 — 판올림으로 늘어난 칸이 조용히 사라지면 안 된다.
-   */
+  /** 사용자가 끌어 만든 순서(뷰 이름). 여기 없는(새) 항목은 버리지 않고 기본 순서 자리에 끼운다 — 늘어난 칸이 조용히 사라지면 안 된다. */
   order?: string[];
-  /**
-   * 활동바에서 **내려놓은** 항목. 지운 것이 아니라 접어 둔 것이라, 구성 패널의 "제외됨" 칸에
-   * 그대로 남아 언제든 도로 올릴 수 있다.
-   */
+  /** 내려놓은 항목 — 지운 게 아니라 접은 것(구성 패널 "제외됨" 칸에서 도로 올린다). */
   hidden?: string[];
 }
 
 /**
- * §5.4 #14-4 — 닫은 탭 한 건. "다시 열기" 스택의 항목.
- *
- * **프로젝트 탭과 iframe 탭을 한 스택에 섞는다.** 브라우저의 "닫은 탭 다시 열기"는 종류를 묻지
- * 않고 시간순으로 되돌리기 때문에, 종류마다 스택을 나누면 "가장 최근에 닫은 것"이 두 개가 되어
- * Ctrl+Shift+T 가 어느 쪽을 여는지 사용자가 알 수 없게 된다.
- *
- * ⚠ **분리(detach)는 닫기가 아니다**(§5.4 #14-1 (F)) — 별창으로 뺀 탭은 여기 들어오지 않는다.
- *   `detachedTabKeys` 는 표시 라우팅이고 이 스택은 `hiddenProjects` 진입의 짝이다.
+ * §5.4 #14-4 — 닫은 탭 한 건. 프로젝트·iframe 탭을 한 스택에 섞는다 — 나누면 "가장 최근"이 둘이 되어 Ctrl+Shift+T 가 무엇을 열지 모른다.
+ * ⚠ 분리(detach)는 닫기가 아니다(§5.4 #14-1 (F)) — 별창 탭은 들어오지 않는다(`detachedTabKeys` 는 표시 라우팅, 이 스택은 `hiddenProjects` 진입의 짝).
  */
 export interface ClosedTabEntry {
-  /**
-   * 탭바 키와 **같은 형식** — 프로젝트 `p:<표시명>`, iframe `i:<탭 id>`.
-   * 같은 탭을 두 번 닫았을 때 최신 1건만 남기는 중복 제거 키이기도 하다.
-   */
+  /** 탭바 키와 같은 형식(`p:<표시명>` · `i:<탭 id>`). 같은 탭을 두 번 닫으면 최신 1건만 남기는 중복 제거 키이기도 하다. */
   key: string;
   kind: 'project' | 'iframe';
   /** 메뉴에 그릴 이름(프로젝트 표시명 · iframe 라벨). */
   label: string;
   /** 닫은 시각(epoch ms). 정렬 + "몇 분 전" 표시. */
   closedAt: number;
-  /**
-   * `kind: 'project'` — 되열 때 서버가 `registerProject` 에 넘길 **절대경로(projectId)**.
-   * 표시명이 아니라 경로다 — 같은 basename 다른 경로가 한 슬롯을 공유하면 안 된다(v1.63).
-   */
+  /** `kind: 'project'` — 되열 때 `registerProject` 에 넘길 절대경로(projectId). 표시명을 쓰면 같은 basename 다른 경로가 한 슬롯을 공유한다. */
   path?: string;
   /** `kind: 'iframe'` — 되열 때 그대로 복원할 주소. */
   url?: string;
   /** `kind: 'iframe'` — 되열 때 그대로 복원할 서버 종류(탭 배지 색). */
   serverKind?: ServerKind;
   /**
-   * `kind: 'iframe'` — 그 프리뷰를 **연 프로젝트의 절대경로**. 되연 탭도 화면을 불러오기 전에 이
-   * 프로젝트 기준으로 소속을 묻는다(§7.11 / §3.5 — 그 사이 같은 주소를 다른 프로젝트 서버가 잡았으면
-   * 열지 않는다). 없으면(옛 항목) 위성 id 로만 찾는다.
+   * `kind: 'iframe'` — 그 프리뷰를 연 프로젝트의 절대경로. 되연 탭도 이 프로젝트 기준으로 소속을 물어, 그 사이 다른 프로젝트 서버가 주소를 잡았으면 열지 않는다(§7.11 / §3.5).
+   * 없으면(옛 항목) 위성 id 로만 찾는다.
    */
   projectPath?: string;
 }
 
 /**
- * §7.11 / §3.5 — 열어 둔 프리뷰 탭이 그 주소를 지금 보여 줘도 되는가(`GET /api/iframe-tab-check` 응답).
- *
- * 탭 목록은 프로젝트 탭과 상관없이 하나로 공유되고, 스냅샷은 창이 구독한 프로젝트만 싣는다. 그래서
- * B 를 보는 동안 A 에서 연 탭을 누르면 클라는 A 의 위성을 볼 수 없다 — 탭이 서버에 직접 묻는다.
- * - `show` — 그대로 보여 준다(우리 서버 · 주인 미상 · 못 읽음 — 판정 불가로 막지 않는다).
- * - `follow` — 그 주소 대신 `url` 을 연다(서버가 위성을 옮겼거나, 같은 포트의 우리 서버에 닿는 별칭).
- * - `block` — 그 주소는 지금 **다른 열린 프로젝트의 서버**에 닿는다. 열지 않는다.
+ * §7.11 / §3.5 — 프리뷰 탭이 그 주소를 지금 보여도 되는가(`GET /api/iframe-tab-check`). 탭 목록은 공유되는데 스냅샷은 구독 프로젝트만 실어 클라가 판정할 수 없다.
+ * `show` = 그대로(판정 불가도 막지 않는다) · `follow` = 대신 `url` 을 연다(위성 이동·같은 포트 별칭) · `block` = 다른 열린 프로젝트의 서버에 닿는다 — 열지 않는다.
  */
 export type IframeTabVerdict =
   | { action: 'show' }
@@ -5130,28 +3858,13 @@ export type AppStatePatch = Partial<Pick<AppState, 'lastActiveProject' | 'defaul
 // ─── 보존 정책 (§3.2.3) ───
 
 /**
- * 저장 데이터 보존 설정 — 전부 사용자가 조절한다.
- *
- * **모든 값에서 `0` = 그 축은 정리하지 않음(무제한).** Claude Code 가 `cleanupPeriodDays` 를 끌 수
- * 없게 만들어 반발을 산 자리(이슈 #59248·#64999)를 의도적으로 비껴간 규약이다.
- *
- * ⚠ `cleanupPeriodDays: 0` 이 문서상 "정리 끄기"인데 실제로는 저장 자체를 꺼 버린 Claude Code 의
- *   버그(#23710)를 반복하지 않는다 — 여기서 `0` 은 **오직 정리만** 끄고 기록은 종전대로 계속한다.
+ * 저장 데이터 보존 설정(전부 사용자가 조절). **`0` = 그 축은 정리하지 않음(무제한)** — 정리만 끄고 기록은 계속한다.
+ * Claude Code 는 정리를 끌 수 없게 했고(#59248·#64999) `cleanupPeriodDays: 0` 이 저장까지 꺼 버렸다(#23710) — 둘 다 피한 규약이다.
  */
-/**
- * §5.3 #9-1 — 토큰 절약 프리셋. **값을 채우는 손일 뿐 판정 근거가 아니다** — 진실은 항상 값이고,
- * 사용자가 한 칸이라도 손대면 `custom` 이 된다. 이 문자열을 읽어 동작을 가르는 코드는 두지 않는다.
- */
+/** §5.3 #9-1 — 토큰 절약 프리셋. 값을 채우는 손일 뿐 — 진실은 값이고 한 칸이라도 손대면 `custom`. 이 문자열로 동작을 가르지 마라. */
 export type TokenSaverPreset = 'off' | 'balanced' | 'saver' | 'custom';
 
-/**
- * §5.3 #9-1 — 토큰 절약 설정(머신 단위 · `AppState.tokenSaver`).
- *
- * `RetentionSettings`(§3.2.3)·`ClaudePluginRefresh` 와 같은 결이다 — 같은 사용자가 프로젝트마다
- * 다른 절약 강도를 원할 이유가 없고, 정리가 아니라 **스폰 정책**이라 프로젝트 체크포인트가 아니다.
- *
- * **모든 숫자 축에서 `0` 은 상한이 아니라 "그 축을 끄기"(무제한)** 다 — §3.2.3 규칙 1과 같은 규율.
- */
+/** §5.3 #9-1 — 토큰 절약 설정(머신 단위 · `AppState.tokenSaver`) — 스폰 정책이라 체크포인트가 아니다. 숫자 축의 `0` 은 "그 축 끄기"(무제한, §3.2.3 규칙 1). */
 export interface TokenSaverSettings {
   /** 지금 걸린 프리셋(표시 전용). 값과 어긋나면 `custom` 으로 내려온다. */
   preset: TokenSaverPreset;
@@ -5168,38 +3881,18 @@ export interface TokenSaverSettings {
   /** (M) 제목·요약용 비필수 배경 모델 호출을 끌지 → `DISABLE_NON_ESSENTIAL_MODEL_CALLS`. */
   disableNonEssentialModelCalls: boolean;
   /**
-   * (Q) 자동 압축 **창 크기**를 이 값까지 조인다. `''` = 미설정(기존 3층 그대로).
-   *
-   * 실측(2026-09-11, 3일)이 가리킨 **단일 최대 지렛대**다 — 우리 세션의 컨텍스트 중앙값이 186k,
-   * 75%가 254k 였고 **200k 를 넘는 구간이 입력 토큰의 62%** 를 먹었다. 창을 400k → 200k 로
-   * 내리면 같은 일을 하고도 입력이 27% 줄고, 100k 면 59% 준다(압축 자체 비용은 별도).
-   *
-   * ⚠ **조이는 방향으로만 작동한다** — 설정 창(Agent Defaults)이나 에이전트가 이미 더 작은 값을
-   * 들고 있으면 그쪽이 이긴다. 값은 CLI 가 받는 눈금(`AVAILABLE_AUTOCOMPACT_VALUES`) 안이어야
-   * 하며, 목록 밖 값은 정규화가 `''` 로 되돌린다(잘못된 값은 스폰을 즉시 죽인다).
+   * (Q) 자동 압축 창을 이 값까지 조인다. `''` = 미설정. 실측(2026-09-11): 200k 넘는 구간이 입력 토큰의 62% — 400k → 200k 면 입력 27%, 100k 면 59% 준다(압축 비용 별도).
+   * ⚠ 조이는 방향으로만 — 설정 창·에이전트가 더 작은 값이면 그쪽이 이긴다. 값은 `AVAILABLE_AUTOCOMPACT_VALUES` 안이어야 한다(밖이면 정규화가 `''` 로 — 잘못된 값은 스폰을 죽인다).
    */
   autoCompactWindow: string;
-  /**
-   * (N) 같은 순간에 턴을 처리할 수 있는 세션 수. 0 = 무제한.
-   *
-   * 넘긴 명령은 **버리지 않고 큐에 남는다** — 슬롯이 비면 자동으로 나간다. 사용자가 직접 치는
-   * CMD(PTY) 세션은 세지 않는다(우리가 띄우는 자식이 아니라 사람의 터미널이다).
-   */
+  /** (N) 동시에 턴을 처리하는 세션 수. 0 = 무제한. 넘친 명령은 버리지 않고 큐에서 기다린다. 사람이 직접 치는 CMD(PTY) 세션은 세지 않는다. */
   maxConcurrentAgents: number;
   /**
-   * (O) **첫 스폰**(세션이 아직 없는 명령) 사이의 최소 간격(ms). 0 = 끔.
-   *
-   * 동시에 뜬 새 세션들은 서로의 접두 캐시를 못 타 각자 `cache_write`(입력가의 1.25배)를 낸다 —
-   * 실측에서 서브에이전트의 호출당 `cache_write` 가 주 대화의 26배였다. `--resume` 턴은 이미
-   * 자기 캐시를 갖고 있어 대상이 아니다.
+   * (O) 첫 스폰(세션 없는 명령) 사이 최소 간격(ms). 0 = 끔. 동시에 뜬 새 세션은 서로의 접두 캐시를 못 타 각자 `cache_write`(입력가 1.25배)를 낸다
+   * (실측: 서브에이전트 호출당 주 대화의 26배). `--resume` 턴은 대상이 아니다.
    */
   spawnStaggerMs: number;
-  /**
-   * (P) 한 세션이 이 턴 수를 넘기면 **다음 명령 앞에 `/compact` 를 한 번** 넣는다. 0 = 끔.
-   *
-   * 새 세션을 강제하지 않는다(대화 맥락은 사용자 자산이다). 압축 자체가 문맥 전체를 읽는 큰
-   * 요청이라 **자주 부르면 손해** — 하한(`TOKEN_SAVER_LIMITS`)이 그 바닥을 막는다.
-   */
+  /** (P) 한 세션이 이 턴 수를 넘기면 다음 명령 앞에 `/compact` 를 한 번 넣는다(새 세션은 강제하지 않는다). 0 = 끔. 압축 자체가 큰 요청이라 하한(`TOKEN_SAVER_LIMITS`)을 둔다. */
   sessionTurnBudget: number;
 }
 
@@ -5213,65 +3906,25 @@ export interface RetentionSettings {
   /** 세션당 완료 명령(말풍선) 보관 상한. 0=무제한. */
   completedCommandMaxPerSession: number;
   /**
-   * sub-streams jsonl 보존 일수. 0=무제한.
-   *
-   * ⚠ **나이와 무관하게 보존되는 것이 둘**이다 — 살아있는 서브에이전트(registry)와
-   * **아카이브된 서브에이전트**(탭을 닫아 "다시 열기" 목록에 남은 것). 후자를 빼먹으면 목록에는
-   * 항목이 보이는데 누르면 빈 화면이 된다(§3.2.3 규칙 2 · Claude Code #62959 와 같은 형태).
+   * sub-streams jsonl 보존 일수(0=무제한). ⚠ 살아 있는 서브에이전트와 아카이브된(닫아서 "다시 열기"에 남은) 서브에이전트는 나이와 무관하게 보존한다 —
+   * 빼면 목록을 눌렀을 때 빈 화면이 된다(§3.2.3 규칙 2).
    */
   subStreamRetentionDays: number;
-  /**
-   * 첨부 파일 보존 일수. 0=무제한.
-   *
-   * ⚠ **참조되고 있는 첨부는 이 값과 무관하게 보존**한다 — 여기서 세는 나이는 "아무도 참조하지
-   * 않게 된 뒤"가 아니라 파일 자체의 나이지만, 삭제 후보는 **고아(참조 0)** 로만 좁힌다.
-   * git 이 reachable(90일)/unreachable(30일)을 가르는 것과 같은 갈래이며, 우리는 참조되는 쪽을
-   * 무기한으로 둔다(붙여넣은 스크린샷은 클립보드가 사라진 뒤라 유일본이다).
-   */
+  /** 첨부 파일 보존 일수(0=무제한). ⚠ 삭제 후보는 고아(참조 0)뿐 — 참조되는 첨부는 나이와 무관하게 보존한다(붙여넣은 스크린샷은 유일본). */
   attachmentRetentionDays: number;
-  /**
-   * §5.22 감사 원장이 프로젝트당 보관하는 줄 수. 0=무제한.
-   *
-   * 잘린 줄은 사라지는 것이 아니라 `retired` 합계로 접히므로 **집계 숫자는 줄지 않는다** —
-   * 없어지는 것은 "어느 호출이었나"라는 내역뿐이다. 전선 몫(`AUDIT_SNAPSHOT_ENTRIES`)보다
-   * 크게 두면 화면에는 아무 변화가 없다(§3.2.3 판단 기준).
-   */
+  /** §5.22 감사 원장이 프로젝트당 보관하는 줄 수(0=무제한). 잘린 줄은 `retired` 합계로 접혀 집계는 줄지 않고 내역만 사라진다. `AUDIT_SNAPSHOT_ENTRIES` 보다 크게 두면 화면 변화가 없다. */
   auditEntryMaxPerProject: number;
-  /**
-   * 휴지통 보존 일수 — 정리로 옮겨진 파일을 여기 며칠 두고 나서 실제로 지운다. 0=무제한(안 지움).
-   *
-   * §3.2.3 규칙 3("되돌릴 수 없는 정리는 사용자가 고른다")을 자동 정리 쪽에도 적용하는 축이다.
-   * Claude Code 가 반발을 산 지점이 30일 자체가 아니라 **되돌릴 수단이 없다는 것**이었다.
-   */
+  /** 휴지통 보존 일수 — 정리로 옮긴 파일을 며칠 두었다가 지운다(0=안 지움). 자동 정리도 되돌릴 수 있게 하는 축(§3.2.3 규칙 3). */
   trashRetentionDays: number;
-  /**
-   * §5.26 컨텍스트 보험 — 압축 마커·파일 사본 보존 일수. 0=무제한.
-   *
-   * ⚠ **살아 있는 세션의 마커는 나이와 무관하게 보존**한다(§3.2.3 규칙 2).
-   * 참조되는 blob 도 마찬가지 — 삭제 후보는 **고아뿐**이다.
-   */
+  /** §5.26 — 압축 마커·파일 사본 보존 일수(0=무제한). 살아 있는 세션의 마커와 참조되는 blob 은 나이와 무관하게 보존한다(§3.2.3 규칙 2). */
   insuranceRetentionDays: number;
-  /**
-   * §5.26 (A) — 보험 저장고가 프로젝트당 쓸 수 있는 최대 MB. 0=무제한.
-   *
-   * 넘치면 **미러부터** LRU 로 버리고 마커는 남긴다(마커는 수백 바이트라 남겨도 부담이 없고,
-   * 마커만 있어도 압축 실패·요약 부실·resume 문맥 소실 셋은 옛 JSONL 로 복구된다).
-   */
+  /** §5.26 (A) — 보험 저장고의 프로젝트당 최대 MB(0=무제한). 넘치면 미러부터 LRU 로 버리고 마커는 남긴다(수백 바이트이고, 마커만으로 옛 JSONL 복구가 된다). */
   insuranceVaultMaxMB: number;
-  /**
-   * §5.26 (B) — 트랜스크립트 미러를 뜰지. 끄면 마커만 남는다.
-   *
-   * 미러가 **유일한 답이 되는 경우**는 Claude Code 의 `cleanupPeriodDays` 정리나 사용자 삭제로
-   * 원본 JSONL 이 사라졌을 때뿐이다 — 그래서 기본은 켬이되 위 예산 안에서만 산다.
-   */
+  /** §5.26 (B) — 트랜스크립트 미러를 뜰지(끄면 마커만). 미러는 원본 JSONL 이 사라졌을 때(`cleanupPeriodDays` 정리·사용자 삭제)의 유일한 답 — 기본 켬, 위 예산 안에서. */
   insuranceMirror: boolean;
 }
 
-/**
- * 정리 기록 한 줄 — 무엇을 언제 왜 옮겼는지. §3.2.3 "조용히 지우지 않는다"를 화면까지 잇는다.
- *
- * 삭제가 아니라 **휴지통 이동**이 기본이므로 이 기록은 곧 복원 후보 목록이다.
- */
+/** 정리 기록 한 줄(무엇을 언제 왜 옮겼나, §3.2.3). 기본이 휴지통 이동이라 곧 복원 후보 목록이다. */
 export interface RetentionLogEntry {
   /** 기록 시각(epoch ms). */
   at: number;
@@ -5309,12 +3962,7 @@ export type StorageUsageKind =
   | 'attachments'
   /** §5.26 저장고 — 프로젝트 폴더에 우리가 쓰는 것 중 **가장 커질 수 있는** 물건이라 따로 세운다. */
   | 'insurance'
-  /**
-   * §5.10 — 자동 목표가 굳힌 절차(`.vibisual/skills`).
-   *
-   * 폐기된 브레인 저장고(`.vibisual/brain`)를 **같은 칸에서 함께 센다** — 이미 있는 폴더를 표에서
-   * 빼면 총합이 줄어 "정리한 적 없는데 왜 달라졌나"가 되고, 그 폴더는 옛 스킬을 아직 읽는 자리다.
-   */
+  /** §5.10 — 자동 목표가 굳힌 절차(`.vibisual/skills`). 폐기된 `.vibisual/brain` 도 이 칸에서 센다 — 빼면 총합이 까닭 없이 줄고, 옛 스킬을 아직 읽는 자리다. */
   | 'skills'
   | 'logs'
   | 'video'
@@ -5330,10 +3978,7 @@ export interface ProjectStorageUsage {
   entries: StorageUsageEntry[];
 }
 
-/**
- * 워크트리 사용량 — **자동 삭제 대상이 아니다.**
- * 사용자 산출물이 섞여 있을 수 있어 §3.2.3 대로 화면에 보여 주고 사용자가 고른다.
- */
+/** 워크트리 사용량 — 자동 삭제 대상이 아니다. 사용자 산출물이 섞일 수 있어 보여 주고 사용자가 고른다(§3.2.3). */
 export interface WorktreeStorageUsage {
   path: string;
   name: string;
@@ -5354,10 +3999,7 @@ export interface StorageUsageReport {
 
 /** `POST /api/storage-cleanup` 결과 — 무엇을 얼마나 지웠는지 사용자에게 그대로 보여 준다. */
 export interface StorageCleanupResult {
-  /**
-   * 원래 자리에서 치운 파일 수. 기본 경로는 **휴지통 이동**이라 이 숫자가 곧 영구 삭제는 아니다
-   * (영구 삭제분은 `purgedFiles`). 사용자에게는 "정리됨"으로 읽히는 축이라 이름을 유지한다.
-   */
+  /** 원래 자리에서 치운 파일 수 — 기본이 휴지통 이동이라 영구 삭제가 아니다(영구분은 `purgedFiles`). 화면에 "정리됨"으로 읽히는 축이라 이름을 유지한다. */
   removedFiles: number;
   /** 위 파일들의 바이트 합. 휴지통에 있는 동안은 디스크에서 실제로 줄지 않는다. */
   freedBytes: number;
@@ -5369,10 +4011,7 @@ export interface StorageCleanupResult {
   purgedFiles?: number;
   /** 영구 삭제로 디스크에서 실제로 줄어든 바이트. */
   purgedBytes?: number;
-  /**
-   * 참조가 남아 있어 **나이와 무관하게 보존**한 파일 수 — 첨부 참조 인식·아카이브 보호가
-   * 실제로 무엇을 지켰는지 사용자가 볼 수 있게 한다(0 이면 지킨 게 없다는 뜻이 아니라 후보가 없었다는 뜻).
-   */
+  /** 참조가 남아 나이와 무관하게 보존한 파일 수(0 = 후보가 없었다). */
   keptReferenced?: number;
 }
 
@@ -5381,11 +4020,11 @@ export interface ProjectMetaSnapshot {
   project: ProjectInfo;
   lastSavedAt: number;
   createdAt: number;
-  /** `<projectPath>/.vibisual/save/checkpoint.json` 절대경로 (v1.52 분산 저장) — lazy load 시 사용 */
+  /** `<projectPath>/.vibisual/save/checkpoint.json` 절대경로 — lazy load 용. */
   checkpointPath: string;
   /** discriminator — 항상 false. hydrated 인스턴스와 union 분기에 사용 */
   isHydrated: false;
-  /** §3.2.1-4 (v3.03) — 부팅 hydrate(load) 실패로 읽기 전용 격리된 stub. 자동 저장 동결 + 빈 인스턴스 생성 거부. */
+  /** §3.2.1-4 — 부팅 hydrate 실패로 읽기 전용 격리된 stub. 자동 저장 동결 + 빈 인스턴스 생성 거부. */
   readOnly?: boolean;
   /** 격리 사유(디버그/UI 표기용). */
   readOnlyReason?: 'load-error';
@@ -5394,31 +4033,16 @@ export interface ProjectMetaSnapshot {
 /** 에이전트 전체 상태 (서버에서 계산, 클라이언트는 읽기만) */
 export type AgentPhase = 'waiting' | 'working' | 'completed';
 
-/**
- * 세션 감지 소스 — 어느 Layer가 해당 세션을 감지했는지.
- * 'hook' (초록): SessionStart 훅 — 가장 신뢰 가능, PID/cwd 완전
- * 'jsonl' (노랑): JSONL 파일 감시 — 훅 미설치 시 폴백
- * 'process' (회색): tasklist/pgrep 폴링 — 최후 수단
- */
+/** 세션을 감지한 층: `hook`(초록, SessionStart — PID/cwd 완전) · `jsonl`(노랑, 훅 미설치 폴백) · `process`(회색, tasklist/pgrep — 최후 수단). */
 export type SessionSource = 'hook' | 'jsonl' | 'process';
 
-/**
- * 세션 생명 상태 — sessionLifecycle 관리자가 부여.
- * 'active': 최근 활동 있음 (펄스 애니메이션)
- * 'idle': 30초 이상 활동 없음 (반투명)
- * 'dead'는 따로 스냅샷에 안 실음 — 제거되므로
- */
+/** `active` = 최근 활동(펄스) · `idle` = 30초 이상 무활동(반투명). `dead` 는 제거되므로 스냅샷에 없다. */
 export type SessionLifeStatus = 'active' | 'idle';
 
 /** 그래프 스냅샷 — 클라이언트 초기 연결 시 전체 상태 전달 */
 /**
- * §4 v2.52 — 에이전트 작업 신고 (커스텀/스폰 에이전트 전용).
- *
- * "AI 가 한 일(did)" 과 "사용자가 직접 해야 할 일(userActions)" 을 에이전트가 작업 완료 시
- * 구조화해 loopback `POST /api/agent-report` 로 신고한다(하네스 빌더 curl 패턴 재사용 — §5.3 #10-2).
- * IDE 가 이 신고를 색 구분 카드로 렌더: did=중립(회색/체크), userActions=amber 강조, nextSteps=보조.
- * Hook 에이전트는 우리가 rules 를 통제하지 않아 신고 지시문이 안 들어가므로 신고하지 않는다
- * → 기존 텍스트 렌더만 유지(하이브리드). `agentId` 가 1차 렌더 필터 키.
+ * §4 — 에이전트 작업 신고(커스텀/스폰 전용). did·userActions 를 완료 때 loopback `POST /api/agent-report` 로 보내고(§5.3 #10-2 curl 패턴) IDE 가 색 구분 카드로 그린다.
+ * Hook 에이전트는 rules 를 우리가 통제하지 않아 신고 지시가 안 들어가므로 텍스트 렌더만. `agentId` 가 1차 렌더 필터 키.
  */
 export interface AgentReport {
   /** 신고 고유 ID (서버가 발급). */
@@ -5435,65 +4059,34 @@ export interface AgentReport {
   nextSteps?: string[];
   /** 자유 메모 / 헤드라인 (선택). */
   note?: string;
-  /**
-   * §5.10 Project Brain — 이 작업에서 배운 것(교훈/결정/함정). 각 문장은 서버가
-   * `brainService.saveCard({type:'lesson', scope:'agent'})` 로 개별 기억 카드에 저장한다
-   * (중복 검사 창구 경유). 다음에 같은 실수를 반복하지 않기 위한 확실한 것만, 최대 3개.
-   */
+  /** §5.10 — 이 작업에서 배운 것(확실한 것만, 최대 3개). 서버가 문장마다 `brainService.saveCard({type:'lesson', scope:'agent'})` 로 기억 카드에 저장한다. */
   learned?: string[];
-  /**
-   * §5.10 v3.49 랭킹 "도움됨" 신호 — 브리핑/주입으로 받은 기억 카드 id 중 실제 작업에 도움된 것.
-   * 브리핑 블록에 `[card-xxxx]` 로 표기된 id 를 그대로 신고한다. 서버가 각 id 에
-   * `brainService.markHelpful(id)` 를 호출(helpfulCount++, lastHelpfulAt 갱신) → 랭킹 부스트.
-   */
+  /** §5.10 — 브리핑으로 받은 카드 중 도움된 id(`[card-xxxx]` 그대로). 서버가 `brainService.markHelpful` 로 랭킹을 올린다. */
   helpfulMemoryIds?: string[];
   /**
-   * §5.10 v3.78 — `helpfulMemoryIds` 의 **대칭 채널**(재검증 1비트 회수). 브리핑으로 받은 카드 중
-   * **지금 코드와 어긋나 낡았다**고 판단한 것의 id. 서버가 `brainService.markStale(id)` 를 호출해
-   * `verifyState: 'needs-check'` + 대체 후보로 적립하고, 누적이 문턱을 넘으면 자동 보관(삭제 ❌).
-   * 반대로 확인 필요 카드가 `helpfulMemoryIds` 로 오면 앵커를 현재 해시로 갱신하고 `ok` 로 복귀한다.
+   * §5.10 — `helpfulMemoryIds` 의 대칭: 지금 코드와 어긋나 낡은 카드 id. `brainService.markStale` → `needs-check`, 누적이 문턱을 넘으면 자동 보관(삭제 ❌).
+   * 확인 필요 카드가 helpful 로 오면 앵커를 현재 해시로 갱신하고 `ok` 로 되돌린다.
    */
   staleMemoryIds?: string[];
   /** 신고 시각 (서버 stamp, Date.now()). */
   createdAt: number;
 }
 
-/*
- * §5.10 — **기억 카드 타입 33종은 걷었다.**
- *
- * 사용자 지시(전면 개편)로 기억·메모리·브레인 축이 폐기됐다. 카드·주제·이주·활성화·회상까지
- * 여기 있던 모든 모양이 그 축의 것이라, 축이 사라지면 남아 있을 이유가 없다.
- *
- * 되풀이를 절차로 굳히는 일은 `AutoGoalCandidate`·`AutoGoalSkillSummary`·`AutoGoalSummary`
- * 세 모양이 이어받았다(아래 자동 목표 절). 그쪽은 **파일이 원본**이라는 규율만 물려받았고,
- * 카드처럼 상태 기계를 들지 않는다 — 되풀이 횟수 하나가 문턱을 넘느냐뿐이다.
- */
+/* §5.10 — 기억 카드 타입은 기억·브레인 축과 함께 걷었다. 되풀이를 절차로 굳히는 일은 `AutoGoalCandidate`·`AutoGoalSkillSummary`·`AutoGoalSummary` 가 맡는다(파일이 원본, 상태 기계 없이 횟수 문턱만). */
 
-/**
- * §4 v2.60 — 에이전트 질문 카드의 개별 질문 항목.
- *
- * 자연어 질문 + 그에 대한 제안 응답 프롬프트(0~N). 각 프롬프트는 IDE 카드에서 복사 박스 +
- * (복사 / 즉시 전송) 버튼으로 렌더된다. "즉시 전송" 은 그 프롬프트를 해당 세션에 새 명령으로 보낸다.
- */
+/** §4 — 질문 카드의 질문 하나: 자연어 질문 + 제안 응답 프롬프트(0~N). "즉시 전송"은 그 프롬프트를 해당 세션에 새 명령으로 보낸다. */
 export interface AgentQuestionItem {
   /** 질문 본문 (자연어). */
   question: string;
   /** 선택: 짧은 헤더 라벨 (질문 요지). */
   header?: string;
-  /**
-   * 제안 응답 프롬프트 목록 — 사용자가 골라 보내는 카드의 본체라 규칙은 질문마다 2~4개를 요구한다.
-   * 각각 복사 박스 + 복사/즉시전송 버튼. 서버는 빈 배열도 받는다(옛 카드·규칙 위반) — 그때는 접힌 직접 입력만 남는다.
-   */
+  /** 제안 응답 프롬프트 — 카드의 본체라 규칙은 질문마다 2~4개를 요구한다. 빈 배열도 받는다(옛 카드·규칙 위반) — 그때는 접힌 직접 입력만 남는다. */
   prompts: string[];
 }
 
 /**
- * §4 v2.60 — 에이전트 질문 신고 (커스텀/스폰 에이전트 전용).
- *
- * AI 가 사용자에게 자연어로 던지는 질문(1~N개)을 눈에 띄게 보여주기 위한 카드. 작업 신고(AgentReport)와
- * 동일 골격 — 에이전트가 작업 끝에 loopback `POST /api/agent-questions` 로 구조화 신고(토큰 인증).
- * 기존 AskUserQuestion(선택지 + 60초 동기 hold)과는 **별개 메커니즘** — 이쪽은 비차단이고, 사용자가
- * 제안 프롬프트를 복사하거나 "즉시" 버튼으로 새 명령 전송해 답한다. `agentId` 가 1차 렌더 필터 키.
+ * §4 — 에이전트 질문 신고(커스텀/스폰 전용). AgentReport 골격 — 작업 끝에 loopback `POST /api/agent-questions`(토큰 인증).
+ * AskUserQuestion(선택지 + 60초 동기 hold)과 별개인 비차단 카드 — 제안 프롬프트를 복사하거나 "즉시"로 새 명령을 보내 답한다. `agentId` 가 1차 필터 키.
  */
 export interface AgentQuestions {
   /** 신고 고유 ID (서버가 발급). */
@@ -5510,15 +4103,7 @@ export interface AgentQuestions {
   createdAt: number;
 }
 
-/**
- * §4 v2.70 — 에이전트 검수 요청 (커스텀/스폰 에이전트 전용).
- *
- * 작업 신고(AgentReport)·질문 카드(AgentQuestions)와 동일 골격이지만 **성격이 다르다**:
- * 사용자가 **지시한 작업**(특히 버그 수정·기능 변경)을 AI 가 **완료**한 뒤, 사용자가 직접 해야 할 일
- * (`AgentReport.userActions`)이 아니라 **그 결과가 맞는지 확인(검수)**할 것을 요청하는 카드.
- * 즉 "이 버튼 오류 고쳐라" → 고침 → "무슨 동작을 이렇게 고쳤습니다, 검수해 주세요" 흐름.
- * 에이전트가 작업 끝에 loopback `POST /api/agent-review` 로 구조화 신고(토큰 인증). `agentId` 가 1차 렌더 필터 키.
- */
+/** §4 — 에이전트 검수 요청(커스텀/스폰 전용, `POST /api/agent-review`, 토큰 인증). 할 일(`userActions`)이 아니라 마친 작업의 결과가 맞는지 확인을 청하는 카드. `agentId` 가 1차 필터 키. */
 export interface AgentReview {
   /** 신고 고유 ID (서버가 발급). */
   id: string;
@@ -5532,11 +4117,7 @@ export interface AgentReview {
   changes: string[];
   /** 사용자가 확인할 검수 포인트·방법 (0~N). "이렇게 눌러보면 됩니다" 류 검증 안내. */
   checkpoints: string[];
-  /**
-   * §5.16 — 리뷰·승인 레인 레코드(`ReviewRequest.id`). 서버가 격리 변경분을 붙잡아 만든 카드에만 실린다.
-   * 이 값이 있으면 카드가 파일 목록·diff·승인/반려/보류 구획을 함께 그린다. 에이전트가 스스로 보낸
-   * 종전 검수 카드에는 없으므로 종전 그대로 렌더된다(회귀 0).
-   */
+  /** §5.16 — 리뷰·승인 레인 레코드(`ReviewRequest.id`). 서버가 격리 변경분을 붙잡아 만든 카드에만 있고, 있으면 파일 목록·diff·승인/반려/보류를 함께 그린다. */
   reviewRequestId?: string;
   /** 자유 메모 / 전체 맥락 한 줄 (선택). */
   note?: string;
@@ -5544,15 +4125,7 @@ export interface AgentReview {
   createdAt: number;
 }
 
-/**
- * §4 v2.84 — 에이전트 번호 목록 정렬 카드 (커스텀/스폰 에이전트 전용).
- *
- * 에이전트가 답변에 담는 **여러 항목의 번호/순서 목록**(나열·체크리스트·단계 목록)을 본문 텍스트로
- * 길게 나열하는 대신 구조화 배열로 보내, IDE 가 번호를 자동으로 매겨 **가지런히 정렬된 카드**로 렌더.
- * 작업 신고(AgentReport)·질문(AgentQuestions)·검수(AgentReview)와 동일 골격 — 에이전트가
- * loopback `POST /api/agent-list` 로 신고(토큰 인증). 번호 매김은 IDE 가 하므로 항목 텍스트만 보낸다.
- * `agentId` 가 1차 렌더 필터 키.
- */
+/** §4 — 번호 목록 카드(커스텀/스폰 전용, `POST /api/agent-list`, 토큰 인증). 나열·체크리스트·단계를 본문 대신 배열로 보내면 IDE 가 번호를 매겨 정렬한다 — 항목 텍스트만 보낸다. */
 export interface AgentList {
   /** 신고 고유 ID (서버가 발급). */
   id: string;
@@ -5570,24 +4143,15 @@ export interface AgentList {
   createdAt: number;
 }
 
-/** §4 v3.21 — 피드백 평가값. 사용자의 좋아요/싫어요. */
+/** §4 — 피드백 평가값(좋아요/싫어요). */
 export type AgentFeedbackVerdict = 'up' | 'down';
 
-/**
- * §4 v3.21 — 피드백 대상 종류.
- * report=작업 신고 카드, review=검수 요청 카드, result=스트림 턴 완료(result) 메시지.
- */
+/** §4 — 피드백 대상: report=작업 신고, review=검수 요청, result=스트림 턴 완료 메시지. */
 export type AgentFeedbackTargetType = 'report' | 'review' | 'result';
 
 /**
- * §4 v3.21 — 에이전트 피드백 (사용자 → AI 작업 결과 좋아요/싫어요).
- *
- * 사용자가 작업 신고·검수 카드·스트림 result 에 남긴 평가. 대상(targetId) 별 upsert —
- * 같은 대상 재평가는 verdict 교체, 철회는 제거. `summary` 는 평가 시점의 대상 내용
- * 스냅샷(report=did, review=changes, result=본문 발췌)이라 대상 카드가 ring buffer 로
- * 밀려나도 학습 재료는 보존된다. 되먹임 경로: ① 매 스폰 턴 `buildAgentFeedbackBlock`
- * 다이제스트 주입(즉효), ② distill 증류 → 사용자 승인 시 `AgentConfig.rules` append(승인형).
- * 표시·학습 보조 전용 — 실제 작업/판정 로직 무관.
+ * §4 — 작업 결과에 대한 사용자 좋아요/싫어요. targetId 별 upsert(재평가 = 교체, 철회 = 제거). `summary` 는 평가 시점의 대상 스냅샷이라 카드가 ring buffer 에서 밀려나도 남는다.
+ * 되먹임: ① 매 스폰 턴 `buildAgentFeedbackBlock` 주입 ② distill → 사용자 승인 시 `AgentConfig.rules` append. 작업·판정 로직과 무관하다.
  */
 export interface AgentFeedback {
   /** 피드백 고유 ID (서버가 발급). */
@@ -5610,38 +4174,21 @@ export interface AgentFeedback {
   createdAt: number;
 }
 
-/**
- * §9 스코프드 구독 — 프로젝트별 에이전트 집계(탭 배지 전용).
- * 무거운 슬라이스가 구독 범위로 좁혀져도 **이 집계만은 항상 전 프로젝트**가 실린다.
- */
+/** §9 — 프로젝트별 에이전트 집계(탭 배지 전용). 구독 범위가 좁아도 이것만은 항상 전 프로젝트. */
 export interface ProjectAgentCounts {
-  /**
-   * 그 프로젝트에 속한(살아 있고 · 숨김이 아니고 · **휴지통이 아닌**) 에이전트 수.
-   * 휴지통 버블은 캔버스가 그리지 않으므로 숫자에도 없어야 한다 — 여기 남으면 화면 어디에도
-   * 없는 분모가 만들어진다.
-   */
+  /** 살아 있고 숨김·휴지통이 아닌 에이전트 수. 휴지통 버블은 캔버스가 안 그리므로 숫자에서도 뺀다(화면에 없는 분모가 생긴다). */
   total: number;
   /** 그중 status==='active' */
   active: number;
   /** 그중 status==='completed' */
   completed: number;
-  /**
-   * 그 에이전트들이 가진 **세션 수**(IDE 탭 · 내부 뷰의 sub 버블). 세션이 하나도 없는 버블은
-   * 자기 자신을 1 로 친다 — 세션 축으로만 세면 훅 에이전트가 통째로 숫자에서 사라진다.
-   */
+  /** 그 에이전트들의 세션 수(IDE 탭 · sub 버블). 세션 없는 버블은 1 로 친다 — 아니면 훅 에이전트가 숫자에서 사라진다. */
   sessions: number;
-  /**
-   * 그중 **지금 돌고 있는** 세션 수. 판정은 공용 규약 `isSessionRunning` 한 곳이 한다.
-   * 사용자가 "동작 중"으로 세는 단위는 버블이 아니라 세션이라 `active`(버블 수)와 다르다 —
-   * 한 버블 안에서 다섯 세션이 돌면 `active=1` 이지만 `running=5` 다.
-   */
+  /** 그중 도는 세션 수(`isSessionRunning`). 버블 수 `active` 와 다르다 — 한 버블에서 다섯 세션이 돌면 `active=1`, `running=5`. */
   running: number;
   /**
-   * §2.4 (한도 정지) — 그중 **요금제 한도에 닿아 끊긴 채 다시 돌지 않은** 세션 수.
-   *
-   * `running` 과 겹치지 않는다(다시 돌린 세션은 서버가 표식을 걷는다). 헤더 배지는 이 수로
-   * 주황불을 켠다 — 도는 것이 하나도 없는데 이 수가 0 이 아니면 그 프로젝트는 **끝난 것이 아니라
-   * 멈춰 있는 것**이다. 옛 스냅샷에는 이 필드가 없으므로 읽는 쪽이 `?? 0` 으로 받는다.
+   * §2.4 — 그중 요금제 한도로 끊긴 채 다시 돌지 않은 세션 수(`running` 과 겹치지 않음). 헤더 배지가 이 수로 주황불을 켠다 — 끝난 게 아니라 멈춘 것.
+   * 옛 스냅샷엔 없어 `?? 0` 으로 읽는다.
    */
   limited: number;
 }
@@ -5649,79 +4196,32 @@ export interface ProjectAgentCounts {
 export interface GraphSnapshot {
   /** hydrated 프로젝트 목록 (projectName → ProjectInfo). keys와 stubProjects keys는 겹치지 않음 */
   projects: Record<string, ProjectInfo>;
-  /**
-   * §9 — 프로젝트별 에이전트 집계 (projectName → 수). **구독 범위와 무관하게 항상 전 프로젝트.**
-   * 탭바 배지처럼 "안 보는 프로젝트도 숫자는 보여야 하는" 표시의 SSOT.
-   * 미설정(구버전 스냅샷)이면 클라가 `agents` 로 직접 세던 종전 경로로 폴백한다.
-   */
+  /** §9 — 프로젝트별 에이전트 집계(projectName → 수). 구독 범위와 무관하게 항상 전 프로젝트(탭바 배지의 SSOT). 없으면(구버전) 클라가 `agents` 로 센다. */
   projectAgentCounts?: Record<string, ProjectAgentCounts>;
   /**
-   * §9 — **이 스냅샷이 실제로 실어 온 구독 범위**(표시명 배열). 서버가 `buildSnapshot` 에서
-   * 적용한 범위를 그대로 되돌려 준다.
-   *
-   * 없으면(`undefined`) 범위를 적용하지 않은 **전량 스냅샷**이라는 뜻이다(선언한 창이 하나도
-   * 없을 때 · 구버전 서버). 있으면 그 안에 든 프로젝트만 무거운 슬라이스(노드·에이전트·엣지·
-   * 위성·활동)를 갖는다.
-   *
-   * 쓰임: 클라이언트가 **"지금 보는 탭의 버블이 아직 안 온 것"과 "원래 비어 있는 것"을 구분**한다.
-   * 이 구분이 없으면 탭을 옮긴 직후의 빈 캔버스가 느린 회선에서 그냥 "빈 프로젝트"로 보인다.
-   * 판정 규칙은 클라 `components/BubbleMap/canvasLoading.ts` 단일 소유.
+   * §9 — 이 스냅샷에 실제로 적용한 구독 범위(표시명). `undefined` = 전량(선언한 창 없음 · 구버전 서버).
+   * 클라가 "아직 안 온 것"과 "원래 빈 것"을 가르는 데 쓴다 — 없으면 탭을 옮긴 직후 빈 캔버스가 "빈 프로젝트"로 보인다. 판정은 `canvasLoading.ts` 단독 소유.
    */
   scopedProjects?: string[];
   /**
-   * §9 폴더 스코프 — **이 스냅샷을 만들 때 적용한 폴더 범위**(창들이 선언한 내비 경로의 합집합).
-   *
-   * 없으면(`undefined`) 폴더 범위를 적용하지 않은 전량 스냅샷이다(선언한 창이 없을 때 ·
-   * 구버전 클라가 하나라도 붙어 있을 때 · 구버전 서버). 있으면 `children`/`innerEdges` 와
-   * 폴더 위성은 **그리는 폴더와 그 한 칸 앞**만 실려 있다.
-   *
-   * 쓰임은 `scopedProjects` 와 같다 — 클라가 **"열어 둔 폴더의 내용이 아직 안 온 것"과 "원래
-   * 빈 폴더"를 구분**한다. 서버가 실제로 싣는 집합은 이보다 넓지만(최상위 폴더·한 칸 앞),
-   * 되돌려 주는 것은 **선언 그대로**다 — 클라가 확인하려는 것은 "내가 지금 보는 폴더를 서버가
-   * 알고 만들었는가" 하나이기 때문이다.
+   * §9 — 이 스냅샷에 적용한 폴더 범위(창 선언의 합집합). `undefined` = 전량. 있으면 `children`/`innerEdges`·폴더 위성은 그리는 폴더와 한 칸 앞만 실린다.
+   * 쓰임은 `scopedProjects` 와 같다. 실제 싣는 집합은 더 넓어도 되돌리는 것은 **선언 그대로**다(클라가 묻는 것은 "내 폴더를 알고 만들었나" 하나).
    */
   scopedFolders?: string[];
   /**
-   * §9 슬라이스 스코프 — **이 스냅샷이 실제로 실어 온 스코프 대상 슬라이스 목록**.
-   *
-   * 없으면(`undefined`) 슬라이스 범위를 적용하지 않은 전량 스냅샷이다(선언한 창이 없을 때 ·
-   * 슬라이스 축을 모르는 창이 하나라도 붙어 있을 때 · 구버전 서버).
-   *
-   * 있으면 `SCOPABLE_SLICE_KEYS` 중 **여기 없는 것은 이번 스냅샷에서 지워졌다**는 뜻이고,
-   * 클라는 그것을 "비어 있다"가 아니라 **"아직 안 온 것"**으로 읽어 직전 값을 그대로 이어받는다
-   * (§9 ⑥ 과 같은 알약 · 규칙은 `carryForwardScopedSlices` 단독 소유). 이 신고가 없으면 클라의
-   * `?? {}` 폴백이 걸려 **사용자 눈에는 데이터가 날아간 것으로 보인다** — 그래서 필수다.
+   * §9 — 이 스냅샷이 실어 온 스코프 대상 슬라이스. `undefined` = 전량. 있으면 `SCOPABLE_SLICE_KEYS` 중 여기 없는 것은 "아직 안 온 것"이라 클라가 직전 값을 이어받는다(§9 ⑥ · `carryForwardScopedSlices`).
+   * **필수** — 없으면 클라의 `?? {}` 폴백이 걸려 데이터가 날아간 것으로 보인다.
    */
   scopedSlices?: string[];
-  /**
-   * §9 폴더 스코프 — **범위와 무관하게 전량으로 잰** 파일 버블 상대 크기 척도(바이트).
-   *
-   * 종전에는 클라가 받은 스냅샷에서 직접 쟀는데, 폴더 범위를 좁히면 그 입력이 줄어 **폴더를
-   * 드나들 때마다 파일 버블 크기가 바뀐다**. 탭 목록·전역 집계와 같은 칸에 두는 값이다.
-   * 없으면(구버전 서버) 클라가 종전대로 직접 잰다.
-   */
+  /** §9 — 범위와 무관하게 전량으로 잰 파일 버블 크기 척도(바이트). 받은 스냅샷에서 재면 폴더를 드나들 때마다 크기가 바뀐다. 없으면(구버전) 클라가 잰다. */
   fileSizeRange?: { min: number; max: number };
-  /**
-   * §9 폴더 스코프 — **범위와 무관하게 전량으로 잰** §5.24 히트맵 상대 척도(프로젝트 표시명 →
-   * 그 프로젝트의 가장 큰 `readCount`). 바닥은 언제나 0 이라 최대값만 싣는다.
-   * 없으면 클라가 종전대로 직접 잰다.
-   */
+  /** §9 — 전량으로 잰 §5.24 히트맵 척도(표시명 → 최대 `readCount`, 바닥은 늘 0). 없으면 클라가 잰다. */
   readCountMaxByProject?: Record<string, number>;
-  /**
-   * §5.24 — 위와 **한 쌍인 쓰기 축** 척도(프로젝트 표시명 → 가장 큰 `writeCount`).
-   *
-   * 축마다 따로 재는 이유는 §5.24 — 한 자를 나눠 쓰면 읽기가 훨씬 큰 흔한 세션에서 쓰기 지도가
-   * 통째로 차갑게 눌린다. 읽기 쪽과 같은 이유로 **범위와 무관하게 전량**으로 잰다.
-   */
+  /** §5.24 — 쓰기 축 척도(표시명 → 최대 `writeCount`). 축마다 따로 잰다 — 한 자를 쓰면 읽기가 큰 세션에서 쓰기 지도가 통째로 차갑게 눌린다. */
   writeCountMaxByProject?: Record<string, number>;
   /**
-   * §5.24 `quantile` 곡선이 읽는 **읽기 축 분포 표본**(프로젝트 표시명 → 오름차순
-   * `HEAT_QUANTILE_BINS + 1` 칸). 최대값과 **같은 칸**이라 범위와 무관하게 전량으로 잰다 —
-   * 좁힌 노드로 재면 폴더를 드나들 때마다 순위가 뒤집혀 색이 통째로 바뀐다.
-   *
-   * 값 전체가 아니라 등간격 표본인 이유는 §9 전선 부피 규약 — 곡선이 필요로 하는 것은
-   * "어느 값이 몇 등쯤인가"뿐이고 그 답은 33칸이면 보간으로 나온다.
-   * 없으면(구버전 서버) `quantile` 은 기본 곡선으로 떨어진다.
+   * §5.24 `quantile` 곡선용 읽기 분포 표본(표시명 → 오름차순 `HEAT_QUANTILE_BINS + 1` 칸). 전량으로 잰다 — 좁혀 재면 폴더를 드나들 때마다 색이 바뀐다.
+   * 등간격 표본인 것은 §9 전선 부피 규약(33칸이면 보간으로 충분). 없으면 기본 곡선.
    */
   readCountQuantilesByProject?: Record<string, number[]>;
   /** §5.24 — 위와 한 쌍인 **쓰기 축** 분포 표본. 축마다 따로 재는 이유는 최대값 쪽과 같다. */
@@ -5749,10 +4249,7 @@ export interface GraphSnapshot {
   nodeProjects: Record<string, string>;
   /** 파일별 수정 기록 (file node ID → 최신순 FileEdit[]) */
   fileEdits: Record<string, FileEdit[]>;
-  /**
-   * 도메인 버블별 웹 이력 (domain node ID → 최신순 `WebEntry[]`, §5.23).
-   * 키가 **노드 ID** 인 것은 `fileEdits` 와 같은 규약이다(클라가 노드에서 바로 찾는다).
-   */
+  /** 도메인 버블별 웹 이력(domain node ID → 최신순, §5.23). 키가 노드 ID 인 것은 `fileEdits` 와 같은 규약. */
   domainEntries: Record<string, WebEntry[]>;
   /** 에이전트별 명령 대기열 (agent ID → queued/executing만, 서버가 관리) */
   commandQueues: Record<string, QueuedCommand[]>;
@@ -5760,18 +4257,9 @@ export interface GraphSnapshot {
   completedCommands: Record<string, QueuedCommand[]>;
   /** 에이전트별 subagent 목록 (agent ID → SubAgent[]) */
   subAgents: Record<string, SubAgent[]>;
-  /**
-   * §5.5 #17-9 v3.51 — 지금 백그라운드에서 도는 서브에이전트(Task/Agent 도구) 목록.
-   * 키 = 부모(감독관) agentId. §5.3 #12-1 v3.43 대차대조(pendingSubagentTasks)의 스냅샷 투영이라
-   * **런타임 전용 — 영속화 ❌**(ProjectCheckpoint 무변경, 서버 재시작 시 리셋).
-   * 비어 있으면 필드 자체가 생략된다 → 클라 활동바 항목/배지가 자동으로 사라진다.
-   */
+  /** §5.5 #17-9 — 백그라운드에서 도는 서브에이전트(부모 agentId 키). §5.3 #12-1 대차대조의 투영이라 런타임 전용(영속 ❌). 비면 필드가 생략돼 활동바 항목/배지가 사라진다. */
   runningSubagentTasks?: Record<string, RunningSubagentTask[]>;
-  /**
-   * §5.5 #17-9 ⑦(b) — 방금 끝난 백그라운드 서브에이전트(부모별 최근 5건, 새 것이 앞).
-   * 도는 것과 같은 대차대조에서 내려온 항목이며, 결과(`PostToolUse(Task|Agent)` 의
-   * `tool_response`)가 늦게 붙는다. **런타임 전용 — 영속화 ❌**(⑦(c): 배지 산식에 관여하지 않는다).
-   */
+  /** §5.5 #17-9 ⑦(b) — 방금 끝난 백그라운드 서브에이전트(부모별 최근 5건, 새 것이 앞). 결과(`tool_response`)는 늦게 붙는다. 런타임 전용 — 배지 산식에 관여하지 않는다(⑦(c)). */
   finishedSubagentTasks?: Record<string, FinishedSubagentTask[]>;
   /** 에이전트 전체 페이즈 (서버 계산) */
   agentPhase: AgentPhase;
@@ -5797,26 +4285,15 @@ export interface GraphSnapshot {
   gitDirty?: Record<string, boolean>;
   /** 현재 UI 표시 언어 (서버 SSOT). 클라이언트는 이 값으로 i18n.changeLanguage() 호출 */
   uiLocale?: UiLocale;
-  /**
-   * 언리얼 블프 스타일 Comment Box 목록.
-   * 메인 캔버스에만 렌더. Task Edge 처럼 Manager 레벨에서 프로젝트 스코프로 필터.
-   * 클라이언트는 `projectName === activeProject` 로 걸러 렌더.
-   */
+  /** 언리얼 블프 스타일 Comment Box(메인 캔버스 전용). 클라가 `projectName === activeProject` 로 거른다. */
   commentBoxes?: CommentBox[];
-  /**
-   * §5.5 #17-20 ⑩ v4.94 — 프로젝트별 중단점 (projectName → 목록).
-   * 세션이 없어도 남는 사용자 표식이라 스냅샷으로 흐르고 체크포인트로 저장된다.
-   * optional — 구버전 체크포인트 하위호환. 미설정이면 빈 맵으로 취급.
-   */
+  /** §5.5 #17-20 ⑩ — 프로젝트별 중단점. 세션 없이도 남는 사용자 표식이라 스냅샷·체크포인트를 탄다. 없으면 빈 맵. */
   debugBreakpoints?: Record<string, DebugBreakpoint[]>;
-  /**
-   * §5.9 화면/프로그램 캡처 버블 목록(전체 프로젝트). CommentBox 처럼 Manager 레벨 필드로,
-   * 클라이언트는 `projectName === activeProject` 로 걸러 렌더한다.
-   */
+  /** §5.9 캡처 버블(전체 프로젝트). 클라가 `projectName === activeProject` 로 거른다. */
   captureBubbles?: CaptureBubble[];
-  /** §5.13 v4.45 — 내부 앱 버블 목록. `projectName` 으로 걸러 렌더한다. */
+  /** §5.13 — 내부 앱 버블. `projectName` 으로 거른다. */
   appBubbles?: AppBubble[];
-  /** §5.14 v4.62 — 플레이 버블 목록. `projectName` 으로 걸러 렌더한다. */
+  /** §5.14 — 플레이 버블. `projectName` 으로 거른다. */
   playBubbles?: PlayBubble[];
   /** §5.15 — 스펙 보드 목록. `projectName` 으로 걸러 렌더한다. */
   specDocs?: SpecDoc[];
@@ -5826,303 +4303,146 @@ export interface GraphSnapshot {
   labRuns?: LabRun[];
   /** §5.20 — 스크립트 선반 목록. `projectName` 으로 걸러 렌더한다. */
   shelfBubbles?: ShelfBubble[];
-  /**
-   * §5.21 — 프로젝트별 비용·토큰 지도. 키 순서 없이 프로젝트당 한 장이며
-   * 세션 원장의 `days` 는 여기 실리지 않는다(체크포인트 전용 — 전선 용량).
-   */
+  /** §5.21 — 프로젝트별 비용·토큰 지도. 세션 원장의 `days` 는 싣지 않는다(체크포인트 전용 — 전선 용량). */
   costMaps?: ProjectCostMap[];
   /**
    * §5.22 — 프로젝트별 감사 원장(프로젝트당 한 장). 집계(`counts`)는 서버가 접어서 실어 준다.
    */
   auditLogs?: ProjectAuditLog[];
-  /**
-   * §5.3 #12-3 — 프로젝트별 자물쇠(프로젝트 표시 이름 → 그 탭이 건 자물쇠들).
-   * 키가 프로젝트 이름이라 `mergeSnapshots` 합치기·이름 바꾸기 relabel 을 함께 탄다.
-   */
+  /** §5.3 #12-3 — 프로젝트별 자물쇠. 표시명 키라 `mergeSnapshots`·이름 바꾸기 relabel 을 함께 탄다. */
   pathLocks?: Record<string, PathLock[]>;
   /**
-   * §5.26 — 프로젝트별 컨텍스트 보험 원장(프로젝트당 한 장).
-   * 전선에는 최근 `INSURANCE_SNAPSHOT_MARKERS` / `INSURANCE_SNAPSHOT_PREIMAGES` 줄만 싣고
-   * 전량은 체크포인트와 `GET /api/insurance` 에 둔다(§5.22 가 감사 원장을 가른 자리와 같다).
-   * `watch`/`resurrectable` 은 여기서만 실리는 파생이다(체크포인트 ❌).
+   * §5.26 — 프로젝트별 보험 원장. 전선엔 최근 `INSURANCE_SNAPSHOT_MARKERS`·`INSURANCE_SNAPSHOT_PREIMAGES` 줄만, 전량은 체크포인트·`GET /api/insurance`.
+   * `watch`/`resurrectable` 은 여기만 실리는 파생(체크포인트 ❌).
    */
   contextInsurance?: ProjectInsuranceLedger[];
-  /**
-   * 프로젝트별 루트 캔버스 바운딩 박스 반쪽 폭/높이 (LAYOUT_CENTER_X/Y 중심).
-   * 키 = projectName. 미설정 항목은 클라이언트 기본값 사용.
-   */
+  /** 프로젝트별 루트 캔버스 바운딩 박스 반폭/반높이(LAYOUT_CENTER_X/Y 중심). 없으면 클라 기본값. */
   layoutBoundsByProject?: Record<string, { hw: number; hh: number }>;
-  /**
-   * §5.3 #28 v1.47 — 콘티 데이터 (contiId → Conti). 미설정 시 빈 맵.
-   * 클라이언트는 활성 에이전트 또는 활성 conti 선택에 따라 필터해서 패널 렌더.
-   */
+  /** §5.3 #28 — 콘티(contiId → Conti). 클라가 활성 에이전트·활성 conti 로 걸러 패널에 그린다. 없으면 빈 맵. */
   contis?: Record<string, Conti>;
 
-  /**
-   * §5.3 #28 (L) v1.58 — 콘티 인플라이트 작업 추적 (agentId → ActiveContiWork).
-   * 트리거 측에서 workId 발급 후 LLM 응답이 들어오기 전 in-flight 상태 노출용.
-   * 응답 처리 후에도 같은 workId 의 후속 수정을 받기 위해 항목은 남는다.
-   * 영속화 ❌ — 서버 재기동 시 자연 비움.
-   */
+  /** §5.3 #28 (L) — 콘티 in-flight 작업(agentId 키). workId 발급 뒤 LLM 응답 전 상태를 보이고, 응답 뒤에도 같은 workId 의 후속 수정을 받으려 남는다. 영속 ❌. */
   activeContiWork?: Record<string, ActiveContiWork>;
 
-  /** §4 v1.50 — 에이전트(session)별 최근 도구 실행 시간 ring buffer (최대 5건). */
+  /** §4 — 세션별 최근 도구 실행 시간(ring buffer, 최대 5건). */
   recentToolDurations?: Record<string, ToolDurationEntry[]>;
-  /** §4 v1.50 — 에이전트(session)별 컨텍스트 컴팩션 누적 카운트 + 마지막 시각. */
+  /** §4 — 세션별 컨텍스트 컴팩션 누적 수 + 마지막 시각. */
   compactCounts?: Record<string, CompactCount>;
-  /** §4 v1.50 — Claude.ai 한도 사용률 (글로벌 1건, 외부 statusline 스크립트가 푸시). */
+  /** §4 — Claude.ai 한도 사용률(글로벌 1건, 외부 statusline 스크립트가 푸시). */
   rateLimits?: RateLimitInfo;
-  /**
-   * §4 — 화면용 사용량. 바로 위 `rateLimits`(statusLine 원천)에서 파생한 표시 모양이다.
-   * 글로벌 1건(한도는 사용자 단위). 영속화 ❌ — 런타임 캐시.
-   */
+  /** §4 — `rateLimits`(statusLine 원천)에서 파생한 화면용 사용량. 글로벌 1건(한도는 사용자 단위), 런타임 캐시. */
   claudeUsage?: ClaudeUsageInfo;
-  /**
-   * §4 v4.82 — Claude 계정 로그인 상태(`claude auth status`). 글로벌 1건. 영속화 ❌ — 런타임 캐시.
-   * 클라는 이 값만 보고 로그인 팝업 노출/옵션창 Account 표시를 결정한다.
-   */
+  /** §4 API 크레딧 — 설정·경로·Anthropic 거절·Console 이번 달 지출(공식 cost_report 그대로). 머신 단위, 키 본문은 싣지 않는다. */
+  apiCredits?: ApiCreditState;
+  /** §4 — `claude auth status` 결과(글로벌 1건, 런타임 캐시). 클라는 이것만 보고 로그인 팝업·옵션창 Account 를 정한다. */
   claudeAuth?: ClaudeAuthStatus;
 
-  /**
-   * §4 (첫 실행 설치 온보딩) — `claude` CLI 설치 판정. 글로벌 1건. 영속화 ❌ — 런타임 캐시.
-   * 클라는 이 값만 보고 설치 게이트/상단 배너 노출을 결정한다(로그인 팝업보다 **앞** 단계).
-   */
+  /** §4 — `claude` CLI 설치 판정(글로벌, 런타임 캐시). 설치 게이트·상단 배너를 이것만 보고 정한다(로그인 팝업보다 앞 단계). */
   claudeSetup?: ClaudeSetupState;
 
-  /**
-   * §5.25 (E) — 코덱스 로그인 상태(`codex login status`). 글로벌 1건. 영속화 ❌ — 런타임 캐시.
-   * 클로드 쪽과 **같은 규칙**: `error` 가 있으면 "로그아웃"이 아니라 "모름"이라 창을 띄우지 않는다.
-   */
+  /** §5.25 (E) — `codex login status`(글로벌, 런타임 캐시). 클로드와 같은 규칙: `error` 면 "로그아웃"이 아니라 "모름"이라 창을 띄우지 않는다. */
   codexAuth?: CodexAuthStatus;
 
-  /**
-   * §5.25 (D) — `codex` CLI 설치 판정. 글로벌 1건. 영속화 ❌ — 런타임 캐시.
-   * 사용자가 코덱스를 고르지 않았어도 판정은 돈다(우클릭 메뉴가 "준비 안 됨"을 말해야 하므로).
-   */
+  /** §5.25 (D) — `codex` CLI 설치 판정(글로벌, 런타임 캐시). 코덱스를 안 골라도 돈다(우클릭 메뉴가 "준비 안 됨"을 말해야 한다). */
   codexSetup?: CodexSetupState;
 
   /** §5.25 (I) — 코덱스 훅 설치 상태. 글로벌 1건. 영속화 ❌ — 디스크를 보면 아는 파생 사실. */
   codexHooks?: CodexHookState;
-  /**
-   * §5.25 (G) — 코덱스가 캐시해 둔 모델 목록. 우리가 표를 들지 않으므로 **읽어서 실어 준다**.
-   * 없으면 필드가 없다(= 아직 못 읽었다). 화면은 그때 모델 칸을 "아직 못 읽었다"로 그린다.
-   */
+  /** §5.25 (G) — 코덱스가 캐시한 모델 목록(우리 표가 없어 읽어 싣는다). 없음 = 아직 못 읽음(화면도 그렇게 그린다). */
   codexModels?: CodexModelCatalog;
-  /**
-   * §5.25 (M) — 코덱스가 들고 있는 MCP·스킬·플러그인·훅·`AGENTS.md`. IDE 좌측 활동바의
-   * 코덱스 갈래가 이것을 그린다. `codexModels` 와 같이 **디스크를 보면 아는 파생 사실**이라
-   * 영속화하지 않는다 — 없으면 필드가 없고, 화면은 "아직 못 읽었다"로 그린다.
-   */
+  /** §5.25 (M) — 코덱스의 MCP·스킬·플러그인·훅·`AGENTS.md`(IDE 활동바 코덱스 갈래). 디스크 파생이라 영속 ❌, 없음 = 아직 못 읽음. */
   codexInventory?: CodexInventory;
-  /**
-   * §5.25 (N) — 코덱스 리뷰 이력(최근 것이 앞). 화면이 `agentId` 로 걸러 본다.
-   * 영속화 ❌ — 모델을 다시 부르면 되는 것이고, 그 비용은 사용자가 정할 일이다.
-   */
+  /** §5.25 (N) — 코덱스 리뷰 이력(최근이 앞, 화면이 `agentId` 로 거른다). 영속 ❌ — 다시 부르는 비용은 사용자가 정한다. */
   codexReviews?: CodexReviewRun[];
 
-  /** §4 v1.98 — 진단 에러 로그 (글로벌 ring buffer, 최신순). 영속화 ❌ — 런타임 캐시. */
+  /** §4 — 진단 에러 로그(글로벌 ring buffer, 최신순, 런타임 캐시). */
   diagnosticLog?: DiagnosticEntry[];
 
-  /**
-   * §5.5 #17-4 v2.36 — 프로젝트별 스킬 사용 카운트 (projectName → skillName → count).
-   * 같은 스킬명이 여러 프로젝트에서 충돌하지 않도록 projectName 으로 1차 키.
-   * `POST /api/commands/:sessionId` 가 명령 텍스트 줄머리 `/skill-name` 매칭마다 증분.
-   * SkillsView 가 `agentProjects[agentId]` 로 프로젝트 키 조회 후 정렬·배지에 사용.
-   */
+  /** §5.5 #17-4 — 프로젝트별 스킬 사용 수(projectName → skillName → count). `POST /api/commands/:sessionId` 가 줄머리 `/skill-name` 마다 올린다. */
   skillUsageCounts?: Record<string, Record<string, number>>;
 
-  /**
-   * §5.3 #10-2 v2.37 — Auto Agent 가 spawn 한 커스텀 에이전트 군의 메타.
-   * key = auto-agent 의 sessionId (예: `auto-...`).
-   * 클라가 auto-agent 버블의 진행 상태/요약 슬롯 렌더에 사용.
-   * 미설정 시 빈 맵.
-   */
+  /** §5.3 #10-2 — Auto Agent 가 spawn 한 에이전트 군의 메타(auto-agent sessionId 키, 버블의 진행/요약 슬롯용). 없으면 빈 맵. */
   autoAgentSummaries?: Record<string, AutoAgentSummary>;
 
-  /**
-   * §5.3 #10-3 v4.98 — 검증 런 (autoAgentId → AutoAgentRun[], 최신순).
-   * 클라 `AutoAgentPanel` 의 런 목록·증거 표·지표 렌더 데이터 소스. 미설정 시 빈 맵.
-   */
+  /** §5.3 #10-3 — 검증 런(autoAgentId → 최신순, `AutoAgentPanel` 데이터 소스). 없으면 빈 맵. */
   autoAgentRuns?: Record<string, AutoAgentRun[]>;
 
-  /**
-   * §4 v2.38 — 동적 모델 레지스트리. 서버가 부팅 시 시드 + `/v1/models` 머지로 빌드.
-   * 클라 AgentConfigPopup 의 버전 sub-드롭다운 데이터 소스. 미설정 시 클라는 시드로 자체 폴백.
-   */
+  /** §4 — 동적 모델 레지스트리(부팅 때 시드 + `/v1/models` 머지). AgentConfigPopup 버전 드롭다운 소스 — 없으면 클라가 시드로 폴백. */
   modelRegistry?: ModelRegistry;
-  /**
-   * §5.19 — 로컬 LLM(엔진 설치 상태 + 받아 둔 모델 + 진행 중 다운로드).
-   * `modelRegistry` 와 같은 성격의 **기기 전역** 값이라 프로젝트 체크포인트에 영속하지 않는다
-   * — 디스크의 실물이 진실이고, 서버가 부팅·변경 시마다 다시 읽어 싣는다.
-   */
+  /** §5.19 — 로컬 LLM(엔진 설치·받은 모델·진행 중 다운로드). 기기 전역 값이라 체크포인트에 넣지 않는다 — 디스크가 진실이고 서버가 다시 읽어 싣는다. */
   localLlm?: LocalLlmState;
-  /**
-   * §4 v2.42 — 사용자 글로벌 옵션(Options 창). 미설정 시 클라는 빈 객체로 처리.
-   * 신규 에이전트 spawn 시 서버가 `agentConfig` 머지에 사용.
-   */
+  /** §4 — 사용자 글로벌 옵션(Options 창). 없으면 빈 객체. 신규 spawn 때 서버가 `agentConfig` 머지에 쓴다. */
   userDefaults?: UserDefaults;
 
-  /**
-   * §4 v2.52 — 에이전트 작업 신고 (agentId → AgentReport[], 최신순 append).
-   * 커스텀/스폰 에이전트가 `POST /api/agent-report` 로 보낸 did/userActions 구조화 신고.
-   * 클라 IDE 가 agentId/subAgentId 로 필터해 색 구분 카드로 렌더. 미설정 시 빈 맵.
-   */
+  /** §4 — 작업 신고(agentId → 최신순 append, `POST /api/agent-report`). IDE 가 agentId/subAgentId 로 거른다. 없으면 빈 맵. */
   agentReports?: Record<string, AgentReport[]>;
 
-  /**
-   * §5.5 #17-36 — **메인 탭**(세션 미선택)에서 만든 스티키 메모 (agentId → SessionMemo[]).
-   * 세션 탭의 메모는 그 세션 소지품이라 `subAgents[].memos` 에 있고, 붙일 세션이 없는 메인 탭
-   * 메모만 여기 산다(에이전트가 사라지면 함께 정리 — `removeAgent`).
-   */
+  /** §5.5 #17-36 — 세션을 고르지 않은 메인 탭의 스티키 메모(agentId 키). 세션 탭 메모는 `subAgents[].memos` 에 있다. 에이전트 제거 때 함께 정리(`removeAgent`). */
   agentMemos?: Record<string, SessionMemo[]>;
 
-  /**
-   * §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[], 최신순 append).
-   * 커스텀/스폰 에이전트가 `POST /api/agent-questions` 로 보낸 질문 + 제안 프롬프트.
-   * 클라 IDE 가 agentId/subAgentId 로 필터해 질문 카드로 렌더. 미설정 시 빈 맵.
-   */
+  /** §4 — 질문 카드(agentId → 최신순 append, `POST /api/agent-questions`). 없으면 빈 맵. */
   agentQuestions?: Record<string, AgentQuestions[]>;
 
-  /**
-   * §4 v2.70 — 에이전트 검수 요청 카드 (agentId → AgentReview[], 최신순 append).
-   * 커스텀/스폰 에이전트가 `POST /api/agent-review` 로 보낸 changes/checkpoints 검수 요청.
-   * 클라 IDE 가 agentId/subAgentId 로 필터해 검수 카드로 렌더. 미설정 시 빈 맵.
-   */
+  /** §4 — 검수 요청 카드(agentId → 최신순 append, `POST /api/agent-review`). 없으면 빈 맵. */
   agentReviews?: Record<string, AgentReview[]>;
 
-  /**
-   * §4 v2.84 — 에이전트 번호 목록 정렬 카드 (agentId → AgentList[], 최신순 append).
-   * 커스텀/스폰 에이전트가 `POST /api/agent-list` 로 보낸 번호 목록. 미설정 시 빈 맵.
-   */
+  /** §4 — 번호 목록 카드(agentId → 최신순 append, `POST /api/agent-list`). 없으면 빈 맵. */
   agentLists?: Record<string, AgentList[]>;
 
-  /**
-   * §5.5 #17-11 v3.79 — 세션 반복 실행(루프) 설정 (subAgentId → SessionLoop).
-   * 키가 세션 탭 ID 라 IDE 가 활성 탭 하나만 바로 집어 쓴다. 미설정 시 빈 맵.
-   */
+  /** §5.5 #17-11 — 세션 루프 설정(subAgentId 키 — IDE 가 활성 탭 하나를 바로 집는다). 없으면 빈 맵. */
   sessionLoops?: Record<string, SessionLoop>;
 
-  /**
-   * §5.5 #17-35 — 검증 실행 이력 (subAgentId → VerificationRun[], 최신 우선).
-   * 루프·목표와 같은 키 축(세션 탭)이라 활동바가 활성 탭 하나의 마지막 판정을 바로 집어 쓴다.
-   * 세션당 `VERIFICATION_RUNS_MAX_PER_SESSION` 건에서 잘린다. 미설정 시 빈 맵.
-   */
+  /** §5.5 #17-35 — 검증 실행 이력(subAgentId → 최신 우선, 세션당 `VERIFICATION_RUNS_MAX_PER_SESSION`). 없으면 빈 맵. */
   verificationRuns?: Record<string, VerificationRun[]>;
 
-  /**
-   * §5.5 #17-35 ⑨ — 시연(재현 절차) 목록 (subAgentId → VerificationDemo[], 최신 우선).
-   * 실행 이력과 같은 키 축이다. 세션당 `VERIFICATION_DEMO_MAX_PER_SESSION` 건에서 잘린다.
-   * 영상은 여기 없다 — 단계 문장과 프레임 경로만 온다(⑨-2).
-   */
+  /** §5.5 #17-35 ⑨ — 시연 목록(subAgentId → 최신 우선, 세션당 `VERIFICATION_DEMO_MAX_PER_SESSION`). 영상은 없고 단계 문장·프레임 경로만(⑨-2). */
   verificationDemos?: Record<string, VerificationDemo[]>;
 
-  /**
-   * §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal).
-   * 루프와 같은 키 축(세션 탭)이라 활동바가 활성 탭 하나의 퍼센트만 바로 집어 쓴다. 미설정 시 빈 맵.
-   */
+  /** §5.5 #17-17 — 세션 목표(subAgentId 키). 없으면 빈 맵. */
   sessionGoals?: Record<string, SessionGoal>;
-  /**
-   * §5.5 #17-17 ⑪(a) — 단계의 "종류" 카드 목록(`key` → 카드).
-   * 목표와 달리 **프로젝트 하나에 한 벌**이다(세션 탭마다 종류를 다시 만들 이유가 없다).
-   */
+  /** §5.5 #17-17 ⑪(a) — 단계 "종류" 카드(`key` → 카드). 목표와 달리 프로젝트에 한 벌이다. */
   visualKinds?: Record<string, VisualKindCard>;
-  /**
-   * §5.5 #17-17 ⑫(a) — 무대 팔레트에 설 **배운 행동** 목록(`useCount` 내림차순, `GOAL_ACTION_MAX` 상한).
-   *
-   * 서버가 이미 세고 있는 셋(스킬 사용수·되풀이 명령·되풀이 단계)에서 **파생**한다 —
-   * 저장하지 않고 스냅샷마다 다시 짓는다(고정 목록만 `pinnedGoalActions` 로 남는다).
-   */
+  /** §5.5 #17-17 ⑫(a) — 무대 팔레트의 배운 행동(`useCount` 내림차순, `GOAL_ACTION_MAX`). 스킬 사용수·되풀이 명령·되풀이 단계에서 스냅샷마다 파생 — 저장은 `pinnedGoalActions` 만. */
   goalActions?: GoalActionCard[];
 
-  /**
-   * §5.5 #17-28 — 컨텍스트 주입원 오버라이드(프로젝트 층 + 세션 층).
-   * 화면이 "지금 무엇이 꺼져 있는지"를 스냅샷만으로 그릴 수 있게 함께 내려보낸다.
-   * 목록(무엇이 있는지)은 조회 API 가 매번 재는 실측이고, 여기 실리는 것은 **사용자의 뜻**뿐이다.
-   */
+  /** §5.5 #17-28 — 컨텍스트 주입원 오버라이드(프로젝트·세션 층). 사용자의 뜻만 싣는다 — 무엇이 있는지는 조회 API 가 매번 잰다. */
   contextOverrides?: ContextOverrides;
 
-  /**
-   * §4 v3.21 — 에이전트 피드백 (agentId → AgentFeedback[], targetId 별 upsert).
-   * 사용자가 `POST /api/agent-feedback` 로 남긴 좋아요/싫어요 평가. 미설정 시 빈 맵.
-   */
+  /** §4 — 피드백(agentId → targetId 별 upsert, `POST /api/agent-feedback`). 없으면 빈 맵. */
   agentFeedbacks?: Record<string, AgentFeedback[]>;
 
   /**
-   * §5.10 자동 목표 — 이 프로젝트에서 되풀이가 절차로 굳은 정도의 **경량 요약**.
-   *
-   * 폐기된 `brain` 요약이 앉아 있던 자리를 그대로 이어받는다(통폐합). 본문(스킬 내용)은 절대
-   * 스냅샷을 타지 않는다 — 무거운 것은 REST 로만 간다(§9 perf, 브레인이 지키던 규율 그대로).
-   *
-   * **projectName 1차 키**인 이유도 같다: 절차는 `<projectPath>/.vibisual/skills/` 로 프로젝트별로
-   * 갈라져 저장되므로, 단일 객체로 두면 프로젝트 2개 이상일 때 `mergeSnapshots` 가 통째로 떨궈
-   * 파일이 있는데도 "0개"로 보인다(브레인이 v3.70 에서 실제로 겪은 결함).
-   *
-   * **꺼진 프로젝트에는 실리지 않는다**(기본 off). 없음이 곧 "이 축은 이 프로젝트에 없다"이다.
+   * §5.10 자동 목표 경량 요약 — 본문(스킬 내용)은 스냅샷을 타지 않는다(REST 로만, §9). 꺼진 프로젝트엔 없다(기본 off).
+   * projectName 키 — 절차가 프로젝트별 `.vibisual/skills/` 에 있어, 단일 객체면 프로젝트가 둘 이상일 때 `mergeSnapshots` 가 떨궈 "0개"로 보인다.
    */
   autoGoal?: Record<string, AutoGoalSummary>;
 
-  /**
-   * §5.3 #10-4 — 오케스트라(projectName → 설정 + 최근 런). 설정도 런도 없는 프로젝트는 실리지 않는다
-   * (없음 = 기본값 · 꺼짐). 런은 최근 `ORCHESTRA_RUN_SNAPSHOT_MAX` 건만 싣는다 — 나머지는 체크포인트에만 있다.
-   */
+  /** §5.3 #10-4 — 오케스트라(projectName → 설정 + 최근 런). 설정·런 없는 프로젝트는 빠진다(= 기본·꺼짐). 런은 `ORCHESTRA_RUN_SNAPSHOT_MAX` 건만, 나머지는 체크포인트에. */
   orchestra?: Record<string, OrchestraSummary>;
 
-  /**
-   * §5.3 #10-5 — 설정 덜어내기(projectName → 설정 + 최근 런). 설정도 런도 없는 프로젝트는 실리지 않는다
-   * (없음 = 기본값 · 꺼짐). 런은 최근 `CONFIG_TRIM_RUN_SNAPSHOT_MAX` 건만 싣는다 — 나머지는 체크포인트에만 있다.
-   */
+  /** §5.3 #10-5 — 설정 덜어내기(projectName → 설정 + 최근 런). 없음 = 기본·꺼짐. 런은 `CONFIG_TRIM_RUN_SNAPSHOT_MAX` 건만, 나머지는 체크포인트에. */
   configTrim?: Record<string, ConfigTrimSummary>;
 
   /**
-   * §5.11 v4.65 — **집행 플러그인의 실측**(projectPath → pluginId → 실측 한 벌).
-   *
-   * 집행(`agentPrompt`)은 서버에서 프로젝트 파일을 실제로 훑어 판단하는데, 카드는 클라에 있어 파일을
-   * 볼 수 없다. 그래서 v4.57~v4.63 의 `ssot-drift` 는 프롬프트에 `docs/SCENARIO.md` 를 실으면서
-   * 화면에는 rules·skills·기억 수를 "진실 공급원"이라 표시했다 — **집행과 카드가 다른 것을 세는**
-   * 상태라, 사용자가 켠 결과를 확인할 방법이 없었다. 그 한 칸을 잇는 것이 이 필드다.
-   *
-   * 키가 projectPath 인 이유: 켬/끔이 프로젝트별(`enabledPluginsByProject`)이므로 실측도 같은 키여야
-   * 창·카드·집행이 같은 프로젝트를 말한다. **읽기 전용·영속 0** — 파일에서 언제든 다시 구하므로
-   * `ProjectCheckpoint` 4지점에 넣지 않는다. 켠 집행 모듈이 없으면 필드 자체가 없다(종전과 동일).
+   * §5.11 — 집행 플러그인의 실측(projectPath → pluginId → 값). 집행은 서버가 파일을 훑는데 카드는 파일을 못 보므로, 카드가 집행과 같은 것을 세게 하는 다리다.
+   * 켬/끔(`enabledPluginsByProject`)과 같은 projectPath 키. 읽기 전용·영속 0(파일에서 다시 구한다). 켠 집행 모듈이 없으면 필드도 없다.
    */
   pluginFacts?: Record<string, Record<string, PluginFactMap>>;
 
-  /**
-   * §5.11 정독 게이트 · §5.5 #17-44 — **세션별 정독 상태**(키 = `SubAgent.id`).
-   *
-   * `verificationRuns`·`sessionLoops` 와 같은 축이라 활동바가 키 하나로 셋을 읽는다.
-   * **영속 0** — 이 세션의 도구 호출에서 나온 계측이라 앱을 끄면 사라지는 것이 맞다
-   * (§3.6-1 `instructionsLoaded` 와 같은 성격). 걸린 세션이 없으면 필드 자체가 없다.
-   */
+  /** §5.11 · §5.5 #17-44 — 세션별 정독 상태(`SubAgent.id` 키, `verificationRuns`·`sessionLoops` 와 같은 축). 영속 0 — 세션 계측이라 앱을 끄면 사라지는 게 맞다. 없으면 필드도 없다. */
   specReading?: Record<string, SpecReadingState>;
 }
 
-/**
- * 플러그인 실측 한 벌 — 카드가 그대로 그릴 수 있는 얕은 값만.
- *
- * 중첩을 허용하지 않는 이유: 카드는 이 값을 한 줄로 그리는 계기판이고, 구조가 깊어지면 카드마다
- * 다른 해석이 필요해져 "서버가 판단하고 카드는 그린다"는 경계가 흐려진다.
- */
+/** 플러그인 실측 — 카드가 한 줄로 그릴 얕은 값만. 중첩을 허용하면 카드마다 해석이 갈려 "서버가 판단, 카드는 그린다" 경계가 흐려진다. */
 export type PluginFactMap = Record<string, string | number | boolean | string[]>;
 
-// ─── §5.11 정독 게이트 · §5.5 #17-44 ────────────────────────────────────────────
-//
-// "기획 읽었다"를 셀 수 있게 만드는 데이터. 단위가 **파일이 아니라 절(節)** 이라는 것이 뼈대다 —
-// 파일 단위로 세면 "열긴 열었는데 그 조항 구간은 안 봤다"를 영영 구별할 수 없고, 그것이 사용자가
-// 신고한 "대충 본다"의 정체다.
-//
-// 원장(`SpecReadingState`)은 **영속하지 않는다** — 이 세션의 도구 호출에서 나온 계측이라 앱을 끄면
-// 사라지는 것이 맞다(§3.6-1 `instructionsLoaded` 와 같은 성격). 영속하는 것은 설정 한 벌뿐이다.
+// ─── §5.11 정독 게이트 · §5.5 #17-44 ───
+// 단위는 파일이 아니라 절(節) — 파일 단위로는 "열었는데 그 절은 안 봤다"를 못 가른다. 원장(`SpecReadingState`)은 영속하지 않고 설정만 영속한다.
 
 /** 게이트 강도 — 알림(아무것도 막지 않음) · 경고(`Stop` 되돌림) · 차단(`Edit`/`Write` deny). */
 export type SpecGateStrength = 'observe' | 'warn' | 'enforce';
 
-/**
- * 절 하나의 상태 — 제약 원장(constraint ledger) 4상태.
- *
- * `satisfied` 는 **증거가 실제로 있을 때만** 준다. `waived`(면제)는 사용자만 줄 수 있다 —
- * 에이전트가 스스로 면제할 수 있으면 이 게이트는 아무것도 아니게 된다.
- */
+/** 절 상태(제약 원장 4상태). `satisfied` 는 증거가 있을 때만, `waived` 는 사용자만 준다 — 에이전트가 스스로 면제하면 게이트가 무의미하다. */
 export type SpecUnitStatus = 'open' | 'satisfied' | 'blocked' | 'waived';
 
 /** 기획 문서에서 잘라 낸 절 하나. */
@@ -6131,11 +4451,8 @@ export interface SpecUnit {
   id: string;
   title: string;
   /**
-   * 라우팅이 낱말을 견주는 **자르지 않은** 제목 — 없으면 `title` 을 쓴다.
-   *
-   * `title` 은 화면에 한 줄로 서야 해서 항목 표지를 `SPEC_ITEM_LABEL_MAX` 에서 자른다. 그 자른 제목으로
-   * 찾기까지 하면 꼬리에 있던 낱말이 색인에서 통째로 사라진다 — 실측으로 §5.5 #17-44 의 조각 54 개가
-   * 제목에 `정독` 을 잃어 「정독 기능 고쳐줘」가 자기 절을 못 찾았다. **보이는 것과 찾는 것을 나눈다.**
+   * 라우팅이 견주는 **자르지 않은** 제목(없으면 `title`). `title` 은 `SPEC_ITEM_LABEL_MAX` 에서 잘려 꼬리 낱말이 색인에서 사라진다
+   * (실측: §5.5 #17-44 조각 54개가 `정독` 을 잃어 그 낱말로 찾는 요청이 자기 절을 못 찾았다). 보이는 것과 찾는 것을 나눈다.
    */
   matchText?: string;
   /** 프로젝트 루트 기준 상대경로(표시·열기용 원본 그대로 — 비교 키는 `pathKey()`). */
@@ -6193,10 +4510,7 @@ export interface SpecCitation {
   checkedAt: number;
   /** 왜 실패했는가 — `not-found`(그 구간에 그 문장이 없다) · `out-of-range` · `file-missing`. */
   failure?: 'not-found' | 'out-of-range' | 'file-missing';
-  /**
-   * 그 줄 범위의 **파일 원문**(공백 접음, `SPEC_CITATION_ACTUAL_MAX` 자 — 맞은 자리를 가운데로).
-   * 화면이 인용과 나란히 놓는 재료다(§5.5 #17-44 ③(b)). 범위 밖·파일 없음이면 없다.
-   */
+  /** 그 줄 범위의 파일 원문(공백 접음, `SPEC_CITATION_ACTUAL_MAX` 자, 맞은 자리를 가운데로) — 인용과 나란히 놓는다(§5.5 #17-44 ③(b)). 범위 밖·파일 없음이면 없다. */
   actual?: string;
 }
 
@@ -6208,12 +4522,7 @@ export interface SpecRequiredEntry {
   startLine: number;
   endLine: number;
   status: SpecUnitStatus;
-  /**
-   * 절의 줄 중 **정독으로 인정된** 비율(0~1).
-   *
-   * "열긴 열었다"와 다르다 — 통째 Read 강등·Grep 문맥처럼 부분 열람으로 떨어진 구간은 여기서 빠진다.
-   * 그래야 이 값이 `satisfied` 판정에 그대로 쓰일 수 있다(둘이 다른 자를 쓰면 화면과 게이트가 갈린다).
-   */
+  /** 정독으로 인정된 줄 비율(0~1). 부분 열람(통째 Read 강등·Grep 문맥)은 빠진다 — `satisfied` 판정과 같은 자를 써야 화면과 게이트가 안 갈린다. */
   covered: number;
   /** 열긴 열었으나 부분 열람으로 강등된 구간만 있는가. */
   partial: boolean;
@@ -6228,12 +4537,7 @@ export interface SpecRequiredEntry {
   oversized?: boolean;
 }
 
-/**
- * 신뢰도 — **하나의 점수로 뭉개지 않는다.**
- *
- * 단일 점수는 무엇이 부족한지 말하지 못하고, 그래서 사용자가 믿을 근거가 되지 못한다
- * (업계 권고도 "하나의 채점기 대신 차원별 채점기"다). 넷은 각각 0~1.
- */
+/** 신뢰도 — 한 점수로 뭉개지 않는다(무엇이 부족한지 말하지 못한다). 넷은 각각 0~1. */
 export interface SpecTrust {
   /** 필수 절 중 열람된 비율. */
   coverage: number;
@@ -6259,13 +4563,7 @@ export interface SpecGateEvent {
   detail?: string;
 }
 
-/**
- * 한 세션의 정독 상태 — 스냅샷으로 클라에 간다.
- *
- * 키는 **`SubAgent.id`**(= 클라의 `activeSessionId`)다. `verificationRuns`(#17-35)·`sessionLoops`(#17-11)와
- * 같은 축이라 활동바가 같은 키 하나로 셋을 읽는다. 훅 세션(CLI 세션 UUID)은 서버가
- * `findSubBySessionId` 로 이 키로 옮겨 담는다.
- */
+/** 한 세션의 정독 상태. 키는 `SubAgent.id`(= 클라 `activeSessionId`) — 훅 세션(CLI UUID)은 서버가 `findSubBySessionId` 로 이 키에 옮겨 담는다. */
 export interface SpecReadingState {
   strength: SpecGateStrength;
   indexUnits: number;
@@ -6310,12 +4608,7 @@ export interface SpecReadingSettings {
   routes?: SpecReadingRoute[];
   /** 사용자가 면제한 절 id — 에이전트는 여기에 손댈 수 없다. */
   waived?: string[];
-  /**
-   * §5.5 #17-44 ⑧ — **프로젝트 층** 스위치. 없으면 "안 정함" = 꺼짐(기본 오프).
-   *
-   * 아래 두 맵과 함께 `resolveSpecReadingEnabled`(shared 순수 함수) 하나가 접는다 — 여기 값을 직접
-   * 읽어 판정하는 코드를 두 번째로 만들지 마라(두 벌이면 화면과 집행이 갈린다).
-   */
+  /** §5.5 #17-44 ⑧ — 프로젝트 층 스위치(없으면 꺼짐). 판정은 `resolveSpecReadingEnabled` 하나로 — 직접 읽는 판정을 따로 만들면 화면과 집행이 갈린다. */
   enabledProject?: boolean;
   /** **에이전트 층** 덮어쓰기 — `agentId` → 켬/끔. 칸이 없으면 프로젝트 층을 물려받는다. */
   enabledAgents?: Record<string, boolean>;
@@ -6324,32 +4617,17 @@ export interface SpecReadingSettings {
   updatedAt?: number;
 }
 
-/**
- * §5.5 #17-44 ⑧ — 정독 켬/끔이 사는 층. **아래가 위를 덮는다.**
- *
- * **새 축이 아니다** — #17-28 주입원 통제가 이미 같은 물음("프로젝트 전체 · 이 에이전트 버블 ·
- * 이 세션")에 답하려고 세운 `ContextScopeLevel` 그대로다. 이름만 따로 두는 것은 이 기능의 코드가
- * 읽히게 하려는 것이고, 타입이 같으므로 두 축이 갈라져 서로 다른 뜻이 될 수 없다.
- * 순서는 `SPEC_SCOPE_ORDER` 가 소유한다.
- */
+/** §5.5 #17-44 ⑧ — 정독 켬/끔 층(아래가 위를 덮는다). 새 축이 아니라 #17-28 의 `ContextScopeLevel` 그대로라 두 축이 갈라질 수 없다. 순서는 `SPEC_SCOPE_ORDER`. */
 export type SpecReadingScope = ContextScopeLevel;
 
 // ─── §5.10 — 자동 목표(되풀이한 일을 스킬로 굳힌다) ──────────────────────
 
-/**
- * 자동 목표 켬/끔이 사는 층. **아래가 위를 덮는다** — 정독(#17-44 ⑧)과 같은 3층이고,
- * 사용자 지시가 "정독 키고 끄는 것처럼 똑같이" 였으므로 손짓·저장 규약까지 같은 것을 쓴다.
- * 순서는 `AUTO_GOAL_SCOPE_ORDER` 가 소유한다.
- */
+/** 자동 목표 켬/끔 층(아래가 위를 덮는다) — 정독(#17-44 ⑧)과 같은 3층·같은 손짓·같은 저장 규약. 순서는 `AUTO_GOAL_SCOPE_ORDER`. */
 export type AutoGoalScope = ContextScopeLevel;
 
 /**
- * 되풀이가 어디서 관찰됐나.
- * - `command` — 에이전트가 친 셸 명령의 **연속 묶음**(같은 순서가 여러 번 되풀이된 것)
- * - `step`    — 사용자가 무대에 거듭 꽂은 단계 묶음(#17-17 ⑫(a)ⓒ 와 같은 재료)
- *
- * **스킬 호출은 원천이 아니다** — 이미 스킬인 것을 다시 스킬로 굳히는 일은 없다. 빈도가 높은
- * 스킬은 팔레트(⑫(a)ⓐ)가 이미 앞자리에 세운다.
+ * 되풀이 원천: `command` = 셸 명령의 연속 묶음이 되풀이됨 · `step` = 무대에 거듭 꽂은 단계 묶음(#17-17 ⑫(a)ⓒ).
+ * 스킬 호출은 원천이 아니다 — 이미 스킬이고, 잦은 스킬은 팔레트(⑫(a)ⓐ)가 앞에 세운다.
  */
 export type AutoGoalSource = 'command' | 'step';
 
@@ -6366,13 +4644,7 @@ export interface AutoGoalMetrics {
   revisionCount: number;
 }
 
-/**
- * **절차 후보 한 건** — 아직 스킬이 되기 전의 것.
- *
- * 자동 목표가 하는 일은 "기억을 쌓는 것"이 아니라 **되풀이를 알아보는 것**이다. 그래서 후보는
- * 문장이 아니라 **단계의 나열**이고, 그 단계는 실제로 돌던 명령 원문이다(요약하지 않는다 —
- * 요약하는 순간 그 절차를 다시 돌릴 수 없게 된다).
- */
+/** 절차 후보 한 건(스킬 전). 단계는 실제로 돌던 명령 원문이다 — 요약하면 그 절차를 다시 돌릴 수 없다. */
 export interface AutoGoalCandidate {
   /** 안정 키 — 같은 절차는 언제 세어도 같은 id 다(단계 본문에서 만든다). */
   id: string;
@@ -6417,23 +4689,13 @@ export interface AutoGoalSkillSummary {
   updatedAt: number;
   /** 이 스킬을 낳은 후보 id — 화면이 후보와 스킬을 한 줄로 잇는다. */
   candidateId?: string;
-  /**
-   * 이 절차가 만지는 파일 — frontmatter 의 `files` 앵커에서 되읽는다.
-   *
-   * 본문에도 같은 목록이 적히지만, 본문은 사람이 고치는 자리라 **세는 근거로 쓰지 않는다.**
-   * 앵커가 있다는 것은 "이 절차를 원본으로 되짚을 수 있다"는 뜻이고, §5.11 그라운딩 카드가 그것을 센다.
-   */
+  /** 절차가 만지는 파일 — frontmatter `files` 앵커에서 읽는다(본문 목록은 사람이 고치는 자리라 세지 않는다). §5.11 그라운딩 카드가 앵커를 센다. */
   files?: string[];
   /** 이 절차가 어디서 자랐나 — frontmatter `origin`. 파일에 적혀 있어 분석 창 밖에서도 읽힌다. */
   origin?: AutoGoalSource;
 }
 
-/**
- * 이 자리에서 자동 목표가 지금 무엇을 보고 있는가 — 뷰가 그리는 전부.
- *
- * **여기서 다시 세지 않는다(§3.1).** 후보·문턱·스킬 목록은 전부 서버가 낸 값이고, 그것은
- * 스킬을 실제로 굳히는 판단과 **같은 함수 하나**에서 나온다.
- */
+/** 자동 목표 뷰가 그리는 전부. 여기서 다시 세지 않는다(§3.1) — 서버가 스킬을 굳히는 판단과 같은 함수에서 낸 값이다. */
 export interface AutoGoalState {
   /** 3층을 접은 결론 — 이 자리에서 도는가. */
   enabled: boolean;
@@ -6451,29 +4713,13 @@ export interface AutoGoalState {
 }
 
 /**
- * §5.10 — 스냅샷에 싣는 **경량 요약**. 목록이 아니라 숫자 몇 개다.
- *
- * `AutoGoalState`(전문)와 일부러 다른 타입인 이유: 전문은 후보·스킬 **목록**을 들고 있어
- * 매 브로드캐스트에 태우면 전선이 목록 길이만큼 무거워진다. 폐기된 브레인 요약이 지키던
- * 규율("본문은 REST, 요약만 스냅샷")을 그대로 물려받는다.
- *
- * 화면에서 이 값을 쓰는 곳은 §5.11 점검 카드들이다 — 카드가 프롬프트와 **같은 숫자**를
- * 말해야 하므로, 두 곳에서 따로 세지 않고 서버가 센 것 하나만 내려보낸다. 폐기된 브레인 요약이
- * 앉아 있던 스냅샷 자리를 그대로 이어받으므로, 카드 26장이 읽던 축은 여기서 전부 이어진다.
- *
- * **없음의 뜻**: 이 프로젝트에서 자동 목표를 켠 층이 하나도 없다는 것이다. 0 과 구분해야 카드가
- * "아직 아무것도 없다"와 "이 축을 안 쓴다"를 다르게 말할 수 있다.
+ * §5.10 — 스냅샷용 경량 요약(숫자 몇 개). 목록을 든 `AutoGoalState` 를 매 브로드캐스트에 태우지 않으려 따로 둔다.
+ * §5.11 카드가 프롬프트와 같은 숫자를 말하도록 서버가 센 값 하나만 내려보낸다. 없음 = 켠 층이 없다(0 과 구분 — "아직 없다" vs "안 쓴다").
  */
 export interface AutoGoalSummary extends Partial<AutoGoalMetrics> {
-  /**
-   * **프로젝트 층**의 결론. 이 값이 `false` 여도 요약이 올 수 있다 — 아래 층(에이전트·세션)이 위를
-   * 덮기 때문이다. "이 자리에서 도는가"는 `agentEnabled` 까지 보고 판단해야 한다.
-   */
+  /** 프로젝트 층 결론. `false` 여도 요약이 올 수 있다(아래 층이 덮는다) — 도는지는 `agentEnabled` 까지 본다. */
   enabled: boolean;
-  /**
-   * 에이전트 층까지 접은 결론 — **그 층에 값이 적힌 자리만** 담는다(없는 키는 `enabled` 를 물려받는다).
-   * 전량을 담지 않는 이유는 하나다: 매 브로드캐스트에 실리는 맵이라 에이전트 수만큼 자라면 안 된다.
-   */
+  /** 에이전트 층까지 접은 결론 — 값이 적힌 자리만 담는다(없는 키는 `enabled`). 매 브로드캐스트 맵이라 에이전트 수만큼 자라면 안 된다. */
   agentEnabled?: Record<string, boolean>;
   /** 굳어 파일(`SKILL.md`)로 선 절차 수. */
   skillCount: number;
@@ -6499,12 +4745,7 @@ export interface AutoGoalSummary extends Partial<AutoGoalMetrics> {
   recentSkillName?: string;
 }
 
-/**
- * 자동 목표 설정 — 영속은 `ProjectCheckpoint.autoGoalSettings` 한 칸(§3.2 단일 창구).
- *
- * 세 층 맵의 뜻은 정독과 글자 그대로 같다: 칸이 없으면 "안 정함"이고 위 층을 물려받는다.
- * **아무 층도 정하지 않은 프로젝트는 꺼짐**이다(기본 off — 사용자 결정).
- */
+/** 자동 목표 설정 — 영속은 `ProjectCheckpoint.autoGoalSettings` 한 칸(§3.2). 칸 없음 = 위 층을 물려받음, 아무 층도 안 정하면 꺼짐. */
 export interface AutoGoalSettings {
   /** **프로젝트 층** 스위치. 없으면 "안 정함" = 꺼짐. */
   enabledProject?: boolean;
@@ -6512,29 +4753,17 @@ export interface AutoGoalSettings {
   enabledAgents?: Record<string, boolean>;
   /** **세션 층** 덮어쓰기 — `SubAgent.id` → 켬/끔. */
   enabledSessions?: Record<string, boolean>;
-  /**
-   * 사용자가 물린 후보 id — 다시 스킬로 굳히지 않는다.
-   *
-   * 지우는 것이 아니라 **덮는 것**이다: 같은 절차가 계속 관찰돼도 제안만 멈춘다(§5.10 이 세운
-   * "끄기는 동작 정지이지 삭제가 아니다"와 같은 규율).
-   */
+  /** 물린 후보 id — 다시 굳히지 않는다. 지우지 않고 덮는다(관찰은 계속, 제안만 멈춤). */
   dismissed?: string[];
   updatedAt?: number;
 }
 
 // ─── §5.3 #10-4 — 오케스트라(지휘 모드) ────────────────────────────────────────
 
-/**
- * 오케스트라 켬/끔의 층. **둘뿐이다**(프로젝트 → 에이전트) — 절차 감지의 세션 층은 없다.
- * 지휘는 에이전트가 하는 일이라, 같은 에이전트의 세션마다 지휘 여부가 갈리면 사용자가 어느 탭에서
- * 친 명령이 편성될지 예측할 수 없다.
- */
+/** 오케스트라 켬/끔 층은 프로젝트 → 에이전트 둘뿐 — 세션마다 지휘가 갈리면 어느 탭의 명령이 편성될지 예측할 수 없다. */
 export type OrchestraScope = 'project' | 'agent';
 
-/**
- * 절감 방안 id — 2026-09-16 토큰 감사 답변의 표 13행과 **순서까지** 같다(`no` 가 그 행 번호).
- * 원문은 `ORCHESTRA_STRATEGIES` 에 있고, 지휘자가 계획 신고에 담는 것은 이 id 다.
- */
+/** 절감 방안 id — 토큰 감사 표 13행과 순서까지 같다(`no` = 행 번호). 원문은 `ORCHESTRA_STRATEGIES`, 계획 신고엔 이 id 를 담는다. */
 export type OrchestraStrategyId =
   | 'subagents'
   | 'output'
@@ -6550,13 +4779,7 @@ export type OrchestraStrategyId =
   | 'preamble'
   | 'other';
 
-/**
- * 지휘자가 고른 편성.
- * - `none` — 편성하지 않고 지휘자가 직접 답한다(작은 질문에 머릿수를 늘리는 것 자체가 낭비다).
- * - `single` — 멤버 하나에게 넘긴다.
- * - `pipeline` — 멤버를 차례로 잇는다(엣지로 앞 결과가 다음 입력).
- * - `parallel` — 독립된 일을 나눠 동시에 돌리고 한 멤버가 모은다.
- */
+/** 편성: `none` = 지휘자가 직접 답함(작은 질문에 머릿수는 낭비) · `single` = 멤버 하나 · `pipeline` = 차례로 잇는다(엣지로 앞 결과가 다음 입력) · `parallel` = 나눠 동시에, 한 멤버가 모은다. */
 export type OrchestraTopology = 'none' | 'single' | 'pipeline' | 'parallel';
 
 /** IntentGate 분류(§5.3 #10-2 표) + 편성 없이 답할 질문. */
@@ -6566,27 +4789,17 @@ export type OrchestraIntent = 'question' | 'quick-fix' | 'feature' | 'research' 
 export type OrchestraMemberEngine = 'claude' | 'codex' | 'auto';
 
 /**
- * 멤버가 **태어날 때** 받는 작업 폴더 격리. `worktree` 면 그 멤버는 별도 git worktree 에서 돈다
- * (`buildConfigArgs` 의 `--worktree`). `parallel` 편성에서 워커들이 같은 워킹트리를 동시에 고치는
- * 것을 막는 유일한 축이다 — 그래서 지휘자의 손잡이가 아니라 **사용자 스위치**다.
- *
- * Claude 멤버에만 먹는다 — Codex CLI 에는 대응 플래그가 없다(규칙·화면이 그렇게 말한다).
+ * 멤버가 태어날 때의 작업 폴더 격리(`worktree` → `buildConfigArgs` 의 `--worktree`). `parallel` 에서 같은 워킹트리 동시 수정을 막는 유일한 축이라 사용자 스위치다.
+ * Claude 멤버만 — Codex CLI 엔 대응 플래그가 없다.
  */
 export type OrchestraMemberIsolation = 'none' | 'worktree';
 
-/**
- * 지휘 턴의 권한.
- * - `bypass` — 지휘자는 loopback REST 를 Bash(curl) 로 스스로 쳐야 해서 #10-2 빌더와 같은 이유로 기본값이다.
- * - `inherit` — 그 에이전트에 사용자가 정해 둔 권한 그대로(승인 카드가 뜬다).
- */
+/** 지휘 턴 권한. `bypass`(기본) = loopback REST 를 curl 로 쳐야 해서(#10-2 빌더와 같은 이유) · `inherit` = 그 에이전트의 권한 그대로(승인 카드가 뜬다). */
 export type OrchestraConductorPermission = 'bypass' | 'inherit';
 
 /**
- * 오케스트라 설정 — 영속은 `ProjectCheckpoint.orchestraSettings` 한 칸(§3.2 단일 창구).
- *
- * **전부 읽히는 스위치다.** 재작업 예산 칸이 없는 것은 일부러다 — 엣지마다
- * `TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT` 상한이 이미 있어, 여기 하나 더 두면 읽히지 않는 스위치가 된다.
- * 모델·강도 칸의 빈 문자열/없음은 "정하지 않음"이다(지휘자 칸 = 그 에이전트 설정 그대로, 멤버 칸 = 지휘자가 고른다).
+ * 오케스트라 설정 — 영속은 `ProjectCheckpoint.orchestraSettings` 한 칸. 재작업 예산 칸은 일부러 없다(엣지마다 `TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT` 이 있어 읽히지 않는 스위치가 된다).
+ * 모델·강도의 빈 값 = 안 정함(지휘자 = 그 에이전트 설정, 멤버 = 지휘자가 고름).
  */
 export interface OrchestraSettings {
   /** **프로젝트 층** 스위치. 없으면 "안 정함" = 꺼짐. */
@@ -6618,11 +4831,8 @@ export interface OrchestraSettings {
    */
   memberIsolation?: OrchestraMemberIsolation;
   /**
-   * 멤버가 태어날 때 받는 **도구 목록 템플릿** id(`AGENT_TOOL_TEMPLATES`). 없으면 설정 창 기본값 그대로.
-   *
-   * **지휘자는 이 칸을 못 바꾼다.** 권한 축(`tools`)은 loopback 유입에서 얼려 있고(§5.3 #12-1),
-   * 멤버는 태어날 때 빈 오버라이드를 받아 그 얼림의 "첫 구성은 통과" 길도 열리지 않는다. 그래서
-   * 최소 권한은 사용자가 여기서 한 번 고르고 **서버가 생성 시점에 박는** 것이 유일한 길이다.
+   * 멤버의 도구 목록 템플릿 id(`AGENT_TOOL_TEMPLATES`, 없으면 설정 창 기본값). 지휘자는 못 바꾼다 — `tools` 는 loopback 유입에서 얼려 있고(§5.3 #12-1) 멤버는 빈 오버라이드로 태어난다.
+   * 최소 권한은 사용자가 고르고 서버가 생성 때 박는 길뿐이다.
    */
   memberToolTemplate?: string;
   /** 지휘자에게 주지 않는 방안 — 규칙에서 빠지고, 계획 신고에 담기면 400. */
@@ -6630,15 +4840,7 @@ export interface OrchestraSettings {
   updatedAt?: number;
 }
 
-/**
- * 런의 단계.
- * - `conducting` — 지휘 턴이 돌고 있다.
- * - `dispatched` — 멤버에게 넘겼고 지휘자의 결과 회수·마무리를 기다린다.
- * - `completed` — 멤버 결과를 회수하고 지휘자가 최종 답변을 마쳤다.
- * - `answered` — 편성 없이(`none`) 지휘자가 직접 답했다.
- * - `unreported` — 지휘 턴이 계획 신고 없이 끝났다(조용히 성공으로 그리지 않는다).
- * - `error` — 지휘 턴이 실패로 끝났다.
- */
+/** `conducting` 지휘 중 · `dispatched` 멤버에 넘기고 회수 대기 · `completed` 회수 후 최종 답 · `answered` 편성 없이 직접 답 · `unreported` 계획 신고 없이 끝남(성공으로 그리지 않는다) · `error` 실패. */
 export type OrchestraRunPhase = 'conducting' | 'dispatched' | 'completed' | 'answered' | 'unreported' | 'error';
 
 /** 지휘자가 고르거나 건너뛴 방안 하나와 그 이유. */
@@ -6667,7 +4869,7 @@ export interface OrchestraRun {
   agentId: string;
   /** 지휘 명령 id(`QueuedCommand.id`). */
   commandId: string;
-  /** 사용자 원문(≤ `ORCHESTRA_RUN_REQUEST_MAX`). */
+  /** 요청 원문(≤ `ORCHESTRA_RUN_REQUEST_MAX`). */
   userRequest: string;
   engine: 'claude' | 'codex';
   phase: OrchestraRunPhase;
@@ -6677,10 +4879,7 @@ export interface OrchestraRun {
   plan?: OrchestraPlan;
   /** 이 런이 만든 멤버 + 계획에서 재사용한다고 밝힌 멤버. */
   memberAgentIds: string[];
-  /**
-   * 이 런이 **새로 만든** 멤버 수 — `maxMembers` 상한은 이 값으로 잰다. `memberAgentIds` 에는 다시 쓴
-   * 기존 멤버도 들어가므로 그 길이로 재면 재사용이 새 멤버 자리를 깎는다. 없으면 0.
-   */
+  /** 이 런이 새로 만든 멤버 수 — `maxMembers` 는 이 값으로 잰다(`memberAgentIds` 길이로 재면 재사용이 새 자리를 깎는다). 없으면 0. */
   createdMemberCount?: number;
   /** 지휘·킥오프·멤버의 엣지/오케스트라 명령 입력 토큰 합. */
   inputTokens: number;
@@ -6698,10 +4897,7 @@ export interface OrchestraSummary {
 /** 범위 3단 — 바깥(넓음) -> 안(좁음). 좁은 단이 이긴다. */
 export type ConfigTrimScope = 'project' | 'agent' | 'session';
 
-/**
- * 규칙 표 한 줄의 이름(`configTrimRules.ts` 의 `CONFIG_TRIM_RULES`).
- * 표에 줄을 늘리면 여기와 `ide.configTrim.rule.<id>` 번역 키도 같이 늘린다.
- */
+/** 규칙 표(`CONFIG_TRIM_RULES`) 한 줄의 이름 — 줄을 늘리면 여기와 `ide.configTrim.rule.<id>` 번역 키도 같이 늘린다. */
 export type ConfigTrimRuleId =
   | 'preset-meta'
   | 'custom-mode-placeholder'
@@ -6771,12 +4967,7 @@ export interface ConfigTrimExclusion {
   ruleId?: ConfigTrimRuleId;
 }
 
-/**
- * 설정 덜어내기 범위·규칙 설정. 프로젝트별로 하나.
- *
- * ⚠ 켬/끔 세 칸은 `withConfigTrimScope` 한 길로만 바뀐다 —
- * `applyConfigTrimSettingsPatch` 는 이 칸들을 받지 않는다(두 창구가 같은 칸을 덮지 않게).
- */
+/** 설정 덜어내기 설정(프로젝트별). ⚠ 켬/끔 세 칸은 `withConfigTrimScope` 로만 바뀐다 — `applyConfigTrimSettingsPatch` 는 받지 않는다(두 창구가 같은 칸을 덮지 않게). */
 export interface ConfigTrimSettings {
   /** 프로젝트 전체 단. 없음 = 안 정함(= 끔). */
   enabledProject?: boolean;
@@ -6815,19 +5006,11 @@ export interface ConfigTrimSummary {
   runs: ConfigTrimRun[];
 }
 
-// ─── §9 v3.89 — graph_snapshot 무거운 키맵 슬라이스 증분 전송 ────────────────────
+// ─── §9 graph_snapshot 키맵 슬라이스 증분 전송 ───
 
 /**
- * 키맵 슬라이스(`Record<id, T>`)의 증분 — **바뀐 키만** 싣고 나머지는 수신 측이 이전 값을 유지한다.
- *
- * 왜: `graph_snapshot` 은 전체 그래프를 16~250ms 마다 통째로 실어 보낸다. 그 중 `fileEdits`
- * (edit 마다 oldString/newString 원문)와 `bashHistory`(명령 + 출력 원문)는 **작업할수록 계속 쌓이는
- * 큰 텍스트**여서, 실측 저장소에서 스냅샷 3.2MB 중 2.5MB(78%)를 차지했다. 안 바뀐 파일의 diff 원문이
- * 초당 수 회씩 직렬화·클론·파싱된 셈이고, 이건 "쓸수록 느려진다" 로 직결된다. 이미 SSOT 가 §5.10
- * Brain 카드 본문에 대해 세운 원칙("큰 텍스트는 스냅샷에 태우지 않는다")을 전송 계층에서 일반화한 것.
- *
- * 기능·표시는 그대로다 — 수신 측이 이전 값 위에 증분을 얹어 **같은 전체 맵**을 복원한 뒤 기존 경로로
- * 넘긴다(느린 로딩·별도 요청 없음).
+ * 키맵 슬라이스 증분 — 바뀐 키만 싣고 수신 측이 이전 값 위에 얹어 전체 맵을 복원한다.
+ * `fileEdits`·`bashHistory` 원문은 쓸수록 쌓여(실측 스냅샷 3.2MB 중 78%) 16~250ms 마다 통째로 보내면 쓸수록 느려진다.
  */
 export interface KeyedSliceDelta<T> {
   /** 이번에 값이 바뀐 키들(추가 포함). */
@@ -6837,10 +5020,7 @@ export interface KeyedSliceDelta<T> {
 }
 
 /** graph_snapshot 에 함께 실리는 증분 묶음. 해당 슬라이스는 본문에서 생략된다. */
-/**
- * 증분으로 대체된 키맵 슬라이스들. 어느 슬라이스가 이 길을 타는지는 `DELTA_SLICE_KEYS` 가
- * 단독으로 정한다(서버·클라 한 벌) — 여기 필드를 늘릴 때 그 목록에도 같은 이름을 넣어라.
- */
+/** 증분으로 대체된 슬라이스. 어느 슬라이스인지는 `DELTA_SLICE_KEYS` 단독(서버·클라 한 벌) — 필드를 늘리면 거기도 같은 이름을 넣어라. */
 export interface GraphSnapshotDeltas {
   fileEdits?: KeyedSliceDelta<FileEdit[]>;
   bashHistory?: KeyedSliceDelta<BashEntry[]>;
@@ -6859,32 +5039,21 @@ export interface GraphSnapshotDeltas {
   configTrim?: KeyedSliceDelta<ConfigTrimSummary>;
 }
 
-/**
- * 실제로 전선을 타는 스냅샷 형태 — 증분으로 대체된 슬라이스는 `undefined` 로 빠진다.
- *
- * ⚠ 새로 접속한 클라이언트에는 **항상 전체 스냅샷**(`deltas` 없음)이 먼저 간다
- * (`buildConnectionMessages`). 증분은 그 뒤의 브로드캐스트에만 실린다.
- */
+/** 전선 위 스냅샷 — 증분 대체 슬라이스는 `undefined`. ⚠ 새 클라에는 항상 전체 스냅샷이 먼저 간다(`buildConnectionMessages`), 증분은 그 뒤 브로드캐스트에만. */
 export type GraphSnapshotWire =
   Omit<GraphSnapshot, 'fileEdits' | 'bashHistory' | 'agentEvents' | 'nodeProjects'>
   & {
     fileEdits?: Record<string, FileEdit[]>;
     bashHistory?: Record<string, BashEntry[]>;
-    /**
-     * 증분으로 빠질 수 있어 optional 이다 — `GraphSnapshot` 에서는 여전히 필수다.
-     * 클라는 델타를 푼 뒤 전체 맵을 되돌리므로 화면이 보는 값은 종전과 같다.
-     */
+    /** 증분으로 빠질 수 있어 optional(`GraphSnapshot` 에선 필수). 클라가 델타를 풀어 전체 맵을 되돌린다. */
     agentEvents?: Record<string, AgentEvent[]>;
     nodeProjects?: Record<string, string>;
     deltas?: GraphSnapshotDeltas;
   };
 
 /**
- * 폴더 **한 겹**의 파일/디렉토리 엔트리 (폴더 트리 표시용 · §7.5).
- *
- * ⚠ **`children` 이 없는 것은 누락이 아니라 설계다.** 하위는 사용자가 그 폴더를 펼치는 순간
- * `relativePath` 를 가리켜 다시 조회한다. 종전에는 여기에 재귀 트리가 통째로 들어왔고, 사용자
- * 홈이 외부 폴더 버블로 뜨면 61만 항목이 실려 창이 멈췄다 — 다시 재귀를 넣지 마라.
+ * 폴더 한 겹의 엔트리(§7.5). ⚠ `children` 이 없는 것은 설계다 — 하위는 펼칠 때 `relativePath` 로 다시 조회한다.
+ * 재귀를 넣지 마라(홈이 외부 폴더 버블로 뜨면 61만 항목에 창이 멈춘다).
  */
 export interface FolderFileEntry {
   /** 파일/폴더 이름 */
@@ -6897,12 +5066,7 @@ export interface FolderFileEntry {
   isSatellite: boolean;
 }
 
-/**
- * `GET /api/folder-files` 응답 — 한 겹의 **한 페이지**(§7.5).
- *
- * 목록 바닥에 닿을 때마다 `nextCursor` 로 다음 장을 부른다. `total` 이 있어 화면은
- * "100 / 4,812" 처럼 얼마나 남았는지 말할 수 있다(끝을 모른 채 스크롤하지 않는다).
- */
+/** `GET /api/folder-files` — 한 겹의 한 페이지(§7.5). 바닥에 닿으면 `nextCursor` 로 다음 장, `total` 로 남은 양을 말한다. */
 export interface FolderFilePage {
   /** 이번 장의 엔트리 — 폴더 먼저, 그다음 이름순. */
   entries: FolderFileEntry[];
@@ -6912,12 +5076,7 @@ export interface FolderFilePage {
   total: number;
 }
 
-/**
- * §5.5 #17-19 v4.71 — IDE 워크스페이스 탐색기의 엔트리 한 개(디렉터리 한 겹).
- *
- * `FolderFileEntry`(위성 선택용)와 달리 **경로를 소문자로 뭉개지 않고** 숨김 항목도 그대로 담는다 —
- * 탐색기는 디스크에 있는 그대로를 보여 주는 것이 목적이라, 위성 매칭용 정규화가 오히려 오표시가 된다.
- */
+/** §5.5 #17-19 — IDE 탐색기 엔트리(한 겹). `FolderFileEntry` 와 달리 경로를 소문자로 뭉개지 않고 숨김도 담는다(디스크 그대로가 목적). */
 export interface WorkspaceEntry {
   /** 파일/폴더 이름 (원본 대소문자) */
   name: string;
@@ -6929,16 +5088,11 @@ export interface WorkspaceEntry {
   size?: number;
   /** 마지막 수정 시각 (ms). stat 실패 시 생략 */
   mtimeMs?: number;
-  /**
-   * §5.13 (R-7) — 눌러서 **실행**할 수 있는가(파일만).
-   *
-   * 탐색기에서 누른 것과 본문에서 누른 것이 같은 곳으로 가야 하므로, 스트림 경로 손잡이가 쓰는
-   * 판정(`/api/workspace-path` 의 `executable`)을 목록도 그대로 받는다.
-   */
+  /** §5.13 (R-7) — 눌러서 실행할 수 있는가(파일만). 본문 경로와 같은 곳으로 가도록 `/api/workspace-path` 의 `executable` 판정을 그대로 받는다. */
   executable?: boolean;
 }
 
-/** §5.5 #17-19 v4.71 — 디렉터리 한 겹 조회 응답 (`GET /api/workspace-dir`). */
+/** §5.5 #17-19 — `GET /api/workspace-dir` 응답(디렉터리 한 겹). */
 export interface WorkspaceDirListing {
   /** 트리 루트 절대 경로 (요청한 값 그대로) */
   root: string;
@@ -6953,12 +5107,7 @@ export interface WorkspaceDirListing {
 /** §5.5 #17-27 ⑬ — 디스크에 있는 경로 하나의 정체. 없으면 응답 자체가 404 라 'missing' 값은 두지 않는다. */
 export type WorkspacePathKind = 'file' | 'directory';
 
-/**
- * §5.5 #17-27 ⑬ — 경로 한 개의 정체 조회 응답 (`GET /api/workspace-path`).
- *
- * 스트림 본문에 적힌 경로를 **파일이면 내장 편집창 · 폴더면 시스템 탐색기** 로 갈라 열기 위한 것이다.
- * 목록(`WorkspaceDirListing`)이 아니라 **한 경로의 있음/정체**만 묻는 자리라 응답이 이만큼 작다.
- */
+/** §5.5 #17-27 ⑬ — `GET /api/workspace-path` 응답: 본문 경로가 파일(내장 편집창)인지 폴더(시스템 탐색기)인지만 묻는다. */
 export interface WorkspacePathInfo {
   /** 트리 루트 절대 경로 (요청한 값 그대로) */
   root: string;
@@ -6969,23 +5118,15 @@ export interface WorkspacePathInfo {
   /** 파일인가 폴더인가 (심볼릭 링크는 실제 대상 기준) */
   kind: WorkspacePathKind;
   /**
-   * §5.5 #17-27 ⑬ (h) — **눌러서 실행할 수 있는 것인가**.
-   *
-   * 참이면 화면은 편집창(②)·탐색기(⑩) 대신 **실행**(#17-20 ④ 실행 세션)으로 간다 — 본문에 적힌
-   * `.exe` 를 누르는 뜻은 "이 프로그램을 켜라" 이지 "이진 파일을 편집창에 띄워라" 가 아니다.
-   * 판정은 디스크를 본 서버가 한다(Windows 확장자 · macOS `.app` 번들 · POSIX 실행 비트) —
-   * 글자 모양만 보고 화면이 정하면 플랫폼마다 갈리는 규칙이 두 벌이 된다.
+   * §5.5 #17-27 ⑬ (h) — 눌러서 실행할 것인가. 참이면 편집창·탐색기 대신 실행(#17-20 ④)으로 간다(`.exe` 를 누르면 "켜라"다).
+   * 판정은 디스크를 본 서버가 한다(Windows 확장자 · macOS `.app` · POSIX 실행 비트) — 화면이 글자로 정하면 플랫폼 규칙이 두 벌이 된다.
    */
   executable: boolean;
 }
 
 /**
- * §5.5 #17-27 ⑬ (d) — 프로젝트 루트 **밖** 절대 경로 하나의 정체 (`GET /api/external-path`).
- *
- * `WorkspacePathInfo` 와 갈라 둔 이유는 **열리는 곳이 다르기 때문**이다. 루트 안 경로는 여덟 갈래로
- * 갈리지만(§5.13 (R-7)), 루트 밖은 **시스템 탐색기 하나**뿐이라 `executable` 도 `root`/`path` 도 뜻이 없다 —
- * 있으면 화면이 "실행할 수 있나" 를 묻게 되고, 그 순간 본문 글자로 임의 경로를 실행하는 길이 열린다.
- * 필드를 두지 않는 것이 곧 그 갈래를 막는 방법이다.
+ * §5.5 #17-27 ⑬ (d) — 루트 밖 절대 경로의 정체(`GET /api/external-path`). 루트 밖은 시스템 탐색기로만 연다 —
+ * `executable`·`root`/`path` 를 두면 본문 글자로 임의 경로를 실행하는 길이 열리므로 **필드를 두지 않는다**.
  */
 export interface ExternalPathInfo {
   /** 해석된 절대 경로 — `POST /api/reveal-path` 에 그대로 실어 보낸다. */
@@ -6994,18 +5135,10 @@ export interface ExternalPathInfo {
   kind: WorkspacePathKind;
 }
 
-/**
- * §5.5 #17-27 ⑱ — 우측 판이 파일 하나를 **무엇으로** 그리는가(코드 · 웹 페이지 · 그림 · PDF).
- * 판정은 `editorPaneKindOf`(shared `editorPaneKind.ts`) 한 곳이다.
- */
+/** §5.5 #17-27 ⑱ — 우측 판이 파일을 무엇으로 그리나. 판정은 `editorPaneKindOf`(shared) 한 곳. */
 export type EditorPaneFileKind = 'code' | 'html' | 'image' | 'pdf';
 
-/**
- * §5.5 #17-27 ⑱ — 판 쪽에서 그 갈래의 파일을 찾은 결과 (`GET /api/workspace-find`).
- *
- * 탐색기(`WorkspaceDirListing`)는 폴더 **한 겹**이지만 이쪽은 프로젝트 전체를 걸어 **그 갈래의 파일만**
- * 모은다 — 빈 탭이 "이 프로젝트의 HTML" 을 한 목록으로 보여 주려면 폴더를 하나씩 열게 할 수 없다.
- */
+/** §5.5 #17-27 ⑱ — `GET /api/workspace-find`: 프로젝트 전체에서 그 갈래 파일만 모은다(빈 탭이 "이 프로젝트의 HTML" 을 한 목록으로 보이게). */
 export interface WorkspaceFindResult {
   /** 트리 루트 절대 경로 (요청한 값 그대로) */
   root: string;
@@ -7015,22 +5148,14 @@ export interface WorkspaceFindResult {
   entries: WorkspaceEntry[];
   /** 고른 파일 수(상한으로 자르기 전) */
   total: number;
-  /**
-   * 끝까지 못 찾았거나(훑기 · 시간 상한) 담기 상한에서 잘랐는가. 참이면 화면은 그 사실을 적는다
-   * (조용히 자르지 않는다 — 없는 줄 알고 찾기를 그만두게 된다).
-   */
+  /** 훑기·시간·담기 상한에서 잘렸는가. 참이면 화면이 적는다 — 조용히 자르면 없는 줄 알고 찾기를 그만둔다. */
   truncated: boolean;
 }
 
 
 // ─── §5.13 (R-8) — 변환기 상태와 변환 작업 ──────────────────────────────────────
 
-/**
- * 이 PC 의 **변환기(ffmpeg)** 상태.
- *
- * "코덱이 깔렸는가"가 아니다(§5.13 (R-8) (a) — Chromium 은 시스템 코덱을 쓰지 않는다).
- * 우리가 배포하지 않고 있으면 쓰는 물건이라, 화면은 이 값을 보고 [변환] 과 [설치] 중 무엇을 낼지 정한다.
- */
+/** 이 PC 의 변환기(ffmpeg) 상태 — 코덱 설치 여부가 아니다(Chromium 은 시스템 코덱을 안 쓴다, §5.13 (R-8) (a)). 화면이 [변환]·[설치] 중 무엇을 낼지 정한다. */
 export interface MediaToolsInfo {
   readonly available: boolean;
   /** 찾은 실행 파일 절대 경로(없으면 null). */
@@ -7046,12 +5171,7 @@ export interface MediaToolsInfo {
 /** 변환 작업의 상태. `done` 이면 `outRel` 이 실제로 디스크에 있다. */
 export type MediaConvertStatus = 'queued' | 'running' | 'done' | 'error';
 
-/**
- * 변환 작업 하나.
- *
- * 진실은 **디스크의 캐시 파일**이고 이 레코드는 그 과정을 화면에 보여 주기 위한 휘발성 상태다
- * (체크포인트 미관여 — 앱을 껐다 켜면 사라지지만 결과 파일은 남아 다음엔 변환 없이 열린다).
- */
+/** 변환 작업 하나 — 휘발성(체크포인트 ❌). 진실은 디스크 캐시 파일이라 껐다 켜도 결과는 남는다. */
 export interface MediaConvertJob {
   readonly id: string;
   /** 프로젝트 루트 절대 경로. */
@@ -7069,15 +5189,10 @@ export interface MediaConvertJob {
   readonly endedAt?: number;
 }
 
-/** §5.5 #17-27 v4.87 — 파일의 원본 줄바꿈. 저장할 때 이 형식으로 되돌린다(브라우저 textarea 는 항상 `\n`). */
+/** §5.5 #17-27 — 원본 줄바꿈. 저장 때 되돌린다(textarea 는 항상 `\n`). */
 export type WorkspaceEol = 'lf' | 'crlf';
 
-/**
- * §5.5 #17-27 v4.87 — IDE 내장 편집창이 읽은 파일 한 개 (`GET /api/workspace-file`).
- *
- * `truncated`/`binary` 는 **읽기 전용으로 열라는 신호**다 — 잘린 본문이나 깨진 텍스트를 저장하면
- * 원본이 그 자리에서 사라진다. 저장 요청은 이 둘이 false 인 파일에서만 만들어진다.
- */
+/** §5.5 #17-27 — `GET /api/workspace-file` 결과. `truncated`/`binary` 면 읽기 전용으로 연다 — 잘린·깨진 본문을 저장하면 원본이 사라진다. */
 export interface WorkspaceFileContent {
   /** 트리 루트 절대 경로 (요청한 값 그대로) */
   root: string;
@@ -7095,26 +5210,17 @@ export interface WorkspaceFileContent {
   truncated: boolean;
   /** 텍스트로 읽을 수 없는 파일(NUL 바이트 포함)이면 true (읽기 전용) */
   binary: boolean;
-  /**
-   * §5.5 #17-27 ⑭ — 이 파일을 **그림으로 열어야 하는가**.
-   *
-   * `이미지 확장자 && binary` 일 때만 true 다 — 판정을 서버 한 곳에서 끝내 클라이언트가 두 값을
-   * 다시 조합하지 않게 한다. SVG 처럼 텍스트로 읽히는 이미지는 false 라 종전대로 소스가 열린다
-   * (그쪽은 고칠 수 있는 글자이므로 그림으로 바꿔 편집을 빼앗지 않는다).
-   */
+  /** §5.5 #17-27 ⑭ — 그림으로 열지(`이미지 확장자 && binary`, 서버 한 곳에서 판정). SVG 처럼 텍스트로 읽히는 이미지는 false — 고칠 수 있는 글자라 편집을 빼앗지 않는다. */
   image: boolean;
-  /**
-   * §5.5 #17-27 ⑫ — 디스크가 쓰기를 막고 있으면 true (Perforce 체크아웃 전 파일·`attrib +r`·권한).
-   *
-   * `truncated`/`binary` 와 달리 **타이핑을 막는 신호가 아니다** — 내용은 온전하므로 고쳐 두었다가
-   * 저장하는 순간 잠금을 푼다(`WorkspaceFileSaveRequest.clearReadOnly`).
-   */
+  /** §5.5 #17-27 ⑫ — 디스크가 쓰기를 막음(Perforce 체크아웃 전·`attrib +r`·권한). 타이핑은 막지 않는다 — 저장 순간 잠금을 푼다(`clearReadOnly`). */
   readOnly: boolean;
+  /** §5.5 #17-27 ⑥ — 루트 밖 파일이라 보기만 한다(§5.1 #2-1 (A)). `readOnly` 와 달리 풀 수 없다 — `PUT` 은 루트 안만. */
+  outside?: boolean;
   /** 원본 줄바꿈 */
   eol: WorkspaceEol;
 }
 
-/** §5.5 #17-27 v4.87 — 파일 저장 요청 (`PUT /api/workspace-file`). */
+/** §5.5 #17-27 — `PUT /api/workspace-file` 요청. */
 export interface WorkspaceFileSaveRequest {
   root: string;
   path: string;
@@ -7125,16 +5231,11 @@ export interface WorkspaceFileSaveRequest {
   baseMtimeMs: number;
   /** 읽을 때 받은 원본 바이트 지문. baseMtimeMs=0 강제 저장은 대조를 생략한다. */
   baseRevision?: string;
-  /**
-   * §5.5 #17-27 ⑫ — 읽기 전용 잠금을 **풀고** 저장한다(사용자가 그 버튼을 눌렀을 때만 true).
-   *
-   * 서버는 쓰기 비트를 켠 뒤 저장하고, 잠금을 되돌려 걸지 않는다. 버전 관리 명령(`p4 edit` 등)은
-   * 실행하지 않는다 — 편집창의 권한은 파일 속성 한 비트까지다.
-   */
+  /** §5.5 #17-27 ⑫ — 읽기 전용 잠금을 풀고 저장(사용자가 그 버튼을 눌렀을 때만). 쓰기 비트만 켜고 되걸지 않는다 — `p4 edit` 등 VCS 명령은 돌리지 않는다. */
   clearReadOnly?: boolean;
 }
 
-/** §5.5 #17-27 v4.87 — 파일 저장 결과 (덮어쓴 뒤의 크기·수정 시각). */
+/** §5.5 #17-27 — 저장 결과(덮어쓴 뒤 크기·수정 시각). */
 export interface WorkspaceFileSaveResult {
   root: string;
   path: string;
@@ -7146,11 +5247,8 @@ export interface WorkspaceFileSaveResult {
 }
 
 /**
- * §5.5 #17-25 ④-1 — 주석본으로 **그 이미지 파일을 덮어쓰는** 요청 (`PUT /api/workspace-image`).
- *
- * 텍스트 저장(`WorkspaceFileSaveRequest`)과 갈라 두는 이유는 본문이 글자가 아니라 바이트이기
- * 때문이다 — 줄바꿈(`eol`) 규약이 의미가 없고, 본문은 **이미지 바이트 그대로** 싣는다(base64 는 33% 를 부풀리고, 패키징 트랜스포트가 이미 바이너리 본문을 무손실로 나른다). 나머지 규율(읽을 때 본
- * `mtimeMs` 대조 → 409)은 텍스트 쪽과 **같은 것**을 쓴다.
+ * §5.5 #17-25 ④-1 — 주석본으로 이미지 파일을 덮어쓴다(`PUT /api/workspace-image`). 본문은 바이트 그대로(base64 는 33% 부풀고, 트랜스포트가 바이너리를 무손실로 나른다).
+ * `eol` 은 없고, `mtimeMs` 대조 → 409 는 텍스트와 같다.
  */
 export interface WorkspaceImageSaveRequest {
   root: string;
@@ -7161,12 +5259,8 @@ export interface WorkspaceImageSaveRequest {
 }
 
 /**
- * §5.5 #17-19 ⑦ — 탐색기 우클릭이 디스크에 내는 **세 가지 변경**(만들기 · 이름 바꾸기 · 삭제).
- *
- * 읽기 창구(`WorkspaceDirListing`·`WorkspaceFileContent`)와 갈라 두는 이유는 성격이 다르기
- * 때문이다 — 이쪽은 되돌릴 수 없는 쓰기라 이름 판정(`workspaceEntryNameError`)과 겹침 검사를
- * 반드시 지나야 한다. 경로 가드는 읽기 쪽과 **같은 것 하나**(`isWithinOpenableRoots` +
- * `resolveWorkspacePath`)를 그대로 쓴다.
+ * §5.5 #17-19 ⑦ — 탐색기 우클릭의 만들기·이름 바꾸기·삭제. 되돌릴 수 없는 쓰기라 이름 판정(`workspaceEntryNameError`)·겹침 검사를 반드시 지난다.
+ * 경로 가드는 읽기와 같은 `isWithinOpenableRoots` + `resolveWorkspacePath`.
  */
 export interface WorkspaceEntryCreateRequest {
   root: string;
@@ -7186,10 +5280,7 @@ export interface WorkspaceEntryRenameRequest {
   name: string;
 }
 
-/**
- * §5.5 #17-19 ⑧ — 옮기기(`POST /api/workspace-entry/move`). 이름 바꾸기(같은 폴더 안)와 **다른 창구**다
- * — 이름은 그대로 두고 **사는 곳**만 바뀌며, 되물음도 다르다("옮길까요?").
- */
+/** §5.5 #17-19 ⑧ — 옮기기(`POST /api/workspace-entry/move`). 이름 바꾸기와 다른 창구 — 이름은 두고 사는 곳만 바뀌며 되물음도 다르다. */
 export interface WorkspaceEntryMoveRequest {
   root: string;
   /** 옮길 대상의 루트 기준 상대 경로(루트 자신 ❌) */
@@ -7220,23 +5311,13 @@ export interface WorkspaceEntryDeleteResult {
   root: string;
   path: string;
   parent: string;
-  /**
-   * 휴지통으로 보냈는가(true) 아니면 영구 삭제했는가(false).
-   *
-   * 데스크톱 앱에서는 OS 휴지통(Electron `shell.trashItem`)을 쓰므로 늘 true 다. 그 통로가 없는
-   * 실행 형태(브라우저에서 띄운 개발 서버)에서는 영구 삭제라 **화면이 그 사실을 다르게 말한다** —
-   * 되돌릴 수 있는지 없는지는 사용자가 알아야 하는 차이다.
-   */
+  /** 휴지통(true)인가 영구 삭제(false)인가. 데스크톱은 `shell.trashItem` 이라 늘 true, 브라우저로 띄운 개발 서버는 영구 삭제 — 화면이 그 차이를 말한다. */
   trashed: boolean;
 }
 
 /**
- * 프로젝트 정보 — 에이전트 cwd 기반으로 자동 등록, 어디서든 접근 가능.
- *
- * **식별 규칙 (v1.63):** `path`(정규화 시) 가 **유일 식별자(projectId)**. `name` 은 **표시용**이며
- * 같은 basename 다른 경로 프로젝트가 동시에 살아 있으면 등록 시점에 경로 파생 접두로 전역 유일화된다
- * (예: 두 "client" → "client" / "client (other)"). 따라서 `name` 으로 프로젝트를 식별/영속하지 말 것 —
- * 항상 `path`. snapshot/agentProjects 등 이름 키 맵은 이 유일화 덕에 충돌하지 않는다.
+ * 프로젝트 정보(에이전트 cwd 로 자동 등록). 식별자는 정규화한 `path`(projectId) — `name` 은 표시용이고 basename 이 겹치면 경로 파생 접두로 전역 유일화된다("client" / "client (other)").
+ * `name` 으로 식별·영속하지 마라.
  */
 export interface ProjectInfo {
   /** 표시 이름. 기본 `path.basename(cwd)`, basename 충돌 시 전역 유일화(비식별, 세션간 가변 가능). */
@@ -7294,6 +5375,8 @@ export interface ProjectCheckpoint {
       sessionCwds: Record<string, string>;
       /** 노드별 소속 프로젝트 루트 (node key → project root path) */
       nodeProjectRoots?: Record<string, string>;
+      /** §5.1 #2-1 (B) — 에이전트별 이번 턴 장부(bubble id → 만진 node key). 새 명령이 열고 캔버스·IDE 확인이 닫는다. 없으면(옛 저장분) 빈 장부 — 지난 턴이 묶음에 되살아나지 않는다. */
+      agentTurnNodes?: Record<string, string[]>;
     };
   };
 
@@ -7301,11 +5384,7 @@ export interface ProjectCheckpoint {
     bashHistory: Record<string, BashEntry[]>;
     runningServers: Record<string, ServerEntry[]>;
     fileEdits: Record<string, FileEdit[]>;
-    /**
-     * 도메인 버블별 웹 이력 (§5.23). **정체성이 아니라 이력**이라 `fileEdits`·`bashHistory` 와
-     * 같은 칸에 두어 `activity.json`(고빈도·순수휘발)로 함께 흐른다 — `identity.json` 을
-     * 건드리지 않는다(§3.2.2). optional 이라 구버전 체크포인트도 그대로 열린다(§3.2.1-5).
-     */
+    /** 도메인 버블 웹 이력(§5.23) — 정체성이 아니라 이력이라 `fileEdits`·`bashHistory` 처럼 `activity.json` 으로 흐른다(`identity.json` ❌, §3.2.2). */
     domainEntries?: Record<string, WebEntry[]>;
   };
 
@@ -7333,23 +5412,13 @@ export interface ProjectCheckpoint {
   /** 파이프라인 상태 (parentId → PipelineState). optional로 하위호환 유지. */
   pipelines?: Record<string, PipelineState>;
   /**
-   * 에이전트별 설정 (agent ID → AgentConfig). 디테일 패널에서 편집, 서버 재시작 시 복원.
-   *
-   * §4 (설정 3층) — **이제 이 필드는 완성본(읽기 전용 사본)이다.** 권위는 아래
-   * `agentConfigOverrides` 로 옮겼고, 여기에는 세 층을 겹친 결과를 그대로 적는다.
-   * 지우지 않는 이유는 **되돌아간 구버전 앱이 이 필드만 읽기 때문**이다(§3.2.1-5) —
-   * 없애면 다운그레이드한 사용자의 모든 에이전트가 내장 기본으로 돌아간다.
+   * 에이전트별 설정. §4 (설정 3층) — 세 층을 겹친 **완성본 사본**이고 권위는 `agentConfigOverrides`.
+   * 지우지 마라 — 구버전 앱은 이 필드만 읽는다(§3.2.1-5). 없애면 다운그레이드한 사용자의 에이전트가 모두 내장 기본으로 돌아간다.
    */
   agentConfigs?: Record<string, AgentConfig>;
-  /**
-   * §4 (설정 3층) — 에이전트가 **자기 것으로 못 박은 칸만**(agent ID → 갈라진 칸).
-   *
-   * 없으면(구버전 저장분) 복원이 `agentConfigs` 를 그 시점 기본값과 대조해 만들어 낸다 —
-   * 그래서 판올림 직후에도 지금 동작이 그대로 유지된다(갈라져 있던 칸은 갈라진 채 남고,
-   * 기본값과 같던 칸은 위층을 따라간다).
-   */
+  /** §4 (설정 3층) — 에이전트가 자기 것으로 못 박은 칸만. 없으면(구버전) 복원이 `agentConfigs` 를 기본값과 대조해 만든다 — 갈라진 칸은 남고 같던 칸은 위층을 따라간다. */
   agentConfigOverrides?: Record<string, Partial<AgentConfig>>;
-  /** §4 v1.50 — 에이전트별 컨텍스트 컴팩션 누적 카운트(영속). 도구 시간/한도는 런타임이라 영속 ❌. */
+  /** §4 — 에이전트별 컴팩션 누적 수(영속). 도구 시간·한도는 런타임이라 영속 ❌. */
   compactCounts?: Record<string, CompactCount>;
   /** 에이전트(session)별 관측된 도구 목록 (session_id → tool names). 훅에서 자동 수집. */
   observedTools?: Record<string, string[]>;
@@ -7357,36 +5426,22 @@ export interface ProjectCheckpoint {
   manuallyConfigured?: string[];
   /** 에이전트 간 작업 흐름 엣지 (TaskEdge ID → TaskEdge). optional로 하위호환 유지. */
   taskEdges?: Record<string, TaskEdge>;
-  /**
-   * 사용자가 Delete로 지운 iframe 버블의 (sessionId → ports[]) 기록.
-   * 서버 재시작 후에도 rehydrate 시 재생성 방지. 새 Bash `run_in_background`가
-   * 같은 포트로 들어오면 자동 해제된다.
-   */
+  /** Delete 로 지운 iframe 버블(sessionId → ports). 재시작 후 rehydrate 로 되살아나지 않게 막고, 같은 포트로 새 `run_in_background` 가 오면 풀린다. */
   dismissedIframes?: Record<string, number[]>;
-  /**
-   * v1.6 SCENARIO §5.7 #24: VSCode 창 닫힘 등으로 lifecycle.onDead에서 제거된 에이전트 스냅샷.
-   * 같은 cwd로 SessionStart 훅이 들어오면 `restoreDormantForCwd`로 재삽입된다.
-   * 서버 재시작을 가로질러 살아남아야 하므로 체크포인트에 영속화.
-   */
+  /** §5.7 #24 — `lifecycle.onDead` 로 빠진(VSCode 창 닫힘 등) 에이전트 스냅샷. 같은 cwd 의 SessionStart 가 오면 `restoreDormantForCwd` 로 되살린다 — 재시작을 넘어야 해서 영속. */
   dormantAgents?: Record<
     string,
     { agent: BubbleData; cwd: string; pid: number; removedAt: number }
   >;
   /** UI 표시 언어 (서버 SSOT). optional — 구버전 체크포인트 하위호환. 미설정 시 DEFAULT_UI_LOCALE 적용 */
   uiLocale?: UiLocale;
-  /**
-   * 언리얼 블프 스타일 Comment Box 목록 (이 프로젝트 스코프). v1.45.
-   * optional — 구버전 체크포인트 하위호환. 미설정이면 빈 배열로 복원.
-   */
+  /** Comment Box(이 프로젝트). 없으면 빈 배열. */
   commentBoxes?: CommentBox[];
-  /**
-   * §5.9 화면/프로그램 캡처 버블 목록 (이 프로젝트 스코프).
-   * optional — 구버전 체크포인트 하위호환. 미설정이면 빈 배열로 복원.
-   */
+  /** §5.9 캡처 버블(이 프로젝트). 없으면 빈 배열. */
   captureBubbles?: CaptureBubble[];
-  /** §5.13 v4.45 — 내부 앱 버블(영속). optional — 구버전 체크포인트 하위호환. */
+  /** §5.13 — 내부 앱 버블(영속). */
   appBubbles?: AppBubble[];
-  /** §5.14 v4.62 — 플레이 버블(영속). optional — 구버전 체크포인트 하위호환. */
+  /** §5.14 — 플레이 버블(영속). */
   playBubbles?: PlayBubble[];
   /** §5.15 — 스펙 보드(영속). optional — 구버전 체크포인트 하위호환. */
   specDocs?: SpecDoc[];
@@ -7396,225 +5451,99 @@ export interface ProjectCheckpoint {
   labRuns?: LabRun[];
   /** §5.20 — 스크립트 선반(영속). optional — 구버전 체크포인트 하위호환. */
   shelfBubbles?: ShelfBubble[];
-  /**
-   * §5.21 — 비용·토큰 지도(영속). optional — 구버전 체크포인트 하위호환.
-   * identity 에는 넣지 않는다 — 사용자가 만든 정체성이 아니라 트랜스크립트에서 다시 접을 수 있는 파생이다.
-   */
+  /** §5.21 — 비용·토큰 지도(영속). identity ❌ — 트랜스크립트에서 다시 접을 수 있는 파생이다. */
   costMap?: ProjectCostMap;
-  /**
-   * §5.22 — 권한·감사 원장(영속). optional — 구버전 체크포인트 하위호환.
-   * identity 에는 넣지 않지만 **결정 이력은 재계산이 불가능**하므로 여기서 빠지면 영영 없다.
-   */
+  /** §5.22 — 권한·감사 원장(영속). identity 엔 없지만 **결정 이력은 재계산 불가** — 여기서 빠지면 영영 없다. */
   auditLog?: ProjectAuditLog;
-  /**
-   * §5.3 #12-3 — 이 프로젝트에서 사용자가 건 자물쇠. optional — 구버전 체크포인트 하위호환.
-   * 사용자가 손으로 건 보호라 `identity.json` 에도 산다 — 조용히 사라지면 AI 가 그대로 연다.
-   */
+  /** §5.3 #12-3 — 사용자가 건 자물쇠. 손으로 건 보호라 `identity.json` 에도 산다 — 조용히 사라지면 AI 가 그대로 연다. */
   pathLocks?: PathLock[];
   /**
-   * §5.26 — 컨텍스트 보험 원장(영속). optional — 구버전 체크포인트 하위호환.
-   *
-   * ⚠ 여기서 빠지면 껐다 켤 때 **색인이 통째로 사라지고 `insurance/blobs` 는 주인 없는 고아**가 된다.
-   * 이 절에서 가장 조용히 깨질 자리이므로 `toProjectCheckpoint` 를 특히 확인할 것.
-   * 파생인 `watch`/`resurrectable` 은 저장하지 않는다(복원 후 같은 스윕이 같은 답을 낸다).
+   * §5.26 — 보험 원장(영속). ⚠ 빠지면 껐다 켤 때 색인이 사라지고 `insurance/blobs` 가 고아가 된다 — `toProjectCheckpoint` 를 특히 확인할 것.
+   * 파생 `watch`/`resurrectable` 은 저장하지 않는다(복원 후 같은 스윕이 같은 답을 낸다).
    */
   contextInsurance?: ProjectInsuranceLedger;
-  /**
-   * 루트 캔버스에서 부모 버블이 못 빠져나가는 사각 바운딩 박스의 반쪽 폭/높이.
-   * LAYOUT_CENTER_X/Y 중심 기준. 사용자가 캔버스에서 핸들로 조절. optional — 미설정 시
-   * 클라이언트 기본값(1500/1100) 사용. §3.2 예외 없이 ProjectCheckpoint 만 통한 영속화.
-   */
+  /** 루트 캔버스에서 부모 버블이 못 나가는 바운딩 박스 반폭/반높이(LAYOUT_CENTER_X/Y 중심, 사용자가 핸들로 조절). 없으면 클라 기본값(1500/1100). ProjectCheckpoint 로만 영속(§3.2). */
   layoutBoundsHalfWidth?: number;
   layoutBoundsHalfHeight?: number;
-  /**
-   * §5.3 #28 v1.47 — 콘티 데이터 (contiId → Conti) 영속화.
-   * 에이전트 삭제 시 cascade. 빈 맵이거나 미설정 시 모두 유효.
-   */
+  /** §5.3 #28 — 콘티(영속). 에이전트 삭제 때 cascade. */
   contis?: Record<string, Conti>;
 
-  /**
-   * §5.5 #17-4 v2.36 — 프로젝트별 스킬 사용 카운트 (skillName → count).
-   * 명령 텍스트 줄머리 `/skill-name` 매칭 시 증분. SkillsView 정렬·배지에 사용.
-   * optional — 구버전 체크포인트 하위호환. 미설정이면 빈 맵으로 복원.
-   */
+  /** §5.5 #17-4 — 스킬 사용 수(skillName → count). 줄머리 `/skill-name` 마다 증분. 없으면 빈 맵. */
   skillUsageCounts?: Record<string, number>;
 
-  /**
-   * §5.3 #10-2 v2.37 — Auto Agent 가 spawn 한 커스텀 에이전트 군의 요약 메타.
-   * key = auto-agent sessionId. optional — 구버전 체크포인트 하위 호환.
-   * 미설정이면 빈 맵으로 복원. 영속 대상(사용자 산출물 트레이스).
-   */
+  /** §5.3 #10-2 — Auto Agent 군 요약 메타(auto-agent sessionId 키). 사용자 산출물 트레이스라 영속한다. */
   autoAgentSummaries?: Record<string, AutoAgentSummary>;
 
-  /**
-   * §5.3 #10-3 v4.98 — 검증 런 (autoAgentId → AutoAgentRun[]) 영속화.
-   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
-   * "무엇을 근거로 완료라고 했는가"는 세션을 넘어 남아야 하는 증거라 영속 대상.
-   */
+  /** §5.3 #10-3 — 검증 런(영속) — "무엇을 근거로 완료라 했나"는 세션을 넘어 남아야 할 증거다. */
   autoAgentRuns?: Record<string, AutoAgentRun[]>;
 
-  /**
-   * §4 v2.52 — 에이전트 작업 신고 (agentId → AgentReport[]) 영속화.
-   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
-   * 완료 신고는 세션을 넘어 의미 있는 산출물 트레이스라 영속 대상.
-   */
+  /** §4 — 작업 신고(영속) — 세션을 넘어 남는 산출물 트레이스. */
   agentReports?: Record<string, AgentReport[]>;
 
-  /**
-   * §5.4 #36 (H) ①-2 — 에이전트마다 마지막으로 걷힌 연결 (agentId → AgentLinkRecord). [이전 연결 다시 보기]가 이것으로
-   * 다시 세운다. optional — 구버전 체크포인트 하위 호환(없으면 빈 맵 — 다시 볼 것이 없을 뿐이다). 재계산할 수 없는 것은
-   * 아니지만(다시 일하면 다시 생긴다) 껐다 켠 뒤에도 "방금 걷은 것"을 되돌릴 수 있어야 해서 싣는다. identity ❌.
-   */
+  /** §5.4 #36 (H) ①-2 — 에이전트마다 마지막으로 걷힌 연결([이전 연결 다시 보기]용). 껐다 켠 뒤에도 "방금 걷은 것"을 되돌리려 싣는다. 없으면 빈 맵. identity ❌. */
   agentLinkRecords?: Record<string, AgentLinkRecord>;
 
-  /**
-   * §5.5 #17-36 — 메인 탭 스티키 메모 (agentId → SessionMemo[]) 영속화.
-   * optional — 구버전 체크포인트 하위 호환. 사용자가 직접 쓴 글이라 복구 불가 자산이다.
-   */
+  /** §5.5 #17-36 — 메인 탭 스티키 메모(영속). 사용자가 쓴 글이라 복구 불가 자산이다. */
   agentMemos?: Record<string, SessionMemo[]>;
 
-  /**
-   * §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[]) 영속화.
-   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
-   */
+  /** §4 — 질문 카드(영속). */
   agentQuestions?: Record<string, AgentQuestions[]>;
 
-  /**
-   * §4 v2.70 — 에이전트 검수 요청 카드 (agentId → AgentReview[]) 영속화.
-   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
-   * 검수 요청은 세션을 넘어 의미 있는 산출물 트레이스라 영속 대상.
-   */
+  /** §4 — 검수 요청 카드(영속) — 세션을 넘어 남는 산출물 트레이스. */
   agentReviews?: Record<string, AgentReview[]>;
 
-  /**
-   * §4 v2.84 — 에이전트 번호 목록 정렬 카드 (agentId → AgentList[]) 영속화.
-   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
-   */
+  /** §4 — 번호 목록 카드(영속). */
   agentLists?: Record<string, AgentList[]>;
 
-  /**
-   * §4 v3.21 — 에이전트 피드백 (agentId → AgentFeedback[]) 영속화.
-   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
-   * 사용자 평가는 세션을 넘어 학습 근거로 쓰이는 사용자 산출물이라 영속 대상.
-   */
+  /** §4 — 피드백(영속) — 세션을 넘어 학습 근거로 쓰는 사용자 산출물. */
   agentFeedbacks?: Record<string, AgentFeedback[]>;
 
-  /**
-   * §5.5 #17-11 v3.79 — 세션 반복 실행(루프) 설정 (subAgentId → SessionLoop) 영속화.
-   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
-   * 사용자가 직접 짜 넣은 설정 + 진행 카운트라 재시작 후에도 이어져야 한다.
-   */
+  /** §5.5 #17-11 — 세션 루프(영속). 사용자가 짠 설정 + 진행 카운트라 재시작 후에도 이어진다. */
   sessionLoops?: Record<string, SessionLoop>;
 
-  /**
-   * §5.5 #17-35 — 검증 실행 이력 (subAgentId → VerificationRun[]) 영속화.
-   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
-   * "무엇이 언제 실제로 돌아서 통과했는가" 는 세션이 끝나도 남아야 할 근거다.
-   * identity.json 에는 넣지 않는다 — 실행 기록이지 사람이 만든 정체성이 아니다(§5.16 과 같은 판단).
-   */
+  /** §5.5 #17-35 — 검증 실행 이력(영속) — 무엇이 언제 돌아 통과했나는 남아야 할 근거다. identity ❌ — 실행 기록이지 사람이 만든 정체성이 아니다(§5.16 과 같은 판단). */
   verificationRuns?: Record<string, VerificationRun[]>;
 
   /**
-   * §5.11 정독 게이트 — **설정만** 영속한다(프로젝트 단위 한 벌).
-   *
-   * 원장(어느 절을 열었나·인용이 맞았나)은 이 세션의 계측이라 저장하지 않는다. 저장하는 것은
-   * 사용자가 정한 것 — 게이트 강도·기획 뿌리·경로 매핑·면제 목록 — 뿐이며, 그중 면제(`waived`)는
-   * 사용자만 줄 수 있으므로 잃으면 다시 손으로 넣어야 하는 값이다.
-   * optional — 구버전 체크포인트 하위 호환(없으면 `DEFAULT_SPEC_READING_SETTINGS`).
+   * §5.11 정독 — 설정만 영속한다(원장은 세션 계측). 사용자가 정한 강도·기획 뿌리·경로 매핑·면제 목록 — `waived` 는 사용자만 주므로 잃으면 다시 손으로 넣어야 한다.
+   * 없으면 `DEFAULT_SPEC_READING_SETTINGS`.
    */
   specReadingSettings?: SpecReadingSettings;
 
-  /**
-   * §5.10 자동 목표 — **설정만** 영속한다(프로젝트 단위 한 벌).
-   *
-   * 후보·스킬 목록은 저장하지 않는다: 후보는 이미 있는 이력(`bashHistory`·`sessionGoals`·
-   * `skillUsageCounts`)에서 **매번 다시 세는 파생**이고, 스킬은 디스크의 `SKILL.md` 가 원본이다.
-   * 저장하는 것은 사용자가 정한 것 — 3층 켬/끔과 물린 후보 — 뿐이다.
-   * optional — 구버전 체크포인트 하위 호환(없으면 꺼짐).
-   */
+  /** §5.10 자동 목표 — 설정(3층 켬/끔·물린 후보)만 영속. 후보는 이력(`bashHistory`·`sessionGoals`·`skillUsageCounts`)에서 매번 세는 파생이고 스킬은 `SKILL.md` 가 원본이다. 없으면 꺼짐. */
   autoGoalSettings?: AutoGoalSettings;
 
-  /**
-   * §5.3 #10-4 오케스트라 — 사용자가 정한 설정(2층 켬/끔·지휘자·멤버·꺼둔 방안) + 런 기록.
-   * 런은 평평한 배열이고 `ORCHESTRA_RUN_MAX_PER_PROJECT` 로 ring. optional — 구버전 체크포인트 하위 호환(없으면 꺼짐·기록 없음).
-   */
+  /** §5.3 #10-4 — 오케스트라 설정(2층 켬/끔·지휘자·멤버·꺼둔 방안) + 런 기록(`ORCHESTRA_RUN_MAX_PER_PROJECT` ring). 없으면 꺼짐·기록 없음. */
   orchestraSettings?: OrchestraSettings;
   orchestraRuns?: OrchestraRun[];
 
-  /**
-   * §5.3 #10-5 설정 덜어내기 — 사용자가 정한 범위 3단 켬/끔 + 꺼 둔 규칙 + 덜어낸 기록.
-   * 런은 평평한 배열이고 `CONFIG_TRIM_RUN_MAX_PER_PROJECT` 로 ring. optional — 없으면 꺼짐·기록 없음.
-   */
+  /** §5.3 #10-5 — 설정 덜어내기 범위 3단 켬/끔·꺼 둔 규칙 + 기록(`CONFIG_TRIM_RUN_MAX_PER_PROJECT` ring). 없으면 꺼짐·기록 없음. */
   configTrimSettings?: ConfigTrimSettings;
   configTrimRuns?: ConfigTrimRun[];
 
-  /**
-   * §5.5 #17-35 ⑨ — 시연(재현 절차) 영속화 (subAgentId → VerificationDemo[]).
-   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
-   *
-   * 실행 이력과 달리 이쪽은 **사람이 직접 만든 것**이지만 identity.json 에는 넣지 않는다 —
-   * 레코드만 살아나고 프레임 PNG(`.vibisual/verify-demos/`)가 없으면 반쪽짜리 부활이 되기 때문이다.
-   * 그림과 레코드는 같은 `.vibisual` 아래에서 함께 살고 함께 사라진다.
-   */
+  /** §5.5 #17-35 ⑨ — 시연(영속). 사람이 만든 것이지만 identity ❌ — 프레임 PNG(`.vibisual/verify-demos/`) 없이 레코드만 살아나면 반쪽이라, 둘은 `.vibisual` 아래서 함께 산다. */
   verificationDemos?: Record<string, VerificationDemo[]>;
 
-  /**
-   * §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal) 영속화.
-   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
-   * 사용자가 직접 쓴 문장 + 진행 이력이라 재시작 후에도 그대로 이어져야 한다
-   * (§3.2.2 정체성 성격이므로 identity.json 에도 함께 실린다).
-   */
+  /** §5.5 #17-17 — 세션 목표(영속). 사용자가 쓴 문장 + 진행 이력이라 identity.json 에도 실린다(§3.2.2). */
   sessionGoals?: Record<string, SessionGoal>;
-  /**
-   * §5.5 #17-17 ⑪(h) — 시각 종류 카드(`key` → 카드).
-   * 에이전트가 만들고 사용자가 고정한 것이라 **재계산으로 되살릴 수 없다** → 정체성(§3.2.2).
-   */
+  /** §5.5 #17-17 ⑪(h) — 시각 종류 카드. 에이전트가 만들고 사용자가 고정한 것이라 재계산 불가 → 정체성(§3.2.2). */
   visualKinds?: Record<string, VisualKindCard>;
-  /**
-   * §5.5 #17-17 ⑫(b) — 사용자가 팔레트에서 **고정한** 행동 카드 id 목록.
-   *
-   * 팔레트 자체는 파생이라 저장하지 않지만, 고정은 **사용자가 고른 것**이라 재계산으로 되살릴 수
-   * 없다 → 정체성(§3.2.2). optional — 구버전 체크포인트 하위호환.
-   */
+  /** §5.5 #17-17 ⑫(b) — 팔레트에서 고정한 행동 카드 id. 팔레트는 파생이지만 고정은 사용자가 고른 것 → 정체성(§3.2.2). */
   pinnedGoalActions?: string[];
 
-  /**
-   * §5.5 #17-28 — 컨텍스트 주입원 오버라이드 영속화.
-   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 오버라이드(= 전부 기본값).
-   * 사용자가 "이건 넣지 마라"라고 정한 뜻이라 재시작 후에도 그대로 지켜져야 한다
-   * (잃으면 껐던 것이 조용히 다시 실린다 — 이 기능의 신뢰가 무너지는 지점).
-   */
+  /** §5.5 #17-28 — 주입원 오버라이드(영속, 없으면 전부 기본). 잃으면 껐던 것이 조용히 다시 실린다. */
   contextOverrides?: ContextOverrides;
 
-  /**
-   * §3.2.1-3 v2.63 — 명시적으로 삭제된 커스텀 에이전트 sessionId 묘비.
-   * identity.json 의 `deletedSessionIds` 와 같은 의미·소스. checkpoint 에도 실어
-   * deriveIdentity 가 단일 소스에서 파생할 수 있게 한다(필터·왕복 일관성).
-   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 배열.
-   */
+  /** §3.2.1-3 — 명시 삭제한 커스텀 에이전트 sessionId 묘비(identity `deletedSessionIds` 와 같은 것). checkpoint 에도 실어 deriveIdentity 가 한 소스에서 파생한다. */
   deletedCustomAgentIds?: string[];
 
-  /**
-   * §5.5 #17-20 ⑩ v4.94 — 이 프로젝트에 찍어 둔 중단점.
-   *
-   * 세션이 없어도 존재하는 사용자 표식이라 껐다 켜도 남아야 한다. 반대로 세션·콜스택·변수는
-   * 프로세스 수명이므로 여기 넣지 않는다. 다시 찍으면 복구되는 것이라 `identity.json` 미관여
-   * (§3.2.2 판단 기준 — "복구 불가한 산출물" 이 아니다).
-   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 배열.
-   */
+  /** §5.5 #17-20 ⑩ — 중단점(영속). 세션·콜스택·변수는 프로세스 수명이라 넣지 않는다. 다시 찍으면 되므로 identity ❌(§3.2.2). */
   debugBreakpoints?: DebugBreakpoint[];
 }
 
 /**
- * §3.2.2 v2.62 — 정체성/휘발성 물리 분리.
- * `identity.json` 으로 저빈도·고신뢰 저장되는 **잃으면 안 되는 정체성 데이터**.
- *
- * 휘발성 런타임 상태(status·lastActivity·노드·엣지 스냅샷·런타임 큐)는 여기 ❌ —
- * 그건 고빈도 `checkpoint.json` 에만 산다. 복원 순서: checkpoint 전체 복원 →
- * identity 로 누락 정체성 **보충**(이미 있으면 덮어쓰지 않음, 없으면 부활).
- *
- * checkpoint 가 비거나 깨져도 커스텀 에이전트는 identity 에서 되살아난다.
- * identity.json 이 없으면(구버전) 기존 단일 파일 동작 그대로(완전 하위호환).
+ * §3.2.2 — 잃으면 안 되는 정체성 데이터(`identity.json`, 저빈도·고신뢰). 휘발성 런타임 상태는 `checkpoint.json` 에만 산다.
+ * 복원: checkpoint 전체 → identity 로 빠진 정체성만 보충(있으면 덮지 않는다). checkpoint 가 깨져도 커스텀 에이전트는 identity 에서 살아난다. 파일이 없으면(구버전) 단일 파일 동작.
  */
 export interface ProjectIdentity {
   /** 전방 호환 — 미래 구조 변경 대비. 현재 1. 로드 시 `>= 1` 이면 수용. */
@@ -7624,11 +5553,7 @@ export interface ProjectIdentity {
   savedAt: number;
   /** 라벨 생성 번호 유지 (checkpoint.graph.agentCounter 와 최대값 동기). */
   agentCounter: number;
-  /**
-   * 사용자가 만든 커스텀 에이전트(+Auto Agent·파이프라인 합성 포함, `customCreated=true`)의
-   * 정체성 버블. sessionId → BubbleData. 런타임 상태 필드는 복원 시 정규화되지만,
-   * id/label/sessionId/생성·position 같은 정체성은 여기서 권위를 갖는다.
-   */
+  /** 사용자가 만든 커스텀 에이전트(Auto Agent·파이프라인 합성 포함, `customCreated=true`)의 정체성 버블(sessionId 키). 런타임 필드는 복원 때 정규화되고 id/label/생성·position 은 여기가 권위다. */
   customAgents: Record<string, BubbleData>;
   /** 에이전트별 설정 (agent id → AgentConfig). §4 (설정 3층) 이후로는 세 층을 겹친 **완성본 사본** — 권위는 `agentConfigOverrides`. */
   agentConfigs: Record<string, AgentConfig>;
@@ -7644,61 +5569,29 @@ export interface ProjectIdentity {
   commentBoxes: CommentBox[];
   /** §5.9 화면/프로그램 캡처 버블 목록 (이 프로젝트 스코프, 정체성 데이터). */
   captureBubbles: CaptureBubble[];
-  /** §5.13 v4.45 — 내부 앱 버블 목록 (정체성 — 잃으면 사용자가 만든 것이 사라진다). */
+  /** §5.13 — 내부 앱 버블(정체성 — 사용자가 만든 것). */
   appBubbles: AppBubble[];
-  /** §5.14 v4.62 — 플레이 버블 목록 (정체성 — 사용자가 놓은 버튼 + 확정한 실행 레시피). */
+  /** §5.14 — 플레이 버블(정체성 — 놓은 버튼 + 확정한 실행 레시피). */
   playBubbles: PlayBubble[];
-  /**
-   * §5.15 — 스펙 보드 목록 (정체성 — 사람이 쓴 요구사항 문장이라 잃으면 복구할 길이 없다).
-   * optional — 구버전 identity.json 하위호환. 미설정이면 빈 배열로 취급.
-   */
+  /** §5.15 — 스펙 보드(정체성 — 사람이 쓴 요구사항). 없으면 빈 배열. */
   specDocs?: SpecDoc[];
-  /**
-   * §5.18 — 에이전트 랩 목록 (정체성 — 사람이 쓴 과제 문장과 설정 조합은 복구할 길이 없다).
-   * optional — 구버전 identity.json 하위호환. 미설정이면 빈 배열로 취급.
-   */
+  /** §5.18 — 에이전트 랩(정체성 — 사람이 쓴 과제·설정 조합). 없으면 빈 배열. */
   labRuns?: LabRun[];
-  /**
-   * §5.20 — 스크립트 선반 목록 (정체성 — 사람이 모아 둔 명령·프롬프트는 코드에서 되살릴 길이 없다).
-   * optional — 구버전 identity.json 하위호환. 미설정이면 빈 배열로 취급.
-   */
+  /** §5.20 — 스크립트 선반(정체성 — 사람이 모은 명령·프롬프트). 없으면 빈 배열. */
   shelfBubbles?: ShelfBubble[];
   /** 콘티 데이터 (contiId → Conti). */
   contis: Record<string, Conti>;
-  /**
-   * §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal).
-   * 사용자가 직접 쓴 문장이라 잃으면 복구할 길이 없다(§3.2.2 정체성).
-   * optional — 구버전 identity.json 하위호환. 미설정이면 빈 맵으로 취급.
-   */
+  /** §5.5 #17-17 — 세션 목표(정체성 — 사용자가 쓴 문장). 없으면 빈 맵. */
   sessionGoals?: Record<string, SessionGoal>;
-  /**
-   * §5.5 #17-17 ⑪(h) — 시각 종류 카드. 에이전트가 만든 것이라 잃으면 복구할 길이 없다(§3.2.2).
-   * optional — 구버전 identity.json 하위호환.
-   */
+  /** §5.5 #17-17 ⑪(h) — 시각 종류 카드(정체성, §3.2.2). */
   visualKinds?: Record<string, VisualKindCard>;
-  /**
-   * §5.5 #17-17 ⑫(b) — 팔레트에서 고정한 행동 카드 id. 사용자가 고른 것이라 복구 불가(§3.2.2).
-   * optional — 구버전 identity.json 하위호환.
-   */
+  /** §5.5 #17-17 ⑫(b) — 고정한 행동 카드 id(정체성, §3.2.2). */
   pinnedGoalActions?: string[];
-  /**
-   * §5.5 #17-36 — 메인 탭 스티키 메모 (agentId → SessionMemo[]).
-   * 손으로 쓴 글이라 코드에서 되살릴 길이 없다(§3.2.2 정체성).
-   * **세션 탭 메모는 여기 없다** — 그것은 세션의 소지품이라 세션(`subAgents`)과 운명을 같이한다.
-   * optional — 구버전 identity.json 하위호환. 미설정이면 빈 맵으로 취급.
-   */
+  /** §5.5 #17-36 — 메인 탭 스티키 메모(정체성). 세션 탭 메모는 세션(`subAgents`)의 소지품이라 여기 없다. 없으면 빈 맵. */
   agentMemos?: Record<string, SessionMemo[]>;
-  /**
-   * §5.3 #12-3 — 사용자가 건 자물쇠. 손으로 건 보호라 정체성이다(잃으면 AI 가 그대로 연다).
-   * 복원 보충은 id 기준 합집합 — 어긋나도 잠긴 쪽으로 남는다. optional — 구버전 identity.json 하위호환.
-   */
+  /** §5.3 #12-3 — 사용자가 건 자물쇠(정체성 — 잃으면 AI 가 그대로 연다). 복원 보충은 id 합집합이라 어긋나도 잠긴 쪽으로 남는다. */
   pathLocks?: PathLock[];
-  /**
-   * §3.2.1-3 v2.63 — 사용자가 **명시적으로 삭제**한 커스텀 에이전트의 sessionId 묘비.
-   * shrink guard 가 "정상 삭제(여기 기록됨)"와 "복원 실패(미기록 소멸)"를 구분하는 신호.
-   * 부활(mergeIdentityIntoCheckpoint) 시 이 집합의 sessionId 는 되살리지 않는다 → 유령 부활 차단.
-   * optional — 구버전 identity.json 하위호환. 미설정이면 빈 배열로 취급.
-   */
+  /** §3.2.1-3 — 명시 삭제한 커스텀 에이전트 sessionId 묘비. shrink guard 가 정상 삭제와 복원 실패(미기록 소멸)를 가르고, `mergeIdentityIntoCheckpoint` 는 이 id 를 되살리지 않는다(유령 부활 차단). */
   deletedSessionIds?: string[];
 }
 
@@ -7740,10 +5633,7 @@ export interface TokenCategoryEstimate {
 /** 테마의 밝기 계열. `color-scheme`(네이티브 컨트롤)과 옵션창의 묶음(다크/라이트)이 이 값을 따른다. */
 export type AppThemeKind = 'dark' | 'light';
 
-/**
- * 팔레트 계열 — Tailwind 기본 색 이름 그대로다. 앱의 색 클래스(`bg-gray-950` …)는 전부
- * `--color-<계열>-<칸>` 변수로 칠해지므로, 테마의 본체는 이 표의 값을 갈아 끼우는 것이다.
- */
+/** 팔레트 계열 — Tailwind 색 이름 그대로. 앱 색 클래스는 전부 `--color-<계열>-<칸>` 변수로 칠해지므로 테마의 본체는 이 표의 값 교체다. */
 export type AppThemeFamily =
   | 'slate' | 'gray' | 'zinc' | 'neutral' | 'stone'
   | 'red' | 'orange' | 'amber' | 'yellow' | 'lime' | 'green' | 'emerald' | 'teal' | 'cyan'
@@ -7822,10 +5712,7 @@ export interface AppThemeRampSpec {
   shades?: Partial<Record<AppThemeShade, string>>;
 }
 
-/**
- * 테마 정의 — 기본 테마(`BUILTIN_APP_THEMES`)와 사용자 테마 파일(`~/.vibisual/themes/*.json`)이
- * **같은 모양**이다. 해석은 shared `resolveAppTheme` 한 곳(서버 창 바탕과 클라 화면이 같은 답을 낸다).
- */
+/** 테마 정의 — 기본(`BUILTIN_APP_THEMES`)·사용자 파일(`~/.vibisual/themes/*.json`)이 같은 모양. 해석은 shared `resolveAppTheme` 한 곳(서버 창 바탕과 클라가 같은 답). */
 export interface AppThemeDefinition {
   schemaVersion: number;
   /** 기본 테마는 맨 이름(`midnight`), 사용자 테마는 `custom:` 접두 — 기본 테마를 가리지 못한다. */
@@ -7849,10 +5736,7 @@ export interface AppThemeDefinition {
   file?: string;
 }
 
-/**
- * 사용자 테마를 읽다 생긴 문제. **문장이 아니라 코드**로 남긴다 — 화면이 번역해 보여 준다.
- * `error` = 그 파일을 못 쓴다 · `warning` = 그 칸만 버리고 테마는 쓴다.
- */
+/** 테마 파일 문제 — 문장이 아니라 코드로 남긴다(화면이 번역). `error` = 그 파일을 못 쓴다 · `warning` = 그 칸만 버린다. */
 export type AppThemeIssueCode =
   | 'tooMany'
   | 'tooLarge'
@@ -7907,10 +5791,7 @@ export interface ResolvedAppTheme {
   palette: Record<string, string>;
   /** 의미 토큰 → CSS 색. */
   tokens: Record<AppThemeToken, string>;
-  /**
-   * 의미 토큰 → 풀기 전 원문(팔레트 참조 `{gray.900}` 를 그대로 둔 것). "지금 테마로 새로 만들기"가
-   * 이 값으로 견본을 써서, 사용자가 팔레트만 바꿔도 참조 칸이 따라오게 한다.
-   */
+  /** 의미 토큰 → 풀기 전 원문(`{gray.900}` 참조 그대로). "지금 테마로 새로 만들기"가 이것으로 견본을 써서 팔레트만 바꿔도 참조 칸이 따라온다. */
   tokenSources: Record<AppThemeToken, string>;
   /** CSS 변수 이름(`--color-…`) → 값. `<html>`(또는 미리보기 칸)에 그대로 싣는다. */
   cssVars: Record<string, string>;
@@ -7927,86 +5808,42 @@ export interface AppThemeChrome {
   titleBarSymbol: string;
 }
 
-/**
- * §3.7 · §9 「시작 화면(스플래시)」 — 서버 코어가 부팅하는 동안 desktop main 에 알리는 진척.
- *
- * 화면에 무엇을 적을지는 main 이 정한다(문구는 main 의 표에 있다) — 서버는 **사실만** 넘긴다.
- * 프로젝트 복원은 동기 반복이라 메인 스레드를 붙잡지만, main 은 이 값을 메시지 포트로 스플래시에
- * 흘려보내므로 붙잡힌 동안에도 "몇 번째를 복원하는 중"이 화면에 그대로 뜬다.
- */
+/** §3.7 · §9 스플래시 — 서버 코어 부팅 진척(서버는 사실만, 문구는 main 의 표). 프로젝트 복원이 메인 스레드를 붙잡아도 main 이 메시지 포트로 흘려 "몇 번째 복원 중"이 뜬다. */
 export type BootProgress =
   /** 열어 둔 프로젝트를 복원하는 중 — `done` 개를 끝냈고 지금 `label` 을 읽는다(끝나면 `done === total`). */
   | { phase: 'projects'; done: number; total: number; label?: string }
   /** 프로젝트 복원을 마치고 세션·감시·정리 같은 나머지 기동을 하는 중. */
   | { phase: 'services' };
 
-// ─── User Defaults (§4 v2.42) ───
+// ─── User Defaults (§4) ───
 
-/**
- * §4 v2.42 — 사용자 글로벌 옵션/디폴트.
- *
- * File 메뉴 → Options 창에서 편집. `~/.vibisual/user-defaults.json` 글로벌 1건(프로젝트 무관).
- * 신규 커스텀 에이전트 생성 시 `agentConfig` 가 `DEFAULT_AGENT_CONFIG` 위에 덮어쓰이는 프리셋 역할.
- * 기존 에이전트엔 영향 ❌ — 신규 spawn 시점에만 적용.
- *
- * 카테고리:
- * - agentConfig — Agent Defaults 탭(1차 구현). Partial<AgentConfig> 라 undefined 필드는 DEFAULT 유지.
- * - appearance — UI 언어·앱 테마·버블과 연결선 외관.
- * - notifications / permissions / advanced — placeholder 슬롯(1차는 빈 객체).
- */
-/**
- * §4 v2.42 / (CMD 터미널 업그레이드 ④) — 알림 기본값.
- * placeholder 였던 `Record<string, unknown>` 을 **인덱스 시그니처를 유지한 채** 넓힌 것이라
- * 기존 저장 파일과 하위 호환된다(모르는 키는 그대로 통과).
- */
+/** §4 — 사용자 글로벌 옵션(Options 창, `~/.vibisual/user-defaults.json` 1건). `agentConfig` 는 `DEFAULT_AGENT_CONFIG` 위에 덮이는 프리셋 — 신규 spawn 에만, 기존 에이전트엔 영향 ❌. */
+/** §4 (CMD 터미널 업그레이드 ④) — 알림 기본값. 인덱스 시그니처를 유지한다(옛 저장 파일 호환 · 모르는 키 통과). */
 export interface UserNotificationDefaults extends Record<string, unknown> {
-  /**
-   * CMD 세션이 백그라운드에서 `blocked` 로 바뀔 때 OS 알림을 띄울지.
-   * undefined = 켬(기본). false 로만 끈다.
-   */
+  /** CMD 세션이 백그라운드에서 `blocked` 가 되면 OS 알림. undefined = 켬, false 로만 끈다. */
   cmdBlocked?: boolean;
 }
 
-/**
- * §4 v2.42 / (CMD 터미널 업그레이드 ③) — 고급 기본값.
- * 위와 같은 이유로 인덱스 시그니처를 유지한다.
- */
+/** §4 (CMD 터미널 업그레이드 ③) — 고급 기본값. 같은 이유로 인덱스 시그니처 유지. */
 export interface UserAdvancedDefaults extends Record<string, unknown> {
-  /**
-   * 임베디드 터미널 scrollback 줄 수. undefined = `TERMINAL_SCROLLBACK_LINES`.
-   * 이 한 값이 xterm `scrollback` 과 desktop PTY 링버퍼 상한을 **동시에** 정한다.
-   */
+  /** 터미널 scrollback 줄 수(undefined = `TERMINAL_SCROLLBACK_LINES`). xterm `scrollback` 과 desktop PTY 링버퍼 상한을 함께 정한다. */
   terminalScrollbackLines?: number;
-  /**
-   * §4 엔진 다리 — 우리가 띄우는 클로드 세션(헤드리스·CMD)에 동봉 모드(`vibisual-bridge`)를 실어
-   * 엔진이 턴·생존·사용량을 직접 신고하게 할지. undefined = 켬(기본). false 로만 끈다.
-   * 다음에 뜨는 세션부터 적용된다(떠 있는 세션의 인자는 바뀌지 않는다).
-   */
+  /** §4 엔진 다리 — 우리가 띄우는 클로드 세션(헤드리스·CMD)에 동봉 모드(`vibisual-bridge`)를 실어 턴·생존·사용량을 엔진이 신고하게 할지. undefined = 켬. 다음에 뜨는 세션부터. */
   engineBridge?: boolean;
 }
 
-/**
- * §4 v2.42 / §5.3 #12-4 (J) — 권한 기본값(옵션창 권한 탭). 위 두 칸과 같은 이유로 인덱스 시그니처를 유지한다.
- */
+/** §4 · §5.3 #12-4 (J) — 권한 기본값(옵션창 권한 탭). 같은 이유로 인덱스 시그니처 유지. */
 export interface UserPermissionDefaults extends Record<string, unknown> {
   /**
-   * §5.3 #12-4 (J) — 검증 정책을 켤지. undefined = 끔(기본 — `VERIFICATION_GATE_DEFAULT_ENABLED`).
-   * true일 때만 Codex·Claude Code에 제한 안내와 실행 전 차단을 적용한다. 끄면 제한 프롬프트를 주입하지 않고
-   * 검증을 거부하지 않는다(실행한 것으로만 센다). 주입원 창은 켜진 정책의 안내만 숨길 수 있다.
-   * 판정은 `isVerificationGateEnabled` 한 곳 — 저장 뒤 차단은 다음 도구 호출, 프롬프트 안내는 다음 턴부터 적용된다.
+   * §5.3 #12-4 (J) — 검증 정책(undefined = 끔, `VERIFICATION_GATE_DEFAULT_ENABLED`). true 일 때만 Codex·Claude Code 에 제한 안내 + 실행 전 차단 — 끄면 주입도 거부도 없다(실행한 것으로만 센다).
+   * 주입원 창은 켜진 정책의 안내만 숨긴다. 판정은 `isVerificationGateEnabled` 한 곳 — 저장 뒤 차단은 다음 도구 호출, 안내는 다음 턴부터.
    */
   verificationGate?: boolean;
 }
 
 /**
- * §4 (설정 3층) — 설정 창이 **PUT 으로 보내는** 한 벌. 저장된 모양(`UserDefaults`)과 다른 타입인
- * 이유는 `null` 때문이다.
- *
- * 서버는 카테고리 안을 **부분 머지**하므로 "이 칸을 비웠다"를 보내려면 그 키가 요청에 실려야
- * 하는데, 종전 창은 미설정을 `undefined` 로 담았고 `JSON.stringify` 는 그 키를 **통째로 버린다**.
- * 그래서 전역 기본값은 한 번 켜면 다시 끌 수 없었다(effort·isolation·safeMode·예산·타임아웃 …
- * 되돌리려면 `~/.vibisual/user-defaults.json` 을 손으로 고쳐야 했다). `null` 은 전선을 건너가므로
- * 지우겠다는 뜻을 실어 나를 수 있다 — 서버가 그 키를 지우고, 저장분에는 `null` 이 남지 않는다.
+ * §4 (설정 3층) — 설정 창이 PUT 으로 보내는 모양. `null` = 이 칸을 지워라 — 서버가 부분 머지하므로 `undefined` 는 `JSON.stringify` 가 키째 버려 한 번 켠 기본값을 끌 수 없다.
+ * 저장분엔 `null` 이 남지 않는다.
  */
 export type AgentConfigPatch = { [K in keyof AgentConfig]?: AgentConfig[K] | null };
 
@@ -8019,54 +5856,28 @@ export type UserDefaultsPatch = Omit<Partial<UserDefaults>, 'agentConfig' | 'app
 export interface UserDefaults {
   engineConfigs?: Partial<Record<AgentEngineKind, Partial<AgentConfig>>>;
   projectEngineConfigs?: Record<string, Partial<Record<AgentEngineKind, Partial<AgentConfig>>>>;
-  /** §4 v2.42 — 신규 에이전트 기본 설정. Partial — 미설정 필드는 `DEFAULT_AGENT_CONFIG` 사용. */
+  /** §4 — 신규 에이전트 기본 설정(미설정 필드는 `DEFAULT_AGENT_CONFIG`). */
   agentConfig?: Partial<AgentConfig>;
   /** §4 — 외관. 미설정 값은 각 공통 resolver의 내장 기본값을 사용한다. */
   appearance?: {
     uiLocale?: UiLocale;
-    /**
-     * §4 앱 테마 — 고른 테마 id. 없으면 기본 테마(`DEFAULT_APP_THEME_ID`).
-     * 사용자 테마는 `custom:` 접두다. 파일이 사라져도 이 값은 지우지 않는다 — 해석이 기본 테마로
-     * 떨어질 뿐이라, 파일을 되돌려 놓으면 그대로 돌아온다.
-     */
+    /** §4 앱 테마 id(없으면 `DEFAULT_APP_THEME_ID`, 사용자 테마는 `custom:` 접두). 파일이 사라져도 지우지 않는다 — 기본 테마로 떨어질 뿐, 파일을 되돌리면 돌아온다. */
     themeId?: string;
     /** 원형 버블의 표면 표현. 미설정 = `DEFAULT_BUBBLE_SKIN`. */
     bubbleSkin?: BubbleSkin;
     /** 연결선의 표면 표현. 미설정 = `DEFAULT_BUBBLE_EDGE_STYLE`. */
     edgeStyle?: BubbleEdgeStyle;
   };
-  /** §4 v2.42 — 알림. 1차 placeholder. */
   notifications?: UserNotificationDefaults;
-  /** §4 v2.42 — 권한. §5.3 #12-4 (J) 검증 실행 전 차단 스위치가 첫 칸이다. */
+  /** §4 — 권한. 첫 칸은 §5.3 #12-4 (J) 검증 실행 전 차단 스위치. */
   permissions?: UserPermissionDefaults;
-  /** §4 v2.42 — 고급(API 키·bin 경로·debug). 1차 placeholder. */
+  /** §4 — 고급(API 키·bin 경로·debug). */
   advanced?: UserAdvancedDefaults;
-  /**
-   * §5.25 (C) — 첫 진입에서 고른 엔진. **없으면 아직 안 물어본 것**이라 관문이 뜨고,
-   * 있으면 다시 묻지 않는다(켤 때마다 묻는 창은 두 번째부터 방해다).
-   *
-   * 기본 엔진 자체는 `agentConfig.provider` 가 들고 있다 — 이 값은 "물어봤다"는 사실과
-   * 사용자가 무엇을 골랐는지의 기록이고, 옵션창에서 다시 고를 때도 같은 자리를 쓴다.
-   */
+  /** §5.25 (C) — 첫 진입에서 고른 엔진. 없으면 관문이 뜨고 있으면 다시 묻지 않는다. 기본 엔진은 `agentConfig.provider` 가 들고, 이 값은 "물어봤다"와 고른 것의 기록이다. */
   engineChoice?: EngineChoice;
-  /**
-   * §5.13 (N) v4.46 — **설치된 내부 앱 id 목록**.
-   *
-   * 내부 앱은 플러그인이 아니라 자기 창·자기 데이터를 가진 독립 애플리케이션이고,
-   * 무거워서 기본 번들에 넣지 않는 것들이 여기로 온다. 앱마다 전용 필드를 만들면
-   * 앱이 늘 때마다 `UserDefaults` 가 같이 자라므로 **목록 하나**로 받는다
-   * (`enabledPlugins` 와 같은 모양).
-   *
-   * 전역 1건인 이유는 설치가 프로젝트가 아니라 이 기기에 매이기 때문이다.
-   */
+  /** §5.13 (N) — 설치된 내부 앱 id(무거워 기본 번들에 없는 독립 앱). 앱마다 필드를 두면 `UserDefaults` 가 같이 자라 목록 하나로 받는다(`enabledPlugins` 와 같은 모양). 설치는 기기에 매여 전역 1건. */
   installedApps?: string[];
-  /*
-   * §5.10 — `brainByProject`(프로젝트별 두뇌 활성화)는 걷었다.
-   *
-   * 자동 목표의 켬/끔은 **프로젝트 체크포인트**(`autoGoalSettings`)가 들고, 층도 셋으로 늘었다
-   * (프로젝트 ⊃ 에이전트 ⊃ 세션 — 정독과 같은 문법). 기기 전역 설정이던 이 칸과는 사는 곳도
-   * 층수도 다르므로 옮겨 심지 않았다. 남아 있던 옛 값은 읽는 곳이 없어 그대로 잠든다.
-   */
+  /* §5.10 — `brainByProject` 는 걷었다. 자동 목표 켬/끔은 체크포인트 `autoGoalSettings`(3층)가 든다 — 사는 곳·층수가 달라 옛 값을 옮겨 읽지 않는다. */
   /**
    * @deprecated v4.46 에서 `installedApps` 로 일반화됐다. 읽기 전용 하위호환 —
    * 이 값이 있으면 Vibistudio 가 설치된 것으로 본다. 새로 쓰지 않는다.
@@ -8076,39 +5887,28 @@ export interface UserDefaults {
     installedAt?: number;
     assetPackVersion?: string;
   };
-  /**
-   * §4 v2.43 — 옵션창 Version 탭에서 사용자가 선택한 `claude` 바이너리 절대 경로(override).
-   * 미설정/빈 문자열 = 자동 탐색(`resolveClaudeBin` 기본 우선순위). 설정 시 `resolveClaudeBin` 이
-   * 최우선 반환(파일 존재 검증 후). `subAgentManager` 가 모듈 로드 시 1회 캡처하므로 변경은 다음 실행에 적용.
-   */
+  /** §4 — Version 탭에서 고른 `claude` 실행본 경로(빈 값 = `resolveClaudeBin` 자동 탐색). 파일이 있으면 최우선. `subAgentManager` 가 모듈 로드 때 1회 캡처하므로 변경은 다음 실행부터. */
   claudeBinPath?: string;
   /**
-   * §4 (Claude Code CLI 자동 업데이트) — **CLI 를 앱 켤 때마다 최신으로 유지할지**.
-   *
-   * **미설정 = 켬**(`enabled !== false` 로 판정). 켜져 있으면 부팅 시 1회
-   * `getClaudeVersionInfo` → `isOutdated` 면 `installLatestClaude()` 를 조용히 돌린다.
-   * 끄면 그 자동 경로만 멈추고 옵션창 Version 탭의 [지금 업데이트] 수동 버튼은 그대로 쓴다.
-   *
-   * ⚠ **§4 v2.44 Vibisual 앱 자동 업데이트(electron-updater)와는 무관한 별개 축**이다 —
-   * 갱신 대상(CLI vs 앱)도 주체(우리 spawn vs electron-updater)도 다르므로 토글을 공유하지 않고,
-   * 앱 업데이트는 종전대로 항상 자동이다.
+   * §4 — Claude Code CLI 를 앱 켤 때마다 최신으로 둘지(**미설정 = 켬**, `enabled !== false`). 부팅 때 1회 `getClaudeVersionInfo` → `isOutdated` 면 `installLatestClaude()` 를 조용히 돌린다.
+   * 끄면 자동만 멈추고 [지금 업데이트]는 그대로. ⚠ 앱 자동 업데이트(electron-updater)와 별개 축이라 토글을 공유하지 않는다 — 앱 업데이트는 항상 자동.
    */
   claudeAutoUpdate?: {
     enabled?: boolean;
   };
+  /** §4 (앱 전용 엔진) — 코덱스 앱 전용 사본을 켤 때 + 6시간마다 최신으로 둘지. `claudeAutoUpdate` 와 같은 규칙(미설정 = 켬), 끄면 자동만 멈춘다. */
+  codexAutoUpdate?: {
+    enabled?: boolean;
+  };
   /**
-   * §5.11 v4.54 — **프로젝트별** 활성 플러그인 목록. 키 = 프로젝트 루트 절대경로(`ProjectInfo.path` = projectId).
-   *
-   * 플러그인 켬/끔은 프로젝트마다 따로다(사용자 지시). 표시명(`ProjectInfo.name`)은 basename 충돌 시
-   * 세션 간 바뀔 수 있어 키로 쓰지 않는다 — 이름으로 키를 잡으면 프로젝트를 하나 더 여는 것만으로
-   * 남의 설정을 물려받는다.
-   *
-   * - 프로젝트 키가 없음 = 그 프로젝트는 아직 손대지 않음 → 구 전역 `enabledPlugins` 시드 → `enabledByDefault`.
-   * - 배열이면 **그 배열이 진실** — 목록에 없는 id 는 전부 비활성(기본값 무시).
-   * - 비활성은 "기여 미등록"일 뿐, **그 플러그인의 데이터를 지우지 않는다**(§5.11 끄면 숨김).
-   *
-   * 판정은 반드시 `resolveEnabledPluginsFor`/`isPluginEnabledFor`(@vibisual/plugins) 를 거친다 —
-   * 창·클라 호스트·서버 관문이 각자 해석하면 세 곳이 조용히 갈린다.
+   * §4 (앱 전용 엔진) ④ — Version 탭 코덱스 칸에서 보조로 고른 `codex` 경로. 빈 값 = 기본(앱 전용 사본 → PATH·공식 독립 설치).
+   * `claudeBinPath` 와 같은 규칙 — 파일이 있을 때만, 앱 전용 폴더 안이면 기본과 같다. 고른 설치본의 갱신은 그 주인 몫이다.
+   */
+  codexBinPath?: string;
+  /**
+   * §5.11 — 프로젝트별 활성 플러그인(키 = 프로젝트 루트 절대경로). 표시명 키면 basename 충돌로 남의 설정을 물려받는다.
+   * 키 없음 = 구 전역 `enabledPlugins` → `enabledByDefault`. 배열이면 그게 진실(없는 id 는 비활성). 비활성은 기여 미등록일 뿐 데이터는 지우지 않는다.
+   * 판정은 반드시 `resolveEnabledPluginsFor`/`isPluginEnabledFor`(@vibisual/plugins) — 창·클라 호스트·서버 관문이 각자 해석하면 조용히 갈린다.
    */
   enabledPluginsByProject?: Record<string, string[]>;
   /**
@@ -8119,30 +5919,23 @@ export interface UserDefaults {
    * 조용히 꺼지는 것을 막기 위해 남긴다).
    */
   enabledPlugins?: string[];
-  /** §4 v2.42 — 마지막 갱신 시각 (ms). PUT 응답·broadcast 디버그용. */
+  /** §4 — 마지막 갱신 시각(ms). PUT 응답·broadcast 디버그용. */
   updatedAt: number;
 }
 
-// ─── 플러그인 커널 (§5.11 v3.88) ───
+// ─── 플러그인 커널 (§5.11) ───
 
 /**
- * 플러그인이 선언할 수 있는 기여 종류 — §4 확장 포인트 표를 그대로 옮긴 것.
- *
- * **v1 개통은 3종뿐**(`bubbleBadge` / `panelSection` / `settingsSection`). 나머지는 이름만 예약이며
- * 호스트가 아직 슬롯을 열지 않았다 — 선언하면 PluginsWindow 가 "이 버전에서 미지원"으로 표시한다.
- * 슬롯은 한 번 열면 되돌리기 어려우므로 실제 수요가 생긴 것만 연다(점진적 공개).
+ * 기여 종류(§4 확장 포인트 표). 호스트가 슬롯을 열지 않은 이름은 예약일 뿐이라 선언하면 PluginsWindow 가 "이 버전에서 미지원"으로 표시한다.
+ * 슬롯은 되돌리기 어려워 실제 수요가 있는 것만 연다.
  */
 export type PluginContributionKind =
   | 'bubbleBadge'
   | 'panelSection'
   | 'settingsSection'
   /**
-   * §5.11 v4.57 — **집행(execution) 슬롯**. 이 프로젝트에서 켜져 있으면 그 플러그인이 만든 지시 블록이
-   * **에이전트의 매 턴 프롬프트에 실린다** = 켜면 화면 한 칸이 아니라 **에이전트가 실제로 그렇게 일한다**.
-   *
-   * 표시 슬롯 3종과 결정적으로 다르다 — 여기 붙은 플러그인은 `clientOnly: false` 이고 서버가 조립한다.
-   * 그래도 "임의 코드"는 아니다: 플러그인이 돌려주는 것은 **문자열 한 덩어리**뿐이고, 파일 접근조차
-   * 호스트가 넘긴 좁은 탐침(`fileExists`/`readFile`, 프로젝트 루트 밖 금지)으로만 한다.
+   * §5.11 — 집행 슬롯: 켜면 그 플러그인의 지시 블록이 에이전트의 매 턴 프롬프트에 실린다. 표시 슬롯과 달리 `clientOnly: false`, 서버가 조립한다.
+   * 임의 코드는 아니다 — 돌려주는 것은 문자열 한 덩어리, 파일 접근은 호스트가 넘긴 `fileExists`/`readFile`(루트 밖 금지)뿐이다.
    */
   | 'agentPrompt'
   | 'ideView'
@@ -8159,12 +5952,7 @@ export type PluginContributionKind =
 /** 플러그인 분류 — PluginsWindow 좌측 그룹 라벨. */
 export type PluginCategory = 'security' | 'observability' | 'workflow' | 'experimental';
 
-/**
- * 플러그인 선언(매니페스트) — **순수 데이터**. React·node 에 의존하지 않는다.
- *
- * 매니페스트와 구현 모듈을 나누는 이유: PluginsWindow 가 **비활성 플러그인의 코드를 건드리지 않고도**
- * 목록·설명·기여 종류를 보여줄 수 있어야 하기 때문.
- */
+/** 플러그인 매니페스트 — 순수 데이터(React·node 의존 ❌). 구현과 나눠 PluginsWindow 가 비활성 플러그인 코드를 건드리지 않고 목록을 보인다. */
 export interface PluginManifest {
   /** kebab-case. 네임스페이스 키 — REST `/api/plugins/<id>/*`, WS `plugin:<id>:*`, 버블 `plugin:<id>:<name>`. */
   id: string;
@@ -8181,58 +5969,27 @@ export interface PluginManifest {
   /** true = 서버 기여 없음(라우트·훅 구독 0). */
   clientOnly: boolean;
   /**
-   * §5.11 노출 게이트 — 이 플러그인의 집행이 **프로젝트를 실제로 훑는가**.
-   *
-   *  는 그 폴더의 `enforce.ts` 가 `probe`(프로젝트를 훑어 규칙을 보탠다) 또는 `survey`(훑은
-   * 근거를 카드에 돌려준다) 를 가졌다는 뜻이다. (기본)면 켜도 **고정 문장**만 실린다 — 아직
-   * 집행이 완성되지 않은 카드이므로 Plugins 창 목록에는 §7.7 디버그 모드에서만 선다.
-   *
-   * **켬/끔과는 다른 축이다** — 이 값은 "만들어졌는가", `enabledPluginsByProject` 는 "이 프로젝트에서
-   * 쓸 것인가". 숨겨져 있어도 켜져 있으면 집행은 종전대로 실린다(노출만 닫는다).
-   *
-   * 매니페스트와 실제 집행 모듈이 어긋나지 않도록 `readiness.test.ts` 가 둘을 대조한다.
+   * §5.11 노출 게이트 — `true` = 그 폴더 `enforce.ts` 가 `probe`(훑어 규칙을 보탬) 또는 `survey`(훑은 근거를 카드에)를 가졌다. 없으면 켜도 고정 문장만 실리고 Plugins 목록엔 §7.7 디버그 모드에서만 선다.
+   * 켬/끔(`enabledPluginsByProject`)과 다른 축 — 숨겨져도 켜져 있으면 집행은 실린다. `readiness.test.ts` 가 매니페스트와 집행 모듈을 대조한다.
    */
   enforcesProject?: boolean;
   /**
-   * §5.5 #17-44 ⑧(d) — 켬/끔 손잡이가 **이 기능 자신의 화면**에 있는가.
-   *
-   * `true` 면 이 카드는 Plugins 창 목록에 서지 않고(§7.7 디버그 모드에서도), 켠 개수의 분모·분자에서도
-   * 빠지며, 집행 배럴(`activePromptModules`)·클라 카드 호스트가 **켬 집합을 묻지 않고** 통과시킨다 —
-   * 뒤에서 그 기능 자신의 스위치가 다시 판정하기 때문이다. 관문이 둘이면 "뷰에서 켰는데 안 돈다"의
-   * 이유가 111장 목록 안에 숨고, 활동바에서 그 칸으로 가는 길은 화면에 없다.
-   *
-   * **`enforcesProject`(만들어졌는가)·`enabledPluginsByProject`(이 프로젝트에서 쓸 것인가)와 다른 축이다.**
-   * 옮겨 간 손잡이가 없는 카드가 이 값을 들면 그때가 §5.11 이 막으려는 진짜 유령("어디에서도 못 끄는데
-   * 프롬프트에는 실린다")이므로, `enforcesProject: true` 인 카드만 쓸 수 있다(`readiness.test.ts` 가 대조).
+   * §5.5 #17-44 ⑧(d) — 켬/끔 손잡이가 그 기능 자신의 화면에 있는가. `true` 면 Plugins 목록(디버그 모드 포함)·켠 개수에서 빠지고 집행 배럴(`activePromptModules`)·카드 호스트가 켬 집합을 묻지 않는다
+   * (그 기능의 스위치가 판정 — 관문이 둘이면 "켰는데 안 돈다"가 숨는다). `enforcesProject: true` 인 카드만 쓸 수 있다 — 손잡이 없는 카드가 들면 어디서도 못 끄는데 프롬프트에 실리는 유령이 된다(`readiness.test.ts` 가 대조).
    */
   ownToggle?: boolean;
 }
 
-// ─── Model Registry (§4 v2.38) ───
+// ─── Model Registry (§4) ───
 
 /**
- * 모델 패밀리 alias — UI 드롭다운 + `--model` CLI alias.
- *
- * §4 v2.77 — 디폴트 가격·컨텍스트 테이블(`MODEL_FAMILY_DEFAULTS`)을 가진 **알려진 패밀리**.
- * 그 밖의 패밀리도 동적으로 수용하도록 string 으로 확장한다 — 미지 패밀리는 패밀리 디폴트가 없어
- * `DEFAULT_PRICING`/`DEFAULT_CONTEXT_LIMIT` 로 폴백한다.
- * `(string & {})` 트릭으로 임의 string 을 받되 에디터 자동완성은 known 패밀리를 계속 노출.
- *
- * (판올림 번호 발급 대기) — **fable·mythos 를 known 으로 승격**. 이 둘은 "언젠가 나올지도 모르는 미지"가
- * 아니라 이미 출시된 실제 패밀리인데 known 3종에 없어서 단가·컨텍스트가 통째로 폴백값으로 계산됐다.
- * 이 유니온은 `MODEL_FAMILY_DEFAULTS` 의 키와 **반드시 같아야 한다**(그쪽이 `Record<KnownModelFamily,…>`
- * 라 타입 검사가 누락을 잡아 준다 — 한쪽만 늘리면 빌드가 깨지므로 조용한 어긋남은 생기지 않는다).
+ * 모델 패밀리 alias(UI 드롭다운 + `--model`). known 은 `MODEL_FAMILY_DEFAULTS`(가격·컨텍스트)가 있는 패밀리, 그 밖은 `(string & {})` 로 받아 `DEFAULT_PRICING`/`DEFAULT_CONTEXT_LIMIT` 로 폴백한다.
+ * 이 유니온은 `MODEL_FAMILY_DEFAULTS` 키와 같아야 한다(`Record<KnownModelFamily,…>` 라 빌드가 잡는다) — 출시된 패밀리가 빠지면 단가·컨텍스트가 폴백값이 된다.
  */
 export type KnownModelFamily = 'opus' | 'sonnet' | 'haiku' | 'fable' | 'mythos';
 export type ModelFamily = KnownModelFamily | (string & {});
 
-/**
- * Claude Code CLI 내장 슬래시 명령 한 개 — `/` 자동완성 드롭다운(§5.5 #17-2)의 표시 단위.
- *
- * 목록 자체는 constants.ts 의 `BUILTIN_SLASH_COMMANDS` 이며 출처는 Anthropic 공개 문서다.
- * **표시 전용** — 서버는 사용자가 친 텍스트를 그대로 세션에 넘기므로, 이 목록에 없는 명령도
- * 사용자가 직접 치면 CLI 가 처리한다(반대로 여기 있어도 CLI 가 모르면 CLI 가 거절한다).
- */
+/** CLI 내장 슬래시 명령(`/` 자동완성, §5.5 #17-2). 목록은 `BUILTIN_SLASH_COMMANDS`(Anthropic 공개 문서). 표시 전용 — 서버는 친 텍스트를 그대로 넘기고 받을지는 CLI 가 정한다. */
 export interface BuiltinSlashCommand {
   /** 슬래시를 뗀 이름 (예: `compact`). */
   name: string;
@@ -8242,27 +5999,14 @@ export interface BuiltinSlashCommand {
   aliases: readonly string[];
 }
 
-/**
- * §4 (슬래시 명령 가용성) — 이 명령이 **화면 있는 터미널을 요구하는가**.
- *
- * 판정 근거는 CLI 를 실제로 돌려 본 **공개 동작**이다: 헤드리스 세션에서 이런 명령을 보내면
- * CLI 가 `"/X isn't available in this environment."` 한 줄로 답하고 턴을 끝낸다(API 호출 0).
- * 누구든 그 명령을 한 번 쳐 보면 같은 답을 받는다.
- */
+/** §4 — 이 명령이 화면 있는 터미널을 요구하는가. 근거는 CLI 의 공개 동작: 헤드리스에 보내면 `"/X isn't available in this environment."` 로 답하고 턴을 끝낸다(API 호출 0). */
 export type SlashCommandAvailability = 'anywhere' | 'terminal-only';
 
-/**
- * 단일 모델 풀ID 의 레지스트리 항목.
- *
- * source='seed' = constants.ts 의 시드 테이블에서 적재(오프라인 또는 부팅 시).
- * source='api' = `GET https://api.anthropic.com/v1/models` 응답에서 머지.
- * 같은 id 가 양쪽에 있으면 api 가 displayName/createdAt 등 추가 필드를 덮어쓰되,
- * 시드 측 pricing/contextWindow 가 정의돼 있으면 보존(가격은 API 미제공).
- */
+/** 모델 풀ID 레지스트리 항목. 같은 id 면 `api` 가 displayName/createdAt 등을 덮되 시드의 pricing/contextWindow 는 보존한다(API 는 가격을 주지 않는다). */
 export interface ModelRegistryEntry {
   /** Anthropic 풀 모델 ID (예: `claude-opus-4-8`). */
   id: string;
-  /** 패밀리 — id prefix 로 추론(`claude-<family>-`, §4 v2.77 임의 패밀리 수용). */
+  /** 패밀리 — id 접두(`claude-<family>-`)로 추론, 임의 패밀리 수용. */
   family: ModelFamily;
   /** 사람이 읽는 라벨 (예: "Claude Opus 4.8"). 없으면 UI 가 id 표시. */
   displayName?: string;
@@ -8275,14 +6019,8 @@ export interface ModelRegistryEntry {
   /** 패밀리 내 latest 인지 — `resolveAliasToLatest` 가 부팅 시 1회 셋. */
   isLatestOfFamily?: boolean;
   /**
-   * 출처:
-   * - 'seed' = Anthropic 공개 문서에서 옮겨 둔 `AVAILABLE_AGENT_MODEL_FULL_IDS` (기본 소스).
-   * - 'api' = `/v1/models` API 응답 머지(`ANTHROPIC_API_KEY` 가 있을 때 — 최신을 자동 추종).
-   * - 'observed' = **이 PC 대화록에 실제 API 응답으로 찍힌** 모델 ID(§4 상태바 모델 칸 ③(다)).
-   *   키가 없는 사용자에게 (api) 자리를 대신하는 출처다. 가격은 모르므로 "추정" 표식을 받는다.
-   *
-   * (구 'cli-scan' = CLI 실행본 raw scan 은 폐기했다. 약관상 역설계에 닿을 소지가 있었고,
-   *  공개 문서 시드로 옮겨도 목록은 유지된다.)
+   * `seed` = 공개 문서에서 옮긴 `AVAILABLE_AGENT_MODEL_FULL_IDS`(기본) · `api` = `/v1/models` 머지(`ANTHROPIC_API_KEY` 있을 때) · `observed` = 이 PC 대화록의 실제 API 응답에 찍힌 ID(§4 상태바 모델 칸 ③(다)) — 키 없는 사용자의 api 대신, 가격을 몰라 "추정".
+   * CLI 실행본 raw scan 은 쓰지 않는다 — 약관상 역설계 소지가 있고 공개 문서 시드로 충분하다.
    */
   source: 'seed' | 'api' | 'observed';
   /** `source === 'observed'` 일 때 처음 본 시각(ms). 캐시 상한을 넘으면 오래된 것부터 버린다. */
@@ -8296,10 +6034,8 @@ export interface ModelPricing {
   cacheRead: number;
   cacheWrite: number;
   /**
-   * 프롬프트 길이 구간 요금 — 한 요청의 프롬프트(입력 + 캐시 읽기 + 캐시 쓰기)가 `aboveTokens` 를
-   * **넘으면** 그 요청 전체가 이 단가를 탄다. 없으면 길이와 무관한 단일 단가다.
-   * 공개 가격표 "Long context pricing" — 현재는 Haiku 5.5(10만 토큰)뿐이다(§4 동적 모델 레지스트리 ⑧).
-   * 요청 단위로만 가를 수 있으므로 `calculateTokenCost(…, { singleRequest: true })` 일 때만 적용된다.
+   * 프롬프트 길이 구간 요금 — 한 요청의 프롬프트(입력 + 캐시 읽기·쓰기)가 `aboveTokens` 를 넘으면 요청 전체가 이 단가다(공개 가격표 "Long context pricing" — 지금은 Haiku 5.5 의 10만 토큰뿐, §4 ⑧).
+   * 요청 단위로만 가를 수 있어 `calculateTokenCost(…, { singleRequest: true })` 에서만 적용된다.
    */
   longPrompt?: {
     aboveTokens: number;
@@ -8310,44 +6046,23 @@ export interface ModelPricing {
   };
 }
 
-/**
- * 서버가 부팅 시 빌드해 클라에 전달하는 전체 레지스트리.
- *
- * sourceMix:
- * - 'seed-only' = 공개 문서 시드만. `ANTHROPIC_API_KEY` 가 없을 때의 표준 경로.
- * - 'api-merged' = 시드 + `/v1/models` 머지(키가 있을 때).
- *
- * 클라 AgentConfigPopup 버전 sub-드롭다운의 데이터 소스. WS `model_registry_updated` 로 갱신.
- * 영속화 ❌ (서버 측 `.vibisual/model-registry.json` 캐시는 별개 — TTL 기반).
- */
+/** 부팅 때 지어 클라에 보내는 레지스트리. `seed-only` = 시드만(키 없을 때의 표준) · `api-merged` = 시드 + `/v1/models`. WS `model_registry_updated` 로 갱신, 영속 ❌(서버 `.vibisual/model-registry.json` TTL 캐시는 별개). */
 export interface ModelRegistry {
   entries: ModelRegistryEntry[];
   updatedAt: number;
-  /**
-   * §4 (상태바 모델 칸 ③) — 서버가 출처(시드·`/v1/models`·실행본 강도 등급)를 **마지막으로 확인한** 시각(ms).
-   * `updatedAt` 은 관측 한 건으로도 바뀌므로 "목록 확인 N분 전" 은 이 값을 읽는다. 없으면 `updatedAt`.
-   */
+  /** §4 — 출처(시드·`/v1/models`·실행본 강도 등급)를 마지막으로 확인한 시각(ms). `updatedAt` 은 관측 한 건에도 바뀌므로 "목록 확인 N분 전"은 이 값(없으면 `updatedAt`). */
   checkedAt?: number;
   sourceMix: 'seed-only' | 'api-merged';
   /**
-   * §4 — 설치된 `claude` CLI 가 실제로 받아들이는 `--effort` 값 목록(예: `['low','medium','high','xhigh','max']`).
-   * 서버 `modelRegistryService` 가 부팅 시 `claude --help` 출력의 `--effort <level> (...)` 를 파싱해 채운다(0 하드코딩).
-   * 'default'(=오버라이드 없음)는 포함하지 않는다 — UI 가 맨 앞에 별도로 붙인다.
-   * 파싱 실패/CLI 미발견 시 undefined → 클라 `listEffortLevels` 가 `AVAILABLE_EFFORT_LEVELS` 폴백.
-   * WS `model_registry_updated` 로 entries 와 함께 전파(별도 메시지·store 필드 없이 재사용).
+   * §4 — 설치된 `claude` 가 받는 `--effort` 값. 부팅 때 `claude --help` 의 `--effort <level> (...)` 를 파싱한다(하드코딩 ❌). `'default'` 는 넣지 않는다(UI 가 앞에 붙인다).
+   * 파싱 실패면 undefined → `listEffortLevels` 가 `AVAILABLE_EFFORT_LEVELS` 로 폴백. `model_registry_updated` 로 함께 간다(별도 메시지 ❌).
    */
   effortLevels?: string[];
 }
 
 /**
- * §4 (CLI 사양 추종) — `--agents` 로 나가는 **세션 한정 서브에이전트 정의** 한 벌.
- *
- * CLI 가 받는 모양은 `{ "<이름>": { description, prompt, ... } }` 라는 **객체**인데, 그대로 두면
- * 화면에서 순서가 없고 이름을 고칠 때 키를 갈아 끼워야 한다. 그래서 우리 쪽은 이름을 필드로 든
- * **배열**로 들고, CLI 로 나가는 순간에만 객체로 뒤집는다(`buildAgentsFlagJson`).
- *
- * `description`·`prompt` 는 CLI 가 **둘 다 요구**한다 — 하나라도 비면 그 항목은 통째로 버린다
- * (반쯤 채운 정의를 넘겨 스폰이 죽는 것보다 그 정의가 없는 편이 낫다).
+ * §4 — `--agents` 로 나가는 세션 한정 서브에이전트 정의. 이름을 필드로 든 배열로 들고(순서·이름 수정) CLI 로 나갈 때만 `{ "<이름>": {...} }` 객체로 뒤집는다(`buildAgentsFlagJson`).
+ * CLI 는 `description`·`prompt` 를 둘 다 요구한다 — 하나라도 비면 그 항목은 버린다(반쯤 찬 정의는 스폰을 죽인다).
  */
 export interface AgentDefinition {
   /** 서브에이전트 이름 = `--agents` JSON 의 키. 소문자·하이픈만(CLI 규칙). */
@@ -8367,13 +6082,7 @@ export interface AgentConfig {  /** 사용 모델 (예: "sonnet", "opus", "haiku
   model: string;
   /** 허용 도구 목록 (예: ["Read", "Write", "Edit", "Bash"]) */
   tools: string[];
-  /**
-   * §4 (CLI 사양 추종) — 이 설정에 **도구 백필이 어느 세대까지 적용됐는지**.
-   *
-   * 없으면 세대 0(백필을 한 번도 안 받은 옛 설정). `AGENT_TOOLS_BACKFILL_GEN` 보다 낮으면
-   * 복원·병합 때 새로 생긴 내장 도구를 한 번 채우고 이 값을 올린다. 이 도장이 없던 시절의 백필은
-   * **매 복원마다** 돌아서, 사용자가 끈 도구가 재시작마다 되살아났다.
-   */
+  /** §4 — 도구 백필이 적용된 세대(없으면 0). `AGENT_TOOLS_BACKFILL_GEN` 보다 낮으면 새 내장 도구를 한 번 채우고 올린다 — 도장 없이 매 복원 백필하면 사용자가 끈 도구가 재시작마다 되살아난다. */
   toolsBackfillGen?: number;  /**
    * 퍼미션 모드 — **우리 저장값**(default/acceptEdits/auto/dontAsk/plan/bypassPermissions).
    * CLI 로 나갈 때는 `toCliPermissionMode` 를 거친다(`default` → `--permission-mode manual`).
@@ -8402,146 +6111,65 @@ export interface AgentConfig {  /** 사용 모델 (예: "sonnet", "opus", "haiku
   /** 차단 도구 목록 — 이 도구들은 사용 불가 (예: ["Write", "Edit"]) */
   disallowedTools?: string[];
   /**
-   * §5.3 #12-1-A — **도구별 확인 목록.** 여기 든 도구는 `permissionMode` 가 무엇이든
-   * (`bypassPermissions` 포함) 실행 전에 기존 승인 카드(`PermissionPromptStack`)를 만난다.
-   *
-   * `tools`(가질 수 있는 능력) · `disallowedTools`(못 쓰는 것) 과 **직교**한다 —
-   * 이 목록의 뜻은 "쓸 수 있되 **물어보고** 쓴다"이다.
-   *
-   * `undefined`/빈 배열이면 종전과 **완전히 동일**(기본 꺼짐 — 사용자가 고른 모드를 말없이
-   * 무르지 않는다). 판정은 `shouldAskForTool` 한 곳이고 훅 경로·로컬 경로가 그 함수를 함께 쓴다.
+   * §5.3 #12-1-A — 도구별 확인 목록: `permissionMode` 가 무엇이든(`bypassPermissions` 포함) 실행 전에 승인 카드(`PermissionPromptStack`)를 만난다. `tools`·`disallowedTools` 와 직교("쓸 수 있되 물어보고").
+   * 비면 꺼짐(고른 모드를 말없이 무르지 않는다). 판정은 `shouldAskForTool` 한 곳(훅·로컬 경로 공용).
    */
   askTools?: string[];
-  /**
-   * §5.5 #17-20 ⑥ v4.74 — 이 에이전트에 붙일 MCP 서버 프리셋 id 목록(`MCP_SERVER_PRESETS`).
-   * 켜면 `buildConfigArgs` 가 `--mcp-config <생성 파일>` + `--allowedTools mcp__<id>` 를 싣는다.
-   * 헤드리스·CMD 두 스폰 경로가 같은 함수를 공유하므로 한 번 켜면 양쪽에 적용된다.
-   */
+  /** §5.5 #17-20 ⑥ — MCP 서버 프리셋 id(`MCP_SERVER_PRESETS`). `buildConfigArgs` 가 `--mcp-config <생성 파일>` + `--allowedTools mcp__<id>` 를 싣는다(헤드리스·CMD 공용). */
   mcpServers?: string[];
   /**
-   * §5.3 v4.89 — 이 에이전트가 세션을 넘어 유지하는 **자기 기억**의 범위.
-   *
-   * v4.89 이전에는 타입에만 있고 어디서도 읽지 않는 죽은 필드였다(서버 스폰·클라 UI 모두 미배선).
-   * 이제 `buildConfigArgs` 가 이 값으로 `--settings <생성 파일>`(`autoMemoryDirectory`)을 실어
-   * 에이전트마다 다른 기억 폴더를 쓰게 한다. `'off'` 면 대신 환경변수로 자동 기억을 끈다.
-   *
-   *  - `undefined` = 기본(레포 공용 기억) · `'off'` = 자동 기억 끔
-   *  - `'user'`    = `~/.claude/agent-memory/<이름>/`            (모든 프로젝트에서 같은 기억)
-   *  - `'project'` = `<프로젝트>/.claude/agent-memory/<이름>/`   (프로젝트 한정)
-   *  - `'local'`   = `<프로젝트>/.claude/agent-memory-local/<이름>/`
+   * §5.3 — 세션을 넘는 자기 기억 범위. `buildConfigArgs` 가 `--settings <생성 파일>`(`autoMemoryDirectory`)로 폴더를 가르고, `'off'` 는 환경변수로 자동 기억을 끈다.
+   * undefined = 레포 공용 · `'user'` = `~/.claude/agent-memory/<이름>/` · `'project'` = `<프로젝트>/.claude/agent-memory/<이름>/` · `'local'` = `<프로젝트>/.claude/agent-memory-local/<이름>/`.
    */
   memory?: AgentMemoryScope;
-  /**
-   * §5.3 v4.89 — 이 에이전트 **아래로** 몇 층까지 서브에이전트를 스폰할 수 있는지.
-   * 스폰 시 `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` 로 전달. `1` 이면 중첩 없음,
-   * `undefined` 면 CLI 기본값(3층)을 그대로 쓴다.
-   */
+  /** §5.3 — 이 아래로 서브에이전트를 몇 층까지(`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`). `1` = 중첩 없음, undefined = CLI 기본(3층). */
   subagentDepth?: number;
   /** 에이전트 개별 규칙 (마크다운). 실행 시 프롬프트에 주입 */
   rules?: string;
   /**
-   * §5.3 #28 (K) v1.48 — Rules 변경 히스토리.
-   * 저장 시 prev rules 가 비어있지 않고 실제 변경되었으면 push. 최대 `RULES_HISTORY_MAX` (FIFO).
-   * label: 'auto:conti-on' = 콘티모드 진입으로 자동 덮어쓰기 직전, 'auto:conti-off' = 콘티 모드 해제 직전, 'manual' = 사용자 직접 편집.
-   * 클라이언트는 절대 직접 수정 ❌ — 서버 PUT /api/agent-config/:id 단일 경로.
+   * §5.3 #28 (K) — Rules 변경 히스토리(실제로 바뀌었을 때만 push, `RULES_HISTORY_MAX` FIFO). label: `auto:conti-on`/`auto:conti-off` = 콘티 모드 진입·해제 직전 · `manual` = 직접 편집.
+   * 쓰기는 서버 `PUT /api/agent-config/:id` 만 — 클라가 직접 고치지 않는다.
    */
   rulesHistory?: RulesHistoryEntry[];
-  /**
-   * §5.3 #28 v1.47 — Vibisual Custom Mode 축. permissionMode (CLI) 와 직교.
-   * undefined = 비활성. 'conti' = 콘티모드(스토리보드). 'review'/'debug' = placeholder(저장만, 본체 미구현).
-   */
+  /** §5.3 #28 — Custom Mode 축(permissionMode 와 직교). undefined = 비활성 · `conti` = 콘티모드 · `review`/`debug` = 저장만(본체 미구현). */
   customMode?: ContiCustomMode;
-  /**
-   * §4 v1.53 — Opus 1M 컨텍스트 변형 토글.
-   * **기본 = 1M** (undefined 또는 `'1m'` → 1M 적용). 명시적 200k opt-out 만 `'200k'` 로 저장.
-   * Opus 패밀리일 때만 서버 `buildConfigArgs` 가 모델 alias 를 `claude-opus-4-7[1m]` 로 매핑해 CLI 에 전달.
-   * Opus 외 모델에서는 어떤 값이든 무시(서버 pass-through 안 함).
-   */
+  /** §4 — Opus 1M 컨텍스트(기본 = 1M, `'200k'` 만 opt-out 으로 저장). Opus 일 때만 `buildConfigArgs` 가 alias 를 `claude-opus-4-7[1m]` 로 매핑하고, 다른 모델은 무시한다. */
   contextWindow?: '1m' | '200k';
-  /**
-   * §4 v1.53 — 어떤 프리셋으로 초기화되었는지 트레이스 메타데이터. UI 가 "프리셋: explore" 식 배지 표시용.
-   * 사용자가 이후 폼을 편집해도 자동 invalidate ❌ — 메타 추적만. undefined = 프리셋 미사용(수동 구성).
-   */
+  /** §4 — 초기화에 쓴 프리셋 트레이스(배지용). 폼을 고쳐도 무효화하지 않는다. undefined = 수동 구성. */
   presetId?: string;
-  /**
-   * §4 v2.38 — 특정 모델 풀ID 핀(예: `'claude-opus-4-7'`).
-   * undefined = alias 모드 = `model` alias 가 가리키는 **현재 latest** 풀ID 사용.
-   * 정의 시 풀ID 가 우선 — 서버 buildConfigArgs 가 resolveAliasToLatest 건너뛰고 그대로 CLI 에 전달.
-   * AgentConfigPopup 의 버전 sub-드롭다운이 이 값을 관리.
-   */
+  /** §4 — 모델 풀ID 핀. undefined = `model` alias 의 현재 latest. 있으면 `buildConfigArgs` 가 resolveAliasToLatest 를 건너뛰고 그대로 넘긴다. */
   modelVersion?: string;
   /**
-   * §4 v2.63 — 실행(스폰) 모드 축. `permissionMode`/`customMode` 와 **직교**.
-   * undefined 또는 `'headless'` = 기존 동작(서버가 `claude -p` 헤드리스로 스폰, 프로그래매틱 과금).
-   * `'interactive-terminal'` = 더블클릭 시 IDE 창 안에 임베디드 PTY 터미널을 띄워
-   *   사용자가 직접 모는 인터랙티브 `claude` REPL 실행(구독 과금). 6/15 프로그래매틱 과금 분리 대응.
+   * §4 — 실행 모드(`permissionMode`/`customMode` 와 직교). undefined/`'headless'` = `claude -p`(프로그래매틱 과금) · `'interactive-terminal'` = IDE 안 PTY 에서 사용자가 직접 모는 REPL(구독 과금).
    * 위장 우회 ❌ — 사람이 루프 안에 있는 진짜 인터랙티브 세션 전용(Anthropic ToS 합법선).
    */
   executionMode?: ExecutionMode;
   /**
-   * §4 (CMD 터미널 업그레이드 ⑧) — CMD(`executionMode:'interactive-terminal'`) 버블이 띄울 CLI.
-   * `executionMode` 와 **직교**하지만 의미는 CMD 경로에서만 있다(헤드리스는 이 값을 무시).
-   * undefined = `'claude'` — 지금까지의 동작과 바이트 단위로 같다.
-   * `'claude'` 가 아니면(`CMD_CLI_KINDS[].managed === false`) `--resume`·rules `--add-dir`·
-   * `VIBISUAL_OWNER_AGENT_ID` 태그를 걸지 않는다 — 우리 훅의 자식이 아니기 때문이며,
-   * §5.5 #17-20 ④ v4.74 실행 런처가 같은 이유로 그 셋을 건너뛰는 것과 같은 규율이다.
+   * §4 (CMD 터미널 업그레이드 ⑧) — CMD 버블이 띄울 CLI(헤드리스는 무시, undefined = `'claude'`). `'claude'` 가 아니면(`managed === false`) `--resume`·rules `--add-dir`·`VIBISUAL_OWNER_AGENT_ID` 를 걸지 않는다 —
+   * 우리 훅의 자식이 아니다(§5.5 #17-20 ④ 실행 런처와 같은 규율).
    */
   cliKind?: CmdCliKind;
-  /**
-   * §5.19 — 이 에이전트가 말을 거는 상대. `executionMode` 와 **직교하는 축**이다.
-   *
-   * **undefined = 지금까지의 claude 경로 그대로.** 기존 동작 무변경의 근거가 이 한 줄이며,
-   * 서버의 갈림도 이 값 하나로만 판정한다(스폰 경로·인자 조립·훅 수신은 손대지 않는다).
-   */
+  /** §5.19 — 말을 거는 상대(`executionMode` 와 직교). **undefined = claude 경로 그대로** — 서버는 이 값 하나로만 가른다. */
   provider?: AgentProvider;
   /**
-   * §4 v2.88 — API 비용 상한(달러). 헤드리스 `claude -p` 스폰에 `--max-budget-usd <n>` 로 전달돼
-   * 해당 금액 초과 시 런이 중단된다(2026.06.15 Agent SDK 크레딧 풀 분리 대응 — 폭주 방어).
-   * undefined 또는 0 = **무제한**(기존 동작 보존). 양수일 때만 상한 적용.
-   * CLI 제약상 `--max-budget-usd` 는 `--print` 전용 → 설정 시 persistent 재사용/Agent View 를 끄고
-   * 매 턴 fresh `--print` 스폰으로 보내 상한이 실제 적용되게 한다(서버 subAgentManager).
-   * interactive-terminal(구독 과금) 경로에는 적용하지 않는다(프로그래매틱 과금이 아님).
+   * §4 — API 비용 상한(달러, 초과 시 런 중단, 0/undefined = 무제한). `--max-budget-usd` 는 `--print` 전용이라 설정하면 persistent 재사용/Agent View 를 끄고 매 턴 fresh `--print` 로 스폰한다.
+   * 구독 과금(interactive-terminal) 경로엔 걸지 않는다.
    */
   maxBudgetUsd?: number;
-  /**
-   * §4 (CLI 사양 추종) — 기본 모델이 과부하/불가일 때 대신 쓸 모델(`--fallback-model`).
-   * 콤마로 여러 개를 주면 순서대로 시도하며, CLI 는 매 턴 시작에 1순위를 다시 시도한다.
-   * **`--print` 전용 플래그**라 `maxBudgetUsd` 와 같은 자리(printFlags)에서만 붙는다.
-   * undefined/빈 문자열 = 미설정(폴백 없음, 기존 동작).
-   */
+  /** §4 — 기본 모델이 과부하/불가일 때의 `--fallback-model`(콤마로 여럿, 순서대로 — CLI 는 매 턴 1순위부터). `--print` 전용이라 `maxBudgetUsd` 와 같은 printFlags 자리에서만 붙는다. */
   fallbackModel?: string;
-  /**
-   * §4 (CLI 사양 추종) — 컨텍스트 자동 압축 창(`--autocompact`).
-   * `'auto'` = CLI 판단, 그 외에는 토큰 수 문자열(CLI 허용 범위 100k~1M, 예: `'200000'`).
-   * undefined = 미설정(플래그 없음 = CLI 기본).
-   */
+  /** §4 — `--autocompact`: `'auto'` = CLI 판단, 그 외는 토큰 수 문자열(100k~1M, 예: `'200000'`). undefined = 플래그 없음. */
   autoCompact?: string;
   /**
-   * §4 (CLI 사양 추종) — **작업 중 에이전트가 스스로 압축을 요청**할 수 있게 한다.
-   *
-   * 켜면 매 턴 프롬프트에 창구(`POST /api/agent-compact`) 안내가 실려, 에이전트가 컨텍스트가
-   * 무거워졌다고 판단한 순간 스스로 신고한다. 실제 압축은 **그 턴이 끝난 뒤** 큐에서 돌므로
-   * 작업이 도중에 잘리지 않는다(CLI 의 `SlashCommand` 도구는 헤드리스에 나오지 않아 —
-   * 실측 2.1.247 — 에이전트가 `/compact` 를 직접 부를 방법이 없다. 그래서 서버 경유다).
-   * `undefined`/`false` = 끔(안내가 실리지 않으므로 프롬프트 바이트도 늘지 않는다).
+   * §4 — 에이전트가 스스로 압축을 요청하게 할지. 켜면 프롬프트에 `POST /api/agent-compact` 안내가 실리고, 압축은 그 턴이 끝난 뒤 큐에서 돌아 작업이 잘리지 않는다.
+   * 서버 경유인 이유: 헤드리스엔 `SlashCommand` 도구가 없어(실측 2.1.247) `/compact` 를 직접 못 부른다. 끄면 안내도 안 실린다.
    */
   agentCanCompact?: boolean;
-  /**
-   * §4 (CLI 사양 추종) — `--exclude-dynamic-system-prompt-sections`.
-   * cwd·환경·기억 경로·git 상태 같은 **기기마다 다른 절**을 시스템 프롬프트에서 첫 사용자 메시지로
-   * 옮겨 프롬프트 캐시 재적중률을 올린다. 기본 false(플래그 없음 = 종전과 바이트 단위로 같음).
-   */
+  /** §4 — `--exclude-dynamic-system-prompt-sections`: 기기마다 다른 절(cwd·환경·기억 경로·git 상태)을 첫 사용자 메시지로 옮겨 프롬프트 캐시 적중을 올린다. 기본 false. */
   excludeDynamicSystemPromptSections?: boolean;
-  /**
-   * §4 (CLI 사양 추종) — `--setting-sources`. 어떤 설정 계층을 읽을지 제한한다.
-   * 값은 `'user' | 'project' | 'local'` 의 부분집합. undefined/빈 배열 = 미설정(CLI 기본, 전부 로드).
-   */
+  /** §4 — `--setting-sources`: `'user' | 'project' | 'local'` 부분집합. 비면 CLI 기본(전부 로드). */
   settingSources?: string[];
-  /**
-   * §4 (CLI 사양 추종) — `--safe-mode`. CLAUDE.md·스킬·플러그인·훅·MCP·커스텀 에이전트 등
-   * **모든 사용자 커스터마이즈를 끈 채** 실행(설정이 깨졌을 때의 진단용). 기본 false.
-   * ⚠ 훅이 꺼지므로 이 에이전트의 활동은 버블맵에 실시간으로 안 잡힌다 — 진단 목적으로만 켠다.
-   */
+  /** §4 — `--safe-mode`: CLAUDE.md·스킬·플러그인·훅·MCP·커스텀 에이전트를 모두 끄고 실행(진단용). ⚠ 훅이 꺼져 버블맵에 실시간으로 안 잡힌다. */
   safeMode?: boolean;
   /**
    * §4 (CLI 사양 추종) — `--betas`. API 요청에 실을 베타 헤더 목록.
@@ -8550,35 +6178,18 @@ export interface AgentConfig {  /** 사용 모델 (예: "sonnet", "opus", "haiku
    */
   betas?: string[];
   /**
-   * §4 (CLI 사양 추종) — `--include-hook-events`. 훅 생명주기를 **출력 스트림에도** 실어 준다.
-   *
-   * 우리는 훅을 이미 `~/.claude/settings.json` 으로 받고 있지만(§3.6), 그건 **다른 통로**라
-   * 대화록의 어느 자리에서 그 훅이 떴는지는 알 수 없다. 이 플래그를 켜면 같은 사건이 스트림
-   * 안에 시간순으로 끼어 들어와 "이 도구 호출 직전에 승인 게이트가 돌았다"가 한눈에 보인다.
-   *
-   * 스트림에는 `system` 줄의 `hook_started`·`hook_progress`·`hook_response` 로 온다 —
-   * **종전에는 이 셋을 소음으로 버렸다.** 그래서 플래그만 붙이면 아무 변화도 없다(파서의
-   * `hookEvents` 옵션과 한 쌍이다). 끄면 종전과 바이트 단위로 같다.
-   * `--output-format stream-json` 에서만 동작하는데 우리 두 스폰 경로가 모두 그 형식이다.
+   * §4 (CLI 사양 추종) — `--include-hook-events`. 훅 생명주기를 스트림에도 시간순으로 끼운다(settings 훅 통로로는 대화록의 어느 자리인지 모른다).
+   * `system` 줄 `hook_started`·`hook_progress`·`hook_response` 로 온다 — 파서 `hookEvents` 옵션과 한 쌍(플래그만으론 변화 없음). stream-json 전용.
    */
   includeHookEvents?: boolean;
   /**
-   * §4 (CLI 사양 추종) — `--agents`. **이 세션에만** 존재하는 서브에이전트 정의.
-   *
-   * `~/.claude/agents/*.md` 파일을 만들지 않고도 `Task` 도구가 부를 수 있는 종류를 그 자리에서
-   * 준다. 디스크에 남지 않으므로 다른 프로젝트·다른 에이전트에 새지 않는다.
-   * 빈 배열/undefined = 미설정(플래그 없음).
-   *
-   * ⚠ `Task` 도구가 `tools` 목록에 없으면 정의해 봐야 부를 방법이 없다(§4 규약 (3) 과 한 쌍).
+   * §4 (CLI 사양 추종) — `--agents`. 이 세션에만 있는 서브에이전트 정의(디스크에 안 남아 다른 프로젝트에 새지 않는다). 빈 배열/undefined = 미설정.
+   * ⚠ `Task` 가 `tools` 에 없으면 정의해도 부를 수 없다(§4 규약 (3)).
    */
   agentDefinitions?: AgentDefinition[];
   /**
-   * §4 (CLI 사양 추종) — `--plugin-dir`. 폴더나 `.zip` 을 **이 세션에만** 플러그인으로 얹는다.
-   * 반복 가능하므로 배열 그대로 여러 번 붙는다. 빈 배열/undefined = 미설정.
-   *
-   * ⚠ **Vibisual 플러그인(§5.11)과 다른 것이다** — 이쪽은 Claude Code 자신의 플러그인 형식
-   * (`.claude-plugin/plugin.json` + commands/agents/skills/hooks)이고, 우리 플러그인은 매 턴
-   * 프롬프트에 집행 블록을 얹는 우리 레일이다. 이름이 같을 뿐 서로 아무 관계가 없다.
+   * §4 (CLI 사양 추종) — `--plugin-dir`. 폴더나 `.zip` 을 이 세션에만 플러그인으로 얹는다(반복 가능). 빈 배열/undefined = 미설정.
+   * ⚠ Vibisual 플러그인(§5.11, 매 턴 프롬프트 집행 블록)과 무관하다 — 이쪽은 Claude Code 자신의 형식(`.claude-plugin/plugin.json`).
    */
   pluginDirs?: string[];  /**
    * §4 (CLI 사양 추종) — Bash 도구가 `timeout` 을 지정하지 않은 명령에 쓰는 기본 제한(ms).
@@ -8593,11 +6204,8 @@ export interface AgentConfig {  /** 사용 모델 (예: "sonnet", "opus", "haiku
    */
   bashMaxTimeoutMs?: number;
   /**
-   * §5.3 #9-1 (J축) — Bash 도구 출력이 문맥으로 들어올 때의 **문자 수 상한**.
-   * 스폰 env `BASH_MAX_OUTPUT_LENGTH` 로 전달. undefined = 미설정(CLI 기본 30,000자 ≈ 8.6k토큰).
-   *
-   * 실측상 입력 토큰의 96.5%가 `cache_read`(= 이미 실린 것을 매 턴 다시 읽는 값)라, 한 번 실린
-   * 큰 출력은 그 세션이 끝날 때까지 턴마다 되읽힌다 — 자르는 자리는 **들어올 때** 한 곳뿐이다.
+   * §5.3 #9-1 (J축) — Bash 출력이 문맥에 들어올 때의 문자 수 상한(env `BASH_MAX_OUTPUT_LENGTH`). undefined = CLI 기본 30,000자.
+   * 입력 토큰의 96.5%가 `cache_read`(실측)라 한 번 실린 큰 출력은 세션 끝까지 턴마다 되읽힌다 — 자를 자리는 들어올 때뿐이다.
    */
   bashMaxOutputChars?: number;
   /**
@@ -8616,92 +6224,48 @@ export interface AgentConfig {  /** 사용 모델 (예: "sonnet", "opus", "haiku
    */
   maxThinkingTokens?: number;
   /**
-   * §5.3 #9-1 (L축) — 자동 압축이 발동하는 창 점유율(1~100). 스폰 env `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`.
-   * undefined = 미설정(CLI 기본). **낮추는 쪽만 먹는다** — CLI 가 기본보다 높은 값은 받지 않는다.
-   *
-   * ⚠ `autoCompact`(끔/auto/창 크기)와 다른 축이다 — 그쪽은 "어느 크기에서 접나", 이쪽은
-   * "그 크기의 몇 %에서 접나". 압축 자체가 문맥 전체를 읽는 큰 요청이라 너무 낮추면 손해다.
+   * §5.3 #9-1 (L축) — 자동 압축 발동 점유율(1~100, env `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`). undefined = CLI 기본. 낮추는 쪽만 먹는다.
+   * `autoCompact`(어느 창 크기에서)와 다른 축(그 크기의 몇 %에서). 압축 자체가 큰 요청이라 너무 낮추면 손해다.
    */
   autoCompactPct?: number;
   /**
-   * §5.3 #9-1 (M축) — 제목 생성·대화 요약 같은 **비필수 배경 모델 호출**을 끈다.
-   * 스폰 env `DISABLE_NON_ESSENTIAL_MODEL_CALLS`. undefined/false = 미설정(CLI 기본 = 호출함).
-   *
-   * 우리는 탭 제목을 무과금으로 뽑으므로(`deriveTabTitle`) 이 호출로 얻는 것이 거의 없다.
+   * §5.3 #9-1 (M축) — 제목 생성·요약 같은 비필수 배경 모델 호출을 끈다(env `DISABLE_NON_ESSENTIAL_MODEL_CALLS`). undefined/false = 미설정.
+   * 탭 제목은 `deriveTabTitle` 이 무과금으로 뽑아 이 호출로 얻는 것이 거의 없다.
    */
   disableNonEssentialModelCalls?: boolean;
   /**
-   * §4 (Fast 모드) — 같은 Opus 를 **출력 속도만 빠르게** 돌리는 모드. 작은 모델로 낮추는 게 아니다.
-   *
-   * ⚠ **CLI 플래그가 아니다.** 설치본에 `--fast` 계열은 없고, 실체는 대화형 REPL 의 `/fast` 와
-   * settings 키 `fastMode` 둘뿐이다. 게다가 우리 헤드리스 스폰은 CLI 가 **Agent SDK 세션으로 분류**해
-   * Fast 를 스스로 막는다(`fast_mode_disabled_reason: 'sdk_opt_in_required'`) — 유일한 해제 창구가
-   * `--settings` 가 만드는 `flagSettings` 층이라 이 값은 **인자가 아니라 설정 파일**로 나간다
-   * (`buildConfigArgs` → `prepareAgentSettings`). `userSettings` 에 같은 키를 넣어도 안 풀린다.
-   *
-   * Opus 계열(`supportsFastMode`)에서만 의미가 있고 그 밖에서는 CLI 가 사유도 없이 조용히 무시한다.
-   * undefined/false = 미설정(종전 동작과 바이트 단위로 같음).
+   * §4 (Fast 모드) — 같은 Opus 를 출력 속도만 빠르게(작은 모델이 아니다). Opus 계열(`supportsFastMode`) 밖에선 CLI 가 조용히 무시. undefined/false = 미설정.
+   * ⚠ CLI 플래그가 아니다 — 헤드리스 스폰은 SDK 세션으로 분류돼 막히고(`sdk_opt_in_required`) 해제 창구는 `--settings` 의 `flagSettings` 층뿐이라
+   * 설정 파일로 나간다(`buildConfigArgs` → `prepareAgentSettings`). `userSettings` 에 넣어도 안 풀린다.
    */
   fastMode?: boolean;
   /**
-   * §4 (Thinking on/off) — 이 에이전트가 **확장 사고(extended thinking)를 하는가.**
-   * `effort`(사고의 깊이)와 직교한다 — 이쪽은 사고 자체를 켜고 끄는 축이다.
-   *
-   * ⚠ **CLI 플래그가 아니다.** 설치본 `--help` 에 사고를 끄는 플래그는 없고, 실체는 settings 키
-   * `alwaysThinkingEnabled` 하나다(확장 번들 `claude-code-settings.schema.json` 원문: *"When false,
-   * thinking is disabled. When absent or true, thinking is enabled automatically for supported
-   * models."*). 그래서 이 값은 인자가 아니라 **설정 파일**로 나간다(`buildConfigArgs` →
-   * `prepareAgentSettings`) — Fast 모드와 **같은 한 장**에 실린다(`--settings` 를 두 번 주면
-   * 뒤엣것이 앞엣것을 통째로 덮으므로 따로 붙일 수 없다).
-   *
-   * **기본 켬**(undefined = 켬). 끄려면 명시 `false` — 그때만 `alwaysThinkingEnabled: false` 가
-   * 실린다. 켬일 때 `true` 를 써 넣지 않는 이유는 Fast 모드와 대칭이다: 사용자가 자기
-   * `~/.claude/settings.json` 에서 꺼 둔 것을 우리가 조용히 되켜면 안 된다
-   * (`forwardSubagentText` 와 같은 "켬이 기본, 끔만 저장" 규율).
+   * §4 (Thinking on/off) — 확장 사고를 켜고 끄는 축(`effort` 와 직교). CLI 플래그가 아니라 settings 키 `alwaysThinkingEnabled` 라 설정 파일로 나간다.
+   * Fast 모드와 같은 한 장에 싣는다 — `--settings` 를 두 번 주면 뒤엣것이 앞엣것을 통째로 덮는다.
+   * 기본 켬(undefined). 명시 `false` 일 때만 싣는다 — 켬에 `true` 를 쓰면 사용자가 `~/.claude/settings.json` 에서 꺼 둔 것을 되켠다.
    */
   thinking?: boolean;
   /**
-   * §4 (스트림 3종 ①) — `--forward-subagent-text`. 중첩 서브에이전트(Task)의 말·사고를
-   * `parent_tool_use_id` 를 달아 부모 스트림으로 흘려 준다.
-   *
-   * **기본 켬**(undefined = 켬). 끄려면 명시 `false` — 터미널에서는 보이던 것이 우리 화면에서만
-   * 안 보이는 쪽이 결함이므로 기본값을 그렇게 잡았다(`contextWindow` 의 "기본 1M, 명시 opt-out"과 같은 규율).
-   * `--print` 전용이라 인터랙티브 CMD 경로에는 붙지 않는다.
+   * §4 (스트림 3종 ①) — `--forward-subagent-text`. 중첩 서브에이전트(Task)의 말·사고를 `parent_tool_use_id` 를 달아 부모 스트림으로 흘린다.
+   * 기본 켬(undefined), 끄려면 명시 `false` — 터미널에선 보이는데 우리 화면에서만 안 보이면 결함이다. `--print` 전용(CMD 경로엔 안 붙는다).
    */
   forwardSubagentText?: boolean;
-  /**
-   * §4 (스트림 3종 ②) — `--replay-user-messages`. 우리가 stdin 으로 보낸 사용자 메시지를
-   * `isReplay: true` 로 되돌려 준다. "명령이 실제로 CLI 에 접수됐다"는 **유일한 스트림 신호**다.
-   * undefined/false = 미설정(플래그 없음, 종전 동작).
-   */
+  /** §4 (스트림 3종 ②) — `--replay-user-messages`. stdin 으로 보낸 사용자 메시지를 `isReplay: true` 로 되돌려 준다 — "CLI 가 명령을 접수했다"는 유일한 스트림 신호. undefined/false = 미설정. */
   replayUserMessages?: boolean;
   /**
-   * §4 (스트림 3종 ③) — `--prompt-suggestions`. 턴마다 다음 사용자 프롬프트 예측을
-   * `prompt_suggestion` 메시지로 보낸다. undefined/false = 미설정.
-   * ⚠ 이 계정 probe 에서는 실제 메시지가 관측되지 않았다(서버 측 게이팅 추정) — 수신 쪽은
-   * payload 모양을 단정하지 않고 방어적으로 훑는다.
+   * §4 (스트림 3종 ③) — `--prompt-suggestions`. 턴마다 다음 프롬프트 예측을 `prompt_suggestion` 으로 보낸다. undefined/false = 미설정.
+   * ⚠ probe 에서 관측되지 않았다(서버 측 게이팅 추정) — 수신 쪽은 payload 모양을 단정하지 않는다.
    */
   promptSuggestions?: boolean;
 }
 
-/**
- * §4 v2.63 — 커스텀 에이전트 실행(스폰) 모드.
- * 'headless' = 기존 `claude -p` 백그라운드 스폰. 'interactive-terminal' = IDE 임베디드 PTY REPL.
- */
+/** §4 — 커스텀 에이전트 실행(스폰) 모드. 'headless' = `claude -p` 백그라운드 스폰, 'interactive-terminal' = IDE 임베디드 PTY REPL. */
 export type ExecutionMode = 'headless' | 'interactive-terminal';
 
-/**
- * §4 (CMD 터미널 업그레이드 ⑧) — CMD(인터랙티브 터미널) 버블이 띄울 CLI 종류.
- * undefined = `'claude'`(종전 동작 그대로). 실제 실행 파일·인자·훅 귀속 여부는
- * `CMD_CLI_KINDS` 테이블이 정한다(§3.3 하드코딩 금지) — 새 CLI 는 그 표에 한 줄 추가로 끝난다.
- */
+/** §4 (CMD 터미널 ⑧) — CMD 버블이 띄울 CLI 종류(undefined = `'claude'`). 실행 파일·인자·훅 귀속은 `CMD_CLI_KINDS` 표가 정한다 — 새 CLI 는 표에 한 줄(§3.3). */
 export type CmdCliKind = 'claude' | 'codex' | 'gemini' | 'cursor' | 'opencode' | 'aider' | 'shell';
 
-/**
- * §4 (CMD 터미널 업그레이드 ①) — 터미널 출력에서 읽어 낸 세션 상태.
- * `SubAgentStatus` 와 **다른 축**이다 — 서버가 이 값을 `SubAgent.blocked` 플래그와
- * `lastActivityAt` 로 번역해 받아들이며, 상태 유니온을 늘리지 않는다(§2.4 '잠듦' 선례).
- */
+/** §4 (CMD 터미널 ①) — 터미널 출력에서 읽은 세션 상태. `SubAgentStatus` 와 다른 축 — 서버가 `blocked`·`lastActivityAt` 로 옮기고 상태 유니온은 늘리지 않는다(§2.4). */
 export type CmdTerminalState = 'working' | 'idle' | 'blocked';
 
 /**
@@ -8740,18 +6304,15 @@ export interface CmdPaneSplit {
 /** §4 (CMD 터미널 업그레이드 ⑤) — pane 분할 트리. */
 export type CmdPaneNode = CmdPaneLeaf | CmdPaneSplit;
 
-// ─── Conti Mode (§5.3 #28 v1.47) ───
+// Conti Mode (§5.3 #28)
 
 /** 커스텀 에이전트의 Vibisual Custom Mode 값. undefined=비활성. 'conti' 만 본 라운드에서 동작. */
 export type ContiCustomMode = 'conti' | 'review' | 'debug';
 
-/**
- * §5.3 v4.89 — 커스텀 에이전트의 자기 기억 범위(`AgentConfig.memory`).
- * `'off'` 는 "이 에이전트는 아무것도 기억하지 않는다", 나머지 셋은 기억 폴더의 위치를 정한다.
- */
+/** §5.3 — 커스텀 에이전트의 자기 기억 범위. `'off'` = 기억하지 않음, 나머지는 기억 폴더 위치. */
 export type AgentMemoryScope = 'off' | 'user' | 'project' | 'local';
 
-/** §5.3 #28 (K) v1.48 — Rules 변경 히스토리 1건. */
+/** §5.3 #28 (K) — Rules 변경 히스토리 1건. */
 export interface RulesHistoryEntry {
   /** 변경 시각 (ms) */
   ts: number;
@@ -8762,11 +6323,8 @@ export interface RulesHistoryEntry {
 }
 
 /**
- * 콘티 element 의 형태. SVG 직렬화 ❌ — 정형 JSON 으로 patch 정확도/diff 안전성 확보.
- *
- * §5.3 #28 v1.60 — `'stamp'` 추가. LLM 이 좌표를 처음부터 계산하지 않고 미리 정의된
- * 컴포넌트(STAMP_CATALOG)를 이름으로 지정하도록 강제 → 가독성/일관성 확보.
- * 기존 4종(rect/circle/text/line)은 stamp 로 표현 안 되는 잔여 도형/주석용으로만.
+ * 콘티 element 의 형태. SVG 직렬화 ❌ — 정형 JSON 이라야 patch·diff 가 안전하다.
+ * `'stamp'`(§5.3 #28) = STAMP_CATALOG 컴포넌트를 이름으로 고른다(LLM 이 좌표를 계산하지 않게). 나머지 4종은 stamp 로 안 되는 도형·주석용.
  */
 export type ContiElementType = 'rect' | 'circle' | 'text' | 'line' | 'stamp';
 
@@ -8794,15 +6352,9 @@ export interface ContiElement {
   dash?: string;
   /** text 폰트 크기 (text 한정) */
   fontSize?: number;
-  /**
-   * §5.3 #28 v1.60 — `type==='stamp'` 일 때 필수. STAMP_CATALOG 의 키 중 하나.
-   * 카탈로그에 없는 이름은 서버 coerce 단계에서 reject (해당 element 통째로 drop).
-   */
+  /** §5.3 #28 — `type==='stamp'` 일 때 필수인 STAMP_CATALOG 키. 없는 이름이면 서버 coerce 가 그 element 째 버린다. */
   stampName?: string;
-  /**
-   * §5.3 #28 v1.60 — stamp 의 상태/방향 variant. STAMP_CATALOG[name].variants 에 있는 키만 허용.
-   * 미지정 시 stamp 의 기본 모양. 예: button-primary 의 'active'/'disabled', arrow 의 'right'/'down'.
-   */
+  /** §5.3 #28 — stamp variant. STAMP_CATALOG[name].variants 의 키만 허용, 미지정 = 기본 모양. */
   stampVariant?: string;
 }
 
@@ -8834,16 +6386,9 @@ export interface Conti {
   agentId: string;
   /** 생성 시각 (ms) */
   createdAt: number;
-  /**
-   * §5.3 #28 (L) v1.58 — 작업 ID. 같은 work 의 후속 응답은 같은 workId 로 들어와
-   * 서버가 신규/수정을 분별. 트리거 측(`POST /api/conti/generate`, task edge dispatch,
-   * agent_session fallback) 에서 발급. 빈 문자열 허용(이전 체크포인트 호환).
-   */
+  /** §5.3 #28 (L) — 작업 ID. 같은 work 의 후속 응답이 같은 workId 로 와 서버가 신규/수정을 가른다. 트리거 측이 발급, 빈 문자열 허용(옛 체크포인트 호환). */
   workId: string;
-  /**
-   * §5.3 #28 (L) v1.58 — 마지막 수정 시각. 신규 생성 직후엔 createdAt 과 동일.
-   * 같은 workId 로 후속 응답이 들어와 frames 가 교체되면 갱신.
-   */
+  /** §5.3 #28 (L) — 마지막 수정 시각(생성 직후엔 createdAt, 같은 workId 후속 응답이 frames 를 바꾸면 갱신). */
   updatedAt: number;
   /** 짧은 제목 (LLM 생성) */
   title?: string;
@@ -8868,12 +6413,7 @@ export interface Conti {
 /** §5.13 (Q) — 콘티의 출처. `'agent'` = 에이전트가 자기 작업을 돌아본 것, `'script'` = 대본에서 끊은 것. */
 export type ContiSource = 'agent' | 'script';
 
-/**
- * §5.13 (Q) — 콘티를 받아 간 내부 앱의 산출물 한 줄.
- *
- * **`appId` 는 코어가 뜻을 모르는 데이터다**(§5.13 (P-4)). 코어 파일에 앱 이름을 박지
- * 않기 위해, 넘긴 앱이 스스로 자기 id 를 돌려주고 우리는 그것을 그대로 적는다.
- */
+/** §5.13 (Q) — 콘티를 받아 간 내부 앱의 산출물 한 줄. `appId` 는 코어가 해석하지 않는다(§5.13 (P-4)) — 코어에 앱 이름을 박지 않도록 앱이 준 id 를 그대로 적는다. */
 export interface ContiRenderLink {
   /** 받은 앱의 id. 코어는 해석하지 않고 저장·표시만 한다. */
   appId: string;
@@ -8897,13 +6437,7 @@ export type ContiRenderStatus = 'queued' | 'running' | 'done' | 'error' | 'cance
 /** §5.13 (Q) — 출력 프리셋 id. 표는 `STORYBOARD_PRESETS`(constants) 한 곳에만 있다. */
 export type StoryboardPresetId = 'landscape' | 'portrait' | 'webtoon';
 
-/**
- * §5.13 (Q) — 출력 프리셋 한 벌.
- *
- * **컷의 좌표계(`CONTI_DEFAULTS.viewBox*`)는 여기 없다.** 프리셋은 출력 판형이지
- * 스케치 판형이 아니며, 좌표계를 프리셋마다 갈면 이미 그려 둔 콘티가 프리셋을
- * 바꾸는 순간 전부 어긋난다.
- */
+/** §5.13 (Q) — 출력 프리셋 한 벌(출력 판형). 컷 좌표계(`CONTI_DEFAULTS.viewBox*`)는 여기 두지 않는다 — 프리셋마다 갈면 프리셋을 바꾸는 순간 그려 둔 콘티가 어긋난다. */
 export interface StoryboardPreset {
   readonly id: StoryboardPresetId;
   /** 렌더 출력 화면 크기(px). */
@@ -8920,20 +6454,10 @@ export interface StoryboardPreset {
   readonly labelKey: string;
 }
 
-/**
- * §5.3 #28 (L) v1.58 — 콘티 작업 발급 출처.
- * - `user_new`: `POST /api/conti/generate` ("새 콘티 생성" 버튼)
- * - `task_edge`: Task Edge 가 conti-mode 에이전트로 dispatch
- * - `agent_session`: 외부 트리거 없이 에이전트 세션에서 LLM 자체 발화
- */
+/** §5.3 #28 (L) — 콘티 작업 발급 출처: `user_new` = `POST /api/conti/generate` · `task_edge` = Task Edge 가 conti-mode 에이전트로 dispatch · `agent_session` = 외부 트리거 없는 LLM 자체 발화. */
 export type ContiWorkSource = 'user_new' | 'task_edge' | 'agent_session';
 
-/**
- * §5.3 #28 (L) v1.58 — 콘티 인플라이트 작업 추적. agentId 당 0~1건.
- * 첫 응답이 들어와 Conti 가 만들어지면 `contiId` 가 채워지고,
- * 같은 workId 의 후속 응답은 그 contiId 를 갱신(수정 케이스)한다.
- * 영속화 ❌ — 서버 재기동 시 자연 비움.
- */
+/** §5.3 #28 (L) — 콘티 인플라이트 작업(agentId 당 0~1건). 첫 응답이 Conti 를 만들면 `contiId` 가 채워지고 같은 workId 후속 응답이 그것을 갱신한다. 영속화 ❌. */
 export interface ActiveContiWork {
   /** "work-<ts>-<rand>" */
   workId: string;
@@ -8966,59 +6490,26 @@ export interface SubAgentStreamEvent {
   content: string;
   /** 도구 이름 (tool_use / tool_result만) */
   toolName?: string;
-  /**
-   * Anthropic API의 tool_use_id — tool_use와 tool_result를 정확히 페어링하는 키.
-   * - tool_use 이벤트: 해당 도구 호출의 id
-   * - tool_result 이벤트: 참조하는 tool_use_id
-   * 과거 버퍼(서버 재시작 전) 이벤트는 이 필드가 없을 수 있으므로 선택적.
-   * 클라이언트는 존재 시 ID 페어링, 부재 시 FIFO 페어링으로 폴백.
-   */
+  /** tool_use ↔ tool_result 짝짓기 키(API 의 tool_use_id). 재시작 전 버퍼 이벤트엔 없을 수 있어 선택적 — 클라는 있으면 ID, 없으면 FIFO 로 짝짓는다. */
   toolUseId?: string;
   /**
-   * §5.25 (O) — 이 줄이 **그림 한 장**이면 그 파일의 절대경로(엔진이 보여 준 그림).
-   *
-   * 종류를 새로 만들지 않고 `text` 에 얹는다. 여덟 번째 `StreamEventType` 을 만들면 이벤트 종류를
-   * 열거하는 자리마다 **조용히 흘리는 곳**이 생기는데(턴 봉인·검색·북마크·영속·밀도 접기), 그 중
-   * 한 곳만 놓쳐도 그림이 있는 턴이 통째로 어긋난다. `text` 로 두면 그 배선이 전부 종전 그대로 돈다.
-   *
-   * **경로는 화면으로 나가지 않는다.** 클라는 이 이벤트의 `id` 로 서버에 그림을 청하고, 서버는
-   * 자기 스트림 기록에서 그 id 를 되짚어 이 값을 읽는다 — 클라가 준 경로를 여는 문은 만들지 않는다.
-   * 그래서 이 값은 **우리 스트림이 스스로 적어 둔 것**일 때만 존재한다.
-   *
-   * `content` 에는 파일 이름을 적는다. 그림을 못 그리는 자리(검색·내보내기·옛 클라)에서도 "무엇이
-   * 있었는지"는 말해야 하기 때문이다 — 빈 줄로 두면 그 턴에 아무 일도 없던 것처럼 읽힌다.
+   * §5.25 (O) — 이 줄이 그림 한 장이면 그 파일의 절대경로. 새 `StreamEventType` 대신 `text` 에 얹는다 — 종류를 열거하는 자리(턴 봉인·검색·영속…) 하나만 놓쳐도 그 턴이 어긋난다.
+   * 경로는 화면으로 나가지 않는다 — 클라는 이벤트 `id` 로 청하고 서버가 자기 기록에서 읽는다. `content` 엔 파일 이름을 적는다(그림 못 그리는 자리에서 빈 턴으로 읽히지 않게).
    */
   imagePath?: string;
   /**
-   * **턴 세대 도장** — 이 줄을 낳은 명령(`QueuedCommand.id`).
-   *
-   * 종전에는 이 값이 없어 클라가 이벤트를 **오직 도착 시각**으로 명령 블록에 갈랐다. 그래서
-   * 사용자가 [중지]·덧말로 새 명령을 넣으면, 앞 턴이 백단에 띄워 둔 작업이 뒤늦게 뱉는 줄이
-   * **새 명령 블록 아래**에 그려져 "뭐가 어떤 작업인지" 알 수 없었다. 이제 각 줄이 자기 턴을 들고
-   * 다니므로 늦게 와도 제 블록으로 돌아간다.
-   *
-   * 백그라운드 작업의 끝 통지(`task_notification`)는 **그 작업을 시작한 턴**의 도장을 물려받는다 —
-   * 통지가 도착한 시점의 턴이 아니라 그 일을 시킨 턴이 주인이기 때문이다.
-   *
-   * 서버 재시작 전 버퍼나 훅 경로 이벤트에는 없을 수 있다(그때는 종전 시각 기준으로 폴백).
+   * **턴 세대 도장** — 이 줄을 낳은 명령(`QueuedCommand.id`). 도착 시각으로 블록을 가르면 [중지]·덧말 뒤 늦게 온 앞 턴의 줄이 새 블록에 그려진다.
+   * `task_notification` 은 그 작업을 시작한 턴의 도장을 물려받는다. 재시작 전 버퍼·훅 경로엔 없을 수 있다(시각 기준 폴백).
    */
   turnId?: string;
   /**
-   * §4 (스트림 3종) — 이 줄이 **어느 Task 호출 아래에서 나온 것인지**.
-   *
-   * `--forward-subagent-text` 를 켜면 중첩 서브에이전트(Task)의 말·사고가 부모 스트림에 섞여 오는데,
-   * 원문이 `parent_tool_use_id` 로 소속을 알려 준다. 그 값을 그대로 실어 클라가 해당 `tool_use`
-   * 아래에 접어 그린다 — 없으면 부모가 한 말과 구분되지 않아 대화록이 뒤섞인다.
-   *
-   * `toolUseId` 와 **다른 축**이다: `toolUseId` 는 "이 줄이 가리키는 호출", 이 필드는 "이 줄을 낳은
-   * 바깥 호출". 미설정 = 부모 자신이 한 말(종전 그대로).
+   * §4 (스트림 3종) — 이 줄을 낳은 바깥 Task 호출(`--forward-subagent-text` 원문의 `parent_tool_use_id`). 클라가 그 `tool_use` 아래에 접어 그린다.
+   * `toolUseId`(이 줄이 가리키는 호출)와 다른 축. 미설정 = 부모 자신이 한 말.
    */
   nestedUnderToolUseId?: string;
 }
 
-// ─── Canvas Clipboard (§5.4 #29 v1.51) ───
-// Vibisual 내부 클립보드 페이로드. localStorage 단일 슬롯 + POST /api/canvas/paste 로
-// 다른 프로젝트 캔버스에 붙여넣기. 시스템 클립보드(navigator.clipboard) 와 분리.
+// Canvas Clipboard (§5.4 #29) — 내부 클립보드 페이로드(localStorage 단일 슬롯 + POST /api/canvas/paste). 시스템 클립보드와 분리.
 
 /** 클립보드에 담기는 단일 커스텀 에이전트 항목. 세션·대화·rulesHistory 는 strip. */
 export interface CanvasClipboardAgentEntry {
@@ -9041,7 +6532,7 @@ export interface CanvasClipboardTaskEdgeEntry {
   command: string;
   forwardMode: TaskEdgeForwardMode;
   templateId: string | null;
-  // v1.18 + v1.42 + v1.44 모든 옵션 그대로 옮김
+  // Task Edge 옵션 전부를 그대로 옮긴다.
   kind?: TaskEdgeKind;
   messageFormat?: TaskEdgeMessageFormat;
   messageSchema?: string;
@@ -9126,7 +6617,7 @@ export interface SessionTokenData {
   categories: TokenCategoryEstimate[];
 }
 
-// ─── §5.3 #10-2 v2.37 — Auto Agent (메타 에이전트) ───
+// §5.3 #10-2 — Auto Agent (메타 에이전트)
 
 /**
  * Auto Agent 가 spawn 할 수 있는 커스텀 에이전트의 역할 카탈로그.
@@ -9152,7 +6643,7 @@ export type AutoAgentRole =
  */
 export type AutoAgentTopology = 'pipeline' | 'team' | 'ralph' | 'autopilot' | 'custom';
 
-/** 사용자 요청의 복잡도 휴리스틱 판정값 */
+/** 들어온 요청의 복잡도 휴리스틱 판정값 */
 export type AutoAgentComplexity = 'low' | 'medium' | 'high';
 
 /** Auto Agent 의 진행 상태 (UI 진행 표시용) */
@@ -9227,20 +6718,11 @@ export interface AutoAgentSummary {
   completedAt?: number;
   /** 명확화 질문 토글 — true 면 high 복잡도에서 질문 발사. 기본 true. */
   askQuestionsEnabled: boolean;
-  /**
-   * §5.3 #10-3 v4.98 — 지금 진행 중인 검증 런의 `runId`.
-   * Summary 는 `autoAgentId` 가 키라 새 요청이 이전 기록을 덮으므로, 증거·수용 기준·예산은
-   * `AutoAgentRun` 쪽에 두고 여기에는 **포인터 한 줄만** 둔다(기존 필드·화면 불변).
-   */
+  /** §5.3 #10-3 — 진행 중인 검증 런의 `runId`. Summary 는 새 요청이 덮으므로 증거·기준·예산은 `AutoAgentRun` 에 두고 여기엔 포인터만. */
   currentRunId?: string;
 }
 
-/**
- * §5.3 #10-3 v4.98 — 검증 증거 한 건.
- *
- * "무엇을 실행했고 그 결과가 무엇이었나"를 담는다. 자연어 서술은 증거가 아니다.
- * `ok` 는 **서버가 `exitCode === 0` 으로 계산**한다 — 에이전트가 스스로 통과를 주장할 수 없다.
- */
+/** §5.3 #10-3 — 검증 증거 한 건(실행한 것과 결과 — 자연어는 증거가 아니다). `ok` 는 서버가 `exitCode === 0` 으로 계산한다(에이전트가 주장할 수 없다). */
 export interface VerificationAttempt {
   id: string;
   /** 어떤 종류의 검증인가 */
@@ -9263,31 +6745,20 @@ export interface VerificationAttempt {
 
 export type VerificationKind = 'build' | 'typecheck' | 'test' | 'run' | 'custom';
 
-/**
- * §5.3 #10-3 v4.98 — 검수자 판정.
- * `held` = 판정 불명(스키마 위반·증거 없는 approve) → **승인으로 흘리지 않는다**(fail-closed).
- */
+/** §5.3 #10-3 — 검수자 판정. `held` = 판정 불명(스키마 위반·증거 없는 approve) → **승인으로 흘리지 않는다**(fail-closed). */
 export type VerificationVerdict = 'approve' | 'reject' | 'held';
 
-/** §5.3 #10-3 v4.98 — 런이 사람을 부르는 이유 */
+/** §5.3 #10-3 — 런이 사람을 부르는 이유 */
 export type EscalationReason =
   | 'budget-exhausted'
   | 'verification-failed'
   | 'irreversible-action'
   | 'no-evidence';
 
-/**
- * §5.3 #10-3 v4.98 — 런 상태.
- * `verified` 는 **통과 증거가 1개 이상**일 때만 붙는다(서버 판정).
- */
+/** §5.3 #10-3 — 런 상태. `verified` 는 통과 증거가 1개 이상일 때만 붙는다(서버 판정). */
 export type AutoAgentRunStatus = 'running' | 'verified' | 'escalated' | 'abandoned';
 
-/**
- * §5.3 #10-3 v4.98 — 검증 런. 요청 1건 = 런 1개.
- *
- * 완료를 LLM 이 쓴 문장이 아니라 서버가 보관한 증거로 판정하기 위한 단위이며,
- * `AutoAgentSummary`(autoAgentId 키, 새 요청이 덮음)와 달리 `runId` 키라 이력이 남는다.
- */
+/** §5.3 #10-3 — 검증 런(요청 1건 = 런 1개). 완료를 LLM 의 문장이 아니라 서버가 보관한 증거로 판정한다. `runId` 키라 이력이 남는다(Summary 는 새 요청이 덮는다). */
 export interface AutoAgentRun {
   runId: string;
   /** 이 런을 소유한 auto-agent 버블의 sessionId */
@@ -9320,38 +6791,16 @@ export interface AutoAgentRun {
   endedAt?: number;
 }
 
-// ─── §4 v2.44 — 자동 업데이트 (electron-updater + GitHub Releases) ─────────
-//
-// 업데이트 상태는 프로젝트 그래프 데이터(GraphSnapshot/ProjectCheckpoint)가 아니라
-// Electron shell 상태다. server 코어를 거치지 않고 desktop main↔renderer 전용 IPC
-// 채널(`vibisual:update:*`)로만 흐른다(§5.4 #14-1 별창 IPC 선례). 이 타입은 그 IPC
-// 페이로드의 main↔renderer 계약 — 양쪽이 같은 모양에 합의하기 위한 shared 정의.
+// §4 — 자동 업데이트(electron-updater + GitHub Releases). 그래프 데이터가 아니라 Electron shell 상태라 server 코어를 거치지 않고
+// main↔renderer 전용 IPC(`vibisual:update:*`)로만 흐른다(§5.4 #14-1 선례). 아래는 그 페이로드 계약.
 
 /**
- * 자동 업데이트 진행 단계.
- * - `idle`        : 아직 체크 전 / 초기.
- * - `checking`    : GitHub Releases 의 latest 메타 조회 중.
- * - `available`   : 새 버전 발견 (autoDownload=true 라 곧 downloading 으로 전이).
- * - `downloading` : 새 빌드 다운로드 중 (`percent`/`bytesPerSecond` 갱신).
- * - `downloaded`  : 다운로드 완료 — 재시작하면 적용 (사용자 액션 대기).
- * - `up-to-date`  : 현재가 최신.
- * - `error`       : 체크/다운로드 실패 (`error` 메시지).
+ * 자동 업데이트 진행 단계. `available` 은 autoDownload 라 곧 `downloading`(`percent`/`bytesPerSecond`)으로 넘어가고,
+ * `downloaded` 는 재시작하면 적용(사용자 대기), `error` 는 체크/다운로드 실패(`error` 메시지).
  */
 /**
- * §4 — 업데이트 **전달 방식**. 플랫폼마다 서명 요건이 달라 갈라진 축이다.
- * - `auto-install` : electron-updater 가 받아 두고 재시작 시 적용(Windows·Linux·서명된 macOS).
- * - `self-install` : **우리가 직접 받아 직접 교체**(무서명 macOS).
- *
- * macOS 의 electron-updater 백엔드인 Squirrel.Mac 은 코드 서명 검증을 **강제**한다
- * (Windows 의 publisherName 검증이 선택인 것과 대비) — 무서명 빌드는 다운로드까지 성공한 뒤
- * 적용 단계에서 반드시 실패한다. 그런데 그 검증은 **Squirrel 의 적용 경로 안에** 있고,
- * Gatekeeper 의 첫 실행 차단을 발동시키는 것은 서명이 아니라 `com.apple.quarantine`
- * **속성**이며 그 속성은 **파일을 받은 프로그램이 붙인다**(브라우저는 붙이고 CLI·Node 는 안 붙인다).
- * 그래서 받는 것도 적용하는 것도 우리가 하면 둘 다 발동하지 않는다 — 그것이 `self-install` 이다.
- *
- * ⚠️ 종전의 `notify-only`(알리기만 하고 릴리스 페이지를 여는 방식)는 **걷어냈다**(사용자 명시
- * 결정 — 대체). 릴리스 페이지 열기는 전달 방식이 아니라 **실패했을 때의 복구 손잡이**로 남는다.
- * 서명을 붙여 `macCodeSigned` 를 켜면 종전대로 `auto-install` 로 승격한다.
+ * §4 — 업데이트 전달 방식(판정·이유는 `updateDelivery.ts`). `auto-install` = electron-updater 가 받아 재시작 시 적용(Windows·Linux·서명된 macOS),
+ * `self-install` = 우리가 직접 받아 교체(무서명 macOS). 릴리스 페이지 열기는 전달 방식이 아니라 실패 때의 복구 손잡이다.
  */
 export type UpdateDelivery = 'auto-install' | 'self-install';
 
@@ -9385,14 +6834,8 @@ export interface UpdateState {
   /** 발견된 새 버전 (available/downloading/downloaded 일 때). */
   newVersion?: string;
   /**
-   * **지금 설치하면 깔리는 버전.** 다 받아서 디스크에 있는 것 하나만 여기 들어간다.
-   *
-   * `newVersion` 과 나눈 이유: 0.1.19 를 받아 둔 채 0.1.20 을 받는 동안 둘은 **다르다.**
-   * 하나로 겸하면 0.1.20 다운로드가 실패했을 때 무엇으로 되돌아갈지 알 수 없고, mac 에서는
-   * 화면이 "0.1.20 준비 완료"라고 하면서 실제로는 0.1.19 번들을 교체하는 어긋남이 생긴다.
-   * **설치의 근거는 이 필드 하나다**(`quitAndInstall` 이 이것으로 판정한다).
-   *
-   * optional — 구버전 main 이 보낸 상태에는 없다(§3 하위 호환). 없으면 받아 둔 것이 없다는 뜻.
+   * **지금 설치하면 깔리는 버전**(다 받아 디스크에 있는 것). 설치의 유일한 근거다(`quitAndInstall`).
+   * `newVersion` 과 따로 둔다 — 0.1.19 를 받아 둔 채 0.1.20 을 받는 동안 둘은 다르고, 겸하면 실패 때 되돌아갈 곳을 잃는다. 없으면(구버전 main 포함) 받아 둔 것이 없다.
    */
   readyVersion?: string;
   /** 다운로드 진행률 0~100 (downloading 일 때). */
@@ -9417,17 +6860,11 @@ export interface UpdateState {
   delivery?: UpdateDelivery;
 }
 
-// ─── §4 v3.16 모바일 웹 접속 모드 ────────────────────────────────────────────
-// desktop shell 상태 — main 프로세스 mobileAccess 매니저가 SSOT, renderer 는 표시만.
-// UpdateState(§4 v2.63) 선례대로 GraphSnapshot/ProjectCheckpoint 미관여, 전용 IPC 로 흐른다.
+// §4 모바일 웹 접속 — desktop shell 상태(main 의 mobileAccess 매니저가 SSOT, renderer 는 표시만). 그래프 데이터에 관여하지 않고 전용 IPC 로 흐른다.
 
 /**
- * §4 v3.20 UPnP 외부 개방 상태.
- * - `idle`        : 외부 개방 꺼짐(LAN 전용).
- * - `mapping`     : 공유기에 포트 개방 요청 중.
- * - `active`      : 외부 접속 가능(공인 IP + HTTPS 매핑 성공).
- * - `unavailable` : 구조적으로 불가 — CGNAT/사설 IP 라 외부에서 닿을 수 없음(수동으로도 불가, VPN 필요).
- * - `error`       : UPnP 미지원/꺼짐 등 — 수동 포트포워딩으로 우회 가능.
+ * §4 UPnP 외부 개방 상태. `idle` 꺼짐(LAN 전용) · `mapping` 공유기에 개방 요청 중 · `active` 외부 접속 가능(공인 IP + HTTPS 매핑).
+ * `unavailable` = CGNAT/사설 IP 라 구조적으로 불가(수동도 불가, VPN 필요) · `error` = UPnP 미지원/꺼짐 등(수동 포트포워딩으로 우회 가능).
  */
 export type MobileExternalStatus = 'idle' | 'mapping' | 'active' | 'unavailable' | 'error';
 
@@ -9440,14 +6877,7 @@ export interface MobileAccessState {
   enabled: boolean;
   /** 실제 바인드된 LAN 포트 (꺼져 있으면 null). */
   port: number | null;
-  /**
-   * 폰 브라우저에서 열 접속 주소 후보들 (IPv4 인터페이스별 1개) — **정체가 붙어 있다.**
-   *
-   * (판올림 번호 발급 대기) 종전에는 `urls: string[]` 이라 어느 줄이 진짜 랜이고 어느 줄이
-   * Tailscale·WSL 인지 화면이 말할 방법이 없었다. 이제 `mobileAddress.ts` 가 (주소, 어댑터)
-   * 로 종류를 판정해 **되는 순서로 정렬한 뒤 하나만 추천**해서 넘긴다 — 클라이언트는
-   * 가공하지 않고 그대로 그린다(서버가 SSOT).
-   */
+  /** 폰에서 열 접속 주소 후보(IPv4 인터페이스별 1개)와 그 정체. `mobileAddress.ts` 가 랜·Tailscale·WSL 을 판정해 되는 순서로 정렬·추천한다 — 클라는 가공하지 않는다. */
   addresses: MobileAddressEntry[];
   /** 현재 유효한 페어링 코드 (꺼져 있으면 null — 켤 때마다/재생성 시 새로 발급). */
   pairingCode: string | null;
@@ -9456,16 +6886,12 @@ export interface MobileAccessState {
   /** 페어링 실패 누적으로 잠긴 IP 가 하나라도 있는지 (코드 재생성으로 전체 해제). */
   pairingLocked: boolean;
 
-  // ─── §4 v3.20 UPnP 외부 개방 ──────────────────────────────────────────────
+  // §4 UPnP 외부 개방
   /** 외부 접속 허용 토글 (opt-in — 기본 false, userData 영속). */
   externalEnabled: boolean;
   /** 외부 개방 진행/결과 상태. */
   externalStatus: MobileExternalStatus;
-  /**
-   * 집 밖에서 열 외부 접속 URL(https). 공인 IP 를 확보했고 CGNAT 가 아니면 채워진다 —
-   * UPnP 자동 개방 성공(active)이든, 자동 실패(error, 수동 포트포워딩 대상)든 접속에 쓸
-   * 주소는 동일하므로 두 경우 모두 제공한다(수동 포워딩 사용자가 이 주소로 접속).
-   */
+  /** 집 밖에서 열 외부 URL(https). 공인 IP 가 있고 CGNAT 가 아니면 채운다 — UPnP 가 성공(active)이든 실패(error, 수동 포워딩)든 주소는 같다. */
   externalUrl: string | null;
   /** 실패/불가 원인 — 상태가 unavailable/error 일 때 UI 안내 분기용. */
   externalReason: MobileExternalReason;
@@ -9476,27 +6902,17 @@ export interface MobileAccessState {
   /** 수동 포트포워딩 시 공유기에서 이 LAN IP:포트(HTTPS)로 연결하도록 안내. */
   httpsPort: number | null;
   /**
-   * 외부 HTTPS 에 쓰는 자체 서명 인증서의 SHA-256 지문(`AB:CD:…`, 대문자 콜론 구분).
-   *
-   * 자체 서명이라 폰은 첫 접속에서 경고를 띄우고, 화면은 사용자에게 "계속"을 누르라고 가르친다.
-   * 그 습관이 붙으면 **경로 위의 공격자가 자기 인증서를 내밀어도 똑같이 넘긴다** — 도청은 막아도
-   * 중간자는 못 막는 상태가 된다. 대조할 값을 데스크톱 화면에 띄워야 사용자가 "지금 이 경고가
-   * 우리 것인지"를 판별할 수 있다. 인증서는 userData 에 영속하므로 이 값은 재시작해도 같다.
-   * 외부 리스너가 떠 있지 않으면 null.
+   * 외부 HTTPS 자체 서명 인증서의 SHA-256 지문(`AB:CD:…`). 외부 리스너가 없으면 null. userData 에 영속해 재시작해도 같다.
+   * 경고에 "계속"을 누르는 습관은 중간자 인증서도 넘긴다 — 대조할 값을 데스크톱에 띄워야 그 경고가 우리 것인지 가린다.
    */
   certFingerprint: string | null;
   /**
-   * **껐는데도 공유기에 남아 있을 수동 포워딩 규칙**이 있는가.
-   *
-   * UPnP 로 연 매핑은 임대(`MOBILE_UPNP_LEASE_S`)가 있어 앱이 죽어도 저절로 닫히지만, 사용자가
-   * 공유기 설정에서 손으로 만든 규칙은 **영원히 남는다** — 앱을 끄든 지우든 그대로다. 나중에 다른
-   * 프로그램이 그 포트를 잡으면 그게 인터넷에 노출된다. 그래서 수동 안내를 한 번이라도 띄웠다면
-   * 그 사실을 영속해 두었다가, 외부를 끈 뒤에 "공유기 규칙을 지우세요"를 남긴다.
-   * 사용자가 지웠다고 확인해야 사라진다(끄는 것만으로는 사라지지 않는다 — 규칙은 그대로니까).
+   * 껐는데도 공유기에 남아 있을 수동 포워딩 규칙이 있는가. UPnP 매핑은 임대라 저절로 닫히지만 손으로 만든 규칙은 영원히 남아 그 포트를 잡는 프로그램이 노출된다.
+   * 수동 안내를 띄운 적이 있으면 영속해 두고 외부를 끈 뒤 "규칙을 지우세요"를 남긴다 — 끄는 것만으로는 안 사라지고 사용자가 확인해야 사라진다.
    */
   manualForwardPending: boolean;
 
-  // ─── §4 v3.66 QR 페어링 ───────────────────────────────────────────────────
+  // §4 QR 페어링
   /**
    * 현재 살아 있는 QR 페어링 티켓(없거나 만료됐으면 null).
    * 발급 즉시 3분(`MOBILE_QR_TICKET_TTL_MS`) 동안만 유효하며 메모리에만 존재한다.
@@ -9504,16 +6920,9 @@ export interface MobileAccessState {
   qrTicket: MobileQrTicket | null;
 }
 
-/**
- * §4 v3.66 — QR 페어링 티켓. 폰 카메라로 스캔하면 코드 입력 없이 세션 쿠키를 받는
- * 시한부 딥링크 묶음. 토큰 자체는 URL 안에만 실려 나가고 별도 필드로는 노출하지 않는다.
- */
+/** §4 — QR 페어링 티켓: 스캔하면 코드 입력 없이 세션 쿠키를 받는 시한부 딥링크 묶음. 토큰은 URL 안에만 실린다(별도 필드 ❌). */
 export interface MobileQrTicket {
-  /**
-   * 이 티켓으로 접속되는 딥링크들(인터페이스별 + 외부 https). QR 로 그릴 원문은 `url` 이다.
-   * `addresses` 와 **같은 모양**을 쓴다 — QR 대상 칩도 "LAN/외부" 두 갈래가 아니라
-   * 그 주소의 진짜 정체(Tailscale·WSL…)를 말해야 어느 것을 찍을지 고를 수 있다.
-   */
+  /** 이 티켓으로 접속되는 딥링크들(인터페이스별 + 외부 https, QR 원문은 `url`). `addresses` 와 같은 모양이라 칩이 진짜 정체(Tailscale·WSL…)를 말한다. */
   targets: MobileAddressEntry[];
   /** 만료 시각(epoch ms) — 남은 시간 카운트다운에 사용. */
   expiresAt: number;
@@ -9523,16 +6932,9 @@ export interface MobileQrTicket {
   maxUses: number;
 }
 
-// ─── §4 v3.33 모바일 임베디드 터미널 — /ws 다중화 프레임 ───────────────────────
-//
-// §4 v2.63 임베디드 인터랙티브 터미널의 I/O 는 데스크톱에선 전용 IPC(`vibisual:term:*`)로
-// 흐르지만, 모바일 웹 접속(§4 v3.16, `window.api` 부재)에선 그 IPC 가 없으므로 **기존 모바일
-// `/ws` 브리지에 터미널 프레임을 다중화**해 나른다(새 소켓/레이어 발명 ❌). 클라 →(제어) /
-// 서버 →(출력) 두 방향의 프레임 payload 계약. WSMessageType 유니온에는 넣지 않고 양끝
-// (`mobileAccess.ts`·`useWebSocket`)에서 `type` prefix `term_` 로 out-of-band 분기한다.
-//
-// 보안(§4 v3.33): 셸 프레임은 **LAN 접속에서만** 처리하고, 외부(공인 IP·UPnP) 접속의
-// `term_create` 는 거부 → `term_unavailable(reason:'external')` 회신한다.
+// §4 모바일 임베디드 터미널 — /ws 다중화 프레임. 모바일 웹엔 데스크톱 IPC(`vibisual:term:*`)가 없어 기존 모바일 `/ws` 에 터미널 프레임을 싣는다(새 소켓 ❌).
+// WSMessageType 에 넣지 않고 양끝(`mobileAccess.ts`·`useWebSocket`)이 `type` prefix `term_` 로 가른다.
+// 보안: 셸은 LAN 접속에서만 — 외부 접속의 `term_create` 는 `term_unavailable(reason:'external')` 로 거부한다.
 
 /** 클라 → 서버: 셸+claude prefill PTY 생성/재부착 요청. */
 export interface TermCreateFrame {
@@ -9541,7 +6943,7 @@ export interface TermCreateFrame {
   config: AgentConfig;
   cols?: number;
   rows?: number;
-  /** §5.5 #17-20 ④ v4.74 — 있으면 claude prefill 대신 이 명령을 띄운다(실행 런처). */
+  /** §5.5 #17-20 ④ — 있으면 claude prefill 대신 이 명령을 띄운다(실행 런처). */
   command?: string;
   /** command 를 사용자 Enter 없이 바로 실행할지. 실행 런처는 true, claude 경로는 언제나 false. */
   autoRun?: boolean;
@@ -9585,12 +6987,9 @@ export interface TermUnavailableFrame {
   reason: 'external';
 }
 
-// ─── §5.5 #17-20 v4.74 디버그·실행 런처 ────────────────────────────────────
+// §5.5 #17-20 디버그·실행 런처
 
-/**
- * 실행 구성이 어디서 왔는지. 화면에 그대로 출처 배지로 뜬다 — 사용자가 "이건 내 launch.json
- * 이고 저건 우리가 추측한 것" 을 구분해서 누르게 하기 위함(§5.14 "추측을 확신처럼 굴지 않는다").
- */
+/** 실행 구성의 출처 — 화면에 배지로 뜬다(사용자의 launch.json 과 우리가 추측한 것을 구분하게, §5.14 "추측을 확신처럼 굴지 않는다"). */
 export type RunConfigSource = 'launch.json' | 'tasks.json' | 'package.json' | 'vibisual' | 'unreal' | 'detected';
 
 /** 디버그 인자 변환표(`DEBUG_LAUNCH_RECIPES`)를 고르는 키. 못 알아보면 'other'. */
@@ -9661,12 +7060,8 @@ export interface McpServerPreset {
   requiresKey?: string;
 }
 
-// ─── §5.5 #17-31 — 이 프로젝트에서 쓸 수 있는 MCP 인벤토리 ───────────────────────────
-//
-// #17-20 ⑥ 은 **우리가 아는 프리셋 4종**을 에이전트에 꽂는 축이고, 여기는 그보다 넓다 —
-// 사용자가 `claude mcp add` 로 직접 붙인 것까지 포함해 "지금 이 프로젝트에서 무엇을 쓸 수
-// 있는가" 를 Claude Code 의 실제 설정에서 읽어 세운다. 우리 나름의 켜짐 개념을 새로 만들지
-// 않는다(화면과 실제가 갈리지 않도록).
+// §5.5 #17-31 — 이 프로젝트에서 쓸 수 있는 MCP 인벤토리. #17-20 ⑥ 프리셋보다 넓게, `claude mcp add` 로 붙인 것까지 Claude Code 실제 설정에서 읽는다.
+// 켜짐 개념을 따로 만들지 않는다(화면과 실제가 갈리지 않게).
 
 /** MCP 가 어디에 적혀 있는가. 화면의 묶음 머리이자 토글이 어느 키를 만질지 가르는 축. */
 export type McpServerScope =
@@ -9679,11 +7074,7 @@ export type McpServerScope =
   /** `MCP_SERVER_PRESETS` — 우리가 꽂아 주는 것(#17-20 ⑥, 축이 에이전트 단위). */
   | 'preset';
 
-/**
- * 켜짐 / 꺼짐 / **승인 대기** — 셋은 서로 다른 상태다.
- * `pending` 은 `.mcp.json` 에 적혀 있으나 아직 승인하지 않은 것(`claude mcp list` 의 `⏸`)이고,
- * 사용자가 해야 할 일이 `disabled` 와 다르므로 한 색으로 뭉개지 않는다.
- */
+/** 켜짐 / 꺼짐 / 승인 대기는 서로 다른 상태다 — `pending` 은 `.mcp.json` 에 있으나 미승인(`claude mcp list` 의 `⏸`)이라 할 일이 `disabled` 와 다르다. */
 export type McpServerState = 'enabled' | 'disabled' | 'pending';
 
 /** 붙는 방식. `stdio` 는 프로세스, 나머지는 원격 주소(로그인이 필요할 수 있다). */
@@ -9754,15 +7145,8 @@ export interface McpInventory {
   scannedAt: number;
 }
 
-// ─── §5.5 #17-32 — 이 세션에 적용되는 Claude Code 훅 인벤토리 ─────────────────────
-//
-// #17-31 이 "이 프로젝트에 MCP 가 무엇이 붙어 있나" 를 답했다면, 여기는 같은 물음을 **훅**에
-// 대해 답한다 — 지금 이 세션이 도는 동안 **실제로 실행되는 명령**이 무엇이고, 그게 어디에
-// 적혀 있으며, 방금 무엇이 발동했는가. 훅은 사용자 컴퓨터에서 조용히 명령을 실행하는데
-// 앱 안에서는 그 존재조차 보이지 않았다(설정 파일을 직접 열어야만 알 수 있었다).
-//
-// 축은 **세션별**이다(통합 목록 ❌ — 사용자 명시). 훅은 세션이 열린 프로젝트 경로로 갈리므로
-// 그 세션의 프로젝트에서 읽은 것만 세우고, 발동 표시도 그 세션이 낸 것만 센다.
+// §5.5 #17-32 — 이 세션에 적용되는 Claude Code 훅 인벤토리(실제로 도는 명령·적힌 곳·방금 발동한 것).
+// 세션별이다(통합 목록 ❌) — 훅은 세션의 프로젝트 경로로 갈리므로 그 프로젝트에서 읽은 것과 그 세션이 낸 발동만 센다.
 
 /** 훅이 어느 설정 파일에 적혀 있는가. 화면의 묶음 머리이자 "이 프로젝트만인지" 를 가르는 축. */
 export type HookScope =
@@ -9820,15 +7204,8 @@ export interface HookInventory {
 }
 
 /**
- * §5.5 #17-32 ⑤ — **훅이 방금 발동했다**는 신호(서버→클라, 표시 전용).
- *
- * 계측을 새로 만들지 않는다: Vibisual 자신의 훅이 같은 이벤트에 함께 걸려 있으므로, 우리 훅이
- * 울렸다는 것은 **그 이벤트에 걸린 다른 훅들도 같은 순간에 돌았다**는 뜻이다. 그래서 이벤트
- * 이름과 도구 이름만 흘려보내고, 어느 줄이 켜질지는 화면이 `hookMatcherMatches` 로 고른다.
- *
- * 세션 수명의 순간 신호라 `graph_snapshot` 에 싣지 않고 이 메시지로만 흐른다(`debug_event` 와
- * 같은 규약) — 체크포인트·영속화 미관여. 짧은 창으로 모아 배열 한 건으로 보낸다(훅은 도구를
- * 쓸 때마다 울리므로 건건이 밀면 그게 곧 §9 v3.45 가 고친 그 폭주다).
+ * §5.5 #17-32 ⑤ — 훅이 방금 발동했다는 표시용 신호. 우리 훅이 울렸으면 같은 이벤트의 다른 훅도 돌았으므로 이벤트·도구 이름만 보내고 줄은 `hookMatcherMatches` 로 고른다.
+ * `graph_snapshot`·영속에 싣지 않는다(`debug_event` 규약). 짧은 창으로 모아 배열 한 건으로 보낸다 — 건건이 밀면 폭주한다(§9).
  */
 export interface HookFiredPayload {
   /** 그 훅을 낸 세션의 에이전트(버블) id. 화면은 자기 것만 골라 쓴다. */
@@ -9842,26 +7219,15 @@ export interface HookFiredPayload {
   at: number;
 }
 
-// ─── §5.5 #17-33 — Claude Code 플러그인 인벤토리 + 마켓플레이스 ────────────────────
-//
-// **우리 관측 플러그인(`packages/plugins`, §5.11)과는 다른 물건이다.** 그쪽은 Vibisual 이 만든
-// 것이고 이쪽은 Claude Code 자신의 플러그인 체계(`claude plugin`)다 — 명령·에이전트·스킬·훅·MCP 를
-// 한 묶음으로 배포하는 그 단위. 앱 안에는 그것을 볼 자리가 없어, 무엇이 깔려 있고 무엇이 켜져
-// 있는지 알려면 터미널로 나가야 했다.
-//
-// 진실의 출처는 **Claude Code 자신의 답**이다(`claude plugin list --json --available`) — #17-31·#17-32 가
-// 세운 "새 설정 포맷을 발명하지 않는다" 규율의 세 번째 적용. 우리가 `installed_plugins.json` 을
-// 직접 해석하기 시작하면 CLI 가 포맷을 바꾸는 날 조용히 어긋난다.
+// §5.5 #17-33 — Claude Code 플러그인 인벤토리 + 마켓플레이스. 우리 관측 플러그인(`packages/plugins`, §5.11)과 다른 물건이다.
+// 진실은 CLI 의 답(`claude plugin list --json --available`) — `installed_plugins.json` 을 직접 해석하면 CLI 가 포맷을 바꾸는 날 조용히 어긋난다.
 
 /** 플러그인이 어느 범위에 깔렸는가. CLI 의 `--scope` 와 같은 축(그대로 되돌려 준다). */
 export type ClaudePluginScope = 'user' | 'project' | 'local';
 
 /**
- * **이 세션에 적용되는가** — 화면의 묶음 머리. 사용자가 물은 "글로벌 / 우리 프로젝트 전용" 이 이 축이다.
- *  - `global`        — `user` 범위. 모든 프로젝트에서 돈다.
- *  - `this-project`  — `project`/`local` 범위이고 그 경로가 지금 이 프로젝트다.
- *  - `other-project` — 깔려 있지만 **다른 프로젝트**에 매여 있어 이 세션에는 오지 않는다.
- *    숨기지 않고 따로 세운다 — 안 보이면 "깔았는데 왜 없지" 가 되고, 섞어 놓으면 "왜 안 먹지" 가 된다.
+ * 이 세션에 적용되는가(화면의 묶음 머리). `global` = `user` 범위 · `this-project` = `project`/`local` 이고 지금 이 프로젝트.
+ * `other-project` = 다른 프로젝트에 매여 이 세션엔 안 온다 — 숨기지 않고 따로 세운다(안 보이면 "왜 없지", 섞으면 "왜 안 먹지").
  */
 export type ClaudePluginPlacement = 'global' | 'this-project' | 'other-project';
 
@@ -9884,12 +7250,7 @@ export interface ClaudePluginEntry {
   projectPath?: string;
   installedAt?: string;
   lastUpdated?: string;
-  /**
-   * §5.5 #17-33 ⑦ — **마켓에 더 새 판이 있는가.** CLI 는 이것을 알려 주지 않는다
-   * (`plugin list --json` 은 설치본 판과 마켓 항목 판을 나란히 줄 뿐이다). 그래서 우리가
-   * 두 판을 대조해 적는다 — 판정은 `pluginsNeedingUpdate` 한 곳이고 화면과 자동 갱신이
-   * **같은 함수**를 읽는다(두 벌이면 배지 수와 실제로 올라가는 것이 어긋난다).
-   */
+  /** §5.5 #17-33 ⑦ — 마켓에 더 새 판이 있는가(CLI 는 두 판을 나란히 줄 뿐이라 우리가 대조). 판정은 `pluginsNeedingUpdate` 한 곳 — 배지와 자동 갱신이 같은 함수를 읽는다. */
   updateAvailable?: boolean;
   /** 마켓이 내놓은 최신 판(대조 대상). `updateAvailable` 이 참일 때만 뜻이 있다. */
   latestVersion?: string;
@@ -9909,13 +7270,7 @@ export interface ClaudeMarketPlugin {
   installed: boolean;
 }
 
-/**
- * 마켓의 갈래 — **판단이 아니라 출처의 사실**이다(§5.5 #17-42 ⑤).
- *
- * `official`   Anthropic 이 골라 넣은 곳. 포함 여부가 Anthropic 재량이다.
- * `community`  제출·자동 보안 검사를 통과해 올라온 곳. 만든 이는 제3자다.
- * `custom`     사용자가 직접 붙인 곳 — **아무도 보증하지 않는다**(칩을 달지 않는다).
- */
+/** 마켓의 갈래 — 판단이 아니라 출처의 사실(§5.5 #17-42 ⑤). `official` Anthropic 선정 · `community` 제출·자동 보안 검사를 통과한 제3자 · `custom` 사용자가 붙인 곳(보증 없음, 칩 없음). */
 export type ClaudeMarketplaceKind = 'official' | 'community' | 'custom';
 
 /** 알고 있는 마켓플레이스 한 줄. */
@@ -9944,24 +7299,13 @@ export interface ClaudePluginInventory {
    */
   unavailable?: string;
   scannedAt: number;
-  /**
-   * §5.5 #17-33 ⑦ — 마켓 클론이 마지막으로 원본에서 끌려온 시각(epoch ms).
-   *
-   * **우리가 부른 시각을 우리가 적는다.** `known_marketplaces.json` 의 `lastUpdated` 를 읽으면
-   * 더 정확하겠지만 그 파일은 CLI 의 내부 사정이라 ② 가 막는다. 없음/0 = 이 컴퓨터에서
-   * 한 번도 갱신한 적이 없다 — 이 값이 없어 화면이 조용하던 동안 실측 클론은 36일 멈춰 있었다.
-   */
+  /** §5.5 #17-33 ⑦ — 마켓 클론을 마지막으로 끌어온 시각(epoch ms). 우리가 부른 시각을 적는다(`known_marketplaces.json` 은 CLI 내부라 ② 가 막는다). 없음/0 = 갱신한 적 없다. */
   marketRefreshedAt?: number;
   /** 마지막 마켓 갱신이 실패했다면 그 사유(CLI 출력 400자 상한). 성공하면 지운다. */
   marketRefreshError?: string;
 }
 
-/**
- * §5.5 #17-33 ④⑦ — `POST /api/claude-plugins/action` 이 받는 동작.
- *
- * 앞의 여섯은 사용자가 누르는 것이고, 뒤의 셋(`marketplace-update`·`update`·`update-all`)이
- * **손으로 하던 갱신을 앱 안으로 들인 자리**다. 창구는 그대로 하나이고 전부 CLI 위임이다.
- */
+/** §5.5 #17-33 ④⑦ — `POST /api/claude-plugins/action` 의 동작(전부 CLI 위임). 뒤의 셋(`marketplace-update`·`update`·`update-all`)이 앱 안 갱신이다. */
 export type ClaudePluginActionKind =
   | 'enable'
   | 'disable'
@@ -9976,13 +7320,7 @@ export type ClaudePluginActionKind =
   /** 뒤처진 설치본 전부를 최신 판으로. */
   | 'update-all';
 
-/**
- * §5.5 #17-33 ⑦ — Claude Code 플러그인 **자동 갱신** 설정.
- *
- * 왜 설정이 필요한가: 플러그인은 사용자 컴퓨터에서 임의 코드를 도는 물건이라, 말없이 바뀌는 것이
- * 싫은 사용자가 있다. 기본은 둘 다 켬 — 끄고 싶은 사람이 끄는 편이, 켤 자리를 못 찾아 36일 멈춰
- * 있는 것보다 낫다(§5.10 브레인 v2 가 기본 off 로 겪은 그 함정의 반대편).
- */
+/** §5.5 #17-33 ⑦ — Claude Code 플러그인 자동 갱신 설정. 임의 코드라 끌 수 있게 두되 기본은 둘 다 켬 — 켤 자리를 못 찾아 36일 멈춰 있던 쪽보다 낫다. */
 export interface ClaudePluginAutoRefreshSettings {
   /** 마켓 클론을 주기적으로 다시 끌어올지. 목록만 바뀌고 도는 코드는 안 바뀐다. */
   market: boolean;
@@ -10008,11 +7346,7 @@ export interface ClaudePluginRefreshState {
   lastError?: string;
 }
 
-/**
- * §5.5 #17-33 ⑦ — 자동/수동 갱신 한 번의 결과. 화면이 "무엇이 됐는지" 한 줄로 적는 데 쓴다.
- * 실패해도 **어디까지 갔는지**를 담는다 — 마켓은 됐는데 설치본에서 막힌 것과 아예 못 부른 것은
- * 다른 상태이고, 둘을 같은 "실패"로 뭉치면 사용자가 무엇을 다시 눌러야 할지 알 수 없다.
- */
+/** §5.5 #17-33 ⑦ — 갱신 한 번의 결과. 실패해도 어디까지 갔는지 담는다 — 마켓은 됐고 설치본에서 막힌 것과 아예 못 부른 것은 다시 누를 곳이 다르다. */
 export interface ClaudePluginRefreshResult {
   /** 마켓 갱신을 시도했는가 / 됐는가. 설정이 꺼져 있으면 `attempted=false`. */
   market: { attempted: boolean; ok: boolean; reason?: string };
@@ -10026,17 +7360,8 @@ export interface ClaudePluginRefreshResult {
 export type AvailableSkillSource = 'project' | 'global' | 'plugin';
 
 /**
- * §5.5 #17-2/#17-4 — `GET /api/available-skills` 가 돌려주는 스킬 한 줄.
- *
- * **여기 `plugin` 항목이 곧 프롬프트에 실릴 수 있는 것이어야 한다.** 종전 목록은
- * `~/.claude/plugins/marketplaces/**` 폴더를 그대로 훑어 **깔지도 켜지도 않은 스킬까지** 실었고,
- * 고르면 프롬프트 앞에 `/이름` 이 붙어 나갔지만 CLI 는 그 슬래시를 풀지 못했다 — 화면은 "있다"
- * 고 하고 실제로는 안 먹는 자리였다. #17-33 ② 가 세운 "진실은 CLI 자신의 답" 을 이 목록도 따르게
- * 하고, 못 쓰는 것은 **지우지 않고 아래 상태로 표시한 뒤 그 자리에서 고칠 수 있게** 한다.
- *
- * 아래 세 칸(`installed`/`enabled`/`placement`)은 **날것**이고, 화면이 읽는 것은 그것을 접은
- * `resolveSkillPluginState` 한 함수다 — 세 자리(사이드바·에이전트 설정·`/` 자동완성)가 각자
- * 접으면 언젠가 한 곳만 다른 말을 한다.
+ * §5.5 #17-2/#17-4 — `GET /api/available-skills` 의 스킬 한 줄. `plugin` 항목은 CLI 가 실제로 푸는 것이어야 한다 — 마켓 클론 폴더만 훑으면 안 깔린 스킬의 `/이름` 이 안 풀린다.
+ * 못 쓰는 것은 지우지 않고 상태로 표시한다. 세 칸(`installed`/`enabled`/`placement`)은 날것 — 화면 세 곳은 `resolveSkillPluginState` 하나만 읽는다(각자 접으면 말이 갈린다).
  */
 export interface AvailableSkill {
   name: string;
@@ -10049,10 +7374,7 @@ export interface AvailableSkill {
    * `source==='plugin'` 일 때만 있다.
    */
   pluginId?: string;
-  /**
-   * 이 컴퓨터에 **깔려 있는가**. `source!=='plugin'` 이면 디스크에 있는 파일이라 항상 `true`.
-   * 플러그인 스킬은 마켓 클론에 파일이 있어도 안 깔렸을 수 있다(그게 종전의 그 어긋남이다).
-   */
+  /** 깔려 있는가. `source!=='plugin'` 이면 늘 `true`. 플러그인 스킬은 마켓 클론에 파일이 있어도 안 깔렸을 수 있다. */
   installed?: boolean;
   /**
    * 이 세션에서 **켜져 있는가**(= 슬래시가 실제로 풀리는가). 깔림과 켜짐은 다른 상태다
@@ -10068,15 +7390,8 @@ export interface AvailableSkill {
 }
 
 /**
- * §5.5 #17-33 ⑦ — 플러그인 스킬 한 줄이 **지금 어느 상태인가.** 화면의 태그가 이 다섯이고,
- * 넷은 각자 **다른 처방**을 갖는다(한 칸에 뭉치면 반드시 한쪽에 틀린 처방이 나간다).
- *
- * - `ready` — 깔렸고 켜졌고 이 세션에 온다. 슬래시가 실제로 풀린다.
- * - `disabled` — 깔렸는데 꺼 두었다 → `enable`.
- * - `other-project` — 깔렸지만 **남의 프로젝트에 매였다.** 켜져 있어도 이 세션엔 안 온다 → `install --scope user`.
- * - `not-installed` — 마켓에만 있다 → `install --scope user`.
- * - `unknown` — CLI 에 못 물었다. **아무 태그도 달지 않는다** — 멀쩡한 스킬에 "미설치" 를
- *   잘못 붙이는 것이 잠깐 조용한 것보다 나쁘다(#17-33 ⑦(f)).
+ * §5.5 #17-33 ⑦ — 플러그인 스킬의 지금 상태. 처방이 각자 다르다: `disabled` → `enable`, `other-project`(켜져 있어도 이 세션엔 안 옴)·`not-installed` → `install --scope user`.
+ * `ready` = 슬래시가 실제로 풀린다. `unknown` = CLI 에 못 물었다 — 태그를 달지 않는다(멀쩡한 스킬에 "미설치" 를 붙이는 쪽이 더 나쁘다).
  */
 export type SkillPluginState = 'ready' | 'disabled' | 'other-project' | 'not-installed' | 'unknown';
 
@@ -10097,11 +7412,7 @@ export interface ExternalDebuggerInfo {
   reason?: string;
 }
 
-// ─── §5.5 #17-20 ⑩⑪⑫ v4.94 공통 디버그 층 ──────────────────────────────────
-//
-// 여기 있는 타입들의 규율은 하나다 — **화면은 어느 백엔드로 붙었는지 몰라야 한다.**
-// CDP(Node 내장 인스펙터)로 붙든 DAP(남의 어댑터)로 붙든 위로 올라오는 모양이 같아야
-// 런타임이 늘어날 때 UI 를 다시 짜지 않는다(언리얼 전용 분기 ❌ — 표의 한 줄일 뿐).
+// §5.5 #17-20 ⑩⑪⑫ 공통 디버그 층 — 화면은 어느 백엔드(CDP·DAP)로 붙었는지 몰라야 한다. 올라오는 모양이 같아야 런타임이 늘어도 UI 를 다시 짜지 않는다.
 
 /**
  * 붙는 방법의 종류.
@@ -10117,12 +7428,7 @@ export type DebugAdapterTransport = 'stdio' | 'tcp';
 /** 디버기(debuggee)에 닿는 방식. 네이티브는 포트가 아니라 pid 로 붙는다. */
 export type DebugAttachKind = 'port' | 'pid' | 'none';
 
-/**
- * §5.5 #17-20 ⑩ — 런타임 → 디버거 연결법 표의 한 줄.
- *
- * `DEBUG_LAUNCH_RECIPES`(③ 인자 얹기)와 짝을 이룬다: 그쪽이 "붙을 수 있게 띄우는" 법이라면
- * 이쪽은 "실제로 붙는" 법이다. **새 언어 지원 = 이 표에 한 줄**(§3.3 설정과 로직 분리).
- */
+/** §5.5 #17-20 ⑩ — 런타임 → 디버거 연결법 표의 한 줄(`DEBUG_LAUNCH_RECIPES` 는 띄우는 법, 이쪽은 붙는 법). 새 언어 = 이 표에 한 줄(§3.3). */
 export interface DebugAdapterSpec {
   runtime: RunRuntime;
   backend: DebugBackendKind;
@@ -10238,12 +7544,7 @@ export interface ProblemMatch {
 
 // ─── §3.2.4 런타임 메모리 자정작용 — 진단 ───
 
-/**
- * 힙 표본 한 장. `process.memoryUsage()` + `v8.getHeapStatistics()` 에서 뽑는다.
- *
- * 서버에 이 계측이 **한 곳도 없어서** 3GB 진단을 프로세스 I/O 카운터와 소거법으로 해야 했다.
- * 다음에는 그러지 않도록 표본을 남긴다.
- */
+/** 힙 표본 한 장(`process.memoryUsage()` + `v8.getHeapStatistics()`). 이게 없으면 메모리 진단을 I/O 카운터와 소거법으로 해야 한다. */
 export interface MemorySample {
   /** 표본 시각(epoch ms). */
   at: number;
@@ -10297,12 +7598,7 @@ export interface MemoryDiagnosticsReport {
 
 // ─── §7.11 프리뷰 조작 (판올림 번호 발급 대기) — 디바이스 폭 프리셋 + 요소 클릭 ───
 
-/**
- * 프리뷰에서 집은 화면 요소 한 개.
- *
- * 프록시가 주입한 picker 가 `postMessage` 로 올리고, 클라가 받아 명령으로 조립한다.
- * **DOM 을 읽기만 한 결과**이며 네트워크·저장소 정보는 담지 않는다(§7.11 (F) 경계).
- */
+/** 프리뷰에서 집은 화면 요소 한 개(주입된 picker 가 `postMessage` 로 올린다). DOM 을 읽기만 한 결과 — 네트워크·저장소 정보는 담지 않는다(§7.11 (F)). */
 export interface PreviewPickPayload {
   /** 문서 안에서 그 요소를 다시 찾을 수 있는 CSS 선택자. */
   selector: string;
@@ -10350,28 +7646,17 @@ export interface PageRegionCapture {
   error?: string;
 }
 
-// ─── §5.19 All Model — 내 PC 에서 도는 로컬 LLM ───
-//
-// 이 블록의 어떤 타입도 claude 경로를 건드리지 않는다. `AgentConfig.provider` 가 undefined 면
-// 지금까지의 흐름 그대로이고, 아래 상태들은 그 축을 켠 버블에서만 쓰인다.
+// §5.19 All Model — 내 PC 의 로컬 LLM. claude 경로를 건드리지 않는다 — `AgentConfig.provider` 가 undefined 면 흐름 그대로이고 아래는 그 축을 켠 버블에서만 쓰인다.
 
 /**
- * §5.19 · §5.25 — 프로바이더 종류. 원격 **API 키** 경로는 여전히 경계 밖(§5.19 (I) · §5.25 (K))이고,
- * 여기 서는 것은 "우리가 프로세스로 띄울 수 있는 엔진"뿐이다.
- *
- * - `local-llama` — 내 PC 에서 도는 GGUF 모델. 턴 루프를 우리가 돈다(§5.19 (D)).
- * - `codex-cli` — 설치된 `codex` 실행본. 턴 루프는 CLI 가 돌고 우리는 이벤트를 옮긴다(§5.25 (F)).
+ * §5.19 · §5.25 — 프로바이더 종류(우리가 프로세스로 띄우는 엔진만, 원격 API 키 경로는 경계 밖 §5.19 (I)·§5.25 (K)).
+ * `local-llama` = GGUF, 턴 루프를 우리가 돈다(§5.19 (D)) · `codex-cli` = 설치된 `codex`, 턴 루프는 CLI 이고 우리는 이벤트를 옮긴다(§5.25 (F)).
  */
 export type AgentProviderKind = 'local-llama' | 'codex-cli';
 
 /**
- * §5.19 (C) · §5.25 (B) — 프로바이더 설정. `AgentConfig` 안에 살므로 **체크포인트 영속이 공짜**다
- * (agentConfigs 가 이미 저장·복원되는 길을 탄다 — 새 영속 4지점 작업이 필요 없다).
- *
- * 필드는 두 프로바이더가 **나눠 쓴다** — 뜻이 같은 칸(모델 id·표시명·토큰·문맥)은 한 벌로 쓰고,
- * 한쪽에만 있는 칸(`temperature`·`toolSupport` = 로컬, `reasoningEffort` = 코덱스)은 optional 이다.
- * 프로바이더마다 타입을 갈라 놓으면 `AgentConfig` 를 만지는 모든 자리가 유니온 좁히기를 해야 하고,
- * 그 자리는 지금 수십 곳이다.
+ * §5.19 (C) · §5.25 (B) — 프로바이더 설정. `AgentConfig` 안에 살아 체크포인트 영속은 그대로 따라온다.
+ * 뜻이 같은 칸은 두 프로바이더가 한 벌로 쓰고 한쪽 전용 칸만 optional — 타입을 갈라 놓으면 `AgentConfig` 를 만지는 수십 곳이 유니온 좁히기를 해야 한다.
  */
 export interface AgentProvider {
   kind: AgentProviderKind;
@@ -10388,15 +7673,8 @@ export interface AgentProvider {
   /** 샘플링 온도. 미설정 = 엔진 기본값. */
   temperature?: number;
   /**
-   * §5.19 (H) — 이 모델이 **도구 호출을 하는가**. 실제로 물어보고서야 알 수 있다
-   * (모델의 채팅 서식이 도구를 모르면 엔진이 요청 자체를 거절한다).
-   *
-   * - `undefined`/`'unknown'` — 아직 안 물어봤다. 다음 턴에 도구를 실어 보내 본다.
-   * - `'ok'` — 도구를 쓴다. 파일을 읽고 고칠 수 있다.
-   * - `'none'` — 못 쓴다. **도구 없는 대화 모드로 낮춘다** — 못 하는 일을 하는 척하지
-   *   않는다. 버블이 이 값을 보고 그 사실을 표시한다.
-   *
-   * `AgentConfig` 안에 사니 체크포인트 영속은 따라온다(새 영속 필드 발명 ❌).
+   * §5.19 (H) — 도구 호출을 하는가(물어봐야 안다 — 채팅 서식이 도구를 모르면 엔진이 요청을 거절한다).
+   * `undefined`/`'unknown'` = 아직 모름(다음 턴에 실어 본다) · `'ok'` = 쓴다 · `'none'` = 도구 없는 대화 모드로 낮추고 버블에 표시한다(하는 척 ❌).
    */
   toolSupport?: 'unknown' | 'ok' | 'none';
   /**
@@ -10417,11 +7695,8 @@ export interface AgentProvider {
   /** §5.19 (D) — 이 세션이 지금까지 **뱉은 토큰**의 합(답 + 생각). */
   tokensOut?: number;
   /**
-   * §5.25 (G) — 코덱스 추론 강도(`model_reasoning_effort`). **값의 목록은 우리가 들지 않는다** —
-   * 그 모델이 `models_cache.json` 에서 신고한 단계(`CodexModelEntry.reasoningLevels`)만 고를 수 있다.
-   * 미설정 = 그 모델의 기본 단계(`defaultReasoningLevel`).
-   *
-   * `local-llama` 는 이 칸을 쓰지 않는다.
+   * §5.25 (G) — 코덱스 추론 강도(`model_reasoning_effort`). 목록을 우리가 들지 않고 그 모델이 신고한 단계(`CodexModelEntry.reasoningLevels`)만 고른다.
+   * 미설정 = 그 모델의 `defaultReasoningLevel`. `local-llama` 는 안 쓴다.
    */
   reasoningEffort?: string;
   /** Codex per-turn overrides; absent values inherit config.toml. */
@@ -10436,20 +7711,12 @@ export interface AgentProvider {
   codexTools?: import('./codexToolPolicy.js').CodexToolPolicy;
 }
 
-// ─── §5.25 Codex — 같은 지도 위의 두 번째 엔진 ───
-//
-// 클로드 쪽 대칭물(`ClaudeAuthStatus`·`ClaudeSetupState`)과 **같은 모양**을 의도한 것이다.
-// 새 패턴을 발명하지 않아야 화면(설치 게이트·로그인 창)도 같은 컴포넌트 규칙으로 그려진다.
+// §5.25 Codex — 같은 지도 위의 두 번째 엔진. 클로드 쪽(`ClaudeAuthStatus`·`ClaudeSetupState`)과 같은 모양이라 화면이 같은 컴포넌트 규칙으로 그린다.
 
 /** cli-missing = codex 실행 불가, timeout = 응답 없음, parse = 출력 형식 불명 */
 export type CodexAuthProbeError = 'cli-missing' | 'timeout' | 'parse';
 
-/**
- * §5.25 (E) — `codex login status` 판정 결과.
- *
- * **자격증명 파일은 읽지 않는다** — 판정은 CLI 한 줄이 전부다. `error` 가 있으면 `loggedIn:false` 는
- * "로그아웃"이 아니라 **"모름"** 이므로 로그인 창을 자동으로 띄우지 않는다(클로드와 같은 규칙).
- */
+/** §5.25 (E) — `codex login status` 판정(자격증명 파일은 읽지 않는다). `error` 가 있으면 `loggedIn:false` 는 "모름"이라 로그인 창을 자동으로 띄우지 않는다. */
 export interface CodexAuthStatus {
   loggedIn: boolean;
   /** 예: 'chatgpt' | 'apiKey' — CLI 가 말한 방식을 좁힌 값. 못 읽으면 생략. */
@@ -10487,6 +7754,8 @@ export interface CodexSetupState {
   checkedAt: number;
   /** `phase==='failed'` 일 때 사람 읽기용 원인. */
   error?: string;
+  /** §4 (앱 전용 엔진) — 코덱스 앱 전용 사본의 상태(Version 탭 코덱스 칸). */
+  managed?: ManagedEngineStatus;
 }
 
 /** §5.25 (D) — 설치 진행 상황. `ClaudeSetupProgress` 와 같은 in-flight 세션 모양. */
@@ -10572,12 +7841,7 @@ export interface CodexConfigLayer {
   profile?: string;
 }
 
-/**
- * §5.25 (G-2) — `GET /api/codex-config` 응답. 코덱스가 **이 작업 폴더에서** 읽을 설정 파일들.
- *
- * `layers` 는 **이기는 순서**다(고른 프로필 → 가까운 프로젝트 파일 → 사용자 → 시스템). 값이 하나도
- * 없는 파일도 목록에는 남는다 — 화면은 앞에서부터 그 키가 있는 첫 겹을 쓴다.
- */
+/** §5.25 (G-2) — `GET /api/codex-config` 응답: 이 작업 폴더에서 코덱스가 읽을 설정 파일들. `layers` 는 이기는 순서(프로필 → 프로젝트 → 사용자 → 시스템) — 화면은 키가 있는 첫 겹을 쓴다. */
 export interface CodexEffectiveConfig {
   cwd: string;
   layers: CodexConfigLayer[];
@@ -10616,18 +7880,8 @@ export interface LocalContextInfo {
 }
 
 /**
- * §5.25 (M) — 코덱스가 실제로 들고 있는 것들. IDE 좌측 활동바의 코덱스 갈래가 이것을 그린다.
- *
- * **왜 필요한가.** §5.19 (G) 는 "클로드 CLI 에 매인 항목(MCP·컨텍스트 주입원·스킬·훅·플러그인)은
- * 프로바이더 버블 IDE 에 뜨지 않는다"를 세웠고 그 근거는 **없는 기능의 입구는 거짓말**이라는 것이었다.
- * 로컬 모델에는 그것이 정말 없어서 맞는 규칙이지만, **코덱스에는 그 다섯이 전부 있다**
- * (`codex mcp` · `codex plugin` · `~/.codex/skills` · `~/.codex/hooks.json` · `AGENTS.md`).
- * 같은 규칙을 코덱스에 그대로 적용하면 **있는 기능을 감추는** 반대쪽 거짓말이 된다 — 사용자는
- * 자기 코덱스에 깔아 둔 것을 우리 창에서 못 본다. 그래서 코덱스는 자기 목록을 갖는다.
- *
- * **읽기 전용이다.** 여기에 담기는 것은 전부 코덱스 홈과 코덱스 CLI 의 공개 인터페이스에서
- * 그대로 읽은 값이고, 우리는 그것을 **고치지 않는다**(설치·제거는 코덱스가 할 일이다). 예외는
- * 우리 훅뿐이며 그것도 `hooks.json` 안의 **우리 항목만** 손댄다(§5.25 (I)).
+ * §5.25 (M) — 코덱스가 실제로 들고 있는 것들(활동바 코덱스 갈래). §5.19 (G) "클로드 CLI 항목은 프로바이더 IDE 에 안 뜬다"는 로컬 모델용이다 —
+ * 코덱스는 MCP·플러그인·스킬·훅·`AGENTS.md` 를 다 갖고 있어 감추면 거짓말이 된다. 읽기 전용(설치·제거는 코덱스 몫), 예외는 `hooks.json` 의 우리 항목뿐(§5.25 (I)).
  */
 export interface CodexMcpServerEntry {
   name: string;
@@ -10643,12 +7897,8 @@ export interface CodexMcpServerEntry {
 }
 
 /**
- * §5.25 (M-1) — 이 스킬이 어디서 왔는가. **클로드의 `project`/`global`/`plugin` 과 자리는 같고
- * 내용이 다르다** — 코덱스의 스킬 루트는 홈 하나가 아니다(실측: 15개 중 홈 것은 3개뿐이었다).
- *
- * - `user` — `~/.codex/skills/<이름>/`. 사용자가 직접 넣은 것.
- * - `system` — `~/.codex/skills/.system/<이름>/`. 코덱스가 기본으로 얹는 것(`imagegen` 등).
- * - `plugin` — 플러그인 캐시 안의 스킬. 어느 플러그인이 실었는지가 `pluginName` 에 남는다.
+ * §5.25 (M-1) — 스킬의 출처. 코덱스 스킬 루트는 홈 하나가 아니다(실측: 15개 중 홈 것은 3개).
+ * `user` = `~/.codex/skills/<이름>/` · `system` = `~/.codex/skills/.system/<이름>/`(코덱스 기본, `imagegen` 등) · `plugin` = 플러그인 캐시(실은 플러그인은 `pluginName`).
  */
 export type CodexSkillSource = 'user' | 'system' | 'plugin';
 
@@ -10658,10 +7908,7 @@ export interface CodexSkillEntry {
   path: string;
   /** `SKILL.md` 앞머리에서 읽은 한 줄. 없으면 생략하고 화면은 이름만 적는다. */
   description?: string;
-  /**
-   * §5.25 (M-1) — 어느 루트에서 왔나. **옛 스냅샷에는 없다**(그때는 홈만 읽었다) — 그래서
-   * 선택 필드이고, 없으면 화면이 `user` 로 읽는다(그 시절 목록은 전부 홈 것이었다).
-   */
+  /** §5.25 (M-1) — 출처 루트. 옛 스냅샷엔 없어(그때는 홈만 읽었다) 선택 필드이고, 없으면 `user` 로 읽는다. */
   source?: CodexSkillSource;
   /** `plugin` 출처일 때 그것을 실은 플러그인 이름. 다른 출처에는 없다. */
   pluginName?: string;
@@ -10705,13 +7952,7 @@ export interface CodexAgentsDocEntry {
  */
 export type CodexReviewMode = 'uncommitted' | 'base' | 'commit';
 
-/**
- * §5.25 (N) — 코덱스 리뷰 한 번.
- *
- * 클로드의 `VerificationRun`(§5.5 #17-35)과 **자리는 같고 물음이 다르다** — 그쪽은 "돌려 보니
- * 되던가"라 `pass/fail/held` 판정이 있고, 이쪽은 "변경분에 문제가 있나"라 판정이 없다.
- * 없는 판정 칸을 빌려 오지 않는 이유가 그것이다.
- */
+/** §5.25 (N) — 코덱스 리뷰 한 번. `VerificationRun`(§5.5 #17-35)과 자리는 같지만 "변경분에 문제가 있나"를 묻는 것이라 pass/fail 판정 칸을 빌려 오지 않는다. */
 export interface CodexReviewRun {
   id: string;
   agentId: string;
@@ -10757,20 +7998,12 @@ export interface CodexHookState {
 }
 
 /**
- * §5.25 (C) — 첫 진입에서 고르는 엔진.
- *
- * **`AgentProviderKind` 와 일부러 다른 타입이다** — 클로드는 provider 가 `undefined` 라 그 유니온에
- * 이름이 없고(그게 "무변경의 근거"라는 §5.19 (C) 의 한 줄이다), 관문은 세 갈래를 **이름으로** 말해야
- * 한다. 둘을 잇는 곳은 `providerForEngine()` 한 함수뿐이다.
+ * §5.25 (C) — 첫 진입에서 고르는 엔진. `AgentProviderKind` 와 일부러 따로 둔다 — 클로드는 provider 가 `undefined` 라 그 유니온에 이름이 없는데(§5.19 (C)) 관문은 셋을 이름으로 말해야 한다.
+ * 둘을 잇는 곳은 `providerForEngine()` 하나.
  */
 export type AgentEngineKind = 'claude' | 'codex' | 'local';
 
-/**
- * §5.25 (C) — 사용자가 첫 진입에서 고른 것. `UserDefaults` 에 실린다.
- *
- * **고른 것은 기본값이지 잠금이 아니다** — 다른 엔진의 메뉴·기능을 끄는 데 쓰지 않는다.
- * 이 값이 하는 일은 둘뿐이다: ① 관문을 다시 묻지 않는다, ② 새 에이전트의 기본 엔진이 된다.
- */
+/** §5.25 (C) — 첫 진입에서 고른 엔진(`UserDefaults`). 기본값이지 잠금이 아니다 — 관문을 다시 묻지 않고 새 에이전트의 기본이 될 뿐, 다른 엔진 기능을 끄지 않는다. */
 export interface EngineChoice {
   kind: AgentEngineKind;
   chosenAt: number;
@@ -10779,11 +8012,7 @@ export interface EngineChoice {
 /** §5.19 (D) — 로컬 추론 백엔드. 릴리스 자산 선택과 실행 양쪽에서 같은 이름을 쓴다. */
 export type LocalEngineBackend = 'vulkan' | 'cpu' | 'cuda';
 
-/**
- * §5.19 (B) — 엔진 설치 진행 상황.
- * WS `local_engine_progress` payload + REST 동기 응답 dual-use
- * (§5.7 #23-1 `ClaudeInstallProgress` 와 같은 in-flight 세션 모양 — 새 패턴 발명 ❌).
- */
+/** §5.19 (B) — 엔진 설치 진행. WS `local_engine_progress` payload 와 REST 응답 겸용(§5.7 #23-1 `ClaudeInstallProgress` 와 같은 모양). */
 export interface LocalEngineProgress {
   /** 설치 시도 식별자 — 중복 호출 시 같은 in-flight 작업 id 를 돌려준다. */
   installId: string;
@@ -10800,12 +8029,7 @@ export interface LocalEngineProgress {
   error?: string;
 }
 
-/**
- * §5.19 (B) — 설치된 엔진 상태.
- *
- * **플래그가 아니라 실물 존재가 진실이다.** `UserDefaults.installedApps` 에 id 가 있어도
- * 사용자가 폴더를 지웠으면 `installed=false` 여야 한다 — 안 그러면 첫 대화에서 죽는다.
- */
+/** §5.19 (B) — 설치된 엔진 상태. 플래그가 아니라 실물이 진실 — `installedApps` 에 있어도 폴더가 없으면 `installed=false`(아니면 첫 대화에서 죽는다). */
 export interface LocalEngineState {
   installed: boolean;
   /** 설치된 llama.cpp 릴리스 태그(예: `b10502`). 미설치면 null. */
@@ -10833,36 +8057,15 @@ export interface LocalModelEntry {
   quant?: string;
   /** 파일 mtime. */
   downloadedAt: number;
-  /**
-   * 큰 모델은 `…-00001-of-00003.gguf` 처럼 쪼개져 배포된다. 그 조각들은 **한 모델**이므로
-   * 목록에서도 하나로 묶고, `path` 는 엔진에 줄 첫 조각을 가리킨다(엔진은 첫 조각만 받으면
-   * 나머지를 스스로 따라간다 — 다른 조각을 주면 그대로 죽는다).
-   *
-   * 전체 조각 수. 쪼개지지 않은 모델이면 생략한다.
-   */
+  /** 쪼개져 배포된 모델(`…-00001-of-00003.gguf`)의 전체 조각 수(아니면 생략). 목록에선 한 모델로 묶고 `path` 는 첫 조각 — 엔진은 첫 조각만 받아 나머지를 따라가고 다른 조각이면 죽는다. */
   partCount?: number;
-  /**
-   * 아직 없는 조각의 파일명들. 비어 있지 않으면 **이 모델은 쓸 수 없다** — 고르기 전에
-   * 화면이 말해 줘야 한다(2026-08-20 실측: 두 조각 중 **둘째 것만** 받힌 채로도 고를 수
-   * 있어서, 엔진이 `code=1` 로 죽는 것 말고는 사용자가 알 길이 없었다).
-   */
+  /** 없는 조각의 파일명. 비어 있지 않으면 못 쓰는 모델이라 고르기 전에 말해야 한다(2026-08-20 실측: 둘째 조각만 있어도 골라져 엔진이 `code=1` 로 죽었다). */
   missingParts?: string[];
-  /**
-   * 이 GGUF 는 **단독으로 돌릴 수 있는 모델이 아니다**(예: `mmproj-…` 시각 투영기,
-   * `mtp-…` 투기적 디코딩용 보조 헤드). 본체 모델과 함께 쓰라고 있는 부속 파일이라,
-   * 혼자 열면 엔진이 뻗는다(2026-08-20 실측: 텐서 18개짜리 MTP 헤드를 물려
-   * `0xC0000005` 액세스 위반). 고를 수 없게 막고 이유를 보여 준다.
-   */
+  /** 단독으로 못 도는 부속 GGUF(`mmproj-…` 시각 투영기, `mtp-…` 투기적 디코딩 헤드) — 혼자 열면 엔진이 뻗는다(2026-08-20 실측: `0xC0000005`). 고를 수 없게 막고 이유를 보인다. */
   companion?: boolean;
   /**
-   * 받은 직후 실제로 몇 마디 시켜 본 결과. **파일이 멀쩡한 것과 말을 하는 것은 다르다** —
-   * 깨진 양자화는 엔진이 읽기는 해도 뜻 없는 글자만 뱉는다(2026-08-21 실측:
-   * `Qwen3.5-9B-IQ4_XS.gguf` 가 GPU·CPU·최신 빌드에서 모두 한 글자 반복 / 기호 나열.
-   * 같은 구조의 공식 Q4_K_M 은 멀쩡했으므로 **구조가 아니라 그 파일**의 문제였다). 그 사실을
-   * 사용자가 프롬프트를 치고 빈 답을 받은 뒤에 알게 두지 않는다.
-   *
-   * `broken` 은 **막는 근거가 아니라 알리는 근거**다(넘겨짚은 판정으로 멀쩡한 모델을
-   * 못 쓰게 만들지 않는다).
+   * 받은 직후 몇 마디 시켜 본 결과 — 깨진 양자화는 읽혀도 뜻 없는 글자만 뱉는다(2026-08-21 실측: `Qwen3.5-9B-IQ4_XS.gguf` 한 글자 반복, 같은 구조 공식 Q4_K_M 은 멀쩡).
+   * `broken` 은 막는 근거가 아니라 알리는 근거다(넘겨짚은 판정으로 멀쩡한 모델을 막지 않는다).
    */
   outputCheck?: 'ok' | 'broken';
 }
@@ -10881,12 +8084,7 @@ export interface LocalModelDownloadProgress {
   error?: string;
 }
 
-/**
- * §5.19 (E) — 카탈로그 검색 결과 한 줄(= 아직 안 받은, 받을 수 있는 것).
- *
- * **목록을 코드에 박지 않는다** — 서버가 그때그때 조회해 만든다. 박아 두면 그 항목이
- * 사라진 날 화면이 거짓말을 한다(§5.19 (D) 빌드 번호와 같은 이유).
- */
+/** §5.19 (E) — 카탈로그 검색 결과 한 줄(받을 수 있는 것). 목록을 코드에 박지 않고 서버가 그때그때 조회한다 — 박으면 항목이 사라진 날 화면이 거짓말을 한다. */
 export interface LocalModelCatalogEntry {
   /** 받은 뒤 갖게 될 id(= 파일명 기준). */
   id: string;
@@ -10928,15 +8126,8 @@ export interface LocalDeviceInfo {
 }
 
 /**
- * §5.19 (E) — 이 PC 가 감당할 수 있는 크기를 판정하기 위한 실측치.
- *
- * **우리가 하드웨어를 알아맞히지 않는다** — 실제로 모델을 돌릴 그 엔진에게 물어서 받는다
- * (`llama-server --list-devices`). 새 의존성도, 벤더별 분기도 필요 없고, 엔진이 못 쓰는
- * 장치는 애초에 목록에 안 나오므로 "보이는데 못 쓰는" 어긋남이 생기지 않는다.
- *
- * **엔진에게 묻는 것은 가속 장치뿐이다** — CPU 와 시스템 메모리는 엔진이 깔려 있든 아니든
- * 이 PC 의 사실이라 `node:os` 에서 바로 읽는다. 그래서 `measuredAt` 이 0(장치는 아직 모름)
- * 이어도 아래 CPU·램 값은 유효하다.
+ * §5.19 (E) — 이 PC 가 감당할 크기를 판정할 실측치. 가속 장치는 모델을 돌릴 엔진에게 묻는다(`llama-server --list-devices` — 못 쓰는 장치는 안 나온다).
+ * CPU·램은 엔진 유무와 무관해 `node:os` 에서 읽는다 — `measuredAt` 이 0(장치 모름)이어도 유효하다.
  */
 export interface LocalHardwareInfo {
   devices: LocalDeviceInfo[];
@@ -10948,11 +8139,7 @@ export interface LocalHardwareInfo {
   cpuModel: string;
   /** 논리 코어 수. 0 이면 이 OS 에서 코어 목록을 못 읽었다는 뜻(일부 리눅스가 빈 목록을 준다). */
   cpuCores: number;
-  /**
-   * 직전 표본 이후의 CPU 점유율(0~100). **첫 표본에는 답이 없다** — 점유율은 누적 시간의
-   * 차이로만 나오므로 잰 적이 한 번뿐이면 `-1`(아직 모름)이다. 화면은 이 `-1` 을 0% 로
-   * 그리면 안 된다 — **놀고 있는 것과 모르는 것은 다르다**(§5.19 (E) 와 같은 규율).
-   */
+  /** 직전 표본 이후 CPU 점유율(0~100). 누적 시간의 차이라 첫 표본은 `-1`(모름) — 화면은 이것을 0% 로 그리면 안 된다(노는 것과 모르는 것은 다르다). */
   cpuUsagePercent: number;
   /** 장치 목록을 잰 시각. 엔진을 깔기 전에는 잴 수 없으므로 0 이면 "가속 장치는 아직 모름". */
   measuredAt: number;
@@ -10967,13 +8154,7 @@ export interface LocalHardwareInfo {
  */
 export type LocalModelFit = 'gpu' | 'ram' | 'too-big' | 'unknown';
 
-/**
- * §5.19 (E) — 카탈로그 목록을 줄 세우는 축.
- * - `downloads`: 많이 받아 간 순 — 무난한 것을 찾을 때.
- * - `likes`: 하트가 많은 순 — 써 본 사람들이 좋다고 한 것.
- * - `trending`: 요즘 뜨는 순 — 갓 나온 모델이 여기 먼저 보인다.
- * - `recent`: 최근에 갱신된 순.
- */
+/** §5.19 (E) — 카탈로그 정렬 축: `downloads` 받은 수 · `likes` 하트 수 · `trending` 요즘 뜨는 순(갓 나온 모델이 먼저) · `recent` 최근 갱신. */
 export type LocalModelCatalogSort = 'downloads' | 'likes' | 'trending' | 'recent';
 
 /** §5.19 (E) — 카탈로그에서 고른 저장소 하나(그 안에 양자화가 여럿). */
@@ -11010,26 +8191,15 @@ export interface LocalLlmState {
   hardware?: LocalHardwareInfo;
 }
 
-// ─── §4 메신저 원격제어 브리지 (판올림 번호 발급 대기) ─────────────────────────
-//
-// 메신저는 **아키텍처가 아니라 드라이버**다. 아래 타입은 그 드라이버 축의 계약이며,
-// 텔레그램·디스코드가 같은 모양으로 붙는다. 새 메신저를 더할 때 건드리는 것은
-// `ChatChannelKind` 한 줄과 드라이버 파일 하나뿐이고, 페어링·라우팅·전송량 정책은 공용이다.
-//
-// 방향이 §4 v3.16 모바일 웹과 정반대라는 점이 이 축의 존재 이유다 — 우리는 포트를 열지
-// 않고 **나가서 받아온다**(텔레그램 long-poll · 디스코드 Gateway WS). 그래서 공유기 설정·
-// 인증서·CGNAT 이 전부 무관하고, 노출면은 0이다.
+// §4 메신저 원격제어 브리지 — 메신저는 드라이버다: 새 메신저 = `ChatChannelKind` 한 줄 + 드라이버 파일 하나(페어링·라우팅·전송량 정책은 공용).
+// 포트를 열지 않고 나가서 받아온다(텔레그램 long-poll · 디스코드 Gateway WS) — 공유기·인증서·CGNAT 이 무관하고 노출면이 0이다.
 
 /** 지원 메신저 종류. 새 드라이버는 여기 한 줄 + 드라이버 파일 하나. */
 export type ChatChannelKind = 'telegram' | 'discord';
 
 /**
- * 폰으로 나가는 전송량 정책.
- * - `cards` (기본) : 카드/요약만. 스트림 원문·파일 diff·bash 출력은 **보내지 않는다**.
- * - `full`         : 스트림 텍스트까지. 사용자가 모달에서 직접 올릴 때만.
- *
- * 기본을 좁게 잡는 이유는 제3자(메신저) 서버를 우리 코드·경로가 통과하기 때문이다.
- * `cards` 에서도 원문이 필요하면 사용자가 `/log [n]` 로 **명시 요청**해 그때만 가져간다.
+ * 폰으로 나가는 전송량 정책. `cards`(기본) = 카드/요약만(스트림 원문·diff·bash 출력 ❌, 필요하면 `/log [n]` 명시 요청), `full` = 스트림 텍스트까지(모달에서 직접 올릴 때만).
+ * 기본이 좁은 이유: 제3자(메신저) 서버를 통과한다.
  */
 export type ChatVerbosity = 'cards' | 'full';
 
@@ -11060,12 +8230,7 @@ export interface ChatPeer {
   pairedAt: number;
   /** 마지막으로 이 대화에서 명령이 온 시각(epoch ms). */
   lastSeenAt: number;
-  /**
-   * 이 대화가 지금 겨누고 있는 **프로젝트**(표시명). 3단계 선택의 첫 칸이다.
-   *
-   * 있으면 `/agents` 가 그 프로젝트의 커스텀 에이전트만 보여 준다. 프로젝트가 하나뿐이면
-   * 브리지가 자동으로 채우므로 사용자는 이 단계를 보지 않는다(칸이 하나인 선택은 선택이 아니다).
-   */
+  /** 이 대화가 겨누는 프로젝트(표시명, 3단계 선택의 첫 칸) — 있으면 `/agents` 가 그 프로젝트 에이전트만 보인다. 하나뿐이면 브리지가 자동으로 채운다. */
   targetProject?: string;
   /**
    * 이 대화가 지금 겨누고 있는 에이전트. `/agents` 로 고르면 정해지고, 이후 평문은
@@ -11073,22 +8238,13 @@ export interface ChatPeer {
    */
   targetAgentId?: string;
   /**
-   * 이 대화가 지금 겨누고 있는 **세션**(subAgent). 3단계 선택의 마지막 칸이다.
-   *
-   * `POST /api/commands/:sessionId` 의 `subAgentId` 로 그대로 실린다 — 그래서 폰에서 고른
-   * 세션이 IDE 탭 하나와 정확히 같은 대화가 된다. **없으면 서버가 정한다**(커스텀 에이전트는
-   * 정규 sub 재사용) — 세션을 고르지 않은 것도 유효한 상태라 optional 이다.
+   * 이 대화가 겨누는 세션(3단계 선택의 마지막 칸) — `POST /api/commands/:sessionId` 의 `subAgentId` 로 그대로 실려 IDE 탭 하나와 같은 대화가 된다.
+   * 없으면 서버가 정한다(커스텀 에이전트는 정규 sub 재사용).
    */
   targetSubAgentId?: string;
   /**
-   * 1:1 DM 인가(텔레그램 `chat.type === 'private'` / 디스코드 `guild_id` 부재).
-   *
-   * **새 페어링은 이것이 `true` 인 대화에서만 받는다**(§4 ④). 길드 채널·그룹에서 묶으면
-   * 화이트리스트의 단위가 사람이 아니라 그 방의 구성원 전원이 되는데(디스코드 peer 키가
-   * channel id 다) 목록에는 명령을 친 한 사람 이름만 떠서 **화면이 범위를 잘못 말한다**.
-   *
-   * optional 인 이유는 하위호환 하나뿐 — DM 전용 규칙이 생기기 전에 저장된 peer 는 이 값이
-   * 없다. 그런 peer 는 끊지 않고 유지하되 `false` 로 읽어 UI 가 경고를 붙인다.
+   * 1:1 DM 인가(텔레그램 `chat.type === 'private'` / 디스코드 `guild_id` 부재). 새 페어링은 DM 에서만 받는다(§4 ④) —
+   * 길드·그룹에서 묶으면 화이트리스트가 방 구성원 전원인데 목록엔 한 사람만 떠 범위를 잘못 말한다. 값 없는 옛 peer 는 끊지 않고 `false` 로 읽어 경고를 붙인다.
    */
   direct?: boolean;
 }
@@ -11164,13 +8320,7 @@ export interface ChatCommandSession {
   blocked?: boolean;
 }
 
-/**
- * §4 메신저 브리지 — 폰에서 고를 수 있는 **에이전트 한 칸**과 그 세션들.
- *
- * **범위와 무관하게 전량**이다. 팬아웃 스냅샷은 §9 스코프드라 열어 두지 않은 탭의 에이전트가
- * 통째로 빠지는데, 밖에서 폰으로 고르는 목록이 집 PC 에 어떤 탭이 열려 있느냐로 달라지면
- * 그건 최적화가 아니라 기능 손상이다(§9 ④ 와 같은 판단).
- */
+/** §4 메신저 브리지 — 폰에서 고를 에이전트 한 칸과 그 세션들. 범위와 무관하게 전량이다 — §9 스코프드 스냅샷을 쓰면 PC 에 열린 탭에 따라 폰 목록이 달라진다. */
 export interface ChatCommandTarget {
   agentId: string;
   label: string;

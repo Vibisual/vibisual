@@ -1,12 +1,6 @@
 /**
- * hooks/lib/serverUrl.mjs — Vibisual dev 서버 base URL 결정 (CommonJS-free, no deps).
- *
- * 우선순위:
- *  1) 환경변수 VIBISUAL_SERVER_URL (예: http://localhost:4801)
- *  2) cwd 기준 git root의 .vibisual/dev-server.json {port}
- *  3) fallback http://localhost:4800
- *
- * 같은 worktree에서 작업 중인 Claude Code 훅이 자기 트리의 dev 서버를 가리키도록.
+ * dev 서버 base URL — 같은 worktree 의 훅이 자기 트리 서버를 가리키게.
+ * 우선순위: env VIBISUAL_SERVER_URL → cwd 의 git root 에 있는 .vibisual/dev-server.json {port} → http://localhost:4800
  */
 
 import { execSync } from 'node:child_process';

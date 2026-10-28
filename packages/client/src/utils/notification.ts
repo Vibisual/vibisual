@@ -37,11 +37,8 @@ export function showBrowserNotification(
 }
 
 /**
- * 완료음 재생권을 이 창이 가져간다 — 여러 창이 같은 완료에 동시에 울리는 것을 막는다.
- *
- * v3.76. 메인·별창·오버레이 셸이 각각 WS 를 구독하므로 완료 한 건에 소리가 겹쳐 들렸다.
- * localStorage 는 같은 origin 의 창들이 공유하므로 먼저 온 창만 참을 받는다. 접근이 막히면
- * 종전대로 재생(fail-open) — 소리가 겹치는 것이 아예 안 울리는 것보다 낫다.
+ * 완료음 재생권을 이 창이 가져간다 — 메인·별창·오버레이 셸이 각각 WS 를 구독해 완료 한 건에 소리가 겹친다.
+ * localStorage 는 같은 origin 창들이 공유하므로 먼저 온 창만 참을 받는다. 접근이 막히면 재생한다(fail-open — 겹치는 것이 안 울리는 것보다 낫다).
  */
 export function claimCompletionChime(now: number = Date.now()): boolean {
   try {

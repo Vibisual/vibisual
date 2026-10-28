@@ -4,10 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { StudioIconButton } from './StudioIconButton.js';
 import { StudioIcon, type StudioIconName } from './studioIcons.js';
 
-/**
- * §5.13 (V) 37-1 — 왼쪽 **아이콘 레일**(48px) + 서랍(한 번에 하나). 소재 · 부품 · 스타일 · 메모 + 자막이 있으면 대본.
- * 다시 누르면 닫힌다. 서랍은 160ms 로 왼쪽에서 열린다.
- */
+/** §5.13 (V) 37-1 — 아이콘 레일(48px) + 서랍 하나씩(160ms). 대본은 자막이 있을 때만. 다시 누르면 닫힌다. */
 export type RailDrawer = 'media' | 'parts' | 'style' | 'notes' | 'transcript';
 
 const ITEMS: ReadonlyArray<{ readonly id: RailDrawer; readonly icon: StudioIconName }> = [

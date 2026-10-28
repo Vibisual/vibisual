@@ -18,12 +18,7 @@ import {
 import { ExportCheck, ExportField, Segmented, SmallButton } from './exportControls.js';
 import { StudioIcon } from './studioIcons.js';
 
-/**
- * §5.13 (AA) 42-1·42-2·42-7 — 내보내기 설정 창의 **어떻게**: 형식 · 화질 · 해상도 · 프레임 · 자막 · 저장 위치(OS 폴더 창으로만) · 파일
- * 이름 규칙(미리 보기) · 같은 이름 · 끝난 뒤 · 절전 막기 · 내 프리셋. 바꾸는 즉시 이 프로젝트의 마지막 설정으로 기억된다.
- * 반응형 — 폰 폭 창에서는 두 칸 짝(화질·해상도, 프레임·자막)을 한 열로 쌓고, 저장 위치는 경로를 한 줄 전체에 다 보인 뒤(줄바꿈)
- * 단추를 아랫줄로 내린다. 터치에서는 칸·이름 조각 단추가 커진다.
- */
+/** §5.13 (AA) 42-1·42-2·42-7 — 내보내기 "어떻게". 저장 위치는 OS 폴더 창으로만, 바꾸는 즉시 이 프로젝트의 마지막 설정이 된다. 폰 폭은 짝 칸을 한 열로. */
 export interface ExportSettingsFormProps {
   readonly settings: ExportSettings;
   readonly onSettings: (patch: Partial<ExportSettings>) => void;

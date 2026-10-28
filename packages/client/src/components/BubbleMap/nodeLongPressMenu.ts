@@ -5,28 +5,11 @@ import { useRefLinkDragStore } from '../../stores/refLinkDrag.js';
 import type { ClosestTarget } from './canvasSurface.js';
 
 /**
- * §4 v3.16 · §5.4 #34 — **버블·노드 위 길게 누르기 = 그 버블의 우클릭 메뉴.**
- *
- * 터치에는 우클릭이 없다. 캔버스 빈 곳은 길게 누르기로 생성 메뉴를 열었지만(`BubbleMap` 의 `canvasLongPress`),
- * 버블·노드 위에는 그 길이 없었다 — iOS Safari 처럼 길게 눌러도 `contextmenu` 를 주지 않는 브라우저에서는 버블
- * 메뉴(휴지통으로 이동·삭제·자물쇠·말풍선 전환)와 앱·선반·플레이·랩·스펙 노드의 메뉴에 닿을 수 없었다.
- *
- * **노드마다 손을 달지 않는다.** 캔버스 컨테이너가 **캡처 단계**에서 한 번 받고(노드 래퍼의 d3-drag 가 버블 단계
- * 터치를 `stopImmediatePropagation` 으로 삼키므로 캡처여야 닿는다), 길게 누른 바로 그 자리에 `contextmenu` 를
- * 쏜다. 그러면 우클릭과 **같은 길**을 그대로 탄다 — 각 노드의 `onContextMenu`, 묶음 메뉴, 우클릭이 누름을 접는
- * `bubbleSelectGesture`(손을 떼도 선택되지 않는다). 메뉴를 여는 규칙이 두 벌이 되지 않는다.
- *
- * 세 가지를 지킨다.
- *  ① **브라우저가 준 메뉴 요청과 겹치지 않는다** — 안드로이드 Chrome 은 길게 누르면 스스로 `contextmenu` 를 준다.
- *     그게 먼저 왔으면 쏘지 않고, 우리가 먼저 쐈으면 뒤늦게 온 것을 삼킨다(두 번 오면 우더블클릭 = 휴지통 진입으로
- *     읽는 버블이 있다 — `BubbleNode` `RIGHT_DBLCLICK_MS`).
- *  ② **손을 뗀 뒤 브라우저가 흉내 내는 마우스 이벤트를 삼킨다** — 메뉴는 손가락 바로 그 자리에 열리므로, 뗄 때 오는
- *     mousedown 이 메뉴를 곧바로 닫고 click 이 메뉴 첫 줄을 눌러 버린다(캔버스 생성 메뉴가 `touchOpenGraceMs` 로
- *     피하던 그 자리). 길게 누른 자리 근처에서, 다음 누름이 오기 전까지만(상한 `NODE_LONG_PRESS_GHOST_MS`) 삼킨다.
- *  ③ **제 손짓이 있는 자리는 건드리지 않는다** — 입력칸(글자 고르기)·`nodrag`(슬라이더·재생 위치·위성 손잡이·원격
- *     조작면) 위, 그리고 연결선을 끄는 중에는 길게 눌러도 메뉴를 열지 않는다(우클릭은 끌기를 취소하는 손이다).
- *
- * 마우스·펜에는 아무 일도 하지 않는다 — 터치 이벤트에만 걸린다.
+ * §4 · §5.4 #34 — 버블·노드 위 길게 누르기 = 우클릭 메뉴(터치에만 — iOS Safari 는 길게 눌러도 `contextmenu` 를 주지 않는다).
+ * 노드마다 달지 않는다: 캔버스가 **캡처 단계**에서 받아(d3-drag 가 버블 단계 터치를 삼킨다) 그 자리에 `contextmenu` 를 쏴 우클릭과 같은 길을 탄다.
+ * ① 안드로이드 Chrome 이 스스로 준 `contextmenu` 와 겹치지 않게 한다 — 두 번이면 우더블클릭(휴지통 진입, `RIGHT_DBLCLICK_MS`)으로 읽힌다.
+ * ② 뗀 뒤 흉내 mousedown·click 을 그 자리 근처·다음 누름 전까지(`NODE_LONG_PRESS_GHOST_MS`) 삼킨다 — 안 그러면 메뉴가 닫히거나 첫 줄이 눌린다.
+ * ③ 입력칸·`nodrag` 위와 연결선을 끄는 중에는 열지 않는다(우클릭은 끌기 취소다).
  */
 
 /** 손을 뗀 뒤 흉내 마우스 이벤트(mousedown·mouseup·click)를 삼키는 최대 시간(ms). */
@@ -34,20 +17,13 @@ export const NODE_LONG_PRESS_GHOST_MS = 600;
 /** 그 이벤트가 길게 누른 자리에서 이만큼 안일 때만 삼킨다(px) — 길게 누르기가 견디는 움직임(12px)의 두 배. */
 export const NODE_LONG_PRESS_GHOST_RADIUS = 24;
 
-/**
- * 길게 눌러도 메뉴를 열지 않는 자리 — 제 손짓이 있는 곳. 마지막 하나는 **이미 끌리고 있는 노드**다: 노드 끌기는
- * 5px(`nodeDragThreshold`)에서 시작하고 길게 누르기는 12px 까지 견디므로, 그 사이에서 멈칫한 손이 끄는 도중에
- * 메뉴를 부르지 않게 React Flow 가 끄는 노드에 다는 `dragging` 표식을 본다.
- */
+/** `.dragging` — 끌기는 5px(`nodeDragThreshold`)에서 시작하고 길게 누르기는 12px 까지 견디므로, 끄는 도중 멈칫해도 메뉴를 부르지 않게. */
 export const NODE_LONG_PRESS_SKIP_SELECTOR =
   'input, textarea, select, [contenteditable]:not([contenteditable="false"]), .nodrag, [data-capture-control="on"], .react-flow__node.dragging';
 /** 메뉴를 가진 자리 — 노드, 그리고 여럿을 고르면 그 위에 덮이는 묶음 상자(`onSelectionContextMenu`). */
 export const NODE_LONG_PRESS_SELECTOR = '.react-flow__node, .react-flow__nodesselection';
 
-/**
- * 이 자리를 길게 누르면 메뉴를 열어도 되는가. DOM 없이 시험할 수 있게 `closest` 하나만 요구한다(`canvasSurface` 와 같은 꼴).
- * 판정할 수 없는 대상은 `false` — 애매하면 열지 않는다.
- */
+/** DOM 없이 시험하려고 `closest` 하나만 요구한다(`canvasSurface` 와 같은 꼴). 판정할 수 없으면 `false`. */
 export function isNodeLongPressTarget(target: unknown): boolean {
   const el = target as ClosestTarget | null | undefined;
   if (!el || typeof el.closest !== 'function') return false;

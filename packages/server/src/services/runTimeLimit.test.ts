@@ -2,10 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { QueuedCommand, SubAgent } from '@vibisual/shared';
 import { SubAgentManager } from './subAgentManager.js';
 
-/**
- * §5.13 (R-10) — a creation request's time limit is enforced on every engine: when the command is still the running
- * turn at its limit, the session is stopped and the command says why. A turn that already ended is left alone.
- */
+/** §5.13 (R-10) — the time limit is enforced on every engine: a command still running at its limit stops the session and says why; a turn that already ended is left alone. */
 type Innards = { currentTurnId: Map<string, string>; armRunTimeLimit: (sub: SubAgent, cmd: QueuedCommand) => void };
 const AGENT = 'agent-run-limit';
 const SUB = 'sub-run-limit-1';

@@ -1,10 +1,4 @@
-/**
- * §2.4 세션 생존 판정 — 순수 부분 고정 시험.
- *
- * 모델을 부르는 함수(`runSessionLivenessProbe`)는 여기서 돌리지 않는다. 고정할 값어치가 있는 것은
- * **프롬프트 구조**(질문을 쪼개지 않으면 값싼 모델이 정당한 대기를 끝난 것으로 오판한다 — §5.5
- * #17-9 ⑭ 의 실증)와 **답 파싱**(못 읽으면 아무 일도 일어나지 않아야 한다), 그리고 **증거 수집**이다.
- */
+/** §2.4 생존 판정의 순수 부분 시험(모델 호출 제외) — 프롬프트 구조(쪼갠 질문이 계약, §5.5 #17-9 ⑭) · 답 파싱(못 읽으면 무동작) · 증거 수집. */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -361,7 +355,7 @@ describe('대화록 찾기 — 엔진마다 자리가 다르다 (A-4)', () => {
     expect(
       resolveSessionTranscript(sid, projects, Date.now(), { preferEngine: 'codex', codexSessionsRoot: codex })?.file,
     ).toBe(codexFile);
-    // 힌트가 없으면 예전 순서 그대로 — 클로드가 먼저다(기존 동작 불변).
+    // 힌트가 없으면 클로드가 먼저다.
     expect(resolveSessionTranscript(sid, projects, Date.now(), { codexSessionsRoot: codex })?.file).toBe(claudeFile);
   });
 

@@ -1,12 +1,6 @@
 /**
- * §5.1 #1-1 — **셸로 내린 명령은 어느 문으로 들어와도 같은 길로 잡는다** 그래프 회귀 시험.
- *
- * 2026-10-22 감사에서 재현한 것을 그대로 픽스처로 쓴다.
- *  (A) `PowerShell` 도구로 내린 명령도 Bash 이력·파일 버블·쓰기 화살표·수정 이력에 남는다.
- *  (B) 코덱스 꼴(`"…pwsh.exe" -Command '…'`)로 온 읽기도 파일 버블이 선다.
- *  (C) 상대 경로는 **그 명령이 시작될 때의 폴더**로 푼다 — 셸이 `cd` 로 하위 폴더에 앉은 뒤의 `sed -i … package.json` 이
- *      루트 package.json 을 가리키던 것, 사후 이벤트의 cwd(이미 `cd` 뒤)로 `cd sub && …` 가 두 번 붙던 것.
- *  (E) 폴더를 준 셸 검색은 Grep 도구와 같은 길(폴더 읽기)로, `cp a out` 은 out 이 폴더면 `out/a` 로.
+ * §5.1 #1-1 — 셸 명령은 어느 문으로 와도 같은 길로 잡는다: (A) `PowerShell` 도구 (B) 코덱스 `pwsh -Command` 꼴
+ *  (C) 상대 경로는 명령이 시작된 폴더 기준(사후 cwd 로 풀면 `cd` 가 두 번 붙는다) (E) 폴더를 준 셸 검색 = 폴더 읽기, `cp a out` 은 out 이 폴더면 `out/a`.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';

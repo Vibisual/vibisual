@@ -7,12 +7,7 @@ vi.mock('../../transport/index.js', () => ({ isPackagedDesktop: () => transport.
 
 import { compositionContentPath, makeCompositionSrc } from './compositionUrl.js';
 
-/**
- * §5.13 (T-3) — 무대가 샌드박스 iframe 에 거는 컴포지션 주소.
- *
- * 주소의 `v` 가 코드·데이터를 따라가지 않으면 에이전트가 고친 컴포지션이 미리보기에 안 나오고, 너무 자주 바뀌면 편집마다
- * 프레임이 다시 뜬다. 경로 인코딩이 틀리면 Windows 절대 경로 프로젝트가 여러 세그먼트로 쪼개져 404 가 된다.
- */
+/** §5.13 (T-3) — 컴포지션 주소의 `v` 가 코드·데이터를 따르되 편집마다 안 바뀌고, Windows 절대 경로가 세그먼트로 쪼개져 404 나지 않는다. */
 
 const asset: VideoAsset = {
   id: 'comp1',

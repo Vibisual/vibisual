@@ -1,22 +1,6 @@
 /**
- * §7.7 v1.99 Vibisual 서버 코어 로그 팝업 — 연결된 server 자신의 logger.* 라이브 스트림.
- *
- * Header 우측 연결 상태 인디케이터 클릭으로 열린다. iframe dev server 로그(§7.11
- * IframeServerLogsPopup)와 별개 — 이쪽은 Vibisual 서버 코어의 info/warn/error/debug 전량.
- *
- * 라이프사이클:
- *  - mount(연결됨): WS `subscribe_server_log` → 서버가 `server_log_init` 으로 현재 버퍼 전송
- *  - 이후 새 라인은 `server_log_append` delta 로 도착(SERVER_LOG_BATCH_MS 마이크로배치)
- *  - unmount: `unsubscribe_server_log` → 서버가 구독 해제(구독자 0 이면 배치 중단)
- *  - 연결 안 됨: 구독하지 않고 안내 문구만 — "연결된 서버" 가 없으므로.
- *
- * 클라 측 ring buffer 는 SERVER_LOG_CLIENT_BUFFER_MAX 상한 — 초과분은 앞에서 버려 메모리 고정.
- *
- * §7.7 v2.3 — 라인마다 `category`(error/warn/hook/event) 마크 + 카테고리 필터 칩(표시/숨김),
- * auto-scroll 옆 "최근 200줄만" 토글(SERVER_LOG_RECENT_VIEW_LIMIT — 켜면 렌더만 잘라 DOM 비용 고정).
- * §7.7 v2.6 — 인접한 유사 라인(같은 category + 숫자 정규화 후 토큰 ≤1 차이 + 시간창 내)을 한 행으로
- * 묶어 `×N` 배지로 표시, 클릭 시 펼침. 동시 발생 반복 로그 정리(클라 렌더 단계 — 버퍼·소스 불변).
- * 라인 카테고리는 채운 배지 대신 **고정폭 + 밑줄** — 모든 행의 메시지 시작 열이 정렬된다.
+ * §7.7 서버 코어 로그 팝업(iframe dev server 로그 §7.11 과 별개). 연결됐을 때만 `subscribe_server_log`, unmount 에 해제.
+ * 클라 버퍼 상한 `SERVER_LOG_CLIENT_BUFFER_MAX`. 카테고리 필터·"최근 200줄만"·인접 유사 줄 `×N` 묶기는 렌더만 바꾼다(버퍼 불변).
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -36,7 +20,7 @@ interface ServerLogPopupProps {
 /** 카테고리 필터 칩 순서 — 심각도 높은 순. */
 const CATEGORY_ORDER: ServerLogCategory[] = ['error', 'warn', 'hook', 'event'];
 
-/** §7.7 v2.6 — 이 시간창(ms)을 넘는 간격이면 유사해도 한 그룹으로 묶지 않는다("동시 발생"만 묶음). */
+/** §7.7 — 간격이 이 시간창(ms)을 넘으면 유사해도 묶지 않는다("동시 발생"만). */
 const COALESCE_WINDOW_MS = 4000;
 
 /** 라인 본문 색 — level 기준(debug 는 흐리게). */
@@ -47,7 +31,7 @@ function levelClasses(level: ServerLogLevel): string {
   return 'text-sky-300';
 }
 
-/** 필터 칩 색 — 토글 가능한 컨트롤이라 채운 배지 유지 (§7.7 v2.3). */
+/** 필터 칩 색 — 토글 컨트롤이라 채운 배지(§7.7). */
 function categoryChipClasses(category: ServerLogCategory): string {
   if (category === 'error') return 'bg-rose-500/20 text-rose-300';
   if (category === 'warn') return 'bg-amber-500/20 text-amber-300';
@@ -55,7 +39,7 @@ function categoryChipClasses(category: ServerLogCategory): string {
   return 'bg-sky-500/15 text-sky-300'; // event
 }
 
-/** 라인 카테고리 마크 색 — 채운 배지 대신 글자색 + 흐린 점선 밑줄색 (§7.7 v2.6). */
+/** 줄 카테고리 마크 색 — 글자색 + 흐린 점선 밑줄(§7.7). */
 function categoryMarkClasses(category: ServerLogCategory): string {
   if (category === 'error') return 'text-rose-300 border-rose-400/40';
   if (category === 'warn') return 'text-amber-300 border-amber-400/40';
@@ -94,11 +78,7 @@ interface LogGroup {
   lines: ServerLogEntry[];
 }
 
-/**
- * §7.7 v2.6 — 인접 유사 라인 coalescing. 연속 라인이 같은 category 이고, 숫자 정규화 후
- * 그룹 첫 줄과 토큰 1개 이하 차이이며, 직전 줄과 COALESCE_WINDOW_MS 내이면 한 그룹으로 묶는다.
- * 동시 발생 반복 로그(프로젝트별 "Checkpoint saved" 등)를 한 행으로 정리하기 위한 렌더 단계 변환.
- */
+/** §7.7 — 같은 category · 숫자 정규화 후 토큰 1개 이하 차이 · 시간창 안이면 한 그룹(렌더 단계). */
 function coalesce(entries: ServerLogEntry[]): LogGroup[] {
   const groups: LogGroup[] = [];
   let headTokens: string[] = [];
@@ -121,10 +101,7 @@ function coalesce(entries: ServerLogEntry[]): LogGroup[] {
   return groups;
 }
 
-/**
- * 라인 카테고리 마크 — 고정폭 슬롯 안의 밑줄 글자. 고정폭이라 뒤따르는 메시지의
- * 시작 열이 모든 행(단일·그룹헤더·펼친자식)에서 동일하게 정렬된다 (§7.7 v2.6).
- */
+/** 고정폭 슬롯이라 모든 행의 메시지 시작 열이 같다(§7.7). */
 function CategoryMark({ category }: { category: ServerLogCategory }): React.JSX.Element {
   return (
     <span className="w-9 shrink-0">
@@ -159,10 +136,10 @@ export const ServerLogPopup = memo(function ServerLogPopup({
   const [lines, setLines] = useState<ServerLogEntry[]>([]);
   const [initialized, setInitialized] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
-  // §7.7 v2.3 — 기본 ON: 라이브 로그 뷰어는 보통 "지금 뭐 하는지" 가 관심사라 최근 N줄로 충분.
+  // §7.7 — 기본 ON: 라이브 로그는 최근 N줄로 충분.
   const [recentOnly, setRecentOnly] = useState(true);
   const [hiddenCategories, setHiddenCategories] = useState<Set<ServerLogCategory>>(new Set());
-  // §7.7 v2.6 — 펼쳐진 coalesce 그룹 (그룹 첫 라인 seq).
+  // §7.7 — 펼쳐진 coalesce 그룹(그룹 첫 줄 seq).
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
   const [filter, setFilter] = useState('');
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -241,7 +218,6 @@ export const ServerLogPopup = memo(function ServerLogPopup({
     [filtered, recentOnly],
   );
 
-  // §7.7 v2.6 — 인접 유사 라인 coalescing.
   const groups = useMemo(() => coalesce(visible), [visible]);
 
   // auto-scroll — 보이는 줄이 늘어날 때 바닥 고정. 사용자가 위로 스크롤하면 꺼짐.

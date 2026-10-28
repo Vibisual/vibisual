@@ -17,19 +17,16 @@ import {
   CONTI_SCRIPT_FRAME_MAX,
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
-import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { claudeSpawnEnv, getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { killTree, processGroupSpawnOptions } from './processTree.js';
 
-/** §5.3 #28 v1.62 — patch sub-agent 가 spawn 할 claude 바이너리 경로. */
 const CLAUDE_BIN_PATH = (): string => getClaudeBin().binPath;
 
 const TIMEOUT_MS = 120_000;
 
-/** §5.3 #28 v1.60 — `stamp` 포함 5종. */
 const VALID_TYPES: readonly ContiElementType[] = ['rect', 'circle', 'text', 'line', 'stamp'];
 const VALID_BADGE_KINDS = ['add', 'mod', 'evt'] as const;
 
-/** §5.3 #28 v1.60 — STAMP_CATALOG 키 집합 (lookup 빠르게). */
 const STAMP_NAMES = new Set<string>(Object.keys(STAMP_CATALOG));
 
 function rid(prefix: string): string {
@@ -46,12 +43,8 @@ function toStr(v: unknown): string {
 }
 
 /**
- * LLM 응답 element 1개 → 안전하게 정규화 (geometry 클램프, type 검증).
- *
- * §5.3 #28 v1.60 — `type==='stamp'` 인 경우:
- *   - `stampName` 이 STAMP_CATALOG 키가 아니면 element 통째로 reject (LLM 환각 차단).
- *   - `stampVariant` 가 카탈로그의 variants 에 없으면 drop (stamp 자체는 유지, 기본 variant 사용).
- *   - `w`/`h` 미지정 시 카탈로그 defaultW/defaultH 자동 채움.
+ * LLM 응답 element 1개 → 안전하게 정규화(geometry 클램프, type 검증). `type==='stamp'` 이면:
+ * `stampName` 이 STAMP_CATALOG 키가 아니면 통째로 reject(환각 차단) · `stampVariant` 가 variants 에 없으면 그 값만 버리고 기본 variant · `w`/`h` 가 없으면 카탈로그 defaultW/defaultH.
  */
 function coerceElement(raw: unknown, fallbackId?: string): ContiElement | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -61,7 +54,6 @@ function coerceElement(raw: unknown, fallbackId?: string): ContiElement | null {
   const w = CONTI_DEFAULTS.viewBoxWidth;
   const h = CONTI_DEFAULTS.viewBoxHeight;
 
-  // §5.3 #28 v1.60 — stamp 사전 검증: 카탈로그에 없는 이름은 통째로 drop
   let stampSpec: typeof STAMP_CATALOG[keyof typeof STAMP_CATALOG] | null = null;
   if (type === 'stamp') {
     const name = typeof o['stampName'] === 'string' ? (o['stampName'] as string) : '';
@@ -91,12 +83,11 @@ function coerceElement(raw: unknown, fallbackId?: string): ContiElement | null {
   if (typeof o['label'] === 'string') el.label = o['label'].slice(0, 200);
   if (typeof o['stroke'] === 'string') el.stroke = o['stroke'].slice(0, 64);
   if (typeof o['fill'] === 'string') el.fill = o['fill'].slice(0, 64);
-  // v1.59 — viewBox 320×180 표준화에 맞춰 strokeWidth/fontSize 범위 확대
+  // strokeWidth/fontSize 범위는 viewBox 320×180 기준이다.
   if (typeof o['strokeWidth'] === 'number') el.strokeWidth = clampNum(o['strokeWidth'], CONTI_DEFAULTS.defaultStrokeWidth, 1, 14);
   if (typeof o['dash'] === 'string') el.dash = o['dash'].slice(0, 32);
   if (typeof o['fontSize'] === 'number') el.fontSize = clampNum(o['fontSize'], CONTI_DEFAULTS.defaultFontSize, 8, 48);
 
-  // §5.3 #28 v1.60 — stamp 식별/variant
   if (stampSpec) {
     el.stampName = o['stampName'] as string;
     const variant = typeof o['stampVariant'] === 'string' ? (o['stampVariant'] as string) : '';
@@ -111,11 +102,8 @@ function coerceElement(raw: unknown, fallbackId?: string): ContiElement | null {
 }
 
 /**
- * §5.3 #28 v1.62 — 체크포인트에서 복원된 Conti 의 frames/elements 를 재정규화.
- *
- * 이전 버전(또는 외부 경로) 로 디스크에 박혀 있던 NaN 좌표/문자열 숫자/빠진 stamp 정보를
- * 클라이언트로 흘려보내면 `<circle r={NaN}>` 같은 SVG 오류가 매 리렌더마다 콘솔에 쌓인다.
- * 로드 시 한 번 coerceElement 를 다시 돌려서 디스크 데이터의 위생 보장.
+ * 체크포인트에서 복원한 Conti 의 frames/elements 를 다시 정규화한다.
+ * 디스크의 NaN 좌표·문자열 숫자·빠진 stamp 정보를 그대로 보내면 `<circle r={NaN}>` 같은 SVG 오류가 리렌더마다 콘솔에 쌓인다 — 로드 때 `coerceElement` 를 한 번 더 돌린다.
  */
 export function sanitizeContiOnLoad(c: Conti): Conti {
   const frames: ContiFrame[] = c.frames.map((f) => {
@@ -174,16 +162,9 @@ function extractJson(raw: string): unknown | null {
 }
 
 /**
- * Claude CLI 서브프로세스 단발 호출.
- *
- * **회고 모드는 부모 에이전트 세션에 `--resume` 으로 붙는다.** 부모가 이미 들고 있는
- * 컨텍스트(파일·tool_use 이력)를 그대로 활용하므로 호출 측에서 추가 컨텍스트 압축·재요약
- * 불필요. spawn cwd 도 부모 cwd 로 맞춘다.
- *
- * §5.13 (Q) 대본 모드만 예외로 `sessionId` 를 비운다 — 그 경우 대본 자체가 컨텍스트라
- * 부모 이력이 섞이면 오히려 장면 해석을 망친다.
- *
- * 사용자 세션 쿼터 재사용 — Anthropic SDK 직접 호출 ❌.
+ * Claude CLI 서브프로세스 단발 호출 — 사용자 세션 쿼터를 쓴다(Anthropic SDK 직접 호출 ❌).
+ * 회고 모드는 부모 에이전트 세션에 `--resume` 으로 붙는다 — 부모 컨텍스트를 그대로 쓰므로 재요약이 필요 없고, cwd 도 부모 것.
+ * §5.13 (Q) 대본 모드만 `sessionId` 를 비운다 — 대본이 곧 컨텍스트라 부모 이력이 섞이면 장면 해석을 망친다.
  */
 function callClaude(
   prompt: string,
@@ -215,6 +196,8 @@ function callClaude(
       // POSIX 한정 detached — 아래 타임아웃이 killTree 로 회수한다. 그룹 리더가 아니면 `-pid` 가
       //   ESRCH 로 실패해 claude 손자(MCP 서버·worker)가 mac/linux 에서 그대로 살아남는다.
       ...processGroupSpawnOptions(),
+      // §4 (앱 전용 엔진) ⑤ — 앱 전용 실행본이면 엔진 자체 갱신을 끈다.
+      env: claudeSpawnEnv(),
     });
 
     const timer = setTimeout(() => {
@@ -246,11 +229,7 @@ function callClaude(
   });
 }
 
-/**
- * generateConti / patchContiElement 호출 입력. 부모 세션에 resume 으로 붙으므로
- * recentEvents/recentCommands 같은 컨텍스트 재요약은 **불필요** — 부모가 이미 들고 있다.
- * agentLabel 만 prompt 에 echo 해 모델이 자기 정체성을 한 줄로 잡게 한다.
- */
+/** generateConti / patchContiElement 입력. 부모 세션에 resume 으로 붙으므로 recentEvents/recentCommands 같은 재요약은 필요 없다. agentLabel 은 프롬프트에 넣어 모델이 자기 정체성을 잡게 한다. */
 export interface ContiContextInput {
   /** 부모 에이전트의 sessionId — `claude --resume <sessionId>` 인자 */
   sessionId: string;
@@ -272,10 +251,7 @@ export interface ContiScriptInput {
   frameCount?: number;
 }
 
-/**
- * §5.3 #28 v1.60 — STAMP_CATALOG 를 LLM 프롬프트용 인라인 텍스트로 렌더.
- * 카탈로그 항목 추가/제거는 shared/constants.ts 만 수정하면 자동 반영.
- */
+/** STAMP_CATALOG 를 LLM 프롬프트용 인라인 텍스트로 렌더 — 카탈로그 항목은 shared/constants.ts 만 고치면 자동 반영된다. */
 function buildStampCatalogText(): string {
   const lines: string[] = [];
   const byCategory: Record<string, string[]> = {};
@@ -297,11 +273,8 @@ function buildStampCatalogText(): string {
 const STAMP_CATALOG_TEXT = buildStampCatalogText();
 
 /**
- * §5.13 (Q) — 두 생성 경로(작업 회고 · 대본)가 **함께 쓰는** 규칙 본문.
- *
- * 갈리는 것은 맨 앞 한 문단(무엇을 컷으로 끊느냐)뿐이고, 스탬프 카탈로그·밀도 규칙·
- * 디자인 토큰·출력 스키마·좌표계는 하나여야 한다. 두 벌로 두면 한쪽만 고쳐져
- * 같은 보드 위에 규칙이 다른 컷이 섞인다.
+ * §5.13 (Q) — 두 생성 경로(작업 회고 · 대본)가 함께 쓰는 규칙 본문. 갈리는 것은 맨 앞 한 문단(무엇을 컷으로 끊나)뿐이다.
+ * 스탬프 카탈로그·밀도·디자인 토큰·출력 스키마·좌표계는 한 벌이어야 한다 — 두 벌이면 같은 보드에 규칙이 다른 컷이 섞인다.
  */
 const CONTI_COMMON_RULES = `# STAMP-FIRST RULE (v1.60) — MANDATORY for legibility
 **ALL UI components MUST be drawn as \`stamp\` elements, NEVER as composed rect/circle/line.**
@@ -399,11 +372,8 @@ Keep titles under 70 chars and actions under 200. Do not invent details — base
 ${CONTI_COMMON_RULES}`;
 
 /**
- * §5.13 (Q) 대본 모드 — 대본을 장면 순서대로 끊는다.
- *
- * 회고 모드와 어긋나면 안 되는 것 셋을 여기서 못 박는다: **순서를 바꾸지 않는다**,
- * **대본에 없는 것을 지어내지 않는다**, **한 장면 = 한 컷**. 이 셋이 빠지면 모델이
- * 대본을 요약해 버려 사용자가 쓴 것과 다른 이야기가 보드에 올라온다.
+ * §5.13 (Q) 대본 모드 — 대본을 장면 순서대로 끊는다. 못 박는 셋: 순서를 바꾸지 않는다 · 대본에 없는 것을 지어내지 않는다 · 한 장면 = 한 컷.
+ * 빠지면 모델이 대본을 요약해 쓴 것과 다른 이야기가 보드에 오른다.
  */
 const SCRIPT_INSTRUCTIONS = `You are a storyboard artist. Convert the SCRIPT below into a comic-strip "conti".
 Each frame is a wireframe sketch inside a **320x180 (16:9)** viewBox — standard storyboard aspect.
@@ -420,11 +390,8 @@ ${CONTI_COMMON_RULES}`;
 
 
 /**
- * §5.3 #28 v1.47 — 콘티 1건 생성.
- *
- * **부모 에이전트 세션에 `claude --resume` 으로 붙어 호출한다.** 부모가 자기 작업 이력
- * (파일·tool_use·assistant 메시지 등)을 이미 들고 있으므로 별도 컨텍스트 압축 ❌.
- * 결과는 storage 로직 없이 ContiFrame[] + title 만 반환 — 호출부가 Conti 레코드 조립.
+ * §5.3 #28 — 콘티 1건 생성. 부모 에이전트 세션에 `claude --resume` 으로 붙는다(부모가 작업 이력을 들고 있어 별도 컨텍스트 압축 ❌).
+ * storage 로직 없이 ContiFrame[] + title 만 반환 — Conti 레코드 조립은 호출부.
  */
 export async function generateContiFrames(input: ContiContextInput): Promise<{ title?: string; frames: ContiFrame[] } | null> {
   const prompt = `${GENERATE_INSTRUCTIONS}\n\n---\n\nYou are agent "${input.agentLabel}". Reflect on YOUR OWN recent work in this session and emit a ${CONTI_DEFAULTS.defaultFrameCount}-frame conti as a single JSON object only.`;
@@ -432,12 +399,8 @@ export async function generateContiFrames(input: ContiContextInput): Promise<{ t
 }
 
 /**
- * §5.13 (Q) — 대본에서 콘티 1건 생성.
- *
- * **부모 세션에 붙지 않는다**(`sessionId` 없음). 대본이 곧 컨텍스트이고, 부모 세션에
- * resume 하면 그 세션의 작업 이력이 장면 해석에 섞여 사용자가 쓴 이야기가 아니라
- * 에이전트가 한 일이 그려진다. 모델·타임아웃·JSON 관용 파서·STAMP_CATALOG·좌표계는
- * 회고 모드와 **같은 것**을 그대로 쓴다.
+ * §5.13 (Q) — 대본에서 콘티 1건 생성. 부모 세션에 붙지 않는다(`sessionId` 없음) — 붙으면 그 세션의 작업 이력이 섞여 쓴 이야기가 아니라 에이전트가 한 일이 그려진다.
+ * 모델·타임아웃·JSON 관용 파서·STAMP_CATALOG·좌표계는 회고 모드와 같은 것을 쓴다.
  */
 export async function generateContiFramesFromScript(
   input: ContiScriptInput,
@@ -456,12 +419,7 @@ export async function generateContiFramesFromScript(
   return runContiPrompt(prompt, { cwd: input.cwd }, 'script');
 }
 
-/**
- * 프롬프트 1회 실행 + 모델 폴백 + 응답 정규화.
- *
- * 두 생성 경로가 이 함수 하나를 쓰기 때문에 "빈 frames 면 다음 모델로 내려간다" 같은
- * 판정이 한 벌만 존재한다.
- */
+/** 프롬프트 1회 실행 + 모델 폴백 + 응답 정규화. 두 생성 경로가 이 함수 하나를 써서 "빈 frames 면 다음 모델로" 같은 판정이 한 벌만 있다. */
 async function runContiPrompt(
   prompt: string,
   opts: { sessionId?: string; cwd: string },
@@ -493,9 +451,8 @@ async function runContiPrompt(
 }
 
 /**
- * §5.3 #28 v1.62 — patch sub-agent 가 받을 룰. tmpdir 안에 REQUEST.md 로 저장된다.
- * - 도구는 Read/Edit 만 허용되고 cwd 는 격리된 tmpdir → 다른 파일/네트워크/Bash 다 차단.
- * - 모델은 직접 element.json 을 Edit. 우리는 응답 텍스트가 아니라 파일을 다시 읽어 검증한다.
+ * §5.3 #28 — patch sub-agent 규칙(tmpdir 안 REQUEST.md 로 저장). 도구는 Read/Edit 만, cwd 는 격리된 tmpdir — 다른 파일·네트워크·Bash 는 막힌다.
+ * 모델이 element.json 을 직접 Edit 하고, 우리는 응답 텍스트가 아니라 그 파일을 다시 읽어 검증한다.
  */
 const PATCH_REQUEST_RULES = `# Element patch task
 
@@ -524,10 +481,11 @@ The file \`element.json\` in this directory is an SVG-like primitive used in a c
 ${STAMP_CATALOG_TEXT}
 `;
 
-/** 일회용 patch sub-agent 1회 실행. tmpdir 안에서 element.json 을 직접 Edit 한다.
- *  - prompt 는 positional 한 줄로 — Windows shell 인자 mangling 회피.
- *  - shell:false — claudeBin 은 절대 .exe 경로라 shell 거칠 필요 없음. shell 거치면 newline/quote 처리 깨짐.
- *  - 자세한 규칙은 cwd/REQUEST.md 로 분리. */
+/**
+ * 일회용 patch sub-agent 1회 실행(tmpdir 안에서 element.json 을 Edit).
+ *  - prompt 는 positional 한 줄 — Windows shell 인자 mangling 회피. 자세한 규칙은 cwd/REQUEST.md.
+ *  - shell:false — claudeBin 은 절대 경로라 shell 이 필요 없다. 거치면 newline/quote 처리가 깨진다.
+ */
 function runPatchAgent(tmpdir: string, userPrompt: string, model: string): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     let settled = false;
@@ -551,6 +509,7 @@ function runPatchAgent(tmpdir: string, userPrompt: string, model: string): Promi
       cwd: tmpdir,
       // callClaude 와 같은 사유 — POSIX 그룹 리더로 띄워야 아래 killTree 가 손자까지 회수한다.
       ...processGroupSpawnOptions(),
+      env: claudeSpawnEnv(),
     });
     const timer = setTimeout(() => {
       logger.warn(`contiManager.patch: timeout (model=${model}), killing claude`);
@@ -579,9 +538,8 @@ function runPatchAgent(tmpdir: string, userPrompt: string, model: string): Promi
 }
 
 /**
- * §5.3 #28 v1.62 — 단일 element 패치 (harness sub-agent 방식).
- *   - tmpdir 격리 + Read/Edit 만 허용 + 부모 세션 미부착 → 결정성/속도/안전성.
- *   - 결과: 교체될 element 1개 (id 는 기존 유지). 실패 시 null.
+ * §5.3 #28 — 단일 element 패치(harness sub-agent 방식): tmpdir 격리 + Read/Edit 만 + 부모 세션 미부착 → 결정성·속도·안전성.
+ * 결과는 교체할 element 1개(id 는 기존 유지), 실패 시 null.
  */
 export async function patchContiElement(
   current: ContiElement,
@@ -647,7 +605,7 @@ export function createEmptyConti(agentId: string): Conti {
     agentId,
     createdAt: now,
     updatedAt: now,
-    workId: '', // §5.3 #28 (L) v1.58 — bootstrap 은 작업이 아니므로 빈 workId. 첫 실제 응답이 들어오면 신규로 분기됨.
+    workId: '', // §5.3 #28 (L) — bootstrap 은 작업이 아니라 빈 workId. 첫 실제 응답이 오면 새 작업으로 갈린다.
     title: '(empty)',
     frames: [
       {
@@ -689,11 +647,7 @@ export const contiId = {
   element: () => rid('el'),
 };
 
-/**
- * §5.3 #28 (K) v1.48 — 콘티 모드 에이전트의 응답 텍스트를 conti 페이로드로 파싱.
- * 코드펜스/잡설을 관용적으로 무시하고 첫 `{`~마지막 `}` 슬라이스 → JSON.parse → frames 정규화.
- * 실패 시 null 반환(호출부가 무시).
- */
+/** §5.3 #28 (K) — 콘티 모드 에이전트의 응답 텍스트 → conti 페이로드. 코드펜스·잡설은 무시하고 첫 `{`~마지막 `}` 를 JSON.parse → frames 정규화. 실패하면 null(호출부가 무시). */
 export function parseContiResponse(raw: string): { title?: string; frames: ContiFrame[] } | null {
   if (!raw || typeof raw !== 'string') return null;
   const parsed = extractJson(raw);

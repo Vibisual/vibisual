@@ -1,20 +1,6 @@
 /**
- * uiLabelReference.test.ts — **다른 화면의 라벨 이름을 번역문에 박지 않는다.**
- *
- * 안내문이 "옵션 창의 엔진 칸에서 켜세요" 처럼 **다른 화면을 가리킬** 때가 있다. 그때 그 화면의
- * 이름을 문장 안에 글자로 박으면, 그 라벨은 12개 로케일에서 각자 번역되는데 안내문만 따라가지
- * 못한다 — 화면에는 `옵션 > 엔진` 이라고 떠 있는데 안내문은 `Options > Engines` 를 찾아가라고
- * 말한다. 사용자는 그런 항목을 찾지 못한다.
- *
- * 실제로 한 번 그렇게 났다(2026-09-07, 코덱스 훅 안내문). 번역 지시에 "Options·Engines 는 영문
- * 그대로"라고 적었는데, 그 둘은 고유명사가 아니라 **우리가 번역하는 우리 라벨**이었다.
- * 고유명사(Codex · AGENTS.md · git · OpenAI)와 우리 라벨은 다르게 다뤄야 한다.
- *
- * 그래서 규약을 못 박는다: 다른 화면을 가리키는 문장은 **보간 자리만** 갖고, 실제 이름은
- * 컴포넌트가 `t(라벨키)` 로 넣는다. 라벨 번역이 나중에 바뀌어도 안내문이 저절로 따라온다.
- *
- * 구조 검사(키 개수·변수 일치)로는 이 결함이 **잡히지 않는다.** 12개 로케일이 전부 "제대로 된"
- * 문장을 갖고 있고, 다만 그 문장이 가리키는 곳이 화면에 없을 뿐이기 때문이다.
+ * **다른 화면의 라벨 이름을 번역문에 박지 않는다** — 라벨은 로케일마다 번역되는데 박힌 글자(`Options > Engines`)는 따라가지 못한다.
+ * 문장은 보간 자리만, 이름은 컴포넌트가 `t(라벨키)` 로. 고유명사(Codex · AGENTS.md · git · OpenAI)는 다르다. 구조 검사로는 안 잡힌다.
  */
 import { describe, it, expect } from 'vitest';
 import { SUPPORTED_UI_LOCALES } from '@vibisual/shared';
@@ -60,6 +46,19 @@ const LABEL_REFERENCES: readonly LabelReference[] = [
     key: 'canvas.appWork.foldedHint',
     slots: { label: 'canvas.bubbleMenu.lensFiles' },
     forbidden: ['Focus on work files'],
+  },
+  // §4 (앱 전용 엔진) — Version 탭 업데이트 칸의 "자동 업데이트 꺼짐" 안내 둘(Claude Code · Codex). 바로 아래 단추
+  // ([지금 업데이트])를 가리키는데, 그 단추 이름도 로케일마다 번역되므로 단추 라벨에서 받아 적는다.
+  ...(['claudeAutoUpdate', 'codexAutoUpdate'] as const).map((section): LabelReference => ({
+    key: `panel.options.version.${section}.offHint`,
+    slots: { updateNow: 'panel.options.version.claudeAutoUpdate.updateNow' },
+    forbidden: ['Update now'],
+  })),
+  {
+    // §4 (앱 전용 엔진) ⑨ — 앱 관리형 사본을 받지 못했을 때의 안내. 아래 업데이트 칸의 [지금 업데이트]를 가리킨다.
+    key: 'panel.options.version.pending.tryNow',
+    slots: { updateNow: 'panel.options.version.claudeAutoUpdate.updateNow' },
+    forbidden: ['Update now'],
   },
   // §5.13 (AA) 42-5 — 대기열의 멈춘 줄 안내 셋. 누를 단추([지금 시작])의 이름도 로케일마다 번역되므로 그 라벨에서 받아 적는다.
   ...(['held_user', 'held_missed', 'held_interrupted'] as const).map((held): LabelReference => ({
@@ -158,10 +157,7 @@ const LABEL_REFERENCES: readonly LabelReference[] = [
     forbidden: ['Extended thinking', 'Agent Settings', 'Options', 'Agent Defaults'],
   },
   {
-    // §5.10 (P) — 가이드의 「절차 감지」 절, 켜는 법. 3층 스위치가 있는 자리가 활동바의 그 칸
-    // 하나뿐이라 문장이 그리로 보내는데, 칸 이름도 12 로케일에서 각자 번역된다. 이 칸은 한때
-    // `목표` 뷰 안에 있었고 그 시절 문장이 "Goal view" 를 글자로 박고 있었다 — 칸이 갈린 지금
-    // 그 이름을 그대로 두면 없는 곳으로 보내게 되므로, 둘 다 금지어로 잠근다.
+    // §5.10 (P) — 가이드 「절차 감지」 켜는 법. 스위치는 활동바의 그 칸에만 있고 칸 이름도 번역되므로, 지금 이름과 옛 자리 이름("Goal view") 둘 다 금지어로 잠근다.
     key: 'panel.guide.autoGoal.turnOnD',
     slots: { procedures: 'ide.activityBar.autoGoal' },
     forbidden: ['Procedure detection', 'Goal view'],
@@ -212,10 +208,7 @@ const LABEL_REFERENCES: readonly LabelReference[] = [
     forbidden: ['Options'],
   },
   {
-    // §5.3 #10-4 — 오케스트라의 "멤버가 태어날 때 받는 도구" 선택지. 이름은 에이전트 설정창의
-    // 도구 템플릿 이름을 그대로 받아 적는다(같은 것을 두 이름으로 부르면 사용자가 못 잇는다).
-    // 슬롯 대상은 템플릿마다 달라지므로 대표로 `review` 하나를 건다 — 이름 묶음이 한 자리에
-    // 있어서, 그 하나가 로케일에 있으면 나머지도 같이 있다.
+    // §5.3 #10-4 — 오케스트라 멤버 도구 선택지. 이름은 설정창 도구 템플릿 이름을 그대로 받는다. 슬롯은 대표 `review` 하나 — 이름 묶음이 한 자리라 하나가 있으면 나머지도 있다.
     key: 'ide.orchestra.member.toolsOption',
     slots: { name: 'panel.agentConfig.toolTemplate.review.name' },
     forbidden: ['Read-only', 'Review & verify', 'Web research', 'Docs writing', 'Implementation', 'Orchestrator'],

@@ -39,15 +39,10 @@ describe('buildCliInvocation', () => {
 
 /**
  * §보안 감사 2026-09-09 — cmd 명령 주입 회귀.
- *
- * 종전 `quoteForShell` 은 `[\s&|<>^]` 이 **없는** 값(예: `"` 하나뿐인 모델명)을 그대로 흘려
- * 보냈다. 그 `"` 가 cmd 의 인용 상태를 뒤집으면 뒤따르는 인자에서 따옴표로 감싼 `&` 가 인용
- * **밖**으로 나와 실행됐다 — `.cmd` shim 을 세워 실제 실행까지 확인한 건이다.
- *
- * 공격 인자는 `PUT /api/agent-config/:agentId` 의 `modelId`·`reasoningEffort` 로 들어와
- * `codexRunner.buildCodexExecArgs` 를 그대로 통과했다(`-m <model> … -c model_reasoning_effort=<effort>`).
+ * `[\s&|<>^]` 이 없는 값(예: `"` 하나뿐인 모델명)을 그대로 흘리면 그 `"` 가 cmd 인용 상태를 뒤집어, 뒤 인자의 따옴표 속 `&` 가 인용 밖에서 실행된다(`.cmd` shim 으로 실행까지 확인).
+ * 공격 인자는 `PUT /api/agent-config/:agentId` 의 `modelId`·`reasoningEffort` 로 들어와 `codexRunner.buildCodexExecArgs` 를 그대로 통과한다.
  */
-describe('buildCliInvocation — cmd 명령 주입 회귀(2026-09-09)', () => {
+describe('buildCliInvocation — cmd 명령 주입 회귀', () => {
   /** cmd 가 `^` 를 한 겹 벗기는 것을 흉내 낸다. `.cmd` shim 은 `%*` 재전개로 이 일을 두 번 한다. */
   const stripOneCaretLayer = (s: string): string => {
     let out = '';

@@ -1,11 +1,6 @@
 import type { FileFaceFamily, FileFaceKind } from '@vibisual/shared';
 
-/**
- * §5.1 #2-1 (A) — 파일 얼굴의 **종류 글리프**. lucide 톤 stroke 한 획(이모지 ❌ — CLAUDE.md UI 아이콘 규칙).
- *
- * 경로는 lucide(ISC 라이선스) 아이콘의 획을 그대로 옮긴 것이다 — 미디어 넷은 앱 레지스트리·구슬 줄이 이미 쓰는 획과
- * **같은 그림**이라 같은 종류는 캔버스 어디서 보든 같은 모양이다(영상 = 재생 화면 · 사진 = 액자 · 소리 = 파형 · 3D = 정육면체).
- */
+/** §5.1 #2-1 (A) — 종류 글리프. lucide(ISC 라이선스) 획을 옮겼다 — 앱 레지스트리·구슬 줄과 같은 그림이라 같은 종류는 어디서든 같은 모양이다. */
 const KIND_GLYPH_PATHS: Readonly<Record<FileFaceKind, string>> = {
   video: 'M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM10 9l5 3-5 3z',
   image: 'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM9 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM21 15l-3.1-3.1a2 2 0 0 0-2.8 0L6 21',
@@ -56,11 +51,7 @@ function ring(cx: number, cy: number, r: number): string {
   return `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${r * 2} 0a${r} ${r} 0 1 0 ${-r * 2} 0`;
 }
 
-/**
- * §5.1 #2-1 (G) ⑤ — **갈래 아이콘**. 미리보기가 없을 때(굽지 않는 형식 · 성능 기준이 막았을 때 · 굽는 중) 그 파일이 무엇인지
- * 말한다. 우리가 그린 stroke 획이다(24 격자 · lucide 톤 · 이모지 ❌ · 남의 브랜드 로고 ❌). 기본 갈래(종류와 같은 이름)는 위의
- * 종류 글리프를 그대로 쓴다 — 같은 종류는 캔버스 어디서 보든 같은 모양이다.
- */
+/** §5.1 #2-1 (G) ⑤ — 갈래 아이콘: 미리보기가 없을 때(굽지 않는 형식·성능 기준·굽는 중) 무엇인지 말한다. 직접 그린 획(남의 로고 ❌). 기본 갈래는 종류 글리프를 쓴다. */
 const FAMILY_GLYPH_PATHS: Readonly<Record<Exclude<FileFaceFamily, FileFaceKind>, string>> = {
   // 영상 — 카메라 RAW·날 스트림(영화 카메라) · 모션 그래픽(튀는 공의 궤적) · 편집 원본(슬레이트)
   videoRaw: `M3 9h11a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1zM15 12l6-3v10l-6-3${ring(5.5, 5.5, 2.5)}${ring(11.5, 5.5, 2.5)}`,

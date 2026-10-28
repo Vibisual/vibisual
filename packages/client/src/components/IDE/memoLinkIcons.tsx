@@ -1,11 +1,6 @@
 import type { SessionMemoLinkKind } from '@vibisual/shared';
 
-/**
- * memoLinkIcons.tsx — §5.5 #17-36 ⑫ 메모 링크가 쓰는 글리프 한 벌(lucide 톤 인라인 stroke SVG).
- *
- * 메뉴(종류 목록)·링크 상자·입력 창이 **같은 그림**을 써야 "이 줄이 저 종류"가 눈으로 이어진다 —
- * 자리마다 따로 그리면 하나만 바뀌는 날이 온다. 색은 `currentColor` 라 부모 글자색을 따른다.
- */
+/** §5.5 #17-36 ⑫ — 메모 링크 글리프 한 벌(lucide 톤 stroke SVG, `currentColor`) — 메뉴·링크 상자·입력 창이 같은 그림을 쓴다. */
 
 export type MemoLinkIconName =
   | 'link' | 'unlink' | 'follow' | 'repick' | 'pick' | 'prompt'

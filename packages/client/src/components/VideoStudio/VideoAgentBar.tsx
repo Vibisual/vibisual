@@ -4,12 +4,8 @@ import { IME_ENTER_OWNER, isComposingKeyEvent } from '../../utils/inputCompositi
 import { useEnterSubmit } from '../../hooks/useEnterSubmit.js';
 
 /**
- * §5.13 (G) — 스튜디오의 **AI 와 말하는 줄**(종전 "에이전트 선택 + 이 컷 맡기기" 를 대체).
- *
- * 사용자는 보면서 고치고, 고칠 점을 AI 에게 말한다. 받는 에이전트는 이 문서에 묶인 노드에 이어진 에이전트가 먼저다(없으면
- * 프로젝트의 커스텀 에이전트 중에서 고른다). 보낼 때 지금 문서·재생 위치·고른 아이템·붙인 소재가 함께 실린다(문맥 블록 —
- * `studioAgentMessage.ts`). 붙이기는 그림·영상·소리를 **문서의 소재로** 들인다(자리 배치는 AI 가 한다). 에이전트가 고친 것은
- * 스튜디오가 저절로 다시 읽는다. 전송은 기존 명령 큐 하나다(새 전송 경로 ❌).
+ * §5.13 (G) — AI 와 말하는 줄. 받는 쪽은 이 문서 노드에 이어진 에이전트가 먼저(없으면 커스텀 중에서). 문맥 블록은 `studioAgentMessage.ts`.
+ * 붙인 것은 문서 소재로 들인다. 전송은 기존 명령 큐 하나(새 경로 ❌).
  */
 export interface VideoAgentBarAgent {
   readonly id: string;

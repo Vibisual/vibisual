@@ -11,11 +11,7 @@ import type { CompositionInspectorActions } from './VideoInspectorComposition.js
 import { itemKindKey } from './kindLabels.js';
 import { memoLatest } from './studioMemo.js';
 
-/**
- * §5.13 (V) 37-5 — **값 카드**: AI 패널 맨 위에 고른 것이 있을 때만 선다. 값을 손으로 바꾸거나(종류별 손잡이 — 바꾸는 즉시
- * 미리보기가 바뀐다) 아래 입력창으로 AI 에게 말하거나 — 한자리. 코드 컴포지션은 시각 맞춤 방식·검사 결과를 사람 말로
- * '코드 정보' 에, JSON 칸은 '고급' 에 접어 둔다(코드 이름을 그대로 내보이지 않는다). 전체 인스펙터는 [정밀 편집]에 있다.
- */
+/** §5.13 (V) 37-5 — 값 카드(고른 것이 있을 때만). 코드 컴포지션은 사람 말 '코드 정보' 와 '고급'(JSON)에 접는다 — 코드 이름을 그대로 내보이지 않는다. */
 export interface ValueCardProps {
   readonly doc: VideoDoc;
   readonly resolved: ResolvedItem;

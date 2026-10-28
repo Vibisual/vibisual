@@ -2,19 +2,10 @@ import { CODEX_MCP_CALL_DEADLINE_MS } from '@vibisual/shared';
 import type { CodexMappedEvent } from './codexStreamMap.js';
 
 /**
- * §5.25 (F) — **짝을 못 찾은 코덱스 도구 호출의 미결 원장.**
- *
- * 왜 필요한가(2026-09-20 사용자 보고). MCP 서버가 `CONNECT_TIMEOUT` 으로 죽자 코덱스는
- * `item.started` 한 줄만 남기고 조용해졌다. `codexStreamMap` 은 순수 매퍼라 "시작만 오고 끝이
- * 안 온 호출"을 기억하지 못하고, 화면의 도구 카드는 **영원히 도는 중**으로 남았다. 그 카드 하나
- * 때문에 사용자는 턴이 멈춘 것인지 도는 것인지 구분할 수 없었다.
- *
- * 판정은 매퍼 밖 이 자리에 둔다 — 매퍼는 줄 하나만 보고 답하는 순수 함수로 남아야 테스트가
- * 값싸고, 상태는 턴 하나의 수명(`attachCodexTurn`)과 정확히 같은 생애를 가진다.
- *
- * **시한을 거는 대상은 `awaitsResult` 가 선 호출뿐이다.** 완료 줄이 원래 없는 도구
- * (`web_search`)나 한 시간을 정상으로 도는 도구(`command_execution`)에 시한을 걸면 멀쩡한
- * 호출이 실패로 물든다.
+ * §5.25 (F) — 짝을 못 찾은 코덱스 도구 호출의 미결 원장.
+ * MCP 서버가 죽으면(`CONNECT_TIMEOUT`) 코덱스는 `item.started` 만 남기고 조용해져, 도구 카드가 영원히 "도는 중"으로 남는다.
+ * 판정은 매퍼 밖 여기에 둔다 — `codexStreamMap` 은 줄 하나만 보는 순수 함수로 남아야 시험이 값싸고, 상태 수명은 턴 하나(`attachCodexTurn`)와 같다.
+ * 시한은 `awaitsResult` 가 선 호출에만 건다 — 완료 줄이 없는 도구(`web_search`)나 한 시간 도는 도구(`command_execution`)에 걸면 멀쩡한 호출이 실패로 물든다.
  */
 export interface CodexPendingCallLedger {
   /** 흘러가는 이벤트를 한 번씩 보여 준다 — `tool_use` 는 등록, `tool_result` 는 해제. */

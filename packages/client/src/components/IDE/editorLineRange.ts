@@ -1,13 +1,4 @@
-/**
- * editorLineRange.ts — §5.5 #17-27 ⑬ (g) "이 파일을 이 줄 범위로 연다"의 **순수 계산**.
- *
- * 본문 링크(`[X.h:806-807](…/X.h#L806-L807)`)·오류 줄(#17-20 ⑪)이 들고 온 줄 번호는, 편집창이 그 파일을
- * 다 읽기 전까지 파일이 몇 줄인지 모른다. 그래서 일이 둘로 갈린다 — 여는 쪽은 **모양만** 바로 세우고
- * (`lineRangeOf`), 편집창은 본문을 다 읽은 뒤 **길이에 맞춘다**(`clampLineRange`).
- *
- * 화면·통신을 섞지 않은 이유는 `editorFollow.ts` 와 같다 — 엉뚱한 줄로 가는 사고는 눈으로 잡기 어렵고,
- * 단위 테스트가 훨씬 촘촘히 잡는다.
- */
+/** §5.5 #17-27 ⑬ (g) 줄 범위로 열기(순수). 여는 쪽은 길이를 몰라 모양만 세우고(`lineRangeOf`), 편집창이 읽은 뒤 길이에 맞춘다(`clampLineRange`). */
 
 /** 1-based, 양끝 포함. `start <= end` 가 늘 성립한다. */
 export interface EditorLineRange {
@@ -19,11 +10,7 @@ function isLineNumber(n: number): boolean {
   return Number.isSafeInteger(n) && n >= 1;
 }
 
-/**
- * 줄 번호 둘을 범위로 세운다. 1 미만이거나 정수가 아니면 줄이 아니므로 null.
- * 끝이 없거나 쓸 수 없으면 한 줄이고, 거꾸로 적혔으면(`#L51-L42`) 바로 세운다 —
- * 에이전트가 적은 순서보다 가리키는 자리가 중요하다.
- */
+/** 1 미만·정수 아님이면 null. 끝이 없으면 한 줄, 거꾸로면(`#L51-L42`) 바로 세운다 — 적은 순서보다 가리키는 자리가 중요하다. */
 export function lineRangeOf(start: number, end?: number | null): EditorLineRange | null {
   if (!isLineNumber(start)) return null;
   const last = end === undefined || end === null || !isLineNumber(end) ? start : end;
@@ -40,10 +27,7 @@ export function countTextLines(text: string): number {
   return count;
 }
 
-/**
- * 파일 길이에 맞춘다. 끝 줄이 파일 끝을 넘으면 끝에서 자르고, 첫 줄부터 넘으면 null —
- * 그때는 **열기만** 한다(없는 줄로 끌고 가지 않는다 — #17-27 ⑪ (c) 와 같은 규율).
- */
+/** 끝 줄이 넘으면 끝에서 자르고, 첫 줄부터 넘으면 null — 열기만 한다(#17-27 ⑪ (c) 와 같은 규율). */
 export function clampLineRange(range: EditorLineRange, lineCount: number): EditorLineRange | null {
   if (range.start > lineCount) return null;
   return { start: range.start, end: Math.min(range.end, lineCount) };

@@ -1,9 +1,4 @@
-/**
- * streamSearch.test.ts — 인-페이지 검색(Ctrl+F)이 **본문 텍스트만** 훑는지 못박는다.
- *
- * 회귀 방지 지점: 명령창(사용자 프롬프트)·도구 입출력·시스템 줄·계획·결과·오류가 다시 검색에
- * 걸리기 시작하면(넓히는 쪽으로의 회귀), 사용자가 찾던 문장 대신 그 앞의 도구 출력으로 끌려간다.
- */
+/** 인-페이지 검색이 본문 텍스트만 훑는지 고정한다(명령창·도구 입출력이 걸리면 찾던 문장 대신 도구 출력으로 끌려간다). */
 import { describe, it, expect } from 'vitest';
 import { isFindableTextKind, streamItemFindText, findTextMatches } from './streamSearch.js';
 import type { StreamDisplayItem } from './streamDensity.js';

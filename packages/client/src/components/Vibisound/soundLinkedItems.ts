@@ -1,10 +1,4 @@
-/**
- * soundLinkedItems.ts — §5.4 #36 (H) ③ 소리 노드의 **"연결된 것"** — 노드 아래 구슬 줄에 꿸 원본 소리들.
- *
- * 소리 문서는 원본 소리(`assets`)를 잘라 트랙에 놓아 만든다. 그 원본들이 "이 소리는 무엇으로 만들어졌나"이고, 노드가
- * 묶은 문서(`ref` — 노드에서 연 창이 문서를 고르면 묶인다)가 있을 때만 뜬다. 결과 파일만 담긴 노드에는 띄울 것이 없다.
- * 앱 REST 의 `project` 는 소리 창(`VibisoundShell`)과 같은 값 — 프로젝트 루트 경로다.
- */
+/** §5.4 #36 (H) ③ — 소리 노드 구슬 줄 = 문서의 원본 소리(`assets`). 묶인 문서(`ref`)가 있을 때만. REST 의 `project` 는 `VibisoundShell` 과 같은 프로젝트 루트 경로. */
 
 import type { AudioDoc } from '@vibisual/audio';
 

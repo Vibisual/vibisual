@@ -1,15 +1,6 @@
 /**
- * IDEPluginsView.tsx — §5.5 #17-33: Claude Code 자신의 플러그인을 보고, 켜고, 마켓에서 가져온다.
- *
- * **우리 관측 플러그인(§5.11 `packages/plugins`)과 다른 물건이다.** 그쪽은 Vibisual 이 만든
- * 것이고 여기는 명령·에이전트·스킬·훅·MCP 를 한 묶음으로 배포하는 Claude Code 의 그 단위다.
- *
- * 화면이 지키는 것 넷:
- *   ① **어디에 매여 있는지 말한다** — 글로벌 / 이 프로젝트 / **다른 프로젝트**를 갈라 세운다.
- *      다른 프로젝트 것을 숨기면 "깔았는데 왜 없지" 가 되고, 섞으면 "왜 안 먹지" 가 된다.
- *   ② **켜짐과 깔림은 다르다** — 깔려 있어도 꺼져 있으면 아무 일도 안 한다(실측 7개가 전부 꺼져 있었다).
- *   ③ **마켓이 같은 창에 있다** — 없는 것을 찾으러 터미널로 나가지 않는다.
- *   ④ **바꾸는 일은 전부 CLI 에 위임한다** — 우리가 설치 상태 파일을 흉내 내면 CLI 와 두 갈래로 갈린다.
+ * IDEPluginsView.tsx — §5.5 #17-33 Claude Code 플러그인(명령·에이전트·스킬·훅·MCP 묶음 — §5.11 관측 플러그인과 다른 것)을 보고·켜고·가져온다.
+ * ① 글로벌·이 프로젝트·다른 프로젝트를 가른다 ② 켜짐 ≠ 깔림 ③ 마켓도 이 창 ④ 바꾸기는 전부 CLI 위임(설치 상태 파일 흉내 ❌ — CLI 와 갈린다).
  */
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -45,10 +36,7 @@ const PLACEMENT_TONE: Record<ClaudePluginPlacement, string> = {
 /** 마켓 목록에서 한 번에 그리는 수 — 277개를 통째로 그리면 사이드바가 굳는다. */
 const MARKET_PAGE = 40;
 
-/**
- * 갈래 칩 색(#17-42 ⑤) — 자리 칩과 같은 규약. `custom` 은 **칩을 달지 않는다**:
- * 사용자가 직접 붙인 곳은 아무도 보증하지 않으므로, 없는 보증을 색으로 주지 않는다.
- */
+/** 갈래 칩 색(#17-42 ⑤) — `custom` 은 칩 ❌(아무도 보증하지 않는 곳에 색으로 보증을 주지 않는다). */
 const MARKET_KIND_TONE: Record<Exclude<ClaudeMarketplaceKind, 'custom'>, string> = {
   official: 'bg-indigo-500/15 text-indigo-300',
   community: 'bg-amber-500/15 text-amber-300',
@@ -84,16 +72,9 @@ export const IDEPluginsView = memo(function IDEPluginsView({ agentId: _agentId }
   /** 설치·추가가 어느 범위로 갈지 — 사용자가 고르게 둔다(기본은 CLI 와 같은 `user`). */
   const [installScope, setInstallScope] = useState<ClaudePluginScope>('user');
   const [marketSource, setMarketSource] = useState('');
-  /**
-   * 고른 마켓(#17-42 ①②) — `null` 이면 전체. 마켓이 하나뿐일 때는 이 값이 늘 `null` 이라
-   * 예전 화면과 똑같이 보인다(붙이지 않은 사용자에게 없던 단계가 생기지 않는다).
-   */
+  /** 고른 마켓(#17-42 ①②) — `null` 이면 전체. 마켓이 하나뿐이면 늘 `null` 이라 고르는 단계가 생기지 않는다. */
   const [marketFilter, setMarketFilter] = useState<string | null>(ALL_MARKETS);
-  /**
-   * §5.5 #17-33 ⑦ — 자동 갱신 설정. 서버 `AppState`(머신 단위)가 진실이고 여기서는 비추기만 한다.
-   * `null` 이면 아직 못 읽은 상태 — 그때는 토글을 그리지 않는다(기본값을 화면이 지어내면
-   * 사용자가 꺼 둔 것이 켜진 것처럼 보인다).
-   */
+  /** §5.5 #17-33 ⑦ — 자동 갱신 설정(진실은 서버 `AppState`). `null` = 아직 못 읽음 — 토글을 그리지 않는다(기본값을 지어내면 꺼 둔 것이 켜져 보인다). */
   const [refresh, setRefresh] = useState<ClaudePluginRefreshState | null>(null);
 
   /** 목록 조회 — 서버가 매번 CLI 에 다시 묻는다. 이 호출 하나가 곧 새로고침이다. */
@@ -140,19 +121,13 @@ export const IDEPluginsView = memo(function IDEPluginsView({ agentId: _agentId }
   // 검색어·고른 마켓이 바뀌면 다시 처음부터 — 안 그러면 이전 페이지 수만큼만 걸러 보인다.
   useEffect(() => { setShown(MARKET_PAGE); }, [query, tab, marketFilter]);
 
-  /**
-   * 고른 마켓이 사라지면 선택을 푼다(#17-42 ②).
-   * 그 마켓을 제거했는데 필터만 남으면 화면이 영영 비어 "플러그인이 없다" 고 거짓말한다.
-   */
+  /** 고른 마켓이 사라지면 선택을 푼다(#17-42 ②) — 필터만 남으면 "플러그인이 없다"고 거짓말한다. */
   useEffect(() => {
     if (marketFilter === ALL_MARKETS || !inventory) return;
     if (!inventory.marketplaces.some((m) => m.name === marketFilter)) setMarketFilter(ALL_MARKETS);
   }, [inventory, marketFilter]);
 
-  /**
-   * 바꾸는 일 — 다섯 동작이 전부 CLI 위임이라 창구도 하나다(④).
-   * 설치는 git clone 을 타 몇십 초가 걸릴 수 있으므로 그동안 그 줄만 잠근다.
-   */
+  /** 바꾸기 창구 하나(다섯 동작 모두 CLI, ④). 설치는 git clone 으로 몇십 초라 그 줄만 잠근다. */
   const act = useCallback(
     (busyKey: string, body: Record<string, unknown>) => {
       if (!rootPath) return;
@@ -193,19 +168,13 @@ export const IDEPluginsView = memo(function IDEPluginsView({ agentId: _agentId }
     [inventory],
   );
 
-  /**
-   * §5.5 #17-33 ⑦ — 뒤처진 설치본 수. **서버가 새긴 표식을 세기만 한다** — 판정은 shared
-   * `pluginsNeedingUpdate` 한 곳이고, 화면이 따로 견주면 적어 둔 수와 실제로 올라가는 것이 어긋난다.
-   */
+  /** §5.5 #17-33 ⑦ — 뒤처진 설치본 수 — 서버 표식을 세기만 한다(판정은 shared `pluginsNeedingUpdate` 하나, 따로 견주면 어긋난다). */
   const outdated = useMemo(
     () => (inventory?.installed ?? []).filter((p) => p.updateAvailable && p.placement !== 'other-project'),
     [inventory],
   );
 
-  /**
-   * 고른 마켓 안의 전부(#17-42 ③) — 검색으로 좁히기 **전** 수다.
-   * "몇 개 중 몇 개를 보는지" 를 적으려면 이 수가 있어야 한다.
-   */
+  /** 고른 마켓 안의 전부(#17-42 ③) — 검색으로 좁히기 전 수("N개 중 M개"의 N). */
   const scopedMarket = useMemo(() => {
     const list = inventory?.market ?? [];
     return marketFilter === ALL_MARKETS ? list : list.filter((p) => p.marketplace === marketFilter);
@@ -222,10 +191,7 @@ export const IDEPluginsView = memo(function IDEPluginsView({ agentId: _agentId }
     );
   }, [scopedMarket, query]);
 
-  /**
-   * 아직 안 붙은 알려진 마켓(#17-42 ④) — 주소를 외워 치게 하지 않는다.
-   * 실측상 Claude Code 가 스스로 붙이는 것은 공식 하나뿐이라, 커뮤니티는 늘 여기 뜬다.
-   */
+  /** 안 붙은 알려진 마켓(#17-42 ④) — 주소를 외워 치지 않게. 실측: Claude Code 가 스스로 붙이는 것은 공식 하나뿐이다. */
   const suggestions = useMemo(
     () => suggestedMarketplaces(inventory?.marketplaces ?? []),
     [inventory],
@@ -279,14 +245,8 @@ export const IDEPluginsView = memo(function IDEPluginsView({ agentId: _agentId }
         ))}
       </div>
 
-      {/*
-        §5.5 #17-33 ⑦ — 갱신 줄. **이 줄이 없어서 병목이 있었다.**
-        마켓 클론은 누가 `marketplace update` 를 부르기 전까지 영영 그대로인데, 앱에는 그것을 부를
-        자리도, 언제 끌어왔는지 적힌 자리도 없었다(실측 36일 정지). 그래서 여기 셋을 함께 세운다:
-        **언제 끌어왔나 · 지금 끌어오기 · 앞으로 알아서 끌어오기**.
-        머리의 새로고침(목록 다시 묻기)과는 다른 일이라 단추를 따로 둔다 — 새로고침은 461ms 이고
-        이쪽은 git 을 타 몇십 초가 걸린다. 같은 단추에 묶으면 목록 한 번 보려다 몇십 초를 문다.
-      */}
+      {/* §5.5 #17-33 ⑦ — 갱신 줄(언제 끌어왔나·지금·자동). 마켓 클론은 `marketplace update` 전까지 그대로다(실측 36일 정지).
+         새로고침(461ms)과 단추를 가른다 — 이쪽은 git 으로 몇십 초. */}
       {!inventory?.unavailable && (
         <div className="flex flex-col gap-1 border-b border-gray-700/60 px-2 py-1.5">
           <div className="flex items-center gap-1.5">
@@ -632,8 +592,7 @@ function InstalledRow({
           <span className="mt-0.5 block truncate text-[12px] text-gray-500" title={entry.marketplace}>
             {entry.marketplace}
             {entry.version && entry.version !== 'unknown' && ` · v${entry.version}`}
-            {/* §5.5 #17-33 ⑦ — 새 판이 있으면 **여기서 바로 보인다**. 종전에는 뒤처졌다는 사실이
-                앱 어디에도 없어, 사용자가 터미널로 나가 `plugin update` 를 쳐 봐야 알 수 있었다. */}
+            {/* §5.5 #17-33 ⑦ — 새 판이 있으면 여기서 바로 보인다(터미널에서 `plugin update` 를 쳐 보지 않아도). */}
             {entry.updateAvailable && entry.latestVersion && (
               <span className="ml-1 text-amber-300/90">{`→ v${entry.latestVersion}`}</span>
             )}

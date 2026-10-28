@@ -5,14 +5,7 @@ import type { SpecItem } from '@vibisual/shared';
 
 import { useGraphStore } from '../../stores/graphStore.js';
 
-/**
- * §5.15 / §7.14 — 스펙 보드 패널.
- *
- * 스펙 버블 더블클릭으로 열리는 전체 화면 오버레이(§7.13 `ContiBoardPanel` 패턴 차용).
- * 왼쪽은 요구사항 본문(마크다운), 오른쪽은 수용 기준 목록이다 — 그리고 **거기서 작업 카드를
- * 만든다.** 스펙이 바뀌어 낡은 카드는 "스펙 변경됨" 으로 표시만 하고, 지우거나 다시 만드는
- * 판단은 사람이 한다.
- */
+/** §5.15 / §7.14 — 스펙 보드: 요구사항 + 수용 기준에서 작업 카드를 만든다. 낡은 카드는 표시만, 지우기는 사람이 정한다. */
 
 function CloseGlyph(): React.JSX.Element {
   return (

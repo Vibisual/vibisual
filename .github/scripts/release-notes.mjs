@@ -1,42 +1,9 @@
 /**
- * release-notes.mjs — 릴리스 페이지 본문(다운로드 안내)을 자산 목록에서 생성한다.
- *
- * ⚠️ 첫 줄에 `#!` 를 두지 마라. 계약 시험(`releasePackaging.test.ts`)이 이 파일을 import 하는데,
- *    Windows 러너는 CRLF 로 체크아웃하고 Vitest 는 `#!…\r\n` 으로 시작하는 모듈을
- *    `SyntaxError: Invalid or unexpected token` 으로 못 읽는다(2026-09-13 CI #39 — ubuntu·macos 는
- *    통과, 같은 러너의 `node … --selftest` 도 통과). 실행은 어디서나 `node` 로 한다.
- *
- * SCENARIO.md §4 v2.44 자동 업데이트 릴리스 자동화의 마지막 한 칸.
- *
- * ⚠️ 왜 필요한가 — electron-builder 의 `--publish always` 는 자산만 올리고 **본문을 쓰지 않는다.**
- *    v0.1.14 의 릴리스 본문은 실제로 비어 있었고(GitHub API `body: null`), 제목은 `0.1.14`
- *    한 줄이었다. 그래서 처음 온 사람이 보는 것은 이름순으로 흩어진 파일 14개가 전부다:
- *
- *      Vibisual-0.1.14-arm64-mac.zip        ← 받으면 안 되는 것(업데이터 전용)
- *      Vibisual-0.1.14-arm64.dmg            ← Apple Silicon. 이름만 보고는 모른다
- *      Vibisual-0.1.14.dmg                  ← Intel. 접미사가 **없는 쪽**이 Intel 이다
- *      Vibisual-0.1.14-setup.exe.blockmap   ← 순수 잡음
- *      latest-mac.yml …
- *
- *    "내 것"을 고르는 데 필요한 지식(arm64=Apple Silicon, 무접미사=Intel, zip/blockmap/yml 은
- *    받는 게 아님)이 파일 이름 어디에도 없다. 자산 목록의 정렬·표시는 GitHub 이 정하므로
- *    우리가 손댈 수 있는 자리는 **본문**뿐이고, 본문은 자산 목록보다 위에 그려진다.
- *
- * ⚠️ 표는 **실제로 발행된 자산에서** 만든다 — 이름을 미리 적어 두지 않는다. release.yml 은
- *    `fail-fast: false` 라 한 OS 가 넘어져도 나머지가 발행되는데(v0.1.12 가 Intel dmg 없이
- *    나갔다), 하드코딩한 표는 그때 **없는 파일로 가는 죽은 링크**를 그린다. 있는 것만 그리면
- *    표가 곧 발행 현황이 된다.
- *
- * 사용법:
- *   node .github/scripts/release-notes.mjs                  # desktop package.json 버전으로 렌더 → stdout
- *   node .github/scripts/release-notes.mjs 0.1.14           # 그 버전으로 렌더 → stdout
- *   node .github/scripts/release-notes.mjs 0.1.14 --apply   # 렌더 + 릴리스 제목·본문 갱신(GH_TOKEN 필요)
- *   node .github/scripts/release-notes.mjs --selftest       # 분류 규칙 자체 점검(네트워크 없이)
- *
- * ⚠️ 왜 scripts/ 가 아니라 .github/scripts/ 인가 — `/scripts/*.mjs` 는 `.gitignore` + pre-commit
- *    훅으로 **공개 저장소에 나가지 않는** 개인 개발 스크립트 자리다. 이 파일은 GitHub
- *    Actions 러너가 체크아웃해서 실행하므로 반드시 추적되어야 한다 — 저기 두면 커밋
- *    자체가 막히고 CI 는 파일을 못 찾는다. 옮기지 마라.
+ * 릴리스 본문(다운로드 안내)을 실제 발행 자산에서 만든다(§4) — `--publish always` 는 본문을 안 쓰고, 파일 이름만으로는 arm64 = Apple Silicon
+ * · 접미사 없는 dmg = Intel · zip/blockmap/yml 은 받지 않는 것임을 모른다. 이름을 미리 적으면 빠진 OS(`fail-fast: false`)가 죽은 링크가 된다.
+ * ⚠️ 첫 줄 `#!` ❌ — Windows 러너(CRLF)의 Vitest 가 `#!…\r\n` 모듈을 SyntaxError 로 못 읽는다(2026-09-13 CI 실측, ubuntu·macos 는 통과).
+ * ⚠️ `/scripts/` 로 옮기지 마라 — 그 자리는 gitignore·pre-commit 훅으로 공개되지 않아 커밋이 막히고 CI 가 못 찾는다.
+ * 사용법: node .github/scripts/release-notes.mjs [버전] [--apply(제목·본문 갱신, GH_TOKEN)] · --selftest(분류 점검). 버전 생략 = desktop package.json.
  */
 
 import { readFileSync } from 'node:fs';
@@ -47,12 +14,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const OWNER = 'Vibisual';
 const REPO = 'vibisual';
 
-// ── 자산 분류 ────────────────────────────────────────────────────────────────
-// `label` 은 **한 운영체제 안에서 갈래를 고르는 말**이다. 운영체제 이름은 여기 넣지 않는다 —
-// 그건 아래 OS_ROWS 가 붙인다.
-//
-// ⚠️ `match` 는 **위에서부터 처음 맞는 것**이 이긴다. `arm64.dmg` 가 `.dmg` 보다 먼저
-//    와야 한다 — 순서를 바꾸면 Apple Silicon dmg 가 Intel 줄에 실린다.
+// `label` 은 한 OS 안의 갈래 이름(OS 이름은 OS_ROWS 가 붙인다).
+// ⚠️ `match` 는 처음 맞는 것이 이긴다 — `arm64.dmg` 가 `.dmg` 보다 먼저(아니면 Apple Silicon dmg 가 Intel 줄에 실린다).
 const KINDS = [
   {
     id: 'win',
@@ -86,17 +49,7 @@ const KINDS = [
   },
 ];
 
-/**
- * 표는 **운영체제 한 줄**이다 — 윈도우 · 맥 · 리눅스, 셋.
- *
- * 갈래(맥 2 · 리눅스 3)를 저마다 한 줄로 펴면 표가 여섯 줄이 되는데, 그러면 처음 온 사람이
- * 자기 줄을 찾기 전에 **리눅스 세 줄부터 읽어야 한다** — 리눅스를 안 쓰는 사람에게는 그
- * 세 줄이 전부 잡음이고, 정작 "내 OS 는 어디"라는 물음의 답은 뒤로 밀린다. 운영체제로
- * 먼저 좁히고 갈래는 그 칸 안에서 고르게 한다.
- *
- * 자산이 하나도 없는 운영체제는 **줄 자체가 빠진다**(없는 파일로 가는 죽은 링크 ❌).
- * 표에 줄이 셋보다 적으면 그 OS 잡이 실패한 것이다 — v0.1.15 가 그랬다(맥 줄 없음).
- */
+/** 표는 OS 한 줄씩, 갈래는 그 칸 안에서. 자산이 없는 OS 는 줄째 빠진다 — 셋보다 적으면 그 OS 잡이 실패한 것이다. */
 const OS_ROWS = [
   // Windows 를 맨 위에 두는 것은 취향이 아니라 다운로드 분포다(설치 사용자의 다수가 Windows).
   { os: '**Windows** 10 / 11 · 64-bit', kinds: ['win'] },
@@ -148,13 +101,8 @@ export function extractChangelog(markdown, version) {
 
 // ── 본문 렌더 ────────────────────────────────────────────────────────────────
 /**
- * 자산을 받는 주소 — **태그로 만든다.** API 가 주는 `browser_download_url` 을 그대로 쓰면 안 된다.
- *
- * 본문은 draft 인 동안 쓰인다(공개는 스모크를 통과한 뒤다). 그런데 draft 의 `browser_download_url` 은
- * `releases/download/untagged-<hash>/…` 이고, 그 주소는 **공개되는 순간 404** 가 된다. v0.1.22·v0.1.23 은
- * 공개 직후 표의 링크가 전부 죽어 있어 본문을 손으로 다시 써서 살렸다(2026-09-13 실측: untagged 주소 404,
- * 태그 주소 302). 공개된 릴리스의 주소가 곧 이 모양이므로 draft 때 미리 만들어 둔다.
- *
+ * 자산을 받는 주소 — **태그로 만든다.** API 의 `browser_download_url` 을 쓰지 마라: 본문은 draft 동안(스모크 통과 전) 쓰이는데
+ * draft 주소 `releases/download/untagged-<hash>/…` 는 공개되는 순간 404 다(2026-09-13 실측: untagged 404, 태그 주소 302).
  * @param {string} version `0.1.24` 형태
  * @param {string} name 자산 파일 이름
  */
@@ -322,13 +270,8 @@ function ghHeaders() {
 }
 
 /**
- * 그 태그의 릴리스를 읽는다 — **draft 도 찾는다.**
- *
- * ⚠️ `/releases/tags/<tag>` 하나만 쓰면 안 된다. 그 경로는 **draft 에 404** 를 준다.
- * 자산은 이제 draft 로 올라오고(`electron-builder.yml` 의 `releaseType: draft` — 실기 검증을
- * 통과해야 공개된다) 본문은 그보다 **먼저** 붙어야 하므로, 태그 경로만 보면 매 릴리스마다
- * "아직 빌드 중"이라며 본문 없이 지나간다. 태그 경로를 먼저 보고(공개된 것 재생성용),
- * 없으면 목록에서 `tag_name` 으로 찾는다(방금 올라온 draft).
+ * draft 도 찾는다 — `/releases/tags/<tag>` 는 draft 에 404 인데 자산은 draft 로 오고(`releaseType: draft`) 본문은 그보다 먼저 붙어야 한다.
+ * 태그 경로를 먼저, 없으면 목록에서 `tag_name` 으로.
  */
 async function fetchRelease(version) {
   const tag = `v${version}`;
@@ -357,16 +300,9 @@ async function fetchRelease(version) {
 }
 
 /**
- * 릴리스 제목 — **버전 숫자만**.
- *
- * 저장소 이름 아래에 놓인 릴리스 목록에서 모든 줄이 같은 제품명으로 시작하면 그 낱말은
- * 정보가 아니라 잡음이고, 눈이 실제로 비교하는 숫자를 오른쪽으로 밀어낸다. v0.1.6~v0.1.14 는
- * electron-builder 가 넣은 숫자 그대로였는데 `Vibisual 0.1.15` 한 줄만 그 대열에서 튀었다.
- *
- * 사람이 손으로 붙인 제목은 건드리지 않는다 — 자동화가 사람의 글을 덮어쓰면 안 된다.
- * 다만 **우리가 예전에 찍어 둔 `Vibisual <버전>` 은 사람의 글이 아니므로** 같이 정규화한다.
- * 그 갈래가 없으면 이미 발행된 릴리스는 영영 옛 형태로 남는다(다시 태그를 밀 수는 없다).
- *
+ * 릴리스 제목 — **버전 숫자만**(목록의 줄마다 같은 제품명이 앞서면 잡음이고, 눈이 비교하는 숫자를 밀어낸다).
+ * 사람이 손으로 붙인 제목은 덮어쓰지 않는다. 자동화가 찍던 `Vibisual <버전>` 은 사람의 글이 아니라 함께 정규화한다
+ * — 이 갈래가 없으면 이미 발행된 릴리스가 옛 형태로 남는다(태그를 다시 밀 수 없다).
  * @param {string|null|undefined} currentName 지금 붙어 있는 제목
  * @param {string} version `0.1.15` 형태
  * @returns {string|null} 새로 쓸 제목, 또는 사람의 글이라 손대지 말아야 하면 null
@@ -378,13 +314,8 @@ export function releaseTitle(currentName, version) {
 }
 
 /**
- * 본문을 고칠 때 보낼 값.
- *
- * ⚠️ `tag_name` 을 **반드시 같이** 보낸다. draft 에 본문만 보내면 GitHub 이 태그 묶음을 풀어
- *    `untagged-<hash>` 로 되돌린다 — 2026-09-13 임시 draft 로 확인했다(본문만 PATCH → untagged,
- *    tag_name 을 함께 PATCH → 유지). v0.1.23 에서 이 스크립트가 본문을 쓴 직후 태그가 풀려, 스모크의
- *    공개 잡이 태그로 릴리스를 못 찾고 멈췄다(설치 검증 4종은 전부 초록이었다).
- *
+ * 본문을 고칠 때 보낼 값. ⚠️ `tag_name` 을 **반드시 같이** 보낸다 — draft 에 본문만 PATCH 하면 GitHub 이 태그 묶음을
+ * `untagged-<hash>` 로 풀어 스모크의 공개 잡이 태그로 릴리스를 못 찾고 멈춘다(2026-09-13 임시 draft 로 확인: 본문만 → untagged, 함께 → 유지).
  * @param {{ name?: string|null }} release 지금 릴리스
  * @param {string} version `0.1.24` 형태
  * @param {string} body 새 본문
@@ -422,9 +353,7 @@ async function applyNotes(release, version, body) {
   return payload.name ?? release.name;
 }
 
-// ── 자체 점검 ────────────────────────────────────────────────────────────────
-// 분류 규칙이 조용히 뒤집히는 것이 이 스크립트에서 가장 비싼 실수다(Intel 줄에
-// Apple Silicon dmg 가 실려도 표는 멀쩡해 보인다). 네트워크 없이 도는 점검을 둔다.
+// 자체 점검(네트워크 없이) — 분류가 조용히 뒤집혀도(Intel 줄에 Apple Silicon dmg) 표는 멀쩡해 보인다.
 function selftest() {
   const V = '0.1.14';
   const cases = [
@@ -486,7 +415,7 @@ function selftest() {
     ].map(([name, mb]) => ({ name, size: mb << 20, browser_download_url: draftUrl(name) })),
     changelog: null,
   });
-  // 공개되는 순간 404 가 되는 draft 주소가 본문에 한 글자도 새면 안 된다(v0.1.22·v0.1.23 의 죽은 링크).
+  // 공개되는 순간 404 가 되는 draft 주소(`untagged-`)가 본문에 새면 안 된다.
   if (full.includes('untagged-') || winOnly.includes('untagged-')) {
     console.error('  ✗ 본문에 draft 주소(untagged-)가 들어갔다 — 공개되면 그 링크는 404 다');
     failed++;
@@ -516,7 +445,7 @@ function selftest() {
     }
   }
 
-  // 본문을 고칠 때 태그를 같이 보내는가 — 빠지면 draft 의 태그 묶음이 풀린다(v0.1.23).
+  // 본문을 고칠 때 tag_name 을 같이 보내는가 — 빠지면 draft 의 태그 묶음이 풀린다.
   if (notesPatchPayload({ name: V }, V, 'x').tag_name !== `v${V}`) {
     console.error('  ✗ 본문 갱신 값에 tag_name 이 없다 — draft 에 보내면 태그가 untagged 로 풀린다');
     failed++;

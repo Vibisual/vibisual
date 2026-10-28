@@ -11,13 +11,7 @@ import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
 import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
 import { CanvasNodeMenu, CanvasNodeMenuItem, CanvasNodeMenuSeparator } from './CanvasNodeMenu.js';
 
-/**
- * §5.15 — 스펙 표지 버블.
- *
- * 캡처·앱·플레이 버블과 같은 "사용자가 만든 독립 캔버스 요소"다. 캔버스에서는 **표지만** 보여
- * 준다(제목·수용 기준 진행·낡은 카드 수). 본문을 읽고 고치는 것은 더블클릭으로 열리는
- * 스펙 보드 패널의 몫이다 — 캔버스는 지도이지 편집기가 아니다.
- */
+/** §5.15 — 스펙 표지 버블. 캔버스엔 표지만 — 본문은 더블클릭 스펙 보드 패널 몫. */
 
 export interface SpecNodeData extends Record<string, unknown> {
   specDocId: string;

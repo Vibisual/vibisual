@@ -6,16 +6,7 @@ import {
   usageTextToneClass,
 } from '../../utils/usageLimits.js';
 
-/**
- * 사용량 게이지 한 줄 — 원래 `UsagePopup` 안에 있던 것을 꺼냈다.
- *
- * 꺼낸 이유: 사용량 팝업의 **올모델 탭이 같은 게이지로 이 PC 의 자원을** 그리게 되면서
- * (§5.19 (F) 「자원은 한 벌뿐」) 두 파일이 쓰게 됐다. 게이지를 복제하면 색 임계(70/90)가
- * 자리마다 갈라지고, 한쪽만 고쳐지는 날이 온다.
- *
- * `used` 가 `undefined` 면 `--%` 로 그린다 — **모르는 것과 0% 는 다르다.** 로컬 자원에서는
- * 이 구분이 특히 중요하다(아직 못 잰 CPU 를 0% 로 그리면 "놀고 있다"는 거짓이 된다).
- */
+/** 사용량 게이지 — 두 탭이 함께 쓴다(복제하면 색 임계가 갈라진다). `undefined` 는 `--%` — 모르는 것과 0% 는 다르다. */
 
 /** 남은 시간 → "4시간 28분" / "12분". 초 단위는 버린다(1초마다 숫자가 튀지 않게 분 단위 표기). */
 function useCountdownLabel(resetAt: number | undefined, now: number | undefined): string | null {

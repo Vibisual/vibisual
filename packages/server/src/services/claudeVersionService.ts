@@ -11,11 +11,14 @@ import type {
   ClaudeInstallsInfo,
   WSMessage,
 } from '@vibisual/shared';
-import { CLAUDE_VERSION_PROBE_TIMEOUT_MS, CLAUDE_INSTALL_SCAN_MAX } from '@vibisual/shared';
+import { CLAUDE_VERSION_PROBE_TIMEOUT_MS, CLAUDE_INSTALL_SCAN_MAX, MANAGED_ENGINE_OUTPUT_MAX_CHARS } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { broadcast } from '../broadcastBus.js';
 import { userDefaultsService } from './userDefaultsService.js';
+import { managedEngineService } from './managedEngineService.js';
+import { isManagedEngineBin } from './managedEngineLayout.js';
 import {
+  claudeSpawnEnv,
   getClaudeBin,
   invalidateClaudeBinCache,
   discoverAllClaudeBins,
@@ -27,17 +30,12 @@ import { killTree, processGroupSpawnOptions } from './processTree.js';
 import { buildCliInvocation } from './claudeCliRun.js';
 import { normalizePathShape, samePath } from './pathKey.js';
 
-/**
- * 이 플랫폼에서 npm 을 부르는 이름.
- *
- * Windows 의 전역 npm 은 `npm.cmd` shim 이라 이름부터 다르다. **플랫폼을 인자로 받아** 세 OS 를
- * 다 단위 테스트한다 — 함수 안에서 읽으면 POSIX 가지가 개발기에서 영영 실행되지 않는다.
- */
+/** 이 플랫폼에서 npm 을 부르는 이름 — Windows 전역 npm 은 `npm.cmd` shim 이다. 플랫폼은 인자로 받는다(세 OS 단위 테스트). */
 export function npmCommand(platform: NodeJS.Platform): string {
   return platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
-/** §5.7 #23-1 v1.59 — npm registry 조회 캐시 TTL */
+/** §5.7 #23-1 — npm registry 조회 캐시 TTL */
 const REGISTRY_CACHE_TTL_MS = 5 * 60 * 1000;
 /** `--version` spawn 타임아웃 — 정상 응답은 수십 ms */
 const VERSION_DETECT_TIMEOUT_MS = 2_000;
@@ -87,6 +85,8 @@ function detectCurrentVersion(
       shell: invocation.shell,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
+      // §4 (앱 전용 엔진) ⑤ — 앱 전용 실행본이면 엔진 자체 갱신을 끈다.
+      env: claudeSpawnEnv(process.env, binPath),
     });
     let stdout = '';
     let stderr = '';
@@ -235,11 +235,7 @@ export function invalidateLatestCache(): void {
   latestCache = null;
 }
 
-/**
- * §4 v2.43 — Vibisual 자체 버전을 **동적** 으로 read (하드코딩 ❌).
- * 우선순위: (1) `npm_package_version` 환경변수, (2) 이 모듈에서 위로 올라가며 만나는 첫 package.json 의 version.
- * 1회 계산 후 캐시.
- */
+/** §4 — 앱 자체 버전을 **동적**으로 읽는다(하드코딩 ❌): (1) `npm_package_version` → (2) 이 모듈에서 위로 올라가며 만나는 첫 package.json 의 version. 1회 계산 후 캐시. */
 let appVersionCache: string | null = null;
 function readAppVersion(): string {
   if (appVersionCache !== null) return appVersionCache;
@@ -274,19 +270,14 @@ function readAppVersion(): string {
   return appVersionCache;
 }
 
-/**
- * §4 v2.43 — 옵션창 Version 탭 전체 데이터. PC 에 깔린 모든 claude 설치본을 발견·probe 하고
- * 현재 활성/선택 표시 + Vibisual·런타임 메타 + npm latest 를 묶어 반환. 전부 런타임 동적.
- */
+/** §4 — 옵션창 Version 탭 데이터. PC 의 모든 claude 설치본을 발견·probe 하고 활성/선택 표시 + 앱·런타임 메타 + npm latest 를 묶는다(전부 런타임 동적). */
 export async function getClaudeInstallsInfo(forceRefresh = false): Promise<ClaudeInstallsInfo> {
   const active = getClaudeBin();
   const override = readClaudeBinOverride();
 
   // 발견 + 상한. active 바이너리가 후보에 없으면(예: bare 'claude' 폴백) 앞에 보강.
   const candidates = discoverAllClaudeBins().slice(0, CLAUDE_INSTALL_SCAN_MAX);
-  // 같은 실행본을 두 줄로 보여 주지 않기 위한 대조 — 대소문자는 **그 플랫폼이 무시할 때만** 접는다.
-  //   예전에는 win32 만 접어, mac(기본 APFS 도 대소문자 무시)에서 표기만 다른 같은 바이너리가
-  //   활성본과 별개 후보로 한 줄 더 실렸다. 정책은 pathKey 한 곳.
+  // 같은 실행본을 두 줄로 보이지 않게 대조한다 — 대소문자는 **그 플랫폼이 무시할 때만** 접는다(mac 기본 APFS 도 무시하므로 win32 만 접으면 표기만 다른 같은 바이너리가 한 줄 더 실린다). 정책은 pathKey 한 곳.
   const hasActive = candidates.some((c) => samePath(c.binPath, active.binPath));
   if (!hasActive && active.binPath) {
     candidates.unshift({
@@ -328,6 +319,8 @@ export async function getClaudeInstallsInfo(forceRefresh = false): Promise<Claud
     appVersion: readAppVersion(),
     latest: latestEntry.version,
     registryError: latestEntry.error,
+    // §4 (앱 전용 엔진) — Version 탭 "앱 전용" 칸(지금 판 · 앞 판 · 공식 배포처 최신 · 실패 사유).
+    managed: managedEngineService.status('claude'),
     runtime: {
       node: process.versions.node,
       electron: process.versions.electron,
@@ -357,11 +350,9 @@ function pushProgress(): void {
 }
 
 /**
- * §5.7 #23-1 v1.81 — 멀티플랫폼 업데이트 명령 결정.
- * - 절대경로의 실제 바이너리(공식 네이티브 인스톨러·Homebrew 등) → Claude Code 자체 `<bin> update`
- *   (OS·설치방식 무관, CLI 가 자기 설치 채널을 인지해 갱신). 명시 args 라 shell 불필요.
- * - npm-global 흔적(node_modules/.bin/npm-global/.cmd) 또는 bare 'claude' → `npm install -g`.
- * `manualHint` = 자동 실패 시 사용자에게 노출할 수동 명령.
+ * §5.7 #23-1 — 멀티플랫폼 업데이트 명령 결정.
+ * - 절대경로 실제 바이너리(네이티브 인스톨러·Homebrew 등) → `<bin> update`(CLI 가 자기 설치 채널을 알아 갱신, 명시 args 라 shell 불필요).
+ * - npm-global 흔적(node_modules/.bin/npm-global/.cmd) 또는 bare 'claude' → `npm install -g`. `manualHint` = 자동 실패 시 보여 줄 수동 명령.
  */
 function buildInstallPlan(bin: ClaudeBinInfo, platform: NodeJS.Platform = process.platform): {
   command: string;
@@ -403,10 +394,49 @@ function buildInstallPlan(bin: ClaudeBinInfo, platform: NodeJS.Platform = proces
 }
 
 /**
- * Claude Code 업데이트 실행 + WS 진행 push. 설치 방식(네이티브 self-update / npm)은
- * `buildInstallPlan` 이 바이너리 경로로 멀티플랫폼 분기. 동시 호출은 같은 in-flight installId 공유.
+ * §4 (앱 전용 엔진) — Claude 갱신 대상이 **앱 전용 사본인가**. Version 탭에서 자기 설치본(네이티브·npm·VS Code 확장)을 골라 두지 않았으면 그렇다 — [지금 업데이트]·켤 때 자동·6시간 확인이 전부 앱 전용 사본을 맡는다.
+ * 골라 두었으면 그 설치본을 갱신한다(그 판은 주인의 것). 앱 전용 폴더 안을 가리키는 옛 선택은 "자동"과 같이 본다.
  */
-export function installLatestClaude(): ClaudeInstallProgress {
+export function claudeUsesManagedEngine(): boolean {
+  const override = readClaudeBinOverride();
+  return !override || isManagedEngineBin('claude', override);
+}
+
+/**
+ * §4 (앱 전용 엔진) — 앱 전용 사본을 최신으로 맞추고, 진행을 기존 `claude_install_progress` 에 싣는다
+ * (새 WS ❌ — Version 탭의 [지금 업데이트] 진행 칸이 그대로 보인다).
+ */
+function runManagedClaudeUpdate(session: InstallSession, manual: boolean): void {
+  session.status = 'running';
+  pushProgress();
+  const append = (line: string): void => {
+    if (inflightInstall !== session) return;
+    const next = `${session.stdout}${line}\n`;
+    session.stdout = next.length > MANAGED_ENGINE_OUTPUT_MAX_CHARS ? next.slice(-MANAGED_ENGINE_OUTPUT_MAX_CHARS) : next;
+    pushProgress();
+  };
+  void managedEngineService.ensureLatest('claude', { manual, report: append }).then((result) => {
+    if (inflightInstall !== session) return;
+    invalidateLatestCache();
+    invalidateClaudeBinCache();
+    const ok = result.outcome === 'installed' || result.outcome === 'up-to-date' || result.outcome === 'skipped-rolled-back';
+    session.status = ok ? 'done' : 'error';
+    session.exitCode = ok ? 0 : 1;
+    if (result.version) session.newVersion = result.version;
+    if (!ok) session.error = result.error ?? 'update failed';
+    pushProgress();
+    const settled = getInflightInstall();
+    inflightInstall = null;
+    // 실행본이 실제로 바뀐 경우에만 CLI 파생 캐시를 다시 태운다(헛된 재스캔 방지).
+    if (settled && result.outcome === 'installed') emitInstallSettled(settled);
+  });
+}
+
+/**
+ * Claude Code 업데이트 실행 + WS 진행 push. 설치 방식(네이티브 self-update / npm)은 `buildInstallPlan` 이 경로로 가른다. 동시 호출은 같은 in-flight installId 를 나눈다.
+ * §4 (앱 전용 엔진) — 자기 설치본을 고르지 않았으면(`claudeUsesManagedEngine`) 앱 전용 사본을 공식 배포처에서 받아 점검 통과 시 바꾼다. `manual=false`(켤 때 자동)는 사용자가 되돌린 판으로 다시 가지 않는다.
+ */
+export function installLatestClaude(opts: { manual?: boolean } = {}): ClaudeInstallProgress {
   if (inflightInstall) {
     // 진행 중 — 즉시 현재 상태만 반환. 클라는 WS 로 후속 push 받음.
     return {
@@ -426,6 +456,11 @@ export function installLatestClaude(): ClaudeInstallProgress {
     stdout: '',
   };
   inflightInstall = session;
+
+  if (claudeUsesManagedEngine()) {
+    runManagedClaudeUpdate(session, opts.manual !== false);
+    return { installId: session.installId, status: session.status, stdout: session.stdout };
+  }
 
   // VS Code 확장 출처면 호출 측에서 막는 게 정상이지만 방어적으로 fail-fast.
   const bin = getClaudeBin();
@@ -454,13 +489,8 @@ export function installLatestClaude(): ClaudeInstallProgress {
     ...processGroupSpawnOptions(),
     env: {
       ...process.env,
-      // §4 (Claude Code CLI 자동 업데이트) — **패키지 매니저 설치본도 실제로 올라가게.**
-      //   Homebrew(mac)·WinGet(Windows) 로 깐 실행본은 `claude update` 가 기본적으로
-      //   "이미 최신"이라고만 답하고 **아무것도 하지 않는다**(갱신은 brew/winget 담당).
-      //   그대로 두면 우리는 매 실행마다 갱신을 시도했다고 보고하면서 버전은 그대로인
-      //   조용한 거짓말이 된다. CLI 가 이 env 를 보면 자기가 알아서 `brew upgrade` /
-      //   `winget upgrade` 를 대신 돌려 준다(공식 문서가 지정한 레버).
-      //   네이티브·npm 설치본에는 아무 영향이 없다.
+      // §4 (CLI 자동 업데이트) — Homebrew(mac)·WinGet(Windows) 설치본은 `claude update` 가 "이미 최신"이라고만 하고 아무것도 안 한다(갱신은 brew/winget 몫).
+      // 그러면 갱신했다고 보고하면서 버전은 그대로가 된다 — 이 env 를 주면 CLI 가 `brew upgrade`/`winget upgrade` 를 대신 돌린다(공식 문서 레버). 네이티브·npm 설치본엔 영향 없음.
       CLAUDE_CODE_PACKAGE_MANAGER_AUTO_UPDATE: '1',
     },
   });
@@ -530,13 +560,8 @@ export function installLatestClaude(): ClaudeInstallProgress {
   };
 }
 
-// ─── §4 — 설치/갱신 완료 알림 ─────────────────────────────────────────────────
-//
-// CLI 가 바뀌면 **CLI 에서 파생된 캐시**(로그인 판정 · 모델 레지스트리 · effort 등급 ·
-// 내장 슬래시 명령)가 통째로 낡는다. 종전엔 그 캐시들이 전부 "부팅 1회" 전제였는데,
-// 이제 앱을 켠 뒤에 CLI 가 새로 깔리거나 최신으로 바뀌는 경로가 생겼으므로 그 순간을
-// 알려 줄 창구가 필요하다. 없으면 갓 설치한 사용자는 다음 실행 전까지 로그인 창도
-// 못 보고 모델 목록도 비어 있다.
+// §4 — 설치/갱신 완료 알림. CLI 가 바뀌면 CLI 에서 파생된 캐시(로그인 판정·모델 레지스트리·effort 등급·내장 슬래시 명령)가 통째로 낡는다.
+// 앱을 켠 뒤 CLI 가 깔리거나 바뀌는 순간을 알리는 창구다 — 없으면 갓 설치한 사용자는 다음 실행까지 로그인 창도 못 보고 모델 목록도 빈다.
 
 type InstallSettledListener = (progress: ClaudeInstallProgress) => void;
 const installSettledListeners = new Set<InstallSettledListener>();
@@ -562,25 +587,26 @@ function emitInstallSettled(progress: ClaudeInstallProgress): void {
 }
 
 /**
- * §4 (Claude Code CLI 자동 업데이트) — **앱을 켤 때 1회** CLI 를 최신으로 맞춘다.
- *
- * `installLatestClaude()` 는 §5.7 #23-1 부터 있었지만 **그것을 부르는 자동 경로가 없었다** —
- * 유일한 트리거였던 `ClaudeVersionGate` 는 `claudeVersionModalOpen` 을 켜는 곳이 클라 어디에도
- * 없어서(미배선), 사용자가 옵션창을 직접 열지 않는 한 버전이 영원히 그대로였다. 이 함수가
- * 그 빈 자리를 메운다 — 새 설치 레일을 만들지 않고 기존 서비스·기존 WS 진행 push 를 그대로 쓴다.
- *
- * 건너뛰는 경우:
- *  - 사용자가 껐다(`UserDefaults.claudeAutoUpdate.enabled === false`)
- *  - 이미 최신 (또는 current/latest 중 하나를 못 읽어 비교 자체가 불가)
- *  - `source === 'vscode-extension'` — 마켓플레이스 밖에서 갱신할 수 없다(안내만)
- *  - `source === 'unknown'` — 아직 안 깔렸다. 이건 갱신이 아니라 **설치** 문제라
- *    §4 설치 온보딩 게이트(`claudeSetupService`)가 맡는다.
- *
- * ⚠ §4 v2.44 **Vibisual 앱** 자동 업데이트(electron-updater)와는 무관하다 — 그쪽은 종전 그대로.
+ * §4 (CLI 자동 업데이트) — **앱을 켤 때 1회** CLI 를 최신으로 맞춘다. 기존 `installLatestClaude`·WS 진행 push 를 그대로 쓴다(새 설치 레일 ❌).
+ * 건너뛰는 경우: 사용자가 껐다(`UserDefaults.claudeAutoUpdate.enabled === false`) · 이미 최신이거나 current/latest 를 못 읽음 · `source === 'vscode-extension'`(마켓 밖 갱신 불가, 안내만)
+ * · `source === 'unknown'`(미설치 — 갱신이 아니라 설치 문제라 §4 설치 온보딩 게이트 `claudeSetupService` 몫).
+ * ⚠ 앱 자체 자동 업데이트(§4, electron-updater)와는 무관하다.
  */
 export async function autoUpdateClaudeIfEnabled(): Promise<{ started: boolean; reason?: string }> {
   if (userDefaultsService.get().claudeAutoUpdate?.enabled === false) {
     return { started: false, reason: 'disabled' };
+  }
+  // §4 (앱 전용 엔진) — 사용자가 자기 설치본을 골라 두지 않았으면 앱 전용 사본을 맡는다(켤 때 + 6시간마다).
+  //   먼저 최신 판만 보고(받지 않는다), 이미 있으면 진행 칸을 건드리지 않는다 — 매번 "끝남"이 뜨지 않게.
+  if (claudeUsesManagedEngine()) {
+    const gate = managedEngineService.autoGate('claude');
+    if (gate !== 'ok') return { started: false, reason: gate };
+    const peek = await managedEngineService.peekLatest('claude');
+    if (peek.error) return { started: false, reason: 'lookup-failed' };
+    if (peek.installed) return { started: false, reason: peek.rolledBack ? 'rolled-back' : 'up-to-date' };
+    logger.info(`[claudeVersionService] app-managed update: → ${peek.latest ?? '?'}`);
+    installLatestClaude({ manual: false });
+    return { started: true };
   }
   const info = await getClaudeVersionInfo(true);
   if (info.source === 'unknown') return { started: false, reason: 'not-installed' };

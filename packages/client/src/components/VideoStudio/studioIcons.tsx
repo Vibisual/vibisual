@@ -1,7 +1,6 @@
 /**
  * §5.13 (V) 37-1 — 스튜디오 아이콘(lucide 톤 stroke SVG — 이모지·글자 아이콘 ❌).
- *
- * 색은 `currentColor` — 부모의 `text-*` 가 정한다(다크/라이트·켬/끔 자동). 크기는 부르는 쪽 `className`(기본 h-4 w-4).
+ * 색은 `currentColor`(부모 `text-*` 가 정한다), 크기는 부르는 쪽 `className`(기본 h-4 w-4).
  */
 import type { ReactNode } from 'react';
 

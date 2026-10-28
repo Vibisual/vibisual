@@ -3,11 +3,8 @@ import type { CodexEffectiveConfig, CodexModelEntry } from '@vibisual/shared';
 import { resolveCodexInherited, type CodexInheritedField, type CodexInheritedValue } from './codexModelEntry.js';
 
 /**
- * §5.25 (G-2) — 비워 둔 칸(`''`)의 선택지 한 줄. 에이전트 설정 창과 설정 창(Agent 기본값)이 **같은
- * 함수**로 적는다 — 두 곳이 따로 적으면 한쪽만 "엔진 기본값" 같은 말로 되돌아가는 날이 온다.
- *
- * 라벨은 `값 (출처)`, 설명 줄은 그 값을 읽은 파일 경로나 근거다. 값의 이름은 같은 칸의 다른 선택지와
- * 같은 번역을 쓴다(목록에서 "캐시 검색"을 고른 것과 비워 둔 것이 같은 말로 보여야 비교가 된다).
+ * §5.25 (G-2) — 비워 둔 칸(`''`)의 선택지. 에이전트 설정 창과 설정 창(Agent 기본값)이 **같은 함수**로 적는다(따로면 한쪽만 어긋난다).
+ * 라벨은 `값 (출처)`, 값 이름은 같은 칸의 다른 선택지와 같은 번역(비교가 되게).
  */
 
 /** 칸 → 그 칸의 선택지 번역 묶음. 강도는 모델이 신고한 단계 이름을 그대로 쓴다. */

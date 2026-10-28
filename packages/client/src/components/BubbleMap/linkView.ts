@@ -1,12 +1,6 @@
 /**
- * linkView.ts — §5.4 #36 (H) **연결 보기**의 화면 쪽 순수 판정 한 벌.
- *
- * ① 켜고 끄기(`linksHidden`) · ② 보기 전환(`linkLens` — "앱 관련 버블만" 기본 ↔ "버블 전부") · ③ 앱 노드가 구슬 줄
- * (연결된 것 위성)을 펴는가를, 캔버스 선(`BubbleMap`) · 위성줄(`refLinkPairs`) · 메뉴(`BubbleContextMenu`) · 앱 노드
- * (`AppBubbleNode`)가 **같은 답**으로 내야 한다. 한 곳만 고쳐져 "메뉴는 숨겼다는데 선이 보이는" 자리가 생기지 않게
- * 판정을 여기 모은다. DOM·store 를 만지지 않으므로 그대로 단위 테스트된다.
- *
- * 전부 **표시 계층**이다 — 서버의 활동 엣지·`linkedAgentIds`·위성 칩·결과 전달·#31 무리 판정은 이 파일과 무관하게 그대로 돈다.
+ * §5.4 #36 (H) — 연결 보기 판정 한 벌: ① `linksHidden` ② `linkLens`(앱 관련만 ↔ 전부) ③ 구슬 줄. 캔버스 선·위성줄·메뉴·앱 노드가 같은 답을 낸다.
+ * 표시 계층일 뿐 — 서버 활동 엣지·`linkedAgentIds`·위성 칩·결과 전달·#31 무리 판정과 무관하다.
  */
 
 import type { Edge } from '@xyflow/react';
@@ -27,10 +21,7 @@ export function agentHasAppLinks(
   );
 }
 
-/**
- * 지금 보기. 앱 노드가 이어지지 않은 에이전트는 늘 **작업 파일**이다 — 위주로 볼 연결된 것이 없다.
- * 이어졌으면 기본이 **연결된 것 위주**이고(사용자 지시), 사용자가 바꿨을 때만(`linkLens:'files'`) 작업 파일이다.
- */
+/** 앱 노드가 안 이어진 에이전트는 늘 작업 파일, 이어졌으면 기본이 연결 위주(`linkLens:'files'` 로 바꿨을 때만 작업 파일). */
 export function effectiveLinkLens(
   agent: Pick<BubbleData, 'linkLens'> | null | undefined,
   hasAppLinks: boolean,
@@ -88,19 +79,12 @@ export function activityEdgeView(source: string, target: string, sets: LinkViewS
   return 'show';
 }
 
-/**
- * 이 판정이 맡는 선인가 — 활동·위성 선(`curved`, 기본 타입)만이다. Task Edge(사용자가 그은 위임)·플레이 프리뷰 소유 선은
- * 대상이 아니고, 위성줄은 `refLinkPairs` 가 따로 거른다.
- */
+/** 활동·위성 선(`curved`·기본)만 — Task Edge·플레이 프리뷰 소유 선은 대상 아님, 위성줄은 `refLinkPairs` 가 거른다. */
 export function isActivityEdge(edge: Pick<Edge, 'id' | 'type'>): boolean {
   return (edge.type === undefined || edge.type === 'curved') && !edge.id.startsWith('play-owner-');
 }
 
-/**
- * 선 목록에 연결 보기를 입힌다. 감출 선은 `hidden` — **목록에서 빼지 않는다**(폴더 버블의 생존·고른 것·#31 무리 판정이
- * 활동 엣지를 그대로 보므로, 위에서 거르면 폴더째 사라진다). 흐릴 선은 불투명도에 `LINK_VIEW.dimOpacity` 를 곱한다.
- * 바꿀 것이 없으면 **같은 배열**을 돌려준다 — React Flow 가 무변화에 다시 그리지 않게.
- */
+/** 감출 선은 `hidden` 으로 — 목록에서 빼면 폴더 생존·선택·#31 무리 판정이 엣지를 못 봐 폴더째 사라진다. 흐릴 선은 `LINK_VIEW.dimOpacity` 곱. 무변화면 같은 배열. */
 export function applyLinkViewToEdges(edges: readonly Edge[], sets: LinkViewSets): Edge[] {
   if (sets.hidden.size === 0 && sets.dimmed.size === 0) return edges as Edge[];
   let changed = false;
@@ -125,13 +109,7 @@ export function refLinkVisible(
   return appBubble.linksHidden !== true && hiddenAgentIds?.has(agentId) !== true;
 }
 
-/**
- * 앱 노드가 "연결된 것" 구슬 줄을 펴는가(③). 노드에서 끈 것(①)만 접는다.
- *
- * 이어진 에이전트의 보기(②)는 묻지 않는다 — [앱 관련 버블만 보기]에서도 [버블 전부 보기]에서도 편다(2026-10-21 — "버블
- * 전부"에서 구슬을 접으면 이름이 거짓이 된다. 종전에는 이어진 에이전트가 모두 "작업 파일" 보기면 접었다). 에이전트 쪽 끄기(①)도
- * 구슬 줄을 접지 않는다 — 구슬은 그 노드의 것이고, 에이전트가 감춘 것은 자기에게 닿는 선이다.
- */
+/** 노드에서 끈 것(①)만 접는다. 에이전트의 보기(②)·끄기(①)는 묻지 않는다 — "버블 전부"에서 접으면 이름이 거짓이고, 에이전트가 감추는 건 자기에게 닿는 선이다. */
 export function appNodeShowsLinkedItems(bubble: Pick<AppBubble, 'linksHidden'>): boolean {
   return bubble.linksHidden !== true;
 }

@@ -1,14 +1,6 @@
 /**
- * IDEHooksView.tsx — §5.5 #17-32: 지금 이 세션에 적용되는 훅을 보고, 그 자리에서 끄고, 울리는 걸 본다.
- *
- * 훅은 사용자 컴퓨터에서 **조용히 명령을 실행한다**. 그런데 앱 안에는 그 존재를 볼 자리가 없어,
- * 무엇이 걸려 있는지 알려면 설정 파일을 직접 열어야 했다. 이 뷰가 그 빈자리를 잇는다.
- *
- * 화면이 지키는 것 넷:
- *   ① **세션별이다** — 이 세션이 열린 프로젝트에서 읽은 것만 세운다(전 프로젝트 통합 목록 ❌).
- *   ② **어디서 왔는지 말한다** — 글로벌 / 이 프로젝트 / 로컬 / 정책을 묶어 세우고 파일 경로를 적는다.
- *   ③ **새로고침이 있다** — 자동으로도 다시 읽지만, 앱 밖에서 방금 추가한 훅이 안 보일 때를 위해.
- *   ④ **울리면 켜진다** — 발동한 줄이 몇 초 동안 반짝인다(어느 훅이 실제로 도는지가 곧 답이다).
+ * IDEHooksView.tsx — §5.5 #17-32: 이 세션에 적용되는 훅을 보고·끄고·울림을 본다. ① 세션별(전 프로젝트 통합 ❌)
+ * ② 출처(글로벌·프로젝트·로컬·정책 + 파일 경로) ③ 새로고침 단추(앱 밖에서 방금 추가한 훅) ④ 발동한 줄이 몇 초 반짝인다.
  */
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -93,12 +85,7 @@ export const IDEHooksView = memo(function IDEHooksView({ agentId }: { agentId: s
   // 뷰를 열 때 · 프로젝트가 바뀔 때 다시 읽는다.
   useEffect(() => { load(); }, [load, projectId]);
 
-  /**
-   * 자동 감지 — 남이 훅을 추가해도 화면이 스스로 따라간다. 다만 설정 파일을 감시하는 새 통로를
-   * 만들지는 않는다(파일 워처 하나를 더 얹을 만큼 급한 값이 아니다). 대신 **훅이 울릴 때마다**
-   * 목록이 낡았는지 확인한다 — 새 훅이 걸렸다면 그 훅이 도는 순간이 곧 우리가 알 수 있는 시점이다.
-   * 그래도 놓칠 수 있으니 머리에 새로고침 단추가 함께 있다(③ — 사용자가 짚은 바로 그 대비).
-   */
+  /** 자동 감지 — 파일 워처 없이 훅이 울릴 때마다 목록이 낡았는지 본다(새 훅은 도는 순간 알 수 있다). 놓친 것은 새로고침 단추(③). */
   const lastFireAt = fires.length > 0 ? (fires[fires.length - 1]?.at ?? 0) : 0;
   useEffect(() => {
     if (!lastFireAt || !inventory) return;
@@ -115,11 +102,7 @@ export const IDEHooksView = memo(function IDEHooksView({ agentId }: { agentId: s
     return () => clearTimeout(timer);
   }, [fires, pruneFires]);
 
-  /**
-   * 지금 불이 켜져 있는 줄들. 서버는 (이벤트 · 도구) 두 값만 보내므로 어느 줄에 걸리는지는
-   * 여기서 `hookMatcherMatches` 로 고른다 — 계측과 화면이 같은 규칙을 쓰게 shared 순수 함수다.
-   * 꺼 둔 훅은 실제로 돌지 않았으므로 불도 켜지 않는다(화면이 거짓말을 하지 않게).
-   */
+  /** 불 켜진 줄 — 서버는 (이벤트·도구)만 보내므로 줄은 `hookMatcherMatches`(계측과 같은 shared 함수)로 고른다. 꺼 둔 훅은 안 돌았으니 불도 안 켠다. */
   const firedIds = useMemo(() => {
     const out = new Set<string>();
     const entries = inventory?.hooks ?? [];
@@ -329,13 +312,7 @@ export const IDEHooksView = memo(function IDEHooksView({ agentId }: { agentId: s
   );
 });
 
-/**
- * 활동바가 쓰는 점등 신호 — **이 세션에서** 지금 울리고 있는 훅이 있는가.
- *
- * 목록(인벤토리)을 읽지 않는다: 활동바는 사이드바가 닫혀 있어도 떠 있어야 하는데, 그때마다
- * 훅 목록을 조회하면 뷰를 열지도 않은 채 디스크를 긁게 된다. "무엇이 울렸나" 가 아니라
- * "울리고 있나" 만 필요하므로 발동 신호 하나로 충분하다.
- */
+/** 활동바 점등 — 이 세션에서 울리는 훅이 있는가. 목록을 읽지 않는다(사이드바가 닫혀도 떠 있어 매번 디스크를 긁게 된다) — 발동 신호 하나면 된다. */
 export function useHookFiring(agentId: string | null): boolean {
   const fires = useHookFires((s) => s.fires);
   const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);

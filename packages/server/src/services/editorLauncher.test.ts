@@ -3,12 +3,8 @@ import { describe, it, expect } from 'vitest';
 import { knownEditorPaths } from './editorLauncher.js';
 
 /**
- * "VS Code 로 열기"가 macOS 에서 **TextEdit** 로 떨어지던 사고의 회귀 테스트.
- *
- * 두 사정이 겹쳤다: ① macOS 의 `code` 는 `.app` 번들 **안**에 있고 사용자가
- * "Shell Command: Install 'code' command in PATH" 를 눌러야 PATH 에 심볼릭이 생긴다.
- * ② Finder 로 띄운 우리 앱의 PATH 는 launchd 최소값이라 눌렀더라도 `/usr/local/bin` 이 안 보인다.
- * 그래서 `which code` 가 실패 → `openFile` 폴백 `open -t` → TextEdit.
+ * macOS 에서 "VS Code 로 열기"가 TextEdit 로 떨어지지 않는지 본다. ① mac 의 `code` 는 `.app` 번들 안에 있어 "Install 'code' command in PATH" 를 눌러야 PATH 에 생기고,
+ * ② Finder 로 띄운 앱의 PATH 는 launchd 최소값이라 눌렀어도 `/usr/local/bin` 이 안 보인다 — 그러면 `which code` 실패 → `open -t` → TextEdit.
  */
 
 /** 테스트용 가짜 홈 — 실제 사용자 경로가 아니라 픽스처다. */

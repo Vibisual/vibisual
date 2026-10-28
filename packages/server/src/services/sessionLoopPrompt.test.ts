@@ -1,12 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { composeLoopRoundText } from './sessionLoopPrompt.js';
 
-/**
- * §5.5 #17-11 ⑫(g) — 회차 프롬프트 합성 회귀 테스트.
- *
- * 여기서 조용히 깨지면 사용자가 친 명령이 매 회차 다른 모양으로 나간다. 지켜야 하는 것은 둘:
- * ① 옵션 0 이면 **원문 그대로**(기존 루프와 바이트 동일), ② 켠 규약만 항상 같은 순서로 붙는다.
- */
+/** §5.5 #17-11 ⑫(g) — 회차 프롬프트 합성: 옵션 0 이면 원문과 바이트 동일, 켠 규약은 늘 같은 순서. */
 describe('composeLoopRoundText — 루프 회차 프롬프트 합성', () => {
   it('아무 규약도 켜지 않으면 원문을 한 글자도 건드리지 않는다', () => {
     const text = 'run the tests and fix what fails';

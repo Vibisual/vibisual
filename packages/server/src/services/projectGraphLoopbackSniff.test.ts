@@ -1,9 +1,6 @@
 /**
- * §7.11 감지 폴백 확장 — **끝난 Bash 의 명령어·출력에 찍힌 루프백 주소**로 프리뷰를 만든다.
- *
- * 이 테스트가 지키는 것은 사용자 보고 한 줄이다: "Vite 는 이미 떠 있던 것을 그대로 썼습니다 —
- * 새로 띄우지 않았습니다." 그런 세션엔 `run_in_background` 셸이 없어 종전 감지는 출발조차 못 했다.
- * 그러나 에이전트는 살아있는지 확인하려고 그 주소를 반드시 한 번은 친다 — 그 흔적으로 회수한다.
+ * §7.11 감지 폴백 — 끝난 Bash 의 명령·출력에 찍힌 루프백 주소로 프리뷰를 만든다
+ * (이미 떠 있던 서버라 `run_in_background` 셸이 없어도, 에이전트는 생존 확인으로 그 주소를 친다).
  */
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { createServer, type Server } from 'node:http';
@@ -72,7 +69,7 @@ describe('§7.11 — foreground Bash 의 루프백 주소로 프리뷰 회수', 
 
     const sat = iframesOf(agent.persistSatellites)[0];
     expect(sat?.url).toBe(url);
-    // 짝이 되는 ServerEntry 도 함께 — 없으면 IframeServerCard 의 Stop 이 영구 비활성이다(v3.85).
+    // 짝 ServerEntry 도 — 없으면 IframeServerCard 의 Stop 이 영구 비활성.
     expect(Object.values(graph.getSnapshot().runningServers).flat()).toHaveLength(1);
   });
 
@@ -160,11 +157,7 @@ describe('§7.11 — foreground Bash 의 루프백 주소로 프리뷰 회수', 
   });
 });
 
-/**
- * §7.11 — 주운 주소를 **그대로** 열면 안 된다. 사용자 보고: "이거 iframe 버블인데
- * `http://127.0.0.1:3456/` 이 주소인데 계속 `/api/backtest/state` 로 연결시켜서 이상한 곳으로 빠진다."
- * 에이전트가 상태를 확인하려고 친 `curl …/api/backtest/state` 한 줄이 그대로 프리뷰 주소가 된 자리다.
- */
+/** §7.11 — 주운 주소를 그대로 열지 않는다: 상태 확인용 `curl …/api/backtest/state` 가 프리뷰 주소가 되면 화면 대신 API 로 빠진다. */
 describe('§7.11 — 프리뷰는 그 서버의 화면을 연다(API 경로는 정문으로)', () => {
   /** `/` 는 페이지, `/api/…` 는 JSON — 실제 Express 앱(정적 public + res.json)의 모양. */
   async function listenApp(): Promise<number> {

@@ -1,18 +1,7 @@
 /**
- * §4 앱 테마 — 사용자 테마 폴더(`~/.vibisual/themes/*.json`)를 읽고, 데스크톱 창에 칠할 색을 낸다.
- *
- * 왜 서버에 있나: 테마 파일은 사용자 디스크의 입력이고(렌더러는 디스크를 못 읽는다), 창 바탕·제목줄
- * 버튼은 desktop main 이 칠한다. 둘 다 **같은 해석**(shared `resolveAppTheme`)을 거쳐야 창 바탕과 화면이
- * 같은 테마가 된다 — 그래서 고른 id(`UserDefaults.appearance.themeId`)와 사용자 테마 목록이 만나는
- * 자리를 여기 한 곳에 둔다.
- *
- * 영속화: 고른 테마는 `user-defaults.json`(기존 설정 창 저장소) 하나뿐이다. 이 서비스는 **아무것도
- * 저장하지 않는다** — 테마 폴더는 사용자가 넣는 입력이고, 우리가 쓰는 것은 [지금 테마로 새로 만들기]가
- * 만드는 견본 파일뿐이다(원자적 쓰기 · 같은 폴더 rename).
- *
- * 경로: `os.homedir()` 아래 `.vibisual` — 설정 창 저장소(`user-defaults.json`)·앱 상태와 같은 뿌리라
- * 세 OS 에서 같은 자리다. 파일 이름은 그대로 쓰고 접지 않는다(Linux 는 대소문자를 가른다) — 같은 id 가
- * 둘이면 뒤의 것을 `duplicateId` 로 알린다.
+ * §4 앱 테마 — 사용자 테마 폴더(`~/.vibisual/themes/`)를 읽고 데스크톱 창 색을 낸다. 렌더러는 디스크를 못 읽고 창 바탕은 desktop main 이 칠하므로,
+ * 둘이 같은 해석(shared `resolveAppTheme`)을 거치게 고른 id 와 목록이 여기서 만난다. 저장은 하지 않는다(고른 값은 `user-defaults.json`, 쓰는 것은 견본 파일뿐).
+ * 파일 이름은 접지 않는다(Linux 는 대소문자를 가른다).
  */
 import fs from 'node:fs';
 import os from 'node:os';

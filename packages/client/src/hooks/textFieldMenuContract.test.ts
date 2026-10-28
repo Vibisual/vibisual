@@ -1,17 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
 /**
- * 입력칸 우클릭 메뉴 규약의 **집행** — 앞으로 만들 입력칸도 자동으로 이 규칙 안에 들어오게 한다.
- *
- * 규약 둘.
- *  ① 전역 메뉴(`components/Layout/GlobalTextFieldContextMenu.tsx`)는 **부팅 지점에서 한 번** 마운트한다.
- *     빠지면 앱 전체의 입력칸이 조용히 우클릭 무반응으로 돌아간다(고장이 화면에 안 뜬다).
- *  ② `<input>`·`<textarea>` 가 **자기 `onContextMenu` 를 달았다면** `data-text-menu="own"` 도 달아야 한다.
- *     전역이 capture 단계에서 먼저 가로채므로, 표시가 없으면 그 컴포넌트의 메뉴는 **불리지 않는
- *     죽은 코드**가 된다 — 짠 사람은 배선했다고 믿고, 사용자는 다른 메뉴를 본다.
- *
- * 소스를 읽지만 `node:fs` 를 쓰지 않는다 — 클라이언트 tsconfig 에는 Node 타입이 없다
- * (`popupDismissContract.test.ts` 와 같은 이유·같은 방식).
+ * 입력칸 우클릭 메뉴 규약의 집행 — 새 입력칸도 자동으로 이 규칙 안에 든다.
+ *  ① 전역 메뉴(`components/Layout/GlobalTextFieldContextMenu.tsx`)는 부팅 지점에서 한 번 마운트한다 — 빠지면 앱 전체 입력칸이 조용히 우클릭 무반응이 된다.
+ *  ② `<input>`·`<textarea>` 가 자기 `onContextMenu` 를 달았다면 `data-text-menu="own"` 도 단다 — 전역이 capture 단계에서 먼저 가로채, 표시가 없으면 그 메뉴는 불리지 않는 죽은 코드가 된다.
+ * `node:fs` 없이 소스를 읽는다 — 클라이언트 tsconfig 에 Node 타입이 없다(`popupDismissContract.test.ts` 와 같은 방식).
  */
 
 const tsxSources = import.meta.glob('../**/*.tsx', { query: '?raw', import: 'default', eager: true });

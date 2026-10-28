@@ -6,13 +6,7 @@ import {
 import type { VerificationDemo, VerificationDemoStep } from '@vibisual/shared';
 import type { ClipRange } from '../BubbleMap/playtestClip.js';
 
-// §5.5 #17-35 ⑨ — 시연(재현 절차)의 순수 계산 한 벌.
-//
-// 시연 창·검증 뷰·저장 경로가 **같은 답**을 봐야 한다: 창에서 본 단계 순서와 실제로 서버에 저장되는
-// 순서가 어긋나면 그 즉시 못 믿는 화면이 된다. 그래서 계산은 여기 한 곳에만 두고 단위 테스트로 굳힌다
-// (`playtestClip` 이 같은 이유로 §5.9 에 사는 것과 같은 자리).
-//
-// 화면도 시각도 보지 않는다 — 전부 입력 → 출력이라 통째로 시험된다.
+// §5.5 #17-35 ⑨ — 시연의 순수 계산 한 벌(시연 창·검증 뷰·저장 경로가 같은 단계 순서를 보게).
 
 /** 클립 안 시각 `ms` 를 `0:03` 로. 단계 문장과 붙는 그림이 같은 순간을 가리키게 하는 표시. */
 export function formatDemoTime(ms: number): string {
@@ -22,12 +16,7 @@ export function formatDemoTime(ms: number): string {
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
-/**
- * 단계 하나를 넣는다 — **시각 순서로 꽂고** 상한을 넘으면 넣지 않는다.
- *
- * 사용자는 되돌려 보며 아무 지점에서나 단계를 적으므로(뒤로 갔다가 다시 앞으로) 입력 순서가 곧
- * 시간 순서가 아니다. 프롬프트는 "1. 2. 3." 으로 나가는데 그 번호가 시간과 어긋나면 재현이 뒤집힌다.
- */
+/** 단계를 **시각 순서로 꽂고** 상한을 넘으면 넣지 않는다 — 되돌려 보며 아무 데서나 적어 입력 순서 ≠ 시간 순서다(번호가 어긋나면 재현이 뒤집힌다). */
 export function insertDemoStep(
   steps: readonly VerificationDemoStep[],
   step: VerificationDemoStep,
@@ -56,11 +45,7 @@ export function demoStepsInRange(steps: readonly VerificationDemoStep[], range: 
     .map((step) => ({ ...step, atMs: step.atMs - range.startMs }));
 }
 
-/**
- * 시연 이름 기본값 — 소스 이름 + 시각.
- *
- * 사용자가 이름을 안 적어도 목록에서 **무엇을 찍은 것인지** 구별돼야 한다("demo" 여섯 줄 ❌).
- */
+/** 시연 이름 기본값 — 소스 이름 + 시각(이름을 안 적어도 목록에서 구별되게). */
 export function defaultDemoLabel(sourceName: string, at: number, locale?: string): string {
   let time = '';
   try {
@@ -73,12 +58,7 @@ export function defaultDemoLabel(sourceName: string, at: number, locale?: string
   return raw.slice(0, VERIFICATION_DEMO_LABEL_MAX);
 }
 
-/**
- * 이 시연이 검증 프롬프트에 **실릴 만한 내용을 갖고 있는가**.
- *
- * 셋 다 비어 있으면(단계도 기대 결과도 그림도 없음) 실어 봐야 프롬프트에 블록만 늘고 뜻이 없다 —
- * 서버 `buildVerifyPrompt` 가 같은 판정을 하므로 화면도 같은 답을 보여야 한다(저장은 막지 않는다).
- */
+/** 검증 프롬프트에 실을 내용이 있는가(단계·기대 결과·그림 중 하나). 서버 `buildVerifyPrompt` 와 같은 판정이어야 한다(저장은 막지 않는다). */
 export function demoHasContent(demo: Pick<VerificationDemo, 'steps' | 'expected' | 'frames'>): boolean {
   return demo.steps.length > 0 || !!demo.expected?.trim() || demo.frames.length > 0;
 }

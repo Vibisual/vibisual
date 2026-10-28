@@ -20,11 +20,8 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
   const { t } = useTranslation();
   const [currentUrl, setCurrentUrl] = useState(url);
   const [inputUrl, setInputUrl] = useState(url);
-  // §7.11 / §3.5 — 탭 주소가 바뀌면 화면도 옮긴다. 스토어는 위성 주소를 따라 탭 주소를 고친다
-  //   (`followIframeTabUrls` — 한 포트 두 주인이면 서버가 `localhost` 를 우리 서버에 닿는 `127.0.0.1` 로
-  //   옮긴다). 연 순간의 주소를 상태로 붙들면 캔버스 버블은 고쳐져도 열어 둔 탭은 남의 화면을 계속 보여 준다.
-  //   사용자가 주소창으로 딴 데를 보고 있으면 덮어쓰지 않는다. 본창은 key 없이 이 칸을 다른 탭과 이어
-  //   쓰므로, 탭이 바뀌면 언제나 그 탭의 주소로 옮긴다.
+  // §7.11 / §3.5 — 탭 주소가 바뀌면 화면도 옮긴다(스토어가 `followIframeTabUrls` 로 고친다) — 연 순간의 주소를 붙들면 남의 화면을 계속 보인다.
+  // 주소창으로 딴 데를 보고 있으면 덮어쓰지 않는다. 본창은 key 없이 이 칸을 탭끼리 이어 쓰므로 탭이 바뀌면 늘 그 탭 주소로 옮긴다.
   const [source, setSource] = useState({ tabId, url });
   if (source.tabId !== tabId || source.url !== url) {
     const follow = shouldIframeViewFollow(source, { tabId, url }, currentUrl);

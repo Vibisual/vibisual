@@ -1,15 +1,7 @@
 /**
- * §5.11 v3.93 — 점검 카드(Inspector) 골격.
- *
- * 카탈로그를 어휘 전체로 넓히기로 한 이상, **플러그인 하나의 제작 비용**이 곧 전체 진도를 결정한다.
- * 지금까지 플러그인마다 손으로 쓰던 것(배지 + 섹션 + 등급 + 행 목록)은 형태가 거의 같았으므로,
- * 여기서 한 번만 만들고 각 플러그인은 **선언(spec)** 만 남긴다 — 한 플러그인이 20~40줄로 줄어든다.
- *
- * 규율은 그대로 가져간다.
- * - 표시 전용. 설정을 바꾸지 않는다.
- * - 배지는 `badge.match` 가 true 일 때만 렌더한다 — 상시 점등은 신호를 죽인다.
- * - 데이터는 `needs` 로 선언한 것만 받는다.
- * - 문자열은 전부 `panel.plugins.<camelId>.*` 한 지붕 아래(§5.11 키 규약).
+ * §5.11 — 점검 카드(Inspector) 골격: 배지 + 섹션 + 등급 + 행 목록을 한 번만 만들고 각 플러그인은 선언(spec)만 남긴다.
+ * 규율: 표시 전용(설정을 바꾸지 않는다) · 배지는 `badge.match` 가 true 일 때만(상시 점등은 신호를 죽인다)
+ * · 데이터는 `needs` 로 선언한 것만 받는다 · 문자열은 전부 `panel.plugins.<camelId>.*` 아래(§5.11 키 규약).
  */
 import type { ReactNode } from 'react';
 import type { PluginCategory, PluginContributionKind } from '@vibisual/shared';
@@ -34,25 +26,19 @@ export interface InspectorSpec {
   category: PluginCategory;
   needs?: PluginDataNeed[];
   /**
-   * 이 카드가 표시 말고 **집행**도 하는 경우 그 기여 종류(§5.11 v4.57, 예: `agentPrompt`).
-   *
-   * 하나라도 있으면 `clientOnly: false` 가 된다 — 서버가 이 플러그인의 모듈을 조립한다는 뜻이고,
-   * PluginsWindow 도 "표시 전용"이 아니라고 읽는다. 골격이 만드는 카드의 기본값은 여전히 표시 전용이다.
+   * 이 카드가 표시 말고 집행도 하는 경우 그 기여 종류(§5.11, 예: `agentPrompt`).
+   * 하나라도 있으면 `clientOnly: false` — 서버가 이 플러그인 모듈을 조립하고 PluginsWindow 도 표시 전용이 아니라고 읽는다. 골격 기본값은 표시 전용.
    */
   contributesAlso?: PluginContributionKind[];
   /**
-   * §5.11 노출 게이트 — 이 카드의 집행이 **프로젝트를 실제로 훑는가**(기본 false).
-   *
-   * 같은 폴더의 `enforce.ts` 가 `probe`/`survey` 를 가졌으면 `true` 로 적는다. 적지 않으면 켜도
-   * **고정 문장**만 실리는 것으로 보고, Plugins 창 목록에는 §7.7 디버그 모드에서만 세운다.
-   * 이 값과 실제 집행 모듈이 어긋나면 `readiness.test.ts` 가 실패한다 — 한쪽만 고치는 것을 막는다.
+   * §5.11 노출 게이트 — 이 카드의 집행이 프로젝트를 실제로 훑는가(기본 false).
+   * 같은 폴더 `enforce.ts` 에 `probe`/`survey` 가 있으면 `true`. 안 적으면 고정 문장만 실리는 것으로 보고 Plugins 창 목록엔 §7.7 디버그 모드에서만 세운다.
+   * 실제 집행 모듈과 어긋나면 `readiness.test.ts` 가 실패한다.
    */
   enforcesProject?: boolean;
   /**
    * §5.5 #17-44 ⑧(d) — 켬/끔 손잡이가 이 기능 자신의 화면에 있는가(기본 false).
-   *
-   * 적으면 Plugins 창 목록에서 빠지고 집행 배럴·카드 호스트가 켬 집합을 묻지 않는다. 옮겨 간 손잡이가
-   * 실제로 있는 카드만 적어라 — 없으면 어디에서도 못 끄는 카드가 된다(`readiness.test.ts` 가 막는다).
+   * 적으면 Plugins 창 목록에서 빠지고 집행 배럴·카드 호스트가 켬 집합을 묻지 않는다 — 손잡이가 실제로 있는 카드만 적어라(없으면 어디서도 못 끈다, `readiness.test.ts` 가 막는다).
    */
   ownToggle?: boolean;
   /** 이 버블에 붙을지. 기본값 = 에이전트 버블이며 설정이 있는 것. */
@@ -69,11 +55,8 @@ export interface InspectorSpec {
     icon: ReactNode;
   };
   /**
-   * §5.11 v4.67 — Plugins 창에서 이 카드가 그리는 **자기 설정**(선택).
-   *
-   * 카드 본체(패널·배지)는 표시 전용 규율 그대로다. 설정 슬롯만은 원래부터 사용자가 값을 고르는
-   * 자리이고(v1 개통 3종 중 하나), 값 저장은 플러그인이 직접 하지 않고 **호스트가 연 창구**
-   * (`ctx.call`)로만 한다 — 플러그인이 파일이나 스토어를 직접 만지는 길은 끝까지 열지 않는다.
+   * §5.11 — Plugins 창에서 이 카드가 그리는 자기 설정(선택). 카드 본체(패널·배지)는 표시 전용 그대로다.
+   * 값 저장은 호스트가 연 창구(`ctx.call`)로만 한다 — 플러그인이 파일·스토어를 직접 만지는 길은 열지 않는다.
    */
   settings?: (ctx: PluginSettingsContext) => ReactNode;
 }
@@ -95,16 +78,12 @@ export function defineInspector(spec: InspectorSpec): { manifest: PluginManifest
     descriptionKey: `${K}.desc`,
     enabledByDefault: false,
     /*
-     * v4.59 — **집행(`agentPrompt`)은 이제 모든 카드의 기본값이다.**
-     *
-     * v4.57 까지는 집행이 예외(옵트인)였고, 그래서 111종 중 실제로 집행하는 것은 하나뿐이었다.
-     * 켜도 아무 일이 안 일어나는 스위치는 기능이 아니므로 기본값을 뒤집는다 — 카드는 자기 폴더의
-     * `enforce.ts` 로 무엇을 강제할지 반드시 말해야 하고, `enforcement.test.ts` 가 그것을 확인한다.
+     * 집행(`agentPrompt`)은 모든 카드의 기본값이다 — 켜도 아무 일이 없는 스위치는 기능이 아니다.
+     * 카드는 자기 폴더의 `enforce.ts` 로 무엇을 강제할지 반드시 말해야 하고, `enforcement.test.ts` 가 확인한다.
      */
     contributes: [
       ...(spec.badge ? (['bubbleBadge', 'panelSection'] as PluginContributionKind[]) : (['panelSection'] as PluginContributionKind[])),
-      // v4.67 — 자기 설정을 그리는 카드는 그 사실을 매니페스트에도 적는다. 창의 "기여" 목록이
-      //   화면과 어긋나면(설정칸이 떠 있는데 목록엔 없으면) 사용자는 무엇이 켜졌는지 못 읽는다.
+      // 자기 설정을 그리는 카드는 매니페스트에도 적는다 — 창의 "기여" 목록이 화면과 어긋나면 무엇이 켜졌는지 못 읽는다.
       ...(spec.settings ? (['settingsSection'] as PluginContributionKind[]) : []),
       'agentPrompt' as PluginContributionKind,
       ...(spec.contributesAlso ?? []),
@@ -185,8 +164,8 @@ export function defineInspector(spec: InspectorSpec): { manifest: PluginManifest
 }
 
 /**
- * 여러 플러그인이 공유하는 작은 글리프들 — 배지마다 SVG 를 새로 그리지 않게.
- * 크기는 12px(`h-3 w-3`) — 아이콘 하한(CLAUDE.md)이다. 10px 은 획이 뭉개져 무슨 모양인지 안 읽혔다.
+ * 여러 플러그인이 공유하는 작은 글리프 — 배지마다 SVG 를 새로 그리지 않게.
+ * 크기는 12px(`h-3 w-3`) 하한 — 10px 은 획이 뭉개져 모양이 안 읽힌다.
  */
 export const ICONS = {
   shield: (

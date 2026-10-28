@@ -8,17 +8,8 @@ import { finishAppWindowTransfer, prepareAppWindowTransfer } from './appWindowTr
 import { appWindowKey, resolveAppWindowDestination, type OutsideAppWindow } from './appWindowFocus.js';
 
 /**
- * §5.13 (S) — **앱 안 창**으로 열린 내부 앱들.
- *
- * 종전에는 앱 버블을 더블클릭하면 곧바로 독립 OS 창이 떴다. 그래서 앱 하나를 잠깐 들여다보는
- * 일에도 창이 하나 더 생기고, 캔버스에 놓아 둔 버블과 그 앱의 화면이 다른 세계에 있었다.
- * 이제 순서가 뒤집힌다 — **앱 안에서 먼저 열리고, 밖이 필요한 사람만 끌어낸다**(IDE 창과 같은 결).
- *
- * 이 store 는 "지금 어떤 앱 창이 떠 있나"만 든다(비영속 — 닫으면 잊는다). 창의 좌표·3상태는
- * 창 컴포넌트가 `useFloatingWindow` 로 들고, z-order·Escape 는 공용 창 스택이 맡는다.
- *
- * **특정 앱을 알지 않는다** (§5.13 (P-4)) — 무엇을 그릴지·밖에 어떻게 내보낼지는 전부 `appId` 로
- * 레지스트리에서 꺼낸다.
+ * §5.13 (S) — 지금 떠 있는 앱 안 창 목록(비영속). 앱은 앱 안에서 먼저 열리고 필요한 사람만 끌어낸다.
+ * 좌표·3상태는 창의 `useFloatingWindow`, z-order·Escape 는 공용 창 스택. 특정 앱을 모른다(§5.13 (P-4)) — `appId` 로 레지스트리에서 꺼낸다.
  */
 export interface AppWindowArgs {
   readonly geometry?: FloatingWindowGeom | undefined;
@@ -33,10 +24,7 @@ export interface AppWindowArgs {
   readonly draftKey?: string | undefined;
   /** 창 제목에 쓸 이름(버블 이름 등). 없으면 앱 이름이 쓰인다. */
   readonly title?: string | undefined;
-  /**
-   * §5.13 (L) — 이 창을 연 캔버스 노드. 앱이 다른 작업 문서를 고르면 그 노드가 그 문서를 기억한다.
-   * 창의 열쇠(같은 창인가)에는 넣지 않는다 — 같은 문서를 가리키는 노드 둘이 창을 두 벌 띄우지 않게.
-   */
+  /** §5.13 (L) — 이 창을 연 노드(문서를 고르면 그 노드가 기억한다). 창 열쇠엔 넣지 않는다 — 같은 문서를 가리키는 노드 둘이 창을 두 벌 띄우지 않게. */
   readonly bubbleId?: string | undefined;
 }
 
@@ -45,12 +33,7 @@ export interface AppWindow extends AppWindowArgs {
   readonly id: string;
   /** An agent may need the editor bridge quietly; false retains its document identity after revealing it. */
   readonly background?: boolean;
-  /**
-   * 맨 앞으로 올려 달라는 신호(마지막 요청 시각).
-   *
-   * 이미 떠 있는 것을 또 열면 **두 벌로 겹치지 않고** 그 창이 앞으로 온다 — 같은 문서를 두 창에
-   * 띄우면 어느 쪽이 진짜인지 알 수 없다(§5.13 (R-3) 이 문서 무덤을 막은 것과 같은 판단).
-   */
+  /** 맨 앞으로 올려 달라는 신호(마지막 요청 시각) — 이미 떠 있는 것을 또 열면 두 벌 대신 그 창이 앞으로 온다(§5.13 (R-3) 과 같은 판단). */
   readonly focusAt: number;
 }
 
@@ -61,11 +44,7 @@ const sameDocument = (a: AppWindowArgs, b: AppWindowArgs): boolean => !!a.ref &&
 
 interface AppWindowsState {
   windows: readonly AppWindow[];
-  /**
-   * §5.13 (S-11) **밖에** 떠 있는 앱 창(OS 창)과 그 창이 보는 대상 — main 의 목록을 그대로 비춘 것(이 store 가
-   * 만들지 않는다 — `useAppWindowRedock` 이 받아 적는다). 그 문서를 다시 열면 앱 안에 한 벌 더 세우지 않고 그 창을
-   * 앞으로 세운다(`openAppWindow`).
-   */
+  /** §5.13 (S-11) 밖에 떠 있는 앱 창과 그 대상 — main 목록의 거울(`useAppWindowRedock` 이 적는다). 그 문서를 다시 열면 그 창을 앞으로 세운다. */
   outside: readonly OutsideAppWindow[];
   setOutside: (list: readonly OutsideAppWindow[]) => void;
   open: (args: AppWindowArgs, opts?: { background?: boolean }) => void;
@@ -155,18 +134,9 @@ export const useAppWindowsStore = create<AppWindowsState>((set, get) => ({
 }));
 
 /**
- * §5.13 (S-6) — 앱을 여는 **유일한 문**.
- *
- * 버블 더블클릭 · 버블 우클릭 [열기] · 옵션 패널 [열기] · 파일 클릭((R-7) 의 `app` 갈래)이 전부
- * 여기로 온다. 지점마다 자기 판단을 들면 같은 앱이 자리마다 다른 곳에서 열린다.
- *
- * 등록되지 않은 `appId` 면 열지 않고 false — 부르는 쪽이 연결 프로그램 등 다른 길로 갈 수 있게.
- *
- * §5.13 (S-11) — 그 문서가 **이미 밖에 떠 있으면** 앱 안에 한 벌 더 세우지 않고 밖의 그 창을 앞으로 세운다(IDE 창
- * §5.5 #17-6 (H-13)(H-16) 과 같은 "포커싱" — 다른 프로그램 뒤에 가려져 있어도 앞으로 오고, 테두리가 한 번 대답한다).
- * 그 사이 그 창이 닫혔으면(목록이 한 박자 늦다) 종전대로 앱 안에 연다.
- *
- * @param opts.redock 밖의 창을 앱 안으로 **되돌리는** 길 — 그 창은 닫히는 중이라 밖을 보지 않는다.
+ * §5.13 (S-6) — 앱을 여는 유일한 문(더블클릭·우클릭·옵션 패널·파일 클릭 (R-7)) — 지점마다 판단하면 같은 앱이 자리마다 다른 곳에서 열린다.
+ * 미등록 `appId` 면 false(부르는 쪽이 다른 길로). (S-11) 이미 밖에 떠 있으면 그 창을 앞으로(IDE (H-13)(H-16) 포커싱), 그 사이 닫혔으면 앱 안에.
+ * @param opts.redock 밖의 창을 앱 안으로 되돌리는 길 — 닫히는 중이라 밖을 보지 않는다.
  * @param opts.background Prepare the editor bridge quietly; only a later explicit open shows it.
  */
 export function openAppWindow(args: AppWindowArgs, opts?: { redock?: boolean; background?: boolean }): boolean {
@@ -203,12 +173,7 @@ export function openAppWindow(args: AppWindowArgs, opts?: { redock?: boolean; ba
   return true;
 }
 
-/**
- * 이 판이 앱을 **밖으로** 내보낼 수 있는가(데스크톱 렌더러인가).
- *
- * 못 내보내는 판(웹·구버전 preload)에서는 끌어내기 손짓과 [별도 창으로] 손잡이를 아예 띄우지
- * 않는다 — 안내만 뜨고 아무 일도 안 일어나면 그건 고장으로 읽힌다(§5.13 (S-5)).
- */
+/** 밖으로 내보낼 수 있는 판인가(데스크톱 렌더러). 아니면(웹·구버전 preload) 끌어내기·[별도 창으로]를 띄우지 않는다 — 눌러도 아무 일 없으면 고장으로 읽힌다(§5.13 (S-5)). */
 export function canPopOutAppWindow(): boolean {
   return typeof window !== 'undefined' && typeof window.api?.app?.open === 'function';
 }

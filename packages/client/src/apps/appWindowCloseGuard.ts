@@ -1,10 +1,8 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * §5.13 (R-10) — "you have unsaved changes" before an app window closes by the user's hand (title-bar close,
- * Escape, the OS-window close button). An app shell registers a guard for its window; closing asks every guard of
- * that window and stops when one says no. Programmatic closes (moving the window in or out) do not ask — their own
- * transfer guard saves first.
+ * §5.13 (R-10) — unsaved-changes guard for user-initiated closes (title-bar close, Escape, OS close button): closing asks every guard
+ * of that window and stops on a no. Programmatic moves in/out do not ask — their transfer guard saves first.
  */
 type Guard = () => boolean | Promise<boolean>;
 const guards = new Map<string, Set<Guard>>();

@@ -1,30 +1,9 @@
 /**
- * §5.5 #17-9 ⑬ — **끝났다고 적힌 것은 걷는다.**
- *
- * ⑩ 은 "유령은 시간이 아니라 프로세스 유무로 걷는다"를 세웠고, 그 판정 근거는 하나였다 — *그 세션에
- * 프로세스가 없으면 그 자식인 작업도 없다*. 그런데 세션은 `--input-format stream-json` 상주 프로세스라
- * **탭이 열려 있는 한 그 근거는 결코 성립하지 않는다.** 그래서 끝 통지(`task_notification`)를 못 받은
- * 작업은 영영 목록에 남았다(실측 2026-09-01 — 목적을 다한 `tail -f` 두 개가 10·16분째 "실행 중").
- *
- * 여기서 여는 것은 **세 번째 근거**다: 하니스가 작업 출력 파일 끝에 **종료를 직접 적는다.**
- *
- * ```text
- * PKG_DONE exit=0
- *                       ← 빈 줄
- * [exited with code 0]  ← 하니스가 쓴 마지막 줄
- * ```
- *
- * 이것은 추측이 아니라 **선언**이다. 그래서 SSOT 가 금지한 축(조용하다·오래됐다는 이유로 걷기)과
- * 부딪히지 않는다 — 조용함은 판정에 쓰지 않고, 표식이 있을 때만 내린다. 한쪽으로만 틀리는 것도
- * 중요하다: 표식이 **있으면** 확실히 끝난 것, **없으면** "모름"이라 종전 동작 그대로 둔다.
- * 도는 작업을 끝난 것으로 만드는 방향으로는 틀릴 수 없다.
- *
- * ⚠ **문서화된 규약이 아니다.** 판올림에서 경로·문구가 조용히 바뀔 수 있으므로 **못 읽으면 조용히
- * 종전 동작으로 떨어진다**(기능 손실 ❌ — 잃는 것은 이 힌트 하나뿐). 우리가 이미 트랜스크립트
- * JSONL 을 같은 방식으로 읽고 있고(`sessionDiscovery`·`subagentResultRescue`), 이 파일 역시
- * `backgroundShellWatcher` 가 포트 탐지용으로 이미 tail 하고 있던 그 파일이다 — 새 경계가 아니다.
- *
- * ⚠ **읽기 전용이다.** 이 모듈은 지우지도 쓰지도 않는다.
+ * §5.5 #17-9 ⑬ — **끝났다고 적힌 것은 걷는다.** 하니스가 작업 출력 파일 끝에 종료를 직접 적는다(빈 줄 뒤 마지막 줄 `[exited with code 0]`).
+ * 세션은 `--input-format stream-json` 상주 프로세스라 탭이 열려 있는 한 ⑩ 의 근거(프로세스가 없으면 작업도 없다)가 서지 않는다 — 끝 통지(`task_notification`)를 놓친 작업이 영영 남는다(실측 2026-09-01: 끝난 `tail -f` 둘이 10·16분째 "실행 중").
+ * 표식은 추측이 아니라 선언이라 "조용·오래됨으로 걷기" 금지와 부딪히지 않는다. 있으면 끝, 없으면 "모름"(종전 동작) — 도는 작업을 끝난 것으로 만들 수 없다.
+ * ⚠ 문서화된 규약이 아니다 — 경로·문구가 판올림에 바뀌면 조용히 종전 동작으로 떨어진다(잃는 것은 이 힌트뿐). `backgroundShellWatcher` 가 포트 탐지로 이미 tail 하는 그 파일이다.
+ * ⚠ 읽기 전용 — 지우지도 쓰지도 않는다.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -42,13 +21,9 @@ export type TaskEndMarker =
   | { kind: 'killed' };
 
 /**
- * 출력 꼬리에서 종료 표식을 읽는다. **마지막 줄일 때만** 인정한다.
- *
- * 왜 마지막 줄로 못 박는가 — 실측 조사에서 `[reinstall]`·`[release]` 처럼 **작업 자신의 출력**에
- * 대괄호 낱말이 흔했다(로그 접두사). 느슨하게 잡으면 도는 작업을 끝난 것으로 만든다.
- * 표식은 하니스가 파일을 닫으며 쓰는 마지막 한 줄이므로 그 자리만 본다.
- *
- * 순수 함수 — 파일을 읽지 않는다(테스트가 세 갈래를 전부 고정한다).
+ * 출력 꼬리에서 종료 표식을 읽는다 — **마지막 줄일 때만** 인정한다.
+ * 작업 자신의 출력에도 `[reinstall]`·`[release]` 같은 대괄호 로그 접두사가 흔해, 느슨하게 잡으면 도는 작업을 끝난 것으로 만든다.
+ * 순수 함수(파일을 읽지 않는다) — 시험이 세 갈래를 고정한다.
  */
 export function parseTaskEndMarker(tail: string): TaskEndMarker | null {
   const text = tail.replace(/\r/g, '').replace(/\n+$/, '');
@@ -82,13 +57,8 @@ export function resetBackgroundTaskOutputCache(): void {
 
 /**
  * 그 세션의 작업 출력 폴더 — `<tmp>/claude/<프로젝트 슬러그>/<sessionId>/tasks`.
- *
- * **슬러그 규칙을 재현하지 않는다.** 경로를 우리가 조립하면 대문자·구분자 규칙이 판올림마다
- * 어긋나고 OS 마다 또 갈린다. 세션 id 는 UUID 라 전역 유일하므로 `<tmp>/claude` 를 한 겹 훑어
- * 그 UUID 폴더를 찾는다 — 찾으면 영구 캐시, 못 찾으면 {@link DIR_MISS_RETRY_MS} 뒤에 재시도.
- * `os.tmpdir()` 이 win/mac/linux 를 알아서 가른다(win `%LOCALAPPDATA%\Temp` · mac `/var/folders/…`
- * · linux `/tmp`).
- *
+ * 슬러그 규칙을 재현하지 않는다(대문자·구분자 규칙이 판올림·OS 마다 갈린다) — 세션 id 는 전역 유일한 UUID 라 `<tmp>/claude` 를 한 겹 훑어 그 폴더를 찾는다.
+ * 찾으면 영구 캐시, 못 찾으면 {@link DIR_MISS_RETRY_MS} 뒤 재시도. `os.tmpdir()` 이 세 OS 의 임시 폴더를 가른다.
  * @param tmpRoot 테스트 주입점. 기본값은 실제 임시 폴더.
  */
 export function resolveSessionTasksDir(
@@ -114,9 +84,7 @@ export function resolveSessionTasksDir(
 
 /**
  * 작업 하나의 출력 상태. 파일이 없으면 `null`(= 모름, 종전 동작 유지).
- *
- * 비용은 평소 `statSync` 한 번이다 — 크기·mtime 이 그대로면 꼬리를 다시 읽지 않는다.
- * 멈춘 `tail -f` 의 파일은 영영 안 바뀌므로, 그런 항목이 5초마다 물어봐도 디스크 읽기는 0 이다.
+ * 평소 비용은 `statSync` 한 번 — 크기·mtime 이 그대로면 꼬리를 다시 읽지 않는다(멈춘 `tail -f` 가 5초마다 물어도 디스크 읽기 0).
  */
 export function readTaskOutputState(tasksDir: string, taskId: string): TaskOutputState | null {
   const file = path.join(tasksDir, `${taskId}.output`);

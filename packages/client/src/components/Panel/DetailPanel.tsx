@@ -62,7 +62,6 @@ function getStatusLabel(status: string): { label: string; classes: string } {
   return map[status] ?? map['idle']!;
 }
 
-/** §4 v1.50 — 도구 실행 시간(ms)을 사람이 읽기 좋은 형식으로. */
 function formatDurationMs(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
@@ -71,20 +70,10 @@ function formatDurationMs(ms: number): string {
   return `${m}m${s ? ` ${s}s` : ''}`;
 }
 
-/**
- * §4 v1.50 — epoch ms 를 "방금 전" / "5m ago" 식으로.
- * 본체는 `src/formatSince.ts` 하나다 — §5.5 #17-33 ⑦ 이 플러그인 창에서 같은 모양을 쓰게 되면서
- * 밖으로 꺼냈다(두 벌이면 한쪽만 고쳐져 같은 화면 안에서 시간이 다르게 읽힌다).
- */
+/** 본체는 `src/formatSince.ts` 하나(플러그인 창과 공용 — 두 벌이면 시간이 다르게 읽힌다). */
 const formatRelativeTime = formatSince;
 
-/**
- * §4 v1.50 / v3.64 — 한도 사용률 가로 게이지. `used` 단위는 **퍼센트(0~100)** 고정.
- *
- * v3.64 전에는 "0~1 이면 비율" 로 추측해 `used * 100` 을 했는데, 그 추측이 `1`(=1%)을
- * 100% 로 잘못 키웠다(헤더 필·팝업과 동일 사고). 값 `1` 은 추측으로 풀 수 없으므로 규약을
- * 퍼센트로 고정하고 정규화는 shared 헬퍼(`clampUsagePct`)로 단일화했다.
- */
+/** §4 — `used` 는 퍼센트(0~100) 고정 — 0~1 비율로 추측하면 1% 가 100% 가 된다. 정규화는 shared `clampUsagePct`. */
 function RateLimitBar({
   label,
   used,
@@ -154,19 +143,14 @@ export function DetailPanel({
   const subAgents = useGraphStore((s) => s.subAgents);
   const completedCommands = useGraphStore((s) => s.completedCommands);
   const agentConfigs = useGraphStore((s) => s.agentConfigs);
-  // §4 v1.50 — 도구 시간/컴팩션/한도 메트릭 (Anthropic SDK 2026-04~05 신규 필드 시각화)
   const recentToolDurations = useGraphStore((s) => s.recentToolDurations);
   const compactCounts = useGraphStore((s) => s.compactCounts);
   const rateLimits = useGraphStore((s) => s.rateLimits);
 
-  // §5.5 #17-1 (v2.18) — IDE 가 우측에 붙어 있으면 DetailPanel 을 왼쪽으로.
-  //   판정은 App 의 캔버스 축소와 **같은 산식**(useIDEDockLayout) — 도킹 슬롯만 남고 IDE 가
-  //   안 그려지는 상태에서 패널만 좌측으로 넘어가 있으면 우측은 빈 칸인 채 자리만 어긋난다.
-  //   (판올림 번호 발급 대기) 창이 여럿이 되면서 **양쪽이 다 막힐 수 있다** — 그때는 종전 자리(우측)를
-  //   지키고, 어느 쪽에 서든 그 변의 도크 두께만큼 안쪽으로 물러나 도크 밑에 깔리지 않게 한다.
+  // §5.5 #17-1 — IDE 가 우측에 붙으면 패널은 왼쪽. 판정은 캔버스 축소와 같은 `useIDEDockLayout`. 양쪽이 막히면 우측에 서고 도크 두께만큼 안으로 물러난다.
   const { insets: dockInsets } = useIDEDockLayout();
   const panelOnLeft = dockInsets.right > 0 && dockInsets.left === 0;
-  // §4 v3.16 — 폰(좁은 뷰포트)에선 사이드 패널이 캔버스를 짓누르지 않게 하단 바텀시트로 전환한다.
+  // §4 — 폰(좁은 뷰포트)에선 하단 바텀시트.
   const isNarrow = useIsNarrowViewport();
 
   // 세션 토큰 팝업
@@ -227,9 +211,7 @@ export function DetailPanel({
     setToolsExpanded(false);
   }, [selectedNodeId]);
 
-  // §4 v3.16 — 4개 패널 블록(노드/태스크엣지/코멘트박스 등)이 공유하는 래퍼 class·style.
-  // 좁은 뷰포트(폰): 하단 바텀시트(전폭·80dvh·상단 라운드), 넓은 화면: 기존 사이드 패널(가변폭).
-  // 시트는 아래에서 올라온다 — 옆 패널의 가로 진입(`slide-in-right`)을 그대로 쓰면 아래 붙은 시트가 옆에서 미끄러져 들어왔다.
+  // §4 — 패널 래퍼. 폰은 하단 시트(아래에서 올라온다 — `slide-in-right` ❌), 넓으면 사이드 패널.
   const panelWrapperClass = isNarrow
     ? `absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-2xl border-t border-gray-800 bg-gray-900 ${animating ? 'animate-slide-in-up' : ''}`
     : `absolute ${panelOnLeft ? 'border-r' : 'border-l'} top-0 bottom-0 z-30 flex flex-col border-gray-800 bg-gray-900 ${animating ? (panelOnLeft ? 'animate-slide-in-left' : 'animate-slide-in-right') : ''}`;
@@ -247,10 +229,7 @@ export function DetailPanel({
     () => (agentSubIdsKey ? agentSubIdsKey.split(',') : []),
     [agentSubIdsKey],
   );
-  // §9 — 토큰 조회 트레일링 스로틀. `node.activity` 는 도구 이벤트마다 오르는데, 예전엔 그때마다
-  //   `/api/tokens` 를 때려 서버가 세션 JSONL 전체를 읽었다(자체 턴이 비면 서브에이전트 세션까지 연쇄).
-  //   에이전트가 도는 동안 초당 수 건씩 나가 Electron 메인 스레드가 파일 읽기로 막혔다.
-  //   숫자 패널은 실시간성이 이 정도면 충분하므로, 같은 버블을 보는 동안에는 최소 간격을 둔다.
+  // §9 — 토큰 조회 스로틀. `node.activity` 마다 `/api/tokens` 를 부르면 서버가 세션 JSONL 을 통째로 읽어 메인 스레드를 막는다.
   const tokenFetchAtRef = useRef(0);
   const tokenNodeRef = useRef<string | null>(null);
   useEffect(() => {
@@ -366,17 +345,9 @@ export function DetailPanel({
 
   const agentConfig = node ? agentConfigs[node.id] ?? null : null;
 
-  /**
-   * §5.19 (G) — 이 버블이 **말을 거는 상대**. `provider` 가 있으면 상대는 클로드 CLI 가 아니라
-   * 내 PC 의 로컬 엔진이고, 그때 `config.model`·`config.tools` 는 저장만 될 뿐 아무 일도 하지
-   * 않는 칸이 된다(러너가 읽는 것은 `provider` 와 고정 도구 목록뿐이다) — 아래 요약 줄들이
-   * 진실을 가져올 곳은 여기다.
-   */
+  /** §5.19 (G) — `provider` 가 있으면 상대는 로컬 엔진이고 `config.model`·`config.tools` 는 안 읽히는 칸이다 — 요약 줄은 여기서 가져온다. */
   const localProvider = localProviderOf(agentConfig);
-  /**
-   * §5.25 (J) — 코덱스 버블의 정체. 로컬과 **같은 자리·같은 이유**로 든다: 프로바이더 버블에서
-   * `config.model`·`config.tools` 는 저장만 될 뿐 러너가 읽지 않는 칸이다.
-   */
+  /** §5.25 (J) — 코덱스 버블의 정체(로컬과 같은 이유). */
   const codexProvider = codexProviderOf(agentConfig);
   /** 요약 줄들이 진실을 가져올 프로바이더 — 둘 중 있는 쪽(둘 다 있을 수는 없다). */
   const summaryProvider = localProvider ?? codexProvider;
@@ -418,13 +389,10 @@ export function DetailPanel({
   const isWorktree = node?.bubbleType === 'worktree';
   const hasPath = isFile || isFolder || isRoot || isGhost || isWorktree;
 
-  // §7.6 v1.61 — GitStatusCard 는 "최상단 home" 에만. 합성 override(폴더 자신 선택 시
-  // bubbleType:'root' 승격) 이전 원본 rawNode 기준으로 판정: 메인 프로젝트 root 버블 또는
-  // worktree 버블을 드릴다운한 home 만 git 노출. 중첩 폴더를 root 로 승격한 home 은 숨김.
+  // §7.6 — GitStatusCard 는 최상단 home(메인 root·worktree)만. 'root' 승격 전 rawNode 로 판정한다(승격된 중첩 폴더 ❌).
   const isTopLevelHome = rawNode?.bubbleType === 'root' || rawNode?.bubbleType === 'worktree';
 
-  // preserve-pin (§2.4 v1.28) — root/back 제외
-  // §7.22 접힌 웹 버블도 제외 — 서버 장부에 없는 id 라 눌러도 404 로 버려진다. 고정은 호스트 칸마다 한다.
+  // preserve-pin(§2.4) — root/back 제외. 접힌 웹 버블도 제외(서버 장부에 없는 id 라 404).
   const isPinEligible = !!node
     && node.bubbleType !== 'root'
     && node.bubbleType !== 'back'
@@ -466,17 +434,13 @@ export function DetailPanel({
   const commentBoxes = useGraphStore((s) => s.commentBoxes);
   const selectedCaptureBubbleId = useGraphStore((s) => s.selectedCaptureBubbleId);
   const captureBubbles = useGraphStore((s) => s.captureBubbles);
-  // §5.13 (M) v4.68 — 앱 버블도 다른 버블처럼 "선택 → 우측 옵션 패널".
   const selectedAppBubbleId = useGraphStore((s) => s.selectedAppBubbleId);
   const appBubbles = useGraphStore((s) => s.appBubbles);
   // §5.10 — 기억 카드/두뇌/휴지통 선택.
   const restoreTrashedAgent = useGraphStore((s) => s.restoreTrashedAgent);
   const purgeTrashedAgent = useGraphStore((s) => s.purgeTrashedAgent);
 
-  // v1.37 — STRICT outbound 엣지 타겟 툴 합집합(현재 노드가 소스인 경우). 서버 computeStrictStripSet 과 동일 규칙.
-  //         툴 구성은 사용자 책임 — 특수 예외 없음.
-  // v1.44 — commandMode 게이트로 변경 (kind='command' + tool-delegation 만 박탈).
-  //         undefined 는 legacy 후방호환(strict → 박탈).
+  // STRICT 엣지 박탈 — 서버 `computeStrictStripSet` 과 같은 규칙(command + tool-delegation 만, commandMode 없으면 strict 일 때).
   const strictStripSet = useMemo(() => {
     const strip = new Set<string>();
     if (!node || node.bubbleType !== 'agent') return strip;
@@ -494,7 +458,6 @@ export function DetailPanel({
     return strip;
   }, [taskEdges, agentConfigs, node]);
 
-  // Comment Box 선택 시 전용 패널 렌더 (v1.45) — 다른 선택과 배타
   if (selectedCommentBoxId) {
     const box = commentBoxes.find((b) => b.id === selectedCommentBoxId);
     if (!box) return null;
@@ -536,8 +499,6 @@ export function DetailPanel({
     );
   }
 
-  // §5.9 v3.36 — 캡처 버블 선택 시 전용 패널 렌더 (다른 선택과 배타). 헤더에 몰려 있던 설정을
-  // 다른 버블처럼 "선택 → 우측 디테일창"으로 옮긴다.
   if (selectedCaptureBubbleId) {
     const bubble = captureBubbles.find((b) => b.id === selectedCaptureBubbleId);
     if (!bubble) return null;
@@ -579,8 +540,7 @@ export function DetailPanel({
     );
   }
 
-  // §5.13 (M) v4.68 — 앱 버블 선택 시 전용 패널 (다른 선택과 배타). 우클릭 메뉴에만 있던
-  // 조작(열기·설치·이름·고정·삭제)을 캡처 버블과 같은 자리에서도 낸다.
+  // §5.13 (M) — 앱 버블 전용 패널(우클릭 메뉴 조작을 여기서도).
   if (selectedAppBubbleId) {
     const bubble = appBubbles.find((b) => b.id === selectedAppBubbleId);
     if (!bubble) return null;
@@ -671,7 +631,7 @@ export function DetailPanel({
     );
   }
 
-  // §7.12 v1.47 — 콘티 버블 (id prefix: conti-bubble-) 선택 시 ContiHistoryDetail 노출
+  // §7.12 — 콘티 버블(id prefix `conti-bubble-`) 선택 시 ContiHistoryDetail.
   if (selectedNodeId && selectedNodeId.startsWith('conti-bubble-')) {
     const agentId = selectedNodeId.slice('conti-bubble-'.length);
     return (
@@ -707,13 +667,7 @@ export function DetailPanel({
     );
   }
 
-  /*
-   * §5.10 — **기억 카드 상세 · 메모리 버블 요약 두 갈래는 걷었다.**
-   *
-   * 사용자 지시(전면 개편)로 기억·메모리·브레인 축이 폐기됐다. 카드를 여는 화면이 없어졌고
-   * 메모리 버블은 캔버스에서 내려갔으므로, 이 두 갈래는 어떤 손짓으로도 닿지 않는 자리였다.
-   * 되풀이한 절차를 스킬로 굳히는 일은 IDE `목표` 뷰의 자동 목표 블록이 이어받았다.
-   */
+  /* §5.10 — 기억 카드·메모리 버블 패널은 없다(축 폐기). 되풀이 절차는 IDE `목표` 뷰의 자동 목표가 맡는다. */
 
   // §5.10 — 휴지통 내부의 버려진 커스텀 에이전트 선택 시 전용 패널.
   if (node?.trashed) {
@@ -853,7 +807,6 @@ export function DetailPanel({
       {/* Content */}
       <ScrollFade fill className="flex-1">
         <div className="flex flex-col gap-4 p-4">
-          {/* §5.3 #10-2 v2.37 — Auto Agent 메타 버블 전용 패널 */}
           {node.bubbleType === 'auto' && <AutoAgentPanel node={node} />}
 
           {/* Path */}
@@ -897,10 +850,7 @@ export function DetailPanel({
                 </div>
               </div>
 
-              {/* Row 2: 토큰 / 컨텍스트.
-                  §5.19 (G) — 로컬 버블은 **청구가 0**이고 대화 창도 클로드 세션이 아니라 엔진이
-                  왕복마다 돌려준 수치다. 같은 자리에 클로드 어휘("청구 토큰" · M 단위 창)를 그대로
-                  두면 이 줄 전체가 거짓말이 되므로, 로컬이면 로컬이 실제로 아는 값만 그린다. */}
+              {/* §5.19 (G) — 로컬 버블은 청구 0, 창 수치도 엔진 값이라 클로드 어휘("청구 토큰"·M 단위)를 쓰지 않는다. */}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 {!summaryProvider && billableTokens > 0 && (
                   <button
@@ -958,12 +908,7 @@ export function DetailPanel({
                 )}
               </div>
 
-              {/* Row 3: Model / Tools / Permission Mode (read-only).
-                  §5.19 (G) — 로컬 버블에서 `config.model`·`config.tools` 는 **저장만 되고 아무 일도
-                  하지 않는 칸**이다(러너는 `provider` 와 고정 `LOCAL_TOOL_DEFS` 만 읽는다). 그대로
-                  그리면 로컬 버블이 `opus` 로 클로드 도구 한 벌을 쓰는 것처럼 보인다 — 설정 창을
-                  이미 프로바이더에 맞췄으니 그 요약인 이 줄도 같은 진실을 말해야 한다.
-                  권한 모드는 **로컬 턴도 실제로 읽으므로** 갈리지 않는다(양쪽 공통). */}
+              {/* §5.19 (G) — 로컬 버블의 model·tools 는 안 읽히는 칸이라 그대로 그리면 `opus` 로 클로드 도구를 쓰는 듯 보인다. 권한 모드는 공통. */}
               <div className="flex flex-col gap-1.5 rounded border border-gray-700/50 bg-gray-800/30 p-2">
                 <div className="flex items-center gap-2">
                   <span className="w-12 flex-shrink-0 text-xs text-gray-500">{t('panel.detailPanel.model')}</span>
@@ -987,11 +932,7 @@ export function DetailPanel({
                     </span>
                   )}
                 </div>
-                {/* 도구는 이제 45종이 기본이다. 알약을 다 펼치면 이 한 칸이 열 줄을 먹어 요약이
-                    요약이 아니게 된다 — **두 줄로 못 박고 나머지는 `…`(CSS 말줄임)로 접는다.**
-                    개수로 자르지 않는 이유는 패널 폭이 240~720px 로 변하기 때문이다. 줄 수로 접어야
-                    어느 폭에서도 높이가 일정하다. 전체는 ① hover 툴팁 ② 눌러서 펼치기 ③ 설정 창,
-                    셋으로 닿는다. */}
+                {/* 도구가 기본 45종이라 두 줄로 묶고 `…` 로 접는다 — 폭이 240~720px 로 변해 개수가 아니라 줄 수로. 전체는 툴팁·펼치기·설정 창. */}
                 <div className="flex items-start gap-2">
                   <span className="w-12 flex-shrink-0 pt-px text-xs text-gray-500">{t('panel.detailPanel.tools')}</span>
                   <div
@@ -1119,10 +1060,8 @@ export function DetailPanel({
             </div>
           )}
 
-          {/* Activity + Last tool (non-agent only). Root 버블은 Activity 대신 §7.6 GitStatusCard 로 대체.
-              단 "최상단 home"(메인 root / worktree 드릴다운) 만 — 중첩 폴더 합성 root home 은 git 숨김(v1.61). */}
+          {/* Root 는 Activity 대신 §7.6 GitStatusCard(최상단 home 만). */}
           {isRoot && isTopLevelHome && <GitStatusCard projectName={node.label} />}
-          {/* §4 v1.50 — Root 한도 게이지 (5h / 7d) */}
           {isRoot && rateLimits && (
             <div className="flex flex-col gap-1.5 rounded-md border border-gray-700 bg-gray-800/40 px-2.5 py-2">
               <div className="flex items-center justify-between">
@@ -1208,7 +1147,6 @@ export function DetailPanel({
             </div>
           )}
 
-          {/* §4 v1.50 — 에이전트: 최근 도구 실행 시간 + 컨텍스트 컴팩션 카운트 */}
           {node.bubbleType === 'agent' && (() => {
             const sessionId = node.path;
             const durations = recentToolDurations[sessionId] ?? [];
@@ -1248,10 +1186,9 @@ export function DetailPanel({
             );
           })()}
 
-          {/* §4 v3.21 — 에이전트: 좋아요/싫어요 집계 + "규칙으로 승격" (피드백 없으면 미렌더) */}
           {node.bubbleType === 'agent' && <AgentFeedbackSection agentId={node.id} />}
 
-          {/* §5.11 v3.88 — 플러그인 패널 섹션 슬롯. 활성 기여가 없으면 호스트가 null → DOM 없음. */}
+          {/* §5.11 — 플러그인 섹션 슬롯(기여가 없으면 DOM 없음). */}
           <PluginPanelSectionSlot
             bubbleId={node.id}
             bubbleType={node.bubbleType}
@@ -1260,9 +1197,7 @@ export function DetailPanel({
             agentConfig={agentConfig ?? undefined}
           />
 
-          {/* §7.2 (판올림 번호 발급 대기, 사용자 지시 2026-10-12) — 위쪽(세션 ID ~ 마지막 도구 칸)은 그대로 두고,
-              아래는 끝낸 것 → 하는 것 → 할 것 → 세션 순이다: 마지막 결과(§7.1) → 대기열(실행 중·대기) → 세션 목록.
-              IDE 스트림(최신이 아래)과 같은 방향으로 읽힌다. */}
+          {/* §7.2 — 아래는 끝낸 것 → 하는 것 → 할 것 순(마지막 결과 → 대기열 → 세션). IDE 스트림과 같은 방향. */}
 
           {/* Agent: 마지막 결과 한 건 — 누르면 IDE 의 그 세션(§7.1). 전체 기록은 IDE·지휘통제실의 몫이다. */}
           {node.bubbleType === 'agent' && (
@@ -1303,11 +1238,10 @@ export function DetailPanel({
             </>
           )}
 
-          {/* Iframe: server controls (SCENARIO §7.11 v1.29) */}
           {node.bubbleType === 'iframe' && (
             <>
               <IframeServerCard node={node} runningServers={runningServers} />
-              {/* §7.11 v1.44 — 서버 로그 뷰어 (패널엔 버튼만, 실시간 데이터는 팝업에서만 구독) */}
+              {/* §7.11 — 패널엔 버튼만, 로그 구독은 팝업에서만. */}
               <IframeServerLogsButton node={node} onOpen={() => setShowIframeLogs(true)} />
             </>
           )}
@@ -1394,7 +1328,7 @@ export function DetailPanel({
         />
       )}
 
-      {/* §7.11 v1.44 / v2.5 — Iframe 서버 로그 팝업. 스트림 식별자 (shellId, port). */}
+      {/* §7.11 — 스트림 식별자 (shellId, port). */}
       {showIframeLogs && node.bubbleType === 'iframe' && (() => {
         const port = extractPortFromUrl(node.url);
         if (port == null) return null;
@@ -1422,7 +1356,7 @@ interface IframeServerLogsButtonProps {
   onOpen: () => void;
 }
 
-/** §7.11 v1.44 — 패널 내 "서버 로그 보기" 버튼. 평상시 데이터 구독 ❌ — 버튼 + 설명만. */
+/** §7.11 — 평상시 구독 ❌, 버튼 + 설명만. */
 function IframeServerLogsButton({ node, onOpen }: IframeServerLogsButtonProps): React.JSX.Element {
   const { t } = useTranslation();
   const port = extractPortFromUrl(node.url);

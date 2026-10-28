@@ -9,14 +9,7 @@ import type {
   CodexSetupState,
 } from '@vibisual/shared';
 
-/**
- * §5.25 (B)(G)(J) — **코덱스 버블에 대한 판정을 모아 둔 한 곳.**
- *
- * `localModelEntry.ts` 가 All Model 에 대해 하는 일의 코덱스 판이다. 판정을 화면마다 따로 쓰면
- * 한쪽만 고쳐지는 날이 오고, All Model 버블이 자기 정체를 클로드로 말하던 사고(§5.19 (G))가
- * 정확히 그 자리였다 — 설정 창은 프로바이더에 맞췄는데 버블과 오른쪽 패널에는 `config.model`
- * (기본값 `opus`)이 그대로 남아 있었다.
- */
+/** §5.25 (B)(G)(J) — 코덱스 버블 판정을 모은 한 곳 — 화면마다 따로 쓰면 버블·패널이 `config.model`(기본 `opus`)로 정체를 잘못 말한다(§5.19 (G)). */
 
 /** §5.25 (B) — 코덱스 버블을 눌렀을 때 갈리는 갈래. */
 export type CodexEntryDecision =
@@ -27,23 +20,12 @@ export type CodexEntryDecision =
   /** CLI 는 있는데 로그인이 안 됐다 — 로그인 창. */
   | { kind: 'login' };
 
-/**
- * CLI가 명시적으로 신고한 기본 모델의 메타데이터. 표시용이며 저장값을 고르지 않는다.
- * 목록 순서·조회 실패·모델 은퇴로 사용자의 선택이나 빈 CLI 상속값을 바꾸지 않는다.
- */
+/** CLI 가 명시적으로 신고한 기본 모델(표시용). 목록 순서·조회 실패·모델 은퇴로 사용자 선택이나 빈 상속값을 바꾸지 않는다. */
 export function pickDefaultCodexModel(models: readonly CodexModelEntry[]): CodexModelEntry | null {
   return models.find((model) => model.isDefault === true) ?? null;
 }
 
-/**
- * §5.25 (B) — 이 버블을 누르면 무엇이 열려야 하는가.
- *
- * `config.provider` 가 코덱스가 아니면 이 함수를 부를 일이 없다. 그래도 방어적으로 `ide` 를
- * 돌려준다 — 판정이 틀렸다고 클로드 버블 앞에 설치 창을 띄우면 안 된다.
- *
- * **"모름"으로 로그인 창을 띄우지 않는다**: `auth.error` 가 있는 상태는 로그아웃이 아니라 판정
- * 불가라, 그때 모달을 세우면 멀쩡히 일하던 사용자를 막는다(§5.25 (E) · 클로드 쪽과 같은 규칙).
- */
+/** §5.25 (B) — 코덱스가 아니면 방어적으로 `ide`(클로드 버블 앞에 설치 창 ❌). `auth.error`(모름)로는 로그인 창을 띄우지 않는다(§5.25 (E)). */
 export function resolveCodexEntry(
   config: AgentConfig | undefined,
   input: {
@@ -62,43 +44,25 @@ export function resolveCodexEntry(
   return { kind: 'ide' };
 }
 
-/**
- * §5.25 (J) — 이 설정이 **코덱스 프로바이더**인가. 맞으면 그 프로바이더를, 아니면 null.
- * 부르는 쪽은 null 이면 종전 표기(클로드 · All Model)를 그대로 쓰면 된다.
- */
+/** §5.25 (J) — null 이면 부르는 쪽은 기존 표기(클로드·All Model)를 쓴다. */
 export function codexProviderOf(config: AgentConfig | null | undefined): AgentProvider | null {
   const provider = config?.provider;
   return provider?.kind === 'codex-cli' ? provider : null;
 }
 
-/**
- * §5.25 (J) — 좁은 자리(버블 하단 · 패널 한 줄)에 적을 **정체 한 줄**.
- *
- * 문 모델이 있으면 그 이름이고, 아직 안 골랐으면 그 사실이 곧 상태라 제품 이름만 적는다
- * (자세한 것은 그 버블이 여는 설치·로그인 창이 말한다).
- */
+/** §5.25 (J) — 좁은 자리의 정체 한 줄: 고른 모델 이름, 안 골랐으면 제품 이름만. */
 export function codexModelLabelOf(provider: AgentProvider | null, codexLabel: string): string | null {
   if (!provider) return null;
   return provider.modelName || provider.modelId || codexLabel;
 }
 
-/**
- * §5.25 (G) — 이 모델이 신고한 추론 강도 단계.
- *
- * **모르는 모델이면 빈 배열**이라 화면은 강도 칸을 아예 그리지 않는다 — 고를 수 없는 값을
- * 보이면 사용자는 그것을 고를 수 있는 것으로 읽는다(§4 v2.38 이 모델 목록에 대해 세운 규칙).
- */
+/** §5.25 (G) — 모르는 모델이면 빈 배열 — 화면은 강도 칸을 그리지 않는다(고를 수 없는 값을 보이지 않는다, §4). */
 export function codexReasoningLevelsOf(slug: string | undefined, models: readonly CodexModelEntry[] | undefined): string[] {
   if (!slug) return [];
   return models?.find((m) => m.slug === slug)?.reasoningLevels ?? [];
 }
 
-/**
- * §5.25 (B) — 이 라벨이 아직 사용자가 손대지 않은 기본 이름인가(`Codex 3`).
- *
- * All Model 과 같은 규약 — 기본 이름이면 모델을 물 때 그 이름이 라벨을 잇고, 사용자가 직접
- * 바꾼 이름은 건드리지 않는다.
- */
+/** §5.25 (B) — 기본 이름(`Codex 3`)이면 모델을 물 때 그 이름이 라벨을 잇고, 직접 바꾼 이름은 건드리지 않는다(All Model 과 같은 규약). */
 export function isDefaultCodexLabel(label: string | undefined): boolean {
   return !!label && CODEX_DEFAULT_LABEL_RE.test(label.trim());
 }
@@ -124,11 +88,8 @@ export type CodexInheritedValue =
   | { kind: 'unresolved' };
 
 /**
- * §5.25 (G-2) — 칸을 비워 두면(`-c` 를 싣지 않으면) 코덱스가 쓰는 값.
- *
- * 순서는 코덱스 공개 설정 문서의 우선순위 그대로다: `-c`(비웠으니 없음) → 서버가 이기는 순서로
- * 준 설정 파일 겹 → 모델이 신고한 기본 → 코덱스 내장 기본. 내장 기본은 문서에 적힌 것만 쓴다 —
- * `web_search` 는 샌드박스가 `danger-full-access` 면 `live`, 아니면 `cached`, `network_access` 는 `false`.
+ * §5.25 (G-2) — 칸을 비워 두면(`-c` 없음) 코덱스가 쓰는 값. 코덱스 공개 설정 문서의 우선순위: 설정 파일 겹 → 모델 기본 → 내장 기본.
+ * 내장 기본은 문서에 적힌 것만 — `web_search` 는 `danger-full-access` 면 `live` 아니면 `cached`, `network_access` 는 `false`.
  */
 export function resolveCodexInherited(
   field: CodexInheritedField,

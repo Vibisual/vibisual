@@ -1,10 +1,4 @@
-/**
- * §5.5 #17-9 ⑦(b) 확장 — 잃어버린 자식 보고 구조.
- *
- * 여기서 지키는 것은 **"마지막 말"의 정의**다. 트랜스크립트 꼬리에는 도구 호출만 든 assistant 줄이
- * 잔뜩 쌓이는데, 그걸 보고로 착각하면 카드에 빈 글이 뜨고 사용자는 "복구했다면서 왜 아무것도 없냐"를
- * 보게 된다. 실측 트랜스크립트(`a2e867f0bd3d6bbcb`, 209줄)의 마지막 세 줄이 정확히 그 모양이었다.
- */
+/** §5.5 #17-9 ⑦(b) 확장 — "마지막 말"의 정의: 도구 호출뿐인 assistant 줄은 보고가 아니다(실측 트랜스크립트 꼬리가 그 꼴이었다). */
 
 import { describe, it, expect } from 'vitest';
 import { extractLastAssistantText } from './subagentResultRescue.js';

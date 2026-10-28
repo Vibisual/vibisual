@@ -2,10 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 export type ColorPhase = 'preview' | 'commit';
 
-/**
- * §5.13 (R-10) — a colour picker whose drag is ONE edit: every intermediate colour is a `preview` (the owner shows it
- * and coalesces it into one undo step), the final colour arrives once as `commit` (native `change` or focus leaving).
- */
+/** §5.13 (R-10) — a drag is ONE edit: intermediate colours are `preview` (coalesced into one undo step), the final colour arrives once as `commit`. */
 export function ColorField({ label, value, disabled = false, className, onChange }: {
   label: string; value: string; disabled?: boolean; className?: string; onChange: (value: string, phase: ColorPhase) => void;
 }): React.JSX.Element {

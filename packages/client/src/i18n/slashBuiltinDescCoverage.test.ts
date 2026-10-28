@@ -1,13 +1,6 @@
 /**
- * §5.5 #17-2 (보강) — **슬래시 드롭다운의 내장 명령 설명이 12개 언어에 다 있고, 정본과 어긋나지 않는다.**
- *
- * 설명의 정본은 `BUILTIN_SLASH_COMMANDS`(shared)다. 화면은 `ide.mainArea.slashBuiltinDesc.<이름>` 번역을
- * 쓰되, en.json 의 사본이 정본과 **글자까지 같을 때만** 쓴다(`components/IDE/slashBuiltinDesc.ts`).
- * 그래서 이 표가 어긋나도 앱은 멀쩡히 돈다 — 명령 목록을 고친 사람이 en 사본을 잊으면 그 명령의 설명만
- * 12개 언어에서 한꺼번에 영어로 돌아가고, 아무도 모른다. 그 자리를 여기서 잡는다.
- *
- * 명령 목록을 고쳤으면: en.json 의 사본을 같은 글자로 고치고(추가·삭제 포함) `/i18n-sync` 를 돌린다.
- * 문장이 바뀐 명령은 로케일의 옛 번역도 지우고 다시 번역해야 한다 — 사본만 고치면 옛 번역이 새 문장 행세를 한다.
+ * §5.5 #17-2 — **슬래시 내장 명령 설명이 12개 언어에 있고 정본(shared `BUILTIN_SLASH_COMMANDS`)과 맞는다.** 화면은 en.json 사본이 정본과 글자까지 같을 때만 번역을 쓴다.
+ * 명령을 고치면 en.json 사본도 같은 글자로 고치고 `/i18n-sync` — 문장이 바뀐 명령은 옛 번역도 지운다(새 문장 행세를 한다).
  */
 import { describe, it, expect } from 'vitest';
 import { BUILTIN_SLASH_COMMANDS, SUPPORTED_UI_LOCALES } from '@vibisual/shared';

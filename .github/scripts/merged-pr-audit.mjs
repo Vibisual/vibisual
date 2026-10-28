@@ -1,32 +1,10 @@
 #!/usr/bin/env node
 /**
- * merged-pr-audit.mjs — 병합이 끝난 PR 을 되짚어, 동의 없이 들어온 것이 있으면 알린다.
- *
- * ⚠️ 왜 병합 전 검사만으로 부족한가(2026-09-01) — required status check 는 저장소
- *    관리자가 우회할 수 있다. 실제로 이 저장소는 "Changes must be made through a pull
- *    request" 규칙이 걸려 있는데도 소유자 권한으로 main 에 직접 푸시된 적이 있다
- *    (GitHub 이 `Bypassed rule violations` 로 답했다). 즉 앞단은 남을 막을 뿐, 우리
- *    자신은 못 막는다.
- *
- *    동의 없는 기여가 병합되면 그 모듈은 이중 라이선스도 유료 전환도 못 하게 되는데,
- *    그 사실은 **몇 년 뒤 인수 실사에서** 드러난다. 그때는 기여자를 찾아 사후 동의를
- *    받거나 코드를 들어내는 수밖에 없다. 이 감사는 그 시차를 며칠로 줄인다 — 막지는
- *    못해도, **조용히 지나가지는 않게** 한다.
- *
- * 검사 두 가지:
- *   1. PR 본문의 동의 확인란 두 개 (pr-license-consent.mjs 의 판정을 그대로 재사용)
- *   2. 병합 커밋을 뺀 모든 커밋에 `Signed-off-by:` 줄이 있는지
- *      (주소 대조까지는 DCO 워크플로가 한다 — 여기는 알람이라 존재 여부만 본다)
- *
- * ⚠️ 보고서에 기여자 **이메일을 넣지 않는다.** 공개 이슈로 열리기 때문에, 커밋 주소를
- *    그대로 적으면 우리가 남의 개인정보를 공개하는 셈이 된다. SHA 와 제목만 적는다.
- *
- * 사용:
- *   node .github/scripts/merged-pr-audit.mjs --selftest
- *   gh api repos/OWNER/REPO/pulls/N/commits | PR_NUMBER=N PR_BODY=... \
- *     AUTHOR_ASSOCIATION=... node .github/scripts/merged-pr-audit.mjs
- *
- * 종료 코드: 0 = 문제 없음, 1 = 문제 있음(워크플로가 이슈를 연다).
+ * 병합된 PR 을 되짚어 동의 없이 들어온 것을 알린다(병합 전 검사는 소유자 직접 푸시로 우회된다).
+ * 검사: ① 동의 확인란 두 개(pr-license-consent.mjs 판정 재사용) ② 병합 커밋 외 모든 커밋의 `Signed-off-by:`(주소 대조는 DCO 워크플로).
+ * ⚠️ 보고서는 공개 이슈다 — 기여자 이메일 ❌, SHA 와 제목만.
+ * 사용: --selftest · gh api repos/OWNER/REPO/pulls/N/commits | PR_NUMBER=N PR_BODY=... AUTHOR_ASSOCIATION=... node .github/scripts/merged-pr-audit.mjs
+ * 종료 1 = 문제 있음(워크플로가 이슈를 연다).
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';

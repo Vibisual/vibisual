@@ -2,11 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { describeTarget, perfProfiler, PERF_SESSION_MS } from './perfProfiler.js';
 
 // SCENARIO.md §7.7 — 성능 프로파일러가 리포트를 만들다 죽던 회귀 방지.
-//
-// 수집 60초가 끝나는 순간 `Cannot read properties of undefined (reading 'toLowerCase')` 로
-// 렌더러 에러가 났다. 원인은 Event Timing 의 `target` 을 Element 라고 믿고 `tagName.toLowerCase()`
-// 를 바로 부른 것 — 실제로는 `document` 처럼 tagName 이 없는 대상이 온다. 게다가 이 예외가
-// finish() 밖으로 새면서 state 가 'profiling' 에 묶여 이후 수집이 영구히 막혔다.
+// Event Timing 의 `target` 엔 `document` 처럼 tagName 이 없는 대상이 온다 — `tagName.toLowerCase()` 를 바로 부르면 수집 60초 끝에 터지고,
+// 예외가 finish() 밖으로 새면 state 가 'profiling' 에 묶여 이후 수집이 영구히 막힌다.
 
 describe('describeTarget — 대상은 Element 라고 믿을 수 없다', () => {
   it('tagName 이 없는 대상(document 등)에서도 죽지 않는다 (그 크래시)', () => {

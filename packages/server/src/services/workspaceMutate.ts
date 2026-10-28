@@ -10,15 +10,8 @@ import { isWithinRoot, pathKey } from './pathKey.js';
 import { resolveWorkspacePath } from './workspaceExplorer.js';
 
 /**
- * §5.5 #17-19 ⑦⑧ — IDE 탐색기가 디스크에 내는 **네 가지 변경**(만들기 · 이름 바꾸기 · 삭제 · 옮기기).
- *
- * 조회(`workspaceExplorer.ts`)·파일 한 개 읽고 쓰기(`workspaceFile.ts`)와 같은 결로 갈라 둔 담당이다.
- * 경로 가드는 **새로 만들지 않는다** — 탐색기의 `resolveWorkspacePath` 를 그대로 쓴다(두 개의
- * 가드는 언젠가 서로 어긋나고, 어긋난 쪽이 곧 구멍이 된다). 이름 판정도 마찬가지로 화면과 같은
- * 순수 함수(`workspaceEntryNameError`, shared)를 쓴다.
- *
- * 상태 없는 함수 셋이라 클래스가 아니다(서비스 클래스 규칙은 상태를 가진 도메인의 것이다) —
- * 단 하나의 모듈 상태는 **휴지통 통로**(아래)이고, 그것은 실행 형태가 주입하는 능력이다.
+ * §5.5 #17-19 ⑦⑧ — 탐색기의 네 디스크 변경. 가드는 `resolveWorkspacePath`, 이름 판정은 shared `workspaceEntryNameError`(화면과 한 벌 — 두 벌이면 구멍).
+ * 모듈 상태는 실행 형태가 주입하는 휴지통 통로 하나다.
  */
 
 /** 되돌릴 수 없는 쓰기라 사유를 좁게 나눈다 — 호출부가 HTTP 코드와 화면 문구로 옮긴다. */
@@ -45,12 +38,8 @@ export type WorkspaceMutateError =
 export type WorkspaceMutateOutcome<T> = { ok: true; result: T } | { ok: false; error: WorkspaceMutateError };
 
 /**
- * 휴지통 통로 — **Electron 이 주입한다**(`shell.trashItem`). 세 OS 의 휴지통은 구현이 전부 다르고
- * (Windows 재활용, macOS `~/.Trash`, Linux `~/.local/share/Trash` freedesktop 규약), 그 차이를
- * 이미 옳게 다루는 물건이 있는데 우리가 다시 만들 이유가 없다(§멀티플랫폼 6축 — OS 기능).
- *
- * 주입이 없는 실행 형태(브라우저에서 띄운 개발 서버)에서는 영구 삭제로 떨어지고, 그 사실은
- * 응답의 `trashed: false` 로 화면까지 전해진다 — 되돌릴 수 있는지 없는지를 숨기지 않는다.
+ * 휴지통 통로 — Electron `shell.trashItem` 을 주입받는다(세 OS 휴지통 구현을 다시 만들지 않는다).
+ * 주입이 없으면(브라우저 개발 서버) 영구 삭제이고 응답 `trashed: false` 로 알린다.
  */
 export type WorkspaceTrashItem = (absPath: string) => Promise<void>;
 
@@ -78,12 +67,7 @@ function parentRelOf(rel: string): string {
   return idx < 0 ? '' : rel.slice(0, idx);
 }
 
-/**
- * 새 파일·폴더를 만든다. `parentRel` 은 **부모 폴더**('' = 루트 바로 아래), `name` 은 이름 한 조각이다.
- *
- * 겹침 검사는 `existsSync` 로 한 번 보고, 실제 만들기도 **실패하는 플래그**(`wx`/`mkdir`)로 낸다 —
- * 검사와 쓰기 사이에 밖에서 같은 이름이 생기면 조용히 덮어쓰는 대신 `exists` 로 답해야 한다.
- */
+/** 새 파일·폴더(`parentRel` '' = 루트 바로 아래). 겹침 검사 뒤에도 실패 플래그(`wx`/`mkdir`)로 만든다 — 그 사이 생긴 같은 이름을 덮지 않고 `exists`. */
 export function createWorkspaceEntry(
   root: string,
   parentRel: string,
@@ -133,13 +117,7 @@ export function createWorkspaceEntry(
   };
 }
 
-/**
- * 이름을 바꾼다 — **같은 폴더 안에서만**(옮기기 ❌ — 그건 다른 기능이고, 다른 되물음이 필요하다).
- *
- * 대소문자만 바꾸는 이름 변경(`Foo.ts` → `foo.ts`)은 Windows·macOS 에서 `existsSync` 가 참이라
- * 겹침으로 오판된다. 그래서 겹침 검사는 경로 문자열이 아니라 **플랫폼이 정한 경로 키**(`pathKey`)로
- * 자기 자신인지 먼저 가른다.
- */
+/** 이름 바꾸기 — 같은 폴더 안에서만. 대소문자만 바꾸면 win/mac 에서 `existsSync` 가 참이라, `pathKey` 로 자기 자신인지 먼저 가른다. */
 export function renameWorkspaceEntry(
   root: string,
   relPath: string,
@@ -185,15 +163,8 @@ export function renameWorkspaceEntry(
 }
 
 /**
- * 옮긴다 — **이름은 그대로 두고 사는 폴더만 바꾼다**(이름 바꾸기와 갈라 둔 이유는 위 주석 그대로다:
- * 다른 되물음이 필요한 다른 기능이다).
- *
- * 막아야 하는 세 가지가 있고, 셋 다 사용자가 손으로 끌다 자연스럽게 만드는 상황이다.
- *  ⓐ **제자리** — 이미 그 폴더에 살고 있으면 디스크를 건드리지 않고 성공으로 답한다(rename no-op 과 같은 결).
- *  ⓑ **자기 자신 안으로** — 폴더를 자기 하위로 옮기면 트리가 스스로를 삼킨다. `fs.renameSync` 는
- *     플랫폼마다 다른 오류를 내므로(win `EPERM`·linux `EINVAL`) **우리가 먼저** 판정한다.
- *  ⓒ **겹침** — 목적지에 같은 이름이 이미 있으면 덮어쓰지 않고 `exists` 로 답한다. 검사는 경로 문자열이
- *     아니라 플랫폼이 정한 경로 키(`pathKey`)로 — 대소문자만 다른 이웃은 win/mac 에서 같은 파일이다.
+ * 옮기기 — 사는 폴더만 바꾼다. ⓐ 제자리면 손대지 않고 성공 ⓑ 자기 하위로는 먼저 막는다(`renameSync` 오류가 win `EPERM`·linux `EINVAL` 로 갈린다)
+ * ⓒ 목적지 겹침은 `exists`(`pathKey` 로 — 대소문자만 다른 이웃은 win/mac 에서 같은 파일).
  */
 export function moveWorkspaceEntry(
   root: string,
@@ -258,12 +229,7 @@ export function moveWorkspaceEntry(
   };
 }
 
-/**
- * 지운다. 휴지통 통로가 꽂혀 있으면 그리로 보내고(되돌릴 수 있다), 없으면 영구 삭제한다 —
- * 어느 쪽이었는지는 `trashed` 로 그대로 알린다.
- *
- * 폴더는 안의 것까지 함께 사라진다(`recursive`). 되물음은 화면의 몫이고 여기서는 시키는 대로 한다.
- */
+/** 지운다 — 휴지통 통로가 있으면 그리로, 없으면 영구 삭제(`trashed` 로 알린다). 폴더는 `recursive`, 되물음은 화면 몫. */
 export async function deleteWorkspaceEntry(
   root: string,
   relPath: string,

@@ -2,25 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { selectOrphanIDEPanes } from './graphStore.js';
 
 /**
- * zustand 스냅샷 안정성 규약 — **구독 셀렉터는 같은 상태에 대해 같은 참조를 돌려줘야 한다.**
- *
- * zustand v5 의 `useStore` 는 고른 값을 메모하지 않는다:
- *
- * ```js
- * useSyncExternalStore(api.subscribe, () => selector(api.getState()), …)
- * ```
- *
- * React 는 커밋마다 스냅샷을 다시 읽어 직전 값과 `Object.is` 로 견준다. 그래서 셀렉터가 호출마다
- * 새 배열·새 객체를 만들면 "스토어가 또 바뀌었다"가 **영원히 참**이 되어 강제 리렌더가 반복되고,
- * 중첩 갱신 한도를 넘기는 순간 예외가 난다. 클라이언트에는 전역 에러 경계가 없으므로 그 예외는
- * 루트를 통째로 내린다 — 화면이 통째로 사라진다(헤더 [IDE 창] 메뉴를 여는 순간 그렇게 됐다).
- *
- * v4 에서는 `useSyncExternalStoreWithSelector` 가 결과를 캐시해 이 실수가 드러나지 않았다. 그래서
- * v4 시절 감각으로 짠 코드가 조용히 지뢰가 된다 — 사람 눈이 아니라 이 검사로 막는다.
- *
- * 규칙: 구독 셀렉터가 **돌려주는 식**이 배열·객체를 새로 만들면 안 된다. 새로 만들어야 하는 목록은
- * 참조가 안정적인 스토어 필드만 구독하고 컴포넌트 쪽 `useMemo` 로 조립한다(개수·지문이 필요할
- * 뿐이면 `.length` · `.join(…)` 처럼 원시값으로 줄여서 구독한다).
+ * zustand 스냅샷 안정성 — **구독 셀렉터는 같은 상태에 같은 참조를 돌려줘야 한다.**
+ * zustand v5 `useStore` 는 고른 값을 메모하지 않아(v4 는 캐시했다), 셀렉터가 새 배열·객체를 만들면 `Object.is` 비교가 늘 "바뀜"이라
+ * 리렌더가 반복되다 중첩 갱신 한도에서 예외가 나고, 전역 에러 경계가 없어 화면이 통째로 사라진다.
+ * 규칙: 돌려주는 식에서 배열·객체를 새로 만들지 않는다 — 안정 필드만 구독해 컴포넌트 `useMemo` 로 조립하거나 `.length`·`.join(…)` 원시값으로.
  */
 
 const tsSources = import.meta.glob('../**/*.ts', { query: '?raw', import: 'default', eager: true });

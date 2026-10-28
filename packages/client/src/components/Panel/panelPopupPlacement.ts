@@ -1,17 +1,9 @@
 import { MENU_VIEWPORT_MARGIN, placeCanvasMenu } from '../BubbleMap/canvasMenuPlacement.js';
 
 /**
- * panelPopupPlacement.ts — 상세 패널·설정 창에서 뜨는 **떠 있는 상자**(설명 툴팁 · 포털 드롭다운 ·
- * 포인터 옆 팝업)를 화면 안으로 앉히는 순수 계산.
- *
- * 폰 폭(360~430px)에서 이 상자들이 화면 밖으로 반쯤 나갔다. 자리를 정하는 쪽이 "오른쪽·위에는
- * 늘 자리가 있다"고 가정하거나(툴팁의 가운데 기준 `-translate-x-1/2` · 드롭다운 `'left'` 배치),
- * 상자 키를 상수로 짐작했기 때문이다(`innerHeight − 180`). 판정을 DOM 에서 떼어 여기 모은다 —
- * 클라 시험엔 DOM 이 없어 이렇게 해야 세 갈래를 시험으로 묶을 수 있다.
- * 실측(`getBoundingClientRect`·`scrollHeight`·`offsetWidth`)은 부르는 쪽이 재서 넘긴다.
- *
- * 가장자리 여백과 "점 하나 + 크기 → 화면 안" 규칙은 캔버스 메뉴(`canvasMenuPlacement`)와 **한 벌**이다 —
- * 두 벌이면 상자마다 화면 끝에서 띄우는 거리가 달라진다.
+ * 상세 패널·설정 창의 떠 있는 상자(툴팁·포털 드롭다운·포인터 옆 팝업)를 화면 안으로 앉히는 순수 계산. 실측은 부르는 쪽이 넘긴다.
+ * "오른쪽·위엔 늘 자리가 있다"고 가정하거나 상자 키를 상수로 짐작하지 마라 — 폰 폭(360~430px)에서 화면 밖으로 나간다.
+ * 여백·"점 + 크기 → 화면 안" 규칙은 `canvasMenuPlacement` 와 한 벌이다.
  */
 
 /** 화면 끝과 상자 사이에 늘 남기는 여백(px) — 캔버스 메뉴와 같은 값. */
@@ -39,12 +31,8 @@ export function clampSpan(start: number, size: number, limit: number, margin = P
 }
 
 /**
- * 칸 위 가운데에 뜨는 설명(HoverTip) 자리.
- *
- * - `x` 는 **상자의 가운데**다(`-translate-x-1/2` 와 짝). 칸이 화면 끝에 붙어 있으면 상자가 화면 안에
- *   들어올 만큼만 가운데를 안쪽으로 민다 — 설명이 칸에서 조금 비켜 앉는 것이 잘리는 것보다 낫다.
- * - 위에 들어갈 자리가 없고 아래가 더 넓으면 `below` — 칸 **아래**에 붙인다(`y` 는 상자의 윗변).
- *   아니면 종전대로 칸 위(`y` 는 상자의 아랫변 — `-translate-y-full` 과 짝).
+ * HoverTip 자리. `x` = 상자 가운데(`-translate-x-1/2` 짝) — 칸이 화면 끝이면 들어올 만큼만 안쪽으로 민다.
+ * 위에 자리가 없고 아래가 넓으면 `below`(`y` = 윗변), 아니면 칸 위(`y` = 아랫변, `-translate-y-full` 짝).
  */
 export function placeHoverTip(
   anchor: AnchorBox,
@@ -86,15 +74,8 @@ export interface DropdownPos {
 }
 
 /**
- * 버튼 위치·패널 실측 크기·화면 경계로 드롭다운 자리를 정한다.
- *
- * - `'below'`: 아래 공간이 모자라고 위가 더 넓으면 **위로 뒤집어** 버튼 윗변에 붙인다. 가로는 화면 안으로.
- * - `'left'` : 버튼 **왼쪽**에 세우고 세로만 화면 안으로 접는다. 단 왼쪽에 패널 폭만큼의 자리가 없으면
- *   (폰 폭 · 좁은 창 — 종전에는 패널 왼쪽 끝이 화면 밖 −270px 에 앉아 스킬을 고를 수 없었다)
- *   `'below'` 규칙으로 내린다.
- *
- * `contentH` 는 maxHeight 클램프와 무관한 콘텐츠 높이(`scrollHeight`)라 재측정해도 값이 안정적이다.
- * 실측 전(패널 미마운트)에는 `null` — 상한값·최소 폭으로 가정하고, 마운트 직후 다시 부른다.
+ * 드롭다운 자리. `'below'`: 아래가 모자라고 위가 넓으면 위로 뒤집는다. `'left'`: 왼쪽에 패널 폭이 없으면(폰·좁은 창) `'below'` 로 내린다.
+ * `contentH` 는 `scrollHeight`(클램프 무관 — 재측정해도 안정). 미마운트면 `null` — 상한·최소 폭으로 가정하고 마운트 직후 다시 부른다.
  */
 export function placePortalDropdown(
   btn: AnchorBox,
@@ -134,12 +115,7 @@ export function placePortalDropdown(
   };
 }
 
-/**
- * 포인터 옆에 뜨는 작은 팝업(콘티 프롬프트 · 표시 상한 편집기) 자리.
- * 포인터에서 `offsetX/offsetY` 만큼 비켜 앉히고, 넘치면 화면 안으로 접는다 — 접는 규칙은
- * 캔버스 우클릭 메뉴(`placeCanvasMenu`)를 그대로 쓴다.
- * `minTop` 은 머리 띠 밑으로 숨지 않게 두는 바닥이다(화면이 그보다 낮으면 화면 안이 이긴다).
- */
+/** 포인터 옆 작은 팝업 자리 — 비켜 앉히고 넘치면 `placeCanvasMenu` 규칙으로 접는다. `minTop` = 머리 띠 밑 바닥(화면이 더 낮으면 화면 안이 이긴다). */
 export function placeNearPointer(
   pointer: { x: number; y: number },
   box: BoxSize,

@@ -1,11 +1,5 @@
-// SCENARIO.md §3.7 · §9 「시작 화면(스플래시)」 — 스플래시 창을 실제로 띄우고 진척을 흘려보내는 얇은 층.
-//
-// 판정(단계별 진행·문구·색·창 옵션)은 전부 `splashPolicy.ts` 에 있다 — 여기는 electron 을 부르는 일만 한다.
-// 시작 진입점(`bootstrap.ts`)이 **본체 모듈보다 먼저** 이 창을 띄우므로 이 파일은 서버 코어·shared 를 부르지 않는다.
-//
-// 사용자가 닫지 못한다(테두리도 없다) — 언리얼·Visual Studio 의 시작 화면과 같다. 부팅 도중의 종료는 부팅과 정리가
-// 엇갈리는 새 길이 되므로 막아 둔다. 다만 앱이 끝나는 중(`before-quit`)이나 Windows 세션 종료에서는 막지 않는다 —
-// 막으면 종료·로그오프를 붙잡는다.
+// SCENARIO.md §3.7 · §9 「시작 화면(스플래시)」 — 스플래시 창을 띄우는 얇은 층(판정은 `splashPolicy.ts`). 본체보다 먼저 떠서 서버 코어·shared 를 부르지 않는다.
+// 사용자가 닫지 못한다(부팅 도중 종료는 부팅·정리가 엇갈린다). 단 `before-quit`·Windows 세션 종료는 막지 않는다 — 막으면 종료·로그오프를 붙잡는다.
 
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
@@ -72,11 +66,8 @@ function primaryWorkArea(): SplashRect | null {
 }
 
 /**
- * 문서 로드와 첫 그림을 모두 기다려 창을 보이고, 표시 뒤 두 프레임까지 메인 스레드를 비워 둔다.
- * show() 직후 반환하면 본체의 동기 로드가 OS 의 첫 창 표시를 막아 흰 사각형이 남을 수 있다.
- * Windows 는 그래도 첫 프레임이 흰색으로 찍힌다(엔진이 처음 보이는 창의 첫 장을 흰 바탕으로 합성한다 — `splashPolicy`
- * `coversFirstShow`). 그래서 DWM 가림 뒤에서 보이고, 렌더러가 몇 프레임을 지난 뒤 걷는다(`windowCloak.ts`).
- * 창 생성·로드·칠하기가 실패하거나 상한을 넘기면 `null` — 빈 창을 보이지 않고 스플래시 없이 부팅한다.
+ * 로드와 첫 그림을 기다려 보이고, 표시 뒤 두 프레임까지 메인 스레드를 비운다 — 바로 반환하면 본체 동기 로드가 첫 표시를 막아 흰 사각형이 남는다.
+ * Windows 는 그래도 첫 장이 흰색이라 DWM 가림 뒤에서 보이고 몇 프레임 뒤 걷는다(`windowCloak.ts`). 실패·상한 초과면 `null` — 스플래시 없이 부팅한다.
  */
 export async function openSplash(opts: OpenSplashOptions): Promise<SplashHandle | null> {
   const strings = splashStrings(opts.locale);
@@ -177,11 +168,8 @@ export async function openSplash(opts: OpenSplashOptions): Promise<SplashHandle 
   }
   win.show();
 
-  // 숨긴 창의 ready-to-show 는 표시 후의 프레임이 아니다. 이 왕복 동안 OS 창 메시지와 Chromium 합성이
-  // 돌게 둔 뒤에야 bootstrap 이 서버 코어를 읽는다. 고정 지연 대신 실제 프레임을 기다리고, 실패는 제한한다.
-  // 가렸으면(Windows) 그 앞에 한 단계 — 렌더러가 FIRST_SHOW_COVER_FRAMES 를 지나고 FIRST_SHOW_COVER_MIN_MS 가 흐른 뒤 걷는다.
-  // 그 사이 찍히는 흰 프레임은 화면에 나오지 않는다. 상한(SPLASH_PRESENT_CAP_MS)을 넘기면 걷지 않은 채 버린다 — 한 번도
-  // 화면에 나오지 않은 창이라 아무것도 번쩍이지 않는다.
+  // 숨긴 창의 ready-to-show 는 표시 후 프레임이 아니다 — 실제 프레임을 기다린 뒤에야 bootstrap 이 서버 코어를 읽는다(고정 지연 ❌).
+  // 가렸으면(Windows) `FIRST_SHOW_COVER_FRAMES`·`FIRST_SHOW_COVER_MIN_MS` 뒤 걷고, `SPLASH_PRESENT_CAP_MS` 를 넘기면 걷지 않은 채 버린다(안 나온 창이라 번쩍임 없음).
   const presented = await new Promise<boolean>((resolve) => {
     let settled = false;
     let minTimer: ReturnType<typeof setTimeout> | null = null;

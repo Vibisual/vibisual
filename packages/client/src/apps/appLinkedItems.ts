@@ -13,17 +13,9 @@ import {
 } from './registry.js';
 
 /**
- * §5.4 #36 (H) ③ — 앱 노드 **구슬 줄**("연결된 것")의 기억 장소와 읽기.
- *
- * - 무엇을 읽는지는 앱이 레지스트리 `linkedItems` 로 선언한다(늦은 로더 — 그 노드가 보일 때만 앱 청크가 내려온다).
- *   코어는 앱 이름을 모른다(§5.13 (P-4)).
- * - 노드가 마운트된 동안 `APP_LINKED_ITEMS.pollMs` 마다 다시 묻는다 — 에이전트가 장면·소재를 더하면 저절로 는다.
- *   창이 가려져 있으면(`document.hidden`) 묻지 않는다.
- * - 결과는 **모듈에 남는다** — 캔버스는 화면 밖 노드를 언마운트하지만, 돌아오면 앞 결과가 바로 보인다. 열쇠는 앱 ·
- *   프로젝트 경로키(`clientPathKey` — 멀티플랫폼 1축) · 문서 · 파일. 상한 `cacheMax` 를 넘으면 오래 안 본 것부터 버린다
- *   (지금 그려지는 것·묻는 중인 것은 버리지 않는다).
- * - 한 번 묻는 시간 상한 `readTimeoutMs` — 넘거나 못 읽으면 그 회차는 건너뛰고 **앞 결과를 지우지 않는다**.
- * - 같은 열쇠의 노드가 둘 마운트돼도(본창·별창) 묻는 것은 하나다 — 진행 중인 물음이 있으면 기다린다.
+ * §5.4 #36 (H) ③ — 구슬 줄("연결된 것")의 기억·읽기(무엇을 읽는지는 앱의 `linkedItems` 선언). 마운트된 동안 `APP_LINKED_ITEMS.pollMs` 마다 묻고
+ * (`document.hidden` 이면 쉰다) 같은 열쇠는 한 번만 묻는다(본창·별창). 결과는 모듈에 남고(열쇠 = 앱 · `clientPathKey` · 문서 · 파일) `cacheMax` 를 넘으면
+ * 오래 안 본 것부터 버린다(그리는 것·묻는 중인 것 제외). `readTimeoutMs` 초과·실패 회차는 건너뛰고 앞 결과를 지우지 않는다.
  */
 
 const EMPTY: readonly AppLinkedItem[] = [];
@@ -38,10 +30,7 @@ interface Entry {
 const entries = new Map<string, Entry>();
 let clock = 0;
 
-/**
- * §5.1 #2-1 (B) — 어느 노드든 "연결된 것"의 판본이 바뀌면 오르는 전역 판본. 캔버스의 별자리 판정(앱 노드 중심)이
- * 이것 하나만 구독한다 — 노드마다 따로 구독하면 노드 수만큼 판정이 다시 돈다.
- */
+/** §5.1 #2-1 (B) — "연결된 것"의 전역 판본. 별자리 판정은 이것 하나만 구독한다(노드마다 구독하면 노드 수만큼 다시 돈다). */
 let itemsVersion = 0;
 const versionListeners = new Set<() => void>();
 
@@ -63,10 +52,7 @@ export function appLinkedItemsVersion(): number {
   return itemsVersion;
 }
 
-/**
- * §5.1 #2-1 — 그 노드의 "연결된 것"을 **묻지 않고** 기억된 결과만 꺼낸다(없으면 빈 목록). 묻는 것은 노드가 마운트된
- * 동안 `useAppLinkedItems` 가 한다 — 별자리는 보이는 노드가 이미 읽어 둔 것을 빌려 쓸 뿐 새 요청을 만들지 않는다.
- */
+/** §5.1 #2-1 — 묻지 않고 기억된 결과만 꺼낸다(없으면 빈 목록). 별자리는 보이는 노드가 읽어 둔 것을 빌릴 뿐 새 요청을 만들지 않는다. */
 export function peekAppLinkedItems(appId: string, req: AppLinkedItemsRequest): readonly AppLinkedItem[] {
   return entries.get(linkedItemsKey(appId, req))?.snap?.items ?? EMPTY;
 }
@@ -142,10 +128,7 @@ function refresh(appId: string, req: AppLinkedItemsRequest, key: string): void {
   })();
 }
 
-/**
- * 그 노드의 "연결된 것". `appId`·`req` 중 하나라도 없으면 묻지 않고 빈 목록이다(노드가 접혔거나 선언 없는 앱).
- * 구독은 열쇠 하나 — 판본이 바뀔 때만 그 노드가 다시 그려진다.
- */
+/** `appId`·`req` 중 하나라도 없으면 묻지 않고 빈 목록. 구독은 열쇠 하나 — 판본이 바뀔 때만 그 노드가 다시 그려진다. */
 export function useAppLinkedItems(appId: string | null, req: AppLinkedItemsRequest | null): readonly AppLinkedItem[] {
   const key = appId !== null && req !== null ? linkedItemsKey(appId, req) : null;
   const reqRef = useRef(req);
@@ -185,10 +168,7 @@ export function useAppLinkedItems(appId: string | null, req: AppLinkedItemsReque
   return items;
 }
 
-/**
- * 이 파일의 작은 미리보기를 **어느 앱이 굽나** — 그 확장자를 받겠다고 선언했고(`outputs` 없으면 `opens`) 굽는 함수
- * (`thumbnail`)가 있는 첫 앱. 코어는 확장자 표를 들지 않는다(§5.13 (R-1) 과 같은 규율). 없으면 `null` — 아이콘으로 둔다.
- */
+/** 이 파일의 미리보기를 굽는 앱 — 그 확장자를 받고(`outputs ?? opens`) `thumbnail` 이 있는 첫 앱. 없으면 `null`(아이콘). 코어는 확장자 표를 들지 않는다(§5.13 (R-1)). */
 export function thumbnailAppFor(file: string): string | null {
   const ext = fileExtension(file);
   if (ext === null) return null;
@@ -198,10 +178,7 @@ export function thumbnailAppFor(file: string): string | null {
   return null;
 }
 
-/**
- * §5.1 #2-1 (G) ⑦ — 그 앱이 이 파일은 **굽지 못한다**고 선언했는가(`thumbnailSkips`). 그러면 굽지 않고 처음부터 아이콘이다
- * (요청 0건). 받는 앱(`thumbnailAppFor`)은 그대로라 색·더블클릭으로 여는 앱은 바뀌지 않는다 — 미리보기만 뺀다.
- */
+/** §5.1 #2-1 (G) ⑦ — 앱이 이 파일은 못 굽는다고 선언했나(`thumbnailSkips`) — 그러면 처음부터 아이콘이다(요청 0건). 여는 앱·색·더블클릭은 그대로. */
 export function thumbnailSkipped(appId: string, file: string): boolean {
   const ext = fileExtension(file);
   return ext !== null && getInternalApp(appId)?.thumbnailSkips?.includes(ext) === true;

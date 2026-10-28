@@ -2,12 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { normalizePathKey, sameWorkspaceFile, toWorkspaceRelative } from './debugPaths.js';
 
-/**
- * §5.5 #17-20 ⑩⑪ v4.94 — 경로 맞춰 보기.
- *
- * 디버거는 절대 경로를 주고 편집창은 상대 경로를 안다. 이 계산이 두 화면(멈춘 줄 강조 ·
- * 오류 줄 클릭해 열기)에서 같이 쓰이므로 여기서 못 박아 둔다.
- */
+/** §5.5 #17-20 ⑩⑪ — 디버거 절대 경로 ↔ 편집창 상대 경로(멈춘 줄 강조·오류 줄 열기 공용). */
 const BACKSLASH = String.fromCharCode(92);
 
 describe('normalizePathKey', () => {

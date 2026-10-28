@@ -47,10 +47,7 @@ interface Target {
   depthOffset: number;
   /** depthOffset 적용 전, hover로 결정된 가장 안쪽 요소 (offset 기준점) */
   innermost: Element | null;
-  /**
-   * §5.5 #17-27 ⑮ (i) — **다른 오리진** iframe(편집창의 페이지 미리보기)이 답해 준 요소.
-   * 그 문서는 우리가 못 읽으므로 `el` 이 없다 — 대신 페이지에 물어 받은 이 값이 그 자리를 대신한다.
-   */
+  /** §5.5 #17-27 ⑮ (i) — 다른 오리진 iframe(편집창 페이지 미리보기)이 답한 요소. 그 문서는 못 읽어 `el` 이 없어 이 값이 대신한다. */
   remote: SiteProbeResult | null;
   /**
    * §5.4 #15 (C) — 그린 화면의 공급자가 답한 칸들(가장 안쪽이 0). 칸이 다하면 `innermost`(= 공급자를 단 판)부터 DOM 으로
@@ -99,13 +96,8 @@ function domSummary(el: Element): string {
 }
 
 /**
- * 브라우저가 맨 앞에서 집은 iframe 안의 요소를 찾는다.
- * 뒤에 가려진 프레임이나 영상 렌더용 프레임은 일반 UI의 선택을 가로채지 않는다.
- *
- * §5.5 #17-27 ⑮ (i) — 문서를 못 읽는(다른 오리진) iframe 도 **건너뛰지 않고** `el: null` 로
- * 돌려준다. 종전에는 여기서 조용히 넘겨, 커서가 미리보기 페이지 위에 있어도 인스펙터는 그
- * 페이지를 못 본 척하고 뒤에 있는 우리 컴포넌트를 집었다(사용자 보고). 페이지에 직접 물어보는
- * 길은 부르는 쪽이 잇는다 — 여기서는 "그 iframe 위다"까지만 말한다.
+ * 맨 앞에서 집은 iframe 안의 요소를 찾는다(가려진·영상 렌더용 프레임은 가로채지 않는다). §5.5 #17-27 ⑮ (i) — 다른 오리진 iframe 도
+ * **건너뛰지 않고** `el: null` 로 돌려준다(건너뛰면 미리보기 위에서도 뒤의 우리 컴포넌트를 집는다). 페이지에 묻는 길은 부르는 쪽이 잇는다.
  */
 function probeIframe(
   el: Element | null,
@@ -141,14 +133,7 @@ function frameOfWindow(win: Window | null): HTMLIFrameElement | null {
   return null;
 }
 
-/**
- * §7.11 (G) — **포커스를 우리 창으로 되가져온다.**
- *
- * 프리뷰 안에 포커스가 있으면 Alt 뒤의 모든 것(뗌·휠·클릭)이 그 페이지로 가고 인스펙터는 절반만
- * 산다. 그래서 프리뷰가 "여기서 Alt 를 눌렀다"고 알려 오면 그 즉시 우리 문서의 보이지 않는 자리로
- * 포커스를 옮긴다 — cross-origin 이라 자식이 `parent.focus()` 를 부를 수는 없지만, **부모가 자기
- * 요소를 포커스하는 것**은 어느 오리진에서도 막히지 않는다.
- */
+/** §7.11 (G) — **포커스를 우리 창으로 되가져온다**(프리뷰에 있으면 Alt 뒤 입력이 그 페이지로 간다). cross-origin 자식은 `parent.focus()` 를 못 부르지만 부모가 자기 요소를 포커스하는 것은 된다. */
 function takeFocusFromFrame(): void {
   let sink = document.getElementById(FOCUS_SENTINEL_ID);
   if (!sink) {
@@ -207,12 +192,7 @@ export function useInspector(): {
   const hitTest = useRef<InspectorHitTest | null>(null);
   /** 늦은 iframe 응답이 그 뒤에 누른 요소의 복사를 덮지 않게 한다(Alt 를 떼어도 누름은 유효). */
   const pickRequest = useRef(0);
-  /**
-   * §7.11 (G) — Alt 를 누르는 순간 포커스를 **뺏어 온** 프리뷰. Alt 를 떼면 그 자리로 돌려준다.
-   *
-   * 돌려주지 않으면 그 안에서 글을 쓰던 사람은 Alt 한 번에 키보드를 잃는다 — 우리가 가져가는 것은
-   * "Alt 를 누르고 있는 동안"뿐이라는 뜻이다.
-   */
+  /** §7.11 (G) — Alt 를 누르는 순간 포커스를 뺏어 온 프리뷰. 떼면 돌려준다 — 안 그러면 그 안에서 쓰던 사람이 Alt 한 번에 키보드를 잃는다. */
   const focusStolenFrom = useRef<HTMLIFrameElement | null>(null);
 
   // ── Alt/Shift key tracking ──────────────────────────
@@ -241,13 +221,7 @@ export function useInspector(): {
       }
       if (e.key === 'Shift') setShiftHeld(false);
     };
-    /**
-     * §7.11 (G) — 프리뷰가 "여기서 Alt 를 눌렀다/뗐다"고 알려 온다.
-     *
-     * 프록시가 넣어 준 조각(`previewPicker.ts`)이 보내는 것이라 **오리진이 달라도** 온다 —
-     * 종전에는 `contentDocument` 에 리스너를 걸 수 있는 같은 오리진 프리뷰에서만 Alt 가 살아 있었고,
-     * 패키지 앱(`vibproxy://`)에서는 프리뷰 안을 한 번 클릭한 순간부터 인스펙터가 통째로 죽었다.
-     */
+    /** §7.11 (G) — 프리뷰가 Alt 를 눌렀다/뗐다고 알려 온다(프록시 조각 `previewPicker.ts` — **오리진이 달라도** 온다). `contentDocument` 리스너만으로는 패키지 앱(`vibproxy://`) 프리뷰를 클릭한 뒤 인스펙터가 죽는다. */
     const onPreviewMessage = (e: MessageEvent): void => {
       const d = e.data as { source?: string; type?: string; down?: boolean; shift?: boolean } | null;
       if (!d || d.source !== PREVIEW_PICK_SOURCE || d.type !== PREVIEW_ALT_MESSAGE) return;
@@ -397,13 +371,7 @@ export function useInspector(): {
       setInfo(newInfo);
     };
 
-    /**
-     * ⑮ (i) — 다른 오리진 페이지에 좌표를 묻고, 온 답으로 강조 상자를 그린다.
-     *
-     * 한 번에 하나만 묻는다 — 마우스 이동은 초당 수백 번이라 그대로 흘려보내면 답이 순서를
-     * 잃고 상자가 뒤로 튄다. 기다리는 동안 온 이동은 **마지막 자리 하나**로 접어 두었다가
-     * 답이 오는 즉시 다시 묻는다(사람 눈에는 그대로 따라오는 것으로 보인다).
-     */
+    /** ⑮ (i) — 다른 오리진 페이지에 좌표를 묻는다. **한 번에 하나만** — 흘리면 답이 순서를 잃어 상자가 튄다. 기다리는 동안의 이동은 마지막 자리 하나로 접어 답이 오면 다시 묻는다. */
     const askPage = (iframeEl: HTMLIFrameElement, cx: number, cy: number): void => {
       if (remoteBusy) { remotePending = { x: cx, y: cy }; return; }
       remoteBusy = true;
@@ -508,10 +476,7 @@ export function useInspector(): {
       refreshTargetFromInnermost();
     };
 
-    /**
-     * 공급자에게 묻는다 — 바로 답하면 바로 세우고, 약속으로 답하면 한 번에 하나만 묻는다(원격 페이지와 같은 규율). 기다리는
-     * 동안 커서가 움직였으면 그 답은 옛 자리의 것이라 그리지 않고 마지막 자리를 다시 묻는다.
-     */
+    /** 공급자에게 묻는다 — 바로 답하면 바로 세우고, 약속이면 한 번에 하나만(원격 페이지와 같은 규율). 기다리는 사이 커서가 움직였으면 옛 답은 버리고 마지막 자리를 다시 묻는다. */
     const askPicker = (host: Element, picker: InspectorPicker, cx: number, cy: number): void => {
       if (pickerBusy) { pickerPending = { host, picker, x: cx, y: cy }; return; }
       let answer: InspectorPickLevels | PromiseLike<InspectorPickLevels>;
@@ -531,10 +496,7 @@ export function useInspector(): {
       });
     };
 
-    /**
-     * 호버와 클릭은 같은 좌표 판정을 쓴다. 이동 이벤트가 누락되거나 Alt 직후 바로 눌러도
-     * 예전 헤더 전체를 복사하지 않는다. 같은 최하위 요소라면 휠로 고른 부모는 유지한다.
-     */
+    /** 호버와 클릭은 같은 좌표 판정을 쓴다 — 이동 이벤트가 빠지거나 Alt 직후 바로 눌러도 옛 대상을 복사하지 않는다. 같은 최하위 요소면 휠로 고른 부모를 지킨다. */
     const updateTargetAtPoint = (cx: number, cy: number, probeRemote = true): void => {
       lastPoint = { x: cx, y: cy };
 
@@ -609,7 +571,7 @@ export function useInspector(): {
 
     // 스크롤 휠 → 부모/자식 체인 이동 (A 기능)
     const handleWheel = (e: WheelEvent): void => {
-      // 세로 굴림만 오르내린다 — 가로 굴림·기울임(터치패드)이 `deltaY === 0` 으로 와도 부모로 튀지 않게(종전에는 0 이 "위로"였다).
+      // 세로 굴림만 오르내린다 — 가로 굴림·기울임(터치패드)의 `deltaY === 0` 을 "위로"로 읽으면 부모로 튄다.
       if (e.deltaY === 0) return;
       const direction = e.deltaY > 0 ? -1 : 1;  // 휠 위로 = 부모로 (+1)
 
@@ -695,8 +657,8 @@ export function useInspector(): {
     };
 
     /**
-     * §5.4 #15 (C) — 누른 자리를 공급자에게 묻고 복사한다. 같은 칸들을 다시 집었으면 휠로 고른 깊이를 지키고, 칸이 다한 깊이면
-     * 판부터의 DOM 요소를 복사한다. 늦게 온 답은 그 뒤에 누른 것을 덮지 않고(`pickRequest`), Alt 를 뗀 뒤에 와도 누름은 유효하다.
+     * §5.4 #15 (C) — 누른 자리를 공급자에게 묻고 복사한다. 같은 칸이면 휠로 고른 깊이를 지키고, 칸이 다한 깊이면 판부터의 DOM 을 복사한다.
+     * 늦은 답은 뒤에 누른 것을 덮지 않고(`pickRequest`), Alt 를 뗀 뒤 와도 유효하다.
      */
     const pickAndCopy = (host: Element, picker: InspectorPicker, cx: number, cy: number, request: number): void => {
       let answer: InspectorPickLevels | PromiseLike<InspectorPickLevels>;

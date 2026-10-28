@@ -1,9 +1,4 @@
-/**
- * §5.11 v3.97 — 궤적 평가(Trajectory Eval): 최종 답이 아니라 **어떻게 도달했는지**를 본다.
- *
- * 같은 답을 내도 도구를 3번 부른 경우와 40번 부른 경우는 전혀 다른 시스템이다. 결과만 보는 평가는 그 차이를
- * 못 보고, 에이전트에서는 결과 정확도보다 이쪽이 더 예측력 있는 지표인 경우가 많다. 표시 전용.
- */
+/** §5.11 — 궤적 평가(Trajectory Eval): 답이 아니라 어떻게 도달했는지를 본다. 표시 전용. */
 import { defineInspector, ICONS } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';
 

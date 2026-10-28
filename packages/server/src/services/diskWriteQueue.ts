@@ -1,29 +1,9 @@
 /**
- * diskWriteQueue.ts — §9 "디스크 쓰기는 워커 스레드로".
- *
- * **왜**: 체크포인트 저장의 마지막 구간은 백업 회전과 원자적 쓰기(`open`→`write`→`fsync`→
- * `rename`→디렉토리 `fsync`)라는 **동기 디스크 I/O** 다. 서버 코어가 Electron 메인 프로세스와
- * 한 몸이라(§3.7) 그 시간이 그대로 UI 정지다 — 열린 탭 7개 기준 한 번의 저장이 최대 21벌의
- * fsync 를 메인 스레드에서 치렀다.
- *
- * **무엇을 하나**: 직렬화가 끝난 **문자열**을 워커 스레드에 넘기고 메인은 즉시 돌아온다.
- * 문자열 전달은 구조화 클론이라 해도 사실상 memcpy 라, 넘기는 비용이 fsync 대기보다 훨씬 싸다.
- *
- * **§3.7 과 어긋나지 않는다**: §3.7 이 금지한 것은 **child 프로세스 spawn**(별도 프로세스·별도
- * 수명·따로 죽는 서버)이다. `worker_threads` 는 같은 프로세스 안의 스레드라 프로세스 모델·수명
- * 공유·"소켓 없음"이 전부 그대로다. 워커는 메인이 죽으면 같이 죽는다.
- *
- * **정확성 규약 (§3.2.1 내구성 우선)**
- *  1. 워커는 **"무엇을 쓸지" 판단하지 않는다.** 통째-0 가드·shrink guard·묘비·죽은 워크트리
- *     판정은 전부 메인에 남는다. 워커는 "받은 것을 안전하게 쓴다"만 한다.
- *  2. **한 번에 한 건**(in-flight 1) + FIFO. 같은 파일의 두 저장이 순서를 바꿔 앉지 않는다.
- *  3. 메인은 기록이 확인될 때까지 payload 를 들고 있다가, 종료 시 남은 것을 **동기로 직접 쓴다**.
- *  4. 워커가 없거나(테스트·미가동) 큐가 가득 차면 **조용히 동기 쓰기로 되돌아간다** —
- *     워커는 성능 경로일 뿐 정확성 경로가 아니다.
- *
- * ⚠ **읽기 전에는 반드시 flush** — 큐에 남은 쓰기가 있는 상태에서 같은 파일을 읽으면 옛 내용을
- *   본다. 체크포인트 읽기 경로(부팅 hydrate·탭 재hydrate)는 `flushPendingDiskWritesSync()` 를
- *   먼저 부른다.
+ * §9 "디스크 쓰기는 워커 스레드로". 체크포인트 저장 끝의 백업 회전·원자적 쓰기(`open`→`write`→`fsync`→`rename`→디렉토리 `fsync`)는 동기 I/O 이고, 서버 코어가 Electron 메인과 한 몸이라(§3.7) 그 시간이 곧 UI 정지다(탭 7개면 저장 한 번에 fsync 최대 21벌).
+ * 직렬화가 끝난 문자열을 워커에 넘기고 메인은 즉시 돌아온다. `worker_threads` 는 §3.7 이 금지한 child 프로세스 spawn 이 아니다 — 같은 프로세스 안 스레드라 메인이 죽으면 같이 죽는다.
+ * 정확성 규약(§3.2.1): 1. 워커는 무엇을 쓸지 판단하지 않는다(통째-0·shrink guard·묘비·죽은 워크트리 판정은 메인). 2. 한 번에 한 건 + FIFO.
+ * 3. 메인은 기록 확인까지 payload 를 들고 있다가 종료 시 남은 것을 동기로 쓴다. 4. 워커가 없거나 큐가 차면 조용히 동기 쓰기로 — 워커는 성능 경로일 뿐이다.
+ * ⚠ 읽기 전에는 반드시 flush — 큐가 남은 채 같은 파일을 읽으면 옛 내용을 본다(부팅 hydrate·탭 재hydrate 는 `flushPendingDiskWritesSync()` 를 먼저 부른다).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -44,12 +24,8 @@ interface WriteJob {
 }
 
 /**
- * 워커 소스. **파일이 아니라 문자열**로 띄운다 — electron-vite 번들·asar 패키징에서 별도 청크
- * 경로를 해석할 필요가 없어 배포 형태와 무관하게 항상 같은 방식으로 동작한다.
- *
- * ⚠ 이 안의 쓰기 절차는 `writeFileAtomicSyncRaw()` 와 **바이트 단위로 같은 순서**여야 한다
- *   (tmp 쓰기 → fsync → rename → 디렉토리 fsync). 한쪽만 고치면 내구성 보장이 갈라진다.
- *   `diskWriteQueue.test.ts` 가 두 경로의 결과 동일성을 고정한다.
+ * 워커 소스는 파일이 아니라 문자열로 띄운다 — electron-vite 번들·asar 에서 별도 청크 경로를 풀 필요가 없다.
+ * ⚠ 쓰기 절차는 `writeFileAtomicSyncRaw()` 와 같은 순서여야 한다(tmp 쓰기 → fsync → rename → 디렉토리 fsync) — 한쪽만 고치면 내구성 보장이 갈라진다(`diskWriteQueue.test.ts` 가 대조).
  */
 const WORKER_SOURCE = `
 const { parentPort, workerData } = require('node:worker_threads');
@@ -114,11 +90,8 @@ const failedPaths = new Set<string>();
 const stats = { queued: 0, written: 0, failed: 0, syncFallback: 0, flushedSync: 0 };
 
 /**
- * 원자적 쓰기의 **유일한 동기 구현**. `statePersistence.atomicWriteFileSync`(가드 담당)와
- * 이 큐의 폴백·종료 flush 가 모두 이 함수를 쓴다 — 절차가 두 벌로 갈라지지 않게 한다.
- *
- * @param tmpSuffix 임시 파일 접미사. 워커와 동시에 같은 파일을 쓸 수 있는 종료 flush 는
- *                  다른 접미사를 써서 tmp 이름 충돌을 피한다.
+ * 원자적 쓰기의 유일한 동기 구현 — `statePersistence.atomicWriteFileSync`(가드 담당)와 큐의 폴백·종료 flush 가 모두 이것을 쓴다(절차가 두 벌로 갈라지지 않게).
+ * @param tmpSuffix 임시 파일 접미사. 워커와 동시에 같은 파일을 쓸 수 있는 종료 flush 는 다른 접미사로 tmp 충돌을 피한다.
  */
 export function writeFileAtomicSyncRaw(filePath: string, data: string, tmpSuffix = '.tmp'): void {
   const tmp = `${filePath}${tmpSuffix}`;
@@ -199,11 +172,7 @@ function handleResult(msg: WriteResult): void {
   pump();
 }
 
-/**
- * 워커를 띄운다. **`runServer()` 만 호출한다** — 테스트·도구 경로는 켜지 않아 동기 쓰기 그대로다
- * (파일을 쓴 직후 읽어 검사하는 테스트가 워커 때문에 흔들리지 않게).
- * 이미 켜져 있으면 no-op.
- */
+/** 워커를 띄운다(이미 켜져 있으면 no-op). `runServer()` 만 부른다 — 시험·도구 경로는 동기 쓰기 그대로라 쓴 직후 읽어 검사하는 시험이 흔들리지 않는다. */
 export function enableAsyncDiskWrites(): void {
   if (worker) return;
   try {
@@ -285,11 +254,8 @@ export function queueAtomicWrite(filePath: string, data: string): boolean {
 }
 
 /**
- * 아직 기록되지 않은 작업을 **동기로** 마무리한다(§3.2.1 내구성 — `process 'exit'` 는 동기만 허용).
- *
- * 먼저 세대를 올리고 commit 잠금을 잡아 진행 중인 옛 건을 **커밋(rename)하지 않게** 한 뒤, 남은 것을 도착
- * 순서대로 직접 쓴다. 같은 파일에 여러 건이 남아 있어도 순서가 보존되므로 마지막 내용이 남는다.
- *
+ * 아직 기록되지 않은 작업을 동기로 마무리한다(§3.2.1 — `process 'exit'` 는 동기만 허용).
+ * 먼저 세대를 올리고 commit 잠금을 잡아 진행 중인 옛 건이 rename 하지 못하게 한 뒤, 남은 것을 도착 순서대로 쓴다 — 같은 파일에 여러 건이어도 마지막 내용이 남는다.
  * @returns 동기로 마무리한 건수
  */
 export function flushPendingDiskWritesSync(): number {

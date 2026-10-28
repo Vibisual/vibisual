@@ -141,7 +141,6 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
         )}
       </div>
 
-      {/* Advanced options (v1.18) — 설정된 값만 간결 표시 */}
       {(edge.messageFormat || edge.returnFormat || edge.timeoutMs !== undefined || edge.retryCount !== undefined || edge.cacheEnabled !== undefined || edge.priority) && (
         <div className="flex flex-col gap-1.5 rounded border border-gray-800 bg-gray-950/40 px-2 py-1.5">
           <span className="text-[12px] uppercase tracking-wider text-gray-500">{t('panel.taskEdgeDetail.advanced')}</span>
@@ -149,8 +148,7 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
             {edge.messageFormat && <span>{t('panel.taskEdgeDetail.format')}: <span className="text-gray-200">{edge.messageFormat}</span></span>}
             {edge.returnFormat && <span>{t('panel.taskEdgeDetail.return')}: <span className="text-gray-200">{edge.returnFormat}</span></span>}
             {edge.timeoutMs !== undefined && <span>{t('panel.taskEdgeDetail.timeout')}: <span className="text-gray-200">{edge.timeoutMs}ms</span></span>}
-            {/* TODO(2026-05-13): retry/cache/priority are stored but not honored at runtime.
-             *  Marked with "(coming soon)" in display. See 해보자/2026-05-13/todo.md. */}
+            {/* TODO: retry/cache/priority are stored but not honored at runtime — shown with "(coming soon)". */}
             {edge.retryCount !== undefined && edge.retryCount > 0 && (
               <span className="text-gray-500">
                 {t('panel.taskEdgeDetail.retry')}: <span className="text-gray-400">{edge.retryCount}</span>
@@ -211,7 +209,7 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
         </div>
       )}
 
-      {/* Bundle — v1.32 returnFormat='both' / v1.54 critique force-rework 자동 생성 자매 엣지 요약 */}
+      {/* Bundle — returnFormat='both' / critique force-rework 자동 자매 엣지 요약. */}
       {edge.bundleId && (
         <div className="flex flex-col gap-1 rounded border border-indigo-800/50 bg-indigo-950/30 px-2 py-1.5">
           <div className="flex items-center gap-2">
@@ -238,7 +236,7 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
         </div>
       )}
 
-      {/* v1.55 — Critique primary 엣지의 런타임 rework 사이클 진행도 + 강등 알림 */}
+      {/* Critique primary 엣지의 rework 사이클 진행도 + 강등 알림. */}
       {edge.kind === 'critique' && (edge.bundleRole ?? 'primary') === 'primary' && (
         <div className="flex flex-col gap-1 rounded border border-violet-800/50 bg-violet-950/20 px-2 py-1.5">
           <div className="flex items-center justify-between">
@@ -262,7 +260,7 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
         </div>
       )}
 
-      {/* Actions — v1.54: auto-sibling 은 선택만 허용, 편집/삭제 차단(primary 에서만 가능) */}
+      {/* Actions — auto-sibling 은 선택만, 편집/삭제는 primary 에서만. */}
       <div className="flex flex-wrap gap-1.5 border-t border-gray-800 pt-3">
         {isAutoSibling ? (
           <div className="w-full rounded border border-gray-800 bg-gray-950/40 px-2 py-1.5 text-[12px] text-gray-400">

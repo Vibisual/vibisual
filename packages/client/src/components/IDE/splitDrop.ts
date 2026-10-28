@@ -1,9 +1,4 @@
-// §5.5 #17-34 — "지금 손을 떼면 어디에 앉는가"의 순수 기하.
-//
-// 칸 위에서 커서가 어느 변(또는 가운데)에 있는지, 그리고 그 판정을 미리보기 박스로 어떻게 그릴지를
-// 좌표만 받아 답한다(DOM ❌). 판정과 미리보기가 **같은 표**를 쓰는 것이 이 파일의 전부다 —
-// 두 벌로 갈라 두면 파란 박스는 왼쪽을 가리키는데 실제로는 오른쪽에 붙는 상태가 생기고,
-// 그것이 이 기능의 유일한 거짓말 방식이다(#17-1 도킹 미리보기가 배운 것과 같은 교훈).
+// §5.5 #17-34 — "손을 떼면 어디에 앉는가"의 순수 기하. 판정과 미리보기는 같은 표를 쓴다 — 갈라 두면 박스는 왼쪽인데 오른쪽에 붙는다.
 
 import { IDE_SPLIT, type SplitAxis } from './splitLayout.js';
 
@@ -132,11 +127,7 @@ export function dragOwnerMatches(types: readonly string[], agentId: string): boo
   return types.includes(sessionOwnerMime(agentId));
 }
 
-/**
- * **어느 세션인가**도 짐표의 종류로 싣는다(소유자와 같은 수법).
- * 값을 못 읽는 `dragover` 단계에서 "이 칸이 이미 보여 주는 그 세션"인지 알아야, 아무 일도 일어나지
- * 않을 자리에 파란 박스를 띄우지 않는다 — 눌러도 안 되는 파란 박스는 사용자에게 고장으로 읽힌다.
- */
+/** 세션 id 도 짐표의 종류로 싣는다 — `dragover` 에서 이미 그 세션을 보여 주는 칸을 가려, 눌러도 안 되는 파란 박스를 띄우지 않는다. */
 export function sessionIdMime(sessionId: string | null): string {
   return `application/x-vibisual-session-id-${encodeSessionDrag(sessionId).toLowerCase()}`;
 }

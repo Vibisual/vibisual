@@ -1,17 +1,7 @@
 /**
- * §5.11 v3.88 — 치명적 3요소(Lethal Trifecta) 판정 — **순수 함수**.
- *
- * 인젝션이 실제 유출로 바뀌는 조건은 ⓐ 민감 데이터 접근 · ⓑ 미신뢰 콘텐츠 노출 · ⓒ 외부 통신
- * **세 가지가 동시에 성립할 때뿐**이다. 그래서 처방이 바로 나온다 — 다리 하나만 끊으면 경로가 무너진다.
- *
- * ── 왜 이진이 아니라 3단인가 (구현 중 실측으로 드러난 것) ──
- * `Bash` 는 `LOCKED_AGENT_TOOLS` 라 UI 에서 뺄 수 없고(위임 dispatch 가 의존), 그 하나가 ⓑ와 ⓒ를 동시에
- * 켠다. 즉 "도구가 있나/없나"로만 보면 **거의 모든 에이전트가 항상 3/3** 이라 배지가 상시 점등돼 신호가
- * 죽는다. 그래서 각 다리를 `closed`(도구 없음 — 경로 끊김) / `gated`(있지만 Vibisual 승인 팝업이 가로막음)
- * / `open`(무확인 통과) 3단으로 본다. **경고는 셋이 전부 `open` 일 때만** 뜬다.
- *
- * 승인 여부는 도구가 아니라 `permissionMode` 가 정하므로(§5.3 #12-1), permissionMode 는
- * **다리 수를 늘리지 않고 각 다리의 등급만** 바꾼다. `isolation` 은 판정에 섞지 않는다 — 별도 방패 표시.
+ * §5.11 — 치명적 3요소(Lethal Trifecta) 판정(순수 함수): ⓐ 민감 데이터 접근 · ⓑ 미신뢰 콘텐츠 노출 · ⓒ 외부 통신이 동시에 설 때만 유출된다.
+ * 잠긴 `Bash`(`LOCKED_AGENT_TOOLS`)가 혼자 ⓑ·ⓒ를 켜 도구 유무로는 늘 3/3 이라, 다리마다 `closed`(도구 없음) · `gated`(승인 팝업) · `open`(무확인) 3단으로 본다.
+ * **경고는 셋 다 `open` 일 때만.** `permissionMode` 는 다리 수가 아니라 등급만 바꾼다(§5.3 #12-1). `isolation` 은 섞지 않는다(별도 방패).
  */
 import type { AgentConfig } from '@vibisual/shared';
 import { LOCKED_AGENT_TOOLS } from '@vibisual/shared';
@@ -57,11 +47,8 @@ export const TRIFECTA_LEG_TOOLS: Record<TrifectaLeg, readonly string[]> = {
 };
 
 /**
- * 실효 도구 집합 = (tools ∪ LOCKED) − disallowedTools.
- *
- * LOCKED(`Bash`)를 더하는 이유: 서버 `PUT /api/agent-config/:id` 가 payload 에 없어도 자동 포함하므로
- * "UI 에서 뺐다"고 없는 것으로 보면 실제보다 안전하게 오판한다. 반대로 `disallowedTools` 는 CLI 가
- * 실제로 차단하므로 마지막에 뺀다.
+ * 실효 도구 집합 = (tools ∪ LOCKED) − disallowedTools. LOCKED(`Bash`)는 서버 `PUT /api/agent-config/:id` 가 늘 넣으므로 더한다(빼면 실제보다 안전하게 오판).
+ * `disallowedTools` 는 CLI 가 실제로 막으므로 마지막에 뺀다.
  */
 export function effectiveTools(config: AgentConfig | undefined): Set<string> {
   const set = new Set<string>(config?.tools ?? []);

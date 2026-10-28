@@ -1,13 +1,6 @@
 /**
- * §5.1 #2-1 (A) — 미디어 창구 **읽기** 판정(`resolveWorkspaceMediaRead`) 회귀 시험.
- *
- * 배경(2026-10-21 사용자 보고): 에이전트가 프로젝트 밖(`%TEMP%/vib-icon-probe/out`)에서 읽은 그림 다섯 장이 캔버스에 떠
- * 있는데, 창구가 루트 밖을 통째로 막아 **png 인데 미리보기도 그림 창도 비었다.** 이제 루트 밖이라도 그 파일 자체가 지금
- * 버블로 떠 있으면 읽기를 연다 — 열기 라우트 셋과 같은 두 번째 기준(`hasNodeAbsolutePath`). 여기서 못 박는 계약:
- *  - 루트 안은 종전 그대로 연다.
- *  - 루트 밖은 **버블로 떠 있는 그 파일만** 연다 — 같은 폴더의 다른 파일·홈의 비밀 파일·`..` 로 빠져나가기는 막는다.
- *
- * 실제 `ProjectGraph` 에 Read 훅을 흘려 노드를 세운다(`projectGraphOpenPathGuard.test.ts` 와 같은 자리).
+ * §5.1 #2-1 (A) — 미디어 창구 읽기(`resolveWorkspaceMediaRead`) 회귀: 루트 밖은 버블로 떠 있는 그 파일만 연다(같은 폴더 다른 파일·`..` 탈출은 막음).
+ * 실제 `ProjectGraph` 에 Read 훅을 흘려 노드를 세운다.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -16,6 +9,7 @@ import path from 'node:path';
 import { ProjectGraph } from './projectGraph.js';
 import { isWithinRoot } from './pathKey.js';
 import {
+  resolveWorkspaceFileRead,
   resolveWorkspaceMediaRead,
   resolveWorkspaceMediaStream,
   resolveWorkspaceMediaStreamFile,
@@ -105,10 +99,52 @@ describe('resolveWorkspaceMediaRead — 미디어 창구 읽기', () => {
   });
 });
 
-/**
- * §5.13 40-1 — 패키지 앱이 이 창구의 읽기를 **흘려 보내는 갈래**(vibproxy)로 받을 때의 판정. 라우트와 같은 한 벌에 하나를 더 본다 —
- * 미디어 표에 있는 형식만(같은 출처의 프리뷰 페이지도 닿는 길이라 코드·설정·키는 내지 않는다).
- */
+/** §5.5 #17-27 ⑥ — 편집창 읽기: 파일 버블 더블클릭이 앱 안 편집창으로 열리므로 루트 밖도 버블로 떠 있는 그 파일만 보기 전용(`outside`)으로 읽힌다. */
+describe('resolveWorkspaceFileRead — 편집창 읽기', () => {
+  function guards(graph: ProjectGraph): WorkspaceMediaReadGuards {
+    return {
+      isOpenableRoot: (resolvedRoot) => isWithinRoot(resolvedRoot, projectRoot),
+      isBubblePath: (absPath) => graph.hasNodeAbsolutePath(absPath),
+    };
+  }
+  /** 글 파일 하나를 만들고 그 파일에 대한 Read 훅을 흘린다(에이전트가 프로젝트 밖 문서를 읽은 자리). */
+  function readText(graph: ProjectGraph, absFile: string): void {
+    fs.mkdirSync(path.dirname(absFile), { recursive: true });
+    fs.writeFileSync(absFile, '# notes\n');
+    graph.processHookEvent({
+      session_id: 'sess-file-read',
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Read',
+      tool_use_id: `toolu-${path.basename(absFile)}`,
+      tool_input: { file_path: absFile },
+      cwd: projectRoot,
+    });
+  }
+
+  it('루트 안은 종전 그대로 — 바깥이 아니다', () => {
+    const graph = new ProjectGraph();
+    graph.registerProject(projectRoot);
+    expect(resolveWorkspaceFileRead(projectRoot, 'src/app.ts', guards(graph))).toEqual({ outside: false });
+    expect(resolveWorkspaceFileRead(path.join(projectRoot, 'src'), 'app.ts', guards(graph))).toEqual({ outside: false });
+  });
+
+  it('루트 밖은 버블로 떠 있는 그 파일만 보기 전용으로 연다', () => {
+    const graph = new ProjectGraph();
+    graph.registerProject(projectRoot);
+    const dir = path.join(outsideRoot, 'notes');
+    readText(graph, path.join(dir, 'plan.md'));
+    fs.writeFileSync(path.join(dir, 'secret.md'), 'x');
+
+    expect(resolveWorkspaceFileRead(dir, 'plan.md', guards(graph))).toEqual({ outside: true });
+    expect(resolveWorkspaceFileRead(dir, 'secret.md', guards(graph))).toBeNull();
+    expect(resolveWorkspaceFileRead(path.join(os.homedir(), '.ssh'), 'id_rsa', guards(graph))).toBeNull();
+    // 버블 폴더 밖으로 빠져나가는 상대 경로·폴더 자체는 경로 해석이 막는다.
+    expect(resolveWorkspaceFileRead(path.join(outsideRoot, 'elsewhere'), '../notes/plan.md', guards(graph))).toBeNull();
+    expect(resolveWorkspaceFileRead(dir, '.', guards(graph))).toBeNull();
+  });
+});
+
+/** §5.13 40-1 — vibproxy 흘려 보내기 갈래 판정: 라우트와 같은 한 벌 + 미디어 표 형식만(같은 출처 프리뷰도 닿아 코드·설정·키는 내지 않는다). */
 describe('resolveWorkspaceMediaStream — 흘려 보내는 갈래', () => {
   function guards(graph: ProjectGraph): WorkspaceMediaReadGuards {
     return {

@@ -9,10 +9,7 @@ interface Props {
   box: CommentBox;
 }
 
-/**
- * Comment Box 전용 DetailPanel 섹션 (v1.45).
- * 언리얼 블프 코멘트처럼 색·글자색·폰트·투명도를 편집하고 텍스트 다듬기.
- */
+/** Comment Box DetailPanel — 색·글자색·폰트·투명도·텍스트. */
 export function CommentBoxDetail({ box }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const updateCommentBox = useGraphStore((s) => s.updateCommentBox);
@@ -31,10 +28,7 @@ export function CommentBoxDetail({ box }: Props): React.JSX.Element {
     void updateCommentBox(box.id, { text });
   }, [text, box.text, box.id, updateCommentBox]);
 
-  // ─── 라이브 입력(슬라이더/컬러픽커) vs 커밋(서버 PATCH) 분리 ───
-  // onChange 마다 PATCH 를 보내면 매 pointermove 마다 broadcast → 한 박자 늦은 잔상이 생김.
-  // 드래그/핸들 동안에는 patchCommentBoxLocal 로 store 만 갱신(즉시 시각 반영),
-  // 사용자가 손을 뗀 시점(onMouseUp / onChange end / onBlur) 에 updateCommentBox 로 1회 PATCH.
+  // 라이브 입력은 `patchCommentBoxLocal`(store 만), 손을 뗄 때 `updateCommentBox` 1회 PATCH — onChange 마다 PATCH 하면 broadcast 잔상이 생긴다.
 
   const liveColor = useCallback((hex: string) => {
     setCustomColor(hex);

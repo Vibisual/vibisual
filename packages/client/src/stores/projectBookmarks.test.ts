@@ -3,13 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGraphStore, countProjectBookmarks, selectProjectBookmarks } from './graphStore.js';
 import type { BookmarkStore, IDEBookmark } from './graphStore.js';
 
-/**
- * §5.5 #17-7 (프로젝트별로 갈라 담기) — IDE 북마크 보관함.
- *
- * 종전엔 전역 단일 배열이라 A 프로젝트에서 보관한 조각이 B 프로젝트 IDE 의 활동바 배지·사이드바 목록에
- * 그대로 떴다(어느 프로젝트를 봐도 같은 "4"). 이 배선이 끊기면 같은 증상이 조용히 돌아오므로,
- * **넣는 칸 · 보는 칸 · 지우는 길 · 옛 값 이관**을 여기서 못 박는다.
- */
+/** §5.5 #17-7 — IDE 북마크 보관함은 **프로젝트별**이다(전역이면 A 의 조각이 B 의 배지·목록에 뜬다). 넣기·보기·지우기·옛 값 이관을 고정한다. */
 
 type State = ReturnType<typeof useGraphStore.getState>;
 

@@ -10,15 +10,7 @@ vi.mock('./appState.js', async (importOriginal) => {
   return { ...actual, appStateAddOpenProject: () => false };
 });
 
-/**
- * §4 (첫 실행 온보딩) ③ — **폴더를 고르기 전에는 아무것도 만들지 않는다.**
- *
- * 실제 사고: 앱을 갓 깔고 폴더를 한 번도 고르지 않은 사용자가 캔버스 우클릭 → "커스텀 에이전트"
- * 를 눌렀더니, 매니저가 `registerProject(process.cwd())` 로 **임시 등록**을 해 버렸다. Finder 로
- * 띄운 mac 앱의 `process.cwd()` 는 `/` 라 `path.basename('/') === ''` → 이름이 빈 프로젝트 탭
- * 하나와 **파일시스템 루트에 매인 에이전트**가 조용히 생겼다. 사용자 눈에는 "폴더를 고른 적도
- * 없는데 빈 것이 생성됐다" 로 보인다.
- */
+/** §4 (첫 실행 온보딩) ③ — 폴더를 고르기 전엔 아무것도 만들지 않는다. `registerProject(process.cwd())` 임시 등록은 Finder 로 띄운 mac 앱(cwd `/`)에서 이름 빈 탭과 파일시스템 루트에 매인 에이전트를 만든다. */
 
 const tmpDirs: string[] = [];
 
@@ -48,7 +40,6 @@ describe('폴더를 고르기 전 생성 요청', () => {
     const manager = new ProjectGraphManager();
     manager.createCustomAgent('', { x: 0, y: 0 }, null);
 
-    // 예전에는 여기서 `process.cwd()` 가 프로젝트로 등록돼 탭이 하나 생겼다.
     expect(manager.getVisibleTopLevelProjects()).toHaveLength(0);
     expect(manager.hasOpenProject()).toBe(false);
   });

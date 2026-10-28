@@ -14,26 +14,15 @@ import { ProjectGraph } from './projectGraph.js';
 import { mergeSnapshots } from './projectGraphManager.js';
 import { AuditLogService } from './auditLog.js';
 
-/**
- * §3.2.3 — 보관 상한은 사용자 설정에서 온다. 그 값을 이 회귀가 **그 기계의 실제 `app-state.json`**
- * 에서 읽으면, 사용자가 설정에서 숫자를 바꾼 순간 테스트가 저절로 빨개진다.
- * 여기서는 shared 기본값으로 고정하고, 축 자체의 동작은 아래 전용 describe 가 주입으로 확인한다.
- */
+/** §3.2.3 — 보관 상한을 실제 `app-state.json` 에서 읽으면 설정만 바꿔도 시험이 깨진다 — shared 기본값으로 고정하고 축 동작은 아래 describe 가 주입으로 본다. */
 vi.mock('./appState.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./appState.js')>();
   return { ...actual, appStateGetRetention: () => ({ ...DEFAULT_RETENTION_SETTINGS }) };
 });
 
 /**
- * §5.22 — 권한·감사 경계의 회귀 테스트.
- *
- * 이 기능이 조용히 깨질 자리는 넷이다.
- *  ① **디스크 포맷 누락** — 결정 이력은 어디서도 재계산할 수 없어 `toProjectCheckpoint` 에서
- *     빠지면 껐다 켠 순간 영영 없다(§5.21·§5.20 이 이미 데인 자리).
- *  ② **한 호출이 두 줄로** — 승인 창구와 훅 이벤트가 같은 호출을 두 길로 알려 오므로, 합치지
- *     못하면 원장 길이가 두 배가 되고 같은 일이 두 번 일어난 것처럼 보인다.
- *  ③ **루프백 오탐** — 우리 자신에게 보내는 호출까지 "외부 전송"으로 잡으면 승인 카드가 도배된다.
- *  ④ **캡이 숫자를 갉아먹음** — 밀려난 줄의 몫이 합계에서 사라지면 감사가 과거를 축소한다.
+ * §5.22 — 권한·감사 경계: ① 결정 이력이 `toProjectCheckpoint` 에 실린다(재계산 불가) ② 승인 창구·훅의 같은 호출은 한 줄
+ * ③ 루프백은 외부 전송이 아니다(승인 카드 도배) ④ 캡에 밀린 줄의 몫이 합계에서 안 사라진다.
  */
 
 const PROJECT_CWD = '/tmp/audit-project';
@@ -304,10 +293,7 @@ describe('§5.22 훅 경로 기록', () => {
 describe('§3.2.3 보관 상한 — 원장 줄 수를 사용자가 정한다', () => {
   const PROJECT = 'retention-project';
 
-  /**
-   * ⚠ `toolUseId` 는 **회차마다 달라야 한다.** 같은 id 로 다시 부르면 새 줄이 아니라 그 줄의
-   * 갱신이라(Pre/Post 합치기) 길이가 늘지 않고, 그러면 상한을 재는 시험이 아무것도 재지 않는다.
-   */
+  /** `toolUseId` 는 회차마다 달라야 한다 — 같은 id 는 그 줄의 갱신(Pre/Post 합치기)이라 길이가 안 늘어 상한 시험이 헛돈다. */
   function fill(svc: AuditLogService, n: number, tag = 'a'): void {
     for (let i = 0; i < n; i += 1) {
       svc.record({
@@ -320,10 +306,7 @@ describe('§3.2.3 보관 상한 — 원장 줄 수를 사용자가 정한다', (
     }
   }
 
-  /**
-   * ⚠ `getSnapshot()` 은 **전선 몫**(`AUDIT_SNAPSHOT_ENTRIES`)까지만 싣는다 — 보관 상한을 재는
-   * 자리에서 그걸 쓰면 120 줄에서 멈춰 "상한이 걸렸다"로 오독한다. 디스크 포맷이 전량이다.
-   */
+  /** `getSnapshot()` 은 전선 몫(`AUDIT_SNAPSHOT_ENTRIES`)만 실어 120 줄에서 멈춘다 — 보관 상한은 디스크 포맷(전량)으로 잰다. */
   function logOfSvc(svc: AuditLogService) {
     const log = svc.toCheckpoint(PROJECT);
     if (!log) throw new Error('원장 없음');

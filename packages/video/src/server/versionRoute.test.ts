@@ -1,11 +1,7 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-/**
- * §5.13 (Y) 40-7 ② — R13 이 되돌아가지 않게(원문). `/version` 은 2~5초마다 창마다 오는 물음이다 — 그 처리기 안에서 동기로 문서를
- * 읽거나(`readDoc`) 컴포지션을 훑으면(`refreshCompositions` — 동기 realpath·readdir·stat) 패키지 앱의 창 스레드가 멈춘다. 그 일은
- * 판 기억(`versionBook`)과 지켜보는 문서만 2초마다 비동기로 재는 자리(`refreshWatchedCompositions`)가 한다.
- */
+/** §5.13 (Y) 40-7 ② (R13) — `/version` 처리기 소스에 동기 `readDoc`·`refreshCompositions` 가 없는지 — 있으면 2~5초마다 패키지 앱의 창 스레드가 멈춘다. */
 const routes = fs.readFileSync(new URL('./routes.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
 function handlerBody(signature: string): string {

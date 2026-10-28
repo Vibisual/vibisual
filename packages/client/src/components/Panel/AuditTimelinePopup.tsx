@@ -22,16 +22,8 @@ import { ScrollFade } from '../ScrollFade.js';
 import { AuditShieldGlyph } from '../AuditShieldGlyph.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
-// SCENARIO.md §5.22 / §7.20 — 감사 타임라인 팝업.
-//
-// 줄과 집계는 전부 서버가 접어 실어 준 것을 **그대로** 그린다(§3.1). 여기서 원장을 다시 세거나
-// 위험을 다시 판정하지 않는다 — 필터 탭은 "무엇을 보여줄까"를 고르는 일이지 값을 만드는 일이 아니다.
-//
-// 경계 스위치는 **묻는 일만** 끈다. 기록을 끄는 스위치는 두지 않는다 — 감사의 값은 다 남는 데 있다.
-//
-// 스위치보다 **먼저** 오는 것은 관계 설명이다(§7.20). "권한 모드를 전부 허용으로 뒀는데 왜
-// 승인 팝업이 뜨나"는 스위치를 못 찾아서 생기는 물음이 아니라, 이 경계가 권한 모드와 **별개로
-// 도는 두 번째 검문소**라는 사실이 화면 어디에도 없어서 생기는 물음이다.
+// SCENARIO.md §5.22 / §7.20 — 감사 타임라인 팝업. 서버가 접은 것을 그대로 그린다(§3.1). 경계 스위치는 묻기만 끈다(기록 끄기 ❌).
+// 관계 설명이 먼저다 — 권한 모드와 별개로 도는 두 번째 검문소라는 말이 없으면 "전부 허용인데 왜 뜨나"가 된다.
 
 interface AuditTimelinePopupProps {
   onClose: () => void;
@@ -41,34 +33,16 @@ type AuditFilter = 'all' | 'risky' | 'denied';
 
 const FILTERS: readonly AuditFilter[] = ['all', 'risky', 'denied'] as const;
 
-/**
- * §3.2.3 B축 — 감사 원장 보관 줄 수.
- *
- * 값은 이 팝업이 따로 들고 있지 않고 **머신 단위 보존 설정 한 곳**(`AppState.retention`)에 산다.
- * 저장소 탭과 이 팝업은 같은 값을 서로 다른 자리에서 보여 줄 뿐이라, 한쪽에서 고치면 다른 쪽도
- * 다음에 열 때 그 값을 본다(설정을 두 벌로 두면 어느 쪽이 진실인지 알 수 없게 된다).
- */
+/** §3.2.3 B축 — 감사 원장 보관 줄 수. 값은 `AppState.retention` 한 곳 — 저장소 탭과 같은 값이다. */
 const RETENTION_KEY = 'auditEntryMaxPerProject' as const;
 
-/**
- * 스테퍼 연타마다 PUT 을 쏘지 않기 위한 유예(ms).
- * 이 값은 화면이 아니라 **디스크에 남는 줄 수**를 정하므로, 손이 멈춘 뒤에 한 번만 보낸다.
- */
+/** 스테퍼 PUT 유예(ms) — 디스크 줄 수라 손이 멈춘 뒤 한 번만 보낸다. */
 const RETENTION_PUT_DEBOUNCE_MS = 500;
 
-/**
- * 체크박스가 "무제한(0)"을 소유하고 숫자는 "얼마나"만 소유한다.
- * 그래서 스테퍼의 하한은 `0` 이 아니라 `1` 이다 — 숫자로도 0 을 만들 수 있으면 체크는 켜져 있는데
- * 뜻은 무제한인 상태가 생긴다.
- */
+/** 무제한(0)은 체크박스가 갖는다 — 스테퍼 하한 1(0 을 허용하면 체크와 뜻이 어긋난다). */
 const RETENTION_STEPPER_MIN = 1;
 
-/**
- * 관계 설명의 세 줄 — 켜면 / 끄면(기본) / 붙잡히는 범위.
- *
- * 순서가 뜻이다: 사용자가 겪은 일(켜면 bypass 여도 카드가 뜬다)이 먼저고, 그 다음이 지금의
- * 기본 상태이며, 마지막이 "내 에디터 세션은 왜 안 걸리나"에 대한 답이다.
- */
+/** 관계 설명 세 줄 — 순서가 뜻이다: 켜면 / 끄면(기본) / 붙잡히는 범위. */
 const ROUTE_POINTS: readonly string[] = [
   'panel.audit.routeOn',
   'panel.audit.routeOff',

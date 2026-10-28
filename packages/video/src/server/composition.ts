@@ -1,11 +1,6 @@
 /**
- * §5.13 (T-1)(T-3)(T-5) — 컴포지션의 서버 몫: 파일을 읽어 탐침하고, 지문을 재고, 내줄 뿌리를 정한다.
- *
- * 문자열 판정(경로 모양·meta·lint)은 순수 층(`composition/`)이 하고, 여기는 **실제 디스크**를 본다 — 프로젝트 안에
- * 있는지는 `realpath` 까지 따라가 확인한다(정션·심볼릭 링크로 밖을 가리키는 것을 막는다, `assets.ts` 와 같은 규칙).
- *
- * 탐침은 창을 띄우지 않는다 — meta 와 소스 문자열만 읽어 길이·판형·결정성 검사·시각 맞춤 방식을 채운다. 그래서
- * 일꾼 창이 없어도(스튜디오가 닫혀 있어도) 에이전트가 곧바로 결과를 받는다.
+ * §5.13 (T-1)(T-3)(T-5) — 컴포지션의 서버 몫(탐침·지문·내줄 뿌리): 실제 디스크를 본다(문자열 판정은 순수 층 `composition/`).
+ * 프로젝트 안인지는 `realpath` 까지 본다(`assets.ts` 와 같은 규칙). 탐침은 창 없이 meta·소스 문자열만 읽어, 스튜디오가 닫혀도 에이전트가 바로 받는다.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -32,10 +27,7 @@ import type { CompositionLintEntry, CompositionPropDecl, CompositionSeekMode, Vi
 import { taskCopyNamespaceOf } from './taskCopyPaths.js';
 
 /** `.vibisual` 아래 자리를 프로젝트 기준 상대 경로로. */
-/**
- * §5.13 (W) 38-9 — 렌더 엔진의 Chromium 메이저. 서버는 통합 앱의 main 프로세스 안에서 돌므로(§3.7) 그 실행본의 값이 미리보기·
- * 스틸·렌더가 쓰는 엔진과 같다. Electron 밖(시험·서버만)이면 undefined.
- */
+/** §5.13 (W) 38-9 — 렌더 엔진의 Chromium 메이저. 서버가 통합 앱 main 프로세스 안이라(§3.7) 이 값이 미리보기·스틸·렌더 엔진과 같다. Electron 밖이면 undefined. */
 export function engineChromium(versions: NodeJS.ProcessVersions = process.versions): number | undefined {
   const raw = (versions as Record<string, string | undefined>)['chrome'];
   const major = raw ? Number.parseInt(raw, 10) : Number.NaN;
@@ -59,10 +51,7 @@ export function resolveInsideProject(root: string, rel: string, platform: Platfo
   }
 }
 
-/**
- * 입력 경로(절대·상대)를 프로젝트 기준 상대 경로(`/` 구분)로 바꾼다. 프로젝트 밖·루트 자신이면 null.
- * 저장하는 대소문자는 입력 그대로다(비교만 `isPathWithin` — pathKey 규칙, 멀티플랫폼 1축).
- */
+/** 프로젝트 기준 상대 경로(`/` 구분). 밖·루트 자신이면 null. 대소문자는 입력 그대로 저장하고 비교만 `isPathWithin`(pathKey 규칙, 멀티플랫폼 1축). */
 export function toProjectRelative(root: string, input: string, platform: PlatformName = process.platform): string | null {
   const raw = input.trim();
   if (raw === '') return null;
@@ -74,8 +63,8 @@ export function toProjectRelative(root: string, input: string, platform: Platfor
 }
 
 /**
- * §5.13 (Y) 40-7 ② — `resolveInsideProject` 의 **비동기** 판(판단은 같다 — 메인 스레드를 막지 않는다). 프로젝트 뿌리의 실제 경로는
- * 잠깐(`REAL_ROOT_TTL_MS`) 기억한다 — 2초마다 지켜보는 문서마다 다시 풀지 않게(폴더를 옮기면 그 안에 다시 푼다).
+ * §5.13 (Y) 40-7 ② — `resolveInsideProject` 의 비동기 판(판단은 같다). 뿌리의 실제 경로는 `REAL_ROOT_TTL_MS` 동안 기억한다 — 2초마다 지켜보는 문서마다
+ * 다시 풀지 않게(폴더를 옮기면 그 안에 다시 푼다).
  */
 const REAL_ROOT_TTL_MS = 30_000;
 const realRoots = new Map<string, { real: string; at: number }>();
@@ -190,10 +179,7 @@ function fingerprintOf(relHtml: string, parts: readonly string[]): string {
   return stableHash(`${toPosixPath(relHtml)}\n${parts.join('\n')}`);
 }
 
-/**
- * §5.13 (Y) 40-7 ② — 지문의 **비동기** 판(같은 값 — 시험이 둘을 맞댄다). 서버가 지켜보는 문서마다 2초마다 재므로 동기 파일 시스템으로
- * 메인 스레드(패키지 앱에서는 창 스레드)를 막지 않게 한다.
- */
+/** §5.13 (Y) 40-7 ② — 지문의 비동기 판(같은 값 — 시험이 둘을 맞댄다). 지켜보는 문서마다 2초마다 재므로 메인 스레드(패키지 앱은 창 스레드)를 막지 않게. */
 export async function compositionFingerprintAsync(root: string, relHtml: string, platform: PlatformName = process.platform): Promise<string | null> {
   if (!isProjectRelativePath(relHtml) || !isCompositionHtmlPath(relHtml)) return null;
   const folderRel = compositionFolderOf(relHtml);
@@ -344,10 +330,7 @@ export function compositionAssetId(doc: VideoDoc, relHtml: string): string {
   return `${base}-${Date.now().toString(36)}`;
 }
 
-/**
- * 문서의 composition 소재 중 **지문이 바뀐 것**(코드를 고쳤다)을 다시 탐침해 갈아 끼울 연산. 바뀐 게 없으면 빈 배열 —
- * 버전만 올리는 헛패치를 만들지 않는다. 에이전트가 탐침을 다시 부르지 않아도 스튜디오·노드가 새 코드를 본다.
- */
+/** 지문이 바뀐 composition 소재만 다시 탐침한다. 바뀐 게 없으면 빈 배열 — 버전만 올리는 헛패치를 만들지 않는다. */
 export function compositionRefreshOps(root: string, doc: VideoDoc, platform: PlatformName = process.platform): VideoDocOp[] {
   const ops: VideoDocOp[] = [];
   for (const asset of Object.values(doc.assets)) {

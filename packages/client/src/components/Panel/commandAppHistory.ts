@@ -11,11 +11,8 @@ function compareRows(a: CommandHistoryRow, b: CommandHistoryRow): number {
 }
 
 /**
- * Only called for the selected Bash/app panel.
- *
- * §5.1 명령 앱 · §7.3 (2026-10-21) — `limit` is the panel's `마지막 20개만 유지` checkbox, the same rule as the file bubble's
- * edit list (`MAX_COMMAND_APP_HISTORY` = `MAX_FILE_EDITS`). `null` means the box is unchecked: every retained entry is
- * listed (retention itself — 50 per session — is the server's separate axis). The 10-20 fixed screen cap of 50 is gone.
+ * Only called for the selected Bash/app panel. `limit` = the `마지막 20개만 유지` checkbox (`MAX_COMMAND_APP_HISTORY` = `MAX_FILE_EDITS`);
+ * `null` = unchecked, list every retained entry (retention is the server's separate axis).
  */
 export function commandHistoryRows(
   history: Readonly<Record<string, readonly BashEntry[]>>,

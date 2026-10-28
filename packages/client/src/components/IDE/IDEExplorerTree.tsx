@@ -7,13 +7,8 @@ import { workspaceNameErrorKey } from './explorerModel.js';
 import { dragHasWorkspaceEntry } from './explorerDrag.js';
 
 /**
- * §5.5 #17-19 v4.71 — 탐색기 트리 본체(행 목록).
- *
- * 계층 자체가 경로이므로 들여쓰기 폭이 정보다 — 깊이에 비례한 padding 은 Tailwind 클래스로
- * 표현할 수 없어 인라인 style 을 쓴다(기존 `FolderFileTree` 와 같은 예외).
- *
- * ⑦ — 행은 우클릭 메뉴(만들기·이름 바꾸기·삭제…)의 대상이고, 이름을 치는 자리도 **이 트리 안**이다
- * (별도 창 ❌ — 만들어질 곳이 보이는 채로 정해야 한다).
+ * §5.5 #17-19 — 탐색기 트리. 깊이별 들여쓰기는 인라인 style(Tailwind 로 불가 — `FolderFileTree` 와 같은 예외).
+ * ⑦ 행은 우클릭 메뉴의 대상, 이름은 트리 안에서 친다(별도 창 ❌ — 만들어질 곳이 보이게).
  */
 
 interface IDEExplorerTreeProps {
@@ -26,10 +21,7 @@ interface IDEExplorerTreeProps {
   selectedPath: string | null;
   /** §5.5 #17-19 ③(c) — 방금 누른 행의 상대 경로(체크 표시가 그 행에만 뜨도록). */
   copiedPath: string | null;
-  /**
-   * §5.5 #17-19 ③-1 (c) — 손잡이가 입력창에도 넣는가. 훅 버블은 읽기 전용이라(#17-29) 넣을
-   * 입력창이 없어 복사만 한다 — **문구가 갈리는 값**이라 손잡이 이름을 여기에 맞춰 고른다.
-   */
+  /** §5.5 #17-19 ③-1 (c) — 손잡이가 입력창에도 넣는가. 훅 버블(#17-29)은 읽기 전용이라 복사만 — 손잡이 문구가 갈린다. */
   insertsIntoInput: boolean;
   /** §5.5 #17-19 ⑦ — 지금 이름을 치고 있는 자리(없으면 평소 트리 그대로). */
   draft: ExplorerDraft | null;
@@ -59,13 +51,8 @@ const INDENT_PX = 10;
 const BASE_PAD_PX = 6;
 
 /**
- * §5.5 #17-19 ⑦ — 트리 안에서 이름을 치는 한 줄.
- *
- * - **Enter** 로 확정, **Esc** 로 취소, **바깥을 누르면 확정**(VS Code 와 같은 손버릇 — 이름을 다
- *   쳐 놓고 딴 데를 눌렀다고 그 타이핑이 사라지면 안 된다). 비었거나 규칙에 어긋나면 취소로 떨어진다.
- * - 규칙 위반은 **치는 동안** 붉은 테두리와 한 줄로 말한다(확정하고 나서 거절당하는 대신).
- *   판정은 서버와 **같은 순수 함수**(`workspaceEntryNameError`, shared)다.
- * - 파일 이름은 확장자 앞까지만 골라 둔다(`App.tsx` → `App`) — 이름만 바꾸는 것이 대부분이다.
+ * §5.5 #17-19 ⑦ — 트리 안 이름 입력. Enter·바깥 누름 = 확정, Esc = 취소(빈 값·규칙 위반도 취소).
+ * 위반은 치는 동안 표시한다(서버와 같은 `workspaceEntryNameError`). 파일은 확장자 앞까지 골라 둔다.
  */
 function ExplorerNameInput({
   initial,
@@ -127,10 +114,7 @@ function ExplorerNameInput({
           else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
         }}
         onBlur={commit}
-        // 우클릭은 전역 입력칸 메뉴(`GlobalTextFieldContextMenu`)가 capture 단계에서 가로채
-        // 트리 메뉴 대신 잘라내기·복사·붙여넣기를 띄운다. 여기서 따로 막을 것이 없다 —
-        // 예전의 `stopPropagation` 은 "브라우저 기본 메뉴가 뜨게 둔다"는 뜻이었는데,
-        // **Electron 에는 그 기본 메뉴가 없어** 실제로는 아무 것도 안 뜨는 자리였다.
+        // 우클릭은 `GlobalTextFieldContextMenu` 가 capture 로 가로챈다. 여기서 `stopPropagation` 하지 마라 — Electron 엔 기본 메뉴가 없어 아무것도 안 뜬다.
         className={`w-full rounded border bg-gray-950 px-1 py-[1px] text-[12px] text-gray-100 outline-none ${
           nameError ? 'border-rose-500' : 'border-blue-500'
         }`}
@@ -362,12 +346,7 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
               </svg>
               <span className="truncate">{entry.name}</span>
             </button>
-            {/*
-              §5.5 #17-19 ③(c) — 행 손잡이 묶음. **고른 행에서는 늘 보이고**(지금 만질 행이라 손잡이가
-              사라지면 안 된다), 고르지 않은 행에서는 마우스를 올렸을 때만 뜬다.
-              왼쪽이 경로 손잡이(입력창에 넣기 + 복사), 오른쪽이 앱 밖 편집기로 열기.
-              터치에는 hover 가 없다 — 줄을 눌러 고르면 뜨는 고른 행의 손잡이가 그대로 입구이고, 손가락 크기로 선다.
-            */}
+            {/* §5.5 #17-19 ③(c) — 행 손잡이: 고른 행엔 늘, 나머지는 hover 때만(터치는 고른 행이 입구). 왼쪽 경로(넣기 + 복사), 오른쪽 밖 편집기. */}
             <div
               className={`absolute right-0.5 top-1/2 -translate-y-1/2 items-center gap-0.5 ${
                 isSelected ? 'flex' : 'hidden group-hover/row:flex'

@@ -19,11 +19,8 @@ export function receiveAppWindow(api: PackagedAppApi, payload: Parameters<Parame
 }
 
 /**
- * §5.13 (S-11) — main 이 든 **밖에 떠 있는 앱 창** 목록을 이 창의 store 에 비춘다. 이 목록이 있어야 그 문서를 다시 열 때
- * 앱 안에 한 벌 더 세우지 않고 밖의 그 창을 앞으로 세운다(`openAppWindow`).
- *
- * 구독을 붙이기 전에 지나간 알림은 놓치므로 처음 한 번은 직접 묻는다(`useOverlaySync` 와 같은 보강). 그 답이 알림보다
- * 늦게 오면 옛것이라 버린다 — 늦은 답이 최신 목록을 덮으면 방금 닫힌 창을 "떠 있다"로 읽는다.
+ * §5.13 (S-11) — main 의 밖 앱 창 목록을 store 에 비춘다(다시 열 때 그 창을 앞으로 세우는 근거). 구독 전 알림을 놓치니 처음엔 직접 묻고,
+ * 알림보다 늦게 온 답은 버린다 — 옛 목록이 덮으면 방금 닫힌 창을 "떠 있다"로 읽는다.
  */
 export function subscribeOutsideAppWindows(api: PackagedAppApi): () => void {
   if (!api.onList) return () => undefined;

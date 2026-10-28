@@ -7,14 +7,8 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 
 /**
- * 목록을 **띄우는 창 위로** 올려야 하는 자리를 위한 문(§4 첫 실행 온보딩).
- *
- * 온보딩 팝업(설치·로그인·폴더)은 화면 전체를 덮는 백드롭을 깔아 헤더의 이 전환기를 가린다 —
- * 처음 켠 한국어 사용자에게는 **언어를 바꿀 길이 하나도 없는 화면**이 된다(폰에서는 헤더
- * 전환기 자체가 접혀 있어 더 그렇다). 그래서 그 창들은 이 컴포넌트를 자기 머리에 얹는데,
- * 창 카드가 `overflow-hidden` 이라 종전의 `absolute` 목록은 카드 밖으로 못 나가 잘린다.
- * `portalMenu` 를 켜면 목록만 `document.body` 로 빼서 버튼 아래에 띄운다 —
- * **헤더의 기본 동작(absolute)은 손대지 않는다**(그 자리는 잘릴 일이 없다).
+ * §4 첫 실행 온보딩 — 백드롭에 가린 헤더 대신 온보딩 창 머리에 얹을 때, 카드 `overflow-hidden` 에 안 잘리게 `portalMenu` 로 목록만 body 에 띄운다.
+ * 헤더의 기본 동작(absolute)은 그대로다.
  */
 interface LanguageSwitcherProps {
   /** 목록을 body 로 빼고 `zIndex` 위에 띄운다. 기본값 false = 종전 그대로. */

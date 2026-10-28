@@ -1,15 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseStreamLine } from './subAgentManager.js';
 
-/**
- * §5.5 #17-27 ⑪ — **도구 결과도 자기 호출의 `tool_use_id` 를 달고 나가야 한다.**
- *
- * `SubAgentStreamEvent.toolUseId` 규약은 처음부터 양쪽(호출·결과)을 전제했는데 결과 쪽이 비어 있었다.
- * 그래서 클라 [추종]은 호출 순서(FIFO)로 짐작할 수밖에 없었고, **결과가 끝내 오지 않는 호출**
- * (중지·거부·창 밖에서 시작된 호출)이 하나만 있어도 그 뒤 전부가 한 칸씩 밀려 방금 고친 파일 대신
- * 직전 파일을 따라갔다(실측: 실제 세션 하나에서 `tool_use` 31 : `tool_result` 30 · 어긋남 2건).
- * 값은 원문 라인에 이미 있으므로 새로 만들 것은 없고, **빠뜨리지 않는 것**만이 요건이다.
- */
+/** §5.5 #17-27 ⑪ — **도구 결과도 자기 `tool_use_id` 를 단다** — 없으면 클라가 FIFO 로 짐작해 결과 없는 호출 하나에 뒤가 밀린다(실측 31:30 · 어긋남 2건). */
 
 describe('parseStreamLine — 도구 호출·결과 짝짓기 키', () => {
   it('assistant 의 tool_use 는 자기 id 를 싣는다', () => {

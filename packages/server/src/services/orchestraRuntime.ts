@@ -1,13 +1,6 @@
 /**
- * §5.3 #10-4 — 오케스트라(지휘 모드) 서버 런타임의 **순수 판정**.
- *
- * `index.ts` 의 가로채기(`POST /api/commands`)·지휘 턴 덮어쓰기(`processNextCommand`)·킥오프·멤버 등록
- * (`/api/create-custom-agent`)·완료 정산(`setOnComplete`)이 여기 함수를 부른다. 판정을 라우트 안에 흩어
- * 두면 "가로채는 조건"과 "지휘 턴이 받는 설정"이 자리마다 조금씩 달라진다 — 그래서 한 곳에 모으고
- * 시험으로 고정한다.
- *
- * 이 파일은 fs·시간·플랫폼을 모른다. 시각은 부르는 쪽이 `now` 를 넘기고, 경로 비교(프로젝트가 같은가)는
- * 부르는 쪽이 `samePath` 로 재서 boolean 으로 넘긴다(대소문자 규칙이 OS 마다 다르다 — §멀티플랫폼 1축).
+ * §5.3 #10-4 — 오케스트라 서버 런타임의 순수 판정(`index.ts` 의 가로채기·지휘 턴·킥오프·멤버 등록·완료 정산이 부른다 — 흩으면 자리마다 달라진다).
+ * fs·시간·플랫폼을 모른다 — `now` 와 `samePath` 결과를 받는다(대소문자 규칙이 OS 마다 다르다).
  */
 import {
   AUTO_AGENT_BUILDER_INTERVIEW_TOOL,
@@ -82,14 +75,8 @@ function setValue(v: string | undefined): string | null {
 }
 
 /**
- * 지휘 턴 **한 번**에 쓸 설정 — 저장된 `AgentConfig` 는 건드리지 않는다(그 턴의 사본이다).
- *
- * - 도구는 `ORCHESTRA_CONDUCTOR_TOOLS`(+ 설정이 켜면 `AskUserQuestion`). `stripped` 는 STRICT 엣지가 빼앗은
- *   도구 — 사용자가 건 제약이라 지휘 턴에서도 뺀다.
- * - 쓰기 도구는 에이전트 원래 차단 목록에 **더한다**(원래 막아 둔 것을 풀지 않는다).
- * - 권한은 설정이 `bypass` 면 `bypassPermissions`, `inherit` 면 그 에이전트 값 그대로.
- * - 모델·강도는 설정 칸이 비어 있지 않을 때만 갈아 끼운다. Claude 모델을 갈면 `modelVersion` 핀을 뗀다 —
- *   `buildConfigArgs` 가 핀을 모델보다 먼저 쓰므로, 남겨 두면 사용자가 고른 지휘자 모델이 무시된다.
+ * 지휘 턴 한 번의 설정 사본(저장된 `AgentConfig` 는 그대로). 도구는 `ORCHESTRA_CONDUCTOR_TOOLS`, STRICT 엣지가 뺀 `stripped` 는 계속 빼고, 쓰기 도구는 차단 목록에 더한다.
+ * 권한 `bypass` → `bypassPermissions`, `inherit` → 그대로. 모델을 갈면 `modelVersion` 핀을 뗀다 — `buildConfigArgs` 가 핀을 먼저 써 고른 모델이 무시된다.
  */
 export function buildConductorTurnConfig(
   base: AgentConfig,

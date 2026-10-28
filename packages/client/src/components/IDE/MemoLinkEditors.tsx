@@ -17,17 +17,8 @@ import { placeCanvasMenu } from '../BubbleMap/canvasMenuPlacement.js';
 import { followVisibleViewport, viewportMaxHeight, visibleViewport } from './popupPlacement.js';
 
 /**
- * MemoLinkEditors.tsx — §5.5 #17-36 ⑫ [링크 ▸] 목록에서 **더 묻는** 두 종류의 작은 창.
- *
- *  - **웹 주소…** — 주소 한 줄. 스킴을 안 적으면 붙여 주고(`example.com` → https, `localhost:5173` → http),
- *    http(s) 가 아니면 받지 않는다(정화와 같은 자 — `parseMemoLinkUrlInput`).
- *  - **파일…** — 이름으로 좁혀 고르거나 경로를 그대로 적는다. 목록은 ⑱ 빈 탭이 쓰는 찾기 창구
- *    (`GET /api/workspace-find`)를 **갈래 넷 합쳐** 최근 고친 순으로 세운다(받아 둔 목록이 있으면 그것부터
- *    그리고 뒤에서 다시 받는다 — 빈 탭과 같은 규칙·같은 캐시). 줄 표기(`App.tsx:42`)를 붙여 적으면 고른
- *    파일에 그 줄이 따라간다.
- *
- * 둘 다 메뉴를 연 자리에 뜨고, 바깥을 누르거나 Esc 면 닫힌다(공통 닫기 규약 `useOutsidePressDismiss`).
- * 몸은 body 로 포털하고, 리액트 이벤트가 조상(대화 본문)으로 오르지 않게 감싼 자리에서 끊는다.
+ * §5.5 #17-36 ⑫ — [링크 ▸]의 두 창. 웹 주소는 스킴을 붙여 주고 http(s) 만 받는다(`parseMemoLinkUrlInput`). 파일 목록은 빈 탭(⑱)의 `GET /api/workspace-find` 와 같은 규칙·캐시.
+ * 바깥 누름·Esc 에 닫히고(`useOutsidePressDismiss`), body 포털 + 이벤트가 대화 본문으로 오르지 않게 끊는다.
  */
 
 /** 파일 목록에 한 번에 세우는 줄 수 — 나머지는 "N개 더 — 이름으로 좁히세요" 한 줄로 접는다. */

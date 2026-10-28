@@ -1,11 +1,4 @@
-/**
- * §5.19 (D) 엔진을 띄우기 전에 정해지는 것들 — **인자 · 학습 문맥 · 답 예산.**
- *
- * 셋 다 "틀려도 오류가 안 나서" 오래 안 보이는 부류다.
- * - 인자: 새 플래그를 더하면 그걸 모르는 옛 설치가 **통째로 안 뜬다**(무시가 아니라 즉시 종료).
- * - 학습 문맥: 창을 크게 잡아도 엔진이 조용히 깎아 **화면 숫자와 실제가 어긋난다**.
- * - 답 예산: 창의 고정 비율로 잡으면 이력이 길어진 뒤 생성이 창 끝에 닿아 **답이 잘린다**.
- */
+/** §5.19 (D) — 틀려도 오류 없이 오래 숨는 셋: 새 플래그(옛 설치 즉시 종료) · 학습 문맥(조용히 깎임) · 답 예산(고정 비율이면 이력이 길어진 뒤 답이 잘린다). */
 import { describe, it, expect } from 'vitest';
 import { LOCAL_ANSWER_BUDGET_MIN, LOCAL_ANSWER_BUDGET_RESERVE, localAnswerBudget } from '@vibisual/shared';
 import { buildEngineArgs, ENGINE_EXTRA_FLAGS, normalizeLocalContext, isLocalMemoryError } from './localRunner.js';

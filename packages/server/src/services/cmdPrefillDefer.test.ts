@@ -3,12 +3,8 @@ import { cmdPrefillDelay, CMD_PREFILL_DELAY_MS, CMD_PREFILL_MAX_DEFER_MS } from 
 
 /**
  * §4 (CMD) — 셸 입력줄 채우기(prefill)를 **크기가 멎은 뒤로** 미루는 창구의 산술.
- *
- * 증상은 "CMD 버블을 처음 열면 자동으로 적어 둔 명령이 지워진다/줄어든다" 였다. ConPTY 는
- * 리사이즈마다 보이는 화면을 통째로 다시 그리는데(`CMD_RESIZE_REPAINT_MS` 참조), 그때 셸
- * 입력줄에 글자가 들어 있으면 새 폭에 맞춰 다시 배치되며 잘려 나간다. 그래서 리사이즈가 오면
- * 아직 안 쓴 prefill 의 예약을 되감는데 — 창을 계속 끌고 있어도 **영영 안 채워지지는 않아야**
- * 하므로 최초 예약 때 정한 한도(deadline) 안에서만 되감는다.
+ * ConPTY 는 리사이즈마다 화면을 통째로 다시 그려(`CMD_RESIZE_REPAINT_MS`) 입력줄의 글자가 새 폭에 맞춰 잘려 나간다 — 그래서 리사이즈가 오면 아직 안 쓴 prefill 예약을 되감는다.
+ * 창을 계속 끌어도 영영 안 채워지면 안 되므로 최초 예약 때 정한 한도(deadline) 안에서만 되감는다.
  */
 describe('cmdPrefillDelay', () => {
   const now = 1_700_000_000_000;

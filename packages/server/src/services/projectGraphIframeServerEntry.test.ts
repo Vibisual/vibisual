@@ -3,11 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { ProjectGraph } from './projectGraph.js';
 import type { ServerEntry } from '@vibisual/shared';
 
-/**
- * §7.11 v3.85 — 에이전트가 신고한 iframe(`POST /api/agent-iframe`)에도 짝이 되는 ServerEntry 가
- * 생겨야 한다. 없으면 `IframeServerCard` 가 `serverId=null` 이라 **Stop 이 영구 disabled** 였다
- * (사용자 보고: "running 인데 왜 Stop 이 비활성이냐").
- */
+/** §7.11 — 신고된 iframe(`POST /api/agent-iframe`)에도 짝 ServerEntry 가 선다 — 없으면 `IframeServerCard` 의 Stop 이 영구 disabled. */
 
 const servers: Server[] = [];
 

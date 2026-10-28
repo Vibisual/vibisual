@@ -14,18 +14,8 @@ import { formatTokens } from './contextInventoryView.js';
 import { SpecScopeRows, SpecScopeSummary, useSpecScope } from './specReadingScope.js';
 
 /**
- * §5.11 정독 게이트 — **정독** 뷰 (`IDEViewType='specReading'`).
- *
- * 이 화면이 답하는 물음은 하나다: **"에이전트가 기획을 진짜로 읽었는가."**
- *
- * 그 답을 하나의 점수로 뭉개지 않는다. "83%" 는 무엇이 부족한지 말하지 못하고, 말하지 못하는 숫자는
- * 신뢰의 근거가 되지 못한다 — 그래서 네 축(열람·인용·깊이·최신)을 따로 세우고, 그 아래에 **어느 절을
- * 몇 줄 열었는지**까지 그린다. 사용자가 의심스러우면 절을 눌러 그 문서의 그 자리로 바로 갈 수 있어야
- * 이 화면이 근거가 된다(#17-27 내장 편집창).
- *
- * **여기서 다시 재지 않는다(§3.1).** 필수 절·커버율·신뢰도·게이트 이력은 전부 서버가 낸 값이고, 그것은
- * 프롬프트에 실린 판단·게이트가 막는 근거와 **같은 함수 하나**에서 나온다. 화면이 자기 산식을 따로
- * 들면 "화면은 초록인데 막힌다"가 만들어지고, 그 순간 이 기능은 믿을 수 없는 것이 된다.
+ * §5.11 정독 게이트 — 정독 뷰: 에이전트가 기획을 진짜로 읽었나. 점수 하나로 뭉개지 않고 네 축(열람·인용·깊이·최신)과 절별 열람 줄을 그린다.
+ * 여기서 다시 재지 않는다(§3.1) — 값은 전부 게이트와 같은 서버 함수에서 온다. 따로 계산하면 "화면은 초록인데 막힌다"가 생긴다.
  */
 
 /** 신뢰도 축 하나 — 이름·값(0~1)·색. */
@@ -66,12 +56,7 @@ function StatusGlyph({ status }: { status: SpecRequiredEntry['status'] }): React
   return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M12 8v5" /></svg>;
 }
 
-/**
- * 한 문서의 **정독 궤적** 한 줄.
- *
- * 축척(총 줄 수)을 모르면 막대를 그리지 않는다 — 없는 자로 그린 그림은 그 자체가 거짓말이고,
- * 이 화면에서 거짓말 한 번이면 나머지 숫자도 못 믿게 된다.
- */
+/** 정독 궤적 한 줄. 축척(총 줄 수)을 모르면 막대를 그리지 않는다(없는 자로 그린 막대는 거짓). */
 function HeatBar({ spans, total }: { spans: readonly SpecReadSpan[]; total: number | undefined }): React.JSX.Element | null {
   if (!total || total <= 0) return null;
   return (
@@ -113,10 +98,7 @@ export const IDEReadingView = memo(function IDEReadingView({ agentId }: { agentI
     waive(unitId, waived);
   }, [waive]);
 
-  /**
-   * 인용 대조를 펼친 절 — 「인용 일치/어긋남」 한 마디로는 무엇이 어긋났는지 모른다. 에이전트가 적은 문장과
-   * 파일의 그 자리 원문을 **나란히** 보여야 사용자가 판정할 수 있다(§5.5 #17-44 ③-1 (d)).
-   */
+  /** 인용 대조를 펼친 절 — 에이전트 문장과 파일 원문을 나란히 보인다(§5.5 #17-44 ③-1 (d)). */
   const [compared, setCompared] = useState<ReadonlySet<string>>(() => new Set());
   const toggleCompare = useCallback((unitId: string) => {
     setCompared((prev) => {
@@ -142,12 +124,7 @@ export const IDEReadingView = memo(function IDEReadingView({ agentId }: { agentI
     patch({ roots });
   }, [patch, rootsDraft]);
 
-  /**
-   * 절을 누르면 **내장 편집창**에서 그 문서를 연다(#17-27).
-   *
-   * 줄로 데려가는 것은 추종 신호가 이미 하는 일이라 그 길을 그대로 쓴다 — 제목 글자를 실마리로 주면
-   * 편집창이 본문에서 찾아 그 줄로 스크롤한다. 새 기전을 만들지 않는다.
-   */
+  /** 절을 누르면 내장 편집창(#17-27)에서 연다. 줄 이동은 추종 신호를 쓴다 — 제목 글자를 실마리로 주면 편집창이 찾아 스크롤한다. */
   const openUnit = useCallback((entry: SpecRequiredEntry) => {
     if (!rootPath) return;
     const file = editorFileFromRelPath(entry.file, rootPath);
@@ -235,14 +212,7 @@ export const IDEReadingView = memo(function IDEReadingView({ agentId }: { agentI
       </p>
 
       <ScrollFade fill className="flex-1">
-        {/*
-          ⓪ 켬/끔 3층 스위치 — §5.5 #17-44 ⑧(c).
-
-          **켜져 있을 때도 끄는 길이 같은 화면에 있어야 한다.** 종전에는 이 화면이 켜졌을 때
-          위 요약 한 줄만 두고 스위치는 활동바 팝오버에만 뒀는데, 그 팝오버를 없앤 지금 여기가
-          유일한 손잡이다 — 없으면 "켜고 나면 끌 자리가 화면에 없다"는 종전 결함이 그대로 돌아온다.
-          맨 위에 세우는 이유도 같다: 손잡이를 계측 아래로 내리면 스크롤해야 나오는 스위치가 된다.
-        */}
+        {/* ⓪ 켬/끔 3층 스위치(§5.5 #17-44 ⑧(c)). 켜진 동안 끄는 손잡이는 여기뿐이라 맨 위에 둔다(계측 아래면 스크롤해야 보인다). */}
         <section className="mb-2 flex flex-col gap-1 rounded border border-gray-800 bg-gray-900/40 p-2">
           <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
             {t('ide.specReading.scope.title')}
@@ -497,10 +467,7 @@ function Header({ t, count }: { t: (k: string, o?: Record<string, unknown>) => s
   );
 }
 
-/**
- * 인용 대조 — 에이전트가 적은 문장과 파일의 그 자리 원문을 **나란히**. 어느 쪽이 맞는지는 사용자가 본다 —
- * 판정 한 마디(일치/어긋남)는 서버 것이고, 여기서는 그 근거 두 원문을 그대로 보일 뿐이다.
- */
+/** 인용 대조 — 두 원문을 나란히. 판정은 서버 것이고 여기는 근거만 그린다. */
 function CitationCompare({ t, citation }: { t: (k: string, o?: Record<string, unknown>) => string; citation: SpecCitation }): React.JSX.Element {
   return (
     <div className="mt-1 flex flex-col gap-1">

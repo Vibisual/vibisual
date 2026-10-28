@@ -1,9 +1,4 @@
-/**
- * §5.11 v3.93 — 허용 목록(Allowlist): 도구 정책이 "이것만 된다"에 가까운가.
- *
- * 차단 목록은 빠뜨린 것이 곧 구멍이고, 허용 목록은 모르는 것을 기본 차단해 시간이 지나도 안전 쪽으로
- * 실패한다. 여기서는 전체 도구 중 몇 개를 실제로 쥐고 있는지, 무엇이 빠져 있는지를 보여준다. 표시 전용.
- */
+/** §5.11 — 허용 목록(Allowlist): 전체 도구 중 실제로 쥔 것과 빠진 것을 보여준다. 표시 전용. */
 import { AVAILABLE_AGENT_TOOLS } from '@vibisual/shared';
 import { defineInspector } from '../sdk/index.js';
 import { effectiveTools } from '../sdk/index.js';

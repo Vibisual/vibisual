@@ -11,19 +11,9 @@ import { isCodexSetupGateOpen, shouldSummonCodexLogin } from './codexGateFlow.js
 import { hasProjectFolder } from '../Auth/projectFolderGateFlow.js';
 
 /**
- * §5.25 (D) — 코덱스 CLI 설치 게이트 + 상단 배너.
- *
- * `ClaudeSetupGate` 의 대칭물이고 **같은 규약**을 따른다: 권장형(차단 ❌ · [나중에] 로 닫으면
- * 배너가 남는다), 설치 명령은 서버가 실제로 실행하는 문자열 그대로, 준비가 끝나면 짧은 확인 뒤
- * 자동으로 닫히며 **그 자리에서 로그인 창을 부른다**.
- *
- * **다른 점 하나**: 이 창은 저절로 뜨지 않는다. 코덱스를 고른 적 있는 사용자에게만 자동으로
- * 뜨고(§5.25 (C) `codexGatesMayAutoOpen`), 그 밖에는 사용자가 직접 열 때만 나타난다 —
- * 코덱스를 쓸 생각이 없는 사람에게 설치 창이 하나 더 생기면 그건 방해다.
- *
- * ⚠ 완료 유지 타이머의 deps 는 `justCompleted` 하나뿐이다. 여기에 `shouldOpen` 을 넣으면
- *   타이머가 켠 상태가 곧바로 자기 효과를 다시 태워 정리(cleanup)가 방금 건 타이머를 지운다 —
- *   클로드 게이트가 "준비 완료"에서 영원히 멈췄던 자리가 정확히 그것이었다.
+ * §5.25 (D) — 코덱스 CLI 설치 게이트 + 배너. `ClaudeSetupGate` 와 같은 규약(권장형 · 서버가 실행하는 명령 그대로 · 끝나면 로그인 창을 부른다).
+ * 다만 코덱스를 고른 적 있을 때만 저절로 뜬다(`codexGatesMayAutoOpen`).
+ * **완료 유지 타이머 deps 는 `justCompleted` 하나뿐** — `shouldOpen` 을 넣으면 cleanup 이 방금 건 타이머를 지워 "준비 완료"에서 멈춘다.
  */
 
 const Z = 100_700;
@@ -69,7 +59,7 @@ export function CodexSetupGate(): React.JSX.Element | null {
         }
       }
     });
-    // 모델 목록도 이 자리에서 한 번 읽는다(설치 전에는 캐시 파일이 없었다).
+    // 모델 목록도 여기서 읽는다 — 설치 전에는 캐시 파일이 없다.
     void refreshModels();
   }, [refreshAuth, setLoginGate, refreshModels]);
 
@@ -310,12 +300,7 @@ export function CodexSetupGate(): React.JSX.Element | null {
   );
 }
 
-/**
- * 권장형 게이트를 [나중에] 로 닫았을 때 남는 상단 배너.
- *
- * **코덱스를 고른 사람에게만 보인다** — 클로드나 로컬을 쓰는 사람의 화면 위에 코덱스 배너가
- * 늘 떠 있으면 그건 광고지 안내가 아니다.
- */
+/** [나중에] 로 닫은 뒤 남는 배너 — 코덱스를 고른 사람에게만 보인다. */
 export function CodexSetupBanner(): React.JSX.Element | null {
   const { t } = useTranslation();
   const setup = useGraphStore((s) => s.codexSetup);

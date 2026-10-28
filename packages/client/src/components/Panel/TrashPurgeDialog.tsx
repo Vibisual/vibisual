@@ -6,15 +6,7 @@ import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 /** 목록에 이름을 몇 개까지 펼칠지 — 나머지는 "외 N개" 로 접는다. */
 const NAME_PREVIEW_MAX = 8;
 
-/**
- * §5.10 v4.84 — 휴지통 영구 삭제 확인 팝업. [모두 삭제]·Delete 키(단일/Shift 다중) 세 경로 공용.
- *
- * 영구 삭제는 identity·개별 기억 카드·스트림 파일까지 지우는 되돌릴 수 없는 동작이라 SSOT 가
- * 확인 팝업을 필수로 두고 있다. 여기서는 "무엇이 몇 개, 기억 몇 장" 을 세어 보여주고, 승인되면
- * 배치 REST 한 번(`POST /api/trash/purge`)으로 보내 버블이 여러 번 나눠 사라지지 않게 한다.
- *
- * 모달 문법은 `WorktreeDeleteDialog` 와 동일(스토어에 대상이 설정되면 뜨고, 배경 클릭·Esc 로 닫힘).
- */
+/** §5.10 — 휴지통 영구 삭제 확인(세 경로 공용, 되돌릴 수 없어 필수). 승인되면 `POST /api/trash/purge` 한 번으로 보낸다(버블이 나눠 사라지지 않게). */
 export const TrashPurgeDialog = memo(function TrashPurgeDialog(): React.JSX.Element | null {
   const { t } = useTranslation();
   const target = useGraphStore((s) => s.trashPurgeTarget);

@@ -3,17 +3,7 @@ import type { UserDefaults } from '@vibisual/shared';
 
 import { useGraphStore } from './graphStore.js';
 
-/**
- * §4 — **저장한 값이 되돌아오던 자리.**
- *
- * 사용자 옵션은 두 통로로 들어온다: 즉시 적용되는 WS `user_defaults_updated` 와, 배치 타이머에
- * 모였다 나중에 풀리는 `graph_snapshot`(useWebSocket 의 `flushSnapshot`). 에이전트가 돌고 있으면
- * 스냅샷이 계속 흐르므로 **저장 직전에 버퍼에 들어간 스냅샷이 저장 직후에 풀려** 옛 값을 다시
- * 얹었고, Options 창의 재시드 effect 가 폼을 옛 값으로 되돌렸다 — 디스크에는 저장됐는데 화면은
- * 원래대로 돌아오니 사용자에게는 **저장 실패**로 보였다(돌고 있는 것이 없으면 재현되지 않는다).
- *
- * `updatedAt` 역행을 버리는 것이 그 사슬을 끊는 한 줄이다.
- */
+/** §4 — 저장한 옵션 값이 되돌아오지 않는다: 배치 뒤에 풀리는 `graph_snapshot` 이 저장 직전 값을 다시 얹지 못하게 `updatedAt` 역행을 버린다. */
 function defaults(updatedAt: number, autoCompact: string): UserDefaults {
   return { updatedAt, agentConfig: { autoCompact } } as UserDefaults;
 }

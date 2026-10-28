@@ -2,15 +2,9 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { PREVIEW_POLICY, selectPreviewGrants, type PreviewCandidate } from '@vibisual/shared';
 
 /**
- * §5.1 #2-1 (G) ②③④ — **화면 속 미리보기 상한**과 **움직이는 동안 굽지 않기**.
- *
- * - 화면에 선(마운트된) 미리보기 자리(파일 얼굴 · 구슬)가 스스로 이름을 올린다(`usePreviewGrant`). 캔버스가 화면 밖 노드를
- *   언마운트하므로(§4 v3.71) 올라온 것이 곧 "한눈에 들어온 것"이다.
- * - 고르기는 shared `selectPreviewGrants` 한 곳 — 화면 지름이 문턱 아래면 아이콘, 남은 것 중 크게 보이는 것부터 상한까지.
- * - **움직이는 동안은 고른 것을 바꾸지 않는다** — 이동·줌이 끝날 때 한 번 다시 고른다(줌 경계마다 깜빡이지 않게).
- * - 기억 장소(`appThumbnails`)가 새 일감을 시작하기 전에 `isIdle()` 을 묻는다 — 움직이는 동안과 멈춘 직후 잠깐은 굽지 않는다.
- *
- * 앱 노드 화면은 이 상한 밖이다(그 노드의 결과 자체다) — 이 모듈에 이름을 올리지 않는다.
+ * §5.1 #2-1 (G) ②③④ — 화면 속 미리보기 상한. 마운트된 자리가 이름을 올리고(`usePreviewGrant` — 화면 밖 노드는 언마운트라 올라온 것 = 보이는 것)
+ * shared `selectPreviewGrants` 가 고른다(문턱 아래 지름은 아이콘, 크게 보이는 것부터 상한까지). 움직이는 동안은 고른 것을 바꾸지 않고(줌 경계 깜빡임 ❌)
+ * `appThumbnails` 는 `isIdle()` 일 때만 새로 굽는다. 앱 노드 화면은 상한 밖이다(그 노드의 결과 자체) — 이름을 올리지 않는다.
  */
 
 type Listener = () => void;

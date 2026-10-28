@@ -1,12 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { shouldShowInlineNew, INLINE_NEW_WIDTH, INLINE_NEW_MIN_GAP } from './inlineNewButton.js';
 
-/**
- * §5.5 #17-40 — 인라인 `+`(새 세션) 노출 판정 회귀.
- *
- * 고정하는 약속: 마지막 탭 오른쪽에 **버튼 폭 + 최소 간격**이 남을 때만 인라인 `+` 가 뜬다.
- * 이게 어긋나면 세션이 늘었을 때 같은 `+` 가 나란히 두 개 찍힌다.
- */
+/** §5.5 #17-40 — 인라인 `+` 는 마지막 탭 오른쪽에 버튼 폭 + 최소 간격이 남을 때만 뜬다(아니면 `+` 둘이 붙는다). */
 
 // 스크롤 영역 400px 기준 — 인라인 `+` 가 뜨려면 탭이 400-32-24=344px 안에서 끝나야 한다.
 const WIDTH = 400;

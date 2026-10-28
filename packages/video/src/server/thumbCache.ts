@@ -1,13 +1,6 @@
 /**
- * §5.13 (X) 39-4 — 장면 대표 프레임의 **디스크 기억**(`<project>/.vibisual/video/thumbs/<docId>/<열쇠>.<확장자>`).
- *
- * 열쇠는 순수 층 `chapterThumbWants` 가 정한다(보이는 것이 같으면 같은 열쇠). 프로젝트 폴더 안에 두므로 프로젝트를 옮기면 함께
- * 가고(§3.5), 문서를 지우면 함께 지운다. 서버가 창의 메인 스레드와 한 몸이라(§3.7) 읽기·쓰기는 전부 비동기다.
- *
- * - 쓰기는 임시 파일 → 이름 바꾸기 — 반쯤 쓴 그림을 읽는 일이 없다.
- * - 한 장 상한(`CHAPTER_THUMB_MAX_BYTES`)을 넘는 그림은 남기지 않는다.
- * - 문서마다 상한(`CHAPTER_THUMBS_MAX_PER_DOC`)을 넘으면 **지금 장면이 쓰지 않는 것** 중 오래된 것부터 지운다(§3.2.3 — 쓸수록 커지는
- *   것에 상한). 지금 쓰는 그림은 상한과 무관하게 남는다.
+ * §5.13 (X) 39-4 — 장면 대표 프레임의 디스크 기억(`<project>/.vibisual/video/thumbs/<docId>/<열쇠>.<확장자>` — 프로젝트·문서와 함께 옮기고 지운다).
+ * 전부 비동기(§3.7), 쓰기는 임시 파일 → 이름 바꾸기. 한 장 상한을 넘는 그림은 버리고, 문서당 상한(§3.2.3)을 넘으면 지금 장면이 안 쓰는 것만 오래된 순으로 지운다.
  */
 
 import fs from 'node:fs';
@@ -88,10 +81,7 @@ export async function writeThumb(dir: string, key: string, dataUrl: string): Pro
   }
 }
 
-/**
- * 상한을 넘으면 `keep`(지금 장면이 쓰는 열쇠) 밖의 것을 오래된 것부터 지운다. 지운 수를 돌려준다. 남은 임시 파일(쓰다 멈춘 것)도
- * 함께 치운다.
- */
+/** 상한을 넘으면 `keep`(지금 장면이 쓰는 열쇠) 밖을 오래된 것부터 지운다. 쓰다 멈춘 임시 파일도 함께 치운다. */
 export async function pruneThumbs(dir: string, keep: ReadonlySet<string>, max: number = CHAPTER_THUMBS_MAX_PER_DOC): Promise<number> {
   let names: string[];
   try { names = await fs.promises.readdir(dir); } catch { return 0; }

@@ -133,7 +133,7 @@ export function isFullBleed(doc: ImageDocument, layer: ImageLayer): boolean {
 }
 
 /**
- * Derived formats (§5.13 (R-10) 2026-10-15): text boxes take their share of the new safe width and the text flows
+ * Derived formats (§5.13 (R-10)): text boxes take their share of the new safe width and the text flows
  * again; full-canvas backgrounds fill the new canvas (photos crop to fill); other layers keep anchor + uniform scale.
  */
 export function imageVariant(doc: ImageDocument, width: number, height: number, measure: TextMeasure): ImageDocument {

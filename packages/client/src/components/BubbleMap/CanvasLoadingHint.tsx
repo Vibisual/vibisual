@@ -8,24 +8,9 @@ import { resolveCanvasLoadingState } from './canvasLoading.js';
 const FADE_OUT_MS = 300;
 
 /**
- * §9 **"탭을 옮긴 직후의 빈 캔버스는 빈 프로젝트가 아니다"** — 캔버스 상단의 조용한 로딩 표시.
- *
- * 원격 접속(느린 회선)에서 프로젝트 탭을 옮기면 §9 스코프드 구독의 왕복이 끝날 때까지 캔버스가
- * 통째로 비어 보인다. 그 시간 동안 화면은 아무 말도 하지 않아, 사용자는 **버블을 못 읽어 온
- * 것인지 원래 빈 프로젝트인지** 알 수 없었다(사용자 신고).
- *
- * 그래서 "거슬리지 않게 알리고, 오면 사라지는" 표시 하나를 둔다. 규칙은 넷이다.
- *
- *  ① **바로 뜨지 않는다** — `PROJECT_LOAD_HINT_DELAY_MS` 를 넘겨 기다릴 때만. 같은 기기에서는
- *    왕복이 눈 깜짝할 새라, 즉시 띄우면 탭을 옮길 때마다 표시가 깜빡여 그게 더 거슬린다.
- *  ② **오면 사라진다** — 스냅샷이 도착하는 순간 페이드 아웃. 사용자가 닫을 것이 없다.
- *  ③ **길어지면 말이 정확해진다** — `PROJECT_LOAD_HINT_SLOW_MS` 를 넘기면 "회선이 느립니다"로
- *    바꾼다(같은 문구가 멈춰 있으면 앱이 죽은 것처럼 읽힌다).
- *  ④ **캔버스를 막지 않는다** — `pointer-events-none` · 작은 알약 하나 · 배경 어둠 ❌.
- *    기다리는 동안에도 우클릭·팬·줌은 그대로 된다.
- *
- * 판정은 이 컴포넌트가 하지 않는다 — `canvasLoading.ts` 순수 함수 하나가 단독으로 갖는다.
- * 여기는 **언제 띄우고 언제 지울지**(시간 축)만 담당한다.
+ * §9 "탭을 옮긴 직후의 빈 캔버스는 빈 프로젝트가 아니다" — 스코프드 구독 왕복 동안의 조용한 로딩 표시.
+ * ① `PROJECT_LOAD_HINT_DELAY_MS` 넘게 기다릴 때만(즉시면 탭마다 깜빡인다) ② 스냅샷이 오면 페이드 아웃
+ * ③ `PROJECT_LOAD_HINT_SLOW_MS` 넘으면 "회선이 느립니다" ④ 캔버스를 막지 않는다(`pointer-events-none`). 판정은 `canvasLoading.ts`, 여기는 시간 축만.
  */
 export function CanvasLoadingHint(): React.JSX.Element | null {
   const { t } = useTranslation();
@@ -48,10 +33,8 @@ export function CanvasLoadingHint(): React.JSX.Element | null {
     snapshotFolderScope,
   });
 
-  // 두 축을 나눠 든다. `mounted` = DOM 에 있는가 · `shown` = 불투명한가.
-  //   ⚠ 이 분리가 페이드의 전부다 — 뜨는 순간에 `opacity-100` 으로 **마운트**하면 CSS 전이는
-  //     초기값이 없어 아예 돌지 않고 표시가 툭 나타난다. 기다리기 시작할 때 투명한 채로 먼저
-  //     올려 두고, 지연이 지나면 그때 불투명으로 바꾼다.
+  // `mounted`(DOM 에 있나)와 `shown`(불투명한가)을 나눈 것이 페이드의 전부다 — `opacity-100` 으로 마운트하면 전이가 안 돌고 툭 뜬다.
+  // 투명하게 먼저 올리고 지연 뒤 불투명으로.
   const [mounted, setMounted] = useState(false);
   const [shown, setShown] = useState(false);
   // 오래 기다리는 중인가 — 문구만 바꾼다(상태는 그대로 'loading').
@@ -90,11 +73,8 @@ export function CanvasLoadingHint(): React.JSX.Element | null {
       : t('canvas.loading.project', { defaultValue: '프로젝트를 불러오는 중…' });
 
   /**
-   * 자리 — 경로 표시(`CanvasBreadcrumb`)와 같은 `top-3` 이라, 폴더를 오가며 불러오는 동안 알약이 경로를 덮었다.
-   * 경로가 떠 있으면 그 **아래**로, 휴지통 띠(`TrashToolbar`)까지 떠 있으면 그 띠 아래로 비켜 선다. 판정은 표식
-   * 클래스(`canvas-crumb` · `canvas-trash-toolbar`)를 단 형제가 **있느냐**로 CSS 가 한다 — 경로·띠가 뜨는 규칙을
-   * 여기서 다시 세우지 않는다(두 벌이 되면 한쪽만 고쳐진다). ⚠ 셸(`App` · `DetachedShell`)에서 세 줄이
-   * 경로 → 이 알약 → 휴지통 띠 순서로 형제여야 한다. 띠는 좁은 화면에서 안내가 둘째 줄로 내려가 키가 크다.
+   * 자리 — 경로 표시와 같은 `top-3` 이라, 경로·휴지통 띠가 떠 있으면 그 아래로 비킨다(표식 클래스 `canvas-crumb`·`canvas-trash-toolbar` 형제 유무로 CSS 가 판정).
+   * ⚠ 셸(`App`·`DetachedShell`)에서 경로 → 이 알약 → 휴지통 띠 순서의 형제여야 한다.
    */
   return (
     <div

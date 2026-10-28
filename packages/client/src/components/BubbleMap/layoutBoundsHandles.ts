@@ -1,12 +1,6 @@
 /**
- * 루트 캔버스 배치 상자(`LayoutBoundsBox`)의 조절 손잡이 — 변 넷 + 모서리 넷 (SSOT §5.4 #42).
- *
- * 상자는 늘 캔버스 중심에 대칭이라(반폭 hw · 반높이 hh) 한 변을 끌면 맞은편 변도 같이 움직인다.
- * 모서리는 가로·세로를 함께 바꾼다(대각선 조절). 변 띠는 모서리 칸을 비켜 서서, 테두리 둘레의
- * 어느 점이든 손잡이 하나만 받는다 — 종전에는 두 변 띠가 모서리에서 겹치고 바깥 한 칸이 비어
- * 대각선으로 잡을 자리가 없었다.
- *
- * DOM 없는 순수 함수 — 클라 테스트에는 DOM 이 없어 기하를 여기서 고정한다.
+ * 배치 상자(`LayoutBoundsBox`) 손잡이 — 변 넷 + 모서리 넷(§5.4 #42). 중심 대칭(hw·hh)이라 한 변을 끌면 맞은편도 움직인다.
+ * 변 띠는 모서리 칸을 비켜 서서 테두리 어느 점이든 손잡이 하나만 받는다. DOM 없는 시험용 순수 함수.
  */
 
 export type BoundsHandle = 'n' | 's' | 'w' | 'e' | 'nw' | 'ne' | 'sw' | 'se';
@@ -47,10 +41,7 @@ function clampHalf(v: number): number {
   return Math.min(BOUNDS_MAX_HALF, Math.max(BOUNDS_MIN_HALF, v));
 }
 
-/**
- * 끈 거리(캔버스 좌표) → 새 반폭·반높이. 중심 대칭이라 끈 만큼 반폭이 는다
- * (동쪽 변을 dx 끌면 hw + dx — 서쪽 변도 dx 만큼 바깥으로). 모서리는 두 축을 함께 바꾼다.
- */
+/** 중심 대칭이라 끈 만큼 반폭이 는다(동쪽 dx → hw + dx). 모서리는 두 축을 함께 바꾼다. */
 export function resizeBounds(
   handle: BoundsHandle,
   start: { hw: number; hh: number },

@@ -3,17 +3,7 @@ import type { DebugBreakpoint } from '@vibisual/shared';
 import { ProjectGraph } from './projectGraph.js';
 import { mergeSnapshots } from './projectGraphManager.js';
 
-/**
- * §5.5 #17-20 ⑩ v4.94 — 중단점의 **영속 왕복** 회귀 테스트.
- *
- * 앱 버블(§5.13)·플레이 버블(§5.14)에서 이미 두 번 데인 자리를 그대로 못 박는다:
- *   ① `toProjectCheckpoint`(디스크 포맷)를 빠뜨리면 화면엔 보이는데 **껐다 켜면 사라진다**.
- *   ② `mergeSnapshots` 를 빠뜨리면 프로젝트를 **둘 이상 연 사람에게만** 사라진다.
- *
- * 중단점 고유의 계약도 하나 있다: **세션 상태는 저장하지 않는다.** 어느 줄에 찍었는지는
- * 사용자의 것이라 살아나야 하지만, `verified`(어댑터가 실제로 걸었는가)는 그때 그 프로세스의
- * 사정이라 다음 실행에서 다시 판정된다.
- */
+/** §5.5 #17-20 ⑩ — 중단점 영속 왕복(`toProjectCheckpoint`·`mergeSnapshots`). `verified` 는 그때 프로세스 사정이라 저장하지 않는다. */
 
 const PROJECT_CWD = '/tmp/breakpoint-project';
 

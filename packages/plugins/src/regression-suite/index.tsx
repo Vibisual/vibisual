@@ -1,9 +1,4 @@
-/**
- * §5.11 v3.97 — 회귀 스위트(Regression Suite): 한 번 고친 것이 되돌아오지 않게 막고 있는가.
- *
- * 에이전트가 코드를 고치면 예전에 고쳤던 것을 되돌리는 일이 잦다 — 왜 그렇게 됐는지의 맥락이 컨텍스트에
- * 없기 때문이다. **회귀 테스트가 기억을 대신한다.** 문서는 안 읽힐 수 있지만 실패하는 테스트는 무시할 수 없다. 표시 전용.
- */
+/** §5.11 — 회귀 스위트(Regression Suite): 고친 것이 되돌아오지 않게 막는가(실패하는 테스트는 무시할 수 없다). 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import { toneIfActive } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

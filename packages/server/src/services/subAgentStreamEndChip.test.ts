@@ -2,23 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { subAgentManager } from './subAgentManager.js';
 
 /**
- * §5.5 #17-9 ⑪ — **끝 통지로 훅 대차대조를 내린다.**
- *
- * 사용자 보고(2026-08-19): 정상 완료한 배경 서브에이전트가 몇 시간째 "실행 중"으로 붙어 있어
- * "이 세션이 아직 돌고 있다"고 오해하게 만들었다. 원인은 배경 스폰이 내려가는 길이 오직
- * `SubagentStop` 하나뿐이었다는 것이다 —
- *
- *  - ⑧ 규약상 `PostToolUse(Task|Agent)` 는 배경 스폰에서 "띄웠다" 접수증이라 내리지 않는다.
- *  - `sweepOrphanedBackgroundTasks` 는 **그 항목을 담고 있던 세션 프로세스가 죽어야** 걷는다.
- *    사용자가 IDE 탭을 열어 두고 계속 대화하면 그 조건은 영원히 오지 않는다.
- *  - 절대 상한(`PENDING_SUBAGENT_MAX_AGE_MS`)은 **소유 탭이 미상인 항목에만** 적용된다.
- *
- * 그래서 `SubagentStop` 이 유실되거나 `parent_tool_use_id` 가 우리 열쇠와 어긋나는 순간
- * (`noteSubagentTaskStop` 의 "unknown key → 무시" 분기) 항목은 회수 불가능해졌다.
- *
- * 스트림은 그 사이 **끝났다는 사실**(`task_notification`)을 이미 받아 놓고 자기 장부에서만 지웠다.
- * 그 사실을 훅 장부에도 전달하는 것이 이 회귀의 대상이다. 시간으로 추정하는 것이 아니라
- * 실제 종료 통지를 근거로 삼으므로 "조용함은 죽음의 증거가 아니다" 원칙과 충돌하지 않는다.
+ * §5.5 #17-9 ⑪ — 스트림 끝 통지(`task_notification`)로 훅 대차대조도 내린다. 다른 길(접수증·프로세스 사망·소유 미상 상한)이 다 닫혀,
+ * `SubagentStop` 이 유실되거나 열쇠가 어긋나면 끝난 자식이 몇 시간째 "실행 중"이다. 시간이 아니라 실제 통지가 근거다.
  */
 
 const created: string[] = [];
@@ -87,7 +72,7 @@ describe('§5.5 #17-9 ⑪ — 배경 자식의 끝 통지가 훅 대차대조를
     // CLI 가 우리 장부에 없는 열쇠를 실어 보냈다 → "unknown key" 분기로 조용히 버려진다.
     const { drained } = subAgentManager.noteSubagentTaskStop(PARENT, 'tu-mismatched', '보고');
     expect(drained).toBe(false);
-    expect(runningOf(PARENT)).toHaveLength(1); // 종전에는 여기서 영영 끝
+    expect(runningOf(PARENT)).toHaveLength(1); // 훅 장부만으로는 여기서 영영 안 내려간다
 
     subAgentManager.noteStreamTaskChip(sub.id, 'task_started', {
       id: 'cli-task-2',

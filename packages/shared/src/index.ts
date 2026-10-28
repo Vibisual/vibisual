@@ -451,6 +451,12 @@ export type {
   ClaudeInstall,
   ClaudeInstallsInfo,
   ClaudeBinSource,
+  ManagedEngineId,
+  ManagedEngineVersionEntry,
+  ManagedEngineStatus,
+  CodexBinSource,
+  CodexInstall,
+  CodexInstallsInfo,
   ClaudeSetupPhase,
   ClaudeSetupState,
   ClaudeSetupProgress,
@@ -862,6 +868,27 @@ export {
   LEGACY_AGENT_TOOLS,  ASK_USER_QUESTION_TIMEOUT_MS,
   CLAUDE_VERSION_PROBE_TIMEOUT_MS,
   CLAUDE_INSTALL_SCAN_MAX,
+  // §4 앱 전용 엔진
+  MANAGED_ENGINE_DIR_NAME,
+  MANAGED_ENGINE_META_NAME,
+  MANAGED_ENGINE_ROLLBACK_MARK,
+  MANAGED_ENGINE_KEEP_VERSIONS,
+  MANAGED_ENGINE_UPDATE_INTERVAL_MS,
+  MANAGED_ENGINE_PROBE_TIMEOUT_MS,
+  MANAGED_ENGINE_PROBE_CONCURRENCY,
+  MANAGED_ENGINE_DISK_HEADROOM_RATIO,
+  MANAGED_ENGINE_LOOKUP_TIMEOUT_MS,
+  MANAGED_ENGINE_PROGRESS_PUSH_MS,
+  MANAGED_ENGINE_OUTPUT_MAX_CHARS,
+  MANAGED_ENGINE_RETRY_BACKOFF_MS,
+  HELPER_DOWNLOAD_STALL_MS,
+  CLAUDE_RELEASES_BASE_URL,
+  CODEX_RELEASES_LATEST_API,
+  CODEX_RELEASE_TAG_PREFIX,
+  CODEX_PACKAGE_ASSET_PREFIX,
+  CODEX_PACKAGE_CHECKSUM_ASSET,
+  CLAUDE_MANAGED_SPAWN_ENV,
+  CODEX_MANAGED_TUI_ARGS,
   CLAUDE_SETUP_INSTALL_COMMAND_WIN,
   CLAUDE_SETUP_INSTALL_COMMAND_POSIX,
   CLAUDE_SETUP_DOCS_URL,
@@ -1579,7 +1606,7 @@ export type { AppEventPayload, ByteRangeResult } from './appMedia.js';
 export { summarizeProcessMetrics } from './perfWire.js';
 export type { AppMetricLike, PerfMemoryWire, PerfProcessMemoryWire, PerfRendererMemoryWire } from './perfWire.js';
 
-// §5.3 #28 v1.60 — STAMP_CATALOG 메타 타입 (constants.ts 에 정의됨)
+// §5.3 #28 — STAMP_CATALOG 메타 타입
 export type { StampSpec } from './constants.js';
 /** §5.17 (A) — `compare` 가 나란히 놓는 폭 한 칸. */
 export type { PreviewCompareWidth } from './constants.js';
@@ -1620,7 +1647,7 @@ export type { AuditRiskOptions, AuditPatchFileOp } from './constants.js';
 export type { WorkspaceOpenAction, WorkspaceOpenAppClaim, WorkspaceOpenPlan, MediaConvertKind } from './constants.js';
 export type { MediaToolsInfo, MediaConvertJob, MediaConvertStatus } from './types.js';
 
-// §9 v3.89 — graph_snapshot 키맵 슬라이스 증분 (서버 인코딩 / 클라 복원 공용)
+// §9 — graph_snapshot 키맵 슬라이스 증분(서버 인코딩 / 클라 복원 공용)
 export { diffKeyedSlice, applyKeyedSliceDelta, DELTA_SLICE_KEYS } from './keyedSliceDelta.js';
 export type { DeltaSliceKey } from './keyedSliceDelta.js';
 
@@ -1658,7 +1685,7 @@ export type {
   MemoryDiagnosticsReport,
 } from './types.js';
 
-// §5.5 v4.92 — 스트림 복원 예산 판정 (서버 저장 제외 / 클라 표시 필터 공용)
+// §5.5 — 스트림 복원 예산 판정(서버 저장 제외 / 클라 표시 필터 공용)
 export {
   parseSystemSubtype,
   isNeverRenderedStreamEvent,
@@ -1666,7 +1693,7 @@ export {
   HIDDEN_SYSTEM_SUBTYPES,
   isHiddenSystemSubtype,
   isNeverRenderedSystemSubtype,
-  // §5.5 #17-13 ⑤-3 v5.08 — 작업 칩 payload (서버 발신 / 클라 합치기 공용)
+  // §5.5 #17-13 ⑤-3 — 작업 칩 payload(서버 발신 / 클라 합치기 공용)
   formatSystemChip,
   parseSystemTaskInfo,
   foldTaskBookend,
@@ -1679,7 +1706,7 @@ export {
 } from './streamNoise.js';
 export type { StreamNoiseProbe, StreamTaskInfo, StreamTaskStatus } from './streamNoise.js';
 
-// §5.5 #17-20 v4.74 — 디버그·실행 런처 (A 실행 구성 / B MCP 프리셋 / C 외부 디버거)
+// §5.5 #17-20 — 디버그·실행 런처(A 실행 구성 / B MCP 프리셋 / C 외부 디버거)
 export type {
   RunConfigSource,
   RunRuntime,
@@ -1767,7 +1794,7 @@ export {
   findMcpPreset,
 } from './constants.js';
 
-// §5.5 #17-20 ⑩⑪ v4.94 — 공통 디버그 층(런타임 무관) + 출력 문제 매처
+// §5.5 #17-20 ⑩⑪ — 공통 디버그 층(런타임 무관) + 출력 문제 매처
 export type {
   DebugBackendKind,
   DebugAdapterTransport,
@@ -2087,10 +2114,8 @@ export {
   samePath,
 } from './pathCase.js';
 
-// §2.1 #3 — Bash 명령에서 경로를 뽑는 공용 셸 파서. 토크나이저는 읽기(`bashReadPaths.ts`)와
-// 쓰기(여기)가 한 벌을 나눠 쓴다. 쓰기 추출기가 shared 인 이유는 §5.22 감사 원장의 `target` 도
-// 같은 답을 봐야 하기 때문(`summarizeToolCall` 은 순수 함수라 서버 모듈을 부를 수 없다).
-// 읽기 추출기도 §5.5 #17-50 부터 shared 다 — IDE 세션 버블 지도가 캔버스와 같은 판정을 본다(서버는 감싸개).
+// §2.1 #3 — Bash 명령에서 경로를 뽑는 공용 셸 파서(토크나이저는 읽기 `bashReadPaths.ts` 와 한 벌).
+// 쓰기는 §5.22 감사 원장 `target`(순수 `summarizeToolCall`)이, 읽기는 IDE 세션 지도(§5.5 #17-50)가 캔버스와 같은 답을 봐야 해서 shared 다.
 export { BASH_READ_PATH_LIMIT, extractBashReadTargets, extractBashReadPaths } from './bashReadPaths.js';
 export type { BashReadTarget } from './bashReadPaths.js';
 export {
@@ -2200,10 +2225,8 @@ export {
   normalizeExternalTopBudget,
 } from './externalFolderView.js';
 
-// §2.1 #3 — 편집 계열 도구(`Edit`/`MultiEdit`/`Write`/`NotebookEdit`)의 **입력 모양**을 아는
-// 유일한 자리. 종전에는 클라 `IDE/diffTool.ts` 한 곳에만 있어 서버 그래프가 `MultiEdit`/
-// `NotebookEdit` 를 아예 몰랐다(버블·쓰기 화살표·수정 이력 0). 셸 토크나이저와 같은 규율 —
-// 파서가 두 벌이 되면 도구 입력이 바뀔 때 한쪽만 고쳐진다.
+// §2.1 #3 — 편집 계열 도구(`Edit`/`MultiEdit`/`Write`/`NotebookEdit`) 입력 모양을 아는 유일한 자리 — 클라에만 두면 서버 그래프가
+// `MultiEdit`/`NotebookEdit` 를 몰라 버블·쓰기 화살표·수정 이력이 0 이 된다.
 export type { EditToolHunk, EditToolMode, ParsedEditToolInput, ApplyPatchFileEdit } from './editToolInput.js';
 export {
   EDIT_INPUT_TOOLS,
@@ -2510,10 +2533,7 @@ export {
   buildMobileAddressEntries,
 } from './mobileAddress.js';
 
-// ─── §5.7 #24 세션 진입점 판정 (순수 로직) ───
-// 종전 게이트는 `entrypoint === 'vscode'` 한 줄이라 "사용자가 직접 연 세션"이라는 **뜻**을
-// VS Code 라는 **제품 이름**으로 적어 두고 있었다. 뜻은 술어(`isInteractiveEntrypoint`)로,
-// 제품 이름은 그 안으로 넣는다 — 새 진입점은 술어 한 곳만 고치면 된다.
+// §5.7 #24 세션 진입점 판정(순수) — 뜻은 술어 `isInteractiveEntrypoint` 에, 제품 이름은 그 안에만 둔다.
 export type { SessionEntrypoint } from './sessionEntrypoint.js';
 export {
   parseSessionEntrypoint,
@@ -2660,6 +2680,7 @@ export {
 } from './appThemeResolve.js';
 // §5.3 #9-2 — 자손 프로세스 보호의 판정(상한·압박·희생자·POSIX 소속·알림 한 줄).
 export * from './processGuardPolicy.js';
+export * from './apiCredit.js';
 export * from './creation.js';
 export * from './agentCardTasks.js';
 export * from './vibi3dProduction.js';
@@ -2729,7 +2750,7 @@ export type {
   ConstellationMoon,
   ConstellationPlan,
 } from './constellation.js';
-export { planKindBundles, kindBundleNameOf, kindBundlePathShape } from './kindBundle.js';
-export type { KindBundle, KindBundleFileInput, KindBundleOptions } from './kindBundle.js';
+export { planKindBundles, kindBundleNameOf, kindBundlePathShape, kindBundleCommonDir, kindBundleDirToken, keepSatelliteSeats } from './kindBundle.js';
+export type { KindBundle, KindBundleFileInput, KindBundleKind, KindBundleOptions } from './kindBundle.js';
 export { detectCommandApps, commandAppBrandOf, COMMAND_ACTIVITY_LIMITS } from './commandApps.js';
 export type { CommandAppBrand, CommandAppTarget } from './commandApps.js';

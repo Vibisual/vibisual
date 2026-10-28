@@ -1,13 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { describeToolTarget, extractTaskResultText, SUBAGENT_RESULT_MAX } from './subagentActivity.js';
 
-/**
- * §5.5 #17-9 ⑦ — 자식 활동 한 줄 · 결과 본문 추출의 회귀.
- *
- * 이 두 함수가 하는 일은 **판본마다 흔들리는 페이로드 모양을 흡수하는 것**이다. 그래서 고정하는 약속은
- * "무엇을 뽑는가"가 아니라 "못 읽으면 조용히 비운다"에 가깝다 — 못 읽은 것을 JSON 덩어리로 화면에
- * 뱉으면 좁은 카드가 통째로 쓰레기가 된다.
- */
+/** §5.5 #17-9 ⑦ — 활동 한 줄 · 결과 본문 추출. 판본마다 흔들리는 페이로드라 약속은 "못 읽으면 조용히 비운다"다. */
 
 describe('describeToolTarget — 자식이 지금 무엇에 대고 도구를 쓰는가', () => {
   it('Bash 는 명령을 그대로 보여준다', () => {

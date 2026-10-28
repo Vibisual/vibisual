@@ -1,17 +1,6 @@
 /**
- * HTML 씬 무대 (SCENARIO.md §5.13 (F)).
- *
- * `html-in-canvas` 와 `offscreen-capture` 백엔드가 그릴 **살아 있는 DOM** 을 만든다.
- * 이 무대가 있어야 그 두 백엔드가 의미를 갖는다 — 없으면 CSS 충실도라는 장점이
- * 그릴 것이 없어 무의미해진다(그게 1차 구현에서 비어 있던 자리다).
- *
- * 설계에서 지키는 것:
- *
- * - **아이템마다 DOM 노드를 재사용한다.** 프레임마다 `innerHTML` 을 갈아 끼우면 브라우저가
- *   매번 레이아웃을 처음부터 다시 하고, 그게 정확히 "쓸수록 느려지는" 형태다.
- * - **영상 프레임은 `<canvas>` 에 그린다.** `<video>` 를 프레임마다 seek 시키는 것이 다른
- *   도구에서 후반부 감속을 만든 그 경로라, DOM 안에서도 캔버스에 직접 blit 한다.
- * - **씬은 HTML 문자열이 아니라 노드를 갱신한다.** 문자열을 매번 파싱하면 같은 문제가 난다.
+ * §5.13 (F) HTML 씬 무대(`html-in-canvas`·`offscreen-capture` 가 그릴 DOM). 아이템마다 노드를 재사용하고 씬도 노드를 갱신한다 —
+ * 프레임마다 `innerHTML`·문자열 파싱이면 쓸수록 느려진다. 영상 프레임은 `<canvas>` 에 그린다(`<video>` 를 프레임마다 seek 하면 후반부가 느려진다).
  */
 
 import type { VideoAsset, VideoDoc } from '../types.js';
@@ -373,7 +362,7 @@ interface Slot {
   parkedAt?: number | undefined;
   /** §5.13 (Y) 40-8 ① — 미리 연 슬롯의 시작 시각(초). 지나간 보관분이면 null(다시 올 시각을 모른다). */
   warmStart?: number | null | undefined;
-  /** §5.13 (Y) 40-8 ① — 숨긴 채 첫 그림을 그렸는가(그 전에는 쉬게 하지 않는다 — 한 번도 안 그린 프레임은 쉬지 않는다). */
+  /** §5.13 (Y) 40-8 ① — 숨긴 채 첫 그림을 그렸는가(그 전에는 쉬게 하지 않는다). */
   warmPainted?: boolean | undefined;
   /**
    * §5.13 (Z) 41-5 ① — 코드가 바뀌어 새로 여는 프레임. 첫 그림을 낼 때까지 옛 프레임(`frame`)이 그대로 보이고(재생 중이면 그대로
@@ -392,13 +381,7 @@ interface Slot {
   propsApplying?: string | undefined;
 }
 
-/**
- * 그리기 목록을 DOM 으로 세우는 무대.
- *
- * `seek(t)` 가 끝나면 그 시각의 화면이 DOM 에 완성돼 있어야 한다 — 백엔드는 그 뒤에
- * 곧바로 캔버스로 옮기므로, 아직 안 온 이미지가 있으면 그 프레임에서 빠진다. 그래서
- * 소재를 기다린 다음 resolve 한다.
- */
+/** `seek(t)` 는 소재를 기다린 뒤 resolve 한다 — 백엔드가 곧바로 캔버스로 옮겨, 안 온 이미지는 그 프레임에서 빠진다. */
 export class HtmlSceneStage implements DomStage {
   readonly element: HTMLElement;
   private readonly slots = new Map<string, Slot>();
@@ -455,8 +438,8 @@ export class HtmlSceneStage implements DomStage {
   }
 
   /**
-   * 문서만 갈아 끼운다 — 슬롯은 다음 `seek` 가 맞춘다. 같은 아이템·같은 종류·같은 문서 주소면 노드(컴포지션 프레임
-   * 포함)를 그대로 쓴다. 판형이 바뀌었으면 무대 크기도 따라간다.
+   * `setDoc` — 문서만 갈아 끼운다(슬롯은 다음 `seek` 가 맞춘다). 같은 아이템·종류·문서 주소면 노드(컴포지션 프레임 포함)를 그대로 쓰고,
+   * 판형이 바뀌면 무대 크기도 따라간다.
    */
   /** §5.13 (Y) 40-8 ⑤ — 데우기 수를 바꾼다(긴 프레임이 이어지면 줄이고, 조용해지면 되돌린다). 렌더 무대(엄격)에는 뜻이 없다. */
   setWarm(warm: StageWarmOptions | undefined): void {
@@ -473,10 +456,7 @@ export class HtmlSceneStage implements DomStage {
     this.planDirty = true;
   }
 
-  /**
-   * §5.13 (Z) 41-2 — 재생을 끝낸다. 컴포지션·실사는 그 자리에 서고(실사는 정확한 장이 그려질 때까지 보이던 장 그대로), 다음 `seek`
-   * 가 종전처럼 정확한 한 장을 맞춘 뒤 합성기 예약을 걷는다.
-   */
+  /** §5.13 (Z) 41-2 — 재생을 끝낸다. 컴포지션·실사는 그 자리에 서고(실사는 정확한 장이 그려질 때까지 보이던 장), 다음 `seek` 가 정확한 한 장을 맞춘 뒤 예약을 걷는다. */
   stopPlay(): void {
     if (!this.playClock) return;
     this.playClock = null;
@@ -577,13 +557,8 @@ export class HtmlSceneStage implements DomStage {
   // ─── §5.13 (Z) 흘려 트는 재생 ───
 
   /**
-   * §5.13 (Z) 41-2~41-5 — 재생 중 한 프레임. **기다리지 않는다**(배치만 하고 끝난다):
-   * ① 합성기 예약(앞 `STAGE_PLAN_HORIZON_S`)을 `STAGE_PLAN_REFRESH_S` 마다·문서나 기준이 바뀌면 다시 짠다
-   * ② 지금 보이는 상자와 예약 구간에 곧 보일 상자를 세워 둔다 — 컴포지션은 스스로 재생을 걸고(곧 보일 것은 시작 시각까지 첫 장),
-   *    실사는 `<video>` 로 흘려 튼다(시작 전에 미리 굴려 둔다)
-   * ③ 예약 밖으로 나간 것은 종전처럼 보관(컴포지션)하거나 버린다
-   * ④ 보여야 할 컴포지션이 아직 첫 그림을 못 냈으면 알린다(화면이 가벼운 판을 깐다)
-   * ⑤ 예약 밖의 미래(데우기 거리)는 종전 데우기가 맡는다.
+   * §5.13 (Z) 41-2~41-5 — 재생 중 한 프레임. 기다리지 않는다(배치만): ① 합성기 예약을 `STAGE_PLAN_REFRESH_S` 마다·문서나 기준이 바뀌면 다시 짠다
+   * ② 지금·곧 보일 상자를 세운다(컴포지션은 스스로 재생, 실사는 `<video>` 를 미리 굴린다) ③ 예약 밖은 보관하거나 버린다 ④ 첫 그림 전이면 알린다 ⑤ 더 먼 미래는 데우기 몫.
    */
   private seekPlaying(t: number, revision: number): void {
     const { doc, timeline } = this;
@@ -681,10 +656,7 @@ export class HtmlSceneStage implements DomStage {
     slot.wrapper.style.contentVisibility = '';
   }
 
-  /**
-   * 재생 중 상자 배치. 예약할 수 있는 상자는 예약의 기준 자리·크기만 쓰고(자리 이동·회전·배율·불투명도는 합성기 애니메이션이
-   * 쥔다), 그 밖은 종전처럼 프레임마다 화면 스레드가 쓴다.
-   */
+  /** 예약할 수 있는 상자는 예약의 기준 자리·크기만 쓴다(이동·회전·배율·불투명도는 합성기 애니메이션이 쥔다). 그 밖은 프레임마다 화면 스레드가 쓴다. */
   private placePlaying(slot: Slot, op: DrawOp, item: StagePlanItem | undefined, plan: StagePlan): void {
     if (!item || !item.plannable || !this.canAnimate()) {
       if (slot.planned) this.unplanSlot(slot);
@@ -837,10 +809,7 @@ export class HtmlSceneStage implements DomStage {
 
   // ─── §5.13 (Z) 41-4 실사는 흘려 튼다 ───
 
-  /**
-   * 재생 중 보이는 실사 — `<video>` 가 있으면 그것을 시계에 맞춰 굴린다(멈춰 있으면 그 자리로 옮겨 틀고, 굴러가는 중에는
-   * `FOOTAGE_STREAM_DRIFT_S` 넘게 어긋날 때만 맞춘다). `<video>` 를 못 쓰면(주소를 묻는 중·못 받음) false — 종전 캔버스 길.
-   */
+  /** `<video>` 를 시계에 맞춰 굴린다(굴러가는 중엔 `FOOTAGE_STREAM_DRIFT_S` 넘게 어긋날 때만 맞춘다). 못 쓰면(주소를 묻는 중·못 받음) false — 캔버스 길. */
   private streamFootage(slot: Slot, op: DrawOp): boolean {
     const video = this.footageVideo(slot, op);
     if (!video) return false;
@@ -1034,8 +1003,8 @@ export class HtmlSceneStage implements DomStage {
   }
 
   /**
-   * §5.13 (Y) 40-8 ① — 숨긴 슬롯의 쉼(`content-visibility:hidden` + 투명도 0)·깨움(투명도 0.01). 판단은 `warmSlotState`(순수).
-   * 종전 투명도 0 만으로는 같은 프로세스 프레임이 쉬지 않았고, 다른 프로세스 프레임은 다시 보일 때 첫 그림이 늦었다(실측 — 40).
+   * §5.13 (Y) 40-8 ① — 숨긴 슬롯의 쉼(`content-visibility:hidden` + 투명도 0)·깨움(투명도 0.01), 판단은 `warmSlotState`.
+   * 투명도 0 만으로는 같은 프로세스 프레임이 쉬지 않고, 다른 프로세스 프레임은 다시 보일 때 첫 그림이 늦다(실측 — 40).
    */
   private applyWarmState(slot: Slot, t: number): void {
     const state = warmSlotState({ start: slot.warmStart ?? null, t, fps: this.doc.fps, painted: slot.warmPainted === true });

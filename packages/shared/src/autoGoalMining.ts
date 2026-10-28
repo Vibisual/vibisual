@@ -1,19 +1,6 @@
 /**
- * §5.10 — **되풀이를 알아본다.** 자동 목표의 본체.
- *
- * 사용자 지시: "사용자의 행동이나 에이전트의 행동들 중 자동으로 분석을 통해서 스킬을 만들어주는 것."
- *
- * 그래서 이 모듈이 답하는 물음은 하나다 — **"이 프로젝트에서 늘 같은 순서로 하는 일이 무엇인가."**
- * 답의 재료는 **이미 우리가 갖고 있다**: 셸 명령 이력(`bashHistory`)과 사용자가 무대에 꽂은
- * 단계(`SessionGoalStep.authoredBy==='user'`). 새 수집 경로를 내지 않는다(⑫(a) 와 같은 규율).
- *
- * **모델을 부르지 않는다.** 되풀이를 알아보는 데 추론이 필요 없고, 무엇보다 이 기능은 사용자가
- * 켜 두고 잊는 물건이라 **켜 두는 동안 토큰이 들면 안 된다**(§5.10 리플렉션이 매 턴 자식을 띄워
- * 아무도 켠 적 없는 기능이 토큰을 태우던 그 실패를 되밟지 않는다). 절차의 단계는 요약하지 않고
- * **실제로 돌던 원문** 그대로 싣는다 — 요약하는 순간 그 절차를 다시 돌릴 수 없게 된다.
- *
- * **순수 함수다.** `node:fs`·시간·플랫폼을 모르고, 서버가 화면 없이 시험할 수 있다.
- * 저장하지 않는다 — 후보는 이력에서 매번 다시 세는 **파생**이다(⑫(a) 팔레트와 같은 규칙).
+ * §5.10 — 되풀이를 알아본다(자동 목표의 본체): 이 프로젝트에서 늘 같은 순서로 하는 일을 찾아 스킬로 만든다. 재료는 `bashHistory` 와 사용자가 꽂은 단계뿐(새 수집 ❌).
+ * 모델을 부르지 않는다 — 켜 두고 잊는 기능이라 토큰이 들면 안 된다. 단계는 실제 원문 그대로 싣는다(요약하면 다시 돌릴 수 없다). 후보는 저장하지 않는 파생이다.
  */
 import {
   AUTO_GOAL_CANDIDATE_MAX,
@@ -74,13 +61,7 @@ function clamp(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-/**
- * 순서를 **안정적인 id** 로 접는다(FNV-1a 32비트).
- *
- * 저장하지 않는 파생이라 id 는 매번 다시 계산된다 — 그러므로 같은 절차는 언제 세어도 같은 키여야
- * 한다. 그래야 사용자가 물린 기록(`dismissed`)과 이미 굳힌 스킬이 다음 분석에서도 그 후보를
- * 정확히 다시 가리킨다. 암호학적 성질은 필요 없고 **결정성**만 필요하다.
- */
+/** 순서를 FNV-1a 32비트 id 로 접는다 — 매번 다시 세는 파생이라 같은 절차는 늘 같은 키여야 물린 기록·굳힌 스킬이 다시 가리킨다(결정성만 필요). */
 export function autoGoalSequenceId(source: AutoGoalSource, steps: readonly string[]): string {
   let h = 0x811c9dc5;
   const text = `${source}\0${steps.join('\0')}`;
@@ -91,12 +72,7 @@ export function autoGoalSequenceId(source: AutoGoalSource, steps: readonly strin
   return `${source}:${h.toString(36)}`;
 }
 
-/**
- * 절차의 이름 — **첫 걸음에서 마지막 걸음까지**.
- *
- * 첫 단계만 쓰면 `git add …` 짜리 후보가 여럿 서서 서로 구분되지 않고, 단계를 다 이으면 한 줄에
- * 안 들어간다. 양 끝의 머리 낱말 둘씩이 절차의 정체를 가장 짧게 말한다.
- */
+/** 절차의 이름 — 첫 걸음과 마지막 걸음의 머리 낱말 둘씩. 첫 단계만이면 `git add …` 후보들이 구분되지 않고, 다 이으면 한 줄에 안 든다. */
 export function autoGoalTitle(steps: readonly string[]): string {
   const head = headWords(steps[0] ?? '');
   const tail = headWords(steps[steps.length - 1] ?? '');
@@ -115,12 +91,7 @@ function fitsObservation(text: string, max: number): boolean {
   return text.trim() !== '' && text.length <= max;
 }
 
-/**
- * 명령 인자에서 **경로처럼 보이는 것**을 모은다 — 굳어진 스킬의 `files` 앵커가 된다.
- *
- * 판정은 이미 있는 셸 토크나이저 한 벌(`bashCommandPaths.ts`)을 그대로 쓴다. 두 벌이 되면
- * 한쪽만 고쳐져 어긋난다(§2.1 #3 이 읽기·쓰기 추출기에 세운 그 규율).
- */
+/** 인자에서 경로처럼 보이는 것을 모은다(스킬 `files` 앵커). 셸 토크나이저 한 벌(`bashCommandPaths.ts`)을 쓴다 — 두 벌이면 어긋난다(§2.1 #3). */
 function pathsIn(command: string): string[] {
   const out: string[] = [];
   for (const tok of tokenizeShellCommand(command)) {
@@ -130,12 +101,7 @@ function pathsIn(command: string): string[] {
   return out;
 }
 
-/**
- * 한 줄기의 행동 나열에서 되풀이되는 묶음을 센다.
- *
- * `runs` 는 **그 묶음이 통째로 나타난 횟수**다. 겹쳐 세지 않는다 — `a b a b a b` 에서 `a b` 는
- * 3회이지 5회가 아니다(겹쳐 세면 두 번 한 일이 여섯 번 한 일로 보인다).
- */
+/** 되풀이 묶음을 센다. `runs` 는 묶음이 통째로 나타난 횟수 — 겹쳐 세지 않는다(`a b a b a b` 의 `a b` 는 3회, 5회 ❌). */
 function tallyRuns(
   runsOfLines: readonly (readonly ObservedLine[])[],
   source: AutoGoalSource,
@@ -170,10 +136,8 @@ function tallyRuns(
 }
 
 /**
- * 이력을 **실패·미완료 경계와 시간 창으로 갈라** 이어진 일의 줄기들을 만든다.
- *
- * 없으면 어제 친 `git status` 와 오늘 친 `pnpm build` 가 한 절차가 된다 — 시간이 그 둘을 갈라
- * 주는 유일한 증거다. 같은 줄이 연달아 오면 한 번으로 접는다(재시도가 순서를 오염시킨다).
+ * 이력을 실패·미완료 경계와 시간 창으로 갈라 줄기를 만든다 — 없으면 어제의 `git status` 와 오늘의 `pnpm build` 가 한 절차가 된다.
+ * 같은 줄이 연달아 오면 하나로 접는다(재시도가 순서를 오염시킨다).
  */
 function splitRuns(
   entries: readonly (ObservedLine | null)[],
@@ -249,10 +213,8 @@ export function mineAutoGoalCandidates(input: AutoGoalMiningInput): AutoGoalMini
     });
 
   /*
-   * 부분 묶음은 버린다 — `a b c` 가 3회면 `a b` 도 3회다. 둘을 다 세우면 같은 일이 목록에
-   * 두 번 서고, 스킬로 굳으면 **거의 같은 스킬이 두 장** 생겨 주입에서 서로를 밀어낸다.
-   * 이미 선 긴 절차의 **부분 수열**이면서 되풀이 수가 그보다 많지 않은 것만 버린다(더 자주
-   * 도는 짧은 묶음은 그 자체로 독립한 절차다).
+   * 부분 묶음은 버린다 — `a b c` 가 3회면 `a b` 도 3회라, 둘 다 세우면 거의 같은 스킬 두 장이 주입에서 서로를 밀어낸다.
+   * 긴 절차의 부분 수열이면서 되풀이 수가 더 많지 않은 것만 버린다(더 자주 도는 짧은 묶음은 독립한 절차다).
    */
   const kept: AutoGoalCandidate[] = [];
   for (const [id, t] of rows) {
@@ -286,14 +248,7 @@ export function isSubsequenceRun(inner: readonly string[], outer: readonly strin
   return false;
 }
 
-/**
- * 후보 하나를 **`SKILL.md` 본문**으로 옮긴다 — 모델 없이, 관찰한 것만으로.
- *
- * 본문이 지켜야 하는 것은 하나다: **이 글만 읽고 그 절차를 다시 돌릴 수 있어야 한다.** 그래서
- * 단계는 원문 그대로 코드블록에 담고, 관찰 사실(몇 번 봤나·언제 마지막이었나)을 함께 적어
- * 읽는 사람이 이 스킬을 얼마나 믿을지 스스로 정하게 한다(§5.10 이 "근거 없는 단정"을 막으려고
- * 세운 것과 같은 태도).
- */
+/** 후보를 `SKILL.md` 본문으로(모델 없이). 이 글만으로 절차를 다시 돌릴 수 있어야 한다 — 단계는 원문 코드블록, 관찰 사실(횟수·마지막)을 함께 적는다. */
 export function autoGoalSkillBody(candidate: AutoGoalCandidate, at: number): string {
   const lines: string[] = [];
   lines.push(`# ${candidate.title}`);

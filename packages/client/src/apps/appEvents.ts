@@ -1,11 +1,6 @@
 import type { AppEventPayload } from '@vibisual/shared';
 
-/**
- * §5.13 (Y) 40-7 ② — 앱 서버 몫의 **알림**을 받는 창 안 통로(코어 — 앱 이름을 모른다. 앱 id 는 실행 때 값으로 온다).
- *
- * 서버의 앱이 `host.notify` 로 알리면 기존 방송 한 줄(`app_event`)로 모든 창의 소켓에 온다 — 이 창의 소켓(`useWebSocket`)이 그것을
- * 여기로 흘리고, 앱 화면은 자기 앱 id 의 알림만 듣는다. 앱 화면의 폴링은 소켓이 끊겼을 때의 **안전망**으로 물러선다(알림이 주 신호).
- */
+/** §5.13 (Y) 40-7 ② — 앱 서버 알림(`host.notify` → `app_event` 방송)을 이 창 소켓에서 앱 id 별로 흘린다. 앱의 폴링은 소켓이 끊겼을 때의 안전망이다. */
 type Listener = (event: AppEventPayload) => void;
 
 const listeners = new Map<string, Set<Listener>>();

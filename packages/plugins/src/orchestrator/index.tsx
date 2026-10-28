@@ -1,9 +1,4 @@
-/**
- * §5.11 v3.93 — 오케스트레이터(Orchestrator / Supervisor): 감독자 구실을 하고 있는가.
- *
- * 감독자 없이 에이전트만 여럿 모아 두는 배치가 대표적 안티패턴으로 지목됐다. 권장 형태는
- * **감독자는 판단만 하고 실제 도구 실행은 하위에 두는 것**이라, 여기서는 위임 비중을 본다. 표시 전용.
- */
+/** §5.11 — 오케스트레이터(Orchestrator / Supervisor): 감독자는 판단만, 도구 실행은 하위에 — 위임 비중을 본다. 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';
 

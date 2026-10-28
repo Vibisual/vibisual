@@ -18,12 +18,7 @@ import {
   type FloatingWindowSnapshot,
 } from './floatingWindowGeom.js';
 
-// §5.9 v3.34 캡처 창이 처음 만든 "앱 내부 IDE식 창" 거동(가운데 팝업 → 타이틀바 드래그 이동 →
-// 우하단 리사이즈 → 최대화/복원)을 훅으로 뽑은 것. §5.10 v3.77 에서 기억 라이브러리도 같은 창이
-// 되면서 같은 좌표·드래그 로직이 두 곳이 됐기 때문(coding.md DRY — 같은 로직 2곳이면 공통 모듈).
-//
-// 이 훅은 **좌표와 3상태만** 책임진다. z-order·Escape·백드롭·내용은 호출부 몫이다
-// (캡처는 멀티 윈도우 매니저를, 기억 라이브러리는 단일 창 + Esc 닫기를 쓴다).
+// 떠 있는 창 거동(가운데 팝업 → 끌어 이동 → 우하단 크기 조절 → 최대화/복원) 한 벌. **좌표와 3상태만** 맡고 z-order·Escape·백드롭·내용은 호출부 몫이다.
 
 export type { FloatingWindowGeom, FloatingWindowMode, FloatingWindowSnapshot } from './floatingWindowGeom.js';
 
@@ -33,55 +28,28 @@ export interface FloatingWindowPullOutRelease {
   geom: FloatingWindowGeom;
   /** 손을 뗀 자리의 창 좌상단 화면 좌표 — main 의 선이 없을 때 새 창을 앉히는 자리. */
   screenPosition: { x: number; y: number };
-  /**
-   * §5.13 (S-10) main 에 **선을 그 자리에 멈춰 달라**고 부탁했다 — 새 창은 그 선의 자리·크기를 쓴다.
-   * main 이 선의 경계를 직접 읽는다(렌더러 좌표는 배율이 다른 모니터에서 어긋난다 — §5.5 #17-6 (H)).
-   */
+  /** §5.13 (S-10) main 에 선을 멈춰 달라고 했다 — 새 창은 그 선의 자리·크기를 main 이 직접 읽어 쓴다(렌더러 좌표는 배율이 다른 모니터에서 어긋난다 — §5.5 #17-6 (H)). */
   fromGhost: boolean;
 }
 
-/**
- * §5.13 (S-3) — 타이틀바로 창을 **앱 밖으로 끌어내는** 손짓.
- *
- * 이 훅은 손짓의 **판정과 시점**, 그리고 그동안 보이는 **가상 창**(S-10)을 맡는다 — 밖에 무엇을
- * 띄울지는 창마다 다르므로 부르는 쪽 몫이다(내부 앱 창은 `InternalApp.open()` 으로 OS 창을 연다).
- * 옵션을 주지 않으면 종전과 완전히 같다.
- */
+/** §5.13 (S-3) — 타이틀바로 창을 **앱 밖으로 끌어내는** 손짓의 판정·시점·가상 창(S-10). 밖에 띄울 것은 부르는 쪽 몫(내부 앱 창은 `InternalApp.open()`). 옵션이 없으면 끌어내기도 없다. */
 export interface FloatingWindowPullOut {
-  /**
-   * 끌어내기가 가능한 환경인가. false 면 손짓 자체가 없다 — 창을 못 여는 판(웹·구버전 preload)에서
-   * 무장 표시만 뜨고 아무 일도 안 일어나면, 그건 고장으로 읽힌다.
-   */
+  /** 끌어내기가 가능한 환경인가. false 면 손짓이 없다 — 창을 못 여는 판(웹·구버전 preload)에서 무장 표시만 뜨면 고장으로 읽힌다. */
   enabled: boolean;
   /** 무장 상태가 바뀔 때 — 지금 손을 떼면 밖으로 나가는가. */
   onArmedChange?: (armed: boolean) => void;
   /**
-   * 무장된 채 손을 뗐다. 창을 밖으로 꺼내고 이 창을 닫는 것은 부르는 쪽이 한다.
-   *
-   * §5.13 (S-10) 약속을 돌려주면 그것이 끝날 때까지 **선을 그 자리에 세워 두고 본체는 숨긴 채**
-   * 기다린다 — 참이면 새 창이 그 선을 이어받으므로 손대지 않고(선은 main 이 새 창이 보인 뒤에
-   * 걷는다), 거짓이면 선을 걷고 본체를 앱 안 제자리에 되살린다. 약속이 없으면 기다릴 것이 없으니
-   * 곧바로 선을 걷는다.
+   * 무장된 채 손을 뗐다(꺼내기·닫기는 부르는 쪽). §5.13 (S-10) 약속을 돌려주면 끝날 때까지 선을 세우고 본체를 숨긴다 —
+   * 참이면 새 창이 선을 잇고(선은 main 이 걷는다), 거짓이면 선을 걷고 본체를 되살린다. 약속이 없으면 곧바로 걷는다.
    */
   onRelease: (info: FloatingWindowPullOutRelease) => void | Promise<boolean>;
-  /**
-   * §5.13 (S-10) 밖으로 빼는 동안 그리는 **가상 창**의 이름 띠와 안내 한 줄. 문구는 부르는 쪽이
-   * 자기 로케일로 짓는다 — main 에는 번역이 없다.
-   */
+  /** §5.13 (S-10) 가상 창의 이름 띠와 안내 한 줄 — 문구는 부르는 쪽 로케일로(main 엔 번역이 없다). */
   ghost?: { label: string; hint: (armed: boolean) => string };
 }
 
-/**
- * §5.13 (S-10) 밖으로 빼는 동안의 **가상 창**(선) — §5.5 #17-6 (H-6) 의 IDE 창과 같은 것.
- *
- * 선이 서 있는 동안 본체는 숨는다(H-19). 선은 앱 안 윤곽선으로 먼저 그리고, main 의 클릭통과
- * 창이 서면 그쪽이 앱 밖까지 잇는다.
- */
+/** §5.13 (S-10) 가상 창(선) — §5.5 #17-6 (H-6) 과 같은 것. 선이 선 동안 본체는 숨는다(H-19). 앱 안 윤곽선으로 먼저, main 클릭통과 창이 서면 그쪽이 앱 밖까지 잇는다. */
 export interface FloatingWindowPullOutGhost {
-  /**
-   * 그 선을 누가 그리는가 — `os` 면 main 의 클릭통과 창이 앱 밖까지 잇고, `inapp` 은 그 창이 아직
-   * 안 섰거나 못 띄우는 환경의 폴백이라 **부르는 쪽이 앱 안에** 그린다(앱 경계에서 잘린다).
-   */
+  /** 선을 누가 그리나 — `os` 는 main 클릭통과 창(앱 밖까지), `inapp` 은 그 창이 없을 때의 폴백으로 부르는 쪽이 앱 안에 그린다(경계에서 잘린다). */
   kind: 'os' | 'inapp';
   /** 지금 손을 떼면 그대로 나가는가 — 선이 밝아져 놓기 전에 그것을 말한다. */
   armed: boolean;
@@ -89,13 +57,7 @@ export interface FloatingWindowPullOutGhost {
   rect: FloatingWindowGeom;
 }
 
-/**
- * 타이틀바 누름 한 번 — React 이벤트도 네이티브 이벤트도 받는다(손잡이는 여기 적은 필드만 본다).
- *
- * §5.13 (S-11) 앱 화면이 창 머리줄 자리에 **포털**로 그린 머리줄은 React 이벤트가 창 틀의 타이틀바까지 오르지
- * 않는다(React 이벤트는 DOM 이 아니라 React 트리를 따른다). 창 틀은 그 자리에서 네이티브로 받아 같은 손잡이에
- * 넘긴다(`useAppChromeSlotGestures`).
- */
+/** 타이틀바 누름 — React·네이티브 둘 다 받는다(이 필드만 본다). §5.13 (S-11) 포털 머리줄의 React 이벤트는 창 틀까지 오르지 않아 창 틀이 네이티브로 넘긴다(`useAppChromeSlotGestures`). */
 export type TitleBarPress = Pick<MouseEvent, 'button' | 'clientX' | 'clientY' | 'screenX' | 'screenY' | 'target' | 'preventDefault'>;
 
 export interface FloatingWindowOptions extends Partial<FloatingWindowConfig> {
@@ -122,14 +84,11 @@ export interface FloatingWindowApi {
   mode: FloatingWindowMode;
   maximized: boolean;
   minimized: boolean;
-  /** 최대화 또는 잠긴 전체화면 — 캔버스 덮개 등록(§4 v3.71) 판정에 쓴다. */
+  /** 최대화 또는 잠긴 전체화면 — 캔버스 덮개 등록(§4) 판정에 쓴다. */
   fullScreen: boolean;
   /** `position:fixed` 창에 그대로 붙이는 위치·크기(zIndex 는 호출부가 얹는다). */
   style: React.CSSProperties;
-  /**
-   * §5.13 (S-10) 밖으로 빼는 동안의 가상 창 — 있으면 부르는 쪽은 **본체를 숨기고**, `kind` 가
-   * `inapp` 이면 이 자리에 윤곽선을 그린다. 끌어내기 판이 아니면 늘 null.
-   */
+  /** §5.13 (S-10) 빼는 동안의 가상 창 — 있으면 본체를 숨기고 `inapp` 이면 이 자리에 윤곽선을 그린다. 끌어내기 판이 아니면 null. */
   pullOutGhost: FloatingWindowPullOutGhost | null;
   /** 타이틀바에 스프레드 — 드래그 이동 + 더블클릭 최대화 토글. 네이티브 이벤트로 불러도 된다(`TitleBarPress`). */
   titleBarProps: {
@@ -210,12 +169,7 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  /**
-   * 진행 중 드래그의 window 리스너를 등록하고 정리 함수를 기억해 둔다.
-   *
-   * `onEnd` 는 **손을 떼든 언마운트로 강제 정리되든 반드시 한 번** 불린다 — 끌어내기 손짓이
-   * 걸어 둔 시계를 여기서 거두지 않으면, 창이 사라진 뒤에 타이머가 깨어나 무장 상태를 알린다.
-   */
+  /** 진행 중 드래그의 window 리스너를 걸고 정리 함수를 기억한다. `onEnd` 는 떼든 언마운트든 **반드시 한 번** 불린다 — 안 그러면 끌어내기 시계가 창이 사라진 뒤 깨어난다. */
   const bindDrag = useCallback((onMove: (ev: MouseEvent) => void, onEnd?: (committed: boolean) => void) => {
     let ended = false;
     function finish(committed: boolean): void {
@@ -270,21 +224,12 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
     let lastScreen = { x: e.screenX, y: e.screenY };
     let releaseGeom = geomRef.current;
 
-    /**
-     * §5.13 (S-10) 이 판이 **밖으로 끌어낼 수 있는 판**인가 — 누른 순간에 한 번 정한다.
-     *
-     * 끌어내기 판은 IDE 창(§5.5 #17-6 (H-6))처럼 끄는 동안 창을 가두지 않고, 밖으로 빼기 시작하면
-     * 선(가상 창)을 띄운다. 아닌 판(캡처 창 등 — 앱 밖으로 나갈 일이 없는 창)은 종전 그대로 화면
-     * 안에서만 움직인다.
-     */
+    /** §5.13 (S-10) 밖으로 끌어낼 수 있는 판인가 — 누른 순간 정한다. 그런 판은 IDE 창(§5.5 #17-6 (H-6))처럼 창을 가두지 않고 빼면 선을 띄운다. 아니면(캡처 창 등) 화면 안에서만. */
     const pullOutDrag = !!pullOutRef.current?.enabled;
 
     /**
-     * §5.13 (S-3) — **앱 밖으로 끌어내는** 손짓. 무장의 이유는 넷이고 판정은 한 곳
-     * (`pullOutGhostDecision`)이다 — ① 커서가 앱 밖 ② 창을 완전히 빼냄 ③ 놓을 수 있는 자리를 멀리
-     * 넘김 ④ 화면 끝에 막힌 채 버팀. 하나만 두면 그 손짓은 어떤 사용자에게 통째로 **없는 기능**이
-     * 된다 — 단일 모니터에 앱을 최대화해 쓰면 커서는 뷰포트를 한 픽셀도 벗어나지 못하고, 반대로
-     * 시간만으로 판정하면 창을 화면 끝에 붙여 두려던 손도 걸린다.
+     * §5.13 (S-3) — 무장 이유는 넷, 판정은 한 곳(`pullOutGhostDecision`): ① 커서가 앱 밖 ② 창을 완전히 빼냄 ③ 놓을 자리를 멀리 넘김 ④ 화면 끝에 막힌 채 버팀.
+     * 하나만 두지 마라 — 최대화한 단일 모니터에선 커서가 뷰포트를 못 벗어나고, 시간만으로 가르면 창을 끝에 붙이려던 손도 걸린다.
      */
     let armed = false;
     function setArmed(next: boolean): void {
@@ -293,14 +238,7 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
       pullOutRef.current?.onArmedChange?.(next);
     }
 
-    /**
-     * §5.13 (S-10) — **밖으로 빼는 중**: 커서를 따라가는 것은 창 크기 그대로의 선(가상 창) 하나이고,
-     * 본체는 숨은 채 손을 따라온다(§5.5 #17-6 (H-6) ③ · (H-19)). 움직이는 그림이 하나뿐이라 두
-     * 그림이 어긋날 수 없고, 무엇이 어디로 빠지는지가 놓기 전에 보인다.
-     *
-     * `ghostKind` 는 그 선을 누가 그리는가 — `os` 면 main 의 클릭통과 투명 창이라 **앱 밖까지**
-     * 이어지고, `inapp` 은 그 창이 아직 안 섰거나 못 띄우는 환경의 폴백이라 앱 경계에서 잘린다.
-     */
+    /** §5.13 (S-10) — 빼는 중엔 창 크기의 선 하나만 커서를 따르고 본체는 숨는다(§5.5 #17-6 (H-6) ③ · (H-19)). `ghostKind`: `os` = main 클릭통과 창(앱 밖까지), `inapp` = 폴백(경계에서 잘린다). */
     let ghostOn = false;
     let ghostKind: 'os' | 'inapp' = 'inapp';
     let ghostArmed = false;
@@ -309,10 +247,7 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
     /** 가장자리 버팀 동안 선을 그 변 밖으로 밀어 낸 여분(px). */
     let ghostPush = { dx: 0, dy: 0 };
     let ghostKeepAlive: number | null = null;
-    /**
-     * 손을 떼고 **밖으로 내보내는 중** — 선은 그 자리에 멈춘 채 새 창을 기다리고 본체는 숨은 채다.
-     * 이 동안 끝난 판의 시계·판정이 선을 건드리지 않게 한다.
-     */
+    /** 손을 떼고 내보내는 중 — 선은 멈춘 채 새 창을 기다리고 본체는 숨어 있다. 끝난 판의 시계·판정이 선을 건드리지 않게 한다. */
     let handingOff = false;
     /** 가두지 않은 **지금** 자리 — 선 판정과 버팀 시계가 함께 읽는다(둘이 갈리면 말이 달라진다). */
     let lastRaw: FloatingWindowGeom | null = null;
@@ -329,10 +264,7 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
       };
     }
 
-    /**
-     * main 에 선을 세워 달라는 부탁 한 번(이미 서 있으면 크기·무장·문구만 갈아 끼운다).
-     * `settled` 면 그 자리에 **멈춘다** — 손을 뗀 뒤라 더는 커서를 따라가면 안 된다.
-     */
+    /** main 에 선을 세워 달라는 부탁(서 있으면 크기·무장·문구만 갈아 끼운다). `settled` 면 그 자리에 멈춘다 — 손을 뗀 뒤라 커서를 따라가면 안 된다. */
     function requestOsGhost(armedNow: boolean, settled = false): Promise<boolean> | null {
       const ov = window.api?.overlay;
       if (!ov?.ghostShow) return null;
@@ -357,10 +289,7 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
       });
     }
 
-    /**
-     * (H-22) 선이 서 있는 동안 main 에 **아직 끌고 있다**고 알린다 — 그 선은 클릭통과 창이라 main 이
-     * 수명 그물(20초)로 스스로 걷는데, 판이 길면 그 그물이 끌고 있는 손 아래에서 걷힌다.
-     */
+    /** (H-22) 선이 선 동안 main 에 아직 끌고 있다고 알린다 — 안 그러면 main 의 수명 그물(20초)이 긴 판에서 끌던 손 아래 선을 걷는다. */
     function startGhostKeepAlive(): void {
       if (ghostKeepAlive !== null) return;
       ghostKeepAlive = window.setInterval(() => {
@@ -410,13 +339,7 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
       void window.api?.overlay?.ghostHide?.();
     }
 
-    /**
-     * 화면 끝에 **막혀** 밖으로 못 나가는 사람을 위한 버팀 시계(§5.5 #17-6 (H-3)+(H-6)).
-     *
-     * 가장자리를 떠나는 순간 되돌린다 — 스쳐 지나간 손이 창을 밖으로 던지면 안 된다. 시간은 두
-     * 마디다: 먼저 선을 띄워 무슨 일이 일어나는지 **보여 주고**(`EDGE_GHOST_MS`), 남은 동안 그 선을
-     * 변 밖으로 밀어 내다가, 끝나면 **무장**한다(나가는 것은 손을 뗄 때다 — (H-17)).
-     */
+    /** 막혀 못 나가는 사람용 버팀 시계(§5.5 #17-6 (H-3)+(H-6)) — 가장자리를 떠나면 되돌린다. 먼저 선을 띄우고(`EDGE_GHOST_MS`), 남은 동안 변 밖으로 밀다 끝나면 무장한다(나가는 건 손을 뗄 때 — (H-17)). */
     let edgeTimer: number | null = null;
     let edgeArmTimer: number | null = null;
     let edgeStartedAt = 0;
@@ -425,10 +348,7 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
     let edgeTarget = { dx: 0, dy: 0 };
     let edgeArmed = false;
 
-    /**
-     * @param opts.keepPush 밀어 낸 만큼을 **그대로 둔다**(밖으로 내보내는 판에서만) — 그 밀린 자리가
-     *   곧 창이 설 자리다. 되돌리면 선은 제자리로 튀고 창은 선이 아니었던 곳에 선다.
-     */
+    /** @param opts.keepPush 밀어 낸 만큼 그대로 둔다(내보내는 판에서만) — 그 자리가 창이 설 자리다. 되돌리면 선이 튀고 창은 엉뚱한 곳에 선다. */
     function clearEdgeWatch(opts?: { keepPush?: boolean }): void {
       if (edgeTimer !== null) { window.clearInterval(edgeTimer); edgeTimer = null; }
       if (edgeArmTimer !== null) { window.clearTimeout(edgeArmTimer); edgeArmTimer = null; }
@@ -473,10 +393,7 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
       }, edgeSpan);
     }
 
-    /**
-     * 지금 선을 그려야 하는가 · 지금 놓으면 나가는가 — **한 곳에서만** 정한다(켜는 쪽과 끄는 쪽이
-     * 갈리면 깜빡인다). 문턱 자체는 순수 함수(`pullOutGhostDecision`)가 쥐고, IDE 창도 같은 함수를 부른다.
-     */
+    /** 선을 그릴지·지금 놓으면 나가는지는 **한 곳에서만** 정한다(갈리면 깜빡인다). 문턱은 순수 함수 `pullOutGhostDecision`(IDE 창도 같은 함수). */
     function refreshGhost(): void {
       if (!pullOutDrag || handingOff || !lastRaw) return;
       if (!pullOutRef.current?.enabled) {
@@ -518,11 +435,8 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
     }
 
     /**
-     * §5.13 (S-10) ⑥ **놓은 그 자리 그 크기 그대로** 밖으로 내보낸다(§5.5 #17-6 (H-17) ④ 와 같은 규율).
-     *
-     * 선은 걷지 않고 **그 자리에 멈춘다** — 새 창이 뜨기까지 선이 커서를 따라가면 창과 어긋난다.
-     * OS 선이 아직 안 섰으면 이 부탁이 그 자리에 세운다(손 아래가 비지 않게). 본체는 숨은 채로
-     * 남는다 — 새 창이 서기까지의 왕복 동안 도로 나타났다 닫히면 그 번쩍임이 잔상이다((H-19)).
+     * §5.13 (S-10) ⑥ **놓은 그 자리 그 크기 그대로** 내보낸다((H-17) ④ 와 같다). 선은 그 자리에 멈추고(OS 선이 없으면 이 부탁이 세운다),
+     * 본체는 숨은 채 둔다 — 새 창이 서기 전에 나타났다 닫히면 그 번쩍임이 잔상이다((H-19)).
      */
     function handOff(po: FloatingWindowPullOut): void {
       handingOff = true;

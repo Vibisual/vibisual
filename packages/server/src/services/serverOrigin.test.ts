@@ -1,16 +1,6 @@
 /**
- * §7.11 — iframe 위성 **생성** 경로의 프로젝트 격리 문.
- *
- * 이 테스트가 지키는 것은 사용자 신고 한 줄이다: "이거 다른 프로젝트에서 연 건데 왜 우리
- * vibisual 프로젝트에 열려 있는 거야". 실측으로 옆 프로젝트의 vite(8080) 가 vibisual 그래프의
- * 위성(`special-1620649350`)으로 등록돼 있었고, 정작 그 프로젝트 체크포인트의 iframe 위성은 0개였다.
- *
- * 판정은 세 OS 를 **한 기기에서** 지나간다 — `platform` 을 인자로 받게 만든 이유가 이것이다
- * (실기가 없는 우리에겐 이게 규칙을 지켰는지 확인하는 유일한 방법이다).
- *
- * 2026-10-01 — 판정 단위가 (포트)에서 **(위성 주소 → 그 주소가 실제로 닿는 리스너)** 로 바뀌었다.
- * 실측: 한 포트에 두 프로젝트 서버가 공존했다(A 의 serve.js 가 ::, B 의 vite 가 [::1]). localhost 는
- * B 에, 127.0.0.1 은 A 에 닿았다. 아래 judgeIframeSatellite 시험이 그 사고를 그대로 재현한다.
+ * §7.11 — iframe 위성 생성의 격리 문(`platform` 인자로 세 OS 를 한 기기에서). 판정 단위는 위성 주소가 실제로 닿는 리스너
+ * — 실측(2026-10-01) 한 포트에 A(`::`)·B vite(`[::1]`)가 공존해 localhost 는 B, 127.0.0.1 은 A 로 갔다(judgeIframeSatellite 가 재현).
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
@@ -125,7 +115,7 @@ describe('classifyServerOrigin — cwd 가 없는 경우(win32: 명령줄이 유
   });
 });
 
-describe('shouldAttachServer — 판정 불가는 붙이지 않는다(사용자 결정 2026-09-11)', () => {
+describe('shouldAttachServer — 판정 불가는 붙이지 않는다', () => {
   it('우리 것만 붙이고, 남의 것과 모르는 것은 붙이지 않는다', () => {
     expect(shouldAttachServer('ours')).toBe(true);
     expect(shouldAttachServer('foreign')).toBe(false);
@@ -134,11 +124,7 @@ describe('shouldAttachServer — 판정 불가는 붙이지 않는다(사용자 
     expect(shouldAttachServer('unresolved')).toBe(true);
   });
 
-  /**
-   * 실측 회귀 — 옆 프로젝트의 백엔드(3456)가 vibisual 캔버스에 박혀 있던 그 명령줄 그대로.
-   * win32 는 프로세스 cwd 를 읽을 수 없고 이 명령줄에는 절대경로가 없다. 종전 규약은
-   * 이걸 `unknown` → 통과로 흘려 남의 서버를 우리 탭에 붙였다(§3.5 누수).
-   */
+  /** 실측 회귀 — 상대경로만 있는 남의 명령줄. win32 는 프로세스 cwd 를 못 읽어 `unknown` 인데, 이걸 통과로 흘리면 남의 서버가 우리 탭에 붙는다(§3.5). */
   it('실측: 상대경로로 띄운 남의 서버(`node src/server.js`)를 붙이지 않는다', () => {
     const start: ProcessStartInfo = { command: 'node  src/server.js' };
     const origin = classifyServerOrigin(start, [VIBISUAL], ['C:/work/trade-app'], 'win32');
@@ -147,7 +133,7 @@ describe('shouldAttachServer — 판정 불가는 붙이지 않는다(사용자 
   });
 });
 
-// ─── 2026-10-01: "그 주소가 실제로 닿는 리스너"로 가른다 ───
+// 주소가 실제로 닿는 리스너로 가른다(실측 2026-10-01)
 
 const PROJ_A = 'C:/work/app-a';
 const PROJ_B = 'C:/work/game-b';
@@ -171,9 +157,8 @@ function ownershipOf(
 }
 
 /**
- * 실측(2026-10-01, Windows 11) — 한 포트 두 주인. app-a 의 `node serve.js` 가 `::` 에 묶여
- * netstat 에 `0.0.0.0` · `[::]` 두 줄로 보이고, game-b 의 vite 가 `[::1]` 에 같은 8080 으로 공존했다.
- * `localhost`·`[::1]` 접속은 vite 로, `127.0.0.1` 은 serve.js 로 갔다.
+ * 실측(2026-10-01, Windows 11) — 한 포트 두 주인: app-a 의 `node serve.js` 가 `::`(netstat 에 `0.0.0.0`·`[::]` 두 줄), game-b 의 vite 가 `[::1]` 에 같은 8080.
+ * `localhost`·`[::1]` 은 vite, `127.0.0.1` 은 serve.js 로 갔다.
  */
 const DUAL_BIND = ownershipOf([
   { pid: 41200, address: '0.0.0.0', command: PROJ_A_SERVE_CMD },
@@ -238,7 +223,7 @@ describe('admitsServer — 증거별 해석은 한 곳이다', () => {
     expect(admitsServer('foreign', 'launch')).toBe(false);
   });
 
-  it('읽고도 모르는 것은 우리 셸이 띄웠을 때만 둔다(관찰만으로는 붙이지 않는다 — 2026-09-11 결정 유지)', () => {
+  it('읽고도 모르는 것은 우리 셸이 띄웠을 때만 둔다(관찰만으로는 붙이지 않는다)', () => {
     expect(admitsServer('unknown', 'observed')).toBe(false);
     expect(admitsServer('unknown', 'launch')).toBe(true);
   });
@@ -283,7 +268,7 @@ describe('originForHost — 그 호스트로 접속하면 닿는 서버의 판�
   });
 });
 
-describe('judgeIframeSatellite — 실측 사고(2026-10-01): A 의 프리뷰에 B 의 화면', () => {
+describe('judgeIframeSatellite — 실측 사고: A 의 프리뷰에 B 의 화면', () => {
   it('A(app-a) 의 localhost 위성은 B 의 vite 에 닿는다 → 우리 서버에 닿는 127.0.0.1 로 교정한다', () => {
     const v = judge('http://localhost:8080/index.html', DUAL_BIND);
     expect(v.action).toBe('repoint');

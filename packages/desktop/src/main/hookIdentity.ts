@@ -4,15 +4,9 @@ import { randomBytes } from 'node:crypto';
 import { app } from 'electron';
 
 // Hook 리스너 신원(port + token) 영속화 — SCENARIO.md §3.7.
-//
-// 기존엔 매 실행마다 동적 포트(`listen(0)`)와 랜덤 토큰을 새로 만들었다. 그 결과 앱을 재실행하면
-// 포트·토큰이 둘 다 바뀌어, 이전 인스턴스가 스폰한(=옛 포트/토큰이 프롬프트에 구워진) 외부 claude
-// 서브에이전트의 loopback curl(작업 신고/질문/검수)이 connection refused 로 끊겼다.
-//
-// 해법: 첫 실행 때 동적으로 정한 포트·토큰을 userData 에 저장하고, 이후 실행마다 그 값을 그대로
-// 재사용한다. 소스에 박힌 상수가 아니라(동적), 한 번 정해지면 재실행해도 동일하게 유지된다(안정).
-// 단일 인스턴스 락(index.ts)이 두 인스턴스의 포트 경쟁을 막으므로 같은 포트 재바인드는 안전하다.
-//
+// 첫 실행에 동적으로 정한 포트·토큰을 userData 에 저장해 재실행마다 재사용한다 — 바뀌면 옛 포트/토큰이 프롬프트에 구워진
+// 외부 claude 서브에이전트의 loopback curl(작업 신고/질문/검수)이 connection refused 로 끊긴다.
+// 단일 인스턴스 락(index.ts)이 포트 경쟁을 막아 같은 포트 재바인드는 안전하다.
 // userData 는 앱 인스턴스 설정 + secrets + 오토업데이터 상태 전용(프로젝트 데이터 ❌ — §3.5).
 
 const IDENTITY_FILENAME = 'hook-listener.json';
@@ -29,9 +23,8 @@ function identityPath(): string {
 }
 
 /**
- * 신원 파일의 절대 경로 — 카드 엔드포인트 curl 이 "호출 시점에" 현재 포트·토큰을 읽도록
- * 서버 코어에 주입하기 위해 노출(§4 v2.71). 매 부팅마다 saveHookIdentity 가 실제 바인드
- * 포트·토큰으로 이 파일을 갱신하므로, 여기서 읽으면 재기동·포트변경 후에도 항상 live 값이다.
+ * 신원 파일의 절대 경로 — 카드 엔드포인트 curl 이 호출 시점에 현재 포트·토큰을 읽도록 서버 코어에 주입한다(§4).
+ * 매 부팅 `saveHookIdentity` 가 실제 바인드 값으로 갱신하므로 재기동·포트 변경 뒤에도 live 값이다.
  */
 export function hookIdentityPath(): string {
   return identityPath();
@@ -74,14 +67,10 @@ export function saveHookIdentity(id: HookIdentity): void {
   const p = identityPath();
   try {
     /*
-     * §보안 감사 2026-09-09 — 이 파일에는 loopback 토큰이 평문으로 들어 있다. 토큰 하나면 훅
-     * 리스너의 화이트리스트 전체(카드·에이전트 설정·명령 큐)에 닿으므로, **같은 PC 의 다른
-     * 사용자 계정이 읽을 수 있으면 안 된다.**
-     *
-     * `mode` 는 파일을 새로 만들 때만 먹는다 — 이미 0644 로 만들어져 있던 파일은 그대로이므로
-     * `chmodSync` 로 함께 좁힌다. Windows 에서는 읽기전용 비트만 건드리는 무해한 no-op 이고
-     * (0o600 은 쓰기 비트가 있어 읽기전용이 되지 않는다), 실효는 mac·linux 에서 난다
-     * — 셋 다 도는 제품이므로 여기서 한 번에 처리한다.
+     * 이 파일에는 loopback 토큰이 평문으로 있다 — 토큰 하나면 훅 리스너 화이트리스트 전체(카드·설정·명령 큐)에 닿으므로
+     * 같은 PC 의 다른 사용자 계정이 읽을 수 없어야 한다.
+     * `mode` 는 새로 만들 때만 먹어 이미 0644 인 파일을 `chmodSync` 로 함께 좁힌다. Windows 에서는 무해한 no-op
+     * (0o600 은 쓰기 비트가 있어 읽기전용이 되지 않는다), 실효는 mac·linux.
      */
     writeFileSync(p, JSON.stringify(id, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
     try {

@@ -1,14 +1,7 @@
 import { PLACEHOLDER_LABEL, parseBinding, formatBinding } from '@vibisual/shared';
 import { formatShortcut, isMac } from '../../utils/platform.js';
 
-/**
- * bindingLabel.ts — **바인딩 문자열을 화면 표기로.**
- *
- * 표기 규칙 자체는 이미 `utils/platform.ts` 의 `formatShortcut()` 이 갖고 있다(mac 기호 순서 ·
- * `Control` 과 `Ctrl` 의 구분). 여기서 더 하는 일은 하나뿐 — **자리표를 사람이 읽는 범위로**
- * 바꾸는 것이다(`Alt+Digit` → `Alt+1…0`). 표기 규칙을 여기 다시 쓰지 않는다(두 벌이 되면
- * 한쪽만 고쳐져 mac 라벨이 조용히 어긋난다).
- */
+/** 표기 규칙(mac 기호·`Control`/`Ctrl`)은 `formatShortcut()` 한 곳 — 다시 쓰면 mac 라벨이 어긋난다. 여기선 자리표만 범위로 편다(`Alt+Digit` → `Alt+1…0`). */
 
 /** 자리표를 범위 표기로 바꾼 뒤 그 플랫폼의 표기로. 바인딩이 없으면(해제) 빈 문자열. */
 export function bindingLabel(binding: string | null | undefined, mac = isMac()): string {
@@ -20,11 +13,7 @@ export function bindingLabel(binding: string | null | undefined, mac = isMac()):
   return formatShortcut(combo, mac);
 }
 
-/**
- * 키캡을 여러 칸으로 쪼갠 조각들(`⌘` `⇧` `Z` / `Ctrl` `Shift` `Z`).
- *
- * mac 은 기호를 붙여 쓰는 것이 관례라 한 칸으로 두고, 그 외에는 `+` 로 쪼개 칸마다 그린다.
- */
+/** 키캡 칸 조각 — mac 은 붙여 한 칸, 그 외엔 `+` 로 쪼갠다. */
 export function bindingParts(binding: string | null | undefined, mac = isMac()): string[] {
   const label = bindingLabel(binding, mac);
   if (!label) return [];
@@ -38,13 +27,7 @@ function bareKeyLabel(key: string, mac: boolean): string {
   return bindingLabel(formatBinding({ mod: false, control: false, alt: false, shift: false, key }), mac);
 }
 
-/**
- * 여러 바인딩을 **한 덩어리로** 표기한다(`Ctrl+Alt+←→↑↓`).
- *
- * 방향키 넷처럼 "모디파이어는 같고 마지막 키만 다른" 묶음이 실제로 있다. 넷을 그대로 늘어놓으면
- * (`Ctrl+Alt+← / Ctrl+Alt+→ / …`) 읽는 데 오히려 방해가 된다. 모디파이어가 전부 같을 때만
- * 붙여 쓰고, 사용자가 하나라도 다르게 바꿨으면 **정직하게 따로** 나열한다.
- */
+/** 여러 바인딩 한 덩어리 표기(`Ctrl+Alt+←→↑↓`) — 모디파이어가 전부 같을 때만, 다르면 따로 나열. */
 export function groupBindingLabel(bindings: ReadonlyArray<string | null | undefined>, mac = isMac()): string {
   const present = bindings.filter((b): b is string => !!b);
   if (present.length === 0) return '';

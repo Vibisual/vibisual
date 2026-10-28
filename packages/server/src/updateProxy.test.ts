@@ -1,17 +1,6 @@
 /**
- * 업데이트 피드 프록시(`infra/update-proxy/src/worker.js`)의 동작 고정.
- *
- * ## 왜 서버 패키지에서 도나
- *
- * 이 코드는 Cloudflare 위에서 돌지만 **평범한 ES 모듈**이고, 쓰는 바깥 세계는 셋뿐이다
- * (`fetch` · KV 바인딩 · Cache API). 셋 다 여기서 대신 세워 줄 수 있으므로, 배포해 봐야만
- * 아는 코드로 두지 않는다 — 배포는 사람 손이라 한 번 잘못 나가면 다음 손질까지 그대로 산다.
- *
- * ## 무엇을 지키나
- *
- * 이 파일이 지키는 것은 성능이 아니라 **약속**이다. `PRIVACY.md` 가 "IP 를 저장하지 않는다 ·
- * 어제와 오늘을 이을 수 없다 · 소금이 없으면 아무것도 안 쓴다"고 적어 두었고, 그 세 줄이
- * 코드에서 참인지 확인하는 곳이 여기다.
+ * 업데이트 피드 프록시(`infra/update-proxy/src/worker.js`) 고정 — 바깥이 `fetch`·KV·Cache API 뿐이라 여기서 세운다(배포는 사람 손이라 잘못 나가면 오래 산다).
+ * `PRIVACY.md` 약속을 지킨다: IP 저장 ❌ · 어제와 오늘을 이을 수 없음 · 소금이 없으면 아무것도 안 씀.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { fileURLToPath, pathToFileURL } from 'node:url';

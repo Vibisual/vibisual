@@ -1,13 +1,4 @@
-/**
- * §3.2.4 G축 — 청크 순회가 전량 읽기와 **같은 결과**인지 고정한다.
- *
- * 이 테스트가 지키는 것 하나: **최적화가 데이터를 바꾸면 안 된다.**
- * 종전 경로(`readFileSync(p,'utf8').split('\n')` · `Buffer.allocUnsafe(구간 전체)`)와
- * 줄 목록이 바이트 단위로 같아야 하고, 청크 크기를 어떻게 잡아도 결과가 흔들리면 안 된다.
- *
- * 특히 조심한 것: **UTF-8 멀티바이트가 청크 경계에 걸리는 경우.** 청크를 그대로 `toString()`
- * 하면 한글이 깨진다 — 그래서 마지막 개행까지만 디코드하고 남은 바이트는 다음 청크로 넘긴다.
- */
+/** §3.2.4 G축 — 청크 순회가 전량 읽기와 바이트 단위로 같은지(청크 크기 무관, UTF-8 멀티바이트가 경계에 걸려도) 고정한다. */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -157,11 +148,7 @@ describe('scanFileLines — 증분(append) 규약', () => {
   });
 });
 
-/**
- * 꼬리 읽기가 지켜야 하는 것 하나: **전량 읽고 `slice(-N)` 한 것과 결과가 같아야 한다.**
- * 여기서 어긋나면 화면의 대화가 한 줄씩 밀리거나 통째로 비므로, 경계(맨 끝 개행·개행 없이 끝난
- * 파일·N 이 줄 수보다 큰 경우)를 전부 고정한다.
- */
+/** 꼬리 읽기 = 전량 + `slice(-N)`(어긋나면 대화가 밀리거나 빈다). 맨 끝 개행·개행 없는 끝·N > 줄 수를 고정한다. */
 describe('scanTailLines — 꼬리 N줄이 전량 읽기 + slice(-N) 과 같다', () => {
   function tail(filePath: string, n: number, chunkBytes: number): string[] {
     const out: string[] = [];

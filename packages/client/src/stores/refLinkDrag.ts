@@ -2,13 +2,8 @@ import { create } from 'zustand';
 import { AGENT_CARD } from '@vibisual/shared';
 
 /**
- * §5.4 #36 (B) — 말풍선의 궤도 위성에서 끄는 **위성줄 한 가닥**.
- *
- * 누르는 쪽(`AgentCardNode` — React Flow 가 그리는 잎)과 받는 쪽(`BubbleMap` 의 놓기 판정·미리보기·앱 노드 불 켜기)이
- * 갈라져 있어 prop 으로 잇지 못한다. 손이 떠나면 사라지는 순수 표시 상태라 `graphStore` 에 넣지 않는다
- * (`linkFocus`·`captureSnapGuides` 선례 — 저쪽은 스냅샷 1건에 `set()` 이 수십 번 돈다).
- *
- * **비영속** — 새 영속 필드 ❌(§3.2).
+ * §5.4 #36 (B) — 말풍선의 궤도 위성에서 끄는 **위성줄 한 가닥**. 누르는 쪽(`AgentCardNode`)과 받는 쪽(`BubbleMap`)이 갈라져 스토어에 두되
+ * 순수 표시라 `graphStore` 밖. 비영속.
  */
 
 /** 손 아래의 앱 노드(화면 상자) — 줄 끝이 이 테두리에 붙고, 놓으면 이 노드에 잇는다. */

@@ -11,18 +11,8 @@ export interface WorkspaceMediaReadGuards {
 }
 
 /**
- * §5.1 #2-1 (A) — 미디어 창구(`GET /api/workspace-media`) **읽기**의 경로 판정.
- *
- * 루트가 열린 프로젝트 안이면 종전 그대로다. 루트 밖이면 **그 파일 자체가 지금 버블로 떠 있는 노드의 경로**일 때만 연다 —
- * 열기 라우트 셋(`open-node-file`·`open-node-folder`·`open-external`)이 이미 쓰는 두 번째 기준(`hasNodeAbsolutePath`)
- * 그대로다(새 가드 발명 ❌). 종전에는 루트 밖을 통째로 막아, 에이전트가 프로젝트 밖에서 만든 그림이 캔버스에 떠 있어도
- * 미리보기도 그림 창도 비었다(2026-10-21 사용자 보고).
- *
- * - 화면에 없는 임의 절대경로는 그대로 막는다 — 페어링된 모바일 기기도 이 창구에 닿는다.
- * - 경로 해석은 탐색기·편집창과 같은 `resolveWorkspacePath` 하나다(`..` · 링크로 그 폴더 밖을 가리키면 null).
- * - **쓰기(PUT)는 이 판정을 쓰지 않는다** — 루트 안만 쓴다.
- *
- * 판정 둘을 인자로 받는 이유는 시험이다 — 라우트는 서버 상태(열린 프로젝트·그래프)를 물려 부른다.
+ * §5.1 #2-1 (A) — 미디어 창구(`GET /api/workspace-media`) 읽기 경로 판정. 루트 밖은 그 파일이 지금 버블로 떠 있을 때만 연다 — 열기 라우트 셋의 `hasNodeAbsolutePath` 그대로(새 가드 ❌).
+ * 화면에 없는 임의 경로는 막는다(페어링된 모바일도 닿는다). 해석은 `resolveWorkspacePath` 하나. 쓰기(PUT)는 이 판정을 쓰지 않는다 — 루트 안만.
  */
 export function resolveWorkspaceMediaRead(
   root: string,
@@ -37,9 +27,25 @@ export function resolveWorkspaceMediaRead(
 }
 
 /**
- * §5.13 40-1 — 패키지 앱이 이 창구의 읽기를 **흘려 보내는 갈래**(`vibproxy://proxy/api/workspace-media?root=&path=`)로 받을 때
- * 낼 파일(절대경로). 판정은 위 라우트와 같은 한 벌이고, 하나를 더 본다 — **미디어 표에 있는 형식만**(`isWorkspaceMediaFile`).
- * 그 갈래는 같은 출처의 프리뷰 페이지도 닿는 길이라 코드·설정·키 파일은 내지 않는다(표 밖은 종전 IPC 길 — 화면도 같은 표로 가른다).
+ * §5.5 #17-27 ⑥ · §5.1 #2-1 (A) — 편집창 읽기(`GET /api/workspace-file`) 경로 판정, 미디어 창구와 같은 두 기준.
+ * 루트 밖은 버블로 떠 있을 때만 `outside: true`(보기만). 쓰기(PUT)는 이 판정을 쓰지 않는다(루트 안만).
+ */
+export function resolveWorkspaceFileRead(
+  root: string,
+  relPath: string,
+  deps: WorkspaceMediaReadGuards,
+): { readonly outside: boolean } | null {
+  const resolvedRoot = path.resolve(root);
+  if (deps.isOpenableRoot(resolvedRoot)) return { outside: false };
+  const resolved = resolveWorkspacePath(resolvedRoot, relPath);
+  // 그 폴더 자신(`.` · 빈 경로)은 읽을 파일이 아니다 — 폴더 버블도 버블 경로라 여기서 먼저 거른다.
+  if (!resolved || path.resolve(resolved.abs) === resolvedRoot) return null;
+  return deps.isBubblePath(resolved.abs) ? { outside: true } : null;
+}
+
+/**
+ * §5.13 40-1 — vibproxy 갈래(`vibproxy://proxy/api/workspace-media?root=&path=`)로 낼 파일. 라우트 판정 + 미디어 표 형식만(`isWorkspaceMediaFile`) —
+ * 같은 출처 프리뷰도 닿는 길이라 코드·설정·키는 내지 않는다(표 밖은 IPC 길).
  */
 export function resolveWorkspaceMediaStream(
   query: URLSearchParams,

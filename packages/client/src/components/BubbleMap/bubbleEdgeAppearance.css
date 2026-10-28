@@ -1,17 +1,13 @@
-/* Only the dedicated paint paths animate. Geometry, marker paths and pointer
- * interaction paths are never selected by these rules. Whole pattern periods
- * avoid a jump at the end of each loop. */
+/* Only the dedicated paint paths animate (never geometry, marker or pointer paths).
+ * Offsets are whole pattern periods so each loop ends without a jump. */
 @keyframes bubble-edge-wire-flow { to { stroke-dashoffset: -36; } }
 @keyframes bubble-edge-dash-flow { to { stroke-dashoffset: -32; } }
 @keyframes bubble-edge-beads-flow { to { stroke-dashoffset: -38; } }
 @keyframes bubble-edge-glow-flow { to { stroke-dashoffset: -100; } }
 @keyframes bubble-edge-rail-flow { to { stroke-dashoffset: -36; } }
 
-/* Reduced motion slows the travel instead of stopping it. A working edge that
- * stands still reads exactly like an idle one, and Windows reports reduced
- * motion whenever its animation effects are turned off, which is common on
- * PCs tuned for speed (SSOT §5.4 #31 (K), 2026-10-22: "the lines stopped").
- * Each travel layer carries its own slower shorthand. */
+/* Reduced motion slows the travel instead of stopping it — a still working edge reads like an idle one, and Windows
+ * reports reduced motion whenever animation effects are off (§5.4 #31 (K)). Each travel layer carries its own slower shorthand. */
 @media (prefers-reduced-motion: reduce) {
   .bubble-edge-paint[data-paint-layer="travel"] { animation: var(--bubble-edge-flow-reduced) !important; }
 }

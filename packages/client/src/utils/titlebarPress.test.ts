@@ -1,12 +1,7 @@
 /**
- * §3.7 「제목줄 영역은 코드로 껐다 켜지 않는다」 — **페이지까지 온 제목줄 누름은 그 누름으로 창을 옮긴다.**
- *
- * 사용자 보고: "앱이 켜지면 커버든 탭이든 드래그하면 이동해야 하는데 우리 앱만 안 된다 — 계속 반복이다".
- * 종전에는 영역을 두 프레임 동안 `no-drag` 로 흔들어 다시 신고시켰는데, Chromium 126 은 제목줄 누름을 첫
- * 마우스 이동에서야 OS 이동으로 넘기므로 그 사이의 흔들기가 누름을 버리게 했다. 이제 영역은 CSS 그대로 두고,
- * 페이지까지 온 누름은 덮개와 같은 `move-self` 길로 옮긴다.
- *
- * 클라 시험에는 DOM 이 없어(jsdom 미설치) `Element` 와 창 리스너를 작은 가짜로 세운다. 배선은 원문으로 고정한다.
+ * §3.7 「제목줄 영역은 코드로 껐다 켜지 않는다」 — 페이지까지 온 제목줄 누름은 그 누름으로 창을 옮긴다(덮개와 같은 `move-self` 길).
+ * 영역을 `no-drag` 로 흔들어 다시 신고시키면 안 된다 — Chromium 126 은 제목줄 누름을 첫 마우스 이동에서야 OS 이동으로 넘겨, 그 사이 흔들기가 누름을 버린다.
+ * 클라 시험엔 DOM 이 없어(jsdom 미설치) `Element` 와 창 리스너를 작은 가짜로 세우고, 배선은 원문으로 고정한다.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { beginTitlebarDrag, endTitlebarDrag, installTitlebarPressCatch, isDragRegionTarget } from './titlebarPress.js';

@@ -1,13 +1,8 @@
 /*
  * 자동 생성 — `node packages/client/scripts/fetch-reading-fonts.mjs` 가 만든다. 손으로 고치지 말 것.
- *
- * §5.5 읽기 설정에서 고를 수 있는 글꼴을 앱에 동봉해 싣는다. 전부 SIL Open Font License 1.1 이며
- * 각 글꼴 폴더의 LICENSE.txt 에 전문이 있다. 라틴 조각이 뒤에 선언되고 unicode-range 가 좁으므로
- * 라틴 글자는 라틴 조각이, 한글을 비롯한 나머지는 앞의 조각이 맡는다.
- *
- * 끝의 Noto Sans SC · JP · Devanagari 는 읽기 목록에 없는 **문자 폴백**(§5.5 #17-22 ⑤-3) 이다 —
- * 고르는 글꼴이 아니라 中文·日本語·हिन्दी 가 두부로 사라지지 않게 하는 자리이고, 조각마다
- * unicode-range 가 붙어 있어 브라우저가 실제로 쓰는 조각만 해독한다.
+ * §5.5 읽기 설정 글꼴 동봉본. 전부 SIL Open Font License 1.1 — 전문은 각 글꼴 폴더의 LICENSE.txt.
+ * 라틴 조각이 뒤에 선언되고 unicode-range 가 좁아 라틴은 라틴 조각이, 나머지는 앞 조각이 맡는다.
+ * 끝의 Noto Sans SC · JP · Devanagari 는 고르는 글꼴이 아니라 문자 폴백(§5.5 #17-22 ⑤-3) — 쓰는 조각만 해독된다.
  */
 @font-face {
   font-family: 'JetBrains Mono';

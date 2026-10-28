@@ -4,12 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { isExecutableWorkspacePath, listWorkspaceDir, resolveWorkspacePath, statExternalPath, statWorkspacePath } from './workspaceExplorer.js';
 
-/**
- * §5.5 #17-19 v4.71 — 탐색기 디렉터리 조회 테스트.
- *
- * 두 가지를 지킨다 — (a) **루트 밖으로 새지 않는다**(`..`·절대경로 주입), (b) 위성용
- * `listFolderFiles` 와 달리 **숨김 항목을 감추지 않고 대소문자를 뭉개지 않는다**.
- */
+/** §5.5 #17-19 — 탐색기 조회: 루트 밖으로 새지 않고(`..`·절대경로), `listFolderFiles` 와 달리 숨김을 감추거나 대소문자를 뭉개지 않는다. */
 
 let root: string;
 
@@ -141,13 +136,7 @@ describe('listWorkspaceDir', () => {
   });
 });
 
-/**
- * §5.5 #17-27 ⑬ (h) — 본문에 적힌 위치가 **실행할 수 있는 것**인가.
- *
- * 이 판정이 헐거우면 두 방향으로 다 아프다 — 놓치면 `.exe` 가 빈 편집창으로 열리고(고치기 전 동작),
- * 너무 넓으면 소스 파일을 눌렀는데 프로그램이 도는 자리가 된다. 그래서 플랫폼을 인자로 받아
- * 세 OS 의 규칙을 **한 표로** 고정한다(테스트가 도는 OS 와 무관하게 같은 답이 나와야 한다).
- */
+/** §5.5 #17-27 ⑬ (h) — 실행할 수 있는가. 좁으면 `.exe` 가 빈 편집창으로, 넓으면 소스 파일이 실행된다. 세 OS 규칙을 `platform` 인자로 한 표에 고정한다. */
 describe('isExecutableWorkspacePath', () => {
   const file = (mode = 0o644): { isDirectory: () => boolean; mode: number } => ({ isDirectory: () => false, mode });
   const dir = (mode = 0o755): { isDirectory: () => boolean; mode: number } => ({ isDirectory: () => true, mode });

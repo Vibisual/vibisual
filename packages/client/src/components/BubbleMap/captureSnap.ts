@@ -1,17 +1,7 @@
 import { CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP } from '@vibisual/shared';
 
-// §5.9 캡처 버블 이어 붙이기(자석 스냅) — 순수 기하 유틸.
-//
-// 화면 버블을 2~3개 띄워 듀얼/트리플 모니터처럼 쓰려면 "손으로 끌어다 대충 놓아도 변이 딱 붙는"
-// 자석이 필요하다. 드래그·리사이즈 중 현재 사각형과 이웃 캡처 버블들을 받아 **보정된 좌표 + 가이드선**
-// 을 돌려준다. React·React Flow·store 를 모르는 순수 함수라 단위 테스트로 굳힌다
-// (captureWindowManager 와 같은 패턴 — 좌표 계산을 컴포넌트에 두면 회귀를 못 잡는다).
-//
-// 후보는 두 종류다.
-//  · **맞대기(butt)** — 내 변과 상대 변을 0px 간격으로 붙인다(이어 붙이기 본체). 수직/수평으로
-//    최소 겹침(MIN_OVERLAP) 이 있을 때만 — 옆을 스치듯 지나가는 먼 버블에 빨려가는 착시 방지.
-//  · **정렬(align)** — 왼변/오른변/가운데를 맞춘다(붙지는 않음). 위아래로 쌓을 때 줄을 세워 준다.
-// 같은 거리에서 둘이 경합하면 BUTT_BONUS_PX 만큼 맞대기가 이긴다.
+// §5.9 캡처 버블 자석 스냅 — 드래그·리사이즈 중 보정 좌표 + 가이드선을 내는 순수 기하(컴포넌트에 두면 회귀를 못 잡는다).
+// 맞대기(butt, 0px)는 최소 겹침(MIN_OVERLAP)이 있을 때만(스치는 먼 버블에 빨려가지 않게), 정렬(align)은 변·가운데 맞춤. 동률이면 BUTT_BONUS_PX 만큼 맞대기 우선.
 
 export interface SnapRect {
   id: string;
@@ -123,11 +113,8 @@ function hGuide(position: number, r: SnapRect, o: SnapRect, butt: boolean): Snap
 }
 
 /**
- * 드래그 중 위치 스냅 — 크기는 그대로 두고 x/y 만 보정한다.
- *
- * @param dragged   지금 끌고 있는 사각형(현재 손 위치 기준)
- * @param others    이웃 캡처 버블들(자기 자신 제외)
- * @param threshold 붙는 거리(**캔버스 단위** — 호출부가 화면 px 를 줌으로 나눠 넘긴다)
+ * 드래그 스냅 — 크기는 두고 x/y 만.
+ * @param threshold 붙는 거리(캔버스 단위 — 호출부가 화면 px 를 줌으로 나눠 넘긴다)
  */
 export function computeCaptureDragSnap(
   dragged: SnapRect,
@@ -189,11 +176,7 @@ function pickEdge(
   return best ? { value: best.value, butt: best.butt, other: best.other } : null;
 }
 
-/**
- * 리사이즈 중 변 스냅 — 네 변을 각각 이웃 변에 붙인다(이미 맞아 있으면 값이 그대로라 no-op).
- * NodeResizer 는 어느 핸들을 잡았는지 알려주지 않으므로 네 변을 모두 검사하고, 최소 크기를
- * 깨는 후보는 버린다.
- */
+/** NodeResizer 는 잡은 핸들을 알려 주지 않아 네 변을 다 본다. 최소 크기를 깨는 후보는 버린다. */
 export function computeCaptureResizeSnap(
   rect: SnapRect,
   others: readonly SnapRect[],

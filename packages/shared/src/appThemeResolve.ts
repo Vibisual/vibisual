@@ -1,14 +1,6 @@
 /**
- * appThemeResolve.ts — §4 앱 테마의 **정규화·해석** (순수 함수).
- *
- * - `normalizeAppThemeDefinition` — 사용자 테마 파일(JSON)을 검증해 `AppThemeDefinition` 으로 만든다.
- *   **틀린 칸은 그 칸만 버리고** 이유를 코드(`AppThemeIssue`)로 남긴다 — 한 칸의 오타로 테마 전체를 잃지 않게.
- * - `resolveAppTheme` — `extends` 사슬을 뿌리(기본 테마)부터 차례로 적용하고, 의미 토큰의 팔레트 참조를
- *   **최종 팔레트**에서 푼 뒤, 화면에 실을 CSS 변수 표(`cssVars`)를 낸다.
- * - `appThemeChrome` — 데스크톱 창 바탕·제목줄 버튼에 줄 불투명 sRGB.
- *
- * 서버(창 바탕)와 클라이언트(화면)가 **이 파일 하나**로 같은 답을 낸다 — 두 벌이 되면 창 바탕과 화면이
- * 서로 다른 테마를 칠한다. 디스크·시각·`process.platform` 을 읽지 않는다.
+ * §4 앱 테마 정규화·해석(순수). `normalizeAppThemeDefinition` 은 틀린 칸만 버리고 `AppThemeIssue` 로 남긴다(오타 하나로 테마 전체를 잃지 않게).
+ * `resolveAppTheme` 는 `extends` 를 뿌리부터 적용해 최종 팔레트로 참조를 풀고 `cssVars` 를 낸다. 서버(창 바탕)·클라(화면)가 이 파일 하나로 같은 답을 낸다.
  */
 import {
   APP_THEME_FAMILIES,

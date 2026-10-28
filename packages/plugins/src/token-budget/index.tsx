@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.93 — 토큰 예산(Token Budget): 구획별 상한이 있는가.
- *
- * 예산이 없으면 한 구획이 조용히 나머지를 밀어낸다 — "검색 결과가 많이 나온 날 지시문이 잘려 나가는"
- * 식의 비결정적 사고가 그렇게 난다. 여기서는 고정 구획(시스템 프롬프트·도구 스키마·git 상태)이
- * 창에서 차지하는 몫을 먼저 떼어 보여준다. 표시 전용.
- */
+/** §5.11 — 토큰 예산(Token Budget): 고정 구획(시스템 프롬프트·도구 스키마·git 상태)이 창에서 차지하는 몫을 먼저 떼어 보인다. 표시 전용. */
 import { TOKEN_FIXED_CATEGORIES, getModelContextLimit } from '@vibisual/shared';
 import { defineInspector } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';
@@ -24,13 +18,8 @@ function rulesTokens(ctx: PluginBubbleContext): number {
 }
 
 /**
- * 일을 시작하기 전에 이미 창을 먹고 있는 몫.
- *
- * ⚠ 상수 구획(`FIXED`)만으로 재면 이 카드의 등급은 **영원히 `ok`** 다 — 어떤 모델이든 창은 200k 이상이고
- * (`MODEL_FAMILY_DEFAULTS`) 상수 구획은 ~9.8k 라 몫이 4.9%(200k)·0.98%(1M) 로 고정돼 `heavy` 문턱을
- * 넘을 길이 없다. 판정이 상황에 따라 안 움직이면 그 카드는 켜도 아무 일이 없다. 그래서 카드가 **이미
- * 한 줄로 재서 보여주던** 에이전트 규칙을 등급에도 함께 넣는다 — 규칙 역시 매 턴 실리는 고정 비용이므로
- * 구획의 정의를 넓히는 것이 아니라 빠져 있던 구획을 제자리에 넣는 것이다.
+ * 일 시작 전에 이미 창을 먹는 몫 — 에이전트 규칙도 매 턴 실리는 고정 비용이라 넣는다.
+ * ⚠ 상수 구획(`FIXED`, ~9.8k)만이면 등급이 영원히 `ok` 다 — 창이 늘 200k 이상(`MODEL_FAMILY_DEFAULTS`)이라 4.9%·0.98%(1M)에 묶여 `heavy` 를 못 넘는다.
  */
 function fixedRatio(ctx: PluginBubbleContext): number {
   const max = limit(ctx);

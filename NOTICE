@@ -54,10 +54,13 @@ Bundled command-app icons
 -------------------------
 
 App bubbles detected from shell commands show the following third-party
-marks for programs whose executable carries no icon of its own. Each mark
-belongs to its owner and is used only to refer to that program; no
-endorsement is implied. Sources and licenses in detail:
+marks for the programs they name. Each mark belongs to its owner and is
+used only to refer to that program; no endorsement is implied. Sources,
+pinned revisions and licenses in detail:
 packages/client/src/assets/command-app-icons/README.md
+
+Under Creative Commons, public-domain dedications or the owner's own
+permission:
 
   - Git Logo by Jason Long, licensed under CC BY 3.0
     (https://creativecommons.org/licenses/by/3.0/). Unmodified.
@@ -75,8 +78,63 @@ packages/client/src/assets/command-app-icons/README.md
     (https://creativecommons.org/licenses/by/4.0/). Unmodified.
   - Godot Engine Logo, Copyright (c) 2017 Andrea Calabró, licensed under
     CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Unmodified.
+  - The R logo is (c) 2016 The R Foundation (https://www.r-project.org/logo/),
+    licensed under CC BY-SA 4.0
+    (https://creativecommons.org/licenses/by-sa/4.0/). Unmodified.
+  - pytest logo, Copyright (c) 2016-2017 Vasily Kuznetsov and others
+    (https://github.com/pytest-dev/design), licensed under CC BY-SA 4.0
+    (https://creativecommons.org/licenses/by-sa/4.0/). Unmodified.
+  - Zig logomark from ziglang/logo (https://github.com/ziglang/logo),
+    licensed under CC BY-SA 4.0
+    (https://creativecommons.org/licenses/by-sa/4.0/). Unmodified.
+  - Nix snowflake from NixOS/nixos-artwork
+    (https://github.com/NixOS/nixos-artwork), licensed under CC BY 4.0
+    (https://creativecommons.org/licenses/by/4.0/). Unmodified.
+  - GNU head (https://www.gnu.org/graphics/heckert_gnu.html), licensed under
+    CC BY-SA 2.0 (https://creativecommons.org/licenses/by-sa/2.0/). Shown
+    for GNU Wget. A viewBox attribute was added so the drawing scales; the
+    drawing itself is unchanged and the copy is under the same license.
+  - The Android robot is reproduced or modified from work created and
+    shared by Google and used according to terms described in the Creative
+    Commons 3.0 Attribution License
+    (https://creativecommons.org/licenses/by/3.0/). Android is a trademark
+    of Google LLC. Shown for adb. A viewBox attribute was added so the
+    drawing scales; the drawing itself is unchanged.
+  - OCaml logo from ocaml/ocaml-logo (https://github.com/ocaml/ocaml-logo),
+    released into the public domain under the Unlicense. Unmodified.
+  - Lua logo, Copyright (c) 1998 Lua.org. Graphic design by Alexandre
+    Nakonechnyj. Used under the permission at https://www.lua.org/images/.
+    Unmodified.
+  - Chocolatey logo, a mark of RealDimensions Software, LLC, used without a
+    license under the Chocolatey Logo Use Policy, solely to identify the
+    choco program. Unmodified.
+  - Netlify monogram, (c) Netlify, Inc., from https://www.netlify.com/press/,
+    used to identify the Netlify CLI. Unmodified.
+
+Under the MIT License (permission notice below):
+
   - pnpm logo, Copyright (c) 2016-2022 Zoltan Kochan and other
-    contributors, licensed under the MIT License. Unmodified.
+    contributors. Unmodified.
+  - Bun logo from oven-sh/bun (https://github.com/oven-sh/bun; "Bun itself
+    is MIT-licensed"), used as https://bun.com/press-kit asks. Unmodified.
+  - Vite logo, Copyright (c) 2019-present, VoidZero Inc. and Vite
+    contributors. Unmodified.
+  - Vitest logo, Copyright (c) 2021-Present VoidZero Inc. and Vitest
+    contributors. Unmodified.
+  - esbuild logo, Copyright (c) 2020 Evan Wallace. A viewBox attribute was
+    added so the drawing scales; the drawing itself is unchanged.
+  - Prettier logo, Copyright 2017 James Long. Unmodified.
+  - Nx logo, Copyright (c) 2017-2026 Narwhal Technologies Inc. Unmodified.
+  - uv logo, Copyright (c) 2023 Astral Software Inc. Unmodified.
+  - Ruff logo, Copyright (c) 2022 Charles Marsh. Unmodified.
+  - PDM logo, Copyright (c) 2019-present Frost Ming. Unmodified.
+  - Composer logo by Max Grigorian, Copyright (c) 2016 Jordi Boggiano,
+    Nils Adermann. Resized to 104x128.
+  - Scoop logo, Copyright (c) 2022 scoopinstaller.github.io. Unmodified.
+  - Ollama logo, Copyright (c) Ollama. Unmodified.
+  - Emscripten logo, Copyright (c) 2010-2014 Emscripten authors (see the
+    AUTHORS file of https://github.com/emscripten-core/emscripten).
+    Unmodified.
 
     Permission is hereby granted, free of charge, to any person obtaining
     a copy of this software and associated documentation files (the
@@ -96,3 +154,65 @@ packages/client/src/assets/command-app-icons/README.md
     CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
     TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
     SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Under the BSD 2-Clause License:
+
+  - Homebrew logo, Copyright (c) 2009-present, Homebrew contributors.
+    All rights reserved. Unmodified.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions
+    are met:
+
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+    "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+    LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+    PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+    HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+    SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+    LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+    DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+    THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+    (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Under the BSD 3-Clause License:
+
+  - Stack logo, Copyright (c) 2015-2024, Stack contributors.
+    All rights reserved. Unmodified.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions
+    are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Neither the name of Stack nor the names of its contributors may be
+      used to endorse or promote products derived from this software
+      without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+    "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+    LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+    PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL STACK CONTRIBUTORS
+    BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+    CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+    BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+    WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+    OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+    ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Under the Apache License, Version 2.0 (the full text is in LICENSE):
+
+  - Erlang logo from erlang/erlang-org
+    (https://github.com/erlang/erlang-org). Unmodified.

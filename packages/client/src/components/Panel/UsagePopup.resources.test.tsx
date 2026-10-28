@@ -56,7 +56,9 @@ describe('usage popup resource integration', () => {
   it('uses the selected provider resources and omits billing entirely for local models', () => {
     mocks.state.userDefaults = { engineChoice: { kind: 'claude' } };
     const claude = render();
-    expect(claude).toContain('$15.00');
+    // §4 API 크레딧 — Claude 탭은 구독 한도 페이지로 열리고 개인 크레딧 금액은 자기 페이지에만 있다.
+    for (const tab of ['Plan limits', 'Personal credits', 'Business credits', 'Cloud credits']) expect(claude).toContain(tab);
+    expect(claude).not.toContain('$15.00');
     expect(claude).toContain('https://claude.ai/settings/usage');
     expect(claude).not.toContain('89 credits');
     mocks.state.userDefaults = { engineChoice: { kind: 'local' } };

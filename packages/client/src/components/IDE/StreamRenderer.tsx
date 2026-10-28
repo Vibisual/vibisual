@@ -1,14 +1,6 @@
 /**
- * StreamRenderer — Sub 탭 전용 CLI 스타일 스트림 렌더러.
- *
- * Hook 에이전트의 Agent 탭(기존 TerminalLine)과 분리.
- * assistant text → 마크다운 렌더링, tool_use/tool_result → 접이식 그룹.
- *
- * 파싱 로직(events → 표시 아이템)은 순수 모듈 `streamItems.ts` 로 분리됐다.
- * v3.10 — 종전엔 스트림 갱신마다 버퍼 전체(최대 4000)를 buildBaseItems 로 재파싱(O(전체 길이)) →
- * 길수록 느려지는 구조였다. 이제 `IncrementalStreamParser` 가 **새로 도착한 이벤트만** 처리해
- * 갱신 비용을 O(신규)로 낮춘다(VS Code 터미널처럼 길이 무관). 출력은 buildBaseItems 와 동일함이
- * streamItems.test.ts 로 못박혀 있어, 아래 카드 합류·정렬·identity 재조정·Virtuoso 배선은 불변.
+ * Sub 탭 전용 CLI 스타일 스트림 렌더러(Hook 에이전트 Agent 탭의 `TerminalLine` 과 별개). 파싱은 순수 모듈 `streamItems.ts`.
+ * `IncrementalStreamParser` 는 새 이벤트만 처리한다(O(신규)) — 출력이 `buildBaseItems` 와 같음은 `streamItems.test.ts` 가 고정한다.
  */
 import { memo, useState, useMemo, useRef, useCallback, useEffect, useContext, createContext, forwardRef, useImperativeHandle, Children, isValidElement } from 'react';
 import { Virtuoso, type VirtuosoHandle, type StateSnapshot, type ListRange } from 'react-virtuoso';
@@ -83,75 +75,39 @@ interface StreamRendererProps {
   events: SubAgentStreamEvent[];
   /** 완료된 명령 (스트림 없을 때 폴백 표시용) */
   commands?: readonly QueuedCommand[];
-  /** §4 v3.21 — 피드백 컨텍스트: 이 스트림의 소유 에이전트. 있으면 result 블록에 좋아요/싫어요 노출. */
+  /** §4 — 피드백 컨텍스트: 이 스트림의 소유 에이전트. 있으면 result 블록에 좋아요/싫어요. */
   agentId?: string;
-  /** §4 v3.21 — 피드백 컨텍스트: 이 스트림의 세션(탭) ID. */
+  /** §4 — 피드백 컨텍스트: 이 스트림의 세션(탭) ID. */
   subAgentId?: string;
-  /**
-   * §2.4 — 이 세션이 **지금 작동 중인가**(도는 중 ∪ 줄 서 있음). 부모가 공유 술어(`hasSessionWork`)로
-   * **원본 큐 + 세션 필터** 위에서 낸 답이다. `commands` 는 화면용 사본(`displayCommands`)이라
-   * 생존 판정에 쓰면 안 되므로, 그 판정은 이 값 하나로만 들어온다(없으면 종전 추정으로 폴백).
-   */
+  /** §2.4 — 지금 작동 중인가(도는 중 ∪ 줄 서 있음). 부모가 `hasSessionWork` 로 원본 큐 위에서 낸 답 — `commands` 는 화면용 사본이라 생존 판정에 쓰지 않는다(없으면 추정). */
   sessionBusy?: boolean;
-  /**
-   * §5.5 #17-18 ⑪ — **줄만 서 있는가**(`isSessionWaiting`). `sessionBusy` 와 직교하지 않고
-   * 그 안의 한 갈래다: 작동 중(`sessionBusy`) 가운데 **도는 것이 없는** 경우.
-   */
+  /** §5.5 #17-18 ⑪ — 줄만 서 있는가: `sessionBusy` 가운데 도는 것이 없는 경우. */
   sessionWaiting?: boolean;
-  /**
-   * §2.4 (무응답) — 이 세션이 마지막으로 움직인 시각(`useSessionLivenessFacts`, 명령 시작 포함).
-   * 라이브 1줄 시계는 이것과 마지막으로 보인 줄 중 늦은 쪽을 잰다 — 줄을 감추는 조용한 압축 뒤에
-   * 막 나간 명령이 앞 턴 끝부터 잰 "마지막 업데이트 N 전"으로 시작하지 않게.
-   */
+  /** §2.4 (무응답) — 마지막으로 움직인 시각(명령 시작 포함). 라이브 1줄은 이것과 마지막 줄 중 늦은 쪽을 잰다 — 조용한 압축 뒤 새 명령이 앞 턴 끝부터 재지 않게. */
   sessionActivityAt?: number | null;
   /** §5.3 #9-1 (P) — 감춘 턴(조용한 사전 압축)이 도는 중. 라이브 줄은 경과만 적고 무응답으로 안 뒤집는다. */
   sessionActivityHidden?: boolean;
-  /**
-   * §5.5 #17-10 ⑥-6 (턴 시계) — 지금 턴(대기면 줄 선) 시작 시각(`useSessionLivenessFacts().turnStartedAt`,
-   * 메인 탭과 같은 값). 라이브 1줄이 **평소** 적는 경과는 여기서부터 잰다 — 위 활동 시각으로 재면 줄이
-   * 올 때마다 0 으로 되감긴다. 활동 시각은 무응답 판정에만 쓴다.
-   */
+  /** §5.5 #17-10 ⑥-6 — 지금 턴(대기면 줄 선) 시작 시각(메인 탭과 같은 값). 평소 경과는 여기서부터 — 활동 시각으로 재면 줄마다 0 으로 되감긴다. */
   sessionTurnStartedAt?: number | null;
-  /**
-   * §5.5 #17-24 ⑥ — CLI 가 이 세션을 접는 중이면 그 시작 시각(`useSessionLivenessFacts().compactingSince`,
-   * 메인 탭과 같은 값). 라이브 1줄이 넷째 모드(`압축 중`)로 바뀌고 무응답으로 뒤집지 않는다.
-   */
+  /** §5.5 #17-24 ⑥ — CLI 가 이 세션을 접기 시작한 시각(메인 탭과 같은 값). 있으면 라이브 1줄이 `압축 중` 이 되고 무응답으로 뒤집지 않는다. */
   sessionCompactingSince?: number | null;
-  /** §4 v2.53 — 이 세션의 작업 신고. createdAt 기준으로 스트림에 인라인 합류(맨 아래 고정 ❌). */
+  /** §4 — 이 세션의 작업 신고. createdAt 기준 인라인 합류(맨 아래 고정 ❌). */
   reports?: AgentReport[];
-  /** §4 v2.60 — 이 세션의 질문 카드. reports 와 동일하게 턴 끝에 합류. */
+  /** §4 — 이 세션의 질문 카드(턴 끝에 합류). */
   questions?: AgentQuestions[];
-  /** §4 v2.70 — 이 세션의 검수 요청 카드. reports/questions 와 동일하게 턴 끝에 합류. */
+  /** §4 — 이 세션의 검수 요청 카드(턴 끝에 합류). */
   reviews?: AgentReview[];
-  /** §4 v2.84 — 이 세션의 번호 목록 정렬 카드. reports/questions/reviews 와 동일하게 턴 끝에 합류. */
+  /** §4 — 이 세션의 번호 목록 정렬 카드(턴 끝에 합류). */
   lists?: AgentList[];
-  /**
-   * §5.3 #12-2 — 이 세션의 pending AskUserQuestion(클로드 네이티브 질문) 카드.
-   * 다른 카드와 달리 옛 코드는 가상 리스트 **밖 trailing 형제**로 렌더했는데, customScrollParent 가상화에서
-   * 마지막 항목(활성 AskUserQuestion tool 블록)의 높이 측정이 늦으면 예약 높이가 한 항목만큼 모자라
-   * 이 카드가 그 위에 겹쳐 그려졌다. 다른 카드들처럼 **가상 리스트 안으로** 합류시켜 정확한 높이를 예약 → 겹침 제거.
-   */
+  /** §5.3 #12-2 — pending AskUserQuestion 카드. 가상 리스트 안으로 합류시킨다 — 밖 형제로 그리면 마지막 항목 측정이 늦을 때 그 위에 겹친다. */
   askRequests?: AskUserQuestionRequest[];
-  /**
-   * v2.99 — Virtuoso 가 자기 내부 스크롤러를 **단독 소유**하고, 그 스크롤러 DOM 을 이 콜백으로 부모에
-   * 올린다. 부모(IDEMainArea)는 이걸 받아 StreamStatusBar·북마크 이동·Select All 을 그 컨테이너 한정으로
-   * 작동시킨다(옛 외부 customScrollParent 컨테이너 공유를 대체 — 스크롤 소유권을 virtuoso 한 곳으로).
-   */
+  /** Virtuoso 가 단독 소유한 스크롤러 DOM 을 부모에 올린다 — StreamStatusBar·북마크 이동·Select All 이 이 컨테이너 한정으로 돈다. */
   onScrollerRef?: (el: HTMLElement | null) => void;
-  /**
-   * v2.99 — 세션 전환 복원 스냅샷. virtuoso `getState` 로 떠날 때 저장한 측정 항목 높이 + 스크롤 위치를
-   * 담는다. 마운트 시 `restoreStateFrom` 으로 넘기면 재측정 출렁임 없이 보던 위치로 즉시 복원된다.
-   */
+  /** 세션 전환 복원 스냅샷(떠날 때 `getState` 로 뜬 항목 높이 + 스크롤 위치) — `restoreStateFrom` 으로 재측정 출렁임 없이 복원. */
   restoreState?: StateSnapshot;
-  /**
-   * v2.99 — 바닥 추종 여부 변화 통지. virtuoso `atBottomStateChange` 를 그대로 올려, 부모가 세션별
-   * 추종 의도 저장·StreamStatusBar 판정에 쓴다(옛 수동 scrollTop 비교·제스처 추적을 대체).
-   */
+  /** virtuoso `atBottomStateChange` 그대로 — 부모가 세션별 추종 의도·StreamStatusBar 판정에 쓴다. */
   onAtBottomChange?: (atBottom: boolean) => void;
-  /**
-   * §5.5 #17-48 — 내 입력 레일이 그릴 **입력 목록**(이 목록의 명령 말풍선, 위→아래 순서).
-   * 목록이 실제로 바뀔 때만 부른다(스트리밍 토큰마다 부모를 다시 그리지 않게).
-   */
+  /** §5.5 #17-48 — 입력 레일이 그릴 입력 목록(위→아래). 목록이 실제로 바뀔 때만 부른다(토큰마다 부모를 다시 그리지 않게). */
   onPromptOutline?: (prompts: readonly PromptRailEntry[]) => void;
 }
 
@@ -161,39 +117,25 @@ export interface StreamRendererHandle {
    *  `preserveFocus` 는 인-페이지 검색용 — 텍스트를 selection 대신 CSS 하이라이트로 칠해
    *  포커스를 쥔 검색 입력창의 caret 을 건드리지 않는다(기본 false = 북마크 이동, 종전대로 선택). */
   scrollToBookmark: (anchorId: string | undefined, text: string, preserveFocus?: boolean) => void;
-  /**
-   * 하단 StreamStatusBar 의 "프롬프트로 이동" 점프 — 해당 명령(cmd-${id}) 항목으로 스크롤.
-   * 가상 리스트(virtuoso)는 뷰포트 밖 항목을 렌더하지 않으므로, scrollToIndex 로 먼저 그 항목을
-   * 렌더시킨 뒤 컨테이너 한정으로 상단 정렬(-16px 여백)한다. DOM querySelector 단독은 미렌더 항목에서
-   * 실패(바닥에서 눌러도 안 올라가던 버그)하므로 인덱스 스크롤이 필수.
-   */
+  /** "프롬프트로 이동" — virtuoso 는 화면 밖 항목을 그리지 않으므로 scrollToIndex 로 먼저 렌더시킨 뒤 컨테이너 한정 상단 정렬(-16px). querySelector 만으로는 실패한다. */
   scrollToCommand: (cmdId: string) => void;
   /** 인-페이지 검색 — query 를 포함하는 항목들의 id 를 등장 순서로 반환. 네비게이션/하이라이트는
    *  scrollToBookmark(id, query) 재사용(가상 리스트라 DOM 검색 불가 → 항목 데이터 기준 매칭). */
   searchMatchIds: (query: string) => string[];
   /**
-   * §5.5 #17-12 — 지금 **화면 맨 위를 채운 항목이 속한 명령**(`cmd-${id}` 형태의 항목 id).
-   * 하단 상태바가 "지금 보고 있는 프롬프트"를 가리키는 데 쓴다.
-   *
-   * 상태바가 직접 DOM 에서 명령 블록을 찾던 종전 방식은 가상 리스트에서 틀렸다 — 응답이 긴 턴
-   * 사이에서는 명령 블록이 한 장도 렌더되지 않아, 위로 올려 말풍선을 지나쳐도 상태바가 옛
-   * 프롬프트로 바뀌지 않았다. 여기서는 맨 위 항목만 DOM 으로 재고 소속 명령은 **항목 배열**로
-   * 되짚어(streamViewedCommand.ts) 미렌더 명령까지 정확히 집는다.
+   * §5.5 #17-12 — 화면 맨 위 항목이 속한 명령(`cmd-${id}`). 맨 위 항목만 DOM 으로 재고 명령은 항목 배열로 되짚는다(`streamViewedCommand.ts`) —
+   * DOM 에서 명령 블록을 찾으면 긴 턴 사이엔 블록이 렌더되지 않아 상태바가 옛 프롬프트에 머문다.
    */
   viewedCommandId: () => string | null;
-  /** v2.99 — 세션 떠날 때 부모가 현재 스크롤/측정 상태 스냅샷을 가져가 저장(다음 복귀 때 restoreState 로 전달). */
+  /** 세션을 떠날 때 부모가 가져가 저장하는 스냅샷(복귀 때 restoreState). */
   getState: (cb: (snap: StateSnapshot) => void) => void;
-  /**
-   * §5.5 #17-12 — 표시 밀도를 바꾼 뒤 **보던 항목**을 되찾는 두 손잡이. 보던 항목이 새 목록의 선렌더 버퍼 밖이면
-   * DOM 에서 못 찾으므로 부모(IDEMainArea)가 순번을 물어 그 자리로 먼저 옮긴다. 없으면 -1.
-   */
+  /** §5.5 #17-12 — 밀도를 바꾼 뒤 보던 항목을 되찾는 손잡이. 선렌더 버퍼 밖이면 DOM 에 없어 부모가 순번으로 먼저 옮긴다. 없으면 -1. */
   indexOfItemId: (id: string) => number;
   /** 자료 순번 `index` 의 항목 윗변을 스크롤러 윗변에서 `offsetPx` 아래에 둔다. */
   scrollToItemIndex: (index: number, offsetPx: number) => void;
   /**
-   * §5.5 #17-48 — 내 입력 레일이 묻는 지금 자리: 화면 맨 위 항목이 속한 입력 · 그 말풍선에 서 있는가 ·
-   * 화면 안의 마지막 입력 · 바닥인가. 측정은 `viewedCommandId` 와 **같은 함수**라 상태바와 레일이 같은 턴을 가리킨다.
-   * 잴 것이 없으면(래퍼 없음 · 측정과 데이터가 어긋난 프레임) `null`.
+   * §5.5 #17-48 — 입력 레일이 묻는 지금 자리(맨 위 항목의 입력 · 그 말풍선에 서 있나 · 화면 안 마지막 입력 · 바닥인가).
+   * `viewedCommandId` 와 같은 측정이라 상태바와 레일이 같은 턴을 가리킨다. 잴 것이 없으면(래퍼 없음·어긋난 프레임) `null`.
    */
   promptProbe: () => PromptProbe | null;
   /** §5.5 #17-48 — 항목 하나(내 입력 말풍선)를 화면 위에서 16px 아래로 **즉시** 옮기고 짧게 빛낸다. */
@@ -205,24 +147,15 @@ export interface StreamRendererHandle {
 // ─── 마크다운 커스텀 렌더러 ───
 
 /**
- * §5.5 #17-27 ⑬ — "지금 그리는 `<code>` 가 코드 블록 안인가".
- *
- * 손잡이가 되는 것은 본문에 박힌 **인라인 코드**뿐이고, 코드 블록 안의 `<code>` 는 손대지 않는다 —
- * 거기 있는 것은 읽으라고 적은 코드이지 열라고 적은 위치가 아니며, 그 자리의 주인은 복사 버튼이다.
- * react-markdown 은 인라인/블록을 같은 `code` 슬롯으로 넘기고 v9 부터 `inline` 플래그를 주지 않으므로,
- * 블록을 그리는 `CodeBlock` 이 자기 안쪽임을 이 컨텍스트로 알린다(`className` 유무 추정은 인덴트 블록에서 틀린다).
+ * §5.5 #17-27 ⑬ — 지금 `<code>` 가 코드 블록 안인가(경로 손잡이는 인라인 코드만, 블록은 복사 버튼 몫). react-markdown 은 v9 부터 `inline` 플래그가 없어
+ * `CodeBlock` 이 이 컨텍스트로 알린다 — `className` 유무 추정은 인덴트 블록에서 틀린다.
  */
 const InCodeBlock = createContext(false);
 
 /** 펜스드/인덴트 코드 블록 — 우상단 호버 시 복사 버튼.
  *  react-markdown 의 `pre` 슬롯 교체. 내부 `<code>` 는 그대로 children 으로 받는다.
  *  텍스트 추출은 ref 의 `textContent` 로 — 중첩 syntax 토큰까지 한 번에 잡힌다. */
-/**
- * §5.5 #17-17 ⑪(l) — 펜스에 적힌 언어 이름(`language-vibisual`)을 꺼낸다.
- *
- * react-markdown 은 언어를 `<pre>` 가 아니라 그 안쪽 `<code>` 의 className 에 실어 준다 —
- * 그래서 `pre` 슬롯인 이 자리에서는 자식을 한 겹 들여다봐야 한다.
- */
+/** §5.5 #17-17 ⑪(l) — 펜스 언어 이름. react-markdown 은 언어를 안쪽 `<code>` 의 className 에 실어 `pre` 슬롯에선 자식을 한 겹 본다. */
 function fencedLangOf(children: React.ReactNode): string | null {
   const first = Children.toArray(children)[0];
   if (!isValidElement(first)) return null;
@@ -236,11 +169,8 @@ function CodeBlock({ children, className, ...rest }: React.HTMLAttributes<HTMLPr
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
 
-  // §5.5 #17-17 ⑪(o) — 무대 블록은 **코드도 아니고 대화에 세우는 카드도 아니다.** 조용히 삼킨다.
-  //   적용은 서버가 스트림에서 하고(`stageBlockIngest`), 사용자는 목표 뷰의 [뷰 보기]로 무대를 연다
-  //   (⑪(k) — 무대로 가는 입구는 하나다). 대화에 같은 것을 또 세우면 입구가 둘이 된다.
-  //   갈림은 **훅을 전부 부른 뒤**에 선다 — 조건부 훅 호출이 되면 같은 자리에 코드 블록과 무대 블록이
-  //   번갈아 오는 스트림에서 리액트가 상태를 어긋나게 붙인다.
+  // §5.5 #17-17 ⑪(o) — 무대 블록은 조용히 삼킨다(적용은 서버 `stageBlockIngest`, 입구는 목표 뷰 하나 ⑪(k)).
+  // 갈림은 훅을 다 부른 뒤에 — 조건부 훅이면 코드 블록과 번갈아 오는 자리에서 상태가 어긋나 붙는다.
   const isStageBlock = useMemo(() => isStageBlockLang(fencedLangOf(children)), [children]);
 
   const onCopy = useCallback(() => {
@@ -298,11 +228,7 @@ function CodeBlock({ children, className, ...rest }: React.HTMLAttributes<HTMLPr
  *  props 로는 못 내려간다(`InCodeBlock` 과 같은 규약). */
 const StreamOwnerAgentId = createContext<string | undefined>(undefined);
 
-/**
- * ⑬ (f) — 손잡이 앞 글리프. **누르면 어디서 열리는지**를 그림 하나로 말한다(우리 창이냐 바깥이냐,
- * 열리느냐 도느냐). 인라인 코드와 링크가 같은 그림을 써야 "같은 파일인데 모양이 다르다" 가 안 생긴다.
- * `plan === null` 은 루트 밖(⑬ (d)) — 갈래가 하나라 그림도 하나다.
- */
+/** ⑬ (f) — 손잡이 앞 글리프: 어디서 열리는지를 그림 하나로(인라인 코드·링크 공용). `plan === null` 은 루트 밖(⑬ (d)). */
 const PathLinkGlyph = memo(function PathLinkGlyph({ plan }: { plan: WorkspaceOpenPlan | null }): React.JSX.Element {
   const app = plan?.action === 'app' && plan.appId !== undefined ? getInternalApp(plan.appId) : undefined;
 
@@ -361,10 +287,7 @@ const PathLinkGlyph = memo(function PathLinkGlyph({ plan }: { plan: WorkspaceOpe
   );
 });
 
-/**
- * ⑬ (f) — 툴팁은 "전체 경로 + 벌어질 일". 여는 곳이 갈리면 말도 갈려야 누르기 전에 안다.
- * ⑬ (g) — 편집창으로 갈 때 줄 범위가 있으면 경로 뒤에 `:806-807` 까지 적는다(그 줄로 간다는 것까지 말한다).
- */
+/** ⑬ (f) — 툴팁은 "전체 경로 + 벌어질 일"(여는 곳이 갈리면 말도 갈린다). ⑬ (g) — 줄 범위가 있으면 경로 뒤에 `:806-807` 까지 적는다. */
 function pathLinkTitle(plan: WorkspaceOpenPlan, absPath: string, t: MenuText, lines: EditorLineRange | null): string {
   const app = plan.action === 'app' && plan.appId !== undefined ? getInternalApp(plan.appId) : undefined;
   switch (plan.action) {
@@ -391,17 +314,8 @@ function outsidePathLinkTitle(kind: string, absPath: string, t: MenuText): strin
 }
 
 /**
- * 본문 링크 — 밑줄 + sky 색으로 "클릭 가능한 주소"임을 표식. 드래그 선택은 그대로 가능하다.
- *
- * §5.5 #17-27 ⑬ (k) — **링크의 목적지도 경로 손잡이다.** 에이전트가 결과물의 위치를 적는 두 번째 방식이
- * `[검수표](Docs/Temp/점검/체크.html)` 처럼 이름을 붙인 링크인데, 종전처럼 그 조각까지 `window.open`
- * 한 갈래로 보내면 로컬 파일은 **반드시 막힌다** — 창의 오리진이 `file://`(§3.7 v2.2)이라 주소가
- * `file:///C:/…` 로 풀리고 그 스킴은 `ALLOWED_EXTERNAL_SCHEMES` 밖이라, 안내 띠만 뜬 채 파일은 끝내
- * 열리지 않았다. 이제 목적지가 디스크에 있는 경로로 읽히면 인라인 코드(`MarkdownCode`)와 **같은 훅**을
- * 타 같은 곳으로 열리고 같은 우클릭 메뉴를 얻는다. 루트 밖은 (d)·(j)② 규정 그대로 탐색기 하나다.
- *
- * 경로가 아닌 주소(웹·메일)는 여는 동작이 종전 그대로다 — 바깥 브라우저로 열고, §7.11 로 그 주소가
- * **내 기계의 서버**면 캔버스 프리뷰 버블도 함께 세운다. 달라지는 것은 우클릭뿐이다((k) ④).
+ * 본문 링크(밑줄 + sky). §5.5 #17-27 ⑬ (k) — 목적지가 디스크 경로면 `MarkdownCode` 와 같은 훅·우클릭 메뉴로 연다 — `window.open` 이면
+ * 오리진이 `file://`(§3.7)라 `file:///…` 가 `ALLOWED_EXTERNAL_SCHEMES` 밖이 되어 안 열린다. 웹·메일은 바깥 브라우저 + 내 기계 서버면 프리뷰 버블(§7.11).
  */
 const MarkdownLink = memo(function MarkdownLink({ href, children }: React.AnchorHTMLAttributes<HTMLAnchorElement>): React.JSX.Element {
   const { t } = useTranslation();
@@ -474,14 +388,8 @@ function inlineCodeText(children: React.ReactNode): string | null {
 }
 
 /**
- * §5.5 #17-27 ⑬ — 본문에 적힌 경로 = 네 번째 여는 손잡이.
- *
- * 에이전트가 "여기에 있습니다" 하며 적어 준 위치(`assets/test/gpt-image/` · `packages/client/src/App.tsx`)를
- * 눌러서 연다 — **파일이면 내장 편집창(②), 폴더면 시스템 탐색기(⑩ 과 같은 레일)**. 새 열기 레일은 만들지 않는다.
- *
- * 링크가 되는 조건은 **디스크에 실제로 있을 것** 하나다(⑬ (b)). 글자 모양만 보고 칠하면 본문의 명령·타입 조각까지
- * 파란 밑줄을 얻어 누를 수 없는 가짜 손잡이가 되므로, 1차 체(`parseStreamPathCandidate`)를 통과한 후보만
- * 서버에 묻고(경로당 한 번, 모듈 캐시) 답이 오기 전·없다는 답이 온 뒤에는 **종전과 똑같은 인라인 코드**로 그린다.
+ * §5.5 #17-27 ⑬ — 본문의 경로 = 네 번째 여는 손잡이(파일 → 내장 편집창, 폴더 → 탐색기; 새 레일 ❌). 디스크에 실제로 있을 때만 링크다(⑬ (b)) —
+ * `parseStreamPathCandidate` 를 통과한 후보만 서버에 묻고(경로당 한 번, 모듈 캐시) 그 전·없음이면 평범한 인라인 코드.
  */
 const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTMLAttributes<HTMLElement>): React.JSX.Element {
   const { t } = useTranslation();
@@ -528,15 +436,8 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
 });
 
 /**
- * §5.5 #17-28 ⑧(d) — 번호 목록은 **앱이 알아서** 가지런히 세운다.
- *
- * 종전에는 "여러 항목을 나열할 땐 `/api/agent-list` 로 보내라"는 529 토큰짜리 규약을 매 세션 실어
- * 정렬 카드를 얻었다(실측 발화 48/249). 그런데 정렬은 **표시의 문제**이고 우리는 이미 그 글을 다
- * 받고 있다 — 에이전트가 평범한 마크다운 번호 목록만 써도 여기서 같은 모양으로 세우면 된다
- * (번호 열 고정폭·우측정렬·`tabular-nums` + 본문 행잉 인덴트 = `AgentListCard` 와 같은 규칙).
- *
- * `start` 를 존중하므로 `3.` 부터 시작하는 목록도 그대로 이어진다. 중첩 목록은 자식이 다시 이
- * 컴포넌트를 타므로 안쪽도 같은 규칙으로 선다.
+ * §5.5 #17-28 ⑧(d) — 마크다운 번호 목록을 표시 단계에서 정렬한다(에이전트에 `/api/agent-list` 규약 — 매 세션 529 토큰 — 을 싣지 않는다).
+ * `AgentListCard` 와 같은 규칙(번호 열 고정폭·우측정렬·`tabular-nums` + 행잉 인덴트). `start` 존중, 중첩 목록도 이 컴포넌트를 탄다.
  */
 const MarkdownOrderedList = memo(function MarkdownOrderedList(
   { children, start }: React.OlHTMLAttributes<HTMLOListElement>,
@@ -558,13 +459,8 @@ const MarkdownOrderedList = memo(function MarkdownOrderedList(
 });
 
 /**
- * 마크다운 표 — 열이 많아 칸보다 넓어지면 **표 상자 안에서** 가로로 스크롤한다.
- *
- * 기본 `<table>` 은 칸 내용의 최소 폭 아래로 줄지 않아, 폰 폭·좁힌 창에서 열 많은 표가 대화 칸 밖으로 삐져나갔다
- * (옆 글은 제자리인데 표만 잘렸다). 표 자체는 손대지 않고(`width:100%` — 넓은 칸에서는 종전 모양 그대로) 감싼 상자만
- * 스크롤 칸이 된다. 이 상자가 `.ide-md` 그리드의 직접 자식이라 읽기 폭 탈출 표식·간격도 여기 붙는다 — 코드 블록
- * 래퍼와 같은 결(`index.css` 의 `.ide-breakout`). `display:block` 으로 표를 스크롤 칸으로 만들지 않는 까닭은 그러면
- * 표가 내용 폭으로 줄어 넓은 칸의 모양이 바뀌기 때문이다.
+ * 마크다운 표 — 칸보다 넓으면 감싼 상자 안에서 가로 스크롤(표 자체는 `width:100%` 그대로 — `display:block` 이면 넓은 칸에서 표가 줄어든다).
+ * 상자가 `.ide-md` 그리드의 직접 자식이라 `.ide-breakout` 표식도 여기 붙는다.
  */
 function MarkdownTable({ children, ...rest }: React.TableHTMLAttributes<HTMLTableElement>): React.JSX.Element {
   return (
@@ -576,16 +472,13 @@ function MarkdownTable({ children, ...rest }: React.TableHTMLAttributes<HTMLTabl
 
 const mdComponents: Components = { pre: CodeBlock, a: MarkdownLink, code: MarkdownCode, ol: MarkdownOrderedList, table: MarkdownTable };
 
-/** v3.13 — 앞쪽 절단 shift 카운트용 안정 id 추출자(렌더 간 동일 참조 필요 → 모듈 상수).
- *  §5.5 #17-12 — 밀도 변환 뒤의 표시 아이템(묶음 포함)을 받는다. */
+/** 앞쪽 절단 shift 셈용 안정 id 추출자 — 렌더 간 같은 참조여야 해서 모듈 상수(밀도 변환 뒤 표시 아이템을 받는다). */
 const streamItemId = displayItemId;
 
 /** §5.5 #17-12 · #17-48 — 내 입력(명령 말풍선) 항목인가. 상태바 추종과 입력 레일이 같은 술어를 쓴다. */
 const isCommandItem = (it: StreamDisplayItem): boolean => it.kind === 'command';
 
-/** v3.17 — 리스트 끝 여백(px): 마지막 줄이 하단 입력부 경계에 딱 붙어 걸려 보이지 않게.
- *  virtuoso Footer 로 렌더해 리스트(scrollHeight)의 일부가 되므로 DOM 워치독 바닥 접착과 자연히 호환
- *  (스크롤러 padding 은 virtuoso 측정과 어긋나므로 금지). Sub 탭·메인 탭 공용. */
+/** 리스트 끝 여백(`STREAM_END_GAP_PX`, px) — virtuoso Footer 로 그려 리스트 일부가 되므로 바닥 접착과 맞는다. 스크롤러 padding 은 virtuoso 측정과 어긋나 금지. */
 /** §5.5 #17-13 — 묶음 헤더에 보여줄 도구 이름 칩 개수(초과분은 `+N`). */
 const TOOL_GROUP_NAME_CHIPS = 3;
 
@@ -600,11 +493,7 @@ const remarkPlugins = [remarkGfm];
 
 // ─── 개별 렌더러 ───
 
-/**
- * §5.5 #17-39 ⑫ — 그 일을 한 시각(`10:52`, 호버에 전체 표기). 도구 머리줄·묶음 머리줄·AI 글이 **같은 조각**을
- * 쓴다 — 세 자리의 시각이 한 세로줄에 서려면 글자 크기·색·숫자 폭이 같아야 한다. 본문을 긁어 복사할 때
- * 시각이 딸려 가지 않게 선택에서 뺀다.
- */
+/** §5.5 #17-39 ⑫ — 그 일을 한 시각. 도구·묶음 머리줄·AI 글이 같은 조각이라 한 세로줄에 선다. 복사에 딸려 가지 않게 선택에서 뺀다. */
 function StreamClockStamp({ clock }: { clock: StreamClock | null }): React.JSX.Element | null {
   if (!clock) return null;
   return (
@@ -614,11 +503,10 @@ function StreamClockStamp({ clock }: { clock: StreamClock | null }): React.JSX.E
   );
 }
 
-/** assistant 텍스트 → 마크다운. "AI 와 나눈 일상 대화"임을 한눈에 — 박스로 감싸면 도구/생각/결과 박스와
- *  뒤섞여 오히려 지저분해 보이므로, **박스를 걷어내고 평범한 본문 텍스트**로 둔다. 다만 "AI 가 말하는 것"임은
- *  왼쪽의 작은 스파클 글리프로만 표식(도구/생각=좌측 세로바 박스, 내 입력=우측 sky 말풍선과 자연히 구분).
- *  §5.5 #17-49 — 어느 밀도에서도 본문을 접지 않는다(간결의 가운데 접기 #17-46 폐기 — 간결이 줄이는 것은
- *  도구 묶음이지 AI 가 한 말의 길이가 아니다). 메인 탭 `TerminalTextLine` 과 같은 규칙이다. */
+/**
+ * assistant 텍스트 → 박스 없는 본문 + 왼쪽 스파클 글리프(박스면 도구/생각 박스와 뒤섞인다).
+ * §5.5 #17-49 — 어느 밀도에서도 본문을 접지 않는다(메인 탭 `TerminalTextLine` 과 같은 규칙).
+ */
 export const TextBlock = memo(function TextBlock({ item, density, run }: { item: StreamText; density: StreamDensity; run: SpeechRunPos }): React.JSX.Element {
   const { t, i18n } = useTranslation();
   // §5.5 #17-39 ⑫ — 이 글이 온 시각. 간결의 연속 발화 런(#17-45)은 말머리가 선 첫 문단에만 —
@@ -630,9 +518,7 @@ export const TextBlock = memo(function TextBlock({ item, density, run }: { item:
     ? writeTraceText(t, i18n.language, (item.endedAt ?? item.timestamp) - item.timestamp, item.content.length)
     : null;
   return (
-    // §4 v3.24 — 폰(max-md)에선 좌우 여백 압축(카톡/텔레그램 밀도) — 데스크톱 px-4 유지.
-    // §5.5 #17-45 — 세로 여백은 **본문 칸**이 갖는다(바깥 상자 ❌). 그래야 왼쪽 말머리 칸이 항목 높이를
-    //   꽉 채워 런의 실선이 문단 사이에서 끊기지 않는다. `solo` 는 py-1 이라 종전과 높이가 같다.
+    // §5.5 #17-45 — 세로 여백은 본문 칸이 갖는다(바깥 상자 ❌) — 말머리 칸이 항목 높이를 채워야 런의 실선이 문단 사이에서 안 끊긴다.
     <div className="px-4 max-md:px-1.5">
       {/* §5.5 #17-39 ⑫ — VS Code 대화처럼 글 위 한 줄의 오른쪽 끝(말머리는 종전대로 첫 줄 옆).
           오른쪽 여백(pr-0.5 · 폰 pr-2)은 도구 머리줄 끝(mx-2 + px-2.5)에 맞춘 값 — 시각들이 한 세로줄에 선다. */}
@@ -819,11 +705,7 @@ const ToolBlock = memo(function ToolBlock({ item, density, review }: {
   );
 });
 
-/**
- * §5.5 #17-16 — 접힌 묶음이 그리는 **최근 도구 한 줄**. 활성/완료가 **같은 높이**라 도구가 끝나고
- * 다음 도구가 시작돼도 글자만 바뀐다(높이 변화 = 0 → 스크롤이 들쭉날쭉하지 않는다).
- * 진행 중이면 스피너, 아니면 같은 크기의 체크 글리프.
- */
+/** §5.5 #17-16 — 접힌 묶음의 최근 도구 한 줄. 진행/완료가 같은 높이라 도구가 바뀌어도 스크롤이 튀지 않는다. */
 function ToolGroupLatestLine({ item }: { item: StreamGroup }): React.JSX.Element {
   const preview = toolPreview(item.input);
   return (
@@ -846,11 +728,7 @@ function ToolGroupLatestLine({ item }: { item: StreamGroup }): React.JSX.Element
   );
 }
 
-/**
- * §5.5 #17-12/#17-16 — 도구 실행 묶음. 헤더는 `명령 실행됨 ×N` 한 줄이고, 접힌 상태에서도 **최근 도구
- * 한 줄**을 함께 그려 "지금 뭘 하는지"가 절대 가려지지 않는다. 펼치면 개별 도구 상자가 그대로 나온다.
- * 도구가 1개일 때부터 이 묶음이 존재하므로(streamDensity), 도구가 늘어도 상자가 교체되지 않는다.
- */
+/** §5.5 #17-12/#17-16 — 도구 실행 묶음(`명령 실행됨 ×N` + 접혀도 최근 도구 한 줄). 도구 1개부터 묶음이라 늘어도 상자가 교체되지 않는다. */
 const ToolGroupBlock = memo(function ToolGroupBlock({ item, density }: { item: StreamToolGroup; density: StreamDensity }): React.JSX.Element {
   const { t, i18n } = useTranslation();
   // §5.5 #17-39 ⑫ — 이 묶음을 시작한 시각(첫 도구). 펼치면 도구 상자마다 제 시각이 따로 선다.
@@ -950,12 +828,7 @@ function SystemLine({ item, density }: { item: StreamSystem; density?: StreamDen
   );
 }
 
-/**
- * §5.25 (O) — 엔진이 대화에 **내건 그림 한 장**(Sub 탭).
- *
- * 그리는 일 자체는 `StreamImageThumb` 가 한다 — 메인 탭(`IDEMainArea`)이 같은 조각을 쓰기 때문이다.
- * 여기서는 세션 좌표만 넘긴다.
- */
+/** §5.25 (O) — 엔진이 내건 그림 한 장. 메인 탭과 같은 `StreamImageThumb` 로 그리고 여기선 세션 좌표만 넘긴다. */
 function ImageBlock({ item, ctx }: { item: StreamImage; ctx?: StreamFeedbackCtx }): React.JSX.Element {
   return (
     <div className="px-4 py-1.5 max-md:px-1.5">
@@ -969,21 +842,12 @@ function ImageBlock({ item, ctx }: { item: StreamImage; ctx?: StreamFeedbackCtx 
   );
 }
 
-/**
- * §5.5 #17-12 ③ — 실패 사유 한 장. **왜 끝났는지**를 한 문장으로 말하고, 원문(stderr 꼬리·CLI 본문)은
- * 그 아래 코드 폰트로 그대로 보여준다(번역 대상 아님 — 손대면 검색·대조가 안 된다).
- */
+/** §5.5 #17-12 ③ — 실패 사유 한 장: 왜 끝났는지 한 문장 + 원문(stderr 꼬리·CLI 본문)은 코드 폰트 그대로(번역 ❌ — 검색·대조가 안 된다). */
 function ErrorLine({ item }: { item: StreamError }): React.JSX.Element {
   return <CommandErrorNotice error={parseStreamErrorContent(item.content)} className="mx-2 my-1 max-md:mx-1" />;
 }
 
-/**
- * §5.5 #17-12 ③-6 (g) — 그 턴이 왜 멈췄는지(중지·상한·거절·한도·끊김) 한 줄.
- *
- * 종전에는 같은 줄이 `CommandBlock` **안**에 있었다. 말풍선 자리는 명령이 나간 시각이라 그 한 줄이
- * 그 턴의 출력 전부보다 위 — 내가 친 글 바로 아래에 떴다. 이제 자기 항목으로 그 턴의 꼬리에 선다.
- * 모양은 한 글자도 바꾸지 않았고, 독립 항목이 되었으니 여백만 `ErrorLine`·`ResultBlock` 과 맞춘다.
- */
+/** §5.5 #17-12 ③-6 (g) — 턴이 멈춘 이유 한 줄. 자기 항목으로 턴 꼬리에 선다 — `CommandBlock` 안이면 출력보다 위(명령 자리)에 뜬다. */
 function TurnStopNotice({ item }: { item: StreamTurnStop }): React.JSX.Element {
   const { t } = useTranslation();
   return (
@@ -994,7 +858,7 @@ function TurnStopNotice({ item }: { item: StreamTurnStop }): React.JSX.Element {
   );
 }
 
-/** §4 v3.21 — result 블록 피드백 컨텍스트 (스트림 소유 에이전트/세션). 없으면 버튼 미노출. */
+/** §4 — result 블록 피드백 컨텍스트. 없으면 버튼을 숨긴다. */
 export interface StreamFeedbackCtx {
   agentId: string;
   subAgentId?: string;
@@ -1007,7 +871,7 @@ function ResultBlock({ item, feedbackCtx }: { item: StreamResult; feedbackCtx?: 
       <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-strong:text-gray-100">
         <Markdown remarkPlugins={remarkPlugins} urlTransform={streamUrlTransform} components={mdComponents}>{item.content}</Markdown>
       </div>
-      {/* §4 v3.21 — 턴 완료 메시지에 좋아요/싫어요 (규칙 되먹임 학습 재료). summary = 본문 앞부분 발췌. */}
+      {/* §4 — 턴 완료 좋아요/싫어요(규칙 되먹임 재료). summary = 본문 앞부분. */}
       {feedbackCtx && (
         <div className="mt-1.5 border-t border-emerald-500/10 pt-1.5">
           <FeedbackButtons
@@ -1027,16 +891,14 @@ function ResultBlock({ item, feedbackCtx }: { item: StreamResult; feedbackCtx?: 
 function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string }): React.JSX.Element {
   const { t } = useTranslation();
   const isError = item.status === 'error';
-  // §5.5 #17-18 ⑤ v4.77 — 이 프롬프트의 상태(실행 중/대기 중 + 방식)를 말풍선이 직접 색으로 말하고,
-  //   대기 중이면 [대기|합치기|즉시]·삭제 컨트롤까지 말풍선 안에 붙는다(옛 입력창 위 대기 줄 대체).
+  // §5.5 #17-18 ⑤ — 말풍선이 상태(실행/대기 + 방식)를 색으로 말하고, 대기 중이면 [대기|합치기|즉시]·삭제가 말풍선 안에 붙는다.
   const commandState = useMemo<PromptCommandState>(() => ({
     status: (item.status === 'queued' || item.status === 'executing' || item.status === 'error' ? item.status : 'completed'),
     ...(item.dispatchMode ? { dispatchMode: item.dispatchMode } : {}),
     ...(agentId ? { agentId } : {}),
     ...(item.commandId ? { commandId: item.commandId } : {}),
   }), [item.status, item.dispatchMode, item.commandId, agentId]);
-  // v2.61 — 전송한 첨부 이미지를 사용자 프롬프트 아래 썸네일로 표시. 클릭 시 전역 라이트박스로 확대.
-  // v2.93 — blob preview(메모리) 우선, 없으면 server 파일 라우트로 폴백(별창/새로고침/재시작에서도 표시).
+  // 첨부 이미지 썸네일 — blob preview 우선, 없으면 server 파일 라우트(별창·새로고침·재시작에도 보이게).
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
   const lightboxOrigin = useImageLightboxOrigin();
   const thumbs = useAttachmentThumbs(item.attachments);
@@ -1049,8 +911,7 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
       {item.restartResumed && (
         <p className="mt-1 text-[12px] text-amber-300/90">{t('ide.streamRenderer.restartResumed')}</p>
       )}
-      {/* §5.5 #17-18 v4.68 — 합치기로 덧말이 함께 실렸으면 그 사실을 말한다(따로 보낸 말이
-          한 프롬프트로 보이는 이유를 화면이 설명해야 한다). */}
+      {/* §5.5 #17-18 — 합치기로 실린 덧말 수를 말한다(따로 보낸 말이 한 프롬프트인 이유). */}
       {(item.mergedCount ?? 0) > 0 && (
         <div className="mb-1.5 flex items-center gap-1 pl-5 text-[12px] text-gray-500">
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1097,15 +958,10 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
 
 // ─── 메인 렌더러 ───
 
-/** §5.5 #17-24 ② — 라이브 1줄의 라벨(모드로 고른다 — 작업 중 · ⑤ 대기 · ⑥ 압축 중 셋. ⑦ 로 생각 중은 걷었다). */
+/** §5.5 #17-24 ② — 라이브 1줄 라벨: 작업 중 · ⑤ 대기 · ⑥ 압축 중(생각 중은 없다 ⑦). */
 interface LiveLabels { working: string; waiting: string; compacting: string }
 
-/**
- * §4 (스트림 3종 ①) — **중첩 서브에이전트(Task)가 한 말**을 감싸는 껍데기.
- *
- * `--forward-subagent-text` 를 켜면 자식이 한 말이 부모 스트림에 그대로 섞여 온다. 감싸지 않으면
- * 부모가 한 말과 구분되지 않아 "누가 한 말인지" 사라진다 — 왼쪽 세로선 + 갈래 표식으로 한눈에 가른다.
- */
+/** §4 (스트림 3종 ①) — `--forward-subagent-text` 로 섞여 오는 자식(Task) 말을 세로선 + 갈래 표식으로 감싼다(안 감싸면 누구 말인지 사라진다). */
 function NestedFrame({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
   return (
     <div className="border-l-2 border-violet-400/40 pl-3">
@@ -1132,11 +988,7 @@ function NestedFrame({ label, children }: { label: string; children: React.React
   );
 }
 
-/**
- * §5.5 #17-39 — 사고 자국 한 줄. 문구 조립은 `stepTraceText` 가 하고 모양은 `StepTraceLine` 이 그린다.
- * 자기 안에서 `useTranslation` 을 부르는 이유는 `renderStreamItem` 이 컴포넌트가 아니라 함수여서다
- * (TextBlock·ToolBlock 이 이미 쓰는 방식 그대로).
- */
+/** §5.5 #17-39 — 사고 자국 한 줄. `renderStreamItem` 이 컴포넌트가 아닌 함수라 여기서 `useTranslation` 을 부른다. */
 const StepTraceBlock = memo(function StepTraceBlock({ item }: { item: StreamStep }): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const text = thinkTraceText(t, i18n.language, item.endedAt - item.timestamp, item.chars);
@@ -1183,11 +1035,8 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
       ? item.nestedUnderToolUseId
       : undefined;
   if (nestedUnder) inner = <NestedFrame label={nestedLabel}>{inner}</NestedFrame>;
-  // §5.5 — 놓친 카드 pill 이 관측할 앵커. 카드류(신고/질문/검수/목록)에만 표식.
-  //   ⚠ data-card-id 는 stream item.id(`question-${q.id}` 등 접두어 포함)가 아니라 **raw 카드 id** 여야 한다.
-  //   pill 의 cards 프롭(unseenCandidateCards)과 메인 탭 앵커가 모두 raw id 라, 접두어 id 로 두면 seen 추적·클릭
-  //   점프가 어긋난다(교차 관측 id 불일치 → 봐도 pill 이 안 사라지고, scrollToBookmark(raw) findIndex 가 -1).
-  //   §5.5 #17-12 — 신고 카드에 흡수된 검수(item.review)의 앵커는 AgentReportCard 안쪽 구획이 직접 단다.
+  // §5.5 — 놓친 카드 pill 의 관측 앵커(카드류에만). ⚠ data-card-id 는 접두어 붙은 item.id 가 아니라 raw 카드 id —
+  // pill 의 cards 와 메인 탭 앵커가 raw 라 어긋나면 봐도 pill 이 안 사라지고 점프가 -1 이 된다. 흡수된 검수의 앵커는 AgentReportCard 가 단다(§5.5 #17-12).
   const cardId =
     item.kind === 'report' ? item.report.id :
     item.kind === 'question' ? item.questions.id :
@@ -1210,9 +1059,7 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
 
 export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt, sessionCompactingSince, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange, onPromptOutline }, ref): React.JSX.Element {
   const { t } = useTranslation();
-  // 성능(v3.10): 2단 빌드 — 1단계(events 기반 base)는 **증분 파서**가 새로 온 이벤트만 처리(O(신규)).
-  //   세션 전환/commands 변경/버퍼 앞쪽 절단이면 파서 내부에서 전체 재구축으로 폴백(결과는 항상 동일).
-  //   2단계(카드 합류)는 카드 변경 때만 재계산. 파서 인스턴스는 이 컴포넌트 수명 동안 유지(ref).
+  // 2단 빌드 — 1단계는 증분 파서(새 이벤트만, 세션 전환·commands 변경·앞 절단이면 전체 재구축), 2단계(카드 합류)는 카드가 바뀔 때만.
   const parserRef = useRef<IncrementalStreamParser | null>(null);
   if (parserRef.current === null) parserRef.current = new IncrementalStreamParser();
   const base = useMemo(
@@ -1229,10 +1076,7 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   const density = useGraphStore((s) => s.ideStreamDensity);
   const dense = useMemo(() => applyStreamDensity(merged, density), [merged, density]);
 
-  // v3.09 — 항목 identity 안정화(thinking 떨림 차단). 증분 파서는 자란 항목만 새 객체로 교체하지만,
-  //   카드 합류/정렬 단계가 배열을 새로 만들므로 여기서 한 번 더 참조를 고정한다: 직전 렌더에서 같은 id 의
-  //   항목과 렌더에 영향 주는 필드가 모두 같으면 **이전 객체 참조를 그대로 재사용** → memo 자식이 유지돼
-  //   뷰포트 선렌더 버퍼 전체 재측정이 사라진다(스크롤 추종 로직은 손대지 않음).
+  // identity 고정 — 같은 id·같은 렌더 필드면 직전 객체를 재사용한다. 합류/정렬이 배열을 새로 만들어도 memo 자식이 유지돼 버퍼 재측정(떨림)이 없다.
   const prevById = useRef<Map<string, StreamDisplayItem>>(new Map());
   const items = useMemo(() => {
     const next = new Map<string, StreamDisplayItem>();
@@ -1246,13 +1090,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
     return reconciled;
   }, [dense]);
 
-  // v3.13 — 버퍼 앞쪽 절단(상한 초과 시 오래된 이벤트 일괄 제거)을 virtuoso 에 shift 로 신고. 이게 없으면
-  //   인덱스 기반 sizeTree/offsetTree 가 절단마다 통째로 밀려 측정 모델이 붕괴 → pin/followOutput/restoreState
-  //   가 전부 틀린 좌표로 계산돼 긴 세션에서 화면이 "위로 말려 올라갔다"(새 이벤트 유입 = 절단 시점).
-  //   §5.5 #17-12 — 밀도를 리셋 키로 함께 넘긴다: 밀도 전환은 선두 id 를 통째로 갈아치우므로 절단으로
-  //   오인하면 있지도 않은 제거분만큼 스크롤이 보정돼 화면이 튄다.
-  //   §5.5 #17-12 — 과거를 불러와 **앞에 붙인** 것도 신고한다. 기준은 직전 렌더에서 화면 맨 위에 선 항목이다 —
-  //   불러온 과거는 창 밖 턴의 명령 블록들 사이로 끼어들어, 맨 앞 항목만 보면 "그대로"로 읽힌다.
+  // 앞 절단과 과거 앞붙임을 virtuoso 에 shift 로 신고한다 — 없으면 인덱스 기반 측정이 밀려 긴 세션에서 화면이 말려 올라간다.
+  // §5.5 #17-12 — 밀도는 리셋 키로 넘긴다(밀도 전환의 선두 id 교체를 절단으로 오인하면 화면이 튄다). 앞붙임 기준은 직전 렌더의 맨 위 항목(맨 앞 항목만 보면 "그대로"로 읽힌다).
   const scrollerElRef = useRef<HTMLElement | null>(null);
   const viewIndexOf = useCallback((prevIds: readonly string[]): number | undefined => {
     const cont = scrollerElRef.current;
@@ -1354,8 +1193,7 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
     [liveLabels, ideTextZoom, density, speechRuns, nestedLabel, agentId, subAgentId, reviewCtx],
   );
 
-  // v2.99 — virtuoso 가 단독 소유한 내부 스크롤러 DOM. 북마크 이동의 "컨테이너 한정 스크롤" 이 이걸 쓴다
-  //   (옛 외부 scrollParent 컨테이너 대체). scrollerRef 콜백에서 채워 부모에게도 그대로 올린다.
+  // virtuoso 소유 스크롤러 DOM — 북마크 이동이 쓰고 부모에도 올린다.
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const handleScrollerRef = useCallback((el: HTMLElement | Window | null) => {
     const node = el instanceof HTMLElement ? el : null;
@@ -1409,10 +1247,7 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
       cont.scrollTo({ top: cont.scrollTop + (targetRect.top - containerRect.top) - 16, behavior: 'smooth' });
     }, idx >= 0 ? 280 : 0);
   }, [items]);
-  // §5.5 #17-12 — 하단 상태바가 묻는 "지금 보고 있는 명령". 화면 맨 위를 채운 항목만 DOM 으로 재고
-  //   (항목 래퍼 `data-stream-item-id` 는 위→아래 순서라 top 이 단조증가 → 이분 탐색), 그 항목이 속한
-  //   명령은 items 배열로 거슬러 올라가 찾는다. 명령 블록이 선렌더 버퍼 밖이어도 정확히 나온다.
-  //   §5.5 #17-48 — 측정은 내 입력 레일과 **같은 함수**(글자 배율 아래에서도 어긋나지 않는 측정)다.
+  // §5.5 #17-12 — "지금 보고 있는 명령": 맨 위 항목만 DOM 으로 이분 탐색하고 명령은 items 로 거슬러 찾는다(버퍼 밖이어도 맞다). #17-48 입력 레일과 같은 측정.
   const viewedCommandId = useCallback((): string | null => {
     const cont = scrollerElRef.current;
     if (!cont) return null;
@@ -1475,9 +1310,7 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
     );
   }
 
-  // v2.99 — Virtuoso 가 height:100% 로 자기 스크롤러를 단독 소유(외부 customScrollParent 공유 폐기).
-  //   v3.14 — 바닥 추종 집행은 부모(IDEMainArea)의 DOM 워치독 단일 권한(followOutput 위임 제거 —
-  //   모델 좌표 역주행 차단). atBottomStateChange 로 추종 의도 통지, restoreStateFrom 으로 세션 복원.
+  // 바닥 추종 집행은 부모(IDEMainArea) DOM 워치독 단독 — followOutput 에 맡기면 모델 좌표가 역주행한다.
   return (
     // §7.11 — 본문 링크를 누르면 **이 스트림의 에이전트**에 프리뷰가 매달리게 소유자를 내려 준다.
     <StreamOwnerAgentId.Provider value={agentId}>
@@ -1487,11 +1320,10 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
       style={{ height: '100%' }}
       scrollerRef={handleScrollerRef}
       data={items}
-      // v3.13 — 앞쪽 절단 누적 수. virtuoso 가 공식 shift 경로로 sizeTree 키 재정렬 + scrollTop 보정.
+      // 앞 절단 누적 수 — virtuoso 공식 shift 경로(sizeTree 재정렬 + scrollTop 보정).
       firstItemIndex={firstItemIndex}
       computeItemKey={(_i, item) => item.id}
       itemContent={itemContent}
-      // v3.17 — 마지막 줄과 하단 입력부 사이 여백(리스트 일부라 바닥 접착에 포함).
       components={{ Footer: StreamEndGap }}
       atBottomStateChange={onAtBottomChange}
       atBottomThreshold={40}
@@ -1503,11 +1335,7 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
         : { initialTopMostItemIndex: { index: 'LAST' as const, align: 'end' as const } })}
       // A: 뷰포트 밖 선렌더 버퍼 확대 — 중간 속도 스크롤에서 본문이 미리 준비돼 pop-in 이 줄어든다.
       increaseViewportBy={{ top: 1600, bottom: 2000 }}
-      // B(제거): scrollSeek 자리표시자는 **스트리밍 중 떨림(발발 떨림)의 원인**이었다 — 바닥 자동추종(followOutput)
-      //   이 매 토큰 바닥으로 순간 점프하면 그 속도가 enter 임계(800px/s)를 넘겨 자리표시자가 깜빡이고, 게다가
-      //   마지막 항목이 **자라는 중**이라 추정 높이 ≠ 실제 높이 → 교체할 때마다 화면이 위아래로 튀었다. 빠른 휠
-      //   스크롤에서도 같은 높이 불일치로 떨렸다. 자리표시자를 빼고 항상 실제 본문을 그려 떨림을 없앤다(빠른 드래그
-      //   시 약간 무겁지만 안정성 우선).
+      // scrollSeek 자리표시자를 쓰지 마라 — 추종 점프가 임계(800px/s)를 넘겨 깜빡이고, 자라는 마지막 항목은 추정 높이가 틀려 교체마다 튄다.
     />
     </StreamOwnerAgentId.Provider>
   );

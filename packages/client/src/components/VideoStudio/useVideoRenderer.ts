@@ -1,14 +1,8 @@
 import type { VideoMediaProvider } from './videoMediaProvider.js';
 /**
- * §5.13 Vibistudio — 렌더 글루.
- *
- * 순수 층(`@vibisual/video`)과 브라우저 렌더 층(`@vibisual/video/render`)을 화면에
- * 붙인다. 화면 컴포넌트가 백엔드 선택이나 인코더를 직접 알지 않게 여기서 한 번만
- * 조립한다 — 미리보기와 스틸과 최종 렌더가 **같은 경로로 그려야** 미리보기와 결과가
- * 어긋나지 않기 때문이다.
- *
- * 백엔드 세 종이 모두 여기서 후보로 선다. 못 쓰는 것은 탐지 단계에서 이유와 함께
- * 걸러지고, 내려갔다는 사실은 호출부가 화면에 알린다(조용히 느려지지 않게).
+ * §5.13 — 렌더 글루: 순수 층(`@vibisual/video`)과 브라우저 렌더 층(`@vibisual/video/render`)을 화면에 붙인다.
+ * 미리보기·스틸·최종 렌더가 같은 경로로 그려야 결과가 어긋나지 않으므로, 백엔드 선택·인코더 조립은 여기서 한 번만 한다.
+ * 백엔드 세 종이 모두 후보로 서고, 못 쓰는 것은 탐지 단계에서 이유와 함께 걸러진다 — 내려간 사실은 호출부가 화면에 알린다(조용히 느려지지 않게).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -190,11 +184,8 @@ interface BridgeExtras {
 }
 
 /**
- * main 프로세스의 오프스크린 창을 조종하는 다리.
- *
- * 앱 전용 채널을 쓰지 않는다 — 코어가 여는 통로는 `app.invoke(appId, action, payload)`
- * 하나뿐이고, 뜻은 이 앱과 `main/apps/vibistudio.ts` 만 안다(§5.13 (O)).
- *
+ * main 프로세스의 오프스크린 창을 조종하는 다리. 앱 전용 채널을 쓰지 않는다 — 코어 통로는 `app.invoke(appId, action, payload)` 하나뿐이고,
+ * 뜻은 이 앱과 `main/apps/vibistudio.ts` 만 안다(§5.13 (O)).
  * §5.13 (W) 38-1 — 찍기는 날 비트맵(`format:'raw'`)으로 받는다(main 이 PNG 를 굽지 않게). 옛 main 이 PNG 를 돌려줘도 받는다.
  */
 function makeOffscreenBridge(project: string, docId: string, session: string = newSessionKey(), extras: BridgeExtras = {}): OffscreenCaptureBridge {
@@ -353,18 +344,15 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { 
   );
 
   /**
-   * 미리보기 전용 소재 공급자 — **소재 목록이 같은 동안 하나를 계속 쓴다.**
-   *
-   * 프레임마다 새로 만들면 매 프레임 파일을 다시 열고(통합 앱에선 IPC 로 파일 전체를 다시
-   * 받는다) 키프레임부터 다시 디코딩해, 재생이 사실상 멈춘다. 컷을 옮기거나 자막을 고쳐도
-   * 소재가 그대로면 연 입력을 그대로 쓴다.
+   * 미리보기 전용 소재 공급자 — 소재 목록이 같은 동안 하나를 계속 쓴다. 프레임마다 새로 만들면 매번 파일을 다시 열고(통합 앱은 IPC 로 파일 전체를 다시 받는다)
+   * 키프레임부터 다시 디코딩해 재생이 사실상 멈춘다. 컷을 옮기거나 자막을 고쳐도 소재가 그대로면 연 입력을 그대로 쓴다.
    */
   const assets = opts.previewActive === false ? undefined : doc?.assets;
   const previewOn = assets !== undefined;
   const assetsRef = useRef(assets);
   assetsRef.current = assets;
-  // §5.13 (Y) 40-6 — 공급자는 **프로젝트 하나에 하나**다. 종전에는 소재 전체의 지문이 열쇠라 효과음 하나만 더해도 공급자가 새로 섰고,
-  //   그에 매인 무대·실사 입력이 전부 다시 열렸다. 이제 소재 목록은 `setAssets` 로 갈아 끼운다(그대로인 소재의 입력·읽개는 남는다).
+  // §5.13 (Y) 40-6 — 공급자는 프로젝트 하나에 하나다. 소재 지문을 열쇠로 하면 효과음 하나만 더해도 공급자가 새로 서서 매인 무대·실사 입력이 전부 다시 열린다.
+  //   소재 목록은 `setAssets` 로 갈아 끼운다(그대로인 소재의 입력·읽개는 남는다).
   const [mediaLease, setMediaLease] = useState<{ project: string; media: VideoMediaProvider } | null>(null);
   // Allocate inside the effect: StrictMode cleanup/setup must get a fresh, live provider.
   useEffect(() => {
@@ -382,9 +370,8 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { 
   }
 
   /**
-   * §5.13 (X) 39-6 — 미리보기 그리기 판은 **같은 문서·같은 소재 공급자인 동안 하나**를 쓴다. 종전에는 프레임마다 문서 크기 캔버스
-   * (1080×1920 이면 약 8MB)를 새로 만들고 버려, 재생하는 내내 그만큼의 쓰레기가 쌓였다. 그리기는 **줄을 세운다** — 스틸·검수
-   * 표본도 같은 판을 쓰므로, 두 요청이 한 캔버스에 섞여 그려지지 않게.
+   * §5.13 (X) 39-6 — 미리보기 그리기 판은 같은 문서·같은 소재 공급자인 동안 하나를 쓴다(프레임마다 문서 크기 캔버스를 만들면 1080×1920 기준 약 8MB씩 쓰레기가 쌓인다).
+   * 그리기는 줄을 세운다 — 스틸·검수 표본도 같은 판을 쓰므로 두 요청이 한 캔버스에 섞여 그려지지 않게.
    */
   const previewBackend = useRef<{ doc: VideoDoc; timeline: ResolvedTimeline; media: MediaProvider; backend: Canvas2DBackend } | null>(null);
   const previewScope = useMemo(() => ({ active: true, queue: Promise.resolve() }), [doc, previewMedia]);
@@ -401,11 +388,8 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { 
     (canvas: HTMLCanvasElement, t: number): Promise<void> => {
       const run = previewScope.queue.then(async () => {
         if (!previewScope.active || !doc || !timeline || !previewMedia) return;
-        // 미리보기는 늘 canvas2d 로 그린다 — 창 안에서 즉시 반응해야 하고, 실험 API 가
-        // 흔들려도 편집 화면만은 멈추면 안 된다.
-        //
-        // 보이는 캔버스에 바로 그리지 않는다. 백엔드는 먼저 검게 지운 뒤 디코딩을 기다리므로,
-        // 재생 중에는 그 사이마다 검은 화면이 끼어 깜빡인다. 화면 밖에서 다 그린 뒤 한 번에 옮긴다.
+        // 미리보기는 늘 canvas2d 로 그린다 — 창 안에서 즉시 반응해야 하고, 실험 API 가 흔들려도 편집 화면만은 멈추면 안 된다.
+        // 보이는 캔버스에 바로 그리지 않는다 — 백엔드가 먼저 검게 지운 뒤 디코딩을 기다려 재생 중 검은 화면이 끼어 깜빡인다. 화면 밖에서 다 그린 뒤 한 번에 옮긴다.
         let held = previewBackend.current;
         if (!held || held.doc !== doc || held.timeline !== timeline || held.media !== previewMedia) {
           held?.backend.dispose();

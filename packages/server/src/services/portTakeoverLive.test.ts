@@ -4,14 +4,8 @@ import { Socket } from 'node:net';
 import { takeoverPortCommand } from './portTakeover.js';
 
 /**
- * §7.11 포트 인계 — **실제 프로세스**를 하나 띄워 놓고 그 기동 명령을 되찾아 온다.
- *
- * 파서 단위 테스트(`portTakeover.test.ts`)는 출력 모양만 고정한다. 이 테스트는 그 위 한 층 —
- * "포트 → PID → 명령줄" 사슬이 **이 OS 에서 실제로 이어지는가"를 본다. 이 사슬이 끊기면
- * 에이전트가 켠 서버의 Start 버튼은 다시 회색이 되고, 사용자는 v3.85 로 되돌아간 것을 느낀다.
- *
- * 자식은 `detached` 로 띄운다 — 우리 프로세스의 자식이라도 pid 는 다르므로 자기보호 가드
- * (`pid !== process.pid`)에 걸리지 않는다.
+ * §7.11 포트 인계 — 실제 프로세스로 "포트 → PID → 명령줄" 사슬이 이 OS 에서 이어지는지 본다(끊기면 에이전트가 켠 서버의 Start 가 다시 회색).
+ * 자식은 `detached` — pid 가 달라 자기보호 가드(`pid !== process.pid`)에 안 걸린다.
  */
 const children: ChildProcess[] = [];
 
@@ -42,13 +36,8 @@ async function spawnServer(port: number): Promise<void> {
 }
 
 /**
- * 인계 조회를 몇 번까지 해 보나. 조회 한 번은 외부 명령(Windows: `netstat` → PowerShell)을 부르고
- * 각각 실제 코드의 상한(3초 · `takeoverProbeTimeoutMs`)을 그대로 쓴다. GitHub 의 windows-latest
- * 러너는 시험 스위트가 CPU 를 쓰는 동안 PowerShell 기동만으로 4초를 넘긴다 — 2026-09-13 CI 에서
- * netstat 은 pid 를 찾았는데 명령줄 조회가 4.2초에 잘렸고(재실행은 3.0초에 통과), 재시도를 셋으로
- * 늘린 다음 회차(#39)에서도 세 번 모두 4초에 잘렸다. 시험을 늘려서 풀 일이 아니라 제품의 상한이
- * 좁았던 것이라 Windows 상한을 넓혔고, 여기서는 첫 기동이 디스크 캐시에 올라온 뒤 한 번만 더 묻는다.
- * 판정은 그대로다 — 결국 node 명령줄을 읽어 와야 통과한다.
+ * 인계 조회 횟수. windows-latest 러너는 시험 중 PowerShell 기동만으로 4초를 넘긴다(2026-09-13 CI 실측) — 재시도를 늘리지 말고 제품 상한(`takeoverProbeTimeoutMs`)으로 푼다.
+ * 첫 기동이 디스크 캐시에 오른 뒤 한 번만 더 묻는다. 판정은 그대로 — node 명령줄을 읽어 와야 통과한다.
  */
 const TAKEOVER_ATTEMPTS = 2;
 

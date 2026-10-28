@@ -6,13 +6,7 @@ import { agentTouchedFileIds } from './editorFollow.js';
 import { splitRelPath, toRelativeFromRoot } from './explorerModel.js';
 import { openFileByPath } from './useWorkspaceExplorer.js';
 
-/**
- * §5.5 #17-19 ④ v4.71 — 트리 위의 "이 에이전트가 편집한 파일" 구역(VS Code 의 OPEN EDITORS 자리).
- *
- * v4.71 이전의 파일 뷰가 하던 일을 그대로 이어받되(엣지로 이어진 파일 노드 + `fileEdits` 횟수),
- * 표시만 `상위폴더/파일명` 으로 바꾼다 — basename 만 찍으면 같은 이름의 파일이 여럿일 때
- * 어느 것인지 알 수 없다는 것이 이번 개편의 출발점이다.
- */
+/** §5.5 #17-19 ④ — "이 에이전트가 편집한 파일" 구역(VS Code OPEN EDITORS 자리). 표시는 `상위폴더/파일명` — basename 만이면 동명 파일을 못 가른다. */
 
 /** 편집 목록이 트리를 밀어내지 않도록 잡는 상한(px). 넘으면 이 구역만 스크롤된다. */
 const EDITED_MAX_HEIGHT = 160;

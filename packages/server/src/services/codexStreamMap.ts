@@ -1,22 +1,9 @@
 /**
- * §5.25 (F) — `codex exec --json` 의 JSONL 한 줄을 우리 스트림 이벤트로 옮긴다.
- *
- * **여기가 이 기능의 유일한 해석 지점이다.** 화면마다 따로 해석하면 한쪽만 고쳐지는 날이 오고,
- * §5.19 (G) 가 `localModelEntry.ts` 로 판정을 모은 것과 같은 이유로 여기 한 곳에 둔다.
- * 순수 함수라 단위 테스트로 고정한다(`codexStreamMap.test.ts`).
- *
- * 실측한 줄(2026-09-07 · codex-cli 0.152.1):
- *   {"type":"thread.started","thread_id":"..."}
- *   {"type":"turn.started"}
- *   {"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","status":"in_progress"}}
- *   {"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"..."}}
- *   {"type":"turn.completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122,"reasoning_output_tokens":0}}
- *   {"type":"error","message":"You've hit your usage limit..."}
- *   {"type":"turn.failed","error":{"message":"..."}}
- *
- * **모르는 줄은 버린다.** 코덱스는 빠르게 바뀌는 CLI 라 새 `item.type` 이 언제든 생기고,
- * 그것을 억지로 `text` 로 흘리면 화면에 정체 모를 원문이 쏟아진다(§2.1 이 Bash 추출에서
- * 세운 "모르는 것을 넘겨짚지 않는다"와 같은 규율).
+ * §5.25 (F) — `codex exec --json` 의 JSONL 한 줄을 스트림 이벤트로 옮긴다. 여기가 유일한 해석 지점이다(화면마다 해석하면 한쪽만 고쳐진다 — §5.19 (G) 와 같은 이유).
+ * 순수 함수라 `codexStreamMap.test.ts` 로 고정한다. 실측 줄 모양(2026-09-07 · codex-cli 0.152.1):
+ * `thread.started`{thread_id} · `turn.started` · `item.started`/`item.completed`{item:{id,type,…}} · `error`{message} · `turn.failed`{error:{message}}
+ * · `turn.completed`{usage:{input_tokens,cached_input_tokens,output_tokens,reasoning_output_tokens}}.
+ * 모르는 줄은 버린다 — 새 `item.type` 은 언제든 생기고, `text` 로 흘리면 정체 모를 원문이 쏟아진다(§2.1 "넘겨짚지 않는다"와 같은 규율).
  */
 
 import { parseCodexTransportNotice } from '@vibisual/shared';
@@ -34,12 +21,8 @@ export interface CodexMappedEvent {
   /** §5.25 (O) — 이 줄이 그림 한 장이면 그 파일의 절대경로. `text` 에만 실린다. */
   imagePath?: string;
   /**
-   * 이 `tool_use` 는 **짝이 되는 `tool_result` 가 반드시 온다**고 약속된 호출인가.
-   *
-   * 미결 원장(`codexPendingCalls.ts`)이 시한을 걸 수 있는 유일한 근거다. 아무 도구에나 걸면
-   * 안 된다 — `web_search` 는 완료 줄이 보장되지 않아(0.152.1 은 없었고, 0.159.2 는 싣지만 공급자마다
-   * 오는지 확인되지 않았다) 시한을 걸면 거짓 실패가 될 수 있고,
-   * `command_execution` 은 한 시간을 정상적으로 돌 수 있다(`tool_timeout_sec=3600`).
+   * 이 `tool_use` 는 짝 `tool_result` 가 반드시 온다고 약속된 호출인가 — 미결 원장(`codexPendingCalls.ts`)이 시한을 거는 유일한 근거다.
+   * 아무 도구에나 걸지 마라: `web_search` 는 완료 줄이 보장되지 않고(0.152.1 은 없었고 0.159.2 는 싣지만 공급자마다 확인 안 됨), `command_execution` 은 한 시간을 정상으로 돈다(`tool_timeout_sec=3600`).
    * 그래서 지금은 MCP 호출에만 선다.
    */
   awaitsResult?: true;
@@ -79,11 +62,8 @@ export interface CodexMapResult {
 const EMPTY: CodexMapResult = { events: [] };
 
 /**
- * §5.25 (O) — 그림으로 그릴 확장자. 여기 없는 것은 **그림으로 그리지 않고 글로만 남긴다.**
- *
- * `svg` 는 일부러 뺐다 — 스크립트를 품을 수 있는 문서라, 우리 창 안에서 열어 줄 것이 아니다.
- * 코덱스가 실제로 준 것은 `png`·`jpg` 뿐이었지만(1,063건 실측), 엔진이 늘리는 쪽을 막지 않으려
- * 흔한 래스터 형식은 미리 받아 둔다.
+ * §5.25 (O) — 그림으로 그릴 확장자. 없는 것은 글로만 남긴다.
+ * `svg` 는 일부러 뺐다 — 스크립트를 품을 수 있어 우리 창에서 열 것이 아니다. 실측은 `png`·`jpg` 뿐(1,063건)이지만 흔한 래스터 형식은 미리 받는다.
  */
 export const CODEX_IMAGE_EXTENSIONS: readonly string[] = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
 
@@ -96,15 +76,9 @@ export function isCodexImageFile(pathOrUrl: string): boolean {
 }
 
 /**
- * §5.25 (O) — 코덱스가 준 `path` 를 파일 경로로 옮긴다. **플랫폼을 인자로 받는다**(멀티플랫폼 4축) —
- * `process.platform` 을 안에서 읽으면 윈도우 개발기에서 mac/linux 갈래를 영영 시험하지 못한다.
- *
- * 실측(1,063건): 값은 **항상 `file:///…` URL** 이었지 평범한 경로가 아니었다. 그대로 `fs` 에 넘기면
- * 세 OS 모두에서 "그런 파일 없음"이 된다. 갈리는 자리는 하나 — 윈도우의 `file:///C:/x` 는 본문이
- * `/C:/x` 로 시작해 **앞 슬래시를 떼야** 하고, posix 의 `file:///home/x` 는 그 슬래시가 경로의 뿌리라
- * **떼면 안 된다.** 퍼센트 인코딩(`%20`)은 두 쪽 다 푼다.
- *
- * URL 이 아닌 값이 오면 그대로 돌려준다 — 엔진이 표기를 바꾸는 날 조용히 빈 값이 되지 않게.
+ * §5.25 (O) — 코덱스가 준 `path` 를 파일 경로로 옮긴다. 플랫폼은 인자로 받는다(안에서 `process.platform` 을 읽으면 mac/linux 갈래를 시험 못 한다).
+ * 값은 항상 `file:///…` URL 이다(실측 1,063건). 윈도우 `file:///C:/x` 는 본문 `/C:/x` 의 앞 슬래시를 떼야 하고, posix `file:///home/x` 는 그 슬래시가 뿌리라 떼면 안 된다.
+ * 퍼센트 인코딩(`%20`)은 둘 다 푼다. URL 이 아니면 그대로 돌려준다 — 표기가 바뀌어도 조용히 빈 값이 되지 않게.
  */
 export function codexImagePathFromUrl(raw: string, platform: NodeJS.Platform): string {
   const v = typeof raw === 'string' ? raw.trim() : '';
@@ -187,9 +161,7 @@ export function codexFileChangePaths(item: Record<string, unknown>): string[] {
 
 /**
  * JSONL 한 줄 → 매핑 결과. JSON 이 아니거나 모르는 모양이면 `null`.
- *
- * `null` 과 "이벤트 0개인 결과"는 다르다 — 전자는 우리가 못 알아본 줄이고(로그로만 남긴다),
- * 후자는 알아봤지만 화면에 낼 것이 없는 줄이다(`turn.started` 등).
+ * `null`(못 알아본 줄 — 로그로만 남긴다)과 이벤트 0개 결과(알아봤지만 낼 것이 없는 줄 — `turn.started` 등)는 다르다.
  */
 export function mapCodexLine(line: string, platform: NodeJS.Platform = process.platform): CodexMapResult | null {
   const trimmed = line.trim();
@@ -367,10 +339,8 @@ function mapItem(envelope: string, itemRaw: unknown, platform: NodeJS.Platform):
     }
 
     case 'web_search': {
-      // 시작 줄이 카드를 세우고, 완료 줄이 **같은 카드의 결과**가 된다. 0.159.2 는 검색어·동작(`action`)을
-      //   완료 줄에 싣는다 — 실제 공급자에서는 시작 줄의 `query` 가 비어 카드가 "(web search)"로만 남았고,
-      //   완료 줄을 버리던 동안 무엇을 찾았는지가 화면 어디에도 없었다. 완료 줄이 매번 온다는 보장은 확인되지
-      //   않았으므로 미결 원장에는 여전히 걸지 않는다(`awaitsResult` ❌ — 안 오면 종전처럼 카드만 남는다).
+      // 시작 줄이 카드를 세우고 완료 줄이 같은 카드의 결과가 된다. 0.159.2 는 검색어·`action` 을 완료 줄에 싣는다(실제 공급자에서는 시작 줄 `query` 가 비어 있다).
+      // 완료 줄이 매번 온다는 보장은 확인되지 않아 미결 원장에는 걸지 않는다(`awaitsResult` 없음 — 안 오면 카드만 남는다).
       if (envelope === 'item.started') {
         const query = str(item['query']);
         return {
@@ -405,15 +375,9 @@ function mapItem(envelope: string, itemRaw: unknown, platform: NodeJS.Platform):
     }
 
     /**
-     * §5.25 (O) — 엔진이 대화에 **그림 한 장을 내건** 줄.
-     *
-     * 이름이 `ImageView` 인 것이 그대로 뜻이다 — **"만든 그림"이 아니라 "보여 주는 그림"이다.**
-     * 실측 1,063건의 경로는 프로젝트 폴더 877 · `~/.codex/generated_images` 81 · `skills` 11 ·
-     * `visualizations` 9 로 흩어져 있었다. 그래서 폴더 하나를 정해 두고 거르지 않는다 —
-     * **엔진이 보여 준 것을 그대로 옮기는 것**이 이 자리의 일이다.
-     *
-     * `text` 로 낸다(새 종류를 만들지 않는 이유는 `SubAgentStreamEvent.imagePath` 주석 참조).
-     * `content` 에는 파일 이름을 적어, 그림을 못 그리는 자리에서도 무엇이 있었는지는 남게 한다.
+     * §5.25 (O) — 엔진이 대화에 그림 한 장을 내건 줄. `ImageView` 는 "만든 그림"이 아니라 "보여 주는 그림"이다.
+     * 경로가 흩어져 있어(실측 1,063건: 프로젝트 877 · `~/.codex/generated_images` 81 · `skills` 11 · `visualizations` 9) 폴더로 거르지 않고 그대로 옮긴다.
+     * `text` 로 낸다(새 종류를 안 만드는 이유는 `SubAgentStreamEvent.imagePath` 주석). `content` 에 파일 이름을 적어 그림을 못 그리는 자리에도 남게 한다.
      */
     case 'ImageView': {
       // 시작 줄은 오지 않는다(실측 1,063건 전부 완료 줄) — 와도 같은 그림을 두 번 걸지 않는다.

@@ -52,7 +52,7 @@ describe('§3.6 — 훅 이벤트 등록 전수', () => {
     return settings.hooks;
   }
 
-  it('v4.89 신규 7종이 그대로 남아 있다', () => {
+  it('추가된 7종이 그대로 남아 있다', () => {
     const hooks = installed();
     for (const ev of [
       'StopFailure', 'PostToolUseFailure', 'SubagentStart',

@@ -1,9 +1,6 @@
 /**
- * §4 (상태바 모델 칸 ②③) — 설정창(`AgentConfigPopup`)을 **모델 구역만** 연 작은 카드의 순수 판정.
- *
- * 카드는 새 설정창이 아니라 같은 창의 `section="model"` 보기다 — 상태·저장·렌더 조각은 전체 보기와
- * 한 벌이고, 여기에는 **그 보기에만 있는 것**(칸 위에 붙는 자리 · 목록을 언제 어디서 확인했는가 ·
- * 바꾼 값이 언제부터 먹는가)만 둔다. 화면이 판정을 들고 있으면 DOM 없는 테스트로 고정할 수 없다.
+ * §4 (상태바 모델 칸 ②③) — `AgentConfigPopup` 의 `section="model"` 보기(작은 카드)에만 있는 순수 판정(DOM 없는 시험용).
+ * 상태·저장·렌더는 전체 보기와 한 벌이다.
  */
 import type { ModelRegistry } from '@vibisual/shared';
 import type { ViewportSize } from '../../hooks/popupDismiss.js';
@@ -65,11 +62,8 @@ export function placeModelSectionCard(
 export type ModelListSource = 'seed' | 'api' | 'observed';
 
 /**
- * 레지스트리 한 벌이 **실제로** 어느 출처를 담고 있는가(공개 문서 → 공식 API → 사용 기록).
- *
- * 공개 문서 시드는 늘 바닥에 깔린다 — API 가 같은 ID 를 덮어 항목의 `source` 가 전부 `api` 로 바뀌어도
- * 가격은 여전히 시드에서 오기 때문이다. 나머지 둘은 **있을 때만** 적는다(키가 없는 PC 에 "공식 API"
- * 라고 적으면 그 목록이 받아 온 적 없는 것을 받아 왔다고 말하게 된다).
+ * 레지스트리가 실제로 담은 출처(공개 문서 → 공식 API → 사용 기록). 시드는 늘 넣는다 — `source` 가 전부 `api` 여도 가격은 시드에서 온다.
+ * 나머지 둘은 있을 때만 적는다(키 없는 PC 에 "공식 API" 라고 적으면 거짓이 된다).
  */
 export function modelListSourcesOf(registry: ModelRegistry | null | undefined): ModelListSource[] {
   if (!registry) return [];
@@ -103,11 +97,7 @@ function relativeFormatFor(locale: string): Intl.RelativeTimeFormat {
   return made;
 }
 
-/**
- * 확인 시각 → "3분 전"·"지금" 같은 로케일 표기. **새 i18n 키를 만들지 않는다** — 12개 로케일에 같은
- * 말을 12번 적어 두는 대신 `Intl.RelativeTimeFormat` 이 그 언어로 말한다. 모르는 시각이면 `null`.
- * 미래 시각(시계가 어긋난 PC)은 "지금"으로 접는다 — "3분 후에 확인했다"는 말이 되지 않는다.
- */
+/** 확인 시각 → 로케일 상대 표기(새 i18n 키 없이 `Intl.RelativeTimeFormat`). 모르면 `null`, 미래 시각(시계 어긋남)은 "지금". */
 export function formatCheckedAgo(checkedAt: number | null | undefined, now: number, locale: string): string | null {
   if (typeof checkedAt !== 'number' || !Number.isFinite(checkedAt) || checkedAt <= 0) return null;
   const rtf = relativeFormatFor(locale);

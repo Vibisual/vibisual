@@ -14,23 +14,9 @@ import type { PromptRailEntry } from './promptRail.js';
 import type { MemoLinkSessionOption } from './memoLinkMenu.js';
 
 /**
- * useMemoLinkHost.ts — §5.5 #17-36 ⑫ 메모 링크가 **이 IDE 화면에 묻는 것**과 **따라가는 길**.
- *
- * 메모 판(`SessionMemoLayer`)은 대화 위에 떠 있을 뿐 대화가 무엇인지 모른다 — 내 입력 목록, 이 에이전트의
- * 다른 세션, 프로젝트 루트, 그리고 "그 자리로 스크롤"은 본문(`IDEMainArea`)의 것이다. 그래서 본문이 이
- * 묶음 하나를 판에 내려 준다.
- *
- * ⚠ **값이 아니라 함수로 내려 준다.** 내 입력·세션 목록은 스트리밍 중에도 바뀌는데, 값을 프롭으로 꿰면
- * 바뀔 때마다 판(`memo()`)과 카드들이 다시 그려진다. 메뉴를 여는 순간 한 번 읽으면 충분하므로 함수가
- * 맞다 — 묶음의 정체(참조)는 처음부터 끝까지 같다.
- *
- * 따라가는 길은 전부 **이미 있는 창구**다(새 열기 레일 ❌).
- *  - 세션 글 위치 → 같은 화면이면 본문의 점프(북마크 이동과 같은 `scrollToBookmark`·`performBookmarkScroll`),
- *    다른 세션이면 북마크 이동이 쓰는 `openIDEOverlay({ focus })` 그대로.
- *  - 다른 세션 → 그 탭을 누른 것과 같다(`useSelectSessionInSplit` — 분할 칸도 같은 규칙).
- *  - 파일 → 본문 경로 링크(#17-27 ⑬)와 같은 판정·같은 창구(`toStreamPathCandidate` → 디스크 확인 →
- *    `openWorkspaceTarget`, 루트 밖은 탐색기).
- *  - 웹 주소 → 기본 브라우저(`window.open` → main 의 `shell.openExternal`, #17-3 웹 검색과 같은 길).
+ * §5.5 #17-36 ⑫ 메모 링크가 IDE 화면에 묻는 것과 따라가는 길 — 메모 판은 대화를 모르므로 본문(`IDEMainArea`)이 이 묶음을 내려 준다.
+ * ⚠ **값이 아니라 함수로 내려 준다** — 입력·세션 목록이 스트리밍 중에도 바뀌어 값이면 판과 카드가 매번 다시 그려진다.
+ * 길은 전부 이미 있는 창구다(새 레일 ❌): 세션 글 → `scrollToBookmark`·`openIDEOverlay({ focus })` · 세션 → `useSelectSessionInSplit` · 파일 → 본문 경로 링크(⑬) · 웹 → `window.open`.
  */
 
 /** 링크가 가리키는 세션의 지금 모습 — 링크 상자가 이름을 쓰고, 닫혔으면 그 사실을 말한다. */

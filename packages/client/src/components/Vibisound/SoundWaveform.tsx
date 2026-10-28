@@ -16,8 +16,7 @@ export function SoundWaveform({ pcm, playhead, selection, onSeek, onSelect, insp
   const canvas = useRef<HTMLCanvasElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const anchor = useRef<number | null>(null);
-  // 0 = 아직 못 쟀다 — 그리기 전에 상자 폭을 재고(useLayoutEffect), 재기 전에는 그리지 않는다. 짐작한 폭(종전 800)으로 먼저
-  //   그리면 폰 폭 상자에 800칸짜리 그림이 눌려 첫 장면이 찌그러져 보였다.
+  // 0 = 아직 못 잼 — 재기 전엔 그리지 않는다(짐작 폭 800 으로 그리면 폰에서 첫 장면이 찌그러진다).
   const [width, setWidth] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState(0);

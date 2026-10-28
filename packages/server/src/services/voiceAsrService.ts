@@ -1,15 +1,6 @@
 /**
- * voiceAsrService.ts — §5.5 #17-38 ⑫ 오프라인 받아쓰기 **설치·상태**.
- *
- * §5.19 (B) 로컬 엔진 설치가 세운 규약을 그대로 탄다 — 새 레일을 발명하지 않는다:
- *  · 인스톨러에 동봉하지 않고 **처음 쓰려 할 때 받는다**(모델이 650MB 다).
- *  · 판올림 번호를 코드에 박지 않고 **릴리스 목록에서 그때 있는 자산**을 고른다.
- *  · 설치 여부는 플래그가 아니라 **디스크의 실물**로 판정한다(폴더를 지웠으면 다시 설치 창).
- *  · 진행 상황은 in-flight 세션 + WS push(§5.7 #23-1 패턴).
- *
- * **여기가 §5.19 와 다른 한 가지 — 한 창에 걸음이 둘이다.** 엔진(약 20MB)과 모델(약 650MB)을
- * 잇달아 받으므로 막대가 두 번 0 으로 돌아가면 사용자는 처음부터 다시 받는 줄 안다. 그래서
- * 진행률은 **두 걸음을 합친 하나**(`doneBytes`/`grandTotalBytes`)로 낸다.
+ * §5.5 #17-38 ⑫ 오프라인 받아쓰기 설치·상태 — §5.19 (B) 규약 그대로: 처음 쓸 때 받는다(동봉 ❌) · 릴리스 목록에서 그때 있는 자산 · 설치 판정은 디스크 실물 · 진행은 in-flight + WS push(§5.7 #23-1).
+ * 다른 점 — 엔진(~20MB)·모델(~650MB) 두 걸음을 합친 진행률 하나(`doneBytes`/`grandTotalBytes`)로 낸다(두 번 0 으로 돌아가면 다시 받는 줄 안다).
  */
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -47,12 +38,7 @@ const META_NAME = '.vibisual-voice.json';
 interface InstallMeta {
   engineVersion?: string;
   engineAsset?: string;
-  /**
-   * 어느 릴리스 자산으로 깔린 모델인가.
-   *
-   * 옛 설치(허깅페이스 제3자 export)는 **파일 이름이 지금과 같다** — 있는지만 보면 "설치됨"이
-   * 되고, 그 사용자는 엔진이 즉사하는 모델을 영영 물린 채 산다. 이 칸이 비어 있으면 옛 설치다.
-   */
+  /** 어느 릴리스 자산으로 깔린 모델인가. 비어 있으면 옛 설치(허깅페이스 제3자 export)다 — 파일 이름이 같아 존재만 보면 즉사하는 모델이 "설치됨"이 된다. */
   modelAsset?: string;
 }
 
@@ -64,13 +50,7 @@ export function voiceModelDir(): string {
   return path.join(os.homedir(), '.vibisual', VOICE_ASR_MODEL_DIR_NAME);
 }
 
-/**
- * 폴더 안에서 실행본을 찾는다.
- *
- * 자산은 `sherpa-onnx-v1.13.7-win-x64-shared-MT-Release-no-tts/bin/…` 처럼 **한두 겹 아래**에
- * 들어 있다. 압축 안의 최상위 폴더 이름이 판올림마다 달라지므로 이름을 박지 않고 훑는다
- * (§5.19 `findServerBin` 과 같은 이유).
- */
+/** 폴더 안에서 실행본을 찾는다 — 자산 최상위 폴더 이름(`sherpa-onnx-v1.13.7-win-x64-…/bin/`)이 판마다 달라 박지 않고 훑는다(§5.19 `findServerBin`). */
 export function findVoiceEngineBin(root: string, platform: NodeJS.Platform = process.platform): string | null {
   const want = voiceEngineBinName(platform);
   const stack: string[] = [root];
@@ -113,14 +93,7 @@ function writeMeta(patch: InstallMeta): void {
   }
 }
 
-/**
- * 모델 쪽 설치 메타 — **모델 폴더 안에** 둔다.
- *
- * 엔진 메타(`META_NAME`)와 한 파일로 묶지 않는 이유: 사용자가 엔진 폴더만 지우면 모델은
- * 멀쩡한데 "어느 자산으로 깔았는지"를 잃어 682MB 를 다시 받게 된다. 설명하는 대상 옆에
- * 두면 그 일이 없다(§5.19 (B) "판정은 플래그가 아니라 디스크의 실물" 과 같은 결 —
- * 이 파일도 모델 폴더를 지우면 함께 사라진다).
- */
+/** 모델 설치 메타는 모델 폴더 안에 둔다 — 엔진 메타와 한 파일이면 엔진 폴더만 지워도 자산 기록을 잃어 682MB 를 다시 받는다. */
 const MODEL_META_NAME = '.vibisual-voice-model.json';
 
 interface ModelMeta {
@@ -151,13 +124,8 @@ function writeModelMeta(dir: string, patch: ModelMeta): void {
 const MODEL_ROLES: readonly VoiceModelRole[] = ['encoder', 'decoder', 'joiner', 'tokens'];
 
 /**
- * 네 조각이 **전부, 비어 있지 않게** 디스크에 있는가.
- *
- * 종전에는 조각마다 **바이트 수를 박아 두고 대조**했다. 파일을 하나씩 받던 때에는 그것이
- * 반쪽 파일을 걸러 주는 유일한 장치였지만, 이제는 압축본 하나를 받아 풀므로 그 자리가
- * **`downloadResumable` 의 크기 검증 + tar 의 성공 여부**로 옮겨 갔다(반쯤 받힌 압축본은
- * 풀리지 않고, 풀리다 만 폴더는 조각이 모자란다). 남은 위험은 "이름은 있는데 0바이트"뿐이라
- * 그것만 본다 — 박아 둔 숫자는 판올림 한 번에 낡고, 낡으면 멀쩡한 설치가 미설치로 읽힌다.
+ * 네 조각이 전부, 비어 있지 않게 있는가. 바이트 수를 박지 않는다(판올림에 낡아 멀쩡한 설치가 미설치로 읽힌다).
+ * 반쪽 파일은 `downloadResumable` 크기 검증 + tar 성공이 거르므로 "이름은 있는데 0바이트"만 본다.
  */
 export function modelFilesPresent(dir: string): boolean {
   for (const role of MODEL_ROLES) {
@@ -222,10 +190,7 @@ function toProgress(s: InstallSession): VoiceAsrInstallProgress {
   return out;
 }
 
-/**
- * 진행률을 민다. `force` 가 아니면 `PROGRESS_PUSH_MS` 간격으로 접는다 —
- * 650MB 를 청크마다 밀면 그 브로드캐스트만으로 프레임을 먹는다(§9 배치 규약과 같은 결).
- */
+/** 진행률을 민다. `force` 가 아니면 `PROGRESS_PUSH_MS` 간격으로 접는다(청크마다 밀면 브로드캐스트가 프레임을 먹는다 — §9). */
 function pushProgress(force = false): void {
   const s = inflight;
   if (!s) return;
@@ -255,14 +220,7 @@ export function getVoiceAsrState(): VoiceAsrState {
   const bin = findVoiceEngineBin(engineRoot);
   const meta = readMeta();
   const modelMeta = readModelMeta(modelRoot);
-  /**
-   * **자산 표식이 없으면 깔린 것으로 치지 않는다.**
-   *
-   * 폐기된 허깅페이스 경로로 받은 옛 설치는 파일 이름이 지금과 똑같아서(`encoder.onnx` …)
-   * 있는지만 보면 "설치됨"이 된다. 그런데 그 `encoder.onnx` 는 **엔진이 적재하다 즉사**하는
-   * 물건이라(⑫), 그대로 두면 그 사용자는 700MB 를 받아 두고도 마이크를 누를 때마다
-   * 20초 뒤 실패만 본다. 표식이 비어 있으면 설치 창을 다시 띄워 **한 번 더 받게** 한다.
-   */
+  /** 자산 표식이 없으면 미설치로 친다 — 옛 허깅페이스 설치는 이름(`encoder.onnx` …)이 같지만 엔진이 적재하다 즉사한다(⑫). 설치 창을 다시 띄워 한 번 더 받게 한다. */
   const modelOk = modelFilesPresent(modelRoot) && modelMeta.asset !== undefined;
   const engineOk = bin !== null;
   const state: VoiceAsrState = {
@@ -281,11 +239,8 @@ export function getVoiceAsrState(): VoiceAsrState {
 // ─── 내려받기 ────────────────────────────────────────────────────────────────
 
 /**
- * 받는다. **이어받는다** — 650MB 를 회선이 한 번 끊겼다고 처음부터 다시 받게 하지 않는다.
- *
- * `<dest>.part` 가 있으면 그 길이부터 `Range` 로 이어 붙이고, 서버가 이어주기를 거절하면
- * (206 이 아니라 200) 그 자리에서 처음부터 다시 받는다 — **거절을 무시하고 이어 붙이면
- * 앞부분이 두 번 들어간 파일이 만들어지고, 크기가 맞아 검증까지 통과한다.**
+ * 이어받는다 — `<dest>.part` 길이부터 `Range` 로 잇고, 서버가 거절하면(206 이 아니라 200) 처음부터 받는다.
+ * **거절을 무시하고 이어 붙이면 앞부분이 두 번 든 파일이 크기까지 맞아 검증을 통과한다.**
  */
 async function downloadResumable(
   url: string,
@@ -398,15 +353,8 @@ function extractArchive(archivePath: string, destDir: string): Promise<void> {
 }
 
 /**
- * 푼 폴더를 **평탄하게** 만든다 — 네 조각을 모델 폴더 바로 아래 **우리 이름**으로 놓는다.
- *
- * 자산은 `sherpa-onnx-nemotron-…-560ms-int8-2026-06-11/encoder.int8.onnx` 처럼 한 겹 아래에,
- * 그리고 판올림마다 달라지는 이름으로 들어 있다(`findVoiceEngineBin` 이 실행본을 훑는 것과
- * 같은 이유). 여기서 한 번 정리해 두면 **엔진에 넘기는 인자가 흔들리지 않는다** —
- * `voiceRecognizerService` 는 `voiceModelDiskName(role)` 네 개만 알면 된다.
- *
- * 곁다리(README·test_wavs)는 옮기지 않고 남은 폴더째 지운다 — 셋 다 안 쓰는데 `test_wavs`
- * 하나가 수 MB 다.
+ * 푼 폴더를 평탄하게 — 판마다 이름이 다른 한 겹 아래의 네 조각을 모델 폴더 바로 아래 우리 이름으로 옮긴다.
+ * 그래야 `voiceRecognizerService` 가 `voiceModelDiskName(role)` 만 알면 된다. 곁다리(README·test_wavs 수 MB)는 폴더째 지운다.
  */
 async function flattenModelDir(root: string): Promise<void> {
   const found = new Map<VoiceModelRole, string>();
@@ -473,11 +421,7 @@ export function pickVoiceRelease(
 
 // ─── 설치 ────────────────────────────────────────────────────────────────────
 
-/**
- * 엔진 + 모델을 한 흐름으로 설치한다. 동시 호출은 같은 in-flight 를 공유한다.
- *
- * **이미 있는 걸음은 건너뛴다** — 모델만 받다 끊긴 사용자가 엔진 20MB 를 다시 받지 않는다.
- */
+/** 엔진 + 모델 한 흐름 설치. 동시 호출은 in-flight 를 공유하고, 이미 있는 걸음은 건너뛴다. */
 export function installVoiceAsr(): VoiceAsrInstallProgress {
   if (inflight) return toProgress(inflight);
 

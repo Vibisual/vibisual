@@ -1,14 +1,6 @@
 /**
- * §5.25 (F) "쓴 내용도 남는다" — 코덱스가 고친 파일을 눌렀을 때 **쓴 내용이 보이는가**(그래프 끝까지).
- *
- * 사고(사용자 보고 2026-10-20, 스크린샷): `components` 폴더에서 `pathlin…nu.ts` 로 쓰기 화살표가 서 있는데
- * 그 파일을 눌러도 상세 칸의 수정 기록이 비어 있었다. 실측 — 노드는 `lastTool: Write`·`writeCount: 1` 인데
- * `fileEdits` 에는 그 파일이 한 줄도 없었다. 코덱스의 `file_change` 는 경로만 싣고, 우리는 그것을 내용 없는
- * 사후 `Write` 로 옮겨 `recordFileEdit` 이 버렸다.
- *
- * 여기서는 방출기(`index.ts` `setLocalHookEmitter`)의 순서를 그대로 밟는다 — 사후 쓰기를 `toLocalHookPayload`
- * 로 바꿔 `processHookEvent`(버블·화살표) → 같은 세션으로 `recordProviderFileEdit`(이력). 장부는 실제 것을 써서
- * "사전 훅이 적고 → 완료가 꺼내고 → 그 버블의 이력이 된다"를 한 사슬로 고정한다.
+ * §5.25 (F) — 코덱스가 고친 파일에 쓴 내용이 남는다(`file_change` 는 경로만 실어 사후 `Write` 로만 옮기면 `fileEdits` 가 빈다).
+ * 방출기 순서 `processHookEvent` → 같은 세션 `recordProviderFileEdit` 를 실제 장부로 밟는다.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';

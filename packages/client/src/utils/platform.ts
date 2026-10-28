@@ -1,16 +1,8 @@
 /**
- * platform.ts — **클라이언트 플랫폼 판정 SSOT.**
- *
- * 여태 클라이언트에는 플랫폼 감지가 한 곳도 없었다(`navigator.platform`·`isMac` 검색 0건).
- * 그래서 두 가지가 조용히 틀려 있었다:
- *
- *  ① **단축키 라벨** — 어디서나 `Ctrl+…` 로 굳어 macOS 사용자에게 없는 키를 알려 줬다.
- *     기능 자체는 이미 옳다(등록 15곳 전부 `e.ctrlKey || e.metaKey` 를 함께 본다) — **표시만** 틀렸다.
- *  ② **경로 대소문자** — 경로를 무조건 소문자로 접어 Map 키·비교에 썼다. Windows/macOS 에서는 맞지만
- *     Linux 에서는 `Feature-X` 와 `feature-x` 가 실재하는 서로 다른 폴더라 두 항목이 한 줄로 뭉개졌다.
- *
- * 둘 다 "지금 어느 OS 인가" 하나에 달려 있으므로 판정을 여기 한 곳에 둔다.
- * 실제 접기·비교 규칙은 발명하지 않고 `@vibisual/shared` 의 `pathCase` 헬퍼에 그대로 위임한다.
+ * 클라이언트 플랫폼 판정 SSOT — 아래 둘이 "지금 어느 OS 인가"에 달려 있어 여기 한 곳에 둔다.
+ *  ① 단축키 라벨 — 판정은 `e.ctrlKey || e.metaKey` 로 이미 옳고 표시만 OS 를 따른다(mac 에 `Ctrl+…` 를 보이면 없는 키를 알려 준다).
+ *  ② 경로 대소문자 — Linux 에서는 `Feature-X` 와 `feature-x` 가 서로 다른 폴더라, 무조건 소문자로 접으면 두 항목이 한 줄로 뭉개진다.
+ * 접기·비교 규칙은 발명하지 않고 `@vibisual/shared` 의 `pathCase` 헬퍼에 위임한다.
  */
 
 import { pathKey, samePath, normalizePathShape, type PlatformName } from '@vibisual/shared';
@@ -64,14 +56,8 @@ export function isMac(): boolean {
 
 /**
  * 경로 키를 접어도 되는가(= 파일시스템이 대소문자를 가리지 않는가).
- *
- * 통합 데스크톱 앱에서는 렌더러와 서버가 **같은 머신**이므로 `navigator` 로 얻은 OS 가 곧 서버 OS 다.
- * ⚠ 한계: 휴대폰 브라우저로 원격 접속하면(§ 모바일 웹) 이 값은 **접속 기기**의 OS 라 서버 OS 와 다를 수
- * 있다. 그 경우 잘못 접거나 안 접을 수 있으므로, 언젠가 서버가 스냅샷에 `platform` 을 실어 보내면
- * 그 값을 우선 쓰도록 이 함수 하나만 바꾸면 된다.
- *
- * 판정 불가(`unknown`)면 **접는다** — 종전 동작이라 회귀가 없고, 안 접어서 "같은 폴더가 둘로 보이는"
- * 오작동보다 낫다.
+ * 통합 데스크톱 앱은 렌더러와 서버가 같은 머신이라 `navigator` 의 OS 가 곧 서버 OS 다. ⚠ 폰 브라우저 원격 접속(모바일 웹)에서는 접속 기기의 OS 라
+ * 다를 수 있다 — 서버가 스냅샷에 `platform` 을 실으면 이 함수 하나만 바꾸면 된다. 판정 불가(`unknown`)면 접는다("같은 폴더가 둘로 보이는" 쪽보다 낫다).
  */
 export function isCaseInsensitiveFsClient(): boolean {
   return clientOs() !== 'linux';
@@ -84,13 +70,8 @@ export function clientPathPlatform(): PlatformName {
 
 /**
  * §6 단축키 판정에 넘길 플랫폼 이름.
- *
- * ⚠ `clientPathPlatform()` 과 **다르다** — 저쪽은 "케이스를 접느냐"만 갈리므로 darwin 을 win32 로
- * 접지만, 단축키는 OS 예약 조합(⌘Q·Alt+F4·⌘⇧4)이 세 OS 마다 실제로 다르다. 접어 버리면 mac
- * 사용자에게 ⌘Q 를 배정하도록 허락하게 된다(누르면 앱이 종료된다).
- *
- * 판정 불가(`unknown`)면 `win32` — 가장 흔한 데스크톱이고, 여기서 틀려도 잃는 것은 "막았어야 할
- * 조합을 허용"이지 동작이 깨지는 것이 아니다.
+ * ⚠ `clientPathPlatform()` 과 다르다 — 그쪽은 케이스만 갈려 darwin 을 win32 로 접지만, OS 예약 조합(⌘Q·Alt+F4·⌘⇧4)은 세 OS 가 다르다.
+ * 접으면 mac 에 ⌘Q 배정을 허락한다(누르면 앱이 종료된다). 판정 불가면 `win32` — 가장 흔하고, 틀려도 "막았어야 할 조합을 허용"일 뿐 동작이 깨지지 않는다.
  */
 export function clientKeyPlatform(): PlatformName {
   const os = clientOs();
@@ -126,14 +107,9 @@ export { normalizePathShape };
 const MAC_MODIFIER_ORDER = ['⌃', '⌥', '⇧', '⌘'] as const;
 
 /**
- * 모디파이어 토큰 → mac 기호.
- *
- * `Ctrl` 이 `⌘` 로 가는 것이 핵심이다 — 이 앱의 단축키는 전부 `ctrlKey || metaKey` 라
- * mac 에서 실제로 눌리는 키가 Command 이기 때문이다(Control 이 아니다).
- *
- * ⚠ **`Control` 토큰만 예외로 진짜 Control(`⌃`)** 이다 — §5.5 #17-37 의 `Ctrl+Tab` 처럼
- * mac 에서 `⌘` 가 OS 에 이미 잡혀 있는(⌘Tab = 앱 전환) 자리에 쓴다. 그 자리는 판정도
- * `ctrlKey` 만 보므로 라벨과 동작이 한 벌로 어긋나지 않는다. 그 외에는 종전대로 `Ctrl`.
+ * 모디파이어 토큰 → mac 기호. `Ctrl` 이 `⌘` 로 간다 — 단축키는 전부 `ctrlKey || metaKey` 라 mac 에서 실제로 눌리는 키가 Command 다.
+ * ⚠ `Control` 토큰만 진짜 Control(`⌃`) — §5.5 #17-37 의 `Ctrl+Tab` 처럼 mac 에서 `⌘` 가 OS 에 잡힌(⌘Tab = 앱 전환) 자리에 쓴다.
+ * 그 자리는 판정도 `ctrlKey` 만 봐 라벨과 동작이 어긋나지 않는다. 그 외에는 `Ctrl`.
  */
 const MAC_MODIFIER: Record<string, string> = {
   ctrl: '⌘', cmd: '⌘', command: '⌘', meta: '⌘', mod: '⌘',
@@ -144,10 +120,8 @@ const MAC_MODIFIER: Record<string, string> = {
 
 /** 모디파이어가 아닌 키 중 mac 이 기호로 그리는 것. 없으면 원문 그대로 둔다. */
 /**
- * 세 OS 공통으로 **기호가 더 읽기 쉬운** 키 — 방향키 넷.
- *
- * `Ctrl+Alt+Left` 라고 적으면 네 방향을 한 줄에 안내할 때 `Ctrl+Alt+LeftRightUpDown` 처럼
- * 읽을 수 없는 덩어리가 된다. Windows 앱도 이 자리는 화살표로 그리므로 세 OS 를 같게 둔다.
+ * 세 OS 공통으로 기호가 더 읽기 쉬운 키 — 방향키 넷. 글자로 적으면 네 방향 안내가 `Ctrl+Alt+LeftRightUpDown` 같은 덩어리가 되고,
+ * Windows 앱도 이 자리는 화살표로 그리므로 세 OS 를 같게 둔다.
  */
 const ARROW_KEY: Record<string, string> = { up: '↑', down: '↓', left: '←', right: '→' };
 

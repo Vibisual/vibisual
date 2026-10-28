@@ -1,18 +1,7 @@
 /**
- * §4 (CMD) — CMD 터미널 셸에 **미리 쳐 넣을 한 줄**을 그 셸의 인용 규칙으로 짓는다.
- *
- * 헤드리스 스폰은 인자를 배열로 넘기므로(셸 없음) 무엇이든 그대로 닿는다. CMD 터미널은 다르다 —
- * 사람이 Enter 를 치도록(§4 v2.63 ToS 합법선) 명령을 **셸 입력줄에 글자로** 넣고, 그 줄은 셸이 다시
- * 쪼갠다. 종전 규칙("공백이 있으면 큰따옴표로 감싼다")은 셸 문법을 몰라서 두 곳에서 깨졌다.
- *   ① `--agents` JSON 의 안쪽 따옴표를 그대로 둬 cmd.exe·bash 둘 다 JSON 을 쪼갰다 — 2.1.288 실측:
- *      `Invalid --agents configuration: invalid JSON`. 서브에이전트를 정의한 CMD 버블은 Enter 를 치는
- *      순간 claude 가 바로 끝났다.
- *   ② 공백 없는 `opus[1m]` 을 맨몸으로 내보냈다 — mac 기본 셸 zsh 는 `[1m]` 을 글롭으로 읽고, 맞는 파일이
- *      없으면 `no matches found` 로 **명령을 실행하지 않는다**(Opus 1M 이 기본 조합이다). bash 도 cwd 에
- *      `opus1` 같은 파일이 있으면 그 이름으로 바꿔 넘긴다.
- *
- * 셸은 데스크톱 터미널 매니저의 `pickShell` 이 정한다 — win32 는 `COMSPEC`(cmd.exe), 그 밖은 `$SHELL`.
- * 플랫폼·셸은 **인자로** 받는다(멀티플랫폼 규칙 — 그래야 Windows 개발기에서 세 OS 를 다 시험한다).
+ * §4 (CMD) — 셸 입력줄에 미리 쳐 넣을 한 줄을 그 셸의 인용 규칙으로 짓는다(사람이 Enter — §4 ToS 합법선). 셸이 다시 쪼개므로 "공백이면 큰따옴표"로는 깨진다:
+ * `--agents` JSON 안쪽 따옴표를 cmd.exe·bash 가 쪼개고(2.1.288 실측 `invalid JSON`), zsh 는 맨몸 `opus[1m]` 을 글롭으로 읽어 실행하지 않는다.
+ * 셸은 데스크톱 `pickShell`(win32 `COMSPEC`, 그 밖 `$SHELL`). 플랫폼·셸은 **인자로** 받는다(세 OS 시험).
  */
 
 /** 인용 규칙 갈래. fish 는 작은따옴표 안의 `\` 를 이스케이프로 읽어 POSIX 셸과 갈린다. */
@@ -71,12 +60,7 @@ function quoteForWindowsArgv(arg: string): string {
   return `${out}${'\\'.repeat(backslashes * 2)}"`;
 }
 
-/**
- * cmd.exe 입력줄에 넣을 인자 하나. 프로그램 규칙으로 감싼 뒤 **cmd 특수 글자를 전부 `^` 로 이스케이프**한다
- * — 감싼 따옴표까지. 그러면 cmd 가 따옴표 상태로 한 번도 들어가지 않아(`\"` 가 cmd 의 따옴표 상태를
- * 뒤집는 문제가 사라진다) JSON 안의 `&`·`|`·`%` 가 명령 구분·변수 확장으로 읽히지 않고, `^` 를 걷어 낸
- * 줄이 그대로 프로그램에 닿는다.
- */
+/** cmd.exe 인자: 프로그램 규칙으로 감싼 뒤 **감싼 따옴표까지 cmd 특수 글자를 전부 `^` 이스케이프** — cmd 가 따옴표 상태로 안 들어가 `&`·`|`·`%` 가 해석되지 않고 `^` 를 걷은 줄이 그대로 닿는다. */
 function quoteCmdArg(arg: string): string {
   if (!CMD_NEEDS_QUOTING.test(arg) && arg !== '') return arg;
   return quoteForWindowsArgv(arg).replace(CMD_META, '^$&');

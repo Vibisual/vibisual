@@ -1,7 +1,4 @@
-/**
- * §5.4 #36 (I) — 앱 작업 보기의 **접기**와 그리는 사본의 표시 값. 사진 속 실제 모양: 초점 에이전트의 작업 폴더(`artifacts`)는 다른
- * 에이전트(도깨비 작업)도 쓰고 있어 남고, 초점 에이전트가 혼자 읽은 문서는 접히고, 작업 위성은 접히지 않는다.
- */
+/** §5.4 #36 (I) — 접기: 남도 쓰는 작업 폴더는 남고, 초점 에이전트 혼자 읽은 문서는 접히고, 작업 위성은 접히지 않는다. */
 import { describe, expect, it } from 'vitest';
 import type { Edge, Node } from '@xyflow/react';
 import type { BubbleData } from '@vibisual/shared';

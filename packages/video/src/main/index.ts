@@ -1,12 +1,4 @@
-/**
- * §5.13 (O) v4.48 — Vibistudio 의 main 프로세스 몫.
- *
- * 창 규격과 오프스크린 렌더가 여기 모여 있다. **코어는 이 파일의 존재만 알고 내용은
- * 모른다** — `apps/index.ts` 의 배열에 한 줄로 등록될 뿐이다.
- *
- * 두 번째 앱은 이 파일과 같은 모양의 파일 하나를 옆에 두면 되고, `ipc.ts` 와 `preload`
- * 와 `windowManager` 는 손대지 않는다.
- */
+/** §5.13 (O) — 앱의 main 몫(창 규격·오프스크린 렌더). 코어는 `apps/index.ts` 배열 한 줄로만 안다 — 새 앱도 `ipc.ts`·`preload`·`windowManager` 를 손대지 않는다. */
 import type { AppMainHost, AppWindowSpec } from '../host.js';
 import {
   captureOffscreenAt,
@@ -63,12 +55,7 @@ export const vibistudioApp: VideoMainModule = {
     return spec;
   },
 
-  /**
-   * 이 앱만 아는 기능 — 오프스크린 렌더(§5.13 (F)).
-   *
-   * 코어는 `action` 문자열의 뜻을 모르고 그대로 넘긴다. 그래서 여기에 무엇을 더 넣어도
-   * `ipc.ts` 는 그대로다.
-   */
+  /** 코어는 `action` 의 뜻을 모르고 넘기므로 여기를 늘려도 `ipc.ts` 는 그대로다. */
   invoke: async (action, payload) => {
     switch (action) {
       case 'offscreen:probe':

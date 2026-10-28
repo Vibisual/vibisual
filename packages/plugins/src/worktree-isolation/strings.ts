@@ -1,8 +1,5 @@
 /**
- * worktree-isolation — 이 플러그인의 문자열 전량 (§5.11 v4.58 자립 규약).
- *
- * 종전에는 `packages/client/src/i18n/locales/*.json` 안에 있었다. 그래서 폴더를 복사해도 화면에는
- * 번역 키가 그대로 노출됐다 — **폴더가 자기 문자열을 안 들고 있었기 때문**이다. 이제 여기에 산다.
+ * worktree-isolation — 이 플러그인의 문자열 전량(§5.11 자립 규약 — 폴더가 자기 문자열을 들고 있어야 복사해도 번역 키가 노출되지 않는다).
  * 호스트는 `panel.plugins.worktreeIsolation` 지붕 아래로 병합한다(키 네임스페이스는 6개 규칙 그대로).
  */
 export const strings = {

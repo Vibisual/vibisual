@@ -6,14 +6,8 @@ import { StudioIcon } from './studioIcons.js';
 import type { ValueField, ValueOption } from './valueFields.js';
 
 /**
- * §5.13 (V) 37-5 — **값 손잡이**: 종류별 컨트롤. JSON 칸 없이 글자·숫자·색·글꼴·그림·시각·고르기를 고친다.
- *
- * 바꾸는 즉시 `onChange` 가 불린다 — 셸은 화면을 낙관적으로 먼저 바꾸고 저장은 뒤에서 묶어 한 번 한다(`useLocalProps`).
- * 숫자·시각은 이름표를 가로로 끌면 `step` 씩 바뀐다(Shift 면 10배) — 직접 쳐 넣어도 된다. 색은 원형 견본(누르면 색 고르기) + 16진
- * 칸. 키 입력은 스튜디오 단축키로 새지 않게 막는다.
- *
- * 반응형 — 칸은 `min-w-0` 이라 좁은 판(기획 카드 240px · 인스펙터 256px)에서 줄어들 뿐 넘치지 않는다(줄을 접을 일이 없다). 터치에서는
- * 칸·견본·끌기 이름표가 커지고, 끌기 이름표는 손가락 끌기가 밀기 손짓으로 넘어가지 않게 한다(`touch-none`).
+ * §5.13 (V) 37-5 — 값 손잡이(종류별, JSON 칸 ❌). `onChange` 는 즉시 — 셸이 낙관 반영하고 저장은 묶는다(`useLocalProps`). 이름표 끌기 = `step`(Shift 10배).
+ * 키 입력은 스튜디오 단축키로 새지 않게 막는다. 칸은 `min-w-0`(240~256px 판), 터치 끌기 이름표는 `touch-none`.
  */
 
 const INPUT = 'h-7 min-w-0 rounded-md border border-white/10 bg-vb-sunken px-2 text-[12px] text-slate-100 outline-none focus:ring-1 focus:ring-[var(--vs-accent)] disabled:opacity-40 pointer-coarse:h-9';

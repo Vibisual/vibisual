@@ -1,12 +1,6 @@
 /**
- * mediaConvert.ts — §5.13 (R-8) **"이 형식은 못 엽니다" 팝업의 상태.**
- *
- * 서버 스냅샷이 아니라 여기 사는 이유는 이것이 **한 창의 한 클릭에 딸린 대화**이기 때문이다
- * (`runSessions`·`captureBubbleRuntime` 과 같은 결의 비영속 런타임 스토어). 변환 결과의 진실은
- * 디스크의 캐시 파일이고, 그건 서버가 들고 있다.
- *
- * 이 스토어는 **열기 갈림길을 import 하지 않는다** — 변환이 끝난 뒤 실제로 여는 일은 화면(팝업)이
- * 한다. 그래야 `openWorkspaceTarget → 스토어 → openWorkspaceTarget` 순환이 생기지 않는다.
+ * §5.13 (R-8) — "이 형식은 못 엽니다" 팝업의 비영속 상태(한 클릭에 딸린 대화 · 변환 결과는 서버의 캐시 파일).
+ * **열기 갈림길을 import 하지 않는다** — 여는 일은 팝업이 한다(`openWorkspaceTarget` 순환 방지).
  */
 import { create } from 'zustand';
 

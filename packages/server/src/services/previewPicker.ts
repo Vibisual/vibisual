@@ -10,28 +10,11 @@ import {
 } from '@vibisual/shared';
 
 /**
- * §7.11 (판올림 번호 발급 대기) — 프리뷰 **요소 집기** 주입 스크립트.
- *
- * 프리뷰는 이미 우리 `iframe-proxy` 를 거쳐 같은 오리진으로 뜨므로, Electron `webview` 로
- * 격상하지 않고도 프록시가 HTML 을 재작성하는 그 자리에서 스크립트 한 개를 넣어 요소를 집을 수 있다.
- *
- * 규약(양방향 모두 `source` 표식이 있는 메시지만 취급 — 프리뷰 안 페이지가 자기 목적으로 쓰는
- * postMessage 를 우리 것으로 오인하지 않는다):
- *
- * - 부모 → 프리뷰: `{ source, type: 'pick-mode', on: boolean }`
- * - 프리뷰 → 부모: `{ source, type: 'pick', payload: PreviewPickPayload }` / `{ source, type: 'pick-cancel' }`
- * - 부모 → 프리뷰: `{ source, type: 'alt-capture', on: boolean }` — Alt 를 우리가 가져갈지(§7.11 (G))
- * - 프리뷰 → 부모: `{ source, type: 'alt', down: boolean, shift: boolean }` — 여기서 Alt 를 눌렀다/뗐다
- * - 프리뷰 → 부모: `{ source, type: 'hover', on: boolean }` — 마우스가 이 프레임 안에 들어왔다/나갔다
- *
- * 경계: DOM 을 **읽기만** 한다. 네트워크·저장소·쿠키에 손대지 않고, 켜져 있지 않으면 아무 것도 하지
- * 않는다(평소 프리뷰 조작은 종전 그대로). 켜져 있는 동안의 클릭은 여기서 소비해 대상 앱이 조작되지 않는다.
- * **Alt 다리만 예외로 처음부터 켜져 있다** — 인스펙터는 앱 전체에서 같은 손짓이어야 하고, 이 자리만
- * 죽어 있으면 사용자는 프리뷰에 들어갈 때마다 "여기선 왜 안 되냐"를 다시 겪는다(기본값의 근거는
- * `PREVIEW_ALT_CAPTURE_DEFAULT`). 안에서 도는 앱이 Alt 를 쓰면 헤더 토글로 양보한다.
- *
- * 문자열로 사는 코드라 **ES5 범위**로 쓰고, CSS 선택자에 역슬래시 이스케이프가 필요한 이름은
- * 아예 쓰지 않는다(단순한 이름만 선택자에 넣고, 나머지는 `nth-of-type` 경로로 간다).
+ * §7.11 — 프리뷰 요소 집기 주입 스크립트(`iframe-proxy` 가 HTML 을 고칠 때 넣는다 — 같은 오리진이라 `webview` 가 필요 없다).
+ * 메시지는 `{ source, type, … }` 꼴, `source` 표식이 있는 것만 취급한다(페이지 자신의 postMessage 와 섞이지 않게).
+ * 부모 → 프리뷰: `pick-mode {on}` · `alt-capture {on}`(§7.11 (G)). 프리뷰 → 부모: `pick {payload: PreviewPickPayload}` · `pick-cancel` · `alt {down, shift}` · `hover {on}`.
+ * DOM 읽기만(네트워크·저장소·쿠키 ❌), 꺼져 있으면 무동작, 켜진 동안 클릭은 소비. Alt 다리만 기본 켬(`PREVIEW_ALT_CAPTURE_DEFAULT`, 안의 앱이 Alt 를 쓰면 헤더 토글로 양보).
+ * 문자열로 사는 코드라 ES5 로 쓰고, 이스케이프가 필요한 이름은 선택자에 넣지 않는다(`nth-of-type` 경로).
  */
 export function buildPreviewPickerScript(proxyBase: string, target: string): string {
   const lines = [
@@ -134,10 +117,7 @@ export function buildPreviewPickerScript(proxyBase: string, target: string): str
     '    if (!on) return;',
     '    if (e.key === "Escape" || e.keyCode === 27) { setMode(false); post({ source: SRC, type: "pick-cancel" }); }',
     '  }',
-    // ── §7.11 (G) Alt 다리 ───────────────────────────────────────────
-    // 이 페이지에 포커스가 있으면 Alt 는 여기까지만 오고 부모(우리 창)는 아무 것도 모른다.
-    // 그래서 **여기서 잡아 부모에게 넘긴다** — 부모는 그 신고를 받고 포커스를 되가져가므로,
-    // 이어지는 Alt 뗌·휠·클릭은 전부 부모가 받는다(우리가 두 번 보낼 일이 없다).
+    // §7.11 (G) Alt 다리 — 이 페이지에 포커스가 있으면 Alt 가 부모에 안 가서 여기서 잡아 넘긴다. 부모가 포커스를 되가져가 이어지는 뗌·휠·클릭은 부모가 받는다.
     '  function isAlt(e){ return e.key === "Alt" || e.keyCode === 18; }',
     '  function onAltDown(e){',
     '    if (!altOn || !isAlt(e)) return;',
@@ -158,10 +138,7 @@ export function buildPreviewPickerScript(proxyBase: string, target: string): str
     // 포커스를 부모에게 뺏긴 순간이 곧 이 상태다 — 여기서 뗌을 보내면 방금 켠 인스펙터가 즉시 꺼진다.
     // 그러니 **보내지 않고 눌림만 푼다**(다음 Alt 가 다시 신고될 수 있게).
     '  function onBlur(){ altDown = false; }',
-    // ── §7.16 마우스 다리 ────────────────────────────────────────────
-    // 마우스가 이 프레임 위로 들어가면 **부모 문서는 아무 것도 받지 못한다** — 그래서 프리뷰를 담은
-    // 우리 스크롤 상자의 `:hover` 가 서지 않고, 기본 숨김인 스크롤바가 굴릴 때만 떴다. Alt 와 같은
-    // 까닭이라 같은 다리로 알린다(들고 남이 바뀔 때 한 번씩 — `mouseover` 는 수없이 오므로).
+    // §7.16 마우스 다리 — 프레임에 든 마우스는 부모가 못 받아 상자의 `:hover` 가 안 선다. 들고 남이 바뀔 때만 알린다(`mouseover` 는 수없이 온다).
     '  function setHover(v){ if (hoverIn === v) return; hoverIn = v; post({ source: SRC, type: HOVER, on: v }); }',
     '  function onOver(){ setHover(true); }',
     // `relatedTarget` 이 남아 있으면 아직 이 문서 안에서 옮겨 다니는 중이다 — 나간 것은 비었을 때뿐.
@@ -188,18 +165,9 @@ export function buildPreviewPickerScript(proxyBase: string, target: string): str
 }
 
 /**
- * §7.11 (G) — 프록시가 `</body>` 앞에 넣는 조각 **한 벌**.
- *
- * 둘이 함께 가야 프리뷰에서 Alt 가 온전히 산다 — ① 위 picker 가 Alt 를 잡아 부모에게 넘기고,
- * ② `workspaceSiteInspectorScript()` 가 부모의 좌표 질문에 요소를 답한다(§5.5 #17-27 ⑮ (i)).
- * ② 가 없으면 Alt 는 켜지는데 강조할 상자가 없어 "여전히 안 되는" 화면이 된다 — 패키지 앱에서
- * 이 프리뷰는 `vibproxy://` 라 인스펙터가 `contentDocument` 를 못 읽기 때문이다. 부르는 자리가
- * 하나뿐이라 여기 한 함수로 묶어 둔다(한쪽만 빠뜨릴 자리를 없앤다).
- *
- * ③ `previewScrollbarInjection()` — 프리뷰 안쪽 문서의 **스크롤바 톤**(사용자 지시). 부모 문서의
- * CSS 는 iframe 경계를 못 넘으므로, 폭 프리셋을 무엇으로 고르든 안쪽에는 브라우저 기본 스크롤바가
- * 그대로 그어져 있었다. **문서의 맨 뒤**라 페이지의 스타일시트보다 늦게 서고, 그래서 기본값을
- * 확실히 덮는다(자기 스크롤바를 직접 꾸민 페이지는 특정도로 여전히 이긴다).
+ * §7.11 (G) — 프록시가 `</body>` 앞에 넣는 조각 한 벌(한쪽만 빠뜨리지 않게 묶는다). ① picker: Alt 를 부모에게 넘긴다
+ * ② `workspaceSiteInspectorScript()`: 좌표 질문에 요소를 답한다(§5.5 #17-27 ⑮ (i)) — 없으면 패키지 앱(`vibproxy://`)은 `contentDocument` 를 못 읽어 강조할 상자가 없다.
+ * ③ `previewScrollbarInjection()`: 안쪽 스크롤바 톤(부모 CSS 는 iframe 을 못 넘는다) — 문서 맨 뒤라 페이지 기본값을 덮는다.
  */
 export function buildPreviewInjectionTail(proxyBase: string, target: string): string {
   return buildPreviewPickerScript(proxyBase, target)

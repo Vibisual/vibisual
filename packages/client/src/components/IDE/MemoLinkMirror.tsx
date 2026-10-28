@@ -2,20 +2,8 @@ import { forwardRef, memo } from 'react';
 import type { MemoLinkInk, MemoLinkSegment } from './memoLinks.js';
 
 /**
- * MemoLinkMirror.tsx — §5.5 #17-36 ⑫ 메모 입력칸 **뒤에 깐 거울 층**.
- *
- * textarea 는 한 색 글자만 그릴 수 있다 — 글자 한 토막에 밑줄을 그을 방법이 없다(CSS Custom Highlight 도
- * textarea 안에는 닿지 않는다). 그래서 **같은 글자를 같은 자리에 투명하게** 한 벌 더 깔고, 링크 토막에만
- * 밑줄과 옅은 바탕을 칠한다. 입력칸은 바탕이 투명하므로 그 칠이 글자 밑에서 비친다.
- *
- * 맞춰야 하는 것 셋 — 어긋나면 밑줄이 엉뚱한 글자 밑에 그어진다.
- *  ① **글자 모양** — 글꼴·크기·줄 간격·안쪽 여백을 입력칸과 같은 클래스로 받는다(글꼴은 둘 다 카드에서 물려받는다).
- *  ② **줄바꿈** — `pre-wrap` + `break-word` 는 Chromium 이 textarea 에 주는 값과 같다. 폭은 입력칸의
- *    `clientWidth`(스크롤 막대를 뺀 폭)를 카드가 그때그때 적어 준다.
- *  ③ **스크롤** — 입력칸이 스크롤되면 카드가 이 층의 안쪽을 같은 만큼 민다(직접 쓰기 — React 를 거치지 않는다).
- *
- * 마지막 줄바꿈 뒤의 빈 줄도 높이를 갖게 폭 없는 공백을 하나 붙인다(textarea 는 그 줄을 그린다).
- * 클릭은 받지 않는다 — 글자를 고치는 것은 언제나 위의 입력칸이다.
+ * §5.5 #17-36 ⑫ — 입력칸 뒤 거울 층. textarea 는 토막 밑줄이 안 돼 같은 글자를 투명하게 깔고 링크만 칠한다.
+ * 글자 모양·줄바꿈(`pre-wrap`+`break-word`, 폭은 `clientWidth`)·스크롤이 입력칸과 같아야 한다 — 어긋나면 밑줄이 엉뚱한 글자 밑에 간다. 마지막 빈 줄에도 높이가 있게 폭 없는 공백을 붙인다.
  */
 
 interface MemoLinkMirrorProps {

@@ -4,11 +4,8 @@ import type { WebContents } from 'electron';
 import { guardAppContentFrames, isAppContentUrl, shouldBlockAppContentNavigation } from './appContentGuard.js';
 
 /**
- * §5.13 (T-3)(T-11) ③ — 앱 콘텐츠 프레임은 처음 연 문서 밖으로 가지 못한다.
- *
- * 내부 앱이 iframe 으로 띄운 정적 콘텐츠(에이전트가 짠 모션 코드)는 CSP 로 네트워크를 막아도 **자기 프레임의 이동**은
- * 막지 못한다. 이동을 두면 그 코드가 다른 파일을 띄워 그 글자가 영상에 찍힌다. 판정은 경로 모양 하나뿐이고 앱 이름을
- * 모른다 — 그래서 여기서는 모양(vibproxy·http 어느 쪽이든)과 "같은 문서" 판정을 못 박는다.
+ * §5.13 (T-3)(T-11) ③ — 앱 콘텐츠 프레임은 처음 연 문서 밖으로 가지 못한다. CSP 로는 자기 프레임의 이동을 못 막아,
+ * 에이전트가 짠 모션 코드가 다른 파일을 띄워 그 글자가 영상에 찍힌다. 판정은 경로 모양뿐(앱 이름 모름) — 모양(vibproxy·http)과 "같은 문서" 판정을 못 박는다.
  */
 
 const CONTENT = 'vibproxy://proxy/api/app/someapp/content/proj/doc-1/.vibisual/video/compositions/intro/index.html?item=c1&v=abc';

@@ -1,13 +1,4 @@
-/**
- * §5.3 #10-2 v2.37 — Auto Agent Panel.
- *
- * `bubbleType === 'auto'` 버블 선택 시 DetailPanel 안에 렌더되는 간이 UI.
- * - 채팅 입력 (자연어 요청)
- * - "질문하기" 토글
- * - 진행 상태 인디케이터 (idle/analyzing/asking/spawning/dispatching/running/completed/error)
- * - 명확화 질문 폼 (phase==='asking' 일 때만)
- * - 최종 요약 표시 (phase==='completed' 일 때만)
- */
+/** §5.3 #10-2 — `bubbleType === 'auto'` 버블의 DetailPanel 간이 UI(입력·질문 토글·진행 상태·명확화 질문·요약). */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { runEnterKey } from '../../hooks/useEnterSubmit.js';
@@ -37,8 +28,7 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
   const sessionId = node.path;
   const phase = summary?.phase ?? 'idle';
   const askQuestionsEnabled = summary?.askQuestionsEnabled ?? true;
-  // §5.3 #10-3 v4.98 — `running`(빌더는 끝났고 워커가 도는 중)은 입력을 막지 않는다.
-  //   종전에는 빌더 완료 = `completed` 라 이 구간에 입력이 열려 있었고, 그 UX 를 그대로 유지한다.
+  // §5.3 #10-3 — `running`(빌더는 끝났고 워커가 도는 중)은 입력을 막지 않는다.
   const isBusy = phase !== 'idle' && phase !== 'completed' && phase !== 'error' && phase !== 'running';
 
   // live = 입력칸의 현재 값 — 조합 확정 직후 프레임의 `draft` 는 마지막 글자가 비어 있을 수 있다.
@@ -132,8 +122,7 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
         </div>
       )}
 
-      {/* §5.3 #10-3 v4.98 — 검증 런. 종전 화면에서 "완료"의 근거는 초록 배지와 문장 하나뿐이었고
-          증거는 한 줄도 없었다. 이 구획이 그 자리를 대신한다 — 지표·게이트 점검·런 목록·증거 표. */}
+      {/* §5.3 #10-3 — 검증 런: "완료"의 근거를 배지가 아니라 증거로 보인다. */}
       <AutoAgentRunView sessionId={sessionId} />
 
       {/* 빌더 동작 창 — 헤드리스 빌더(=auto-agent 자기 세션)의 라이브 스트림을 패널 안에 임베드.
@@ -209,14 +198,7 @@ interface BuilderActivityWindowProps {
   phase: AutoAgentSummary['phase'];
 }
 
-/**
- * 헤드리스 빌더의 라이브 동작을 패널 안에 보여주는 작은 창.
- *
- * 빌더는 별도 인프라가 아니라 **auto-agent 버블 자기 세션**에서 도는 에이전트라(§SCENARIO 271·275),
- * 그 활동(text/thinking/tool_use/tool_result)이 일반 에이전트와 동일하게 `subAgentStreams`
- * (parentAgentId = 이 버블의 agentId) 로 흐른다. 그 스트림을 모아 기존 `StreamRenderer` 로 렌더한다.
- * IDE 오버레이를 열지 않아도 "지금 빌더가 무엇을 하는지" 패널에서 바로 확인.
- */
+/** 헤드리스 빌더 라이브 창. 빌더는 이 버블 자기 세션의 에이전트라 활동이 `subAgentStreams`(parentAgentId = 이 버블)로 흘러 `StreamRenderer` 로 그린다. */
 const BuilderActivityWindow = memo(function BuilderActivityWindow({ agentId, phase }: BuilderActivityWindowProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const subAgentStreams = useGraphStore((s) => s.subAgentStreams);

@@ -1,14 +1,7 @@
 /**
- * §5.13 (Z) 41-3 — **합성기 예약** (순수 — 시험이 고정한다).
- *
- * 재생 중 무대의 상자(아이템 하나 = 상자 하나)가 시간에 따라 바뀌는 것 — 장면 컷, 전환(`push`·`zoom`·`dissolve`·`flash`),
- * 아이템 페이드, 키프레임의 이동·배율·회전·불투명도 — 을 앞 `horizonS` 초 동안 **프레임마다 같은 그리기 목록 함수**
- * (`buildDrawList`)로 뽑아, 상자마다 Web Animations 키프레임으로 만든다. 무대가 그것을 상자에 걸면 합성기가 돌리므로
- * 화면 스레드가 막혀도 컷·전환이 제때 일어난다(41 실측 — 종전에는 상자 배치가 화면 스레드의 프레임마다였다).
- *
- * 합성기가 돌릴 수 있는 값은 `transform`·`opacity` 뿐이다. 그래서 **예약할 수 있는 상자**는 예약 구간 동안 크기(폭·높이)가
- * 그대로이고 잘라 보이기(`wipe` 의 clip)가 걸리지 않은 상자다 — 그 밖의 상자는 종전처럼 화면 스레드가 맞춘다(`plannable:false`).
- * 상자의 자리(left·top)는 예약 동안 기준 자리(`base`)에 고정하고, 움직임은 그 기준에서의 이동(`translate`)으로 적는다.
+ * §5.13 (Z) 41-3 — 합성기 예약(순수 — 시험이 고정한다). 앞 `horizonS` 초를 프레임마다 `buildDrawList` 로 뽑아 상자별 Web Animations 키프레임으로
+ * 만든다 — 합성기가 돌려 화면 스레드가 막혀도 컷·전환이 제때 난다. 합성기는 `transform`·`opacity` 만 돌리므로 크기가 바뀌거나 clip(`wipe`)이
+ * 걸린 상자는 `plannable:false`(화면 스레드가 맞춘다). 자리는 `base` 에 고정하고 움직임은 `translate` 로 적는다.
  */
 import type { ResolvedTimeline, VideoDoc } from '../types.js';
 import { buildDrawList, type DrawOp } from './drawList.js';
@@ -56,10 +49,7 @@ export function planOpacity(op: DrawOp): number {
 
 const EPS = 1e-6;
 
-/**
- * `from` 부터 `horizonS` 초 동안(양 끝 포함) 프레임마다 그리기 목록을 뽑아 상자별로 모은다. `from` 은 문서 프레임 격자로 맞춘다
- * (재생 시계가 이미 격자 위에 있다 — 그래도 한 번 더 접는다).
- */
+/** 양 끝 포함. `from` 은 문서 프레임 격자로 한 번 더 접는다(재생 시계가 이미 격자 위여도). */
 export function planStage(doc: VideoDoc, timeline: ResolvedTimeline, from: number, horizonS: number, fps: number): StagePlan {
   const rate = fps > 0 ? fps : 30;
   const start = Math.round(from * rate) / rate;
@@ -113,10 +103,8 @@ export interface StagePlanKeyframe {
 }
 
 /**
- * 예약 항목 → 키프레임. 보이지 않는 프레임은 불투명도 0 — 다만 **곧 보일 컴포지션**(`primeBefore`)은 처음 보이기 전까지
- * `STAGE_WARM_PRIME_OPACITY` 로 둔다(거의 안 보이게 그리게 해 두어야 컷 순간에 첫 그림이 늦지 않는다 — 39-5·40-8 ① 깨움과 같다).
- * 보임이 바뀌는 자리(컷)는 한 프레임에 걸쳐 녹이지 않고 그 프레임에서 바로 바뀐다(`step-end`). 자리 값은 보이지 않는 프레임에서
- * 가장 가까운 보이는 프레임의 값을 이어 쓴다(보일 때 튀지 않게).
+ * 안 보이는 프레임은 불투명도 0, 단 `primeBefore` 는 처음 보이기 전까지 `STAGE_WARM_PRIME_OPACITY` — 그려 둬야 컷 순간 첫 그림이 늦지 않는다(40-8 ①).
+ * 컷은 녹이지 않고 바로(`step-end`). 안 보이는 프레임의 자리 값은 가장 가까운 보이는 프레임 값을 쓴다(보일 때 튀지 않게).
  */
 export function planKeyframes(item: StagePlanItem, opts: { readonly primeBefore?: boolean } = {}): StagePlanKeyframe[] {
   const frames = item.frames;

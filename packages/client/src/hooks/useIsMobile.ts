@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 
-// 모바일 웹 접속(§4 v3.16) 반응형 분기용 미디어쿼리 훅.
-// 데스크톱 Electron 은 뷰포트가 넓고 포인터가 fine 이라 두 훅 모두 false → 기존 동작 불변.
+// 모바일 웹 접속(§4) 반응형 분기용 미디어쿼리 훅. 데스크톱 Electron 은 뷰포트가 넓고 포인터가 fine 이라 둘 다 false.
 
 function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() =>
@@ -34,11 +33,8 @@ export function useIsNarrowViewport(): boolean {
 }
 
 /**
- * 앱 안의 떠 있는 창(`useFloatingWindow` 를 쓰는 창)을 **화면 전체로 고정**할지 — 폰 폭이거나 터치 기기면 true.
- *
- * 폰 폭에서는 320px 하한 창에 화면이 짓눌리고, 터치 기기에서는 창의 끌기·크기 조절이 마우스 이벤트라
- * 손가락으로 옮길 수 없다(태블릿은 폭이 넓어도 그렇다). 창마다 따로 판정하면 기준이 갈리므로 여기 한 곳.
- * ⚠ 두 훅을 **언제나 둘 다** 부른다 — `a() || b()` 로 쓰면 앞이 참일 때 뒤 훅이 빠져 훅 순서가 바뀐다.
+ * 떠 있는 창을 **화면 전체로 고정**할지 — 폰 폭이거나 터치 기기(끌기·크기 조절이 마우스 이벤트라 손가락으론 못 옮긴다)면 true.
+ * ⚠ 두 훅을 **언제나 둘 다** 부른다 — `a() || b()` 면 훅 순서가 바뀐다.
  */
 export function useFloatingWindowFullScreenLock(): boolean {
   const narrow = useIsNarrowViewport();
@@ -53,14 +49,8 @@ export function isNarrowViewportNow(): boolean {
 }
 
 /**
- * 저전력(발열 억제) 모드 — 굵은 포인터(모바일·터치)면 true. 켜지면 App 이 `document.documentElement`
- * 에 `vibisual-low-power` 클래스를 걸어 index.css 가 캔버스의 흐르는 엣지·장식용 무한 애니메이션·
- * backdrop-blur 등 폰 GPU 부하를 끈다(§4 v3.39 모바일 발열 대응).
- *
- * §4 v3.41 정정: 발열 대상이 아닌 **데스크톱은 여기 포함하지 않는다**. 종전엔 `prefers-reduced-motion`
- * 도 트리거로 삼아, Windows '동작 줄이기(애니메이션 효과 끄기)'를 켠 PC 까지 저전력에 걸려 active
- * 버블의 활동 펄스 링이 통째로 꺼졌다. 이제 `(pointer: coarse)`(진짜 터치 기기)만 판정 →
- * 데스크톱은 모션 설정과 무관하게 기존 연출 그대로.
+ * 저전력 — `(pointer: coarse)` 면 true(App 이 `vibisual-low-power` 를 걸어 index.css 가 흐르는 엣지·무한 애니메이션·blur 를 끈다 — §4).
+ * `prefers-reduced-motion` 을 넣지 마라 — Windows 애니메이션 효과를 끈 데스크톱의 펄스 링까지 꺼진다.
  */
 export function useLowPowerMode(): boolean {
   return useMediaQuery('(pointer: coarse)');
@@ -73,12 +63,7 @@ export interface LongPressHandlers {
   onTouchCancel: (e: React.TouchEvent) => void;
 }
 
-/**
- * 터치 롱프레스 → 우클릭 대체. 터치엔 우클릭(contextmenu)이 없어 캔버스/탭의 컨텍스트 메뉴에
- * 닿을 수 없던 것을 보완한다. 한 손가락으로 `delay`ms 이상 누르고 있으면(그동안 `moveTolerance`
- * 이상 움직이지 않으면) onLongPress 를 화면 좌표와 함께 호출한다. 팬/핀치(움직임·다중 터치)는
- * 자동 취소되어 스크롤·확대와 충돌하지 않는다.
- */
+/** 터치 롱프레스 → 우클릭 대체(터치엔 contextmenu 가 없다). 한 손가락으로 `delay`ms 이상, `moveTolerance` 안에서 누르면 onLongPress. 움직임·다중 터치는 취소돼 팬/핀치와 안 부딪힌다. */
 export function useLongPress(
   onLongPress: (x: number, y: number, target: EventTarget | null) => void,
   { delay = 500, moveTolerance = 12 }: { delay?: number; moveTolerance?: number } = {},

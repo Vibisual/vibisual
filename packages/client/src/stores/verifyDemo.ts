@@ -1,17 +1,8 @@
 import { create } from 'zustand';
 import type { VerificationTarget } from '@vibisual/shared';
 
-// §5.5 #17-35 ⑨⑩ — 시연 녹화의 **런타임 상태**(비영속, 렌더러 메모리).
-//
-// 시연 레코드 자체는 서버가 SSOT 라 `graphStore` 에 있고, 영상 Blob 은 §5.9 규약대로
-// `capturePlaytest` 에 산다 — 이 파일은 그 둘을 잇는 얇은 층이다.
-//
-// 스토어인 이유는 **세 자리가 같은 상태를 봐야** 하기 때문이다:
-//   · 검증 뷰(사이드바)      — 누르고, 미리보기를 보고, 목록을 그린다
-//   · 녹화 호스트(IDE 루트)  — 실제 스트림·녹화기를 쥔다
-//   · 시연 창(캔버스 자리)   — 되돌려 보고 절차로 저장한다
-// 특히 녹화기를 **사이드바가 쥐면 안 된다** — 활동바에서 다른 항목을 눌러 뷰가 접히는 순간
-// 언마운트 정리가 녹화를 끊어, ⑩(검증이 도는 동안의 화면)이 통째로 빈다.
+// §5.5 #17-35 ⑨⑩ — 시연 녹화의 비영속 런타임 상태(레코드는 서버 SSOT, 영상 Blob 은 `capturePlaytest`). 검증 뷰·녹화 호스트·시연 창이 함께 본다.
+// **녹화기를 사이드바가 쥐면 안 된다** — 뷰가 접히면 언마운트 정리가 녹화를 끊어 ⑩ 이 빈다.
 
 /** 이 탭이 찍기로 한 캡처 소스 한 벌. 창 핸들은 재시작마다 바뀌므로 영속하지 않는다. */
 export interface VerifyDemoSource {
@@ -145,11 +136,8 @@ export const useVerifyDemoStore = create<VerifyDemoState>((set, get) => ({
 }));
 
 /**
- * §5.5 #17-35 ⑨-1 — 녹화기 키.
- *
- * `useCaptureRecorder`·`capturePlaytest` 는 캡처 버블 id 로 키를 매기지만, 시연에는 **버블이 없다**
- * (사용자 지시 — 캡처 버블을 만들지 않는다). 그 스토어들이 문자열 키 `Record` 라 이 접두어 하나로
- * 같은 저장소를 그대로 빌려 쓴다. 버블 id 와 절대 겹치지 않는 모양이어야 한다(`capture-…` vs `verify:…`).
+ * §5.5 #17-35 ⑨-1 — 녹화기 키. 시연엔 캡처 버블이 없어 이 접두어로 `useCaptureRecorder`·`capturePlaytest` 의 저장소를 빌려 쓴다 —
+ * 버블 id 와 절대 겹치지 않아야 한다(`capture-…` vs `verify:…`).
  */
 export function verifyRecorderKey(subAgentId: string): string {
   return `verify:${subAgentId}`;

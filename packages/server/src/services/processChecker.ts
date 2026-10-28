@@ -37,26 +37,16 @@ export function isPortAlive(port: number): Promise<boolean> {
 }
 
 /**
- * 신고된 **정확한 URL**(경로·쿼리 포함)에 실제 HTTP GET 을 보내 에러 아닌 응답(2xx/3xx)을
- * 주는지 확인한다. `isPortAlive` 는 TCP listen 만 보므로 `python -m http.server` 처럼
- * 포트는 살아있어도 그 경로가 404 인 경우(사용자 보고: "접속도 안 되는데 왜 켜지냐")를
- * 걸러내지 못한다 — iframe 신고 위성 생성 게이트에서 이 함수로 URL 응답을 추가 검증한다.
- * status < 400 이면 serving, 4xx/5xx·연결 실패·타임아웃은 not serving. 본문은 안 읽고 즉시 파기.
+ * 신고된 정확한 URL(경로·쿼리 포함)에 GET, status < 400 이면 serving(본문은 버린다).
+ * `isPortAlive`(TCP 만)는 포트는 살았는데 경로가 404 인 서버를 못 거른다 — iframe 위성 전에 이걸로 본다.
  */
 export function isUrlServing(rawUrl: string, timeoutMs = HTTP_PROBE_TIMEOUT): Promise<boolean> {
   return probeUrl(rawUrl, timeoutMs).then((r) => r.ok);
 }
 
 /**
- * §7.11 — **접속되는 이름**으로 바꿔 가며 물어, 실제로 응답한 주소를 돌려준다(없으면 null).
- *
- * 같은 서버라도 이름에 따라 붙고 안 붙고가 갈린다: Vite 를 `localhost` 로 열면 Windows 에서는
- * IPv6(`::1`)에만 바인딩돼 `http://127.0.0.1:8080` 은 ECONNREFUSED 다. 한 이름만 묻고 접었던
- * 예전 게이트는 그 서버를 "죽었다"고 판정해 프리뷰를 영영 안 만들었다(실측: `127.0.0.1` 거절,
- * `localhost`·`[::1]` 200). 그래서 루프백 주소는 별칭을 차례로 물어본다.
- *
- * 돌려준 주소를 그대로 iframe 에 실으면 **화면에서도 확실히 열린다** — "확인한 주소"와
- * "보여 주는 주소"가 갈리지 않는다. 루프백이 아닌 주소는 별칭이 없으므로 자기 자신만 시도한다.
+ * §7.11 — 루프백 별칭을 바꿔 물어 응답한 주소를 돌려준다(없으면 null, 루프백이 아니면 자기만).
+ * Windows 의 Vite 는 `localhost` 로 열면 `::1` 전용이라 `127.0.0.1` 은 거절된다(실측) — 한 이름만 물으면 프리뷰가 안 생긴다. 돌려준 주소를 그대로 iframe 에 싣는다(확인한 주소 = 보여 주는 주소).
  */
 export async function resolveServingUrl(
   rawUrl: string,
@@ -87,14 +77,8 @@ export async function resolveServingTarget(
 }
 
 /**
- * §7.11 — **프리뷰 버블에 실을 주소**를 정한다(응답하지 않으면 null).
- *
- * {@link resolveServingUrl} 이 "어느 이름으로 불러야 붙는가"를 풀었다면, 이쪽은 "그 주소를
- * 그대로 열어도 되는가"를 푼다. 감지 폴백이 주운 주소는 대개 에이전트가 확인차 친 API 경로라
- * (`curl …/api/backtest/state`) 그대로 열면 사람이 볼 화면이 아니라 JSON 이 뜬다. 판정 규칙은
- * shared `previewUrlForServer` 한 곳에 있고(순수 함수 — 서버·클라가 같은 답을 낸다), 여기서는
- * 그 답이 원래 주소와 다를 때 **정문이 실제로 응답하는지 한 번 더 확인**한다. 정문이 죽어 있으면
- * 확인된 원래 주소를 그대로 쓴다 — 열리는 주소를 버리고 안 열리는 주소로 바꾸지 않는다.
+ * §7.11 — 프리뷰 버블에 실을 주소(응답 없으면 null). 감지가 주운 주소는 대개 에이전트가 친 API 경로라 그대로 열면 JSON 이 뜬다.
+ * 규칙은 shared `previewUrlForServer`(서버·클라 공용). 여기선 그 정문이 응답하는지 확인하고, 죽었으면 확인된 원래 주소를 쓴다.
  */
 export async function resolvePreviewUrl(
   rawUrl: string,
@@ -138,14 +122,7 @@ function probeUrl(rawUrl: string, timeoutMs: number): Promise<{ ok: boolean; con
 /** 포트 점유자 조회 명령 1회당 상한. 넘으면 "못 봤다"로 보고 다음 후보로 넘어간다. */
 const PORT_LOOKUP_TIMEOUT_MS = 3000;
 
-/**
- * {@link killByPortDetailed} 의 결과 구분.
- *
- * `not-listening`(포트가 비어 있다)과 `no-tool`(볼 도구가 없어서 못 봤다)을 **반드시 나눠야 한다** —
- * 예전 구현은 POSIX 에서 `lsof` 하나만 쓰고 exec 에러를 통째로 삼켜 둘 다 `false` 로 뭉갰다.
- * `lsof` 는 macOS 엔 항상 있지만 최소구성 Linux(컨테이너·서버 배포판)엔 없는 경우가 있어서,
- * 그런 환경의 사용자는 "포트 킬이 그냥 안 먹는다"만 겪고 이유를 알 길이 없었다.
- */
+/** `not-listening`(빈 포트)과 `no-tool`(볼 도구 없음)을 반드시 나눈다 — 최소구성 Linux 엔 `lsof` 가 없을 수 있어, 뭉개면 "포트 킬이 안 먹는다"만 남는다. */
 export type KillByPortOutcome =
   /** 점유 프로세스를 찾아 종료를 지시했다. */
   | 'killed'
@@ -174,16 +151,8 @@ function uniquePositiveInts(values: number[]): number[] {
 }
 
 /**
- * 포트를 LISTEN 중인 소켓 하나 — **누가(pid) 어느 주소에(address) 묶였나.**
- *
- * §7.11 — 한 포트에 주인이 둘일 수 있다. Windows·macOS 는 서로 다른 프로세스가 같은 포트를
- * 다른 주소로 동시에 잡는다(실측 2026-10-01: 한 프로젝트의 `node serve.js` 가 `::`(=`0.0.0.0`+`[::]`),
- * 옆 프로젝트의 vite 가 `[::1]` 에 같은 8080 으로 공존). `localhost`·`[::1]` 접속은 `[::1]` 리스너로,
- * `127.0.0.1` 은 와일드카드로 간다 — 그래서 "이 포트는 누구 것인가"가 아니라 "**이 주소는 누구에게
- * 닿는가**"를 물어야 하고, 그러려면 리스너마다 주소가 필요하다.
- *
- * `address` 는 {@link normalizeListenAddress} 로 접은 모양(`::1` · `::` · `0.0.0.0` · `127.0.0.1` · `*`).
- * 주소를 주지 않는 도구(fuser)의 결과는 `undefined` — "모두 후보"로 읽는다.
+ * LISTEN 소켓 하나 — 누가(pid) 어느 주소에(address). §7.11 — Windows·macOS 는 다른 프로세스가 같은 포트를 다른 주소로 잡는다
+ * (실측 2026-10-01: `::` 와 `[::1]` 에 같은 8080) — "이 주소가 누구에게 닿나"를 물으려면 주소가 필요하다. `address` 는 {@link normalizeListenAddress} 모양, fuser 는 `undefined`(모두 후보).
  */
 export interface PortListener {
   pid: number;
@@ -213,17 +182,8 @@ function splitEndpoint(endpoint: string, port: number): string | null {
 }
 
 /**
- * Windows `netstat -ano` 출력에서 해당 포트를 LISTEN 중인 소켓(pid + 주소)을 뽑는다.
- *
- * ⚠ 두 함정을 함께 막는다.
- *  - **IPv6 표를 봐야 한다.** 종전 `netstat -ano -p TCP` 는 IPv4 표만 준다. Windows 의 Vite 는
- *    `localhost` 로 열면 `[::1]` 에만 묶이므로 그 서버가 **영영 안 보였다** — 소속 판정이 늘
- *    "못 읽음"으로 떨어져 남의 프로젝트 프리뷰가 붙고 안 걷혔다(실측 2026-10-01). 호출부는
- *    `-p` 없이 TCP·TCPv6 를 함께 읽는다.
- *  - **상태 단어는 번역된다.** 독일어 Windows 는 `LISTENING` 대신 `ABHÖREN` 을 찍는다. LISTEN 소켓의
- *    상대 주소는 언제나 와일드카드(`0.0.0.0:0` · `[::]:0` · `*:*`)이므로 그것으로도 판정한다
- *    (`-a` 는 bound-nonlistening 소켓을 보이지 않는다 — 그건 `-q` 의 몫이다).
- *  - 예전 `findstr :4800` 은 `127.0.0.1:48000` 도 잡았다 — 포트는 끝자리까지 정확히 맞춘다.
+ * Windows `netstat -ano` → 그 포트의 LISTEN 소켓(pid + 주소). `-p TCP` 는 IPv4 표만 줘서 `[::1]` 전용 Vite 가 안 보인다(실측 2026-10-01) — `-p` 없이 읽는다.
+ * 상태 단어는 번역되므로(독일어 `ABHÖREN`) 상대 주소 와일드카드(`0.0.0.0:0` · `[::]:0` · `*:*`)로도 판정한다. 포트는 끝자리까지 맞춘다(`:4800` ≠ `:48000`).
  */
 export function parseNetstatListeners(stdout: string, port: number): PortListener[] {
   const out: PortListener[] = [];
@@ -338,11 +298,7 @@ export function parseFuserPids(stdout: string): number[] {
   );
 }
 
-/**
- * Linux `/proc/net/tcp`(+`tcp6`) 에서 해당 포트를 LISTEN(`st=0A`) 중인 소켓의 inode 목록 추출.
- * 외부 도구가 하나도 없는 최소 컨테이너에서 쓰는 마지막 수단 — 커널이 직접 주는 진실이라
- * "도구가 없어서 모름"을 "포트가 비었다"로 오인할 여지가 없다.
- */
+/** Linux `/proc/net/tcp(6)` 에서 그 포트 LISTEN(`st=0A`) 소켓의 inode 들 — 도구가 없는 최소 컨테이너의 마지막 수단(커널 값이라 "모름"을 "비었다"로 오인하지 않는다). */
 export function parseProcNetTcpListenInodes(content: string, port: number): string[] {
   return [...new Set(parseProcNetTcpListeners(content, port).map((l) => l.inode))];
 }
@@ -460,15 +416,9 @@ function lookupViaProc(port: number): LookupResult {
 }
 
 /**
- * §7.11 — **이 주소로 접속하면 어느 리스너에 닿는가.** 호스트별 계층(앞 계층에 리스너가 있으면 그것)이다.
- *
- *  - `[::1]`     : `::1` → `::`·`*`(IPv6 와일드카드 = 이중 스택 포함)
- *  - `127.x.x.x` : 그 주소 → `0.0.0.0`·`*` → `::`(이중 스택이 IPv4 사상으로 받는다)
- *  - `localhost` : IPv6 계층 먼저, 그다음 IPv4 — Node(undici)·Chromium 모두 `::1` 부터 시도하고
- *                  거절되면 `127.0.0.1` 로 넘어간다.
- *  - 그 밖(LAN 주소 등): 계층을 모른다 → `null`(호출부가 "모두 후보"로 읽는다).
- *
- * 특정 주소에 묶인 소켓이 와일드카드보다 먼저다 — Windows·BSD 는 둘이 공존할 때 특정 주소가 이긴다.
+ * §7.11 — 이 주소로 접속하면 닿는 리스너 계층(앞 계층에 있으면 그것).
+ * `[::1]`: `::1` → `::`·`*` · `127.x.x.x`: 그 주소 → `0.0.0.0`·`*` → `::`(IPv4 사상) · `localhost`: IPv6 먼저, 다음 IPv4(undici·Chromium 모두 `::1` 부터) · 그 밖: `null`(모두 후보).
+ * 특정 주소가 와일드카드보다 먼저다(Windows·BSD 는 공존하면 특정 주소가 이긴다).
  */
 export function listenerTiersForHost(host: string): string[][] | null {
   const h = normalizeListenAddress(host);
@@ -503,12 +453,7 @@ export function urlHostname(rawUrl: string | undefined): string | null {
   try { return new URL(rawUrl).hostname.replace(/^\[|\]$/g, '').toLowerCase() || null; } catch { return null; }
 }
 
-/**
- * 포트 리스너 조회 결과 — {@link killByPortDetailed} · 포트 인계 · §7.11 소속 판정의 공통 반환.
- *
- * `anyToolWorked` 가 **결과의 신뢰도**다. `listeners` 가 비었을 때 이 값이 false 면 "볼 도구가 없어서
- * 못 봤다"이고, true 면 "정말 아무도 LISTEN 하지 않는다"이다 — 두 경우의 처방이 다르다.
- */
+/** 포트 리스너 조회 결과(죽이기·포트 인계·§7.11 소속 판정 공용). `listeners` 가 비었을 때 `anyToolWorked` false = 볼 도구 없음, true = 정말 아무도 없음. */
 export interface PortListenerLookup {
   listeners: PortListener[];
   anyToolWorked: boolean;
@@ -516,17 +461,9 @@ export interface PortListenerLookup {
 }
 
 /**
- * 포트를 LISTEN 중인 소켓(pid + 묶인 주소)을 찾는다(종료하지 않는다).
- *
- * 조회 수단은 플랫폼별 후보를 순서대로 시도하고, 하나라도 "동작했다"면 그 결과를 채택한다.
- *   - Windows: `netstat -ano` (TCP + **TCPv6** — `-p TCP` 는 IPv4 만 준다)
- *   - POSIX  : `lsof -F ptn` → `ss` → `fuser`(주소 없음) → `/proc/net/tcp(6)`
- *
- * {@link killByPortDetailed}(죽이기)·§7.11 포트 인계(살려 둔 채 기동 명령 읽기)·§7.11 프로젝트 격리
- * (누구 서버인가)가 **같은 조회 경로를 공유**해야 한다 — 한쪽만 도구 후보가 늘거나 파서가 고쳐지면
- * "끌 수는 있는데 넘겨받지는 못하는" 비대칭이 생긴다.
- *
- * @param platform 세 OS 를 한 기기에서 테스트하기 위해 인자로 받는다(기본 = 실제 플랫폼).
+ * LISTEN 소켓(pid + 주소)을 찾는다(죽이지 않음). 후보를 차례로, 하나라도 동작하면 채택 — Windows `netstat -ano`(TCPv6 포함) · POSIX `lsof -F ptn` → `ss` → `fuser` → `/proc/net/tcp(6)`.
+ * 죽이기·§7.11 인계·격리가 이 경로를 함께 써야 한다(갈리면 "끌 수는 있는데 못 넘겨받는" 비대칭).
+ * @param platform 테스트용 주입점.
  */
 export async function findPortListeners(
   port: number,
@@ -582,25 +519,13 @@ export async function findPortOwnerPids(port: number): Promise<PortOwnerLookup> 
 
 /** {@link killByPortDetailed} 의 범위 — 지정하면 **그 주소로 접속했을 때 닿는 리스너만** 죽인다. */
 export interface KillByPortOptions {
-  /**
-   * 그 서버를 부르는 주소의 호스트(`localhost` · `127.0.0.1` · `::1` …). 비우면 포트의 리스너 전부.
-   *
-   * §7.11 — 한 포트에 주인이 둘일 수 있다(위 {@link PortListener}). 프로젝트 A 의 Stop 이
-   * 같은 포트를 `[::1]` 로 잡은 프로젝트 B 의 서버까지 트리째 죽이면 안 된다.
-   */
+  /** 그 서버를 부르는 주소의 호스트(비우면 포트 전부). §7.11 — A 의 Stop 이 같은 포트를 `[::1]` 로 잡은 B 의 서버까지 죽이면 안 된다. */
   host?: string;
 }
 
 /**
- * 포트를 LISTEN 중인 프로세스를 찾아 **트리째** 종료한다.
- *
- * 조회는 {@link findPortListeners} 에 위임한다. 전부 없으면 `no-tool` — 호출자가 "포트가 비었다"와
- * 구분할 수 있다. `host` 를 주면 그 주소가 닿는 리스너만 죽이고, 닿는 것이 없으면 `not-listening`
- * (그 주소의 서버는 이미 없다 — 같은 포트의 남은 리스너는 남의 것이다).
- *
- * 종료는 {@link killTree} 로 위임한다(이전엔 `taskkill /F`(트리 아님) / `kill`(SIGTERM, 손자 잔존)을
- * 여기서 따로 재구현했다). `respawn` 이 띄운 dev 서버는 `shell:true` 라 최상단이 셸이고 실제 서버는
- * 그 자식 — 단일 kill 로는 포트가 안 놓인다.
+ * LISTEN 프로세스를 트리째 종료. 도구가 전부 없으면 `no-tool`. `host` 를 주면 닿는 리스너만, 없으면 `not-listening`(남은 리스너는 남의 것).
+ * 트리 종료({@link killTree})여야 한다 — `respawn` 은 `shell:true` 라 최상단이 셸이고 실제 서버는 그 자식이다.
  */
 export async function killByPortDetailed(port: number, options: KillByPortOptions = {}): Promise<KillByPortResult> {
   // 보안: port 는 셸 문자열에 보간되므로 정수가 아니면 즉시 거부(인젝션 차단).
@@ -647,33 +572,21 @@ export function killByPort(port: number, options: KillByPortOptions = {}): Promi
   return killByPortDetailed(port, options).then((r) => r.killed);
 }
 
-/**
- * 명령어를 백그라운드로 재실행 (detached).
- * 보안 계약: `command` 는 **서버가 구성한 상수/탐지된 dev 명령**만 허용한다.
- * 클라이언트/사용자 자유입력을 절대 이 함수로 전달하지 말 것 — `cmd /c <command>`
- * 로 셸 실행되므로 그대로 RCE 싱크가 된다.
- */
+/** 명령어를 백그라운드로 재실행(detached). 보안 계약: `command` 는 서버가 구성한 상수/탐지된 dev 명령만 — 자유입력을 넘기면 셸 실행이라 그대로 RCE 싱크다. */
 export function respawn(command: string, cwd?: string): void {
   const effectiveCwd = cwd ?? process.cwd();
   logger.info(`respawn: cwd="${effectiveCwd}" cmd="${command}"`);
   try {
-    // §7.11 v2.27 — `shell: true` 위임 (이전 `spawn('cmd', ['/c', command])` 폐기).
-    //   이전 방식은 cmd 의 `/c` 가 첫·마지막 `"` 한 쌍을 무조건 strip 하는 단일 규칙과 충돌해
-    //   `node -e "..."` 처럼 중첩 따옴표 명령이 깨졌다. libuv 가 args 를 `\"` 로 escape 해도
-    //   cmd 가 그 escape 를 풀어주지 않아 node 에 backslash 가 섞인 malformed JS 가 전달.
-    //   `shell: true` 는 Windows 에서 내부적으로 `cmd /d /s /c "<command>"` 를 쓰며 `/s` 플래그가
-    //   따옴표 strip 을 꺼서 명령 문자열이 1글자 변경 없이 cmd 에 도달 — 사용자가 직접 친 것과 동일.
-    //   비-Windows 에선 system shell(`/bin/sh`)로 위임. cmd/sh OS 분기를 옵션 한 줄로 통합.
+    // §7.11 — `shell: true` 로 한다. `spawn('cmd', ['/c', …])` 로 되돌리지 마라 — `/c` 가 바깥 `"` 를 벗기고 `\"` 도 안 풀려 `node -e "..."` 가 깨진다.
+    // `shell: true` 는 Windows 에서 `cmd /d /s /c "<command>"`(`/s`)라 명령이 그대로 닿고, 그 밖은 `/bin/sh`.
     const child = spawn(command, {
       shell: true,
       cwd: effectiveCwd,
       detached: true,
       stdio: 'ignore',
-      // §7.11 v2.22 — Windows 에서 cmd 새 콘솔 윈도우 깜빡임 차단. 비-Windows 에선 무시.
       windowsHide: true,
     });
-    // §7.11 v2.22 — 이전엔 spawn 오류를 silent swallow 해서 "왜 안 켜지냐" 진단이 불가능했다.
-    //   detached + unref 라 부모는 대기 안 하지만 error 이벤트는 즉시 잡아 로그.
+    // §7.11 — detached + unref 라 기다리지 않지만 error 는 잡아 남긴다(삼키면 "왜 안 켜지나"를 진단할 수 없다).
     child.on('error', (err) => {
       logger.error(`respawn failed: cwd="${effectiveCwd}" cmd="${command}" — ${String(err)}`);
     });
@@ -690,8 +603,7 @@ export function respawn(command: string, cwd?: string): void {
   }
 }
 
-/** 명령어 텍스트에서 포트 번호 추출 — env var / 플래그 / URL 흔한 패턴 cover.
- *  §7.11 v2.20 inline-cmd 가드의 1차 추출기. probe 명령은 호출자가 isProbeCommand 로 먼저 거름. */
+/** 명령어 텍스트에서 포트 추출(env var · 플래그 · URL). probe 명령은 호출자가 `isProbeCommand` 로 먼저 거른다. */
 export function extractPort(text: string): number | undefined {
   // 흔한 env var 형태: PORT=, SERVER_PORT=, API_PORT=, HTTP_PORT=, LISTEN_PORT=, APP_PORT=, BACKEND_PORT=, FRONTEND_PORT=
   const envMatch = text.match(/\b(?:PORT|SERVER_PORT|API_PORT|HTTP_PORT|LISTEN_PORT|APP_PORT|BACKEND_PORT|FRONTEND_PORT)=(\d{2,5})\b/);
@@ -703,13 +615,8 @@ export function extractPort(text: string): number | undefined {
   const bindMatch = text.match(/--bind[=\s][^\s]*?:(\d{2,5})/i);
   if (bindMatch?.[1]) return parseInt(bindMatch[1], 10);
 
-  // §7.11 — `python -m http.server 8777 [--bind 127.0.0.1]` / `SimpleHTTPServer 8777`:
-  //   포트가 **위치 인자**라 위 플래그/env 패턴에 안 걸린다. 게다가 http.server 의 기동 배너
-  //   ("Serving HTTP on … port 8777")는 stdout 으로 나가는데 파이프(bg .output)일 땐 블록
-  //   버퍼링돼 flush 되지 않아 output 파일엔 접근로그(포트 없음)만 남는다 → watcher 도 포트를
-  //   못 잡아 iframe 위성이 영영 안 생긴다. 명령어 문자열에서 직접 위치 포트를 뽑아 이 사각지대를
-  //   메운다. `(?<![\d.]) … (?![\d.])` 로 IP 옥텟(`127.0.0.1`)은 건너뛰고 순수 포트 토큰만 잡는다
-  //   (`--bind 127.0.0.1 8777` 처럼 포트가 flag 인자 뒤여도 안전).
+  // §7.11 — `http.server 8777` 은 포트가 위치 인자이고 기동 배너도 파이프에선 버퍼링돼 안 나와 watcher 가 못 잡는다 — 명령어에서 뽑는다.
+  // `(?<![\d.]) … (?![\d.])` 로 IP 옥텟을 건너뛴다(`--bind 127.0.0.1 8777` 도 안전).
   const pyHttpMatch = text.match(/\b(?:http\.server|SimpleHTTPServer)\b[^\n]*?(?<![\d.])\b(\d{2,5})\b(?![\d.])/i);
   if (pyHttpMatch?.[1]) return parseInt(pyHttpMatch[1], 10);
 
@@ -720,11 +627,10 @@ export function extractPort(text: string): number | undefined {
   return undefined;
 }
 
-/** 읽기·probe·진단류 명령어 패턴 (§7.11 v2.20).
- *  inline-cmd 단축 경로에서 이 패턴이 매칭되면 iframe/ServerEntry 생성 skip(watcher 에 위임).
- *  목적: `curl http://localhost:3001` 같은 명령이 살아있는 서버를 때릴 때, cmd 에서 추출된 3001
- *  포트가 진짜 listen 중이라 모든 후속 probe 를 통과 → 그 curl 셸이 마치 서버처럼 등록되는
- *  false positive 차단. 단어 경계로 강하게 매칭(파일경로/패스 안에 우연히 들어가지 않게). */
+/**
+ * §7.11 — 읽기·probe 명령 패턴. inline-cmd 단축 경로에서 걸리면 iframe/ServerEntry 를 안 만든다 — `curl localhost:3001` 은 살아 있는 포트를 때려 그 curl 셸이 서버로 등록된다.
+ * 단어 경계로 매칭한다(경로 속 우연 매칭 방지).
+ */
 const PROBE_COMMAND_PATTERNS: readonly RegExp[] = [
   /(?:^|[\s;&|`(])curl(?:\s|$)/i,
   /(?:^|[\s;&|`(])wget(?:\s|$)/i,
@@ -753,12 +659,8 @@ export function isProbeCommand(text: string): boolean {
 }
 
 /**
- * §7.11 — **우리 자신이 듣고 있는 포트들**. 감지가 Vibisual 을 "에이전트가 띄운 서버"로
- * 오인하지 않게 막는 유일한 자리다.
- *
- * 스폰된 에이전트는 카드 엔드포인트(`/api/agent-report` 등)를 `curl http://127.0.0.1:<포트>` 로
- * 수시로 친다. 그 주소는 당연히 살아 있으므로, 걸러내지 않으면 **모든 세션에서 Vibisual 자신의
- * 프리뷰 버블**이 생긴다. 프로세스 전역 사실이라 모듈 상태로 두고 부팅 때 한 번 채운다.
+ * §7.11 — 우리 자신이 듣는 포트. 감지가 우리를 에이전트 서버로 오인하지 않게 막는 유일한 자리다 — 에이전트가 카드 엔드포인트를 `curl 127.0.0.1:<포트>` 로 쳐서, 안 거르면 모든 세션에 우리 프리뷰 버블이 생긴다.
+ * 프로세스 전역이라 모듈 상태로 두고 부팅 때 한 번 채운다.
  */
 const vibisualOwnPorts = new Set<number>();
 
@@ -773,7 +675,7 @@ export function isVibisualOwnPort(port: number): boolean {
   return vibisualOwnPorts.has(port);
 }
 
-/** §7.11 v2.24 — JS/TS 코드 텍스트에서 흔한 listen 선언 패턴을 sniff. file·inline-eval 공용 헬퍼. */
+/** §7.11 — listen 선언 패턴 sniff(file·inline-eval 공용). */
 export function extractPortFromCodeText(content: string): number | undefined {
   // 1) .listen(N), .listen(N, ...), .listen({port: N})
   const listenMatch =
@@ -796,9 +698,7 @@ export function extractPortFromCodeText(content: string): number | undefined {
   return undefined;
 }
 
-/** §7.11 v2.20 — `node <script>.[mc]?js|.ts` 명령어가 cmd 에 포트를 안 적은 경우,
- *  그 스크립트 파일을 직접 읽어 listen 선언 패턴에서 포트를 sniff.
- *  보안: 파일 크기 64KB 상한, 확장자 화이트리스트, node 가 직접 지목한 경로만(import 추적 ❌). */
+/** §7.11 — `node <script>` 가 포트를 안 적었으면 그 스크립트에서 listen 선언을 찾는다. 보안: 64KB 상한, 확장자 화이트리스트, node 가 지목한 경로만(import 추적 ❌). */
 const SCRIPT_FILE_SIZE_LIMIT = 64 * 1024;
 const SCRIPT_EXT_WHITELIST = new Set(['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts']);
 
@@ -845,9 +745,7 @@ export function extractPortFromScriptFile(cmd: string, cwd?: string): number | u
   return extractPortFromCodeText(content);
 }
 
-/** §7.11 v2.24 — `node -e "<code>"` / `node --eval "<code>"` / `node -p` / `--print` /
- *  `bun -e` 같은 인라인 eval 명령에서 따옴표 안의 코드를 추출해 listen 패턴을 sniff.
- *  따옴표는 `"..."` / `'...'` 양쪽 지원, escape 는 `\\.` 로 1차 처리. */
+/** §7.11 — `node -e/--eval/-p/--print`·`bun -e` 의 따옴표 안 코드에서 listen 패턴을 찾는다(`"…"`·`'…'`, 이스케이프는 `\\.` 로 1차 처리). */
 export function extractPortFromInlineEval(cmd: string): number | undefined {
   // runner + -e/--eval/-p/--print 플래그 + 따옴표 또는 일반 토큰
   // 매칭 우선순위: 큰따옴표 > 작은따옴표 > 따옴표 없는 토큰(공백 없는 짧은 코드)
@@ -890,9 +788,7 @@ const SERVER_COMMAND_PATTERNS: readonly RegExp[] = [
   /\bnodemon\b/i,
   /\bts-node-dev\b/i,
   /\b(?:pnpm|npm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve|watch)\b/i,
-  // 파일명이 server/app/index/main 그 자체일 때만 — 경로 prefix 는 허용.
-  // `[^\s]*…[^\s]*` 로 두면 `node scripts/runapp.mjs` 의 "run|app|.mjs" 처럼
-  // 런처 스크립트가 'app' 부분매칭으로 서버 오판된다(§7.11 v2.4).
+  // 파일명이 server/app/index/main 그 자체일 때만(경로 prefix 허용) — `[^\s]*…[^\s]*` 로 풀면 `node scripts/runapp.mjs` 같은 런처가 'app' 부분 매칭으로 서버로 오판된다.
   /\bnode\s+(?:[^\s]*[/\\])?(?:server|app|index|main)\.[mc]?js\b/i,
   // Python
   /\buvicorn\b/i,
@@ -932,12 +828,7 @@ export function looksLikeServerCommand(text: string): boolean {
   return SERVER_COMMAND_PATTERNS.some((p) => p.test(text));
 }
 
-/** Vibisual 자체 런처/실행 스크립트 명령어 패턴 (§7.11 v2.4).
- *  이런 명령의 bash output 파일에는 실행된 Vibisual 앱 자신의 stdout 로그
- *  (`iframe satellite created: localhost:PORT` 등 `localhost:PORT` 멘션 다수)가
- *  흘러든다. 서버 감지가 그 파일을 tail 하면 자기 로그를 다시 읽어 과거에 찍은
- *  모든 포트를 서버로 오등록하는 self-ingestion 루프가 생긴다. 이런 명령의 셸은
- *  서버/iframe 감지에서 전면 제외한다(watcher 미부착·ServerEntry 미등록). */
+/** §7.11 — 우리 런처/실행 스크립트 패턴. 그 셸은 서버/iframe 감지에서 뺀다 — output 에 앱 자신의 `localhost:PORT` 로그가 흘러 tail 하면 옛 포트를 전부 서버로 오등록한다. */
 const VIBISUAL_LAUNCHER_PATTERNS: readonly RegExp[] = [
   /\brunapp\.mjs\b/i,
   /\belectron-vite\b/i,

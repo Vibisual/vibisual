@@ -1,22 +1,8 @@
 /**
- * verificationPolicy.ts — §5.3 #12-4 · 검증은 시킬 때만 돈다.
- *
- * 옵션에서 켠 동안만 **"검증은 사용자가 그 작업에서 명시적으로 요청했을 때만 실행"** 을 적용한다.
- * 기본은 끔이고, 프롬프트와 실제 도구 실행 판정이 같은 옵션을 본다.
- * 여기 사는 것은 넷이며 전부 결정적 순수 함수다(디스크·`process` 읽기 ❌ — 패키지
- * 스크립트 본문처럼 바깥에서 오는 값은 호출부가 인자로 넘긴다). 호출마다 AI 판정기를 부르지 않는다.
- *
- *  1. **분류** `classifyVerificationCall` — 이 도구 호출이 검증인가, 어떤 종류인가.
- *  2. **요청 해석** `parseVerificationRequest` — 사람이 친 문장이 검증을 요청했는가(부정·인용·문서 제외).
- *  3. **판정** `decideVerificationCall` — 그 명령에 열린 범위·횟수·시간 안인가. 실행 전 차단 자체는 옵션창
- *     스위치(기본 끔 — `isVerificationGateEnabled`)이고, 꺼 두면 거부 없이 실행으로만 센다(#12-4 (J)).
- *  4. **문구** — 모델에게 주는 거부 사유 · 정책 문단 · 매 턴 권한 한 줄.
- *
- * 서버의 판정 자리 다섯(헤드리스 클로드 `/api/permission-check` · 코덱스 권한 훅 · 로컬 모델 `requestTool` ·
- * CMD 터미널 훅 · 앱 검증 MCP)이 **같은 함수**를 부른다. 두 벌이 되면 한 엔진에서만 막히고 사용자에게는
- * "켰는데 안 먹는다"로만 보인다(자물쇠 `pathLock.ts` 와 같은 규율).
- *
- * 셸 명령은 읽기·쓰기 축과 **같은 토크나이저**(`bashCommandPaths.ts`)로 자른다(§2.1 #3 — 두 벌 금지).
+ * §5.3 #12-4 — 검증은 시킬 때만 돈다(옵션에서 켠 동안만, 기본 끔). 결정적 순수 함수만 둔다(디스크·`process` ❌, 바깥 값은 인자로, AI 판정기 ❌).
+ * 분류 `classifyVerificationCall` · 요청 해석 `parseVerificationRequest` · 판정 `decideVerificationCall` · 문구(거부 사유·정책 문단·매 턴 한 줄).
+ * 판정 자리 다섯(헤드리스 `/api/permission-check`·코덱스 권한 훅·로컬 `requestTool`·CMD 훅·앱 검증 MCP)이 이 함수들을 부른다 — 두 벌이면 한 엔진에서만 막힌다.
+ * 셸 명령은 읽기·쓰기 축과 같은 토크나이저(`bashCommandPaths.ts`)로 자른다(§2.1 #3).
  */
 import {
   decodePowerShellEncodedCommand,
@@ -87,10 +73,7 @@ export const VERIFICATION_DENY_REASON = 'verification';
 /** 앱 검증 MCP 서버 이름(§5.5 #17-35) — 검증 실행 한 건 안의 세부 조작이라 횟수를 세지 않는다. */
 export const VERIFICATION_APP_MCP_SERVER = 'vibisual_verify';
 
-/**
- * §5.3 #12-4 (J) — 옵션창 권한 탭 "실행 전 차단" 스위치의 기본값. **끔**(사용자 지시 2026-10-12 — 이름에
- * `check` 가 든 스크립트까지 실행 전에 거부돼 일이 끊겼다). 끄면 제한 지시도 함께 해제한다.
- */
+/** §5.3 #12-4 (J) — "실행 전 차단" 기본값 = 끔(켜 두면 이름에 `check` 가 든 스크립트까지 거부돼 일이 끊긴다). 끄면 제한 지시도 함께 걷힌다. */
 export const VERIFICATION_GATE_DEFAULT_ENABLED = false;
 
 /**
@@ -1200,12 +1183,8 @@ function koreanSentenceMood(sentence: string): 'imperative' | 'question-request'
 }
 
 /**
- * §5.3 #12-4 (B) — 사람이 친 명령 본문이 검증을 요청했는가.
- *
- * **단순 키워드 포함으로 정하지 않는다.** 절마다 목적어(검증 종류) + 실행·검증 서술어 + 요청 형태가 함께
- * 있어야 권한이 서고, 고치기 서술어("고쳐 줘")·묻는 말·미래 서술·부정은 권한이 아니다. 코드 블록·인용 블록·
- * 붙여 넣은 문서 태그는 걷고, 문서처럼 생긴 문단에서는 부름 표지("해 줘"·please)가 있는 절만 센다.
- * 한 번이라도 부정된 종류는 열리지 않는다(거부가 이긴다).
+ * §5.3 #12-4 (B) — 사람이 친 명령이 검증을 요청했는가. 키워드 포함으로 정하지 않는다 — 절마다 목적어 + 실행 서술어 + 요청 형태가 함께 있어야 한다.
+ * 고치기 서술어·질문·미래·부정은 권한이 아니다. 코드·인용·붙여 넣은 문서는 걷고, 문서 같은 문단은 부름 표지("해 줘"·please)가 있는 절만 센다. 한 번이라도 부정된 종류는 열리지 않는다.
  */
 export function parseVerificationRequest(text: string): VerificationRequestParse {
   const granted = new Set<Kind>();
@@ -1364,13 +1343,8 @@ export type VerificationDecision =
   | { verdict: 'deny'; code: VerificationDenyCode; hits: VerificationHit[]; kinds: Kind[]; message: string };
 
 /**
- * §5.3 #12-4 (E) — 이 호출을 실행 전에 허락하는가. 사람에게 묻지 않는다(팝업 ❌).
- *
- * `confirmed=false` 는 "권한을 확인할 수 없었다"(도는 명령을 못 찾음 등)는 뜻이고 그때 검증은 거부한다
- * (fail-closed). 검증이 아닌 호출은 언제나 `none` 이다.
- *
- * (J) `enforced=false` 는 옵션창에서 실행 전 차단을 끈 상태다 — 범위·횟수·시간·확인 실패를 보지 않고
- * 허락하되 **실행한 것으로 센다**(결과 줄이 "검증 N회 실행"을 말하게). 안 주면 켬(종전 판정 그대로).
+ * §5.3 #12-4 (E) — 이 호출을 실행 전에 허락하는가(사람에게 묻지 않는다). `confirmed=false`(권한 확인 불가)면 검증은 거부(fail-closed), 비검증은 늘 `none`.
+ * (J) `enforced=false` = 차단을 끈 상태 — 범위·횟수를 안 보고 허락하되 실행으로 센다. 안 주면 켬.
  */
 export function decideVerificationCall(input: {
   hits: readonly VerificationHit[];

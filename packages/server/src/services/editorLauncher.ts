@@ -1,13 +1,6 @@
 /**
- * editorLauncher.ts — 멀티플랫폼 에디터/탐색기 실행 모듈
- *
- * 모든 "외부 앱으로 파일/폴더 열기" 로직을 이 모듈에서 처리한다.
- * 엔드포인트에서 직접 spawn하지 않고, 이 모듈의 함수를 호출한다.
- *
- * 에디터 감지 우선순위:
- *   1. VISUAL / EDITOR 환경변수
- *   2. PATH에서 에디터 자동 탐색 (인기순)
- *   3. 플랫폼 기본 앱 (notepad / open / xdg-open)
+ * 멀티플랫폼 에디터/탐색기 실행 모듈 — "외부 앱으로 파일/폴더 열기"는 전부 여기서 한다(엔드포인트에서 직접 spawn 하지 않는다).
+ * 에디터 감지 우선순위: 1. VISUAL / EDITOR 환경변수 2. PATH 에서 인기순 탐색 3. 플랫폼 기본 앱(notepad / open / xdg-open).
  */
 
 import { spawn } from 'node:child_process';
@@ -100,13 +93,8 @@ function resolveWinFullPath(cmd: string): string | null {
 }
 
 /**
- * mac/Linux 에서 **PATH 에 절대 안 들어가는** 에디터 CLI 런처 자리.
- *
- * 왜 필요한가: macOS 의 VS Code·Cursor 는 `code` 를 `.app` 번들 **안**에 넣어 두고, 사용자가
- * "Shell Command: Install 'code' command in PATH" 를 눌러야 `/usr/local/bin` 에 심볼릭이 생긴다.
- * 그걸 안 누른 사용자(대다수)는 `code` 가 어느 PATH 에도 없다. 게다가 Finder 로 띄운 우리 앱은
- * PATH 자체가 launchd 최소값이라, 눌렀더라도 `/usr/local/bin` 이 안 보인다 —
- * 두 사정이 겹쳐 "VS Code 로 열기"가 조용히 **TextEdit**(`open -t`) 폴백으로 떨어졌다.
+ * mac/Linux 에서 PATH 에 안 들어가는 에디터 CLI 런처 자리. macOS VS Code·Cursor 는 `code` 를 `.app` 번들 안에 두고 "Install 'code' command in PATH" 를 눌러야 `/usr/local/bin` 에 생긴다.
+ * 게다가 Finder 로 띄운 앱의 PATH 는 launchd 최소값이라 눌렀어도 안 보인다 — 이 자리가 없으면 "VS Code 로 열기"가 TextEdit(`open -t`) 폴백으로 떨어진다.
  */
 export function knownEditorPaths(
   command: string,
@@ -160,11 +148,8 @@ export function knownEditorPaths(
 }
 
 /**
- * 커맨드의 **절대경로**를 찾는다(못 찾으면 null).
- *
- * 종전에는 `where`/`which` 를 불렀다. 그 두 명령은 우리 프로세스의 PATH 만 보므로, PATH 가
- * 잘려 있는 바로 그 상황(Finder 로 띄운 macOS 앱)에서 똑같이 못 찾는다 — 고치려는 문제를
- * 그대로 되풀이하는 판정이었다. 이제 `binLocator` 가 보강된 PATH + 알려진 위치까지 본다.
+ * 커맨드의 절대경로(못 찾으면 null). `where`/`which` 를 쓰지 마라 — 우리 PATH 만 보므로 PATH 가 잘린 바로 그 상황(Finder 로 띄운 macOS 앱)에서 못 찾는다.
+ * `binLocator` 가 보강된 PATH + 알려진 위치를 본다.
  */
 function findEditorBin(cmd: string, command: string): string | null {
   // 인자로 넘길 값이라 이름에 안전한 문자만 허용한다(종전 가드 유지).
@@ -172,12 +157,7 @@ function findEditorBin(cmd: string, command: string): string | null {
   return resolveBinary(cmd, knownEditorPaths(command));
 }
 
-/**
- * 에디터 감지 — 우선순위:
- * 1. VISUAL / EDITOR 환경변수
- * 2. EDITOR_TABLE 순서대로 PATH 스캔
- * 3. null (폴백 필요)
- */
+/** 에디터 감지: VISUAL / EDITOR 환경변수 → EDITOR_TABLE 순서로 PATH 스캔 → null(폴백 필요). */
 function detectEditor(): { bin: string; config: EditorConfig } | null {
   if (cacheChecked) return cachedEditor;
   cacheChecked = true;
@@ -236,11 +216,9 @@ function detectEditor(): { bin: string; config: EditorConfig } | null {
 // ─── 스폰 헬퍼 ───
 
 /**
- * Windows: PowerShell 경유 spawn
- * @param bin 실행 파일
- * @param args 인자
- * @param hideLauncher .cmd 같은 래퍼의 cmd.exe 창 숨김 (실제 앱은 별도 프로세스라 보임)
- * @param activateHint AppActivate로 창을 포그라운드로 가져올 윈도우 타이틀 힌트
+ * Windows: PowerShell 경유 spawn.
+ * @param hideLauncher .cmd 같은 래퍼의 cmd.exe 창 숨김(실제 앱은 별도 프로세스라 보인다)
+ * @param activateHint AppActivate 로 창을 포그라운드로 가져올 윈도우 타이틀 힌트
  */
 function spawnWin(bin: string, args: string[], hideLauncher: boolean, activateHint?: string): void {
   const safeBin = bin.replace(/'/g, "''");
@@ -268,12 +246,7 @@ function spawnUnix(bin: string, args: string[]): void {
 
 // ─── Public API ───
 
-/**
- * 파일을 에디터에서 열기 (특정 위치로 이동)
- * @param absPath 절대 경로
- * @param line 줄 번호 (1-based)
- * @param col 컬럼 번호 (1-based)
- */
+/** 파일을 에디터에서 그 위치로 연다. `line`·`col` 은 1-based. */
 export function openFile(absPath: string, line = 1, col = 1): void {
   const editor = detectEditor();
   const titleHint = path.basename(absPath);
@@ -303,15 +276,9 @@ export function openFile(absPath: string, line = 1, col = 1): void {
 }
 
 /**
- * §5.13 (R-6) — **OS 연결 프로그램**으로 연다(에디터가 아니라).
- *
- * `openFile` 과 갈라 둔 이유가 이 함수의 존재 이유다 — 그쪽은 "코드를 고치러 간다"라서
- * VS Code·Cursor 를 찾고, 못 찾으면 메모장으로 떨어진다. zip·폰트·xlsx 를 그 경로로 보내면
- * 메모장에 이진 바이트가 쏟아진다. 여기서는 **확장자에 물려 있는 프로그램**을 그대로 부른다
- * (Windows `Start-Process` · macOS `open` · 그 밖 `xdg-open`) — 사용자가 탐색기에서 더블클릭했을
- * 때와 같은 일이 벌어져야 예측이 선다.
- *
- * 대체가 아니라 **병행**이다. 코드 파일을 외부 에디터로 여는 손잡이(`openFile`)는 그대로 둔다.
+ * §5.13 (R-6) — OS 연결 프로그램으로 연다(에디터가 아니라). `openFile` 은 코드를 고치러 가는 길이라 VS Code·Cursor 를 찾고 못 찾으면 메모장으로 떨어진다 —
+ * zip·폰트·xlsx 를 그리로 보내면 메모장에 이진 바이트가 쏟아진다. 여기서는 확장자에 물린 프로그램을 부른다(Windows `Start-Process` · macOS `open` · 그 밖 `xdg-open`, 탐색기 더블클릭과 같게).
+ * `openFile` 과 병행이다(대체가 아니다).
  */
 export function openWithDefaultApp(absPath: string): void {
   logger.info(`openWithDefaultApp: ${absPath}`);
@@ -360,14 +327,9 @@ export function openFolder(absPath: string): void {
   logger.info(`openFolder: ${target}${selectFile ? ' (select)' : ''}`);
 
   if (IS_WIN) {
-    // 백그라운드 Node 서버가 explorer.exe 를 직접 spawn 하면 Windows 포그라운드 잠금
-    // (SetForegroundWindow 제한)에 걸려 새 탐색기 창이 VSCode/브라우저 뒤로 열리고
-    // 작업표시줄만 깜빡인다. → PowerShell 로 (1) 폴더 열고 (2) 해당 경로의
-    // 탐색기 창 HWND 를 찾아 AttachThreadInput 우회로 강제 포그라운드 한다.
-    // 폴더 오픈(Start-Process)은 스크립트 맨 앞에서 먼저 수행되므로, 뒤의
-    // Add-Type/창탐색이 실패해도 "열리긴 한다" 는 보장됨.
-    // Paths are data: even smart quotes are PowerShell delimiters, so never
-    // interpolate filenames directly into the script.
+    // 백그라운드 Node 서버가 explorer.exe 를 직접 spawn 하면 Windows 포그라운드 잠금(SetForegroundWindow 제한)으로 새 창이 뒤에 열리고 작업표시줄만 깜빡인다.
+    // 그래서 PowerShell 로 (1) 폴더를 열고 (2) 그 탐색기 창 HWND 를 찾아 AttachThreadInput 우회로 포그라운드로 올린다. 폴더 열기(Start-Process)가 맨 앞이라 뒤가 실패해도 열리긴 한다.
+    // 경로는 데이터다 — 스마트 따옴표도 PowerShell 구분자라 파일 이름을 스크립트에 직접 끼우지 마라.
     const psPath = (value: string): string =>
       `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(value, 'utf8').toString('base64')}'))`;
     const psCmd = [
@@ -450,11 +412,7 @@ export function openFolder(absPath: string): void {
   }
 }
 
-/**
- * 파일에서 searchText를 찾아 해당 위치에서 에디터 열기
- * @param absPath 절대 경로
- * @param searchText 파일 내 검색할 텍스트 (없으면 1:1)
- */
+/** 파일에서 `searchText` 를 찾아 그 위치로 에디터를 연다(없으면 1:1). */
 export function openFileAtSearch(absPath: string, searchText?: string): void {
   let line = 1;
   let col = 1;

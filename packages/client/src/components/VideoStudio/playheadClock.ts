@@ -2,13 +2,10 @@ import { useEffect, useState, useSyncExternalStore, type RefObject } from 'react
 import { STUDIO_PLAYBACK_UI_MS } from '@vibisual/video';
 
 /**
- * §5.13 (X) 39-6 — 재생 머리 **시계**.
- *
- * 재생 중의 재생 머리는 프레임마다 바뀐다. 그 값을 React 상태로만 올리면 스튜디오 전체(대화 · 장면 구슬 · 값 카드 · 머리줄)가
- * 프레임마다 다시 그려졌다(문서 fps 만큼 — 30fps 문서면 초당 30번 화면 전체). 이제 프레임마다 가는 것은 이 시계뿐이고, 시계를
- * **구독하는 작은 자리**(미리보기 그림 · 재생 머리 선 · 시간 글자 · 소리 맞춤)만 깨어난다. §5.13 (Y) 40-5 부터 화면 전체의 상태는
- * 재생하는 동안 따라오지 않는다 — 멈추거나 옮길 때만 그 자리에서 맞춰진다(굵은 표시는 `usePlayheadSampled`, 선은
- * `usePlayheadTransform` 이 렌더 없이 옮긴다).
+ * §5.13 (X) 39-6 — 재생 머리 시계.
+ * 재생 머리를 React 상태로 올리면 스튜디오 전체가 프레임마다(문서 fps 만큼) 다시 그려진다 — 프레임마다 가는 것은 이 시계뿐이고,
+ * 구독하는 작은 자리(미리보기 그림·재생 머리 선·시간 글자·소리 맞춤)만 깨어난다.
+ * §5.13 (Y) 40-5 — 화면 전체 상태는 재생 중 따라오지 않고 멈추거나 옮길 때만 맞춰진다(굵은 표시는 `usePlayheadSampled`, 선은 `usePlayheadTransform`).
  */
 export interface PlayheadClock {
   /** 지금 재생 머리(초). */
@@ -47,9 +44,8 @@ export function usePlayheadValue(clock: PlayheadClock | undefined, fallback: num
 }
 
 /**
- * §5.13 (Y) 40-5 ① — **굵은** 구독: 재생 중에는 `intervalMs` 마다 한 번만 깨운다(지금 장면 · 대본 줄 · 메모 핀처럼 프레임마다 바뀔
- * 필요가 없는 표시). 멈추면 마지막 값이 그 자리에서 맞춰진다(끝 값을 놓치지 않게 뒤늦은 한 번을 건다). 종전에는 셸이 재생 머리
- * 상태를 120ms 마다 올려 **스튜디오 전체**가 다시 그려졌다 — 이제 이 구독을 쓴 작은 자리만 깨어난다.
+ * §5.13 (Y) 40-5 ① — 굵은 구독: 재생 중에는 `intervalMs` 마다 한 번만 깨운다(지금 장면·대본 줄·메모 핀처럼 프레임마다 바뀔 필요가 없는 표시).
+ * 멈추면 마지막 값이 그 자리에서 맞춰진다(끝 값을 놓치지 않게 뒤늦은 한 번을 건다).
  */
 export function usePlayheadSampled(clock: PlayheadClock | undefined, fallback: number, intervalMs: number = STUDIO_PLAYBACK_UI_MS): number {
   const [value, setValue] = useState(() => clock?.get() ?? fallback);

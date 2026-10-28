@@ -2,13 +2,7 @@ import type { WorkspaceEntry, WorkspaceEntryNameError, WorkspacePathKind } from 
 import { foldPathCase } from '../../utils/platform.js';
 import type { WorkspaceMutateFailure } from './useWorkspaceExplorer.js';
 
-/**
- * §5.5 #17-19 v4.71 — IDE 워크스페이스 탐색기의 순수 로직.
- *
- * 화면(JSX)과 통신(fetch)을 뺀 계산만 모아 둔다 — 트리를 행 목록으로 펴는 일, 경로를
- * `상위폴더/파일명` 으로 가르는 일, 절대 경로를 루트 기준 상대 경로로 되돌리는 일.
- * 좌표·경로 계산은 UI 통합 테스트보다 단위 테스트가 훨씬 촘촘히 잡아 준다.
- */
+/** §5.5 #17-19 — IDE 워크스페이스 탐색기의 순수 로직(트리 → 행 목록, 경로 가르기, 루트 기준 상대화). */
 
 /** 탐색기에 실제로 그려지는 한 줄 — 엔트리 + 들여쓰기 깊이. */
 export interface ExplorerRow {
@@ -20,13 +14,7 @@ export interface ExplorerRow {
 /** 디렉터리 캐시 — key = 루트 기준 상대 경로('' = 루트 자신), value = 그 디렉터리의 자식들. */
 export type ExplorerDirCache = Record<string, WorkspaceEntry[]>;
 
-/**
- * 펼침 상태를 반영해 트리를 **화면 순서 그대로의 행 목록**으로 편다.
- *
- * 아직 받아오지 못한(캐시에 없는) 디렉터리는 펼쳐져 있어도 자식이 없는 것으로 둔다 —
- * 로딩 표시는 뷰가 `expanded && !cache[relPath]` 로 판정한다(여기서 자리표시자를 끼워 넣으면
- * 행 목록에 실재하지 않는 엔트리가 섞인다).
- */
+/** 펼침 상태대로 트리를 화면 순서의 행 목록으로 편다. 캐시에 없는 폴더는 자식 없음 — 로딩 표시는 뷰가 `expanded && !cache[relPath]` 로 한다(자리표시자 행 ❌). */
 export function flattenExplorerRows(
   cache: ExplorerDirCache,
   expanded: ReadonlySet<string>,
@@ -88,16 +76,7 @@ export function ancestorDirs(relPath: string): string[] {
   return result;
 }
 
-/**
- * §5.5 #17-19 ③(c) — 치던 글의 **뒤에** 경로 한 토막을 붙인다.
- *
- * 앞에 끼워 넣지 않는다(스킬 삽입 `insertSkill` 과 반대) — 스킬은 명령의 첫 낱말이지만 경로는
- * 문장의 목적어라, 이미 쓴 문장 앞에 서면 읽는 순서가 뒤집힌다. 여러 행을 연달아 누르면
- * 공백 하나로 이어 붙어 목록이 된다.
- *
- * 이미 공백·줄바꿈으로 끝나면 **그것을 그대로 두고** 뒤에 붙인다 — `trimEnd` 로 접으면 사용자가
- * 일부러 내린 줄이 사라져 경로가 앞 문장 꼬리에 달라붙는다.
- */
+/** §5.5 #17-19 ③(c) — 치던 글 뒤에 경로를 붙인다(경로는 목적어 — 첫 낱말인 스킬 `insertSkill` 과 반대). 끝의 공백·줄바꿈은 그대로 둔다(`trimEnd` ❌ — 내린 줄이 사라진다). */
 export function appendPathToInput(existing: string, path: string): string {
   if (!path) return existing;
   // 공백이 든 경로는 따옴표로 감싼다 — 안 감싸면 에이전트가 두 낱말로 읽는다(`Unreal Projects` 처럼
@@ -110,12 +89,7 @@ export function appendPathToInput(existing: string, path: string): string {
 
 // ─── §5.5 #17-19 ⑦ 우클릭이 내는 쓰기 — 그 자리에서 치는 이름과 실패 문구 ───────────────
 
-/**
- * 지금 트리 안에서 **이름을 치고 있는 자리**.
- *
- * 새 창을 띄우지 않는 이유는 VS Code 와 같다 — 만들어질 곳이 눈에 보이는 채로 이름을 정해야
- * "어느 폴더에 만드는지"를 다시 확인할 필요가 없다. 그래서 입력칸은 트리의 한 행으로 산다.
- */
+/** 지금 트리 안에서 이름을 치는 자리 — 새 창 대신 트리 한 행이 입력칸이 된다(VS Code 처럼, 만들 곳이 보이는 채로). */
 export type ExplorerDraft =
   /** 있는 항목의 이름을 고친다 — 그 행이 통째로 입력칸이 된다. */
   | { mode: 'rename'; relPath: string; parent: string; initial: string; isDirectory: boolean }

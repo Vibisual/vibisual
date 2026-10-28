@@ -1,32 +1,14 @@
 /**
- * §5.3 #12 — **위임 엣지의 집행 축 하나.** 배지가 말하는 것과 실제로 박탈되는 것이 같아야 한다.
- *
- * v1.44 의 도구 박탈(strip)은 "자식 도구 ⊃ 부모 도구 매칭 부분"을 부모에게서 걷는다. 그런데
- * 자식이 **기본값(전체 도구)** 이면 그 합집합이 부모 도구를 통째로 덮는다. 그러면 부모는
- * `--tools ""` 로, 즉 **도구 0개**로 스폰된다(subAgentManager 의 "빈 배열은 전부 disable").
- * 그 상태의 부모는 직접 일할 수도 없고 — Claude 소스의 dispatch 프로토콜이 Bash heredoc curl 이라 —
- * **위임조차 할 수 없다.** 감독(Codex)→개발(Claude) 편성이 한 시간을 돌고도 파일 하나 못 바꾸던
- * 원인이 여기였다.
- *
- * 그래서 이 모듈은 박탈에 안전선 둘을 건다.
- *  1. **위임 수단 불가침** — 소스가 위임에 쓰는 도구(`DELEGATION_CHANNEL_TOOLS`)는 절대 걷지 않는다.
- *  2. **전멸 방지** — 박탈 결과 소스 도구가 빈 배열이 되면 **그 박탈을 통째로 적용하지 않는다.**
- *     일부만 남기는 식으로 깎지 않는다 — 어느 도구를 남길지는 사용자 의도가 아니다.
- *
- * 그리고 박탈 여부를 정하는 **해석 함수를 하나로** 둔다(`resolveEdgeCommandMode`). 프롬프트 배지와
- * 실제 strip 이 각각 다른 축(`delegationPolicy` vs `commandMode`)을 읽던 어긋남을 구조적으로 막는다.
- *
- * 순수 함수 모듈(그래프·디스크 접근 ❌)이라 단위 테스트로 고정한다.
+ * §5.3 #12 — 위임 엣지의 집행 축(순수 모듈). 배지와 실제 박탈이 같아야 한다.
+ * 자식이 전체 도구면 박탈이 부모를 `--tools ""` 로 만들어 일도 위임(Bash heredoc curl)도 못 한다 — 안전선 둘:
+ * ① 위임 수단(`DELEGATION_CHANNEL_TOOLS`)은 안 걷는다 ② 결과가 빈 배열이면 박탈을 통째로 취소한다(일부만 남기지 않는다).
+ * 박탈 여부는 `resolveEdgeCommandMode` 한 곳 — 배지·strip 이 다른 축을 읽지 않게.
  */
 import type { TaskEdgeCommandMode, TaskEdgeKind } from '@vibisual/shared';
 
 /**
- * 소스가 **위임을 실행하는 데** 쓰는 도구. 박탈 집합에서 항상 빠진다.
- *
- * Claude 소스의 dispatch 프로토콜은 `buildOutboundEdgesRulesSection` 이 주입하는
- * **Bash heredoc curl** 이다 — `Bash` 가 없으면 위임 자체가 불가능하다.
- * Codex 소스는 MCP(`vibisual_edges` dispatch/status)로 위임하므로 애초에 이 도구 목록의
- * 대상이 아니다(MCP 는 `AgentConfig.tools` 축에 없다).
+ * 위임에 쓰는 도구 — 박탈에서 늘 빠진다. Claude 소스의 dispatch 는 Bash heredoc curl(`buildOutboundEdgesRulesSection`)이다.
+ * Codex 소스는 MCP 로 위임해 대상이 아니다(MCP 는 `AgentConfig.tools` 축에 없다).
  */
 export const DELEGATION_CHANNEL_TOOLS: readonly string[] = ['Bash'];
 
@@ -43,11 +25,8 @@ export interface DelegationEdgeInput {
 export type ResolvedCommandMode = TaskEdgeCommandMode | null;
 
 /**
- * **집행 축 해석 — 이 한 곳만 본다.**
- *
- * 후방호환(SSOT §5.3 #12): `commandMode === undefined` 인 엣지는 **v1.44 이전에 저장된 것**으로 보고
- * `delegationPolicy === 'strict'` 일 때만 `'tool-delegation'` 으로 읽는다. 신규 엣지는 생성 시점에
- * `'shared'` 가 박히므로(`POST /api/task-edges`) 이 폴백을 타지 않는다.
+ * **집행 축 해석 — 이 한 곳만 본다.** `commandMode` 없는 옛 엣지는 `delegationPolicy === 'strict'` 일 때만 `'tool-delegation'`(§5.3 #12).
+ * 새 엣지는 생성 때 `'shared'` 가 들어간다.
  */
 export function resolveEdgeCommandMode(edge: DelegationEdgeInput): ResolvedCommandMode {
   if ((edge.kind ?? 'command') !== 'command') return null;
@@ -55,13 +34,7 @@ export function resolveEdgeCommandMode(edge: DelegationEdgeInput): ResolvedComma
   return (edge.delegationPolicy ?? 'strict') === 'strict' ? 'tool-delegation' : 'shared';
 }
 
-/**
- * 프롬프트 배지가 써야 할 **실효 강제 정도**. `delegationPolicy` 단독이 아니다.
- *
- * `tool-delegation`(도구가 실제로 걷힘)·`mode-delegation`(시스템 프롬프트로 위임 강제) 은
- * 저장된 정책이 `auto` 여도 사실상 의무 위임이다. 사용자 엣지 `policy=auto + mode=tool-delegation`
- * 이 "판단 위임"으로 표시되면서 도구는 전멸하던 어긋남을 여기서 없앤다.
- */
+/** 배지의 실효 강제 정도 — `tool-delegation`·`mode-delegation` 은 정책이 `auto` 여도 의무 위임이다("판단 위임" 배지 아래 도구가 전멸하지 않게). */
 export function resolveEffectiveDelegationPolicy(edge: DelegationEdgeInput): 'strict' | 'auto' {
   const mode = resolveEdgeCommandMode(edge);
   if (mode === 'tool-delegation' || mode === 'mode-delegation') return 'strict';
@@ -111,12 +84,8 @@ export interface DelegationStripArgs {
 }
 
 /**
- * 박탈 집합 계산 + 안전선 둘 적용. `computeStrictStripSet` 의 순수 본체.
- *
- * 순서가 중요하다 — **전멸 판정은 위임 수단을 빼기 전(raw 합집합)에** 한다. 그래야
- * "타겟이 전체 도구를 가졌다"(= 소스와 완전히 겹친다)는 상황에서 박탈이 통째로 취소되고,
- * Codex 소스로 넘어가는 `restrictedTools` 도 함께 비어 감독이 결과를 검증할 수단(shell/web)이
- * 살아남는다. Bash 만 남기고 나머지를 걷는 것은 Claude 소스는 구제하지만 Codex 소스는 구제하지 못한다.
+ * 박탈 + 안전선(`computeStrictStripSet` 본체). **전멸 판정은 위임 수단을 빼기 전에** — 그래야 타겟이 전체 도구일 때 박탈이 취소되고
+ * Codex 소스의 `restrictedTools` 도 비어 검증 수단이 남는다(Bash 만 남기면 Codex 소스를 못 구한다).
  */
 export function computeDelegationStrip(args: DelegationStripArgs): DelegationStripDecision {
   const preserved: string[] = [];

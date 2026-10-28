@@ -1,9 +1,4 @@
-/**
- * worktreeLiveness + writeCheckpoint 워크트리 가드 테스트 (v3.71).
- *
- * 회귀 방지 대상: 사용자가 지운 워크트리 폴더를 오토세이브가 `mkdirSync` 로 되살리던 버그.
- * "폴더가 있는가" 가 아니라 "아직 살아있는 git 워크트리인가(`.git` 존재)" 로 판정해야 한다.
- */
+/** 워크트리 가드 — 지운 워크트리 폴더를 오토세이브가 `mkdirSync` 로 되살리지 않는다(존재가 아니라 `.git` 으로 판정). */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';

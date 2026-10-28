@@ -13,24 +13,14 @@ import { costTextToneClass, findCostMap, toneOf } from '../../utils/costMap.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
-// SCENARIO.md §5.21 / §7.19 — 비용·토큰 지도 팝업.
-//
-// 값은 전부 서버가 접어서 실어 준 것을 **그대로** 그린다(§3.1). 여기서 턴을 다시 더하거나
-// 기간을 다시 자르지 않는다 — 세션 표만 `lastAt` 으로 거르는데, 그건 "그 기간에 움직인
-// 세션"을 고르는 일이지 금액을 다시 계산하는 일이 아니다(줄의 금액은 세션 누적이다).
+// SCENARIO.md §5.21 / §7.19 — 비용 지도. 서버 값을 그대로 그린다 — 세션 표의 `lastAt` 거르기는 고르기일 뿐 금액(세션 누적)은 다시 세지 않는다.
 
 /** 에이전트·세션 표 하나가 차지할 수 있는 최대 높이(px). 약 8줄 — 그 뒤는 표 안에서 스크롤한다. */
 const COST_TABLE_MAX_HEIGHT = 240;
 
 /**
- * "추정" 표식 — 그 금액에 **단가를 모르는 모델**의 몫이 섞였다는 뜻.
- *
- * 아래 각주의 "추정"과 **다른 말이다.** 각주는 모든 숫자에 늘 붙는 일반 단서(청구서가 아니라
- * 토큰 × 공개 가격이다)이고, 이 표식은 "그 모델의 값을 우리가 **아예 모른다**"는 특정 상태다 —
- * 새 모델이 나온 직후가 정확히 그 자리다(`/v1/models` 는 가격을 돌려주지 않아 단가 표는 손으로
- * 갱신한다). 그래서 툴팁은 가능하면 **모델 이름을 대고** 무엇을 채워야 하는지까지 말한다.
- *
- * 글자 크기는 12px 하한을 지킨다 — 한글은 그 아래로 내려가면 획이 뭉개진다(§9).
+ * 추정 표식 = 단가를 모르는 모델 몫이 섞였다(각주의 일반 단서 "추정"과 다르다). `/v1/models` 는 가격을 안 줘 단가 표는 손으로 갱신한다.
+ * 툴팁은 가능하면 모델 이름을 댄다.
  */
 export function EstimatedMark({ models }: { models?: readonly string[] }): React.JSX.Element {
   const { t } = useTranslation();

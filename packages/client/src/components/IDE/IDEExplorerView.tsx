@@ -40,14 +40,8 @@ import { IDEExplorerTree } from './IDEExplorerTree.js';
 import { IDEExplorerEdited } from './IDEExplorerEdited.js';
 
 /**
- * §5.5 #17-19 v4.71 — 활동바 **파일**이 여는 사이드바 = 워크스페이스 탐색기.
- *
- * 종전 파일 뷰는 이 에이전트가 만진 파일의 basename 만 나열해, 그 파일이 어디 있는지도
- * 아직 안 만진 파일이 무엇인지도 알 수 없었다. 이제 프로젝트 루트에서 시작하는 실제 디렉터리
- * 트리를 그리고, 경로는 세 곳에서 보인다 — 계층(들여쓰기) · 행 툴팁 · 바닥 경로 줄.
- *
- * ⑦ — 그 트리는 **읽기 전용이 아니다**. 다른 IDE 와 같은 자리(우클릭)에서 만들고, 이름을 바꾸고,
- * 지운다. 되돌릴 수 없는 것(삭제)만 되물으며, 지운 것은 OS 휴지통으로 간다.
+ * §5.5 #17-19 — 워크스페이스 탐색기(루트부터 실제 트리, 경로는 들여쓰기·툴팁·바닥 줄).
+ * ⑦ 우클릭으로 만들기·이름 바꾸기·삭제 — 삭제만 되묻고 OS 휴지통으로 보낸다.
  */
 
 export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agentId: string }): React.JSX.Element {
@@ -78,10 +72,7 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
   const [draft, setDraft] = useState<ExplorerDraft | null>(null);
   /** ⑦ — 바닥 줄에 잠깐 뜨는 한 줄(실패 사유 · 지운 결과). 경로 표시를 잠시 대신한다. */
   const [notice, setNotice] = useState<{ text: string; tone: 'error' | 'info' } | null>(null);
-  /**
-   * ⑦ — 이 실행 형태가 휴지통을 쓸 수 있는가. **되물음 문구가 갈리는 값**이라 미리 물어 둔다
-   * (되돌릴 수 있는 삭제와 영구 삭제는 사용자가 다른 결정을 내리는 문장이다).
-   */
+  /** ⑦ — 휴지통을 쓸 수 있는가. 되물음 문구가 갈려(되돌릴 수 있는 삭제 vs 영구 삭제) 미리 묻는다. */
   const [trashAvailable, setTrashAvailable] = useState(false);
 
   const rows = useMemo(() => flattenExplorerRows(cache, expanded), [cache, expanded]);
@@ -118,12 +109,7 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
     openWorkspaceFile(rootPath, relPath);
   }, [rootPath]);
 
-  /**
-   * §5.5 #17-27 / §5.13 (R-7) — 한 번 클릭 = **그 파일이 열릴 곳**에서 열기(선택 표시도 함께).
-   *
-   * 종전에는 무조건 편집창으로 보냈다. 영상·음악·3D·압축이 전부 그리로 갔고, 그중 대부분은
-   * "바이너리 파일" 한 줄로 끝났다. 이제 본문의 경로 손잡이와 **같은 판정**을 쓴다.
-   */
+  /** §5.5 #17-27 / §5.13 (R-7) — 클릭 = 그 파일이 열릴 곳에서 열기(본문 경로 손잡이와 같은 판정 — 무조건 편집창이면 영상·3D 등이 "바이너리"로 끝난다). */
   const handleSelectFile = useCallback(
     (relPath: string, executable?: boolean) => {
       setSelectedPath(relPath);
@@ -148,14 +134,8 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
   const insertPathIntoInput = useInsertPathIntoInput(agentId);
 
   /**
-   * §5.5 #17-19 ③-1 (b) — 클립보드에 남기는 것은 **절대 경로**다.
-   *
-   * 루트 기준 상대 경로는 루트 바로 밑의 파일에서 파일 이름과 글자 그대로 같아져, `경로 복사`를
-   * 눌렀는데 이름만 나오는 것으로 읽힌다(사용자 지적). 편집창 탭(#17-27)의 `경로 복사`(`absPath`)·
-   * 활동바 루트 복사(⑦-2)가 내놓는 문자열과 이제 같은 값이다.
-   *
-   * 되돌림 타이머는 "그 사이 다른 행을 눌렀으면 건드리지 않는다" — 그러지 않으면 앞 행의
-   * 타이머가 방금 누른 뒷 행의 체크 표시를 지운다.
+   * §5.5 #17-19 ③-1 (b) — 클립보드엔 절대 경로(상대면 루트 바로 밑 파일이 이름만 복사된 듯 보인다 — 탭 `absPath` 와 같은 값).
+   * 되돌림 타이머는 그새 다른 행을 눌렀으면 손대지 않는다(뒷 행의 체크를 지운다).
    */
   const copyPathToClipboard = useCallback((relPath: string) => {
     if (!relPath || !rootPath) return;
@@ -166,13 +146,8 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
   }, [rootPath]);
 
   /**
-   * §5.5 #17-19 ③-1 — 행 손잡이(그 행 옆, 바닥 줄 ❌)를 누르면 **입력창에 넣고 클립보드에도 남긴다**.
-   *
-   * 우클릭 메뉴의 `경로 복사`와 일부러 갈라 둔다 — 다른 IDE 에서 그 메뉴 항목은 복사만 하는
-   * 자리라, 거기서 입력창에 타이핑까지 하면 놀란다. 손잡이 쪽은 이름도 그 둘을 다 적는다.
-   *
-   * 체크 표시는 **넣은 사실**에 반응한다(종전에는 클립보드 성공 콜백에만 달려 있어, 브라우저가
-   * 클립보드를 거절하면 넣어 놓고도 아무 일 없는 것처럼 보였다).
+   * §5.5 #17-19 ③-1 — 행 손잡이는 입력창에 넣고 복사도 한다(우클릭 `경로 복사`는 복사만 — 다른 IDE 관례).
+   * 체크 표시는 넣은 사실에 단다(클립보드가 거절돼도 넣은 것은 보이게).
    */
   const handleTakePath = useCallback((relPath: string) => {
     if (!relPath || !rootPath) return;
@@ -208,13 +183,7 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
     return files.filter((f) => f.relPath === relPath || f.relPath.startsWith(prefix)).map((f) => f.relPath);
   }, [paneKey]);
 
-  /**
-   * §5.5 #17-19 ⑧ — 행을 집어 든다. 짐표에는 **종류(MIME)와 값**을 함께 싣는다 — `dragover` 중에는
-   * 값을 못 읽어 종류로만 판정하기 때문이다(#17-34 가 세운 규약 그대로).
-   *
-   * `text/plain` 도 함께 싣는 이유는 **바깥**이다 — 다른 앱·터미널·다른 입력칸에 놓으면 그 경로 글자가
-   * 그대로 떨어진다(우리 화면 밖에서도 헛손질이 되지 않게).
-   */
+  /** §5.5 #17-19 ⑧ — 행 집기. MIME 과 값을 함께 싣는다(`dragover` 중엔 종류로만 판정 — #17-34). `text/plain` 도 실어 바깥 앱에 경로 글자가 떨어진다. */
   const handleEntryDragStart = useCallback((e: React.DragEvent, entry: WorkspaceEntry) => {
     if (!rootPath) return;
     const payload: WorkspaceDragPayload = {
@@ -233,10 +202,7 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
 
   const handleEntryDragEnd = useCallback(() => clearActiveWorkspaceDrag(), []);
 
-  /**
-   * ⑧ — 끌고 있는 동안의 판정(파란 테두리를 띄울지). 등록소가 비어 있으면 **막지 않는다** —
-   * 별창에서 건너온 짐이 그렇고, 그때는 손을 뗄 때 같은 판정이 한 번 더 선다.
-   */
+  /** ⑧ — 끄는 동안 판정(파란 테두리). 등록소가 비면 막지 않는다(별창에서 온 짐 — 놓을 때 다시 판정). */
   const canDropInto = useCallback((targetDirRel: string): boolean => {
     if (!rootPath) return false;
     const drag = readActiveWorkspaceDrag();
@@ -245,11 +211,8 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
   }, [rootPath]);
 
   /**
-   * ⑧ — 폴더 위에서 손을 뗐다. **되물음은 여기서** 뜬다 — 되돌릴 수 없는 쓰기의 되물음은 언제나
-   * 화면의 몫이고(⑦ 삭제와 같은 분담), 방식도 그 자리와 같은 앱 팝업을 쓴다.
-   *
-   * 옮기고 나면 **열려 있던 탭은 옛 경로를 가리킨다** — 그대로 두면 저장이 없는 파일로 간다.
-   * 그래서 영향을 받은 탭은 닫고, 방금 옮긴 그 파일만 새 자리에서 다시 연다(있던 자리를 잃지 않게).
+   * ⑧ — 폴더에 놓음. 되물음은 화면 몫이라 여기서 앱 팝업(⑦ 과 같은 분담).
+   * 옮긴 뒤 영향받은 탭은 닫고 옮긴 파일만 새 경로로 다시 연다(옛 경로 탭은 없는 파일로 저장한다).
    */
   const handleEntryDrop = useCallback((e: React.DragEvent, targetDir: WorkspaceEntry) => {
     if (!rootPath || mutationPending.current) return;
@@ -292,12 +255,7 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
 
   const handleDraftCancel = useCallback(() => setDraft(null), []);
 
-  /**
-   * 입력칸에서 Enter(또는 바깥 누름) — 여기서 서버에 낸다.
-   *
-   * 실패는 바닥 줄 한 줄로 말하고 **입력칸은 닫는다**(같은 이름을 다시 치게 붙잡아 두면, 이미
-   * 있는 이름인지 권한 문제인지 읽지 않고 계속 부딪힌다). 성공하면 그 한 겹만 다시 읽는다.
-   */
+  /** 이름 확정 → 서버에 낸다. 실패는 바닥 줄로 말하고 입력칸은 닫는다(붙잡아 두면 같은 실패를 되풀이한다). 성공하면 그 한 겹만 다시 읽는다. */
   const handleDraftCommit = useCallback((name: string) => {
     const current = draft;
     setDraft(null);
@@ -535,11 +493,7 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
       </ScrollFade>
       </div>
 
-      {/*
-        바닥 줄 — 평소에는 고른 파일의 루트 기준 경로(없으면 루트 경로)를 **보여 주기만** 한다.
-        ⑦ 쓰기가 무언가 말할 것이 있을 때만(실패 사유·지운 결과) 그 자리를 잠시 빌린다.
-        복사 버튼은 여기 있지 않다 — 고른 행 옆으로 옮겼다(§5.5 #17-19 ③(c), 트리 행 손잡이).
-      */}
+      {/* 바닥 줄 — 고른 파일의 루트 기준 경로를 보여 주기만(⑦ 실패 사유·지운 결과만 잠시 빌린다). 복사는 행 손잡이(③(c)). */}
       <div className="flex items-center gap-1 border-t border-gray-800 bg-gray-900/60 px-1.5 py-1">
         <span
           className={`min-w-0 flex-1 truncate text-[12px] ${

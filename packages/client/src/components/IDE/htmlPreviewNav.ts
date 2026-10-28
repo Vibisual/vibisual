@@ -1,26 +1,11 @@
 import { WORKSPACE_SITE_REPORT_MESSAGE, normalizePathShape, parseWorkspaceSitePath } from '@vibisual/shared';
 
 /**
- * htmlPreviewNav.ts — §5.5 #17-27 ⑮ (b) 편집창 속 브라우저의 **주소와 방문 기록** 계산.
- *
- * 화면(JSX)과 통신을 뺀 순수 계산만 둔다 — `editorModel.ts` 와 같은 결이다. 여기 있는 것들은
- * 눈으로 확인하기 어렵고(주소가 한 글자 다른 것은 안 보인다) 잘못되면 증상이 "링크를 눌렀는데
- * 주소가 그대로"처럼 조용하므로, 단위 테스트로 못 박아 두는 편이 훨씬 촘촘하다.
- *
- * **왜 페이지가 스스로 알려 오는가** — 패키지 앱에서 iframe 은 `vibproxy://` 로 뜨고 우리 창은
- * `file://` 이라 두 문서는 서로 다른 오리진이다. 부모가 `contentWindow.location` 을 읽는 것도
- * `history.back()` 을 부르는 것도 SecurityError 다. 그래서 우리가 내보내는 HTML 에 **위치를
- * 알려 주는 한 조각**을 얹고(서버), 부모는 그 신고만 받아 여기서 셈한다 — `previewPicker` 가
- * 프리뷰에서 이미 쓰는 방식 그대로다(새 통로 발명 ❌).
+ * htmlPreviewNav.ts — §5.5 #17-27 ⑮ (b) 편집창 속 브라우저의 주소·방문 기록(순수). iframe(`vibproxy://`)과 창(`file://`)은 오리진이 달라
+ * location 읽기·`history.back()` 이 SecurityError — 서버가 넣은 신고 조각의 위치만 받아 셈한다(`previewPicker` 와 같은 길).
  */
 
-/**
- * 받은 메시지가 **우리 창구 안의 페이지**가 보낸 위치 신고인가.
- *
- * 두 겹으로 거른다: ① 표식이 있는가 ② 그 URL 이 정말 우리 경로형 창구인가. ②가 없으면 아무
- * 페이지나 우리 주소 칸에 제 글자를 적어 넣을 수 있다(iframe 안에는 사용자의 프로젝트 코드가
- * 돌고, 그 안에는 우리가 모르는 스크립트도 있다).
- */
+/** 받은 메시지가 우리 창구 안 페이지의 위치 신고인가 — 표식과 URL(우리 경로형 창구) 둘 다 본다(URL 을 안 보면 iframe 안 아무 스크립트나 주소 칸에 적는다). */
 export function readHtmlPreviewReport(data: unknown): string | null {
   if (typeof data !== 'object' || data === null) return null;
   const record = data as Record<string, unknown>;
@@ -42,13 +27,7 @@ function sitePathnameOf(url: string): string | null {
   return parseWorkspaceSitePath(pathname) === null ? null : pathname;
 }
 
-/**
- * 주소 칸에 적을 글자 — **프로젝트 루트 기준 상대 경로**.
- *
- * 페이지가 아직 아무것도 알려 오지 않았으면(신고가 막혔거나 첫 그림 전) 열었던 그 파일을 적는다.
- * 루트가 우리가 연 루트와 다르면(있을 수 없지만) 열었던 파일로 물러선다 — 남의 경로를 우리
- * 주소 칸에 적지 않는다.
- */
+/** 주소 칸 글자 — 루트 기준 상대 경로. 신고 전이거나 루트가 다르면 열었던 파일을 적는다(남의 경로 ❌). */
 export function htmlPreviewAddress(currentUrl: string | null, root: string, openedRelPath: string): string {
   if (currentUrl === null || currentUrl === '') return openedRelPath;
 
@@ -78,14 +57,7 @@ export interface HtmlPreviewHistory {
 
 export const EMPTY_HTML_PREVIEW_HISTORY: HtmlPreviewHistory = { entries: [], index: -1 };
 
-/**
- * 페이지가 알려 온 위치 하나를 기록에 넣는다.
- *
- * 규칙은 브라우저와 같다 — 지금 자리와 같은 곳이면 아무 일도 없고(새로고침은 기록을 늘리지
- * 않는다), 뒤로 간 상태에서 새 곳으로 가면 **앞쪽 기록은 버려진다**. 뒤/앞으로 우리가 옮겨 간
- * 직후에도 페이지는 그 자리를 신고하므로, 그때는 자리만 옮기고 기록을 늘리지 않아야 한다
- * (안 그러면 뒤로 한 번 누를 때마다 기록이 자라 앞으로가 영영 안 켜진다).
- */
+/** 알려 온 위치를 기록에 넣는다(브라우저 규칙: 같은 자리면 그대로, 뒤로 간 뒤 새 곳이면 앞쪽 버림). 뒤/앞 이동 직후 신고는 자리만 옮긴다(늘리면 앞으로가 영영 안 켜진다). */
 export function pushHtmlPreviewHistory(history: HtmlPreviewHistory, url: string): HtmlPreviewHistory {
   const { entries, index } = history;
   if (index >= 0 && entries[index] === url) return history;
@@ -119,13 +91,7 @@ export function stepHtmlPreviewHistory(
   return { history: { entries: history.entries, index: next }, url };
 }
 
-/**
- * 그 주소를 **캐시 무력화 토큰과 함께** 다시 연다(⑮ (e)).
- *
- * 저장했는데 화면이 그대로인 것이 이 항목에서 가장 흔한 실패다 — 같은 URL 이면 브라우저가
- * 자기 캐시를 돌려주기 때문이라, 새로 그릴 때는 URL 자체가 달라야 한다. 기존 질의는 그대로
- * 두고 `v` 하나만 갈아 끼운다(페이지가 자기 질의로 동작을 가르는 경우가 있다).
- */
+/** 캐시 무력화 토큰을 붙여 다시 연다(⑮ (e)) — 같은 URL 이면 캐시라 저장해도 그대로다. 기존 질의는 두고 `v` 만 바꾼다. */
 export function withCacheToken(url: string, token: number): string {
   try {
     const parsed = new URL(url, 'http://vibisual.invalid');

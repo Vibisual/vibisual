@@ -15,7 +15,7 @@ import { modelRegistryService } from './modelRegistryService.js';
 import type { AgentEvent, TodoItem, TurnTokenUsage, TokenCategoryEstimate, SessionTokenData } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { dbgOnChange } from './debugLog.js';
-import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { claudeSpawnEnv, getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { scanFileLines, scanWholeFileLines } from './jsonlChunkReader.js';
 import { stripTranscriptMarkdown, stripTranscriptTags } from './transcriptPlainText.js';
 import { registerEvictableCache } from './memoryMonitor.js';
@@ -24,14 +24,8 @@ import { killTree, processGroupSpawnOptions } from './processTree.js';
 import { CASE_INSENSITIVE_FS, pathKey } from './pathKey.js';
 
 /**
- * §3.2.4 F축 — 세션 JSONL 파생 캐시가 **나눠 쓰는 예산**.
- *
- * 종전엔 캐시마다 "파일 몇 개"(64)로만 묶여 있었다. 26MB 짜리와 4KB 짜리가 같은 한 칸을
- * 차지하니 트랜스크립트가 수천 개인 기계에서는 캐시가 끊임없이 교체되고 그때마다 전량 재파싱이
- * 돌았다(실측: 10.9시간에 누적 읽기 16GB — 읽을 대상 전체는 2.1GB).
- *
- * 몫은 실측에서 실제로 큰 것부터 준다 — 토큰 스캔(턴 배열)과 사용자 메시지(대화 본문)가 크고,
- * 컨텍스트 스캔은 숫자 몇 개뿐이며, 제목·경로는 짧은 문자열이다. 합은 1 이다.
+ * §3.2.4 F축 — 세션 JSONL 파생 캐시가 나눠 쓰는 바이트 예산(파일 개수로 묶으면 26MB 와 4KB 가 같은 칸이라 끝없이 교체·재파싱된다).
+ * 몫은 실측 크기순, 합은 1.
  */
 const CACHE_SHARES = {
   tokenScan: 0.40,
@@ -54,17 +48,10 @@ function cacheEntryCap(share: number): number {
 /** `claude` CLI 바이너리 SSOT 경로 (subAgentManager/contiManager 와 동일). */
 const CLAUDE_BIN = (): string => getClaudeBin().binPath;
 
-/**
- * Claude Code 세션 ID 안전 문자셋. 세션 ID 는 UUID 계열(hex + 하이픈)이며
- * 세션 JSON/훅 페이로드에서 유입되므로, spawn 인자로 쓰기 전 반드시 검증한다.
- * (shell:false 로도 차단되지만 방어 심층 — 이상 ID 면 아예 spawn 하지 않음.)
- */
+/** 세션 ID 안전 문자셋(hex + 하이픈). 훅 페이로드에서 들어오므로 spawn 인자로 쓰기 전 반드시 검증한다(shell:false 위의 방어 심층). */
 const SAFE_SESSION_ID = /^[0-9a-fA-F-]{8,64}$/;
 
-/**
- * 세션 진입점 — 판정 정본은 shared(`sessionEntrypoint.ts`)다.
- * 여기서는 종전 import 경로(`./sessionDiscovery.js`)를 쓰던 호출부가 깨지지 않게 다시 내보낸다.
- */
+/** 판정 정본은 shared `sessionEntrypoint.ts` — 옛 import 경로 호출부를 위해 다시 내보낸다. */
 export type { SessionEntrypoint } from '@vibisual/shared';
 import type { SessionEntrypoint } from '@vibisual/shared';
 
@@ -83,10 +70,7 @@ export interface LocalSession {
   entrypoint: SessionEntrypoint;
 }
 
-/**
- * session.json 의 `entrypoint` 문자열 → `SessionEntrypoint`.
- * 판정은 shared 정본에 위임한다 — 종전 이름은 호출부 호환으로 남긴다.
- */
+/** 판정은 shared 정본에 위임 — 이 이름은 호출부 호환용. */
 export function parseEntrypoint(raw: unknown): SessionEntrypoint {
   return parseSessionEntrypoint(raw);
 }
@@ -110,14 +94,8 @@ interface SessionRecord {
 }
 
 /**
- * 모든 설정 홈(`~/.claude` + Cowork 세션 홈들)의 `sessions/*.json` 을 한 번 훑는다.
- *
- * 종전에는 `find*` 셋이 각자 `~/.claude/sessions` 를 `readdirSync` 하고 같은 파싱을 세 벌
- * 적고 있었다 — 홈이 여러 곳으로 늘어나는 순간 그 중복은 **한쪽만 고쳐져 어긋나는** 자리가
- * 된다(§2.1 셸 토크나이저를 한 벌로 묶은 것과 같은 규율). 스캔은 여기 하나뿐이다.
- *
- * 진입점은 **출처 홈**이 정한다(`entrypointFromConfigHome`) — Cowork 가 `entrypoint` 에 무엇을
- * 적는지는 실측된 바 없으므로 문자열을 추측하지 않는다.
+ * 모든 설정 홈(`~/.claude` + Cowork 홈)의 `sessions/*.json` 을 훑는 유일한 스캔(여러 벌이면 한쪽만 고쳐진다).
+ * 진입점은 출처 홈이 정한다 — Cowork 의 `entrypoint` 값은 실측된 바 없어 추측하지 않는다.
  */
 function forEachSessionRecord(visit: (rec: SessionRecord) => void): void {
   for (const home of listClaudeConfigHomes()) {
@@ -187,12 +165,7 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-/**
- * §5.7 #24 단일 생존 판정 결과 — `~/.claude/sessions/<PID>.json` 한 파일의 파싱 + 판정.
- * 에이전트를 추가하는 경로(discoverSessions/seedAgents)와 제거하는
- * 경로(SessionLifecycleManager.pollOnce → readAliveSessionIds)가 동일한 레코드를
- * 거쳐, add/remove 가 같은 기준을 쓰도록 한다.
- */
+/** §5.7 #24 — `~/.claude/sessions/<PID>.json` 한 파일의 생존 판정. 추가·제거 경로가 같은 레코드를 거쳐 같은 기준을 쓴다. */
 export interface SessionLiveness {
   /** 세션 JSON 파일명 (진단 로그용) */
   file: string;
@@ -208,20 +181,9 @@ export interface SessionLiveness {
 }
 
 /**
- * v1.2 Session Liveness Watcher (§5.7 #24) — **단일 생존 판정 함수**.
- * 모든 설정 홈(`~/.claude` + Cowork 세션 홈들)의 `sessions/*.json` 을 한 번 읽어, 각 세션이
- * Hook 에이전트 버블 후보로 살아있는지를 (a) PID alive + (c) **인터랙티브 진입점** 기준으로 판정한다.
- *
- * (c) 는 오랫동안 `entrypoint === 'vscode'` 였다. 그 조건이 뜻하려던 것은 "사용자가 직접 연
- * 인터랙티브 세션"인데 **VS Code 라는 한 제품의 이름으로 적혀 있어서**, 같은 성격인 Cowork 가
- * 들어오자 그대로 탈락했다. 이제 뜻은 술어(`isInteractiveEntrypoint`)가 갖고 제품 이름은 그
- * 안에만 있다 — 기존 VS Code 판정은 한 줄도 바뀌지 않는다.
- *
- * 에이전트를 "추가하는" 경로(discoverSessions/seedAgents)와 "제거하는"
- * 경로(SessionLifecycleManager.pollOnce → readAliveSessionIds)가 **모두 이 함수**를
- * 거치게 하여, 한쪽만 통과하고 다른쪽은 탈락하는 비대칭(=10초 주기 버블 깜빡임)을
- * 원천 차단한다. (b) cwd-프로젝트 일치는 프로젝트 스코프라 discoverSessions 가
- * 이 판정 위에 추가로 적용한다.
+ * §5.7 #24 — 단일 생존 판정: (a) PID alive + (c) 인터랙티브 진입점(`isInteractiveEntrypoint` — 제품 이름을 조건에 쓰면 Cowork 가 탈락한다).
+ * 추가 경로(discoverSessions/seedAgents)와 제거 경로(pollOnce)가 모두 이것을 거친다 — 한쪽만 통과하면 버블이 10초마다 깜빡인다.
+ * (b) cwd 일치는 discoverSessions 가 더한다.
  */
 export function scanSessionLiveness(): SessionLiveness[] {
   const out: SessionLiveness[] = [];
@@ -247,10 +209,7 @@ export function scanSessionLiveness(): SessionLiveness[] {
   return out;
 }
 
-/**
- * 살아있는(=Hook 에이전트 버블로 노출 가능한) 세션 ID 집합.
- * 훅 에이전트 버블 lifecycle 판정 소스(마스터) — `scanSessionLiveness` 의 얇은 래퍼.
- */
+/** Hook 버블로 노출 가능한 살아있는 세션 ID — 훅 버블 lifecycle 판정의 마스터 소스. */
 export function readAliveSessionIds(): Set<string> {
   const scan = scanSessionLiveness();
   const result = new Set<string>();
@@ -267,18 +226,8 @@ export function readAliveSessionIds(): Set<string> {
 const ALIVE_DIAG_KEY = 'readAliveSessionIds';
 
 /**
- * 진단 로그를 남길지 가르는 지문 — **훅 에이전트 버블 후보의 상태**만 담는다.
- *
- * 종전엔 `JSON.stringify(scan)` 전체가 지문이었는데, `~/.claude/sessions/` 에는 몇 초 살다
- * 사라지는 CLI 세션(리플렉션·훅 워커 등)이 끊임없이 들락거린다. 그것들은 인터랙티브 진입점이
- * 아니라 **애초에 버블이 될 수 없는데도** 목록에 들고 나는 것만으로 지문을 바꿔, "변화 지점만
- * 남긴다"는 규약을 무력화했다(실측 2026-08-31: 2초마다 약 2.5KB 전량 덤프 — 최근 2,000줄 중
- * 344줄이 이 태그 하나였고 로그가 3일 만에 2MB 회전 상한에 닿았다. 정작 봐야 할 `removeAgent`·
- * `pollOnce.remove` 가 그 홍수에 묻힌다).
- *
- * 그래서 지문은 **인터랙티브 진입점**(vscode·cowork) 세션의 `sessionId:판정` 만 정렬해 담는다 —
- * 버블이 생기거나 사라지거나 탈락 사유가 바뀌면 그대로 잡히고, 나머지 잡음에는 침묵한다.
- * CLI 세션의 개수조차 넣지 않는다(그 개수야말로 매 폴링 흔들리는 값이다).
+ * 진단 로그 지문 — 인터랙티브 진입점 세션의 `sessionId:판정` 만 담는다. 몇 초 살다 사라지는 CLI 세션까지 넣으면(개수조차)
+ * 매 폴링 지문이 바뀌어 로그가 덤프로 덮인다(실측 2026-08-31: 3일 만에 2MB 회전 상한).
  */
 export function aliveDiagSignature(scan: SessionLiveness[]): string {
   return scan
@@ -289,14 +238,8 @@ export function aliveDiagSignature(scan: SessionLiveness[]): string {
 }
 
 /**
- * 이 플랫폼에서 "지금 도는 claude 프로세스" 목록을 뽑는 명령.
- *
- * Windows 는 `tasklist`(claude.exe), POSIX 는 `ps` 다. 예전에는 win32 가 아니면 **빈 집합을 즉시
- * 돌려줬다** — 조용한 열화라 mac/linux 에서는 이 판정이 늘 "아무것도 안 돈다"였고, 호출부는
- * `isProcessAlive` 폴백만으로 버텼다(죽은 PID 가 재사용된 경우를 못 가른다).
- *
- * **플랫폼을 인자로 받는다** — 함수 안에서 `process.platform` 을 읽으면 개발기 한 대에서
- * POSIX 가지가 영영 실행되지 않는다(멀티플랫폼 규칙).
+ * 지금 도는 claude 프로세스 목록 명령 — win32 `tasklist`, POSIX `ps`(빈 집합으로 때우면 재사용된 PID 를 못 가른다).
+ * 플랫폼은 인자로 받는다(안에서 읽으면 POSIX 가지가 검증되지 않는다).
  */
 export function aliveClaudePidsCommand(platform: NodeJS.Platform): string {
   if (platform === 'win32') return 'tasklist /NH /FO CSV /FI "IMAGENAME eq claude.exe"';
@@ -309,12 +252,7 @@ const WIN_TASKLIST_PID = /^"claude\.exe","(\d+)"/;
 /** `ps -Ao pid=,comm=` 한 줄 — 앞이 PID, 뒤가 실행 파일 이름. */
 const POSIX_PS_LINE = /^\s*(\d+)\s+(\S.*?)\s*$/;
 
-/**
- * 프로세스 목록 출력 → claude PID 집합.
- *
- * 파싱을 실행에서 떼어 놓은 이유는 하나다 — **세 OS 의 출력 모양을 개발기 한 대에서 다 시험**하기
- * 위해서다. 실기가 없는 우리에게는 이게 POSIX 가지가 맞는지 확인하는 유일한 방법이다.
- */
+/** 출력 → claude PID. 실행과 떼어 세 OS 출력 모양을 개발기에서 시험한다. */
 export function parseAliveClaudePids(output: string, platform: NodeJS.Platform): Set<number> {
   const pids = new Set<number>();
   for (const raw of output.split(/\r?\n/)) {
@@ -336,11 +274,7 @@ export function parseAliveClaudePids(output: string, platform: NodeJS.Platform):
   return pids;
 }
 
-/**
- * 현재 실행 중인 claude 프로세스 PID 집합.
- * 세션 PID 가 이 집합에 없으면 원래 프로세스는 죽었고 PID 가 재사용됐거나 비활성이다.
- * 10초에 한 번 호출되는 용도라 성능 부담 없음.
- */
+/** 실행 중인 claude PID 집합 — 세션 PID 가 없으면 죽었거나 PID 가 재사용됐다. 10초마다 부르는 용도. */
 export function getAliveNodePids(): Set<number> {
   try {
     const out = execSync(aliveClaudePidsCommand(process.platform), {
@@ -356,14 +290,8 @@ export function getAliveNodePids(): Set<number> {
 }
 
 /**
- * `claude -p --session-id <id> "x"` 를 짧은 timeout으로 실행하여 세션이 "이미 사용 중"인지 판정.
- *
- * 동작 원리:
- *   - 세션이 다른 Claude Code 프로세스에서 활성 → stderr에 "already in use" 즉시 출력 후 종료 (~0.5s)
- *   - 세션이 비활성 → 새 Claude Code가 프롬프트 실행 시도 (수 초 이상 소요) → timeout으로 kill
- *
- * **중요**: `--session-id` 체크는 세션의 원래 cwd에서 실행해야만 동작한다.
- * 다른 cwd에서 실행하면 "already in use"가 나오지 않아 활성 세션도 비활성으로 오판정한다.
+ * `claude -p --session-id <id>` 를 짧은 timeout 으로 띄워 사용 중인지 본다 — 활성이면 즉시 "already in use"(~0.5s), 아니면 timeout kill.
+ * **세션의 원래 cwd 에서 띄워야 한다** — 다른 cwd 에선 그 문구가 안 나와 활성을 비활성으로 오판한다.
  */
 /** isSessionInUse 실행 결과를 외부(인덱스)에서 구독 — WS broadcast용 */
 export type LivenessProbeListener = (result: {
@@ -391,14 +319,13 @@ export function isSessionInUse(sessionId: string, cwd: string, timeoutMs = 1500)
   const cmdLine = `${CLAUDE_BIN()} -p "x" --resume ${sessionId}`;
   logger.info(`[isSessionInUse] SPAWN sess=${shortId} cwd=${cwd} cmd=${cmdLine}`);
   return new Promise((resolve) => {
-    // 보안: shell:false + 해석된 CLAUDE_BIN. shell:true 는 win32 cmd.exe 가
-    // sessionId 를 재파싱해 인젝션 가능했음 — SAFE_SESSION_ID 검증과 함께 차단.
-    // POSIX 는 프로세스 그룹을 만들어 둬야 timeout kill 때 손자(MCP 서버 등)까지 회수된다 —
-    //   detached 없이 죽이면 `process.kill(-pid)` 가 ESRCH 로 떨어져 자식만 죽고 손자가 남는다.
+    // 보안: shell:false + 해석된 CLAUDE_BIN — shell:true 면 win32 cmd.exe 가 sessionId 를 재파싱해 인젝션된다.
+    // POSIX 는 detached 여야 timeout kill 이 손자(MCP 서버 등)까지 회수한다(아니면 `kill(-pid)` 가 ESRCH).
     const child = spawn(
       CLAUDE_BIN(),
       args,
-      { shell: false, windowsHide: true, cwd, ...processGroupSpawnOptions() },
+      // §4 (앱 전용 엔진) ⑤ — 앱 전용 실행본이면 엔진 자체 갱신을 끈다.
+      { shell: false, windowsHide: true, cwd, ...processGroupSpawnOptions(), env: claudeSpawnEnv() },
     );
     let buf = '';
     let settled = false;
@@ -440,12 +367,7 @@ export function isSessionInUse(sessionId: string, cwd: string, timeoutMs = 1500)
   });
 }
 
-/**
- * 세션이 최근에 활동했는지 — JSONL 파일이 존재하고 mtime이 windowMs 이내인지.
- * Windows의 rename 기반 락 테스트가 Claude Code의 파일 핸들을 감지하지 못하므로
- * 실제 활동 신호인 mtime으로 대체. Claude Code는 user/assistant/tool 이벤트마다
- * JSONL에 append하므로, mtime이 최근이면 사용 중이라고 판정 가능.
- */
+/** 최근 활동 = JSONL mtime 이 windowMs 이내. Windows 에선 rename 락 테스트가 CLI 의 핸들을 못 잡아 mtime 으로 본다(이벤트마다 append 된다). */
 export function isSessionRecentlyActive(
   cwd: string,
   sessionId: string,
@@ -472,12 +394,7 @@ export function isSessionJsonlLocked(cwd: string, sessionId: string): boolean {
   return isSessionFileLocked(jsonlPath);
 }
 
-/**
- * JSONL 파일을 현재 외부 프로세스가 append로 열고 있는지 판정.
- * Claude Code CLI/VSCode는 세션 동안 세션 JSONL을 계속 잡고 있어서,
- * 자기 자신으로 rename 시도가 EBUSY/EPERM으로 실패한다.
- * 커스텀 SubAgent(Task/Agent 툴 등)는 JSONL 핸들을 잡지 않으므로 성공 → 제외.
- */
+/** 외부 프로세스가 JSONL 을 열고 있는가 — CLI/VSCode 는 세션 동안 잡고 있어 자기 자신으로의 rename 이 EBUSY/EPERM. 커스텀 SubAgent 는 안 잡아 제외된다. */
 export function isSessionFileLocked(jsonlPath: string): boolean {
   try {
     if (!fs.existsSync(jsonlPath)) return false;
@@ -490,11 +407,7 @@ export function isSessionFileLocked(jsonlPath: string): boolean {
   }
 }
 
-/**
- * cwd → 프로젝트 slug.
- * Claude Code 실제 폴더명과 일치시키기 위해 디렉토리를 직접 탐색.
- * 매칭 실패 시 fallback으로 단순 변환.
- */
+/** CLI 의 실제 폴더명과 맞추려고 디렉토리를 찾고, 없으면 단순 변환. */
 function cwdToSlug(cwd: string): string {
   // 단순 변환 (: \ / _ . → -)
   // `.` 변환은 worktree 경로(`.claude/worktrees/…`)를 Claude Code JSONL 디렉토리
@@ -526,10 +439,7 @@ function cwdToSlug(cwd: string): string {
   return simpleSlugs[0]!;
 }
 
-/**
- * §9 v3.89 — 세션 제목 캐시. 제목은 **첫 user 메시지**라 한 번 잡히면 다시 바뀌지 않는다
- * (JSONL 은 append-only). 못 찾은 경우만 파일이 자란 뒤 재시도한다.
- */
+/** §9 — 세션 제목(첫 user 메시지라 안 바뀐다) 캐시. 못 찾은 것만 파일이 자란 뒤 재시도한다. */
 const sessionTitleCache = new ByteBudgetCache<string, string>({
   name: 'sessionDiscovery.title',
   maxBytes: cacheBudget(CACHE_SHARES.paths / 4),
@@ -604,11 +514,8 @@ function readSessionTitle(cwd: string, sessionId: string): string | null {
 }
 
 /**
- * JSONL 한 줄로 제목을 판정한다. `null` = 이 줄로는 결론이 안 남(계속 봐야 함),
- * 객체 = **여기서 결론**(첫 user 엔트리의 첫 text 블록).
- *
- * ⚠ 빈 텍스트도 결론이다 — 종전 구현은 첫 text 블록을 만나면 `text || null` 을 그대로 돌려주고
- *   더 찾지 않았다. 이를 "계속 찾기"로 바꾸면 제목이 달라지는 세션이 생긴다(등가성 유지).
+ * 한 줄로 제목 판정: `null` = 계속 본다, 객체 = 결론(첫 user 의 첫 text).
+ * ⚠ 빈 텍스트도 결론이다 — 계속 찾게 바꾸면 제목이 달라지는 세션이 생긴다.
  */
 function scanTitleLine(line: string): { title: string | null } | null {
   try {
@@ -652,12 +559,7 @@ function scanTitle(content: string): string | null {
   }
 }
 
-/**
- * 파일을 **청크로 훑어** 제목을 뽑는다 — §3.2.4 G축.
- *
- * 종전 `scanTitle(fs.readFileSync(p,'utf8'))` 는 앞 256KB 에서 못 찾았을 때 26MB 파일을 통째로
- * 문자열(UTF-16 이라 최대 52MB)로 올렸다. 첫 user 를 만나면 그 자리에서 읽기를 멈춘다.
- */
+/** §3.2.4 G축 — 청크로 훑다 첫 user 에서 멈춘다(통째로 올리면 26MB 가 UTF-16 52MB). */
 function scanTitleFromFile(jsonlPath: string): string | null {
   // 콜백 안에서의 할당을 TS 가 좁히지 못하게 상자에 담는다.
   const box: { title: string | null } = { title: null };
@@ -703,13 +605,8 @@ const sessionDirCache = new ByteBudgetCache<string, string>({
 });
 
 /**
- * §9 v3.89 — "이 sessionId 는 어디에도 없다" 를 기억하는 부정 캐시(sessionId → 재탐색 가능 시각).
- *
- * 전역 탐색(3)은 `~/.claude/projects` 의 **모든 프로젝트 디렉토리**에 대해 existsSync 를 도는데,
- * JSONL 이 아직 안 만들어진 세션(스폰 직후 sub)·이미 지워진 세션은 **매 호출마다 그 스캔을 통째로
- * 반복**했다. getSnapshot 은 에이전트·서브 수만큼 이 함수를 부르므로(초당 최대 5회 재구축) 없는
- * 세션 하나가 영구적인 디렉토리 스캔 루프가 된다. 짧은 TTL 을 둬 "잠시 후 다시 찾아본다" 는
- * 기존 의미(파일이 나중에 생기면 잡힘)는 유지하면서 스캔 빈도만 낮춘다.
+ * §9 — 어디에도 없는 sessionId 의 부정 캐시(→ 재탐색 시각). 없거나 지워진 세션이 getSnapshot(초당 최대 5회)마다
+ * 전 프로젝트 디렉토리를 훑지 않게 한다. TTL 이 짧아 나중에 생긴 파일은 잡힌다.
  */
 const sessionPathMissCache = new ByteBudgetCache<string, number>({
   name: 'sessionDiscovery.pathMiss',
@@ -720,23 +617,12 @@ const sessionPathMissCache = new ByteBudgetCache<string, number>({
 const SESSION_PATH_MISS_TTL_MS = 3000;
 
 /**
- * cwd + sessionId → **실제 존재하는** 세션 JSONL 절대경로 (없으면 null).
- *  1) cwd-slug 직행 — 기존 동작, 핫패스.
- *  2) miss 시 `~/.claude/projects/<*>/<sessionId>.jsonl` 전역 탐색.
- *     sessionId 는 전역 유니크 UUID 라 디렉토리(=cwd-slug)와 무관하게 유일 매칭된다.
- *     서브에이전트가 `--isolation worktree` 로 워크트리 cwd 에서 돌아 부모 cwd-slug 와
- *     어긋나도 컨텍스트/토큰/메시지를 정확히 찾는다(버블 모델·물결 누락 원인 제거).
+ * cwd + sessionId → 실재하는 JSONL 경로(없으면 null). cwd-slug 직행(핫패스) → miss 면 `~/.claude/projects/<*>/<sessionId>.jsonl` 전역 탐색
+ * (sessionId 는 전역 유니크 — `--isolation worktree` 서브에이전트도 찾는다).
  */
 /**
- * 세션 트랜스크립트(JSONL)가 살 수 있는 `projects` 루트들 — 호스트 하나 + Cowork 세션 홈들.
- *
- * Cowork 는 설정 홈이 세션마다 따로라 **트랜스크립트도 그 홈 안**에 쓴다
- * (`<세션디렉터리>/.claude/projects/-sessions-<processName>/<cliSessionId>.jsonl`).
- * 호스트 `~/.claude/projects` 만 보면 Cowork 세션의 제목·컨텍스트·토큰·대화 본문이 전부
- * 빈손이 된다 — 버블은 훅으로 떠 있는데 내용이 영영 `(new)` 로 남는 모양이다.
- *
- * 호스트가 먼저다(대부분의 조회가 거기서 끝난다). 한 번 찾은 자리는 `sessionDirCache` 가
- * 기억하므로 이 목록 순회는 **세션당 한 번**만 돈다.
+ * 트랜스크립트가 살 수 있는 `projects` 루트 — 호스트 + Cowork 세션 홈(Cowork 는 세션마다 설정 홈이 따로라 그 안에 쓴다 — 호스트만 보면 내용이 `(new)` 로 남는다).
+ * 호스트가 먼저, 찾은 자리는 `sessionDirCache` 가 기억한다.
  */
 function transcriptRootsToScan(): string[] {
   const roots = [PROJECTS_DIR];
@@ -795,8 +681,7 @@ function extractText(entry: Record<string, unknown>): string | null {
   const msg = entry['message'] as Record<string, unknown> | undefined;
   if (!msg) return null;
 
-  // §4 v2.68 — CMD(인터랙티브 REPL) 의 user 메시지는 content 가 평문 문자열이다(헤드리스/도구 경로는
-  //   블록 배열). 문자열만 처리하던 기존 분기는 이를 건너뛰어 사용자가 친 입력이 Results 에서 누락됐다.
+  // §4 — CMD(인터랙티브 REPL)의 user content 는 평문 문자열이다(헤드리스는 블록 배열) — 이 분기가 없으면 친 입력이 Results 에서 빠진다.
   const content = msg['content'];
   if (typeof content === 'string') {
     const cleaned = stripTranscriptMarkdown(content);
@@ -847,27 +732,12 @@ function extractTodos(entry: Record<string, unknown>): TodoItem[] | null {
 }
 
 /**
- * §9 v3.89 — 대화 이벤트 추출 결과 캐시(파일 크기·mtime 키).
- *
- * `buildAgentEvents()` 는 5초 TTL 이지만, 만료될 때마다 **살아있는 세션 전부**에 대해 수 MB 짜리
- * JSONL 을 통째로 읽고 전 줄을 파싱했다(세션 20개면 5초마다 300ms 급 끊김). 파일이 안 바뀌었으면
- * 결과도 같다.
- *
- * ⚠ 호출부(`buildAgentEvents`)가 돌려받은 이벤트 객체를 **직접 수정**한다(`source`/`queuedAt` 표시,
- * completed 요약을 `response` 에 덧붙임). 캐시 원본을 그대로 주면 그 수정이 누적돼 요약이 호출
- * 횟수만큼 겹쳐 붙는다 — 그래서 **매번 얕은 복사본**을 돌려준다(엔트리 최대 MAX_AGENT_EVENTS 개라
- * 파일 재파싱과 비교할 수 없이 싸다).
+ * §9 — 대화 이벤트 추출 결과 캐시. ⚠ 호출부가 받은 이벤트를 직접 고친다(`source`/`queuedAt`, 요약 덧붙임) —
+ * 원본을 주면 요약이 호출 횟수만큼 겹치므로 매번 얕은 복사본을 준다.
  */
 /**
- * §3.2.4 G축 + 증분 — 대화 이벤트 추출 **누적 상태**(파일 크기·mtime·파싱 오프셋).
- *
- * 종전엔 파일이 한 줄이라도 자라면 **처음부터 전량 재파싱**했다(캐시 키가 크기·mtime 이라 append
- * 마다 통째로 미스). 트랜스크립트는 append-only 라 붙은 줄만 같은 순서로 먹이면 결과가 전량
- * 재스캔과 같다 — `ContextScanState`·`TokenScanState` 와 같은 규약이다.
- *
- * ⚠ 마지막 턴 커밋은 **누적 상태에 넣지 않는다.** 그 턴은 아직 안 끝났을 수 있어(다음 append 에
- *   같은 턴의 assistant 텍스트가 더 붙는다) 결과 계산에만 반영한다. `pendingTail`(개행 없이 끝난
- *   줄)도 같은 이유로 상태 밖에 둔다.
+ * §3.2.4 증분 — 대화 이벤트 추출 누적 상태(append-only 라 붙은 줄만 먹이면 전량과 같다).
+ * ⚠ 마지막 턴과 `pendingTail` 은 상태에 커밋하지 않는다 — 다음 append 에 같은 턴 글이 더 붙는다.
  */
 interface UserMessagesState {
   fileSize: number;
@@ -993,11 +863,7 @@ function feedUserMessagesRange(
   return nextOffset;
 }
 
-/**
- * JSONL **경로로 직접** 읽는 핵심 — 증분 상태 관리가 전부 여기 있다.
- * 세션 해석(cwd+sessionId → 경로)은 껍데기가 맡는다. 그래야 등가성 테스트가 임시 파일만으로
- * 돌 수 있다(`scanActiveBackgroundShells` 와 같은 형태 — 사용자 홈을 건드리지 않는다).
- */
+/** 경로로 직접 읽는 핵심(증분 상태 관리 전부). 세션 해석을 껍데기에 둬야 등가성 시험이 임시 파일만으로 돈다(사용자 홈 불가침). */
 export function readUserMessagesByPath(jsonlPath: string): AgentEvent[] {
   try {
     const stat = fs.statSync(jsonlPath);
@@ -1047,19 +913,8 @@ export function readUserMessages(cwd: string, sessionId: string): AgentEvent[] {
 }
 
 /**
- * JSONL에서 마지막 user 프롬프트 이후 모든 assistant 텍스트를 합산하여 요약 생성.
- * 여러 턴에 걸친 작업 보고를 하나로 합친다.
- */
-/**
- * §9 v3.89 + §3.2.4 증분 — 요약 추출 **누적 상태**(파일 크기·mtime·파싱 오프셋).
- *
- * `resolveMissingSummaries()` 는 "summary 가 아직 없는 completed 에이전트" 를 매 스냅샷 재구축마다
- * 다시 시도하는데, 종전엔 파일이 조금이라도 자라면 수 MB 짜리 JSONL 을 **처음부터** 다시 읽고 전
- * 줄을 파싱했다. 트랜스크립트는 append-only 라 붙은 줄만 이어 먹이면 결과가 전량 재스캔과 같다.
- *
- * 수집 규칙이 그대로 증분에 맞는다 — `user` 를 만나면 모으던 것을 버리므로, 끝까지 먹이고 나면
- * 남는 것은 언제나 "마지막 user 이후의 assistant 텍스트"뿐이다. 결과가 `null`(모은 게 없음)인
- * 경우도 상태로 남아, 파일이 안 바뀌면 다시 읽지 않는다(종전의 "실패도 캐시" 와 같은 효과).
+ * §9 + §3.2.4 증분 — 요약 추출 누적 상태. `user` 를 만나면 모은 것을 버리는 규칙이라 붙은 줄만 이어 먹여도 마지막 user 이후 assistant 글이 남는다.
+ * `null` 결과도 상태로 남아 파일이 안 바뀌면 다시 읽지 않는다.
  */
 interface LastAssistantState {
   fileSize: number;
@@ -1124,13 +979,7 @@ function feedLastAssistantRange(
   return nextOffset;
 }
 
-/**
- * 마지막 user 이후의 assistant 본문 + **그 글이 쓰인 시각**.
- *
- * 시각이 함께 나와야 부르는 쪽이 "이번 턴에 쓰인 글인가"를 가를 수 있다. 이 값이 없던 동안
- * `/compact` 처럼 **제 답이 없는 턴**이 이 폴백을 타고 앞 턴의 답을 제 결과로 저장했고,
- * 화면은 그 저장값을 그 턴의 답으로 그려 같은 말이 두 번 읽혔다(§5.5 #17-12 ③-4).
- */
+/** assistant 본문 + 쓰인 시각. 시각이 있어야 "이번 턴의 글인가"를 가른다 — 없으면 `/compact` 처럼 답이 없는 턴이 앞 턴 답을 제 결과로 저장한다(§5.5 #17-12 ③-4). */
 export interface LastAssistantEntry {
   text: string;
   /** 그 글이 트랜스크립트에 쓰인 시각(epoch ms). 줄에 시각이 없으면 0. */
@@ -1184,10 +1033,7 @@ export function readLastAssistantMessageByPath(jsonlPath: string): string | null
   return readLastAssistantEntryByPath(jsonlPath)?.text ?? null;
 }
 
-/**
- * JSONL에서 마지막 user 프롬프트 이후 모든 assistant 텍스트를 합산하여 요약 생성.
- * 여러 턴에 걸친 작업 보고를 하나로 합친다.
- */
+/** 마지막 user 프롬프트 이후 assistant 글을 모두 합친 요약. */
 export function readLastAssistantMessage(cwd: string, sessionId: string): string | null {
   return readLastAssistantEntry(cwd, sessionId)?.text ?? null;
 }
@@ -1199,11 +1045,7 @@ export function readLastAssistantEntry(cwd: string, sessionId: string): LastAssi
   return readLastAssistantEntryByPath(jsonlPath);
 }
 
-/**
- * 세션 JSONL 의 끝부분(maxBytes)만 읽어 완전한 줄 배열로 반환.
- * 대용량 세션 파일 전체를 매번 readFileSync 하는 부담 없이 "마지막 엔트리"만 확인하는 핫패스용.
- * 파일 앞을 잘랐다면 첫 줄은 불완전할 수 있어 버린다.
- */
+/** 끝 maxBytes 만 읽어 완전한 줄만 돌려준다(마지막 엔트리 핫패스용 — 잘린 첫 줄은 버린다). */
 function readTailLines(jsonlPath: string, maxBytes = 128 * 1024): string[] {
   let fd: number | null = null;
   try {
@@ -1226,11 +1068,7 @@ function readTailLines(jsonlPath: string, maxBytes = 128 * 1024): string[] {
   }
 }
 
-/**
- * Claude Code 가 사용자 인터럽트(Esc/Ctrl+C)·도구 거부 시 트랜스크립트에 남기는 sentinel.
- * Stop 훅은 사용자 인터럽트에서 발사되지 않으므로(공식 명세), 이 sentinel 이 마지막 대화
- * 엔트리(user)로 남으면 "턴이 인터럽트로 끝났다"로 판정한다.
- */
+/** 인터럽트(Esc/Ctrl+C)·도구 거부 때 CLI 가 남기는 sentinel. Stop 훅은 인터럽트에 안 오므로(공식 명세) 이것이 마지막 user 엔트리면 인터럽트로 끝난 턴이다. */
 const INTERRUPT_SENTINELS = [
   "The user doesn't want to proceed with this tool use",
   '[Request interrupted by user',
@@ -1238,11 +1076,8 @@ const INTERRUPT_SENTINELS = [
 ];
 
 /**
- * 세션 JSONL 의 마지막 user/assistant 엔트리가 "사용자 인터럽트/도구 거부로 끝난 턴"인지 판정.
- * - 마지막 대화 엔트리가 `user` 타입이고 인터럽트 sentinel 을 포함하면 true.
- * - 사용자가 인터럽트 후 작업을 이어가면 마지막 엔트리가 assistant 가 되어 false(오해소 방지).
- * - 인터럽트로 끝난 게 아닌 정상/진행 중 세션은 false → 실행 중 긴 도구 호출을 조기 종료시키지 않음.
- * Stop 훅이 안 오는 인터럽트 케이스에서 stuck-active 버블을 해소하기 위한 신호.
+ * 마지막 대화 엔트리가 sentinel 을 품은 `user` 면 true(Stop 훅 없는 인터럽트의 stuck-active 해소용).
+ * 이어서 일하면(assistant) false, 진행 중이면 false — 긴 도구 호출을 조기 종료시키지 않는다.
  */
 export function isSessionInterrupted(cwd: string, sessionId: string): boolean {
   try {
@@ -1256,10 +1091,7 @@ export function isSessionInterrupted(cwd: string, sessionId: string): boolean {
       try { entry = JSON.parse(line); } catch { continue; }
       if (typeof entry !== 'object' || entry === null) continue;
       const d = entry as Record<string, unknown>;
-      // 서브에이전트(Task) 의 sidechain 엔트리는 같은 세션 JSONL 에 섞여 쌓인다. 이를
-      // 본 에이전트의 "마지막 대화 엔트리"로 오인하면, 조사 서브에이전트가 도는 동안
-      // 부모 Hook 버블이 인터럽트로 오판(markStop → completed)돼 "종료된 것처럼" 보인다.
-      // 인터럽트 판정은 본 에이전트 자신의 턴에만 적용 — sidechain 은 건너뛴다.
+      // sidechain(서브에이전트 Task) 엔트리는 같은 JSONL 에 섞인다 — 마지막으로 읽으면 서브에이전트가 도는 동안 부모 버블이 인터럽트로 오판된다. 본 에이전트 턴만 본다.
       if (d['isSidechain'] === true) continue;
       const type = d['type'];
       if (type !== 'user' && type !== 'assistant') continue;
@@ -1285,29 +1117,15 @@ export interface AgentContextInfo {
   /** 누적 출력 토큰 (전체 턴 합산) */
   cumulativeOutputTokens: number;
   /**
-   * §4 (CLI 사양 추종) (5) 창 하한 — 이 세션 **첫 응답의 문맥 크기**(= 시작 문맥 + 첫 프롬프트). 압축은
-   * 시작 문맥(시스템 프롬프트·도구·CLAUDE.md·기억·스킬 목록)을 줄이지 못하므로, 창이 이 값에 비해 작으면
-   * 압축이 일보다 잦아진다(`applyAutoCompactFloor`). 응답이 아직 없으면 0.
+   * §4 (CLI 사양 추종) (5) 창 하한 — 첫 응답의 문맥 크기(시작 문맥 + 첫 프롬프트). 압축은 시작 문맥을 못 줄여
+   * 창이 이보다 작으면 압축이 일보다 잦다(`applyAutoCompactFloor`). 응답 전이면 0.
    */
   firstContextUsed: number;
 }
 
 /**
- * §9 v3.89 — `readContextInfo` 증분 누적 상태(파일별).
- *
- * **왜 필요한가**: 이 함수는 `getSnapshot` 의 에이전트 enrich 루프에서 **에이전트마다 1회 + 마지막
- * sub 1회 + 소유 sub 전원 1회** 호출된다. 종전 구현은 매 호출마다 세션 JSONL **전체**를
- * `readFileSync` + 줄 단위 `JSON.parse` 했다. 실측(이 저장소의 실제 세션 파일 2.6MB) 기준
- * 1회 15ms — 에이전트 5 + sub 15 이면 스냅샷 재구축 1회에 **300ms 이상**이 파일 파싱에 갔고,
- * 스냅샷은 최대 200ms 주기로 재구축되므로 Electron 메인 스레드가 사실상 이 루프에 점유됐다.
- * **세션이 길어질수록 JSONL 이 커져 더 느려진다** — "쓸수록 느려진다" 의 정체.
- *
- * **어떻게 고치나**: JSONL 은 append-only 다. 파일별로 (크기·mtime·마지막 완결 줄 오프셋 +
- * 누적값)을 들고 있다가,
- *   - 크기·mtime 이 그대로면 → 파일을 **열지도 않고** 지난 결과를 돌려준다(stat 1회, ~0.02ms).
- *   - 뒤에 붙기만 했으면 → **붙은 바이트만** 읽어 누적을 이어간다(O(신규 바이트)).
- *   - 줄었거나(rotate/재작성) 이상하면 → 전체 재파싱으로 안전 복귀.
- * 결과값은 전체 재파싱과 **바이트 단위로 동일**하다(같은 줄을 같은 순서로 딱 한 번씩 먹인다).
+ * §9 — `readContextInfo` 파일별 증분 상태. 에이전트·sub 마다 불리므로 전체 파싱이면 메인 스레드가 점유된다(실측 2.6MB 1회 15ms).
+ * 크기·mtime 그대로면 열지 않고, 붙었으면 붙은 바이트만, 줄었으면 전체 재파싱 — 결과는 전체 재파싱과 바이트 단위로 같다.
  */
 interface ContextScanState {
   /** 마지막으로 본 파일 크기(바이트). */
@@ -1322,11 +1140,7 @@ interface ContextScanState {
   lastContextUsed: number;
   /** 첫 assistant 엔트리의 문맥 크기 — 한 번 정해지면 바뀌지 않는다(append-only 라 첫 줄은 그대로다). */
   firstContextUsed: number;
-  /**
-   * 마지막 개행 뒤에 남은 미완결 꼬리. 보통 빈 문자열(세션 JSONL 은 개행으로 끝난다)이지만,
-   * 프로세스가 개행 없이 끝난 파일에서도 **전체 재파싱과 같은 값**이 나오도록 결과 계산에만 반영한다
-   * (누적 상태에는 커밋하지 않는다 — 다음에 뒷부분이 더 붙으면 그때 온전한 줄로 한 번만 먹는다).
-   */
+  /** 개행 없는 미완결 꼬리 — 전체 재파싱과 같은 값이 나오게 결과에만 반영하고 상태엔 커밋하지 않는다(더 붙으면 온전한 줄로 한 번만 먹는다). */
   pendingTail: string;
 }
 
@@ -1339,10 +1153,7 @@ const contextScanCache = new ByteBudgetCache<string, ContextScanState>({
   sizeOf: (state) => 160 + approximateStringBytes(state.pendingTail) + approximateStringBytes(state.lastModel),
 });
 
-/**
- * 테스트용 — 세션 JSONL 파생 캐시를 전부 비운다.
- * 증분 경로와 "캐시가 빈 상태에서의 전량 재스캔" 을 같은 조건에서 비교하기 위한 자리다.
- */
+/** 시험용 — 파생 캐시 전부 비우기(증분 vs 빈 캐시 전량 재스캔 비교). */
 export function __resetSessionCachesForTest(): void {
   for (const cache of EVICTABLE_SESSION_CACHES) cache.clear();
 }
@@ -1384,11 +1195,7 @@ function feedContextLine(state: ContextScanState, line: string): void {
   }
 }
 
-/**
- * 파일의 [start, end) 구간을 읽어 **완결된 줄만** 누적에 먹이고, 다음 시작 오프셋을 돌려준다.
- * 잘린 꼬리(마지막 개행 뒤)는 다음 호출에서 온전해진 뒤 처리한다 —
- * 스트리밍 중 반쯤 쓰인 줄을 두 번 세거나 놓치지 않기 위함.
- */
+/** [start, end) 의 완결된 줄만 먹이고 다음 오프셋을 돌려준다 — 잘린 꼬리는 다음 호출로 미뤄 반쯤 쓰인 줄을 두 번 세거나 놓치지 않는다. */
 function feedRange(state: ContextScanState, jsonlPath: string, start: number, end: number): number {
   const length = end - start;
   if (length <= 0) { state.pendingTail = ''; return start; }
@@ -1402,11 +1209,7 @@ function feedRange(state: ContextScanState, jsonlPath: string, start: number, en
   return nextOffset;
 }
 
-/**
- * JSONL에서 마지막 assistant 엔트리의 model + usage + 전체 누적 토큰을 반환.
- * 순방향 1회 파싱으로 누적 합산 + 마지막 컨텍스트를 동시에 수집한다.
- * 같은 파일을 다시 물으면 **붙은 부분만** 읽어 이어간다(위 `ContextScanState` 주석 참조).
- */
+/** 마지막 assistant 의 model·usage + 누적 토큰(순방향 1회 파싱, 다시 물으면 붙은 부분만). */
 export function readContextInfo(cwd: string, sessionId: string): AgentContextInfo | null {
   try {
     const jsonlPath = resolveSessionJsonlPath(cwd, sessionId);
@@ -1626,15 +1429,8 @@ function buildDetailString(meta: SessionMeta): Record<string, string> {
 }
 
 /**
- * §9 — 토큰 스캔 증분 상태. `ContextScanState`(readContextInfo) 와 같은 원리다:
- * JSONL 은 append-only 이므로 **붙은 바이트만** 파싱해 turns·meta 를 누적하고,
- * 파일이 안 변했으면 파일을 아예 열지 않는다.
- *
- * 이 캐시가 없던 시절이 `/api/tokens/:sessionId` 요청마다 **세션 JSONL 전체를
- * readFileSync + 전 줄 JSON.parse ×2벌**(turns 루프 + collectSessionMeta) 하던
- * 경로였다. DetailPanel 이 에이전트 activity 가 오를 때마다(=도구 이벤트마다)
- * 이 엔드포인트를 때렸고, 자체 턴이 비면 서브에이전트 세션까지 연쇄 호출해
- * 수 MB 짜리 파일 수십 개를 한 번에 읽어 Electron 메인 스레드를 수백 ms 씩 잡았다.
+ * §9 — 토큰 스캔 증분 상태(`ContextScanState` 와 같은 원리). `/api/tokens/:sessionId` 는 DetailPanel 이 도구 이벤트마다
+ * (서브에이전트까지 연쇄로) 부르므로 전량 파싱이면 메인 스레드를 수백 ms 씩 잡는다.
  */
 interface TokenScanState {
   fileSize: number;
@@ -1661,12 +1457,7 @@ const tokenScanCache = new ByteBudgetCache<string, TokenScanState>({
   },
 });
 
-/**
- * §3.2.4 I축 — 힙 압력이 걸리면 이 캐시들을 스스로 비운다.
- *
- * 여기 있는 것은 전부 **파일에서 다시 만들 수 있는 파생물**이라 버려도 소비자에게 no-op 이다
- * (다음 조회에서 원본 JSONL 로부터 그대로 복원된다). 사용자가 보던 대화·이력은 이 목록에 없다.
- */
+/** §3.2.4 I축 — 힙 압력 때 스스로 비운다. 전부 파일에서 다시 만들 수 있는 파생물이라 no-op 이다(사용자가 보던 대화·이력은 여기 없다). */
 /** 압력 축출 대상 = 파일에서 다시 만들 수 있는 파생 캐시 전부. 테스트 리셋도 같은 목록을 쓴다. */
 const EVICTABLE_SESSION_CACHES = [
   sessionTitleCache,
@@ -1737,10 +1528,7 @@ function feedTokenLine(state: TokenScanState, line: string): void {
   });
 }
 
-/**
- * [start, end) 를 읽어 **완결된 줄만** 누적에 먹이고 다음 시작 오프셋을 반환.
- * 잘린 꼬리는 다음 호출에서 온전해진 뒤 처리한다(feedRange 와 동일 규약).
- */
+/** feedRange 와 같은 규약(완결된 줄만, 다음 오프셋 반환). */
 function feedTokenRange(state: TokenScanState, jsonlPath: string, start: number, end: number): number {
   const length = end - start;
   if (length <= 0) { state.pendingTail = ''; return start; }
@@ -1792,10 +1580,7 @@ function scanTokenState(jsonlPath: string): TokenScanState | null {
   return state;
 }
 
-/**
- * JSONL 세션 파일에서 전체 턴별 토큰 사용량 + 누적 카테고리 추정을 반환.
- * 동적으로 프로젝트 파일을 감지하고 JSONL 메타를 수집하여 카테고리를 구성.
- */
+/** 턴별 토큰 + 누적 카테고리 추정(카테고리는 프로젝트 파일 감지·JSONL 메타로 짓는다). */
 export function readSessionTokenData(cwd: string, sessionId: string): SessionTokenData | null {
   try {
     const jsonlPath = resolveSessionJsonlPath(cwd, sessionId);
@@ -1880,13 +1665,8 @@ function normalizeCwd(cwd: string): string {
 const lastDiscoverySignature = new Map<string, string>();
 
 /**
- * ~/.claude/sessions/ 에서 같은 프로젝트의 살아있는 세션만 반환.
- * @param projectCwd 현재 프로젝트 cwd — 이 경로의 세션만 포함
- * startedAt 기준 최신순 정렬, INITIAL_AGENT_COUNT개까지.
- *
- * §5.7 #24: 생존 판정((a) PID alive + (c) 인터랙티브 진입점)은 `scanSessionLiveness`
- * 단일 함수에 위임 — pollOnce/readAliveSessionIds(제거 경로)와 완전히 같은 기준을
- * 쓴다. 여기서는 그 위에 (b) cwd-프로젝트 일치만 추가로 적용한다.
+ * 같은 프로젝트의 살아있는 세션(startedAt 최신순, INITIAL_AGENT_COUNT 까지).
+ * §5.7 #24: 생존은 `scanSessionLiveness` 에 위임해 제거 경로와 기준을 같게 하고, 여기서는 cwd 일치만 더한다.
  */
 export function discoverSessions(projectCwd: string): LocalSession[] {
   try {

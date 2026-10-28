@@ -1,15 +1,6 @@
 /**
- * §5.13 (P) v4.49 — 내부 앱의 서버 자리.
- *
- * 코어(`index.ts`)가 아는 것은 `mountAppRoutes(app)` 한 줄뿐이다.
- *
- * **부르지 않은 앱은 코드조차 로드하지 않는다.** 이게 이 파일의 존재 이유다 — 앱 모듈을 위에서
- * 정적으로 불러오면 그 코드가 서버 부팅과 함께 메모리에 올라가고, 그러면 "안 쓰면 비용이 없다"는
- * 말이 문서에서만 참이 된다. 그래서 여기서는 **경로만 알고 있다가 실제 요청이 처음 들어올 때**
- * 늦게 불러온다(§5.13 (H) 개정 — 이 규율의 주인은 설치 여부가 아니라 첫 요청이다).
- *
- * 앱은 코어를 import 하지 않는다(§5.13 (P) 도킹 계약). 필요한 것은 `AppServerHost` 로
- * 건네주며, 그 인터페이스가 앱과 코어 사이의 유일한 접촉면이다.
+ * §5.13 (P) — 내부 앱의 서버 자리(코어는 `mountAppRoutes(app)` 만 안다). 앱 모듈을 정적 import 하지 마라 — 부팅과 함께 메모리에 올라간다.
+ * 첫 요청 때 늦게 불러온다(§5.13 (H)). 앱은 코어를 import 하지 않는다 — `AppServerHost` 가 유일한 접촉면(§5.13 (P) 도킹 계약).
  */
 import type { Express, RequestHandler, Router } from 'express';
 import { APP_API_PREFIX, LOOPBACK_REQUEST_MAX_BYTES, type AppEventPayload, type CreationValue, type CreationLink } from '@vibisual/shared';
@@ -23,9 +14,8 @@ import { atomicWriteFileSync } from './statePersistence.js';
 import { resolveWorkspacePath } from './workspaceExplorer.js';
 
 /**
- * §5.13 (T-11) ① — 서버 몫이 **같은 앱의 main 몫**을 부르는 통로. 데스크톱 main 이 부팅 때 한 번 주입한다
- * (`setAppMainInvoker`). 서버와 main 이 한 프로세스라(§3.7) 새 소켓도 새 IPC 채널도 없다 — 함수 하나다.
- * 앱 이름을 모른다: 어느 앱의 몫인지는 아래 `makeHost(appId)` 가 묶어 준다.
+ * §5.13 (T-11) ① — 서버 몫이 같은 앱의 main 몫을 부르는 함수(한 프로세스 §3.7 — 소켓·IPC 없음). 데스크톱 main 이 부팅 때 `setAppMainInvoker` 로 주입한다.
+ * 앱 이름은 모른다(`makeHost(appId)` 가 묶는다).
  */
 export type AppMainInvoker = (appId: string, action: string, payload: unknown) => Promise<unknown>;
 let appMainInvoker: AppMainInvoker | null = null;
@@ -148,16 +138,7 @@ export function mountAppBodyParsers(app: Express): void {
   }
 }
 
-/**
- * §5.13 (H) 개정 — **설치 게이트는 없다.**
- *
- * 종전에는 `UserDefaults.installedApps` 를 보고 안 깐 앱의 REST 를 409 로 돌려세웠다. 이제 앱은
- * 프로젝트에 기본으로 귀속되므로 그 판정 자체가 없어졌다 — 사용자가 파일을 눌렀는데 "먼저 설치하라"
- * 는 답이 돌아오는 자리를 만들지 않는다(사용자 지시: "앱설치 빼버리고 기본 우리 프로젝트에 귀속").
- *
- * **그렇다고 앱 코드가 부팅과 함께 올라오지는 않는다** — 늦은 로드(`lazy`)가 그 몫을 그대로 한다.
- * 즉 "안 쓰는 앱은 코드조차 로드하지 않는다"는 규율은 설치가 아니라 **첫 요청**이 지킨다.
- */
+/** §5.13 (H) — 설치 게이트는 없다(앱은 프로젝트에 기본 귀속 — "먼저 설치하라" 409 를 만들지 않는다). 그래도 앱 코드는 첫 요청 때 늦게(`lazy`) 올라온다. */
 
 /** 불러온 앱 하나 — 라우터와 미디어 해석기가 **같은 모듈·같은 호스트**를 쓴다(두 벌로 불러오지 않는다). */
 interface LoadedApp {
@@ -208,12 +189,7 @@ export async function resolveAppMediaFile(appId: string, query: URLSearchParams)
 
 export function mountAppRoutes(app: Express): void {
   for (const entry of SERVER_APPS) {
-    /**
-     * 앱마다 라우터를 하나 세우고, 그 안에서 **처음 통과한 요청에** 앱을 불러온다.
-     *
-     * 한 번도 부르지 않은 앱의 코드는 프로세스가 사는 동안 메모리에 올라가지 않는다 — 이 규율을
-     * 지키는 것은 설치 여부가 아니라 **첫 요청**이다(§5.13 (H) 개정).
-     */
+    /** 첫 요청에 앱을 불러온다 — 부르지 않은 앱은 메모리에 올리지 않는다(§5.13 (H)). */
     let loaded: Router | null = null;
 
     const lazy: RequestHandler = (req, res, next) => {

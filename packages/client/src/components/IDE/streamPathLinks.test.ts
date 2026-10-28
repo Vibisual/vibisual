@@ -1,14 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseStreamPathCandidate, splitLineSuffix } from './streamPathLinks.js';
 
-/**
- * §5.5 #17-27 ⑬ — 본문 속 경로 손잡이의 1차 체.
- *
- * 여기서 잡고 싶은 사고는 셋이다 — ⓐ 진짜 위치(`assets/test/gpt-image/`)를 놓쳐 손잡이가 안 생기는 것,
- * ⓑ 명령·코드 조각(`pnpm build` · `foo()`)까지 후보로 올려 본문이 가짜 링크로 뒤덮이는 것,
- * ⓒ (d) 개정 후 **루트 안과 밖이 섞이는 것** — 밖이 `inside` 로 잘못 읽히면 그 경로가 편집창·실행으로
- * 가 버린다(열려서는 안 되는 갈래다).
- */
+/** §5.5 #17-27 ⑬ 경로 1차 체: 진짜 위치를 놓치지 않기 · 명령·코드 조각(`pnpm build` · `foo()`)은 거르기 · 루트 밖이 `inside` 로 읽히지 않기. */
 
 const ROOT = 'C:/repo';
 
@@ -73,10 +66,7 @@ describe('parseStreamPathCandidate — 루트 안(inside)', () => {
   });
 });
 
-/**
- * ⑬ (d) 개정 — 루트 밖 절대 경로도 후보가 된다. 다만 **절대 경로 그대로** 들고 가야 한다:
- * 상대 경로로 접어 버리면 기준이 없어 엉뚱한 곳이 열린다.
- */
+/** ⑬ (d) — 루트 밖 절대 경로는 절대 경로 그대로 들고 간다(상대로 접으면 엉뚱한 곳이 열린다). */
 describe('parseStreamPathCandidate — 루트 밖(outside)', () => {
   it('다른 드라이브의 절대 경로', () => {
     expect(parseStreamPathCandidate('D:/other/note.md', ROOT))

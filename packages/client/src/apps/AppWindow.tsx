@@ -19,19 +19,9 @@ import { isAppWindowVisible } from './appWindowProject.js';
 import { requestAppWindowClose } from './appWindowCloseRetention.js';
 
 /**
- * §5.13 (S) — 내부 앱이 **앱 안에서** 열리는 창.
- *
- * 창 틀은 새로 만들지 않는다 — 좌표·3상태(가운데 팝업 → 타이틀바 드래그 이동 → 리사이즈 →
- * 최대화/복원)는 §5.9 v3.34 캡처 창이 만들고 §5.10 v3.77 이 훅으로 뽑은 `useFloatingWindow`,
- * z-order·Escape(최상단 하나만)는 캡처 창·플레이테스트 클립 창·검증 시연 창이 함께 쓰는 스택
- * 한 곳이다. 앱 창만 자기 규칙으로 겹치면 "어느 창이 앞인가"가 창 종류마다 갈린다.
- *
- * **타이틀바를 앱 밖으로 끌어내면** 그때 독립 OS 창이 된다(S-3). 여기서 하는 일은 그 손짓의
- * 결과를 store 에 넘기는 것뿐이고, 밖에 뜨는 창은 종전 그대로 `InternalApp.open()` 이 연다.
- * 끄는 동안은 IDE 창(§5.5 #17-6)과 같은 **가상 창**이 손을 따라가고 본체는 숨는다(S-10).
- *
- * **특정 앱을 알지 않는다** (§5.13 (P-4)) — 제목·색·아이콘·화면은 전부 `appId` 로 레지스트리에서
- * 꺼내므로 앱이 늘어도 이 파일은 그대로다.
+ * §5.13 (S) — 앱 안 창. 틀은 `useFloatingWindow`, z-order·Escape 는 다른 떠 있는 창들과 같은 스택(따로 겹치면 "어느 창이 앞인가"가 갈린다).
+ * 타이틀바를 밖으로 끌면 OS 창(S-3 — 결과만 store 에, 열기는 `InternalApp.open()`), 끄는 동안은 가상 창이 따라간다(S-10).
+ * 특정 앱을 모른다(§5.13 (P-4)) — 전부 `appId` 로 레지스트리에서 꺼낸다.
  */
 export const AppWindow = memo(function AppWindow({ win, visible = true }: { win: AppWindowEntry; visible?: boolean }): React.JSX.Element | null {
   const { t } = useTranslation();
@@ -75,10 +65,8 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
   const title = custom !== undefined && custom !== '' ? custom : appName;
 
   /**
-   * 밖으로 꺼낸다(S-5) — 끝나면 열렸는지를 돌려준다.
-   *
-   * @param fromGhost (S-10) 끌어낸 판이라 main 의 선이 그 자리에 멈춰 서 있다 — 새 창은 그 선의
-   *   자리·크기에 선다(main 이 선의 경계를 읽는다). 아니면 종전처럼 이 창의 화면 자리에 선다.
+   * 밖으로 꺼낸다(S-5) — 열렸는지를 돌려준다.
+   * @param fromGhost (S-10) 끌어낸 판 — 새 창은 main 의 멈춰 선 선의 자리·크기에 선다. 아니면 이 창의 화면 자리.
    */
   const popOutSelf = useCallback((geom?: FloatingWindowGeom, screenPosition?: { x: number; y: number }, fromGhost = false): Promise<boolean> => {
     setTransferFailed(false);
@@ -135,37 +123,22 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
   // 언마운트 — 창 스택 등록 해제(진행 중 드래그 리스너 정리는 공용 훅이 담당).
   useEffect(() => () => { handle.release(); }, [handle]);
 
-  /**
-   * §4 v3.71 가시성 LOD — **캔버스를 실제로 덮을 때만** 덮개로 등록한다.
-   *
-   * 떠 있는 창은 옆으로 캔버스가 보이고 조작도 되므로 등록하지 않는다(기억 라이브러리·IDE 창의
-   * floating 과 같은 규칙). 키는 창마다 달라야 한다 — 같은 키를 여럿이 쓰면 한 창을 닫을 때
-   * 아직 덮고 있는 다른 창의 등록까지 함께 풀린다.
-   */
+  /** §4 가시성 LOD — 캔버스를 실제로 덮을 때만 덮개로 등록한다(떠 있는 창 ❌). 키는 창마다 — 같은 키면 한 창을 닫을 때 다른 창의 등록까지 풀린다. */
   const coverKey = `app-window:${win.id}`;
   useEffect(() => {
     setCanvasCover(coverKey, shown && fw.fullScreen);
     return () => setCanvasCover(coverKey, false);
   }, [coverKey, shown, fw.fullScreen]);
 
-  /**
-   * 앱 화면에 넘길 값 — **OS 창과 같은 한 벌**(S-6). 원시값에서만 다시 만든다.
-   *
-   * 매 렌더 새 객체를 넘기면 셸 안에서 `params` 를 의존성으로 잡은 효과가 통째로 다시 돈다
-   * (문서를 다시 읽고, 보던 자리를 잃는다).
-   */
+  /** OS 창과 같은 한 벌(S-6). 원시값에서만 다시 만든다 — 새 객체면 셸의 `params` 효과가 다시 돌아 문서를 다시 읽고 보던 자리를 잃는다. */
   const params = useMemo(
     () => (app ? { ...appShellParams(app, { projectId: win.projectId, ref: win.ref, file: win.file, draftKey: win.draftKey, bubbleId: win.bubbleId }), appWindowId: win.id, appWindowAppId: win.appId } : {}),
     [app, win.projectId, win.ref, win.file, win.draftKey, win.id, win.bubbleId],
   );
 
   /**
-   * (S-10) ⑩ 앱 화면 — **창을 끄는 동안 다시 그리지 않는다**(§5.5 #17-6 (H-6) ② 와 같은 까닭).
-   *
-   * 창 자리는 끄는 동안 이동마다 상태로 바뀌어 이 창이 그때마다 다시 그려진다. 그 안의 앱 화면(편집기·
-   * 타임라인)까지 매번 다시 그리면 창이 클수록 프레임이 밀린다 — IDE 창이 걷어낸 그 버벅임이다. 같은
-   * 문서를 가리키는 동안은 한 번 만든 요소를 그대로 돌려줘 React 가 그 아래를 건너뛰게 한다(앱 화면은
-   * 자기 상태·구독으로는 여전히 다시 그려진다).
+   * (S-10) ⑩ 끄는 동안 앱 화면을 다시 그리지 않는다 — 창이 이동마다 다시 그려지는데 편집기까지 그리면 프레임이 밀린다(§5.5 #17-6 (H-6) ②).
+   * 같은 문서인 동안은 같은 요소를 돌려줘 React 가 건너뛰게 한다(자기 상태·구독으로는 여전히 그려진다).
    */
   const shellView = useMemo(
     () => <AppShellHost hash={{ appId: win.appId, mode: 'main', params }} fill />,
@@ -183,10 +156,8 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
       data-app-window=""
       aria-hidden={!shown}
       {...(!shown ? { inert: '' } : {})}
-      // (S-10) ⑨ 흐려지는 것은 **숨을 때만**(120ms) — 선이 꺼지면 손 아래에 곧바로 다시 선다(IDE 창과 같은
-      //   박자). 전환을 늘 걸어 두면 돌아올 때도 흐릿하게 떠올라 그동안 잔상처럼 보인다.
-      // §5.13 (V) 37-1 — 창 틀도 테마를 따른다(그래파이트 바탕 + 실버 1px 테 — 테마 토큰). 고정 rgba 였을 때는 라이트
-      //   테마에서 머리줄 글자만 뒤집혀 어두운 유리 위에서 사라졌다.
+      // (S-10) ⑨ 흐림 전환은 숨을 때만(120ms) — 늘 걸면 돌아올 때 흐릿하게 떠 잔상이 진다.
+      // §5.13 (V) 37-1 — 창 틀도 테마 토큰을 따른다(고정 rgba 면 라이트 테마에서 머리줄 글자가 사라진다).
       className={`fixed flex flex-col overflow-hidden border border-white/10 bg-vb-window shadow-2xl shadow-black/70${lockFullScreen ? '' : ' rounded-xl'}${ghost ? ' transition-opacity duration-120 ease-out' : ''}`}
       style={{
         ...fw.style,
@@ -303,10 +274,8 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
         </div>
       )}
     </div>
-    {/* (S-10) **선으로 그린 가상 창**(앱 안 폴백) — 앱 밖까지 이어지는 정본은 main 의 클릭통과 창
-        (`ghostFrame.ts`)이고, 이것은 그 창이 아직 안 섰거나 못 띄우는 환경에서 그린다(앱 경계에서
-        잘리지만 선이 아예 없는 것보다 낫다). 그림은 main 의 선·IDE 창의 앱 안 선과 **같다** — 이름 띠
-        34px + 안내 한 줄, 같은 색 — 그래서 main 의 선으로 넘어가는 순간이 보이지 않는다. */}
+    {/* (S-10) 앱 안 폴백 가상 창 — 정본은 main 의 클릭통과 창(`ghostFrame.ts`)이고 이것은 그 창이 없을 때만 그린다.
+       그림(이름 띠 34px + 안내 한 줄, 같은 색)이 main 의 선과 같아야 넘어가는 순간이 안 보인다. */}
     {shown && ghost?.kind === 'inapp' && (
       <div
         data-app-window-ghost=""
@@ -341,13 +310,7 @@ export const AppWindow = memo(function AppWindow({ win, visible = true }: { win:
   );
 });
 
-/**
- * 떠 있는 앱 창들의 **유일한 마운트 지점**.
- *
- * 여는 문이 넷(버블 더블클릭·우클릭 메뉴·옵션 패널·파일 클릭)이라 창을 여는 쪽마다 그리면 같은
- * 창이 두 벌 뜬다 — 열림 여부는 store 가 들고 창은 여기서만 그린다(`GuideWindowHost` 선례).
- * 캔버스가 있는 셸(App · DetachedShell)에 각각 마운트한다.
- */
+/** 떠 있는 앱 창의 유일한 마운트 지점 — 여는 문이 넷이라 각자 그리면 두 벌 뜬다(열림 여부는 store). 캔버스 셸(App · DetachedShell)마다 마운트한다. */
 export function AppWindowHost(): React.JSX.Element | null {
   useAppWindowRedock();
   const windows = useAppWindowsStore((s) => s.windows);

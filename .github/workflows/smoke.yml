@@ -1,25 +1,8 @@
-# 발행된 **릴리스 산출물이 그 OS 에서 실제로 실행되는가**를 재는 워크플로.
-#
-# ⚠️ ci.yml 과 재는 것이 다르다. ci.yml 은 "소스가 이 OS 에서 성립하는가"(typecheck + test)만 본다.
-#    그게 초록이어도 사용자에게는 안 되는 앱일 수 있다 — dmg 가 Gatekeeper 에 막히거나, 네이티브
-#    모듈이 아키텍처와 어긋나 창이 뜨기도 전에 죽으면 소스는 아무 잘못이 없는데 앱은 실행 불가다.
-#    그 구간은 **빌드가 아니라 실행으로만** 드러난다.
-#
-#    실제로 겪은 일이다(멀티플랫폼 정본 §2.4): 한 러너에서 두 아키텍처를 함께 뽑은 x64 dmg 는
-#    `koffi` 가 제 바이너리를 못 찾아 main 프로세스가 뜨자마자 죽었다 — **빌드는 초록, 앱은 실행 불가.**
-#    그런 것을 잡으라고 있는 워크플로다.
-#
-# **릴리스가 끝나면 자동으로 한 번 돈다**(workflow_run) + 아무 때나 수동으로도 돈다(workflow_dispatch).
-# 처음에는 수동 전용이었는데, 그러면 결국 아무도 누르지 않는다 — 실제로 v0.1.13·v0.1.14 가 발행된 뒤
-# 한참 지나서야 처음 돌렸고, 그때 mac Gatekeeper 차단과 linux FUSE 차단이 **둘 다 이미 배포된 상태**로
-# 발견됐다. 발행과 검증 사이에 사람의 기억이 끼면 그 틈으로 결함이 사용자에게 먼저 도착한다.
-#
-# ⚠️ `workflow_run` 을 쓰는 이유: release.yml 안에서 `gh workflow run` 으로 부르는 방법은 **동작하지
-#    않는다** — GITHUB_TOKEN 이 일으킨 이벤트는 새 워크플로를 띄우지 않는다(무한 재귀 방지 규칙).
-#    `workflow_run` 은 그 제약을 받지 않는 정규 경로다.
-#
-# 판정 신호는 "25초 뒤에도 살아 있는가" 하나다. 위의 즉사류 결함은 전부 기동 직후에 드러나므로
-# 이 한 줄로 충분하고, 죽었으면 stdout/stderr 를 그대로 뱉어 원인을 남긴다.
+# 발행된 릴리스 산출물이 그 OS 에서 실제로 실행되는가를 잰다. ci.yml(typecheck + test)이 초록이어도 dmg 가 Gatekeeper 에
+# 막히거나 네이티브 모듈이 아키텍처와 어긋나(x64 dmg 의 `koffi`, 멀티플랫폼 정본 §2.4) 뜨자마자 죽을 수 있다 — 실행으로만 드러난다.
+# 릴리스가 끝나면 자동으로(workflow_run), 수동으로도 돈다. 수동 전용으로 되돌리지 마라 — 결함이 배포된 뒤에야 발견된다.
+# ⚠️ release.yml 안에서 `gh workflow run` 으로 부르지 마라 — GITHUB_TOKEN 이 일으킨 이벤트는 새 워크플로를 띄우지 않는다.
+# 판정 신호는 "25초 뒤에도 살아 있는가" — 즉사류 결함은 기동 직후에 드러난다. 죽었으면 stdout/stderr 를 남긴다.
 
 name: Smoke (installed app)
 
@@ -35,33 +18,28 @@ on:
         type: boolean
         required: false
         default: false
-  # 릴리스 빌드가 **끝난 뒤**에 돈다. `release: [published]` 는 쓸 수 없다 — 4개 잡 중 처음 끝난
-  # 하나가 릴리스를 만드는 순간 발화하므로, 나머지 셋의 자산이 아직 안 올라온 상태를 재게 된다.
+  # 릴리스 빌드가 끝난 뒤에 돈다. `release: [published]` 는 안 된다 — 첫 잡이 릴리스를 만드는 순간 발화해 나머지 자산이 아직 없다.
   workflow_run:
     workflows: ['Release']
     types: [completed]
 
-# ⚠️ `write` 다 — 이 워크플로가 **공개 발행의 유일한 스위치**이기 때문이다(아래 `publish` 잡).
-# 자산은 draft 로 올라오고, 여기서 실기 검증을 통과해야 공개로 바뀐다.
+# `write` — 이 워크플로가 공개 발행의 유일한 스위치다(아래 `publish` 잡). draft 는 여기서 실기 검증을 통과해야 공개된다.
 permissions:
   contents: write
-  # 릴리스 런이 남긴 설치본 아티팩트를 가져오려면 필요하다(`actions/download-artifact` 의
-  # 교차 워크플로 조회). 이게 없으면 아티팩트 경로가 조용히 실패해 매번 릴리스 자산
-  # 폴백으로 떨어지고, 그 폴백은 공개 다운로드 수를 다시 오염시킨다.
+  # 릴리스 런의 설치본 아티팩트 교차 조회에 필요하다 — 없으면 조용히 릴리스 자산 폴백으로 떨어져 공개 다운로드 수가 오염된다.
   actions: read
 
 jobs:
   smoke:
     strategy:
-      # 한 OS 가 넘어져도 나머지를 봐야 한다 — "mac 만 죽나, 넷 다 죽나"가 원인 분류의 첫 갈림길이다.
+      # 한 OS 가 넘어져도 나머지를 본다 — "mac 만 죽나, 넷 다 죽나"가 원인 분류의 첫 갈림길이다.
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             label: linux-x64 (AppImage)
             artifact: installer-linux-x64
-          # mac 은 아키텍처마다 그 아키텍처의 러너에서 **실행까지** 해 봐야 의미가 있다.
-          # arm64 러너에서 x64 dmg 를 돌리면 Rosetta 가 덮어 주어 Intel 실기의 진실이 가려진다.
+          # mac 은 아키텍처마다 그 러너에서 실행한다 — arm64 러너에서 x64 dmg 를 돌리면 Rosetta 가 Intel 실기 결함을 가린다.
           - os: macos-latest
             label: mac-arm64 (dmg)
             artifact: installer-mac-arm64
@@ -76,35 +54,27 @@ jobs:
     timeout-minutes: 20
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # 러너의 ~/.claude/settings.json 을 건드리지 않는다(README 의 opt-out). 우리가 재려는 것은
-      # "앱이 뜨고 살아 있는가"이지 훅 설치가 아니다 — 부작용을 줄여 실패 원인을 좁힌다.
+      # 러너의 ~/.claude/settings.json 을 건드리지 않는다(README 의 opt-out) — 재는 것은 앱 기동이지 훅 설치가 아니다.
       VIBISUAL_SKIP_HOOK_INSTALL: '1'
 
     steps:
-      # ── 검증할 태그 확정 ────────────────────────────────────────────────
       - name: Resolve tag
         shell: bash
         run: |
           set -euo pipefail
           TAG="${{ inputs.tag }}"
-          # 릴리스가 끝나서 자동으로 불려 온 경우, 그 런이 빌드한 **바로 그 태그**를 쓴다.
-          # 태그 push 로 돈 워크플로의 `head_branch` 에는 태그 이름이 들어 있다.
-          # (release.yml 을 손으로 dispatch 한 경우엔 브랜치 이름이 오므로 v 로 시작하는지 본다.)
+          # 자동 회차면 그 릴리스 런의 태그(태그 push 런의 `head_branch`)를 쓴다. 손으로 dispatch 한 런은 브랜치 이름이라 v 로 시작하는지 본다.
           if [ -z "$TAG" ]; then TAG="${{ github.event.workflow_run.head_branch }}"; fi
           case "$TAG" in v*) ;; *) TAG="" ;; esac
           if [ -z "$TAG" ]; then
-            # ⚠️ `gh release view` 를 쓰지 마라 — 그것은 **draft 를 건너뛴다.** 우리가 재려는 것은
-            #    방금 올라온 draft 이므로 그걸로 떨어지면 한 판올림 옛것을 검증하고 통과시킨다.
-            #    `gh release list` 는 권한이 있으면 draft 도 함께 준다.
+            # ⚠️ `gh release view` 를 쓰지 마라 — draft 를 건너뛰어 한 판 옛것을 검증한다. `gh release list` 는 draft 도 준다.
             TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName -q '.[0].tagName')
             echo "태그를 못 받아 최신 릴리스(draft 포함)로 떨어졌다."
           fi
           echo "검증 대상 태그: $TAG"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
 
-          # 설치본을 **아티팩트로** 받으려면 그것을 지은 릴리스 런의 id 가 필요하다.
-          # 릴리스가 띄운 회차면 그대로 들어 있고, 손으로 돌린 경우엔 그 태그로 돈
-          # Release 런을 찾는다(태그 push 로 돈 런은 `--branch <태그>` 로 잡힌다).
+          # 아티팩트를 받으려면 그것을 지은 릴리스 런 id 가 필요하다 — 손으로 돌린 회차면 그 태그로 돈 Release 런을 `--branch <태그>` 로 찾는다.
           RUN_ID="${{ github.event.workflow_run.id }}"
           if [ -z "$RUN_ID" ]; then
             RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml \
@@ -120,14 +90,8 @@ jobs:
         with:
           node-version: 20
 
-      # ── 설치본 확보 ────────────────────────────────────────────────────
-      # ⚠️ **릴리스 자산(`gh release download`)을 기본 경로로 되돌리지 마라.**
-      #    그 다운로드는 GitHub 의 공개 다운로드 수에 그대로 잡히고, 그 숫자는
-      #    `vibisual-site` 의 stats.json 을 거쳐 사이트에 "설치 수"로 노출된다.
-      #    실측(2026-09-07): 설치본 다운로드 134회 중 릴리스 없는 날의 증가는 0 —
-      #    사실상 전부 이 워크플로가 만든 것이었다. 검증할 사본은 릴리스 잡이
-      #    아티팩트로 올려 두므로(release.yml `Upload installers for smoke`),
-      #    같은 파일을 카운터를 건드리지 않고 받을 수 있다.
+      # 설치본 확보 — ⚠️ 릴리스 자산(`gh release download`)을 기본 경로로 되돌리지 마라. 그 다운로드는 공개 다운로드 수
+      # (사이트의 "설치 수")에 잡힌다. 같은 파일을 release.yml `Upload installers for smoke` 아티팩트로 받는다.
       - name: Fetch installers (artifact)
         id: installers
         continue-on-error: true
@@ -139,8 +103,7 @@ jobs:
           repository: ${{ github.repository }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 아티팩트가 만료됐거나(14일) 릴리스 런을 못 찾은 경우의 최후 수단.
-      # 검증을 멈추는 것보다는 낫지만 카운터를 올리므로 경고를 남긴다.
+      # 아티팩트 만료(14일)·릴리스 런 미발견 때의 최후 수단 — 카운터를 올리므로 경고를 남긴다.
       - name: Fetch installers (fallback — 릴리스 자산)
         if: steps.installers.outcome != 'success'
         shell: bash
@@ -155,8 +118,7 @@ jobs:
               gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.rpm' --dir artifact
               ;;
             macOS)
-              # 파일명 규약: arm64 는 `-arm64.dmg`, Intel 은 접미사 없는 `.dmg`.
-              # 아키텍처가 어긋난 dmg 를 집으면 그것이야말로 이 워크플로가 잡으려는 즉사 사고다.
+              # 파일명 규약: arm64 는 `-arm64.dmg`, Intel 은 접미사 없는 `.dmg` — 어긋난 dmg 를 집으면 안 된다.
               if [ "$(uname -m)" = "arm64" ]; then
                 gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*-arm64.dmg' --dir artifact
                 gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*-arm64-mac.zip' --dir artifact
@@ -176,7 +138,7 @@ jobs:
         shell: bash
         run: ls -la artifact
 
-      # ── Linux ──────────────────────────────────────────────────────────
+      # ── Linux
       # GitHub 러너에 이미 깔린 라이브러리가 Depends 누락을 가리지 못하게 최소 이미지에서도 설치한다.
       # 검증기는 설치된 Electron의 Node 모드로 실행하므로 별도 Node/GUI 패키지가 의존성을 채우지 않는다.
       - name: Linux — 깨끗한 Ubuntu DEB 의존성과 네이티브 모듈
@@ -195,9 +157,7 @@ jobs:
               echo "RESULT-DEB-DEPS: clean Ubuntu package dependencies and native modules passed"
             '
 
-      # ⓪ **권장 경로부터 잰다** — deb 를 설치해서 실행. 여기가 통하면 사용자에게
-      #    "libfuse2 를 까세요" 같은 말을 할 필요가 아예 없어진다. 안내문을 쓰는 것보다
-      #    포장을 바꾸는 편이 낫다는 판단(2026-08-28)이 실제로 성립하는지를 재는 자리다.
+      # ⓪ 권장 경로 — deb 를 설치해서 그냥 실행한다. 통하면 "libfuse2 를 까세요" 같은 안내가 필요 없다.
       - name: Linux — 실사용자 재현 (deb 설치 → 그냥 실행)
         if: runner.os == 'Linux'
         shell: bash
@@ -206,7 +166,7 @@ jobs:
           mkdir -p debpkg
           cp artifact/*.deb debpkg/
           ls -la debpkg
-          # 사용자가 하는 것과 같다: 받은 파일을 apt 에 넘기면 **의존성은 apt 가 끌어온다.**
+          # 사용자와 같다 — 받은 파일을 apt 에 넘기면 의존성은 apt 가 끌어온다.
           sudo apt-get update -qq
           if ! sudo apt-get install -y ./debpkg/*.deb; then
             echo "::error::deb 설치 실패 — depends 목록이 이 배포판과 안 맞는다(t64 전환 등)"
@@ -233,9 +193,8 @@ jobs:
             tail -80 deb-run.log || true
             exit 1
           fi
-          # 다음 스텝이 단일 인스턴스 락에 걸리지 않도록 트리째 회수한다.
-          # 설치 경로로 좁혀 죽인다 — 이름만으로 `pkill -f vibisual` 하면 러너의 작업 디렉터리가
-          # 저장소 이름과 같아서, 그 경로를 cmdline 에 가진 남의 프로세스까지 잡아 잡 자체가 죽는다.
+          # 다음 스텝이 단일 인스턴스 락에 걸리지 않게 트리째 회수한다. `pkill -f vibisual` 로 넓히지 마라 — 작업 디렉터리가
+          # 저장소 이름과 같아 그 경로를 cmdline 에 가진 러너 프로세스까지 잡혀 잡이 죽는다.
           kill "$DPID" 2>/dev/null || true
           pkill -f "/opt/Vibisual" 2>/dev/null || true
           pkill -f "chrome_crashpad_handler" 2>/dev/null || true
@@ -282,19 +241,17 @@ jobs:
               echo "RESULT-RPM: Fedora dnf install, native modules, backend and renderer passed"
             '
 
-      # ① 아래부터는 **AppImage** 경로 — deb/rpm 이 안 통하는 배포판(Arch·NixOS)용 대체재다.
+      # ① 아래부터는 AppImage 경로 — deb/rpm 이 안 통하는 배포판(Arch·NixOS)용 대체재다.
       - name: Linux — AppImage 확인
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          # 파일은 위 "설치본 확보"가 이미 `artifact/` 에 놓았다 — 여기서는 있는지만 본다.
+          # 파일은 "설치본 확보"가 이미 `artifact/` 에 놓았다.
           ls artifact/*.AppImage >/dev/null || { echo "::error::AppImage 가 없다"; ls -la artifact; exit 1; }
 
-      # ── ① 실사용자 경로: AppImage 를 **그대로** 실행 ────────────────────
-      # 사용자는 `--appimage-extract` 를 하지 않는다. 받아서 실행 권한 주고 더블클릭한다.
-      # 그 경로는 AppImage type2 런타임이 FUSE 를 요구하는데, 요즘 우분투에는 기본으로 없다.
-      # 아래 두 스텝이 재는 것은 앱이 아니라 **사용자가 그 앱을 열 수 있는가**다.
+      # ① 실사용자 경로: AppImage 를 그대로 실행(사용자는 `--appimage-extract` 를 안 한다). type2 런타임은 FUSE 를 요구하는데
+      # 요즘 우분투엔 기본으로 없다 — 아래 두 스텝은 앱이 아니라 사용자가 그 앱을 열 수 있는가를 잰다.
       - name: Linux — 실사용자 재현 (AppImage 를 그대로 실행)
         if: runner.os == 'Linux'
         shell: bash
@@ -318,25 +275,21 @@ jobs:
             tail -25 direct.log || true
             echo "APPIMAGE_NEEDS_FUSE=yes" >> "$GITHUB_ENV"
           fi
-          # ⚠️ `kill $DPID` 만으로는 부족하다 — 그건 `xvfb-run` 의 PID 이고 **앱은 그 자식**이라 살아남는다.
-          #    그리고 이 앱은 단일 인스턴스 락을 쓰므로, 남은 인스턴스가 있으면 **다음 스텝이 띄우는
-          #    두 번째 인스턴스는 즉시 종료된다** — run #4 의 "Linux — run" 실패가 정확히 이것이었다
-          #    (Complete job 로그에 @vibisualdesktop·AppImage 가 고아로 남아 있었다).
+          # ⚠️ `kill $DPID` 만으로는 부족하다 — `xvfb-run` 의 PID 라 자식인 앱이 살아남고, 단일 인스턴스 락 때문에
+          #    다음 스텝의 두 번째 인스턴스가 즉시 종료된다(CI 실측).
           kill "$DPID" 2>/dev/null || true
           pkill -f "@vibisualdesktop" 2>/dev/null || true
           pkill -f "[.]AppImage" 2>/dev/null || true
           pkill -f "chrome_crashpad_handler" 2>/dev/null || true
           sleep 3
-          # ⚠️ 여기서 실패해도 잡을 죽이지 않는다. 이건 앱 결함이 아니라 **포장 형식의 전제**이고,
-          #    우리가 알아야 하는 것은 "그래서 README 에 무엇을 적어야 하는가"다. 다음 스텝이 답한다.
+          # 여기서 실패해도 잡을 죽이지 않는다 — 앱 결함이 아니라 포장 형식의 전제다. README 안내가 통하는지는 다음 스텝이 잰다.
 
       - name: Linux — 안내가 통하는지 (libfuse2 설치 후 재시도)
         if: runner.os == 'Linux' && env.APPIMAGE_NEEDS_FUSE == 'yes'
         shell: bash
         run: |
           set -uo pipefail
-          # 우분투 24.04 는 패키지명이 libfuse2t64, 22.04 는 libfuse2 다. 둘 다 시도한다 —
-          # README 에 적을 안내가 **실제로 통하는지** 확인하는 자리이므로 여기서 실패하면 진짜 문제다.
+          # 패키지명은 우분투 24.04 libfuse2t64, 22.04 libfuse2 — 둘 다 시도한다. README 안내를 확인하는 자리라 실패하면 진짜 문제다.
           sudo apt-get install -y -qq libfuse2t64 >/dev/null 2>&1 || sudo apt-get install -y -qq libfuse2 >/dev/null 2>&1 || true
           dpkg -l | grep -iE "libfuse2" | awk '{print "   설치됨: " $2 " " $3}' | head -3
           cd artifact
@@ -359,17 +312,13 @@ jobs:
           sleep 3
           exit $RC
 
-      # ── ② 앱 자체 검증: 포장 변수를 없애고 실행 ─────────────────────────
+      # ② 앱 자체 검증: 포장 변수(FUSE)를 없애고 실행 — ① 과 갈리면 원인이 포장인지 앱인지 바로 안다.
       - name: Linux — run
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          # 위 ①이 포장(FUSE)까지 포함한 사용자 경로라면, 이 스텝은 그 변수를 걷어내고
-          # **앱 자신이 도는가**만 격리해서 잰다. 둘이 갈리면 원인이 어느 쪽인지 바로 안다.
-          # (xvfb 는 ① 에서 설치했다.)
-          # 앞 스텝의 인스턴스가 남아 있으면 이 스텝은 단일 인스턴스 락에 걸려 **앱 결함이 아닌
-          # 이유로** 즉사한다. 들어오면서 한 번 더 쓸어낸다(앞 스텝이 실패로 끝났을 수도 있다).
+          # xvfb 는 ① 에서 설치했다. 앞 스텝 인스턴스가 남으면 단일 인스턴스 락으로 즉사하므로 들어오며 한 번 더 쓸어낸다.
           pkill -f "@vibisualdesktop" 2>/dev/null || true
           pkill -f "[.]AppImage" 2>/dev/null || true
           pkill -f "chrome_crashpad_handler" 2>/dev/null || true
@@ -377,13 +326,8 @@ jobs:
           cd artifact
           chmod +x ./*.AppImage
           ./*.AppImage --appimage-extract >/dev/null
-          # ⚠️ AppRun 은 자기 위치를 **환경변수 APPDIR 로 받는다.** AppImage 를 그대로 실행하면
-          #    런타임이 그것을 채워 주지만, --appimage-extract 로 풀어서 직접 부르면 비어 있어
-          #    `/<실행파일>` 이라는 루트 경로를 찾다 죽는다 — 1차 실측(run #1)에서 정확히
-          #    `./squashfs-root/AppRun: line 45: /@vibisualdesktop: No such file or directory` 였다.
-          #    앱 결함이 아니라 실행 방법의 결함이므로 APPDIR 를 채워 준다.
-          #    (실행 파일명이 `@vibisualdesktop` 인 것은 electron-builder 가 `executableName`
-          #     미지정 시 package.json 의 `@vibisual/desktop` 에서 파생하기 때문이다.)
+          # ⚠️ AppRun 은 자기 위치를 APPDIR 로 받는다 — 풀어서 직접 부르면 비어 있어 `/<실행파일>` 루트 경로를 찾다 죽는다
+          #    (`AppRun: line 45: /@vibisualdesktop: No such file or directory`). 그래서 채워 준다.
           export APPDIR="$PWD/squashfs-root"
           SCRIPT="$GITHUB_WORKSPACE/.github/scripts/installed-smoke.cjs"
           PROFILE="$RUNNER_TEMP/vibisual-smoke-appimage"
@@ -406,15 +350,13 @@ jobs:
             exit 1
           fi
 
-      # ── macOS ──────────────────────────────────────────────────────────
+      # ── macOS
       - name: macOS — dmg 확인 (아키텍처에 맞는 것만)
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
-          # 파일은 위 "설치본 확보"가 이미 `artifact/` 에 놓았다. 아키텍처 규약은 러너별로
-          # 아티팩트가 갈려 있어(installer-mac-arm64 / installer-mac-x64) 저절로 지켜지지만,
-          # 어긋난 dmg 를 집는 것이야말로 이 워크플로가 잡으려는 즉사 사고이므로 여기서 한 번 더 본다.
+          # 아티팩트가 러너별로 갈려 있어 아키텍처는 저절로 맞지만, 어긋난 dmg 는 즉사 사고라 한 번 더 본다.
           if [ "$(uname -m)" = "arm64" ]; then
             ls artifact/*-arm64.dmg >/dev/null || { echo "::error::arm64 dmg 가 없다"; ls -la artifact; exit 1; }
           else
@@ -435,8 +377,7 @@ jobs:
           echo "== codesign =="
           codesign -dv --verbose=4 "$APP" 2>&1 | head -25 || true
           echo "== spctl (Gatekeeper 평가) =="
-          # 미서명이면 여기서 rejected 가 난다. 그건 이미 아는 사실이라 잡을 실패로 삼지 않고
-          # **문구를 그대로 남긴다** — 사용자가 첫 실행에서 무엇을 보게 되는지가 이 줄에 있다.
+          # 미서명이면 rejected 가 난다 — 실패로 삼지 않고 문구만 남긴다(사용자가 첫 실행에서 보는 것).
           spctl -a -t exec -vv "$APP" 2>&1 | head -10 || true
 
       - name: macOS — launch
@@ -493,14 +434,9 @@ jobs:
           echo "RESULT-ZIP: $EXPECTED update bundle passed"
           kill "$pid" 2>/dev/null || true
 
-      # ── 실사용자 재현: 받아서 여는 것까지 한 스텝에서 ──────────────────
-      # ⚠️ 이 검증은 **반드시 한 스텝 안에서** 끝내야 한다. 스텝을 갈랐더니 run #5 에서 사본이 통째로
-      #    사라졌다(`xattr: No such file`) — `spctl` 이 "notarization ... has been revoked" 로 판정한
-      #    번들을 `open` 하면 macOS 가 그것을 격리·이동시킬 수 있기 때문이다. 그래서 부착·개봉·우회·
-      #    재개봉을 한 셸에서 이어서 하고, **매 단계 앞에서 사본을 다시 만들어** 전제를 스스로 세운다.
-      #
-      # 그리고 위 launch 스텝과 재는 것이 다르다: 저기는 터미널에서 바이너리를 직접 부르므로
-      # Gatekeeper 를 타지 않는다. 여기는 `open`(LaunchServices) + quarantine 이라 **사용자가 겪는 것**이다.
+      # 실사용자 재현 — `open`(LaunchServices) + quarantine 이라 Gatekeeper 를 탄다(launch 스텝은 직접 실행이라 안 탄다).
+      # ⚠️ 반드시 한 스텝 안에서 — revoked 판정 번들을 `open` 하면 macOS 가 격리·이동할 수 있어 스텝을 가르면 사본이 사라진다
+      #    (`xattr: No such file`). 매 단계 앞에서 사본을 다시 만든다.
       - name: macOS — 실사용자 재현 (quarantine → open → xattr -cr → 재시도)
         if: runner.os == 'macOS'
         shell: bash
@@ -530,7 +466,7 @@ jobs:
             sleep 2
           }
 
-          # ── ① 사용자가 브라우저로 받아 Finder 로 여는 상황 ───────────────
+          # ① 브라우저로 받아 Finder 로 여는 상황
           make_copy
           add_quarantine
           echo "== 부착된 quarantine =="
@@ -554,7 +490,7 @@ jobs:
           fi
           echo "MAC_QUARANTINE_BLOCKS=$BLOCKS" >> "$GITHUB_ENV"
 
-          # ── ② 우리가 안내할 우회법이 실제로 통하는가 ─────────────────────
+          # ② 안내할 우회법(xattr -cr)이 실제로 통하는가
           if [ "$BLOCKS" = "no" ]; then
             echo "RESULT-2: ①에서 이미 열렸으므로 우회 안내 자체가 불필요하다."
             exit 0
@@ -575,8 +511,7 @@ jobs:
           echo "::error::README 에 'xattr -cr' 를 우회법으로 적으면 안 된다 — 통하지 않는다"
           exit 1
 
-      # ── Windows (기준선) ───────────────────────────────────────────────
-      # 넷 중 셋이 죽고 win 만 산다면 산출물 문제, 넷 다 죽으면 앱 자체 문제 — 해석의 기준점이다.
+      # ── Windows(기준선) — 셋이 죽고 win 만 살면 산출물 문제, 넷 다 죽으면 앱 자체 문제.
       - name: Windows — install, run
         if: runner.os == 'Windows'
         shell: pwsh
@@ -587,22 +522,17 @@ jobs:
           if ($found.Count -eq 0) { Get-ChildItem artifact; throw 'setup.exe 가 없다' }
           $setup = $found[0].FullName
           # oneClick + perMachine:false → 사용자 폴더에 무인 설치(관리자 권한 불필요).
-          # ⚠️ `-Wait` 을 믿고 곧바로 조회하면 안 된다. NSIS 는 자신을 임시 폴더로 복제해 이어서
-          #    실행하는 일이 있어 **원본 프로세스가 먼저 반환**되고, 파일 배치는 그 뒤에 끝난다.
-          #    run #1·#2 의 win 실패가 이 자리였다(고정 20초 대기로도 모자랐다) — 그래서 시간이
-          #    아니라 **결과가 나타날 때까지** 기다린다. 종료 코드도 남긴다(0 이 아니면 설치 자체가
-          #    거절된 것이라 그 뒤 탐색은 의미가 없다).
-          # 러너 하드웨어를 남긴다 — 설치 프로그램이 0xC0000005 로 죽는 회차가 러너에 따라 갈리는지
-          # 대조하려는 것이다(2026-09-13 v0.1.24: **같은 설치본**이 한 러너에선 설치·25초 생존, 동시에
-          # 다른 러너에선 2초 만에 exit=-1073741819. 스모크 23회 중 4회가 이 코드였다).
+          # ⚠️ `-Wait` 을 믿고 곧바로 조회하지 마라 — NSIS 가 임시 폴더 사본으로 이어 실행해 원본이 먼저 반환된다(고정 20초 대기도
+          #    모자랐다). 시간이 아니라 결과가 나타날 때까지 기다린다. 종료 코드가 0 이 아니면 설치 거절이라 탐색이 무의미하다.
+          # 러너 하드웨어를 남긴다 — 같은 설치본이 러너에 따라 2초 만에 0xC0000005(exit=-1073741819)로 죽었다(2026-09-13 실측, 스모크 23회 중 4회).
           $cpu = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name
           Write-Host "runner cpu: $cpu · logical=$([Environment]::ProcessorCount) · os=$([Environment]::OSVersion.VersionString)"
           $installStart = Get-Date
           $p = Start-Process -FilePath $setup -ArgumentList '/S' -Wait -PassThru
           Write-Host "installer exit code: $($p.ExitCode)"
           if ($p.ExitCode -ne 0) {
-            # 판정은 바꾸지 않는다(아래에서 그대로 실패한다) — **어느 모듈이 죽었는지**만 남긴다.
-            # Application Error(1000)에 죽은 모듈·예외 코드·오프셋이, WER(1001)에 버킷이 적힌다.
+            # 판정은 그대로(아래에서 실패한다) — 어느 모듈이 죽었는지만 남긴다. Application Error(1000)에 모듈·예외 코드·오프셋,
+            # WER(1001)에 버킷이 적힌다.
             Write-Host "== 설치 프로그램 충돌 기록(Application 로그 1000·1001) =="
             Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000, 1001; StartTime = $installStart.AddSeconds(-5) } -ErrorAction SilentlyContinue |
               Select-Object -First 4 | ForEach-Object { Write-Host "---- [$($_.Id)] $($_.TimeCreated.ToString('HH:mm:ss'))"; Write-Host $_.Message }
@@ -699,23 +629,12 @@ jobs:
             ${{ runner.temp }}/vibisual-smoke-*/Crashpad/**/*.dmp
             ${{ runner.temp }}/vibisual-rpm-diagnostics/
 
-  # ── 발행(공개) — **여기가 유일한 공개 전환점이다** ──────────────────────────
-  #
-  # 자산은 draft 로 올라온다(`electron-builder.yml` 의 `releaseType: draft`). draft 인 동안에는
-  # 업데이터가 피드를 읽지 못하므로 **어떤 설치본에도 도달하지 않는다.** 위 4종 러너가 전부
-  # 통과하고 자산 11종이 다 있을 때만 이 잡이 draft 를 해제한다 — 공개는 검증의 결과다.
-  #
-  # 이 게이트가 없던 시절이 정확히 v0.1.19 다: 태그를 미는 순간 공개 발행이 끝났고 "설치가
-  # 되는가"는 그 **뒤에** 쟀다. Windows 인스톨러가 0xC0000005 로 죽은 것을 알았을 때 자산은
-  # 이미 공개였고, 설치본은 그것을 받아 실패하는 상태였다. 결함이 아니라 순서가 원인이었다.
+  # 발행(공개) — 유일한 공개 전환점. 자산은 draft(`electron-builder.yml` `releaseType: draft`)라 업데이터 피드에 안 잡힌다.
+  # 스모크 4종이 전부 통과하고 자산이 다 있을 때만 draft 를 푼다 — 먼저 공개하면 결함이 검증보다 먼저 설치본에 닿는다.
   publish:
     needs: smoke
-    # `success()` 는 매트릭스 4종이 **전부** 통과했을 때만 참이다(fail-fast:false 여도 그렇다 —
-    # 그 옵션은 "형제를 취소하지 않는다"일 뿐 결론을 바꾸지 않는다).
-    #
-    # 자동 경로는 **릴리스가 띄운 회차일 때만**이다. 옛 태그를 손으로 검증하다가 그 옛 릴리스가
-    # 실수로 공개되는 일이 없어야 한다. 스모크에 막혀 draft 로 남은 것을 고친 뒤 되살릴 때는
-    # `publish: true` 를 켜서 부른다(그게 그 손잡이의 존재 이유다).
+    # `success()` 는 매트릭스 4종이 전부 통과했을 때만 참이다(fail-fast:false 는 형제를 취소하지 않을 뿐이다).
+    # 자동 공개는 릴리스가 띄운 회차만 — 옛 태그를 손으로 검증하다 공개되면 안 된다. 막혔던 draft 는 `publish: true` 로 되살린다.
     if: >-
       success() &&
       ((github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
@@ -744,10 +663,8 @@ jobs:
           echo "발행 대상 태그: $TAG"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
 
-      # draft 의 태그 묶음은 **풀릴 수 있다** — draft 를 고치면서 `tag_name` 을 빼고 보내면 GitHub 이
-      # `untagged-<hash>` 로 되돌린다(2026-09-13 임시 draft 로 확인). v0.1.23 이 그 상태로 여기까지 와서,
-      # 설치 검증 4종이 전부 초록인데도 아래 검사가 "릴리스를 못 찾았다"로 멈췄고 공개가 30분 늦었다.
-      # 이 잡이 공개로 가는 유일한 문이므로, 앞에서 무엇이 태그를 풀었든 여기서는 찾아져야 한다.
+      # draft 의 태그 묶음은 풀릴 수 있다 — `tag_name` 없이 고쳐 보내면 `untagged-<hash>` 로 돌아간다(2026-09-13 확인).
+      # 공개로 가는 유일한 문이라 무엇이 풀었든 여기서 다시 묶는다(안 그러면 아래 검사가 릴리스를 못 찾는다).
       - name: draft 가 태그에 묶여 있는지 확인 (풀려 있으면 다시 묶는다)
         shell: bash
         run: |
@@ -769,11 +686,8 @@ jobs:
           [ "$AFTER" = "$TAG" ] || { echo "::error::release #$ID 를 $TAG 로 묶지 못했다 (tag_name=$AFTER)"; exit 1; }
           echo "다시 묶었다 — release #$ID (tag_name=$AFTER)"
 
-      # 실행이 되는 것과 **세 OS 에 다 도달하는 것**은 다른 문제다. 스모크는 4종 러너에서
-      # 앱이 뜨는지만 보므로, 자산 한 종이 통째로 빠진 것(v0.1.12 의 Intel dmg)은 못 잡는다.
-      # 공개 직전에 세는 이유가 그것이다 — 여기서 걸리면 릴리스는 draft 로 남는다.
-      # (몇 종인지는 적지 않는다 — 목록의 정본은 check-release-assets.mjs 하나다. 이름에 적어 둔 "11종"이
-      #  SHA256SUMS.txt 가 더해진 뒤에도 그대로 남아 있었다.)
+      # 스모크는 앱이 뜨는지만 봐 자산 한 종이 통째로 빠진 것은 못 잡는다 — 공개 직전에 센다(걸리면 draft 로 남는다).
+      # 몇 종인지는 여기 적지 않는다 — 목록의 정본은 check-release-assets.mjs 하나다.
       - name: 자산 검사 (한 종이라도 없으면 공개하지 않는다)
         shell: bash
         run: node .github/scripts/check-release-assets.mjs "$TAG"

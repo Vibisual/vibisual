@@ -2,12 +2,8 @@ import { languageSpec } from './codeLanguages.js';
 import type { CommentTokens } from './editorLineOps.js';
 
 /**
- * editorComments.ts — §5.5 #17-27 ⑲ 줄 주석·블록 주석에 쓸 **기호 표**(config).
- *
- * 기본은 언어 사양 표(`codeLanguages.ts`)의 첫 주석 기호다. 그런데 그 표는 **색칠용**이라 가까운 언어로
- * 묶어 둔 확장자가 있다 — lua 는 python 색으로 칠하지만 주석은 `#` 이 아니라 `--` 이고, 언리얼 `.ini` 는
- * `;` 이다. 색이 조금 틀리면 보기만 어색하지만 주석 기호가 틀리면 **코드가 깨진다**. 그래서 그런 확장자만
- * 여기 한 줄씩 적어 바로잡는다(로직 분기 ❌ — 새 확장자 = 이 표에 한 줄, §3.3).
+ * §5.5 #17-27 ⑲ 주석 기호 표. 기본은 `codeLanguages.ts` 의 첫 주석 기호지만 그 표는 색칠용이라 가까운 언어로 묶인 확장자가 있다
+ * (lua 는 `--`, 언리얼 `.ini` 는 `;`) — 기호가 틀리면 코드가 깨지므로 그런 확장자만 여기 한 줄씩(로직 분기 ❌, §3.3).
  */
 
 const EXTENSION_COMMENTS: Record<string, Partial<CommentTokens>> = {

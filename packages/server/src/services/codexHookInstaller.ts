@@ -7,21 +7,10 @@ import { codexHome } from './codexCli.js';
 import { logger } from '../logger.js';
 
 /**
- * §5.25 (I) — 코덱스 훅 인스톨러.
- *
- * 앱 밖에서 사용자가 돌린 코덱스 세션(터미널·에디터 확장·데스크톱 앱)을 캔버스에 올리는 유일한
- * 경로다. 코덱스 훅의 stdin 필드가 클로드와 **이름까지 같아서**(`session_id`·`cwd`·
- * `hook_event_name`·`tool_name`·`tool_input`…) 우리 `handler.mjs` 를 그대로 재사용한다 —
- * 새 수신기도, 새 전달 형식도 만들지 않는다.
- *
- * **기본 꺼짐이다.** 앱을 깔았다고 남의 전역 설정에 우리 훅이 말없이 들어가면 안 되므로,
- * 설치는 사용자가 켤 때만 REST 로 돈다(`ensureClaudeHooksInstalled` 가 부팅 시 도는 것과 다르다).
- * 켠 사람의 훅도 §3.6 「수명」대로 앱이 켜져 있는 동안만 둔다 — 끌 때 걷고 켤 때 켬 값대로 다시 깐다
- * (`hookLifetime.ts` · 켬 값은 AppState `codexHooks`).
- *
- * **우리 것만 건드린다.** 판정 근거는 명령 문자열에 든 우리 서명(handler 경로 + `--token`)이다.
- * 코덱스 훅 스키마에 없는 표식 필드를 넣으면 `--strict-config` 를 쓰는 사용자에게서 깨질 수 있어,
- * 클로드 인스톨러가 옛 블록을 걷어낼 때 쓰는 것과 같은 "서명으로 식별" 방식을 택했다.
+ * §5.25 (I) — 코덱스 훅 인스톨러. 앱 밖 코덱스 세션(터미널·에디터 확장·데스크톱 앱)을 캔버스에 올리는 유일한 경로다.
+ * 코덱스 훅 stdin 필드가 클로드와 이름까지 같아(`session_id`·`cwd`·`hook_event_name`·`tool_name`·`tool_input`…) `handler.mjs` 를 그대로 쓴다 — 새 수신기·전달 형식 ❌.
+ * **기본 꺼짐** — 남의 전역 설정에 말없이 들어가면 안 되므로 사용자가 켤 때만 REST 로 설치한다(부팅 때 도는 `ensureClaudeHooksInstalled` 와 다르다). 켠 훅도 §3.6 「수명」대로 앱이 켜져 있는 동안만 둔다 — 끌 때 걷고 켤 때 켬 값대로 다시 깐다(`hookLifetime.ts` · AppState `codexHooks`).
+ * **우리 것만 건드린다** — 명령 문자열의 서명(handler 경로 + `--token`)으로 식별한다. 스키마에 없는 표식 필드를 넣으면 `--strict-config` 사용자에게서 깨질 수 있다.
  */
 
 interface CodexHookCommand {
@@ -65,12 +54,7 @@ export function codexHomeExists(): boolean {
   }
 }
 
-/**
- * 우리 훅 명령 한 줄.
- *
- * 코덱스의 command 엔트리는 **한 문자열**이라(클로드처럼 `args` 배열이 아니다) 경로에 공백이
- * 있으면 반드시 감싸야 한다 — `C:\Program Files\...` 에서 명령이 두 동강 나는 사고를 막는다.
- */
+/** 우리 훅 명령 한 줄. 코덱스 command 엔트리는 **한 문자열**이라(클로드처럼 `args` 배열이 아니다) 공백 든 경로는 반드시 감싼다 — `C:\Program Files\...` 에서 명령이 두 동강 난다. */
 export function buildCodexHookCommand(
   nodeBin: string, handlerPath: string, port: number, token: string,
   platform: NodeJS.Platform = process.platform, nodeEnv?: AppNodeRuntime['nodeEnv'],
@@ -205,9 +189,7 @@ export function getCodexHookState(handlerPath: string | null): CodexHookState {
 
 /**
  * 훅 설치. 이미 있으면 우리 항목만 최신 명령으로 갈아 끼운다(포트가 바뀌면 옛 항목은 죽은 주소다).
- *
- * 코덱스는 처음 보는 훅을 **사용자가 신뢰하기 전까지 돌리지 않는다**(§5.25 (I)). 우리는 그 절차를
- * 우회하지 않으므로, 설치 성공은 "파일에 적었다"까지이고 화면이 그 다음 한 걸음을 안내한다.
+ * 코덱스는 처음 보는 훅을 사용자가 신뢰하기 전까지 돌리지 않는다(§5.25 (I)) — 그 절차를 우회하지 않으므로 성공은 "파일에 적었다"까지이고 다음 걸음은 화면이 안내한다.
  */
 export function installCodexHooks(handlerPath: string, port: number, token: string): CodexHookState {
   const file = codexHooksPath();

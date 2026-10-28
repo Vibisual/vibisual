@@ -1,16 +1,8 @@
 /**
  * §5.5 #17-18 · §5.25 (F) — 코덱스 세션에서 [즉시] 덧말이 도는 턴을 끊고 이어 나가는지 고정한다.
- *
- * 사고 — GPT(코덱스) 에이전트의 대기 말풍선에서 [즉시]를 눌러도 턴이 안 끊기고 덧말이 계속 대기했다.
- * [즉시]는 `interruptForImmediateCommand`(index.ts)의 사다리(붙든 봉인 확정 → soft interrupt → `stop()`)를
- * 탄다. 코덱스 턴에는 앞 두 칸이 없어 `stop()` 까지 내려가고, `stop()` 이 true 면 라우트는 다시 dispatch
- * 하지 않는다 — 덧말이 나가는 길은 **끊긴 턴이 마감되며 부르는 `onComplete`** 하나뿐이다.
- * 그런데 러너가 `close` 하나만 기다렸고, 코덱스가 띄운 프로그램이 우리 stdout 파이프를 물려받은 채 트리
- * 밖에 남아 `close` 가 오지 않았다. 턴은 "실행 중"에 머물렀고 덧말은 그 뒤에서 기다렸다.
- *
- * 실제 `SubAgentManager` 와 실제 `attachCodexTurn` 에 가짜 자식만 물려, `close` 가 끝내 안 오는 모양에서
- * 사다리 → 마감 → 덧말 dispatch → 같은 대화 이어가기까지 한 줄로 본다. 러너의 마감 규칙 하나하나는
- * `codexTurnLifecycle.test.ts` 가 따로 고정한다.
+ * [즉시]는 `interruptForImmediateCommand`(index.ts) 사다리(붙든 봉인 확정 → soft interrupt → `stop()`)를 타는데, 코덱스 턴은 `stop()` 까지 내려가고 성공이면 라우트가 다시 dispatch 하지 않는다 — 덧말은 끊긴 턴이 마감되며 부르는 `onComplete` 로만 나간다.
+ * 러너가 `close` 만 기다리면, 코덱스가 띄운 프로그램이 stdout 파이프를 물려받아 트리 밖에 남을 때 `close` 가 안 와 턴이 "실행 중"에 머물고 덧말이 기다린다.
+ * 실제 `SubAgentManager`·`attachCodexTurn` 에 가짜 자식만 물려 그 모양에서 사다리 → 마감 → 덧말 dispatch → 같은 대화 이어가기를 본다. 마감 규칙 하나하나는 `codexTurnLifecycle.test.ts` 가 고정한다.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';

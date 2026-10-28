@@ -1,12 +1,6 @@
 /**
- * §5.5 #17-20 ⑩⑫ v4.94 — 공통 디버그 층의 클라이언트 런타임 상태.
- *
- * `runSessions`(④ 실행 런처)와 같은 결의 **비영속 런타임 스토어**다 — 디버그 세션은 프로세스
- * 수명이라 체크포인트에 들어가지 않는다. 영속되는 것은 중단점뿐이고 그건 서버 스냅샷
- * (`graphStore.debugBreakpoints`)으로 흐른다.
- *
- * 여기서 **백엔드(CDP/DAP)를 구분하지 않는다.** 서버가 이미 한 모양으로 정규화해 보내므로
- * 화면은 `DebugSessionState` 하나만 알면 된다 — 런타임이 늘어도 이 파일은 안 바뀐다.
+ * §5.5 #17-20 ⑩⑫ — 공통 디버그 층의 클라 런타임 상태(비영속 — 세션은 프로세스 수명, 중단점은 서버 스냅샷으로).
+ * 백엔드(CDP/DAP)를 구분하지 않는다 — 서버가 `DebugSessionState` 한 모양으로 보낸다.
  */
 import { create } from 'zustand';
 
@@ -29,10 +23,7 @@ interface DebugSessionsState {
   sessions: Record<string, DebugSessionState>;
   /** 이 컴퓨터에서 쓸 수 있는 어댑터 목록(한 번 받아 두고 재사용). */
   adapters: DebugAdapterAvailabilityWire[];
-  /**
-   * ⑫ — 디버그 모드 토글을 에이전트별로 기억한다.
-   * 종전에는 `IDEDebugView` 의 `useState` 라 사이드바를 옮겼다 오면 꺼져 있었다.
-   */
+  /** ⑫ — 디버그 모드 토글을 에이전트별로 기억한다(뷰 지역 상태면 사이드바를 옮겼다 오면 꺼진다). */
   debugModeByAgent: Record<string, boolean>;
   /** sessionId → 지금 보고 있는 콜스택 프레임 id. */
   selectedFrame: Record<string, number>;
@@ -110,10 +101,7 @@ export function getDebugConsole(sessionId: string, maxLines = 8): string[] {
   return (consoles.get(sessionId) ?? []).slice(-maxLines);
 }
 
-// ─── 서버와의 대화(REST) ──────────────────────────────────────────────────
-//
-// 명령은 REST 로 보내고 **결과는 기다리지 않는다** — 상태는 `debug_event` 로 되돌아오는 것이
-// 진실이다(서버 SSOT). 여기서 낙관적으로 상태를 바꾸면 두 진실이 생긴다.
+// 명령은 REST 로 보내고 결과를 기다리지 않는다 — `debug_event` 가 진실이다(낙관 반영하면 진실이 둘이 된다).
 
 /** 그 실행(runId)에 붙어 있는 세션(없으면 null). */
 export function findSessionByRun(
@@ -268,10 +256,7 @@ export async function evaluateDebugExpression(
   }
 }
 
-/**
- * ⑫ — **실제로 비어 있는** 디버그 포트를 서버에서 받아 온다.
- * 종전에는 우리 실행 세션 안에서만 겹치는지 봐서, 밖에서 이미 그 포트를 쓰는 프로세스와 부딪혔다.
- */
+/** ⑫ — 실제로 비어 있는 포트를 서버에서 받는다(우리 세션끼리만 보면 바깥 프로세스와 부딪힌다). */
 export async function requestFreeDebugPort(base: number): Promise<number | null> {
   try {
     const res = await fetch(`/api/debug/free-port?base=${base}`);

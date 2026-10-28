@@ -1,12 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { buildWebSearchUrl, normalizeQuery, openWebSearch, WEB_SEARCH_QUERY_LIMIT } from './webSearchUrl.js';
 
-/**
- * §5.5 #17-3 (판올림 번호 발급 대기) — "웹에서 검색" 주소 조립 테스트.
- *
- * 우클릭 한 번으로 바깥 브라우저가 열리는 동작이라 화면으로 확인하기 번거롭다 — 무엇을 검색어로
- * 삼는지(공백 접기·상한·빈 선택)는 여기서 못 박는다.
- */
+/** §5.5 #17-3 — 웹 검색어 조립(공백 접기·상한·빈 선택)을 고정한다. */
 
 describe('normalizeQuery', () => {
   it('줄바꿈·연속 공백을 한 칸으로 접고 앞뒤를 다듬는다', () => {

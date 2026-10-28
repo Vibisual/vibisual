@@ -1,16 +1,6 @@
 /**
- * §4 (Fast 모드) — **설정 파일 한 장**이 지켜져야 하는 자리.
- *
- * Fast 모드는 CLI 플래그가 없다. 헤드리스 스폰은 CLI 가 Agent SDK 세션으로 분류해
- * `fast_mode_disabled_reason: 'sdk_opt_in_required'` 로 막아 버리고, 유일한 해제 창구가
- * `--settings` 가 만드는 `flagSettings` 층이다. 그런데 **`--settings` 는 두 번 주면 병합이 아니라
- * 뒤엣것이 앞엣것을 통째로 덮는다**(설치본 실측) — 그래서 자기 기억(`autoMemoryDirectory`)과
- * Fast 를 각각 한 장씩 내보내면 **먼저 붙은 쪽이 조용히 죽는다**. 화면·타입·저장은 전부 멀쩡한 채
- * 기능만 사라지는 종류의 사고라 어느 검사에도 안 걸린다.
- *
- * 그래서 여기서는 "값이 저장되는가"가 아니라 **"파일 한 장에 두 키가 같이 들어가는가"** 를 못 박는다.
- *
- * `os.homedir()` 을 임시 폴더로 돌려 사용자 홈(`~/.vibisual`)을 건드리지 않는다.
+ * §4 (Fast 모드) — 기억(`autoMemoryDirectory`)과 Fast 가 설정 파일 한 장에 같이 들어가는가. `--settings` 는 두 번 주면 뒤엣것이
+ * 통째로 덮어(설치본 실측) 나누면 먼저 붙은 쪽이 조용히 죽는다. `os.homedir()` 을 임시 폴더로 돌려 실제 홈을 건드리지 않는다.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';

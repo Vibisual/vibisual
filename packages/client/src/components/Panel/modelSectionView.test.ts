@@ -9,15 +9,7 @@ import {
   placeModelSectionCard,
 } from './modelSectionView.js';
 
-/**
- * §4 (상태바 모델 칸 ②③) — 설정창을 **모델 구역만** 연 카드.
- *
- * 고정하는 것 —
- *  (가) 카드는 상태바 칸 **위**에 붙고, 뷰포트 밖으로 밀려나지 않는다.
- *  (나) 머리의 "목록 확인 N분 전 · 출처"가 **실제로 실린 출처만** 말한다.
- *  (다) 바꾼 값이 언제부터 먹는지 갈래마다 맞는 말을 한다.
- *  (라) 이 카드는 새 설정창이 아니다 — 모델·강도 손잡이는 설정창 소스에 **한 벌뿐**이다.
- */
+/** §4 (상태바 모델 칸 ②③) — 모델 구역 카드 고정: 칸 위·뷰포트 안 · 실린 출처만 · 적용 시점 문구 · 손잡이는 설정창에 한 벌뿐. */
 
 const entry = (id: string, source: ModelRegistryEntry['source']): ModelRegistryEntry => ({
   id, family: id.split('-')[1] ?? 'opus', source,

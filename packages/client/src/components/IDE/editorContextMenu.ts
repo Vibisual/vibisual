@@ -3,15 +3,7 @@ import type { ContextMenuItem } from './IDEContextMenu.js';
 //   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
 import { shortcutLabel } from '../../utils/platform.js';
 
-/**
- * editorContextMenu.ts — §5.5 #17-27 ⑨ v4.97 편집창 우클릭 **메뉴 항목 목록**(순수 로직).
- *
- * 무엇이 보이고 무엇이 흐려지는지는 화면을 띄우지 않고도 답이 나와야 한다 — 고른 글자가 없으면
- * 복사가 흐려지고, 읽기 전용 파일이면 붙여넣기가 흐려지고, 저장할 것이 없으면 저장이 흐려진다.
- * 그래서 목록 만들기를 컴포넌트에서 떼어 내 여기에 두고 `editorContextMenu.test.ts` 로 못 박는다.
- *
- * i18n 은 호출부가 넘긴 `t` 로만 만든다(모듈 레벨 하드코딩 문자열 ❌ — 언어 전환이 안 따라온다).
- */
+/** §5.5 #17-27 ⑨ 편집창 우클릭 메뉴 목록(순수 — 무엇이 흐려지는지를 시험으로 고정). 글자는 호출부가 넘긴 `t` 로만(모듈 문자열이면 언어 전환이 안 따라온다). */
 
 /** `useTranslation()` 의 `t` 중 우리가 쓰는 모양만. */
 export type MenuText = (key: string, opts?: Record<string, unknown>) => string;
@@ -83,10 +75,7 @@ export interface GutterMenuHandlers {
 export interface TabMenuState {
   /** 닫을 다른 탭이 있는가 */
   hasOthers: boolean;
-  /**
-   * §5.5 #17-27 ⑱ — 그 탭이 **파일**인가(기본 참). 빈 탭은 경로가 없으므로 경로 복사·밖에서 열기 줄을
-   * 세우지 않는다 — 누르면 빈 글자를 복사하거나 아무것도 열지 않는 손잡이는 없는 손잡이보다 나쁘다.
-   */
+  /** §5.5 #17-27 ⑱ — 탭이 파일인가(기본 참). 빈 탭엔 경로 복사·밖에서 열기를 세우지 않는다 — 헛도는 손잡이는 없는 것보다 나쁘다. */
   isFile?: boolean;
 }
 
@@ -194,11 +183,7 @@ export function buildBodyMenuItems(
   ];
 }
 
-/**
- * (a′) 본문의 "줄 편집" 하위 메뉴 — §5.5 #17-27 ⑲ 의 줄 명령을 이름과 키로 보여 준다.
- * 라벨은 단축키 목록의 명령 이름과 **같은 키**를 쓴다(같은 말에 번역 키를 두 벌 두지 않는다).
- * 읽기 전용 파일이면 고치는 항목이 흐려지고, 주석 기호가 없는 파일 형식이면 주석 항목이 흐려진다 — 이유를 말한다.
- */
+/** (a′) "줄 편집" 하위 메뉴(§5.5 #17-27 ⑲). 라벨은 단축키 목록과 같은 키(번역 두 벌 ❌). 읽기 전용·주석 기호 없음이면 흐리고 이유를 단다. */
 function buildLineEditItems(state: BodyMenuState, h: BodyMenuHandlers, t: MenuText): ContextMenuItem[] {
   const readOnlyWhy = t('ide.editor.ctx.readOnlyFile');
   const noComment = t('ide.editor.ctx.noCommentSyntax');

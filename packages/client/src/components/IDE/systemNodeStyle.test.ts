@@ -1,9 +1,4 @@
-/**
- * §5.5 #17-13 ⑤-1 — SystemNode 표현 결정(이름표 → 계열 패턴 → 기본) 회귀 테스트.
- *
- * CLI 판올림마다 새 subtype 이 늘어나므로, 확인해야 하는 것은 "이름을 아는 것이 제대로 나오는가" 보다
- * **모르는 이름이 엉뚱한 모양으로 떨어지지 않는가** 다.
- */
+/** §5.5 #17-13 ⑤-1 — SystemNode 표현 결정. CLI 판마다 subtype 이 늘어 **모르는 이름이 엉뚱한 모양으로 떨어지지 않는지**를 본다. */
 import { describe, it, expect } from 'vitest';
 import { resolveSystemNodeStyle, humanizeSubtype } from './SystemNode.js';
 

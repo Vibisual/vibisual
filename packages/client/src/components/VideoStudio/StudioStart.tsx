@@ -11,12 +11,7 @@ import { StudioIcon, type StudioIconName } from './studioIcons.js';
 import { StudioSteps } from './StudioSteps.js';
 import type { DocSummary } from './videoApi.js';
 
-/**
- * §5.13 (V) 37-2 — **한 줄로 시작**. 빈 트랙 대신 "무엇을 만들까요?" 입력창, 그 아래 레시피 위성 한 줄, 판형·길이·엔진 칩, 소재를
- * 끌어 놓는 자리, 최근 영상. 보내면 셸이 문서를 만들고(없으면) 영상용 에이전트를 잇고 기획 바퀴를 보낸다.
- * 반응형 — 폰 폭 창에서는 바깥 여백을 줄이고, 입력창 아래 줄의 안내 글(끌어 놓기·레시피가 바라는 것)을 단추 아래 줄로 내린다
- * (한 줄에 두면 안내가 0 폭으로 사라졌다). 터치에서는 판형·길이·엔진 칩이 커진다.
- */
+/** §5.13 (V) 37-2 — 한 줄로 시작("무엇을 만들까요?"). 보내면 셸이 문서·영상용 에이전트·기획 바퀴를 만든다. 폰 폭에선 안내 글을 아랫줄로(한 줄이면 0 폭으로 사라진다). */
 export interface StartMaterial {
   readonly id: string;
   readonly name: string;

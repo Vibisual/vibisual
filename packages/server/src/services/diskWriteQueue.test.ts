@@ -15,14 +15,10 @@ import { ProjectGraph } from './projectGraph.js';
 import { writeCheckpoint, discoverProjectMetas, loadCheckpointByMeta } from './statePersistence.js';
 
 /**
- * §9 "디스크 쓰기는 워커 스레드로" — **워커 경로와 동기 경로가 같은 결과를 낸다**는 것을 못 박는다.
- *
- * 이 큐가 건드리는 것은 체크포인트의 마지막 커밋 지점이라, 조용히 어긋나면 증상이 "가끔 옛날
- * 내용으로 되돌아간다"로 나타난다 — 사람 눈으로 재현하기 가장 어려운 부류다. 그래서 규약을
- * 테스트로 고정한다:
- *  1. 워커가 꺼져 있으면 큐는 **받지 않는다**(호출자가 동기로 쓴다) — 정확성 경로가 아니다.
+ * §9 "디스크 쓰기는 워커 스레드로" — 워커 경로와 동기 경로가 같은 결과를 낸다는 시험. 어긋나면 "가끔 옛날 내용으로 되돌아간다"로 나타나 재현이 가장 어렵다.
+ *  1. 워커가 꺼져 있으면 큐는 받지 않는다(호출자가 동기로 쓴다).
  *  2. 워커가 켜져 있으면 넘긴 내용이 그대로 디스크에 앉는다.
- *  3. 아직 안 앉은 것은 `flushPendingDiskWritesSync()` 가 **동기로** 마무리한다(종료 경로).
+ *  3. 아직 안 앉은 것은 `flushPendingDiskWritesSync()` 가 동기로 마무리한다(종료 경로).
  */
 
 const tmpDirs: string[] = [];

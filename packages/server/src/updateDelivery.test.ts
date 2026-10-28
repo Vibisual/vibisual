@@ -9,11 +9,7 @@ import {
   RELEASES_DOWNLOAD_BASE,
 } from '@vibisual/shared';
 
-// shared 의 순수 판정 로직은 server 테스트에서 검증한다(pathCase.test.ts·keyedSliceDelta.test.ts 선례).
-//
-// 이 파일의 존재 이유: 우리에게는 mac·linux 실기가 없다. `resolveUpdateDelivery` 가
-// `process.platform` 을 직접 읽지 않고 **인자로 받게** 만든 덕분에, Windows 개발기 한 대에서
-// 세 OS 판정을 전부 확인할 수 있다(CLAUDE.md 멀티플랫폼 규칙).
+// `resolveUpdateDelivery` 가 `process.platform` 대신 인자를 받아, mac·linux 실기 없이 세 OS 판정을 여기서 확인한다.
 
 describe('resolveUpdateDelivery — 플랫폼별 업데이트 전달 방식', () => {
   it('무서명 macOS 는 self-install (Squirrel 을 타지 않고 우리가 직접 받아 직접 교체한다)', () => {
@@ -80,9 +76,7 @@ describe('readUpdateDelivery — 하위 호환 폴백', () => {
   });
 });
 
-// ── 받을 파일은 우리가 고른다 ───────────────────────────────────────────────
-// `latest-mac.yml` 을 쓰지 않는 이유가 여기 걸려 있다: 두 mac 잡이 같은 이름의 피드를 각자
-// 올려 서로 덮으므로 발행된 피드에는 한쪽 아키텍처만 남는다(실측: v0.1.14 에 arm64 없음).
+// 받을 파일은 우리가 고른다 — 두 mac 잡이 같은 이름의 `latest-mac.yml` 을 서로 덮어 한 아키텍처만 남는다(실측: v0.1.14 에 arm64 없음).
 describe('macUpdateAssetName — 아키텍처별 dmg 이름 규약', () => {
   it('arm64 는 -arm64 접미사, x64 는 접미사가 없다 (electron-builder 기본값과 짝)', () => {
     expect(macUpdateAssetName('0.1.15', 'arm64')).toBe('Vibisual-0.1.15-arm64.dmg');

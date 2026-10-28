@@ -5,17 +5,8 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { costTextToneClass, findCostMap, toneOf } from '../../utils/costMap.js';
 import { CostMapPopup, EstimatedMark } from './CostMapPopup.js';
 
-// SCENARIO.md §5.21 / §7.19 — 비용 줄(사용량 팝업 하단).
-//
-// 헤더에 붙어 있던 비용 필을 **사용량 팝업(§4 v3.60) 맨 아래 한 줄**로 내린 자리다(위치 이동 —
-// Change Log). 보여 주는 값은 종전과 같은 **오늘 비용 한 값**이고, 데이터가 없어도 숨기지
-// 않는다 — 줄이 사라지면 지도로 들어갈 입구도 같이 사라지므로, 그 상태에선 dim 한 `—` 로
-// 두고 왜 비었는지는 팝업이 말한다(사용량 필과 같은 규칙).
-//
-// 열림 상태를 **부모가 든다**(controlled): 사용량 팝업이 Esc 를 "위에 있는 것부터" 닫으려면
-// 자기 위에 비용 팝업이 떠 있는지 알아야 한다. 전역 스토어 플래그로 두지 않는 이유도 같은
-// 자리에 있다 — 팝업 안으로 들어온 뒤로는 부모가 닫힐 때 함께 사라져야 하는데, 전역 플래그는
-// 켜진 채 남아 다음에 사용량 팝업을 열자마자 비용 창이 저절로 되살아난다.
+// SCENARIO.md §5.21 / §7.19 — 사용량 팝업 맨 아래 비용 줄(오늘 비용). 데이터가 없어도 숨기지 않는다 — 지도 입구라 dim `—`.
+// 열림은 부모가 든다 — Esc 순서 때문이고, 전역 플래그면 다음에 사용량 팝업을 열 때 비용 창이 되살아난다.
 
 interface CostPillProps {
   /** 비용·토큰 지도 팝업이 열려 있는가. */
@@ -93,9 +84,7 @@ export function CostPill({ open, onOpenChange }: CostPillProps): React.JSX.Eleme
         </svg>
       </button>
 
-      {/* 부모(사용량 팝업)의 backdrop-blur 가 fixed 자식의 containing block 이 되므로 팝업은 body 로
-          portal 한다(§7.7 v1.99 ServerLogPopup 과 같은 함정). 나중에 붙는 형제라 같은 z-[60] 에서도
-          사용량 팝업 **위**에 그려지고, 닫으면 그 아래 사용량 팝업이 그대로 남아 있다. */}
+      {/* 부모의 backdrop-blur 가 fixed 의 containing block 이 되므로 body 로 portal(§7.7 ServerLogPopup 과 같은 함정). */}
       {open && createPortal(<CostMapPopup onClose={() => onOpenChange(false)} />, document.body)}
     </>
   );

@@ -3,12 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { SubAgentStreamEvent } from '@vibisual/shared';
 import { hasRecentEventId, mergeDeepWindow, RECENT_EVENT_ID_SCAN, spliceMissingInServerOrder } from './streamGapFill.js';
 
-/**
- * 재연결 뒤 서버 창을 버퍼에 **제자리로** 끼우는 규칙을 못 박는다.
- *
- * 폰 화면을 끈 사이 끊긴 줄은 다시 붙은 뒤 서버에서 다시 받아 온다. 그 줄이 버퍼 끝에 붙으면 다시 붙은 뒤에
- * 온 줄보다 아래에 그려져 글이 뒤섞이고, 끊겨 있던 사이가 빈 채로 남으면 글이 중간에서 끊긴 것처럼 읽힌다.
- */
+/** 재연결 뒤 다시 받은 줄을 버퍼 끝이 아니라 **제자리로** 끼우는지 고정한다. */
 
 function evt(n: number): SubAgentStreamEvent {
   return {

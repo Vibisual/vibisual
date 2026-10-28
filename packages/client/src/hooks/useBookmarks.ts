@@ -1,23 +1,9 @@
 /**
- * §5.4 #30 v2.66 — 버블 북마크 / 단축키 점프 (언리얼 엔진 카메라 북마크 식).
- *
- * 키 배정은 §6 단축키 레지스트리(`bookmark.assign` / `bookmark.jump`)가 정한다 — 사용자가 설정에서
- * 바꾸면 이 파일을 한 줄도 안 고치고 그대로 따라간다. 아래 설명의 키는 **기본값**이다.
- *
- * Alt + 1~0 : 현재 대상을 슬롯 N(0=10)에 지정.
- *             - IDE 오버레이가 열려 있으면 그 에이전트 + 현재 세션 탭을 `session` 북마크로,
- *             - 아니면 선택된 버블을 `bubble` 북마크로(소속 프로젝트 + 드릴다운 폴더 컨텍스트 포함).
- * 1~0       : 비입력 포커스에서 슬롯 N 으로 점프.
- *             - `bubble`: 프로젝트 전환 → (폴더면 enterFolderDeep) → focusOnNode + selectNode.
- *             - `session`: 프로젝트 전환 → focusOnNode(에이전트) → openIDEOverlay(세울 세션을 실어서).
- *               세우는 것은 여는 길이 한다 — 창이 밖에 나가 있어도 그 창이 이 세션으로 선다(§5.5 #17-6 (H-27) ⑦).
- *             - **생존 게이트**: 대상 노드가 지금 스냅샷에 없으면 아무 상태도 바꾸지 않고 토스트만
- *               (`resolveJumpTarget` — 사라진 대상으로 점프해 도킹 슬롯만 남던 빈 도크 방지).
- *
- * - 영속화는 localStorage(`vibisual:bookmarks`) — tabPins/defaultSubAgents 와 동형. 서버/스냅샷/체크포인트 미관여.
- * - INPUT/TEXTAREA/contentEditable(xterm 터미널 helper textarea·IDE 입력창 포함) 포커스에서는 비활성.
- *   지정만 예외로 **IDE 안에서는** 입력칸에서도 받는다(`Alt+숫자` 는 일반 타이핑이 아니다).
- * - 키 판별은 레이아웃 독립 `e.code` — 레지스트리의 `matchesBinding` 이 한 곳에서 한다.
+ * §5.4 #30 — 버블 북마크 / 단축키 점프. 키는 §6 단축키 레지스트리(`bookmark.assign`/`bookmark.jump`)가 정한다 — 아래는 기본값이다. 판별은 레이아웃 독립 `e.code` 로 `matchesBinding` 한 곳에서.
+ * Alt + 1~0 : 현재 대상을 슬롯 N(0=10)에 지정 — IDE 오버레이가 열려 있으면 그 에이전트 + 세션 탭을 `session` 으로, 아니면 선택 버블을 `bubble` 로(소속 프로젝트 + 드릴다운 폴더 포함).
+ * 1~0 : 비입력 포커스에서 점프 — `bubble`: 프로젝트 전환 → (폴더면 enterFolderDeep) → focusOnNode + selectNode. `session`: 프로젝트 전환 → focusOnNode → openIDEOverlay(창이 밖에 나가 있어도 그 창이 이 세션으로 선다, §5.5 #17-6 (H-27) ⑦).
+ *   생존 게이트: 대상 노드가 지금 스냅샷에 없으면 상태를 바꾸지 않고 토스트만(`resolveJumpTarget`).
+ * - 영속은 localStorage(`vibisual:bookmarks`) — 서버/스냅샷 미관여. 입력칸(xterm helper textarea·IDE 입력창 포함) 포커스에서는 비활성 — 지정만 IDE 안 입력칸에서도 받는다(`Alt+숫자` 는 타이핑이 아니다).
  */
 
 import { useCallback } from 'react';
@@ -57,21 +43,11 @@ export type JumpDecision =
   | { ok: false; reason: 'unknown-project' | 'missing-target' };
 
 /**
- * §5.4 #30 (C) **출처 생존 게이트** — "지금 갈 수 있는 자리인가"를 순수 함수로 판정한다.
- *
- * `session` 점프는 `openIDEOverlay` 가 **열려 있던 도킹 슬롯의 agentId 를 갈아끼운다**. 대상 에이전트가
- * 스냅샷에 없으면 `AgentIDEOverlay` 는 `null` 을 반환하는데 슬롯은 도킹으로 남아, **도크 폭만 예약된
- * 빈 칸**이 캔버스를 가렸다(사용자 보고: "북마크 숫자키를 눌렀더니 켜둔 IDE 가 제대로 안 닫히고
- * 화면을 가린다"). 그래서 이동 전에 대상 노드의 생존을 먼저 본다 — §5.5 #17-7 v2.96 IDE 북마크의
- * 생존 게이트와 **같은 규약·같은 산식**(`nodeMap` 하나).
- *
- * stub(미hydrate) 프로젝트는 노드가 애초에 스냅샷에 실리지 않으므로 게이트를 적용하지 않는다 —
- * 적용하면 "아직 안 연 프로젝트로는 영영 못 간다"가 된다. 대신 탭 전환까지만 한다(호출부 참조).
- *
- * §9 폴더 스코프도 **정확히 같은 예외**다. 서버는 지금 그리는 폴더와 그 한 칸 앞만 싣기 때문에,
- * 다른 폴더 안의 버블은 사라져서가 아니라 **아직 안 와서** `nodeMap` 에 없다. 그 자리를
- * "없어진 대상"으로 읽으면 "다른 폴더로는 영영 못 간다"가 된다 — stub 과 한 글자도 다르지 않다.
- * 점프 자체가 그 폴더로 들어가면서(`enterFolderDeep`) 선언이 나가고 데이터가 따라온다.
+ * §5.4 #30 (C) 출처 생존 게이트 — "지금 갈 수 있는 자리인가"를 순수 함수로 판정한다.
+ * `session` 점프는 `openIDEOverlay` 가 열린 도킹 슬롯의 agentId 를 갈아끼운다 — 대상이 스냅샷에 없으면 `AgentIDEOverlay` 는 `null` 인데 슬롯은 도킹으로 남아 도크 폭만 예약된 빈 칸이 캔버스를 가린다.
+ * 그래서 이동 전에 생존을 본다(§5.5 #17-7 IDE 북마크 생존 게이트와 같은 규약·같은 산식 — `nodeMap` 하나).
+ * stub(미hydrate) 프로젝트와 §9 폴더 스코프(서버는 그리는 폴더와 한 칸 앞만 싣는다)는 노드가 사라진 게 아니라 아직 안 와서 없으므로 게이트를 걸지 않는다 — 걸면 그리로 영영 못 간다.
+ * stub 은 탭 전환까지만 하고(호출부 참조), 폴더는 점프가 그 폴더로 들어가며(`enterFolderDeep`) 선언이 나가 데이터가 따라온다.
  */
 export function resolveJumpTarget(
   bm: Bookmark,
@@ -147,11 +123,8 @@ export function useBookmarks({ onToast, messages }: Params): void {
   function assign(slotKey: string, inIDE: boolean): void {
     const st = useGraphStore.getState();
     const ide = selectIDEOverlay(st);
-    // `selectIntentId` 는 선택 링 한 칸이라 **앱·캡처 같은 store 채널 버블 id 도 들어온다**
-    //   (더블클릭 지연 창 동안 링만 먼저 켜지는 구간 — `bubbleSelectGesture`).
-    //   버블 북마크가 가리킬 수 있는 것은 노드 버블뿐이므로, 폴백은 `nodeMap` 에 있는 id 만 받는다.
-    //   `selectedNodeId` 는 그대로 통과시킨다 — `__trash__` 처럼 캔버스가 합성한 버블은
-    //   `nodeMap` 에 없지만 정당한 북마크 대상이다.
+    // `selectIntentId` 는 선택 링 한 칸이라 앱·캡처 같은 store 채널 버블 id 도 들어온다(더블클릭 지연 창 동안 링만 먼저 켜지는 구간 — `bubbleSelectGesture`).
+    //   버블 북마크는 노드 버블만 가리키므로 폴백은 `nodeMap` 에 있는 id 만 받는다. `selectedNodeId` 는 그대로 통과 — `__trash__` 처럼 캔버스가 합성한 버블은 `nodeMap` 에 없지만 정당한 대상이다.
     const intentId = st.selectIntentId;
     const nodeId = st.selectedNodeId
       ?? (intentId !== null && st.nodeMap[intentId] !== undefined ? intentId : null);

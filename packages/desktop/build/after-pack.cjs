@@ -1,10 +1,6 @@
 // electron-builder afterPack hook — SCENARIO.md §3.7.
-//
-// electron-builder's default file walk + pnpm symlinks misses the server's
-// dist/ and node_modules/ (.gitignore excludes them; symlinks confuse the
-// walker). This hook copies real files (symlinks dereferenced) into the
-// packaged tree after electron-builder finishes.
-//
+// electron-builder's file walk + pnpm symlinks misses the server's dist/ and node_modules/ (.gitignore excludes them; symlinks confuse
+// the walker), so this copies the real files (symlinks dereferenced) into the packaged tree.
 // Source : <repo>/packages/server/{dist, node_modules}
 // Dest   : <resourcesDir>/app/node_modules/@vibisual/server/{dist, node_modules}
 //          (resourcesDir = win/linux 는 <appOutDir>/resources, mac 은 <Product>.app/Contents/Resources)
@@ -14,21 +10,11 @@ const { join, dirname } = require('node:path');
 const { spawnSync } = require('node:child_process');
 const os = require('node:os');
 
-// ─────────────────────────────────────────────────────────────
-// 빌드에만 쓰는 것은 사용자에게 보내지 않는다 (2026-08-21 실측).
-//
-// 이 훅은 pnpm 링크를 풀어 실물을 복사하는데, `node_modules` 에는 devDependency 도 함께
-// 링크돼 있어 **빌드 도구가 통째로 설치본에 실려 갔다**. 실측 — 설치본 917MB 중:
-//   · `@vibisual/video` 가 물고 있던 **electron 270MB** (이미 Electron 인 앱 안에 한 벌 더)
-//   · typescript 23MB × 여러 벌 · vite/vitest/rollup/esbuild/lightningcss 약 35MB
-// 설치 파일이 v0.1.7 131MB → v0.1.8 250MB 로 뛴 것이 이 자리다.
-//
-// **왜 이름 목록인가**: "devDependency 전부 빼기"는 pnpm 링크 구조상 판정이 어렵고, 하나만
-// 잘못 빼도 앱이 실행 시점에 죽는다(그때는 이미 사용자 PC 다). 그래서 **런타임에 안 부르는
-// 것이 확인된 것만** 이름으로 뺀다 — 확인 방법은 빌드 산출물에서의 참조 검사다.
-//   · `electron` — 메인 프로세스가 내장 모듈로 받는다(npm 패키지는 바이너리 내려받기용 껍데기).
-//   · `vitest`/`vite` — 참조하는 것은 컴파일된 `*.test.js` 뿐이고 그 파일은 실행되지 않는다.
-//   · 나머지(typescript·rollup·esbuild·lightningcss·jiti·tsx) — 참조 0.
+// 빌드에만 쓰는 패키지는 설치본에 싣지 않는다. 이 훅은 pnpm 링크를 풀어 복사하는데 `node_modules` 엔 devDependency 도 링크돼 있다 —
+// 2026-08-21 실측: 설치본 917MB 중 `@vibisual/video` 가 물고 있던 electron 270MB, typescript 23MB × 여러 벌, vite/vitest/rollup/esbuild/lightningcss 약 35MB.
+// 이름 목록인 이유: "devDependency 전부 빼기"는 pnpm 링크 구조상 판정이 어렵고, 하나만 잘못 빼도 사용자 PC 에서 실행 시점에 죽는다 —
+// **런타임에 안 부르는 것이 확인된 것만** 넣는다(확인은 빌드 산출물의 참조 검사). `electron` 은 메인이 내장 모듈로 받고(npm 은 바이너리 받기용 껍데기),
+// `vitest`/`vite` 는 실행되지 않는 `*.test.js` 만 참조하며, 나머지(typescript·rollup·esbuild·lightningcss·jiti·tsx)는 참조 0.
 const BUILD_ONLY_PACKAGES = new Set([
   'electron', 'typescript', 'vitest', 'vite', 'rollup', 'esbuild', 'jiti', 'tsx',
   'why-is-node-running',
@@ -51,13 +37,8 @@ function isTestArtifact(src) {
 
 /**
  * 경로 어딘가의 `node_modules/<빌드전용>` 을 잡아낸다.
- *
- * **왜 BFS 의 이름 검사만으로는 부족한가 (2026-08-21 실측)**: 가장 큰 덩어리인 electron
- * 270MB 는 BFS 가 아니라 **첫 단계의 통짜 복사**로 들어왔다 —
- * `server/node_modules/@vibisual/video` 를 dereference 하면 워크스페이스 실물이라
- * 그 안의 `node_modules/electron`(devDependency) 까지 통째로 따라온다. BFS 에만 그물을
- * 치고 8개(typescript·vitest·@types…)가 걸린 것을 보고 다 잡은 줄 알았으나, 정작 용량의
- * 3분의 1은 그 앞 단계로 지나가고 있었다.
+ * BFS 의 이름 검사만으로는 부족하다(2026-08-21 실측) — electron 270MB 는 첫 단계의 통짜 복사로 들어온다: `server/node_modules/@vibisual/video` 를
+ * dereference 하면 워크스페이스 실물이라 그 안의 `node_modules/electron`(devDependency)까지 따라온다.
  */
 function isBuildOnlyPath(src) {
   const parts = src.split(/[\\/]/);
@@ -74,15 +55,9 @@ function isBuildOnlyPath(src) {
 }
 
 /**
- * 패키징된 앱의 **리소스 디렉터리**를 플랫폼 규칙대로 돌려준다.
- *
- * `appOutDir` 아래에 `resources/` 가 있다고 못 박으면 **macOS 에서만 조용히 빗나간다** —
- * mac 의 리소스는 `<appOutDir>/<Product>.app/Contents/Resources` 이고
- * `<appOutDir>/resources` 는 .app 번들 **바깥**이라 dmg 에 담기지 않는다. 그 자리에 복사하면
- * 빌드는 초록으로 끝나고(경로가 없으면 mkdir 로 만들어 버리므로 경고조차 없다) 정작 설치본에는
- * 서버 dist·전이 의존성이 통째로 빠진 채 발행된다 — 열어 보기 전까지 아무도 모르는 실패다.
- *
- * 판정은 우리가 흉내 내지 않고 electron-builder 의 공개 API(`getResourcesDir`)에 맡긴다.
+ * 패키징된 앱의 리소스 디렉터리를 플랫폼 규칙대로 돌려준다.
+ * `<appOutDir>/resources` 로 못 박으면 **macOS 에서만 조용히 빗나간다** — mac 은 `<appOutDir>/<Product>.app/Contents/Resources` 이고 그 바깥은 dmg 에 안 담긴다.
+ * 빌드는 초록(없는 경로는 mkdir 로 만든다)인데 설치본에 서버 dist·전이 의존성이 빠진 채 발행된다. 판정은 electron-builder 공개 API(`getResourcesDir`)에 맡긴다.
  */
 function resolveResourcesDir(context) {
   const { appOutDir, packager, electronPlatformName } = context;
@@ -147,13 +122,9 @@ exports.default = async function afterPack(context) {
   const path = require('node:path');
   const PNPM_SEG = `${path.sep}.pnpm${path.sep}`;
 
-  // pnpm transitive deps — BFS over .pnpm sibling buckets.
-  // <pkg>/node_modules/<dep> is a junction into .pnpm/<pkg>@<ver>/node_modules/<pkg>.
-  // Sibling packages in that same .pnpm bucket are the package's actual runtime deps,
-  // but cpSync(dereference:true) only copies the junction target itself. Without
-  // siblings, deep transitive chains (express → finalhandler → debug → ms) break.
-  // We BFS: enqueue each junction, copy it + every sibling in its .pnpm bucket,
-  // then enqueue each sibling so its own bucket gets visited too.
+  // pnpm transitive deps — BFS over .pnpm sibling buckets. <pkg>/node_modules/<dep> is a junction into .pnpm/<pkg>@<ver>/node_modules/<pkg>;
+  // siblings in that bucket are the package's real runtime deps, but cpSync(dereference:true) copies only the junction target, so deep chains
+  // (express → finalhandler → debug → ms) break. Copy each junction + every sibling in its bucket, then enqueue each sibling so its bucket is visited too.
   const bfsCopy = (srcNm, destNm, label) => {
     if (!existsSync(srcNm)) return;
     const seen = new Set();
@@ -215,11 +186,9 @@ exports.default = async function afterPack(context) {
   // Server transitive deps → resources/app/node_modules/@vibisual/server/node_modules/
   bfsCopy(join(serverDir, 'node_modules'), join(appNodeModules, 'node_modules'), 'server');
 
-  // Desktop's own direct prod deps (light-my-request) are copied by electron-builder, but
-  // their transitive deps (cookie, process-warning, set-cookie-parser, ...) are missed
-  // because pnpm symlinks confuse the walker. BFS only the prod-dep subgraph (NOT all of
-  // desktop/node_modules, which contains electron/vite/tsx/tailwind devDeps) into the
-  // top-level resources/app/node_modules so externalized desktop deps resolve at runtime.
+  // Desktop's direct prod deps (light-my-request) are copied by electron-builder, but their transitive deps (cookie, process-warning,
+  // set-cookie-parser, ...) are missed (pnpm symlinks confuse the walker). BFS only the prod-dep subgraph — NOT all of desktop/node_modules
+  // (electron/vite/tsx/tailwind devDeps) — into top-level resources/app/node_modules so externalized desktop deps resolve at runtime.
   const desktopPkg = require(join(desktopDir, 'package.json'));
   const desktopProdDeps = Object.keys(desktopPkg.dependencies || {})
     .filter((n) => !n.startsWith('@vibisual/'));
@@ -279,20 +248,12 @@ exports.default = async function afterPack(context) {
     }
     console.log(`[afterPack] [desktop] copied ${copied} transitive deps via pnpm-sibling BFS (seeded from ${desktopProdDeps.join(', ')})`);
   }
-  // (v1.97 §3.7) sqlite-vec / better-sqlite3 플랫폼 바이너리 복사 블록은 제거됐다 —
-  // v1.96 에서 Keyword Graph(SQLite) 가 폐기되어 server 에 네이티브 의존성이 없다.
-  // in-process 모델의 server 런타임 deps(express·multer·cors·chokidar)는 전부 순수 JS 라
-  // 위 pnpm-sibling BFS 만으로 패키징이 닫힌다.
+  // §3.7 — server 에는 네이티브 의존성이 없다: 런타임 deps(express·multer·cors·chokidar)가 전부 순수 JS 라 위 pnpm-sibling BFS 만으로 패키징이 닫힌다.
 
-  // Embed brand bubble icon + our own version resource into Vibisual.exe via rcedit
-  // (Windows only). electron-builder.yml sets signAndEditExecutable=false to skip the
-  // winCodeSign cache download (its 7z contains macOS symlinks that fail to extract on
-  // Windows without Developer Mode). That flag also disables rcedit — so we invoke rcedit
-  // ourselves here. Without this the .exe ships with the prebuilt electron binary's own
-  // resources: the default atom icon AND the "Electron / GitHub, Inc. / 31.x" version
-  // block. That version block is what Windows Task Manager prints in its process Name
-  // column (it reads FileDescription, not the file name) and what File Properties shows —
-  // so setting only the icon left the running app listed as "Electron".
+  // Embed the brand bubble icon + our own version resource into the exe via rcedit (Windows only). electron-builder.yml sets
+  // signAndEditExecutable=false to skip the winCodeSign download (its 7z holds macOS symlinks that fail to extract on Windows without
+  // Developer Mode), which also disables rcedit — so we run it here. Without it the .exe keeps electron's default icon AND its
+  // "Electron / GitHub, Inc." version block, which Task Manager prints in its Name column (it reads FileDescription) and File Properties shows.
   if (process.platform === 'win32' && context.electronPlatformName === 'win32') {
     const appInfo = context.packager.appInfo;
     const exeName = `${appInfo.productFilename}.exe`;
@@ -334,20 +295,11 @@ exports.default = async function afterPack(context) {
 };
 
 /**
- * node-pty 의 `spawn-helper` 에 실행 권한을 돌려준다 (mac/linux 패키징).
- *
- * ⚠ 이걸 빼면 **macOS 에서 터미널이 하나도 안 뜬다** — 로그인 창("로그인 절차를 시작하지
- * 못했습니다") · CMD 버블 · 실행 런처가 전부 죽는다(2026-08-29 실기 확인, v0.1.14).
- *
- * 원인은 우리 복사가 아니라 **npm 이 배포 tarball 을 만들 때 파일 모드를 644 로 평평하게
- * 눌러 버리는 것**이다. node-pty 1.1.0 의 tarball 안 `prebuilds/darwin-<arch>/spawn-helper` 는
- * `-rw-r--r--` 로 들어 있고, 그 패키지의 install/postinstall 스크립트도 권한을 되돌리지
- * 않는다(우리가 확인 — post-install.js 는 Release 폴더 청소와 Windows conpty 복사만 한다).
- * macOS 의 node-pty 는 이 helper 를 `posix_spawnp` 로 실행해 제어 터미널을 얻으므로,
- * 실행 권한이 없으면 `pty.spawn` 이 **"posix_spawnp failed."** 하나만 남기고 실패한다.
- * (리눅스 prebuild 는 아예 없어 소스 빌드로 만들어지므로 이 문제가 없다 — 그래도 같이 훑는다.)
- *
- * 빌드는 초록이고 dmg 도 발행되므로, 이 자리를 놓치면 **연 사람만 아는 실패**가 된다.
+ * node-pty 의 `spawn-helper` 에 실행 권한을 돌려준다(mac/linux 패키징).
+ * ⚠ 빼면 **macOS 에서 터미널이 하나도 안 뜬다** — 로그인 창·CMD 버블·실행 런처가 전부 죽는다(2026-08-29 실기 확인).
+ * npm 이 배포 tarball 을 만들 때 모드를 644 로 눌러 node-pty 1.1.0 의 `prebuilds/darwin-<arch>/spawn-helper` 가 `-rw-r--r--` 이고, 패키지 install 스크립트도 되돌리지 않는다.
+ * mac node-pty 는 이 helper 를 `posix_spawnp` 로 실행하므로 권한이 없으면 `pty.spawn` 이 "posix_spawnp failed." 하나만 남기고 실패한다.
+ * 리눅스는 prebuild 가 없어 소스 빌드라 문제가 없지만 같이 훑는다. 빌드는 초록이고 dmg 도 발행되므로 놓치면 연 사람만 아는 실패다.
  */
 function restoreSpawnHelperExecBit(resourcesDir, electronPlatformName) {
   if (electronPlatformName === 'win32') return;
@@ -405,10 +357,8 @@ function findRcedit() {
   if (process.env.RCEDIT_PATH && existsSync(process.env.RCEDIT_PATH)) {
     return process.env.RCEDIT_PATH;
   }
-  // Deterministic source: the `rcedit` npm package ships the binary. This is what makes the
-  // icon embed work on CI — GitHub Actions runners have no winCodeSign cache (we set
-  // signAndEditExecutable=false, which skips that download), so without this the packaged
-  // Vibisual.exe shipped with the default Electron icon.
+  // Deterministic source: the `rcedit` npm package ships the binary. CI runners have no winCodeSign cache (signAndEditExecutable=false
+  // skips that download), so without this the packaged exe keeps the default Electron icon.
   try {
     const pkgJson = require.resolve('rcedit/package.json');
     const candidate = join(dirname(pkgJson), 'bin', 'rcedit-x64.exe');

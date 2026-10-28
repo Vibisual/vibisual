@@ -1,13 +1,4 @@
-/**
- * 폴더 목록의 **행 만들기와 창 자르기** — 순수 함수라 단위 테스트가 붙는다(§7.5).
- *
- * 왜 따로 두는가: 목록은 이제 "폴더 하나 = 트리 한 벌"이 아니라 **겹(level)마다 페이지가 따로 도는
- * 구조**다. 화면은 그 겹들을 펼침 상태에 따라 평탄한 행으로 펴서 그리고, 그중 **보이는 구간만**
- * DOM 으로 만든다. 두 계산 모두 React 밖에서 결정되어야 눈으로 확인하지 않고도 고정할 수 있다
- * (§5.5 #17-19 `explorerModel.ts` 가 IDE 탐색기에서 쓰는 수법과 같다).
- *
- * ⚠ 여기서의 재귀는 **이미 메모리에 있는 겹**만 훑는다 — 디스크를 건드리지 않는다.
- */
+/** 폴더 목록 행 만들기·창 자르기(순수, §7.5) — 겹마다 페이지가 돌고 보이는 구간만 DOM. ⚠ 재귀는 메모리의 겹만 훑는다(디스크 ❌). */
 
 import type { FolderFileEntry } from '@vibisual/shared';
 
@@ -30,10 +21,7 @@ export interface FolderLevelState {
   total: number;
   /** 지금 한 장을 받아 오는 중인가. */
   loading: boolean;
-  /**
-   * 마지막 요청이 실패했는가(끊김·404·시간 초과).
-   * 실패를 상태로 들지 않으면 화면이 "불러오는 중" 에서 영영 멈춘다 — 그것이 이 절이 고친 증상이다.
-   */
+  /** 마지막 요청 실패 여부 — 상태로 들지 않으면 "불러오는 중"에서 영영 멈춘다. */
   failed: boolean;
 }
 
@@ -68,12 +56,7 @@ export function childSubPathOf(subPath: string, name: string): string {
   return subPath ? `${subPath}/${name}` : name;
 }
 
-/**
- * 겹 지도 + 펼침 집합 → 화면에 그릴 **평탄한 행 목록**.
- *
- * 펼쳐졌는데 아직 그 겹을 못 받았으면 자식 행은 없다(로딩 표시는 훅이 그 겹의 `loading` 으로 말한다).
- * 겹 끝에 아직 더 있으면 그 자리에 `more` 행 하나를 둔다 — 화면은 그 행이 보이는 순간 다음 장을 부른다.
- */
+/** 겹 지도 + 펼침 → 평탄한 행. 아직 못 받은 겹은 자식 없음, 더 있으면 끝에 `more` 행 하나(보이면 다음 장). */
 export function flattenFolderLevels(
   levels: ReadonlyMap<string, FolderLevelState>,
   expanded: ReadonlySet<string>,
@@ -125,12 +108,7 @@ export interface FolderRowWindow {
   padBottom: number;
 }
 
-/**
- * 보이는 구간만 남긴다 — 나머지는 위아래 여백 두 칸으로 대신한다.
- *
- * 목록이 수천 줄이 돼도 DOM 에 남는 행은 화면에 들어가는 만큼 + 여유분뿐이다
- * (사용자 지시 — "안 보면 읽어온 거 메모리 안 잡게").
- */
+/** 보이는 구간만 남긴다(나머지는 위아래 여백) — 수천 줄이어도 DOM 은 화면만큼. */
 export function folderRowWindow(
   rowCount: number,
   scrollTop: number,
@@ -155,12 +133,7 @@ export function folderRowWindow(
   };
 }
 
-/**
- * 접은 겹과 **그 아래 모든 겹**을 지도에서 버린다 — 접는 즉시 메모리에서 사라진다.
- *
- * 접었다 다시 펴면 첫 장을 새로 받는다. 그 왕복(수십 ms)이 안 보는 트리를 계속 들고 있는 것보다 싸고,
- * 다시 펼 때 디스크의 현재 상태가 오는 이득도 있다.
- */
+/** 접은 겹과 그 아래 겹을 즉시 버린다 — 다시 펴면 첫 장을 새로 받는다(왕복이 들고 있는 것보다 싸다). */
 export function dropLevelSubtree(
   levels: ReadonlyMap<string, FolderLevelState>,
   subPath: string,

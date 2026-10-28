@@ -3,14 +3,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /**
- * §5.4 #14 — 고른 탭이 커지는 움직임의 **배선**(원문 계약). 계산은 `hooks/tabSelectionMotionGeom.test.ts` 가 본다.
- *
- * 2026-10-22 사용자 보고 — "예전에 아이폰처럼 스무스하게 만들라고 했는데 다시 기존 방식으로 돌아가 있다".
- * 실측한 원인 둘: ① 그 PC 는 OS 애니메이션 효과가 꺼져 있어(`prefers-reduced-motion: reduce`) 종전 훅이 움직임을
- * 통째로 껐고(`motion-reduce:transition-none` 도 함께), ② 움직임을 켜도 폭·높이를 메인 스레드에서 바꿔
- * 프로젝트 전환(캔버스를 통째로 다시 그린다)에 묻혔다. 아래 시험은 그 둘이 되살아나지 않게 붙든다.
- *
- * 클라 시험에는 DOM 이 없으므로(jsdom 미설치) 렌더가 아니라 소스 문자열을 읽는다.
+ * §5.4 #14 — 고른 탭 움직임의 배선(계산은 `hooks/tabSelectionMotionGeom.test.ts`). 되살아나면 안 되는 실측 원인 둘:
+ * ① `prefers-reduced-motion: reduce` 에서 통째로 끔(`motion-reduce:transition-none` 포함) ② 폭·높이를 메인 스레드에서 바꿔 프로젝트 전환에 묻힘.
  */
 const sources = import.meta.glob(['./TabBar.tsx', '../../hooks/useTabSelectionMotion.ts'], {
   query: '?raw',

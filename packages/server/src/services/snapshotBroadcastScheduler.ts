@@ -16,10 +16,8 @@ export interface SnapshotBroadcastScheduler {
 }
 
 /**
- * Preserve trailing batching, but carry notification ownership through the real timer
- * and diagnosticService's subsequent microtasks. A synchronous notifying flag cannot
- * cover that boundary. Only diagnostic feedback is suppressed; normal changes can retry.
- * https://nodejs.org/api/async_context.html#asynclocalstoragerunstore-callback-args
+ * Keep trailing batching but carry notification ownership through the timer and diagnosticService's later microtasks (a sync flag cannot span that).
+ * Only diagnostic feedback is suppressed; normal changes can retry. https://nodejs.org/api/async_context.html#asynclocalstoragerunstore-callback-args
  */
 export function createSnapshotBroadcastScheduler(options: SnapshotBroadcastOptions): SnapshotBroadcastScheduler {
   const delivering = new AsyncLocalStorage<boolean>();

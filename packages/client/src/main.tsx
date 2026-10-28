@@ -27,7 +27,7 @@ import './assets/fonts/fonts.css';
 import './index.css';
 import './i18n/index.js';
 
-// §4 v1.98 — renderer 에러 캡처 설치(가능한 한 일찍 — 부팅 초기 에러도 잡도록).
+// §4 — 가능한 한 일찍 설치한다 — 부팅 초기 에러도 잡도록.
 installRendererDiagnostics();
 
 // §4 앱 테마 — **첫 칠 전에** 지난번 테마로 먼저 칠한다. 스냅샷(고른 테마 id)은 창이 뜬 뒤에 오므로,
@@ -37,55 +37,35 @@ bootAppTheme();
 installInputCompositionGuard(window);
 installAppDialogKeyboardGuard(window);
 
-// §3.2.1 — 종료 직전 main 의 "지금 초안을 밀어라"를 받는 창구.
-//
-// 세션 입력 초안·IDE 폼 초안·명령 히스토리는 debounce 로 쓰고 `pagehide`/`beforeunload` 에서
-// 즉시 flush 하는데, 앱 종료는 창을 정상으로 닫지 않고 `app.exit(0)` 으로 내려서 그 이벤트가
-// 뜨지 않는다. **창 종류를 가리지 않아야 하므로 shell 안이 아니라 부팅 지점에 둔다** —
-// 별창·오버레이 창·지휘통제실 창·내부 앱 창에도 입력칸이 있다(InspectorOverlay 와 같은 이유).
+// §3.2.1 — 종료 직전 main 의 "지금 초안을 밀어라"를 받는다(앱 종료는 `app.exit(0)` 이라 `pagehide`/`beforeunload` 가 안 뜬다).
+// 모든 창 종류에 입력칸이 있어 shell 안이 아니라 부팅 지점에 둔다.
 installPersistFlushBridge();
 
-// §3.7 — **제목줄을 잡으면 창이 움직인다.** 드래그 영역이 신고돼 있으면 OS 가 그 누름을 가져가고,
-// 아니면(앱을 막 켰을 때 등) 누름이 페이지까지 온다 — 그때 그 누름 그대로 덮개와 같은 길로 창을 옮긴다.
-// 영역을 코드로 흔들어 다시 신고시키던 장치는 걷었다(그 흔들기가 누름을 버리게 했다 — `titlebarPress.ts`).
-//
-// 위 둘과 같은 이유로 **부팅 지점**에 둔다 — 제목줄을 가진 창이 메인 하나가 아니다(별창 미니
-// 제목줄·지휘통제실·내부 앱 셸·오류 화면이 전부 `.app-drag` 를 쓴다).
+// §3.7 — 드래그 영역 신고 전(앱을 막 켰을 때 등) 페이지까지 온 제목줄 누름을 덮개와 같은 길로 창 이동에 쓴다.
+// 영역을 코드로 흔들어 다시 신고시키지 마라 — 누름이 버려진다(`titlebarPress.ts`). `.app-drag` 를 쓰는 창이 여럿이라 부팅 지점에 둔다.
 installTitlebarPressCatch();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');
 
-// SCENARIO.md §5.4 #14-1 (v2.29) — URL hash 가 `#detached=1&kind=...&tabKey=...` 면
-// windowManager 가 새로 띄운 별창. 메인 App 대신 DetachedShell 렌더.
-// §5.5 #17-6 (v2.73) — `#overlay=1&agentId=...&projectId=...` 면 버블 오버레이 위젯 창.
+// §5.4 #14-1 — `#detached=1&kind=...&tabKey=...` 면 별창(DetachedShell).
+// §5.5 #17-6 — `#overlay=1&agentId=...&projectId=...` 면 버블 오버레이 위젯 창.
 const detached = parseDetachedHash(window.location.hash);
 const overlay = detached ? null : parseOverlayHash(window.location.hash);
-// §5.5 #17-6 (G) v2.87 — `#overlaymenu=1&…` 면 버블 우클릭 메뉴 전용 팝업 창.
+// §5.5 #17-6 (G) — `#overlaymenu=1&…` 면 버블 우클릭 메뉴 전용 팝업 창.
 const overlayMenu = detached || overlay ? null : parseOverlayMenuHash(window.location.hash);
-// §5.12 (A) v4.43 — `#command=1&projectId=…` 면 지휘통제실 창.
+// §5.12 (A) — `#command=1&projectId=…` 면 지휘통제실 창.
 const commandCenter = detached || overlay || overlayMenu ? null : parseCommandCenterHash(window.location.hash);
 
-// §5.13 (O) v4.48 — `#app=<id>&mode=<mode>&…` 면 내부 앱 창.
-//
-// **코어는 앱 이름도 화면 이름도 모른다.** 여기서는 판별만 하고, 어떤 화면을 그릴지는
-// 앱 레지스트리가 들고 있는 로더가 정한다. 그래서 내부 앱이 몇 개로 늘어나도 부팅
-// 분기는 이 하나 그대로이고, 앱 코드는 이 경로로 들어오기 전까지 로드되지 않는다.
+// §5.13 (O) — `#app=<id>&mode=<mode>&…` 면 내부 앱 창. 코어는 앱·화면 이름을 모른다 — 판별만 하고 그릴 화면은 앱 레지스트리의 로더가 정한다.
 const appWindow = detached || overlay || overlayMenu || commandCenter ? null : parseAppHash(window.location.hash);
 
 // §5.5 #17-6 — 오버레이/메뉴 위젯 창은 BrowserWindow 가 transparent:true 라, body 의 bg-gray-950
 // 불투명 배경을 투명으로 덮어 버블/메뉴만 떠 보이게 한다(index.css `.overlay-window` 규칙).
 if (overlay || overlayMenu) document.documentElement.classList.add('overlay-window');
 
-// §9 v3.71 확장 — "보이지 않는 것은 그리지 않는다" 를 **창 단위**까지 넓힌다.
-//
-// 종전 게이트(`vibisual-canvas-idle`)는 캔버스가 전면 오버레이에 덮인 경우만 봤다. 그래서 IDE·
-// 패널의 상시 애니메이션(`animate-pulse`·`animate-spin` 등)은 창을 최소화하거나 다른 창에 완전히
-// 가려도 계속 tick 하며 스타일 재계산·컴포지터 작업을 만들었다. 보이지 않는 동안은 잃을 화면이
-// 없으므로 통째로 끊고, 창이 돌아오면 클래스가 사라져 즉시 원래 연출로 복귀한다(상태 없음).
-//
-// 창 종류를 가리지 않아야 하므로 shell 안이 아니라 **부팅 지점**에 둔다 — 별창·오버레이 창·
-// 지휘통제실 창·내부 앱 창도 같은 규칙을 받는다(InspectorOverlay 를 여기 둔 것과 같은 이유).
+// §9 — 창이 최소화·완전히 가려진 동안 상시 애니메이션(`animate-pulse`·`animate-spin` 등)을 끊는다(`vibisual-canvas-idle` 은 캔버스가 덮인 경우만 본다).
+// 돌아오면 클래스만 빠진다(상태 없음). 모든 창 종류가 받도록 부팅 지점에 둔다.
 {
   const cls = 'vibisual-window-hidden';
   const syncWindowVisibility = (): void => {
@@ -95,11 +75,8 @@ if (overlay || overlayMenu) document.documentElement.classList.add('overlay-wind
   document.addEventListener('visibilitychange', syncWindowVisibility);
 }
 
-// §5.4 #15 (v4.49) — Inspector(Alt 홀드 → 요소 하이라이트/클릭 복사)는 **어느 창에서든** 쓸 수 있어야 한다.
-// 예전에는 App / DetachedShell 안에서만 마운트해, 지휘통제실 창·오버레이 창·내부 앱 창에서는 Alt 를 눌러도
-// 아무 일도 일어나지 않았다. 창 종류를 가리지 않도록 **shell 바깥(부팅 지점)에서 한 번만** 마운트한다
-// — 렌더 진입점이 이 파일 하나뿐이므로 여기 두면 모든 창(앞으로 늘어날 새 앱 창 포함)에 자동 적용된다.
-// (shell 안쪽에 또 두면 useInspector 가 두 번 돌아 클립보드 복사가 중복된다 — App/DetachedShell 에서는 제거.)
+// §5.4 #15 — Inspector(Alt 홀드)는 어느 창에서든 써야 하므로 부팅 지점에서 한 번만 마운트한다.
+// shell 안에 또 두면 useInspector 가 두 번 돌아 클립보드 복사가 중복된다.
 createRoot(rootElement).render(
   <StrictMode>
     <AppErrorBoundary>
@@ -108,10 +85,7 @@ createRoot(rootElement).render(
       <AppThemeHost />
       <AppDialogHost />
       <InspectorOverlay />
-      {/* 입력칸 우클릭 메뉴(잘라내기·복사·붙여넣기·전체 선택) — Electron 에는 브라우저 기본 메뉴가
-          없어 직접 메뉴를 그려 둔 세 자리(IDE 입력창·편집창·터미널) 말고는 우클릭이 통째로 무반응이었다.
-          InspectorOverlay 와 같은 이유로 **부팅 지점에서 한 번만** 마운트한다 — 별창·오버레이 창·
-          지휘통제실 창·내부 앱 창에도 입력칸이 있고, shell 안에 두면 그 창들에서 또 죽는다. */}
+      {/* 입력칸 우클릭 메뉴 — Electron 에는 브라우저 기본 메뉴가 없다. 모든 창의 입력칸이 받도록 부팅 지점에서 한 번만 마운트한다. */}
       <GlobalTextFieldContextMenu />
       {/* §3.7 — 바깥 브라우저 열기가 실패했을 때의 안내(폴백 ❌). 링크는 어느 창에서든 눌리고
           (로그인 창·IDE 별창·내부 앱 창 …) 리눅스에서는 shell.openExternal 이 실패해도 resolve 해

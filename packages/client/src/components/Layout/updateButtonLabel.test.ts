@@ -1,14 +1,6 @@
 /**
- * §4 자동 업데이트 — 헤더의 [업데이트] 버튼(phase `downloaded`)은 짧은 한 단어(`header.update.restartShort`)로 서고,
- * 버전·재시작 설명은 호버 툴팁(`restartTooltip`)으로 넘긴다. 긴 "재시작하여 업데이트"는 확인 모달의 확정 버튼에만 남는다.
- *
- *  ① 그 한 단어는 **그 언어로** 나온다. 짧은 라벨을 새로 넣으며 12개 로케일 전부에 영어 "Update" 가 들어가, 같은 알약이
- *     앞 단계(`available` "업데이트 0.2.2" · `downloading` "업데이트 42%")에서는 자기 언어로 나오다가 받기가 끝나는
- *     순간 영어로 바뀌었다(2026-09-29 QA). 한 낱말이라 `untranslatedCopy.test.ts` 의 문장 검사에도 걸리지 않는다.
- *  ② 접근성 이름은 보이는 글자 그대로다. 툴팁 문장을 `aria-label` 로 덮으면 이름("Version 0.2.2 is ready — restart
- *     to apply")에 보이는 라벨이 없어, 음성 제어로 그 이름을 불러도 버튼을 못 찾는다(WCAG 2.5.3 Label in Name).
- *
- * ⚠ 이 스위트에는 DOM 이 없다(jsdom 미설치). 컴포넌트는 소스 스캔으로 본다.
+ * §4 — 헤더 [업데이트](phase `downloaded`)는 한 단어 `header.update.restartShort`, 설명은 `restartTooltip`.
+ * ① 한 단어도 로케일마다 번역돼야 한다(`untranslatedCopy.test.ts` 문장 검사에 안 걸린다) ② 접근성 이름은 보이는 글자(`aria-label` ❌, WCAG 2.5.3).
  */
 import { describe, it, expect } from 'vitest';
 import { SUPPORTED_UI_LOCALES } from '@vibisual/shared';

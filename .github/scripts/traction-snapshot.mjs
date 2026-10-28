@@ -1,41 +1,8 @@
-// 공개 지표 스냅샷 — 하루 한 줄씩 CSV 에 적는다.
-//
-// ⚠️ 왜 필요한지(2026-08-28):
-//    GitHub 은 릴리스 다운로드를 **누적값으로만** 준다. 어제 몇 개였는지는 아무도
-//    보관해 주지 않는다. 즉 오늘 기록을 시작하지 않으면 "6개월간 어떻게 늘었나"라는
-//    곡선은 **영원히 만들 수 없다.** 과거는 소급되지 않는다.
-//    텔레메트리를 앱에 넣지 않고도(우리는 넣지 않는다) 공개 API 만으로 이 곡선을
-//    만들 수 있다 — 그래서 이 파일이 있다.
-//
-// ⚠️ 트래픽 열이 왜 붙었는지(2026-08-31):
-//    조회수·고유 방문자·클론 수는 "얼마나 쓰이나"에 가장 가까우면서 법적으로 완전히
-//    깨끗한 지표다 — 우리 저장소를, 우리 토큰으로, 공식 문서에 있는 엔드포인트로 읽는다.
-//    그런데 GitHub 은 이 값을 **14일치만** 보관한다. 15일 전 조회수는 GitHub 안에도
-//    남아 있지 않다. 다른 열은 늦게 시작해도 현재값부터 이어 붙지만, 이 열만은
-//    **안 찍은 날이 영구 결손**이 된다.
-//    Actions 의 기본 `GITHUB_TOKEN` 으로는 읽을 수 없다 — 워크플로 `permissions:`
-//    블록에 `administration` 키 자체가 없기 때문이다(설정 가능한 16종에 없다).
-//    이 저장소 하나에만 묶은 fine-grained PAT(Administration: read)을 `METRICS_TOKEN`
-//    시크릿으로 넣어야 채워진다. 없으면 **그 열만 비우고 나머지는 그대로 적는다** —
-//    토큰 하나 때문에 곡선 전체를 잃지 않는다.
-//
-// 파일을 넷 쓴다(전부 `metrics` 브랜치):
-//   traction.csv        하루 한 줄, **누적 게이지**(별·포크·다운로드 총합).
-//   traffic.csv         하루 한 줄, **그날의 유량**(조회·클론). API 가 14일치를 통째로
-//                       주므로 매번 그 14일을 덮어쓴다 → 며칠 걸러도 스스로 메워진다.
-//   badge-stars.json    shields.io endpoint 배지용 별 수.
-//
-// ⚠️ 다운로드 배지는 더 만들지 않는다(2026-09-14). README 와 사이트는 shields.io 표준 배지
-//    `github/downloads/Vibisual/vibisual/total` — GitHub 가 세는 릴리스 자산 다운로드 합계를
-//    그대로 쓴다. 한때 설치 파일만 센 수를 직접 만들어 보였는데, 그 수는 "사람이 설치한 수"로
-//    읽혔고 실제로는 자동 업데이트가 받은 설치본이 대부분이었다. GitHub 카운터로는 사람을
-//    가려낼 수 없으니 공식 수를 공식 이름으로 보인다. 아래 CSV 의 설치본/메타 구분은
-//    곡선을 읽기 위한 내부 기록일 뿐 밖에 내보이는 숫자가 아니다.
-//
-// 사용법: node .github/scripts/traction-snapshot.mjs <출력 디렉터리>
-//   REPO         owner/name (기본 Vibisual/vibisual)
-//   GITHUB_TOKEN 공개 API rate limit 완화용(선택)
-//   METRICS_TOKEN 트래픽 전용 PAT(선택, 없으면 트래픽 열만 빈다)
+// 공개 지표 스냅샷 — 하루 한 줄씩(`metrics` 브랜치, 공개 API 만). GitHub 은 누적값만 줘 안 찍은 날은 소급할 수 없다.
+// traction.csv = 누적(별·포크·다운로드) · traffic.csv = 그날 유량(조회·클론 — 14일치를 매번 덮어써 스스로 메운다) · badge-stars.json = 별 배지.
+// ⚠️ 트래픽은 14일만 보관되고 기본 `GITHUB_TOKEN` 으로 못 읽는다(`permissions:` 에 `administration` 이 없다) — `METRICS_TOKEN`(이 저장소 fine-grained PAT,
+// Administration: read)이 없으면 그 열만 비운다. 다운로드 배지는 shields.io 표준을 쓴다(카운터로 사람과 자동 업데이트를 못 가른다).
+// 사용법: node .github/scripts/traction-snapshot.mjs <출력 디렉터리> · env REPO(기본 Vibisual/vibisual) · GITHUB_TOKEN · METRICS_TOKEN(둘 다 선택)
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -44,7 +11,7 @@ const REPO = process.env.REPO ?? 'Vibisual/vibisual';
 const TOKEN = process.env.GITHUB_TOKEN ?? '';
 const TRAFFIC_TOKEN = process.env.METRICS_TOKEN ?? '';
 
-// 인자는 디렉터리다. 예전처럼 csv 경로를 주더라도 그 상위 폴더로 알아듣는다.
+// 인자는 디렉터리 — csv 경로를 주면 그 상위 폴더로 읽는다.
 const rawArg = process.argv[2] ?? '.';
 const OUT_DIR = rawArg.endsWith('.csv') ? path.dirname(rawArg) : rawArg;
 
@@ -94,11 +61,7 @@ async function api(apiPath, token = TOKEN) {
   return res.json();
 }
 
-/**
- * 실패해도 던지지 않는 호출. 트래픽 엔드포인트 전용이다 —
- * 토큰이 없거나 권한이 모자라면 403 이 오는데, 그 하나 때문에 나머지 열까지
- * 잃으면 안 된다. 이유를 stderr 에 남기고 null 을 돌려준다.
- */
+/** 던지지 않는 호출(트래픽 전용) — 403 하나로 나머지 열을 잃지 않게 stderr 에 이유를 남기고 null. */
 async function apiSoft(apiPath) {
   if (!TRAFFIC_TOKEN) return null;
   try {
@@ -168,8 +131,7 @@ const tractionRow = [
 const tractionWidth = TRACTION_HEADER.split(',').length;
 const priorTraction = fs.existsSync(TRACTION_CSV) ? fs.readFileSync(TRACTION_CSV, 'utf8') : '';
 
-// 예전 판본은 열이 적을 수 있다(트래픽 열은 2026-08-31 에 붙었다). 짧은 줄은 뒤를
-// 빈 칸으로 채워 폭을 맞춘다 — 안 그러면 표 도구가 열을 밀려 읽는다.
+// 옛 줄은 열이 적을 수 있다 — 빈 칸으로 폭을 맞춘다(안 그러면 표 도구가 열을 밀려 읽는다).
 const keptTraction = priorTraction
   .split('\n')
   .map((line) => line.trim())

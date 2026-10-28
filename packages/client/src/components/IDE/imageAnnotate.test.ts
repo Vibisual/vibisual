@@ -33,7 +33,7 @@ import {
   type RasterLayer,
 } from './imageAnnotate.js';
 
-// §5.5 #17-25 v4.80 — 주석 좌표·모델은 DOM 없이 검증한다(이미지 상자를 인자로 받는 순수 함수).
+// §5.5 #17-25 — 주석 좌표·모델은 DOM 없이 검증한다(이미지 상자를 인자로 받는 순수 함수).
 
 const natural = { w: 1600, h: 900 };
 const style: AnnotationStyle = { color: '#ef4444', strokeWidth: 4, fontSize: 32, badgeRadius: 20 };

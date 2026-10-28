@@ -1,21 +1,7 @@
 /**
- * localEngineService.ts — §5.19 (B)(D) All Model 로컬 추론 엔진 설치·상태.
- *
- * **왜 인스톨러에 동봉하지 않고 여기서 받는가**: GPU 백엔드는 수십~수백 MB 라, 로컬 모델을
- * 쓰지 않는 사용자의 설치 파일까지 그만큼 무거워진다. §5.13 이 세운 "무거운 것은 설치 단계를
- * 따로 둔다"는 규약을 그대로 탄다 — 우클릭에서 처음 쓰려 할 때 팝업이 뜨고, 그 팝업이
- * 진행률을 끝까지 들고 있는다.
- *
- * **왜 빌드 번호를 박지 않는가**: 릴리스 자산은 빌드마다 새로 올라오고 옛 것은 사라진다.
- * 박아 두면 그 자산이 내려간 날 설치가 통째로 죽는다(§4 CLI 플래그 소실과 같은 계열의 사고).
- * 그래서 매번 최신 릴리스를 조회해 **그때 실제로 있는** 자산 이름으로 고른다.
- *
- * **왜 Vulkan 이 기본인가**: 한 벌이 NVIDIA·AMD·Intel 을 함께 덮고 CUDA 빌드보다 훨씬 작다.
- * CUDA 는 런타임이 없는 PC 에서 `cudart` 를 더 받아야 하므로 기본이 아니라 선택으로 둔다.
- * 사용자 장비를 재서 고르지 않는다 — 배포되는 제품이고, 안 되면 CPU 로 떨어져 느리게라도 돈다.
- *
- * 진행 상황은 §5.7 #23-1 `installLatestClaude` 의 in-flight 세션 + WS push 패턴 그대로다
- * (새 통신 레일 발명 ❌).
+ * §5.19 (B)(D) — 로컬 추론 엔진 설치·상태. 무거워 동봉하지 않고 처음 쓸 때 받는다(§5.13).
+ * **빌드 번호를 박지 않는다**(옛 자산은 내려간다) — 매번 최신 목록에서 실제 자산을 고른다. 기본 Vulkan(한 벌이 NVIDIA·AMD·Intel, CUDA 보다 작다), CUDA 는 선택.
+ * 장비를 재서 고르지 않는다 — 안 되면 CPU. 진행은 §5.7 #23-1 `installLatestClaude` 의 in-flight + WS push(새 레일 ❌).
  */
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -23,7 +9,6 @@ import path from 'node:path';
 import os from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import {
   LLAMA_RELEASES_LIST_API,
@@ -37,6 +22,7 @@ import {
 } from '@vibisual/shared';
 import { broadcast } from '../broadcastBus.js';
 import { logger } from '../logger.js';
+import { downloadInHelper, type HelperDownloadResult } from './helperDownload.js';
 
 const IS_WIN = process.platform === 'win32';
 const ENGINE_BACKEND_ORDER: readonly LocalEngineBackend[] = ['cuda', 'vulkan', 'cpu'];
@@ -47,17 +33,7 @@ const META_NAME = '.vibisual-engine.json';
  *  (실제 `per_page` 는 shared 의 `LLAMA_RELEASES_LIST_API` 에 박혀 있다 — 둘을 함께 옮길 것.) */
 const RELEASE_SCAN_MAX = 20;
 
-/**
- * 릴리스 **목록** 조회 URL — `…/releases/latest` 를 쓰면 안 된다.
- *
- * llama.cpp 가 릴리스 체계를 바꿔 `latest` 자리에 **자산이 `nightly-tag.txt` 하나뿐인**
- * `v0.3.0` 이 앉았다(2026-08-26 실측). 실제 플랫폼 바이너리 33종은 전부 `b#####` **prerelease**
- * 태그에만 붙는다. 그래서 종전 코드는 `pickAsset` 이 모든 백엔드에 null 을 돌려 →
- * `llama-server not found after extract` → **전 플랫폼에서 로컬 엔진 설치 100% 실패**였다.
- * 목록을 받아 "쓸 수 있는 자산을 실제로 가진 가장 최근 릴리스"를 우리가 고른다.
- * prerelease 여부로 거르지 않는다 — 거르면 다시 아무것도 남지 않는다.
- *
- */
+/** 릴리스 **목록** URL — `latest` ❌(2026-08-26 실측: 자산 `nightly-tag.txt` 뿐인 `v0.3.0`, 바이너리는 `b#####` prerelease 에만). 쓸 자산을 가진 최근 릴리스를 고르고 prerelease 로 거르지 않는다. */
 const RELEASES_LIST_API = LLAMA_RELEASES_LIST_API;
 
 interface EngineMeta {
@@ -197,16 +173,8 @@ function machoThinEnd(head: Buffer, read: number): number | null {
   return end > 0 ? end : null;
 }
 
-/**
- * 실행 이미지가 잘렸는지 본다 — 헤더가 가리키는 마지막 바이트가 파일 끝을 넘으면 그 파일은 반쪽이다.
- * 부족한 바이트 수를 돌려준다(0 이면 온전하거나 판단 대상 밖).
- *
- * 해시 목록도 새 의존성도 필요 없다 — **자산이 스스로 자기 길이를 말한다.**
- * PE(win) 만 보던 것을 Mach-O(mac)·ELF(linux)까지 넓혔다. 종전에는 `.dll|.exe` 확장자 + `MZ`
- * 매직만 봐서 mac/linux 에서는 **항상 빈 배열**이었고, 반쯤 풀린 `.dylib`/`.so` 는 설치가
- * "완료"로 끝난 뒤 첫 사용 순간에야 정체 모를 로더 오류로 터졌다.
- */
-function imageShortfall(file: string): number {
+/** 헤더가 가리키는 끝이 파일 끝을 넘으면 반쪽 — 부족한 바이트(0 = 온전·판단 밖). 해시 목록 없이 자산이 길이를 말한다. PE·Mach-O·ELF 셋 다(PE 만이면 mac/linux 반쪽이 첫 사용 때 터진다). */
+export function imageShortfall(file: string): number {
   let fd: number | null = null;
   try {
     const size = fs.statSync(file).size;
@@ -232,15 +200,7 @@ function imageShortfall(file: string): number {
   }
 }
 
-/**
- * 폴더 안에서 잘린 실행 이미지들(`이름 (-N B)`).
- *
- * 확장자로 거르지 않는다 — POSIX 실행본은 확장자가 아예 없고(`llama-server`), 공유 라이브러리는
- * `.dylib` / `.so` / `.so.1.2` 처럼 제각각이다. 매직 넘버가 형식을 말해 주므로 폴더의 파일을
- * 그대로 훑고 아닌 것은 `imageShortfall` 이 0 으로 흘려보낸다(헤더 몇 KB 만 읽는다).
- *
- * 설치 검증과 §5.19 (D) 엔진 기동 앞머리가 **같은 판정**을 쓰도록 여기서만 정의한다.
- */
+/** 잘린 이미지 목록(`이름 (-N B)`). **확장자로 거르지 않는다**(POSIX 실행본엔 없고 `.so.1.2` 등 제각각) — 매직 넘버로. 설치 검증·기동(§5.19 (D))이 같은 판정을 쓴다. */
 export function truncatedImages(dir: string): string[] {
   let entries: fs.Dirent[];
   try {
@@ -446,17 +406,8 @@ export function archToken(arch: string = process.arch): string {
 }
 
 /**
- * 이 자산이 우리 os·arch 것인지 보고, 맞으면 **백엔드 토큰**을 돌려준다(없으면 빈 문자열).
- * 아니면 null.
- *
- * 이름을 조각으로 읽는 이유: 종전의 느슨한 폴백(`includes('-ubuntu') && endsWith('-x64.zip')`)은
- * Linux 에서 `cpu` 를 찾을 때 목록 순서상 맨 앞의 **`ubuntu-openvino-2026.3-x64`(100MB)** 를
- * 집었다. "백엔드 토큰이 없는 기본 빌드"와 "다른 가속 빌드"를 구분해야 그 사고가 안 난다.
- *
- * - `llama-b10631-bin-win-vulkan-x64.zip`   → `vulkan`
- * - `llama-b10631-bin-win-cuda-13.3-x64.zip`→ `cuda-13.3`
- * - `llama-b10631-bin-ubuntu-x64.tar.gz`    → `''`(기본 빌드)
- * - `llama-b10631-bin-macos-arm64.tar.gz`   → `''`(Metal 이 이미 들어 있다)
+ * 우리 os·arch 자산이면 백엔드 토큰(없으면 `''`), 아니면 null. 조각으로 읽는다 — 느슨한 일치는 Linux `cpu` 에 `ubuntu-openvino`(100MB)를 집는다.
+ * `…-win-vulkan-x64.zip` → `vulkan` · `…-win-cuda-13.3-x64.zip` → `cuda-13.3` · `…-ubuntu-x64.tar.gz`·`…-macos-arm64.tar.gz` → `''`.
  */
 export function assetBackendToken(name: string, osTok: string, arch: string): string | null {
   const lower = name.toLowerCase();
@@ -472,14 +423,7 @@ export function assetBackendToken(name: string, osTok: string, arch: string): st
   return rest.slice(0, rest.length - arch.length - 1);
 }
 
-/**
- * 요청한 백엔드에 해당하는 자산 하나를 고른다.
- *
- * 순서: ① 백엔드 토큰이 정확히 맞는 것 → ② 접두가 맞는 것(`cuda` → `cuda-13.3`, 최신 우선)
- *      → ③ **백엔드 토큰이 없는 기본 빌드**(macOS 는 Metal 포함, Linux 는 순수 CPU 빌드).
- * ③ 이 폴백인 이유: macOS 자산은 이름에 백엔드가 아예 안 들어가고, Linux 의 `cpu` 도 토큰 없이
- * `-ubuntu-x64` 로만 올라온다 — 없는 이름을 찾다 포기하면 설치가 통째로 실패한다.
- */
+/** ① 토큰 일치 → ② 접두 일치(`cuda` → `cuda-13.3`, 최신 우선) → ③ 토큰 없는 기본 빌드(macOS 는 이름에 백엔드가 없고 Linux `cpu` 는 `-ubuntu-x64` 라, 없으면 설치 실패). */
 export function pickAsset(
   assets: readonly ReleaseAsset[],
   backend: LocalEngineBackend,
@@ -502,13 +446,7 @@ export function pickAsset(
   return plain[0]?.asset ?? null;
 }
 
-/**
- * 이 플랫폼이 실제로 쓸 수 있는 자산을 **가진** 가장 최근 릴리스.
- *
- * `latest` 를 부르지 않는 이유는 `RELEASES_LIST_API` 주석에 적혀 있다 — 그 자리에 자산이
- * `nightly-tag.txt` 하나뿐인 릴리스가 앉아 있고, 그걸 그대로 받으면 설치가 100% 실패한다.
- * prerelease 여부는 **보지 않는다**(플랫폼 바이너리가 전부 prerelease 에만 붙는다).
- */
+/** 쓸 자산을 **가진** 최근 릴리스(`latest` ❌ — `RELEASES_LIST_API`). prerelease 여부는 안 본다. */
 export function pickRelease(
   releases: readonly ReleaseEntry[],
   osTok: string = platformToken(),
@@ -525,43 +463,20 @@ export function pickRelease(
 // ─── 내려받기 · 풀기 ───
 
 /** 내려받은 파일의 SHA-256(소문자 hex). 통째로 메모리에 올리지 않는다 — 수백 MB 짜리가 온다. */
-async function sha256File(file: string): Promise<string> {
+export async function sha256File(file: string): Promise<string> {
   const hash = createHash('sha256');
   await pipeline(fs.createReadStream(file), hash);
   return hash.digest('hex');
 }
 
-async function downloadTo(url: string, dest: string, onBytes: (received: number, total: number) => void): Promise<void> {
-  const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok || !res.body) throw new Error(`download ${res.status} ${url}`);
-  const total = Number(res.headers.get('content-length') ?? 0);
-  let received = 0;
-  const body = Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]);
-  body.on('data', (chunk: Buffer) => {
-    received += chunk.length;
-    onBytes(received, total);
-  });
-  await pipeline(body, fs.createWriteStream(dest));
-  // 스트림이 끝났다는 것은 "다 받았다"가 아니다 — 중간에 끊긴 응답도 정상 종료로 보인다.
-  //   길이를 대조하지 않으면 반쪽 zip 을 그대로 풀어 버린다.
-  if (total > 0 && received !== total) {
-    throw new Error(`download truncated (${String(received)}/${String(total)} bytes) ${url}`);
-  }
+/** **앱 메인 프로세스 밖의 도우미가 받는다**(§4 ⑬ — 앱 안에선 큰 파일이 망가진다, 2026-10-26 실측). 대조는 도우미의 SHA-256·길이로 — 앱 안에서 다시 읽지 않는다(끊긴 응답도 정상 종료로 보인다). */
+export function downloadTo(url: string, dest: string, onBytes: (received: number, total: number) => void): Promise<HelperDownloadResult> {
+  return downloadInHelper(url, dest, onBytes);
 }
 
 /**
- * 압축을 푸는 명령 후보 — 앞에서부터 하나씩, 실패하면 다음.
- *
- * **`.tar.gz` 가 뒤늦게 들어온 이유**: mac/linux 자산은 zip 이 아니라 `.tar.gz` 다
- * (`llama-b10631-bin-macos-arm64.tar.gz`, `…-bin-ubuntu-x64.tar.gz` — 2026-08-26 실측).
- * 세 플랫폼 모두 `tar -xzf` 로 풀리고, Windows 의 `unzip`·`Expand-Archive` 와 Linux 의 `unzip`
- * 은 tar.gz 를 **못 읽으므로** 그 경우 후보에서 뺀다(엉뚱한 실패 로그를 남기지 않는다).
- *
- * **PATH 의 `tar` 를 믿으면 안 된다(2026-08-20 실측).** 개발기처럼 Git 계열 도구가 PATH 앞에
- * 있으면 `tar` 가 GNU tar 로 잡히는데, 그 tar 는 zip 을 못 읽을 뿐 아니라 `C:\…` 의 콜론을
- * 원격 호스트로 읽어 `Cannot connect to C:` 로 죽는다. 그래서 Windows 에서는 **절대 경로의
- * System32 bsdtar 를 먼저** 쓰고, 그다음 PowerShell `Expand-Archive`(구형 Windows 폴백),
- * 마지막으로 PATH 의 `tar` 순으로 내려간다. 셋 다 실측으로 순서를 정했다.
+ * 압축 풀기 후보(실패하면 다음). mac/linux 는 `.tar.gz`(실측) — `tar -xzf`, 못 읽는 `unzip`·`Expand-Archive` 는 뺀다.
+ * **PATH 의 `tar` 를 믿지 마라**(2026-08-20 실측) — GNU tar 는 zip 을 못 읽고 `C:` 를 원격 호스트로 읽는다. Windows: 절대 경로 System32 bsdtar → `Expand-Archive` → PATH `tar`.
  */
 export function extractAttempts(
   archivePath: string,
@@ -598,7 +513,7 @@ export function extractAttempts(
 }
 
 /** 내려받은 압축 파일을 푼다(`.zip` · `.tar.gz` 공용). 의존성을 새로 들이지 않는다. */
-function extractArchive(zipPath: string, destDir: string): Promise<void> {
+export function extractArchive(zipPath: string, destDir: string): Promise<void> {
   const attempts = extractAttempts(zipPath, destDir);
   return new Promise((resolve, reject) => {
     const run = (i: number): void => {
@@ -707,12 +622,7 @@ export function installEngine(backends?: readonly LocalEngineBackend[]): LocalEn
       const got: LocalEngineBackend[] = [];
       const backendDirs: Partial<Record<LocalEngineBackend, LocalEngineBackend>> = {};
       const failures: string[] = [];
-      /**
-       * 이번 설치에서 **이미 받아 푼** 자산 이름. macOS 는 자산 이름에 백엔드가 없어
-       * `vulkan`·`cpu` 두 번의 루프가 **같은 파일**로 폴백한다 — 가드가 없으면 11MB 를 두 번 받고
-       * 같은 폴더에 두 번 풀어, 두 번째 tar 가 첫 번째가 쓰던 파일을 덮어쓰며 잘린 이미지를 만든다
-       * (2026-08-20 사고와 같은 계열). 두 번째부터는 건너뛰되 그 백엔드도 "확보됨"으로 센다.
-       */
+      /** 이번 설치에서 받아 푼 자산 — macOS 는 `vulkan`·`cpu` 가 같은 파일로 폴백해, 두 번 풀면 tar 가 쓰던 파일을 덮어 잘린 이미지가 된다. 두 번째는 건너뛰고 확보됨으로 센다. */
       const fetched = new Map<string, LocalEngineBackend>();
       let stepIdx = 0;
       for (const backend of want) {
@@ -741,7 +651,7 @@ export function installEngine(backends?: readonly LocalEngineBackend[]): LocalEn
 
           const zipPath = path.join(tmpDir, asset.name);
           let lastPush = 0;
-          await downloadTo(asset.browser_download_url, zipPath, (received, total) => {
+          const fetchedAsset = await downloadTo(asset.browser_download_url, zipPath, (received, total) => {
             session.receivedBytes = received;
             if (total > 0) session.totalBytes = total;
             // 매 청크마다 브로드캐스트하면 전선이 진행률로 도배된다 — 200ms 간격으로 충분하다.
@@ -756,8 +666,14 @@ export function installEngine(backends?: readonly LocalEngineBackend[]): LocalEn
           //   길이 대조(`downloadTo`)는 "다 받았나"만 본다. 중간에 바뀐 바이트는 길이가 같으므로 통과한다.
           //   `digest` 는 우리가 이미 TLS 로 받은 릴리스 JSON 에 실려 오므로 요청이 늘지 않는다.
           const expected = parseAssetSha256(asset.digest);
+          if (fetchedAsset.streamSha256 !== fetchedAsset.fileSha256) {
+            // 받은 바이트와 디스크에 앉은 바이트가 다르다 — 지문이 없는 자산이라도 이 파일은 풀지 않는다.
+            await fsp.rm(zipPath, { force: true }).catch(() => undefined);
+            throw new Error(`engine asset was corrupted while writing (${asset.name}) — install again`);
+          }
           if (expected) {
-            const actual = await sha256File(zipPath);
+            // 다시 읽은 파일의 지문은 받기 도우미가 이미 냈다(앱 안에서 큰 파일을 다시 읽지 않는다 — ⑬).
+            const actual = fetchedAsset.fileSha256;
             if (actual !== expected) {
               // 남겨 두면 다음 설치가 이 파일을 주워 쓸 수 있다 — 그 자리에서 지운다.
               await fsp.rm(zipPath, { force: true }).catch(() => undefined);

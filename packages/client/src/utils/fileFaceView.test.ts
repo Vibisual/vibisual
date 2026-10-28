@@ -1,15 +1,9 @@
 /**
  * §5.1 #2-1 (A) — 파일 얼굴의 화면 쪽 판정(`fileFaceOf` · `fileMediaTarget`) · 크기 하한(`calcBubbleSize`) 고정 시험.
- *
- * 고정하는 것:
- *  ① 미디어는 그 확장자를 받겠다고 선언한 앱이 굽고(레지스트리), 색도 그 앱의 것이다.
- *  ② 선언한 앱이 없는 미디어(psd)는 종류 기본색 + 굽는 앱 없음 · 미디어가 아닌 종류는 보라 계열.
- *  ③ 파일이 아니면 얼굴이 없다.
- *  ④ 미리보기 자리는 가장 긴 프로젝트 루트에서 자르고, 어느 루트에도 없으면 지금 탭의 프로젝트를 주인으로 절대경로를 싣는다
- *     (2026-10-21 — 주인이 없으면 굽지 않는다).
- *  ⑤ 미디어 얼굴·별자리 중심은 지름 하한을 갖는다(히트맵이 켜져 있으면 히트가 이긴다).
- *  ⑥ 더블클릭이 앱에서 여는가 — 프로젝트 밖 파일은 보기 전용으로 여는 앱(`viewsOutsideFiles`)만(툴팁과 같은 판정).
- *  ⑦ 미디어 얼굴 더블클릭이 여는 곳 — 그 앱 · 변환해서 우리 앱((R-8)) · OS 연결 프로그램 순(2026-10-22).
+ * ① 미디어는 그 확장자를 선언한 앱이 굽고 색도 그 앱의 것 ② 선언한 앱이 없는 미디어(psd)는 종류 기본색 · 미디어가 아닌 종류는 보라 계열 ③ 파일이 아니면 얼굴 없음
+ * ④ 미리보기 자리는 가장 긴 루트에서 자르고, 어느 루트에도 없으면 지금 탭의 프로젝트를 주인으로 절대경로(주인이 없으면 굽지 않는다)
+ * ⑤ 미디어 얼굴·별자리 중심의 지름 하한(히트맵이 켜져 있으면 히트가 이긴다) ⑥ 프로젝트 밖 파일은 보기 전용 앱(`viewsOutsideFiles`)만 연다(툴팁과 같은 판정)
+ * ⑦ 더블클릭이 여는 곳 — 그 앱 · 변환해서 우리 앱((R-8)) · 파일 창의 판(코드 · 웹 페이지 · 그림 · PDF) · OS 연결 프로그램 순(위성도 폴더로 들어가지 않고 연다).
  */
 import { describe, it, expect } from 'vitest';
 import type { BubbleData } from '@vibisual/shared';
@@ -17,7 +11,9 @@ import { FILE_FACE, FILE_FACE_STYLES } from '@vibisual/shared';
 
 import { thumbnailAppFor } from '../apps/appLinkedItems.js';
 import { INTERNAL_APPS, getInternalApp } from '../apps/registry.js';
-import { activeProjectRoot, fileFaceOf, fileFaceOpenRoute, fileFaceOpensInApp, fileFaceVersion, fileMediaTarget } from './fileFaceView.js';
+import {
+  activeProjectRoot, fileFaceOf, fileFaceOpenPlan, fileFaceOpensInApp, fileFacePaneKind, fileFaceVersion, fileMediaTarget,
+} from './fileFaceView.js';
 import { calcBubbleSize } from './sizeCalc.js';
 
 function file(absolutePath: string, extra: Partial<BubbleData> = {}): BubbleData {
@@ -80,7 +76,7 @@ describe('fileMediaTarget — 미리보기를 구울 자리', () => {
   });
 
   it('프로젝트 밖 파일은 지금 탭의 프로젝트를 주인으로 절대경로를 싣는다(사진 속 그 그림)', () => {
-    // 2026-10-21 사용자 보고 — 프로젝트 밖 `%TEMP%/vib-icon-probe/out/preview2.png` 가 png 인데 미리보기·그림 창이 비었다.
+    // 프로젝트 밖 png(`%TEMP%` 아래)도 미리보기·그림 창이 비지 않아야 한다.
     const abs = 'c:/users/dev/appdata/local/temp/icon-probe/out/preview2.png'; // privacy-ok — 실제 홈이 아니라 테스트 픽스처
     expect(fileMediaTarget(abs, ['C:/proj'], 'C:/proj')).toEqual({ root: 'C:/proj', rel: abs, outside: true });
     // 구분자 모양만 고르고 대소문자는 그대로 둔다(linux 에서 다른 파일을 가리키지 않게).
@@ -141,13 +137,16 @@ describe('fileFaceOpensInApp — 더블클릭이 앱에서 여는가(툴팁과 �
   });
 });
 
-describe('fileFaceOpenRoute — 미디어 얼굴 더블클릭이 여는 곳(우리 앱 안이 먼저)', () => {
-  // 2026-10-22 사용자 지시 — 기존 파일은 누르면 그 위치로 가고, 미디어 얼굴은 그 파일이 우리 앱 안에서 열리게 하는 자리다.
-  const routeOf = (abs: string) => fileFaceOpenRoute(fileFaceOf(file(abs)), fileMediaTarget(abs, ['C:/proj'], 'C:/proj'));
+describe('fileFaceOpenPlan — 파일 버블 더블클릭이 여는 곳(우리 앱 안이 먼저)', () => {
+  // 위성 버블 더블클릭은 그 폴더로 들어가지 않고 앱 안의 따로 선 창(IDE 창이 아닌)으로 그 파일을 연다 — 미디어도 글 파일도.
+  const planOf = (abs: string) => fileFaceOpenPlan(fileFaceOf(file(abs)), fileMediaTarget(abs, ['C:/proj'], 'C:/proj'), abs);
+  const routeOf = (abs: string) => planOf(abs).route;
 
   it('받는 앱이 있으면 그 앱 — 영상·소리·3D·그림', () => {
     for (const abs of ['C:/proj/bubble-test/video/webm.webm', 'C:/proj/sfx/hit.wav', 'C:/proj/models/robot.glb', 'C:/proj/art/shot.png']) {
-      expect(routeOf(abs), abs).toBe('app');
+      const plan = planOf(abs);
+      expect(plan.route, abs).toBe('app');
+      expect(plan.route === 'app' ? plan.appId : null, abs).toBe(thumbnailAppFor(abs));
     }
   });
 
@@ -158,8 +157,26 @@ describe('fileFaceOpenRoute — 미디어 얼굴 더블클릭이 여는 곳(우�
     }
   });
 
-  it('우리 앱이 그리지 않는 원본은 OS 연결 프로그램 — 편집창 갈래는 IDE 창 없이는 열리지 않는다', () => {
-    for (const abs of ['C:/proj/bubble-test/video/veg.veg', 'C:/proj/raw/clip.y4m', 'C:/proj/art/cover.psd', 'C:/proj/scene/robot.blend', 'C:/proj/bgm/theme.mid']) {
+  it('글 파일은 파일 창의 판으로 — 코드 편집기 · 웹 페이지 · PDF (그 위치로 들어가지 않는다)', () => {
+    expect(planOf('C:/proj/src/App.tsx')).toEqual({ route: 'pane', pane: 'code' });
+    expect(planOf('C:/proj/docs/notes.md')).toEqual({ route: 'pane', pane: 'code' });
+    expect(planOf('C:/proj/data/config.json')).toEqual({ route: 'pane', pane: 'code' });
+    expect(planOf('C:/proj/site/index.html')).toEqual({ route: 'pane', pane: 'html' });
+    expect(planOf('C:/proj/docs/spec.pdf')).toEqual({ route: 'pane', pane: 'pdf' });
+    // 우리 그림 앱이 받지 않는 그림(아이콘)은 판의 그림 칸이 보여 준다.
+    expect(planOf('C:/proj/public/favicon.ico')).toEqual({ route: 'pane', pane: 'image' });
+  });
+
+  it('프로젝트 밖 글 파일도 파일 창으로 연다(보기만 — 편집창이 정한다)', () => {
+    expect(planOf('D:/elsewhere/notes/plan.md')).toEqual({ route: 'pane', pane: 'code' });
+    expect(planOf('D:/elsewhere/report.pdf')).toEqual({ route: 'pane', pane: 'pdf' });
+  });
+
+  it('우리 앱이 그리지 않는 것은 OS 연결 프로그램 — 미디어 원본 · 악보 · 압축 · 글꼴 · 오피스', () => {
+    for (const abs of [
+      'C:/proj/bubble-test/video/veg.veg', 'C:/proj/raw/clip.y4m', 'C:/proj/art/cover.psd', 'C:/proj/scene/robot.blend',
+      'C:/proj/bgm/theme.mid', 'C:/proj/dist/build.zip', 'C:/proj/fonts/brand.ttf', 'C:/proj/docs/brief.docx',
+    ]) {
       expect(routeOf(abs), abs).toBe('external');
     }
   });
@@ -171,15 +188,31 @@ describe('fileFaceOpenRoute — 미디어 얼굴 더블클릭이 여는 곳(우�
     }
   });
 
-  it('자리가 없으면 연결 프로그램', () => {
-    expect(fileFaceOpenRoute(fileFaceOf(file('D:/elsewhere/old.wmv')), null)).toBe('external');
+  it('자리가 없으면(창의 주인을 모른다) 연결 프로그램', () => {
+    expect(fileFaceOpenPlan(fileFaceOf(file('D:/elsewhere/old.wmv')), null, 'D:/elsewhere/old.wmv')).toEqual({ route: 'external' });
+    expect(fileFaceOpenPlan(fileFaceOf(file('D:/elsewhere/a.md')), null, 'D:/elsewhere/a.md')).toEqual({ route: 'external' });
+  });
+});
+
+describe('fileFacePaneKind — 툴팁과 더블클릭이 같은 판을 본다', () => {
+  it('글 파일은 그 판 · 앱이 받는 미디어·변환·연결 프로그램은 판이 아니다', () => {
+    expect(fileFacePaneKind(fileFaceOf(file('C:/proj/src/App.tsx')), 'C:/proj/src/App.tsx')).toBe('code');
+    expect(fileFacePaneKind(fileFaceOf(file('C:/proj/site/index.html')), 'C:/proj/site/index.html')).toBe('html');
+    expect(fileFacePaneKind(fileFaceOf(file('C:/proj/out/teaser.mp4')), 'C:/proj/out/teaser.mp4')).toBeNull();
+    expect(fileFacePaneKind(fileFaceOf(file('C:/proj/raw/take1.avi')), 'C:/proj/raw/take1.avi')).toBeNull();
+    expect(fileFacePaneKind(fileFaceOf(file('C:/proj/fonts/brand.ttf')), 'C:/proj/fonts/brand.ttf')).toBeNull();
+  });
+
+  it('우리 앱이 그리지 않는 미디어 원본은 글자로 열지 않는다(이진 안내 한 줄뿐이다)', () => {
+    expect(fileFacePaneKind(fileFaceOf(file('C:/proj/bubble-test/video/veg.veg')), 'C:/proj/bubble-test/video/veg.veg')).toBeNull();
+    expect(fileFacePaneKind(fileFaceOf(file('C:/proj/raw/clip.y4m')), 'C:/proj/raw/clip.y4m')).toBeNull();
   });
 });
 
 describe('calcBubbleSize — 얼굴의 지름 하한', () => {
   it('미디어는 mediaMinSize, 코드는 종전 그대로 — 파일은 중심이 되지 않아 위성 수로 커지지 않는다(§5.1 #2-1 (B) 묶음 버블)', () => {
     expect(calcBubbleSize(file('C:/proj/a.png'))).toBeGreaterThanOrEqual(FILE_FACE.mediaMinSize);
-    // 종전 `_moonCount` 하한(hubMinSize)은 걷었다 — 같은 파일은 위성 수와 무관하게 같은 지름이다.
+    // 같은 파일은 위성 수(`_moonCount`)와 무관하게 같은 지름이다.
     expect(calcBubbleSize({ ...file('C:/proj/a.png'), _moonCount: 2 } as BubbleData)).toBe(calcBubbleSize(file('C:/proj/a.png')));
     expect(calcBubbleSize(file('C:/proj/a.ts'))).toBeLessThan(FILE_FACE.mediaMinSize);
   });

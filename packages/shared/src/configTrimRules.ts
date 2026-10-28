@@ -1,17 +1,6 @@
 /**
- * §5.3 #10-5 — 설정 덜어내기(Config Trim) **규칙 표**.
- *
- * 이 파일은 "이 턴에 `AgentConfig` 의 어느 칸을 떼고 가도 결과가 같은가" 를 **표 하나로만** 적는다.
- * 조건을 서버·클라 코드 여기저기 흩지 않는 것이 이 모듈의 존재 이유다 —
- * 모델이 바뀌거나 CLI 플래그가 사라지면 `CONFIG_TRIM_RULES` 의 그 줄 하나만 고치면 된다.
- *
- * 판정 원칙은 **보수적**이다. 셋 중 하나라도 걸리면 덜어내지 않고 배제 목록으로 보낸다:
- *  (1) 판정 재료가 이 턴에 없다(`'unknown'`) — 모르면 둔다.
- *  (2) 그 칸이 `CONFIG_TRIM_PROTECTED` 에 있다 — 규칙이 뭐라 하든 손대지 않는다.
- *  (3) 사용자가 그 규칙을 꺼 뒀다(`ConfigTrimSettings.disabledRules`).
- *
- * **저장된 `AgentConfig` 는 절대 고치지 않는다.** `computeConfigTrim` 은 얕은 사본을 만들어
- * 그 사본에서만 칸을 지우고, 원본은 읽기만 한다. 사본은 그 한 턴의 스폰 인자에만 쓰인다.
+ * §5.3 #10-5 — 설정 덜어내기 규칙 표(이 턴에 뗄 수 있는 `AgentConfig` 칸). 모델·CLI 가 바뀌면 `CONFIG_TRIM_RULES` 의 그 줄만 고친다.
+ * 보수적: 재료 없음(`'unknown'`)·보호 칸·꺼진 규칙은 덜지 않고 배제 목록으로. **저장된 설정은 고치지 않는다** — 얕은 사본만 깎아 그 턴 스폰에 쓴다.
  */
 
 import type {
@@ -58,19 +47,11 @@ export interface ConfigTrimRule {
   field: keyof AgentConfig;
   /** 덜어낸 까닭 갈래 — 화면이 목록을 이 값으로 묶는다. */
   reason: ConfigTrimReason;
-  /**
-   * 이 턴에 덜어낼까.
-   * - `true` → 사본에서 지운다.
-   * - `false` → 그대로 둔다(목록 어디에도 서지 않는다 — 이 규칙이 안 걸렸을 뿐이다).
-   * - `'unknown'` → 판정 재료가 없다. 덜어내지 않고 **배제 목록**에 사유와 함께 세운다.
-   */
+  /** `true` 지운다 · `false` 그대로 · `'unknown'` 재료 없음 — 덜지 않고 배제 목록에 사유와 함께. */
   match(config: Readonly<AgentConfig>, ctx: ConfigTrimContext): boolean | 'unknown';
 }
 
-/**
- * **손대지 않는 칸** 표 — 규칙이 뭐라 하든 여기 있는 칸은 사본에서도 살아남는다.
- * 이 설정에 실제로 값이 들어 있는 칸만 배제 목록에 선다(값이 없는 칸까지 40줄을 늘어놓지 않는다).
- */
+/** 손대지 않는 칸 — 규칙과 무관하게 남는다(배제 목록엔 값이 든 칸만 선다). */
 export const CONFIG_TRIM_PROTECTED: readonly { field: keyof AgentConfig; keep: ConfigTrimKeepReason }[] = [
   // 타입이 요구하는 네 칸 — 없으면 설정이 아니다.
   { field: 'model', keep: 'required' },
@@ -117,12 +98,7 @@ function emptyList(v: unknown): boolean {
   return Array.isArray(v) && v.length === 0;
 }
 
-/**
- * **규칙 표.** 위에서 아래로 훑는다. 한 칸에 규칙이 여럿 걸리면 먼저 걸린 하나만 적용한다.
- *
- * 모델·CLI 가 바뀌면 **이 배열만** 고친다. 새 줄을 넣었으면
- * `ConfigTrimRuleId`(types.ts) 와 `ide.configTrim.rule.<id>`(en.json) 도 같이 늘린다.
- */
+/** 규칙 표 — 위에서 아래로, 한 칸엔 먼저 걸린 하나만. 새 줄을 넣으면 `ConfigTrimRuleId`(types.ts)·`ide.configTrim.rule.<id>`(en.json)도 늘린다. */
 export const CONFIG_TRIM_RULES: readonly ConfigTrimRule[] = [
   // --- 저장만 되고 본체가 없는 칸 (타입 주석에 그렇게 적혀 있다) ---------------------
   {
@@ -280,12 +256,7 @@ export interface ConfigTrimResult {
   excluded: ConfigTrimExclusion[];
 }
 
-/**
- * 규칙 표를 한 번 훑어 **사본**을 깎는다. 원본은 읽기만 한다(`Readonly`).
- *
- * 순서는 (1) 손대지 않는 칸을 배제 목록에 세우고 -> (2) 규칙 표를 위에서 아래로 훑는다.
- * 한 칸이 이미 덜어졌으면 그 칸의 남은 규칙은 건너뛴다.
- */
+/** 규칙 표로 사본을 깎는다(원본 읽기만). 보호 칸을 먼저 배제 목록에 세우고, 이미 덜어진 칸의 남은 규칙은 건너뛴다. */
 export function computeConfigTrim(
   config: Readonly<AgentConfig>,
   ctx: ConfigTrimContext,
@@ -335,10 +306,7 @@ export function computeConfigTrim(
   return { config: copy, trimmed, excluded };
 }
 
-/**
- * 서버가 이 턴의 사정을 표준 모양으로 묶어 준다 — `undefined` 는 키 자체를 넣지 않는다
- * ("모른다" 와 "없다" 를 섞지 않기 위해서다).
- */
+/** `undefined` 는 키를 넣지 않는다 — "모른다"와 "없다"를 섞지 않게. */
 export function configTrimContextOf(input: {
   engine: 'claude' | 'codex';
   config: Readonly<AgentConfig>;

@@ -1,19 +1,7 @@
 /**
- * §5.5 #17-33 — Claude Code 자신의 플러그인(`claude plugin`) 인벤토리 + 마켓플레이스.
- *
- * **우리 관측 플러그인(`packages/plugins`, §5.11)과 다른 물건이다.** 그쪽은 Vibisual 이 만든
- * 것이고 이쪽은 명령·에이전트·스킬·훅·MCP 를 한 묶음으로 배포하는 Claude Code 의 그 단위다.
- *
- * 진실의 출처는 **Claude Code 자신의 답**이다 — `claude plugin list --json --available` 한 번이
- * 설치본과 마켓 목록을 함께 준다(실측 461ms / 159KB). #17-31·#17-32 가 세운 "새 설정 포맷을
- * 발명하지 않는다" 규율의 세 번째 적용이고, 여기서는 한 걸음 더 간다: `installed_plugins.json` 을
- * 우리가 직접 해석하지 않는다. 그 파일 포맷은 CLI 의 내부 사정이라 바뀌는 날 조용히 어긋난다.
- *
- * 바꾸는 일(켜기·끄기·설치·제거·마켓 추가)도 전부 **CLI 에 위임**한다 — 우리가 git clone 과
- * 설치 상태 파일 쓰기를 흉내 내기 시작하면 CLI 의 상태와 두 갈래로 갈린다. 우리는 이미 있는
- * 스폰 경로(`getClaudeBin`)를 쓸 뿐이다.
- *
- * 상태를 들지 않는다 — 캐시·broadcast·checkpoint 미관여(매 조회가 곧 새로고침).
+ * §5.5 #17-33 — Claude Code 자신의 플러그인(`claude plugin`) 인벤토리 + 마켓플레이스. 우리 관측 플러그인(`packages/plugins`, §5.11)과 다른 물건이다.
+ * 진실의 출처는 CLI 의 답이다 — `claude plugin list --json --available` 한 번이 설치본과 마켓을 함께 준다(실측 461ms / 159KB). `installed_plugins.json` 은 CLI 내부 포맷이라 직접 해석하지 않는다(바뀌는 날 조용히 어긋난다).
+ * 바꾸는 일(켜기·끄기·설치·제거·마켓 추가)도 전부 CLI 위임 — git clone·상태 파일 쓰기를 흉내 내면 CLI 상태와 갈린다. 상태를 들지 않는다(캐시·broadcast·checkpoint 미관여, 매 조회가 새로고침).
  */
 import { spawn } from 'node:child_process';
 
@@ -28,16 +16,13 @@ import { annotatePluginUpdates, classifyMarketplace, resolvePluginPlacement, spl
 
 import { logger } from '../logger.js';
 
-import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { claudeSpawnEnv, getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { buildCliInvocation } from './claudeCliRun.js';
 
 /** 조회 타임아웃 — 실측 461ms 라 넉넉하다(마켓 캐시가 비어 네트워크를 타면 더 걸릴 수 있다). */
 const LIST_TIMEOUT_MS = 20_000;
 
-/**
- * 바꾸는 명령의 타임아웃. 설치는 git clone 을 타므로 조회보다 훨씬 길게 잡는다.
- * (그래도 무한정 기다리지는 않는다 — 화면이 영영 "설치 중" 으로 남으면 그게 더 나쁘다.)
- */
+/** 바꾸는 명령의 타임아웃 — 설치는 git clone 을 타서 조회보다 훨씬 길다. 그래도 무한정은 아니다(화면이 영영 "설치 중"이면 더 나쁘다). */
 const MUTATE_TIMEOUT_MS = 180_000;
 
 /** CLI 가 뱉는 JSON 상한 — 마켓 전체가 실려도 이보다 크면 우리가 아는 그 응답이 아니다. */
@@ -84,6 +69,8 @@ function execClaude(args: string[], cwd: string, timeoutMs: number): Promise<Exe
         shell: invocation.shell,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
+        // §4 (앱 전용 엔진) ⑤ — 앱 전용 실행본이면 엔진 자체 갱신을 끈다.
+        env: claudeSpawnEnv(process.env, binPath),
       });
     } catch (err) {
       return finish({ ok: false, stdout: '', stderr: '', code: null, spawnError: String(err) });
@@ -205,10 +192,7 @@ function collectMarketplaces(market: ClaudeMarketPlugin[]): ClaudeMarketplaceEnt
     .sort((a, b) => b.pluginCount - a.pluginCount);
 }
 
-/**
- * CLI 가 뱉은 JSON 본문 → 인벤토리. **스폰과 분리한 순수 함수**라 실제 CLI 출력 모양으로
- * 테스트할 수 있다(이 층에서 깨지면 목록이 통째로 비는데, 그건 "플러그인이 없다" 와 구별이 안 된다).
- */
+/** CLI 가 뱉은 JSON 본문 → 인벤토리. **스폰과 분리한 순수 함수**라 실제 CLI 출력 모양으로 시험할 수 있다. */
 export function parsePluginListOutput(stdout: string, projectPath: string): ClaudePluginInventory {
   const base = { projectPath, installed: [], market: [], marketplaces: [], scannedAt: Date.now() };
   const parsed = parseJsonLoose(stdout);
@@ -256,10 +240,8 @@ export function parsePluginListOutput(stdout: string, projectPath: string): Clau
 }
 
 /**
- * 이 프로젝트(=이 세션)에서 본 Claude Code 플러그인 전부 + 마켓.
- *
- * 매 호출마다 CLI 에 다시 묻는다(캐시 ❌ — 화면의 새로고침이 곧 이 호출이다).
- * CLI 에 닿지 못하면 **빈 목록이 아니라 사유**를 담아 돌려준다 — "없다" 와 "묻지 못했다" 는 다르다.
+ * 이 프로젝트(=이 세션)에서 본 Claude Code 플러그인 전부 + 마켓. 매 호출 CLI 에 다시 묻는다(캐시 ❌ — 화면의 새로고침이 곧 이 호출).
+ * CLI 에 닿지 못하면 **빈 목록이 아니라 사유**를 담는다 — "없다"와 "묻지 못했다"는 다르다.
  */
 export async function scanClaudePlugins(projectPath: string): Promise<ClaudePluginInventory> {
   const res = await execClaude(['plugin', 'list', '--json', '--available'], projectPath, LIST_TIMEOUT_MS);
@@ -286,10 +268,7 @@ function toResult(res: ExecResult, what: string): PluginMutationResult {
 
 /**
  * 켜기/끄기 — `claude plugin enable|disable <id> --scope <범위>`.
- *
- * 진실은 `settings.json` 의 `enabledPlugins` 이지만 **우리가 직접 쓰지 않는다**. 그 키를 어느
- * 파일에 쓸지(사용자·프로젝트·로컬)를 정하는 규칙이 CLI 안에 있고, 우리가 그 규칙을 흉내 내면
- * 화면과 실제가 갈릴 수 있다 — 같은 판단을 #17-31 이 MCP 에서 이미 했다.
+ * 진실은 `settings.json` 의 `enabledPlugins` 지만 **직접 쓰지 않는다** — 어느 파일(사용자·프로젝트·로컬)에 쓸지 규칙이 CLI 안에 있어, 흉내 내면 화면과 실제가 갈린다(#17-31 MCP 와 같은 판단).
  */
 export function setClaudePluginEnabled(
   projectPath: string,
@@ -340,13 +319,7 @@ export function removeClaudeMarketplace(projectPath: string, name: string): Prom
 
 /**
  * §5.5 #17-33 ⑦ — 마켓 클론을 원본에서 다시 끌어온다. `name` 없이 부르면 **전부**(CLI 규약).
- *
- * **이 함수가 없어서 병목이 있었다.** 마켓 클론은 누가 이것을 부르기 전까지 영영 그대로다 —
- * 실측(2026-09-09) 공식 마켓 매니페스트는 2026-08-04 에 멈춰 36일 낡아 있었고, 그동안
- * Anthropic 이 낸 스킬은 앱 어디에도 나타나지 않았다. 종전에는 사용자가 터미널로 나가
- * `/plugin marketplace update` 를 직접 쳐야 했다.
- *
- * git 을 타므로 변경 타임아웃(180초)을 그대로 쓴다.
+ * 누가 이것을 부르기 전까지 클론은 그대로다(실측 2026-09-09: 공식 마켓 매니페스트 36일 낡음). git 을 타므로 변경 타임아웃(180초)을 쓴다.
  */
 export function updateClaudeMarketplaces(projectPath: string, name?: string): Promise<PluginMutationResult> {
   const args = name && name.trim().length > 0
@@ -358,12 +331,8 @@ export function updateClaudeMarketplaces(projectPath: string, name?: string): Pr
 
 /**
  * §5.5 #17-33 ⑦ — 설치본 하나를 최신 판으로 — `claude plugin update <id> --scope <범위> --yes`.
- *
- * `--yes` 는 설치와 같은 이유로 필수다(TTY 가 아닌 우리 스폰은 확인 프롬프트에 걸려 멈춘다 —
- * CLI 도움말이 "required when stdin or stdout is not a TTY" 로 못 박고 있다).
- *
- * CLI 는 "restart required to apply" 라고 답하는데, 우리는 턴마다 세션을 새로 스폰하므로
- * **다음 스폰부터 자연히 적용된다** — 앱을 재기동할 이유가 없다.
+ * `--yes` 필수 — TTY 가 아닌 스폰은 확인 프롬프트에 걸려 멈춘다(CLI 도움말: "required when stdin or stdout is not a TTY").
+ * CLI 가 "restart required to apply" 라 답해도 턴마다 세션을 새로 스폰하므로 다음 스폰부터 적용된다 — 앱 재기동이 필요 없다.
  */
 export function updateClaudePlugin(
   projectPath: string,

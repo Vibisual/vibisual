@@ -1,18 +1,9 @@
 /**
- * commandRegistryContract.test.ts — **표에 있는 단축키는 반드시 듣는 곳이 있다.**
- *
- * §5.4 #32 의 규약은 한 줄이다: *"핸들러가 이 표를 보지 않는 명령은 넣지 마라."* 어기면
- * 사용자가 설정에서 키를 바꿔도 아무 일이 일어나지 않는 **읽히지 않는 설정 스위치**가 된다 —
- * 화면은 바뀌었는데 동작은 그대로인 그 결함이다. 사람이 지킬 수 있는 규약이 아니라서 여기서 못 박는다.
- *
- * 함께 막는 것 셋 —
- *  ① 이관한 파일이 옛 `window.addEventListener('keydown')` 을 도로 들이는 것(두 벌이 되면 재매핑이
- *     한쪽에만 반영돼 "설정은 바뀌었는데 그 화면만 옛 키"가 된다),
- *  ② 명령 이름·보충 설명의 번역 키가 `en.json` 에 없는 것(그러면 화면에 키 문자열이 그대로 뜬다),
- *  ③ 번역문에 단축키를 박는 것(mac 에서 영영 `Ctrl+…` 로 뜬다 — §i18n).
- *
- * ⚠ 클라 vitest 에는 DOM 도 `node:fs` 도 없다. 소스 훑기는 `import.meta.glob('?raw')` 으로 하고,
- * glob 이 비면 검사가 **조용히 통과**하므로 "실제로 읽어 왔다"를 먼저 못 박는다.
+ * commandRegistryContract.test.ts — 표에 있는 단축키는 반드시 듣는 곳이 있다(§5.4 #32: 핸들러가 이 표를 보지 않는 명령은 넣지 마라).
+ * 어기면 설정에서 키를 바꿔도 아무 일이 없는 읽히지 않는 설정 스위치가 된다. 함께 막는 것 셋 —
+ *  ① 이관한 파일이 옛 `window.addEventListener('keydown')` 을 도로 들이는 것(재매핑이 한쪽에만 반영된다)
+ *  ② 명령 이름·보충 설명의 번역 키가 `en.json` 에 없는 것(화면에 키 문자열이 뜬다) ③ 번역문에 단축키를 박는 것(mac 에서 `Ctrl+…` 로 뜬다 — §i18n).
+ * 클라 vitest 에는 DOM 도 `node:fs` 도 없다 — 소스는 `import.meta.glob('?raw')` 로 읽고, glob 이 비면 조용히 통과하므로 "실제로 읽어 왔다"를 먼저 못 박는다.
  */
 import { describe, it, expect } from 'vitest';
 import { COMMAND_IDS, COMMANDS, commandDef } from '@vibisual/shared';
@@ -38,11 +29,8 @@ const MIGRATED = [
 ];
 
 /**
- * 파일 이름으로 소스를 꺼낸다.
- *
- * glob 키는 이 테스트 파일 기준 상대경로라 **같은 폴더는 `./`, 다른 폴더는 `../`** 로 시작한다
- * (`./useBookmarks.ts` vs `../components/IDE/CodeEditor.tsx`). 그래서 경로가 아니라 파일 이름으로
- * 찾고, 같은 이름이 둘이면 검사가 엉뚱한 파일을 볼 수 있으므로 그것도 함께 막는다.
+ * 파일 이름으로 소스를 꺼낸다 — glob 키는 이 파일 기준 상대경로라 같은 폴더는 `./`, 다른 폴더는 `../` 로 시작한다(`./useBookmarks.ts` vs `../components/IDE/CodeEditor.tsx`).
+ * 같은 이름이 둘이면 엉뚱한 파일을 볼 수 있으므로 그것도 막는다.
  */
 const read = (name: string): string => {
   const hits = Object.entries(SOURCES).filter(([p]) => p.endsWith(`/${name}`));

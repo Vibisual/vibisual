@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.97 — 환각 방어(Hallucination): 코드 도메인의 최선 방어는 실행이다.
- *
- * 에이전트에서는 존재하지 않는 API·파일·함수를 지어내는 형태가 가장 흔하다. 타입체크·린트·테스트가
- * 지어낸 API 를 즉시 잡아내므로, "모델에게 확인하게 하는" 것보다 훨씬 확실하다. 여기서는 이 에이전트가
- * **실행으로 검증할 수단을 쥐고 있는지**를 본다. 표시 전용.
- */
+/** §5.11 — 환각 방어(Hallucination): 최선 방어는 실행(타입체크·린트·테스트) — 이 에이전트가 실행으로 검증할 수단을 쥐었는지 본다. 표시 전용. */
 import { defineInspector } from '../sdk/index.js';
 import { effectiveTools } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';

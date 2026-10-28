@@ -1,10 +1,4 @@
-/**
- * §5.11 v3.93 — 도구 사용(Tool Use): 도구 정의가 먹는 컨텍스트 몫.
- *
- * 도구가 수십 개를 넘어가면 정의만으로 수만 토큰이 되고, 모델의 도구 선택 정확도도 같이 떨어진다.
- * 안 쓸 도구를 걷어내는 것만으로 비용과 품질이 동시에 개선되므로, 여기서는 **몇 개를 쥐고 있고
- * 그게 창의 몇 퍼센트인지**를 보여준다. 표시 전용.
- */
+/** §5.11 — 도구 사용(Tool Use): 쥔 도구 수와 그 정의가 창에서 먹는 몫. 표시 전용. */
 import { TOOL_SCHEMA_ESTIMATE, AVAILABLE_AGENT_TOOLS, getModelContextLimit } from '@vibisual/shared';
 import { defineInspector } from '../sdk/index.js';
 import { effectiveTools } from '../sdk/index.js';

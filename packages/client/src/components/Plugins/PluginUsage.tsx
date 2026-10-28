@@ -1,15 +1,6 @@
 /**
- * §5.11 v4.39 — "이 카드를 켜면 뭘 보게 되는가".
- *
- * 설명 문장만으로는 켤지 말지 정하기 어렵다. 그래서 설명을 누르면 **이 카드가 실제로 하는 일**을 편다.
- *
- * 중요한 것은 이 내용을 **따로 지어 쓰지 않는다**는 점이다. 세 가지 모두 카드가 이미 선언한 것에서 나온다.
- *  · 어디에 보이나 → `manifest.contributes`
- *  · 무엇을 읽나 → `module.needs`(데이터 축)
- *  · 어떤 값을 보여 주나 → `module.usage.checkKeys` 로 만든 **실제 행 이름**(12개 로케일에 이미 번역돼 있다)
- *
- * 손으로 쓴 예시였다면 111장 × 12로케일이 필요하고, 카드가 바뀌면 조용히 거짓말이 된다.
- * 이 방식은 카드가 바뀌면 설명도 같이 바뀐다.
+ * §5.11 — 카드를 켜면 뭘 보게 되나. 손으로 쓰지 않고 선언에서 만든다(`manifest.contributes` · `module.needs` · `module.usage.checkKeys` 행 이름)
+ * — 카드가 바뀌면 설명도 따라 바뀐다.
  */
 import { useTranslation } from 'react-i18next';
 import type { PluginManifest } from '@vibisual/shared';

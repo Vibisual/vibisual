@@ -10,12 +10,7 @@ import {
   type MemoLinkMenuHandlers,
 } from './memoLinkMenu.js';
 
-/**
- * §5.5 #17-36 ⑫ 메모 입력칸 우클릭 — 링크 항목 목록 시험.
- *
- * 사용자 지시가 그대로 시험이 된다: "텍스트 선택하고 우클릭하면 링크 선택이 나오고, 링크는 목록에서 고르고,
- * **첫 번째가 세션의 글 위치**, 다시 고를 수 있고, 다른 링크도 넣을 수 있게."
- */
+/** §5.5 #17-36 ⑫ — 메모 우클릭 링크 목록 시험(글자 고르고 우클릭 → [링크], 첫 자리는 세션 글 위치, 다시 고르기·추가). */
 
 /** 키를 그대로 돌려주는 t — 라벨이 어느 키에서 왔는지 확인한다. */
 const t = (key: string, opts?: Record<string, unknown>): string => (opts ? `${key}:${JSON.stringify(opts)}` : key);

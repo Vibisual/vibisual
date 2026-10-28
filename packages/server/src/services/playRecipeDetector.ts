@@ -1,12 +1,7 @@
 /**
- * §5.14 v4.62 — 실행 레시피 탐지기 (4단 계단의 1~3단).
- *
- * "이 프로젝트는 어떻게 켜는가" 를 프로젝트 안의 흔적만 보고 답한다. 규칙은 하나다 —
- * **추측을 확신처럼 굴지 않는다.** 후보에는 신뢰도와 근거가 붙어 오고, 화면에는 그 근거가
- * 그대로 보인다(사용자가 "무엇이 실행되는지" 읽고 누르게).
- *
- * 4단(에이전트 위임)은 여기 없다 — 여기서 후보가 0개일 때 비로소 사람이 아닌 에이전트에게
- * 묻는 것이고, 그건 명령 큐의 일이다.
+ * §5.14 — 실행 레시피 탐지기(4단 계단의 1~3단): 프로젝트 안의 흔적만 보고 "어떻게 켜는가"를 답한다.
+ * **추측을 확신처럼 굴지 않는다** — 후보마다 신뢰도와 근거를 붙이고 화면에 근거를 그대로 보인다(무엇이 실행되는지 읽고 누르게).
+ * 4단(에이전트 위임)은 여기 없다 — 후보가 0개일 때 명령 큐가 맡는다.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -150,11 +145,7 @@ function detectCommands(projectPath: string): PlayRecipeCandidate[] {
   return out;
 }
 
-/**
- * 3단 — 관찰 학습. 이 프로젝트에서 **실제로 떴던** 명령이 가장 정확한 답이다.
- *
- * 에이전트가 한 번 켜 준 적이 있으면 그다음부터는 사용자의 클릭만으로 켜진다.
- */
+/** 3단 — 관찰 학습. 이 프로젝트에서 **실제로 떴던** 명령이 가장 정확한 답이다(에이전트가 한 번 켜 줬으면 다음부터는 클릭만으로 켜진다). */
 function detectObserved(projectPath: string, observed: readonly { command: string; port?: number }[]): PlayRecipeCandidate[] {
   const out: PlayRecipeCandidate[] = [];
   const seen = new Set<string>();

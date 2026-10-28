@@ -15,9 +15,8 @@ const CHANGE_KEYS: Readonly<Record<'added' | 'changed' | 'removed', string>> = {
 };
 
 /**
- * §5.13 (R-10) — 3D candidate review. The list is payload-free and is read again only while the panel is open and the
- * source's candidate stamp moved; a candidate's body is read when it is chosen. Stale candidates can be moved onto the
- * current revision (rebase) when their changes do not overlap, discarded one by one or cleaned up together.
+ * §5.13 (R-10) — 3D candidate review. The payload-free list is re-read only while open and the candidate stamp moved; a body is read when chosen.
+ * Stale candidates can be rebased when their changes do not overlap, or discarded one by one or together.
  */
 export function Vibi3DCandidates({ projectId, doc, head, disabled, onAccept, onRevert }: {
   projectId: string; doc: CreationDoc; head: CreationHead | null; disabled: boolean;

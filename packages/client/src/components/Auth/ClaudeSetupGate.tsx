@@ -9,25 +9,9 @@ import { LanguageSwitcher } from '../Layout/LanguageSwitcher.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
 
 /**
- * §4 (첫 실행 설치 온보딩) — Claude Code CLI 설치 게이트 + 상단 배너.
- *
- * 앱만 내려받은 사람에게 **CLI 가 없다는 사실이 화면에 뜨는 유일한 자리**다. 그동안은
- * `LoginWindow` 가 `error`(판정 불가)면 뜨지 않고(§4 v4.82 — 판정 불가를 모달로 막지 않는다),
- * `ClaudeVersionGate` 는 `isOutdated` 로만 발화하는데 미설치는 `current=null` 이라 false 라서
- * 아무것도 뜨지 않았다.
- *
- * 화면 규칙:
- *  - **권장형(차단 ❌)** — [나중에] 로 닫으면 모달만 사라지고 **상단 배너**가 남는다. 배너를 누르면
- *    다시 열린다. 사용자가 앱을 둘러보는 것을 막지 않되, 없다는 사실은 계속 보이게 한다.
- *  - z-index 는 `LoginWindow`(100_600) 보다 위 — CLI 가 없으면 로그인은 애초에 불가능하므로
- *    순서상 이 창이 먼저다.
- *  - 설치가 끝나 `phase === 'ready'` 가 되면 성공 표시 후 자동으로 닫히고, **그 자리에서
- *    로그인 창을 불러 넘긴다**(SSOT §4 "설치 성공 → 재판정 → 로그인 단계로 자동 연결").
- *    기다리기 싫은 사람을 위해 [계속] 버튼과 바깥 클릭도 같은 인계를 태운다.
- *  - 자동 설치가 막힌 플랫폼이거나 실패했을 때를 대비해 **수동 명령 + 공식 문서**가 항상 보인다.
- *
- * ⚠ 표시/인계 판정은 `setupGateFlow.ts` 에 따로 있다 — 그 판정들이 `useEffect` deps 에 얽혀
- *   "준비 완료" 타이머가 자기 자신을 지우는 멈춤 버그를 냈던 자리라, 규칙만 떼어 테스트로 고정했다.
+ * §4 (첫 실행 설치 온보딩) — CLI 설치 게이트 + 배너. CLI 없음을 알리는 유일한 자리다(`LoginWindow` 는 `error` 면, `ClaudeVersionGate` 는 `current=null` 이면 안 뜬다).
+ * 권장형(차단 ❌ — [나중에] 면 배너가 남는다) · z-index 는 `LoginWindow`(100_600) 위 · `ready` 면 성공 표시 후 로그인으로 넘긴다([계속]·바깥 클릭도)
+ * · 수동 명령 + 공식 문서는 늘 보인다. ⚠ 판정은 `setupGateFlow.ts` 에 — `useEffect` deps 에 얽히면 "준비 완료" 타이머가 자기를 지워 멈춘다.
  */
 
 const Z = 100_700;
@@ -50,13 +34,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
   const [rechecking, setRechecking] = useState(false);
   const outputRef = useRef<HTMLPreElement | null>(null);
 
-  /**
-   * 설치가 막 끝난 직후 잠깐 유지되는 "완료" 표시.
-   *
-   * 이게 없으면 준비 완료 순간 `needsSetup` 과 `forced` 가 **동시에** 꺼지면서(스토어가
-   * `setupGateForced` 를 내린다) 창이 그냥 사라져, 사용자는 [설치하기] 를 누른 뒤 아무 확인도
-   * 못 본 채 화면이 바뀐다. 게이트를 **보고 있던 사람에게만** 짧은 확인을 남긴다.
-   */
+  /** 설치 직후 잠깐 남는 "완료" 표시 — 없으면 `needsSetup`·`forced` 가 동시에 꺼져 창이 확인 없이 사라진다. 게이트를 보고 있던 사람에게만. */
   const [justCompleted, setJustCompleted] = useState(false);
   const wasOpenRef = useRef(false);
   /** 인계는 한 번만 — 자동 만료와 [계속] 이 겹쳐도 로그인 창을 두 번 부르지 않게. */
@@ -68,11 +46,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
   //   창 위로 띄우게 알린다(HeaderLanguageSlot). 새 OS 에 갓 깔면 이 창이 첫 화면이다.
   useOnboardingGate('setup', shouldOpen);
 
-  /**
-   * 다음 단계(로그인)로 넘긴다 — 게이트가 닫히는 **모든 경로**(자동 만료 · [계속] · 바깥 클릭)가
-   * 여기로 모인다. 로그인 여부는 화면이 아니라 그 순간의 스토어 값으로 판정한다
-   * (인계는 렌더가 아니라 이벤트 시점의 사실이라, 오래된 클로저 값에 매이면 안 된다).
-   */
+  /** 다음 단계(로그인)로 넘긴다 — 닫히는 모든 경로(자동 만료·[계속]·바깥 클릭)가 여기로 모인다. 판정은 그 순간의 스토어 값으로(오래된 클로저 값 ❌). */
   const handOffToLogin = useCallback(() => {
     if (handedOffRef.current) return;
     const now = useGraphStore.getState();
@@ -108,12 +82,8 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
   }, [setup?.phase, refreshAuth]);
 
   /**
-   * ③ 확인 표시 만료 → 자동으로 닫고 로그인으로 인계.
-   *
-   * ⚠ deps 는 `justCompleted` 하나여야 한다. 예전엔 이 타이머가 `shouldOpen` 을 deps 에 달고
-   *   있었는데, 타이머가 켠 `justCompleted` 가 곧바로 `shouldOpen` 을 뒤집어 효과가 다시 돌고
-   *   그 정리가 **방금 건 타이머를 지웠다** → 게이트가 "준비 완료" 에서 영원히 멈추고, 그 위
-   *   오버레이가 뒤의 로그인 창까지 눌러 앉아 아무것도 눌리지 않았다.
+   * ③ 확인 표시 만료 → 닫고 로그인으로 인계.
+   * ⚠ deps 는 `justCompleted` 하나 — `shouldOpen` 을 달면 효과가 다시 돌며 정리가 방금 건 타이머를 지워, 게이트가 "준비 완료"에서 멈추고 뒤의 로그인 창까지 막힌다.
    */
   useEffect(() => {
     if (!justCompleted) return;
@@ -178,10 +148,8 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
                 {setup.version}
               </span>
             )}
-            {/* §4 (첫 실행 온보딩) — **폰 전용**. 데스크톱에서는 헤더 전환기가 이 창 위로 떠 오르므로
-                (HeaderLanguageSlot) 여기에도 두면 같은 것이 두 개 보인다. 폰(max-md)은 헤더 우측
-                묶음이 접혀 있어 그 띄우기가 일어나지 않고(liftedSlotPosition → null) 옵션창도
-                백드롭 뒤라 닿지 않으므로, 이 자리가 모국어로 바꿀 유일한 입구다. */}
+            {/* §4 (온보딩) — 폰 전용 언어 전환기. 데스크톱은 헤더 전환기(HeaderLanguageSlot)가 이 창 위로 떠 두 개가 되고, 폰(max-md)은 그 띄우기가 없고
+               (liftedSlotPosition → null) 옵션창도 백드롭 뒤라 여기가 유일한 입구다. */}
             <div className="shrink-0 md:hidden"><LanguageSwitcher portalMenu menuZIndex={Z + 100} /></div>
           </div>
 
@@ -343,10 +311,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
   );
 }
 
-/**
- * 권장형 게이트를 [나중에]로 닫았을 때 남는 상단 배너 — 누르면 게이트가 다시 열린다.
- * 이것이 "차단하지 않으면서도 없다는 사실은 계속 보이게 한다"는 권장형의 나머지 절반이다.
- */
+/** [나중에] 로 닫으면 남는 상단 배너 — 누르면 게이트가 다시 열린다(막지 않되 없다는 사실은 계속 보이게). */
 export function ClaudeSetupBanner(): React.JSX.Element | null {
   const { t } = useTranslation();
   const setup = useGraphStore((s) => s.claudeSetup);

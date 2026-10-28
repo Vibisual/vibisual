@@ -1,15 +1,6 @@
 /**
- * 인코딩 — Mediabunny 래퍼 (SCENARIO.md §5.13 (F)).
- *
- * **프레임을 어디서 얻든 출구는 하나다.** 백엔드가 셋이어도 인코딩 경로가 갈리면
- * 방식마다 다른 파일이 나오고, 문제가 생겼을 때 어느 쪽 탓인지 알 수 없게 된다.
- *
- * 코덱은 고정하지 않고 **이 기기가 실제로 인코딩할 수 있는 것**을 물어서 고른다.
- * 특정 코덱을 박아 두면 그게 없는 환경에서 조용히 실패하거나, 내장 인코더를 손으로
- * 패치해야 하는 상태가 된다(다른 도구에서 실제로 벌어진 일이다).
- *
- * §5.13 (X) 39-2 — Mediabunny 는 **인코딩을 시작할 때** 불러온다(`loadMediabunny`). 이 모듈을 불러오는 것만으로
- * 인코더 코드를 해석하지 않게 — 렌더 배럴을 쓰는 모든 화면이 그 값을 치르던 자리다.
+ * §5.13 (F) Mediabunny 인코딩 래퍼 — 프레임을 어디서 얻든 출구는 하나다(갈리면 방식마다 다른 파일이 나온다).
+ * 코덱은 박지 않고 이 기기가 실제로 인코딩할 수 있는 것을 물어 고른다(박으면 없는 환경에서 조용히 실패). (X) 39-2 — 인코딩을 시작할 때 불러온다(`loadMediabunny`).
  */
 
 import type {
@@ -116,13 +107,7 @@ export interface VideoEncoderOptions {
   readonly container?: OutputContainer;
 }
 
-/**
- * 캔버스를 mp4 로 뽑아내는 인코더.
- *
- * 사용 순서는 `start()` → 프레임마다 `addFrame(t)` → (선택) `addAudio(buffer)` →
- * `finish()` 이다. `addFrame` 이 돌려주는 약속을 **반드시 기다려야** 한다 — 인코더가
- * 밀릴 때 기다리지 않으면 메모리가 끝없이 늘어난다.
- */
+/** `start()` → `addFrame(t)`… → (선택) `addAudio` → `finish()`. `addFrame` 의 약속을 반드시 기다린다 — 안 기다리면 인코더가 밀릴 때 메모리가 끝없이 는다. */
 export class VideoEncoder {
   private output: Output | null = null;
   private videoSource: CanvasSource | null = null;

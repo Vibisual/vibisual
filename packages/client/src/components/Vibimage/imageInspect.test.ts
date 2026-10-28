@@ -3,10 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { ImageDocument, ImageLayer } from '../Creation/imageSource.js';
 import { imageLayerAt, imageStageFit, imageStageLevels, imageViewerLevels, type ImageInspectContext } from './imageInspect.js';
 
-/**
- * §5.4 #15 (C) — 그림 앱을 Alt 인스펙터로 집으면 편집기는 그 자리의 맨 위 레이어(→ 그림 판 전체)를, 보기 화면은 그 그림과 픽셀
- * 좌표를 답한다. 종전에는 편집기가 어느 원본·어느 레이어인지 모르는 SVG 도형으로, 보기 화면은 무대 통째로 집혔다.
- */
+/** §5.4 #15 (C) — Alt 로 집으면 편집기는 맨 위 레이어(→ 판), 보기 화면은 그림과 픽셀 좌표를 답한다. */
 
 function layer(id: string, name: string, kind: ImageLayer['kind'], box: [number, number, number, number], over: Partial<ImageLayer> = {}): ImageLayer {
   const [x, y, width, height] = box;

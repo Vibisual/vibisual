@@ -1,9 +1,4 @@
-/**
- * §5.5 #17-20 ③ v4.74 — 디버그 인자 변환 테스트.
- *
- * 이 표의 규율은 하나다 — **얹지 못했으면 얹은 척하지 않는다**. 변환 실패를 조용히 성공으로
- * 넘기면 사용자는 디버거가 붙기를 기다리며 평범하게 도는 프로세스를 쳐다보게 된다.
- */
+/** §5.5 #17-20 ③ — 디버그 인자 변환: 얹지 못했으면 얹은 척하지 않는다(디버거가 안 붙는 프로세스를 기다리게 된다). */
 import { describe, expect, it } from 'vitest';
 
 import { DEBUG_PORT_BASE, buildDebugCommand, detectRunRuntime } from '@vibisual/shared';

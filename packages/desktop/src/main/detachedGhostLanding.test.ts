@@ -1,16 +1,9 @@
 /**
- * detachedGhostLanding.test.ts — §5.4 #14-1 (H) **떼어 낸 탭의 별창은 멈춘 선의 자리·크기 그대로 선다.**
- *
- * 탭을 띠 밖으로 끄는 동안 커서에 매달리는 것은 곧 설 별창 크기의 선(가상 창)이고, 그 선은 앱
- * 경계 밖까지 main 의 클릭통과 창(`ghostFrame.ts`)이 잇는다. 손을 떼면 렌더러가 선을 그 자리에
- * 멈추고 `detach({ fromGhost: true })` 를 부른다. 여기서는 main 이 **그 약속을 실제로 지키는지**를
- * 소스로 집행한다 — `windowManager` 는 electron 에 붙어 있어 여기서 실행할 수 없다(`redockCommit.test.ts`
- * 와 같은 전제). 기하 자체(선 크기·잡은 지점·자리)는 shared 순수 함수가 쥐고 server 의
- * `detachedWindowFrame.test.ts` 가 고정한다.
- *
- * 무너지는 자리는 셋이다 — ⓐ 선을 안 읽고 커서 기준으로 세우면 놓는 순간 창이 선과 다른 자리·크기로
- * 튄다 ⓑ 창이 보이기 전에 선을 걷으면 놓은 자리가 빈다 ⓒ 창이 못 서거나 이미 있던 창을 다시 쓰면
- * 멈춘 선을 걷을 주인이 없다(클릭통과라 사용자가 없앨 수 없다).
+ * §5.4 #14-1 (H) — 떼어 낸 탭의 별창은 멈춘 선(가상 창)의 자리·크기 그대로 선다. 손을 떼면 렌더러가 선을 멈추고 `detach({ fromGhost: true })` 를 부른다
+ * (앱 밖의 선은 main 의 클릭통과 창 `ghostFrame.ts`). `windowManager` 는 electron 에 붙어 실행할 수 없어 main 이 그 약속을 지키는지 소스로 집행한다
+ * (`redockCommit.test.ts` 와 같은 전제; 기하는 shared 순수 함수 — server 의 `detachedWindowFrame.test.ts`).
+ * 무너지는 자리: ⓐ 선 대신 커서 기준으로 세우면 창이 튄다 ⓑ 창이 보이기 전에 선을 걷으면 놓은 자리가 빈다 ⓒ 창이 못 서거나 기존 창을 다시 쓰면
+ * 멈춘 선을 걷을 주인이 없다(클릭통과라 사용자가 못 없앤다).
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';

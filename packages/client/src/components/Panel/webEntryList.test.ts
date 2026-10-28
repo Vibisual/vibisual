@@ -1,9 +1,4 @@
-/**
- * §7.22 — 도메인 버블 웹 이력 목록·상세 팝업이 지켜야 할 것을 원문에 고정한다.
- *
- * 클라 테스트에는 DOM 이 없으므로(jsdom 미설치) 렌더 대신 **소스 원문**을 읽는다 — 여기서 고정하는
- * 것은 픽셀이 아니라 **되돌아가면 안 되는 결정들**이고, 그 결정들은 전부 원문에 자국이 남는다.
- */
+/** §7.22 — 웹 이력 목록·상세 팝업의 결정을 소스 원문으로 고정한다(클라 시험엔 DOM 이 없다). */
 import { describe, expect, it } from 'vitest';
 
 const sources = import.meta.glob('./{WebEntryList,WebEntryDetailPopup}.tsx', {

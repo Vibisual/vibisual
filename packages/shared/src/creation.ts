@@ -1,11 +1,8 @@
 import { LOOPBACK_REQUEST_MAX_BYTES } from './constants.js';
 
 /**
- * §5.13 (R-10) — App-neutral editable-source contract. Renderers and document schemas belong to their apps.
- *
- * Nothing here knows an app name: the host stores ids, revisions, JSON payloads, locks, references and outputs.
- * Large binary values (data URLs, long numeric arrays) are moved into content-addressed immutable files and the
- * payload keeps only a `vibi-blob:` reference string, so identical bytes are stored once across revisions.
+ * §5.13 (R-10) — App-neutral editable-source contract (no app names; renderers and schemas belong to apps).
+ * Large binaries go to content-addressed immutable files; the payload keeps a `vibi-blob:` ref (identical bytes stored once).
  */
 export type CreationValue = null | boolean | number | string | CreationValue[] | { [key: string]: CreationValue };
 
@@ -17,9 +14,8 @@ export interface CreationLink {
   role: string;
   targets: string[];
   /**
-   * The user's "keep this version" decision. It lives in the ledger, never in an immutable revision, so recording it
-   * does not raise this document's revision (no cascade of "new version" notices). Every source revision up to this
-   * one was seen and `sourceRevision` kept; a newer source revision notifies again.
+   * The user's "keep this version" decision. Lives in the ledger, never in a revision, so recording it does not bump this document's revision.
+   * Source revisions up to this one were seen; a newer one notifies again.
    */
   keptRevision?: number;
 }

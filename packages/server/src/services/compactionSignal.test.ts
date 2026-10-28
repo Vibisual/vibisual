@@ -3,11 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { readCompactionSignal } from '@vibisual/shared';
 
 /**
- * §5.5 #17-24 ⑥ — CLI 스트림 한 줄에서 "압축 시작/끝"을 읽는다(2026-10-04).
- *
- * CLI 가 턴 도중에 대화를 접는 2.4~6분 동안 라이브 1줄은 "생각 중"으로 서 있었다 — 사용자가 본 "생각 중
- * 1시간"의 절반이 이것이었다(나머지 절반은 압축이 너무 잦았던 것, `compactFloor.test.ts`). 이 파일은
- * 표식을 세우고 걷는 판정과, 그 판정이 서버의 모든 갈래에 배선돼 있는지를 고정한다.
+ * §5.5 #17-24 ⑥ — CLI 스트림 한 줄에서 "압축 시작/끝"을 읽는다. CLI 가 턴 도중 대화를 접는 2.4~6분 동안 라이브 줄이 "생각 중"으로 서 있지 않게 한다.
+ * 표식을 세우고 걷는 판정과, 그 판정이 서버의 모든 갈래에 배선돼 있는지를 고정한다(압축이 너무 잦은 쪽은 `compactFloor.test.ts`).
  */
 describe('readCompactionSignal', () => {
   it('status:"compacting" 이 시작이다', () => {

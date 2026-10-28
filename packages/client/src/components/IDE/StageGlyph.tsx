@@ -1,12 +1,4 @@
-/**
- * §5.5 #17-17 ⑪(n) — **무대가 쓰는 그림 조각 한 벌.**
- *
- * 종류 글리프(24)·장면(96)·단계 표식은 지금까지 네 곳에서 각자 그려졌다(지도 노드·무대 머리·종류
- * 서랍·그리고 ⑪(l) 의 대화 카드가 다섯 번째가 될 참이었다). 같은 그림을 다섯 벌 그리면 색 규칙이
- * 한 곳에서만 바뀌는 날이 오고, 그때 사용자는 "같은 종류인데 창마다 다른 색"을 본다.
- *
- * 여기 있는 것은 **그리기만** 한다 — 무엇을 그릴지 고르는 판정은 `stageSurface.ts` 가 한다.
- */
+/** §5.5 #17-17 ⑪(n) — 무대 그림 조각 한 벌(글리프·장면·단계 표식). 따로 그리면 같은 종류가 창마다 다른 색이 된다. 고르기는 `stageSurface.ts`. */
 import React, { memo } from 'react';
 import { VISUAL_SCENE_VIEWBOX, type SessionGoalStepStatus, type VisualKindCard } from '@vibisual/shared';
 
@@ -53,11 +45,7 @@ export const KindGlyph = memo(function KindGlyph({
   );
 });
 
-/**
- * ㉒(d) — **path 문자열 하나를 그리는 조각.** 종류 카드가 아니라 **골격 표**가 가진 그림을 그린다
- * (`STAGE_SURFACE_CHROME` — 카드 색과 다른 축이므로 `KindGlyph` 에 억지로 카드 모양을 만들어
- * 넘기지 않는다). 그림 조각을 "한 벌"로 모아 둔다는 이 파일의 규약을 지키기 위해 여기 둔다.
- */
+/** ㉒(d) — path 하나를 그리는 조각(골격 표 `STAGE_SURFACE_CHROME` 용 — 카드 색과 다른 축이라 `KindGlyph` 에 가짜 카드를 넘기지 않는다). */
 export const PathGlyph = memo(function PathGlyph({
   d,
   color,
@@ -84,13 +72,7 @@ export const PathGlyph = memo(function PathGlyph({
   );
 });
 
-/**
- * ⑪(i)(n) — **장면 그림.** 카드가 `scene` 을 안 들고 있으면 24px 글리프를 크게 키워 대신 세운다
- * (그것도 없으면 중립 고리) — 무대가 빈 사각형으로 시작하지 않게.
- *
- * 그림은 전부 우리 좌표계의 stroke path 다 — 웹에서 받아 온 그림 태그는 이 창에 하나도 없다(⑪(b) ·
- * 무료 배포 제품이라 출처 불명 에셋의 라이선스를 우리가 뒤집어쓴다). `stageEntry.test.ts` 가 지킨다.
- */
+/** ⑪(i)(n) — 장면 그림. `scene` 이 없으면 글리프를 키우고, 그것도 없으면 중립 고리. 받아 온 그림 태그 ❌ — 출처 불명 에셋 라이선스(⑪(b), `stageEntry.test.ts`). */
 export const SceneArt = memo(function SceneArt({
   card,
   className = 'h-16 w-16',

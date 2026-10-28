@@ -11,6 +11,7 @@ import { DetailPanel } from '../Panel/DetailPanel.js';
 import { TrashPurgeDialog } from '../Panel/TrashPurgeDialog.js';
 import { MediaConvertDialog } from '../IDE/MediaConvertDialog.js';
 import { AppWindowHost } from '../../apps/AppWindow.js';
+import { FileWindowHost } from '../IDE/FileWindow.js';
 import { PermissionPromptStack } from '../PermissionPrompt/PermissionPromptStack.js';
 import { OptionsWindowHost } from '../Options/OptionsWindowHost.js';
 import { useGraphStore } from '../../stores/graphStore.js';
@@ -19,12 +20,9 @@ import { useDetachedSync } from '../../hooks/useDetachedSync.js';
 import { useProjectImmersion } from '../../hooks/useProjectImmersion.js';
 import { WS_PATH } from '@vibisual/shared';
 
-// SCENARIO.md §5.4 #14-1 (v2.29) — 메인 TabBar 에서 분리돼 별도 BrowserWindow 로 뜬 별창의 shell.
-// 미니 타이틀바(앱 드래그) + 단일 탭 콘텐츠. 같은 in-process 서버 / 같은 preload 라 graphStore 는
-// 자동으로 같은 graph_snapshot 을 수신(setBroadcastSink 가 모든 BrowserWindow 순회).
-//
-// 격리(§3.5): 같은 projectId 가 메인+별창에 동시 노출되는 일은 없다 — detach 즉시 메인 TabBar 가
-// 그 키를 detachedTabKeys 로 숨김(applyDetachedList 가 'vibisual:detached:list' 푸시로 sync).
+// SCENARIO.md §5.4 #14-1 — 메인 TabBar 에서 떼어 낸 별창의 shell(미니 타이틀바 + 탭 하나).
+// 같은 서버·preload 라 graphStore 는 같은 graph_snapshot 을 받는다.
+// 격리(§3.5): 같은 projectId 는 메인·별창에 동시에 뜨지 않는다 — detach 즉시 메인이 `detachedTabKeys` 로 숨긴다.
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}${WS_PATH}`;
 
@@ -103,7 +101,7 @@ export function DetachedShell({ kind, tabKey }: DetachedShellProps): React.JSX.E
               <CanvasBreadcrumb />
               {/* §9 — 별창도 자기 몫의 구독을 선언하므로 기다리는 시간이 똑같이 생긴다(본 창과 같은 표시). */}
               <CanvasLoadingHint />
-              {/* §5.10 v4.84 — 별창 캔버스에서도 휴지통 조작은 같아야 한다(본 창에만 넣으면 창마다 동작이 갈린다). */}
+              {/* §5.10 — 별창 캔버스에서도 휴지통 조작은 같아야 한다(본 창에만 넣으면 창마다 동작이 갈린다). */}
               <TrashToolbar />
             </>
           ) : (
@@ -118,6 +116,8 @@ export function DetachedShell({ kind, tabKey }: DetachedShellProps): React.JSX.E
       {/* §5.13 (S) — 앱 안 창(내부 앱). 여는 문이 넷(버블 더블클릭·우클릭 메뉴·옵션 패널·파일
           클릭)이라 창은 여기서만 그리고 열림 여부는 store 가 든다. 캔버스가 있는 셸마다 하나. */}
       <AppWindowHost />
+      {/* §5.5 #17-27 ⑳ — 파일 창. 별창 캔버스에서 누른 파일도 그 창에서 열린다(본 창에만 두면 별창에서는 아무 일도 안 일어난다). */}
+      <FileWindowHost />
       {/* §5.10 (O) — 옵션 창. 별창의 IDE 기억 정리 칸에서 「활성화 하러 가기」를 누르면 **이 창**에서
           열려야 한다(본 창에만 두면 별창에서는 아무 일도 안 일어난다). 열림 여부는 store 가 든다. */}
       <OptionsWindowHost />
@@ -150,7 +150,7 @@ function DetailPanelHost({ children, immersive }: { children: React.ReactNode; i
   const selectedTaskEdgeId = useGraphStore((s) => s.selectedTaskEdgeId);
   const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);
   const selectedCaptureBubbleId = useGraphStore((s) => s.selectedCaptureBubbleId);
-  // §5.13 (M) v4.68 — 별창에서도 앱 버블 옵션 패널이 떠야 한다(본 창에만 넣으면 창마다 동작이 갈린다).
+  // §5.13 (M) — 별창에서도 앱 버블 옵션 패널이 떠야 한다(본 창에만 넣으면 창마다 동작이 갈린다).
   const selectedAppBubbleId = useGraphStore((s) => s.selectedAppBubbleId);
   return (
     <div className="relative flex flex-1 overflow-hidden">
@@ -173,11 +173,8 @@ function DetailPanelHost({ children, immersive }: { children: React.ReactNode; i
   );
 }
 
-// ─── Mini title bar — mini-ghost drag → redock ────────────────────────────
-//
-// v2.30: 사용자가 미니 타이틀바를 잡으면 별창 본체가 mini ghost(200×44, opacity 0.85)로
-// 축소되어 cursor 따라간다. 메인 헤더 영역 위에서 떼면 redock, 그 외 위치에선 원본 복원.
-// 이전 polling 은 main 의 windowManager 가 담당 — renderer 는 pointer down/up 신호만 보낸다.
+// Mini title bar — 잡으면 별창이 mini ghost(200×44)로 줄어 커서를 따라가고, 메인 헤더 위에서 떼면 redock.
+// 창 이동 폴링은 main 의 windowManager 몫 — renderer 는 pointer down/up 만 보낸다.
 
 interface DetachedTitleBarProps {
   kind: 'project' | 'iframe';
@@ -189,10 +186,8 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
   const { t } = useTranslation();
   const [dragging, setDragging] = useState(false);
   const [hovering, setHovering] = useState(false);
-  // pointerdown 으로 redock 드래그를 시작했는지. 종료(뗌) 판정은 window 레벨 mouseup 으로 한다 —
-  // 최대화 창을 unmaximize 하면 그 창의 pointer 가 pointercancel 로 취소될 수 있어, 엘리먼트의
-  // onPointerUp/onPointerCancel 에 의존하면 드래그가 도중에 끊겨 "기본 창으로 복원하고 끝"나 버린다.
-  // mouseup 은 pointer 취소와 무관하게 물리적 버튼 해제에 항상 발생하므로 안전한 종료 신호다.
+  // redock 드래그 중인지. 뗌은 window mouseup 으로 판정한다 — unmaximize 때 pointercancel 이 날 수 있어
+  // onPointerUp/onPointerCancel 에 기대면 드래그가 도중에 끊긴다.
   const initiatedRef = useRef(false);
   // window mouseup 핸들러에서 최신 hovering 을 읽기 위한 ref (콜백 closure 의 stale 값 방지).
   const hoveringRef = useRef(false);
@@ -275,11 +270,7 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
     );
   }
 
-  // §5.4 #14-1 v2.35 — 미니 타이틀바를 좌/우 두 영역으로 분할:
-  //   (a) 좌측 redock-trigger zone — 프로젝트 아이콘 + 라벨 + "분리됨" 배지. app-nodrag, 우리가 pointer 처리.
-  //   (b) 우측 OS-drag zone — 빈 공간 + 닫기 버튼. -webkit-app-region: drag 라 OS 가 윈도우 자체를 이동.
-  //   (c) 닫기 버튼만 app-nodrag (그 외 우측 공간 전체는 OS drag).
-  // 사용자 의도: "독립창된 이후로 그건 왼쪽 영역에서만 하고 나머지 텝은 기존 동작 그대로 화면 옮기는 역할".
+  // §5.4 #14-1 — 좌측(아이콘·라벨·배지)은 app-nodrag 로 redock 드래그를 받고, 우측 빈 공간은 OS drag 로 창을 옮긴다(닫기 버튼만 app-nodrag).
   return (
     <div
       data-tab-key={tabKey}

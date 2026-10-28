@@ -3,12 +3,8 @@ import type { AgentConfig, QueuedCommand } from '@vibisual/shared';
 import type { LocalTurnArgs } from './localRunner.js';
 
 /**
- * §5.3 #12-1-B · §5.5 #17-12 ③-6 — **로컬 턴**에서 권한 카드 취소·답 넷·턴 끝 이유가 서는가.
- *
- * 로컬 경로는 훅이 없어 `/api/permission-check` 를 타지 않는다. 판정 자리가 `requestTool` 한 곳에
- * 따로 있으므로, 훅 경로만 고치고 여기를 빠뜨리면 로컬 버블에서만 "항상 거절했는데 또 묻는다"가 난다.
- *
- * 러너는 대역이다 — `onToolRequest`·`onDone` 을 우리가 부른다(`localTurnLiveness.test.ts` 와 같은 방식).
+ * §5.3 #12-1-B · §5.5 #17-12 ③-6 — 로컬 턴의 권한 카드 취소·답 넷·턴 끝 이유. 로컬은 훅이 없어 판정이 `requestTool` 에 따로 있다(훅 경로와 함께 고칠 것).
+ * 러너는 대역이다(`localTurnLiveness.test.ts` 와 같은 방식).
  */
 
 let lastTurnArgs: LocalTurnArgs | null = null;

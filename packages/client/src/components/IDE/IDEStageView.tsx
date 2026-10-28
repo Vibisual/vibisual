@@ -1,19 +1,6 @@
 /**
- * §5.5 #17-17 ⑪(i)(j)(n)·⑭·㉔ — **무대.** 에이전트의 개발 단계를 실체화해 IDE **우측 판**에 세운다.
- *
- * ㉔ **이것은 판이 아니라 그 판의 탭 하나다.** ⑪(k)·⑮ 시절 무대는 편집창과 **나란히 서는 자기 폭의
- * 패널**이었다 — 껍데기·폭 손잡이·머리줄·[닫기] 를 따로 갖고, 둘 다 열면 대화가 그만큼 두 번 좁아졌다.
- * 이제 우측에 서는 판은 하나뿐이고(`IDEEditorPane`), 무대는 그 판의 **첫 탭**이다. 그래서 이 파일에는
- * 껍데기가 없다 — 자리·폭·덮개 판정·닫기는 전부 판이 쥔다. 여기 남은 것은 **탭을 고르면 보이는 몸통**이다.
- *
- * ⑭ **한 장의 캔버스다.** 종전에는 위아래로 잘린 네 칸이었고(장면 · 진행 레일 · 지도 · 화면 골격),
- * 그 아래로 종류 서랍과 행동 팔레트가 한 줄씩 더 붙어 있었다 — 정작 블루프린트인 부분이 패널의
- * 절반도 못 가졌다. 이제 몸통은 **캔버스 하나**(`IDEGoalMapView`)이고, 장면과 진행 레일은 그 위에
- * **떠 있는 조각**(HUD)으로 남는다(정보를 지워서 자리를 만드는 것이 아니라 겹쳐서 만든다 — ⑭(b)).
- *
- * 걷어낸 세 칸이 하던 일은 하나도 버리지 않았다 — 전부 캔버스의 **우클릭 메뉴**로 옮겼다(⑭(c) ·
- * `StageCanvasMenu`). 화면 골격 칸(⑪(n)④)만은 그 자리에서 회수했다: 대부분의 단계에서 빈 안내
- * 한 줄로 `36%` 를 차지하고 앉아 있었다.
+ * §5.5 #17-17 ⑪(i)(j)(n)·⑭·㉔ — 무대: 개발 단계를 우측 판에. ㉔ 무대는 판(`IDEEditorPane`)의 첫 탭이라 자리·폭·닫기는 판이 쥔다(따로 껍데기를 두면 대화가 두 번 좁아진다).
+ * ⑭ 몸통은 캔버스 하나(`IDEGoalMapView`), 장면·진행 레일은 위에 뜬 HUD. 나머지 손짓은 우클릭 메뉴(`StageCanvasMenu`). 화면 골격 칸은 두지 않는다(빈 안내로 36% 를 먹었다).
  */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -35,13 +22,7 @@ import { POPUP_DISMISS } from '../../hooks/popupDismiss.js';
 /** ⑪(n) — 장면을 배경으로 깔 때의 투명도. 읽을 글자가 그 위에 서므로 그림은 **암시**여야 한다. */
 const SCENE_WATERMARK_OPACITY = 0.1;
 
-/**
- * ⑪(n)·⑭(b) — **진행 레일.** 단계 전부가 한 줄의 칸으로 선다. 이제 캔버스 **위에** 뜬다.
- *
- * 지도는 "무엇을 하는가"를 말하지만 스무 단계가 되면 화면 밖으로 나가 **"어디까지 왔나"** 를 잃는다.
- * 레일은 그 답만 남긴다 — 끝난 칸은 종류 색으로 차고, 지금 칸은 넓어지고 맥동하고, 남은 칸은 비어 있다.
- * 누르면 무대가 그 단계를 비춘다(캔버스를 훑지 않아도 되는 지름길).
- */
+/** ⑪(n)·⑭(b) — 진행 레일: 캔버스 위에 뜬 단계 칸 한 줄("어디까지 왔나"). 끝남 = 종류 색, 지금 = 넓게 맥동, 남음 = 빈칸. 누르면 그 단계를 비춘다. */
 function StageRail({
   steps,
   kinds,
@@ -122,12 +103,7 @@ export const IDEStageView = memo(function IDEStageView({
     graceMs: POPUP_DISMISS.touchOpenGraceMs,
     shouldConsider: (e) => e.button === 0 || e.button === 1,
   });
-  /**
-   * ⑯ — 카메라 추종은 **툴바의 [추종] 하나가 쥔다**(#17-27 ⑪ 의 그 세션별 스위치를 그대로 읽는다).
-   * 무대 머리에 제 버튼을 세우면 똑같이 생긴 [추종] 이 화면에 둘이 되고, 무대를 열고 닫을 때마다
-   * 그 하나가 자리를 옮겨 다니는 것으로 보인다(사용자 지시). 상태를 공유하므로 무대에서 손으로
-   * 지도를 끌면 툴바의 그 버튼도 함께 꺼진다 — "따라간다"는 축이 하나이기 때문이다.
-   */
+  /** ⑯ — 카메라 추종은 툴바의 [추종] 하나가 쥔다(#17-27 ⑪ 세션별 스위치). 무대에 버튼을 따로 두지 마라 — 둘이 되고 여닫을 때마다 자리를 옮긴다. */
   const followKey = followSessionKey(agentId ?? '', activeSessionId);
   const follow = useGraphStore((s) => s.ideEditorFollow[followKey] === true);
   const setFollow = useGraphStore((s) => s.setIdeEditorFollow);
@@ -170,10 +146,7 @@ export const IDEStageView = memo(function IDEStageView({
     // ㉔ — 껍데기가 아니라 **탭 몸통**이다: 자리·폭·덮개 판정은 판이 쥐고, 여기는 그 안을 채운다.
     //   `data-ide-stage-pane` 은 그대로 둔다 — 무대가 어디에 그려지든 "여기가 무대다"를 읽는 표식이다.
     <div data-ide-stage-pane="" className="flex min-h-0 flex-1 flex-col">
-      {/* 손잡이 줄 — 편집창의 그것과 **같은 자리·같은 톤**이다(탭을 옮겨도 줄이 튀지 않게).
-          이름("무대")은 이제 탭이 말하므로 여기 적지 않고, [닫기] 도 탭의 × 하나로 접혔다(㉔).
-          ⑯ — [추종] 은 여기 서지 않는다. 대화 툴바의 그 버튼 하나가 두 축을 함께 쥐므로,
-          무대를 열고 닫아도 사용자가 찾는 자리는 늘 같은 곳이다(사용자 지시). */}
+      {/* 손잡이 줄 — 편집창과 같은 자리·톤. 이름·[닫기]는 탭이 맡고(㉔), [추종]은 툴바에 있다(⑯). */}
       <div className={`flex flex-shrink-0 items-center gap-1.5 border-b border-gray-800 bg-gray-900/60 py-1 pl-2 ${cornerReserved ? 'pr-14' : 'pr-2'}`}>
         <span className="min-w-0 flex-1 truncate text-[12px] text-gray-500" title={goal?.text ?? undefined}>
           {goal?.text ?? t('ide.stage.waiting')}
@@ -304,11 +277,7 @@ export const IDEStageView = memo(function IDEStageView({
         />
       </div>
 
-      {/* ㉒ — **실황.** 비추는 단계가 지금 만들고 있는 것이 이 자리에 선다(소스·출력·변경분·문서·웹,
-          그리고 산출물 넷은 내부 앱 화면 그대로). **비출 것이 없으면 이 컴포넌트는 `null`** 이라
-          한 픽셀도 차지하지 않는다 — ⑭(a) 가 이 칸을 걷어낸 이유(빈 안내 한 줄이 36% 를 먹음)를
-          정면으로 피하는 자리다. 추종 스위치는 여기서 만들지 않는다(㉒(e) — `shown` 이 이미
-          추종을 따라가므로 실황도 저절로 따라간다). */}
+      {/* ㉒ — 실황. 비출 것이 없으면 `null`(⑭(a)). 추종은 `shown` 이 이미 따르므로 스위치를 따로 두지 않는다(㉒(e)). */}
       <StageLiveSurface steps={steps} shownStepId={shown?.id ?? null} surface={surface} />
     </div>
   );

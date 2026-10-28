@@ -13,12 +13,7 @@ import {
 
 import { buildPreviewInjectionTail, buildPreviewPickerScript } from './previewPicker.js';
 
-/**
- * §7.11 (G) — 프리뷰 안에서 누른 Alt 가 부모(우리 창)에게 넘어오는가.
- *
- * 문자열이 들어 있는지만 보면 "코드는 있는데 안 도는" 상태를 못 잡는다 — 그래서 조각을 **실제로
- * 실행**해 놓고 키를 눌러 본다. 주입 코드는 ES5 범위라 아래 최소한의 가짜 창구만 있으면 돈다.
- */
+/** §7.11 (G) — 프리뷰 안의 Alt 가 부모에게 넘어오는가. 문자열 포함만으론 "안 도는 코드"를 못 잡아 조각을 실제로 실행한다(ES5 라 아래 최소 가짜 창구로 돈다). */
 
 interface FakeEventTarget {
   addEventListener: (type: string, fn: (e: unknown) => void, capture?: boolean) => void;
@@ -173,13 +168,7 @@ describe('previewPicker — Alt 다리 (§7.11 (G))', () => {
   });
 });
 
-/**
- * §7.16 — 마우스가 프리뷰 **안**에 있다는 것을 부모가 아는가.
- *
- * 부모 문서는 마우스가 iframe 위로 들어간 순간 아무 것도 받지 못한다 — 그래서 프리뷰를 담은 우리
- * 스크롤 상자의 `:hover` 가 서지 않고, 기본 숨김인 스크롤바는 굴릴 때만 떴다. 이 다리가 그 hover 를
- * 대신 세우므로, 여기가 끊기면 증상이 조용히 되돌아온다.
- */
+/** §7.16 — 마우스가 프리뷰 안에 있음을 부모가 아는가. iframe 위 마우스는 부모에 안 잡혀 상자의 `:hover` 가 안 선다 — 이 다리가 끊기면 조용히 되돌아온다. */
 describe('previewPicker — 마우스 다리 (§7.16)', () => {
   it('마우스가 들어오면 부모에게 신고한다', () => {
     const { doc, posted } = runPickerScript();
@@ -282,13 +271,7 @@ describe('previewScrollbarInjection — 프리뷰 안쪽 문서의 스크롤바'
     expect(html).toContain('__vibisualScrollbar');
   });
 
-  /**
-   * 세 번째 신고에서야 잡힌 함정 — **썸만 숨겨서는 화면이 그대로다.**
-   *
-   * 문서 스크롤바의 트랙은 페이지 배경이 칠해 주지 않는다. 그래서 트랙을 투명하게 두면 그 자리에서
-   * **iframe 요소의 배경(`bg-white`)** 이 그대로 드러나, 썸이 사라져도 오른쪽에 흰 띠가 남는다 —
-   * 고치기 전과 눈으로 구별되지 않는다. 이 검사가 그 되돌림을 막는다.
-   */
+  /** 썸만 숨겨서는 화면이 그대로다 — 트랙은 페이지 배경이 칠하지 않아, 투명하면 iframe 요소 배경(`bg-white`)이 흰 띠로 드러난다. */
   it('문서 스크롤바의 트랙은 페이지 배경으로 칠한다 — 투명하면 iframe 의 흰 배경이 드러난다', () => {
     const track = `var(${PREVIEW_SCROLLBAR_TRACK_VAR}, transparent)`;
     expect(html).toContain(`html{scrollbar-color:transparent ${track}}`);

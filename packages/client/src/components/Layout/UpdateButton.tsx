@@ -5,28 +5,9 @@ import { readUpdateDelivery } from '@vibisual/shared';
 import { useAppUpdate } from '../../hooks/useAppUpdate.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
-// SCENARIO.md §4 v2.44 / v2.63 — 자동 업데이트 버튼(VS Code 우상단 파란 업데이트 버튼 톤).
-//
-// useAppUpdate(=desktop main updaterManager push 구독)의 phase 에 따라:
-//   - available    : "새 버전 vX" 정보 pill (autoDownload 라 곧 downloading 으로 전이).
-//   - downloading  : "업데이트 {N}%" 진행 pill.
-//   - downloaded   : 컴팩트한 "Update" 파란 액션 버튼(설명은 호버 툴팁) → 클릭 시 **확인 모달**(v2.63) →
-//                    사용자가 확인하면 install()(quitAndInstall). 즉시 재설치 ❌ — 진행 중
-//                    작업·미저장 변경 손실 우려를 재시작 직전에 명시 경고(§3.2.1 인프라 위 안전망).
-//   - idle/checking/up-to-date/error/null : 렌더 없음(숨김) — VS Code 처럼 할 일 있을 때만 노출.
-//
-// ⚠️ **self-install(무서명 macOS)도 위 흐름을 그대로 탄다.** 받는 주체만 다르다 —
-// electron-updater 가 아니라 main 의 `macSelfInstall` 이 받고, 검사하고, 종료 직후 번들을
-// 교체한다. 사용자가 보는 것은 Windows 와 **똑같다**(available → downloading% → 재시작 버튼
-// → v2.63 확인 모달). 종전 notify-only 처럼 "페이지를 열어 주고 끝"이 아니다.
-//
-// 다만 이 모드에는 **막힐 수 있는 자리**가 있다(해시 불일치·아키텍처 불일치·마운트 실패·
-// 쓰기 권한 없음). 그때는 `phase:'error'` + `errorCode` 가 오고, 이 버튼이 **복구 손잡이**로
-// 바뀐다 — 눌러서 릴리스 페이지를 연다. auto-install 의 error 는 종전대로 숨긴다(그쪽은
-// electron-updater 가 알아서 재시도하고, 사용자가 할 수 있는 일이 없다).
-// 판정은 shared readUpdateDelivery 한 곳.
-//
-// 아이콘은 이모지 금지(CLAUDE.md) — Lucide 톤 인라인 stroke SVG.
+// §4 — 자동 업데이트 버튼(useAppUpdate phase): available·downloading 은 pill, downloaded 는 버튼 → 확인 모달 → install()(미저장 손실 경고, §3.2.1), 나머지는 숨김.
+// ⚠️ self-install(무서명 macOS)도 같은 흐름 — 받고 바꾸는 주체만 main 의 `macSelfInstall` 이다. 그 error(해시·아키텍처·마운트·쓰기 권한)는 `errorCode` 와 와서
+// 버튼이 릴리스 페이지를 여는 복구 손잡이가 되고, auto-install 의 error 는 숨긴다(electron-updater 가 재시도). 판정은 shared readUpdateDelivery.
 
 const CONFIRM_Z = 100_500;
 
@@ -111,11 +92,7 @@ function WarningIcon({ className }: { className?: string }): React.JSX.Element {
   );
 }
 
-/**
- * §4 v2.63 — 업데이트 재시작 전 손실 경고 확인 모달.
- * "재시작하여 업데이트" 클릭 시 즉시 install() 하지 않고 이 모달로 한 번 더 확인받는다.
- * 진행 중 작업·미저장 변경 손실 우려를 명시 경고(§3.2.1 인프라 위 사용자 안전망).
- */
+/** §4 — 업데이트 재시작 전 손실 경고 확인 모달(바로 install() 하지 않는다, §3.2.1). */
 function UpdateConfirmModal({
   version,
   onCancel,
@@ -229,10 +206,7 @@ export function UpdateButton(): React.JSX.Element | null {
     const readyVersion = state.readyVersion ?? state.newVersion ?? '';
     return (
       <>
-        {/* 헤더에선 짧은 한 단어(`restartShort` — 로케일마다 번역)만 — 버전·재시작 설명은 호버 툴팁으로 넘긴다.
-            긴 "재시작하여 업데이트"는 확인 모달의 확정 버튼에만 남는다.
-            접근성 이름은 보이는 글자 그대로 둔다(`aria-label` ❌) — 툴팁 문장으로 덮으면 이름에 보이는 라벨이 없어
-            음성 제어로 "업데이트"를 불러도 버튼을 못 찾고, 화면 낭독기는 보이는 것과 다른 이름을 읽는다. 툴팁은 `title` 로 설명이 된다. */}
+        {/* 헤더엔 한 단어(`restartShort`, 로케일별)만 — 설명은 툴팁, 긴 문구는 확인 모달에. 접근성 이름은 보이는 글자 그대로(`aria-label` ❌ — 음성 제어가 못 찾는다). */}
         <button
           type="button"
           onClick={() => setConfirmOpen(true)}

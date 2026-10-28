@@ -7,15 +7,11 @@ import { restoreStreamWindow } from '../IDE/streamRestore.js';
 import { stripStudioContext } from './studioAgentMessage.js';
 
 /**
- * §5.13 (V) 37-1 — AI 패널의 대화. **새로 저장하지 않는다** — IDE 가 그리는 같은 자리를 읽는다:
- * 사용자의 말은 `queuedCommands`·`completedCommands`(그 세션의 것), AI 의 말은 `subAgentStreams[세션]`, 화면 단위는
- * IDE 의 `buildBaseItems`(부작용 없는 순수 조립). 그 세션의 스트림이 아직 이 창에 없으면(IDE 를 안 열었다) 서버의 창을 한 번
- * 받아 IDE 와 같은 `restoreStreamWindow` 로 채운다. 전체 대화는 [IDE 에서 보기]가 연다.
- *
- * §5.13 (Y) 40-5 ② — ① 이 구독은 셸이 아니라 **AI 패널 안**에서 한다(스트림 델타가 패널만 깨운다 — 종전에는 AI 가 일하는 동안
- * 델타마다 스튜디오 전체가 다시 그려졌다). ② 조립은 **보이는 꼬리만**: 마지막 턴 몇 개(명령이 나간 시각부터)의 이벤트만
- * `buildBaseItems` 에 넘기고, 40줄이 모자라면 턴 수를 두 배씩 늘린다. 자르는 자리가 명령이 나간 시각이라 도구 결과 짝·턴의 말이
- * 갈라지지 않는다 — 전체로 만든 마지막 40줄과 같다(시험 `studioConversationTail`).
+ * §5.13 (V) 37-1 — AI 패널의 대화. 새로 저장하지 않는다 — IDE 가 그리는 같은 자리를 읽는다: 사용자의 말은 `queuedCommands`·`completedCommands`(그 세션),
+ * AI 의 말은 `subAgentStreams[세션]`, 화면 단위는 IDE 의 `buildBaseItems`(순수 조립). 스트림이 이 창에 없으면(IDE 를 안 열었다) 서버 창을 한 번 받아
+ * `restoreStreamWindow` 로 채운다. 전체 대화는 [IDE 에서 보기].
+ * §5.13 (Y) 40-5 ② — ① 구독은 셸이 아니라 AI 패널 안에서 한다(셸이면 스트림 델타마다 스튜디오 전체가 다시 그려진다). ② 조립은 보이는 꼬리만: 마지막 턴 몇 개
+ * (명령이 나간 시각부터)만 `buildBaseItems` 에 넘기고 40줄이 모자라면 턴을 두 배씩 늘린다. 그 자리에서 자르면 도구 결과 짝·턴의 말이 갈라지지 않는다(시험 `studioConversationTail`).
  */
 
 export interface StudioChatLine {
@@ -34,8 +30,8 @@ const EMPTY_COMMANDS: QueuedCommand[] = [];
 
 function toLines(events: SubAgentStreamEvent[], commands: readonly QueuedCommand[]): { lines: StudioChatLine[]; busy: boolean } {
   const built = buildBaseItems(events, commands);
-  // IDE 와 같은 자리로 세운다(`mergeCardsIntoItems` 의 정렬 열쇠 — 그 턴의 경계로 옮겨 온 출력 시각 · 같은 시각이면 말풍선이 먼저).
-  //   종전에는 조립한 순서 그대로 읽어 패널이 "내 말 전부 → AI 말 전부" 덩어리로 섰다(§5.13 (Y) 40-5 ② 꼬리 같음 시험이 찾았다).
+  // IDE 와 같은 자리로 세운다(`mergeCardsIntoItems` 의 정렬 열쇠 — 그 턴의 경계로 옮겨 온 출력 시각, 같은 시각이면 말풍선이 먼저).
+  // 조립 순서 그대로면 패널이 "내 말 전부 → AI 말 전부" 덩어리로 선다(§5.13 (Y) 40-5 ② 꼬리 같음 시험).
   const sortKey = (item: { readonly id: string; readonly timestamp: number }): number => built.sortTimestamps?.get(item.id) ?? item.timestamp;
   const ordered = built.items
     .filter((item) => item.kind === 'command' || item.kind === 'text')

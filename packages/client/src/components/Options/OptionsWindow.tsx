@@ -1,13 +1,4 @@
-/**
- * §4 v2.42 — 사용자 옵션창.
- *
- * File 메뉴 → Options 로 열림. 좌측 카테고리 사이드바 + 우측 폼 패널.
- * 5 카테고리: Agent Defaults / Appearance / Notifications / Permissions / Advanced.
- * 1차는 Agent Defaults 완전 구현, 나머지 4개는 placeholder.
- *
- * Apply/Cancel 패턴 — dirty 추적 후 Apply 시에만 서버 PUT.
- * 서버 응답 + WS `user_defaults_updated` 로 graphStore.userDefaults 갱신 → 다른 창들도 즉시 반영.
- */
+/** §4 — 사용자 옵션창(File → Options). Apply/Cancel: dirty 일 때 Apply 만 서버 PUT, 응답 + WS `user_defaults_updated` 로 다른 창에도 반영된다. */
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -15,7 +6,7 @@ import { TERMINAL_SCROLLBACK_LINES, TERMINAL_SCROLLBACK_MIN, TERMINAL_SCROLLBACK
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { WINDOW_NAV_BODY, WINDOW_NAV_LIST, WINDOW_NAV_PANE, windowNavItemClass } from '../Layout/windowNav.js';
-import type { AgentConfig, AgentEngineKind, UserDefaults, UserDefaultsPatch, ClaudeInstallsInfo, ClaudeInstall, UiLocale } from '@vibisual/shared';
+import type { AgentConfig, AgentEngineKind, UserDefaults, UserDefaultsPatch, ClaudeInstallsInfo, ClaudeInstall, CodexInstallsInfo, CodexSetupState, ManagedEngineStatus, UiLocale } from '@vibisual/shared';
 import {
   AVAILABLE_AGENT_TOOLS,
   DEFAULT_AGENT_CONFIG,
@@ -55,6 +46,7 @@ import { KeyboardTab } from './KeyboardTab.js';
 // §4 앱 테마 — 기본 테마 고르기 + 사용자 테마 폴더.
 import { ThemeTab } from './ThemeTab.js';
 import { BgTaskProbeSection } from './BgTaskProbeSection.js';
+import { DefaultChip, EngineBinPicker, ManagedPendingNotice, TemporaryChip } from './EngineBinPicker.js';
 import { SessionProbeSection } from './SessionProbeSection.js';
 import { ProcessGuardSection } from './ProcessGuardSection.js';
 import { EngineBridgeSection } from './EngineBridgeSection.js';
@@ -68,6 +60,7 @@ import { NumberStepper } from './NumberStepper.js';
 import { shortcutLabel } from '../../utils/platform.js';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog.js';
 import { AutoCompactConfirm, type AutoCompactConfirmKind } from '../Panel/AutoCompactConfirm.js';
+import { CreditPages } from '../Panel/CreditPages.js';
 
 const API_BASE = '';
 
@@ -76,18 +69,17 @@ const MAX_TURNS_STEP = 10;
 const BUDGET_USD_STEP = 1;
 const BASH_TIMEOUT_STEP_SEC = 10;
 
-export type CategoryKey = 'account' | 'project' | 'agent' | 'appearance' | 'theme' | 'keyboard' | 'storage' | 'notifications' | 'permissions' | 'advanced' | 'version';
+export type CategoryKey = 'account' | 'credits' | 'project' | 'agent' | 'appearance' | 'theme' | 'keyboard' | 'storage' | 'notifications' | 'permissions' | 'advanced' | 'version';
 
 const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code';
 const REPO_URL = 'https://github.com/Vibisual/vibisual';
 
-// §4 v2.43 · §5.25 (C) — 버전 칸의 엔진 탭. 보여 줄 실행본이 있는 둘뿐이다 — 올모델(§5.19)은 CLI 가 아니다.
+// §4 · §5.25 (C) — 버전 칸 엔진 탭은 실행본이 있는 둘뿐(올모델 §5.19 는 CLI 가 아니다).
 const VERSION_TAB_ENGINES: readonly AgentEngineKind[] = ['claude', 'codex'];
 const versionTabOf = (engine: AgentEngineKind): AgentEngineKind => (VERSION_TAB_ENGINES.includes(engine) ? engine : 'claude');
 
-// §4 v2.77 — Model 목록은 레지스트리 기반 동적(`listModelFamilies`). 폴백 alias 만 상수.
-// §4 (CLI 사양 추종) — 저장된 폴백 모델이 드롭다운 목록 밖의 값인가(= '직접 입력'으로 열 값인가).
-//   콤마 목록·정확한 버전 id·구버전 저장분이 여기 걸린다. 초기값과 재적용이 같은 판정을 쓰게 한 곳에 둔다.
+// §4 — Model 목록은 레지스트리 동적(`listModelFamilies`), 폴백 alias 만 상수.
+// 저장된 폴백이 목록 밖 값(콤마 목록·정확한 id·옛 저장분)인가 — 초기값과 재적용이 같은 판정을 쓴다.
 function isOffListFallback(value: string | undefined, registry: Parameters<typeof listModelFamilies>[0]): boolean {
   const v = (value ?? '').trim();
   return v !== '' && !listModelFamilies(registry).includes(v);
@@ -117,8 +109,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   const applyUserDefaults = useGraphStore((s) => s.applyUserDefaults);
   const chooseEngine = useGraphStore((s) => s.chooseEngine);
   const modelRegistry = useGraphStore((s) => s.modelRegistry);
-  // §4 v3.24 — Appearance › Language. 폰(max-md)에선 헤더 LanguageSwitcher 가 숨겨져 여기가 유일한 변경 경로.
-  //   Apply/Cancel dirty 흐름과 독립 — 선택 즉시 적용(헤더 스위처와 동일 setUiLocale 경로).
+  // §4 — Appearance › Language. dirty 흐름과 독립, 즉시 적용(헤더와 같은 setUiLocale). 폰에선 헤더 전환기가 숨어 여기가 변경 경로다.
   const uiLocale = useGraphStore((s) => s.uiLocale);
   const setUiLocale = useGraphStore((s) => s.setUiLocale);
 
@@ -131,7 +122,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   const mainEngine = userDefaults?.engineChoice?.kind ?? 'claude';
   const [settingsEngine, setSettingsEngine] = useState(mainEngine);
   useEffect(() => { if (open) setSettingsEngine(mainEngine); }, [open, mainEngine]);
-  // §4 v2.43 — 버전 칸 엔진 탭(보기만 바꾼다). 열 때마다 메인 제공자 쪽부터 — 메인이 올모델이면 Claude Code.
+  // §4 — 버전 칸 엔진 탭(보기만). 열 때마다 메인 제공자부터 — 올모델이면 Claude Code.
   const [versionEngine, setVersionEngine] = useState<AgentEngineKind>(() => versionTabOf(mainEngine));
   useEffect(() => { if (open) setVersionEngine(versionTabOf(mainEngine)); }, [open, mainEngine]);
   const claudeDefaults = mainEngine === 'claude' ? userDefaults?.agentConfig : userDefaults?.engineConfigs?.claude;
@@ -149,7 +140,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   const [permissionTimeoutPolicy, setPermissionTimeoutPolicy] = useState<'allow' | 'deny'>(baseAgent.permissionTimeoutPolicy ?? 'allow');
   const [effort, setEffort] = useState(baseAgent.effort ?? 'default');
   const [maxTurns, setMaxTurns] = useState(baseAgent.maxTurns ?? 0);
-  // §4 v2.88 — 전역 기본 API 비용 상한($). 0 = 무제한.
+  // §4 — 전역 기본 API 비용 상한($). 0 = 무제한.
   const [maxBudgetUsd, setMaxBudgetUsd] = useState(baseAgent.maxBudgetUsd ?? 0);
   const [isolation, setIsolation] = useState(baseAgent.isolation ?? 'none');
   const [contextWindow, setContextWindow] = useState<'1m' | '200k' | undefined>(baseAgent.contextWindow);
@@ -187,8 +178,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   // §5.3 #12-4 (J) — 검증 실행 전 차단(권한 탭). 기본 끔. 같은 [적용]으로 `permissions` 칸에 함께 보낸다.
   const [verificationGate, setVerificationGate] = useState(false);
   const [saving, setSaving] = useState(false);
-  // §4 — 마지막 Apply 가 서버에 닿지 못했는가. 종전에는 실패가 성공과 구분되지 않아
-  //   "저장했는데 안 된다"의 원인을 사용자가 알 수 없었다.
+  // §4 — 마지막 Apply 가 서버에 못 닿았는가(실패를 성공과 구분해 보인다).
   const [saveError, setSaveError] = useState(false);
   // §5.25 (C) — 프로젝트 설정 탭에서 고른 메인 제공자. 칸 안에 저장 버튼이 없어 **창이 들고 있다가**
   //   아래 [적용]으로 남긴다(탭을 옮겨도 남는다). `null` = 안 건드림 — 그동안은 저장값이 바깥
@@ -216,7 +206,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   // §4 — 저장 없이 나가려 할 때 뜨는 우리 디자인 확인 팝업(종전 `window.confirm` 대체).
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
-  // §4 v2.43 — Version 탭 상태 (Apply/Cancel dirty 흐름과 독립 — 선택은 즉시 저장)
+  // §4 — Version 탭 상태(dirty 흐름과 독립 — 선택은 즉시 저장).
   const [installs, setInstalls] = useState<ClaudeInstallsInfo | null>(null);
   const [installsLoading, setInstallsLoading] = useState(false);
   const [installsError, setInstallsError] = useState<string | null>(null);
@@ -242,6 +232,14 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   useEffect(() => {
     if (category === 'version' && !installs && !installsLoading) void loadInstalls(false);
   }, [category, installs, installsLoading, loadInstalls]);
+
+  // §4 (앱 전용 엔진) — [지금 업데이트] · 켤 때 자동이 끝나면 "앱 전용" 칸(지금 판 · 앞 판 · 실패 사유)을 다시 읽는다.
+  //   판은 서버가 폴더를 훑어 정하므로, 화면은 끝났다는 신호에 맞춰 다시 받기만 한다.
+  const claudeInstallStatus = useGraphStore((s) => s.claudeInstallProgress?.status);
+  useEffect(() => {
+    if (category !== 'version') return;
+    if (claudeInstallStatus === 'done' || claudeInstallStatus === 'error') void loadInstalls(false);
+  }, [category, claudeInstallStatus, loadInstalls]);
 
   // 바이너리 선택 저장 — `claudeBinPath` 를 글로벌 user-defaults 에 PUT. ''=Auto(override 해제).
   const selectBin = useCallback(async (binPath: string | null) => {
@@ -292,17 +290,13 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
     setVerificationGate(isVerificationGateEnabled(userDefaults));
   }, [baseAgent, dirty, userDefaults, modelRegistry]);
 
-  // §4 v3.71 가시성 LOD — 열려 있는 동안 캔버스를 전면으로 덮으므로 덮개로 등록한다.
+  // §4 가시성 LOD — 열려 있는 동안 캔버스를 전면으로 덮으므로 덮개로 등록한다.
   useEffect(() => {
     setCanvasCover('options-window', open);
     return () => setCanvasCover('options-window', false);
   }, [open]);
 
-  /**
-   * §4 — 창을 닫으려는 **모든 경로의 단일 출입구**(헤더 X · 푸터 Cancel · Esc · 배경 클릭).
-   * 한 경로라도 `onClose` 를 직접 부르면 그 길로만 미저장분이 조용히 사라진다(종전 Esc·배경 클릭이
-   * 그랬다 — `window.confirm` 은 Cancel 버튼에만 걸려 있었다).
-   */
+  /** §4 — 닫는 모든 경로(X·Cancel·Esc·배경 클릭)의 단일 출입구 — 하나라도 `onClose` 를 직접 부르면 그 길로 미저장분이 사라진다. */
   const requestClose = useCallback(() => {
     if (dirty || mainDirty || providerDirty || storageDirty || bgProbeDirty || sessionProbeDirty || processGuardDirty || externalBudgetDirty || webFoldDirty || tokenSaverDirty) { setConfirmDiscardOpen(true); return; }
     onClose();
@@ -339,13 +333,10 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   const backdrop = useBackdropDismiss(requestClose);
 
   const isOpus = isOpusModel(model);
-  // §4 (xhigh effort 등급 · 2026-10-15) — Effort 칸은 클로드 네 패밀리에 열린다(설정창과 같은 판정 함수).
+  // §4 (xhigh effort 등급) — Effort 칸은 클로드 네 패밀리에 열린다(설정창과 같은 판정 함수).
   const effortEnabled = supportsEffortSelection(model);
-  // §4 (CLI 사양 추종) — 지금 고른 값이면 **실제로 몇 토큰에서 접히는가**. 고른 숫자는 CLI 에게
-  //   창 크기라 그보다 낮은 자리에서 접히므로, 그 숫자를 화면이 직접 말해야 놀라지 않는다.
-  //   여긴 전역 기본값을 정하는 창이라 위층이 없다(에이전트 설정 → **여기** → 내장 기본).
-  //   `'auto'` 는 모델 창을 런타임에야 아는 값이라 숫자가 없다 → null.
-  // §4 — 화면에 적는 비율. 상수 한 곳(shared)에서 와야 값을 바꿔도 12개 로케일이 안 틀어진다.
+  // §4 (CLI 사양 추종) — 고른 값이 실제로 접히는 토큰 수(고른 숫자는 CLI 에게 창 크기라 더 낮은 자리에서 접힌다). 전역 기본값 창이라 위층 없음.
+  // `'auto'` 는 모델 창을 런타임에야 알아 null. 비율은 shared 상수 한 곳(12개 로케일이 안 틀어지게).
   const compactFoldsAtPercent = Math.round(TURN_COMPACT_TRIGGER_RATIO * 100);
   const compactFoldsAtTokens = useMemo(
     () => turnCompactTriggerTokens(resolveAutoCompact(autoCompact, undefined)),
@@ -361,9 +352,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   // §5.25 (G-2) — Bash 칸의 0 은 "환경변수를 안 싣는다"이고, 그때 도는 값은 CLI 의 것이다. 안내 줄은 그 실제 초를 적는다.
   const bashEffectiveDefaultSec = bashDefaultTimeoutSec > 0 ? bashDefaultTimeoutSec : BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT / 1000;
   const bashEffectiveMaxSec = bashMaxTimeoutSec > 0 ? bashMaxTimeoutSec : BASH_MAX_TIMEOUT_MS_CLI_DEFAULT / 1000;
-  // §4 (CLI 사양 추종) — 압축을 **켜는 방향에만** 세우는 확인 관문(2026-09-02 사용자 지시).
-  //   끄기는 확인 없이 즉시고, 켜진 값 사이의 이동(400k → 500k)도 통과시킨다 — 매번 막으면
-  //   경고가 소음이 되어 읽히지 않는다. 확인을 "봤음"으로 기억하지 않으므로 끄고 다시 켜면 또 뜬다.
+  // §4 (CLI 사양 추종) — 압축을 켜는 방향에만 확인을 띄운다(끄기·켜진 값끼리 이동은 통과 — 매번이면 소음). "봤음"은 기억하지 않는다.
   const [compactConfirm, setCompactConfirm] = useState<{ kind: AutoCompactConfirmKind; value: string } | null>(null);
 
   const requestAutoCompact = (next: string): void => {
@@ -398,7 +387,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
 
   // 버전 sub-드롭다운 옵션 — CLI scan 결과에서 패밀리 필터, semver 내림차순 top 2 + Latest + Custom
   const VERSION_OPTIONS = useMemo(() => {
-    // §4 v2.77 — opus/sonnet/haiku 화이트리스트 제거. 선택된 패밀리(alias)의 레지스트리 entry 로 버전 목록 구성.
+    // §4 — 고른 패밀리(alias)의 레지스트리 entry 로 버전 목록을 만든다.
     const family = model || null;
     if (!family) return [] as { value: string; label: string }[];
     const fams = (modelRegistry?.entries ?? []).filter((e) => e.family === family);
@@ -455,11 +444,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   // Agent Defaults 폼 저장 — 서버에 PUT. 성공 여부만 돌려주고 표시는 [적용] 이 맡는다.
   const saveAgentDefaults = useCallback(async (): Promise<boolean> => {
     try {
-      // §4 (설정 3층) — **미설정은 `null` 로 보낸다.** 종전에는 `undefined` 였는데
-      //   `JSON.stringify` 가 그 키를 통째로 버려 서버의 부분 머지가 옛 값을 그대로 남겼다 —
-      //   그래서 전역 기본값은 한 번 켜면 이 창에서 다시 끌 수 없었다(effort·isolation·safeMode·
-      //   예산·타임아웃 … 되돌리려면 `~/.vibisual/user-defaults.json` 을 손으로 고쳐야 했다).
-      //   `null` 은 전선을 건너가고, 서버가 그 키를 지운다(저장분에 `null` 은 남지 않는다).
+      // §4 (설정 3층) — 미설정은 `null` 로 보낸다. `undefined` 는 `JSON.stringify` 가 버려 서버 부분 머지가 옛 값을 남긴다(다시 끌 수 없다). 서버는 `null` 키를 지운다.
       const patch: UserDefaultsPatch = {
         agentConfig: {
           model,
@@ -509,8 +494,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       });
-      // §4 — 서버가 거절했으면 **dirty 를 내리지 않는다**. 종전에는 500 이어도 그대로 내려서
-      //   실패가 성공과 똑같이 보였다(창을 닫아도 경고가 없었다).
+      // §4 — 서버가 거절하면 dirty 를 내리지 않는다(실패가 성공처럼 보이고 닫아도 경고가 없게 된다).
       if (!res.ok) return false;
       const body = await res.json() as { ok?: boolean; userDefaults?: UserDefaults };
       if (body.ok !== true) return false;
@@ -544,9 +528,13 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
     { key: 'project', label: t('providers.project'), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
     ) },
-    // §4 v4.82 — Account. 로그인 계정 확인 + 로그아웃이 여기 있다(File > Options > Account).
+    // §4 — Account(로그인 계정 확인·로그아웃).
     { key: 'account', label: t('panel.options.categories.account', { defaultValue: 'Account' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    ) },
+    // §4 API 크레딧 — 종류(개인·비즈니스·클라우드)마다 페이지를 나눈다.
+    { key: 'credits', label: t('panel.options.categories.credits'), icon: (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>
     ) },
     { key: 'agent', label: t('panel.options.categories.agent', { defaultValue: 'Agent Defaults' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -558,13 +546,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
     { key: 'theme', label: t('panel.options.categories.theme', { defaultValue: 'Theme' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/></svg>
     ) },
-    /*
-     * §5.10 — **`brain`(Project Brain) 탭은 걷었다.**
-     *
-     * 사용자 지시(전면 개편)로 기억·메모리·브레인 축이 폐기됐고, 그 자리를 대신하는 자동 목표는
-     * **자기 화면 안에서 켜고 끈다**(IDE `목표` 뷰). 설정 창에 스위치를 한 번 더 두면 켜는 자리가
-     * 둘이 되어 "뷰에서 켰는데 왜 안 도는지"를 찾을 길이 없어진다(#17-44 ⑧(d) 의 그 결론).
-     */
+    /* §5.10 — 자동 목표 스위치를 이 창에 두지 마라(IDE `목표` 뷰에서 켜고 끈다) — 켜는 자리가 둘이면 왜 안 도는지 못 찾는다(#17-44 ⑧(d)). */
     // §6 — 단축키. 목록은 `COMMANDS` 표에서 나오므로 손으로 적을 것이 없다.
     { key: 'keyboard', label: t('panel.options.categories.keyboard', { defaultValue: 'Keyboard' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
@@ -636,7 +618,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
               </label>
               <ProviderDefaults ref={providerForm} key={`${settingsEngine}:${providerScope}:${activeSettingsPath ?? ''}`} engine={settingsEngine} projectPath={providerScope === 'project' ? activeSettingsPath ?? undefined : undefined} onDirtyChange={setProviderDirty} />
             </>}
-            {/* §5.25 (C) — 이 프로젝트의 제공자별 기본값 칸은 걷었다(2026-09-14 사용자 지시). 엔진별 기본값은 Agent Defaults 탭에서 고친다. */}
+            {/* §5.25 (C) — 엔진별 기본값은 Agent Defaults 탭에서 고친다. */}
             {category === 'project' && <MainProviderSelect value={mainPending ?? mainEngine} onChange={(engine) => setMainPending(engine === mainEngine ? null : engine)} disabled={saving} />}
             {category === 'agent' && settingsEngine === 'claude' && (
               <div className="flex flex-col gap-4">
@@ -745,7 +727,6 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                       onChange={(next) => { setDirty(true); setMaxTurns(next); }}
                     />
                   </div>
-                  {/* §4 v2.88 — 전역 기본 API 비용 상한($). 0 = 무제한. */}
                   <div className="flex flex-1 flex-col gap-1">
                     <label className="text-xs font-medium text-gray-400">{t('panel.options.agent.maxBudgetUsd', { defaultValue: 'Budget ($, 0 = unlimited)' })}</label>
                     <NumberStepper
@@ -803,10 +784,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                         />
                       )}
                     </div>
-                    {/* §4 (CLI 사양 추종) — 자동 압축의 **전역 기본값**. 에이전트 설정이 미설정인
-                        모든 버블이 이 값을 따르므로, 이미 만들어져 돌던 에이전트도 함께 바뀐다.
-                        여기서도 미설정이면 내장 값(`DEFAULT_AUTOCOMPACT`)으로 떨어진다 — 빈 선택지가 그 값을
-                        `resolveAutoCompact` 로 풀어 직접 말한다(§5.25 G-2 — "기본값" 대신 실제 값). */}
+                    {/* §4 (CLI 사양 추종) — 자동 압축 전역 기본값(미설정 버블 전부가 따른다). 여기도 비면 `DEFAULT_AUTOCOMPACT` — 빈 선택지가 `resolveAutoCompact` 로 실제 값을 말한다(§5.25 G-2). */}
                     <div className="flex flex-1 flex-col gap-1">
                       <label className="text-[12px] font-medium text-gray-500">{t('panel.agentConfig.autoCompact.label')}</label>
                       <select
@@ -825,10 +803,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                           </option>
                         ))}
                       </select>
-                      {/* §4 (CLI 사양 추종) — **이 숫자 하나가 전부다.** 종전에는 옆에 "턴이 끝나면 압축"
-                          체크박스가 따로 있었는데 같은 일을 해 헷갈리기만 했다(그리고 같은 숫자를 쓰는 한
-                          CLI 가 늘 먼저 접어 뜨지도 못했다). 이제 값을 고르면 접는 자리는 언제나 턴 경계이며,
-                          **실제로 접히는 토큰 수를 여기서 직접 말한다** — 고른 값과 다른 숫자라 숨기면 안 된다. */}
+                      {/* §4 (CLI 사양 추종) — 이 숫자 하나가 전부다(별도 체크박스 ❌). 접는 자리는 늘 턴 경계이고, 실제로 접히는 토큰 수를 말한다 — 고른 값과 달라 숨기면 안 된다. */}
                       <span className={`text-[12px] leading-snug ${autoCompactOn ? 'text-gray-400' : 'text-gray-500'}`}>
                         {!autoCompactOn
                           ? t('panel.agentConfig.autoCompact.foldsAtOff')
@@ -1056,7 +1031,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
               </div>
             )}
 
-            {/* §4 v3.24 — Appearance: 언어 선택(즉시 적용). v2.42 에서 1차 예정이던 uiLocale 실구현. */}
+            {/* §4 — Appearance: 언어 선택(즉시 적용). */}
             {category === 'appearance' && (
               <div className="flex flex-col gap-4">
                 <div className="border-b border-gray-700/50 pb-2">
@@ -1088,13 +1063,21 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
             {category === 'theme' && <ThemeTab />}
 
             {category === 'account' && <AccountTab />}
+            {category === 'credits' && (
+              <div className="flex flex-col gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-200">{t('panel.options.categories.credits')}</h4>
+                  <p className="mt-1 text-[12px] leading-relaxed text-gray-500">{t('panel.options.creditsIntro')}</p>
+                </div>
+                <CreditPages variant="options" />
+              </div>
+            )}
 
             {category === 'keyboard' && <KeyboardTab />}
             {category === 'storage' && <StorageTab onDirtyChange={setStorageDirty} />}
 
 
-            {/* §4 v2.43 — 버전 칸. 맨 위 엔진 탭(Claude Code · Codex)은 보기만 바꾼다(§5.25 (C)).
-                이 칸은 실행본의 버전을 말하는 자리라 탭 이름은 제품 이름으로 부른다. */}
+            {/* §4 — 버전 칸. 엔진 탭은 보기만 바꾸고(§5.25 (C)), 실행본 버전 자리라 탭 이름은 제품 이름이다. */}
             {category === 'version' && (
               <>
                 <ProviderTabs
@@ -1205,7 +1188,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
               </div>
             )}
 
-            {category !== 'agent' && category !== 'version' && category !== 'appearance' && category !== 'theme' && category !== 'account' && category !== 'keyboard' && category !== 'storage' && category !== 'advanced' && category !== 'notifications' && category !== 'permissions' && (
+            {category !== 'agent' && category !== 'version' && category !== 'appearance' && category !== 'theme' && category !== 'account' && category !== 'credits' && category !== 'keyboard' && category !== 'storage' && category !== 'advanced' && category !== 'notifications' && category !== 'permissions' && (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                 <svg className="h-10 w-10 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
@@ -1272,7 +1255,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   );
 }
 
-// ─── §4 v2.43 — Version / About 탭 ───
+// §4 — Version / About 탭
 
 /** semver a < b ? (한쪽이라도 형식 불일치면 false) — outdated 표시용 경량 비교. */
 function semverLt(a: string | null, b: string | null): boolean {
@@ -1291,19 +1274,17 @@ function semverLt(a: string | null, b: string | null): boolean {
 }
 
 /**
- * §4 (Claude Code CLI 자동 업데이트) — CLI 를 앱 켤 때마다 최신으로 유지할지 정하는 토글.
- *
- * SSOT 는 `UserDefaults.claudeAutoUpdate.enabled`(**미설정 = 켬**). 켜져 있으면 서버가 부팅 시
- * 1회 `isOutdated` 를 보고 `installLatestClaude()` 를 조용히 돌린다. 꺼 두면 그 자동 경로만
- * 멈추고 여기 [지금 업데이트] 로 직접 올린다.
- *
- * ⚠ **Vibisual 앱 업데이트(§4 v2.44 electron-updater)와는 다른 축**이다 — 앱 쪽은 종전대로
- *   항상 자동이고 헤더의 파란 업데이트 버튼이 담당한다. 이 토글은 CLI 에만 걸린다.
+ * §4 — Claude Code CLI 자동 업데이트 토글. SSOT `UserDefaults.claudeAutoUpdate.enabled`(미설정 = 켬): 켜면 서버가 부팅 때 `isOutdated` 면 `installLatestClaude()`,
+ * 끄면 [지금 업데이트]로만. ⚠ 앱 업데이트(electron-updater, 헤더 버튼)와 다른 축 — CLI 에만 걸린다.
  */
-function ClaudeAutoUpdateSection({ source, outdated, onRefresh }: {
+function ClaudeAutoUpdateSection({ source, outdated, onRefresh, managed, usesManaged }: {
   source: ClaudeInstall['source'] | undefined;
   outdated: boolean;
   onRefresh: () => void;
+  /** §4 (앱 전용 엔진) — 앱 전용 사본의 상태(서버가 폴더를 훑어 만든 그대로). */
+  managed?: ManagedEngineStatus;
+  /** 갱신 대상이 앱 전용 사본인가(사용자가 자기 설치본을 골라 두지 않았다). */
+  usesManaged: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const userDefaults = useGraphStore((s) => s.userDefaults);
@@ -1312,8 +1293,10 @@ function ClaudeAutoUpdateSection({ source, outdated, onRefresh }: {
   const [saving, setSaving] = useState(false);
 
   const enabled = userDefaults?.claudeAutoUpdate?.enabled !== false;
-  // 확장 번들은 마켓플레이스 밖에서 갱신할 수 없다 — 자동도 수동도 불가라 그 사실을 밝힌다.
-  const canUpdate = source !== 'vscode-extension' && source !== 'unknown';
+  // 앱 전용 사본은 앱이 판을 바꾼다 — 아직 안 받았어도 [지금 업데이트]가 받는다.
+  // 사용자가 고른 확장 번들은 마켓플레이스 밖에서 갱신할 수 없다 — 그 사실을 밝힌다.
+  const canUpdate = usesManaged || (source !== 'vscode-extension' && source !== 'unknown');
+  const managedOutdated = managed?.active && managed.latest ? semverLt(managed.active.version, managed.latest) : !managed?.active;
   const running = progress != null && (progress.status === 'starting' || progress.status === 'running');
 
   const toggle = useCallback(async () => {
@@ -1347,14 +1330,18 @@ function ClaudeAutoUpdateSection({ source, outdated, onRefresh }: {
               {t('panel.options.version.claudeAutoUpdate.label', { defaultValue: 'Keep Claude Code up to date automatically' })}
             </span>
             <span className="text-[12px] text-gray-500">
-              {enabled
-                ? t('panel.options.version.claudeAutoUpdate.onHint', { defaultValue: 'Vibisual updates the CLI to the latest version each time you launch the app.' })
-                : t('panel.options.version.claudeAutoUpdate.offHint', { defaultValue: 'Automatic updates are off. Use "Update now" to update the CLI yourself.' })}
+              {!enabled
+                ? t('panel.options.version.claudeAutoUpdate.offHint', { updateNow: t('panel.options.version.claudeAutoUpdate.updateNow', { defaultValue: 'Update now' }), defaultValue: 'Automatic updates are off. Use "{{updateNow}}" to update the CLI yourself.' })
+                : usesManaged
+                  ? t('panel.options.version.managed.hint', { engine: 'Claude Code', defaultValue: 'Vibisual downloads new {{engine}} releases from the official source, checks that each one accepts every option Vibisual uses, then switches over — at launch and every 6 hours. Your login and settings stay shared.' })
+                  : t('panel.options.version.claudeAutoUpdate.onHint', { defaultValue: 'Vibisual updates the CLI to the latest version each time you launch the app.' })}
             </span>
           </span>
         </label>
 
-        {source === 'vscode-extension' && (
+        {usesManaged && managed && <ManagedEngineInfo status={managed} engineName="Claude Code" onChanged={onRefresh} />}
+
+        {source === 'vscode-extension' && !usesManaged && (
           <div className="rounded border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[12px] text-amber-200">
             {t('panel.options.version.claudeAutoUpdate.vscodeNotice', {
               defaultValue: 'The active binary comes from the VS Code extension, which only the Marketplace can update. Pick a different installation above to let Vibisual manage updates.',
@@ -1378,7 +1365,202 @@ function ClaudeAutoUpdateSection({ source, outdated, onRefresh }: {
               ? (progress.error ?? t('panel.options.version.claudeAutoUpdate.updateFailed', { defaultValue: 'Update failed' }))
               : progress?.status === 'done'
                 ? t('panel.options.version.claudeAutoUpdate.updated', { defaultValue: 'Updated to {{version}}', version: progress.newVersion ?? '?' })
-                : outdated
+                : (usesManaged ? managedOutdated : outdated)
+                  ? t('panel.options.version.updateAvailable', { defaultValue: 'Update available' })
+                  : t('panel.options.version.upToDate', { defaultValue: 'Up to date' })}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * §4 (앱 전용 엔진) ⑨ — "앱 전용" 칸(Claude·코덱스 공용). 서버 `ManagedEngineStatus` 그대로 보인다.
+ * 손잡이는 [이전 판으로] 하나 — 업데이트는 감싼 칸의 [지금 업데이트](두 번째 손잡이 ❌).
+ */
+function ManagedEngineInfo({ status, engineName, onChanged }: {
+  status: ManagedEngineStatus;
+  engineName: string;
+  onChanged: () => void;
+}): React.JSX.Element {
+  const { t, i18n } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const rollback = useCallback(async () => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      const r = await fetch(`${API_BASE}/api/managed-engines/${status.engine}/rollback`, { method: 'POST' });
+      if (!r.ok) setFailed(true);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+      onChanged();
+    }
+  }, [status.engine, onChanged]);
+
+  const cell = (label: string, value: string, tone: 'idle' | 'ok' | 'warn' = 'idle'): React.JSX.Element => (
+    <div className={`flex min-w-[7rem] flex-1 flex-col gap-0.5 rounded border px-2.5 py-1.5 ${
+      tone === 'ok' ? 'border-emerald-500/40 bg-emerald-500/5' : tone === 'warn' ? 'border-amber-500/40 bg-amber-500/5' : 'border-gray-800 bg-gray-950/70'
+    }`}>
+      <span className="text-[12px] uppercase tracking-wider text-gray-500">{label}</span>
+      <span className="truncate font-mono text-[13px] text-gray-200">{value}</span>
+    </div>
+  );
+
+  const behind = status.active && status.latest ? semverLt(status.active.version, status.latest) : false;
+  const checked = status.checkedAt
+    ? t('panel.options.version.managed.checkedAt', { time: new Date(status.checkedAt).toLocaleString(i18n.language), defaultValue: 'Last checked {{time}}' })
+    : t('panel.options.version.managed.notChecked', { defaultValue: 'Not checked yet' });
+
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-gray-800 pt-2">
+      <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
+        {t('panel.options.version.managed.title', { defaultValue: 'App-managed copy' })}
+      </span>
+      <div className="flex flex-wrap gap-2">
+        {cell(
+          t('panel.options.version.managed.inUse', { defaultValue: 'In use' }),
+          status.active?.version ?? t('panel.options.version.managed.none', { defaultValue: 'Not downloaded yet' }),
+          status.active ? (behind ? 'warn' : 'ok') : 'warn',
+        )}
+        {cell(t('panel.options.version.managed.latest', { defaultValue: 'Latest (official)' }), status.latest ?? '?')}
+        {cell(t('panel.options.version.managed.previous', { defaultValue: 'Previous' }), status.previous?.version ?? '—')}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-gray-500">
+        <span>{status.updating ? t('panel.options.version.managed.updating', { defaultValue: 'Downloading and checking…' }) : checked}</span>
+        {!status.updating && status.nextRetryAt && (
+          <span className="text-amber-300/90">
+            {t('panel.options.version.managed.nextRetry', { time: new Date(status.nextRetryAt).toLocaleTimeString(i18n.language), defaultValue: 'Next retry {{time}}' })}
+          </span>
+        )}
+        {status.previous && (
+          <button
+            type="button"
+            onClick={() => { void rollback(); }}
+            disabled={busy || status.updating}
+            className="rounded border border-gray-700 bg-gray-800 px-2 py-0.5 text-gray-300 hover:bg-gray-700 disabled:opacity-40 pointer-coarse:py-1.5"
+          >
+            {t('panel.options.version.managed.rollback', { version: status.previous.version, defaultValue: 'Roll back to {{version}}' })}
+          </button>
+        )}
+        {failed && <span className="text-red-300">{t('panel.options.version.managed.rollbackFailed', { defaultValue: 'Could not roll back' })}</span>}
+      </div>
+      {status.deferred === 'not-in-use' && !status.active && (
+        <div className="text-[12px] text-gray-500">
+          {t('panel.options.version.managed.deferred', { engine: engineName, defaultValue: "Not downloaded — this PC doesn't use {{engine}} yet. It is downloaded when you install it." })}
+        </div>
+      )}
+      {status.failedProbes && status.failedProbes.length > 0 && (
+        <div className="rounded border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[12px] text-amber-200">
+          {t('panel.options.version.managed.rejected', {
+            version: status.latest ?? '?',
+            options: status.failedProbes.join(', '),
+            defaultValue: 'Not switched in — {{version}} rejected: {{options}}',
+          })}
+        </div>
+      )}
+      {status.lastError && !(status.failedProbes && status.failedProbes.length > 0) && (
+        <div className="break-words rounded border border-red-500/30 bg-red-500/5 px-2.5 py-1.5 text-[12px] text-red-300">{status.lastError}</div>
+      )}
+      <div className="flex min-w-0 items-baseline gap-1.5 text-[12px] text-gray-600">
+        <span className="shrink-0">{t('panel.options.version.managed.folder', { defaultValue: 'Folder' })}</span>
+        <span className="min-w-0 break-all font-mono">{status.root}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * §4 (앱 전용 엔진) — 코덱스 탭의 업데이트 칸. Claude 탭의 `ClaudeAutoUpdateSection` 과 같은 모양이다:
+ * 스위치(`UserDefaults.codexAutoUpdate`, 미설정 = 켬) · [지금 업데이트](설치 창과 같은 `/api/codex-setup/install` —
+ * 이미 쓸 수 있는 코덱스가 있으면 서버가 업데이트로 다룬다) · 진행 · 앱 전용 칸.
+ */
+function CodexAutoUpdateSection({ setup, userSelected }: {
+  setup: CodexSetupState;
+  /** 사용자가 다른 설치본을 보조로 골라 두었다 — 자동 업데이트는 그동안 앱 전용 사본을 받지 않는다(그 설치본은 그 주인의 것). */
+  userSelected: boolean;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const userDefaults = useGraphStore((s) => s.userDefaults);
+  const progress = useGraphStore((s) => s.codexSetupProgress);
+  const install = useGraphStore((s) => s.installCodexSetup);
+  const refreshCodexSetup = useGraphStore((s) => s.refreshCodexSetup);
+  const [saving, setSaving] = useState(false);
+
+  const enabled = userDefaults?.codexAutoUpdate?.enabled !== false;
+  const running = progress != null && (progress.status === 'starting' || progress.status === 'running');
+  const managed = setup.managed;
+  const behind = managed?.active && managed.latest ? semverLt(managed.active.version, managed.latest) : !managed?.active;
+
+  const toggle = useCallback(async () => {
+    setSaving(true);
+    try {
+      await fetch(`${API_BASE}/api/user-defaults`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codexAutoUpdate: { enabled: !enabled } } satisfies Partial<UserDefaults>),
+      });
+    } catch { /* WS user_defaults_updated 로 따라온다 */ }
+    finally { setSaving(false); }
+  }, [enabled]);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
+        {t('panel.options.version.codexAutoUpdate.title', { defaultValue: 'Codex updates' })}
+      </span>
+      <div className="flex flex-col gap-2 rounded border border-gray-700/60 bg-gray-900/40 px-3 py-2.5">
+        <label className="flex cursor-pointer items-start gap-2.5">
+          <input
+            type="checkbox"
+            checked={enabled}
+            disabled={saving}
+            onChange={() => { void toggle(); }}
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-blue-500"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-xs text-gray-200">
+              {t('panel.options.version.codexAutoUpdate.label', { defaultValue: 'Keep Codex up to date automatically' })}
+            </span>
+            <span className="text-[12px] text-gray-500">
+              {enabled
+                ? t('panel.options.version.managed.hint', { engine: 'Codex', defaultValue: 'Vibisual downloads new {{engine}} releases from the official source, checks that each one accepts every option Vibisual uses, then switches over — at launch and every 6 hours. Your login and settings stay shared.' })
+                : t('panel.options.version.codexAutoUpdate.offHint', { updateNow: t('panel.options.version.claudeAutoUpdate.updateNow', { defaultValue: 'Update now' }), defaultValue: 'Automatic updates are off. Use "{{updateNow}}" to update Codex yourself.' })}
+            </span>
+          </span>
+        </label>
+
+        {userSelected && (
+          <div className="rounded border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[12px] text-amber-200">
+            {t('panel.options.version.codexUserSelected', {
+              defaultValue: 'You picked another installation — its owner keeps it up to date. App-managed updates resume when you switch back to the default.',
+            })}
+          </div>
+        )}
+
+        {managed && <ManagedEngineInfo status={managed} engineName="Codex" onChanged={() => { void refreshCodexSetup(); }} />}
+
+        <div className="flex flex-wrap items-center gap-2 border-t border-gray-800 pt-2 text-[12px]">
+          <button
+            type="button"
+            onClick={() => { void install(); }}
+            disabled={running || !setup.canAutoInstall}
+            className="rounded border border-gray-700 bg-gray-800 px-2 py-1 text-gray-300 hover:bg-gray-700 disabled:opacity-40"
+          >
+            {running
+              ? t('panel.options.version.claudeAutoUpdate.updating', { defaultValue: 'Updating…' })
+              : t('panel.options.version.claudeAutoUpdate.updateNow', { defaultValue: 'Update now' })}
+          </button>
+          <span className="text-gray-500">
+            {progress?.status === 'error'
+              ? (progress.error ?? t('panel.options.version.claudeAutoUpdate.updateFailed', { defaultValue: 'Update failed' }))
+              : progress?.status === 'done'
+                ? t('panel.options.version.claudeAutoUpdate.updated', { defaultValue: 'Updated to {{version}}', version: progress.version ?? '?' })
+                : behind
                   ? t('panel.options.version.updateAvailable', { defaultValue: 'Update available' })
                   : t('panel.options.version.upToDate', { defaultValue: 'Up to date' })}
           </span>
@@ -1389,17 +1571,21 @@ function ClaudeAutoUpdateSection({ source, outdated, onRefresh }: {
 }
 
 function SourceBadge({ source }: { source: ClaudeInstall['source'] }): React.JSX.Element {
-  // §4 (첫 실행 설치 온보딩) — 'native' 는 우리가 깔고 우리가 갱신하는 출처라 자동 선택 1순위다.
-  const cls = source === 'native'
-    ? 'bg-emerald-500/20 text-emerald-300'
-    : source === 'vscode-extension'
-      ? 'bg-blue-500/20 text-blue-300'
-      : source === 'unknown'
-        ? 'bg-red-500/20 text-red-300'
-        : 'bg-gray-700 text-gray-300';
+  const { t } = useTranslation();
+  // §4 (앱 전용 엔진) — 'managed' 는 앱이 받아 깔고 판을 맡는 사본이라 자동 선택 1순위다.
+  // §4 (첫 실행 설치 온보딩) — 'native' 는 공식 인스톨러 위치다.
+  const cls = source === 'managed'
+    ? 'bg-indigo-500/20 text-indigo-300'
+    : source === 'native'
+      ? 'bg-emerald-500/20 text-emerald-300'
+      : source === 'vscode-extension'
+        ? 'bg-blue-500/20 text-blue-300'
+        : source === 'unknown'
+          ? 'bg-red-500/20 text-red-300'
+          : 'bg-gray-700 text-gray-300';
   return (
     <span className={`rounded px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider ${cls}`}>
-      {source}
+      {source === 'managed' ? t('panel.options.version.sourceManaged', { defaultValue: 'App-managed' }) : source}
     </span>
   );
 }
@@ -1416,9 +1602,22 @@ interface VersionTabProps {
 
 function VersionTab({ info, loading, error, savingBin, binChanged, onSelect, onRefresh }: VersionTabProps): React.JSX.Element {
   const { t } = useTranslation();
+  const progress = useGraphStore((s) => s.claudeInstallProgress);
   const active = info?.installs.find((i) => i.active) ?? null;
-  const outdated = semverLt(active?.version ?? null, info?.latest ?? null);
   const isAuto = info != null && (info.overridePath == null || info.overridePath.length === 0);
+  // §4 (앱 전용 엔진) ④⑨ — 기본은 앱 전용이다. 사용자가 다른 설치본을 골라 두지 않았으면(또는 앱 전용 판을 가리키면)
+  //   갱신 대상도 최신 칸의 출처도 앱 전용(공식 배포처)이다. 앱 전용이 아직이면 지금 쓰는 것은 "임시"다.
+  const usesManaged = isAuto || active?.source === 'managed';
+  const managed = info?.managed;
+  const onManaged = active?.source === 'managed';
+  const pending = usesManaged && !onManaged;
+  const temporary = pending && active != null;
+  const latest = usesManaged ? (managed?.latest ?? null) : (info?.latest ?? null);
+  const outdated = usesManaged
+    ? (onManaged && managed?.active ? semverLt(managed.active.version, managed.latest) : false)
+    : semverLt(active?.version ?? null, info?.latest ?? null);
+  const installRunning = progress != null && (progress.status === 'starting' || progress.status === 'running');
+  const lastProgressLine = progress?.stdout?.trim().split(/\r?\n/).filter(Boolean).pop();
 
   return (
     <div className="flex flex-col gap-4">
@@ -1446,91 +1645,60 @@ function VersionTab({ info, loading, error, savingBin, binChanged, onSelect, onR
                 <span className="font-mono text-base text-gray-200">{active?.version ?? '?'}</span>
               </div>
               <div className={`flex flex-col gap-1 rounded border px-3 py-2 ${outdated ? 'border-amber-500/40 bg-amber-500/5' : 'border-emerald-500/40 bg-emerald-500/5'}`}>
-                <span className={`text-[12px] uppercase tracking-wider ${outdated ? 'text-amber-400' : 'text-emerald-400'}`}>{t('panel.options.version.latest', { defaultValue: 'Latest (npm)' })}</span>
-                <span className={`font-mono text-base ${outdated ? 'text-amber-300' : 'text-emerald-300'}`}>{info.latest ?? '?'}</span>
+                <span className={`text-[12px] uppercase tracking-wider ${outdated ? 'text-amber-400' : 'text-emerald-400'}`}>
+                  {usesManaged
+                    ? t('panel.options.version.managed.latest', { defaultValue: 'Latest (official)' })
+                    : t('panel.options.version.latest', { defaultValue: 'Latest (npm)' })}
+                </span>
+                <span className={`font-mono text-base ${outdated ? 'text-amber-300' : 'text-emerald-300'}`}>{latest ?? '?'}</span>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-[12px] text-gray-400">
               {active && <SourceBadge source={active.source} />}
-              {outdated
+              {onManaged && <DefaultChip />}
+              {temporary && <TemporaryChip />}
+              {!temporary && (outdated
                 ? <span className="text-amber-300">{t('panel.options.version.updateAvailable', { defaultValue: 'Update available' })}</span>
-                : active?.version && info.latest
+                : active?.version && latest
                   ? <span className="text-emerald-300">{t('panel.options.version.upToDate', { defaultValue: 'Up to date' })}</span>
-                  : null}
-              {info.registryError && !info.latest && (
+                  : null)}
+              {!usesManaged && info.registryError && !info.latest && (
                 <span className="text-gray-600">{t('panel.options.version.registryError', { defaultValue: 'npm check failed' })}: {info.registryError}</span>
               )}
             </div>
             {active && <div className="break-all font-mono text-[12px] text-gray-600">{active.binPath}</div>}
+            {pending && (
+              <ManagedPendingNotice managed={managed} running={installRunning} lastLine={lastProgressLine} engineName="Claude Code" />
+            )}
           </div>
 
-          {/* Section 2 — Installations selector */}
+          {/* Section 2 — 어느 실행본을 쓰나: 기본 = Vibisual 전용, 나머지 = 보조(§4 앱 전용 엔진 ④⑨) */}
           <div className="flex flex-col gap-2">
-            <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
-              {t('panel.options.version.installations', { defaultValue: 'Installations' })} ({info.installs.length})
-            </span>
-            <div className="flex flex-col gap-1.5 rounded border border-gray-700/60 bg-gray-900/40 p-2">
-              {/* Auto row */}
-              <button
-                type="button"
-                onClick={() => onSelect(null)}
-                disabled={savingBin || isAuto}
-                className={`flex items-center gap-2 rounded border px-2.5 py-1.5 text-left text-xs ${
-                  isAuto ? 'border-blue-500/50 bg-blue-500/10' : 'border-gray-700/60 hover:bg-white/[0.04]'
-                } disabled:cursor-default`}
-              >
-                <span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border ${isAuto ? 'border-blue-400' : 'border-gray-600'}`}>
-                  {isAuto && <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />}
-                </span>
-                <span className="flex-1">
-                  <span className="font-medium text-gray-200">{t('panel.options.version.auto', { defaultValue: 'Auto (recommended)' })}</span>
-                  <span className="ml-1.5 text-[12px] text-gray-500">{t('panel.options.version.autoDesc', { defaultValue: 'Let Vibisual pick automatically' })}</span>
-                </span>
-              </button>
-
-              {info.installs.map((inst) => {
-                const sel = inst.selected;
-                return (
-                  <button
-                    key={inst.binPath}
-                    type="button"
-                    onClick={() => onSelect(inst.binPath)}
-                    disabled={savingBin || sel}
-                    className={`flex items-start gap-2 rounded border px-2.5 py-1.5 text-left text-xs ${
-                      sel ? 'border-blue-500/50 bg-blue-500/10' : 'border-gray-700/60 hover:bg-white/[0.04]'
-                    } disabled:cursor-default`}
-                  >
-                    <span className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border ${sel ? 'border-blue-400' : 'border-gray-600'}`}>
-                      {sel && <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />}
-                    </span>
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-mono font-medium text-gray-200">{inst.version ?? t('panel.options.version.unknownVer', { defaultValue: 'unknown' })}</span>
-                        <SourceBadge source={inst.source} />
-                        {inst.active && (
-                          <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-emerald-300">
-                            {t('panel.options.version.activeBadge', { defaultValue: 'active' })}
-                          </span>
-                        )}
-                      </span>
-                      <span className="break-all font-mono text-[12px] text-gray-500">{inst.binPath}</span>
-                      {inst.detectError && <span className="text-[12px] text-red-400/80">{inst.detectError}</span>}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            <EngineBinPicker
+              managed={managed}
+              isDefault={usesManaged}
+              rows={info.installs}
+              saving={savingBin}
+              onSelect={onSelect}
+              renderSource={(source) => <SourceBadge source={source as ClaudeInstall['source']} />}
+            />
             {binChanged && (
               <div className="flex items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-1.5 text-[12px] text-emerald-200">
                 <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-                {/* §4 (첫 실행 설치 온보딩) — 실행본 해석이 지연 캐시가 되면서 v2.43 의 "restart to apply" 제약이 풀렸다. */}
+                {/* §4 — 실행본 해석이 지연 캐시라 재시작 없이 새 에이전트에 적용된다. */}
                 {t('panel.options.version.selectionApplied', { defaultValue: 'Selection saved and applied — newly spawned agents use it right away.' })}
               </div>
             )}
           </div>
 
           {/* Section 2-1 — Claude Code CLI 자동 업데이트 (§4). 앱 업데이트(헤더 버튼)와는 별개 축. */}
-          <ClaudeAutoUpdateSection source={active?.source} outdated={outdated} onRefresh={onRefresh} />
+          <ClaudeAutoUpdateSection
+            source={active?.source}
+            outdated={outdated}
+            onRefresh={onRefresh}
+            managed={info.managed}
+            usesManaged={usesManaged}
+          />
 
           {/* Section 3 — About */}
           <AboutSection
@@ -1606,29 +1774,81 @@ const CODEX_STATUS_TONE = {
 } as const;
 
 /**
- * §4 v2.43 · §5.25 (D) — 버전 칸의 Codex 탭.
- *
- * 클로드 탭과 같은 자리(현재 버전 · 실행본 경로 · About)를 코덱스의 사실로 채운다. 사실은 새로 모으지 않는다 —
- * 설치 판정이 이미 들고 있는 `codexSetup`(실행본 경로 · `codex --version` 으로 확인한 버전 · 설치 단계)이 전부다.
- * 그래서 클로드 탭의 셋(npm 최신 비교 · 설치본 고르기 · 자동 업데이트)은 여기 없다 — 그 사실을 모으는 곳이
- * 서버에 없고, 없는 값을 화면이 지어내지 않는다.
- *
- * 탭에 들어올 때 한 번 다시 판정한다 — 앱 밖에서 깔거나 지웠을 수 있다(엔진 칸 `EnginesSection` 과 같은 이유).
- * [다시 검색]도 같은 판정이다(서버가 실행본 캐시를 버리고 다시 찾는다).
+ * §4 · §5.25 (D) — Codex 탭: 클로드 탭과 같은 자리를 `codexSetup` 사실로 채운다(새로 모으지 않는다). `codexSetup.managed` 로 자동 업데이트 칸이 서고,
+ * 설치본 고르기도 Claude 탭과 같다(기본 = 앱 전용, 다른 설치본은 보조 `UserDefaults.codexBinPath`). 탭에 들어올 때·[다시 검색] 때 다시 판정한다(앱 밖 설치·삭제).
  */
+/** 코덱스 실행본 출처 배지 — Claude 의 `SourceBadge` 와 같은 꼴(앱 전용 = 인디고 · 공식 독립 설치 = 초록 · PATH = 회색). */
+function CodexSourceBadge({ source }: { source: string }): React.JSX.Element {
+  const { t } = useTranslation();
+  const cls = source === 'managed'
+    ? 'bg-indigo-500/20 text-indigo-300'
+    : source === 'standalone'
+      ? 'bg-emerald-500/20 text-emerald-300'
+      : 'bg-gray-700 text-gray-300';
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider ${cls}`}>
+      {source === 'managed' ? t('panel.options.version.sourceManaged', { defaultValue: 'App-managed' }) : source}
+    </span>
+  );
+}
+
 function CodexVersionTab({ about }: { about: ClaudeInstallsInfo | null }): React.JSX.Element {
   const { t } = useTranslation();
   const setup = useGraphStore((s) => s.codexSetup);
   const refreshCodexSetup = useGraphStore((s) => s.refreshCodexSetup);
+  const progress = useGraphStore((s) => s.codexSetupProgress);
   // 들어오자마자 판정이 돌므로 처음부터 "확인 중"이다.
   const [checking, setChecking] = useState(true);
+  // §4 (앱 전용 엔진) ④ — 고르기 목록(기본 = 앱 전용 · 나머지 = 보조). Claude 탭과 같은 꼴이다.
+  const [installs, setInstalls] = useState<CodexInstallsInfo | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [changed, setChanged] = useState(false);
+
+  const loadInstalls = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/codex-installs`);
+      const data = await r.json() as { ok: boolean; info?: CodexInstallsInfo };
+      if (data.ok && data.info) setInstalls(data.info);
+    } catch { /* 목록을 못 받아도 위 칸(설치 판정)은 그대로 보인다 */ }
+  }, []);
 
   const rescan = useCallback(async () => {
     setChecking(true);
-    try { await refreshCodexSetup(); } finally { setChecking(false); }
-  }, [refreshCodexSetup]);
+    try { await Promise.all([refreshCodexSetup(), loadInstalls()]); } finally { setChecking(false); }
+  }, [refreshCodexSetup, loadInstalls]);
 
   useEffect(() => { void rescan(); }, [rescan]);
+
+  // [지금 업데이트] · 켤 때 자동이 끝나면 목록(지금 판 · 쓰는 것)을 다시 읽는다 — Claude 탭과 같은 신호.
+  const progressStatus = progress?.status;
+  useEffect(() => {
+    if (progressStatus === 'done' || progressStatus === 'error') void loadInstalls();
+  }, [progressStatus, loadInstalls]);
+
+  // 보조 선택 저장 — `codexBinPath` 를 글로벌 user-defaults 에 PUT. '' = 기본(앱 전용).
+  const selectBin = useCallback(async (binPath: string | null) => {
+    setSaving(true);
+    try {
+      await fetch(`${API_BASE}/api/user-defaults`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codexBinPath: binPath ?? '' } satisfies Partial<UserDefaults>),
+      });
+      setChanged(true);
+      await Promise.all([loadInstalls(), refreshCodexSetup()]);
+    } catch { /* ignore */ }
+    finally { setSaving(false); }
+  }, [loadInstalls, refreshCodexSetup]);
+
+  const activeRow = installs?.installs.find((i) => i.active) ?? null;
+  const onManaged = activeRow?.source === 'managed';
+  // 앱 전용 판을 가리키는 옛 선택은 서버가 "기본"과 같이 본다 — 화면도 그렇게 읽는다.
+  const isDefault = !installs?.overridePath || onManaged;
+  const managed = setup?.managed ?? installs?.managed;
+  const pending = isDefault && !onManaged;
+  const temporary = pending && !!setup?.binPath;
+  const running = progress != null && (progress.status === 'starting' || progress.status === 'running');
+  const lastProgressLine = progress?.output?.trim().split(/\r?\n/).filter(Boolean).pop();
 
   const phase = setup?.phase ?? 'unknown';
   const statusLabel = phase === 'ready'
@@ -1667,12 +1887,45 @@ function CodexVersionTab({ about }: { about: ClaudeInstallsInfo | null }): React
               <span className={`text-base ${tone.value}`}>{statusLabel}</span>
             </div>
           </div>
+          {(activeRow || onManaged || temporary) && (
+            <div className="flex flex-wrap items-center gap-2 text-[12px] text-gray-400">
+              {activeRow && <CodexSourceBadge source={activeRow.source} />}
+              {onManaged && <DefaultChip />}
+              {temporary && <TemporaryChip />}
+            </div>
+          )}
           {setup.binPath && <div className="break-all font-mono text-[12px] text-gray-600">{setup.binPath}</div>}
           {phase === 'failed' && setup.error && (
             <div className="rounded border border-red-500/40 bg-red-500/5 px-3 py-2 text-[12px] text-red-300">{setup.error}</div>
           )}
+          {pending && installs && (
+            <ManagedPendingNotice managed={managed} running={running} lastLine={lastProgressLine} engineName="Codex" />
+          )}
         </div>
       )}
+
+      {/* §4 (앱 전용 엔진) ④⑨ — 어느 실행본을 쓰나: 기본 = Vibisual 전용, 나머지 = 보조. */}
+      {installs && (
+        <div className="flex flex-col gap-2">
+          <EngineBinPicker
+            managed={managed}
+            isDefault={isDefault}
+            rows={installs.installs}
+            saving={saving}
+            onSelect={(binPath) => { void selectBin(binPath); }}
+            renderSource={(source) => <CodexSourceBadge source={source} />}
+          />
+          {changed && (
+            <div className="flex items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-1.5 text-[12px] text-emerald-200">
+              <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+              {t('panel.options.version.selectionApplied', { defaultValue: 'Selection saved and applied — newly spawned agents use it right away.' })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* §4 (앱 전용 엔진) — 코덱스도 앱이 판을 맡는다: 자동 업데이트 스위치 · [지금 업데이트] · 앱 전용 칸. */}
+      {setup && <CodexAutoUpdateSection setup={setup} userSelected={!isDefault} />}
 
       {about && (
         <AboutSection

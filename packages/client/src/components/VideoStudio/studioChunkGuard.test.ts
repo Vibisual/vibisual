@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 /**
- * §5.13 (Y) 40-4 — **스튜디오 첫 청크에 3D 가 다시 들어오지 못하게** 지킨다.
- *
- * 39-2 가 three.js·모델 해독기를 늦은 로드로 걷었는데, 그 뒤 `videoMediaProvider.ts`·`videoModelImport.ts` 의 정적 import 로 소리 없이
- * 되돌아왔다(설치본 실측 — 스튜디오 정적 사슬 2.78MB 중 2.06MB). 빌드 산출물이 없는 시험 환경에서도 돌도록 소스의 **정적 import
- * 그래프**를 따라간다 — `import type`·`import()` 는 빼고, `export … from` 은 넣는다. 본체(`main.tsx`)가 이미 정적으로 싣는 모듈은
- * 스튜디오 몫이 아니라 뺀다(그쪽은 앱을 켤 때 이미 낸 비용이다).
+ * §5.13 (Y) 40-4 — 스튜디오 첫 청크에 3D(three.js·모델 해독기)가 다시 들어오지 못하게 지킨다(정적 import 로 소리 없이 되돌아온 적이 있다 — 설치본 실측: 정적 사슬 2.78MB 중 2.06MB).
+ * 빌드 산출물 없이도 돌도록 소스의 정적 import 그래프를 따라간다 — `import type`·`import()` 는 빼고 `export … from` 은 넣는다.
+ * 본체(`main.tsx`)가 이미 정적으로 싣는 모듈은 뺀다(앱을 켤 때 이미 낸 비용이다).
  */
 
 const SOURCES = import.meta.glob<string>(['/src/**/*.ts', '/src/**/*.tsx', '!/src/**/*.test.ts', '!/src/**/*.test.tsx'], {

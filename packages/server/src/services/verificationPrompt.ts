@@ -1,15 +1,7 @@
 /**
- * §5.5 #17-35 ④⑤ — 검증 프롬프트 조립 + 판정 해석 (순수 모듈).
- *
- * `/verify` 는 Claude Code 의 **번들 스킬**이라 실행 로직은 우리에게 없다 — 우리가 하는 일은 둘뿐이다.
- *
- *  1. **실행법을 먼저 쥐여 준다**(④) — `/verify` 는 앱 띄우는 법을 매번 다시 추론한다. 그런데 우리는
- *     §5.14 플레이 버블의 `PlayRecipe` 로 그 지식을 이미 구조화해 들고 있다. 그걸 그대로 실어 보낸다.
- *  2. **결론을 구조화해 받는다**(⑤) — 자유 텍스트 "됐습니다" 와 "실제로 돌려 봤다" 를 구별할 수 있게
- *     `VERIFICATION_VERDICT_SCHEMA_GUIDE`(§5.3 #10-3) 를 그대로 붙이고, 해석은 **fail-closed** 로 한다.
- *
- * 부수 효과 0 — 파일도 읽지 않고 시각도 보지 않는다(호출자가 읽어서 넘긴다). 그래야 이 조립·해석을
- * 화면 없이 통째로 시험할 수 있다(#17-11 ⑫(g) `sessionLoopPrompt` 와 같은 자리·같은 규율).
+ * §5.5 #17-35 ④⑤ — 검증 프롬프트 조립 + 판정 해석(순수). `/verify` 는 번들 스킬이라 실행 로직은 우리에게 없다.
+ * ④ 앱 띄우는 법을 매번 추론하지 않게 §5.14 `PlayRecipe` 를 싣는다. ⑤ `VERIFICATION_VERDICT_SCHEMA_GUIDE`(§5.3 #10-3)를 붙이고 해석은 fail-closed.
+ * 파일·시각을 읽지 않는다(호출자가 넘긴다) — 화면 없이 통째로 시험하려고(#17-11 ⑫(g) `sessionLoopPrompt` 와 같은 규율).
  */
 
 import {
@@ -56,11 +48,7 @@ function oneLine(v: string, max: number): string {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
-/**
- * §5.5 #17-35 ④(a) — 우리 `PlayRecipe` 를 검증 프롬프트가 쓸 모양으로 옮긴다.
- *
- * 정적 서빙이면 "명령 없이 이 주소를 열면 된다" 가 핵심이고, 명령 실행이면 명령·작업 폴더가 핵심이다.
- */
+/** §5.5 #17-35 ④(a) — `PlayRecipe` 를 검증 프롬프트용으로 옮긴다. 정적 서빙은 "명령 없이 이 주소", 명령 실행은 명령·작업 폴더가 핵심. */
 export function summarizePlayRecipe(facts: PlayRecipeFacts): VerifyRecipeInfo {
   const lines: string[] = [];
   const labelParts: string[] = [];
@@ -93,11 +81,7 @@ export function summarizePlayRecipe(facts: PlayRecipeFacts): VerifyRecipeInfo {
   return { source: 'play-recipe', label, lines };
 }
 
-/**
- * §5.5 #17-35 ④(b) — 리포에 `/verify` 자신이 적어 둔 레시피가 있을 때.
- *
- * 그 파일을 **읽지도 고치지도 않는다** — 존재만 알리고 따르라고 한다. 내용 관리는 `/verify` 의 몫이다.
- */
+/** §5.5 #17-35 ④(b) — 리포에 `/verify` 가 적어 둔 레시피가 있을 때. 읽지도 고치지도 않고 존재만 알린다(내용은 `/verify` 몫). */
 export function recordedSkillRecipe(relPath: string = VERIFY_RECORDED_SKILL_PATH): VerifyRecipeInfo {
   return {
     source: 'recorded-skill',
@@ -110,13 +94,8 @@ export function recordedSkillRecipe(relPath: string = VERIFY_RECORDED_SKILL_PATH
 export const NO_RECIPE: VerifyRecipeInfo = { source: 'none', lines: [] };
 
 /**
- * 시연 프레임 한 장 — 에이전트가 **직접 열 수 있는 절대 경로** + 클립 안 시각.
- *
- * 장수(`number`)가 아니라 경로를 받는 이유: `/verify` 프롬프트는 슬래시 명령이라 `composeTurnPrompt`
- * 가 **첨부 경로를 붙이지 않는다**(맨 앞 한 글자라도 앞서면 CLI 가 명령으로 집지 못한다는 규칙의
- * 일부로 꼬리 첨부까지 함께 잘린다). 그래서 "첨부된 그림 4장" 이라고 **말만 하고** 그림은 한 장도
- * 가지 않았다(실측: 에이전트가 "제 컨텍스트에는 이미지가 없습니다" 라고 되물었다).
- * 경로를 프롬프트 본문 안에 실으면 `/verify` 는 여전히 맨 앞이면서 그림이 실제로 도달한다.
+ * 시연 프레임 한 장 — 에이전트가 열 수 있는 절대 경로 + 클립 안 시각.
+ * 경로를 본문에 싣는다 — `/verify` 는 슬래시 명령이라 `composeTurnPrompt` 가 첨부를 붙이지 않아, 그림 없이 "첨부 4장"이라는 말만 갔다(실측).
  */
 export interface DemoFrameRef {
   /** 그 명령의 첨부 자리에 복사된 PNG 의 절대 경로. */
@@ -131,10 +110,7 @@ export interface VerifyPromptInput {
   focus?: string;
   /** 실어 보낼 실행법. */
   recipe: VerifyRecipeInfo;
-  /**
-   * §5.5 #17-35 ⑨-4 — 사람이 직접 해 보인 재현 절차(선택).
-   * 없으면 이 함수가 만드는 텍스트는 ⑨ 이전과 **완전히 같다**(회귀 테스트가 그 동일성을 지킨다).
-   */
+  /** §5.5 #17-35 ⑨-4 — 사람이 해 보인 재현 절차(선택). 없으면 텍스트가 ⑨ 이전과 완전히 같다(회귀 시험이 지킨다). */
   demo?: VerificationDemo;
   /** 그 시연의 프레임들(빈 배열이면 그림 얘기를 아예 꺼내지 않는다). */
   demoFrames?: DemoFrameRef[];
@@ -149,11 +125,8 @@ export function formatDemoTime(ms: number): string {
 }
 
 /**
- * 그 탭 큐에 실제로 나갈 텍스트를 만든다.
- *
- * 첫 줄이 `/verify` 다 — Claude Code 는 명령 이름 뒤의 **나머지 전부**(줄바꿈 포함)를 그 스킬의
- * 인자로 넘기므로, 아래 블록들이 그대로 스킬에 전달된다. 순서는 항상 같다(확인할 것 → 실행법 →
- * 판정 형식) — 매번 흔들리면 모델이 검증마다 다른 규칙을 따른다(#17-11 ⑫(g) 와 같은 이유).
+ * 그 탭 큐에 나갈 텍스트. 첫 줄 `/verify` 뒤 나머지 전부(줄바꿈 포함)가 스킬 인자로 간다.
+ * 순서는 늘 같다(확인할 것 → 실행법 → 판정 형식) — 흔들리면 검증마다 다른 규칙을 따른다(#17-11 ⑫(g)).
  */
 export function buildVerifyPrompt(input: VerifyPromptInput): string {
   const parts: string[] = [VERIFY_SLASH_COMMAND];
@@ -189,11 +162,8 @@ export function buildVerifyPrompt(input: VerifyPromptInput): string {
   if (demo && (demo.steps.length > 0 || demo.expected || frames.length > 0)) {
     parts.push('', '=== 사람이 직접 해 보인 재현 절차 ===');
     if (demo.label) parts.push(`시연: ${demo.label}`);
-    // 무엇을 찍은 화면인지 말한다 — 시연은 이 리포의 앱이 아닐 수 있다(다른 프로그램을 녹화한
-    // 시연이 실제로 온다). 그걸 안 알려 주면 모델은 그림 속 화면을 이 리포의 화면으로 착각한다.
-    //
-    // 다만 기본 이름(`defaultDemoLabel`)이 이미 `<소스명> · <시각>` 이라 그대로 또 적으면
-    // 같은 문자열이 두 줄 연속으로 선다. 이름이 이미 소스명을 담고 있으면 이 줄은 생략한다.
+    // 녹화한 화면 이름을 말한다 — 시연이 다른 프로그램일 수 있고, 안 알리면 이 리포의 화면으로 착각한다.
+    // 기본 이름(`defaultDemoLabel`)이 이미 소스명을 담으면 같은 줄이 두 번 서지 않게 생략한다.
     if (demo.sourceName && !demo.label.includes(demo.sourceName)) {
       parts.push(`녹화한 화면: ${demo.sourceName}`);
     }
@@ -304,15 +274,9 @@ export interface ParsedVerifyVerdict {
 }
 
 /**
- * §5.5 #17-35 ⑤ — 에이전트 응답에서 판정을 읽는다. **fail-closed.**
- *
- *  - 구조화 블록의 `reject` → `fail`.
- *  - 구조화 블록의 `approve` 는 성공한 실행·조작 시도와 실제 정수 종료 코드가 있어야 `pass`.
- *    실패한 시도가 있으면 `fail`, 실행 근거가 없으면 `held`.
- *    ("봤더니 괜찮다" 는 증거가 아니다 — §5.3 #10-3 이 세운 규율 그대로.)
- *  - 블록이 없으면 키워드 폴백으로 **reject 만** 인정하고, 나머지는 전부 `held`.
- *
- * 즉 해석 실패가 통과로 흐르는 길이 없다.
+ * §5.5 #17-35 ⑤ — 응답에서 판정을 읽는다(fail-closed — 해석 실패가 통과로 흐르는 길이 없다).
+ * `reject` → `fail`. `approve` 는 성공한 실행 시도 + 실제 정수 종료 코드가 있어야 `pass`, 실패한 시도면 `fail`, 근거가 없으면 `held`(§5.3 #10-3).
+ * 블록이 없으면 키워드 폴백으로 reject 만 인정하고 나머지는 `held`.
  */
 export function parseVerificationVerdict(text: string): ParsedVerifyVerdict {
   const empty: VerificationAttemptRecord[] = [];
@@ -364,12 +328,7 @@ export function parseVerificationVerdict(text: string): ParsedVerifyVerdict {
   return { verdict: 'held', attempts: empty };
 }
 
-/**
- * §5.5 #17-35 ⑥ — 실패한 검증을 그대로 다음 프롬프트로 만든다.
- *
- * 새 통신 레이어를 만들지 않는다 — 이 문자열은 기존 명령 큐로 나간다(§5.16 반려 사유가 다음
- * 프롬프트가 되는 그 경로와 같은 골격).
- */
+/** §5.5 #17-35 ⑥ — 실패한 검증을 다음 프롬프트로. 기존 명령 큐로 나간다(§5.16 반려 사유와 같은 골격). */
 export function buildVerifyReworkPrompt(run: {
   verdict: VerifyVerdict;
   focus?: string;

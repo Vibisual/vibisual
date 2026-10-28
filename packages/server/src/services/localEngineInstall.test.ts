@@ -13,6 +13,20 @@ import {
 vi.mock('node:child_process', () => ({ spawn: vi.fn() }));
 vi.mock('../logger.js', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('../broadcastBus.js', () => ({ broadcast: vi.fn() }));
+// §4 (앱 전용 엔진) ⑬ — 받기는 앱 밖 도우미 프로세스가 한다. 이 시험은 도우미 대신 아래 가짜 fetch 로 받아
+//   같은 결과(파일 · 받은 바이트와 다시 읽은 파일의 지문)를 돌려준다 — 가짜 spawn 은 풀기만 흉내 낸다.
+vi.mock('./helperDownload.js', () => ({
+  downloadInHelper: vi.fn(async (url: string, dest: string, onBytes: (received: number, total: number) => void) => {
+    const nodeFs = await import('node:fs');
+    const { createHash } = await import('node:crypto');
+    const res = await fetch(url);
+    const body = Buffer.from(await res.arrayBuffer());
+    nodeFs.writeFileSync(dest, body);
+    onBytes(body.length, body.length);
+    const digest = createHash('sha256').update(body).digest('hex');
+    return { received: body.length, total: body.length, streamSha256: digest, fileSha256: digest };
+  }),
+}));
 
 let home: string;
 let brokenBackends: Set<string>;

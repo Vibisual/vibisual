@@ -6,11 +6,7 @@ import { appNodeResizeBounds } from './appNodeForm.js';
 import { mediaBlobVerdict } from './useMediaBlobUrl.js';
 import { INTERNAL_APPS } from './registry.js';
 
-/**
- * §5.4 #36 (G) — 앱 위성은 작은 작업대다: 누름은 선택, 여는 손은 더블클릭과 [에디터에서 열기], 크기를 바꾸고, 결과가 담긴
- * 화면에서는 앱이 선언한 간단한 조작(재생·돌려 보기·맞춤)을 캔버스에서 바로 한다.
- * 클라 시험 환경에는 DOM 이 없다 — 순수 도우미와 소스 규약만 본다.
- */
+/** §5.4 #36 (G) — 앱 위성 조작줄 도우미(누름 = 선택, 더블클릭·[에디터에서 열기] = 열기). DOM 이 없어 순수 도우미와 소스 규약만 본다. */
 
 describe('§5.4 #36 (G) 조작줄 도우미', () => {
   it('재생 시계는 내림이고 0 도 0:00 으로 보인다(길이 숫자와 달리)', () => {
@@ -40,8 +36,7 @@ describe('§5.4 #36 (G) 조작줄 도우미', () => {
     expect(isFaceControlTarget(undefined)).toBe(false);
   });
 
-  // 2026-10-20 — React Flow 의 크기 조절 띠도 `nodrag` 를 단다. 그것까지 조작 자리로 읽으면 띠의 누름·두 번 누름이
-  //   노드의 것이 되지 못한다(작게 줄인 명패에서는 띠가 몸통의 큰 몫이다 — 사용자 보고 "일부 앱이 안 지워진다").
+  // 크기 조절 띠도 `nodrag` 지만 조작 자리가 아니다 — 그렇게 읽으면 띠의 누름이 노드에 안 가, 띠가 몸통의 큰 몫인 작은 명패에서 일부 앱이 안 지워진다.
   it('크기 조절 띠는 조작 자리가 아니다 — 띠의 누름은 노드의 것이다', () => {
     // 클라 시험에는 DOM 이 없다 — `closest` 만 흉내 낸 요소로 판정만 본다.
     class FakeElement {
@@ -116,7 +111,7 @@ describe('§5.4 #36 (G) 앱 노드 소스 규약', () => {
     expect(src).toContain('isFaceControlTarget(e.target)');
   });
 
-  // 2026-10-20 — 띠는 몸통 밖 형제라 몸통의 손잡이가 닿지 않는다. 띠 위 우클릭이 아무 메뉴도 열지 않았다(사용자 보고).
+  // 띠는 몸통 밖 형제다 — 감싸개에 따로 달지 않으면 띠 위 우클릭이 아무 메뉴도 열지 않는다.
   it('크기 조절 띠도 노드다 — 띠 감싸개에 같은 우클릭 메뉴·선택 손짓·두 번 누름을 단다', () => {
     const at = src.indexOf('group/app-resize');
     expect(at).toBeGreaterThan(-1);

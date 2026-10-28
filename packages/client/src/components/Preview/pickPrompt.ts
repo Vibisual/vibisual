@@ -1,11 +1,6 @@
 import type { PreviewPickPayload } from '@vibisual/shared';
 
-/**
- * §7.11 (판올림 번호 발급 대기) — 프리뷰에서 집은 요소 + 사용자의 한 문장을 **명령**으로 조립.
- *
- * "헤더 오른쪽 그 버튼" 처럼 말로 가리키던 것을 선택자·보이는 글·좌표로 바꿔, 에이전트가 코드에서
- * 다시 찾는 왕복을 없앤다. 조립을 컴포넌트가 아니라 여기 두는 이유는 `diffCommentPrompt.ts` 와 같다.
- */
+/** §7.11 — 집은 요소 + 한 문장 → 명령(선택자·보이는 글·좌표로 에이전트의 재탐색을 없앤다). */
 
 /** 명령에 붙는 줄머리 — 화면에서 번역해 넣는다(모듈이 언어를 정하지 않는다). */
 export interface PickPromptLabels {
@@ -35,12 +30,7 @@ export function describePickedElement(pick: PreviewPickPayload): string {
   return out;
 }
 
-/**
- * 집은 요소 + 사용자 문장 → 명령 텍스트.
- *
- * 사용자 문장이 비면 빈 문자열을 돌려주고, 호출부는 그때 아무 것도 보내지 않는다
- * (요소만 보내면 "이걸 어쩌라는 것인가"가 되어 턴 하나가 헛돈다).
- */
+/** 문장이 비면 빈 문자열 — 호출부는 보내지 않는다(요소만 보내면 턴이 헛돈다). */
 export function buildPickPrompt(
   pick: PreviewPickPayload,
   request: string,

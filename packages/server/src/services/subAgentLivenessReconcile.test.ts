@@ -1,14 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { subAgentManager } from './subAgentManager.js';
 
-/**
- * 실행 표시 ↔ 실제 프로세스 생존 대조 회귀 테스트.
- *
- * 종전에는 `sub.status` 가 `active` 인 채로 자식을 잃으면 **5분 무활동 sweep** 이 걷을 때까지
- * 화면이 "돌고 있다"고 말했다(그동안 [중지]는 멈출 게 없는 헛버튼). 이제 5초 리컨사일이
- * 사실로 판정한다 — 다만 **잘못 강등하면 더 나쁘므로**(멀쩡히 도는 세션이 완료로 보인다)
- * 제외 조건들을 여기서 고정한다.
- */
+/** 실행 표시 ↔ 프로세스 생존 대조 회귀 — 잘못 강등하면 도는 세션이 완료로 보이므로 제외 조건을 고정한다. */
 
 /** 테스트가 만든 sub 를 매번 걷어 내 서로 간섭하지 않게 한다(매니저가 모듈 싱글턴이라). */
 const created: string[] = [];
@@ -131,7 +124,7 @@ describe('중지·덧말로 턴이 갈릴 때 옛 백단 작업이 새 턴에 �
     // 뒤늦게 도착한 턴 A 자식의 종료 — 우리 장부에 없는 id 다.
     subAgentManager.noteSubagentTaskStop(agentId, 'old-X', '옛 결과');
 
-    // Z 는 그대로 살아 있어야 한다(종전에는 최고령 폴백이 Z 를 지우고 옛 결과를 붙였다).
+    // Z 는 그대로 살아 있어야 한다 — 최고령 폴백이 Z 를 지우고 옛 결과를 붙이면 안 된다.
     expect(subAgentManager.getRunningSubagentTasks()?.[agentId]?.map((t) => t.id)).toEqual(['new-Z']);
   });
 
@@ -380,14 +373,7 @@ describe('종료 전 경고 판정 — 지금 끊기면 잃는 일', () => {
   });
 });
 
-/**
- * §5.5 #17-9 ⑮ — **도는 세션이 초록 "완료"로 굳던 자리.**
- *
- * 실측(2026-09-20): 스트림이 지금도 들어오는 탭인데 `status:'idle'` + 명령은 `completed` 였고,
- * 그 세션에 남은 살아 있는 작업이 전부 `subagentType` 을 가진 Task/Agent 자식이었다. 생존 술어가
- * **표시용** 목록(`listDisplayableLiveTasks` — 겹쳐 세지 않으려고 그 항목을 뺀다)을 참/거짓으로
- * 읽은 탓이다. 아래 네 건이 그 계약을 고정한다 — **생존은 거르지 않고, 표시는 그대로 거른다.**
- */
+/** §5.5 #17-9 ⑮ — 생존은 거르지 않고 표시는 거른다: Task/Agent 자식만 도는 탭이 표시용 목록(`listDisplayableLiveTasks`) 탓에 "완료"로 굳지 않는다(실측 2026-09-20). */
 describe('생존 판정은 표시 목록을 빌려 쓰지 않는다 (#17-9 ⑮)', () => {
   it('Task/Agent 자식만 도는 탭도 활동 중으로 선다', () => {
     const agentId = 'agent-subagent-only';

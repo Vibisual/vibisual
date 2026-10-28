@@ -1,13 +1,7 @@
 import type { LanguageSpec, TokenKind } from './codeLanguages.js';
 import type { CodeToken } from './codeHighlight.js';
 
-/**
- * codeHighlightMarkup.ts — §5.5 #17-27 v4.87 태그 언어(html/xml)와 마크다운 전용 훑기.
- *
- * 둘 다 "코드"의 규칙(키워드·괄호)이 아니라 **줄과 꺾쇠의 규칙**으로 색이 갈리므로,
- * 일반 코드 토크나이저(`codeHighlight.ts`)와 한 함수에 뒤섞지 않고 여기서 따로 훑는다.
- * 반환 형태는 같은 `CodeToken[]`(줄바꿈을 품은 채)이라 나머지 처리는 공용이다.
- */
+/** §5.5 #17-27 태그 언어(html/xml)·마크다운 전용 훑기 — 줄·꺾쇠 규칙으로 갈려 `codeHighlight.ts` 와 섞지 않는다. 반환은 같은 `CodeToken[]`. */
 
 const IDENT_PART = /[A-Za-z0-9_:.\-$]/;
 

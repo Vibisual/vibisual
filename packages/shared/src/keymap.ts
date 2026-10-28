@@ -1,27 +1,9 @@
 /**
- * keymap.ts — **앱 단축키의 단일 진실 공급원(SSOT).**
- *
- * 여태 단축키는 `keydown` 핸들러 128곳(78개 파일)에 흩어져 있었고, "무엇이 있는가"를 아는 곳이
- * 하나도 없었다. 그래서 세 가지가 동시에 불가능했다 — **힌트**(있는 줄도 모른다) ·
- * **재매핑**(고칠 자리가 없다) · **충돌 검사**(비교할 목록이 없다). 도움말(§6 인터랙션 규칙 표 ·
- * Guide 창)은 손으로 적어 두었기 때문에 구현과 어긋나도 아무도 알 수 없었다.
- *
- * 이 모듈은 **선언한 곳이 곧 실행하는 곳**이 되게 한다. `COMMANDS` 한 표에서
- * ① 실제 키 판정(`matchesBinding`) ② 화면 힌트 ③ 설정 화면 ④ 충돌 판정이 **전부** 나온다.
- * 표에 없는 키는 힌트에도 설정에도 뜨지 않는다 — **거짓말하지 않는 것**이 이 표의 첫 규칙이다.
- * (등록해 놓고 핸들러가 이 표를 안 보면, 사용자가 재매핑해도 아무 일이 안 일어난다.)
- *
- * ## 바인딩 문자열 규약 — 새 어휘를 발명하지 않는다
- * 이미 `client/utils/platform.ts` 의 `formatShortcut()` 이 쓰던 토큰을 그대로 쓴다.
- * - `Ctrl` = **mod** — win/linux 는 Ctrl, mac 은 ⌘. 판정은 `ctrlKey || metaKey`.
- * - `Control` = **진짜 Control** — 세 OS 모두 Control. `Control+Tab` 처럼 mac 에서 ⌘ 가
- *   OS 에 이미 잡힌 자리에 쓴다(⌘Tab = 앱 전환, §5.5 #17-37 ③).
- * - `Alt` · `Shift` · 키 토큰 하나. 예: `Ctrl+Shift+Z`, `Alt+Digit`, `Escape`.
- *
- * ## 왜 순수 함수인가
- * 플랫폼 분기를 **인자로 받는다**(`platform: PlatformName`). 실기(mac·linux)가 없는 우리에게는
- * Windows 개발기에서 세 OS 를 단위 테스트로 고정하는 것이 규칙 준수를 확인하는 유일한 방법이다
- * ([docs/rules/multiplatform.md] 5축 — 단축키).
+ * 앱 단축키의 단일 진실 공급원 — `COMMANDS` 한 표에서 키 판정(`matchesBinding`)·힌트·설정 화면·충돌 판정이 나온다.
+ * 표에 없는 키는 힌트·설정에 안 뜬다. 핸들러가 이 표를 안 보면 재매핑이 먹지 않는다.
+ * 토큰은 `formatShortcut()`(`client/utils/platform.ts`) 것 그대로: `Ctrl` = mod(win/linux Ctrl · mac ⌘, `ctrlKey || metaKey`) ·
+ * `Control` = 세 OS 모두 진짜 Control(mac 에서 ⌘ 가 OS 몫인 자리, ⌘Tab §5.5 #17-37 ③) · `Alt` · `Shift` · 키 하나.
+ * 플랫폼은 인자로 받는다 — Windows 에서 세 OS 를 단위 테스트로 고정하는 유일한 길이다(멀티플랫폼 5축).
  */
 
 import type { PlatformName } from './pathCase.js';
@@ -30,27 +12,10 @@ import type { PlatformName } from './pathCase.js';
 // 스코프 — 어디서 듣는 키인가
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * 단축키가 살아 있는 범위.
- *
- * 이 축이 없으면 충돌 검사는 쓸모가 없다 — 이 저장소만 해도 `Escape` 62곳 · `Enter` 44곳이라
- * 스코프 없이 비교하면 전부 빨갛게 뜬다. 형제 스코프(캔버스 ↔ 터미널)는 같은 키를 써도
- * **실제로 부딪히지 않는다**(동시에 활성이 아니다).
- */
+/** 단축키가 사는 범위 — 없으면 충돌 검사가 무의미하다(`Escape` 62곳·`Enter` 44곳). 형제 스코프(캔버스 ↔ 터미널)는 동시에 활성이 아니라 부딪히지 않는다. */
 export type CommandScope = 'global' | 'canvas' | 'ide' | 'editor' | 'terminal' | 'dialog';
 
-/**
- * 스코프 트리(자식 → 부모). `null` = 뿌리.
- *
- * ```
- * global
- * ├─ canvas
- * ├─ dialog          (모달이 열려 있는 동안만)
- * └─ ide
- *    ├─ editor
- *    └─ terminal
- * ```
- */
+/** 스코프 트리(자식 → 부모). `null` = 뿌리. `dialog` 는 모달이 열려 있는 동안만 산다. */
 export const SCOPE_PARENT: Record<CommandScope, CommandScope | null> = {
   global: null,
   canvas: 'global',
@@ -78,12 +43,7 @@ export function scopeChain(scope: CommandScope): CommandScope[] {
   return chain;
 }
 
-/**
- * 두 스코프가 **동시에 활성일 수 있는가**.
- * - `same` — 같은 스코프. 같은 키면 진짜 충돌이다.
- * - `ancestor` — 하나가 다른 하나의 조상. 자손이 조상을 **가린다**(대개 의도된 것 — 경고만).
- * - `none` — 형제. 같은 키를 써도 부딪히지 않는다.
- */
+/** 두 스코프가 동시에 활성일 수 있는가. `same` 같은 키면 진짜 충돌 · `ancestor` 자손이 조상을 가린다(대개 의도 — 경고만) · `none` 형제(안 부딪힘). */
 export function scopeRelation(a: CommandScope, b: CommandScope): 'same' | 'ancestor' | 'none' {
   if (a === b) return 'same';
   if (scopeChain(a).includes(b) || scopeChain(b).includes(a)) return 'ancestor';
@@ -94,13 +54,7 @@ export function scopeRelation(a: CommandScope, b: CommandScope): 'same' | 'ances
 // 키 토큰 — 자판 배열과 무관한 물리 키
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * `KeyboardEvent.code` → 우리 키 토큰.
- *
- * **`e.key` 가 아니라 `e.code`** 를 쓴다 — 독일어(QWERTZ)·프랑스어(AZERTY) 자판에서 `e.key` 는
- * 자판이 새겨진 글자를 주므로 `Ctrl+Z` 가 자판마다 다른 물리 위치가 된다. `useBookmarks` 가 이미
- * 같은 이유로 `e.code` 를 쓰고 있다(§5.4 #30).
- */
+/** `KeyboardEvent.code` → 키 토큰. `e.key` 를 쓰지 마라 — QWERTZ·AZERTY 에서 새겨진 글자라 `Ctrl+Z` 가 자판마다 다른 자리가 된다(§5.4 #30). */
 export function keyTokenFromCode(code: string): string | null {
   const letter = /^Key([A-Z])$/.exec(code);
   if (letter) return letter[1] as string;
@@ -161,12 +115,7 @@ export function codesForKeyToken(token: string): string[] {
   return out;
 }
 
-/**
- * 자리표(placeholder) 토큰 — 한 명령이 **여러 키를 한 벌로** 받는 자리.
- *
- * 북마크(`Alt+1`…`Alt+0`)를 명령 20개로 쪼개면 설정 화면이 그것만으로 가득 찬다. 그렇다고
- * 표에서 빼면 힌트·충돌 검사가 그 키를 모르게 된다 — 자리표가 그 사이를 메운다.
- */
+/** 자리표 토큰 — 한 명령이 여러 키를 한 벌로 받는 자리(북마크 `Alt+1`…`Alt+0`). 명령 20개로 쪼개면 설정 화면이 넘치고, 빼면 힌트·충돌 검사가 모른다. */
 export const PLACEHOLDER_KEYS: Record<string, string[]> = {
   /** `0`~`9` — §5.4 #30 북마크 슬롯(0 = 10번). */
   Digit: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
@@ -223,11 +172,7 @@ const KEY_ALIAS: Record<string, string> = {
   digit: 'Digit', 'digit1to9': 'Digit1To9',
 };
 
-/**
- * `'Ctrl+Shift+Z'` → 토큰 배열.
- * 마지막 `+` 는 **키 자체**일 수 있으므로(`Ctrl++` = 확대) 끝에 붙은 것은 쪼개지 않는다.
- * (`formatShortcut` 의 `splitCombo` 와 같은 규칙 — 두 벌이 되면 한쪽만 고쳐져 어긋난다.)
- */
+/** `'Ctrl+Shift+Z'` → 토큰 배열. 끝의 `+` 는 키 자체일 수 있어(`Ctrl++` = 확대) 쪼개지 않는다. `formatShortcut` 의 `splitCombo` 와 함께 고칠 것. */
 function splitCombo(combo: string): string[] {
   return combo
     .split(/\+(?!$)/)
@@ -316,12 +261,8 @@ export interface KeyEventLike {
 }
 
 /**
- * 이 이벤트가 그 바인딩인가.
- *
- * - `Ctrl` 토큰 → `ctrlKey || metaKey`(mac 은 ⌘). 멀티플랫폼 5축의 정본 규칙.
- * - `Control` 토큰 → `ctrlKey` 만. mac 에서도 진짜 Control(⌘Tab 은 OS 가 가져간다).
- * - **모디파이어는 정확히 일치해야 한다** — `Ctrl+C` 바인딩은 `Ctrl+Shift+C` 에 반응하지 않는다.
- *   느슨하게 두면 서로 다른 두 단축키가 한 손짓에 함께 발동한다.
+ * 이 이벤트가 그 바인딩인가. `Ctrl` = `ctrlKey || metaKey`, `Control` = `ctrlKey` 만(mac 에서도).
+ * 모디파이어는 정확히 일치해야 한다 — 느슨하면 `Ctrl+C` 가 `Ctrl+Shift+C` 에도 떠 두 단축키가 함께 발동한다.
  */
 export function matchesBinding(e: KeyEventLike, binding: string): boolean {
   const b = parseBinding(binding);
@@ -382,33 +323,21 @@ export interface CommandDef {
   /** 기본 바인딩(정규 표기). `''` = 기본값 없음(사용자가 붙일 수 있는 빈 자리). */
   defaultBinding: string;
   /**
-   * 그 OS 에서만 다른 기본 바인딩(선택). 없는 OS 는 `defaultBinding` 을 쓴다 — 읽는 곳은
-   * `defaultBindingFor` 하나다.
-   *
-   * 편집기의 손에 익은 키는 OS 마다 다르다(VS Code 도 기본값을 OS 별로 둔다). mac 의 ⌘H 는 앱
-   * 숨기기라 바꾸기가 ⌥⌘F 이고, ⌘G 는 다음 찾기라 줄 번호 이동이 ⌃G 다. linux 는 Shift+Alt+방향키를
-   * 데스크톱이 가져가는 일이 있어 줄 복사가 Ctrl+Shift+Alt+방향키다. 한 값으로 묶으면 어느 OS 에서는
-   * 키가 아예 오지 않거나(OS 예약) 그 OS 사람의 손과 다른 키가 된다.
+   * 그 OS 만 다른 기본 바인딩(선택, 읽는 곳은 `defaultBindingFor` 하나). 편집기 손버릇은 OS 마다 다르다 —
+   * mac 은 ⌘H(앱 숨기기) 탓에 바꾸기가 ⌥⌘F, ⌘G(다음 찾기) 탓에 줄 이동이 ⌃G. linux 는 Shift+Alt+방향키를 데스크톱이 가져가 줄 복사가 Ctrl+Shift+Alt+방향키.
    */
   osBinding?: Partial<Record<KeymapOs, string>>;
   /** i18n 키(`common.shortcuts.cmd.<id>`). 번역문에 `Ctrl+` 를 박지 않기 위해 **이름만** 여기 둔다. */
   labelKey: string;
-  /**
-   * 입력창·터미널에 포커스가 있어도 살아 있어야 하는가.
-   *
-   * 기본은 `false` — 타이핑을 가로채지 않는다. 탭 전환처럼 "어디서든 되어야 하는" 것만 `true`.
-   */
+  /** 입력창·터미널에 포커스가 있어도 살아 있어야 하는가. 기본 `false`(타이핑을 가로채지 않는다) — 탭 전환처럼 어디서든 되어야 하는 것만 `true`. */
   typingSafe?: boolean;
   /** 자리표를 쓰는 명령의 보충 설명 키(선택). */
   hintKey?: string;
 }
 
 /**
- * **등록된 단축키 전부.** 여기 없는 키는 힌트에도 설정에도 뜨지 않는다.
- *
- * ⚠ **핸들러가 이 표를 보지 않는 명령은 넣지 마라.** 넣어 두면 사용자가 재매핑해도 아무 일이
- * 일어나지 않는 "읽히지 않는 설정 스위치"가 된다 — 화면은 바뀌었는데 동작은 그대로인 그 결함이다.
- * 새 단축키는 이 표에 한 줄 + `useCommand(id, handler)` 한 줄이 전부다(§4 확장 포인트).
+ * 등록된 단축키 전부(여기 없으면 힌트·설정에 안 뜬다). ⚠ 핸들러가 이 표를 안 보는 명령은 넣지 마라 — 재매핑이 먹지 않는 스위치가 된다.
+ * 새 단축키 = 표 한 줄 + `useCommand(id, handler)` 한 줄(§4 확장 포인트).
  */
 export const COMMANDS = {
   // ── global — 어디서든 ──────────────────────────────────────────────────────
@@ -424,10 +353,7 @@ export const COMMANDS = {
     labelKey: 'canvas.controls.immersiveMode',
     typingSafe: true,
   },
-  // §5.4 #14-4 — 방금 닫은 탭 되살리기. 브라우저가 30년 가까이 같은 키를 써 왔으므로 여기서
-  //   다른 키를 발명하면 그것만으로 못 찾는 기능이 된다.
-  //   `typingSafe` 를 주지 **않는다** — 터미널은 xterm 의 textarea 라 "타이핑 중"으로 잡히고,
-  //   거기서는 Ctrl+Shift+T 가 셸·터미널 쪽 관습(새 탭)이라 우리가 뺏으면 안 된다.
+  // §5.4 #14-4 — 방금 닫은 탭 되살리기(브라우저 관습 키). `typingSafe` 를 주지 않는다 — 터미널은 "타이핑 중"이고 거기서 Ctrl+Shift+T 는 셸 몫(새 탭)이다.
   'global.reopenClosedTab': {
     scope: 'global',
     defaultBinding: 'Ctrl+Shift+T',
@@ -445,23 +371,15 @@ export const COMMANDS = {
     defaultBinding: 'Ctrl+V',
     labelKey: 'common.shortcuts.cmd.canvas.paste',
   },
-  // §5.4 #34 — 고른 것을 지운다. **`Backspace` 는 일부러 없다**(사용자 지시 2026-09-11).
-  //   종전에는 `BubbleMap` 의 옛 window 리스너가 `Delete`/`Backspace` 를 함께 받았고, 그 자리에는
-  //   스코프도 IME 판정도 없어 **IDE 창·팝업 안에서 누른 지우기가 캔버스의 버블을 지웠다**
-  //   (실측 2026-09-11: 도는 에이전트 버블이 휴지통으로 갔고 사용자는 누른 적이 없었다).
-  //   표로 올라온 지금은 이 절의 규약이 그대로 걸린다 — `canvas` 스코프 밖에서는 울리지 않고,
-  //   `typingSafe` 가 없으므로 입력칸(INPUT·TEXTAREA·contentEditable)에서도 비켜서며,
-  //   모디파이어 없는 바인딩이라 `Ctrl+Delete` 같은 조합도 가로채지 않는다(`matchesBinding`).
+  // §5.4 #34 — 고른 것을 지운다(`Backspace` 는 일부러 없다). window 리스너로 받지 마라 — 스코프·IME 판정이 없어 IDE 창·팝업 안의
+  //   지우기가 캔버스 버블을 지운다(실측 2026-09-11). 이 표로는 `canvas` 밖·입력칸·`Ctrl+Delete` 에서 울리지 않는다.
   'canvas.deleteSelection': {
     scope: 'canvas',
     defaultBinding: 'Delete',
     labelKey: 'common.shortcuts.cmd.canvas.deleteSelection',
   },
 
-  // ── bookmark — 캔버스·IDE 어디서든(§5.4 #30) ──────────────────────────────
-  // 스코프가 `global` 인 이유: 북마크는 "지금 보고 있는 화면이 어디든" 그 자리를 찍고 그 자리로
-  // 가는 기능이다(IDE 안에서도 동작한다). 타이핑 회피는 각 처리기가 스스로 판단한다 —
-  // 지정은 IDE 안에서라면 입력칸에서도 받고(일반 타이핑이 아니다), 점프는 어디서든 비켜선다.
+  // ── bookmark (§5.4 #30) — `global` 이다(IDE 안에서도 그 자리를 찍고 간다). 타이핑 회피는 처리기 몫 — 지정은 IDE 입력칸에서도 받고 점프는 비켜선다.
   'bookmark.assign': {
     scope: 'global',
     defaultBinding: 'Alt+Digit',
@@ -568,12 +486,8 @@ export const COMMANDS = {
     typingSafe: true,
   },
 
-  // §5.5 #17-27 ⑲ — 찾기·바꾸기·줄 번호 이동. 키는 **VS Code 기본값 그대로**다(사용자 지시 —
-  //   "기존 편집 툴들처럼 … 단축키랑 동일하게"). 여기서 다른 키를 지으면 그것만으로 못 찾는 기능이 된다.
-  //   OS 마다 다른 자리는 `osBinding` 이 갖는다. 찾기 막대 안에서만 사는 키(옵션 셋·바꾸기 둘)는
-  //   처리기가 막대가 열린 동안만 등록한다(`enabled`) — 닫혀 있으면 Alt+C 같은 키를 가로채지 않는다.
-  //   ⚠ `Ctrl+/` 줄 주석은 전역 단축키 목록(`global.shortcutOverlay`)을 편집창 **안에서만** 가린다 —
-  //   주석을 달 수 없는 파일(읽기 전용·주석 없는 언어)에서는 처리기가 넘겨 목록이 그대로 뜬다.
+  // §5.5 #17-27 ⑲ — 찾기·바꾸기·줄 이동. 키는 VS Code 기본값 그대로(OS 별은 `osBinding`). 막대 안에서만 사는 키는 열린 동안만 등록한다(`enabled`) —
+  //   닫혀 있으면 Alt+C 등을 가로채지 않는다. ⚠ `Ctrl+/` 는 `global.shortcutOverlay` 를 편집창 안에서만 가린다(주석 못 다는 파일에선 넘긴다).
   'editor.find': {
     scope: 'editor',
     defaultBinding: 'Ctrl+F',
@@ -720,10 +634,7 @@ export const COMMANDS = {
     typingSafe: true,
   },
 
-  // ── terminal — 터미널 안 ──────────────────────────────────────────────────
-  // 터미널은 셸이 키를 먹는 자리라 규칙이 하나 더 있다: **셸에게 넘겨야 하는 키를 뺏지 않는다.**
-  // 그래서 `Ctrl+C` 는 선택이 있을 때만 우리 것이고(없으면 SIGINT 로 내려간다), 그 판단은
-  // 처리기가 `false` 를 돌려주는 것으로 표현한다.
+  // ── terminal — 셸에게 갈 키를 뺏지 않는다. `Ctrl+C` 는 선택이 있을 때만 우리 것이고(없으면 SIGINT), 처리기가 `false` 를 돌려 넘긴다.
   'terminal.copy': {
     scope: 'terminal',
     defaultBinding: 'Ctrl+Shift+C',
@@ -784,13 +695,7 @@ export const COMMANDS = {
 /** 등록된 명령 식별자. */
 export type CommandId = keyof typeof COMMANDS;
 
-/**
- * 명령 정의를 **넓은 타입으로** 꺼낸다.
- *
- * `COMMANDS` 는 `as const satisfies` 라 항목마다 리터럴 타입이고, 그 유니온에서는 `typingSafe`
- * 처럼 **일부 항목에만 있는 칸**을 읽을 수 없다(그 칸이 없는 항목이 유니온에 섞여 있어서다).
- * 읽는 쪽은 전부 이 함수를 지난다.
- */
+/** 명령 정의를 넓은 타입으로 — `as const satisfies` 유니온에서는 일부 항목에만 있는 칸(`typingSafe` 등)을 못 읽는다. 읽는 쪽은 전부 여기를 지난다. */
 export function commandDef(id: CommandId): CommandDef {
   return COMMANDS[id];
 }
@@ -803,12 +708,7 @@ export function isCommandId(id: string): id is CommandId {
   return Object.prototype.hasOwnProperty.call(COMMANDS, id);
 }
 
-/**
- * 그 OS 에서의 기본 바인딩 — `osBinding` 에 그 OS 칸이 있으면 그것, 없으면 `defaultBinding`.
- *
- * OS 를 **인자로 받는다**(멀티플랫폼 5축) — 판정이 함수 안에서 `process.platform`·`navigator` 를 읽으면
- * Windows 개발기에서 mac·linux 기본값을 시험으로 고정할 수 없다. 모르는 OS(또는 생략)는 `defaultBinding`.
- */
+/** 그 OS 의 기본 바인딩 — `osBinding` 칸이 있으면 그것, 없으면(모르는 OS·생략) `defaultBinding`. OS 는 인자다(Windows 에서 mac·linux 기본값 시험). */
 export function defaultBindingFor(id: CommandId, platform?: PlatformName): string {
   const def = commandDef(id);
   const os = keymapOs(platform);
@@ -833,12 +733,8 @@ export function defaultKeymap(platform?: PlatformName): Record<CommandId, string
 }
 
 /**
- * 같은 키 이벤트에 바인딩 둘이 함께 맞을 때 **먼저 볼 쪽**(클수록 먼저).
- *
- * `Ctrl` 토큰은 `ctrlKey || metaKey` 로 판정하므로(5축) mac 에서 진짜 Control 을 누른 손짓(⌃G)은
- * `Ctrl+G`(⌘G 자리)와 `Control+G` 에 **둘 다** 맞는다. 진짜 Control 바인딩은 ⌘ 가 눌리면 맞지 않는
- * 좁은 바인딩이므로, 둘이 겹치면 그쪽이 그 손짓의 주인이다 — mac 의 줄 번호 이동(⌃G)이 다음 찾기(⌘G)에
- * 먹히지 않는 이유가 이것이다. 디스패처(`useCommand`)가 같은 스코프 안의 후보를 이 순서로 고른다.
+ * 한 이벤트에 바인딩 둘이 맞을 때 먼저 볼 쪽(클수록 먼저, `useCommand` 가 스코프 안 후보를 이 순서로). mac 의 ⌃G 는 `Ctrl+G`(⌘ 자리)와
+ * `Control+G` 둘 다 맞는다 — ⌘ 가 눌리면 안 맞는 좁은 `Control` 쪽이 주인이다(없으면 줄 이동 ⌃G 가 다음 찾기 ⌘G 에 먹힌다).
  */
 export function bindingSpecificity(binding: string): number {
   const parsed = parseBinding(binding);
@@ -849,19 +745,10 @@ export function bindingSpecificity(binding: string): number {
 // 사용자 덮어쓰기
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * 사용자가 바꾼 것만 담는다. **기본값은 코드에 둔다** — 그래야 다음 판올림에서 기본 바인딩을
- * 고칠 수 있고, 사용자가 안 건드린 칸은 자동으로 새 기본값을 따라간다(§3.2.2 설정 규약과 같은 결).
- *
- * 값이 `null` 이면 **해제**(그 명령을 키보드에서 내림)다 — "기본값으로 되돌림"과 구별해야 하므로
- * 지우는 것(키 삭제)과 다른 값이다.
- */
+/** 사용자가 바꾼 것만 담는다 — 기본값은 코드에 둬야 안 건드린 칸이 새 기본값을 따라간다(§3.2.2). `null` = 해제(키 삭제 = 기본값 복귀와 다르다). */
 export type KeymapOverrides = Record<string, string | null>;
 
-/**
- * 받은 덮어쓰기를 믿을 수 있는 모양으로. 모르는 명령·못 읽는 바인딩은 버린다.
- * `platform` 은 "기본값과 같은가"를 그 OS 의 기본값(`defaultBindingFor`)으로 견주기 위해 받는다.
- */
+/** 덮어쓰기 정규화 — 모르는 명령·못 읽는 바인딩은 버린다. `platform` 은 그 OS 기본값(`defaultBindingFor`)과 같은지 견주려고 받는다. */
 export function normalizeKeymapOverrides(raw: unknown, platform?: PlatformName): KeymapOverrides {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   const out: KeymapOverrides = {};
@@ -895,12 +782,7 @@ export function resolveKeymap(
 // 충돌 판정
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * OS·창 관리자가 이미 가져간 조합. 여기에 배정하면 **우리에게 키가 오지 않는다** —
- * 사용자는 "설정은 했는데 안 먹는다"만 겪게 되므로 배정 자체를 막고 이유를 말한다.
- *
- * 표기는 그 OS 에서 사용자가 실제로 누르는 물리 조합 기준이다(mac 의 `Ctrl` = ⌘).
- */
+/** OS·창 관리자가 가져간 조합 — 키가 오지 않으므로 배정을 막고 이유를 말한다. 표기는 그 OS 에서 누르는 물리 조합 기준(mac `Ctrl` = ⌘). */
 export const OS_RESERVED_BINDINGS: Record<'win32' | 'darwin' | 'linux', readonly string[]> = {
   win32: [
     'Alt+Tab', 'Alt+F4', 'Alt+Escape',
@@ -945,11 +827,9 @@ export function blocksAssignment(issues: readonly BindingIssue[]): boolean {
 
 /**
  * 이 명령에 이 바인딩을 줬을 때 무엇이 걸리는가.
- *
- * @param id       배정하려는 명령
- * @param binding  주려는 바인딩(정규 표기 아니어도 된다)
+ * @param binding  정규 표기가 아니어도 된다
  * @param resolved 지금 도는 전체 바인딩(`resolveKeymap` 결과)
- * @param platform 판정할 OS — **인자로 받는다**(win 개발기에서 세 OS 를 테스트로 고정)
+ * @param platform 판정할 OS — 인자로 받는다(세 OS 시험)
  */
 export function inspectBinding(
   id: CommandId,
