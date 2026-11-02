@@ -764,3 +764,49 @@ describe('제거기 — 남은 훅을 걷는다', () => {
     expect(boot).toContain("import('./hookCleanup')");
   });
 });
+
+/**
+ * 설치기 — 설치 끝에 폴더 우클릭 메뉴를 적는다(§4 폴더 우클릭으로 프로젝트 열기). 재설치는 옛 제거기가 메뉴를 걷고 시작해,
+ * 새 앱이 다 켜질 때까지 탐색기 메뉴가 비어 있었다. 호출 위치는 실제 설치된 electron-builder 템플릿에서 잰다.
+ */
+describe('설치기 — 설치 끝에 폴더 우클릭 메뉴를 적는다', () => {
+  const NSH = 'packages/desktop/build/installer.nsh';
+  const macroBody = (): string => {
+    const code = read(NSH).split(/\r?\n/).filter((line) => !/^\s*[;#]/.test(line)).join('\n');
+    const at = code.indexOf('!macro customInstall');
+    expect(at).toBeGreaterThan(-1);
+    return code.slice(at, code.indexOf('!macroend', at));
+  };
+
+  it('새 실행본을 앱 진입점과 같은 인자로 한 번 부른다(상한 있음 · 스택을 남기지 않음 · 업데이트에도)', () => {
+    const body = macroBody();
+    const arg = /FOLDER_MENU_REGISTER_ARG = '([^']+)'/.exec(read('packages/desktop/src/main/folderOpenArgs.ts'))?.[1];
+    expect(arg).toBe('--vibisual-register-folder-menu');
+    const exists = body.indexOf('${If} ${FileExists} "$INSTDIR\\${APP_EXECUTABLE_FILENAME}"');
+    const exec = body.indexOf('nsExec::Exec /TIMEOUT=30000 `"$INSTDIR\\${APP_EXECUTABLE_FILENAME}" ' + String(arg) + '`');
+    expect(exists).toBeGreaterThan(-1);
+    expect(exec).toBeGreaterThan(exists);
+    // 업데이트도 같은 키를 이 판의 글자로 다시 적는다 — 업데이트를 거르는 갈래가 끼면 판이 바뀐 글자가 앱이 켜질 때까지 남는다.
+    expect(body).not.toContain('isUpdated');
+    expect(body).toContain('Push $0');
+    expect(body.match(/\bPop \$0\b/g)).toHaveLength(2);
+  });
+
+  it('템플릿이 customInstall 을 실행본·등록 정보를 깐 뒤, 앱을 띄우기 전에 부른다', () => {
+    const fromDesktop = createRequire(path.join(REPO, 'packages/desktop/package.json'));
+    const builderPkg = fs.realpathSync(fromDesktop.resolve('electron-builder/package.json'));
+    const dir = path.join(path.dirname(createRequire(builderPkg).resolve('app-builder-lib/package.json')), 'templates/nsis');
+    const section = fs.readFileSync(path.join(dir, 'installSection.nsh'), 'utf8');
+    const files = section.indexOf('!insertmacro installApplicationFiles');
+    const custom = section.indexOf('!insertmacro customInstall');
+    expect(files).toBeGreaterThan(-1);
+    expect(custom).toBeGreaterThan(files);
+    expect(section.indexOf('!macro doStartApp')).toBeGreaterThan(custom);
+  });
+
+  it('앱 진입점은 그 인자를 보면 등록 모듈만 동적으로 읽는다', () => {
+    const boot = read('packages/desktop/src/main/bootstrap.ts');
+    expect(boot).toContain("import { folderPathsFromArgv, isFolderMenuRegisterRun } from './folderOpenArgs';");
+    expect(boot).toContain("import('./folderMenuInstall')");
+  });
+});

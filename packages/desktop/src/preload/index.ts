@@ -668,6 +668,19 @@ const api = {
   },
 
   /**
+   * §4 폴더 우클릭으로 프로젝트 열기 — main 이 등록을 끝낸 프로젝트의 표시명을 메인 창에 넘긴다.
+   * 구독을 건 **뒤** `shellOpenReady()` 를 불러야 한다 — 그 전에 열린 것은 그 응답으로 온다.
+   */
+  project: {
+    onOpenedFromShell: (cb: (payload: { name: string }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { name: string }): void => cb(payload);
+      ipcRenderer.on('vibisual:project:opened-from-shell', listener);
+      return () => ipcRenderer.removeListener('vibisual:project:opened-from-shell', listener);
+    },
+    shellOpenReady: (): Promise<string[]> => ipcRenderer.invoke('vibisual:project:shell-open-ready'),
+  },
+
+  /**
    * §3.2.1 — 종료 직전 디스크에 안 앉힌 초안(세션 입력·IDE 폼·명령 히스토리)을 지금 밀라는 신호. 평소 flush 는 `pagehide`/`beforeunload`/`visibilitychange` 인데
    * `app.exit(0)` 종료엔 셋 다 안 뜬다. Durable writes must finish before acknowledging success. Failure keeps the app open.
    */

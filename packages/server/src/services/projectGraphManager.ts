@@ -101,6 +101,8 @@ import {
   type SliceScopeGroup,
 } from '@vibisual/shared';
 import { ProjectGraph, resolveGitWorktreeParent, type ProcessResult } from './projectGraph.js';
+import { isContextSourceOn } from './contextInventory.js';
+import { CONTEXT_SOURCE_IDS } from '@vibisual/shared';
 // §5.22 — 권한·감사 경계(승인 창구가 원장에 적을 때 쓰는 입력 모양).
 import type { AuditRecordInput } from './auditLog.js';
 import { loadCheckpointByMeta, loadIdentityFromDir, writeCheckpoint, projectDirForInfo, discoverProjectMetas } from './statePersistence.js';
@@ -796,6 +798,11 @@ export class ProjectGraphManager {
     for (const inst of this.instances.values()) inst.setCommandQueuesRef(ref);
   }
 
+  /** Queue mutations bypass graph setters; invalidate their cached snapshot explicitly. */
+  invalidateCommandSnapshot(sessionId: string): void {
+    (this.getInstanceForSession(sessionId) ?? this.findSessionHolder(sessionId)?.inst)?.invalidateSnapshotCache();
+  }
+
   setCompletedCommandArchiveRef(ref: Map<string, QueuedCommand[]>): void {
     this.completedCommandArchiveRef = ref;
     for (const inst of this.instances.values()) inst.setCompletedCommandArchiveRef(ref);
@@ -876,10 +883,12 @@ export class ProjectGraphManager {
   }
 
   /**
-   * §4 온보딩 — 인스턴스가 없을 때도 사는 UI 언어. 온보딩 창은 프로젝트가 없을 때 뜨므로, 인스턴스에만 두면 고른 언어가 사라지고 첫 인스턴스의 `'en'` 이 되돌린다
-   * — 매니저가 들고 새 인스턴스에 씨앗으로 준다. 영속 SSOT 는 `ProjectCheckpoint.uiLocale` 이고, 이 값은 자기 값이 없는 인스턴스에만 실린다.
+   * §4 — 앱 전체의 UI 언어(머신 단위 설정, 영속은 `user-defaults.json` `appearance.uiLocale`). 인스턴스가 0개여도 산다(온보딩).
+   * 프로젝트마다 들고 있으면 옛 체크포인트·새 폴더(`'en'` 씨앗)가 보고 있는 탭에 따라 화면 언어를 뒤집는다.
    */
   private uiLocale: UiLocale = DEFAULT_UI_LOCALE;
+  /** 언어가 정해졌는가 — 설정 파일·사용자 선택, 없으면(옛 저장분) 처음 복원한 체크포인트. 정해진 뒤 복원되는 인스턴스는 자기 옛 값 대신 이 값을 쓴다. */
+  private uiLocaleSettled = false;
 
   /** §2.1 (B) — 최상위 외부 폴더 예산의 씨앗. 새로 서는 인스턴스가 이 값을 물려받는다. */
   private externalTopBudget: number = EXTERNAL_TOP_BUDGET_DEFAULT;
@@ -888,19 +897,33 @@ export class ProjectGraphManager {
   private webGroup: WebGroupSettings = { ...WEB_GROUP_OFF };
 
   getUiLocale(): UiLocale {
-    return this.primaryInstance()?.getUiLocale() ?? this.uiLocale;
+    return this.uiLocaleSettled ? this.uiLocale : (this.primaryInstance()?.getUiLocale() ?? this.uiLocale);
   }
 
-  /** primary 인스턴스에 저장 + 전 인스턴스에 전파(스냅샷 일관성). 변경이 있었으면 true. */
+  /** 앱 언어를 정하고 전 인스턴스에 전파(스냅샷·체크포인트 일관성). 변경이 있었으면 true. */
   setUiLocale(locale: UiLocale): boolean {
     // 인스턴스가 0개여도 **여기서는 반드시 남는다** — 온보딩 중에 고른 언어가 사는 자리.
     const seedChanged = this.uiLocale !== locale;
     this.uiLocale = locale;
+    this.uiLocaleSettled = true;
     let changed = false;
     for (const inst of this.instances.values()) {
       if (inst.setUiLocale(locale)) changed = true;
     }
     return changed || seedChanged;
+  }
+
+  /**
+   * 복원 직후 — 체크포인트의 옛 언어가 앱 언어를 이기지 않게 맞춘다. 정해진 언어가 없으면(설정 파일에 언어가 없는 옛 저장분)
+   * 처음 복원한 프로젝트의 값을 앱 언어로 삼는다 — 그 뒤 복원되는 프로젝트의 다른 옛 값이 탭에 따라 화면을 뒤집지 않게.
+   */
+  private settleRestoredUiLocale(inst: ProjectGraph): void {
+    if (this.uiLocaleSettled) {
+      inst.setUiLocale(this.uiLocale);
+      return;
+    }
+    this.uiLocale = inst.getUiLocale();
+    this.uiLocaleSettled = true;
   }
 
   /** §2.1 (B) — 외부 폴더 예산을 모든 인스턴스에 먹이고 씨앗으로도 남긴다(`setUiLocale` 과 같은 이유 — 나중에 hydrate 되는 탭만 기본값이 되지 않게). */
@@ -928,7 +951,7 @@ export class ProjectGraphManager {
     const inst = new ProjectGraph();
     // §4 (첫 실행 온보딩) — 지금 쓰고 있는 UI 언어를 물려준다. 이 한 줄이 없으면 온보딩 중에
     //   고른 언어가, 폴더를 고르는 순간 서는 이 인스턴스의 기본값 'en' 에 덮여 되돌아간다.
-    //   저장된 값이 있는 프로젝트는 `restoreFromCheckpoint` 가 곧바로 자기 값으로 바꾼다.
+    //   복원되는 프로젝트의 옛 값은 `settleRestoredUiLocale` 이 앱 언어로 다시 맞춘다.
     inst.setUiLocale(this.uiLocale);
     // §2.1 (B) — 외부 폴더 예산도 같은 이유로 물려준다. 이 줄이 없으면 나중에 hydrate 되는
     //   프로젝트만 기본값(12)으로 돌아, 같은 앱 안에서 탭마다 화면 밀도가 달라진다.
@@ -1334,6 +1357,28 @@ export class ProjectGraphManager {
   registerProject(cwd: string): ProjectInfo {
     // 서브디렉터리 → 프로젝트 루트로 승격 (모노레포 서브패키지가 별도 탭으로 뜨지 않게)
     return this.registerProjectAtRoot(resolveProjectRoot(cwd), cwd);
+  }
+
+  /**
+   * §4 폴더 우클릭 — 사용자가 고른 **그 폴더**로 등록한다. 표식(.git·모노레포) 승격은 하지 않는다 — 하면 저장소 안 폴더를
+   * 우클릭해도 저장소 루트가 열린다. 워크트리만 부모로 보낸다(워크트리는 탭이 아니라 부모 캔버스의 버블, §5.7 #26).
+   */
+  registerChosenFolder(cwd: string): ProjectInfo {
+    const found = resolveProjectRootInfo(cwd);
+    return this.registerProjectAtRoot(found.via === 'worktree' ? found.root : cwd, cwd);
+  }
+
+  /**
+   * §4 · §5.4 #14 — 그 경로의 탭 표시명. 같은 basename 이 둘 이상 열리면 스냅샷은 `이름 (구분자)` 로 바꿔 쓰므로,
+   * 원래 이름으로 탭을 고르면 아무 탭도 안 바뀐다. 숨겼거나 탭이 아닌 경로는 null.
+   */
+  displayNameForPath(projectPath: string): string | null {
+    const want = normPathId(projectPath);
+    for (const [inst, name] of this.instanceDisplayNames(this.visibleInstanceList())) {
+      const pp = inst.getPrimaryProject();
+      if (pp && normPathId(pp.path) === want) return name;
+    }
+    return null;
   }
 
   /**
@@ -2286,6 +2331,13 @@ export class ProjectGraphManager {
     return undefined;
   }
 
+  /** Goal automation and prompt injection share the same persisted three-level switch. */
+  isSessionGoalEnabled(agentId: string, subAgentId?: string | null): boolean {
+    return isContextSourceOn(this.getContextOverrides(), {
+      projectKey: this.getAgentProjectName(agentId), agentId, subAgentId,
+    }, CONTEXT_SOURCE_IDS.goal);
+  }
+
   /** 목표 저장(생성/문장 수정/상태 변경). goal.agentId 소속 인스턴스로 라우팅, 없으면 primary 폴백. */
   setSessionGoal(input: {
     agentId: string;
@@ -2310,6 +2362,7 @@ export class ProjectGraphManager {
       steps: { text: string; status?: import('@vibisual/shared').SessionGoalStepStatus }[];
     },
   ): import('@vibisual/shared').SessionGoal | undefined {
+    if (!this.isSessionGoalEnabled(input.agentId, subAgentId)) return undefined;
     for (const inst of this.instances.values()) {
       if (inst.getSessionGoal(subAgentId)) return inst.syncSessionGoalFromPlan(subAgentId, input);
     }
@@ -2322,6 +2375,7 @@ export class ProjectGraphManager {
     subAgentId: string,
     input: { agentId: string; command: string },
   ): import('@vibisual/shared').SessionGoal | undefined {
+    if (!this.isSessionGoalEnabled(input.agentId, subAgentId)) return undefined;
     for (const inst of this.instances.values()) {
       if (inst.getSessionGoal(subAgentId)) return inst.seedSessionGoalFromCommand(subAgentId, input);
     }
@@ -2341,7 +2395,9 @@ export class ProjectGraphManager {
     },
   ): import('@vibisual/shared').SessionGoal | undefined {
     for (const inst of this.instances.values()) {
-      if (!inst.getSessionGoal(subAgentId)) continue;
+      const goal = inst.getSessionGoal(subAgentId);
+      if (!goal) continue;
+      if (input.source !== 'user' && !this.isSessionGoalEnabled(goal.agentId, subAgentId)) return undefined;
       return inst.noteSessionGoalProgress(subAgentId, input);
     }
     return undefined;
@@ -3382,6 +3438,9 @@ export class ProjectGraphManager {
     // §4 API 크레딧 — 키가 든 칸은 밖으로 내보내지 않는다(`publicAppState`).
     snapshot = { ...snapshot, appState: publicAppState(loadAppState()) };
 
+    // §4 — UI 언어는 앱 전체 값 하나다. 범위로 좁힌 탭(새 폴더·임시 탭)의 인스턴스 값이 화면 언어를 정하면 안 된다.
+    snapshot = { ...snapshot, uiLocale: this.getUiLocale() };
+
     // §4 — 글로벌 rateLimits 주입(사용자 단위, 프로젝트 무관).
     if (this.globalRateLimits) {
       snapshot = { ...snapshot, rateLimits: this.globalRateLimits };
@@ -3491,6 +3550,7 @@ export class ProjectGraphManager {
       logger.info(`ProjectGraphManager: restoring instance for "${cp.project.name}"`);
     }
     inst.restoreFromCheckpoint(cp);
+    this.settleRestoredUiLocale(inst);
     // task edges 는 Instance 소유 — Manager 측 중복 저장 금지(삭제 시 유령 잔재 원인)
   }
 
@@ -3508,15 +3568,24 @@ export class ProjectGraphManager {
       logger.info(`ProjectGraphManager: merging instance for "${cp.project.name}"`);
     }
     inst.mergeFromCheckpoint(cp);
+    this.settleRestoredUiLocale(inst);
     // task edges 는 Instance 소유 — Manager 측 중복 저장 금지(삭제 시 유령 잔재 원인)
   }
 
   // ─── 하우스키핑 ───
 
-  checkFileExistence(): number {
-    let total = 0;
-    for (const inst of this.instances.values()) total += inst.checkFileExistence();
-    return total;
+  private existenceSweep: Promise<number> | null = null;
+
+  /** §9 「일하는 동안의 메인 스레드」 — 확인은 메인 스레드 밖에서 돈다. 앞 스윕이 아직 돌면 겹쳐 띄우지 않는다(0). */
+  checkFileExistence(): Promise<number> {
+    if (this.existenceSweep) return Promise.resolve(0);
+    const sweep = (async () => {
+      let total = 0;
+      for (const inst of [...this.instances.values()]) total += await inst.checkFileExistence();
+      return total;
+    })().finally(() => { this.existenceSweep = null; });
+    this.existenceSweep = sweep;
+    return sweep;
   }
 
   pruneDisappearing(): number {

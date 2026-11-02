@@ -62,6 +62,8 @@ export function planSilentPreCompact(
     const cmd = queue[i]!;
     const subAgentId = cmd.subAgentId;
     if (!subAgentId || cmd.status !== 'queued') continue;
+    // Live input is never a new turn, even if its delivery failed or was restored.
+    if (cmd.dispatchMode === 'steer') continue;
     if (seen.has(subAgentId)) continue;
     seen.add(subAgentId);
     if (!pending.has(subAgentId) || busy.has(subAgentId)) continue;

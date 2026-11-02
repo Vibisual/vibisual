@@ -23,8 +23,8 @@ function assertPrefixes(events: SubAgentStreamEvent[], commands: QueuedCommand[]
 }
 
 describe('transport recovery episodes', () => {
-  it('coalesces legacy errors and new system notices, preserving first identity and latest detail', () => {
-    const events = [evt('e1', 'error', retry(2)), evt('e2', 'system', retry(3)), evt('e3', 'system', fallback)];
+  it.each([retry(2), 'Reconnecting... 2/5'])('coalesces legacy errors and new system notices, preserving first identity and latest detail: %s', (firstRetry) => {
+    const events = [evt('e1', 'error', firstRetry), evt('e2', 'system', 'Reconnecting... 3/5'), evt('e3', 'system', fallback)];
     assertPrefixes(events);
     const base = buildBaseItems(events, [command()]);
     expect(base.items.filter((item) => item.kind === 'error')).toEqual([]);

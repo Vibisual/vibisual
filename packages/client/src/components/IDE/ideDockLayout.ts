@@ -79,20 +79,16 @@ export const IDE_DOCK = {
   MAX_PER_SIDE: 3,
   /** 같은 변에서 칸 하나가 가져야 하는 최소 길이(px) — 이보다 얇아질 만큼은 못 끼운다. */
   MIN_SLOT: 120,
-  /** 가장자리 스냅 인식 폭 — 화면 크기 대비 비율. */
-  SNAP_RATIO: 0.12,
-  /** 작은 창에서도 보장하는 스냅 인식 폭(px). */
-  SNAP_MIN_PX: 120,
+  /** 모서리 붙기 인식 폭(px) — 커서가 그 모서리에서 가로·세로 둘 다 이 안이어야 붙는다. 넓으면 옮기려던 창이 벽 근처마다 붙는다. */
+  CORNER_SNAP_PX: 48,
+  /** 모서리 버튼 중심이 모서리에서 떨어진 거리(px) — 인식 폭 안에 버튼 전체가 들도록 그 절반. */
+  CORNER_BTN_INSET_PX: 24,
   /** 붙어 있는 칸 위에서 "앞/뒤에 끼우기"로 읽히는 띠 — 칸 길이 대비(가운데는 탭 합류). */
   SLOT_BAND_RATIO: 0.28,
   /** 그 띠의 하한(px) — 아주 얇은 칸에서도 앞뒤를 집을 수 있게. */
   SLOT_BAND_MIN_PX: 28,
   /** 그 띠의 상한(칸 길이 대비) — 띠가 칸을 다 먹어 **탭 자리(가운데)** 가 사라지지 않게. */
   SLOT_BAND_MAX_RATIO: 0.4,
-  /** 빈 변 도킹 버튼이 벽에서 떨어진 거리(스냅 띠 대비 비율). 벽에 바짝 — 띠 가운데면 끌고 온 창이 버튼을 가리고 어느 벽인지 안 읽힌다. */
-  ZONE_EDGE_INSET_RATIO: 0.25,
-  /** 그 거리의 상한(px) — 큰 화면에서도 버튼이 벽에서 멀어지지 않게. 위와 같은 까닭으로 절반(60 → 30). */
-  ZONE_EDGE_INSET_MAX_PX: 30,
 } as const;
 
 /** 떠 있는 창의 자리·크기 — 슬롯이 든다(컴포넌트 로컬이면 언마운트마다 초기화돼 창이 한가운데로 돌아간다). */
@@ -178,10 +174,63 @@ export function defaultDockSize(side: IDEDockSide): number {
   return isHorizontalSide(side) ? IDE_DOCK.DEFAULT_SIZE.x : IDE_DOCK.DEFAULT_SIZE.y;
 }
 
-/** 가장자리 스냅 인식 폭 — 좌/우는 뷰포트 폭, 상/하는 높이 기준. */
-export function snapDistance(side: IDEDockSide, vp: Viewport): number {
-  const base = isHorizontalSide(side) ? vp.w : vp.h;
-  return Math.max(IDE_DOCK.SNAP_MIN_PX, Math.round(base * IDE_DOCK.SNAP_RATIO));
+/** 떠 있는 창이 붙는 네 모서리 — 캔버스를 창문처럼 네 칸으로 나눈 자리. */
+export type IDEFloatCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+
+export const IDE_FLOAT_CORNERS: readonly IDEFloatCorner[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
+
+/** 그 모서리가 맞닿은 두 변(세로 변 · 가로 변). */
+export function cornerSides(corner: IDEFloatCorner): [IDEDockSide, IDEDockSide] {
+  return [
+    corner.endsWith('left') ? 'left' : 'right',
+    corner.startsWith('top') ? 'top' : 'bottom',
+  ];
+}
+
+/** 붙은 창들이 비워 둔 캔버스 자리 — 모서리 네 칸은 이 안을 나눈다(도크 위에 겹쳐 앉지 않게). */
+export function freeCanvasRect(vp: Viewport, docked: DockedPane[]): Rect {
+  const { insets } = computeDockLayout(docked, vp);
+  const y = IDE_DOCK.HEADER_H + insets.top;
+  return {
+    x: insets.left,
+    y,
+    w: Math.max(0, vp.w - insets.left - insets.right),
+    h: Math.max(0, vp.h - y - insets.bottom),
+  };
+}
+
+/**
+ * 커서가 겨눈 모서리(없으면 null). 가로·세로 둘 다 `CORNER_SNAP_PX` 안이어야 한다 — 벽 하나에만 가까우면 그냥 옮기는 중이다.
+ * 위쪽은 헤더 띠까지 친다(화면 꼭대기로 밀어붙인 손). 앱 밖 커서는 꺼내기 몫이라 보지 않는다.
+ */
+export function cornerAt(cursor: { x: number; y: number }, vp: Viewport, docked: DockedPane[]): IDEFloatCorner | null {
+  if (cursor.x < 0 || cursor.y < 0 || cursor.x > vp.w || cursor.y > vp.h) return null;
+  const r = freeCanvasRect(vp, docked);
+  const reach = IDE_DOCK.CORNER_SNAP_PX;
+  const dl = cursor.x - r.x;
+  const dr = r.x + r.w - cursor.x;
+  const dt = cursor.y - r.y;
+  const db = r.y + r.h - cursor.y;
+  const h = dl <= reach && dl <= dr ? 'left' : dr <= reach ? 'right' : null;
+  const v = dt <= reach && dt <= db ? 'top' : db <= reach ? 'bottom' : null;
+  if (!h || !v) return null;
+  return `${v}-${h}` as IDEFloatCorner;
+}
+
+/** 그 모서리에 붙은 창의 자리 — 빈 캔버스의 1/4. 하한(`IDE_FLOAT.MIN_W/H`)에 걸리면 모서리를 기준으로 키운다(반대쪽으로 밀려 나가지 않게). */
+export function cornerFloatRect(corner: IDEFloatCorner, vp: Viewport, docked: DockedPane[]): FloatGeom {
+  const r = freeCanvasRect(vp, docked);
+  const [hSide, vSide] = cornerSides(corner);
+  const halfW = hSide === 'left' ? Math.floor(r.w / 2) : r.w - Math.floor(r.w / 2);
+  const halfH = vSide === 'top' ? Math.floor(r.h / 2) : r.h - Math.floor(r.h / 2);
+  const w = Math.min(Math.max(halfW, IDE_FLOAT.MIN_W), Math.max(1, vp.w));
+  const h = Math.min(Math.max(halfH, IDE_FLOAT.MIN_H), Math.max(1, vp.h - IDE_DOCK.HEADER_H));
+  return clampFloatGeom({
+    w,
+    h,
+    x: hSide === 'left' ? r.x : r.x + r.w - w,
+    y: vSide === 'top' ? r.y : r.y + r.h - h,
+  }, vp);
 }
 
 /** 도크 슬롯 — 같은 변·같은 `order` 창들이 탭으로 나눠 쓰는 한 칸. 화면을 자르는 단위는 창이 아니라 슬롯이다. */
@@ -336,6 +385,23 @@ export interface DockDropTarget {
   mode: DockDropMode;
 }
 
+/** 모서리 칸에 붙이는 자리 — 도크가 아니라 떠 있는 창을 그 칸 크기로 앉힌다(캔버스를 깎지 않는다). */
+export interface CornerDropTarget {
+  corner: IDEFloatCorner;
+}
+
+/** 끄는 동안 겨눌 수 있는 자리 — 붙은 칸(탭·앞뒤) 또는 네 모서리. */
+export type IDEDropTarget = DockDropTarget | CornerDropTarget;
+
+export function isCornerTarget(t: IDEDropTarget): t is CornerDropTarget {
+  return 'corner' in t;
+}
+
+/** 그 자리가 이 변에 맞닿아 있나 — (H-11) 잠금과 잠긴 버튼 표시가 같이 읽는다. */
+export function dropTargetTouchesSide(t: IDEDropTarget, side: IDEDockSide): boolean {
+  return isCornerTarget(t) ? cornerSides(t.corner).includes(side) : t.side === side;
+}
+
 function inRect(p: { x: number; y: number }, r: Rect): boolean {
   return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 }
@@ -399,13 +465,13 @@ export function dockSideDistance(side: IDEDockSide, cursor: { x: number; y: numb
   }
 }
 
-/** 스냅 폭 안의 가장 가까운 변(없으면 null). `resolveDockDrop` ② 와 (H-11) 벽 잠금이 같이 읽는다(따로 재면 잠금이 헛돈다). */
-export function nearestDockSide(cursor: { x: number; y: number }, vp: Viewport): IDEDockSide | null {
+/** (H-11) 돌아온 판이 들어온 벽 — 띠(`IDE_DOCK_ENTRY.BAND_PX`) 안의 가장 가까운 변(없으면 null). */
+export function nearestEntrySide(cursor: { x: number; y: number }, vp: Viewport): IDEDockSide | null {
   let best: IDEDockSide | null = null;
   let bestDist = Number.POSITIVE_INFINITY;
   for (const side of IDE_DOCK_SIDES) {
     const d = dockSideDistance(side, cursor, vp);
-    if (d < 0 || d > snapDistance(side, vp)) continue;
+    if (d < 0 || d > IDE_DOCK_ENTRY.BAND_PX) continue;
     // 같은 거리면 좌/우가 이긴다(IDE_DOCK_SIDES 순서 = 좌·우 먼저) — 모서리에서 흔들리지 않게.
     if (d < bestDist) {
       bestDist = d;
@@ -415,12 +481,15 @@ export function nearestDockSide(cursor: { x: number; y: number }, vp: Viewport):
   return best;
 }
 
-/** 커서 → 도킹 자리(없으면 null). ① 붙은 칸 위면 그 칸이 판정(가운데 탭, 앞/뒤 띠 새 칸) ② 아니면 스냅 폭 안 가장 가까운 변에 새 칸. `docked` 에는 끄는 창 자신을 뺀다. */
+/**
+ * 커서 → 붙일 자리(없으면 null). ① 붙은 칸 위면 그 칸이 판정(가운데 탭, 앞/뒤 띠 새 칸) ② 아니면 네 모서리 중 `CORNER_SNAP_PX` 안의 것.
+ * 빈 변에 새로 붙이는 길은 없다 — 벽 근처마다 붙어 창을 옮길 수 없었다. `docked` 에는 끄는 창 자신을 뺀다.
+ */
 export function resolveDockDrop(
   cursor: { x: number; y: number },
   vp: Viewport,
   docked: DockedPane[],
-): DockDropTarget | null {
+): IDEDropTarget | null {
   const layout = computeDockLayout(docked, vp);
   for (const side of IDE_DOCK_SIDES) {
     const slots = dockSlotsOf(docked, side);
@@ -430,26 +499,8 @@ export function resolveDockDrop(
       return resolveSlotDrop(side, slots, i, r, cursor, vp, docked);
     }
   }
-
-  const best = nearestDockSide(cursor, vp);
-  if (!best) return null;
-
-  const slots = dockSlotsOf(docked, best);
-  if (!canAddSlot(best, slots.length, vp, docked)) return null;
-  if (slots.length === 0) return { side: best, index: 0, mode: 'insert' };
-
-  const pos = isHorizontalSide(best) ? cursor.y : cursor.x;
-  let index = slots.length;
-  for (let i = 0; i < slots.length; i += 1) {
-    const r = layout.rects[slots[i]!.paneKeys[0]!];
-    if (!r) continue;
-    const mid = isHorizontalSide(best) ? r.y + r.h / 2 : r.x + r.w / 2;
-    if (pos < mid) {
-      index = i;
-      break;
-    }
-  }
-  return { side: best, index, mode: 'insert' };
+  const corner = cornerAt(cursor, vp, docked);
+  return corner ? { corner } : null;
 }
 
 function dockedThicknessOf(docked: DockedPane[], side: IDEDockSide): number {
@@ -504,15 +555,10 @@ export function previewDockRect(
 
 // 도킹 십자 위젯(언리얼식) — 끌기 시작하면 붙을 자리를 버튼으로 보인다. 판정은 커서 위치(`resolveDockDrop`)라 버튼은 늘 자기 판정 영역 한가운데에 둔다.
 
-/** 십자 위젯 버튼 한 개. */
-export interface DockZoneButton {
-  /** 이 버튼을 겨눴을 때 앉을 자리 — 실제 판정과 같은 값. */
-  target: DockDropTarget;
-  /** 화면 좌표(버튼 사각형). */
-  rect: Rect;
-  /** 글리프를 고르는 데 쓰는 성격. `edge` 는 빈 변에 처음 붙이는 자리. */
-  kind: 'edge' | 'before' | 'after' | 'tab';
-}
+/** 십자 위젯 버튼 한 개 — `target` 은 그 버튼을 겨눴을 때 앉을 자리(실제 판정과 같은 값), `rect` 는 화면 좌표. */
+export type DockZoneButton =
+  | { kind: 'corner'; target: CornerDropTarget; rect: Rect }
+  | { kind: 'before' | 'after' | 'tab'; target: DockDropTarget; rect: Rect };
 
 /** 십자 버튼 한 변의 길이(px). */
 export const IDE_DOCK_ZONE_BTN = 34;
@@ -521,23 +567,23 @@ function centeredRect(cx: number, cy: number, size = IDE_DOCK_ZONE_BTN): Rect {
   return { x: Math.round(cx - size / 2), y: Math.round(cy - size / 2), w: size, h: size };
 }
 
-/** 드래그 중 그릴 붙일 자리 전부 — 붙은 칸 위엔 (앞 / 탭 / 뒤) 셋, 빈 변엔 벽에 붙은 하나. 못 붙이는 자리는 목록에 없다. */
+/** 드래그 중 그릴 붙일 자리 전부 — 빈 캔버스의 네 모서리에 하나씩, 붙은 칸 위엔 (앞 / 탭 / 뒤) 셋. 못 붙이는 자리는 목록에 없다. */
 export function dockZoneButtons(vp: Viewport, docked: DockedPane[]): DockZoneButton[] {
   const out: DockZoneButton[] = [];
   const layout = computeDockLayout(docked, vp);
-  const bandTop = IDE_DOCK.HEADER_H;
+
+  const free = freeCanvasRect(vp, docked);
+  const inset = IDE_DOCK.CORNER_BTN_INSET_PX;
+  for (const corner of IDE_FLOAT_CORNERS) {
+    const [hSide, vSide] = cornerSides(corner);
+    const cx = hSide === 'left' ? free.x + inset : free.x + free.w - inset;
+    const cy = vSide === 'top' ? free.y + inset : free.y + free.h - inset;
+    out.push({ target: { corner }, rect: centeredRect(cx, cy), kind: 'corner' });
+  }
 
   for (const side of IDE_DOCK_SIDES) {
     const slots = dockSlotsOf(docked, side);
-    if (slots.length === 0) {
-      // 빈 변 — 그 벽에 바짝(스냅 띠 안쪽 끝). 그 자리에서 놓으면 이 변에 처음 붙는다.
-      const snap = snapDistance(side, vp);
-      const inset = Math.min(snap * IDE_DOCK.ZONE_EDGE_INSET_RATIO, IDE_DOCK.ZONE_EDGE_INSET_MAX_PX);
-      const cx = side === 'left' ? inset : side === 'right' ? vp.w - inset : vp.w / 2;
-      const cy = side === 'top' ? bandTop + inset : side === 'bottom' ? vp.h - inset : bandTop + (vp.h - bandTop) / 2;
-      out.push({ target: { side, index: 0, mode: 'insert' }, rect: centeredRect(cx, cy), kind: 'edge' });
-      continue;
-    }
+    if (slots.length === 0) continue;
     const canAdd = canAddSlot(side, slots.length, vp, docked);
     slots.forEach((slot, i) => {
       const r = layout.rects[slot.paneKeys[0]!];
@@ -671,8 +717,11 @@ export function popOutGhostDecision(input: {
 }
 
 /** 두 자리가 같은 곳을 가리키는가 — 십자 버튼 강조가 판정과 어긋나지 않게 한 곳에서 견준다. */
-export function sameDockTarget(a: DockDropTarget | null, b: DockDropTarget | null): boolean {
+export function sameDockTarget(a: IDEDropTarget | null, b: IDEDropTarget | null): boolean {
   if (!a || !b) return a === b;
+  if (isCornerTarget(a) || isCornerTarget(b)) {
+    return isCornerTarget(a) && isCornerTarget(b) && a.corner === b.corner;
+  }
   return a.side === b.side && a.index === b.index && a.mode === b.mode;
 }
 
@@ -685,6 +734,8 @@ export const IDE_DOCK_ENTRY = {
   DWELL_MS: 700,
   /** 버팀으로 쳐 주는 흔들림(px) — 손은 완전히 멎지 않는다. 이보다 움직였으면 다시 잰다. */
   DWELL_JITTER_PX: 8,
+  /** 들어온 벽으로 치는 띠(px) — 되돌아오는 문턱(48px)이 넉넉히 들고, 이보다 안으로 들어오면 풀린다. */
+  BAND_PX: 120,
 } as const;
 
 /** (H-11) 돌아온 판이 잠가 둔 벽 — 어느 변인지와, 버팀을 재기 시작한 자리·시각. */
@@ -698,22 +749,22 @@ export interface DockEntryLock {
 }
 
 /**
- * (H-11) 돌아온 순간의 벽 붙이기를 잠근다 — 되돌아옴(H-4 ④)의 48px 이 스냅 폭(`snapDistance` 12%, 최소 120px) 한복판이라 들여놓자마자 떼면 벽에 붙는다.
- * 잠그는 것은 들어온 그 벽 하나다(네 변을 막으면 다른 벽에 붙이려는 손까지 막힌다).
+ * (H-11) 돌아온 순간의 붙이기를 잠근다 — 되돌아옴(H-4 ④)의 48px 은 모서리 인식 폭·붙은 칸 안이라 들여놓자마자 떼면 붙는다.
+ * 잠그는 것은 들어온 그 벽에 맞닿은 자리뿐이다(전부 막으면 다른 자리에 붙이려는 손까지 막힌다).
  */
 export function beginDockEntryLock(
   cursor: { x: number; y: number },
   vp: Viewport,
   now: number,
 ): DockEntryLock | null {
-  const side = nearestDockSide(cursor, vp);
+  const side = nearestEntrySide(cursor, vp);
   // 어느 벽의 띠에도 안 들어왔다 = 이미 한복판이다 — 잠글 것이 없다.
   if (!side) return null;
   return { side, since: now, at: { x: cursor.x, y: cursor.y } };
 }
 
 /**
- * (H-11) 잠금을 한 프레임 진행(`null` = 풀림, 다시 안 걸림). 풀림: ① 그 벽 스냅 띠를 벗어남 ② 띠 안에서 `DWELL_MS` 버팀(좁은 화면에서도 붙일 길).
+ * (H-11) 잠금을 한 프레임 진행(`null` = 풀림, 다시 안 걸림). 풀림: ① 그 벽 띠(`BAND_PX`)를 벗어남 ② 띠 안에서 `DWELL_MS` 버팀(좁은 화면에서도 붙일 길).
  * 다시 밖으로 나가면(거리 < 0) 잠금 유지 — 그건 꺼내기(H-6·H-7) 몫.
  */
 export function stepDockEntryLock(
@@ -724,7 +775,7 @@ export function stepDockEntryLock(
 ): DockEntryLock | null {
   if (!lock) return null;
   const dist = dockSideDistance(lock.side, cursor, vp);
-  if (dist > snapDistance(lock.side, vp)) return null; // ① 안으로 들어왔다
+  if (dist > IDE_DOCK_ENTRY.BAND_PX) return null; // ① 안으로 들어왔다
   const moved = Math.abs(cursor.x - lock.at.x) > IDE_DOCK_ENTRY.DWELL_JITTER_PX
     || Math.abs(cursor.y - lock.at.y) > IDE_DOCK_ENTRY.DWELL_JITTER_PX;
   if (moved) return { side: lock.side, since: now, at: { x: cursor.x, y: cursor.y } };
@@ -732,13 +783,13 @@ export function stepDockEntryLock(
   return lock;
 }
 
-/** (H-11) 잠긴 벽이면 그 자리를 없던 것으로 한다 — 미리보기·십자 강조·커밋이 한 판정을 읽는다. */
+/** (H-11) 잠긴 벽에 맞닿은 자리면 없던 것으로 한다 — 미리보기·십자 강조·커밋이 한 판정을 읽는다. */
 export function applyDockEntryLock(
-  target: DockDropTarget | null,
+  target: IDEDropTarget | null,
   lock: DockEntryLock | null,
-): DockDropTarget | null {
+): IDEDropTarget | null {
   if (!target || !lock) return target;
-  return target.side === lock.side ? null : target;
+  return dropTargetTouchesSide(target, lock.side) ? null : target;
 }
 
 // ─── 떠 있는 창의 자석 정렬 ───

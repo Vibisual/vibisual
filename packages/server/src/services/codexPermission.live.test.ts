@@ -47,6 +47,7 @@ async function liveTurn(permissionMode: string, prompt: string, decide: (check: 
   try {
     const text = await new Promise<string>((resolve, reject) => {
       runCodexTurn({
+        ...(process.env.VIBISUAL_CODEX_NATIVE_LIVE_TEST === '1' ? { nativeDeveloperInstructions: '' } : {}),
         subAgentId, cwd: ws, model: 'gpt-6-astra', reasoningEffort: 'low', permissionMode,
         prompt: prompt.replaceAll('{OUTSIDE}', outsideFile.replaceAll('\\', '/')).replaceAll('{INSIDE}', `inside-${nonce}.txt`),
         ownerAgentId: 'live-owner',

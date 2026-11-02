@@ -4,6 +4,9 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const handlerPath = fileURLToPath(new URL('../../../../hooks/handler.mjs', import.meta.url));
 
@@ -29,11 +32,11 @@ function cleanEnv(): Record<string, string> {
   return env;
 }
 
-function runTimed(input: string, port: number): Promise<{ stdout: string; ms: number }> {
+function runTimed(input: string, port: number, extraEnv: Record<string, string> = {}): Promise<{ stdout: string; ms: number }> {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     const child = spawn(process.execPath, [handlerPath, '--server', `http://127.0.0.1:${port}`, '--token', 'tok'], {
-      env: cleanEnv(),
+      env: { ...cleanEnv(), ...extraEnv },
       stdio: 'pipe',
     });
     let stdout = '';
@@ -62,5 +65,29 @@ describe('handler.mjs — 앱이 꺼져 있으면 통과 답을 내고 곧바로
     const { stdout, ms } = await runTimed(preToolUse('AskUserQuestion', { questions: [] }), port);
     expect(JSON.parse(stdout.split('\n')[0]!)).toEqual({ continue: true });
     expect(ms).toBeLessThan(QUICK_EXIT_MS);
+  }, 30_000);
+
+  it.each([
+    ['Bash', { command: 'pnpm test' }],
+    ['mcp__playwright__browser_snapshot', {}],
+  ] as const)('폐기된 검증 설정이 켜져 있어도 %s 호출은 CLI 권한 처리에 맡긴다', async (toolName, toolInput) => {
+    const fixtureHome = fs.mkdtempSync(path.join(os.tmpdir(), 'vibisual-retired-verification-'));
+    try {
+      fs.mkdirSync(path.join(fixtureHome, '.vibisual'));
+      fs.writeFileSync(path.join(fixtureHome, '.vibisual', 'user-defaults.json'), JSON.stringify({
+        permissions: { verificationGate: true },
+      }));
+      const port = await closedPort();
+      const { stdout, ms } = await runTimed(preToolUse(toolName, toolInput), port, {
+        HOME: fixtureHome,
+        USERPROFILE: fixtureHome,
+        VIBISUAL_SUBAGENT_ID: 'sub-offline',
+        VIBISUAL_VERIFICATION_GATE: '1',
+      });
+      expect(JSON.parse(stdout.split('\n')[0]!)).toEqual({ continue: true });
+      expect(ms).toBeLessThan(QUICK_EXIT_MS);
+    } finally {
+      fs.rmSync(fixtureHome, { recursive: true, force: true });
+    }
   }, 30_000);
 });

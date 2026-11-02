@@ -6,7 +6,7 @@
  * 모르는 줄은 버린다 — 새 `item.type` 은 언제든 생기고, `text` 로 흘리면 정체 모를 원문이 쏟아진다(§2.1 "넘겨짚지 않는다"와 같은 규율).
  */
 
-import { parseCodexTransportNotice } from '@vibisual/shared';
+import { isCodexSessionNotice, parseCodexTransportNotice } from '@vibisual/shared';
 
 /** 우리 `SubAgentStreamEvent.eventType` 중 이 매퍼가 낼 수 있는 것. */
 export type CodexEventType = 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'system' | 'error' | 'result';
@@ -122,6 +122,21 @@ function commandSummary(item: Record<string, unknown>): string {
   return '(command)';
 }
 
+/** A failed tool may be retried within a successful turn; preserve its result without ending the turn. */
+function toolFailureSummary(item: Record<string, unknown>): string | undefined {
+  const error = item['error'];
+  const detail = typeof error === 'string' ? error
+    : error && typeof error === 'object' && !Array.isArray(error)
+      ? str((error as Record<string, unknown>)['message']) || safeJson(error) : '';
+  const result = item['result'];
+  const resultIsError = result !== null && typeof result === 'object' && !Array.isArray(result)
+    && (result as Record<string, unknown>)['isError'] === true;
+  if (item['status'] !== 'failed' && !detail && !resultIsError) return undefined;
+  const output = detail || str(item['aggregated_output']) || str(item['output'])
+    || (resultIsError ? safeJson(result) : '');
+  return output ? `failed\n${output}` : 'failed';
+}
+
 /**
  * 웹 검색 완료 줄 → 무엇을 찾았거나 열었는지 한 줄. 동작 이름(`search`·`open_page`…)은 판마다 표기가
  * 바뀌므로 이름이 아니라 **실린 칸**(`query`·`queries`·`url`·`pattern`)으로 읽는다. 아무것도 없으면 `done`.
@@ -217,8 +232,9 @@ export function mapCodexLine(line: string, platform: NodeJS.Platform = process.p
       const errorBody = nestedError && typeof nestedError === 'object' && !Array.isArray(nestedError)
         ? nestedError as Record<string, unknown> : undefined;
       const message = str(o['message']) || str(errorBody?.['message']) || str(nestedError) || 'error';
-      // CLI recovery is progress, not terminal failure. Preserve the diagnostic for history.
-      const eventType = parseCodexTransportNotice(message) ? 'system' : 'error';
+      // Known recovery and session advisories are nonterminal notices.
+      // Preserve the diagnostic without displaying a failure during a live turn.
+      const eventType = parseCodexTransportNotice(message) || isCodexSessionNotice(message) ? 'system' : 'error';
       // Keep nested provider responses intact for guidance and expandable diagnostics.
       const content = !str(o['message']) && errorBody && eventType === 'error' ? trimmed : message;
       return { events: [{ eventType, content }] };
@@ -301,11 +317,14 @@ function mapItem(envelope: string, itemRaw: unknown, platform: NodeJS.Platform):
           events: [{ eventType: 'tool_use', content: label, toolName: 'Write', ...(id ? { toolUseId: id } : {}) }],
         };
       }
+      const failure = toolFailureSummary(item);
       return {
         events: [
           {
             eventType: 'tool_result',
-            content: paths.length > 0 ? `updated ${paths.length} file(s)\n${label}` : 'updated',
+            content: failure
+              ? `${failure}${paths.length > 0 ? `\n${label}` : ''}`
+              : paths.length > 0 ? `updated ${paths.length} file(s)\n${label}` : 'updated',
             toolName: 'Write',
             ...(id ? { toolUseId: id } : {}),
           },
@@ -330,7 +349,7 @@ function mapItem(envelope: string, itemRaw: unknown, platform: NodeJS.Platform):
         events: [
           {
             eventType: 'tool_result',
-            content: res === undefined ? 'done' : safeJson(res),
+            content: toolFailureSummary(item) ?? (res === undefined ? 'done' : safeJson(res)),
             toolName,
             ...(id ? { toolUseId: id } : {}),
           },

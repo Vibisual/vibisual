@@ -93,7 +93,7 @@ describe('② 라이트박스는 연 자리 하나에만', () => {
   it('여는 곳은 전부 누른 자리를 함께 적는다', () => {
     const OPENERS: Array<{ file: string; call: string; count: number }> = [
       { file: 'IDEEditorPane.tsx', call: 'openImageLightbox', count: 1 },
-      { file: 'IDEMainArea.tsx', call: 'openImageLightbox', count: 2 },
+      { file: 'IDEMainArea.tsx', call: 'openImageLightbox', count: 3 },
       { file: 'StreamImageThumb.tsx', call: 'openImageLightbox', count: 1 },
       { file: 'StreamRenderer.tsx', call: 'openImageLightbox', count: 1 },
       { file: 'VerifyRunEvidence.tsx', call: 'openImage', count: 2 },

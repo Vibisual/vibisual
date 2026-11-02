@@ -407,6 +407,20 @@ export function isSessionFileLocked(jsonlPath: string): boolean {
   }
 }
 
+/**
+ * §9 「일하는 동안의 메인 스레드」 — `cwdToSlug` 는 스냅샷마다 세션 수만큼 불린다. 부를 때마다 폴더를 읽으면 그만큼 메인 스레드를
+ * 잡으므로 목록은 이 간격만큼 기억한다. 그 사이 새로 생긴 프로젝트 폴더는 다음 읽기에서 잡힌다.
+ */
+const PROJECT_DIRS_TTL_MS = 1000;
+let projectDirsListing: { at: number; dirs: string[] } | null = null;
+
+function listProjectDirs(now: number = Date.now()): string[] {
+  if (projectDirsListing && now - projectDirsListing.at < PROJECT_DIRS_TTL_MS) return projectDirsListing.dirs;
+  const dirs = fs.readdirSync(PROJECTS_DIR);
+  projectDirsListing = { at: now, dirs };
+  return dirs;
+}
+
 /** CLI 의 실제 폴더명과 맞추려고 디렉토리를 찾고, 없으면 단순 변환. */
 function cwdToSlug(cwd: string): string {
   // 단순 변환 (: \ / _ . → -)
@@ -423,7 +437,7 @@ function cwdToSlug(cwd: string): string {
   // slug 는 cwd 에서 만들어지므로 linux 에서 `Feature-X` 와 `feature-x` 는 서로 다른 슬러그를 낳는데,
   // 곧바로 대소문자를 무시하면 두 프로젝트가 남의 세션 JSONL 폴더를 집어 든다.
   try {
-    const dirs = fs.readdirSync(PROJECTS_DIR);
+    const dirs = listProjectDirs();
     for (const slug of simpleSlugs) {
       const exact = dirs.find((d) => d === slug);
       if (exact) return exact;
@@ -608,13 +622,26 @@ const sessionDirCache = new ByteBudgetCache<string, string>({
  * §9 — 어디에도 없는 sessionId 의 부정 캐시(→ 재탐색 시각). 없거나 지워진 세션이 getSnapshot(초당 최대 5회)마다
  * 전 프로젝트 디렉토리를 훑지 않게 한다. TTL 이 짧아 나중에 생긴 파일은 잡힌다.
  */
-const sessionPathMissCache = new ByteBudgetCache<string, number>({
+const sessionPathMissCache = new ByteBudgetCache<string, { retryAt: number; misses: number }>({
   name: 'sessionDiscovery.pathMiss',
   maxBytes: cacheBudget(CACHE_SHARES.paths / 4),
   maxEntries: cacheEntryCap(CACHE_SHARES.paths),
   sizeOf: () => 64,
 });
 const SESSION_PATH_MISS_TTL_MS = 3000;
+const SESSION_PATH_MISS_MAX_MS = 60_000;
+
+/**
+ * §9 「일하는 동안의 메인 스레드」 — 거듭 없는 세션일수록 드물게 다시 찾는다(3초에서 두 배씩, 1분 상한). 지워진 대화 기록
+ * 수백 개가 3초마다 함께 전 프로젝트를 뒤지면 메인 스레드가 수백 ms 멈춰 창 끌기가 끊긴다. 세션마다 조금씩 어긋나게 해 한꺼번에 깨지 않는다.
+ * 기본 폴더(cwd-slug)는 이 간격과 무관하게 매번 본다 — 새로 생긴 기록은 거기서 바로 잡힌다.
+ */
+export function sessionPathRetryDelayMs(sessionId: string, misses: number): number {
+  const base = Math.min(SESSION_PATH_MISS_MAX_MS, SESSION_PATH_MISS_TTL_MS * 2 ** Math.min(Math.max(0, misses - 1), 5));
+  let hash = 0;
+  for (let i = 0; i < sessionId.length; i++) hash = (hash * 31 + sessionId.charCodeAt(i)) >>> 0;
+  return Math.round(base * (1 + (hash % 1000) / 4000));
+}
 
 /**
  * cwd + sessionId → 실재하는 JSONL 경로(없으면 null). cwd-slug 직행(핫패스) → miss 면 `~/.claude/projects/<*>/<sessionId>.jsonl` 전역 탐색
@@ -644,8 +671,8 @@ export function resolveSessionJsonlPath(cwd: string, sessionId: string): string 
     sessionDirCache.delete(sessionId);
   }
   // 직전 전역 탐색이 빈손이었고 TTL 이 안 지났으면 스캔 자체를 건너뛴다.
-  const retryAt = sessionPathMissCache.get(sessionId);
-  if (retryAt !== undefined && Date.now() < retryAt) return null;
+  const miss = sessionPathMissCache.get(sessionId);
+  if (miss !== undefined && Date.now() < miss.retryAt) return null;
   try {
     for (const projectsDir of transcriptRootsToScan()) {
       let dirs: string[];
@@ -664,7 +691,8 @@ export function resolveSessionJsonlPath(cwd: string, sessionId: string): string 
       }
     }
   } catch { /* 전역 탐색 실패 — miss 로 떨어진다 */ }
-  sessionPathMissCache.set(sessionId, Date.now() + SESSION_PATH_MISS_TTL_MS);
+  const misses = (miss?.misses ?? 0) + 1;
+  sessionPathMissCache.set(sessionId, { retryAt: Date.now() + sessionPathRetryDelayMs(sessionId, misses), misses });
   return null;
 }
 
@@ -1156,6 +1184,7 @@ const contextScanCache = new ByteBudgetCache<string, ContextScanState>({
 /** 시험용 — 파생 캐시 전부 비우기(증분 vs 빈 캐시 전량 재스캔 비교). */
 export function __resetSessionCachesForTest(): void {
   for (const cache of EVICTABLE_SESSION_CACHES) cache.clear();
+  projectDirsListing = null;
 }
 
 /** 한 줄(assistant 엔트리)을 누적 상태에 반영. 전체/증분 경로가 공유하는 유일한 파싱 지점. */

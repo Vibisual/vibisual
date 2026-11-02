@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { PHYSICS_MAGNET_GAP, SATELLITE_ORBIT_GAP, SPAWN_ZONE } from '@vibisual/shared';
-import { orbitMinOffset, orbitReseatGroup, orbitSeatOffset, type OrbitBody, type OrbitSibling } from './physicsGeometry.js';
+import { orbitInsideBox, orbitMinOffset, orbitReseatGroup, orbitSeatOffset, type OrbitBody, type OrbitSibling } from './physicsGeometry.js';
 import { satelliteSeatDistance } from '../utils/satellite.js';
 
 const TWO_PI = Math.PI * 2;
@@ -49,15 +49,7 @@ describe('orbitSeatOffset — 새 부모 둘레 궤도', () => {
  * 고정하는 것: ① 달을 거느린 위성(묶음)은 몸집으로 궤도를 잰다 ② 부모가 커져 궤도 안쪽에 든 위성은 그 방향 그대로 궤도로 민다 — 바깥 고리는 당겨 들이지 않는다
  * ③ 부모가 바뀐 무리(묶음이 막 섰다)는 새 부모 둘레에 고르게, 가장 덜 돌게 건다 ④ 이미 도는 형제가 있으면 형제와 겹치지 않는 칸에 건다.
  */
-describe('§5.1 #2-2 (J) 궤도 — 몸집 · 밀어내기 · 무리로 다시 걸기', () => {
-  it('달을 거느린 위성(묶음)은 몸집으로 궤도를 잰다 — 제 달이 부모를 파고들지 않게', () => {
-    const seat = orbitSeatOffset({ x: 0, y: 0, radius: 90 }, { id: 'sat-bundle', x: 400, y: 0, radius: 32, reach: 160 }, SATELLITE_ORBIT_GAP);
-    expect(seat.x).toBeCloseTo(90 + 160 + SATELLITE_ORBIT_GAP);
-    // 몸집이 원보다 작거나 없으면 그려지는 원이다.
-    const plain = orbitSeatOffset({ x: 0, y: 0, radius: 90 }, { id: 'sat-a', x: 400, y: 0, radius: 32, reach: 10 }, SATELLITE_ORBIT_GAP);
-    expect(plain.x).toBeCloseTo(90 + 32 + SATELLITE_ORBIT_GAP);
-  });
-
+describe('§5.1 #2-2 (J) 궤도 — 밀어내기 · 무리로 다시 걸기', () => {
   it('부모가 커져 테두리를 파고든 위성은 그 방향 그대로 궤도로 민다', () => {
     // 70px 폴더 둘레 첫 고리에 앉았던 위성 — 폴더가 쓸수록 커져 180px 가 됐다.
     const offset = { x: 0, y: -(35 + 30 + SATELLITE_ORBIT_GAP) };
@@ -67,12 +59,46 @@ describe('§5.1 #2-2 (J) 궤도 — 몸집 · 밀어내기 · 무리로 다시 �
     expect(pushed!.y).toBeCloseTo(-(90 + 30 + SATELLITE_ORBIT_GAP));
   });
 
-  it('궤도보다 멀리 앉은 위성(바깥 고리)은 당겨 들이지 않는다 · 몸집도 본다', () => {
+  it('궤도보다 멀리 앉은 위성(바깥 고리)은 당겨 들이지 않는다', () => {
     expect(orbitMinOffset({ radius: 90 }, { id: 'sat-far', radius: 30, offsetX: 400, offsetY: 0 }, SATELLITE_ORBIT_GAP)).toBeNull();
     // 반올림 오차 안이면 깨우지 않는다.
     expect(orbitMinOffset({ radius: 90 }, { id: 'sat-on', radius: 30, offsetX: 90 + 30 + SATELLITE_ORBIT_GAP - 0.2, offsetY: 0 }, SATELLITE_ORBIT_GAP)).toBeNull();
-    const hub = orbitMinOffset({ radius: 90 }, { id: 'sat-bundle', radius: 32, reach: 150, offsetX: 200, offsetY: 0 }, SATELLITE_ORBIT_GAP);
-    expect(hub!.x).toBeCloseTo(90 + 150 + SATELLITE_ORBIT_GAP);
+  });
+
+  it('묶음의 무리는 묶음의 부모 반대편 부채꼴에 — 둘이면 바깥 방향 좌우(정반대에 서서 한 줄 사슬 ❌)', () => {
+    // 폴더는 묶음 위(북쪽)에 있다 — 바깥 방향은 남쪽(6시).
+    const parent = { x: 0, y: 0, radius: 32 };
+    const facing = Math.PI / 2;
+    const group: OrbitBody[] = [
+      { id: 'sat-m0', x: -40, y: -140, radius: 28 },
+      { id: 'sat-m1', x: 40, y: -140, radius: 28 },
+    ];
+    const seats = orbitReseatGroup(parent, group, [], facing);
+    const a = seats.get('sat-m0')!;
+    const b = seats.get('sat-m1')!;
+    expect(a.y).toBeGreaterThan(0);
+    expect(b.y).toBeGreaterThan(0);
+    expect(a.y).toBeCloseTo(b.y, 6);
+    // 지금 각도 순서를 지킨다 — 왼쪽에 있던 것은 왼쪽에(서로 가로지르지 않는다).
+    expect(a.x).toBeLessThan(0);
+    expect(b.x).toBeGreaterThan(0);
+    for (const s of [a, b]) expect(Math.hypot(s.x, s.y)).toBeCloseTo(32 + SATELLITE_ORBIT_GAP + 28, 6);
+    // 바깥 방향이 없으면 종전대로 고르게(둘이면 정반대).
+    const even = orbitReseatGroup(parent, group, []);
+    const ea = even.get('sat-m0')!;
+    const eb = even.get('sat-m1')!;
+    expect(arc(Math.atan2(ea.y, ea.x), Math.atan2(eb.y, eb.x))).toBeCloseTo(Math.PI, 6);
+  });
+
+  it('형제가 있으면 바깥 방향부터 형제와 겹치지 않는 첫 칸', () => {
+    const parent = { x: 0, y: 0, radius: 32 };
+    const facing = 0;
+    const d = 32 + SATELLITE_ORBIT_GAP + 28;
+    const siblings: OrbitSibling[] = [{ radius: 28, offsetX: d, offsetY: 0 }];
+    const seat = orbitReseatGroup(parent, [{ id: 'sat-new', x: -100, y: 0, radius: 28 }], siblings, facing).get('sat-new')!;
+    // 바깥(동쪽) 칸은 형제가 차지했다 — 그 옆 칸이지, 지금 방향(서쪽)이 아니다.
+    expect(seat.x).toBeGreaterThan(0);
+    expect(Math.hypot(seat.x - d, seat.y)).toBeGreaterThanOrEqual(28 + 28 + PHYSICS_MAGNET_GAP);
   });
 
   it('부모가 바뀐 무리가 한쪽에 몰려 와도 새 부모 둘레에 고르게 — 지금 각도 순서는 지킨다', () => {
@@ -142,10 +168,50 @@ describe('§5.1 #2-2 (J) 궤도 — 몸집 · 밀어내기 · 무리로 다시 �
     const parent = { x: 0, y: 0, radius: 40 };
     const d = satelliteSeatDistance(parent.radius, 2, 60);
     // 형제 하나가 두 칸(12시·6시)을 다 덮을 만큼 크다.
-    const siblings: OrbitSibling[] = [{ radius: 30, reach: d + 40, offsetX: 0, offsetY: 0 }];
+    const siblings: OrbitSibling[] = [{ radius: d + 40, offsetX: 0, offsetY: 0 }];
     const body: OrbitBody = { id: 'sat-x', x: 150, y: 0, radius: 30 };
     const seat = orbitReseatGroup(parent, [body], siblings).get(body.id)!;
     expect(seat.y).toBeCloseTo(0, 6);
     expect(seat.x).toBeGreaterThan(0);
+  });
+});
+
+/** §5.1 #2-2 (K) — 부모가 상자 벽으로 밀려 위성 목표가 상자 밖을 가리키면 거리는 지킨 채 안쪽 각도로 돌린다(사진: 영역 밖 위성이 돌아오지 않았다). */
+describe('§5.1 #2-2 (K) orbitInsideBox — 상자 밖 위성은 안으로 돌아온다', () => {
+  const box = { cx: 0, cy: 0, hw: 500, hh: 400 };
+
+  it('목표가 상자 안이면 그대로 둔다', () => {
+    expect(orbitInsideBox({ x: 0, y: 0 }, { radius: 28, offsetX: 0, offsetY: 150 }, box)).toBeNull();
+  });
+
+  it('부모가 아래 벽에 붙고 위성이 벽 밖을 가리키면 — 같은 거리, 가장 덜 도는 안쪽 각도', () => {
+    const parent = { x: 0, y: 400 - 40 };
+    const len = 150;
+    const seat = orbitInsideBox(parent, { radius: 28, offsetX: 0, offsetY: len }, box)!;
+    expect(seat).not.toBeNull();
+    expect(Math.hypot(seat.x, seat.y)).toBeCloseTo(len, 6);
+    // 상자 안 — 부모 클램프와 같은 판정.
+    expect(Math.abs(parent.y + seat.y)).toBeLessThanOrEqual(box.hh - 28 + 1e-6);
+    expect(Math.abs(parent.x + seat.x)).toBeLessThanOrEqual(box.hw - 28 + 1e-6);
+    // 덜 돈다 — 벽을 따라 옆으로 눕지, 반대편(위)까지 넘어가지 않는다.
+    expect(seat.y).toBeGreaterThan(-len * 0.5);
+  });
+
+  it('여러 번 불러도 한 번 안으로 들어온 자리는 그대로다(떨지 않는다)', () => {
+    const parent = { x: 500 - 40, y: 0 };
+    const first = orbitInsideBox(parent, { radius: 28, offsetX: 150, offsetY: 0 }, box)!;
+    expect(orbitInsideBox(parent, { radius: 28, offsetX: first.x, offsetY: first.y }, box)).toBeNull();
+  });
+
+  it('어느 각도도 상자 안이 아니면 가장 덜 나가는 쪽 — 상자 가운데를 향한다', () => {
+    const parent = { x: 900, y: 0 };
+    const seat = orbitInsideBox(parent, { radius: 28, offsetX: 150, offsetY: 0 }, box)!;
+    expect(seat.x).toBeLessThan(0);
+    expect(Math.abs(seat.y)).toBeLessThan(150 * Math.sin(10 * DEG));
+  });
+
+  it('깨진 값은 건드리지 않는다', () => {
+    expect(orbitInsideBox({ x: Number.NaN, y: 0 }, { radius: 28, offsetX: 150, offsetY: 0 }, box)).toBeNull();
+    expect(orbitInsideBox({ x: 0, y: 0 }, { radius: 28, offsetX: 0, offsetY: 0 }, box)).toBeNull();
   });
 });

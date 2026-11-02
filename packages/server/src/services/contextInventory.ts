@@ -282,7 +282,6 @@ const PART_LABEL_KEYS: Record<string, string> = {
   [CONTEXT_SOURCE_IDS.intentFirst]: 'ide.context.src.intentFirst',
   [CONTEXT_SOURCE_IDS.compactSelf]: 'ide.context.src.compactSelf',
   [CONTEXT_SOURCE_IDS.compactRecovery]: 'ide.context.src.compactRecovery',
-  [CONTEXT_SOURCE_IDS.verificationPolicy]: 'ide.context.src.verificationPolicy',
   [CONTEXT_SOURCE_IDS.cardCommon]: 'ide.context.src.cardCommon',
   [CONTEXT_SOURCE_IDS.cardReport]: 'ide.context.src.cardReport',
   [CONTEXT_SOURCE_IDS.cardQuestion]: 'ide.context.src.cardQuestion',
@@ -362,7 +361,7 @@ export function buildContextInventory(input: InventoryInput): ContextInventory {
       tokens: estimateTokens(part.text),
       control: 'session',
       // 이 턴에 실제로 내용이 나온 것만 기본 켜짐 — 빈 블록은 "해당 없음"이라 켜 두어도 0자다.
-      defaultEnabled: part.defaultEnabled ?? chars > 0,
+      defaultEnabled: part.defaultEnabled ?? (part.id === CONTEXT_SOURCE_IDS.goal ? false : chars > 0),
     });
   }
 
@@ -630,7 +629,7 @@ export function isContextSourceOn(
   overrides: ContextOverrides | undefined,
   scope: { projectKey?: string | null; agentId?: string | null; subAgentId?: string | null },
   sourceId: string,
-  defaultEnabled = true,
+  defaultEnabled = sourceId !== CONTEXT_SOURCE_IDS.goal,
 ): boolean {
   return resolveContextEnabled(overrides, scope, sourceId, defaultEnabled).enabled;
 }

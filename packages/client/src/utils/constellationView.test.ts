@@ -17,7 +17,7 @@ import {
   type ConstellationTag,
 } from './constellationView.js';
 import { appWorkPathKey } from './appWorkView.js';
-import { collectSatellites, satelliteHubReach } from './satellite.js';
+import { collectSatellites } from './satellite.js';
 import { calcBubbleSize } from './sizeCalc.js';
 
 /** 서버 스냅샷의 파일 노드 모양 — `path` 는 노드 키(내부는 루트 기준 상대 경로), `absolutePath` 는 디스크 경로. */
@@ -630,14 +630,12 @@ describe('묶음 버블의 위성 — 다른 폴더 버블과 같은 규칙', ()
     expect(moons[0]!.localRange).toBe(moons[1]!.localRange);
   });
 
-  it('위성 자리의 묶음은 제 위성까지가 몸이다 — 물리·장부·정리가 읽는 `_orbitReach` 와 같은 값', () => {
+  it('위성 자리의 묶음은 몸집(달 궤도까지)을 싣지 않는다 — 부모 둘레엔 다른 위성과 같은 거리, 제 위성은 바깥 부채꼴', () => {
     const out = viewOf([png(3), png(2), png(1)]);
     const bundle = bundles(out)[0]!;
-    const moons = out.satInfos.filter((s) => s.parentId === bundle.bubble.id);
-    const expected = satelliteHubReach(BUNDLE_BUBBLE.size / 2, moons.map((m) => calcBubbleSize(m.bubble, m.localRange, m.heat)));
-    expect(bundle.reach).toBeCloseTo(expected, 9);
-    expect((bundle.bubble as unknown as Record<string, unknown>)['_orbitReach']).toBeCloseTo(expected, 9);
-    expect(bundle.reach!).toBeGreaterThan(BUNDLE_BUBBLE.size / 2);
+    expect(out.satInfos.filter((s) => s.parentId === bundle.bubble.id)).toHaveLength(2);
+    expect('reach' in bundle).toBe(false);
+    expect((bundle.bubble as unknown as Record<string, unknown>)['_orbitReach']).toBeUndefined();
   });
 
   it('원 둘레 묶음은 원 둘레의 폴더 버블처럼 몸집 없이 선다 — 위성만 거느린다', () => {
@@ -650,7 +648,7 @@ describe('묶음 버블의 위성 — 다른 폴더 버블과 같은 규칙', ()
     const moons = out.satInfos.filter((s) => s.parentId === bundle.id);
     expect(moons.map((s) => s.bubble.id)).toEqual(['sat-a', 'sat-b']);
     for (const moon of moons) {
-      expect(moon.reach).toBeUndefined();
+      expect('reach' in moon).toBe(false);
       expect(moon.parentSlots).toBe(BUNDLE_SATELLITE_MAX);
     }
   });

@@ -42,8 +42,20 @@ import { TASK_EDGE_STYLES } from '@vibisual/shared';
 import { clampUsagePct, usageBarToneClass } from '../../utils/usageLimits.js';
 import { formatSince } from '../../formatSince.js';
 
+/**
+ * §5.5 #17-50 — 남의 판(IDE 세션 지도)이 고른 버블. 캔버스 전역 선택 대신 이것을 그 판 안 오른쪽에 그린다.
+ * 같은 노드가 캔버스에 있으면 그 id 를 넘겨라 — 살아 있는 노드로 캔버스와 같은 패널이 선다. 없으면 판이 지은 모양이라
+ * 서버 장부를 고치는 칸(이름 편집·고정·이력 한도·위성 토글 등)은 세우지 않는다(그 id 는 서버에 없다).
+ */
+export interface DetailPanelHosted {
+  node: BubbleData;
+  /** 판의 사실(그 세션에서 닿은 횟수·동작 단추) — 본문 맨 위. */
+  extra?: React.ReactNode;
+}
+
 interface DetailPanelProps {
   onClose: () => void;
+  hosted?: DetailPanelHosted | undefined;
 }
 
 /** §5.1 — 패널 바탕은 테마를 따른다. 바탕별 공식 변형이 있는 동봉 그림(curl)이 그 바탕에 맞는 쪽을 고른다. */
@@ -106,12 +118,18 @@ function RateLimitBar({
 /** §9 — 같은 에이전트 버블을 보는 동안 `/api/tokens` 재조회 최소 간격. */
 const TOKEN_REFETCH_MIN_MS = 5_000;
 
+const NO_DOCK_INSETS = { left: 0, right: 0 } as const;
+
 export function DetailPanel({
   onClose,
+  hosted,
 }: DetailPanelProps): React.JSX.Element | null {
   const { t } = useTranslation();
-  const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
+  const globalSelectedNodeId = useGraphStore((s) => s.selectedNodeId);
+  const selectedNodeId = hosted ? hosted.node.id : globalSelectedNodeId;
   const nodeMap = useGraphStore((s) => s.nodeMap);
+  // 남의 판의 버블이 캔버스 노드가 아니면 서버에 없는 id 다 — 서버 장부를 고치는 칸은 세우지 않는다.
+  const canvasBacked = !hosted || nodeMap[hosted.node.id] !== undefined;
   const agents = useGraphStore((s) => s.agents);
   const bashHistory = useGraphStore((s) => s.bashHistory);
   const runningServers = useGraphStore((s) => s.runningServers);
@@ -119,9 +137,11 @@ export function DetailPanel({
   const fileEdits = useGraphStore((s) => s.fileEdits);
   const domainEntries = useGraphStore((s) => s.domainEntries);
   const currentFolderIdForRoot = useGraphStore((s) => s.currentFolderId);
-  const rawNode = selectedNodeId ? nodeMap[selectedNodeId] : undefined;
-  // 폴더 내부에서 현재 폴더 자신이 선택된 경우 → root 타입으로 표시
-  const node = rawNode && currentFolderIdForRoot && selectedNodeId === currentFolderIdForRoot
+  const rawNode = hosted
+    ? (nodeMap[hosted.node.id] ?? hosted.node)
+    : selectedNodeId ? nodeMap[selectedNodeId] : undefined;
+  // 폴더 내부에서 현재 폴더 자신이 선택된 경우 → root 타입으로 표시(캔버스 폴더 화면의 일 — 남의 판은 제 화면이 따로다)
+  const node = !hosted && rawNode && currentFolderIdForRoot && selectedNodeId === currentFolderIdForRoot
     ? { ...rawNode, bubbleType: 'root' as const }
     : rawNode;
   // §5.1 명령 앱 · §7.3 — 파일 버블과 같은 `마지막 20개만 유지` 체크박스(끄면 남아 있는 기록 전부).
@@ -148,7 +168,9 @@ export function DetailPanel({
   const rateLimits = useGraphStore((s) => s.rateLimits);
 
   // §5.5 #17-1 — IDE 가 우측에 붙으면 패널은 왼쪽. 판정은 캔버스 축소와 같은 `useIDEDockLayout`. 양쪽이 막히면 우측에 서고 도크 두께만큼 안으로 물러난다.
-  const { insets: dockInsets } = useIDEDockLayout();
+  //   남의 판 안에서는 그 판의 오른쪽 — 도크 두께는 캔버스 자리의 사정이다.
+  const { insets: canvasDockInsets } = useIDEDockLayout();
+  const dockInsets = hosted ? NO_DOCK_INSETS : canvasDockInsets;
   const panelOnLeft = dockInsets.right > 0 && dockInsets.left === 0;
   // §4 — 폰(좁은 뷰포트)에선 하단 바텀시트.
   const isNarrow = useIsNarrowViewport();
@@ -212,11 +234,12 @@ export function DetailPanel({
   }, [selectedNodeId]);
 
   // §4 — 패널 래퍼. 폰은 하단 시트(아래에서 올라온다 — `slide-in-right` ❌), 넓으면 사이드 패널.
+  //   남의 판 안이면 높이·폭을 그 판에 맞춘다(뷰포트 단위로 재면 판 밖으로 넘친다).
   const panelWrapperClass = isNarrow
     ? `absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-2xl border-t border-gray-800 bg-gray-900 ${animating ? 'animate-slide-in-up' : ''}`
-    : `absolute ${panelOnLeft ? 'border-r' : 'border-l'} top-0 bottom-0 z-30 flex flex-col border-gray-800 bg-gray-900 ${animating ? (panelOnLeft ? 'animate-slide-in-left' : 'animate-slide-in-right') : ''}`;
+    : `absolute ${panelOnLeft ? 'border-r' : 'border-l'} top-0 bottom-0 z-30 flex flex-col border-gray-800 bg-gray-900 ${hosted ? 'max-w-[calc(100%-1rem)]' : ''} ${animating ? (panelOnLeft ? 'animate-slide-in-left' : 'animate-slide-in-right') : ''}`;
   const panelWrapperStyle: React.CSSProperties = isNarrow
-    ? { height: '80dvh' }
+    ? { height: hosted ? '80%' : '80dvh' }
     : { width: panelWidth, ...(panelOnLeft ? { left: dockInsets.left } : { right: dockInsets.right }) };
 
   // billable tokens 가져오기 (자체 세션 비면 서브에이전트 세션 합산)
@@ -233,7 +256,7 @@ export function DetailPanel({
   const tokenFetchAtRef = useRef(0);
   const tokenNodeRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!node || node.bubbleType !== 'agent') { setTokenData(null); return; }
+    if (!node || node.bubbleType !== 'agent' || !canvasBacked) { setTokenData(null); return; }
     // 다른 버블로 옮기면 즉시 조회(스로틀 창 초기화). `lastTokenActivity` 도 함께 비운다 —
     // 옮겨간 버블의 activity 가 직전 버블의 값과 우연히 같으면 아래 가드에 걸려
     // 새 버블 토큰을 영영 안 불러오기 때문.
@@ -292,7 +315,7 @@ export function DetailPanel({
     }
     const timer = window.setTimeout(() => { void run(); }, wait);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [node?.id, node?.bubbleType, node?.path, node?.activity, agentSubIds.length]);
+  }, [node?.id, node?.bubbleType, node?.path, node?.activity, agentSubIds.length, canvasBacked]);
 
   const billableTokens = useMemo(() => {
     if (!tokenData) return 0;
@@ -379,7 +402,8 @@ export function DetailPanel({
       ? []
       : (agentConfig?.tools ?? ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']);
 
-  const isAgent = node?.bubbleType === 'agent';
+  // 캔버스에 없는 에이전트(남의 판의 서브에이전트)는 세션·설정·토큰이 없다 — 에이전트 칸 대신 종류·상태만.
+  const isAgent = node?.bubbleType === 'agent' && canvasBacked;
   const isFile = node?.bubbleType === 'file';
   const isFolder = node?.bubbleType === 'internal_folder' || node?.bubbleType === 'external_folder';
   /** §5.23 — 도메인 버블. 디스크 경로가 없으므로 `hasPath` 대상이 아니다(탐색기 열기 ❌). */
@@ -394,6 +418,7 @@ export function DetailPanel({
 
   // preserve-pin(§2.4) — root/back 제외. 접힌 웹 버블도 제외(서버 장부에 없는 id 라 404).
   const isPinEligible = !!node
+    && canvasBacked
     && node.bubbleType !== 'root'
     && node.bubbleType !== 'back'
     && !node.webFold;
@@ -458,7 +483,7 @@ export function DetailPanel({
     return strip;
   }, [taskEdges, agentConfigs, node]);
 
-  if (selectedCommentBoxId) {
+  if (!hosted && selectedCommentBoxId) {
     const box = commentBoxes.find((b) => b.id === selectedCommentBoxId);
     if (!box) return null;
     return (
@@ -499,7 +524,7 @@ export function DetailPanel({
     );
   }
 
-  if (selectedCaptureBubbleId) {
+  if (!hosted && selectedCaptureBubbleId) {
     const bubble = captureBubbles.find((b) => b.id === selectedCaptureBubbleId);
     if (!bubble) return null;
     return (
@@ -541,7 +566,7 @@ export function DetailPanel({
   }
 
   // §5.13 (M) — 앱 버블 전용 패널(우클릭 메뉴 조작을 여기서도).
-  if (selectedAppBubbleId) {
+  if (!hosted && selectedAppBubbleId) {
     const bubble = appBubbles.find((b) => b.id === selectedAppBubbleId);
     if (!bubble) return null;
     const appMeta = getInternalApp(bubble.appId);
@@ -591,7 +616,7 @@ export function DetailPanel({
   }
 
   // Task Edge 선택 시 전용 패널 렌더 (노드 선택과 배타)
-  if (selectedTaskEdgeId) {
+  if (!hosted && selectedTaskEdgeId) {
     const edge = taskEdges[selectedTaskEdgeId];
     if (!edge) return null;
     const styleCfg = TASK_EDGE_STYLES[edge.status] ?? TASK_EDGE_STYLES['idle']!;
@@ -632,7 +657,7 @@ export function DetailPanel({
   }
 
   // §7.12 — 콘티 버블(id prefix `conti-bubble-`) 선택 시 ContiHistoryDetail.
-  if (selectedNodeId && selectedNodeId.startsWith('conti-bubble-')) {
+  if (!hosted && selectedNodeId && selectedNodeId.startsWith('conti-bubble-')) {
     const agentId = selectedNodeId.slice('conti-bubble-'.length);
     return (
       <aside
@@ -670,7 +695,7 @@ export function DetailPanel({
   /* §5.10 — 기억 카드·메모리 버블 패널은 없다(축 폐기). 되풀이 절차는 IDE `목표` 뷰의 자동 목표가 맡는다. */
 
   // §5.10 — 휴지통 내부의 버려진 커스텀 에이전트 선택 시 전용 패널.
-  if (node?.trashed) {
+  if (canvasBacked && node?.trashed) {
     return (
       <aside className={panelWrapperClass} style={panelWrapperStyle} onAnimationEnd={() => setAnimating(false)}>
         <div className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40 ${isNarrow ? 'hidden' : ''}`} onMouseDown={handleResizeStart} />
@@ -807,6 +832,7 @@ export function DetailPanel({
       {/* Content */}
       <ScrollFade fill className="flex-1">
         <div className="flex flex-col gap-4 p-4">
+          {hosted?.extra}
           {node.bubbleType === 'auto' && <AutoAgentPanel node={node} />}
 
           {/* Path */}
@@ -1147,7 +1173,7 @@ export function DetailPanel({
             </div>
           )}
 
-          {node.bubbleType === 'agent' && (() => {
+          {isAgent && (() => {
             const sessionId = node.path;
             const durations = recentToolDurations[sessionId] ?? [];
             const compact = compactCounts[sessionId];
@@ -1186,21 +1212,23 @@ export function DetailPanel({
             );
           })()}
 
-          {node.bubbleType === 'agent' && <AgentFeedbackSection agentId={node.id} />}
+          {isAgent && <AgentFeedbackSection agentId={node.id} />}
 
-          {/* §5.11 — 플러그인 섹션 슬롯(기여가 없으면 DOM 없음). */}
-          <PluginPanelSectionSlot
-            bubbleId={node.id}
-            bubbleType={node.bubbleType}
-            label={node.label}
-            customCreated={node.customCreated ?? false}
-            agentConfig={agentConfig ?? undefined}
-          />
+          {/* §5.11 — 플러그인 섹션 슬롯(기여가 없으면 DOM 없음). 플러그인은 버블 id 로 서버를 부르므로 캔버스 노드만. */}
+          {canvasBacked && (
+            <PluginPanelSectionSlot
+              bubbleId={node.id}
+              bubbleType={node.bubbleType}
+              label={node.label}
+              customCreated={node.customCreated ?? false}
+              agentConfig={agentConfig ?? undefined}
+            />
+          )}
 
           {/* §7.2 — 아래는 끝낸 것 → 하는 것 → 할 것 순(마지막 결과 → 대기열 → 세션). IDE 스트림과 같은 방향. */}
 
           {/* Agent: 마지막 결과 한 건 — 누르면 IDE 의 그 세션(§7.1). 전체 기록은 IDE·지휘통제실의 몫이다. */}
-          {node.bubbleType === 'agent' && (
+          {isAgent && (
             <AgentEventList
               agentId={node.id}
               events={agentEvents[node.id] ?? []}
@@ -1211,12 +1239,12 @@ export function DetailPanel({
 
           {/* Agent: 명령 대기열 (라이브 모드만).
               §5.5 #17-29 — 훅 버블은 읽기 전용이라 대기열은 보이되 [추가] 손잡이는 없다(비었으면 칸째 숨긴다). */}
-          {node.bubbleType === 'agent' && (
+          {isAgent && (
             <CommandQueue agentId={node.id} readOnly={!node.customCreated} />
           )}
 
           {/* Agent: SubAgent 목록 — 행을 누르면 IDE 의 그 세션 탭(§7.2). */}
-          {node.bubbleType === 'agent' && (subAgents[node.id] ?? []).length > 0 && (
+          {isAgent && (subAgents[node.id] ?? []).length > 0 && (
             <SubAgentList subAgents={subAgents[node.id] ?? []} />
           )}
 
@@ -1233,8 +1261,8 @@ export function DetailPanel({
                     {node.commandApp.projectPath && <p className="mt-1 break-all text-gray-400">{node.commandApp.projectPath}</p>}
                   </div>
                 </div>
-              ) : <ServerList servers={runningServers[node.id] ?? []} />}
-              <BashHistoryList key={node.id} rows={selectedBashRows} limitControl={commandHistoryLimit} />
+              ) : canvasBacked && <ServerList servers={runningServers[node.id] ?? []} />}
+              {canvasBacked && <BashHistoryList key={node.id} rows={selectedBashRows} limitControl={commandHistoryLimit} />}
             </>
           )}
 
@@ -1257,7 +1285,7 @@ export function DetailPanel({
           )}
 
           {/* Folder: 파일 트리 (위성 토글) */}
-          {isFolder && !isRoot && (
+          {isFolder && !isRoot && canvasBacked && (
             <FolderFileTree
               folderPath={node.path}
               folderAbsPath={node.absolutePath ?? undefined}
@@ -1268,10 +1296,10 @@ export function DetailPanel({
 
           {/* §7.22 — 도메인 버블: 웹 이력(체크 = 제거). 접힌 웹 버블(§5.23)은 호스트마다 한 칸씩 같은 목록을 편다.
               key 를 버블 id 로 둬야 다른 접힌 버블로 옮겨 갈 때 "펴 둔 칸"이 새로 선다. */}
-          {isDomain && node.webFold && (
+          {isDomain && node.webFold && canvasBacked && (
             <WebFoldHostList key={node.id} fold={node.webFold} domainEntries={domainEntries} />
           )}
-          {isDomain && !node.webFold && (
+          {isDomain && !node.webFold && canvasBacked && (
             <WebEntryList
               nodeId={node.id}
               host={node.label}
@@ -1281,7 +1309,7 @@ export function DetailPanel({
           )}
 
           {/* File edits history */}
-          {node.bubbleType === 'file' && (
+          {node.bubbleType === 'file' && canvasBacked && (
             <div className="flex flex-col gap-1.5">
               <label
                 className="flex cursor-pointer select-none items-center gap-1.5 text-[12px] text-gray-400"

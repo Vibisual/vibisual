@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
 
 const REQUEST_TIMEOUT_MS = 10000;
+const PROGRESS_TIMEOUT_MS = 1500;
 // Waits server-side instead of re-sending an unchanged status every 45s. CALL_WAIT_MS = half of tool_timeout_sec=3600 (codexEdgeOverrides);
 // each lookup stays under the server's 120s hold cap and fetch's 300s header wait. VIBISUAL_EDGE_WAIT_TUNING is test-only (Codex forwards only codexEdgeOverrides env_vars).
 const tuning = (() => { try { return JSON.parse(process.env.VIBISUAL_EDGE_WAIT_TUNING || '{}') ?? {}; } catch { return {}; } })();
@@ -31,6 +32,37 @@ if (mode === 'gate') {
   } catch {
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Vibisual tool delegation: invalid policy input; tool blocked.' } }));
   }
+} else if (mode === 'progress') {
+  // Telemetry only: never copy hook input/body, alter permissions, or interrupt
+  // compaction because the UI server is unavailable. No global configuration.
+  const event = process.argv[3];
+  const events = new Set(['PreCompact', 'PostCompact', 'PreToolUse', 'PostToolUse']);
+  try {
+    let raw = '';
+    for await (const chunk of process.stdin) raw += chunk;
+    const call = JSON.parse(raw);
+    const parentAgentId = process.env.VIBISUAL_OWNER_AGENT_ID;
+    const subAgentId = process.env.VIBISUAL_SUBAGENT_ID;
+    const commandId = process.env.VIBISUAL_CODEX_COMMAND_ID;
+    if (events.has(event) && call && typeof call === 'object'
+      && call.hook_event_name === event && typeof call.session_id === 'string' && call.session_id
+      && parentAgentId && subAgentId && commandId && process.env.VIBISUAL_BASE) {
+      const response = await fetch(new URL('/api/codex-progress', process.env.VIBISUAL_BASE), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-vibisual-hook-token': process.env.VIBISUAL_TOKEN ?? '' },
+        body: JSON.stringify({
+          parentAgentId, subAgentId, commandId, sessionId: call.session_id, hookEventName: event,
+          ...(typeof call.tool_name === 'string' ? { toolName: call.tool_name } : {}),
+          ...(typeof call.tool_use_id === 'string' ? { toolUseId: call.tool_use_id } : {}),
+        }),
+        redirect: 'error',
+        signal: AbortSignal.timeout(PROGRESS_TIMEOUT_MS),
+      });
+      // The response cannot instruct the model or change the hook decision.
+      await response.body?.cancel();
+    }
+  } catch { /* An optional status update must never stop the actual task. */ }
+  process.stdout.write('{}');
 } else if (mode === 'mcp') {
   const edges = JSON.parse(process.env.VIBISUAL_CODEX_EDGE_IDS || '[]');
   const send = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
@@ -260,11 +292,6 @@ if (mode === 'gate') {
     ? (typeof data.message === 'string' && data.message
       ? data.message
       : 'Vibisual lock: this path is locked by the user, so this tool was blocked and NOT executed. Ask the user to unlock it in Vibisual if access is needed. Do not retry it or work around it with another command.')
-    // §5.3 #12-4 — 검증 정책 거부. 무엇으로 읽혔는지·우회하지 말라는 문구는 서버가 짓는다. 아무도 누르지 않았다.
-    : data.reason === 'verification'
-    ? (typeof data.message === 'string' && data.message
-      ? data.message
-      : 'VIBISUAL VERIFICATION POLICY: BLOCKED before it ran. The user did not ask for verification in this task. Do not retry it, do not run it another way, and do not ask the user for permission. Finish the requested work, then say which verification was not run.')
     : `USER PERMISSION DECISION: DENY. The user pressed "Deny" in the Vibisual approval popup. This tool was blocked and NOT executed.${data.reason ? ` User note: ${data.reason}.` : ''} In your reply, state this explicitly to the user — e.g. 'You selected: Deny — the command was not run.' Do not retry the tool unless the user explicitly asks.`;
   const unavailable = (why) => `PERMISSION CHECK UNAVAILABLE: DENY. The Vibisual permission check could not be completed (${why}), so this tool was blocked and NOT executed (safe default). Tell the user the approval check failed and ask how they want to proceed.`;
   if (event !== 'PreToolUse' && event !== 'PermissionRequest') {

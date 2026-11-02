@@ -16,6 +16,19 @@ describe('grounded Unreal icon candidates', () => {
     ]);
   });
 
+  // §5.1 — 같은 엔진의 어느 실행 경로로 와도 한 Unreal 버블이 같은 그림이어야 한다.
+  it.each(['C:/UE/Engine/Binaries/Win64/UnrealEditor.exe', 'C:/UE/Engine/Build/BatchFiles/RunUBT.bat',
+    'C:/UE/Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.exe'])('resolves %s to the same editor picture', (input) => {
+    const candidates = commandAppIconCandidates(input, 'win32');
+    expect(candidates[0]).toEqual({ executable: 'C:\\UE\\Engine\\Binaries\\Win64\\UnrealEditor.exe' });
+    expect(candidates.filter((candidate) => candidate.executable.endsWith('\\UnrealEditor.exe'))).toHaveLength(1);
+  });
+
+  it('gives a plain Linux editor the engine-shipped icon like its -Cmd sibling', () => {
+    expect(commandAppIconCandidates('/UE/Engine/Binaries/Linux/UnrealEditor', 'linux')[0]?.iconFile)
+      .toBe('/UE/Engine/Source/Runtime/Launch/Resources/Linux/UnrealEngine.png');
+  });
+
   it('finds the macOS bundle via its executable, and on Linux the engine-shipped icon beside the native binary', () => {
     expect(commandAppIconCandidates('/UE/Engine/Build/BatchFiles/Mac/Build.sh', 'darwin')[0]).toEqual({
       executable: '/UE/Engine/Binaries/Mac/UnrealEditor.app/Contents/MacOS/UnrealEditor',

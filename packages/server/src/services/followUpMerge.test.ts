@@ -27,6 +27,12 @@ function cmd(partial: Partial<QueuedCommand> = {}): QueuedCommand {
 }
 
 describe('absorbMergeFollowUps', () => {
+  it.each(['/compact', '/clear', '/compact keep recent changes', '/review'])('keeps %s separate from ordinary queued work', (text) => {
+    const special = cmd({ text });
+    const normal = cmd({ text: 'Finish the requested change' });
+    expect(absorbMergeFollowUps([special, normal], special)).toEqual([]);
+    expect(absorbMergeFollowUps([normal, special], normal)).toEqual([]);
+  });
   it('연속된 합치기 덧말을 한 프롬프트로 합치고 큐에서 제거한다', () => {
     const base = cmd({ text: '첫 지시' });
     const f1 = cmd({ text: '덧말 1' });

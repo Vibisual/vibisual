@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { createContext, useCallback, useContext, useEffect, useSyncExternalStore } from 'react';
 import { PREVIEW_POLICY, selectPreviewGrants, type PreviewCandidate } from '@vibisual/shared';
 
 /**
@@ -148,9 +148,48 @@ export function createPreviewBudget(opts: {
 /** 메인 캔버스의 한 벌 — 캔버스는 하나다(별창은 제 창의 모듈을 쓴다). */
 export const previewBudget = createPreviewBudget();
 
+// ─── 판마다 한 벌 ────────────────────────────────────────────────────────────
+//   화면 지름은 그 버블을 그리는 판의 배율로 잰다. 캔버스 버블을 빌려 그리는 다른 판(IDE 세션 지도 §5.5 #17-50)이
+//   캔버스 판을 쓰면 캔버스 배율로 재고 캔버스 버블과 상한을 나눠 써 미리보기가 안 선다 — 그 판은 제 판을 등록하고 내려준다.
+
+const surfaces = new Set<PreviewBudget>([previewBudget]);
+const surfaceIdleListeners = new Set<Listener>();
+
+/** 새 굽기는 모든 판이 멈췄을 때만 — 어느 판이든 끌거나 줌하는 동안은 쉰다(캔버스 하나일 때와 같은 규칙). */
+export function previewSurfacesIdle(now?: number): boolean {
+  for (const b of surfaces) if (!b.isIdle(now)) return false;
+  return true;
+}
+
+function fireIfAllIdle(): void {
+  if (!previewSurfacesIdle()) return;
+  for (const l of [...surfaceIdleListeners]) l();
+}
+previewBudget.onIdle(fireIfAllIdle);
+
+/** 모든 판이 다시 한가해지면 한 번 부른다(기억 장소가 미뤄 둔 줄을 다시 민다). */
+export function onPreviewSurfacesIdle(listener: Listener): () => void {
+  surfaceIdleListeners.add(listener);
+  return () => { surfaceIdleListeners.delete(listener); };
+}
+
+/** 다른 판을 올린다 — 돌려주는 함수로 내린다(내리는 순간 남은 판이 한가하면 미뤄 둔 줄을 민다). */
+export function registerPreviewSurface(budget: PreviewBudget): () => void {
+  surfaces.add(budget);
+  const off = budget.onIdle(fireIfAllIdle);
+  return () => {
+    off();
+    if (surfaces.delete(budget)) fireIfAllIdle();
+  };
+}
+
+const PreviewBudgetContext = createContext<PreviewBudget>(previewBudget);
+/** 이 아래 버블이 쓸 판. 없으면 메인 캔버스 판. */
+export const PreviewBudgetProvider = PreviewBudgetContext.Provider;
+
 /**
  * 이 자리에 미리보기를 그려도 되는가. `id` 가 `null` 이면(굽지 않는 자리) 늘 `false` 다.
- * 마운트된 동안만 이름을 올리고, 지름·상태가 바뀌면 고친다.
+ * 마운트된 동안만 이름을 올리고, 지름·상태가 바뀌면 고친다. 판은 가장 가까운 `PreviewBudgetProvider`.
  */
 export function usePreviewGrant(
   id: string | null,
@@ -158,11 +197,12 @@ export function usePreviewGrant(
   opts: { active?: boolean; last?: number; small?: boolean } = {},
 ): boolean {
   const { active = false, last = 0, small = false } = opts;
-  const subscribe = useCallback((l: Listener) => (id ? previewBudget.subscribe(id, l) : () => undefined), [id]);
-  const get = useCallback(() => (id ? previewBudget.isGranted(id) : false), [id]);
+  const budget = useContext(PreviewBudgetContext);
+  const subscribe = useCallback((l: Listener) => (id ? budget.subscribe(id, l) : () => undefined), [id, budget]);
+  const get = useCallback(() => (id ? budget.isGranted(id) : false), [id, budget]);
   useEffect(() => {
-    if (id) previewBudget.upsert(id, diameter, { active, last, small });
-  }, [id, diameter, active, last, small]);
-  useEffect(() => () => { if (id) previewBudget.remove(id); }, [id]);
+    if (id) budget.upsert(id, diameter, { active, last, small });
+  }, [id, diameter, active, last, small, budget]);
+  useEffect(() => () => { if (id) budget.remove(id); }, [id, budget]);
   return useSyncExternalStore(subscribe, get, get);
 }

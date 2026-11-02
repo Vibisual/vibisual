@@ -144,8 +144,8 @@ export interface SplashPalette {
 
 const HEX6 = /^#[0-9a-fA-F]{6}$/;
 
-/** 기본 테마(Vibisual Dark)의 창 바탕 — `themeChromePolicy.FALLBACK_APP_THEME_CHROME.background` 와 같은 값. */
-export const SPLASH_FALLBACK_BACKGROUND = '#030712';
+/** 기본 테마(Graphite)의 창 바탕 — `themeChromePolicy.FALLBACK_APP_THEME_CHROME.background` 와 같은 값. */
+export const SPLASH_FALLBACK_BACKGROUND = '#0a0a0a';
 
 export function splashPalette(background: string | null | undefined, kind: AppThemeKind | null | undefined): SplashPalette {
   const k: AppThemeKind = kind === 'light' ? 'light' : 'dark';

@@ -39,11 +39,11 @@ export function sessionHiddenTurnRunning(commands: readonly QueuedCommand[], ses
 }
 
 /**
- * §5.5 #17-24 ⑥ ⑦ — 라이브 1줄의 세 모습. `working` 작동 중 · `waiting` 줄만 섬 · `compacting` CLI 가 대화를 접는 중.
+ * §5.5 #17-24 — `working` 작동 중 · `waiting` 줄만 섬 · `compacting` 압축 중 · `delegating` 다른 에이전트 응답 대기.
  * ⑦ — `thinking`(생각 중)은 두지 않는다. 마지막 이벤트가 사고라고 지금 사고 중인 것이 아니다(도구 사이 안내가 사고로 오고, 큰 `Write` 입력을 만드는
  * 수십 초는 줄이 없다). 그 라벨이 턴 시계와 붙으면 `생각 중… 53m 59s` 처럼 일하는 세션이 멈춘 것으로 읽힌다.
  */
-export type LiveLineMode = 'working' | 'waiting' | 'compacting';
+export type LiveLineMode = 'working' | 'waiting' | 'compacting' | 'delegating';
 
 /**
  * §5.5 #17-24 ⑥ — 이 세션(메인 탭이면 에이전트의 세션 전부)이 접는 중이면 그 시작 시각, 모르면 `null`.
@@ -67,13 +67,30 @@ export function sessionCompactingSince(
   return earliest < Infinity ? earliest : null;
 }
 
+/** Only a live server-reported wait can change the label; old snapshots cannot revive a finished turn. */
+export function sessionWaitingForAgentsSince(
+  subs: readonly SubAgent[],
+  commands: readonly QueuedCommand[],
+  sessionId: string | null,
+): number | null {
+  let earliest = Infinity;
+  for (const sub of subs) {
+    if (sub.status !== 'active' || (sessionId !== null && sub.id !== sessionId)) continue;
+    const at = sub.waitingForAgentsSince;
+    if (!usableAt(at) || at >= earliest || sessionHiddenTurnRunning(commands, sub.id)) continue;
+    earliest = at;
+  }
+  return earliest < Infinity ? earliest : null;
+}
+
 /**
  * §5.5 #17-24 ⑥ ⑦ — 라이브 1줄의 모습을 고르는 단 한 곳. 메인 탭(`IDEMainArea`)·Sub 탭(`computeThinkingLive`)이 같이 부른다(다르게 고르면 탭을 옮길 때마다 말이 바뀐다).
- * 우선순위: 대기 > 압축 > 작업. 줄만 서 있으면 접을 것도 없다(§5.5 #17-18 ⑪). 마지막 이벤트 종류는 고르지 않는다(⑦) — 작동 중이면 `작업 중`이다.
+ * 우선순위: 큐 대기 > 압축 > 에이전트 응답 대기 > 작업. 마지막 이벤트 종류로 현재 작업을 추측하지 않는다.
  */
-export function liveLineMode(waiting: boolean, compacting: boolean): LiveLineMode {
+export function liveLineMode(waiting: boolean, compacting: boolean, delegating = false): LiveLineMode {
   if (waiting) return 'waiting';
   if (compacting) return 'compacting';
+  if (delegating) return 'delegating';
   return 'working';
 }
 
@@ -98,7 +115,7 @@ export function liveLineActivityAt(
  * §2.4 (무응답) — 라이브 1줄을 "마지막 업데이트 N 전"(무응답)으로 뒤집을 것인가. 메인·Sub 탭이 `ThinkingLiveLine` 한 곳에서 부른다.
  *  - 줄만 서 있으면(`waiting`) 뒤집지 않는다 — 턴이 아직 시작되지 않았다(§5.5 #17-18 ⑪).
  *  - 감춘 턴이 도는 중이면 뒤집지 않는다 — 그 줄은 서버가 일부러 안 보내고(§5.3 #9-1 (P) ⚠ ②) 압축은 3분을 넘기기도 한다(§5.5 #17-10 ⑥-6).
- *  - 접는 중(`compacting`)이면 뒤집지 않는다 — CLI 가 턴 도중 접는 2.4~6분은 줄이 안 오는 것이 정상이다(§5.5 #17-24 ⑥).
+ *  - 압축·에이전트 응답 대기에는 출력 공백이 정상이다. 시작 신호가 있을 때만 이 모드를 쓴다.
  *  - 그 밖에는 조용한 시간이 문턱(`SESSION_NO_RESPONSE_MS`)에 닿았을 때만.
  */
 export function liveLineStalled(
@@ -106,7 +123,7 @@ export function liveLineStalled(
   silenceMs: number | null,
   hiddenTurn = false,
 ): boolean {
-  if (mode === 'waiting' || mode === 'compacting' || hiddenTurn) return false;
+  if (mode === 'waiting' || mode === 'compacting' || mode === 'delegating' || hiddenTurn) return false;
   return silenceMs !== null && silenceMs >= SESSION_NO_RESPONSE_MS;
 }
 
@@ -162,7 +179,7 @@ export function sessionTurnStartedAt(
 /**
  * §5.5 #17-10 ⑥-6 (턴 시계) — 라이브 1줄이 어느 시각부터 잴 것인가(모르면 `null` — 적지 않는다). 메인·Sub 탭이 `ThinkingLiveLine` 에서 부른다.
  *  - 무응답(`stalled`)이면 마지막 업데이트 — "마지막 업데이트 N 전"이 말하는 그 시각.
- *  - 접는 중이면(`compactingSince` — 넷째 모드에서만 넘긴다) 압축 시작 시각 — 턴 시계로는 압축이 몇 분째인지 모른다(§5.5 #17-24 ⑥). 끝나면 턴 시계로 돌아간다.
+ *  - 압축·에이전트 대기 중이면(`phaseStartedAt`) 해당 단계 시작부터 센다. 끝나면 턴 시계로 돌아간다.
  *  - 그 밖에는 이 턴(대기면 줄 선) 시작(`sessionTurnStartedAt`) — 줄이 와도 되감기지 않는다.
  * 쓸 수 있는 시각인지는 무응답 시계와 같은 규율로 가린다(`sessionSilenceMs` — 없음·0·미래는 모름).
  */
@@ -171,9 +188,9 @@ export function liveLineClockFrom(
   turnStartedAt: number | null | undefined,
   lastActivityAt: number | null | undefined,
   now: number,
-  compactingSince?: number | null,
+  phaseStartedAt?: number | null,
 ): number | null {
-  const from = stalled ? lastActivityAt : (compactingSince ?? turnStartedAt);
+  const from = stalled ? lastActivityAt : (phaseStartedAt ?? turnStartedAt);
   if (from === null || from === undefined || sessionSilenceMs(from, now) === null) return null;
   return from;
 }

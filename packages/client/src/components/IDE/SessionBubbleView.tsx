@@ -10,6 +10,8 @@ import {
   type EdgeTypes,
   type Node,
   type NodeTypes,
+  type ReactFlowInstance,
+  type Viewport,
   type XYPosition,
 } from '@xyflow/react';
 import {
@@ -35,6 +37,7 @@ import { placeSatellitePositions } from '../../utils/satellite.js';
 import { bundleInfoOf, bundleInteriorIds, bundleInteriorMembers } from '../../utils/constellationView.js';
 import { useBubbleLayout, useFolderLayout, useInteriorLayout } from '../../hooks/useBubbleLayout.js';
 import { useHeatScale } from '../../hooks/useHeatScale.js';
+import { PreviewBudgetProvider, createPreviewBudget, registerPreviewSurface } from '../../apps/previewBudget.js';
 import { useMeasuredFlowNodes } from '../../hooks/useMeasuredFlowNodes.js';
 import { CanvasBubbleNode } from '../BubbleMap/AgentCardNode.js';
 import { CurvedEdge } from '../BubbleMap/CurvedEdge.js';
@@ -45,7 +48,7 @@ import { BUBBLE_HOST_RING, BubbleHostContext, type BubbleHost } from '../BubbleM
 import { FOREIGN_FLOW_ATTR } from '../BubbleMap/canvasSurface.js';
 import { openFileBubble } from '../BubbleMap/fileBubbleOpen.js';
 import { openWebAddress } from '../BubbleMap/openDomainBubble.js';
-import { buildSpawnField, isSpawnZoneSeated, seatSpawnZoneBubbles } from '../BubbleMap/spawnZoneSeating.js';
+import { buildSpawnField, isSpawnZoneSeated, satelliteUpstreamOf, seatSpawnZoneBubbles } from '../BubbleMap/spawnZoneSeating.js';
 import { editorFileFromAbsPath } from './editorModel.js';
 import { useIDEPaneActions } from './idePane.js';
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
@@ -54,15 +57,18 @@ import { buildSessionBubbles, type SessionBubbleStream, type SessionTouch } from
 import {
   SESSION_CENTER_NODE_ID,
   buildSessionCanvasGraph,
+  canvasTwinIdOf,
   folderCrumbLabel,
   sessionCanvasEntryOf,
   type SessionCanvasEntry,
   type SessionCanvasGraph,
 } from './sessionCanvasGraph.js';
+import { DetailPanel } from '../Panel/DetailPanel.js';
 
 /**
  * §5.5 #17-50 [버블] — 이 세션만의 버블 지도. **버블은 캔버스 부품 그대로다** — 지도 전용 원·선·배치를 만들지 마라. 재료는 `sessionBubbles.ts`·`sessionCanvasGraph.ts`.
  * 캔버스와 다른 셋: 손짓은 `BubbleHostContext` 로 · 판 뿌리 `FOREIGN_FLOW_ATTR`(캔버스가 이 판의 우클릭·길게 누르기를 제 것으로 읽지 않게) · 물리 없이 위성은 부모와 같은 변위로 따라온다. 새 버블이 와도 선 자리는 안 옮긴다.
+ * 고른 버블의 디테일도 캔버스의 `DetailPanel` 이다(이 판 안 오른쪽) — 지도 전용 정보 상자를 다시 만들지 마라.
  */
 
 /** IDE 본문의 글자 배율 손짓(Ctrl+휠·두 손가락)이 지도 위에서는 물러나도록 붙이는 표식. */
@@ -173,7 +179,7 @@ function seatView(
     });
     for (const [id, pos] of seats) positions.set(id, pos);
   }
-  placeSatellitePositions(viewData.satInfos, positions, undefined, field);
+  placeSatellitePositions(viewData.satInfos, positions, undefined, field, satelliteUpstreamOf(field, viewData.bubbles, viewData.flowEdges, SPAWN_FALLBACK));
   return positions;
 }
 
@@ -236,15 +242,15 @@ function fileStatsSignature(nodeMap: Record<string, BubbleData>, keys: readonly 
 
 export interface SessionBubbleViewProps {
   agentId: string;
-  /** 칸의 세션 — 메인 탭이면 null(그 탭이 그리는 세션 전부). */
+  /** 지도가 그리는 세션 하나(`bubbleMapSessionOf`). 세션이 아직 없으면 null — 가운데 에이전트만 선다. */
   sessionId: string | null;
-  /** 이 칸의 재료 — 세션마다 스트림 + 명령. */
+  /** 그 세션의 재료 — 스트림 + 명령. */
   streams: readonly SessionBubbleStream[];
   /** 앞선 기록을 더 받을 수 있는 세션들(처음까지 실리지 않은 것). 비면 [앞선 기록 더 불러오기]가 서지 않는다. */
   olderSessionIds: readonly string[];
-  /** 이 칸의 이름(세션 탭 이름 · 메인 탭이면 에이전트 이름) — 경로 표시의 맨 앞 · 가운데 정보 칸의 머리. */
+  /** 그 세션의 이름(없으면 에이전트 이름) — 경로 표시의 맨 앞. */
   title: string;
-  /** 이 칸이 지금 도는가 — 상태바와 같은 판정(`useSessionRunning`). */
+  /** 그 세션이 지금 도는가 — 상태바와 같은 판정(`useSessionRunning`). */
   running: boolean;
   /** 답을 기다리는 질문 수(§5.3 #12-2) — 대화 칸 안에만 서므로 지도 위에 알린다. */
   pendingAsks: number;
@@ -444,7 +450,6 @@ export const SessionBubbleView = memo(function SessionBubbleView({
         else onReturnToStream(entry.web.turnId);
         return;
       case 'app': onReturnToStream(entry.app.turnId); return;
-      case 'task': onReturnToStream(entry.task.turnId); return;
       case 'center': onShowStandard(); return;
     }
   }, [graph, goTo, goUp, enterBundle, enterFolder, openFile, openWeb, onReturnToStream, onShowStandard]);
@@ -460,11 +465,22 @@ export const SessionBubbleView = memo(function SessionBubbleView({
     e.stopPropagation();
   }, []);
 
+  // ─── 미리보기 판 — 이 지도의 배율·움직임으로 고른다(캔버스 판을 쓰면 캔버스 배율로 재 미리보기가 안 선다) ───
+  const previews = useMemo(() => createPreviewBudget(), []);
+  useEffect(() => registerPreviewSurface(previews), [previews]);
+
   // 사용자가 끌거나 배율을 바꿨나 — 그 뒤로는 버블이 늘어도 저절로 다시 맞추지 않는다(보던 자리를 뺏지 않게).
   const userMovedRef = useRef(false);
-  const onMoveStart = useCallback((event: MouseEvent | TouchEvent | null): void => {
+  const onMoveStart = useCallback((event: MouseEvent | TouchEvent | null, viewport: Viewport): void => {
     if (event) userMovedRef.current = true;
-  }, []);
+    previews.setMoving(true, viewport.zoom);
+  }, [previews]);
+  const onMoveEnd = useCallback((_event: MouseEvent | TouchEvent | null, viewport: Viewport): void => {
+    previews.setMoving(false, viewport.zoom);
+  }, [previews]);
+  const onFlowInit = useCallback((flow: ReactFlowInstance): void => {
+    previews.setZoom(flow.getViewport().zoom);
+  }, [previews]);
 
   // ─── 앞선 기록 ───
   const [olderBusy, setOlderBusy] = useState(false);
@@ -501,9 +517,24 @@ export const SessionBubbleView = memo(function SessionBubbleView({
     return chain;
   }, [placeScope, scope, graph, t]);
 
+  // ─── 디테일 창(캔버스의 `DetailPanel`) ───
+  //   같은 것이 캔버스에 떠 있으면 그 노드로 — 편집 이력·위성 토글·웹 이력·에이전트 설정이 캔버스와 같다. 없으면 이 지도가 지은 모양으로.
   const infoEntry = infoId ? sessionCanvasEntryOf(graph, infoId) : null;
   const infoNodeId = infoId === null ? null : infoId.startsWith('sat-') ? infoId.slice(4) : infoId;
-  const infoNode = infoNodeId ? graph.nodeMap[infoNodeId] ?? null : null;
+  const sessionNode = useMemo((): BubbleData | null => {
+    if (!infoNodeId || !infoEntry) return null;
+    if (infoEntry.kind === 'center') return graph.center;
+    return graph.nodeMap[infoNodeId] ?? graph.top.find((b) => b.id === infoNodeId) ?? null;
+  }, [infoNodeId, infoEntry, graph]);
+  const project = useGraphStore((s) => s.agentProjects[agentId] ?? null);
+  const twinId = useGraphStore((s) => {
+    if (!infoEntry) return null;
+    if (infoEntry.kind === 'center') return s.nodeMap[agentId] ? agentId : null;
+    return canvasTwinIdOf(infoEntry, { nodeMap: s.nodeMap, nodeProjects: s.nodeProjects, project, platform });
+  });
+  const twinNode = useGraphStore((s) => (twinId ? s.nodeMap[twinId] ?? null : null));
+  const panelNode = twinNode ?? sessionNode;
+  const panelOpen = panelNode !== null && infoEntry !== null;
 
   return (
     <div
@@ -514,36 +545,41 @@ export const SessionBubbleView = memo(function SessionBubbleView({
       onContextMenu={onRootContextMenu}
     >
       <BubbleHostContext.Provider value={host}>
-        <ReactFlow
-          nodes={measured.nodes}
-          edges={flow.edges}
-          onNodesChange={measured.onNodesChange}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
-          onNodeDoubleClick={onNodeDoubleClick}
-          onNodeDragStart={onNodeDragStart}
-          onNodeDrag={onNodeDrag}
-          onNodeDragStop={onNodeDragStop}
-          onPaneClick={resetSelection}
-          onPaneContextMenu={onPaneContextMenu}
-          onMoveStart={onMoveStart}
-          nodeDragThreshold={NODE_DRAG_THRESHOLD}
-          nodesConnectable={false}
-          elementsSelectable={false}
-          minZoom={MAP_MIN_ZOOM}
-          maxZoom={MAP_MAX_ZOOM}
-          fitView
-          fitViewOptions={FIT_OPTIONS}
-          proOptions={PRO_OPTIONS}
-          className="bg-vb-canvas"
-        >
-          <EdgeMask />
-          {/* 캔버스와 같은 점 배경(의미 토큰 `canvas.dots`). */}
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--color-vb-canvas-dots)" />
-          <CanvasZoomControls position="top-right" />
-          <SessionMapCamera fitKey={scopeKey} count={flow.nodes.length} userMovedRef={userMovedRef} />
-        </ReactFlow>
+        <PreviewBudgetProvider value={previews}>
+          <ReactFlow
+            nodes={measured.nodes}
+            edges={flow.edges}
+            onNodesChange={measured.onNodesChange}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
+            onNodeDoubleClick={onNodeDoubleClick}
+            onNodeDragStart={onNodeDragStart}
+            onNodeDrag={onNodeDrag}
+            onNodeDragStop={onNodeDragStop}
+            onPaneClick={resetSelection}
+            onPaneContextMenu={onPaneContextMenu}
+            onInit={onFlowInit}
+            onMoveStart={onMoveStart}
+            onMoveEnd={onMoveEnd}
+            nodeDragThreshold={NODE_DRAG_THRESHOLD}
+            nodesConnectable={false}
+            elementsSelectable={false}
+            minZoom={MAP_MIN_ZOOM}
+            maxZoom={MAP_MAX_ZOOM}
+            fitView
+            fitViewOptions={FIT_OPTIONS}
+            proOptions={PRO_OPTIONS}
+            className="bg-vb-canvas"
+          >
+            <EdgeMask />
+            {/* 캔버스와 같은 점 배경(의미 토큰 `canvas.dots`). */}
+            <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--color-vb-canvas-dots)" />
+            {/* 디테일 창이 오른쪽을 덮는 동안은 왼쪽으로 비켜 선다. */}
+            <CanvasZoomControls position={panelOpen ? 'top-left' : 'top-right'} />
+            <SessionMapCamera fitKey={scopeKey} count={flow.nodes.length} userMovedRef={userMovedRef} />
+          </ReactFlow>
+        </PreviewBudgetProvider>
       </BubbleHostContext.Provider>
 
       {/* ── 위쪽: 들어간 자리(캔버스 경로 표시와 같은 그림) · 답 대기 알림 ── */}
@@ -581,26 +617,34 @@ export const SessionBubbleView = memo(function SessionBubbleView({
         </div>
       )}
 
-      {/* ── 정보 칸(고른 버블) ── */}
-      {infoEntry && (
-        <SessionBubbleInfo
-          entry={infoEntry}
-          node={infoNode}
-          graph={graph}
-          model={model}
-          title={title}
-          webSearchLabel={webSearchLabel}
-          currentFolderId={placeScope.kind === 'folder' ? placeScope.id : null}
-          onClose={resetSelection}
-          onOpenFile={openFile}
-          onEnter={enterFolder}
-          onOpenWeb={openWeb}
-          onReturnToStream={onReturnToStream}
-        />
+      {/* ── 디테일 창(고른 버블) — 캔버스와 같은 오른쪽 패널. 고르는 순간만 뜨고, 더블클릭(들어가기·열기)은 고르지 않는다 ── */}
+      {panelNode && infoEntry && (
+        // 판 뿌리의 우클릭 막기·글자 고르기 막기는 지도 몫이다 — 패널 글은 캔버스처럼 고르고 복사한다.
+        <div className="select-text" onContextMenu={(e) => e.stopPropagation()}>
+          <DetailPanel
+            onClose={resetSelection}
+            hosted={{
+              node: panelNode,
+              extra: (
+                <SessionBubbleFacts
+                  entry={infoEntry}
+                  node={graph.nodeMap[infoNodeId ?? ''] ?? null}
+                  graph={graph}
+                  model={model}
+                  currentFolderId={placeScope.kind === 'folder' ? placeScope.id : null}
+                  onOpenFile={openFile}
+                  onEnter={enterFolder}
+                  onOpenWeb={openWeb}
+                  onReturnToStream={onReturnToStream}
+                />
+              ),
+            }}
+          />
+        </div>
       )}
 
-      {/* ── 바닥 줄: 몇 번의 호출로 지었나 · 앞선 기록 ── */}
-      <div className="pointer-events-none absolute bottom-2 right-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap items-center justify-end gap-x-2 gap-y-1 text-[12px] text-gray-500">
+      {/* ── 바닥 줄: 몇 번의 호출로 지었나 · 앞선 기록(왼쪽 — 오른쪽은 디테일 창 자리) ── */}
+      <div className="pointer-events-none absolute bottom-2 left-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap items-center justify-start gap-x-2 gap-y-1 text-[12px] text-gray-500">
         <span className="truncate">{t('ide.bubbles.summary', { calls: model.toolCalls, events: loadedEvents })}</span>
         {olderSessionIds.length > 0 && (
           <button
@@ -643,19 +687,16 @@ function SessionMapCamera({ fitKey, count, userMovedRef }: {
   return null;
 }
 
-// ─── 정보 칸 ────────────────────────────────────────────────────────────────
+// ─── 디테일 창 맨 위 칸 — 이 세션의 사실 ─────────────────────────────────────
 
-interface SessionBubbleInfoProps {
+interface SessionBubbleFactsProps {
   entry: SessionCanvasEntry;
-  /** 그 버블의 캔버스 모양(파일 열기에 쓴다). 가운데·웹·앱·서브에이전트는 없을 수 있다. */
+  /** 그 버블의 지도 모양(파일 열기에 쓴다). 가운데·웹·앱은 없다. */
   node: BubbleData | null;
   graph: SessionCanvasGraph;
   model: ReturnType<typeof buildSessionBubbles>;
-  title: string;
-  webSearchLabel: string;
   /** 지금 들어가 있는 폴더 — 그 폴더의 [들어가기]는 세우지 않는다. */
   currentFolderId: string | null;
-  onClose: () => void;
   onOpenFile: (node: BubbleData) => void;
   onEnter: (folderId: string) => void;
   onOpenWeb: (host: string, url: string) => void;
@@ -669,14 +710,16 @@ function touchOfEntry(entry: SessionCanvasEntry): SessionTouch | null {
     case 'file': return entry.file;
     case 'web': return entry.web;
     case 'app': return entry.app;
-    case 'task': return entry.task;
   }
 }
 
-/** 고른 버블의 정보 칸 — 전체 경로·횟수·마지막으로 닿은 일 + 그 버블의 동작 단추. 터치에서도 누름 한 번으로 닿는다. */
-function SessionBubbleInfo({
-  entry, node, graph, model, title, webSearchLabel, currentFolderId, onClose, onOpenFile, onEnter, onOpenWeb, onReturnToStream,
-}: SessionBubbleInfoProps): React.JSX.Element {
+/**
+ * 캔버스 패널이 모르는 것 — 이 세션에서 닿은 횟수·마지막으로 닿은 일 + 그 버블의 동작 단추. 이름·경로·종류·상태는 패널 머리와 본문이 말한다.
+ * 터치에서도 누름 한 번으로 닿는다.
+ */
+function SessionBubbleFacts({
+  entry, node, graph, model, currentFolderId, onOpenFile, onEnter, onOpenWeb, onReturnToStream,
+}: SessionBubbleFactsProps): React.JSX.Element {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -690,7 +733,6 @@ function SessionBubbleInfo({
   const touch = touchOfEntry(entry);
   const lines: React.ReactNode[] = [];
   const actions: Array<{ id: string; label: string; run: () => void; primary?: boolean }> = [];
-  let heading = title;
 
   switch (entry.kind) {
     case 'center':
@@ -701,16 +743,12 @@ function SessionBubbleInfo({
       break;
     case 'file': {
       const file = entry.file;
-      heading = file.name;
-      lines.push(<span key="path" className="break-all text-gray-400">{file.path}</span>);
       if (node) actions.push({ id: 'open', label: t('ide.explorer.ctx.open'), run: () => onOpenFile(node), primary: true });
       actions.push({ id: 'copy', label: copied ? t('ide.explorer.copied') : t('ide.explorer.copyPath'), run: () => copy(file.path) });
       break;
     }
     case 'folder': {
       const folder = entry.folder;
-      heading = folderCrumbLabel(folder);
-      lines.push(<span key="path" className="break-all text-gray-400">{folder.path}</span>);
       if (!folder.internal) lines.push(<span key="ext" className="text-gray-500">{t('ide.bubbles.external')}</span>);
       lines.push(<span key="files">{t('ide.bubbles.files', { count: folder.files.length })}{folder.searches > 0 ? ` · ${t('ide.bubbles.searches', { count: folder.searches })}` : ''}</span>);
       if (folder.id !== currentFolderId && graph.folders[folder.id]) {
@@ -721,7 +759,6 @@ function SessionBubbleInfo({
     }
     case 'web': {
       const web = entry.web;
-      heading = web.kind === 'search' ? webSearchLabel : (web.host ?? '');
       if (web.kind === 'fetch' && web.lastUrl) {
         const host = web.host;
         const url = web.lastUrl;
@@ -737,7 +774,6 @@ function SessionBubbleInfo({
     }
     case 'app': {
       const app = entry.app;
-      heading = app.name;
       if (app.commands.length > 0) {
         lines.push(<span key="ch" className="text-gray-500">{t('ide.bubbles.recentCommands')}</span>);
         app.commands.forEach((c, i) => lines.push(<span key={`c${String(i)}`} className="truncate font-mono text-gray-300" title={c}>{c}</span>));
@@ -746,17 +782,10 @@ function SessionBubbleInfo({
       }
       break;
     }
-    case 'task': {
-      const task = entry.task;
-      heading = task.description;
-      if (task.agentType) lines.push(<span key="type" className="text-gray-400">{task.agentType}</span>);
-      lines.push(<span key="state">{task.done ? t('canvas.agentCard.status.completed') : t('ide.loop.status.running')}</span>);
-      break;
-    }
   }
 
   if (touch) {
-    // 읽기·쓰기 횟수는 파일·폴더·웹 가져오기의 말이다 — 서브에이전트·명령 앱·웹 검색은 상태·명령·검색어 목록이 말한다.
+    // 읽기·쓰기 횟수는 파일·폴더·웹 가져오기의 말이다 — 명령 앱·웹 검색은 명령·검색어 목록이 말한다.
     const countsTouches = entry.kind === 'file' || entry.kind === 'folder' || (entry.kind === 'web' && entry.web.kind === 'fetch');
     if (countsTouches) {
       lines.push(<span key="rwt">{[
@@ -769,31 +798,15 @@ function SessionBubbleInfo({
       const via = model.tasks.find((x) => x.key === touch.viaTaskKey)?.description;
       if (via) lines.push(<span key="via" className="text-gray-400">{t('ide.bubbles.viaTask', { name: via })}</span>);
     }
-    if (touch.turnId !== null || entry.kind === 'task' || entry.kind === 'app') {
+    if (touch.turnId !== null || entry.kind === 'app') {
       actions.push({ id: 'turn', label: t('ide.bubbles.showInConversation'), run: () => onReturnToStream(touch.turnId), primary: !actions.some((a) => a.primary) });
     }
   }
 
   return (
-    <div
-      className="absolute bottom-9 left-2 z-20 flex max-h-[calc(100%-4.5rem)] w-[min(24rem,calc(100%-1rem))] flex-col gap-1.5 overflow-auto rounded-lg border border-gray-700/80 bg-gray-900/95 p-2.5 text-[12px] text-gray-200 shadow-xl shadow-black/40"
-      onClick={(e) => e.stopPropagation()}
-      onPointerDown={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
-    >
-      <div className="flex min-w-0 items-start gap-2">
-        <span className="min-w-0 flex-1 break-words font-semibold text-gray-100">{heading}</span>
-        <button
-          type="button"
-          onClick={onClose}
-          title={t('common.close')}
-          aria-label={t('common.close')}
-          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200 pointer-coarse:h-8 pointer-coarse:w-8"
-        >
-          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
-        </button>
-      </div>
-      <div className="flex min-w-0 flex-col gap-0.5">{lines}</div>
+    <div className="flex flex-col gap-1.5 rounded border border-gray-700/50 bg-gray-800/30 p-2 text-xs text-gray-300">
+      <span className="text-xs text-gray-500">{t('ide.bubbles.mapLabel')}</span>
+      {lines.length > 0 && <div className="flex min-w-0 flex-col gap-0.5">{lines}</div>}
       {actions.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
           {actions.map((a) => (
@@ -816,18 +829,15 @@ function SessionBubbleInfo({
   );
 }
 
-/**
- * 이 칸의 스트림 묶음 — Sub 탭이면 그 세션 하나, 메인 탭이면 그 탭이 그리는 세션 전부(`IDEMainArea` 의 `streams` 와 같은 조립).
- * 명령은 세션별로 갈라 넣는다(턴 귀속이 세션 단위다).
- */
+/** 지도의 재료 — 그 세션 하나의 스트림과 명령(턴 귀속이 세션 단위다). 다른 세션은 섞지 않는다(§5.5 #17-50 (C)). */
 export function sessionBubbleStreamsOf(
   streams: Record<string, readonly SubAgentStreamEvent[]>,
   commands: readonly QueuedCommand[],
+  sessionId: string,
 ): SessionBubbleStream[] {
-  return Object.entries(streams).map(([subId, events]) => ({
-    events,
-    commands: commands.filter((c) => c.subAgentId === subId),
-  }));
+  const events = streams[sessionId];
+  if (!events || events.length === 0) return [];
+  return [{ events, commands: commands.filter((c) => c.subAgentId === sessionId) }];
 }
 
 /** 처음까지 실리지 않은 세션들 — 그 세션의 버퍼가 비어 있지 않고 끝 표식이 없다. */

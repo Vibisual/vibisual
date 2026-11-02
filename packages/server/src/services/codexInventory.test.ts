@@ -288,6 +288,27 @@ describe('parseCodexPromptInputSkills', () => {
     const by = new Map(parseCodexPromptInputSkills(PROMPT_INPUT_SAMPLE, HOME).map((s2) => [s2.name, s2]));
     expect(by.has('documents')).toBe(true);
     expect(by.has('documents:documents')).toBe(false);
+    expect(by.get('documents')?.description).toBe('Edit docx.');
+  });
+
+  it('keeps different skills from the same plugin distinct with their actual invocation names', () => {
+    const raw = JSON.stringify([{ content: [{ text: [
+      '<skills_instructions>',
+      '- `r0` = `C:/profile/.codex/plugins/cache/openai-primary-runtime`',
+      '- spreadsheets:spreadsheets: Edit files: xlsx and csv. (file: r0/spreadsheets/26.1/skills/spreadsheets/SKILL.md)',
+      '- spreadsheets:excel-live-control: Control open Excel. (file: r0/spreadsheets/26.1/skills/excel-live-control/SKILL.md)',
+      '- presentations:Presentations: Create slides. (file: r0/presentations/26.1/skills/presentations/SKILL.md)',
+      '</skills_instructions>',
+    ].join('\n') }] }]);
+    const entries = parseCodexPromptInputSkills(raw, HOME, 'win32');
+    const by = new Map(entries.map((entry) => [entry.name, entry]));
+    expect(entries).toHaveLength(3);
+    expect([...by.keys()].sort()).toEqual(['Presentations', 'excel-live-control', 'spreadsheets']);
+    expect(by.get('excel-live-control')).toMatchObject({
+      pluginName: 'spreadsheets', description: 'Control open Excel.',
+      path: 'C:/profile/.codex/plugins/cache/openai-primary-runtime/spreadsheets/26.1/skills/excel-live-control',
+    });
+    expect(by.get('spreadsheets')?.description).toBe('Edit files: xlsx and csv.');
   });
 
   it('루트를 모르는 항목은 버린다 — 경로를 지어내지 않는다', () => {

@@ -8,6 +8,8 @@ import { ScrollFade } from '../ScrollFade.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { runEnterKey } from '../../hooks/useEnterSubmit.js';
 import { IME_ENTER_OWNER } from '../../utils/inputComposition.js';
+import { followUpDeliveryOf, isFollowUpDeliveryLocked } from '../IDE/followUpDelivery.js';
+import { FollowUpDeliveryNotice } from '../IDE/FollowUpDeliveryNotice.js';
 
 const EMPTY_COMMANDS: QueuedCommand[] = [];
 const API_BASE = '';
@@ -421,13 +423,15 @@ function DraggableItem({
   const isDragging = dragIndex === index;
   const isOver = overIndex === index && dragIndex !== index;
   const isExecuting = cmd.status === 'executing';
+  const liveDelivery = followUpDeliveryOf(cmd);
+  const deliveryLocked = isFollowUpDeliveryLocked(liveDelivery);
 
   // subagent 정보
   const sub = cmd.subAgentId ? subAgents?.find((s) => s.id === cmd.subAgentId) : null;
 
   return (
     <li
-      draggable={!isExecuting}
+      draggable={!isExecuting && !deliveryLocked}
       onDragStart={() => onDragStart(index)}
       onDragOver={(e) => onDragOver(e, index)}
       onDrop={onDrop}
@@ -440,7 +444,7 @@ function DraggableItem({
             : isOver
               ? 'border-blue-400/60 bg-blue-900/10'
               : 'border-gray-700/50 bg-gray-800/60'
-      } ${isExecuting ? 'cursor-default' : 'cursor-grab'}`}
+      } ${isExecuting || deliveryLocked ? 'cursor-default' : 'cursor-grab'}`}
     >
       {/* 상태 표시 */}
       {isExecuting ? (
@@ -461,6 +465,7 @@ function DraggableItem({
         <p className="break-words text-xs leading-relaxed text-gray-200">
           {cmd.text}
         </p>
+        {liveDelivery && <div className="my-1"><FollowUpDeliveryNotice delivery={liveDelivery} /></div>}
         <div className="mt-0.5 flex flex-wrap items-center gap-1">
           {/* subagent 라벨 */}
           {sub && (
@@ -477,17 +482,19 @@ function DraggableItem({
           )}
           {/* §5.5 #17-18 — 대기 명령 처리 방식. IDE 대기 줄과 같은 계약(한쪽에만 있으면 바꾸러 IDE 를 열어야 한다). */}
           {!isExecuting && cmd.status === 'queued' && (
-            <span className="inline-flex items-center gap-0.5 rounded bg-gray-950/60 p-0.5">
+            <span className="inline-flex flex-wrap items-center gap-0.5 rounded bg-gray-950/60 p-0.5">
               {COMMAND_DISPATCH_MODES.map((m) => {
                 const active = m === (cmd.dispatchMode ?? DEFAULT_COMMAND_DISPATCH_MODE);
+                const retry = active && m === 'steer' && liveDelivery?.state === 'unavailable';
                 return (
                   <button
                     key={m}
                     type="button"
-                    onClick={() => { if (!active) setCommandDispatchMode(agentId, cmd.id, m); }}
+                    onClick={() => { if ((!active || retry) && !deliveryLocked) setCommandDispatchMode(agentId, cmd.id, m); }}
+                    disabled={deliveryLocked}
                     title={t(`ide.mainArea.dispatchModeTitle.${m}`)}
                     aria-pressed={active}
-                    className={`rounded px-1 py-px text-[12px] font-medium transition-colors pointer-coarse:min-h-7 pointer-coarse:px-2 ${
+                    className={`rounded px-1 py-px text-[12px] font-medium transition-colors disabled:cursor-default disabled:opacity-50 pointer-coarse:min-h-7 pointer-coarse:px-2 ${
                       active
                         ? m === 'immediate'
                           ? 'bg-amber-500/20 text-amber-300'
@@ -496,6 +503,7 @@ function DraggableItem({
                     }`}
                   >
                     {t(`ide.mainArea.dispatchMode.${m}`)}
+                    {retry && <span> · {t('ide.mainArea.liveDelivery.retry')}</span>}
                   </button>
                 );
               })}
@@ -520,8 +528,9 @@ function DraggableItem({
       {!isExecuting && (
         <button
           type="button"
-          onClick={() => removeCommand(agentId, cmd.id)}
-          className="flex-shrink-0 pt-0.5 text-[12px] text-gray-500 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100 pointer-coarse:min-h-7 pointer-coarse:px-2 pointer-coarse:pt-0 pointer-coarse:opacity-100"
+          onClick={() => { if (!deliveryLocked) removeCommand(agentId, cmd.id); }}
+          disabled={deliveryLocked}
+          className="flex-shrink-0 pt-0.5 text-[12px] text-gray-500 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100 disabled:cursor-default disabled:opacity-40 pointer-coarse:min-h-7 pointer-coarse:px-2 pointer-coarse:pt-0 pointer-coarse:opacity-100"
         >
           {t('panel.commandQueue.delete')}
         </button>

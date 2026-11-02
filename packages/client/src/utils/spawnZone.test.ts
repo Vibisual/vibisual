@@ -27,11 +27,8 @@ import {
   seatInZone,
   seatZoneBatch,
   spawnOwnerOf,
-  zoneCellArea,
-  zoneDiscRadius,
+  zoneFanAngles,
   zoneGridRadius,
-  zoneLevel,
-  zoneOccupancy,
   zoneRingSlots,
   zoneSeatRadius,
   zoneSlotCount,
@@ -43,15 +40,16 @@ import {
 import {
   buildSpawnField,
   isSpawnZoneSeated,
+  satelliteUpstreamOf,
   seatSpawnZoneBubbles,
   spawnTopGrid,
 } from '../components/BubbleMap/spawnZoneSeating.js';
 
 /**
  * §5.1 #2-2 등장 영역 — 새 버블의 첫 자리를 렌더링 없이 숫자로 고정한다(`tidyLayout` 선례).
- * ① 12시에서 시계 방향, 안쪽 고리부터 ② 원판 안의 것을 주인 불문 세어 칸 수 이상이면 바깥 고리에 앉는다(붐빈 안쪽 틈에 끼우지 않는다) ③ 사각 창은 든 넓이만큼 센다
- * ④ 100곳을 앉혀도 겹치지 않고 물리 상자 안 · 물리가 다시 밀지 않는다 ⑤ 주인은 화면의 선이 정한다 ⑥ 자리가 있는 버블은 옮기지 않는다
- * ⑦ 위성도 같은 규칙(별자리 달은 궤도 하나). §5.23 웹 궤도의 고정 시험도 여기 있다.
+ * ① 12시에서 시계 방향, 안쪽 고리부터 ② 가장 가까운 고리부터 빈칸 — 남의 버블은 그 칸만 막고, 고리가 다 막혔을 때만 한 고리 넓힌다
+ * ③ 바깥 방향(`facing`) 부채꼴 ④ 100곳을 앉혀도 겹치지 않고 물리 상자 안 · 물리가 다시 밀지 않는다 ⑤ 주인은 화면의 선이 정한다
+ * ⑥ 자리가 있는 버블은 옮기지 않는다 ⑦ 위성도 같은 규칙 — 윗선 반대편으로 가지를 친다(별자리 달은 궤도 하나). §5.23 웹 궤도의 고정 시험도 여기 있다.
  */
 
 const BOX: ZoneBounds = {
@@ -161,32 +159,35 @@ describe('§5.1 #2-2 등장 영역 — 자리 순서', () => {
   });
 });
 
-describe('§5.1 #2-2 등장 영역 — 남의 버블도 센다, 붐비면 넓힌다', () => {
-  it('원판 안의 것은 주인이 누구든 센다 — 주인 자신만 빼고, 원판 밖은 세지 않는다', () => {
-    const inside = othersNearSix(AGENT, 3, 185);
-    const far: ZoneObstacle = { id: 'far', cx: AGENT.cx + 1000, cy: AGENT.cy, r: 30 };
-    expect(185).toBeLessThan(zoneDiscRadius(AGENT.r, GRID, 0));
-    expect(zoneOccupancy(ANCHOR, GRID, [AGENT, ...inside, far], 0)).toBe(3);
+/** 고리 `ring` 의 12시 격자 칸마다 남의 작은 버블 하나 — 그 고리의 빈칸을 전부 막는다. */
+function blockRing(anchor: ZoneObstacle, grid: ZoneGrid, ring: number, r = 8): ZoneObstacle[] {
+  const radius = zoneGridRadius(anchor.r, grid, ring);
+  const count = zoneSlotCount(radius, grid.slot, grid.neighborGap ?? TIDY_LAYOUT.RING_GAP) * 2;
+  return Array.from({ length: count }, (_, i) => {
+    const t = (i * Math.PI * 2) / count;
+    return { id: `block-${ring}-${i}`, cx: anchor.cx + Math.cos(t) * radius, cy: anchor.cy + Math.sin(t) * radius, r };
   });
+}
 
-  it('남의 버블로 첫 원판이 차면 — 12시 칸이 비어 있어도 바깥 고리로 넓혀 앉는다', () => {
+describe('§5.1 #2-2 등장 영역 — 가까운 고리부터, 막혔을 때만 넓힌다', () => {
+  it('남의 버블이 몰려 있어도 첫 고리에 빈칸이 있으면 첫 고리에 선다 — 바깥 고리로 뛰지 않는다', () => {
+    // 종전 규칙은 원판 안의 수가 칸 수에 닿으면 12시 칸이 비어 있어도 넓힌 고리로 보냈다(사진: 위성이 멀리 섰다).
     const others = othersNearSix(AGENT, CAP0, 185);
-    // 하나 모자라면 첫 고리 12시가 빈칸이다(틈이 있다는 것을 먼저 고정).
-    const before = seatInZone({ anchor: ANCHOR, diameter: SLOT, grid: GRID, obstacles: [AGENT, ...others.slice(1)], bounds: BOX });
-    expect(before.ring).toBe(0);
-    expect(before.free).toBe(true);
-    expect(clockAngle(ANCHOR, before)).toBeCloseTo(0, 6);
-    // 원판 안의 수가 칸 수에 닿으면 그 틈에 끼워 넣지 않고 넓힌 고리의 12시에 선다 — 자기 버블은 하나도 없다.
-    const after = seatInZone({ anchor: ANCHOR, diameter: SLOT, grid: GRID, obstacles: [AGENT, ...others], bounds: BOX });
-    expect(zoneLevel(ANCHOR, GRID, [AGENT, ...others], 8)).toBe(1);
-    expect(after.level).toBe(1);
-    expect(after.ring).toBe(1);
-    expect(after.free).toBe(true);
-    expect(ringOf(ANCHOR, after)).toBe(1);
-    expect(clockAngle(ANCHOR, after)).toBeCloseTo(0, 6);
+    const seat = seatInZone({ anchor: ANCHOR, diameter: SLOT, grid: GRID, obstacles: [AGENT, ...others], bounds: BOX });
+    expect(seat.ring).toBe(0);
+    expect(seat.free).toBe(true);
+    expect(ringOf(ANCHOR, seat)).toBe(0);
+    expect(clockAngle(ANCHOR, seat)).toBeCloseTo(0, 6);
   });
 
-  it('사라진 자리는 다음 버블이 채운다 — 원판의 수가 줄면 안쪽 고리가 다시 영역이다', () => {
+  it('첫 고리 칸이 전부 막혔을 때만 한 고리 넓힌다 — 그 바깥 고리의 첫 빈칸', () => {
+    const seat = seatInZone({ anchor: ANCHOR, diameter: SLOT, grid: GRID, obstacles: [AGENT, ...blockRing(AGENT, GRID, 0)], bounds: BOX });
+    expect(seat.free).toBe(true);
+    expect(seat.ring).toBe(1);
+    expect(ringOf(ANCHOR, seat)).toBe(1);
+  });
+
+  it('사라진 자리는 다음 버블이 채운다 — 안쪽 고리의 빈칸이 먼저다', () => {
     const seats = seatAround(AGENT, CAP0 + 1);
     const gone = seats[2]!;
     const remaining = seats.filter((s) => s !== gone).map((s) => ({ id: s.id, cx: s.cx, cy: s.cy, r: SLOT / 2 }));
@@ -194,18 +195,6 @@ describe('§5.1 #2-2 등장 영역 — 남의 버블도 센다, 붐비면 넓힌
     expect(seat.ring).toBe(0);
     expect(seat.cx).toBeCloseTo(gone.cx, 6);
     expect(seat.cy).toBeCloseTo(gone.cy, 6);
-  });
-
-  it('사각 창은 원판 안에 든 넓이만큼 센다 — 다 들면 넓이 ÷ 칸 넓이, 걸치면 최소 하나, 밖이면 0', () => {
-    const panel: ZoneObstacle = { id: 'panel', cx: AGENT.cx + 200, cy: AGENT.cy, r: 100, hw: 100, hh: 60 };
-    // 둘째 원판이 창을 통째로 품는다(가장 먼 모서리까지).
-    expect(Math.hypot(300, 60)).toBeLessThan(zoneDiscRadius(AGENT.r, GRID, 1));
-    expect(zoneOccupancy(ANCHOR, GRID, [AGENT, panel], 1)).toBe(Math.round((200 * 120) / zoneCellArea(GRID)));
-    expect(zoneOccupancy(ANCHOR, GRID, [AGENT, panel], 1)).toBeGreaterThan(1);
-    // 첫 원판에는 반쯤 걸친다 — 하나로 센다.
-    expect(zoneOccupancy(ANCHOR, GRID, [AGENT, panel], 0)).toBe(1);
-    const away: ZoneObstacle = { ...panel, id: 'away', cx: AGENT.cx + 1200 };
-    expect(zoneOccupancy(ANCHOR, GRID, [AGENT, away], 1)).toBe(0);
   });
 
   it('사각 창이 막은 칸은 건너뛴다 — 창 테두리에서 잰다', () => {
@@ -218,21 +207,47 @@ describe('§5.1 #2-2 등장 영역 — 남의 버블도 센다, 붐비면 넓힌
     const ny = Math.max(panel.cy - panel.hh!, Math.min(seat.cy, panel.cy + panel.hh!));
     expect(Math.hypot(seat.cx - nx, seat.cy - ny)).toBeGreaterThanOrEqual(SLOT / 2 + MAGNET_GAP - 1e-6);
   });
+});
 
-  it('바깥 고리가 상자를 넘으면 그때만 안쪽 틈을 쓴다', () => {
-    // 상자가 첫 고리까지만 품는다 — 넓힌 고리에는 상자 안 칸이 없다.
-    const anchor: ZoneObstacle = { id: 'a', cx: 0, cy: 0, r: 65 };
-    const g0 = zoneGridRadius(anchor.r, GRID, 0);
-    const box: ZoneBounds = { cx: 0, cy: 0, hw: g0 + SLOT / 2 + 1, hh: g0 + SLOT / 2 + 1 };
-    const others = othersNearSix(anchor, CAP0, 185);
-    const seat = seatInZone({
-      anchor: { id: 'a', cx: 0, cy: 0, r: 65 }, diameter: SLOT, grid: GRID, obstacles: [anchor, ...others], bounds: box,
-    });
-    expect(seat.level).toBeGreaterThanOrEqual(1);
-    expect(seat.ring).toBe(0);
+describe('§5.1 #2-2 (C) 등장 영역 — 바깥 방향 부채꼴', () => {
+  const EAST = 0;
+
+  it('바깥 방향 칸부터 좌우로 번갈아 한 바퀴 — 서로 다른 칸이고 윗선 쪽이 맨 나중이다', () => {
+    const angles = zoneFanAngles(AGENT.r, GRID, 0, EAST);
+    const count = zoneSlotCount(zoneGridRadius(AGENT.r, GRID, 0), SLOT);
+    expect(angles).toHaveLength(count);
+    expect(angles[0]).toBeCloseTo(EAST, 9);
+    const step = (Math.PI * 2) / count;
+    expect(angles[1]).toBeCloseTo(EAST - step, 9);
+    expect(angles[2]).toBeCloseTo(EAST + step, 9);
+    const keys = new Set(angles.map((a) => Math.round((((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) * 1e6)));
+    expect(keys.size).toBe(count);
+    // 마지막 칸은 바깥 방향의 반대편 언저리(윗선 쪽)다.
+    expect(Math.cos(angles[count - 1]! - EAST)).toBeLessThan(-0.8);
+  });
+
+  it('거느릴 수가 둘이면 바깥 방향을 사이에 두고 좌우로 나란히 — 12시·6시 정반대(한 줄 사슬) ❌', () => {
+    const grid: ZoneGrid = { ...GRID, firstRingSlots: 2 };
+    const anchor: ZoneObstacle = { id: 'hub', cx: 0, cy: 0, r: 30 };
+    const a = seatInZone({ anchor, diameter: SLOT, grid, obstacles: [anchor], bounds: null, facing: EAST });
+    const b = seatInZone({ anchor, diameter: SLOT, grid, obstacles: [anchor, { id: 'a', cx: a.cx, cy: a.cy, r: SLOT / 2 }], bounds: null, facing: EAST });
+    expect(a.ring).toBe(0);
+    expect(b.ring).toBe(0);
+    // 둘 다 바깥(동쪽) 반원에, 위아래로 대칭.
+    expect(a.cx).toBeGreaterThan(0);
+    expect(b.cx).toBeGreaterThan(0);
+    expect(a.cx).toBeCloseTo(b.cx, 6);
+    expect(a.cy).toBeCloseTo(-b.cy, 6);
+    const between = Math.abs(Math.atan2(a.cy, a.cx) - Math.atan2(b.cy, b.cx));
+    expect(between).toBeLessThan(Math.PI / 2);
+  });
+
+  it('바깥 칸이 상자 밖이면 다음 부채꼴 칸 — 같은 첫 고리에서 안쪽으로 돈다', () => {
+    const nearWall: ZoneObstacle = { id: 'hub', cx: BOX.cx, cy: BOX.cy + BOX.hh - 60, r: 30 };
+    const seat = seatInZone({ anchor: nearWall, diameter: SLOT, grid: GRID, obstacles: [nearWall], bounds: BOX, facing: Math.PI / 2 });
     expect(seat.free).toBe(true);
-    expect(seat.cx).toBeCloseTo(0, 6);
-    expect(seat.cy).toBeCloseTo(-g0, 6);
+    expect(seat.ring).toBe(0);
+    expect(Math.abs(seat.cy - BOX.cy)).toBeLessThanOrEqual(BOX.hh - SLOT / 2);
   });
 });
 
@@ -517,22 +532,68 @@ describe('§5.1 #2-2 등장 영역 — 위성도 같은 규칙으로 부모 둘�
       .toBeCloseTo(zoneSeatRadius(parentAnchor.r, SAT_GRID, second.d, 0), 6);
   });
 
-  it('부모 둘레가 남의 버블로 붐비면 — 위성도 넓힌 바깥 고리에 앉는다', () => {
+  it('남의 버블이 몰려 있어도 첫 고리 빈칸이 먼저 — 첫 고리가 다 막혔을 때만 바깥 고리', () => {
     const sats = collectSatellites([parent], { folder: [file('a', 'gen.py', 10)] }, undefined);
     const ps = sats[0]!.parentSize;
     const parentObstacle: ZoneObstacle = { id: parent.id, cx: 500 + ps / 2, cy: 500 + ps / 2, r: ps / 2 };
-    const cap0 = zoneRingSlots(parentObstacle.r, SAT_GRID, 0);
-    const near = zoneDiscRadius(parentObstacle.r, SAT_GRID, 0) - 4;
-    const field = createSpawnField([parentObstacle, ...othersNearSix(parentObstacle, cap0, near, 8)], BOX);
-    const positions = new Map([[parent.id, { x: 500, y: 500 }]]);
-    placeSatellitePositions(sats, positions, undefined, field);
     const sat = sats[0]!;
     const d = calcBubbleSize(sat.bubble, sat.localRange, sat.heat);
-    const p = positions.get(sat.bubble.id)!;
-    const dist = Math.hypot(p.x + d / 2 - parentObstacle.cx, p.y + d / 2 - parentObstacle.cy);
-    expect(dist).toBeCloseTo(zoneSeatRadius(parentObstacle.r, SAT_GRID, d, 1), 6);
-    // 앉힌 위성은 장부에 더해져 다음 버블의 셀 거리가 된다.
-    expect(field.byId.has(sat.bubble.id)).toBe(true);
+    const distAfter = (extra: ZoneObstacle[]): number => {
+      const field = createSpawnField([parentObstacle, ...extra], BOX);
+      const positions = new Map([[parent.id, { x: 500, y: 500 }]]);
+      placeSatellitePositions(sats, positions, undefined, field);
+      const p = positions.get(sat.bubble.id)!;
+      // 앉힌 위성은 장부에 더해져 다음 버블의 장애물이 된다.
+      expect(field.byId.has(sat.bubble.id)).toBe(true);
+      return Math.hypot(p.x + d / 2 - parentObstacle.cx, p.y + d / 2 - parentObstacle.cy);
+    };
+    const cap0 = zoneRingSlots(parentObstacle.r, SAT_GRID, 0);
+    expect(distAfter(othersNearSix(parentObstacle, cap0 + 3, zoneGridRadius(parentObstacle.r, SAT_GRID, 0) + 30, 8)))
+      .toBeCloseTo(zoneSeatRadius(parentObstacle.r, SAT_GRID, d, 0), 6);
+    expect(distAfter(blockRing(parentObstacle, SAT_GRID, 0, 12)))
+      .toBeCloseTo(zoneSeatRadius(parentObstacle.r, SAT_GRID, d, 1), 6);
+  });
+
+  it('윗선(이어진 에이전트) 반대편으로 가지를 친다 — 위성 둘은 바깥 방향 좌우로', () => {
+    const agent: BubbleData = { id: 'agent-1', label: 'A', bubbleType: 'agent', path: '', status: 'active', activity: 5, lastActivity: 9 };
+    const sats = collectSatellites([parent], { folder: [file('a', 'gen.py', 10), file('b', 'chk.mjs', 20)] }, undefined);
+    const ps = sats[0]!.parentSize;
+    const agentD = calcBubbleSize(agent);
+    // 에이전트는 폴더 바로 위(북쪽) — 바깥 방향은 남쪽(6시)이다.
+    const positions = new Map([[parent.id, { x: 500, y: 800 }], [agent.id, { x: 500 + ps / 2 - agentD / 2, y: 400 }]]);
+    const field = buildSpawnField({
+      bubbles: [agent, parent], nodes: [], positions, panels: [], heat: undefined, fileSizeRange: undefined, bounds: BOX, cardForm: false,
+    });
+    const upstream = satelliteUpstreamOf(field, [agent, parent], [{ source: agent.id, target: parent.id }], CENTER);
+    placeSatellitePositions(sats, positions, undefined, field, upstream);
+    const pc = { cx: 500 + ps / 2, cy: 800 + ps / 2 };
+    const centers = sats.map((sat) => {
+      const dd = calcBubbleSize(sat.bubble, sat.localRange, sat.heat);
+      const p = positions.get(sat.bubble.id)!;
+      return { cx: p.x + dd / 2, cy: p.y + dd / 2 };
+    });
+    for (const c of centers) expect(c.cy).toBeGreaterThan(pc.cy); // 둘 다 에이전트 반대편(아래)
+    expect(centers[0]!.cy).toBeCloseTo(centers[1]!.cy, 6); // 바깥 방향 좌우 대칭
+    expect(Math.sign(centers[0]!.cx - pc.cx)).toBe(-Math.sign(centers[1]!.cx - pc.cx));
+  });
+
+  it('부모가 위성(묶음)이면 그 부모의 부모 반대편 — 윗선을 묻지 않는다', () => {
+    const sats = collectSatellites([parent], { folder: [file('hub', 'hub.png', 10)] }, undefined);
+    const hub = sats[0]!;
+    const moon = { ...collectSatellites([parent], { folder: [file('m', 'm.png', 20)] }, undefined)[0]!, parentId: hub.bubble.id, parentSize: 64 };
+    const positions = new Map([[parent.id, { x: 500, y: 500 }]]);
+    placeSatellitePositions([hub, moon], positions, undefined, undefined, () => null);
+    const center = (id: string, size: number) => {
+      const p = positions.get(id)!;
+      return { cx: p.x + size / 2, cy: p.y + size / 2 };
+    };
+    const pc = center(parent.id, hub.parentSize);
+    const hubSize = calcBubbleSize(hub.bubble, hub.localRange, hub.heat);
+    const hc = center(hub.bubble.id, hubSize);
+    const mc = center(moon.bubble.id, calcBubbleSize(moon.bubble, moon.localRange, moon.heat));
+    // 달은 폴더 → 허브 방향의 바깥쪽 — 폴더 쪽으로 파고들지 않는다.
+    const out = { x: hc.cx - pc.cx, y: hc.cy - pc.cy };
+    expect((mc.cx - hc.cx) * out.x + (mc.cy - hc.cy) * out.y).toBeGreaterThan(0);
   });
 });
 

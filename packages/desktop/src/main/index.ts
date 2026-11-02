@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { app, shell, BrowserWindow, protocol, Notification, session, powerMonitor } from 'electron';
+import { app, shell, BrowserWindow, protocol, Notification, session, powerMonitor, ipcMain } from 'electron';
 import { hasAppMessageBox, showAppMessageBox } from './appMessageBox';
 import { createHookRetirement, osEndSignals } from './hookLifecycle';
 import { createQuitConfirmationGate } from './quitConfirmation';
@@ -61,6 +61,12 @@ import { verificationAutomationAdapter, closeAllVerificationTargets } from './ve
 import { disposeAppMains, invokeAppMain } from './apps';
 import { guardAppContentFrames } from './appContentGuard';
 import { allowWebPageViews } from './webPageSession';
+// §4 폴더 우클릭으로 프로젝트 열기 — OS 메뉴를 적고, 그 메뉴로 받은 폴더를 프로젝트로 연다.
+import { homedir, tmpdir } from 'node:os';
+import { statSync } from 'node:fs';
+import { getFolderContextMenuWish, subscribeFolderContextMenuWish, setFolderContextMenuStatus, type FolderContextMenuWish } from '@vibisual/server';
+import { applyFolderContextMenu, folderMenuExePath, nodeFolderMenuIo, VIBISUAL_BUNDLE_ID } from './folderContextMenu';
+import { createShellFolderOpener } from './shellFolderOpen';
 
 // Vibisual desktop main — SCENARIO.md §3.7 (in-process 통합, 단일 프로세스).
 // server 코어를 이 main 프로세스 안에서 직접 구동한다(`runServer()`). renderer↔server 는 Electron IPC 직결(ipc.ts), localhost 브리지 없음.
@@ -73,6 +79,45 @@ let hookListener: HttpServer | null = null;
 let primaryMainWindow: BrowserWindow | null = null;
 let backendBootFailed = false;
 let backendStartAttempted = false;
+
+// §4 폴더 우클릭으로 프로젝트 열기 — 서버(in-process)에 등록하고 메인 창 렌더러에 탭 이름을 넘긴다.
+//   렌더러는 `SHELL_OPEN_READY_CHANNEL` 로 "받을 준비가 됐다"를 알리고, 그 전에 연 것은 그 응답으로 받는다.
+const SHELL_OPEN_CHANNEL = 'vibisual:project:opened-from-shell';
+const SHELL_OPEN_READY_CHANNEL = 'vibisual:project:shell-open-ready';
+let shellOpenBackend: Express | null = null;
+let shellOpenReceiver: Electron.WebContents | null = null;
+/** 배포본의 console 은 어디에도 남지 않는다 — 열리지 않은 우클릭을 되짚을 수 있게 crash.log 에 한 줄씩 남긴다. */
+const shellOpenLog = (msg: string): void => {
+  console.warn(msg);
+  appendCrashLine('main', 'info', msg);
+};
+const shellFolders = createShellFolderOpener({
+  isDirectory: (p) => {
+    try { return statSync(p).isDirectory(); } catch { return false; }
+  },
+  register: async (p) => {
+    if (!shellOpenBackend) return null;
+    const res = await inject(shellOpenBackend as unknown as DispatchFunc, {
+      method: 'POST',
+      url: '/api/projects/open-path',
+      payload: { path: p },
+    });
+    const body = JSON.parse(res.payload) as { ok?: boolean; project?: { name?: unknown }; displayName?: unknown; error?: unknown };
+    if (body.ok && typeof body.project?.name === 'string') {
+      // 탭 표시명 — 같은 이름 폴더가 이미 열려 있으면 원래 이름으로는 탭이 안 바뀐다.
+      return typeof body.displayName === 'string' && body.displayName ? body.displayName : body.project.name;
+    }
+    shellOpenLog(`[shell-open] ${p}: ${res.statusCode} ${String(body.error ?? '')}`);
+    return null;
+  },
+  send: (name) => {
+    const wc = shellOpenReceiver;
+    if (!wc || wc.isDestroyed()) return false;
+    wc.send(SHELL_OPEN_CHANNEL, { name });
+    return true;
+  },
+  log: shellOpenLog,
+});
 
 // Hook 리스너 인증 토큰 — bootBackend 가 userData 저장값(hookIdentity.ts)으로 덮어쓴다.
 // 모듈 로드 때는 ready 전이라 userData 를 못 읽어 랜덤 폴백으로 둔다.
@@ -387,6 +432,7 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       path !== '/api/hook-event' &&
       path !== '/api/permission-check' &&
       path !== '/api/codex-tool-check' &&
+      path !== '/api/codex-progress' &&
       !isVerificationToolIngress(req.method, path) &&
       path !== '/api/ask-user-question' &&
       path !== '/api/task-edges/dispatch' &&
@@ -779,6 +825,11 @@ async function bootBackend(): Promise<void> {
 
   ipcHub = setupIpc(handle.app);
 
+  // §4 폴더 우클릭 — 서버가 떴으니 그 클릭으로 켜지며 기다리던 폴더를 연다. OS 메뉴는 부팅이 가라앉은 뒤 적는다.
+  shellOpenBackend = handle.app;
+  shellFolders.backendReady();
+  startFolderContextMenuSync();
+
   // §4 — 모바일 웹 접속 모드(opt-in). 꺼져 있으면 소켓을 열지 않고, 이전 실행에서 켜져 있었으면(userData mobile-access.json) 다시 켠다.
   initMobileAccess(handle.app);
 
@@ -796,12 +847,16 @@ async function bootBackend(): Promise<void> {
 export interface LaunchedApp {
   onSecondInstance(): void;
   onActivate(): void;
+  /** §4 폴더 우클릭 — 두 번째 실행의 인자(Windows·Linux)나 mac `open-file` 로 온 폴더. 창은 부른 쪽이 앞으로 가져온다. */
+  openFolders(paths: readonly string[]): void;
 }
 
 export function launchApp(opts: { splash: SplashHandle | null }): LaunchedApp {
   bootSplash = opts.splash;
+  listenShellOpenReady();
   void runLaunch().catch((error: unknown) => mainDiagnostics.report('launch', error));
   return {
+    openFolders: (paths) => { shellFolders.request(paths); },
     // 단일 인스턴스 락 — 두 번째 실행이 백엔드를 또 부팅해 settings.json 의 hook 포트를 덮어쓰면, 그 인스턴스가 닫힌 뒤
     // 훅·스폰 에이전트의 loopback curl 이 전부 connection refused 가 된다. 락을 못 얻은 쪽은 시작 진입점이 끝내고,
     // 이쪽은 기존 창을 앞으로 가져온다 — 본체가 아직 숨어 있으면 그 앞의 스플래시를.
@@ -831,6 +886,57 @@ export function launchApp(opts: { splash: SplashHandle | null }): LaunchedApp {
       }
     },
   };
+}
+
+/**
+ * §4 폴더 우클릭 — 메인 창 렌더러가 "받을 준비가 됐다"고 알리면 그 창을 받는 쪽으로 삼고, 그 전에 연 탭 이름을 돌려준다.
+ * 다른 창(독립 창·지휘통제실)은 받지 않는다 — 탭을 바꾸는 것은 메인 창이다. 다시 불러오면 새 렌더러가 다시 알린다.
+ */
+function listenShellOpenReady(): void {
+  ipcMain.handle(SHELL_OPEN_READY_CHANNEL, (event): string[] => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win !== primaryMainWindow) return [];
+    const wc = event.sender;
+    shellOpenReceiver = wc;
+    const release = (): void => {
+      if (shellOpenReceiver === wc) shellOpenReceiver = null;
+    };
+    // 메인 프레임이 바뀔 때만 푼다 — `did-start-loading` 은 미리보기 iframe 로드에도 와서 받는 쪽이 영영 풀린 채 남는다.
+    wc.once('did-navigate', release);
+    wc.once('destroyed', release);
+    return shellFolders.takePending();
+  });
+}
+
+/**
+ * §4 폴더 우클릭 메뉴를 OS 에 적고 걷는다 — 켤 때 한 번, 그 뒤엔 켬/끔·UI 언어가 바뀔 때마다(메뉴 글자가 UI 언어다).
+ * 개발 실행은 적지 않는다(설치본의 항목을 덮지 않게). 결과는 서버에 넘겨 옵션창이 보인다.
+ */
+function startFolderContextMenuSync(): void {
+  let chain: Promise<void> = Promise.resolve();
+  const apply = (wish: FolderContextMenuWish): void => {
+    chain = chain.then(async () => {
+      const status = await applyFolderContextMenu({
+        platform: process.platform,
+        enabled: wish.enabled,
+        packaged: app.isPackaged,
+        label: mainStrings(wish.locale).folderContextMenuLabel,
+        exePath: folderMenuExePath(process.platform, process.env, process.execPath),
+        home: homedir(),
+        env: process.env,
+        tmpDir: tmpdir(),
+        bundleId: VIBISUAL_BUNDLE_ID,
+        io: nodeFolderMenuIo(process.env),
+      });
+      setFolderContextMenuStatus(status);
+      if (status.reason === 'error') console.warn(`[folder-menu] ${status.error ?? 'failed'}`);
+    });
+  };
+  // 부팅 직후의 일(복원·창 공개)과 겹치지 않게 조금 뒤에 — 메뉴는 그 몇 초를 기다려도 된다.
+  setTimeout(() => {
+    apply(getFolderContextMenuWish());
+    subscribeFolderContextMenuWish(apply);
+  }, 4000).unref();
 }
 
 async function runLaunch(): Promise<void> {

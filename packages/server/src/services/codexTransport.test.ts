@@ -7,12 +7,15 @@ import { attachCodexTurn, isCodexTurnRunning } from './codexRunner.js';
 import type { CodexMappedEvent } from './codexStreamMap.js';
 
 const REASON = 'stream disconnected before completion: websocket closed by server before response.completed';
+const RECONNECT_SHORT = 'Reconnecting... 2/5';
 const RECONNECT = `Reconnecting... 2/5 (${REASON})`;
 const FALLBACK = `Falling back from WebSockets to HTTPS transport. ${REASON}`;
 
 describe('Codex transport notice classification', () => {
   it('reads retry counts and the transport fallback without declaring completion', () => {
     for (let attempt = 1; attempt <= 5; attempt++) {
+      expect(parseCodexTransportNotice(`Reconnecting... ${attempt}/5`))
+        .toEqual({ kind: 'reconnecting', attempt, maxAttempts: 5 });
       expect(parseCodexTransportNotice(`Reconnecting... ${attempt}/5 (${REASON})`))
         .toEqual({ kind: 'reconnecting', attempt, maxAttempts: 5 });
     }
@@ -24,7 +27,10 @@ describe('Codex transport notice classification', () => {
     'Reconnecting... 0/5 (network error)', 'Reconnecting... 6/5 (network error)',
     'Reconnecting... 1/0 (network error)', 'Reconnecting... 01/5 (network error)',
     'Reconnecting... 1.5/5 (network error)', 'Reconnecting... 1/9007199254740992 (network error)',
-    'Reconnecting... 2/5 ()', 'Reconnecting... 2/5 ( )', 'Reconnecting... 2/5',
+    'Reconnecting... 2/5 ()', 'Reconnecting... 2/5 ( )',
+    'Reconnecting... 0/5', 'Reconnecting... 6/5', 'Reconnecting... 1/0', 'Reconnecting... 01/5',
+    'Reconnecting... 1.5/5', 'Reconnecting... 1/9007199254740992',
+    `${RECONNECT_SHORT} failed`, `${RECONNECT_SHORT}\n`, `[cli@codex] ${RECONNECT_SHORT}`,
     'Falling back from WebSockets to HTTPS transport.',
     'Falling back from WebSockets to HTTPS transport. ',
     `Reported: ${RECONNECT}`, `"${RECONNECT}"`, `${RECONNECT} failed`, `${RECONNECT}\n`,
@@ -35,10 +41,13 @@ describe('Codex transport notice classification', () => {
 
   it('supports old error records and new system records, excluding model and tool text', () => {
     for (const eventType of ['error', 'system']) {
+      expect(readCodexTransportNotice({ eventType, content: RECONNECT_SHORT }))
+        .toEqual({ kind: 'reconnecting', attempt: 2, maxAttempts: 5 });
       expect(readCodexTransportNotice({ eventType, content: RECONNECT }))
         .toEqual({ kind: 'reconnecting', attempt: 2, maxAttempts: 5 });
     }
     for (const eventType of ['text', 'thinking', 'tool_use', 'tool_result', 'result']) {
+      expect(readCodexTransportNotice({ eventType, content: RECONNECT_SHORT })).toBeNull();
       expect(readCodexTransportNotice({ eventType, content: RECONNECT })).toBeNull();
       expect(readCodexTransportNotice({ eventType, content: FALLBACK })).toBeNull();
     }
@@ -77,6 +86,7 @@ describe('Codex transport recovery lifecycle', () => {
   it('keeps the turn running through retries and fallback, then completes successfully', () => {
     const id = 'codex-transport-recovered';
     const { child, events, done } = attachTransportChild(id);
+    child.write({ type: 'error', message: 'Reconnecting... 1/5' });
     for (let attempt = 2; attempt <= 5; attempt++) {
       child.write({ type: 'error', message: `Reconnecting... ${attempt}/5 (${REASON})` });
     }
@@ -89,7 +99,7 @@ describe('Codex transport recovery lifecycle', () => {
 
     expect(stillRunning).toBe(true);
     expect(doneBeforeAnswer).toEqual([]);
-    expect(events.filter((event) => event.eventType === 'system')).toHaveLength(5);
+    expect(events.filter((event) => event.eventType === 'system')).toHaveLength(6);
     expect(events.some((event) => event.eventType === 'error')).toBe(false);
     expect(events.at(-1)?.content).toBe('Recovered answer');
     expect(done).toEqual([{ error: undefined, finalText: 'Recovered answer' }]);
@@ -99,7 +109,7 @@ describe('Codex transport recovery lifecycle', () => {
   it.each(['turn.failed', 'nonzero exit'])('preserves %s after a recovery notice', (failure) => {
     const id = `codex-transport-${failure}`;
     const { child, events, done } = attachTransportChild(id);
-    child.write({ type: 'error', message: RECONNECT });
+    child.write({ type: 'error', message: RECONNECT_SHORT });
     child.write({ type: 'error', message: FALLBACK });
     if (failure === 'turn.failed') child.write({ type: 'turn.failed', error: { message: REASON } });
     else child.stderr.write(REASON);

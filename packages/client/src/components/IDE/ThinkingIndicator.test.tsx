@@ -46,6 +46,19 @@ afterEach(() => {
 });
 
 describe('live line elapsed time', () => {
+  it('keeps a known agent wait visible beyond the silence threshold and returns to the turn clock', () => {
+    const turnStartedAt = T0 - 10 * 60_000;
+    draw({ label: 'delegating', mode: 'delegating', lastActivityAt: T0, turnStartedAt, waitingForAgentsSince: T0 });
+    tick(198_000);
+    expect(elapsedText()).toBe('3m 18s');
+    expect(JSON.stringify(renderer!.toJSON())).not.toContain('noResponse');
+    expect(renderer!.root.findByProps({ title: 'ide.streamRenderer.delegatingHint' })
+      .findByProps({ className: 'truncate' }).children).toContain('delegating');
+
+    draw({ label: 'working', mode: 'working', lastActivityAt: Date.now(), turnStartedAt });
+    expect(elapsedText()).toBe('13m 18s');
+  });
+
   it('counts up from the turn start and does not rewind when a new line arrives', () => {
     const turnStartedAt = T0 - 65_000;
     draw({ label: 'working', mode: 'working', lastActivityAt: T0 - 500, turnStartedAt });

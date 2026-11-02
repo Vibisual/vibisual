@@ -338,7 +338,7 @@ export function buildVerifyReworkPrompt(run: {
   expected?: string;
   toolEvents?: VerificationToolEvent[];
 }): string {
-  // §5.3 #12-4 — 재작업은 **고치기만** 한다. 재검증은 사람이 [검증 실행]으로 다시 누른다(완료 뒤 자동 후속이
+  // §5.5 #17-35 ⑥ — 앱 검증의 재작업은 **고치기만** 한다. 재검증은 사람이 [검증 실행]으로 다시 누른다(완료 뒤 자동 후속이
   //   검증을 새로 시작하지 않는다 · 반복 수정으로 넓히지 않는다).
   const head = run.verdict === 'fail'
     ? '방금 검증이 **실패**했습니다. 아래 근거를 보고 원인을 고쳐 주세요.'

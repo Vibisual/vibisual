@@ -213,13 +213,6 @@ const LABEL_REFERENCES: readonly LabelReference[] = [
     slots: { name: 'panel.agentConfig.toolTemplate.review.name' },
     forbidden: ['Read-only', 'Review & verify', 'Web research', 'Docs writing', 'Implementation', 'Orchestrator'],
   },
-  {
-    // §5.3 #12-4 (J) — 주입원 창 "검증 정책" 줄의 끄기 설명. 그 창의 스위치는 말만 끄고, 실행 전 차단은
-    // 옵션창 권한 칸에 따로 있다 — 그리로 보내는 문장이라 두 이름 다 받아 적는다(`useContextAbout` 이 넣는다).
-    key: 'ide.context.about.src.verificationPolicy.off',
-    slots: { options: 'panel.options.title', permissions: 'panel.options.categories.permissions' },
-    forbidden: ['Options', 'Permissions'],
-  },
 ];
 
 describe('화면 라벨을 가리키는 문장 — 이름은 박지 않고 받아 적는다', () => {

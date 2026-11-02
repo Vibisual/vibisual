@@ -1,6 +1,7 @@
 ; Vibisual 설치 프로그램에 끼워 넣는 NSIS 스크립트 — electron-builder.yml 의 `nsis.include`.
 ; 하는 일: ① preInit — 새 설치가 가끔 0xC0000005 로 죽는 것을 비껴간다 ② licensePage — 고른 언어의 사용권 계약 동의
-;   ③ customUnInit — 제거 때 남은 훅을 걷는다.
+;   ③ customUnInit — 제거 때 남은 훅을 걷는다 ④ customUnInstall — 제거 때 폴더 우클릭 메뉴를 걷는다
+;   ⑤ customInstall — 설치 끝에 폴더 우클릭 메뉴를 적는다.
 ;
 ; ① 왜: electron-builder 24.13.3 multiUser.nsh 는 새 설치(이전 위치 없음)에서 SHGetKnownFolderPath 결과를
 ;       System::Call '*$2(&w${NSIS_MAX_STRLEN} .s)'
@@ -92,4 +93,28 @@
       Pop $0
     ${EndIf}
   ${endIf}
+!macroend
+
+; ④ 제거할 때 폴더 우클릭 메뉴를 걷는다(SCENARIO §4 폴더 우클릭으로 프로젝트 열기).
+; 왜: 앱은 HKCU 에 탐색기 메뉴를 적는다(folderContextMenu.ts 의 WINDOWS_MENU_KEYS). 그대로 두면 지워진 실행본을 가리키는 항목이 남는다.
+; --updated 면 남긴다 — 새 판이 같은 키를 다시 적는다. 템플릿이 un.install 섹션에서 부른다.
+; 떠 있는 탐색기는 연결 변경 알림 전까지 옛 동사를 들고 있다 — 템플릿의 알림은 이 매크로보다 앞이라 지운 뒤 한 번 더 보낸다.
+!macro customUnInstall
+  ${ifNot} ${isUpdated}
+    DeleteRegKey HKCU "Software\Classes\Directory\shell\Vibisual"
+    DeleteRegKey HKCU "Software\Classes\Directory\Background\shell\Vibisual"
+    System::Call 'shell32::SHChangeNotify(i, i, i, i) v (0x08000000, 0, 0, 0)'
+  ${endIf}
+!macroend
+
+; ⑤ 설치 끝에 폴더 우클릭 메뉴를 적는다 — 재설치는 ④가 메뉴를 걷고 시작해, 새 앱이 다 켜질 때까지 메뉴가 비어 있었다.
+; 새 실행본을 `--vibisual-register-folder-menu` 로 한 번 부른다 — 잠금·창·서버 없이 켜진 앱과 같은 규칙(켬/끔·UI 언어)으로 적고 끝난다
+;   (bootstrap.ts → folderMenuInstall.ts, 인자 글자는 folderOpenArgs.ts). 업데이트에도 돈다(같은 키를 이 판의 글자로). 30초 상한, 결과는 버린다.
+!macro customInstall
+  ${If} ${FileExists} "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+    Push $0
+    nsExec::Exec /TIMEOUT=30000 `"$INSTDIR\${APP_EXECUTABLE_FILENAME}" --vibisual-register-folder-menu`
+    Pop $0
+    Pop $0
+  ${EndIf}
 !macroend

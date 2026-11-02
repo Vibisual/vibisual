@@ -1,6 +1,7 @@
 import { PHYSICS_MAGNET_GAP, SPAWN_ZONE } from '@vibisual/shared';
 
-import { satelliteSeatDistance } from '../utils/satellite.js';
+import { satelliteSeatDistance, satelliteZoneGrid } from '../utils/satellite.js';
+import { fanOffset, zoneFanAngles, zoneFanRow, zoneSeatRadius } from '../utils/spawnZone.js';
 
 /**
  * 캔버스 물리의 순수 기하 — 겹침 판정과 밀어내기 벡터.
@@ -193,7 +194,7 @@ export function separationResponse(
  */
 export function orbitSeatOffset(
   parent: { readonly x: number; readonly y: number; readonly radius: number },
-  body: { readonly id: string; readonly x: number; readonly y: number; readonly radius: number; readonly reach?: number | undefined },
+  body: { readonly id: string; readonly x: number; readonly y: number; readonly radius: number },
   gap: number,
 ): { x: number; y: number } {
   let dx = body.x - parent.x;
@@ -205,7 +206,7 @@ export function orbitSeatOffset(
     dy = Math.sin(angle);
     dist = 1;
   }
-  const orbit = parent.radius + orbitExtentOf(body) + gap;
+  const orbit = parent.radius + body.radius + gap;
   return { x: (dx / dist) * orbit, y: (dy / dist) * orbit };
 }
 
@@ -216,29 +217,20 @@ function degenerateAngle(id: string): number {
   return ((Math.abs(h) % 360) * Math.PI) / 180;
 }
 
-/**
- * §5.1 #2-2 (J) — 궤도를 재는 반경. 달을 거느린 위성(묶음)은 가장 큰 달의 바깥 테두리까지가 몸이라(노드 데이터 `_orbitReach`)
- * 그 몸집으로 재야 제 달이 부모를 파고들지 않는다. 몸집이 없거나 원보다 작으면 그려지는 원이다.
- */
-export function orbitExtentOf(body: { readonly radius: number; readonly reach?: number | undefined }): number {
-  const reach = body.reach;
-  return typeof reach === 'number' && Number.isFinite(reach) && reach > body.radius ? reach : body.radius;
-}
-
 /** 궤도 밀어내기를 건너뛰는 오차(px) — 측정 반올림으로 매번 깨우지 않게. */
 const ORBIT_MIN_TOLERANCE = 0.5;
 
 /**
  * §5.1 #2-2 (J) — 궤도 안쪽으로 들어온 위성을 궤도로 민다(부모 중심 기준 오프셋 · 방향 유지).
  * 폴더는 쓸수록 커져(활동량 · 작업 중 1.15배) 처음 앉은 거리면 테두리를 파고들고, 스프링(옛 거리)과 겹침 풀기가 다퉈 위성이 테두리에서 떤다.
- * 평형점(부모 반경 + 몸집 + 간격)보다 가까울 때만 그 거리로 늘린다 — 바깥 고리 위성은 당겨 들이지 않는다. 바꿀 것이 없으면 `null`.
+ * 평형점(부모 반경 + 위성 반경 + 간격)보다 가까울 때만 그 거리로 늘린다 — 바깥 고리 위성은 당겨 들이지 않는다. 바꿀 것이 없으면 `null`.
  */
 export function orbitMinOffset(
   parent: { readonly radius: number },
-  body: { readonly id: string; readonly radius: number; readonly reach?: number | undefined; readonly offsetX: number; readonly offsetY: number },
+  body: { readonly id: string; readonly radius: number; readonly offsetX: number; readonly offsetY: number },
   gap: number,
 ): { x: number; y: number } | null {
-  const need = parent.radius + orbitExtentOf(body) + gap;
+  const need = parent.radius + body.radius + gap;
   const len = Math.hypot(body.offsetX, body.offsetY);
   if (!(Number.isFinite(need) && Number.isFinite(len))) return null;
   if (len >= need - ORBIT_MIN_TOLERANCE) return null;
@@ -249,19 +241,72 @@ export function orbitMinOffset(
   return { x: (body.offsetX / len) * need, y: (body.offsetY / len) * need };
 }
 
-/** 다시 걸 위성 — 지금 자리(중심) · 그려지는 반경 · 몸집. */
+/** 물리 상자 — 중심과 반치수(px). 부모 클램프가 가두는 그 상자다(`layoutBoundsByProject`). */
+export interface OrbitBox {
+  readonly cx: number;
+  readonly cy: number;
+  readonly hw: number;
+  readonly hh: number;
+}
+
+/** 상자 밖으로 나간 거리(px, 안이면 0) — 부모 클램프와 같은 판정(중심이 `반치수 − 반경` 안). */
+function boxOverflow(x: number, y: number, r: number, box: OrbitBox): number {
+  const ox = Math.max(0, Math.abs(x - box.cx) - (box.hw - r));
+  const oy = Math.max(0, Math.abs(y - box.cy) - (box.hh - r));
+  return Math.hypot(ox, oy);
+}
+
+/** 상자 안 각도를 찾는 눈금 수(한 바퀴 — 5°). */
+const BOX_SEARCH_STEPS = 72;
+
+/**
+ * §5.1 #2-2 (K) — 위성의 스프링 목표가 물리 상자 밖이면 **거리는 지킨 채 상자 안 각도**로 돌려 건다(부모 중심 기준 오프셋).
+ * 위성은 클램프하지 않으므로 부모가 벽에 밀리면 옛 오프셋을 향한 스프링이 위성을 상자 밖에 붙잡는다.
+ * 가장 덜 도는 안쪽 각도(같으면 상자 중심 쪽), 안쪽이 없으면 가장 덜 나가는 각도를 고른다. 바꿀 것이 없으면 `null`.
+ */
+export function orbitInsideBox(
+  parent: { readonly x: number; readonly y: number },
+  body: { readonly radius: number; readonly offsetX: number; readonly offsetY: number },
+  box: OrbitBox,
+): { x: number; y: number } | null {
+  if (![box.cx, box.cy, box.hw, box.hh, parent.x, parent.y].every(Number.isFinite)) return null;
+  const len = Math.hypot(body.offsetX, body.offsetY);
+  if (!(Number.isFinite(len) && len >= DEGENERATE_EPSILON)) return null;
+  const r = Math.max(0, body.radius);
+  const overAt = (theta: number): number =>
+    boxOverflow(parent.x + Math.cos(theta) * len, parent.y + Math.sin(theta) * len, r, box);
+  const theta0 = Math.atan2(body.offsetY, body.offsetX);
+  let least = { theta: theta0, over: overAt(theta0) };
+  if (least.over <= ORBIT_MIN_TOLERANCE) return null;
+  const step = TWO_PI / BOX_SEARCH_STEPS;
+  for (let k = 1; k <= BOX_SEARCH_STEPS / 2; k += 1) {
+    let inside: { theta: number; toCenter: number } | null = null;
+    for (const sign of [1, -1]) {
+      const theta = theta0 + sign * k * step;
+      const over = overAt(theta);
+      if (over === 0) {
+        const toCenter = Math.hypot(parent.x + Math.cos(theta) * len - box.cx, parent.y + Math.sin(theta) * len - box.cy);
+        if (inside === null || toCenter < inside.toCenter) inside = { theta, toCenter };
+      } else if (over < least.over) {
+        least = { theta, over };
+      }
+    }
+    if (inside) return { x: Math.cos(inside.theta) * len, y: Math.sin(inside.theta) * len };
+  }
+  return least.theta === theta0 ? null : { x: Math.cos(least.theta) * len, y: Math.sin(least.theta) * len };
+}
+
+/** 다시 걸 위성 — 지금 자리(중심) · 그려지는 반경. */
 export interface OrbitBody {
   readonly id: string;
   readonly x: number;
   readonly y: number;
   readonly radius: number;
-  readonly reach?: number | undefined;
 }
 
 /** 같은 부모를 이미 도는 위성 — 스프링 목표(부모 중심 기준 오프셋)와 반경. */
 export interface OrbitSibling {
   readonly radius: number;
-  readonly reach?: number | undefined;
   readonly offsetX: number;
   readonly offsetY: number;
 }
@@ -277,25 +322,33 @@ function angularDistance(a: number, b: number): number {
 /**
  * §5.1 #2-1 (B) · §5.1 #2-2 (J) — 부모가 바뀐 위성들을 새 부모 둘레 궤도에 건다(id → 부모 중심 기준 오프셋).
  * 묶음이 서는 순간 구성들이 한꺼번에 새 부모로 옮겨 온다 — 하나씩 "지금 방향"으로 걸면 같은 방향에 포개지고 겹침 풀기가 그 뭉치를 폴더 쪽으로 밀어 붙인다.
- *  - 그 부모의 위성이 전부 새로 걸리면(묶음이 막 섰다) 궤도를 그 수로 고르게 나눠, 각도 순서를 지킨 채 가장 덜 도는 회전에 건다(정리 §5.4 #33 `placeRing` 과 같은 규율).
+ *  - `facing`(윗선 → 부모의 바깥 방향)이 있으면 등장 영역과 같은 **부채꼴**(§5.1 #2-2 (C)): 바깥 방향 칸부터 좌우로 — 형제가 없으면 지금 각도 순서대로,
+ *    있으면 형제와 겹치지 않는 첫 칸. 첫 고리가 그 수를 못 담으면 아래 고르게.
+ *  - 그 부모의 위성이 전부 새로 걸리면 궤도를 그 수로 고르게 나눠, 각도 순서를 지킨 채 가장 덜 도는 회전에 건다(정리 §5.4 #33 `placeRing` 과 같은 규율).
  *  - 이미 도는 형제가 있으면 그 수로 나눈 칸(12시부터 — 등장 영역과 같은 시작) 중 형제와 겹치지 않고 지금 방향에 가장 가까운 칸. 빈칸이 없으면 지금 방향(남은 겹침은 물리가 푼다).
- * 거리는 등장 영역 고리 0 과 같다 — 위성 수를 다 담도록 넓힌 고리(`satelliteSeatDistance`, 몸집이 있으면 몸집으로).
+ * 거리는 등장 영역 고리 0 과 같다.
  */
 export function orbitReseatGroup(
   parent: { readonly x: number; readonly y: number; readonly radius: number },
   group: readonly OrbitBody[],
   siblings: readonly OrbitSibling[],
+  facing?: number,
 ): Map<string, { x: number; y: number }> {
-  const out = new Map<string, { x: number; y: number }>();
-  if (group.length === 0) return out;
+  if (group.length === 0) return new Map();
   const n = group.length + siblings.length;
-  const step = TWO_PI / n;
-  const distOf = (b: OrbitBody): number => satelliteSeatDistance(parent.radius, n, orbitExtentOf(b) * 2);
   const angleOf = (b: OrbitBody): number => {
     const dx = b.x - parent.x;
     const dy = b.y - parent.y;
     return Math.hypot(dx, dy) < DEGENERATE_EPSILON ? degenerateAngle(b.id) : Math.atan2(dy, dx);
   };
+  if (typeof facing === 'number' && Number.isFinite(facing)) {
+    const fan = orbitReseatFan(parent, group, siblings, n, facing, angleOf);
+    if (fan) return fan;
+  }
+
+  const out = new Map<string, { x: number; y: number }>();
+  const step = TWO_PI / n;
+  const distOf = (b: OrbitBody): number => satelliteSeatDistance(parent.radius, n, b.radius * 2);
   const ordered = group
     .map((b) => ({ b, theta: angleOf(b) }))
     .sort((p, q) => (p.theta - q.theta) || (p.b.id < q.b.id ? -1 : p.b.id > q.b.id ? 1 : 0));
@@ -337,10 +390,10 @@ export function orbitReseatGroup(
   }
 
   // 이미 도는 형제가 있다 — 그 수로 나눈 칸 가운데 형제·먼저 건 것과 겹치지 않는 칸에서 지금 방향에 가장 가까운 칸.
-  const placed = siblings.map((s) => ({ x: s.offsetX, y: s.offsetY, r: orbitExtentOf(s) }));
+  const placed = siblings.map((s) => ({ x: s.offsetX, y: s.offsetY, r: s.radius }));
   const taken = new Set<number>();
   for (const { b, theta } of ordered) {
-    const r = orbitExtentOf(b);
+    const r = b.radius;
     const d = distOf(b);
     let pick = -1;
     let pickDiff = Number.POSITIVE_INFINITY;
@@ -359,6 +412,49 @@ export function orbitReseatGroup(
     if (pick >= 0) taken.add(pick);
     const seat = put(b, pick >= 0 ? SPAWN_ZONE.START_ANGLE + pick * step : theta);
     placed.push({ x: seat.x, y: seat.y, r });
+  }
+  return out;
+}
+
+/** `orbitReseatGroup` 의 부채꼴 — 첫 고리(등장 영역과 같은 격자)가 그 수를 못 담으면 `null`. */
+function orbitReseatFan(
+  parent: { readonly radius: number },
+  group: readonly OrbitBody[],
+  siblings: readonly OrbitSibling[],
+  n: number,
+  facing: number,
+  angleOf: (b: OrbitBody) => number,
+): Map<string, { x: number; y: number }> | null {
+  const grid = satelliteZoneGrid({ parentSlots: n });
+  const angles = zoneFanAngles(parent.radius, grid, 0, facing);
+  if (angles.length < n) return null;
+  const at = (b: OrbitBody, angle: number): { x: number; y: number } => {
+    const d = zoneSeatRadius(parent.radius, grid, b.radius * 2, 0);
+    return { x: Math.cos(angle) * d, y: Math.sin(angle) * d };
+  };
+  const ordered = group
+    .map((b) => ({ b, rel: fanOffset(facing, angleOf(b)) }))
+    .sort((p, q) => (p.rel - q.rel) || (p.b.id < q.b.id ? -1 : p.b.id > q.b.id ? 1 : 0));
+  const out = new Map<string, { x: number; y: number }>();
+  if (siblings.length === 0) {
+    const row = zoneFanRow(parent.radius, grid, facing, ordered.length);
+    if (!row) return null;
+    ordered.forEach(({ b }, i) => out.set(b.id, at(b, row[i]!)));
+    return out;
+  }
+  const placed = siblings.map((s) => ({ x: s.offsetX, y: s.offsetY, r: s.radius }));
+  for (const { b } of ordered) {
+    let seat: { x: number; y: number } | null = null;
+    for (const angle of angles) {
+      const c = at(b, angle);
+      if (placed.some((p) => Math.hypot(p.x - c.x, p.y - c.y) < p.r + b.radius + MAGNET_GAP)) continue;
+      seat = c;
+      break;
+    }
+    // 빈칸이 없으면 지금 방향(남은 겹침은 물리가 푼다).
+    const chosen = seat ?? at(b, angleOf(b));
+    out.set(b.id, chosen);
+    placed.push({ x: chosen.x, y: chosen.y, r: b.radius });
   }
   return out;
 }

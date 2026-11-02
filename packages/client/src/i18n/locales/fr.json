@@ -383,7 +383,6 @@
         "agent": "Défauts d'agent",
         "appearance": "Apparence",
         "notifications": "Notifications",
-        "permissions": "Permissions",
         "advanced": "Avancé",
         "version": "Version",
         "account": "Compte",
@@ -774,16 +773,35 @@
         "webOpenTargetExternal": "Votre navigateur",
         "webOpenTargetExternalDesc": "Par défaut. S'ouvre dans le navigateur que vous utilisez habituellement.",
         "webOpenTargetIframe": "Onglet iframe dans l'application",
-        "webOpenTargetIframeDesc": "Ouvre un onglet web dans la barre d'onglets pour le lire dans l'application. Les pages internet s'exécutent dans une vue isolée (sandbox) sans aucune autorisation, et les connexions sont effacées à la fermeture de l'application."
+        "webOpenTargetIframeDesc": "Ouvre un onglet web dans la barre d'onglets pour le lire dans l'application. Les pages internet s'exécutent dans une vue isolée (sandbox) sans aucune autorisation, et les connexions sont effacées à la fermeture de l'application.",
+        "folderMenuTitle": "Menu contextuel des dossiers",
+        "folderMenuIntro": "Faites un clic droit sur un dossier dans votre gestionnaire de fichiers et choisissez « Ouvrir le projet dans Vibisual » pour l’ouvrir ici comme projet. Si Vibisual n’est pas lancé, il démarre et ouvre ce dossier.",
+        "folderMenuEnabled": "Afficher « Ouvrir le projet dans Vibisual » au clic droit sur un dossier",
+        "folderMenuEnabledDesc": "Appliqué à l’enregistrement. Le désactiver retire l’élément du menu.",
+        "folderMenuStatusChecking": "Application du menu en cours. Vérifiez de nouveau dans un instant.",
+        "folderMenuStatusDesktopOnly": "Disponible dans l’application de bureau.",
+        "folderMenuStatusDevBuild": "Il s’agit d’une exécution de développement : le menu est laissé à l’application installée.",
+        "folderMenuStatusNoFileManager": "Aucun gestionnaire de fichiers pris en charge n’a été trouvé (Files, Caja, Dolphin ou Nemo).",
+        "folderMenuStatusUnsupported": "Indisponible sur ce système.",
+        "folderMenuStatusError": "Impossible de mettre à jour le menu : {{error}}",
+        "folderMenuStatusInstalled": "Ajouté à {{targets}}.",
+        "folderMenuStatusOff": "Non affiché dans le menu.",
+        "folderMenuHintWindows": "Sous Windows 11, il se trouve dans « Afficher plus d’options ».",
+        "folderMenuHintMac": "Dans le Finder, il se trouve dans « Actions rapides » ou « Services ».",
+        "folderMenuHintScripts": "Dans Files et Caja, il se trouve dans « Scripts ».",
+        "folderMenuRefresh": "Vérifier de nouveau",
+        "folderMenuTargets": {
+          "windowsExplorer": "Explorateur de fichiers",
+          "macosFinder": "Finder",
+          "nautilus": "Files (Nautilus)",
+          "caja": "Caja",
+          "dolphin": "Dolphin",
+          "nemo": "Nemo"
+        }
       },
       "notifications": {
         "cmdBlocked": "Notifier quand une session CMD attend une saisie",
         "cmdBlockedDesc": "Ne notifie que si vous regardez un autre onglet ou une autre fenêtre — si la fenêtre a le focus, c'est déjà visible à l'écran."
-      },
-      "permissions": {
-        "verificationGateIntro": "Cette politique ne s’applique à Codex et à Claude Code que lorsqu’elle est activée. Les agents reçoivent alors la consigne de n’exécuter les tests, l’analyse de code, les vérifications de types, les compilations de vérification, E2E, les vérifications dans le navigateur, les comparaisons de captures d’écran et les agents de vérification que sur demande dans la tâche en cours. Les appels non demandés sont bloqués avant leur exécution.",
-        "verificationGateEnabled": "Exiger une demande avant toute vérification",
-        "verificationGateEnabledDesc": "Désactivée par défaut. Lorsqu’elle est désactivée, Vibisual n’ajoute aucune restriction de vérification aux instructions et ne bloque aucun appel au titre de cette politique. Lorsqu’elle est activée, les scripts dont le nom contient check, verify ou test peuvent également être bloqués. Enregistrez avec {{apply}} : les modifications du blocage prennent effet dès le prochain appel d’outil, et celles des consignes dès le prochain tour."
       },
       "engines": {
         "title": "Moteurs",
@@ -4936,8 +4954,8 @@
       "run": "Exécuter",
       "stop": "Arrêter",
       "stopping": "Arrêt en cours…",
-      "followUp": "Ajouter",
-      "followUpTitle": "Envoyer un message de suivi sans arrêter l'agent (Entrée)",
+      "followUp": "Message supplémentaire",
+      "followUpTitle": "Ajouter un message à la file. Choisissez son mode de transmission dans sa bulle (Entrée)",
       "queuedTitle": "{{count}} en attente",
       "queuedHint": "Fusionner envoie les messages suivants ensemble en un seul tour. Attendre donne son propre tour à un message ; Maintenant interrompt le tour en cours.",
       "queuedRemove": "Retirer de la file d'attente",
@@ -4945,12 +4963,14 @@
       "dispatchMode": {
         "wait": "Attendre",
         "merge": "Fusionner",
-        "immediate": "Maintenant"
+        "immediate": "Maintenant",
+        "steer": "Transmettre à la tâche"
       },
       "dispatchModeTitle": {
         "wait": "Attendre — exécute ce message dans son propre tour une fois le tour actuel terminé",
         "merge": "Fusionner — envoie ce message avec les messages de fusion suivants en un seul tour",
-        "immediate": "Maintenant — arrête le tour en cours et poursuit avec ce message (la conversation est conservée)"
+        "immediate": "Maintenant — arrête le tour en cours et poursuit avec ce message (la conversation est conservée)",
+        "steer": "Transmettre à la tâche — envoyer ce message sans arrêter la tâche en cours. Consultez la réponse pour savoir comment il a été traité."
       },
       "executing": "Exécution en cours…",
       "readOnly": "Lecture seule — les bulles issues d'un hook reflètent une session externe. Envoyez les commandes depuis un agent personnalisé.",
@@ -5138,7 +5158,29 @@
       "stopRetry": "Réessayer",
       "sendRejected": "La demande a été refusée. Votre texte et vos pièces jointes ont été restaurés. Vérifiez la conversation avant de renvoyer le message.",
       "sendUnconfirmed": "Impossible de confirmer l’envoi. Votre texte et vos pièces jointes ont été restaurés. Vérifiez la conversation avant de renvoyer le message.",
-      "localImagesUnsupported": "All Model ne prend pas encore en charge les images en entrée. Retirez les images ou choisissez un autre fournisseur pour envoyer ce message."
+      "localImagesUnsupported": "All Model ne prend pas encore en charge les images en entrée. Retirez les images ou choisissez un autre fournisseur pour envoyer ce message.",
+      "liveDelivery": {
+        "waiting": "En attente d’envoi",
+        "sending": "Envoi en cours…",
+        "delivered": "Transmis",
+        "unavailable": "Transmission impossible",
+        "uncertain": "Transmission non confirmée",
+        "reason": {
+          "noActiveTurn": "Aucune tâche en cours ne peut recevoir ce message.",
+          "unsupported": "Cette session ne permet pas de transmettre des messages pendant une tâche.",
+          "turnScope": "Les messages avec des paramètres d’exécution spécifiques doivent être envoyés comme demandes distinctes.",
+          "deliveryRejected": "L’agent n’a pas accepté ce message.",
+          "deliveryUnknown": "La réception de ce message par l’agent n’a pas pu être confirmée."
+        },
+        "hint": {
+          "waiting": "Ce message attend d’être transmis à la tâche en cours.",
+          "sending": "En attente de la confirmation de réception par l’agent.",
+          "delivered": "Transmis comme instruction supplémentaire à la tâche en cours.",
+          "unavailable": "Choisissez « {{wait}} » pour l’envoyer après la tâche, ou « {{immediate}} » pour arrêter la tâche et commencer avec ce message.",
+          "uncertain": "Ce message ne sera pas renvoyé automatiquement. Sa modification et sa suppression sont verrouillées pour éviter un doublon ; le texte reste copiable."
+        },
+        "retry": "Réessayer"
+      }
     },
     "voiceInstall": {
       "title": "Configurer la saisie vocale",
@@ -5259,6 +5301,7 @@
       "verify": "Vérifier",
       "specReading": "Lecture",
       "customize": "Personnaliser la barre d'activité",
+      "configure": "Configurer {{name}}",
       "resetLayout": "Disposition par défaut",
       "dragHint": "Maintenez un élément enfoncé puis faites-le glisser pour le déplacer",
       "shownSection": "Affichés",
@@ -5771,6 +5814,8 @@
       "imageMissing": "(image indisponible)",
       "waiting": "attente",
       "compacting": "compactage",
+      "delegating": "En attente des autres agents",
+      "delegatingHint": "Ce tour attend le résultat d’un autre agent. Vous pouvez toujours l’arrêter.",
       "compactingHint": "Le contexte est plein : la CLI résume le début de la conversation pour libérer de la place. Cela prend généralement quelques minutes — il est normal qu'aucune nouvelle sortie n'apparaisse entre-temps."
     },
     "report": {
@@ -5972,7 +6017,7 @@
       "superseded": "Plan mis à jour"
     },
     "transportRecovery": {
-      "reconnecting": "Reconnexion… {{attempt}}/{{maxAttempts}}",
+      "reconnecting": "Reconnexion…",
       "fallback": "Essai d’une autre méthode de connexion…",
       "resumed": "Connexion rétablie · travail repris",
       "ended": "Tentative de rétablissement de la connexion"
@@ -6249,7 +6294,6 @@
         "systemPrompt": "Prompt système de Claude Code",
         "compactSelf": "Auto-compactage de l’agent",
         "compactRecovery": "Note de récupération post-compactage",
-        "verificationPolicy": "Politique de vérification",
         "autoGoalSkills": "Procédures détectées",
         "codexInstructions": "Instructions de projet Codex",
         "codexGlobalInstructions": "Instructions globales Codex",
@@ -6368,11 +6412,6 @@
             "what": "Une note d'un seul tour qui liste ce que le résumé de compactage ne semble pas avoir repris.",
             "more": "Construite à partir de l'instantané pris juste avant le compactage, puis comparée au texte du résumé. Elle est envoyée une seule fois et jamais répétée.",
             "off": "Désactivez-la, et la session continue après un compactage sans aucune note sur ce qui est sorti du résumé."
-          },
-          "verificationPolicy": {
-            "what": "Consignes facultatives indiquant à Codex et à Claude Code de n’exécuter les vérifications que sur demande dans la tâche en cours, accompagnées de l’autorisation de vérification de cette tâche.",
-            "more": "La politique est désactivée par défaut. Lorsqu’elle est activée, Vibisual accorde l’autorisation de vérification à partir de votre message ou du bouton de vérification de la tâche concernée. Lorsqu’elle est désactivée, aucune consigne restrictive n’est ajoutée et aucun appel de vérification n’est bloqué.",
-            "off": "Cet interrupteur de source masque uniquement les consignes lorsque la politique est activée. Activez ou désactivez à la fois les consignes et le blocage de l’exécution dans {{options}}, sous {{permissions}}. La politique est désactivée par défaut."
           },
           "hookEnforcement": {
             "what": "Le bloc que Vibisual injecte dans les sessions qui se sont attachées via les hooks Claude Code.",
@@ -6567,9 +6606,12 @@
       "saveError": "Impossible de confirmer que la modification a été enregistrée. Relancez la mesure pour vérifier le paramètre actuel."
     },
     "goal": {
+      "activationRules": "Règles d’activation",
+      "enabledHint": "Activé — les objectifs et leur progression sont inclus dans cette session.",
+      "disabledHint": "Désactivé par défaut — aucun objectif automatique ni instruction associée. Les objectifs existants sont conservés.",
       "title": "Objectif",
       "pickSession": "Choisissez une session pour voir son objectif.",
-      "waiting": "Aucun objectif pour l'instant. Il apparaît dès que la session élabore un plan.",
+      "waiting": "Aucun objectif pour le moment. Il apparaît lorsque le suivi des objectifs est activé et que la session établit un plan.",
       "sample": {
         "badge": "Exemple",
         "text": "Terminer la tâche et vérifier que ça fonctionne",
@@ -6814,16 +6856,6 @@
         "warn": "Si des sections requises restent non lues au moment où le tour tente de se terminer, il est renvoyé pour continuer la lecture.",
         "enforce": "Les modifications sont refusées tant que des sections requises restent non lues. Une fois la limite de tentatives atteinte, le blocage s'arrête."
       }
-    },
-    "verifyPolicy": {
-      "notRun": "Vérification non exécutée",
-      "notRunTip": "Aucun test, build ou vérification dans le navigateur n'a été exécuté pour cette tâche. Utilisez le bouton à côté de cette étiquette, ou demandez une vérification dans votre message.",
-      "blockedTip": "L'agent a tenté {{count}} appel(s) de vérification ; ils ont été bloqués avant leur exécution.",
-      "ran": "Vérification exécutée ×{{count}}",
-      "ranTip": "La vérification a été exécutée dans le périmètre demandé. Sa réussite ou son échec est indiqué dans la réponse ci-dessus.",
-      "runTip": "Exécuter les vérifications liées à cette modification (tests concernés, vérification des types, lint, build). Les échecs sont signalés, pas corrigés.",
-      "runFailed": "Impossible de démarrer : {{error}}",
-      "runPrompt": "Vérifiez la modification de la tâche précédente. N'exécutez que les vérifications qui s'y rapportent (tests concernés, vérification des types, lint, build) — et non la suite de tests complète, les tests E2E ou les vérifications dans le navigateur. Indiquez pour chacune si elle a réussi, échoué ou n'a pas été vérifiée. Ne corrigez pas les échecs ; signalez-les simplement.\n\nTâche précédente : {{task}}"
     },
     "verify": {
       "title": "Vérifier",
@@ -8766,7 +8798,7 @@
       "pragmatic": "Pragmatique"
     },
     "inheritProject": "Valeurs du projet / globales",
-    "individualSettingsHint": "S’applique à cet agent. Les valeurs identiques aux valeurs par défaut continuent de suivre les changements du projet et des réglages globaux.",
+    "individualSettingsHint": "Ne concerne que cet agent. Les valeurs choisies ici restent inchangées quand les paramètres du projet ou globaux changent. Choisissez « {{inherit}} » pour suivre à nouveau ces paramètres.",
     "provider": "Fournisseur",
     "claude": "Claude",
     "codex": "Codex",

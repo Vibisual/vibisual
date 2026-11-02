@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { describe, expect, it, vi } from 'vitest';
-import { normalizeAppNodeIds, verificationScopeFromText, type QueuedCommand } from '@vibisual/shared';
+import { normalizeAppNodeIds, type QueuedCommand } from '@vibisual/shared';
 import { findReferencedCommandAttachment } from './commandAttachmentOwnership.js';
 import { normalizeRunLimits } from './commandRunLimits.js';
 import { normalizeExecutionRequirements } from './commandExecutionRequirements.js';
@@ -55,7 +55,7 @@ function setup(engine: 'claude' | 'codex' | 'local') {
   const broadcastSnapshot = vi.fn();
   const scope = {
     DEFAULT_COMMAND_DISPATCH_MODE: 'merge',
-    normalizeCommandDispatchMode: () => 'merge', normalizeRunLimits, normalizeExecutionRequirements, verificationScopeFromText,
+    normalizeCommandDispatchMode: () => 'merge', normalizeRunLimits, normalizeExecutionRequirements,
     normalizeAppNodeIds,
     graphManager, subAgentManager, commandQueues, fs: fileOps, path,
     completedCommandArchive: new Map<string, QueuedCommand[]>(), findReferencedCommandAttachment,

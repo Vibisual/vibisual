@@ -383,7 +383,6 @@
         "agent": "Agent 默认值",
         "appearance": "外观",
         "notifications": "通知",
-        "permissions": "权限",
         "advanced": "高级",
         "version": "版本",
         "account": "账户",
@@ -774,16 +773,35 @@
         "webOpenTargetExternal": "外部浏览器",
         "webOpenTargetExternalDesc": "默认选项。在您平时使用的浏览器中打开。",
         "webOpenTargetIframe": "应用内 iframe 标签页",
-        "webOpenTargetIframeDesc": "在标签栏中打开网页标签页，在应用内阅读。互联网页面在与应用隔离的沙盒视图中运行，不授予任何权限；关闭应用后登录信息会被清除。"
+        "webOpenTargetIframeDesc": "在标签栏中打开网页标签页，在应用内阅读。互联网页面在与应用隔离的沙盒视图中运行，不授予任何权限；关闭应用后登录信息会被清除。",
+        "folderMenuTitle": "文件夹右键菜单",
+        "folderMenuIntro": "在文件管理器中右键单击文件夹并选择“在 Vibisual 中打开项目”，该文件夹就会在这里作为项目打开。如果 Vibisual 未运行，会先启动再打开该文件夹。",
+        "folderMenuEnabled": "右键单击文件夹时显示“在 Vibisual 中打开项目”",
+        "folderMenuEnabledDesc": "保存后立即生效。关闭后会从菜单中移除该项。",
+        "folderMenuStatusChecking": "正在应用菜单，请稍后再检查。",
+        "folderMenuStatusDesktopOnly": "可在桌面应用中使用。",
+        "folderMenuStatusDevBuild": "这是开发运行，菜单交由已安装的应用处理。",
+        "folderMenuStatusNoFileManager": "未找到支持的文件管理器（Files、Caja、Dolphin 或 Nemo）。",
+        "folderMenuStatusUnsupported": "此系统不支持。",
+        "folderMenuStatusError": "无法更新菜单：{{error}}",
+        "folderMenuStatusInstalled": "已添加到 {{targets}}。",
+        "folderMenuStatusOff": "不在菜单中显示。",
+        "folderMenuHintWindows": "在 Windows 11 中，它位于“显示更多选项”下。",
+        "folderMenuHintMac": "在访达中，它位于“快速操作”或“服务”下。",
+        "folderMenuHintScripts": "在 Files 和 Caja 中，它位于“脚本”下。",
+        "folderMenuRefresh": "重新检查",
+        "folderMenuTargets": {
+          "windowsExplorer": "文件资源管理器",
+          "macosFinder": "访达",
+          "nautilus": "Files (Nautilus)",
+          "caja": "Caja",
+          "dolphin": "Dolphin",
+          "nemo": "Nemo"
+        }
       },
       "notifications": {
         "cmdBlocked": "CMD 会话等待输入时通知我",
         "cmdBlockedDesc": "仅在你正查看其他标签页或窗口时通知——如果该窗口已聚焦，说明内容已经显示在屏幕上。"
-      },
-      "permissions": {
-        "verificationGateIntro": "此策略仅在启用时同时适用于 Codex 和 Claude Code。启用后，会要求代理仅在当前任务明确请求时运行测试、代码检查、类型检查、验证构建、E2E、浏览器检查、截图比较和验证代理，并在执行前拦截未经请求的调用。",
-        "verificationGateEnabled": "仅在请求后允许执行验证",
-        "verificationGateEnabledDesc": "默认关闭。关闭时，Vibisual 不会在提示中添加验证限制，也不会依据此策略拦截调用。开启时，名称包含 check、verify 或 test 的脚本也可能被拦截。使用{{apply}}保存：执行拦截的更改从下一次工具调用起生效，提示中的指引更改从下一轮起生效。"
       },
       "engines": {
         "title": "引擎",
@@ -4936,8 +4954,8 @@
       "run": "运行",
       "stop": "停止",
       "stopping": "停止中…",
-      "followUp": "追加",
-      "followUpTitle": "不中断执行，继续发送消息 (Enter)",
+      "followUp": "追加消息",
+      "followUpTitle": "将追加消息加入队列。可在消息气泡中选择发送方式 (Enter)",
       "queuedTitle": "{{count}} 个等待中",
       "queuedHint": "“合并”会将后续消息在同一轮中一起发送。“等待”让消息单独占用一轮；“立即”会中断当前轮次。",
       "queuedRemove": "从队列中移除",
@@ -4945,12 +4963,14 @@
       "dispatchMode": {
         "wait": "等待",
         "merge": "合并",
-        "immediate": "立即"
+        "immediate": "立即",
+        "steer": "发送到当前任务"
       },
       "dispatchModeTitle": {
         "wait": "等待 — 在当前轮次结束后，将此消息单独作为一轮运行",
         "merge": "合并 — 将此消息与后续合并消息一起在同一轮中发送",
-        "immediate": "立即 — 停止当前轮次，改用此消息继续（对话内容保留）"
+        "immediate": "立即 — 停止当前轮次，改用此消息继续（对话内容保留）",
+        "steer": "发送到当前任务 — 不停止当前任务，直接传递消息。请查看回复以确认请求的处理情况。"
       },
       "executing": "执行中…",
       "readOnly": "只读 — Hook 气泡仅镜像外部会话。请从自定义 Agent 发送命令。",
@@ -5138,7 +5158,29 @@
       "stopRetry": "重试",
       "sendRejected": "请求被拒绝，已恢复您的文本和附件。请检查对话后再发送。",
       "sendUnconfirmed": "无法确认是否已发送，已恢复您的文本和附件。请检查对话后再发送。",
-      "localImagesUnsupported": "All Model 尚不支持图片输入。请移除图片或选择其他提供方后再发送此消息。"
+      "localImagesUnsupported": "All Model 尚不支持图片输入。请移除图片或选择其他提供方后再发送此消息。",
+      "liveDelivery": {
+        "waiting": "等待发送",
+        "sending": "发送中…",
+        "delivered": "已送达",
+        "unavailable": "无法送达",
+        "uncertain": "无法确认送达",
+        "reason": {
+          "noActiveTurn": "当前没有正在执行的任务可以接收此消息。",
+          "unsupported": "此会话不支持在任务执行期间接收消息。",
+          "turnScope": "包含独立执行设置的消息需要作为单独请求发送。",
+          "deliveryRejected": "代理未接受此消息。",
+          "deliveryUnknown": "无法确认代理是否收到了此消息。"
+        },
+        "hint": {
+          "waiting": "正在等待将消息发送给当前任务。",
+          "sending": "正在等待代理确认收到消息。",
+          "delivered": "已作为追加指示发送给当前任务。",
+          "unavailable": "选择“{{wait}}”可在当前任务结束后发送；选择“{{immediate}}”可停止当前任务并以此消息开始。",
+          "uncertain": "不会自动重发。为避免重复送达，修改和删除已锁定，但仍可复制正文。"
+        },
+        "retry": "重试"
+      }
     },
     "voiceInstall": {
       "title": "设置语音输入",
@@ -5259,6 +5301,7 @@
       "verify": "验证",
       "specReading": "精读",
       "customize": "自定义活动栏",
+      "configure": "配置{{name}}",
       "resetLayout": "默认布局",
       "dragHint": "长按项目后拖动即可调整顺序",
       "shownSection": "已显示",
@@ -5771,6 +5814,8 @@
       "imageMissing": "（图片不可用）",
       "waiting": "等待中",
       "compacting": "压缩中",
+      "delegating": "正在等待其他智能体响应",
+      "delegatingHint": "此轮对话正在等待其他智能体的工作结果。您仍可停止。",
       "compactingHint": "上下文已满，CLI 正在总结此前的对话以腾出空间。通常需要几分钟，期间没有新输出是正常的。"
     },
     "report": {
@@ -5972,7 +6017,7 @@
       "superseded": "计划已更新"
     },
     "transportRecovery": {
-      "reconnecting": "正在重新连接… {{attempt}}/{{maxAttempts}}",
+      "reconnecting": "正在重新连接…",
       "fallback": "正在尝试其他连接方式…",
       "resumed": "连接已恢复 · 工作已继续",
       "ended": "连接恢复尝试记录"
@@ -6249,7 +6294,6 @@
         "systemPrompt": "Claude Code 系统提示词",
         "compactSelf": "Agent 自主压缩",
         "compactRecovery": "压缩后恢复简报",
-        "verificationPolicy": "验证策略",
         "autoGoalSkills": "已检测到的流程",
         "codexInstructions": "Codex 项目指令",
         "codexGlobalInstructions": "Codex 全局指令",
@@ -6368,11 +6412,6 @@
             "what": "一条只出现一轮的说明，列出压缩摘要似乎未带入的内容。",
             "more": "基于压缩前捕获的快照生成，并与摘要文本进行比对。仅发送一次，不会重复。",
             "off": "关闭此设置后，压缩完成后会话会照常继续，且不会提示摘要遗漏了哪些内容。"
-          },
-          "verificationPolicy": {
-            "what": "向 Codex 和 Claude Code 提供可选指引，要求仅在当前任务请求时运行验证，并提供该任务的验证权限。",
-            "more": "策略默认关闭。启用后，Vibisual 会根据你在该任务中的消息或验证按钮操作授予验证权限。禁用时，不会添加限制性指引，也不会拦截验证调用。",
-            "off": "此来源开关仅在策略启用时隐藏指引。要同时启用或禁用指引与执行拦截，请前往{{options}}中的{{permissions}}。策略默认关闭。"
           },
           "hookEnforcement": {
             "what": "Vibisual 注入到通过 Claude Code Hooks 自行接入的 Session 中的内容块。",
@@ -6567,9 +6606,12 @@
       "saveError": "无法确认更改已保存，请重新测量以检查当前设置。"
     },
     "goal": {
+      "activationRules": "启用规则",
+      "enabledHint": "开启 — 在此会话中显示目标和进度列表，并加入相关规则。",
+      "disabledHint": "默认关闭 — 不自动创建目标或添加目标规则。现有目标会保留。",
       "title": "目标",
       "pickSession": "选择一个会话以查看其目标。",
-      "waiting": "暂无目标。会话制定计划后即会出现。",
+      "waiting": "尚无目标。启用目标跟踪后，会话制定计划时便会显示。",
       "sample": {
         "badge": "示例",
         "text": "完成任务并确认运行正常",
@@ -6814,16 +6856,6 @@
         "warn": "如果必读小节尚未读完就要结束本轮，会退回让它继续读。",
         "enforce": "必读小节未读完期间拒绝修改。达到退回次数上限后不再拦截。"
       }
-    },
-    "verifyPolicy": {
-      "notRun": "未运行验证",
-      "notRunTip": "此任务未运行任何测试、构建或浏览器检查。可使用此标记旁的按钮，或在你的消息中要求验证。",
-      "blockedTip": "Agent 尝试了 {{count}} 次验证调用；均在运行前被阻止。",
-      "ran": "已运行验证 ×{{count}}",
-      "ranTip": "验证已在你要求的范围内运行。是否通过，请见上方的回复。",
-      "runTip": "运行与此次修改相关的检查（相关测试、类型检查、lint、构建）。失败只会报告，不会修复。",
-      "runFailed": "无法启动：{{error}}",
-      "runPrompt": "验证上一个任务所做的修改。只运行与之相关的检查（相关测试、类型检查、lint、构建）——不要运行完整测试套件、E2E 或浏览器检查。对每一项分别报告通过、失败或未检查。不要修复失败项；只需报告。\n\n上一个任务：{{task}}"
     },
     "verify": {
       "title": "验证",
@@ -8766,7 +8798,7 @@
       "pragmatic": "务实"
     },
     "inheritProject": "项目 / 全局默认设置",
-    "individualSettingsHint": "仅适用于此智能体。与默认值相同的设置将继续跟随项目和全局设置的变化。",
+    "individualSettingsHint": "仅对此 Agent 生效。在此处选择的值不会随项目或全局设置的更改而变化。选择“{{inherit}}”即可重新跟随这些设置。",
     "provider": "提供方",
     "claude": "Claude",
     "codex": "Codex",

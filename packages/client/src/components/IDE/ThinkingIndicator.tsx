@@ -11,7 +11,7 @@ import { formatElapsed } from './elapsed.js';
 
 /** "." → ".." → "..." 반복. 폭 고정으로 라벨이 흔들리지 않는다. */
 export function ThinkingDots(): React.JSX.Element {
-  return <span className="thinking-ellipsis inline-block w-[1.1em] text-left" aria-hidden="true" />;
+  return <span className="thinking-ellipsis inline-block w-[1.1em] shrink-0 text-left" aria-hidden="true" />;
 }
 
 /**
@@ -26,6 +26,7 @@ export function ThinkingLiveLine({
   turnStartedAt = null,
   hiddenTurn = false,
   compactingSince = null,
+  waitingForAgentsSince = null,
 }: {
   label: string;
   mode?: LiveLineMode;
@@ -37,18 +38,21 @@ export function ThinkingLiveLine({
   hiddenTurn?: boolean;
   /** §5.5 #17-24 ⑥ — `compacting` 모드일 때 CLI 가 접기 시작한 시각(ms). 그 모드의 경과는 여기서부터 잰다. */
   compactingSince?: number | null;
+  waitingForAgentsSince?: number | null;
 }): React.JSX.Element {
   const { t } = useTranslation();
   // 근거가 있을 때만 시계를 돌린다 — 조용한 화면에서 초마다 리렌더하지 않기 위해.
   const compacting = mode === 'compacting';
-  const now = useNowTick(lastActivityAt !== null || turnStartedAt !== null || (compacting && compactingSince !== null));
+  const delegating = mode === 'delegating';
+  const phaseStartedAt = compacting ? compactingSince : delegating ? waitingForAgentsSince : null;
+  const now = useNowTick(lastActivityAt !== null || turnStartedAt !== null || phaseStartedAt !== null);
   const silence = sessionSilenceMs(lastActivityAt, now);
   /* §5.5 #17-18 ⑪ — 줄 서 있는 줄은 무응답이 아니다(턴이 시작되지 않았다). "마지막 업데이트 N 전"을 붙이지 않고 줄 선 지 얼마인가만 적는다. 판정은 `liveLineStalled` 한 곳. */
   const waiting = mode === 'waiting';
   const stalled = liveLineStalled(mode, silence, hiddenTurn);
   // 무응답이면 마지막 업데이트부터("마지막 업데이트 N 전"), 접는 중이면 압축 시작부터, 그 밖에는 턴 시작부터
   //   — 줄이 와도 되감기지 않는다.
-  const clockFrom = liveLineClockFrom(stalled, turnStartedAt, lastActivityAt, now, compacting ? compactingSince : null);
+  const clockFrom = liveLineClockFrom(stalled, turnStartedAt, lastActivityAt, now, phaseStartedAt);
   const elapsed = clockFrom !== null ? formatElapsed(clockFrom, now) : null;
   // 대기는 slate — 위의 [대기] 말풍선(#17-18 ⑤)과 한 덩어리로 보이게. 파랑이면 아무 일 없는 화면이 도는 것처럼 보인다.
   const dot = waiting ? 'bg-slate-400/70' : stalled ? 'bg-gray-500' : compacting ? 'bg-teal-400/80' : 'bg-blue-400/80';
@@ -59,10 +63,10 @@ export function ThinkingLiveLine({
       {/* 대기도 뛰지 않는다 — 뛰는 점은 "지금 무언가 일어나는 중"이라는 말이고, 대기는 그 반대다. */}
       <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${stalled || waiting ? '' : 'animate-pulse'} ${dot}`} aria-hidden="true" />
       <span
-        className={`inline-flex items-baseline text-[12px] italic ${text}`}
-        title={compacting ? t('ide.streamRenderer.compactingHint') : undefined}
+        className={`inline-flex min-w-0 items-baseline text-[12px] italic ${text}`}
+        title={compacting ? t('ide.streamRenderer.compactingHint') : delegating ? t('ide.streamRenderer.delegatingHint') : undefined}
       >
-        {label}
+        <span className="truncate">{label}</span>
         {!stalled && !waiting && <ThinkingDots />}
       </span>
       {elapsed !== null && (

@@ -32,17 +32,25 @@ export interface CodexToolHookConfig extends AppNodeRuntime {
   policy: import('@vibisual/shared').CodexToolPolicy;
 }
 
+/** Optional, per-turn lifecycle telemetry. It never grants or denies tool execution. */
+export interface CodexProgressHookConfig extends AppNodeRuntime {
+  helperPath: string;
+}
+
 export type CodexAppHookEvent = 'PreToolUse' | 'PermissionRequest';
+export type CodexProgressHookEvent = 'PreCompact' | 'PostCompact' | 'PreToolUse' | 'PostToolUse';
 
 /** A hook this app expects `hooks/list` to report, used to trust exactly these hooks and no others. */
 export interface CodexExpectedHook {
   command: string;
-  eventName: 'preToolUse' | 'permissionRequest';
+  eventName: 'preToolUse' | 'permissionRequest' | 'postToolUse' | 'preCompact' | 'postCompact';
 }
 
 /** Above the broker's 60s wait and the helper's own 150s abort, so Codex never times the hook out first. */
 export const CODEX_PERMISSION_HOOK_TIMEOUT_SEC = 180;
 const CODEX_EDGE_GATE_TIMEOUT_SEC = 10;
+// The helper's request deadline is 1.5s; leave time for the Node launcher to start.
+const CODEX_PROGRESS_HOOK_TIMEOUT_SEC = 3;
 
 function codexHelperHookCommand(runtime: AppNodeRuntime, helperPath: string, args: readonly string[], platform: NodeJS.Platform): string {
   return buildAppNodeCommand(runtime, helperPath, args, platform);
@@ -73,6 +81,7 @@ export function codexTurnHooks(
   permission: CodexPermissionHookConfig | undefined,
   platform: NodeJS.Platform = process.platform,
   tools?: CodexToolHookConfig,
+  progress?: CodexProgressHookConfig,
 ): { overrides: string[]; expected: CodexExpectedHook[] } {
   const quote = JSON.stringify;
   const preToolUse: { command: string; timeout: number }[] = [];
@@ -86,9 +95,27 @@ export function codexTurnHooks(
     }
     permissionRequest.push({ command: codexPermissionHookCommand(permission, 'PermissionRequest', platform), timeout: CODEX_PERMISSION_HOOK_TIMEOUT_SEC });
   }
+  const progressHooks: { event: CodexProgressHookEvent; eventName: CodexExpectedHook['eventName']; command: string; timeout: number }[] = [];
+  if (progress) {
+    // Codex 0.166.0 hooks/list exposes these four names. PostToolUseFailure is not
+    // declared in its hook schema, so do not register an unsupported event.
+    for (const [event, eventName] of [
+      ['PreCompact', 'preCompact'], ['PostCompact', 'postCompact'],
+      ['PreToolUse', 'preToolUse'], ['PostToolUse', 'postToolUse'],
+    ] as const) {
+      const hook = {
+        event, eventName,
+        command: codexHelperHookCommand(progress, progress.helperPath, ['progress', event], platform),
+        timeout: CODEX_PROGRESS_HOOK_TIMEOUT_SEC,
+      };
+      if (event === 'PreToolUse') preToolUse.push(hook);
+      else progressHooks.push(hook);
+    }
+  }
   const expected: CodexExpectedHook[] = [
     ...preToolUse.map(({ command }) => ({ command, eventName: 'preToolUse' as const })),
     ...permissionRequest.map(({ command }) => ({ command, eventName: 'permissionRequest' as const })),
+    ...progressHooks.map(({ command, eventName }) => ({ command, eventName })),
   ];
   if (!expected.length) return { overrides: [], expected };
   const group = (hooks: { command: string; timeout: number }[]) =>
@@ -96,6 +123,7 @@ export function codexTurnHooks(
   const overrides = ['-c', 'features.hooks=true'];
   if (preToolUse.length) overrides.push('-c', `hooks.PreToolUse=${group(preToolUse)}`);
   if (permissionRequest.length) overrides.push('-c', `hooks.PermissionRequest=${group(permissionRequest)}`);
+  for (const hook of progressHooks) overrides.push('-c', `hooks.${hook.event}=${group([hook])}`);
   return { overrides, expected };
 }
 

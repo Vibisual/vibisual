@@ -70,7 +70,7 @@ const LATTE_TERMINAL: ThemeColors = {
 
 /**
  * 다크 변주들이 함께 쓰는 의미 토큰 — 전부 팔레트 참조라 각 테마가 계열만 바꾸면 따라온다.
- * 기본 테마는 이것을 쓰지 않고 원래 화면의 리터럴 값을 지킨다.
+ * 상속 기준인 Vibisual Dark는 이것을 쓰지 않고 원래 화면의 리터럴 값을 지킨다.
  */
 const DARK_VARIANT_SURFACES: ThemeColors = {
   'window.background': '{gray.950}',
@@ -102,28 +102,6 @@ const DARK_VARIANT_SURFACES: ThemeColors = {
 export const BUILTIN_APP_THEMES: readonly AppThemeDefinition[] = [
   {
     schemaVersion: 1,
-    id: 'vibisual-dark',
-    name: 'Vibisual Dark',
-    kind: 'dark',
-    i18nKey: 'vibisualDark',
-    description: 'The original look — cool blue-gray panels and a deep canvas.',
-  },
-  {
-    schemaVersion: 1,
-    id: 'midnight',
-    name: 'Midnight',
-    kind: 'dark',
-    extends: 'vibisual-dark',
-    i18nKey: 'midnight',
-    description: 'Deep navy surfaces for long night sessions.',
-    palette: {
-      gray: { from: 'slate', hue: 268, chromaScale: 1.6 },
-      slate: { hue: 268, chromaScale: 1.6 },
-    },
-    colors: { ...DARK_VARIANT_SURFACES },
-  },
-  {
-    schemaVersion: 1,
     id: 'graphite',
     name: 'Graphite',
     kind: 'dark',
@@ -145,6 +123,28 @@ export const BUILTIN_APP_THEMES: readonly AppThemeDefinition[] = [
       'terminal.foreground': '{gray.200}',
       'terminal.selection': '{gray.500}/35',
     },
+  },
+  {
+    schemaVersion: 1,
+    id: 'vibisual-dark',
+    name: 'Vibisual Dark',
+    kind: 'dark',
+    i18nKey: 'vibisualDark',
+    description: 'The original look — cool blue-gray panels and a deep canvas.',
+  },
+  {
+    schemaVersion: 1,
+    id: 'midnight',
+    name: 'Midnight',
+    kind: 'dark',
+    extends: 'vibisual-dark',
+    i18nKey: 'midnight',
+    description: 'Deep navy surfaces for long night sessions.',
+    palette: {
+      gray: { from: 'slate', hue: 268, chromaScale: 1.6 },
+      slate: { hue: 268, chromaScale: 1.6 },
+    },
+    colors: { ...DARK_VARIANT_SURFACES },
   },
   {
     schemaVersion: 1,

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { QueuedCommand, SubAgentStreamEvent } from '@vibisual/shared';
 import {
+  bubbleMapSessionOf,
   buildSessionBubbles,
   looksLikeFilePath,
   readToolInput,
@@ -36,6 +37,27 @@ function build(events: SubAgentStreamEvent[], opts: { root?: string | null; plat
     platform: opts.platform ?? 'win32',
   });
 }
+
+describe('§5.5 #17-50 (C) — 지도는 세션 하나', () => {
+  const sessions = [
+    { id: 'sub-old', lastActivityAt: 100 },
+    { id: 'sub-new', lastActivityAt: 300 },
+    { id: 'sub-mid', lastActivityAt: 200 },
+  ];
+
+  it('세션 탭은 그 세션 — 상태바·최근 세션을 보지 않는다', () => {
+    expect(bubbleMapSessionOf('sub-old', 'sub-new', sessions)).toBe('sub-old');
+  });
+
+  it('메인 탭은 상태바가 가리키는 명령의 세션([버블]이 그 줄 안에 있다)', () => {
+    expect(bubbleMapSessionOf(null, 'sub-mid', sessions)).toBe('sub-mid');
+  });
+
+  it('상태바에 명령이 없으면 가장 최근에 움직인 세션 · 세션이 없으면 null(가운데만 선다)', () => {
+    expect(bubbleMapSessionOf(null, null, sessions)).toBe('sub-new');
+    expect(bubbleMapSessionOf(null, null, [])).toBeNull();
+  });
+});
 
 describe('§5.5 #17-50 — 파일·폴더', () => {
   it('파일은 직속 폴더 밑 위성이 되고, 프로젝트 안이면 상대 경로·내부 폴더다', () => {
@@ -129,6 +151,19 @@ describe('§5.5 #17-50 — 셸(캔버스와 같은 추출기)', () => {
     expect(m.apps[0]!.name).toBe('Git');
     expect(m.apps[0]!.commands).toHaveLength(SESSION_BUBBLE_KEEP.appCommands);
     expect(m.apps[0]!.commands[0]).toBe(`git log -n ${String(SESSION_BUBBLE_KEEP.appCommands + 2)}`);
+  });
+
+  it('§5.1 이름이 같은 앱은 실행 경로·프로젝트 인자가 달라도 버블 하나이고 그림 출처가 흔들리지 않는다', () => {
+    const editor = 'C:/UE/Engine/Binaries/Win64/UnrealEditor.exe';
+    const m = build([
+      use(10, 'Bash', { command: `"${editor}" Game.uproject` }),
+      use(11, 'Bash', { command: 'C:/UE/Engine/Build/BatchFiles/Build.bat -Project=Lab.uproject' }),
+      use(12, 'Bash', { command: 'UnrealEditor-Cmd Game.uproject -run=ResavePackages' }),
+    ]);
+    expect(m.apps).toHaveLength(1);
+    expect(m.apps[0]!.name).toBe('Unreal Engine');
+    expect(m.apps[0]!.commands).toHaveLength(3);
+    expect(m.apps[0]!.target.iconSource ?? m.apps[0]!.target.executable).toBe(editor);
   });
 
   it('코덱스의 셸 줄(JSON 이 아닌 명령 원문)도 읽는다', () => {

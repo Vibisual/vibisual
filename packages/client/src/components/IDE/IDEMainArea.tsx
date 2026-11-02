@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, CommandError, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest, RunningSubagentTask } from '@vibisual/shared';
 import { STREAM_DENSITIES, displayCommands, slashCommandNeedsTerminal, SESSION_MEMO, VOICE_INPUT, isVoiceToggleKey, mergeVoiceText, polishVoiceChunk, isMicAccessFixable, isNoDeviceError, type StreamDensity } from '@vibisual/shared';
 import { isBackgroundShellTask, isSessionRunning } from '@vibisual/shared';
-import { verificationNotRun } from '@vibisual/shared';
 import {
   useSessionRunning, useSessionWork, useSessionExecuting, useSessionLivenessFacts,
 } from '../../hooks/useSessionRunning.js';
@@ -14,12 +13,13 @@ import { decideEnterKey, enterCancelsDefault } from '../../utils/inputEnterKey.j
 import { boundedTextSelection, replaceTextRange, restoreInputSelection } from '../../utils/textInputSelection.js';
 import { speechRunPositions, NO_SPEECH_RUNS, type SpeechRunPos } from './streamDensity.js';
 import type { TodoItem } from '@vibisual/shared';
-import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, isInvisibleStreamText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, cardPlacementTs, isCardSenderCandidate, type TurnCoverage, type CardSenderCall, type SentCardKind } from './streamItems.js';
+import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, isInvisibleStreamText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, cardPlacementTs, isCardSenderCandidate, codexNoticeDisplayEvent, type TurnCoverage, type CardSenderCall, type SentCardKind } from './streamItems.js';
 import { foldTaskChips } from './taskChips.js';
 import { describeCommandError, parseStreamErrorContent, joinCommandErrorLine } from './commandError.js';
 import { CommandErrorNotice } from './CommandErrorNotice.js';
 import { StreamErrorAccumulator } from './streamErrorDedup.js';
-import { turnStopLabelKey } from './turnStopLabel.js';
+import { turnResultText, turnStopLabelKey } from './turnStopLabel.js';
+import { TurnStopNotice } from './TurnStopNotice.js';
 import { PlanBlock } from './PlanBlock.js';
 import { toolPreview } from './toolPreview.js';
 import { useGraphStore, agentSessionInputKey, selectIDEOverlay } from '../../stores/graphStore.js';
@@ -65,6 +65,7 @@ import { UnseenCardPills, type UnseenCardMeta } from './UnseenCardPills.js';
 import { IDETerminalPanes } from './IDETerminalPanes.js';
 import { SessionMemoLayer } from './SessionMemoLayer.js';
 import { SessionBubbleView, isInsideSessionBubbles, sessionBubbleStreamsOf, useOlderSessionIds } from './SessionBubbleView.js';
+import { bubbleMapSessionOf } from './sessionBubbles.js';
 import type { SessionBubbleStream } from './sessionBubbles.js';
 import { canAddMemoCount, hasHiddenMemoHeaders } from './sessionMemo.js';
 import { useMemoLinkHost } from './useMemoLinkHost.js';
@@ -74,6 +75,7 @@ import { collectThinkRuns, mergeAdjacentThinkTraces, shouldTraceWriting, toolGro
 import { thinkTraceText, writeTraceText, toolElapsedText, toolCallElapsedText } from './stepTraceText.js';
 // §5.5 #17-18 ⑤ — 대기 중 덧말의 상태·컨트롤은 이 말풍선이 갖는다.
 import { CollapsiblePrompt, AiSpeakerGlyph, type PromptCommandState } from './CollapsiblePrompt.js';
+import { followUpDeliveryOf } from './followUpDelivery.js';
 import { INPUT_FIELD_SIZING, INPUT_MAX_HEIGHT, autosizeInput } from './inputAutosize.js';
 import { decideArrowKey, getCommandHistory, hasCommandHistory, seedCommandHistory, type HistoryNavState } from './commandHistory.js';
 // §5.5 #17-38 — 음성 받아쓰기. 마이크 수명은 훅이, 키·글 끼우기 판정은 shared 가, "듣는 중" 표시는 오버레이가 맡는다.
@@ -194,9 +196,12 @@ function performBookmarkScroll(container: HTMLElement, anchorId: string | undefi
 
 interface TerminalEntry {
   id: string;
-  type: 'command' | 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'result' | 'error' | 'system' | 'step' | 'image';
+  type: 'command' | 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'result' | 'error' | 'system' | 'step' | 'image' | 'turnstop';
   text: string;
   timestamp: number;
+  /** Keep late output before its stop boundary without changing its actual time. */
+  sortTimestamp?: number;
+  stopLabelKey?: string;
   sessionLabel?: string;
   toolName?: string;
   transportRecovery?: StreamTransportRecovery;
@@ -215,6 +220,8 @@ interface TerminalEntry {
   submittedAt?: number;
   /** §5.5 #17-18 ⑤ — command 의 큐 상태. 말풍선이 색을 정하고 대기 중이면 [대기|합치기|즉시]·삭제를 띄운다. */
   command?: PromptCommandState;
+  attachments?: string[];
+  isFollowUp?: boolean;
 }
 
 /** 접을 수 있는 그룹 (tool_use+tool_result 쌍, 연속 text 블록) */
@@ -250,6 +257,7 @@ interface TerminalThinkingLive {
   hiddenTurn?: true;
   /** §5.5 #17-24 ⑥ — `compacting` 모드일 때만 — CLI 가 접기 시작한 시각(Sub 탭과 동형). */
   compactingSince?: number;
+  waitingForAgentsSince?: number;
 }
 
 /** 라이브 1줄의 세 모습 → i18n 키. Sub 탭 `liveLabels` 와 같은 키여야 한다(다르면 탭을 옮길 때 말이 바뀐다, #17-18 ⑪). */
@@ -257,6 +265,7 @@ const MAIN_LIVE_LABEL_KEY: Record<TerminalThinkingLive['mode'], string> = {
   working: 'ide.streamRenderer.working',
   waiting: 'ide.streamRenderer.waiting',
   compacting: 'ide.streamRenderer.compacting',
+  delegating: 'ide.streamRenderer.delegating',
 };
 
 /** §5.5 #17-12 — 메인 탭에서도 TodoWrite 는 계획 블록으로(Sub 탭 StreamPlan 과 같은 모양 → PlanBlock 재사용). */
@@ -268,7 +277,7 @@ interface TerminalPlan {
   superseded?: boolean;
 }
 
-type TerminalItem = (TerminalEntry & { kind?: undefined }) | TerminalGroup | TerminalThinkingLive | TerminalPlan;
+type TerminalItem = ((TerminalEntry & { kind?: undefined }) | TerminalGroup | TerminalThinkingLive | TerminalPlan) & { sortTimestamp?: number };
 
 /** 메인 탭 타임라인 노드 — 터미널 항목 + 카드류(작업 신고/질문/검수/목록/AskUserQuestion)의 합집합. */
 type MainTimelineNode =
@@ -439,6 +448,44 @@ export function buildEntries(
 ): TerminalEntry[] {
   const entries: TerminalEntry[] = [];
   const subLabelMap = new Map(subAgents.map((s) => [s.id, s.label]));
+  const stoppedTurns = new Map<string, { start: number; end: number; labelKey: string }>();
+  const eventSortTimestamps = new Map<string, number>();
+  const commandsBySession = new Map<QueuedCommand['subAgentId'], QueuedCommand[]>();
+  for (const cmd of commands) {
+    const sessionCommands = commandsBySession.get(cmd.subAgentId) ?? [];
+    sessionCommands.push(cmd);
+    commandsBySession.set(cmd.subAgentId, sessionCommands);
+  }
+  for (const [subId, sessionCommands] of commandsBySession) {
+    const anchors = dispatchedTurnAnchorsAsc(sessionCommands);
+    const events = subId ? streams[subId] ?? [] : [];
+    const lastEventAt = new Map<string, number>();
+    for (const evt of events) {
+      const turnId = turnOfEvent(evt, anchors);
+      if (turnId) lastEventAt.set(turnId, Math.max(lastEventAt.get(turnId) ?? -Infinity, evt.timestamp));
+    }
+    for (const cmd of sessionCommands) {
+      const labelKey = turnStopLabelKey(cmd.stopReason, cmd.status, cmd.result);
+      if (cmd.silent || labelKey !== 'ide.turnStop.cancelled') continue;
+      const start = commandAnchorTs(cmd);
+      const next = anchors.find((anchor) => anchor.ts > start)?.ts;
+      const last = Math.max(start + (turnResultText(cmd.result) ? 1 : 0), lastEventAt.get(cmd.id) ?? start);
+      // A combined view has several session tails: keep each stop with its own output,
+      // rather than sending every session's last stop to the bottom of the entire view.
+      const end = Math.min(last + 0.5, next === undefined ? Infinity : next - 0.5);
+      stoppedTurns.set(cmd.id, { start, end, labelKey });
+    }
+    for (const evt of events) {
+      const turnId = turnOfEvent(evt, anchors);
+      const stopped = turnId ? stoppedTurns.get(turnId) : undefined;
+      if (!stopped) continue;
+      const sortTimestamp = Math.max(stopped.start, Math.min(evt.timestamp, stopped.end));
+      if (sortTimestamp !== evt.timestamp) {
+        eventSortTimestamps.set(evt.id, sortTimestamp);
+        if (evt.eventType === 'thinking') eventSortTimestamps.set(`step-${evt.id}`, sortTimestamp);
+      }
+    }
+  }
 
   /** Main/sub views share the transport accumulator; each session owns a separate episode. */
   const pushStreamEntries = (events: SubAgentStreamEvent[], subId: string, label?: string): void => {
@@ -450,7 +497,8 @@ export function buildEntries(
     const makeStreamEntry = (evt: SubAgentStreamEvent): TerminalEntry => ({
       id: evt.id,
       type: evt.imagePath ? 'image' : evt.eventType,
-      text: evt.eventType === 'error' ? formatError(parseStreamErrorContent(evt.content)) : evt.content,
+      text: evt.eventType === 'error' ? formatError(parseStreamErrorContent(evt.content))
+        : evt.eventType === 'result' ? turnResultText(evt.content) : evt.content,
       timestamp: evt.timestamp,
       sessionLabel: label,
       toolName: evt.toolName,
@@ -458,7 +506,9 @@ export function buildEntries(
       ...(evt.eventType === 'error' ? { error: parseStreamErrorContent(evt.content) } : {}),
       ...(evt.imagePath ? { imageSubAgentId: subId } : {}),
     });
-    for (const evt of events) {
+    for (const rawEvent of events) {
+      const evt = codexNoticeDisplayEvent(rawEvent);
+      if (evt.eventType === 'result' && !turnResultText(evt.content)) continue;
       // Thinking is evidence of resumed work even though its raw body is hidden below.
       if (recovery.consume(evt, turnOfEvent(evt, anchors), recoveryRows)) continue;
       if (isThinkingActivity(evt) || isHiddenSystemEvent(evt)) continue;
@@ -537,12 +587,30 @@ export function buildEntries(
       // 말풍선이 "언제 보낸 글인가"를 말할 때 쓰는 값은 그 꼬리 표식이 아니라 실제 투입 시각이다.
       submittedAt: cmd.timestamp,
       sessionLabel,
+      attachments: cmd.attachments,
+      ...(cmd.dispatchMode === 'steer' ? { isFollowUp: true } : {}),
       command: {
         status: cmd.status,
         ...(cmd.dispatchMode ? { dispatchMode: cmd.dispatchMode } : {}),
         commandId: cmd.id,
+        ...(cmd.dispatchMode === 'steer' ? { liveDelivery: followUpDeliveryOf(cmd) } : {}),
       },
     });
+    for (const message of cmd.followUps ?? []) {
+      entries.push({
+        id: `cmd-${message.id}`, type: 'command', text: message.text,
+        timestamp: message.timestamp, submittedAt: message.timestamp,
+        attachments: message.attachments, sessionLabel, isFollowUp: true,
+        command: { status: 'completed', dispatchMode: 'steer', liveDelivery: { state: 'delivered' } },
+      });
+    }
+    const stopped = stoppedTurns.get(cmd.id);
+    if (stopped) {
+      entries.push({
+        id: `turnstop-${cmd.id}`, type: 'turnstop', text: 'stop',
+        timestamp: stopped.end, stopLabelKey: stopped.labelKey, sessionLabel,
+      });
+    }
   }
 
   // 스트림 이벤트에서 실시간 출력
@@ -590,20 +658,28 @@ export function buildEntries(
         sessionLabel,
       });
     }
-    if (!cmd.result) continue;
+    const result = turnResultText(cmd.result);
+    if (!result) continue;
     // 그 턴의 본문·result 줄이 버퍼에 있으면 답은 이미 스트림에서 그려진다 — 창 밖으로 밀려난 턴만 여기서 말한다.
     if (coverage.answered.has(cmd.id)) continue;
 
     entries.push({
       id: `cmdres-${cmd.id}`,
       type: cmd.status === 'error' ? 'error' : 'result',
-      text: cmd.result,
+      text: result,
       timestamp: commandAnchorTs(cmd) + 1,
+      ...(stoppedTurns.has(cmd.id) ? { sortTimestamp: Math.min(commandAnchorTs(cmd) + 1, stoppedTurns.get(cmd.id)!.end) } : {}),
       sessionLabel,
     });
   }
 
-  entries.sort((a, b) => a.timestamp - b.timestamp);
+  for (const entry of entries) {
+    const sortTimestamp = eventSortTimestamps.get(entry.id);
+    if (sortTimestamp !== undefined) entry.sortTimestamp = sortTimestamp;
+  }
+  const boundaryRank = (entry: TerminalEntry): number => entry.type === 'command' ? -1 : entry.type === 'turnstop' ? 1 : 0;
+  entries.sort((a, b) => (a.sortTimestamp ?? a.timestamp) - (b.sortTimestamp ?? b.timestamp)
+    || boundaryRank(a) - boundaryRank(b) || a.timestamp - b.timestamp);
 
   // 같은 세션의 연속 text 는 한 말풍선으로 합친다(델타 조각 — StreamRenderer textBuf 와 같다). 세션이 다르거나 비-text 가 끼면 끊는다.
   const coalesced: TerminalEntry[] = [];
@@ -647,7 +723,7 @@ export function applyMainDensity(items: TerminalItem[], density: StreamDensity):
   let seenNewerPlan = false;
   for (let k = shown.length - 1; k >= 0; k--) {
     const it = shown[k]!;
-    if (it.kind === undefined && it.type === 'command') { seenNewerPlan = false; continue; }
+    if (it.kind === undefined && it.type === 'command' && !it.isFollowUp) { seenNewerPlan = false; continue; }
     if (it.kind !== 'plan') continue;
     if (seenNewerPlan) { if (!it.superseded) marked[k] = { ...it, superseded: true }; }
     else { seenNewerPlan = true; if (it.superseded) marked[k] = { ...it, superseded: false }; }
@@ -733,7 +809,7 @@ export function groupEntries(flat: TerminalEntry[]): TerminalItem[] {
       if (todos) {
         let j = i + 1;
         while (j < flat.length && flat[j]!.type === 'tool_result') j++;
-        items.push({ kind: 'plan', id: `plan-${cur.id}`, todos, timestamp: cur.timestamp });
+        items.push({ kind: 'plan', id: `plan-${cur.id}`, todos, timestamp: cur.timestamp, sortTimestamp: cur.sortTimestamp });
         i = j;
         continue;
       }
@@ -755,6 +831,7 @@ export function groupEntries(flat: TerminalEntry[]): TerminalItem[] {
         header: cur.toolName ?? 'Tool',
         toolName: cur.toolName,
         timestamp: cur.timestamp,
+        sortTimestamp: cur.sortTimestamp,
         sessionLabel: cur.sessionLabel,
         entries: children,
         isActive: !hasResult,
@@ -775,6 +852,20 @@ export function groupEntries(flat: TerminalEntry[]): TerminalItem[] {
 }
 
 // ─── 터미널 출력 라인 ───
+
+function CommandAttachments({ attachments }: { attachments?: string[] }): React.JSX.Element | null {
+  const thumbs = useAttachmentThumbs(attachments);
+  const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
+  const lightboxOrigin = useImageLightboxOrigin();
+  if (thumbs.length === 0) return null;
+  return <div className="mb-1.5 flex flex-wrap justify-end gap-2">
+    {thumbs.map((image) => <button key={image.basename} type="button"
+      onClick={() => openImageLightbox(image.url, lightboxOrigin())}
+      className="h-16 w-16 overflow-hidden rounded border border-gray-700 bg-gray-800 hover:opacity-80">
+      <img src={image.url} alt="" className="h-full w-full cursor-zoom-in object-cover" />
+    </button>)}
+  </div>;
+}
 
 const TYPE_STYLES: Record<string, { color: string; prefix: string }> = {
   command:     { color: 'text-blue-300',       prefix: '>' },
@@ -823,6 +914,9 @@ function TerminalTextLine({ entry, density, run }: { entry: TerminalEntry; densi
 }
 
 export function TerminalLine({ entry, density, run, agentId }: { entry: TerminalEntry; density?: StreamDensity; run?: SpeechRunPos; agentId?: string }): React.JSX.Element {
+  if (entry.type === 'turnstop' && entry.stopLabelKey) {
+    return <TurnStopNotice labelKey={entry.stopLabelKey} sessionLabel={entry.sessionLabel} />;
+  }
   if (entry.transportRecovery) {
     return <TransportRecoveryLine recovery={entry.transportRecovery} content={entry.text} sessionLabel={entry.sessionLabel} />;
   }
@@ -852,8 +946,9 @@ export function TerminalLine({ entry, density, run, agentId }: { entry: Terminal
       : undefined;
     return (
       // §4 — 폰(max-md)에선 좌우 여백 압축(Sub 탭 블록들과 같은 방침).
-      <div className="px-3 py-1 max-md:px-1.5">
+      <div className="px-3 py-1 max-md:px-1.5" data-cmd-id={entry.isFollowUp ? undefined : entry.id}>
         <CollapsiblePrompt prompt={entry.text} command={command} submittedAt={entry.submittedAt} />
+        <CommandAttachments attachments={entry.attachments} />
       </div>
     );
   }
@@ -2250,6 +2345,8 @@ interface StreamStatusBarProps {
   hasExecutingCommand: boolean;
   /** §5.5 #17-50 — 칸이 버블 지도를 보이고 있으면 받는다: 줄을 누르면 대화로 돌아가 그 프롬프트로 간다. */
   returnToStream?: (cmdId: string) => void;
+  /** §5.5 #17-50 (C) — 이 줄이 가리키는 명령의 세션. 메인 탭의 지도는 이 세션 하나를 그린다([버블]이 이 줄 안에 있다). */
+  onTargetSession?: (sessionId: string | null) => void;
 }
 
 const STATUS_SUMMARY_MAX = 80;
@@ -2520,75 +2617,7 @@ function StreamControls({ jumpHint = false }: { jumpHint?: boolean }): React.JSX
   );
 }
 
-/** §5.3 #12-4 (F) — [검증 실행]이 그 탭에 넣는 명령에 싣는 직전 작업 발췌의 길이. */
-const VERIFY_REQUEST_TASK_EXCERPT_MAX = 300;
-
-/**
- * §5.3 #12-4 (F) — 끝난 명령의 검증 칩(`QueuedCommand.verification` 그대로). 고쳤는데 0회면 "검증 미실행"(+ 최신이면 [검증 실행]),
- * 돌렸으면 "검증 N회 실행"(통과라 말하지 않는다), 읽기·질문만이면 없음. 버튼은 `stopPropagation`.
- */
-function StreamVerificationChip({ command, canRun }: { command: QueuedCommand; canRun: boolean }): React.JSX.Element | null {
-  const { t } = useTranslation();
-  const agentId = useIDEPaneValue((o) => o.agentId);
-  const requestVerification = useGraphStore((s) => s.requestCommandVerification);
-  const [pending, setPending] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
-  const summary = command.verification;
-  const ran = summary?.ranCalls ?? 0;
-  if (ran > 0) {
-    return (
-      <span
-        className="flex-shrink-0 rounded border border-gray-700/60 px-1.5 py-0.5 text-[12px] text-gray-400"
-        title={t('ide.verifyPolicy.ranTip')}
-      >
-        {t('ide.verifyPolicy.ran', { count: ran })}
-      </span>
-    );
-  }
-  if (!verificationNotRun(summary)) return null;
-  const blocked = summary?.blockedCalls ?? 0;
-  const tip = blocked > 0
-    ? `${t('ide.verifyPolicy.notRunTip')}\n${t('ide.verifyPolicy.blockedTip', { count: blocked })}`
-    : t('ide.verifyPolicy.notRunTip');
-  const subAgentId = command.subAgentId;
-  const run = (e: React.MouseEvent): void => {
-    e.stopPropagation();
-    if (!agentId || !subAgentId || pending) return;
-    setPending(true);
-    setFailure(null);
-    const task = command.text.replace(/\s+/g, ' ').trim().slice(0, VERIFY_REQUEST_TASK_EXCERPT_MAX);
-    void requestVerification(agentId, subAgentId, t('ide.verifyPolicy.runPrompt', { task }))
-      .then((result) => { if (!result.ok) setFailure(result.error); })
-      .finally(() => setPending(false));
-  };
-  return (
-    <span className="flex flex-shrink-0 items-center gap-1">
-      <span
-        className="flex items-center gap-1 rounded border border-gray-700/60 px-1.5 py-0.5 text-[12px] text-gray-400"
-        title={tip}
-      >
-        <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="3 3"><circle cx="12" cy="12" r="9" /></svg>
-        {t('ide.verifyPolicy.notRun')}
-      </span>
-      {canRun && agentId && subAgentId && (
-        <button
-          type="button"
-          disabled={pending}
-          onClick={run}
-          title={t('ide.verifyPolicy.runTip')}
-          className="rounded border border-gray-600 px-1.5 py-0.5 text-[12px] text-gray-200 transition-colors hover:bg-gray-700 disabled:opacity-50"
-        >
-          {t('ide.verify.start')}
-        </button>
-      )}
-      {failure && (
-        <span className="text-[12px] text-red-400">{t('ide.verifyPolicy.runFailed', { error: failure })}</span>
-      )}
-    </span>
-  );
-}
-
-function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessionRunning, hasExecutingCommand: hasRealExecuting, returnToStream }: StreamStatusBarProps): React.JSX.Element | null {
+function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessionRunning, hasExecutingCommand: hasRealExecuting, returnToStream, onTargetSession }: StreamStatusBarProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
   const lightboxOrigin = useImageLightboxOrigin();
@@ -2609,8 +2638,11 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
   //   커맨드 블록"을 가리키게 한다. 그래서 버튼을 누르면 그때그때 보고 있는 프롬프트로 이동.
   //   바닥 근처(=마지막 대화 추적)면 viewedId=null → 위 defaultTarget(실행중 스피너/최신) 유지.
   const [viewedId, setViewedId] = useState<string | null>(null);
+  // §5.5 #17-50 (C) — 지도를 보는 동안은 대화가 화면에 없다. 재지 않고 보던 턴을 붙든다(재면 바닥으로 읽혀 지도가 최신 세션으로 튄다).
+  const onMap = returnToStream !== undefined;
 
   useEffect(() => {
+    if (onMap) return;
     const container = scrollRef.current;
     if (!container) return;
     const measure = (): void => {
@@ -2643,7 +2675,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
       if (raf !== 0) window.cancelAnimationFrame(raf);
       container.removeEventListener('scroll', recompute);
     };
-  }, [scrollRef, streamRef, commands]);
+  }, [scrollRef, streamRef, commands, onMap]);
 
   // §5.5 #17-12 ③-2 (a) — 실행 중을 말하는 동안 스크롤 위치를 묻지 않는다(앞 턴을 보면 돌던 일이 사라진 듯 보인다). 측정은 계속해 끝나면 보는 턴으로.
   const pinnedToRunning = statusBarPinsToRunning({
@@ -2660,6 +2692,8 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
     }
     return defaultTarget;
   }, [viewedId, commands, defaultTarget, pinnedToRunning]);
+  const targetSessionId = target?.subAgentId ?? null;
+  useEffect(() => { onTargetSession?.(targetSessionId); }, [onTargetSession, targetSessionId]);
 
   // 첨부 썸네일(basename 조회, blob preview 우선 + 서버 파일 라우트 폴백). 훅은 조건부 return 위에서 부른다(target 없으면 빈 배열).
   const attachmentThumbs = useAttachmentThumbs(target?.attachments);
@@ -2815,8 +2849,6 @@ ${t('ide.mainArea.scrollPrompt')}` : t('ide.mainArea.scrollPrompt')}
       }`}>
         {preview}
       </span>
-      {/* §5.3 #12-4 (F) — 이 명령의 검증 상태. [검증 실행]은 지금 작업 트리를 검증하므로 **최신 명령**에만 둔다. */}
-      <StreamVerificationChip command={target} canRun={target === defaultTarget && !sessionRunning} />
       <StreamControls jumpHint />
     </div>
   );
@@ -2921,6 +2953,7 @@ export const IDEMainArea = memo(function IDEMainArea({
   const {
     lastActivityAt: sessionLastActivityAt, waiting: sessionWaiting, hiddenTurn: sessionHiddenTurn,
     turnStartedAt: sessionTurnStartedAt, compactingSince: sessionCompactingSince,
+    waitingForAgentsSince: sessionWaitingForAgentsSince,
   } = useSessionLivenessFacts(agentId, activeSessionId);
   // §5.5 #17-12 ③ — 여기엔 useSessionStop 이 없다(중지 창구는 TerminalInput 의 [중지] 하나, #17-10).
   const markSubAcknowledged = useGraphStore((s) => s.markSubAcknowledged);
@@ -3128,6 +3161,8 @@ export const IDEMainArea = memo(function IDEMainArea({
   const bubbleViewKey = followSessionKey(agentId, activeSessionId);
   const bubbleOn = useGraphStore((s) => s.ideBubbleView[bubbleViewKey] === true) && !showInteractiveTerminal;
   const setBubbleView = useGraphStore((s) => s.setIdeBubbleView);
+  // §5.5 #17-50 (C) — 상태바가 가리키는 명령의 세션(`StreamStatusBar` 가 올린다). 메인 탭의 지도는 이 세션 하나를 그린다.
+  const [statusBarSessionId, setStatusBarSessionId] = useState<string | null>(null);
   // 지도로 갈 때는 대화 스크롤러를 내려놓는다 — 화면에 없는 스크롤러를 워치독·정착 덮개가 계속 붙들지 않게.
   //   돌아오면 대화가 새 스크롤러를 올리고, 그것이 정착·추종 정렬을 세션 탭을 오갈 때와 같은 길로 다시 돌린다.
   useEffect(() => {
@@ -3379,7 +3414,7 @@ export const IDEMainArea = memo(function IDEMainArea({
       }
       // §5.5 #17-18 ⑪ — 줄 선 것이 먼저다(Sub 탭 `computeThinkingLive` 와 동형).
       // §5.5 #17-24 ⑥ ⑦ — 접는 중이면 압축 중. 고르는 규칙은 Sub 탭과 같은 함수 한 곳(`liveLineMode`).
-      const mode = liveLineMode(sessionWaiting, sessionCompactingSince !== null);
+      const mode = liveLineMode(sessionWaiting, sessionCompactingSince !== null, sessionWaitingForAgentsSince !== null);
       // §2.4 — 경과 시계 = 마지막 활동(보인 줄·세션 활동 중 늦은 쪽, Sub 탭과 같은 함수). 근거 없으면 `null` — `Date.now()` 면 영영 무응답이 안 된다.
       grouped.push({
         kind: 'thinking-live', id: 'thinking-live', mode,
@@ -3388,11 +3423,12 @@ export const IDEMainArea = memo(function IDEMainArea({
         // §5.5 #17-10 ⑥-6 — 평소 적는 경과는 턴 시작부터(Sub 탭과 같은 사실).
         turnStartedAt: sessionTurnStartedAt,
         ...(mode === 'compacting' && sessionCompactingSince !== null ? { compactingSince: sessionCompactingSince } : {}),
+        ...(mode === 'delegating' && sessionWaitingForAgentsSince !== null ? { waitingForAgentsSince: sessionWaitingForAgentsSince } : {}),
         ...(sessionHiddenTurn ? { hiddenTurn: true as const } : {}),
       });
     }
     return grouped;
-  }, [commands, subAgents, streams, activeSessionId, agentEvents, density, formatError, originalCommands, runningTasks, sessionHasWork, sessionWaiting, sessionLastActivityAt, sessionHiddenTurn, sessionTurnStartedAt, sessionCompactingSince]);
+  }, [commands, subAgents, streams, activeSessionId, agentEvents, density, formatError, originalCommands, runningTasks, sessionHasWork, sessionWaiting, sessionLastActivityAt, sessionHiddenTurn, sessionTurnStartedAt, sessionCompactingSince, sessionWaitingForAgentsSince]);
 
   // §5.3 #12-2 — AskUserQuestion 카드. 메인 탭: 이 에이전트의 모든 sub 질문 시간순, sub 탭: 그 sub 의 질문만.
   const pendingAskQuestions = useGraphStore((s) => s.pendingAskQuestions);
@@ -3504,7 +3540,7 @@ export const IDEMainArea = memo(function IDEMainArea({
       reviewNodes.push({ ts: mainCardPlacementTs('review', rv, senderCallsBySub), node: { t: 'review' as const, review: rv, live: isLive(rv.createdAt) } });
     }
     const merged: Array<{ ts: number; node: MainTimelineNode }> = [
-      ...items.map((item) => ({ ts: item.timestamp, node: { t: 'item' as const, item } })),
+      ...items.map((item) => ({ ts: item.sortTimestamp ?? item.timestamp, node: { t: 'item' as const, item } })),
       ...reportNodes,
       ...questionCards.map((q) => ({ ts: mainCardPlacementTs('question', q, senderCallsBySub), node: { t: 'question' as const, questions: q, live: isLive(q.createdAt) } })),
       ...reviewNodes,
@@ -4026,22 +4062,26 @@ export const IDEMainArea = memo(function IDEMainArea({
     return () => window.clearTimeout(timer);
   }, [bubbleOn]);
 
-  // §5.5 #17-50 — 지도의 재료: 이 칸의 대화와 **같은 조립**(`streams`) + 세션마다 원본 명령(턴 귀속은 원본 상태로 —
+  // §5.5 #17-50 (C) — 지도는 세션 하나다. 메인 탭은 상태바가 가리키는 명령의 세션(`bubbleMapSessionOf`) — 세션들을 합쳐 그리지 않는다.
+  //   재료는 이 칸의 대화와 **같은 조립**(`streams`)에서 그 세션만 + 원본 명령(턴 귀속은 원본 상태로 —
   //   표시용 사본은 조용한 압축 동안 대기 명령을 실행 중으로 올려 둔다). 꺼져 있으면 아무것도 만들지 않는다.
+  const bubbleSessionId = bubbleOn ? bubbleMapSessionOf(activeSessionId, statusBarSessionId, subAgents) : null;
   const bubbleStreams = useMemo(
-    () => (bubbleOn ? sessionBubbleStreamsOf(streams, originalCommands) : EMPTY_BUBBLE_STREAMS),
-    [bubbleOn, streams, originalCommands],
+    () => (bubbleSessionId !== null ? sessionBubbleStreamsOf(streams, originalCommands, bubbleSessionId) : EMPTY_BUBBLE_STREAMS),
+    [bubbleSessionId, streams, originalCommands],
   );
   const bubbleSessionIds = useMemo(
-    () => (!bubbleOn ? EMPTY_BUBBLE_SESSION_IDS : activeSessionId !== null ? [activeSessionId] : subAgents.map((s) => s.id)),
-    [bubbleOn, activeSessionId, subAgents],
+    () => (bubbleSessionId !== null ? [bubbleSessionId] : EMPTY_BUBBLE_SESSION_IDS),
+    [bubbleSessionId],
   );
   const bubbleOlderSessionIds = useOlderSessionIds(bubbleSessionIds);
+  // 메인 탭이면 상태바(에이전트 전체)가 아니라 그 세션이 도는가로 — 다른 세션이 돌아도 이 지도의 선은 흐르지 않는다.
+  const bubbleSessionRunning = useSessionRunning(agentId, bubbleSessionId ?? activeSessionId);
   const bubbleTitle = useGraphStore((s) => {
     if (!bubbleOn) return '';
     const agentLabel = s.nodeMap[agentId]?.label ?? '';
-    if (activeSessionId === null) return agentLabel;
-    return s.subAgents[agentId]?.find((x) => x.id === activeSessionId)?.label || agentLabel;
+    if (bubbleSessionId === null) return agentLabel;
+    return s.subAgents[agentId]?.find((x) => x.id === bubbleSessionId)?.label || agentLabel;
   });
 
   // §5.5 #17-36 ⑫ — 메모 링크의 "세션 글 위치"로 가기. 같은 화면 안이라 북마크 이동(#17-7)과 **같은 손잡이**를
@@ -4145,11 +4185,11 @@ export const IDEMainArea = memo(function IDEMainArea({
              내 입력 레일·정착 덮개)은 서지 않는다 — 그 판들이 가리키는 대화가 화면에 없다. */
           <SessionBubbleView
             agentId={agentId}
-            sessionId={activeSessionId}
+            sessionId={bubbleSessionId}
             streams={bubbleStreams}
             olderSessionIds={bubbleOlderSessionIds}
             title={bubbleTitle}
-            running={streamSessionRunning}
+            running={bubbleSessionRunning}
             pendingAsks={askCards.length}
             onReturnToStream={returnFromBubbles}
             onShowStandard={showStandardFromBubbles}
@@ -4267,6 +4307,7 @@ export const IDEMainArea = memo(function IDEMainArea({
               sessionTurnStartedAt={sessionTurnStartedAt}
               // §5.5 #17-24 ⑥ — 접는 중이면 라이브 1줄이 `압축 중`(메인 탭과 같은 값).
               sessionCompactingSince={sessionCompactingSince}
+              sessionWaitingForAgentsSince={sessionWaitingForAgentsSince}
               // §4 — result 블록 좋아요/싫어요 피드백 컨텍스트(소유 에이전트 + 이 세션 탭).
               agentId={agentId}
               subAgentId={activeSessionId ?? undefined}
@@ -4335,7 +4376,7 @@ export const IDEMainArea = memo(function IDEMainArea({
                           : n.item.kind === 'group'
                             ? <TerminalGroupLine group={n.item} density={density} />
                             : n.item.kind === 'thinking-live'
-                              ? <ThinkingLiveLine label={t(MAIN_LIVE_LABEL_KEY[n.item.mode])} mode={n.item.mode} lastActivityAt={n.item.lastActivityAt} turnStartedAt={n.item.turnStartedAt} hiddenTurn={n.item.hiddenTurn === true} compactingSince={n.item.compactingSince ?? null} />
+                              ? <ThinkingLiveLine label={t(MAIN_LIVE_LABEL_KEY[n.item.mode])} mode={n.item.mode} lastActivityAt={n.item.lastActivityAt} turnStartedAt={n.item.turnStartedAt} hiddenTurn={n.item.hiddenTurn === true} compactingSince={n.item.compactingSince ?? null} waitingForAgentsSince={n.item.waitingForAgentsSince ?? null} />
                               : <TerminalLine entry={n.item} density={density} run={mainSpeechRuns.get(itemId) ?? 'solo'} agentId={agentId} />}
                     </div>
                   );
@@ -4394,6 +4435,7 @@ export const IDEMainArea = memo(function IDEMainArea({
         hasExecutingCommand={sessionExecuting}
         // §5.5 #17-50 — 지도를 보고 있으면 줄 누름 = 대화로 돌아가 그 프롬프트로.
         returnToStream={bubbleOn ? returnFromBubbles : undefined}
+        onTargetSession={setStatusBarSessionId}
       />
 
       {/* Command input — 커스텀 에이전트만 입력 가능(§5.5 #17-29) */}

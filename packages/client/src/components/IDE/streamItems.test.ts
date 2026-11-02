@@ -833,3 +833,27 @@ describe('§5.5 #17-24 ⑥ — 접는 동안 라이브 1줄은 압축 중', () =
     expect(liveOf(parser.sync(events, [], true, false, null, false, 50, null)).mode).toBe('working');
   });
 });
+
+describe('agent result waiting live line', () => {
+  it('updates an unchanged stream in place as the wait starts, changes and finishes', () => {
+    const parser = new IncrementalStreamParser();
+    const events: SubAgentStreamEvent[] = [];
+    for (const since of [250, 400, null]) {
+      const full = buildBaseItems(events, [], true, false, 100, false, 50, null, since);
+      const inc = parser.sync(events, [], true, false, 100, false, 50, null, since);
+      expect(inc.thinkingLive).toEqual(full.thinkingLive);
+      expect(inc.thinkingLive?.id).toBe('thinking-live');
+      expect(inc.thinkingLive?.mode).toBe(since === null ? 'working' : 'delegating');
+      expect(inc.thinkingLive?.waitingForAgentsSince).toBe(since ?? undefined);
+    }
+    expect(parser.sync(events, [], false, false, 100, false, 50, null, 400).thinkingLive).toBeNull();
+  });
+
+  it('keeps queue and compaction displays ahead of agent wait markers', () => {
+    const queued = buildBaseItems([], [], true, true, 100, false, 50, 200, 250).thinkingLive;
+    const compacting = buildBaseItems([], [], true, false, 100, false, 50, 200, 250).thinkingLive;
+    expect(queued?.mode).toBe('waiting');
+    expect(compacting?.mode).toBe('compacting');
+    expect(compacting?.waitingForAgentsSince).toBeUndefined();
+  });
+});

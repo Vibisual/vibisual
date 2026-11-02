@@ -3,7 +3,7 @@ import { SESSION_NO_RESPONSE_MS } from '@vibisual/shared';
 import type { QueuedCommand, RunningSubagentTask, SubAgent, SubAgentStreamEvent } from '@vibisual/shared';
 import {
   liveLineActivityAt, liveLineClockFrom, liveLineMode, liveLineStalled, sessionCompactingSince, sessionHiddenTurnRunning,
-  sessionLastActivityAt, sessionTurnStartedAt,
+  sessionLastActivityAt, sessionTurnStartedAt, sessionWaitingForAgentsSince,
 } from './sessionActivity.js';
 
 const sub = (id: string, lastActivityAt: number): SubAgent => ({
@@ -15,6 +15,30 @@ const event = (subAgentId: string, timestamp: number): SubAgentStreamEvent => ({
 });
 const command = (subAgentId: string, startedAt: number): QueuedCommand => ({
   id: subAgentId, subAgentId, timestamp: 1, startedAt, status: 'executing', text: 'work',
+});
+
+describe('explicit waits for agent results', () => {
+  const waiting = (id: string, since: number): SubAgent => ({ ...sub(id, 1_000), waitingForAgentsSince: since });
+
+  it('keeps queue and compaction states ahead of agent waits', () => {
+    expect(liveLineMode(true, true, true)).toBe('waiting');
+    expect(liveLineMode(false, true, true)).toBe('compacting');
+    expect(liveLineMode(false, false, true)).toBe('delegating');
+    expect(liveLineMode(false, false, false)).toBe('working');
+    expect(liveLineStalled('delegating', SESSION_NO_RESPONSE_MS * 10)).toBe(false);
+  });
+
+  it('uses only active waits belonging to the selected session', () => {
+    const subs = [waiting('a', 200_000), waiting('b', 150_000), { ...waiting('ended', 50_000), status: 'idle' as const }];
+    expect(sessionWaitingForAgentsSince(subs, [], 'a')).toBe(200_000);
+    expect(sessionWaitingForAgentsSince(subs, [], 'ended')).toBeNull();
+    expect(sessionWaitingForAgentsSince(subs, [], null)).toBe(150_000);
+  });
+
+  it('ignores invalid timestamps and hidden preparatory turns', () => {
+    const subs = [waiting('a', 200_000), waiting('zero', 0), waiting('invalid', Number.NaN)];
+    expect(sessionWaitingForAgentsSince(subs, [{ ...command('a', 1_000), silent: true }], null)).toBeNull();
+  });
 });
 
 describe('session activity while the graph snapshot stays unchanged', () => {

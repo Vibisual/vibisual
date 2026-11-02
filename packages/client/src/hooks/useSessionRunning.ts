@@ -9,7 +9,7 @@ import type { SubAgent } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
 import { buildSessionRunInputs } from '../utils/sessionStatus.js';
 import type { SessionRunInputSources } from '../utils/sessionStatus.js';
-import { sessionCompactingSince, sessionHiddenTurnRunning, sessionLastActivityAt, sessionTurnStartedAt } from '../utils/sessionActivity.js';
+import { sessionCompactingSince, sessionHiddenTurnRunning, sessionLastActivityAt, sessionTurnStartedAt, sessionWaitingForAgentsSince } from '../utils/sessionActivity.js';
 
 /** store 전체 모양 — `GraphState` 는 스토어 밖으로 내보내지 않으므로 여기서 되짚는다. */
 type GraphSnapshot = ReturnType<typeof useGraphStore.getState>;
@@ -86,10 +86,11 @@ export interface SessionLivenessFacts {
    * 경과의 근거다(`sessionCompactingSince` — 감춘 턴의 압축은 거른다). 돌지 않으면 `null`.
    */
   compactingSince: number | null;
+  waitingForAgentsSince: number | null;
 }
 
 const EMPTY_FACTS: SessionLivenessFacts = {
-  running: false, waiting: false, lastActivityAt: null, hiddenTurn: false, turnStartedAt: null, compactingSince: null,
+  running: false, waiting: false, lastActivityAt: null, hiddenTurn: false, turnStartedAt: null, compactingSince: null, waitingForAgentsSince: null,
 };
 
 /** §2.4 (무응답) — 생존 표시의 재료. **지문 문자열을 구독**하고 거기서 되짚는다 — 새 객체를 돌려주면 zustand 가 매번 바뀐 것으로 보아 끝없이 리렌더한다. */
@@ -115,7 +116,8 @@ export function useSessionLivenessFacts(agentId: string, activeSessionId: string
     // 압축 중 — 도는 동안만 본다(서버가 걷기 전에 끝난 세션이 "압축 중"으로 남지 않게). 서버가 세우고 걷을
     //   때만 값이 바뀌므로 지문이 줄마다 흔들리지 않는다.
     const compacting = running ? sessionCompactingSince(s.subAgents[agentId] ?? [], commands, activeSessionId) ?? 0 : 0;
-    return `${inputs.subStatus ?? ''}|${running ? 1 : 0}|${waiting ? 1 : 0}|${last}|${hidden ? 1 : 0}|${turnStart}|${compacting}`;
+    const delegating = running ? sessionWaitingForAgentsSince(s.subAgents[agentId] ?? [], commands, activeSessionId) ?? 0 : 0;
+    return `${inputs.subStatus ?? ''}|${running ? 1 : 0}|${waiting ? 1 : 0}|${last}|${hidden ? 1 : 0}|${turnStart}|${compacting}|${delegating}`;
   });
   return useMemo(() => {
     if (!fingerprint) return EMPTY_FACTS;
@@ -123,6 +125,7 @@ export function useSessionLivenessFacts(agentId: string, activeSessionId: string
     const last = Number(parts[3]);
     const turnStart = Number(parts[5]);
     const compacting = Number(parts[6]);
+    const delegating = Number(parts[7]);
     return {
       running: parts[1] === '1',
       waiting: parts[2] === '1',
@@ -130,6 +133,7 @@ export function useSessionLivenessFacts(agentId: string, activeSessionId: string
       hiddenTurn: parts[4] === '1',
       turnStartedAt: Number.isFinite(turnStart) && turnStart > 0 ? turnStart : null,
       compactingSince: Number.isFinite(compacting) && compacting > 0 ? compacting : null,
+      waitingForAgentsSince: Number.isFinite(delegating) && delegating > 0 ? delegating : null,
     };
   }, [fingerprint]);
 }

@@ -3,6 +3,8 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentConfig, CodexInventory } from '@vibisual/shared';
 import { IDECodexSkillsView } from './IDECodexViews.js';
+import { codexInventoryScopeKey } from '../../stores/codexInventoryClient.js';
+import { registerTerminalWsSender } from '../../transport/mobileTerminalBridge.js';
 
 const fixture = vi.hoisted(() => ({
   state: null as ReturnType<typeof makeState> | null,
@@ -38,7 +40,11 @@ vi.mock('../../hooks/useAvailableSkills.js', () => ({ useAvailableSkills: () => 
 vi.mock('../ScrollFade.js', () => ({ ScrollFade: ({ children }: { children: ReactNode }) => createElement('div', null, children) }));
 function makeState() {
   return {
-    codexInventory: { mcpServers: [], skills: [], plugins: [], hooks: [], agentsDocs: [], checkedAt: 1 } as CodexInventory | null,
+    activeProject: '/project-a',
+    agentProjects: { agent: '/project-a', 'agent-2': '/project-b' } as Record<string, string>,
+    codexInventories: {
+      '["agent","/project-a"]': { mcpServers: [], skills: [], plugins: [], hooks: [], agentsDocs: [], checkedAt: 1 },
+    } as Record<string, CodexInventory>,
     refreshCodexInventory: vi.fn(),
     agentConfigs: { agent: { provider: { kind: 'codex-cli', modelId: 'model' } } } as Record<string, Partial<AgentConfig>>,
     agentSessionInputs: { 'agent:session': { text: 'Existing draft' } } as Record<string, { text: string }>,
@@ -68,6 +74,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => view?.unmount());
   view = undefined;
+  registerTerminalWsSender(null);
   vi.unstubAllGlobals();
 });
 
@@ -117,6 +124,23 @@ describe('Codex skills pane — own engine first, other engine behind a tab', ()
     expect(shareButton()).toBeUndefined();
   });
 
+  it('masks another project’s inventory on switch and requests only the selected scope', async () => {
+    const scopeA = codexInventoryScopeKey(fixture.state!, 'agent');
+    fixture.state!.codexInventories[scopeA]!.skills = [{ name: 'project-a-only', path: '/project-a/.agents/skills/a' }];
+    await render();
+    expect(JSON.stringify(view!.toJSON())).toContain('project-a-only');
+    fixture.agentId = 'agent-2';
+    await act(async () => { fixture.paneListeners.forEach((listener) => listener()); });
+    expect(JSON.stringify(view!.toJSON())).not.toContain('project-a-only');
+    expect(JSON.stringify(view!.toJSON())).toContain('ide.codex.loading');
+    expect(fixture.state!.refreshCodexInventory).toHaveBeenCalledExactlyOnceWith('agent-2', false);
+
+    fixture.agentId = 'agent';
+    await act(async () => { fixture.paneListeners.forEach((listener) => listener()); });
+    expect(JSON.stringify(view!.toJSON())).toContain('project-a-only');
+    expect(fixture.state!.refreshCodexInventory).toHaveBeenCalledTimes(1);
+  });
+
   // 좁은 창은 세션을 바꾸면 서랍을 닫고 사이드바를 내린다 — 칸이 다시 서도 같은 에이전트의 탭은 남는다(②).
   it('keeps the picked tab when the pane is taken down and put back for the same agent', async () => {
     await render();
@@ -149,7 +173,7 @@ describe('Codex skills pane — own engine first, other engine behind a tab', ()
 
   // 서버는 스킬을 못 읽으면 빈 목록 + 사유를 보낸다 — 그대로 적으면 "Codex 0"·"아직 스킬이 없습니다"가 된다(③).
   it('leaves the Codex count blank and shows the reason when the skill list could not be read', async () => {
-    fixture.state!.codexInventory = {
+    fixture.state!.codexInventories[codexInventoryScopeKey(fixture.state!, 'agent')] = {
       mcpServers: [], skills: [], plugins: [], hooks: [], agentsDocs: [], checkedAt: 1, errors: { skills: 'exit 1' },
     } as CodexInventory;
     await render();
@@ -188,7 +212,7 @@ describe('Codex sharing pane integration', () => {
   });
 
   it('shows sharing before the native inventory has loaded', async () => {
-    fixture.state!.codexInventory = null;
+    fixture.state!.codexInventories = {};
     await shareFromPane();
     expect(fixture.state!.setAgentSessionInputText).toHaveBeenCalledExactlyOnceWith('agent', 'session', '$review \nExisting draft');
   });
@@ -199,6 +223,25 @@ describe('Codex sharing pane integration', () => {
     fixture.state!.agentConfigs.agent!.executionMode = 'interactive-terminal';
     await shareFromPane();
     expect(write).toHaveBeenCalledExactlyOnceWith('term:agent:session', '$review ');
+    expect(fixture.state!.setAgentSessionInputText).not.toHaveBeenCalled();
+  });
+
+  it.each(['native', 'shared'])('types a %s skill through the mobile WebSocket terminal', async (source) => {
+    const sender = vi.fn();
+    registerTerminalWsSender(sender);
+    fixture.state!.agentConfigs.agent!.executionMode = 'interactive-terminal';
+    if (source === 'shared') await shareFromPane();
+    else {
+      fixture.state!.codexInventories[codexInventoryScopeKey(fixture.state!, 'agent')]!.skills = [
+        { name: 'review', path: '/project/.agents/skills/review' },
+      ];
+      await render();
+      const skill = view!.root.findAllByType('li').find((node) => typeof node.props.onClick === 'function')!;
+      await act(async () => skill.props.onClick());
+    }
+    expect(sender).toHaveBeenCalledExactlyOnceWith({
+      type: 'term_write', payload: { termId: 'term:agent:session', data: '$review ' }, timestamp: expect.any(Number),
+    });
     expect(fixture.state!.setAgentSessionInputText).not.toHaveBeenCalled();
   });
 });

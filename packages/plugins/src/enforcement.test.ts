@@ -14,7 +14,7 @@ const SRC = path.resolve(__dirname);
 const ids = PLUGIN_MANIFESTS.map((m) => m.id);
 
 // 모든 카드가 지켜야 하는 실행 범위는 카드 고유 규칙의 중복에 포함하지 않는다.
-const VERIFICATION_SCOPE = 'Vibisual 검증 정책이 켜져 있으면 최신 [검증 권한] 범위 안에서만, 꺼져 있으면 사용자의 직접 지시와 작업 범위에 맞춰';
+const VERIFICATION_SCOPE = '사용자의 직접 지시와 작업 범위에 맞춰';
 const STOP = new Set(['그', '것', '수', '때', '더', '이', '하라', '마라', '하고', '있으면', '있는', '함께']);
 function ruleWords(s: string): Set<string> {
   return new Set(

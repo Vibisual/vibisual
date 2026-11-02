@@ -25,6 +25,7 @@ import { ContextInsurancePopup } from '../Panel/ContextInsurancePopup.js';
 import { AgentConfigPopup } from '../Panel/AgentConfigPopup.js';
 import type { PopupAnchorRect } from '../Panel/modelSectionView.js';
 import { useCodexEffectiveConfig } from '../Codex/useCodexEffectiveConfig.js';
+import { clientPathPlatform } from '../../utils/platform.js';
 
 interface IDEStatusBarProps {
   agent: BubbleData;
@@ -197,7 +198,7 @@ export const IDEStatusBar = memo(function IDEStatusBar({
   const inheritedCodexEffort = useGraphStore((s) => {
     const projectName = s.agentProjects[agent.id];
     const projectPath = projectName ? s.projects[projectName]?.path : undefined;
-    return resolveAgentDefaults(s.userDefaults, 'codex', projectPath).provider?.reasoningEffort;
+    return resolveAgentDefaults(s.userDefaults, 'codex', projectPath, clientPathPlatform()).provider?.reasoningEffort;
   });
   const codexConfig = useCodexEffectiveConfig(isCustom && providerKind === 'codex-cli', agent.id);
   const codexModel = useGraphStore((s) => s.codexModels?.models.find((entry) => entry.slug === providerModelId));

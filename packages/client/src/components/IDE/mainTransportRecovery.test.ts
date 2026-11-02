@@ -19,8 +19,8 @@ function event(id: string, subAgentId: string, eventType: SubAgentStreamEvent['e
 }
 
 describe('main transcript transport recovery', () => {
-  it('coalesces persisted errors and new system notices, with hidden thinking proving resumption', () => {
-    const events = [event('r1', 'S', 'error', RETRY, 2), event('r2', 'S', 'system', FALLBACK, 3), event('think', 'S', 'thinking', 'Working again', 4)];
+  it.each([RETRY, 'Reconnecting... 2/5'])('coalesces persisted errors and new system notices, with hidden thinking proving resumption: %s', (firstRetry) => {
+    const events = [event('r1', 'S', 'error', firstRetry, 2), event('r2', 'S', 'system', FALLBACK, 3), event('think', 'S', 'thinking', 'Working again', 4)];
     for (const selected of [null, 'S']) {
       const entries = buildEntries([command('S')], [sub('S')], { S: events }, selected, [], formatError);
       const recoveries = entries.filter((entry) => entry.transportRecovery);

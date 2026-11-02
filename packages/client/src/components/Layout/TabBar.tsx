@@ -812,6 +812,8 @@ export function TabBar(): React.JSX.Element | null {
     const th = thumbRef.current;
     if (!el || !fL || !fR || !th) return;
     const overflow = el.scrollWidth - el.clientWidth;
+    // §3.7 — 넘치면 줄 상자가 no-drag 를 대신 신고한다(가려진 탭이 줄 밖 제목줄을 뚫는다 — index.css `.tab-strip-overflow`).
+    el.classList.toggle('tab-strip-overflow', overflow > 0);
     fL.classList.toggle('scroll-fade-shown', el.scrollLeft > 4);
     fR.classList.toggle('scroll-fade-shown', overflow - el.scrollLeft > 4);
     if (overflow <= 0 || el.clientWidth <= 0) {

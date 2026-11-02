@@ -33,12 +33,15 @@ import {
   clampDockSize,
   clampFloatGeom,
   computeDockLayout,
+  cornerFloatRect,
   defaultDockSize,
   dockOrderForDrop,
   dockSizeForDrop,
   dockSlotsOf,
   dockZoneButtons,
+  dropTargetTouchesSide,
   initialFloatGeom,
+  isCornerTarget,
   isHorizontalSide,
   isPinnedToViewportEdge,
   dockSizeFromDrag,
@@ -59,6 +62,8 @@ import {
   type DockEntryLock,
   type DockZoneButton,
   type DockedPane,
+  type IDEDropTarget,
+  type IDEFloatCorner,
   type FloatGeom,
   type FloatPushDir,
   type FloatResizeEdge,
@@ -206,7 +211,15 @@ const FLOAT_RESIZE_CLASS: Record<FloatResizeEdge, string> = {
   se: 'right-0 bottom-0 h-3 w-3 cursor-nwse-resize',
 };
 
-/** 도킹 십자 버튼 글리프 — 탭 합류는 겹친 두 장, 새 칸은 그 방향으로 갈린 네모(그림만 보고 결과를 알게). */
+/** 모서리 버튼 글리프 — 창문 네 칸 중 그 칸을 둘러싼 칸막이(이모지 ❌ · lucide 톤 stroke SVG). */
+const CORNER_GLYPH_PATH: Record<IDEFloatCorner, string> = {
+  'top-left': 'M12 3v9M3 12h9',
+  'top-right': 'M12 3v9M12 12h9',
+  'bottom-left': 'M3 12h9M12 12v9',
+  'bottom-right': 'M12 12h9M12 12v9',
+};
+
+/** 도킹 십자 버튼 글리프 — 탭 합류는 겹친 두 장, 새 칸은 그 방향으로 갈린 네모, 모서리는 창문의 그 칸(그림만 보고 결과를 알게). */
 function dockZoneGlyph(zone: DockZoneButton): React.JSX.Element {
   if (zone.kind === 'tab') {
     return (
@@ -216,12 +229,11 @@ function dockZoneGlyph(zone: DockZoneButton): React.JSX.Element {
       </>
     );
   }
-  if (zone.kind === 'edge') {
-    // 빈 변에 처음 붙이는 자리 — 붙이기 메뉴와 **같은 글리프**를 쓴다(같은 일을 두 모양으로 그리지 않는다).
+  if (zone.kind === 'corner') {
     return (
       <>
         <rect x="3" y="3" width="18" height="18" rx="2" />
-        <path d={DOCK_GLYPH_PATH[zone.target.side]} />
+        <path d={CORNER_GLYPH_PATH[zone.target.corner]} />
       </>
     );
   }
@@ -593,7 +605,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   const [snapRect, setSnapRect] = useState<Rect | null>(null);
   /** 드래그 중 뜨는 도킹 십자(언리얼 방향 위젯)와 지금 겨눈 자리. */
   const [zoneButtons, setZoneButtons] = useState<DockZoneButton[]>([]);
-  const [dropTarget, setDropTarget] = useState<DockDropTarget | null>(null);
+  const [dropTarget, setDropTarget] = useState<IDEDropTarget | null>(null);
   /** §5.5 #17-6 (H-11) 돌아온 판이 잠근 벽 — 그 변의 십자 버튼을 흐리게 그린다(안 그러면 겨눠도 안 밝아지는 까닭 없는 무반응). */
   const [dockLockSide, setDockLockSide] = useState<IDEDockSide | null>(null);
   /** 자석이 붙은 선 — 왜 창이 살짝 튀었는지 눈으로 보이게 한다. */
@@ -1196,10 +1208,10 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     let nextW = init.width;
     let nextH = init.height;
     /** 지금 커서가 가리키는 도킹 자리 — mouseup 이 이 값 하나로 붙일지 말지를 정한다. */
-    let dropAt: DockDropTarget | null = null;
+    let dropAt: IDEDropTarget | null = null;
     /**
-     * §5.5 #17-6 (H-11) 들어온 벽 잠금 — 이어받은 판에서만. 되돌아오는 문턱(48px)이 스냅 폭(≥120px) 안이라
-     * 들여놓자마자 떼면 그 벽에 붙는다 — 그 벽 하나만 잠근다.
+     * §5.5 #17-6 (H-11) 들어온 벽 잠금 — 이어받은 판에서만. 되돌아오는 문턱(48px)이 모서리 인식 폭·붙은 칸 안이라
+     * 들여놓자마자 떼면 붙는다 — 그 벽에 맞닿은 자리만 잠근다.
      */
     let entryLock: DockEntryLock | null = null;
     /**
@@ -1648,7 +1660,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         lockSideShown = entryLock?.side ?? null;
         setDockLockSide(lockSideShown);
       }
-      // 도킹 자리 — 네 변 + **붙어 있는 칸 위**(가운데는 탭 합류, 앞뒤 띠는 새 칸).
+      // 붙일 자리 — 네 모서리 + **붙어 있는 칸 위**(가운데는 탭 합류, 앞뒤 띠는 새 칸).
       //   자리가 바뀔 때만 미리보기를 다시 잰다(매 프레임 새 객체를 넣으면 드래그 내내 리렌더가 붙는다).
       const nextTarget = disableDock
         ? null
@@ -1656,9 +1668,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       if (!sameDockTarget(nextTarget, dropAt)) {
         dropAt = nextTarget;
         setDropTarget(nextTarget);
-        setSnapRect(nextTarget
-          ? previewDockRect(nextTarget, vp, others, dockSizeAtDrop(nextTarget, others, vp))
-          : null);
+        setSnapRect(!nextTarget
+          ? null
+          : isCornerTarget(nextTarget)
+            ? cornerFloatRect(nextTarget.corner, vp, others)
+            : previewDockRect(nextTarget, vp, others, dockSizeAtDrop(nextTarget, others, vp)));
       }
       // 붙을 자리를 겨누는 동안에는 밀기·자석을 함께 끈다 — 미리보기가 이미 자리를 말한다.
       if (!dropAt) {
@@ -1707,6 +1721,17 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       if (!dropAt) {
         // 붙이지 않고 놓았다 = 사용자가 정한 자리다. 접었다 펴거나 탭을 옮겨도 그대로여야 한다.
         if (lastGeom) commitFloat(lastGeom);
+        return;
+      }
+      if (isCornerTarget(dropAt)) {
+        // 모서리 = 떠 있는 창을 그 칸 크기로 앉힌다(도크가 아니다 — 캔버스를 깎지 않는다).
+        const cell = cornerFloatRect(dropAt.corner, viewportNow(), others);
+        lastGeom = cell;
+        nextW = cell.w;
+        nextH = cell.h;
+        setFloatSize({ w: cell.w, h: cell.h });
+        setFloatPos({ x: cell.x, y: cell.y });
+        commitFloat(cell);
         return;
       }
       setPaneDock(paneKey, {
@@ -2280,8 +2305,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         e.stopPropagation();
       } : undefined}
     >
-      {/* §5.5 #17-1 — 드래그 중 우측 도킹 미리보기 (Windows Snap Assist 풍).
-          파란 반투명 영역이 도킹될 자리를 미리 보여준다. pointer-events 없음. */}
+      {/* §5.5 #17-1 — 드래그 중 붙을 자리 미리보기 (Windows Snap Assist 풍) — 도크 칸 또는 모서리 칸. pointer-events 없음. */}
       {snapRect && (
         <div
           className="fixed rounded-lg border-2 border-blue-400/70 bg-blue-400/15 transition-opacity duration-100"
@@ -2301,10 +2325,12 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       {zoneButtons.map((zone) => {
         const active = sameDockTarget(zone.target, dropTarget);
         // (H-11) 밖에서 돌아온 판이 잠가 둔 벽 — 겨눠도 안 밝아지는 자리이므로 그렇게 보이게 한다.
-        const locked = zone.target.side === dockLockSide;
+        const locked = dockLockSide !== null && dropTargetTouchesSide(zone.target, dockLockSide);
         return (
           <div
-            key={`${zone.target.side}:${zone.target.index}:${zone.target.mode}`}
+            key={zone.kind === 'corner'
+              ? `corner:${zone.target.corner}`
+              : `${zone.target.side}:${zone.target.index}:${zone.target.mode}`}
             className={`fixed flex items-center justify-center rounded-md border transition-all duration-100 ${
               active
                 ? 'border-blue-300 bg-blue-500/35 text-blue-50 shadow-lg shadow-blue-500/30'

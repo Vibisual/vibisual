@@ -383,7 +383,6 @@
         "agent": "Default Agent",
         "appearance": "Tampilan",
         "notifications": "Notifikasi",
-        "permissions": "Izin",
         "advanced": "Lanjutan",
         "version": "Versi",
         "account": "Akun",
@@ -774,16 +773,35 @@
         "webOpenTargetExternal": "Peramban Anda",
         "webOpenTargetExternalDesc": "Bawaan. Membuka di peramban yang biasa Anda gunakan.",
         "webOpenTargetIframe": "Tab iframe di dalam aplikasi",
-        "webOpenTargetIframeDesc": "Membuka tab web di bilah tab agar Anda bisa membacanya di dalam aplikasi. Halaman internet berjalan di tampilan sandbox terpisah tanpa izin apa pun, dan info masuk dihapus saat aplikasi ditutup."
+        "webOpenTargetIframeDesc": "Membuka tab web di bilah tab agar Anda bisa membacanya di dalam aplikasi. Halaman internet berjalan di tampilan sandbox terpisah tanpa izin apa pun, dan info masuk dihapus saat aplikasi ditutup.",
+        "folderMenuTitle": "Menu klik kanan folder",
+        "folderMenuIntro": "Klik kanan folder di pengelola file Anda lalu pilih “Buka proyek di Vibisual” untuk membukanya di sini sebagai proyek. Jika Vibisual belum berjalan, aplikasi akan dimulai lalu membuka folder itu.",
+        "folderMenuEnabled": "Tampilkan “Buka proyek di Vibisual” saat folder diklik kanan",
+        "folderMenuEnabledDesc": "Diterapkan saat disimpan. Menonaktifkannya menghapus item dari menu.",
+        "folderMenuStatusChecking": "Menerapkan menu. Periksa lagi sebentar lagi.",
+        "folderMenuStatusDesktopOnly": "Tersedia di aplikasi desktop.",
+        "folderMenuStatusDevBuild": "Ini adalah eksekusi pengembangan, jadi menu diserahkan ke aplikasi yang terpasang.",
+        "folderMenuStatusNoFileManager": "Tidak ditemukan pengelola file yang didukung (Files, Caja, Dolphin, atau Nemo).",
+        "folderMenuStatusUnsupported": "Tidak tersedia di sistem ini.",
+        "folderMenuStatusError": "Tidak dapat memperbarui menu: {{error}}",
+        "folderMenuStatusInstalled": "Ditambahkan ke {{targets}}.",
+        "folderMenuStatusOff": "Tidak ditampilkan di menu.",
+        "folderMenuHintWindows": "Di Windows 11, item ini ada di “Tampilkan opsi lainnya”.",
+        "folderMenuHintMac": "Di Finder, item ini ada di “Tindakan Cepat” atau “Layanan”.",
+        "folderMenuHintScripts": "Di Files dan Caja, item ini ada di “Skrip”.",
+        "folderMenuRefresh": "Periksa lagi",
+        "folderMenuTargets": {
+          "windowsExplorer": "File Explorer",
+          "macosFinder": "Finder",
+          "nautilus": "Files (Nautilus)",
+          "caja": "Caja",
+          "dolphin": "Dolphin",
+          "nemo": "Nemo"
+        }
       },
       "notifications": {
         "cmdBlocked": "Beri tahu saat sesi CMD menunggu input",
         "cmdBlockedDesc": "Hanya memberi tahu saat Anda sedang melihat tab atau jendela lain — jika jendela sedang fokus, itu sudah terlihat di layar."
-      },
-      "permissions": {
-        "verificationGateIntro": "Kebijakan ini hanya berlaku untuk Codex dan Claude Code saat diaktifkan. Agen kemudian diinstruksikan untuk menjalankan pengujian, lint, pemeriksaan tipe, build verifikasi, E2E, pemeriksaan browser, perbandingan tangkapan layar, dan agen verifikasi hanya jika diminta dalam tugas saat ini. Pemanggilan yang tidak diminta diblokir sebelum dijalankan.",
-        "verificationGateEnabled": "Wajibkan permintaan sebelum menjalankan verifikasi",
-        "verificationGateEnabledDesc": "Nonaktif secara default. Saat nonaktif, Vibisual tidak menambahkan batasan verifikasi ke prompt dan tidak memblokir pemanggilan berdasarkan kebijakan ini. Saat aktif, skrip dengan nama yang mengandung check, verify, atau test juga dapat diblokir. Simpan dengan {{apply}}: perubahan pemblokiran berlaku mulai pemanggilan alat berikutnya, sedangkan perubahan panduan dalam prompt berlaku mulai giliran berikutnya."
       },
       "engines": {
         "title": "Engine",
@@ -4936,8 +4954,8 @@
       "run": "Jalankan",
       "stop": "Hentikan",
       "stopping": "Menghentikan…",
-      "followUp": "Tambah",
-      "followUpTitle": "Kirim pesan lanjutan tanpa menghentikan agen (Enter)",
+      "followUp": "Pesan tambahan",
+      "followUpTitle": "Masukkan pesan tambahan ke antrean. Pilih cara pengiriman pada gelembung pesannya (Enter)",
       "queuedTitle": "{{count}} menunggu",
       "queuedHint": "Gabung mengirim pesan lanjutan bersama-sama dalam satu giliran. Tunggu memberi pesan gilirannya sendiri; Sekarang menyela giliran yang sedang berjalan.",
       "queuedRemove": "Hapus dari antrean",
@@ -4945,12 +4963,14 @@
       "dispatchMode": {
         "wait": "Tunggu",
         "merge": "Gabung",
-        "immediate": "Sekarang"
+        "immediate": "Sekarang",
+        "steer": "Kirim ke tugas aktif"
       },
       "dispatchModeTitle": {
         "wait": "Tunggu — jalankan pesan ini di gilirannya sendiri setelah giliran saat ini berakhir",
         "merge": "Gabung — kirim pesan ini bersama pesan-pesan gabung berikutnya dalam satu giliran",
-        "immediate": "Sekarang — hentikan giliran saat ini dan lanjutkan dengan pesan ini (percakapan tetap disimpan)"
+        "immediate": "Sekarang — hentikan giliran saat ini dan lanjutkan dengan pesan ini (percakapan tetap disimpan)",
+        "steer": "Kirim ke tugas aktif — sampaikan pesan tanpa menghentikan tugas saat ini. Periksa balasan untuk melihat tindak lanjutnya."
       },
       "executing": "Mengeksekusi…",
       "readOnly": "Hanya baca — bubble hook hanya mencerminkan sesi eksternal. Kirim perintah dari custom agent.",
@@ -5138,7 +5158,29 @@
       "stopRetry": "Coba lagi",
       "sendRejected": "Permintaan ditolak. Teks dan lampiran Anda telah dipulihkan. Tinjau percakapan sebelum mengirim lagi.",
       "sendUnconfirmed": "Pengiriman tidak dapat dikonfirmasi. Teks dan lampiran Anda telah dipulihkan. Periksa percakapan sebelum mengirim lagi.",
-      "localImagesUnsupported": "All Model belum mendukung input gambar. Hapus gambar atau pilih penyedia lain untuk mengirim pesan ini."
+      "localImagesUnsupported": "All Model belum mendukung input gambar. Hapus gambar atau pilih penyedia lain untuk mengirim pesan ini.",
+      "liveDelivery": {
+        "waiting": "Menunggu pengiriman",
+        "sending": "Mengirim…",
+        "delivered": "Terkirim",
+        "unavailable": "Tidak dapat dikirim",
+        "uncertain": "Pengiriman belum terkonfirmasi",
+        "reason": {
+          "noActiveTurn": "Tidak ada tugas aktif yang dapat menerima pesan ini.",
+          "unsupported": "Sesi ini tidak mendukung pesan saat tugas sedang berjalan.",
+          "turnScope": "Pesan dengan pengaturan eksekusi khusus harus dikirim sebagai permintaan terpisah.",
+          "deliveryRejected": "Agen tidak menerima pesan ini.",
+          "deliveryUnknown": "Penerimaan pesan ini oleh agen tidak dapat dikonfirmasi."
+        },
+        "hint": {
+          "waiting": "Pesan ini menunggu untuk dikirim ke tugas aktif.",
+          "sending": "Menunggu konfirmasi penerimaan dari agen.",
+          "delivered": "Dikirim sebagai instruksi tambahan untuk tugas aktif.",
+          "unavailable": "Pilih “{{wait}}” untuk mengirim setelah tugas selesai, atau “{{immediate}}” untuk menghentikan tugas dan memulai dengan pesan ini.",
+          "uncertain": "Pesan tidak akan dikirim ulang secara otomatis. Pengubahan dan penghapusan dikunci untuk mencegah pengiriman ganda; teks masih dapat disalin."
+        },
+        "retry": "Coba lagi"
+      }
     },
     "voiceInstall": {
       "title": "Siapkan input suara",
@@ -5259,6 +5301,7 @@
       "verify": "Verifikasi",
       "specReading": "Bacaan",
       "customize": "Sesuaikan bilah aktivitas",
+      "configure": "Atur {{name}}",
       "resetLayout": "Tata letak bawaan",
       "dragHint": "Tekan dan tahan item, lalu seret untuk mengubah urutan",
       "shownSection": "Ditampilkan",
@@ -5771,6 +5814,8 @@
       "imageMissing": "(gambar tidak tersedia)",
       "waiting": "menunggu",
       "compacting": "memadatkan",
+      "delegating": "Menunggu agen lain",
+      "delegatingHint": "Giliran ini sedang menunggu hasil pekerjaan agen lain. Anda tetap dapat menghentikannya.",
       "compactingHint": "Konteks sudah penuh, sehingga CLI sedang meringkas percakapan sebelumnya untuk memberi ruang. Proses ini biasanya memakan waktu beberapa menit — wajar jika tidak ada output baru selama itu."
     },
     "report": {
@@ -5972,7 +6017,7 @@
       "superseded": "Rencana diperbarui"
     },
     "transportRecovery": {
-      "reconnecting": "Menghubungkan kembali… {{attempt}}/{{maxAttempts}}",
+      "reconnecting": "Menghubungkan kembali…",
       "fallback": "Mencoba metode koneksi lain…",
       "resumed": "Koneksi pulih · pekerjaan dilanjutkan",
       "ended": "Pemulihan koneksi telah dicoba"
@@ -6249,7 +6294,6 @@
         "systemPrompt": "System prompt Claude Code",
         "compactSelf": "Pemadatan mandiri Agent",
         "compactRecovery": "Catatan pemulihan pasca-compaction",
-        "verificationPolicy": "Kebijakan verifikasi",
         "autoGoalSkills": "Prosedur terdeteksi",
         "codexInstructions": "Instruksi proyek Codex",
         "codexGlobalInstructions": "Instruksi global Codex",
@@ -6368,11 +6412,6 @@
             "what": "Catatan satu giliran yang mencantumkan apa yang tampaknya tidak dibawa oleh ringkasan compaction.",
             "more": "Dibuat dari snapshot yang diambil tepat sebelum compaction, lalu dibandingkan dengan teks ringkasan. Ini dikirim sekali dan tidak pernah diulang.",
             "off": "Matikan ini, dan sesi tetap berlanjut setelah compaction tanpa catatan tentang apa yang hilang dari ringkasan."
-          },
-          "verificationPolicy": {
-            "what": "Panduan opsional bagi Codex dan Claude Code untuk menjalankan verifikasi hanya jika diminta dalam tugas saat ini, beserta izin verifikasi untuk tugas tersebut.",
-            "more": "Kebijakan ini nonaktif secara default. Saat diaktifkan, Vibisual memberikan izin verifikasi berdasarkan pesan Anda atau tombol verifikasi untuk tugas tersebut. Saat dinonaktifkan, tidak ada panduan pembatasan yang ditambahkan dan pemanggilan verifikasi tidak diblokir.",
-            "off": "Sakelar sumber ini hanya menyembunyikan panduan saat kebijakan aktif. Aktifkan atau nonaktifkan panduan dan pemblokiran eksekusi sekaligus di {{options}}, pada bagian {{permissions}}. Kebijakan ini nonaktif secara default."
           },
           "hookEnforcement": {
             "what": "Blok yang disuntikkan Vibisual ke sesi yang menyambungkan dirinya lewat hooks Claude Code.",
@@ -6567,9 +6606,12 @@
       "saveError": "Tidak bisa memastikan perubahan ini tersimpan. Ukur ulang untuk memeriksa pengaturan saat ini."
     },
     "goal": {
+      "activationRules": "Aturan aktivasi",
+      "enabledHint": "Aktif — sasaran dan pembaruan progres disertakan dalam sesi ini.",
+      "disabledHint": "Nonaktif secara default — tanpa sasaran otomatis atau instruksi sasaran. Sasaran yang ada tetap disimpan.",
       "title": "Tujuan",
       "pickSession": "Pilih sesi untuk melihat tujuannya.",
-      "waiting": "Belum ada tujuan. Tujuan akan muncul begitu sesi menyusun rencana.",
+      "waiting": "Belum ada sasaran. Sasaran muncul setelah pelacakan diaktifkan dan sesi membuat rencana.",
       "sample": {
         "badge": "Contoh",
         "text": "Selesaikan tugas dan pastikan berjalan",
@@ -6814,16 +6856,6 @@
         "warn": "Jika masih ada bagian wajib yang belum dibaca saat giliran hendak berakhir, giliran dikembalikan agar terus dibaca.",
         "enforce": "Suntingan ditolak selama bagian wajib belum dibaca. Setelah batas percobaan tercapai, penghalangan berhenti."
       }
-    },
-    "verifyPolicy": {
-      "notRun": "Verifikasi tidak dijalankan",
-      "notRunTip": "Tidak ada tes, build, atau pemeriksaan browser yang dijalankan untuk tugas ini. Gunakan tombol di samping tanda ini, atau minta verifikasi di pesan Anda.",
-      "blockedTip": "Agent mencoba menjalankan verifikasi sebanyak {{count}} kali; upaya tersebut diblokir sebelum sempat berjalan.",
-      "ran": "Verifikasi dijalankan ×{{count}}",
-      "ranTip": "Verifikasi dijalankan sesuai cakupan yang Anda minta. Lulus atau tidaknya dapat dilihat di balasan di atas.",
-      "runTip": "Jalankan pemeriksaan yang terkait dengan perubahan ini (tes terkait, type check, lint, build). Kegagalan dilaporkan, tidak diperbaiki.",
-      "runFailed": "Tidak dapat memulai: {{error}}",
-      "runPrompt": "Verifikasi perubahan dari tugas sebelumnya. Jalankan hanya pemeriksaan yang terkait dengan perubahan itu (tes terkait, type check, lint, build) — bukan seluruh test suite, E2E, atau pemeriksaan browser. Laporkan masing-masing sebagai lulus, gagal, atau tidak diperiksa. Jangan perbaiki kegagalan; cukup laporkan.\n\nTugas sebelumnya: {{task}}"
     },
     "verify": {
       "title": "Verifikasi",
@@ -8766,7 +8798,7 @@
       "pragmatic": "Pragmatis"
     },
     "inheritProject": "Default proyek / global",
-    "individualSettingsHint": "Berlaku untuk agen ini. Pengaturan yang sama dengan default tetap mengikuti perubahan proyek dan pengaturan global.",
+    "individualSettingsHint": "Hanya berlaku untuk agent ini. Nilai yang Anda pilih di sini tidak ikut berubah saat pengaturan proyek atau global diubah. Pilih “{{inherit}}” untuk kembali mengikuti pengaturan tersebut.",
     "provider": "Penyedia",
     "claude": "Claude",
     "codex": "Codex",

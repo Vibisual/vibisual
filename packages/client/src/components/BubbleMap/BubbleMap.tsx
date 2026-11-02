@@ -112,7 +112,7 @@ import { computeTidyLayout, computeTidySatellitesNested, tidyBandOf, type TidyIt
 // §5.4 #33 (I) — "누구와 함께 앉나"는 여기가 쥔다(배치 기하와 갈라 둔다).
 import { computeTidyGrouping, type TidySortItem } from './tidySort.js';
 // §5.1 #2-2 — 새 버블의 첫 자리(주인 둘레 등장 영역 — 붐비면 바깥 고리로 넓힌다).
-import { buildSpawnField, isSpawnZoneSeated, orbitReachOf, seatSpawnZoneBubbles } from './spawnZoneSeating.js';
+import { buildSpawnField, isSpawnZoneSeated, satelliteUpstreamOf, seatSpawnZoneBubbles } from './spawnZoneSeating.js';
 import { useHeatScale } from '../../hooks/useHeatScale.js';
 import { useCanvasClipboard } from '../../hooks/useCanvasClipboard.js';
 import { useBookmarks } from '../../hooks/useBookmarks.js';
@@ -1281,6 +1281,11 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     useGraphStore.getState().selectNode(null);
   }, []);
 
+  const handleCanvasPaneClick = useCallback(() => {
+    handleCtxClose();
+    useGraphStore.getState().closeCanvasControlPanels();
+  }, [handleCtxClose]);
+
   // ─── 전체 위치 저장 (드래그 종료 / 물리 슬립 / 주기적 / 탭 전환) ───
   // §5.10 — 내부 뷰(휴지통) 진입 여부를 flush 시점에 최신값으로 보려면 ref 가 필요하다.
   //   interiorView 를 콜백 deps 로 넣으면 물리 엔진 onSleep 콜백 신원까지 흔들려서 ref 로 읽는다.
@@ -1998,9 +2003,13 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       }
     }
 
-    // 7) 위성 위치 — positionsRef의 실제 부모 위치 기준, 같은 등장 영역 규칙으로 (캐시에 있으면 스킵)
+    // 7) 위성 위치 — positionsRef의 실제 부모 위치 기준, 같은 등장 영역 규칙으로 (캐시에 있으면 스킵).
+    //    가지는 윗선(이어진 에이전트 · 없으면 캔버스 중심)의 반대편으로 친다(§5.1 #2-2 (C)).
     if (viewData.satInfos) {
       satInfosRef.current = viewData.satInfos;
+      const upstreamOf = spawnField
+        ? satelliteUpstreamOf(spawnField, viewData.bubbles, viewData.flowEdges, { x: LAYOUT_CENTER_X, y: LAYOUT_CENTER_Y })
+        : undefined;
       // §5.1 #2-1 (B) — 별자리 중심이 앱 노드면 그 노드는 `positionsRef` 밖(store 좌표)이다. 새 위성의 첫 자리는
       //   그 순간의 노드 가운데에서 잡는다(물리는 그 둘레 궤도로 다시 건다 — `usePhysicsLayout`).
       placeSatellitePositions(viewData.satInfos, positionsRef.current, (parentId) => {
@@ -2008,7 +2017,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         if (!app) return null;
         const size = appNodeSize(getInternalApp(app.appId), appNodeForm(app), app);
         return { cx: app.x + size.width / 2, cy: app.y + size.height / 2, size: Math.max(size.width, size.height) };
-      }, spawnField);
+      }, spawnField, upstreamOf);
     }
 
     // 8) 노드 업데이트 — positionsRef 기반으로 위치 결정 (서버 위치 우선)
@@ -2493,9 +2502,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       const cy = node.position.y + tidyHalfHeightOf(node, diameter);
       const parentId = satParentById.get(node.id);
       if (parentId) {
-        // §5.1 #2-2 (J) — 달을 거느린 위성(묶음)은 몸집으로 앉는다(제 달이 부모를 파고들지 않게).
-        const reach = orbitReachOf(data);
-        sats.push({ id: node.id, parentId, diameter, cx, cy, ...(reach !== undefined ? { reach } : {}) });
+        sats.push({ id: node.id, parentId, diameter, cx, cy });
         continue;
       }
       picked.push({
@@ -3559,7 +3566,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         onNodeDragStart={handleNodeDragStart}
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
-        onPaneClick={handleCtxClose}
+        onPaneClick={handleCanvasPaneClick}
         onSelectionContextMenu={handleSelectionContextMenu}
         onInit={(i) => { rfRef.current = i; previewBudget.setZoom(i.getViewport().zoom); }}
         // §5.1 #2-1 (G) ③④ — 움직이는 동안은 새로 굽지 않고 고른 미리보기를 바꾸지 않는다. 멈추면 그 줌으로 다시 고른다.

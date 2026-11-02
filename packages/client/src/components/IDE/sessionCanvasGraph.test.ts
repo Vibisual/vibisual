@@ -5,6 +5,7 @@ import { buildSessionBubbles } from './sessionBubbles.js';
 import {
   SESSION_CENTER_NODE_ID,
   buildSessionCanvasGraph,
+  canvasTwinIdOf,
   canvasToolOf,
   folderCrumbLabel,
   sessionCanvasEntryOf,
@@ -104,24 +105,20 @@ describe('§5.5 #17-50 — 폴더는 캔버스와 같은 계층', () => {
 });
 
 describe('§5.5 #17-50 — 캔버스와 같은 노드 모양', () => {
-  it('웹은 domain(검색은 web-search 의사 호스트 자리), 명령 앱은 bash + commandApp, 서브에이전트는 agent', () => {
+  it('웹은 domain(검색은 web-search 의사 호스트 자리), 명령 앱은 bash + commandApp', () => {
     const g = graphOf([
       use(10, 'WebFetch', { url: 'https://docs.example.com/a', prompt: 'p' }),
       use(20, 'WebSearch', { query: 'react flow' }),
       use(30, 'Bash', { command: 'git status' }),
-      use(40, 'Task', { description: '조사', subagent_type: 'Explore', prompt: 'p' }, { toolUseId: 'task-1' }),
     ]);
     const kinds = g.top.map((b) => [b.label, b.bubbleType]);
     expect(kinds).toEqual([
       ['docs.example.com', 'domain'],
       ['웹 검색', 'domain'],
       ['Git', 'bash'],
-      ['조사', 'agent'],
     ]);
     expect(g.top[1]!.path).toBe(WEB_SEARCH_HOST);
     expect(g.top[2]!.commandApp?.name).toBe('Git');
-    // 우리가 띄운 세션의 안쪽 — 훅 톤·HOOK 표식이 아니다.
-    expect(g.top[3]!.customCreated).toBe(true);
     // 노드 id 는 캔버스와 겹치지 않는다.
     expect(g.top.every((b) => b.id.startsWith('sb:'))).toBe(true);
   });
@@ -222,15 +219,19 @@ describe('§5.5 #17-50 — 선은 캔버스와 같은 방향', () => {
     expect(canvasToolOf({ lastTool: 'Read', lastDirection: 'write' })).toBe('Write');
   });
 
-  it('중첩 서브에이전트로만 닿은 버블의 선은 그 서브에이전트에서 나온다', () => {
+  it('지도의 에이전트는 가운데 하나 — 서브에이전트는 버블이 아니고, 그 안쪽 호출이 만진 것도 가운데에서 선이 나온다', () => {
     const g = graphOf([
       use(10, 'Task', { description: '조사', prompt: 'p' }, { toolUseId: 'task-1' }),
-      use(20, 'Read', { file_path: `${ROOT}/docs/a.md` }, { nestedUnderToolUseId: 'task-1' }),
+      use(20, 'Agent', { description: '검토', prompt: 'p' }, { toolUseId: 'task-2' }),
+      use(30, 'Read', { file_path: `${ROOT}/docs/a.md` }, { nestedUnderToolUseId: 'task-1' }),
     ]);
-    const task = g.top.find((b) => b.bubbleType === 'agent')!;
-    const docs = g.top.find((b) => b.label === 'docs')!;
-    expect(g.edges.find((e) => e.target === task.id)?.source).toBe(AGENT);
-    expect(g.edges.find((e) => e.source === docs.id)?.target).toBe(task.id);
+    expect(g.top.some((b) => b.bubbleType === 'agent')).toBe(false);
+    expect(byLabel(g.top)).toEqual(['docs']);
+    const docs = g.top[0]!;
+    expect(g.edges.map((e) => [e.source, e.target])).toEqual([[docs.id, AGENT]]);
+    // 어느 서브에이전트를 거쳤는지는 디테일 칸의 사실로 남는다.
+    const entry = sessionCanvasEntryOf(g, docs.id);
+    expect(entry?.kind === 'folder' ? entry.folder.viaTaskKey : null).not.toBeNull();
   });
 
   it('폴더 안 화면의 선은 그 폴더(← Back 자리) ↔ 자식이다', () => {
@@ -274,6 +275,80 @@ describe('§5.5 #17-50 — 경로 키는 세 OS 규칙대로(멀티플랫폼 1�
   function g1Files(g: SessionCanvasGraph): BubbleData[] {
     return Object.values(g.nodeMap).filter((b) => b.bubbleType === 'file');
   }
+});
+
+describe('§5.5 #17-50 (F) — 디테일 창은 캔버스의 같은 노드로 선다', () => {
+  const canvas = (nodes: BubbleData[]): Record<string, BubbleData> => Object.fromEntries(nodes.map((n) => [n.id, n]));
+  const twinOf = (
+    g: SessionCanvasGraph,
+    nodeId: string,
+    nodeMap: Record<string, BubbleData>,
+    over: { nodeProjects?: Record<string, string>; project?: string | null } = {},
+  ): string | null => {
+    const entry = sessionCanvasEntryOf(g, nodeId);
+    expect(entry).not.toBeNull();
+    return canvasTwinIdOf(entry!, { nodeMap, nodeProjects: over.nodeProjects ?? {}, project: over.project ?? null, platform: 'win32' });
+  };
+
+  it('파일·폴더는 절대 경로 키로 찾는다(win32 는 대소문자·구분자를 접는다)', () => {
+    const g = graphOf([use(10, 'Read', { file_path: `${ROOT}/src/a.ts` })]);
+    const folder = g.top[0]!;
+    const file = g.satellites[folder.id]![0]!;
+    const nodeMap = canvas([
+      { id: 'folder-1', label: 'src', bubbleType: 'internal_folder', path: 'src', absolutePath: 'c:\\work\\proj\\src', status: 'idle', activity: 1 },
+      { id: 'file-1', label: 'a.ts', bubbleType: 'file', path: 'src/a.ts', absolutePath: 'C:\\Work\\Proj\\src\\a.ts', status: 'idle', activity: 1 },
+    ]);
+    expect(twinOf(g, folder.id, nodeMap)).toBe('folder-1');
+    expect(twinOf(g, `sat-${file.id}`, nodeMap)).toBe('file-1');
+  });
+
+  it('linux 는 대소문자가 다른 경로를 짝으로 읽지 않는다 · darwin 은 접는다', () => {
+    const model = buildSessionBubbles({ streams: [{ events: [use(10, 'Read', { file_path: '/srv/projects/proj/src/A.ts' })], commands: [] }], rootPath: '/srv/projects/proj', platform: 'linux' });
+    const entry = (platform: 'linux' | 'darwin') => {
+      const g = buildSessionCanvasGraph({ model, rootPath: '/srv/projects/proj', platform, running: false, agentId: AGENT, agent: AGENT_NODE, webSearchLabel: '웹 검색' });
+      const file = g.satellites[g.top[0]!.id]![0]!;
+      return sessionCanvasEntryOf(g, file.id)!;
+    };
+    const nodeMap = canvas([
+      { id: 'file-lower', label: 'a.ts', bubbleType: 'file', path: 'src/a.ts', absolutePath: '/srv/projects/proj/src/a.ts', status: 'idle', activity: 1 },
+    ]);
+    const base = { nodeMap, nodeProjects: {}, project: null };
+    expect(canvasTwinIdOf(entry('linux'), { ...base, platform: 'linux' })).toBeNull();
+    expect(canvasTwinIdOf(entry('darwin'), { ...base, platform: 'darwin' })).toBe('file-lower');
+  });
+
+  it('캔버스에 없으면 null — 지도가 지은 모양으로 선다', () => {
+    const g = graphOf([use(10, 'Read', { file_path: `${ROOT}/src/a.ts` })]);
+    expect(twinOf(g, g.top[0]!.id, {})).toBeNull();
+    // 가운데는 열쇠로 찾지 않는다 — 지도가 에이전트 id 로 바로 찾는다.
+    expect(twinOf(g, SESSION_CENTER_NODE_ID, canvas([AGENT_NODE]))).toBeNull();
+  });
+
+  it('웹은 호스트(접힌 웹 버블은 짝이 아니다) · 검색은 web-search 자리 · 명령 앱은 앱 이름', () => {
+    const g = graphOf([
+      use(10, 'WebFetch', { url: 'https://docs.example.com/a', prompt: 'p' }),
+      use(20, 'WebSearch', { query: 'react flow' }),
+      use(30, 'Bash', { command: 'git status' }),
+    ]);
+    const nodeMap = canvas([
+      { id: 'fold', label: 'docs.example.com', bubbleType: 'domain', path: 'docs.example.com', status: 'idle', activity: 1, webFold: { hosts: [] } as unknown as BubbleData['webFold'] },
+      { id: 'domain-1', label: 'docs.example.com', bubbleType: 'domain', path: 'docs.example.com', status: 'idle', activity: 1 },
+      { id: 'domain-s', label: WEB_SEARCH_HOST, bubbleType: 'domain', path: WEB_SEARCH_HOST, status: 'idle', activity: 1 },
+      { id: 'command-app-1', label: 'Git', bubbleType: 'bash', path: 'app', status: 'idle', activity: 1, commandApp: { id: 'git', name: 'Git', detection: 'command' } },
+    ]);
+    expect(twinOf(g, g.top[0]!.id, nodeMap)).toBe('domain-1');
+    expect(twinOf(g, g.top[1]!.id, nodeMap)).toBe('domain-s');
+    expect(twinOf(g, g.top[2]!.id, nodeMap)).toBe('command-app-1');
+  });
+
+  it('여러 프로젝트에 같은 짝이 있으면 그 에이전트의 프로젝트 것', () => {
+    const g = graphOf([use(10, 'Bash', { command: 'git status' })]);
+    const nodeMap = canvas([
+      { id: 'app-a', label: 'Git', bubbleType: 'bash', path: 'a', status: 'idle', activity: 1, commandApp: { id: 'git', name: 'Git', detection: 'command' } },
+      { id: 'app-b', label: 'Git', bubbleType: 'bash', path: 'b', status: 'idle', activity: 1, commandApp: { id: 'git', name: 'Git', detection: 'command' } },
+    ]);
+    expect(twinOf(g, g.top[0]!.id, nodeMap, { nodeProjects: { 'app-a': 'A', 'app-b': 'B' }, project: 'B' })).toBe('app-b');
+  });
 });
 
 describe('§5.5 #17-50 — 정보 칸이 묻는 사실', () => {

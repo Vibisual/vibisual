@@ -48,6 +48,112 @@ beforeEach(() => {
 });
 
 describe('Codex Agent Studio 실행 연결', () => {
+  it('starts a new conversation after clear without resuming an unsaved empty thread', () => {
+    const sub = subAgentManager.create('agent-codex-clear', 'sub-codex-clear');
+    created.push(sub.id);
+    sub.sessionId = 'previous-thread';
+    const clear = { ...makeCommand(sub.id), text: '/clear' };
+    subAgentManager.execute(clear, process.cwd(), 'CONTEXT', codexConfig());
+    const oldTurn = lastTurnArgs!;
+    oldTurn.onThreadReset!();
+    oldTurn.onDone(undefined, '');
+    expect(sub.sessionId).toBe('');
+    subAgentManager.execute(makeCommand(sub.id), process.cwd(), 'CONTEXT', codexConfig());
+    expect(lastTurnArgs!.resumeThreadId).toBeUndefined();
+    lastTurnArgs!.onThread('new-persisted-thread');
+    oldTurn.onThreadReset!();
+    expect(sub.sessionId).toBe('new-persisted-thread');
+    lastTurnArgs!.onDone(undefined, 'done');
+  });
+  it('relays native compaction after thread identity without requiring progress hooks', () => {
+    const sub = subAgentManager.create('agent-native-progress', 'sub-native-progress');
+    created.push(sub.id);
+    const cmd = makeCommand(sub.id);
+    subAgentManager.execute(cmd, process.cwd(), 'CONTEXT', codexConfig());
+    const turn = lastTurnArgs!;
+    expect(turn.progressHook).toBeUndefined();
+    expect(turn.onProgress).toBeTypeOf('function');
+    turn.onProgress!({ kind: 'compaction', active: true });
+    expect(sub.compactingSince).toBeUndefined();
+    turn.onThread('native-thread');
+    turn.onProgress!({ kind: 'compaction', active: true });
+    const since = sub.compactingSince;
+    expect(since).toBeTypeOf('number');
+    turn.onProgress!({ kind: 'compaction', active: true });
+    expect(sub.compactingSince).toBe(since);
+    expect(cmd.status).toBe('executing');
+    turn.onProgress!({ kind: 'compaction', active: false });
+    expect(sub.compactingSince).toBeUndefined();
+    turn.onDone(undefined, 'done');
+  });
+
+  it('pairs overlapping native waits independently of hook calls with the same item ID', () => {
+    const sub = subAgentManager.create('agent-native-waits', 'sub-native-waits');
+    created.push(sub.id);
+    const cmd = makeCommand(sub.id);
+    subAgentManager.execute(cmd, process.cwd(), 'CONTEXT', codexConfig());
+    const turn = lastTurnArgs!;
+    turn.onThread('native-thread');
+    const wait = (active: boolean, toolUseId: string) => {
+      turn.onEvent({ eventType: active ? 'tool_use' : 'tool_result', toolName: 'collaboration.wait', toolUseId, content: 'child' });
+      turn.onProgress!({ kind: 'agentWait', active, toolUseId });
+    };
+    wait(true, 'wait-1');
+    const since = sub.waitingForAgentsSince;
+    expect(since).toBeTypeOf('number');
+    wait(true, 'wait-2');
+    expect(sub.waitingForAgentsSince).toBe(since);
+    const hookWait = { parentAgentId: sub.parentAgentId, subAgentId: sub.id, commandId: cmd.id,
+      sessionId: 'native-thread', toolName: 'collaborationwait_agent', toolUseId: 'wait-1' };
+    expect(subAgentManager.noteCodexProgress({ ...hookWait, hookEventName: 'PreToolUse' })).toBe(true);
+    wait(false, 'unknown');
+    wait(false, 'wait-1');
+    expect(sub.waitingForAgentsSince).toBe(since);
+    wait(false, 'wait-2');
+    expect(sub.waitingForAgentsSince).toBe(since);
+    expect(subAgentManager.noteCodexProgress({ ...hookWait, hookEventName: 'PostToolUse' })).toBe(true);
+    expect(sub.waitingForAgentsSince).toBeUndefined();
+    turn.onDone(undefined, 'done');
+  });
+
+  it('uses new tool calls to clear stale native progress but rejects old-turn callbacks', () => {
+    const sub = subAgentManager.create('agent-native-stale', 'sub-native-stale');
+    created.push(sub.id);
+    subAgentManager.execute(makeCommand(sub.id), process.cwd(), 'CONTEXT', codexConfig());
+    const oldTurn = lastTurnArgs!;
+    oldTurn.onThread('first-thread');
+    oldTurn.onProgress!({ kind: 'agentWait', active: true, toolUseId: 'wait-1' });
+    oldTurn.onProgress!({ kind: 'compaction', active: true });
+    oldTurn.onEvent({ eventType: 'text', content: 'Buffered commentary' });
+    oldTurn.onEvent({ eventType: 'tool_result', toolName: 'Bash', toolUseId: 'earlier', content: 'done' });
+    expect(sub.compactingSince).toBeDefined();
+    expect(sub.waitingForAgentsSince).toBeDefined();
+    oldTurn.onEvent({ eventType: 'tool_use', toolName: 'Bash', toolUseId: 'next', content: 'pnpm test' });
+    expect(sub.compactingSince).toBeUndefined();
+    expect(sub.waitingForAgentsSince).toBeUndefined();
+    oldTurn.onDone(undefined, 'done');
+    oldTurn.onProgress!({ kind: 'compaction', active: true });
+    expect(sub.compactingSince).toBeUndefined();
+
+    const next = makeCommand(sub.id);
+    subAgentManager.execute(next, process.cwd(), 'CONTEXT', codexConfig());
+    const current = lastTurnArgs!;
+    current.onThread('second-thread');
+    current.onProgress!({ kind: 'agentWait', active: true, toolUseId: 'wait-2' });
+    current.onProgress!({ kind: 'compaction', active: true });
+    oldTurn.onThread('stale-thread');
+    oldTurn.onProgress!({ kind: 'compaction', active: false });
+    oldTurn.onProgress!({ kind: 'agentWait', active: false, toolUseId: 'wait-2' });
+    oldTurn.onEvent({ eventType: 'tool_use', toolName: 'Bash', toolUseId: 'late', content: 'old' });
+    expect(sub.sessionId).toBe('second-thread');
+    expect(sub.compactingSince).toBeDefined();
+    expect(sub.waitingForAgentsSince).toBeDefined();
+    expect(next.status).toBe('executing');
+    current.onDone(undefined, 'done');
+    expect(sub.compactingSince).toBeUndefined();
+    expect(sub.waitingForAgentsSince).toBeUndefined();
+  });
+
   it('relays raw activity through live status events and ignores activity from a finished turn', () => {
     const sub = subAgentManager.create('agent-codex-activity', 'sub-codex-activity');
     created.push(sub.id);
@@ -141,19 +247,19 @@ describe('Codex Agent Studio 실행 연결', () => {
     expect(lastTurnArgs!.contextArgs).toEqual(['-c', 'developer_instructions=""']);
     expect(lastTurnArgs!.edgeConfig?.edgeIds).toEqual(['edge-target']);
     expect(lastTurnArgs!.edgeConfig?.restrictedTools).toEqual(['Read']);
-    expect(lastTurnArgs!.prompt).toContain('mcp__vibisual_edges__dispatch');
-    expect(lastTurnArgs!.prompt).toContain('All direct executable tools are blocked');
+    expect(lastTurnArgs!.nativeDeveloperInstructions).toContain('mcp__vibisual_edges__dispatch');
+    expect(lastTurnArgs!.nativeDeveloperInstructions).toContain('All direct executable tools are blocked');
     expect(lastTurnArgs!.env).toMatchObject({
       VIBISUAL_BASE: 'http://127.0.0.1:43111',
       VIBISUAL_TOKEN: 'test-token',
     });
-    const prompt = lastTurnArgs!.prompt;
+    expect(lastTurnArgs!.prompt).toBe(cmd.text);
+    const prompt = lastTurnArgs!.nativeDeveloperInstructions!;
     expect(prompt).toContain('PROJECT CONTEXT');
     expect(prompt).toContain('STABLE AGENT RULES');
     expect(prompt).toContain('LIVE CONTEXT');
-    expect(prompt).toContain(cmd.text);
+    expect(prompt).not.toContain(cmd.text);
     expect(prompt.indexOf('PROJECT CONTEXT')).toBeLessThan(prompt.indexOf('LIVE CONTEXT'));
-    expect(prompt.indexOf('LIVE CONTEXT')).toBeLessThan(prompt.indexOf(cmd.text));
 
     lastTurnArgs!.onDone(undefined, '완료');
     expect(cmd.status).toBe('completed');
@@ -172,8 +278,9 @@ describe('Codex Agent Studio 실행 연결', () => {
     expect(lastTurnArgs!.resumeThreadId).toBe('existing-thread');
     expect(lastTurnArgs!.contextArgs).toEqual(['-c', 'project_doc_max_bytes=0']);
     expect(lastTurnArgs!.edgeConfig?.edgeIds).toEqual(['edge-target']);
-    expect(lastTurnArgs!.prompt).not.toContain('mcp__vibisual_edges__dispatch');
-    expect(lastTurnArgs!.prompt.match(/FILTERED CONTEXT/g)).toHaveLength(1);
+    expect(lastTurnArgs!.nativeDeveloperInstructions).not.toContain('mcp__vibisual_edges__dispatch');
+    expect(lastTurnArgs!.nativeDeveloperInstructions!.match(/FILTERED CONTEXT/g)).toHaveLength(1);
+    expect(lastTurnArgs!.prompt).toBe(cmd.text);
     lastTurnArgs!.onDone(undefined, 'done');
   });
 });

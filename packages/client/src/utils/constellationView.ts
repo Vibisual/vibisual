@@ -2,8 +2,8 @@
  * §5.1 #2-1 (B) — 화면 하나(메인·폴더 안)의 별자리·묶음 배치. 판정은 shared(`planConstellations`·`planKindBundles` — 서버 위성 상한과 같은 답),
  * 여기서는 그 답을 이 화면 노드로 옮길 뿐이다(순수 — 스토어·DOM 을 안 보고 플랫폼은 인자로). 앱 노드가 선언한 파일은 그 노드를 돌고(구성끼리 크기 범위를 함께 잰다) 선은 호출부가 `converted` 로.
  * 묶음엔 같은 미디어 종류만(파일은 중심 ❌·텍스트 ❌): 위성 무리 안 같은 종류 둘 이상 = `sat-bundle-<부모 id>-<종류>` 하나(하위 폴더 무관, 구성은 낱자리 ❌),
- * 수 `folderKindCount`(확인 안 한 턴에 쓴 것)·이름 `folderKindDir`. 위성은 폴더와 같은 규칙(`bundleMoonsOf`, 더블클릭은 파일 `fileFaceOpenPlan`), 몸은 제 위성까지(`_orbitReach` — §5.1 #2-2 (J) ④).
- * 원 둘레·연속 번호 대표(§5.1 #2-1 (F) ⑦)도 묶음(`bundle-radial-<열쇠>`, 선은 `bundled`). 선은 위성선 `sat-edge-<id>` 그대로. `_bundle`·`_orbitReach`·`_constellation` 은 표시 전용.
+ * 수 `folderKindCount`(확인 안 한 턴에 쓴 것)·이름 `folderKindDir`. 위성은 폴더와 같은 규칙(`bundleMoonsOf` — 바깥 방향 부채꼴, 더블클릭은 파일 `fileFaceOpenPlan`), 부모 둘레엔 다른 위성과 같은 거리에 선다(§5.1 #2-2 (J) ④).
+ * 원 둘레·연속 번호 대표(§5.1 #2-1 (F) ⑦)도 묶음(`bundle-radial-<열쇠>`, 선은 `bundled`). 선은 위성선 `sat-edge-<id>` 그대로. `_bundle`·`_constellation` 은 표시 전용.
  */
 import type { AppWorkRole, BubbleData, ConstellationAppHubInput, ConstellationMoon, ConstellationReason, FileFaceKind, HeatScale, NodeStatus, PlatformName } from '@vibisual/shared';
 import {
@@ -23,7 +23,7 @@ import {
 } from '@vibisual/shared';
 
 import { calcBubbleSize, calcFileSizeRange, stableSizeRange } from './sizeCalc.js';
-import { satelliteHubReach, type SatelliteInfo } from './satellite.js';
+import type { SatelliteInfo } from './satellite.js';
 import { appWorkPathKey, type AppWorkMoonMeta } from './appWorkView.js';
 
 /**
@@ -276,12 +276,6 @@ function bundleMoonsOf(
       parentSlots: BUNDLE_SATELLITE_MAX,
     };
   });
-}
-
-/** §5.1 #2-2 (J) ④ — 위성을 거느린 묶음의 몸집 반경(가장 큰 위성의 바깥 테두리까지). 위성이 없으면 제 원이라 싣지 않는다. */
-function bundleReachOf(moons: readonly SatelliteInfo[]): number | undefined {
-  if (moons.length === 0) return undefined;
-  return satelliteHubReach(BUNDLE_BUBBLE.size / 2, moons.map((m) => calcBubbleSize(m.bubble, m.localRange, m.heat)));
 }
 
 /** 앱 노드 별자리 — 앱 노드가 선언한 파일(결과 · 소재 · 코드 소재 폴더 · 작업물)은 그 노드를 돈다. 앱 노드가 없으면 그대로다. */
@@ -578,7 +572,6 @@ function applyKindBundles(sats: SatelliteInfo[], input: ConstellationViewInput):
         input.heat,
         NO_TAKEN,
       );
-      const reach = bundleReachOf(bundleMoons);
       const bundle = {
         id: bundleId,
         label,
@@ -597,10 +590,8 @@ function applyKindBundles(sats: SatelliteInfo[], input: ConstellationViewInput):
           members: members.slice(0, BUNDLE_BUBBLE.tooltipNameMax).map((m) => ({ label: m.bubble.label, reason: null })),
           count,
         }),
-        // §5.1 #2-2 (J) ④ — 제 위성까지가 몸이다(물리·등장 영역 장부·정리가 읽는다). 부모 폴더와 그 다른 위성이 묶음 위성 자리를 밟지 않는다.
-        ...(reach !== undefined ? { _orbitReach: reach } : {}),
       } as BubbleData;
-      bundleAt.set(head.bubble.id, bundleSatellite(head, bundle, head.bubble, reach));
+      bundleAt.set(head.bubble.id, bundleSatellite(head, bundle, head.bubble));
       for (const m of listed) folded.add(m.bubble.id);
       moons.push(...bundleMoons);
     }
@@ -687,15 +678,14 @@ function applyRadialKindBundles(
 }
 
 /**
- * 위성 자리에 서던 구성 대신 그 자리(원래 부모의 위성)에 서는 묶음 버블. 선은 그 구성이 쓰던 방향 그대로다. `reach` 는 제 위성까지의
- * 몸집(§5.1 #2-2 (J) ④) — 부모 둘레에 이 몸집으로 앉는다(`placeSatellitePositions`).
+ * 위성 자리에 서던 구성 대신 그 자리(원래 부모의 위성)에 서는 묶음 버블. 선은 그 구성이 쓰던 방향 그대로다. 부모 둘레엔 다른
+ * 위성과 같은 거리에 서고, 제 위성은 부모 반대편으로 가지를 친다(§5.1 #2-2 (J) ④ · `placeSatellitePositions`).
  */
-function bundleSatellite(s: SatelliteInfo, bundle: BubbleData, from: BubbleData, reach?: number): SatelliteInfo {
+function bundleSatellite(s: SatelliteInfo, bundle: BubbleData, from: BubbleData): SatelliteInfo {
   const size = BUNDLE_BUBBLE.size;
   const isRead = from.lastTool ? READ_TOOLS.has(from.lastTool) : false;
   return {
     ...s,
-    ...(reach !== undefined ? { reach } : {}),
     bubble: bundle,
     edge: {
       id: `sat-edge-${bundle.id.slice(4)}`,

@@ -216,6 +216,26 @@ describe('main tab execution truth includes its agent status', () => {
 });
 
 describe('live subscriptions remain consistent across execution transitions', () => {
+  it.each([session.id, null])('receives and clears a wait marker without new stream data in scope %s', (activeSessionId) => {
+    useGraphStore.setState({
+      agents: [{ ...agent, status: 'active' }],
+      subAgents: { [agent.id]: [{ ...session, status: 'active' }] },
+      queuedCommands: { [agent.id]: [executing] },
+    });
+    renderSurfaces(activeSessionId);
+    const facts = () => JSON.parse(view!.root.findByType('output').children.join('')).liveness;
+    expect(facts().waitingForAgentsSince).toBeNull();
+    act(() => { useGraphStore.setState({
+      subAgents: { [agent.id]: [{ ...session, status: 'active', waitingForAgentsSince: 5_000 }] },
+    }); });
+    expect(facts().waitingForAgentsSince).toBe(5_000);
+    expectSurfaces('running', { executing: true });
+    act(() => { useGraphStore.setState({
+      subAgents: { [agent.id]: [{ ...session, status: 'active' }] },
+    }); });
+    expect(facts().waitingForAgentsSince).toBeNull();
+  });
+
   it.each([session.id, null])('updates scope %s from active to idle residue to queued work', (activeSessionId) => {
     const commands = [executing];
     useGraphStore.setState({

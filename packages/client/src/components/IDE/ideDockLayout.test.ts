@@ -33,11 +33,15 @@ import {
   IDE_DOCK_ENTRY,
   applyDockEntryLock,
   beginDockEntryLock,
-  nearestDockSide,
-  snapDistance,
+  cornerAt,
+  cornerFloatRect,
+  freeCanvasRect,
+  IDE_FLOAT_CORNERS,
+  isCornerTarget,
+  nearestEntrySide,
   stepDockEntryLock,
   type DockedPane,
-  type IDEDockSide,
+  type DockDropTarget,
   type FloatGeom,
 } from './ideDockLayout.js';
 import { DETACHED_REDOCK_INSET_PX } from '@vibisual/shared';
@@ -99,22 +103,38 @@ describe('computeDockLayout', () => {
 });
 
 describe('resolveDockDrop', () => {
-  it('가장자리에서 멀면 도킹하지 않는다(플로팅 유지)', () => {
+  it('가장자리에서 멀면 붙지 않는다(플로팅 유지)', () => {
     expect(resolveDockDrop({ x: 800, y: 450 }, VP, [])).toBeNull();
   });
 
-  it('네 변 각각을 알아본다', () => {
-    expect(resolveDockDrop({ x: 4, y: 450 }, VP, [])).toEqual({ side: 'left', index: 0, mode: 'insert' });
-    expect(resolveDockDrop({ x: VP.w - 4, y: 450 }, VP, [])).toEqual({ side: 'right', index: 0, mode: 'insert' });
-    expect(resolveDockDrop({ x: 800, y: HEADER + 4 }, VP, [])).toEqual({ side: 'top', index: 0, mode: 'insert' });
-    expect(resolveDockDrop({ x: 800, y: VP.h - 4 }, VP, [])).toEqual({ side: 'bottom', index: 0, mode: 'insert' });
+  it('벽 하나에만 가까우면 붙지 않는다 — 빈 변에 붙는 길은 없다(옮기려던 창이 벽마다 붙던 자리)', () => {
+    expect(resolveDockDrop({ x: 4, y: 450 }, VP, [])).toBeNull();
+    expect(resolveDockDrop({ x: VP.w - 4, y: 450 }, VP, [])).toBeNull();
+    expect(resolveDockDrop({ x: 800, y: HEADER + 4 }, VP, [])).toBeNull();
+    expect(resolveDockDrop({ x: 800, y: VP.h - 4 }, VP, [])).toBeNull();
   });
 
-  it('모서리에서는 더 가까운 변이 이긴다', () => {
-    // 좌 10px / 상 40px → 좌측.
-    expect(resolveDockDrop({ x: 10, y: HEADER + 40 }, VP, [])?.side).toBe('left');
-    // 좌 100px / 상 6px → 상단.
-    expect(resolveDockDrop({ x: 100, y: HEADER + 6 }, VP, [])?.side).toBe('top');
+  it('네 모서리 각각을 알아본다', () => {
+    expect(resolveDockDrop({ x: 4, y: HEADER + 4 }, VP, [])).toEqual({ corner: 'top-left' });
+    expect(resolveDockDrop({ x: VP.w - 4, y: HEADER + 4 }, VP, [])).toEqual({ corner: 'top-right' });
+    expect(resolveDockDrop({ x: 4, y: VP.h - 4 }, VP, [])).toEqual({ corner: 'bottom-left' });
+    expect(resolveDockDrop({ x: VP.w - 4, y: VP.h - 4 }, VP, [])).toEqual({ corner: 'bottom-right' });
+  });
+
+  it('모서리 인식은 바짝 가까이 가야 한다 — 가로·세로 둘 다 CORNER_SNAP_PX 안', () => {
+    const reach = IDE_DOCK.CORNER_SNAP_PX;
+    expect(resolveDockDrop({ x: reach, y: HEADER + reach }, VP, [])).toEqual({ corner: 'top-left' });
+    expect(resolveDockDrop({ x: reach + 1, y: HEADER + 4 }, VP, [])).toBeNull();
+    expect(resolveDockDrop({ x: 4, y: HEADER + reach + 1 }, VP, [])).toBeNull();
+    // 옛 띠(최소 120px) 한복판이던 자리도 이제는 그냥 옮기는 중이다.
+    expect(resolveDockDrop({ x: 60, y: HEADER + 60 }, VP, [])).toBeNull();
+  });
+
+  it('화면 꼭대기로 밀어붙인 손(헤더 띠)도 위 모서리로 읽는다 — 앱 밖은 꺼내기 몫이라 안 본다', () => {
+    expect(resolveDockDrop({ x: 0, y: 0 }, VP, [])).toEqual({ corner: 'top-left' });
+    expect(resolveDockDrop({ x: VP.w - 1, y: 0 }, VP, [])).toEqual({ corner: 'top-right' });
+    expect(resolveDockDrop({ x: -5, y: HEADER + 4 }, VP, [])).toBeNull();
+    expect(resolveDockDrop({ x: 4, y: VP.h + 5 }, VP, [])).toBeNull();
   });
 
   it('이미 붙은 변으로 끌면 커서 위치로 끼울 칸이 갈린다 — 이것이 "이어 붙이기"', () => {
@@ -137,8 +157,47 @@ describe('resolveDockDrop', () => {
     const tiny = { w: 1600, h: HEADER + 200 }; // 밴드 200px — 둘로 쪼개면 100px < MIN_SLOT
     const docked = [pane('a', 'right', 480, 0)];
     expect(resolveDockDrop({ x: tiny.w - 10, y: HEADER + 100 }, tiny, docked)).toEqual({ side: 'right', index: 0, mode: 'tab' });
-    // 막힌 것은 **그 변**뿐이다 — 아직 빈 변에는 종전대로 새 칸으로 붙는다.
-    expect(resolveDockDrop({ x: 10, y: HEADER + 100 }, tiny, docked)).toEqual({ side: 'left', index: 0, mode: 'insert' });
+  });
+});
+
+describe('모서리 칸(cornerFloatRect) — 창문 네 칸', () => {
+  it('네 칸은 빈 캔버스를 겹침·빈틈 없이 나눈다', () => {
+    const big = { w: 1920, h: 1080 };
+    const tl = cornerFloatRect('top-left', big, []);
+    const tr = cornerFloatRect('top-right', big, []);
+    const bl = cornerFloatRect('bottom-left', big, []);
+    const br = cornerFloatRect('bottom-right', big, []);
+    expect(tl).toEqual({ x: 0, y: HEADER, w: 960, h: Math.floor((1080 - HEADER) / 2) });
+    expect(tr.x).toBe(tl.x + tl.w);
+    expect(tr.x + tr.w).toBe(big.w);
+    expect(bl.y).toBe(tl.y + tl.h);
+    expect(bl.y + bl.h).toBe(big.h);
+    expect(br).toEqual({ x: tr.x, y: bl.y, w: tr.w, h: bl.h });
+  });
+
+  it('붙은 도크는 비켜 앉는다 — 네 칸은 도크가 남긴 캔버스를 나눈다', () => {
+    const docked = [pane('r', 'right', 480, 0)];
+    expect(freeCanvasRect(VP, docked)).toEqual({ x: 0, y: HEADER, w: VP.w - 480, h: VP.h - HEADER });
+    const tr = cornerFloatRect('top-right', VP, docked);
+    expect(tr.x + tr.w).toBe(VP.w - 480);
+  });
+
+  it('칸이 창 하한보다 작으면 모서리를 기준으로 키운다 — 반대편으로 밀려 나가지 않게', () => {
+    const small = { w: 800, h: 500 };
+    const br = cornerFloatRect('bottom-right', small, []);
+    expect(br.w).toBe(IDE_FLOAT.MIN_W);
+    expect(br.h).toBe(IDE_FLOAT.MIN_H);
+    expect(br.x + br.w).toBe(small.w);
+    expect(br.y + br.h).toBe(small.h);
+  });
+
+  it('그 칸의 바깥 모서리를 겨누면 그 칸이 나온다 — 판정은 cornerAt 하나', () => {
+    for (const corner of IDE_FLOAT_CORNERS) {
+      const r = cornerFloatRect(corner, VP, []);
+      const cx = corner.endsWith('left') ? r.x + 2 : r.x + r.w - 2;
+      const cy = corner.startsWith('top') ? r.y + 2 : r.y + r.h - 2;
+      expect(cornerAt({ x: cx, y: cy }, VP, [])).toBe(corner);
+    }
   });
 });
 
@@ -154,7 +213,7 @@ describe('orderForInsert', () => {
 describe('previewDockRect', () => {
   it('미리보기는 실제로 앉을 칸과 같은 자리를 그린다', () => {
     const docked = [pane('a', 'right', 480, 0)];
-    const target = resolveDockDrop({ x: VP.w - 10, y: VP.h - 50 }, VP, docked)!;
+    const target = resolveDockDrop({ x: VP.w - 10, y: VP.h - 50 }, VP, docked) as DockDropTarget;
     const preview = previewDockRect(target, VP, docked, 480)!;
     // 실제로 그 자리에 붙였을 때의 좌표와 일치해야 한다.
     const after = computeDockLayout([...docked, pane('new', 'right', 480, 1)], VP);
@@ -272,14 +331,14 @@ describe('한 칸에 여러 창(탭 도킹)', () => {
 
   it('칸 한가운데에 놓으면 탭으로 합류한다 — 그 칸의 order 를 그대로 물려받는다', () => {
     const docked = [pane('a', 'right', 480, 3)];
-    const target = resolveDockDrop({ x: VP.w - 240, y: 450 }, VP, docked)!;
+    const target = resolveDockDrop({ x: VP.w - 240, y: 450 }, VP, docked) as DockDropTarget;
     expect(target).toEqual({ side: 'right', index: 0, mode: 'tab' });
     expect(dockOrderForDrop(target, docked)).toBe(3);
   });
 
   it('탭 합류 미리보기는 그 칸 전체를 그린다(실제로 앉을 자리와 같다)', () => {
     const docked = [pane('a', 'right', 480, 0)];
-    const target = resolveDockDrop({ x: VP.w - 240, y: 450 }, VP, docked)!;
+    const target = resolveDockDrop({ x: VP.w - 240, y: 450 }, VP, docked) as DockDropTarget;
     const preview = previewDockRect(target, VP, docked, 480)!;
     const after = computeDockLayout([...docked, pane('new', 'right', 480, 0)], VP);
     expect(preview).toEqual(after.rects.new);
@@ -288,32 +347,25 @@ describe('한 칸에 여러 창(탭 도킹)', () => {
 });
 
 describe('도킹 십자 위젯(dockZoneButtons)', () => {
-  it('빈 화면에서는 네 변에 버튼이 하나씩 선다', () => {
+  it('빈 화면에서는 네 모서리에 버튼이 하나씩 선다 — 변 가운데 버튼은 없다', () => {
     const zones = dockZoneButtons(VP, []);
     expect(zones).toHaveLength(4);
-    expect(zones.every((z) => z.kind === 'edge')).toBe(true);
-    expect(new Set(zones.map((z) => z.target.side))).toEqual(new Set(['left', 'right', 'top', 'bottom']));
+    expect(zones.every((z) => z.kind === 'corner')).toBe(true);
+    expect(new Set(zones.map((z) => (isCornerTarget(z.target) ? z.target.corner : null))))
+      .toEqual(new Set(IDE_FLOAT_CORNERS));
   });
 
-  it('빈 변의 버튼은 **벽에 바짝** 붙는다 — 스냅 띠 한가운데가 아니다', () => {
-    const zones = dockZoneButtons(VP, []);
-    const centerOf = (side: IDEDockSide) => {
-      const z = zones.find((v) => v.target.side === side)!;
-      return { x: z.rect.x + z.rect.w / 2, y: z.rect.y + z.rect.h / 2 };
-    };
-    const inset = IDE_DOCK.ZONE_EDGE_INSET_MAX_PX;
-    expect(centerOf('left').x).toBeCloseTo(inset, 0);
-    expect(centerOf('right').x).toBeCloseTo(VP.w - inset, 0);
-    expect(centerOf('top').y).toBeCloseTo(IDE_DOCK.HEADER_H + inset, 0);
-    expect(centerOf('bottom').y).toBeCloseTo(VP.h - inset, 0);
-    // 벽 쪽 절반 안 — 스냅 띠의 한가운데(옛 자리)보다 확실히 벽에 가깝다.
-    for (const side of ['left', 'right', 'top', 'bottom'] as IDEDockSide[]) {
-      expect(inset).toBeLessThan(snapDistance(side, VP) / 2);
-    }
-    // 화면 밖으로 잘리지 않는다.
-    for (const z of zones) {
+  it('모서리 버튼은 인식 폭 안에 통째로 든다 — 버튼 위면 어디서 놓아도 붙는다', () => {
+    for (const z of dockZoneButtons(VP, [])) {
+      for (const p of [
+        { x: z.rect.x, y: z.rect.y },
+        { x: z.rect.x + z.rect.w, y: z.rect.y + z.rect.h },
+      ]) {
+        expect(sameDockTarget(resolveDockDrop(p, VP, []), z.target)).toBe(true);
+      }
+      // 화면 밖으로 잘리지 않는다.
       expect(z.rect.x).toBeGreaterThanOrEqual(0);
-      expect(z.rect.y).toBeGreaterThanOrEqual(IDE_DOCK.HEADER_H - z.rect.h);
+      expect(z.rect.y).toBeGreaterThanOrEqual(IDE_DOCK.HEADER_H);
       expect(z.rect.x + z.rect.w).toBeLessThanOrEqual(VP.w);
       expect(z.rect.y + z.rect.h).toBeLessThanOrEqual(VP.h);
     }
@@ -321,7 +373,7 @@ describe('도킹 십자 위젯(dockZoneButtons)', () => {
 
   it('붙은 칸 위에는 앞/탭/뒤 세 버튼이 선다', () => {
     const docked = [pane('a', 'right', 480, 0)];
-    const right = dockZoneButtons(VP, docked).filter((z) => z.target.side === 'right');
+    const right = dockZoneButtons(VP, docked).filter((z) => z.kind !== 'corner' && z.target.side === 'right');
     expect(right.map((z) => z.kind).sort()).toEqual(['after', 'before', 'tab']);
   });
 
@@ -335,7 +387,7 @@ describe('도킹 십자 위젯(dockZoneButtons)', () => {
 
   it('새 칸을 못 만드는 변에서는 앞/뒤 버튼이 아예 안 뜬다(눌러도 안 되는 버튼 ❌)', () => {
     const full = Array.from({ length: IDE_DOCK.MAX_PER_SIDE }, (_, i) => pane(`p${i}`, 'right', 480, i));
-    const right = dockZoneButtons(VP, full).filter((z) => z.target.side === 'right');
+    const right = dockZoneButtons(VP, full).filter((z) => z.kind !== 'corner' && z.target.side === 'right');
     expect(right.every((z) => z.kind === 'tab')).toBe(true);
     expect(right).toHaveLength(IDE_DOCK.MAX_PER_SIDE);
   });
@@ -814,42 +866,53 @@ describe('도크 밀기(pushDockSize)', () => {
   });
 });
 
-// §5.5 #17-6 (H-11) — 끌고 들어온 순간의 벽 붙이기를 미룬다: 돌아오는 문턱(48px)이 스냅 폭(≥120px) 한복판이라 첫 프레임에 이미 미리보기가 뜬다.
+// §5.5 #17-6 (H-11) — 끌고 들어온 순간의 붙이기를 미룬다: 돌아오는 문턱(48px)이 모서리 인식 폭 안이라 모서리 근처로 들어오면 첫 프레임에 이미 미리보기가 뜬다.
 describe('돌아온 판의 벽 잠금(H-11)', () => {
-  /** 앱 왼쪽 경계에서 되돌아오는 문턱만큼 들어온 자리 — 실제 재진입이 서는 그 지점. */
-  const entryLeft = { x: DETACHED_REDOCK_INSET_PX, y: 400 };
+  /** 앱 왼쪽 경계에서 되돌아오는 문턱만큼 들어온 자리 — 왼쪽 위 모서리 인식 폭 끝(두 벽에서 같은 거리면 좌/우가 이긴다). */
+  const entryLeft = { x: DETACHED_REDOCK_INSET_PX, y: HEADER + DETACHED_REDOCK_INSET_PX };
 
-  it('되돌아오는 문턱은 도킹 스냅 폭 **안쪽**이다 — 이것이 잠금이 필요한 까닭이다', () => {
-    expect(DETACHED_REDOCK_INSET_PX).toBeLessThan(snapDistance('left', VP));
-    // 잠그지 않으면 들어오는 그 자리가 곧 왼쪽 도킹 자리다.
-    expect(resolveDockDrop(entryLeft, VP, [])).toEqual({ side: 'left', index: 0, mode: 'insert' });
+  it('되돌아오는 문턱은 모서리 인식 폭 **안쪽**이다 — 이것이 잠금이 필요한 까닭이다', () => {
+    expect(DETACHED_REDOCK_INSET_PX).toBeLessThanOrEqual(IDE_DOCK.CORNER_SNAP_PX);
+    expect(DETACHED_REDOCK_INSET_PX).toBeLessThan(IDE_DOCK_ENTRY.BAND_PX);
+    // 잠그지 않으면 들어오는 그 자리가 곧 왼쪽 위 모서리다.
+    expect(resolveDockDrop(entryLeft, VP, [])).toEqual({ corner: 'top-left' });
   });
 
   it('들어온 벽은 잠긴다 — 들여놓자마자 손을 떼도 붙지 않는다', () => {
     const lock = beginDockEntryLock(entryLeft, VP, 0);
     expect(lock?.side).toBe('left');
     expect(applyDockEntryLock(resolveDockDrop(entryLeft, VP, []), lock)).toBeNull();
+    // 그 벽에 맞닿은 다른 모서리도 같이 잠긴다.
+    expect(applyDockEntryLock({ corner: 'bottom-left' }, lock)).toBeNull();
   });
 
-  it('잠기는 것은 그 벽 하나뿐 — 돌아오자마자 다른 벽에 붙이는 손은 막지 않는다', () => {
+  it('잠기는 것은 그 벽에 맞닿은 자리뿐 — 돌아오자마자 반대편 모서리에 붙이는 손은 막지 않는다', () => {
     const lock = beginDockEntryLock(entryLeft, VP, 0);
-    const toTop = { x: VP.w / 2, y: HEADER + 20 };
-    expect(applyDockEntryLock(resolveDockDrop(toTop, VP, []), lock)).toEqual({ side: 'top', index: 0, mode: 'insert' });
+    const toRight = { x: VP.w - 4, y: HEADER + 4 };
+    expect(applyDockEntryLock(resolveDockDrop(toRight, VP, []), lock)).toEqual({ corner: 'top-right' });
+  });
+
+  it('붙은 칸으로 돌아와도 그 벽의 칸은 잠긴다 — 들어온 자리가 곧 그 칸 위다', () => {
+    const docked = [pane('l', 'left', 480, 0)];
+    const entry = { x: DETACHED_REDOCK_INSET_PX, y: 450 };
+    const lock = beginDockEntryLock(entry, VP, 0);
+    expect(resolveDockDrop(entry, VP, docked)).not.toBeNull();
+    expect(applyDockEntryLock(resolveDockDrop(entry, VP, docked), lock)).toBeNull();
   });
 
   it('안으로 들어오면 풀린다 — 그 뒤 그 벽으로 되돌아가면 평소대로 붙는다', () => {
     const lock = beginDockEntryLock(entryLeft, VP, 0);
-    const inside = { x: snapDistance('left', VP) + 40, y: 400 };
+    const inside = { x: IDE_DOCK_ENTRY.BAND_PX + 40, y: 400 };
     const released = stepDockEntryLock(lock, inside, VP, 100);
     expect(released).toBeNull();
-    expect(applyDockEntryLock(resolveDockDrop(entryLeft, VP, []), released)).toEqual({ side: 'left', index: 0, mode: 'insert' });
+    expect(applyDockEntryLock(resolveDockDrop(entryLeft, VP, []), released)).toEqual({ corner: 'top-left' });
   });
 
   it('띠 안에서 끌고 다니는 동안에는 계속 잠겨 있다 — 버팀은 움직일 때마다 다시 잰다', () => {
     let lock = beginDockEntryLock(entryLeft, VP, 0);
     // 아래로 훑어 내리는 손 — 매번 흔들림 한도를 넘으므로 버팀이 쌓이지 않는다.
     for (let t = 100; t <= IDE_DOCK_ENTRY.DWELL_MS * 3; t += 100) {
-      lock = stepDockEntryLock(lock, { x: entryLeft.x, y: 400 + t }, VP, t);
+      lock = stepDockEntryLock(lock, { x: entryLeft.x, y: 400 + t / 10 }, VP, t);
       expect(lock).not.toBeNull();
     }
     expect(applyDockEntryLock(resolveDockDrop(entryLeft, VP, []), lock)).toBeNull();
@@ -874,10 +937,10 @@ describe('돌아온 판의 벽 잠금(H-11)', () => {
     expect(applyDockEntryLock(target, null)).toBe(target);
   });
 
-  it('잠근 벽은 `resolveDockDrop` 이 고르는 벽과 같은 셈에서 나온다 — 모서리에서 어긋나지 않게', () => {
-    const corner = { x: 20, y: HEADER + 10 };
-    expect(nearestDockSide(corner, VP)).toBe(resolveDockDrop(corner, VP, [])?.side);
-    expect(nearestDockSide({ x: VP.w / 2, y: VP.h / 2 }, VP)).toBeNull();
+  it('들어온 벽은 가장 가까운 변이다 — 모서리에서는 좌/우가 이긴다', () => {
+    expect(nearestEntrySide({ x: 20, y: HEADER + 20 }, VP)).toBe('left');
+    expect(nearestEntrySide({ x: 100, y: HEADER + 6 }, VP)).toBe('top');
+    expect(nearestEntrySide({ x: VP.w / 2, y: VP.h / 2 }, VP)).toBeNull();
   });
 });
 

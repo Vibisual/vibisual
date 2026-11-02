@@ -4,6 +4,7 @@ import { useOverlaySync } from './hooks/useOverlaySync.js';
 import { useOverlayReveal } from './hooks/useOverlayReveal.js';
 import { useDetachedFollowRelease } from './hooks/useDetachedFollowRelease.js';
 import { useCommandCenterReveal } from './hooks/useCommandCenterReveal.js';
+import { useShellFolderOpen } from './hooks/useShellFolderOpen.js';
 import { useMobileBackAsEscape } from './hooks/useMobileBackAsEscape.js';
 import { useLowPowerMode } from './hooks/useIsMobile.js';
 import { useProjectImmersion } from './hooks/useProjectImmersion.js';
@@ -66,6 +67,7 @@ export function App(): React.JSX.Element {
   useDetachedFollowRelease();
   // §5.12 (D) — 지휘통제실 카드 [이동] 신호(메인 창만).
   useCommandCenterReveal();
+  useShellFolderOpen();
   // §4 — 모바일 웹의 back 을 ESC(오버레이·팝업 닫기)로 — 앱 이탈 방지.
   useMobileBackAsEscape();
   // §3.7 · §9 「시작 화면(스플래시)」 — 앱을 켤 때 이 창은 숨긴 채 그린다. 지금 보는 탭의 첫 화면을 다 그리고 조용해지면

@@ -1,5 +1,6 @@
 import type { QueuedCommand } from '@vibisual/shared';
 import { APP_WORK, COMMAND_MERGE_SEPARATOR, DEFAULT_COMMAND_DISPATCH_MODE } from '@vibisual/shared';
+import { isSlashCommandText } from './turnPrompt.js';
 
 /**
  * §5.5 #17-18 — 합치기 덧말 흡수(순수): dispatch 직전 같은 탭(`subAgentId`)의 뒤따르는 `queued` 명령을 base 뒤에 붙이고 큐에서 지운다.
@@ -12,7 +13,7 @@ export function absorbMergeFollowUps(queue: QueuedCommand[], base: QueuedCommand
   if ((base.dispatchMode ?? DEFAULT_COMMAND_DISPATCH_MODE) !== 'merge') return [];
   if (base.edgeId) return [];
   // §5.3 #9-1 (P) — 조용한 내부 명령은 남의 본문을 삼키지 않는다(위 "끊는 지점" 참고).
-  if (base.silent) return [];
+  if (base.silent || isSlashCommandText(base.text)) return [];
   // §5.3 #10-4 — 지휘 명령·킥오프는 남의 덧말을 삼키지 않는다. 지휘자가 받을 요청 원문이 바뀌면 안 된다.
   if (base.orchestraRunId) return [];
   // Capabilities and execution caps belong to one request, never an absorbed follow-up.
@@ -28,7 +29,7 @@ export function absorbMergeFollowUps(queue: QueuedCommand[], base: QueuedCommand
     if (c.status !== 'queued') break;
     if (c.edgeId) break;
     // 조용한 내부 명령은 남의 턴에 섞이지 않는다 — 자기 턴으로 따로 나간다.
-    if (c.silent) break;
+    if (c.silent || isSlashCommandText(c.text)) break;
     // 지휘 명령·킥오프도 자기 턴으로 따로 나간다(§5.3 #10-4).
     if (c.orchestraRunId) break;
     if (c.executionRequirements || c.runLimits) break;

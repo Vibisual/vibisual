@@ -1,6 +1,6 @@
 /**
  * §4 앱 테마 — shared 색 문법·정규화·해석 계약(서버 창 바탕과 클라 화면이 이 한 벌을 쓴다): 색 문법은 엄격(새는 글자·이름 색·var() 거절) ·
- * 기본 테마 = 테마 이전 화면 · 라이트 = 팔레트 뒤집기 · 참조 토큰은 최종 팔레트에서 · 사용자 테마는 틀린 칸만 버리고 id 는 `custom:` ·
+ * 최초 기본값 = 그래파이트 · 상속 기준 = 테마 이전 화면 · 라이트 = 팔레트 뒤집기 · 참조 토큰은 최종 팔레트에서 · 사용자 테마는 틀린 칸만 버리고 id 는 `custom:` ·
  * 못 찾은 id 는 기본 테마 + `fellBack` · [새로 만들기] 견본 왕복 · 기본 테마 9벌이 문제 없이 풀린다.
  */
 import { describe, expect, it } from 'vitest';
@@ -8,6 +8,7 @@ import {
   APP_THEME_FAMILIES,
   APP_THEME_SHADES,
   APP_THEME_TOKENS,
+  BASE_APP_THEME_ID,
   BUILTIN_APP_THEMES,
   DEFAULT_APP_THEME_ID,
   TAILWIND_DEFAULT_PALETTE,
@@ -63,8 +64,8 @@ describe('색 문법 — 엄격하게 받고, 다시 써서 내보낸다', () =>
   });
 });
 
-describe('기본 테마 = 종전 화면', () => {
-  const base = resolveAppTheme(DEFAULT_APP_THEME_ID);
+describe('상속 기준 테마 = 종전 화면', () => {
+  const base = resolveAppTheme(BASE_APP_THEME_ID);
 
   it('팔레트는 Tailwind 기본 값 그대로다', () => {
     for (const f of APP_THEME_FAMILIES) {
@@ -126,7 +127,7 @@ describe('기본 테마 목록', () => {
 
 describe('라이트 = 팔레트 뒤집기', () => {
   const light = resolveAppTheme('light');
-  const base = resolveAppTheme(DEFAULT_APP_THEME_ID);
+  const base = resolveAppTheme(BASE_APP_THEME_ID);
 
   it('바탕 칸은 밝아지고 앞쪽 글자(white)는 어두워진다', () => {
     expect(light.kind).toBe('light');
@@ -134,7 +135,7 @@ describe('라이트 = 팔레트 뒤집기', () => {
     expect(lightness(light.cssVars['--color-white'])).toBeLessThan(0.3);
   });
 
-  it('gray-950 자리에는 기본 테마의 gray-50 이 온다(500 은 제자리)', () => {
+  it('gray-950 자리에는 상속 기준 테마의 gray-50 이 온다(500 은 제자리)', () => {
     expect(light.cssVars['--color-gray-950']).toBe(base.cssVars['--color-gray-50']);
     expect(light.cssVars['--color-gray-500']).toBe(base.cssVars['--color-gray-500']);
   });
@@ -199,11 +200,11 @@ describe('사용자 테마 해석', () => {
     expect(r.cssVars['--color-gray-950']).toBe(midnight.cssVars['--color-gray-950']);
   });
 
-  it('없는 출발점은 기본 테마에서 출발하고 문제로 남긴다', () => {
+  it('없는 출발점은 상속 기준 테마에서 출발하고 문제로 남긴다', () => {
     const orphan = mk({ name: 'Orphan', extends: 'nowhere' }, 'orphan.json');
     const r = resolveAppTheme(orphan.id, [orphan]);
     expect(r.issues.map((i) => i.code)).toContain('unknownBase');
-    expect(r.cssVars['--color-gray-950']).toBe(resolveAppTheme(DEFAULT_APP_THEME_ID).cssVars['--color-gray-950']);
+    expect(r.cssVars['--color-gray-950']).toBe(resolveAppTheme(BASE_APP_THEME_ID).cssVars['--color-gray-950']);
   });
 
   it('서로를 잇는 순환은 끊는다', () => {
@@ -225,15 +226,16 @@ describe('사용자 테마 해석', () => {
   it('별칭은 이어받은 값을 본다 — 같은 정의 안의 다른 변경을 따라가지 않는다', () => {
     const t = mk({ name: 'T', palette: { gray: 'slate', slate: { hue: 0 } } }, 't.json');
     const r = resolveAppTheme(t.id, [t]);
-    const base = resolveAppTheme(DEFAULT_APP_THEME_ID);
+    const base = resolveAppTheme(BASE_APP_THEME_ID);
     expect(r.cssVars['--color-gray-500']).toBe(base.cssVars['--color-slate-500']);
     expect(r.cssVars['--color-slate-500']).not.toBe(base.cssVars['--color-slate-500']);
   });
 
-  it('고른 id 를 못 찾으면 기본 테마로 칠하고 fellBack 을 세운다', () => {
+  it('미설정이면 그래파이트, 고른 id 를 못 찾으면 같은 기본 테마와 fellBack 을 쓴다', () => {
     const r = resolveAppTheme('custom:gone', []);
     expect(r.id).toBe(DEFAULT_APP_THEME_ID);
     expect(r.fellBack).toBe(true);
+    expect(resolveAppTheme(undefined).id).toBe('graphite');
     expect(resolveAppTheme(undefined).fellBack).toBe(false);
   });
 

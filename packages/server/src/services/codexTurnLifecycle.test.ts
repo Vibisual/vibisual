@@ -65,6 +65,78 @@ afterEach(() => {
 });
 
 describe('attachCodexTurn — 평소 마감', () => {
+  it('preserves UTF-8 text when stdout bytes split inside Korean characters and emoji', () => {
+    const id = sub('utf8-stdout');
+    const child = new FakeChild(103);
+    const events: unknown[] = [];
+    const done = vi.fn();
+    attachCodexTurn(child.asChild(), {
+      subAgentId: id, onEvent: (event) => events.push(event), onThread: vi.fn(),
+      onUsage: vi.fn(), onFileWrites: vi.fn(), onDone: done,
+    }, { killTree: vi.fn() });
+    const text = '한글과 이모지 😀를 보존합니다';
+    const line = Buffer.from(JSON.stringify({ type: 'item.completed', item: { id: 'utf8', type: 'agent_message', text } }) + '\n' + TURN_END.trimEnd());
+    // Each byte crosses a chunk boundary; the final JSON line has no newline.
+    for (const byte of line) child.stdout.write(Buffer.from([byte]));
+    child.exit(0);
+    child.close(0);
+    expect(events).toEqual([{ eventType: 'text', content: text }]);
+    expect(done).toHaveBeenCalledExactlyOnceWith(undefined, text);
+  });
+
+  it('preserves UTF-8 stderr diagnostics across chunk boundaries', () => {
+    const id = sub('utf8-stderr');
+    const child = new FakeChild(104);
+    const done = attach(id, child, { killTree: vi.fn() });
+    const message = '연결 오류 😀';
+    for (const byte of Buffer.from(message)) child.stderr.write(Buffer.from([byte]));
+    child.exit(1);
+    child.close(1);
+    expect(done).toEqual([{ error: message, finalText: '' }]);
+  });
+
+  it('fails an unexpected signal exit even when a progress message was already received', () => {
+    const id = sub('signal-exit');
+    const child = new FakeChild(105);
+    const done = attach(id, child, { killTree: vi.fn() });
+    child.stdout.write(ANSWER);
+    child.emit('exit', null, 'SIGKILL');
+    child.emit('close', null, 'SIGKILL');
+    expect(done).toEqual([{ error: 'codex terminated by signal SIGKILL', finalText: '다 했습니다' }]);
+    expect(isCodexTurnRunning(id)).toBe(false);
+  });
+
+  it('fails exit zero when only a progress message arrived without a turn completion marker', () => {
+    const id = sub('progress-only-exit');
+    const child = new FakeChild(107);
+    const done = attach(id, child, { killTree: vi.fn() });
+    child.stdout.write('{"type":"item.completed","item":{"id":"progress","type":"agent_message","text":"계속 확인하겠습니다"}}');
+    child.exit(0);
+    child.close(0);
+    expect(done).toEqual([{ error: 'codex exited before turn completion', finalText: '계속 확인하겠습니다' }]);
+    expect(isCodexTurnRunning(id)).toBe(false);
+  });
+
+  it('preserves the existing empty-output error when no turn completion arrived', () => {
+    const id = sub('empty-exit');
+    const child = new FakeChild(108);
+    const done = attach(id, child, { killTree: vi.fn() });
+    child.exit(0);
+    child.close(0);
+    expect(done).toEqual([{ error: 'codex produced no output', finalText: '' }]);
+  });
+
+  it('preserves user-stop classification when the child exits by signal', () => {
+    const id = sub('signal-stop');
+    const child = new FakeChild(106);
+    const done = attach(id, child, { killTree: vi.fn() });
+    child.stdout.write(ANSWER);
+    stopCodexTurn(id);
+    child.emit('exit', null, 'SIGTERM');
+    child.emit('close', null, 'SIGTERM');
+    expect(done).toEqual([{ error: undefined, finalText: '다 했습니다' }]);
+  });
+
   it('close 로 끝나면 답을 싣고 한 번만 알린다', async () => {
     const id = sub('normal');
     const child = new FakeChild(101);
@@ -93,6 +165,18 @@ describe('attachCodexTurn — 평소 마감', () => {
 });
 
 describe('attachCodexTurn — close 가 안 오는 경우', () => {
+  it('retains the termination signal when inherited pipes prevent close', async () => {
+    const id = sub('signal-without-close');
+    const child = new FakeChild(205);
+    const done = attach(id, child, { killTree: vi.fn(), exitCloseGraceMs: 30 });
+    child.stdout.write(ANSWER.trimEnd());
+    child.emit('exit', null, 'SIGTERM');
+    await waitFor(() => done.length > 0, 1000);
+    expect(done).toEqual([{ error: 'codex terminated by signal SIGTERM', finalText: '다 했습니다' }]);
+    child.emit('close', null, 'SIGTERM');
+    expect(done).toHaveLength(1);
+  });
+
   it('[중지] → 본체 exit, 파이프는 손자가 쥔 채 → close 없이 중지로 마감한다', async () => {
     const id = sub('stop-exit');
     const child = new FakeChild(201);
@@ -186,7 +270,7 @@ describe('attachCodexTurn — close 가 안 오는 경우', () => {
     const done = attach(id, child, { killTree: vi.fn(), exitCloseGraceMs: 200 });
     child.exit(0);
     // 개행 없이 끝난 마지막 줄 — close 가 남은 버퍼를 처리해야 답이 산다.
-    child.stdout.write(ANSWER.trimEnd());
+    child.stdout.write(ANSWER + TURN_END.trimEnd());
     await sleep(5);
     child.close(0);
     await sleep(5);

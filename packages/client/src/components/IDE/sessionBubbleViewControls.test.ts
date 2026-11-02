@@ -41,6 +41,28 @@ describe('[버블]은 보기 묶음 [버블 | 간결 | 표준 | 원문]의 첫 �
   });
 });
 
+describe('지도는 [버블]을 누른 세션 하나다 — 세션을 합치지 않는다', () => {
+  it('메인 탭은 상태바가 가리키는 명령의 세션 · 재료·이름·도는가가 모두 그 세션 것', () => {
+    const bar = slice(mainArea, 'function StreamStatusBar(', '\n}\n');
+    expect(bar).toContain('const targetSessionId = target?.subAgentId ?? null;');
+    expect(bar).toContain('onTargetSession?.(targetSessionId)');
+    expect(mainArea).toContain('onTargetSession={setStatusBarSessionId}');
+    expect(mainArea).toContain('bubbleMapSessionOf(activeSessionId, statusBarSessionId, subAgents)');
+    expect(mainArea).toContain('sessionBubbleStreamsOf(streams, originalCommands, bubbleSessionId)');
+    // 그 에이전트의 세션 전부를 지도에 넣지 않는다.
+    expect(mainArea).not.toContain('subAgents.map((s) => s.id)),');
+    const view = slice(mainArea, '<SessionBubbleView', '/>');
+    expect(view).toContain('sessionId={bubbleSessionId}');
+    expect(view).toContain('running={bubbleSessionRunning}');
+  });
+
+  it('지도를 보는 동안 상태바는 재지 않는다 — 재면 바닥으로 읽혀 지도가 최신 세션으로 튄다', () => {
+    const bar = slice(mainArea, 'function StreamStatusBar(', '\n}\n');
+    expect(bar).toContain('const onMap = returnToStream !== undefined;');
+    expect(bar).toMatch(/useEffect\(\(\) => \{\s*if \(onMap\) return;\s*const container = scrollRef\.current;/);
+  });
+});
+
 describe('세션 버블 지도의 손짓은 캔버스와 같다', () => {
   it('버블을 끌 수 있고, 위성은 부모와 같은 변위로 따라온다', () => {
     expect(mapView).not.toContain('nodesDraggable={false}');
@@ -60,6 +82,44 @@ describe('세션 버블 지도의 손짓은 캔버스와 같다', () => {
     expect(standard).toContain("setStreamDensity('standard')");
     expect(standard).toContain('returnFromBubbles(null)');
     expect(mainArea).toContain('onShowStandard={showStandardFromBubbles}');
+  });
+
+  it('누름 = 캔버스의 오른쪽 디테일 창(DetailPanel) — 지도 전용 정보 상자는 없다', () => {
+    expect(mapView).not.toContain('function SessionBubbleInfo');
+    expect(mapView).not.toContain('<SessionBubbleInfo');
+    expect(mapView).toContain("import { DetailPanel } from '../Panel/DetailPanel.js';");
+    expect(mapView).toMatch(/<DetailPanel\s+onClose=\{resetSelection\}\s+hosted=\{\{/);
+    // 고르기는 그 판이 받는다 — 캔버스 전역 선택(selectNode)을 건드리지 않는다.
+    const host = slice(mapView, 'const host = useMemo<BubbleHost>(', '}), []);');
+    expect(host).toContain('select: (nodeId) => { setRingId(nodeId); setInfoId(nodeId); }');
+    expect(mapView).not.toContain('selectNode(');
+    const panel = read('../Panel/DetailPanel.tsx');
+    // 남의 판 안에서는 그 판의 오른쪽 · 캔버스의 다른 선택(메모 상자·캡처·앱·Task Edge·콘티)이 끼어들지 않는다.
+    expect(panel).toContain('const dockInsets = hosted ? NO_DOCK_INSETS : canvasDockInsets;');
+    for (const sel of ['selectedCommentBoxId', 'selectedCaptureBubbleId', 'selectedAppBubbleId', 'selectedTaskEdgeId']) {
+      expect(panel).toContain(`if (!hosted && ${sel}) {`);
+    }
+  });
+
+  it('미리보기는 이 지도의 판으로 고른다 — 지도 배율·움직임을 따른다(캔버스 판 ❌)', () => {
+    expect(mapView).toContain('const previews = useMemo(() => createPreviewBudget(), []);');
+    expect(mapView).toContain('useEffect(() => registerPreviewSurface(previews), [previews]);');
+    expect(mapView).toMatch(/<PreviewBudgetProvider value=\{previews\}>\s*<ReactFlow/);
+    expect(mapView).toContain('onMoveStart={onMoveStart}');
+    expect(mapView).toContain('onMoveEnd={onMoveEnd}');
+    expect(slice(mapView, 'const onMoveStart = useCallback(', '}, [')).toContain('previews.setMoving(true, viewport.zoom)');
+    expect(slice(mapView, 'const onMoveEnd = useCallback(', '}, [')).toContain('previews.setMoving(false, viewport.zoom)');
+    // 버블의 미리보기 허가는 가장 가까운 판을 쓴다.
+    const budget = read('../../apps/previewBudget.ts');
+    expect(budget).toContain('const budget = useContext(PreviewBudgetContext);');
+  });
+
+  it('폴더 더블클릭 = 안으로(별도 창 ❌) · 묶음 더블클릭 = 묶음 안', () => {
+    const dbl = slice(mapView, 'const onNodeDoubleClick = useCallback(', '}, [graph,');
+    expect(dbl).toContain("case 'folder': enterFolder(entry.folder.id); return;");
+    expect(dbl).toContain("if (data.bubbleType === 'bundle') { enterBundle(node, data); return; }");
+    const enter = slice(mapView, 'const enterFolder = useCallback(', ', [goTo]);');
+    expect(enter).toContain("goTo({ kind: 'folder', id })");
   });
 
   it('파일 더블클릭은 캔버스와 같은 여는 길 — 판 자리만 이 IDE 의 오른쪽 편집 판', () => {

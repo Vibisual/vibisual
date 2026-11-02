@@ -249,7 +249,7 @@ export const ORCHESTRA_STRATEGIES: readonly OrchestraStrategy[] = [
     id: "other",
     no: 13,
     element: "**기타 0.6%**",
-    methods: "손댈 여지 없음(사용자 지시 원문·Skill 본문·ToolSearch 스키마)",
+    methods: "손댈 여지 없음(입력된 지시문·Skill 본문·ToolSearch 스키마)",
     saving: "—",
     risk: "—",
     applyAt: "—",

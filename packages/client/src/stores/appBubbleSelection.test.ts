@@ -179,7 +179,7 @@ describe('app bubble detail panel wiring', () => {
 
   it('DetailPanel 이 앱 버블 전용 섹션을 렌더한다', () => {
     const src = SOURCES['/src/components/Panel/DetailPanel.tsx'] ?? '';
-    expect(src).toContain('if (selectedAppBubbleId)');
+    expect(src).toContain('if (!hosted && selectedAppBubbleId)');
     expect(src).toContain('<AppBubbleDetail bubble={bubble} />');
   });
 });

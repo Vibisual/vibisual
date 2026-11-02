@@ -14,13 +14,14 @@ import type {
   CommandDispatchMode,
   CommandError,
 } from '@vibisual/shared';
-import { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype, extractStageBlocks, readCodexTransportNotice } from '@vibisual/shared';
+import { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype, extractStageBlocks, readCodexTransportNotice, readCodexSessionNotice } from '@vibisual/shared';
 import { parseSystemSubtype } from './SystemNode.js';
 import { shouldTraceThinking, type ThinkRun } from './turnSteps.js';
 import { TransportRecoveryAccumulator, sameTransportRecovery, type StreamTransportRecovery } from './streamTransportRecovery.js';
 import { StreamErrorAccumulator } from './streamErrorDedup.js';
-import { turnStopLabelKey } from './turnStopLabel.js';
+import { turnResultText, turnStopLabelKey } from './turnStopLabel.js';
 import { liveLineActivityAt, liveLineMode, sessionTurnStartedAt, type LiveLineMode } from '../../utils/sessionActivity.js';
+import { followUpDeliveryOf, sameFollowUpDelivery, type FollowUpDeliveryDisplay } from './followUpDelivery.js';
 
 // ─── 계획(TodoWrite) 인식 (§5.5 #17-12) ───
 
@@ -222,6 +223,7 @@ export interface StreamThinkingLive {
    * 아니라 이 시각부터 잰다(`liveLineClockFrom`). 아니면 키 자체가 없다.
    */
   compactingSince?: number;
+  waitingForAgentsSince?: number;
 }
 
 /** §4 — 작업 신고 카드(createdAt 을 timestamp 로 시간순 합류). §5.5 #17-12 — 같은 턴의 검수 요청은 이 카드 안쪽 구획(`review`)으로 흡수된다. */
@@ -293,6 +295,9 @@ export interface StreamCommand {
   commandId?: string;
   /** §5.5 #17-18 ⑤ — 대기 중인 덧말의 dispatch 방식(말풍선 색·칩 활성 표시). */
   dispatchMode?: CommandDispatchMode;
+  /** A message sent within an existing turn, never a new turn boundary. */
+  isFollowUp?: boolean;
+  liveDelivery?: FollowUpDeliveryDisplay;
   /**
    * §5.5 #17-12 ③ — 오류로 끝난 이유. `result` 와 같은 규약으로 **스트림이 없을 때만** 싣는다 —
    * 스트림이 있으면 실패한 그 자리에 `error` 항목이 이미 서 있어 두 번 읽게 된다.
@@ -355,11 +360,13 @@ export const PENDING_COMMAND_TS = Number.MAX_SAFE_INTEGER;
  * (§5.3 #12-1). `startedAt` 이 있으면 나간 적이 있으니 처음 나간 시각에 남는다.
  */
 export function hasDispatched(cmd: QueuedCommand): boolean {
+  if (cmd.dispatchMode === 'steer') return false;
   return cmd.status !== 'queued' || cmd.startedAt !== undefined;
 }
 
 /** §5.5 #17-18 ⑥ — 말풍선이 설 자리: 안 나간 `queued` 는 꼬리, 그 외는 나간 시각(`startedAt` — 턴 경계선), `startedAt` 없는 옛 명령은 큐 투입 시각. */
 export function commandAnchorTs(cmd: QueuedCommand): number {
+  if (cmd.dispatchMode === 'steer') return cmd.timestamp;
   if (!hasDispatched(cmd)) return PENDING_COMMAND_TS;
   return cmd.startedAt ?? cmd.timestamp;
 }
@@ -374,6 +381,17 @@ function dispatchedAnchorsAsc(commands: readonly QueuedCommand[] | undefined): n
   for (const c of commands ?? []) {
     if (!hasDispatched(c)) continue;
     out.push(commandAnchorTs(c));
+  }
+  return out.sort((a, b) => a - b);
+}
+
+/** Split assistant paragraphs at user messages without creating a new turn. */
+function messageBreaksAsc(commands: readonly QueuedCommand[] | undefined): number[] {
+  const out = dispatchedAnchorsAsc(commands);
+  for (const command of commands ?? []) {
+    if (command.silent) continue;
+    if (command.dispatchMode === 'steer') out.push(command.timestamp);
+    for (const message of command.followUps ?? []) out.push(message.timestamp);
   }
   return out.sort((a, b) => a - b);
 }
@@ -457,16 +475,24 @@ export function emptyTurnCoverage(): TurnCoverage {
   return { answered: new Set(), failed: new Set() };
 }
 
+/** Reclassify legacy advisory records for display without changing stored events. */
+export function codexNoticeDisplayEvent(event: SubAgentStreamEvent): SubAgentStreamEvent {
+  const notice = readCodexSessionNotice(event);
+  return notice !== null && (event.eventType !== 'system' || event.content !== notice)
+    ? { ...event, eventType: 'system', content: notice }
+    : event;
+}
+
 /** 이 줄이 "그 턴이 답했다"의 증거인가 — 부모 자신의 본문이거나 CLI 의 결과 줄. 그림·중첩 Task 의 말은 아니다. */
 function isTurnAnswer(evt: SubAgentStreamEvent): boolean {
-  if (evt.eventType === 'result') return true;
+  if (evt.eventType === 'result') return turnResultText(evt.content).trim().length > 0;
   return evt.eventType === 'text' && !evt.imagePath && !evt.nestedUnderToolUseId;
 }
 
 /** 줄 하나를 커버리지에 보탠다 — 전체 재구축·증분 파서가 **같은 함수**를 쓴다(등가성 시험이 대칭을 못박는다). */
 export function coverTurn(cov: TurnCoverage, evt: SubAgentStreamEvent, anchors: readonly TurnAnchor[]): void {
   const answer = isTurnAnswer(evt);
-  const failure = evt.eventType === 'error' && !readCodexTransportNotice(evt);
+  const failure = codexNoticeDisplayEvent(evt).eventType === 'error' && !readCodexTransportNotice(evt);
   if (!answer && !failure) return;
   const turn = turnOfEvent(evt, anchors);
   if (turn === null) return;
@@ -499,7 +525,7 @@ function buildCommandItems(commands: readonly QueuedCommand[] | undefined, cover
         kind: 'command',
         id: `cmd-${cmd.id}`,
         prompt: cmd.text,
-        result: coverage.answered.has(cmd.id) ? '' : (cmd.result ?? ''),
+        result: coverage.answered.has(cmd.id) ? '' : turnResultText(cmd.result),
         status: cmd.status,
         // §5.5 #17-18 ⑥ — 큐에 넣은 시각이 아니라 **나간 시각**(대기 중이면 꼬리).
         timestamp: commandAnchorTs(cmd),
@@ -510,12 +536,21 @@ function buildCommandItems(commands: readonly QueuedCommand[] | undefined, cover
         restartResumed: cmd.restartResumed,
         commandId: cmd.id,
         dispatchMode: cmd.dispatchMode,
+        ...(cmd.dispatchMode === 'steer' ? { isFollowUp: true, liveDelivery: followUpDeliveryOf(cmd) } : {}),
         error: coverage.failed.has(cmd.id) ? undefined : cmd.error,
       });
+      for (const message of cmd.followUps ?? []) {
+        items.push({
+          kind: 'command', id: `cmd-${message.id}`, prompt: message.text,
+          result: '', status: 'completed', timestamp: message.timestamp,
+          submittedAt: message.timestamp, attachments: message.attachments,
+          dispatchMode: 'steer', isFollowUp: true, liveDelivery: { state: 'delivered' },
+        });
+      }
       // §5.5 #17-12 ③-6 (g) — 멈춘 이유는 말풍선 안(= 나간 시각, 출력 전부보다 위)이 아니라
       //   **그 턴의 꼬리**에 자기 항목으로 선다. 만드는 곳이 여기 하나뿐이라 전체 재구축·증분 파서가
       //   같은 항목을 같은 자리에 낸다(등가성 시험이 그 대칭을 못박는다).
-      const stopLabelKey = turnStopLabelKey(cmd.stopReason, cmd.status);
+      const stopLabelKey = turnStopLabelKey(cmd.stopReason, cmd.status, cmd.result);
       if (stopLabelKey) {
         items.push({
           kind: 'turnstop',
@@ -607,11 +642,12 @@ function computeThinkingLive(
   activityHidden = false,
   turnStartedAt: number | null = null,
   compactingSince: number | null = null,
+  waitingForAgentsSince: number | null = null,
 ): StreamThinkingLive | null {
   if (!agentBusy) return null;
   const lastRaw = events[events.length - 1];
   // §5.5 #17-18 ⑪ — 줄 선 것이 먼저다(도는 것이 없으면 마지막 이벤트는 잔상이다). 규칙은 메인 탭과 같은 함수 한 곳(대기 > 압축 > 작업, #17-24 ⑥ ⑦).
-  const mode = liveLineMode(agentWaiting, compactingSince !== null);
+  const mode = liveLineMode(agentWaiting, compactingSince !== null, waitingForAgentsSince !== null);
   // 정렬에 참여하지 않고 늘 맨 끝이라 timestamp 는 순서에 영향이 없다(없으면 0).
   // §2.4 — 무응답 시계는 마지막 활동 시각(`liveLineActivityAt`, 메인 탭과 같은 함수), 감춘 턴 중엔 안 뒤집는다. 평소 경과는 `turnStartedAt` 부터(§5.5 #17-10 ⑥-6).
   return {
@@ -620,6 +656,7 @@ function computeThinkingLive(
     lastActivityAt: liveLineActivityAt(lastRaw?.timestamp, sessionActivityAt),
     turnStartedAt,
     ...(mode === 'compacting' && compactingSince !== null ? { compactingSince } : {}),
+    ...(mode === 'delegating' && waitingForAgentsSince !== null ? { waitingForAgentsSince } : {}),
     ...(activityHidden ? { hiddenTurn: true as const } : {}),
   };
 }
@@ -645,6 +682,7 @@ export function buildBaseItems(
   turnStartedAt?: number | null,
   /** §5.5 #17-24 ⑥ — CLI 가 접는 중이면 그 시작 시각(`useSessionLivenessFacts().compactingSince`). */
   compactingSince?: number | null,
+  waitingForAgentsSince?: number | null,
 ): BaseItemsResult {
   // §5.5 #17-12 ③-3 — 말풍선의 저장된 결과는 **그 턴의 말이 버퍼에 남아 있는지**로 턴마다 갈린다.
   const turnAnchors = dispatchedTurnAnchorsAsc(commands);
@@ -676,7 +714,7 @@ export function buildBaseItems(
     if (e.eventType !== 'tool_use' && e.eventType !== 'tool_result') lastNonToolIdx = k;
   }
 
-  const sortedCmdTs = dispatchedAnchorsAsc(commands);
+  const sortedCmdTs = messageBreaksAsc(commands);
   function crossesCommand(prevTs: number, nextTs: number): boolean {
     for (const t of sortedCmdTs) {
       if (t > prevTs && t <= nextTs) return true;
@@ -714,7 +752,7 @@ export function buildBaseItems(
 
   let i = 0;
   while (i < events.length) {
-    const evt = events[i]!;
+    const evt = codexNoticeDisplayEvent(events[i]!);
     recordEventSortTimestamp(sortTimestamps, evt, sortBounds);
     const turnId = turnOfEvent(evt, turnAnchors);
 
@@ -801,7 +839,8 @@ export function buildBaseItems(
     }
 
     if (evt.eventType === 'result') {
-      items.push({ kind: 'result', id: evt.id, content: evt.content, timestamp: evt.timestamp });
+      const content = turnResultText(evt.content);
+      if (content.trim()) items.push({ kind: 'result', id: evt.id, content, timestamp: evt.timestamp });
       i++;
       continue;
     }
@@ -822,7 +861,7 @@ export function buildBaseItems(
 
   recovery.projectStopped(items, commands, agentBusy && !agentWaiting);
 
-  const thinkingLive = computeThinkingLive(events, agentBusy, agentWaiting, sessionActivityAt ?? null, activityHidden ?? false, resolveTurnStartedAt(commands, agentWaiting, turnStartedAt), compactingSince ?? null);
+  const thinkingLive = computeThinkingLive(events, agentBusy, agentWaiting, sessionActivityAt ?? null, activityHidden ?? false, resolveTurnStartedAt(commands, agentWaiting, turnStartedAt), compactingSince ?? null, waitingForAgentsSince ?? null);
   return { items, agentBusy, thinkingLive, sortTimestamps };
 }
 
@@ -1177,6 +1216,8 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
       // §5.5 #17-18 ⑤ — dispatchMode 도 렌더(말풍선 색·활성 칩)에 영향 → 비교에 포함.
       return x.prompt === b.prompt && x.result === b.result && x.status === b.status
         && x.dispatchMode === b.dispatchMode && sameCommandError(x.error, b.error)
+        && x.isFollowUp === b.isFollowUp && sameFollowUpDelivery(x.liveDelivery, b.liveDelivery)
+        && x.timestamp === b.timestamp && x.submittedAt === b.submittedAt
         && sameAttachments(x.attachments, b.attachments);
     }
     case 'plan': {
@@ -1196,7 +1237,7 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
       // §5.5 #17-24 ⑥ — 압축 시작 시각도 렌더에 쓰인다(넷째 모드의 경과). 빼면 압축이 두 번째로 시작해도 옛 시각에서 센다.
       return x.mode === b.mode && x.lastActivityAt === b.lastActivityAt
         && x.turnStartedAt === b.turnStartedAt && !!x.hiddenTurn === !!b.hiddenTurn
-        && x.compactingSince === b.compactingSince;
+        && x.compactingSince === b.compactingSince && x.waitingForAgentsSince === b.waitingForAgentsSince;
     }
     // §5.5 #17-18 ⑦-2 — `live`(작업 중 배지)는 렌더에 영향 → 비교에 포함. 빼면 턴이 끝나도
     //   identity 안정화가 옛 객체를 그대로 재사용해 배지가 영영 안 사라진다.
@@ -1220,7 +1261,7 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
 function cmdTsKey(commands: readonly QueuedCommand[] | undefined, agentBusy: boolean): string {
   // §5.5 #17-12 ③-3 — 경계 시각뿐 아니라 **명령 id** 까지 키에 넣는다. 턴 커버리지는 id 로 쌓이므로
   //   시각이 같은 채 id 만 바뀌면(명령 교체) 리셋 없이는 옛 id 에 쌓인 판정이 새 명령에 붙는다.
-  return `${agentBusy ? '1' : '0'}|${dispatchedTurnAnchorsAsc(commands).map((a) => `${a.ts}:${a.id}`).join(',')}`;
+  return `${agentBusy ? '1' : '0'}|${dispatchedTurnAnchorsAsc(commands).map((a) => `${a.ts}:${a.id}`).join(',')}|${messageBreaksAsc(commands).join(',')}`;
 }
 
 /** 열린 text 블록의 증분 상태 — items[idx] 를 제자리 교체하며 자란다. */
@@ -1313,7 +1354,8 @@ export class IncrementalStreamParser {
     }
   }
 
-  private processOne(evt: SubAgentStreamEvent): void {
+  private processOne(rawEvent: SubAgentStreamEvent): void {
+    const evt = codexNoticeDisplayEvent(rawEvent);
     // §5.5 #17-12 ③-3 — 숨김 판정보다 먼저, 모든 줄을 커버리지에 보탠다(전체 재구축 `turnCoverageOf` 와 같은 범위).
     coverTurn(this.coverage, evt, this.turnAnchors);
     recordEventSortTimestamp(this.sortTimestamps, evt, this.sortBounds);
@@ -1408,7 +1450,8 @@ export class IncrementalStreamParser {
     }
 
     if (type === 'result') {
-      this.items.push({ kind: 'result', id: evt.id, content: evt.content, timestamp: evt.timestamp });
+      const content = turnResultText(evt.content);
+      if (content.trim()) this.items.push({ kind: 'result', id: evt.id, content, timestamp: evt.timestamp });
       return;
     }
 
@@ -1439,6 +1482,7 @@ export class IncrementalStreamParser {
     turnStartedAt?: number | null,
     /** §5.5 #17-24 ⑥ — 접는 중이면 그 시작 시각(`buildBaseItems` 와 같은 뜻·같은 자리). */
     compactingSince?: number | null,
+    waitingForAgentsSince?: number | null,
   ): BaseItemsResult {
     const agentBusy = computeAgentBusy(commands, agentBusyOverride);
     const agentWaiting = computeAgentWaiting(commands, agentWaitingOverride);
@@ -1449,7 +1493,7 @@ export class IncrementalStreamParser {
       this.resetState();
       this.cmdKey = cmdKey;
       this.agentBusy = agentBusy;
-      this.sortedCmdTs = dispatchedAnchorsAsc(commands);
+      this.sortedCmdTs = messageBreaksAsc(commands);
       this.turnAnchors = dispatchedTurnAnchorsAsc(commands);
       this.sortBounds = turnSortBounds(this.turnAnchors);
     }
@@ -1464,7 +1508,7 @@ export class IncrementalStreamParser {
     const eventItems = this.items.slice();
     this.recovery.projectStopped(eventItems, commands, agentBusy && !agentWaiting);
     const items: StreamItemFull[] = commandItems.length > 0 ? [...commandItems, ...eventItems] : eventItems;
-    const thinkingLive = computeThinkingLive(events, agentBusy, agentWaiting, sessionActivityAt ?? null, activityHidden ?? false, resolveTurnStartedAt(commands, agentWaiting, turnStartedAt), compactingSince ?? null);
+    const thinkingLive = computeThinkingLive(events, agentBusy, agentWaiting, sessionActivityAt ?? null, activityHidden ?? false, resolveTurnStartedAt(commands, agentWaiting, turnStartedAt), compactingSince ?? null, waitingForAgentsSince ?? null);
     return { items, agentBusy, thinkingLive, sortTimestamps: this.sortTimestamps };
   }
 }

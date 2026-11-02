@@ -3207,8 +3207,12 @@ export const AVAILABLE_EFFORT_LEVELS: readonly string[] = [
  */
 export const EFFORT_LEVEL_PROBE_CANDIDATES: readonly string[] = ['ultracode'];
 
-/** §4 — Effort 드롭다운: `registry.effortLevels` 먼저, 비면 `AVAILABLE_EFFORT_LEVELS`. 맨 앞에 늘 `'default'`(오버라이드 없음). */
-export function listEffortLevels(registry?: ModelRegistry | null): string[] {
+/**
+ * §4 — Effort 드롭다운: `registry.effortLevels` 먼저, 비면 `AVAILABLE_EFFORT_LEVELS`. 맨 앞에 늘 `'default'`(오버라이드 없음).
+ * `keep` 은 저장된 값 — 목록에 없어도 뒤에 남긴다. 도움말 밖 등급(`ultracode`)은 부팅 probe 가 실패한 판에서 빠지는데,
+ * 그때 칸이 저장값을 못 그리면 업데이트 뒤 설정이 바뀐 것처럼 보인다.
+ */
+export function listEffortLevels(registry?: ModelRegistry | null, keep?: string | null): string[] {
   const fromCli = registry?.effortLevels?.filter((v) => typeof v === 'string' && v.trim().length > 0);
   const base = (fromCli && fromCli.length > 0)
     ? fromCli
@@ -3217,6 +3221,8 @@ export function listEffortLevels(registry?: ModelRegistry | null): string[] {
   for (const v of base) {
     if (v !== 'default' && !out.includes(v)) out.push(v);
   }
+  const kept = keep?.trim();
+  if (kept && !out.includes(kept)) out.push(kept);
   return out;
 }
 
@@ -3908,8 +3914,8 @@ export function normalizeBashTimeoutMs(value: unknown): number | undefined {
 
 // §5.5 #17-18 덧말 처리 방식
 
-/** 큐 항목 UI 가 그리는 순서(대기 → 합치기 → 즉시). */
-export const COMMAND_DISPATCH_MODES: readonly CommandDispatchMode[] = ['wait', 'merge', 'immediate'] as const;
+/** 큐 항목 UI 가 그리는 순서(대기 → 합치기 → 작업에 반영 → 즉시). */
+export const COMMAND_DISPATCH_MODES: readonly CommandDispatchMode[] = ['wait', 'merge', 'steer', 'immediate'] as const;
 
 /** 방식 없이 넣은 명령의 기본 = 합치기 — 연달은 덧말은 대개 한 생각이라 한 턴에 간다(쪼개면 앞 지시가 뒤집히고 보고 카드만 는다). */
 export const DEFAULT_COMMAND_DISPATCH_MODE: CommandDispatchMode = 'merge';
@@ -4055,8 +4061,7 @@ export const TASK_EDGE_TEMPLATES: TaskEdgeTemplate[] = [
   {
     id: 'architect-to-implementer',
     label: 'Architect → Implement',
-    // §5.3 #12-4 — 기본 문구도 현재 검증 정책의 켬/끔과 사용자 직접 지시를 따른다.
-    defaultCommand: 'Write code following the ADR implementation plan. When Vibisual verification policy is enabled, run tests only within the current verification grant. When disabled, this instruction adds no separate verification-request requirement. Always follow the user\'s direct instructions and scope, and report tests not run.',
+    defaultCommand: 'Write code following the ADR implementation plan. Always follow the user\'s direct instructions and scope, and report tests not run.',
     sourceRole: 'architect',
     targetRole: 'implementer',
     defaultForwardMode: 'auto',
@@ -4068,7 +4073,7 @@ export const TASK_EDGE_TEMPLATES: TaskEdgeTemplate[] = [
   {
     id: 'implementer-to-verifier',
     label: 'Implement → Verify',
-    defaultCommand: 'Independently review the implementation. When Vibisual verification policy is enabled, run builds and tests only within the current verification grant. When disabled, this instruction adds no separate verification-request requirement. Always follow the user\'s direct instructions and scope, and report what was not run.',
+    defaultCommand: 'Independently review the implementation. Always follow the user\'s direct instructions and scope, and report what was not run.',
     sourceRole: 'implementer',
     targetRole: 'verifier',
     defaultForwardMode: 'auto',
@@ -4080,7 +4085,7 @@ export const TASK_EDGE_TEMPLATES: TaskEdgeTemplate[] = [
   {
     id: 'verifier-to-implementer',
     label: 'Verify → Fix',
-    defaultCommand: 'Review the verification failures and fix them. When Vibisual verification policy is enabled, re-run failing tests only within the current verification grant. When disabled, this instruction adds no separate verification-request requirement. Always follow the user\'s direct instructions and scope.',
+    defaultCommand: 'Review the verification failures and fix them. Always follow the user\'s direct instructions and scope.',
     sourceRole: 'verifier',
     targetRole: 'implementer',
     defaultForwardMode: 'manual',
@@ -4321,11 +4326,6 @@ export const CONTEXT_SOURCE_IDS = {
   autoGoalSkills: 'vibisual.auto-goal.skills',
   /** §5.26 (E) — 압축 뒤 한 턴만 실리는 복원 브리핑. 평소 0바이트지만 표에 세운다 — 싣는 것이 표에서 빠지면 표가 거짓이다. */
   compactRecovery: 'vibisual.compact-recovery',
-  /**
-   * §5.3 #12-4 — 검증 정책 문단(시스템 프롬프트) + 이번 명령의 검증 권한(매 턴 앞말). 이 스위치는 안내 문구만 다룬다 —
-   * 검증 제한·실행 전 차단은 `permissions.verificationGate` 가 켜져 있을 때만, 꺼져 있으면 제한 문구도 싣지 않는다.
-   */
-  verificationPolicy: 'vibisual.verification-policy',
   /** 훅으로 붙은 외부 세션에 매 턴 실리는 집행 블록(§5.11). */
   hookEnforcement: 'vibisual.hook-enforcement',
   /** §5.11 집행 플러그인 전체 — 개별 플러그인은 `plugin:<id>` 로 따로 선다. */
@@ -4608,16 +4608,14 @@ export const TIDY_LAYOUT = {
 } as const;
 
 /**
- * §5.1 #2-2 등장 영역 — 새 버블의 첫 자리(주인 둘레 동심 고리의 빈칸, 붐비면 바깥). 간격은 정리(§5.4 #33)와 같은 `TIDY_LAYOUT`·`SATELLITE_*` 값을 쓴다
+ * §5.1 #2-2 등장 영역 — 새 버블의 첫 자리(주인 둘레 동심 고리 — 가장 가까운 고리부터 빈칸, 없으면 한 고리씩 바깥). 간격은 정리(§5.4 #33)와 같은 `TIDY_LAYOUT`·`SATELLITE_*` 값을 쓴다
  * — 같아야 물리가 다시 밀지 않는다(§5.1 #2-2 (J)).
  */
 export const SPAWN_ZONE = {
-  /** 고리 첫 칸 방향(라디안) = 12시, 각이 커지면 시계 방향(화면 y 가 아래로). 시작점이 없으면 순서가 안 읽힌다. */
+  /** 바깥 방향을 모를 때 고리 첫 칸 방향(라디안) = 12시, 각이 커지면 시계 방향(화면 y 가 아래로). 위성은 윗선 반대편 부채꼴이 먼저다. */
   START_ANGLE: -Math.PI / 2,
   /** 위성 칸 기준 지름(px, 파일 위성 범위의 가운데). 한 부모의 위성이 한 격자를 나눠 써야 고리로 보인다(큰 위성은 겹침 판정이 거른다). */
   SATELLITE_SLOT: (FILE_MIN_SIZE + FILE_MAX_SIZE) / 2,
-  /** 사각 창·말풍선이 원판에 든 넓이를 재는 표본 수(N×N). 식 대신 표본으로 어림한다 — 붐빔을 칸 단위로 묻는 데 충분하다. */
-  AREA_SAMPLES: 8,
   /** 상자가 없을 때(시험·폴백) 훑는 고리 수의 상한 — 탐색이 끝나는 자리. */
   MAX_RINGS: 24,
 } as const;
@@ -5385,11 +5383,10 @@ function serializeRoleCatalog(): string {
  */
 export const HARNESS_INTENT_GATE_ROWS: ReadonlyArray<{ intent: string; signal: string; shape: string }> = [
   { intent: 'quick-fix', signal: '파일/함수 지목 + 단순 수정', shape: '단일 coder (또는 explore→coder)' },
-  // §5.3 #12-4 — 검증 역할 편성도 현재 검증 정책의 켬/끔과 사용자가 요청에 적은 지시를 따른다.
-  { intent: 'feature', signal: '새 기능·다중 단계', shape: 'pm 허브 + (architect)+coder (+tester·reviewer — 현재 검증 정책·사용자 지시에 따라)' },
+  { intent: 'feature', signal: '새 기능·다중 단계', shape: 'pm 허브 + (architect)+coder (+tester·reviewer — 사용자 지시에 따라)' },
   { intent: 'research', signal: '"조사/비교/알아봐"', shape: 'librarian + explore + researcher → 요약' },
-  { intent: 'debug', signal: '"안 돼/버그/원인"', shape: 'oracle(원인 분석) → coder(수정) (→ tester — 현재 검증 정책·사용자 지시에 따라)' },
-  { intent: 'refactor', signal: '"리팩터링/정리/구조 개선"', shape: 'explore(현황) → architect(설계) → coder (→ reviewer — 현재 검증 정책·사용자 지시에 따라)' },
+  { intent: 'debug', signal: '"안 돼/버그/원인"', shape: 'oracle(원인 분석) → coder(수정) (→ tester — 사용자 지시에 따라)' },
+  { intent: 'refactor', signal: '"리팩터링/정리/구조 개선"', shape: 'explore(현황) → architect(설계) → coder (→ reviewer — 사용자 지시에 따라)' },
 ];
 
 /** IntentGate 표의 본문 행(마크다운). 머리행·구분행은 부르는 쪽이 붙인다. */
@@ -5438,14 +5435,13 @@ ${harnessIntentGateRowsMarkdown()}
 3. **하네스 설계**: 몇 개의 어떤 역할이 필요한지, 각 역할에 어떤 모델·도구·권한이 적합한지, 누가 누구에게 위임하는지(엣지) 결정. 단순 작업은 1개로 충분, 복잡하면 PM 허브 + 워커 + 리뷰어. **고정 틀에 끼워맞추지 말고 요청에 맞춰 새로 설계**한다.
 4. **버블 생성**: 역할마다 \`POST /api/create-custom-agent\` 호출 → 응답의 \`agent.id\`(설정/엣지용)와 \`agent.path\`(엔트리 kickoff용 sessionId)를 반드시 캡처.
 5. **설정 주입**: 버블마다 \`PUT /api/agent-config/:agentId\` 로 model/tools/permissionMode/effort/rules 배정. rules 에는 그 에이전트의 역할·산출물 형식을 또렷이 적는다.
-6. **엣지 연결**: 의존 관계대로 \`POST /api/task-edges\` 로 연결. 검증 엣지는 현재 검증 정책과 사용자 지시에 따라 편성한다(바로 아래 "검증 엣지" 절 참고).
+6. **엣지 연결**: 의존 관계대로 \`POST /api/task-edges\` 로 연결. 검증 엣지는 사용자 지시와 작업 범위에 따라 편성한다(바로 아래 "검증 엣지" 절 참고).
 7. **엔트리 기동**: 시작점(=오케스트라) 에이전트의 sessionId 로 \`POST /api/commands/:sessionId\` 에 **사용자 원본 요청**을 forward(text/plain).
 8. **마무리 보고**: 만든 버블·엣지·각자의 역할을 2~5줄로 요약하고, **"이후 추가 명령은 〈엔트리 버블 라벨〉 버블에 입력하세요"** 를 명시(사용자가 어느 버블을 오케스트라로 다룰지 알도록). (당신은 여기서 종료 — 실제 작업은 서브들이 이어간다.)
 
-## 검증 엣지 — 현재 검증 정책과 사용자 범위 (§5.3 #12-4)
-- Vibisual 검증 정책이 켜져 있으면 최신 [검증 권한] 범위 안에서만 검증 멤버·엣지를 편성한다. 최신 [검증 정책]이 꺼짐이면 이 규약은 별도의 검증 요청 요건을 추가하지 않는다. 사용자 직접 지시의 검증 요청·금지·작업 범위는 항상 따른다.
+## 검증 엣지 — 사용자 작업 범위
+- 사용자 직접 지시의 검증 요청·금지·작업 범위는 항상 따른다.
 - **사용자가 원본 요청에서 검증을 요청했으면**(예: "테스트까지 돌려 줘"·"리뷰 받아 줘"·"브라우저에서 확인해 줘"), reviewer 또는 tester 에서 coder 로 향하는 **검증 엣지를 최소 1개** 깐다. \`kind:"critique"\`, \`critiqueAuthority:"force-rework"\` 로 만들면, 리뷰어의 \`REJECT\` 나 테스터의 빌드/테스트 실패가 **자동으로 coder 재작업으로 라우팅**된다(서버가 짝(auto-rework) 엣지를 자동 생성).
-- **검증 정책이 켜져 있고 이번 작업에 검증 권한이 없으면 검증 엣지·tester·reviewer 를 만들지 않는다.** 이때 "수정해 줘"·"기능 추가해 줘"만으로 검증 권한이 생기지 않는다. 실행하지 않은 검증은 마무리 보고에 "검증 미실행"과 확인할 거리로 적는다.
 - 요청했을 때의 권장 형태: coder → reviewer(리뷰), tester → coder(\`critique+force-rework\`), reviewer → coder(\`critique+force-rework\`). 요청 범위(예: "관련 테스트만")를 넘는 검증(전체 스위트·E2E)으로 넓히지 않는다.
 - **예외**: 읽기 전용 조사(research), 단순 질의, 파일을 쓰지 않는 초소형 작업은 검증 엣지 불필요.
 
@@ -5492,7 +5488,7 @@ printf 'EDGE_ID=%s\\n' "$EDGE_ID"
 \`\`\`
 - 필수: \`sourceAgentId\`,\`targetAgentId\`,\`command\`,\`forwardMode\`('manual'|'auto'). 선택: \`kind\`('command'|'artifact'|'request'|'critique'), \`returnFormat\`('summary'|'full'|'both'), \`commandMode\`('shared'|'tool-delegation'|'mode-delegation'), \`critiqueAuthority\`('force-rework'|'comment-only', kind='critique' 한정).
 
-#### 검증(critique) 엣지 예시 — reviewer/tester → coder (현재 검증 정책·사용자 지시에 따름)
+#### 검증(critique) 엣지 예시 — reviewer/tester → coder
 \`\`\`bash
 curl -s -X POST "${serverBase}/api/task-edges" \\
   -H "x-vibisual-hook-token: ${AGENT_AUTH_POSIX}" \\
@@ -5625,6 +5621,11 @@ export const CARD_RULES_DOCUMENT = `# Vibisual 규약 — 그 결론들이 왜 �
 아래로 뒤집힌다. 읽는 순서는 늘 맥락 → 카드다. 작업 도중에 미리 보내면 사용자는 카드를 보고 **끝난 줄
 안다**.
 
+## 왜 카드 규칙이 작업 종료 기준은 아닌가
+카드는 완료된 작업을 보고하는 형식이다. 조사·상태 확인만 마치고 승인된 수정이나 검증을 남긴 채
+보고 형식부터 적용하면 작업이 중간에서 끝난다. 후속 질문은 원래 작업의 취소가 아니며, 답한 뒤에도
+허용된 남은 일을 이어간다. 실제 완료 또는 사용자 입력 없이는 진행할 수 없는 지점에서만 최종 보고한다.
+
 ## 왜 "카드로 보냈습니다"를 쓰지 말라는가
 카드 curl 이 그 턴의 마지막 도구라, 결과를 받은 뒤 무언가 말해야 턴이 닫힌다. 그때 가장 무해해 보이는
 말이 발송 사실 보고인데("검수 카드로 정리해 보냈습니다"), 이미 화면에 뜬 카드를 다시 말할 뿐이라 정보량이
@@ -5712,6 +5713,9 @@ export const CARD_RULES_DOCUMENT = `# Vibisual 규약 — 그 결론들이 왜 �
 그러니 실패(401·연결 거부)해도 무시하고 자연어 보고는 그대로 진행하라.
 `;
 
+/** Final-report formatting must not become a reason to stop authorized work. */
+const AGENT_CARD_COMPLETION_BOUNDARY = '카드는 최종 보고 형식이지 작업 종료 조건이 아니다. 승인된 작업이 남아 있으면 카드 호출을 미루고 계속 수행하라. 아래의 짧은 본문·호출 뒤 종료 규칙은 최종 보고에만 적용하며, 중간 답변이나 작업 범위를 줄이지 않는다.';
+
 /** §5.5 #17-28 ⑧(a)(f) — 카드 공유 결론 한 벌(이유는 `CARD_RULES_DOCUMENT`). 결론이 하나라도 빠지면 실패다. */
 export function buildAgentCardCommonRules(args: {
   serverBase: string;
@@ -5737,6 +5741,7 @@ JSON
   return `
 
 # 카드 (Vibisual IDE) — 공통
+${AGENT_CARD_COMPLETION_BOUNDARY}
 아래 카드들은 같은 창구를 쓴다. 주소·토큰은 환경변수에 이미 있다. 해당 카드의 필드를 본문 JSON에 추가한다.
 ${request}
 - **본문(짧은 결론)을 먼저 쓰고, 그 보고의 맨 마지막 동작으로 1회 호출**한다. 작업 도중에 미리 보내지 마라.
@@ -5807,14 +5812,24 @@ export function buildAgentReviewRules(_args: {
  * §5.5 #17-12 — "의도 먼저" 지시문(동적 값 없음). 도구 전에 의도·계획을 말하게 해 중지 여부를 판단하게 한다(계획은 기존 `TodoWrite`).
  * ⚠ 길이 상한을 고정하지 마라(§5.5 #17-12 ①-1) — "1~2문장"이면 긴 지시의 나머지 갈래를 조용히 버린다. 요구 개수에 비례하고, 안 할 항목도 적힌 채로.
  */
-export const AGENT_INTENT_FIRST_RULES = `
+export function buildAgentIntentFirstRules(goalEnabled: boolean): string {
+  return `
 
 # 의도 먼저 말하기
 **도구를 쓰기 전에, 그 턴의 첫 말로 "내가 이해한 사용자 의도 + 지금부터 할 일"을 말하라.** 사용자는 네가 파일을 읽기 시작한 뒤에야 화면을 보는 일이 많다 — 그때 무엇을 하려는지가 없으면 잘못 가고 있어도 멈출 수가 없다.
 - **길이는 사용자가 말한 요구의 개수를 따라간다.** 요구가 하나면 1~2문장으로 끝내고, **여러 개면 요구마다 한 줄씩 빠짐없이 되짚어라.** 도드라진 것만 골라 짧게 줄이는 것이 가장 흔한 실패다 — 사용자가 적은 요구는 **하나도 빼지 마라.**
 - **모르겠는 항목·이번에 안 할 항목도 그 목록에 적어라**(\`?\` · "이번엔 안 함"). 말없이 빠뜨리면 사용자는 네가 못 알아들은 건지 줄여 말한 건지 알 수 없어 멈출지를 판단하지 못한다.
-- 여러 단계면 그 첫 말과 **함께** 아래 목표 창 블록으로 계획을 세워라(작업 장부 \`TaskCreate\`/\`TaskUpdate\` 를 써도 같은 목록으로 흐른다). **되짚은 요구가 그대로 단계가 된다.** 계획이 바뀌면 갱신하고, **말한 계획과 실제로 하는 일이 달라지면 안 된다.**
-- 한 줄로 끝나는 질문·일상 대화에서는 생략해도 된다.`;
+${goalEnabled ? '- 여러 단계면 그 첫 말과 **함께** 아래 목표 창 블록으로 계획을 세워라(작업 장부 `TaskCreate`/`TaskUpdate` 를 써도 같은 목록으로 흐른다). **되짚은 요구가 그대로 단계가 된다.** 계획이 바뀌면 갱신하고, **말한 계획과 실제로 하는 일이 달라지면 안 된다.**' : '- 여러 단계면 첫 말과 함께 계획을 간단히 설명하라. 계획이 바뀌면 알리고, 말한 계획과 실제로 하는 일이 달라지면 안 된다.'}
+- 한 줄로 끝나는 질문·일상 대화에서는 생략해도 된다.
+
+# 작업을 이어가는 기준
+- 실행을 맡긴 요청은 확인·원인 설명·계획 제시만으로 끝내지 마라. 이미 승인된 범위의 수정과 필요한 검증까지 수행하고, 실제로 끝난 일과 남은 일을 대조한 뒤 최종 보고하라. 조사·검토만 요청했다면 그 범위를 넘겨 수정하지 마라.
+- 진행 중인 작업에 대한 후속 질문·상태 문의·정정은 기존 요청의 취소가 아니다. 필요한 답을 짧게 전한 뒤 아직 승인된 일이 남아 있으면 같은 작업을 계속하라. 최신 메시지만 별도 질문으로 처리해 원래 요청을 버리지 마라.
+- 사용자가 명시적으로 중지하거나 범위를 바꾸면 즉시 따르고 목표·단계를 갱신하라. 사용자 입력·권한 없이는 진행할 수 없을 때는 막힌 이유와 필요한 입력을 밝히되, 독립적으로 할 수 있는 일은 먼저 마쳐라.`;
+}
+
+/** Compatibility form for callers that explicitly request goal instructions. */
+export const AGENT_INTENT_FIRST_RULES = buildAgentIntentFirstRules(true);
 
 
 /** agentId 당 보관하는 질문 카드 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
@@ -6868,10 +6883,10 @@ export function buildSessionGoalState(args: {
 }): string {
   const { goalText, percent, steps, authoredBy, note, revision, kinds } = args;
   const mark: Record<SessionGoalStepStatus, string> = { done: '[x]', in_progress: '[~]', pending: '[ ]' };
-  // 문장의 주인·개정 횟수는 괄호 한 줄로 — 뜻("바꾸지 마라"·"예전 판본은 잊어라")은 규약이 말한다.
+  // Revisions describe the display text, not cancellation of earlier task obligations.
   const tags = [
     authoredBy === 'user' ? '사용자가 고친 문장 — 그대로' : '',
-    revision > 0 ? `${revision}번 바뀜 — 지금 문장만 유효` : '',
+    revision > 0 ? `목표 문장 ${revision}회 수정` : '',
   ].filter(Boolean);
   const tagLine = tags.length > 0 ? `\n(${tags.join(' · ')})` : '';
   const progressLine = `진행률: ${percent}%${note ? ` · 메모: ${note}` : ''}`;
@@ -6918,6 +6933,7 @@ note: 한 줄
 \`\`\`
 - 목록은 통째로 적고 본문·표식(\`∥\`·\`@키\`)은 그대로 옮긴다(같은 본문 = 같은 항목). 실제로 끝난 것만 \`[x]\`, 꼬리 \`?\` 는 확신 낮음. 바뀐 게 없으면 적지 마라 — 표시 전용이다.
 - 사용자가 방금 보낸 명령이 목표보다 우선이다. "사용자가 고친 문장"과 \`[사용자 추가]\` 단계는 지우지 말고 그대로 따르라.
+- 후속 질문·상태 문의만으로 기존 작업과 단계를 지우지 마라. 명시적인 취소·방향 변경은 반영하고, 실제 목표가 바뀌면 \`goal:\`과 전체 단계로 갱신하라. 확인·설명만 끝낸 것을 요청한 작업의 완료로 표시하지 마라.
 - \`@키\` 는 있는 종류(상태의 \`종류:\` 줄)를 먼저 쓴다. 없으면 같은 블록에 \`kind 키: 이름\` 과 들여쓴 \`from: 밑그림\`(${VISUAL_SCENE_TEMPLATES.map((t) => t.name).join('·')}) · \`blurb: 들어설 때 뜨는 한 줄\` 을 적어 만든다.`;
 }
 
@@ -6979,6 +6995,7 @@ export function buildCmdCardProtocolRules(): string {
   return `
 
 # Vibisual 카드 신고 (터미널 한 줄 — 인터랙티브 CMD 전용)
+${AGENT_CARD_COMPLETION_BOUNDARY}
 너는 Vibisual IDE 안의 인터랙티브 터미널에서 돈다. 사용자에게 **작업 신고 / 질문 / 검수 요청** 카드를 띄우려면
 **터미널 stdout 에 \`${S}\` 로 시작하는 한 줄을 인쇄**하면 된다(예: Bash 도구로 \`echo\`). 그 줄은 IDE 가 캡처해
 **카드로 보여준다**(원문 마커 줄은 터미널에서 숨긴다 — 터미널 옆 카드 패널에 색 카드로 렌더) — curl·포트·토큰·agentId 가
@@ -10271,8 +10288,11 @@ export const VERIFICATION_AUTOMATION = {
 // ─── §4 앱 테마 ───
 // 본체는 Tailwind 팔레트 변수(`--color-<계열>-<칸>`) 교체, 클래스로 못 칠하는 자리만 의미 토큰. 해석 `appThemeResolve.ts`, 목록 `appThemeCatalog.ts`.
 
-/** 기본 테마 — 종전 화면 그대로다. 고른 테마를 못 찾을 때도 여기로 떨어진다. */
-export const DEFAULT_APP_THEME_ID = 'vibisual-dark';
+/** 최초 설치의 기본 테마. 고른 테마를 못 찾을 때도 여기로 떨어진다. */
+export const DEFAULT_APP_THEME_ID = 'graphite';
+
+/** 테마 상속과 고정 다크 화면의 기준. 최초 선택값이 바뀌어도 기존 테마의 색은 유지한다. */
+export const BASE_APP_THEME_ID = 'vibisual-dark';
 
 /** `kind: "light"` 인데 `extends` 가 없는 사용자 테마의 출발점. */
 export const DEFAULT_LIGHT_APP_THEME_ID = 'light';
@@ -10314,7 +10334,7 @@ export const APP_THEME_BOOT_CACHE_KEY = 'vibisual.appTheme.v1';
 export const APP_THEME_LOCK_ATTR = 'data-vb-theme-lock';
 
 /**
- * 의미 토큰 — Tailwind 클래스로 못 칠하는 자리. `default` 는 기본 테마 값(기본 테마는 한 픽셀도 달라지면 안 된다), `{gray.950}` 은 팔레트 참조.
+ * 의미 토큰 — Tailwind 클래스로 못 칠하는 자리. `default` 는 상속 기준(Vibisual Dark)의 값, `{gray.950}` 은 팔레트 참조.
  * `cssVar` 가 있는 것만 CSS 변수로 나간다(`bg-vb-*`), 없는 것은 JS(xterm)만 읽는다. 터미널 16색은 Catppuccin Mocha(MIT).
  */
 export const APP_THEME_TOKEN_SPECS: Readonly<Record<AppThemeToken, { readonly default: string; readonly cssVar?: string }>> = {

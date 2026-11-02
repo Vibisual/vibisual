@@ -5,6 +5,7 @@ import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import {
   createSpawnField,
   seatZoneBatch,
+  spawnOwnerOf,
   type SpawnField,
   type ZoneBounds,
   type ZoneEdgeRef,
@@ -86,18 +87,11 @@ function footprintOf(
   return { w: d, h: d };
 }
 
-/** §5.1 #2-2 (J) — 묶음 위성의 몸집 반경(`constellationView` 가 싣는 `_orbitReach`, 가장 큰 달의 바깥 테두리까지). 타입 밖 표시용 칸이라 레코드로 읽는다. */
-export function orbitReachOf(bubble: BubbleData): number | undefined {
-  const raw = (bubble as unknown as Record<string, unknown>)['_orbitReach'];
-  return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : undefined;
-}
-
-/** 정사각이 아니면 사각(1px 은 측정 반올림). 묶음 위성은 몸이 달 궤도까지(`reach`), 주인으로는 제 원(`core`). */
-function obstacleOf(id: string, x: number, y: number, w: number, h: number, reach?: number): ZoneObstacle {
+/** 정사각이 아니면 사각(1px 은 측정 반올림). */
+function obstacleOf(id: string, x: number, y: number, w: number, h: number): ZoneObstacle {
   const cx = x + w / 2;
   const cy = y + h / 2;
   if (Math.abs(w - h) > 1) return { id, cx, cy, r: Math.max(w, h) / 2, hw: w / 2, hh: h / 2 };
-  if (reach !== undefined && reach > w / 2) return { id, cx, cy, r: reach, core: w / 2 };
   return { id, cx, cy, r: w / 2 };
 }
 
@@ -110,7 +104,7 @@ export function buildSpawnField(input: SpawnFieldInput): SpawnField {
     const pos = input.positions.get(bubble.id);
     if (!pos) continue;
     const { w, h } = footprintOf(bubble, nodeById.get(bubble.id), input);
-    obstacles.push(obstacleOf(bubble.id, pos.x, pos.y, w, h, orbitReachOf(bubble)));
+    obstacles.push(obstacleOf(bubble.id, pos.x, pos.y, w, h));
   }
   for (const panel of input.panels) {
     if (!(panel.width > 0) || !(panel.height > 0)) continue;
@@ -161,4 +155,28 @@ export function seatSpawnZoneBubbles(input: SpawnSeatingInput): Map<string, { x:
     out.set(id, { x: c.cx - d / 2, y: c.cy - d / 2 });
   }
   return out;
+}
+
+/**
+ * §5.1 #2-2 (C) — 위성 부모의 윗선 자리: 그 부모와 선으로 이어진 에이전트(최상위 버블의 주인과 같은 규칙 — `spawnOwnerOf`),
+ * 없거나 부모가 에이전트면 `fallbackCenter`(캔버스 중심). 위성은 이 자리의 반대편(바깥)으로 가지를 친다.
+ */
+export function satelliteUpstreamOf(
+  field: SpawnField,
+  bubbles: readonly BubbleData[],
+  edges: readonly ZoneEdgeRef[],
+  fallbackCenter: { x: number; y: number },
+): (parentId: string) => { x: number; y: number } {
+  const hubs = new Map<string, number>();
+  for (const bubble of bubbles) {
+    if (LINEAGE_HUB_TYPES.has(bubble.bubbleType) && field.byId.has(bubble.id)) hubs.set(bubble.id, bubble.lastActivity ?? 0);
+  }
+  return (parentId) => {
+    if (!hubs.has(parentId)) {
+      const ownerId = spawnOwnerOf(parentId, edges, hubs);
+      const owner = ownerId !== null ? field.byId.get(ownerId) : undefined;
+      if (owner) return { x: owner.cx, y: owner.cy };
+    }
+    return fallbackCenter;
+  };
 }

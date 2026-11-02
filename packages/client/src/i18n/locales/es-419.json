@@ -383,7 +383,6 @@
         "agent": "Valores predeterminados del Agent",
         "appearance": "Apariencia",
         "notifications": "Notificaciones",
-        "permissions": "Permisos",
         "advanced": "Avanzado",
         "version": "Versión",
         "account": "Cuenta",
@@ -774,16 +773,35 @@
         "webOpenTargetExternal": "Tu navegador",
         "webOpenTargetExternalDesc": "Opción predeterminada. Se abre en el navegador que usas habitualmente.",
         "webOpenTargetIframe": "Pestaña iframe en la app",
-        "webOpenTargetIframeDesc": "Abre una pestaña web en la barra de pestañas para leerla dentro de la app. Las páginas de internet se ejecutan en una vista aislada (sandbox) sin permisos, y los inicios de sesión se borran al cerrar la app."
+        "webOpenTargetIframeDesc": "Abre una pestaña web en la barra de pestañas para leerla dentro de la app. Las páginas de internet se ejecutan en una vista aislada (sandbox) sin permisos, y los inicios de sesión se borran al cerrar la app.",
+        "folderMenuTitle": "Menú contextual de carpetas",
+        "folderMenuIntro": "Haz clic derecho en una carpeta en tu administrador de archivos y elige “Abrir proyecto en Vibisual” para abrirla aquí como proyecto. Si Vibisual no está abierto, se inicia y abre esa carpeta.",
+        "folderMenuEnabled": "Mostrar “Abrir proyecto en Vibisual” al hacer clic derecho en una carpeta",
+        "folderMenuEnabledDesc": "Se aplica al guardar. Si lo desactivas, el elemento se quita del menú.",
+        "folderMenuStatusChecking": "Aplicando el menú. Vuelve a verificar en un momento.",
+        "folderMenuStatusDesktopOnly": "Disponible en la app de escritorio.",
+        "folderMenuStatusDevBuild": "Es una ejecución de desarrollo, así que el menú queda a cargo de la app instalada.",
+        "folderMenuStatusNoFileManager": "No se encontró ningún administrador de archivos compatible (Files, Caja, Dolphin o Nemo).",
+        "folderMenuStatusUnsupported": "No está disponible en este sistema.",
+        "folderMenuStatusError": "No se pudo actualizar el menú: {{error}}",
+        "folderMenuStatusInstalled": "Se agregó a {{targets}}.",
+        "folderMenuStatusOff": "No se muestra en el menú.",
+        "folderMenuHintWindows": "En Windows 11 está en “Mostrar más opciones”.",
+        "folderMenuHintMac": "En Finder está en “Acciones rápidas” o “Servicios”.",
+        "folderMenuHintScripts": "En Files y Caja está en “Scripts”.",
+        "folderMenuRefresh": "Volver a verificar",
+        "folderMenuTargets": {
+          "windowsExplorer": "Explorador de archivos",
+          "macosFinder": "Finder",
+          "nautilus": "Files (Nautilus)",
+          "caja": "Caja",
+          "dolphin": "Dolphin",
+          "nemo": "Nemo"
+        }
       },
       "notifications": {
         "cmdBlocked": "Avisar cuando una sesión de CMD esté esperando entrada",
         "cmdBlockedDesc": "Solo avisa mientras estás mirando otra pestaña o ventana; si la ventana está enfocada, ya está en pantalla."
-      },
-      "permissions": {
-        "verificationGateIntro": "Esta política solo se aplica a Codex y Claude Code cuando está activada. En ese caso, se indica a los agentes que solo ejecuten pruebas, análisis de código, comprobaciones de tipos, compilaciones de verificación, E2E, revisiones en el navegador, comparaciones de capturas de pantalla y agentes de verificación cuando se soliciten en la tarea actual. Las llamadas no solicitadas se bloquean antes de ejecutarse.",
-        "verificationGateEnabled": "Exigir una solicitud antes de ejecutar verificaciones",
-        "verificationGateEnabledDesc": "Desactivada de forma predeterminada. Cuando está desactivada, Vibisual no agrega restricciones de verificación a las instrucciones ni bloquea llamadas según esta política. Cuando está activada, también pueden bloquearse los scripts cuyo nombre contenga check, verify o test. Guarda con {{apply}}: los cambios en el bloqueo se aplican desde la siguiente llamada a una herramienta, y los de las indicaciones, desde el siguiente turno."
       },
       "engines": {
         "title": "Motores",
@@ -4936,8 +4954,8 @@
       "run": "Ejecutar",
       "stop": "Detener",
       "stopping": "Deteniendo…",
-      "followUp": "Añadir",
-      "followUpTitle": "Enviar un mensaje de seguimiento sin detener el agente (Enter)",
+      "followUp": "Mensaje adicional",
+      "followUpTitle": "Agregar un mensaje a la cola. Elige cómo enviarlo en su burbuja (Enter)",
       "queuedTitle": "{{count}} en espera",
       "queuedHint": "Combinar envía los mensajes de seguimiento juntos en un solo turno. Esperar le da a un mensaje su propio turno; Ahora interrumpe el turno actual.",
       "queuedRemove": "Quitar de la cola",
@@ -4945,12 +4963,14 @@
       "dispatchMode": {
         "wait": "Esperar",
         "merge": "Combinar",
-        "immediate": "Ahora"
+        "immediate": "Ahora",
+        "steer": "Enviar a la tarea actual"
       },
       "dispatchModeTitle": {
         "wait": "Esperar — ejecuta este mensaje en su propio turno después de que termine el actual",
         "merge": "Combinar — envía este mensaje junto con los siguientes mensajes combinados en un solo turno",
-        "immediate": "Ahora — detiene el turno actual y continúa con este mensaje (se conserva la conversación)"
+        "immediate": "Ahora — detiene el turno actual y continúa con este mensaje (se conserva la conversación)",
+        "steer": "Enviar a la tarea actual — entrega este mensaje sin detener la tarea. Revisa la respuesta para saber cómo se atendió."
       },
       "executing": "Ejecutando…",
       "readOnly": "Solo lectura — las burbujas de hook reflejan una sesión externa. Envía comandos desde un agente personalizado.",
@@ -5138,7 +5158,29 @@
       "stopRetry": "Reintentar",
       "sendRejected": "Se rechazó la solicitud. Se restauraron el texto y los archivos adjuntos. Revisa la conversación antes de volver a enviarla.",
       "sendUnconfirmed": "No se pudo confirmar el envío. Se restauraron el texto y los archivos adjuntos. Revisa la conversación antes de volver a enviarla.",
-      "localImagesUnsupported": "All Model aún no admite imágenes como entrada. Elimina las imágenes o elige otro proveedor para enviar este mensaje."
+      "localImagesUnsupported": "All Model aún no admite imágenes como entrada. Elimina las imágenes o elige otro proveedor para enviar este mensaje.",
+      "liveDelivery": {
+        "waiting": "Pendiente de envío",
+        "sending": "Enviando…",
+        "delivered": "Entregado",
+        "unavailable": "No se puede entregar",
+        "uncertain": "Entrega sin confirmar",
+        "reason": {
+          "noActiveTurn": "No hay una tarea activa que pueda recibir este mensaje.",
+          "unsupported": "Esta sesión no admite mensajes durante una tarea.",
+          "turnScope": "Los mensajes con ajustes de ejecución específicos deben enviarse como solicitudes independientes.",
+          "deliveryRejected": "El agente no aceptó este mensaje.",
+          "deliveryUnknown": "No se pudo confirmar si el agente recibió este mensaje."
+        },
+        "hint": {
+          "waiting": "Este mensaje espera a ser enviado a la tarea actual.",
+          "sending": "Esperando la confirmación de recepción del agente.",
+          "delivered": "Entregado como instrucción adicional a la tarea actual.",
+          "unavailable": "Elige «{{wait}}» para enviarlo después de la tarea, o «{{immediate}}» para detenerla y empezar con este mensaje.",
+          "uncertain": "El mensaje no se reenviará automáticamente. No se puede modificar ni borrar para evitar entregas duplicadas; sí puedes copiar el texto."
+        },
+        "retry": "Reintentar"
+      }
     },
     "voiceInstall": {
       "title": "Configurar la entrada de voz",
@@ -5259,6 +5301,7 @@
       "verify": "Verificar",
       "specReading": "Lectura",
       "customize": "Personalizar barra de actividad",
+      "configure": "Configurar {{name}}",
       "resetLayout": "Diseño predeterminado",
       "dragHint": "Mantén presionado un elemento y arrástralo para reordenar",
       "shownSection": "Visibles",
@@ -5771,6 +5814,8 @@
       "imageMissing": "(imagen no disponible)",
       "waiting": "esperando",
       "compacting": "compactando",
+      "delegating": "Esperando a otros agentes",
+      "delegatingHint": "Este turno está esperando el resultado de otro agente. Puedes detenerlo en cualquier momento.",
       "compactingHint": "El contexto está lleno, así que la CLI está resumiendo la conversación anterior para liberar espacio. Esto suele tardar unos minutos; es normal que no haya salida nueva mientras tanto."
     },
     "report": {
@@ -5972,7 +6017,7 @@
       "superseded": "Plan actualizado"
     },
     "transportRecovery": {
-      "reconnecting": "Reconectando… {{attempt}}/{{maxAttempts}}",
+      "reconnecting": "Reconectando…",
       "fallback": "Probando otro método de conexión…",
       "resumed": "Conexión restablecida · trabajo reanudado",
       "ended": "Se intentó restablecer la conexión"
@@ -6249,7 +6294,6 @@
         "systemPrompt": "Prompt del sistema de Claude Code",
         "compactSelf": "Autocompactación del Agent",
         "compactRecovery": "Aviso de recuperación tras la compactación",
-        "verificationPolicy": "Política de verificación",
         "autoGoalSkills": "Procedimientos detectados",
         "codexInstructions": "Instrucciones del proyecto de Codex",
         "codexGlobalInstructions": "Instrucciones globales de Codex",
@@ -6368,11 +6412,6 @@
             "what": "Una nota de un solo turno que enumera lo que el resumen de la compactación no pareció conservar.",
             "more": "Se construye a partir de la instantánea tomada justo antes de la compactación, comparada con el texto del resumen. Se envía una sola vez y nunca se repite.",
             "off": "Si lo desactivas, la sesión continúa después de una compactación sin ninguna nota sobre lo que quedó fuera del resumen."
-          },
-          "verificationPolicy": {
-            "what": "Indicaciones opcionales para que Codex y Claude Code solo ejecuten verificaciones cuando se soliciten en la tarea actual, junto con el permiso de verificación de esa tarea.",
-            "more": "La política está desactivada de forma predeterminada. Al activarla, Vibisual otorga permiso de verificación a partir de tu mensaje o del botón de verificación de esa tarea. Al desactivarla, no agrega indicaciones restrictivas ni bloquea llamadas de verificación.",
-            "off": "Este interruptor de la fuente solo oculta las indicaciones cuando la política está activada. Activa o desactiva tanto las indicaciones como el bloqueo de ejecución en {{options}}, dentro de {{permissions}}. La política está desactivada de forma predeterminada."
           },
           "hookEnforcement": {
             "what": "El bloque que Vibisual inyecta en las sesiones que se conectaron por sí mismas a través de hooks de Claude Code.",
@@ -6567,9 +6606,12 @@
       "saveError": "No se pudo confirmar que el cambio se guardó. Vuelve a medir para verificar el ajuste actual."
     },
     "goal": {
+      "activationRules": "Reglas de activación",
+      "enabledHint": "Activado — esta sesión incluye objetivos y actualizaciones de progreso.",
+      "disabledHint": "Desactivado de forma predeterminada — sin objetivos automáticos ni instrucciones de objetivos. Se conservan los objetivos existentes.",
       "title": "Objetivo",
       "pickSession": "Elige una sesión para ver su objetivo.",
-      "waiting": "Todavía no hay un objetivo. Aparecerá en cuanto la sesión elabore un plan.",
+      "waiting": "Todavía no hay objetivos. Aparecerán al activar el seguimiento de objetivos y crear un plan en la sesión.",
       "sample": {
         "badge": "Ejemplo",
         "text": "Terminar la tarea y verificar que funciona",
@@ -6814,16 +6856,6 @@
         "warn": "Si al terminar el turno quedan secciones requeridas sin leer, se devuelve para que siga leyendo.",
         "enforce": "Las ediciones se deniegan mientras haya secciones requeridas sin leer. Al alcanzar el límite de reintentos deja de bloquear."
       }
-    },
-    "verifyPolicy": {
-      "notRun": "Verificación no ejecutada",
-      "notRunTip": "No se ejecutaron pruebas, builds ni verificaciones en el navegador para esta tarea. Usa el botón junto a esta marca o pide la verificación en tu mensaje.",
-      "blockedTip": "El agent intentó {{count}} llamada(s) de verificación; cada una se bloqueó antes de ejecutarse.",
-      "ran": "Verificación ejecutada ×{{count}}",
-      "ranTip": "La verificación se ejecutó dentro del alcance que pediste. Si pasó o no, se indica en la respuesta de arriba.",
-      "runTip": "Ejecuta las verificaciones relacionadas con este cambio (pruebas relacionadas, verificación de tipos, lint, build). Los fallos se reportan, no se corrigen.",
-      "runFailed": "No se pudo iniciar: {{error}}",
-      "runPrompt": "Verifica el cambio de la tarea anterior. Ejecuta solo las verificaciones relacionadas con ese cambio (pruebas relacionadas, verificación de tipos, lint, build), no la suite de pruebas completa, ni E2E ni verificaciones en el navegador. Reporta cada una como aprobada, fallida o no verificada. No corrijas los fallos; solo repórtalos.\n\nTarea anterior: {{task}}"
     },
     "verify": {
       "title": "Verificar",
@@ -8766,7 +8798,7 @@
       "pragmatic": "Pragmático"
     },
     "inheritProject": "Valores del proyecto / globales",
-    "individualSettingsHint": "Se aplica a este agente. Los ajustes iguales a los valores predeterminados siguen los cambios del proyecto y de los ajustes globales.",
+    "individualSettingsHint": "Se aplica solo a este agente. Lo que elijas aquí se mantiene igual cuando cambian los valores del proyecto o globales. Elige “{{inherit}}” para volver a seguirlos.",
     "provider": "Proveedor",
     "claude": "Claude",
     "codex": "Codex",

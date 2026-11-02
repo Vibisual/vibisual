@@ -42,6 +42,8 @@ export interface CtrlButtonProps {
   title?: string;
   onClick: () => void;
   active?: boolean;
+  /** Panel visibility is separate from an enabled canvas mode. */
+  expanded?: boolean;
   /** 지금은 누를 수 없다 — 이유는 `label` 이 말한다(버튼을 숨기면 자리가 튀어 더 헷갈린다). */
   disabled?: boolean;
   children: React.ReactNode;
@@ -144,7 +146,7 @@ function useHoldLabel(): {
 }
 
 /** 컨트롤 버튼 하나 — 다크 + blue 액센트. 활성 표기는 캔버스 전반과 같은 톤이다. */
-export function CtrlButton({ label, title = label, onClick, active, disabled, children }: CtrlButtonProps): React.JSX.Element {
+export function CtrlButton({ label, title = label, onClick, active, expanded, disabled, children }: CtrlButtonProps): React.JSX.Element {
   const hold = useHoldLabel();
   const rect = hold.rect;
   // 이름표는 단추 옆 넓은 쪽에 선다(무리는 보통 왼쪽 아래 — 오른쪽). 화면 좌표라 캔버스 패널의 잘림 밖으로 띄운다.
@@ -159,6 +161,7 @@ export function CtrlButton({ label, title = label, onClick, active, disabled, ch
         title={title}
         aria-label={label}
         aria-pressed={active}
+        aria-expanded={expanded}
         className={`flex h-7 w-7 items-center justify-center transition-colors pointer-coarse:h-11 pointer-coarse:w-11 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-blue-400 ${
           disabled
             ? 'cursor-not-allowed text-gray-600'

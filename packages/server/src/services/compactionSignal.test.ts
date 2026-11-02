@@ -55,8 +55,8 @@ describe('서버 배선 — 세우는 자리와 걷는 자리가 모두 있다',
   });
 
   it('자식이 닫히거나 뷰가 끝나면 표식을 걷는다 — 굳은 "압축 중" 방지', () => {
-    // 정의 1 + 줄 판정 1 + 훅 1 + 닫힘 1 + 뷰 끝 1.
-    expect(count(read('./subAgentManager.ts'), 'setCompacting(')).toBe(5);
+    // 정의 1 + 줄 판정·훅·닫힘·뷰 끝 4 + Codex 압축 훅·다음 도구·정리 3.
+    expect(count(read('./subAgentManager.ts'), 'setCompacting(')).toBe(8);
   });
 
   it('재기동하면 디스크에서 되살아나지 않는다 — 압축 중인 자식은 재기동을 넘어 살지 못한다', () => {

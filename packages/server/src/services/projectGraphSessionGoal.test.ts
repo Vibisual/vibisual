@@ -120,7 +120,7 @@ describe('ProjectGraph — 세션 목표(Goal)', () => {
     expect(goal?.status).toBe('active');
   });
 
-  it('세션이 새 명령을 받으면 목표가 새 것으로 갈아탄다(옛 단계는 안 끌고 온다)', () => {
+  it('달성으로 닫힌 세션 목표는 새 명령의 계획으로 다시 시작한다', () => {
     const graph = new ProjectGraph();
     const agent = graph.createCustomAgent('Worker');
     graph.syncSessionGoalFromPlan('sub-a', {
@@ -129,6 +129,7 @@ describe('ProjectGraph — 세션 목표(Goal)', () => {
       steps: [{ text: 'A', status: 'done' }, { text: 'B', status: 'done' }],
     });
     expect(graph.getSessionGoal('sub-a')?.percent).toBe(100);
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '첫 번째 일', status: 'achieved' });
 
     graph.syncSessionGoalFromPlan('sub-a', {
       agentId: agent.id,
@@ -353,7 +354,7 @@ describe('ProjectGraph — 세션 목표(Goal)', () => {
     expect(goal?.percent).toBe(33);
   });
 
-  it('새 명령은 새 목표로 갈아타며 옛 단계·퍼센트·메모를 물려받지 않는다', () => {
+  it('닫힌 목표를 새 명령으로 열 때 옛 단계·퍼센트·메모를 물려받지 않는다', () => {
     const graph = new ProjectGraph();
     const agent = graph.createCustomAgent('Goalie');
     graph.seedSessionGoalFromCommand('sub-a', { agentId: agent.id, command: '첫 번째 일' });
@@ -363,12 +364,137 @@ describe('ProjectGraph — 세션 목표(Goal)', () => {
       source: 'agent',
     });
     expect(graph.getSessionGoal('sub-a')?.percent).toBe(100);
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '첫 번째 일', status: 'achieved' });
 
     const next = graph.seedSessionGoalFromCommand('sub-a', { agentId: agent.id, command: '두 번째 일' });
     expect(next?.text).toBe('두 번째 일');
     expect(next?.steps).toEqual([]);
     expect(next?.percent).toBe(0);   // 0% 여야 할 새 일이 100% 로 보이면 게이지가 거짓말을 한다
     expect(next?.note).toBeUndefined();
+  });
+
+  it.each(['pending', 'in_progress', 'done'] as const)('a follow-up preserves an active goal with %s steps', (status) => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Worker');
+    graph.seedSessionGoalFromCommand('sub-a', { agentId: agent.id, command: 'Implement and verify the feature' });
+    graph.noteSessionGoalProgress('sub-a', {
+      steps: [{ text: 'Implementation', status: 'done' }, { text: 'Verification', status }],
+      note: 'Current progress', source: 'agent',
+    });
+    const before = graph.getSessionGoal('sub-a');
+
+    expect(graph.seedSessionGoalFromCommand('sub-a', {
+      agentId: agent.id, command: 'Is it ready to use?',
+    })).toBeUndefined();
+    expect(graph.getSessionGoal('sub-a')).toBe(before);
+  });
+
+  it('a follow-up preserves an active goal before its first plan arrives', () => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Worker');
+    graph.seedSessionGoalFromCommand('sub-a', { agentId: agent.id, command: 'Implement the feature' });
+    const before = graph.getSessionGoal('sub-a');
+
+    expect(graph.seedSessionGoalFromCommand('sub-a', {
+      agentId: agent.id, command: 'Include the smaller window size',
+    })).toBeUndefined();
+    expect(graph.getSessionGoal('sub-a')).toBe(before);
+  });
+
+  it.each(['pending', 'done'] as const)('a changed command updates the plan without replacing an active %s goal', (status) => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Worker');
+    graph.seedSessionGoalFromCommand('sub-a', { agentId: agent.id, command: 'Implement and verify the feature' });
+    graph.noteSessionGoalProgress('sub-a', {
+      goal: 'Deliver the feature', steps: [{ text: 'Implementation', status }],
+      note: 'Preserved context', source: 'agent',
+    });
+    const before = graph.getSessionGoal('sub-a')!;
+    const updated = graph.syncSessionGoalFromPlan('sub-a', {
+      agentId: agent.id, command: 'How is verification going?',
+      steps: [{ text: 'Implementation', status }, { text: 'Verification', status: 'in_progress' }],
+    });
+
+    expect(updated).toMatchObject({
+      text: before.text, sourceCommand: before.sourceCommand, note: before.note,
+      revision: before.revision, status: 'active',
+    });
+    expect(updated?.steps[0]?.id).toBe(before.steps[0]?.id);
+    expect(updated?.steps.map((step) => step.text)).toEqual(['Implementation', 'Verification']);
+    expect(updated?.percent).toBe(status === 'done' ? 50 : 0);
+  });
+
+  it('an explicit goal-only update works before a plan and preserves progress priority', () => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Worker');
+    graph.seedSessionGoalFromCommand('sub-a', { agentId: agent.id, command: 'Initial request' });
+    graph.noteSessionGoalProgress('sub-a', { percent: 40, source: 'agent' });
+    const before = graph.getSessionGoal('sub-a')!;
+
+    const updated = graph.noteSessionGoalProgress('sub-a', { goal: 'Refined objective', source: 'agent' });
+    expect(updated).toMatchObject({
+      text: 'Refined objective', steps: [], percent: 40, revision: before.revision + 1,
+      sourceCommand: 'Initial request',
+    });
+    // A revised objective opens plan progress until explicit progress is reported for it.
+    expect(graph.noteSessionGoalProgress('sub-a', { percent: 20, source: 'plan' })?.percent).toBe(20);
+    graph.noteSessionGoalProgress('sub-a', { percent: 60, source: 'agent' });
+    expect(graph.noteSessionGoalProgress('sub-a', { percent: 10, source: 'plan' })).toBeUndefined();
+    expect(graph.noteSessionGoalProgress('sub-a', { goal: 'Refined objective', source: 'agent' })).toBeUndefined();
+    expect(graph.getSessionGoal('sub-a')?.percent).toBe(60);
+  });
+
+  it.each(['achieved', 'abandoned'] as const)('a %s goal can reopen even when its new seed has the same title', (status) => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Worker');
+    graph.seedSessionGoalFromCommand('sub-a', { agentId: agent.id, command: 'Original request' });
+    graph.noteSessionGoalProgress('sub-a', { goal: 'Repeatable task', source: 'agent' });
+    graph.noteSessionGoalProgress('sub-a', { percent: 100, note: 'Closed work', source: 'agent' });
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: 'Repeatable task', status });
+    const before = graph.getSessionGoal('sub-a')!;
+
+    const reopened = graph.seedSessionGoalFromCommand('sub-a', { agentId: agent.id, command: 'Repeatable task' });
+    expect(reopened).toMatchObject({
+      text: 'Repeatable task', status: 'active', percent: 0, steps: [], revision: before.revision,
+      sourceCommand: 'Repeatable task', authoredBy: 'session',
+    });
+    expect(reopened?.note).toBeUndefined();
+    expect(reopened?.lastExplicitRevision).toBeUndefined();
+    expect(reopened?.lastExplicitAt).toBeUndefined();
+    expect(reopened?.lastProgressAt).toBeUndefined();
+    expect(graph.noteSessionGoalProgress('sub-a', { percent: 25, source: 'plan' })?.percent).toBe(25);
+  });
+
+  it.each(['achieved', 'abandoned'] as const)('plan bootstrap reopens a %s goal without stale progress gates', (status) => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Worker');
+    graph.seedSessionGoalFromCommand('sub-a', { agentId: agent.id, command: 'Original request' });
+    graph.noteSessionGoalProgress('sub-a', { goal: 'Repeatable task', source: 'agent' });
+    graph.noteSessionGoalProgress('sub-a', { percent: 100, note: 'Closed work', source: 'agent' });
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: 'Repeatable task', status });
+
+    const reopened = graph.syncSessionGoalFromPlan('sub-a', {
+      agentId: agent.id, command: 'Repeatable task', steps: [{ text: 'Fresh step', status: 'pending' }],
+    });
+    expect(reopened).toMatchObject({ text: 'Repeatable task', status: 'active', percent: 0 });
+    expect(reopened?.note).toBeUndefined();
+    expect(reopened?.lastExplicitRevision).toBeUndefined();
+    expect(graph.noteSessionGoalProgress('sub-a', { steps: [], percent: 25, source: 'plan' })?.percent).toBe(25);
+  });
+
+  it.each(['active', 'achieved', 'abandoned'] as const)('user-owned %s goals resist automatic and goal-only replacement', (status) => {
+    const graph = new ProjectGraph();
+    const agent = graph.createCustomAgent('Worker');
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: 'Pinned objective', status, authoredBy: 'user' });
+    const before = graph.getSessionGoal('sub-a');
+
+    expect(graph.seedSessionGoalFromCommand('sub-a', { agentId: agent.id, command: 'Follow-up request' })).toBeUndefined();
+    expect(graph.noteSessionGoalProgress('sub-a', { goal: 'Replacement', source: 'agent' })).toBeUndefined();
+    expect(graph.getSessionGoal('sub-a')).toBe(before);
+    graph.syncSessionGoalFromPlan('sub-a', {
+      agentId: agent.id, command: 'Follow-up request', steps: [{ text: 'Next step', status: 'pending' }],
+    });
+    expect(graph.getSessionGoal('sub-a')).toMatchObject({ text: 'Pinned objective', status, authoredBy: 'user' });
   });
 
   it('사용자가 고친 목표는 새 명령이 덮지 않는다', () => {
@@ -592,19 +718,19 @@ describe('ProjectGraph — 목표 변천(pastTexts)', () => {
     expect(graph.getSessionGoal('sub-a')?.pastTexts).toEqual(['첫 문장']);
   });
 
-  it('에이전트가 다듬은 문장도, 새 명령이 세운 문장도 변천에 남는다', () => {
+  it('에이전트가 다듬은 문장과 닫힌 목표 뒤 새 명령은 변천에 남는다', () => {
     const graph = new ProjectGraph();
     const agent = graph.createCustomAgent('Worker');
     graph.seedSessionGoalFromCommand('sub-a', { agentId: agent.id, command: '첫 번째 일' });
     expect(graph.getSessionGoal('sub-a')?.pastTexts).toBeUndefined();
 
-    // 문장만 다듬는 신고는 단계·퍼센트가 없으면 버려진다(갱신할 게 없다는 종전 규칙) — 목록과 함께 다듬는다.
     graph.noteSessionGoalProgress('sub-a', {
       goal: '첫 번째 일을 테스트까지', steps: [{ text: 'A', status: 'pending' }], source: 'agent',
     });
     expect(graph.getSessionGoal('sub-a')?.text).toBe('첫 번째 일을 테스트까지');
     expect(graph.getSessionGoal('sub-a')?.pastTexts).toEqual(['첫 번째 일']);
 
+    graph.setSessionGoal({ agentId: agent.id, subAgentId: 'sub-a', text: '첫 번째 일을 테스트까지', status: 'achieved' });
     graph.seedSessionGoalFromCommand('sub-a', { agentId: agent.id, command: '두 번째 일' });
     expect(graph.getSessionGoal('sub-a')?.text).toBe('두 번째 일');
     expect(graph.getSessionGoal('sub-a')?.pastTexts).toEqual(['첫 번째 일', '첫 번째 일을 테스트까지']);

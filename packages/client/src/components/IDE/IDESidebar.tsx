@@ -30,6 +30,7 @@ import { StepMark } from './StageGlyph.js';
 import { ScrollFade } from '../ScrollFade.js';
 // §5.10 (P) — 절차 감지(되풀이한 일을 스킬로 굳힌다). 목표에서 갈라져 나온 **제 뷰**다.
 import { IDEAutoGoalView } from './IDEAutoGoalView.js';
+import { GoalActivationRules } from './GoalActivationRules.js';
 // §5.3 #10-4 — 오케스트라(지휘 모드). 스위치·세부 설정·방안 표·런 기록이 제 뷰에 산다.
 import { IDEOrchestraView } from './IDEOrchestraView.js';
 import { IDEConfigTrimView } from './IDEConfigTrimView.js';
@@ -599,6 +600,7 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
       </div>
 
       <ScrollFade fill className="min-h-0 flex-1">
+        <GoalActivationRules agentId={agentId} subAgentId={activeSessionId} />
         {!goal ? (
           // ⑬(d) — 세션을 아직 고르지 않았을 때와 목표가 아직 없을 때. 안내 문구만 다르고
           //   예시는 같다(둘 다 "여기가 무엇으로 채워지는 칸인가"를 물을 자리다).

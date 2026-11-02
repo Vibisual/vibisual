@@ -615,6 +615,12 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
           visible={visible}
           hidden={excluded}
           labelOf={nameOf}
+          onConfigure={(view) => {
+            setActiveView(view);
+            if (sidebarCollapsed) toggleSidebar();
+            if (sidebarDrawer) setNavOpen(true);
+            setCustomizeOpen(false);
+          }}
           onClose={() => setCustomizeOpen(false)}
         />
       )}

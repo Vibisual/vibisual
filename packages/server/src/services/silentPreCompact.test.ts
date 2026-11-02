@@ -14,6 +14,12 @@ function cmd(over: Partial<PreCompactQueueItem> & { id: string }): PreCompactQue
 }
 
 describe('planSilentPreCompact — 어디에 끼는가', () => {
+  it('live input cannot trigger a compact or hide the next real command behind it', () => {
+    const live = cmd({ id: 'live', dispatchMode: 'steer' });
+    expect(planSilentPreCompact([live], new Set(['sub-1']))).toEqual({ slots: [], drop: [] });
+    expect(planSilentPreCompact([live, cmd({ id: 'next' })], new Set(['sub-1'])).slots)
+      .toEqual([{ index: 1, subAgentId: 'sub-1', beforeCommandId: 'next' }]);
+  });
   it('표식이 없으면 아무 데도 끼지 않는다 — 이 기능을 안 쓰는 세션은 종전과 같다', () => {
     const plan = planSilentPreCompact([cmd({ id: 'a' })], new Set());
     expect(plan.slots).toEqual([]);

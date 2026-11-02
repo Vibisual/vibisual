@@ -23,35 +23,57 @@
   --font-mono: 'JetBrains Mono', 'Nanum Gothic Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans Devanagari', monospace;
 }
 
-/* §4 앱 테마 — 의미 토큰. 여기 값은 기본 테마이고, 고른 테마는 `AppThemeHost` 가 `<html>` 에 같은 이름 변수를 실어 덮는다.
+/* §4 앱 테마 — 최초 기본 테마(Graphite)의 팔레트·의미 토큰. 고른 테마는 `AppThemeHost` 가 `<html>` 에 같은 이름 변수를 실어 덮는다.
    `--color-` 이름이라 Tailwind 가 `bg-vb-titlebar` 같은 유틸을 만든다. `static` = `var()` 로만 쓰는 값도 늘 내보낸다.
-   ⚠ 정본은 shared `APP_THEME_TOKEN_SPECS` — 함께 바꿀 것(server `services/appThemeSourceSync.test.ts` 가 대조). */
+   ⚠ 정본은 shared `resolveAppTheme(DEFAULT_APP_THEME_ID)` — 함께 바꿀 것(server `services/appThemeSourceSync.test.ts` 가 대조). */
 @theme static {
-  --color-vb-window: oklch(13% 0.028 261.692);
-  --color-vb-titlebar: #334155;
-  --color-vb-titlebar-fg: #cbd5e1;
-  --color-vb-canvas: oklch(13% 0.028 261.692);
-  --color-vb-canvas-dots: #1e293b;
-  --color-vb-raised: #1f2937;
-  --color-vb-card: #1a1d26;
-  --color-vb-inset: #242833;
-  --color-vb-sunken: #0f1117;
-  --color-vb-ide-titlebar: #1a2236;
-  --color-vb-ide-tabbar: #15192a;
-  --color-vb-code: #1a1c20;
-  --color-vb-code-fg: #e6e8ec;
-  --color-vb-code-border: rgb(255 255 255 / 0.06);
-  --color-vb-code-inline: rgb(140 149 165 / 0.24);
-  --color-vb-code-inline-fg: #eceef1;
+  --color-slate-50: oklch(98.5% 0 0);
+  --color-slate-100: oklch(96.7% 0.001 286.375);
+  --color-slate-200: oklch(92% 0.004 286.32);
+  --color-slate-300: oklch(87.1% 0.006 286.286);
+  --color-slate-400: oklch(70.5% 0.015 286.067);
+  --color-slate-500: oklch(55.2% 0.016 285.938);
+  --color-slate-600: oklch(44.2% 0.017 285.786);
+  --color-slate-700: oklch(37% 0.013 285.805);
+  --color-slate-800: oklch(27.4% 0.006 286.033);
+  --color-slate-900: oklch(21% 0.006 285.885);
+  --color-slate-950: oklch(14.1% 0.005 285.823);
+  --color-gray-50: oklch(98.5% 0 0);
+  --color-gray-100: oklch(97% 0 0);
+  --color-gray-200: oklch(92.2% 0 0);
+  --color-gray-300: oklch(87% 0 0);
+  --color-gray-400: oklch(70.8% 0 0);
+  --color-gray-500: oklch(55.6% 0 0);
+  --color-gray-600: oklch(43.9% 0 0);
+  --color-gray-700: oklch(37.1% 0 0);
+  --color-gray-800: oklch(26.9% 0 0);
+  --color-gray-900: oklch(20.5% 0 0);
+  --color-gray-950: oklch(14.5% 0 0);
+  --color-vb-window: oklch(14.5% 0 0);
+  --color-vb-titlebar: oklch(26.9% 0 0);
+  --color-vb-titlebar-fg: oklch(87% 0 0);
+  --color-vb-canvas: oklch(14.5% 0 0);
+  --color-vb-canvas-dots: oklch(26.9% 0 0);
+  --color-vb-raised: oklch(26.9% 0 0);
+  --color-vb-card: oklch(20.5% 0 0);
+  --color-vb-inset: oklch(26.9% 0 0);
+  --color-vb-sunken: oklch(14.5% 0 0);
+  --color-vb-ide-titlebar: oklch(20.5% 0 0);
+  --color-vb-ide-tabbar: oklch(20.5% 0 0);
+  --color-vb-code: oklch(20.5% 0 0);
+  --color-vb-code-fg: oklch(92.2% 0 0);
+  --color-vb-code-border: rgb(255 255 255 / 0.08);
+  --color-vb-code-inline: oklch(55.6% 0 0 / 0.24);
+  --color-vb-code-inline-fg: oklch(97% 0 0);
   --color-vb-find: #2563eb;
   --color-vb-find-fg: #f8fafc;
   --color-vb-find-all: rgb(37 99 235 / 0.28);
-  --color-vb-terminal: #11111b;
-  --color-vb-terminal-panel: #181825;
+  --color-vb-terminal: oklch(20.5% 0 0);
+  --color-vb-terminal-panel: oklch(26.9% 0 0);
 }
 
 /* §4 앱 테마 — `prose-invert` 글자색. typography 플러그인은 이 값을 빌드 때 숫자로 박아 팔레트를 안 따르므로(실측)
-   팔레트 변수로 다시 정의한다 — 기본 테마에선 박힌 값과 같고, 라이트에선 팔레트를 따라 어두워진다. */
+   팔레트 변수로 다시 정의한다 — 테마의 팔레트를 따라가고, 라이트에선 어두워진다. */
 .prose {
   --tw-prose-invert-body: var(--color-gray-300);
   --tw-prose-invert-headings: var(--color-white);
@@ -133,6 +155,18 @@ html:lang(hi) {
 }
 .app-titlebar-handle * {
   pointer-events: none;
+}
+
+/* §3.7 — 넘친 탭 줄. Chromium 은 스크롤로 가려진 탭의 no-drag 사각형을 줄 경계로 자르지 않아 줄 밖 제목줄(로고 끝·구분선·오른쪽 틈)이
+ * HTCLIENT 가 되고, 최대화 창을 거기서 끌면 OS 가 복원·이동하지 않는다(2026-11-01 WM_NCHITTEST 실측). 넘치는 동안은 보이는 줄 상자
+ * 하나만 no-drag 를 신고하고 안의 탭은 신고하지 않는다. 판정은 `TabBar` 의 `updateScrollState`. */
+.tab-strip-overflow {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.tab-strip-overflow .app-nodrag {
+  -webkit-app-region: none;
+  app-region: none;
 }
 
 /* §5.4 #14-2 / §5.5 #16-1 (E) — 꾹 눌러 항목을 집어 든 동안. ① 커서는 쥔 것을 말하고 지나는 글자는 선택되지 않는다.

@@ -24,7 +24,7 @@ export function commandHistoryRows(
   const rows: CommandHistoryRow[] = [];
   const collect = (owner: string, entries: readonly BashEntry[]): void => {
     for (const entry of entries) {
-      // Node membership includes project/installation identity. App names alone do not.
+      // Node membership, not the name: one bubble per app name in a tab (§5.1), so another tab is another node.
       if (app && !entry.appNodeIds?.includes(nodeId)) continue;
       const row = { key: JSON.stringify([owner, entry.id]), entry };
       // Old checkpoints can contain duplicated tool ids. Keep the newest record

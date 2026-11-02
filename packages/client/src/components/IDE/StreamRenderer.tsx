@@ -42,7 +42,7 @@ import { toolPreview } from './toolPreview.js';
 import {
   mergeCardsIntoItems, IncrementalStreamParser,
   type StreamText, type StreamGroup, type StreamSystem, type StreamResult, type StreamError, type StreamImage,
-  type StreamCommand, type StreamItemFull, type StreamStep, type StreamTurnStop,
+  type StreamCommand, type StreamItemFull, type StreamStep,
 } from './streamItems.js';
 import { shouldTraceWriting, toolGroupElapsedMs, toolSpanTimestamps, toolCallElapsedMs } from './turnSteps.js';
 import { thinkTraceText, writeTraceText, toolElapsedText, toolCallElapsedText } from './stepTraceText.js';
@@ -50,6 +50,7 @@ import { formatStreamClock, type StreamClock } from './promptStamp.js';
 import { parseStreamErrorContent } from './commandError.js';
 import { CommandErrorNotice } from './CommandErrorNotice.js';
 import { TransportRecoveryLine } from './TransportRecoveryLine.js';
+import { TurnStopNotice } from './TurnStopNotice.js';
 import { ProcessGuardLine } from './ProcessGuardLine.js';
 import { parseProcessGuardNotice } from '@vibisual/shared';
 import {
@@ -57,6 +58,9 @@ import {
   type StreamDisplayItem, type StreamToolGroup, type SpeechRunPos,
 } from './streamDensity.js';
 import { useStreamToggle, streamToggleProps } from './streamToggle.js';
+import {
+  nestedContinuationIds, nestedAgentLabels, nestedAgentTone, nestedAgentShortId, sameIdSet, sameLabelMap,
+} from './nestedSubagentRuns.js';
 import { streamItemFindText, findTextMatches } from './streamSearch.js';
 import {
   STREAM_DIFF_AUTO_EXPAND_MAX_LINES,
@@ -91,6 +95,7 @@ interface StreamRendererProps {
   sessionTurnStartedAt?: number | null;
   /** §5.5 #17-24 ⑥ — CLI 가 이 세션을 접기 시작한 시각(메인 탭과 같은 값). 있으면 라이브 1줄이 `압축 중` 이 되고 무응답으로 뒤집지 않는다. */
   sessionCompactingSince?: number | null;
+  sessionWaitingForAgentsSince?: number | null;
   /** §4 — 이 세션의 작업 신고. createdAt 기준 인라인 합류(맨 아래 고정 ❌). */
   reports?: AgentReport[];
   /** §4 — 이 세션의 질문 카드(턴 끝에 합류). */
@@ -477,6 +482,7 @@ const streamItemId = displayItemId;
 
 /** §5.5 #17-12 · #17-48 — 내 입력(명령 말풍선) 항목인가. 상태바 추종과 입력 레일이 같은 술어를 쓴다. */
 const isCommandItem = (it: StreamDisplayItem): boolean => it.kind === 'command';
+const isTurnCommandItem = (it: StreamDisplayItem): boolean => it.kind === 'command' && !it.isFollowUp;
 
 /** 리스트 끝 여백(`STREAM_END_GAP_PX`, px) — virtuoso Footer 로 그려 리스트 일부가 되므로 바닥 접착과 맞는다. 스크롤러 padding 은 virtuoso 측정과 어긋나 금지. */
 /** §5.5 #17-13 — 묶음 헤더에 보여줄 도구 이름 칩 개수(초과분은 `+N`). */
@@ -847,17 +853,6 @@ function ErrorLine({ item }: { item: StreamError }): React.JSX.Element {
   return <CommandErrorNotice error={parseStreamErrorContent(item.content)} className="mx-2 my-1 max-md:mx-1" />;
 }
 
-/** §5.5 #17-12 ③-6 (g) — 턴이 멈춘 이유 한 줄. 자기 항목으로 턴 꼬리에 선다 — `CommandBlock` 안이면 출력보다 위(명령 자리)에 뜬다. */
-function TurnStopNotice({ item }: { item: StreamTurnStop }): React.JSX.Element {
-  const { t } = useTranslation();
-  return (
-    <div className="mx-2 my-1 flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-1.5 text-[12px] font-medium text-amber-300 max-md:mx-1 max-md:px-2.5">
-      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 12h8" /></svg>
-      <span>{t(item.labelKey)}</span>
-    </div>
-  );
-}
-
 /** §4 — result 블록 피드백 컨텍스트. 없으면 버튼을 숨긴다. */
 export interface StreamFeedbackCtx {
   agentId: string;
@@ -897,13 +892,14 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
     ...(item.dispatchMode ? { dispatchMode: item.dispatchMode } : {}),
     ...(agentId ? { agentId } : {}),
     ...(item.commandId ? { commandId: item.commandId } : {}),
-  }), [item.status, item.dispatchMode, item.commandId, agentId]);
+    ...(item.liveDelivery ? { liveDelivery: item.liveDelivery } : {}),
+  }), [item.status, item.dispatchMode, item.commandId, item.liveDelivery, agentId]);
   // 첨부 이미지 썸네일 — blob preview 우선, 없으면 server 파일 라우트(별창·새로고침·재시작에도 보이게).
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
   const lightboxOrigin = useImageLightboxOrigin();
   const thumbs = useAttachmentThumbs(item.attachments);
   return (
-    <div className="px-4 py-2 max-md:px-1.5" data-cmd-id={item.id}>
+    <div className="px-4 py-2 max-md:px-1.5" data-cmd-id={item.isFollowUp ? undefined : item.id}>
       {/* 프롬프트 — 사용자 입력은 길이와 무관하게 항상 "내 메시지" 말풍선으로. */}
       <CollapsiblePrompt prompt={item.prompt} command={commandState} submittedAt={item.submittedAt} />
       {/* 앱이 내려가 끊겼다가 보존된 세션으로 다시 이어 돌린 명령 — 그 사실을 말하지 않으면
@@ -959,30 +955,58 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
 // ─── 메인 렌더러 ───
 
 /** §5.5 #17-24 ② — 라이브 1줄 라벨: 작업 중 · ⑤ 대기 · ⑥ 압축 중(생각 중은 없다 ⑦). */
-interface LiveLabels { working: string; waiting: string; compacting: string }
+interface LiveLabels { working: string; waiting: string; compacting: string; delegating: string }
 
-/** §4 (스트림 3종 ①) — `--forward-subagent-text` 로 섞여 오는 자식(Task) 말을 세로선 + 갈래 표식으로 감싼다(안 감싸면 누구 말인지 사라진다). */
-function NestedFrame({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
+/** §5.5 #17-51 — 중첩 서브에이전트 틀이 읽는 것. `continued` = 앞 줄과 같은 서브에이전트라 머리표를 생략할 줄. */
+interface NestedCtx {
+  label: string;
+  continued: ReadonlySet<string>;
+  names: ReadonlyMap<string, string>;
+}
+
+/** 이 항목을 낳은 중첩 서브에이전트(바깥 Task 호출 id). 미설정 = 이 세션 자신. */
+function nestedOwnerOf(item: StreamDisplayItem): string | undefined {
+  return item.kind === 'text' || item.kind === 'tool' || item.kind === 'toolgroup' || item.kind === 'step'
+    ? item.nestedUnderToolUseId
+    : undefined;
+}
+
+/**
+ * §4 (스트림 3종 ①) — `--forward-subagent-text` 로 섞여 오는 자식(Task) 말을 세로선 + 갈래 표식으로 감싼다(안 감싸면 누구 말인지 사라진다).
+ * §5.5 #17-51 — 색·짧은 id 는 서브에이전트마다 다르고, 같은 서브에이전트가 이어지면 머리표 없이 세로선만 잇는다.
+ */
+function NestedFrame({ owner, label, name, continued, children }: {
+  owner: string;
+  label: string;
+  name: string | undefined;
+  continued: boolean;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  const tone = nestedAgentTone(owner);
   return (
-    <div className="border-l-2 border-violet-400/40 pl-3">
-      <div className="mb-1 flex items-center gap-1 text-[12px] text-violet-300/80">
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="h-3.5 w-3.5"
-          aria-hidden="true"
-        >
-          <path d="M6 3v12" />
-          <circle cx="6" cy="18" r="3" />
-          <circle cx="18" cy="6" r="3" />
-          <path d="M15 6H9a3 3 0 0 0-3 3v3" />
-        </svg>
-        <span>{label}</span>
-      </div>
+    <div className={`border-l-2 pl-3 ${tone.rail}`}>
+      {!continued && (
+        <div className={`mb-1 flex min-w-0 items-center gap-1.5 text-[12px] ${tone.text}`} title={owner}>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-3.5 w-3.5 shrink-0"
+            aria-hidden="true"
+          >
+            <path d="M6 3v12" />
+            <circle cx="6" cy="18" r="3" />
+            <circle cx="18" cy="6" r="3" />
+            <path d="M15 6H9a3 3 0 0 0-3 3v3" />
+          </svg>
+          <span className="shrink-0 font-medium">{label}</span>
+          <span className={`shrink-0 rounded px-1 font-mono ${tone.chip}`}>#{nestedAgentShortId(owner)}</span>
+          {name && <span className="min-w-0 truncate text-gray-400">{name}</span>}
+        </div>
+      )}
       {children}
     </div>
   );
@@ -998,7 +1022,7 @@ const StepTraceBlock = memo(function StepTraceBlock({ item }: { item: StreamStep
 /** 단일 스트림 아이템 → 블록 엘리먼트. 북마크 이동 앵커용 `data-stream-item-id` 래퍼로 감싼다.
  *  zoom — IDE 본문 텍스트 줌 배율. **스크롤러(가상 리스트 뷰포트)가 아니라 각 항목 래퍼**에 걸어,
  *  Virtuoso 가 zoom 반영된 실제 항목 높이를 그대로 측정(가상화·스크롤 계산과 일관)하게 한다. */
-function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom: number, density: StreamDensity, speechRuns: ReadonlyMap<string, SpeechRunPos>, nestedLabel: string, feedbackCtx?: StreamFeedbackCtx, reviewCtx?: DiffReviewCtx): React.JSX.Element {
+function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom: number, density: StreamDensity, speechRuns: ReadonlyMap<string, SpeechRunPos>, nested: NestedCtx, feedbackCtx?: StreamFeedbackCtx, reviewCtx?: DiffReviewCtx): React.JSX.Element {
   let inner: React.JSX.Element;
   switch (item.kind) {
     // §5.5 #17-49 — 본문은 어느 밀도에서도 통째로 보인다(간결의 본문 접기 폐기).
@@ -1017,7 +1041,7 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
     // §5.5 #17-24 ② — 항목은 그대로 두고 라벨·색만 바꾼다(작업 중 ↔ 대기 ↔ 압축 중 — ⑦ 이후 생각 중은 없다).
     // §2.4 (무응답) — 마지막 이벤트 시각을 함께 넘겨 "얼마나 조용한지"를 그 줄이 직접 판정하게 한다.
     // §5.5 #17-10 ⑥-6 — 평소 적는 경과는 턴 시작부터다(줄이 와도 되감기지 않는다).
-    case 'thinking-live': inner = <ThinkingLiveLine label={liveLabels[item.mode]} mode={item.mode} lastActivityAt={item.lastActivityAt} turnStartedAt={item.turnStartedAt} hiddenTurn={item.hiddenTurn === true} compactingSince={item.compactingSince ?? null} />; break;
+    case 'thinking-live': inner = <ThinkingLiveLine label={liveLabels[item.mode]} mode={item.mode} lastActivityAt={item.lastActivityAt} turnStartedAt={item.turnStartedAt} hiddenTurn={item.hiddenTurn === true} compactingSince={item.compactingSince ?? null} waitingForAgentsSince={item.waitingForAgentsSince ?? null} />; break;
     // §5.5 #17-39 — 끝난 사고 런이 그 자리에 남긴 자국(원문 ❌ 시간·분량만).
     case 'step':     inner = <StepTraceBlock item={item} />; break;
     // §5.5 #17-18 ⑦-2 — `live` = 이 카드가 속한 턴이 아직 도는 중(헤더 `작업 중` 배지).
@@ -1027,14 +1051,17 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
     case 'list':     inner = <AgentListCard list={item.list} live={item.live} />; break;
     case 'ask':      inner = <AskQuestionCard request={item.request} />; break;
     // §5.5 #17-12 ③-6 (g) — 그 턴이 멈춘 이유. 어느 밀도에서도 접지 않는다(왜 끝났는지가 그 턴의 결말이다).
-    case 'turnstop': inner = <TurnStopNotice item={item} />; break;
+    case 'turnstop': inner = <TurnStopNotice labelKey={item.labelKey} />; break;
   }
   // §4 (스트림 3종 ①) — 중첩 서브에이전트가 낳은 줄이면 감싼다. 표식이 없는 항목은 종전과 완전히 같다.
-  const nestedUnder =
-    item.kind === 'text' || item.kind === 'tool' || item.kind === 'toolgroup'
-      ? item.nestedUnderToolUseId
-      : undefined;
-  if (nestedUnder) inner = <NestedFrame label={nestedLabel}>{inner}</NestedFrame>;
+  const nestedUnder = nestedOwnerOf(item);
+  if (nestedUnder) {
+    inner = (
+      <NestedFrame owner={nestedUnder} label={nested.label} name={nested.names.get(nestedUnder)} continued={nested.continued.has(item.id)}>
+        {inner}
+      </NestedFrame>
+    );
+  }
   // §5.5 — 놓친 카드 pill 의 관측 앵커(카드류에만). ⚠ data-card-id 는 접두어 붙은 item.id 가 아니라 raw 카드 id —
   // pill 의 cards 와 메인 탭 앵커가 raw 라 어긋나면 봐도 pill 이 안 사라지고 점프가 -1 이 된다. 흡수된 검수의 앵커는 AgentReportCard 가 단다(§5.5 #17-12).
   const cardId =
@@ -1057,14 +1084,14 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
   );
 }
 
-export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt, sessionCompactingSince, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange, onPromptOutline }, ref): React.JSX.Element {
+export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt, sessionCompactingSince, sessionWaitingForAgentsSince, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange, onPromptOutline }, ref): React.JSX.Element {
   const { t } = useTranslation();
   // 2단 빌드 — 1단계는 증분 파서(새 이벤트만, 세션 전환·commands 변경·앞 절단이면 전체 재구축), 2단계(카드 합류)는 카드가 바뀔 때만.
   const parserRef = useRef<IncrementalStreamParser | null>(null);
   if (parserRef.current === null) parserRef.current = new IncrementalStreamParser();
   const base = useMemo(
-    () => parserRef.current!.sync(events, commands, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt, sessionCompactingSince),
-    [events, commands, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt, sessionCompactingSince],
+    () => parserRef.current!.sync(events, commands, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt, sessionCompactingSince, sessionWaitingForAgentsSince),
+    [events, commands, sessionBusy, sessionWaiting, sessionActivityAt, sessionActivityHidden, sessionTurnStartedAt, sessionCompactingSince, sessionWaitingForAgentsSince],
   );
   const merged = useMemo(
     () => mergeCardsIntoItems(base, commands, reports, questions, reviews, lists, askRequests),
@@ -1156,12 +1183,38 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
       waiting: t('ide.streamRenderer.waiting'),
       // §5.5 #17-24 ⑥ — CLI 가 대화를 접는 동안. "생각 중"으로 적으면 그 몇 분이 사고로 읽힌다.
       compacting: t('ide.streamRenderer.compacting'),
+      delegating: t('ide.streamRenderer.delegating'),
     }),
     [t],
   );
   // §4 (스트림 3종 ①) — 중첩 서브에이전트 껍데기의 라벨. `renderStreamItem` 은 컴포넌트가 아니라
   //   함수라 훅을 못 쓰므로 `liveLabels` 와 같은 방식으로 번역문을 받아 넘긴다.
   const nestedLabel = t('ide.streamRenderer.nestedSubagent');
+  // §5.5 #17-51 — 앞 줄과 같은 서브에이전트인 줄(머리표 생략)과 서브에이전트 이름. 내용이 같으면 앞 참조를 지켜
+  //   `itemContent` 가 매 틱 바뀌지 않게 한다(바뀌면 보이는 항목 전부가 다시 그려진다).
+  const nestedContinuedRef = useRef<Set<string>>(new Set());
+  const nestedOwnersRef = useRef<Set<string>>(new Set());
+  const nestedRuns = useMemo(() => {
+    const seq = items.map((it) => ({ id: it.id, owner: nestedOwnerOf(it) }));
+    const owners = new Set<string>();
+    for (const s of seq) if (s.owner) owners.add(s.owner);
+    if (!sameIdSet(nestedOwnersRef.current, owners)) nestedOwnersRef.current = owners;
+    const next = nestedContinuationIds(seq);
+    if (!sameIdSet(nestedContinuedRef.current, next)) nestedContinuedRef.current = next;
+    return { continued: nestedContinuedRef.current, owners: nestedOwnersRef.current };
+  }, [items]);
+  const nestedContinued = nestedRuns.continued;
+  const nestedOwners = nestedRuns.owners;
+  const nestedNamesRef = useRef<Map<string, string>>(new Map());
+  const nestedNames = useMemo(() => {
+    const next = nestedAgentLabels(events, nestedOwners);
+    if (!sameLabelMap(nestedNamesRef.current, next)) nestedNamesRef.current = next;
+    return nestedNamesRef.current;
+  }, [events, nestedOwners]);
+  const nestedCtx = useMemo<NestedCtx>(
+    () => ({ label: nestedLabel, continued: nestedContinued, names: nestedNames }),
+    [nestedLabel, nestedContinued, nestedNames],
+  );
   // IDE 본문 텍스트 줌 — 각 항목 래퍼에 zoom 적용(아래 renderStreamItem). 변경 시 itemContent 정체성이
   //   바뀌어 Virtuoso 가 전 항목을 재측정 → 새 배율로 정착(줌 조작은 드물어 비용 무관).
   const ideTextZoom = useGraphStore((s) => s.ideTextZoom);
@@ -1189,8 +1242,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   );
   const itemContent = useCallback(
     (_index: number, item: StreamDisplayItem) =>
-      renderStreamItem(item, liveLabels, ideTextZoom, density, speechRuns, nestedLabel, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined, reviewCtx),
-    [liveLabels, ideTextZoom, density, speechRuns, nestedLabel, agentId, subAgentId, reviewCtx],
+      renderStreamItem(item, liveLabels, ideTextZoom, density, speechRuns, nestedCtx, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined, reviewCtx),
+    [liveLabels, ideTextZoom, density, speechRuns, nestedCtx, agentId, subAgentId, reviewCtx],
   );
 
   // virtuoso 소유 스크롤러 DOM — 북마크 이동이 쓰고 부모에도 올린다.
@@ -1253,7 +1306,7 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
     if (!cont) return null;
     const viewport = measureViewportItems(cont);
     if (!viewport) return null;
-    return owningCommandId(items, isCommandItem, viewport.topId);
+    return owningCommandId(items, isTurnCommandItem, viewport.topId);
   }, [items]);
   // §5.5 #17-48 — 내 입력 레일: 지금 자리 · 입력으로 즉시 옮기기 · 맨 위.
   const promptProbe = useCallback((): PromptProbe | null => {

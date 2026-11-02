@@ -383,7 +383,6 @@
         "agent": "Valori predefiniti Agent",
         "appearance": "Aspetto",
         "notifications": "Notifiche",
-        "permissions": "Permessi",
         "advanced": "Avanzate",
         "version": "Versione",
         "account": "Account",
@@ -774,16 +773,35 @@
         "webOpenTargetExternal": "Il tuo browser",
         "webOpenTargetExternalDesc": "Predefinito. Si apre nel browser che usi di solito.",
         "webOpenTargetIframe": "Scheda iframe nell'app",
-        "webOpenTargetIframeDesc": "Apre una scheda web nella barra delle schede per leggerla dentro l'app. Le pagine internet girano in una vista sandbox separata senza permessi, e gli accessi vengono cancellati alla chiusura dell'app."
+        "webOpenTargetIframeDesc": "Apre una scheda web nella barra delle schede per leggerla dentro l'app. Le pagine internet girano in una vista sandbox separata senza permessi, e gli accessi vengono cancellati alla chiusura dell'app.",
+        "folderMenuTitle": "Menu contestuale delle cartelle",
+        "folderMenuIntro": "Fai clic destro su una cartella nel tuo gestore di file e scegli “Apri progetto in Vibisual” per aprirla qui come progetto. Se Vibisual non è in esecuzione, si avvia e apre quella cartella.",
+        "folderMenuEnabled": "Mostra “Apri progetto in Vibisual” con il clic destro su una cartella",
+        "folderMenuEnabledDesc": "Applicato al salvataggio. Disattivandolo, la voce viene rimossa dal menu.",
+        "folderMenuStatusChecking": "Applicazione del menu in corso. Ricontrolla tra un momento.",
+        "folderMenuStatusDesktopOnly": "Disponibile nell’app desktop.",
+        "folderMenuStatusDevBuild": "Questa è un’esecuzione di sviluppo, quindi il menu è lasciato all’app installata.",
+        "folderMenuStatusNoFileManager": "Nessun gestore di file supportato trovato (Files, Caja, Dolphin o Nemo).",
+        "folderMenuStatusUnsupported": "Non disponibile su questo sistema.",
+        "folderMenuStatusError": "Impossibile aggiornare il menu: {{error}}",
+        "folderMenuStatusInstalled": "Aggiunto a {{targets}}.",
+        "folderMenuStatusOff": "Non mostrato nel menu.",
+        "folderMenuHintWindows": "In Windows 11 si trova in “Mostra altre opzioni”.",
+        "folderMenuHintMac": "Nel Finder si trova in “Azioni rapide” o “Servizi”.",
+        "folderMenuHintScripts": "In Files e Caja si trova in “Script”.",
+        "folderMenuRefresh": "Ricontrolla",
+        "folderMenuTargets": {
+          "windowsExplorer": "Esplora file",
+          "macosFinder": "Finder",
+          "nautilus": "Files (Nautilus)",
+          "caja": "Caja",
+          "dolphin": "Dolphin",
+          "nemo": "Nemo"
+        }
       },
       "notifications": {
         "cmdBlocked": "Notifica quando una sessione CMD è in attesa di input",
         "cmdBlockedDesc": "Notifica solo se in quel momento stai guardando un'altra scheda o finestra — se questa finestra è in primo piano, è già visibile a schermo."
-      },
-      "permissions": {
-        "verificationGateIntro": "Questa regola si applica sia a Codex sia a Claude Code solo quando è attiva. In tal caso, agli agenti viene indicato di eseguire test, analisi del codice, controlli dei tipi, build di verifica, E2E, controlli nel browser, confronti di screenshot e agenti di verifica solo se richiesti nell’attività corrente. Le chiamate non richieste vengono bloccate prima dell’esecuzione.",
-        "verificationGateEnabled": "Richiedere una richiesta esplicita prima di eseguire verifiche",
-        "verificationGateEnabledDesc": "Disattivata per impostazione predefinita. Quando è disattivata, Vibisual non aggiunge restrizioni di verifica ai prompt e non blocca le chiamate in base a questa regola. Quando è attiva, possono essere bloccati anche gli script il cui nome contiene check, verify o test. Salva con {{apply}}: le modifiche al blocco si applicano dalla prossima chiamata a uno strumento, quelle alle indicazioni nel prompt dal prossimo turno."
       },
       "engines": {
         "title": "Motori",
@@ -4936,8 +4954,8 @@
       "run": "Esegui",
       "stop": "Interrompi",
       "stopping": "Interruzione…",
-      "followUp": "Aggiungi",
-      "followUpTitle": "Invia un messaggio di follow-up senza fermare l'agente (Invio)",
+      "followUp": "Messaggio aggiuntivo",
+      "followUpTitle": "Aggiungi un messaggio alla coda. Scegli come inviarlo dal suo fumetto (Invio)",
       "queuedTitle": "{{count}} in attesa",
       "queuedHint": "Unisci invia i messaggi successivi insieme in un unico turno. Attendi assegna al messaggio un turno proprio; Ora interrompe il turno corrente.",
       "queuedRemove": "Rimuovi dalla coda",
@@ -4945,12 +4963,14 @@
       "dispatchMode": {
         "wait": "Attendi",
         "merge": "Unisci",
-        "immediate": "Ora"
+        "immediate": "Ora",
+        "steer": "Invia all’attività attuale"
       },
       "dispatchModeTitle": {
         "wait": "Attendi — esegue questo messaggio in un turno proprio dopo la fine di quello corrente",
         "merge": "Unisci — invia questo insieme ai successivi messaggi in modalità Unisci, in un unico turno",
-        "immediate": "Ora — interrompe il turno corrente e prosegue con questo messaggio (la conversazione viene mantenuta)"
+        "immediate": "Ora — interrompe il turno corrente e prosegue con questo messaggio (la conversazione viene mantenuta)",
+        "steer": "Invia all’attività attuale — recapita il messaggio senza interrompere l’attività. Controlla la risposta per sapere come è stato gestito."
       },
       "executing": "Esecuzione…",
       "readOnly": "Sola lettura — le bolle hook rispecchiano una sessione esterna. Invia i comandi da un agente personalizzato.",
@@ -5138,7 +5158,29 @@
       "stopRetry": "Riprova",
       "sendRejected": "La richiesta è stata rifiutata. Il testo e gli allegati sono stati ripristinati. Controlla la conversazione prima di inviare di nuovo.",
       "sendUnconfirmed": "Impossibile confermare l’invio. Il testo e gli allegati sono stati ripristinati. Controlla la conversazione prima di inviare di nuovo.",
-      "localImagesUnsupported": "All Model non supporta ancora le immagini in ingresso. Rimuovi le immagini o scegli un altro fornitore per inviare questo messaggio."
+      "localImagesUnsupported": "All Model non supporta ancora le immagini in ingresso. Rimuovi le immagini o scegli un altro fornitore per inviare questo messaggio.",
+      "liveDelivery": {
+        "waiting": "In attesa di invio",
+        "sending": "Invio in corso…",
+        "delivered": "Consegnato",
+        "unavailable": "Consegna impossibile",
+        "uncertain": "Consegna non confermata",
+        "reason": {
+          "noActiveTurn": "Non c’è un’attività in corso che possa ricevere questo messaggio.",
+          "unsupported": "Questa sessione non supporta messaggi durante un’attività.",
+          "turnScope": "I messaggi con impostazioni di esecuzione specifiche devono essere inviati come richieste separate.",
+          "deliveryRejected": "L’agente non ha accettato questo messaggio.",
+          "deliveryUnknown": "Non è stato possibile confermare se l’agente ha ricevuto questo messaggio."
+        },
+        "hint": {
+          "waiting": "Questo messaggio è in attesa di essere inviato all’attività in corso.",
+          "sending": "In attesa della conferma di ricezione dell’agente.",
+          "delivered": "Consegnato come istruzione aggiuntiva all’attività in corso.",
+          "unavailable": "Scegli “{{wait}}” per inviarlo dopo l’attività, oppure “{{immediate}}” per interromperla e iniziare con questo messaggio.",
+          "uncertain": "Il messaggio non verrà reinviato automaticamente. Modifica ed eliminazione sono bloccate per evitare duplicati; puoi comunque copiare il testo."
+        },
+        "retry": "Riprova"
+      }
     },
     "voiceInstall": {
       "title": "Configura l’inserimento vocale",
@@ -5259,6 +5301,7 @@
       "verify": "Verifica",
       "specReading": "Lettura",
       "customize": "Personalizza barra attività",
+      "configure": "Configura {{name}}",
       "resetLayout": "Layout predefinito",
       "dragHint": "Tieni premuto un elemento, poi trascinalo per riordinare",
       "shownSection": "Visibili",
@@ -5771,6 +5814,8 @@
       "imageMissing": "(immagine non disponibile)",
       "waiting": "in attesa",
       "compacting": "compattazione",
+      "delegating": "In attesa degli altri agenti",
+      "delegatingHint": "Questo turno è in attesa del risultato di un altro agente. Puoi comunque interromperlo.",
       "compactingHint": "Il contesto è pieno, quindi la CLI sta riassumendo la conversazione precedente per liberare spazio. Di solito richiede qualche minuto — nel frattempo è normale non vedere nuovo output."
     },
     "report": {
@@ -5972,7 +6017,7 @@
       "superseded": "Piano aggiornato"
     },
     "transportRecovery": {
-      "reconnecting": "Riconnessione… {{attempt}}/{{maxAttempts}}",
+      "reconnecting": "Riconnessione…",
       "fallback": "Tentativo con un altro metodo di connessione…",
       "resumed": "Connessione ripristinata · lavoro ripreso",
       "ended": "Ripristino della connessione tentato"
@@ -6249,7 +6294,6 @@
         "systemPrompt": "System prompt di Claude Code",
         "compactSelf": "Autocompattazione dell’Agent",
         "compactRecovery": "Nota di recupero post-compattazione",
-        "verificationPolicy": "Policy di verifica",
         "autoGoalSkills": "Procedure rilevate",
         "codexInstructions": "Istruzioni di progetto di Codex",
         "codexGlobalInstructions": "Istruzioni globali di Codex",
@@ -6368,11 +6412,6 @@
             "what": "Una nota per un solo turno che elenca ciò che il riepilogo della compattazione non sembra aver riportato.",
             "more": "Viene costruita a partire dallo snapshot registrato appena prima della compattazione, confrontato con il testo del riepilogo. Viene inviata una sola volta e non si ripete mai.",
             "off": "Disattivala e la sessione prosegue dopo una compattazione senza alcuna nota su cosa non è stato riportato nel riepilogo."
-          },
-          "verificationPolicy": {
-            "what": "Indicazioni facoltative per Codex e Claude Code affinché eseguano verifiche solo se richieste nell’attività corrente, insieme all’autorizzazione di verifica per quell’attività.",
-            "more": "La regola è disattivata per impostazione predefinita. Quando è attiva, Vibisual concede l’autorizzazione alla verifica in base al tuo messaggio o al pulsante di verifica per quell’attività. Quando è disattivata, non aggiunge indicazioni restrittive e non blocca le chiamate di verifica.",
-            "off": "Questo interruttore della fonte nasconde solo le indicazioni quando la regola è attiva. Attiva o disattiva sia le indicazioni sia il blocco dell’esecuzione in {{options}}, nella sezione {{permissions}}. La regola è disattivata per impostazione predefinita."
           },
           "hookEnforcement": {
             "what": "Il blocco che Vibisual inietta nelle sessioni che si sono collegate tramite gli hook di Claude Code.",
@@ -6567,9 +6606,12 @@
       "saveError": "Impossibile confermare che la modifica sia stata salvata. Misura di nuovo per controllare l'impostazione attuale."
     },
     "goal": {
+      "activationRules": "Regole di attivazione",
+      "enabledHint": "Attivo — questa sessione include obiettivi e aggiornamenti sui progressi.",
+      "disabledHint": "Disattivato per impostazione predefinita — nessun obiettivo automatico o istruzione. Gli obiettivi esistenti vengono conservati.",
       "title": "Obiettivo",
       "pickSession": "Scegli una sessione per vedere il suo obiettivo.",
-      "waiting": "Ancora nessun obiettivo. Ne comparirà uno non appena la sessione definirà un piano.",
+      "waiting": "Nessun obiettivo ancora. Appare quando il monitoraggio degli obiettivi è attivo e la sessione crea un piano.",
       "sample": {
         "badge": "Esempio",
         "text": "Completare l'attività e verificare che funzioni",
@@ -6814,16 +6856,6 @@
         "warn": "Se al termine del turno restano sezioni richieste non lette, il turno viene rimandato indietro per continuare a leggere.",
         "enforce": "Le modifiche vengono rifiutate finché ci sono sezioni richieste non lette. Raggiunto il limite di tentativi, smette di bloccare."
       }
-    },
-    "verifyPolicy": {
-      "notRun": "Verifica non eseguita",
-      "notRunTip": "Per questa attività non sono stati eseguiti test, build o verifiche nel browser. Usa il pulsante accanto a questa etichetta, oppure chiedi la verifica nel tuo messaggio.",
-      "blockedTip": "Chiamate di verifica tentate dall'agente e bloccate prima dell'esecuzione: {{count}}.",
-      "ran": "Verifica eseguita ×{{count}}",
-      "ranTip": "La verifica è stata eseguita nell'ambito che hai richiesto. L'esito è nella risposta qui sopra.",
-      "runTip": "Eseguire le verifiche relative a questa modifica (test correlati, controllo dei tipi, lint, build). Gli errori vengono segnalati, non corretti.",
-      "runFailed": "Impossibile avviare: {{error}}",
-      "runPrompt": "Verifica la modifica dell'attività precedente. Esegui solo le verifiche che la riguardano (test correlati, controllo dei tipi, lint, build) — non l'intera suite di test, i test E2E o le verifiche nel browser. Riporta ciascuna come superata, fallita o non verificata. Non correggere gli errori; limitati a riportarli.\n\nAttività precedente: {{task}}"
     },
     "verify": {
       "title": "Verifica",
@@ -8766,7 +8798,7 @@
       "pragmatic": "Pragmatico"
     },
     "inheritProject": "Valori del progetto / globali",
-    "individualSettingsHint": "Si applica a questo agente. Le impostazioni uguali ai valori predefiniti continuano a seguire le modifiche del progetto e globali.",
+    "individualSettingsHint": "Vale solo per questo agente. I valori impostati qui restano invariati quando cambiano le impostazioni del progetto o globali. Seleziona «{{inherit}}» per tornare a seguire quelle impostazioni.",
     "provider": "Provider",
     "claude": "Claude",
     "codex": "Codex",

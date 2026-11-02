@@ -1,7 +1,8 @@
 /**
  * §5.5 #17-50 [버블] — 세션 버블 모델 → 캔버스가 그리는 모양(순수). 버블을 새로 그리지 않고 캔버스 배치 훅·`CanvasBubbleNode` 를 쓰므로
  * 캔버스 서버가 짓는 노드 모양 그대로 옮긴다: 안 = 첫 마디부터 계층(`internal_folder`), 밖 = 직속 부모 하나(`external_folder`, 파일 없으면 안 세움),
- * 웹 = `domain` · 명령 앱 = `bash`+`commandApp` · 서브에이전트 = `agent`, 선 = `ActivityEdge`(방향은 마지막 도구, §2.1 #3).
+ * 웹 = `domain` · 명령 앱 = `bash`+`commandApp`, 선 = `ActivityEdge`(방향은 마지막 도구, §2.1 #3). 에이전트는 가운데 하나뿐이다 — 서브에이전트는 버블이 아니고
+ * 그 안쪽 호출이 만진 것도 가운데에서 선이 나온다(캔버스도 그 에이전트에 매단다). 서브에이전트 버블을 되살리면 다른 에이전트가 섞인 지도로 읽힌다.
  * 노드 id 는 `sb:` 로 시작(캔버스와 한 화면이라 강조·미리보기 예산이 id 로 갈린다). 가운데만 데이터 id 가 그 에이전트, React Flow id 는 `SESSION_CENTER_NODE_ID`.
  */
 import {
@@ -9,6 +10,7 @@ import {
   DEFAULT_MAX_SATELLITES,
   READ_TOOLS,
   WEB_SEARCH_HOST,
+  commandAppGroupKey,
   fileFaceKindOf,
   isMediaFaceKind,
   isPathWithin,
@@ -26,7 +28,6 @@ import type {
   SessionAppBubble,
   SessionBubbleModel,
   SessionFileBubble,
-  SessionTaskBubble,
   SessionTouch,
   SessionWebBubble,
 } from './sessionBubbles.js';
@@ -39,7 +40,6 @@ const ID = {
   file: (key: string) => `sb:file:${key}`,
   web: (key: string) => `sb:${key}`,
   app: (key: string) => `sb:${key}`,
-  task: (key: string) => `sb:${key}`,
   edge: (target: string) => `sb:edge:${target}`,
 } as const;
 
@@ -71,8 +71,7 @@ export type SessionCanvasEntry =
   | { kind: 'folder'; folder: SessionFolderNode }
   | { kind: 'file'; file: SessionFileBubble }
   | { kind: 'web'; web: SessionWebBubble }
-  | { kind: 'app'; app: SessionAppBubble }
-  | { kind: 'task'; task: SessionTaskBubble };
+  | { kind: 'app'; app: SessionAppBubble };
 
 /** 폴더 안 화면의 재료 — `useFolderLayout` 에 그대로 넘긴다. */
 export interface SessionCanvasFolder {
@@ -87,9 +86,9 @@ export interface SessionCanvasFolder {
 export interface SessionCanvasGraph {
   /** 가운데 — 캔버스의 그 에이전트 버블(상태만 이 칸의 판정). */
   center: BubbleData;
-  /** 최상위 화면의 원 둘레 — 폴더 · 루트 직속 파일 · 웹 · 명령 앱 · 서브에이전트. */
+  /** 최상위 화면의 원 둘레 — 폴더 · 루트 직속 파일 · 웹 · 명령 앱. */
   top: BubbleData[];
-  /** 최상위 화면의 선 — 가운데(또는 경유 서브에이전트) ↔ 원 둘레. */
+  /** 최상위 화면의 선 — 가운데 ↔ 원 둘레. */
   edges: ActivityEdge[];
   /**
    * 폴더 id → 위성(최근 자리부터 `DEFAULT_MAX_SATELLITES` 자리 — 같은 미디어 종류는 한 자리). 최상위·폴더 안 화면이 같은 표를 쓴다.
@@ -373,21 +372,6 @@ function appBubble(a: SessionAppBubble, running: boolean): BubbleData {
   };
 }
 
-function taskBubble(t: SessionTaskBubble, running: boolean): BubbleData {
-  return {
-    id: ID.task(t.key),
-    label: t.description,
-    bubbleType: 'agent',
-    path: '',
-    status: running && !t.done ? 'active' : 'idle',
-    activity: t.reads + t.writes,
-    lastActivity: t.lastAt,
-    lastTool: t.lastTool,
-    // 우리가 띄운 세션의 안쪽이다 — 훅 톤·HOOK 표식이 아니라 그 세션과 같은 결로 선다.
-    customCreated: true,
-  };
-}
-
 /**
  * 가운데 — 캔버스의 그 에이전트 노드 그대로. 상태만 이 칸의 판정: 이 칸이 돌면 `active`, 안 돌면 다른 세션 때문에 켜진
  * `active` 는 `idle` 로(완료·실패·권한 대기 표시는 그 노드의 것 그대로).
@@ -422,23 +406,6 @@ export function buildSessionCanvasGraph(input: SessionCanvasInput): SessionCanva
   const { folders, rootFiles } = buildFolders(model, root, platform);
   const entries = new Map<string, SessionCanvasEntry>([[SESSION_CENTER_NODE_ID, { kind: 'center' }]]);
   const nodeMap: Record<string, BubbleData> = {};
-
-  // 서브에이전트 — 다른 버블의 선이 그것에서 나올 수 있어 먼저 세운다.
-  const taskIds = new Set<string>();
-  const taskBubbles: BubbleData[] = model.tasks.map((t) => {
-    const b = taskBubble(t, running);
-    taskIds.add(b.id);
-    entries.set(b.id, { kind: 'task', task: t });
-    return b;
-  });
-  /** 그 버블의 선이 나오는 주인 — 중첩 서브에이전트로만 닿았으면 그 서브에이전트, 아니면 가운데. */
-  const ownerOf = (t: SessionTouch): string => {
-    if (!t.direct && t.viaTaskKey !== null) {
-      const viaId = ID.task(t.viaTaskKey);
-      if (taskIds.has(viaId)) return viaId;
-    }
-    return center.id;
-  };
 
   // 파일 — 묶음의 수·범위·이름은 위성 사본이 싣는다(`folderSatellites`).
   const fileById = new Map<string, BubbleData>();
@@ -508,22 +475,9 @@ export function buildSessionCanvasGraph(input: SessionCanvasInput): SessionCanva
     entries.set(b.id, { kind: 'app', app: a });
     tops.push({ at: a.firstAt, bubble: b, touch: a });
   }
-  model.tasks.forEach((t, i) => tops.push({ at: t.firstAt, bubble: taskBubbles[i]!, touch: t }));
   tops.sort((a, b) => a.at - b.at);
 
-  const edges: ActivityEdge[] = tops.map(({ bubble, touch }) => {
-    // 서브에이전트 버블의 선은 그것을 띄운 쪽에서 나온다(가운데 또는 바깥 서브에이전트) — 띄운 것은 쓰기 방향이다.
-    if (bubble.bubbleType === 'agent') {
-      const t = entries.get(bubble.id);
-      const task = t?.kind === 'task' ? t.task : null;
-      const owner = task ? ownerOf(task) : center.id;
-      return {
-        id: ID.edge(bubble.id), source: owner === bubble.id ? center.id : owner, target: bubble.id,
-        label: bubble.lastTool ?? '', timestamp: touch.lastAt, isActive: running && task !== null && !task.done,
-      };
-    }
-    return activityEdge(ownerOf(touch), bubble.id, touch, running);
-  });
+  const edges: ActivityEdge[] = tops.map(({ bubble, touch }) => activityEdge(center.id, bubble.id, touch, running));
 
   return {
     center,
@@ -541,6 +495,75 @@ export function buildSessionCanvasGraph(input: SessionCanvasInput): SessionCanva
 export function sessionCanvasEntryOf(graph: Pick<SessionCanvasGraph, 'entries'>, nodeId: string): SessionCanvasEntry | null {
   const id = nodeId.startsWith('sat-') ? nodeId.slice(4) : nodeId;
   return graph.entries.get(id) ?? null;
+}
+
+// ─── 캔버스의 짝 ─────────────────────────────────────────────────────────────
+//   디테일 창은 캔버스의 것(`DetailPanel`)이다. 같은 것이 캔버스에 떠 있으면 그 노드로 그려야 편집 이력·위성 토글·웹 이력이 캔버스와 같다.
+
+/** 지도 버블이 캔버스에서 무엇과 같은가 — 파일·폴더는 경로 키, 웹은 호스트, 명령 앱은 묶음 열쇠. 가운데는 null(에이전트 id 로 바로 찾는다). */
+export function canvasTwinKeyOf(entry: SessionCanvasEntry, platform: PlatformName): string | null {
+  switch (entry.kind) {
+    case 'file': return `file:${pathKey(entry.file.path, platform)}`;
+    case 'folder': return `dir:${pathKey(entry.folder.path, platform)}`;
+    case 'web': {
+      const host = entry.web.kind === 'search' ? WEB_SEARCH_HOST : entry.web.host;
+      return host ? `web:${host}` : null;
+    }
+    case 'app': return `app:${commandAppGroupKey(entry.app.target)}`;
+    case 'center':
+      return null;
+  }
+}
+
+/** 캔버스 노드 하나의 짝 열쇠 — {@link canvasTwinKeyOf} 와 같은 모양. 접힌 웹 버블은 여러 호스트라 짝이 아니다. */
+function canvasNodeTwinKey(n: BubbleData, platform: PlatformName): string | null {
+  switch (n.bubbleType) {
+    case 'file': return n.absolutePath ? `file:${pathKey(n.absolutePath, platform)}` : null;
+    case 'internal_folder':
+    case 'external_folder':
+      return n.absolutePath ? `dir:${pathKey(n.absolutePath, platform)}` : null;
+    case 'domain': return n.webFold ? null : `web:${n.path}`;
+    case 'bash': return n.commandApp ? `app:${commandAppGroupKey(n.commandApp)}` : null;
+    default: return null;
+  }
+}
+
+const twinIndexCache = new WeakMap<object, Map<string, string[]>>();
+
+/** 캔버스 노드 표 → 짝 열쇠 → 노드 id 들. 같은 표면 한 번만 짓는다(스냅샷이 표를 갈 때만 다시). */
+export function canvasTwinIndex(nodeMap: Record<string, BubbleData>, platform: PlatformName): Map<string, string[]> {
+  const hit = twinIndexCache.get(nodeMap);
+  if (hit) return hit;
+  const index = new Map<string, string[]>();
+  for (const n of Object.values(nodeMap)) {
+    const key = canvasNodeTwinKey(n, platform);
+    if (!key) continue;
+    const ids = index.get(key);
+    if (ids) ids.push(n.id); else index.set(key, [n.id]);
+  }
+  twinIndexCache.set(nodeMap, index);
+  return index;
+}
+
+/**
+ * 고른 지도 버블의 캔버스 짝 id — 없으면 null(디테일 창은 지도가 지은 모양으로 선다).
+ * 여러 프로젝트가 같은 호스트·같은 앱을 가지면 그 에이전트의 프로젝트 것을 먼저 고른다.
+ */
+export function canvasTwinIdOf(
+  entry: SessionCanvasEntry,
+  input: {
+    nodeMap: Record<string, BubbleData>;
+    nodeProjects: Record<string, string>;
+    project: string | null;
+    platform: PlatformName;
+  },
+): string | null {
+  const key = canvasTwinKeyOf(entry, input.platform);
+  if (!key) return null;
+  const ids = canvasTwinIndex(input.nodeMap, input.platform).get(key);
+  if (!ids || ids.length === 0) return null;
+  if (ids.length === 1 || input.project === null) return ids[0]!;
+  return ids.find((id) => input.nodeProjects[id] === input.project) ?? ids[0]!;
 }
 
 /** 폴더의 짧은 이름 — 바깥 폴더는 전체 경로가 이름이라(캔버스 규칙) 경로 표시에서는 끝 마디로 줄인다. */

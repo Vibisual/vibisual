@@ -180,3 +180,22 @@ describe('헤더 로고 전체 누름', () => {
     expect(decl(dragging.body, 'app-region')).toBe('no-drag');
   });
 });
+
+// §3.7 — 가려진 탭의 no-drag 사각형은 스크롤 줄 경계로 잘리지 않는다(2026-11-01 WM_NCHITTEST 실측: 최대화 150%, 로고 끝 64px 부터
+//   줄 오른쪽 틈까지 HTCLIENT). 넘치는 동안은 보이는 줄 상자 하나가 no-drag 를 신고해야 줄 밖 제목줄이 OS 캡션으로 남는다.
+describe('넘친 탭 줄', () => {
+  it('넘친 줄 상자는 no-drag, 그 안의 탭은 영역을 신고하지 않는다', () => {
+    const strip = ruleFor('.tab-strip-overflow').body;
+    expect(decl(strip, '-webkit-app-region')).toBe('no-drag');
+    expect(decl(strip, 'app-region')).toBe('no-drag');
+    const tabs = ruleFor('.tab-strip-overflow .app-nodrag').body;
+    expect(decl(tabs, '-webkit-app-region')).toBe('none');
+    expect(decl(tabs, 'app-region')).toBe('none');
+  });
+
+  it('TabBar 가 넘침을 잴 때마다 그 표시를 스크롤 줄에 붙였다 뗀다', () => {
+    const tabBar = source('TabBar.tsx');
+    expect(tabBar).toContain("el.classList.toggle('tab-strip-overflow', overflow > 0);");
+    expect(tabBar).toContain('const overflow = el.scrollWidth - el.clientWidth;');
+  });
+});

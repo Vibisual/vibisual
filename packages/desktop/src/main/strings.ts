@@ -27,6 +27,9 @@ export interface MainStrings {
   cmdBlockedTitle: string;
   cmdBlockedBody: string;
 
+  // ─ §4 OS 폴더 우클릭 메뉴 글자(탐색기·Finder·리눅스 파일 관리자)
+  folderContextMenuLabel: string;
+
   crashTitle: string;
   crashMessage: string;
   crashReload: string;
@@ -57,6 +60,7 @@ const en: MainStrings = {
   quitDetailNote: 'Conversations are kept and pick up on the next turn, but edits you have not committed will not come back.',
   cmdBlockedTitle: 'Vibisual — {label} is waiting for input',
   cmdBlockedBody: 'The CMD terminal is waiting for your response.',
+  folderContextMenuLabel: 'Open project in Vibisual',
 };
 
 const ko: MainStrings = {
@@ -80,6 +84,7 @@ const ko: MainStrings = {
   quitDetailNote: '대화는 남아 다음 턴에 이어지지만, 커밋하지 않은 편집은 복구되지 않습니다.',
   cmdBlockedTitle: 'Vibisual — {label} 이(가) 입력을 기다립니다',
   cmdBlockedBody: 'CMD 터미널이 사용자 응답을 기다리는 중입니다.',
+  folderContextMenuLabel: 'Vibisual에서 프로젝트 열기',
 };
 
 const ja: MainStrings = {
@@ -103,6 +108,7 @@ const ja: MainStrings = {
   quitDetailNote: '会話は残り次のターンで続きますが、コミットしていない編集は元に戻りません。',
   cmdBlockedTitle: 'Vibisual — {label} が入力を待っています',
   cmdBlockedBody: 'CMD ターミナルが応答を待っています。',
+  folderContextMenuLabel: 'Vibisual でプロジェクトを開く',
 };
 
 const zhCN: MainStrings = {
@@ -126,6 +132,7 @@ const zhCN: MainStrings = {
   quitDetailNote: '对话会保留并在下一轮继续，但尚未提交的修改无法恢复。',
   cmdBlockedTitle: 'Vibisual — {label} 正在等待输入',
   cmdBlockedBody: 'CMD 终端正在等待你的回应。',
+  folderContextMenuLabel: '在 Vibisual 中打开项目',
 };
 
 const es: MainStrings = {
@@ -149,6 +156,7 @@ const es: MainStrings = {
   quitDetailNote: 'Las conversaciones se conservan y continúan en el siguiente turno, pero las ediciones sin confirmar no se recuperarán.',
   cmdBlockedTitle: 'Vibisual — {label} está esperando entrada',
   cmdBlockedBody: 'La terminal CMD está esperando tu respuesta.',
+  folderContextMenuLabel: 'Abrir proyecto en Vibisual',
 };
 
 const es419: MainStrings = {
@@ -172,6 +180,7 @@ const es419: MainStrings = {
   quitDetailNote: 'Las conversaciones se conservan y continúan en el siguiente turno, pero las ediciones sin confirmar no se recuperarán.',
   cmdBlockedTitle: 'Vibisual — {label} está esperando entrada',
   cmdBlockedBody: 'La terminal CMD está esperando tu respuesta.',
+  folderContextMenuLabel: 'Abrir proyecto en Vibisual',
 };
 
 const fr: MainStrings = {
@@ -195,6 +204,7 @@ const fr: MainStrings = {
   quitDetailNote: 'Les conversations sont conservées et reprennent au tour suivant, mais les modifications non validées ne seront pas récupérées.',
   cmdBlockedTitle: 'Vibisual — {label} attend une saisie',
   cmdBlockedBody: 'Le terminal CMD attend votre réponse.',
+  folderContextMenuLabel: 'Ouvrir le projet dans Vibisual',
 };
 
 const de: MainStrings = {
@@ -218,6 +228,7 @@ const de: MainStrings = {
   quitDetailNote: 'Unterhaltungen bleiben erhalten und werden im nächsten Zug fortgesetzt, aber nicht committete Änderungen kommen nicht zurück.',
   cmdBlockedTitle: 'Vibisual — {label} wartet auf Eingabe',
   cmdBlockedBody: 'Das CMD-Terminal wartet auf Ihre Antwort.',
+  folderContextMenuLabel: 'Projekt in Vibisual öffnen',
 };
 
 const hi: MainStrings = {
@@ -241,6 +252,7 @@ const hi: MainStrings = {
   quitDetailNote: 'बातचीत सुरक्षित रहती है और अगली बारी में जारी रहती है, लेकिन बिना कमिट किए बदलाव वापस नहीं आएंगे।',
   cmdBlockedTitle: 'Vibisual — {label} इनपुट का इंतज़ार कर रहा है',
   cmdBlockedBody: 'CMD टर्मिनल आपके उत्तर की प्रतीक्षा कर रहा है।',
+  folderContextMenuLabel: 'Vibisual में प्रोजेक्ट खोलें',
 };
 
 const id: MainStrings = {
@@ -264,6 +276,7 @@ const id: MainStrings = {
   quitDetailNote: 'Percakapan tetap tersimpan dan dilanjutkan pada giliran berikutnya, tetapi suntingan yang belum di-commit tidak akan kembali.',
   cmdBlockedTitle: 'Vibisual — {label} menunggu masukan',
   cmdBlockedBody: 'Terminal CMD sedang menunggu jawaban Anda.',
+  folderContextMenuLabel: 'Buka proyek di Vibisual',
 };
 
 const it: MainStrings = {
@@ -287,6 +300,7 @@ const it: MainStrings = {
   quitDetailNote: 'Le conversazioni restano e riprendono al turno successivo, ma le modifiche non salvate con commit non torneranno.',
   cmdBlockedTitle: 'Vibisual — {label} è in attesa di input',
   cmdBlockedBody: 'Il terminale CMD è in attesa della tua risposta.',
+  folderContextMenuLabel: 'Apri progetto in Vibisual',
 };
 
 const ptBR: MainStrings = {
@@ -310,6 +324,7 @@ const ptBR: MainStrings = {
   quitDetailNote: 'As conversas são mantidas e continuam no próximo turno, mas as edições sem commit não voltarão.',
   cmdBlockedTitle: 'Vibisual — {label} está aguardando entrada',
   cmdBlockedBody: 'O terminal CMD está aguardando sua resposta.',
+  folderContextMenuLabel: 'Abrir projeto no Vibisual',
 };
 
 const TABLE: Record<UiLocale, MainStrings> = {

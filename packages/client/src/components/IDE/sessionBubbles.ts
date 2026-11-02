@@ -6,10 +6,12 @@
 import {
   BASH_READ_PATH_LIMIT,
   BASH_WRITE_PATH_LIMIT,
+  commandAppGroupKey,
   detectCommandApps,
   extractBashReadTargets,
   extractBashWritePaths,
   isAbsoluteShellPath,
+  mergeCommandAppTarget,
   isPathWithin,
   isShellToolName,
   joinShellPath,
@@ -21,6 +23,7 @@ import {
   type CommandAppTarget,
   type PlatformName,
   type QueuedCommand,
+  type SubAgent,
   type SubAgentStreamEvent,
 } from '@vibisual/shared';
 import { dispatchedTurnAnchorsAsc, turnOfEvent, type TurnAnchor } from './streamItems.js';
@@ -123,6 +126,22 @@ export interface SessionBubbleModel {
 }
 
 /** 한 세션 몫의 재료 — 메인 탭은 여러 개를 함께 넘긴다. */
+/**
+ * §5.5 #17-50 (C) — 지도가 그릴 세션 하나. 세션 탭이면 그 세션, 메인 탭이면 상태바가 가리키는 명령의 세션([버블]이 그 줄 안에 있다),
+ * 그것도 없으면 가장 최근에 움직인 세션. 세션을 합쳐 그리지 않는다 — 합치면 다른 세션이 한 일이 이 세션의 일로 읽힌다.
+ */
+export function bubbleMapSessionOf(
+  activeSessionId: string | null,
+  statusBarSessionId: string | null,
+  sessions: readonly Pick<SubAgent, 'id' | 'lastActivityAt'>[],
+): string | null {
+  if (activeSessionId !== null) return activeSessionId;
+  if (statusBarSessionId) return statusBarSessionId;
+  let latest: Pick<SubAgent, 'id' | 'lastActivityAt'> | null = null;
+  for (const s of sessions) if (!latest || s.lastActivityAt > latest.lastActivityAt) latest = s;
+  return latest?.id ?? null;
+}
+
 export interface SessionBubbleStream {
   events: readonly SubAgentStreamEvent[];
   /** 그 세션의 명령 — 턴 도장이 없는 옛 줄을 시각으로 제 턴에 귀속시킬 때 쓴다. */
@@ -439,12 +458,16 @@ export function buildSessionBubbles(input: SessionBubbleInput): SessionBubbleMod
         if (call.web.kind === 'search') pushRecent(web.queries, call.web.query, SESSION_BUBBLE_KEEP.searchQueries);
       }
 
+      // 캔버스와 같은 규칙(§5.1) — 이름이 같은 앱은 버블 하나, 그림 출처는 더 확실한 쪽이 올 때만 바뀐다.
       for (const a of call.apps) {
-        const key = `app:${a.id}`;
+        const key = `app:${commandAppGroupKey(a)}`;
         let app = apps.get(key);
         if (!app) {
           app = { ...newTouch(at, tool, 'write', turnId), key, name: a.name, ...(a.executable ? { executable: a.executable } : {}), target: a, commands: [] };
           apps.set(key, app);
+        } else {
+          app.target = mergeCommandAppTarget(app.target, a);
+          if (app.target.executable) app.executable = app.target.executable;
         }
         addTouch(app, at, tool, 'write', turnId, pending, viaTaskKey);
         if (call.command) pushRecent(app.commands, clampCommand(call.command), SESSION_BUBBLE_KEEP.appCommands);

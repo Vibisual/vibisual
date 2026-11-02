@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { BubbleSkin, NodeStatus } from '@vibisual/shared';
+import { heatmapMaterial } from './heatmapPaint.js';
 
 export interface BubbleSurface {
   body: CSSProperties;
@@ -17,7 +18,7 @@ export function bubbleSurface(
   color: string,
   glow: string,
   status: NodeStatus,
-  options: { highlighted?: boolean; creatingError?: boolean } = {},
+  options: { highlighted?: boolean; creatingError?: boolean; heatmap?: boolean } = {},
 ): BubbleSurface {
   const surfaces: Record<BubbleSkin, BubbleSurface> = {
     outline: {
@@ -47,6 +48,12 @@ export function bubbleSurface(
     },
   };
   const paint = surfaces[skin];
+  if (options.heatmap) {
+    paint.body.background = heatmapMaterial(color);
+    // Let the colored material carry the heat: no interior rings or line glints.
+    paint.inner.opacity = 0;
+    paint.specular = false;
+  }
   const semantic = status === 'active' || status === 'completed' || status === 'error' || status === 'awaiting_permission';
   if (semantic || options.highlighted) {
     // Keep existing Tailwind state/target classes authoritative; an inline

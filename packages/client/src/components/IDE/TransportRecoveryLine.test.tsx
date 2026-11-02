@@ -30,10 +30,11 @@ function render(item: StreamSystem, sessionLabel?: string): string {
 }
 
 describe('connection recovery status', () => {
-  it('shows retry progress and preserves the diagnostic without a failure label', () => {
+  it('shows a compact status with retry counts and diagnostics only in the tooltip', () => {
     locale = 'en';
     const html = render(notice, 'Session A');
-    expect(html).toContain('Reconnecting… 2/5');
+    expect(html).toContain('Reconnecting…');
+    expect(html.replace(/<[^>]*>/g, '')).toBe('Session AReconnecting…');
     expect(html).toContain('role="status"');
     expect(html).toContain('Session A');
     expect(html).toContain(`title="${notice.content}"`);
@@ -41,10 +42,10 @@ describe('connection recovery status', () => {
     expect(html).not.toContain('text-red');
   });
 
-  it('renders fallback, resumed work and an ended attempt with distinct meanings in Korean', () => {
+  it('keeps fallback concise while distinguishing resumed work from an ended attempt in Korean', () => {
     locale = 'ko';
     const fallback = { ...notice, transportRecovery: { notice: { kind: 'fallback' as const }, state: 'recovering' as const } };
-    expect(render(fallback)).toContain('다른 방식으로 다시 연결하는 중…');
+    expect(render(fallback)).toContain('재연결 중…');
     const resumed = { ...fallback, transportRecovery: { ...fallback.transportRecovery, state: 'resumed' as const } };
     expect(render(resumed)).toContain('연결 복구됨 · 작업 재개');
     expect(render(resumed)).not.toContain('role="status"');

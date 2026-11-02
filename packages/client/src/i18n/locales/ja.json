@@ -383,7 +383,6 @@
         "agent": "Agentのデフォルト",
         "appearance": "表示",
         "notifications": "通知",
-        "permissions": "権限",
         "advanced": "詳細",
         "version": "バージョン",
         "account": "アカウント",
@@ -774,16 +773,35 @@
         "webOpenTargetExternal": "外部ブラウザー",
         "webOpenTargetExternalDesc": "既定の設定です。普段お使いのブラウザーで開きます。",
         "webOpenTargetIframe": "アプリ内の iframe タブ",
-        "webOpenTargetIframeDesc": "タブバーにウェブタブを開き、アプリ内で閲覧します。インターネットのページはアプリから切り離されたサンドボックス画面で権限なしに開かれ、ログイン情報はアプリを閉じると消去されます。"
+        "webOpenTargetIframeDesc": "タブバーにウェブタブを開き、アプリ内で閲覧します。インターネットのページはアプリから切り離されたサンドボックス画面で権限なしに開かれ、ログイン情報はアプリを閉じると消去されます。",
+        "folderMenuTitle": "フォルダーの右クリックメニュー",
+        "folderMenuIntro": "ファイルマネージャーでフォルダーを右クリックし、「Vibisual でプロジェクトを開く」を選ぶと、そのフォルダーがここでプロジェクトとして開きます。Vibisual が起動していなければ、起動してそのフォルダーを開きます。",
+        "folderMenuEnabled": "フォルダーを右クリックしたときに「Vibisual でプロジェクトを開く」を表示",
+        "folderMenuEnabledDesc": "保存するとすぐに反映されます。オフにするとメニューから項目を削除します。",
+        "folderMenuStatusChecking": "メニューを反映しています。しばらくしてからもう一度確認してください。",
+        "folderMenuStatusDesktopOnly": "デスクトップアプリで使えます。",
+        "folderMenuStatusDevBuild": "開発用の実行のため、メニューはインストール済みのアプリに任せています。",
+        "folderMenuStatusNoFileManager": "対応するファイルマネージャー（Files、Caja、Dolphin、Nemo）が見つかりませんでした。",
+        "folderMenuStatusUnsupported": "このシステムでは使えません。",
+        "folderMenuStatusError": "メニューを更新できませんでした: {{error}}",
+        "folderMenuStatusInstalled": "{{targets}} に追加しました。",
+        "folderMenuStatusOff": "メニューには表示しません。",
+        "folderMenuHintWindows": "Windows 11 では「その他のオプションを確認」の中にあります。",
+        "folderMenuHintMac": "Finder では「クイックアクション」または「サービス」の中にあります。",
+        "folderMenuHintScripts": "Files と Caja では「スクリプト」の中にあります。",
+        "folderMenuRefresh": "再確認",
+        "folderMenuTargets": {
+          "windowsExplorer": "エクスプローラー",
+          "macosFinder": "Finder",
+          "nautilus": "Files (Nautilus)",
+          "caja": "Caja",
+          "dolphin": "Dolphin",
+          "nemo": "Nemo"
+        }
       },
       "notifications": {
         "cmdBlocked": "CMDセッションが入力待ちのときに通知",
         "cmdBlockedDesc": "他のタブやウィンドウを見ているときだけ通知します。ウィンドウがフォーカスされていれば、すでに画面に表示されているので通知は不要です。"
-      },
-      "permissions": {
-        "verificationGateIntro": "このポリシーは、有効にした場合のみ Codex と Claude Code の両方に適用されます。有効時は、現在のタスクで依頼された場合にのみ、テスト、リンター、型チェック、検証用ビルド、E2E、ブラウザー確認、スクリーンショット比較、検証エージェントを実行するようエージェントに指示し、依頼されていない呼び出しを実行前にブロックします。",
-        "verificationGateEnabled": "検証の実行には依頼を必須にする",
-        "verificationGateEnabledDesc": "初期設定はオフです。オフの場合、Vibisual はプロンプトに検証の制限を追加せず、このポリシーによる呼び出しのブロックも行いません。オンの場合、名前に check、verify、test を含むスクリプトもブロックされることがあります。{{apply}}で保存すると、実行ブロックの変更は次のツール呼び出しから、プロンプトの案内の変更は次のターンから適用されます。"
       },
       "engines": {
         "title": "エンジン",
@@ -4936,8 +4954,8 @@
       "run": "実行",
       "stop": "停止",
       "stopping": "停止中…",
-      "followUp": "追記",
-      "followUpTitle": "実行を止めずにメッセージを追加で送信します (Enter)",
+      "followUp": "追加メッセージ",
+      "followUpTitle": "追加メッセージをキューに入れます。吹き出しで送信方法を選べます (Enter)",
       "queuedTitle": "{{count}}件待機中",
       "queuedHint": "Mergeは追加メッセージをまとめて1ターンで送信します。Waitはメッセージに独自のターンを与え、Nowは現在のターンを中断します。",
       "queuedRemove": "キューから削除",
@@ -4945,12 +4963,14 @@
       "dispatchMode": {
         "wait": "待機",
         "merge": "マージ",
-        "immediate": "今すぐ"
+        "immediate": "今すぐ",
+        "steer": "作業に伝える"
       },
       "dispatchModeTitle": {
         "wait": "Wait — 現在のターン終了後、このメッセージを独自のターンで実行",
         "merge": "Merge — 後続のmergeメッセージとまとめて1ターンで送信",
-        "immediate": "Now — 現在のターンを停止し、このメッセージで続行（会話は保持されます）"
+        "immediate": "Now — 現在のターンを停止し、このメッセージで続行（会話は保持されます）",
+        "steer": "作業に伝える — 現在の作業を止めずにメッセージを届けます。依頼への対応は返答で確認してください。"
       },
       "executing": "実行中…",
       "readOnly": "読み取り専用 — フック由来のバブルは外部セッションを映すだけです。コマンドはカスタムエージェントから送ってください。",
@@ -5138,7 +5158,29 @@
       "stopRetry": "再試行",
       "sendRejected": "リクエストが拒否されたため、本文と添付を復元しました。会話を確認してから再送信してください。",
       "sendUnconfirmed": "送信を確認できなかったため、本文と添付を復元しました。会話を確認してから再送信してください。",
-      "localImagesUnsupported": "All Modelはまだ画像入力に対応していません。画像を削除するか、別のプロバイダーを選択してから送信してください。"
+      "localImagesUnsupported": "All Modelはまだ画像入力に対応していません。画像を削除するか、別のプロバイダーを選択してから送信してください。",
+      "liveDelivery": {
+        "waiting": "送信待ち",
+        "sending": "送信中…",
+        "delivered": "配信済み",
+        "unavailable": "配信不可",
+        "uncertain": "配信確認不可",
+        "reason": {
+          "noActiveTurn": "メッセージを受け取る実行中の作業がありません。",
+          "unsupported": "このセッションは作業中のメッセージ配信に対応していません。",
+          "turnScope": "個別の実行設定があるメッセージは、別の依頼として送信してください。",
+          "deliveryRejected": "エージェントはこのメッセージを受け付けませんでした。",
+          "deliveryUnknown": "エージェントがメッセージを受け取ったか確認できませんでした。"
+        },
+        "hint": {
+          "waiting": "現在の作業への送信を待っています。",
+          "sending": "エージェントからの受信確認を待っています。",
+          "delivered": "現在の作業に追加の指示として届けました。",
+          "unavailable": "現在の作業後に送るには「{{wait}}」、作業を止めてこのメッセージで始めるには「{{immediate}}」を選んでください。",
+          "uncertain": "自動で再送しません。重複配信を防ぐため変更・削除はロックされていますが、本文はコピーできます。"
+        },
+        "retry": "再送する"
+      }
     },
     "voiceInstall": {
       "title": "音声入力の準備",
@@ -5259,6 +5301,7 @@
       "verify": "検証",
       "specReading": "熟読",
       "customize": "アクティビティバーの構成",
+      "configure": "{{name}}を設定",
       "resetLayout": "既定のレイアウト",
       "dragHint": "項目を長押ししてドラッグすると並べ替えられます",
       "shownSection": "表示中",
@@ -5771,6 +5814,8 @@
       "imageMissing": "（画像利用不可）",
       "waiting": "待機中",
       "compacting": "圧縮中",
+      "delegating": "他のエージェントの応答を待機中",
+      "delegatingHint": "他のエージェントの作業結果を待っています。停止することもできます。",
       "compactingHint": "コンテキストが満杯のため、CLI がこれまでの会話を要約して空きを作っています。通常は数分かかり、その間に新しい出力がなくても正常です。"
     },
     "report": {
@@ -5972,7 +6017,7 @@
       "superseded": "計画を更新"
     },
     "transportRecovery": {
-      "reconnecting": "再接続中… {{attempt}}/{{maxAttempts}}",
+      "reconnecting": "再接続中…",
       "fallback": "別の方法で接続を試行中…",
       "resumed": "接続復旧 · 作業再開",
       "ended": "接続復旧の試行記録"
@@ -6249,7 +6294,6 @@
         "systemPrompt": "Claude Codeのシステムプロンプト",
         "compactSelf": "Agent自律圧縮",
         "compactRecovery": "コンパクト化後の復旧メモ",
-        "verificationPolicy": "検証ポリシー",
         "autoGoalSkills": "検出済み手順",
         "codexInstructions": "Codexのプロジェクト指示",
         "codexGlobalInstructions": "Codexのグローバル指示",
@@ -6368,11 +6412,6 @@
             "what": "コンパクト化の要約が反映していないと思われる内容を一覧にした、1ターン限りのメモです。",
             "more": "コンパクト化の直前に取得したスナップショットを要約テキストと比較して作成されます。これは一度だけ送信され、繰り返されることはありません。",
             "off": "オフにすると、コンパクト化後もセッションはそのまま継続しますが、要約から漏れた内容についてのメモは送られません。"
-          },
-          "verificationPolicy": {
-            "what": "現在のタスクで依頼された場合にのみ検証を実行するよう Codex と Claude Code に伝える任意の案内と、そのタスクの検証権限です。",
-            "more": "ポリシーは初期設定ではオフです。有効にすると、Vibisual はそのタスクのユーザーメッセージまたは検証ボタンから検証権限を付与します。無効の場合、制限する案内は追加せず、検証の呼び出しもブロックしません。",
-            "off": "このソースのスイッチは、ポリシーが有効な場合に案内だけを非表示にします。案内と実行ブロックをまとめて有効または無効にするには、{{options}}の{{permissions}}で設定します。ポリシーは初期設定ではオフです。"
           },
           "hookEnforcement": {
             "what": "Claude Codeのフック経由で自ら接続してきたセッションにVibisualが注入するブロック。",
@@ -6567,9 +6606,12 @@
       "saveError": "変更が保存されたことを確認できませんでした。現在の設定を確認するには再計測してください。"
     },
     "goal": {
+      "activationRules": "有効化ルール",
+      "enabledHint": "オン — このセッションに目標と進捗の一覧を表示し、ルールを含めます。",
+      "disabledHint": "既定はオフ — 目標の自動作成や目標ルールの追加を行いません。既存の目標は保存されます。",
       "title": "目標",
       "pickSession": "目標を表示するセッションを選択してください。",
-      "waiting": "まだ目標はありません。セッションが計画を立てると表示されます。",
+      "waiting": "目標はまだありません。目標を有効にしてからセッションが計画を立てると表示されます。",
       "sample": {
         "badge": "例",
         "text": "任された作業を終えて正しく動くか確かめる",
@@ -6814,16 +6856,6 @@
         "warn": "未読の必須の節が残ったままターンを終えようとすると、差し戻して読み続けさせます。",
         "enforce": "必須の節が未読のあいだ編集を拒否します。差し戻し上限に達すると止めなくなります。"
       }
-    },
-    "verifyPolicy": {
-      "notRun": "検証未実行",
-      "notRunTip": "このタスクでは、テスト、ビルド、ブラウザチェックのいずれも実行されていません。このマークの横のボタンを使うか、メッセージで検証を依頼してください。",
-      "blockedTip": "agentが検証の呼び出しを{{count}}回試みましたが、実行前にブロックされました。",
-      "ran": "検証を{{count}}回実行",
-      "ranTip": "依頼した範囲内で検証が実行されました。成功したかどうかは上の回答に書かれています。",
-      "runTip": "この変更に関連するチェック（関連テスト、型チェック、lint、ビルド）を実行します。失敗した場合は報告のみで、修正は行いません。",
-      "runFailed": "開始できませんでした：{{error}}",
-      "runPrompt": "直前のタスクで行った変更を検証してください。関連するチェック（関連テスト、型チェック、lint、ビルド）だけを実行し、テストスイート全体、E2E、ブラウザチェックは実行しないでください。それぞれの結果を「成功」「失敗」「未確認」のいずれかで報告してください。失敗は修正せず、報告だけにしてください。\n\n直前のタスク：{{task}}"
     },
     "verify": {
       "title": "検証",
@@ -8766,7 +8798,7 @@
       "pragmatic": "実用的"
     },
     "inheritProject": "プロジェクト / 共通の既定値",
-    "individualSettingsHint": "このエージェントに適用します。既定値と同じ項目はプロジェクト・共通設定の変更を引き継ぎます。",
+    "individualSettingsHint": "このエージェントにのみ適用されます。ここで選んだ値は、プロジェクトや共通の設定が変更されてもそのまま維持されます。それらの設定に再び従うには「{{inherit}}」を選択してください。",
     "provider": "プロバイダー",
     "claude": "Claude",
     "codex": "Codex",

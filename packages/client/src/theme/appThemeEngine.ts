@@ -7,6 +7,7 @@
 import {
   APP_THEME_BOOT_CACHE_KEY,
   APP_THEME_LOCK_ATTR,
+  BASE_APP_THEME_ID,
   DEFAULT_APP_THEME_ID,
   resolveAppTheme,
   type AppThemeKind,
@@ -123,12 +124,12 @@ export function subscribeThemeBootCache(cb: (theme: AppThemeVars) => void): () =
 }
 
 /**
- * 어두운 판 고정 규칙을 한 번 심는다. 기본 테마의 변수 전부를 그 요소에 다시 선언한다 — 고정 어두운
+ * 어두운 판 고정 규칙을 한 번 심는다. 상속 기준 테마의 변수 전부를 그 요소에 다시 선언한다 — 고정 어두운
  * 바탕을 전제로 칠한 화면(내부 앱 화면·캔버스 미디어 무대)이 라이트 테마에서 글자만 뒤집혀 사라지지 않게.
  */
 export function installThemeLockStyles(): void {
   if (typeof document === 'undefined' || document.getElementById(LOCK_STYLE_ID)) return;
-  const base = resolveAppTheme(DEFAULT_APP_THEME_ID);
+  const base = resolveAppTheme(BASE_APP_THEME_ID);
   const decls = Object.entries(base.cssVars).map(([name, value]) => `${name}:${value}`).join(';');
   const el = document.createElement('style');
   el.id = LOCK_STYLE_ID;
@@ -137,7 +138,7 @@ export function installThemeLockStyles(): void {
 }
 
 /**
- * 부팅 첫 줄 — React 가 그리기 전에 부른다. 지난번에 칠한 테마가 있으면 그것으로 먼저 칠하고,
+ * 부팅 첫 줄 — React 가 그리기 전에 부른다. 지난번에 칠한 테마가 있으면 그것으로, 없으면 기본 테마로 칠하고,
  * 고정 규칙을 심는다. 실패해도 첫 화면은 index.css 의 기본 테마 값으로 선다.
  */
 export function bootAppTheme(): void {
@@ -145,6 +146,7 @@ export function bootAppTheme(): void {
     installThemeLockStyles();
     const cached = readThemeBootCache();
     if (cached) applyThemeVars(cached);
+    else applyResolvedTheme(resolveAppTheme(DEFAULT_APP_THEME_ID));
   } catch {
     // 첫 칠만 기본 테마가 된다 — 스냅샷이 오면 고른 테마로 다시 칠한다.
   }

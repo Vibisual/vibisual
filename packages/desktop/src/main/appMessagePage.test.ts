@@ -21,7 +21,7 @@ describe('standalone app message page', () => {
       defaultId: 100, cancelId: -1, destructiveId: 1,
       theme: { kind: 'dark', background: 'red; background: url(https://invalid)' } }, 'nonce');
     expect(page).not.toContain('background: red;');
-    expect(page).toContain('background: #030712');
+    expect(page).toContain('background: #0a0a0a');
     expect(page).toContain('"defaultId":0');
     expect(page).toContain('"cancelId":0');
     expect(messageButtonIndex(1.5, 2)).toBe(0);

@@ -5,6 +5,7 @@ import { CodexAdvancedSettings } from '../Codex/CodexAdvancedSettings.js';
 import { CodexToolPermissions } from '../Panel/CodexToolPermissions.js';
 import { providerDefaultsPatch } from './providerDefaultsDraft.js';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { clientPathPlatform } from '../../utils/platform.js';
 import { codexInheritedOptionFor, codexInheritedValueText } from '../Codex/codexInheritedLabel.js';
 import { useCodexEffectiveConfig } from '../Codex/useCodexEffectiveConfig.js';
 import { pickDefaultModel } from '../LocalModel/localModelEntry.js';
@@ -17,12 +18,12 @@ export const ProviderDefaults = forwardRef<ProviderDefaultsHandle, { engine: Age
   const apply = useGraphStore(s => s.applyUserDefaults);
   const codexModels = useGraphStore(s => s.codexModels?.models);
   const localModels = useGraphStore(s => s.localLlm?.models);
-  const [draft, setDraft] = useState<Partial<AgentConfig>>(() => resolveAgentDefaults(defaults, engine, projectPath));
+  const [draft, setDraft] = useState<Partial<AgentConfig>>(() => resolveAgentDefaults(defaults, engine, projectPath, clientPathPlatform()));
   const [dirty, setDirty] = useState(false);
   useEffect(() => { onDirtyChange?.(dirty); return () => onDirtyChange?.(false); }, [dirty, onDirtyChange]);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (!dirty) setDraft(resolveAgentDefaults(defaults, engine, projectPath)); }, [defaults, engine, projectPath, dirty]);
+  useEffect(() => { if (!dirty) setDraft(resolveAgentDefaults(defaults, engine, projectPath, clientPathPlatform())); }, [defaults, engine, projectPath, dirty]);
   const provider = draft.provider ?? providerForEngine(engine);
   const updateProvider = (patch: object): void => { setDirty(true); setStatus(''); setDraft(d => ({ ...d, provider: { ...(d.provider ?? providerForEngine(engine))!, ...patch } })); };
   const updateConfig = (patch: Partial<AgentConfig>): void => { setDirty(true); setStatus(''); setDraft(d => ({ ...d, ...patch })); };
@@ -99,7 +100,7 @@ export const ProviderDefaults = forwardRef<ProviderDefaultsHandle, { engine: Age
           {['allow', 'deny'].map(value => <option key={value} value={value}>{t(`panel.agentConfig.permissionTimeoutPolicy.${value}`)}</option>)}
         </select>
       </label>}
-      <CodexAdvancedSettings value={provider ?? {}} onChange={updateProvider} />
+      <CodexAdvancedSettings value={provider ?? {}} onChange={updateProvider} supportsPersonality={codexBound?.supportsPersonality} />
       <fieldset className="rounded border border-gray-700/60 p-3"><legend className="px-1 text-xs font-semibold text-gray-300">{t('providers.codexTools')}</legend>
         <CodexToolPermissions value={provider?.codexTools ?? {}} onChange={codexTools => updateProvider({ codexTools })} />
       </fieldset>

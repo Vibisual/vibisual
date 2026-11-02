@@ -1,9 +1,9 @@
 /**
  * §5.1 #2-2 (J) — 위성 궤도에 숨 쉴 틈. 180px 폴더에서 위성 다섯이 테두리 20px 밖 9칸 고리(40°)의 이어진 칸에 앉아 12시~4시에 몰리고,
  * 12시 위성의 이름 줄이 폴더 테두리에 닿고, 묶음의 달이 폴더 쪽으로 파고들던 배치를 막는다.
- * 고정: ① 부모·위성 테두리 사이는 이름 줄을 지나서도 선이 보이는 틈 ② 첫 고리는 거느릴 수로 나눠 다 차면 정다각형(12시부터 시계 방향)
- * ③ 상한을 바꾸면 그 수로 · 상한 없는 부모는 고리가 담는 만큼 ④ 묶음도 폴더와 같은 위성(최근 것부터 기본 상한) · 제 위성까지가 몸이라 부모 틈 하나 밖에 몸집 테두리
- * ⑤ 다른 위성은 묶음·그 위성과 겹치지 않는다 ⑥ 격자 기하(첫 고리 칸 수 · 넓힌 고리 · 주인 자신은 제 원).
+ * 고정: ① 부모·위성 테두리 사이는 이름 줄을 지나서도 선이 보이는 틈 ② 윗선을 모르면 첫 고리는 거느릴 수로 나눠 다 차면 정다각형(12시부터 시계 방향)
+ * ③ 상한을 바꾸면 그 수로 · 상한 없는 부모는 고리가 담는 만큼 ④ 묶음도 폴더와 같은 위성(최근 것부터 기본 상한) · 다른 위성과 같은 거리에 서고 제 위성은 폴더 반대편 좌우로
+ * ⑤ 다른 위성은 묶음·그 위성과 겹치지 않는다 ⑥ 격자 기하(첫 고리 칸 수 · 넓힌 고리).
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -21,15 +21,11 @@ import { applyConstellations } from './constellationView.js';
 import {
   collectSatellites,
   placeSatellitePositions,
-  satelliteHubReach,
   satelliteZoneGrid,
   type SatelliteInfo,
 } from './satellite.js';
 import { calcBubbleSize } from './sizeCalc.js';
 import {
-  anchorFromObstacle,
-  createSpawnField,
-  seatInZone,
   zoneGridRadius,
   zoneRingSlots,
   zoneSlotCount,
@@ -165,7 +161,7 @@ describe('§5.1 #2-2 (J) 묶음 버블도 다른 폴더 버블과 같은 규칙�
     return { parent: { cx: 500 + ps / 2, cy: 500 + ps / 2, r: ps / 2 }, view, positions };
   }
 
-  it('묶음 둘레에는 최근 구성 둘이 선다 — 설정 없는 폴더처럼 기본 상한(2)으로 첫 고리를 나누고, 몸집은 그 위성까지다', () => {
+  it('묶음 둘레에는 최근 구성 둘이 선다 — 설정 없는 폴더처럼 기본 상한(2)이고, 몸집(달 궤도까지)을 싣지 않는다', () => {
     const { view } = bundleScene();
     const bundle = view.satInfos.find((s) => s.bubble.bubbleType === 'bundle')!;
     const moons = view.satInfos.filter((s) => s.parentId === bundle.bubble.id);
@@ -173,29 +169,34 @@ describe('§5.1 #2-2 (J) 묶음 버블도 다른 폴더 버블과 같은 규칙�
     for (const moon of moons) expect(satelliteZoneGrid(moon).firstRingSlots).toBe(DEFAULT_MAX_SATELLITES);
     // 폴더를 직접 도는 파일은 없다 — 구성은 폴더의 낱자리로 서지 않는다.
     expect(view.satInfos.filter((s) => s.parentId === 'parent' && s.bubble.bubbleType === 'file')).toHaveLength(0);
-    const reach = satelliteHubReach(BUNDLE_BUBBLE.size / 2, moons.map((m) => calcBubbleSize(m.bubble, m.localRange, m.heat)));
-    expect(bundle.reach).toBeCloseTo(reach, 9);
-    expect((bundle.bubble as unknown as Record<string, unknown>)['_orbitReach']).toBeCloseTo(reach, 9);
+    // 몸집이 있으면 묶음이 폴더에서 그만큼 멀리 섰다(사진: 묶음과 그 위성이 저 멀리 한 줄로).
+    expect('reach' in bundle).toBe(false);
+    expect((bundle.bubble as unknown as Record<string, unknown>)['_orbitReach']).toBeUndefined();
   });
 
-  it('다 차면 묶음 둘레를 고르게 — 둘이면 12시와 6시 · 묶음 테두리와의 틈은 폴더 위성과 같다', () => {
-    const { view, positions } = bundleScene();
+  it('묶음 위성 둘은 폴더 반대편에 좌우로 — 12시·6시 정반대(폴더·위성·묶음·위성 한 줄 사슬) ❌', () => {
+    const { parent, view, positions } = bundleScene();
     const bundle = view.satInfos.find((s) => s.bubble.bubbleType === 'bundle')!;
     const b = circleOf(bundle, positions);
-    // 먼저 앉는 것은 활동이 이른 것 — m6 → m7 순으로 시계 방향(폴더 위성과 같은 차례).
-    ['m6', 'm7'].forEach((id, i) => {
+    const out = { x: b.cx - parent.cx, y: b.cy - parent.cy };
+    const outLen = Math.hypot(out.x, out.y);
+    const sides: number[] = [];
+    for (const id of ['m6', 'm7']) {
       const c = circleOf(view.satInfos.find((s) => s.bubble.id === `sat-${id}`)!, positions);
-      expect(clockAngle(b, c)).toBeCloseTo((i * 180) * DEG, 6);
       expect(Math.hypot(c.cx - b.cx, c.cy - b.cy) - b.r - c.r).toBeCloseTo(SATELLITE_ORBIT_GAP, 6);
-    });
+      // 바깥 성분은 양수(폴더 반대편), 가로 성분의 부호로 좌우를 가른다.
+      expect(((c.cx - b.cx) * out.x + (c.cy - b.cy) * out.y) / outLen).toBeGreaterThan(0);
+      sides.push(Math.sign((c.cx - b.cx) * out.y - (c.cy - b.cy) * out.x));
+    }
+    expect(sides[0]).toBe(-sides[1]!);
   });
 
-  it('묶음은 제 위성까지가 몸이다 — 부모 테두리 → 틈 → 몸집 테두리, 어느 위성도 부모와의 틈을 파고들지 않는다', () => {
+  it('묶음은 다른 위성과 같은 거리에 선다 — 부모 테두리 → 틈 → 묶음 테두리, 그 위성은 부모와의 틈을 파고들지 않는다', () => {
     const { parent, view, positions } = bundleScene();
     const bundle = view.satInfos.find((s) => s.bubble.bubbleType === 'bundle')!;
     const b = circleOf(bundle, positions);
     expect(b.r).toBeCloseTo(BUNDLE_BUBBLE.size / 2, 6);
-    expect(Math.hypot(b.cx - parent.cx, b.cy - parent.cy)).toBeCloseTo(parent.r + SATELLITE_ORBIT_GAP + bundle.reach!, 6);
+    expect(Math.hypot(b.cx - parent.cx, b.cy - parent.cy)).toBeCloseTo(parent.r + SATELLITE_ORBIT_GAP + b.r, 6);
     for (const moon of view.satInfos.filter((s) => s.parentId === bundle.bubble.id)) {
       const c = circleOf(moon, positions);
       expect(Math.hypot(c.cx - parent.cx, c.cy - parent.cy) - parent.r - c.r).toBeGreaterThanOrEqual(SATELLITE_ORBIT_GAP - 1e-6);
@@ -238,18 +239,4 @@ describe('§5.1 #2-2 (J) 격자 기하', () => {
     for (let n = 1; n <= 40; n += 1) expect(zoneRingSlots(small, { ...base, firstRingSlots: n, fitFirstRing: true }, 0)).toBe(n);
   });
 
-  it('장부에 몸집으로 오른 칸도 주인일 때는 제 원이다 — 제 달이 앉을 칸을 스스로 막지 않는다', () => {
-    const hub = { id: 'hub', cx: 0, cy: 0, r: 160, core: 32 };
-    expect(anchorFromObstacle(hub).r).toBe(32);
-    const seat = seatInZone({
-      anchor: anchorFromObstacle(hub),
-      diameter: 65,
-      grid: { ...base, firstRingSlots: 4, fitFirstRing: true },
-      obstacles: [hub],
-      bounds: null,
-      onlyRing: 0,
-    });
-    expect(seat.free).toBe(true);
-    expect(Math.hypot(seat.cx, seat.cy)).toBeCloseTo(32 + 48 + 65 / 2, 6);
-  });
 });

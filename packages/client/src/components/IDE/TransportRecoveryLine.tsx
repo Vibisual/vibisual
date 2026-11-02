@@ -7,23 +7,22 @@ interface TransportRecoveryLineProps {
   sessionLabel?: string;
 }
 
-/** A recoverable connection notice, shared by the main timeline and session view. */
+/** Compact connection status; retry counts and transport details stay in the tooltip. */
 export function TransportRecoveryLine({ recovery, content, sessionLabel }: TransportRecoveryLineProps): React.JSX.Element {
   const { t } = useTranslation();
-  const { notice, state } = recovery;
-  const labelKey = state === 'recovering' ? notice.kind : state;
-  const params = notice.kind === 'reconnecting'
-    ? { attempt: notice.attempt, maxAttempts: notice.maxAttempts }
-    : {};
+  const recovering = recovery.state === 'recovering';
+  const labelKey = recovering ? 'reconnecting' : recovery.state;
   return (
-    <div className="flex items-center gap-2 px-4 py-1 text-[12px] text-gray-400 max-md:px-1.5" title={content}>
-      <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        {state === 'resumed'
-          ? <polyline points="5 12 9 16 19 6" />
-          : <><path d="M20 7a9 9 0 0 0-15-2L2 8" /><path d="M2 3v5h5" /><path d="M4 17a9 9 0 0 0 15 2l3-3" /><path d="M22 21v-5h-5" /></>}
-      </svg>
-      {sessionLabel && <span className="flex-shrink-0 text-cyan-400/80">{sessionLabel}</span>}
-      <span role={state === 'recovering' ? 'status' : undefined}>{t(`ide.transportRecovery.${labelKey}`, params)}</span>
+    <div className="flex min-w-0 items-center gap-2 px-4 py-1 text-[12px] max-md:px-1.5" title={content}>
+      <span
+        className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${recovering ? 'animate-pulse bg-blue-400/80' : 'bg-gray-500/60'}`}
+        aria-hidden="true"
+      />
+      {sessionLabel && <span className="max-w-[40%] truncate text-gray-400">{sessionLabel}</span>}
+      <span
+        className={`min-w-0 truncate italic ${recovering ? 'text-blue-300/85' : 'text-gray-500'}`}
+        role={recovering ? 'status' : undefined}
+      >{t(`ide.transportRecovery.${labelKey}`)}</span>
     </div>
   );
 }

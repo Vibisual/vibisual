@@ -18,7 +18,8 @@ export function commandAppIconCandidates(input: string, platform: NodeJS.Platfor
   const normalized = executable.replace(/\\/g, '/');
   // Only known launcher positions inside an explicit engine tree. A script named RunUAT
   // elsewhere, a project argument, or plain `dotnet` cannot imply an installed engine.
-  const engine = p.isAbsolute(executable) ? normalized.match(/^(.*\/Engine)\/(?:Build\/BatchFiles\/(?:(?:Mac|Linux)\/)?(?:RunUAT|Build)\.(?:bat|sh)|Binaries\/(?:Win64|Linux|Mac)\/(?:UnrealEditor|UE4Editor)-Cmd(?:\.exe)?|Binaries\/DotNET\/(?:(?:AutomationTool|UnrealBuildTool)\/)?(?:AutomationTool|UnrealBuildTool)\.dll)$/i)?.[1] : undefined;
+  // Every launcher of one engine resolves to the same editor picture — one Unreal bubble gathers them all (§5.1).
+  const engine = p.isAbsolute(executable) ? normalized.match(/^(.*\/Engine)\/(?:Build\/BatchFiles\/(?:(?:Mac|Linux)\/)?(?:RunUAT|RunUBT|Build)\.(?:bat|sh)|Binaries\/(?:Win64|Linux|Mac)\/(?:UnrealEditor|UE4Editor)(?:-Cmd)?(?:\.exe)?|Binaries\/DotNET\/(?:(?:AutomationTool|UnrealBuildTool)\/)?(?:AutomationTool|UnrealBuildTool)\.(?:dll|exe))$/i)?.[1] : undefined;
   if (engine) {
     for (const name of ['UnrealEditor', 'UE4Editor']) {
       if (platform === 'darwin') {
@@ -36,6 +37,7 @@ export function commandAppIconCandidates(input: string, platform: NodeJS.Platfor
     }
   }
   // An assembly is only an installation hint: it is not itself the executed app.
-  if (!engine || !/\.dll$/i.test(executable)) result.push({ executable });
+  const listed = result.some((candidate) => candidate.executable.replace(/\\/g, '/') === normalized);
+  if (!listed && (!engine || !/\.dll$/i.test(executable))) result.push({ executable });
   return result;
 }

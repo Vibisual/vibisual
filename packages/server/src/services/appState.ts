@@ -624,22 +624,24 @@ export function appStateResetKeymap(): KeymapOverrides {
 
 let ideActivityBarMemo: IDEActivityBarPrefs | null = null;
 
-/** §5.5 #16-1 — IDE 활동바 구성(머신 단위). 만진 적 없으면 빈 객체(= 기본 순서로 전부 보임). 서버는 항목 이름을 모른다 — 문자열 배열만 정규화하고 실재 판정은 클라 정본 표(`skillOrder` 와 같은 규약). */
+/** §5.5 #16-1 — IDE 활동바 구성(머신 단위). 빈 객체는 클라이언트 기본 배치를 따른다. 서버는 항목 이름을 모르며 문자열 배열만 정규화한다. */
 export function appStateGetIDEActivityBar(): IDEActivityBarPrefs {
   if (ideActivityBarMemo) return ideActivityBarMemo;
   ideActivityBarMemo = normalizeIDEActivityBarPrefs(loadAppState().ideActivityBar) ?? {};
   return ideActivityBarMemo;
 }
 
-/** `order`·`hidden` 은 언급한 칸만 치환한다 — 순서만 바꿨는데 제외 목록이 날아가면 안 된다. */
+/** 언급한 칸만 치환한다 — 순서만 바꿨는데 표시 선택이 날아가면 안 된다. */
 export function appStateSetIDEActivityBar(patch: {
   order?: readonly string[];
   hidden?: readonly string[];
+  shown?: readonly string[];
 }): IDEActivityBarPrefs {
   const current = appStateGetIDEActivityBar();
   const merged = {
     order: patch.order !== undefined ? [...patch.order] : (current.order ?? []),
     hidden: patch.hidden !== undefined ? [...patch.hidden] : (current.hidden ?? []),
+    shown: patch.shown !== undefined ? [...patch.shown] : (current.shown ?? []),
   };
   const normalized = normalizeIDEActivityBarPrefs(merged) ?? {};
   const state = loadAppState();

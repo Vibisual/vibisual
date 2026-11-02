@@ -100,6 +100,10 @@ const CONCLUSIONS: [string, RegExp][] = [
   ['목표 — 바뀐 게 없으면 적지 않는다', /바뀐 게 없으면 적지 마라/],
   ['목표 — 표시 전용', /표시 전용이다/],
   ['목표 — 사용자의 방금 명령이 목표보다 우선', /사용자가 방금 보낸 명령이 목표보다 우선이다/],
+  ['작업 — 설명만으로 끝내지 않고 승인된 수정·검증을 마친다', /확인·원인 설명·계획 제시만으로 끝내지 마라[\s\S]*승인된 범위의 수정과 필요한 검증까지/],
+  ['작업 — 후속 질문은 원래 요청의 취소가 아니다', /후속 질문·상태 문의·정정은 기존 요청의 취소가 아니다/],
+  ['작업 — 조사만 요청하면 범위를 넓히지 않는다', /조사·검토만 요청했다면 그 범위를 넘겨 수정하지 마라/],
+  ['카드 — 최종 보고 형식이 작업 종료 조건이 되지 않는다', /카드는 최종 보고 형식이지 작업 종료 조건이 아니다/],
   ['목표 — 사용자가 고친 문장·사용자 추가 단계는 지우지 않는다', /사용자가 고친 문장[\s\S]{0,40}사용자 추가[\s\S]{0,30}지우지 말고/],
   // ↓ §5.5 #17-17 ⑪(i)(m) — 있는 종류 키를 먼저 써야 카드가 흩어져 서로를 휴지통으로 밀지 않는다.
   //   새 종류는 밑그림(`from`)으로(직접 그리기 절은 ㉑ 에서 뺐다, 파서는 읽는다).
@@ -168,7 +172,8 @@ describe('§5.5 #17-28 ⑧(f) — 규약을 줄여도 결론은 남는다', () =
   it('압축분 — 규약 총량이 다시 부풀지 않는다(⑧(f) 시점 1,900 토큰대 · ⑰(b) 시점 4,771자 · ㉑ 시점 3,535자)', () => {
     // 상한만 못박는다(줄이는 것은 언제든 환영, 늘리는 것만 눈에 띄면 된다).
     // §5.5 #17-17 ㉑ — 목표 규약 세 절(1,956자)을 한 절(687자)로 줄여 3,500 대로 내려왔다. 다음 증가는 여기서 걸린다.
-    expect(PROMPT.length).toBeLessThan(3_800);
+    // Work continuity and final-report scope add a bounded block to the existing protocol.
+    expect(PROMPT.length).toBeLessThan(4_500);
   });
 });
 
@@ -182,7 +187,7 @@ describe('§5.5 #17-17 ㉑ — 목표 규약은 한 절, 상태는 목록뿐', (
 
   it('규약은 세 절이 아니라 한 절이고, 걷은 것들이 되돌아오지 않았다', () => {
     const p = buildSessionGoalProtocol(GOAL);
-    expect(p.length).toBeLessThan(800);
+    expect(p.length).toBeLessThan(900);
     expect((p.match(/^# /gm) ?? []).length).toBe(1);
     expect((p.match(/```vibisual/g) ?? []).length).toBe(1);
     // 글리프·장면을 직접 그리라는 절 · 화면 골격 목록 · REST 폴백 — ㉑ 로 걷었다(파서는 여전히 읽는다).
@@ -199,7 +204,8 @@ describe('§5.5 #17-17 ㉑ — 목표 규약은 한 절, 상태는 목록뿐', (
     expect(s).toContain('- [ ] 검증 [사용자 추가]');
     expect(s).toContain('종류: locate · change');
     expect(s).toContain('진행률: 25% · 메모: 절반');
-    expect(s).toContain('(사용자가 고친 문장 — 그대로 · 2번 바뀜 — 지금 문장만 유효)');
+    expect(s).toContain('(사용자가 고친 문장 — 그대로 · 목표 문장 2회 수정)');
+    expect(s).not.toContain('지금 문장만 유효');
     expect(s.length).toBeLessThan(300);
     expect(buildSessionGoalProtocol(GOAL)).toContain('갈라 돌리고');
   });
@@ -273,8 +279,8 @@ describe('§5.5 #17-17 ㉓ — 목록은 끝이 아니라 첫 답에서 선다',
     expect(p).not.toMatch(/있으면 그것으로 충분/);
   });
 
-  it('㉑ 의 주입 예산은 그대로다 — 늘어난 것은 "언제" 한 문장뿐', () => {
-    expect(buildSessionGoalProtocol(GOAL).length).toBeLessThan(800);
+  it('목표 연속성 규칙을 포함해 규약과 매 턴 상태의 주입 예산을 제한한다', () => {
+    expect(buildSessionGoalProtocol(GOAL).length).toBeLessThan(900);
     expect(buildSessionGoalState(GOAL).length).toBeLessThan(200);
   });
 });

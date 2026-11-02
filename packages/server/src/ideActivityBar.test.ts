@@ -30,6 +30,19 @@ describe('normalizeIDEActivityBarPrefs', () => {
   it('한쪽만 있으면 그 칸만 담는다', () => {
     expect(normalizeIDEActivityBarPrefs({ hidden: ['brain'] })).toEqual({ hidden: ['brain'] });
   });
+
+  it('keeps explicit shown choices when there are no exclusions left', () => {
+    expect(normalizeIDEActivityBarPrefs({ hidden: [], shown: ['goal', 'goal', '', 3, null, 'loop'] }))
+      .toEqual({ shown: ['goal', 'loop'] });
+    expect(normalizeIDEActivityBarPrefs({ order: [], hidden: [], shown: [] })).toBeUndefined();
+  });
+
+  it('gives explicit exclusions precedence over conflicting shown values', () => {
+    expect(normalizeIDEActivityBarPrefs({ hidden: ['goal'], shown: ['goal', 'loop'] }))
+      .toEqual({ hidden: ['goal'], shown: ['loop'] });
+    expect(normalizeIDEActivityBarPrefs({ hidden: ['goal'], shown: ['goal'] }))
+      .toEqual({ hidden: ['goal'] });
+  });
 });
 
 describe('resolveActivityOrder', () => {

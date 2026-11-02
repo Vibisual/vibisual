@@ -4,10 +4,32 @@
  * ② 고른 모델은 `-m` 으로 넘겨야 개인 설정에 덮이지 않고, 고르지 않으면 CLI 기본값을 쓴다(모델 캐시 없는 첫 로그인도 돈다).
  */
 import { describe, it, expect } from 'vitest';
-import { buildCodexExecArgs, extractFileWrites } from './codexRunner.js';
+import { buildCodexExecArgs, codexAppServerConfigArgs, extractFileWrites } from './codexRunner.js';
 import { normalizeAgentProvider } from '@vibisual/shared';
 
 describe('Codex execution settings', () => {
+  it.each([undefined, 'existing-thread'])('preserves policy and hook overrides in native App Server configuration (resume: %s)', (resumeThreadId) => {
+    const exec = buildCodexExecArgs({
+      cwd: 'C:/work folder', model: 'chosen-model', permissionMode: 'default', resumeThreadId,
+      reasoningEffort: 'high', networkAccess: false, images: ['C:/image one.png'],
+      contextArgs: ['-c', 'developer_instructions=""', '-c', 'skills.include_instructions=false'],
+      permissionHook: { helperPath: '/hooks/codex-edges.mjs', nodeBin: 'node', required: true },
+    });
+    exec.push('-c', 'hooks.trusted_hashes=["trusted"]');
+    const native = codexAppServerConfigArgs(exec);
+    expect(native).toContain('model="chosen-model"');
+    expect(native).toContain('sandbox_mode="workspace-write"');
+    expect(native).toContain('sandbox_workspace_write.network_access=false');
+    expect(native).toContain('developer_instructions=""');
+    expect(native).toContain('hooks.trusted_hashes=["trusted"]');
+    for (let i = 0; i < exec.length; i++) {
+      if (exec[i] === '-c') expect(native).toContain(exec[++i]);
+    }
+    for (const flag of ['exec', 'resume', '--json', '--skip-git-repo-check', '-C', '-i', 'existing-thread', 'C:/image one.png']) {
+      expect(native).not.toContain(flag);
+    }
+    expect(native.filter((_, index) => index % 2 === 0).every(flag => flag === '-c')).toBe(true);
+  });
   it('passes native context controls on new and resumed turns', () => {
     for (const resumeThreadId of [undefined, 'existing-thread']) {
       const args = buildCodexExecArgs({ cwd: '/work', model: 'test', resumeThreadId,

@@ -342,7 +342,7 @@ export function parseCodexPromptInputSkills(
    */
   const out: CodexSkillEntry[] = [];
   const seen = new Set<string>();
-  for (const m of block.matchAll(/^-[ \t]+([^:\n]+):[ \t]*([^\n]*?)[ \t]*\(file:[ \t]*([^)\n]+)\)[ \t]*$/gm)) {
+  for (const m of block.matchAll(/^-[ \t]+([^:\r\n]+(?::[^:\s]+)*):[ \t]*([^\n]*?)[ \t]*\(file:[ \t]*([^)\n]+)\)[ \t]*$/gm)) {
     const rawName = (m[1] ?? '').trim();
     const description = (m[2] ?? '').trim();
     const file = (m[3] ?? '').trim();

@@ -18,6 +18,7 @@ import { useProjectImmersionStore } from '../../stores/projectImmersion.js';
 import { useTitleWithBinding } from '../Shortcuts/useBindingLabel.js';
 // §5.24 — 색·지름이 쓰는 척도 한 벌을 범례도 그대로 받는다(따로 조합하면 눈금만 다른 곡선을 본다).
 import { useHeatScale } from '../../hooks/useHeatScale.js';
+import { heatmapFill } from './heatmapPaint.js';
 import {
   Glyph,
   CtrlButton,
@@ -168,19 +169,27 @@ function HeatLegend(): React.JSX.Element {
         </div>
       ) : (
         <div className="flex items-start gap-1.5">
-          <span className="text-[12px] leading-4 tabular-nums text-gray-500">0</span>
+          <span className="flex items-center gap-1 text-[12px] leading-4 tabular-nums text-gray-500">
+            <span
+              aria-hidden="true"
+              className="h-2 w-2 rounded-sm ring-1 ring-inset ring-white/20"
+              style={{ background: heatmapFill(HEATMAP_ZERO_COLOR) }}
+            />
+            0
+          </span>
           <div className="w-36">
-            {/* 램프는 런타임 상수 배열에서 오므로 Tailwind 클래스로 표현할 수 없다 —
-                동적 색은 캔버스 전반과 같이 style 로 준다(버블 본체 색과 같은 예외).
-                `mt-1` 은 8px 램프의 가운데를 양옆 16px 글줄의 가운데에 맞춘다. */}
+            {/* A continuous bar shares the material's color scale. Zero stays
+                separate so every positive color aligns with its curve tick. */}
             <div
-              className="relative mt-1 h-2 w-full rounded-sm ring-1 ring-inset ring-white/10"
-              style={{ background: `linear-gradient(to right, ${HEATMAP_ZERO_COLOR} 0%, ${HEATMAP_RAMP.join(', ')})` }}
+              data-heat-legend-bar
+              className="relative mt-1 h-2 w-full rounded-full ring-1 ring-inset ring-white/20"
+              style={{ background: `linear-gradient(to right in srgb, ${HEATMAP_RAMP.map(heatmapFill).join(', ')})` }}
             >
               {ticks.map((tick) => (
                 <span
                   key={tick.ratio}
-                  className="pointer-events-none absolute top-0 h-full w-px bg-black/50"
+                  aria-hidden="true"
+                  className="pointer-events-none absolute top-0 h-full w-px bg-black/40"
                   style={{ left: `${tick.ratio * 100}%` }}
                 />
               ))}
@@ -387,6 +396,9 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
   //   어느 축(읽기/쓰기)을 보는지는 범례가 말하므로 여기 버튼 이름은 축 중립이다.
   const heatmapMode = useGraphStore((s) => s.heatmapMode);
   const toggleHeatmapMode = useGraphStore((s) => s.toggleHeatmapMode);
+  const heatLegendOpen = useGraphStore((s) => s.heatLegendOpen);
+  const openHeatLegend = useGraphStore((s) => s.openHeatLegend);
+  const showHeatLegend = heatmapMode && heatLegendOpen;
   // §5.4 #33 (I) — 정리 버튼은 곧장 돌지 않고 **기준 고르는 패널**을 연다. 실행은 패널이 건다.
   const tidyPanelOpen = useGraphStore((s) => s.tidyPanelOpen);
   const toggleTidyPanel = useGraphStore((s) => s.toggleTidyPanel);
@@ -409,6 +421,12 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
 
   const handleZoomIn = useCallback(() => { zoomIn(); }, [zoomIn]);
   const handleZoomOut = useCallback(() => { zoomOut(); }, [zoomOut]);
+  const handleHeatmap = useCallback(() => {
+    // Reopen a dismissed legend first. A second press with it visible keeps
+    // the existing heatmap off action available without resetting axis/curve.
+    if (heatmapMode && !heatLegendOpen) openHeatLegend();
+    else toggleHeatmapMode();
+  }, [heatmapMode, heatLegendOpen, openHeatLegend, toggleHeatmapMode]);
   const handleToggleImmersion = useCallback(() => {
     if (activeProject !== null) toggleImmersion(activeProject);
   }, [activeProject, toggleImmersion]);
@@ -441,9 +459,9 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
     <Panel position="bottom-left" className="!mb-12 !ml-3">
       {/* 이 무리는 위로 자란다 — 폰에선 단추 + 범례·패널이 캔버스 키를 넘으므로 화면 높이로 묶고, 패널부터 줄여 스크롤한다(`shrink-[1000]`). 단추 무리는 마지막까지 제 키를 지킨다. */}
       <div className="flex max-h-[calc(100dvh-8rem)] flex-col items-start gap-1.5">
-      {(heatmapMode || tidyPanelOpen) && (
+      {(showHeatLegend || tidyPanelOpen) && (
         <div className="flex min-h-0 shrink-[1000] flex-col items-start gap-1.5 overflow-y-auto overscroll-contain">
-          {heatmapMode && <HeatLegend />}
+          {showHeatLegend && <HeatLegend />}
           {/* §5.4 #33 (I) — 범례와 같은 자리(컨트롤 무리 바로 위). 둘 다 켜면 정리 패널이 더 가깝게
               선다 — 방금 누른 버튼 바로 옆에 열려야 그 버튼이 연 것으로 읽힌다. */}
           {tidyPanelOpen && <TidySortPanel disabled={tidyLocked} onPick={handlePickSort} />}
@@ -473,13 +491,15 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
           label={t('canvas.controls.tidy')}
           onClick={toggleTidyPanel}
           active={tidyPanelOpen}
+          expanded={tidyPanelOpen}
         >
           <TidyIcon />
         </CtrlButton>
         <CtrlButton
-          label={heatmapMode ? t('canvas.controls.heatmapOff') : t('canvas.controls.heatmap')}
-          onClick={toggleHeatmapMode}
+          label={showHeatLegend ? t('canvas.controls.heatmapOff') : t('canvas.controls.heatmap')}
+          onClick={handleHeatmap}
           active={heatmapMode}
+          expanded={showHeatLegend}
         >
           <HeatIcon />
         </CtrlButton>

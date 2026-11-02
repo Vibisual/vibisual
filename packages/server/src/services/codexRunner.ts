@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { observeChildStreamErrors } from './childStreamErrors.js';
 import { existsSync } from 'node:fs';
-import { codexEdgeOverrides, codexTurnHooks, type CodexEdgeConfig, type CodexPermissionHookConfig } from './codexEdges.js';
+import { codexEdgeOverrides, codexTurnHooks, type CodexEdgeConfig, type CodexPermissionHookConfig, type CodexProgressHookConfig } from './codexEdges.js';
 import { prepareCodexHooks } from './codexHookTrust.js';
 import { AGENT_CARD_ENV_AUTH, AGENT_CARD_ENV_TOKEN, resolveCodexPermission, type AgentProvider } from '@vibisual/shared';
 import { getCodexBin } from './codexCli.js';
@@ -14,10 +14,11 @@ import { createCodexPendingCallLedger } from './codexPendingCalls.js';
 import { CODEX_TURN_IDLE_CHECK_MS, CODEX_TURN_IDLE_NOTICE_MS, CODEX_TURN_IDLE_SETTLE_MS, CODEX_MCP_CALL_DEADLINE_MS } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import type { CodexToolHookConfig } from './codexEdges.js';
-import { codexToolOverrides, codexVerificationFeatureOverrides } from './codexToolOverrides.js';
+import { codexToolOverrides } from './codexToolOverrides.js';
 import { codexVerificationOverrides, verificationToolsAvailable, type VerificationToolsConfig } from './verificationToolsConfig.js';
 import { codexWindowsSandboxConfigured, readCodexEffectiveConfigFor } from './codexConfigService.js';
 import { codexLocalTransportNetwork } from './codexLocalTransport.js';
+import { runCodexAppServerTurn, isCodexAppServerTurnRunning, stopCodexAppServerTurn, steerCodexAppServerTurn, noteCodexAppServerActivity } from './codexAppServerRunner.js';
 import type { CommandExecutionRequirements } from '@vibisual/shared';
 
 /**
@@ -33,19 +34,23 @@ export interface CodexTurnArgs extends CodexOverrides {
   /** Native Codex context overrides, computed from the same sources shown in the context panel. */
   contextArgs?: string[];
   toolHook?: CodexToolHookConfig;
+  /** Optional lifecycle telemetry; failure must not weaken the required hooks. */
+  progressHook?: CodexProgressHookConfig;
+  /** The app command receiving lifecycle notifications from this invocation. */
+  commandId?: string;
   edgeConfig?: CodexEdgeConfig;
   /**
    * §5.25 (H) — 권한 다리. 있으면 매 턴 PreToolUse·PermissionRequest 훅이 승인 창구와 감사 원장으로
    * 잇는다. `required` 인데 못 붙이면 턴을 거절한다(승인 모드·감사 경계가 조용히 꺼진 채 돌지 않게).
    */
   permissionHook?: CodexPermissionHookConfig;
-  /** §5.3 #12-4 — 이 턴에 브라우저 확인 권한이 없다(호스팅 브라우저·컴퓨터 도구를 끈다). */
-  hostedBrowserOff?: boolean;
   subAgentId: string;
   /** 이 세션의 작업 폴더. `-C` 로 넘어간다. */
   cwd: string;
   /** 사용자 프롬프트(우리가 붙이는 컨텍스트까지 합친 최종 본문). */
   prompt: string;
+  /** App instructions for native execution; undefined retains the exec compatibility path. */
+  nativeDeveloperInstructions?: string;
   /** 모델 slug. 비어 있으면 CLI 설정의 모델을 사용한다(첫 로그인에는 모델 캐시가 없을 수 있다). */
   model: string;
   /** 추론 강도. 모델이 신고한 단계만 올라온다. 없으면 안 싣는다. */
@@ -66,6 +71,8 @@ export interface CodexTurnArgs extends CodexOverrides {
   ownerTermId?: string;
   onEvent: (event: CodexMappedEvent) => void;
   onThread: (threadId: string) => void;
+  /** Native /clear invalidates the app-owned thread identity without creating an empty rollout. */
+  onThreadReset?: () => void;
   onUsage: (usage: CodexUsage) => void;
   /** 캔버스 파일 버블용 — 코덱스가 고친 파일 경로(§5.25 (F)). */
   onFileWrites: (paths: string[]) => void;
@@ -73,6 +80,8 @@ export interface CodexTurnArgs extends CodexOverrides {
   onDone: (error: string | undefined, finalText: string) => void;
   /** Actual stdout/stderr activity, including chunks without a mapped UI event. */
   onActivity?: (at: number) => void;
+  /** Native lifecycle metadata; toolUseId is the native item ID, without a hook namespace. */
+  onProgress?: (progress: { kind: 'compaction' | 'agentWait'; active: boolean; toolUseId?: string }) => void;
   /**
    * 자식은 살아 있는데 출력이 끊겼다. 두 단계로 온다:
    *  - `stalled: false` — `CODEX_TURN_IDLE_NOTICE_MS`. 알림일 뿐 아무것도 닫지 않는다.
@@ -123,7 +132,14 @@ const preparing = new Map<string, AbortController>();
 
 /** 이 세션의 코덱스 턴이 지금 도는가. */
 export function isCodexTurnRunning(subAgentId: string): boolean {
-  return running.has(subAgentId) || preparing.has(subAgentId);
+  return running.has(subAgentId) || preparing.has(subAgentId) || isCodexAppServerTurnRunning(subAgentId);
+}
+
+export { isCodexAppServerTurnRunning, steerCodexAppServerTurn };
+
+/** Scoped hook activity is first-hand progress even when no display text is emitted. */
+export function noteCodexTurnActivity(subAgentId: string): void {
+  noteCodexAppServerActivity(subAgentId);
 }
 
 /**
@@ -133,6 +149,7 @@ export function isCodexTurnRunning(subAgentId: string): boolean {
 export function stopCodexTurn(subAgentId: string): boolean {
   const preparation = preparing.get(subAgentId);
   if (preparation) { preparation.abort(); return true; }
+  if (stopCodexAppServerTurn(subAgentId)) return true;
   const turn = running.get(subAgentId);
   if (!turn) return false;
   turn.requestStop();
@@ -149,8 +166,8 @@ export function buildCodexExecArgs(args: {
   toolHook?: CodexToolHookConfig;
   edgeConfig?: CodexEdgeConfig;
   permissionHook?: CodexPermissionHookConfig;
-  /** §5.3 #12-4 — 이 턴에 브라우저 확인 권한이 없다(호스팅 브라우저·컴퓨터 도구를 끈다). */
-  hostedBrowserOff?: boolean;
+  progressHook?: CodexProgressHookConfig;
+  commandId?: string;
   platform?: NodeJS.Platform;
   cwd: string;
   model: string;
@@ -206,8 +223,7 @@ export function buildCodexExecArgs(args: {
   if (args.edgeConfig) out.push(...codexEdgeOverrides(args.edgeConfig, { hooks: false }));
   if (args.verificationConfig) out.push(...codexVerificationOverrides(args.verificationConfig));
   out.push(...codexToolOverrides(args.toolHook?.policy));
-  if (args.hostedBrowserOff) out.push(...codexVerificationFeatureOverrides());
-  out.push(...codexTurnHooks(args.edgeConfig, args.permissionHook, args.platform ?? process.platform, args.toolHook).overrides);
+  out.push(...codexTurnHooks(args.edgeConfig, args.permissionHook, args.platform ?? process.platform, args.toolHook, args.progressHook).overrides);
   for (const imagePath of args.images ?? []) {
     if (imagePath.trim()) out.push('-i', imagePath);
   }
@@ -263,7 +279,12 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
     return;
   }
 
-  const hooks = codexTurnHooks(args.edgeConfig, args.permissionHook, process.platform, args.toolHook);
+  if (args.progressHook && (!args.progressHook.nodeBin || !existsSync(args.progressHook.helperPath))) {
+    logger.warn('[codex] progress hooks unavailable (Node.js or codex-edges.mjs missing); running without lifecycle telemetry');
+    args = { ...args, progressHook: undefined };
+  }
+
+  const hooks = codexTurnHooks(args.edgeConfig, args.permissionHook, process.platform, args.toolHook, args.progressHook);
   if (hooks.expected.length && !hookTrust) {
     const controller = new AbortController();
     preparing.set(args.subAgentId, controller);
@@ -275,6 +296,12 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
     }).catch((error) => {
       preparing.delete(args.subAgentId);
       if (controller.signal.aborted) args.onDone(undefined, '');
+      else if (args.progressHook) {
+        // Retry only the mandatory/security hooks. A missing optional event in an
+        // older CLI must neither block the task nor bypass an approval/tool gate.
+        logger.warn(`[codex] progress hooks unavailable: ${error.message}; retrying without lifecycle telemetry`);
+        startCodexTurn({ ...args, progressHook: undefined });
+      }
       else if (args.toolHook) args.onDone(`Codex tool permissions unavailable: ${error.message}`, '');
       else if (args.edgeConfig?.restrictedTools.length) args.onDone(`Codex edge enforcement unavailable: ${error.message}`, '');
       else if (args.permissionHook?.required) args.onDone(`Codex permission hooks unavailable: ${error.message}`, '');
@@ -304,7 +331,7 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
       toolHook: args.toolHook,
       edgeConfig: args.edgeConfig,
       ...(args.permissionHook ? { permissionHook: args.permissionHook } : {}),
-      ...(args.hostedBrowserOff ? { hostedBrowserOff: true } : {}),
+      ...(args.progressHook ? { progressHook: args.progressHook } : {}),
       cwd: args.cwd,
       model: args.model,
       webSearch: args.webSearch,
@@ -326,6 +353,13 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
     return;
   }
   if (hookTrust) execArgs.push(...hookTrust);
+  if (args.nativeDeveloperInstructions !== undefined) {
+    runCodexAppServerTurn({
+      ...args, binPath, configArgs: codexAppServerConfigArgs(execArgs),
+      developerInstructions: args.nativeDeveloperInstructions,
+    });
+    return;
+  }
   const invocation = buildCliInvocation(binPath, execArgs, process.platform);
 
   let child: ChildProcess;
@@ -343,9 +377,12 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
         ...(args.ownerAgentId ? { VIBISUAL_OWNER_AGENT_ID: args.ownerAgentId } : {}),
         ...(args.ownerTermId ? { VIBISUAL_OWNER_TERM_ID: args.ownerTermId } : {}),
         ...(args.edgeConfig ? { VIBISUAL_CODEX_EDGE_IDS: JSON.stringify(args.edgeConfig.edgeIds) } : {}),
+        // Do not borrow a command identity from the parent's environment when a
+        // caller omitted it; the telemetry helper then remains a harmless no-op.
+        ...(args.progressHook || args.commandId ? { VIBISUAL_CODEX_COMMAND_ID: args.commandId ?? '' } : {}),
         // §5.25 (H) — 권한 다리가 승인 카드를 이 세션의 스트림 줄로 되돌리는 키.
         // §5.3 #10-2 — 엣지 다리는 같은 키로 dispatch 결과를 이 턴에 묶는다(결과를 받기 전엔 완료로 끝나지 않게).
-        ...(args.permissionHook || args.toolHook || args.edgeConfig || args.verificationConfig ? { VIBISUAL_SUBAGENT_ID: args.subAgentId } : {}),
+        ...(args.permissionHook || args.toolHook || args.edgeConfig || args.verificationConfig || args.progressHook ? { VIBISUAL_SUBAGENT_ID: args.subAgentId } : {}),
       }),
       // 오래 사는 자식이라 POSIX 에서 그룹 리더로 띄운다 — 안 그러면 [중지]가 손자를 남긴다.
       ...processGroupSpawnOptions(),
@@ -367,6 +404,19 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
   } catch (err) {
     logger.warn(`[codex] stdin write failed: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+/** Share the exact policy/hook overrides across transports without exec-only switches. */
+export function codexAppServerConfigArgs(execArgs: readonly string[]): string[] {
+  const config: string[] = [];
+  for (let i = 0; i < execArgs.length; i++) {
+    const flag = execArgs[i];
+    if (flag === '-c' && execArgs[i + 1] !== undefined) config.push('-c', execArgs[++i]!);
+    else if (flag === '-s' && execArgs[i + 1] !== undefined) config.push('-c', `sandbox_mode=${JSON.stringify(execArgs[++i])}`);
+    else if (flag === '-m' && execArgs[i + 1] !== undefined) config.push('-c', `model=${JSON.stringify(execArgs[++i])}`);
+    else if (flag === '-C' || flag === '-i' || flag === 'resume') i++;
+  }
+  return config;
 }
 
 /**
@@ -401,6 +451,7 @@ export function attachCodexTurn(
   let reapingCompletedTurn = false;
   let settled = false;
   let exitCode: number | null = null;
+  let exitSignal: NodeJS.Signals | null = null;
   let settleTimer: NodeJS.Timeout | undefined;
   let completionTimer: NodeJS.Timeout | undefined;
   /** 마지막으로 이 자식이 무언가를 뱉은 시각 — 정지 워치독의 유일한 사실. */
@@ -464,7 +515,7 @@ export function attachCodexTurn(
     args.onDone(error, text);
   };
 
-  const conclude = (code: number | null): void => {
+  const conclude = (code: number | null, signal: NodeJS.Signals | null = exitSignal): void => {
     if (settled) return;
     // 남은 꼬리 줄(개행 없이 끝난 마지막 줄)도 처리한다.
     if (stdoutBuffer.trim()) handleLine(stdoutBuffer);
@@ -478,6 +529,13 @@ export function attachCodexTurn(
       finish(turnError, finalText);
       return;
     }
+    // A signal exit has a null code. A prior progress message is not evidence of
+    // successful completion; only our stop/reclamation paths may ignore it.
+    if (!reapingCompletedTurn && signal) {
+      const tail = stderrTail.trim().slice(-300);
+      finish(`codex terminated by signal ${signal}${tail ? `: ${tail}` : ''}`, finalText);
+      return;
+    }
     if (!reapingCompletedTurn && code !== null && code !== 0) {
       const tail = stderrTail.trim().slice(-300);
       finish(tail || `codex exited with code ${code}`, finalText);
@@ -487,6 +545,12 @@ export function attachCodexTurn(
       // 정상 종료인데 턴 종료도 답도 없다 — 조용한 실패라 사유를 남긴다.
       const tail = stderrTail.trim().slice(-300);
       finish(tail || 'codex produced no output', '');
+      return;
+    }
+    if (!sawTurnEnd) {
+      // agent_message also carries progress reports. Exit 0 alone does not mean
+      // the requested task finished; require the CLI's explicit turn marker.
+      finish('codex exited before turn completion', finalText);
       return;
     }
     finish(undefined, finalText);
@@ -614,10 +678,10 @@ export function attachCodexTurn(
     if (paths.length > 0) args.onFileWrites(paths);
   };
 
-  const handleStdout = (chunk: Buffer): void => {
+  const handleStdout = (chunk: string): void => {
     if (settled || chunk.length === 0) return;
     noteActivity();
-    stdoutBuffer += String(chunk);
+    stdoutBuffer += chunk;
     let idx = stdoutBuffer.indexOf('\n');
     while (idx >= 0) {
       const line = stdoutBuffer.slice(0, idx);
@@ -626,15 +690,17 @@ export function attachCodexTurn(
       idx = stdoutBuffer.indexOf('\n');
     }
   };
+  // Decode across pipe chunks; a Buffer boundary can bisect a UTF-8 character.
+  child.stdout?.setEncoding('utf8');
   child.stdout?.on('data', handleStdout);
 
-  const handleStderr = (chunk: Buffer): void => {
+  const handleStderr = (chunk: string): void => {
     if (settled || chunk.length === 0) return;
     // 진행 로그도 활동이다 — 이걸 안 세면 stdout 이 조용한 긴 도구가 정지로 읽힌다.
     noteActivity();
-    const text = String(chunk);
-    stderrTail = (stderrTail + text).slice(-2000);
+    stderrTail = (stderrTail + chunk).slice(-2000);
   };
+  child.stderr?.setEncoding('utf8');
   child.stderr?.on('data', handleStderr);
 
   child.on('error', (err) => {
@@ -642,16 +708,17 @@ export function attachCodexTurn(
     finish(`spawn failed: ${err.message}`, finalText);
   });
 
-  child.on('exit', (code) => {
+  child.on('exit', (code, signal) => {
     turn.exited = true;
     exitCode = code;
+    exitSignal = signal ?? null;
     if (settled) return;
     clearCompletionTimer();
     armSettleTimer(turn.stopped || reapingCompletedTurn ? 0 : exitCloseGraceMs);
   });
 
-  child.on('close', (code) => {
-    conclude(code);
+  child.on('close', (code, signal) => {
+    conclude(code, signal ?? exitSignal);
   });
 }
 

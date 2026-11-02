@@ -4,6 +4,7 @@ import { applyVisibleOrder, moveActivityItem } from '@vibisual/shared';
 import type { IDEViewType } from '../../stores/graphStore.js';
 import { useIDEActivityBarStore } from '../../stores/ideActivityBar.js';
 import { ActivityIcon } from './ideActivityIcons.js';
+import { activityItem } from './ideActivityItems.js';
 
 /** §5.5 #16-1 — 활동바 구성 패널(올릴 칸 추가/제외 · 차례). 내려놓은 칸을 도로 올리는 곳은 여기뿐이라 두 목록을 나란히 둔다. 제외는 삭제가 아니다(아래 목록에 남는다). */
 export const IDEActivityBarCustomize = memo(function IDEActivityBarCustomize({
@@ -11,6 +12,7 @@ export const IDEActivityBarCustomize = memo(function IDEActivityBarCustomize({
   visible,
   hidden,
   labelOf,
+  onConfigure,
   onClose,
 }: {
   /** 전체 순서(제외된 것 포함). 저장은 이 순서로 한다. */
@@ -21,6 +23,8 @@ export const IDEActivityBarCustomize = memo(function IDEActivityBarCustomize({
   hidden: readonly IDEViewType[];
   /** 항목 이름. `subagents` 처럼 수를 받는 라벨이 있어 활동바가 만들어 넘긴다. */
   labelOf: (view: IDEViewType) => string;
+  /** 표시 여부는 그대로 두고 해당 기능의 켜짐 규칙·설정을 연다. */
+  onConfigure: (view: IDEViewType) => void;
   onClose: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
@@ -36,9 +40,17 @@ export const IDEActivityBarCustomize = memo(function IDEActivityBarCustomize({
   }, [order, visible, setOrder]);
 
   const row = (view: IDEViewType, controls: React.ReactNode): React.JSX.Element => (
-    <li key={view} className="flex items-center gap-2 rounded px-1.5 py-1 hover:bg-gray-800">
+    <li key={view} data-activity-option={view} className="flex items-center gap-2 rounded px-1.5 py-1 hover:bg-gray-800">
       <ActivityIcon view={view} className="h-4 w-4 flex-shrink-0 text-gray-400" />
       <span className="min-w-0 flex-1 truncate text-[12px] text-gray-300">{labelOf(view)}</span>
+      {activityItem(view)?.defaultHidden && iconButton(
+        t('ide.activityBar.configure', { name: labelOf(view) }),
+        () => onConfigure(view),
+        <>
+          <path d="M4 7h16M4 17h16" />
+          <path d="M8 4v6M16 14v6" />
+        </>,
+      )}
       {controls}
     </li>
   );
@@ -66,7 +78,7 @@ export const IDEActivityBarCustomize = memo(function IDEActivityBarCustomize({
 
   return (
     <div
-      className="absolute left-12 top-0 z-50 flex max-h-full w-60 flex-col rounded-r border border-l-0 border-gray-700 bg-gray-900 shadow-xl"
+      className="absolute left-12 top-0 z-50 flex max-h-full w-72 flex-col rounded-r border border-l-0 border-gray-700 bg-gray-900 shadow-xl"
       // IDE 창은 DOM 상 캔버스의 자식이라(§5.5 #17-6) 손짓을 여기서 멈춰 세운다 —
       // 안 그러면 패널 위 클릭·드래그가 캔버스로 새어 나가 뒤에서 버블이 끌린다.
       onPointerDown={(e) => e.stopPropagation()}

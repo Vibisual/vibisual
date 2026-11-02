@@ -120,33 +120,86 @@ const cache = new Map<string, {
   value: CodexScanState;
 }>();
 
+/**
+ * §9 「일하는 동안의 메인 스레드」 — 롤아웃 이름 색인 하나를 모든 스레드가 함께 쓴다. 지워졌거나 보관된 스레드가 저마다
+ * 2초마다 `sessions` 트리 전체를 동기로 훑으면 메인 스레드가 수백 ms 씩 멈춰 창 끌기가 끊긴다(2026-10-29 실측 1.1초).
+ * 새 롤아웃은 가장 최근 날짜 폴더에만 생기므로 그 길만 2초마다 다시 읽고, 트리 전체는 1분에 한 번 훑는다.
+ */
+const ROLLOUT_RECENT_RESCAN_MS = 2000;
+const ROLLOUT_FULL_WALK_MS = 60_000;
+/** `sessions/YYYY/MM/DD/<file>` — 옛 탐색과 같은 깊이까지만 내려간다. */
+const ROLLOUT_MAX_DEPTH = 3;
+
+interface RolloutIndex {
+  root: string;
+  fullAt: number;
+  recentAt: number;
+  /** 파일 이름 → 그 파일이 있는 폴더. */
+  dirs: Map<string, string>;
+}
+
+let rolloutIndex: RolloutIndex | null = null;
+
+function indexRolloutsIn(index: RolloutIndex, dir: string, depth: number, recurse: boolean): string | undefined {
+  let newest: string | undefined;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isFile()) {
+      index.dirs.set(entry.name, dir);
+    } else if (entry.isDirectory() && depth < ROLLOUT_MAX_DEPTH) {
+      if (recurse) indexRolloutsIn(index, path.join(dir, entry.name), depth + 1, true);
+      // 날짜 폴더(숫자 이름)만 견준다 — 다른 이름의 폴더가 "가장 최근"으로 잡히면 새 롤아웃을 못 본다.
+      else if (/^\d+$/.test(entry.name) && (newest === undefined || entry.name > newest)) newest = entry.name;
+    }
+  }
+  return newest;
+}
+
+function walkRecentRollouts(index: RolloutIndex): void {
+  let dir: string | undefined = index.root;
+  for (let depth = 0; dir !== undefined; depth++) {
+    const newest = indexRolloutsIn(index, dir, depth, false);
+    dir = newest === undefined ? undefined : path.join(dir, newest);
+  }
+}
+
+function findInIndex(index: RolloutIndex, threadId: string): string | undefined {
+  const suffix = `-${threadId}.jsonl`;
+  for (const [name, dir] of index.dirs) {
+    if (name.endsWith(suffix)) return path.join(dir, name);
+  }
+  return undefined;
+}
+
+function findRollout(root: string, threadId: string, now: number): string | undefined {
+  let index = rolloutIndex?.root === root ? rolloutIndex : null;
+  if (!index || now - index.fullAt >= ROLLOUT_FULL_WALK_MS) {
+    index = { root, fullAt: now, recentAt: now, dirs: new Map() };
+    rolloutIndex = index;
+    indexRolloutsIn(index, root, 0, true);
+    return findInIndex(index, threadId);
+  }
+  const hit = findInIndex(index, threadId);
+  if (hit || now - index.recentAt < ROLLOUT_RECENT_RESCAN_MS) return hit;
+  index.recentAt = now;
+  walkRecentRollouts(index);
+  return findInIndex(index, threadId);
+}
+
 /** Chunked, incremental reads retain turn_context even after a long turn exceeds the old 512 KiB tail. */
 function readCodexSession(threadId: string): CodexScanState | null {
   if (!/^[a-zA-Z0-9-]+$/.test(threadId)) return null;
   const root = path.join(codexHome(), 'sessions');
   const key = `${root}:${threadId}`;
   const previous = cache.get(key);
-  if (previous && Date.now() - previous.checked < 2000) return previous.value;
+  const now = Date.now();
+  if (previous && now - previous.checked < 2000) return previous.value;
   let file = previous?.file;
   let committed = previous?.committed ?? emptyState();
   let value = previous?.value ?? committed;
   let offset = previous?.offset ?? 0;
   let size = previous?.size ?? 0;
   try {
-    if (!file) {
-      const walk = (dir: string, depth: number): string | undefined => {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-          const candidate = path.join(dir, entry.name);
-          if (entry.isFile() && entry.name.endsWith(`-${threadId}.jsonl`)) return candidate;
-          if (entry.isDirectory() && depth < 3) {
-            const found = walk(candidate, depth + 1);
-            if (found) return found;
-          }
-        }
-        return undefined;
-      };
-      file = walk(root, 0);
-    }
+    if (!file) file = findRollout(root, threadId, now);
     if (file) {
       const nextSize = fs.statSync(file).size;
       if (nextSize < size) { offset = 0; committed = emptyState(); }
@@ -165,7 +218,7 @@ function readCodexSession(threadId: string): CodexScanState | null {
     }
   } catch { /* Missing/in-progress rollout: keep the last known reading. */ }
   if (cache.size >= 512) cache.delete(cache.keys().next().value!);
-  cache.set(key, { checked: Date.now(), file, offset, size, committed, value });
+  cache.set(key, { checked: now, file, offset, size, committed, value });
   return value;
 }
 

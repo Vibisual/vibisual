@@ -2,27 +2,21 @@ import { PHYSICS_MAGNET_GAP, SPAWN_ZONE, TIDY_LAYOUT } from '@vibisual/shared';
 
 /**
  * §5.1 #2-2 **등장 영역** — 새 버블이 처음 설 자리를 정하는 순수 기하. 최상위 버블·파일 위성·고정 노드를 한 규칙으로 앉힌다.
- * 1. 칸 — 주인 둘레 동심 고리, 고리마다 12시에서 시계 방향. 2. 세기 — 고리 0..k 원판 안에 중심이 든 것을 주인 불문 전부 센다(주인만 뺀다); 사각 창·말풍선은 든 넓이 ÷ 칸 넓이.
- * 3. 넓히기 — 센 수 ≥ 칸 수면 고리 하나를 넓힌다. 새 버블은 첫 여유 원판의 **가장 바깥 고리** 첫 빈칸에 선다(붐빈 안쪽 틈에 끼우지 않는다).
- * 4. 고르게(§5.1 #2-2 (J)) — 첫 고리는 `firstRingSlots`(폴더 위성 상한·묶음 구성 수)만큼만 나눈다: 다 차면 정다각형, 덜 차면 12시부터 호(고리 칸을 다 쓰면 한쪽에 몰린 초승달이 된다).
+ * 1. 칸 — 주인 둘레 동심 고리. 2. 넓히기 — 가장 가까운 고리부터 한 고리씩 넓혀, 빈칸(상자 안 · 주인 불문 무엇과도 안 겹침)이 처음 나오는 칸에 앉는다.
+ * 3. 방향 — `facing`(위성: 윗선 → 부모의 바깥 방향)이 있으면 그 방향 칸부터 좌우로 번갈아(부채꼴), 없으면 12시부터 시계 방향.
  * 화면을 모른다(원·사각·상자만) — 변환은 `components/BubbleMap/spawnZoneSeating.ts`, 위성 첫 자리는 `satellite.ts` 의 `placeSatellitePositions`. 시험: `spawnZone.test.ts`.
  */
 
-/** 이미 떠 있는 것 하나 — 원(버블) 또는 사각(창·말풍선). 세기와 겹침 판정이 같은 목록을 본다. */
+/** 이미 떠 있는 것 하나 — 원(버블) 또는 사각(창·말풍선). 빈칸 판정이 이 목록을 본다. */
 export interface ZoneObstacle {
   id: string;
   cx: number;
   cy: number;
   /** 원의 반경. 사각이면 긴 변의 반 — 그것이 주인이 될 때 고리의 기준이 된다. */
   r: number;
-  /** 사각이면 반치수 — 둘 다 있으면 사각으로 겹침·넓이를 잰다. */
+  /** 사각이면 반치수 — 둘 다 있으면 사각으로 겹침을 잰다. */
   hw?: number;
   hh?: number;
-  /**
-   * §5.1 #2-2 (J) — 이 칸이 **주인**이 될 때의 반경. 달을 거느린 위성(묶음)은 장애물로는 달 궤도까지가 몸(`r`)이지만, 제 달을
-   * 앉힐 때의 주인은 제 원이다. 없으면 `r`.
-   */
-  core?: number;
 }
 
 /** 물리 상자 — 중심과 반치수(px). 물리 클램프(`usePhysicsLayout`)가 버블을 가두는 그 상자다. */
@@ -44,15 +38,15 @@ export interface ZoneGrid {
   /** 고리 사이 틈(px). 없으면 `TIDY_LAYOUT.ROW_GAP` — 위성은 `SATELLITE_RING_SPACING.ROW_GAP`. */
   rowGap?: number;
   /**
-   * §5.1 #2-2 (J) — 첫 고리를 이 수만큼만 나눈다(폴더는 위성 상한, 묶음은 구성 수). 다 차면 정다각형, 덜 차면 12시부터 시계 방향의 호.
-   * 고리가 그만큼 담지 못하면 담을 수 있는 만큼이다(`fitFirstRing` 이 아니면).
+   * §5.1 #2-2 (J) — 주인이 거느릴 수(폴더는 위성 상한, 묶음·앱 노드는 그 수). 12시 격자에서는 첫 고리를 이 수만큼만 나눈다(정다각형),
+   * 부채꼴(`facing`)에서는 짝수면 바깥 방향을 사이에 두고 반 칸씩 비켜 선다.
    */
   firstRingSlots?: number;
-  /** 첫 고리가 `firstRingSlots` 를 다 담도록 반경을 넓힌다 — 고리 하나에만 앉는 달(묶음의 구성)은 넘칠 바깥 고리가 없다. */
+  /** 첫 고리가 `firstRingSlots` 를 다 담도록 반경을 넓힌다 — 고리 하나에만 앉는 달(앱 노드 별자리)은 넘칠 바깥 고리가 없다. */
   fitFirstRing?: boolean;
 }
 
-/** 영역의 주인 — 중심과 반경. `id` 가 있으면 세기에서 그 자신을 뺀다(없으면 캔버스 중심 같은 빈 자리). */
+/** 영역의 주인 — 중심과 반경. `id` 가 있으면 빈칸 판정에서 그 자신은 제 원으로만 잰다(없으면 캔버스 중심 같은 빈 자리). */
 export interface ZoneAnchor {
   id: string | null;
   cx: number;
@@ -65,12 +59,17 @@ export interface ZoneSeatInput {
   /** 앉힐 버블의 지름(px). */
   diameter: number;
   grid: ZoneGrid;
-  /** 이미 떠 있는 것들 — 장애물이자 셀 거리. */
+  /** 이미 떠 있는 것들 — 빈칸 판정의 장애물. */
   obstacles: readonly ZoneObstacle[];
   /** 물리 상자. `null` 이면 상자 없이(고리 수 상한 `SPAWN_ZONE.MAX_RINGS` 까지) 훑는다. */
   bounds: ZoneBounds | null;
   /** 이 고리에만 앉는다 — 별자리 달(궤도가 무리의 표식이라 넓히지 않는다). */
   onlyRing?: number;
+  /**
+   * 바깥 방향(라디안 · 화면 좌표: 0 = 3시, π/2 = 6시). 있으면 고리마다 이 방향 칸부터 좌우로 번갈아 고른다 — 위성이 윗선 반대편으로
+   * 가지를 친다(§5.1 #2-2 (C)). 없으면 12시부터 시계 방향.
+   */
+  facing?: number;
 }
 
 /** 앉을 자리(중심 좌표). `free` 가 false 면 빈칸이 없어 겹친 채 세운 것이다 — 남은 겹침은 물리가 푼다. */
@@ -78,10 +77,8 @@ export interface ZoneSeat {
   cx: number;
   cy: number;
   free: boolean;
-  /** 앉은 고리. */
+  /** 앉은 고리 — 빈칸이 처음 나온 고리(넓힌 단계). */
   ring: number;
-  /** 등장 영역 단계(센 수가 칸 수보다 적은 첫 원판). */
-  level: number;
 }
 
 /** 화면에 그려진 선 하나의 두 끝(`flowEdges` 와 같은 모양). */
@@ -128,7 +125,7 @@ function firstRingRadius(anchorR: number, grid: ZoneGrid): number {
 }
 
 /**
- * `ring` 번째 고리의 **격자** 반경 — 칸 지름 버블이 앉는 반경이다. 칸 수·원판(세기)은 이 반경으로 잰다.
+ * `ring` 번째 고리의 **격자** 반경 — 칸 지름 버블이 앉는 반경이다. 칸 수는 이 반경으로 잰다.
  * 첫 고리는 주인 테두리에서 `firstGap` 밖, 고리 사이는 `ROW_GAP` — §5.4 #33 정리와 같은 간격이다.
  */
 export function zoneGridRadius(anchorR: number, grid: ZoneGrid, ring: number): number {
@@ -151,124 +148,48 @@ export function zoneSlotCount(radius: number, slot: number, neighborGap: number 
   return Math.max(1, Math.floor((TWO_PI * radius) / (slot + neighborGap) + 1e-9));
 }
 
-/** `ring` 번째 고리의 칸 수 — 첫 고리는 주인이 거느릴 수(`firstRingSlots`)까지만 나눈다(§5.1 #2-2 (J)). */
+/** `ring` 번째 고리의 12시 격자 칸 수 — 첫 고리는 주인이 거느릴 수(`firstRingSlots`)까지만 나눈다(§5.1 #2-2 (J)). */
 export function zoneRingSlots(anchorR: number, grid: ZoneGrid, ring: number): number {
   const physical = zoneSlotCount(zoneGridRadius(anchorR, grid, ring), grid.slot, neighborGapOf(grid));
   const slots = ring === 0 ? firstRingSlotsOf(grid) : null;
   return slots === null ? physical : Math.min(physical, slots);
 }
 
-/** `level` 단계 원판의 반경 — 그 고리 띠의 바깥 끝(고리 사이 간격의 반까지). */
-export function zoneDiscRadius(anchorR: number, grid: ZoneGrid, level: number): number {
-  return zoneGridRadius(anchorR, grid, level) + ringStep(grid) / 2;
-}
-
-/** `level` 단계 원판의 수용량 — 고리 0..level 의 칸 수 합. */
-export function zoneCapacity(anchorR: number, grid: ZoneGrid, level: number): number {
-  let sum = 0;
-  for (let k = 0; k <= level; k++) sum += zoneRingSlots(anchorR, grid, k);
-  return sum;
-}
-
-/** 칸 하나가 차지하는 넓이 — 사각 창을 "칸 몇 개"로 셀 때의 단위. */
-export function zoneCellArea(grid: ZoneGrid): number {
-  return (grid.slot + neighborGapOf(grid)) * ringStep(grid);
-}
-
-/** 사각 하나의 표본 — 격자 칸 가운데들의 주인 중심까지 거리(오름차순). */
-function rectSampleDistances(o: ZoneObstacle & { hw: number; hh: number }, anchor: ZoneAnchor): number[] {
-  const n = Math.max(1, Math.floor(SPAWN_ZONE.AREA_SAMPLES));
+/**
+ * §5.1 #2-2 (C) — `facing` 을 가운데 둔 **부채꼴** 칸 각도(고르는 순서). 이웃 사이는 그 고리의 실제 칸 간격이고, 바깥 방향 칸부터
+ * 좌우로 번갈아 고리를 한 바퀴 채운다 — 윗선 쪽(선이 들어오는 쪽)이 맨 나중이다. 첫 고리에서 거느릴 수가 짝수면 바깥 방향을 사이에
+ * 두고 반 칸씩 비켜 선다(둘이면 좌우로 나란히 — 12시·6시 정반대에 서서 선과 한 줄 사슬이 되지 않게).
+ */
+export function zoneFanAngles(anchorR: number, grid: ZoneGrid, ring: number, facing: number): number[] {
+  const count = zoneSlotCount(zoneGridRadius(anchorR, grid, ring), grid.slot, neighborGapOf(grid));
+  const step = TWO_PI / count;
+  const slots = ring === 0 ? firstRingSlotsOf(grid) : null;
+  const half = slots !== null && slots % 2 === 0;
   const out: number[] = [];
-  for (let i = 0; i < n; i++) {
-    const x = o.cx - o.hw + ((i + 0.5) * 2 * o.hw) / n;
-    for (let j = 0; j < n; j++) {
-      const y = o.cy - o.hh + ((j + 0.5) * 2 * o.hh) / n;
-      out.push(Math.hypot(x - anchor.cx, y - anchor.cy));
-    }
+  for (let k = 0; k < count; k++) {
+    // 반 칸: -0.5, +0.5, -1.5, +1.5 … · 아니면: 0, -1, +1, -2, +2 … — 앞에서 count 개는 한 바퀴의 서로 다른 칸이다.
+    const offset = half
+      ? (k % 2 === 0 ? -1 : 1) * (Math.floor(k / 2) + 0.5)
+      : k === 0 ? 0 : (k % 2 === 1 ? -1 : 1) * Math.ceil(k / 2);
+    out.push(facing + offset * step);
   }
-  return out.sort((a, b) => a - b);
+  return out;
 }
 
-/** 정렬된 거리 목록에서 `limit` 이하인 것의 수(이분 탐색). */
-function countWithin(sorted: readonly number[], limit: number): number {
-  let lo = 0;
-  let hi = sorted.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (sorted[mid]! <= limit) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
-/** 원판 안에 든 넓이를 칸 개수로 — 걸치면 최소 하나, 안 걸치면 0. */
-function rectWeight(samples: readonly number[], area: number, discR: number, cellArea: number): number {
-  const inside = countWithin(samples, discR);
-  if (inside === 0) return 0;
-  return Math.max(1, Math.round(((inside / samples.length) * area) / cellArea));
-}
-
-interface PreparedCount {
-  /** 원형: 처음 들어가는 단계별 개수(히스토그램). */
-  circleAt: number[];
-  /** 사각: 표본 거리 + 넓이. */
-  rects: { samples: number[]; area: number }[];
-}
-
-function prepareCount(anchor: ZoneAnchor, grid: ZoneGrid, obstacles: readonly ZoneObstacle[], maxLevel: number): PreparedCount {
-  const circleAt = new Array<number>(maxLevel + 1).fill(0);
-  const rects: { samples: number[]; area: number }[] = [];
-  const base = zoneDiscRadius(anchor.r, grid, 0);
-  const step = ringStep(grid);
-  for (const o of obstacles) {
-    if (anchor.id !== null && o.id === anchor.id) continue;
-    if (!Number.isFinite(o.cx) || !Number.isFinite(o.cy)) continue;
-    if (isRect(o)) {
-      if (!(o.hw > 0) || !(o.hh > 0)) continue;
-      rects.push({ samples: rectSampleDistances(o, anchor), area: 4 * o.hw * o.hh });
-      continue;
-    }
-    const dist = Math.hypot(o.cx - anchor.cx, o.cy - anchor.cy);
-    // 처음 그 중심을 품는 단계 — 원판 반경은 단계마다 `step` 씩 자란다.
-    const level = dist <= base ? 0 : Math.ceil((dist - base) / step);
-    if (level <= maxLevel) circleAt[level]! += 1;
-  }
-  return { circleAt, rects };
-}
-
-function occupancyAt(prepared: PreparedCount, anchorR: number, grid: ZoneGrid, level: number, circlesSoFar: number): number {
-  const discR = zoneDiscRadius(anchorR, grid, level);
-  const cell = zoneCellArea(grid);
-  let sum = circlesSoFar;
-  for (const rect of prepared.rects) sum += rectWeight(rect.samples, rect.area, discR, cell);
-  return sum;
+/** `facing` 에서 `theta` 까지 부호 있는 각(−π..π) — 바깥 방향 기준 왼쪽(−)·오른쪽(+). */
+export function fanOffset(facing: number, theta: number): number {
+  const d = ((theta - facing) % TWO_PI + TWO_PI) % TWO_PI;
+  return d > Math.PI ? d - TWO_PI : d;
 }
 
 /**
- * `level` 단계 원판 안에 든 것의 수 — 주인이 누구든 전부(주인 자신만 뺀다). 원형은 중심이 들면 하나,
- * 사각은 든 넓이를 칸 넓이로 나눈 개수(걸치면 최소 하나).
+ * 부채꼴 첫 고리의 앞 `count` 칸을 바깥 방향 기준 왼쪽부터 늘어놓은 각도 — 무리를 한꺼번에 걸 때(물리의 다시 걸기 · 정리) 지금 각도 순서대로
+ * 짝지으면 서로 가로지르지 않는다. 첫 고리가 그 수를 못 담으면 `null`.
  */
-export function zoneOccupancy(anchor: ZoneAnchor, grid: ZoneGrid, obstacles: readonly ZoneObstacle[], level: number): number {
-  const prepared = prepareCount(anchor, grid, obstacles, level);
-  let circles = 0;
-  for (let k = 0; k <= level; k++) circles += prepared.circleAt[k]!;
-  return occupancyAt(prepared, anchor.r, grid, level, circles);
-}
-
-/**
- * 등장 영역 단계 — 센 수가 수용량보다 적은 첫 원판. `maxLevel` 까지 다 붐볐으면 `maxLevel + 1`
- * (상자 안에는 넓힐 자리가 없다는 뜻 — 호출부가 안쪽 틈을 찾는다).
- */
-export function zoneLevel(anchor: ZoneAnchor, grid: ZoneGrid, obstacles: readonly ZoneObstacle[], maxLevel: number): number {
-  const prepared = prepareCount(anchor, grid, obstacles, maxLevel);
-  let circles = 0;
-  let capacity = 0;
-  for (let k = 0; k <= maxLevel; k++) {
-    circles += prepared.circleAt[k]!;
-    capacity += zoneRingSlots(anchor.r, grid, k);
-    if (occupancyAt(prepared, anchor.r, grid, k, circles) < capacity) return k;
-  }
-  return maxLevel + 1;
+export function zoneFanRow(anchorR: number, grid: ZoneGrid, facing: number, count: number): number[] | null {
+  const angles = zoneFanAngles(anchorR, grid, 0, facing);
+  if (angles.length < count) return null;
+  return angles.slice(0, count).sort((a, b) => fanOffset(facing, a) - fanOffset(facing, b));
 }
 
 /** 물리 클램프와 같은 판정 — 중심이 `상자 반치수 − 반경` 안에 있어야 벽에 눌리지 않는다. */
@@ -309,8 +230,8 @@ function validBounds(b: ZoneBounds | null): ZoneBounds | null {
 }
 
 /**
- * 한 버블의 첫 자리. 등장 영역 단계 K(센 수 < 수용량인 첫 원판)를 구하고 **고리 K 부터 바깥으로** 훑어 첫 빈칸에 앉는다(고리 안은 12시부터 시계 방향).
- * 바깥이 상자를 넘어 빈칸이 없을 때만 안쪽 고리(0..K-1)의 빈칸을 쓰고, 그래도 없으면 훑은 순서의 상자 안 첫 칸에 겹친 채 세운다(겹침은 물리가 푼다).
+ * 한 버블의 첫 자리. **가장 가까운 고리부터** 한 고리씩 넓혀 가며 첫 빈칸에 앉는다(고리 안 순서는 `facing` 부채꼴 또는 12시부터 시계 방향).
+ * 빈칸이 하나도 없으면 훑은 순서의 상자 안 첫 칸에 겹친 채 세운다(겹침은 물리가 푼다).
  */
 export function seatInZone(input: ZoneSeatInput): ZoneSeat {
   const { obstacles } = input;
@@ -337,11 +258,16 @@ export function seatInZone(input: ZoneSeatInput): ZoneSeat {
     cy: Number.isFinite(input.anchor.cy) ? input.anchor.cy : (bounds?.cy ?? 0),
     r: Number.isFinite(input.anchor.r) && input.anchor.r > 0 ? input.anchor.r : 0,
   };
+  const facing = typeof input.facing === 'number' && Number.isFinite(input.facing) ? input.facing : null;
   const r = diameter / 2;
 
-  const slotCenter = (ring: number, i: number, count: number): { cx: number; cy: number } => {
+  const anglesOf = (ring: number): number[] => {
+    if (facing !== null) return zoneFanAngles(anchor.r, grid, ring, facing);
+    const count = zoneRingSlots(anchor.r, grid, ring);
+    return Array.from({ length: count }, (_, i) => SPAWN_ZONE.START_ANGLE + (i * TWO_PI) / count);
+  };
+  const seatAt = (ring: number, theta: number): { cx: number; cy: number } => {
     const radius = zoneSeatRadius(anchor.r, grid, diameter, ring);
-    const theta = SPAWN_ZONE.START_ANGLE + (i * TWO_PI) / count;
     return { cx: anchor.cx + Math.cos(theta) * radius, cy: anchor.cy + Math.sin(theta) * radius };
   };
 
@@ -353,29 +279,19 @@ export function seatInZone(input: ZoneSeatInput): ZoneSeat {
   }
 
   const rings: number[] = [];
-  let level = 0;
   if (typeof input.onlyRing === 'number' && Number.isFinite(input.onlyRing) && input.onlyRing >= 0) {
-    level = Math.floor(input.onlyRing);
-    rings.push(level);
+    rings.push(Math.floor(input.onlyRing));
   } else {
-    level = zoneLevel(anchor, grid, obstacles, maxRing);
-    for (let k = level; k <= maxRing; k++) rings.push(k);
-    for (let k = 0; k < Math.min(level, maxRing + 1); k++) rings.push(k);
+    for (let k = 0; k <= maxRing; k++) rings.push(k);
   }
 
   // 고리 하나의 칸이 닿을 수 있는 것만 겹침을 잰다 — 주인과의 거리와 고리 반경의 차가 (반경 + 간격 + 그 크기)를 넘으면 겹칠 수 없다.
   // 위성 수백이 한꺼번에 앉을 때 칸마다 화면 전체를 훑지 않게 한다(결과는 같다).
-  // 주인 자신은 제 원(`core`)으로 잰다 — 묶음은 장부에 달 궤도까지가 몸이라 그대로 재면 제 달이 앉을 칸을 전부 막는다.
-  const ranged = obstacles.map((raw) => {
-    const o = anchor.id !== null && raw.id === anchor.id && typeof raw.core === 'number' && Number.isFinite(raw.core)
-      ? { ...raw, r: raw.core }
-      : raw;
-    return {
-      o,
-      d: Math.hypot(o.cx - anchor.cx, o.cy - anchor.cy),
-      extent: isRect(o) ? Math.hypot(o.hw, o.hh) : Math.max(0, o.r),
-    };
-  });
+  const ranged = obstacles.map((o) => ({
+    o,
+    d: Math.hypot(o.cx - anchor.cx, o.cy - anchor.cy),
+    extent: isRect(o) ? Math.hypot(o.hw, o.hh) : Math.max(0, o.r),
+  }));
   const reachOf = (ring: number): ZoneObstacle[] => {
     const radius = zoneSeatRadius(anchor.r, grid, diameter, ring);
     const out: ZoneObstacle[] = [];
@@ -387,18 +303,17 @@ export function seatInZone(input: ZoneSeatInput): ZoneSeat {
 
   let firstInside: ZoneSeat | null = null;
   for (const ring of rings) {
-    const count = zoneRingSlots(anchor.r, grid, ring);
     const near = reachOf(ring);
-    for (let i = 0; i < count; i++) {
-      const { cx, cy } = slotCenter(ring, i, count);
+    for (const theta of anglesOf(ring)) {
+      const { cx, cy } = seatAt(ring, theta);
       if (bounds && !insideBounds(cx, cy, r, bounds)) continue;
-      if (!overlapsAny(cx, cy, r, near)) return { cx, cy, free: true, ring, level };
-      if (firstInside === null) firstInside = { cx, cy, free: false, ring, level };
+      if (!overlapsAny(cx, cy, r, near)) return { cx, cy, free: true, ring };
+      if (firstInside === null) firstInside = { cx, cy, free: false, ring };
     }
   }
-  // 상자 안에 든 칸이 하나도 없으면(주인이 상자 밖이거나 상자가 버블보다 작다) 첫 고리 12시에 세우고 클램프에 넘긴다.
+  // 상자 안에 든 칸이 하나도 없으면(주인이 상자 밖이거나 상자가 버블보다 작다) 첫 고리 첫 방향에 세우고 클램프에 넘긴다.
   const ring0 = rings[0] ?? 0;
-  return firstInside ?? { ...slotCenter(ring0, 0, 1), free: false, ring: ring0, level };
+  return firstInside ?? { ...seatAt(ring0, facing ?? SPAWN_ZONE.START_ANGLE), free: false, ring: ring0 };
 }
 
 /**
@@ -428,7 +343,7 @@ export function spawnOwnerOf(
 
 /**
  * 한 화면의 등장 영역 장부 — 이미 자리가 있는 것 전부(버블·위성·사각 창). 앉힌 것은 뒤에 더해져
- * 다음 버블의 장애물이자 셀 거리가 된다(최상위를 앉힌 뒤 위성을 앉힐 때도 같은 장부를 이어 쓴다).
+ * 다음 버블의 장애물이 된다(최상위를 앉힌 뒤 위성을 앉힐 때도 같은 장부를 이어 쓴다).
  */
 export interface SpawnField {
   obstacles: ZoneObstacle[];
@@ -452,13 +367,9 @@ export function addToSpawnField(field: SpawnField, o: ZoneObstacle): void {
   field.byId.set(o.id, o);
 }
 
-/**
- * 장부의 한 칸을 주인으로 — 사각은 긴 변의 반이 반경이다(고리가 상자를 밟지 않게). 달을 거느린 위성(묶음)은 장부에 달
- * 궤도까지가 몸으로 올라 있지만 주인으로는 제 원(`core`)이다(§5.1 #2-2 (J)).
- */
+/** 장부의 한 칸을 주인으로 — 사각은 긴 변의 반이 반경이다(고리가 상자를 밟지 않게). */
 export function anchorFromObstacle(o: ZoneObstacle): ZoneAnchor {
-  const r = typeof o.core === 'number' && Number.isFinite(o.core) ? o.core : isRect(o) ? Math.max(o.hw, o.hh) : o.r;
-  return { id: o.id, cx: o.cx, cy: o.cy, r };
+  return { id: o.id, cx: o.cx, cy: o.cy, r: isRect(o) ? Math.max(o.hw, o.hh) : o.r };
 }
 
 /** 이번에 첫 자리를 받을 최상위 버블 하나. */
@@ -482,7 +393,7 @@ export interface ZoneBatchInput {
 
 /**
  * 이번에 자리를 받을 최상위 버블들을 차례로 앉힌다 — **마지막 활동이 이른 것부터**라 도착 순서가 곧 시계
- * 순서다(동점은 id 순 — 같은 입력이 늘 같은 그림을 낸다). 먼저 앉은 것은 다음 것의 장애물이자 셀 거리다.
+ * 순서다(동점은 id 순 — 같은 입력이 늘 같은 그림을 낸다). 먼저 앉은 것은 다음 것의 장애물이다.
  * 돌려주는 것은 **중심** 좌표다.
  */
 export function seatZoneBatch(input: ZoneBatchInput): Map<string, { cx: number; cy: number }> {

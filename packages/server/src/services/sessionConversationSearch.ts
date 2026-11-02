@@ -117,6 +117,7 @@ export async function searchSessionConversations(input: ConversationSearchInput)
     const subCommands = bySub.get(subId) ?? [];
     for (const command of subCommands) {
       matchText(command.text, terms, found);
+      for (const followUp of command.followUps ?? []) matchText(followUp.text, terms, found);
       if (command.result) matchText(command.result, terms, found);
     }
     const boundaries = subCommands.filter((command) => command.status !== 'queued' || command.startedAt !== undefined)

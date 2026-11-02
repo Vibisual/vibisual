@@ -254,6 +254,26 @@ describe('mapCodexLine — file_change', () => {
     ]);
   });
 
+  it.each([
+    [{ status: 'failed' }, 'failed\nsrc/a.ts'],
+    [{ status: 'failed', error: { message: 'patch rejected' } }, 'failed\npatch rejected\nsrc/a.ts'],
+    [{ status: 'failed', error: 'permission denied' }, 'failed\npermission denied\nsrc/a.ts'],
+  ])('failed patches close the same tool without claiming a write: %j', (outcome, content) => {
+    const result = mapCodexLine(JSON.stringify({ type: 'item.completed', item: {
+      id: 'f1', type: 'file_change', changes: [{ path: 'src/a.ts' }], ...outcome,
+    } }));
+    expect(result).toEqual({ events: [{ eventType: 'tool_result', content, toolName: 'Write', toolUseId: 'f1' }] });
+    // A failed attempt is recoverable; only turn.failed can fail the whole turn.
+    expect(result?.error).toBeUndefined();
+    expect(result?.turnEnded).toBeUndefined();
+  });
+
+  it('keeps a failed patch visible even when no affected path was reported', () => {
+    expect(mapCodexLine(JSON.stringify({ type: 'item.completed', item: {
+      id: 'f1', type: 'file_change', status: 'failed',
+    } }))?.events[0]?.content).toBe('failed');
+  });
+
   it('updated 는 흘리지 않는다', () => {
     expect(mapCodexLine(started.replace('item.started', 'item.updated'))?.events).toEqual([]);
   });
@@ -294,6 +314,31 @@ describe('mapCodexLine — mcp_tool_call / web_search / todo_list / error', () =
     );
     expect(r?.events[0]?.eventType).toBe('tool_result');
     expect(r?.events[0]?.content).toBe('{"count":2}');
+  });
+
+  it.each([
+    [{ status: 'failed', error: { message: 'connection refused' }, result: null }, 'failed\nconnection refused'],
+    [{ status: 'failed', error: 'timed out' }, 'failed\ntimed out'],
+    [{ status: 'failed' }, 'failed'],
+    [{ error: { message: 'connection refused' } }, 'failed\nconnection refused'],
+  ])('preserves MCP failures in the paired result: %j', (outcome, content) => {
+    expect(mapCodexLine(JSON.stringify({ type: 'item.completed', item: {
+      id: 'm1', type: 'mcp_tool_call', server: 'github', tool: 'search', ...outcome,
+    } }))).toEqual({ events: [{ eventType: 'tool_result', content, toolName: 'github:search', toolUseId: 'm1' }] });
+  });
+
+  it('preserves MCP application errors returned by a completed transport', () => {
+    const result = { isError: true, content: [{ type: 'text', text: 'invalid query' }] };
+    expect(mapCodexLine(JSON.stringify({ type: 'item.completed', item: {
+      id: 'm1', type: 'mcp_tool_call', status: 'completed', result,
+    } }))?.events[0]?.content).toBe(`failed\n${JSON.stringify(result)}`);
+  });
+
+  it('does not infer MCP failure from ordinary output containing error words', () => {
+    const result = { content: [{ type: 'text', text: 'Examples of failed requests' }] };
+    expect(mapCodexLine(JSON.stringify({ type: 'item.completed', item: {
+      id: 'm1', type: 'mcp_tool_call', status: 'completed', error: null, result,
+    } }))?.events[0]?.content).toBe(JSON.stringify(result));
   });
 
   it('web_search 는 시작 줄이 카드를 세운다 — 검색어가 아직 없으면 자리 표시만', () => {

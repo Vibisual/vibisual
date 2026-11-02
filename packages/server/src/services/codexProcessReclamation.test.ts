@@ -105,6 +105,16 @@ describe('Codex completed process reclamation', () => {
     expect(h.kill).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves successful completion when reclamation terminates the child by signal', async () => {
+    vi.useFakeTimers();
+    const h = attach({ completionExitGraceMs: 50 });
+    h.child.stdout.write(ANSWER + COMPLETED);
+    h.kill.mockImplementation(() => { h.child.emit('exit', null, 'SIGTERM'); });
+    await vi.advanceTimersByTimeAsync(70);
+    expect(h.kill).toHaveBeenCalledTimes(1);
+    expect(h.done).toHaveBeenCalledExactlyOnceWith(undefined, 'done');
+  });
+
   it('does not arm reclamation for quiet reasoning, running tools, or an approval wait', async () => {
     vi.useFakeTimers();
     const h = attach({ completionExitGraceMs: 50 });
@@ -120,13 +130,24 @@ describe('Codex completed process reclamation', () => {
   it('releases inherited pipes after normal exit without close and flushes a final partial line', async () => {
     vi.useFakeTimers();
     const h = attach({ exitCloseGraceMs: 50 });
-    h.child.stdout.write(ANSWER.trimEnd());
+    h.child.stdout.write(ANSWER + COMPLETED.trimEnd());
     h.child.emit('exit', 0);
     await vi.advanceTimersByTimeAsync(70);
     expect(h.done).toHaveBeenCalledExactlyOnceWith(undefined, 'done');
     expect(h.kill).not.toHaveBeenCalled();
     for (const stream of [h.child.stdin, h.child.stdout, h.child.stderr]) expect(stream.destroyed).toBe(true);
     expect(h.child.stdout.listenerCount('data')).toBe(0);
+  });
+
+  it('reports incomplete output when exit arrives without close or turn completion', async () => {
+    vi.useFakeTimers();
+    const h = attach({ exitCloseGraceMs: 50 });
+    h.child.stdout.write(ANSWER.trimEnd());
+    h.child.emit('exit', 0);
+    await vi.advanceTimersByTimeAsync(70);
+    expect(h.done).toHaveBeenCalledExactlyOnceWith('codex exited before turn completion', 'done');
+    expect(h.kill).not.toHaveBeenCalled();
+    for (const stream of [h.child.stdin, h.child.stdout, h.child.stderr]) expect(stream.destroyed).toBe(true);
   });
 
   it('does not kill an exited PID when expiry and exit occur on the same event loop turn', async () => {

@@ -20,9 +20,19 @@ const TURN_STOP_LABEL_KEYS: Partial<Record<TurnStopReason, string>> = {
 /** 아직 낱말을 못 붙인 **새 사유**가 왔을 때의 자리 — 말없이 "끝남"으로 내려앉지 않게 한다. */
 const TURN_STOP_FALLBACK_KEY = 'ide.turnStop.interrupted';
 
+const USER_STOP_PREFIX = '[Stopped by user]';
+
+/** The stored stop marker is state, not an answer. Keep any partial answer after it intact. */
+export function turnResultText(result: string | undefined): string {
+  if (!result?.startsWith(USER_STOP_PREFIX)) return result ?? '';
+  return result.slice(USER_STOP_PREFIX.length).replace(/^(?:\r?\n){1,2}|^ /, '');
+}
+
 /** 따로 말할 끝 이유의 낱말 키. 평범한 끝·값 없음 · **실패한 턴**(오류 사유가 이미 말한다) · 아직 돌거나 대기 중인 턴이면 `null`. */
-export function turnStopLabelKey(reason: TurnStopReason | undefined, status: string): string | null {
+export function turnStopLabelKey(reason: TurnStopReason | undefined, status: string, result?: string): string | null {
   if (status !== 'completed') return null;
+  // Older saved commands predate stopReason but carry the same explicit stop marker.
+  if (reason === undefined && result?.startsWith(USER_STOP_PREFIX)) reason = 'cancelled';
   if (!isNotableTurnStop(reason)) return null;
   return TURN_STOP_LABEL_KEYS[reason] ?? TURN_STOP_FALLBACK_KEY;
 }

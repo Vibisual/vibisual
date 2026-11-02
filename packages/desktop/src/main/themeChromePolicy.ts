@@ -3,11 +3,11 @@ import type { AppThemeChrome } from '@vibisual/shared';
 
 /** 기본 테마의 창 색 — 서버 코어가 아직 답하지 못할 때(부팅 실패 직후 등)의 바닥. */
 export const FALLBACK_APP_THEME_CHROME: AppThemeChrome = {
-  themeId: 'vibisual-dark',
+  themeId: 'graphite',
   kind: 'dark',
-  background: '#030712',
-  titleBar: '#334155',
-  titleBarSymbol: '#cbd5e1',
+  background: '#0a0a0a',
+  titleBar: '#262626',
+  titleBarSymbol: '#d4d4d4',
 };
 
 /** 제목줄 오버레이(OS 최소화·최대화·닫기 단추) 색 — Windows·Linux 만(`setTitleBarOverlay`). macOS 는 신호등에 색 지정이 없어 `null`. */

@@ -331,6 +331,8 @@ function stableId(identity: string): string {
 
 function identify(exe: string, args: readonly Token[], options: DetectOptions): CommandAppTarget | undefined {
   if (!literalPath(exe) || exe.startsWith('-') || /^[:@()[\]{}]/.test(exe)) return undefined;
+  // A whole command line glued into one token (`-Filter \"Name='UnrealEditor.exe'\"`) is not a path: a switch after whitespace gives it away.
+  if (/\s-{1,2}[A-Za-z]/.test(exe)) return undefined;
   const platform = options.platform ?? 'win32';
   const base = normalizeShellCommandName(exe);
   if (!base || NON_APPS.has(base) || SHELLS[base]) return undefined;
@@ -346,7 +348,7 @@ function identify(exe: string, args: readonly Token[], options: DetectOptions): 
     ? resolvePath(assemblyArg, options.cwd, platform) : undefined;
   const engineRoot = (assembly ?? executable).match(/^(.*?\/Engine)\/(?:Binaries|Build)\//i)?.[1];
   const unreal = /^(?:unrealeditor(?:-cmd)?|ue4editor(?:-cmd)?|unrealbuildtool)$/.test(base)
-    || (/^(?:runuat|build)$/.test(base) && !!(engineRoot || projectPath))
+    || (/^(?:runuat|runubt|build)$/.test(base) && !!(engineRoot || projectPath))
     || !!(assembly && engineRoot);
   const knownName = APP_NAMES[base] ?? (/^python(?:\d+(?:\.\d+)*)?$/.test(base) ? 'Python' : undefined)
     ?? (/^godot(?:_v\d[^\\/]*)?$/.test(base) ? 'Godot' : undefined)
@@ -362,6 +364,41 @@ function identify(exe: string, args: readonly Token[], options: DetectOptions): 
     ...(unreal && assembly ? { iconSource: assembly } : {}),
     ...(unreal && projectPath ? { projectPath } : {}),
     detection: 'command',
+  };
+}
+
+/**
+ * §5.1 — one bubble per app name in a tab. Target ids carry the engine root, `.uproject` and bare-vs-full path,
+ * so one Unreal Engine split by launcher (Build.bat · UnrealEditor.exe) or project argument; grouping is by name.
+ */
+export function commandAppGroupKey(target: Pick<CommandAppTarget, 'name'>): string {
+  return target.name;
+}
+
+/** How grounded an icon source is: 0 none · 1 bare name (PATH-dependent) · 2 script path (scripts carry no icon) · 3 executable/assembly path. */
+function iconGrounding(source: string | undefined): number {
+  if (!source) return 0;
+  if (!absolutePath(source)) return 1;
+  return /\.(?:bat|cmd|ps1|sh)$/i.test(source) ? 2 : 3;
+}
+
+/**
+ * §5.1 — fold a new command's target into its app bubble. Executable follows the latest command (project kept if it names none);
+ * the icon source changes only to a more grounded one, otherwise each launcher would repaint the same bubble with another picture.
+ */
+export function mergeCommandAppTarget(previous: CommandAppTarget | undefined, next: CommandAppTarget): CommandAppTarget {
+  if (!previous) return next;
+  const before = previous.iconSource ?? previous.executable;
+  const after = next.iconSource ?? next.executable;
+  const icon = iconGrounding(after) > iconGrounding(before) ? after : before;
+  const projectPath = next.projectPath ?? previous.projectPath;
+  return {
+    id: previous.id,
+    name: next.name,
+    ...(next.executable ? { executable: next.executable } : {}),
+    ...(icon && icon !== next.executable ? { iconSource: icon } : {}),
+    ...(projectPath ? { projectPath } : {}),
+    detection: next.detection,
   };
 }
 

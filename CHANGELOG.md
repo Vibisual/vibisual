@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-11-02
+
+### Added
+- **Send an additional message to the current task without stopping it.** Claude Code and Codex show whether the message is waiting, sending, delivered or unconfirmed. Rejected messages remain available to send another way; an uncertain delivery is never resent automatically.
+- **Open a project from your file manager.** Right-click a folder and choose "Open project in Vibisual" on Windows, macOS and supported Linux file managers. Vibisual starts if necessary, and the menu can be disabled in Advanced options.
+
+### Changed
+- **Goal tracking is now opt-in.** Enable it for the scopes you choose from the Goal panel. Turning it off retains existing goals, and a status question during ongoing work no longer replaces the task and its progress.
+- **Optional IDE tools start hidden from the activity bar.** Goal, detected procedures, orchestration, context trimming, loops and specification reading remain available through Customize, with direct access to their settings.
+- **A session's bubble map shows that session alone.** Selecting a bubble opens the same detail panel used by the canvas, including its available history and actions. Media previews follow the map's own zoom, and sub-agent work contributes to the central agent instead of creating extra agent bubbles.
+- **Canvas bubbles fill nearby empty spaces before expanding outward.** Satellites keep consistent gaps, branch away from their parent's incoming connection and stay within the canvas bounds.
+- **Heatmaps remain readable on media bubbles.** Images use the same visible colour scale as other files while heatmap mode is active, captions have stronger contrast, and the legend can close and reopen without resetting the scale.
+
+### Fixed
+- **Individual agent settings survive changes to project and global defaults.** Explicit model and reasoning choices remain selected until inheritance is chosen again. Project settings also resolve correctly when a Windows folder path is written with different casing, and the interface language survives restarting.
+- **Codex stays visibly running while compacting or waiting for other agents.** Model-change notices when resuming a session no longer look like a failed task. Stopping a turn preserves its partial answer and shows a single stop marker.
+
+### Removed
+- **Removed the separate verification-request gate.** The Permissions option, injected verification restrictions, execution blocker and "verification not run" badges are gone.
+
 ## [0.2.5] - 2026-10-28
 
 ### Added
@@ -792,7 +812,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/Vibisual/vibisual/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/Vibisual/vibisual/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/Vibisual/vibisual/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Vibisual/vibisual/compare/v0.2.2...v0.2.3

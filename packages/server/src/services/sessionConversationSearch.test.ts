@@ -41,6 +41,15 @@ function write(events: SubAgentStreamEvent[], archive = false): void {
 }
 
 describe('saved session conversation search', () => {
+  it('finds accepted follow-ups under their parent session without joining separate user messages', async () => {
+    const followUp = (id: string, text: string) => ({ id, text, timestamp: 2, deliveredAt: 3 });
+    expect(await search(['keyboard design', 'main addition', 'private addition', 'timebreak'], [
+      command('time', { followUps: [followUp('first', 'break'), followUp('second', 'Keyboard Design')] }),
+      command('main task', { id: 'main', subAgentId: null, followUps: [followUp('main-follow', 'Main Addition')] }),
+      command('internal', { id: 'internal', silent: true, followUps: [followUp('hidden', 'private addition')] }),
+    ])).toEqual({ 'sub-a': ['keyboard design'], '': ['main addition'] });
+  });
+
   it('finds old user prompts, saved final answers, and main-only prompts without a stream', async () => {
     const matches = await search(['시간경화', 'archived reply', 'main-only', 'silent'], [
       command('오래전에 사용자가 시간경화를 적었다', { result: 'Archived Reply' }),

@@ -5,7 +5,7 @@ import {
   resolveActivityOrder,
   type IDEActivityBarPrefs,
 } from '@vibisual/shared';
-import { DEFAULT_ACTIVITY_ORDER } from '../components/IDE/ideActivityItems.js';
+import { DEFAULT_ACTIVITY_ORDER, DEFAULT_HIDDEN_ACTIVITIES } from '../components/IDE/ideActivityItems.js';
 import type { IDEViewType } from './graphStore.js';
 
 /**
@@ -18,6 +18,8 @@ interface IDEActivityBarState {
   order: IDEViewType[];
   /** 활동바에서 내려놓은 항목(지운 것이 아니라 접어 둔 것 — 구성 패널에 그대로 남는다). */
   hidden: IDEViewType[];
+  /** 기본 숨김을 사용자가 명시적으로 해제한 항목. */
+  shown: IDEViewType[];
   /** 서버에서 한 번이라도 받아 왔는가. */
   loaded: boolean;
 
@@ -63,16 +65,19 @@ async function put(body: Record<string, unknown>): Promise<unknown> {
 
 export const useIDEActivityBarStore = create<IDEActivityBarState>((set, get) => ({
   order: [],
-  hidden: [],
+  hidden: [...DEFAULT_HIDDEN_ACTIVITIES],
+  shown: [],
   loaded: false,
 
   applyPrefs: (raw) => {
     const prefs: IDEActivityBarPrefs = normalizeIDEActivityBarPrefs(raw) ?? {};
     const order = knownViews(prefs.order);
-    const hidden = knownViews(prefs.hidden);
+    const shown = knownViews(prefs.shown);
+    const hidden = [...new Set([...DEFAULT_HIDDEN_ACTIVITIES, ...knownViews(prefs.hidden)])]
+      .filter((view) => !shown.includes(view));
     // 같은 값이면 통지하지 않는다 — 활동바는 IDE 창마다 하나씩 떠 있어 무의미한 통지가 곱해진다.
-    if (get().loaded && sameList(get().order, order) && sameList(get().hidden, hidden)) return;
-    set({ order, hidden, loaded: true });
+    if (get().loaded && sameList(get().order, order) && sameList(get().hidden, hidden) && sameList(get().shown, shown)) return;
+    set({ order, hidden, shown, loaded: true });
   },
 
   fetchPrefs: async () => {
@@ -107,13 +112,14 @@ export const useIDEActivityBarStore = create<IDEActivityBarState>((set, get) => 
     const cur = get().hidden;
     const next = hidden ? (cur.includes(view) ? cur : [...cur, view]) : cur.filter((v) => v !== view);
     if (sameList(cur, next)) return;
-    set({ hidden: next });
-    const prefs = await put({ hidden: next });
+    const shown = hidden ? get().shown.filter((v) => v !== view) : [...new Set([...get().shown, view])];
+    set({ hidden: next, shown });
+    const prefs = await put({ hidden: next, shown });
     if (prefs) get().applyPrefs(prefs);
   },
 
   resetPrefs: async () => {
-    set({ order: [], hidden: [] });
+    set({ order: [], hidden: [...DEFAULT_HIDDEN_ACTIVITIES], shown: [] });
     const prefs = await put({ reset: true });
     if (prefs) get().applyPrefs(prefs);
   },

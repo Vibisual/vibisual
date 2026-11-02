@@ -15,6 +15,7 @@ import { capAgentLinkEntries, planLinkReplay, sanitizeAgentLinkRecords, type Lin
 import type {
   AgentLinkEntry,
   AgentLinkRecord,
+  AppWorkMark,
   CommandAppTarget,
   BubbleData,
   BubbleType,
@@ -164,9 +165,9 @@ import {
   type ExternalPromotionCandidate,
 } from '@vibisual/shared';
 import os from 'node:os';
-// §4 (설정 3층) — 에이전트 설정은 **갈라진 칸만** 저장하고 읽을 때 겹친다. 접힘 규칙은
+// §4 (설정 3층) — 에이전트 설정은 **이 버블이 정한 칸만** 저장하고 읽을 때 겹친다. 칸 비교(미설정 표기 접기)는
 //   화면의 "기본값과 다름" 점과 **같은 함수**를 써야 어긋나지 않는다(shared 한 곳).
-import { resolveAgentConfig, sparsifyAgentConfig, hasAgentConfigOverrides, resolveAgentDefaults, backfillAgentTools, migrateCmdAgentColor } from '@vibisual/shared';
+import { resolveAgentConfig, sparsifyAgentConfig, hasAgentConfigOverrides, resolveAgentDefaults, backfillAgentTools, migrateCmdAgentColor, engineForProvider } from '@vibisual/shared';
 import { normalizeOrchestraSettings, normalizeOrchestraRuns, settleStaleOrchestraRuns, orchestraRunsForSnapshot, appendOrchestraRun } from '@vibisual/shared';
 import type { OrchestraSettings, OrchestraRun, OrchestraSummary } from '@vibisual/shared';
 // §5.3 #10-5 설정 덜어내기 — 범위·기록 계약은 shared 한 곳(서버·클라가 같은 함수를 부른다).
@@ -196,8 +197,9 @@ import {
   type WebGroupSettings,
 } from '@vibisual/shared';
 import { extractBashReadTargets, type BashReadTarget } from './bashReadPaths.js';
-import { COMMAND_ACTIVITY_LIMITS, detectCommandApps } from '@vibisual/shared';
+import { COMMAND_ACTIVITY_LIMITS, commandAppGroupKey, detectCommandApps, mergeCommandAppTarget } from '@vibisual/shared';
 import { boundedBashEntry, restoredBashEntry, trimCommandActivity } from './commandActivityRetention.js';
+import { restoreCommandDelivery } from './commandDeliveryRestore.js';
 // §2.1 #3 쓰기 축 — 셸로 고친 파일도 같은 버블 경로를 탄다(추출기는 shared 순수 모듈).
 import { extractBashWriteTargets, BASH_WRITE_PATH_LIMIT, BASH_WRITE_PENDING_MAX, shellDialectOfTool, type ShellWriteTarget } from '@vibisual/shared';
 // §2.1 #3 — 편집 계열 도구 입력 모양은 shared 한 곳만 안다(클라 `IDE/diffTool.ts` 와 같은 파서).
@@ -1115,6 +1117,30 @@ export const CUSTOM_SESSION_KEY_PREFIX = 'custom-';
 /** 커스텀 버블의 합성 세션 키인가 — 훅 버블로 찍거나 생존 판정에 넣으면 안 되는 키다(§3.5). */
 export function isCustomSessionKey(sessionId: string): boolean {
   return sessionId.startsWith(CUSTOM_SESSION_KEY_PREFIX);
+}
+
+/** 경로마다 "없는가"를 libuv 스레드에서 확인한다(§9 「일하는 동안의 메인 스레드」). 확인 자체가 실패하면 `undefined` — 판정하지 않는다. */
+async function probeMissingPaths(
+  items: ReadonlyArray<{ absPath: string; worktree: boolean }>,
+  concurrency = 32,
+): Promise<Array<boolean | undefined>> {
+  const out = new Array<boolean | undefined>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++;
+      const { absPath, worktree } = items[i]!;
+      try {
+        out[i] = worktree
+          ? !isLiveWorktreeDir(absPath)
+          : await fs.promises.access(absPath).then(() => false, () => true);
+      } catch {
+        out[i] = undefined;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return out;
 }
 
 export class ProjectGraph {
@@ -2042,7 +2068,7 @@ export class ProjectGraph {
     const defaults = userDefaultsService.get();
     const key = defaults.updatedAt ?? 0;
     if (!this.agentDefaultsCache || this.agentDefaultsCache.key !== key) {
-      this.agentDefaultsCache = { key, value: resolveAgentDefaults(defaults, undefined, this.root) };
+      this.agentDefaultsCache = { key, value: resolveAgentDefaults(defaults, undefined, this.root, HOST_PLATFORM) };
     }
     return this.agentDefaultsCache.value;
   }
@@ -2051,7 +2077,7 @@ export class ProjectGraph {
   getAgentConfig(agentId: string): AgentConfig | undefined {
     const overrides = this.agentConfigOverrides.get(agentId);
     if (!overrides) return undefined;
-    const resolved = resolveAgentConfig(overrides, userDefaultsService.get(), this.root);
+    const resolved = resolveAgentConfig(overrides, userDefaultsService.get(), this.root, HOST_PLATFORM);
     // 훅으로 잡은 외부 세션의 모델은 관측이 유일한 진실이다(우리가 띄운 것이 아니라 고른 값이 없다).
     //   자기 `model` 을 못 박은 에이전트는 그 뜻이 우선이라 얹지 않는다.
     if (overrides.model === undefined) {
@@ -2100,10 +2126,17 @@ export class ProjectGraph {
         break;
       }
     }
-    // §4 (설정 3층) — 위층과 갈라진 칸만 남긴다(통째 저장하면 그 시점 전역값이 굳어 동기화에서 영구히 빠진다).
-    const overrides = sparsifyAgentConfig(config, resolveAgentDefaults(userDefaultsService.get(), config.provider?.kind === 'codex-cli' ? 'codex' : config.provider?.kind === 'local-llama' ? 'local' : 'claude', this.root));
+    // §4 (설정 3층) — 이 버블이 정한 칸만 남긴다(통째 저장하면 그 시점 전역값이 굳어 동기화에서 영구히 빠진다). 저장 직전 값이 기준선이라
+    //   이미 못 박은 칸과 이번에 바꾼 칸은 위층과 같아도 남는다 — 위층과만 대조하면 전역·판올림이 바뀔 때 개별 설정이 따라 바뀐다.
+    //   엔진이 바뀐 저장은 전 값과 견줄 수 없어 위층 대조만 한다.
+    const engine = engineForProvider(config.provider);
+    const prevOverrides = this.agentConfigOverrides.get(agentId);
+    const baseline = prevOverrides && engineForProvider(prevOverrides.provider) === engine
+      ? { overrides: prevOverrides, resolved: this.getAgentConfig(agentId) }
+      : undefined;
+    const overrides = sparsifyAgentConfig(config, resolveAgentDefaults(userDefaultsService.get(), engine, this.root, HOST_PLATFORM), baseline);
     this.agentConfigOverrides.set(agentId, overrides);
-    // "손댔다"의 판정도 저장분에서 나온다 — 되돌려 저장하면 자동 동기화로 다시 돌아간다.
+    // "손댔다"의 판정도 저장분에서 나온다.
     if (hasAgentConfigOverrides(overrides)) this.manuallyConfigured.add(agentId);
     else this.manuallyConfigured.delete(agentId);
     logger.info(`Agent config updated (manual): ${agentId} (pinned=${Object.keys(overrides).length})`);
@@ -2139,7 +2172,7 @@ export class ProjectGraph {
     for (const agent of enrichedAgents) {
       if (agent.bubbleType !== 'agent') continue;
       if (!this.agentConfigOverrides.has(agent.id)) this.agentConfigOverrides.set(agent.id, {});
-      // 우리가 띄우는 버블(커스텀·CMD)의 모델은 3층이 정하고 관측은 결과일 뿐이다 — 여기 얹으면 기본값과 같아 못 박히지 않은 칸(`sparsifyAgentConfig`)을
+      // 우리가 띄우는 버블(커스텀·CMD)의 모델은 3층이 정하고 관측은 결과일 뿐이다 — 여기 얹으면 못 박히지 않은 칸(안 건드린 칸 — `sparsifyAgentConfig`)을
       // 지난 턴 관측이 채워 스폰이 그 모델로 나가고 설정 창 기본을 바꿔도 안 따라온다. 관측이 진실인 것은 훅 버블뿐이다.
       if (agent.customCreated) {
         this.detectedAgentModels.delete(agent.id);
@@ -3402,8 +3435,10 @@ export class ProjectGraph {
       percent = deriveGoalPercent(nextSteps);
     } else {
       if (!explicit && cur.lastExplicitRevision === cur.revision) return undefined;
-      if (input.percent === undefined) return undefined; // 단계도 숫자도 없으면 갱신할 게 없다
-      percent = Math.max(0, Math.min(100, Math.round(input.percent)));
+      if (input.percent === undefined && !textChanged) return undefined;
+      percent = input.percent === undefined
+        ? cur.percent
+        : Math.max(0, Math.min(100, Math.round(input.percent)));
     }
 
     const note = input.note?.trim() ? input.note.trim().slice(0, SESSION_GOAL_NOTE_MAX) : undefined;
@@ -3435,7 +3470,8 @@ export class ProjectGraph {
 
   /**
    * §5.5 #17-17 ① — 세션이 `TodoWrite` 로 세운 계획을 목표 창으로 옮긴다(문장 = 지금 명령, 단계 = 계획).
-   * 세션이 쓴 목표는 새 명령에 갈아타고 `'user'` 목표는 안 건드린다. 바뀐 게 없으면 undefined.
+   * 활성 목표는 명령 문자열이 달라도 유지한다. 닫힌 세션 소유 목표만 새 명령으로 다시 연다.
+   * 계획은 현재 목표의 체크리스트를 갱신하며, 바뀐 게 없으면 undefined.
    */
   syncSessionGoalFromPlan(
     subAgentId: string,
@@ -3446,8 +3482,10 @@ export class ProjectGraph {
     const command = input.command?.trim() ? input.command.trim() : undefined;
 
     // (a) 아직 목표가 없다 = 이 세션이 처음으로 일을 벌였다 → 목표 카드를 만든다.
-    // (b) 세션이 쓴 목표인데 명령이 바뀌었다 = 새 일을 시작했다 → 새 목표로 갈아탄다.
-    const isNewWork = !!cur && cur.authoredBy === 'session' && !!command && cur.sourceCommand !== command;
+    // (b) 명시적으로 닫힌 세션 소유 목표에 다른 명령이 왔다 → 새 목표를 시작한다.
+    // 활성 목표의 범위는 후속 질문이 아니라 명시적인 goal 갱신으로 바꾼다.
+    const isNewWork = !!cur && cur.status !== 'active' && cur.authoredBy === 'session'
+      && !!command && cur.sourceCommand !== command;
     if (!cur || isNewWork) {
       // 명령 전문은 몇 백 줄일 수도 있다 — 사이드바 머리글로 읽히게 첫 문단만 짧게 세운다.
       //   에이전트가 나중에 `goal` 신고로 제대로 된 한 문장으로 다듬는다(⑧ b).
@@ -3471,7 +3509,7 @@ export class ProjectGraph {
 
   /**
    * §5.5 #17-17 ⑨ — 목표는 명령이 세션 탭으로 발사되는 순간 그 머리글로 태어난다(단계는 계획이 오면 붙는다).
-   * `TodoWrite` 에만 묶지 마라 — 계획을 안 세우는 세션은 목표창이 영영 빈다(실측: 279 세션 중 1개). 교체 규칙은 계획 경로와 같다(⑧).
+   * `TodoWrite` 에만 묶지 마라 — 계획이 없어도 목표를 만든다. 이미 활성인 목표는 후속 입력으로 초기화하지 않는다.
    */
   seedSessionGoalFromCommand(
     subAgentId: string,
@@ -3483,6 +3521,7 @@ export class ProjectGraph {
     const cur = this.sessionGoals.get(subAgentId);
     if (cur) {
       if (cur.authoredBy === 'user') return undefined; // 사용자가 준 방향은 명령이 지우지 않는다
+      if (cur.status === 'active') return undefined; // 후속 입력만으로 작업 범위를 바꾸지 않는다
       if (cur.sourceCommand === command) return undefined; // 같은 일 — 이미 이 명령으로 서 있다
       this.resetGoalForNewWork(subAgentId); // 새 일 — 옛 단계·퍼센트·메모를 물려받지 않는다
     }
@@ -3510,7 +3549,10 @@ export class ProjectGraph {
   private resetGoalForNewWork(subAgentId: string): void {
     const cur = this.sessionGoals.get(subAgentId);
     if (!cur) return;
-    const { note: _dropped, ...rest } = cur;
+    const {
+      note: _dropped, lastExplicitRevision: _explicitRevision,
+      lastExplicitAt: _explicitAt, lastProgressAt: _progressAt, ...rest
+    } = cur;
     this.sessionGoals.set(subAgentId, { ...rest, steps: [], percent: 0 });
   }
 
@@ -7054,7 +7096,7 @@ export class ProjectGraph {
     if (cp.commandQueues) {
       for (const [sessionId, cmds] of Object.entries(cp.commandQueues)) {
         if (!this.commandQueuesRef.has(sessionId)) {
-          this.commandQueuesRef.set(sessionId, [...cmds]);
+          this.commandQueuesRef.set(sessionId, cmds.map(restoreCommandDelivery));
         }
       }
     }
@@ -7570,6 +7612,7 @@ export class ProjectGraph {
 
     // 구 체크포인트 호환: 미스코프 node id 재해싱
     this.regenerateScopedNodeIds();
+    this.mergeSameNameCommandApps();
     // 옵 체크포인트는 외부 폴더가 전부 최상위로 평탄하게 적혀 있다 — 지금 규칙으로 다시 세운다(§2.1 #5).
     this.rebuildExternalFolderTree();
     // §5.1 #2-1 (F) ② — 이미 떠 있던 캔버스의 앱 작업 꼬리표를 명령 이력으로 되짚는다(판단이 서는 것만).
@@ -8105,7 +8148,7 @@ export class ProjectGraph {
     // commandQueues 복원 (외부에서 주입된 ref Map에 데이터 주입)
     if (cp.commandQueues) {
       for (const [sessionId, cmds] of Object.entries(cp.commandQueues)) {
-        this.commandQueuesRef.set(sessionId, [...cmds]);
+        this.commandQueuesRef.set(sessionId, cmds.map(restoreCommandDelivery));
       }
     }
 
@@ -8178,6 +8221,7 @@ export class ProjectGraph {
 
     // 구 체크포인트 호환: 미스코프 node id 를 현재 스코프 규칙으로 재해싱 (프로젝트 간 merge 충돌 방지)
     this.regenerateScopedNodeIds();
+    this.mergeSameNameCommandApps();
     // 옵 체크포인트는 외부 폴더가 전부 최상위로 평탄하게 적혀 있다 — 지금 규칙으로 다시 세운다(§2.1 #5).
     this.rebuildExternalFolderTree();
     // §5.1 #2-1 (F) ② — 이미 떠 있던 캔버스의 앱 작업 꼬리표를 명령 이력으로 되짚는다(판단이 서는 것만).
@@ -10206,10 +10250,11 @@ export class ProjectGraph {
   /**
    * 모든 파일/폴더 노드의 디스크 경로를 검증.
    * 사라진 경로 → ghost + disappearing 전환. 반환: ghost로 전환된 건수.
+   * §9 「일하는 동안의 메인 스레드」 — 확인은 libuv 스레드에서 한다. 동기 `existsSync` 로 되돌리지 마라 — 노드 1,500개면
+   *   Bash 가 돌 때마다 ~280ms 메인 스레드를 잡아 창 끌기가 끊긴다(2026-10-29 실측). 기다리는 사이 바뀐 노드는 건너뛴다.
    */
-  checkFileExistence(): number {
-    this.bumpMutationVersion();
-    let converted = 0;
+  async checkFileExistence(): Promise<number> {
+    const targets: Array<{ nodePath: string; node: BubbleData; absPath: string }> = [];
     for (const [nodePath, node] of this.nodes) {
       // §5.23 — `domain` 은 디스크에 없다. 넣으면 매 스윕마다 miss 가 누적돼
       // 살아 있는 버블이 Ghost 로 돌아간다.
@@ -10221,30 +10266,37 @@ export class ProjectGraph {
 
       const absPath = this.resolveAbsolutePath(nodePath);
       if (!absPath) continue;
+      targets.push({ nodePath, node, absPath });
+    }
+    const missingByTarget = await probeMissingPaths(targets.map(({ node, absPath }) => ({
+      absPath,
+      // worktree 는 폴더 존재가 아니라 살아 있는 git 워크트리인지로 본다 — `git worktree remove` 뒤 잔여 폴더만 남으면 버블이 영영 남는다.
+      worktree: node.bubbleType === 'worktree',
+    })));
 
-      try {
-        // worktree 는 폴더 존재가 아니라 살아 있는 git 워크트리인지로 본다 — `git worktree remove` 뒤 잔여 폴더만 남으면 버블이 영영 남는다.
-        const missing = node.bubbleType === 'worktree'
-          ? !isLiveWorktreeDir(absPath)
-          : !fs.existsSync(absPath);
-        if (missing) {
-          // 디바운스: 연속 miss가 임계에 도달해야 진짜 삭제로 판정.
-          // 에디터 atomic-save(temp+rename)·git·빌드툴이 파일을 찰나 치우는 동안의
-          // 단발 miss로 실재 파일이 ghost→소멸되던 버그 방지.
-          const misses = (this.existenceMissCount.get(nodePath) ?? 0) + 1;
-          if (misses >= FILE_EXISTENCE_MISS_THRESHOLD) {
-            this.existenceMissCount.delete(nodePath);
-            this.convertToGhost(nodePath, 'deleted');
-            converted++;
-          } else {
-            this.existenceMissCount.set(nodePath, misses);
-          }
-        } else {
-          // 다시 존재하면 누적 miss 리셋 (transient 복구)
+    this.bumpMutationVersion();
+    let converted = 0;
+    for (let i = 0; i < targets.length; i++) {
+      const { nodePath, node } = targets[i]!;
+      const missing = missingByTarget[i];
+      // 접근 불가 시 무시 (miss 카운트도 건드리지 않음 — 권한 일시 오류로 소멸 금지)
+      if (missing === undefined) continue;
+      if (this.nodes.get(nodePath) !== node || node.bubbleType === 'ghost') continue;
+      if (missing) {
+        // 디바운스: 연속 miss가 임계에 도달해야 진짜 삭제로 판정.
+        // 에디터 atomic-save(temp+rename)·git·빌드툴이 파일을 찰나 치우는 동안의
+        // 단발 miss로 실재 파일이 ghost→소멸되던 버그 방지.
+        const misses = (this.existenceMissCount.get(nodePath) ?? 0) + 1;
+        if (misses >= FILE_EXISTENCE_MISS_THRESHOLD) {
           this.existenceMissCount.delete(nodePath);
+          this.convertToGhost(nodePath, 'deleted');
+          converted++;
+        } else {
+          this.existenceMissCount.set(nodePath, misses);
         }
-      } catch {
-        // 접근 불가 시 무시 (miss 카운트도 건드리지 않음 — 권한 일시 오류로 소멸 금지)
+      } else {
+        // 다시 존재하면 누적 miss 리셋 (transient 복구)
+        this.existenceMissCount.delete(nodePath);
       }
     }
     return converted;
@@ -11154,10 +11206,11 @@ export class ProjectGraph {
   /**
    * 명령 앱 버블 하나를 그 에이전트에 잇는다 — 자리가 꽉 찼으면 가장 식은 것을 비키고, 자리가 없으면(전부 고정·작업 중) null.
    * 훅 경로(`routeCommandApps`)와 §5.4 #36 (H) ①-2 다시 보기가 **같은 함수**를 탄다.
+   * §5.1 — 같은 탭에 이름이 같은 앱 버블이 있으면 그 버블을 쓴다(옛 기록의 키·다른 실행 경로로 와도 둘째 버블을 세우지 않는다).
    */
   private upsertCommandAppNode(
     agent: BubbleData,
-    key: string,
+    requestedKey: string,
     target: CommandAppTarget,
     projectName: string,
     toolName: string,
@@ -11166,14 +11219,20 @@ export class ProjectGraph {
     if (this.commandAppKeys === null) {
       this.commandAppKeys = new Set([...this.nodes].filter(([, node]) => node.commandApp).map(([k]) => k));
     }
+    let key = requestedKey;
     let node = this.nodes.get(key);
+    const siblings: Array<{ key: string; node: BubbleData }> = [];
     if (!node) {
-      const siblings: Array<{ key: string; node: BubbleData }> = [];
       for (const existingKey of this.commandAppKeys) {
         const existing = this.nodes.get(existingKey);
         if (!existing) { this.commandAppKeys.delete(existingKey); continue; }
         if (this.nodeProjectNames.get(existingKey) === projectName) siblings.push({ key: existingKey, node: existing });
       }
+      const group = commandAppGroupKey(target);
+      const same = siblings.find(({ node: item }) => item.commandApp && commandAppGroupKey(item.commandApp) === group);
+      if (same) ({ key, node } = same);
+    }
+    if (!node) {
       if (siblings.length >= COMMAND_ACTIVITY_LIMITS.appsPerProject) {
         const oldest = siblings.filter(({ node: item }) => !item.preservePinned && !item.pinned && item.status !== 'active')
           .sort((a, b) => (a.node.lastActivity ?? 0) - (b.node.lastActivity ?? 0))[0];
@@ -11193,7 +11252,7 @@ export class ProjectGraph {
       this.nodeProjectNames.set(key, projectName);
       this.topLevelPaths.add(key);
     }
-    node.commandApp = target;
+    node.commandApp = mergeCommandAppTarget(node.commandApp, target);
     node.label = target.name;
     node.lastTool = toolName;
     node.lastActivity = Date.now();
@@ -11212,8 +11271,14 @@ export class ProjectGraph {
     const projectName = this.resolveOwnerTabProjectName(payload.cwd)
       ?? this.resolveOwnerTabProjectName(this.sessionCwds.get(payload.session_id));
     if (!projectName) return;
-    const ids: string[] = [];
+    // 한 명령이 같은 앱을 두 번 불러도(`Build.bat … && UnrealEditor.exe …`) 버블 하나에 한 번만 센다.
+    const targets = new Map<string, CommandAppTarget>();
     for (const target of entry.apps) {
+      const group = commandAppGroupKey(target);
+      targets.set(group, mergeCommandAppTarget(targets.get(group), target));
+    }
+    const ids: string[] = [];
+    for (const target of targets.values()) {
       const node = this.upsertCommandAppNode(
         agent,
         this.commandAppKey(projectName, target.id),
@@ -11224,7 +11289,7 @@ export class ProjectGraph {
         (app) => entry.status === 'running' || [...this.bashHistory.values()].some((list) => list.some((other) =>
           other !== entry && other.status === 'running' && other.appNodeIds?.includes(app.id))),
       );
-      if (node) ids.push(node.id);
+      if (node && !ids.includes(node.id)) ids.push(node.id);
     }
     entry.appNodeIds = ids;
     const list = this.bashHistory.get(payload.session_id);
@@ -13259,6 +13324,100 @@ export class ProjectGraph {
       if (entry.appNodeIds) entry.appNodeIds = entry.appNodeIds.map((id) => idMap.get(id) ?? id);
     }
     logger.info(`Regenerated ${idMap.size} node ids under scope "${scope}"`);
+  }
+
+  /**
+   * §5.1 — 탭마다 이름이 같은 명령 앱 버블을 하나로 모은다(불러올 때). 앱 id 가 엔진 폴더·.uproject·실행 경로를 담아 같은 Unreal Engine 이 둘·셋으로 저장돼 있다.
+   * 고정·작업 중·많이 쓴 버블이 남고 선·소유·명령 이력·앱 작업 표식·이 턴 묶음·다시 보기 기록이 그리로 옮는다.
+   */
+  private mergeSameNameCommandApps(): void {
+    const groupOf = (project: string | undefined, app: CommandAppTarget): string => JSON.stringify([project ?? '', commandAppGroupKey(app)]);
+    const groups = new Map<string, Array<{ key: string; node: BubbleData }>>();
+    for (const [key, node] of this.nodes) {
+      if (!node.commandApp) continue;
+      const group = groupOf(this.nodeProjectNames.get(key), node.commandApp);
+      const list = groups.get(group);
+      if (list) list.push({ key, node });
+      else groups.set(group, [{ key, node }]);
+    }
+    const idMap = new Map<string, string>();
+    const keyMap = new Map<string, string>();
+    const liveKeys = new Map<string, string>();
+    const rank = (node: BubbleData): number => (node.preservePinned || node.pinned ? 2 : 0) + (node.status === 'active' ? 1 : 0);
+    for (const [group, list] of groups) {
+      list.sort((a, b) => rank(b.node) - rank(a.node) || b.node.activity - a.node.activity);
+      const keep = list[0]!;
+      liveKeys.set(group, keep.key);
+      if (list.length < 2) continue;
+      let app = keep.node.commandApp!;
+      for (const { key, node } of list.slice(1)) {
+        app = mergeCommandAppTarget(app, node.commandApp!);
+        keep.node.activity += node.activity;
+        keep.node.lastActivity = Math.max(keep.node.lastActivity ?? 0, node.lastActivity ?? 0);
+        if (node.preservePinned) keep.node.preservePinned = true;
+        if (node.pinned) keep.node.pinned = true;
+        if (node.unlimitedCommandHistory) keep.node.unlimitedCommandHistory = true;
+        if (node.status === 'active') keep.node.status = 'active';
+        for (const agentId of this.nodeAgentRefs.get(key) ?? []) this.addAgentRef(keep.key, agentId);
+        idMap.set(node.id, keep.node.id);
+        keyMap.set(key, keep.key);
+        this.nodes.delete(key);
+        this.commandAppKeys?.delete(key);
+        this.nodeProjectNames.delete(key);
+        this.topLevelPaths.delete(key);
+        this.nodeAgentRefs.delete(key);
+        this.existenceMissCount.delete(key);
+      }
+      // 남는 버블의 실행 경로·프로젝트를 다시 앞에 두되 그림 출처는 모은 것 가운데 가장 확실한 것.
+      keep.node.commandApp = mergeCommandAppTarget(app, keep.node.commandApp!);
+    }
+
+    // 옛 기록은 같은 앱을 여러 키로 적었다 — 다시 세우기가 키로 칸을 되돌리므로 앱마다 한 줄(마지막 줄)·지금 키로 맞춘다.
+    for (const record of this.agentLinkRecords.values()) {
+      const lastLine = new Map<string, number>();
+      record.entries.forEach((entry, index) => {
+        if (entry.commandApp) lastLine.set(groupOf(entry.project, entry.commandApp), index);
+      });
+      if (lastLine.size === 0) continue;
+      record.entries = record.entries.filter((entry, index) => {
+        if (!entry.commandApp) return true;
+        const group = groupOf(entry.project, entry.commandApp);
+        if (lastLine.get(group) !== index) return false;
+        entry.key = liveKeys.get(group) ?? keyMap.get(entry.key) ?? entry.key;
+        return true;
+      });
+    }
+    if (idMap.size === 0) return;
+
+    this.mainEdges.remapIds(idMap);
+    this.innerEdges.remapIds(idMap);
+    const remapIds = (ids: readonly string[]): string[] => [...new Set(ids.map((id) => idMap.get(id) ?? id))];
+    for (const entries of this.bashHistory.values()) for (const entry of entries) {
+      if (entry.appNodeIds) entry.appNodeIds = remapIds(entry.appNodeIds);
+    }
+    for (const commands of [...this.commandQueuesRef.values(), ...this.completedCommandArchiveRef.values()]) {
+      for (const command of commands) if (command.appNodeIds) command.appNodeIds = remapIds(command.appNodeIds);
+    }
+    for (const node of this.nodes.values()) {
+      if (!node.appWork) continue;
+      let marks: Record<string, AppWorkMark> | undefined;
+      for (const [id, mark] of Object.entries(node.appWork)) {
+        const to = idMap.get(id);
+        if (!to) continue;
+        marks ??= { ...node.appWork };
+        delete marks[id];
+        const prev = marks[to];
+        marks[to] = prev
+          ? { w: prev.w + mark.w, at: Math.max(prev.at, mark.at),
+            ...(prev.script || mark.script ? { script: true } : {}), ...(prev.retro && mark.retro ? { retro: true } : {}) }
+          : mark;
+      }
+      if (marks) node.appWork = marks;
+    }
+    for (const paths of this.agentTurnNodes.values()) {
+      for (const [from, to] of keyMap) if (paths.delete(from)) paths.add(to);
+    }
+    logger.info(`Merged ${idMap.size} same-name command app bubble(s)`);
   }
 
   private upsertNode(

@@ -6,13 +6,16 @@ import { isWithinRoot, samePath } from './pathKey.js';
 export function findReferencedCommandAttachment(
   filePath: string,
   attachmentDir: string,
-  commands: readonly Pick<QueuedCommand, 'attachments'>[],
+  commands: readonly Pick<QueuedCommand, 'attachments' | 'followUps'>[],
   recoverMovedUpload = false,
 ): string | undefined {
   const requested = path.resolve(filePath);
   const root = path.resolve(attachmentDir);
   if (!isWithinRoot(requested, root) || samePath(requested, root)) return undefined;
-  const references = commands.flatMap((command) => command.attachments ?? [])
+  const references = commands.flatMap((command) => [
+    ...(command.attachments ?? []),
+    ...(command.followUps ?? []).flatMap((followUp) => followUp.attachments ?? []),
+  ])
     .map((reference) => path.resolve(reference))
     .filter((reference) => isWithinRoot(reference, root) && !samePath(reference, root));
   const exact = references.find((reference) => samePath(reference, requested));

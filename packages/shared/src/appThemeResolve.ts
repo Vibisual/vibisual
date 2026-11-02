@@ -8,6 +8,7 @@ import {
   APP_THEME_SCHEMA_VERSION,
   APP_THEME_SHADES,
   APP_THEME_TOKEN_SPECS,
+  BASE_APP_THEME_ID,
   CUSTOM_APP_THEME_PREFIX,
   DEFAULT_APP_THEME_ID,
   DEFAULT_LIGHT_APP_THEME_ID,
@@ -372,7 +373,7 @@ export function isBuiltinAppThemeId(id: string | null | undefined): boolean {
 }
 
 function defaultDefinition(): AppThemeDefinition {
-  return findAppTheme(DEFAULT_APP_THEME_ID) ?? { schemaVersion: APP_THEME_SCHEMA_VERSION, id: DEFAULT_APP_THEME_ID, name: 'Vibisual Dark', kind: 'dark' };
+  return findAppTheme(DEFAULT_APP_THEME_ID) ?? { schemaVersion: APP_THEME_SCHEMA_VERSION, id: DEFAULT_APP_THEME_ID, name: 'Graphite', kind: 'dark' };
 }
 
 // ─── 해석 ──────────────────────────────────────────────────────────────────
@@ -386,7 +387,7 @@ interface WorkState {
   kind: AppThemeKind;
 }
 
-/** 뿌리 — Tailwind 기본 팔레트 + 종전 화면의 토큰 값. 기본 테마(Vibisual Dark)가 곧 이 상태다. */
+/** 뿌리 — Tailwind 기본 팔레트 + 종전 화면의 토큰 값. 상속 기준(Vibisual Dark)이 곧 이 상태다. */
 function rootState(): WorkState {
   const tokens = {} as Record<AppThemeToken, string>;
   for (const t of APP_THEME_TOKENS) tokens[t] = APP_THEME_TOKEN_SPECS[t].default;
@@ -395,10 +396,10 @@ function rootState(): WorkState {
 
 /** 정의가 이어받는 테마 id. 뿌리면 `null`. */
 function baseIdOf(d: AppThemeDefinition): string | null {
-  if (d.id === DEFAULT_APP_THEME_ID) return null;
+  if (d.id === BASE_APP_THEME_ID) return null;
   if (d.extends) return d.extends;
   if (d.kind === 'light' && d.id !== DEFAULT_LIGHT_APP_THEME_ID) return DEFAULT_LIGHT_APP_THEME_ID;
-  return DEFAULT_APP_THEME_ID;
+  return BASE_APP_THEME_ID;
 }
 
 /** 뿌리 쪽부터의 사슬. 순환·없는 출발점은 거기서 끊고 문제로 남긴다(그 위는 뿌리에서 출발한다). */

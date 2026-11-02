@@ -3,8 +3,9 @@
  * "미설정" 표기가 필드마다 달라(`effort: 'default'` · `isolation: 'none'` · `maxTurns: 0` · `autoCompact: ''` · `undefined` = 켬) 접힘 규칙을 shared 한 곳에 둔다.
  */
 
-import type { AgentConfig, AgentDefinition, AgentEngineKind, UserDefaults } from './types.js';
+import type { AgentConfig, AgentDefinition, AgentEngineKind, AgentProvider, UserDefaults } from './types.js';
 import { AGENT_TOOLS_BACKFILL_GEN, DEFAULT_AGENT_CONFIG, backfillAgentTools, buildAgentsFlagJson, engineForProvider, providerForEngine } from './constants.js';
+import { normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
 
 /**
  * 비교에서 빼는 축 — 버블마다 다른 게 정상인 정체성(`provider`·`executionMode`·`cliKind`)과 다른 화면이 채우는 값(`mcpServers`·`rulesHistory`·`presetId`).
@@ -88,10 +89,31 @@ export const AGENT_MAX_TURNS_UI_FALLBACK = 3000;
 type AgentDefaultsSource = Pick<UserDefaults, 'agentConfig' | 'engineChoice' | 'engineConfigs' | 'projectEngineConfigs'> | null | undefined;
 
 /**
+ * §5.25 — 프로젝트 칸(`projectEngineConfigs`)은 폴더 경로가 키다. 저장한 쪽(화면 — 원래 표기)과 찾는 쪽(서버 — 접힌 키 ·
+ * 드라이브 문자 `c:`/`C:`)의 표기가 달라 정확히 같은 키만 보면 저장한 설정이 조용히 빠진다. 같은 키 → 그 플랫폼 규칙(`pathKey`) 순으로 찾는다.
+ * `platform` 을 모르면 모양만 맞춘다 — 대소문자를 접으면 linux 에서 다른 폴더의 설정을 빌려 온다.
+ */
+export function findProjectEngineConfigs(
+  map: UserDefaults['projectEngineConfigs'],
+  projectPath: string | null | undefined,
+  platform?: PlatformName,
+): Partial<Record<AgentEngineKind, Partial<AgentConfig>>> | undefined {
+  if (!map || !projectPath) return undefined;
+  const exact = map[projectPath];
+  if (exact) return exact;
+  const keyOf = (p: string): string => (platform ? pathKey(p, platform) : normalizePathShape(p));
+  const want = keyOf(projectPath);
+  for (const [key, value] of Object.entries(map)) {
+    if (value && keyOf(key) === want) return value;
+  }
+  return undefined;
+}
+
+/**
  * 기본값 한 벌(3층 중 아래 둘) — `DEFAULT_AGENT_CONFIG` 위에 설정 창 프리셋. 자기 값이 없는 칸은 읽을 때마다 이것을 따라온다.
  * 키를 돌며 얹는다 — 스프레드는 `model: undefined` 같은 실재 키로 내장 기본을 지운다. 프리셋 도구는 얹기 전에 백필한다(뒤에 하면 세대 도장 때문에 건너뛰어 옛 11종이 48종을 가린다 — 실측).
  */
-export function resolveAgentDefaults(userDefaults?: AgentDefaultsSource, engine?: AgentEngineKind, projectPath?: string | null): AgentConfig {
+export function resolveAgentDefaults(userDefaults?: AgentDefaultsSource, engine?: AgentEngineKind, projectPath?: string | null, platform?: PlatformName): AgentConfig {
   const merged: AgentConfig = {
     ...DEFAULT_AGENT_CONFIG,
     tools: [...DEFAULT_AGENT_CONFIG.tools],
@@ -100,7 +122,7 @@ export function resolveAgentDefaults(userDefaults?: AgentDefaultsSource, engine?
   const main = userDefaults?.engineChoice?.kind ?? engineForProvider(userDefaults?.agentConfig?.provider);
   const selected = engine ?? main;
   const global = selected === main ? userDefaults?.agentConfig : userDefaults?.engineConfigs?.[selected];
-  const project = projectPath ? userDefaults?.projectEngineConfigs?.[projectPath]?.[selected] : undefined;
+  const project = findProjectEngineConfigs(userDefaults?.projectEngineConfigs, projectPath, platform)?.[selected];
   const config = { ...global, ...project };
   if (selected !== 'claude') config.provider = { ...providerForEngine(selected)!, ...global?.provider, ...project?.provider };
   else delete config.provider;
@@ -193,7 +215,7 @@ export function diffAgentConfigFromDefaults(
   return out;
 }
 
-// §4 (설정 3층) 에이전트 → 설정 창 → 내장. 저장은 갈라진 칸만(sparse), 읽을 때 세 층을 겹친다(`resolveAutoCompact` 규율의 확장).
+// §4 (설정 3층) 에이전트 → 설정 창 → 내장. 저장은 이 버블이 정한 칸만(sparse), 읽을 때 세 층을 겹친다(`resolveAutoCompact` 규율의 확장).
 // 안 건드린 칸은 설정 창을 따라가고 건드린 칸은 못 박힌다 — 생성 때 전역값을 통째로 복사하면 어느 칸이 사용자의 뜻인지 가릴 수 없다.
 
 /** 세 층(내장 → 설정 창 → 이 에이전트)을 겹친 완성 설정. 늘 완전한 `AgentConfig` 라 스폰·화면·전선은 3층을 모른다(아는 곳은 저장소 하나). */
@@ -201,8 +223,9 @@ export function resolveAgentConfig(
   overrides?: Partial<AgentConfig> | null,
   userDefaults?: AgentDefaultsSource,
   projectPath?: string | null,
+  platform?: PlatformName,
 ): AgentConfig {
-  const merged = resolveAgentDefaults(userDefaults, overrides ? engineForProvider(overrides.provider) : undefined, projectPath);
+  const merged = resolveAgentDefaults(userDefaults, overrides ? engineForProvider(overrides.provider) : undefined, projectPath, platform);
   if (overrides) {
     for (const [key, value] of Object.entries(overrides)) {
       if (value === undefined) continue;
@@ -210,7 +233,7 @@ export function resolveAgentConfig(
     }
   }
   if (overrides?.provider) {
-    const inherited = resolveAgentDefaults(userDefaults, engineForProvider(overrides.provider), projectPath).provider;
+    const inherited = resolveAgentDefaults(userDefaults, engineForProvider(overrides.provider), projectPath, platform).provider;
     merged.provider = { ...inherited, ...overrides.provider };
     if (!overrides.provider.modelId && inherited?.modelId) {
       merged.provider.modelId = inherited.modelId;
@@ -221,38 +244,86 @@ export function resolveAgentConfig(
 }
 
 /**
- * 위층과 갈라진 칸만 남긴다(저장분). 접힘은 화면 점과 같은 `agentFieldDiffers`(두 벌이면 점 없이 값이 못 박힌다), 넘어온 객체의 키를 돈다.
- * `toolsBackfillGen` 은 `tools` 의 도장이라 목록을 못 박은 설정만 갖는다(도장만 남으면 백필이 빈 목록으로 돈다).
+ * §4 (설정 3층) — 개별 저장의 기준선: 저장 직전 그 버블의 저장분·완성본. 위층과만 대조하면 고른 값이 그때 전역과 같다는 이유로 빠지고,
+ * 다시 저장할 때 못 박아 둔 칸도 빠져 설정 창·내장 기본이 바뀌면 개별 설정이 따라 바뀐다. 창은 완성본으로 열리므로 완성본과 다른 칸이 곧 바꾼 칸이다.
+ */
+export interface AgentConfigSaveBaseline {
+  overrides?: Partial<AgentConfig> | null;
+  resolved?: AgentConfig | null;
+}
+
+/** 코덱스 하위 칸 중 위층(설정 창·프로젝트 칸)을 물려받는 것. */
+const CODEX_INHERITED_PROVIDER_FIELDS = ['reasoningEffort', 'webSearch', 'networkAccess', 'modelVerbosity', 'codexTools', 'reasoningSummary', 'personality', 'serviceTier', 'autoCompactTokenLimit'] as const;
+
+/** 코덱스 하위 칸의 비교 열쇠 — 키 순서와 빈 값(`undefined`·`''`·`{}`)의 표기 차이를 접는다(창은 빈 도구 정책을 `{}` 로 싣는다). */
+function codexFieldKey(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return entries.length > 0 ? JSON.stringify(entries) : '';
+  }
+  return JSON.stringify(value);
+}
+
+/** 코덱스 `provider` 저장분 — 정체·사용량은 그대로, 물려받는 칸은 아래 셋(위층과 다름·이미 못 박힘·이번에 바꿈) 중 하나일 때만. 빈 모델 = 물려받기. */
+function sparsifyCodexProvider(provider: AgentProvider, inherited: AgentProvider | undefined, baseline?: AgentConfigSaveBaseline | null): AgentProvider {
+  const out: AgentProvider = { ...provider };
+  const pinned = baseline?.overrides?.provider?.kind === 'codex-cli' ? baseline.overrides.provider : undefined;
+  const before = baseline?.resolved?.provider?.kind === 'codex-cli' ? baseline.resolved.provider : undefined;
+  const modelChanged = before !== undefined && (out.modelId ?? '') !== (before.modelId ?? '');
+  if (inherited?.modelId && out.modelId === inherited.modelId && !pinned?.modelId && !modelChanged) {
+    out.modelId = '';
+    delete out.modelName;
+  }
+  for (const field of CODEX_INHERITED_PROVIDER_FIELDS) {
+    if (out[field] === undefined) {
+      delete out[field];
+      continue;
+    }
+    const key = codexFieldKey(out[field]);
+    // 비운 것도 바꾼 것이다(도구 정책 `{}` = 이 버블은 제한 없음). 비운 강도처럼 키가 빠진 칸은 남겨도 없는 칸이라 물려받는다.
+    const keep = key !== codexFieldKey(inherited?.[field])
+      || (key !== '' && pinned !== undefined && codexFieldKey(pinned[field]) !== '')
+      // 이미 저장한 `{}` 는 제한 없음이라는 선택이다 — 위층도 비워졌다고 상속으로 되돌리지 않는다.
+      || (field === 'codexTools' && pinned?.codexTools !== undefined)
+      || (before !== undefined && key !== codexFieldKey(before[field]));
+    if (!keep) delete out[field];
+  }
+  return out;
+}
+
+/**
+ * 저장분을 만든다. 칸이 남는 조건은 셋 중 하나 — 위층과 다르다 · `baseline` 에서 이미 못 박혀 있다 · `baseline` 완성본과 달라졌다(이번에 바꿨다).
+ * `baseline` 이 없으면 위층 대조뿐이다(설정 창 프로젝트 칸·옛 완성본 이관 — 무엇을 골랐는지 남아 있지 않거나 위층과 다른 것만 적는 자리).
+ * 값이 `undefined` 인 칸은 오지 않은 것이라 위층을 따른다. `toolsBackfillGen` 은 `tools` 의 도장이라 목록을 못 박은 설정만 갖는다(도장만 남으면 백필이 빈 목록으로 돈다).
  */
 export function sparsifyAgentConfig(
   config: Partial<AgentConfig> | null | undefined,
   defaults: AgentConfig,
+  baseline?: AgentConfigSaveBaseline | null,
 ): Partial<AgentConfig> {
   if (!config) return {};
+  const inherited = defaults as unknown as Record<string, unknown>;
+  const pinned = baseline?.overrides as Record<string, unknown> | null | undefined;
+  const before = baseline?.resolved as unknown as Record<string, unknown> | null | undefined;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(config)) {
     if (value === undefined) continue;
     if (key === 'toolsBackfillGen') continue;
-    // Provider identity/usage stays local; unchanged Codex preferences keep inheriting.
     if (key === 'provider' && config.provider?.kind === 'codex-cli') {
-      const provider = { ...config.provider };
-      if (defaults.provider?.modelId && provider.modelId === defaults.provider.modelId) {
-        provider.modelId = '';
-        delete provider.modelName;
-      }
-      for (const field of ['reasoningEffort', 'webSearch', 'networkAccess', 'modelVerbosity', 'codexTools', 'reasoningSummary', 'personality', 'serviceTier', 'autoCompactTokenLimit'] as const) {
-        if (JSON.stringify(provider[field]) === JSON.stringify(defaults.provider?.[field])) delete provider[field];
-      }
-      out[key] = provider;
+      out[key] = sparsifyCodexProvider(config.provider, defaults.provider, baseline);
       continue;
     }
     if (AGENT_CONFIG_NON_INHERITED_FIELDS.includes(key)) {
       out[key] = Array.isArray(value) ? [...value] : value;
       continue;
     }
-    if (agentFieldDiffers(key, value, (defaults as unknown as Record<string, unknown>)[key])) {
-      out[key] = Array.isArray(value) ? [...value] : value;
-    }
+    const keep = agentFieldDiffers(key, value, inherited[key])
+      || (pinned != null && pinned[key] != null)
+      || (before != null && agentFieldDiffers(key, value, before[key]));
+    if (keep) out[key] = Array.isArray(value) ? [...value] : value;
   }
   if (Array.isArray(out['tools'])) {
     out['toolsBackfillGen'] = config.toolsBackfillGen ?? AGENT_TOOLS_BACKFILL_GEN;

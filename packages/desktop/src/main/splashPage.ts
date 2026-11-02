@@ -4,7 +4,7 @@
 // 막대는 소식이 끊겨도 천장 쪽으로 천천히 다가가고, 천장은 다음 단계 시작을 넘지 않아 뒤로 가지 않는다(`SPLASH_STAGE_BANDS`).
 // 움직임은 전부 합성 단계 transform(SVG 회전 ❌ — 배율이 100% 가 아니면 메인 스레드에서 돈다). 로고는 `favicon.svg` 그라데이션 + 도는 위성(이모지 ❌).
 
-import type { SplashPalette, SplashView } from './splashPolicy';
+import { SPLASH_FALLBACK_BACKGROUND, type SplashPalette, type SplashView } from './splashPolicy';
 
 export interface SplashPageInput {
   nonce: string;
@@ -47,7 +47,7 @@ export function splashPage(input: SplashPageInput): string {
   const p = input.palette;
   const light = p.kind === 'light';
   const colors = {
-    bg: cssColor(p.background, '#030712'),
+    bg: cssColor(p.background, SPLASH_FALLBACK_BACKGROUND),
     fg: cssColor(p.foreground, '#f1f5f9'),
     muted: cssColor(p.muted, '#94a3b8'),
     faint: cssColor(p.faint, '#64748b'),

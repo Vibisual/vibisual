@@ -18,16 +18,18 @@ function cleanList(raw: unknown): string[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
-/** 디스크·전선 값을 믿을 수 있는 꼴로. 둘 다 비면 `undefined` — 저장하지 않는다(안 만진 사용자의 `app-state.json` 에 빈 칸이 생기면 매 저장이 diff 를 만든다). */
+/** 디스크·전선 값을 믿을 수 있는 꼴로. 모두 비면 `undefined` — 저장하지 않는다. */
 export function normalizeIDEActivityBarPrefs(raw: unknown): IDEActivityBarPrefs | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const r = raw as { order?: unknown; hidden?: unknown };
+  const r = raw as { order?: unknown; hidden?: unknown; shown?: unknown };
   const order = cleanList(r.order);
   const hidden = cleanList(r.hidden);
-  if (!order && !hidden) return undefined;
+  const shown = cleanList(cleanList(r.shown)?.filter((view) => !hidden?.includes(view)));
+  if (!order && !hidden && !shown) return undefined;
   return {
     ...(order ? { order } : {}),
     ...(hidden ? { hidden } : {}),
+    ...(shown ? { shown } : {}),
   };
 }
 

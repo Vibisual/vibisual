@@ -8,6 +8,8 @@ import { useTranslation } from 'react-i18next';
 import type { CodexInventory, CodexSkillEntry } from '@vibisual/shared';
 
 import { useGraphStore, agentSessionInputKey } from '../../stores/graphStore.js';
+import { codexInventoryScopeKey } from '../../stores/codexInventoryClient.js';
+import { getTerminalTransport } from '../../transport/terminalTransport.js';
 import { useAvailableSkills, persistSkillFavorites } from '../../hooks/useAvailableSkills.js';
 import { useIDEPaneValue } from './idePane.js';
 import { ScrollFade } from '../ScrollFade.js';
@@ -29,12 +31,13 @@ const DOT_OFF = 'bg-gray-600';
  */
 function useCodexInventory(): { inventory: CodexInventory | null; agentId: string | null } {
   const agentId = useIDEPaneValue((o) => o.agentId);
-  const inventory = useGraphStore((s) => s.codexInventory);
+  const scope = useGraphStore((s) => codexInventoryScopeKey(s, agentId));
+  const inventory = useGraphStore((s) => s.codexInventories[scope] ?? null);
   const refresh = useGraphStore((s) => s.refreshCodexInventory);
   useEffect(() => {
-    if (inventory === null) refresh(agentId ?? undefined);
+    if (inventory === null) void refresh(agentId ?? undefined, false);
     // 한 번만 — 목록이 비어 있는 것은 정상 상태이므로 빈 배열을 보고 다시 부르지 않는다.
-  }, [inventory, agentId, refresh]);
+  }, [inventory, scope, agentId, refresh]);
   return { inventory, agentId: agentId ?? null };
 }
 
@@ -177,9 +180,9 @@ export const IDECodexSkillsView = memo(function IDECodexSkillsView(): React.JSX.
   const insertSkill = useCallback((name: string) => {
     if (!agentId) return;
     const insert = codexSkillInsertText(name);
-    if (executionMode === 'interactive-terminal' && window.api?.terminal) {
+    if (executionMode === 'interactive-terminal') {
       const termId = `term:${agentId}:${activeSessionId ?? 'main'}`;
-      void window.api.terminal.write(termId, insert);
+      void getTerminalTransport()?.write(termId, insert).catch(() => {});
       return;
     }
     const key = agentSessionInputKey(agentId, activeSessionId);

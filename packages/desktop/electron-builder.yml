@@ -98,6 +98,14 @@ mac:
   # 권한 창에 그대로 보이므로 언제·왜 쓰는지를 적는다.
   extendInfo:
     NSMicrophoneUsageDescription: Vibisual uses the microphone only while voice input is switched on, to turn what you say into text in the command box. Nothing is recorded or stored.
+    # §4 폴더 우클릭으로 프로젝트 열기 — 폴더를 받을 수 있다고 알린다(Finder 빠른 동작의 `open -b` · Dock 아이콘에 놓은 폴더 → `open-file`).
+    # Alternate 라 폴더의 기본 앱(Finder)을 빼앗지 않는다.
+    CFBundleDocumentTypes:
+      - CFBundleTypeName: Folder
+        CFBundleTypeRole: Viewer
+        LSHandlerRank: Alternate
+        LSItemContentTypes:
+          - public.folder
 
 # deb/rpm 은 homepage 가 없으면 포장에서 죽는다(fpm --url) — electron-builder 는 packages/desktop 의 package.json 만 봐 여기서 얹는다.
 extraMetadata:

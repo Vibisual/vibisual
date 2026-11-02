@@ -7,8 +7,10 @@ export type CodexAdvancedDraft = Pick<AgentProvider, 'reasoningSummary' | 'perso
 /** Shared by project defaults and individual agents; all fields reach codex exec.
  * Keys: https://learn.chatgpt.com/docs/config-file/config-reference
  */
-export function CodexAdvancedSettings({ value, onChange }: {
+export function CodexAdvancedSettings({ value, onChange, supportsPersonality }: {
   value: CodexAdvancedDraft; onChange: (patch: CodexAdvancedDraft) => void;
+  /** Unknown/older catalogs do not establish support. Retain saved values without offering a new choice. */
+  supportsPersonality?: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const tierId = useId();
@@ -20,12 +22,20 @@ export function CodexAdvancedSettings({ value, onChange }: {
       ['personality', ['none', 'friendly', 'pragmatic']],
     ] as const).map(([field, choices]) => <label key={field} className="text-xs text-gray-300">
       {t(`providers.${field}`)}
-      <select className={cls} value={value[field] ?? ''} onChange={e => onChange({ [field]: e.target.value || undefined })}>
+      <select className={cls} value={value[field] ?? ''}
+        disabled={field === 'personality' && supportsPersonality !== true}
+        aria-describedby={field === 'personality' ? `${tierId}-personality-hint` : undefined}
+        onChange={e => {
+          if (field === 'personality' && supportsPersonality !== true) return;
+          onChange({ [field]: e.target.value || undefined });
+        }}>
         <option value="">{t('providers.inheritSetting')}</option>
         {choices.map(choice => <option key={choice} value={choice}>{t(`providers.codexValues.${choice}`)}</option>)}
       </select>
     </label>)}
-    <p className="text-[12px] text-gray-500">{t('providers.personalityHint')}</p>
+    <p id={`${tierId}-personality-hint`} className="text-[12px] text-gray-500">{t(supportsPersonality === true
+      ? 'providers.personalityHint'
+      : supportsPersonality === false ? 'panel.agentConfig.codex.unsupported' : 'panel.agentConfig.effective.unknown')}</p>
     <label className="text-xs text-gray-300">{t('providers.serviceTier')}
       <input className={cls} value={value.serviceTier ?? ''} list={`${tierId}-suggestions`} aria-describedby={`${tierId}-hint`}
         placeholder={t('providers.inheritSetting')} onChange={e => onChange({ serviceTier: e.target.value.trim() || undefined })} />

@@ -5,11 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, AgentEngineKind, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
-// §5.3 #12-4 — CMD 규칙 파일에 싣는 검증 정책 문단(헤드리스는 index.ts 가 시스템 프롬프트로 싣는다).
-//   (J) 실행 전 차단 스위치(옵션창 권한 탭, 기본 끔)에 따라 문단 머리말·스폰 표식이 갈린다.
-import { buildVerificationPolicyRules, isVerificationGateEnabled, VERIFICATION_GATE_ENV } from '@vibisual/shared';
 import { appStateGetTokenSaver } from './appState.js';
-import { userDefaultsService } from './userDefaultsService.js';
 import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, isToolDisallowed, readTurnStopSignal, resolveTurnStopReason, normalizeModelStopReason, type TurnStopSignal, type ModelStopReason, readCompactionSignal, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText, engineForProvider, USAGE_LIMIT_PROMOTABLE_ERROR_CODES, buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX, TURN_STREAM_STALL_MS, CODEX_MANAGED_TUI_ARGS } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed, hasLiveAgentTasks, countLiveShells,
@@ -52,7 +48,9 @@ import {
   type LocalToolVerdict,
   type LocalTurnDoneInfo,
 } from './localRunner.js';
-import { isCodexTurnRunning, runCodexTurn, stopCodexTurn } from './codexRunner.js';
+import { isCodexTurnRunning, runCodexTurn, stopCodexTurn, noteCodexTurnActivity } from './codexRunner.js';
+import { ClaudeLiveFollowUpChannel, type ClaudeLiveFollowUpInput } from './claudeLiveFollowUp.js';
+import { CODEX_PROGRESS_WAIT_MAX, isCodexAgentWait, type CodexProgressNotice } from './codexProgress.js';
 import { effectiveMaxTurns, runLimitMs } from './commandRunLimits.js';
 import { createCodexBashBridge } from './codexBashBridge.js';
 import { CodexPatchEditLedger, type CodexPatchNote } from './codexPatchEdits.js';
@@ -109,18 +107,6 @@ export type PathLockResolver = (
   toolInput: Record<string, unknown>,
   cwd: string | null,
 ) => PathLockHit[];
-
-/**
- * §5.3 #12-4 — 로컬 도구 판정이 부르는 검증 판정. 훅 경로(`/api/permission-check`)와 **같은 판정 객체**
- * (`VerificationGate`)를 `index.ts` 가 주입한다 — 이 턴의 명령에 찍힌 범위로 판정하고 그 명령에 기록한다.
- * 거부면 사유를 모델에게 돌려준다(던지지 않는다).
- */
-export type VerificationCallChecker = (
-  cmd: QueuedCommand,
-  toolName: string,
-  toolInput: Record<string, unknown>,
-  cwd: string,
-) => { verdict: 'none' | 'allow' | 'deny'; message?: string };
 
 /**
  * §5.19 (H) — 로컬 세션의 호스트 도구 한 건(`TodoWrite` → 목표창 · `AskUserQuestion` → 질문 카드 · `ExitPlanMode` → 권한 모드).
@@ -319,14 +305,6 @@ export function buildAgentTokenSaverEnv(config: AgentConfig | undefined): Record
   return buildTokenSaverEnv(config, appStateGetTokenSaver());
 }
 
-/**
- * §5.3 #12-4 (J) — 실행 전 차단 표식 env. 훅 안전망(`hooks/handler.mjs`)이 서버·설정을 못 읽을 때 본다. 헤드리스·CMD PTY 가 부른다.
- * 끔도 `0` 을 명시 — 부모의 낡은 `1` 을 물려받지 않게.
- */
-export function buildVerificationGateEnv(): Record<string, string> {
-  return { [VERIFICATION_GATE_ENV]: isVerificationGateEnabled(userDefaultsService.get()) ? '1' : '0' };
-}
-
 /** §5.3 — 스폰 env 항목(중첩 깊이 · 자동 기억 끄기). env 축이라 `buildConfigArgs` 와 따로. */
 function buildConfigEnv(config: AgentConfig | undefined, ctx?: ConfigArgsContext): Record<string, string> {
   if (!config) return {};
@@ -489,9 +467,6 @@ export function prepareInteractiveRulesDir(
     if (enforcement) sections.push(enforcement);
     // 카드 신고 프로토콜(터미널 한 줄) — 항상 주입. claude 가 echo 한 줄로 IDE 카드를 띄울 수 있게.
     sections.push(buildCmdCardProtocolRules().trim());
-    // §5.3 #12-4 (G)(J) — 켠 동안만 제한 문단을 쓴다. 기존 터미널의 설정 변경은 매 턴 훅 응답이 알린다.
-    const verificationRules = buildVerificationPolicyRules({ enforced: isVerificationGateEnabled(userDefaultsService.get()) }).trim();
-    if (verificationRules) sections.push(verificationRules);
     const body = `${sections.join('\n\n')}\n`;
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), body, 'utf-8');
     return dir;
@@ -1055,11 +1030,15 @@ export class SubAgentManager {
   /** Persistent child — 현재 진행 중인 turn 의 cmd/turnCount/resultText/killed/maxTurns/parentCwd.
    *  fresh spawn 또는 reuse 시점에 새 값으로 set, result 라인 도착 시 delete. */
   private persistentInFlightCmd = new Map<string, PersistentInFlight>();
+  /** Per-child acknowledgement channel; never changes the in-flight command identity. */
+  private claudeLiveFollowUps = new WeakMap<ChildProcess, ClaudeLiveFollowUpChannel>();
   /**
    * §5.19 (D) — 로컬(All Model) 턴의 in-flight 표식. 자식·워처가 없어 이게 없으면 생존 대조가 도는 세션을 idle 로 내려 버블이 5초마다 완료 ↔ 동작을 오간다.
    * 러너의 `isLocalTurnRunning` 을 쓰지 않는다 — `finally` 정리가 `onDone` 뒤라 `finish()` 의 재계산이 완료를 건너뛴다. `finish()` 맨 앞에서 지운다.
    */
   private localInFlightCmd = new Map<string, QueuedCommand>();
+  /** Wait calls belong to one active Codex command, never to its native children. */
+  private codexWaitCalls = new Map<string, Set<string>>();
   /**
    * §5.5 #17-12 ③-6 — 턴 동안 읽은 **끝 신호**(cmdId 별). 모델이 적어 보내는 끝 사유(assistant 줄
    * `message.stop_reason`)는 턴 중간에 오고 봉인은 그 뒤라, 그 사이를 들고 있는 장부다. 봉인 때 지운다.
@@ -1076,8 +1055,6 @@ export class SubAgentManager {
   private agentConfigResolver: AgentConfigResolver | null = null;
   /** §5.3 #12-3 — 로컬 도구 판정이 보는 자물쇠. 없으면 자물쇠를 보지 않는다(주입 전 단위 테스트 등). */
   private pathLockResolver: PathLockResolver | null = null;
-  /** §5.3 #12-4 — 로컬 도구 판정이 부르는 검증 판정. 없으면 검증 판정을 하지 않는다(주입 전 단위 테스트 등). */
-  private verificationChecker: VerificationCallChecker | null = null;
   /** sub → 스트림을 마지막으로 읽은 폴더(`findStreamDirFor` ②). `streamDiskStamps` 와 달리 회수·탭 닫기에서 지우지 않는다 — 소속을 잃었을 때의 실마리다. */
   private lastKnownStreamDirs = new Map<string, string>();
   /** 부모 → sub-streams 폴더를 마지막으로 짚은 자리. 같은 부모는 한 폴더라 파일이 아직 없는 새 세션도 소속 해석이 끊긴 동안 여기로 쓴다. 지우지 않는다. */
@@ -1198,10 +1175,6 @@ export class SubAgentManager {
 
   setPathLockResolver(resolver: PathLockResolver): void {
     this.pathLockResolver = resolver;
-  }
-
-  setVerificationChecker(checker: VerificationCallChecker): void {
-    this.verificationChecker = checker;
   }
 
   /** 소속을 잃은 세션의 스트림 폴더를 되찾을 때 훑을 후보 목록(§5.5 — 아래 `findStreamDirFor`). */
@@ -1794,16 +1767,19 @@ export class SubAgentManager {
     subCounter = counter;
     this.registry.clear();
     this.index.clear();
+    this.codexWaitCalls.clear();
     this.streamBuffers.clear();
     this.streamDiskStamps.clear(); // 버퍼를 비웠으니 지문도 함께 — 남기면 아래 복원이 "변화 없음"에 막힌다.
     this.archive.clear();
     let loadedBuffers = 0;
     for (const [agentId, subs] of Object.entries(data)) {
       // active 상태였던 건 idle로 복원 (프로세스는 이미 죽었으므로)
-      const restored = subs.map((s) => ({
-        ...s,
-        status: (s.status === 'active' ? 'idle' : s.status) as SubAgent['status'],
-      }));
+      const restored = subs.map((s) => {
+        const item = { ...s, status: (s.status === 'active' ? 'idle' : s.status) as SubAgent['status'] };
+        delete item.compactingSince;
+        delete item.waitingForAgentsSince;
+        return item;
+      });
       this.registry.set(agentId, restored);
       const dir = project ? streamBufferStore.subStreamsDir(project, agentId) : null;
       // 체크포인트의 프로젝트가 곧 그 에이전트의 폴더다 — 기억해 두면 나중에 소속 해석이 끊겨도
@@ -1820,7 +1796,12 @@ export class SubAgentManager {
     if (archived) {
       for (const [agentId, subs] of Object.entries(archived)) {
         if (subs.length === 0) continue;
-        this.archive.set(agentId, subs.map((s) => ({ ...s, status: 'idle' as const })));
+        this.archive.set(agentId, subs.map((s) => {
+          const item = { ...s, status: 'idle' as const };
+          delete item.compactingSince;
+          delete item.waitingForAgentsSince;
+          return item;
+        }));
       }
     }
     logger.info(`SubAgents restored: ${this.index.size} sub(s), ${loadedBuffers} stream buffer(s), ${this.archive.size} archived agent(s)`);
@@ -3185,6 +3166,7 @@ export class SubAgentManager {
         delete item.foregroundProcess;
         // §5.5 #17-24 ⑥ — 압축 중 표식도 런타임 표식이다. 부팅 직후엔 접는 자식이 없다(남기면 영영 "압축 중").
         delete item.compactingSince;
+        delete item.waitingForAgentsSince;
         return item;
       });
       this.registry.set(agentId, items);
@@ -3206,7 +3188,12 @@ export class SubAgentManager {
       for (const [agentId, subs] of Object.entries(archived)) {
         if (this.archive.has(agentId)) continue;
         if (subs.length === 0) continue;
-        this.archive.set(agentId, subs.map((s) => ({ ...s, status: 'idle' as const })));
+        this.archive.set(agentId, subs.map((s) => {
+          const item = { ...s, status: 'idle' as const };
+          delete item.compactingSince;
+          delete item.waitingForAgentsSince;
+          return item;
+        }));
       }
     }
   }
@@ -3421,6 +3408,56 @@ export class SubAgentManager {
   noteCompactionHook(subId: string, phase: 'start' | 'end'): void {
     const sub = this.index.get(subId);
     if (sub) this.setCompacting(sub, phase === 'start');
+  }
+
+  /** Reject stale turns and child-thread hooks before changing any live state. */
+  noteCodexProgress(notice: CodexProgressNotice): boolean {
+    const sub = this.index.get(notice.subAgentId);
+    const cmd = this.localInFlightCmd.get(notice.subAgentId);
+    if (!sub || sub.parentAgentId !== notice.parentAgentId || sub.status !== 'active'
+      || !cmd || cmd.id !== notice.commandId || cmd.status !== 'executing'
+      || this.currentTurnId.get(sub.id) !== cmd.id || sub.sessionId !== notice.sessionId) return false;
+
+    noteCodexTurnActivity(sub.id);
+    const { hookEventName: event, toolName, toolUseId } = notice;
+    if (event === 'PreCompact' || event === 'PostCompact') {
+      this.setCompacting(sub, event === 'PreCompact');
+      return true;
+    }
+    // A new root call repairs a missing PostCompact. An old tool completion may be delayed.
+    if (event === 'PreToolUse') this.setCompacting(sub, false);
+    if (!isCodexAgentWait(toolName)) {
+      if (event === 'PreToolUse') this.clearCodexWait(sub);
+      return true;
+    }
+    if (!toolUseId) return false;
+    if (event === 'PreToolUse') {
+      let calls = this.codexWaitCalls.get(sub.id);
+      if (!calls) { calls = new Set(); this.codexWaitCalls.set(sub.id, calls); }
+      if (calls.size >= CODEX_PROGRESS_WAIT_MAX && !calls.has(toolUseId)) return false;
+      calls.add(toolUseId);
+      if (sub.waitingForAgentsSince === undefined) {
+        sub.waitingForAgentsSince = Date.now();
+        this.onSubStatusChange?.(sub.parentAgentId);
+      }
+    } else {
+      const calls = this.codexWaitCalls.get(sub.id);
+      calls?.delete(toolUseId);
+      if (!calls?.size) this.clearCodexWait(sub);
+    }
+    return true;
+  }
+
+  private clearCodexWait(sub: SubAgent): void {
+    this.codexWaitCalls.delete(sub.id);
+    if (sub.waitingForAgentsSince === undefined) return;
+    delete sub.waitingForAgentsSince;
+    this.onSubStatusChange?.(sub.parentAgentId);
+  }
+
+  private clearCodexProgress(sub: SubAgent): void {
+    this.clearCodexWait(sub);
+    this.setCompacting(sub, false);
   }
 
   /**
@@ -3898,6 +3935,7 @@ export class SubAgentManager {
   remove(subAgentId: string): boolean {
     const sub = this.index.get(subAgentId);
     if (!sub) return false;
+    this.clearCodexProgress(sub);
     const providerCommand = this.localInFlightCmd.get(subAgentId);
 
     this.cmdPaneStates.delete(subAgentId);
@@ -3984,6 +4022,25 @@ export class SubAgentManager {
     return true;
   }
 
+  /** An active persistent Claude turn with receipt support can accept non-interrupting input. */
+  canSendLiveFollowUp(subAgentId: string): boolean {
+    const sub = this.index.get(subAgentId);
+    const child = this.runningChildren.get(subAgentId);
+    const inFlight = this.persistentInFlightCmd.get(subAgentId);
+    return !!sub?.sessionId && !!child && this.claudeLiveFollowUps.get(child)?.canSend === true
+      && isChildStdinWritable(child) && !!inFlight && inFlight.cmd.status === 'executing'
+      && !inFlight.interrupted && !inFlight.killed && !isSlashCommandText(inFlight.cmd.text)
+      && this.currentTurnId.get(subAgentId) === inFlight.cmd.id
+      && !this.stoppedByUser.has(subAgentId) && !this.deferredSeals.has(subAgentId);
+  }
+
+  /** false = definitely unsent; rejection = delivery unconfirmed and must not be replayed. */
+  sendLiveFollowUp(subAgentId: string, input: ClaudeLiveFollowUpInput): Promise<boolean> {
+    if (!this.canSendLiveFollowUp(subAgentId)) return Promise.resolve(false);
+    const child = this.runningChildren.get(subAgentId)!;
+    return this.claudeLiveFollowUps.get(child)!.send(input, this.index.get(subAgentId)!.sessionId);
+  }
+
   /**
    * **도는 턴만 끊는다 — 프로세스는 살린다.** 트리를 SIGTERM 하면 백그라운드 감시(`Monitor`·`Bash run_in_background`)도 죽는다(§5.5 #17-9 ⑩).
    * CLI(2.1.228)는 stdin `control_request`(`subtype: interrupt`)로 쿼리를 끊고 셸 작업은 건드리지 않는다. persistent 자식에게만 통한다.
@@ -4010,6 +4067,7 @@ export class SubAgentManager {
     }
     // §5.5 #17-18 — 끊긴 턴은 모델 줄 없이 `result` 로 끝날 수 있다. 그 `result` 는 이 명령의 끝이다.
     inFlight.interrupted = true;
+    this.claudeLiveFollowUps.get(child)?.cancelPending('Claude was interrupted before follow-up acknowledgement');
     logger.info(`SubAgent ${subAgentId} soft interrupt sent (cmd=${interruptedCmdId}) — child kept alive`);
     // §5.3 #12-1-B — 끊긴 턴이 띄워 둔 권한 카드는 답할 곳이 없다. 60초를 채워 기본 허용으로 풀리지 않게 닫는다.
     permissionBroker.cancelForSubAgent(subAgentId, 'agent-stopped');
@@ -4112,8 +4170,11 @@ export class SubAgentManager {
 
     // §5.25 (F) — 코덱스 세션의 자식은 러너가 들고 있어 `runningChildren` 에 없다.
     //   여기서 끊지 않으면 [중지]가 아무것도 못 멈춘 채 다음 경로로 흘러간다.
-    if (stopCodexTurn(subAgentId)) {
+    if (isCodexTurnRunning(subAgentId)) {
+      // Native startup can finish synchronously inside stopCodexTurn. Mark this
+      // turn first so its completion consumes the flag before dispatching a follow-up.
       this.stoppedByUser.add(subAgentId);
+      stopCodexTurn(subAgentId);
       logger.info(`SubAgent stop requested by user (codex): ${subAgentId}`);
       return true;
     }
@@ -4147,9 +4208,18 @@ export class SubAgentManager {
    * 붙든 봉인이 있으면 그게 마감, 없으면 `[Stopped by user]`. 새 명령은 큐로 돌아가(`_requeueForDyingChild`) `close` 뒤 `--resume` 으로 뜬다.
    * legacy(`--print`)면 아무것도 안 한다 — 그 마감은 `close` 의 stdout 이 필요하다.
    */
-  private settleStoppedPersistentTurn(sub: SubAgent): void {
+  private settleStoppedPersistentTurn(sub: SubAgent, deliveriesSettled = false): void {
     if (!this.persistentLineBuf.has(sub.id)) return;
     const inFlight = this.persistentInFlightCmd.get(sub.id);
+    const child = this.runningChildren.get(sub.id);
+    const live = child ? this.claudeLiveFollowUps.get(child) : undefined;
+    if (!deliveriesSettled && live?.hasDeliveries) {
+      live.cancel('Claude was stopped before follow-up acknowledgement');
+      live.afterDeliveries(() => {
+        if (this.persistentInFlightCmd.get(sub.id) === inFlight) this.settleStoppedPersistentTurn(sub, true);
+      });
+      return;
+    }
     clearEarlyResultWait(inFlight);
     if (this.deferredSeals.has(sub.id)) {
       this.flushDeferredSeal(sub.id, 'user stop');
@@ -4316,11 +4386,6 @@ export class SubAgentManager {
       codexToolHook?: CodexToolHookConfig;
       /** §5.25 (H) — 코덱스 턴의 권한 다리(승인 카드·감사 원장). 코덱스 버블에만 온다. */
       codexPermissionHook?: CodexPermissionHookConfig;
-      /**
-       * §5.3 #12-4 (E) ② — 이 턴에 브라우저 확인 권한이 없다. 훅 밖에서 도는 호스팅 브라우저·컴퓨터 도구를
-       * 기능 스위치로 끈다(PreToolUse 를 지나지 않아 검증 판정이 닿지 않는다).
-       */
-      codexHostedBrowserOff?: boolean;
       /** 같은 목적의 환경변수(예: `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`). */
       extraEnv?: Record<string, string>;
       /**
@@ -4756,6 +4821,7 @@ export class SubAgentManager {
     }
     if (usePersistent && existingChild && this.persistentChildReady.get(sub.id) === true) {
       this.persistentChildReady.set(sub.id, false);
+      this.claudeLiveFollowUps.get(existingChild)?.beginTurn();
       this.persistentInFlightCmd.set(sub.id, {
         cmd, turnCount: 0, resultText: undefined, killed: false, maxTurns, parentCwd, mainActivity: false,
       });
@@ -4800,6 +4866,8 @@ export class SubAgentManager {
           // 토큰 스트리밍은 persistent 에도 싣는다 — CLI 의 "requires --print" 검사는 실은 비대화형 판정이라 파이프 자식은 통과한다(2.1.228 실측).
           //   빼면 기본 경로인 persistent 턴이 실시간 누적을 잃는다. §4 스트림 3종도 같다.
           '--include-partial-messages', ...streamFlags,
+          // Internal delivery receipts do not depend on the optional replay display setting.
+          ...(streamFlags.includes('--replay-user-messages') ? [] : ['--replay-user-messages']),
           '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
         ]
       : (sub.sessionId
@@ -4839,6 +4907,8 @@ export class SubAgentManager {
         }, triedBin)),
       });
       this.runningChildren.set(sub.id, child);
+      if (usePersistent) this.claudeLiveFollowUps.set(child,
+        new ClaudeLiveFollowUpChannel(child, undefined, streamFlags.includes('--replay-user-messages')));
       // §4 API 크레딧 — 이 명령을 크레딧으로 띄웠으면 지금 장부에 실행을 연다(자식이 실제로 선 순간이 시작이다).
       //   persistent 자식에는 열지 않는다 — 크레딧 경로는 언제나 `--print` 한 턴짜리다.
       const creditPending = this.pendingCreditRoute.get(sub.id);
@@ -4987,7 +5057,7 @@ export class SubAgentManager {
         this.childStderrTails.set(sub!.id, (prev + text).slice(-COMMAND_ERROR_DETAIL_LIMIT));
       });
 
-      child.on('error', (err) => {
+      const onChildError = (err: Error): void => {
         if (!isCurrentChild()) return;
         logger.warn(`SubAgent ${sub!.id} spawn error: ${err.message}`);
         // §4 (실행본 자가 복구) — ENOENT = 쥔 `claude` 가 사라졌다(확장 자동 갱신). 재해석 경로가 **방금 실패한 경로와 다를 때만** 되태운다(무한 재시도 퓨즈).
@@ -5010,9 +5080,14 @@ export class SubAgentManager {
         // 형제 종료 경로들과 같은 짝 — 이 호출이 빠지면 sub 도트 변화가 부모 재계산·broadcast 를 못 탄다.
         this.onSubStatusChange?.(sub!.parentAgentId);
         this.onComplete?.();
+      };
+      child.on('error', (err) => {
+        const live = this.claudeLiveFollowUps.get(child);
+        if (live?.hasDeliveries) live.afterDeliveries(() => onChildError(err));
+        else onChildError(err);
       });
 
-      child.on('close', (code) => {
+      const onChildClose = (code: number | null): void => {
         // 공유 장부를 건드리기 **전** 에 판정한다. 배경 작업 정리나 ENOENT 되태우기도 새 자식의
         //   몫을 지울 수 있다. legacy 탭을 닫아 자식 자체가 없는 경우의 기존 명령 마감은 유지한다.
         if (!isCurrentChild() && (usePersistent || this.runningChildren.has(sub!.id))) {
@@ -5089,6 +5164,11 @@ export class SubAgentManager {
 
         // ── LEGACY 경로: 기존 close 핸들러 ──
         this._finalizeLegacyCommand(sub!, cmd, parentCwd, undefined, turnCount, killed, maxTurns, code, stdout, /*deleteRunningChild=*/true);
+      };
+      child.on('close', (code) => {
+        const live = this.claudeLiveFollowUps.get(child);
+        if (live?.hasDeliveries) live.afterDeliveries(() => onChildClose(code));
+        else onChildClose(code);
       });
     } catch (err) {
       logger.warn(`SubAgent ${sub!.id} spawn failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -5114,10 +5194,14 @@ export class SubAgentManager {
    * persistent 자식의 stdout 한 줄 — `result` 가 턴 끝, 자식은 살려 둔다.
    * 순서 함정: finalize → `onComplete` → `processNextCommand` → `execute` 가 동기라 `persistentChildReady = true` 를 **finalize 전에** 세워야 재사용된다.
    */
-  private _handlePersistentStdoutLine(line: string, sub: SubAgent, child: ChildProcess): void {
+  private _handlePersistentStdoutLine(line: string, sub: SubAgent, child: ChildProcess, deliveriesSettled = false): void {
     if (!line.trim()) return;
     let obj: Record<string, unknown>;
     try { obj = JSON.parse(line) as Record<string, unknown>; } catch { return; }
+
+    const live = this.claudeLiveFollowUps.get(child);
+    if (live?.acknowledge(obj)) return;
+    if (live && !live.displayReplays && obj['type'] === 'user' && obj['isReplay'] === true) return;
 
     // session_id 캡처 — 첫 system 라인. persistent 경로는 --resume 이라 이미 sub.sessionId 가 있지만,
     // claude 가 새 session 으로 회전시키는 케이스가 있으면 따라간다.
@@ -5142,6 +5226,7 @@ export class SubAgentManager {
     //   이벤트를 기다리면 토큰 줄(`stream_event`)·빈 thinking 은 끝내 신호가 되지 못해, 첫 글자가 나오기
     //   전 수 초 동안 붙든 봉인이 먼저 만료됐다. 곁가지 줄은 본 대화가 아니므로 세지 않는다.
     if (isMainThreadModelLine(obj)) {
+      live?.noteModelActivity();
       if (inFlight) {
         // §5.5 #17-18 ⑩-1 — **누가 말했는가**를 도장으로 가린다. 남의 턴이 뱉은 줄에 이 래치를
         //   켜면, 그 턴이 낸 끝이 이 명령의 끝으로 읽혀 답도 없이 완료음이 울린다. 도장이 비어
@@ -5168,16 +5253,32 @@ export class SubAgentManager {
       }
     }
 
-    // §2.4 (한도 정지) — legacy 경로와 같은 판정(위 주석 참조).
-    this.noteUsageLimitLine(sub, obj);
-    // §5.5 #17-12 ③-6 — 끝 사유는 result 줄이 봉인을 부르기 **전에** 적어야 그 봉인이 읽는다.
-    this.noteTurnStopLine(inFlight?.cmd.id, obj);
+    // Record state before holding a provisional result. A later result need not
+    // repeat its usage/limit/stop fields; replaying this held result must not
+    // overwrite any more recent state.
+    if (!deliveriesSettled) {
+      // §2.4 (한도 정지) — legacy 경로와 같은 판정(위 주석 참조).
+      this.noteUsageLimitLine(sub, obj);
+      // §5.5 #17-12 ③-6 — 끝 사유는 result 줄이 봉인을 부르기 **전에** 적어야 그 봉인이 읽는다.
+      this.noteTurnStopLine(inFlight?.cmd.id, obj);
+    }
     // §5.5 #17-24 ⑥ — 압축 시작·끝(legacy 경로와 같은 판정). status 줄은 화면에 그리지 않아도 여기서는 읽는다.
     this.noteCompactionLine(sub, obj);
 
     // 스트림 이벤트 — 클라 중계.
     const streamEvts = parseStreamLine(obj, sub.id, sub.parentAgentId, { hookEvents: this.streamHookEventsOn.get(sub.id) === true });
     for (const evt of streamEvts) this.emitStreamEvent(evt);
+
+    if (!deliveriesSettled && obj['type'] === 'result') {
+      if (inFlight) {
+        if (typeof obj['total_input_tokens'] === 'number') sub.totalInputTokens = obj['total_input_tokens'] as number;
+        if (typeof obj['total_output_tokens'] === 'number') sub.totalOutputTokens = obj['total_output_tokens'] as number;
+      }
+      if (live?.deferResult(obj, () => {
+        if (this.runningChildren.get(sub.id) === child && this.persistentInFlightCmd.get(sub.id) === inFlight)
+          this._handlePersistentStdoutLine(line, sub, child, true);
+      })) return;
+    }
 
     // ── CRITICAL: result 라인 = turn 종료. child 는 살려둔다. ──
     if (obj['type'] === 'result' && inFlight) {
@@ -5187,9 +5288,6 @@ export class SubAgentManager {
       const cliError: string | undefined = obj['is_error'] === true
         ? (resultText || (typeof obj['subtype'] === 'string' ? (obj['subtype'] as string) : undefined))
         : undefined;
-      if (typeof obj['total_input_tokens'] === 'number') sub.totalInputTokens = obj['total_input_tokens'] as number;
-      if (typeof obj['total_output_tokens'] === 'number') sub.totalOutputTokens = obj['total_output_tokens'] as number;
-
       // `result` 는 턴 경계일 뿐 명령 끝이 아니다 — 밀린 백그라운드 통지가 있으면 CLI 가 다시 돈다(`turnSeal.ts`). 마감은 `sealTurn` 에 맡긴다.
       //   붙든 동안 `persistentInFlightCmd` 를 살려 둔다 — 지우면 이어진 턴의 `result` 를 못 알아본다.
       const sealInFlightTurn = (text: string | undefined, error: string | undefined, unownedResult = false): void => {
@@ -5290,11 +5388,11 @@ export class SubAgentManager {
       codexEdgeConfig?: CodexEdgeConfig;
       codexToolHook?: CodexToolHookConfig;
       codexPermissionHook?: CodexPermissionHookConfig;
-      codexHostedBrowserOff?: boolean;
     },
   ): void {
     const provider = config.provider;
     if (!provider) return;
+    this.clearCodexProgress(sub);
     this.clearDispatching(sub.id);
     // §5.19 (D) 와 같은 이유로 **스폰 표식을 걷는 그 자리에서** 생존 근거를 세운다 — 한 순간도
     //   "아무 근거 없는 active" 가 되지 않게(그 틈이 5초 생존 대조에 걸려 도는 세션을 강등한다).
@@ -5346,6 +5444,7 @@ export class SubAgentManager {
         return;
       }
       closed = true;
+      this.clearCodexProgress(sub);
       if (this.localInFlightCmd.get(sub.id) === cmd) this.localInFlightCmd.delete(sub.id);
       this.cancelDeferredSeal(sub.id);
       if (this.currentTurnId.get(sub.id) === cmd.id) this.currentTurnId.delete(sub.id);
@@ -5376,17 +5475,14 @@ ${finalText}` : ''}` : finalText;
       this.onComplete?.();
     };
 
-    // §5.25 (F) — 코덱스에는 시스템 프롬프트 플래그가 없다. 클로드 세션이 받는 것(프로젝트 규칙·
-    //   카드 지시문·목표·기억)을 **프롬프트 앞에 붙여** 같은 내용을 같은 순서로 싣는다.
+    // Keep the user's input separate from app instructions in the native transport.
     const stableContext = [contextSummary.trim(), opts?.appendSystemPrompt?.trim() ?? '']
       .filter((part) => part.length > 0)
       .join('\n\n');
     const systemPrompt = buildLocalSystemPrompt(stableContext, livePreamble, config.rules);
     const edgeInstructions = opts?.codexEdgeConfig && opts.codexEdgeInstructionsEnabled !== false
       ? codexEdgeInstructions(opts.codexEdgeConfig) : '';
-    const prompt = systemPrompt ? `${systemPrompt}${edgeInstructions}
-
-${cmd.text}` : `${edgeInstructions}${cmd.text}`;
+    const nativeDeveloperInstructions = `${systemPrompt}${edgeInstructions}`;
 
     let fileEventSeq = 0;
     // §5.25 (F) "쓴 내용도 남는다" — 지난 턴에 적용되지 못한(거부·실패) 패치 칸이 이번 턴의 같은 파일에 붙지 않게.
@@ -5400,11 +5496,13 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       toolHook: opts?.codexToolHook,
       edgeConfig: opts?.codexEdgeConfig,
       ...(opts?.codexPermissionHook ? { permissionHook: opts.codexPermissionHook } : {}),
-      ...(opts?.codexHostedBrowserOff ? { hostedBrowserOff: true } : {}),
       subAgentId: sub.id,
       cwd: parentCwd,
-      prompt,
+      prompt: cmd.text,
+      nativeDeveloperInstructions,
       model: provider.modelId,
+      commandId: cmd.id,
+      ...(opts?.codexPermissionHook ? { progressHook: opts.codexPermissionHook } : {}),
       ...(cmd.attachments?.length ? { images: cmd.attachments } : {}),
       env: { ...buildBashTimeoutEnv(config), ...(opts?.extraEnv ?? {}) },
       ...(provider.reasoningEffort ? { reasoningEffort: provider.reasoningEffort } : {}),
@@ -5430,8 +5528,24 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
           timestamp: at, eventType: 'system', content: '[status]',
         });
       },
+      onProgress: (progress) => {
+        if (closed || !isCurrentTurn() || !sub.sessionId) return;
+        if (progress.kind === 'agentWait' && !progress.toolUseId) return;
+        this.noteCodexProgress({
+          parentAgentId: sub.parentAgentId, subAgentId: sub.id, commandId: cmd.id, sessionId: sub.sessionId,
+          hookEventName: progress.kind === 'compaction'
+            ? progress.active ? 'PreCompact' : 'PostCompact'
+            : progress.active ? 'PreToolUse' : 'PostToolUse',
+          ...(progress.kind === 'agentWait'
+            ? { toolName: 'collaboration.wait_agent', toolUseId: `native:${progress.toolUseId}` } : {}),
+        });
+      },
+      onThreadReset: () => {
+        if (closed || !isCurrentTurn()) return;
+        sub.sessionId = '';
+      },
       onThread: (threadId) => {
-        if (!isCurrentTurn()) return;
+        if (closed || !isCurrentTurn()) return;
         if (sub.sessionId !== threadId) {
           sub.sessionId = threadId;
           logger.info(`SubAgent ${sub.id} codex thread assigned: ${threadId}`);
@@ -5448,7 +5562,17 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
         this.onSubStatusChange?.(sub.parentAgentId);
       },
       onEvent: (ev) => {
-        if (!isCurrentTurn()) return;
+        if (closed || !isCurrentTurn()) return;
+        // A real new tool call repairs missing end notices. Wait calls have their
+        // own paired lifecycle, so another concurrent wait must not clear them.
+        if (ev.eventType === 'tool_use' && sub.sessionId
+          && ev.toolName !== 'collaboration.wait' && !isCodexAgentWait(ev.toolName)) {
+          this.noteCodexProgress({
+            parentAgentId: sub.parentAgentId, subAgentId: sub.id, commandId: cmd.id, sessionId: sub.sessionId,
+            hookEventName: 'PreToolUse', toolName: ev.toolName ?? 'Tool',
+            ...(ev.toolUseId ? { toolUseId: `native:${ev.toolUseId}` } : {}),
+          });
+        }
         for (const hook of bashBridge(ev)) {
           this.localHookEmitter?.({ agentId: sub.parentAgentId, subAgentId: sub.id }, hook);
         }
@@ -5635,14 +5759,6 @@ ${cmd.text}` : `${edgeInstructions}${cmd.text}`;
       // 못 쓰는 목록은 모드 단축보다 먼저 본다 — 훅 경로(`/api/permission-check`)와 같은 순수 함수다.
       if (isToolDisallowed(disallowedTools, toolName)) {
         return { allowed: false, reason: `${toolName} is on this agent's disallowed-tools list, so it was blocked without asking the user` };
-      }
-      /*
-       * §5.3 #12-4 (E) ③ — 검증은 시킬 때만. 훅 경로와 **같은 판정 객체**(이 턴 명령의 범위·기록)를 부른다.
-       *   금지 목록 뒤, 자물쇠·모드 판정보다 먼저다. 사람에게 묻지 않고, 거부 사유는 모델에게 그대로 돌려준다.
-       */
-      const verification = this.verificationChecker?.(cmd, toolName, toolInput, parentCwd);
-      if (verification?.verdict === 'deny') {
-        return { allowed: false, reason: verification.message ?? 'verification is not allowed in this task' };
       }
       /*
        * §5.3 #12-3 — 자물쇠는 모드 판정보다 먼저다(훅 경로와 같은 순서 · 같은 판정기). 묻지 않는 모드는

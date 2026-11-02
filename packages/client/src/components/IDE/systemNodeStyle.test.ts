@@ -25,6 +25,24 @@ describe('resolveSystemNodeStyle', () => {
     expect(resolveSystemNodeStyle('task_started').family).toBe('start');
   });
 
+  it.each(['model_refusal_fallback', 'model_fallback'])('shows known recovery subtype %s as a notice', (subtype) => {
+    expect(resolveSystemNodeStyle(subtype)).toMatchObject({
+      family: 'fallback', mark: 'text-amber-300/75', label: 'text-gray-300', labelKey: 'ide.systemNode.modelFallback',
+    });
+  });
+
+  it.each(['model_selected', 'model_updated'])('does not infer failure from model status %s', (subtype) => {
+    expect(resolveSystemNodeStyle(subtype)).toMatchObject({
+      mark: 'text-amber-300/75', label: 'text-gray-300', labelKey: '',
+    });
+  });
+
+  it.each(['model_error', 'model_failed', 'model_refusal_no_fallback', 'api_error'])('keeps genuine failure subtype %s alert', (subtype) => {
+    expect(resolveSystemNodeStyle(subtype)).toMatchObject({
+      family: 'alert', mark: 'text-rose-300/75', label: 'text-rose-200/80',
+    });
+  });
+
   it('모르는 이름도 뜻이 비슷하면 같은 계열로 떨어진다', () => {
     const cases: Record<string, string> = {
       mirror_error: 'alert',

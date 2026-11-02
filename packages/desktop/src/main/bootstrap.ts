@@ -11,6 +11,7 @@ import { electronApp } from '@electron-toolkit/utils';
 import { installBootErrorLog } from './bootErrors';
 import { appendCrashLine, logAppStart, logCleanExit, startCrashReporter } from './crashLog';
 import { isHookCleanupRun } from './hookLifecycle';
+import { folderPathsFromArgv, isFolderMenuRegisterRun } from './folderOpenArgs';
 import { logStartupMilestone, markSplashShown, startMainStallLog } from './mainStallLog';
 import { readSplashCache } from './splashCache';
 import { resolveSplashLocale, SPLASH_FALLBACK_BACKGROUND } from './splashPolicy';
@@ -42,21 +43,24 @@ logAppStart();
 // 본체가 자기 진단기를 걸기 전 구간(스플래시 만들기·본체 읽기)의 오류도 crash.log 에 남긴다.
 installBootErrorLog();
 
-/** 본체(`index.ts`)가 돌려주는 손잡이 — 두 번째 실행·Dock 클릭을 넘긴다. */
+/** 본체(`index.ts`)가 돌려주는 손잡이 — 두 번째 실행·Dock 클릭·OS 폴더 우클릭으로 온 폴더를 넘긴다. */
 interface LaunchedApp {
   onSecondInstance(): void;
   onActivate(): void;
+  openFolders(paths: readonly string[]): void;
 }
 
 // §3.6 「수명」 · §5.7 #24-3 ⑤ — Windows 제거기가 파일을 지우기 **전**에 `--vibisual-remove-hooks` 로 부른다. 잠금·스플래시·
 // 본체·서버 없이 설정 파일에 남은 우리 훅만 걷고 끝낸다(`hookCleanup.ts` — 본체처럼 동적으로만 읽는다). 잠금을 잡지 않으므로
 // 떠 있는 앱이 있어도 그 창을 불러내지 않는다.
 const hookCleanupRun = isHookCleanupRun(process.argv);
+// §4 폴더 우클릭 — Windows 설치기가 설치 끝에 부른다(installer.nsh customInstall). 정리 모드처럼 잠금·창·본체 없이 메뉴만 적고 끝난다.
+const folderMenuRegisterRun = !hookCleanupRun && isFolderMenuRegisterRun(process.argv);
 
 // 단일 인스턴스 락 — 2번째 실행이 백엔드를 또 부팅해 ~/.claude/settings.json 의 hook 포트를 자기 동적 포트로 덮어쓰는
 // 사고를 원천 차단한다(상세는 `index.ts` `launchApp`). **스플래시보다 먼저** 잡는다 — 못 잡은 쪽이 스플래시를 한 번
 // 번쩍이고 사라지면 안 된다. 못 잡으면 즉시 끝내고, 기존 인스턴스가 자기 창(또는 스플래시)을 앞으로 가져온다.
-const gotSingleInstanceLock = !hookCleanupRun && app.requestSingleInstanceLock();
+const gotSingleInstanceLock = !hookCleanupRun && !folderMenuRegisterRun && app.requestSingleInstanceLock();
 if (hookCleanupRun) {
   void import('./hookCleanup')
     .then((m) => { m.removeHooksForUninstall(); })
@@ -68,6 +72,19 @@ if (hookCleanupRun) {
       logCleanExit();
       void app.whenReady().then(() => app.exit(0));
     });
+} else if (folderMenuRegisterRun) {
+  // `ready` 뒤 — 메뉴 글자의 OS 언어(`app.getLocale()`)가 그때 선다.
+  void app.whenReady()
+    .then(() => import('./folderMenuInstall'))
+    .then(async (m) => appendCrashLine('app', 'info', m.describeInstallRun(await m.registerFolderMenuAtInstall())))
+    .catch((error: unknown) => {
+      const err = error instanceof Error ? error : new Error(String(error));
+      appendCrashLine('main', 'error', `[folder-menu] installer run failed: ${err.message}`, err.stack);
+    })
+    .finally(() => {
+      logCleanExit();
+      app.exit(0);
+    });
 } else if (!gotSingleInstanceLock) {
   logCleanExit();
   app.quit();
@@ -78,9 +95,27 @@ if (hookCleanupRun) {
   app.on('window-all-closed', keepBooting);
   let splash: SplashHandle | null = null;
   let launched: LaunchedApp | null = null;
-  app.on('second-instance', () => {
-    if (launched) launched.onSecondInstance();
-    else splash?.focus();
+  // §4 폴더 우클릭으로 프로젝트 열기 — 본체가 뜨기 전에 온 폴더(이번 실행의 인자 · 그 사이의 두 번째 실행 · mac `open-file`).
+  const earlyFolders: string[] = folderPathsFromArgv(process.argv, process.platform);
+  app.on('second-instance', (_event, argv) => {
+    const folders = folderPathsFromArgv(argv, process.platform);
+    if (launched) {
+      launched.openFolders(folders);
+      launched.onSecondInstance();
+    } else {
+      earlyFolders.push(...folders);
+      splash?.focus();
+    }
+  });
+  // mac — Finder 빠른 동작(`open -b`)·Dock 아이콘에 놓은 폴더. 켜면서 받는 것은 `ready` 전에 오므로 여기서 건다.
+  app.on('open-file', (event, filePath) => {
+    event.preventDefault();
+    if (launched) {
+      launched.openFolders([filePath]);
+      launched.onSecondInstance();
+    } else {
+      earlyFolders.push(filePath);
+    }
   });
   app.on('activate', () => {
     if (launched) launched.onActivate();
@@ -126,6 +161,7 @@ if (hookCleanupRun) {
       return;
     }
     launched = main.launchApp({ splash });
+    launched.openFolders(earlyFolders.splice(0));
     app.removeListener('window-all-closed', keepBooting);
   });
 }

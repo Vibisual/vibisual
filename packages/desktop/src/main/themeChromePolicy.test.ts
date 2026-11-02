@@ -6,7 +6,7 @@ import { FALLBACK_APP_THEME_CHROME, titleBarOverlayFor } from './themeChromePoli
 describe('titleBarOverlayFor', () => {
   it('Windows · Linux 는 제목줄 단추 색을 받는다', () => {
     for (const platform of ['win32', 'linux'] as const) {
-      expect(titleBarOverlayFor(FALLBACK_APP_THEME_CHROME, platform)).toEqual({ color: '#334155', symbolColor: '#cbd5e1' });
+      expect(titleBarOverlayFor(FALLBACK_APP_THEME_CHROME, platform)).toEqual({ color: '#262626', symbolColor: '#d4d4d4' });
     }
   });
 
@@ -16,7 +16,7 @@ describe('titleBarOverlayFor', () => {
 });
 
 describe('FALLBACK_APP_THEME_CHROME', () => {
-  it('기본 테마를 푼 창 색과 같다(서버가 답하지 못할 때도 종전 화면 그대로)', () => {
+  it('기본 테마를 푼 창 색과 같다(서버가 답하지 못할 때도 그래파이트)', () => {
     expect(FALLBACK_APP_THEME_CHROME).toEqual(appThemeChrome(resolveAppTheme(DEFAULT_APP_THEME_ID)));
   });
 });

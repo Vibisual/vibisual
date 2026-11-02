@@ -10,7 +10,7 @@ import { computeDelegationStrip, applyDelegationStrip, resolveEdgeCommandMode, r
 import { randomUUID } from 'node:crypto';
 import { exec, execFile, spawn, type ChildProcess } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, ZOMBIE_EXECUTING_GRACE_MS, SUBAGENT_DORMANT_IDLE_MS, SESSION_PROBE_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_DEFAULTS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentCardCommonRules, AGENT_CARD_ENV_BASE, AGENT_CARD_ENV_TOKEN, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, HOOK_TRANSPORT_REFRESH_DELAY_MS, SESSION_GOAL_TEXT_MAX, SESSION_GOAL_STEP_SKILLS_MAX, buildSessionGoalRules, buildSessionGoalState, buildSessionGoalProtocol, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, CONTEXT_SCOPE_LEVELS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, ZOMBIE_EXECUTING_GRACE_MS, SUBAGENT_DORMANT_IDLE_MS, SESSION_PROBE_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_DEFAULTS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, buildAgentCardCommonRules, AGENT_CARD_ENV_BASE, AGENT_CARD_ENV_TOKEN, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, HOOK_TRANSPORT_REFRESH_DELAY_MS, SESSION_GOAL_TEXT_MAX, SESSION_GOAL_STEP_SKILLS_MAX, buildSessionGoalRules, buildSessionGoalState, buildSessionGoalProtocol, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, CONTEXT_SCOPE_LEVELS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
 } from '@vibisual/shared';
 import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, ClaudeUsageInfo, ClaudeAuthStatus, VerificationVerdict, VerificationKind, VerificationAttempt, EscalationReason, AutoAgentRun, ShelfItemKind, ChatCommandTarget, ChatCommandSession } from '@vibisual/shared';
 import { LOCAL_MODEL_CATALOG_SORTS } from '@vibisual/shared';
@@ -105,6 +105,9 @@ import {
 } from '@vibisual/shared';
 import type { VerificationRun, VerificationDemo, VerificationDemoStep } from '@vibisual/shared';
 import { absorbMergeFollowUps } from './services/followUpMerge.js';
+import { prioritizeImmediateFollowUp } from './services/immediateFollowUpQueue.js';
+import { isLiveFollowUpLocked, isLiveFollowUpPending, trySendLiveFollowUp } from './services/liveFollowUp.js';
+import { isCodexAppServerTurnRunning, steerCodexAppServerTurn } from './services/codexRunner.js';
 import { permissionBroker } from './services/permissionBroker.js';
 // §5.3 #12-1-B — 카드의 답 넷("항상"이 적히는 칸)과 세션 기억.
 import { permissionSessionGrants } from './services/permissionSessionGrants.js';
@@ -117,23 +120,6 @@ import { classifyToolRiskOnHost } from './services/auditLog.js';
 import { CodexApprovalMemory, codexApprovalKey, codexPermissionHooksRequired, planCodexPermission, type CodexPermissionHookEvent } from './services/codexPermissionPolicy.js';
 // §5.3 #12-3 — 자물쇠. 판정은 shared 한 벌, 호스트 값·엔진에 돌려줄 사유는 이 모듈 한 곳.
 import { findToolLockHitsOnHost, lockDenyReason, lockHitsForCard, unmanagedLockAnswer } from './services/pathLockGate.js';
-// §5.3 #12-4 — 검증은 시킬 때만 돈다. 분류·요청 해석·판정은 shared 한 벌, 호스트 값은 판정 객체가 물려 준다.
-import {
-  appRunVerificationScope,
-  buildVerificationPolicyRules,
-  buildVerificationStateLine,
-  buttonVerificationScope,
-  hasVerificationGrant,
-  inheritVerificationScope,
-  isVerificationGateEnabled,
-  mergeVerificationScopes,
-  verificationScopeFromText,
-  VERIFICATION_DENY_REASON,
-  VERIFICATION_REQUEST_PROMPT_MAX,
-  type CommandVerificationSummary,
-  type VerificationScope,
-} from '@vibisual/shared';
-import { VerificationGate } from './services/verificationGate.js';
 import { normalizePathLockTarget, PATH_LOCK_MAX_PER_PROJECT } from '@vibisual/shared';
 import type { PathLockHit, PathLockTarget } from '@vibisual/shared';
 import type { AuditDecisionSource, AuditBoundaryConfig } from '@vibisual/shared';
@@ -145,6 +131,7 @@ import { graphManager } from './services/projectGraphManager.js';
 import { parseConversationSearchTerms, searchSessionConversations } from './services/sessionConversationSearch.js';
 import { modelRegistryService } from './services/modelRegistryService.js';
 import { userDefaultsService } from './services/userDefaultsService.js';
+import { FolderContextMenuService, type FolderContextMenuWish } from './services/folderContextMenuService.js';
 // §4 앱 테마 — 사용자 테마 폴더(`~/.vibisual/themes`) 목록과 창 색. 고른 id 는 위 user-defaults 가 든다.
 import { appThemeService } from './services/appThemeService.js';
 import { resolveAgentMemoryDirOverride } from './services/agentMemoryService.js';
@@ -395,7 +382,7 @@ import { getClaudeVersionInfo, getClaudeInstallsInfo, installLatestClaude, getIn
 import { agentTracker, setSnapshotScheduler as setAgentTrackerSnapshotScheduler } from './services/agentTracker.js';
 import { discoverSessions, findPidBySession, isProcessAlive, readContextInfo, readSessionTokenData, setLivenessProbeListener } from './services/sessionDiscovery.js';
 import { SessionLifecycleManager } from './services/sessionLifecycle.js';
-import { subAgentManager, recordCmdTermSession, buildVerificationGateEnv } from './services/subAgentManager.js';
+import { subAgentManager, recordCmdTermSession } from './services/subAgentManager.js';
 // §4 엔진 다리 — 우리가 띄운 세션에 실린 Claude Code 모드의 신고(턴·생존·사용량).
 import { engineBridge } from './services/engineBridge.js';
 import { parseEngineBridgeReport, rateLimitsFromEngine, ENGINE_BRIDGE_HEARTBEAT_MS } from '@vibisual/shared';
@@ -422,6 +409,7 @@ import {
 } from './services/taskEdgeDispatchJobs.js';
 // §5.5 #17-17 ⑪(l) — 에이전트가 답 안에 끼워 넣은 무대 블록을 스트림에서 수확한다(새 창구 ❌).
 import { StageBlockIngest } from './services/stageBlockIngest.js';
+import { buildAgentIntentFirstRules } from '@vibisual/shared';
 // §5.5 #17-9 ⑦ — 자식 도구 한 줄 요약 · Task 결과 본문 추출(판본 흔들림을 흡수하는 순수 함수).
 import { describeToolTarget, extractTaskResultText } from './services/subagentActivity.js';
 import { reapOrphanedPidsFromPreviousRun, registerSpawnedPid, terminateChildTree, unregisterSpawnedPid } from './services/processTree.js';
@@ -443,6 +431,7 @@ import { discardSessionQueuedCommands } from './services/sessionCommandDiscard.j
 import { enableAsyncDiskWrites, flushPendingDiskWritesSync } from './services/diskWriteQueue.js';
 import { CheckpointCoalescer, setActiveCheckpointCoalescer } from './services/checkpointCoalescer.js';
 import { diagnosticService, recordDiagnostic } from './services/diagnosticService.js';
+import { mountCodexProgressRoute } from './services/codexProgress.js';
 import { createSnapshotBroadcastScheduler } from './services/snapshotBroadcastScheduler.js';
 import { deferStartupJob } from './services/startupJobs.js';
 import { reportBootProgress } from './services/bootProgress.js';
@@ -486,7 +475,7 @@ export { recordDiagnostic, diagnosticService } from './services/diagnosticServic
 // `subAgentManager.shutdownAllPersistentChildren()` 으로 long-lived claude 자식들을 깨끗이 종료.
 // §4 API 크레딧 — 데스크톱 main 이 키를 OS 보안 저장소(safeStorage)로 감싸는 손을 꽂는다.
 export { setApiCreditCipher, type ApiCreditCipher } from './services/apiCreditService.js';
-export { subAgentManager, buildInteractiveClaudeArgs, buildInteractiveCliPrefill, parseCmdTermId, buildBashTimeoutEnv, buildAgentTokenSaverEnv, buildVerificationGateEnv, prepareInteractiveRulesDir, recordCmdTermSession, getCmdResumeSession } from './services/subAgentManager.js';
+export { subAgentManager, buildInteractiveClaudeArgs, buildInteractiveCliPrefill, parseCmdTermId, buildBashTimeoutEnv, buildAgentTokenSaverEnv, prepareInteractiveRulesDir, recordCmdTermSession, getCmdResumeSession } from './services/subAgentManager.js';
 // §5.11 — CMD 세션에도 집행 플러그인의 지시를 싣는다(desktop 터미널 매니저가 rules 파일에 함께 기록).
 export { buildInteractivePluginBlockForAgent } from './services/pluginHost.js';
 // § 프로세스 트리 누수 — desktop 의 PTY(cmd.exe→claude) 종료 시 Windows 트리 전체를 회수하는 데 재사용.
@@ -504,6 +493,18 @@ export {
 /** desktop main 이 직접 띄우는 네이티브 대화상자·OS 알림의 언어. main 에서는 i18next 를 못 쓰므로 언어만 읽어 `main/strings.ts` 표에서 문구를 고른다. */
 export function getUiLocale(): UiLocale {
   return graphManager.getUiLocale();
+}
+/** §4 폴더 우클릭으로 프로젝트 열기 — desktop main 이 OS 메뉴를 적고(바람), 적은 결과를 돌려준다(상태 → 옵션창). */
+const folderContextMenu = new FolderContextMenuService(() => graphManager.getUiLocale());
+export type { FolderContextMenuWish };
+export function getFolderContextMenuWish(): FolderContextMenuWish {
+  return folderContextMenu.wish();
+}
+export function subscribeFolderContextMenuWish(cb: (wish: FolderContextMenuWish) => void): () => void {
+  return folderContextMenu.subscribe(cb);
+}
+export function setFolderContextMenuStatus(status: import('@vibisual/shared').FolderContextMenuStatus): void {
+  folderContextMenu.setStatus(status);
 }
 /**
  * §4 앱 테마 — desktop main 이 칠하는 창 바탕·제목줄 버튼 색. `getUiLocale()` 과 같은 얇은 주입이다
@@ -891,11 +892,20 @@ export async function runServer(): Promise<RunServerHandle> {
   // §5.13 (O) — 내부 앱 라우트. 앱이 늘어도 코어가 아는 것은 이 한 줄뿐이다.
   mountAppRoutes(app);
 
-  app.put('/api/ui-locale', (req, res) => {
+  app.put('/api/ui-locale', async (req, res) => {
     const locale = (req.body as { locale?: string } | undefined)?.locale;
     if (!locale || !SUPPORTED_UI_LOCALES.includes(locale as UiLocale)) {
       res.status(400).json({ error: 'invalid locale', supported: SUPPORTED_UI_LOCALES });
       return;
+    }
+    // §4 — 언어의 영속 자리는 머신 단위 `user-defaults.json` 이다. 체크포인트에만 두면 프로젝트마다
+    //   옛 값이 남아 재시작·업데이트·새 폴더에서 화면 언어가 뒤집힌다(체크포인트 쪽은 하위 호환 사본).
+    if (userDefaultsService.get().appearance?.uiLocale !== locale) {
+      try {
+        await userDefaultsService.update({ appearance: { uiLocale: locale as UiLocale } });
+      } catch (err) {
+        logger.warn(`PUT /api/ui-locale: could not persist to user-defaults: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
     const changed = graphManager.setUiLocale(locale as UiLocale);
     if (changed) {
@@ -1254,20 +1264,19 @@ export async function runServer(): Promise<RunServerHandle> {
         const result = graphManager.processHookEvent(body);
 
         // PostToolUse Bash 후 파일 존재 확인(삭제/rename 감지).
-        // §9 — Bash 폭주 시 전 노드 existsSync 스윕이 이벤트마다 돌지 않게 최소 간격으로 스로틀한다(miss 임계 `FILE_EXISTENCE_MISS_THRESHOLD` 의미는 그대로).
-        let ghosted = 0;
+        // §9 — Bash 폭주 시 전 노드 존재 스윕이 이벤트마다 돌지 않게 최소 간격으로 스로틀한다(miss 임계 `FILE_EXISTENCE_MISS_THRESHOLD` 의미는 그대로).
         let pruned = 0;
         if (
           body.hook_event_name === 'PostToolUse' && isShellToolName(body.tool_name)
           && Date.now() - lastExistenceSweepAt >= EXISTENCE_SWEEP_MIN_INTERVAL_MS
         ) {
           lastExistenceSweepAt = Date.now();
-          ghosted = graphManager.checkFileExistence();
+          sweepFileExistence(scheduleCheckpoint);
           pruned = graphManager.pruneDisappearing();
         }
 
         // §9 — 모델 도구 사용 빈도로 도착하는 폭주 경로다. 인라인 broadcast(getSnapshot())로 디바운스를 우회하지 마라 — 방송은 디바운스, 체크포인트는 코얼레스 저장(그 외 지점은 즉시 저장).
-        if (ghosted > 0 || pruned > 0 || result) {
+        if (pruned > 0 || result) {
           broadcastSnapshot();
         }
         scheduleCheckpoint();
@@ -1290,19 +1299,6 @@ export async function runServer(): Promise<RunServerHandle> {
         }
       }
 
-      /*
-       * §5.3 #12-4 (E) ④ — 우리 CMD 터미널의 턴 = 사람이 친 문장(`UserPromptSubmit`) → 그 턴의 끝. 검증 권한은
-       *   그 문장에서만 서고 턴이 끝나면 만료된다(다음 턴으로 승계 ❌). 서브에이전트의 Stop 은 턴 끝이 아니다.
-       *   터미널 id 가 없는 세션(우리 헤드리스·외부 훅 세션)은 여기 해당하지 않는다.
-       */
-      const cmdTurnSub = body._vibisualOwnerTermId ? bgOwnerSub : undefined;
-      if (cmdTurnSub) {
-        if (body.hook_event_name === 'UserPromptSubmit' && typeof body.prompt === 'string') {
-          verificationGate.beginCmdTurn(cmdTurnSub.id, body.prompt);
-        } else if ((isTurnEndEvent && !isSubagentStop) || isSessionEnd) {
-          verificationGate.endCmdTurn(cmdTurnSub.id);
-        }
-      }
 
       /*
        * §5.11 정독 게이트 — 읽기 영수증은 여기서만 쌓인다. 도구 호출 이력이 서버에 닿는 자리가 이 훅 하나라, 우리 세션과 바깥 에디터 세션이 같은 원장을 쓴다.
@@ -1387,11 +1383,7 @@ export async function runServer(): Promise<RunServerHandle> {
           ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
           log: (error) => logger.warn('[auto-goal] external hook context failed', error as Error),
         });
-        // §5.3 #12-4 (G) — CMD도 매 턴 현재 정책을 받는다(끔이면 이전 제한의 해제 안내).
-        const verificationLine = cmdTurnSub && isContextSourceOn(overrides, ctxScope, CONTEXT_SOURCE_IDS.verificationPolicy)
-          ? verificationGate.cmdTurnStateLine(cmdTurnSub.id).trim()
-          : '';
-        const additionalContext = [enforcement, recovery, procedures, verificationLine].filter(Boolean).join('\n\n');
+        const additionalContext = [enforcement, recovery, procedures].filter(Boolean).join('\n\n');
         if (additionalContext) {
           res.json({
             continue: true,
@@ -2644,58 +2636,6 @@ export async function runServer(): Promise<RunServerHandle> {
   const completedCommandArchive = new Map<string, QueuedCommand[]>();
 
   /**
-   * §5.3 #12-4 — 이 탭에서 **지금 도는** 명령. 검증 권한은 이 명령에 찍힌 범위뿐이라, 명령이 끝나면
-   * 여기서 못 찾게 되고 그대로 만료된다(다음 명령으로 승계 ❌). 큐는 훅 세션 id 키라 탭 id 로 훑는다.
-   */
-  function findExecutingCommandForSub(subAgentId: string): QueuedCommand | undefined {
-    for (const queue of commandQueues.values()) {
-      const cmd = queue.find((c) => c.status === 'executing' && c.subAgentId === subAgentId);
-      if (cmd) return cmd;
-    }
-    return undefined;
-  }
-
-  /** §5.3 #12-4 — 아직 큐에 있거나 이미 끝난 명령까지 id 로 찾는다(위임·킥오프가 보낸 쪽 범위를 물려받을 때). */
-  function findCommandById(commandId: string): QueuedCommand | undefined {
-    for (const queue of commandQueues.values()) {
-      const cmd = queue.find((c) => c.id === commandId);
-      if (cmd) return cmd;
-    }
-    for (const archive of completedCommandArchive.values()) {
-      const cmd = archive.find((c) => c.id === commandId);
-      if (cmd) return cmd;
-    }
-    return undefined;
-  }
-
-  /**
-   * §5.3 #12-4 (J) — 실행 전 차단이 켜져 있는가(옵션창 권한 탭, 기본 끔). 판정 객체·정책 문단·코덱스 훅 필수
-   * 여부·호스팅 도구 끄기가 이 답 하나를 본다. 호출마다 읽으므로 [적용] 뒤 다음 도구 호출부터 따라간다.
-   */
-  function verificationGateOn(): boolean {
-    return isVerificationGateEnabled(userDefaultsService.get());
-  }
-
-  /** §5.3 #12-4 — 실행 전 검증 판정 한 벌. 승인 창구 다섯이 이 객체를 부른다. */
-  const verificationGate = new VerificationGate({ findExecutingCommand: findExecutingCommandForSub, isEnforced: verificationGateOn });
-
-  /**
-   * §5.3 #12-4 (D) — 이 세션이 Auto Agent 하네스의 멤버면, 그 하네스를 부른 가장 최근 빌더 명령(사람이 친 본문 그대로).
-   * 하네스의 검증 런이 열려 있을 때만 찾는다 — 런이 닫혔으면 물려줄 것이 없다.
-   */
-  function findAutoAgentBuilderCommandFor(memberSessionId: string): QueuedCommand | undefined {
-    for (const [autoAgentId, summary] of Object.entries(graphManager.getAutoAgentSummaries())) {
-      if (!summary?.spawnedAgentIds?.includes(memberSessionId)) continue;
-      if (!graphManager.getActiveAutoAgentRun(autoAgentId)) continue;
-      const cmds = [...(commandQueues.get(autoAgentId) ?? []), ...(completedCommandArchive.get(autoAgentId) ?? [])];
-      let latest: QueuedCommand | undefined;
-      for (const c of cmds) if (!c.silent && (!latest || c.timestamp > latest.timestamp)) latest = c;
-      return latest;
-    }
-    return undefined;
-  }
-
-  /**
    * §3.2.3 — 완료 명령(사용자 말풍선)을 아카이브에 넣는 유일한 창구 — 직접 `archive.push` 하지 마라(상한 검사가 여기만 있다).
    * 넘치면 오래된 것부터(배열 앞) 버린다. 설정값 `0` 이면 무제한.
    */
@@ -2865,21 +2805,50 @@ export async function runServer(): Promise<RunServerHandle> {
    * 되풀이한 절차를 굳히는 일은 `autoGoalService` 가 한다(LLM 을 부르지 않는다).
    */
 
+  /** Explicit live input uses the active engine's acknowledgement protocol. */
+  function deliverLiveFollowUp(cmd: QueuedCommand, sessionId: string): boolean {
+    return trySendLiveFollowUp(cmd, {
+      getQueue: () => commandQueues.get(sessionId),
+      canSend: (id) => isCodexAppServerTurnRunning(id) || subAgentManager.canSendLiveFollowUp(id),
+      send: (id, input) => isCodexAppServerTurnRunning(id)
+        ? steerCodexAppServerTurn(id, { text: input.text, images: input.attachments })
+        : subAgentManager.sendLiveFollowUp(id, input),
+      onChange: () => {
+        graphManager.invalidateCommandSnapshot(sessionId);
+        scheduleCheckpoint();
+        broadcastSnapshot();
+      },
+      onSettled: () => {
+        // Drain only untouched live inputs. Rejected or uncertain deliveries require a user choice.
+        for (const next of [...(commandQueues.get(sessionId) ?? [])]) {
+          if (next.subAgentId !== cmd.subAgentId || next.status !== 'queued'
+            || next.dispatchMode !== 'steer' || next.liveDelivery) continue;
+          // A synchronous rejection settles this input immediately; continue to the next.
+          if (deliverLiveFollowUp(next, sessionId)) break;
+        }
+        processNextCommand(sessionId);
+      },
+    });
+  }
+
   /**
-   * §5.5 #17-18 — 즉시(immediate) 덧말: 지금 도는 턴을 끊는다. 덜 죽이는 것부터 셋이다:
-   * ① 그 턴이 이미 답을 내고 봉인만 붙들려 있으면 봉인을 확정해 다음 턴으로 넘긴다(죽는 것 없음) ② 도는 턴이면 soft interrupt(프로세스·감시 유지)
-   * ③ 못 보내면 하드 킬 — close 핸들러가 `[Stopped by user]` 로 봉합하고 `setOnComplete` 가 이 덧말을 `--resume` 으로 보낸다(대화 맥락 유지).
-   * `stop-session` 과 달리 큐를 비우지 않는다 — 비우면 방금 친 덧말이 함께 사라진다.
-   * @returns 끊었거나 봉인을 확정해 넘겼으면 true(호출자는 `processNextCommand` 를 다시 부르지 않는다), 대기 중이었으면 false.
+   * Immediate interrupts the current turn and runs the selected input as a separate command.
+   * Preserve the queue, prefer sealing/soft interruption, then fall back to stopping the child.
+   * A true result means completion will pump the queue; the caller must not dispatch twice.
    */
   function interruptForImmediateCommand(cmd: QueuedCommand, sessionId: string): boolean {
     const subId = cmd.subAgentId;
     if (!subId) return false;
     // 한 턴을 실제로 처리 중일 때만 — 명령 사이에 idle 로 살아 있는 persistent 자식은 끊을 이유가 없다.
-    if (!subAgentManager.isSubProcessingCommand(subId)) return false;
+    const processing = subAgentManager.isSubProcessingCommand(subId);
     // §5.3 #9-1 (P)(b) — 도는 것이 조용한 압축이면 사용자에게 "도는 턴"은 그 진행을 물려받은 명령이다. 아래 세 갈래는 CLI 의 압축만 끊으므로,
     //   그 명령을 먼저 중지됨으로 봉합한다 — 안 하면 압축이 끝나자마자 그 명령이 맨 앞에서 나가 덧말이 뒤로 밀린다.
-    sealHeirCutByImmediate(cmd, sessionId);
+    if (processing) sealHeirCutByImmediate(cmd, sessionId);
+    // stop may complete synchronously. Choose the requested input before completion
+    // pumps the queue, retaining every other queued message for its later turn.
+    const queue = commandQueues.get(sessionId);
+    if (queue) prioritizeImmediateFollowUp(queue, cmd);
+    if (!processing) return false;
     // 그 턴이 이미 답을 내고 백단 여운 때문에 봉인만 붙들려 있으면 끊을 턴이 없다 — 붙든 봉인을 지금 확정해 이 덧말을 다음 턴으로 보낸다.
     //   여기에 인터럽트를 쏘지 마라 — 3초 뒤 하드 킬로 떨어져 감시까지 죽고, 닫힌 창구에 덧말을 쓰다 `write after end` 로 세션이 멈춘다.
     if (subAgentManager.sealHeldTurnNow(subId)) {
@@ -2928,9 +2897,7 @@ export async function runServer(): Promise<RunServerHandle> {
     agentConfig?: AgentConfig;
     subAgentId?: string;
     commandText: string;
-    /** §5.3 #12-4 — 이번에 나가는 명령의 검증 범위·기록. 주입원 표를 잴 때는 없다(그때는 "권한 없음"으로 잰다). */
-    verificationScope?: VerificationScope;
-    verificationSummary?: CommandVerificationSummary;
+
   }): {
     parts: MeasuredPart[];
     projectRoot: string;
@@ -2944,11 +2911,7 @@ export async function runServer(): Promise<RunServerHandle> {
      * 정독 블록이 이 턴에 실릴 때만 비어 있지 않고, 주입원 창의 `plugin:spec-driven` 스위치를 따른다.
      */
     specSystemRules: string;
-    /**
-     * §5.3 #12-4 — 검증 정책의 두 절반. 표는 둘을 합쳐 한 줄로 재고, 발송은 갈라진다 — 안 변하는 정책 문단은
-     * `--append-system-prompt`(압축에도 남는다)로, 이번 명령의 권한 한 줄은 매 턴 앞말로.
-     */
-    verificationParts: { rules: string; state: string };
+
     /**
      * §5.26 (E) — 이번 턴 복원 브리핑이 실렸다면 그 마커. **여기서 못 박지 않는다** —
      * 이 함수는 주입원 표를 재는 데도 쓰이므로(부작용 없음이 계약) 창 한 번 여는 것으로
@@ -3036,7 +2999,7 @@ export async function runServer(): Promise<RunServerHandle> {
       ...(subAgentId ? { subAgentId } : {}),
     };
     const custom = Boolean(agent.customCreated);
-    parts.push({ id: CONTEXT_SOURCE_IDS.intentFirst, text: custom ? AGENT_INTENT_FIRST_RULES : '' });
+    parts.push({ id: CONTEXT_SOURCE_IDS.intentFirst, text: custom ? buildAgentIntentFirstRules(graphManager.isSessionGoalEnabled(agent.id, subAgentId)) : '' });
     // §5.5 #17-28 ⑧(a) — 카드 5종이 공유하는 규칙 한 벌. 카드 블록들보다 **앞**에 선다(가리키는 쪽이 뒤).
     // §5.5 #17-28 ⑧(f) — 결론의 근거는 디스크 문서 한 장으로 내렸다. 경로가 없으면(쓰기 실패)
     //   "애매하면 읽어라" 줄 자체가 빠진다 — 없는 파일을 가리키면 그 턴을 헛되이 태운다.
@@ -3087,15 +3050,6 @@ export async function runServer(): Promise<RunServerHandle> {
     }
     parts.push({ id: CONTEXT_SOURCE_IDS.goal, text: goalText });
 
-    // §5.3 #12-4 — 검증 정책. 우리가 띄운 세션에만 싣는다(훅 세션은 우리 세션이 아니라 정책 밖이다).
-    //   옵션을 끄면 제한 문단과 권한 없음 지시를 함께 걷고 이전 제한의 해제 안내만 보낸다.
-    //   주입원 스위치는 안내만 제어하며 실행 전 판정은 같은 옵션을 호출마다 읽는다.
-    const verificationOptions = { enforced: verificationGateOn() };
-    const verificationParts = custom
-      ? { rules: buildVerificationPolicyRules(verificationOptions), state: buildVerificationStateLine(input.verificationScope, input.verificationSummary, verificationOptions) }
-      : { rules: '', state: '' };
-    parts.push({ id: CONTEXT_SOURCE_IDS.verificationPolicy, text: verificationParts.rules + verificationParts.state });
-
     /*
      * §5.10 — 자동 목표: 이 프로젝트에서 되풀이해 온 절차 목록(이름과 한 줄 설명뿐). 꺼져 있으면 `undefined` 라 한 글자도 안 실린다.
      * 켬 판정은 shared 순수 함수 `resolveAutoGoalEnabled` 하나가 갖는다 — 화면과 집행이 같은 답을 봐야 한다.
@@ -3131,7 +3085,7 @@ export async function runServer(): Promise<RunServerHandle> {
       parts.push({ id: CONTEXT_SOURCE_IDS.hookEnforcement, text: '', defaultEnabled: true });
     }
 
-    return { parts, projectRoot, goalParts, specSystemRules, verificationParts, ...(recoveryMarker ? { recoveryMarker } : {}) };
+    return { parts, projectRoot, goalParts, specSystemRules, ...(recoveryMarker ? { recoveryMarker } : {}) };
   }
 
   /** 큐에서 dispatch 가능한 명령을 전부 실행.
@@ -3466,7 +3420,7 @@ export async function runServer(): Promise<RunServerHandle> {
     // 이미 executing 중인 subAgentId들 — 이 슬롯은 점유 중
     const busy = new Set<string | null>();
     for (const c of queue) {
-      if (c.status === 'executing') busy.add(c.subAgentId);
+      if (c.status === 'executing' || isLiveFollowUpPending(c.id)) busy.add(c.subAgentId);
     }
 
     let dispatched = false;
@@ -3477,6 +3431,8 @@ export async function runServer(): Promise<RunServerHandle> {
     //   splice 하며 돌면 항목을 건너뛴다). 지워진 항목은 아래 `queue.includes` 가 걸러낸다.
     for (const next of [...queue]) {
       if (next.status !== 'queued') continue;
+      // Live input must never silently become a fresh turn, including after restore/failure.
+      if (next.dispatchMode === 'steer') continue;
       if (!queue.includes(next)) continue; // 앞선 명령에 흡수됨 — 이 턴에 이미 실려 나갔다.
       if (busy.has(next.subAgentId)) continue;
       if (waitsForEarlierWork(next) || followsWaitingSessionCommand(next, queue, waitsForEarlierWork)) continue;
@@ -3490,14 +3446,10 @@ export async function runServer(): Promise<RunServerHandle> {
       const merged = absorbMergeFollowUps(queue, next);
       if (merged.length > 0) {
         logger.info(`[follow-up] merged ${merged.length} into ${next.id} (sub=${next.subAgentId ?? '-'})`);
-        // §5.3 #12-4 (C) — 합쳐진 사람 명령들의 검증 범위를 합치고, 어느 하나라도 부정한 종류는 뺀다.
-        //   본문을 다시 읽지 않는다 — 합쳐진 것 중에 에이전트가 넣은 명령(범위 없음)이 섞여도 권한이 생기지 않게.
-        const mergedScope = mergeVerificationScopes([next.verificationScope, ...merged.map((m) => m.verificationScope)]);
-        if (mergedScope) next.verificationScope = mergedScope;
       }
       // §5.5 #17-17 ⑨ — 목표 카드는 계획(TodoWrite)을 기다리지 않고 이 명령이 뜨는 순간 세운다(짧은 작업에서도 사이드바가 비지 않게).
-      //   세션이 쓴 목표만 새 명령에 갈아타고 사용자가 고친 문장은 두는 판단은 전부 그래프 쪽에 있다.
-      //   조각 조립보다 먼저 세워야 이번 턴 프롬프트에 실린다. 주입원 창에서 목표 블록을 꺼도 카드는 세운다(끈 것은 프롬프트 싣기다).
+      //   활성 목표는 후속 입력에도 보존한다. 없는 목표·명시적으로 닫힌 세션 목표만 그래프가 시딩한다.
+      //   조각 조립보다 먼저 세워야 이번 턴 프롬프트에 실린다. 목표 켜짐 규칙은 자동 생성에도 적용된다.
       if (agent.customCreated && next.subAgentId && next.text?.trim()) {
         graphManager.seedSessionGoalFromCommand(next.subAgentId, {
           agentId: agent.id,
@@ -3524,8 +3476,6 @@ export async function runServer(): Promise<RunServerHandle> {
         ...(agentConfig ? { agentConfig } : {}),
         ...(next.subAgentId ? { subAgentId: next.subAgentId } : {}),
         commandText: next.text ?? '',
-        ...(next.verificationScope ? { verificationScope: next.verificationScope } : {}),
-        ...(next.verification ? { verificationSummary: next.verification } : {}),
       });
       const partText = new Map(assembled.parts.map((p) => [p.id, p.text]));
       // 층 셋을 다 넘긴다 — 하나라도 빠뜨리면 그 층에 걸어 둔 사용자의 뜻이 프롬프트에서 무시된다.
@@ -3560,11 +3510,7 @@ export async function runServer(): Promise<RunServerHandle> {
       // §5.11 — 정독 규칙 줄은 목표 규약과 같은 자리로 간다. 주입원 창에서 그 카드를 껐으면 규칙도 함께 빠진다
       //   (블록은 목록만 싣도록 이미 조립됐으므로, 여기서 빠뜨리면 규칙이 어디에도 없다 — 둘은 한 벌이다).
       const specRulesBlock = pluginsOn && take(`${CONTEXT_PLUGIN_ID_PREFIX}${SPEC_DRIVEN_ID}`) ? assembled.specSystemRules : '';
-      // §5.3 #12-4 (G) — 검증 정책 문단은 시스템 프롬프트로(압축에도 남는다), 이번 명령의 권한 한 줄은 매 턴 앞말로.
-      const verificationOn = !!take(CONTEXT_SOURCE_IDS.verificationPolicy);
-      const verificationRulesBlock = verificationOn ? assembled.verificationParts.rules : '';
-      const verificationStateBlock = verificationOn ? assembled.verificationParts.state : '';
-      const appendSystemPrompt = intentBlock + goalProtocolBlock + specRulesBlock + verificationRulesBlock;
+      const appendSystemPrompt = intentBlock + goalProtocolBlock + specRulesBlock;
       // §5.3 #10-4 — 오케스트라 지휘 턴이면 **이 턴만** 설정을 덮어쓰고 편성 규칙을 시스템 프롬프트 뒤에 붙인다.
       //   저장된 설정은 그대로다(다음 턴은 평소대로). 권한 창구가 같은 설정으로 판정하도록 턴 동안 표에 올린다.
       const conductor = prepareConductorTurn(agent, next, effectiveConfig ?? DEFAULT_AGENT_CONFIG, stripSet);
@@ -3603,13 +3549,13 @@ export async function runServer(): Promise<RunServerHandle> {
       const undeliveredForTurn = next.subAgentId ? pendingDispatchResultsFor(next.subAgentId) : [];
       const undeliveredBlock = agentConfig?.provider?.kind === 'codex-cli' ? '' : undeliveredDispatchResultInstructions(undeliveredForTurn);
       const additionalContext = take(CONTEXT_SOURCE_IDS.compactSelf) + take(CONTEXT_SOURCE_IDS.autoGoalSkills);
-      const dispatchContext = contextSummary + cardsRules + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + additionalContext + verificationStateBlock;
+      const dispatchContext = contextSummary + cardsRules + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + additionalContext;
 
       // live preamble 은 resume 경로에서도 매 턴 앞에 붙는다 — 엣지가 생기거나 바뀌면 세션 재시작 없이 바로 알도록 edgesBlock 을 여기 싣는다.
       // 커스텀 에이전트면 customParent=true → execute 가 --bg 를 우회한다.
       // §5.11 — 집행 블록도 여기 싣는다: `contextSummary` 는 첫 스폰에만 쓰여 안 넣으면 이어지는 턴엔 한 글자도 안 실린다.
       //   첫 스폰 경로는 preamble 을 쓰지 않아 중복되지 않는다(`execute` 가 sessionId 유무로 갈라 쓴다).
-      const livePreamble = edgesBlock + pluginBlock + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + additionalContext + verificationStateBlock;
+      const livePreamble = edgesBlock + pluginBlock + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + additionalContext;
       // §5.5 #17-28 — `control: 'spawn'` 으로 끈 줄(CLAUDE.md·자동 기억·스킬 등)은 CLI 인자·환경변수로
       //   나간다. 헤드리스는 매 턴 새 프로세스라 다음 프롬프트부터 그대로 먹는다.
       const codexTurn = turnConfig?.provider?.kind === 'codex-cli';
@@ -3660,15 +3606,9 @@ export async function runServer(): Promise<RunServerHandle> {
               graphManager.getAuditBoundary(graphManager.getAgentProjectName(agent.id) ?? ''),
               // §5.3 #12-3 — 자물쇠가 하나라도 있으면 훅 없이 돌 수 없다(읽기 전용 샌드박스도 읽기는 연다).
               Object.keys(graphManager.getAllPathLocks()).length > 0,
-              // §5.3 #12-4 — 실행 전 차단이 켜져 있으면 훅 없이 돌 수 없다(판정이 닿지 않는다 — fail-closed).
-              //   (J) 옵션에서 꺼 두면(기본) 이 정책 때문에 필수가 되지는 않는다.
-              verificationGateOn(),
             ),
           },
         } : {}),
-        // §5.3 #12-4 (E) ② — 호스팅 브라우저·컴퓨터 도구는 훅 밖이다. 차단이 켜진 채 이 명령에 브라우저 확인 권한이
-        //   없으면 끈다. (J) 차단을 꺼 두면 끄지 않는다 — 막지 않기로 한 것을 기능 스위치로 대신 막지 않는다.
-        ...(codexTurn && verificationGateOn() && !next.verificationScope?.kinds.includes('browser') ? { codexHostedBrowserOff: true } : {}),
         // §5.3 #10-2 위임 조회 — 나가는 엣지가 없어도 조회를 넘겨받은 턴이면 다리를 싣는다(`status` 만, dispatch 는 숨는다).
         //   받지 못한 결과가 남은 턴도 같다 — 그 결과를 이어 받을 `status` 가 있어야 한다.
         ...(agentConfig?.provider?.kind === 'codex-cli' && (graphManager.getOutboundTaskEdges(agent.id).some((e) => isTaskEdgeViable(e)) || statusGrantsForTurn.length > 0 || undeliveredForTurn.length > 0) ? {
@@ -3683,8 +3623,7 @@ export async function runServer(): Promise<RunServerHandle> {
         } : {}),
         customParent: !!agent.customCreated,
         ...(spawnArgs.length > 0 ? { extraArgs: spawnArgs } : {}),
-        // §5.3 #12-4 (J) — 차단을 켠 채 띄우면 훅 안전망 표식(`VIBISUAL_VERIFICATION_GATE=1`)을 함께 싣는다(끄면 빈 객체).
-        extraEnv: { ...cardEnv, ...spawnSwitches.env, ...buildVerificationGateEnv(), VIBISUAL_OWNER_AGENT_ID: agent.id, VIBISUAL_SUBAGENT_ID: next.subAgentId ?? '' },
+        extraEnv: { ...cardEnv, ...spawnSwitches.env, VIBISUAL_OWNER_AGENT_ID: agent.id, VIBISUAL_SUBAGENT_ID: next.subAgentId ?? '' },
         ...(turnAppendSystemPrompt.trim() ? { appendSystemPrompt: turnAppendSystemPrompt } : {}),
       });
       // §5.26 (E) — **실어 보낸 뒤에** 못 박는다. 조립 단계에서 찍으면 주입원 표를 여는 것만으로
@@ -3840,16 +3779,12 @@ export async function runServer(): Promise<RunServerHandle> {
       commitEachRound: loop.commitEachRound,
     });
 
-    // §5.3 #12-4 (C) — 루프의 검증 권한은 **사람이 루프 설정에 적은 본문**에서만 선다. 명령 파일에서 읽은
-    //   회차는 읽지 않는다 — 그 파일은 에이전트가 고칠 수 있다(AI 가 쓴 글은 권한이 아니다).
-    const loopScope = !loop.commandFile || source.error ? verificationScopeFromText(loop.command) : undefined;
     const cmd: QueuedCommand = {
       id: `cmd-${Date.now()}-loop${round}`,
       text,
       timestamp: Date.now(),
       subAgentId,
       status: 'queued',
-      ...(loopScope ? { verificationScope: loopScope } : {}),
     };
     queue.push(cmd);
     graphManager.recordSkillUsageFromCommandText(sessionId, cmd.text);
@@ -4214,8 +4149,7 @@ export async function runServer(): Promise<RunServerHandle> {
     isCommandActive: (run) => {
       const sessionId = graphManager.findSessionByAgentId(run.agentId);
       const cmd = sessionId ? commandQueues.get(sessionId)?.find((c) => c.id === run.pendingCommandId && c.subAgentId === run.subAgentId) : undefined;
-      // §5.3 #12-4 (E) ⑤ — 전용 경로도 같은 판정을 본다. 그 명령에 사람이 [검증 실행]으로 연 범위가 있을 때만.
-      return verificationGate.commandAllows(cmd, ['browser']);
+      return cmd?.status === 'executing';
     },
     changed: () => { broadcastSnapshot(); saveCheckpoint(); },
   });
@@ -4272,8 +4206,6 @@ export async function runServer(): Promise<RunServerHandle> {
         id: cmdId, text: buildVerificationAutomationPrompt(run, demo, demoFrames.frames.map((f) => f.path)),
         timestamp, subAgentId, status: 'queued',
         ...(demoFrames.frames.length ? { attachments: demoFrames.frames.map((f) => f.path) } : {}),
-        // §5.3 #12-4 (C) — 사람이 검증 뷰에서 [검증 실행]을 눌렀다. 이 명령 하나에만 앱 조작 검증이 열린다.
-        verificationScope: appRunVerificationScope(),
       };
       queue.push(command);
       processNextCommand(sessionId);
@@ -4580,16 +4512,12 @@ export async function runServer(): Promise<RunServerHandle> {
         : null;
       let queue = commandQueues.get(sessionId);
       if (!queue) { queue = []; commandQueues.set(sessionId, queue); }
-      // §5.3 #12-4 (B) — 빌더 명령의 본문은 사용자가 Auto Agent 버블에 보낸 원문이다(그 창구는 loopback 에
-      //   열려 있지 않다 — 사람만 부른다). 하네스 멤버의 첫 명령은 이 범위를 물려받기만 한다(아래 commands 창구).
-      const builderScope = verificationScopeFromText(text);
       const cmd: QueuedCommand = {
         id: `cmd-${Date.now()}-${queue.length}`,
         text,
         timestamp: Date.now(),
         subAgentId,
         status: 'queued' as const,
-        ...(builderScope ? { verificationScope: builderScope } : {}),
       };
       queue.push(cmd);
       processNextCommand(sessionId);
@@ -4867,7 +4795,7 @@ export async function runServer(): Promise<RunServerHandle> {
     const orchestraRoot = agentId ? graphManager.getOrchestraRootForAgent(agentId) : null;
     const orchestraCfg = agentId ? graphManager.getAgentConfig(agentId) : undefined;
     const orchestraEngine = orchestraEngineOf(orchestraCfg);
-    const intercept = !kickoffRunId && !!agentId && !!orchestraRoot && shouldInterceptOrchestra({
+    const intercept = dispatchMode !== 'steer' && !kickoffRunId && !!agentId && !!orchestraRoot && shouldInterceptOrchestra({
       fromLoopback,
       customCreated: !!agentBubble?.customCreated,
       isAutoBubble: !!graphManager.getAutoAgentSummary(sessionId),
@@ -4902,7 +4830,11 @@ export async function runServer(): Promise<RunServerHandle> {
 
     // subagent 결정: 지정된 ID 사용 → (커스텀: 정규 sub 1개 고정 재사용) → idle 재사용 → 새로 생성
     let resolvedSubId = subAgentId ?? null;
-    if (!resolvedSubId && agentId) {
+    if (!resolvedSubId && agentId && dispatchMode === 'steer') {
+      const active = (commandQueues.get(sessionId) ?? []).filter((entry) => entry.status === 'executing' && entry.subAgentId);
+      resolvedSubId = active.length === 1 ? active[0]!.subAgentId
+        : agentBubble?.customCreated ? subAgentManager.getPrimarySub(agentId)?.id ?? null : null;
+    } else if (!resolvedSubId && agentId) {
       if (agentBubble?.customCreated) {
         // 커스텀 에이전트 = 하나의 안정 대화: 정규 sub(대화 성립된 것 우선) 하나만 재사용한다.
         // 명령마다 새 sub 를 만들면 새 Claude 세션이 생겨 연속성을 잃고 새 훅 버블로 증식한다.
@@ -5005,32 +4937,11 @@ export async function runServer(): Promise<RunServerHandle> {
       ...(appNodeIds ? { appNodeIds } : appNodesOff ? { appNodesOff: true as const } : {}),
       ...(waitForCommandIds.length ? { waitForCommandIds } : {}),
     };
-    /*
-     * §5.3 #12-4 (B) — 검증 권한은 **사람 창구로 들어온 본문에서만** 선다. loopback(에이전트가 토큰으로 넣은
-     *   명령)은 읽지 않는다 — AI 가 쓴 계획·명령은 권한이 아니다. 요청 본문에 같은 이름 칸이 와도 읽지 않는다
-     *   (서버만 찍는다 — `approved=true` 를 적어 권한을 만들 길이 없다).
-     */
-    if (!fromLoopback) {
-      const scope = verificationScopeFromText(cmd.text);
-      if (scope) cmd.verificationScope = scope;
-    } else if (!kickoffRunId) {
-      // §5.3 #12-4 (D) — Auto Agent 하네스의 킥오프(빌더가 loopback 으로 넣는 명령)는 그 하네스를 부른 사용자
-      //   메시지(빌더 명령)의 범위를 물려받기만 한다. 본문은 읽지 않는다 — 빌더가 옮겨 적은 글은 AI 의 글이다.
-      const builderCommand = findAutoAgentBuilderCommandFor(sessionId);
-      const inherited = builderCommand
-        ? inheritVerificationScope(builderCommand.verificationScope, builderCommand.verification, builderCommand.id)
-        : undefined;
-      if (inherited) cmd.verificationScope = inherited;
-    }
+
     // §5.3 #10-4 — 오케스트라. 킥오프면 그 런에 묶고(토큰 귀속 · 덧말 합치기 경계), 아니면 가로채기 조건을
     //   **전부** 볼 때만 지휘 런을 연다. 하나라도 어긋나면 이 기능이 없던 때와 똑같이 흐른다.
     if (kickoffRunId) {
       cmd.orchestraRunId = kickoffRunId;
-      // §5.3 #12-4 (D) — 멤버 킥오프는 지휘 런을 연 **사용자 명령**의 범위를 물려받기만 한다(넓히지 못한다).
-      const rootCommandId = graphManager.findOrchestraRun(kickoffRunId)?.commandId;
-      const rootCommand = rootCommandId ? findCommandById(rootCommandId) : undefined;
-      const inherited = rootCommand ? inheritVerificationScope(rootCommand.verificationScope, rootCommand.verification, rootCommand.id) : undefined;
-      if (inherited) cmd.verificationScope = inherited;
     } else if (agentId) {
       if (intercept && orchestraRoot && orchestraEngine) {
         const now = Date.now();
@@ -5055,8 +4966,8 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     }
     queue.push(cmd);
-    // §5.5 #17-18 — '즉시'면 도는 턴을 먼저 끊는다. 끊긴 뒤 close 핸들러 → setOnComplete 가
-    //   이 명령을 `--resume` 으로 dispatch 하므로, 여기서 또 밀면 죽어가는 자식과 겹칠 수 있다.
+    // Immediate stops the current turn; the queued input keeps its own command and history.
+    if (dispatchMode === 'steer') deliverLiveFollowUp(cmd, sessionId);
     const interrupted = dispatchMode === 'immediate' && interruptForImmediateCommand(cmd, sessionId);
     // §5.5 #17-4 — 명령 텍스트의 `/skill-name` 토큰을 프로젝트 사용 카운트에 반영(SkillsView 정렬 키·배지).
     graphManager.recordSkillUsageFromCommandText(sessionId, cmd.text);
@@ -5069,7 +4980,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * §5.5 #17-18 — PATCH /api/commands/:sessionId/:commandId/mode — 대기 중인 명령의 처리 방식 변경.
-   * body `{ dispatchMode: 'wait' | 'merge' | 'immediate' }`. `queued` 명령만 대상 — 이미 나간 턴은 되돌릴 수 없다(409).
+   * body `{ dispatchMode: 'wait' | 'merge' | 'steer' | 'immediate' }`. `queued` 명령만 대상 — 이미 나간 턴은 되돌릴 수 없다(409).
    * `immediate` 로 바꾸면 그 자리에서 도는 턴을 끊고 이 명령이 다음 턴이 된다.
    */
   app.patch('/api/commands/:sessionId/:commandId/mode', (req, res) => {
@@ -5082,17 +4993,19 @@ export async function runServer(): Promise<RunServerHandle> {
       res.status(404).json({ error: 'command not found' });
       return;
     }
-    if (cmd.status !== 'queued') {
+    if (cmd.status !== 'queued' || isLiveFollowUpLocked(cmd)) {
       res.status(409).json({ error: 'command already dispatched' });
       return;
     }
+    const previousMode = cmd.dispatchMode;
     cmd.dispatchMode = mode;
-    let interrupted = false;
-    if (mode === 'immediate') interrupted = interruptForImmediateCommand(cmd, sessionId);
+    delete cmd.liveDelivery;
+    if (mode === 'steer') deliverLiveFollowUp(cmd, sessionId);
+    const interrupted = mode === 'immediate' && interruptForImmediateCommand(cmd, sessionId);
     res.json({ ok: true, command: cmd, interrupted });
     broadcastSnapshot();
     // 실행 중인 게 없었다면(끊을 것이 없었다면) 지금 바로 나갈 수 있는지 확인.
-    if (mode === 'immediate' && !interrupted) processNextCommand(sessionId);
+    if ((mode === 'immediate' || mode === 'steer' || previousMode === 'steer') && !interrupted) processNextCommand(sessionId);
   });
 
   /** DELETE /api/commands/:sessionId/:commandId — 명령 제거 */
@@ -5101,6 +5014,10 @@ export async function runServer(): Promise<RunServerHandle> {
     const queue = commandQueues.get(sessionId);
     if (!queue) { res.json({ ok: true }); return; }
     const idx = queue.findIndex((c) => c.id === commandId);
+    if (idx >= 0 && isLiveFollowUpLocked(queue[idx]!)) {
+      res.status(409).json({ error: 'live delivery cannot be changed before acknowledgement is known' });
+      return;
+    }
     const [removed] = idx >= 0 ? queue.splice(idx, 1) : [];
     // §5.3 #10-4 — 지운 명령이 지휘 명령이면 그 런을 닫는다(신고 없이 끝났다 = `unreported`, 이미 신고했으면
     //   끝난 시각만). 도는 중에 지웠으면 그 턴의 덮어쓴 설정도 함께 내린다 — 완료 정산이 이 명령을 못 본다.
@@ -5142,7 +5059,10 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({ command: null });
       return;
     }
-    const cmd = queue.shift()!;
+    const index = queue.findIndex((entry) => entry.dispatchMode !== 'steer');
+    if (index < 0) { res.json({ command: null }); return; }
+    const [cmd] = queue.splice(index, 1);
+    if (!cmd) { res.json({ command: null }); return; }
 
     // pop 메타 기록 — buildAgentEvents에서 source 매칭용
     let popped = poppedCommands.get(sessionId);
@@ -5403,7 +5323,7 @@ export async function runServer(): Promise<RunServerHandle> {
     agentId: string | null,
     subAgentId: string | null,
   ): void {
-    if (!agentId || !subAgentId) return;
+    if (!agentId || !subAgentId || !graphManager.isSessionGoalEnabled(agentId, subAgentId)) return;
     const rec = body as unknown as Record<string, unknown>;
     const subject = typeof rec['task_subject'] === 'string' ? rec['task_subject'].trim() : '';
     if (!subject) return; // 제목이 없으면 화면에 적을 것이 없다
@@ -6964,8 +6884,8 @@ export async function runServer(): Promise<RunServerHandle> {
     logger.info(`[review-lane] created review=${created.id} agent=${agent.label} branch=${branch ?? '?'} files=${changes.files.length}`);
   }
 
-  /** 명령 큐에 한 건 넣고 바로 발사(반려 재작업 경로, 새 전송 경로 ❌). §5.3 #12-4 — 검증 범위는 부른 쪽이 정한다(랩은 과제 문장에서 만든 범위). */
-  function enqueueAgentCommand(agentId: string, text: string, idTag: string, subAgentId?: string, verificationScope?: VerificationScope): boolean {
+
+  function enqueueAgentCommand(agentId: string, text: string, idTag: string, subAgentId?: string): boolean {
     const agent = graphManager.getSnapshot().agents.find((a) => a.id === agentId);
     if (!agent) return false;
     const sessionId = agent.path;
@@ -6979,7 +6899,6 @@ export async function runServer(): Promise<RunServerHandle> {
       timestamp: Date.now(),
       subAgentId: sub.id,
       status: 'queued',
-      ...(verificationScope ? { verificationScope } : {}),
     };
     const queue = commandQueues.get(sessionId) ?? [];
     queue.push(cmd);
@@ -7305,7 +7224,7 @@ export async function runServer(): Promise<RunServerHandle> {
       const sealed: QueuedCommand[] = [];
       for (const c of queueBeforeStop) {
         // 다른 세션 소유 명령은 손대지 않는다 — 이 라우트의 존재 이유.
-        if (c.subAgentId === subId && c.status === 'queued') {
+        if (c.subAgentId === subId && c.status === 'queued' && !isLiveFollowUpLocked(c)) {
           cancelledQueued++;
           // §5.3 #10-2 — 안 나간 위임 명령도 끝이 있어야 한다(없으면 장부는 영영 queued, 동기 대기는 안 풀린다).
           settleDispatchCommand(c, { outcome: { status: 'cancelled', errorMessage: 'stopped by user before start' }, updateEdge: true, neverStarted: true });
@@ -7391,7 +7310,7 @@ export async function runServer(): Promise<RunServerHandle> {
       const remaining: QueuedCommand[] = [];
       const sealed: QueuedCommand[] = [];
       for (const c of queueBeforeStop) {
-        if (c.status === 'queued') {
+        if (c.status === 'queued' && !isLiveFollowUpLocked(c)) {
           cancelledQueued++;
           // §5.3 #10-2 — 안 나간 위임 명령도 끝이 있어야 한다(없으면 장부는 영영 queued, 동기 대기는 안 풀린다).
           settleDispatchCommand(c, { outcome: { status: 'cancelled', errorMessage: 'stopped by user before start' }, updateEdge: true, neverStarted: true });
@@ -8582,6 +8501,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
   // Codex named-tool gate. Kept separate from sandbox/audit approval: allowing a
   // tool here never grants sandbox access or skips the other permission hooks.
+  mountCodexProgressRoute(app, (notice) => subAgentManager.noteCodexProgress(notice));
+
   app.post('/api/codex-tool-check', async (req, res) => {
     try {
       const body = req.body ?? {};
@@ -8665,12 +8586,7 @@ export async function runServer(): Promise<RunServerHandle> {
          * `handler.mjs` 로 보낸 문의를 가른다 — 코덱스는 `ask` 를 지원하지 않아 거부로 답해야 한다.
          */
         turnId?: string;
-        /**
-         * §5.3 #12-4 — env `VIBISUAL_OWNER_AGENT_ID` · `VIBISUAL_OWNER_TERM_ID`. 우리 CMD 터미널에서 뜬 CLI 의
-         * 훅만 터미널 id 를 갖는다 — 그 턴의 검증 범위로 판정하는 근거다.
-         */
-        ownerAgentId?: string;
-        ownerTermId?: string;
+
       }
       const body = (req.body ?? {}) as Body;
 
@@ -8700,21 +8616,7 @@ export async function runServer(): Promise<RunServerHandle> {
           res.json({ ok: true, decision: 'deny', reason: 'not-managed' });
           return;
         }
-        /*
-         * §5.3 #12-4 (E) ④ — 우리 CMD 터미널의 AI 호출도 같은 검증 정책을 탄다. 훅이 터미널 id 를 실어 오면 그 턴(사람이 친 문장 → Stop)의 범위로 판정한다.
-         * 터미널 id 가 없는 세션(사용자 에디터·터미널의 훅 세션)은 막지 않는다(§5.3 #12-1 절대 규칙).
-         */
-        const cmdSub = typeof body.ownerTermId === 'string' && body.ownerTermId
-          ? subAgentManager.findSubByTermId(body.ownerTermId)
-          : undefined;
-        if (cmdSub && (!body.ownerAgentId || cmdSub.parentAgentId === body.ownerAgentId)
-          && graphManager.getSnapshot().agents.some((a) => a.id === cmdSub.parentAgentId && a.customCreated)) {
-          const verification = verificationGate.checkCmdCall(cmdSub.id, { toolName, toolInput, cwd: body.cwd ?? null });
-          if (verification.verdict === 'deny') {
-            res.json({ ok: true, decision: 'deny', reason: VERIFICATION_DENY_REASON, message: verification.message });
-            return;
-          }
-        }
+
         /*
          * §5.3 #12-3 — 관할 밖 세션(사용자 에디터·터미널의 훅 세션, 우리 CMD 터미널)도 자물쇠는 지난다. 우리 팝업은 띄우지 않는다(#12-1 "훅 버블은 막지 않는다"의 예외는 자물쇠뿐).
          * 그 엔진 자신의 강제 허락 장치로 돌려준다: 클로드는 `ask`(CLI 승인 창 — bypass 에서도 뜬다), 코덱스는 `ask` 를 읽기만 하고 실행하므로 거부 + 사유.
@@ -8749,15 +8651,6 @@ export async function runServer(): Promise<RunServerHandle> {
       //   지휘자의 curl 이 저장된 권한 모드의 승인 카드에 걸려 턴이 멈춘다.
       const config = agentConfigForTurn(agentId, body.subAgentId);
       if (!config) {
-        // §5.3 #12-4 — 설정이 없어도 우리가 띄운 세션이다. 검증 판정만은 그대로 탄다(그 밖은 종전대로 통과).
-        const verification = verificationGate.checkSubAgentCall(
-          typeof body.subAgentId === 'string' && body.subAgentId ? body.subAgentId : undefined,
-          { toolName, toolInput, cwd: body.cwd ?? null },
-        );
-        if (verification.verdict === 'deny') {
-          res.json({ ok: true, decision: 'deny', reason: VERIFICATION_DENY_REASON, message: verification.message });
-          return;
-        }
         // 설정 없음 — 막을 근거 없음, 통과
         passUnmanaged('no-config');
         return;
@@ -8795,30 +8688,7 @@ export async function runServer(): Promise<RunServerHandle> {
         const codexEscalate = codexRisk.length > 0
           && shouldEscalateRisk(graphManager.getAuditBoundary(codexProject), codexRisk);
         const approvalKey = codexApprovalKey(agentId, codexSessionId, toolName, toolInput);
-        /*
-         * §5.3 #12-4 (E) ② — 코덱스도 실행 전(PreToolUse)에 같은 검증 판정을 탄다. 모드와 무관하다 — 읽기 전용
-         * 샌드박스도 테스트는 돈다. 묻지 않는다(승인 카드 ❌) — 범위 밖이면 거부하고 사유는 서버가 짓는다.
-         */
-        if (codexEvent === 'PreToolUse') {
-          const verification = verificationGate.checkSubAgentCall(codexSubAgentId, { toolName, toolInput, cwd: body.cwd ?? null });
-          if (verification.verdict === 'deny') {
-            const deniedEntryId = graphManager.recordAuditCall({
-              projectName: codexProject,
-              sessionId: codexSessionId,
-              agentId,
-              ...(codexSubAgentId ? { subAgentId: codexSubAgentId } : {}),
-              ...(agentNode.label ? { agentLabel: agentNode.label } : {}),
-              ...(config.color ? { agentColor: config.color } : {}),
-              toolName,
-              toolInput,
-              ...(typeof body.toolUseId === 'string' && body.toolUseId ? { toolUseId: body.toolUseId } : {}),
-              roots: codexRoots,
-            });
-            if (deniedEntryId) graphManager.recordAuditDecision(codexProject, deniedEntryId, 'deny', 'policy', VERIFICATION_DENY_REASON);
-            res.json({ ok: true, decision: 'deny', reason: VERIFICATION_DENY_REASON, message: verification.message });
-            return;
-          }
-        }
+
         // §5.3 #12-3 — 실행 전(PreToolUse)에만 잰다. 승인 요청은 같은 호출의 뒷단이라 앞에서 이미 물었다.
         const codexLockHits = codexEvent === 'PreToolUse' ? lockHits() : [];
         const plan = planCodexPermission({
@@ -8971,22 +8841,6 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
 
-      /*
-       * §5.3 #12-4 (E) ① — 검증은 시킬 때만. 금지 목록 바로 뒤, 자물쇠·모든 모드 단축(`bypassPermissions`·`auto`·`acceptEdits`·읽기 전용 통과·세션 기억)보다 먼저다 — 뒤면 그 모드들에서 안 탄다.
-       *   `plan` 은 실행이 없어 보지 않는다. 묻지 않는다(팝업 ❌) — 범위 밖이면 실행 전 거부하고 사유는 서버가 짓는다(`message`). 도는 명령을 못 찾으면 거부(fail-closed). 검증이 아닌 호출은 그대로 흐른다.
-       *   (J) 차단을 꺼 두면(기본) 판정 객체가 거부 없이 실행으로만 센다 — 스위치는 그 객체가 쥔다.
-       */
-      if (mode !== 'plan') {
-        const verification = verificationGate.checkSubAgentCall(
-          typeof body.subAgentId === 'string' && body.subAgentId ? body.subAgentId : undefined,
-          { toolName, toolInput, cwd: body.cwd ?? null },
-        );
-        if (verification.verdict === 'deny') {
-          noteAuditDecision('deny', 'policy', VERIFICATION_DENY_REASON);
-          res.json({ ok: true, decision: 'deny', reason: VERIFICATION_DENY_REASON, message: verification.message });
-          return;
-        }
-      }
 
       /*
        * §5.3 #12-3 — 자물쇠는 모든 모드 단축보다 먼저(`bypassPermissions`·`auto`·`plan`·`acceptEdits`·읽기 전용 통과·세션 기억). 금지 목록 뒤인 것은 그쪽이 이미 거부를 냈기 때문이다.
@@ -13489,10 +13343,10 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** PUT /api/ide-activity-bar — 부분 갱신. 본문 `{ order?: string[], hidden?: string[], reset?: true }`. `order`·`hidden` 은 언급한 칸만 치환한다(순서를 바꿨다고 제외 목록이 날아가면 안 된다). */
+  /** PUT /api/ide-activity-bar — 부분 갱신. 순서와 표시 선택은 언급한 필드만 치환한다. */
   app.put('/api/ide-activity-bar', (req, res) => {
     try {
-      const body = (req.body ?? {}) as { order?: unknown; hidden?: unknown; reset?: unknown };
+      const body = (req.body ?? {}) as { order?: unknown; hidden?: unknown; shown?: unknown; reset?: unknown };
       const list = (v: unknown): string[] | undefined => (
         Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x) : undefined
       );
@@ -13501,6 +13355,7 @@ export async function runServer(): Promise<RunServerHandle> {
         : appStateSetIDEActivityBar({
           ...(list(body.order) !== undefined ? { order: list(body.order)! } : {}),
           ...(list(body.hidden) !== undefined ? { hidden: list(body.hidden)! } : {}),
+          ...(list(body.shown) !== undefined ? { shown: list(body.shown)! } : {}),
         });
       // 창이 여럿이면 다른 창도 즉시 같은 배치를 써야 한다 — 창마다 항목 순서가 다르면 그게 곧 버그다.
       broadcast({ type: 'ide_activity_bar_updated', timestamp: Date.now(), payload: prefs });
@@ -13982,17 +13837,67 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+  /**
+   * §5.4 #14 — 사용자가 고른 폴더를 프로젝트로 등록하는 꼬리. [폴더 열기] 대화상자와 OS 폴더 우클릭(§4)이 함께 쓴다 —
+   * 사용자의 명시 액션이라 닫아서 hidden 이던 프로젝트도 여기서 되살린다(훅 경로는 되살리지 않는다).
+   */
+  const openUserFolderAsProject = (
+    selected: string,
+    opts: { exact?: boolean } = {},
+  ): ReturnType<typeof graphManager.registerProject> => {
+    // §4 폴더 우클릭은 고른 그 폴더(`registerChosenFolder`) — [폴더 열기]는 종전대로 표식 루트로 올린다.
+    const info = opts.exact ? graphManager.registerChosenFolder(selected) : graphManager.registerProject(selected);
+    graphManager.showProject(info.name);
+    broadcastSnapshot();
+    saveCheckpoint();
+    return info;
+  };
+
+  /** 렌더러가 탭을 고를 이름 — 같은 basename 이 둘 이상 열려 있으면 스냅샷의 `이름 (구분자)` 와 같아야 탭이 바뀐다. */
+  const openedTabName = (info: { name: string; path: string }): string => graphManager.displayNameForPath(info.path) ?? info.name;
+
+  /**
+   * POST /api/projects/open-path `{ path }` — §4 OS 폴더 우클릭 [Vibisual에서 프로젝트 열기]. desktop main 이 in-process 로 부른다.
+   * 대화상자 없이 받은 경로라 절대경로·실제 폴더인지 여기서 확인한다. 루프백 허용 목록에 없고, 두 겹으로 루프백 유입은 403.
+   */
+  app.post('/api/projects/open-path', (req, res) => {
+    try {
+      if (req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE) {
+        res.status(403).json({ ok: false, error: 'open-path-not-allowed-from-loopback' });
+        return;
+      }
+      const raw = (req.body as { path?: unknown } | undefined)?.path;
+      if (typeof raw !== 'string' || raw.trim() === '' || !path.isAbsolute(raw.trim())) {
+        res.status(400).json({ ok: false, error: 'absolute folder path required' });
+        return;
+      }
+      const target = path.resolve(raw.trim());
+      let isDir = false;
+      try { isDir = fs.statSync(target).isDirectory(); } catch { /* 없음 */ }
+      if (!isDir) {
+        res.status(404).json({ ok: false, error: 'folder not found' });
+        return;
+      }
+      const info = openUserFolderAsProject(target, { exact: true });
+      res.json({ ok: true, project: info, displayName: openedTabName(info) });
+    } catch (err) {
+      logger.error('POST /api/projects/open-path failed', err);
+      res.status(500).json({ ok: false, error: String(err) });
+    }
+  });
+
+  /** GET /api/folder-context-menu — §4 옵션창이 보이는 등록 상태(desktop main 이 적은 결과). 데스크톱이 아니면 status=null. */
+  app.get('/api/folder-context-menu', (_req, res) => {
+    res.json({ enabled: folderContextMenu.wish().enabled, status: folderContextMenu.getStatus() });
+  });
+
   /** POST /api/projects/open-folder — 모던 폴더 선택 다이얼로그 (IFileDialog COM) → 프로젝트 등록 */
   app.post('/api/projects/open-folder', (_req, res) => {
     /** 고른 경로를 프로젝트로 등록하고 응답까지 끝낸다 — 플랫폼별 선택기가 공유하는 꼬리. */
     const registerPicked = (selected: string): void => {
       try {
-        const info = graphManager.registerProject(selected);
-        // §5.4 #14 — 사용자가 폴더를 골라 "열기" 한 경로 — 닫아서 hidden 이던 프로젝트는 여기서만 되살린다.
-        graphManager.showProject(info.name);
-        broadcastSnapshot();
-        saveCheckpoint();
-        res.json({ ok: true, project: info });
+        const info = openUserFolderAsProject(selected);
+        res.json({ ok: true, project: info, displayName: openedTabName(info) });
       } catch (regErr) {
         logger.error('Project registration failed', regErr);
         res.status(500).json({ ok: false, error: String(regErr) });
@@ -15321,54 +15226,6 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true, run: result.run });
   });
 
-  /**
-   * §5.3 #12-4 (F) — POST /api/verification-request — 결과 줄 [검증 실행]. 그 탭에 **관련 검증 명령 한 건**을
-   * 넣는다. 범위(관련 테스트·타입 검사·린트·빌드)는 서버가 찍는다 — 본문(`prompt`)은 사람이 읽을 말일 뿐
-   * 권한을 정하지 않는다. 사람이 누르는 손잡이라 에이전트(loopback) 유입은 받지 않는다.
-   */
-  app.post('/api/verification-request', (req, res) => {
-    if (req.get(LOOPBACK_INGRESS_HEADER) === LOOPBACK_INGRESS_VALUE) {
-      res.status(403).json({ ok: false, error: 'user-only' });
-      return;
-    }
-    const body = (req.body ?? {}) as { agentId?: unknown; subAgentId?: unknown; prompt?: unknown };
-    const agentId = typeof body.agentId === 'string' ? body.agentId : '';
-    const subAgentId = typeof body.subAgentId === 'string' ? body.subAgentId : '';
-    const prompt = typeof body.prompt === 'string' ? body.prompt.trim().slice(0, VERIFICATION_REQUEST_PROMPT_MAX) : '';
-    if (!agentId || !subAgentId || !prompt) {
-      res.status(400).json({ ok: false, error: 'agentId, subAgentId and prompt required' });
-      return;
-    }
-    // #17-29 — 훅 버블은 전면 읽기 전용이라 명령을 보내지 않는다.
-    if (isReadOnlyHookAgentId(agentId)) {
-      res.status(400).json({ ok: false, error: READ_ONLY_HOOK_AGENT_ERROR });
-      return;
-    }
-    const scopeError = verificationScopeError({ agentId, subAgentId, sub: subAgentManager.getSub(subAgentId) });
-    if (scopeError) { res.status(409).json({ ok: false, error: scopeError }); return; }
-    const sessionId = graphManager.findSessionByAgentId(agentId);
-    if (!sessionId) { res.status(409).json({ ok: false, error: 'session-not-found' }); return; }
-    let queue = commandQueues.get(sessionId);
-    if (!queue) { queue = []; commandQueues.set(sessionId, queue); }
-    // 겹쳐 쏘지 않는다 — 그 탭에 안 끝난 명령이 있으면 그것이 끝난 뒤 다시 누른다(무한 재실행 차단).
-    if (queue.some((c) => c.subAgentId === subAgentId && (c.status === 'queued' || c.status === 'executing'))) {
-      res.status(409).json({ ok: false, error: 'session-busy' });
-      return;
-    }
-    const cmd: QueuedCommand = {
-      id: `cmd-${Date.now()}-verifyreq-${randomUUID().slice(0, 8)}`,
-      text: prompt,
-      timestamp: Date.now(),
-      subAgentId,
-      status: 'queued',
-      dispatchMode: 'wait',
-      verificationScope: buttonVerificationScope(),
-    };
-    queue.push(cmd);
-    processNextCommand(sessionId);
-    broadcastSnapshot();
-    res.json({ ok: true, commandId: cmd.id });
-  });
 
   /** POST /api/verification-runs/:id/stop — 도는 검증을 목록에서 닫는다(그 턴 자체 중지는 기존 [중지]). */
   app.post('/api/verification-runs/:id/stop', (req, res) => {
@@ -16172,8 +16029,7 @@ export async function runServer(): Promise<RunServerHandle> {
             branch: wt.branch,
             startedAt: Date.now(),
           });
-          // §5.3 #12-4 — 랩 과제는 사람이 적은 문장이다. 거기서 요청한 검증만 각 변형에 열린다.
-          enqueueAgentCommand(agent.id, task, 'lab', undefined, verificationScopeFromText(task));
+          enqueueAgentCommand(agent.id, task, 'lab');
           started.push({ variantId: variant.id, agentId: agent.id, worktree: wtProjectName });
         }
 
@@ -17271,13 +17127,6 @@ export async function runServer(): Promise<RunServerHandle> {
     }
     // /api/commands 핸들러처럼 subAgent 를 새로 만들어 cmd.subAgentId 에 싣는다 — 그래야 `processNextCommand → subAgentManager.execute` 가 새 Claude 서브프로세스를 띄우고 IDE 에 탭이 뜬다(null 이면 execute 가 조용히 return).
     const newSub = subAgentManager.create(targetAgent.id);
-    // §5.3 #12-4 (D) — 위임은 보낸 명령(요청자 탭에서 지금 도는 명령)의 검증 범위를 **물려받기만** 한다 —
-    //   종류는 같고 남은 횟수만큼. 요청자를 모르거나 그 명령에 권한이 없으면 받은 쪽도 없다(위임 지시문이
-    //   "테스트까지 돌려라"라고 써 있어도 그것은 AI 가 쓴 글이라 권한이 아니다).
-    const parentCommand = requesterSubAgentId ? findExecutingCommandForSub(requesterSubAgentId) : undefined;
-    const inheritedScope = parentCommand
-      ? inheritVerificationScope(parentCommand.verificationScope, parentCommand.verification, parentCommand.id)
-      : undefined;
     const cmd: QueuedCommand = {
       id: `cmd-${Date.now().toString(36)}-edge${Math.random().toString(36).slice(2, 5)}`,
       text: instruction,
@@ -17286,7 +17135,6 @@ export async function runServer(): Promise<RunServerHandle> {
       status: 'queued',
       edgeId,
       ...(dispatchOrchestraRunId ? { orchestraRunId: dispatchOrchestraRunId } : {}),
-      ...(inheritedScope ? { verificationScope: inheritedScope } : {}),
     };
     // §5.3 #10-2 — 큐에 넣기 **전에** 장부에 적는다. 넣은 직후 동기로 끝나도(스폰 실패 등) 끝을 적을 자리가 이미 있어야 한다.
     dispatchJobs.register({
@@ -17571,9 +17419,19 @@ export async function runServer(): Promise<RunServerHandle> {
     try { flushPendingDiskWritesSync(); } catch { /* 마지막 방어선 — 실패해도 다음 부팅이 백업으로 복구 */ }
   });
 
-  // §9 — PostToolUse Bash 전 노드 existsSync 스윕 최소 간격(ms).
+  // §9 — PostToolUse Bash 전 노드 존재 스윕 최소 간격(ms).
   const EXISTENCE_SWEEP_MIN_INTERVAL_MS = 2000;
   let lastExistenceSweepAt = 0;
+  /** §9 「일하는 동안의 메인 스레드」 — 존재 스윕은 메인 스레드 밖에서 돌고, 끝나 ghost 가 생겼을 때만 방송·저장한다. */
+  const sweepFileExistence = (persist: () => void): void => {
+    void graphManager.checkFileExistence().then((ghosted) => {
+      if (ghosted === 0) return;
+      broadcastSnapshot();
+      persist();
+    }, (err: unknown) => {
+      logger.debug(`file existence sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  };
 
   // 참조 주입 — restoreFromCheckpoint보다 먼저 실행해야 복원된 데이터가 올바른 Map에 들어감
   graphManager.setPoppedCommandsRef(poppedCommands);
@@ -17594,6 +17452,12 @@ export async function runServer(): Promise<RunServerHandle> {
   // §9 「창이 뜬 직후의 메인 스레드」 ① — 아무 창도 범위를 선언하기 전의 스냅샷(부팅 직후 방송·첫 연결)은 마지막으로 보던 프로젝트 하나만 짓는다 — 전부 지으면 대화 기록 재파싱으로 창이 뜬 순간 메인 스레드를 붙잡는다.
   //   첫 선언 뒤는 `ProjectGraphManager` 규칙대로.
   graphManager.setBootViewProject(loadAppState().lastActiveProject);
+
+  // §4 — 저장된 UI 언어를 복원 **전에** 앱 언어로 정한다. 늦으면 처음 복원한 체크포인트의 옛 값이 앱 언어가 된다.
+  {
+    const savedUiLocale = userDefaultsService.get().appearance?.uiLocale;
+    if (savedUiLocale && SUPPORTED_UI_LOCALES.includes(savedUiLocale)) graphManager.setUiLocale(savedUiLocale);
+  }
 
   // Lazy boot: project.json 메타만 읽어 stub 등록, 체크포인트 본문은 hydrate 때까지 안 읽는다.
   // openProjects(`~/.vibisual/app-state.json` 의 "사용자가 열어둔" 경로)만 stub 으로 등록 — × 로 닫은 프로젝트는 체크포인트는 보존되되 탭으로 뜨지 않는다(파일 열기·hook 이벤트로 복귀).
@@ -17661,6 +17525,10 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     }
     reportBootProgress({ phase: 'projects', done: filtered.length, total: filtered.length });
+    // §4 — 설정 파일에 언어가 없는 옛 저장분은 복원으로 정해진 언어를 한 번 옮겨 적는다(프로젝트를 다 닫고 재설치해도 남게).
+    if (hydratedCount > 0 && !userDefaultsService.get().appearance?.uiLocale) {
+      void userDefaultsService.update({ appearance: { uiLocale: graphManager.getUiLocale() } }).catch(() => {});
+    }
     // meta 가 없는데 openProjects 에만 남은 경로 청소(정규화 경로 매칭).
     // §3.2.1-4 손실방지 — 메타를 못 읽어도 경로가 실재하면 크래시로 project.json 이 반파됐을 수 있어 지우지 않고 다음 부팅에 재시도한다. 경로 자체가 사라진 것만 영구 청소한다(무조건 지우면 멀쩡한 프로젝트가 목록에서 영영 빠진다).
     const metaKeys = new Set(metas.map((m) => np(m.project.path)));
@@ -17759,6 +17627,7 @@ export async function runServer(): Promise<RunServerHandle> {
     subAgentId: string,
     directive: import('@vibisual/shared').StageBlockDirective,
   ): boolean => {
+    if (!graphManager.isSessionGoalEnabled(agentId, subAgentId)) return false;
     let changed = false;
 
     // 종류 카드가 먼저다 — 같은 블록에서 만든 종류를 그 아래 단계가 `@key` 로 가리키기 때문이다.
@@ -17882,9 +17751,8 @@ export async function runServer(): Promise<RunServerHandle> {
       && Date.now() - lastExistenceSweepAt >= EXISTENCE_SWEEP_MIN_INTERVAL_MS
     ) {
       lastExistenceSweepAt = Date.now();
-      const ghosted = graphManager.checkFileExistence();
-      const pruned = graphManager.pruneDisappearing();
-      if (ghosted > 0 || pruned > 0) changed = true;
+      sweepFileExistence(scheduleCheckpoint);
+      if (graphManager.pruneDisappearing() > 0) changed = true;
     }
     if (changed) broadcastSnapshot();
     // 훅 경로와 같은 규율 — 도구 빈도로 도착하는 길이라 즉시 저장이 아니라 코얼레스 저장이다.
@@ -17897,6 +17765,7 @@ export async function runServer(): Promise<RunServerHandle> {
    */
   subAgentManager.setLocalHostToolHandler(async (ctx, toolName, input) => {
     if (toolName === 'TodoWrite') {
+      if (!graphManager.isSessionGoalEnabled(ctx.agentId, ctx.subAgentId)) return 'Goal tracking is turned off in this session. Continue the requested work without publishing a goal card.';
       const raw = Array.isArray(input['todos']) ? (input['todos'] as unknown[]) : [];
       const steps = parseGoalSteps(raw.map((t) => {
         const o = (t ?? {}) as { content?: unknown; text?: unknown; status?: unknown };
@@ -18009,10 +17878,6 @@ export async function runServer(): Promise<RunServerHandle> {
   // §5.3 #12-3 — 로컬 도구 판정도 훅 경로와 같은 판정기·같은 자물쇠(열려 있는 모든 프로젝트)를 본다.
   subAgentManager.setPathLockResolver((toolName, toolInput, cwd) => (
     findToolLockHitsOnHost(toolName, toolInput, cwd, graphManager.getAllPathLocks())
-  ));
-  // §5.3 #12-4 (E) ③ — 로컬 모델의 도구 판정도 훅 경로와 같은 검증 판정 객체를 부른다.
-  subAgentManager.setVerificationChecker((cmd, toolName, toolInput, cwd) => (
-    verificationGate.checkCommandCall(cmd, { toolName, toolInput, cwd })
   ));
   // 위 해석이 `null` 일 때의 되찾기 후보(§5.5 `findStreamDirFor` ③). 탭을 닫았다 오가면 에이전트가 `sessionCwds`·`agents` 에서 빠져
   // 폴더를 못 짚고, 디스크에 대화가 있는데도 빈 배열이 나가 화면이 굳는다. 워크트리도 독립 프로젝트로 함께 들어온다.
@@ -18199,21 +18064,10 @@ export async function runServer(): Promise<RunServerHandle> {
     contextResult: string | null,
     isFreshCycle: boolean,
     orchestraRunId?: string,
-    /** §5.3 #12-4 (D) — 이 비평을 부른 명령(끝난 작업). 그 명령의 검증 범위가 발사의 근거다. */
-    sourceCommand?: QueuedCommand,
+
   ): void {
     if (orchestraRunId && graphManager.findOrchestraRun(orchestraRunId)?.phase !== 'dispatched') return;
-    /*
-     * §5.3 #12-4 (D) — 완료 뒤 자동 후속은 검증을 새로 시작하지 않는다. 비평(리뷰)도 검증이라, 정책이 켜진 동안 사용자가 연 검증 범위를
-     * 물려받기만 한다(종류 같고 남은 횟수만큼 — 재작업 사이클도 같은 몫). 런이 기다리지 않게 이 판정은 `expectCritique` 보다 **앞**이다.
-     */
-    const inheritedScope = sourceCommand
-      ? inheritVerificationScope(sourceCommand.verificationScope, sourceCommand.verification, sourceCommand.id)
-      : undefined;
-    if (verificationGateOn() && !hasVerificationGrant(inheritedScope)) {
-      logger.info(`[critique] skip dispatch — the finished command had no verification permission (edge ${edge.id}, §5.3 #12-4)`);
-      return;
-    }
+
     if (orchestraRunId) orchestraResults.expectCritique(orchestraRunId, edge.id);
     if (edge.status === 'executing' && !orchestraRunId) {
       logger.debug?.(`[critique] skip dispatch — edge ${edge.id} already executing`);
@@ -18254,7 +18108,6 @@ export async function runServer(): Promise<RunServerHandle> {
       status: 'queued',
       edgeId: edge.id,
       ...(orchestraRunId ? { orchestraRunId } : {}),
-      ...(inheritedScope ? { verificationScope: inheritedScope } : {}),
     };
     const queue = commandQueues.get(watcherSessionId) ?? [];
     queue.push(cmd);
@@ -18314,7 +18167,7 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /** Watcher 의 critique 응답이 완료되었을 때 호출. verdict 파싱 + (필요 시) auto-rework 발사 또는 에스컬레이션. */
-  function handleCritiqueCompletion(edge: TaskEdge, watcherResult: string | undefined, orchestraRunId?: string, watcherCommand?: QueuedCommand): void {
+  function handleCritiqueCompletion(edge: TaskEdge, watcherResult: string | undefined, orchestraRunId?: string): void {
     if (edge.kind !== 'critique' || (edge.bundleRole ?? 'primary') !== 'primary') return;
     const { verdict, reason, attempts } = parseCritiqueVerdict(watcherResult ?? '');
     const authority = edge.critiqueAuthority ?? 'force-rework';
@@ -18397,10 +18250,6 @@ export async function runServer(): Promise<RunServerHandle> {
     const instruction = `${TASK_EDGE_AUTO_REWORK_COMMAND_LABEL} (cycle ${nextCount}/${maxRework})${reasonBlock}\nAddress the feedback and continue.`;
 
     const newSub = subAgentManager.create(worker.id);
-    // §5.3 #12-4 (D) — 자동 재작업은 감시자 명령의 검증 범위를 물려받기만 한다(남은 횟수만큼 — 사이클이 돌수록 준다).
-    const reworkScope = watcherCommand
-      ? inheritVerificationScope(watcherCommand.verificationScope, watcherCommand.verification, watcherCommand.id)
-      : undefined;
     const cmd: QueuedCommand = {
       id: `cmd-${Date.now().toString(36)}-rework${Math.random().toString(36).slice(2, 5)}`,
       text: instruction,
@@ -18409,7 +18258,6 @@ export async function runServer(): Promise<RunServerHandle> {
       status: 'queued',
       edgeId: reworkEdge.id,
       ...(orchestraRunId ? { orchestraRunId } : {}),
-      ...(reworkScope ? { verificationScope: reworkScope } : {}),
     };
     const workerSessionId = worker.path;
     const queue = commandQueues.get(workerSessionId) ?? [];
@@ -18439,8 +18287,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
       // Task Edge dispatch 매칭: edgeId 가 실린 명령이면 엣지 상태를 갱신하고 대기 중 dispatch promise 를 푼다.
       // critique 엣지(watcher 응답)·auto-rework 엣지(작업자 재작업)는 따로 모은다. 강제 중단(`[Stopped by user]`)은 critique 대상이 아니다.
-      // §5.3 #12-4 (D) — 감시자 명령도 함께 든다. 자동 재작업은 그 명령의 검증 범위를 물려받기만 한다.
-      const completedCritiqueEdges: { edge: TaskEdge; result: string | undefined; orchestraRunId?: string; command: QueuedCommand }[] = [];
+      const completedCritiqueEdges: { edge: TaskEdge; result: string | undefined; orchestraRunId?: string }[] = [];
       let sawNonCritiqueResponse = false;
       let sawReworkCompletion = false;
       const isUserStopped = (cmd: QueuedCommand): boolean =>
@@ -18466,7 +18313,7 @@ export async function runServer(): Promise<RunServerHandle> {
           // watcher 의 critique 응답 — verdict 처리 대상. 작업자 watcher 발사 후보 ❌.
           // 사용자가 watcher 를 중단한 경우 verdict 파싱도 skip (rework 발사 안 함, 사이클 종료).
           if (edgeStatus === 'completed' && !userStopped) {
-            completedCritiqueEdges.push({ edge: cmdEdge, result: cmd.result, orchestraRunId: cmd.orchestraRunId, command: cmd });
+            completedCritiqueEdges.push({ edge: cmdEdge, result: cmd.result, orchestraRunId: cmd.orchestraRunId });
           }
         } else if (cmdEdge?.bundleRole === 'auto-rework') {
           // 작업자가 auto-rework 명령 완료 — 다음 사이클 watcher 재발사 대상. count 리셋 ❌(연속).
@@ -18601,9 +18448,9 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       // critique 런타임: (1) watcher 응답 완료 처리(reject 면 자매 auto-rework 발사 또는 강등) (2) 작업자 본 완료가 있으면 incoming critique watcher 발사.
-      for (const { edge, result, orchestraRunId, command } of completedCritiqueEdges) {
+      for (const { edge, result, orchestraRunId } of completedCritiqueEdges) {
         try {
-          handleCritiqueCompletion(edge, result, orchestraRunId, command);
+          handleCritiqueCompletion(edge, result, orchestraRunId);
         } catch (err) {
           logger.error(`[critique] handleCritiqueCompletion failed edge=${edge.id}`, err);
         }
@@ -18622,17 +18469,6 @@ export async function runServer(): Promise<RunServerHandle> {
             }
             return null;
           })();
-          // §5.3 #12-4 (D) — 비평(리뷰)은 검증이다. 그 결과를 낸 명령(가장 최근 일반/rework 명령)의 검증
-          //   범위가 감시자 발사의 근거다 — 범위가 없으면 완료 뒤 자동 후속이 검증을 새로 시작하지 않는다.
-          const lastNonCritiqueCommand = (() => {
-            for (let i = done.length - 1; i >= 0; i--) {
-              const c = done[i]!;
-              const e = c.edgeId ? graphManager.getTaskEdge(c.edgeId) : null;
-              if (e?.kind === 'critique' && (e.bundleRole ?? 'primary') === 'primary') continue;
-              return c;
-            }
-            return undefined;
-          })();
           // Preserve each run when concurrent sessions finish on the same worker.
           const { firings, plainFallback } = orchestraCritiqueFirings(done, workerAgentId, {
             findRun: (runId) => graphManager.findOrchestraRun(runId),
@@ -18642,12 +18478,10 @@ export async function runServer(): Promise<RunServerHandle> {
           for (const edge of incoming) {
             try {
               for (const firing of firings) {
-                // 오케스트라 런은 그 런을 연 사용자 명령이 권한의 근거다.
-                const rootCommandId = graphManager.findOrchestraRun(firing.runId)?.commandId;
-                dispatchCritiqueWatcher(edge, firing.result, firing.freshCycle, firing.runId, rootCommandId ? findCommandById(rootCommandId) : undefined);
+                dispatchCritiqueWatcher(edge, firing.result, firing.freshCycle, firing.runId);
               }
               if (plainFallback) {
-                dispatchCritiqueWatcher(edge, lastNonCritiqueResult, !sawReworkCompletion, undefined, lastNonCritiqueCommand);
+                dispatchCritiqueWatcher(edge, lastNonCritiqueResult, !sawReworkCompletion);
               }
             } catch (err) {
               logger.error(`[critique] dispatchCritiqueWatcher failed edge=${edge.id}`, err);
@@ -18791,17 +18625,11 @@ export async function runServer(): Promise<RunServerHandle> {
 
     // 파일 존재 확인 + ghost 만료 제거 (별도 주기)
     setInterval(() => {
-      let needsBroadcast = false;
-
       // 파일/폴더 경로 검증 → 사라진 노드 ghost 전환
-      const ghosted = graphManager.checkFileExistence();
-      if (ghosted > 0) needsBroadcast = true;
+      sweepFileExistence(saveCheckpoint);
 
       // disappearing 만료 버블 제거
-      const pruned = graphManager.pruneDisappearing();
-      if (pruned > 0) needsBroadcast = true;
-
-      if (needsBroadcast) {
+      if (graphManager.pruneDisappearing() > 0) {
         broadcastSnapshot();
         saveCheckpoint();
       }

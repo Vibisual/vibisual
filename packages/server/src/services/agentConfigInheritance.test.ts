@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { AgentConfig, BubbleData, ProjectCheckpoint, UserDefaults } from '@vibisual/shared';
+import type { AgentConfig, AgentProvider, BubbleData, ProjectCheckpoint, UserDefaults } from '@vibisual/shared';
 import { AGENT_TOOLS_BACKFILL_GEN, AVAILABLE_AGENT_TOOLS, CMD_AGENT_COLOR, DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
 
 /**
@@ -80,7 +80,8 @@ describe('§4 설정 3층 — 안 건드린 칸은 설정 창을 따라간다', 
     expect(graph.getAgentConfig(agent.id)?.permissionMode).toBe('plan');
   });
 
-  it('못 박은 칸을 기본값으로 되돌리면 다시 위층을 따른다', () => {
+  // 개별 저장은 개별로 남는다 — 전역과 같은 값으로 바꿔도 그 버블이 고른 값이다(위층과만 대조하면 그 순간 빠져 전역이 바뀔 때 따라 바뀐다).
+  it('못 박은 칸을 전역과 같은 값으로 바꿔도 그 값으로 남고, 전역이 바뀌어도 따라가지 않는다', () => {
     const graph = new ProjectGraph();
     setGlobalDefaults({ model: 'sonnet' });
     const agent = graph.createCustomAgent('Reverted');
@@ -89,7 +90,10 @@ describe('§4 설정 3층 — 안 건드린 칸은 설정 창을 따라간다', 
     expect(graph.getAgentConfigOverrides(agent.id)).toEqual({ model: 'opus' });
 
     graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { model: 'sonnet' }));
-    expect(graph.getAgentConfigOverrides(agent.id)).toEqual({});
+    expect(graph.getAgentConfigOverrides(agent.id)).toEqual({ model: 'sonnet' });
+
+    setGlobalDefaults({ model: 'haiku' });
+    expect(graph.getAgentConfig(agent.id)?.model).toBe('sonnet');
   });
 
   it('CMD·로컬 버블의 정체성은 위층이 정할 수 없으므로 태어날 때부터 못 박힌다', () => {
@@ -225,11 +229,11 @@ describe('§4 설정 3층 — 관측 모델은 우리가 띄운 버블의 선택
     graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { model: 'fable' }));
     syncObserved(graph, agent, 'claude-fable-5-1');
 
-    // 기본값(opus)과 같은 선택이라 못 박히지 않는다 — 그 빈자리를 지난 턴의 관측이 채우면 안 된다.
+    // 기본값(opus)과 같아도 이 버블이 고른 값이라 못 박힌다 — 지난 턴의 관측이 그 자리를 덮으면 안 된다.
     graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { model: 'opus' }));
     syncObserved(graph, agent, 'claude-fable-5-1');
 
-    expect(graph.getAgentConfigOverrides(agent.id)?.model).toBeUndefined();
+    expect(graph.getAgentConfigOverrides(agent.id)?.model).toBe('opus');
     expect(graph.getAgentConfig(agent.id)?.model).toBe('opus');
   });
 
@@ -424,6 +428,161 @@ describe('§4 설정 3층 — 위층이 켠 것을 아래층에서 끌 수 있�
     expect(graph.getAgentConfig(agent.id)?.agentCanCompact).toBe(false);
     expect(graph.getAgentConfig(agent.id)?.rules).toBe('바뀐 규칙');
     expect(graph.getAgentConfig(agent.id)?.maxBudgetUsd).toBe(9);
+  });
+});
+
+/*
+ * §4 저장한 설정 (d) — 개별 저장은 개별로 남는다. 남는 칸 = 위층과 다른 칸 + 이미 못 박은 칸 + 이번에 바꾼 칸.
+ * 위층과만 대조하면 ① 고른 값이 그때 전역과 같다는 이유로 안 남고 ② 다시 저장할 때 못 박은 칸도 빠져,
+ * 설정 창이나 판올림의 기본이 바뀌면 버블이 따라 바뀐다(화면엔 "저장했는데 업데이트 뒤 바뀌어 있다"로만 보인다).
+ */
+describe('§4 개별 저장은 개별로 남는다', () => {
+  it('전역과 같은 값을 골라도 그 칸은 이 버블에 못 박힌다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ effort: 'high' });
+    const agent = graph.createCustomAgent('Chooser');
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { effort: 'max' }));
+
+    // 상태바 모델 카드에서 강도를 전역과 같은 high 로 고른다.
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { effort: 'high' }));
+
+    expect(graph.getAgentConfigOverrides(agent.id)?.effort).toBe('high');
+    setGlobalDefaults({ effort: 'xhigh' });
+    expect(graph.getAgentConfig(agent.id)?.effort).toBe('high');
+  });
+
+  it('못 박은 칸은 전역이 같은 값이 된 뒤 다른 칸을 저장해도 빠지지 않는다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ effort: 'high' });
+    const agent = graph.createCustomAgent('Kept');
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { effort: 'xhigh' }));
+
+    // 전역을 그 버블과 같은 값으로 바꾼 뒤 다른 칸을 저장한다(권한 카드의 "항상"도 완성본 한 벌을 다시 저장한다).
+    setGlobalDefaults({ effort: 'xhigh' });
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { permissionMode: 'plan' }));
+
+    expect(graph.getAgentConfigOverrides(agent.id)).toEqual({ effort: 'xhigh', permissionMode: 'plan' });
+    setGlobalDefaults({ effort: 'max' });
+    expect(graph.getAgentConfig(agent.id)?.effort).toBe('xhigh');
+  });
+
+  it('아무것도 안 바꾸고 다시 저장하면 저장분이 그대로다 — 새로 박히는 칸도 빠지는 칸도 없다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ model: 'sonnet', effort: 'high' });
+    const agent = graph.createCustomAgent('Same');
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { model: 'opus' }));
+    const pinned = graph.getAgentConfigOverrides(agent.id);
+
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, {}));
+
+    expect(graph.getAgentConfigOverrides(agent.id)).toEqual(pinned);
+    setGlobalDefaults({ model: 'haiku', effort: 'max' });
+    expect(graph.getAgentConfig(agent.id)?.model).toBe('opus');
+    expect(graph.getAgentConfig(agent.id)?.effort).toBe('max');
+  });
+
+  it('내장 기본과 같은 값으로 고른 칸도 재시작 뒤 기본이 바뀌어도 그대로다', () => {
+    const graph = new ProjectGraph();
+    const project = graph.registerProject(process.cwd());
+    const agent = graph.createCustomAgent('Survivor', undefined, project.name);
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { model: 'sonnet' }));
+    // 전역을 비워 둔 채 내장 기본(opus)과 같은 모델로 되돌린다.
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { model: DEFAULT_AGENT_CONFIG.model }));
+    const cp = graph.toProjectCheckpoint(project.name)!;
+
+    // 판올림으로 기본 모델이 바뀐 것처럼 — 다시 켠 앱이 읽는 위층이 다르다.
+    setGlobalDefaults({ model: 'fable' });
+    const restored = new ProjectGraph();
+    restored.restoreFromCheckpoint(cp);
+
+    expect(restored.getAgentConfig(agent.id)?.model).toBe(DEFAULT_AGENT_CONFIG.model);
+  });
+
+  // 오지 않은 값(일부만 보내는 루프백 빌더 · 창이 "없음"을 `undefined` 로 접는 칸)은 종전대로 위층을 따른다.
+  it('값이 오지 않은 칸은 못 박혀 있었어도 위층을 따른다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ effort: 'high' });
+    const agent = graph.createCustomAgent('Unset');
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { effort: 'xhigh' }));
+
+    graph.setAgentConfig(agent.id, { ...fullConfig(graph, agent.id, {}), effort: undefined });
+
+    expect(graph.getAgentConfigOverrides(agent.id)?.effort).toBeUndefined();
+    expect(graph.getAgentConfig(agent.id)?.effort).toBe('high');
+  });
+
+  it('코덱스 모델·추론 강도도 전역과 같은 값으로 고르면 남고, 빈 값(프로젝트 / 공통 기본값)을 고르면 다시 따른다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ provider: { kind: 'codex-cli', modelId: 'gpt-a', reasoningEffort: 'high' } });
+    const agent = graph.createCustomAgent('Codex', undefined, null, { provider: { kind: 'codex-cli', modelId: '' } });
+    /** 창이 저장하는 모양 — 완성본의 provider 위에 고친 칸만 얹는다. */
+    const codex = (patch: Partial<AgentProvider>): AgentConfig => {
+      const base = graph.getAgentConfig(agent.id)!;
+      return { ...base, provider: { ...base.provider!, ...patch } };
+    };
+
+    // 안 건드린 칸은 물려받는다(모델 빈 값 · 강도 없음).
+    graph.setAgentConfig(agent.id, codex({}));
+    expect(graph.getAgentConfigOverrides(agent.id)?.provider?.modelId).toBe('');
+    expect(graph.getAgentConfigOverrides(agent.id)?.provider?.reasoningEffort).toBeUndefined();
+
+    // 다른 값을 골랐다가 전역과 같은 값으로 되돌려도 그 버블의 값으로 남는다.
+    graph.setAgentConfig(agent.id, codex({ modelId: 'gpt-b', reasoningEffort: 'max' }));
+    graph.setAgentConfig(agent.id, codex({ modelId: 'gpt-a', reasoningEffort: 'high' }));
+    setGlobalDefaults({ provider: { kind: 'codex-cli', modelId: 'gpt-c', reasoningEffort: 'xhigh' } });
+    expect(graph.getAgentConfig(agent.id)?.provider).toMatchObject({ modelId: 'gpt-a', reasoningEffort: 'high' });
+
+    // 빈 값 = 「프로젝트 / 공통 기본값」 — 창은 빈 강도를 키째 뺀다.
+    const inherit = codex({ modelId: '' });
+    delete inherit.provider!.reasoningEffort;
+    graph.setAgentConfig(agent.id, inherit);
+    expect(graph.getAgentConfig(agent.id)?.provider).toMatchObject({ modelId: 'gpt-c', reasoningEffort: 'xhigh' });
+  });
+
+  it('빈 코덱스 도구 정책은 키 순서·빈 객체 표기 차이로 못 박히지 않는다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ provider: { kind: 'codex-cli', modelId: 'gpt-a' } });
+    const agent = graph.createCustomAgent('Tools', undefined, null, { provider: { kind: 'codex-cli', modelId: '' } });
+    const base = graph.getAgentConfig(agent.id)!;
+
+    // 창은 정책이 없을 때 `{}` 를 싣는다 — 물려받을 정책도 비어 있으면 저장할 것이 없다.
+    graph.setAgentConfig(agent.id, { ...base, provider: { ...base.provider!, codexTools: {} } });
+
+    expect(graph.getAgentConfigOverrides(agent.id)?.provider?.codexTools).toBeUndefined();
+  });
+
+  it('명시적으로 비운 코덱스 도구 정책은 전역도 비워진 뒤 저장해도 유지된다', () => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ provider: { kind: 'codex-cli', modelId: 'gpt-a', codexTools: { shell: 'deny' } } });
+    const agent = graph.createCustomAgent('Unrestricted', undefined, null, { provider: { kind: 'codex-cli', modelId: '' } });
+    const base = graph.getAgentConfig(agent.id)!;
+    graph.setAgentConfig(agent.id, { ...base, provider: { ...base.provider!, codexTools: {} } });
+    expect(graph.getAgentConfigOverrides(agent.id)?.provider?.codexTools).toEqual({});
+
+    // 위층과 같아진 때 다른 칸을 저장해도 제한 없음이라는 개별 선택이 사라지면 안 된다.
+    setGlobalDefaults({ provider: { kind: 'codex-cli', modelId: 'gpt-a', codexTools: {} } });
+    graph.setAgentConfig(agent.id, fullConfig(graph, agent.id, { permissionMode: 'plan' }));
+    expect(graph.getAgentConfigOverrides(agent.id)?.provider?.codexTools).toEqual({});
+
+    setGlobalDefaults({ provider: { kind: 'codex-cli', modelId: 'gpt-a', codexTools: { shell: 'deny' } } });
+    expect(graph.getAgentConfig(agent.id)?.provider?.codexTools).toEqual({});
+  });
+
+  it.each(['omitted', 'undefined'] as const)('코덱스 도구 정책을 보내지 않으면 다시 상속한다 (%s)', (reset) => {
+    const graph = new ProjectGraph();
+    setGlobalDefaults({ provider: { kind: 'codex-cli', modelId: 'gpt-a', codexTools: { shell: 'deny' } } });
+    const agent = graph.createCustomAgent('Reset tools', undefined, null, { provider: { kind: 'codex-cli', modelId: '' } });
+    const base = graph.getAgentConfig(agent.id)!;
+    graph.setAgentConfig(agent.id, { ...base, provider: { ...base.provider!, codexTools: {} } });
+
+    const config = fullConfig(graph, agent.id, {});
+    config.provider = { ...config.provider! };
+    if (reset === 'omitted') delete config.provider.codexTools;
+    else config.provider.codexTools = undefined;
+    graph.setAgentConfig(agent.id, config);
+
+    expect(graph.getAgentConfigOverrides(agent.id)?.provider).not.toHaveProperty('codexTools');
+    expect(graph.getAgentConfig(agent.id)?.provider?.codexTools).toEqual({ shell: 'deny' });
   });
 });
 

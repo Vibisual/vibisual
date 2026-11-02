@@ -395,6 +395,9 @@ export const BubbleNode = memo(function BubbleNode({
   // §5.24 — 히트맵 척도. 켜져 있고 이 버블이 "읽히는 것"일 때만 색·지름이 갈린다.
   const heat = useHeatScale();
   const heatOn = !!heat && isHeatBubbleType(data.bubbleType);
+  // Thumbnails cover the entire interior. Heat mode uses the same glyph/label
+  // face as other files so media participates in the same visible color scale.
+  const showMediaFace = isMediaFace && !heatOn;
   const style = useMemo<BubbleStyleConfig>(() => {
     // 히트 재도색이 타입 색·사용자 지정 색보다 앞선다 — 모드를 켠 동안은 색이 "얼마나 읽혔나"를
     //   말하기 때문이다. 대상은 file/폴더/domain 넷뿐이고 에이전트는 애초에 대상이 아니라
@@ -402,7 +405,7 @@ export const BubbleNode = memo(function BubbleNode({
     if (heatOn && heat) {
       const r = heatRatio(heatValueOf(data, heat.axis), heat);
       // 글로우는 한 단계 더 뜨겁게 — 본체와 같은 색이면 평평해 보인다.
-      return { ...baseStyle, color: heatColor(r), glow: heatColor(Math.min(1, r + 0.25)) };
+      return { ...baseStyle, color: heatColor(r), glow: heatColor(r > 0 ? Math.min(1, r + 0.25) : 0) };
     }
     // §5.1 #2-1 (A) — 파일 얼굴의 색. 미디어는 굽는 앱의 색(앱 노드와 한 가족), 나머지 종류는 보라 계열 안의 명도.
     if (face !== null) return { ...baseStyle, color: face.color, glow: face.glow };
@@ -827,7 +830,7 @@ export const BubbleNode = memo(function BubbleNode({
         ? 'border-violet-200 shadow-md shadow-violet-400/30'
         : 'border-blue-400 shadow-md shadow-blue-400/30'
       : '';
-  const surface = bubbleSurface(skin, style.color, style.glow, data.status, { highlighted: !!borderHighlight, creatingError: isCreatingError });
+  const surface = bubbleSurface(skin, style.color, style.glow, data.status, { highlighted: !!borderHighlight, creatingError: isCreatingError, heatmap: heatOn });
 
   // §4 — 에이전트 종류 배지(All Model / CMD / Claude·Codex / 훅): 같은 자리·타이포, 색만 다르다. auto 버블 제외. 라벨은 영어 고정(i18n ❌).
   // §5.19 (G)·§5.25 (B) — 엔진대로 쓴다(`Custom` ❌ — 설정 창·IDE 와 다른 이름이 된다). All Model 본체는 무채색이라 배지는 밝게.
@@ -1340,9 +1343,9 @@ export const BubbleNode = memo(function BubbleNode({
             maxHeight 는 마지막 안전망 — 사다리를 다 내려가고도 안 들어가는 아주 작은 버블에서
             중앙 열이 예약 영역(하단 블록 자리)으로 흘러드는 것을 막는다(겹침 대신 잘림). */}
         {/* §5.1 #2-1 (A) — 미디어 얼굴은 원 안이 렌즈다(이름은 원 아래 — `FileFaceRim`). 나머지는 종전 중앙 열. */}
-        {isMediaFace && face !== null ? <FileFaceLens face={face} thumb={faceThumb} size={size} /> : null}
+        {showMediaFace && face !== null ? <FileFaceLens face={face} thumb={faceThumb} size={size} /> : null}
         <div
-          className={`z-10 flex-col items-center justify-center overflow-hidden ${isMediaFace ? 'hidden' : 'flex'}`}
+          className={`z-10 flex-col items-center justify-center overflow-hidden ${showMediaFace ? 'hidden' : 'flex'}`}
           style={{ gap: fit.centerGap, maxHeight: fit.centerMaxHeight }}
         >
           {/* §5.1 #2-1 (A) — 파일은 종류 글리프(코드 `</>` · 데이터 `{}` · 문서 · 자막 · 글꼴). 모르는 종류는 종전 파일 아이콘. */}
@@ -1380,7 +1383,7 @@ export const BubbleNode = memo(function BubbleNode({
           )}
           {data.lastTool && isActive && size >= 55 && (
             <span
-              style={{ fontSize: Math.max(6, Math.round(11 * ts)), maxWidth: size * BUBBLE_TEXT_WIDTH_RATIO }}
+              style={{ fontSize: Math.max(6, Math.round(11 * ts)), maxWidth: size * BUBBLE_TEXT_WIDTH_RATIO, color: heatOn ? 'rgb(255 255 255 / 90%)' : undefined }}
               className="block truncate text-center font-medium text-white/70"
               title={data.lastTool}
             >
@@ -1400,7 +1403,13 @@ export const BubbleNode = memo(function BubbleNode({
         {fit.bottomLines.length > 0 && (
           <div
             className="absolute z-10 flex flex-col items-center"
-            style={{ bottom: bottomOffset }}
+            style={{
+              bottom: bottomOffset,
+              // A small dark caption bed protects summaries over the lower glow.
+              background: heatOn ? 'rgb(5 10 18 / 72%)' : undefined,
+              boxShadow: heatOn ? '0 0 0 2px rgb(5 10 18 / 72%)' : undefined,
+              borderRadius: heatOn ? 3 : undefined,
+            }}
             title={fit.foldedText || undefined}
           >
             {fit.bottomLines.map((line, i) => (
@@ -1411,6 +1420,8 @@ export const BubbleNode = memo(function BubbleNode({
                   fontSize: line.fontSize,
                   lineHeight: BUBBLE_LINE_HEIGHT,
                   maxWidth: fit.bottomMaxWidths[i],
+                  // Muted folder/domain summaries need stronger contrast on heat fills.
+                  color: heatOn ? 'rgb(255 255 255 / 90%)' : undefined,
                 }}
                 title={line.title}
               >
@@ -1423,7 +1434,7 @@ export const BubbleNode = memo(function BubbleNode({
       </div>
 
       {/* §5.1 #2-1 (A) — 미디어 얼굴의 원 밖 표식: 종류 배지(45° 림) + 원 아래 이름 줄(영상·소리는 길이). */}
-      {isMediaFace && face !== null ? (
+      {showMediaFace && face !== null ? (
         <FileFaceRim face={face} thumb={faceThumb} size={size} ts={ts} label={displayLabel} />
       ) : null}
 

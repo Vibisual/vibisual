@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { COMMAND_ACTIVITY_LIMITS, detectCommandApps } from '@vibisual/shared';
+import { COMMAND_ACTIVITY_LIMITS, commandAppGroupKey, detectCommandApps, mergeCommandAppTarget } from '@vibisual/shared';
+import type { CommandAppTarget } from '@vibisual/shared';
 
 const windows = { cwd: 'C:/Work/Game', platform: 'win32' } as const;
 const linux = { cwd: '/work/game', platform: 'linux' } as const;
@@ -227,5 +228,47 @@ describe('command app detection', () => {
     expect(detectCommandApps(`blender ${'arg '.repeat(256)}`, windows)).toEqual([]);
     expect(detectCommandApps(`${'cmd /c '.repeat(6)}blender`, windows)).toEqual([]);
     expect(detectCommandApps(`${'cmd /c '.repeat(4)}blender`, windows)[0]?.name).toBe('Blender');
+  });
+});
+
+// §5.1 — 한 탭에서 이름이 같은 앱은 버블 하나. 앱 id 는 증거로 남되 버블은 이름으로 묶고, 그림 출처는 더 확실한 쪽으로만 바뀐다.
+describe('one bubble per app name', () => {
+  it('groups every launcher and project argument of one Unreal Engine under one name', () => {
+    const commands = [
+      String.raw`"C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" GameEditor Win64 Development -Project="C:\Work\Game\Game.uproject"`,
+      String.raw`"C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe"`,
+      String.raw`"C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" GameEditor Win64 Development -Project="C:\Work\Lab\Game.uproject"`,
+      String.raw`"C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\RunUBT.bat" -projectfiles -project="C:\Work\Game\Game.uproject"`,
+      'UnrealEditor-Cmd Game.uproject -run=ResavePackages',
+    ];
+    const targets = commands.map((command) => detectCommandApps(command, windows)[0]!);
+    expect(targets.every((target) => target.name === 'Unreal Engine')).toBe(true);
+    expect(new Set(targets.map((target) => target.id)).size).toBeGreaterThan(1);
+    expect(new Set(targets.map(commandAppGroupKey)).size).toBe(1);
+  });
+
+  it('keeps the first grounded icon source while executables change, and upgrades only from a weaker one', () => {
+    const editor: CommandAppTarget = { id: 'a', name: 'Unreal Engine', executable: 'C:/UE/Engine/Binaries/Win64/UnrealEditor.exe', detection: 'command' };
+    const build: CommandAppTarget = { id: 'b', name: 'Unreal Engine', executable: 'C:/UE/Engine/Build/BatchFiles/Build.bat', projectPath: 'C:/Work/Game/Game.uproject', detection: 'command' };
+    const bare: CommandAppTarget = { id: 'c', name: 'Unreal Engine', executable: 'UnrealEditor-Cmd', detection: 'command' };
+    const tool: CommandAppTarget = { id: 'd', name: 'Unreal Engine', executable: 'C:/UE/Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.exe', detection: 'command' };
+    let app = mergeCommandAppTarget(undefined, editor);
+    for (const next of [build, bare, tool]) {
+      app = mergeCommandAppTarget(app, next);
+      expect(app.iconSource ?? app.executable).toBe(editor.executable);
+      expect(app).toMatchObject({ id: 'a', executable: next.executable });
+    }
+    expect(app.projectPath).toBe(build.projectPath);
+    const upgraded = mergeCommandAppTarget(mergeCommandAppTarget(undefined, bare), build);
+    expect(upgraded.iconSource ?? upgraded.executable).toBe(build.executable);
+    expect(mergeCommandAppTarget(upgraded, editor).iconSource).toBeUndefined();
+    expect(mergeCommandAppTarget(mergeCommandAppTarget(undefined, editor), bare).iconSource).toBe(editor.executable);
+  });
+
+  it('does not take a quoted PowerShell command line for an executable path', () => {
+    const command = String.raw`"C:\tools\pwsh.exe" -Command "Get-CimInstance Win32_Process -Filter \"Name='UnrealEditor.exe' OR Name='CrashReportClientEditor-Win64-Development.exe'\" | Select-Object Name,ProcessId"`;
+    expect(detectCommandApps(command, windows)).toEqual([]);
+    expect(detectCommandApps(String.raw`"C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe"`, windows)[0]?.name).toBe('Unreal Engine');
+    expect(detectCommandApps('"./My Tools/run.exe"', windows)[0]?.name).toBe('run');
   });
 });

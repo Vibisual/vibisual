@@ -2,7 +2,9 @@ import type { QueuedCommand } from '@vibisual/shared';
 
 type Queues = ReadonlyMap<string, readonly QueuedCommand[]>;
 type AgentForSession = (sessionId: string) => string | null | undefined;
-const unfinished = (command: QueuedCommand): boolean => command.status === 'queued' || command.status === 'executing';
+// Live inputs have no independent turn to complete; their active base owns that work.
+const unfinished = (command: QueuedCommand): boolean => command.dispatchMode !== 'steer'
+  && (command.status === 'queued' || command.status === 'executing');
 
 function ownQueues(queues: Queues, sessionId: string, agentForSession: AgentForSession): readonly QueuedCommand[][] {
   const agentId = agentForSession(sessionId);
@@ -30,7 +32,7 @@ export function hasUnfinishedCommandDependencies(command: QueuedCommand, queues:
 export function followsWaitingSessionCommand(command: QueuedCommand, queue: readonly QueuedCommand[], waits: (candidate: QueuedCommand) => boolean): boolean {
   for (const prior of queue) {
     if (prior === command) break;
-    if (prior.status === 'queued' && prior.subAgentId === command.subAgentId && waits(prior)
+    if (prior.status === 'queued' && prior.dispatchMode !== 'steer' && prior.subAgentId === command.subAgentId && waits(prior)
       // Reordering a dependency below its waiter must not deadlock the same session.
       && !prior.waitForCommandIds?.includes(command.id)) return true;
   }

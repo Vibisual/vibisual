@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { PREVIEW_POLICY } from '@vibisual/shared';
 
-import { createPreviewBudget } from './previewBudget.js';
+import { createPreviewBudget, onPreviewSurfacesIdle, previewSurfacesIdle, registerPreviewSurface } from './previewBudget.js';
 
 function harness() {
   let t = 1_000;
@@ -93,6 +93,44 @@ describe('previewBudget — 화면 기준 · 한눈 기준', () => {
     budget.remove('a');
     flush();
     expect(budget.isGranted('a')).toBe(false);
+  });
+});
+
+describe('previewBudget — 판마다 한 벌(§5.5 #17-50 IDE 세션 지도)', () => {
+  it('화면 지름은 그 판의 배율로 잰다 — 다른 판의 배율이 작아도 이 판의 큰 버블은 고른다', () => {
+    const canvas = harness();
+    const map = harness();
+    canvas.budget.setZoom(0.3);
+    map.budget.setZoom(1.2);
+    canvas.budget.upsert('face:a', 80);
+    map.budget.upsert('face:sb:file:a', 80);
+    canvas.flush();
+    map.flush();
+    expect(canvas.budget.isGranted('face:a')).toBe(false);
+    expect(map.budget.isGranted('face:sb:file:a')).toBe(true);
+  });
+
+  it('한 판이라도 움직이면 굽지 않고, 모두 멈추면 기다리던 줄을 한 번 민다 · 내리면 남은 판으로 판정', () => {
+    const map = harness();
+    const off = registerPreviewSurface(map.budget);
+    let woke = 0;
+    const stop = onPreviewSurfacesIdle(() => { woke += 1; });
+    try {
+      expect(previewSurfacesIdle()).toBe(true);
+      map.budget.setMoving(true, 1);
+      expect(previewSurfacesIdle()).toBe(false);
+      map.budget.setMoving(false, 1);
+      map.advance(PREVIEW_POLICY.idleAfterMotionMs);
+      expect(woke).toBe(1);
+      map.budget.setMoving(true, 1);
+      off();
+      // 움직이던 판을 내렸다 — 남은 판(캔버스)이 한가하면 바로 민다.
+      expect(previewSurfacesIdle()).toBe(true);
+      expect(woke).toBe(2);
+    } finally {
+      stop();
+      off();
+    }
   });
 });
 

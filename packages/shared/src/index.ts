@@ -146,6 +146,8 @@ export type {
   QueuedCommand,
   CommandExecutionRequirements,
   CommandDispatchMode,
+  LiveFollowUpMessage,
+  LiveFollowUpDelivery,
   CommandErrorCode,
   CommandError,
   SessionLoop,
@@ -474,10 +476,6 @@ export type {
   VerificationAttempt,
   VerificationKind,
   VerificationVerdict,
-  VerificationPolicyKind,
-  VerificationScope,
-  VerificationScopeSource,
-  CommandVerificationSummary,
   EscalationReason,
   UpdatePhase,
   UpdateDelivery,
@@ -1090,6 +1088,7 @@ export {
   ORCHESTRA_CONDUCTOR_DISALLOWED_TOOLS,
   AGENT_REPORT_MAX_PER_AGENT,
   AGENT_INTENT_FIRST_RULES,
+  buildAgentIntentFirstRules,
   buildAgentCardCommonRules,
   CARD_RULES_DOCUMENT,
   buildAgentReportRules,
@@ -2240,7 +2239,7 @@ export {
 // §4 — 개별 에이전트 설정이 설정 창의 전역 기본값과 어디서 갈라지는지. "미설정"의 표기가 필드마다
 // 달라서(effort:'default' · isolation:'none' · maxTurns:0 · forwardSubagentText:undefined=켬)
 // 접힘 규칙을 화면이 아니라 한 곳에 둔다.
-export type { AgentConfigComparedField } from './agentConfigDiff.js';
+export type { AgentConfigComparedField, AgentConfigSaveBaseline } from './agentConfigDiff.js';
 export {
   AGENT_CONFIG_IDENTITY_FIELDS,
   AGENT_CONFIG_NON_INHERITED_FIELDS,
@@ -2248,6 +2247,7 @@ export {
   AGENT_MAX_TURNS_UI_FALLBACK,
   resolveAgentDefaults,
   resolveAgentConfig,
+  findProjectEngineConfigs,
   sparsifyAgentConfig,
   hasAgentConfigOverrides,
   normalizeAgentFieldForCompare,
@@ -2558,12 +2558,11 @@ export {
 export type { ProviderUsage, ProviderUsageWindow } from './providerUsage.js';
 export * from './codexToolPolicy.js';
 export { parseCodexTransportNotice, readCodexTransportNotice } from './codexTransport.js';
+export { isCodexModelResumeNotice, isCodexSessionNotice, readCodexSessionNotice } from './codexSessionNotice.js';
 
 export * from './agentRuleShell.js';
 export { VERIFICATION_AUTOMATION } from './constants.js';
 export * from './verificationAutomation.js';
-// §5.3 #12-4 — 검증은 시킬 때만 돈다(분류·요청 해석·판정·문구 한 벌).
-export * from './verificationPolicy.js';
 
 // §5.5 #17-27 ①-1 — 편집창이 열릴 때 창을 오른쪽으로 넓히고 닫으면 되돌리는 가로 자리 계산.
 //   앱 안의 떠 있는 창(클라)과 독립 OS 창(main)이 같은 규칙 하나를 쓴다.
@@ -2623,6 +2622,7 @@ export {
 // 클라(화면)가 같은 함수로 같은 답을 낸다 — 두 벌이 되면 창 바탕과 화면이 서로 다른 테마를 칠한다.
 export {
   DEFAULT_APP_THEME_ID,
+  BASE_APP_THEME_ID,
   DEFAULT_LIGHT_APP_THEME_ID,
   APP_THEME_SCHEMA_VERSION,
   CUSTOM_APP_THEME_PREFIX,
@@ -2752,5 +2752,7 @@ export type {
 } from './constellation.js';
 export { planKindBundles, kindBundleNameOf, kindBundlePathShape, kindBundleCommonDir, kindBundleDirToken, keepSatelliteSeats } from './kindBundle.js';
 export type { KindBundle, KindBundleFileInput, KindBundleKind, KindBundleOptions } from './kindBundle.js';
-export { detectCommandApps, commandAppBrandOf, COMMAND_ACTIVITY_LIMITS } from './commandApps.js';
+export { detectCommandApps, commandAppBrandOf, commandAppGroupKey, mergeCommandAppTarget, COMMAND_ACTIVITY_LIMITS } from './commandApps.js';
 export type { CommandAppBrand, CommandAppTarget } from './commandApps.js';
+export { FOLDER_CONTEXT_MENU_DEFAULT_ENABLED, isFolderContextMenuEnabled } from './folderContextMenu.js';
+export type { FolderContextMenuStatus, FolderContextMenuTarget } from './folderContextMenu.js';

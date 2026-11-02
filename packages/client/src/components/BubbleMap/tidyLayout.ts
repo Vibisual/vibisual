@@ -1,5 +1,7 @@
 import type { BubbleType, NodeStatus, TidyBand, TidyGeometry } from '@vibisual/shared';
 import { SATELLITE_ORBIT_GAP, SATELLITE_RING_SPACING, TIDY_BAND_ORDER, TIDY_LAYOUT } from '@vibisual/shared';
+import { satelliteZoneGrid } from '../../utils/satellite.js';
+import { fanOffset, zoneFanRow, zoneSeatRadius } from '../../utils/spawnZone.js';
 
 /**
  * §5.4 #33 버블 정리 — 흩어진 버블을 "지금 봐야 하는 순서"로 앉히는 순수 기하(물리는 겹침만 밀고 자리의 뜻은 말하지 않는다).
@@ -523,8 +525,6 @@ export interface TidySatellite {
   diameter: number;
   cx: number;
   cy: number;
-  /** §5.1 #2-2 (J) — 묶음 위성의 몸집 반경(`_orbitReach`). 부모 둘레엔 이 몸집으로 앉고(달이 부모를 파고들지 않게), 제 달은 `diameter` 원에 건다. */
-  reach?: number;
 }
 
 export interface TidyParentSeat {
@@ -535,13 +535,32 @@ export interface TidyParentSeat {
 }
 
 /**
+ * §5.1 #2-2 (C) — 바깥 방향(`facing`)이 있는 부모의 위성은 등장 영역과 같은 부채꼴 첫 고리에 지금 각도 순서대로 건다(위성의 위성이
+ * 그 부모의 부모 쪽으로 파고들지 않게). 첫 고리가 그 수를 못 담으면 `null` — 호출부가 고르게 건다.
+ */
+function fanTidySatellites(sats: readonly TidySatellite[], seat: TidyParentSeat, facing: number): TidyPlacement[] | null {
+  const anchorR = seat.diameter / 2;
+  const grid = satelliteZoneGrid({ parentSlots: sats.length });
+  const row = zoneFanRow(anchorR, grid, facing, sats.length);
+  if (!row) return null;
+  const relOf = (s: TidySatellite): number => fanOffset(facing, Math.atan2(s.cy - seat.cy, s.cx - seat.cx));
+  const ordered = [...sats].sort((a, b) => (relOf(a) - relOf(b)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return ordered.map((s, i) => {
+    const d = zoneSeatRadius(anchorR, grid, s.diameter, 0);
+    const angle = row[i]!;
+    return { id: s.id, cx: seat.cx + Math.cos(angle) * d, cy: seat.cy + Math.sin(angle) * d, bandIndex: seat.bandIndex };
+  });
+}
+
+/**
  * §5.4 #33 — 위성 정리: 부모 둘레에 `packRings`(정원·최소 반경 없음)로 고르게 다시 건다.
  * 반경은 **`SATELLITE_ORBIT_GAP`** — 물리 스프링 평형점과 같아야 한다. 다르면 정리 직후 스프링이 궤도를 푼다.
- * §5.1 #2-2 (J) — 간격은 `SATELLITE_RING_SPACING`(등장 영역과 같은 값), 묶음은 몸집(`reach`)으로 앉는다.
+ * §5.1 #2-2 (J) — 간격은 `SATELLITE_RING_SPACING`(등장 영역과 같은 값). `facings` 에 바깥 방향이 있는 부모(위성의 위성)는 부채꼴로.
  */
 export function computeTidySatellites(
   satellites: TidySatellite[],
   parents: Map<string, TidyParentSeat>,
+  facings?: ReadonlyMap<string, number>,
 ): TidyPlacement[] {
   const byParent = new Map<string, TidySatellite[]>();
   for (const sat of satellites) {
@@ -554,13 +573,18 @@ export function computeTidySatellites(
   const out: TidyPlacement[] = [];
   for (const [parentId, sats] of byParent) {
     const seat = parents.get(parentId)!;
+    const facing = facings?.get(parentId);
+    const fanned = facing !== undefined ? fanTidySatellites(sats, seat, facing) : null;
+    if (fanned) {
+      out.push(...fanned);
+      continue;
+    }
     const center = { x: seat.cx, y: seat.cy };
     const queue = sats
       // 위성은 부모 곁 궤도가 곧 제자리라 무리 나눔의 대상이 아니다 — 키는 한 벌이면 족하다.
-      //   달을 거느린 위성은 몸집 지름으로 자리를 잡는다(돌려주는 것은 중심이라 그려지는 원은 그대로다).
       .map((s) => ({
         id: s.id,
-        diameter: typeof s.reach === 'number' && Number.isFinite(s.reach) && s.reach * 2 > s.diameter ? s.reach * 2 : s.diameter,
+        diameter: s.diameter,
         group: 'satellite',
         cx: s.cx,
         cy: s.cy,
@@ -592,15 +616,20 @@ export function computeTidySatellitesNested(
 ): TidyPlacement[] {
   const seats = new Map(parents);
   const diameterById = new Map(satellites.map((s) => [s.id, s.diameter] as const));
+  const parentOf = new Map(satellites.map((s) => [s.id, s.parentId] as const));
+  // §5.1 #2-2 (C) — 앉은 위성이 부모가 되면 그 바깥 방향(제 부모 → 저)으로 제 위성이 가지를 친다.
+  const facings = new Map<string, number>();
   let remaining = satellites;
   const out: TidyPlacement[] = [];
   for (let pass = 0; pass < TIDY_SATELLITE_PASSES && remaining.length > 0; pass += 1) {
-    const placed = computeTidySatellites(remaining, seats);
+    const placed = computeTidySatellites(remaining, seats, facings);
     if (placed.length === 0) break;
     const placedIds = new Set<string>();
     for (const p of placed) {
       placedIds.add(p.id);
       seats.set(p.id, { cx: p.cx, cy: p.cy, diameter: diameterById.get(p.id) ?? 0, bandIndex: p.bandIndex });
+      const up = seats.get(parentOf.get(p.id) ?? '');
+      if (up && Math.hypot(p.cx - up.cx, p.cy - up.cy) >= 1) facings.set(p.id, Math.atan2(p.cy - up.cy, p.cx - up.cx));
     }
     out.push(...placed);
     remaining = remaining.filter((s) => !placedIds.has(s.id));

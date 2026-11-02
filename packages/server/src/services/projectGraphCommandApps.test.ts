@@ -163,7 +163,9 @@ describe('command apps use existing graph and command history', () => {
     const original = Object.values(cp.graph.nodes).find((node) => node.commandApp)!;
     for (let i = 0; i < 35; i++) {
       const key = `__special__commandapp__restored-${i}`;
+      // 이름이 같으면 불러올 때 하나로 모인다(§5.1) — 상한을 보려면 앱마다 이름이 달라야 한다.
       cp.graph.nodes[key] = { ...original, id: `saved-${i}`, path: key, status: 'idle',
+        commandApp: { ...original.commandApp!, id: `saved-app-${i}`, name: `Restored ${i}` },
         lastActivity: i, ...(i === 0 ? { preservePinned: true, label: 'Pinned application' } : {}) };
       cp.graph.hierarchy.topLevelPaths.push(key);
       cp.graph.refs.nodeProjectRoots![key] = path.basename(root);
@@ -188,6 +190,101 @@ describe('command apps use existing graph and command history', () => {
     const second = entries().find((entry) => entry.id === 'second')!;
     expect(second.appNodeIds).toHaveLength(1);
     expect(second.appNodeIds).not.toContain(firstId);
+  });
+});
+
+// §5.1 — 한 탭에서 이름이 같은 앱은 버블 하나다. 앱 id 는 엔진 폴더·.uproject·실행 경로를 담아 같은 Unreal Engine 이 둘·셋으로 갈라졌었다.
+describe('one command app bubble per name in a tab', () => {
+  const ue = String.raw`C:\Program Files\Epic Games\UE_5.8\Engine`;
+  const unrealCommands = [
+    String.raw`"${ue}\Build\BatchFiles\Build.bat" GameEditor Win64 Development -Project="C:\Work\Game\Game.uproject"`,
+    String.raw`"${ue}\Binaries\Win64\UnrealEditor.exe"`,
+    String.raw`"${ue}\Build\BatchFiles\Build.bat" GameEditor Win64 Development -Project="C:\Work\Lab\Game.uproject"`,
+    'UnrealEditor-Cmd Game.uproject -run=ResavePackages',
+  ];
+
+  it('gathers launchers, project arguments and bare names of one Unreal Engine into one bubble with a steady icon source', () => {
+    const icons: string[] = [];
+    unrealCommands.forEach((command, i) => {
+      event(`ue-${i}`, command);
+      event(`ue-${i}`, command, 'PostToolUse');
+      const apps = appNodes();
+      expect(apps).toHaveLength(1);
+      icons.push(apps[0]!.commandApp!.iconSource ?? apps[0]!.commandApp!.executable!);
+    });
+    const node = appNodes()[0]!;
+    expect(node.label).toBe('Unreal Engine');
+    // 스크립트(그림 없음) → 실행 파일로 한 번 오른 뒤에는 실행 경로·맨 이름이 와도 그대로다.
+    expect(icons[0]).toMatch(/Build.bat$/);
+    expect(new Set(icons.slice(1))).toEqual(new Set(['C:/Program Files/Epic Games/UE_5.8/Engine/Binaries/Win64/UnrealEditor.exe']));
+    expect(entries().every((entry) => entry.appNodeIds?.length === 1 && entry.appNodeIds[0] === node.id)).toBe(true);
+    expect(graph.getSnapshot().edges.filter((edge) => edge.target === node.id || edge.source === node.id)).toHaveLength(1);
+  });
+
+  it('counts one command that calls the same app twice once', () => {
+    event('twice', String.raw`"${ue}\Build\BatchFiles\Build.bat" -Project="C:\Work\Game\Game.uproject" && "${ue}\Binaries\Win64\UnrealEditor.exe" "C:\Work\Game\Game.uproject"`);
+    expect(appNodes()).toHaveLength(1);
+    expect(appNodes()[0]!.activity).toBe(1);
+    expect(entries()[0]!.appNodeIds).toEqual([appNodes()[0]!.id]);
+  });
+
+  it('merges same-name bubbles saved by an older build on restore and merge, carrying lines, history and replay records', () => {
+    event('ue-0', unrealCommands[0]!);
+    event('ue-0', unrealCommands[0]!, 'PostToolUse');
+    event('py', 'python -V');
+    const cp = graph.toProjectCheckpoint(path.basename(root));
+    const [originalKey, original] = Object.entries(cp.graph.nodes).find(([, node]) => node.commandApp?.name === 'Unreal Engine')!;
+    const project = cp.graph.refs.nodeProjectRoots![originalKey]!;
+    const edgeEntry = Object.entries(cp.edges.main.edges).find(([, edge]) => edge.target === original.id || edge.source === original.id)!;
+    const savedApps = [
+      { id: 'legacy-editor', name: 'Unreal Engine', executable: 'C:/Program Files/Epic Games/UE_5.8/Engine/Binaries/Win64/UnrealEditor.exe', detection: 'command' as const },
+      { id: 'legacy-lab', name: 'Unreal Engine', executable: 'C:/Program Files/Epic Games/UE_5.8/Engine/Build/BatchFiles/Build.bat',
+        projectPath: 'C:/Work/Lab/Game.uproject', detection: 'command' as const },
+    ];
+    const sessionId = Object.keys(cp.activity.bashHistory)[0]!;
+    const records: Array<{ key: string; bubbleType: 'bash'; commandApp: typeof savedApps[number]; project: string }> = [];
+    savedApps.forEach((app, i) => {
+      const key = `__special__commandapp__legacy-${i}`;
+      const id = `command-app-legacy-${i}`;
+      cp.graph.nodes[key] = { ...original, id, path: key, commandApp: app, activity: 3 + i, ...(i === 1 ? { pinned: true } : {}) };
+      cp.graph.hierarchy.topLevelPaths.push(key);
+      cp.graph.refs.nodeProjectRoots![key] = project;
+      const [edgeId, edge] = edgeEntry;
+      const legacyEdgeId = edgeId.split(original.id).join(id);
+      cp.edges.main.edges[legacyEdgeId] = { ...edge, id: legacyEdgeId,
+        source: edge.source === original.id ? id : edge.source, target: edge.target === original.id ? id : edge.target, timestamp: edge.timestamp - 1 - i };
+      cp.edges.main.groups[legacyEdgeId] = cp.edges.main.groups[edgeId]!;
+      cp.edges.main.refs[legacyEdgeId] = [...(cp.edges.main.refs[edgeId] ?? [])];
+      cp.activity.bashHistory[sessionId]!.push({ id: `legacy-run-${i}`, command: app.executable, timestamp: i, status: 'success', apps: [app], appNodeIds: [id] });
+      records.push({ key, bubbleType: 'bash', commandApp: app, project });
+    });
+    records.push({ key: originalKey, bubbleType: 'bash', commandApp: original.commandApp! as typeof savedApps[number], project });
+    const agentId = Object.values(cp.graph.agents)[0]!.id;
+    cp.agentLinkRecords = { [agentId]: { at: 1, entries: records } };
+
+    for (const load of ['restoreFromCheckpoint', 'mergeFromCheckpoint'] as const) {
+      const fresh = new ProjectGraph();
+      fresh[load](structuredClone(cp));
+      const snapshot = fresh.getSnapshot();
+      const unreal = snapshot.topFolders.filter((node) => node.commandApp?.name === 'Unreal Engine');
+      expect(unreal).toHaveLength(1);
+      const kept = unreal[0]!;
+      expect(kept.pinned).toBe(true);
+      expect(kept.activity).toBe(original.activity + 3 + 4);
+      expect(snapshot.topFolders.filter((node) => node.commandApp?.name === 'Python')).toHaveLength(1);
+      const appIds = new Set(snapshot.topFolders.filter((node) => node.commandApp).map((node) => node.id));
+      const appEdges = snapshot.edges.filter((edge) => edge.target.startsWith('command-app-') || edge.source.startsWith('command-app-'));
+      expect(appEdges.every((edge) => appIds.has(edge.target) || appIds.has(edge.source))).toBe(true);
+      expect(appEdges.filter((edge) => edge.target === kept.id || edge.source === kept.id)).toHaveLength(1);
+      const rows = Object.values(snapshot.bashHistory).flat();
+      for (const row of rows.filter((entry) => entry.apps?.some((app) => app.name === 'Unreal Engine'))) {
+        expect(row.appNodeIds).toEqual([kept.id]);
+      }
+      const saved = fresh.toProjectCheckpoint(path.basename(root));
+      const lines = saved.agentLinkRecords?.[agentId]?.entries.filter((entry) => entry.commandApp?.name === 'Unreal Engine') ?? [];
+      expect(lines).toHaveLength(1);
+      expect(saved.graph.nodes[lines[0]!.key]?.id).toBe(kept.id);
+    }
   });
 });
 

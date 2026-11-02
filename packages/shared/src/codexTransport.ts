@@ -3,7 +3,7 @@ import type { CodexTransportNotice } from './types.js';
 /** Only Codex's explicit recovery messages are notices; other failures stay errors. */
 export function parseCodexTransportNotice(content: string): CodexTransportNotice | null {
   if (/[\r\n]/.test(content)) return null;
-  const reconnect = /^Reconnecting\.\.\. ([1-9]\d*)\/([1-9]\d*) \(\S[^\r\n]*\)$/.exec(content);
+  const reconnect = /^Reconnecting\.\.\. ([1-9]\d*)\/([1-9]\d*)(?: \(\S[^\r\n]*\))?$/.exec(content);
   if (reconnect) {
     const attempt = Number(reconnect[1]);
     const maxAttempts = Number(reconnect[2]);

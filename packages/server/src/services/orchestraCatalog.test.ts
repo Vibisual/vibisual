@@ -13,8 +13,8 @@ import {
 /** §5.3 #10-4 — 분석 원문 카탈로그. 원문을 그대로 싣도록 해시로 고정한다 — 고칠 일이 있으면 원문은 두고 `apply` 칸을 고친다. */
 
 /** 2026-09-16 토큰 감사 분석의 해당 구간(표·합산·실측 넷·우수 사례·바로 바꿀 값·출처). */
-const ANALYSIS_SHA256 = 'ada978b7785a71fa1f9586cd221982b6c72e5e43f48433f48019fe36625cf2cf';
-const ANALYSIS_LENGTH = 6383;
+const ANALYSIS_SHA256 = '047a7e7a0998a7aac394915ed46a8c47a2f90c4b4801dd6e39ece8b5602eaf47';
+const ANALYSIS_LENGTH = 6381;
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 

@@ -15,6 +15,8 @@ import { FullscreenPrompt } from './FullscreenPrompt.js';
 import { PromptActions } from './PromptActions.js';
 import type { SpeechRunPos } from './streamDensity.js';
 import { streamToggleProps } from './streamToggle.js';
+import { isFollowUpDeliveryLocked, type FollowUpDeliveryDisplay } from './followUpDelivery.js';
+import { FollowUpDeliveryNotice } from './FollowUpDeliveryNotice.js';
 
 /** 접이식(여러 줄/긴 입력)으로 다룰지 — 짧은 한 줄이면 정적 말풍선. */
 export function isLongUserPrompt(prompt: string): boolean {
@@ -62,6 +64,7 @@ export interface PromptCommandState {
   agentId?: string;
   /** 큐의 원본 명령 id (`cmd-` 접두어 없는 raw id). 없으면 컨트롤 미표시. */
   commandId?: string;
+  liveDelivery?: FollowUpDeliveryDisplay;
 }
 
 /** 말풍선 색 한 벌 — Tailwind 는 문자열을 정적으로 훑으므로 색마다 전체 클래스를 적어 둔다. */
@@ -157,6 +160,7 @@ const PROMPT_TONES: Record<'sky' | 'emerald' | 'slate' | 'violet' | 'amber', Pro
 const MODE_TONE: Record<CommandDispatchMode, keyof typeof PROMPT_TONES> = {
   wait: 'slate',
   merge: 'violet',
+  steer: 'sky',
   immediate: 'amber',
 };
 
@@ -171,6 +175,7 @@ function toneFor(command: PromptCommandState | undefined): keyof typeof PROMPT_T
 /** 대기 줄 칩 아이콘 — 대기(시계) / 합치기(합류 화살표) / 즉시(번개). lucide 톤 stroke SVG. */
 export function DispatchModeIcon({ mode }: { mode: CommandDispatchMode }): React.JSX.Element {
   const common = { className: 'h-3 w-3', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  if (mode === 'steer') return <svg {...common}><path d="m22 2-7 20-4-9-9-4 20-7ZM22 2 11 13" /></svg>;
   if (mode === 'wait') {
     return (
       <svg {...common}>
@@ -209,7 +214,9 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
-  const collapsible = isLongUserPrompt(prompt);
+  const longPrompt = isLongUserPrompt(prompt);
+  const liveFollowUp = command?.dispatchMode === 'steer';
+  const collapsible = longPrompt && !liveFollowUp;
   const setCommandDispatchMode = useGraphStore((s) => s.setCommandDispatchMode);
   const removeCommand = useGraphStore((s) => s.removeCommand);
   const tone = PROMPT_TONES[toneFor(command)];
@@ -221,6 +228,7 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
   const controlAgentId = command?.status === 'queued' ? command.agentId : undefined;
   const controlCommandId = command?.status === 'queued' ? command.commandId : undefined;
   const controllable = controlAgentId !== undefined && controlCommandId !== undefined;
+  const deliveryLocked = isFollowUpDeliveryLocked(command?.liveDelivery);
 
   // 펼친 말풍선은 IDE 어디를 눌러도 접힌다(팝업 닫기 공통 규약 — `popupDismissContract`). 안에서 시작한 press·선택 드래그는 접지 않고,
   // `graceMs` 는 펼친 클릭의 잔여 이벤트를 거르며, 접혀 있으면 리스너를 안 건다(`enabled`).
@@ -277,7 +285,14 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
           {t('ide.mainArea.executing')}
         </span>
       )}
-      {command?.status === 'queued' && (
+      {command?.liveDelivery ? (
+        <span className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] font-semibold ${tone.badge}`}>
+          <DispatchModeIcon mode="steer" />
+          {t('ide.mainArea.dispatchMode.steer')} ·
+          {command.liveDelivery.state === 'sending' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />}
+          {t(`ide.mainArea.liveDelivery.${command.liveDelivery.state}`)}
+        </span>
+      ) : command?.status === 'queued' && (
         <span className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] font-semibold ${tone.badge}`}>
           <DispatchModeIcon mode={mode} />
           {t(`ide.mainArea.dispatchMode.${mode}`)}
@@ -290,7 +305,12 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
     // §4 — 폰에선 말풍선을 폭에 더 붙인다. `ide-user-msg` = §5.5 #17-22 ⑨ 대화 정렬 표식(켜지면 index.css 가 90% 폭을 풀어 오른쪽 끝에 붙인다).
     <div className="ide-user-msg mb-2 ml-auto w-full max-w-[90%] max-md:max-w-[96%]">
       <div ref={bubbleRef} className={`relative overflow-hidden rounded-2xl rounded-tr-sm border shadow-sm ${tone.bubble}`}>
-        {collapsible ? (
+        {liveFollowUp ? (
+          <div>
+            <div className="flex flex-wrap items-center gap-2 py-2 pl-2.5 pr-[4.5rem]">{identity}</div>
+            <div className={`ide-prompt-text scrollbar-thin max-h-80 overflow-auto whitespace-pre-wrap break-words px-3 pb-3 text-[13px] leading-relaxed ${tone.body}`}>{prompt}</div>
+          </div>
+        ) : collapsible ? (
           /* 여러 줄/긴 입력 — 클릭하면 펼침/접힘. 접힘 상태에선 첫 줄만 미리보기. */
           <button
             type="button"
@@ -318,7 +338,7 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
           tone={tone}
           copied={copied}
           onCopy={onCopy}
-          onView={collapsible ? (event) => {
+          onView={longPrompt ? (event) => {
             const host = event.currentTarget.closest<HTMLElement>('[data-ide-text-viewport]');
             if (host) setFullscreenHost(host);
           } : undefined}
@@ -331,44 +351,54 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
           </pre>
         )}
 
+        {command?.liveDelivery && (
+          <div className={`border-t px-3 py-2 ${tone.divider}`}>
+            <FollowUpDeliveryNotice delivery={command.liveDelivery} showLabel={false} />
+          </div>
+        )}
+
         {/* §5.5 #17-18 ⑤ — 대기 중 덧말 컨트롤 줄: 칩 + 삭제(×) + 고른 방식 설명. */}
         {controllable && (
-          <div className={`flex items-center gap-1.5 border-t px-2 py-1 ${tone.divider}`}>
-            <div className="flex flex-shrink-0 items-center gap-0.5 rounded bg-gray-950/50 p-0.5">
+          <div className={`flex flex-wrap items-center gap-1.5 border-t px-2 py-1 ${tone.divider}`}>
+            <div className="flex flex-wrap items-center gap-0.5 rounded bg-gray-950/50 p-0.5">
               {COMMAND_DISPATCH_MODES.map((m) => {
                 const active = m === mode;
+                const retry = active && m === 'steer' && command?.liveDelivery?.state === 'unavailable';
                 return (
                   <button
                     key={m}
                     type="button"
-                    onClick={() => { if (!active) setCommandDispatchMode(controlAgentId, controlCommandId, m); }}
+                    onClick={() => { if ((!active || retry) && !deliveryLocked) setCommandDispatchMode(controlAgentId, controlCommandId, m); }}
+                    disabled={deliveryLocked}
                     title={t(`ide.mainArea.dispatchModeTitle.${m}`)}
                     aria-pressed={active}
-                    className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] transition-colors ${
+                    className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] transition-colors disabled:cursor-default disabled:opacity-50 ${
                       active
                         ? m === 'immediate'
                           ? 'bg-amber-500/25 text-amber-200'
                           : m === 'merge'
                             ? 'bg-violet-500/25 text-violet-200'
-                            : 'bg-slate-500/25 text-slate-100'
+                            : m === 'steer' ? 'bg-sky-500/25 text-sky-200' : 'bg-slate-500/25 text-slate-100'
                         : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
                     }`}
                   >
                     <DispatchModeIcon mode={m} />
                     {t(`ide.mainArea.dispatchMode.${m}`)}
+                    {retry && <span>· {t('ide.mainArea.liveDelivery.retry')}</span>}
                   </button>
                 );
               })}
             </div>
-            <span className="min-w-0 flex-1 truncate text-[12px] leading-tight text-gray-400/80" title={t(`ide.mainArea.dispatchModeTitle.${mode}`)}>
+            {!command?.liveDelivery && <span className="order-last min-w-0 basis-full text-[12px] leading-relaxed text-gray-400/80" title={t(`ide.mainArea.dispatchModeTitle.${mode}`)}>
               {t(`ide.mainArea.dispatchModeTitle.${mode}`)}
-            </span>
+            </span>}
             <button
               type="button"
-              onClick={() => removeCommand(controlAgentId, controlCommandId)}
+              onClick={() => { if (!deliveryLocked) removeCommand(controlAgentId, controlCommandId); }}
+              disabled={deliveryLocked}
               title={t('ide.mainArea.queuedRemove')}
               aria-label={t('ide.mainArea.queuedRemove')}
-              className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-red-600/20 hover:text-red-300"
+              className="ml-auto flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-red-600/20 hover:text-red-300 disabled:cursor-default disabled:opacity-40"
             >
               <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 <line x1="18" y1="6" x2="6" y2="18" />

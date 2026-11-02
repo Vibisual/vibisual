@@ -54,3 +54,21 @@ it('a newly discovered default does not turn a blank inherited model into an exp
   // The CLI may inherit another configured model, so catalog-default effort is not asserted.
   expect(view!.root.findAllByType('option').some((option) => option.props.value === 'ultra')).toBe(false);
 });
+
+it('uses the bound model personality capability without clearing the saved setting', async () => {
+  useGraphStore.setState({
+    userDefaults: { updatedAt: 1, engineConfigs: { codex: { provider: { kind: 'codex-cli', modelId: 'saved-model', personality: 'pragmatic' } } } },
+  });
+  const onDirtyChange = vi.fn();
+  await act(async () => { view = create(createElement(ProviderDefaults, { engine: 'codex', onDirtyChange })); });
+  for (const supportsPersonality of [false, true, undefined]) {
+    await act(async () => { useGraphStore.setState({ codexModels: { checkedAt: 2, models: [
+      { slug: 'other-default', displayName: 'Other', reasoningLevels: [], isDefault: true, supportsPersonality: true },
+      { slug: 'saved-model', displayName: 'Saved', reasoningLevels: [], supportsPersonality },
+    ] } }); });
+    const select = view!.root.findAllByType('select').find(node => node.props.value === 'pragmatic');
+    expect(select?.props.disabled).toBe(supportsPersonality !== true);
+    expect(select?.props.value).toBe('pragmatic');
+  }
+  expect(onDirtyChange).not.toHaveBeenCalledWith(true);
+});

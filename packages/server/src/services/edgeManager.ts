@@ -259,7 +259,7 @@ export class EdgeManager {
 
   /** 노드 id 재해싱 이후 엣지 source/target/edgeId/groupKey 를 일괄 remap.
    *  id 포맷: `${groupKey}-${source.id}-${target.id}-${direction}` — 노드 id가 바뀌면 edge id 자체도 재생성 필요.
-   *  idMap 에 없는 id는 그대로 유지. */
+   *  idMap 에 없는 id는 그대로 유지. 두 노드를 하나로 합치는 remap(§5.1 같은 이름 앱)은 엣지가 겹친다 — 새 쪽을 남기고 ref 는 합친다. */
   remapIds(idMap: Map<string, string>): void {
     if (idMap.size === 0) return;
     const remap = (id: string): string => idMap.get(id) ?? id;
@@ -274,10 +274,18 @@ export class EdgeManager {
       const direction = oldEdgeId.endsWith('-read') ? 'read' : 'write';
       // edge id 재구성: isRead 시 source/target이 스왑된 상태로 저장되므로, 저장된 순서 그대로 사용
       const newEdgeId = `${newGroup}-${direction === 'read' ? newTarget : newSource}-${direction === 'read' ? newSource : newTarget}-${direction}`;
-      newEdges.set(newEdgeId, { ...edge, id: newEdgeId, source: newSource, target: newTarget });
+      const prev = newEdges.get(newEdgeId);
+      const next = { ...edge, id: newEdgeId, source: newSource, target: newTarget };
+      newEdges.set(newEdgeId, prev && prev.timestamp >= edge.timestamp
+        ? { ...prev, isActive: prev.isActive || edge.isActive }
+        : prev ? { ...next, isActive: prev.isActive || edge.isActive } : next);
       newGroups.set(newEdgeId, newGroup);
       const refs = this.agentRefs.get(oldEdgeId);
-      if (refs) newRefs.set(newEdgeId, new Set(refs));
+      if (refs) {
+        const into = newRefs.get(newEdgeId);
+        if (into) for (const ref of refs) into.add(ref);
+        else newRefs.set(newEdgeId, new Set(refs));
+      }
     }
     this.edges = newEdges;
     this.groupMap = newGroups;

@@ -2120,6 +2120,8 @@ export interface SubAgent {
   probing?: boolean;
   /** §5.5 #17-24 ⑥ — 압축 중이면 시작 시각(ms, 라이브 `압축 중`). 세우고 걷는 곳은 `noteCompactionLine` 한 곳. 영속 ❌(부팅 땐 압축하는 자식이 없다). */
   compactingSince?: number;
+  /** Runtime-only start of an explicit wait for another agent's result. */
+  waitingForAgentsSince?: number;
   /**
    * §2.4 (한도 정지) — 한도에 끊긴 채 아직 안 돌았다(`status` 와 직교). 세우는 곳 `detectUsageLimitStop`, 걷는 곳 다음 명령(`execute`)뿐.
    * 시간으로 만료시키지 마라 — 풀려도 세션은 끊긴 자리다. 그래서 체크포인트를 왕복해도 산다(지난 턴의 사실).
@@ -2382,8 +2384,23 @@ export interface SubAgentHistoryItem {
 }
 
 /** 대기열 명령 항목 (서버가 관리, 클라이언트는 읽기만) */
-/** §5.5 #17-18 — 덧말을 꺼내는 법. wait 혼자 한 턴 · merge(기본) 뒤따르는 merge 와 한 프롬프트 · immediate 도는 턴을 끊고(중지 + `--resume`) 바로. */
-export type CommandDispatchMode = 'wait' | 'merge' | 'immediate';
+/** wait: separate next turn; merge (default): combine queued inputs; steer: input to current work; immediate: interrupt and start this input. */
+export type CommandDispatchMode = 'wait' | 'merge' | 'steer' | 'immediate';
+
+/** A separately visible user input accepted by the engine during an existing turn. */
+export interface LiveFollowUpMessage {
+  id: string;
+  text: string;
+  timestamp: number;
+  deliveredAt: number;
+  attachments?: string[];
+}
+
+/** Delivery is distinct from completing the requested work; uncertain inputs are never replayed automatically. */
+export interface LiveFollowUpDelivery {
+  state: 'sending' | 'unavailable' | 'uncertain';
+  reason?: 'noActiveTurn' | 'unsupported' | 'turnScope' | 'deliveryRejected' | 'deliveryUnknown';
+}
 
 /**
  * §5.5 #17-12 ③ — 오류 사유 코드(표시용 — 서버는 코드·종료 코드·꼬리만, 문장은 클라 로케일). stdin = 살아 있는 자식의 파이프가 닫힘 ·
@@ -2461,6 +2478,10 @@ export interface QueuedCommand {
   restartResumed?: boolean;
   /** §5.5 #17-18 — dispatch 방식(없으면 `merge`). 큐에 있는 동안 `PATCH /api/commands/:sessionId/:commandId/mode`. */
   dispatchMode?: CommandDispatchMode;
+  /** Inputs delivered to this turn, kept separate from its original prompt and turn boundary. */
+  followUps?: LiveFollowUpMessage[];
+  /** A queued steer input remains visible until delivery is acknowledged. */
+  liveDelivery?: LiveFollowUpDelivery;
   /** Server-captured unfinished commands that preceded a new task. Later submissions never extend this wait. */
   waitForCommandIds?: string[];
   /** §5.5 #17-18 — 흡수된 덧말 수(배지). 0/undefined = 단독. */
@@ -2484,47 +2505,6 @@ export interface QueuedCommand {
   runLimitsApplied?: { maxTurns?: number; maxMinutes?: number };
   /** 시간 상한에 닿아 서버가 멈춘 명령(턴 상한은 기존 `error.code === 'maxTurns'` 가 말한다). */
   runLimitHit?: 'maxMinutes';
-  /** §5.3 #12-4 (C) — 열린 검증 범위(서버만 찍는다 — 요청 본문 칸은 무시). 없으면 검증 실행 권한 ❌. `executing` 동안만 유효. */
-  verificationScope?: VerificationScope;
-  /** §5.3 #12-4 (F) — 검증 횟수·막음·고침. 통과 여부는 담지 않는다(돌렸다 ≠ 통과했다). */
-  verification?: CommandVerificationSummary;
-}
-
-/** §5.3 #12-4 — 검증으로 세는 실행 종류(요청한 명령에서만 열린다). `VerificationKind` 는 증거(`VerificationAttempt.kind`)가 쓰는 이름이다. */
-export type VerificationPolicyKind = 'test' | 'lint' | 'typecheck' | 'build' | 'e2e' | 'browser' | 'screenshot' | 'agent';
-
-/** §5.3 #12-4 (C) — 범위가 어디서 왔나. 사용자 문장 · [검증 실행] 버튼 · 보낸 명령에서 물려받음. */
-export type VerificationScopeSource = 'user-prompt' | 'button' | 'inherited';
-
-/** §5.3 #12-4 (C) — 한 명령에 열린 검증 범위. **서버만 만든다.** */
-export interface VerificationScope {
-  /** 열린 종류. 비면 권한 없음(부정만 기록된 범위). */
-  kinds: VerificationPolicyKind[];
-  /** 그 명령에서 사용자가 부정한 종류 — 합치기 덧말에서 다른 명령의 요청을 지운다(거부가 이긴다). */
-  negated?: VerificationPolicyKind[];
-  /** `test` 의 범위. `related`(변경과 관련된 것만 — 기본) · `all`(전체 스위트). */
-  testScope?: 'related' | 'all';
-  source: VerificationScopeSource;
-  /** 권한을 세운 사용자 문장(표시·근거용, 상한 `VERIFICATION_EVIDENCE_MAX`). */
-  evidence?: string;
-  /** `inherited` 일 때 보낸 명령의 id. */
-  parentCommandId?: string;
-  /** `inherited` 일 때 넘겨받은 남은 실행 횟수. 없으면 기본 상한(`VERIFICATION_GRANT_RUNS_TOTAL`). */
-  runsRemaining?: number;
-}
-
-/** §5.3 #12-4 (F) — 한 명령의 검증 기록. 횟수는 종류별·호출별로 센다. */
-export interface CommandVerificationSummary {
-  /** 범위 안이라 실행을 허락한 호출 수(종류별). */
-  ran?: Partial<Record<VerificationPolicyKind, number>>;
-  /** 범위 안이라 실행을 허락한 호출 수(합계 — 한 호출이 여러 종류일 수 있다). */
-  ranCalls?: number;
-  /** 범위 밖이라 실행 전에 막은 호출 수(종류별). */
-  blocked?: Partial<Record<VerificationPolicyKind, number>>;
-  /** 범위 밖이라 실행 전에 막은 호출 수(합계). */
-  blockedCalls?: number;
-  /** 이 명령에서 파일을 고치는 호출이 있었다(표시 여부 판단용). */
-  edited?: boolean;
 }
 
 /** §5.5 #17-11 — `count` = `total` 회면 끝 · `infinite` = 멈출 때까지. */
@@ -3802,7 +3782,7 @@ export interface AppState {
   webOpenTarget?: WebOpenTarget;
   /** §6 — 사용자가 바꾼 단축키만(머신 단위). 안 건드린 칸은 없고 `defaultKeymap()` 을 따른다. `null` = 해제(키보드에서 내림) — 키 삭제(기본값으로 되돌림)와 다르다. */
   keymap?: KeymapOverrides;
-  /** §5.5 #16-1 — IDE 좌측 활동바 구성(순서 + 내려놓은 항목). 머신 단위(`keymap` 과 같은 결). 없으면 기본 순서로 전부 보인다. */
+  /** §5.5 #16-1 — IDE 좌측 활동바 구성(순서 + 표시 선택). 머신 단위(`keymap` 과 같은 결). 없으면 클라이언트의 기본 배치를 따른다. */
   ideActivityBar?: IDEActivityBarPrefs;
   /** §5.4 #14-4 — 최근에 닫은 탭(최신이 index 0). `openProjects` 등 탭 여닫기 상태와 같은 축이라 여기 산다 — 닫은 탭은 어느 프로젝트의 것도 아니다. 없으면 빈 목록. */
   recentlyClosedTabs?: ClosedTabEntry[];
@@ -3816,6 +3796,8 @@ export interface IDEActivityBarPrefs {
   order?: string[];
   /** 내려놓은 항목 — 지운 게 아니라 접은 것(구성 패널 "제외됨" 칸에서 도로 올린다). */
   hidden?: string[];
+  /** 기본 숨김 항목 중 사용자가 활동바에 올린 항목. 순서 변경만으로 선택 기능이 다시 나타나지 않게 별도로 저장한다. */
+  shown?: string[];
 }
 
 /**
@@ -5830,16 +5812,12 @@ export interface UserAdvancedDefaults extends Record<string, unknown> {
   terminalScrollbackLines?: number;
   /** §4 엔진 다리 — 우리가 띄우는 클로드 세션(헤드리스·CMD)에 동봉 모드(`vibisual-bridge`)를 실어 턴·생존·사용량을 엔진이 신고하게 할지. undefined = 켬. 다음에 뜨는 세션부터. */
   engineBridge?: boolean;
+  /** §4 폴더 우클릭으로 프로젝트 열기 — OS 파일 관리자 메뉴 등록(undefined = 켬). 판정은 `isFolderContextMenuEnabled` 한 곳. */
+  folderContextMenu?: boolean;
 }
 
-/** §4 · §5.3 #12-4 (J) — 권한 기본값(옵션창 권한 탭). 같은 이유로 인덱스 시그니처 유지. */
-export interface UserPermissionDefaults extends Record<string, unknown> {
-  /**
-   * §5.3 #12-4 (J) — 검증 정책(undefined = 끔, `VERIFICATION_GATE_DEFAULT_ENABLED`). true 일 때만 Codex·Claude Code 에 제한 안내 + 실행 전 차단 — 끄면 주입도 거부도 없다(실행한 것으로만 센다).
-   * 주입원 창은 켜진 정책의 안내만 숨긴다. 판정은 `isVerificationGateEnabled` 한 곳 — 저장 뒤 차단은 다음 도구 호출, 안내는 다음 턴부터.
-   */
-  verificationGate?: boolean;
-}
+/** §4 — 권한 기본값. 알 수 없는 저장값도 보존한다. */
+export type UserPermissionDefaults = Record<string, unknown>;
 
 /**
  * §4 (설정 3층) — 설정 창이 PUT 으로 보내는 모양. `null` = 이 칸을 지워라 — 서버가 부분 머지하므로 `undefined` 는 `JSON.stringify` 가 키째 버려 한 번 켠 기본값을 끌 수 없다.
@@ -5869,7 +5847,7 @@ export interface UserDefaults {
     edgeStyle?: BubbleEdgeStyle;
   };
   notifications?: UserNotificationDefaults;
-  /** §4 — 권한. 첫 칸은 §5.3 #12-4 (J) 검증 실행 전 차단 스위치. */
+  /** §4 — 저장된 권한 기본값. */
   permissions?: UserPermissionDefaults;
   /** §4 — 고급(API 키·bin 경로·debug). */
   advanced?: UserAdvancedDefaults;

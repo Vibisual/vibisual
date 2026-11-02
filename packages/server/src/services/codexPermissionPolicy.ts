@@ -66,16 +66,14 @@ export function planCodexPermission(input: {
  * 권한 훅을 못 붙였을 때 턴을 거절해야 하는가 — 훅이 곧 집행인 경우다(없이 돌면 고른 설정이 조용히 꺼진다).
  * 승인 모드이거나 경계가 이 모드에서 호출을 붙잡을 수 있으면 필수(`plan`·`dontAsk` 는 읽기 전용 샌드박스라 훅 없이도 위험 호출이 안 돈다).
  * §5.3 #12-3 — 자물쇠가 하나라도 있으면 모든 모드에서 필수(읽기 전용 샌드박스도 읽기는 막지 않는다).
- * §5.3 #12-4 — 검증 실행 전 차단이 켜져 있으면(옵션창 권한 탭, 기본 끔, (J)) 모든 모드에서 필수 — 읽기 전용 샌드박스에서도 테스트는 돈다.
  */
 export function codexPermissionHooksRequired(
   permissionMode: string | undefined,
   boundary: AuditBoundaryConfig | undefined,
   hasPathLocks = false,
-  verificationEnforced = false,
 ): boolean {
   const mode = permissionMode || 'default';
-  if (hasPathLocks || verificationEnforced) return true;
+  if (hasPathLocks) return true;
   if (canCodexPromptForPermission(mode)) return true;
   if (mode === 'plan' || mode === 'dontAsk') return false;
   return AUDIT_RISK_KINDS.some((kind) => isAuditRiskEnabled(boundary, kind));

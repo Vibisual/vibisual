@@ -13,6 +13,7 @@ import {
   AGENT_COMPACT_COMMAND,
   SESSION_LOOP_COMPACT_COMMAND,
   SESSION_LOOP_CLEAR_COMMAND,
+  buildAgentIntentFirstRules,
 } from '@vibisual/shared';
 import { CONTEXT_SOURCE_IDS } from '@vibisual/shared';
 import {
@@ -104,6 +105,21 @@ describe('scan — 매번 읽어서 만든다', () => {
 });
 
 describe('inventory — 기본값', () => {
+  it('goals stay opt-in even when a saved goal contributes prompt text', () => {
+    const goal = build().items.find((item) => item.id === CONTEXT_SOURCE_IDS.goal)!;
+    expect(goal.tokens).toBeGreaterThan(0);
+    expect(goal.defaultEnabled).toBe(false);
+    expect(goal.enabled).toBe(false);
+    expect(goal.scopeStates).toEqual({ project: false, agent: false, session: false });
+  });
+
+  it('intent-first instructions request a goal block only when goal tracking is enabled', () => {
+    expect(buildAgentIntentFirstRules(false)).not.toContain('목표 창 블록');
+    expect(buildAgentIntentFirstRules(false)).not.toContain('TaskCreate');
+    expect(buildAgentIntentFirstRules(false)).toContain('이미 승인된 범위의 수정과 필요한 검증까지 수행');
+    expect(buildAgentIntentFirstRules(true)).toContain('목표 창 블록');
+  });
+
   it('내용이 있는 조각만 기본 켜짐이고, 빈 조각은 꺼짐으로 선다', () => {
     const inv = build();
     const rules = inv.items.find((i) => i.id === CONTEXT_SOURCE_IDS.agentRules)!;
@@ -353,19 +369,19 @@ describe('§5.5 #17-28 ⑦ 상세창 — 지금 실리는 파일만 열린다', 
 
 describe('게이트 — 프롬프트 경로가 쓰는 판정', () => {
   it('오버라이드가 없으면 기본값을 그대로 따른다', () => {
-    expect(isContextSourceOn(undefined, { projectKey: 'proj' }, CONTEXT_SOURCE_IDS.goal)).toBe(true);
+    expect(isContextSourceOn(undefined, { projectKey: 'proj' }, CONTEXT_SOURCE_IDS.goal)).toBe(false);
     expect(isContextSourceOn(undefined, { projectKey: 'proj' }, CONTEXT_SOURCE_IDS.goal, false)).toBe(false);
   });
 
   it('다른 프로젝트의 오버라이드는 이 프로젝트에 새지 않는다', () => {
     const o: ContextOverrides = {
-      projects: { other: { [CONTEXT_SOURCE_IDS.goal]: false } },
+      projects: { other: { [CONTEXT_SOURCE_IDS.goal]: true } },
       agents: {},
       sessions: {},
       updatedAt: 1,
     };
-    expect(isContextSourceOn(o, { projectKey: 'proj' }, CONTEXT_SOURCE_IDS.goal)).toBe(true);
-    expect(isContextSourceOn(o, { projectKey: 'other' }, CONTEXT_SOURCE_IDS.goal)).toBe(false);
+    expect(isContextSourceOn(o, { projectKey: 'proj' }, CONTEXT_SOURCE_IDS.goal)).toBe(false);
+    expect(isContextSourceOn(o, { projectKey: 'other' }, CONTEXT_SOURCE_IDS.goal)).toBe(true);
   });
 
   it('프롬프트 게이트도 에이전트 층을 본다 — 안 보면 그 층에 건 뜻이 무시된다', () => {

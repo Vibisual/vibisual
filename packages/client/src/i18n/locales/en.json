@@ -383,7 +383,6 @@
         "agent": "Agent Defaults",
         "appearance": "Appearance",
         "notifications": "Notifications",
-        "permissions": "Permissions",
         "advanced": "Advanced",
         "version": "Version",
         "account": "Account",
@@ -774,16 +773,35 @@
         "webOpenTargetExternal": "Your browser",
         "webOpenTargetExternalDesc": "The default. Opens in the browser you normally use.",
         "webOpenTargetIframe": "In-app iframe tab",
-        "webOpenTargetIframeDesc": "Opens a web tab in the tab bar so you can read it inside the app. Internet pages run in a separate sandboxed view with no permissions, and sign-ins are cleared when the app closes."
+        "webOpenTargetIframeDesc": "Opens a web tab in the tab bar so you can read it inside the app. Internet pages run in a separate sandboxed view with no permissions, and sign-ins are cleared when the app closes.",
+        "folderMenuTitle": "Folder right-click menu",
+        "folderMenuIntro": "Right-click a folder in your file manager and choose “Open project in Vibisual” to open it here as a project. If Vibisual is not running, it starts and opens that folder.",
+        "folderMenuEnabled": "Show “Open project in Vibisual” when you right-click a folder",
+        "folderMenuEnabledDesc": "Applied when you save. Turning it off removes the item from the menu.",
+        "folderMenuStatusChecking": "Applying the menu. Check again in a moment.",
+        "folderMenuStatusDesktopOnly": "Available in the desktop app.",
+        "folderMenuStatusDevBuild": "This is a development run, so the menu is left to the installed app.",
+        "folderMenuStatusNoFileManager": "No supported file manager was found (Files, Caja, Dolphin or Nemo).",
+        "folderMenuStatusUnsupported": "Not available on this system.",
+        "folderMenuStatusError": "Could not update the menu: {{error}}",
+        "folderMenuStatusInstalled": "Added to {{targets}}.",
+        "folderMenuStatusOff": "Not shown in the menu.",
+        "folderMenuHintWindows": "On Windows 11 it is under “Show more options”.",
+        "folderMenuHintMac": "In Finder it is under “Quick Actions” or “Services”.",
+        "folderMenuHintScripts": "In Files and Caja it is under “Scripts”.",
+        "folderMenuRefresh": "Check again",
+        "folderMenuTargets": {
+          "windowsExplorer": "File Explorer",
+          "macosFinder": "Finder",
+          "nautilus": "Files (Nautilus)",
+          "caja": "Caja",
+          "dolphin": "Dolphin",
+          "nemo": "Nemo"
+        }
       },
       "notifications": {
         "cmdBlocked": "Notify when a CMD session is waiting for input",
         "cmdBlockedDesc": "Only notifies while you are looking at another tab or window — if the window is focused it is already on screen."
-      },
-      "permissions": {
-        "verificationGateIntro": "This policy applies to both Codex and Claude Code only when enabled. Then agents are told to run tests, lint, type checks, verification builds, E2E, browser checks, screenshot comparisons and verification agents only when requested in the current task, and unrequested calls are blocked before execution.",
-        "verificationGateEnabled": "Require a request before running verification",
-        "verificationGateEnabledDesc": "Off by default. When off, Vibisual adds no verification restriction to prompts and does not block calls under this policy. When on, script names containing check, verify or test may also be blocked. Save with {{apply}}: blocking changes from the next tool call, and prompt guidance from the next turn."
       },
       "engines": {
         "title": "Engines",
@@ -4936,8 +4954,8 @@
       "run": "Run",
       "stop": "Stop",
       "stopping": "Stopping…",
-      "followUp": "Add",
-      "followUpTitle": "Send a follow-up message without stopping the agent (Enter)",
+      "followUp": "Additional message",
+      "followUpTitle": "Queue an additional message. Choose how to deliver it on its message bubble (Enter)",
       "queuedTitle": "{{count}} waiting",
       "queuedHint": "Merge sends follow-ups together in one turn. Wait gives a message its own turn; Now interrupts the current turn.",
       "queuedRemove": "Remove from queue",
@@ -4945,12 +4963,14 @@
       "dispatchMode": {
         "wait": "Wait",
         "merge": "Merge",
-        "immediate": "Now"
+        "immediate": "Now",
+        "steer": "Send to current task"
       },
       "dispatchModeTitle": {
         "wait": "Wait — run this message in its own turn after the current one ends",
         "merge": "Merge — send this with the following merge messages in a single turn",
-        "immediate": "Now — stop the current turn and continue with this message (the conversation is kept)"
+        "immediate": "Now — stop the current turn and continue with this message (the conversation is kept)",
+        "steer": "Send to current task — deliver this message without stopping the current task. Check the reply to see how it was handled."
       },
       "executing": "Executing…",
       "readOnly": "Read-only — hook bubbles mirror an external session. Send commands from a custom agent.",
@@ -5138,7 +5158,29 @@
       "stopRetry": "Try again",
       "sendRejected": "The request was rejected. Your text and attachments have been restored. Review the conversation before sending again.",
       "sendUnconfirmed": "Could not confirm delivery. Your text and attachments have been restored. Check the conversation before sending again.",
-      "localImagesUnsupported": "All Model does not support image input yet. Remove the images or choose another provider to send this message."
+      "localImagesUnsupported": "All Model does not support image input yet. Remove the images or choose another provider to send this message.",
+      "liveDelivery": {
+        "waiting": "Waiting to send",
+        "sending": "Sending…",
+        "delivered": "Delivered",
+        "unavailable": "Unable to deliver",
+        "uncertain": "Delivery unconfirmed",
+        "reason": {
+          "noActiveTurn": "There is no active task to receive this message.",
+          "unsupported": "This session does not support messages during a task.",
+          "turnScope": "Messages with separate execution settings need to be sent as a separate request.",
+          "deliveryRejected": "The agent did not accept this message.",
+          "deliveryUnknown": "We could not confirm whether the agent received this message."
+        },
+        "hint": {
+          "waiting": "This message is waiting to be sent to the current task.",
+          "sending": "Waiting for the agent to acknowledge receipt.",
+          "delivered": "Delivered as an additional instruction to the current task.",
+          "unavailable": "Choose {{wait}} to send it after the current task, or {{immediate}} to stop the current task and start with this message.",
+          "uncertain": "This message will not be resent automatically. Changing or deleting it is locked to avoid duplicate delivery; you can still copy the text."
+        },
+        "retry": "Retry"
+      }
     },
     "voiceInstall": {
       "title": "Set up voice input",
@@ -5259,6 +5301,7 @@
       "verify": "Verify",
       "specReading": "Reading",
       "customize": "Customize activity bar",
+      "configure": "Configure {{name}}",
       "resetLayout": "Default layout",
       "dragHint": "Press and hold an item, then drag to reorder",
       "shownSection": "Shown",
@@ -5771,6 +5814,8 @@
       "imageMissing": "(image unavailable)",
       "waiting": "waiting",
       "compacting": "compacting",
+      "delegating": "Waiting for other agents",
+      "delegatingHint": "This turn is waiting for another agent’s result. You can still stop it.",
       "compactingHint": "The context is full, so the CLI is summarizing the earlier conversation to make room. This usually takes a few minutes — no new output in the meantime is normal."
     },
     "report": {
@@ -5972,7 +6017,7 @@
       "superseded": "Plan updated"
     },
     "transportRecovery": {
-      "reconnecting": "Reconnecting… {{attempt}}/{{maxAttempts}}",
+      "reconnecting": "Reconnecting…",
       "fallback": "Trying another connection method…",
       "resumed": "Connection restored · work resumed",
       "ended": "Connection recovery attempted"
@@ -6249,7 +6294,6 @@
         "systemPrompt": "Claude Code system prompt",
         "compactSelf": "Agent self-compaction",
         "compactRecovery": "Post-compaction recovery brief",
-        "verificationPolicy": "Verification policy",
         "autoGoalSkills": "Detected procedures",
         "codexInstructions": "Codex project instructions",
         "codexGlobalInstructions": "Codex global instructions",
@@ -6368,11 +6412,6 @@
             "what": "A one-turn note listing what the compaction summary did not appear to carry over.",
             "more": "Built from the snapshot taken just before the compaction, compared against the summary text. It is sent once and never repeated.",
             "off": "Turn it off and the session continues after a compaction with no note about what fell out of the summary."
-          },
-          "verificationPolicy": {
-            "what": "Optional guidance for Codex and Claude Code to run verification only when requested in the current task, plus the task's verification permission.",
-            "more": "The policy is off by default. When enabled, Vibisual grants verification permission from your message or the verification button for that task. When disabled, it adds no restrictive guidance and does not block verification calls.",
-            "off": "This source switch only hides the guidance when the policy is enabled. Enable or disable both guidance and execution blocking in {{options}}, under {{permissions}}. The policy is off by default."
           },
           "hookEnforcement": {
             "what": "The block Vibisual injects into sessions that attached themselves through Claude Code hooks.",
@@ -6567,9 +6606,12 @@
       "saveError": "Could not confirm the change was saved. Re-measure to check the current setting."
     },
     "goal": {
+      "activationRules": "Activation rules",
+      "enabledHint": "On — goals and progress updates are included in this session.",
+      "disabledHint": "Off by default — no automatic goal or goal instructions. Existing goals remain available.",
       "title": "Goal",
       "pickSession": "Pick a session to see its goal.",
-      "waiting": "No goal yet. One appears as soon as the session lays out a plan.",
+      "waiting": "No goal yet. It appears when goal tracking is enabled and the session makes a plan.",
       "sample": {
         "badge": "Example",
         "text": "Finish the task and confirm it works",
@@ -6814,16 +6856,6 @@
         "warn": "If required sections are still unread when the turn tries to end, it is sent back to keep reading.",
         "enforce": "Edits are denied while required sections are unread. Once the retry limit is reached it stops blocking."
       }
-    },
-    "verifyPolicy": {
-      "notRun": "Verification not run",
-      "notRunTip": "No tests, builds or browser checks were run for this task. Use the button next to this mark, or ask for verification in your message.",
-      "blockedTip": "The agent tried {{count}} verification call(s); they were blocked before running.",
-      "ran": "Verification ran ×{{count}}",
-      "ranTip": "Verification ran within the scope you asked for. Whether it passed is in the reply above.",
-      "runTip": "Run the checks related to this change (related tests, type check, lint, build). Failures are reported, not fixed.",
-      "runFailed": "Couldn't start: {{error}}",
-      "runPrompt": "Verify the change from the previous task. Run only the checks related to it (related tests, type check, lint, build) — not the full test suite, E2E or browser checks. Report each one as passed, failed or not checked. Do not fix failures; just report them.\n\nPrevious task: {{task}}"
     },
     "verify": {
       "title": "Verify",
@@ -8766,7 +8798,7 @@
       "pragmatic": "Pragmatic"
     },
     "inheritProject": "Project / global defaults",
-    "individualSettingsHint": "Applies to this agent. Settings matching the defaults continue following project and global changes.",
+    "individualSettingsHint": "Applies to this agent only. Values you pick here stay as they are when project or global settings change. Choose “{{inherit}}” to follow those settings again.",
     "provider": "Provider",
     "claude": "Claude",
     "codex": "Codex",

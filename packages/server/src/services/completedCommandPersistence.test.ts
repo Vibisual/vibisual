@@ -3,12 +3,21 @@
  * 직접 타이핑한 원문이라 다른 어디서도 재생성할 수 없다 — 지키는 시험이 없으면 회귀가 조용히 지나간다(어느 시점 이후 저장된 프로젝트가 전부 0건이 된 적이 있다).
  * 잠그는 것 셋: 완료된 명령이 ① 체크포인트에 실리고 ② 껐다 켠 뒤 되살아나고 ③ 그 세션의 큐가 비어 있어도(평소 상태) 남는다.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { QueuedCommand } from '@vibisual/shared';
 import { ProjectGraph } from './projectGraph.js';
+import { ProjectGraphManager } from './projectGraphManager.js';
+import { pathKey } from './pathKey.js';
+import { trySendLiveFollowUp } from './liveFollowUp.js';
+
+// Manager registration must never write this test project to the user's app state.
+vi.mock('./appState.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./appState.js')>();
+  return { ...actual, appStateAddOpenProject: () => false };
+});
 
 let tmpRoot: string;
 
@@ -17,6 +26,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
@@ -59,6 +69,134 @@ function makeGraph(): {
 }
 
 describe('§3.2.3 — 완료 명령(사용자 말풍선)은 저장·복원된다', () => {
+  it.each(['restoreFromCheckpoint', 'mergeFromCheckpoint'] as const)('%s restores interrupted deliveries as uncertain without changing saved input', (restore) => {
+    const { graph, projectName, queues } = makeGraph();
+    const sending: QueuedCommand = { ...cmd('sending', 'Reflect this in the current task'), status: 'queued',
+      dispatchMode: 'steer', liveDelivery: { state: 'sending' }, attachments: ['design.png'] };
+    const unavailable: QueuedCommand = { ...cmd('unavailable', 'Keep this input'), status: 'queued',
+      dispatchMode: 'steer', liveDelivery: { state: 'unavailable', reason: 'noActiveTurn' } };
+    const uncertain: QueuedCommand = { ...cmd('uncertain', 'Already unknown'), status: 'queued',
+      dispatchMode: 'steer', liveDelivery: { state: 'uncertain', reason: 'deliveryUnknown' } };
+    const waiting: QueuedCommand = { ...cmd('waiting', 'Wait for the previous delivery'), status: 'queued', dispatchMode: 'steer' };
+    const ordinary: QueuedCommand = { ...cmd('ordinary', 'Run later'), status: 'queued' };
+    queues.set(SESSION, [sending, unavailable, uncertain, waiting, ordinary]);
+    const cp = JSON.parse(JSON.stringify(graph.toProjectCheckpoint(projectName)!));
+    const revived = new ProjectGraph();
+    const revivedQueues = new Map<string, QueuedCommand[]>();
+    revived.setCommandQueuesRef(revivedQueues);
+    revived.setCompletedCommandArchiveRef(new Map());
+    revived[restore](cp);
+
+    expect(revivedQueues.get(SESSION)).toEqual([
+      { ...sending, liveDelivery: { state: 'uncertain', reason: 'deliveryUnknown' } },
+      unavailable, uncertain,
+      { ...waiting, liveDelivery: { state: 'unavailable', reason: 'noActiveTurn' } }, ordinary,
+    ]);
+    expect(cp.commandQueues[SESSION][0].liveDelivery).toEqual({ state: 'sending' });
+    expect(sending.liveDelivery).toEqual({ state: 'sending' });
+    expect(cp.commandQueues[SESSION][3].liveDelivery).toBeUndefined();
+    expect(waiting.liveDelivery).toBeUndefined();
+  });
+
+  it.each([
+    { routed: true, archived: false },
+    { routed: false, archived: false },
+    { routed: true, archived: true },
+  ])('invalidates a cached command snapshot after live acknowledgement: %j', async ({ routed, archived }) => {
+    const { graph, queues, archive } = makeGraph();
+    const manager = new ProjectGraphManager();
+    const state = manager as unknown as {
+      instances: Map<string, ProjectGraph>;
+      sessionRouting: Map<string, string>;
+    };
+    state.instances.set(pathKey(tmpRoot), graph);
+    if (routed) state.sessionRouting.set(SESSION, pathKey(tmpRoot));
+    const base: QueuedCommand = { ...cmd('active-cached', 'Original request'), subAgentId: 'live-cached-sub', status: 'executing' };
+    const incoming: QueuedCommand = { ...cmd('incoming-cached', 'Keep this separate'), subAgentId: base.subAgentId,
+      status: 'queued', dispatchMode: 'steer', attachments: ['addition.png'] };
+    queues.set(SESSION, [base, incoming]);
+    // Keep the TTL valid so a missing invalidation cannot accidentally pass on a slow machine.
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+    const before = graph.getSnapshot();
+    expect(graph.getSnapshot()).toBe(before);
+    expect(Object.values(before.commandQueues).flat().map((entry) => entry.id)).toEqual([base.id, incoming.id]);
+
+    let acknowledge!: (accepted: boolean) => void;
+    const acknowledgement = new Promise<boolean>((resolve) => { acknowledge = resolve; });
+    let finish!: () => void;
+    const settled = new Promise<void>((resolve) => { finish = resolve; });
+    const started = trySendLiveFollowUp(incoming, {
+      getQueue: () => queues.get(SESSION),
+      canSend: () => true,
+      send: () => acknowledgement,
+      onChange: () => manager.invalidateCommandSnapshot(SESSION),
+      onSettled: finish,
+    });
+    try {
+      expect(started).toBe(true);
+      if (archived) {
+        base.status = 'completed';
+        archive.set(SESSION, [base]);
+        queues.set(SESSION, [incoming]);
+        manager.invalidateCommandSnapshot(SESSION);
+      }
+      const duringDelivery = graph.getSnapshot();
+      expect(graph.getSnapshot()).toBe(duringDelivery);
+      expect(Object.values(duringDelivery.commandQueues).flat()).toContain(incoming);
+      acknowledge(true);
+      await settled;
+
+      const after = graph.getSnapshot();
+      expect(after).not.toBe(duringDelivery);
+      const pending = Object.values(after.commandQueues).flat();
+      expect(pending.find((entry) => entry.id === incoming.id)).toBeUndefined();
+      const history = Object.values(after.completedCommands).flat();
+      const savedBase = [...pending, ...history].find((entry) => entry.id === base.id);
+      expect(savedBase).toMatchObject({ id: base.id, text: 'Original request', status: archived ? 'completed' : 'executing' });
+      expect(savedBase?.followUps).toEqual([expect.objectContaining({
+        id: incoming.id, text: 'Keep this separate', timestamp: incoming.timestamp, attachments: ['addition.png'],
+      })]);
+    } finally {
+      acknowledge(false);
+      if (started) await settled;
+    }
+  });
+
+  it.each(['restoreFromCheckpoint', 'mergeFromCheckpoint'] as const)('%s preserves accepted follow-ups in snapshots and the queue/archive checkpoint', (restore) => {
+    const { graph, projectName, queues, archive } = makeGraph();
+    const followUps = [{ id: 'follow-up', text: 'Use the keyboard design', timestamp: 2, deliveredAt: 3, attachments: ['keyboard.png'] }];
+    const active: QueuedCommand = { ...cmd('active', 'Original request'), status: 'queued', followUps };
+    const completed = { ...cmd('completed', 'Earlier request'), followUps };
+    queues.set(SESSION, [active]);
+    archive.set(SESSION, [completed]);
+    const snapshot = graph.getSnapshot();
+    expect(Object.values(snapshot.commandQueues).flat().find((entry) => entry.id === active.id)?.followUps).toEqual(followUps);
+    expect(Object.values(snapshot.completedCommands).flat().find((entry) => entry.id === completed.id)?.followUps).toEqual(followUps);
+
+    const cp = JSON.parse(JSON.stringify(graph.toProjectCheckpoint(projectName)!));
+    const revived = new ProjectGraph();
+    const revivedQueues = new Map<string, QueuedCommand[]>();
+    const revivedArchive = new Map<string, QueuedCommand[]>();
+    revived.setCommandQueuesRef(revivedQueues);
+    revived.setCompletedCommandArchiveRef(revivedArchive);
+    revived[restore](cp);
+    expect(revivedQueues.get(SESSION)).toEqual([active]);
+    expect(revivedArchive.get(SESSION)).toEqual([completed]);
+    const savedAgain = JSON.parse(JSON.stringify(revived.toProjectCheckpoint(projectName)));
+    expect(savedAgain.commandQueues[SESSION][0].followUps).toEqual(followUps);
+    expect(savedAgain.completedCommands[SESSION][0].followUps).toEqual(followUps);
+  });
+
+  it('merging a checkpoint leaves a currently live delivery in the existing session untouched', () => {
+    const { graph, projectName, queues } = makeGraph();
+    const live: QueuedCommand = { ...cmd('live', 'Current input'), status: 'queued', dispatchMode: 'steer', liveDelivery: { state: 'sending' } };
+    queues.set(SESSION, [live]);
+    const cp = JSON.parse(JSON.stringify(graph.toProjectCheckpoint(projectName)!));
+    graph.mergeFromCheckpoint(cp);
+    expect(queues.get(SESSION)?.[0]).toBe(live);
+    expect(live.liveDelivery).toEqual({ state: 'sending' });
+  });
+
   it('새 작업이 기다리던 선행 명령 ID도 체크포인트 왕복 후 유지된다', () => {
     const { graph, projectName, queues } = makeGraph();
     const waiting: QueuedCommand = { ...cmd('new-task', '새 작업'), status: 'queued', waitForCommandIds: ['prior-1', 'prior-2'] };

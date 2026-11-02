@@ -30,6 +30,33 @@ describe('new task dependencies', () => {
     expect(hasUnfinishedCommandDependencies(next, queues, 'parent', owner)).toBe(false);
   });
 
+  it('waits for the active task but never captures live inputs as separate work', () => {
+    const active = cmd('active', 'old', 'executing');
+    const deliveries: Array<QueuedCommand['liveDelivery']> = [undefined, { state: 'sending' },
+      { state: 'unavailable', reason: 'noActiveTurn' }, { state: 'uncertain', reason: 'deliveryUnknown' }];
+    const liveInputs: QueuedCommand[] = deliveries.map((liveDelivery, index) => ({
+      ...cmd(`live-${index}`), dispatchMode: 'steer', ...(liveDelivery ? { liveDelivery } : {}),
+    }));
+    const queue = [active, ...liveInputs];
+    const queues = new Map([['parent', queue]]);
+    const next = { ...cmd('next', 'new'), waitForCommandIds: captureAgentWorkCommandIds(queues, 'parent', owner) };
+    expect(next.waitForCommandIds).toEqual(['active']);
+    expect(hasUnfinishedCommandDependencies(next, queues, 'parent', owner)).toBe(true);
+    active.status = 'completed';
+    expect(hasUnfinishedCommandDependencies(next, queues, 'parent', owner)).toBe(false);
+    expect(liveInputs.every((command) => command.status === 'queued')).toBe(true);
+  });
+
+  it('releases a captured dependency when it becomes live input even if delivery is unavailable', () => {
+    const dependency = cmd('dependency');
+    const next = { ...cmd('next', 'new'), waitForCommandIds: [dependency.id] };
+    const queues = new Map([['parent', [dependency, next]]]);
+    expect(hasUnfinishedCommandDependencies(next, queues, 'parent', owner)).toBe(true);
+    dependency.dispatchMode = 'steer';
+    dependency.liveDelivery = { state: 'unavailable', reason: 'turnScope' };
+    expect(hasUnfinishedCommandDependencies(next, queues, 'parent', owner)).toBe(false);
+  });
+
   it('deleted dependencies and foreign commands with identical IDs do not hold the new task', () => {
     const next = { ...cmd('new', 'new'), waitForCommandIds: ['deleted', 'foreign-only'] };
     const queues = new Map([['parent', [next]], ['foreign', [cmd('deleted'), cmd('foreign-only')]]]);
@@ -59,5 +86,17 @@ describe('new task dependencies', () => {
     const waits = (command: QueuedCommand) => hasUnfinishedCommandDependencies(command, queues, 'parent', owner);
     expect(waits(first)).toBe(true);
     expect(followsWaitingSessionCommand(old, queue, waits)).toBe(false);
+  });
+
+  it('a rejected live input with prior dependencies does not block a later ordinary turn', () => {
+    const old = cmd('old', 'another', 'executing');
+    const first: QueuedCommand = { ...cmd('first', 'new'), dispatchMode: 'steer', waitForCommandIds: [old.id],
+      liveDelivery: { state: 'unavailable', reason: 'turnScope' } };
+    const follow = cmd('follow', 'new');
+    const queue = [old, first, follow];
+    const queues = new Map([['parent', queue]]);
+    const waits = (command: QueuedCommand) => hasUnfinishedCommandDependencies(command, queues, 'parent', owner);
+    expect(waits(first)).toBe(true);
+    expect(followsWaitingSessionCommand(follow, queue, waits)).toBe(false);
   });
 });

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { normalizeAppNodeIds, verificationScopeFromText, type QueuedCommand } from '@vibisual/shared';
+import { normalizeAppNodeIds, type QueuedCommand } from '@vibisual/shared';
 import { findReferencedCommandAttachment } from './commandAttachmentOwnership.js';
 import { normalizeRunLimits } from './commandRunLimits.js';
 import { normalizeExecutionRequirements } from './commandExecutionRequirements.js';
@@ -57,7 +57,7 @@ function setup() {
       getOrchestraRootForAgent: () => null, recordSkillUsageFromCommandText: vi.fn(),
     },
     subAgentManager: { getSub: () => ({ agentId: 'agent-fixture' }) },
-    DEFAULT_COMMAND_DISPATCH_MODE: 'merge', normalizeCommandDispatchMode: () => 'merge', normalizeRunLimits, normalizeExecutionRequirements, verificationScopeFromText,
+    DEFAULT_COMMAND_DISPATCH_MODE: 'merge', normalizeCommandDispatchMode: () => 'merge', normalizeRunLimits, normalizeExecutionRequirements,
     normalizeAppNodeIds,
     hasForeignSubAgent: () => false, isReadOnlyHookAgent: () => false,
     LOOPBACK_INGRESS_HEADER: 'test-loopback', LOOPBACK_INGRESS_VALUE: '1', orchestraEngineOf: () => 'claude',
@@ -85,6 +85,25 @@ function setup() {
 }
 
 describe('submitted images survive response loss and draft cleanup', () => {
+  it.each([false, true])('preserves attachments owned only by an accepted follow-up (archived=%s)', async (archived) => {
+    const h = setup();
+    await h.post();
+    const base = h.queued()[0]!;
+    const moved = base.attachments![0]!;
+    base.followUps = [{ id: 'follow-up', text: 'Use this design', timestamp: 2, deliveredAt: 3, attachments: [moved] }];
+    delete base.attachments;
+    if (archived) h.complete();
+    else base.status = 'executing';
+
+    expect(await h.remove(moved)).toEqual({ status: 200, body: { ok: true, retained: true } });
+    const retry = await h.post(h.image, 'sub-second');
+    expect(retry.status).toBe(200);
+    expect(h.queued().at(-1)?.attachments).toEqual([moved]);
+    expect(base.followUps[0]?.attachments).toEqual([moved]);
+    expect(fs.readFileSync(moved, 'utf8')).toBe('user image');
+    expect(fs.existsSync(path.join(h.dir, 'sub-second', path.basename(moved)))).toBe(false);
+  });
+
   it('still deletes an unsubmitted draft image', async () => {
     const h = setup();
     expect((await h.remove()).status).toBe(200);
@@ -166,5 +185,9 @@ describe('submitted images survive response loss and draft cleanup', () => {
     const second = path.join(h.dir, 'sub-second', path.basename(h.image));
     expect(findReferencedCommandAttachment(h.image, h.dir, [{ attachments: [first, second] }], true)).toBeUndefined();
     expect(findReferencedCommandAttachment(h.image, h.dir, [{ attachments: [first, first] }], true)).toBe(first);
+    const followUps = [{ id: 'follow-up', text: 'Design', timestamp: 2, deliveredAt: 3, attachments: [second] }];
+    expect(findReferencedCommandAttachment(h.image, h.dir, [{ attachments: [first], followUps }], true)).toBeUndefined();
+    const outside = path.join(root, 'outside.png');
+    expect(findReferencedCommandAttachment(outside, h.dir, [{ followUps: [{ ...followUps[0]!, attachments: [outside] }] }])).toBeUndefined();
   });
 });

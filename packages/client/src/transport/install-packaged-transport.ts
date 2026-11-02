@@ -397,6 +397,14 @@ export interface PackagedApi {
   lifecycle?: PackagedLifecycleApi;
   /** §5.13 (Y) 40-12 — 계측(메모리 한 벌 · `main-stall.log` 한 줄). web 모드·구버전 preload 에선 부재. */
   perf?: PackagedPerfApi;
+  /** §4 폴더 우클릭으로 프로젝트 열기 — main 이 연 프로젝트로 탭을 바꾼다. web 모드·구버전 preload 에선 부재. */
+  project?: PackagedProjectApi;
+}
+
+export interface PackagedProjectApi {
+  onOpenedFromShell(cb: (payload: { name: string }) => void): () => void;
+  /** 구독을 건 뒤에 부른다 — 그 전에 열린 것의 이름을 돌려준다(마지막 것이 보이는 탭). */
+  shellOpenReady(): Promise<string[]>;
 }
 
 /** §5.13 (Y) 40-12 — 계측 통로. 렌더러 계측 스위치를 켠 창만 부른다. */

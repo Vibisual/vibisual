@@ -125,7 +125,7 @@ function markSupersededPlans(items: StreamItemFull[]): StreamItemFull[] {
   const out = items.slice();
   for (let k = items.length - 1; k >= 0; k--) {
     const it = items[k]!;
-    if (it.kind === 'command') { seenNewerPlan = false; continue; }
+    if (it.kind === 'command' && !it.isFollowUp) { seenNewerPlan = false; continue; }
     if (it.kind !== 'plan') continue;
     const plan = it as StreamPlan;
     if (seenNewerPlan) {

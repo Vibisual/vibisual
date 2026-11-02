@@ -92,6 +92,7 @@ import type { AvailableSkill } from '@vibisual/shared';
 // §5.5 #17-33 ⑦ — 스킬 상태 태그. 사이드바·`/` 자동완성과 **같은 판정·같은 그림**을 쓴다.
 import { resolveSkillPluginState, skillLoadsNow } from '@vibisual/shared';
 import { SkillStateTag } from '../SkillStateTag.js';
+import { clientPathPlatform } from '../../utils/platform.js';
 
 const API_BASE = '';
 
@@ -614,7 +615,9 @@ export function AgentConfigPopup({
   ), [t]);
   // §4 — 설치된 CLI 가 실제로 받는 effort 등급(`modelRegistry.effortLevels`) 기반 동적 목록.
   //   known 등급은 전용 설명, CLI 가 새로 노출한 미지 등급은 공통 'unknown' 설명으로 폴백.
-  const EFFORT_OPTIONS: SelectOption[] = useMemo(() => listEffortLevels(modelRegistry).map((v) => ({
+  //   저장된 등급은 이번 CLI 목록에 없어도 남긴다(`listEffortLevels` 의 keep).
+  const savedEffort = base.effort;
+  const EFFORT_OPTIONS: SelectOption[] = useMemo(() => listEffortLevels(modelRegistry, savedEffort).map((v) => ({
     value: v,
     description: t(`panel.agentConfig.effort.${v}`, {
       defaultValue: t('panel.agentConfig.effort.unknown', {
@@ -622,7 +625,7 @@ export function AgentConfigPopup({
         name: v,
       }),
     }),
-  })), [t, modelRegistry]);
+  })), [t, modelRegistry, savedEffort]);
   // §4 (CLI 사양 추종) — 목록을 손으로 따로 적으면 도구가 늘 때마다 여기만 빠진다(실제로 `TodoWrite` 가
   //   그래서 설명 자리에 키 문자열이 그대로 찍혔다). 도구 목록 SSOT 를 그대로 돌고, 번역이 없는 도구는
   //   빈 문자열로 두어 설명 줄 자체가 생기지 않게 한다.
@@ -850,7 +853,7 @@ export function AgentConfigPopup({
   );
   /** 이 모델이 **신고한** 단계만 고를 수 있다 — 없는 단계를 보이면 그것을 고를 수 있는 것으로 읽는다. */
   const codexEffortLevels = useMemo(
-    () => codexReasoningLevelsOf(codexModelId || resolveAgentDefaults(userDefaults, 'codex', projectPath).provider?.modelId, codexModels?.models),
+    () => codexReasoningLevelsOf(codexModelId || resolveAgentDefaults(userDefaults, 'codex', projectPath, clientPathPlatform()).provider?.modelId, codexModels?.models),
     [codexModelId, codexModels, userDefaults, projectPath],
   );
   const codexEffortOptions: SelectOption[] = useMemo(
@@ -858,10 +861,10 @@ export function AgentConfigPopup({
     [codexEffortLevels, codexEffort],
   );
   /** 비워 둔 칸의 선택지 한 줄 — 지금 고른 모델·권한 모드(저장 전 값)로 판정한다. */
-  const codexParentProvider = resolveAgentDefaults(userDefaults, 'codex', projectPath).provider;
+  const codexParentProvider = resolveAgentDefaults(userDefaults, 'codex', projectPath, clientPathPlatform()).provider;
   const codexInheritedFor = (field: CodexInheritedField): { label: string; description: string } => (
     codexParentProvider?.[field] !== undefined && !(field === 'webSearch' && strictStripSet.size > 0)
-      ? { label: t('panel.agentConfig.effective.resolved', { value: codexInheritedValueText(t, field, String(codexParentProvider[field])), source: t('providers.inheritProject') }), description: t('providers.individualSettingsHint') }
+      ? { label: t('panel.agentConfig.effective.resolved', { value: codexInheritedValueText(t, field, String(codexParentProvider[field])), source: t('providers.inheritProject') }), description: t('providers.individualSettingsHint', { inherit: t('providers.inheritProject') }) }
       : codexInheritedOptionFor(t, field, {
       config: codexConfig,
       model: codexModels?.models.find((m) => m.slug === (codexModelId || codexParentProvider?.modelId)),
@@ -1130,7 +1133,7 @@ export function AgentConfigPopup({
   const buildPayload = useCallback((): AgentConfig => ({
     model, tools, permissionMode, skills, color,
     // §4 (설정 3층) — 미설정을 `undefined` 로 담지 않는다. `JSON.stringify` 가 키를 버려 `sparsifyAgentConfig` 비교에 못 오르면 위층이 켠 축을 여기서 끌 수 없다.
-    // 그 축의 미설정 표기(0 · '' · [] · false · 'none' · 'default' · 'allow')를 명시로 보낸다 — 기본값과 같으면 서버가 버린다.
+    // 그 축의 미설정 표기(0 · '' · [] · false · 'none' · 'default' · 'allow')를 명시로 보낸다 — 기본값과 같고 이번에 안 바꾼 칸이면 서버가 버린다.
     maxTurns: maxTurns > 0 ? maxTurns : 0,
     // §4 — 0 = 무제한. 위층 상한을 되돌리려면 0 이 건너가야 한다.
     maxBudgetUsd: maxBudgetUsd > 0 ? maxBudgetUsd : 0,
@@ -1210,8 +1213,9 @@ export function AgentConfigPopup({
     isLocal, buildLocalProvider, isCodex, buildCodexProvider,
   ]);
 
-  // §4 — 이 창 값이 설정 창 전역 기본과 갈라지는 칸(점). 폼이 저장하려는 값으로 재 즉시 붙고, 점이 붙은 칸이 곧 저장될 칸이다.
-  const agentDefaults = useMemo(() => resolveAgentDefaults(userDefaults, isCodex ? 'codex' : isLocal ? 'local' : 'claude', projectPath), [userDefaults, isCodex, isLocal, projectPath]);
+  // §4 — 이 창 값이 설정 창 전역 기본과 갈라지는 칸(점 — 표시 전용). 폼이 저장하려는 값으로 재 즉시 붙는다.
+  //   저장은 점 칸에 더해 이미 못 박은 칸·이번에 바꾼 칸도 남긴다(서버 `sparsifyAgentConfig` 기준선) — 고른 값이 지금 전역과 같으면 점만 없다.
+  const agentDefaults = useMemo(() => resolveAgentDefaults(userDefaults, isCodex ? 'codex' : isLocal ? 'local' : 'claude', projectPath, clientPathPlatform()), [userDefaults, isCodex, isLocal, projectPath]);
   // §4 — 지금 값이면 명령 사이에서 몇 토큰에 접히는가(고른 숫자는 창 크기, 발동선은 더 낮다). 3층: 에이전트 → 설정 창 → 내장, 'auto' 는 null.
   // 비율은 shared 상수 한 곳에서 온다(12개 로케일).
   const compactFoldsAtPercent = Math.round(TURN_COMPACT_TRIGGER_RATIO * 100);
@@ -1471,7 +1475,7 @@ export function AgentConfigPopup({
       </label>
       <CustomSelect value={codexModelId} onChange={handleCodexModelChange} options={[
         { value: '', ...(codexParentProvider?.modelId
-          ? { label: `${codexParentProvider.modelName || codexParentProvider.modelId} (${t('providers.inheritProject')})`, description: t('providers.individualSettingsHint') }
+          ? { label: `${codexParentProvider.modelName || codexParentProvider.modelId} (${t('providers.inheritProject')})`, description: t('providers.individualSettingsHint', { inherit: t('providers.inheritProject') }) }
           : { label: t('providers.codexModelInherited'), description: t('providers.codexModelInheritedHint') }) },
         ...codexModelOptions,
       ]} />
@@ -1907,7 +1911,7 @@ export function AgentConfigPopup({
             {isCodex && (
               <div className="flex flex-col gap-4 rounded-lg border border-gray-700/60 bg-gray-900/40 p-3">
                 <p className="text-xs font-semibold text-gray-200">{t('panel.agentConfig.codex.execution')}</p>
-                <p className="text-[12px] text-gray-400">{t('providers.individualSettingsHint')}</p>
+                <p className="text-[12px] text-gray-400">{t('providers.individualSettingsHint', { inherit: t('providers.inheritProject') })}</p>
                 {([
                   ['webSearch', 'webSearch', codexWebSearch, setCodexWebSearch, ['disabled', 'cached', 'live']],
                   ['verbosity', 'modelVerbosity', codexVerbosity, setCodexVerbosity, ['low', 'medium', 'high']],
@@ -1925,7 +1929,8 @@ export function AgentConfigPopup({
                     ]} />
                   </div>
                 ))}
-                <CodexAdvancedSettings value={codexAdvanced} onChange={patch => setCodexAdvanced(d => ({ ...d, ...patch }))} />
+                <CodexAdvancedSettings value={codexAdvanced} onChange={patch => setCodexAdvanced(d => ({ ...d, ...patch }))}
+                  supportsPersonality={codexModels?.models.find(m => m.slug === (codexModelId || codexParentProvider?.modelId))?.supportsPersonality} />
                 <p className="text-[12px] leading-relaxed text-gray-500">{t('panel.agentConfig.codex.applyNoteEffective')}</p>
               </div>
             )}

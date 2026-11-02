@@ -10,6 +10,7 @@ import os from 'node:os';
 import type { UserDefaults, UserDefaultsPatch } from '@vibisual/shared';
 import { AGENT_TOOLS_BACKFILL_GEN, backfillAgentTools, providerForEngine, resolveBubbleSkin, resolveBubbleEdgeStyle } from '@vibisual/shared';
 import { logger } from '../logger.js';
+import { pathKey } from './pathKey.js';
 
 /** §4 (설정 3층) — 부분 머지, **`null` 은 그 키를 지운다** — `undefined` 는 `JSON.stringify` 가 버려 서버에 안 닿는다. */
 function mergeCategory<T extends object>(
@@ -53,6 +54,13 @@ function stampToolsGen(
 ): UserDefaults['agentConfig'] {
   if (!merged || !Array.isArray(patch?.tools)) return merged;
   return { ...merged, toolsBackfillGen: AGENT_TOOLS_BACKFILL_GEN };
+}
+
+/** §5.25 — 이미 있는 같은 폴더 칸의 키(그 플랫폼 규칙으로 비교). 없으면 받은 표기 그대로. */
+function projectEngineConfigKey(map: NonNullable<UserDefaults['projectEngineConfigs']>, project: string): string {
+  if (project in map) return project;
+  const want = pathKey(project);
+  return Object.keys(map).find((key) => pathKey(key) === want) ?? project;
 }
 
 const STORE_DIR = path.join(os.homedir(), '.vibisual');
@@ -135,7 +143,9 @@ class UserDefaultsService {
     next.engineConfigs = { ...prev.engineConfigs, [oldEngine]: prev.agentConfig, ...patch.engineConfigs };
     next.projectEngineConfigs = { ...prev.projectEngineConfigs };
     for (const [project, configs] of Object.entries(patch.projectEngineConfigs ?? {})) {
-      next.projectEngineConfigs[project] = { ...prev.projectEngineConfigs?.[project], ...configs };
+      // 같은 폴더의 다른 표기(드라이브 문자 대소문자 등)는 한 칸으로 모은다 — 둘로 갈라지면 읽는 쪽이 옛 칸을 집는다.
+      const key = projectEngineConfigKey(next.projectEngineConfigs, project);
+      next.projectEngineConfigs[key] = { ...next.projectEngineConfigs[key], ...configs };
     }
     if (oldEngine !== newEngine) {
       next.agentConfig = { ...next.engineConfigs[newEngine], provider: next.engineConfigs[newEngine]?.provider ?? providerForEngine(newEngine) };

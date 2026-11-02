@@ -3,7 +3,7 @@ import { APP_THUMB, PREVIEW_POLICY, type PreviewLane } from '@vibisual/shared';
 
 import { clientPathKey } from '../utils/platform.js';
 import { thumbnailSkipped } from './appLinkedItems.js';
-import { previewBudget } from './previewBudget.js';
+import { onPreviewSurfacesIdle, previewSurfacesIdle } from './previewBudget.js';
 import { getInternalApp, type AppThumbnail, type AppThumbnailRenderer } from './registry.js';
 import { isThumbnailSkip } from './thumbnailSkip.js';
 
@@ -251,8 +251,8 @@ const appThumbCache = createThumbCache({
   timeoutMs: APP_THUMB.renderTimeoutMs,
   // §5.1 #2-1 (G) ④ — 종류별 동시 건수 · 움직이는 동안 쉬기 · 화면을 떠난 줄 버리기.
   laneConcurrency: PREVIEW_POLICY.laneConcurrency,
-  isIdle: () => previewBudget.isIdle(),
-  onIdle: (l) => previewBudget.onIdle(l),
+  isIdle: () => previewSurfacesIdle(),
+  onIdle: (l) => onPreviewSurfacesIdle(l),
   staleQueuedMs: PREVIEW_POLICY.staleQueuedMs,
   // §5.1 #2-1 (G) ⑦ — 앱이 못 푼다고 선언한 확장자는 줄에 세우지 않는다(파일 버블·앱 화면·구슬 공통).
   skip: (job) => thumbnailSkipped(job.appId, job.file),

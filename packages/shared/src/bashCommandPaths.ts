@@ -1,5 +1,5 @@
 /**
- * §2.1 #3 · §5.1 #1-1 — 셸 명령 경로 추출의 공용 파서: 토크나이저·세그먼트 걷기(읽기·쓰기·훑기·경로 자물쇠·검증 정책이 한 벌을 나눠 쓴다), 셸 껍데기 벗기기(§5.1 #1-1 (B)), 쓰기 추출기.
+ * §2.1 #3 · §5.1 #1-1 — 셸 명령 경로 추출의 공용 파서: 토크나이저·세그먼트 걷기(읽기·쓰기·훑기·경로 자물쇠가 한 벌을 나눠 쓴다), 셸 껍데기 벗기기(§5.1 #1-1 (B)), 쓰기 추출기.
  * shared 인 이유 — 감사 원장(§5.22) `target` 을 채우는 `summarizeToolCall` 이 shared 다. 모르는 것을 쓰기로 넘겨짚지 않는다(쓰기 오탐은 가짜 diff·워크트리 이주까지 번진다).
  * 디스크·`process.platform` 을 읽지 않는다(플랫폼은 인자).
  */
@@ -276,7 +276,7 @@ function joinCdBase(base: string | null, target: string): string {
   return joinShellPath(base, t);
 }
 
-/** PowerShell `-EncodedCommand`(base64 UTF-16LE) 를 푼다. 풀지 못하면 null. 검증 정책·껍데기 벗기기 공용. */
+/** PowerShell `-EncodedCommand`(base64 UTF-16LE) 를 푼다. 풀지 못하면 null. 셸 껍데기 벗기기에 쓴다. */
 export function decodePowerShellEncodedCommand(value: string): string | null {
   try {
     if (typeof atob !== 'function') return null;
@@ -824,7 +824,7 @@ export function extractBashWritePaths(
 /**
  * `extractBashWritePaths` 와 같은 답에 **"목적지가 폴더면 붙일 이름"**(`intoName`)을 더한 꼴 — 디스크를 볼 수 있는
  * 서버가 그 시점에 `path` 가 폴더인지 보고 실제로 쓰인 파일을 고른다(`cp a.ts out` → `out` 이 폴더면 `out/a.ts`).
- * 감사 원장·검증 정책처럼 디스크를 안 보는 자리는 `extractBashWritePaths` 를 쓴다.
+ * 감사 원장처럼 디스크를 안 보는 자리는 `extractBashWritePaths` 를 쓴다.
  */
 export function extractBashWriteTargets(
   command: string,

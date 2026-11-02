@@ -110,6 +110,8 @@ import { resolveLocalEntry } from '../components/LocalModel/localModelEntry.js';
 import { localLlmResponseError, type LocalModelBindingResult } from '../components/LocalModel/localLlmApi.js';
 import { resolveCodexEntry } from '../components/Codex/codexModelEntry.js';
 import { codexModelCatalogClient } from './codexModelCatalogClient.js';
+import { codexInventoryClient, codexInventoryScopeKey } from './codexInventoryClient.js';
+import { cacheCodexInventory } from './codexInventoryCache.js';
 
 /**
  * §5.3 #28 — IDE TerminalInput 세션 스코프 draft(텍스트+첨부). 키 `${agentId}|${sessionId ?? '__new__'}`.
@@ -1489,6 +1491,9 @@ interface GraphState {
   /** §5.24 — 읽기 히트맵 on/off(클라 전용 · 영속 ❌). 같은 데이터를 어떻게 그릴지의 선택이라 §3.1 금지에 해당하지 않는다. */
   heatmapMode: boolean;
   toggleHeatmapMode: () => void;
+  /** The legend can be dismissed without changing the heatmap view. */
+  heatLegendOpen: boolean;
+  openHeatLegend: () => void;
   /** §5.24 — 칠하는 축(`'read'`·`'write'` 횟수). `heatmapMode` 와 같은 칸(다시 켜면 읽기). 범례 토글이 바꾼다. */
   heatAxis: ToolAxis;
   setHeatAxis: (axis: ToolAxis) => void;
@@ -1499,6 +1504,8 @@ interface GraphState {
   tidyPanelOpen: boolean;
   toggleTidyPanel: () => void;
   closeTidyPanel: () => void;
+  /** Empty main-canvas clicks dismiss toolbar panels, keeping tool settings. */
+  closeCanvasControlPanels: () => void;
   /** §5.4 #33 (I) — 마지막 정리 기준(기본 `status`, 클라 전용). 누르면 바로 정리가 돈다 — 적용 버튼 ❌(바로 다른 기준을 눌러 보게). */
   tidySort: TidySort;
   setTidySort: (sort: TidySort) => void;
@@ -1674,8 +1681,10 @@ interface GraphState {
   /** §5.25 (M) — 코덱스의 MCP·스킬·플러그인·훅·`AGENTS.md`(클로드 목록을 빌리지 않는다). `null` = 아직 못 읽음(빈 목록과 구별). */
   codexInventory: CodexInventory | null;
   applyCodexInventory: (inventory: CodexInventory | undefined) => void;
+  /** Scoped HTTP results; unscoped snapshots cannot replace a pane's project inventory. */
+  codexInventories: Record<string, CodexInventory>;
   /** 이 버블의 프로젝트 기준으로 인벤토리를 다시 읽는다(목록 새로고침 버튼). */
-  refreshCodexInventory: (agentId?: string) => void;
+  refreshCodexInventory: (agentId?: string, force?: boolean) => Promise<void>;
   /** §5.25 (N) — 코덱스 리뷰 이력(최근 것이 앞). 화면이 `agentId` 로 걸러 본다. */
   codexReviews: CodexReviewRun[] | null;
   applyCodexReviews: (runs: CodexReviewRun[] | undefined) => void;
@@ -1719,6 +1728,8 @@ interface GraphState {
   setProjectGate: (state: { forced?: boolean; dismissed?: boolean; reason?: 'onboarding' | 'create-blocked' }) => void;
   /** 폴더 선택(`POST /api/projects/open-folder`) — 창구는 이 하나뿐이다(File 메뉴·게이트가 각자 fetch 하면 고른 뒤 동작이 갈린다). 고르면 true. */
   openProjectFolder: () => Promise<boolean>;
+  /** 사용자가 연 프로젝트로 탭을 바꾸고 폴더 게이트를 닫는다 — [폴더 열기]와 OS 폴더 우클릭(§4)이 같은 동작을 한다. */
+  activateOpenedProject: (name: string) => void;
   /** §4 — 진단 에러 로그 (글로벌 ring buffer, append 순). DebugPanel 에러 뷰어용. */
   diagnosticLog: DiagnosticEntry[];
   /** §5.3 #28 — IDE 입력창에 미리 채울 draft(트리거가 넣고 TerminalInput 이 mount/agent 변경 때 consume). 자동 send ❌ — 사용자가 직접 Send 한다. */
@@ -2692,11 +2703,6 @@ interface GraphState {
    * 붙을지를 그 id 로 정하기 때문이다(실패는 사유 문자열).
    */
   startVerification: (input: { agentId: string; subAgentId: string; target: VerificationTarget; expected?: string; focus?: string; demoId?: string }) => Promise<{ ok: true; runId: string } | { ok: false; error: string }>;
-  /**
-   * §5.3 #12-4 (F) — 결과 줄 [검증 실행]. 그 탭에 관련 검증 명령 한 건을 넣는다. 범위(관련 테스트·타입 검사·
-   * 린트·빌드)는 서버가 찍는다 — `prompt` 는 사람이 읽을 말(로케일)일 뿐 권한을 정하지 않는다.
-   */
-  requestCommandVerification: (agentId: string, subAgentId: string, prompt: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** §5.5 #17-35 ⑨ — 스냅샷의 시연 목록을 그대로 받는다(전량 교체 — 삭제도 곧 사라짐으로 반영). */
   applyVerificationDemos: (demos: Record<string, VerificationDemo[]> | undefined) => void;
   /** §5.11 정독 게이트 — 스냅샷의 세션별 정독 상태를 그대로 받는다(검증 이력과 같은 규약). */
@@ -3169,7 +3175,9 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     }),
   fileSizeRange: { min: 0, max: 0 },
   heatmapMode: false,
-  toggleHeatmapMode: () => set((state) => ({ heatmapMode: !state.heatmapMode })),
+  toggleHeatmapMode: () => set((state) => ({ heatmapMode: !state.heatmapMode, heatLegendOpen: !state.heatmapMode })),
+  heatLegendOpen: false,
+  openHeatLegend: () => set((state) => (state.heatmapMode && !state.heatLegendOpen ? { heatLegendOpen: true } : {})),
   heatAxis: 'read',
   setHeatAxis: (axis) => set((state) => (state.heatAxis === axis ? {} : { heatAxis: axis })),
   heatCurve: DEFAULT_HEAT_CURVE,
@@ -3178,6 +3186,9 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   tidyPanelOpen: false,
   toggleTidyPanel: () => set((state) => ({ tidyPanelOpen: !state.tidyPanelOpen })),
   closeTidyPanel: () => set((state) => (state.tidyPanelOpen ? { tidyPanelOpen: false } : {})),
+  closeCanvasControlPanels: () => set((state) => (
+    state.heatLegendOpen || state.tidyPanelOpen ? { heatLegendOpen: false, tidyPanelOpen: false } : {}
+  )),
   tidySort: DEFAULT_TIDY_SORT,
   setTidySort: (sort) => set((state) => (state.tidySort === sort ? {} : { tidySort: sort })),
   readCountRange: { max: 0 },
@@ -4903,12 +4914,18 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     for (const queue of Object.values(commandQueues)) {
       for (const c of queue) {
         if (c.attachments) for (const p of c.attachments) activeBasenames.add(basenameOf(p));
+        for (const message of c.followUps ?? []) {
+          for (const p of message.attachments ?? []) activeBasenames.add(basenameOf(p));
+        }
       }
     }
     // 완료 명령도 attachments 를 보존하므로(서버가 지우지 않는다) 그 미리보기도 살린다 — 전송 후에도 대화 스트림에 썸네일이 남는다.
     for (const queue of Object.values(completedCommands)) {
       for (const c of queue) {
         if (c.attachments) for (const p of c.attachments) activeBasenames.add(basenameOf(p));
+        for (const message of c.followUps ?? []) {
+          for (const p of message.attachments ?? []) activeBasenames.add(basenameOf(p));
+        }
       }
     }
 
@@ -7173,13 +7190,30 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   codexModels: null,
   applyCodexModels: (catalog) => set((s) => ({ codexModels: structuralShare(s.codexModels, catalog ?? null) })),
   codexInventory: null,
+  codexInventories: {},
   applyCodexInventory: (inventory) => set((s) => ({
     codexInventory: structuralShare(s.codexInventory, inventory ?? null),
   })),
-  refreshCodexInventory: (agentId) => {
-    // 응답을 직접 넣지 않는다 — 서버가 스냅샷으로 뿌려 주므로 둘이 넣으면 한 번 더 그려진다.
-    const q = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
-    fetch(`${API_BASE}/api/codex-inventory/refresh${q}`, { method: 'POST' }).catch(() => { /* 목록 조회 실패는 화면이 이미 말한다 */ });
+  refreshCodexInventory: async (agentId, force = true) => {
+    const scope = codexInventoryScopeKey(get(), agentId);
+    let current = true;
+    // A scope change permanently invalidates this attempt, including A → B → A.
+    const unsubscribe = useGraphStore.subscribe((state) => {
+      if (codexInventoryScopeKey(state, agentId) !== scope) current = false;
+    });
+    try {
+      const inventory = await codexInventoryClient.refresh(scope, agentId, force, () => current);
+      if (!inventory || !current) return;
+      // Another pane may be active, but this agent must still own the requested scope.
+      set((s) => {
+        const pinned = new Set(Object.values(s.ideOverlays)
+          .filter(pane => pane.agentId && !pane.collapsed)
+          .map(pane => codexInventoryScopeKey(s, pane.agentId)));
+        return { codexInventories: cacheCodexInventory(
+          s.codexInventories, scope, structuralShare(s.codexInventories[scope], inventory), pinned,
+        ) };
+      });
+    } finally { unsubscribe(); }
   },
   codexReviews: null,
   applyCodexReviews: (runs) => set((st) => ({ codexReviews: structuralShare(st.codexReviews, runs ?? null) })),
@@ -7291,16 +7325,20 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     projectGateDismissed: state.dismissed ?? s.projectGateDismissed,
     projectGateReason: state.reason ?? s.projectGateReason,
   })),
+  activateOpenedProject: (name) => {
+    // 스냅샷 broadcast 로 프로젝트가 등록된다 — 여기서는 그 탭을 활성으로 세우고(탭 전환의
+    // 부수 효과까지 같이 타도록 `setActiveProject` 를 그대로 쓴다), 게이트가 열려 있었다면
+    // 목적을 이뤘으니 닫는다(다음 스냅샷을 기다리지 않는다).
+    get().setActiveProject(name);
+    set({ projectGateForced: false, projectGateDismissed: false });
+  },
   openProjectFolder: async () => {
     try {
       const res = await fetch(`${API_BASE}/api/projects/open-folder`, { method: 'POST' });
-      const data = await res.json() as { ok?: boolean; cancelled?: boolean; project?: { name: string } };
+      const data = await res.json() as { ok?: boolean; cancelled?: boolean; project?: { name: string }; displayName?: string };
       if (!data.ok || !data.project) return false;
-      // 스냅샷 broadcast 로 프로젝트가 등록된다 — 여기서는 그 탭을 활성으로 세우고(탭 전환의
-      // 부수 효과까지 같이 타도록 `setActiveProject` 를 그대로 쓴다), 게이트가 열려 있었다면
-      // 목적을 이뤘으니 닫는다(다음 스냅샷을 기다리지 않는다).
-      get().setActiveProject(data.project.name);
-      set({ projectGateForced: false, projectGateDismissed: false });
+      // 탭 표시명 — 같은 이름 폴더가 이미 열려 있으면 스냅샷은 `이름 (구분자)` 로 쓴다(원래 이름으로는 탭이 안 바뀐다).
+      get().activateOpenedProject(data.displayName || data.project.name);
       return true;
     } catch {
       // 서버 연결 실패 — 게이트는 그대로 두어 사용자가 다시 시도할 수 있게 한다.
@@ -7413,22 +7451,6 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   },
   stopVerification: async (runId) => {
     await fetch(`${API_BASE}/api/verification-runs/${encodeURIComponent(runId)}/stop`, { method: 'POST' }).catch(() => {});
-  },
-  requestCommandVerification: async (agentId, subAgentId, prompt) => {
-    // §5.5 #17-29 — 훅 버블은 읽기 전용이다(서버도 같은 술어로 거절한다).
-    if (isReadOnlyHookAgent(get().agents.find((a) => a.id === agentId))) return { ok: false, error: 'read-only' };
-    try {
-      const res = await fetch(`${API_BASE}/api/verification-request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, subAgentId, prompt }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-      // 조용한 무동작 ❌ — 왜 안 됐는지 호출자가 화면에 적을 수 있게 사유를 돌려준다. 명령 자체는 스냅샷으로 온다.
-      return res.ok && data.ok ? { ok: true } : { ok: false, error: data.error ?? `HTTP ${res.status}` };
-    } catch {
-      return { ok: false, error: 'network' };
-    }
   },
   reworkVerification: async (runId) => {
     await fetch(`${API_BASE}/api/verification-runs/${encodeURIComponent(runId)}/rework`, { method: 'POST' }).catch(() => {});

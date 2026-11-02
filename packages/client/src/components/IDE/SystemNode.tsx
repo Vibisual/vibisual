@@ -204,8 +204,8 @@ const STYLES: Record<string, SystemNodeStyle> = {
   code_change_published: { family: 'done', glyph: GlyphDone, ...TONE.done, labelKey: 'ide.systemNode.codeChangePublished' },
   api_retry: { family: 'retry', glyph: GlyphRetry, ...TONE.notify, labelKey: 'ide.systemNode.apiRetry' },
   api_error: { family: 'alert', glyph: GlyphWarn, ...TONE.alert, labelKey: 'ide.systemNode.apiError' },
-  model_refusal_fallback: { family: 'fallback', glyph: GlyphFallback, ...TONE.alert, labelKey: 'ide.systemNode.modelFallback' },
-  model_fallback: { family: 'fallback', glyph: GlyphFallback, ...TONE.alert, labelKey: 'ide.systemNode.modelFallback' },
+  model_refusal_fallback: { family: 'fallback', glyph: GlyphFallback, ...TONE.notify, labelKey: 'ide.systemNode.modelFallback' },
+  model_fallback: { family: 'fallback', glyph: GlyphFallback, ...TONE.notify, labelKey: 'ide.systemNode.modelFallback' },
   interrupt: { family: 'stop', glyph: GlyphStop, ...TONE.alert, labelKey: 'ide.systemNode.interrupt' },
   permission_denied: { family: 'permission', glyph: GlyphLock, ...TONE.notify, labelKey: 'ide.systemNode.permissionDenied' },
 };
@@ -217,7 +217,7 @@ const PATTERN_RULES: { test: RegExp; style: Omit<SystemNodeStyle, 'labelKey'> }[
   // 권한이 재시도보다 먼저 — `permission_retry` 는 "다시 물어본다"가 아니라 **권한** 이야기다.
   { test: /permission|^elicitation|request_user_/, style: { family: 'permission', glyph: GlyphLock, ...TONE.notify } },
   { test: /(_retry$|^api_)/, style: { family: 'retry', glyph: GlyphRetry, ...TONE.notify } },
-  { test: /^model_/, style: { family: 'fallback', glyph: GlyphFallback, ...TONE.alert } },
+  { test: /^model_/, style: { family: 'fallback', glyph: GlyphFallback, ...TONE.notify } },
   { test: /^memory_/, style: { family: 'memory', glyph: GlyphMemory, ...TONE.memory } },
   { test: /^hook_/, style: { family: 'hook', glyph: GlyphHook, ...TONE.quiet } },
   { test: /_summary$/, style: { family: 'summary', glyph: GlyphSummary, ...TONE.quiet } },

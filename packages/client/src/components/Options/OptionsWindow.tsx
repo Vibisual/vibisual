@@ -2,7 +2,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { TERMINAL_SCROLLBACK_LINES, TERMINAL_SCROLLBACK_MIN, TERMINAL_SCROLLBACK_MAX, clampTerminalScrollback, isVerificationGateEnabled } from '@vibisual/shared';
+import { TERMINAL_SCROLLBACK_LINES, TERMINAL_SCROLLBACK_MIN, TERMINAL_SCROLLBACK_MAX, clampTerminalScrollback, isFolderContextMenuEnabled } from '@vibisual/shared';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { WINDOW_NAV_BODY, WINDOW_NAV_LIST, WINDOW_NAV_PANE, windowNavItemClass } from '../Layout/windowNav.js';
@@ -50,7 +50,7 @@ import { DefaultChip, EngineBinPicker, ManagedPendingNotice, TemporaryChip } fro
 import { SessionProbeSection } from './SessionProbeSection.js';
 import { ProcessGuardSection } from './ProcessGuardSection.js';
 import { EngineBridgeSection } from './EngineBridgeSection.js';
-import { VerificationGateSection } from './VerificationGateSection.js';
+import { FolderContextMenuSection } from './FolderContextMenuSection.js';
 import { ExternalFolderSection } from './ExternalFolderSection.js';
 import { WebFoldSection } from './WebFoldSection.js';
 import { TokenSaverSection } from './TokenSaverSection.js';
@@ -69,7 +69,7 @@ const MAX_TURNS_STEP = 10;
 const BUDGET_USD_STEP = 1;
 const BASH_TIMEOUT_STEP_SEC = 10;
 
-export type CategoryKey = 'account' | 'credits' | 'project' | 'agent' | 'appearance' | 'theme' | 'keyboard' | 'storage' | 'notifications' | 'permissions' | 'advanced' | 'version';
+export type CategoryKey = 'account' | 'credits' | 'project' | 'agent' | 'appearance' | 'theme' | 'keyboard' | 'storage' | 'notifications' | 'advanced' | 'version';
 
 const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code';
 const REPO_URL = 'https://github.com/Vibisual/vibisual';
@@ -175,8 +175,8 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
   // §4 엔진 다리 — 우리가 띄우는 세션에 모드를 실을지. 기본 켬(`false` 로만 끈다). terminal scrollback 과 같은
   //   `advanced` 칸이라 같은 [적용]으로 함께 보낸다(따로 보내면 서로를 덮는다).
   const [engineBridge, setEngineBridge] = useState(true);
-  // §5.3 #12-4 (J) — 검증 실행 전 차단(권한 탭). 기본 끔. 같은 [적용]으로 `permissions` 칸에 함께 보낸다.
-  const [verificationGate, setVerificationGate] = useState(false);
+  // §4 폴더 우클릭으로 프로젝트 열기 — 같은 `advanced` 칸이라 같은 [적용]으로 함께 보낸다. 기본 켬.
+  const [folderContextMenu, setFolderContextMenu] = useState(true);
   const [saving, setSaving] = useState(false);
   // §4 — 마지막 Apply 가 서버에 못 닿았는가(실패를 성공과 구분해 보인다).
   const [saveError, setSaveError] = useState(false);
@@ -287,7 +287,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
     setTerminalScrollback(clampTerminalScrollback(userDefaults?.advanced?.terminalScrollbackLines));
     setCmdBlockedNotify(userDefaults?.notifications?.cmdBlocked !== false);
     setEngineBridge(userDefaults?.advanced?.engineBridge !== false);
-    setVerificationGate(isVerificationGateEnabled(userDefaults));
+    setFolderContextMenu(isFolderContextMenuEnabled(userDefaults));
   }, [baseAgent, dirty, userDefaults, modelRegistry]);
 
   // §4 가시성 LOD — 열려 있는 동안 캔버스를 전면으로 덮으므로 덮개로 등록한다.
@@ -478,10 +478,8 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
         },
         // §4 (CMD ③④) — 이 창이 **모르는 키는 스프레드로 그대로 통과**시킨다(부분 페이로드가
         //   남의 설정을 지우는 사고를 막는 규약 — agent-config PUT 과 같은 이유).
-        advanced: { ...(userDefaults?.advanced ?? {}), terminalScrollbackLines: clampTerminalScrollback(terminalScrollback), engineBridge },
+        advanced: { ...(userDefaults?.advanced ?? {}), terminalScrollbackLines: clampTerminalScrollback(terminalScrollback), engineBridge, folderContextMenu },
         notifications: { ...(userDefaults?.notifications ?? {}), cmdBlocked: cmdBlockedNotify },
-        // §5.3 #12-4 (J) — 검증 실행 전 차단. 위 두 칸과 같은 규약(모르는 키는 스프레드로 통과, 값은 켬/끔 그대로).
-        permissions: { ...(userDefaults?.permissions ?? {}), verificationGate },
       };
       const claudeConfig = { ...claudeDefaults } as Record<string, unknown>;
       for (const [key, value] of Object.entries(patch.agentConfig ?? {})) {
@@ -503,7 +501,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
       setDirty(false);
       return true;
     } catch { return false; }
-  }, [applyUserDefaults, model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effortEnabled, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, thinking, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify, engineBridge, verificationGate, claudeDefaults]);
+  }, [applyUserDefaults, model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effortEnabled, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, thinking, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify, engineBridge, folderContextMenu, claudeDefaults]);
 
   // Apply — 고쳐 둔 것만 저장한다. §5.25 (C) 메인 제공자도 칸 안이 아니라 여기서 남긴다.
   //   폼을 먼저, 제공자를 나중에 — 폼은 **지금** 제공자일 때의 값(`claudeDefaults`)을 바탕으로 짓는다.
@@ -557,9 +555,6 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
     ) },
     { key: 'notifications', label: t('panel.options.categories.notifications', { defaultValue: 'Notifications' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-    ) },
-    { key: 'permissions', label: t('panel.options.categories.permissions', { defaultValue: 'Permissions' }), icon: (
-      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
     ) },
     { key: 'advanced', label: t('panel.options.categories.advanced', { defaultValue: 'Advanced' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
@@ -709,7 +704,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                       onChange={(e) => { setDirty(true); setEffort(e.target.value); }}
                       className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none hover:border-gray-600 focus:border-blue-500"
                     >
-                      {listEffortLevels(modelRegistry).map((v) => <option key={v} value={v}>{v}</option>)}
+                      {listEffortLevels(modelRegistry, effort).map((v) => <option key={v} value={v}>{v}</option>)}
                     </select>
                   </div>
                 )}
@@ -1146,6 +1141,12 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
                   onChange={(on) => { setDirty(true); setEngineBridge(on); }}
                 />
 
+                {/* §4 폴더 우클릭으로 프로젝트 열기 — OS 파일 관리자 메뉴. 값은 이 창의 [적용]과 함께 저장된다. */}
+                <FolderContextMenuSection
+                  enabled={folderContextMenu}
+                  onChange={(on) => { setDirty(true); setFolderContextMenu(on); }}
+                />
+
                 {/* §2.1 (B) — 프로젝트 밖 폴더가 캔버스에 몇 개까지 펼쳐지는가.
                     위 둘과 같은 문법이라 세 손잡이가 나란히 읽힌다. */}
                 <ExternalFolderSection onDirtyChange={setExternalBudgetDirty} />
@@ -1178,17 +1179,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
               </div>
             )}
 
-            {/* §5.3 #12-4 (J) — Permissions: 검증 실행 전 차단 스위치(기본 끔). 값은 이 창의 [적용]과 함께 저장된다. */}
-            {category === 'permissions' && (
-              <div className="flex flex-col gap-4">
-                <VerificationGateSection
-                  enabled={verificationGate}
-                  onChange={(on) => { setDirty(true); setVerificationGate(on); }}
-                />
-              </div>
-            )}
-
-            {category !== 'agent' && category !== 'version' && category !== 'appearance' && category !== 'theme' && category !== 'account' && category !== 'credits' && category !== 'keyboard' && category !== 'storage' && category !== 'advanced' && category !== 'notifications' && category !== 'permissions' && (
+            {category !== 'agent' && category !== 'version' && category !== 'appearance' && category !== 'theme' && category !== 'account' && category !== 'credits' && category !== 'keyboard' && category !== 'storage' && category !== 'advanced' && category !== 'notifications' && (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                 <svg className="h-10 w-10 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
