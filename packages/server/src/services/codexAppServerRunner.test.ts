@@ -1,9 +1,10 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CODEX_TURN_IDLE_CHECK_MS, CODEX_TURN_IDLE_NOTICE_MS } from '@vibisual/shared';
 import {
   runCodexAppServerTurn, isCodexAppServerTurnRunning, steerCodexAppServerTurn,
-  stopCodexAppServerTurn, noteCodexAppServerActivity, type CodexAppServerTurnArgs,
+  stopCodexAppServerTurn, noteCodexAppServerActivity, type CodexAppServerTurnArgs, type CodexAppServerOptions,
 } from './codexAppServerRunner.js';
 
 const mocks = vi.hoisted(() => ({ spawn: vi.fn(), kill: vi.fn(), guard: vi.fn() }));
@@ -46,7 +47,7 @@ afterEach(async () => {
   await vi.runOnlyPendingTimersAsync(); vi.clearAllTimers(); vi.useRealTimers();
 });
 async function flush(): Promise<void> { for (let index = 0; index < 6; index++) await Promise.resolve(); }
-function setup(overrides: Partial<CodexAppServerTurnArgs> = {}) {
+function setup(overrides: Partial<CodexAppServerTurnArgs> = {}, options: CodexAppServerOptions = {}) {
   const child = new Child(); mocks.spawn.mockReturnValue(child);
   const args: CodexAppServerTurnArgs = {
     subAgentId: `native-${++sequence}`, cwd: '/workspace', model: 'model', prompt: 'Fix the app',
@@ -56,7 +57,7 @@ function setup(overrides: Partial<CodexAppServerTurnArgs> = {}) {
   };
   fixtures.push({ child, args });
   runCodexAppServerTurn(args, { requestTimeoutMs: 100, shutdownMs: 50, stopSettleTimeoutMs: 20,
-    exitDrainMs: 10, idleCheckMs: 5, idleNoticeMs: 15 });
+    exitDrainMs: 10, idleCheckMs: 5, idleNoticeMs: 15, ...options });
   return { child, args };
 }
 async function initialize(child: Child, config: Record<string, unknown> = { developer_instructions: 'Native instructions' }): Promise<void> {
@@ -225,15 +226,22 @@ describe('native Codex app-server transport', () => {
   });
 
   it('closes pending MCP cards on actual failure without a live-call inactivity deadline', async () => {
-    const { child, args } = setup(); await start(child);
+    // Use production cadence while advancing every timer through the full hour.
+    const { child, args } = setup({}, { idleCheckMs: CODEX_TURN_IDLE_CHECK_MS, idleNoticeMs: CODEX_TURN_IDLE_NOTICE_MS });
+    await start(child);
     child.notify('item/started', { threadId: 'thread-1', turnId: 'turn-1', item: {
       type: 'mcpToolCall', id: 'mcp-1', server: 'fixture', tool: 'wait', arguments: {}, status: 'inProgress',
     } });
     await vi.advanceTimersByTimeAsync(3_600_000);
+    expect(args.onIdle).toHaveBeenCalledExactlyOnceWith({ idleMs: CODEX_TURN_IDLE_NOTICE_MS, stalled: false });
+    expect(args.onDone).not.toHaveBeenCalled(); expect(mocks.kill).not.toHaveBeenCalled();
+    expect(isCodexAppServerTurnRunning(args.subAgentId)).toBe(true);
     expect(vi.mocked(args.onEvent).mock.calls.filter(([event]) => event.eventType === 'tool_result')).toHaveLength(0);
     child.emit('close', 1);
     expect(args.onEvent).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'tool_result', toolUseId: 'mcp-1',
       content: expect.stringContaining('turn failed') }));
+    expect(args.onDone).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('closed before turn completion (1)'), '');
+    expect(isCodexAppServerTurnRunning(args.subAgentId)).toBe(false);
   });
 
   it('routes manual compaction to the native API and waits beyond the acknowledgement', async () => {
