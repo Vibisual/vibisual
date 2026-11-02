@@ -229,7 +229,7 @@ export function renderNotes({ version, assets, changelog }) {
   }
 
   out.push(
-    'Vibisual runs on top of the [Claude CLI](https://claude.com/claude-code), which must already be on your PATH.',
+    "Vibisual's in-app setup installs app-managed copies of Claude Code or Codex from their official sources.",
   );
   out.push('');
 
