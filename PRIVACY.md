@@ -192,16 +192,24 @@ Aggregate counters — nothing more, and nothing that names a person.
   and how many people starred the repository. That data is produced by GitHub's
   servers and would exist whether or not we recorded it. A scheduled workflow
   copies it into a CSV so the project has a growth curve over time.
-  The download figure on the website and in the README is GitHub's own total —
-  the same number as the standard shields.io `github/downloads` badge — and it
-  counts file downloads, not people. It includes installed copies fetching
-  `latest.yml` when they check for an update, update installers and delta
-  pieces fetched by the updater, and, before 2026-09-07, our own CI fetching
-  installers to test them. GitHub does not record who downloaded a file, so
-  neither we nor anyone else can turn that total into a count of people.
+  The README's standard shields.io `github/downloads` badge sums all public
+  release asset download counters, including update metadata, delta files,
+  archives, installers and CI downloads. The website's installer-download
+  metric counts only `.exe`, `.dmg`, `.AppImage`, `.deb` and `.rpm` files.
+  Both are request counters, not people or completed installations. They can
+  include bots, updates, testing and repeat downloads; we do not subtract a
+  guessed bot count or a fixed CI baseline to turn them into user counts.
+  Timestamped public per-asset snapshots preserve the source observations and
+  definitions for recalculation. Missing measurements of completed installs
+  and active users remain unavailable, not zero. GitHub's counters do not
+  identify the downloader to us, so they cannot establish unique people,
+  retention or advertising reach.
 - **Update-check counts**, if the build points at our proxy — the daily,
   de-duplicated total described in item 1, broken down by platform and nothing
-  else.
+  else. These count daily IP/user-agent combinations, not verified machines
+  or people: shared networks can merge them, network changes can split them,
+  and automated requests can be included. The daily salt prevents linking
+  days, so these records cannot establish monthly unique users or retention.
 - **Page views** on the website, as described just above.
 
 The application itself reports nothing. There is no path by which a prompt, a

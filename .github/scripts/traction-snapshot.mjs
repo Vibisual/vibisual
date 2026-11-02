@@ -6,6 +6,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  API_VERSION, aggregate, collectReleases, makeEvidence, validateRepository, validateTraffic,
+} from './traction-data.mjs';
 
 const REPO = process.env.REPO ?? 'Vibisual/vibisual';
 const TOKEN = process.env.GITHUB_TOKEN ?? '';
@@ -40,72 +43,58 @@ const TRACTION_HEADER = [
 
 const TRAFFIC_HEADER = ['date', 'views', 'visitors', 'clones', 'cloners'].join(',');
 
-/** 설치 파일 이름 → 플랫폼. 갱신 메타(.yml)와 델타(.blockmap)는 설치가 아니므로 뺀다. */
-function classify(name) {
-  const n = name.toLowerCase();
-  if (n.endsWith('.blockmap')) return null;
-  if (n.endsWith('.yml') || n.endsWith('.yaml')) return 'meta';
-  if (n.endsWith('.exe') || n.endsWith('.msi')) return 'windows';
-  if (n.endsWith('.dmg') || n.endsWith('-mac.zip') || n.endsWith('.pkg')) return 'macos';
-  if (n.endsWith('.appimage') || n.endsWith('.deb') || n.endsWith('.rpm') || n.endsWith('.snap')) {
-    return 'linux';
-  }
-  return null;
-}
-
-async function api(apiPath, token = TOKEN) {
-  const headers = { 'User-Agent': 'vibisual-traction', Accept: 'application/vnd.github+json' };
+async function api(apiPath, token = TOKEN, pageInfo = false) {
+  const headers = {
+    'User-Agent': 'vibisual-traction', Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': API_VERSION,
+  };
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(`https://api.github.com${apiPath}`, { headers });
   if (!res.ok) throw new Error(`GET ${apiPath} -> HTTP ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  return pageInfo ? { items: data, hasNext: /<[^>]+>;\s*rel="next"/.test(res.headers.get('link') ?? '') } : data;
 }
 
 /** 던지지 않는 호출(트래픽 전용) — 403 하나로 나머지 열을 잃지 않게 stderr 에 이유를 남기고 null. */
-async function apiSoft(apiPath) {
+async function apiSoft(apiPath, key) {
   if (!TRAFFIC_TOKEN) return null;
   try {
-    return await api(apiPath, TRAFFIC_TOKEN);
+    return validateTraffic(await api(apiPath, TRAFFIC_TOKEN), key);
   } catch (err) {
     console.error(`[traffic] ${apiPath} 건너뜀 — ${err.message}`);
     return null;
   }
 }
 
-const repo = await api(`/repos/${REPO}`);
-
-// 릴리스는 페이지가 넘어갈 수 있다 — 100개씩 끝까지 돈다.
-const releases = [];
-for (let page = 1; page <= 20; page += 1) {
-  const batch = await api(`/repos/${REPO}/releases?per_page=100&page=${page}`);
-  releases.push(...batch);
-  if (batch.length < 100) break;
-}
-
-const tally = { windows: 0, macos: 0, linux: 0, meta: 0, total: 0 };
-for (const rel of releases) {
-  for (const asset of rel.assets ?? []) {
-    const kind = classify(asset.name);
-    if (!kind) continue;
-    tally[kind] += asset.download_count;
-    if (kind !== 'meta') tally.total += asset.download_count;
-  }
-}
+const collectionStartedAt = new Date().toISOString();
+const repo = validateRepository(await api(`/repos/${REPO}`));
+const { releases, pages } = await collectReleases((page, perPage) =>
+  api(`/repos/${REPO}/releases?per_page=${perPage}&page=${page}`, TOKEN, true));
+const tally = aggregate(releases);
 
 // 사전 릴리스(preview)는 최신판 판단에서 뺀다 — 정식 배포본의 흐름을 보고 싶기 때문.
-const latest = releases.find((r) => !r.prerelease && !r.draft) ?? releases[0];
-const latestDownloads = (latest?.assets ?? [])
-  .filter((a) => classify(a.name) && classify(a.name) !== 'meta')
-  .reduce((sum, a) => sum + a.download_count, 0);
+const latest = releases.find((r) => !r.prerelease);
+const latestDownloads = aggregate(latest ? [latest] : []).total;
 
-const views = await apiSoft(`/repos/${REPO}/traffic/views?per=day`);
-const clones = await apiSoft(`/repos/${REPO}/traffic/clones?per=day`);
+const observedAt = new Date().toISOString();
+const evidence = makeEvidence({ repository: REPO, repo, releases, pages, collectionStartedAt, observedAt });
+const views = await apiSoft(`/repos/${REPO}/traffic/views?per=day`, 'views');
+const clones = await apiSoft(`/repos/${REPO}/traffic/clones?per=day`, 'clones');
 
 if (!TRAFFIC_TOKEN) {
   console.error('[traffic] METRICS_TOKEN 이 없어 조회수·클론 열을 비웁니다.');
 }
 
-const today = new Date().toISOString().slice(0, 10);
+const today = observedAt.slice(0, 10);
+
+// All public API data has passed validation. Preserve every observation; never replace an archive.
+// Millisecond UTC filenames permit multiple runs per day, including manual investigation snapshots.
+const archiveDir = path.join(OUT_DIR, 'snapshots');
+const archiveName = `${observedAt.replace(/[:.]/g, '-')}.json`;
+const evidenceJson = JSON.stringify(evidence, null, 2) + '\n';
+fs.mkdirSync(archiveDir, { recursive: true });
+fs.writeFileSync(path.join(archiveDir, archiveName), evidenceJson, { flag: 'wx' });
+fs.writeFileSync(path.join(OUT_DIR, 'latest.json'), evidenceJson);
+fs.copyFileSync(new URL('../metrics/README.md', import.meta.url), path.join(OUT_DIR, 'README.md'));
 
 // ── traction.csv ────────────────────────────────────────────────────────────
 const tractionRow = [
@@ -128,19 +117,12 @@ const tractionRow = [
   clones?.uniques ?? '',
 ].join(',');
 
-const tractionWidth = TRACTION_HEADER.split(',').length;
 const priorTraction = fs.existsSync(TRACTION_CSV) ? fs.readFileSync(TRACTION_CSV, 'utf8') : '';
 
-// 옛 줄은 열이 적을 수 있다 — 빈 칸으로 폭을 맞춘다(안 그러면 표 도구가 열을 밀려 읽는다).
+// Keep historical rows verbatim. Only today's daily summary is replaced; the archive retains every run.
 const keptTraction = priorTraction
   .split('\n')
-  .map((line) => line.trim())
-  .filter((line) => line && !line.startsWith('date,') && !line.startsWith(`${today},`))
-  .map((line) => {
-    const cells = line.split(',');
-    while (cells.length < tractionWidth) cells.push('');
-    return cells.slice(0, tractionWidth).join(',');
-  });
+  .filter((line) => line.trim() && !line.startsWith('date,') && !line.startsWith(`${today},`));
 
 fs.writeFileSync(TRACTION_CSV, [TRACTION_HEADER, ...keptTraction, tractionRow].join('\n') + '\n');
 
@@ -165,7 +147,9 @@ if (views || clones) {
     byDate.set(day, { ...(byDate.get(day) ?? {}), clones: c.count, cloners: c.uniques });
   }
   for (const [day, d] of byDate) {
-    daily.set(day, [day, d.views ?? 0, d.visitors ?? 0, d.clones ?? 0, d.cloners ?? 0].join(','));
+    const prior = daily.get(day)?.split(',');
+    daily.set(day, [day, d.views ?? prior?.[1] ?? '', d.visitors ?? prior?.[2] ?? '',
+      d.clones ?? prior?.[3] ?? '', d.cloners ?? prior?.[4] ?? ''].join(','));
   }
   const rows = [...daily.keys()].sort().map((day) => daily.get(day));
   fs.writeFileSync(TRAFFIC_CSV, [TRAFFIC_HEADER, ...rows].join('\n') + '\n');
