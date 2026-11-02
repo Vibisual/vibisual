@@ -78,9 +78,10 @@ describe('Claude 기록 탐색 — 거듭 없는 세션은 드물게, 새로 생
   });
 
   it('놓친 세션이라도 기본 폴더에 기록이 생기면 다음 물음에 바로 잡힌다', () => {
-    const cwd = path.join(os.tmpdir(), 'vibisual-main-thread-sweep-test');
+    // Exercise slug punctuation on every OS, including macOS temporary-directory names.
+    const cwd = path.join(os.tmpdir(), 'vibisual-main_thread-sweep.test');
     const sid = 'mainsweep-0000-0000-0000-000000000001';
-    const file = path.join(os.homedir(), '.claude', 'projects', cwd.replace(/[/\\:.]/g, '-'), `${sid}.jsonl`);
+    const file = path.join(os.homedir(), '.claude', 'projects', cwd.replace(/[/\\:._]/g, '-'), `${sid}.jsonl`);
     __resetSessionCachesForTest();
     try {
       expect(readContextInfo(cwd, sid)).toBeNull();

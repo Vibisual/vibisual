@@ -82,19 +82,21 @@ describe('native architecture recipes', () => {
     for (const recipe of recipes) for (const mesh of meshes(buildArchitectureObject(recipe, recipe.kind))) expect(validateVibi3DRecipe(mesh.userData['vibi3dRecipe'])).not.toBeNull();
   });
 
+  // This CPU-bound round trip includes four complete kits and procedural pixels, with no I/O or timer wait.
+  // Generation and loading can exceed five seconds on shared CI workers.
   it('builds a coherent editable structure with four commands and preserves the architecture recipes on save', async () => {
     const editor = new ModelEditor(new THREE.Group(), [], { projectId: 'project' });
-    editor.apply([
+    const snapshot = editor.apply([
       { type: 'building', id: 'building', footprint: { kind: 'rect', width: 12, depth: 9 }, floors: 4 },
       { type: 'facade', id: 'facade', position: [0, 0, 4.5], floorHeights: [4.2, 3.1, 3.1, 3.1], bays: 3 },
       { type: 'storefront', id: 'shop', position: [-4, 0, 4.6], style: 'wood', width: 4 },
       { type: 'street', id: 'street', position: [0, 0, 10.5], sidewalks: 'left', crosswalk: true },
     ], 0);
-    expect(editor.snapshot().nodes.filter(node => node.architecture)).toHaveLength(4);
-    expect(editor.snapshot().nodes.length).toBeGreaterThan(100); expect(editor.snapshot().nodes.length).toBeLessThan(350);
+    expect(snapshot.nodes.filter(node => node.architecture)).toHaveLength(4);
+    expect(snapshot.nodes.length).toBeGreaterThan(100); expect(snapshot.nodes.length).toBeLessThan(350);
     expect(meshes(editor.object).length).toBeLessThan(280);
     const source = serializeModelSource(editor.object, []), loaded = await loadModelSource(source);
     expect(new ModelEditor(loaded.object).snapshot().nodes.filter(node => node.architecture).map(node => node.id).sort()).toEqual(['building', 'facade', 'shop', 'street']);
     editor.undo(); expect(editor.object.children).toHaveLength(0); editor.redo(); expect(editor.findObject('shop')).toBeTruthy();
-  });
+  }, 15_000);
 });
