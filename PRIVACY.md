@@ -166,13 +166,22 @@ third party — neither Anthropic nor us.
 ## The website
 
 [vibisual.pro](https://vibisual.pro) is a static page served by GitHub Pages. It
-sets no cookies and asks for no consent banner because it has nothing to consent
-to. It also makes **no third-party requests at all** — the web fonts and the
-React runtime are served by the site itself rather than from a CDN, precisely so
-that loading the page does not hand your address to anyone we did not choose.
+sets no cookies and uses no advertising trackers. The web fonts and React
+runtime are served by the site itself rather than from a CDN.
 
-For the same reason there is no Google Analytics, no Plausible, and no Cloudflare
-beacon on it. Counting visits, when it is switched on, goes to the same update
+The website visitor figure uses the external counter at
+`abacus.jasoncameron.dev`, under `vibisual-pro/site-total`. A browser without the
+`vibisual-visited` local-storage marker sends an increment request; after a
+successful response it saves that marker and uses read-only requests on later
+visits. The browser contacts Abacus directly, so the service receives its
+network request. Browser storage holds the language choice, visit marker,
+last visitor count and public GitHub statistics cache. If the counter request
+fails, the last cached visitor count remains. Clearing storage, using another
+browser or automated requests can add duplicate counts; this is not a verified
+count of unique people.
+
+There is no Google Analytics, Plausible or Cloudflare beacon on the page.
+A separate, optional page-view counter, when switched on, goes to the update
 proxy described in item 1 and sends exactly one value: `view`, or `download` when
 you click a link to a release file. No path, no referrer, no cookie, no device
 identifier. It is stored the same way as the update check — a hash of that day's
@@ -181,8 +190,10 @@ is filled in, at which point it becomes visible in the page source.
 
 GitHub Pages keeps its own server logs as the host, under
 [GitHub's privacy statement](https://docs.github.com/site-policy/privacy-policies/github-privacy-statement).
-The numbers on the page (stars, release version, download counts) are read from
-a `stats.json` file we publish, not from your browser calling anyone.
+The GitHub statistics on the page (stars, release version, download counts) are
+read from a `stats.json` file we publish, without your browser calling GitHub.
+Its schema, `asOf` timestamp and source snapshots apply to those GitHub
+statistics, not to the separate website visitor counter.
 
 ## What we know about you
 
@@ -210,7 +221,8 @@ Aggregate counters — nothing more, and nothing that names a person.
   or people: shared networks can merge them, network changes can split them,
   and automated requests can be included. The daily salt prevents linking
   days, so these records cannot establish monthly unique users or retention.
-- **Page views** on the website, as described just above.
+- **Website visitor counter:** the aggregate Abacus total described above.
+  **Page views** from the separate proxy counter are available only if enabled.
 
 The application itself reports nothing. There is no path by which a prompt, a
 file name, a project path, or anything you typed reaches us.
