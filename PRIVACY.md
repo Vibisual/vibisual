@@ -170,15 +170,29 @@ sets no cookies and uses no advertising trackers. The web fonts and React
 runtime are served by the site itself rather than from a CDN.
 
 The website visitor figure uses the external counter at
-`abacus.jasoncameron.dev`, under `vibisual-pro/site-total`. A browser without the
-`vibisual-visited` local-storage marker sends an increment request; after a
-successful response it saves that marker and uses read-only requests on later
-visits. The browser contacts Abacus directly, so the service receives its
-network request. Browser storage holds the language choice, visit marker,
-last visitor count and public GitHub statistics cache. If the counter request
-fails, the last cached visitor count remains. Clearing storage, using another
-browser or automated requests can add duplicate counts; this is not a verified
-count of unique people.
+`abacus.jasoncameron.dev`, under `vibisual-pro/site-total`. On the production
+origin, `https://vibisual.pro`, Web Locks serializes requests across tabs. Inside
+the lock, a browser without the existing `vibisual-visited` local-storage marker
+saves and verifies a `pending` marker before attempting an increment. After a
+valid response it attempts to save `1`; either marker makes later requests read-only.
+An uncertain result is never automatically retried as an increment. Unavailable
+storage or locks, preview/test origins and detected browser automation use only
+read-only requests.
+
+The browser contacts Abacus directly, so the service receives its network
+request. Browser storage holds the language choice, visit marker, last visitor
+count and public GitHub statistics cache. If the counter request fails, the last
+cached visitor count remains. This conservative duplicate prevention can miss
+visits. Clearing storage, using another browser or external automated requests
+can still add duplicate counts. The upstream counter is publicly writable;
+it cannot establish verified visits or unique people.
+
+A scheduled workflow only reads the counter's `/get` endpoint and preserves
+the aggregate response with its own observation time, hash and source snapshot.
+Failed reads retain the previous valid record; valid decreases and zero remain
+unchanged. These records contain no IP addresses, device identifiers or
+individual browsing history. This collection sends no new device identifier
+or application usage event.
 
 There is no Google Analytics, Plausible or Cloudflare beacon on the page.
 A separate, optional page-view counter, when switched on, goes to the update
