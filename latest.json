@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Vibisual/vibisual",
-  "collectionStartedAt": "2026-11-03T10:56:28.207Z",
-  "observedAt": "2026-11-03T10:56:29.196Z",
+  "collectionStartedAt": "2026-11-04T10:59:37.673Z",
+  "observedAt": "2026-11-04T10:59:38.915Z",
   "source": {
     "provider": "GitHub REST API",
     "apiVersion": "2022-11-28",
@@ -28,14 +28,14 @@
   },
   "totals": {
     "publicReleases": 32,
-    "allAssetDownloads": 1671,
+    "allAssetDownloads": 1678,
     "packageDownloads": 375,
     "packagesByPlatform": {
       "windows": 110,
       "macos": 147,
       "linux": 118
     },
-    "updateMetadataDownloads": 1128,
+    "updateMetadataDownloads": 1135,
     "blockmapDownloads": 151,
     "otherAssetDownloads": 17
   },
@@ -64,7 +64,7 @@
         {
           "id": 700681298,
           "name": "latest.yml",
-          "download_count": 12,
+          "download_count": 19,
           "created_at": "2026-11-02T05:52:02Z",
           "updated_at": "2026-11-02T05:52:02Z"
         },
