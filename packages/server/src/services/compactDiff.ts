@@ -3,7 +3,7 @@
 // 그래서 결과 이름이 `notCarried` 다 — "잃어버린 것"이 아니라 "요약에 안 나타났다"까지가 아는 것이고 화면도 그렇게 적는다(§5.19 (H)·§2.1 과 같은 규율).
 
 import type { CompactNotCarried, CompactWorkingSet } from '@vibisual/shared';
-import { INSURANCE_BRIEF_MAX_CHARS, INSURANCE_WORKING_SET_MAX } from '@vibisual/shared';
+import { INSURANCE_BRIEF_MAX_CHARS, INSURANCE_FRESH_BRIEF_MAX_CHARS, INSURANCE_WORKING_SET_MAX } from '@vibisual/shared';
 
 /** 빈 `workingSet` — 그래프가 아무것도 모를 때의 정직한 값. */
 export function emptyWorkingSet(): CompactWorkingSet {
@@ -353,4 +353,70 @@ export const RECOVERY_BRIEF_LABELS_KO: RecoveryBriefLabels = {
 /** §5.26 (E) — 위 문구로 브리핑 한 벌. 실을 것이 없으면 빈 문자열이다. */
 export function buildRecoveryBlock(nc: CompactNotCarried, maxChars?: number): string {
   return buildRecoveryBrief(nc, RECOVERY_BRIEF_LABELS_KO, maxChars);
+}
+
+/** §5.26 (G) `fresh` — 끊긴 세션에 대해 금고가 아는 것. 셋 다 없으면 브리핑도 없다. */
+export interface FreshResurrectSource {
+  /** 그 대화의 제목(기록 앞머리 또는 마커의 세션 목표). */
+  title?: string;
+  /** 원본 기록, 없으면 금고 미러. 실제로 있는 파일만 적는다. */
+  transcriptPath?: string;
+  /** 그 세션 마지막 압축 마커의 작업셋. 압축이 한 번도 없었으면 없다. */
+  workingSet?: CompactWorkingSet;
+}
+
+/** fresh 브리핑은 빈 문맥의 첫 턴이라 한 줄에 더 많이 싣는다((E) 는 6). 작업셋 상한이 이미 있다(`INSURANCE_WORKING_SET_MAX`). */
+const FRESH_ITEMS_PER_LINE = 20;
+
+/**
+ * §5.26 (G) `fresh` — 새 세션 첫 턴에 싣는 금고 브리핑 전량. (E) 와 달리 "요약에 안 보인 것"이 아니라 **작업셋 전체**다 — 새 대화에는 실린 것이 하나도 없다.
+ * 기록 위치를 머리에 둬 잘리지 않게 한다(목록이 넘쳐도 원문으로 갈 길은 남는다). 문구는 (E) 처럼 로케일을 타지 않는다.
+ */
+export function buildFreshResurrectBlock(
+  src: FreshResurrectSource,
+  maxChars: number = INSURANCE_FRESH_BRIEF_MAX_CHARS,
+): string {
+  const ws = src.workingSet;
+  if (!src.title && !src.transcriptPath && !ws) return '';
+  const head: string[] = [
+    `
+
+# 끊긴 대화를 새 세션으로 이어받았다 (자동 안내 · 첫 턴만)
+이 세션은 이어서 열지 못한 이전 대화 대신 새로 시작됐다 — 그 대화의 문맥은 실리지 않았다.
+아래는 Vibisual 금고가 그 대화에서 남겨 둔 것이다. 지금 일과 이어지면 참고하되, 그대로라고 단정하지 마라.`,
+  ];
+  if (src.title) head.push(`- 이전 대화: ${oneLine(src.title)}`);
+  if (src.transcriptPath) head.push(`- 이전 대화 기록: ${src.transcriptPath} — 크다. 통째로 읽지 말고 필요한 부분만 찾아 읽어라.`);
+  const body: string[] = [];
+  if (ws) {
+    body.push('- 아래는 마지막 압축 직전에 그 세션이 붙잡고 있던 것이다.');
+    if (ws.goal) body.push(`- 목표: ${oneLine(ws.goal)}`);
+    pushListN(body, '목표 단계', ws.goalSteps, FRESH_ITEMS_PER_LINE);
+    pushListN(body, '보고 있던 파일', ws.openFiles, FRESH_ITEMS_PER_LINE);
+    pushListN(body, '고치던 파일', ws.recentEdits, FRESH_ITEMS_PER_LINE);
+    pushListN(body, '돌던 작업', ws.runningTasks, FRESH_ITEMS_PER_LINE);
+    pushListN(body, '팀원', ws.teammates, FRESH_ITEMS_PER_LINE);
+    if (ws.lastAssistantTail) body.push(`- 마지막 응답 끝: ${oneLine(ws.lastAssistantTail)}`);
+    if (body.length === 1) body.pop(); // 머리말만 남은 빈 작업셋 — 적을 것이 없다
+  }
+  const foot = '- 이 안내는 **다음 턴부터 실리지 않는다.**';
+
+  let text = [...head, ...body, foot].join('\n');
+  // 넘치면 목록 줄을 뒤에서부터 덜어낸다 — 머리(제목·기록 위치)와 꼬리는 남긴다.
+  while (text.length > maxChars && body.length > 0) {
+    body.pop();
+    text = [...head, ...body, foot].join('\n');
+  }
+  return text.length > maxChars ? text.slice(0, maxChars) : text;
+}
+
+function oneLine(s: string): string {
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+function pushListN(lines: string[], label: string, items: readonly string[], perLine: number): void {
+  if (items.length === 0) return;
+  const shown = items.slice(0, perLine);
+  const rest = items.length - shown.length;
+  lines.push(`- ${label}: ${shown.join(', ')}${rest > 0 ? ` 외 ${rest}건` : ''}`);
 }

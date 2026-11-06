@@ -45,10 +45,25 @@ export function markerCopyState(m: CompactMarker): 'mirrored' | 'indexOnly' {
  * `unreadable` 을 `failed` 와 가르는 것이 §5.26 (D) 의 핵심이다 — 완료 훅이 온 압축은 끝난 것이고 요약을 못 읽었을 뿐이라,
  * 같은 빨간 칸에 적으면 멀쩡한 세션을 되살리려 든다(되살리기와 계속하기는 손잡이가 다르다).
  */
-export function markerOutcomeState(m: CompactMarker): 'pending' | 'failed' | 'unreadable' | 'done' {
+export function markerOutcomeState(m: CompactMarker): 'snapshot' | 'pending' | 'failed' | 'unreadable' | 'done' {
+  // 손 사본은 대조할 요약이 없다 — `pending` 으로 두면 "비교 중"이 영영 선다.
+  if (m.snapshot) return 'snapshot';
   if (!m.outcome) return 'pending';
   if (m.outcome.failed) return 'failed';
   return m.outcome.summaryUnreadable ? 'unreadable' : 'done';
+}
+
+/** 압축 이력 줄의 촉발 이름 키. 손 사본은 `manual` 압축과 섞이지 않게 따로 적는다. */
+export function markerTriggerKey(m: CompactMarker): string {
+  return `panel.insurance.trigger.${m.snapshot ? 'snapshot' : m.trigger}`;
+}
+
+/**
+ * §7.23 — 압축이 실패한 줄에만 `[지금 사본 뜨기]` 를 단다(실패한 그 순간이 사본이 가장 필요할 때다).
+ * 대화록이 사라진 실패(`transcript-gone`)에는 뜰 것이 없다 — 눌러서 실패하게 두지 않는다.
+ */
+export function canSnapshotFromMarker(m: CompactMarker): boolean {
+  return markerOutcomeState(m) === 'failed' && m.outcome?.failed !== 'transcript-gone';
 }
 
 /**

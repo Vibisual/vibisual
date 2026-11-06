@@ -12,11 +12,13 @@ import {
   INSURANCE_TAB_LABEL_KEY,
   canPreviewPreimage,
   canRestorePreimage,
+  canSnapshotFromMarker,
   findInsuranceLedger,
   formatBytes,
   formatInsuranceTime,
   markerCopyState,
   markerOutcomeState,
+  markerTriggerKey,
   notCarriedRows,
   preimageFileName,
   restoreLabelKey,
@@ -153,6 +155,31 @@ describe('§5.26 마커 한 줄의 상태', () => {
       },
     });
     expect(markerOutcomeState(m)).toBe('failed');
+  });
+
+  it('손 사본은 대조할 요약이 없다 — "비교 중"이 영영 서지 않게 따로 적는다', () => {
+    const m = marker({ snapshot: true, trigger: 'manual' });
+    expect(markerOutcomeState(m)).toBe('snapshot');
+    expect(markerTriggerKey(m)).toBe('panel.insurance.trigger.snapshot');
+    expect(markerTriggerKey(marker({ trigger: 'manual' }))).toBe('panel.insurance.trigger.manual');
+  });
+});
+
+describe('§7.23 [지금 사본 뜨기] — 압축이 실패한 줄에만', () => {
+  it('요약 없음 실패에는 내준다', () => {
+    const m = marker({ outcome: { at: 1, summaryBytes: 0, notCarried: nc(), carriedCount: 0, failed: 'no-summary' } });
+    expect(canSnapshotFromMarker(m)).toBe(true);
+  });
+
+  it('대화록이 사라진 실패에는 내주지 않는다 — 뜰 것이 없다', () => {
+    const m = marker({ outcome: { at: 1, summaryBytes: 0, notCarried: nc(), carriedCount: 0, failed: 'transcript-gone' } });
+    expect(canSnapshotFromMarker(m)).toBe(false);
+  });
+
+  it('대조 전·정상·손 사본 줄에는 내주지 않는다', () => {
+    expect(canSnapshotFromMarker(marker())).toBe(false);
+    expect(canSnapshotFromMarker(marker({ outcome: { at: 1, summaryBytes: 9, notCarried: nc(), carriedCount: 1 } }))).toBe(false);
+    expect(canSnapshotFromMarker(marker({ snapshot: true }))).toBe(false);
   });
 });
 

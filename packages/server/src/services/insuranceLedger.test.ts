@@ -5,7 +5,7 @@ import path from 'node:path';
 import { DEFAULT_RETENTION_SETTINGS, INSURANCE_PREIMAGE_MAX_BYTES } from '@vibisual/shared';
 import type { CompactOutcome, RetentionSettings } from '@vibisual/shared';
 import { InsuranceVault } from './insuranceVault.js';
-import { InsuranceLedgerService, extractTeammateNames, foldSessionCounts } from './insuranceLedger.js';
+import { InsuranceLedgerService, extractTeammateNames, foldSessionCounts, legacyMarkerSessionId } from './insuranceLedger.js';
 
 // §5.26 — **없는데 있다고 적지 않는다**(§5.26 (A) — "사본 있음"을 믿고 덮어쓴다). 저장고는 `resolveSaveDir` 로만 바깥에 닿아 임시 폴더를 물린다.
 
@@ -174,6 +174,84 @@ describe('§5.26 (E) 브리핑은 한 번만', () => {
     const id = seedWithOutcome();
     expect(ledger.markBriefed(PROJECT, id)).toBe(true);
     expect(ledger.markBriefed(PROJECT, id)).toBe(false);
+  });
+});
+
+describe('§5.26 (E) 버블 키로 선 옛 마커 — 복원 때 CLI 세션 id 로 되돌린다', () => {
+  const UUID = '0f0e0d0c-1b1a-4c3d-8e5f-606162636465';
+  const BUBBLE_KEY = 'custom-abc123-7-x1y2';
+
+  it('버블 키 + `<UUID>.jsonl` 이면 파일 이름의 UUID — 윈도·포직스 경로 모두', () => {
+    expect(legacyMarkerSessionId(BUBBLE_KEY, `D:\\data\\.claude\\projects\\d--x\\${UUID}.jsonl`)).toBe(UUID);
+    expect(legacyMarkerSessionId(BUBBLE_KEY, `/srv/data/.claude/projects/-x/${UUID}.jsonl`)).toBe(UUID);
+  });
+
+  it('이미 UUID 키(바깥 세션)·UUID 가 아닌 대화록 이름·빈 경로는 건드리지 않는다', () => {
+    expect(legacyMarkerSessionId(UUID, `/p/${'0'.repeat(8)}-0000-4000-8000-${'0'.repeat(12)}.jsonl`)).toBeNull();
+    expect(legacyMarkerSessionId(BUBBLE_KEY, `/codex/sessions/rollout-2026-11-05T07-30-24-${UUID}.jsonl`)).toBeNull();
+    expect(legacyMarkerSessionId(BUBBLE_KEY, `/p/${UUID}.txt`)).toBeNull();
+    expect(legacyMarkerSessionId(BUBBLE_KEY, '')).toBeNull();
+  });
+
+  function legacyCheckpoint(briefed: boolean) {
+    const transcriptPath = writeFile(`${UUID}.jsonl`, '{"type":"user"}\n');
+    const m = ledger.recordCompact({ projectName: PROJECT, sessionId: BUBBLE_KEY, trigger: 'manual', transcriptPath })!;
+    ledger.mirrorFor(m.id, PROJECT); // 옛 키 이름의 미러 — 형제 탭 대화록이 덮어썼을 수 있는 파일
+    ledger.attachOutcome(PROJECT, m.id, {
+      at: m.at + 1000,
+      summaryBytes: 100,
+      notCarried: { openFiles: ['/a/b.ts'], recentEdits: [], runningTasks: [], goalSteps: [], teammates: [] },
+      carriedCount: 0,
+    });
+    if (briefed) ledger.markBriefed(PROJECT, m.id, m.at + 2000);
+    return { cp: ledger.toCheckpoint(PROJECT)!, id: m.id, at: m.at };
+  }
+
+  it('복원하면 CLI id 로 서고, 아직 안 실린 브리핑은 창이 지난 것으로 본다', () => {
+    const { cp, id, at } = legacyCheckpoint(false);
+    const revived = makeLedger();
+    revived.restore(cp);
+    const m = revived.latestMarker(PROJECT, UUID);
+    expect(m?.id).toBe(id);
+    expect(revived.latestMarker(PROJECT, BUBBLE_KEY)).toBeUndefined();
+    // 어느 탭이 받았는지 모른다 — 며칠 뒤 "방금 압축됐다"를 싣지 않는다.
+    expect(m?.briefedAt).toBe(at + 1000);
+    expect(revived.peekBriefing(UUID)).toBeUndefined();
+    expect(revived.peekBriefing(BUBBLE_KEY)).toBeUndefined();
+  });
+
+  it('이미 실린 표식은 그대로 두고, 옛 키 이름의 미러는 이 세션 사본으로 치지 않는다', () => {
+    const { cp, at } = legacyCheckpoint(true);
+    expect(cp.markers[0]?.mirrored).toBe(true);
+    const revived = makeLedger();
+    revived.restore(cp);
+    const m = revived.latestMarker(PROJECT, UUID);
+    expect(m?.briefedAt).toBe(at + 2000);
+    expect(m?.mirrored).toBe(false);
+    // 파일은 지우지 않는다 — 고아 회수는 휴지통을 거친다.
+    expect(fs.existsSync(path.join(saveDir, 'insurance', 'transcripts', `${BUBBLE_KEY}.jsonl`))).toBe(true);
+  });
+
+  it('병합 경로도 같은 관문을 지난다', () => {
+    const { cp, id } = legacyCheckpoint(false);
+    const other = makeLedger();
+    other.merge(cp);
+    expect(other.latestMarker(PROJECT, UUID)?.id).toBe(id);
+    expect(other.peekBriefing(UUID)).toBeUndefined();
+  });
+
+  it('바깥 세션(UUID 키) 마커는 복원해도 브리핑이 그대로 살아 있다', () => {
+    const transcriptPath = writeFile(`${UUID}.jsonl`, '{"type":"user"}\n');
+    const m = ledger.recordCompact({ projectName: PROJECT, sessionId: UUID, trigger: 'auto', transcriptPath })!;
+    ledger.attachOutcome(PROJECT, m.id, {
+      at: m.at + 1000,
+      summaryBytes: 100,
+      notCarried: { openFiles: ['/a/b.ts'], recentEdits: [], runningTasks: [], goalSteps: [], teammates: [] },
+      carriedCount: 0,
+    });
+    const revived = makeLedger();
+    revived.restore(ledger.toCheckpoint(PROJECT));
+    expect(revived.peekBriefing(UUID)?.id).toBe(m.id);
   });
 });
 
@@ -486,5 +564,39 @@ describe('§5.26 (I) foldSessionCounts — 세션별로 접는다', () => {
     revived.restore(ledger.toCheckpoint(PROJECT));
     expect(revived.getSnapshot().find((l) => l.projectName === PROJECT)?.sessionCounts)
       .toEqual([{ sessionId: 's1', failedCompacts: 1, markers: 1 }]);
+  });
+});
+
+describe('§7.23 [지금 사본 뜨기] — 손 사본은 압축이 아니다', () => {
+  it('대조 대기·최근 압축·브리핑 어디에도 서지 않는다', () => {
+    const transcriptPath = writeTranscript();
+    const real = ledger.recordCompact({ projectName: PROJECT, sessionId: 's1', trigger: 'auto', transcriptPath })!;
+    ledger.attachOutcome(PROJECT, real.id, {
+      at: 1, summaryBytes: 10, carriedCount: 0,
+      notCarried: { openFiles: ['a.ts'], recentEdits: [], runningTasks: [], goalSteps: [], teammates: [] },
+    });
+    const snap = ledger.recordCompact({ projectName: PROJECT, sessionId: 's1', trigger: 'manual', snapshot: true, transcriptPath })!;
+    expect(snap.snapshot).toBe(true);
+
+    // 대조 대기에 넣으면 시한 뒤 "요약 없음" 실패로 굳는다.
+    expect(ledger.pendingOutcomes().map((m) => m.id)).not.toContain(snap.id);
+    // 최근 압축 자리를 차지하면 진짜 압축의 브리핑이 가려진다.
+    expect(ledger.latestMarker(PROJECT, 's1')?.id).toBe(real.id);
+    expect(ledger.peekBriefing('s1')?.id).toBe(real.id);
+    // 이력에는 남는다 — 사본이 있다는 사실은 보여야 한다.
+    expect(ledger.full(PROJECT)?.markers.map((m) => m.id)).toContain(snap.id);
+  });
+
+  it('체크포인트를 왕복해도 손 사본 표식이 살고, 복원 색인도 그것을 최근 압축으로 세우지 않는다', () => {
+    const transcriptPath = writeTranscript();
+    const real = ledger.recordCompact({ projectName: PROJECT, sessionId: 's1', trigger: 'auto', transcriptPath, at: 100 })!;
+    ledger.recordCompact({ projectName: PROJECT, sessionId: 's1', trigger: 'manual', snapshot: true, transcriptPath, at: 200 });
+
+    const revived = makeLedger();
+    revived.restore(ledger.toCheckpoint(PROJECT));
+    const markers = revived.full(PROJECT)?.markers ?? [];
+    expect(markers.filter((m) => m.snapshot).length).toBe(1);
+    expect(revived.latestMarker(PROJECT, 's1')?.id).toBe(real.id);
+    expect(revived.pendingOutcomes().every((m) => !m.snapshot)).toBe(true);
   });
 });

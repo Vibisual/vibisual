@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { CompactWorkingSet } from '@vibisual/shared';
 import {
   RECOVERY_BRIEF_LABELS_KO,
+  buildFreshResurrectBlock,
   buildRecoveryBlock,
   diffAgainstSummary,
   emptyNotCarried,
@@ -133,5 +134,38 @@ describe('§5.26 (E) buildRecoveryBlock — 한 턴짜리 브리핑', () => {
     const items = Array.from({ length: 20 }, (_, i) => `task-${i}`);
     const block = buildRecoveryBlock({ ...emptyNotCarried(), runningTasks: items });
     expect(block).toContain(RECOVERY_BRIEF_LABELS_KO.more(14));
+  });
+});
+
+describe('§5.26 (G) buildFreshResurrectBlock — fresh 부활 첫 턴 브리핑', () => {
+  it('금고가 아무것도 모르면 빈 문자열 — 없는 대화를 지어내지 않는다', () => {
+    expect(buildFreshResurrectBlock({})).toBe('');
+  });
+
+  it('압축이 없던 세션은 제목과 기록 위치만 싣는다', () => {
+    const block = buildFreshResurrectBlock({ title: '파서 고치기', transcriptPath: '/p/.claude/s1.jsonl' });
+    expect(block).toContain('파서 고치기');
+    expect(block).toContain('/p/.claude/s1.jsonl');
+    expect(block).not.toContain('마지막 압축 직전');
+    expect(block).toContain('첫 턴만');
+  });
+
+  it('작업셋은 (E) 와 달리 전량이다 — 새 대화에는 실린 것이 하나도 없다', () => {
+    const files = Array.from({ length: 10 }, (_, i) => `/src/f${i}.ts`);
+    const block = buildFreshResurrectBlock({ workingSet: ws({ goal: '보험 끝내기', openFiles: files, lastAssistantTail: '다음은\n시험이다' }) });
+    expect(block).toContain('보험 끝내기');
+    for (const f of files) expect(block).toContain(f);
+    expect(block).toContain('다음은 시험이다');
+  });
+
+  it('상한을 넘으면 목록을 덜되 기록 위치와 꼬리말은 남긴다', () => {
+    const many = Array.from({ length: 40 }, (_, i) => `/very/long/path/segment/number/${i}/file-${i}.ts`);
+    const block = buildFreshResurrectBlock({
+      transcriptPath: '/keep/me.jsonl',
+      workingSet: ws({ openFiles: many, recentEdits: many, runningTasks: many }),
+    }, 600);
+    expect(block.length).toBeLessThanOrEqual(600);
+    expect(block).toContain('/keep/me.jsonl');
+    expect(block).toContain('다음 턴부터 실리지 않는다');
   });
 });

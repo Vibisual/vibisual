@@ -40,6 +40,8 @@ export interface CompactRecordInput {
   agentId?: string;
   subAgentId?: string;
   trigger: 'auto' | 'manual';
+  /** §7.23 `[지금 사본 뜨기]` — 압축이 아닌 손 사본(`CompactMarker.snapshot`). */
+  snapshot?: boolean;
   transcriptPath: string;
   contextUsed?: number;
   contextMax?: number;
@@ -123,6 +125,7 @@ export class InsuranceLedgerService {
       mirrored: false,
       workingSet: capWorkingSet(input.workingSet ?? emptyWorkingSet()),
     };
+    if (input.snapshot) marker.snapshot = true;
     if (input.agentId) marker.agentId = input.agentId;
     if (input.subAgentId) marker.subAgentId = input.subAgentId;
     if (input.model) marker.model = input.model;
@@ -136,7 +139,8 @@ export class InsuranceLedgerService {
     const state = this.state(input.projectName);
     state.markers.unshift(marker);
     state.markerById.set(marker.id, marker);
-    state.latestBySession.set(marker.sessionId, marker);
+    // 손 사본은 "그 세션의 마지막 압축"이 아니다 — 앉히면 (E) 가 진짜 압축의 브리핑을 못 찾고 (F) 기준선이 당겨진다.
+    if (!marker.snapshot) state.latestBySession.set(marker.sessionId, marker);
     this.trimMarkers(input.projectName, state);
     return marker;
   }
@@ -165,7 +169,8 @@ export class InsuranceLedgerService {
     const out: CompactMarker[] = [];
     for (const state of this.ledgers.values()) {
       for (const m of state.markers) {
-        if (!m.outcome) out.push(m);
+        // 손 사본은 뒤에 요약이 올 일이 없다 — 넣으면 시한 뒤 "요약 없음" 실패로 굳는다.
+        if (!m.outcome && !m.snapshot) out.push(m);
       }
     }
     return out;
@@ -518,6 +523,7 @@ export class InsuranceLedgerService {
     state.latestBySession.clear();
     for (const m of state.markers) {
       state.markerById.set(m.id, m);
+      if (m.snapshot) continue; // `recordCompact` 와 같은 규칙 — 손 사본은 최근 압축이 아니다
       const cur = state.latestBySession.get(m.sessionId);
       if (!cur || m.at > cur.at) state.latestBySession.set(m.sessionId, m);
     }
@@ -824,6 +830,7 @@ function sanitizeMarker(raw: CompactMarker): CompactMarker {
     mirrored: raw.mirrored === true,
     workingSet: capWorkingSet(raw.workingSet ?? emptyWorkingSet()),
   };
+  if (raw.snapshot === true) m.snapshot = true;
   if (raw.agentId) m.agentId = raw.agentId;
   if (raw.subAgentId) m.subAgentId = raw.subAgentId;
   if (raw.headHash) m.headHash = raw.headHash;
@@ -839,7 +846,29 @@ function sanitizeMarker(raw: CompactMarker): CompactMarker {
   if (Number.isFinite(raw.resumeArmedAt)) m.resumeArmedAt = raw.resumeArmedAt;
   if (Number.isFinite(raw.resumeCheckedAt)) m.resumeCheckedAt = raw.resumeCheckedAt;
   if (raw.resumeShortfall === true) m.resumeShortfall = true;
+  // §5.26 (E) — 버블 키로 선 옛 줄. 어느 탭이 받았는지 몰라 지금 실으면 "방금 압축됐다"는 거짓이다 — 창이 지난 것으로 본다.
+  //   미러는 옛 키 파일에 남아 `reconcileMirrors` 가 `mirrored` 를 내린다(형제 대화록이 섞였을 수 있다).
+  const rekeyed = legacyMarkerSessionId(m.sessionId, m.transcriptPath);
+  if (rekeyed) {
+    m.sessionId = rekeyed;
+    if (m.briefedAt === undefined) m.briefedAt = m.outcome?.at ?? m.at;
+  }
   return m;
+}
+
+const CLI_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * §5.26 (E) — 마커 키는 CLI 세션 UUID. 소유자 태그 재작성으로 버블 키가 박힌 줄이면 대화록 파일 이름(`<UUID>.jsonl`)을 돌려준다.
+ * 바꿀 것이 없으면 `null` — UUID 키(바깥 세션)와 파일 이름이 UUID 가 아닌 대화록(코덱스 rollout 등)은 건드리지 않는다.
+ */
+export function legacyMarkerSessionId(sessionId: string, transcriptPath: string): string | null {
+  if (CLI_SESSION_UUID.test(sessionId)) return null;
+  // 원장은 다른 OS 에서 쓴 경로를 들고 올 수 있다 — `path.basename` 은 자기 OS 구분자만 안다.
+  const file = (transcriptPath ?? '').split(/[\\/]/).pop() ?? '';
+  if (!/\.jsonl$/i.test(file)) return null;
+  const base = file.slice(0, -'.jsonl'.length);
+  return CLI_SESSION_UUID.test(base) ? base : null;
 }
 
 function sanitizePreimage(raw: FilePreimage): FilePreimage {

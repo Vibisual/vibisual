@@ -11,6 +11,7 @@ import {
   availableScopeLevels,
   canPreviewPreimage,
   canRestorePreimage,
+  canSnapshotFromMarker,
   filterByScope,
   findInsuranceLedger,
   formatBytes,
@@ -18,6 +19,7 @@ import {
   markerCopyState,
   markerOutcomeState,
   markerSubject,
+  markerTriggerKey,
   preimageActionKey,
   preimageFileName,
   preimageRevisions,
@@ -76,6 +78,8 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
   const [full, setFull] = useState<ProjectInsuranceLedger | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ p: FilePreimage; text: string | null } | null>(null);
+  /** 사본 뜨기가 거절된 줄(마커 id). 조용히 넘기면 눌렀는데 아무 일도 없는 버튼이 된다. */
+  const [snapshotFailedIds, setSnapshotFailedIds] = useState<ReadonlySet<string>>(() => new Set());
 
   const reload = useCallback(async (): Promise<void> => {
     if (!activeProject) return;
@@ -141,16 +145,47 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
     }
   }, [activeProject]);
 
+  /** §7.23 `[지금 사본 뜨기]` — 그 줄의 세션을 지금 금고에 뜬다. 새 줄(손 사본)이 이력 맨 위에 선다. */
+  const snapshotNow = useCallback(async (m: CompactMarker): Promise<void> => {
+    setBusyId(m.id);
+    let ok = false;
+    try {
+      const res = await fetch('/api/insurance/snapshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: m.sessionId,
+          projectName: m.projectName,
+          ...(m.subAgentId ? { subAgentId: m.subAgentId } : {}),
+        }),
+      });
+      ok = res.ok;
+      if (ok) await reload();
+    } catch {
+      ok = false;
+    } finally {
+      setSnapshotFailedIds((prev) => {
+        if (ok === !prev.has(m.id)) return prev;
+        const next = new Set(prev);
+        if (ok) next.delete(m.id); else next.add(m.id);
+        return next;
+      });
+      setBusyId(null);
+    }
+  }, [reload]);
+
   const resurrect = useCallback(async (s: ResurrectableSession, mode: 'resume' | 'fresh'): Promise<void> => {
     // 원장이 소유 버블을 기억하면 그쪽, 아니면 이 창을 연 버블에 앉힌다.
     const owner = s.agentId ?? agentId;
     if (!owner) return;
     setBusyId(s.sessionId);
     try {
+      // 제목을 함께 넘긴다 — 되살린 탭이 "Sub #N" 이 아니라 그 대화의 이름으로 선다.
+      const label = resurrectTitle(s);
       await fetch('/api/insurance/resurrect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: owner, sessionId: s.sessionId, mode }),
+        body: JSON.stringify({ agentId: owner, sessionId: s.sessionId, mode, ...(label ? { label } : {}) }),
       });
       await reload();
     } catch {
@@ -252,7 +287,15 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
             {/* ── 압축 이력 ── */}
             {tab === 'compacts' && (markers.length === 0
               ? <ScopedEmpty tab="compacts" emptyKey="panel.insurance.emptyCompacts" led={led} level={scopeLevel} scope={scope} levels={scopeLevels} onWiden={setWantedScope} />
-              : markers.map((m) => <CompactRow key={m.id} m={m} />))}
+              : markers.map((m) => (
+                <CompactRow
+                  key={m.id}
+                  m={m}
+                  busy={busyId === m.id}
+                  snapshotFailed={snapshotFailedIds.has(m.id)}
+                  onSnapshot={() => { void snapshotNow(m); }}
+                />
+              )))}
 
             {/* ── 요약이 안 실은 것 ── */}
             {tab === 'notCarried' && (ncRows.length === 0
@@ -345,6 +388,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
                     type="button"
                     disabled={busyId === s.sessionId || !(s.agentId ?? agentId)}
                     onClick={() => { void resurrect(s, 'fresh'); }}
+                    title={t('panel.insurance.freshModeTip')}
                     className="shrink-0 rounded border border-gray-700 px-2 py-0.5 text-[12px] text-gray-300 disabled:opacity-40 hover:bg-white/[0.06] pointer-coarse:min-h-8"
                   >
                     {t('panel.insurance.freshMode')}
@@ -423,11 +467,17 @@ function ScopedEmpty({
   );
 }
 
-function CompactRow({ m }: { m: CompactMarker }): React.JSX.Element {
+function CompactRow({ m, busy, snapshotFailed, onSnapshot }: {
+  m: CompactMarker;
+  busy: boolean;
+  snapshotFailed: boolean;
+  onSnapshot: () => void;
+}): React.JSX.Element {
   const { t } = useTranslation();
   const copy = markerCopyState(m);
   const state = markerOutcomeState(m);
   const subject = markerSubject(m);
+  const triggerLabel = t(markerTriggerKey(m));
   return (
     <div className="flex items-center gap-2 rounded border border-gray-700/50 bg-gray-900/40 px-3 py-2">
       <span className="min-w-0 flex-1">
@@ -437,13 +487,13 @@ function CompactRow({ m }: { m: CompactMarker }): React.JSX.Element {
             <>
               <span className="block truncate text-xs text-gray-200" title={subject}>{subject}</span>
               <span className="block truncate text-[12px] text-gray-500">
-                {formatInsuranceTime(m.at)} · {t(`panel.insurance.trigger.${m.trigger}`)}
+                {formatInsuranceTime(m.at)} · {triggerLabel}
               </span>
             </>
           )
           : (
             <span className="block truncate text-xs text-gray-200">
-              {formatInsuranceTime(m.at)} · {t(`panel.insurance.trigger.${m.trigger}`)}
+              {formatInsuranceTime(m.at)} · {triggerLabel}
             </span>
           )}
         <span className="text-[12px] text-gray-600">
@@ -459,6 +509,18 @@ function CompactRow({ m }: { m: CompactMarker }): React.JSX.Element {
       {/* 실패 사유는 **글자로** 적는다("요약 없음" · "트랜스크립트 없음"). 색으로 가르지 않는다. */}
       {state === 'failed' && (
         <Chip tone="warn">{t(`panel.insurance.failed.${m.outcome?.failed ?? 'no-summary'}`)}</Chip>
+      )}
+      {snapshotFailed && <Chip tone="mute">{t('panel.insurance.snapshotFailed')}</Chip>}
+      {canSnapshotFromMarker(m) && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onSnapshot}
+          title={t('panel.insurance.snapshotNowTip')}
+          className="shrink-0 rounded border border-gray-700 px-2 py-0.5 text-[12px] text-gray-300 disabled:opacity-40 hover:bg-white/[0.06] pointer-coarse:min-h-8"
+        >
+          {t('panel.insurance.snapshotNow')}
+        </button>
       )}
       {/* 못 읽음도 같은 색이다 — 실패와의 차이는 **무엇을 모르는가**이고, 그건 글자가 말한다. */}
       {state === 'unreadable' && <Chip tone="warn">{t('panel.insurance.unreadable')}</Chip>}
