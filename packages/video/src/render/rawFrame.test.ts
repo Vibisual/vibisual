@@ -32,6 +32,7 @@ describe('Rust raw frame conversion', () => {
     expect(getCompute().exports.video_straight_rgba_f64).toBeTypeOf('function');
   });
 
+  // 26만 화소 배열을 `toEqual` 로 깊게 비교하는 값이 커서 Windows 러너에서 기본 5초를 넘긴 회차가 있다(전수 대조는 줄이지 않는다).
   it.each(['bgra', 'rgba'] as const)('matches every channel/alpha byte pair in %s order', (order) => {
     const bytes = new Uint8Array(256 * 256 * 4);
     for (let alpha = 0; alpha < 256; alpha++) {
@@ -44,7 +45,7 @@ describe('Rust raw frame conversion', () => {
       expect(rawToStraightRgba(bytes, order, premultiplied)).toEqual(reference(bytes, order, premultiplied));
     }
     expect(bytes).toEqual(before);
-  });
+  }, 30_000);
 
   it('preserves generic number clamping, sparse values, rounding and incomplete trailing pixels', () => {
     const values = [-Infinity, -1, -0, 0, 0.1, 0.49999999999999994, 0.5, 1.5, 2.5, 127.5, 128, 254.5, 255, 256, Infinity, NaN];
