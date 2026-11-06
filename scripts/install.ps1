@@ -48,7 +48,11 @@ try {
 }
 
 Write-Host '  installing (this takes a moment and needs no answers)'
-$proc = Start-Process -FilePath $dest -ArgumentList '/S' -Wait -PassThru
+# The one-click NSIS template skips its launch step under /S unless --force-run is also given.
+# WaitForExit (not -Wait) so the script returns once the installer exits, not when the launched app does.
+$proc = Start-Process -FilePath $dest -ArgumentList '/S', '--force-run' -PassThru
+$null = $proc.Handle  # keeps ExitCode readable after the process exits
+$proc.WaitForExit()
 Remove-Item $dest -Force -ErrorAction SilentlyContinue
 
 if ($proc.ExitCode -ne 0) {

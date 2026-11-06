@@ -78,6 +78,7 @@ MAC_WORK=''
 MAC_TARGET=''
 MAC_BACKUP=''
 MAC_COMMITTED=0
+APPIMAGE_STAGE=''
 
 cleanup() {
   result=$?
@@ -96,6 +97,7 @@ cleanup() {
     hdiutil detach "$MOUNT" >/dev/null 2>&1 || hdiutil detach -force "$MOUNT" >/dev/null 2>&1 || true
   fi
   [ -z "$MAC_WORK" ] || rm -rf "$MAC_WORK"
+  [ -z "$APPIMAGE_STAGE" ] || rm -f "$APPIMAGE_STAGE"
   rm -rf "$TMP"
   exit "$result"
 }
@@ -118,6 +120,19 @@ install_macos_bundle() {
   fi
   mv "$staged" "$MAC_TARGET" || die 'could not install the new app; restoring the previous app.'
   MAC_COMMITTED=1
+}
+
+# Download next to the target and rename over it only once the file is complete,
+# so a failed or interrupted reinstall leaves the previous AppImage runnable.
+install_appimage() {
+  url="$1"
+  target="$2"
+  APPIMAGE_STAGE=$(mktemp "${target%/*}/.vibisual-download.XXXXXX")
+  download "$url" "$APPIMAGE_STAGE" || die 'the download did not finish; the existing app was left in place.'
+  [ "$(od -An -c -N4 "$APPIMAGE_STAGE" | tr -d ' ')" = '177ELF' ] || die 'the downloaded file is not an AppImage; the existing app was left in place.'
+  chmod 755 "$APPIMAGE_STAGE" || die 'could not mark the download executable; the existing app was left in place.'
+  mv -f "$APPIMAGE_STAGE" "$target" || die 'could not replace the app; the existing app was left in place.'
+  APPIMAGE_STAGE=''
 }
 
 download() {
@@ -190,8 +205,7 @@ case "$OS" in
       URL=$(asset_url ".AppImage") || die "no Linux build in ${TAG}."
       mkdir -p "${PREFIX}/bin"
       TARGET="${PREFIX}/bin/vibisual"
-      download "$URL" "$TARGET"
-      chmod +x "$TARGET"
+      install_appimage "$URL" "$TARGET"
       say ""
       say "Installed to ${TARGET}"
       case ":${PATH}:" in
