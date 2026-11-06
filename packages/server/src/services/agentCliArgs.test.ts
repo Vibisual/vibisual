@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AgentConfig } from '@vibisual/shared';
-import { DEFAULT_AGENT_CONFIG, AVAILABLE_AUTOCOMPACT_VALUES, AVAILABLE_PERMISSION_MODES, toCliPermissionMode, AVAILABLE_AGENT_TOOLS, CLI_BUILTIN_TOOLS, LEGACY_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN, supportsEffortSelection } from '@vibisual/shared';
+import { DEFAULT_AGENT_CONFIG, AVAILABLE_AUTOCOMPACT_VALUES, AVAILABLE_PERMISSION_MODES, toCliPermissionMode, AVAILABLE_AGENT_TOOLS, CLI_BUILTIN_TOOLS, LEGACY_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN, supportsEffortSelection, supportsFastMode } from '@vibisual/shared';
 
 // Fast 모드·자기 기억은 `--settings` **파일**로 나간다 — 사용자 홈(`~/.vibisual`)에 쓰지 않도록
 // `os.homedir()` 만 임시 폴더로 돌린다(다른 테스트가 실제 app-state 를 더럽혔던 선례를 반복하지 않는다).
@@ -234,6 +234,15 @@ describe('스폰 인자 — Fast 모드', () => {
   it('1M 변형은 접미사일 뿐이라 그대로 실린다', () => {
     const args = buildInteractiveClaudeArgs(cfg({ model: 'opus', modelVersion: 'claude-opus-5', fastMode: true }));
     expect(settingsBody(args)).toEqual({ fastMode: true });
+  });
+
+  it('Opus 4.8 핀은 Fast 를 싣지 않는다 — 11-30 제거 뒤엔 그 요청이 오류로 끝나고 표준으로 내려가지 않는다', () => {
+    expect(buildInteractiveClaudeArgs(cfg({ model: 'opus', modelVersion: 'claude-opus-4-8', fastMode: true }))).not.toContain('--settings');
+    expect(supportsFastMode('claude-opus-4-8')).toBe(false);
+    expect(supportsFastMode('claude-opus-4-8[1m]')).toBe(false);
+    expect(supportsFastMode('claude-opus-5-5')).toBe(true);
+    expect(supportsFastMode('claude-opus-5-5[1m]')).toBe(true);
+    expect(supportsFastMode('opus')).toBe(true);
   });
 
   it('기억과 함께 켜도 `--settings` 는 **정확히 한 번** — 두 번이면 앞엣것이 죽는다', () => {

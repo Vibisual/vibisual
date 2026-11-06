@@ -66,7 +66,9 @@ function PermissionModal({
 }): React.JSX.Element {
   const { t } = useTranslation();
   const respond = useGraphStore((s) => s.respondPermission);
-  const [denyReason, setDenyReason] = useState('');
+  // 보내지 못해 되돌아온 카드는 새로 마운트된다 — 적어 둔 거절 사유를 store 에서 다시 채운다.
+  const sendFailure = useGraphStore((s) => s.permissionSendFailures[request.requestId]);
+  const [denyReason, setDenyReason] = useState(() => useGraphStore.getState().permissionSendFailures[request.requestId]?.reason ?? '');
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<FlashKind>(null);
   const [remaining, setRemaining] = useState(() => Math.max(0, request.expiresAt - Date.now()));
@@ -85,7 +87,7 @@ function PermissionModal({
     // 플래시 애니메이션이 보이도록 살짝 대기한 뒤 서버 응답.
     await new Promise((r) => setTimeout(r, FLASH_DURATION_MS));
     const ok = await respond(request.requestId, choice, reason);
-    // 성공이면 store 가 이 모달을 제거했다. 서버가 "항상"을 못 받았으면 카드가 되돌아오므로 다시 누를 수 있게 푼다.
+    // 성공이면 store 가 이 모달을 제거했다. 보내지 못했으면 카드가 되돌아오므로 다시 누를 수 있게 푼다.
     if (!ok) {
       setBusy(false);
       setFlash(null);
@@ -311,6 +313,21 @@ function PermissionModal({
             className="mt-1 w-full rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-200 outline-none focus:border-red-500 pointer-coarse:py-2"
           />
         </div>
+
+        {sendFailure && (
+          <div role="alert" className="flex items-start gap-1.5 border-t border-red-500/30 bg-red-500/10 px-4 py-2 text-[12px] leading-relaxed text-red-200">
+            <svg className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-red-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <line x1="12" y1="8" x2="12" y2="12.5" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span>
+              {sendFailure.error === 'rejected'
+                ? t('panel.permissionPrompt.sendRejected')
+                : t('panel.permissionPrompt.sendUnconfirmed')}
+            </span>
+          </div>
+        )}
 
         {/* Footer — §5.3 #12-1-B 답 넷: [이번만 거절][항상 거절] · [항상 허용][이번만 허용] */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-700 px-4 py-3">

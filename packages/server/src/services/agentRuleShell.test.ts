@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
+import { buildAgentCardCommonGuide } from '@vibisual/shared';
 import { agentRuleShell, agentPowershellRequest, buildAgentCardCommonRules, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentSelfCompactRule, buildHarnessBuilderRules, buildOrchestraConductorRules } from '@vibisual/shared';
 
 const exec = promisify(execFile);
@@ -82,6 +83,9 @@ describe.skipIf(process.platform !== 'win32')('generated rules execute on Window
           const pending = orchestraPolls++ === 0;
           res.end(JSON.stringify({ ok: true, ...(pending ? { pending: true, timedOut: true } : {}), job: { cmdId: 'entry-command', status: pending ? 'executing' : 'completed', ...(pending ? {} : { result: '한글 구현·검증 완료' }) } })); return;
         }
+        if (req.url === '/api/agent-review') {
+          res.end(JSON.stringify({ ok: true, id: 'review-id' })); return;
+        }
         res.end(JSON.stringify({ ok: true, agent: { id: 'created-id', path: 'created-path' }, data: { id: 'edge-id' } }));
       });
     });
@@ -101,7 +105,7 @@ describe.skipIf(process.platform !== 'win32')('generated rules execute on Window
 
   it('sends card and compact IDs, Korean JSON, and survives TOKEN-name exclusion', async () => {
     const card = blocks(buildAgentCardCommonRules({ ...baseArgs, shell: 'powershell' }))[0]!;
-    await run(card.replace('<엔드포인트>', 'agent-review'), '', 'test-auth');
+    expect(JSON.parse(await run(card.replace('<엔드포인트>', 'agent-review'), '', 'test-auth'))).toEqual({ ok: true, id: 'review-id' });
     expect(JSON.parse(received.at(-1)!.body)).toEqual({ agentId: 'agent-test', subAgentId: 'sub-test' });
     const compact = blocks(buildAgentSelfCompactRule('a', 's', 'powershell'))[0]!;
     await run(compact);
@@ -127,10 +131,40 @@ describe.skipIf(process.platform !== 'win32')('generated rules execute on Window
     expect(received.at(-1)?.body).toBe('한글 요청\n$그대로 "따옴표"');
   }, SHELL_TEST_TIMEOUT_MS);
 
+  it.each(['powershell', 'posix'] as const)('%s guide sends the current identity and preserves a null sub-agent', async (shell) => {
+    if (shell === 'posix' && !existsSync(GIT_BASH)) return;
+    const guide = buildAgentCardCommonGuide(shell);
+    const language = shell === 'posix' ? 'bash' : 'powershell';
+    const block = [...guide.matchAll(new RegExp('```' + language + '\\n([\\s\\S]*?)```', 'g'))][0]![1]!;
+    const body = { agentId: 'current-agent', subAgentId: null, changes: ['한글 확인'] };
+    const templateBody = '{"agentId":"<agentId>","subAgentId":"<subAgentId>"' + (shell === 'posix' ? ', ...}' : '}');
+    const code = block.replace(templateBody, JSON.stringify(body))
+      .replace('<serverBase>', url).replace('<엔드포인트>', 'agent-review');
+    const result = shell === 'powershell' ? await run(code, '', 'test-auth')
+      : await spawn(GIT_BASH, ['--noprofile', '--norc', '-c', code],
+        { ...process.env, VIBISUAL_BASE: url, VIBISUAL_TOKEN: '', VIBISUAL_HOOK_AUTH: 'test-auth' });
+    expect(JSON.parse(result)).toEqual({ ok: true, id: 'review-id' });
+    expect(JSON.parse(received.at(-1)!.body)).toEqual(body);
+  }, SHELL_TEST_TIMEOUT_MS);
+
   it('keeps missing-auth 401 and HTTP error bodies visible', async () => {
     const code = blocks(agentPowershellRequest({ serverBase: url, endpoint: '/api/reject', body: '{}' }))[0]!;
     await expect(run(code, '', '')).rejects.toThrow(/HTTP 401/);
     await expect(run(code)).rejects.toThrow(/HTTP 409[\s\S]*ids/);
+  }, SHELL_TEST_TIMEOUT_MS);
+
+  it.skipIf(!existsSync(GIT_BASH))('Bash card returns its receipt and preserves HTTP failures instead of exiting successfully', async () => {
+    const rules = buildAgentCardCommonRules({ ...baseArgs, shell: 'posix' });
+    const template = [...rules.matchAll(/```bash\n([\s\S]*?)```/g)][0]![1]!
+      .replace('...', '"changes":["한글 왕복 확인"]');
+    const bash = (code: string, auth = 'test-auth'): Promise<string> =>
+      spawn(GIT_BASH, ['--noprofile', '--norc', '-c', code],
+        { ...process.env, VIBISUAL_BASE: url, VIBISUAL_TOKEN: '', VIBISUAL_HOOK_AUTH: auth });
+    const card = template.replace('<엔드포인트>', 'agent-review');
+    expect(JSON.parse(await bash(card))).toEqual({ ok: true, id: 'review-id' });
+    expect(JSON.parse(received.at(-1)!.body)).toEqual({ agentId: 'agent-test', subAgentId: 'sub-test', changes: ['한글 왕복 확인'] });
+    await expect(bash(card, '')).rejects.toThrow(/401[\s\S]*인증 누락/);
+    await expect(bash(template.replace('<엔드포인트>', 'reject'))).rejects.toThrow(/409[\s\S]*충돌/);
   }, SHELL_TEST_TIMEOUT_MS);
 
   it.each(['powershell', 'bash'] as const)('orchestra %s registers before dispatch and recovers the same job after pending', async (shell) => {

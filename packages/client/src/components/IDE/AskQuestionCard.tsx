@@ -1,16 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AskUserQuestionRequest, AskUserQuestionAnswer } from '@vibisual/shared';
+import type { AskUserQuestionRequest } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { compileAnswer, draftFromAnswer, emptyStepDraft, type StepDraft } from './askQuestionDraft.js';
 
 interface AskQuestionCardProps {
   request: AskUserQuestionRequest;
-}
-
-/** 한 step 의 사용자 입력 작업 상태 — 옵션 선택 set + note 텍스트. */
-interface StepDraft {
-  selected: Set<number>;
-  note: string;
 }
 
 /**
@@ -21,16 +16,21 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
   const { t } = useTranslation();
   const respond = useGraphStore((s) => s.respondAskQuestion);
   const total = request.items.length;
-  const [step, setStep] = useState(0);
-  const [drafts, setDrafts] = useState<StepDraft[]>(() =>
-    request.items.map(() => ({ selected: new Set<number>(), note: '' })),
+  // 보내지 못해 되돌아온 카드는 새로 마운트된다 — 고른 답을 store 에서 다시 채우고 [Send] 가 있는 마지막 step 을 연다.
+  const sendFailure = useGraphStore((s) => s.askQuestionSendFailures[request.requestId]);
+  const [step, setStep] = useState(() =>
+    useGraphStore.getState().askQuestionSendFailures[request.requestId] ? Math.max(0, total - 1) : 0,
   );
+  const [drafts, setDrafts] = useState<StepDraft[]>(() => {
+    const failed = useGraphStore.getState().askQuestionSendFailures[request.requestId];
+    return request.items.map((item, i) => (failed ? draftFromAnswer(item, failed.answers[i]) : emptyStepDraft()));
+  });
   const [busy, setBusy] = useState(false);
   const [remaining, setRemaining] = useState(() => Math.max(0, request.expiresAt - Date.now()));
   const noteRef = useRef<HTMLTextAreaElement>(null);
 
   const current = request.items[step];
-  const draft = drafts[step] ?? { selected: new Set<number>(), note: '' };
+  const draft = drafts[step] ?? emptyStepDraft();
 
   // Other 합성 옵션 인덱스 = 모델 옵션 다음.
   const otherIdx = current ? current.options.length : 0;
@@ -46,7 +46,7 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
   const updateDraft = (mut: (d: StepDraft) => StepDraft): void => {
     setDrafts((prev) => {
       const next = [...prev];
-      next[step] = mut(next[step] ?? { selected: new Set<number>(), note: '' });
+      next[step] = mut(next[step] ?? emptyStepDraft());
       return next;
     });
   };
@@ -92,23 +92,6 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
   const isLast = step === total - 1;
   const canAdvance = !busy && stepValid;
 
-  /** 현재 step draft → AskUserQuestionAnswer 컴파일. */
-  const compileAnswer = (s: StepDraft, item: typeof current): AskUserQuestionAnswer => {
-    if (!item) return { selectedLabels: [] };
-    const otherI = item.options.length;
-    const otherSel = s.selected.has(otherI);
-    const noteT = s.note.trim();
-    const realLabels = Array.from(s.selected)
-      .filter((i) => i !== otherI)
-      .sort((a, b) => a - b)
-      .map((i) => item.options[i]?.label)
-      .filter((l): l is string => typeof l === 'string');
-    const labels = otherSel ? [...realLabels, noteT] : realLabels;
-    const ans: AskUserQuestionAnswer = { selectedLabels: labels };
-    if (!otherSel && noteT) ans.note = noteT;
-    return ans;
-  };
-
   const goNext = (): void => {
     if (!canAdvance) return;
     setStep((s) => Math.min(total - 1, s + 1));
@@ -122,11 +105,9 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
   const submit = async (): Promise<void> => {
     if (!canAdvance) return;
     setBusy(true);
-    const answers = request.items.map((item, i) => {
-      const s = drafts[i] ?? { selected: new Set<number>(), note: '' };
-      return compileAnswer(s, item);
-    });
-    await respond(request.requestId, answers);
+    const answers = request.items.map((item, i) => compileAnswer(drafts[i] ?? emptyStepDraft(), item));
+    // 실패하면 store 가 이 카드를 답과 함께 되돌린다(새 마운트). 같은 카드가 남아 있으면 다시 누를 수 있게 푼다.
+    if (!(await respond(request.requestId, answers))) setBusy(false);
   };
 
   const seconds = Math.ceil(remaining / 1000);
@@ -301,6 +282,21 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
           />
         </div>
       </div>
+
+      {sendFailure && (
+        <div role="alert" className="flex items-start gap-1.5 border-t border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] leading-relaxed text-red-200">
+          <svg className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-red-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <line x1="12" y1="8" x2="12" y2="12.5" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span>
+            {sendFailure.error === 'rejected'
+              ? t('ide.askQuestion.sendRejected')
+              : t('ide.askQuestion.sendUnconfirmed')}
+          </span>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="flex items-center justify-between gap-2 border-t border-gray-700 bg-gray-900/40 px-3 py-2">

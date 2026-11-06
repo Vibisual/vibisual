@@ -14,6 +14,8 @@ import {
   SESSION_LOOP_COMPACT_COMMAND,
   SESSION_LOOP_CLEAR_COMMAND,
   buildAgentIntentFirstRules,
+  buildAgentCardPromptParts,
+  estimateTokens,
 } from '@vibisual/shared';
 import { CONTEXT_SOURCE_IDS } from '@vibisual/shared';
 import {
@@ -105,6 +107,30 @@ describe('scan — 매번 읽어서 만든다', () => {
 });
 
 describe('inventory — 기본값', () => {
+  it('measures compact card parts and retains separate per-card switches', () => {
+    const cardParts = buildAgentCardPromptParts({
+      agentId: 'agent-1', subAgentId: 'sub-1', serverBase: 'http://127.0.0.1:1234', serverToken: '',
+      guideDir: '/home/demo/.vibisual/rules/cards-v1/posix', // privacy-ok
+    });
+    const measured = [
+      { id: CONTEXT_SOURCE_IDS.cardCommon, text: cardParts.common },
+      { id: CONTEXT_SOURCE_IDS.cardReport, text: cardParts.report },
+      { id: CONTEXT_SOURCE_IDS.cardQuestion, text: cardParts.question },
+      { id: CONTEXT_SOURCE_IDS.cardReview, text: cardParts.review },
+    ];
+    const inventory = buildContextInventory({
+      agentId: 'agent-1', subAgentId: 'sub-1', projectKey: 'proj',
+      projectPath: projectPath(), cwd: projectPath(), parts: measured, home,
+      overrides: { projects: {}, agents: {}, sessions: { 'sub-1': { [CONTEXT_SOURCE_IDS.cardQuestion]: false } }, updatedAt: 1 },
+    });
+    for (const part of measured) {
+      const item = inventory.items.find((entry) => entry.id === part.id)!;
+      expect(item.chars).toBe(part.text.length);
+      expect(item.tokens).toBe(estimateTokens(part.text));
+      expect(item.enabled).toBe(part.id !== CONTEXT_SOURCE_IDS.cardQuestion);
+    }
+  });
+
   it('goals stay opt-in even when a saved goal contributes prompt text', () => {
     const goal = build().items.find((item) => item.id === CONTEXT_SOURCE_IDS.goal)!;
     expect(goal.tokens).toBeGreaterThan(0);
@@ -114,10 +140,14 @@ describe('inventory — 기본값', () => {
   });
 
   it('intent-first instructions request a goal block only when goal tracking is enabled', () => {
-    expect(buildAgentIntentFirstRules(false)).not.toContain('목표 창 블록');
-    expect(buildAgentIntentFirstRules(false)).not.toContain('TaskCreate');
-    expect(buildAgentIntentFirstRules(false)).toContain('이미 승인된 범위의 수정과 필요한 검증까지 수행');
-    expect(buildAgentIntentFirstRules(true)).toContain('목표 창 블록');
+    const disabled = buildAgentIntentFirstRules(false);
+    expect(disabled).not.toMatch(/목표 창|TaskCreate|TaskUpdate|create_goal|update_goal/);
+    expect(disabled).toContain('첫 말과 함께 계획을 간단히 설명');
+    expect(disabled).toContain('이미 승인된 범위의 수정과 필요한 검증까지 수행');
+    const enabled = buildAgentIntentFirstRules(true);
+    expect(enabled).toContain('목표 창 규약이 제공된 경우에만 그 블록으로 갱신');
+    expect(enabled).toContain('작업 장부 도구는 실제 제공된 경우만 사용');
+    expect(enabled).not.toContain('아래 목표 창 블록으로 계획을 세워라');
   });
 
   it('내용이 있는 조각만 기본 켜짐이고, 빈 조각은 꺼짐으로 선다', () => {

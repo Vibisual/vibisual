@@ -23,7 +23,7 @@ it.runIf(process.env.VIBISUAL_CODEX_RULE_LIVE_TEST === '1').each(['card', 'orche
     for await (const chunk of req) raw += chunk;
     try { received.push(JSON.parse(raw)); } catch { res.writeHead(400).end(); return; }
     res.setHeader('Content-Type', 'application/json');
-    res.end('{"ok":true}');
+    res.end(JSON.stringify(protocol === 'card' ? { ok: true, id: 'live-review-id' } : { ok: true }));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();

@@ -1,13 +1,9 @@
-/**
- * §5.5 #17-28 ⑧(f) — 카드 규약의 **이유**를 담은 문서를 디스크에 한 장 놓는다. 프롬프트에는 결론만 싣고 요약이 이 경로를 가리킨다.
- * **읽기를 강제하지 않는다** — 규약이 실린 271 세션 중 255(94%)가 카드를 써서, 강제하면 거의 모든 세션이 읽고 그 내용이 도구 결과로 남아 재열람된다(실측 3,408 → 3,729 토큰). 애매할 때만 여는 예비 경로다.
- * 사용자 레포가 아니라 `~/.vibisual/rules/` 에 쓴다 — 남의 저장소를 오염시키지 않는다(`mcpConfigService` 의 `~/.vibisual/mcp/` 와 같은 규율).
- */
+/** §5.5 #17-28 ⑧(f) — 실행 규칙과 선택적 근거 문서는 사용자 레포 밖에 둔다. */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { CARD_RULES_DOCUMENT } from '@vibisual/shared';
+import { AGENT_CARD_KINDS, CARD_RULES_DOCUMENT, buildAgentCardCommonGuide, buildAgentCardGuide, type AgentRuleShell } from '@vibisual/shared';
 
 import { logger } from '../logger.js';
 
@@ -18,6 +14,17 @@ function docPath(): string {
 
 /** 이번 부팅에서 이미 확인했는가(같은 내용을 스폰마다 다시 쓰지 않는다). */
 let ensured: string | undefined;
+const ensuredGuides = new Map<AgentRuleShell, string>();
+
+function writeDocument(file: string, content: string): void {
+  let current: string | null = null;
+  try {
+    current = fs.readFileSync(file, 'utf8');
+  } catch {
+    current = null;
+  }
+  if (current !== content) fs.writeFileSync(file, content, 'utf8');
+}
 
 /**
  * 문서를 최신 내용으로 맞추고 **프롬프트에 적을 절대경로**를 돌려준다.
@@ -29,13 +36,7 @@ export function ensureCardRulesDoc(): string | undefined {
   const p = docPath();
   try {
     fs.mkdirSync(path.dirname(p), { recursive: true });
-    let current: string | null = null;
-    try {
-      current = fs.readFileSync(p, 'utf8');
-    } catch {
-      current = null;
-    }
-    if (current !== CARD_RULES_DOCUMENT) fs.writeFileSync(p, CARD_RULES_DOCUMENT, 'utf8');
+    writeDocument(p, CARD_RULES_DOCUMENT);
     ensured = p.replace(/\\/g, '/');
     return ensured;
   } catch (err) {
@@ -45,7 +46,29 @@ export function ensureCardRulesDoc(): string | undefined {
   }
 }
 
-/** 테스트용 — 다음 호출이 다시 쓰도록 캐시를 버린다. */
+/** 공통과 세 종류가 모두 준비된 경우에만 경로를 반환한다. 실패하면 호출자가 전체 규약을 주입한다. */
+export function ensureAgentCardGuides(shell: AgentRuleShell): string | undefined {
+  const cached = ensuredGuides.get(shell);
+  if (cached !== undefined) return cached || undefined;
+  const dir = path.join(os.homedir(), '.vibisual', 'rules', 'cards-v1', shell);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    writeDocument(path.join(dir, 'common.md'), buildAgentCardCommonGuide(shell));
+    for (const kind of AGENT_CARD_KINDS) {
+      writeDocument(path.join(dir, `${kind}.md`), buildAgentCardGuide(kind, shell));
+    }
+    const normalized = dir.replace(/\\/g, '/');
+    ensuredGuides.set(shell, normalized);
+    return normalized;
+  } catch (err) {
+    logger.warn(`[card-guides] write failed: ${err instanceof Error ? err.message : String(err)}`);
+    ensuredGuides.set(shell, '');
+    return undefined;
+  }
+}
+
+/** 테스트용 — 다음 호출에서 디스크 내용을 다시 확인한다. */
 export function resetCardRulesDocCache(): void {
   ensured = undefined;
+  ensuredGuides.clear();
 }

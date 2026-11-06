@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentConfig, BubbleData, SubAgent } from '@vibisual/shared';
-import { agentSessionInputKey, useGraphStore, type AgentSessionInputAttachment } from './graphStore.js';
+import { agentSessionInputKey, MISSING_ATTACHMENT_ERROR, useGraphStore, type AgentSessionInputAttachment } from './graphStore.js';
 
 const agentId = 'agent-send-failure';
 const subId = 'sub-send-failure';
@@ -176,6 +176,24 @@ describe('failed sends retain the original session draft without retrying a poss
     })).toBeNull();
     expect(useGraphStore.getState().agentSessionInputs[agentSessionInputKey(agentId, null)]?.text).toBe('Original new task');
     expect(useGraphStore.getState().agentSessionInputs[key]?.text).toBe(prompt);
+  });
+
+  it('a refusal for a vanished image restores the draft and marks only that image', async () => {
+    const other: AgentSessionInputAttachment = {
+      tempId: 'other', previewUrl: 'blob:other', serverPath: '/uploads/other.png', uploading: false,
+    };
+    useGraphStore.setState({ agentSessionInputs: { [key]: { text: prompt, attachments: [image, other] } } });
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'attachments-missing', missing: ['image.png'] }), { status: 400 }));
+    const store = useGraphStore.getState();
+    const completion = store.addCommand(agentId, prompt, subId, [image.serverPath, other.serverPath]);
+    store.clearAgentSessionInput(agentId, subId);
+    expect(await completion).toBeNull();
+    expect(useGraphStore.getState().agentSessionInputs[key]).toEqual({
+      text: prompt,
+      attachments: [{ ...image, error: MISSING_ATTACHMENT_ERROR }, other],
+      sendFailure: 'attachments-missing',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it.each([{ id: 'missing-session' }, { subAgentId: subId }, {}])('does not report an incomplete receipt as accepted: %j', async (command) => {
