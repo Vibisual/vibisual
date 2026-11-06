@@ -4,11 +4,17 @@ import { IMAGE_VIEW, PREVIEW_POLICY, imageHeaderAnimated, imageHeaderOrientation
 import type { AppShellProps } from '../../apps/registry.js';
 import { useAppVisible } from '../../apps/appWindowVisibility.js';
 import { useInspectorPicker } from '../../hooks/useInspectorPicker.js';
-import { WindowControls } from '../Layout/WindowControls.js';
+import { useGraphStore, workspaceImageFileKey } from '../../stores/graphStore.js';
 import { fetchWorkspaceMediaBlob, mediaFileName } from '../../utils/workspaceMedia.js';
+import { ImageLightboxView } from '../IDE/ImageAnnotator.js';
 import { imageViewerLevels } from './imageInspect.js';
 import { pinchSpan, pinchView, type PinchPoint, type PinchStart } from './imageViewerPinch.js';
 import { planImageView, viewerFitScale } from './imageViewPlan.js';
+import type { LayerEditPicture } from './layerEditHandoff.js';
+import { useViewerQuickEdit } from './useViewerQuickEdit.js';
+import { ViewerHeader } from './ViewerHeader.js';
+import { ViewerStateCard } from './ViewerStateCard.js';
+import { ViewerZoomBar } from './ViewerZoomBar.js';
 
 /**
  * §5.13 (R-9) — Vibimage 그림 보기(높이는 호스트, §5.13 (S-7)). 바이트는 `workspaceMediaUrl` 을 `fetch` 로 — `<img src>` 는 패키지 앱(file://)에서 IPC 를 안 타 빈다.
@@ -70,35 +76,6 @@ async function probeImage(blob: Blob): Promise<{ direct: boolean; natural: Natur
   }
 }
 
-function ToolButton({
-  onClick,
-  active,
-  disabled,
-  title,
-  children,
-}: {
-  onClick: () => void;
-  active?: boolean;
-  disabled?: boolean;
-  title?: string;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      aria-pressed={active}
-      className={`rounded px-2 py-1 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-35 pointer-coarse:py-2 ${
-        active ? 'bg-amber-200/20 text-amber-100' : 'bg-white/[0.06] text-gray-300 hover:bg-white/[0.12]'
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
 function clampZoom(z: number): number {
   return Math.min(ZOOM_LIMITS.max, Math.max(ZOOM_LIMITS.min, z));
 }
@@ -114,14 +91,18 @@ function fingerPair(
 }
 
 /**
- * §5.13 (R-10) — `onEdit` makes an editable source from this picture. The viewer itself never writes anything; the
- * editor stores the source (and the picture as a blob under `.vibisual`) only when it is saved.
+ * §5.13 (R-10) — [Edit] opens the quick editor over this picture (it writes only on [Save to file]); `onLayerEdit` makes an
+ * editable source — with the quick editor's baked picture, or `null` for the file as it is. Opening the viewer writes nothing.
  */
-export function VibimageViewer({ params, onEdit }: AppShellProps & { onEdit?: () => void }): React.JSX.Element {
+export function VibimageViewer({ params, onLayerEdit }: AppShellProps & { onLayerEdit?: (picture: LayerEditPicture | null) => void }): React.JSX.Element {
   const { t } = useTranslation();
   const root = params['projectId'] ?? '';
   const file = params['file'] ?? '';
   const hosted = !!params['appWindowId'] || params['appWindowHosted'] === '1';
+  // 빠른 편집이 이 파일을 덮어쓰면(§5.5 #17-25 ④-1) 그 신호로 다시 받는다. [다시 시도]도 같은 길이다.
+  const savedAt = useGraphStore((s) => (root && file ? s.workspaceImageSavedAt[workspaceImageFileKey(root, file)] ?? 0 : 0));
+  const [attempt, setAttempt] = useState(0);
+  const { quick, open: openQuickEdit, close: closeQuickEdit } = useViewerQuickEdit(root, file);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -159,7 +140,7 @@ export function VibimageViewer({ params, onEdit }: AppShellProps & { onEdit?: ()
       if (!ctrl.signal.aborted) setSource({ kind: 'ready', blob, ...probe });
     })();
     return () => ctrl.abort();
-  }, [root, file, active]);
+  }, [root, file, active, savedAt, attempt]);
   const ready = source.kind === 'ready' ? source : null;
 
   const [stage, setStage] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
@@ -388,118 +369,132 @@ export function VibimageViewer({ params, onEdit }: AppShellProps & { onEdit?: ()
     stageWidth: stage.w, stageHeight: stage.h, naturalWidth: natural.w, naturalHeight: natural.h, scale, offsetX: offset.x, offsetY: offset.y,
   }, { projectId: root, path: file, name }, at) : null);
 
+  const shown = (preview !== null && natural !== null) || fullReady;
+  const loading = !!file && !failed && !shown && source.kind !== 'idle';
+  const canOpen = !!file && !failed;
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-gray-950 text-gray-100">
-      <header className={`${hosted ? '' : 'app-drag '}flex h-11 shrink-0 items-center gap-3 border-b border-white/10 px-3`}>
-        <span className={`${hosted ? '' : 'app-drag-label '}shrink-0 text-sm font-semibold`}>Vibimage</span>
-        <span className={`${hosted ? '' : 'app-drag-label '}min-w-0 truncate text-[12px] text-gray-400`} title={file || undefined}>
-          {name}
-          {natural ? ` · ${natural.w}×${natural.h}` : ''}
-        </span>
-        {!hosted && <div className="app-nodrag ml-auto"><WindowControls /></div>}
-      </header>
+    <div className="flex h-full min-h-0 flex-col bg-vb-window text-slate-200">
+      <ViewerHeader
+        hosted={hosted}
+        name={name}
+        path={file}
+        size={natural}
+        onEdit={canOpen ? openQuickEdit : undefined}
+        editBusy={quick.kind === 'opening'}
+        onLayerEdit={canOpen && onLayerEdit ? () => onLayerEdit(null) : undefined}
+      />
 
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-white/10 px-3 py-2">
-        <ToolButton disabled={!natural} active={zoom === null} onClick={fit}>{t('panel.apps.vibimage.fit')}</ToolButton>
-        <ToolButton disabled={!natural} active={zoom === 1} onClick={actual}>{t('panel.apps.vibimage.actualSize')}</ToolButton>
-        <ToolButton disabled={!natural} onClick={() => zoomBy(1 / ZOOM_LIMITS.step)} title={t('panel.apps.vibimage.zoomOut')}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true">
-            <path d="M5 12h14" />
-          </svg>
-        </ToolButton>
-        <span className="min-w-[3.5rem] text-center text-[12px] tabular-nums text-gray-400">{natural ? `${percent}%` : ''}</span>
-        <ToolButton disabled={!natural} onClick={() => zoomBy(ZOOM_LIMITS.step)} title={t('panel.apps.vibimage.zoomIn')}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true">
-            <path d="M5 12h14M12 5v14" />
-          </svg>
-        </ToolButton>
-        <span className="mx-1 h-4 w-px bg-white/10" />
-        <ToolButton active={backdrop === 'checker'} onClick={() => setBackdrop(backdrop === 'checker' ? 'dark' : 'checker')}>
-          {t('panel.apps.vibimage.transparency')}
-        </ToolButton>
-        {onEdit && file && !failed && (
-          <>
-            <span className="mx-1 h-4 w-px bg-white/10" />
-            <ToolButton onClick={onEdit}>{t('panel.fileEdit.edit')}</ToolButton>
-          </>
-        )}
-      </div>
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={stageRef}
+          className={`absolute inset-0 touch-none select-none overflow-hidden ${
+            backdrop === 'checker'
+              ? 'bg-[conic-gradient(#26262b_25%,#1b1b1f_0_50%,#26262b_0_75%,#1b1b1f_0)] bg-[length:16px_16px]'
+              : 'bg-vb-window'
+          } ${natural ? 'cursor-grab active:cursor-grabbing' : ''}`}
+          onWheel={onWheel}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onLostPointerCapture={endDrag}
+          onDoubleClick={fit}
+          aria-label={t('panel.apps.vibimage.viewport')}
+        >
+          {/* ② 임시 저화질 — 그림의 원본 크기(CSS px)로 깔고 원본과 같은 변환을 건다(원본이 뜨면 그 아래에 그대로 있다). */}
+          {preview && natural && !failed && (
+            <canvas
+              ref={previewCanvasRef}
+              role="img"
+              aria-label={name}
+              className="pointer-events-none absolute left-1/2 top-1/2 max-w-none origin-center"
+              style={{ width: `${natural.w}px`, height: `${natural.h}px`, transform }}
+            />
+          )}
 
-      <div
-        ref={stageRef}
-        className={`relative min-h-0 flex-1 touch-none select-none overflow-hidden ${
-          backdrop === 'checker'
-            ? 'bg-[conic-gradient(#26262b_25%,#1b1b1f_0_50%,#26262b_0_75%,#1b1b1f_0)] bg-[length:16px_16px]'
-            : 'bg-gray-950'
-        } ${natural ? 'cursor-grab active:cursor-grabbing' : ''}`}
-        onWheel={onWheel}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onLostPointerCapture={endDrag}
-        onDoubleClick={fit}
-        aria-label={t('panel.apps.vibimage.viewport')}
-      >
-        {/* ② 임시 저화질 — 그림의 원본 크기(CSS px)로 깔고 원본과 같은 변환을 건다(원본이 뜨면 그 아래에 그대로 있다). */}
-        {preview && natural && !failed && (
-          <canvas
-            ref={previewCanvasRef}
-            role="img"
-            aria-label={name}
-            className="pointer-events-none absolute left-1/2 top-1/2 max-w-none origin-center"
-            style={{ width: `${natural.w}px`, height: `${natural.h}px`, transform }}
-          />
-        )}
+          {/* ③ 원본 — 붙드는 동안만 있다. 다 풀리기 전에는 보이지 않는다(밑의 미리보기가 그대로 보인다). */}
+          {fullUrl && !failed && (
+            <img
+              key={fullUrl}
+              src={fullUrl}
+              alt={name}
+              draggable={false}
+              decoding="async"
+              onLoad={(e) => {
+                const img = e.currentTarget;
+                if (img.naturalWidth > 0) {
+                  const next = { w: img.naturalWidth, h: img.naturalHeight };
+                  setNatural((n) => (n && n.w === next.w && n.h === next.h ? n : next));
+                }
+                setFullReady(true);
+              }}
+              onError={() => {
+                // 미리보기가 있으면 그것으로 계속 본다 — 원본을 못 풀었다고 보던 그림을 지우지 않는다.
+                if (!preview && ready) setDisplayFailedFor(ready);
+              }}
+              className={`pointer-events-none absolute left-1/2 top-1/2 max-w-none origin-center ${fullReady && natural ? '' : 'opacity-0'}`}
+              style={{
+                transform,
+                imageRendering: scale >= 3 ? 'pixelated' : 'auto',
+              }}
+            />
+          )}
+        </div>
 
-        {/* ③ 원본 — 붙드는 동안만 있다. 다 풀리기 전에는 보이지 않는다(밑의 미리보기가 그대로 보인다). */}
-        {fullUrl && !failed && (
-          <img
-            key={fullUrl}
-            src={fullUrl}
-            alt={name}
-            draggable={false}
-            decoding="async"
-            onLoad={(e) => {
-              const img = e.currentTarget;
-              if (img.naturalWidth > 0) {
-                const next = { w: img.naturalWidth, h: img.naturalHeight };
-                setNatural((n) => (n && n.w === next.w && n.h === next.h ? n : next));
-              }
-              setFullReady(true);
-            }}
-            onError={() => {
-              // 미리보기가 있으면 그것으로 계속 본다 — 원본을 못 풀었다고 보던 그림을 지우지 않는다.
-              if (!preview && ready) setDisplayFailedFor(ready);
-            }}
-            className={`pointer-events-none absolute left-1/2 top-1/2 max-w-none origin-center ${fullReady && natural ? '' : 'opacity-0'}`}
-            style={{
-              transform,
-              imageRendering: scale >= 3 ? 'pixelated' : 'auto',
-            }}
-          />
+        {/* 보기 막대는 무대의 형제다 — 무대 안에 두면 단추 누름이 끌기로 잡히고 휠이 배율을 바꾼다. */}
+        {canOpen && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-3 box-narrow:bottom-2 box-narrow:px-2">
+            <ViewerZoomBar
+              ready={natural !== null}
+              percent={percent}
+              fitted={zoom === null}
+              actualSize={zoom === 1}
+              checker={backdrop === 'checker'}
+              onZoomOut={() => zoomBy(1 / ZOOM_LIMITS.step)}
+              onZoomIn={() => zoomBy(ZOOM_LIMITS.step)}
+              onFit={fit}
+              onActualSize={actual}
+              onToggleChecker={() => setBackdrop(backdrop === 'checker' ? 'dark' : 'checker')}
+            />
+          </div>
         )}
 
-        {/* 낮은 창에서 안내 카드가 무대보다 크면 위가 잘리지 않게 — 가운데 맞춤은 m-auto 로(넘치면 위부터) 하고 이 칸이 스크롤한다. */}
+        {loading && <ViewerStateCard kind="loading" />}
         {(!file || failed) && (
-          <div className="absolute inset-0 flex overflow-auto p-6 box-narrow:p-3">
-            <div className="m-auto max-w-sm rounded-lg border border-white/10 bg-gray-900/95 p-5 text-center">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-3 h-6 w-6 text-amber-200/70" aria-hidden="true">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <circle cx="9" cy="9" r="2" />
-                <path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" />
+          <ViewerStateCard kind={failed ? 'failed' : 'empty'} path={file} onRetry={() => setAttempt((n) => n + 1)} />
+        )}
+
+        {quick.kind === 'failed' && (
+          <div role="alert" className="absolute left-1/2 top-3 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-950/90 py-1.5 pl-3 pr-1.5 text-[12px] text-rose-100 shadow-lg">
+            <span className="min-w-0 truncate">{t('ide.imageAnnotate.edit.failed')}</span>
+            <button
+              type="button"
+              onClick={closeQuickEdit}
+              aria-label={t('common.close')}
+              title={t('common.close')}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-rose-200 transition-colors hover:bg-white/10 pointer-coarse:h-8 pointer-coarse:w-8"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true">
+                <path d="M18 6 6 18M6 6l12 12" />
               </svg>
-              <p className="mb-2 text-sm font-medium">
-                {failed ? t('panel.apps.vibimage.loadFailed') : t('panel.apps.vibimage.empty')}
-              </p>
-              {/* 못 읽은 그림의 경로는 끊을 자리가 없는 긴 낱말이다 — 넘칠 때만 아무 데서나 끊는다(안내 문장은 낱말 그대로). */}
-              <p className="text-[12px] leading-relaxed text-gray-400 wrap-anywhere">
-                {failed ? (file || '') : t('panel.apps.vibimage.emptyHint')}
-              </p>
-            </div>
+            </button>
           </div>
         )}
       </div>
+
+      {/* §5.5 #17-25 — [편집] 은 IDE 와 같은 빠른 편집이다. 그 안의 [레이어 편집] 은 구운 그림(편집이 없으면 원본 파일)을 이 창의 레이어 편집으로 넘긴다. */}
+      {quick.kind === 'open' && (
+        <ImageLightboxView
+          key={quick.state.url}
+          state={quick.state}
+          agentId=""
+          activeSessionId={null}
+          canAttach={false}
+          onClose={closeQuickEdit}
+          onOpenLayers={onLayerEdit ? (png, edited) => onLayerEdit(edited ? { blob: png, name, original: file } : null) : undefined}
+        />
+      )}
     </div>
   );
 }

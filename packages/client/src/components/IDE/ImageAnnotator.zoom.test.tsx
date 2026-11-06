@@ -2,11 +2,16 @@ import type { ComponentProps } from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ImageLightboxView } from './ImageAnnotator.js';
+import { ImagePixelWorkerEngine } from './imagePixelWorkerEngine.js';
+import type { ImagePixelMessage, ImagePixelReply } from './imagePixelWorkerProtocol.js';
 
 const graph = vi.hoisted(() => ({
   agents: [], updateAgentSessionInputAttachments: vi.fn(), markWorkspaceImageSaved: vi.fn(),
 }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('react-i18next', () => {
+  const t = (key: string): string => key;
+  return { useTranslation: () => ({ t }) };
+});
 vi.mock('../../stores/graphStore.js', () => ({
   useGraphStore: (selector: (state: typeof graph) => unknown) => selector(graph),
   agentSessionInputKey: (agent: string, session: string | null) => `${agent}:${session}`,
@@ -121,6 +126,7 @@ function mount(overrides: Partial<Props> = {}, load = true): Props {
         if (classes.includes('overscroll-contain')) return viewport;
         if (classes.includes('relative m-auto shrink-0')) return surface;
         if (element.type === 'img') return raster;
+        if (element.type === 'canvas') return canvas;
         if (element.type === 'svg' && attrs.onPointerDown) return overlay;
         return null;
       },
@@ -212,6 +218,104 @@ describe('ImageLightboxView outside clicks', () => {
       mouse(target, 'onClick');
     }
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('ImageLightboxView Rust worker editing', () => {
+  function setupPixels(withTransparency = false) {
+    const workers: TestPixelWorker[] = [];
+    class TestPixelWorker {
+      onmessage: ((event: MessageEvent<ImagePixelReply>) => void) | null = null;
+      onerror = null;
+      onmessageerror = null;
+      sent: ImagePixelMessage[] = [];
+      engine = new ImagePixelWorkerEngine();
+      terminate = vi.fn();
+      constructor() { workers.push(this); }
+      postMessage(message: ImagePixelMessage, transfer: Transferable[]) {
+        this.sent.push(structuredClone(message, { transfer: transfer as ArrayBuffer[] }));
+      }
+      finish(index: number) { this.onmessage?.({ data: this.engine.run(this.sent[index]!) } as MessageEvent<ImagePixelReply>); }
+    }
+    vi.stubGlobal('Worker', TestPixelWorker);
+    vi.stubGlobal('HTMLCanvasElement', class { static [Symbol.hasInstance](value: unknown) { return value === canvas; } });
+    vi.stubGlobal('Image', class { src = ''; naturalWidth = 2; naturalHeight = 2; async decode() {} });
+    vi.stubGlobal('ImageData', class {
+      constructor(readonly data: Uint8ClampedArray, readonly width: number, readonly height: number) {}
+    });
+    Object.assign(browser, { requestAnimationFrame: (callback: () => void) => { callback(); return 1; }, cancelAnimationFrame: vi.fn() });
+    const source = new Uint8ClampedArray([255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255]);
+    if (withTransparency) source[15] = 128;
+    const putImageData = vi.fn();
+    Object.assign(context, { getImageData: () => ({ data: source.slice() }), putImageData });
+    const props = mount({}, false);
+    raster.naturalWidth = 2; raster.naturalHeight = 2;
+    act(() => rasterView().props.onLoad({ currentTarget: raster }));
+    click('tool.alpha');
+    const options = () => view!.root.findAll(node => typeof node.props.onTolerance === 'function')[0]!;
+    return { workers, putImageData, props, options };
+  }
+
+  it('ignores old slider results, applies the exact preview pixels and preserves one-step undo', async () => {
+    const test = setupPixels();
+    const worker = test.workers[0]!;
+    await act(async () => { worker.finish(0); }); // transparency
+    act(() => test.options().props.onAuto());
+    expect(worker.sent[1]?.job.kind).toBe('key');
+    act(() => test.options().props.onTolerance(20));
+    act(() => test.options().props.onTolerance(30));
+    await act(async () => { worker.finish(1); });
+    expect(test.putImageData).not.toHaveBeenCalled();
+    expect(worker.sent).toHaveLength(3);
+    await act(async () => { worker.finish(2); });
+    expect(test.putImageData).toHaveBeenCalledTimes(1);
+    const preview = test.putImageData.mock.calls[0]![0].data as Uint8ClampedArray;
+    expect([...preview.filter((_, i) => i % 4 === 3)]).toEqual([0, 0, 255, 255]);
+    await act(async () => { test.options().props.onApply(); });
+    expect(worker.sent[3]?.job.kind).toBe('key');
+    await act(async () => { worker.finish(3); });
+    expect(test.putImageData.mock.calls[1]![0].data).toEqual(preview);
+    expect(rasterView().props.src).not.toBe('blob:original');
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    click('undo');
+    expect(rasterView().props.src).toBe('blob:original');
+  });
+
+  it('terminates a pending preview on close and never paints its late result', async () => {
+    const test = setupPixels(), worker = test.workers[0]!;
+    await act(async () => { worker.finish(0); });
+    act(() => test.options().props.onAuto());
+    await act(async () => { view!.unmount(); view = undefined; });
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    await act(async () => { worker.finish(1); });
+    expect(test.putImageData).not.toHaveBeenCalled();
+  });
+
+  it('fills partial alpha in the worker and retains the original image for undo', async () => {
+    const test = setupPixels(true), worker = test.workers[0]!;
+    await act(async () => { worker.finish(0); });
+    act(() => test.options().props.onMode('fill'));
+    await act(async () => { test.options().props.onApply(); });
+    expect(worker.sent[1]?.job.kind).toBe('transparent');
+    await act(async () => { worker.finish(1); });
+    expect(worker.sent[2]?.job.kind).toBe('fill');
+    await act(async () => { worker.finish(2); });
+    const result = test.putImageData.mock.calls[0]![0].data as Uint8ClampedArray;
+    expect([...result.slice(12)]).toEqual([127, 127, 127, 255]);
+    click('undo'); expect(rasterView().props.src).toBe('blob:original');
+  });
+
+  it('discards an in-progress apply when the source changes without reporting an error on the new image', async () => {
+    const test = setupPixels(), worker = test.workers[0]!;
+    await act(async () => { worker.finish(0); });
+    act(() => test.options().props.onAuto());
+    await act(async () => { worker.finish(1); });
+    await act(async () => { test.options().props.onApply(); });
+    await act(async () => { view!.update(<ImageLightboxView {...test.props} state={{ ...test.props.state, url: 'blob:replacement' }} />); });
+    await act(async () => { worker.finish(2); });
+    expect(rasterView().props.src).toBe('blob:replacement');
+    expect(test.options().props.notice).toBeNull();
+    expect(test.putImageData).toHaveBeenCalledTimes(1);
   });
 });
 

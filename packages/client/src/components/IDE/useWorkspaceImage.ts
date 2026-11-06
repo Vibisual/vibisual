@@ -20,6 +20,24 @@ export interface WorkspaceImageResult {
   mtimeMs?: number;
 }
 
+/** 그 그림의 바이트와 저장 기준(수정 시각·판)을 한 번에 — 덮어쓰기(#17-25 ④-1)는 이 둘을 되돌려 보내 그 사이 변경을 가른다. */
+export async function readWorkspaceImage(
+  root: string,
+  relPath: string,
+  signal?: AbortSignal,
+): Promise<{ blob: Blob; revision?: string; mtimeMs?: number }> {
+  // ⑥ — 이 창의 루트 밖 파일 탭은 열쇠가 절대경로다(캔버스 파일 버블에서 열었다). 그 파일의 폴더 + 이름으로 푼다(편집창 읽기와 같은 도우미).
+  const query = workspaceMediaQuery(root, relPath);
+  const url = `${API_BASE}/api/workspace-image?root=${encodeURIComponent(query.root)}&path=${encodeURIComponent(query.path)}`;
+  const res = await fetch(url, signal ? { signal } : undefined);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const modified = res.headers.get('X-Workspace-Mtime');
+  const mtimeMs = modified === null ? undefined : Number(modified);
+  const revision = res.headers.get('X-Workspace-Revision') ?? undefined;
+  return { blob, revision, mtimeMs: mtimeMs !== undefined && Number.isFinite(mtimeMs) ? mtimeMs : undefined };
+}
+
 export function useWorkspaceImage(
   root: string | null,
   relPath: string | null,
@@ -36,23 +54,13 @@ export function useWorkspaceImage(
     }
     let cancelled = false;
     setState({ scope, url: null, status: 'loading' });
-    // ⑥ — 이 창의 루트 밖 파일 탭은 열쇠가 절대경로다(캔버스 파일 버블에서 열었다). 그 파일의 폴더 + 이름으로 푼다(편집창 읽기와 같은 도우미).
-    const query = workspaceMediaQuery(root, relPath);
-    const url =
-      `${API_BASE}/api/workspace-image?root=${encodeURIComponent(query.root)}&path=${encodeURIComponent(query.path)}`;
     void (async () => {
       try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob = await res.blob();
+        const { blob, revision, mtimeMs } = await readWorkspaceImage(root, relPath);
         if (cancelled) return;
         const obj = URL.createObjectURL(blob);
         createdRef.current.push(obj);
-        const modified = res.headers.get('X-Workspace-Mtime');
-        const mtimeMs = modified === null ? undefined : Number(modified);
-        setState({ scope, url: obj, status: 'ready',
-          revision: res.headers.get('X-Workspace-Revision') ?? undefined,
-          mtimeMs: mtimeMs !== undefined && Number.isFinite(mtimeMs) ? mtimeMs : undefined });
+        setState({ scope, url: obj, status: 'ready', revision, mtimeMs });
       } catch {
         if (!cancelled) setState({ scope, url: null, status: 'error' });
       }

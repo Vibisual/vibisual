@@ -48,15 +48,11 @@ import {
   ALPHA_FLOOR,
   DEFAULT_TOLERANCE_PERCENT,
   TRIM_TOLERANCE,
-  applyEditOp,
   aspectRatio,
   canvasToBlob,
-  colorDistances,
-  colorKey,
   dominantCorner,
   fitAspect,
   fullBox,
-  hasTransparency,
   isCropPending,
   isFullBox,
   mimeKeepsAlpha,
@@ -66,10 +62,8 @@ import {
   pixelAt,
   readCompositePixels,
   readPixels,
-  rgbToHex,
   setCropField,
   toleranceFromPercent,
-  trimBounds,
   type CropAspect,
   type CropField,
   type CropShape,
@@ -78,6 +72,8 @@ import {
   type PixelBuffer,
   type Rgb,
 } from './imageEdit.js';
+import { applyEditOpAsync, type ImagePixelExecutor } from './imageEditAsync.js';
+import { ImagePixelWorkerClient, imagePixelAbort } from './imagePixelWorkerClient.js';
 import {
   AlphaGlyph,
   AlphaOptionsBar,
@@ -87,6 +83,7 @@ import {
   holdFocus,
   type AlphaMode,
 } from './ImageEditBars.js';
+import { ImageToolbarButton as ToolbarButton, ImageToolbarDivider as Divider } from './ImageToolbarButton.js';
 import { putWorkspaceImage } from './workspaceImageSave.js';
 import { copyImageToClipboard, resolveClipboardSurface, type ClipboardScope } from './imageClipboard.js';
 import { imageZoomAction, MAX_IMAGE_ZOOM, MIN_IMAGE_ZOOM, useImageLightboxZoom } from './useImageLightboxZoom.js';
@@ -114,6 +111,11 @@ interface ImageLightboxViewProps {
    * 넣고, 디스크에는 문서를 저장할 때만 쓴다 — 편집 전에 PNG 를 사용자 폴더에 미리 쓰지 않기 위한 자리.
    */
   onApplyImage?: (png: Blob) => Promise<void>;
+  /**
+   * ④-3 — 지금 화면을 원본 해상도 PNG 로 구워 레이어 편집기로 넘긴다(디스크에 쓰지 않는다). `edited` 가 거짓이면
+   * 받는 쪽은 원본 파일을 그대로 가져가도 된다(무손실). 없으면 단추를 그리지 않는다.
+   */
+  onOpenLayers?: (png: Blob, edited: boolean) => void;
 }
 
 /** 막대에서 고르는 도구 — 표시 도구에 ⑦ 의 편집 도구 둘을 더한다. null 은 [보기]. */
@@ -187,6 +189,7 @@ export function ImageLightboxView({
   onClose,
   zIndex,
   onApplyImage,
+  onOpenLayers,
 }: ImageLightboxViewProps): React.JSX.Element {
   const { t } = useTranslation();
   const agents = useGraphStore((s) => s.agents);
@@ -250,8 +253,13 @@ export function ImageLightboxView({
   const layerUrlsRef = useRef(new Set<string>());
   // 바탕 픽셀 캐시 — 같은 바탕이면 슬라이더를 움직일 때마다 다시 읽지 않는다.
   const pixelsRef = useRef<{ src: string; buf: PixelBuffer } | null>(null);
-  // 고른 색까지의 거리 캐시 — 오차만 바꾸면 거리는 그대로다.
-  const distRef = useRef<{ src: string; hex: string; dist: Uint8Array } | null>(null);
+  // Worker owns the current source/color-distance cache and releases it on close/base change.
+  const pixelWorkerRef = useRef<ImagePixelWorkerClient | null>(null);
+  const runPixels = useCallback<ImagePixelExecutor>((pixels, job, signal) => {
+    if (!aliveRef.current) return Promise.reject(imagePixelAbort());
+    pixelWorkerRef.current ??= new ImagePixelWorkerClient();
+    return pixelWorkerRef.current.run(pixels, job, signal);
+  }, []);
   // 창 전체 keydown 이 부를 처리 — 렌더마다 최신 상태로 다시 쓴다(아래 `keyHandlerRef.current = …`).
   const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
 
@@ -263,6 +271,8 @@ export function ImageLightboxView({
   const items = history.items;
   const badgeFloor = history.badgeFloor ?? 0;
   const baseSrc = history.base?.src ?? state.url;
+  const baseSrcRef = useRef(baseSrc);
+  baseSrcRef.current = baseSrc;
   const natural = useMemo<Size>(
     () => (history.base ? { w: history.base.w, h: history.base.h } : originalNatural),
     [history.base, originalNatural],
@@ -384,15 +394,16 @@ export function ImageLightboxView({
    */
   const renderExport = useCallback(async (mime: string): Promise<Blob | null> => {
     const frame = await currentLayerFrame(history);
-    if (!frame) return null;
+    if (!frame || !aliveRef.current || baseSrcRef.current !== baseSrc) return null;
     let out = frame;
     if (pendingOp) {
-      const res = applyEditOp(frame, pendingOp, pendingOp.kind === 'crop' ? null : readBasePixels());
+      const res = await applyEditOpAsync(frame, pendingOp, runPixels, pendingOp.kind === 'crop' ? null : readBasePixels());
+      if (!aliveRef.current || baseSrcRef.current !== baseSrc) return null;
       if (res.ok) out = res.frame;
       else if (res.reason === 'failed') return null;
     }
     return await exportAnnotatedImage(out.base, out.items, mime, out.marks);
-  }, [history, pendingOp, currentLayerFrame, readBasePixels]);
+  }, [history, pendingOp, currentLayerFrame, readBasePixels, runPixels, baseSrc]);
 
   /**
    * §5.5 #17-25 ④-2 — 클립보드 내보내기(주석 없으면 원본). 굽기를 `await` 하지 않고 약속째 넘긴다 — 쓰기가 제스처 안에서 시작돼야 한다(`imageClipboard.ts`).
@@ -445,7 +456,7 @@ export function ImageLightboxView({
   }, [setTextDraftBoth]);
 
   /**
-   * ⑦ 편집 한 번을 스택에 올린다 — 계산은 저장 직전 반영과 **같은** `applyEditOp` 이고, 결과는 PNG 겹으로
+   * ⑦ 편집 한 번을 스택에 올린다 — 계산은 저장 직전 반영과 **같은** `applyEditOpAsync` 이고, 결과는 PNG 겹으로
    * 구워 되돌리기 한 칸이 된다. 굽는 사이 스택이 움직였으면(되돌리기 등) 결과를 버린다.
    */
   const commitOp = useCallback(async (op: EditOp) => {
@@ -457,11 +468,13 @@ export function ImageLightboxView({
     const made: string[] = [];
     try {
       const frame = await currentLayerFrame(start);
+      if (!aliveRef.current || historyRef.current !== start || baseSrcRef.current !== baseSrc) return;
       if (!frame) {
         setNotice(t('ide.imageAnnotate.edit.failed'));
         return;
       }
-      const res = applyEditOp(frame, op, op.kind === 'crop' ? null : readBasePixels());
+      const res = await applyEditOpAsync(frame, op, runPixels, op.kind === 'crop' ? null : readBasePixels());
+      if (!aliveRef.current || historyRef.current !== start || baseSrcRef.current !== baseSrc) return;
       if (!res.ok) {
         setNotice(t(
           res.reason === 'noMatch'
@@ -482,7 +495,7 @@ export function ImageLightboxView({
         setNotice(t('ide.imageAnnotate.edit.failed'));
         return;
       }
-      if (!aliveRef.current || historyRef.current !== start) return;
+      if (!aliveRef.current || historyRef.current !== start || baseSrcRef.current !== baseSrc) return;
       for (const url of made) layerUrlsRef.current.add(url);
       made.length = 0;
       const nextFloor = next.badgeFloor ?? 0;
@@ -491,13 +504,13 @@ export function ImageLightboxView({
       if (op.kind === 'crop') selectTool(null);
       else setKeyDraft(null);
     } catch {
-      setNotice(t('ide.imageAnnotate.edit.failed'));
+      if (aliveRef.current && historyRef.current === start && baseSrcRef.current === baseSrc) setNotice(t('ide.imageAnnotate.edit.failed'));
     } finally {
       for (const url of made) URL.revokeObjectURL(url);
       busyRef.current = false;
-      setBusy(false);
+      if (aliveRef.current) setBusy(false);
     }
-  }, [currentLayerFrame, readBasePixels, selectTool, t]);
+  }, [currentLayerFrame, readBasePixels, runPixels, selectTool, t, baseSrc]);
 
   // ─── ⑦ 자르기 ───
 
@@ -533,17 +546,21 @@ export function ImageLightboxView({
   /** [여백 자동] — 표시까지 합친 화면 그대로에서, 귀퉁이 색 테두리를 걷은 상자를 잡는다. */
   const handleTrim = useCallback(async () => {
     if (busyRef.current || !layoutReady) return;
+    const start = historyRef.current;
     busyRef.current = true;
     setBusy(true);
     setNotice(null);
     try {
-      const frame = await currentLayerFrame(historyRef.current);
+      const frame = await currentLayerFrame(start);
+      if (!aliveRef.current || historyRef.current !== start || baseSrcRef.current !== baseSrc) return;
       const px = frame ? readCompositePixels(frame) : null;
       if (!px) {
         setNotice(t('ide.imageAnnotate.edit.failed'));
         return;
       }
-      const box = trimBounds(px, TRIM_TOLERANCE);
+      const result = await runPixels(px, { kind: 'trim', tolerance: TRIM_TOLERANCE });
+      if (!aliveRef.current || historyRef.current !== start || baseSrcRef.current !== baseSrc) return;
+      const box = result && typeof result === 'object' && 'w' in result ? result : null;
       if (!box || isFullBox(box, natural)) {
         setNotice(t('ide.imageAnnotate.crop.trimNone'));
         return;
@@ -553,12 +570,12 @@ export function ImageLightboxView({
       setCropAspect('free');
       setCropBox(box);
     } catch {
-      setNotice(t('ide.imageAnnotate.edit.failed'));
+      if (aliveRef.current && historyRef.current === start && baseSrcRef.current === baseSrc) setNotice(t('ide.imageAnnotate.edit.failed'));
     } finally {
       busyRef.current = false;
-      setBusy(false);
+      if (aliveRef.current) setBusy(false);
     }
-  }, [layoutReady, currentLayerFrame, natural, t]);
+  }, [layoutReady, currentLayerFrame, natural, runPixels, t, baseSrc]);
 
   // ─── ⑦ 알파 빼기 ───
 
@@ -799,6 +816,23 @@ export function ImageLightboxView({
     }
   }, [onApplyImage, saving, edited, pendingOp, renderExport, onClose, t]);
 
+  /** ④-3 — 적용 안 한 편집까지 구워 넘기고 닫는다. 넘긴 그림이 작업을 이어 가므로 버릴지 묻지 않는다. */
+  const handleOpenLayers = useCallback(async () => {
+    if (!onOpenLayers || saving || busyRef.current) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const blob = await renderExport('image/png');
+      if (!blob) throw new Error(t('ide.imageAnnotate.renderFailed'));
+      onOpenLayers(blob, edited || pendingOp !== null);
+      onClose();
+    } catch {
+      setError(t('ide.imageAnnotate.openLayersFailed'));
+    } finally {
+      setSaving(false);
+    }
+  }, [onOpenLayers, saving, edited, pendingOp, renderExport, onClose, t]);
+
   const handleDownload = useCallback(async () => {
     if (busyRef.current) return;
     setError(null);
@@ -837,6 +871,8 @@ export function ImageLightboxView({
     const urls = layerUrlsRef.current;
     return () => {
       aliveRef.current = false;
+      pixelWorkerRef.current?.dispose();
+      pixelWorkerRef.current = null;
       for (const url of urls) URL.revokeObjectURL(url);
       urls.clear();
     };
@@ -848,7 +884,8 @@ export function ImageLightboxView({
     setKeyDraft(null);
     setPreviewReady(false);
     pixelsRef.current = null;
-    distRef.current = null;
+    pixelWorkerRef.current?.dispose();
+    pixelWorkerRef.current = null;
   }, [baseSrc]);
 
   // [자르기]를 열면(또는 바탕이 바뀌면) 상자를 그림 전체 — 비율을 골라 두었으면 그 비율의 가장 큰 상자로.
@@ -861,8 +898,13 @@ export function ImageLightboxView({
   useEffect(() => {
     if (tool !== 'alpha' || originalTransparent !== null || history.base || !ready) return;
     const px = readBasePixels();
-    if (px) setOriginalTransparent(hasTransparency(px));
-  }, [tool, originalTransparent, history.base, ready, readBasePixels]);
+    if (!px) return;
+    const controller = new AbortController();
+    void runPixels(px, { kind: 'transparent' }, controller.signal).then((result) => {
+      if (!controller.signal.aborted && aliveRef.current) setOriginalTransparent(result === true);
+    }).catch(() => { /* A failed scan leaves the conservative unknown state intact. */ });
+    return () => controller.abort();
+  }, [tool, originalTransparent, history.base, ready, readBasePixels, runPixels]);
 
   // [색 빼기] 미리보기 — 고른 색·오차·이어진 곳만을 바꿀 때마다 바탕에 적용한 모습을 캔버스에 그린다.
   // 거리는 (바탕, 색)마다 한 번만 잰다 — 오차 슬라이더를 끄는 동안은 문턱만 다시 적용된다.
@@ -871,34 +913,29 @@ export function ImageLightboxView({
       setPreviewReady(false);
       return undefined;
     }
+    const controller = new AbortController();
+    setPreviewReady(false);
     const frame = window.requestAnimationFrame(() => {
-      const canvas = previewRef.current;
-      const ctx = canvas?.getContext('2d') ?? null;
       const px = readBasePixels();
-      if (!canvas || !ctx || !px) {
-        setPreviewReady(false);
-        return;
-      }
-      const hex = rgbToHex(keyDraft.color);
-      let cache = distRef.current;
-      if (!cache || cache.src !== baseSrc || cache.hex !== hex) {
-        cache = { src: baseSrc, hex, dist: colorDistances(px, keyDraft.color) };
-        distRef.current = cache;
-      }
-      const out = colorKey(px, {
-        color: keyDraft.color,
-        tolerance: toleranceFromPercent(tolerancePct),
-        contiguous,
-        seeds: keyDraft.seeds,
-        distances: cache.dist,
+      if (!px) return;
+      void runPixels(px, { kind: 'key', options: {
+        color: keyDraft.color, tolerance: toleranceFromPercent(tolerancePct),
+        contiguous, seeds: keyDraft.seeds,
+      } }, controller.signal).then((out) => {
+        if (controller.signal.aborted || !aliveRef.current || !out || typeof out !== 'object' || !('buffer' in out)) return;
+        const canvas = previewRef.current;
+        const ctx = canvas?.getContext('2d');
+        if (!canvas || !ctx) return;
+        if (canvas.width !== px.width) canvas.width = px.width;
+        if (canvas.height !== px.height) canvas.height = px.height;
+        ctx.putImageData(new ImageData(out.buffer.data, px.width, px.height), 0, 0);
+        setPreviewReady(true);
+      }).catch((error: unknown) => {
+        if (!controller.signal.aborted && aliveRef.current) setNotice(t('ide.imageAnnotate.edit.failed'));
       });
-      if (canvas.width !== px.width) canvas.width = px.width;
-      if (canvas.height !== px.height) canvas.height = px.height;
-      ctx.putImageData(new ImageData(out.buffer.data, px.width, px.height), 0, 0);
-      setPreviewReady(true);
     });
-    return () => window.cancelAnimationFrame(frame);
-  }, [keyPreviewOn, keyDraft, tolerancePct, contiguous, baseSrc, readBasePixels]);
+    return () => { window.cancelAnimationFrame(frame); controller.abort(); };
+  }, [keyPreviewOn, keyDraft, tolerancePct, contiguous, baseSrc, readBasePixels, runPixels, t]);
 
   // [복사됨]은 잠깐만 머문다. 다시 복사하면 타이머가 새로 잡히고, 닫히면 함께 걷힌다.
   useEffect(() => {
@@ -1165,6 +1202,24 @@ export function ImageLightboxView({
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
           )}
         </ToolbarButton>
+        {/* ④-3 다음 단계 — 글·도형을 얹는 레이어 편집기로 이 그림을 넘긴다. */}
+        {onOpenLayers && (
+          <button
+            type="button"
+            disabled={busy || saving}
+            onMouseDown={holdFocus}
+            onClick={() => void handleOpenLayers()}
+            title={t('ide.imageAnnotate.openLayersHint')}
+            className="ml-1 flex h-7 items-center gap-1.5 rounded border border-gray-700 px-2.5 text-[12px] font-semibold text-gray-200 transition-colors hover:bg-gray-800 hover:text-white disabled:cursor-not-allowed disabled:text-gray-600 pointer-coarse:h-9"
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m12 2 10 5-10 5L2 7l10-5z" />
+              <path d="m2 17 10 5 10-5" />
+              <path d="m2 12 10 5 10-5" />
+            </svg>
+            {t('panel.apps.vibimage.layerEdit')}
+          </button>
+        )}
         {onApplyImage && (
           <button
             type="button"
@@ -1447,38 +1502,6 @@ function hasTextSelection(): boolean {
   if (typeof window === 'undefined' || typeof window.getSelection !== 'function') return false;
   const sel = window.getSelection();
   return !!sel && !sel.isCollapsed && sel.toString().trim().length > 0;
-}
-
-function Divider(): React.JSX.Element {
-  return <span className="mx-0.5 h-5 w-px flex-shrink-0 bg-gray-700" />;
-}
-
-interface ToolbarButtonProps {
-  active?: boolean;
-  disabled?: boolean;
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}
-
-function ToolbarButton({ active, disabled, label, onClick, children }: ToolbarButtonProps): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      aria-pressed={active ?? false}
-      disabled={disabled ?? false}
-      // 초점을 가져가지 않는다 — 초점 받은 버튼 위의 Enter 는 그 버튼을 다시 누를 뿐이라 ⑦ 적용이 닿지 않는다.
-      onMouseDown={holdFocus}
-      onClick={onClick}
-      className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded transition-colors ${
-        active ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-      } disabled:cursor-not-allowed disabled:text-gray-700 disabled:hover:bg-transparent`}
-    >
-      {children}
-    </button>
-  );
 }
 
 /** 도구 글리프 — lucide 톤 stroke SVG (이모지 ❌). */

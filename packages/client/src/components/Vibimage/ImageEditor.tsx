@@ -6,7 +6,6 @@ import { useAppWindowCloseGuard } from '../../apps/appWindowCloseGuard.js';
 import { confirmDialog } from '../../utils/appDialog.js';
 import { shortcutLabel } from '../../utils/platform.js';
 import { fetchWorkspaceMediaBlob } from '../../utils/workspaceMedia.js';
-import { WindowControls } from '../Layout/WindowControls.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { SourceConnections } from '../Creation/SourceConnections.js';
 import { creationErrorText } from '../Creation/creationErrors.js';
@@ -25,6 +24,8 @@ import { imageLayerOrigin, updateLinkedImage } from './imageSources.js';
 import { importedImageSource } from './imageImport.js';
 import { imageLabelKey } from './imageLabels.js';
 import { latestImageCandidate } from './imagePresentation.js';
+import type { LayerEditPicture } from './layerEditHandoff.js';
+import { VibimageChromeBar } from './VibimageChromeBar.js';
 
 /** Typing in a field owns its keys (its own undo, its own delete). */
 function typingTarget(target: EventTarget | null): boolean {
@@ -46,7 +47,8 @@ function withPicture(doc: ImageDocument, image: HTMLImageElement, name: string, 
   return { doc: { ...canvas, layers: [...canvas.layers, layer] }, id: layer.id };
 }
 
-export function ImageEditor({ params, onShowPicture }: AppShellProps & { onShowPicture?: () => void }): React.JSX.Element {
+/** `picture` — 빠른 편집이 넘긴 그림(§5.5 #17-25 ④-3). 원본이 없을 때 첫 그림으로 한 번 들어가고, 있으면 `file` 대신 쓴다. */
+export function ImageEditor({ params, onShowPicture, picture }: AppShellProps & { onShowPicture?: () => void; picture?: LayerEditPicture | null }): React.JSX.Element {
   const { t } = useTranslation(); const key = (label: string): string => t(imageLabelKey(label));
   const root = params['projectId'] ?? ''; const file = params['file'] ?? '';
   const initial = useRef({ root, id: params['imageId'] ?? params['ref'] ?? '', file });
@@ -100,13 +102,17 @@ export function ImageEditor({ params, onShowPicture }: AppShellProps & { onShowP
     const next = withPicture(current.current.draft, image, name, source, original);
     current.current.change(next.doc); setSelected(next.id);
   }, []);
+  const seed = useRef(picture ?? null);
   useEffect(() => {
-    if (!initial.current.file || initial.current.id) return undefined;
+    const handed = seed.current;
+    if ((!initial.current.file && !handed) || initial.current.id) return undefined;
     let cancelled = false; setImportBusy(true);
-    void fetchWorkspaceMediaBlob(root, initial.current.file).then(async (blob) => {
+    const bytes = handed ? Promise.resolve<Blob | null>(handed.blob) : fetchWorkspaceMediaBlob(root, initial.current.file);
+    void bytes.then(async (blob) => {
       if (cancelled) return;
       if (!blob) throw new Error('image-source-unavailable');
-      await importRaster(blob, initial.current.file, initial.current.file);
+      if (handed) await importRaster(blob, handed.name, handed.original);
+      else await importRaster(blob, initial.current.file, initial.current.file);
     }).catch((failure: unknown) => { if (!cancelled) setImportError(creationErrorText(t, failure)); })
       .finally(() => { if (!cancelled) setImportBusy(false); });
     return () => { cancelled = true; };
@@ -158,15 +164,15 @@ export function ImageEditor({ params, onShowPicture }: AppShellProps & { onShowP
     else if (mod && name === 's') { event.preventDefault(); event.stopPropagation(); void state.save(); }
     else if (!mod && (event.key === 'Delete' || event.key === 'Backspace') && layer) { event.preventDefault(); remove(); }
   }}>
-    <header className={`${hosted ? '' : 'app-drag '}flex h-11 shrink-0 items-center gap-3 border-b border-white/10 px-3`}>
-      <span className={`${hosted ? '' : 'app-drag-label '}shrink-0 text-sm font-semibold`}>Vibimage</span>
-      {summary ? <span className="min-w-0 truncate text-xs text-amber-200" title={summary.label}>{key('compare')} · {summary.label}</span> : <span className="min-w-0 truncate text-xs text-gray-400">
-        {state.draft.width} × {state.draft.height} · {key(state.draft.background === 'transparent' ? 'transparent' : 'opaque')}
-        {' · '}{key(busy ? 'working' : !state.doc || state.dirty ? 'unsaved' : 'saved')}
-        {state.doc ? ` · ${t('panel.creation.revisionShort', { revision: state.doc.revision })}` : ''}
-      </span>}
-      {!hosted && <div className="app-nodrag ml-auto"><WindowControls /></div>}
-    </header>
+    <VibimageChromeBar hosted={hosted} title={state.title.trim() || null}>{(dragRegion) => <>
+      <span className={`${dragRegion ? 'app-drag-label ' : ''}min-w-0 max-w-[40%] shrink-0 truncate text-[13px] font-semibold text-slate-100`}>{state.title.trim() || 'Vibimage'}</span>
+      {summary ? <span className={`${dragRegion ? 'app-drag-label ' : ''}min-w-0 truncate text-[12px] text-amber-200`} title={summary.label}>{key('compare')} · {summary.label}</span>
+        : <span className={`${dragRegion ? 'app-drag-label ' : ''}min-w-0 truncate text-[12px] tabular-nums text-slate-400`}>
+          {state.draft.width} × {state.draft.height} · {key(state.draft.background === 'transparent' ? 'transparent' : 'opaque')}
+          {' · '}{key(busy ? 'working' : !state.doc || state.dirty ? 'unsaved' : 'saved')}
+          {state.doc ? ` · ${t('panel.creation.revisionShort', { revision: state.doc.revision })}` : ''}
+        </span>}
+    </>}</VibimageChromeBar>
     {!summary && <ImageToolbar title={state.title} onTitle={(value) => { if (!busy) state.setTitle(value); }} docs={state.docs} id={state.doc?.id ?? ''} dirty={state.dirty} busy={busy}
       canUndo={state.canUndo} canRedo={state.canRedo} onOpen={(id) => { if (id) void state.open(id); }} onNew={state.fresh}
       onSave={() => { void state.save(); }} onUndo={() => { void state.undo(); }} onRedo={() => { void state.redo(); }}
