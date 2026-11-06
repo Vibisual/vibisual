@@ -28,7 +28,7 @@ jobs:
           - windows-latest
     runs-on: ${{ matrix.os }}
     name: verify (${{ matrix.os }})
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -66,3 +66,34 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      # 앱 통째 스모크(packages/desktop/e2e) — 빌드한 앱을 새 사용자로 띄워 첫 실행 게이트 → 폴더 → 버블 → 첫 명령 →
+      # 상태 변화 → 종료 → 재실행 복원을 한 줄로 돈다. 엔진은 공식 CLI 문서 표를 따르는 가짜라 CLI 호환 계약 시험을 겸한다.
+      # 단위 시험이 못 보는 자리(실행본 해석·.cmd 스폰·훅 왕복·저장/복원)가 mac·Linux 에서 깨지는 것을 여기서만 본다.
+      - name: Build desktop app
+        run: pnpm --filter @vibisual/desktop build
+
+      - name: Install virtual display (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
+
+      - name: App smoke (fake engines)
+        shell: bash
+        env:
+          VIBISUAL_E2E_ARTIFACTS: ${{ runner.temp }}/vibisual-e2e
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a pnpm --filter @vibisual/desktop e2e
+          else
+            pnpm --filter @vibisual/desktop e2e
+          fi
+
+      # 실패한 OS 의 단계별 화면·앱 로그·가짜 엔진 호출 기록. 사람이 그 OS 를 손으로 열어 보지 않아도 원인을 고른다.
+      - name: Upload app smoke artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-smoke-${{ matrix.os }}
+          path: ${{ runner.temp }}/vibisual-e2e
+          if-no-files-found: ignore
+          retention-days: 7

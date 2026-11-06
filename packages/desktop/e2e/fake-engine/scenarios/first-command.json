@@ -1,0 +1,78 @@
+{
+  "version": "2.1.310",
+  "model": "claude-sonnet-5-5",
+  "strictFlags": true,
+  "stepDelayMs": 150,
+  "turns": [
+    {
+      "match": "e2e-first-command",
+      "steps": [
+        {
+          "text": "Writing the greeting file."
+        },
+        {
+          "tool": "Write",
+          "input": {
+            "file_path": "e2e-hello.txt",
+            "content": "hello from the fake engine\n"
+          }
+        },
+        {
+          "waitForFile": "release-first-command"
+        },
+        {
+          "tool": "Read",
+          "input": {
+            "file_path": "e2e-hello.txt"
+          }
+        },
+        {
+          "text": "Created e2e-hello.txt."
+        }
+      ],
+      "result": "Created e2e-hello.txt."
+    }
+  ],
+  "defaultTurn": {
+    "steps": [
+      {
+        "text": "Done."
+      }
+    ],
+    "result": "Done."
+  },
+  "codex": {
+    "version": "0.152.1",
+    "model": "gpt-6.1-sol",
+    "stepDelayMs": 150,
+    "turns": [
+      {
+        "match": "e2e-codex-command",
+        "steps": [
+          {
+            "text": "Adding the codex note."
+          },
+          {
+            "fileChange": {
+              "path": "e2e-codex.txt",
+              "content": "hello from the fake codex\n"
+            }
+          },
+          {
+            "waitForFile": "release-codex-command"
+          },
+          {
+            "text": "Added e2e-codex.txt."
+          }
+        ]
+      }
+    ],
+    "defaultTurn": {
+      "steps": [
+        {
+          "text": "Done."
+        }
+      ]
+    }
+  }
+}
