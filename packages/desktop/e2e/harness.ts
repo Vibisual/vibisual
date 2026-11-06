@@ -85,6 +85,8 @@ export async function launch(s: Sandbox): Promise<ElectronApplication> {
   const args = ['-r', path.join(__dirname, 'main-preload.cjs'), MAIN_ENTRY, `--user-data-dir=${s.userData}`];
   // GitHub's Linux runners have no setuid sandbox helper; the installed-app smoke passes the same switch.
   if (process.platform === 'linux') args.push('--no-sandbox');
+  // macOS: 서명 없는 앱의 키체인 읽기(safeStorage·쿠키 암호화)가 확인 창을 띄워 무인 러너에서 스플래시째 멈춘다 — 시험용 가짜 키체인.
+  if (process.platform === 'darwin') args.push('--use-mock-keychain');
   return _electron.launch({ executablePath, args, env: sandboxEnv(s) as Record<string, string>, cwd: s.root, timeout: 90_000 });
 }
 
