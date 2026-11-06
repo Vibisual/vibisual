@@ -15,6 +15,7 @@ import {
   parseLoginShellOutput,
   resolveBinary,
   resolveBinaryIn,
+  resolveBinaryWithLoginFallback,
   splitPathValue,
   type BinLocatorContext,
 } from './binLocator.js';
@@ -239,6 +240,48 @@ describe('needsLoginShellPath', () => {
 
   it('windows 는 절대 셸을 띄우지 않는다', () => {
     expect(needsLoginShellPath({ platform: 'win32', env: { PATH: 'C:\\Windows' }, home: WIN_HOME })).toBe(false);
+  });
+});
+
+describe('resolveBinaryWithLoginFallback — 공용 prefix 하나가 PATH 에 있어도 셸 전용 prefix 를 놓치지 않는다', () => {
+  const GUI_PATH = '/usr/local/bin:/usr/bin:/bin';
+  const nvmBin = (home: string): string => `${home}/.nvm/versions/node/v22.0.0/bin`;
+
+  it.each([
+    ['darwin', MAC_HOME],
+    ['linux', NIX_HOME],
+  ] as const)('%s: PATH 로 못 찾으면 로그인 셸 PATH 를 한 번 읽어 찾는다', (platform, home) => {
+    const codex = `${nvmBin(home)}/codex`;
+    const ctx = ctxFor(platform, { home, pathValue: GUI_PATH, present: [codex] });
+    expect(needsLoginShellPath(ctx)).toBe(false);
+    expect(resolveBinaryIn('codex', ctx)).toBeNull();
+    let reads = 0;
+    const read = (): string => { reads += 1; return `${nvmBin(home)}:${GUI_PATH}`; };
+    expect(resolveBinaryWithLoginFallback('codex', ctx, read)).toBe(codex);
+    expect(reads).toBe(1);
+  });
+
+  it('PATH 로 찾으면 로그인 셸을 띄우지 않는다', () => {
+    const ctx = ctxFor('darwin', { pathValue: GUI_PATH, present: ['/usr/local/bin/codex'] });
+    expect(resolveBinaryWithLoginFallback('codex', ctx, () => { throw new Error('must not read'); })).toBe('/usr/local/bin/codex');
+  });
+
+  it('이미 읽은 로그인 PATH 가 있으면 다시 읽지 않는다', () => {
+    const ctx = ctxFor('linux', { home: NIX_HOME, pathValue: GUI_PATH, loginShellPath: GUI_PATH });
+    expect(resolveBinaryWithLoginFallback('codex', ctx, () => { throw new Error('must not read'); })).toBeNull();
+  });
+
+  it('로그인 PATH 읽기가 실패하면 null 이고 알려진 위치 후보는 그대로 본다', () => {
+    const ctx = ctxFor('darwin', { pathValue: GUI_PATH });
+    expect(resolveBinaryWithLoginFallback('codex', ctx, () => null)).toBeNull();
+    const standalone = `${MAC_HOME}/.codex/bin/codex`;
+    const withExtra = ctxFor('darwin', { pathValue: GUI_PATH, present: [standalone] });
+    expect(resolveBinaryWithLoginFallback('codex', withExtra, () => null, [standalone])).toBe(standalone);
+  });
+
+  it('windows 는 못 찾아도 로그인 셸을 띄우지 않는다', () => {
+    const ctx = ctxFor('win32', { pathValue: 'C:\\Windows' });
+    expect(resolveBinaryWithLoginFallback('codex', ctx, () => { throw new Error('must not read'); })).toBeNull();
   });
 });
 

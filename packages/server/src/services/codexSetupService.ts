@@ -329,6 +329,7 @@ async function probeCodexVersion(): Promise<string | undefined> {
 /**
  * §4 (앱 전용 엔진) ④ — `GET /api/codex-installs`. Version 탭 코덱스 칸의 고르기 목록: 앱 전용(기본) · 고른 것 ·
  * PATH · 공식 독립 설치 위치, 각자 `--version` 으로 판을 확인한다(동시에). Claude 의 `getClaudeInstallsInfo` 와 같은 모양.
+ * 최신 칸이 자동 업데이트에만 기대면 스위치를 끄거나 다른 설치본을 고른 사람에겐 비므로, 같은 때 배포처 최신도 확인한다.
  */
 export async function getCodexInstallsInfo(
   deps: {
@@ -337,6 +338,7 @@ export async function getCodexInstallsInfo(
     overridePath?: () => string | null;
     managed?: () => ManagedEngineStatus | undefined;
     probe?: (binPath: string) => Promise<{ version: string | null; error?: string }>;
+    refreshLatest?: () => Promise<void>;
   } = {},
 ): Promise<CodexInstallsInfo> {
   const active = (deps.activeBin ?? getCodexBin)();
@@ -348,6 +350,8 @@ export async function getCodexInstallsInfo(
     if (version) return { version };
     return { version: null, error: r.failure === 'timeout' ? 'version check timed out' : r.failure === 'spawn' ? 'could not run' : `exit ${String(r.code)}` };
   });
+  const refreshLatest = deps.refreshLatest ?? (() => managedEngineService.refreshLatestForDisplay('codex'));
+  const latestChecked = refreshLatest().catch(() => undefined); // 목록은 최신 확인 실패와 무관하게 선다
   const installs: CodexInstall[] = await Promise.all(found.map(async (c): Promise<CodexInstall> => {
     const det = await probe(c.binPath);
     return {
@@ -359,6 +363,7 @@ export async function getCodexInstallsInfo(
       selected: !!overridePath && samePath(c.binPath, overridePath),
     };
   }));
+  await latestChecked;
   let managed: ManagedEngineStatus | undefined;
   try {
     managed = (deps.managed ?? (() => managedEngineService.status('codex')))();

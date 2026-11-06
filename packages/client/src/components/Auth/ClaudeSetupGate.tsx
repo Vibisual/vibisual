@@ -5,6 +5,7 @@ import { CLAUDE_SETUP_READY_HOLD_MS } from '@vibisual/shared';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { isSetupGateOpen, shouldSummonLogin } from './setupGateFlow.js';
+import { hasProjectFolder } from './projectFolderGateFlow.js';
 import { LanguageSwitcher } from '../Layout/LanguageSwitcher.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
 
@@ -37,6 +38,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
   /** 설치 직후 잠깐 남는 "완료" 표시 — 없으면 `needsSetup`·`forced` 가 동시에 꺼져 창이 확인 없이 사라진다. 게이트를 보고 있던 사람에게만. */
   const [justCompleted, setJustCompleted] = useState(false);
   const wasOpenRef = useRef(false);
+  const wasForcedRef = useRef(false);
   /** 인계는 한 번만 — 자동 만료와 [계속] 이 겹쳐도 로그인 창을 두 번 부르지 않게. */
   const handedOffRef = useRef(false);
 
@@ -53,8 +55,15 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
     // 확인 표시를 보여 주는 사이에 실행본이 다시 사라졌다면(재판정 실패 등) 넘길 단계가 아니다.
     if (now.claudeSetup?.phase !== 'ready') return;
     handedOffRef.current = true;
-    if (!shouldSummonLogin(now.claudeAuth)) return;
-    setLoginGate({ forced: true, dismissed: false });
+    if (shouldSummonLogin(now.claudeAuth)) {
+      setLoginGate({ forced: true, dismissed: false });
+      return;
+    }
+    // 로그인이 이미 확인됐다 — 로그인 창이 하던 다음 칸(폴더)·버블 복귀를 여기서 잇는다(`CodexSetupGate` 와 같은 결).
+    if (!hasProjectFolder({ projects: now.projects, stubProjects: now.stubProjects })) {
+      now.setProjectGate({ forced: true, dismissed: false, reason: 'onboarding' });
+    }
+    now.resumeClaudeEntry();
   }, [setLoginGate]);
 
   /** [계속] / 바깥 클릭 — 확인 시간을 기다리지 않고 곧바로 다음 단계로. */
@@ -72,27 +81,29 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
 
   // ② 준비 완료 전이 감지 — 확인 표시를 켜고, 로그인 상태를 미리 다시 물어 둔다(설치 전에
   //    캐시된 값은 실행본이 없던 시절의 'cli-missing' 이라, 그대로면 로그인 창이 안 뜬다).
+  //    이미 설치된 상태에서 새로 forced 로 열린 경우(엔진 선택)도 같은 완료다 — phase 가 안 바뀌어 전이만 보면 "계속하는 중"에 멈춘다.
+  //    판정 전(setup 없음)에는 forced 상승을 소비하지 않는다 — 판정이 ready 로 도착했을 때 인계해야 한다.
   useEffect(() => {
-    if (setup?.phase !== 'ready') return;
-    if (!wasOpenRef.current) return;
+    if (!setup?.phase) return;
+    const newlyForced = forced && !wasForcedRef.current;
+    wasForcedRef.current = forced;
+    if (setup.phase !== 'ready') return;
+    if (!wasOpenRef.current && !newlyForced) return;
     wasOpenRef.current = false;
     handedOffRef.current = false;
     setJustCompleted(true);
     void refreshAuth();
-  }, [setup?.phase, refreshAuth]);
+  }, [setup?.phase, forced, refreshAuth]);
 
   /**
-   * ③ 확인 표시 만료 → 닫고 로그인으로 인계.
-   * ⚠ deps 는 `justCompleted` 하나 — `shouldOpen` 을 달면 효과가 다시 돌며 정리가 방금 건 타이머를 지워, 게이트가 "준비 완료"에서 멈추고 뒤의 로그인 창까지 막힌다.
+   * ③ 확인 표시 만료 → 닫고 로그인으로 인계. forced 도 내린다 — 이미 설치된 경로는 `applyClaudeSetup` 이 내려 주지 않아 창이 남는다.
+   * ⚠ deps 에 열림 판정(`shouldOpen`)을 달지 않는다(`continueNow` 는 고정 참조) — 달면 효과가 다시 돌며 정리가 방금 건 타이머를 지워, 게이트가 "준비 완료"에서 멈추고 뒤의 로그인 창까지 막힌다.
    */
   useEffect(() => {
     if (!justCompleted) return;
-    const id = setTimeout(() => {
-      setJustCompleted(false);
-      handOffToLogin();
-    }, CLAUDE_SETUP_READY_HOLD_MS);
+    const id = setTimeout(continueNow, CLAUDE_SETUP_READY_HOLD_MS);
     return () => clearTimeout(id);
-  }, [justCompleted, handOffToLogin]);
+  }, [justCompleted, continueNow]);
 
   // 설치 로그 자동 스크롤 — 마지막 줄이 항상 보이게.
   useEffect(() => {

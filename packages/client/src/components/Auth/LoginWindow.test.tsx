@@ -9,13 +9,14 @@ type Exit = Parameters<Parameters<PackagedTerminalApi['onExit']>[0]>[0];
 const fixture = vi.hoisted(() => ({
   data: new Set<(value: Data) => void>(), exit: new Set<(value: Exit) => void>(),
   create: vi.fn<PackagedTerminalApi['create']>(), kill: vi.fn<PackagedTerminalApi['kill']>(),
-  refreshAuth: vi.fn(), setLoginGate: vi.fn(), setProjectGate: vi.fn(),
+  refreshAuth: vi.fn(), setLoginGate: vi.fn(), setProjectGate: vi.fn(), resumeClaudeEntry: vi.fn(),
 }));
 const state = {
   claudeAuth: { loggedIn: false, checkedAt: 1 }, loginGateDismissed: false, loginGateForced: true,
   userDefaults: { engineChoice: { kind: 'claude' } }, claudeSetup: { binPath: '/tools/claude' },
   projects: {}, stubProjects: {}, setLoginGate: fixture.setLoginGate,
   refreshClaudeAuth: fixture.refreshAuth, setProjectGate: fixture.setProjectGate,
+  resumeClaudeEntry: fixture.resumeClaudeEntry,
 };
 vi.mock('../../stores/graphStore.js', () => ({ useGraphStore: Object.assign(
   (select: (value: typeof state) => unknown) => select(state), { getState: () => state },
@@ -107,6 +108,8 @@ describe('Claude first sign-in owns its process until completion or dismissal', 
     expect(text()).toContain('panel.login.success');
     await act(async () => { await vi.advanceTimersByTimeAsync(1_200); });
     expect(fixture.setProjectGate).toHaveBeenCalledWith({ forced: true, dismissed: false, reason: 'onboarding' });
+    // 클로드 버블을 열려다 온 로그인이면 그 버블로 돌아간다(기다리는 버블이 없으면 스토어가 아무것도 안 한다).
+    expect(fixture.resumeClaudeEntry).toHaveBeenCalledTimes(1);
   });
 
   it('dismissal during creation reaps the late process without touching a new attempt', async () => {

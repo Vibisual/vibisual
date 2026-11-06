@@ -19,6 +19,7 @@ import { codexVerificationOverrides, verificationToolsAvailable, type Verificati
 import { codexWindowsSandboxConfigured, readCodexEffectiveConfigFor } from './codexConfigService.js';
 import { codexLocalTransportNetwork } from './codexLocalTransport.js';
 import { runCodexAppServerTurn, isCodexAppServerTurnRunning, stopCodexAppServerTurn, steerCodexAppServerTurn, noteCodexAppServerActivity } from './codexAppServerRunner.js';
+import { codexCreditConfigArgs, codexCreditEnv, type CodexCreditRoute } from './codexCreditRoute.js';
 import type { CommandExecutionRequirements } from '@vibisual/shared';
 
 /**
@@ -63,6 +64,8 @@ export interface CodexTurnArgs extends CodexOverrides {
   images?: string[];
   /** Agent Studio 카드/목표 프로토콜 등이 사용하는 턴별 환경변수. */
   env?: Record<string, string>;
+  /** §4 OpenAI 비즈니스 크레딧 — 이 턴의 결제 경로(`codexCreditRoute`). 없으면 기능이 꺼진 것이라 손대지 않는다. */
+  apiCredit?: CodexCreditRoute;
   /**
    * §5.25 (I) — 이 자식이 물려받을 소유자 태그. 코덱스 훅이 켜져 있으면 우리가 띄운 세션의 훅도 서버로 들어오는데,
    * 이 값이 없으면 주인 없는 세션으로 읽혀 같은 대화에 버블이 하나 더 생긴다(`VIBISUAL_OWNER_AGENT_ID` 와 같은 해법). `handler.mjs` 가 이 env 를 본문에 싣는다.
@@ -353,6 +356,8 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
     return;
   }
   if (hookTrust) execArgs.push(...hookTrust);
+  // 크레딧 경로면 사용자 정의 제공자로 덮는다 — `-c` 쌍이라 app-server 로도 그대로 넘어간다.
+  execArgs.push(...codexCreditConfigArgs(args.apiCredit));
   if (args.nativeDeveloperInstructions !== undefined) {
     runCodexAppServerTurn({
       ...args, binPath, configArgs: codexAppServerConfigArgs(execArgs),
@@ -369,7 +374,7 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
       windowsHide: true,
       cwd: args.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: augmentedEnv({
+      env: codexCreditEnv(augmentedEnv({
         ...process.env,
         ...(args.env ?? {}),
         // Keep only Vibisual auth available under Codex's default TOKEN-name exclusion.
@@ -383,7 +388,7 @@ function startCodexTurn(args: CodexTurnArgs, hookTrust?: string[]): void {
         // §5.25 (H) — 권한 다리가 승인 카드를 이 세션의 스트림 줄로 되돌리는 키.
         // §5.3 #10-2 — 엣지 다리는 같은 키로 dispatch 결과를 이 턴에 묶는다(결과를 받기 전엔 완료로 끝나지 않게).
         ...(args.permissionHook || args.toolHook || args.edgeConfig || args.verificationConfig || args.progressHook ? { VIBISUAL_SUBAGENT_ID: args.subAgentId } : {}),
-      }),
+      }), args.apiCredit, process.platform),
       // 오래 사는 자식이라 POSIX 에서 그룹 리더로 띄운다 — 안 그러면 [중지]가 손자를 남긴다.
       ...processGroupSpawnOptions(),
     });

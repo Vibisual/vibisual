@@ -9,6 +9,7 @@ import { composeCodexTurnInput } from './codexTurnInput.js';
 import { createCodexAppServerEventMapper } from './codexAppServerEvents.js';
 import { CodexAppServerRpc, CodexAppServerRpcError, rpcRecord } from './codexAppServerRpc.js';
 import { createCodexPendingCallLedger } from './codexPendingCalls.js';
+import { codexCreditEnv } from './codexCreditRoute.js';
 
 const NATIVE_TRANSPORT = {
   requestTimeoutMs: 30_000,
@@ -85,13 +86,13 @@ export function runCodexAppServerTurn(args: CodexAppServerTurnArgs, options: Cod
   try {
     child = spawn(invocation.file, invocation.args, {
       cwd: args.cwd, shell: invocation.shell, windowsHide: true, stdio: 'pipe',
-      env: augmentedEnv({ ...process.env, ...args.env,
+      env: codexCreditEnv(augmentedEnv({ ...process.env, ...args.env,
         ...(args.env?.[AGENT_CARD_ENV_TOKEN] ? { [AGENT_CARD_ENV_AUTH]: args.env[AGENT_CARD_ENV_TOKEN] } : {}),
         ...(args.ownerAgentId ? { VIBISUAL_OWNER_AGENT_ID: args.ownerAgentId } : {}),
         ...(args.ownerTermId ? { VIBISUAL_OWNER_TERM_ID: args.ownerTermId } : {}),
         ...(args.edgeConfig ? { VIBISUAL_CODEX_EDGE_IDS: JSON.stringify(args.edgeConfig.edgeIds) } : {}),
         VIBISUAL_CODEX_COMMAND_ID: args.commandId ?? '', VIBISUAL_SUBAGENT_ID: args.subAgentId,
-      }),
+      }), args.apiCredit, platform),
       ...processGroupSpawnOptions(platform),
     });
   } catch (error) { args.onDone(`Codex app-server spawn failed: ${String(error)}`, ''); return; }

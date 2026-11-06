@@ -7,6 +7,8 @@ import {
   hasProjectFolder,
   isProjectFolderBannerOpen,
   isProjectFolderGateOpen,
+  projectFolderErrorText,
+  type ProjectFolderError,
 } from './projectFolderGateFlow.js';
 import { LanguageSwitcher } from '../Layout/LanguageSwitcher.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
@@ -38,6 +40,8 @@ export function ProjectFolderGate(): React.JSX.Element | null {
   const [picking, setPicking] = useState(false);
   /** 취소했을 때의 짧은 안내. 실패가 아니라 "아직 안 골랐다" 이므로 붉게 쓰지 않는다. */
   const [cancelled, setCancelled] = useState(false);
+  /** 실제 실패(선택기 없음·등록 실패·서버 끊김) — 취소 안내로 덮으면 고칠 단서가 사라진다. */
+  const [failure, setFailure] = useState<ProjectFolderError | null>(null);
 
   const hasFolder = hasProjectFolder({ projects, stubProjects });
   const shouldOpen = isProjectFolderGateOpen({ setup, auth, engineChoice, codexSetup, codexAuth, hasFolder, forced, dismissed });
@@ -46,9 +50,14 @@ export function ProjectFolderGate(): React.JSX.Element | null {
 
   const handlePick = useCallback(() => {
     setCancelled(false);
+    setFailure(null);
     setPicking(true);
     void openProjectFolder()
-      .then((ok) => { if (!ok) setCancelled(true); })
+      .then((result) => {
+        if (result.ok) return;
+        if (result.cancelled) setCancelled(true);
+        else setFailure(result.error);
+      })
       .finally(() => setPicking(false));
   }, [openProjectFolder]);
 
@@ -105,6 +114,15 @@ export function ProjectFolderGate(): React.JSX.Element | null {
             {cancelled && (
               <div className="rounded-lg border border-gray-700 bg-gray-950/70 px-3.5 py-2.5 text-[12px] text-gray-400">
                 {t('panel.projectFolder.cancelled', { defaultValue: 'No folder was chosen yet. Choose one to continue.' })}
+              </div>
+            )}
+
+            {failure && (
+              <div role="alert" className="flex flex-col gap-1.5 rounded-lg border border-red-500/40 bg-red-500/5 px-3.5 py-2.5 text-[12px] text-red-300">
+                <span>{projectFolderErrorText(t, failure)}</span>
+                {failure.detail && (
+                  <span className="break-all font-mono text-[12px] text-red-400/80">{failure.detail}</span>
+                )}
               </div>
             )}
           </div>

@@ -5,6 +5,8 @@ import { PluginsWindow } from '../Plugins/PluginsWindow.js';
 import { RemoteAccessWindow } from '../Remote/RemoteAccessWindow.js';
 import { isPackagedDesktop } from '../../transport/index.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { alertDialog } from '../../utils/appDialog.js';
+import { projectFolderErrorText, type ProjectFolderOpenResult } from '../Auth/projectFolderGateFlow.js';
 
 
 export function FileMenu(): React.JSX.Element {
@@ -41,12 +43,20 @@ export function FileMenu(): React.JSX.Element {
   const handleOpenFolder = useCallback(async () => {
     setLoading(true);
     setOpen(false);
+    let result: ProjectFolderOpenResult;
     try {
-      await useGraphStore.getState().openProjectFolder();
+      result = await useGraphStore.getState().openProjectFolder();
     } finally {
       setLoading(false);
     }
-  }, []);
+    // 취소는 조용히 둔다. 실패를 삼키면 선택기 설치·폴더 접근처럼 고칠 수 있는 원인이 사라진다.
+    if (result.ok || result.cancelled) return;
+    const sentence = projectFolderErrorText(t, result.error);
+    await alertDialog(result.error.detail ? `${sentence}\n${result.error.detail}` : sentence, {
+      title: t('panel.fileMenu.openFolder'),
+      tone: 'danger',
+    });
+  }, [t]);
 
   // §3.7 — 클릭 자리(`app-nodrag`)는 이 메뉴 상자 하나다. 헤더가 감싸는 둘레는 제목줄로 남아 창을 끈다.
   return (

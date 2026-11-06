@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { ClaudeAuthStatus, ClaudeSetupPhase, ClaudeSetupState } from '@vibisual/shared';
-import { isSetupPending, isSetupGateOpen, shouldSummonLogin } from './setupGateFlow.js';
+import {
+  isSetupPending, isSetupGateOpen, resolveClaudeEntry, shouldSummonLogin, windowHostsSetupGates,
+} from './setupGateFlow.js';
 
 // §4 (첫 실행 설치 온보딩) — 게이트 표시/인계 판정. 화면 없이 규칙만 고정한다.
 
@@ -83,5 +85,41 @@ describe('shouldSummonLogin', () => {
 
   it('이미 로그인된 것이 확인되면 부르지 않는다 — CLI 만 다시 깐 사람', () => {
     expect(shouldSummonLogin(auth({ loggedIn: true }))).toBe(false);
+  });
+});
+
+describe('resolveClaudeEntry — 기본 엔진과 무관한 클로드 버블 진입', () => {
+  it('설치가 필요한 세 단계면 설치 창이 먼저다', () => {
+    for (const phase of ['missing', 'failed', 'installing'] as const) {
+      expect(resolveClaudeEntry({ setup: setup(phase), auth: auth({ loggedIn: true }) })).toBe('setup');
+    }
+  });
+
+  it('설치돼 있고 로그아웃이 확인되면 로그인 창이다', () => {
+    expect(resolveClaudeEntry({ setup: setup('ready'), auth: auth({ loggedIn: false }) })).toBe('login');
+  });
+
+  it('인증 판정 불명은 로그아웃이 아니라 막지 않는다', () => {
+    expect(resolveClaudeEntry({ setup: setup('ready'), auth: auth({ loggedIn: false, error: 'timeout' }) })).toBe('ide');
+    expect(resolveClaudeEntry({ setup: setup('ready'), auth: auth({ loggedIn: false, error: 'parse', staleLoggedIn: false }) })).toBe('ide');
+  });
+
+  it('설치·인증 판정 전이면 막지 않는다', () => {
+    expect(resolveClaudeEntry({ setup: null, auth: null })).toBe('ide');
+    expect(resolveClaudeEntry({ setup: setup('unknown'), auth: undefined })).toBe('ide');
+    expect(resolveClaudeEntry({ setup: setup('ready'), auth: null })).toBe('ide');
+  });
+
+  it('준비됐으면 IDE 로 바로 간다', () => {
+    expect(resolveClaudeEntry({ setup: setup('ready'), auth: auth({ loggedIn: true }) })).toBe('ide');
+  });
+});
+
+describe('windowHostsSetupGates', () => {
+  it('메인 창만 설치·로그인 창을 띄울 수 있다', () => {
+    expect(windowHostsSetupGates('')).toBe(true);
+    expect(windowHostsSetupGates('#')).toBe(true);
+    expect(windowHostsSetupGates('#overlay=1&agentId=a')).toBe(false);
+    expect(windowHostsSetupGates('#detached=1&kind=project&tabKey=p')).toBe(false);
   });
 });

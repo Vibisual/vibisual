@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import { resolveOnboardingStep } from '@vibisual/shared';
 import type { ClaudeAuthStatus, ClaudeSetupState, CodexAuthStatus, CodexSetupState, EngineChoice, OnboardingStep } from '@vibisual/shared';
 
@@ -68,4 +69,53 @@ export function isProjectFolderBannerOpen(input: ProjectFolderGateInput): boolea
  */
 export function shouldSummonProjectFolder(input: { hasFolder: boolean }): boolean {
   return !input.hasFolder;
+}
+
+/** 폴더를 못 연 까닭 — 취소와 섞이면 picker 설치·폴더 접근처럼 사용자가 고칠 수 있는 원인이 사라진다. */
+export type ProjectFolderErrorKind = 'picker-missing' | 'failed' | 'network';
+
+export interface ProjectFolderError {
+  kind: ProjectFolderErrorKind;
+  /** 서버가 준 원문(번역 대상 아님). 없으면 문장만 보인다. */
+  detail: string | null;
+}
+
+/** `/api/projects/open-folder` 결과. 열렸으면 `name`(탭 표시명) · 사용자가 대화상자를 닫았으면 `cancelled`. */
+export type ProjectFolderOpenResult =
+  | { ok: true; cancelled: false; name: string }
+  | { ok: false; cancelled: true }
+  | { ok: false; cancelled: false; error: ProjectFolderError };
+
+/**
+ * 응답 분류. 501 은 서버가 OS 폴더 선택기를 못 찾은 것(Linux 에 zenity·kdialog 없음), 그 밖의 실패는 등록·선택기 오류다.
+ * `body` 가 `undefined` 면 본문이 JSON 이 아니었다(중간 프록시의 HTML 오류 등).
+ */
+export function classifyProjectFolderResponse(status: number, body: unknown): ProjectFolderOpenResult {
+  const data = (body && typeof body === 'object' ? body : {}) as {
+    ok?: unknown; cancelled?: unknown; error?: unknown; project?: { name?: unknown }; displayName?: unknown;
+  };
+  const projectName = typeof data.project?.name === 'string' ? data.project.name : '';
+  if (data.ok === true && projectName) {
+    const shown = typeof data.displayName === 'string' && data.displayName ? data.displayName : projectName;
+    return { ok: true, cancelled: false, name: shown };
+  }
+  if (data.cancelled === true) return { ok: false, cancelled: true };
+  const detail = typeof data.error === 'string' && data.error ? data.error : (status >= 400 ? `HTTP ${status}` : null);
+  return { ok: false, cancelled: false, error: { kind: status === 501 ? 'picker-missing' : 'failed', detail } };
+}
+
+/** 화면 문장 — 폴더 게이트와 File 메뉴가 같은 말을 쓴다. */
+export function projectFolderErrorText(t: TFunction, error: ProjectFolderError): string {
+  switch (error.kind) {
+    case 'picker-missing':
+      return t('panel.projectFolder.errorPickerMissing', {
+        defaultValue: 'No folder picker is available on this computer. Install zenity or kdialog, then try again.',
+      });
+    case 'network':
+      return t('panel.projectFolder.errorNetwork', {
+        defaultValue: 'Could not reach the Vibisual server. Check that the app is still running, then try again.',
+      });
+    default:
+      return t('panel.projectFolder.errorFailed', { defaultValue: 'The folder could not be opened as a project.' });
+  }
 }

@@ -10,6 +10,7 @@ import {
   CODEX_RELEASES_LATEST_API,
   CODEX_RELEASE_TAG_PREFIX,
   MANAGED_ENGINE_DISK_HEADROOM_RATIO,
+  MANAGED_ENGINE_LATEST_DISPLAY_TTL_MS,
   MANAGED_ENGINE_LOOKUP_TIMEOUT_MS,
   MANAGED_ENGINE_META_NAME,
   MANAGED_ENGINE_RETRY_BACKOFF_MS,
@@ -148,6 +149,8 @@ interface EngineRuntime {
 
 /** 방금 읽은 배포처 정보를 다시 쓰는 시간 — 같은 확인 안에서 두 번 묻지 않게(`peekLatest` → `ensureLatest`). */
 const RELEASE_REUSE_MS = 60_000;
+/** 배포처 조회 실패 사유의 머리 — 표시용 확인이 성공하면 이 사유만 걷는다(받기·점검 실패는 남긴다). */
+const LOOKUP_FAILED_PREFIX = "release lookup failed: ";
 /** 갓 받은 실행본을 백신이 붙잡고 있을 때 옮기기 · 띄우기를 다시 해 보는 횟수와 간격. */
 const BUSY_RETRY_MAX = 5;
 const BUSY_RETRY_DELAY_MS = 600;
@@ -303,10 +306,26 @@ export class ManagedEngineService {
       return { latest: rel.version, installed: entry !== undefined || behindActive, rolledBack: entry?.rolledBack === true };
     } catch (err) {
       const r = this.rt(engine);
-      r.lastError = `release lookup failed: ${errText(err)}`;
+      r.lastError = `${LOOKUP_FAILED_PREFIX}${errText(err)}`;
       this.emit(engine);
       return { latest: r.latest, installed: false, rolledBack: false, error: r.lastError };
     }
+  }
+
+  /**
+   * Version 탭 표시용 — 배포처만 확인한다(받지 않는다). 자동 업데이트가 돌지 않는 경우(스위치 끔 · 다른 설치본 선택 ·
+   * 안 쓰는 PC)에도 최신 칸이 비지 않게 한다. `maxAgeMs` 안에 확인했으면 다시 묻지 않는다.
+   */
+  async refreshLatestForDisplay(engine: ManagedEngineId, maxAgeMs: number = MANAGED_ENGINE_LATEST_DISPLAY_TTL_MS): Promise<void> {
+    const r = this.rt(engine);
+    if (r.inflight) return;
+    if (r.checkedAt !== null && this.deps.now() - r.checkedAt < maxAgeMs) return;
+    const before = r.latest;
+    const peek = await this.peekLatest(engine);
+    if (peek.error) return; // 실패는 peekLatest 가 사유를 싣고 알렸다
+    const staleLookupError = r.lastError?.startsWith(LOOKUP_FAILED_PREFIX) === true;
+    if (staleLookupError) r.lastError = null;
+    if (r.latest !== before || staleLookupError) this.emit(engine);
   }
 
   /**

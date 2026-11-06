@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { ClaudeAuthStatus, ClaudeSetupState } from '@vibisual/shared';
 import {
+  classifyProjectFolderResponse,
   hasProjectFolder,
   isProjectFolderBannerOpen,
   isProjectFolderGateOpen,
+  projectFolderErrorText,
   shouldSummonProjectFolder,
 } from './projectFolderGateFlow.js';
 
@@ -110,5 +112,45 @@ describe('선택한 제공자로 폴더 단계를 복원한다', () => {
     expect(isProjectFolderGateOpen(state)).toBe(true);
     expect(isProjectFolderBannerOpen({ ...state, dismissed: true })).toBe(true);
     expect(isProjectFolderGateOpen({ ...state, hasFolder: true })).toBe(false);
+  });
+});
+
+describe('classifyProjectFolderResponse — 취소와 실패를 가른다', () => {
+  it('고르면 탭 표시명(같은 이름이 있으면 구분자 붙은 이름)을 준다', () => {
+    expect(classifyProjectFolderResponse(200, { ok: true, project: { name: 'app' }, displayName: 'app (2)' }))
+      .toEqual({ ok: true, cancelled: false, name: 'app (2)' });
+    expect(classifyProjectFolderResponse(200, { ok: true, project: { name: 'app' } }))
+      .toEqual({ ok: true, cancelled: false, name: 'app' });
+  });
+
+  it('대화상자를 닫은 것만 취소다', () => {
+    expect(classifyProjectFolderResponse(200, { ok: false, cancelled: true })).toEqual({ ok: false, cancelled: true });
+  });
+
+  it('선택기가 없으면(501) 서버의 설치 안내를 그대로 들고 온다', () => {
+    expect(classifyProjectFolderResponse(501, { ok: false, error: 'no folder picker available (install zenity or kdialog)' }))
+      .toEqual({ ok: false, cancelled: false, error: { kind: 'picker-missing', detail: 'no folder picker available (install zenity or kdialog)' } });
+  });
+
+  it('등록 실패(500)는 취소가 아니라 원인과 함께 실패다', () => {
+    expect(classifyProjectFolderResponse(500, { ok: false, error: 'Error: EACCES: permission denied' }))
+      .toEqual({ ok: false, cancelled: false, error: { kind: 'failed', detail: 'Error: EACCES: permission denied' } });
+  });
+
+  it('본문이 JSON 이 아니면 상태 코드라도 남긴다', () => {
+    expect(classifyProjectFolderResponse(502, undefined))
+      .toEqual({ ok: false, cancelled: false, error: { kind: 'failed', detail: 'HTTP 502' } });
+    expect(classifyProjectFolderResponse(200, { ok: true }))
+      .toEqual({ ok: false, cancelled: false, error: { kind: 'failed', detail: null } });
+  });
+});
+
+describe('projectFolderErrorText', () => {
+  const t = ((key: string) => key) as unknown as Parameters<typeof projectFolderErrorText>[0];
+
+  it('원인마다 다른 문장을 고른다', () => {
+    expect(projectFolderErrorText(t, { kind: 'picker-missing', detail: null })).toBe('panel.projectFolder.errorPickerMissing');
+    expect(projectFolderErrorText(t, { kind: 'failed', detail: 'x' })).toBe('panel.projectFolder.errorFailed');
+    expect(projectFolderErrorText(t, { kind: 'network', detail: null })).toBe('panel.projectFolder.errorNetwork');
   });
 });

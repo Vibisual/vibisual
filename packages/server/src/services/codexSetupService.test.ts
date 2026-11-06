@@ -210,12 +210,32 @@ describe('Codex install = app-managed download (§4 앱 전용 엔진)', () => {
       overridePath: () => npmBin,
       managed: () => undefined,
       probe: async (p) => (p === managedBin ? { version: '0.164.0' } : { version: null, error: 'could not run' }),
+      refreshLatest: async () => undefined,
     });
     expect(info.overridePath).toBe(npmBin);
     expect(info.installs).toEqual([
       { binPath: managedBin, source: 'managed', version: '0.164.0', active: false, selected: false },
       { binPath: npmBin, source: 'path', version: null, detectError: 'could not run', active: true, selected: true },
     ]);
+  });
+
+  it('Version 탭 최신 칸 — 배포처 확인이 끝난 뒤의 상태를 싣고, 확인이 실패해도 목록은 선다', async () => {
+    let latest: string | null = null;
+    const managedStatus = () => ({ latest } as unknown as import('@vibisual/shared').ManagedEngineStatus);
+    const base = {
+      discover: () => [],
+      activeBin: () => null,
+      overridePath: () => null,
+      managed: managedStatus,
+      probe: async () => ({ version: null }),
+    };
+    const ok = await getCodexInstallsInfo({ ...base, refreshLatest: async () => { latest = '0.170.0'; } });
+    expect(ok.managed?.latest).toBe('0.170.0');
+
+    latest = null;
+    const failed = await getCodexInstallsInfo({ ...base, refreshLatest: async () => { throw new Error('offline'); } });
+    expect(failed.installs).toEqual([]);
+    expect(failed.managed?.latest).toBeNull();
   });
 
   it.each(['win32', 'darwin', 'linux'] as const)('%s timeout reports an error and ignores the late result', async (platform) => {

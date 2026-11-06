@@ -50,6 +50,7 @@ function applyValue(target: CodexConfigLayerValues, keys: readonly string[], val
     if (a === 'model_reasoning_effort') { target.reasoningEffort = value.trim(); return true; }
     if (a === 'model_verbosity') { target.modelVerbosity = value.trim(); return true; }
     if (a === 'web_search') { target.webSearch = value.trim(); return true; }
+    if (a === 'model_provider') { target.modelProvider = value.trim(); return true; }
   }
   if (keys.length === 2 && a === 'sandbox_workspace_write' && b === 'network_access' && typeof value === 'boolean') {
     target.networkAccess = value;

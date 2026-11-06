@@ -44,3 +44,22 @@ export function isSetupGateOpen(input: {
 export function shouldSummonLogin(auth: ClaudeAuthStatus | null | undefined): boolean {
   return auth?.loggedIn !== true;
 }
+
+/** §5.25 (C) — 클로드 버블을 열 때의 갈래(`resolveCodexEntry` 의 짝). 기본 엔진과 무관하게 판정한다. */
+export type ClaudeEntryDecision = 'ide' | 'setup' | 'login';
+
+/** 판정 전(`null`·`unknown`)과 `auth.error`(모름)는 막지 않는다 — 로그아웃이 확인됐을 때만 로그인 창이다(§5.25 (E)). */
+export function resolveClaudeEntry(input: {
+  setup: ClaudeSetupState | null | undefined;
+  auth: ClaudeAuthStatus | null | undefined;
+}): ClaudeEntryDecision {
+  if (isSetupPending(input.setup ?? null)) return 'setup';
+  if (input.auth && !input.auth.loggedIn && !input.auth.error) return 'login';
+  return 'ide';
+}
+
+/** 설치·로그인 창은 메인 창(App)에만 선다 — 독립 IDE 창·별창에서 진입을 막으면 아무 창도 없이 IDE 만 안 열린다. */
+export function windowHostsSetupGates(hash: string): boolean {
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  return params.get('overlay') !== '1' && params.get('detached') !== '1';
+}

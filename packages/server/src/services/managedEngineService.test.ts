@@ -443,3 +443,46 @@ describe('받기가 오류로 끝나면 짧게 다시 한다 — 6시간을 기�
     expect(scheduled).toEqual([]);
   });
 });
+
+describe('Version 탭 최신 칸 — 자동 업데이트가 안 돌아도 최신 판을 안다', () => {
+  it('스위치를 꺼도 배포처만 확인해 최신을 싣고 알린다 — 받지 않는다', async () => {
+    const off = makeDeps({ autoUpdateEnabled: () => false });
+    const svc = new ManagedEngineService(off);
+    const changed = vi.fn();
+    svc.onChange(changed);
+    await svc.refreshLatestForDisplay('codex');
+    expect(svc.status('codex').latest).toBe('0.164.0');
+    expect(changed).toHaveBeenCalledWith('codex');
+    expect(off.download).not.toHaveBeenCalled();
+  });
+
+  it('정한 시간 안에 확인했으면 다시 묻지 않는다(GitHub 비인증 한도)', async () => {
+    let clock = 1_000_000;
+    const fetchJson = vi.fn(deps.fetchJson);
+    const svc = new ManagedEngineService(makeDeps({ fetchJson, now: () => clock }));
+    await svc.refreshLatestForDisplay('codex', 300_000);
+    clock += 299_000;
+    await svc.refreshLatestForDisplay('codex', 300_000);
+    expect(fetchJson).toHaveBeenCalledTimes(1);
+    latestCodex = '0.165.0';
+    clock += 2_000;
+    await svc.refreshLatestForDisplay('codex', 300_000);
+    expect(fetchJson).toHaveBeenCalledTimes(2);
+    expect(svc.status('codex').latest).toBe('0.165.0');
+  });
+
+  it('조회 실패는 사유로 남기고, 다음 성공이 그 사유만 걷는다', async () => {
+    let offline = true;
+    const fetchJson = vi.fn(async (url: string, headers?: Record<string, string>) => {
+      if (offline) throw new Error('getaddrinfo ENOTFOUND api.github.com');
+      return (deps.fetchJson as (u: string, h?: Record<string, string>) => Promise<unknown>)(url, headers);
+    });
+    const svc = new ManagedEngineService(makeDeps({ fetchJson }));
+    await svc.refreshLatestForDisplay('codex');
+    expect(svc.status('codex').latest).toBeNull();
+    expect(svc.status('codex').lastError).toContain('release lookup failed');
+    offline = false;
+    await svc.refreshLatestForDisplay('codex');
+    expect(svc.status('codex')).toMatchObject({ latest: '0.164.0', lastError: null });
+  });
+});

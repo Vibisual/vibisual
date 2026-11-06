@@ -6,7 +6,7 @@
  * 모르는 줄은 버린다 — 새 `item.type` 은 언제든 생기고, `text` 로 흘리면 정체 모를 원문이 쏟아진다(§2.1 "넘겨짚지 않는다"와 같은 규율).
  */
 
-import { isCodexSessionNotice, parseCodexTransportNotice } from '@vibisual/shared';
+import { fileUrlToPath, isCodexSessionNotice, parseCodexTransportNotice } from '@vibisual/shared';
 
 /** 우리 `SubAgentStreamEvent.eventType` 중 이 매퍼가 낼 수 있는 것. */
 export type CodexEventType = 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'system' | 'error' | 'result';
@@ -81,18 +81,8 @@ export function isCodexImageFile(pathOrUrl: string): boolean {
  * 퍼센트 인코딩(`%20`)은 둘 다 푼다. URL 이 아니면 그대로 돌려준다 — 표기가 바뀌어도 조용히 빈 값이 되지 않게.
  */
 export function codexImagePathFromUrl(raw: string, platform: NodeJS.Platform): string {
-  const v = typeof raw === 'string' ? raw.trim() : '';
-  if (!v) return '';
-  if (!/^file:\/\//i.test(v)) return v;
-  let body = v.slice('file://'.length);
-  try {
-    body = decodeURIComponent(body);
-  } catch {
-    // 잘못 인코딩된 값은 원문 그대로 둔다(여는 쪽이 없다고 답하는 편이 낫다).
-  }
-  // `/C:/…` → `C:/…`. 드라이브 문자가 아닌 앞 슬래시는 posix 경로의 뿌리라 손대지 않는다.
-  if (platform === 'win32' && /^\/[A-Za-z]:/.test(body)) body = body.slice(1);
-  return body;
+  // 본문 링크(`presentedFiles.ts`)와 같은 변환 한 벌.
+  return fileUrlToPath(raw, platform);
 }
 
 /** 경로의 파일 이름. 그림을 못 그리는 자리에서 이 이름이 대신 말한다. */

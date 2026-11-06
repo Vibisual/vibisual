@@ -86,6 +86,8 @@ export function LoginWindow(): React.JSX.Element | null {
       setSucceeded(false);
       setLoginGate({ forced: false });
       handOffToProjectFolder();
+      // §5.25 (C) — 클로드 버블을 열려다 이 창으로 왔으면 그 버블로 되돌아간다.
+      useGraphStore.getState().resumeClaudeEntry();
     }, 1_200);
     return () => clearTimeout(id);
   }, [succeeded, setLoginGate, handOffToProjectFolder]);

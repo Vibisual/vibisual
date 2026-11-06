@@ -251,8 +251,8 @@ export function isExecutableFileSync(candidate: string): boolean {
 }
 
 /**
- * 로그인 셸 PATH 를 읽을 필요가 있는가. PATH 에 사용자 자리(`/opt/homebrew/bin`·`/usr/local/bin`·`~/.local/bin`)가 있으면 셸에서 떴거나 프로필이 탄 것이라 필요 없다.
- * 셋 다 없으면 `launchd` 최소 PATH(= Finder/Dock 실행)일 확률이 높다.
+ * 로그인 셸 PATH 를 **미리** 읽을 필요가 있는가. 셋 다 없으면 `launchd` 최소 PATH(= Finder/Dock 실행)일 확률이 높다.
+ * 하나가 있다고 프로필이 다 실린 것은 아니다(`/usr/local/bin` 만 있고 nvm prefix 는 셸 전용) — 그 경우는 `resolveBinaryWithLoginFallback` 이 못 찾았을 때 읽는다.
  */
 export function needsLoginShellPath(ctx: Pick<BinLocatorContext, 'platform' | 'env' | 'home'>): boolean {
   if (ctx.platform !== 'darwin' && ctx.platform !== 'linux') return false;
@@ -272,18 +272,46 @@ export function parseLoginShellOutput(stdout: string): string | null {
   return null;
 }
 
+/** 로그인 셸 PATH 를 읽을 수 있는 플랫폼인가(Windows 에는 로그인 셸 프로필 개념이 없다). */
+function hasLoginShell(platform: NodeJS.Platform): boolean {
+  return platform === 'darwin' || platform === 'linux';
+}
+
+/**
+ * 찾고, 못 찾았으면 로그인 셸 PATH 를 한 번 보강해 다시 찾는다(mac·linux).
+ * `ctx.loginShellPath` 가 이미 있으면 다시 읽지 않는다. `readLoginShellPath` 는 캐시를 지켜 많아야 한 번 셸을 띄워야 한다.
+ */
+export function resolveBinaryWithLoginFallback(
+  name: string,
+  ctx: BinLocatorContext,
+  readLoginShellPath: () => string | null,
+  extraCandidates: readonly string[] = [],
+): string | null {
+  const found = resolveBinaryIn(name, ctx, extraCandidates);
+  if (found || ctx.loginShellPath || !hasLoginShell(ctx.platform)) return found;
+  const login = readLoginShellPath();
+  return login ? resolveBinaryIn(name, { ...ctx, loginShellPath: login }, extraCandidates) : null;
+}
+
 /** `undefined` = 아직 안 읽음, `null` = 읽었는데 없음/실패. 프로세스 수명 동안 1회. */
 let cachedLoginShellPath: string | null | undefined;
 
 /**
- * 사용자 로그인 셸의 PATH — **많아야 한 번** 읽는다.
+ * 사용자 로그인 셸의 PATH — 휴리스틱상 필요할 때만 미리 읽는다. 아니면 null 을 주되 캐시하지 않는다(탐색 실패 시 `readLoginShellPathOnce` 가 읽는다).
  * `-l` 이 필요하다 — Homebrew 의 `eval "$(brew shellenv)"` 는 관례상 `~/.zprofile`·`~/.bash_profile` 에 있고, 그 파일은 로그인 셸일 때만 읽힌다.
  */
 export function loginShellPath(): string | null {
   if (cachedLoginShellPath !== undefined) return cachedLoginShellPath;
-  cachedLoginShellPath = null;
   const ctx = { platform: process.platform, env: process.env, home: os.homedir() };
-  if (!needsLoginShellPath(ctx)) return cachedLoginShellPath;
+  if (!needsLoginShellPath(ctx)) return null;
+  return readLoginShellPathOnce();
+}
+
+/** 로그인 셸을 **많아야 한 번** 띄워 PATH 를 읽는다. */
+function readLoginShellPathOnce(): string | null {
+  if (cachedLoginShellPath !== undefined) return cachedLoginShellPath;
+  cachedLoginShellPath = null;
+  if (!hasLoginShell(process.platform)) return cachedLoginShellPath;
   const shell = process.env['SHELL'];
   if (!shell || !shell.startsWith('/')) return cachedLoginShellPath;
   try {
@@ -316,7 +344,7 @@ export function currentContext(): BinLocatorContext {
  * `which`/`where` 를 부르지 않는다 — 우리 프로세스의 PATH 만 봐서, PATH 가 잘린 바로 그 상황에서 똑같이 못 찾는다.
  */
 export function resolveBinary(name: string, extraCandidates: readonly string[] = []): string | null {
-  return resolveBinaryIn(name, currentContext(), extraCandidates);
+  return resolveBinaryWithLoginFallback(name, currentContext(), readLoginShellPathOnce, extraCandidates);
 }
 
 /** 자식 프로세스에 물려줄, PATH 가 보강된 env. */

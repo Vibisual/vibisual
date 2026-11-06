@@ -39,7 +39,8 @@ beforeEach(() => {
     setCodexLoginGate: vi.fn(), setProjectGate: vi.fn(),
     installCodexSetup: vi.fn(async () => undefined), refreshCodexSetup: vi.fn(async () => undefined),
     refreshCodexAuth: vi.fn(async () => useGraphStore.getState().codexAuth),
-    refreshCodexModels: vi.fn(async () => undefined), openProjectFolder: vi.fn(async () => false),
+    refreshCodexModels: vi.fn(async () => undefined),
+    openProjectFolder: vi.fn(async () => ({ ok: false as const, cancelled: true as const })),
   });
 });
 
