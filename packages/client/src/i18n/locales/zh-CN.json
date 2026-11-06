@@ -63,12 +63,14 @@
       "confirmCloseForceAllHint": "停止所有已打开项目中的代理后再关闭。"
     },
     "usage": {
-      "tooltip": "当前会话：已用 5 小时额度的 {{percent}}% — 点击查看详情",
+      "tooltip": "已用 5 小时额度的 {{percent}}% — 点击查看详情",
+      "tooltipWeekly": "已用每周额度（所有模型）的 {{percent}}%——点击查看详情",
       "tooltipNoData": "尚未收到用量数据 — 点击查看详情",
       "tooltipWaiting": "正在从 Claude Code 获取用量 — 稍后会显示数值",
       "tooltipCliUnavailable": "无法运行 Claude Code 读取用量 — 点击查看详情",
       "creditActive": "新运行使用 API 额度",
-      "creditBlocked": "Anthropic 拒绝了 API 额度——运行使用你的订阅"
+      "creditBlocked": "Anthropic 拒绝了 API 额度——运行使用你的订阅",
+      "creditBlockedOpenai": "OpenAI 拒绝了 API 额度,本次运行将使用订阅"
     },
     "setupBanner": {
       "text": "未安装 Claude Code — Agent 尚无法运行。",
@@ -131,7 +133,7 @@
     },
     "mobileAccess": {
       "title": "移动访问",
-      "subtitle": "在手机浏览器中打开 Vibisual。开启后，在手机上打开下面任意一个地址，然后输入配对码。",
+      "subtitle": "在手机浏览器中打开 Vibisual。开启访问，在手机上安装并信任连接证书，然后打开下方 HTTPS 地址并输入配对码。",
       "statusOn": "正在本地网络上监听",
       "statusOff": "关闭",
       "enable": "开启",
@@ -151,9 +153,14 @@
       "externalManual": "无法自动开放端口（路由器的 UPnP 可能已关闭）。如需手动设置，请在路由器设置中将外部 TCP 端口 {{port}} 转发到此电脑的 {{ip}}:{{port}}。",
       "externalManualUrl": "端口转发完成后，可通过以下地址从外部连接：",
       "externalReachable": "可访问 — 从外部连接地址：",
-      "externalHttpsNote": "使用自签名证书 — 手机首次访问时会显示安全警告。点击“高级 → 继续”即可继续，连接依然是加密的。",
+      "secureAccessNote": "移动设备使用麦克风需要 HTTPS 和设备信任的证书。",
+      "certificateDownload": "下载连接证书",
+      "certificateTrustNote": "请将此电脑的 CA 证书安装为设备信任的证书。iPhone/iPad 还需在“设置 > 通用 > 关于本机 > 证书信任设置”中启用。Android 请在安全设置中安装 CA 证书，然后重新打开 HTTPS 地址。",
+      "certificateFingerprintTitle": "连接 CA 证书指纹 (SHA-256)",
+      "certificateFingerprintNote": "信任证书之前，请将其 SHA-256 指纹与此电脑“远程访问 > 移动访问”中显示的值进行比较。如果不同，请勿安装。",
+      "externalHttpsNote": "使用麦克风需要在设备上安装并信任此电脑的连接证书。仅跳过浏览器警告无法启用麦克风。",
       "qrTitle": "二维码配对",
-      "qrSubtitle": "用手机相机扫一下，Vibisual 就会打开并自动配对 — 无需输入地址和验证码。每个二维码有效 {{minutes}} 分钟，最多可配对 {{max}} 台设备。",
+      "qrSubtitle": "信任连接证书后，用手机相机扫描即可打开并配对 Vibisual，无需输入地址或配对码。每个二维码有效 {{minutes}} 分钟，最多可配对 {{max}} 台设备。",
       "qrIssue": "生成二维码",
       "qrReissue": "生成新二维码",
       "qrRevoke": "立即撤销",
@@ -179,7 +186,7 @@
           "other": "无法识别"
         },
         "hint": {
-          "lan": "家庭或办公网络。只要手机与这台电脑连接在同一 Wi-Fi 或路由器下即可打开。",
+          "lan": "家庭或办公网络。将手机与此电脑连接到同一 Wi-Fi 或路由器，信任连接证书后打开 HTTPS 地址。",
           "vpn": "由 Tailscale、ZeroTier 等虚拟专用网络应用分配，而非路由器。只有手机也登录同一网络时才能打开；但只要登录，在任何地方（包括移动数据）都能打开。",
           "vpnNamed": "由 {{product}} 分配，而非路由器。只有手机也登录同一 {{product}} 网络时才能打开；但只要登录，在任何地方（包括移动数据）都能打开。",
           "external": "通过路由器开放的端口，从互联网访问这台电脑。",
@@ -755,9 +762,11 @@
         "engineBridgeStatusError": "无法读取桥接状态。",
         "engineBridgeRefresh": "重新检查",
         "externalBudgetTitle": "项目外的文件夹",
-        "externalBudgetIntro": "当代理访问项目外部的文件夹时，该位置会生成独立的气泡。放任不管，这些气泡要么淹没整个地图，要么合并成一个毫无意义的气泡。此数值用于设置同时在顶层显示的气泡数量——最活跃、最新的位置优先占据顶层，变得不活跃的位置则会折叠回其父级气泡下。",
+        "externalBudgetIntro": "将路径前几个文件夹层级相同的外部文件夹气泡合并。这些设置仅适用于项目外部的文件夹。",
         "externalBudgetLabel": "顶层显示的外部文件夹数量",
-        "externalBudgetDesc": "已固定的文件夹不计入此数量——固定的文件夹始终显示在顶层。此设置不会删除任何内容：容纳不下的位置会折叠到父级气泡中，该气泡会显示其中包含的数量。",
+        "externalBudgetDesc": "合并深度为0时生效：在此数量内，优先将最活跃、最近使用的文件夹显示在顶层。固定的文件夹不计入此数量。启用路径合并时，活动量不会拆分已合并的组。不会删除任何文件。",
+        "externalMergeDepthLabel": "外部文件夹合并深度",
+        "externalMergeDepthDesc": "默认值为2层。数字越小，合并范围越大；0表示关闭路径合并。从根目录、驱动器或网络共享名之后的文件夹开始计数。例如，C:/Users/<name>/.codex/...和C:/Users/<name>/.claude/...到<name>为止共有2层。仍可在合并后的气泡中打开各个文件。每个项目都可以在外部文件夹气泡的详情中单独设置。",
         "externalBudgetLoadError": "无法读取当前设置。",
         "externalBudgetSaveError": "保存失败，未做任何更改。",
         "webFoldIntro": "Agent 读取网页时，它读取的每个域名都会变成一个气泡，因此单个 Agent 在调研时就可能铺满整个画布。这些设置会将它们分组——不会删除任何内容，点击某个分组即可逐个列出其中的域名。",
@@ -875,7 +884,7 @@
         "autoCompactWindowOff": "保持原有设置",
         "autoCompactWindowDesc": "这是这里影响最大的一项设置。经过三天的测量，会话的 Token 中位数为 186k，超过 200k 的部分占全部输入的 62%。每一轮对话都会重新读取这部分内容。在相同工作量下，将窗口从 400k 降到 200k 可减少 27% 的输入，降到 100k 可减少 59%。该设置只会朝更低的方向生效：如果 Agent 或默认值已经更低，则以更低的为准。折叠本身也是一次较大的请求，因此最低的设置并不一定是最省的。该窗口只决定在命令之间何处折叠——任务中途只有模型窗口占满时，CLI 才会折叠。"
       },
-      "creditsIntro": "Claude 额度来自不同的钱包。每个页面对应一个钱包：它是什么、由谁计费、在哪里管理，以及 Vibisual 是否使用它。"
+      "creditsIntroVendors": "Claude 和 OpenAI 的额度各自来自多个钱包。选择一个服务商,每个页面会显示一个钱包:它是什么、由谁计费、在哪里管理,以及 Vibisual 是否使用它。"
     },
     "autoAgent": {
       "title": "Auto Agent",
@@ -1433,7 +1442,8 @@
       },
       "subagentDepth": {
         "label": "子智能体层数",
-        "layers": "{{count}} 层"
+        "layers": "{{count}} 层",
+        "splitHint": "增加更多子 Agent 之前，请先改进指令。拆分有依赖的工作会在每次交接时丢失上下文。"
       },
       "cliOptions": {
         "label": "CLI 选项",
@@ -1491,7 +1501,7 @@
       "fastMode": {
         "label": "Fast 模式",
         "hint": "同一个 Opus，输出更快",
-        "unsupported": "仅 Opus 4.8 / Opus 5",
+        "unsupported": "仅 Opus 5.x",
         "tip": "让同一个 Opus 模型以更快的速度输出 — 并不是降级到更小的模型。这不是 CLI 参数：无头代理会被当作 Agent SDK 会话，只接受以设置方式开启，因此 Vibisual 会把它写进本代理已有的设置文件里一起传过去。不支持的模型会静默忽略该设置。"
       },
       "thinking": {
@@ -1690,6 +1700,8 @@
       "denyReasonPlaceholder": "如：路径错误、不安全命令",
       "shortcutHint": "{{shortcut}} = 允许 · Esc = 拒绝",
       "stackCount": "{{current}} / {{total}} 待处理",
+      "sendRejected": "Vibisual 未接受该回答。请求仍在等待中，请重新选择。",
+      "sendUnconfirmed": "您的回答可能未送达 Vibisual。请求仍在等待中，请重新回答。",
       "emptyToolInput": "（空）",
       "askedByToolTitle": "你要求确认的工具",
       "askedByToolHint": "你在该 Agent 的设置中将 {{tool}} 标记为“使用前询问”——因此即使在 Bypass 模式下也会询问。",
@@ -1874,13 +1886,27 @@
       "empty": "空文件夹",
       "visible": "可见（{{count}}）",
       "satellites": "卫星节点 {{count}}",
-      "maxTitle": "此文件夹的最大卫星节点数",
-      "constellationSlotHint": "围绕同一个文件成组的文件算作一个槽位",
+      "maxTitle": "此文件夹的普通文档卫星节点上限",
+      "bundleMaxTitle": "此分组的卫星节点上限",
+      "maxSaveFailed": "无法保存卫星节点上限，请重试。",
+      "constellationSlotHint": "可预览文件不受此限制，始终保持显示。每个分组都有独立的卫星节点上限。",
       "maxHint": "Enter · Esc",
       "maxSave": "保存",
       "maxDecrease": "减少",
       "maxIncrease": "增加",
       "noVisible": "无可见文件"
+    },
+    "externalMergeDepth": {
+      "label": "路径合并",
+      "levels": "{{depth}} 级",
+      "off": "关闭",
+      "projectValue": "本项目设置",
+      "defaultValue": "默认值",
+      "edit": "更改路径合并深度",
+      "reset": "恢复默认",
+      "title": "路径合并深度",
+      "note": "路径前 N 级相同的外部文件夹会合并为一个气泡。适用于本项目的所有外部文件夹。",
+      "hint": "0 表示不合并"
     },
     "webEntry": {
       "count": "条目 {{count}}",
@@ -2004,8 +2030,10 @@
       "close": "关闭用量",
       "session5h": "当前会话（5 小时）",
       "weekly7d": "每周额度（7 天）",
+      "fiveHourLimit": "5 小时额度",
+      "weeklyAll": "每周额度（所有模型）",
       "noValue": "--",
-      "resetsIn": "{{span}}后重置",
+      "resetsAtIn": "重置时间 {{time}} · 还有 {{span}}",
       "resetUnknown": "重置时间未知",
       "resettingNow": "正在重置",
       "spanDh": "{{d}} 天 {{h}} 小时",
@@ -2030,7 +2058,7 @@
       "emptyOff": "尚无用量数据 — 收集器已关闭。请在下方开启，然后打开一次交互式 Claude Code 会话。",
       "emptyWaiting": "收集器已开启，正在等待首个数值。交互式 Claude Code 会话渲染状态栏时数值才会到达（画布上的终端气泡，或编辑器中的 Claude Code）。Vibisual 以无头方式运行的 Agent 没有状态栏，因此不会上报。",
       "refresh": "刷新",
-      "weeklyScoped": "每周额度 — {{model}}",
+      "weeklyScoped": "每周额度（{{model}}）",
       "creditsTitle": "使用积分",
       "creditsOn": "已开启",
       "creditsOff": "已关闭",
@@ -2112,7 +2140,9 @@
           "notAnthropic": "这不像是 Anthropic API 密钥，应以 sk-ant- 开头。",
           "adminKey": "管理员密钥无法运行模型，请创建普通 API 密钥。",
           "oauthToken": "这是登录令牌，不是 API 密钥。",
-          "whitespace": "密钥中含有空格，请去掉空格后重新粘贴。"
+          "whitespace": "密钥中含有空格，请去掉空格后重新粘贴。",
+          "notOpenai": "这看起来不是 OpenAI API 密钥。OpenAI 密钥以 sk- 开头(Anthropic 密钥请填在 Claude 一侧)。",
+          "notAdminKey": "只有管理员密钥(sk-admin-…)才能读取支出。项目密钥和服务账号密钥无法读取组织费用。"
         },
         "keySaveFailed": "密钥保存失败，请重试。",
         "liveRunsNow": "当前使用额度的运行：{{count}}",
@@ -2164,6 +2194,50 @@
           "lastValue": "显示的是上次读取的值。"
         }
       },
+      "openaiCredit": {
+        "title": "API 额度(OpenAI Platform)",
+        "status": {
+          "blocked": "已被 OpenAI 拒绝"
+        },
+        "modeHintConsole": "关闭:仅在你的 ChatGPT 套餐的 Codex 用量上限用完后才改用额度。开启:优先使用额度,当 OpenAI 拒绝额度时改用订阅。",
+        "keyPlaceholder": "sk-proj-…",
+        "keyVerified": {
+          "rejected": "已被 OpenAI 拒绝"
+        },
+        "keyCreate": "在 OpenAI Platform 创建密钥",
+        "reason": {
+          "cloud-provider": "这台电脑上的 Codex 已设置为其他模型服务商({{provider}}),因此不使用额度。运行由该服务商计费。",
+          "blocked": "OpenAI 拒绝了上一次额度运行,因此新的运行将使用你的订阅。"
+        },
+        "block": {
+          "balance-empty": "OpenAI 拒绝了额度运行,因为组织的额度余额或用量上限已达到。",
+          "spend-limit": "OpenAI 拒绝了额度运行,因为已达到用量上限。",
+          "key-invalid": "OpenAI 拒绝了该 API 密钥。"
+        },
+        "console": {
+          "title": "本月支出(OpenAI Platform)",
+          "asOf": "自 {{start}} 起 · {{time}} 更新 · 与 Platform 用量页面数据相同",
+          "resetsOn": "按 UTC 日历月统计 · 下个月从 {{date}}(UTC)开始",
+          "viewSpendLimits": "在 Platform 查看用量上限",
+          "pending": "正在读取 Platform 支出…",
+          "limitsNote": "用量上限和额度余额在 OpenAI Platform 上管理,且 OpenAI 没有公开 API 可读取它们,因此 Vibisual 既不显示也不强制执行自己的上限。当达到上限或额度用尽时,OpenAI 会拒绝运行,Vibisual 随即切换回你的订阅。",
+          "needKeyTitle": "添加管理员密钥以显示 Platform 支出",
+          "needKeyBody": "Vibisual 通过 OpenAI 官方的 Costs API 读取本月支出,这需要管理员密钥(sk-admin-…)。组织所有者可以在 Platform 的管理员密钥页面创建。",
+          "createAdminKey": "在 Platform 创建管理员密钥",
+          "adminKey": "管理员密钥(用于读取支出)",
+          "adminKeyPlaceholder": "sk-admin-…",
+          "adminKeyHint": "仅用于读取支出,此密钥无法运行模型。",
+          "error": {
+            "auth": "OpenAI 拒绝了该密钥,原因是它不是管理员密钥或已被吊销。请以组织所有者身份创建管理员密钥(sk-admin-…)并在此输入。",
+            "forbidden": "此密钥无法读取支出。请使用组织所有者创建的管理员密钥。",
+            "not-found": "OpenAI 找不到此密钥对应的支出数据。",
+            "rate-limited": "OpenAI 要求稍后再读取支出。将自动刷新。",
+            "network": "无法连接 OpenAI。将自动刷新。",
+            "unreadable": "这台电脑无法读取此管理员密钥。请重新输入。",
+            "other": "无法读取 Platform 支出。"
+          }
+        }
+      },
       "creditPages": {
         "tabsLabel": "额度类型",
         "billedLabel": "计费方",
@@ -2171,13 +2245,13 @@
         "vibisualLabel": "在 Vibisual 中",
         "subscription": {
           "tab": "套餐限额",
-          "what": "Claude Pro 或 Max 套餐包含的 5 小时和每周用量限额。",
+          "what": "Claude 套餐包含的用量限额。Pro 和 Max 有 5 小时额度和每周额度；Ultra 账号通过验证后只有每周额度。Max 和 Ultra 还对部分模型设有单独的每周额度。",
           "billed": "你的 claude.ai 订阅，按月固定收费。",
           "vibisual": "默认用于每次 Claude 运行，包括 headless 和 CMD。"
         },
         "personal": {
           "tab": "个人额度",
-          "what": "你个人 claude.ai 账户上的额外用量。在 claude.ai 上开启后，达到套餐限额时仍可继续工作。",
+          "what": "你个人 claude.ai 账号上的使用积分。在 claude.ai 开启并预付后，达到套餐限额时 Claude 会继续用积分工作，直到触及每月支出上限或余额用完。",
           "billed": "你的 claude.ai 账户上绑定的支付方式。",
           "vibisual": "Vibisual 不会选择它。如果已开启，Claude Code 会在达到套餐限额后自行使用。此页面仅读取。"
         },
@@ -2203,6 +2277,28 @@
           "activeNote": "Vibisual 发起的每次 Claude 运行都由这个云端计费。不会使用个人额度和企业额度，企业额度路径也保持关闭。",
           "inactiveNote": "这台电脑上的 Claude Code 未设置为使用云服务商，因此不会使用云端额度。如需使用，请先为该云服务商设置 Claude Code。",
           "docs": "如何在云服务商上运行 Claude Code"
+        },
+        "vendorLabel": "额度服务商",
+        "vendor": {
+          "anthropic": "Claude",
+          "openai": "OpenAI"
+        },
+        "openai": {
+          "subscription": {
+            "what": "你的 ChatGPT 套餐包含的 Codex 用量上限。套餐设有 5 小时上限和每周上限。",
+            "billed": "你的 ChatGPT 订阅,按月固定收费。",
+            "vibisual": "默认用于每一次 Codex 运行,包括后台(headless)运行和 CMD。"
+          },
+          "personal": {
+            "what": "你的 ChatGPT 账号上的 Codex 额度。购买额度后,套餐上限用完时 Codex 会继续使用这些额度。重置券可恢复你的用量上限。",
+            "billed": "你的 ChatGPT 账号上的支付方式。",
+            "vibisual": "Vibisual 不会选择它们。套餐上限用完后,Codex 会自行使用。此页面仅读取。"
+          },
+          "business": {
+            "what": "你的 OpenAI Platform(platform.openai.com)组织的 API 额度。你购买或获赠的额度会进入这里。",
+            "billed": "从 OpenAI Platform 上组织的 API 额度中扣除。额度用完后运行会停止,只有开启自动充值时才会向你的银行卡扣费。",
+            "vibisual": "开启后,仅用于后台(headless)Codex 运行,不用于 CMD 或 hook 气泡。默认仅在你的 ChatGPT 套餐的 Codex 上限用完后才使用。"
+          }
         }
       }
     },
@@ -2412,6 +2508,11 @@
         "empty": "此节点暂无图片",
         "emptyHint": "用 Agent 输入卡片上的 + 将此节点连接到该 Agent。该 Agent 交付的图片会显示在这里。",
         "loadFailed": "无法打开此图片",
+        "retry": "重试",
+        "viewControls": "视图控制",
+        "editHint": "直接在此标注、裁剪或移除背景，与 IDE 中的快速编辑器相同",
+        "layerEdit": "图层编辑",
+        "layerEditHint": "使用图层创建可编辑的源文件，添加文字和形状，并导出多种尺寸。原始文件保持不变。",
         "editor": {
           "properties": "图层属性",
           "importedImage": "导入的图片（单个图层）",
@@ -4262,6 +4363,9 @@
       "blocked": "尚未创建任何内容 — 当前没有打开的项目文件夹。Agent 在你选择的文件夹中工作，请先选择一个。",
       "detail": "Vibisual 为项目保存的所有内容都在该文件夹内，Agent 也只能读取和修改该文件夹下的文件。之后可通过 文件 → 打开文件夹 添加更多文件夹。",
       "cancelled": "尚未选择文件夹。请选择一个以继续。",
+      "errorPickerMissing": "此计算机上没有可用的文件夹选择器。请安装 zenity 或 kdialog 后重试。",
+      "errorFailed": "无法将该文件夹作为项目打开。",
+      "errorNetwork": "无法连接到 Vibisual 服务器。请确认应用仍在运行，然后重试。",
       "choose": "选择文件夹",
       "picking": "选择中…",
       "later": "稍后"
@@ -4369,7 +4473,8 @@
       },
       "trigger": {
         "auto": "自动",
-        "manual": "手动"
+        "manual": "手动",
+        "snapshot": "副本"
       },
       "copyMirrored": "含副本",
       "copyIndexOnly": "仅索引",
@@ -4398,7 +4503,11 @@
       "restoreAsDelete": "还原（删除文件）",
       "restoredAt": "已于 {{at}} 还原",
       "resumeMode": "继续该会话",
-      "freshMode": "新建标签页",
+      "freshMode": "新建并附简报",
+      "freshModeTip": "打开一个新会话，并在它的第一轮把保险库从这段对话中保留的内容交给它——目标、步骤、正在处理的文件以及旧对话记录的位置。当对话记录太大无法继续时使用。",
+      "snapshotNow": "立即保存副本",
+      "snapshotNowTip": "不等下一次压缩，立即把此会话的对话记录复制到保险库。",
+      "snapshotFailed": "副本保存失败",
       "mirroredOnly": "仅副本",
       "resumeRisky": "体积较大",
       "ncNote": "摘要可能只是换了措辞，而不是真的丢弃了这些内容——本列表只说明它们未出现在摘要中。",
@@ -4798,7 +4907,9 @@
       "discardConfirm": "放弃并关闭",
       "renderFailed": "无法渲染标记后的图片。",
       "noSession": "没有可附加此图片的 Session。",
-      "saveFailed": "无法保存标记后的图片。"
+      "saveFailed": "无法保存标记后的图片。",
+      "openLayersHint": "在图层编辑器中继续：这张图片及其标注将成为一个图层，可继续添加文字和形状",
+      "openLayersFailed": "无法打开图层编辑器。"
     },
     "overlay": {
       "closeLabel": "关闭 IDE",
@@ -5121,9 +5232,13 @@
       "voiceListening": "正在聆听 — 请开始说话",
       "voiceCancelHint": "按 Esc 取消",
       "voiceDone": "完成",
+      "voiceErrInsecureContext": "使用麦克风需要可信的 HTTPS 连接。请打开“远程访问 > 移动访问”中的 HTTPS 地址并信任其连接证书。",
+      "voiceMicSettingsHintIos": "在 iPhone 或 iPad 上，请在浏览器的此网站设置中允许使用麦克风。也请检查设备设置中浏览器的麦克风权限，然后刷新页面。",
+      "voiceMicSettingsHintAndroid": "在 Android 上，请在浏览器的网站设置和“Android 设置 > 应用 > 当前浏览器 > 权限”中允许使用麦克风，然后刷新页面。",
+      "voiceMicSettingsHintBrowser": "请在浏览器的网站设置中允许此网站使用麦克风，并在设备隐私设置中允许浏览器使用麦克风，然后刷新页面。",
       "voiceErrUnsupported": "此版本不支持语音识别。",
-      "voiceErrPermission": "麦克风权限被拒绝。请在系统隐私设置中允许本应用使用麦克风后重试。",
-      "voiceErrDevice": "未找到麦克风。请连接后重试。",
+      "voiceErrPermission": "请在浏览器中允许此网站使用麦克风，并在设备隐私设置中允许浏览器或应用访问麦克风，然后重试。",
+      "voiceErrDevice": "无法打开麦克风。请检查麦克风权限和输入设备后重试。",
       "voiceErrNoDevice": "未找到麦克风。请连接麦克风。",
       "voiceErrDeviceBusy": "另一个应用正在使用麦克风。请关闭该应用后重试。",
       "voiceErrNetwork": "无法连接语音识别服务。",
@@ -5134,9 +5249,9 @@
       "voiceMicHintRightClick": "右键点击：麦克风设置",
       "voiceMicSettingsAction": "如何解决",
       "voiceMicSettingsTitle": "麦克风设置",
-      "voiceMicSettingsBody": "此应用需要操作系统允许访问麦克风。",
-      "voiceMicSettingsBlockedBody": "无法打开麦克风。这通常意味着操作系统设置中已关闭麦克风访问权限。",
-      "voiceMicSettingsNoDeviceBody": "此电脑未连接麦克风。请连接麦克风后重试。",
+      "voiceMicSettingsBody": "浏览器和设备都需要允许访问麦克风。",
+      "voiceMicSettingsBlockedBody": "无法打开麦克风。请检查网站权限、设备隐私设置和输入设备。",
+      "voiceMicSettingsNoDeviceBody": "此设备没有可用的麦克风。请检查内置麦克风或连接麦克风后重试。",
       "voiceMicSettingsOpen": "打开设置",
       "voiceMicSettingsHintWin": "在列表底部同时打开“麦克风访问权限”和“允许桌面应用访问你的麦克风”。由于本应用的安装方式，它的名称不会出现在应用列表中。",
       "voiceMicSettingsHintMac": "在“隐私与安全性”>“麦克风”中启用 Vibisual。如果刚启用，需要重启应用才能生效。",
@@ -5159,9 +5274,12 @@
       "sendRejected": "请求被拒绝，已恢复您的文本和附件。请检查对话后再发送。",
       "sendUnconfirmed": "无法确认是否已发送，已恢复您的文本和附件。请检查对话后再发送。",
       "localImagesUnsupported": "All Model 尚不支持图片输入。请移除图片或选择其他提供方后再发送此消息。",
+      "attachmentsMissing": "有一张附加的图片已无法找到，因此没有发送任何内容。文本已恢复，请移除标记的图片或重新附加。",
+      "attachmentMissing": "此图片已无法找到。请移除或重新附加。",
       "liveDelivery": {
         "waiting": "等待发送",
         "sending": "发送中…",
+        "received": "已收到",
         "delivered": "已送达",
         "unavailable": "无法送达",
         "uncertain": "无法确认送达",
@@ -5175,6 +5293,7 @@
         "hint": {
           "waiting": "正在等待将消息发送给当前任务。",
           "sending": "正在等待代理确认收到消息。",
+          "received": "代理已收到此消息。当前进行中的步骤（工具运行或长时间思考）完成后，消息会立即加入当前任务。不会重复发送。",
           "delivered": "已作为追加指示发送给当前任务。",
           "unavailable": "选择“{{wait}}”可在当前任务结束后发送；选择“{{immediate}}”可停止当前任务并以此消息开始。",
           "uncertain": "不会自动重发。为避免重复送达，修改和删除已锁定，但仍可复制正文。"
@@ -5281,7 +5400,9 @@
       "next": "下一步",
       "back": "上一步",
       "send": "发送",
-      "sending": "发送中…"
+      "sending": "发送中…",
+      "sendRejected": "您的回答未被接受。已保留您的选择，可以再次发送。",
+      "sendUnconfirmed": "您的回答可能未送达。已保留您的选择，可以再次发送。"
     },
     "activityBar": {
       "mcp": "MCP",
@@ -5310,7 +5431,8 @@
       "moveDown": "下移",
       "exclude": "从栏中移除",
       "add": "添加到栏",
-      "noExcluded": "没有已排除的项目"
+      "noExcluded": "没有已排除的项目",
+      "localAssist": "完成辅助"
     },
     "mcp": {
       "title": "MCP 服务器",
@@ -5816,7 +5938,9 @@
       "compacting": "压缩中",
       "delegating": "正在等待其他智能体响应",
       "delegatingHint": "此轮对话正在等待其他智能体的工作结果。您仍可停止。",
-      "compactingHint": "上下文已满，CLI 正在总结此前的对话以腾出空间。通常需要几分钟，期间没有新输出是正常的。"
+      "compactingHint": "上下文已满，CLI 正在总结此前的对话以腾出空间。通常需要几分钟，期间没有新输出是正常的。",
+      "nestedSubagentTokens": "{{tokens}} 个 Token · 占其上下文的 {{percent}}%",
+      "nestedSubagentTokensOnly": "{{tokens}} 个 Token"
     },
     "report": {
       "title": "工作报告",
@@ -6638,7 +6762,9 @@
         "user": "由你调整",
         "plan": "源自计划"
       },
-      "openStage": "查看视图"
+      "openStage": "查看视图",
+      "stepVerified": "已验证",
+      "stepVerifiedHint": "此步骤标记完成后，有一次验证运行通过（{{time}}）。"
     },
     "hooks": {
       "title": "会话 Hooks",
@@ -7334,7 +7460,15 @@
         "maxMembers": "最多可创建的成员数",
         "memberIsolation": "为每个成员分配独立的 Worktree",
         "memberIsolationHint": "每个成员都诞生在专属的 git Worktree 中，因此并行工作的成员不会在同一批文件上发生冲突。之后需要你自己合并这些分支。仅限 Claude 成员——Codex 没有对应的参数。",
-        "memberToolTemplate": "成员诞生时自带的工具"
+        "memberToolTemplate": "成员诞生时自带的工具",
+        "allowSelf": "允许直接执行",
+        "allowSelfHint": "增加“直接执行”选项。此时同一会话会以常规设置重新执行你的请求并保留上下文，而不是交接出去。",
+        "crossEngineReview": "由另一个引擎审查",
+        "crossEngineReviewHint": "审查成员会在未编写代码的引擎上创建（该引擎就绪时）。",
+        "formationBasis": "工作拆分方式",
+        "formationBasisHint": "Auto Agent 对此项目使用相同的选择。",
+        "splitRules": "分段加载指挥者规则",
+        "splitRulesHint": "每个指挥者回合只携带决策部分。选定团队形态后才会读取分步流程。"
       },
       "permission": {
         "bypass": "跳过权限确认",
@@ -7401,7 +7535,11 @@
         "members": "成员（{{count}}）：{{names}}",
         "created": "——新建 {{count}} 个",
         "tokens": "Token：输入 {{input}} · 输出 {{output}}",
-        "noPlan": "指挥结束时并未报告计划。"
+        "noPlan": "指挥结束时并未报告计划。",
+        "splitBasis": "拆分原因：",
+        "reviewer": "由 {{name}} 审查",
+        "tokenSplit": "协调 {{coordination}} · 工作 {{work}} 个 Token",
+        "tokenSplitPartial": "（仅来自已记录的交接）"
       },
       "phase": {
         "conducting": "指挥中",
@@ -7423,7 +7561,8 @@
         "none": "无团队",
         "single": "单个成员",
         "pipeline": "流水线",
-        "parallel": "并行"
+        "parallel": "并行",
+        "self": "直接执行"
       },
       "readiness": {
         "setup": "运行 {{engine}} 前需要先安装。",
@@ -7433,6 +7572,60 @@
         "recheck": "重新检查",
         "auto": "自动选择仅使用已安装且已登录的引擎。",
         "retry": "请求已保留。完成 {{engine}} 的准备后，请重新发送。"
+      },
+      "verification": {
+        "verified": "已验证",
+        "received": "已收到",
+        "rejected": "审查未通过",
+        "held": "裁决已搁置",
+        "noEvidence": "无证据即通过",
+        "detail": "最近一次审查：通过 {{passed}} 项，失败 {{failed}} 项（应用看到的退出码）",
+        "receivedHint": "结果已返回，但没有审查检查过它。"
+      },
+      "hops": {
+        "title": "交接链（{{count}}）",
+        "role": {
+          "conductor": "指挥者",
+          "self": "直接执行",
+          "entry": "入口",
+          "member": "成员",
+          "review": "审查",
+          "rework": "返工"
+        },
+        "failed": "失败",
+        "tokens": "{{count}} 个 Token",
+        "instruction": "收到的指令：",
+        "result": "返回的结果：",
+        "waited": "在队列中等待了 {{seconds}} 秒",
+        "concurrency": "（受并发会话上限限制而等待）"
+      },
+      "scorecard": {
+        "title": "按意图和团队形态统计的记分卡",
+        "about": "统计此项目保留的所有运行。可据此决定是否更改默认值；不会自动更改任何内容。",
+        "unplanned": "未上报计划",
+        "runs": "{{count}} 次运行",
+        "outcome": "完成 {{completed}} · 已验证 {{verified}} · 错误 {{error}} · 无计划 {{unreported}}",
+        "average": "平均 {{tokens}} 个 Token · {{seconds}} 秒",
+        "averageTokens": "平均 {{tokens}} 个 Token"
+      },
+      "suggestions": {
+        "title": "整理建议",
+        "foldTitle": "可以合并",
+        "fold": "{{from}} 只接收来自 {{into}} 的工作，且不再向下传递（共 {{count}} 次运行）。它可以成为 {{into}} 的一项技能。",
+        "idleTitle": "已有一段时间未使用",
+        "idle": "{{name}} 上次参与运行是在 {{date}}（累计 {{count}} 次运行）。",
+        "note": "以上仅为建议，不会自动合并或删除任何内容。",
+        "exportSkill": "导出为技能",
+        "exported": "已保存为项目技能“{{name}}”。",
+        "exportFailed": "无法导出：{{reason}}"
+      },
+      "newPaths": {
+        "title": "新选项（默认关闭）",
+        "about": "这些选项保持关闭时，指挥者的行为与之前完全一致。"
+      },
+      "formationBasis": {
+        "role": "按角色（当前）",
+        "dependency": "按依赖关系"
       }
     },
     "configTrim": {
@@ -7527,6 +7720,120 @@
         "title": "最近的轮次",
         "empty": "此项目中尚未有任何一轮被裁剪过。",
         "counts": "{{trimmed}} / {{excluded}}"
+      }
+    },
+    "localAssist": {
+      "title": "完成辅助",
+      "intro": "帮助本地模型在这台电脑上完成任务的选项。未开启任何选项前不会有任何改变。",
+      "saving": "保存中…",
+      "saveFailed": "无法保存选项，请重试。",
+      "activity": {
+        "progress": "计划步骤已完成 {{progress}}"
+      },
+      "preset": {
+        "label": "预设",
+        "off": "关闭",
+        "lowSpec": "低配安全",
+        "balanced": "均衡",
+        "longTask": "长任务",
+        "custom": "自定义 — 你已修改下方的个别选项。",
+        "hint": {
+          "off": "全部关闭 — 本地模型的运行方式与之前完全一致。",
+          "lowSpec": "更省内存，引擎为其他应用留出余量，并提前整理上下文。",
+          "balanced": "压缩内存，并在上下文占满前自动整理。",
+          "longTask": "先写计划，再逐步执行，每轮使用全新的上下文。"
+        }
+      },
+      "section": {
+        "engine": "保持电脑稳定",
+        "context": "精简上下文",
+        "progress": "完成任务"
+      },
+      "engine": {
+        "restartHint": "引擎选项从下一轮起生效，引擎会重启一次。"
+      },
+      "kvCache": {
+        "label": "内存压缩（KV cache）",
+        "hint": "用更少的位数存储对话记忆。q8_0 约需一半内存，质量损失很小。",
+        "f16": "关闭"
+      },
+      "moe": {
+        "label": "MoE 专家放在 CPU",
+        "hint": "适用于混合专家模型：将专家权重保留在系统内存中，避免小显存 GPU 溢出。",
+        "auto": "自动",
+        "cpu": "CPU"
+      },
+      "lowSpec": {
+        "label": "低配安全模式",
+        "hint": "限制引擎的 RAM 缓存，为其他应用保留 CPU 核心，并降低引擎优先级。"
+      },
+      "tidyAt": {
+        "label": "整理上下文的时机",
+        "hint": "在上下文占满前先清理，而不是溢出后失败。",
+        "off": "关闭",
+        "value": "{{percent}}%"
+      },
+      "tidyMethod": {
+        "label": "整理方式",
+        "mask": "隐藏旧工具输出",
+        "summarize": "摘要",
+        "handoff": "交接",
+        "ask": "停止并询问",
+        "hint": {
+          "mask": "将较早的工具结果替换为简短占位符，并保留最近两轮。",
+          "summarize": "先隐藏旧工具输出，若仍然过满，再把之前的对话折叠成摘要。",
+          "handoff": "写一份交接说明，并在全新上下文中仅凭该说明和你的请求继续。",
+          "ask": "停止当前轮次并告知上下文已占用多少，由你决定。"
+        }
+      },
+      "outputCap": {
+        "label": "工具输出上限",
+        "hint": "单个工具结果有多少内容进入上下文。",
+        "short": "短",
+        "normal": "正常",
+        "long": "长"
+      },
+      "keepFull": {
+        "label": "完整输出存入文件",
+        "hint": "被截断的输出会保存在项目的 .vibisual 文件夹中，并告知模型到哪里读取其余部分。"
+      },
+      "planFirst": {
+        "label": "先做计划",
+        "hint": "模型先写一份清单。只有你在此批准后才会开始修改。"
+      },
+      "relay": {
+        "label": "接力模式",
+        "hint": "按已批准的计划每轮执行一步，每次使用全新上下文，直到所有步骤都已勾选。",
+        "verify": "检查命令（可选）",
+        "verifyPlaceholder": "例如 pnpm test",
+        "maxRounds": "最大轮数"
+      },
+      "resume": {
+        "label": "更快恢复",
+        "hint": "在模型卸载前，将引擎对上次对话的记忆保存到磁盘，回来时无需重新读取全部内容。"
+      },
+      "keepLoaded": {
+        "label": "保持模型加载",
+        "hint": "空闲的模型在卸载前会在内存中保留多久。",
+        "value": "{{minutes}} 分钟"
+      },
+      "plan": {
+        "state": {
+          "proposed": "等待你批准",
+          "approved": "已批准",
+          "running": "接力运行中",
+          "paused": "已暂停",
+          "done": "已完成"
+        },
+        "progress": "第 {{done}} / {{total}} 步",
+        "approve": "按此计划执行",
+        "resume": "继续",
+        "reset": "新计划",
+        "empty": "已开启先做计划或接力模式 — 你的下一条消息将从清单开始。",
+        "noSession": "打开会话标签页以查看其计划。",
+        "more": "还有 {{count}} 步",
+        "skipped": "已跳过",
+        "actionFailed": "无法执行：{{reason}}"
       }
     }
   },
@@ -7755,8 +8062,8 @@
       "connectTooltip": "使用当前设置创建此边（Ctrl/Cmd+Enter）。",
       "critiqueOptionsTip": "仅适用于 Critique 边。设置干预时机（Timing）和拒绝时的强制方式（Authority）。其他类型边忽略此项。",
       "critiqueOptions": "评审选项",
-      "critiqueTimingTip": "中间（默认）：在目标工作的每个里程碑处审查。更频繁 / 更安全 / 更慢。最终：完成后进行一次最终审查。较少干预 / 更快。",
-      "critiqueTimingIntermediateTip": "中间：在目标工作的每个里程碑处审查。（默认）",
+      "critiqueTimingTip": "中间（默认）：设计为在目标工作的每个里程碑处审查——目前与“最终”相同，只在目标完成时审查一次。最终：完成后进行一次最终审查。",
+      "critiqueTimingIntermediateTip": "中间：设计为在目标工作的每个里程碑处审查。目前与“仅最终”相同，只在目标完成时审查一次。（默认）",
       "critiqueTimingFinalTip": "仅最终：在目标完成后进行一次最终审查。",
       "critiqueTiming": "时机",
       "critiqueTimingIntermediate": "过程中",
@@ -7770,7 +8077,8 @@
       "critiqueMaxReworkTip": "在强制返工模式下目标最多可重做的次数。超过后自动降级为仅评论并升级到父 Session。防止无限循环。",
       "critiqueMaxReworkActive": "最多 {{max}} 次。超出后自动降级为仅评论。",
       "critiqueMaxReworkInactive": "仅评论模式下不适用。",
-      "critiqueMaxRework": "最大返工次数"
+      "critiqueMaxRework": "最大返工次数",
+      "splitCheckTooltip": "连接之前：1）这些工作相互独立吗？如果下一步需要上一步的结果，通常由一个 Agent 完成效果更好。2）双方会改动相同的文件吗？3）结果应包含什么是否明确？"
     }
   },
   "inspector": {
@@ -8353,9 +8661,9 @@
         "image": "图片分组",
         "audio": "声音分组",
         "model": "3D 分组",
-        "code": "代码分组",
+        "code": "HTML 分组",
         "data": "数据分组",
-        "doc": "文档分组",
+        "doc": "PDF 分组",
         "subtitle": "字幕分组",
         "font": "字体分组",
         "other": "文件分组"
@@ -8365,7 +8673,22 @@
       "title_one": "{{name}}——{{kind}} · {{count}} 个文件",
       "title_other": "{{name}}——{{kind}} · {{count}} 个文件",
       "enterHint": "双击打开此分组，仅查看其中的文件",
+      "previousPage": "上一页",
+      "nextPage": "下一页",
+      "page": "{{page}} / {{pages}} · 文件数：{{count}}",
       "crumb": "{{name}} 分组"
+    },
+    "sessionMessage": {
+      "externalBadge": "已向此画布之外的会话发送 {{count}} 条消息：{{names}}",
+      "panelTitle": "会话之间的最近消息",
+      "outside": "外部会话（{{name}}）",
+      "sentTo": "发送给",
+      "receivedFrom": "来自",
+      "panelNote": "仅显示消息已发送这一事实。对方会话是否接受取决于其权限模式。"
+    },
+    "writeOverlap": {
+      "badge": "{{count}} 个 Agent 在 {{minutes}} 分钟内编辑了此文件",
+      "panel": "{{names}} 在 {{minutes}} 分钟内编辑过。它们的改动可能相互覆盖。"
     }
   },
   "common": {
@@ -8692,7 +9015,9 @@
       "queuedIt": "已加入队列。",
       "composerHint": "输入命令并按 Enter 键发送给此会话。"
     },
-    "jumpUnavailable": "跳转到主窗口仅在 Vibisual 桌面应用中可用。"
+    "jumpUnavailable": "跳转到主窗口仅在 Vibisual 桌面应用中可用。",
+    "sessionMessages": "已发送 {{count}} 条消息",
+    "sessionMessagesTip": "此会话刚刚发送给其他会话的消息"
   },
   "localModel": {
     "title": "所有模型",

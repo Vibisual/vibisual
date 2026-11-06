@@ -63,12 +63,14 @@
       "confirmCloseForceAllHint": "Stops the agents in every open project, then closes."
     },
     "usage": {
-      "tooltip": "Current session: {{percent}}% of your 5-hour limit used — click for details",
+      "tooltip": "{{percent}}% of your 5-hour limit used — click for details",
+      "tooltipWeekly": "{{percent}}% of your weekly limit (all models) used — click for details",
       "tooltipNoData": "No usage received yet — click for details",
       "tooltipWaiting": "Fetching usage from Claude Code — the number appears shortly",
       "tooltipCliUnavailable": "Couldn't run Claude Code to read usage — click for details",
       "creditActive": "New runs use API credits",
-      "creditBlocked": "Anthropic refused API credits — runs use your subscription"
+      "creditBlocked": "Anthropic refused API credits — runs use your subscription",
+      "creditBlockedOpenai": "OpenAI refused API credits — runs use your subscription"
     },
     "setupBanner": {
       "text": "Claude Code is not installed — agents cannot run yet.",
@@ -131,7 +133,7 @@
     },
     "mobileAccess": {
       "title": "Mobile Access",
-      "subtitle": "Open Vibisual in your phone's browser. Turn it on, open one of the addresses below on your phone, then enter the pairing code.",
+      "subtitle": "Open Vibisual in your phone’s browser. Turn access on, install and trust the connection certificate on your phone, then open an HTTPS address below and enter the pairing code.",
       "statusOn": "Listening on your local network",
       "statusOff": "Off",
       "enable": "Turn on",
@@ -151,9 +153,14 @@
       "externalManual": "Couldn't open a port automatically (your router's UPnP may be off). To do it manually, forward external TCP port {{port}} to {{ip}}:{{port}} on this PC in your router settings.",
       "externalManualUrl": "Once the port is forwarded, connect from outside at this address:",
       "externalReachable": "Reachable — connect from outside at",
-      "externalHttpsNote": "Uses a self-signed certificate — your phone shows a security warning the first time. Tap \"Advanced → proceed\" to continue; the connection is still encrypted.",
+      "secureAccessNote": "Mobile microphone access requires HTTPS and a certificate trusted by the device.",
+      "certificateDownload": "Download connection certificate",
+      "certificateTrustNote": "Install this PC’s CA certificate in your device’s trusted certificates. On iPhone/iPad, also enable it in Settings > General > About > Certificate Trust Settings. On Android, use the security settings to install a CA certificate. Then reopen the HTTPS address.",
+      "certificateFingerprintTitle": "Connection CA fingerprint (SHA-256)",
+      "certificateFingerprintNote": "Before trusting the certificate, compare its SHA-256 fingerprint with the value shown on this PC in Remote access > Mobile Access. Do not install it if the values differ.",
+      "externalHttpsNote": "For microphone access, install and trust this PC’s connection certificate on your device. Bypassing the browser warning alone does not enable the microphone.",
       "qrTitle": "QR pairing",
-      "qrSubtitle": "Scan with your phone's camera — Vibisual opens and pairs itself, no address or code to type. Each QR works for {{minutes}} minutes and for up to {{max}} devices.",
+      "qrSubtitle": "After trusting the connection certificate, scan with your phone’s camera to open and pair Vibisual without typing an address or code. Each QR works for {{minutes}} minutes and up to {{max}} devices.",
       "qrIssue": "Issue QR",
       "qrReissue": "Issue new QR",
       "qrRevoke": "Revoke now",
@@ -179,7 +186,7 @@
           "other": "Unrecognized"
         },
         "hint": {
-          "lan": "Your home or office network. Works as long as your phone is on the same Wi-Fi or router as this PC.",
+          "lan": "Your home or office network. Connect your phone to the same Wi-Fi or router as this PC, then open the HTTPS address with the connection certificate trusted.",
           "vpn": "Handed out by a private-network app such as Tailscale or ZeroTier, not by your router. It only works if your phone is signed in to the same private network - but then it works from anywhere, including mobile data.",
           "vpnNamed": "Handed out by {{product}}, not by your router. It only works if your phone is signed in to the same {{product}} network - but then it works from anywhere, including mobile data.",
           "external": "Reaches this PC over the internet, through the port your router opened.",
@@ -755,9 +762,11 @@
         "engineBridgeStatusError": "Could not read the bridge status.",
         "engineBridgeRefresh": "Check again",
         "externalBudgetTitle": "Folders outside the project",
-        "externalBudgetIntro": "When an agent touches a folder outside the project, that place gets its own bubble. Left alone, those bubbles either bury the map or collapse into one that says nothing. This number sets how many of them stand at the top level at once — the busiest and most recent places fill it first, and places that go quiet fold back under their parent.",
+        "externalBudgetIntro": "Group external folder bubbles whose paths share the first few folder levels. These settings apply only to folders outside the project.",
         "externalBudgetLabel": "External folders shown at the top level",
-        "externalBudgetDesc": "Pinned folders do not count against this number — a folder you pinned always stays at the top level. Nothing is deleted by this setting: places that do not fit are folded under a parent bubble that tells you how many are inside.",
+        "externalBudgetDesc": "Used when merge depth is 0: the most active and recent folders appear at the top level within this budget. Pinned folders do not count against it. While path merging is on, activity does not split merged groups. No files are deleted.",
+        "externalMergeDepthLabel": "External folder merge depth",
+        "externalMergeDepthDesc": "Default: 2 levels. A smaller number groups more folders together; 0 turns path merging off. Count folder names after the root, drive, or network share. For example, C:/Users/<name>/.codex/... and C:/Users/<name>/.claude/... share 2 levels through <name>. Files remain accessible inside the merged bubble. A project can set its own value from an external folder bubble's details.",
         "externalBudgetLoadError": "Could not read the current setting.",
         "externalBudgetSaveError": "Could not save. Nothing was changed.",
         "webFoldIntro": "When an agent reads the web, every domain it reads becomes a bubble, so one agent researching can cover the canvas. These settings group them — nothing is deleted, and clicking a group lists its domains one by one.",
@@ -875,7 +884,7 @@
         "autoCompactWindowOff": "Leave as configured",
         "autoCompactWindowDesc": "The largest single lever here. Measured over three days, sessions sat at a median of 186k tokens and everything above 200k accounted for 62% of all input — every turn re-reads that. Lowering the window from 400k to 200k cut input by 27%, and 100k by 59%, for the same work. It only ever tightens: an agent or a default that is already lower wins. Folding is itself a large request, so the lowest setting is not automatically the cheapest. This window only decides where we fold between commands — mid-task, the CLI only folds when the model window fills up."
       },
-      "creditsIntro": "Claude credits come from different wallets. Each page shows one wallet: what it is, who bills it, where you manage it, and whether Vibisual uses it."
+      "creditsIntroVendors": "Claude and OpenAI credits each come from several wallets. Pick a provider, and each page shows one wallet: what it is, who bills it, where you manage it, and whether Vibisual uses it."
     },
     "autoAgent": {
       "title": "Auto Agent",
@@ -1433,7 +1442,8 @@
       },
       "subagentDepth": {
         "label": "Subagent depth",
-        "layers": "{{count}} layers"
+        "layers": "{{count}} layers",
+        "splitHint": "Before adding more subagents, improve the instructions first. Splitting dependent work loses context at every handoff."
       },
       "cliOptions": {
         "label": "CLI options",
@@ -1491,7 +1501,7 @@
       "fastMode": {
         "label": "Fast mode",
         "hint": "same Opus, faster output",
-        "unsupported": "Opus 4.8 / Opus 5 only",
+        "unsupported": "Opus 5.x only",
         "tip": "Runs the same Opus model with faster output — it does not drop down to a smaller model. This is not a CLI flag: a headless agent is treated as an Agent SDK session, which accepts fast mode only as a settings opt-in, so Vibisual passes it in the settings file it already writes for this agent. Models that do not support it ignore the setting without any message."
       },
       "thinking": {
@@ -1690,6 +1700,8 @@
       "denyReasonPlaceholder": "e.g. wrong path, unsafe command",
       "shortcutHint": "{{shortcut}} = Allow · Esc = Deny",
       "stackCount": "{{current}} of {{total}} pending",
+      "sendRejected": "Vibisual did not accept that answer. The request is still waiting, so choose again.",
+      "sendUnconfirmed": "Your answer may not have reached Vibisual. The request is still waiting, so answer again.",
       "emptyToolInput": "(empty)",
       "askedByToolTitle": "Tool you asked to confirm",
       "askedByToolHint": "You marked {{tool}} as “ask before use” in this agent’s settings — so it asks even in Bypass mode.",
@@ -1874,13 +1886,27 @@
       "empty": "Empty folder",
       "visible": "Visible ({{count}})",
       "satellites": "Satellites {{count}}",
-      "maxTitle": "Max satellites for this folder",
-      "constellationSlotHint": "Files grouped around one file count as one slot",
+      "maxTitle": "Max document satellites for this folder",
+      "bundleMaxTitle": "Max satellites for this bundle",
+      "maxSaveFailed": "Could not save the satellite limit. Try again.",
+      "constellationSlotHint": "Preview files stay visible outside this limit. Each bundle has its own satellite limit.",
       "maxHint": "Enter · Esc",
       "maxSave": "Save",
       "maxDecrease": "Decrease",
       "maxIncrease": "Increase",
       "noVisible": "No visible files"
+    },
+    "externalMergeDepth": {
+      "label": "Path merge",
+      "levels": "depth {{depth}}",
+      "off": "off",
+      "projectValue": "this project",
+      "defaultValue": "default",
+      "edit": "Change path merge depth",
+      "reset": "Use default",
+      "title": "Path merge depth",
+      "note": "External folders whose first N path levels match share one bubble. Applies to every external folder in this project.",
+      "hint": "0 turns merging off"
     },
     "webEntry": {
       "count": "Entries {{count}}",
@@ -2004,8 +2030,10 @@
       "close": "Close usage",
       "session5h": "Current session (5 hours)",
       "weekly7d": "Weekly limit (7 days)",
+      "fiveHourLimit": "5-hour limit",
+      "weeklyAll": "Weekly limit (all models)",
       "noValue": "--",
-      "resetsIn": "Resets in {{span}}",
+      "resetsAtIn": "Resets {{time}} · in {{span}}",
       "resetUnknown": "Reset time unknown",
       "resettingNow": "Resetting now",
       "spanDh": "{{d}}d {{h}}h",
@@ -2030,7 +2058,7 @@
       "emptyOff": "No usage data yet — the collector is off. Turn it on below, then open an interactive Claude Code session once.",
       "emptyWaiting": "Collector is on, waiting for the first reading. Values arrive when an interactive Claude Code session draws its status line — a terminal bubble on the canvas, or Claude Code in your editor. Agents Vibisual runs headlessly have no status line, so they never report.",
       "refresh": "Refresh",
-      "weeklyScoped": "Weekly limit — {{model}}",
+      "weeklyScoped": "Weekly limit ({{model}})",
       "creditsTitle": "Usage credits",
       "creditsOn": "On",
       "creditsOff": "Off",
@@ -2112,7 +2140,9 @@
           "notAnthropic": "This does not look like an Anthropic API key. It should start with sk-ant-.",
           "adminKey": "Admin keys cannot run models. Create a regular API key.",
           "oauthToken": "This is a sign-in token, not an API key.",
-          "whitespace": "The key contains spaces. Paste it again without them."
+          "whitespace": "The key contains spaces. Paste it again without them.",
+          "notOpenai": "This doesn't look like an OpenAI API key. OpenAI keys start with sk- (Anthropic keys go on the Claude side).",
+          "notAdminKey": "Spend can only be read with an admin key (sk-admin-…). Project and service account keys cannot read organization costs."
         },
         "keySaveFailed": "The key could not be saved. Try again.",
         "liveRunsNow": "Running on credits now: {{count}}",
@@ -2164,6 +2194,50 @@
           "lastValue": "Showing the last value read."
         }
       },
+      "openaiCredit": {
+        "title": "API credits (OpenAI Platform)",
+        "status": {
+          "blocked": "Refused by OpenAI"
+        },
+        "modeHintConsole": "Off: credits take over only after your ChatGPT plan's Codex limits are reached. On: credits are used first, and the subscription is used whenever OpenAI refuses credits.",
+        "keyPlaceholder": "sk-proj-…",
+        "keyVerified": {
+          "rejected": "Refused by OpenAI"
+        },
+        "keyCreate": "Create a key on the OpenAI Platform",
+        "reason": {
+          "cloud-provider": "Codex on this computer is set to another model provider ({{provider}}), so credits are not used. Runs are billed by that provider.",
+          "blocked": "OpenAI refused the last credit run, so new runs use your subscription."
+        },
+        "block": {
+          "balance-empty": "OpenAI refused the credit run because the organization's credit balance or usage limit was reached.",
+          "spend-limit": "OpenAI refused the credit run because a usage limit was reached.",
+          "key-invalid": "OpenAI refused the API key."
+        },
+        "console": {
+          "title": "This month's spend (OpenAI Platform)",
+          "asOf": "Since {{start}} · updated {{time}} · same data as the Platform usage page",
+          "resetsOn": "Counted for the UTC calendar month · the next month starts {{date}} (UTC)",
+          "viewSpendLimits": "View usage limits on the Platform",
+          "pending": "Reading Platform spend…",
+          "limitsNote": "Usage limits and the credit balance are managed on the OpenAI Platform, and OpenAI offers no public API to read them, so Vibisual neither shows nor enforces its own limits. When a limit is reached or credits run out, OpenAI refuses the run and Vibisual switches back to your subscription.",
+          "needKeyTitle": "Add an admin key to show Platform spend",
+          "needKeyBody": "Vibisual reads this month's spend with OpenAI's official Costs API, which requires an admin key (sk-admin-…). Organization owners can create one on the Platform's admin keys page.",
+          "createAdminKey": "Create an admin key on the Platform",
+          "adminKey": "Admin key (for reading spend)",
+          "adminKeyPlaceholder": "sk-admin-…",
+          "adminKeyHint": "Used only to read spend — this key cannot run models.",
+          "error": {
+            "auth": "OpenAI refused the key because it is not an admin key or it was revoked. Create an admin key (sk-admin-…) as an organization owner and enter it here.",
+            "forbidden": "This key cannot read spend. Use an admin key created by an organization owner.",
+            "not-found": "OpenAI could not find spend data for this key.",
+            "rate-limited": "OpenAI asked to wait before reading spend again. It refreshes automatically.",
+            "network": "Could not reach OpenAI. It refreshes automatically.",
+            "unreadable": "This admin key cannot be read on this computer. Enter it again.",
+            "other": "Could not read Platform spend."
+          }
+        }
+      },
       "creditPages": {
         "tabsLabel": "Credit types",
         "billedLabel": "Billed by",
@@ -2171,13 +2245,13 @@
         "vibisualLabel": "In Vibisual",
         "subscription": {
           "tab": "Plan limits",
-          "what": "The 5-hour and weekly usage limits included in your Claude Pro or Max plan.",
+          "what": "The usage limits included in your Claude plan. Pro and Max have a 5-hour limit and a weekly limit. Ultra has only a weekly limit once your account is verified. Max and Ultra also have a separate weekly limit for some models.",
           "billed": "Your claude.ai subscription, a flat monthly fee.",
           "vibisual": "Used by default for every Claude run, both headless and CMD."
         },
         "personal": {
           "tab": "Personal credits",
-          "what": "Extra usage on your personal claude.ai account. You turn it on at claude.ai so you can keep working after your plan limit is reached.",
+          "what": "Usage credits on your personal claude.ai account. Turn them on and prepay at claude.ai, and Claude keeps working on credits after a plan limit is reached, until your monthly spend limit or your balance runs out.",
           "billed": "The payment method on your claude.ai account.",
           "vibisual": "Vibisual does not choose it. If it is on, Claude Code uses it on its own after the plan limit. This page only reads it."
         },
@@ -2203,6 +2277,28 @@
           "activeNote": "Every Claude run from Vibisual is billed to this cloud. Personal and business credits are not used, and the business credit route stays off.",
           "inactiveNote": "Claude Code on this computer is not set to a cloud provider, so no cloud credit is used. To use one, set Claude Code up for that provider first.",
           "docs": "How to run Claude Code on a cloud provider"
+        },
+        "vendorLabel": "Credit provider",
+        "vendor": {
+          "anthropic": "Claude",
+          "openai": "OpenAI"
+        },
+        "openai": {
+          "subscription": {
+            "what": "The Codex usage limits included with your ChatGPT plan. Plans have a 5-hour limit and a weekly limit.",
+            "billed": "Your ChatGPT subscription, a flat monthly fee.",
+            "vibisual": "Used by default for every Codex run, both background (headless) and CMD."
+          },
+          "personal": {
+            "what": "Codex credits on your ChatGPT account. When you buy credits, Codex keeps working on them after your plan limits are reached. Reset passes restore your usage limits.",
+            "billed": "The payment method on your ChatGPT account.",
+            "vibisual": "Vibisual does not choose them. Codex uses them on its own after the plan limits. This page only reads them."
+          },
+          "business": {
+            "what": "API credits of your OpenAI Platform (platform.openai.com) organization. Credits you buy or are granted land here.",
+            "billed": "Deducted from the organization's API credits on the OpenAI Platform. Runs stop when they run out, and your card is charged only if auto recharge is on.",
+            "vibisual": "When turned on, used only for background (headless) Codex runs, not for CMD or hook bubbles. By default, only after your ChatGPT plan limits for Codex are reached."
+          }
         }
       }
     },
@@ -2412,6 +2508,11 @@
         "empty": "No image in this node yet",
         "emptyHint": "Link this node to an agent with the + on its input card. The images that agent delivers will show up here.",
         "loadFailed": "Could not open this image",
+        "retry": "Try again",
+        "viewControls": "View controls",
+        "editHint": "Mark up, crop or remove the background right here — the same quick editor as in the IDE",
+        "layerEdit": "Layer edit",
+        "layerEditHint": "Make an editable source with layers to add text and shapes and export several sizes. The original file stays as it is.",
         "editor": {
           "properties": "Layer properties",
           "importedImage": "Imported image (one layer)",
@@ -4262,6 +4363,9 @@
       "blocked": "Nothing was created — no project folder is open yet. Agents work inside a folder you choose, so pick one first.",
       "detail": "Everything Vibisual saves for a project lives inside that folder, and agents may only read and edit files under it. You can open more folders later from File → Open Folder.",
       "cancelled": "No folder was chosen yet. Choose one to continue.",
+      "errorPickerMissing": "No folder picker is available on this computer. Install zenity or kdialog, then try again.",
+      "errorFailed": "The folder could not be opened as a project.",
+      "errorNetwork": "Could not reach the Vibisual server. Check that the app is still running, then try again.",
       "choose": "Choose Folder",
       "picking": "Choosing…",
       "later": "Later"
@@ -4369,7 +4473,8 @@
       },
       "trigger": {
         "auto": "automatic",
-        "manual": "manual"
+        "manual": "manual",
+        "snapshot": "snapshot"
       },
       "copyMirrored": "copy kept",
       "copyIndexOnly": "index only",
@@ -4398,7 +4503,11 @@
       "restoreAsDelete": "Restore by deleting",
       "restoredAt": "restored {{at}}",
       "resumeMode": "Continue it",
-      "freshMode": "New tab",
+      "freshMode": "New + briefing",
+      "freshModeTip": "Opens a new session and, on its first turn, hands it what the vault kept from this conversation — goal, steps, files it was working on, and where the old transcript is. Use this when the transcript is too big to continue.",
+      "snapshotNow": "Snapshot now",
+      "snapshotNowTip": "Copy this session's transcript into the vault now, without waiting for the next compaction.",
+      "snapshotFailed": "couldn't copy",
       "mirroredOnly": "copy only",
       "resumeRisky": "large",
       "ncNote": "The summary may have reworded these rather than dropped them — this list only says they did not appear in it.",
@@ -4798,7 +4907,9 @@
       "discardConfirm": "Discard and close",
       "renderFailed": "Could not render the marked image.",
       "noSession": "No session to attach this image to.",
-      "saveFailed": "Could not save the marked image."
+      "saveFailed": "Could not save the marked image.",
+      "openLayersHint": "Continue in the layer editor — this picture, with your marks, becomes one layer you can add text and shapes to",
+      "openLayersFailed": "Could not open the layer editor."
     },
     "overlay": {
       "closeLabel": "Close IDE",
@@ -5121,9 +5232,13 @@
       "voiceListening": "Listening — speak now",
       "voiceCancelHint": "Esc to discard",
       "voiceDone": "Done",
+      "voiceErrInsecureContext": "Microphone access requires a trusted HTTPS connection. Open the HTTPS address in Remote access > Mobile Access and trust its connection certificate.",
+      "voiceMicSettingsHintIos": "On iPhone or iPad, allow microphone access in the browser’s settings for this website. Also check microphone permissions for your browser in device settings, then reload this page.",
+      "voiceMicSettingsHintAndroid": "On Android, allow the microphone in your browser’s site settings and in Android Settings > Apps > your browser > Permissions, then reload this page.",
+      "voiceMicSettingsHintBrowser": "Allow microphone access for this website in your browser’s site settings. Also allow your browser to use the microphone in your device privacy settings, then reload this page.",
       "voiceErrUnsupported": "Speech recognition is not available in this build.",
-      "voiceErrPermission": "Microphone access was denied. Allow it for this app in your system privacy settings, then try again.",
-      "voiceErrDevice": "No microphone was found. Connect one and try again.",
+      "voiceErrPermission": "Allow microphone access for this site in your browser and for the browser or app in your device privacy settings, then try again.",
+      "voiceErrDevice": "Could not open the microphone. Check microphone permissions and the input device, then try again.",
       "voiceErrNoDevice": "No microphone found. Please connect a microphone.",
       "voiceErrDeviceBusy": "Another app is using the microphone. Close it and try again.",
       "voiceErrNetwork": "Could not reach the speech recognition service.",
@@ -5134,9 +5249,9 @@
       "voiceMicHintRightClick": "Right-click: microphone settings",
       "voiceMicSettingsAction": "How to fix",
       "voiceMicSettingsTitle": "Microphone settings",
-      "voiceMicSettingsBody": "This app needs microphone access to be allowed by your OS.",
-      "voiceMicSettingsBlockedBody": "Could not open the microphone. Usually this means microphone access is turned off in your OS settings.",
-      "voiceMicSettingsNoDeviceBody": "No microphone is connected to this PC. Connect one and try again.",
+      "voiceMicSettingsBody": "Microphone access must be allowed by your browser and your device.",
+      "voiceMicSettingsBlockedBody": "Could not open the microphone. Check site permissions, device privacy settings, and the input device.",
+      "voiceMicSettingsNoDeviceBody": "No microphone is available on this device. Check the built-in microphone or connect one, then try again.",
       "voiceMicSettingsOpen": "Open settings",
       "voiceMicSettingsHintWin": "Turn on both \"Microphone access\" and \"Let desktop apps access your microphone\" at the bottom of the list. Because of how this app is installed, its name does not appear in the app list.",
       "voiceMicSettingsHintMac": "Enable Vibisual under Privacy & Security > Microphone. If you just enabled it, restart the app for it to take effect.",
@@ -5159,9 +5274,12 @@
       "sendRejected": "The request was rejected. Your text and attachments have been restored. Review the conversation before sending again.",
       "sendUnconfirmed": "Could not confirm delivery. Your text and attachments have been restored. Check the conversation before sending again.",
       "localImagesUnsupported": "All Model does not support image input yet. Remove the images or choose another provider to send this message.",
+      "attachmentsMissing": "Nothing was sent because an attached image is no longer available. Your text is back; remove the marked image or attach it again.",
+      "attachmentMissing": "This image is no longer available. Remove it or attach it again.",
       "liveDelivery": {
         "waiting": "Waiting to send",
         "sending": "Sending…",
+        "received": "Received",
         "delivered": "Delivered",
         "unavailable": "Unable to deliver",
         "uncertain": "Delivery unconfirmed",
@@ -5175,6 +5293,7 @@
         "hint": {
           "waiting": "This message is waiting to be sent to the current task.",
           "sending": "Waiting for the agent to acknowledge receipt.",
+          "received": "The agent has received this message. It will be added to the current task as soon as the step in progress (a tool run or a long thought) finishes. It will not be sent again.",
           "delivered": "Delivered as an additional instruction to the current task.",
           "unavailable": "Choose {{wait}} to send it after the current task, or {{immediate}} to stop the current task and start with this message.",
           "uncertain": "This message will not be resent automatically. Changing or deleting it is locked to avoid duplicate delivery; you can still copy the text."
@@ -5281,7 +5400,9 @@
       "next": "Next",
       "back": "Back",
       "send": "Send",
-      "sending": "Sending…"
+      "sending": "Sending…",
+      "sendRejected": "Your answer was not accepted. Your choices are kept, so you can send again.",
+      "sendUnconfirmed": "Your answer may not have been delivered. Your choices are kept, so you can send again."
     },
     "activityBar": {
       "mcp": "MCP",
@@ -5310,7 +5431,8 @@
       "moveDown": "Move down",
       "exclude": "Remove from bar",
       "add": "Add to bar",
-      "noExcluded": "No excluded items"
+      "noExcluded": "No excluded items",
+      "localAssist": "Finish assist"
     },
     "mcp": {
       "title": "MCP servers",
@@ -5816,7 +5938,9 @@
       "compacting": "compacting",
       "delegating": "Waiting for other agents",
       "delegatingHint": "This turn is waiting for another agent’s result. You can still stop it.",
-      "compactingHint": "The context is full, so the CLI is summarizing the earlier conversation to make room. This usually takes a few minutes — no new output in the meantime is normal."
+      "compactingHint": "The context is full, so the CLI is summarizing the earlier conversation to make room. This usually takes a few minutes — no new output in the meantime is normal.",
+      "nestedSubagentTokens": "{{tokens}} tokens · {{percent}}% of its context",
+      "nestedSubagentTokensOnly": "{{tokens}} tokens"
     },
     "report": {
       "title": "Work report",
@@ -6638,7 +6762,9 @@
         "user": "Adjusted by you",
         "plan": "Derived from the plan"
       },
-      "openStage": "Open view"
+      "openStage": "Open view",
+      "stepVerified": "Verified",
+      "stepVerifiedHint": "A verification run passed after this step was marked done ({{time}})."
     },
     "hooks": {
       "title": "Session hooks",
@@ -7334,7 +7460,15 @@
         "maxMembers": "Most members it may create",
         "memberIsolation": "Give each member its own working tree",
         "memberIsolationHint": "Every member is born in its own git worktree, so workers running side by side cannot collide on the same files. Merging the branches afterwards is yours to do. Claude members only — Codex has no matching flag.",
-        "memberToolTemplate": "Tools members are born with"
+        "memberToolTemplate": "Tools members are born with",
+        "allowSelf": "Allow doing it directly",
+        "allowSelfHint": "Adds a \"do it directly\" choice. The same session then reruns your request with its normal settings, keeping its context, instead of handing it off.",
+        "crossEngineReview": "Review with the other engine",
+        "crossEngineReviewHint": "Review members are created on the engine that did not write the code, when that engine is ready.",
+        "formationBasis": "How to split the work",
+        "formationBasisHint": "Auto Agent uses the same choice for this project.",
+        "splitRules": "Load the conductor rules in parts",
+        "splitRulesHint": "Each conductor turn carries only the decision part. The step-by-step procedure is read after a team shape is chosen."
       },
       "permission": {
         "bypass": "Skip permission prompts",
@@ -7401,7 +7535,11 @@
         "members": "Members ({{count}}): {{names}}",
         "created": "— {{count}} newly created",
         "tokens": "Tokens: {{input}} in · {{output}} out",
-        "noPlan": "The conductor finished without reporting a plan."
+        "noPlan": "The conductor finished without reporting a plan.",
+        "splitBasis": "Why it was split:",
+        "reviewer": "Reviewed by {{name}}",
+        "tokenSplit": "Coordination {{coordination}} · Work {{work}} tokens",
+        "tokenSplitPartial": "(from the recorded handoffs only)"
       },
       "phase": {
         "conducting": "Conducting",
@@ -7423,7 +7561,8 @@
         "none": "No team",
         "single": "One member",
         "pipeline": "Pipeline",
-        "parallel": "In parallel"
+        "parallel": "In parallel",
+        "self": "Do it directly"
       },
       "readiness": {
         "setup": "{{engine}} needs installation before it can run.",
@@ -7433,6 +7572,60 @@
         "recheck": "Check again",
         "auto": "Auto uses only engines that are installed and signed in.",
         "retry": "Your request was kept. Finish preparing {{engine}}, then send it again."
+      },
+      "verification": {
+        "verified": "Verified",
+        "received": "Received",
+        "rejected": "Review rejected",
+        "held": "Verdict held",
+        "noEvidence": "Approved without evidence",
+        "detail": "Last review: {{passed}} passed, {{failed}} failed (exit codes the app saw)",
+        "receivedHint": "The result came back, but no review checked it."
+      },
+      "hops": {
+        "title": "Handoff chain ({{count}})",
+        "role": {
+          "conductor": "Conductor",
+          "self": "Direct work",
+          "entry": "Entry",
+          "member": "Member",
+          "review": "Review",
+          "rework": "Rework"
+        },
+        "failed": "Failed",
+        "tokens": "{{count}} tokens",
+        "instruction": "Given:",
+        "result": "Returned:",
+        "waited": "Waited {{seconds}}s in the queue",
+        "concurrency": "(held by the concurrent-session limit)"
+      },
+      "scorecard": {
+        "title": "Scorecard by intent and team shape",
+        "about": "Counts every run kept for this project. Use it to decide whether to change a default; nothing changes on its own.",
+        "unplanned": "No plan reported",
+        "runs": "{{count}} runs",
+        "outcome": "Done {{completed}} · Verified {{verified}} · Errors {{error}} · No plan {{unreported}}",
+        "average": "Average {{tokens}} tokens · {{seconds}}s",
+        "averageTokens": "Average {{tokens}} tokens"
+      },
+      "suggestions": {
+        "title": "Cleanup suggestions",
+        "foldTitle": "Could be merged",
+        "fold": "{{from}} only receives work from {{into}} and passes nothing on ({{count}} runs together). It could become a skill of {{into}}.",
+        "idleTitle": "Not used for a while",
+        "idle": "{{name}} was last in a run on {{date}} ({{count}} runs in total).",
+        "note": "These are suggestions only. Nothing is merged or deleted automatically.",
+        "exportSkill": "Export as skill",
+        "exported": "Saved as project skill \"{{name}}\".",
+        "exportFailed": "Could not export: {{reason}}"
+      },
+      "newPaths": {
+        "title": "New options (off by default)",
+        "about": "While these stay off, the conductor behaves exactly as before."
+      },
+      "formationBasis": {
+        "role": "By role (current)",
+        "dependency": "By dependency"
       }
     },
     "configTrim": {
@@ -7527,6 +7720,120 @@
         "title": "Recent turns",
         "empty": "No turn has been trimmed in this project yet.",
         "counts": "{{trimmed}} / {{excluded}}"
+      }
+    },
+    "localAssist": {
+      "title": "Finish assist",
+      "intro": "Options that help a local model finish the job on this PC. Nothing changes until you turn something on.",
+      "saving": "Saving…",
+      "saveFailed": "Could not save the options — try again.",
+      "activity": {
+        "progress": "plan steps done {{progress}}"
+      },
+      "preset": {
+        "label": "Presets",
+        "off": "Off",
+        "lowSpec": "Low-spec safe",
+        "balanced": "Balanced",
+        "longTask": "Long task",
+        "custom": "Custom — you changed individual options below.",
+        "hint": {
+          "off": "Everything off — the local model runs exactly as before.",
+          "lowSpec": "Lighter memory use and an engine that leaves room for your other apps; tidies the context early.",
+          "balanced": "Compressed memory and automatic tidying before the context fills up.",
+          "longTask": "Writes a plan first, then works through it one step at a time with a fresh context each round."
+        }
+      },
+      "section": {
+        "engine": "Keep the PC steady",
+        "context": "Keep the context lean",
+        "progress": "Finish the job"
+      },
+      "engine": {
+        "restartHint": "Engine options take effect from the next turn — the engine restarts once."
+      },
+      "kvCache": {
+        "label": "Memory compression (KV cache)",
+        "hint": "Stores the conversation memory in fewer bits. q8_0 needs about half the memory with little quality loss.",
+        "f16": "Off"
+      },
+      "moe": {
+        "label": "MoE experts on the CPU",
+        "hint": "For mixture-of-experts models: keeps expert weights in system memory so a small GPU does not overflow.",
+        "auto": "Auto",
+        "cpu": "CPU"
+      },
+      "lowSpec": {
+        "label": "Low-spec safe mode",
+        "hint": "Caps the engine's RAM cache, leaves CPU cores for your other apps and lowers the engine's priority."
+      },
+      "tidyAt": {
+        "label": "Tidy the context at",
+        "hint": "Clean up before the context fills up, instead of failing when it overflows.",
+        "off": "Off",
+        "value": "{{percent}}%"
+      },
+      "tidyMethod": {
+        "label": "How to tidy",
+        "mask": "Hide old tool output",
+        "summarize": "Summarize",
+        "handoff": "Hand off",
+        "ask": "Stop and ask",
+        "hint": {
+          "mask": "Replaces older tool results with short placeholders and keeps the latest two rounds.",
+          "summarize": "Hides old tool output first, then folds the earlier conversation into a summary if it is still too full.",
+          "handoff": "Writes a handoff note and continues in a fresh context with just that note and your request.",
+          "ask": "Stops the turn and tells you how full the context is, so you can decide."
+        }
+      },
+      "outputCap": {
+        "label": "Tool output limit",
+        "hint": "How much of one tool result goes into the context.",
+        "short": "Short",
+        "normal": "Normal",
+        "long": "Long"
+      },
+      "keepFull": {
+        "label": "Keep full output in a file",
+        "hint": "Output that gets cut is saved in the project's .vibisual folder, and the model is told where to read the rest."
+      },
+      "planFirst": {
+        "label": "Plan first",
+        "hint": "The model writes a checklist first. Changes start only after you approve it here."
+      },
+      "relay": {
+        "label": "Relay mode",
+        "hint": "Works through the approved plan one step per round with a fresh context each time, until every step is checked.",
+        "verify": "Check command (optional)",
+        "verifyPlaceholder": "e.g. pnpm test",
+        "maxRounds": "Max rounds"
+      },
+      "resume": {
+        "label": "Resume faster",
+        "hint": "Saves the engine's memory of the last conversation to disk before the model unloads, so coming back does not re-read everything."
+      },
+      "keepLoaded": {
+        "label": "Keep the model loaded",
+        "hint": "How long an idle model stays in memory before it unloads.",
+        "value": "{{minutes}} min"
+      },
+      "plan": {
+        "state": {
+          "proposed": "Waiting for your approval",
+          "approved": "Approved",
+          "running": "Relay running",
+          "paused": "Paused",
+          "done": "Done"
+        },
+        "progress": "{{done}} of {{total}} steps",
+        "approve": "Go with this plan",
+        "resume": "Resume",
+        "reset": "New plan",
+        "empty": "Plan first or relay is on — your next message starts with a checklist.",
+        "noSession": "Open a session tab to see its plan.",
+        "more": "+{{count}} more steps",
+        "skipped": "skipped",
+        "actionFailed": "Could not do that: {{reason}}"
       }
     }
   },
@@ -7755,8 +8062,8 @@
       "connectTooltip": "Create the edge with these settings (Ctrl/Cmd+Enter).",
       "critiqueOptionsTip": "Critique-edge only. Sets when to intervene (Timing) and what to enforce on reject (Authority). Ignored for other kinds.",
       "critiqueOptions": "Critique Options",
-      "critiqueTimingTip": "Intermediate (default): review at each milestone during the target's work. More frequent / safer / slower. Final: a single final review after completion. Less frequent / faster.",
-      "critiqueTimingIntermediateTip": "Intermediate: review at each milestone during the target's work. (default)",
+      "critiqueTimingTip": "Intermediate (default): meant to review at each milestone during the target's work — for now it runs once when the target finishes, same as Final. Final: a single review after completion.",
+      "critiqueTimingIntermediateTip": "Intermediate: meant to review at each milestone during the target's work. For now it runs once when the target finishes, same as Final only. (default)",
       "critiqueTimingFinalTip": "Final only: a single final review after the target completes.",
       "critiqueTiming": "Timing",
       "critiqueTimingIntermediate": "Intermediate",
@@ -7770,7 +8077,8 @@
       "critiqueMaxReworkTip": "Max times the target may redo while in Force rework mode. Exceeding it auto-downgrades to comment-only and escalates to the parent session. A guard against infinite loops.",
       "critiqueMaxReworkActive": "Max {{max}} times. Auto-downgrades to comment-only when exceeded.",
       "critiqueMaxReworkInactive": "Not used in Comment only mode.",
-      "critiqueMaxRework": "Max Rework"
+      "critiqueMaxRework": "Max Rework",
+      "splitCheckTooltip": "Before you connect: 1) Is the work independent? If the next step needs the previous result, one agent usually does it better. 2) Will both sides touch the same files? 3) Is it clear what the result should contain?"
     }
   },
   "inspector": {
@@ -8353,9 +8661,9 @@
         "image": "Image group",
         "audio": "Sound group",
         "model": "3D group",
-        "code": "Code group",
+        "code": "HTML group",
         "data": "Data group",
-        "doc": "Document group",
+        "doc": "PDF group",
         "subtitle": "Subtitle group",
         "font": "Font group",
         "other": "File group"
@@ -8365,7 +8673,22 @@
       "title_one": "{{name}} — {{kind}} · {{count}} file",
       "title_other": "{{name}} — {{kind}} · {{count}} files",
       "enterHint": "Double-click to open this group and see only its files",
+      "previousPage": "Previous page",
+      "nextPage": "Next page",
+      "page": "{{page}} / {{pages}} · {{count}} files",
       "crumb": "{{name}} group"
+    },
+    "sessionMessage": {
+      "externalBadge": "Sent {{count}} message(s) to a session outside this canvas: {{names}}",
+      "panelTitle": "Recent messages between sessions",
+      "outside": "Outside session ({{name}})",
+      "sentTo": "Sent to",
+      "receivedFrom": "From",
+      "panelNote": "Only the fact that a message was sent is shown. Whether the other session accepted it depends on its permission mode."
+    },
+    "writeOverlap": {
+      "badge": "{{count}} agents edited this file within {{minutes}} min",
+      "panel": "Edited by {{names}} within {{minutes}} min. Their changes may overwrite each other."
     }
   },
   "common": {
@@ -8692,7 +9015,9 @@
       "queuedIt": "Queued.",
       "composerHint": "Type a command and press Enter to send it to this session."
     },
-    "jumpUnavailable": "Jumping to the main window works only in the Vibisual desktop app."
+    "jumpUnavailable": "Jumping to the main window works only in the Vibisual desktop app.",
+    "sessionMessages": "{{count}} msg sent",
+    "sessionMessagesTip": "Messages this session just sent to other sessions"
   },
   "localModel": {
     "title": "All Model",

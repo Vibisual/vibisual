@@ -63,12 +63,14 @@
       "confirmCloseForceAllHint": "開いているすべてのプロジェクトのエージェントを停止してから閉じます。"
     },
     "usage": {
-      "tooltip": "現在のセッション: 5時間の上限の{{percent}}%を使用 — クリックで詳細",
+      "tooltip": "5時間の上限の{{percent}}%を使用 — クリックで詳細",
+      "tooltipWeekly": "週間上限（全モデル）の{{percent}}%を使用済み — クリックで詳細を表示",
       "tooltipNoData": "まだ使用量を受け取っていません — クリックで詳細",
       "tooltipWaiting": "Claude Code から使用量を取得中です — まもなく数値が表示されます",
       "tooltipCliUnavailable": "使用量を読み取るための Claude Code を実行できませんでした — クリックで詳細",
       "creditActive": "新しい実行で API クレジットを使用中",
-      "creditBlocked": "Anthropic が API クレジットを拒否したため、実行はサブスクリプションを使用中"
+      "creditBlocked": "Anthropic が API クレジットを拒否したため、実行はサブスクリプションを使用中",
+      "creditBlockedOpenai": "OpenAI が API クレジットを拒否しました — 実行はサブスクリプションを使用します"
     },
     "setupBanner": {
       "text": "Claude Code がインストールされていません — エージェントはまだ実行できません。",
@@ -131,7 +133,7 @@
     },
     "mobileAccess": {
       "title": "モバイルアクセス",
-      "subtitle": "スマートフォンのブラウザで Vibisual を開きます。オンにして、下のいずれかのアドレスをスマートフォンで開き、ペアリングコードを入力してください。",
+      "subtitle": "スマートフォンのブラウザーで Vibisual を開きます。アクセスをオンにして、スマートフォンに接続証明書をインストールして信頼した後、下の HTTPS アドレスを開き、ペアリングコードを入力してください。",
       "statusOn": "ローカルネットワークで待機中",
       "statusOff": "オフ",
       "enable": "オンにする",
@@ -151,9 +153,14 @@
       "externalManual": "ポートを自動的に開放できませんでした（ルーターのUPnPがオフの可能性があります）。手動で設定するには、ルーターの設定で外部TCPポート{{port}}をこのPCの{{ip}}:{{port}}へ転送してください。",
       "externalManualUrl": "ポート転送が完了したら、次のアドレスで外部から接続できます:",
       "externalReachable": "接続可能 — 次のアドレスで外部から接続:",
-      "externalHttpsNote": "自己署名証明書を使用しているため、初回はスマートフォンにセキュリティ警告が表示されます。「詳細設定 → 続行」をタップして進んでください。接続自体は暗号化されています。",
+      "secureAccessNote": "モバイルでのマイク使用には、HTTPS と端末が信頼する証明書が必要です。",
+      "certificateDownload": "接続証明書をダウンロード",
+      "certificateTrustNote": "この PC の CA 証明書を端末の信頼する証明書としてインストールしてください。iPhone・iPad では「設定 > 一般 > 情報 > 証明書信頼設定」でも有効にします。Android ではセキュリティ設定から CA 証明書をインストールします。その後 HTTPS アドレスを開き直してください。",
+      "certificateFingerprintTitle": "接続 CA 証明書のフィンガープリント (SHA-256)",
+      "certificateFingerprintNote": "証明書を信頼する前に、SHA-256 フィンガープリントをこの PC の「リモートアクセス > モバイルアクセス」の値と比較してください。異なる場合はインストールしないでください。",
+      "externalHttpsNote": "マイクを使うには、この PC の接続証明書を端末にインストールして信頼してください。ブラウザーの警告を無視するだけではマイクは有効になりません。",
       "qrTitle": "QRペアリング",
-      "qrSubtitle": "スマートフォンのカメラで読み取るだけで Vibisual が開き、ペアリングまで完了します — アドレスもコードも入力不要です。QR 1 枚は {{minutes}} 分間、{{max}} 台まで有効です。",
+      "qrSubtitle": "接続証明書を信頼した後、スマートフォンのカメラで読み取ると、アドレスやコードを入力せずに Vibisual を開いてペアリングできます。QR 1 枚は {{minutes}} 分間、{{max}} 台まで有効です。",
       "qrIssue": "QRを発行",
       "qrReissue": "QRを再発行",
       "qrRevoke": "今すぐ失効",
@@ -179,7 +186,7 @@
           "other": "判別不能"
         },
         "hint": {
-          "lan": "自宅やオフィスのネットワークです。スマートフォンがこのPCと同じWi-Fiまたはルーターに接続していれば、そのまま開けます。",
+          "lan": "自宅やオフィスのネットワークです。スマートフォンをこの PC と同じ Wi-Fi またはルーターに接続し、接続証明書を信頼した状態で HTTPS アドレスを開いてください。",
           "vpn": "ルーターではなく、TailscaleやZeroTierのような仮想プライベートネットワークのアプリが割り当てたアドレスです。スマートフォンも同じネットワークにサインインしている必要がありますが、その場合はモバイルデータを含めどこからでも開けます。",
           "vpnNamed": "ルーターではなく {{product}} が割り当てたアドレスです。スマートフォンも同じ {{product}} のネットワークにサインインしている必要がありますが、その場合はモバイルデータを含めどこからでも開けます。",
           "external": "ルーターが開放したポート経由で、インターネットからこのPCに到達するアドレスです。",
@@ -755,9 +762,11 @@
         "engineBridgeStatusError": "ブリッジの状態を読み取れませんでした。",
         "engineBridgeRefresh": "再確認",
         "externalBudgetTitle": "プロジェクト外のフォルダ",
-        "externalBudgetIntro": "エージェントがプロジェクト外のフォルダを操作すると、その場所専用のバブルが作られます。放置すると、そうしたバブルはマップを埋め尽くすか、何も伝えない一つの塊に潰れてしまいます。この数値は、トップレベルに同時に表示される場所の数を設定するものです。最も活発で直近の場所から優先的に表示され、動きが止まった場所は親バブルの下に折りたたまれます。",
+        "externalBudgetIntro": "パスの先頭から指定した階層までが同じ外部フォルダのバブルをまとめます。この設定はプロジェクト外のフォルダにのみ適用されます。",
         "externalBudgetLabel": "トップレベルに表示する外部フォルダ数",
-        "externalBudgetDesc": "ピン留めしたフォルダはこの数に含まれません。ピン留めしたフォルダは常にトップレベルに表示されます。この設定によって何かが削除されることはありません。収まらない場所は、内部の件数を示す親バブルの下に折りたたまれます。",
+        "externalBudgetDesc": "統合の深さが0の場合に使用します。活動が多く最近使われたフォルダをこの数までトップレベルに表示します。ピン留めしたフォルダは数に含めません。パスの統合中は活動量によってグループが分かれることはありません。ファイルは削除されません。",
+        "externalMergeDepthLabel": "外部フォルダの統合の深さ",
+        "externalMergeDepthDesc": "既定値は2階層です。数字が小さいほど広くまとめ、0でパスの統合を無効にします。ルート・ドライブ・ネットワーク共有名の次のフォルダから数えます。例：C:/Users/<name>/.codex/...とC:/Users/<name>/.claude/...は<name>まで2階層が共通です。まとめたバブル内で各ファイルを引き続き開けます。プロジェクトごとに、外部フォルダーバブルの詳細から個別に設定できます。",
         "externalBudgetLoadError": "現在の設定を読み込めませんでした。",
         "externalBudgetSaveError": "保存できませんでした。変更内容は反映されていません。",
         "webFoldIntro": "エージェントがウェブを読むと、読んだドメインごとにバブルが作られるため、1つのエージェントが調査するだけでキャンバスが埋め尽くされることがあります。これらの設定でバブルをグループ化します。何も削除されず、グループをクリックすると、含まれるドメインが1件ずつ一覧表示されます。",
@@ -875,7 +884,7 @@
         "autoCompactWindowOff": "設定のまま",
         "autoCompactWindowDesc": "ここでは最も効果が大きい設定です。3日間計測したところ、セッションの中央値は186kトークンで、200kを超える部分が入力全体の62%を占めていました。ターンのたびにこの部分を読み直すことになります。同じ作業でウィンドウを400kから200kに下げると入力が27%減り、100kまで下げると59%減りました。この設定は下げる方向にしか働きません：agentや初期値がすでにこれより低い場合は、そちらが優先されます。折りたたみ自体が大きなリクエストになるため、最も低い設定が必ずしも最も安いとは限りません。このウィンドウが決めるのはコマンドの合間に畳む位置だけです。作業の途中では、モデルのウィンドウが満杯になったときだけ CLI が畳みます。"
       },
-      "creditsIntro": "Claude のクレジットは、複数のウォレットに分かれています。各ページでは 1 つのウォレットについて、その内容、請求元、管理場所、Vibisual が使用するかどうかを説明します。"
+      "creditsIntroVendors": "Claude と OpenAI のクレジットは、それぞれ複数のウォレットから提供されます。プロバイダーを選ぶと、各ページに 1 つのウォレットが表示されます。内容、請求元、管理場所、Vibisual が使用するかどうかを確認できます。"
     },
     "autoAgent": {
       "title": "Auto Agent",
@@ -1433,7 +1442,8 @@
       },
       "subagentDepth": {
         "label": "サブエージェントの深さ",
-        "layers": "{{count}}階層"
+        "layers": "{{count}}階層",
+        "splitHint": "subagentを増やす前に、まず指示を見直してください。依存する作業を分割すると、引き継ぐたびにコンテキストが失われます。"
       },
       "cliOptions": {
         "label": "CLI オプション",
@@ -1491,7 +1501,7 @@
       "fastMode": {
         "label": "Fast モード",
         "hint": "同じ Opus のまま出力が速くなります",
-        "unsupported": "Opus 4.8 / Opus 5 のみ",
+        "unsupported": "Opus 5.x のみ",
         "tip": "同じ Opus モデルを出力速度だけ速くして動かします — 小さいモデルに落とすわけではありません。CLI フラグではありません: ヘッドレスのエージェントは Agent SDK セッションとして扱われ、設定によるオプトインしか受け付けないため、Vibisual がこのエージェント用にすでに書いている設定ファイルへ一緒に載せて渡します。対応していないモデルは、何のメッセージもなくこの設定を無視します。"
       },
       "thinking": {
@@ -1690,6 +1700,8 @@
       "denyReasonPlaceholder": "例: 誤ったパス、安全でないコマンド",
       "shortcutHint": "{{shortcut}} = 許可 · Esc = 拒否",
       "stackCount": "{{total}}件中{{current}}件目",
+      "sendRejected": "Vibisual はこの回答を受け付けませんでした。リクエストはまだ待機中なので、もう一度選んでください。",
+      "sendUnconfirmed": "回答が Vibisual に届いていない可能性があります。リクエストはまだ待機中なので、もう一度回答してください。",
       "emptyToolInput": "（空）",
       "askedByToolTitle": "確認を求めたツール",
       "askedByToolHint": "このagentの設定で{{tool}}を「使用前に確認」に指定したため、バイパスモードでも確認を求めます。",
@@ -1874,13 +1886,27 @@
       "empty": "空のフォルダー",
       "visible": "表示中 ({{count}})",
       "satellites": "サテライト {{count}}",
-      "maxTitle": "このフォルダーの最大サテライト数",
-      "constellationSlotHint": "1つのファイルを中心にグループ化されたファイルは、1スロットとして数えられます",
+      "maxTitle": "このフォルダーの文書サテライトの最大数",
+      "bundleMaxTitle": "このグループのサテライトの最大数",
+      "maxSaveFailed": "サテライト数の上限を保存できませんでした。もう一度お試しください。",
+      "constellationSlotHint": "プレビューできるファイルはこの制限の対象外で、引き続き表示されます。各グループのサテライト数は個別に設定できます。",
       "maxHint": "Enter・Esc",
       "maxSave": "保存",
       "maxDecrease": "減らす",
       "maxIncrease": "増やす",
       "noVisible": "表示ファイルなし"
+    },
+    "externalMergeDepth": {
+      "label": "パス統合",
+      "levels": "{{depth}}階層",
+      "off": "オフ",
+      "projectValue": "このプロジェクトの値",
+      "defaultValue": "既定値",
+      "edit": "パス統合の深さを変更",
+      "reset": "既定値に戻す",
+      "title": "パス統合の深さ",
+      "note": "パスの先頭 N 階層が同じ外部フォルダーを 1 つのバブルにまとめます。このプロジェクトのすべての外部フォルダーに適用されます。",
+      "hint": "0 でまとめない"
     },
     "webEntry": {
       "count": "項目 {{count}}",
@@ -2004,8 +2030,10 @@
       "close": "使用量を閉じる",
       "session5h": "現在のセッション（5時間）",
       "weekly7d": "週間上限（7日）",
+      "fiveHourLimit": "5時間の上限",
+      "weeklyAll": "週間上限（全モデル）",
       "noValue": "--",
-      "resetsIn": "{{span}}後にリセット",
+      "resetsAtIn": "{{time}}にリセット · あと{{span}}",
       "resetUnknown": "リセット時刻は不明",
       "resettingNow": "リセット中",
       "spanDh": "{{d}}日 {{h}}時間",
@@ -2030,7 +2058,7 @@
       "emptyOff": "使用量データはまだありません — コレクターがオフです。下でオンにしてから、対話型の Claude Code セッションを一度開いてください。",
       "emptyWaiting": "コレクターはオンで、最初の値を待っています。値は対話型の Claude Code セッションがステータスラインを描画したときに届きます（キャンバスのターミナルバブル、またはエディタの Claude Code）。Vibisual がヘッドレスで動かすAgentにはステータスラインがないため報告しません。",
       "refresh": "更新",
-      "weeklyScoped": "週間上限 — {{model}}",
+      "weeklyScoped": "週間上限（{{model}}）",
       "creditsTitle": "使用クレジット",
       "creditsOn": "オン",
       "creditsOff": "オフ",
@@ -2112,7 +2140,9 @@
           "notAnthropic": "Anthropic の API キーではないようです。sk-ant- で始まっている必要があります。",
           "adminKey": "管理者キーではモデルを実行できません。通常の API キーを作成してください。",
           "oauthToken": "これは API キーではなく、サインイン用のトークンです。",
-          "whitespace": "キーに空白が含まれています。空白を除いて貼り付け直してください。"
+          "whitespace": "キーに空白が含まれています。空白を除いて貼り付け直してください。",
+          "notOpenai": "OpenAI の API キーではないようです。OpenAI のキーは sk- で始まります(Anthropic のキーは Claude 側に入力してください)。",
+          "notAdminKey": "支出の読み取りには admin キー(sk-admin-…)が必要です。プロジェクトキーやサービスアカウントキーでは組織のコストを読み取れません。"
         },
         "keySaveFailed": "キーを保存できませんでした。もう一度お試しください。",
         "liveRunsNow": "現在クレジットで実行中：{{count}}件",
@@ -2164,6 +2194,50 @@
           "lastValue": "最後に読み取った値を表示しています。"
         }
       },
+      "openaiCredit": {
+        "title": "API クレジット(OpenAI Platform)",
+        "status": {
+          "blocked": "OpenAI に拒否されました"
+        },
+        "modeHintConsole": "オフ: ChatGPT プランの Codex 上限に達した後にのみクレジットへ切り替わります。オン: クレジットを優先して使用し、OpenAI がクレジットを拒否した場合はサブスクリプションを使用します。",
+        "keyPlaceholder": "sk-proj-…",
+        "keyVerified": {
+          "rejected": "OpenAI に拒否されました"
+        },
+        "keyCreate": "OpenAI Platform でキーを作成",
+        "reason": {
+          "cloud-provider": "このコンピューターの Codex は別のモデルプロバイダー({{provider}})に設定されているため、クレジットは使用されません。実行はそのプロバイダーに請求されます。",
+          "blocked": "OpenAI が直前のクレジット実行を拒否したため、新しい実行はサブスクリプションを使用します。"
+        },
+        "block": {
+          "balance-empty": "組織のクレジット残高または使用上限に達したため、OpenAI がクレジット実行を拒否しました。",
+          "spend-limit": "使用上限に達したため、OpenAI がクレジット実行を拒否しました。",
+          "key-invalid": "OpenAI が API キーを拒否しました。"
+        },
+        "console": {
+          "title": "今月の支出(OpenAI Platform)",
+          "asOf": "{{start}} 以降 · {{time}} 更新 · Platform の使用状況ページと同じデータ",
+          "resetsOn": "UTC の暦月で集計 · 次の月は {{date}}(UTC)に開始",
+          "viewSpendLimits": "Platform で使用上限を確認",
+          "pending": "Platform の支出を読み取り中…",
+          "limitsNote": "使用上限とクレジット残高は OpenAI Platform で管理されており、OpenAI にはそれらを読み取る公開 API がないため、Vibisual は独自の上限を表示も適用もしません。上限に達するかクレジットが尽きると OpenAI が実行を拒否し、Vibisual はサブスクリプションに切り替えます。",
+          "needKeyTitle": "Platform の支出を表示するには admin キーを追加してください",
+          "needKeyBody": "Vibisual は OpenAI 公式の Costs API で今月の支出を読み取ります。これには admin キー(sk-admin-…)が必要です。組織のオーナーは Platform の admin キーのページで作成できます。",
+          "createAdminKey": "Platform で admin キーを作成",
+          "adminKey": "Admin キー(支出の読み取り用)",
+          "adminKeyPlaceholder": "sk-admin-…",
+          "adminKeyHint": "支出の読み取り専用です — このキーではモデルを実行できません。",
+          "error": {
+            "auth": "admin キーではないか、失効しているため、OpenAI がキーを拒否しました。組織のオーナーとして admin キー(sk-admin-…)を作成し、ここに入力してください。",
+            "forbidden": "このキーでは支出を読み取れません。組織のオーナーが作成した admin キーを使用してください。",
+            "not-found": "OpenAI がこのキーの支出データを見つけられませんでした。",
+            "rate-limited": "OpenAI から、支出を再度読み取る前に待つよう求められました。自動的に更新されます。",
+            "network": "OpenAI に接続できませんでした。自動的に更新されます。",
+            "unreadable": "この admin キーはこのコンピューターでは読み取れません。もう一度入力してください。",
+            "other": "Platform の支出を読み取れませんでした。"
+          }
+        }
+      },
       "creditPages": {
         "tabsLabel": "クレジットの種類",
         "billedLabel": "請求元",
@@ -2171,13 +2245,13 @@
         "vibisualLabel": "Vibisual での扱い",
         "subscription": {
           "tab": "プラン制限",
-          "what": "Claude Pro または Max プランに含まれる、5 時間ごとと週ごとの使用制限です。",
+          "what": "Claude プランに含まれる使用制限です。Pro と Max には 5 時間の上限と週間上限があります。Ultra はアカウント認証後は週間上限のみです。Max と Ultra には、一部のモデル向けの別の週間上限もあります。",
           "billed": "claude.ai のサブスクリプション（月額定額）です。",
           "vibisual": "ヘッドレス・CMD を問わず、すべての Claude 実行でデフォルトで使用されます。"
         },
         "personal": {
           "tab": "個人クレジット",
-          "what": "個人の claude.ai アカウントの追加使用分です。claude.ai でオンにすると、プラン制限に達した後も作業を続けられます。",
+          "what": "個人の claude.ai アカウントの使用クレジットです。claude.ai でオンにして前払いしておくと、プランの上限に達した後も、月間の支出上限または残高がなくなるまで Claude がクレジットで動作し続けます。",
           "billed": "claude.ai アカウントに登録されている支払い方法です。",
           "vibisual": "Vibisual では選択できません。オンになっていれば、プラン制限に達した後に Claude Code が自動的に使用します。このページは読み取りのみです。"
         },
@@ -2203,6 +2277,28 @@
           "activeNote": "Vibisual からの Claude 実行はすべて、このクラウドに課金されます。個人クレジットとビジネスクレジットは使用されず、ビジネスクレジットの経路もオフのままです。",
           "inactiveNote": "このコンピューターの Claude Code はクラウドプロバイダーに設定されていないため、クラウドクレジットは使用されません。使用するには、先にそのプロバイダー向けに Claude Code を設定してください。",
           "docs": "クラウドプロバイダーで Claude Code を実行する方法"
+        },
+        "vendorLabel": "クレジットプロバイダー",
+        "vendor": {
+          "anthropic": "Claude",
+          "openai": "OpenAI"
+        },
+        "openai": {
+          "subscription": {
+            "what": "ChatGPT プランに含まれる Codex の使用上限。プランには 5 時間の上限と週間の上限があります。",
+            "billed": "ChatGPT サブスクリプション(月額定額)。",
+            "vibisual": "バックグラウンド(headless)と CMD のどちらも、Codex の実行には既定でこちらを使用します。"
+          },
+          "personal": {
+            "what": "ChatGPT アカウントの Codex クレジット。クレジットを購入すると、プランの上限に達した後も Codex はそのクレジットで動作し続けます。リセットパスで使用上限が回復します。",
+            "billed": "ChatGPT アカウントに登録されている支払い方法。",
+            "vibisual": "Vibisual は選択しません。プランの上限後に Codex が自動的に使用します。このページでは読み取りのみ行います。"
+          },
+          "business": {
+            "what": "OpenAI Platform(platform.openai.com)組織の API クレジット。購入または付与されたクレジットはここに反映されます。",
+            "billed": "OpenAI Platform の組織の API クレジットから差し引かれます。なくなると実行は停止し、自動チャージがオンの場合のみカードに請求されます。",
+            "vibisual": "オンにすると、バックグラウンド(headless)の Codex 実行にのみ使用され、CMD やフックバブルには使用されません。既定では、ChatGPT プランの Codex 上限に達した後にのみ使用されます。"
+          }
         }
       }
     },
@@ -2412,6 +2508,11 @@
         "empty": "このノードにはまだ画像がありません",
         "emptyHint": "agentの入力カードにある「+」で、このノードをリンクしてください。そのagentが届ける画像がここに表示されます。",
         "loadFailed": "この画像を開けませんでした",
+        "retry": "再試行",
+        "viewControls": "表示コントロール",
+        "editHint": "ここで注釈、トリミング、背景削除ができます。IDE と同じクイックエディターです",
+        "layerEdit": "レイヤー編集",
+        "layerEditHint": "レイヤー付きの編集可能なソースを作成し、テキストや図形の追加や複数サイズの書き出しができます。元のファイルはそのまま残ります。",
         "editor": {
           "properties": "レイヤーのプロパティ",
           "importedImage": "読み込んだ画像（単一レイヤー）",
@@ -4262,6 +4363,9 @@
       "blocked": "まだ何も作成していません — 開いているプロジェクトフォルダーがありません。Agentは選んだフォルダーの中で作業するため、先にフォルダーを選んでください。",
       "detail": "Vibisual がプロジェクトについて保存するものはすべてそのフォルダーの中にあり、エージェントもその配下のファイルだけを読み書きできます。フォルダーは後から ファイル → フォルダーを開く で追加できます。",
       "cancelled": "まだフォルダーが選ばれていません。続けるにはフォルダーを選んでください。",
+      "errorPickerMissing": "このコンピューターで使えるフォルダー選択ダイアログがありません。zenity または kdialog をインストールしてから、もう一度お試しください。",
+      "errorFailed": "このフォルダーをプロジェクトとして開けませんでした。",
+      "errorNetwork": "Vibisual サーバーに接続できませんでした。アプリが実行中か確認してから、もう一度お試しください。",
       "choose": "フォルダーを選択",
       "picking": "選択中…",
       "later": "後で"
@@ -4369,7 +4473,8 @@
       },
       "trigger": {
         "auto": "自動",
-        "manual": "手動"
+        "manual": "手動",
+        "snapshot": "コピー"
       },
       "copyMirrored": "コピー保持",
       "copyIndexOnly": "インデックスのみ",
@@ -4398,7 +4503,11 @@
       "restoreAsDelete": "削除して元に戻す",
       "restoredAt": "{{at}}に復元済み",
       "resumeMode": "再開",
-      "freshMode": "新しいタブ",
+      "freshMode": "新規で開いて引き継ぎ",
+      "freshModeTip": "新しいセッションを開き、最初のターンで保管庫がこの会話から残したもの（目標・手順・作業中のファイル・旧トランスクリプトの場所）を渡します。トランスクリプトが大きすぎて再開できないときに使います。",
+      "snapshotNow": "今すぐコピーを保存",
+      "snapshotNowTip": "次の圧縮を待たずに、このセッションのトランスクリプトを今すぐ保管庫にコピーします。",
+      "snapshotFailed": "コピー失敗",
       "mirroredOnly": "コピーのみ",
       "resumeRisky": "大きい",
       "ncNote": "要約はこれらを削除したのではなく、単に言い換えただけの可能性があります。このリストが示しているのは、要約の中にそのままの形で登場しなかったという事実だけです。",
@@ -4798,7 +4907,9 @@
       "discardConfirm": "破棄して閉じる",
       "renderFailed": "マーク付き画像を描画できませんでした。",
       "noSession": "この画像を添付できるセッションがありません。",
-      "saveFailed": "マーク付き画像を保存できませんでした。"
+      "saveFailed": "マーク付き画像を保存できませんでした。",
+      "openLayersHint": "レイヤーエディターで続行します。注釈を含むこの画像が 1 つのレイヤーになり、テキストや図形を追加できます",
+      "openLayersFailed": "レイヤーエディターを開けませんでした。"
     },
     "overlay": {
       "closeLabel": "IDEを閉じる",
@@ -5121,9 +5232,13 @@
       "voiceListening": "聞いています — お話しください",
       "voiceCancelHint": "Esc で取り消し",
       "voiceDone": "完了",
+      "voiceErrInsecureContext": "マイクには信頼された HTTPS 接続が必要です。「リモートアクセス > モバイルアクセス」の HTTPS アドレスを開き、接続証明書を信頼してください。",
+      "voiceMicSettingsHintIos": "iPhone・iPad では、ブラウザーのこのサイトの設定でマイクを許可してください。端末の設定でもブラウザーのマイク権限を確認し、ページを再読み込みしてください。",
+      "voiceMicSettingsHintAndroid": "Android では、ブラウザーのサイト設定と「Android 設定 > アプリ > 使用中のブラウザー > 権限」でマイクを許可し、ページを再読み込みしてください。",
+      "voiceMicSettingsHintBrowser": "ブラウザーのサイト設定でこのサイトのマイク使用を許可してください。端末のプライバシー設定でもブラウザーのマイク使用を許可し、ページを再読み込みしてください。",
       "voiceErrUnsupported": "このビルドでは音声認識を利用できません。",
-      "voiceErrPermission": "マイクへのアクセスが拒否されました。システムのプライバシー設定でこのアプリに許可してから、もう一度お試しください。",
-      "voiceErrDevice": "マイクが見つかりません。接続してからもう一度お試しください。",
+      "voiceErrPermission": "ブラウザーでこのサイトのマイク使用を許可し、端末のプライバシー設定でもブラウザーまたはアプリのマイク使用を許可してから、再試行してください。",
+      "voiceErrDevice": "マイクを開けませんでした。マイクの権限と入力デバイスを確認して、再試行してください。",
       "voiceErrNoDevice": "マイクが見つかりません。マイクを接続してください。",
       "voiceErrDeviceBusy": "別のアプリがマイクを使用中です。そのアプリを閉じてからもう一度お試しください。",
       "voiceErrNetwork": "音声認識サービスに接続できませんでした。",
@@ -5134,9 +5249,9 @@
       "voiceMicHintRightClick": "右クリック: マイク設定",
       "voiceMicSettingsAction": "対処方法",
       "voiceMicSettingsTitle": "マイク設定",
-      "voiceMicSettingsBody": "このアプリを使用するには、OSでマイクへのアクセスを許可する必要があります。",
-      "voiceMicSettingsBlockedBody": "マイクを開けませんでした。多くの場合、OSの設定でマイクへのアクセスがオフになっています。",
-      "voiceMicSettingsNoDeviceBody": "このPCにマイクが接続されていません。接続してからもう一度お試しください。",
+      "voiceMicSettingsBody": "ブラウザーと端末でマイクへのアクセスを許可する必要があります。",
+      "voiceMicSettingsBlockedBody": "マイクを開けませんでした。サイトの権限、端末のプライバシー設定、入力デバイスを確認してください。",
+      "voiceMicSettingsNoDeviceBody": "この端末で使用できるマイクがありません。内蔵マイクを確認するか、マイクを接続して再試行してください。",
       "voiceMicSettingsOpen": "設定を開く",
       "voiceMicSettingsHintWin": "リストの下部にある「マイクへのアクセス」と「デスクトップアプリにマイクへのアクセスを許可する」を両方オンにしてください。このアプリのインストール方法上、アプリ一覧に名前が表示されません。",
       "voiceMicSettingsHintMac": "「プライバシーとセキュリティ」>「マイク」でVibisualを有効にしてください。有効にした直後の場合は、反映のためアプリを再起動してください。",
@@ -5159,9 +5274,12 @@
       "sendRejected": "リクエストが拒否されたため、本文と添付を復元しました。会話を確認してから再送信してください。",
       "sendUnconfirmed": "送信を確認できなかったため、本文と添付を復元しました。会話を確認してから再送信してください。",
       "localImagesUnsupported": "All Modelはまだ画像入力に対応していません。画像を削除するか、別のプロバイダーを選択してから送信してください。",
+      "attachmentsMissing": "添付した画像の一部が見つからなくなったため、何も送信していません。本文は元に戻しました。印の付いた画像を外すか、もう一度添付してください。",
+      "attachmentMissing": "この画像は見つからなくなりました。外すか、もう一度添付してください。",
       "liveDelivery": {
         "waiting": "送信待ち",
         "sending": "送信中…",
+        "received": "受信済み",
         "delivered": "配信済み",
         "unavailable": "配信不可",
         "uncertain": "配信確認不可",
@@ -5175,6 +5293,7 @@
         "hint": {
           "waiting": "現在の作業への送信を待っています。",
           "sending": "エージェントからの受信確認を待っています。",
+          "received": "エージェントがこのメッセージを受信しました。実行中のステップ（ツールの実行や長い思考）が終わり次第、現在の作業に追加されます。再送信はされません。",
           "delivered": "現在の作業に追加の指示として届けました。",
           "unavailable": "現在の作業後に送るには「{{wait}}」、作業を止めてこのメッセージで始めるには「{{immediate}}」を選んでください。",
           "uncertain": "自動で再送しません。重複配信を防ぐため変更・削除はロックされていますが、本文はコピーできます。"
@@ -5281,7 +5400,9 @@
       "next": "次へ",
       "back": "戻る",
       "send": "送信",
-      "sending": "送信中…"
+      "sending": "送信中…",
+      "sendRejected": "回答は受け付けられませんでした。選んだ内容はそのまま残しているので、もう一度送信できます。",
+      "sendUnconfirmed": "回答が届いていない可能性があります。選んだ内容はそのまま残しているので、もう一度送信できます。"
     },
     "activityBar": {
       "mcp": "MCP",
@@ -5310,7 +5431,8 @@
       "moveDown": "下へ",
       "exclude": "バーから外す",
       "add": "バーに追加",
-      "noExcluded": "除外した項目はありません"
+      "noExcluded": "除外した項目はありません",
+      "localAssist": "完走アシスト"
     },
     "mcp": {
       "title": "MCP サーバー",
@@ -5816,7 +5938,9 @@
       "compacting": "圧縮中",
       "delegating": "他のエージェントの応答を待機中",
       "delegatingHint": "他のエージェントの作業結果を待っています。停止することもできます。",
-      "compactingHint": "コンテキストが満杯のため、CLI がこれまでの会話を要約して空きを作っています。通常は数分かかり、その間に新しい出力がなくても正常です。"
+      "compactingHint": "コンテキストが満杯のため、CLI がこれまでの会話を要約して空きを作っています。通常は数分かかり、その間に新しい出力がなくても正常です。",
+      "nestedSubagentTokens": "{{tokens}}トークン · コンテキストの{{percent}}%",
+      "nestedSubagentTokensOnly": "{{tokens}}トークン"
     },
     "report": {
       "title": "作業レポート",
@@ -6638,7 +6762,9 @@
         "user": "あなたが調整",
         "plan": "計画から導出"
       },
-      "openStage": "ビューを見る"
+      "openStage": "ビューを見る",
+      "stepVerified": "検証済み",
+      "stepVerifiedHint": "このステップが完了にされた後、検証の実行に合格しました（{{time}}）。"
     },
     "hooks": {
       "title": "セッションフック",
@@ -7334,7 +7460,15 @@
         "maxMembers": "作成できるメンバーの上限",
         "memberIsolation": "メンバーごとに専用のworktreeを用意",
         "memberIsolationHint": "メンバーはそれぞれ専用のgit worktreeに生まれるため、同時に動くメンバー同士が同じファイルで衝突することはありません。その後のブランチのマージはご自身で行ってください。対象はClaudeのメンバーのみです。Codexには対応するフラグがありません。",
-        "memberToolTemplate": "メンバーが生まれ持つツール"
+        "memberToolTemplate": "メンバーが生まれ持つツール",
+        "allowSelf": "直接実行を許可",
+        "allowSelfHint": "「直接実行」の選択肢を追加します。引き継ぐ代わりに、同じセッションがコンテキストを保ったまま通常の設定で依頼を再実行します。",
+        "crossEngineReview": "もう一方のエンジンでレビュー",
+        "crossEngineReviewHint": "レビュー担当のメンバーは、準備ができていれば、コードを書いていない側のエンジンで作成されます。",
+        "formationBasis": "作業の分け方",
+        "formationBasisHint": "Auto Agentもこのプロジェクトでは同じ選択を使います。",
+        "splitRules": "指揮者のルールを分割して読み込む",
+        "splitRulesHint": "指揮者の各ターンには判断部分だけを載せます。手順の詳細はチーム編成が決まった後に読み込みます。"
       },
       "permission": {
         "bypass": "権限確認をスキップ",
@@ -7401,7 +7535,11 @@
         "members": "メンバー（{{count}}）：{{names}}",
         "created": "新規作成{{count}}件",
         "tokens": "トークン：入力{{input}}・出力{{output}}",
-        "noPlan": "指揮者は計画を報告せずに終了しました。"
+        "noPlan": "指揮者は計画を報告せずに終了しました。",
+        "splitBasis": "分割した理由:",
+        "reviewer": "レビュー担当: {{name}}",
+        "tokenSplit": "調整 {{coordination}} · 作業 {{work}}トークン",
+        "tokenSplitPartial": "（記録された引き継ぎのみ）"
       },
       "phase": {
         "conducting": "指揮中",
@@ -7423,7 +7561,8 @@
         "none": "チームなし",
         "single": "メンバー1人",
         "pipeline": "パイプライン",
-        "parallel": "並列"
+        "parallel": "並列",
+        "self": "直接実行"
       },
       "readiness": {
         "setup": "{{engine}}を実行するにはインストールが必要です。",
@@ -7433,6 +7572,60 @@
         "recheck": "再確認",
         "auto": "自動選択ではインストールとログインが完了したエンジンのみを使用します。",
         "retry": "リクエストは保持されています。{{engine}}の準備ができたら、もう一度送信してください。"
+      },
+      "verification": {
+        "verified": "検証済み",
+        "received": "受領",
+        "rejected": "レビュー却下",
+        "held": "判定保留",
+        "noEvidence": "根拠なしで承認",
+        "detail": "直近のレビュー: 合格{{passed}}件、不合格{{failed}}件（アプリが確認した終了コード）",
+        "receivedHint": "結果は戻ってきましたが、レビューによる確認は行われていません。"
+      },
+      "hops": {
+        "title": "引き継ぎチェーン（{{count}}）",
+        "role": {
+          "conductor": "指揮者",
+          "self": "直接作業",
+          "entry": "窓口",
+          "member": "メンバー",
+          "review": "レビュー",
+          "rework": "やり直し"
+        },
+        "failed": "失敗",
+        "tokens": "{{count}}トークン",
+        "instruction": "渡した内容:",
+        "result": "返ってきた内容:",
+        "waited": "キューで{{seconds}}秒待機",
+        "concurrency": "（同時セッション数の上限により保留）"
+      },
+      "scorecard": {
+        "title": "意図とチーム編成ごとのスコアカード",
+        "about": "このプロジェクトに保存されているすべての実行を集計します。既定値を変えるかの判断材料にしてください。自動で変わることはありません。",
+        "unplanned": "計画の報告なし",
+        "runs": "{{count}}回の実行",
+        "outcome": "完了 {{completed}} · 検証済み {{verified}} · エラー {{error}} · 計画なし {{unreported}}",
+        "average": "平均 {{tokens}}トークン · {{seconds}}秒",
+        "averageTokens": "平均 {{tokens}}トークン"
+      },
+      "suggestions": {
+        "title": "整理の提案",
+        "foldTitle": "統合できそうなもの",
+        "fold": "{{from}}は{{into}}からの作業しか受けず、何も渡していません（合計{{count}}回の実行）。{{into}}のスキルにできます。",
+        "idleTitle": "しばらく使われていないもの",
+        "idle": "{{name}}が最後に実行に参加したのは{{date}}です（合計{{count}}回の実行）。",
+        "note": "あくまで提案です。自動で統合や削除が行われることはありません。",
+        "exportSkill": "スキルとして書き出し",
+        "exported": "プロジェクトスキル「{{name}}」として保存しました。",
+        "exportFailed": "書き出せませんでした: {{reason}}"
+      },
+      "newPaths": {
+        "title": "新しいオプション（既定ではオフ）",
+        "about": "これらがオフの間、指揮者はこれまでとまったく同じように動作します。"
+      },
+      "formationBasis": {
+        "role": "役割別（現行）",
+        "dependency": "依存関係別"
       }
     },
     "configTrim": {
@@ -7527,6 +7720,120 @@
         "title": "最近のターン",
         "empty": "このプロジェクトではまだターンがトリミングされていません。",
         "counts": "{{trimmed}}／{{excluded}}"
+      }
+    },
+    "localAssist": {
+      "title": "完走アシスト",
+      "intro": "ローカルモデルがこのPCで作業を最後までやり遂げるためのオプションです。オンにするまで何も変わりません。",
+      "saving": "保存中…",
+      "saveFailed": "オプションを保存できませんでした。もう一度お試しください。",
+      "activity": {
+        "progress": "プラン完了ステップ {{progress}}"
+      },
+      "preset": {
+        "label": "プリセット",
+        "off": "オフ",
+        "lowSpec": "低スペック安全",
+        "balanced": "バランス",
+        "longTask": "長時間タスク",
+        "custom": "カスタム — 下の個別オプションを変更しました。",
+        "hint": {
+          "off": "すべてオフ — ローカルモデルは従来どおり動作します。",
+          "lowSpec": "メモリ使用量を抑え、他のアプリに余裕を残すエンジン設定にします。コンテキストも早めに整理します。",
+          "balanced": "メモリを圧縮し、コンテキストがいっぱいになる前に自動で整理します。",
+          "longTask": "最初にプランを作成し、ラウンドごとに新しいコンテキストで1ステップずつ進めます。"
+        }
+      },
+      "section": {
+        "engine": "PCを安定させる",
+        "context": "コンテキストを軽く保つ",
+        "progress": "作業をやり遂げる"
+      },
+      "engine": {
+        "restartHint": "エンジンのオプションは次のターンから反映され、エンジンが1回再起動します。"
+      },
+      "kvCache": {
+        "label": "メモリ圧縮 (KV cache)",
+        "hint": "会話のメモリを少ないビット数で保存します。q8_0 ならメモリは約半分で、品質低下はわずかです。",
+        "f16": "オフ"
+      },
+      "moe": {
+        "label": "MoE エキスパートをCPUへ",
+        "hint": "Mixture-of-Experts モデル向け。エキスパートの重みをシステムメモリに置き、小さなGPUがあふれないようにします。",
+        "auto": "自動",
+        "cpu": "CPU"
+      },
+      "lowSpec": {
+        "label": "低スペック安全モード",
+        "hint": "エンジンのRAMキャッシュを制限し、他のアプリ用にCPUコアを空け、エンジンの優先度を下げます。"
+      },
+      "tidyAt": {
+        "label": "整理するタイミング",
+        "hint": "あふれて失敗する前に、いっぱいになる手前で整理します。",
+        "off": "オフ",
+        "value": "{{percent}}%"
+      },
+      "tidyMethod": {
+        "label": "整理方法",
+        "mask": "古いツール出力を隠す",
+        "summarize": "要約",
+        "handoff": "引き継ぎ",
+        "ask": "停止して確認",
+        "hint": {
+          "mask": "古いツール結果を短いプレースホルダーに置き換え、直近2ラウンドは残します。",
+          "summarize": "まず古いツール出力を隠し、それでも多すぎる場合は以前の会話を要約にまとめます。",
+          "handoff": "引き継ぎメモを書き、そのメモとあなたの依頼だけで新しいコンテキストに移って続行します。",
+          "ask": "ターンを停止し、コンテキストの使用量をお知らせするので、判断できます。"
+        }
+      },
+      "outputCap": {
+        "label": "ツール出力の上限",
+        "hint": "1回のツール結果のうち、コンテキストに入れる量です。",
+        "short": "短め",
+        "normal": "標準",
+        "long": "長め"
+      },
+      "keepFull": {
+        "label": "全出力をファイルに保持",
+        "hint": "切り詰められた出力はプロジェクトの .vibisual フォルダーに保存され、残りの読み取り先がモデルに伝えられます。"
+      },
+      "planFirst": {
+        "label": "先にプラン作成",
+        "hint": "モデルが最初にチェックリストを作成します。ここで承認するまで変更は始まりません。"
+      },
+      "relay": {
+        "label": "リレーモード",
+        "hint": "承認済みのプランを、ラウンドごとに新しいコンテキストで1ステップずつ、全ステップにチェックが付くまで進めます。",
+        "verify": "確認コマンド (任意)",
+        "verifyPlaceholder": "例: pnpm test",
+        "maxRounds": "最大ラウンド数"
+      },
+      "resume": {
+        "label": "再開を高速化",
+        "hint": "モデルをアンロードする前に、直前の会話に対するエンジンのメモリ状態をディスクへ保存し、再開時に全体を読み直さずに済むようにします。"
+      },
+      "keepLoaded": {
+        "label": "モデルをロードしたままにする",
+        "hint": "アイドル状態のモデルがアンロードされるまでメモリに残る時間です。",
+        "value": "{{minutes}}分"
+      },
+      "plan": {
+        "state": {
+          "proposed": "承認待ち",
+          "approved": "承認済み",
+          "running": "リレー実行中",
+          "paused": "一時停止中",
+          "done": "完了"
+        },
+        "progress": "{{done}} / {{total}} ステップ",
+        "approve": "このプランで進める",
+        "resume": "再開",
+        "reset": "新しいプラン",
+        "empty": "先にプラン作成またはリレーがオンです。次のメッセージはチェックリストから始まります。",
+        "noSession": "セッションタブを開くとプランが表示されます。",
+        "more": "ほか {{count}} ステップ",
+        "skipped": "スキップ",
+        "actionFailed": "実行できませんでした: {{reason}}"
       }
     }
   },
@@ -7755,8 +8062,8 @@
       "connectTooltip": "この設定でエッジを作成 (Ctrl/Cmd+Enter)。",
       "critiqueOptionsTip": "Critiqueエッジ専用。介入タイミング（Timing）と拒否時の強制内容（Authority）を設定します。他の種類のエッジには無視されます。",
       "critiqueOptions": "批評オプション",
-      "critiqueTimingTip": "Intermediate（デフォルト）: ターゲットの作業中、各マイルストーンでレビュー。頻繁・安全・低速。Final: 完了後に1回だけ最終レビュー。少頻度・高速。",
-      "critiqueTimingIntermediateTip": "Intermediate: ターゲットの作業中、各マイルストーンでレビュー。（デフォルト）",
+      "critiqueTimingTip": "Intermediate（デフォルト）: ターゲットの作業中、各マイルストーンでレビューするための設定。現在は Final と同じく、ターゲット完了時に1回だけレビューします。Final: 完了後に1回だけ最終レビュー。",
+      "critiqueTimingIntermediateTip": "Intermediate: ターゲットの作業中、各マイルストーンでレビューするための設定。現在は Final only と同じく、完了時に1回だけレビューします。（デフォルト）",
       "critiqueTimingFinalTip": "Final only: ターゲット完了後に1回だけ最終レビュー。",
       "critiqueTiming": "タイミング",
       "critiqueTimingIntermediate": "中間",
@@ -7770,7 +8077,8 @@
       "critiqueMaxReworkTip": "Force reworkモード中にターゲットがやり直せる最大回数。超過するとコメントのみに自動降格し、親セッションへエスカレーション。無限ループへの歯止め。",
       "critiqueMaxReworkActive": "最大{{max}}回。超過するとコメントのみに自動降格。",
       "critiqueMaxReworkInactive": "Comment onlyモードでは使用されません。",
-      "critiqueMaxRework": "最大再作業回数"
+      "critiqueMaxRework": "最大再作業回数",
+      "splitCheckTooltip": "接続する前に: 1) 作業は独立していますか？ 次のステップが前の結果を必要とするなら、通常は1つのagentで行う方が良い結果になります。 2) 双方が同じファイルを触りませんか？ 3) 結果に何を含めるべきか明確ですか？"
     }
   },
   "inspector": {
@@ -8353,9 +8661,9 @@
         "image": "画像グループ",
         "audio": "サウンドグループ",
         "model": "3Dグループ",
-        "code": "コードグループ",
+        "code": "HTMLグループ",
         "data": "データグループ",
-        "doc": "文書グループ",
+        "doc": "PDFグループ",
         "subtitle": "字幕グループ",
         "font": "フォントグループ",
         "other": "ファイルグループ"
@@ -8365,7 +8673,22 @@
       "title_one": "{{name}}：{{kind}}・{{count}}個のファイル",
       "title_other": "{{name}}：{{kind}}・{{count}}個のファイル",
       "enterHint": "ダブルクリックでこのグループを開き、そのファイルだけを表示します",
+      "previousPage": "前のページ",
+      "nextPage": "次のページ",
+      "page": "{{page}} / {{pages}} · ファイル {{count}} 件",
       "crumb": "{{name}}グループ"
+    },
+    "sessionMessage": {
+      "externalBadge": "このキャンバス外のセッションへメッセージを{{count}}件送信: {{names}}",
+      "panelTitle": "セッション間の最近のメッセージ",
+      "outside": "外部セッション（{{name}}）",
+      "sentTo": "送信先",
+      "receivedFrom": "送信元",
+      "panelNote": "表示されるのはメッセージが送られた事実のみです。相手のセッションが受け入れるかどうかは、そのパーミッションモードによります。"
+    },
+    "writeOverlap": {
+      "badge": "{{minutes}}分以内に{{count}}個のagentがこのファイルを編集",
+      "panel": "{{names}}が{{minutes}}分以内に編集しました。互いの変更を上書きする可能性があります。"
     }
   },
   "common": {
@@ -8619,7 +8942,7 @@
     "clearSearch": "クリア",
     "resultCount": "{{count}}件一致",
     "sessionCount": "セッション {{count}}件",
-    "attentionCount": "{{count}}件が返答待ち",
+    "attentionCount": "{{count}}件が要対応",
     "archivedCount": "{{count}}件を整理",
     "archived": "整理済み",
     "emptyTitle": "このプロジェクトにはまだエージェントがありません",
@@ -8692,7 +9015,9 @@
       "queuedIt": "キューに追加しました。",
       "composerHint": "コマンドを入力してEnterキーを押すと、このセッションに送信されます。"
     },
-    "jumpUnavailable": "メインウィンドウへの移動は Vibisual デスクトップアプリでのみ使えます。"
+    "jumpUnavailable": "メインウィンドウへの移動は Vibisual デスクトップアプリでのみ使えます。",
+    "sessionMessages": "メッセージ{{count}}件送信",
+    "sessionMessagesTip": "このセッションが他のセッションに送ったばかりのメッセージ"
   },
   "localModel": {
     "title": "モデル一覧",

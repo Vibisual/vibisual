@@ -63,12 +63,14 @@
       "confirmCloseForceAllHint": "Detiene los agentes de todos los proyectos abiertos y después cierra."
     },
     "usage": {
-      "tooltip": "Sesión actual: {{percent}}% del límite de 5 horas usado — haz clic para ver detalles",
+      "tooltip": "{{percent}}% del límite de 5 horas usado — haz clic para ver detalles",
+      "tooltipWeekly": "{{percent}}% de tu límite semanal (todos los modelos) utilizado: haz clic para ver los detalles",
       "tooltipNoData": "Todavía no se recibió el uso: haz clic para ver los detalles",
       "tooltipWaiting": "Obteniendo el uso de Claude Code: el número aparecerá en un momento",
       "tooltipCliUnavailable": "No se pudo ejecutar Claude Code para leer el uso: haz clic para ver los detalles",
       "creditActive": "Las nuevas ejecuciones usan créditos de API",
-      "creditBlocked": "Anthropic rechazó los créditos de API: las ejecuciones usan tu suscripción"
+      "creditBlocked": "Anthropic rechazó los créditos de API: las ejecuciones usan tu suscripción",
+      "creditBlockedOpenai": "OpenAI rechazó los créditos de API: las ejecuciones usan tu suscripción"
     },
     "setupBanner": {
       "text": "Claude Code no está instalado — los agentes aún no pueden ejecutarse.",
@@ -131,7 +133,7 @@
     },
     "mobileAccess": {
       "title": "Acceso móvil",
-      "subtitle": "Abre Vibisual en el navegador de tu celular. Actívalo, abre una de las direcciones de abajo en el celular e ingresa el código de emparejamiento.",
+      "subtitle": "Abre Vibisual en el navegador del celular. Activa el acceso, instala y confía en el certificado de conexión en el celular. Después, abre una dirección HTTPS de abajo e ingresa el código de emparejamiento.",
       "statusOn": "Escuchando en tu red local",
       "statusOff": "Desactivado",
       "enable": "Activar",
@@ -151,9 +153,14 @@
       "externalManual": "No se pudo abrir un puerto automáticamente (es posible que el UPnP de tu router esté desactivado). Para hacerlo manualmente, redirige el puerto TCP externo {{port}} a {{ip}}:{{port}} en esta PC desde la configuración de tu router.",
       "externalManualUrl": "Una vez redirigido el puerto, conéctate desde afuera con esta dirección:",
       "externalReachable": "Accesible — conéctate desde afuera en",
-      "externalHttpsNote": "Usa un certificado autofirmado — tu celular mostrará una advertencia de seguridad la primera vez. Toca \"Avanzado → continuar\" para seguir; la conexión sigue estando cifrada.",
+      "secureAccessNote": "El micrófono móvil requiere HTTPS y un certificado de confianza para el dispositivo.",
+      "certificateDownload": "Descargar certificado de conexión",
+      "certificateTrustNote": "Instala el certificado de CA de esta PC como certificado de confianza en tu dispositivo. En iPhone/iPad, actívalo también en Configuración > General > Información > Configuración de confianza de certificados. En Android, instala un certificado de CA desde la configuración de seguridad. Después, vuelve a abrir la dirección HTTPS.",
+      "certificateFingerprintTitle": "Huella de la CA de conexión (SHA-256)",
+      "certificateFingerprintNote": "Antes de confiar en el certificado, compara su huella SHA-256 con el valor mostrado en esta PC en Acceso remoto > Acceso móvil. No lo instales si los valores son distintos.",
+      "externalHttpsNote": "Para usar el micrófono, instala y confía en el certificado de conexión de esta PC en tu dispositivo. Omitir la advertencia del navegador no basta para activar el micrófono.",
       "qrTitle": "Emparejamiento por QR",
-      "qrSubtitle": "Escanea con la cámara del celular: Vibisual se abre y se vincula solo, sin escribir dirección ni código. Cada QR sirve {{minutes}} minutos y para {{max}} dispositivos como máximo.",
+      "qrSubtitle": "Después de confiar en el certificado de conexión, escanea con la cámara del celular para abrir y vincular Vibisual sin escribir una dirección ni un código. Cada QR sirve {{minutes}} minutos y para {{max}} dispositivos como máximo.",
       "qrIssue": "Generar QR",
       "qrReissue": "Generar nuevo QR",
       "qrRevoke": "Revocar ahora",
@@ -179,7 +186,7 @@
           "other": "No identificada"
         },
         "hint": {
-          "lan": "Tu red de casa o de la oficina. Funciona mientras tu celular esté en el mismo Wi-Fi o router que esta PC.",
+          "lan": "Tu red de casa o de la oficina. Conecta el celular al mismo Wi-Fi o router que esta PC y abre la dirección HTTPS después de confiar en el certificado de conexión.",
           "vpn": "La asigna una app de red privada como Tailscale o ZeroTier, no tu router. Solo funciona si tu celular inició sesión en la misma red privada, pero entonces funciona desde cualquier lugar, incluidos los datos móviles.",
           "vpnNamed": "La asigna {{product}}, no tu router. Solo funciona si tu celular inició sesión en la misma red de {{product}}, pero entonces funciona desde cualquier lugar, incluidos los datos móviles.",
           "external": "Llega a esta PC por internet, a través del puerto que abrió tu router.",
@@ -755,9 +762,11 @@
         "engineBridgeStatusError": "No se pudo leer el estado del puente.",
         "engineBridgeRefresh": "Verificar de nuevo",
         "externalBudgetTitle": "Carpetas fuera del proyecto",
-        "externalBudgetIntro": "Cuando un agente accede a una carpeta fuera del proyecto, ese lugar obtiene su propia burbuja. Sin control, esas burbujas terminan saturando el mapa o se reducen a una sola que no dice nada. Este número determina cuántas de ellas se muestran a la vez en el nivel superior: los lugares más activos y recientes lo ocupan primero, y los lugares que dejan de tener actividad se repliegan bajo su carpeta principal.",
+        "externalBudgetIntro": "Agrupa las burbujas de carpetas externas cuyas rutas comparten los primeros niveles de carpetas. Esta configuración solo se aplica a las carpetas fuera del proyecto.",
         "externalBudgetLabel": "Carpetas externas mostradas en el nivel superior",
-        "externalBudgetDesc": "Las carpetas fijadas no cuentan para este número: una carpeta fijada siempre permanece en el nivel superior. Esta configuración no elimina nada: los lugares que no caben se repliegan bajo una burbuja principal que indica cuántos hay dentro.",
+        "externalBudgetDesc": "Se usa cuando la profundidad de agrupación es 0: las carpetas más activas y recientes aparecen en el nivel superior hasta esta cantidad. Las carpetas fijadas no se cuentan. Con la agrupación por ruta activada, la actividad no divide los grupos. No se elimina ningún archivo.",
+        "externalMergeDepthLabel": "Profundidad de agrupación de carpetas externas",
+        "externalMergeDepthDesc": "Valor predeterminado: 2 niveles. Un número menor agrupa más carpetas; 0 desactiva la agrupación por ruta. Cuenta las carpetas después de la raíz, unidad o recurso compartido de red. Por ejemplo, C:/Users/<name>/.codex/... y C:/Users/<name>/.claude/... comparten 2 niveles hasta <name>. Los archivos siguen siendo accesibles dentro de la burbuja agrupada. Cada proyecto puede fijar su propio valor desde los detalles de una burbuja de carpeta externa.",
         "externalBudgetLoadError": "No se pudo leer la configuración actual.",
         "externalBudgetSaveError": "No se pudo guardar. No se realizó ningún cambio.",
         "webFoldIntro": "Cuando un agente lee la web, cada dominio que lee se convierte en una burbuja, así que un solo agente que investiga puede cubrir todo el lienzo. Estos ajustes agrupan esas burbujas: no se elimina nada, y al hacer clic en un grupo se muestran sus dominios uno por uno.",
@@ -875,7 +884,7 @@
         "autoCompactWindowOff": "Dejar como está configurado",
         "autoCompactWindowDesc": "El mayor factor de ajuste individual aquí. Medido durante tres días, las sesiones tuvieron una mediana de 186k tokens, y todo lo que superaba los 200k representó el 62% de toda la entrada — cada turno vuelve a leer eso. Reducir la ventana de 400k a 200k redujo la entrada en un 27%, y a 100k en un 59%, para el mismo trabajo. Solo puede volverse más estricto: si un agente o un valor predeterminado ya es más bajo, ese es el que se aplica. Plegar la conversación es en sí una solicitud grande, así que el ajuste más bajo no es automáticamente el más económico. Esta ventana solo decide dónde plegamos entre comandos; a mitad de tarea, la CLI solo pliega cuando se llena la ventana del modelo."
       },
-      "creditsIntro": "Los créditos de Claude provienen de distintas billeteras. Cada página muestra una: qué es, quién la factura, dónde la administras y si Vibisual la usa."
+      "creditsIntroVendors": "Los créditos de Claude y de OpenAI provienen cada uno de varias carteras. Elige un proveedor y cada página muestra una cartera: qué es, quién la factura, dónde la administras y si Vibisual la usa."
     },
     "autoAgent": {
       "title": "Auto Agent",
@@ -1433,7 +1442,8 @@
       },
       "subagentDepth": {
         "label": "Profundidad de subagentes",
-        "layers": "{{count}} capas"
+        "layers": "{{count}} capas",
+        "splitHint": "Antes de agregar más subagentes, mejora primero las instrucciones. Dividir trabajo dependiente pierde contexto en cada traspaso."
       },
       "cliOptions": {
         "label": "Opciones de la CLI",
@@ -1491,7 +1501,7 @@
       "fastMode": {
         "label": "Modo Fast",
         "hint": "el mismo Opus, salida más rápida",
-        "unsupported": "solo Opus 4.8 / Opus 5",
+        "unsupported": "solo Opus 5.x",
         "tip": "Ejecuta el mismo modelo Opus con una salida más rápida — no baja a un modelo más pequeño. No es una opción de la CLI: un agente headless se trata como una sesión del Agent SDK y solo acepta el modo Fast activado desde los ajustes, así que Vibisual lo incluye en el archivo de ajustes que ya escribe para este agente. Los modelos que no lo admiten ignoran el ajuste sin ningún aviso."
       },
       "thinking": {
@@ -1690,6 +1700,8 @@
       "denyReasonPlaceholder": "ej. ruta incorrecta, comando inseguro",
       "shortcutHint": "{{shortcut}} = Permitir · Esc = Denegar",
       "stackCount": "{{current}} de {{total}} pendientes",
+      "sendRejected": "Vibisual no aceptó esa respuesta. La solicitud sigue en espera, así que vuelve a elegir.",
+      "sendUnconfirmed": "Es posible que tu respuesta no haya llegado a Vibisual. La solicitud sigue en espera, así que vuelve a responder.",
       "emptyToolInput": "(vacío)",
       "askedByToolTitle": "Herramienta que pediste confirmar",
       "askedByToolHint": "Marcaste {{tool}} como «preguntar antes de usar» en la configuración de este agent, así que pregunta incluso en modo Bypass.",
@@ -1874,13 +1886,27 @@
       "empty": "Carpeta vacía",
       "visible": "Visibles ({{count}})",
       "satellites": "Satélites {{count}}",
-      "maxTitle": "Máximo de satélites para esta carpeta",
-      "constellationSlotHint": "Los archivos agrupados alrededor de un archivo cuentan como una sola ranura",
+      "maxTitle": "Máximo de satélites de documentos para esta carpeta",
+      "bundleMaxTitle": "Máximo de satélites para este grupo",
+      "maxSaveFailed": "No se pudo guardar el límite de satélites. Inténtalo de nuevo.",
+      "constellationSlotHint": "Los archivos con vista previa siguen visibles fuera de este límite. Cada grupo tiene su propio límite de satélites.",
       "maxHint": "Enter · Esc",
       "maxSave": "Guardar",
       "maxDecrease": "Disminuir",
       "maxIncrease": "Aumentar",
       "noVisible": "Sin archivos visibles"
+    },
+    "externalMergeDepth": {
+      "label": "Fusión de rutas",
+      "levels": "nivel {{depth}}",
+      "off": "desactivada",
+      "projectValue": "este proyecto",
+      "defaultValue": "predeterminado",
+      "edit": "Cambiar la profundidad de fusión de rutas",
+      "reset": "Usar el predeterminado",
+      "title": "Profundidad de fusión de rutas",
+      "note": "Las carpetas externas cuyos primeros N niveles de ruta coinciden comparten una burbuja. Se aplica a todas las carpetas externas de este proyecto.",
+      "hint": "0 la desactiva"
     },
     "webEntry": {
       "count": "Entradas {{count}}",
@@ -2004,8 +2030,10 @@
       "close": "Cerrar uso",
       "session5h": "Sesión actual (5 horas)",
       "weekly7d": "Límite semanal (7 días)",
+      "fiveHourLimit": "Límite de 5 horas",
+      "weeklyAll": "Límite semanal (todos los modelos)",
       "noValue": "--",
-      "resetsIn": "Se reinicia en {{span}}",
+      "resetsAtIn": "Se restablece {{time}} · en {{span}}",
       "resetUnknown": "Hora de reinicio desconocida",
       "resettingNow": "Reiniciando ahora",
       "spanDh": "{{d}} d {{h}} h",
@@ -2030,7 +2058,7 @@
       "emptyOff": "Todavía no hay datos de uso: el recopilador está desactivada. Actívalo abajo y luego abre una sesión interactiva de Claude Code una vez.",
       "emptyWaiting": "El recopilador está activo y espera la primera lectura. Los valores llegan cuando una sesión interactiva de Claude Code dibuja su barra de estado: una burbuja de terminal en el lienzo o Claude Code en tu editor. Los Agents que Vibisual ejecuta sin interfaz no tienen barra de estado y nunca informan.",
       "refresh": "Actualizar",
-      "weeklyScoped": "Límite semanal — {{model}}",
+      "weeklyScoped": "Límite semanal ({{model}})",
       "creditsTitle": "Créditos de uso",
       "creditsOn": "Activado",
       "creditsOff": "Desactivado",
@@ -2112,7 +2140,9 @@
           "notAnthropic": "Esto no parece una clave de API de Anthropic. Debe empezar con sk-ant-.",
           "adminKey": "Las claves de administrador no pueden ejecutar modelos. Crea una clave de API normal.",
           "oauthToken": "Este es un token de inicio de sesión, no una clave de API.",
-          "whitespace": "La clave contiene espacios. Pégala de nuevo sin ellos."
+          "whitespace": "La clave contiene espacios. Pégala de nuevo sin ellos.",
+          "notOpenai": "Esto no parece una clave de API de OpenAI. Las claves de OpenAI empiezan con sk- (las claves de Anthropic van en el lado de Claude).",
+          "notAdminKey": "El gasto solo se puede leer con una clave de administrador (sk-admin-…). Las claves de proyecto y de cuenta de servicio no pueden leer los costos de la organización."
         },
         "keySaveFailed": "No se pudo guardar la clave. Inténtalo de nuevo.",
         "liveRunsNow": "Ejecuciones con créditos ahora: {{count}}",
@@ -2164,6 +2194,50 @@
           "lastValue": "Se muestra el último valor leído."
         }
       },
+      "openaiCredit": {
+        "title": "Créditos de API (OpenAI Platform)",
+        "status": {
+          "blocked": "Rechazado por OpenAI"
+        },
+        "modeHintConsole": "Desactivado: los créditos se usan solo después de alcanzar los límites de Codex de tu plan de ChatGPT. Activado: los créditos se usan primero, y la suscripción se usa siempre que OpenAI rechace los créditos.",
+        "keyPlaceholder": "sk-proj-…",
+        "keyVerified": {
+          "rejected": "Rechazado por OpenAI"
+        },
+        "keyCreate": "Crear una clave en OpenAI Platform",
+        "reason": {
+          "cloud-provider": "Codex en esta computadora está configurado con otro proveedor de modelos ({{provider}}), por lo que no se usan créditos. Ese proveedor factura las ejecuciones.",
+          "blocked": "OpenAI rechazó la última ejecución con créditos, por lo que las nuevas ejecuciones usan tu suscripción."
+        },
+        "block": {
+          "balance-empty": "OpenAI rechazó la ejecución con créditos porque se alcanzó el saldo de créditos o el límite de uso de la organización.",
+          "spend-limit": "OpenAI rechazó la ejecución con créditos porque se alcanzó un límite de uso.",
+          "key-invalid": "OpenAI rechazó la clave de API."
+        },
+        "console": {
+          "title": "Gasto de este mes (OpenAI Platform)",
+          "asOf": "Desde {{start}} · actualizado {{time}} · mismos datos que la página de uso de Platform",
+          "resetsOn": "Se cuenta por mes calendario UTC · el próximo mes comienza el {{date}} (UTC)",
+          "viewSpendLimits": "Ver los límites de uso en Platform",
+          "pending": "Leyendo el gasto de Platform…",
+          "limitsNote": "Los límites de uso y el saldo de créditos se administran en OpenAI Platform, y OpenAI no ofrece una API pública para leerlos, por lo que Vibisual no muestra ni aplica límites propios. Cuando se alcanza un límite o se acaban los créditos, OpenAI rechaza la ejecución y Vibisual vuelve a tu suscripción.",
+          "needKeyTitle": "Agrega una clave de administrador para mostrar el gasto de Platform",
+          "needKeyBody": "Vibisual lee el gasto de este mes con la Costs API oficial de OpenAI, que requiere una clave de administrador (sk-admin-…). Los propietarios de la organización pueden crear una en la página de claves de administrador de Platform.",
+          "createAdminKey": "Crear una clave de administrador en Platform",
+          "adminKey": "Clave de administrador (para leer el gasto)",
+          "adminKeyPlaceholder": "sk-admin-…",
+          "adminKeyHint": "Se usa solo para leer el gasto: esta clave no puede ejecutar modelos.",
+          "error": {
+            "auth": "OpenAI rechazó la clave porque no es una clave de administrador o fue revocada. Crea una clave de administrador (sk-admin-…) como propietario de la organización e ingrésala aquí.",
+            "forbidden": "Esta clave no puede leer el gasto. Usa una clave de administrador creada por un propietario de la organización.",
+            "not-found": "OpenAI no encontró datos de gasto para esta clave.",
+            "rate-limited": "OpenAI pidió esperar antes de volver a leer el gasto. Se actualiza automáticamente.",
+            "network": "No se pudo conectar con OpenAI. Se actualiza automáticamente.",
+            "unreadable": "Esta clave de administrador no se puede leer en esta computadora. Ingrésala de nuevo.",
+            "other": "No se pudo leer el gasto de Platform."
+          }
+        }
+      },
       "creditPages": {
         "tabsLabel": "Tipos de crédito",
         "billedLabel": "Facturado por",
@@ -2171,13 +2245,13 @@
         "vibisualLabel": "En Vibisual",
         "subscription": {
           "tab": "Límites del plan",
-          "what": "Los límites de uso de 5 horas y semanales incluidos en tu plan Claude Pro o Max.",
+          "what": "Los límites de uso incluidos en tu plan Claude. Pro y Max tienen un límite de 5 horas y un límite semanal. Ultra solo tiene un límite semanal una vez que tu cuenta está verificada. Max y Ultra también tienen un límite semanal aparte para algunos modelos.",
           "billed": "Tu suscripción de claude.ai, una tarifa mensual fija.",
           "vibisual": "Se usa de forma predeterminada en cada ejecución de Claude, tanto headless como CMD."
         },
         "personal": {
           "tab": "Créditos personales",
-          "what": "Uso adicional en tu cuenta personal de claude.ai. Lo activas en claude.ai para poder seguir trabajando después de alcanzar el límite de tu plan.",
+          "what": "Créditos de uso en tu cuenta personal de claude.ai. Actívalos y prepágalos en claude.ai, y Claude seguirá trabajando con créditos después de alcanzar un límite del plan, hasta que se agote tu límite de gasto mensual o tu saldo.",
           "billed": "El método de pago de tu cuenta de claude.ai.",
           "vibisual": "Vibisual no lo elige. Si está activado, Claude Code lo usa por su cuenta después del límite del plan. Esta página solo lo lee."
         },
@@ -2203,6 +2277,28 @@
           "activeNote": "Cada ejecución de Claude desde Vibisual se factura a esta nube. No se usan créditos personales ni empresariales, y la ruta de créditos empresariales permanece desactivada.",
           "inactiveNote": "Claude Code en esta computadora no está configurado con un proveedor de nube, así que no se usa ningún crédito de nube. Para usar uno, primero configura Claude Code para ese proveedor.",
           "docs": "Cómo ejecutar Claude Code con un proveedor de nube"
+        },
+        "vendorLabel": "Proveedor de créditos",
+        "vendor": {
+          "anthropic": "Claude",
+          "openai": "OpenAI"
+        },
+        "openai": {
+          "subscription": {
+            "what": "Los límites de uso de Codex incluidos en tu plan de ChatGPT. Los planes tienen un límite de 5 horas y un límite semanal.",
+            "billed": "Tu suscripción de ChatGPT, una tarifa mensual fija.",
+            "vibisual": "Se usa de forma predeterminada en cada ejecución de Codex, tanto en segundo plano (headless) como en CMD."
+          },
+          "personal": {
+            "what": "Créditos de Codex en tu cuenta de ChatGPT. Cuando compras créditos, Codex sigue funcionando con ellos después de alcanzar los límites de tu plan. Los pases de restablecimiento restauran tus límites de uso.",
+            "billed": "El método de pago de tu cuenta de ChatGPT.",
+            "vibisual": "Vibisual no los elige. Codex los usa por su cuenta después de los límites del plan. Esta página solo los lee."
+          },
+          "business": {
+            "what": "Créditos de API de tu organización de OpenAI Platform (platform.openai.com). Los créditos que compras o recibes llegan aquí.",
+            "billed": "Se descuenta de los créditos de API de la organización en OpenAI Platform. Las ejecuciones se detienen cuando se agotan, y a tu tarjeta solo se le cobra si la recarga automática está activada.",
+            "vibisual": "Cuando está activado, se usa solo para las ejecuciones de Codex en segundo plano (headless), no para CMD ni para las burbujas de hooks. De forma predeterminada, solo después de alcanzar los límites de Codex de tu plan de ChatGPT."
+          }
         }
       }
     },
@@ -2412,6 +2508,11 @@
         "empty": "Todavía no hay ninguna imagen en este nodo",
         "emptyHint": "Enlaza este nodo con un agent usando el + de su tarjeta de entrada. Las imágenes que ese agent entregue aparecerán aquí.",
         "loadFailed": "No se pudo abrir esta imagen",
+        "retry": "Reintentar",
+        "viewControls": "Controles de vista",
+        "editHint": "Anota, recorta o quita el fondo aquí mismo: el mismo editor rápido del IDE",
+        "layerEdit": "Edición por capas",
+        "layerEditHint": "Crea un origen editable con capas para agregar texto y formas y exportar varios tamaños. El archivo original no se modifica.",
         "editor": {
           "properties": "Propiedades de la capa",
           "importedImage": "Imagen importada (una capa)",
@@ -4262,6 +4363,9 @@
       "blocked": "No se creó nada — todavía no hay ninguna carpeta de proyecto abierta. Los Agents trabajan dentro de la carpeta que elijas, así que elige una primero.",
       "detail": "Todo lo que Vibisual guarda de un proyecto vive dentro de esa carpeta, y los agentes solo pueden leer y editar archivos que estén debajo de ella. Más adelante puedes abrir más carpetas desde Archivo → Abrir carpeta.",
       "cancelled": "Todavía no se eligió ninguna carpeta. Elige una para continuar.",
+      "errorPickerMissing": "No hay ningún selector de carpetas disponible en esta computadora. Instala zenity o kdialog y vuelve a intentarlo.",
+      "errorFailed": "No se pudo abrir la carpeta como proyecto.",
+      "errorNetwork": "No se pudo conectar con el servidor de Vibisual. Verifica que la app siga en ejecución y vuelve a intentarlo.",
       "choose": "Elegir carpeta",
       "picking": "Eligiendo…",
       "later": "Más tarde"
@@ -4369,7 +4473,8 @@
       },
       "trigger": {
         "auto": "automática",
-        "manual": "manual"
+        "manual": "manual",
+        "snapshot": "copia"
       },
       "copyMirrored": "copia conservada",
       "copyIndexOnly": "solo índice",
@@ -4398,7 +4503,11 @@
       "restoreAsDelete": "Restaurar eliminando",
       "restoredAt": "restaurada {{at}}",
       "resumeMode": "Continuarla",
-      "freshMode": "Nueva pestaña",
+      "freshMode": "Nueva con resumen",
+      "freshModeTip": "Abre una sesión nueva y, en su primer turno, le pasa lo que la bóveda guardó de esta conversación: objetivo, pasos, archivos en los que trabajaba y dónde está la transcripción anterior. Úsalo cuando la transcripción sea demasiado grande para continuarla.",
+      "snapshotNow": "Copiar ahora",
+      "snapshotNowTip": "Copia ahora la transcripción de esta sesión a la bóveda, sin esperar a la próxima compactación.",
+      "snapshotFailed": "no se pudo copiar",
       "mirroredOnly": "solo copia",
       "resumeRisky": "grande",
       "ncNote": "Es posible que el resumen haya reformulado estos elementos en lugar de descartarlos: esta lista solo indica que no aparecieron en él.",
@@ -4798,7 +4907,9 @@
       "discardConfirm": "Descartar y cerrar",
       "renderFailed": "No se pudo renderizar la imagen marcada.",
       "noSession": "No hay ninguna sesión a la que adjuntar esta imagen.",
-      "saveFailed": "No se pudo guardar la imagen marcada."
+      "saveFailed": "No se pudo guardar la imagen marcada.",
+      "openLayersHint": "Continúa en el editor de capas: esta imagen, con tus marcas, se convierte en una capa a la que puedes agregar texto y formas",
+      "openLayersFailed": "No se pudo abrir el editor de capas."
     },
     "overlay": {
       "closeLabel": "Cerrar IDE",
@@ -5121,9 +5232,13 @@
       "voiceListening": "Escuchando — habla ahora",
       "voiceCancelHint": "Esc para descartar",
       "voiceDone": "Listo",
+      "voiceErrInsecureContext": "El micrófono requiere una conexión HTTPS de confianza. Abre la dirección HTTPS en Acceso remoto > Acceso móvil y confía en su certificado de conexión.",
+      "voiceMicSettingsHintIos": "En iPhone o iPad, permite el micrófono en la configuración del navegador para este sitio. Revisa también los permisos del micrófono del navegador en la configuración del dispositivo y recarga la página.",
+      "voiceMicSettingsHintAndroid": "En Android, permite el micrófono en la configuración del sitio del navegador y en Configuración de Android > Aplicaciones > tu navegador > Permisos. Después, recarga la página.",
+      "voiceMicSettingsHintBrowser": "Permite el micrófono para este sitio en la configuración del sitio del navegador. Permite también que el navegador use el micrófono en la configuración de privacidad del dispositivo y recarga la página.",
       "voiceErrUnsupported": "El reconocimiento de voz no está disponible en esta versión.",
-      "voiceErrPermission": "Se denegó el acceso al micrófono. Permítelo para esta app en la configuración de privacidad del sistema y vuelve a intentarlo.",
-      "voiceErrDevice": "No se encontró ningún micrófono. Conecta uno y vuelve a intentarlo.",
+      "voiceErrPermission": "Permite el micrófono para este sitio en el navegador y para el navegador o la aplicación en la configuración de privacidad del dispositivo. Después, vuelve a intentarlo.",
+      "voiceErrDevice": "No se pudo abrir el micrófono. Revisa los permisos del micrófono y el dispositivo de entrada y vuelve a intentarlo.",
       "voiceErrNoDevice": "No se encontró ningún micrófono. Conecta uno.",
       "voiceErrDeviceBusy": "Otra aplicación está usando el micrófono. Ciérrala e inténtalo de nuevo.",
       "voiceErrNetwork": "No se pudo conectar con el servicio de reconocimiento de voz.",
@@ -5134,9 +5249,9 @@
       "voiceMicHintRightClick": "Clic derecho: configuración del micrófono",
       "voiceMicSettingsAction": "Cómo solucionarlo",
       "voiceMicSettingsTitle": "Configuración del micrófono",
-      "voiceMicSettingsBody": "Esta aplicación necesita que el sistema operativo permita el acceso al micrófono.",
-      "voiceMicSettingsBlockedBody": "No se pudo abrir el micrófono. Por lo general, esto significa que el acceso al micrófono está desactivado en la configuración del sistema operativo.",
-      "voiceMicSettingsNoDeviceBody": "Esta PC no tiene ningún micrófono conectado. Conecta uno e inténtalo de nuevo.",
+      "voiceMicSettingsBody": "El navegador y el dispositivo deben permitir el acceso al micrófono.",
+      "voiceMicSettingsBlockedBody": "No se pudo abrir el micrófono. Revisa los permisos del sitio, la configuración de privacidad del dispositivo y el dispositivo de entrada.",
+      "voiceMicSettingsNoDeviceBody": "No hay un micrófono disponible en este dispositivo. Revisa el micrófono integrado o conecta uno y vuelve a intentarlo.",
       "voiceMicSettingsOpen": "Abrir configuración",
       "voiceMicSettingsHintWin": "Activa tanto \"Acceso al micrófono\" como \"Permitir que las aplicaciones de escritorio accedan al micrófono\" al final de la lista. Debido a cómo está instalada esta aplicación, su nombre no aparece en la lista de aplicaciones.",
       "voiceMicSettingsHintMac": "Activa Vibisual en Privacidad y seguridad > Micrófono. Si acabas de activarlo, reinicia la aplicación para que el cambio surta efecto.",
@@ -5159,9 +5274,12 @@
       "sendRejected": "Se rechazó la solicitud. Se restauraron el texto y los archivos adjuntos. Revisa la conversación antes de volver a enviarla.",
       "sendUnconfirmed": "No se pudo confirmar el envío. Se restauraron el texto y los archivos adjuntos. Revisa la conversación antes de volver a enviarla.",
       "localImagesUnsupported": "All Model aún no admite imágenes como entrada. Elimina las imágenes o elige otro proveedor para enviar este mensaje.",
+      "attachmentsMissing": "No se envió nada porque una imagen adjunta ya no está disponible. Se restauró tu texto; quita la imagen marcada o vuelve a adjuntarla.",
+      "attachmentMissing": "Esta imagen ya no está disponible. Quítala o vuelve a adjuntarla.",
       "liveDelivery": {
         "waiting": "Pendiente de envío",
         "sending": "Enviando…",
+        "received": "Recibido",
         "delivered": "Entregado",
         "unavailable": "No se puede entregar",
         "uncertain": "Entrega sin confirmar",
@@ -5175,6 +5293,7 @@
         "hint": {
           "waiting": "Este mensaje espera a ser enviado a la tarea actual.",
           "sending": "Esperando la confirmación de recepción del agente.",
+          "received": "El agente recibió este mensaje. Se agregará a la tarea actual en cuanto termine el paso en curso (una ejecución de herramienta o un razonamiento largo). No se volverá a enviar.",
           "delivered": "Entregado como instrucción adicional a la tarea actual.",
           "unavailable": "Elige «{{wait}}» para enviarlo después de la tarea, o «{{immediate}}» para detenerla y empezar con este mensaje.",
           "uncertain": "El mensaje no se reenviará automáticamente. No se puede modificar ni borrar para evitar entregas duplicadas; sí puedes copiar el texto."
@@ -5281,7 +5400,9 @@
       "next": "Siguiente",
       "back": "Atrás",
       "send": "Enviar",
-      "sending": "Enviando…"
+      "sending": "Enviando…",
+      "sendRejected": "No se aceptó tu respuesta. Se conservan tus selecciones, así que puedes volver a enviarla.",
+      "sendUnconfirmed": "Es posible que tu respuesta no se haya entregado. Se conservan tus selecciones, así que puedes volver a enviarla."
     },
     "activityBar": {
       "mcp": "MCP",
@@ -5310,7 +5431,8 @@
       "moveDown": "Bajar",
       "exclude": "Quitar de la barra",
       "add": "Agregar a la barra",
-      "noExcluded": "No hay elementos excluidos"
+      "noExcluded": "No hay elementos excluidos",
+      "localAssist": "Asistente de cierre"
     },
     "mcp": {
       "title": "Servidores MCP",
@@ -5816,7 +5938,9 @@
       "compacting": "compactando",
       "delegating": "Esperando a otros agentes",
       "delegatingHint": "Este turno está esperando el resultado de otro agente. Puedes detenerlo en cualquier momento.",
-      "compactingHint": "El contexto está lleno, así que la CLI está resumiendo la conversación anterior para liberar espacio. Esto suele tardar unos minutos; es normal que no haya salida nueva mientras tanto."
+      "compactingHint": "El contexto está lleno, así que la CLI está resumiendo la conversación anterior para liberar espacio. Esto suele tardar unos minutos; es normal que no haya salida nueva mientras tanto.",
+      "nestedSubagentTokens": "{{tokens}} tokens · {{percent}}% de su contexto",
+      "nestedSubagentTokensOnly": "{{tokens}} tokens"
     },
     "report": {
       "title": "Informe de trabajo",
@@ -6638,7 +6762,9 @@
         "user": "Ajustado por ti",
         "plan": "Derivado del plan"
       },
-      "openStage": "Abrir vista"
+      "openStage": "Abrir vista",
+      "stepVerified": "Verificado",
+      "stepVerifiedHint": "Una ejecución de verificación pasó después de marcar este paso como terminado ({{time}})."
     },
     "hooks": {
       "title": "Hooks de sesión",
@@ -7334,7 +7460,15 @@
         "maxMembers": "Máximo de miembros que puede crear",
         "memberIsolation": "Dar a cada miembro su propio working tree",
         "memberIsolationHint": "Cada miembro nace en su propio git worktree, para que los miembros que se ejecutan en paralelo no choquen entre sí en los mismos archivos. Fusionar las ramas después te toca a ti. Solo miembros de Claude: Codex no tiene un flag equivalente.",
-        "memberToolTemplate": "Herramientas con las que nacen los miembros"
+        "memberToolTemplate": "Herramientas con las que nacen los miembros",
+        "allowSelf": "Permitir hacerlo directamente",
+        "allowSelfHint": "Agrega la opción \"hacerlo directamente\". Así, la misma sesión vuelve a ejecutar tu solicitud con su configuración normal, conservando su contexto, en lugar de delegarla.",
+        "crossEngineReview": "Revisar con el otro motor",
+        "crossEngineReviewHint": "Los miembros de revisión se crean en el motor que no escribió el código, cuando ese motor está listo.",
+        "formationBasis": "Cómo dividir el trabajo",
+        "formationBasisHint": "Auto Agent usa la misma opción para este proyecto.",
+        "splitRules": "Cargar las reglas del director por partes",
+        "splitRulesHint": "Cada turno del director lleva solo la parte de decisión. El procedimiento paso a paso se lee después de elegir la forma del equipo."
       },
       "permission": {
         "bypass": "Omitir las solicitudes de permiso",
@@ -7401,7 +7535,11 @@
         "members": "Miembros ({{count}}): {{names}}",
         "created": "— {{count}} recién creados",
         "tokens": "Tokens: {{input}} entrada · {{output}} salida",
-        "noPlan": "El director terminó sin informar un plan."
+        "noPlan": "El director terminó sin informar un plan.",
+        "splitBasis": "Por qué se dividió:",
+        "reviewer": "Revisado por {{name}}",
+        "tokenSplit": "Coordinación {{coordination}} · Trabajo {{work}} tokens",
+        "tokenSplitPartial": "(solo de los traspasos registrados)"
       },
       "phase": {
         "conducting": "Dirigiendo",
@@ -7423,7 +7561,8 @@
         "none": "Sin equipo",
         "single": "Un miembro",
         "pipeline": "Pipeline",
-        "parallel": "En paralelo"
+        "parallel": "En paralelo",
+        "self": "Hacerlo directamente"
       },
       "readiness": {
         "setup": "Debes instalar {{engine}} antes de ejecutarlo.",
@@ -7433,6 +7572,60 @@
         "recheck": "Volver a comprobar",
         "auto": "La selección automática solo usa motores instalados y con la sesión iniciada.",
         "retry": "Tu solicitud se conservó. Termina de preparar {{engine}} y vuelve a enviarla."
+      },
+      "verification": {
+        "verified": "Verificado",
+        "received": "Recibido",
+        "rejected": "Revisión rechazada",
+        "held": "Veredicto en espera",
+        "noEvidence": "Aprobado sin evidencia",
+        "detail": "Última revisión: {{passed}} aprobadas, {{failed}} fallidas (códigos de salida que vio la app)",
+        "receivedHint": "El resultado volvió, pero ninguna revisión lo comprobó."
+      },
+      "hops": {
+        "title": "Cadena de traspasos ({{count}})",
+        "role": {
+          "conductor": "Director",
+          "self": "Trabajo directo",
+          "entry": "Entrada",
+          "member": "Miembro",
+          "review": "Revisión",
+          "rework": "Retrabajo"
+        },
+        "failed": "Falló",
+        "tokens": "{{count}} tokens",
+        "instruction": "Recibió:",
+        "result": "Devolvió:",
+        "waited": "Esperó {{seconds}} s en la cola",
+        "concurrency": "(retenido por el límite de sesiones simultáneas)"
+      },
+      "scorecard": {
+        "title": "Tablero por intención y forma del equipo",
+        "about": "Cuenta todas las ejecuciones guardadas de este proyecto. Úsalo para decidir si cambiar un valor predeterminado; nada cambia por sí solo.",
+        "unplanned": "Sin plan informado",
+        "runs": "{{count}} ejecuciones",
+        "outcome": "Terminadas {{completed}} · Verificadas {{verified}} · Errores {{error}} · Sin plan {{unreported}}",
+        "average": "Promedio {{tokens}} tokens · {{seconds}} s",
+        "averageTokens": "Promedio {{tokens}} tokens"
+      },
+      "suggestions": {
+        "title": "Sugerencias de limpieza",
+        "foldTitle": "Podría fusionarse",
+        "fold": "{{from}} solo recibe trabajo de {{into}} y no pasa nada a otros ({{count}} ejecuciones en conjunto). Podría convertirse en una skill de {{into}}.",
+        "idleTitle": "Sin usar desde hace tiempo",
+        "idle": "{{name}} participó por última vez en una ejecución el {{date}} ({{count}} ejecuciones en total).",
+        "note": "Son solo sugerencias. Nada se fusiona ni se elimina automáticamente.",
+        "exportSkill": "Exportar como skill",
+        "exported": "Guardado como skill de proyecto \"{{name}}\".",
+        "exportFailed": "No se pudo exportar: {{reason}}"
+      },
+      "newPaths": {
+        "title": "Opciones nuevas (desactivadas por defecto)",
+        "about": "Mientras sigan desactivadas, el director se comporta exactamente como antes."
+      },
+      "formationBasis": {
+        "role": "Por rol (actual)",
+        "dependency": "Por dependencia"
       }
     },
     "configTrim": {
@@ -7527,6 +7720,120 @@
         "title": "Turnos recientes",
         "empty": "Todavía no se ha recortado ningún turno en este proyecto.",
         "counts": "{{trimmed}} / {{excluded}}"
+      }
+    },
+    "localAssist": {
+      "title": "Asistente de cierre",
+      "intro": "Opciones que ayudan a un modelo local a terminar el trabajo en esta computadora. Nada cambia hasta que actives algo.",
+      "saving": "Guardando…",
+      "saveFailed": "No se pudieron guardar las opciones. Inténtalo de nuevo.",
+      "activity": {
+        "progress": "pasos del plan completados {{progress}}"
+      },
+      "preset": {
+        "label": "Preajustes",
+        "off": "Desactivado",
+        "lowSpec": "Seguro para equipos modestos",
+        "balanced": "Equilibrado",
+        "longTask": "Tarea larga",
+        "custom": "Personalizado: cambiaste opciones individuales abajo.",
+        "hint": {
+          "off": "Todo desactivado: el modelo local funciona exactamente como antes.",
+          "lowSpec": "Menor uso de memoria y un motor que deja recursos libres para tus otras aplicaciones; ordena el contexto antes.",
+          "balanced": "Memoria comprimida y orden automático antes de que se llene el contexto.",
+          "longTask": "Primero escribe un plan y luego lo sigue paso a paso, con un contexto nuevo en cada ronda."
+        }
+      },
+      "section": {
+        "engine": "Mantener estable la PC",
+        "context": "Mantener el contexto liviano",
+        "progress": "Terminar el trabajo"
+      },
+      "engine": {
+        "restartHint": "Las opciones del motor se aplican desde el siguiente turno; el motor se reinicia una vez."
+      },
+      "kvCache": {
+        "label": "Compresión de memoria (KV cache)",
+        "hint": "Guarda la memoria de la conversación con menos bits. q8_0 necesita cerca de la mitad de la memoria con poca pérdida de calidad.",
+        "f16": "Desactivado"
+      },
+      "moe": {
+        "label": "Expertos MoE en la CPU",
+        "hint": "Para modelos de mezcla de expertos: mantiene los pesos de los expertos en la memoria del sistema para que una GPU pequeña no se desborde.",
+        "auto": "Auto",
+        "cpu": "CPU"
+      },
+      "lowSpec": {
+        "label": "Modo seguro para equipos modestos",
+        "hint": "Limita la caché de RAM del motor, deja núcleos de CPU libres para tus otras aplicaciones y baja la prioridad del motor."
+      },
+      "tidyAt": {
+        "label": "Ordenar el contexto al",
+        "hint": "Limpia antes de que se llene el contexto, en lugar de fallar cuando se desborda.",
+        "off": "Desactivado",
+        "value": "{{percent}}%"
+      },
+      "tidyMethod": {
+        "label": "Cómo ordenar",
+        "mask": "Ocultar salida antigua de herramientas",
+        "summarize": "Resumir",
+        "handoff": "Traspasar",
+        "ask": "Detener y preguntar",
+        "hint": {
+          "mask": "Reemplaza los resultados antiguos de herramientas por marcadores cortos y conserva las dos últimas rondas.",
+          "summarize": "Primero oculta la salida antigua de herramientas y, si sigue muy lleno, resume la conversación anterior.",
+          "handoff": "Escribe una nota de traspaso y continúa en un contexto nuevo solo con esa nota y tu solicitud.",
+          "ask": "Detiene el turno y te indica qué tan lleno está el contexto, para que decidas."
+        }
+      },
+      "outputCap": {
+        "label": "Límite de salida de herramientas",
+        "hint": "Cuánto de cada resultado de herramienta entra en el contexto.",
+        "short": "Corto",
+        "normal": "Normal",
+        "long": "Largo"
+      },
+      "keepFull": {
+        "label": "Guardar salida completa en archivo",
+        "hint": "La salida recortada se guarda en la carpeta .vibisual del proyecto y se le indica al modelo dónde leer el resto."
+      },
+      "planFirst": {
+        "label": "Planificar primero",
+        "hint": "El modelo escribe primero una lista de verificación. Los cambios empiezan solo después de que la apruebes aquí."
+      },
+      "relay": {
+        "label": "Modo relevo",
+        "hint": "Sigue el plan aprobado un paso por ronda, con un contexto nuevo cada vez, hasta que todos los pasos estén marcados.",
+        "verify": "Comando de verificación (opcional)",
+        "verifyPlaceholder": "p. ej. pnpm test",
+        "maxRounds": "Máx. de rondas"
+      },
+      "resume": {
+        "label": "Reanudar más rápido",
+        "hint": "Guarda en disco la memoria del motor sobre la última conversación antes de descargar el modelo, para no releer todo al volver."
+      },
+      "keepLoaded": {
+        "label": "Mantener el modelo cargado",
+        "hint": "Cuánto tiempo permanece en memoria un modelo inactivo antes de descargarse.",
+        "value": "{{minutes}} min"
+      },
+      "plan": {
+        "state": {
+          "proposed": "Esperando tu aprobación",
+          "approved": "Aprobado",
+          "running": "Relevo en curso",
+          "paused": "En pausa",
+          "done": "Listo"
+        },
+        "progress": "{{done}} de {{total}} pasos",
+        "approve": "Aprobar este plan",
+        "resume": "Reanudar",
+        "reset": "Nuevo plan",
+        "empty": "Planificar primero o el relevo está activo: tu próximo mensaje empezará con una lista de verificación.",
+        "noSession": "Abre una pestaña de sesión para ver su plan.",
+        "more": "+{{count}} pasos más",
+        "skipped": "omitido",
+        "actionFailed": "No se pudo hacer: {{reason}}"
       }
     }
   },
@@ -7755,8 +8062,8 @@
       "connectTooltip": "Crear el edge con esta configuración (Ctrl/Cmd+Enter).",
       "critiqueOptionsTip": "Solo para edges de crítica. Define cuándo intervenir (Momento) y qué aplicar al rechazar (Autoridad). Se ignora para otros tipos.",
       "critiqueOptions": "Opciones de crítica",
-      "critiqueTimingTip": "Intermedio (predeterminado): revisión en cada hito durante el trabajo del destino. Más frecuente / seguro / lento. Final: una sola revisión final tras completar. Menos frecuente / más rápido.",
-      "critiqueTimingIntermediateTip": "Intermedio: revisión en cada hito durante el trabajo del destino. (predeterminado)",
+      "critiqueTimingTip": "Intermedio (predeterminado): pensado para revisar en cada hito durante el trabajo del destino; por ahora se ejecuta una sola vez cuando el destino termina, igual que Final. Final: una sola revisión final tras completar.",
+      "critiqueTimingIntermediateTip": "Intermedio: pensado para revisar en cada hito durante el trabajo del destino. Por ahora se ejecuta una sola vez cuando el destino termina, igual que Solo final. (predeterminado)",
       "critiqueTimingFinalTip": "Solo final: una sola revisión tras que el destino completa.",
       "critiqueTiming": "Momento",
       "critiqueTimingIntermediate": "Intermedio",
@@ -7770,7 +8077,8 @@
       "critiqueMaxReworkTip": "Máximo de veces que el destino puede rehacer en modo Forzar revisión. Al superarlo se degrada automáticamente a solo comentario y se escala a la sesión padre. Protección contra bucles infinitos.",
       "critiqueMaxReworkActive": "Máx. {{max}} veces. Se degrada a solo comentario al superarlo.",
       "critiqueMaxReworkInactive": "No se usa en modo Solo comentario.",
-      "critiqueMaxRework": "Retrabajo máximo"
+      "critiqueMaxRework": "Retrabajo máximo",
+      "splitCheckTooltip": "Antes de conectar: 1) ¿El trabajo es independiente? Si el siguiente paso necesita el resultado anterior, un solo agente suele hacerlo mejor. 2) ¿Ambos lados tocarán los mismos archivos? 3) ¿Está claro qué debe contener el resultado?"
     }
   },
   "inspector": {
@@ -8353,9 +8661,9 @@
         "image": "Grupo de imágenes",
         "audio": "Grupo de sonidos",
         "model": "Grupo de modelos 3D",
-        "code": "Grupo de código",
+        "code": "Grupo HTML",
         "data": "Grupo de datos",
-        "doc": "Grupo de documentos",
+        "doc": "Grupo PDF",
         "subtitle": "Grupo de subtítulos",
         "font": "Grupo de tipografías",
         "other": "Grupo de archivos"
@@ -8365,7 +8673,22 @@
       "title_one": "{{name}} — {{kind}} · {{count}} archivo",
       "title_other": "{{name}} — {{kind}} · {{count}} archivos",
       "enterHint": "Doble clic para abrir este grupo y ver solo sus archivos",
+      "previousPage": "Página anterior",
+      "nextPage": "Página siguiente",
+      "page": "{{page}} / {{pages}} · Archivos: {{count}}",
       "crumb": "Grupo {{name}}"
+    },
+    "sessionMessage": {
+      "externalBadge": "Envió {{count}} mensaje(s) a una sesión fuera de este lienzo: {{names}}",
+      "panelTitle": "Mensajes recientes entre sesiones",
+      "outside": "Sesión externa ({{name}})",
+      "sentTo": "Enviado a",
+      "receivedFrom": "De",
+      "panelNote": "Solo se muestra el hecho de que se envió un mensaje. Que la otra sesión lo acepte depende de su modo de permisos."
+    },
+    "writeOverlap": {
+      "badge": "{{count}} agentes editaron este archivo en {{minutes}} min",
+      "panel": "Editado por {{names}} en {{minutes}} min. Sus cambios podrían sobrescribirse entre sí."
     }
   },
   "common": {
@@ -8692,7 +9015,9 @@
       "queuedIt": "En cola.",
       "composerHint": "Escribe un comando y presiona Enter para enviarlo a esta sesión."
     },
-    "jumpUnavailable": "Ir a la ventana principal solo funciona en la app de escritorio de Vibisual."
+    "jumpUnavailable": "Ir a la ventana principal solo funciona en la app de escritorio de Vibisual.",
+    "sessionMessages": "{{count}} msj enviado(s)",
+    "sessionMessagesTip": "Mensajes que esta sesión acaba de enviar a otras sesiones"
   },
   "localModel": {
     "title": "Todos los modelos",

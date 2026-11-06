@@ -63,12 +63,14 @@
       "confirmCloseForceAllHint": "Menghentikan agen di semua proyek yang terbuka, lalu menutup."
     },
     "usage": {
-      "tooltip": "Sesi saat ini: {{percent}}% dari batas 5 jam terpakai — klik untuk detail",
+      "tooltip": "{{percent}}% dari batas 5 jam terpakai — klik untuk detail",
+      "tooltipWeekly": "{{percent}}% dari batas mingguan Anda (semua model) terpakai — klik untuk detail",
       "tooltipNoData": "Belum ada data penggunaan — klik untuk detail",
       "tooltipWaiting": "Mengambil penggunaan dari Claude Code — angkanya segera muncul",
       "tooltipCliUnavailable": "Tidak dapat menjalankan Claude Code untuk membaca penggunaan — klik untuk detail",
       "creditActive": "Eksekusi baru memakai kredit API",
-      "creditBlocked": "Anthropic menolak kredit API — eksekusi memakai langganan Anda"
+      "creditBlocked": "Anthropic menolak kredit API — eksekusi memakai langganan Anda",
+      "creditBlockedOpenai": "OpenAI menolak kredit API — proses memakai langganan Anda"
     },
     "setupBanner": {
       "text": "Claude Code belum terinstal — agent belum bisa berjalan.",
@@ -131,7 +133,7 @@
     },
     "mobileAccess": {
       "title": "Akses Seluler",
-      "subtitle": "Buka Vibisual di peramban ponsel Anda. Aktifkan, buka salah satu alamat di bawah ini di ponsel, lalu masukkan kode pemasangan.",
+      "subtitle": "Buka Vibisual di browser ponsel. Aktifkan akses, instal dan percayai sertifikat koneksi di ponsel, lalu buka alamat HTTPS di bawah dan masukkan kode pemasangan.",
       "statusOn": "Mendengarkan di jaringan lokal Anda",
       "statusOff": "Nonaktif",
       "enable": "Aktifkan",
@@ -151,9 +153,14 @@
       "externalManual": "Tidak dapat membuka port secara otomatis (UPnP router Anda mungkin nonaktif). Untuk melakukannya secara manual, teruskan port TCP eksternal {{port}} ke {{ip}}:{{port}} di PC ini melalui pengaturan router Anda.",
       "externalManualUrl": "Setelah port diteruskan, hubungkan dari luar melalui alamat ini:",
       "externalReachable": "Dapat dijangkau — hubungkan dari luar di",
-      "externalHttpsNote": "Menggunakan sertifikat self-signed — ponsel Anda akan menampilkan peringatan keamanan pada percobaan pertama. Ketuk \"Advanced → proceed\" untuk melanjutkan; koneksi tetap terenkripsi.",
+      "secureAccessNote": "Akses mikrofon seluler memerlukan HTTPS dan sertifikat yang dipercaya perangkat.",
+      "certificateDownload": "Unduh sertifikat koneksi",
+      "certificateTrustNote": "Instal sertifikat CA PC ini sebagai sertifikat tepercaya di perangkat Anda. Di iPhone/iPad, aktifkan juga di Pengaturan > Umum > Mengenai > Pengaturan Kepercayaan Sertifikat. Di Android, instal sertifikat CA melalui pengaturan keamanan. Lalu buka kembali alamat HTTPS.",
+      "certificateFingerprintTitle": "Sidik jari CA koneksi (SHA-256)",
+      "certificateFingerprintNote": "Sebelum mempercayai sertifikat, bandingkan sidik jari SHA-256 dengan nilai di PC ini pada Akses jarak jauh > Akses seluler. Jangan instal jika nilainya berbeda.",
+      "externalHttpsNote": "Untuk menggunakan mikrofon, instal dan percayai sertifikat koneksi PC ini di perangkat Anda. Melewati peringatan browser saja tidak mengaktifkan mikrofon.",
       "qrTitle": "Pemasangan QR",
-      "qrSubtitle": "Pindai dengan kamera ponsel — Vibisual langsung terbuka dan memasangkan diri, tanpa mengetik alamat atau kode. Satu QR berlaku {{minutes}} menit dan untuk maksimal {{max}} perangkat.",
+      "qrSubtitle": "Setelah mempercayai sertifikat koneksi, pindai dengan kamera ponsel untuk membuka dan memasangkan Vibisual tanpa mengetik alamat atau kode. Satu QR berlaku {{minutes}} menit dan untuk maksimal {{max}} perangkat.",
       "qrIssue": "Terbitkan QR",
       "qrReissue": "Terbitkan QR baru",
       "qrRevoke": "Cabut sekarang",
@@ -179,7 +186,7 @@
           "other": "Tidak dikenali"
         },
         "hint": {
-          "lan": "Jaringan rumah atau kantor Anda. Berfungsi selama ponsel Anda berada di Wi-Fi atau router yang sama dengan PC ini.",
+          "lan": "Jaringan rumah atau kantor Anda. Hubungkan ponsel ke Wi-Fi atau router yang sama dengan PC ini, lalu buka alamat HTTPS setelah mempercayai sertifikat koneksi.",
           "vpn": "Diberikan oleh aplikasi jaringan pribadi seperti Tailscale atau ZeroTier, bukan oleh router Anda. Hanya berfungsi jika ponsel Anda juga masuk ke jaringan pribadi yang sama — tetapi jika begitu, alamat ini berfungsi dari mana saja, termasuk data seluler.",
           "vpnNamed": "Diberikan oleh {{product}}, bukan oleh router Anda. Hanya berfungsi jika ponsel Anda juga masuk ke jaringan {{product}} yang sama — tetapi jika begitu, alamat ini berfungsi dari mana saja, termasuk data seluler.",
           "external": "Menjangkau PC ini lewat internet, melalui port yang dibuka router Anda.",
@@ -755,9 +762,11 @@
         "engineBridgeStatusError": "Tidak dapat membaca status jembatan.",
         "engineBridgeRefresh": "Periksa lagi",
         "externalBudgetTitle": "Folder di luar proyek",
-        "externalBudgetIntro": "Saat agent menyentuh folder di luar proyek, tempat itu mendapatkan bubble-nya sendiri. Jika dibiarkan, bubble-bubble ini bisa mengubur peta atau menyatu menjadi satu bubble yang tidak menunjukkan apa-apa. Angka ini menentukan berapa banyak yang berada di level teratas sekaligus — tempat yang paling sibuk dan terbaru mengisi lebih dulu, sementara tempat yang mulai sepi akan dilipat kembali ke bawah induknya.",
+        "externalBudgetIntro": "Kelompokkan bubble folder eksternal yang jalurnya memiliki beberapa tingkat folder awal yang sama. Pengaturan ini hanya berlaku untuk folder di luar proyek.",
         "externalBudgetLabel": "Folder eksternal yang ditampilkan di level teratas",
-        "externalBudgetDesc": "Folder yang disematkan tidak dihitung dalam angka ini — folder yang Anda sematkan akan selalu berada di level teratas. Pengaturan ini tidak menghapus apa pun: tempat yang tidak muat akan dilipat ke bawah bubble induk yang menunjukkan berapa banyak yang ada di dalamnya.",
+        "externalBudgetDesc": "Digunakan saat kedalaman penggabungan 0: folder paling aktif dan terbaru muncul di level teratas hingga jumlah ini. Folder yang disematkan tidak dihitung. Saat penggabungan berdasarkan jalur aktif, aktivitas tidak memisahkan kelompok. Tidak ada file yang dihapus.",
+        "externalMergeDepthLabel": "Kedalaman penggabungan folder eksternal",
+        "externalMergeDepthDesc": "Default: 2 tingkat. Angka lebih kecil menggabungkan lebih banyak folder; 0 menonaktifkan penggabungan berdasarkan jalur. Hitung folder setelah akar, drive, atau nama berbagi jaringan. Contoh: C:/Users/<name>/.codex/... dan C:/Users/<name>/.claude/... memiliki 2 tingkat yang sama hingga <name>. File tetap dapat diakses di dalam bubble gabungan. Setiap proyek dapat menetapkan nilainya sendiri dari detail gelembung folder eksternal.",
         "externalBudgetLoadError": "Tidak dapat membaca pengaturan saat ini.",
         "externalBudgetSaveError": "Tidak dapat menyimpan. Tidak ada yang diubah.",
         "webFoldIntro": "Saat agen membaca web, setiap domain yang dibacanya menjadi bubble sendiri, sehingga satu agen yang sedang melakukan riset dapat memenuhi canvas. Pengaturan ini mengelompokkan bubble tersebut — tidak ada yang dihapus, dan mengeklik sebuah kelompok akan menampilkan domain di dalamnya satu per satu.",
@@ -875,7 +884,7 @@
         "autoCompactWindowOff": "Biarkan sesuai konfigurasi",
         "autoCompactWindowDesc": "Tuas tunggal terbesar di sini. Diukur selama tiga hari, sesi berada di median 186k token, dan semua yang di atas 200k menyumbang 62% dari seluruh input — setiap giliran membacanya ulang. Menurunkan window dari 400k ke 200k mengurangi input sebesar 27%, dan ke 100k sebesar 59%, untuk pekerjaan yang sama. Ini hanya pernah makin ketat: agent atau default yang sudah lebih rendah yang berlaku. Compact itu sendiri adalah permintaan besar, jadi pengaturan paling rendah tidak otomatis menjadi yang paling murah. Window ini hanya menentukan di mana kami melipat di antara perintah — di tengah tugas, CLI hanya melipat saat window model penuh."
       },
-      "creditsIntro": "Kredit Claude berasal dari dompet yang berbeda. Setiap halaman menampilkan satu dompet: apa itu, siapa yang menagihnya, tempat mengelolanya, dan apakah Vibisual menggunakannya."
+      "creditsIntroVendors": "Kredit Claude dan OpenAI masing-masing berasal dari beberapa dompet. Pilih penyedia, lalu setiap halaman menampilkan satu dompet: apa itu, siapa yang menagih, di mana Anda mengelolanya, dan apakah Vibisual menggunakannya."
     },
     "autoAgent": {
       "title": "Auto Agent",
@@ -1433,7 +1442,8 @@
       },
       "subagentDepth": {
         "label": "Kedalaman subagen",
-        "layers": "{{count}} lapisan"
+        "layers": "{{count}} lapisan",
+        "splitHint": "Sebelum menambah subagent, perbaiki dulu instruksinya. Memecah pekerjaan yang saling bergantung membuat konteks hilang di setiap serah terima."
       },
       "cliOptions": {
         "label": "Opsi CLI",
@@ -1491,7 +1501,7 @@
       "fastMode": {
         "label": "Mode Fast",
         "hint": "Opus yang sama, keluaran lebih cepat",
-        "unsupported": "hanya Opus 4.8 / Opus 5",
+        "unsupported": "hanya Opus 5.x",
         "tip": "Menjalankan model Opus yang sama dengan keluaran lebih cepat — bukan turun ke model yang lebih kecil. Ini bukan flag CLI: agen headless diperlakukan sebagai sesi Agent SDK dan hanya menerima mode Fast bila diaktifkan lewat setelan, jadi Vibisual menaruhnya di berkas setelan yang memang sudah ditulis untuk agen ini. Model yang tidak mendukungnya mengabaikan setelan itu tanpa pesan apa pun."
       },
       "thinking": {
@@ -1690,6 +1700,8 @@
       "denyReasonPlaceholder": "mis. path salah, perintah tidak aman",
       "shortcutHint": "{{shortcut}} = Izinkan · Esc = Tolak",
       "stackCount": "{{current}} dari {{total}} tertunda",
+      "sendRejected": "Vibisual tidak menerima jawaban itu. Permintaan masih menunggu, jadi pilih lagi.",
+      "sendUnconfirmed": "Jawaban Anda mungkin belum sampai ke Vibisual. Permintaan masih menunggu, jadi jawab lagi.",
       "emptyToolInput": "(kosong)",
       "askedByToolTitle": "Alat yang Anda minta untuk dikonfirmasi",
       "askedByToolHint": "Anda menandai {{tool}} sebagai “tanya sebelum digunakan” di pengaturan agent ini — jadi ia tetap bertanya bahkan dalam mode Bypass.",
@@ -1874,13 +1886,27 @@
       "empty": "Folder kosong",
       "visible": "Terlihat ({{count}})",
       "satellites": "Satelit {{count}}",
-      "maxTitle": "Maks satelit untuk folder ini",
-      "constellationSlotHint": "File yang dikelompokkan di sekitar satu file dihitung sebagai satu slot",
+      "maxTitle": "Maksimum satelit dokumen untuk folder ini",
+      "bundleMaxTitle": "Maksimum satelit untuk grup ini",
+      "maxSaveFailed": "Batas satelit tidak dapat disimpan. Coba lagi.",
+      "constellationSlotHint": "File pratinjau tetap terlihat di luar batas ini. Setiap grup memiliki batas satelit sendiri.",
       "maxHint": "Enter · Esc",
       "maxSave": "Simpan",
       "maxDecrease": "Kurangi",
       "maxIncrease": "Tambah",
       "noVisible": "Tidak ada file yang terlihat"
+    },
+    "externalMergeDepth": {
+      "label": "Penggabungan jalur",
+      "levels": "level {{depth}}",
+      "off": "mati",
+      "projectValue": "proyek ini",
+      "defaultValue": "bawaan",
+      "edit": "Ubah kedalaman penggabungan jalur",
+      "reset": "Gunakan bawaan",
+      "title": "Kedalaman penggabungan jalur",
+      "note": "Folder eksternal yang N tingkat awal jalurnya sama digabung dalam satu gelembung. Berlaku untuk semua folder eksternal di proyek ini.",
+      "hint": "0 mematikannya"
     },
     "webEntry": {
       "count": "Entri {{count}}",
@@ -2004,8 +2030,10 @@
       "close": "Tutup penggunaan",
       "session5h": "Sesi saat ini (5 jam)",
       "weekly7d": "Batas mingguan (7 hari)",
+      "fiveHourLimit": "Batas 5 jam",
+      "weeklyAll": "Batas mingguan (semua model)",
       "noValue": "--",
-      "resetsIn": "Disetel ulang dalam {{span}}",
+      "resetsAtIn": "Direset {{time}} · dalam {{span}}",
       "resetUnknown": "Waktu setel ulang tidak diketahui",
       "resettingNow": "Sedang disetel ulang",
       "spanDh": "{{d}} h {{h}} j",
@@ -2030,7 +2058,7 @@
       "emptyOff": "Belum ada data penggunaan — pengumpul nonaktif. Aktifkan di bawah, lalu buka sesi Claude Code interaktif sekali.",
       "emptyWaiting": "Pengumpul aktif dan menunggu pembacaan pertama. Nilai masuk saat sesi Claude Code interaktif menggambar status line-nya — bubble terminal di kanvas, atau Claude Code di editor Anda. Agent yang dijalankan Vibisual secara headless tidak punya status line, jadi tidak pernah melapor.",
       "refresh": "Segarkan",
-      "weeklyScoped": "Batas mingguan — {{model}}",
+      "weeklyScoped": "Batas mingguan ({{model}})",
       "creditsTitle": "Kredit penggunaan",
       "creditsOn": "Aktif",
       "creditsOff": "Nonaktif",
@@ -2112,7 +2140,9 @@
           "notAnthropic": "Ini tidak terlihat seperti kunci API Anthropic. Kunci seharusnya diawali dengan sk-ant-.",
           "adminKey": "Kunci admin tidak dapat menjalankan model. Buat kunci API biasa.",
           "oauthToken": "Ini adalah token masuk, bukan kunci API.",
-          "whitespace": "Kunci berisi spasi. Tempel lagi tanpa spasi."
+          "whitespace": "Kunci berisi spasi. Tempel lagi tanpa spasi.",
+          "notOpenai": "Ini sepertinya bukan kunci API OpenAI. Kunci OpenAI diawali sk- (kunci Anthropic dimasukkan di sisi Claude).",
+          "notAdminKey": "Pengeluaran hanya bisa dibaca dengan kunci admin (sk-admin-…). Kunci proyek dan akun layanan tidak dapat membaca biaya organisasi."
         },
         "keySaveFailed": "Kunci tidak dapat disimpan. Coba lagi.",
         "liveRunsNow": "Sedang berjalan dengan kredit: {{count}}",
@@ -2164,6 +2194,50 @@
           "lastValue": "Menampilkan nilai terakhir yang dibaca."
         }
       },
+      "openaiCredit": {
+        "title": "Kredit API (OpenAI Platform)",
+        "status": {
+          "blocked": "Ditolak oleh OpenAI"
+        },
+        "modeHintConsole": "Nonaktif: kredit baru dipakai setelah batas Codex pada paket ChatGPT Anda tercapai. Aktif: kredit dipakai lebih dulu, dan langganan dipakai setiap kali OpenAI menolak kredit.",
+        "keyPlaceholder": "sk-proj-…",
+        "keyVerified": {
+          "rejected": "Ditolak oleh OpenAI"
+        },
+        "keyCreate": "Buat kunci di OpenAI Platform",
+        "reason": {
+          "cloud-provider": "Codex di komputer ini diatur ke penyedia model lain ({{provider}}), sehingga kredit tidak dipakai. Proses ditagih oleh penyedia tersebut.",
+          "blocked": "OpenAI menolak proses kredit terakhir, sehingga proses baru memakai langganan Anda."
+        },
+        "block": {
+          "balance-empty": "OpenAI menolak proses kredit karena saldo kredit atau batas penggunaan organisasi telah tercapai.",
+          "spend-limit": "OpenAI menolak proses kredit karena batas penggunaan telah tercapai.",
+          "key-invalid": "OpenAI menolak kunci API."
+        },
+        "console": {
+          "title": "Pengeluaran bulan ini (OpenAI Platform)",
+          "asOf": "Sejak {{start}} · diperbarui {{time}} · data yang sama dengan halaman penggunaan Platform",
+          "resetsOn": "Dihitung per bulan kalender UTC · bulan berikutnya dimulai {{date}} (UTC)",
+          "viewSpendLimits": "Lihat batas penggunaan di Platform",
+          "pending": "Membaca pengeluaran Platform…",
+          "limitsNote": "Batas penggunaan dan saldo kredit dikelola di OpenAI Platform, dan OpenAI tidak menyediakan API publik untuk membacanya, sehingga Vibisual tidak menampilkan maupun menerapkan batasnya sendiri. Saat batas tercapai atau kredit habis, OpenAI menolak proses dan Vibisual beralih kembali ke langganan Anda.",
+          "needKeyTitle": "Tambahkan kunci admin untuk menampilkan pengeluaran Platform",
+          "needKeyBody": "Vibisual membaca pengeluaran bulan ini dengan Costs API resmi OpenAI, yang memerlukan kunci admin (sk-admin-…). Pemilik organisasi dapat membuatnya di halaman kunci admin Platform.",
+          "createAdminKey": "Buat kunci admin di Platform",
+          "adminKey": "Kunci admin (untuk membaca pengeluaran)",
+          "adminKeyPlaceholder": "sk-admin-…",
+          "adminKeyHint": "Hanya dipakai untuk membaca pengeluaran — kunci ini tidak dapat menjalankan model.",
+          "error": {
+            "auth": "OpenAI menolak kunci karena bukan kunci admin atau sudah dicabut. Buat kunci admin (sk-admin-…) sebagai pemilik organisasi lalu masukkan di sini.",
+            "forbidden": "Kunci ini tidak dapat membaca pengeluaran. Gunakan kunci admin yang dibuat oleh pemilik organisasi.",
+            "not-found": "OpenAI tidak menemukan data pengeluaran untuk kunci ini.",
+            "rate-limited": "OpenAI meminta menunggu sebelum membaca pengeluaran lagi. Akan dimuat ulang otomatis.",
+            "network": "Tidak dapat menjangkau OpenAI. Akan dimuat ulang otomatis.",
+            "unreadable": "Kunci admin ini tidak dapat dibaca di komputer ini. Masukkan lagi.",
+            "other": "Tidak dapat membaca pengeluaran Platform."
+          }
+        }
+      },
       "creditPages": {
         "tabsLabel": "Jenis kredit",
         "billedLabel": "Ditagih oleh",
@@ -2171,13 +2245,13 @@
         "vibisualLabel": "Di Vibisual",
         "subscription": {
           "tab": "Batas paket",
-          "what": "Batas penggunaan 5 jam dan mingguan yang termasuk dalam paket Claude Pro atau Max Anda.",
+          "what": "Batas penggunaan yang termasuk dalam paket Claude Anda. Pro dan Max memiliki batas 5 jam dan batas mingguan. Ultra hanya memiliki batas mingguan setelah akun Anda terverifikasi. Max dan Ultra juga memiliki batas mingguan terpisah untuk beberapa model.",
           "billed": "Langganan claude.ai Anda, biaya bulanan tetap.",
           "vibisual": "Digunakan secara default untuk setiap eksekusi Claude, baik headless maupun CMD."
         },
         "personal": {
           "tab": "Kredit pribadi",
-          "what": "Penggunaan ekstra pada akun claude.ai pribadi Anda. Anda mengaktifkannya di claude.ai agar tetap bisa bekerja setelah batas paket tercapai.",
+          "what": "Kredit penggunaan di akun claude.ai pribadi Anda. Aktifkan dan isi saldo di muka di claude.ai, lalu Claude tetap bekerja dengan kredit setelah batas paket tercapai, hingga batas pengeluaran bulanan Anda atau saldo Anda habis.",
           "billed": "Metode pembayaran pada akun claude.ai Anda.",
           "vibisual": "Vibisual tidak memilihnya. Jika aktif, Claude Code menggunakannya sendiri setelah batas paket. Halaman ini hanya membacanya."
         },
@@ -2203,6 +2277,28 @@
           "activeNote": "Setiap eksekusi Claude dari Vibisual ditagih ke cloud ini. Kredit pribadi dan bisnis tidak digunakan, dan jalur kredit bisnis tetap nonaktif.",
           "inactiveNote": "Claude Code di komputer ini tidak diatur ke penyedia cloud, jadi tidak ada kredit cloud yang digunakan. Untuk menggunakannya, atur Claude Code untuk penyedia tersebut terlebih dahulu.",
           "docs": "Cara menjalankan Claude Code di penyedia cloud"
+        },
+        "vendorLabel": "Penyedia kredit",
+        "vendor": {
+          "anthropic": "Claude",
+          "openai": "OpenAI"
+        },
+        "openai": {
+          "subscription": {
+            "what": "Batas penggunaan Codex yang termasuk dalam paket ChatGPT Anda. Paket memiliki batas 5 jam dan batas mingguan.",
+            "billed": "Langganan ChatGPT Anda, biaya bulanan tetap.",
+            "vibisual": "Dipakai secara default untuk setiap proses Codex, baik di latar belakang (headless) maupun CMD."
+          },
+          "personal": {
+            "what": "Kredit Codex di akun ChatGPT Anda. Saat Anda membeli kredit, Codex tetap berjalan dengan kredit tersebut setelah batas paket tercapai. Reset pass memulihkan batas penggunaan Anda.",
+            "billed": "Metode pembayaran di akun ChatGPT Anda.",
+            "vibisual": "Vibisual tidak memilihnya. Codex memakainya sendiri setelah batas paket. Halaman ini hanya membacanya."
+          },
+          "business": {
+            "what": "Kredit API organisasi OpenAI Platform (platform.openai.com) Anda. Kredit yang Anda beli atau terima masuk ke sini.",
+            "billed": "Dipotong dari kredit API organisasi di OpenAI Platform. Proses berhenti saat kredit habis, dan kartu Anda hanya ditagih jika isi ulang otomatis aktif.",
+            "vibisual": "Saat diaktifkan, hanya dipakai untuk proses Codex di latar belakang (headless), bukan untuk CMD atau hook bubble. Secara default, hanya setelah batas Codex pada paket ChatGPT Anda tercapai."
+          }
         }
       }
     },
@@ -2412,6 +2508,11 @@
         "empty": "Belum ada gambar di node ini",
         "emptyHint": "Hubungkan node ini ke agent dengan tombol + di kartu input agent itu. Gambar yang dikirimnya akan muncul di sini.",
         "loadFailed": "Gambar ini tidak dapat dibuka",
+        "retry": "Coba lagi",
+        "viewControls": "Kontrol tampilan",
+        "editHint": "Beri tanda, pangkas, atau hapus latar belakang langsung di sini — editor cepat yang sama seperti di IDE",
+        "layerEdit": "Edit layer",
+        "layerEditHint": "Buat sumber yang bisa diedit dengan layer untuk menambahkan teks dan bentuk serta mengekspor beberapa ukuran. File asli tetap tidak berubah.",
         "editor": {
           "properties": "Properti lapisan",
           "importedImage": "Gambar yang diimpor (satu lapisan)",
@@ -4262,6 +4363,9 @@
       "blocked": "Tidak ada yang dibuat — belum ada folder proyek yang terbuka. Agent bekerja di dalam folder yang Anda pilih, jadi pilih satu dulu.",
       "detail": "Semua yang disimpan Vibisual untuk sebuah proyek berada di dalam folder itu, dan agent hanya boleh membaca serta mengubah berkas di bawahnya. Anda bisa membuka folder lain nanti lewat File → Buka Folder.",
       "cancelled": "Belum ada folder yang dipilih. Pilih satu untuk melanjutkan.",
+      "errorPickerMissing": "Tidak ada pemilih folder yang tersedia di komputer ini. Pasang zenity atau kdialog, lalu coba lagi.",
+      "errorFailed": "Folder tidak dapat dibuka sebagai proyek.",
+      "errorNetwork": "Tidak dapat terhubung ke server Vibisual. Pastikan aplikasi masih berjalan, lalu coba lagi.",
       "choose": "Pilih Folder",
       "picking": "Memilih…",
       "later": "Nanti"
@@ -4369,7 +4473,8 @@
       },
       "trigger": {
         "auto": "otomatis",
-        "manual": "manual"
+        "manual": "manual",
+        "snapshot": "salinan"
       },
       "copyMirrored": "salinan disimpan",
       "copyIndexOnly": "hanya indeks",
@@ -4398,7 +4503,11 @@
       "restoreAsDelete": "Kembalikan dengan menghapus",
       "restoredAt": "dikembalikan {{at}}",
       "resumeMode": "Lanjutkan",
-      "freshMode": "Tab baru",
+      "freshMode": "Baru + ringkasan",
+      "freshModeTip": "Membuka sesi baru dan, pada giliran pertamanya, memberikan apa yang disimpan brankas dari percakapan ini — tujuan, langkah, file yang sedang dikerjakan, dan lokasi transkrip lama. Gunakan saat transkrip terlalu besar untuk dilanjutkan.",
+      "snapshotNow": "Salin sekarang",
+      "snapshotNowTip": "Salin transkrip sesi ini ke brankas sekarang, tanpa menunggu pemadatan berikutnya.",
+      "snapshotFailed": "gagal menyalin",
       "mirroredOnly": "hanya salinan",
       "resumeRisky": "besar",
       "ncNote": "Ringkasan mungkin menulis ulang hal-hal ini, bukan menghapusnya — daftar ini hanya menunjukkan bahwa hal-hal itu tidak muncul di dalamnya.",
@@ -4798,7 +4907,9 @@
       "discardConfirm": "Buang dan tutup",
       "renderFailed": "Tidak dapat me-render gambar yang ditandai.",
       "noSession": "Tidak ada sesi untuk melampirkan gambar ini.",
-      "saveFailed": "Tidak dapat menyimpan gambar yang ditandai."
+      "saveFailed": "Tidak dapat menyimpan gambar yang ditandai.",
+      "openLayersHint": "Lanjutkan di editor layer — gambar ini, beserta tanda Anda, menjadi satu layer yang bisa ditambahi teks dan bentuk",
+      "openLayersFailed": "Tidak dapat membuka editor layer."
     },
     "overlay": {
       "closeLabel": "Tutup IDE",
@@ -5121,9 +5232,13 @@
       "voiceListening": "Mendengarkan — silakan bicara",
       "voiceCancelHint": "Esc untuk membatalkan",
       "voiceDone": "Selesai",
+      "voiceErrInsecureContext": "Mikrofon memerlukan koneksi HTTPS tepercaya. Buka alamat HTTPS di Akses jarak jauh > Akses seluler dan percayai sertifikat koneksinya.",
+      "voiceMicSettingsHintIos": "Di iPhone atau iPad, izinkan mikrofon di pengaturan browser untuk situs ini. Periksa juga izin mikrofon browser di pengaturan perangkat, lalu muat ulang halaman.",
+      "voiceMicSettingsHintAndroid": "Di Android, izinkan mikrofon di pengaturan situs browser dan di Setelan Android > Aplikasi > browser Anda > Izin, lalu muat ulang halaman.",
+      "voiceMicSettingsHintBrowser": "Izinkan mikrofon untuk situs ini di pengaturan situs browser. Izinkan juga browser menggunakan mikrofon di pengaturan privasi perangkat, lalu muat ulang halaman.",
       "voiceErrUnsupported": "Pengenalan suara tidak tersedia di build ini.",
-      "voiceErrPermission": "Akses mikrofon ditolak. Izinkan aplikasi ini di pengaturan privasi sistem, lalu coba lagi.",
-      "voiceErrDevice": "Mikrofon tidak ditemukan. Sambungkan satu lalu coba lagi.",
+      "voiceErrPermission": "Izinkan mikrofon untuk situs ini di browser dan untuk browser atau aplikasi di pengaturan privasi perangkat, lalu coba lagi.",
+      "voiceErrDevice": "Mikrofon tidak dapat dibuka. Periksa izin mikrofon dan perangkat input, lalu coba lagi.",
       "voiceErrNoDevice": "Mikrofon tidak ditemukan. Silakan sambungkan mikrofon.",
       "voiceErrDeviceBusy": "Aplikasi lain sedang menggunakan mikrofon. Tutup aplikasi tersebut lalu coba lagi.",
       "voiceErrNetwork": "Tidak dapat menjangkau layanan pengenalan suara.",
@@ -5134,9 +5249,9 @@
       "voiceMicHintRightClick": "Klik kanan: pengaturan mikrofon",
       "voiceMicSettingsAction": "Cara memperbaikinya",
       "voiceMicSettingsTitle": "Pengaturan mikrofon",
-      "voiceMicSettingsBody": "Aplikasi ini memerlukan izin akses mikrofon dari OS Anda.",
-      "voiceMicSettingsBlockedBody": "Tidak dapat membuka mikrofon. Biasanya ini berarti akses mikrofon dinonaktifkan di pengaturan OS Anda.",
-      "voiceMicSettingsNoDeviceBody": "Tidak ada mikrofon yang tersambung ke PC ini. Sambungkan satu lalu coba lagi.",
+      "voiceMicSettingsBody": "Browser dan perangkat harus mengizinkan akses mikrofon.",
+      "voiceMicSettingsBlockedBody": "Mikrofon tidak dapat dibuka. Periksa izin situs, pengaturan privasi perangkat, dan perangkat input.",
+      "voiceMicSettingsNoDeviceBody": "Tidak ada mikrofon yang tersedia di perangkat ini. Periksa mikrofon bawaan atau sambungkan mikrofon, lalu coba lagi.",
       "voiceMicSettingsOpen": "Buka pengaturan",
       "voiceMicSettingsHintWin": "Aktifkan \"Akses mikrofon\" dan \"Izinkan aplikasi desktop mengakses mikrofon Anda\" di bagian bawah daftar. Karena cara aplikasi ini diinstal, namanya tidak muncul dalam daftar aplikasi.",
       "voiceMicSettingsHintMac": "Aktifkan Vibisual di Privacy & Security > Microphone. Jika baru saja mengaktifkannya, mulai ulang aplikasi agar perubahan berlaku.",
@@ -5159,9 +5274,12 @@
       "sendRejected": "Permintaan ditolak. Teks dan lampiran Anda telah dipulihkan. Tinjau percakapan sebelum mengirim lagi.",
       "sendUnconfirmed": "Pengiriman tidak dapat dikonfirmasi. Teks dan lampiran Anda telah dipulihkan. Periksa percakapan sebelum mengirim lagi.",
       "localImagesUnsupported": "All Model belum mendukung input gambar. Hapus gambar atau pilih penyedia lain untuk mengirim pesan ini.",
+      "attachmentsMissing": "Tidak ada yang dikirim karena salah satu gambar lampiran sudah tidak tersedia. Teks Anda telah dikembalikan; hapus gambar yang ditandai atau lampirkan lagi.",
+      "attachmentMissing": "Gambar ini sudah tidak tersedia. Hapus atau lampirkan lagi.",
       "liveDelivery": {
         "waiting": "Menunggu pengiriman",
         "sending": "Mengirim…",
+        "received": "Diterima agen",
         "delivered": "Terkirim",
         "unavailable": "Tidak dapat dikirim",
         "uncertain": "Pengiriman belum terkonfirmasi",
@@ -5175,6 +5293,7 @@
         "hint": {
           "waiting": "Pesan ini menunggu untuk dikirim ke tugas aktif.",
           "sending": "Menunggu konfirmasi penerimaan dari agen.",
+          "received": "Agen sudah menerima pesan ini. Pesan akan ditambahkan ke tugas aktif begitu langkah yang sedang berjalan (eksekusi tool atau proses berpikir panjang) selesai. Pesan tidak akan dikirim ulang.",
           "delivered": "Dikirim sebagai instruksi tambahan untuk tugas aktif.",
           "unavailable": "Pilih “{{wait}}” untuk mengirim setelah tugas selesai, atau “{{immediate}}” untuk menghentikan tugas dan memulai dengan pesan ini.",
           "uncertain": "Pesan tidak akan dikirim ulang secara otomatis. Pengubahan dan penghapusan dikunci untuk mencegah pengiriman ganda; teks masih dapat disalin."
@@ -5281,7 +5400,9 @@
       "next": "Berikutnya",
       "back": "Kembali",
       "send": "Kirim",
-      "sending": "Mengirim…"
+      "sending": "Mengirim…",
+      "sendRejected": "Jawaban Anda tidak diterima. Pilihan Anda tetap disimpan, jadi Anda bisa mengirimnya lagi.",
+      "sendUnconfirmed": "Jawaban Anda mungkin belum terkirim. Pilihan Anda tetap disimpan, jadi Anda bisa mengirimnya lagi."
     },
     "activityBar": {
       "mcp": "MCP",
@@ -5310,7 +5431,8 @@
       "moveDown": "Turunkan",
       "exclude": "Hapus dari bilah",
       "add": "Tambahkan ke bilah",
-      "noExcluded": "Tidak ada item yang dikecualikan"
+      "noExcluded": "Tidak ada item yang dikecualikan",
+      "localAssist": "Bantuan selesai"
     },
     "mcp": {
       "title": "Server MCP",
@@ -5816,7 +5938,9 @@
       "compacting": "memadatkan",
       "delegating": "Menunggu agen lain",
       "delegatingHint": "Giliran ini sedang menunggu hasil pekerjaan agen lain. Anda tetap dapat menghentikannya.",
-      "compactingHint": "Konteks sudah penuh, sehingga CLI sedang meringkas percakapan sebelumnya untuk memberi ruang. Proses ini biasanya memakan waktu beberapa menit — wajar jika tidak ada output baru selama itu."
+      "compactingHint": "Konteks sudah penuh, sehingga CLI sedang meringkas percakapan sebelumnya untuk memberi ruang. Proses ini biasanya memakan waktu beberapa menit — wajar jika tidak ada output baru selama itu.",
+      "nestedSubagentTokens": "{{tokens}} token · {{percent}}% dari konteksnya",
+      "nestedSubagentTokensOnly": "{{tokens}} token"
     },
     "report": {
       "title": "Laporan kerja",
@@ -6638,7 +6762,9 @@
         "user": "Disesuaikan oleh Anda",
         "plan": "Diturunkan dari rencana"
       },
-      "openStage": "Buka tampilan"
+      "openStage": "Buka tampilan",
+      "stepVerified": "Terverifikasi",
+      "stepVerifiedHint": "Eksekusi verifikasi lulus setelah langkah ini ditandai selesai ({{time}})."
     },
     "hooks": {
       "title": "Hook sesi",
@@ -7334,7 +7460,15 @@
         "maxMembers": "Anggota maksimum yang boleh dibuat",
         "memberIsolation": "Beri setiap anggota working tree sendiri",
         "memberIsolationHint": "Setiap anggota lahir di git worktree miliknya sendiri, sehingga pekerja yang berjalan berdampingan tidak bisa saling bertabrakan pada file yang sama. Meng-merge branch-branch itu nanti tetap tugas Anda sendiri. Hanya anggota Claude — Codex tidak punya flag yang setara.",
-        "memberToolTemplate": "Alat bawaan anggota"
+        "memberToolTemplate": "Alat bawaan anggota",
+        "allowSelf": "Izinkan mengerjakan langsung",
+        "allowSelfHint": "Menambahkan pilihan \"kerjakan langsung\". Sesi yang sama lalu menjalankan ulang permintaan Anda dengan pengaturan normalnya, dengan konteks tetap terjaga, alih-alih menyerahkannya.",
+        "crossEngineReview": "Tinjau dengan engine lain",
+        "crossEngineReviewHint": "Anggota peninjau dibuat pada engine yang tidak menulis kodenya, jika engine tersebut siap.",
+        "formationBasis": "Cara membagi pekerjaan",
+        "formationBasisHint": "Auto Agent memakai pilihan yang sama untuk proyek ini.",
+        "splitRules": "Muat aturan conductor secara bertahap",
+        "splitRulesHint": "Setiap giliran conductor hanya membawa bagian keputusan. Prosedur langkah demi langkah dibaca setelah bentuk tim dipilih."
       },
       "permission": {
         "bypass": "Lewati permintaan izin",
@@ -7401,7 +7535,11 @@
         "members": "Anggota ({{count}}): {{names}}",
         "created": "— {{count}} baru dibuat",
         "tokens": "Token: {{input}} masuk · {{output}} keluar",
-        "noPlan": "Dirigen selesai tanpa melaporkan rencana."
+        "noPlan": "Dirigen selesai tanpa melaporkan rencana.",
+        "splitBasis": "Alasan dipecah:",
+        "reviewer": "Ditinjau oleh {{name}}",
+        "tokenSplit": "Koordinasi {{coordination}} · Pekerjaan {{work}} token",
+        "tokenSplitPartial": "(hanya dari serah terima yang tercatat)"
       },
       "phase": {
         "conducting": "Memimpin",
@@ -7423,7 +7561,8 @@
         "none": "Tanpa tim",
         "single": "Satu anggota",
         "pipeline": "Pipeline",
-        "parallel": "Paralel"
+        "parallel": "Paralel",
+        "self": "Kerjakan langsung"
       },
       "readiness": {
         "setup": "{{engine}} harus diinstal sebelum dapat dijalankan.",
@@ -7433,6 +7572,60 @@
         "recheck": "Periksa lagi",
         "auto": "Pemilihan otomatis hanya menggunakan mesin yang sudah diinstal dan masuk ke akun.",
         "retry": "Permintaan Anda disimpan. Selesaikan persiapan {{engine}}, lalu kirim kembali."
+      },
+      "verification": {
+        "verified": "Terverifikasi",
+        "received": "Diterima",
+        "rejected": "Tinjauan ditolak",
+        "held": "Putusan ditahan",
+        "noEvidence": "Disetujui tanpa bukti",
+        "detail": "Tinjauan terakhir: {{passed}} lulus, {{failed}} gagal (kode keluar yang dilihat aplikasi)",
+        "receivedHint": "Hasil sudah kembali, tetapi belum ada tinjauan yang memeriksanya."
+      },
+      "hops": {
+        "title": "Rantai serah terima ({{count}})",
+        "role": {
+          "conductor": "Conductor",
+          "self": "Kerja langsung",
+          "entry": "Entri",
+          "member": "Anggota",
+          "review": "Tinjauan",
+          "rework": "Pengerjaan ulang"
+        },
+        "failed": "Gagal",
+        "tokens": "{{count}} token",
+        "instruction": "Diberikan:",
+        "result": "Dikembalikan:",
+        "waited": "Menunggu {{seconds}} dtk dalam antrean",
+        "concurrency": "(ditahan oleh batas sesi bersamaan)"
+      },
+      "scorecard": {
+        "title": "Kartu skor per tujuan dan bentuk tim",
+        "about": "Menghitung setiap eksekusi yang disimpan untuk proyek ini. Gunakan untuk memutuskan apakah perlu mengubah default; tidak ada yang berubah dengan sendirinya.",
+        "unplanned": "Tidak ada rencana dilaporkan",
+        "runs": "{{count}} eksekusi",
+        "outcome": "Selesai {{completed}} · Terverifikasi {{verified}} · Error {{error}} · Tanpa rencana {{unreported}}",
+        "average": "Rata-rata {{tokens}} token · {{seconds}} dtk",
+        "averageTokens": "Rata-rata {{tokens}} token"
+      },
+      "suggestions": {
+        "title": "Saran perapian",
+        "foldTitle": "Bisa digabungkan",
+        "fold": "{{from}} hanya menerima pekerjaan dari {{into}} dan tidak meneruskan apa pun ({{count}} eksekusi total). Bisa dijadikan skill milik {{into}}.",
+        "idleTitle": "Lama tidak dipakai",
+        "idle": "{{name}} terakhir ikut dalam eksekusi pada {{date}} ({{count}} eksekusi total).",
+        "note": "Ini hanya saran. Tidak ada yang digabung atau dihapus secara otomatis.",
+        "exportSkill": "Ekspor sebagai skill",
+        "exported": "Disimpan sebagai skill proyek \"{{name}}\".",
+        "exportFailed": "Tidak dapat mengekspor: {{reason}}"
+      },
+      "newPaths": {
+        "title": "Opsi baru (nonaktif secara default)",
+        "about": "Selama opsi ini nonaktif, conductor berperilaku persis seperti sebelumnya."
+      },
+      "formationBasis": {
+        "role": "Berdasarkan peran (saat ini)",
+        "dependency": "Berdasarkan dependensi"
       }
     },
     "configTrim": {
@@ -7527,6 +7720,120 @@
         "title": "Giliran Terbaru",
         "empty": "Belum ada giliran yang dipangkas di proyek ini.",
         "counts": "{{trimmed}} / {{excluded}}"
+      }
+    },
+    "localAssist": {
+      "title": "Bantuan selesai",
+      "intro": "Opsi yang membantu model lokal menyelesaikan tugas di PC ini. Tidak ada yang berubah sampai Anda mengaktifkannya.",
+      "saving": "Menyimpan…",
+      "saveFailed": "Opsi tidak dapat disimpan — coba lagi.",
+      "activity": {
+        "progress": "langkah rencana selesai {{progress}}"
+      },
+      "preset": {
+        "label": "Preset",
+        "off": "Mati",
+        "lowSpec": "Aman spek rendah",
+        "balanced": "Seimbang",
+        "longTask": "Tugas panjang",
+        "custom": "Kustom — Anda mengubah opsi tertentu di bawah.",
+        "hint": {
+          "off": "Semua nonaktif — model lokal berjalan persis seperti sebelumnya.",
+          "lowSpec": "Pemakaian memori lebih ringan dan engine yang menyisakan ruang untuk aplikasi lain; merapikan konteks lebih awal.",
+          "balanced": "Memori terkompresi dan perapian otomatis sebelum konteks penuh.",
+          "longTask": "Menulis rencana lebih dulu, lalu mengerjakannya satu langkah per putaran dengan konteks baru setiap kali."
+        }
+      },
+      "section": {
+        "engine": "Jaga PC tetap stabil",
+        "context": "Jaga konteks tetap ramping",
+        "progress": "Selesaikan tugas"
+      },
+      "engine": {
+        "restartHint": "Opsi engine berlaku mulai giliran berikutnya — engine dimulai ulang sekali."
+      },
+      "kvCache": {
+        "label": "Kompresi memori (KV cache)",
+        "hint": "Menyimpan memori percakapan dengan bit lebih sedikit. q8_0 butuh sekitar setengah memori dengan sedikit penurunan kualitas.",
+        "f16": "Mati"
+      },
+      "moe": {
+        "label": "Pakar MoE di CPU",
+        "hint": "Untuk model mixture-of-experts: menyimpan bobot pakar di memori sistem agar GPU kecil tidak meluap.",
+        "auto": "Otomatis",
+        "cpu": "CPU"
+      },
+      "lowSpec": {
+        "label": "Mode aman spek rendah",
+        "hint": "Membatasi cache RAM engine, menyisakan inti CPU untuk aplikasi lain, dan menurunkan prioritas engine."
+      },
+      "tidyAt": {
+        "label": "Rapikan konteks pada",
+        "hint": "Bersihkan sebelum konteks penuh, bukan gagal saat meluap.",
+        "off": "Mati",
+        "value": "{{percent}}%"
+      },
+      "tidyMethod": {
+        "label": "Cara merapikan",
+        "mask": "Sembunyikan output alat lama",
+        "summarize": "Ringkas",
+        "handoff": "Serah terima",
+        "ask": "Berhenti dan tanya",
+        "hint": {
+          "mask": "Mengganti hasil alat yang lebih lama dengan placeholder singkat dan mempertahankan dua putaran terakhir.",
+          "summarize": "Menyembunyikan output alat lama dulu, lalu meringkas percakapan sebelumnya jika masih terlalu penuh.",
+          "handoff": "Menulis catatan serah terima dan melanjutkan di konteks baru hanya dengan catatan itu dan permintaan Anda.",
+          "ask": "Menghentikan giliran dan memberi tahu seberapa penuh konteksnya, agar Anda bisa memutuskan."
+        }
+      },
+      "outputCap": {
+        "label": "Batas output alat",
+        "hint": "Seberapa banyak satu hasil alat masuk ke konteks.",
+        "short": "Pendek",
+        "normal": "Normal",
+        "long": "Panjang"
+      },
+      "keepFull": {
+        "label": "Simpan output penuh di file",
+        "hint": "Output yang terpotong disimpan di folder .vibisual proyek, dan model diberi tahu lokasi untuk membaca sisanya."
+      },
+      "planFirst": {
+        "label": "Rencana dulu",
+        "hint": "Model menulis daftar periksa lebih dulu. Perubahan baru dimulai setelah Anda menyetujuinya di sini."
+      },
+      "relay": {
+        "label": "Mode estafet",
+        "hint": "Mengerjakan rencana yang disetujui satu langkah per putaran dengan konteks baru setiap kali, sampai semua langkah tercentang.",
+        "verify": "Perintah pemeriksaan (opsional)",
+        "verifyPlaceholder": "mis. pnpm test",
+        "maxRounds": "Putaran maks"
+      },
+      "resume": {
+        "label": "Lanjut lebih cepat",
+        "hint": "Menyimpan memori engine tentang percakapan terakhir ke disk sebelum model dibongkar, sehingga saat kembali tidak perlu membaca ulang semuanya."
+      },
+      "keepLoaded": {
+        "label": "Pertahankan model termuat",
+        "hint": "Berapa lama model yang menganggur tetap di memori sebelum dibongkar.",
+        "value": "{{minutes}} mnt"
+      },
+      "plan": {
+        "state": {
+          "proposed": "Menunggu persetujuan Anda",
+          "approved": "Disetujui",
+          "running": "Estafet berjalan",
+          "paused": "Dijeda",
+          "done": "Selesai"
+        },
+        "progress": "{{done}} dari {{total}} langkah",
+        "approve": "Setujui rencana ini",
+        "resume": "Lanjutkan",
+        "reset": "Rencana baru",
+        "empty": "Rencana dulu atau estafet aktif — pesan berikutnya dimulai dengan daftar periksa.",
+        "noSession": "Buka tab sesi untuk melihat rencananya.",
+        "more": "+{{count}} langkah lagi",
+        "skipped": "dilewati",
+        "actionFailed": "Tidak dapat melakukannya: {{reason}}"
       }
     }
   },
@@ -7755,8 +8062,8 @@
       "connectTooltip": "Buat edge dengan pengaturan ini (Ctrl/Cmd+Enter).",
       "critiqueOptionsTip": "Khusus critique-edge. Mengatur kapan intervensi dilakukan (Timing) dan apa yang diberlakukan saat ditolak (Authority). Diabaikan untuk jenis lainnya.",
       "critiqueOptions": "Opsi Kritik",
-      "critiqueTimingTip": "Intermediate (default): tinjau di setiap tonggak selama pekerjaan target. Lebih sering / lebih aman / lebih lambat. Final: satu tinjauan akhir setelah selesai. Lebih jarang / lebih cepat.",
-      "critiqueTimingIntermediateTip": "Intermediate: tinjau di setiap tonggak selama pekerjaan target. (default)",
+      "critiqueTimingTip": "Intermediate (default): dimaksudkan untuk meninjau di setiap tonggak selama pekerjaan target — untuk saat ini hanya berjalan sekali saat target selesai, sama seperti Final. Final: satu tinjauan akhir setelah selesai.",
+      "critiqueTimingIntermediateTip": "Intermediate: dimaksudkan untuk meninjau di setiap tonggak selama pekerjaan target. Untuk saat ini hanya berjalan sekali saat target selesai, sama seperti Hanya Final. (default)",
       "critiqueTimingFinalTip": "Final only: satu tinjauan akhir setelah target selesai.",
       "critiqueTiming": "Timing",
       "critiqueTimingIntermediate": "Bertahap",
@@ -7770,7 +8077,8 @@
       "critiqueMaxReworkTip": "Maks berapa kali target boleh mengulang dalam mode Force rework. Melebihinya otomatis diturunkan ke comment-only dan dieskalasi ke sesi induk. Penjaga terhadap perulangan tak terbatas.",
       "critiqueMaxReworkActive": "Maks {{max}} kali. Otomatis diturunkan ke comment-only jika dilampaui.",
       "critiqueMaxReworkInactive": "Tidak digunakan dalam mode Comment only.",
-      "critiqueMaxRework": "Maks Rework"
+      "critiqueMaxRework": "Maks Rework",
+      "splitCheckTooltip": "Sebelum menghubungkan: 1) Apakah pekerjaannya independen? Jika langkah berikutnya butuh hasil sebelumnya, satu agent biasanya lebih baik. 2) Apakah kedua sisi akan menyentuh file yang sama? 3) Apakah sudah jelas apa isi hasilnya?"
     }
   },
   "inspector": {
@@ -8353,9 +8661,9 @@
         "image": "Kelompok gambar",
         "audio": "Kelompok suara",
         "model": "Kelompok 3D",
-        "code": "Kelompok kode",
+        "code": "Grup HTML",
         "data": "Kelompok data",
-        "doc": "Kelompok dokumen",
+        "doc": "Grup PDF",
         "subtitle": "Kelompok subtitel",
         "font": "Kelompok font",
         "other": "Kelompok file"
@@ -8365,7 +8673,22 @@
       "title_one": "{{name}} — {{kind}} · {{count}} file",
       "title_other": "{{name}} — {{kind}} · {{count}} file",
       "enterHint": "Klik dua kali untuk membuka kelompok ini dan hanya melihat file di dalamnya",
+      "previousPage": "Halaman sebelumnya",
+      "nextPage": "Halaman berikutnya",
+      "page": "{{page}} / {{pages}} · File: {{count}}",
       "crumb": "Kelompok {{name}}"
+    },
+    "sessionMessage": {
+      "externalBadge": "Mengirim {{count}} pesan ke sesi di luar kanvas ini: {{names}}",
+      "panelTitle": "Pesan terbaru antar sesi",
+      "outside": "Sesi luar ({{name}})",
+      "sentTo": "Dikirim ke",
+      "receivedFrom": "Dari",
+      "panelNote": "Hanya fakta bahwa pesan terkirim yang ditampilkan. Apakah sesi lain menerimanya bergantung pada mode izinnya."
+    },
+    "writeOverlap": {
+      "badge": "{{count}} agent mengedit file ini dalam {{minutes}} menit",
+      "panel": "Diedit oleh {{names}} dalam {{minutes}} menit. Perubahan mereka mungkin saling menimpa."
     }
   },
   "common": {
@@ -8692,7 +9015,9 @@
       "queuedIt": "Diantrekan.",
       "composerHint": "Ketik perintah lalu tekan Enter untuk mengirimkannya ke sesi ini."
     },
-    "jumpUnavailable": "Pindah ke jendela utama hanya bisa dilakukan di aplikasi desktop Vibisual."
+    "jumpUnavailable": "Pindah ke jendela utama hanya bisa dilakukan di aplikasi desktop Vibisual.",
+    "sessionMessages": "{{count}} pesan terkirim",
+    "sessionMessagesTip": "Pesan yang baru saja dikirim sesi ini ke sesi lain"
   },
   "localModel": {
     "title": "Semua Model",
