@@ -12,7 +12,8 @@ import { parseOverrides, parseTomlValue } from './toml-inline.mjs';
 const FAKE = path.join(__dirname, 'fake-claude.mjs');
 const scratch: string[] = [];
 function temp(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vib-fake-engine-'));
+  // macOS 의 tmpdir 은 `/var → /private/var` 링크 아래다. 가짜 엔진은 풀린 `process.cwd()` 를 보고하므로 여기서도 푼다.
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vib-fake-engine-')));
   scratch.push(dir);
   return dir;
 }
