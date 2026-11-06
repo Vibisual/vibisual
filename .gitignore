@@ -8,6 +8,14 @@ out/
 build-output/
 *.tsbuildinfo
 
+# 로컬 검증 임시물(브라우저 프로필·로그)과 내부 보고용 산출물 — 릴리스의 `git add -A` 에 실리면 안 된다
+/tmp/
+/output/
+
+# Rust compute artifacts are rebuilt from the pinned source toolchain.
+/packages/compute/rust/target/
+/packages/compute/src/generated/
+
 # Electron / electron-builder artifacts
 packages/desktop/dist/
 packages/desktop/out/
