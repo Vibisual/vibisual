@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, type AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadHookIdentity } from './hookIdentity';
+import { loadHookIdentity, saveHookIdentity, type AtomicWrite } from './hookIdentity';
 
 const state = vi.hoisted(() => ({ userData: '' }));
 vi.mock('electron', () => ({ app: { getPath: () => state.userData } }));
@@ -47,5 +47,31 @@ describe('saved hook listener port recovery', () => {
     } finally {
       if (listener.listening) await new Promise<void>((resolve) => { listener.close(() => resolve()); });
     }
+  });
+});
+
+describe('saving the hook listener identity', () => {
+  const file = (): string => join(state.userData, 'hook-listener.json');
+  const tmpThenRename: AtomicWrite = (p, data) => { writeFileSync(`${p}.tmp`, data); renameSync(`${p}.tmp`, p); };
+
+  it('hands the JSON to the atomic writer with owner-only permissions', () => {
+    const write = vi.fn<AtomicWrite>(tmpThenRename);
+    saveHookIdentity({ port: 4810, token: 'next-token' }, write);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledWith(file(), expect.any(String), 0o600);
+    expect(loadHookIdentity()).toEqual({ preferredPort: 4810, token: 'next-token' });
+    expect(readdirSync(state.userData)).toEqual(['hook-listener.json']);
+  });
+
+  it('keeps the previous port and token when the replacement write fails', () => {
+    persist(4800);
+    const before = readFileSync(file(), 'utf8');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    saveHookIdentity({ port: 5000, token: 'next-token' }, () => {
+      throw Object.assign(new Error('no space left on device'), { code: 'ENOSPC' });
+    });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('failed to persist'));
+    expect(readFileSync(file(), 'utf8')).toBe(before);
+    expect(loadHookIdentity()).toEqual({ preferredPort: 4800, token: 'fixture-token' });
   });
 });

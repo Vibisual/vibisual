@@ -37,7 +37,7 @@ describe('설치기의 메뉴 등록 — 켜진 앱과 같은 값', () => {
     expect(folderMenuLocale(undefined, 'ja', 'de-DE')).toBe('ja');
     expect(folderMenuLocale('xx', null, 'de-DE')).toBe('de');
     expect(folderMenuLocale(undefined, undefined, 'tlh')).toBe('en');
-    expect(mainStrings(folderMenuLocale('ko', null, 'en-US')).folderContextMenuLabel).toBe('Vibisual에서 프로젝트 열기');
+    expect(mainStrings(folderMenuLocale('ko', null, 'en-US')).folderContextMenuLabel).toBe('Open project in Vibisual');
   });
 
   it('설치기는 결과를 버린다 — crash.log 한 줄이 유일한 흔적', () => {

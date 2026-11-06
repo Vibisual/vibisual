@@ -26,6 +26,7 @@ export function MobileAccessSection({ state, onState }: MobileAccessSectionProps
   const [qrTargetIndex, setQrTargetIndex] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const certificateCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const handleToggle = useCallback(async () => {
     const mobile = window.api?.mobile;
@@ -143,6 +144,11 @@ export function MobileAccessSection({ state, onState }: MobileAccessSectionProps
     });
   }, [qrUrl]);
 
+  useEffect(() => {
+    const canvas = certificateCanvasRef.current;
+    if (canvas && state?.certificateUrl) void drawQrToCanvas(canvas, state.certificateUrl).catch(() => {});
+  }, [state?.certificateUrl]);
+
   const enabled = state?.enabled === true;
   const qrTtlMinutes = Math.round(MOBILE_QR_TICKET_TTL_MS / 60000);
   // 담을 주소가 하나라도 있어야 발급 의미가 있다 — LAN 이 없어도 외부 주소만 있으면 가능.
@@ -204,6 +210,26 @@ export function MobileAccessSection({ state, onState }: MobileAccessSectionProps
 
       {enabled && state && (
         <>
+          <div className="mb-3 rounded-lg border border-sky-500/20 bg-sky-500/[0.06] px-3 py-2.5 text-[12px] leading-relaxed text-gray-300">
+            <p>{t('panel.mobileAccess.secureAccessNote')}</p>
+            <p className="mt-1.5">{t('panel.mobileAccess.certificateTrustNote')}</p>
+            {state.certificateUrl && (
+              <div className="mt-2 flex items-center gap-3">
+                <canvas ref={certificateCanvasRef} className="h-28 w-28 shrink-0 rounded bg-white" aria-label={t('panel.mobileAccess.certificateDownload')} />
+                <div className="min-w-0 break-all">
+                  <div>{t('panel.mobileAccess.certificateDownload')}</div>
+                  <span className="select-all font-mono text-sky-300">{state.certificateUrl}</span>
+                </div>
+              </div>
+            )}
+            {state.certFingerprint && (
+              <div className="mt-2 border-t border-white/10 pt-2">
+                <div>{t('panel.mobileAccess.certificateFingerprintTitle')}</div>
+                <div className="mt-1 select-all break-all font-mono text-gray-400">{state.certFingerprint}</div>
+                <p className="mt-1">{t('panel.mobileAccess.certificateFingerprintNote')}</p>
+              </div>
+            )}
+          </div>
           {/* 접속 주소 — 정체·조건·복사까지 MobileAddressList 가 그린다. */}
           <div className="mb-3">
             <div className="mb-1 text-[12px] font-medium uppercase tracking-wide text-gray-500">
@@ -452,26 +478,6 @@ export function MobileAccessSection({ state, onState }: MobileAccessSectionProps
                   </>
                 )}
 
-                {/* 인증서 지문 — "지금 폰에 뜬 경고가 우리 것인가"를 가릴 유일한 값.
-                    자체 서명은 도청은 막아도 중간자는 못 막는데, 화면이 "계속"을 누르라고
-                    가르치기 때문에 대조할 값이 없으면 남의 인증서도 똑같이 넘어간다. */}
-                {state.certFingerprint !== null && (
-                  <div className="mt-3 rounded-md border border-white/[0.06] bg-black/30 px-3 py-2">
-                    <div className="mb-1 flex items-center gap-1.5 text-[12px] font-medium text-gray-300">
-                      <svg className="h-3.5 w-3.5 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 3 5 6v5c0 4.4 3 8.3 7 10 4-1.7 7-5.6 7-10V6z" />
-                        <path d="m9.3 12.2 1.8 1.8 3.4-3.6" />
-                      </svg>
-                      {t('panel.mobileAccess.certFingerprintTitle')}
-                    </div>
-                    <div className="select-all break-all font-mono text-[12px] leading-relaxed text-gray-400">
-                      {state.certFingerprint}
-                    </div>
-                    <p className="mt-1.5 text-[12px] leading-relaxed text-gray-500">
-                      {t('panel.mobileAccess.certFingerprintNote')}
-                    </p>
-                  </div>
-                )}
               </>
             )}
           </div>

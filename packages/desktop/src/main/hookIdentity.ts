@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
+import { readFileSync, existsSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { app } from 'electron';
@@ -62,21 +62,22 @@ export function loadHookIdentity(): { token: string; preferredPort: number } {
   return { token, preferredPort };
 }
 
-/** 실제 바인드된 포트·토큰을 확정 저장 — 다음 실행이 같은 값을 재사용하도록. */
-export function saveHookIdentity(id: HookIdentity): void {
+/** 서버의 `atomicWriteFileSync` 모양. 제거기 정리 모드(`hookCleanup.ts`)가 이 모듈을 읽어도 서버 코어를 끌고 오지 않게 본체가 넣어 준다. */
+export type AtomicWrite = (filePath: string, data: string, mode?: number) => void;
+
+/**
+ * 실제 바인드된 포트·토큰을 확정 저장 — 다음 실행이 같은 값을 재사용하도록.
+ * 원자 교체(§3.2.1-1)라 쓰기가 중간에 실패해도 이전 포트·토큰이 남는다 — 직접 덮어쓰면 반쪽 JSON 이 되어 다음 부팅이 새 신원을 만든다.
+ */
+export function saveHookIdentity(id: HookIdentity, write: AtomicWrite): void {
   const p = identityPath();
   try {
-    /*
-     * 이 파일에는 loopback 토큰이 평문으로 있다 — 토큰 하나면 훅 리스너 화이트리스트 전체(카드·설정·명령 큐)에 닿으므로
-     * 같은 PC 의 다른 사용자 계정이 읽을 수 없어야 한다.
-     * `mode` 는 새로 만들 때만 먹어 이미 0644 인 파일을 `chmodSync` 로 함께 좁힌다. Windows 에서는 무해한 no-op
-     * (0o600 은 쓰기 비트가 있어 읽기전용이 되지 않는다), 실효는 mac·linux.
-     */
-    writeFileSync(p, JSON.stringify(id, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+    // 토큰 하나면 훅 리스너 화이트리스트 전체에 닿으므로 다른 사용자 계정이 못 읽게 0600(실효는 mac·linux, Windows 는 no-op).
+    write(p, JSON.stringify(id, null, 2) + '\n', 0o600);
     try {
       chmodSync(p, 0o600);
     } catch {
-      /* 파일시스템이 권한을 다루지 않는 경우 — 위 mode 로 할 수 있는 데까지는 했다 */
+      /* 파일시스템이 권한을 다루지 않는 경우 */
     }
   } catch (err) {
     console.warn(`[hook-identity] failed to persist ${p}: ${String(err)}`);

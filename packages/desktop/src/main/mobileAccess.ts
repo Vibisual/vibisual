@@ -3,19 +3,20 @@ import { createServer as createHttpsServer, get as httpsGet, type Server as Http
 import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { join, resolve, extname } from 'node:path';
 import { networkInterfaces } from 'node:os';
-import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomInt, timingSafeEqual, X509Certificate } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import type { Socket, AddressInfo } from 'node:net';
 import { app, BrowserWindow } from 'electron';
 // 지문 계산만 따로 있는 이유는 시험 — 이 파일은 electron 을 물고 있어 단위 테스트에서 못 부른다.
 import { certFingerprintOf } from './certFingerprint';
+import { ensureMobileTls, mobileHttpsRedirect, type MobileTls } from './mobileTls';
 import { createMobileSocketSender, createMobileWebSocketServer, retainTransportErrors } from './mobileSocketSafety';
+import { createMobileVoiceBridge, MOBILE_VOICE_SOCKET_PATH, type MobileVoiceBridge } from './mobileVoiceBridge';
 import { mobileTerminalEnv } from './mobileTerminalEnv';
 import { inject, type DispatchFunc } from 'light-my-request';
 import { type WebSocketServer, WebSocket } from 'ws';
 import { Client as NatUpnpClient } from '@runonflux/nat-upnp';
-import { generate as generateSelfSigned } from 'selfsigned';
-import { handleClientMessage, handleClientDisconnect, buildConnectionMessages, type ClientConnection } from '@vibisual/server';
+import { handleClientMessage, handleClientDisconnect, buildConnectionMessages, getVoiceEnginePort, type ClientConnection } from '@vibisual/server';
 import { createTerminal, writeTerminal, resizeTerminal, killTerminal, type TermSink } from './terminalManager';
 import {
   WS_PATH,
@@ -50,7 +51,7 @@ import {
 // 모바일 웹 접속 모드 — SCENARIO.md §4. hook loopback 리스너와 별개의 opt-in 리스너: 켰을 때만 0.0.0.0 에 바인드해 renderer 정적 서빙 + /api light-my-request 재디스패치 + /ws 브리지를 준다.
 // 외부 접속: 앱이 공유기에 UPnP IGD 로 포트를 연다 — 자체 서명 HTTPS 포트로만 매핑하고, UPnP 미지원/CGNAT 는 수동 포트포워딩 안내로 폴백.
 // 보안: 기본 OFF(꺼지면 소켓 0) · 페어링 코드 → HttpOnly 세션 쿠키(외부가 켜지면 영숫자 12자) · 실패는 per-IP 차단(MOBILE_PAIR_*)
-// · Host IP-리터럴 가드(DNS rebinding) · 쿠키 SameSite=Lax(Strict 면 QR 진입이 막힌다 — grantSession), Secure 없음(LAN http·외부 https 공유).
+// · Host IP-리터럴 가드(DNS rebinding) · 쿠키 Secure + SameSite=Lax(Strict 면 QR 진입이 막힌다 — grantSession).
 // QR 페어링: 3분 메모리 티켓을 딥링크(MOBILE_QR_PATH?t=…)에 싣고 상수시간 비교 뒤 코드 입력과 같은 세션 쿠키를 준다(실패는 같은 per-IP 카운터).
 
 const PERSIST_FILENAME = 'mobile-access.json';
@@ -63,7 +64,7 @@ interface PersistedMobileAccess {
   externalEnabled: boolean;
   /** 마지막으로 실제 바인드된 LAN HTTP 포트 — 다음 켜기에서 같은 포트 선호(URL 안정). */
   port: number;
-  /** 마지막으로 바인드된 HTTPS 포트(외부용). */
+  /** 마지막으로 바인드된 HTTPS 포트(LAN·외부 공용). */
   httpsPort: number;
   /** 발급된 세션 토큰들(최신 우선, MOBILE_SESSION_MAX 캡). */
   sessions: string[];
@@ -72,11 +73,6 @@ interface PersistedMobileAccess {
    * 손으로 만든 공유기 규칙은 우리가 지울 수 없어(UPnP 매핑은 임대가 끝나면 사라진다) 외부를 끈 뒤 뒷정리를 청한다. 지웠다고 확인할 때만 false.
    */
   manualForwardAdvised: boolean;
-}
-
-interface PersistedTls {
-  key: string; // PEM
-  cert: string; // PEM
 }
 
 interface IpAttempt {
@@ -96,6 +92,8 @@ let httpsServer: HttpsServer | null = null;
 let wss: WebSocketServer | null = null;
 const wsClients = new Set<WebSocket>();
 const wsSenders = new WeakMap<WebSocket, (data: string) => boolean>();
+const wsLanClients = new WeakMap<WebSocket, boolean>();
+const mobileVoiceBridges = new Map<HttpServer | HttpsServer, MobileVoiceBridge>();
 
 let persisted: PersistedMobileAccess = defaultPersisted();
 let pairingCode: string | null = null;
@@ -113,8 +111,10 @@ let externalReason: MobileExternalReason = null;
 let publicIp: string | null = null;
 let externalPort: number | null = null;
 let upnpRenewTimer: ReturnType<typeof setInterval> | null = null;
-/** 지금 뜬 HTTPS 리스너가 쓰는 인증서의 SHA-256 지문 — 폰 경고 화면과 눈으로 대조하는 값. */
+/** 다운로드한 CA의 SHA-256 지문 — 휴대폰에서 신뢰하기 전에 대조하는 값. */
 let tlsFingerprint: string | null = null;
+let activeTls: MobileTls | null = null;
+let tlsLoading: Promise<MobileTls> | null = null;
 
 function defaultPersisted(): PersistedMobileAccess {
   return { enabled: false, externalEnabled: false, port: 0, httpsPort: 0, sessions: [], manualForwardAdvised: false };
@@ -159,31 +159,24 @@ function savePersisted(): void {
   }
 }
 
-/** 자체 서명 인증서 — 한 번 만들면 userData 에 영속(재시작해도 지문 유지 → 폰 "이 기기 신뢰"가 지속). */
-async function loadOrCreateTls(): Promise<PersistedTls> {
-  const p = tlsPath();
-  if (existsSync(p)) {
-    try {
-      const parsed = JSON.parse(readFileSync(p, 'utf8')) as Partial<PersistedTls>;
-      if (typeof parsed.key === 'string' && typeof parsed.cert === 'string') {
-        return { key: parsed.key, cert: parsed.cert };
-      }
-    } catch { /* 손상 시 재생성 */ }
-  }
-  const notAfter = new Date();
-  notAfter.setFullYear(notAfter.getFullYear() + 10);
-  const pems = await generateSelfSigned([{ name: 'commonName', value: 'Vibisual Mobile Access' }], {
-    notAfterDate: notAfter,
-    keySize: 2048,
-    algorithm: 'sha256',
-  });
-  const tls: PersistedTls = { key: pems.private, cert: pems.cert };
-  try {
-    writeFileSync(p, JSON.stringify(tls, null, 2) + '\n', 'utf8');
-  } catch (err) {
-    console.warn(`[mobile-access] failed to persist TLS cert: ${String(err)}`);
-  }
-  return tls;
+/** Stable CA, renewable IP-SAN server certificate; a browser warning bypass does not grant microphone access. */
+async function loadOrCreateTls(): Promise<MobileTls> {
+  if (tlsLoading) return tlsLoading;
+  tlsLoading = (async () => {
+    let previous: unknown = activeTls;
+    if (!previous && existsSync(tlsPath())) {
+      try { previous = JSON.parse(readFileSync(tlsPath(), 'utf8')); } catch { /* regenerate damaged material */ }
+    }
+    const addresses = Object.values(networkInterfaces()).flatMap((infos) => (infos ?? []).map((info) => info.address));
+    if (publicIp) addresses.push(publicIp);
+    const tls = await ensureMobileTls(previous, addresses);
+    // Persist before offering installation: silently replacing a trusted CA on restart breaks every paired phone.
+    writeFileSync(tlsPath(), JSON.stringify(tls, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+    activeTls = tls;
+    tlsFingerprint = certFingerprintOf(tls.caCert);
+    return tls;
+  })();
+  try { return await tlsLoading; } finally { tlsLoading = null; }
 }
 
 function pairCodeLength(): number {
@@ -214,7 +207,7 @@ function lanAddressInputs(port: number | null): MobileAddressInput[] {
   for (const [adapter, infos] of Object.entries(networkInterfaces())) {
     for (const info of infos ?? []) {
       if (info.family === 'IPv4' && !info.internal) {
-        inputs.push({ url: `http://${info.address}:${port}`, address: info.address, adapter });
+        inputs.push({ url: `https://${info.address}:${port}`, address: info.address, adapter });
       }
     }
   }
@@ -278,7 +271,7 @@ function liveQrTicket(): QrTicket | null {
  */
 function qrTicketTargets(token: string): MobileAddressEntry[] {
   const query = `${MOBILE_QR_PATH}?${MOBILE_QR_PARAM}=${token}`;
-  const inputs = lanAddressInputs(httpPortNow()).map((input) => ({ ...input, url: `${input.url}${query}` }));
+  const inputs = lanAddressInputs(httpsPortNow()).map((input) => ({ ...input, url: `${input.url}${query}` }));
   const ext = computeExternalUrl();
   if (ext !== null) inputs.push({ url: `${ext}${query}`, address: publicIp ?? '', adapter: '', external: true });
   return buildMobileAddressEntries(inputs, MOBILE_QR_KIND_ORDER);
@@ -296,7 +289,7 @@ function qrTicketView(): MobileQrTicket | null {
 }
 
 export function getMobileAccessState(): MobileAccessState {
-  const port = httpPortNow();
+  const port = httpsPortNow();
   return {
     enabled: httpServer !== null,
     port,
@@ -312,6 +305,11 @@ export function getMobileAccessState(): MobileAccessState {
     externalPort,
     httpsPort: httpsPortNow(),
     certFingerprint: tlsFingerprint,
+    certificateUrl: (() => {
+      const address = lanAddresses(port).find((entry) => entry.recommended)?.address;
+      const httpPort = httpPortNow();
+      return address && httpPort ? `http://${address}:${httpPort}/mobile/ca.crt` : null;
+    })(),
     // 켜져 있는 동안에는 청하지 않는다 — 아직 쓰는 중인 규칙을 지우라고 말하면 접속이 끊긴다.
     manualForwardPending: persisted.manualForwardAdvised && !persisted.externalEnabled,
     qrTicket: httpServer !== null ? qrTicketView() : null,
@@ -388,8 +386,7 @@ function isSameOriginWs(req: IncomingMessage): boolean {
   const origin = req.headers.origin;
   if (!origin) return true;
   try {
-    const host = (req.headers.host ?? '').toLowerCase();
-    return new URL(origin).host.toLowerCase() === host;
+    return new URL(origin).origin === new URL(`https://${req.headers.host ?? ''}`).origin;
   } catch {
     return false;
   }
@@ -476,7 +473,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
  * 페어링 성공 처리 — 세션 토큰을 발급해 영속 목록에 넣고 HttpOnly 쿠키로 심는다. 코드 입력·QR 딥링크가 같은 경로를 쓴다.
  * §4 — `SameSite` 는 반드시 Lax. Strict 면 QR 스캔(외부 앱이 시작한 최상위 내비게이션) 뒤의 `/` 요청에 쿠키가 실리지 않아
  * 미인증으로 도착한다(코드 입력은 같은 사이트 안 이동이라 Strict 에서도 된다). Lax 도 교차 출처 POST·서브리소스·스크립트는 막아
- * 방어선(페어링 게이트 · Host 가드 · WS Origin 검사 · `/api` 는 POST/WS)은 그대로다. LAN http·외부 https 공유라 Secure 는 붙이지 않는다.
+ * 방어선(페어링 게이트 · Host 가드 · WS Origin 검사 · `/api` 는 POST/WS)은 그대로다. 세션은 HTTPS에서만 쓴다.
  */
 function grantSession(res: ServerResponse): void {
   const session = randomBytes(24).toString('hex');
@@ -484,7 +481,7 @@ function grantSession(res: ServerResponse): void {
   savePersisted();
   res.setHeader(
     'set-cookie',
-    `${MOBILE_SESSION_COOKIE}=${session}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_COOKIE_MAX_AGE_S}`,
+    `${MOBILE_SESSION_COOKIE}=${session}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${SESSION_COOKIE_MAX_AGE_S}`,
   );
 }
 
@@ -714,7 +711,32 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
   if (!isAllowedHost(req.headers.host)) {
     res.statusCode = 403; res.end('forbidden host'); req.resume(); return;
   }
+  if (!persisted.externalEnabled && !isLanClient(clientIp(req))) {
+    res.statusCode = 403; res.end('external access disabled'); req.resume(); return;
+  }
   const pathname = (req.url ?? '').split('?')[0] ?? '';
+  // A phone must install the public CA before HTTPS microphone access can be trusted.
+  // This one download also works from an old HTTP bookmark; private keys never leave the host.
+  if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/mobile/ca.crt' && activeTls) {
+    const certificate = new X509Certificate(activeTls.caCert).raw;
+    res.setHeader('content-type', 'application/x-x509-ca-cert');
+    res.setHeader('content-disposition', 'attachment; filename="Vibisual-Mobile-CA.crt"');
+    res.setHeader('cache-control', 'no-store');
+    res.setHeader('content-length', certificate.length);
+    res.end(req.method === 'HEAD' ? undefined : certificate);
+    req.resume();
+    return;
+  }
+  if (!(req.socket as Socket & { encrypted?: boolean }).encrypted) {
+    const port = httpsPortNow();
+    const target = port === null ? null : mobileHttpsRedirect(req.headers.host ?? '', req.url ?? '/', port);
+    res.statusCode = target ? 307 : 503;
+    if (target) res.setHeader('location', target);
+    res.setHeader('cache-control', 'no-store');
+    res.end();
+    req.resume();
+    return;
+  }
   const query = new URLSearchParams((req.url ?? '').split('?')[1] ?? '');
   if (req.method === 'POST' && pathname === '/mobile/pair') { handlePairRequest(req, res); return; }
   // §4 — QR 딥링크. 인증 전에 처리해야 스캔 즉시 세션을 받는다. 끝 슬래시도 받는다 — URL 을 정규화하는 스캐너가
@@ -766,12 +788,22 @@ function createWss(compression = true): WebSocketServer {
 }
 
 function bindUpgrade(server: HttpServer | HttpsServer): void {
+  const voiceBridge = createMobileVoiceBridge(
+    (error) => console.warn('[mobile-access] voice WebSocket closed:', error.message));
+  mobileVoiceBridges.set(server, voiceBridge);
   server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
     retainTransportErrors(socket, () => socket.destroy());
     const pathname = (req.url ?? '').split('?')[0] ?? '';
     // §4 — Host·인증에 더해 Origin 검사(교차 출처 소켓 탈취 차단).
-    if (pathname !== WS_PATH || !isAllowedHost(req.headers.host) || !isSameOriginWs(req) || !isAuthedRequest(req)) {
+    if ((pathname !== WS_PATH && pathname !== MOBILE_VOICE_SOCKET_PATH)
+      || !(req.socket as Socket & { encrypted?: boolean }).encrypted
+      || (!persisted.externalEnabled && !isLanClient(clientIp(req)))
+      || !isAllowedHost(req.headers.host) || !isSameOriginWs(req) || !isAuthedRequest(req)) {
       socket.destroy();
+      return;
+    }
+    if (pathname === MOBILE_VOICE_SOCKET_PATH) {
+      voiceBridge.upgrade(req, socket, head, getVoiceEnginePort(), !isLanClient(clientIp(req)));
       return;
     }
     // §4 — 임베디드 셸(term_*)은 LAN(사설/로컬) 접속에서만 허용한다.
@@ -780,11 +812,13 @@ function bindUpgrade(server: HttpServer | HttpsServer): void {
       const send = createMobileSocketSender(ws,
         (error) => console.warn('[mobile-access] WebSocket connection closed:', error.message));
       wsSenders.set(ws, send);
+      wsLanClients.set(ws, terminalAllowed);
       wsClients.add(ws);
       const conn: ClientConnection = {
         send: (data: string): void => { send(data); },
       };
       ws.on('message', (raw) => {
+        if (!persisted.externalEnabled && !terminalAllowed) { ws.terminate(); return; }
         try {
           const msg = JSON.parse(String(raw)) as { type?: string; payload?: unknown };
           if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return;
@@ -800,6 +834,12 @@ function bindUpgrade(server: HttpServer | HttpsServer): void {
       pushState();
     });
   });
+}
+
+/** Keep paired LAN browsers connected when external access is disabled. */
+function disconnectExternalClients(): void {
+  for (const ws of wsClients) if (wsLanClients.get(ws) === false) ws.terminate();
+  for (const bridge of mobileVoiceBridges.values()) bridge.closeExternalConnections();
 }
 
 // §4 모바일 임베디드 터미널(/ws 다중화) — 모바일 브라우저엔 `vibisual:term:*` IPC 가 없어 이 `/ws` 에 터미널 프레임을 얹는다(새 소켓 ❌).
@@ -890,14 +930,26 @@ let expressAppRef: import('express').Express | null = null;
 async function startHttpListener(): Promise<void> {
   if (httpServer || starting) return;
   starting = true;
+  let server: HttpServer | null = null;
   try {
-    const server = createServer(handleRequest);
+    await startHttpsListener();
+    server = createServer(handleRequest);
     if (!wss) wss = createWss();
     bindUpgrade(server);
     await listenWithFallback(server, persisted.port, '0.0.0.0');
     httpServer = server;
     persisted.port = httpPortNow() ?? 0;
     console.log(`[mobile-access] LAN http on 0.0.0.0:${persisted.port} (pairing required)`);
+  } catch (error) {
+    if (server) {
+      mobileVoiceBridges.get(server)?.close();
+      mobileVoiceBridges.delete(server);
+      server.close(() => {});
+    }
+    await stopHttpsListener();
+    wss?.close();
+    wss = null;
+    throw error;
   } finally {
     starting = false;
   }
@@ -944,25 +996,33 @@ async function stopHttpListener(): Promise<void> {
   wss?.close();
   wss = null;
   if (s) {
+    mobileVoiceBridges.get(s)?.close();
+    mobileVoiceBridges.delete(s);
     destroySockets(s);
     await new Promise<void>((r) => s.close(() => r()));
     console.log('[mobile-access] LAN http stopped');
   }
 }
 
-// ─── HTTPS(외부) 리스너 ──────────────────────────────────────────────────────
+// ─── HTTPS(LAN·외부 공용) 리스너 ──────────────────────────────────────────────
 
 async function startHttpsListener(): Promise<void> {
   if (httpsServer) return;
   const tls = await loadOrCreateTls();
-  tlsFingerprint = certFingerprintOf(tls.cert);
   const server = createHttpsServer({ key: tls.key, cert: tls.cert }, handleRequest);
-  if (!wss) wss = createWss(false);
+  if (!wss) wss = createWss();
   bindUpgrade(server);
-  await listenWithFallback(server, persisted.httpsPort, '0.0.0.0');
+  try {
+    await listenWithFallback(server, persisted.httpsPort, '0.0.0.0');
+  } catch (error) {
+    mobileVoiceBridges.get(server)?.close();
+    mobileVoiceBridges.delete(server);
+    server.close(() => {});
+    throw error;
+  }
   httpsServer = server;
   persisted.httpsPort = httpsPortNow() ?? 0;
-  console.log(`[mobile-access] external https on 0.0.0.0:${persisted.httpsPort}`);
+  console.log(`[mobile-access] mobile https on 0.0.0.0:${persisted.httpsPort}`);
 }
 
 async function stopHttpsListener(): Promise<void> {
@@ -971,6 +1031,9 @@ async function stopHttpsListener(): Promise<void> {
   // 지문은 "지금 이 경고가 우리 것인가"를 대조하는 값이라, 리스너가 없으면 보여 줄 것도 없다.
   tlsFingerprint = null;
   if (s) {
+    mobileVoiceBridges.get(s)?.close();
+    mobileVoiceBridges.delete(s);
+    for (const ws of wsClients) { try { ws.terminate(); } catch { /* gone */ } }
     // 외부(HTTPS)는 공인 포트라 스캐너·폰의 연결이 특히 잘 남는다. WS 업그레이드 소켓은
     // `wsClients` 정리(stopHttpListener)보다 **먼저** 이 경로를 타므로 여기서 끊어 준다.
     destroySockets(s);
@@ -1043,6 +1106,12 @@ async function mapUpnp(): Promise<void> {
     console.warn('[mobile-access] UPnP getPublicIp failed — router UPnP off/unsupported (public IP via fallback)');
   }
   publicIp = ip;
+
+  if (ip) {
+    // A public address can differ from the local interfaces. Renew the leaf without changing the trusted CA.
+    const tls = await loadOrCreateTls();
+    httpsServer?.setSecureContext({ key: tls.key, cert: tls.cert });
+  }
 
   // 공인 IP 를 아예 못 구함 → 수동 안내로 폴백(주소 표시는 불가).
   if (!ip) {
@@ -1155,6 +1224,7 @@ export async function enableMobileAccess(): Promise<MobileAccessState> {
 
 export async function disableMobileAccess(): Promise<MobileAccessState> {
   await disableExternalInternal();
+  await stopHttpsListener();
   await stopHttpListener();
   pairingCode = null;
   clearQrTicket();
@@ -1177,7 +1247,7 @@ async function startExternalInternal(): Promise<void> {
 
 async function disableExternalInternal(): Promise<void> {
   await unmapUpnp();
-  await stopHttpsListener();
+  disconnectExternalClients();
 }
 
 export async function enableExternalAccess(): Promise<MobileAccessState> {
@@ -1269,5 +1339,6 @@ export function regenMobilePairingCode(): MobileAccessState {
 export async function stopMobileAccess(): Promise<void> {
   clearQrTicket();
   await disableExternalInternal();
+  await stopHttpsListener();
   await stopHttpListener();
 }

@@ -1,10 +1,9 @@
 import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
 import { app, BrowserWindow } from 'electron';
 import { showAppMessageBox } from './appMessageBox';
 import { consentDocuments, type ConsentDocuments } from './consentDocuments';
 import { consentLocale, consentStrings, CONSENT_LANGUAGES } from './consentStrings';
-import { hasCurrentConsent, saveConsent } from './consentRecord';
+import { consentRecordPaths, restoreCurrentConsent, saveConsent } from './consentRecord';
 import { CONSENT_ACTION_ORIGIN, CONSENT_WINDOW, consentPage } from './consentPage';
 import { coverFirstShow } from './windowCloak';
 
@@ -89,10 +88,10 @@ export async function ensureDesktopConsent(options: { onPrompt?: () => void } = 
   };
   try {
     const documents = consentDocuments();
-    const recordPath = join(app.getPath('userData'), 'legal-consent.json');
-    if (hasCurrentConsent(recordPath, documents)) return true;
+    const paths = consentRecordPaths(app.getPath('home'), app.getPath('userData'), app.commandLine.hasSwitch('user-data-dir'));
+    if (restoreCurrentConsent(paths, documents)) return true;
     prompting();
-    return await askConsent(documents, recordPath, locale);
+    return await askConsent(documents, paths.current, locale);
   } catch (error) {
     console.error('[consent] could not open agreement:', error);
     prompting();

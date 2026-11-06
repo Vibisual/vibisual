@@ -33,7 +33,7 @@ export function consentDocuments(): ConsentDocuments {
   if (!privacyText.trim() || Object.values(summaries).some((text) => !text.trim())) {
     throw new Error('A bundled consent document is empty');
   }
-  // Include translations as well: a changed notice requires a new explicit decision.
+  // Keep the exact accepted documents as evidence; EULA version controls renewed consent.
   const digest = createHash('sha256').update(JSON.stringify([fullTerms, privacyText, summaries])).digest('hex');
   return { version, digest, eula: fullTerms, privacy: privacyText, summaries: { ...summaries, 'es-419': summaries.es } };
 }

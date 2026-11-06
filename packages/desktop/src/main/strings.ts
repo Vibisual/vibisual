@@ -84,7 +84,7 @@ const ko: MainStrings = {
   quitDetailNote: '대화는 남아 다음 턴에 이어지지만, 커밋하지 않은 편집은 복구되지 않습니다.',
   cmdBlockedTitle: 'Vibisual — {label} 이(가) 입력을 기다립니다',
   cmdBlockedBody: 'CMD 터미널이 사용자 응답을 기다리는 중입니다.',
-  folderContextMenuLabel: 'Vibisual에서 프로젝트 열기',
+  folderContextMenuLabel: 'Open project in Vibisual',
 };
 
 const ja: MainStrings = {

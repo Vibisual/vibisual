@@ -43,9 +43,12 @@ describe('installed smoke — verifies the main application, not a living error 
     const recordPath = path.join(resources, 'test-consent.json');
     fs.writeFileSync(recordPath, JSON.stringify(consentRecord(resources)));
     expect(hasCurrentConsent(recordPath, consentDocuments())).toBe(true);
-    // A stale/modified translation cannot silently bypass the real application's consent gate.
+    // Translation edits preserve acceptance of the same EULA version.
     fs.appendFileSync(path.join(resources, 'legal/license_en_US.txt'), '\nchanged');
     fs.writeFileSync(recordPath, JSON.stringify(consentRecord(resources)));
+    expect(hasCurrentConsent(recordPath, consentDocuments())).toBe(true);
+    const changedTerms = { ...consentRecord(resources), version: '0.0' };
+    fs.writeFileSync(recordPath, JSON.stringify(changedTerms));
     expect(hasCurrentConsent(recordPath, consentDocuments())).toBe(false);
   });
   it('refuses developer profiles and paths outside the runner scratch directory', () => {

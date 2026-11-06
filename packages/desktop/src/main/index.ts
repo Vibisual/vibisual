@@ -407,8 +407,11 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
     // §5.3 #10-4 — 오케스트라 지휘자의 **계획 신고**. 지휘자는 앱이 띄운 외부 `claude`/`codex` 프로세스라
     //   이 loopback 이 유일한 통로다. `/plan` 으로 끝나는 경로만 연다 — 켬/끔·세부 설정은 사용자의 스위치라
     //   열지 않는다(서버도 loopback 유입이면 403). 토큰 인증 필수(아래 분기).
+    // §5.3 #10-6 (F)(G) — 같은 지휘자의 규칙 조각 읽기(GET `/rules`)와 한 번에 등록(POST `/formation`)도 이 통로뿐이다.
     const isOrchestraPlanPath =
-      path.startsWith('/api/orchestra/runs/') && path.endsWith('/plan');
+      path.startsWith('/api/orchestra/runs/') && (path.endsWith('/plan')
+        || (req.method === 'GET' && path.endsWith('/rules'))
+        || (req.method === 'POST' && path.endsWith('/formation')));
 
     // §5.4 #36 (C) — 위성줄로 이어진 앱 노드에 **결과 파일을 담는** 창구. 부르는 쪽은 앱이 띄운 외부
     //   `claude`/`codex` 프로세스라 이 loopback 이 유일한 통로다. `/output` 으로 끝나는 POST 만 연다 —
@@ -711,7 +714,7 @@ async function bootBackend(): Promise<void> {
   hookToken = identity.token;
   const hookPort = await startHookListener(handle.app, identity.preferredPort);
   // 실제 바인드된 포트·토큰을 확정 저장 → 다음 실행이 같은 값을 선호 포트/토큰으로 재사용.
-  saveHookIdentity({ port: hookPort, token: hookToken });
+  saveHookIdentity({ port: hookPort, token: hookToken }, atomicWriteFileSync);
   // §3.7 — server 코어가 커스텀 위임 엣지 dispatch curl URL 을 이 포트로 조립하도록 주입.
   setHookListenerPort(hookPort);
   // §5.3 #10-2 — 하네스 빌더 구축 curl 인증용 토큰을 server 코어에 주입.
