@@ -270,9 +270,11 @@ import { isPortAlive, killByPort, respawn, setVibisualOwnPorts } from './service
 // §5.14 — 플레이 버블(이 프로젝트를 켜는 버튼).
 import type { PlayBubble, PlayRecipe, SpecDoc } from '@vibisual/shared';
 import type { ReviewFileChange, ReviewFileChangeType } from '@vibisual/shared';
-import { SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH, SPEC_ITEM_TEXT_MAX, SPEC_RULES_BEGIN, SPEC_RULES_END, SPEC_TASK_GAP_Y, SPEC_TASK_LABEL_MAX, SPEC_TASK_OFFSET_X, buildSpecTaskRules } from '@vibisual/shared';
-import { LAB_BUBBLE_DEFAULT_HEIGHT, LAB_BUBBLE_DEFAULT_WIDTH, LAB_CARD_GAP_Y, LAB_CARD_OFFSET_X, LAB_RULES_BEGIN, LAB_RULES_END, LAB_VARIANT_LABEL_MAX, LAB_WORKTREE_PREFIX, WORKTREE_REAP_SETTLE_MS, buildLabVariantRules, estimateLabCostUsd, getModelPricing, DEFAULT_AGENT_CONFIG, SHELF_BUBBLE_DEFAULT_WIDTH, SHELF_BUBBLE_DEFAULT_HEIGHT, SHELF_CARD_OFFSET_X, SHELF_LABEL_MAX, SHELF_RUN_OUTPUT_MAX_CHARS, SHELF_RUN_TIMEOUT_MS, normalizeShelfIcon, normalizeShelfColor, normalizeShelfImport } from '@vibisual/shared';
-import type { LabResultStatus, LabVariant, LabVariantConfig } from '@vibisual/shared';
+import { SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH, SPEC_ITEM_TEXT_MAX, SPEC_TASK_GAP_Y, SPEC_TASK_LABEL_MAX, SPEC_TASK_OFFSET_X, buildSpecTaskRules } from '@vibisual/shared';
+import { planSpecTasks, specChainLinks, withSpecRules } from './services/specTaskPlan.js';
+import { LAB_BUBBLE_DEFAULT_HEIGHT, LAB_BUBBLE_DEFAULT_WIDTH, LAB_CARD_GAP_Y, LAB_CARD_OFFSET_X, LAB_VARIANT_LABEL_MAX, LAB_WORKTREE_PREFIX, WORKTREE_REAP_SETTLE_MS, buildLabVariantRules, estimateLabCostUsd, getModelPricing, DEFAULT_AGENT_CONFIG, SHELF_BUBBLE_DEFAULT_WIDTH, SHELF_BUBBLE_DEFAULT_HEIGHT, SHELF_CARD_OFFSET_X, SHELF_LABEL_MAX, SHELF_RUN_OUTPUT_MAX_CHARS, SHELF_RUN_TIMEOUT_MS, normalizeShelfIcon, normalizeShelfColor, normalizeShelfImport } from '@vibisual/shared';
+import type { LabVariantConfig } from '@vibisual/shared';
+import { labResultStatus, mergeLabVariantConfig, sumLabTokens } from './services/labVariant.js';
 import { PLAY_ALIVE_SWEEP_MS, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP, buildPlayRecipeAskPrompt } from '@vibisual/shared';
 import { detectPlayRecipes } from './services/playRecipeDetector.js';
 import { isPlayAlive, startPlay, stopAllPlays, stopPlay } from './services/playRunner.js';
@@ -16257,8 +16259,9 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * POST /api/spec-docs/:id/generate-tasks — 수용 기준 → 작업 카드.
-   * 항목 하나당 기존 `createCustomAgent` 로 버블 한 장, 만든 순서대로 기존 Task Edge 로 사슬처럼 잇는다(새 스폰 경로·엣지 타입 ❌).
-   * 이미 카드가 붙은 항목은 건너뛴다(`itemIds` 를 주면 그 항목만). `regenerate` 면 개정 번호만 지금 값으로 올린다 — 카드 재생성 ❌(사람이 만든 작업물을 스펙이 갈아엎지 않는다, §5.15).
+   * 항목 하나당 기존 `createCustomAgent` 로 버블 한 장, 항목 순서대로 기존 Task Edge 로 사슬처럼 잇는다(새 스폰 경로·엣지 타입 ❌).
+   * 살아 있는 카드가 붙은 항목은 건너뛰고(`itemIds` 를 주면 그 항목만), 카드 버블이 지워진 항목은 연결을 끊고 다시 만든다.
+   * `regenerate` 면 그 카드의 규칙 속 스펙 섹션만 지금 스펙으로 바꾸고 개정 번호를 올린다 — 에이전트·대화·다른 규칙은 그대로(§5.15).
    */
   app.post('/api/spec-docs/:id/generate-tasks', (req, res) => {
     try {
@@ -16272,74 +16275,75 @@ export async function runServer(): Promise<RunServerHandle> {
       const wanted = Array.isArray(body.itemIds)
         ? new Set(body.itemIds.filter((v): v is string => typeof v === 'string'))
         : null;
-      const regenerate = body.regenerate === true;
+      const plan = planSpecTasks(doc.items, {
+        wanted,
+        regenerate: body.regenerate === true,
+        agentExists: (agentId) => graphManager.hasLiveAgentId(agentId),
+      });
+      for (const itemId of plan.detach) graphManager.detachSpecTask(doc.id, itemId);
 
-      const targets = doc.items.filter((it) => (wanted ? wanted.has(it.id) : true));
+      const rulesFor = (itemId: string): string => {
+        const index = doc.items.findIndex((it) => it.id === itemId);
+        return buildSpecTaskRules({
+          specTitle: doc.title || doc.id,
+          specBody: doc.body,
+          itemText: doc.items[index]?.text ?? '',
+          itemIndex: index,
+          itemTotal: doc.items.length,
+        });
+      };
+      // 카드가 만족시킬 것은 rules 자동 섹션으로 얹는다(§7.9 와 같은 문법). 사람이 쓴 나머지 규칙은 보존.
+      const putRules = (agentId: string, itemId: string): void => {
+        const cfg = graphManager.getAgentConfig(agentId);
+        if (cfg) graphManager.setAgentConfig(agentId, { ...cfg, rules: withSpecRules(cfg.rules, rulesFor(itemId)) });
+      };
+
       const created: { itemId: string; agentId: string }[] = [];
       const refreshed: string[] = [];
-      const edges: string[] = [];
-      // 사슬의 앞 고리 — 이번에 만든 카드와 이미 있던 카드를 한 줄로 잇기 위해 항목 순서를 따라간다.
-      let prevAgentId: string | null = null;
-
-      for (const item of doc.items) {
-        const isTarget = targets.includes(item);
-        // 이미 카드가 있는 항목: 사슬의 앞 고리로만 쓰고, regenerate 면 개정 번호를 지금 값으로 올린다.
-        if (item.taskAgentId) {
-          if (isTarget && regenerate) {
-            graphManager.attachSpecTask(doc.id, item.id, item.taskAgentId, item.taskSessionId ?? '');
-            refreshed.push(item.id);
-          }
-          prevAgentId = item.taskAgentId;
+      const agentByItem = new Map<string, string>();
+      for (const step of plan.steps) {
+        if (step.kind === 'keep') {
+          agentByItem.set(step.itemId, step.agentId);
           continue;
         }
-        if (!isTarget) continue;
-
-        const index = doc.items.indexOf(item);
-        const label = item.text.trim().slice(0, SPEC_TASK_LABEL_MAX) || `Spec ${index + 1}`;
+        if (step.kind === 'refresh') {
+          putRules(step.agentId, step.itemId);
+          const item = doc.items.find((it) => it.id === step.itemId);
+          graphManager.attachSpecTask(doc.id, step.itemId, step.agentId, item?.taskSessionId ?? '');
+          agentByItem.set(step.itemId, step.agentId);
+          refreshed.push(step.itemId);
+          continue;
+        }
+        const item = doc.items[step.index]!;
+        const label = item.text.trim().slice(0, SPEC_TASK_LABEL_MAX) || `Spec ${step.index + 1}`;
         const agent = graphManager.createCustomAgent(
           label,
-          { x: doc.x + doc.width + SPEC_TASK_OFFSET_X, y: doc.y + index * SPEC_TASK_GAP_Y },
+          { x: doc.x + doc.width + SPEC_TASK_OFFSET_X, y: doc.y + step.index * SPEC_TASK_GAP_Y },
           doc.projectName,
         );
         // 스펙 보드는 프로젝트 안에서만 사니 여기서 폴더가 없을 일은 없다 — 그래도 임시 폴더를
-        // 지어내지 않는 규약(§4 온보딩 ③)이라 없으면 이 항목만 건너뛴다.
+        // 지어내지 않는 규약(§4 온보딩 ③)이라 없으면 이 항목만 건너뛴다(사슬에서도 빠진다).
         if (!agent) continue;
-        // 카드가 만족시킬 것은 rules 자동 섹션으로 얹는다(§7.9 와 같은 문법).
-        const cfg = graphManager.getAgentConfig(agent.id);
-        if (cfg) {
-          const rules = buildSpecTaskRules({
-            specTitle: doc.title || doc.id,
-            specBody: doc.body,
-            itemText: item.text,
-            itemIndex: index,
-            itemTotal: doc.items.length,
-          });
-          const existing = (cfg.rules ?? '').replace(
-            new RegExp(`${SPEC_RULES_BEGIN}[\\s\\S]*?${SPEC_RULES_END}\\n?`, 'g'),
-            '',
-          );
-          graphManager.setAgentConfig(agent.id, { ...cfg, rules: existing ? `${rules}\n\n${existing}` : rules });
-        }
+        putRules(agent.id, item.id);
         graphManager.attachSpecTask(doc.id, item.id, agent.id, agent.path);
+        agentByItem.set(item.id, agent.id);
         created.push({ itemId: item.id, agentId: agent.id });
+      }
 
-        // 앞 고리가 있으면 사슬로 잇는다. `delegationPolicy='auto'` 고정 — 기본값 strict 는 소스의 도구를 런타임에 박탈해(§7.9) 형제 카드끼리 서로를 무력화한다.
-        if (prevAgentId) {
-          try {
-            const edge = graphManager.createTaskEdge(
-              prevAgentId,
-              agent.id,
-              label,
-              'manual',
-              null,
-              { kind: 'command', delegationPolicy: 'auto' },
-            );
-            edges.push(edge.id);
-          } catch (err) {
-            logger.warn('spec task edge skipped', err);
-          }
+      // 새 카드의 앞뒤를 모두 잇는다 — 가운데를 다시 만들면 앞→새 와 새→뒤 둘 다. 이미 있는 쌍은 건너뛴다.
+      // `delegationPolicy='auto'` 고정 — 기본값 strict 는 소스의 도구를 런타임에 박탈해(§7.9) 형제 카드끼리 서로를 무력화한다.
+      const existingPairs = new Set(Object.values(graphManager.getTaskEdgesSnapshot()).map((e) => `${e.sourceAgentId}\u0000${e.targetAgentId}`));
+      const edges: string[] = [];
+      const labelOf = (agentId: string): string =>
+        doc.items.find((it) => agentByItem.get(it.id) === agentId)?.text.trim().slice(0, SPEC_TASK_LABEL_MAX) ?? '';
+      for (const link of specChainLinks(plan.steps, (step) => agentByItem.get(step.itemId) ?? null)) {
+        if (existingPairs.has(`${link.source}\u0000${link.target}`)) continue;
+        try {
+          const edge = graphManager.createTaskEdge(link.source, link.target, labelOf(link.target), 'manual', null, { kind: 'command', delegationPolicy: 'auto' });
+          edges.push(edge.id);
+        } catch (err) {
+          logger.warn('spec task edge skipped', err);
         }
-        prevAgentId = agent.id;
       }
 
       broadcastSnapshot();
@@ -16353,30 +16357,6 @@ export async function runServer(): Promise<RunServerHandle> {
 
 
   // ─── §5.18 — 에이전트 랩 (같은 과제를 설정만 바꿔 N벌) ───
-
-  /**
-   * §5.18 — 변형 하나의 설정 조립. 기준 config 전량을 스프레드한 위에 변형 축만 덮는다.
-   * 부분 페이로드를 저장하면 나머지 필드(도구·스킬 등)가 날아가므로 랩의 두 쓰기 경로(실행 스폰 · 승격)는 늘 이 함수를 지난다.
-   */
-  function mergeLabVariantConfig(base: AgentConfig, variant: LabVariant, extraRules?: string): AgentConfig {
-    const cfg = variant.config;
-    const rules = (() => {
-      const existing = (base.rules ?? '').replace(
-        new RegExp(`${LAB_RULES_BEGIN}[\\s\\S]*?${LAB_RULES_END}\\n?`, 'g'),
-        '',
-      );
-      if (extraRules === undefined) return existing;
-      return existing.trim() ? `${extraRules}\n\n${existing}` : extraRules;
-    })();
-    return {
-      ...base,
-      ...(cfg.model ? { model: cfg.model } : {}),
-      ...(cfg.effort ? { effort: cfg.effort } : {}),
-      ...(cfg.permissionMode ? { permissionMode: cfg.permissionMode } : {}),
-      ...(cfg.maxTurns !== undefined ? { maxTurns: cfg.maxTurns } : {}),
-      ...(extraRules !== undefined ? { rules } : {}),
-    };
-  }
 
   /**
    * §5.18 — 그 턴이 끝났다. 랩 변형이면 결과를 적는다. 리뷰 레인과 같은 자리(`setOnComplete`)·같은 함수(`collectWorktreeChanges`) — 새 수집기 ❌.
@@ -16393,8 +16373,7 @@ export async function runServer(): Promise<RunServerHandle> {
     // 이 회차의 마지막 명령 = 우리가 발사한 과제의 결말.
     const last = [...done].reverse()[0];
     if (!last) return;
-    const stopped = typeof last.result === 'string' && last.result.startsWith('[Stopped by user]');
-    const status: LabResultStatus = last.status === 'error' ? 'failed' : stopped ? 'stopped' : 'success';
+    const status = labResultStatus(last);
 
     // 변경분 — 그 변형의 워크트리에서 부모 대비 실제로 달라진 것(§5.16 과 같은 셈법).
     let filesChanged: number | undefined;
@@ -16417,12 +16396,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
 
     // 토큰 — 그 명령의 증분(서브에이전트가 완료 시 적어 둔 값). 없으면 비워 둔다.
-    let inputTokens: number | undefined;
-    let outputTokens: number | undefined;
-    for (const cmd of done) {
-      if (typeof cmd.inputTokens === 'number') inputTokens = (inputTokens ?? 0) + cmd.inputTokens;
-      if (typeof cmd.outputTokens === 'number') outputTokens = (outputTokens ?? 0) + cmd.outputTokens;
-    }
+    const { inputTokens, outputTokens } = sumLabTokens(done);
 
     const sub = subAgentManager.getPrimarySub(agentId);
     const model = sub?.modelName ?? variant.config.model ?? graphManager.getAgentConfig(agentId)?.model;

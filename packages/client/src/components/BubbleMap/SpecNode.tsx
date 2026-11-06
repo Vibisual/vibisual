@@ -78,21 +78,29 @@ export const SpecNode = memo(function SpecNode({
   const isSelected = selected === true || chosenHere;
   const isPinned = data.preservePinned === true;
 
+  // 카드 버블이 아직 캔버스에 있는 항목 — 지운 카드는 "카드 없음"으로 센다(패널·서버와 같은 판정, §5.15).
+  // 문자열 하나로 구독해 다른 에이전트가 바뀔 때마다 다시 그리지 않는다(§9).
+  const liveItemKey = useGraphStore((s) => data.items
+    .filter((it) => it.taskAgentId !== undefined && s.agents.some((a) => a.id === it.taskAgentId && !a.trashed))
+    .map((it) => it.id)
+    .join('\u0000'));
+
   const counts = useMemo(() => {
     const total = data.items.length;
+    const live = new Set(liveItemKey ? liveItemKey.split('\u0000') : []);
     let done = 0;
     let carded = 0;
     let stale = 0;
     for (const it of data.items) {
       if (it.done === true) done += 1;
-      if (it.taskAgentId) {
+      if (live.has(it.id)) {
         carded += 1;
         // 서버가 준 두 숫자의 비교뿐 — 판정 로직은 서버 값이 전부다(§3.1 View 전용).
         if ((it.generatedRevision ?? 0) < data.bodyRevision) stale += 1;
       }
     }
     return { total, done, carded, stale, pending: total - carded };
-  }, [data.items, data.bodyRevision]);
+  }, [data.items, data.bodyRevision, liveItemKey]);
 
   /**
    * 선택·더블클릭 — 에이전트(IDE) 버블과 **같은 상태기계 한 벌**(`bubbleSelectGesture`).

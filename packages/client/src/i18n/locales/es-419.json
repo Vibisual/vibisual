@@ -8299,13 +8299,13 @@
       "stale": "Especificación cambiada",
       "staleCount": "Especificaciones cambiadas: {{count}}",
       "staleBadge": "Especificación cambiada — {{title}}",
-      "acknowledge": "Confirmar",
       "detach": "Desvincular",
-      "cardMissing": "Tarjeta (burbuja no encontrada)",
       "pin": "Anclar",
       "unpin": "Desanclar",
       "delete": "Eliminar",
-      "deletePinnedHint": "Esta especificación está anclada. Desancla primero."
+      "deletePinnedHint": "Esta especificación está anclada. Desancla primero.",
+      "refreshCard": "Actualizar tarjeta",
+      "refreshCardHint": "Aplica la especificación actual a las reglas de esta tarjeta. El agente, su conversación y tus propias reglas se mantienen como están."
     },
     "play": {
       "title": "Reproducir",

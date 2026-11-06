@@ -8299,13 +8299,13 @@
       "stale": "Spec berubah",
       "staleCount": "Spec berubah: {{count}}",
       "staleBadge": "Spec berubah — {{title}}",
-      "acknowledge": "Konfirmasi",
       "detach": "Lepas Tautan",
-      "cardMissing": "Kartu (bubble tidak ditemukan)",
       "pin": "Sematkan",
       "unpin": "Lepas Sematan",
       "delete": "Hapus",
-      "deletePinnedHint": "Spec ini sedang di-pin. Unpin dulu."
+      "deletePinnedHint": "Spec ini sedang di-pin. Unpin dulu.",
+      "refreshCard": "Perbarui kartu",
+      "refreshCardHint": "Memasukkan spesifikasi saat ini ke aturan kartu ini. Agen, percakapannya, dan aturan Anda sendiri tetap tidak berubah."
     },
     "play": {
       "title": "Play",

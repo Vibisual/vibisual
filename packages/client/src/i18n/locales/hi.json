@@ -8299,13 +8299,13 @@
       "stale": "Spec बदल गया",
       "staleCount": "Spec बदल गया: {{count}}",
       "staleBadge": "Spec बदल गया — {{title}}",
-      "acknowledge": "स्वीकार करें",
       "detach": "अनलिंक करें",
-      "cardMissing": "Card (bubble उपलब्ध नहीं)",
       "pin": "पिन करें",
       "unpin": "अनपिन करें",
       "delete": "हटाएं",
-      "deletePinnedHint": "यह Spec पिन किया गया है। पहले इसे अनपिन करें।"
+      "deletePinnedHint": "यह Spec पिन किया गया है। पहले इसे अनपिन करें।",
+      "refreshCard": "कार्ड अपडेट करें",
+      "refreshCardHint": "मौजूदा स्पेक को इस कार्ड के नियमों में डालता है। एजेंट, उसकी बातचीत और आपके अपने नियम जैसे हैं वैसे ही रहेंगे।"
     },
     "play": {
       "title": "प्ले",

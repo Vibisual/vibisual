@@ -2632,6 +2632,14 @@ export class ProjectGraphManager {
    * 버블 id(에이전트 id) 가 커스텀 에이전트면 즉시 삭제 대신 휴지통으로 이동시킨다.
    * 성공하면 true(호출부는 removeBubble 대신 이걸 쓴다). 커스텀 에이전트가 아니면 false.
    */
+  /** 어느 프로젝트에든 휴지통 밖에 살아 있는 에이전트 버블인가(§5.15 작업 카드 생존 판정). */
+  hasLiveAgentId(agentId: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.hasLiveAgentId(agentId)) return true;
+    }
+    return false;
+  }
+
   tryTrashCustomAgentByBubbleId(nodeId: string): boolean {
     const normalized = satelliteSourceNodeId(nodeId);
     for (const inst of this.instances.values()) {

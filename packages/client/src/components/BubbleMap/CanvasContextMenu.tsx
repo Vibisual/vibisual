@@ -441,28 +441,8 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
         </button>
         )}
 
-        {/* 노출 게이트 — 아래 넷(플레이 버블·스펙 보드·에이전트 랩·스크립트 선반)은 §7.7 디버그
-            모드를 켰을 때만 나온다. 일반 사용에서는 우클릭해도 보이지 않고, 이미 놓인 버블도
-            캔버스에서 함께 숨는다 — 레코드·서버·영속은 그대로라 다시 켜면 있던 자리로 돌아온다. */}
-        {debugMode && mainView && (
+        {mainView && (
           <>
-          {/* §5.14 — 플레이 버블(이 프로젝트를 켜는 버튼, emerald 톤). */}
-          <button
-            type="button"
-            className={MENU_ROW_CLASS}
-            onClick={handleCreatePlay}
-            onMouseEnter={releaseSubmenu}
-          >
-            <svg className="h-4 w-4 shrink-0 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M10 8.5v7l6-3.5-6-3.5z" />
-            </svg>
-            <div className="flex flex-col">
-              <span>{t('canvas.contextMenu.createPlay', { defaultValue: '플레이 버블' })}</span>
-              <span className="text-xs text-gray-500">{t('canvas.contextMenu.createPlayHint', { defaultValue: '이 프로젝트를 켜고 끄고 바로 미리보기' })}</span>
-            </div>
-          </button>
-
           {/* §5.15 — 스펙 보드 (요구사항 → 수용 기준 → 작업 카드, teal 톤). */}
           <button
             type="button"
@@ -514,6 +494,30 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
             <div className="flex flex-col">
               <span>{t('canvas.contextMenu.createShelf', { defaultValue: '스크립트 선반' })}</span>
               <span className="text-xs text-gray-500">{t('canvas.contextMenu.createShelfHint', { defaultValue: '자주 쓰는 명령·프롬프트를 올려 두고 클릭 한 번으로 실행하기' })}</span>
+            </div>
+          </button>
+          </>
+        )}
+
+        {/* 노출 게이트 — 아래 플레이 버블은 §7.7 디버그
+            모드를 켰을 때만 나온다. 일반 사용에서는 우클릭해도 보이지 않고, 이미 놓인 버블도
+            캔버스에서 함께 숨는다 — 레코드·서버·영속은 그대로라 다시 켜면 있던 자리로 돌아온다. */}
+        {debugMode && mainView && (
+          <>
+          {/* §5.14 — 플레이 버블(이 프로젝트를 켜는 버튼, emerald 톤). */}
+          <button
+            type="button"
+            className={MENU_ROW_CLASS}
+            onClick={handleCreatePlay}
+            onMouseEnter={releaseSubmenu}
+          >
+            <svg className="h-4 w-4 shrink-0 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M10 8.5v7l6-3.5-6-3.5z" />
+            </svg>
+            <div className="flex flex-col">
+              <span>{t('canvas.contextMenu.createPlay', { defaultValue: '플레이 버블' })}</span>
+              <span className="text-xs text-gray-500">{t('canvas.contextMenu.createPlayHint', { defaultValue: '이 프로젝트를 켜고 끄고 바로 미리보기' })}</span>
             </div>
           </button>
 

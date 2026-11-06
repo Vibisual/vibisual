@@ -8299,13 +8299,13 @@
       "stale": "Spec alterado",
       "staleCount": "Spec alterado: {{count}}",
       "staleBadge": "Spec alterado — {{title}}",
-      "acknowledge": "Reconhecer",
       "detach": "Desvincular",
-      "cardMissing": "Cartão (bolha ausente)",
       "pin": "Fixar",
       "unpin": "Desafixar",
       "delete": "Excluir",
-      "deletePinnedHint": "Este spec está fixado. Desafixe-o primeiro."
+      "deletePinnedHint": "Este spec está fixado. Desafixe-o primeiro.",
+      "refreshCard": "Atualizar card",
+      "refreshCardHint": "Aplica a especificação atual às regras deste card. O agente, a conversa dele e as suas próprias regras permanecem como estão."
     },
     "play": {
       "title": "Play",

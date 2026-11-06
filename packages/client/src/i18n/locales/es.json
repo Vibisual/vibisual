@@ -8299,13 +8299,13 @@
       "stale": "Spec cambiado",
       "staleCount": "Spec cambiado: {{count}}",
       "staleBadge": "Spec cambiado — {{title}}",
-      "acknowledge": "Confirmar",
       "detach": "Desvincular",
-      "cardMissing": "Tarjeta (burbuja no encontrada)",
       "pin": "Anclar",
       "unpin": "Desanclar",
       "delete": "Eliminar",
-      "deletePinnedHint": "Este spec está anclado. Desánclalo primero."
+      "deletePinnedHint": "Este spec está anclado. Desánclalo primero.",
+      "refreshCard": "Actualizar tarjeta",
+      "refreshCardHint": "Incorpora la especificación actual a las reglas de esta tarjeta. El agente, su conversación y tus propias reglas se mantienen igual."
     },
     "play": {
       "title": "Reproducir",

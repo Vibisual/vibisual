@@ -47,6 +47,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
   const openId = useGraphStore((s) => s.specBoardOpenId);
   const close = useGraphStore((s) => s.closeSpecBoard);
   const specDocs = useGraphStore((s) => s.specDocs);
+  const activeProject = useGraphStore((s) => s.activeProject);
   const agents = useGraphStore((s) => s.agents);
   const updateSpecDoc = useGraphStore((s) => s.updateSpecDoc);
   const addSpecItem = useGraphStore((s) => s.addSpecItem);
@@ -54,7 +55,17 @@ export function SpecBoardPanel(): React.JSX.Element | null {
   const detachSpecTask = useGraphStore((s) => s.detachSpecTask);
   const selectNode = useGraphStore((s) => s.selectNode);
 
-  const doc = useMemo(() => specDocs.find((d) => d.id === openId) ?? null, [specDocs, openId]);
+  // §7.14 — 지금 탭의 스펙만. 패널을 연 채 다른 프로젝트 탭으로 가면 그 탭의 스펙이 아니므로 그리지 않는다.
+  const doc = useMemo(
+    () => specDocs.find((d) => d.id === openId && d.projectName === activeProject) ?? null,
+    [specDocs, openId, activeProject],
+  );
+  /** 카드 버블이 캔버스에 아직 있는 항목만 "카드 있음"(휴지통 §5.10 은 지운 것) — 서버가 그 연결을 끊고 다시 만든다(§5.15). */
+  const liveAgentIds = useMemo(() => new Set(agents.filter((a) => !a.trashed).map((a) => a.id)), [agents]);
+  const hasLiveCard = useCallback(
+    (it: SpecItem): boolean => it.taskAgentId !== undefined && liveAgentIds.has(it.taskAgentId),
+    [liveAgentIds],
+  );
 
   /** 본문·제목은 타이핑 동안 로컬에 두고 blur/저장에서만 서버로 — 매 글자 왕복은 개정 번호를 더럽힌다. */
   const [titleDraft, setTitleDraft] = useState('');
@@ -87,13 +98,13 @@ export function SpecBoardPanel(): React.JSX.Element | null {
     let stale = 0;
     for (const it of doc.items) {
       if (it.done === true) done += 1;
-      if (it.taskAgentId) {
+      if (hasLiveCard(it)) {
         carded += 1;
         if ((it.generatedRevision ?? 0) < doc.bodyRevision) stale += 1;
       }
     }
     return { total: doc.items.length, done, carded, stale, pending: doc.items.length - carded };
-  }, [doc]);
+  }, [doc, hasLiveCard]);
 
   const commitTitle = useCallback((): void => {
     if (!doc) return;
@@ -154,8 +165,8 @@ export function SpecBoardPanel(): React.JSX.Element | null {
     void generateSpecTasks(doc.id, [itemId]).finally(() => setBusy(false));
   }, [doc, generateSpecTasks]);
 
-  /** "스펙 변경됨" 을 확인 처리 — 카드를 다시 만들지 않고 개정 번호만 지금 값으로 올린다. */
-  const acknowledgeStale = useCallback((itemId: string): void => {
+  /** "스펙 변경됨" → 그 카드의 규칙 속 스펙 섹션을 지금 스펙으로 바꾼다. 에이전트·대화·사람이 쓴 규칙은 그대로. */
+  const refreshCard = useCallback((itemId: string): void => {
     if (!doc) return;
     setBusy(true);
     void generateSpecTasks(doc.id, [itemId], true).finally(() => setBusy(false));
@@ -163,8 +174,9 @@ export function SpecBoardPanel(): React.JSX.Element | null {
 
   if (!openId || !doc) return null;
 
+  // 헤더(h-9, z-[100])가 늘 위에 있어 inset-0 이면 머리줄의 닫기가 그 밑에 깔린다 — top-9 부터(AgentIDEOverlay 와 같다).
   return (
-    <div className="fixed inset-0 z-[55] flex flex-col bg-gray-950/95 backdrop-blur-sm">
+    <div className="fixed inset-x-0 bottom-0 top-9 z-[55] flex flex-col bg-gray-950/95 backdrop-blur-sm">
       {/* 헤더 — 제목 인라인 편집 + 개정 번호 + 닫기 */}
       <div className="flex shrink-0 items-center gap-3 border-b border-gray-800 px-4 py-3 max-md:gap-2 max-md:px-3">
         <span className="rounded bg-teal-900/60 px-2 py-1 text-[12px] font-semibold uppercase tracking-wide text-teal-200">
@@ -233,10 +245,9 @@ export function SpecBoardPanel(): React.JSX.Element | null {
             ) : (
               <ul className="flex flex-col gap-2">
                 {doc.items.map((item, idx) => {
-                  const stale = item.taskAgentId !== undefined && (item.generatedRevision ?? 0) < doc.bodyRevision;
-                  const agentLabel = item.taskAgentId
-                    ? agents.find((a) => a.id === item.taskAgentId)?.label
-                    : undefined;
+                  const live = hasLiveCard(item);
+                  const stale = live && (item.generatedRevision ?? 0) < doc.bodyRevision;
+                  const agentLabel = live ? agents.find((a) => a.id === item.taskAgentId)?.label : undefined;
                   return (
                     <li
                       key={item.id}
@@ -284,7 +295,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
 
                       {/* 작업 카드 상태 — 미생성 / 생성됨 / 스펙 변경됨 */}
                       <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-5">
-                        {item.taskAgentId ? (
+                        {live ? (
                           <>
                             <button
                               type="button"
@@ -292,7 +303,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
                               className="flex items-center gap-1 rounded bg-blue-950/70 px-1.5 py-0.5 text-[12px] text-blue-200 transition-colors hover:bg-blue-900/70 pointer-coarse:min-h-8 pointer-coarse:px-2.5"
                             >
                               <CardGlyph />
-                              {agentLabel ?? t('canvas.spec.cardMissing', { defaultValue: '카드(버블 없음)' })}
+                              {agentLabel}
                             </button>
                             {stale ? (
                               <>
@@ -302,11 +313,12 @@ export function SpecBoardPanel(): React.JSX.Element | null {
                                 </span>
                                 <button
                                   type="button"
-                                  onClick={() => acknowledgeStale(item.id)}
+                                  onClick={() => refreshCard(item.id)}
                                   disabled={busy}
+                                  title={t('canvas.spec.refreshCardHint')}
                                   className="rounded bg-gray-800 px-1.5 py-0.5 text-[12px] text-gray-300 transition-colors hover:bg-gray-700 disabled:opacity-50 pointer-coarse:min-h-8 pointer-coarse:px-2.5"
                                 >
-                                  {t('canvas.spec.acknowledge', { defaultValue: '확인함' })}
+                                  {t('canvas.spec.refreshCard')}
                                 </button>
                               </>
                             ) : null}

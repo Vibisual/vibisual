@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   SHELF_COMMAND_MAX,
+  SHELF_EXPORT_VERSION,
   SHELF_ICONS,
   SHELF_ITEM_COLORS,
   SHELF_MAX_ITEMS,
@@ -12,6 +13,7 @@ import type { ShelfIconName, ShelfItem, ShelfItemKind } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { ShelfItemGlyph } from '../BubbleMap/shelfIcons.js';
 import { exportShelfFile, pickShelfFile } from '../BubbleMap/shelfTransfer.js';
+import { shelfDraftChanges, shelfDraftOf, type ShelfItemDraft } from './shelfDraft.js';
 
 /** §5.20 / §7.18 — 스크립트 선반(짜는 자리: 항목·순서·마지막 결과). 실행 결과는 서버 값(§3.1). */
 
@@ -79,6 +81,10 @@ export function ShelfPanel(): React.JSX.Element | null {
   const [titleDraft, setTitleDraft] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** 펼친 줄의 글자 칸도 같은 규율 — 값이 서버 상태에 묶여 있어 키마다 보내면 응답 전에 친 글자가 되감긴다. */
+  const [draft, setDraft] = useState<ShelfItemDraft | null>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
   useEffect(() => {
     setTitleDraft(shelf?.title ?? '');
@@ -87,13 +93,25 @@ export function ShelfPanel(): React.JSX.Element | null {
   }, [shelf?.id]);
 
   useEffect(() => {
-    if (!openId) return;
-    function onKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') close();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [openId, close]);
+    const item = shelf?.items.find((i) => i.id === expandedId);
+    setDraft(item ? shelfDraftOf(item) : null);
+    // 펼칠 때만 서버 값으로 다시 채운다 — 치는 도중 들어온 스냅샷이 초안을 덮으면 안 된다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedId]);
+
+  const saveDraft = useCallback(async (): Promise<void> => {
+    const d = draftRef.current;
+    const item = d ? shelf?.items.find((i) => i.id === d.itemId) : undefined;
+    if (!shelf || !d || !item) return;
+    const changes = shelfDraftChanges(item, d);
+    if (changes) await updateShelfItem(shelf.id, item.id, changes);
+  }, [shelf, updateShelfItem]);
+
+  /** 펼친 직후 한 프레임은 초안이 아직 옛 줄 것이라 줄 id 로 가른다. */
+  const draftFor = (item: ShelfItem): ShelfItemDraft => (draft?.itemId === item.id ? draft : shelfDraftOf(item));
+  const editDraft = (item: ShelfItem, patch: Partial<Omit<ShelfItemDraft, 'itemId'>>): void => {
+    setDraft((d) => ({ ...(d?.itemId === item.id ? d : shelfDraftOf(item)), ...patch }));
+  };
 
   /** 프롬프트를 받을 후보 — **커스텀 에이전트만**(훅 버블은 우리가 명령을 보낼 카드가 아니다). */
   const targetOptions = useMemo(
@@ -108,14 +126,35 @@ export function ShelfPanel(): React.JSX.Element | null {
     void updateShelfBubble(shelf.id, { title: next });
   }, [shelf, titleDraft, updateShelfBubble]);
 
+  // 닫히면 칸이 blur 없이 사라지므로 닫기 전에 초안을 넣는다.
+  const closePanel = useCallback((): void => {
+    void saveDraft();
+    commitTitle();
+    close();
+  }, [saveDraft, commitTitle, close]);
+
+  useEffect(() => {
+    if (!openId) return;
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') closePanel();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [openId, closePanel]);
+
   const addItem = useCallback((kind: ShelfItemKind): void => {
     if (!shelf) return;
+    const before = new Set(shelf.items.map((i) => i.id));
     void addShelfItem(shelf.id, {
       label: kind === 'command'
         ? t('canvas.shelf.newCommand', { defaultValue: '새 명령' })
         : t('canvas.shelf.newPrompt', { defaultValue: '새 프롬프트' }),
       kind,
       ...(kind === 'command' ? { command: '' } : { prompt: '' }),
+    }).then(() => {
+      // 빈 줄은 펼쳐 둔다 — 접혀 있으면 "줄을 눌러야 편집기가 나온다"를 따로 알아내야 한다.
+      const added = useGraphStore.getState().shelfBubbles.find((b) => b.id === shelf.id)?.items.find((i) => !before.has(i.id));
+      if (added) setExpandedId(added.id);
     });
   }, [shelf, addShelfItem, t]);
 
@@ -133,7 +172,7 @@ export function ShelfPanel(): React.JSX.Element | null {
 
   const doExport = useCallback((): void => {
     if (!shelf) return;
-    exportShelfFile({ version: 1, title: shelf.title, items: shelf.items });
+    exportShelfFile({ version: SHELF_EXPORT_VERSION, title: shelf.title, items: shelf.items });
   }, [shelf]);
 
   const doImport = useCallback((replace: boolean): void => {
@@ -158,8 +197,9 @@ export function ShelfPanel(): React.JSX.Element | null {
 
   const atLimit = shelf.items.length >= SHELF_MAX_ITEMS;
 
+  // 헤더(h-9, z-[100])가 늘 위에 있어 inset-0 이면 머리줄의 닫기가 그 밑에 깔린다 — top-9 부터(AgentIDEOverlay 와 같다).
   return (
-    <div className="fixed inset-0 z-[55] flex flex-col bg-gray-950/95 backdrop-blur-sm">
+    <div className="fixed inset-x-0 bottom-0 top-9 z-[55] flex flex-col bg-gray-950/95 backdrop-blur-sm">
       {/* 헤더 — 제목 인라인 편집 + 항목 수 + 내보내기/가져오기 + 닫기.
           폰 폭에서는 항목 수·내보내기·가져오기 묶음을 둘째 줄로 내린다 — 한 줄이면 고정 폭 단추들이
           화면을 넘어 [닫기]가 화면 밖으로 밀려났다(폰에는 Esc 도 없다). */}
@@ -201,7 +241,7 @@ export function ShelfPanel(): React.JSX.Element | null {
         </div>
         <button
           type="button"
-          onClick={close}
+          onClick={closePanel}
           className="shrink-0 rounded p-2 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
           title={t('common.close', { defaultValue: '닫기' })}
         >
@@ -271,7 +311,10 @@ export function ShelfPanel(): React.JSX.Element | null {
                       </button>
                       <button
                         type="button"
-                        onClick={() => { void runShelfItem(shelf.id, item.id); }}
+                        onClick={() => {
+                          // 고치던 명령으로 돌게 — blur 저장과 실행 요청이 경주하지 않도록 먼저 넣고 누른다.
+                          void (draftRef.current?.itemId === item.id ? saveDraft() : Promise.resolve()).then(() => runShelfItem(shelf.id, item.id));
+                        }}
                         disabled={run?.status === 'running'}
                         className="flex shrink-0 items-center gap-1 rounded bg-cyan-700 px-2.5 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-cyan-600 disabled:cursor-progress disabled:bg-gray-700"
                       >
@@ -297,8 +340,9 @@ export function ShelfPanel(): React.JSX.Element | null {
                     <div className="flex flex-col gap-2 border-t border-gray-800 px-3 py-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <input
-                          value={item.label}
-                          onChange={(e) => { void updateShelfItem(shelf.id, item.id, { label: e.target.value }); }}
+                          value={draftFor(item).label}
+                          onChange={(e) => editDraft(item, { label: e.target.value })}
+                          onBlur={() => { void saveDraft(); }}
                           placeholder={t('canvas.shelf.labelPlaceholder', { defaultValue: '이름' })}
                           className="w-full rounded border border-gray-700 bg-gray-950 px-2 py-1 text-[13px] text-gray-100 outline-none focus:border-cyan-600 md:w-48"
                         />
@@ -323,8 +367,9 @@ export function ShelfPanel(): React.JSX.Element | null {
                           </select>
                         ) : (
                           <input
-                            value={item.cwd ?? ''}
-                            onChange={(e) => { void updateShelfItem(shelf.id, item.id, { cwd: e.target.value }); }}
+                            value={draftFor(item).cwd}
+                            onChange={(e) => editDraft(item, { cwd: e.target.value })}
+                            onBlur={() => { void saveDraft(); }}
                             placeholder={t('canvas.shelf.cwdPlaceholder', { defaultValue: '작업 디렉터리 (비우면 프로젝트 루트)' })}
                             className="w-full rounded border border-gray-700 bg-gray-950 px-2 py-1 text-[13px] text-gray-100 outline-none focus:border-cyan-600 md:w-72"
                           />
@@ -332,11 +377,9 @@ export function ShelfPanel(): React.JSX.Element | null {
                       </div>
 
                       <textarea
-                        value={item.kind === 'command' ? (item.command ?? '') : (item.prompt ?? '')}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          void updateShelfItem(shelf.id, item.id, item.kind === 'command' ? { command: value } : { prompt: value });
-                        }}
+                        value={item.kind === 'command' ? draftFor(item).command : draftFor(item).prompt}
+                        onChange={(e) => editDraft(item, item.kind === 'command' ? { command: e.target.value } : { prompt: e.target.value })}
+                        onBlur={() => { void saveDraft(); }}
                         maxLength={item.kind === 'command' ? SHELF_COMMAND_MAX : SHELF_PROMPT_MAX}
                         rows={item.kind === 'command' ? 2 : 4}
                         placeholder={item.kind === 'command'
@@ -407,7 +450,7 @@ export function ShelfPanel(): React.JSX.Element | null {
                             onClick={() => {
                               const agentId = run.agentId;
                               if (!agentId) return;
-                              close();
+                              closePanel();
                               selectNode(agentId);
                             }}
                             className="ml-auto rounded border border-gray-700 px-2 py-0.5 text-gray-300 transition-colors hover:bg-gray-800 pointer-coarse:min-h-8 pointer-coarse:px-3"

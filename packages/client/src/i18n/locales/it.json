@@ -8299,13 +8299,13 @@
       "stale": "Spec modificata",
       "staleCount": "Spec modificata: {{count}}",
       "staleBadge": "Spec modificata — {{title}}",
-      "acknowledge": "Conferma",
       "detach": "Scollega",
-      "cardMissing": "Scheda (bolla mancante)",
       "pin": "Blocca",
       "unpin": "Sblocca",
       "delete": "Elimina",
-      "deletePinnedHint": "Questa Spec è bloccata. Sbloccala prima."
+      "deletePinnedHint": "Questa Spec è bloccata. Sbloccala prima.",
+      "refreshCard": "Aggiorna card",
+      "refreshCardHint": "Inserisce la specifica attuale nelle regole di questa card. L'agente, la sua conversazione e le tue regole restano invariati."
     },
     "play": {
       "title": "Play",

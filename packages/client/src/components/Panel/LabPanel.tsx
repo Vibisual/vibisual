@@ -201,8 +201,9 @@ export function LabPanel(): React.JSX.Element | null {
     return <span className={`rounded px-1.5 py-0.5 text-[12px] font-semibold ${entry.cls}`}>{entry.text}</span>;
   };
 
+  // 헤더(h-9, z-[100])가 늘 위에 있어 inset-0 이면 머리줄의 닫기가 그 밑에 깔린다 — top-9 부터(AgentIDEOverlay 와 같다).
   return (
-    <div className="fixed inset-0 z-[55] flex flex-col bg-gray-950/95 backdrop-blur-sm">
+    <div className="fixed inset-x-0 bottom-0 top-9 z-[55] flex flex-col bg-gray-950/95 backdrop-blur-sm">
       {/* 헤더 — 제목 인라인 편집 + 상태 + 전부 실행 + 닫기.
           폰 폭에서는 상태·실행 묶음을 둘째 줄로 내린다 — 한 줄로 두면 제목 칸이 30px 남짓으로 짓눌렸다.
           첫 줄(배지·제목·닫기)은 그대로라 닫기가 늘 같은 자리에 있다. */}

@@ -8299,13 +8299,13 @@
       "stale": "Spec geändert",
       "staleCount": "Spec geändert: {{count}}",
       "staleBadge": "Spec geändert — {{title}}",
-      "acknowledge": "Bestätigen",
       "detach": "Verknüpfung aufheben",
-      "cardMissing": "Karte (Blase fehlt)",
       "pin": "Anheften",
       "unpin": "Lösen",
       "delete": "Löschen",
-      "deletePinnedHint": "Dieser Spec ist angeheftet. Zuerst lösen."
+      "deletePinnedHint": "Dieser Spec ist angeheftet. Zuerst lösen.",
+      "refreshCard": "Karte aktualisieren",
+      "refreshCardHint": "Übernimmt die aktuelle Spezifikation in die Regeln dieser Karte. Der Agent, seine Unterhaltung und deine eigenen Regeln bleiben unverändert."
     },
     "play": {
       "title": "Play",

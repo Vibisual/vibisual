@@ -8299,13 +8299,13 @@
       "stale": "Spec modifiée",
       "staleCount": "Spec modifiée : {{count}}",
       "staleBadge": "Spec modifiée — {{title}}",
-      "acknowledge": "Confirmer",
       "detach": "Dissocier",
-      "cardMissing": "Carte (bulle manquante)",
       "pin": "Épingler",
       "unpin": "Désépingler",
       "delete": "Supprimer",
-      "deletePinnedHint": "Cette spec est épinglée. Désépinglez-la d'abord."
+      "deletePinnedHint": "Cette spec est épinglée. Désépinglez-la d'abord.",
+      "refreshCard": "Mettre à jour la carte",
+      "refreshCardHint": "Injecte la spécification actuelle dans les règles de cette carte. L'agent, sa conversation et vos propres règles restent inchangés."
     },
     "play": {
       "title": "Lancement",

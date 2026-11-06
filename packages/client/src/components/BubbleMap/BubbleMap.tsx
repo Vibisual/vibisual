@@ -803,8 +803,6 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const allSpecDocs = useGraphStore((s) => s.specDocs);
   const selectedSpecDocId = useGraphStore((s) => s.selectedSpecDocId);
   const specNodes = useMemo<Node[]>(() => {
-    // 노출 게이트 — 디버그 모드에서만 그린다(§7.7). 레코드·서버는 그대로 살아 있고 화면 노출만 닫는다.
-    if (!debugMode) return [];
     if (currentFolderId !== null || interiorView !== null) return [];
     const scoped = activeProject ? allSpecDocs.filter((d) => d.projectName === activeProject) : allSpecDocs;
     return scoped.map((d) => ({
@@ -829,14 +827,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       draggable: true,
       deletable: false,
     } as Node));
-  }, [allSpecDocs, storeNodeSelection, activeProject, currentFolderId, interiorView, debugMode]);
+  }, [allSpecDocs, storeNodeSelection, activeProject, currentFolderId, interiorView]);
 
   // ── §5.18 에이전트 랩 — 표지 한 장. 메인 뷰·현재 프로젝트만(스펙 보드와 같은 규칙) ──
   const allLabRuns = useGraphStore((s) => s.labRuns);
   const selectedLabRunId = useGraphStore((s) => s.selectedLabRunId);
   const labNodes = useMemo<Node[]>(() => {
-    // 노출 게이트 — 디버그 모드에서만 그린다(§7.7). 레코드·서버는 그대로 살아 있고 화면 노출만 닫는다.
-    if (!debugMode) return [];
     if (currentFolderId !== null || interiorView !== null) return [];
     const scoped = activeProject ? allLabRuns.filter((r) => r.projectName === activeProject) : allLabRuns;
     return scoped.map((r) => ({
@@ -862,14 +858,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       draggable: true,
       deletable: false,
     } as Node));
-  }, [allLabRuns, storeNodeSelection, activeProject, currentFolderId, interiorView, debugMode]);
+  }, [allLabRuns, storeNodeSelection, activeProject, currentFolderId, interiorView]);
 
   // ── §5.20 스크립트 선반 — 선반 그 자체. 메인 뷰·현재 프로젝트만(랩과 같은 규칙) ──
   const allShelfBubbles = useGraphStore((s) => s.shelfBubbles);
   const selectedShelfBubbleId = useGraphStore((s) => s.selectedShelfBubbleId);
   const shelfNodes = useMemo<Node[]>(() => {
-    // 노출 게이트 — 디버그 모드에서만 그린다(§7.7). 레코드·서버는 그대로 살아 있고 화면 노출만 닫는다.
-    if (!debugMode) return [];
     if (currentFolderId !== null || interiorView !== null) return [];
     const scoped = activeProject ? allShelfBubbles.filter((b) => b.projectName === activeProject) : allShelfBubbles;
     return scoped.map((b) => ({
@@ -893,7 +887,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       draggable: true,
       deletable: false,
     } as Node));
-  }, [allShelfBubbles, storeNodeSelection, activeProject, currentFolderId, interiorView, debugMode]);
+  }, [allShelfBubbles, storeNodeSelection, activeProject, currentFolderId, interiorView]);
 
   // §5.4 #36 (I) — 앱 작업 보기: 앱을 이은 에이전트는(잇는 순간부터) 그 앱의 작업물·결과만 앱 노드 둘레에 두고 나머지 활동 버블을 접는다.
   //   판정은 순수 모듈(`appWorkView.ts` · `appWorkFold.ts`) — 메인 뷰에서만(앱 노드는 메인에만 그려진다).

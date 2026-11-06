@@ -2319,6 +2319,14 @@ export class ProjectGraph {
     return false;
   }
 
+  /** 캔버스에 실제로 있는 에이전트인가 — 휴지통(§5.10)에 간 것은 사용자가 지운 것이다. */
+  hasLiveAgentId(agentId: string): boolean {
+    for (const a of this.agents.values()) {
+      if (a.id === agentId && !a.trashed) return true;
+    }
+    return false;
+  }
+
   /** Manager용: nodeId가 이 인스턴스에 존재하는지 */
   hasNodeId(nodeId: string): boolean {
     for (const n of this.nodes.values()) {

@@ -8299,13 +8299,13 @@
       "stale": "Spec 已变更",
       "staleCount": "Spec 已变更：{{count}}",
       "staleBadge": "Spec 已变更 — {{title}}",
-      "acknowledge": "确认",
       "detach": "取消关联",
-      "cardMissing": "卡片（气泡缺失）",
       "pin": "固定",
       "unpin": "取消固定",
       "delete": "删除",
-      "deletePinnedHint": "此 Spec 已固定，请先取消固定。"
+      "deletePinnedHint": "此 Spec 已固定，请先取消固定。",
+      "refreshCard": "更新卡片",
+      "refreshCardHint": "将当前规格写入此卡片的规则。Agent、其对话以及你自己的规则保持不变。"
     },
     "play": {
       "title": "运行",

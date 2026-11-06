@@ -8299,13 +8299,13 @@
       "stale": "仕様変更済み",
       "staleCount": "仕様変更済み: {{count}}",
       "staleBadge": "仕様変更済み — {{title}}",
-      "acknowledge": "確認",
       "detach": "リンク解除",
-      "cardMissing": "カード（バブルなし）",
       "pin": "固定",
       "unpin": "固定解除",
       "delete": "削除",
-      "deletePinnedHint": "この仕様は固定されています。先に固定を解除してください。"
+      "deletePinnedHint": "この仕様は固定されています。先に固定を解除してください。",
+      "refreshCard": "カードを更新",
+      "refreshCardHint": "現在のスペックをこのカードのルールに反映します。エージェント、その会話、独自のルールはそのまま残ります。"
     },
     "play": {
       "title": "再生",

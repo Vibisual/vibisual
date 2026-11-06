@@ -8299,13 +8299,13 @@
       "stale": "Spec changed",
       "staleCount": "Spec changed: {{count}}",
       "staleBadge": "Spec changed — {{title}}",
-      "acknowledge": "Acknowledge",
       "detach": "Unlink",
-      "cardMissing": "Card (bubble missing)",
       "pin": "Pin",
       "unpin": "Unpin",
       "delete": "Delete",
-      "deletePinnedHint": "This spec is pinned. Unpin it first."
+      "deletePinnedHint": "This spec is pinned. Unpin it first.",
+      "refreshCard": "Update card",
+      "refreshCardHint": "Puts the current spec into this card's rules. The agent, its conversation and your own rules stay as they are."
     },
     "play": {
       "title": "Play",

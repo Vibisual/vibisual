@@ -725,8 +725,9 @@ export function ContiBoardPanel(): React.JSX.Element | null {
 
   if (!open || !conti) return null;
 
+  // 헤더(h-9, z-[100])가 늘 위에 있어 inset-0 이면 머리줄의 닫기가 그 밑에 깔린다 — top-9 부터(AgentIDEOverlay 와 같다).
   return (
-    <div className="fixed inset-0 z-[55] flex flex-col bg-black/80 backdrop-blur-sm">
+    <div className="fixed inset-x-0 bottom-0 top-9 z-[55] flex flex-col bg-black/80 backdrop-blur-sm">
       {/* [닫기]는 정보 묶음 밖 오른쪽 위에 늘 선다(폰 폭에서 밀려나면 닫을 길이 없다 — 폰엔 Esc 도 없다). */}
       <div className="flex items-center gap-3 border-b border-gray-800 bg-gray-900 px-6 py-3 max-md:items-start max-md:px-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 max-md:gap-2">
