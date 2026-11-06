@@ -4,6 +4,7 @@ import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import { VOICE_INPUT } from '@vibisual/shared';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { shortcutLabel } from '../../utils/platform.js';
+import { isBrowserMicSettingsHint } from '../../utils/microphoneSettings.js';
 
 /**
  * §5.5 #17-38 ⑮ — 마이크가 막혔을 때 설정으로 데려가는 문(없으면 Windows 에선 설정 앱에서 앱을 못 찾는다 — unpackaged 라 목록에 없다). 오버레이는 사유 한 줄, 푸는 법은 이 판.
@@ -14,12 +15,14 @@ export interface MicSettingsPopupProps {
   open: boolean;
   /** OS 설정 창을 열 수 있는가. 아니면 버튼 대신 글 안내만 남는다. */
   openable: boolean;
-  /** 그 창에서 무엇을 만져야 하는지 가리키는 번역 키(서버가 플랫폼으로 정한 것). */
+  /** 접속 기기의 OS 또는 브라우저 권한 설정 안내. */
   hintKey: string;
   /** 지금 마이크가 실패한 상태인가 — 머리말이 갈린다(고장 안내 vs 그냥 설정 보기). */
   blocked: boolean;
   /** 장치 0개가 확인됐나 — 참이면 "연결해 주세요"부터 말한다(설정부터 보이면 이미 켜진 스위치만 본다). */
   noDevice: boolean;
+  /** 원격 접속이 브라우저에서 신뢰되는 HTTPS 환경이 아닌 경우. */
+  insecureContext?: boolean;
   onOpenSettings: () => void;
   onClose: () => void;
   /** §5.5 #17-38 ⑰ — 잡음·에코 억제를 걸 것인가(기본 켜짐). */
@@ -75,7 +78,7 @@ function ToggleRow({
 }
 
 export function MicSettingsPopup({
-  open, openable, hintKey, blocked, noDevice, onOpenSettings, onClose,
+  open, openable, hintKey, blocked, noDevice, insecureContext = false, onOpenSettings, onClose,
   denoise, onDenoiseChange, respace, onRespaceChange, echoUnavailable,
 }: MicSettingsPopupProps): React.JSX.Element | null {
   const { t } = useTranslation();
@@ -105,7 +108,7 @@ export function MicSettingsPopup({
   return (
     <div
       ref={ref}
-      className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border border-gray-700 bg-gray-900 p-3 shadow-xl"
+      className="absolute bottom-full left-0 right-0 mb-1 max-h-[70dvh] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 p-3 shadow-xl"
       role="dialog"
       aria-label={t('ide.mainArea.voiceMicSettingsTitle')}
     >
@@ -120,7 +123,7 @@ export function MicSettingsPopup({
             {t('ide.mainArea.voiceMicSettingsTitle')}
           </div>
           <p className="mt-1 text-[12px] leading-5 text-gray-400">
-            {t(noDevice
+            {t(insecureContext ? 'ide.mainArea.voiceErrInsecureContext' : noDevice
               ? 'ide.mainArea.voiceMicSettingsNoDeviceBody'
               : blocked ? 'ide.mainArea.voiceMicSettingsBlockedBody' : 'ide.mainArea.voiceMicSettingsBody')}
           </p>
@@ -145,11 +148,23 @@ export function MicSettingsPopup({
         {t(hintKey)}
       </div>
 
+      {insecureContext && isBrowserMicSettingsHint(hintKey) && (
+        <div className="mt-2 space-y-2 text-[12px] leading-5 text-gray-300">
+          <p>{t('panel.mobileAccess.certificateTrustNote')}</p>
+          <p>{t('panel.mobileAccess.certificateFingerprintNote')}</p>
+          <a href="/mobile/ca.crt" target="_blank" rel="noreferrer" className="inline-block text-blue-300 underline">
+            {t('panel.mobileAccess.certificateDownload')}
+          </a>
+        </div>
+      )}
+
       {/* 장치 유무에 따라 곁들이는 말이 뒤집힌다 — 없는 것이 확인된 사람에게 "연결됐는지
           확인하세요"는 이미 아는 말이고, 그에게 필요한 건 "설정이 감췄을 수도 있다"쪽이다. */}
-      <p className="mt-2 text-[12px] leading-4 text-gray-500">
-        {t(noDevice ? 'ide.mainArea.voiceMicSettingsHiddenNote' : 'ide.mainArea.voiceMicSettingsDeviceNote')}
-      </p>
+      {!isBrowserMicSettingsHint(hintKey) && (
+        <p className="mt-2 text-[12px] leading-4 text-gray-500">
+          {t(noDevice ? 'ide.mainArea.voiceMicSettingsHiddenNote' : 'ide.mainArea.voiceMicSettingsDeviceNote')}
+        </p>
+      )}
 
       {/* §5.5 #17-38 ⑰⑱ — 소리 받기·글 다듬기 설정. 마이크 판이 하나라 여기 둔다(두 곳으로 갈리지 않게). */}
       <div className="mt-2.5 border-t border-gray-800 pt-2">

@@ -54,7 +54,7 @@ describe('isMicAccessFixable — OS 설정으로 풀 수 있는 실패인가', (
 
   it('설정과 무관한 실패는 문을 열지 않는다 — 엉뚱한 곳으로 보내지 않는다', () => {
     const notFixable: VoiceInputErrorCode[] = [
-      'unsupported', 'network', 'engine', 'language', 'no-speech', 'aborted', 'unknown',
+      'unsupported', 'insecure-context', 'network', 'engine', 'language', 'no-speech', 'aborted', 'unknown',
       // 마이크는 있는데 남이 쥔 것 — 설정이 아니라 그 앱을 끄는 일이다(⑯).
       'device-busy',
     ];

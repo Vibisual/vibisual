@@ -89,6 +89,19 @@ const RESTART_STORM_LIMIT = 4;
 const RESTART_STORM_MS = 700;
 /** [완료]를 누른 뒤 마지막 결과를 기다려 주는 시간(ms). 이 안에 `onend` 가 없으면 그냥 거둔다. */
 const STOP_GRACE_MS = 1200;
+/** A blocked audio context must not leave the microphone open indefinitely. */
+const AUDIO_RESUME_MS = 5000;
+
+async function resumeVoiceAudio(ctx: AudioContext): Promise<boolean> {
+  if (ctx.state === 'running') return true;
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), AUDIO_RESUME_MS);
+    void ctx.resume().then(
+      () => { clearTimeout(timer); resolve(ctx.state === 'running'); },
+      () => { clearTimeout(timer); resolve(false); },
+    );
+  });
+}
 
 export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDictationHandle {
   const { locale, enabled, onCommit, resolvePort, onNeedsInstall, onSessionEnd } = options;
@@ -160,7 +173,10 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
     analyserRef.current = null;
     const ctx = audioCtxRef.current;
     audioCtxRef.current = null;
-    if (ctx) void ctx.close().catch(() => { /* 이미 닫힌 컨텍스트 */ });
+    if (ctx) {
+      ctx.onstatechange = null;
+      void ctx.close().catch(() => { /* 이미 닫힌 컨텍스트 */ });
+    }
     const stream = streamRef.current;
     streamRef.current = null;
     // 트랙을 멈춰야 OS 의 "사용 중" 표시(윈도 트레이·mac 주황 점)가 내려간다.
@@ -214,7 +230,8 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
         else pending += text;
       }
       if (committed.trim().length > 0) onCommitRef.current(committed);
-      setInterim(pending);
+      // A stopped recognizer may still deliver its final text while a new one is listening.
+      if (recognitionRef.current === rec) setInterim(pending);
     };
 
     rec.onerror = (event) => {
@@ -260,9 +277,15 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
     // 이미 켜져 있으면 두 벌 열지 않는다. **여는 중이라는 이유로는 막지 않는다** — 껐다가 다시
     //   켜는 누름까지 삼키면, 엔진이 뜨는 몇 초 동안 버튼이 죽은 것처럼 보인다(voiceOpenGate).
     if (wantListeningRef.current) return;
+    // HTTP LAN pages have no microphone API, even when the phone has a microphone.
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      setStatus('error');
+      setError('insecure-context');
+      return;
+    }
     if (typeof navigator === 'undefined' || navigator.mediaDevices?.getUserMedia === undefined) {
       setStatus('error');
-      setError('device');
+      setError('unsupported');
       return;
     }
 
@@ -273,27 +296,41 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
     setInterim('');
     setStatus('starting');
 
+    // Safari/Android may require activation from this very tap. Start Web Audio
+    // before any engine/network await; this does not open the microphone yet.
+    let ctx: AudioContext;
+    try {
+      const audioWindow = window as Window & { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
+      const AudioCtor = audioWindow.AudioContext ?? audioWindow.webkitAudioContext;
+      if (!AudioCtor) { finish('unsupported'); return; }
+      ctx = new AudioCtor();
+      audioCtxRef.current = ctx;
+      if (ctx.state !== 'running') void ctx.resume().catch(() => undefined);
+    } catch {
+      finish('device');
+      return;
+    }
+
     /** 이 켜기가 아직 살아 있는가 — 그 사이에 껐거나(끄기) 다시 켰으면(새 세대) 아니다. */
     const alive = (): boolean => gateRef.current.isCurrent(token) && wantListeningRef.current;
-    /** 낡은 켜기가 물러나며 **자기가 연 것만** 되돌린다(심기 전이라 `teardown` 이 모른다). 엔진 손은 더 새 켜기가 없을 때만 놓는다 — 같은 열쇠로 다시 쥔 뒤 놓으면 말하는 도중 서버가 650MB 자식을 내린다. */
-    const rollback = (stream: MediaStream | null, ctx: AudioContext | null): void => {
-      if (stream !== null) stream.getTracks().forEach((track) => track.stop());
-      if (ctx !== null) void ctx.close().catch(() => { /* 이미 닫힌 컨텍스트 */ });
-      if (gateRef.current.isCurrent(token)) onSessionEndRef.current();
-    };
-
     void (async (): Promise<void> => {
       /** ① **인식기 준비부터 묻고 마이크는 그 다음이다** — 뒤집으면 아직 안 받은 사람에게 마이크가 켜졌다 꺼져(OS "사용 중" 깜빡임) 고장으로 읽힌다. */
-      const resolved = await resolvePortRef.current();
+      let resolved: VoicePortResult;
+      try {
+        resolved = await resolvePortRef.current();
+      } catch {
+        if (alive()) finish('engine');
+        return;
+      }
       if (!alive()) {
-        rollback(null, null);
+        // Session acquisition can complete after cancel already sent its release.
+        // Release again only when no newer opening is using the shared session key.
+        if (!wantListeningRef.current) onSessionEndRef.current();
         return;
       }
       if (!resolved.ok) {
         if (resolved.reason === 'needs-install') {
-          wantListeningRef.current = false;
-          gateRef.current.abandon();
-          setStatus('idle');
+          finish(null);
           onNeedsInstallRef.current();
         } else {
           // 받아 둔 것은 있는데 엔진이 안 떴다 — 설치 창이 아니라 사유를 보여 준다.
@@ -312,9 +349,11 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
         });
         // 여는 사이에 껐거나 다시 켰으면 지금 연 것을 바로 되돌린다(좀비 마이크 방지).
         if (!alive()) {
-          rollback(stream, null);
+          stream.getTracks().forEach((track) => track.stop());
           return;
         }
+        // Own the stream before any further await, so cancel/unmount can stop it.
+        streamRef.current = stream;
 
         // 부탁한 것이 **실제로 켜졌는가**. `ideal` 은 보장이 아니므로 트랙에게 되묻는다 —
         //   꺼진 채 열렸으면 화면이 헤드폰을 권할 수 있어야 한다(우리가 아무 일도 안 한 것처럼
@@ -324,33 +363,24 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
         setEchoUnavailable(denoiseRef.current && shouldWarnEcho(readVoiceProcessing(settings)));
 
         // 파형과 인식은 **같은 컨텍스트**를 쓴다 — 두 벌을 열면 표본율이 갈려 인식이 조용히 어긋난다.
-        let ctx: AudioContext | null = null;
         let analyser: AnalyserNode | null = null;
         try {
-          ctx = new AudioContext();
           analyser = ctx.createAnalyser();
           analyser.fftSize = VOICE_INPUT.FFT_SIZE;
           // 막대가 소리보다 늦게 따라오지 않게 평활은 약하게.
           analyser.smoothingTimeConstant = 0.6;
           ctx.createMediaStreamSource(stream).connect(analyser);
-          if (ctx.state === 'suspended') await ctx.resume().catch(() => undefined);
         } catch {
           analyser = null;
         }
-        // ⚠ `resume()` 도 기다리는 자리다 — 심기 **직전에** 한 번 더 본다. 낡은 켜기가 여기서
-        //   ref 를 덮어쓰면, 살아 있는 켜기의 마이크를 아무도 못 거두는 좀비로 만든다.
-        if (!alive()) {
-          rollback(stream, ctx);
-          return;
-        }
+        const audioRunning = await resumeVoiceAudio(ctx);
+        // resume() can outlive cancellation; only the current session may attach its recognizer.
+        if (!alive()) return;
 
-        // 여기서부터 이 켜기가 주인이다 — 심고 나면 이후 실패는 전부 `teardown` 이 거둔다.
-        streamRef.current = stream;
-        audioCtxRef.current = ctx;
         analyserRef.current = analyser;
 
-        if (ctx === null) {
-          // 오디오 컨텍스트가 없으면 실패로 끝낸다 — 파형만이 아니라 **표본을 보내는 길**이다.
+        if (!audioRunning) {
+          // Never show "listening" while Web Audio is suspended/interrupted.
           finish('device');
           return;
         }
@@ -360,6 +390,13 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
           finish(failure);
           return;
         }
+        if (!alive()) return;
+        // Calls, screen locking and device removal can interrupt mobile capture.
+        // Report that interruption instead of leaving an inert "listening" state.
+        ctx.onstatechange = () => {
+          if (alive() && ctx.state !== 'running') finish('device');
+        };
+        track?.addEventListener?.('ended', () => { if (alive()) finish('device'); }, { once: true });
 
         // 켜 둔 채 자리를 떠도 마이크가 영원히 열려 있지 않게 하는 안전판.
         maxTimerRef.current = setTimeout(() => {
@@ -375,7 +412,8 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
         //   들어오므로(win 의 "데스크톱 앱 허용"이 꺼지면 장치가 꽂혀 있어도 이 실패가 온다),
         //   장치 목록을 한 번 더 물어 0개일 때만 "연결해 주세요"로 좁힌다. 목록을 못 물어봤으면
         //   좁히지 않는다 — 넘겨짚은 안내가 진짜 원인을 가리는 쪽이 더 나쁘다(⑥ 과 같은 규율).
-        finish(refineDeviceError(mapped, await countAudioInputs()));
+        const inputs = await countAudioInputs();
+        if (alive()) finish(refineDeviceError(mapped, inputs));
       }
     })();
   }, [enabled, attachRecognition, finish]);
@@ -414,6 +452,9 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
       rec.onspeechend = null;
       try { rec.abort(); } catch { /* 이미 끝난 인식기 — 무시 */ }
     };
+    // A late network failure from this draining recognizer must not finish a newer session.
+    rec.onstart = null;
+    rec.onerror = collect;
     rec.onend = collect;
     // `onend` 를 주지 않는 판을 위한 안전판 — 이것이 없으면 소켓이 열린 채 남는다.
     //   ⚠ `teardown()` 이 이 시계를 지우므로 **거둔 뒤에** 감는다(순서가 뒤집히면 곧바로 지워진다).

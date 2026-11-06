@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
+import { micSettingsTarget } from '@vibisual/shared';
+import { clientOs } from '../utils/platform.js';
+import { browserMicSettingsHint } from '../utils/microphoneSettings.js';
 
-/** §5.5 #17-38 ⑮ — OS 마이크 설정 창을 열 수 있는지 서버에 묻는다(앱 형태·OS 는 서버만 안다 — `navigator.platform` 은 웹 접속 기기의 OS 를 본다). 못 물어보면 `openable=false`(⑬). */
+/** 마이크는 접속 기기의 것. 데스크톱 셸만 서버의 OS 설정을 열고 웹은 브라우저 권한을 안내한다. */
 export interface MicSettingsHandle {
   /** 이 실행 환경에서 OS 마이크 설정 창을 열 수 있는가. */
   openable: boolean;
@@ -11,11 +14,15 @@ export interface MicSettingsHandle {
 }
 
 export function useMicSettings(): MicSettingsHandle {
+  const desktop = typeof window !== 'undefined' && window.api !== undefined;
   const [openable, setOpenable] = useState(false);
-  // 못 물어본 동안에도 말은 해야 한다 — linux 안내가 가장 무난한 기본값이다(창을 열지 않는 쪽).
-  const [hintKey, setHintKey] = useState('ide.mainArea.voiceMicSettingsHintLinux');
+  const [hintKey, setHintKey] = useState(() => desktop
+    ? micSettingsTarget(clientOs()).hintKey
+    : browserMicSettingsHint(typeof navigator === 'undefined' ? undefined : navigator));
 
   useEffect(() => {
+    // 원격 웹에서 이 API 를 호출하면 폰 대신 서버 PC 의 설정을 열게 된다.
+    if (!desktop) return;
     let alive = true;
     void (async (): Promise<void> => {
       try {
@@ -30,9 +37,10 @@ export function useMicSettings(): MicSettingsHandle {
       }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [desktop]);
 
   const open = useCallback(async (): Promise<boolean> => {
+    if (!desktop) return false;
     try {
       const res = await fetch('/api/mic-settings/open', { method: 'POST' });
       if (!res.ok) return false;
@@ -41,7 +49,7 @@ export function useMicSettings(): MicSettingsHandle {
     } catch {
       return false;
     }
-  }, []);
+  }, [desktop]);
 
   return { openable, hintKey, open };
 }

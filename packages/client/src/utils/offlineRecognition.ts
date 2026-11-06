@@ -1,6 +1,6 @@
 /**
  * §5.5 #17-38 ⑫ — 내 PC 에서 도는 인식기. 밖으로 내는 모양은 브라우저 내장과 같은 `SpeechRecognitionLike` 라 마이크 수명을 쥔 `useVoiceDictation`·파형·커서 끼워넣기·단축키가 그대로다.
- * 소리는 메인 스레드를 지나가지 않는다 — 16kHz float32 는 초당 64KB 라 IPC 로 메인(=서버 코어, §3.7)에 부으면 §9 가 지켜 온 스레드를 먹는다. 표본은 화면에서 엔진으로 곧장 가고, 서버는 엔진을 띄우고 포트를 알려 주는 것까지 한다.
+ * 데스크톱 표본은 엔진으로 곧장 간다. 원격 브라우저는 페어링된 앱의 같은 origin WS/WSS 중계로 보낸다 — 엔진의 별도 포트를 외부에 열거나 HTTPS에서 ws://를 부르면 안 된다.
  * `ScriptProcessorNode`(deprecated)를 쓴다 — `AudioWorklet` 은 모듈을 URL 로 올려야 해 `file://` 렌더러에서 `blob:` 이 필요하고, CSP 한 줄에 조용히 막혀 마이크는 열렸는데 글자만 안 나온다.
  * 받아쓰기는 짧은 경로라 확실히 도는 쪽이 낫다(Chromium 은 아직 제거 일정이 없다).
  */
@@ -34,6 +34,16 @@ export function engineHost(hostname: string): string {
   return hostname.length > 0 ? hostname : '127.0.0.1';
 }
 
+/** HTTPS/mobile uses the paired app endpoint; file and local HTTP dev keep the direct path. */
+export function voiceEngineUrl(location: Pick<Location, 'protocol' | 'hostname' | 'host'>, port: number): string {
+  const local = location.hostname === 'localhost' || location.hostname.endsWith('.localhost')
+    || /^127\./.test(location.hostname) || location.hostname === '[::1]';
+  if (location.protocol === 'https:' || (location.protocol === 'http:' && !local)) {
+    return `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/voice-asr/socket`;
+  }
+  return `ws://${engineHost(location.hostname)}:${String(port)}`;
+}
+
 /** 한 프레임에 담을 표본 수를 넘겨 받은 버퍼를 20ms 조각으로 나눈다. */
 function* frames(samples: Float32Array, size: number): Generator<Float32Array> {
   for (let i = 0; i < samples.length; i += size) {
@@ -52,6 +62,7 @@ export function createOfflineRecognition(opts: OfflineRecognitionOptions): Speec
   let source: MediaStreamAudioSourceNode | null = null;
   let processor: ScriptProcessorNode | null = null;
   let sink: GainNode | null = null;
+  let connectTimer: ReturnType<typeof setTimeout> | null = null;
   let closed = false;
   /** 사용자가 [완료]를 눌렀는가 — 그 뒤에 오는 마지막 결과까지 받고 나서 끝낸다. */
   let finishing = false;
@@ -114,11 +125,14 @@ export function createOfflineRecognition(opts: OfflineRecognitionOptions): Speec
   function finish(): void {
     if (closed) return;
     closed = true;
+    if (connectTimer !== null) clearTimeout(connectTimer);
+    connectTimer = null;
     teardownAudio();
     const sock = socket;
     socket = null;
     if (sock) {
       sock.onmessage = null;
+      sock.onopen = null;
       sock.onerror = null;
       sock.onclose = null;
       try { sock.close(); } catch { /* 이미 닫힌 소켓 */ }
@@ -157,16 +171,22 @@ export function createOfflineRecognition(opts: OfflineRecognitionOptions): Speec
     if (socket !== null || closed) return;
     let sock: WebSocket;
     try {
-      sock = new WebSocket(`ws://${engineHost(window.location.hostname)}:${String(port)}`);
+      sock = new WebSocket(voiceEngineUrl(window.location, port));
     } catch {
       emitError('network');
       return;
     }
     sock.binaryType = 'arraybuffer';
     socket = sock;
+    connectTimer = setTimeout(() => {
+      emitError('network');
+      finish();
+    }, 10_000);
 
     sock.onopen = (): void => {
       if (closed) return;
+      if (connectTimer !== null) clearTimeout(connectTimer);
+      connectTimer = null;
       try {
         wireAudio();
       } catch {
@@ -199,10 +219,12 @@ export function createOfflineRecognition(opts: OfflineRecognitionOptions): Speec
     sock.onerror = (): void => {
       if (closed) return;
       emitError('network');
+      finish();
     };
 
     sock.onclose = (): void => {
-      // 우리가 닫은 것이든 저쪽이 끊은 것이든 끝은 하나다 — 훅이 되살릴지 판정한다.
+      // A lost mobile connection must not leave the UI listening to a closed recognizer.
+      if (!closed && !finishing) emitError('network');
       finish();
     };
   }

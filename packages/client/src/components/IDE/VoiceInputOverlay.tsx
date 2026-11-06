@@ -85,6 +85,7 @@ function VoiceWave({ analyserRef, active }: {
 /** 실패 사유 → 번역 키. 새 사유가 생기면 여기 한 줄과 로케일 한 줄이 짝이다. */
 const ERROR_KEY: Record<VoiceInputErrorCode, string> = {
   unsupported: 'ide.mainArea.voiceErrUnsupported',
+  'insecure-context': 'ide.mainArea.voiceErrInsecureContext',
   permission: 'ide.mainArea.voiceErrPermission',
   device: 'ide.mainArea.voiceErrDevice',
   // 마이크가 **아예 없다** — 설정을 켜라가 아니라 **꽂으라고** 말해야 하는 자리다.
@@ -117,7 +118,7 @@ export function VoiceInputOverlay({
         {/* §5.5 #17-38 ⑮ — 권한·장치로 막힌 실패는 **OS 설정에서 풀 수 있다.** 그 문을 여기 둔다.
             `device` 도 태우는 이유는 win 에서 "데스크톱 앱 허용"이 꺼지면 권한 문제가
             `NotFoundError`(=장치 없음)로 오기 때문이다(`isMicAccessFixable` 주석). */}
-        {isMicAccessFixable(error) && (
+        {(isMicAccessFixable(error) || error === 'insecure-context') && (
           <button
             type="button"
             onClick={onOpenMicSettings}
