@@ -29,6 +29,7 @@ afterEach(() => {
 function makeGraph(budget = 12): ProjectGraph {
   const graph = new ProjectGraph();
   graph.registerProject(projRoot);
+  graph.setExternalFolderMergeDepth(0); // 활동 예산은 경로 깊이 통합을 껐을 때 적용한다.
   graph.setExternalTopBudget(budget);
   return graph;
 }

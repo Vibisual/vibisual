@@ -4,6 +4,7 @@ import type { FolderFileEntry } from '@vibisual/shared';
 import {
   FOLDER_ROW_HEIGHT,
   childSubPathOf,
+  countsTowardSatelliteLimit,
   dropExpandedSubtree,
   dropLevelSubtree,
   flattenFolderLevels,
@@ -160,5 +161,26 @@ describe('접으면 그 자리에서 버린다', () => {
   it('childSubPathOf — 루트 아래는 이름 그대로, 그 아래는 이어 붙인다', () => {
     expect(childSubPathOf('', 'sub')).toBe('sub');
     expect(childSubPathOf('sub', 'deep')).toBe('sub/deep');
+  });
+});
+
+describe('countsTowardSatelliteLimit — 위성 N / M 은 일반 문서만 센다', () => {
+  const sat = (path: string, extra: Partial<Parameters<typeof countsTowardSatelliteLimit>[0]> = {}) =>
+    ({ bubbleType: 'file' as const, status: 'idle' as const, path, label: path.split('/').pop() ?? path, ...extra });
+
+  it('문서·코드는 세고, 상한 밖인 미리보기(사진·영상·소리·3D·PDF·HTML)는 세지 않는다', () => {
+    for (const p of ['.vibisual/reports/final.log', 'docs/a.md', 'src/index.ts', 'data/x.json']) {
+      expect(countsTowardSatelliteLimit(sat(p))).toBe(true);
+    }
+    for (const p of ['.vibisual/attachments/a/b.png', 'clips/c.mp4', 'sound/d.wav', 'models/e.glb', 'docs/f.pdf', 'pages/g.html']) {
+      expect(countsTowardSatelliteLimit(sat(p))).toBe(false);
+    }
+  });
+
+  it('외부 노드 키도 확장자로 가른다 · 고스트·사라지는 중은 세지 않는다(종전 그대로)', () => {
+    expect(countsTowardSatelliteLimit(sat('__ext__c:/tmp/out/shot.png', { absolutePath: 'C:/tmp/out/shot.png' }))).toBe(false);
+    expect(countsTowardSatelliteLimit(sat('__ext__c:/tmp/out/notes.md', { absolutePath: 'C:/tmp/out/notes.md' }))).toBe(true);
+    expect(countsTowardSatelliteLimit(sat('docs/a.md', { bubbleType: 'ghost' }))).toBe(false);
+    expect(countsTowardSatelliteLimit(sat('docs/a.md', { status: 'disappearing' }))).toBe(false);
   });
 });

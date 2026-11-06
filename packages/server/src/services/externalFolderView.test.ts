@@ -2,20 +2,50 @@
 import { describe, it, expect } from 'vitest';
 import {
   EXTERNAL_PROMOTION_HALF_LIFE_MS,
+  EXTERNAL_FOLDER_MERGE_DEPTH_BOUNDS,
+  EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT,
   EXTERNAL_TOP_BUDGET_BOUNDS,
   EXTERNAL_TOP_BUDGET_DEFAULT,
   externalPlaceHint,
+  externalFolderMergeTarget,
   externalPlaceKeyFor,
   externalPromotionScore,
   heatValueOf,
   isVolatileSegment,
   normalizeExternalTopBudget,
+  normalizeExternalFolderMergeDepth,
   pickPromotedExternalFolders,
   volatileFoldTarget,
   volatilePlaceOf,
 } from '@vibisual/shared';
 
 const UUID = '6926b71f-4898-481d-a4f0-df5629adb392';
+
+describe('외부 폴더 경로 통합 깊이', () => {
+  it('누락·잘못된 설정은 3, 0은 끄기이며 유효 숫자만 범위로 접는다', () => {
+    for (const value of [undefined, null, '', ' ', true, {}, [], 'invalid', NaN, Infinity]) {
+      expect(normalizeExternalFolderMergeDepth(value)).toBe(EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT);
+    }
+    expect(normalizeExternalFolderMergeDepth(0)).toBe(0);
+    expect(normalizeExternalFolderMergeDepth(-1)).toBe(0);
+    expect(normalizeExternalFolderMergeDepth('4.9')).toBe(4);
+    expect(normalizeExternalFolderMergeDepth(999)).toBe(EXTERNAL_FOLDER_MERGE_DEPTH_BOUNDS.MAX);
+  });
+
+  it('드라이브·POSIX 루트·UNC 공유를 제외한 폴더 단계로 묶는다', () => {
+    expect(externalFolderMergeTarget('C:\\Users\\dev\\.codex\\skills\\one', 3)).toBe('C:/Users/dev/.codex'); // privacy-ok
+    expect(externalFolderMergeTarget('/home/dev/.codex/skills/one', 3)).toBe('/home/dev/.codex'); // privacy-ok
+    expect(externalFolderMergeTarget('//server/share/users/dev/.codex/skills', 3)).toBe('//server/share/users/dev/.codex');
+    expect(externalFolderMergeTarget('//other/share/users/dev/.codex/skills', 3)).not.toBe('//server/share/users/dev/.codex');
+  });
+
+  it('3단계보다 짧거나 통합을 끄면 원래 폴더를 유지한다', () => {
+    for (const abs of ['C:/Users', '/', 'C:/', '//server/share', '/opt/tools']) {
+      expect(externalFolderMergeTarget(abs, 3)).toBe(abs);
+    }
+    expect(externalFolderMergeTarget('/home/dev/.codex/skills/one', 0)).toBe('/home/dev/.codex/skills/one'); // privacy-ok
+  });
+});
 
 describe('isVolatileSegment — 매번 새로 생기는 자리만 참', () => {
   it('UUID · 긴 16진 · 긴 숫자는 휘발이다', () => {

@@ -1,6 +1,16 @@
 /** 폴더 목록 행 만들기·창 자르기(순수, §7.5) — 겹마다 페이지가 돌고 보이는 구간만 DOM. ⚠ 재귀는 메모리의 겹만 훑는다(디스크 ❌). */
 
-import type { FolderFileEntry } from '@vibisual/shared';
+import type { BubbleData, FolderFileEntry } from '@vibisual/shared';
+import { isPreviewBundleFile } from '@vibisual/shared';
+
+/**
+ * `위성 N / M` 의 N 과 표시 목록은 M(일반 문서 상한)이 세는 것만. 미리보기는 상한 밖이라 캔버스의 묶음·낱개 위성으로 서고,
+ * 체크를 꺼도 세션 보존이 다시 싣는다(듣지 않는 체크박스를 두지 않는다).
+ */
+export function countsTowardSatelliteLimit(s: Pick<BubbleData, 'bubbleType' | 'status' | 'path' | 'absolutePath' | 'label'>): boolean {
+  if (s.bubbleType === 'ghost' || s.status === 'disappearing') return false;
+  return !isPreviewBundleFile(s.absolutePath || s.path || s.label);
+}
 
 /** 한 행의 높이(px). 윈도잉이 스크롤 위치로 행 번호를 셈하려면 고정이어야 한다. */
 export const FOLDER_ROW_HEIGHT = 22;

@@ -31,6 +31,7 @@ afterEach(() => {
 function makeGraph(): ProjectGraph {
   const graph = new ProjectGraph();
   graph.registerProject(projRoot);
+  graph.setExternalFolderMergeDepth(0); // 깊이 통합을 끈 기존 접합 트리의 회귀 검증.
   // §2.1 (B) — 접합 트리만 보려고 예산을 1 로 둬 승격을 끈다(`room = 예산 - 트리 루트 수`).
   //   승격은 `projectGraphExternalPromotion.test.ts` 가 따로 본다.
   graph.setExternalTopBudget(1);

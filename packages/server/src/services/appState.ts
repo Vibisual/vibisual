@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { AppState, AppStatePatch, RetentionSettings, KeymapOverrides, ClosedTabEntry,
   ClaudePluginAutoRefreshSettings, ClaudePluginRefreshState, TokenSaverSettings } from '@vibisual/shared';
 import { APP_STATE_BACKUP_GENERATIONS, normalizeRetentionSettings, normalizeBgTaskProbeSettings,
-  normalizeSessionProbeSettings, normalizeProcessGuardSettings, normalizeExternalTopBudget, normalizeKeymapOverrides,
+  normalizeSessionProbeSettings, normalizeProcessGuardSettings, normalizeExternalTopBudget, normalizeExternalFolderMergeDepth, normalizeKeymapOverrides,
   normalizePluginRefreshSettings, CLAUDE_PLUGIN_REFRESH_UPDATED_KEEP,
   normalizeClosedTabEntries, pushClosedTabEntry, takeClosedTabEntry, pruneMissingClosedTabs,
   normalizeIDEActivityBarPrefs,
@@ -196,6 +196,9 @@ function normalize(raw: Partial<AppState> | null | undefined): AppState {
     externalTopBudget: typeof raw.externalTopBudget === 'number'
       ? normalizeExternalTopBudget(raw.externalTopBudget)
       : undefined,
+    externalFolderMergeDepth: typeof raw.externalFolderMergeDepth === 'number'
+      ? normalizeExternalFolderMergeDepth(raw.externalFolderMergeDepth)
+      : undefined,
     // §5.23 접어 보기 — 같은 규약: 켜고 끈 적이 있을 때만 싣는다. 이 줄이 없으면 저장이 매번 이 칸을 떨군다.
     //   종전 설정이라 이제 읽기(이주)만 한다 — `appStateGetWebGroup` 참조.
     webFoldPerAgent: typeof raw.webFoldPerAgent === 'boolean' ? raw.webFoldPerAgent : undefined,
@@ -203,6 +206,8 @@ function normalize(raw: Partial<AppState> | null | undefined): AppState {
     usageCollector: typeof raw.usageCollector === 'boolean' ? raw.usageCollector : undefined,
     // §4 API 크레딧 — 같은 규약: 저장돼 있을 때만 싣는다. 이 줄이 없으면 저장이 매번 이 칸(키·장부 포함)을 떨군다.
     apiCredits: raw.apiCredits ? normalizeApiCreditPersisted(raw.apiCredits, Date.now()) : undefined,
+    // §4 OpenAI 비즈니스 크레딧 — 같은 규약·같은 모양(코덱스 판).
+    openaiCredits: raw.openaiCredits ? normalizeApiCreditPersisted(raw.openaiCredits, Date.now()) : undefined,
     // §3.6 「수명」 · §5.25 (I) — 코덱스 전역 훅 켬 여부. 없으면 첫 부팅이 hooks.json 에서 옮겨 적는다(`syncCodexHooksAtBoot`).
     codexHooks: typeof raw.codexHooks === 'boolean' ? raw.codexHooks : undefined,
     // §5.23 웹 버블 묶기 — 같은 규약: 저장돼 있을 때만 실어 기본값 변경을 자동 추종한다.
@@ -320,7 +325,7 @@ export function loadAppState(): AppState {
 }
 
 /** §3.2.1 손실방지 — 다세대 백업 롤링 → 원자적 쓰기(tmp+fsync+rename) + 디렉토리 fsync. 옛 `projectPaths` 는 쓰지 않는다. */
-export function saveAppState(state: AppState): void {
+export function saveAppState(state: AppState, options?: { throwOnError?: boolean }): void {
   try {
     if (!fs.existsSync(APP_HOME_DIR)) fs.mkdirSync(APP_HOME_DIR, { recursive: true });
     const normalized = normalize(state);
@@ -335,12 +340,14 @@ export function saveAppState(state: AppState): void {
     sessionProbeMemo = null; // 같은 이유 — 세션 판정 설정도 같은 창구를 탄다.
     processGuardMemo = null; // 같은 이유 — 자손 프로세스 보호(§5.3 #9-2)도 같은 창구를 탄다.
     externalTopBudgetMemo = null; // 같은 이유 — 외부 폴더 예산(§2.1 (B))도 같은 창구를 탄다.
+    externalFolderMergeDepthMemo = null;
     webGroupMemo = null; // 같은 이유 — 웹 버블 묶기(§5.23)도 같은 창구를 탄다.
     webOpenTargetMemo = null; // 같은 이유 — 웹 버블 더블클릭이 여는 곳(§5.23)도 같은 창구를 탄다.
     keymapMemo = null; // 같은 이유 — 단축키(§6)도 같은 창구를 탄다.
     ideActivityBarMemo = null; // 같은 이유 — 활동바 구성(§5.5 #16-1)도 같은 창구를 탄다.
   } catch (err) {
     logger.error(`AppState save failed: ${err instanceof Error ? err.message : String(err)}`);
+    if (options?.throwOnError) throw err;
   }
 }
 
@@ -474,8 +481,8 @@ export function appStateSetProcessGuard(patch: Partial<ProcessGuardSettings>): P
  * `GraphSnapshot.apiCredits`(키 본문 없음)로만 간다. **AppState 를 응답·스냅샷에 싣는 자리는 전부 이 함수를 지난다.**
  */
 export function publicAppState(state: AppState): AppState {
-  if (state.apiCredits === undefined) return state;
-  const { apiCredits: _private, ...rest } = state;
+  if (state.apiCredits === undefined && state.openaiCredits === undefined) return state;
+  const { apiCredits: _private, openaiCredits: _privateOpenai, ...rest } = state;
   return rest;
 }
 
@@ -490,6 +497,17 @@ export function appStateGetApiCredits(): ApiCreditPersisted {
 export function appStateSetApiCredits(next: ApiCreditPersisted): void {
   const current = loadAppState();
   saveAppState({ ...current, apiCredits: next });
+}
+
+/** §4 OpenAI 비즈니스 크레딧 — 코덱스 판의 크레딧 칸. 없으면 빈 객체. */
+export function appStateGetOpenaiCredits(): ApiCreditPersisted {
+  return loadAppState().openaiCredits ?? {};
+}
+
+/** 코덱스 판의 크레딧 칸을 통째로 갈아 끼운다(`appStateSetApiCredits` 와 같은 규약). */
+export function appStateSetOpenaiCredits(next: ApiCreditPersisted): void {
+  const current = loadAppState();
+  saveAppState({ ...current, openaiCredits: next });
 }
 
 /**
@@ -522,6 +540,7 @@ export function appStateSetCodexHooks(enabled: boolean): void {
 }
 
 let externalTopBudgetMemo: number | null = null;
+let externalFolderMergeDepthMemo: number | null = null;
 
 /** §2.1 (B) — 최상위에 동시에 세울 외부 폴더 예산(머신 단위). 없거나 범위 밖이면 `normalizeExternalTopBudget` 이 접는다. */
 export function appStateGetExternalTopBudget(): number {
@@ -532,10 +551,35 @@ export function appStateGetExternalTopBudget(): number {
 
 /** 예산 갱신 → 정규화 후 저장. 반환은 저장된 최종본(클램프된 값일 수 있다). */
 export function appStateSetExternalTopBudget(value: unknown): number {
-  const next = normalizeExternalTopBudget(value);
+  return appStateSetExternalFolderSettings({ budget: value }).budget;
+}
+
+/** 외부 폴더에만 적용되는 통합 깊이. 구버전 저장분에는 값이 없어 기본 3단계를 따른다. */
+export function appStateGetExternalFolderMergeDepth(): number {
+  if (externalFolderMergeDepthMemo !== null) return externalFolderMergeDepthMemo;
+  externalFolderMergeDepthMemo = normalizeExternalFolderMergeDepth(loadAppState().externalFolderMergeDepth);
+  return externalFolderMergeDepthMemo;
+}
+
+export function appStateSetExternalFolderMergeDepth(value: unknown): number {
+  return appStateSetExternalFolderSettings({ mergeDepth: value }).mergeDepth;
+}
+
+/** 예산과 통합 깊이를 함께 저장한다. 빠진 칸은 보존하고, 저장 실패 시 메모와 그래프를 갱신하지 않는다. */
+export function appStateSetExternalFolderSettings(value: unknown): { budget: number; mergeDepth: number } {
+  const patch = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
+  const next = {
+    budget: Object.hasOwn(patch, 'budget') ? normalizeExternalTopBudget(patch['budget']) : appStateGetExternalTopBudget(),
+    mergeDepth: Object.hasOwn(patch, 'mergeDepth') ? normalizeExternalFolderMergeDepth(patch['mergeDepth']) : appStateGetExternalFolderMergeDepth(),
+  };
   const current = loadAppState();
-  saveAppState({ ...current, externalTopBudget: next });
-  externalTopBudgetMemo = next; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
+  saveAppState({
+    ...current,
+    externalTopBudget: next.budget,
+    externalFolderMergeDepth: next.mergeDepth,
+  }, { throwOnError: true });
+  externalTopBudgetMemo = next.budget;
+  externalFolderMergeDepthMemo = next.mergeDepth;
   return next;
 }
 

@@ -5,7 +5,7 @@ import { DEFAULT_MAX_SATELLITES } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { SatelliteMaxPopup } from './SatelliteMaxPopup.js';
-import { FOLDER_ROW_HEIGHT, flattenFolderLevels, type FolderTreeRow } from './folderFileRows.js';
+import { FOLDER_ROW_HEIGHT, countsTowardSatelliteLimit, flattenFolderLevels, type FolderTreeRow } from './folderFileRows.js';
 import { useFolderFilePages } from './useFolderFilePages.js';
 import { PagedRowList } from './PagedRowList.js';
 
@@ -40,9 +40,9 @@ export function FolderFileTree({ folderPath, folderAbsPath, nodeId, collectAll, 
     fetch(`${API_BASE}/api/satellite/max`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ folderPath, max: next }),
+      body: JSON.stringify({ folderPath, max: next, absolutePath: folderAbsPath }),
     }).catch(() => {});
-  }, [folderPath]);
+  }, [folderPath, folderAbsPath]);
 
   const { levels, expanded, rootLoading, toggleExpand, loadMore } = useFolderFilePages(folderPath, folderAbsPath);
 
@@ -80,8 +80,7 @@ export function FolderFileTree({ folderPath, folderAbsPath, nodeId, collectAll, 
       const result: FolderFileEntry[] = [];
       for (const sats of Object.values(storeSatellites)) {
         for (const s of sats) {
-          // ghost/disappearing 위성은 visible 아님
-          if (s.bubbleType === 'ghost' || s.status === 'disappearing') continue;
+          if (!countsTowardSatelliteLimit(s)) continue;
           const key = s.path.toLowerCase();
           if (!seen.has(key)) {
             seen.add(key);
@@ -94,7 +93,7 @@ export function FolderFileTree({ folderPath, folderAbsPath, nodeId, collectAll, 
     const sats = storeSatellites[nodeId];
     if (!sats) return [];
     return sats
-      .filter((s) => s.bubbleType !== 'ghost' && s.status !== 'disappearing')
+      .filter(countsTowardSatelliteLimit)
       .map((s) => ({
         name: s.label,
         relativePath: s.path.toLowerCase(),

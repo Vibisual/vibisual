@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { EXTERNAL_TOP_BUDGET_BOUNDS, EXTERNAL_TOP_BUDGET_DEFAULT } from '@vibisual/shared';
+import {
+  EXTERNAL_FOLDER_MERGE_DEPTH_BOUNDS,
+  EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT,
+  EXTERNAL_TOP_BUDGET_BOUNDS,
+  EXTERNAL_TOP_BUDGET_DEFAULT,
+  normalizeExternalFolderMergeDepth,
+} from '@vibisual/shared';
 import { NumberStepper } from './NumberStepper.js';
 
 /**
- * §2.1 (B) — 최상위에 동시에 세울 외부 폴더 개수. 개수는 이 값, 무엇이 보일지는 활동(접촉 많고 최근 순 — 식으면 조상 밑으로)이 정한다.
- * 핀 폴더는 이 수에 안 든다(예산 때문에 사라지면 핀이 깨진다). 머신 단위(`AppState`), 자기 REST(`/api/external-folder-budget`).
+ * 외부 폴더 전용 경로 통합 깊이와 활동 승격 예산. 머신 단위(`AppState`)로 함께 저장한다.
+ * 깊이가 0이면 경로 통합을 끄고 기존 활동 예산을 사용한다. 핀 폴더는 예산과 무관하게 표시한다.
  */
 
 const API_BASE = '';
@@ -15,14 +21,29 @@ interface ExternalFolderSectionProps {
   onDirtyChange?: (dirty: boolean) => void;
 }
 
+interface ExternalFolderSettings {
+  budget: number;
+  mergeDepth?: number;
+}
+
 export function ExternalFolderSection({ onDirtyChange }: ExternalFolderSectionProps = {}): React.JSX.Element {
   const { t } = useTranslation();
   const [budget, setBudget] = useState<number>(EXTERNAL_TOP_BUDGET_DEFAULT);
   const [saved, setSaved] = useState<number>(EXTERNAL_TOP_BUDGET_DEFAULT);
+  const [mergeDepth, setMergeDepth] = useState<number>(EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT);
+  const [savedMergeDepth, setSavedMergeDepth] = useState<number>(EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT);
   const [busy, setBusy] = useState<'load' | 'save' | null>(null);
   const [error, setError] = useState<'load' | 'save' | null>(null);
 
-  const dirty = budget !== saved;
+  const dirty = budget !== saved || mergeDepth !== savedMergeDepth;
+
+  const applySaved = useCallback((data: ExternalFolderSettings) => {
+    const depth = normalizeExternalFolderMergeDepth(data.mergeDepth);
+    setBudget(data.budget);
+    setSaved(data.budget);
+    setMergeDepth(depth);
+    setSavedMergeDepth(depth);
+  }, []);
 
   const load = useCallback(async () => {
     setBusy('load');
@@ -30,15 +51,13 @@ export function ExternalFolderSection({ onDirtyChange }: ExternalFolderSectionPr
     try {
       const res = await fetch(`${API_BASE}/api/external-folder-budget`);
       if (!res.ok) throw new Error(String(res.status));
-      const data = await res.json() as { budget: number };
-      setBudget(data.budget);
-      setSaved(data.budget);
+      applySaved(await res.json() as ExternalFolderSettings);
     } catch {
       setError('load');
     } finally {
       setBusy(null);
     }
-  }, []);
+  }, [applySaved]);
 
   const save = useCallback(async () => {
     setBusy('save');
@@ -47,19 +66,17 @@ export function ExternalFolderSection({ onDirtyChange }: ExternalFolderSectionPr
       const res = await fetch(`${API_BASE}/api/external-folder-budget`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ budget }),
+        body: JSON.stringify({ budget, mergeDepth }),
       });
       if (!res.ok) throw new Error(String(res.status));
       // 서버가 범위 밖 값을 접어 돌려줄 수 있다 — 화면은 **저장된 그 값**을 따라간다.
-      const data = await res.json() as { budget: number };
-      setBudget(data.budget);
-      setSaved(data.budget);
+      applySaved(await res.json() as ExternalFolderSettings);
     } catch {
       setError('save');
     } finally {
       setBusy(null);
     }
-  }, [budget]);
+  }, [applySaved, budget, mergeDepth]);
 
   useEffect(() => { void load(); }, [load]);
   // 편집분은 이 컴포넌트 state 에만 있다 — 언마운트되면 함께 사라지므로 dirty 도 반드시 내린다.
@@ -69,6 +86,9 @@ export function ExternalFolderSection({ onDirtyChange }: ExternalFolderSectionPr
   const budgetLabel = t('panel.options.advanced.externalBudgetLabel', {
     defaultValue: 'External folders shown at the top level',
   });
+  const mergeDepthLabel = t('panel.options.advanced.externalMergeDepthLabel', {
+    defaultValue: 'External folder merge depth',
+  });
 
   return (
     <div className="flex flex-col gap-2 border-t border-gray-700/50 pt-4">
@@ -77,9 +97,28 @@ export function ExternalFolderSection({ onDirtyChange }: ExternalFolderSectionPr
       </h4>
       <p className="text-[12px] leading-snug text-gray-500">
         {t('panel.options.advanced.externalBudgetIntro', {
-          defaultValue: 'When an agent touches a folder outside the project, that place gets its own bubble. Left alone, those bubbles either bury the map or collapse into one that says nothing. This number sets how many of them stand at the top level at once — the busiest and most recent places fill it first, and places that go quiet fold back under their parent.',
+          defaultValue: 'Group external folder bubbles whose paths share the first few folder levels. These settings apply only to folders outside the project.',
         })}
       </p>
+
+      <div className="flex flex-col gap-1.5 rounded border border-gray-700/60 bg-gray-900/40 px-3 py-2.5">
+        <label className="text-xs text-gray-200">{mergeDepthLabel}</label>
+        <NumberStepper
+          value={mergeDepth}
+          onChange={(value) => setMergeDepth(normalizeExternalFolderMergeDepth(value))}
+          min={EXTERNAL_FOLDER_MERGE_DEPTH_BOUNDS.MIN}
+          max={EXTERNAL_FOLDER_MERGE_DEPTH_BOUNDS.MAX}
+          step={1}
+          disabled={busy !== null}
+          widthClassName="w-20"
+          ariaLabel={mergeDepthLabel}
+        />
+        <p className="text-[12px] leading-snug text-gray-500">
+          {t('panel.options.advanced.externalMergeDepthDesc', {
+            defaultValue: 'Default: 3 levels. A smaller number groups more folders together; 0 turns path merging off. Count folder names after the root, drive, or network share. For example, C:/Users/<name>/.codex/... shares 3 levels through .codex. Files remain accessible inside the merged bubble.',
+          })}
+        </p>
+      </div>
 
       <div className="flex flex-col gap-1.5 rounded border border-gray-700/60 bg-gray-900/40 px-3 py-2.5">
         <label className="text-xs text-gray-200">{budgetLabel}</label>
@@ -89,13 +128,13 @@ export function ExternalFolderSection({ onDirtyChange }: ExternalFolderSectionPr
           min={EXTERNAL_TOP_BUDGET_BOUNDS.MIN}
           max={EXTERNAL_TOP_BUDGET_BOUNDS.MAX}
           step={1}
-          disabled={busy !== null}
+          disabled={busy !== null || mergeDepth > 0}
           widthClassName="w-20"
           ariaLabel={budgetLabel}
         />
         <p className="text-[12px] leading-snug text-gray-500">
           {t('panel.options.advanced.externalBudgetDesc', {
-            defaultValue: 'Pinned folders do not count against this number — a folder you pinned always stays at the top level. Nothing is deleted by this setting: places that do not fit are folded under a parent bubble that tells you how many are inside.',
+            defaultValue: 'Used when merge depth is 0: the most active and recent folders appear at the top level within this budget. Pinned folders do not count against it. While path merging is on, activity does not split merged groups. No files are deleted.',
           })}
         </p>
       </div>
@@ -122,7 +161,10 @@ export function ExternalFolderSection({ onDirtyChange }: ExternalFolderSectionPr
         <button
           type="button"
           disabled={busy !== null}
-          onClick={() => setBudget(EXTERNAL_TOP_BUDGET_DEFAULT)}
+          onClick={() => {
+            setBudget(EXTERNAL_TOP_BUDGET_DEFAULT);
+            setMergeDepth(EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT);
+          }}
           className="rounded border border-gray-700 px-3 py-1.5 text-xs text-gray-300 disabled:opacity-40 hover:bg-white/[0.04]"
         >
           {t('panel.options.storage.reset', { defaultValue: 'Restore defaults' })}
