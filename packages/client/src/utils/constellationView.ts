@@ -1,10 +1,5 @@
-/**
- * §5.1 #2-1 (B) — 화면 하나(메인·폴더 안)의 별자리·묶음 배치. 판정은 shared(`planConstellations`·`planKindBundles` — 서버 위성 상한과 같은 답),
- * 여기서는 그 답을 이 화면 노드로 옮길 뿐이다(순수 — 스토어·DOM 을 안 보고 플랫폼은 인자로). 앱 노드가 선언한 파일은 그 노드를 돌고(구성끼리 크기 범위를 함께 잰다) 선은 호출부가 `converted` 로.
- * 묶음엔 같은 미디어 종류만(파일은 중심 ❌·텍스트 ❌): 위성 무리 안 같은 종류 둘 이상 = `sat-bundle-<부모 id>-<종류>` 하나(하위 폴더 무관, 구성은 낱자리 ❌),
- * 수 `folderKindCount`(확인 안 한 턴에 쓴 것)·이름 `folderKindDir`. 위성은 폴더와 같은 규칙(`bundleMoonsOf` — 바깥 방향 부채꼴, 더블클릭은 파일 `fileFaceOpenPlan`), 부모 둘레엔 다른 위성과 같은 거리에 선다(§5.1 #2-2 (J) ④).
- * 원 둘레·연속 번호 대표(§5.1 #2-1 (F) ⑦)도 묶음(`bundle-radial-<열쇠>`, 선은 `bundled`). 선은 위성선 `sat-edge-<id>` 그대로. `_bundle`·`_constellation` 은 표시 전용.
- */
+import { satelliteSourceNodeId } from '@vibisual/shared';
+/** §5.1 #2-1 — 서버의 세션별 미리보기 파일을 묶음·위성으로 표시한다. 앱 작업 별자리는 기존 배치를 공유한다. */
 import type { AppWorkRole, BubbleData, ConstellationAppHubInput, ConstellationMoon, ConstellationReason, FileFaceKind, HeatScale, NodeStatus, PlatformName } from '@vibisual/shared';
 import {
   BUBBLE_COLORS,
@@ -20,6 +15,8 @@ import {
   kindBundleNameOf,
   planConstellations,
   planKindBundles,
+  previewBundleKindOf,
+  bundleSatelliteKey,
 } from '@vibisual/shared';
 
 import { calcBubbleSize, calcFileSizeRange, stableSizeRange } from './sizeCalc.js';
@@ -95,11 +92,16 @@ export interface BundleInfo {
    * 선언해 위성 상한으로 빠진 같은 종류까지(그 폴더 아래 모든 깊이) 세운다. 없으면(옛 스냅샷) 묶음 안은 구성만 선다.
    */
   readonly folderId?: string;
+  readonly folderAbsolutePath?: string;
+  readonly sessionId?: string;
+  readonly settingsPath?: string;
+  readonly settingsAbsolutePath?: string;
+  readonly maxSatellites?: number;
   /** 구성 파일 노드 id — 같은 폴더 묶음은 최근 것부터, 연속 번호는 번호 순. 묶음 안(`interiorView` `bundle`)이 이것으로 찾는다. */
   readonly memberIds: readonly string[];
   /** 툴팁 줄(상한 `BUNDLE_BUBBLE.tooltipNameMax` — 넘치면 `count` 가 말한다). */
   readonly members: readonly BundleMember[];
-  /** 수 — 같은 폴더 묶음은 그 폴더 아래에서 아직 확인하지 않은 턴에 사용한 그 종류(위성 상한으로 빠진 것 포함), 연속 번호는 그 연속의 장 수. */
+  /** 수 — 같은 폴더 묶음은 그 폴더 아래에서 세션에 사용한 그 종류(위성 상한으로 빠진 것 포함), 연속 번호는 그 연속의 장 수. */
   readonly count: number;
 }
 
@@ -152,11 +154,13 @@ export interface ConstellationViewInput {
   readonly satellitePositions?: Readonly<Record<string, { x: number; y: number }>> | undefined;
   /** 메인 화면 최상위 파일 묶음(폴더 조각이 없는 프로젝트 루트)의 이름 — 프로젝트 이름. 없으면 빈 이름이다. */
   readonly rootLabel?: string | undefined;
+  readonly bundleFolder?: BubbleData | undefined;
+  readonly fileNodes?: Readonly<Record<string, BubbleData>> | undefined;
   /**
-   * §5.1 #2-1 (B) — 폴더 위성 묶음의 구성을 지금 턴의 것(서버 표시 `inOpenTurn`)만으로 — 새 명령의 묶음 안에 지난 것이 남지 않게.
-   * 캔버스만 켠다 — IDE 세션 지도는 그 세션의 도구 호출이 재료라 이 표시가 없다(`bundleInteriorMembers` 의 `openTurnOnly` 와 같은 갈림).
+   * §5.1 #2-1 (B) — 묶음은 세션으로 가르지 않는다. IDE 세션 지도(§5.5 #17-50)만 그 세션을 여기 싣고, 묶음이 그 이름표(설정 열쇠·묶음 안
+   * 조회 범위)를 단다. 파일마다의 `previewSessionIds` 로 가르면 다른 세션이 한 번씩 쓴 같은 종류가 낱개로 선다.
    */
-  readonly openTurnOnly?: boolean | undefined;
+  readonly bundleSessionId?: string | undefined;
 }
 
 export interface ConstellationViewResult {
@@ -201,12 +205,12 @@ function tagOf(hubLabel: string, reason: ConstellationTagReason, viaLabel: strin
 }
 
 function fileIdOfSat(id: string): string {
-  return id.startsWith('sat-') ? id.slice(4) : id;
+  return satelliteSourceNodeId(id);
 }
 
 export function applyConstellations(input: ConstellationViewInput): ConstellationViewResult {
   const app = applyAppHubConstellations(input);
-  const satInfos = applyKindBundles(app.satInfos, input);
+  const satInfos = withPreviewSeats(applyKindBundles(app.satInfos, input), input.radial);
   // 원 둘레 묶음의 위성은 이미 선 위성 id 를 피한다 — 다른 부모가 먼저 거느린 파일이면 같은 노드 id 가 둘이 된다.
   const radial = applyRadialKindBundles(app.radial, input, new Set(satInfos.map((s) => s.bubble.id)));
   return {
@@ -217,8 +221,32 @@ export function applyConstellations(input: ConstellationViewInput): Constellatio
   };
 }
 
-/** §5.1 #2-1 (B) — 묶음 버블이 거느리는 위성 상한. 묶음에는 폴더 설정(§7.5 `maxSatellites`)이 없으므로 설정 없는 폴더와 같은 기본 상한이다. */
+/** 설정하지 않은 묶음의 기본 위성 상한. */
 export const BUNDLE_SATELLITE_MAX = DEFAULT_MAX_SATELLITES;
+
+/** 폴더의 문서 칸을 쓰지 않는 위성 — 묶음과 낱개 미리보기 파일. */
+function isPreviewSeat(b: BubbleData): boolean {
+  return b.bubbleType === 'bundle' || (b.bubbleType === 'file' && previewBundleKindOf(b.absolutePath || b.path || b.label) !== null);
+}
+
+/**
+ * §5.1 #2-1 (D) — 폴더 위성의 거느릴 수(`parentSlots` = 문서 상한)에 그 폴더를 도는 묶음·미리보기 수를 더한다.
+ * 더하지 않으면 문서와 묶음이 첫 고리의 문서 칸을 나눠 갖는다. 묶음의 위성·앱 노드 달은 제 부모 것이라 그대로다.
+ */
+export function withPreviewSeats(sats: SatelliteInfo[], radial: readonly BubbleData[]): SatelliteInfo[] {
+  const folders = new Set(radial.filter((b) => FOLDER_BUBBLE_TYPES.has(b.bubbleType)).map((b) => b.id));
+  if (folders.size === 0) return sats;
+  const extra = new Map<string, number>();
+  for (const s of sats) {
+    if (!folders.has(s.parentId) || !isPreviewSeat(s.bubble)) continue;
+    extra.set(s.parentId, (extra.get(s.parentId) ?? 0) + 1);
+  }
+  if (extra.size === 0) return sats;
+  return sats.map((s) => {
+    const n = extra.get(s.parentId);
+    return n === undefined || s.parentSlots === undefined ? s : { ...s, parentSlots: s.parentSlots + n };
+  });
+}
 
 /** 묶음 위성이 될 구성 하나 — 파일 노드 id · 그 파일(원 둘레의 원본 또는 폴더 위성 사본) · 저장된 위성 자리. */
 interface BundleMoonSource {
@@ -240,13 +268,16 @@ function bundleMoonsOf(
   sources: readonly BundleMoonSource[],
   heat: HeatScale | undefined,
   taken: ReadonlySet<string>,
+  maxSatellites = BUNDLE_SATELLITE_MAX,
+  sessionId?: string,
+  savedPositions?: Readonly<Record<string, { x: number; y: number }>>,
 ): SatelliteInfo[] {
   const picked: { fileId: string; bubble: BubbleData }[] = [];
   for (const s of sources) {
-    if (picked.length >= BUNDLE_SATELLITE_MAX) break;
-    const id = `sat-${s.fileId}`;
+    if (picked.length >= maxSatellites) break;
+    const id = `sat-${s.fileId}${sessionId ? `:preview-session:${encodeURIComponent(sessionId)}` : ''}`;
     if (taken.has(id) || picked.some((p) => p.bubble.id === id)) continue;
-    picked.push({ fileId: s.fileId, bubble: { ...s.bubble, id, activity: 1, position: s.position } as BubbleData });
+    picked.push({ fileId: s.fileId, bubble: { ...s.bubble, id, activity: 1, position: savedPositions?.[id] ?? s.position } as BubbleData });
   }
   if (picked.length === 0) return [];
   const parentSize = BUNDLE_BUBBLE.size;
@@ -260,7 +291,7 @@ function bundleMoonsOf(
       parentId: bundleId,
       parentSize,
       edge: {
-        id: `sat-edge-${fileId}`,
+        id: `sat-edge-${bubble.id.slice(4)}`,
         source: isRead ? bubble.id : bundleId,
         target: isRead ? bundleId : bubble.id,
         label: bubble.lastTool,
@@ -273,7 +304,7 @@ function bundleMoonsOf(
       total: picked.length,
       localRange,
       heat,
-      parentSlots: BUNDLE_SATELLITE_MAX,
+      parentSlots: maxSatellites,
     };
   });
 }
@@ -405,6 +436,7 @@ function applyAppHubConstellations(input: ConstellationViewInput): HubResult {
       satBubble = {
         ...bubble,
         id: fileSatId,
+        folderNodeId: bubble.folderNodeId ?? (fromSat ? byFileId.get(fileId)?.sat?.parentId : input.bundleFolder?.id),
         activity: 1,
         position,
         _constellation: tag,
@@ -471,7 +503,60 @@ function applyAppHubConstellations(input: ConstellationViewInput): HubResult {
     staying.push(s);
   }
 
-  return { radial: nextRadial, satInfos: [...staying, ...moons, ...convertedMoons], converted };
+  const appSatellites = [...staying, ...moons, ...convertedMoons];
+  const sequenceMembers = new Set<string>();
+  const sequenceSatellites: SatelliteInfo[] = [];
+  const sequenceFile = (id: string): BubbleData | undefined => input.fileNodes?.[id] ?? byFileId.get(id)?.bubble;
+  const parentById = new Map(radial.map((b) => [b.id, b]));
+  for (const satellite of appSatellites) {
+    const info = bundleInfoOf(satellite.bubble);
+    if (info?.source !== 'sequence') continue;
+    const repId = info.memberIds.find((id) => byFileId.has(id));
+    const rep = repId ? byFileId.get(repId) : undefined;
+    const parent = (rep?.sat ? parentById.get(rep.sat.parentId) : undefined) ?? input.bundleFolder;
+    // §5.1 #2-1 (B) — 연속 번호도 세션으로 가르지 않는다. 세션 화면이면 그 세션 이름표만 단다.
+    const sessionId = input.bundleSessionId ?? '';
+    const ids = [...info.memberIds];
+    if (ids.length < BUNDLE_BUBBLE.minMembers) {
+      const fileId = ids[0];
+      const node = fileId === undefined ? undefined : sequenceFile(fileId);
+      if (fileId === undefined || !node) continue;
+      const id = `sat-${fileId}${sessionId ? `:preview-session:${encodeURIComponent(sessionId)}` : ''}`;
+      const isRead = node.lastTool ? READ_TOOLS.has(node.lastTool) : false;
+      sequenceSatellites.push({ ...satellite, bubble: { ...node, id }, edge: {
+        ...satellite.edge, id: `sat-edge-${id.slice(4)}`,
+        source: isRead ? id : satellite.parentId, target: isRead ? satellite.parentId : id,
+      } });
+      sequenceMembers.add(fileId);
+      converted.set(fileId, id);
+      continue;
+    }
+    const bundleId = `${satellite.bubble.id}${sessionId ? `-${encodeURIComponent(sessionId)}` : ''}`;
+    const maxSatellites = parent?.bundleMaxSatellites?.[bundleSatelliteKey(info.kind as import('@vibisual/shared').KindBundleKind, sessionId)]
+      ?? parent?.bundleMaxSatellites?.[info.kind] ?? BUNDLE_SATELLITE_MAX;
+    const bundle = { ...satellite.bubble, id: bundleId, _bundle: stableBundle({
+      ...info, memberIds: ids, count: ids.length,
+      members: ids.slice(0, BUNDLE_BUBBLE.tooltipNameMax).map((id) => ({ label: sequenceFile(id)?.label ?? id, reason: null })),
+      ...(sessionId ? { sessionId } : {}), maxSatellites,
+      ...(parent ? { settingsPath: parent.path, settingsAbsolutePath: parent.absolutePath } : {}),
+    }) } as BubbleData;
+    sequenceSatellites.push({ ...satellite, bubble: bundle, edge: {
+      ...satellite.edge, id: `sat-edge-${bundleId.slice(4)}`,
+      source: satellite.edge.source === satellite.bubble.id ? bundleId : satellite.edge.source,
+      target: satellite.edge.target === satellite.bubble.id ? bundleId : satellite.edge.target,
+    } });
+    const sources = ids.map((id) => ({ id, node: sequenceFile(id) })).filter((entry): entry is { id: string; node: BubbleData } => entry.node !== undefined)
+      .sort((a, b) => (b.node.lastActivity ?? 0) - (a.node.lastActivity ?? 0));
+    sequenceSatellites.push(...bundleMoonsOf(bundleId, sources.map(({ id, node }) => ({ fileId: id, bubble: node, position: node.position })),
+      heat, NO_TAKEN, maxSatellites, sessionId || undefined, input.satellitePositions));
+    for (const id of ids) { sequenceMembers.add(id); if (!converted.has(id)) converted.set(id, bundleId); }
+    for (const [id, target] of converted) if (target === satellite.bubble.id) converted.set(id, bundleId);
+  }
+  return {
+    radial: nextRadial.filter((b) => !sequenceMembers.has(b.id)),
+    satInfos: [...appSatellites.filter((s) => bundleInfoOf(s.bubble)?.source !== 'sequence' && !sequenceMembers.has(fileIdOfSat(s.bubble.id))), ...sequenceSatellites],
+    converted,
+  };
 }
 
 /**
@@ -502,13 +587,7 @@ function bundleKindDirOf(bubbles: readonly BubbleData[]): string | undefined {
   return dir;
 }
 
-/**
- * §5.1 #2-1 (B) — 같은 종류 묶음. 폴더를 도는 파일 위성 중 같은 미디어 종류(`BUNDLE_BUBBLE.minMembers` 이상)는 어느 하위 폴더에 있든 묶음 버블 하나가 가장 최근 구성의 자리에 선다.
- * 구성은 폴더의 낱자리로 서지 않고, 최근 것이 폴더 위성과 같은 규칙으로 묶음의 위성이 된다(`bundleMoonsOf`). 나머지는 묶음 안(`bundleInteriorMembers`)에서 본다.
- * 판정은 shared `planKindBundles`(서버 위성 상한 §5.1 #2-1 (D)과 같은 답). 수는 아직 확인하지 않은 턴에 사용한 그 종류(상한으로 빠진 것 포함 — `folderKindCount`), 이름은 `folderKindDir`(없으면 화면 구성의 공통 폴더 → 주인 폴더 이름).
- * 앱 노드로 옮겨 간 위성·폴더가 아닌 부모의 위성은 건드리지 않는다.
- * `openTurnOnly`(캔버스): 문턱은 위성 목록 그대로 재지만 구성(수·위성·묶음 안의 출발점)은 지금 턴의 것만. 턴의 것이 없으면 묶음 없이 구성만 걷는다.
- */
+/** 같은 폴더 위성 무리에서 미리보기 종류가 같은 파일을 둘부터 묶는다 — 세션은 가르지 않는다(`bundleSessionId` 는 이름표뿐). */
 function applyKindBundles(sats: SatelliteInfo[], input: ConstellationViewInput): SatelliteInfo[] {
   const folderParents = new Set<string>();
   /** 주인 폴더 이름 — 구성이 함께 든 폴더가 없을 때(다른 드라이브에 흩어진 외부 파일 등) 묶음 이름으로 쓴다(지어내지 않는다). */
@@ -518,92 +597,84 @@ function applyKindBundles(sats: SatelliteInfo[], input: ConstellationViewInput):
     folderParents.add(b.id);
     folderLabelOf.set(b.id, b.label);
   }
+  for (const hub of input.appHubs) {
+    folderParents.add(hub.id);
+    folderLabelOf.set(hub.id, hub.label);
+  }
   if (folderParents.size === 0) return sats;
 
-  const byParent = new Map<string, SatelliteInfo[]>();
-  for (const s of sats) {
-    if (s.bubble.bubbleType !== 'file' || !folderParents.has(s.parentId)) continue;
-    const list = byParent.get(s.parentId);
-    if (list) list.push(s);
-    else byParent.set(s.parentId, [s]);
+  const parents = new Map(input.radial.map((b) => [b.id, b]));
+  const sessionId = input.bundleSessionId || undefined;
+  const byParent = new Map<string, { parentId: string; list: SatelliteInfo[] }>();
+  for (const sat of sats) {
+    if (sat.bubble.bubbleType !== 'file' || !folderParents.has(sat.parentId)) continue;
+    const key = `${sat.parentId}\u0000${sat.bubble.folderNodeId ?? ''}`;
+    const group = byParent.get(key);
+    if (group) group.list.push(sat);
+    else byParent.set(key, { parentId: sat.parentId, list: [sat] });
   }
 
-  /** 묶음의 머리(가장 최근 구성) 위성 id → 그 자리에 서는 묶음 버블. */
-  const bundleAt = new Map<string, SatelliteInfo>();
-  /** 묶음이 대신하는 구성 위성 id — 폴더의 낱자리에서 걷는다. 그중 최근 것은 아래 `moons` 로 묶음 둘레에 다시 선다. */
+  const bundleAt = new Map<string, SatelliteInfo[]>();
   const folded = new Set<string>();
-  /** 묶음 버블의 위성 — 모든 자리 뒤에 붙인다(첫 자리를 잡을 때 부모인 묶음이 먼저 앉아 있어야 한다 — `placeSatellitePositions`). */
   const moons: SatelliteInfo[] = [];
-  for (const [parentId, list] of byParent) {
-    if (list.length < BUNDLE_BUBBLE.minMembers) continue;
+  for (const { parentId, list } of byParent.values()) {
     const plans = planKindBundles(
       list.map((s) => ({ id: s.bubble.id, path: s.bubble.path || s.bubble.absolutePath || '', lastActivity: s.bubble.lastActivity })),
-      // 화면은 서버가 보낸 구성을 다 담는다 — 한 묶음의 상한은 서버 위성 상한이 이미 적용했다.
       { platform: input.platform, memberMax: Number.MAX_SAFE_INTEGER },
     );
-    if (plans.length === 0) continue;
     const bySatId = new Map(list.map((s) => [s.bubble.id, s] as const));
     for (const plan of plans) {
-      const listed = [...plan.memberIds, ...plan.overflowIds]
-        .map((id) => bySatId.get(id))
-        .filter((s): s is SatelliteInfo => s !== undefined);
-      if (listed.length < BUNDLE_BUBBLE.minMembers) continue;
-      // 구성은 지금 턴의 것만(캔버스). 위성 목록에는 확인한 지난 명령·다른 에이전트의 지난 그림까지 `moonMax` 만큼 실려 온다 —
-      //   문턱을 넘은 구성은 낱자리로 서지 않지만, 수·위성·묶음 안에는 턴의 것만 담는다.
-      const members = input.openTurnOnly === true ? listed.filter((s) => s.bubble.inOpenTurn === true) : listed;
+      const members = [...plan.memberIds, ...plan.overflowIds]
+        .map((id) => bySatId.get(id)).filter((s): s is SatelliteInfo => s !== undefined);
       const head = members[0];
-      if (!head) {
-        // 턴의 것이 하나도 없다 — 묶음은 서지 않고, 지난 구성도 낱자리로 내놓지 않는다.
-        for (const m of listed) folded.add(m.bubble.id);
-        continue;
-      }
-      // 열쇠는 종류 하나라(한 부모 안에서 종류마다 묶음 하나) 구성이 바뀌어 공통 폴더가 움직여도 노드 id 가 그대로다.
-      const bundleId = `sat-${BUNDLE_NODE_PREFIX}${parentId}-${plan.token}`;
+      if (!head || members.length < BUNDLE_BUBBLE.minMembers) continue;
       const memberBubbles = members.map((m) => m.bubble);
       const folderId = bundleFolderIdOf(memberBubbles);
-      const dir = bundleKindDirOf(memberBubbles) ?? plan.dir;
+      const bundleId = `sat-${BUNDLE_NODE_PREFIX}${parentId}-${plan.token}${folderId && folderId !== parentId ? `-${encodeURIComponent(folderId)}` : ''}${sessionId ? `-${encodeURIComponent(sessionId)}` : ''}`;
+      const dir = memberBubbles.find((b) => b.previewSessionDirs?.[sessionId ?? ''] !== undefined)?.previewSessionDirs?.[sessionId ?? '']
+        ?? (sessionId ? plan.dir : (bundleKindDirOf(memberBubbles) ?? plan.dir));
       const label = kindBundleNameOf(dir) || (folderLabelOf.get(parentId) ?? '');
-      // 수는 그 폴더 아래에서 아직 확인하지 않은 턴에 사용한 그 종류 — 서버가 못 셌으면(옛 스냅샷·폴더 노드 없음) 화면의 구성 수다.
-      const count = Math.max(members.length, ...memberBubbles.map((b) => b.folderKindCount ?? 0));
-      // 구성은 이 부모 하나의 위성이었다(`collectSatellites` 가 파일마다 첫 부모만 남긴다) — 걷힌 그 id 를 묶음의 위성이 그대로 쓴다.
-      const bundleMoons = bundleMoonsOf(
+      const count = Math.max(members.length, ...memberBubbles.map((b) => b.previewSessionCounts?.[sessionId ?? ''] ?? (sessionId ? 0 : b.folderKindCount ?? 0)));
+      const candidateParent = parents.get(parentId);
+      const parent = candidateParent && FOLDER_BUBBLE_TYPES.has(candidateParent.bubbleType)
+        ? candidateParent : (folderId ? parents.get(folderId) : undefined) ?? input.bundleFolder;
+      const maxSatellites = parent?.bundleMaxSatellites?.[bundleSatelliteKey(plan.kind, sessionId)]
+        ?? parent?.bundleMaxSatellites?.[plan.kind] ?? BUNDLE_SATELLITE_MAX;
+      moons.push(...bundleMoonsOf(
         bundleId,
         members.map((m) => ({ fileId: fileIdOfSat(m.bubble.id), bubble: m.bubble, position: m.bubble.position })),
-        input.heat,
-        NO_TAKEN,
-      );
+        input.heat, NO_TAKEN, maxSatellites, sessionId, input.satellitePositions,
+      ));
       const bundle = {
-        id: bundleId,
-        label,
-        bubbleType: 'bundle',
-        path: '',
-        status: bundleStatusOf(memberBubbles),
-        activity: 1,
+        id: bundleId, label, bubbleType: 'bundle', path: '', status: bundleStatusOf(memberBubbles), activity: 1,
         lastActivity: Math.max(0, ...memberBubbles.map((b) => b.lastActivity ?? 0)),
         ...(head.bubble.position ? { position: head.bubble.position } : {}),
+        ...('_constellation' in head.bubble ? { _constellation: head.bubble._constellation } : {}),
         _bundle: stableBundle({
-          source: 'folder',
-          kind: plan.kind,
+          source: 'folder', kind: plan.kind,
           ...(dir !== '' ? { folder: dir } : {}),
-          ...(folderId !== undefined ? { folderId } : {}),
+          ...(folderId !== undefined ? { folderId } : parent ? { folderId: parent.id === '__preview_root__' ? '' : parent.id } : {}),
+          ...(sessionId ? { sessionId } : {}),
+          ...(parent ? { settingsPath: parent.path, settingsAbsolutePath: parent.absolutePath } : {}),
+          maxSatellites,
           memberIds: members.map((m) => fileIdOfSat(m.bubble.id)),
           members: members.slice(0, BUNDLE_BUBBLE.tooltipNameMax).map((m) => ({ label: m.bubble.label, reason: null })),
           count,
         }),
       } as BubbleData;
-      bundleAt.set(head.bubble.id, bundleSatellite(head, bundle, head.bubble));
-      for (const m of listed) folded.add(m.bubble.id);
-      moons.push(...bundleMoons);
+      const at = bundleAt.get(head.bubble.id) ?? [];
+      at.push(bundleSatellite(head, bundle, head.bubble));
+      bundleAt.set(head.bubble.id, at);
+      for (const m of members) folded.add(m.bubble.id);
     }
   }
-  // 턴의 것이 없어 묶음 없이 걷기만 한 구성이 있으면 여기서 돌아가면 안 된다 — 그 구성이 낱자리로 튀어나온다.
   if (bundleAt.size === 0 && folded.size === 0) return sats;
 
   // 묶음 버블은 가장 최근 구성이 서던 차례에 선다 — 구성은 폴더의 낱자리로 내지 않고, 최근 것이 묶음의 위성으로 맨 뒤에 붙는다.
   const out: SatelliteInfo[] = [];
   for (const s of sats) {
     const bundle = bundleAt.get(s.bubble.id);
-    if (bundle) out.push(bundle);
+    if (bundle) out.push(...bundle);
     if (!folded.has(s.bubble.id)) out.push(s);
   }
   return moons.length > 0 ? [...out, ...moons] : out;
@@ -622,47 +693,51 @@ function applyRadialKindBundles(
 ): { radial: BubbleData[]; bundled: ReadonlyMap<string, string>; moons: SatelliteInfo[] } {
   const files = radial.filter((b) => b.bubbleType === 'file');
   if (files.length < BUNDLE_BUBBLE.minMembers) return { radial, bundled: NO_BUNDLED, moons: [] };
+  // 세션으로 가르지 않는다 — 세션 화면이면 그 세션 이름표만 단다.
+  const sessionId = input.bundleSessionId ?? '';
+  const bundleAt = new Map<string, BubbleData[]>();
+  const bundled = new Map<string, string>();
+  const moons: SatelliteInfo[] = [];
+  const seen = new Set(taken);
   const plans = planKindBundles(
     files.map((b) => ({ id: b.id, path: b.path || b.absolutePath || '', lastActivity: b.lastActivity })),
     { platform: input.platform, memberMax: Number.MAX_SAFE_INTEGER, includeRoot: true },
   );
-  if (plans.length === 0) return { radial, bundled: NO_BUNDLED, moons: [] };
   const byId = new Map(files.map((b) => [b.id, b] as const));
-  /** 묶음의 머리(가장 최근 파일) id → 그 차례에 서는 묶음 버블. */
-  const bundleAt = new Map<string, BubbleData>();
-  const bundled = new Map<string, string>();
-  const moons: SatelliteInfo[] = [];
-  const seen = new Set(taken);
   for (const plan of plans) {
     const members = plan.memberIds.map((id) => byId.get(id)).filter((b): b is BubbleData => b !== undefined);
     const head = members[0];
     if (!head || members.length < BUNDLE_BUBBLE.minMembers) continue;
-    // 원 둘레 파일은 그 화면의 한 폴더라 폴더까지 담은 열쇠가 움직이지 않는다 — 화면(폴더)마다 다른 id 이고 종전 id 그대로다.
-    const bundleId = `${BUNDLE_NODE_PREFIX}radial-${kindBundleDirToken(plan.kind, plan.dir, input.platform)}`;
-    bundleAt.set(head.id, {
+    const dir = head.previewSessionDirs?.[sessionId] ?? plan.dir;
+    const bundleId = `${BUNDLE_NODE_PREFIX}radial-${kindBundleDirToken(plan.kind, dir, input.platform)}${sessionId ? `-${encodeURIComponent(sessionId)}` : ''}`;
+    const parent = input.bundleFolder;
+    const maxSatellites = parent?.bundleMaxSatellites?.[bundleSatelliteKey(plan.kind, sessionId)]
+      ?? parent?.bundleMaxSatellites?.[plan.kind] ?? BUNDLE_SATELLITE_MAX;
+    const bundle = {
       id: bundleId,
-      // 이름은 그 폴더 이름 — 메인 화면 최상위 파일(폴더 조각 없음)은 프로젝트 이름이다(지어내지 않는다).
-      label: plan.dir === '' ? (input.rootLabel ?? '') : kindBundleNameOf(plan.dir),
-      bubbleType: 'bundle',
-      path: '',
-      status: bundleStatusOf(members),
-      activity: 1,
+      label: dir === '' ? (input.rootLabel ?? '') : kindBundleNameOf(dir),
+      bubbleType: 'bundle', path: '', status: bundleStatusOf(members), activity: 1,
       lastActivity: Math.max(0, ...members.map((b) => b.lastActivity ?? 0)),
       _bundle: stableBundle({
-        source: 'folder',
-        kind: plan.kind,
-        ...(plan.dir !== '' ? { folder: plan.dir } : {}),
+        source: 'folder', kind: plan.kind,
+        ...(dir !== '' ? { folder: dir } : {}),
+        ...(sessionId ? { sessionId } : {}),
+        ...(parent ? { settingsPath: parent.path, settingsAbsolutePath: parent.absolutePath } : {}),
+        ...(parent ? { folderId: parent.id === '__preview_root__' ? '' : parent.id } : {}),
+        maxSatellites,
         memberIds: members.map((b) => b.id),
         members: members.slice(0, BUNDLE_BUBBLE.tooltipNameMax).map((b) => ({ label: b.label, reason: null })),
-        count: members.length,
+        count: Math.max(members.length, ...members.map((b) => b.previewSessionCounts?.[sessionId] ?? 0)),
       }),
-    } as BubbleData);
-    for (const m of members) bundled.set(m.id, bundleId);
+    } as BubbleData;
+    const at = bundleAt.get(head.id) ?? [];
+    at.push(bundle);
+    bundleAt.set(head.id, at);
+    for (const m of members) if (!bundled.has(m.id)) bundled.set(m.id, bundleId);
     const bundleMoons = bundleMoonsOf(
       bundleId,
       members.map((b) => ({ fileId: b.id, bubble: b, position: input.satellitePositions?.[`sat-${b.id}`] })),
-      input.heat,
-      seen,
+      input.heat, seen, maxSatellites, sessionId || undefined, input.satellitePositions,
     );
     for (const m of bundleMoons) seen.add(m.bubble.id);
     moons.push(...bundleMoons);
@@ -671,7 +746,7 @@ function applyRadialKindBundles(
   const out: BubbleData[] = [];
   for (const b of radial) {
     const bundle = bundleAt.get(b.id);
-    if (bundle) out.push(bundle);
+    if (bundle) out.push(...bundle);
     if (!bundled.has(b.id)) out.push(b);
   }
   return { radial: out, bundled, moons };
@@ -699,24 +774,16 @@ function bundleSatellite(s: SatelliteInfo, bundle: BubbleData, from: BubbleData)
   };
 }
 
-/**
- * §5.1 #2-1 (B) — 묶음 안에 세울 구성 파일 id. 묶음 안에도 그 종류만이다 — 들어온 순간 구성에서 종류가 다른 파일을 거른다(찾지 못한 id 는 묶음 안이 어차피 뺀다).
- * 상한(`BUNDLE_BUBBLE.interiorMax`) 안이면 그대로, 넘치면(연속 번호는 수백 장일 수 있다) 최근에 만진 것부터 그만큼 고르되 원래 차례(최근 순 · 번호 순)는 지킨다.
- */
+/** 묶음의 미리보기 종류만 남긴다. 전체 구성은 보존하고 화면 배치가 페이지를 자른다. */
 export function bundleInteriorIds(
   info: Pick<BundleInfo, 'memberIds' | 'kind'>,
   nodes: Readonly<Record<string, Pick<BubbleData, 'lastActivity' | 'path' | 'absolutePath' | 'label'> | undefined>>,
 ): string[] {
   const ids = info.memberIds.filter((id) => {
     const node = nodes[id];
-    return node === undefined || fileFaceKindOf(node.absolutePath || node.path || node.label) === info.kind;
+    return node === undefined || previewBundleKindOf(node.absolutePath || node.path || node.label) === info.kind;
   });
-  if (ids.length <= BUNDLE_BUBBLE.interiorMax) return ids;
-  const recent = [...ids]
-    .sort((a, b) => (nodes[b]?.lastActivity ?? 0) - (nodes[a]?.lastActivity ?? 0))
-    .slice(0, BUNDLE_BUBBLE.interiorMax);
-  const keep = new Set(recent);
-  return ids.filter((id) => keep.has(id));
+  return ids;
 }
 
 /** 묶음 안에 세울 구성을 고르는 데 쓰는 내부 뷰의 몫(`InteriorView` 의 `bundle`). */
@@ -724,29 +791,25 @@ export interface BundleInteriorTarget {
   readonly memberIds: readonly string[];
   readonly folderId?: string | undefined;
   readonly fileKind?: FileFaceKind | undefined;
+  readonly sessionId?: string | undefined;
 }
 
 const NO_SATELLITE_LISTS: Readonly<Record<string, readonly BubbleData[] | undefined>> = {};
 
-/**
- * §5.1 #2-1 (B) — 묶음 안에 세울 구성 파일. 같은 폴더 묶음은 들어온 순간의 구성(`memberIds` — 위성 상한이 줄인 것)에 더해, 그 폴더(위성 무리의 주인)를 범위로 선언해 받은 같은 종류 파일 전부를 모든 깊이에서 세운다:
- * ① 서버가 범위로 선언된 폴더의 위성 목록에 그 종류(턴의 것)를 덧붙여 싣고(`satellites`), ② 실려 온 자식은 하위 폴더까지 훑는다(`children` — 캔버스는 범위 안 폴더의 것만, IDE 세션 지도는 모든 폴더의 것).
- * 범위가 도착하기 전에는 구성만 선다(빈 화면 ❌). 차례는 최근에 만진 것부터, 상한 `BUNDLE_BUBBLE.interiorMax`. 연속 번호 묶음은 폴더가 없어 구성(번호 순)이다.
- * `openTurnOnly`(캔버스): 구성 밖에서 더 줍는 것은 서버가 `inOpenTurn` 으로 표시한 것뿐이다 — 범위 안 폴더의 자식에는 지난 턴의 파일도 실려 온다.
- * IDE 세션 지도는 그 표시가 없어 켜지 않는다(그 세션에서 쓴 것 전부).
- */
+/** 서버가 보낸 폴더 범위에서 해당 세션의 같은 미리보기 종류를 모은다. 페이지 이동 전에는 구성 전체를 보존한다. */
 export function bundleInteriorMembers(
   view: BundleInteriorTarget,
   nodeMap: Readonly<Record<string, BubbleData | undefined>>,
   children: Readonly<Record<string, readonly BubbleData[] | undefined>>,
   satellites: Readonly<Record<string, readonly BubbleData[] | undefined>> = NO_SATELLITE_LISTS,
-  options: { readonly openTurnOnly?: boolean } = {},
+  options: { readonly sessionPreviewOnly?: boolean } = {},
 ): BubbleData[] {
   const out: BubbleData[] = [];
   const seen = new Set<string>();
   for (const id of view.memberIds) {
     const node = nodeMap[id];
     if (!node || node.bubbleType !== 'file' || seen.has(id)) continue;
+    if (view.sessionId && !node.previewSessionIds?.includes(view.sessionId)) continue;
     seen.add(id);
     out.push(node);
   }
@@ -754,8 +817,9 @@ export function bundleInteriorMembers(
   if (folderId === undefined || fileKind === undefined) return out;
   const take = (node: BubbleData): void => {
     if (node.bubbleType !== 'file' || seen.has(node.id)) return;
-    if (options.openTurnOnly === true && node.inOpenTurn !== true) return;
-    if (fileFaceKindOf(node.absolutePath || node.path || node.label) !== fileKind) return;
+    if (view.sessionId && !node.previewSessionIds?.includes(view.sessionId)) return;
+    if (options.sessionPreviewOnly === true && node.inSessionPreview !== true && node.inOpenTurn !== true) return;
+    if (previewBundleKindOf(node.absolutePath || node.path || node.label) !== fileKind) return;
     seen.add(node.id);
     out.push(node);
   };
@@ -775,5 +839,5 @@ export function bundleInteriorMembers(
     }
   }
   out.sort((a, b) => ((b.lastActivity ?? 0) - (a.lastActivity ?? 0)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return out.length > BUNDLE_BUBBLE.interiorMax ? out.slice(0, BUNDLE_BUBBLE.interiorMax) : out;
+  return out;
 }

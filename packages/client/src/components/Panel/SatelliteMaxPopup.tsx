@@ -21,10 +21,7 @@ interface Props {
   titleKey?: string;
   /** 하단 힌트 i18n 키. 안 주면 폴더 위성 문구. */
   hintKey?: string;
-  /**
-   * §5.1 #2-1 (D) — 제목 아래 안내 한 줄의 i18n 키(주면 뜬다). 폴더 위성은 "묶음은 한 자리"를 말한다 — 헤더의 위성 수가
-   * 상한보다 클 수 있는 이유다. 도메인 버블에는 주지 않는다.
-   */
+  /** Optional explanation of which files count toward this limit. */
   noteKey?: string;
 }
 

@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import {
   Background,
   BackgroundVariant,
@@ -16,11 +17,13 @@ import {
 } from '@xyflow/react';
 import {
   EDGE_STYLE,
+  BUNDLE_BUBBLE,
   LAYOUT_BOUNDS_DEFAULT,
   LAYOUT_CENTER_X,
   LAYOUT_CENTER_Y,
   WEB_PAGE_TAB_PREFIX,
   pathKey,
+  satelliteSourceNodeId,
   webNodeKey,
   type ActivityEdge,
   type BubbleData,
@@ -64,6 +67,11 @@ import {
   type SessionCanvasGraph,
 } from './sessionCanvasGraph.js';
 import { DetailPanel } from '../Panel/DetailPanel.js';
+import { canvasFolderBundleSatelliteMaxes, canvasFolderSatelliteMaxes, canvasRootBundleSatelliteMaxes } from './sessionCanvasSettings.js';
+import { retainSessionPreviewPaths, sessionPreviewBundleSummaries, sessionPreviewPaths } from './sessionPreviewSnapshot.js';
+import { BundlePageControls } from '../BubbleMap/BundlePageControls.js';
+import { useBundleFiles } from '../../hooks/useBundleFiles.js';
+import { sessionBundlePageEntry, sessionBundlePageNodes, sessionBundleQueryFolderId, sessionBundleQueryLocation } from './sessionBundlePage.js';
 
 /**
  * §5.5 #17-50 [버블] — 이 세션만의 버블 지도. **버블은 캔버스 부품 그대로다** — 지도 전용 원·선·배치를 만들지 마라. 재료는 `sessionBubbles.ts`·`sessionCanvasGraph.ts`.
@@ -270,11 +278,25 @@ export const SessionBubbleView = memo(function SessionBubbleView({
   const heat = useHeatScale();
 
   // ─── 재료 → 캔버스 모양 ───
+  const snapshotPreviewPaths = useGraphStore(useShallow((s) => sessionPreviewPaths(s.nodeMap, s.satellites, s.children, sessionId, platform)));
+  const previewBundleSummaries = useGraphStore(useShallow((s) => sessionPreviewBundleSummaries(s.nodeMap, s.satellites, s.children, sessionId, rootPath, platform)));
+  const previewScope = `${agentId}\u0000${sessionId ?? ''}`;
+  const previewMemory = useRef<{ scope: string; paths: readonly string[] }>({ scope: previewScope, paths: [] });
+  const previewPaths = useMemo(() => {
+    const previous = previewMemory.current.scope === previewScope ? previewMemory.current.paths : [];
+    const paths = retainSessionPreviewPaths(previous, snapshotPreviewPaths, platform);
+    previewMemory.current = { scope: previewScope, paths };
+    return paths;
+  }, [snapshotPreviewPaths, previewScope, platform]);
   const model = useMemo(
-    () => buildSessionBubbles({ streams, rootPath, platform }),
-    [streams, rootPath, platform],
+    () => buildSessionBubbles({ streams, rootPath, platform, previewPaths }),
+    [streams, rootPath, platform, previewPaths],
   );
   const agent = useGraphStore((s) => s.nodeMap[agentId] ?? null);
+  const project = useGraphStore((s) => s.agentProjects[agentId] ?? null);
+  const folderSatelliteMaxes = useGraphStore(useShallow((s) => canvasFolderSatelliteMaxes(s.nodeMap, s.nodeProjects, project, platform)));
+  const folderBundleSatelliteMaxes = useGraphStore(useShallow((s) => canvasFolderBundleSatelliteMaxes(s.nodeMap, s.nodeProjects, project, platform)));
+  const rootBundleSatelliteMaxes = useGraphStore((s) => canvasRootBundleSatelliteMaxes(s.nodeMap, s.nodeProjects, project));
   // 같은 파일이 캔버스에 떠 있으면 그 크기·수정 시각을 빌린다 — 지문(문자열)만 구독해 그 값이 바뀔 때만 다시 짓는다.
   const fileKeys = useMemo(() => model.folders.flatMap((f) => f.files.map((x) => x.key)), [model]);
   const fileStatsSig = useGraphStore((s) => fileStatsSignature(s.nodeMap, fileKeys, platform));
@@ -285,15 +307,16 @@ export const SessionBubbleView = memo(function SessionBubbleView({
   }, [fileStatsSig, platform]);
   const webSearchLabel = t('providers.webSearch');
   const graph = useMemo(() => buildSessionCanvasGraph({
-    model, rootPath, platform, running, agentId, agent, webSearchLabel, fileStats,
-  }), [model, rootPath, platform, running, agentId, agent, webSearchLabel, fileStats]);
+    model, rootPath, platform, running, agentId, agent, webSearchLabel, fileStats, folderSatelliteMaxes, folderBundleSatelliteMaxes, rootBundleSatelliteMaxes, sessionId, previewBundleSummaries,
+  }), [model, rootPath, platform, running, agentId, agent, webSearchLabel, fileStats, folderSatelliteMaxes, folderBundleSatelliteMaxes, rootBundleSatelliteMaxes, sessionId, previewBundleSummaries]);
 
   // ─── 지금 보는 화면 ───
   const [scope, setScope] = useState<Scope>(MAIN_SCOPE);
+  const [bundlePage, setBundlePage] = useState(0);
   const [ringId, setRingId] = useState<string | null>(null);
   const [infoId, setInfoId] = useState<string | null>(null);
   const resetSelection = useCallback(() => { setRingId(null); setInfoId(null); }, []);
-  const goTo = useCallback((next: Scope) => { setScope(next); resetSelection(); }, [resetSelection]);
+  const goTo = useCallback((next: Scope) => { setScope(next); setBundlePage(0); resetSelection(); }, [resetSelection]);
   // 칸의 세션이 바뀌면 처음부터(다른 세션의 폴더 안에 서 있지 않게).
   useEffect(() => { goTo(MAIN_SCOPE); }, [agentId, sessionId, goTo]);
   // 들어가 있던 폴더가 지도에서 사라졌으면(앞선 기록이 바뀌는 등) 세션 지도로 돌아온다.
@@ -311,6 +334,8 @@ export const SessionBubbleView = memo(function SessionBubbleView({
     edges: scope.kind === 'main' ? graph.edges : NO_ACTIVITY_EDGES,
     satellites: graph.satellites,
     rootLabel,
+    ...(graph.bundleRoot ? { bundleFolder: graph.bundleRoot } : {}),
+    ...(sessionId ? { bundleSessionId: sessionId } : {}),
   });
   const folder = scope.kind === 'folder' ? graph.folders[scope.id] : undefined;
   const folderData = useFolderLayout({
@@ -320,19 +345,35 @@ export const SessionBubbleView = memo(function SessionBubbleView({
     children: folder?.children ?? NO_BUBBLES,
     innerEdges: folder?.innerEdges ?? NO_ACTIVITY_EDGES,
     satellites: graph.satellites,
+    ...(sessionId ? { bundleSessionId: sessionId } : {}),
   });
   const bundleView = scope.kind === 'bundle' ? scope.view : null;
   const bundleMembers = useMemo(
     () => (bundleView ? bundleInteriorMembers(bundleView, graph.nodeMap, graph.children, graph.satellites) : NO_BUBBLES),
     [bundleView, graph],
   );
-  const bundleData = useInteriorLayout({ view: bundleView, trashedAgents: NO_BUBBLES, bundleMembers });
+  const queryOwner = bundleView?.folderId ?? (placeScope.kind === 'folder' ? placeScope.id : null);
+  const queryFolderId = useGraphStore((s) => {
+    if (!bundleView || bundleView.source === 'sequence') return null;
+    return sessionBundleQueryFolderId(graph, queryOwner, s.nodeMap, s.nodeProjects, project, platform);
+  });
+  const queryView = useMemo(() => {
+    if (!bundleView || bundleView.source === 'sequence') return null;
+    const location = sessionBundleQueryLocation(graph, queryOwner, queryFolderId);
+    return location ? { ...bundleView, folderAbsolutePath: undefined, ...location } : null;
+  }, [bundleView, graph, queryOwner, queryFolderId]);
+  const bundleFiles = useBundleFiles(queryView ?? bundleView, bundlePage, rootPath, bundleMembers,
+    { registerPageNodes: false, enabled: queryView !== null, preferLocal: true });
+  const pageMembers = useMemo(() => sessionBundlePageNodes(bundleFiles.members, graph, sessionId, platform),
+    [bundleFiles.members, graph, sessionId, platform]);
+  const pageNodes = useMemo(() => Object.fromEntries(pageMembers.map((node) => [node.id, node])), [pageMembers]);
+  const bundleData = useInteriorLayout({ view: bundleView, trashedAgents: NO_BUBBLES, bundleMembers: pageMembers, bundlePage: bundleFiles.layoutPage });
   const viewData = scope.kind === 'main' ? mainData : scope.kind === 'folder' ? folderData : bundleData;
 
   // ─── 자리 · 노드 ───
   //   화면(세션 지도 · 폴더 안 · 묶음 안)마다 앉힌 자리를 들고 있다 — 들어갔다 나와도 옮겨 둔 자리 그대로다(캔버스와 같다).
   //   세션이 바뀌면 처음부터.
-  const scopeKey = scopeKeyOf(scope);
+  const scopeKey = `${scopeKeyOf(scope)}${scope.kind === 'bundle' ? `:page:${bundlePage}` : ''}`;
   const placedRef = useRef(new Map<string, PlacedScope>());
   const [moved, setMoved] = useState<MovedSeats>(NO_MOVED);
   useEffect(() => {
@@ -427,7 +468,12 @@ export const SessionBubbleView = memo(function SessionBubbleView({
         bundleId: node.id,
         label: data.label,
         memberIds,
+        source: info.source,
+        fileKind: info.kind,
+        totalCount: info.count,
         ...(info.source === 'folder' && info.folderId !== undefined ? { folderId: info.folderId, fileKind: info.kind } : {}),
+        ...(info.folderAbsolutePath !== undefined ? { folderAbsolutePath: info.folderAbsolutePath } : {}),
+        ...(info.sessionId !== undefined ? { sessionId: info.sessionId } : {}),
       },
       from: placeScope,
     });
@@ -440,6 +486,7 @@ export const SessionBubbleView = memo(function SessionBubbleView({
     if (data.id === '__root_back__' || data.id === '__interior_back__') { goUp(); return; }
     if (data.id === '__root_home__') { goTo(MAIN_SCOPE); return; }
     if (data.bubbleType === 'bundle') { enterBundle(node, data); return; }
+    if (data.bubbleType === 'file') { openFile(data); return; }
     const entry = sessionCanvasEntryOf(graph, node.id);
     if (!entry) return;
     switch (entry.kind) {
@@ -519,14 +566,13 @@ export const SessionBubbleView = memo(function SessionBubbleView({
 
   // ─── 디테일 창(캔버스의 `DetailPanel`) ───
   //   같은 것이 캔버스에 떠 있으면 그 노드로 — 편집 이력·위성 토글·웹 이력·에이전트 설정이 캔버스와 같다. 없으면 이 지도가 지은 모양으로.
-  const infoEntry = infoId ? sessionCanvasEntryOf(graph, infoId) : null;
-  const infoNodeId = infoId === null ? null : infoId.startsWith('sat-') ? infoId.slice(4) : infoId;
+  const infoNodeId = infoId === null ? null : satelliteSourceNodeId(infoId);
+  const infoEntry = infoId ? sessionCanvasEntryOf(graph, infoId) ?? sessionBundlePageEntry(graph, pageNodes[infoNodeId!], platform) : null;
   const sessionNode = useMemo((): BubbleData | null => {
     if (!infoNodeId || !infoEntry) return null;
     if (infoEntry.kind === 'center') return graph.center;
-    return graph.nodeMap[infoNodeId] ?? graph.top.find((b) => b.id === infoNodeId) ?? null;
-  }, [infoNodeId, infoEntry, graph]);
-  const project = useGraphStore((s) => s.agentProjects[agentId] ?? null);
+    return pageNodes[infoNodeId] ?? graph.nodeMap[infoNodeId] ?? graph.top.find((b) => b.id === infoNodeId) ?? null;
+  }, [infoNodeId, infoEntry, graph, pageNodes]);
   const twinId = useGraphStore((s) => {
     if (!infoEntry) return null;
     if (infoEntry.kind === 'center') return s.nodeMap[agentId] ? agentId : null;
@@ -581,6 +627,15 @@ export const SessionBubbleView = memo(function SessionBubbleView({
           </ReactFlow>
         </PreviewBudgetProvider>
       </BubbleHostContext.Provider>
+      {bundleView && (
+        <BundlePageControls page={bundlePage} count={bundleFiles.total} onChange={(page) => { setBundlePage(page); resetSelection(); }} />
+      )}
+      {bundleView && (bundleFiles.loading || bundleFiles.failed) && (
+        <div role={bundleFiles.failed ? 'alert' : 'status'} className="absolute left-1/2 top-12 z-30 max-w-[calc(100%-2rem)] -translate-x-1/2 rounded bg-gray-900/95 px-3 py-2 text-[12px] text-gray-300">
+          {bundleFiles.failed ? <button type="button" onClick={bundleFiles.retry}>{t('panel.folderList.retry')}</button>
+            : t('panel.folderList.loadingMore', { loaded: bundleFiles.members.length, total: bundleFiles.total })}
+        </div>
+      )}
 
       {/* ── 위쪽: 들어간 자리(캔버스 경로 표시와 같은 그림) · 답 대기 알림 ── */}
       <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex flex-col items-center gap-2 px-3">
@@ -628,7 +683,7 @@ export const SessionBubbleView = memo(function SessionBubbleView({
               extra: (
                 <SessionBubbleFacts
                   entry={infoEntry}
-                  node={graph.nodeMap[infoNodeId ?? ''] ?? null}
+                  node={pageNodes[infoNodeId ?? ''] ?? graph.nodeMap[infoNodeId ?? ''] ?? null}
                   graph={graph}
                   model={model}
                   currentFolderId={placeScope.kind === 'folder' ? placeScope.id : null}
@@ -644,7 +699,7 @@ export const SessionBubbleView = memo(function SessionBubbleView({
       )}
 
       {/* ── 바닥 줄: 몇 번의 호출로 지었나 · 앞선 기록(왼쪽 — 오른쪽은 디테일 창 자리) ── */}
-      <div className="pointer-events-none absolute bottom-2 left-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap items-center justify-start gap-x-2 gap-y-1 text-[12px] text-gray-500">
+      <div className={`pointer-events-none absolute ${bundleView && bundleFiles.total > BUNDLE_BUBBLE.interiorMax ? 'bottom-16' : 'bottom-2'} left-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap items-center justify-start gap-x-2 gap-y-1 text-[12px] text-gray-500`}>
         <span className="truncate">{t('ide.bubbles.summary', { calls: model.toolCalls, events: loadedEvents })}</span>
         {olderSessionIds.length > 0 && (
           <button
@@ -784,7 +839,7 @@ function SessionBubbleFacts({
     }
   }
 
-  if (touch) {
+  if (touch && touch.historyOnly !== true) {
     // 읽기·쓰기 횟수는 파일·폴더·웹 가져오기의 말이다 — 명령 앱·웹 검색은 명령·검색어 목록이 말한다.
     const countsTouches = entry.kind === 'file' || entry.kind === 'folder' || (entry.kind === 'web' && entry.web.kind === 'fetch');
     if (countsTouches) {

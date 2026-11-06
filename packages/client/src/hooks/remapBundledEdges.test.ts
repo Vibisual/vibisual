@@ -32,6 +32,16 @@ describe('remapConverted — 묶음에 든 직속 파일의 선', () => {
     expect(out.map((e) => [e.source, e.target])).toEqual([['back', 'bundle-x']]);
   });
 
+  it('retains the original file edge when another session still shows that file separately', () => {
+    const original = { ...edge('e', 'agent', 'file'), data: { sourceRadius: 30, targetRadius: 28 } };
+    const out = remapConverted([original], new Map(), undefined, new Map([['file', 'bundle-a']]), new Map([['file', 42]]));
+    expect(out.map((e) => [e.id, e.source, e.target])).toEqual([
+      ['e', 'agent', 'file'], ['e:bundle', 'agent', 'bundle-a'],
+    ]);
+    expect(out[0]?.data?.targetRadius).toBe(42);
+    expect(out[1]?.data?.targetRadius).toBe(28);
+  });
+
   it('위성이 된 파일(converted)은 종전대로 폴더 쪽 선을 버리고 나머지는 위성으로 옮긴다', () => {
     const out = remapConverted([edge('e1', 'back', 'f1'), edge('e2', 'agent', 'f1')], new Map([['f1', 'sat-f1']]), 'back');
     expect(out.map((e) => [e.id, e.source, e.target])).toEqual([['e2', 'agent', 'sat-f1']]);

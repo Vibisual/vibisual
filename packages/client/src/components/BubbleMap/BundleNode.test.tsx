@@ -9,8 +9,11 @@ import type { BubbleData } from '@vibisual/shared';
 
 import type { BundleInfo } from '../../utils/constellationView.js';
 import { BundleNode } from './BundleNode.js';
+import { SatelliteMaxPopup } from '../Panel/SatelliteMaxPopup.js';
 
 vi.mock('@xyflow/react', () => ({ Handle: () => null, Position: { Top: 'top' } }));
+vi.mock('react-dom', () => ({ createPortal: (children: unknown) => children }));
+vi.mock('../Panel/SatelliteMaxPopup.js', () => ({ SatelliteMaxPopup: () => null }));
 vi.mock('react-i18next', async (importOriginal) => ({
   ...await importOriginal<typeof import('react-i18next')>(),
   useTranslation: () => ({
@@ -27,6 +30,7 @@ function orbits(r: ReactTestRenderer): number {
 afterEach(() => {
   act(() => renderer?.unmount());
   renderer = undefined;
+  vi.unstubAllGlobals();
 });
 
 function bundle(info: BundleInfo, extra: Partial<BubbleData> = {}): BubbleData {
@@ -88,6 +92,30 @@ describe('BundleNode — 파일로 읽히지 않는 묶음 버블', () => {
     act(() => body.props.onContextMenu({ preventDefault, stopPropagation }));
     expect(preventDefault).toHaveBeenCalled();
     expect(stopPropagation).toHaveBeenCalled();
+  });
+
+  it('edits the session bundle limit through the shared popup and server API', () => {
+    vi.stubGlobal('document', { body: {} });
+    const fetch = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetch);
+    const r = render(bundle({ ...FOLDER, settingsPath: 'assets', settingsAbsolutePath: '/project/assets', sessionId: 'session-a', maxSatellites: 4 }));
+    const button = r.root.findByType('button');
+    act(() => button.props.onClick({ preventDefault: vi.fn(), stopPropagation: vi.fn(), clientX: 50, clientY: 70 }));
+    const popup = r.root.findByType(SatelliteMaxPopup);
+    expect(popup.props.value).toBe(4);
+    expect(popup.props.titleKey).toBe('panel.folderFileTree.bundleMaxTitle');
+    act(() => popup.props.onCommit(6));
+    expect(JSON.parse(fetch.mock.calls[0]![1].body)).toMatchObject({ folderPath: 'assets', kind: 'video', sessionId: 'session-a', max: 6 });
+  });
+
+  it('shows a failed save without changing the displayed limit', async () => {
+    vi.stubGlobal('document', { body: {} });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+    const r = render(bundle({ ...FOLDER, settingsPath: 'assets', maxSatellites: 4 }));
+    act(() => r.root.findByType('button').props.onClick({ preventDefault: vi.fn(), stopPropagation: vi.fn(), clientX: 0, clientY: 0 }));
+    await act(async () => { r.root.findByType(SatelliteMaxPopup).props.onCommit(6); });
+    expect(r.root.findByProps({ role: 'alert' }).children).toContain('panel.folderFileTree.maxSaveFailed');
+    expect(r.root.findByType(SatelliteMaxPopup).props.value).toBe(4);
   });
 
   it('연속 번호도 아래 설명은 종류 줄로 같고(통일), `연속 번호` 는 툴팁이 말하며 궤도를 그리지 않는다', () => {

@@ -1,4 +1,4 @@
-import { parseVerificationTarget, parseVerificationAction, parseVerificationCheck, VERIFICATION_AUTOMATION } from '@vibisual/shared';
+import { parseVerificationTarget, parseVerificationAction, parseVerificationCheck, VERIFICATION_AUTOMATION, bundleSatelliteKey, satelliteSourceNodeId } from '@vibisual/shared';
 import path from 'node:path';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -6,9 +6,12 @@ import { validatePathWithinRoot } from './pathValidator.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`shared/pathCase.ts`).
 import { CASE_INSENSITIVE_FS, HOST_PLATFORM, pathKey, samePath } from './pathKey.js';
 // §5.1 #2-1 — 작업물 별자리(위성 상한의 "묶음은 자리 하나")와 내용 언급(비동기로 읽어 스냅샷 사본에만 싣는다).
-import { BUNDLE_BUBBLE, CONSTELLATION, EXTERNAL_NODE_KEY_MARK, createMentionResolver, fileFaceKindOf, isMediaFaceKind, isMentionScannablePath, keepSatelliteSeats, kindBundleCommonDir, kindBundlePathShape, type KindBundleKind, type MentionCandidate } from '@vibisual/shared';
+import { BUNDLE_BUBBLE, CONSTELLATION, EXTERNAL_NODE_KEY_MARK, createMentionResolver, isPreviewBundleFile, previewBundleKindOf, isMentionScannablePath, keepSatelliteSeats, type KindBundleKind, type MentionCandidate } from '@vibisual/shared';
+import { buildPreviewSessionState, type PreviewSessionState } from './previewSessionState.js';
+import { buildPreviewInventory, type PreviewInventoryGroup } from './previewBundleInventory.js';
+import type { BundleFilePage } from '@vibisual/shared';
 // §5.1 #2-1 (F) — 앱 작업물: 어느 앱 노드의 작업인가(명령 → 꼬리표) · 작업 폴더 훑기의 기준 자리.
-import { APP_WORK, commandAppNodeIds, extractBashScanAnchors, sameAppWork, withAppWorkMark } from '@vibisual/shared';
+import { APP_WORK, commandAppNodeIds, extractBashScanAnchors, sameAppWork, withAppWorkMark, isPendingQueuedCommand } from '@vibisual/shared';
 import { FileMentionScanner } from './fileMentionScanner.js';
 import { followsActivityBubbleLifecycle } from './activityBubbleLifecycle.js';
 import { capAgentLinkEntries, planLinkReplay, sanitizeAgentLinkRecords, type LinkReplayOp } from './agentLinkRecord.js';
@@ -154,11 +157,14 @@ import { COST_MAP_ACTIVE_WINDOW_MS } from '@vibisual/shared';
 //   소유한다 — 서버가 트리를 세울 때와 클라이언트가 그릴 때가 같은 답을 내야 한다.
 import {
   EXTERNAL_FOLDER_MAX,
+  EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT,
   EXTERNAL_SUMMARY_CHIPS,
   EXTERNAL_TOP_BUDGET_DEFAULT,
   externalPlaceKeyFor,
+  externalFolderMergeTarget,
   externalPromotionScore,
   normalizeExternalTopBudget,
+  normalizeExternalFolderMergeDepth,
   pickPromotedExternalFolders,
   volatileFoldTarget,
   volatilePlaceOf,
@@ -168,8 +174,11 @@ import os from 'node:os';
 // §4 (설정 3층) — 에이전트 설정은 **이 버블이 정한 칸만** 저장하고 읽을 때 겹친다. 칸 비교(미설정 표기 접기)는
 //   화면의 "기본값과 다름" 점과 **같은 함수**를 써야 어긋나지 않는다(shared 한 곳).
 import { resolveAgentConfig, sparsifyAgentConfig, hasAgentConfigOverrides, resolveAgentDefaults, backfillAgentTools, migrateCmdAgentColor, engineForProvider } from '@vibisual/shared';
-import { normalizeOrchestraSettings, normalizeOrchestraRuns, settleStaleOrchestraRuns, orchestraRunsForSnapshot, appendOrchestraRun } from '@vibisual/shared';
+import { normalizeOrchestraSettings, normalizeOrchestraRuns, settleStaleOrchestraRuns, orchestraRunsForSnapshot, appendOrchestraRun, orchestraScorecard, orchestraSuggestions } from '@vibisual/shared';
 import type { OrchestraSettings, OrchestraRun, OrchestraSummary } from '@vibisual/shared';
+// §5.1 #3-4 — 세션 간 메시지·같은 파일 겹침(관찰 — 저장 ❌).
+import { SESSION_MESSAGE_LINKS_MAX, SESSION_MESSAGE_LINK_LIVE_MS, SESSION_MESSAGE_PREVIEW_MAX, FILE_WRITE_OVERLAP_WINDOW_MS, FILE_WRITE_OVERLAP_PER_FILE, MAX_FILE_EDIT_PATHS } from '@vibisual/shared';
+import type { SessionMessageLink, FileWriteOverlap } from '@vibisual/shared';
 // §5.3 #10-5 설정 덜어내기 — 범위·기록 계약은 shared 한 곳(서버·클라가 같은 함수를 부른다).
 import { normalizeConfigTrimSettings, normalizeConfigTrimRuns, configTrimRunsForSnapshot, appendConfigTrimRun } from '@vibisual/shared';
 import type { ConfigTrimSettings, ConfigTrimRun, ConfigTrimSummary } from '@vibisual/shared';
@@ -231,7 +240,7 @@ import type { AuditRecordInput } from './auditLog.js';
 import { InsuranceVault, fileMtime, fileSize, readSessionTitle, readTail } from './insuranceVault.js';
 import { InsuranceLedgerService, capWorkingSet } from './insuranceLedger.js';
 import type { CompactRecordInput, PreimageRecordInput } from './insuranceLedger.js';
-import { diffAgainstSummary, emptyNotCarried, emptyWorkingSet, hasNotCarried, scanCompactChunk } from './compactDiff.js';
+import { diffAgainstSummary, emptyNotCarried, emptyWorkingSet, hasNotCarried, scanCompactChunk, type FreshResurrectSource } from './compactDiff.js';
 import { judgeAll as judgeCompactWatchAll } from './compactWatch.js';
 import type { CompactWatchInput } from './compactWatch.js';
 import { projectDirForInfo } from './statePersistence.js';
@@ -249,6 +258,7 @@ import { userDefaultsService } from './userDefaultsService.js';
 // §5.10 — 폐기된 브레인 요약이 앉아 있던 스냅샷 자리를 잇는다(통폐합).
 import { getAutoGoalSummary as computeAutoGoalSummary } from './autoGoalService.js';
 import { bashProcedureOutcome } from './bashProcedureOutcome.js';
+import { applyTaskEdgeStatus, type TaskEdgeStatusOptions } from './taskEdgeStatus.js';
 
 // ─── 유틸 (순수 함수) ───
 
@@ -633,6 +643,7 @@ function extractDirToolFiles(
   if (bases.length === 0) return [];
   const out: string[] = [];
   const seen = new Set<string>();
+  let documentCount = 0;
 
   // Claude Code Grep `files_with_matches` / Glob 의 실제 tool_response 는
   // `{filenames: string[], numFiles, mode?, truncated?, durationMs?}` 구조 — 텍스트 파싱 전에 우선 사용.
@@ -640,9 +651,10 @@ function extractDirToolFiles(
   const structured = toolResponse?.['filenames'];
   if (Array.isArray(structured)) {
     for (const raw of structured) {
-      if (out.length >= limit) break;
       if (typeof raw !== 'string' || !raw) continue;
       const candidate = raw.replace(/\\/g, '/');
+      const preview = isPreviewBundleFile(candidate);
+      if (!preview && documentCount >= limit) continue;
       for (const base of bases) {
         let resolved: string;
         try { resolved = path.resolve(base, candidate); } catch { continue; }
@@ -654,6 +666,7 @@ function extractDirToolFiles(
         if (!isFile) continue;
         seen.add(norm);
         out.push(norm);
+        if (!preview) documentCount += 1;
         break;
       }
     }
@@ -664,7 +677,6 @@ function extractDirToolFiles(
   const text = extractToolText(toolResponse);
   if (!text) return [];
   for (const rawLine of text.split(/\r?\n/)) {
-    if (out.length >= limit) break;
     const line = rawLine.trim();
     if (!line) continue;
     if (/^Found \d+ (files?|matches?)$/i.test(line)) continue;
@@ -677,6 +689,8 @@ function extractDirToolFiles(
     else if (countM) candidate = countM[1]!;
     candidate = candidate.trim().replace(/\\/g, '/');
     if (!candidate) continue;
+    const preview = isPreviewBundleFile(candidate);
+    if (!preview && documentCount >= limit) continue;
     // 두 base 로 해석 → folderAbs 하위 + 실존 파일인 첫 결과 채택
     for (const base of bases) {
       let resolved: string;
@@ -697,6 +711,7 @@ function extractDirToolFiles(
       if (!isFile) continue;
       seen.add(norm);
       out.push(norm);
+      if (!preview) documentCount += 1;
       break;
     }
   }
@@ -711,6 +726,13 @@ const BASH_WRITE_TOOL_NAME = 'Write';
 
 /** §5.1 #1-1 (E) — 폴더를 준 셸 검색(`grep -r`·`rg`·`Select-String`)에 붙일 도구 이름. Grep 도구와 같은 길(읽기 방향 · 폴더 읽기). */
 const BASH_SEARCH_TOOL_NAME = 'Grep';
+
+/** §5.25 (O) — 세션이 대화에 내건 파일에 붙일 도구 이름. 셸 읽기와 같이 읽기 방향이다. */
+const PRESENTED_TOOL_NAME = 'Read';
+
+/** §5.25 (O) — 내건 파일의 주인. 훅 라우트는 본문을, 스트림 경로는 세션·sub 만 넘긴다. */
+export type PresentedFileOwner = Pick<HookEventPayload, 'session_id'>
+  & Partial<Pick<HookEventPayload, 'cwd' | '_vibisualSubAgentId' | '_vibisualOwnerTermId'>>;
 
 /**
  * 외부 노드 키의 표식 — `<wtPrefix>__ext__<절대경로>`. 키 조립·해체가 한 자리에서 나오게 한다. 값은 shared 가 정본이다 —
@@ -1280,6 +1302,10 @@ export class ProjectGraph {
   private externalFoldedPlaces = new Map<string, Set<string>>();
   /** §2.1 (B) — 최상위에 동시에 세울 외부 폴더 예산(옵션창이 정하는 머신 단위 설정). 핀(`preservePinned`)은 이 수에 들지 않는다. */
   private externalTopBudget = EXTERNAL_TOP_BUDGET_DEFAULT;
+  /** 같은 절대경로 앞 N단계를 외부 폴더 한 버블로 묶는다. 0이면 활동 기반 표시. 머신 기본값 — 아래 프로젝트 값이 이긴다. */
+  private externalFolderMergeDepth = EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT;
+  /** §2.1 #5 — 프로젝트 이름 → 그 프로젝트 외부 폴더 전체에 거는 통합 깊이(디테일 창에서 정함). 없으면 위 기본값. */
+  private externalFolderMergeDepthByProject = new Map<string, number>();
   /** §5.23 웹 버블 묶기 설정(`getSnapshot` 이 이대로 묶는다). 머신 단위라 매니저가 모든 인스턴스에 민다(`externalTopBudget` 과 같은 길). 씨앗은 꺼짐 — 기본값(켬)은 앱이 부팅 때 민다. */
   private webGroup: WebGroupSettings = { ...WEB_GROUP_OFF };
   /** §5.23 — 접힌 버블의 자리(접힌 id → {x,y}). 노드 장부에 없는 보기라 저장하지 않는다 — 비면 가장 최근 호스트의 자리를 물려받는다. */
@@ -1482,8 +1508,21 @@ export class ProjectGraph {
   private orchestraSummaryMemo: {
     settings: OrchestraSettings | undefined;
     runs: OrchestraRun[] | undefined;
+    /** §5.3 #10-6 (D) — 정리 제안이 엣지·버블에서 오므로 둘이 바뀌어도 다시 짓는다. */
+    edgesVersion: number;
+    liveKey: string;
     value: OrchestraSummary;
   } | null = null;
+  /** §5.1 #3-4 (A) — 최근 세션 간 메시지(시각순, `SESSION_MESSAGE_LINKS_MAX`). 관찰이라 저장하지 않는다. */
+  private sessionMessageLinks: SessionMessageLink[] = [];
+  /** 마지막 스냅샷이 `live` 로 실은 링크 id — 만료 스윕이 바뀐 것만 다시 민다. */
+  private sessionMessageLiveKey = '';
+  private sessionMessagesMemo: { links: SessionMessageLink[]; liveKey: string; value: SessionMessageLink[] } | null = null;
+  /**
+   * §5.1 #3-4 (B) — 파일 키 → 최근 쓴 세션(오래된 것부터). 관찰이라 저장하지 않는다.
+   * 세션 id 로 남기고 스냅샷 때 버블로 푼다 — 세션의 첫 도구 이벤트는 버블이 서기 전에 수정 이력을 지난다.
+   */
+  private recentFileWriters = new Map<string, Array<{ sessionId: string; at: number }>>();
   /**
    * §5.3 #10-5 — 설정 덜어내기 범위·규칙 설정(프로젝트 경로 키 → 설정 한 벌).
    * 오케스트라와 같은 키 규칙(표시명 ❌ 경로 ⭕)이다. 안 정한 프로젝트는 칸이 없다(= 꺼짐).
@@ -2341,12 +2380,12 @@ export class ProjectGraph {
   updateBubblePosition(nodeId: string, x: number, y: number): boolean {
     // 위성 버블 위치
     if (nodeId.startsWith('sat-')) {
-      this.satellitePositions.set(nodeId, { x, y });
+      this.updateBubblePositionsBatch([{ id: nodeId, x, y }]);
       return true;
     }
     // §5.23 접힌 웹 버블 — 노드 장부에 없으므로 자리를 따로 들고 있다가 다음 스냅샷에 입힌다.
     if (this.hasWebFoldId(nodeId)) {
-      this.webFoldPositions.set(nodeId, { x, y });
+      this.updateBubblePositionsBatch([{ id: nodeId, x, y }]);
       return true;
     }
     // 에이전트에서 찾기
@@ -2354,14 +2393,14 @@ export class ProjectGraph {
       if (agent.id === nodeId) {
         // §5.10 — 휴지통 에이전트는 원래 캔버스 좌표 보존(복구 시 제자리 복귀). 갱신 무시.
         if (agent.trashed) return true;
-        agent.position = { x, y };
+        this.updateBubblePositionsBatch([{ id: nodeId, x, y }]);
         return true;
       }
     }
     // 노드에서 찾기
     for (const node of this.nodes.values()) {
       if (node.id === nodeId) {
-        node.position = { x, y };
+        this.updateBubblePositionsBatch([{ id: nodeId, x, y }]);
         return true;
       }
     }
@@ -2370,17 +2409,26 @@ export class ProjectGraph {
   }
 
   /** 버블 위치 일괄 업데이트 (물리 엔진 위치 저장 — 히스토리 미기록) */
-  updateBubblePositionsBatch(positions: Array<{ id: string; x: number; y: number }>): void {
+  updateBubblePositionsBatch(positions: Array<{ id: string; x: number; y: number }>): boolean {
     // id → BubbleData 역인덱스 (agents는 sessionId 키라 순회 필요)
     const idMap = new Map<string, BubbleData>();
     for (const a of this.agents.values()) idMap.set(a.id, a);
     for (const n of this.nodes.values()) idMap.set(n.id, n);
 
-    for (const { id, x, y } of positions) {
+    let changed = false;
+    // A repeated id has last-write-wins semantics, without falsely treating a
+    // round trip back to the saved coordinates as a mutation.
+    const finalPositions = new Map(positions.map((position) => [position.id, position]));
+    for (const { id, x, y } of finalPositions.values()) {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
       if (id.startsWith('sat-')) {
+        const prior = this.satellitePositions.get(id);
+        if (prior?.x === x && prior.y === y) continue;
         this.satellitePositions.set(id, { x, y });
       } else if (this.hasWebFoldId(id)) {
         // §5.23 접힌 웹 버블 — 노드 장부 밖의 보기라 자리만 따로 둔다(`updateBubblePosition` 과 같은 규칙).
+        const prior = this.webFoldPositions.get(id);
+        if (prior?.x === x && prior.y === y) continue;
         this.webFoldPositions.set(id, { x, y });
       } else {
         const bubble = idMap.get(id);
@@ -2388,9 +2436,15 @@ export class ProjectGraph {
         // §5.10 — 휴지통 에이전트의 위치는 "버려지기 전 캔버스 좌표"다. 휴지통 내부 뷰의 임시 배치가
         //   여기로 흘러들면 복구해도 제자리로 못 돌아가므로 trashed 동안엔 위치 갱신을 받지 않는다.
         if (bubble.trashed) continue;
+        if (bubble.position?.x === x && bubble.position.y === y) continue;
         bubble.position = { x, y };
       }
+      changed = true;
     }
+    // Positions are present in cached snapshots and in dirty checkpoints. Only
+    // a real change invalidates them; a periodic unchanged upload does no work.
+    if (changed) this.bumpMutationVersion();
+    return changed;
   }
 
   /** 버블 라벨 변경 (사용자 수동 지정) */
@@ -2797,14 +2851,120 @@ export class ProjectGraph {
     const settings = this.orchestraSettings.get(key);
     const runs = this.orchestraRuns.get(key);
     if (!settings && (!runs || runs.length === 0)) return undefined;
+    const liveIds = new Set<string>();
+    for (const a of this.agents.values()) if (a.customCreated) liveIds.add(a.id);
+    const liveKey = [...liveIds].sort().join(',');
+    const edgesVersion = this.taskEdges.version;
     const memo = this.orchestraSummaryMemo;
-    if (memo && memo.settings === settings && memo.runs === runs) return { [name]: memo.value };
+    if (memo && memo.settings === settings && memo.runs === runs && memo.edgesVersion === edgesVersion && memo.liveKey === liveKey) {
+      return { [name]: memo.value };
+    }
     const value: OrchestraSummary = {
       settings: settings ? { ...settings } : normalizeOrchestraSettings(undefined),
       runs: runs ? orchestraRunsForSnapshot(runs) : [],
     };
-    this.orchestraSummaryMemo = { settings, runs, value };
+    // §5.3 #10-6 (C)(D) — 파생값은 런 전량에서(스냅샷 꼬리만이 아니라). 저장하지 않는다.
+    if (runs && runs.length > 0) {
+      value.scorecard = orchestraScorecard(runs);
+      const suggestions = orchestraSuggestions(runs, [...this.taskEdges.values()], liveIds, Date.now());
+      if (suggestions) value.suggestions = suggestions;
+    }
+    this.orchestraSummaryMemo = { settings, runs, edgesVersion, liveKey, value };
     return { [name]: value };
+  }
+
+  /**
+   * §5.1 #3-4 (A) — 엔진 `SendMessage` 사후 훅 하나를 링크로 남긴다(보낸 사실만). `main`·하위 에이전트 id 는 한 세션 안의 일이라 남기지 않는다.
+   * 받는 이는 글자가 같을 때만 버블로 잇는다 — 이름을 지어 맞추지 않는다.
+   */
+  private recordSessionMessage(payload: HookEventPayload, agent: BubbleData, subId: string | null): void {
+    if (payload.tool_name !== 'SendMessage' || payload.hook_event_name !== 'PostToolUse') return;
+    const input = payload.tool_input as Record<string, unknown> | undefined;
+    const to = typeof input?.['to'] === 'string' ? (input['to'] as string).trim() : '';
+    if (!to) return;
+    const bare = to.replace(/\s*\[[^\]]*\]\s*$/, '').trim();
+    if (bare === '' || bare === 'main' || /^a[0-9a-z]+-[0-9a-z-]+$/i.test(bare)) return;
+    const message = typeof input?.['message'] === 'string' ? (input['message'] as string) : '';
+    const firstLine = message.split(/\r?\n/).find((l) => l.trim() !== '')?.trim() ?? '';
+    const link: SessionMessageLink = {
+      id: payload.tool_use_id ?? `msg-${Date.now().toString(36)}-${this.sessionMessageLinks.length}`,
+      fromAgentId: agent.id,
+      to,
+      preview: firstLine.length > SESSION_MESSAGE_PREVIEW_MAX ? `${firstLine.slice(0, SESSION_MESSAGE_PREVIEW_MAX)}…` : firstLine,
+      at: Date.now(),
+    };
+    if (subId) link.fromSubAgentId = subId;
+    const target = this.resolveSessionMessageTarget(bare, agent.id);
+    if (target) link.toAgentId = target;
+    if (input?.['notify_when_idle'] === true) link.notifyWhenIdle = true;
+    if (this.sessionMessageLinks.some((l) => l.id === link.id)) return;
+    const next = [...this.sessionMessageLinks, link];
+    this.sessionMessageLinks = next.length > SESSION_MESSAGE_LINKS_MAX ? next.slice(next.length - SESSION_MESSAGE_LINKS_MAX) : next;
+  }
+
+  /** 받는 이 이름 → 이 프로젝트의 버블 id. 표시명·세션 탭 이름·세션 id 앞자리(8자 이상)와 글자가 같을 때만. */
+  private resolveSessionMessageTarget(name: string, fromAgentId: string): string | undefined {
+    for (const a of this.agents.values()) {
+      if (a.id !== fromAgentId && a.label === name) return a.id;
+    }
+    const ownIds = new Set([...this.agents.values()].map((a) => a.id));
+    for (const sub of subAgentManager.getAllSubsFlat()) {
+      if (!ownIds.has(sub.parentAgentId) || sub.parentAgentId === fromAgentId) continue;
+      if (sub.label === name) return sub.parentAgentId;
+      if (name.length >= 8 && typeof sub.sessionId === 'string' && sub.sessionId.startsWith(name)) return sub.parentAgentId;
+    }
+    return undefined;
+  }
+
+  /** 스냅샷에 싣는 메시지 — `live` 는 서버가 지금 시각으로 찍는다(클라는 시계를 보지 않는다, §3.1). */
+  getSessionMessagesSnapshot(now: number = Date.now()): SessionMessageLink[] | undefined {
+    if (this.sessionMessageLinks.length === 0) return undefined;
+    const liveKey = this.sessionMessageLinks.filter((l) => now - l.at < SESSION_MESSAGE_LINK_LIVE_MS).map((l) => l.id).join(',');
+    this.sessionMessageLiveKey = liveKey;
+    const memo = this.sessionMessagesMemo;
+    if (memo && memo.links === this.sessionMessageLinks && memo.liveKey === liveKey) return memo.value;
+    const live = new Set(liveKey === '' ? [] : liveKey.split(','));
+    const value = this.sessionMessageLinks.map((l) => (live.has(l.id) ? { ...l, live: true } : { ...l }));
+    this.sessionMessagesMemo = { links: this.sessionMessageLinks, liveKey, value };
+    return value;
+  }
+
+  /** 유휴 스윕이 부른다 — 선을 그리던 링크가 만료됐으면 스냅샷을 다시 짓게 하고 참을 돌려준다(새 타이머 ❌). */
+  sweepSessionMessages(now: number = Date.now()): boolean {
+    if (this.sessionMessageLinks.length === 0) return false;
+    const liveKey = this.sessionMessageLinks.filter((l) => now - l.at < SESSION_MESSAGE_LINK_LIVE_MS).map((l) => l.id).join(',');
+    if (liveKey === this.sessionMessageLiveKey) return false;
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  /** §5.1 #3-4 (B) — 그 파일을 쓴 에이전트를 남긴다. 파일당·파일 수 상한(관찰이라 저장 ❌). */
+  private noteFileWriter(key: string, writerSessionId: string | undefined, at: number): void {
+    if (!writerSessionId) return;
+    const list = this.recentFileWriters.get(key) ?? [];
+    list.push({ sessionId: writerSessionId, at });
+    if (list.length > FILE_WRITE_OVERLAP_PER_FILE) list.splice(0, list.length - FILE_WRITE_OVERLAP_PER_FILE);
+    this.recentFileWriters.delete(key);
+    this.recentFileWriters.set(key, list);
+    capMapSize(this.recentFileWriters, MAX_FILE_EDIT_PATHS);
+  }
+
+  /** 가장 최근 쓰기로부터 창 안에 서로 다른 에이전트가 둘 이상이면 겹침. 시각은 쓰기끼리만 견준다(지금 시각 ❌ — 스냅샷이 같은 답을 낸다). */
+  private fileWriteOverlap(key: string): FileWriteOverlap | undefined {
+    const list = this.recentFileWriters.get(key);
+    if (!list || list.length < 2) return undefined;
+    const lastAt = list[list.length - 1]!.at;
+    const inWindow = list.filter((w) => lastAt - w.at <= FILE_WRITE_OVERLAP_WINDOW_MS);
+    const agentIds: string[] = [];
+    let firstAt: number | undefined;
+    for (const w of inWindow) {
+      const agentId = this.agents.get(w.sessionId)?.id;
+      if (!agentId) continue; // 이 그래프의 버블로 풀리지 않는 세션은 세지 않는다(지어내지 않는다).
+      firstAt ??= w.at;
+      if (!agentIds.includes(agentId)) agentIds.push(agentId);
+    }
+    if (agentIds.length < 2 || firstAt === undefined) return undefined;
+    return { agentIds, firstAt, lastAt };
   }
   /** §5.3 #10-5 — 설정 덜어내기 요약(오케스트라와 같은 모양). 없으면 `undefined`, 기록은 최근 `CONFIG_TRIM_RUN_SNAPSHOT_MAX`건만. */
   getConfigTrimSummary(): Record<string, ConfigTrimSummary> | undefined {
@@ -4046,7 +4206,7 @@ export class ProjectGraph {
   resolveCustomAgentSessionId(idOrSessionId: string): string | null {
     const direct = this.agents.get(idOrSessionId);
     if (direct?.customCreated) return idOrSessionId;
-    const normalized = idOrSessionId.startsWith('sat-') ? idOrSessionId.slice(4) : idOrSessionId;
+    const normalized = satelliteSourceNodeId(idOrSessionId);
     for (const [sid, agent] of this.agents) {
       if (agent.customCreated && agent.id === normalized) return sid;
     }
@@ -4097,7 +4257,7 @@ export class ProjectGraph {
     // 클라이언트가 위성을 렌더할 때 ID 에 'sat-' prefix 를 붙임([satellite.ts]).
     // 서버 측 위성 원본 ID 와 매칭되도록 strip — 안 그러면 iframe/file 위성 Delete 가
     // silent skip 된다.
-    if (nodeId.startsWith('sat-')) nodeId = nodeId.slice(4);
+    nodeId = satelliteSourceNodeId(nodeId);
 
     // 루트 버블은 삭제 금지
     for (const node of this.nodes.values()) {
@@ -4263,6 +4423,7 @@ export class ProjectGraph {
         // 외부 폴더가 빠지면 남은 형제들의 부모가 달라진다 — 계층을 다시 세워
         // 부모를 잃은 폴더가 최상위도 자식도 아닌 채로 화면에서 사라지지 않게 한다(§2.1 #5).
         if (this.externalKeyParts(nodePath)) this.rebuildExternalFolderTree();
+        this.bumpMutationVersion();
         logger.info(`Bubble removed: node "${node.label}"`);
         return;
       }
@@ -4653,6 +4814,9 @@ export class ProjectGraph {
         const declared = subAgentManager.getSub(payload._vibisualSubAgentId);
         if (declared && declared.parentAgentId === agent.id) workerSubId = declared.id;
       }
+      // Keep the resolved sub id when session_id was rewritten to its parent.
+      if (workerSubId !== null) payload._vibisualSubAgentId = workerSubId;
+      else delete payload._vibisualSubAgentId;
       // §5.1 #2-1 (F) ① — 지금 이 sub 가 하는 앱 작업(도는 명령의 앱 노드 → 이어진 앱 노드 · 앞 앱 명령으로 좁힘). 없으면 null.
       const appWork = workerSubId !== null ? this.appWorkFor(payload.session_id, workerSubId, agent.id) : null;
 
@@ -4664,6 +4828,8 @@ export class ProjectGraph {
       // §5.22 — 감사 원장 한 줄. 이 자리가 "모든 도구 호출이 지나가는 유일한 길"이라
       // 새 감시 계층 없이 여기 얹는다. 디스크는 이 경로가 이미 쓰는 코얼레스 저장에 맡긴다.
       this.recordAuditFromHook(payload, agent);
+      // §5.1 #3-4 (A) — 엔진의 세션 간 메시지(보낸 사실만). 같은 길로 오는 모든 도구 호출 중 `SendMessage` 사후만 센다.
+      this.recordSessionMessage(payload, agent, workerSubId);
 
       // 파일 경로 없는 특수 도구 → 전용 버블
       if (specialType) {
@@ -4794,6 +4960,8 @@ export class ProjectGraph {
     // 마스터 캔버스에 `.claude/worktrees/...` 같은 잘못된 경로가 안 박힌다.
     const fileProject = this.getProjectForCwd(filePath);
     const isDirectoryPath = opts?.isDirectory ?? DIRECTORY_PATH_TOOLS.has(toolName);
+    const previewSessionId = payload._vibisualSubAgentId ?? payload._vibisualOwnerTermId
+      ?? (agent.customCreated ? undefined : payload.session_id);
 
     let topFolderPath: string | null;
     if (fileProject) {
@@ -4806,12 +4974,14 @@ export class ProjectGraph {
           filePath, toolName, agent.id, isDirectoryPath,
           wtKey, wtPrefix, sessionProjectInfo!.name,
           payload.tool_response, payload.cwd ?? sessionCwd,
+          previewSessionId,
         );
       } else {
         // 정상 internal 라우팅 — 파일의 owning project 기준
         // (마스터 home + 워크트리 파일이면 자동으로 워크트리 namespace 로 들어감 — processInternalFile 의 isWorktree 분기)
         topFolderPath = this.processInternalFile(
           filePath, toolName, agent.id, fileProject.path, isDirectoryPath,
+          previewSessionId,
         );
       }
     } else {
@@ -4826,6 +4996,7 @@ export class ProjectGraph {
         filePath, toolName, agent.id, isDirectoryPath,
         wtKey, wtPrefix, extProjName,
         payload.tool_response, payload.cwd ?? sessionCwd,
+        previewSessionId,
       );
     }
 
@@ -4923,6 +5094,57 @@ export class ProjectGraph {
         });
       }
     }
+  }
+
+  /**
+   * §5.25 (O) — 세션이 대화에 내건 파일(그림 보기·본문 링크)을 그 세션의 읽기로 세운다. 셸 읽기와 같은 길이다(이주 판정 ❌ · 디스크에 있는 파일만).
+   * 도구 호출이 아니라 감사 원장·관측 도구·에이전트의 마지막 도구는 적지 않는다. 이번 턴에 이미 만진 파일은 건너뛴다 — 방금 쓴 결과물의 쓰기 화살표를 지킨다.
+   * 상대 경로는 그 세션 폴더 기준이다. 세운 파일 수를 돌려준다.
+   */
+  routePresentedFiles(owner: PresentedFileOwner, paths: readonly string[]): number {
+    const agent = this.agents.get(owner.session_id);
+    if (!agent || paths.length === 0) return 0;
+    const declared = owner._vibisualSubAgentId ? subAgentManager.getSub(owner._vibisualSubAgentId) : undefined;
+    const payload: HookEventPayload = {
+      session_id: owner.session_id,
+      hook_event_name: 'PostToolUse',
+      tool_name: PRESENTED_TOOL_NAME,
+      tool_input: {},
+      ...(owner.cwd ? { cwd: owner.cwd } : {}),
+      ...(declared && declared.parentAgentId === agent.id ? { _vibisualSubAgentId: declared.id } : {}),
+      ...(owner._vibisualOwnerTermId ? { _vibisualOwnerTermId: owner._vibisualOwnerTermId } : {}),
+    };
+    const sessionCwd = this.sessionCwds.get(owner.session_id);
+    const cwd = owner.cwd ?? sessionCwd;
+    const turn = this.agentTurnNodes.get(agent.id);
+    let routed = 0;
+    let bumped = false;
+    for (const raw of paths) {
+      const norm = normalize(raw);
+      const resolved = isAbsoluteNormalized(norm) ? norm : cwd ? resolveRelative(cwd, norm) : null;
+      if (!resolved || !isPreviewBundleFile(resolved)) continue;
+      if (turn?.has(this.canonicalFileKey(resolved, sessionCwd))) continue;
+      let isFile = false;
+      try {
+        isFile = fs.statSync(resolved).isFile();
+      } catch {
+        isFile = false;
+      }
+      if (!isFile) continue;
+      if (!bumped) {
+        this.bumpMutationVersion();
+        bumped = true;
+      }
+      // 표시용 길이다 — 한 파일이 실패해도 턴 마감(훅 `Stop`)과 스트림은 그대로 흘러야 한다.
+      try {
+        if (this.routeToolFilePath(agent, payload, resolved, PRESENTED_TOOL_NAME, { isDirectory: false, allowWorktreeMigration: false })) {
+          routed += 1;
+        }
+      } catch (err) {
+        logger.error('routePresentedFiles failed', err);
+      }
+    }
+    return routed;
   }
 
   /**
@@ -5558,10 +5780,18 @@ export class ProjectGraph {
       }
     }
     if (node.bubbleType === 'file') {
-      const mentions = this.mentionIndex().ids.get(nodePath);
+      const mentions = isMentionScannablePath(absPath ?? nodePath) ? this.mentionIndex().ids.get(nodePath) : undefined;
       if (mentions !== undefined && mentions.length > 0) enriched.mentions = mentions;
       // §5.1 #2-1 (B) — 아직 확인하지 않은 턴의 파일 표시(묶음 안이 하위 폴더를 훑을 때 이것만 줍는다). 아니면 싣지 않는다.
       if (this.usedInOpenTurn(nodePath)) enriched.inOpenTurn = true;
+      const previewSessions = this.previewSessionState().sessions.get(nodePath);
+      if (previewSessions) {
+        enriched.inSessionPreview = true;
+        enriched.previewSessionIds = previewSessions;
+      }
+      // §5.1 #3-4 (B) — 같은 파일 겹침은 이 사본에만(체크포인트 ❌).
+      const overlap = this.fileWriteOverlap(nodePath);
+      if (overlap) enriched.writeOverlap = overlap;
     }
 
     // 폴더 satelliteFileCount 는 위성 목록에서 늘 다시 센다(§2.1 UI 카운트 SSOT) — 외부 조상이 물려받은 위성까지(화면 개수와 헤더 숫자가 맞게).
@@ -5646,6 +5876,15 @@ export class ProjectGraph {
     return Date.now() - node.lastActivity < BUBBLE_TTL;
   }
 
+  /**
+   * §5.1 #2-1 (D) — 떠 있는 폴더의 위성. 일반 문서는 폴더와 함께 남는다(상한은 `effectiveSatelliteKeys` 가 이미 셌다) —
+   * 제 TTL 로 따로 빼면 미리보기로 남은 폴더에 사진만 돈다. 미리보기·고스트·사라지는 중은 종전 `isAlive` 그대로.
+   */
+  private isSatelliteShown(key: string, node: BubbleData): boolean {
+    if (this.isAlive(node)) return true;
+    return node.bubbleType === 'file' && node.status !== 'disappearing' && !isPreviewBundleFile(key);
+  }
+
   /** 노드가 숨긴 프로젝트 소속인지 확인 */
   private isNodeHidden(nodePath: string): boolean {
     if (this.hiddenProjects.size === 0) return false;
@@ -5693,10 +5932,16 @@ export class ProjectGraph {
 
     // 서버에서 TTL 필터링 — 클라이언트는 그대로 렌더링
     // 숨긴 프로젝트의 노드/에이전트는 스냅샷에서 제외
+    const rootKey = [...this.nodes.keys()].find((key) => ProjectGraph.isRootKey(key));
+    const rootPreviews = rootKey ? this.previewRepresentativeKeys(rootKey) : null;
+    const knownPreviewPaths = this.previewSessionState().sessions;
     const topFolders = [...this.topLevelPaths]
+      .filter((key) => !knownPreviewPaths.has(key) || rootPreviews === null || rootPreviews.has(key))
       .map((p) => ({ key: p, node: this.nodes.get(p) }))
       .filter((e): e is { key: string; node: BubbleData } => e.node !== undefined && this.isAlive(e.node) && !this.isNodeHidden(e.key))
-      .map((e) => this.enrichNode(e.key, e.node));
+      .filter((e) => e.node.bubbleType !== 'file' || !isPreviewBundleFile(e.key) || rootPreviews === null || rootPreviews.has(e.key))
+      .map((e) => rootKey && e.node.bubbleType === 'file' && isPreviewBundleFile(e.key)
+        ? this.enrichPreviewMember(rootKey, e.key, e.node) : this.enrichNode(e.key, e.node));
 
     // §9 폴더 스코프 — "그리는 폴더 + 한 칸 앞"만 싣는다(`folderScope.ts` 단일 소유, `null` 이면 전량).
     // 한 칸 앞 하위 폴더 목록은 선언된 폴더 것만 만든다 — 전부 만들면 없애려던 전수 순회를 도로 한다(실측 459개·자식 2,866개).
@@ -5726,10 +5971,15 @@ export class ProjectGraph {
       if (!parent || !this.isAlive(parent)) continue;
       // 범위 밖이면 `enrichNode` 자체를 부르지 않는다 — 전선 부피뿐 아니라 CPU 도 함께 준다.
       if (!shipsFolder(parent.id)) continue;
-      children[parent.id] = [...childPaths]
+      const representatives = this.previewRepresentativeKeys(parentPath);
+      const knownPreviews = this.previewSessionState().sessions;
+      children[parent.id] = [...new Set([...childPaths, ...representatives])]
+        .filter((key) => !knownPreviews.has(key) || representatives.has(key))
         .map((cp) => ({ key: cp, node: this.nodes.get(cp) }))
         .filter((e): e is { key: string; node: BubbleData } => e.node !== undefined && this.isAlive(e.node))
-        .map((e) => this.enrichNode(e.key, e.node));
+        .filter((e) => e.node.bubbleType !== 'file' || !isPreviewBundleFile(e.key) || representatives.has(e.key))
+        .map((e) => e.node.bubbleType === 'file' && isPreviewBundleFile(e.key)
+          ? this.enrichPreviewMember(parentPath, e.key, e.node) : this.enrichNode(e.key, e.node));
     }
 
     // 폴더 내부 엣지: 부모 ID별로 그룹핑
@@ -5746,89 +5996,20 @@ export class ProjectGraph {
     const satellites: Record<string, BubbleData[]> = {};
     const satelliteFolderKeys = new Set<string>(this.satelliteMap.keys());
     for (const k of this.externalRollupSatellites.keys()) satelliteFolderKeys.add(k);
-    // §5.1 #2-1 (B) — 같은 종류 묶음의 수·이름·범위. 한 버블 위성 무리 안 같은 미디어 종류는 하위 폴더를 가리지 않고 한 묶음이다.
-    // 주인 폴더 아래(모든 깊이) 미디어를 모아(`subtreeMediaOf`) 묶음 종류의 위성 사본에 `folderNodeId`·`folderKindCount`·`folderKindDir` 를 싣고,
-    // 그 폴더가 범위로 선언됐으면 그 종류 파일을 `BUNDLE_BUBBLE.interiorMax` 까지 덧붙인다(위성 상한에 빠진 것도 묶음 안에 · 선언 안 하면 전선 불변).
-    // 덧붙이는 것은 이번 턴(`agentTurnNodes`)에 쓴 것뿐 — 살아 있음만 보면 5분 유예 안의 지난 턴 그림까지 든다(실측 227장 중 15장). 표시 전용(체크포인트 ❌).
-    const subtreeMedia = new Map<string, Map<KindBundleKind, string[]>>();
-    const subtreeMediaOf = (folderPath: string): Map<KindBundleKind, string[]> => {
-      const hit = subtreeMedia.get(folderPath);
-      if (hit) return hit;
-      const byKind = new Map<KindBundleKind, string[]>();
-      const visited = new Set<string>([folderPath]);
-      const stack = [folderPath];
-      while (stack.length > 0) {
-        for (const childKey of this.childrenMap.get(stack.pop()!) ?? []) {
-          if (visited.has(childKey)) continue;
-          visited.add(childKey);
-          const child = this.nodes.get(childKey);
-          if (!child || !this.isAlive(child)) continue;
-          if (FOLDER_BUBBLE_TYPES.has(child.bubbleType)) {
-            stack.push(childKey);
-            continue;
-          }
-          if (child.bubbleType !== 'file') continue;
-          const kind = fileFaceKindOf(kindBundlePathShape(childKey));
-          if (!isMediaFaceKind(kind)) continue;
-          if (!this.usedInOpenTurn(childKey)) continue;
-          const list = byKind.get(kind);
-          if (list) list.push(childKey);
-          else byKind.set(kind, [childKey]);
-        }
-      }
-      const lastOf = (key: string): number => this.nodes.get(key)?.lastActivity ?? 0;
-      for (const list of byKind.values()) list.sort((a, b) => (lastOf(b) - lastOf(a)) || (a < b ? -1 : a > b ? 1 : 0));
-      subtreeMedia.set(folderPath, byKind);
-      return byKind;
-    };
+    // Every owned preview is already included by effectiveSatelliteKeys.
     for (const folderPath of satelliteFolderKeys) {
       const folder = this.nodes.get(folderPath);
       if (!folder || !this.isAlive(folder)) continue;
       // 폴더 위성은 그 폴더 버블이 그려질 때만 보이므로 children 과 같은 범위를 쓴다. ⚠ 아래 에이전트 영구 위성(bash/iframe/conti)은 이 축과 무관 — 에이전트는 메인 캔버스에 그려지므로 늘 싣는다.
       if (!shipsFolder(folder.id)) continue;
       const files: BubbleData[] = [];
-      const fileKeys: string[] = [];
+      const representatives = this.previewRepresentativeKeys(folderPath);
       for (const fp of this.effectiveSatelliteKeys(folderPath)) {
+        if (knownPreviewPaths.has(fp) && !representatives.has(fp)) continue;
         const node = this.nodes.get(fp);
-        if (node && SATELLITE_TYPES.has(node.bubbleType) && this.isAlive(node)) {
-          files.push(this.enrichNode(fp, node));
-          fileKeys.push(fp);
-        }
-      }
-      // 묶음이 될 종류 — 이 위성 목록에 같은 미디어 종류가 둘 이상(화면 `planKindBundles` 와 같은 문턱 · 텍스트는 묶지 않는다).
-      const mediaKindAt: (KindBundleKind | null)[] = files.map((f, i) => {
-        if (f.bubbleType !== 'file') return null;
-        const kind = fileFaceKindOf(kindBundlePathShape(fileKeys[i]!));
-        return isMediaFaceKind(kind) ? kind : null;
-      });
-      const inList = new Map<KindBundleKind, number>();
-      for (const kind of mediaKindAt) if (kind) inList.set(kind, (inList.get(kind) ?? 0) + 1);
-      const shipped = folderScope !== null && folderScope.has(folder.id) ? new Set(fileKeys) : null;
-      for (const [kind, n] of inList) {
-        if (n < BUNDLE_BUBBLE.minMembers) continue;
-        const all = subtreeMediaOf(folderPath).get(kind) ?? [];
-        // 수 = (위성 목록의 그 종류 중 턴의 것) ∪ (그 아래에서 턴에 쓴 그 종류). 구성도 턴의 것만 센다 — 위성 목록은 `moonMax` 까지 남의 지난 그림도 담는다. 화면도 같은 표시(`inOpenTurn`)로 구성을 거른다.
-        const listed = fileKeys.filter((_, i) => mediaKindAt[i] === kind);
-        const members = new Set(listed.filter((key) => this.usedInOpenTurn(key)));
-        for (const key of all) members.add(key);
-        const count = members.size;
-        // 이름은 턴의 것이 없으면 구성으로 짓는다 — 그때 화면은 묶음을 세우지 않지만 빈 이름을 실어 보낼 까닭도 없다.
-        const dir = kindBundleCommonDir(members.size > 0 ? [...members] : listed, HOST_PLATFORM);
-        const annotate = (enriched: BubbleData): void => {
-          enriched.folderNodeId = folder.id;
-          enriched.folderKindCount = count;
-          enriched.folderKindDir = dir;
-        };
-        files.forEach((f, i) => { if (mediaKindAt[i] === kind) annotate(f); });
-        if (!shipped) continue;
-        for (const key of all.slice(0, BUNDLE_BUBBLE.interiorMax)) {
-          if (shipped.has(key)) continue;
-          const node = this.nodes.get(key);
-          if (!node) continue;
-          shipped.add(key);
-          const enriched = this.enrichNode(key, node);
-          annotate(enriched);
-          files.push(enriched);
+        if (node && SATELLITE_TYPES.has(node.bubbleType) && this.isSatelliteShown(fp, node)) {
+          if (isPreviewBundleFile(fp) && !representatives.has(fp)) continue;
+          files.push(this.enrichPreviewMember(folderPath, fp, node));
         }
       }
       if (files.length > 0) satellites[folder.id] = files;
@@ -6119,6 +6300,8 @@ export class ProjectGraph {
       visualKinds: this.getVisualKindsRecord(),
       // §5.5 #17-17 ⑫(a) — 무대 팔레트에 설 "배운 행동". 프로젝트 전역 집계라 스코프와 무관하게 전량이다.
       goalActions: this.getGoalActionsList(),
+      // §5.1 #3-4 (A) — 세션 간 메시지(관찰). `live` 는 이 순간 서버가 찍는다.
+      sessionMessages: this.getSessionMessagesSnapshot(nowMs),
       // §5.5 #17-28 — 주입원 오버라이드. 화면이 "무엇이 꺼져 있는지"를 스냅샷만으로도 알 수 있게.
       contextOverrides: this.getContextOverrides(),
       // §5.10 — 자동 목표 요약(꺼진 프로젝트에는 실리지 않는다).
@@ -6363,6 +6546,8 @@ export class ProjectGraph {
       contextInsurance: this.insuranceService.toCheckpoint(project.name),
       layoutBoundsHalfWidth: this.layoutBoundsByProject.get(project.name)?.hw,
       layoutBoundsHalfHeight: this.layoutBoundsByProject.get(project.name)?.hh,
+      // §2.1 #5 — 디테일 창에서 정한 이 프로젝트의 외부 폴더 통합 깊이. 없으면 기본값을 따른다.
+      externalFolderMergeDepth: this.externalFolderMergeDepthByProject.get(project.name),
       contis: this.contis.size > 0 ? this.getContisRecord() : undefined,
       compactCounts: this.compactCounts.size > 0 ? this.getCompactCounts() : undefined,
       skillUsageCounts: this.getSkillUsageCountsFlat(),
@@ -6732,7 +6917,7 @@ export class ProjectGraph {
         ? (() => {
             const out: Record<string, { x: number; y: number }> = {};
             for (const [satId, pos] of this.satellitePositions) {
-              if (projectBubbleIds.has(satId.slice('sat-'.length))) out[satId] = pos;
+              if (projectBubbleIds.has(satelliteSourceNodeId(satId))) out[satId] = pos;
             }
             return Object.keys(out).length > 0 ? out : undefined;
           })()
@@ -6837,6 +7022,8 @@ export class ProjectGraph {
       contextInsurance: this.insuranceService.toCheckpoint(project.name),
       layoutBoundsHalfWidth: this.layoutBoundsByProject.get(project.name)?.hw,
       layoutBoundsHalfHeight: this.layoutBoundsByProject.get(project.name)?.hh,
+      // §2.1 #5 — 디테일 창에서 정한 이 프로젝트의 외부 폴더 통합 깊이. 없으면 기본값을 따른다.
+      externalFolderMergeDepth: this.externalFolderMergeDepthByProject.get(project.name),
       // §5.3 #28 — 콘티: 이 프로젝트 에이전트 소유분만(빠뜨리면 껐다 켤 때 사라진다). 미설정 체크포인트는 빈 contis.
       contis: (() => {
         const out: Record<string, Conti> = {};
@@ -6980,7 +7167,12 @@ export class ProjectGraph {
 
     // 노드 병합 — 위와 같은 규칙. 프로젝트를 둘 이상 연 사람에게만 드러나는 자리라 함께 막는다.
     for (const [k, v] of Object.entries(cp.graph.nodes)) {
-      if (this.nodes.has(k)) continue;
+      const existing = this.nodes.get(k);
+      if (existing) {
+        if (v.previewSessions) existing.previewSessions = { ...v.previewSessions, ...existing.previewSessions };
+        if (v.bundleMaxSatellites) existing.bundleMaxSatellites = { ...v.bundleMaxSatellites, ...existing.bundleMaxSatellites };
+        continue;
+      }
       demoteStaleActivityOnLoad(v);
       this.nodes.set(k, v);
     }
@@ -7592,6 +7784,10 @@ export class ProjectGraph {
         });
       }
     }
+    // §2.1 #5 — 외부 폴더 통합 깊이도 같은 규칙(이미 있으면 보존). 아래 외부 트리 재구성보다 먼저 와야 한다.
+    if (typeof cp.externalFolderMergeDepth === 'number' && !this.externalFolderMergeDepthByProject.has(cp.project.name)) {
+      this.externalFolderMergeDepthByProject.set(cp.project.name, normalizeExternalFolderMergeDepth(cp.externalFolderMergeDepth));
+    }
 
     // lastActivity 갱신
     const now = Date.now();
@@ -7617,6 +7813,7 @@ export class ProjectGraph {
     this.rebuildExternalFolderTree();
     // §5.1 #2-1 (F) ② — 이미 떠 있던 캔버스의 앱 작업 꼬리표를 명령 이력으로 되짚는다(판단이 서는 것만).
     this.backfillAppWork();
+    this.backfillPreviewSessions();
 
     logger.info(
       `Checkpoint merged: ${cp.project.name} (seq=${cp.seq}, ` +
@@ -8108,6 +8305,12 @@ export class ProjectGraph {
         hh: cp.layoutBoundsHalfHeight,
       });
     }
+    // §2.1 #5 — 외부 폴더 통합 깊이(이 프로젝트 한정). 아래 외부 트리 재구성보다 먼저 와야 한다.
+    if (typeof cp.externalFolderMergeDepth === 'number') {
+      this.externalFolderMergeDepthByProject.set(cp.project.name, normalizeExternalFolderMergeDepth(cp.externalFolderMergeDepth));
+    } else {
+      this.externalFolderMergeDepthByProject.delete(cp.project.name);
+    }
 
     // dismissedIframes 복원
     if (cp.dismissedIframes) {
@@ -8226,6 +8429,7 @@ export class ProjectGraph {
     this.rebuildExternalFolderTree();
     // §5.1 #2-1 (F) ② — 이미 떠 있던 캔버스의 앱 작업 꼬리표를 명령 이력으로 되짚는다(판단이 서는 것만).
     this.backfillAppWork();
+    this.backfillPreviewSessions();
 
     logger.info(`Checkpoint restored: ${cp.project.name} (seq=${cp.seq}, ${this.agents.size} agents, ${this.nodes.size} nodes)`);
   }
@@ -8525,6 +8729,7 @@ export class ProjectGraph {
       if (node.position) entry.position = { ...node.position };
       if (node.appWork) entry.appWork = { ...node.appWork };
       if (node.maxSatellites !== undefined) entry.maxSatellites = node.maxSatellites;
+      if (node.bundleMaxSatellites) entry.bundleMaxSatellites = { ...node.bundleMaxSatellites };
       if (node.maxWebEntries !== undefined) entry.maxWebEntries = node.maxWebEntries;
       entries.push(entry);
     }
@@ -8648,6 +8853,7 @@ export class ProjectGraph {
       if (e.position && !n.position) n.position = { ...e.position };
       if (e.appWork && !n.appWork) n.appWork = { ...e.appWork };
       if (e.maxSatellites !== undefined && n.maxSatellites === undefined) n.maxSatellites = e.maxSatellites;
+      if (e.bundleMaxSatellites && !n.bundleMaxSatellites) n.bundleMaxSatellites = { ...e.bundleMaxSatellites };
       if (e.maxWebEntries !== undefined && n.maxWebEntries === undefined) n.maxWebEntries = e.maxWebEntries;
     }
     if (restored > 0) agent.linksReplay = true;
@@ -8828,7 +9034,8 @@ export class ProjectGraph {
       if (loop.enabled && (loop.status === 'running' || loop.status === 'waiting')) return true;
     }
     for (const [sessionId, cmds] of this.commandQueuesRef) {
-      if (!cmds.some((c) => c.status === 'queued')) continue;
+      // §5.5 #17-18 ⑬ — 확인 불가로 잠긴 [작업에 반영]은 다시 나가지 않는 기록이다. 세면 버블이 영영 active 다.
+      if (!cmds.some(isPendingQueuedCommand)) continue;
       if (this.resolveCommandOwnerAgentId(sessionId) === parentAgentId) return true;
     }
     return false;
@@ -9006,11 +9213,18 @@ export class ProjectGraph {
     return w.agentId ? this.getAgentProjectName(w.agentId) : null;
   }
 
-  /** §5.26 (B) 1단계 — `PreCompact` 를 원장에 앉힌다. 훅을 붙잡지 않게 디스크는 `statSync`·앞부분 해시뿐, 미러 복사는 응답 뒤 `mirrorCompactMarker()` 로. */
+  /**
+   * §5.26 (B) 1단계 — `PreCompact` 를 원장에 앉힌다. 훅을 붙잡지 않게 디스크는 `statSync`·앞부분 해시뿐, 미러 복사는 응답 뒤 `mirrorCompactMarker()` 로.
+   * `sessionId` = 그래프 키(훅 세션 키), `claudeSessionId` = 마커 신원(CLI UUID) — 우리가 띄운 세션은 둘이 다르다(§5.26 (E)).
+   */
   recordCompactMarker(input: {
     sessionId: string;
+    /** 소유자 태그 재작성 전의 CLI 세션 id. 버블 키로 세우면 형제 탭이 한 마커를 나눠 갖는다. */
+    claudeSessionId?: string;
     transcriptPath?: string;
     trigger?: string;
+    /** §7.23 `[지금 사본 뜨기]` — 압축이 아닌 손 사본. */
+    snapshot?: boolean;
     subAgentId?: string;
     cwd?: string;
     model?: string;
@@ -9023,14 +9237,15 @@ export class ProjectGraph {
       if (!projectName) return null; // 프로젝트를 모르면 저장고 자리도 없다
       const agent = this.agents.get(input.sessionId);
       const cwd = input.cwd ?? this.sessionCwds.get(input.sessionId) ?? '';
+      const markerSessionId = input.claudeSessionId?.trim() || input.sessionId;
       // 훅이 준 경로가 정본이다. 없을 때만 세션 id 로 되짚는다(그쪽은 폴백이다).
       const transcriptPath = input.transcriptPath?.trim()
-        || (cwd ? getSessionJsonlPath(cwd, input.sessionId) : '');
+        || (cwd ? getSessionJsonlPath(cwd, markerSessionId) : '');
       if (!transcriptPath) return null;
 
       // 컨텍스트 눈금은 훅이 주지 않는다(claude-code#44790) — JSONL 에서 읽는 게 유일한 길이고,
       // 이 읽기는 증분 캐시가 받쳐 준다(`readContextInfo`).
-      const ctx = cwd ? readContextInfo(cwd, input.sessionId) : null;
+      const ctx = cwd ? readContextInfo(cwd, markerSessionId) : null;
 
       const workingSet = this.buildCompactWorkingSet(input.sessionId, {
         ...(input.subAgentId ? { subAgentId: input.subAgentId } : {}),
@@ -9041,11 +9256,12 @@ export class ProjectGraph {
 
       const rec: CompactRecordInput = {
         projectName,
-        sessionId: input.sessionId,
+        sessionId: markerSessionId,
         ...(agent?.id ? { agentId: agent.id } : {}),
         ...(input.subAgentId ? { subAgentId: input.subAgentId } : {}),
         // 판본이 값을 안 주면 `auto` 로 본다 — 자동이 훨씬 흔하고, 틀려도 (F) 감시가 한 번 더 볼 뿐이다.
         trigger: input.trigger === 'manual' ? 'manual' : 'auto',
+        ...(input.snapshot ? { snapshot: true } : {}),
         transcriptPath,
         ...(ctx?.contextUsed ? { contextUsed: ctx.contextUsed } : {}),
         ...(ctx?.contextMax ? { contextMax: ctx.contextMax } : {}),
@@ -9596,6 +9812,32 @@ export class ProjectGraph {
     return out.slice(0, Math.max(1, limit));
   }
 
+  /**
+   * §5.26 (G) `fresh` — 끊긴 세션에 대해 금고가 아는 것(마지막 압축 작업셋·기록 위치·제목). 하나도 모르면 `null`.
+   * 기록 위치는 실제로 있는 파일만 — 원본(마커가 적은 자리 → 프로젝트 기록 폴더) 다음에 금고 미러. 없는 경로를 주면 에이전트가 헛걸음한다.
+   */
+  freshResurrectSource(sessionId: string): FreshResurrectSource | null {
+    const marker = this.insuranceService.findLatestMarker(sessionId);
+    let transcriptPath: string | undefined;
+    if (marker && fileSize(marker.transcriptPath) !== null) transcriptPath = marker.transcriptPath;
+    if (!transcriptPath) {
+      for (const info of this.projects.values()) {
+        if (!info.path) continue;
+        const p = getSessionJsonlPath(info.path, sessionId);
+        if (fileSize(p) !== null) { transcriptPath = p; break; }
+      }
+    }
+    if (!transcriptPath && marker) transcriptPath = this.insuranceVault.mirrorFile(marker.projectName, sessionId) ?? undefined;
+    if (!marker && !transcriptPath) return null;
+    const title = (transcriptPath ? readSessionTitle(transcriptPath) : undefined)
+      ?? (marker?.workingSet.goal?.trim() || undefined);
+    return {
+      ...(title ? { title } : {}),
+      ...(transcriptPath ? { transcriptPath } : {}),
+      ...(marker ? { workingSet: marker.workingSet } : {}),
+    };
+  }
+
   /** §5.26 (F) — 5초 대조 루프가 부른다(새 타이머 ❌). 등급이 바뀌었을 때만 `true`. */
   refreshCompactWatch(now: number = Date.now()): boolean {
     const next = this.getCompactWatch(now);
@@ -9668,8 +9910,8 @@ export class ProjectGraph {
     }
   }
 
-  /** 에이전트 상태 직접 설정 (completed 전환용). 엣지도 idle 전환. */
-  setAgentStatus(sessionId: string, status: 'completed'): void {
+  /** 에이전트 턴 종료 상태 직접 설정 — 정상은 `completed`, 실패(`StopFailure`)는 `error`(§2.4). 엣지도 idle 전환. */
+  setAgentStatus(sessionId: string, status: 'completed' | 'error'): void {
     this.bumpMutationVersion();
     const agent = this.agents.get(sessionId);
     if (!agent) return;
@@ -9679,17 +9921,17 @@ export class ProjectGraph {
      * 여기서 completed 로 찍으면 형제 탭이 도는 중에 완료음이 울리고 집계 조건(큐·루프·백그라운드·권한 대기·실패)이 우회된다.
      * CMD 는 예외 — 서브가 0개라 자기 훅 스트림이 유일한 상태 주인이다(가로채면 영영 안 끝난다).
      */
-    if (
-      agent.customCreated
-      && this.agentConfigOverrides.get(agent.id)?.executionMode !== 'interactive-terminal'
-    ) {
+    if (this.isAggregatedCustomAgent(agent)) {
       this.recomputeCustomAgentStatus(agent.id);
       return;
     }
+    // 실패 뒤 활동 없이 온 정상 종료(`SessionEnd` 등)는 실패를 완료로 세탁하지 않는다 — 탭 도트(`markCmdSubActivity`)와 같은 규칙.
+    if (status === 'completed' && agent.status === 'error') return;
 
     const wasActive = agent.status === 'active';
     agent.status = status;
-    agent.fadeStartedAt = Date.now();
+    // error 는 저절로 흐려지지 않는다 — 확인 dismiss 나 다음 활동까지 남는다(§2.4, recompute 의 error 와 같다).
+    agent.fadeStartedAt = status === 'completed' ? Date.now() : undefined;
 
     const activeIds = this.getActiveAgentIds(agent.id);
     this.removeAgentRefs(agent.id, activeIds, { wasActive });
@@ -9702,6 +9944,30 @@ export class ProjectGraph {
         agent.summary = readLastAssistantMessage(cwd, sessionId) ?? undefined;
       }
     }
+  }
+
+  /**
+   * §3.6 — 도구 없이 일이 다시 돈다(새 프롬프트·대기 해제). 도구 이벤트의 `touchAgent` 자리를 채운다 — 없으면 텍스트만 답하는 턴은 완료 색, 답한 대기는 승인 대기 색에 머문다.
+   * 커스텀(헤드리스) 버블은 집계가 주인이라 재계산만 한다. 버블을 새로 만들지 않는다.
+   * @returns 상태가 바뀌었으면 true.
+   */
+  resumeAgentStatus(sessionId: string, from: 'any' | 'awaiting_permission'): boolean {
+    const agent = this.agents.get(sessionId);
+    if (!agent) return false;
+    if (this.isAggregatedCustomAgent(agent)) return this.recomputeCustomAgentStatus(agent.id);
+    if (agent.status === 'active') return false;
+    if (from === 'awaiting_permission' && agent.status !== 'awaiting_permission') return false;
+    this.bumpMutationVersion();
+    agent.status = 'active';
+    agent.fadeStartedAt = undefined;
+    agent.lastActivity = Date.now();
+    return true;
+  }
+
+  /** 상태를 sub 집계(`recomputeCustomAgentStatus`)가 정하는 커스텀 버블인가 — CMD 는 자기 훅이 주인이라 아니다. */
+  private isAggregatedCustomAgent(agent: BubbleData): boolean {
+    return agent.customCreated === true
+      && this.agentConfigOverrides.get(agent.id)?.executionMode !== 'interactive-terminal';
   }
 
   /**
@@ -10232,6 +10498,7 @@ export class ProjectGraph {
     };
 
     node.bubbleType = 'ghost';
+    this.previewSessionMemo = null;
     node.ghostInfo = ghostInfo;
     node.pinned = false;
     if (preserved) {
@@ -10369,6 +10636,10 @@ export class ProjectGraph {
     const newNode = this.nodes.get(newNodePath);
     if (newNode) {
       newNode.activity += bestGhost.node.activity;
+      if (isPreviewBundleFile(newNodePath) && bestGhost.node.previewSessions) {
+        newNode.previewSessions = { ...bestGhost.node.previewSessions, ...newNode.previewSessions };
+        this.previewSessionMemo = null;
+      }
     }
 
     logger.info(`Ghost rename detected: "${bestGhost.node.label}" → "${newNodePath}"`);
@@ -11036,6 +11307,8 @@ export class ProjectGraph {
         backgroundShellCount: tasks.filter((t) => t.subAgentId === sub.id && isBackgroundShellTask(t)).length,
         hasQueuedCommand: false,
         acknowledged: false,
+        // 빈 세션 여부도 "돌고 있는가"에 관여하지 않는다(색 축 — §5.5 #17-10 ⑦).
+        pristine: false,
         // "돌고 있는가"에는 한도 표식이 관여하지 않는다 — 분자(running)와 주황(limited)은 직교 축이다.
         usageLimited: false,
       }));
@@ -12511,6 +12784,7 @@ export class ProjectGraph {
           timestamp: Date.now(),
         },
         'bash',
+        payload.session_id,
       );
     }
   }
@@ -12650,7 +12924,7 @@ export class ProjectGraph {
     };
 
     if (uid) this.fileEditSeen.add(uid);
-    this.appendFileEdit(key, entry, tool.toLowerCase());
+    this.appendFileEdit(key, entry, tool.toLowerCase(), payload.session_id);
   }
 
   /**
@@ -12678,12 +12952,15 @@ export class ProjectGraph {
         timestamp: Date.now(),
       },
       'apply_patch',
+      sessionId,
     );
     return true;
   }
 
   /** §3.2.3 — 병합창·항목 수·나이·경로 LRU 네 축이 여기 한 곳이다. 훅 편집과 Bash 쓰기가 같은 길을 쓴다(두 벌이면 상한이 어긋난다). */
-  private appendFileEdit(key: string, entry: FileEdit, toolLabel: string): void {
+  private appendFileEdit(key: string, entry: FileEdit, toolLabel: string, writerSessionId?: string): void {
+    // §5.1 #3-4 (B) — 수정 이력이 세는 모든 쓰기(편집 도구·셸 쓰기·코덱스 패치)가 지나는 한 곳이라 여기서 쓴 이를 남긴다.
+    this.noteFileWriter(key, writerSessionId, entry.timestamp);
     let list = this.fileEdits.get(key);
     if (!list) { list = []; this.fileEdits.set(key, list); }
 
@@ -12880,6 +13157,156 @@ export class ProjectGraph {
     let turn = this.agentTurnNodes.get(agentId);
     if (!turn) { turn = new Set(); this.agentTurnNodes.set(agentId, turn); }
     turn.add(nodePath);
+  }
+
+  private recordPreviewSession(nodePath: string, agentId?: string, sessionId?: string): void {
+    if (!isPreviewBundleFile(nodePath)) return;
+    this.previewInventoryRevision += 1;
+    if (!agentId || !sessionId) return;
+    const node = this.nodes.get(nodePath);
+    if (!node || node.bubbleType !== 'file' || node.previewSessions?.[sessionId] === agentId) return;
+    node.previewSessions = { ...node.previewSessions, [sessionId]: agentId };
+    this.previewSessionMemo = null;
+  }
+
+  private previewSessionMemo: { version: number; at: number; nodeCount: number; owners: Set<string>; state: PreviewSessionState } | null = null;
+
+  private previewSessionState(): PreviewSessionState {
+    const now = Date.now();
+    const memo = this.previewSessionMemo;
+    if (memo && memo.version === this.mutationVersion && now - memo.at < ACTIVE_AGENT_MEMO_MS) return memo.state;
+    const owners = new Set<string>();
+    for (const agent of this.agents.values()) if (!agent.trashed) owners.add(agent.id);
+    if (memo && memo.nodeCount === this.nodes.size && owners.size === memo.owners.size
+      && [...owners].every((owner) => memo.owners.has(owner))) {
+      memo.version = this.mutationVersion;
+      memo.at = now;
+      return memo.state;
+    }
+    const state = buildPreviewSessionState(this.nodes, this.childrenMap, owners, this.nodeAgentRefs);
+    this.previewSessionMemo = { version: this.mutationVersion, at: now, nodeCount: this.nodes.size, owners, state };
+    return state;
+  }
+
+  private previewInventoryRevision = 0;
+  private previewInventoryMemo: {
+    state: PreviewSessionState; revision: number; version: number; at: number;
+    folders: Map<string, Map<string, PreviewInventoryGroup>>;
+  } | null = null;
+
+  /**
+   * §5.1 #2-1 (B) — 묶음·미리보기 자리에 서는 것: 살아 있고(확인·유휴 TTL 이 걷지 않았다) 아직 확인하지 않은 턴에 쓴 것.
+   * 소유 기록만 보면 확인한 지난 턴의 그림까지 묶음에 계속 쌓인다.
+   */
+  private isLivePreview(key: string): boolean {
+    if (!isPreviewBundleFile(key)) return false;
+    const node = this.nodes.get(key);
+    return node !== undefined && this.isAlive(node) && this.usedInOpenTurn(key);
+  }
+
+  private previewInventory(folderPath: string): Map<string, PreviewInventoryGroup> {
+    const state = this.previewSessionState();
+    const now = Date.now();
+    const memo = this.previewInventoryMemo;
+    // 살아 있음은 벽시계(TTL)와 턴 장부에 달려 있다 — 판과 시간 상한을 함께 건다(`activeAgentIdSet` 과 같은 규약).
+    const folders = memo && memo.state === state && memo.revision === this.previewInventoryRevision
+      && memo.version === this.mutationVersion && now - memo.at < ACTIVE_AGENT_MEMO_MS
+      ? memo.folders : new Map<string, Map<string, PreviewInventoryGroup>>();
+    if (!memo || folders !== memo.folders) {
+      this.previewInventoryMemo = { state, revision: this.previewInventoryRevision, version: this.mutationVersion, at: now, folders };
+    }
+    const cached = folders.get(folderPath);
+    if (cached) return cached;
+    const keys = (ProjectGraph.isRootKey(folderPath)
+      ? [...this.topLevelPaths].filter((key) => this.nodes.get(key)?.bubbleType === 'file')
+      : [...new Set([...(state.folderFiles.get(folderPath) ?? []), ...(this.satelliteMap.get(folderPath) ?? []), ...(this.externalRollupSatellites.get(folderPath) ?? [])])])
+      .filter((key) => this.isLivePreview(key));
+    const groups = buildPreviewInventory(keys, this.nodes, state.sessions);
+    folders.set(folderPath, groups);
+    return groups;
+  }
+
+  private previewRepresentativeKeys(folderPath: string): Set<string> {
+    const settings = this.nodes.get(folderPath)?.bundleMaxSatellites;
+    const keep = new Set<string>();
+    for (const [token, group] of this.previewInventory(folderPath)) {
+      const configured = settings?.[token] ?? settings?.[group.kind] ?? DEFAULT_MAX_SATELLITES;
+      const count = Math.max(BUNDLE_BUBBLE.minMembers, Math.min(SATELLITE_MAX_BOUNDS.MAX, Math.floor(configured)));
+      for (const key of group.keys.slice(0, count)) keep.add(key);
+    }
+    return keep;
+  }
+
+  private enrichPreviewMember(folderPath: string, key: string, node: BubbleData): BubbleData {
+    const enriched = this.enrichNode(key, node);
+    const kind = previewBundleKindOf(key);
+    if (!kind) return enriched;
+    const counts: Record<string, number> = {};
+    const dirs: Record<string, string> = {};
+    for (const group of this.previewInventory(folderPath).values()) {
+      if (group.kind !== kind) continue;
+      counts[group.sessionId] = group.keys.length;
+      dirs[group.sessionId] = group.dir;
+    }
+    enriched.folderNodeId = this.nodes.get(folderPath)?.id;
+    enriched.previewSessionCounts = counts;
+    enriched.previewSessionDirs = dirs;
+    // The '' group already holds every session's files; summing session groups would count shared files twice.
+    enriched.folderKindCount = counts[''] ?? 0;
+    enriched.folderKindDir = dirs[''] ?? '';
+    return enriched;
+  }
+
+  getBundleFiles(folderId: string, kind: KindBundleKind, sessionId?: string, page = 0, folderAbsolutePath?: string): BundleFilePage | null {
+    const folderPath = [...this.nodes].find(([key, node]) =>
+      (FOLDER_BUBBLE_TYPES.has(node.bubbleType) || node.bubbleType === 'root')
+      && (folderAbsolutePath
+        ? samePath(this.resolveAbsolutePath(key) ?? '', folderAbsolutePath)
+        : folderId ? node.id === folderId : ProjectGraph.isRootKey(key)))?.[0];
+    if (!folderPath) return null;
+    const keys = this.previewInventory(folderPath).get(bundleSatelliteKey(kind, sessionId))?.keys ?? [];
+    const lastPage = Math.max(0, Math.ceil(keys.length / BUNDLE_BUBBLE.interiorMax) - 1);
+    const actualPage = Math.min(lastPage, Math.max(0, Math.floor(Number.isFinite(page) ? page : 0)));
+    const items = keys.slice(actualPage * BUNDLE_BUBBLE.interiorMax, (actualPage + 1) * BUNDLE_BUBBLE.interiorMax)
+      .flatMap((key) => {
+        const node = this.nodes.get(key);
+        return node ? [this.enrichPreviewMember(folderPath, key, node)] : [];
+      });
+    return { items, total: keys.length, page: actualPage };
+  }
+
+  getBundleMembers(ids: readonly string[], kind: KindBundleKind, sessionId?: string): BubbleData[] {
+    const requested = new Set(ids);
+    const sessions = this.previewSessionState().sessions;
+    const found = new Map<string, BubbleData>();
+    for (const [key, node] of this.nodes) {
+      if (!requested.has(node.id) || node.bubbleType !== 'file' || previewBundleKindOf(key) !== kind) continue;
+      const owners = sessions.get(key);
+      if (!owners || (sessionId && !owners.includes(sessionId))) continue;
+      if (!this.isLivePreview(key)) continue;
+      found.set(node.id, this.enrichNode(key, node));
+    }
+    return [...new Set(ids)].flatMap((id) => {
+      const node = found.get(id);
+      return node ? [node] : [];
+    });
+  }
+
+  private backfillPreviewSessions(): void {
+    // Only explicit audit ownership can recover a custom agent's past session.
+    for (const log of this.auditLogService.getSnapshot()) for (const entry of log.entries) {
+      if (!entry.target || !entry.agentId || !entry.subAgentId || entry.decision === 'deny') continue;
+      if (!isPreviewBundleFile(entry.target)) continue;
+      const key = this.canonicalFileKey(normalize(entry.target), this.sessionCwds.get(entry.sessionId));
+      if (this.nodeAgentRefs.get(key)?.has(entry.agentId)) this.recordPreviewSession(key, entry.agentId, entry.subAgentId);
+    }
+    const knownSessions = new Map<string, string>();
+    for (const [session, agent] of this.agents) if (!agent.customCreated) knownSessions.set(agent.id, session);
+    for (const [key, refs] of this.nodeAgentRefs) for (const owner of refs) {
+      const session = knownSessions.get(owner);
+      if (session) this.recordPreviewSession(key, owner, session);
+    }
+    this.previewSessionMemo = null;
   }
 
   /** §5.1 #2-1 (B) — 이 에이전트의 이번 턴을 닫는다. 비울 것이 있었으면 true(스냅샷 캐시도 함께 무른다). */
@@ -13081,6 +13508,7 @@ export class ProjectGraph {
     const toRemove: string[] = [];
     // §5.1 #2-1 (B) — 확인은 그 턴을 닫는다(묶음에서도 빠진다). 고정을 풀어 걷는 길도 같은 걷기라 함께 닫힌다.
     this.closeAgentTurn(agentId);
+    // 미리보기(사진·영상 등)와 그 조상 폴더도 예외 없이 걷는다(§2.4) — 남기면 묶음이 지난 턴 그림으로 계속 쌓인다.
     for (const [nodePath, refs] of this.nodeAgentRefs) {
       // 이 에이전트가 쓰던 노드만 대상 — 무관한 고아는 건드리지 않음
       if (!refs.has(agentId)) continue;
@@ -13122,11 +13550,7 @@ export class ProjectGraph {
     this.trimSatellites(folderPath, set);
   }
 
-  /**
-   * §5.1 #2-1 (D) — 상한은 자리 수다: 같은 종류 묶음(shared `planKindBundles`, 하위 폴더 무관)은 한 자리, 한 묶음은 `CONSTELLATION.moonMax` 까지.
-   * 파일 노드는 남아 묶음 안은 그 폴더의 같은 종류를 다 세운다. 넘치면 가장 최근 위치로 재어 오래된 자리부터 뺀다(shared `keepSatelliteSeats` — IDE 세션 지도와 공유).
-   * 판정은 경로와 종류만 본다(앱 노드 중심은 클라만 안다 — `linkedItems`).
-   */
+  /** Preview files are outside the ordinary document quota. */
   private trimSatellites(folderPath: string, set: Set<string>): void {
     const cap = this.folderMaxSatellites(folderPath);
     if (set.size <= cap) return;
@@ -13143,19 +13567,29 @@ export class ProjectGraph {
    * 노드에 maxSatellites 저장 + 기존 위성 set 을 새 상한까지 즉시 FIFO 트림.
    * 폴더 노드를 못 찾으면 false.
    */
-  setFolderMaxSatellites(folderPath: string, max: number): boolean {
-    const normFolder = ProjectGraph.isRootKey(folderPath) ? folderPath : foldCase(folderPath);
+  setFolderMaxSatellites(folderPath: string, max: number, kind?: KindBundleKind, sessionId?: string): boolean {
+    if (!Number.isFinite(max)) return false;
+    const normFolder = folderPath === '' && kind
+      ? [...this.nodes.keys()].find((key) => ProjectGraph.isRootKey(key))
+      : ProjectGraph.isRootKey(folderPath) ? folderPath : foldCase(folderPath);
+    if (normFolder === undefined) return false;
     const node = this.nodes.get(normFolder);
-    if (!node || (node.bubbleType !== 'internal_folder' && node.bubbleType !== 'external_folder')) {
+    if (!node || (node.bubbleType !== 'internal_folder' && node.bubbleType !== 'external_folder'
+      && !(kind && node.bubbleType === 'root'))) {
       return false;
     }
     const clamped = Math.min(
       SATELLITE_MAX_BOUNDS.MAX,
       Math.max(SATELLITE_MAX_BOUNDS.MIN, Math.floor(max)),
     );
-    node.maxSatellites = clamped;
-    const set = this.satelliteMap.get(normFolder);
-    if (set) this.trimSatellites(normFolder, set);
+    if (kind) {
+      node.bundleMaxSatellites = { ...node.bundleMaxSatellites, [bundleSatelliteKey(kind, sessionId)]: clamped };
+    } else {
+      node.maxSatellites = clamped;
+      const set = this.satelliteMap.get(normFolder);
+      if (set) this.trimSatellites(normFolder, set);
+    }
+    this.bumpMutationVersion();
     return true;
   }
 
@@ -13450,6 +13884,7 @@ export class ProjectGraph {
       // 새 노드 생성 시 같은 디렉토리 ghost에서 rename 감지 + 데이터 이관
       this.tryMigrateFromGhost(relativePath);
     } else if (node.bubbleType === 'ghost' && node.ghostInfo) {
+      this.previewSessionMemo = null;
       // 같은 경로가 다시 나타남 → ghost 해제 + disappearing 클리어
       logger.info(`Ghost revived: "${node.label}" (was ${node.ghostInfo.changeType})`);
       node.bubbleType = node.ghostInfo.originalBubbleType;
@@ -13488,13 +13923,14 @@ export class ProjectGraph {
       children = new Set();
       this.childrenMap.set(parentPath, children);
     }
+    if (!children.has(childPath)) this.previewSessionMemo = null;
     children.add(childPath);
     const parent = this.nodes.get(parentPath);
     if (parent) parent.childCount = children.size;
   }
 
   /** 내부 파일 처리 → 계층 생성 + 내부 엣지 + 에이전트 참조 등록 */
-  private processInternalFile(filePath: string, toolName: string, agentId?: string, projectPath?: string | null, isDirectory = false): string | null {
+  private processInternalFile(filePath: string, toolName: string, agentId?: string, projectPath?: string | null, isDirectory = false, previewSessionId?: string): string | null {
     const root = projectPath ?? this.root;
     const normalizedRoot = root ? normalize(root) : null;
     const projectInfo = normalizedRoot ? this.projects.get(normalizedRoot) : null;
@@ -13524,6 +13960,7 @@ export class ProjectGraph {
       }
       if (projectName) this.nodeProjectNames.set(finalRelKey, projectName);
       if (agentId) this.addAgentRef(finalRelKey, agentId);
+      if (!isDirectory) this.recordPreviewSession(finalRelKey, agentId, previewSessionId);
       return finalRelKey;
     }
 
@@ -13554,6 +13991,7 @@ export class ProjectGraph {
     if (projectName) this.nodeProjectNames.set(finalRelKey, projectName);
     this.registerChild(leafParent, finalRelKey);
     if (agentId) this.addAgentRef(finalRelKey, agentId);
+    if (!isDirectory) this.recordPreviewSession(finalRelKey, agentId, previewSessionId);
 
     // 각 계층에 내부 엣지 생성
     for (let i = 1; i < segments.length; i++) {
@@ -13591,6 +14029,7 @@ export class ProjectGraph {
     projectName?: string | null,
     toolResponse?: Record<string, unknown>,
     dirToolCwd?: string,
+    previewSessionId?: string,
   ): string | null {
     const normAbs = absolutePath.replace(/\\/g, '/');
     // 파일이면 부모 폴더가 외부 폴더, 디렉토리면 그 디렉토리 자체가 외부 폴더
@@ -13639,12 +14078,12 @@ export class ProjectGraph {
     if (!isDirectory) {
       // 키는 canonicalFileKey 와 같은 헬퍼 — 두 벌이면 diff 가 안 붙는다.
       const fileKey = this.externalFileNodeKey(normAbs, wtPrefix);
-      this.registerExternalSatellite(folderKey, fileKey, toolName, agentId, projectName);
+      this.registerExternalSatellite(folderKey, fileKey, toolName, agentId, projectName, previewSessionId);
     } else {
       // Grep/Glob — 하위 디렉토리 결과도 grep 한 폴더 하나의 위성으로 평탄화한다(§2.1).
       for (const absFile of resultFiles) {
         const fileKey = this.externalFolderKey(wtPrefix, absFile);
-        this.registerExternalSatellite(folderKey, fileKey, toolName, agentId, projectName);
+        this.registerExternalSatellite(folderKey, fileKey, toolName, agentId, projectName, previewSessionId);
       }
     }
 
@@ -13660,6 +14099,7 @@ export class ProjectGraph {
     toolName: string,
     agentId?: string,
     projectName?: string | null,
+    previewSessionId?: string,
   ): void {
     this.upsertNode(fileKey, 'file', toolName, true);
     this.registerChild(folderKey, fileKey);
@@ -13673,6 +14113,7 @@ export class ProjectGraph {
     }
     if (projectName) this.nodeProjectNames.set(fileKey, projectName);
     if (agentId) this.addAgentRef(fileKey, agentId);
+    this.recordPreviewSession(fileKey, agentId, previewSessionId);
   }
 
   /** external_folder 업서트(라벨은 절대경로). 옛 file 타입은 고친다. `quiet` 는 접합 전용 — 활동을 올리거나 식은 버블을 깨우지 않는다(가짜 활동 ❌). 라벨은 트리 재구성이 확정한다. */
@@ -13792,6 +14233,25 @@ export class ProjectGraph {
     return result;
   }
 
+  /** 경로 앞 N단계가 다른 폴더끼리는 얕은 공통 조상 아래로 합치지 않는다. */
+  private externalFolderTree(absPaths: string[], depth: number): Map<string, string | null> {
+    if (depth === 0) return ProjectGraph.compressExternalTrie(absPaths);
+    const groups = new Map<string, string[]>();
+    for (const abs of absPaths) {
+      const target = externalFolderMergeTarget(abs, depth);
+      const members = groups.get(target) ?? [];
+      members.push(abs);
+      groups.set(target, members);
+    }
+    const tree = new Map<string, string | null>();
+    for (const [target, members] of groups) {
+      // 일치하는 폴더가 여럿일 때만 지정 깊이의 조상을 세운다. 원본 노드·위성은 보존한다.
+      const paths = members.length > 1 ? [...members, target] : members;
+      for (const [abs, parent] of ProjectGraph.compressExternalTrie(paths)) tree.set(abs, parent);
+    }
+    return tree;
+  }
+
   /**
    * §2.1 #5 — 같은 부모면 같은 버블 밑으로(전부 최상위면 `…/<세션UUID>/tasks` 류가 캔버스를 쪼갠다). 만진 폴더 = 위성 ≥ 1 — 새 영속 필드 없이 왕복에도 같은 답.
    * @returns 외부 폴더 키 → 부모 키(null=최상위).
@@ -13826,11 +14286,22 @@ export class ProjectGraph {
 
       for (const [prefix, group] of groups) {
         const container = this.worktreeKeyForExtPrefix(prefix);
-        const tree = ProjectGraph.compressExternalTrie(group.touched);
+        // §2.1 #5 — 깊이는 이 묶음이 속한 프로젝트의 것(디테일 창 값 → 없으면 머신 기본값).
+        const groupProject = this.externalGroupProject(group.all);
+        const mergeDepth = this.externalMergeDepthFor(groupProject);
+        const mergeDepthCustom = groupProject !== null && this.externalFolderMergeDepthByProject.has(groupProject);
+        const tree = this.externalFolderTree(group.touched, mergeDepth);
         // §2.1 (B) — 예산 안에서 무엇을 최상위로 꺼낼지. 트리를 세운 **뒤에** 정해야 한다
         //   (누가 이미 최상위인지 알아야 남은 자리를 셀 수 있다).
-        const promoted = this.pickExternalPromotions(prefix, group.touched, tree);
+        const promoted = this.pickExternalPromotions(prefix, group.touched, tree, mergeDepth);
         const liveKeys = new Set<string>();
+        // ③-b 가 "새로 최상위에 선 버블"을 가리려면 ②가 배선을 바꾸기 **전** 최상위가 필요하다.
+        const rootsBefore = new Set<string>();
+        for (const key of group.all) {
+          if (this.topLevelPaths.has(key) || (container !== null && this.childrenMap.get(container)?.has(key) === true)) {
+            rootsBefore.add(key);
+          }
+        }
 
         // ② 노드 업서트 + 부모 배선. 얕은 곳부터 — 부모가 먼저 서야 registerChild 가 카운트를 맞춘다.
         const ordered = [...tree.keys()].sort((a, b) => a.split('/').length - b.split('/').length);
@@ -13881,6 +14352,10 @@ export class ProjectGraph {
             } else {
               delete node.externalPromoted;
             }
+            // §2.1 #5 — 디테일 창이 이 값을 그대로 보인다(클라가 기본값과 섞어 계산하지 않게).
+            node.externalMergeDepth = mergeDepth;
+            if (mergeDepthCustom) node.externalMergeDepthCustom = true;
+            else delete node.externalMergeDepthCustom;
           }
         }
 
@@ -13894,18 +14369,49 @@ export class ProjectGraph {
           }
         }
 
+        // 기존 활동선도 지금 보이는 조상으로 옮긴다. 접합을 지우기 전에 옮겨야 선이 함께
+        // 삭제되지 않는다. 시간·활성·참조를 그대로 옮기며 새 활동(upsert)은 만들지 않는다.
+        const rootKeys = [...assigned].filter(([key, parent]) => liveKeys.has(key) && parent === null).map(([key]) => key);
+        const edgeHosts = new Map<string, string>();
+        for (const key of group.all) {
+          const node = this.nodes.get(key);
+          if (!node) continue;
+          const oldAbs = this.externalKeyParts(key)!.abs;
+          const candidates = rootKeys.filter((root) => key.startsWith(`${root}/`)
+            && (mergeDepth === 0
+              || externalFolderMergeTarget(this.externalKeyParts(root)!.abs, mergeDepth)
+                === externalFolderMergeTarget(oldAbs, mergeDepth)));
+          const hostKey = assigned.has(key)
+            ? this.externalTopAncestor(key, assigned)
+            : candidates.length === 1 ? candidates[0] : undefined;
+          // 삭제될 접합이 여러 새 묶음의 조상이면 여기서 한 곳에 몰지 않는다 — 조각마다 ③-b 가 나눠 준다.
+          const host = hostKey ? this.nodes.get(hostKey) : undefined;
+          if (host && host.id !== node.id) edgeHosts.set(node.id, host.id);
+        }
+        if (edgeHosts.size > 0) {
+          this.mainEdges.remapIds(edgeHosts);
+          this.mainEdges.pruneOppositePairs();
+        }
+
+        // ③-b 갈라져 새로 최상위에 선 버블은 자기를 담던 옛 최상위의 선·생존을 물려받는다(⑤가 접합을 지우기 전에).
+        //   캔버스는 에이전트와 이어진 외부 버블만 그린다 — 안 넘기면 조각째 사라지고, 다시 묶어도 넘길 선이 없다.
+        this.inheritSurfacedExternalRoots(rootKeys.filter((key) => !rootsBefore.has(key)), rootsBefore);
+
         // ④ 접합은 자손의 소속·참조·생사를 물려받는다 — 없으면 체크포인트·dismiss 정리에서 빠지고, TTL 로 부모만 먼저 사라져 자식이 스냅샷에서 빠진다. 아래에서 위로(깊은 곳부터).
+        //    만진 폴더는 소속·참조가 이미 자기 것이라 생사만 받는다 — 건너뛰면 그 위 접합까지 자손의 생사가 끊긴다.
         const deepFirst = [...tree.keys()].sort((a, b) => b.split('/').length - a.split('/').length);
         for (const abs of deepFirst) {
           const key = this.externalFolderKey(prefix, abs);
-          if ((this.satelliteMap.get(key)?.size ?? 0) > 0) continue; // 만진 폴더는 이미 자기 것이 있다
+          const touched = (this.satelliteMap.get(key)?.size ?? 0) > 0;
           const children = this.childrenMap.get(key);
           if (!children) continue;
           const node = this.nodes.get(key);
           for (const childKey of children) {
-            const childProject = this.nodeProjectNames.get(childKey);
-            if (childProject && !this.nodeProjectNames.has(key)) this.nodeProjectNames.set(key, childProject);
-            for (const agentId of this.nodeAgentRefs.get(childKey) ?? []) this.addAgentRef(key, agentId);
+            if (!touched) {
+              const childProject = this.nodeProjectNames.get(childKey);
+              if (childProject && !this.nodeProjectNames.has(key)) this.nodeProjectNames.set(key, childProject);
+              for (const agentId of this.nodeAgentRefs.get(childKey) ?? []) this.addAgentRef(key, agentId);
+            }
             const childNode = this.nodes.get(childKey);
             if (node && childNode) {
               node.lastActivity = Math.max(node.lastActivity ?? 0, childNode.lastActivity ?? 0);
@@ -13934,6 +14440,61 @@ export class ProjectGraph {
   }
 
   /**
+   * §2.1 #5 — 새로 최상위에 선 외부 버블에 그것을 담던 옛 최상위(경로상 가장 가까운 조상)의 생존 시계와 에이전트 선을 넘긴다.
+   * 선은 그 아래를 실제로 만진 에이전트(`nodeAgentRefs`) 것만, 그런 기록이 없으면 전부 — 어느 쪽이든 조각은 캔버스에 남는다.
+   */
+  private inheritSurfacedExternalRoots(surfaced: readonly string[], rootsBefore: ReadonlySet<string>): void {
+    if (surfaced.length === 0 || rootsBefore.size === 0) return;
+    let neighbors: Map<string, Set<string>> | null = null;
+    let copiedAny = false;
+    for (const key of surfaced) {
+      const node = this.nodes.get(key);
+      if (!node) continue;
+      let hostKey: string | null = null;
+      for (const old of rootsBefore) {
+        if (key.startsWith(`${old}/`) && (hostKey === null || old.length > hostKey.length)) hostKey = old;
+      }
+      const host = hostKey ? this.nodes.get(hostKey) : undefined;
+      if (!host) continue;
+
+      // 옛 버블이 보이던 중이면 조각도 지금 보여야 한다 — 오래 전에 만진 폴더가 갈라지자마자 TTL 에 걸려 빠지지 않게.
+      const hostAlive = this.isAlive(host);
+      node.lastActivity = Math.max(node.lastActivity ?? 0, host.lastActivity ?? 0);
+      if (hostAlive && !this.isAlive(node)) node.lastActivity = Date.now();
+
+      neighbors ??= this.mainEdgeNeighbors();
+      if (neighbors.has(node.id)) continue; // 이미 자기 선이 있다
+      const hostAgents = neighbors.get(host.id);
+      if (!hostAgents || hostAgents.size === 0) continue;
+      const touchedBy = new Set<string>();
+      for (const [refKey, refs] of this.nodeAgentRefs) {
+        if (refKey !== key && !refKey.startsWith(`${key}/`)) continue;
+        for (const agentId of refs) if (hostAgents.has(agentId)) touchedBy.add(agentId);
+      }
+      const keep = (other: string): boolean => touchedBy.size === 0 || touchedBy.has(other);
+      if (this.mainEdges.copyEndpoint(host.id, node.id, keep) === 0) continue;
+      copiedAny = true;
+      neighbors.set(node.id, new Set([...hostAgents].filter(keep)));
+    }
+    if (copiedAny) this.mainEdges.pruneOppositePairs();
+  }
+
+  /** 메인 엣지의 끝 id → 반대쪽 끝 id 들. */
+  private mainEdgeNeighbors(): Map<string, Set<string>> {
+    const neighbors = new Map<string, Set<string>>();
+    const link = (end: string, other: string): void => {
+      const set = neighbors.get(end);
+      if (set) set.add(other);
+      else neighbors.set(end, new Set([other]));
+    };
+    for (const edge of this.mainEdges.getAll()) {
+      link(edge.source, edge.target);
+      link(edge.target, edge.source);
+    }
+    return neighbors;
+  }
+
+  /**
    * §2.1 #5 — 조상에 자손의 파일을 물려준다. `externalRollupSatellites` 에 심어 위성 ≥ 1 판정을 흔들지 않는다. 매번 통째로 — 증분이면 옛 조상에 유령 위성이 남는다.
    * @param assigned 방금 세운 자식 키 → 부모 키(null=최상위).
    */
@@ -13954,15 +14515,12 @@ export class ProjectGraph {
         ancestor = assigned.get(ancestor) ?? null;
       }
     }
-    // 상한 — 자손이 많으면 조상 하나에 수백 개가 몰린다. 폴더별 상한까지 **최근 것부터** 남긴다
-    // (§7.5 maxSatellites 를 그대로 따른다 — 조상이라고 더 많이 띄우지 않는다).
+    // Rollups use the same document quota as direct satellites.
     for (const [key, set] of this.externalRollupSatellites) {
       const cap = this.folderMaxSatellites(key);
       if (set.size <= cap) continue;
-      const kept = [...set]
-        .sort((a, b) => (this.nodes.get(b)?.lastActivity ?? 0) - (this.nodes.get(a)?.lastActivity ?? 0))
-        .slice(0, cap);
-      this.externalRollupSatellites.set(key, new Set(kept));
+      const kept = keepSatelliteSeats([...set].map((id) => ({ id, path: id, lastActivity: this.nodes.get(id)?.lastActivity ?? 0 })), cap, { platform: HOST_PLATFORM });
+      this.externalRollupSatellites.set(key, kept);
     }
   }
 
@@ -13972,6 +14530,62 @@ export class ProjectGraph {
     if (next === this.externalTopBudget) return;
     this.externalTopBudget = next;
     this.rebuildExternalFolderTree();
+  }
+
+  /** 저장 직후 이미 떠 있는 외부 폴더도 같은 깊이로 다시 묶는다. 내부 폴더는 대상이 아니다. */
+  setExternalFolderMergeDepth(depth: number): void {
+    const next = normalizeExternalFolderMergeDepth(depth);
+    if (next === this.externalFolderMergeDepth) return;
+    this.externalFolderMergeDepth = next;
+    this.rebuildExternalFolderTree();
+  }
+
+  /**
+   * §2.1 #5 — 외부 폴더 버블 하나에서 그 프로젝트의 통합 깊이를 바꾼다(`null` = 전용 값 걷기 → 기본값).
+   * 버블 하나가 아니라 그 프로젝트의 외부 폴더 전체가 다시 묶인다. `changed` 면 체크포인트 dirty.
+   */
+  setExternalFolderMergeDepthForNode(nodeId: string, depth: number | null): 'not-found' | 'unchanged' | 'changed' {
+    let target: string | null = null;
+    for (const [key, node] of this.nodes) {
+      if (node.bubbleType === 'external_folder' && node.id === nodeId) { target = key; break; }
+    }
+    if (!target) return 'not-found';
+    const prefix = this.externalKeyParts(target)?.prefix ?? '';
+    const sameNamespace: string[] = [];
+    for (const [key, node] of this.nodes) {
+      if (node.bubbleType === 'external_folder' && this.externalKeyParts(key)?.prefix === prefix) sameNamespace.push(key);
+    }
+    const projectName = this.externalGroupProject(sameNamespace);
+    if (!projectName) return 'not-found';
+    const before = this.externalFolderMergeDepthByProject.get(projectName);
+    if (depth === null) {
+      if (before === undefined) return 'unchanged';
+      this.externalFolderMergeDepthByProject.delete(projectName);
+    } else {
+      const next = normalizeExternalFolderMergeDepth(depth);
+      if (before === next) return 'unchanged';
+      this.externalFolderMergeDepthByProject.set(projectName, next);
+    }
+    this.rebuildExternalFolderTree();
+    return 'changed';
+  }
+
+  /** 외부 폴더 묶음(같은 네임스페이스)의 소속 프로젝트 — 영속화 귀속(`nodeProjectNames`)이 정본, 없으면 주 프로젝트. */
+  private externalGroupProject(keys: Iterable<string>): string | null {
+    for (const key of keys) {
+      const name = this.nodeProjectNames.get(key);
+      if (name) return name;
+    }
+    return this.getPrimaryProjectName();
+  }
+
+  /** 그 프로젝트에 걸린 통합 깊이 — 전용 값이 없으면 머신 기본값. */
+  private externalMergeDepthFor(projectName: string | null): number {
+    if (projectName) {
+      const own = this.externalFolderMergeDepthByProject.get(projectName);
+      if (own !== undefined) return own;
+    }
+    return this.externalFolderMergeDepth;
   }
 
   /** §5.23 웹 버블 묶기 설정. 판만 올린다 — 안 올리면 200ms 캐시가 옛 스냅샷을 준다. 바뀌면 접힌 자리를 비운다(묶음 id 가 바뀔 수 있다). */
@@ -14011,11 +14625,13 @@ export class ProjectGraph {
     prefix: string,
     touchedAbs: readonly string[],
     tree: ReadonlyMap<string, string | null>,
+    mergeDepth: number,
   ): Set<string> {
     const now = Date.now();
     let rootCount = 0;
     for (const parent of tree.values()) if (parent === null) rootCount++;
-    const room = Math.max(0, this.externalTopBudget - rootCount);
+    // 경로 통합을 켜면 활동 예산으로 묶음을 다시 쪼개지 않는다. 명시적 핀은 계속 존중한다.
+    const room = mergeDepth > 0 ? 0 : Math.max(0, this.externalTopBudget - rootCount);
 
     const candidates: ExternalPromotionCandidate[] = [];
     for (const abs of touchedAbs) {
@@ -14131,17 +14747,31 @@ export class ProjectGraph {
   }
 
   /** 표시할 위성 키의 단일 창구(자기 것 + 물려받은 것, 상한까지 최근순). 헤더 카운트(`satelliteFileCount`)도 이 함수를 봐야 한다 — 두 벌이면 숫자와 위성 수가 어긋난다. */
+  private effectiveSatelliteMemo: { version: number; entries: Map<string, string[]> } | null = null;
+
   private effectiveSatelliteKeys(folderPath: string): string[] {
+    if (!this.effectiveSatelliteMemo || this.effectiveSatelliteMemo.version !== this.mutationVersion) {
+      this.effectiveSatelliteMemo = { version: this.mutationVersion, entries: new Map() };
+    }
+    const cached = this.effectiveSatelliteMemo.entries.get(folderPath);
+    if (cached) return cached;
+    const keys = this.computeEffectiveSatelliteKeys(folderPath);
+    this.effectiveSatelliteMemo.entries.set(folderPath, keys);
+    return keys;
+  }
+
+  private computeEffectiveSatelliteKeys(folderPath: string): string[] {
     const own = this.satelliteMap.get(folderPath);
     const inherited = this.externalRollupSatellites.get(folderPath);
-    if (!inherited || inherited.size === 0) return own ? [...own] : [];
     const merged = new Set<string>(own ?? []);
-    for (const k of inherited) merged.add(k);
+    for (const k of inherited ?? []) merged.add(k);
+    for (const k of this.previewSessionState().folderFiles.get(folderPath) ?? []) merged.add(k);
     const cap = this.folderMaxSatellites(folderPath);
     if (merged.size <= cap) return [...merged];
-    return [...merged]
-      .sort((a, b) => (this.nodes.get(b)?.lastActivity ?? 0) - (this.nodes.get(a)?.lastActivity ?? 0))
-      .slice(0, cap);
+    const previews = this.previewSessionState().sessions;
+    const ordinary = [...merged].filter((id) => !previews.has(id));
+    const keep = keepSatelliteSeats(ordinary.map((id) => ({ id, path: id, lastActivity: this.nodes.get(id)?.lastActivity ?? 0 })), cap, { platform: HOST_PLATFORM });
+    return [...merged].filter((id) => previews.has(id) || keep.has(id));
   }
 
   /** 부모-자식 링크 1개 해제 (childCount 동기화 포함). 노드 자체는 건드리지 않는다. */
@@ -14149,6 +14779,7 @@ export class ProjectGraph {
     const children = this.childrenMap.get(parentKey);
     if (!children) return;
     if (!children.delete(childKey)) return;
+    this.previewSessionMemo = null;
     if (children.size === 0) this.childrenMap.delete(parentKey);
     const parent = this.nodes.get(parentKey);
     if (parent) parent.childCount = children.size;
@@ -14482,14 +15113,11 @@ export class ProjectGraph {
     return true;
   }
 
-  /** Task Edge 상태 변경 (서버 내부용) */
-  setTaskEdgeStatus(id: string, status: TaskEdgeStatus, result?: string, errorMessage?: string): void {
+  /** Task Edge 상태 변경 (서버 내부용). 전이 규칙은 `applyTaskEdgeStatus` 한 벌. */
+  setTaskEdgeStatus(id: string, status: TaskEdgeStatus, result?: string, errorMessage?: string, options?: TaskEdgeStatusOptions): void {
     const edge = this.taskEdges.get(id);
     if (!edge) return;
-    edge.status = status;
-    if (status === 'executing') edge.lastExecutedAt = Date.now();
-    if (result !== undefined) edge.lastResult = result;
-    if (errorMessage !== undefined) edge.errorMessage = errorMessage;
+    applyTaskEdgeStatus(edge, status, result, errorMessage, options);
   }
 
   /** 특정 에이전트가 소스인 auto Task Edge 조회 (완료 시 자동 전파용) */
@@ -15935,6 +16563,7 @@ export class ProjectGraph {
         sessionId: payload.session_id,
         agentId: agent.id,
         agentLabel: agent.label,
+        ...(payload._vibisualSubAgentId ? { subAgentId: payload._vibisualSubAgentId } : {}),
         ...(agentColor ? { agentColor } : {}),
         toolName: payload.tool_name,
         toolInput: payload.tool_input ?? null,

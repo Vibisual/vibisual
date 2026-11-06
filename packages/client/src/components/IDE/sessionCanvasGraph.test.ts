@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { CONSTELLATION, DEFAULT_MAX_SATELLITES, WEB_SEARCH_HOST, type BubbleData, type SubAgentStreamEvent } from '@vibisual/shared';
+import { DEFAULT_MAX_SATELLITES, WEB_SEARCH_HOST, type BubbleData, type SubAgentStreamEvent } from '@vibisual/shared';
 import { collectSatellites } from '../../utils/satellite.js';
+import { applyConstellations, bundleInfoOf, bundleInteriorMembers } from '../../utils/constellationView.js';
 import { buildSessionBubbles } from './sessionBubbles.js';
 import {
   SESSION_CENTER_NODE_ID,
@@ -41,6 +42,7 @@ function graphOf(events: SubAgentStreamEvent[], over: Partial<SessionCanvasInput
     platform: 'win32',
     running: false,
     agentId: AGENT,
+    sessionId: S,
     agent: AGENT_NODE,
     webSearchLabel: '웹 검색',
     ...over,
@@ -81,6 +83,17 @@ describe('§5.5 #17-50 — 폴더는 캔버스와 같은 계층', () => {
     expect(sats[0]!.label).toBe(`f${String(DEFAULT_MAX_SATELLITES + 1)}.ts`);
     const deep = g.folders[src.id]!.children[0]!;
     expect(g.satellites[deep.id]!.map((b) => b.id)).toEqual(sats.map((b) => b.id));
+  });
+
+  it('uses each folder document limit independently of its ancestor', () => {
+    const files = Array.from({ length: 6 }, (_, i) => use(10 + i, 'Read', { file_path: `${ROOT}/src/deep/f${String(i)}.ts` }));
+    const g = graphOf(files, { folderSatelliteMaxes: { 'c:/work/proj/src': 4, 'c:/work/proj/src/deep': 1 } });
+    const src = g.top[0]!;
+    const deep = g.folders[src.id]!.children[0]!;
+    expect(src.maxSatellites).toBe(4);
+    expect(deep.maxSatellites).toBe(1);
+    expect(byLabel(g.satellites[src.id]!)).toEqual(['f5.ts', 'f4.ts', 'f3.ts', 'f2.ts']);
+    expect(byLabel(g.satellites[deep.id]!)).toEqual(['f5.ts']);
   });
 
   it('프로젝트 밖은 직속 부모 하나 — 이름은 전체 경로, 파일 없는 외부 폴더(검색 범위만)는 세우지 않는다', () => {
@@ -156,7 +169,7 @@ describe('§5.5 #17-50 — 캔버스와 같은 노드 모양', () => {
     expect([file.fileSize, file.fileMtime]).toEqual([2048, 99]);
   });
 
-  it('같은 종류는 한 자리다 — 사진 둘(한 자리)과 코드 하나가 기본 상한(2) 안에 함께 서고, 사진 사본에 주인 폴더·수·공통 폴더를 싣는다', () => {
+  it('keeps preview bundle metadata alongside document satellites', () => {
     const g = graphOf([
       use(10, 'Read', { file_path: `${ROOT}/img/a.png` }),
       use(20, 'Read', { file_path: `${ROOT}/img/b.png` }),
@@ -164,7 +177,6 @@ describe('§5.5 #17-50 — 캔버스와 같은 노드 모양', () => {
     ]);
     const img = g.top[0]!;
     const sats = g.satellites[img.id]!;
-    // 최근 둘만 자르면 a.png 가 빠진다 — 서버와 같은 `keepSatelliteSeats` 로 같은 미디어 종류는 한 자리.
     expect(byLabel(sats)).toEqual(['c.ts', 'b.png', 'a.png']);
     for (const label of ['a.png', 'b.png']) {
       const png = sats.find((b) => b.label === label)!;
@@ -175,17 +187,89 @@ describe('§5.5 #17-50 — 캔버스와 같은 노드 모양', () => {
     expect(g.nodeMap[sats.find((b) => b.label === 'b.png')!.id]?.folderNodeId).toBeUndefined();
   });
 
-  it('하위 폴더가 다른 같은 종류도 한 자리 · 수와 공통 폴더는 그 폴더 아래 전부 — 묶음 안은 자식을 깊이까지 훑어 다 선다', () => {
+  it('keeps earlier previews when later turns fill the document limit and bundles only matching kinds', () => {
+    const g = graphOf([
+      use(10, 'Read', { file_path: `${ROOT}/assets/a.png` }, { turnId: 'turn-one' }),
+      use(20, 'Read', { file_path: `${ROOT}/assets/deep/b.png` }, { turnId: 'turn-one' }),
+      use(30, 'Read', { file_path: `${ROOT}/assets/sound.wav` }, { turnId: 'turn-one' }),
+      ...Array.from({ length: 4 }, (_, i) => use(100 + i, 'Read', { file_path: `${ROOT}/assets/code${i}.ts` }, { turnId: 'turn-two' })),
+    ], { folderSatelliteMaxes: { 'c:/work/proj/assets': 1 } });
+    const folder = g.top[0]!;
+    const sats = g.satellites[folder.id]!;
+    expect(byLabel(sats)).toEqual(['code3.ts', 'sound.wav', 'b.png', 'a.png']);
+    const view = applyConstellations({
+      radial: g.top, satInfos: collectSatellites(g.top, g.satellites, undefined), appHubs: [], heat: undefined, platform: 'win32',
+      bundleSessionId: S,
+    });
+    const bundle = view.satInfos.find((s) => s.bubble.bubbleType === 'bundle')!;
+    const info = bundleInfoOf(bundle.bubble)!;
+    expect(info.kind).toBe('image');
+    expect(info.sessionId).toBe(S);
+    expect(info.count).toBe(2);
+    expect(view.satInfos.filter((s) => s.parentId === bundle.bubble.id)).toHaveLength(DEFAULT_MAX_SATELLITES);
+    expect(bundleInteriorMembers({ memberIds: info.memberIds, folderId: info.folderId, fileKind: info.kind }, g.nodeMap, g.children, g.satellites)
+      .map((b) => b.label)).toEqual(['b.png', 'a.png']);
+    expect(view.satInfos.some((s) => s.bubble.label === 'sound.wav' && s.parentId === folder.id)).toBe(true);
+  });
+
+  it('retains all preview members across subfolders without consuming document seats', () => {
     const shots = Array.from({ length: 12 }, (_, i) => use(10 + i, 'Read', { file_path: `${ROOT}/assets/attachments/s${String(i)}/shot.png` }));
     const g = graphOf([use(1, 'Read', { file_path: `${ROOT}/assets/old.md` }), ...shots, use(99, 'Read', { file_path: `${ROOT}/assets/new.md` })]);
     const assets = g.top[0]!;
     const sats = g.satellites[assets.id]!;
-    // 두 자리 = [사진 묶음 — 최근 moonMax 장] + 최근 글. 오래된 글은 빠진다.
-    expect(sats.filter((b) => b.label === 'shot.png')).toHaveLength(CONSTELLATION.moonMax);
-    expect(byLabel(sats.filter((b) => b.label.endsWith('.md')))).toEqual(['new.md']);
+    expect(sats.filter((b) => b.label === 'shot.png')).toHaveLength(shots.length);
+    expect(byLabel(sats.filter((b) => b.label.endsWith('.md')))).toEqual(['new.md', 'old.md']);
     for (const b of sats.filter((x) => x.label === 'shot.png')) {
       expect([b.folderNodeId, b.folderKindCount, b.folderKindDir]).toEqual([assets.id, 12, 'assets/attachments']);
     }
+  });
+
+  it('keeps PDF and HTML preview bundles separate from ordinary documents and code', () => {
+    const paths = ['a.pdf', 'b.pdf', 'a.html', 'b.htm', 'readme.md', 'first.ts', 'last.ts'];
+    const g = graphOf(paths.map((name, i) => use(10 + i, 'Read', { file_path: `${ROOT}/assets/${name}` })), {
+      folderSatelliteMaxes: { 'c:/work/proj/assets': 1 },
+    });
+    const folder = g.top[0]!;
+    const sats = g.satellites[folder.id]!;
+    expect(byLabel(sats)).toEqual(['last.ts', 'b.htm', 'a.html', 'b.pdf', 'a.pdf']);
+    expect(sats.filter((b) => b.folderKindCount === 2)).toHaveLength(4);
+    const view = applyConstellations({
+      radial: g.top, satInfos: collectSatellites(g.top, g.satellites, undefined), appHubs: [], heat: undefined, platform: 'win32',
+      bundleSessionId: S,
+    });
+    expect(view.satInfos.filter((s) => s.bubble.bubbleType === 'bundle').map((s) => bundleInfoOf(s.bubble)?.kind).sort())
+      .toEqual(['code', 'doc']);
+  });
+
+  it('uses the selected session bundle satellite limit without narrowing its contents', () => {
+    const g = graphOf(Array.from({ length: 5 }, (_, i) => use(10 + i, 'Read', { file_path: `${ROOT}/assets/shot${i}.png` })), {
+      folderBundleSatelliteMaxes: { 'c:/work/proj/assets': { [`image:${S}`]: 3, 'image:other-session': 1 } },
+    });
+    const view = applyConstellations({
+      radial: g.top, satInfos: collectSatellites(g.top, g.satellites, undefined), appHubs: [], heat: undefined, platform: 'win32',
+      bundleSessionId: S,
+    });
+    const bundle = view.satInfos.find((s) => s.bubble.bubbleType === 'bundle')!;
+    const info = bundleInfoOf(bundle.bubble)!;
+    expect(info.count).toBe(5);
+    expect(view.satInfos.filter((s) => s.parentId === bundle.bubble.id)).toHaveLength(3);
+    expect(bundleInteriorMembers({ memberIds: info.memberIds, folderId: info.folderId, fileKind: info.kind, sessionId: info.sessionId },
+      g.nodeMap, g.children, g.satellites)).toHaveLength(5);
+  });
+
+  it('uses the project root bundle setting for root-level preview files', () => {
+    const g = graphOf(Array.from({ length: 4 }, (_, i) => use(10 + i, 'Read', { file_path: `${ROOT}/shot${i}.png` })), {
+      rootBundleSatelliteMaxes: { [`image:${S}`]: 1 },
+    });
+    const view = applyConstellations({
+      radial: g.top, satInfos: [], appHubs: [], heat: undefined, platform: 'win32', bundleFolder: g.bundleRoot!,
+      bundleSessionId: S,
+    });
+    const info = bundleInfoOf(view.radial[0]!)!;
+    expect(info.count).toBe(4);
+    expect(info.settingsPath).toBe('');
+    expect(info.settingsAbsolutePath).toBe(ROOT);
+    expect(view.satInfos).toHaveLength(1);
   });
 });
 
@@ -358,5 +442,13 @@ describe('§5.5 #17-50 — 정보 칸이 묻는 사실', () => {
     const entry = sessionCanvasEntryOf(g, `sat-${sat.id}`);
     expect(entry?.kind).toBe('file');
     expect(sessionCanvasEntryOf(g, 'sat-bundle-x')).toBeNull();
+  });
+
+  it('resolves a session-scoped preview satellite to its file entry', () => {
+    const g = graphOf([use(10, 'Read', { file_path: `${ROOT}/assets/a.png` })]);
+    const file = g.satellites[g.top[0]!.id]![0]!;
+    const entry = sessionCanvasEntryOf(g, `sat-${file.id}:preview-session:${encodeURIComponent(S)}`);
+    expect(entry?.kind).toBe('file');
+    if (entry?.kind === 'file') expect(entry.file.name).toBe('a.png');
   });
 });

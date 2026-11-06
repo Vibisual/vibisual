@@ -11,13 +11,13 @@ import {
   READ_TOOLS,
   WEB_SEARCH_HOST,
   commandAppGroupKey,
-  fileFaceKindOf,
-  isMediaFaceKind,
+  previewBundleKindOf,
   isPathWithin,
   keepSatelliteSeats,
   kindBundleCommonDir,
   normalizePathShape,
   pathKey,
+  satelliteSourceNodeId,
   type ActivityEdge,
   type BubbleData,
   type KindBundleKind,
@@ -86,12 +86,14 @@ export interface SessionCanvasFolder {
 export interface SessionCanvasGraph {
   /** 가운데 — 캔버스의 그 에이전트 버블(상태만 이 칸의 판정). */
   center: BubbleData;
+  /** 루트 직속 묶음의 설정 소유자. 지도에 별도 버블로 세우지는 않는다. */
+  bundleRoot: BubbleData | null;
   /** 최상위 화면의 원 둘레 — 폴더 · 루트 직속 파일 · 웹 · 명령 앱. */
   top: BubbleData[];
   /** 최상위 화면의 선 — 가운데 ↔ 원 둘레. */
   edges: ActivityEdge[];
   /**
-   * 폴더 id → 위성(최근 자리부터 `DEFAULT_MAX_SATELLITES` 자리 — 같은 미디어 종류는 한 자리). 최상위·폴더 안 화면이 같은 표를 쓴다.
+   * 폴더 id → 위성(일반 문서는 폴더 상한, 미리보기는 별도). 최상위·폴더 안 화면이 같은 표를 쓴다.
    * 묶음이 될 종류의 위성은 서버 사본과 같은 표시 칸(주인 폴더 id · 그 아래 같은 종류 수 · 공통 폴더)을 실은 사본이다.
    */
   satellites: Record<string, BubbleData[]>;
@@ -119,12 +121,20 @@ export interface SessionCanvasInput {
   webSearchLabel: string;
   /** 같은 파일이 캔버스에 떠 있으면 그 크기·수정 시각(지름·미리보기 판본). */
   fileStats?: ((absPath: string) => { fileSize?: number; fileMtime?: number } | undefined) | undefined;
+  /** 캔버스 폴더가 정한 문서 위성 상한. 키는 절대 경로의 `pathKey`다. */
+  folderSatelliteMaxes?: Readonly<Record<string, number>> | undefined;
+  folderBundleSatelliteMaxes?: Readonly<Record<string, Record<string, number>>> | undefined;
+  rootBundleSatelliteMaxes?: Record<string, number> | undefined;
+  /** 묶음 설정·구성이 소속되는 실행 세션. */
+  sessionId?: string | null | undefined;
+  previewBundleSummaries?: Readonly<Record<string, string>> | undefined;
 }
 
 // ─── 닿은 기록 ─────────────────────────────────────────────────────────────
 
 function emptyTouch(): SessionTouch {
   return {
+    historyOnly: true,
     reads: 0, writes: 0, firstAt: Number.POSITIVE_INFINITY, lastAt: Number.NEGATIVE_INFINITY, lastTool: '',
     lastDirection: 'read', turnId: null, pending: false, direct: false, viaTaskKey: null,
   };
@@ -132,6 +142,7 @@ function emptyTouch(): SessionTouch {
 
 /** 두 기록을 합친다 — 횟수는 더하고, "마지막" 칸은 더 늦은 쪽이 갖는다. */
 function mergeTouch(into: SessionTouch, t: SessionTouch): void {
+  if (t.historyOnly !== true) into.historyOnly = false;
   into.reads += t.reads;
   into.writes += t.writes;
   if (t.firstAt < into.firstAt) into.firstAt = t.firstAt;
@@ -152,6 +163,7 @@ function mergeTouch(into: SessionTouch, t: SessionTouch): void {
  * 규칙을 태우고(§2.1 #3), 위성선 방향은 `READ_TOOLS` 로 가른다(`collectSatellites`). 쓰기인데 읽기 도구 이름이면 `Write` 다.
  */
 export function canvasToolOf(t: Pick<SessionTouch, 'lastTool' | 'lastDirection'>): string {
+  if (t.lastTool === '') return '';
   if (t.lastDirection === 'read') return READ_TOOLS.has(t.lastTool) ? t.lastTool : 'Read';
   return READ_TOOLS.has(t.lastTool) || t.lastTool === '' ? 'Write' : t.lastTool;
 }
@@ -263,22 +275,23 @@ function depthOf(node: SessionFolderNode, folders: ReadonlyMap<string, FolderDra
 
 // ─── 노드 ──────────────────────────────────────────────────────────────────
 
-function folderBubble(n: SessionFolderNode, running: boolean): BubbleData {
+function folderBubble(n: SessionFolderNode, input: SessionCanvasInput): BubbleData {
+  const maxSatellites = input.folderSatelliteMaxes?.[n.key];
+  const bundleMaxSatellites = input.folderBundleSatelliteMaxes?.[n.key];
   return {
     id: n.id,
     label: n.label,
     bubbleType: n.internal ? 'internal_folder' : 'external_folder',
     path: n.internal ? (n.relPath ?? n.path) : n.path,
     absolutePath: n.path,
-    status: statusOf(running, n.pending),
+    status: statusOf(input.running, n.pending),
     activity: n.reads + n.writes + n.searches,
-    lastActivity: n.lastAt,
-    lastTool: canvasToolOf(n),
+    ...(n.historyOnly ? {} : { lastActivity: n.lastAt, lastTool: canvasToolOf(n), readCount: n.reads, writeCount: n.writes }),
     // 캔버스와 같은 셈 — 직속 자식 수(하위 폴더 + 직속 파일) · 그 아래에서 만진 파일 수.
     childCount: n.subfolders.length + n.directFiles.length,
     satelliteFileCount: n.files.length,
-    readCount: n.reads,
-    writeCount: n.writes,
+    ...(maxSatellites !== undefined ? { maxSatellites } : {}),
+    ...(bundleMaxSatellites !== undefined ? { bundleMaxSatellites } : {}),
   };
 }
 
@@ -298,31 +311,27 @@ function fileBubble(
     absolutePath: f.path,
     status: statusOf(input.running, f.pending),
     activity: f.reads + f.writes,
-    lastActivity: f.lastAt,
-    lastTool: canvasToolOf(f),
-    readCount: f.reads,
-    writeCount: f.writes,
+    ...(f.historyOnly ? {} : { lastActivity: f.lastAt, lastTool: canvasToolOf(f), readCount: f.reads, writeCount: f.writes }),
+    ...(input.sessionId && previewBundleKindOf(f.path) !== null ? { previewSessionIds: [input.sessionId] } : {}),
     ...(stats?.fileSize !== undefined ? { fileSize: stats.fileSize } : {}),
     ...(stats?.fileMtime !== undefined ? { fileMtime: stats.fileMtime } : {}),
   };
 }
 
 /**
- * §5.1 #2-1 (B)(D) — 폴더 하나의 위성: 서버와 같은 `keepSatelliteSeats`(한 무리의 같은 미디어 종류는 한 자리)로 최근부터 `DEFAULT_MAX_SATELLITES` 자리.
+ * §5.1 #2-1 (B)(D) — 일반 문서는 폴더 상한을 따르고, 미리보기는 별도로 남긴다.
  * 묶음이 될 종류의 위성은 서버 사본과 같은 표시 칸(주인 폴더 id · 그 종류 수 · 함께 든 가장 가까운 폴더)을 싣는다.
  */
-function folderSatellites(n: SessionFolderNode, fileById: ReadonlyMap<string, BubbleData>, platform: PlatformName): BubbleData[] {
+function folderSatellites(n: SessionFolderNode, fileById: ReadonlyMap<string, BubbleData>, platform: PlatformName, cap: number,
+  summaries: Readonly<Record<string, string>> | undefined): BubbleData[] {
   const bubbleOf = (f: SessionFileBubble): BubbleData => fileById.get(ID.file(f.key))!;
   const keep = keepSatelliteSeats(
     n.files.map((f) => ({ id: ID.file(f.key), path: bubbleOf(f).path || f.path, lastActivity: f.lastAt })),
-    DEFAULT_MAX_SATELLITES,
+    cap,
     { platform },
   );
   const kept = n.files.filter((f) => keep.has(ID.file(f.key)));
-  const mediaKindOf = (f: SessionFileBubble): KindBundleKind | null => {
-    const kind = fileFaceKindOf(f.path);
-    return isMediaFaceKind(kind) ? kind : null;
-  };
+  const mediaKindOf = (f: SessionFileBubble): KindBundleKind | null => previewBundleKindOf(f.path);
   const inList = new Map<KindBundleKind, number>();
   for (const f of kept) {
     const kind = mediaKindOf(f);
@@ -332,7 +341,11 @@ function folderSatellites(n: SessionFolderNode, fileById: ReadonlyMap<string, Bu
   for (const [kind, count] of inList) {
     if (count < BUNDLE_BUBBLE.minMembers) continue;
     const all = n.files.filter((f) => mediaKindOf(f) === kind);
-    shown.set(kind, { count: all.length, dir: kindBundleCommonDir(all.map((f) => bubbleOf(f).path || f.path), platform) });
+    const packed = summaries?.[`${n.key}\u0000${kind}`];
+    const summary = packed ? JSON.parse(packed) as [number, string] : null;
+    shown.set(kind, summary && summary[0] >= all.length
+      ? { count: summary[0], dir: summary[1] }
+      : { count: all.length, dir: kindBundleCommonDir(all.map((f) => bubbleOf(f).path || f.path), platform) });
   }
   return kept.map((f) => {
     const base = bubbleOf(f);
@@ -385,7 +398,8 @@ function centerBubble(input: SessionCanvasInput): BubbleData {
 }
 
 /** 선 하나 — 읽기 = 버블 → 주인, 쓰기 = 주인 → 버블(§2.1 #3). */
-function activityEdge(ownerId: string, targetId: string, t: SessionTouch, running: boolean): ActivityEdge {
+function activityEdge(ownerId: string, targetId: string, t: SessionTouch, running: boolean): ActivityEdge | null {
+  if (t.historyOnly === true) return null;
   const read = t.lastDirection === 'read';
   return {
     id: ID.edge(targetId),
@@ -403,6 +417,11 @@ export function buildSessionCanvasGraph(input: SessionCanvasInput): SessionCanva
   const { model, platform, running } = input;
   const root = input.rootPath ? normalizePathShape(input.rootPath).replace(/\/+$/, '') : null;
   const center = centerBubble(input);
+  const bundleRoot: BubbleData | null = root === null ? null : {
+    id: ID.folder(pathKey(root, platform)), label: lastSegment(root), bubbleType: 'root', path: '', absolutePath: root,
+    status: 'idle', activity: 0,
+    ...(input.rootBundleSatelliteMaxes !== undefined ? { bundleMaxSatellites: input.rootBundleSatelliteMaxes } : {}),
+  };
   const { folders, rootFiles } = buildFolders(model, root, platform);
   const entries = new Map<string, SessionCanvasEntry>([[SESSION_CENTER_NODE_ID, { kind: 'center' }]]);
   const nodeMap: Record<string, BubbleData> = {};
@@ -423,12 +442,21 @@ export function buildSessionCanvasGraph(input: SessionCanvasInput): SessionCanva
   for (const draft of folders.values()) {
     for (const f of draft.node.directFiles) fileOf(f);
   }
-  for (const f of rootFiles) fileOf(f);
+  for (const f of rootFiles) {
+    const file = fileOf(f);
+    const kind = previewBundleKindOf(f.path);
+    const packed = kind ? input.previewBundleSummaries?.[`${f.folderKey}\u0000${kind}`] : undefined;
+    if (packed && input.sessionId) {
+      const [count, dir] = JSON.parse(packed) as [number, string];
+      file.previewSessionCounts = { [input.sessionId]: count };
+      file.previewSessionDirs = { [input.sessionId]: dir };
+    }
+  }
 
   // 폴더 — 버블 · 위성 · 폴더 안 화면.
   const folderBubbles = new Map<string, BubbleData>();
   for (const draft of folders.values()) {
-    const b = folderBubble(draft.node, running);
+    const b = folderBubble(draft.node, input);
     folderBubbles.set(b.id, b);
     nodeMap[b.id] = b;
     entries.set(b.id, { kind: 'folder', folder: draft.node });
@@ -438,7 +466,7 @@ export function buildSessionCanvasGraph(input: SessionCanvasInput): SessionCanva
   const children: Record<string, BubbleData[]> = {};
   for (const draft of folders.values()) {
     const n = draft.node;
-    satellites[n.id] = folderSatellites(n, fileById, platform);
+    satellites[n.id] = folderSatellites(n, fileById, platform, input.folderSatelliteMaxes?.[n.key] ?? DEFAULT_MAX_SATELLITES, input.previewBundleSummaries);
     const kids: BubbleData[] = [];
     const innerEdges: ActivityEdge[] = [];
     for (const subId of n.subfolders) {
@@ -446,12 +474,14 @@ export function buildSessionCanvasGraph(input: SessionCanvasInput): SessionCanva
       const subBubble = folderBubbles.get(subId);
       if (!sub || !subBubble) continue;
       kids.push(subBubble);
-      innerEdges.push(activityEdge(n.id, subId, sub, running));
+      const edge = activityEdge(n.id, subId, sub, running);
+      if (edge) innerEdges.push(edge);
     }
     for (const f of n.directFiles) {
       const b = fileById.get(ID.file(f.key))!;
       kids.push(b);
-      innerEdges.push(activityEdge(n.id, b.id, f, running));
+      const edge = activityEdge(n.id, b.id, f, running);
+      if (edge) innerEdges.push(edge);
     }
     children[n.id] = kids;
     folderViews[n.id] = { bubble: folderBubbles.get(n.id)!, children: kids, innerEdges, parentId: n.parentId };
@@ -477,10 +507,11 @@ export function buildSessionCanvasGraph(input: SessionCanvasInput): SessionCanva
   }
   tops.sort((a, b) => a.at - b.at);
 
-  const edges: ActivityEdge[] = tops.map(({ bubble, touch }) => activityEdge(center.id, bubble.id, touch, running));
+  const edges = tops.map(({ bubble, touch }) => activityEdge(center.id, bubble.id, touch, running)).filter((edge): edge is ActivityEdge => edge !== null);
 
   return {
     center,
+    bundleRoot,
     top: tops.map((t) => t.bubble),
     edges,
     satellites,
@@ -493,7 +524,7 @@ export function buildSessionCanvasGraph(input: SessionCanvasInput): SessionCanva
 
 /** 노드 id(위성이면 `sat-` 붙은 것) → 정보 칸의 사실. 묶음 버블처럼 사실이 없는 자리는 null. */
 export function sessionCanvasEntryOf(graph: Pick<SessionCanvasGraph, 'entries'>, nodeId: string): SessionCanvasEntry | null {
-  const id = nodeId.startsWith('sat-') ? nodeId.slice(4) : nodeId;
+  const id = satelliteSourceNodeId(nodeId);
   return graph.entries.get(id) ?? null;
 }
 

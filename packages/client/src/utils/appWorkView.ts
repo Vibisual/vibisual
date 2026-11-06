@@ -1,3 +1,4 @@
+import { satelliteSourceNodeId } from '@vibisual/shared';
 /**
  * §5.4 #36 (I) · §5.1 #2-1 (F) — **앱 작업 보기**(순수): 말풍선에 앱을 잇는 순간부터 그 앱 관련 버블만 보인다.
  * 초점 = 이어진 앱 노드 **전부**(명령·장부는 차례만 정한다 · "버블 전부"/[버블 숨기기]면 없음). 작업물 = `appWork` 꼬리표가 초점 노드를 가리키는 파일 —
@@ -14,6 +15,7 @@ import {
   companionPartnerName,
   fileBaseName,
   fileSequenceOf,
+  isPendingQueuedCommand,
   normalizePathShape,
   pathKey,
   pickAppWorkHub,
@@ -135,7 +137,7 @@ export function appWorkFocusOf(
   };
   const queue = input.queued[agent.id] ?? [];
   for (const cmd of queue) if (cmd.status === 'executing') take(commandAppNodeIds(cmd));
-  for (const cmd of queue) if (cmd.status === 'queued') take(commandAppNodeIds(cmd));
+  for (const cmd of queue) if (isPendingQueuedCommand(cmd)) take(commandAppNodeIds(cmd));
   take(input.activeTaskNodes(agent.id) ?? []);
   const done = input.completed[agent.id] ?? [];
   for (let i = done.length - 1; i >= 0; i -= 1) {
@@ -207,7 +209,7 @@ export function planAppWork(input: AppWorkInput): AppWorkPlan {
   const seenFiles = new Set<string>();
   for (const b of input.files) {
     if (b.bubbleType !== 'file' || !b.appWork) continue;
-    const fileId = b.id.startsWith('sat-') ? b.id.slice(4) : b.id;
+    const fileId = satelliteSourceNodeId(b.id);
     if (seenFiles.has(fileId)) continue;
     seenFiles.add(fileId);
     const tagged = focusedOrder.filter((id) => b.appWork![id] !== undefined);
@@ -242,7 +244,7 @@ export function planAppWork(input: AppWorkInput): AppWorkPlan {
     if (b.bubbleType !== 'file') continue;
     const key = appWorkPathKey(filePathOf(b), input.platform);
     if (!focusedOrder.some((id) => resultKeys.get(id)?.has(key))) continue;
-    const fileId = b.id.startsWith('sat-') ? b.id.slice(4) : b.id;
+    const fileId = satelliteSourceNodeId(b.id);
     keepIds.add(fileId);
     keepIds.add(`sat-${fileId}`);
   }

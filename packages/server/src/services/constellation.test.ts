@@ -410,7 +410,7 @@ describe('kindBundleDirToken — 원 둘레 묶음 id 의 열쇠', () => {
   });
 });
 
-describe('keepSatelliteSeats — 위성 상한은 자리 수(서버 trimSatellites · IDE 세션 지도가 같은 함수)', () => {
+describe('keepSatelliteSeats — document cap excludes previews', () => {
   const opts = { platform: 'win32' as const };
 
   it('상한 안이면 전부 — 판정 없이 지나간다', () => {
@@ -418,29 +418,27 @@ describe('keepSatelliteSeats — 위성 상한은 자리 수(서버 trimSatellit
     expect([...keepSatelliteSeats(files, 2, opts)].sort()).toEqual(['a', 'b']);
   });
 
-  it('하위 폴더가 다른 같은 종류는 한 자리 — 사진 다섯 + 글 둘에 상한 2면 사진 묶음 자리 + 최근 글 하나', () => {
+  it('keeps previews in addition to the document limit', () => {
     const shots = [1, 2, 3, 4, 5].map((n) => f(`p${n}`, `assets/s${n}/shot.png`, { lastActivity: 10 + n }));
     const docs = [f('old', 'assets/old.md', { lastActivity: 1 }), f('new', 'assets/new.md', { lastActivity: 20 })];
     const keep = keepSatelliteSeats([...docs, ...shots], 2, opts);
-    expect([...keep].sort()).toEqual(['new', 'p1', 'p2', 'p3', 'p4', 'p5']);
+    expect([...keep].sort()).toEqual(['new', 'old', 'p1', 'p2', 'p3', 'p4', 'p5']);
   });
 
-  it('한 묶음은 moonMax 까지 — 넘친 오래된 구성은 빠진다', () => {
+  it('keeps all preview members beyond the visible moon limit', () => {
     const total = CONSTELLATION.moonMax + 3;
     const shots = Array.from({ length: total }, (_, i) => f(`p${i}`, `assets/s${i}/shot.png`, { lastActivity: i }));
     const keep = keepSatelliteSeats([f('md', 'assets/a.md', { lastActivity: 99 }), ...shots], 1, opts);
-    // 자리 하나 — 가장 최근 자리(md)가 남고 사진 묶음 자리는 통째로 빠진다.
-    expect([...keep]).toEqual(['md']);
+    expect(keep.size).toBe(1 + total);
     const keepTwo = keepSatelliteSeats([f('md', 'assets/a.md', { lastActivity: 99 }), ...shots], 2, opts);
-    expect(keepTwo.size).toBe(1 + CONSTELLATION.moonMax);
-    expect(keepTwo.has('p0')).toBe(false);
+    expect(keepTwo.size).toBe(1 + total);
+    expect(keepTwo.has('p0')).toBe(true);
     expect(keepTwo.has(`p${total - 1}`)).toBe(true);
   });
 
-  it('서버 trimSatellites 의 옛 셈(등록 차례 = 최근)과 같은 답이다', () => {
-    // 등록 차례: a.ts → clips 영상 셋 → b.ts. 상한 2 → 영상 묶음 자리(가장 최근 구성 index 3) + b.ts(4). a.ts 가 빠진다.
+  it('preserves original order when every document fits', () => {
     const keys = ['media/a.ts', 'media/clips/c1.mp4', 'media/clips/c2.mp4', 'media/clips/c3.mp4', 'media/b.ts'];
     const keep = keepSatelliteSeats(keys.map((key, i) => ({ id: key, path: key, lastActivity: i })), 2, opts);
-    expect(keys.filter((k) => keep.has(k))).toEqual(['media/clips/c1.mp4', 'media/clips/c2.mp4', 'media/clips/c3.mp4', 'media/b.ts']);
+    expect(keys.filter((k) => keep.has(k))).toEqual(keys);
   });
 });

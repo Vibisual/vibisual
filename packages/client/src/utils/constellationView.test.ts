@@ -146,7 +146,7 @@ describe('applyConstellations — 묶음에는 같은 종류만 (사진 속 경�
     });
     const bareInfo = bundleInfoOf(bundles(bareOut)[0]!.bubble);
     expect(bareInfo?.count).toBe(8);
-    expect(bareInfo?.folderId).toBeUndefined();
+    expect(bareInfo?.folderId).toBe(many.id);
   });
 
   it('파일은 중심이 되지 않는다 — 같은 이름의 json 은 영상과 함께 원래 폴더 곁에 남는다', () => {
@@ -380,20 +380,21 @@ describe('applyConstellations — 앱 노드 중심', () => {
         }]]),
       },
     };
-    const out = applyConstellations({ radial: [work], satInfos: sats, appHubs: [hub], heat: undefined, platform: 'win32' });
+    const out = applyConstellations({ radial: [work], satInfos: sats, appHubs: [hub], heat: undefined, platform: 'win32', fileNodes: Object.fromEntries(frames.map((f) => [f.id, f])) });
     const seq = out.satInfos.find((s) => s.bubble.id === 'sat-bundle-f-3');
     expect(seq, JSON.stringify(out.satInfos.map((s) => s.bubble.id))).toBeDefined();
     expect(seq?.bubble.bubbleType).toBe('bundle');
     expect(seq?.bubble.label).toBe('frame_####');
     expect(seq?.parentId).toBe('app-3d');
-    expect(seq?.edge.id).toBe('sat-edge-f-3');
+    expect(seq?.edge.id).toBe('sat-edge-bundle-f-3');
     expect(typeof seq?.seatAngle).toBe('number');
     expect(bundleInfoOf(seq!.bubble)).toMatchObject({ source: 'sequence', kind: 'image', memberIds: ['f-1', 'f-2', 'f-3'], count: 3 });
     // 작업 위성 꼬리표는 그대로 싣는다(앱 색 테 · 작업 궤도의 위성 수).
     expect(tagOf(seq?.bubble)?.work?.sequenceLabel).toBe('frame_####.png');
-    expect(out.satInfos.some((s) => s.bubble.id === 'sat-f-3')).toBe(false);
+    expect(out.satInfos.find((s) => s.bubble.id === 'sat-f-3')?.parentId).toBe(seq!.bubble.id);
     // 연속 번호 묶음은 앱 작업 궤도의 한 자리 그대로다 — 묶음 위성은 같은 폴더 묶음의 규칙이다.
-    expect(out.satInfos.some((s) => s.parentId === seq!.bubble.id)).toBe(false);
+    expect(out.satInfos.filter((s) => s.parentId === seq!.bubble.id)).toHaveLength(DEFAULT_MAX_SATELLITES);
+    expect(bundleInfoOf(seq!.bubble)?.settingsPath).toBe('out');
   });
 });
 
@@ -421,15 +422,15 @@ describe('묶음 버블 도우미', () => {
     expect(bundleInteriorIds({ kind: 'video', memberIds: ['a', 'b', 'c'] }, nodes)).toEqual(['a', 'c']);
   });
 
-  it('묶음 안 구성 id — 상한 안이면 그대로, 넘치면 최근 것부터 원래 차례로', () => {
+  it('묶음 안 구성 id — 페이지 수와 무관하게 원래 구성 차례를 보존한다', () => {
     const small = { kind: 'image' as const, memberIds: ['a', 'b', 'c'] };
     expect(bundleInteriorIds(small, {})).toEqual(['a', 'b', 'c']);
     const many = Array.from({ length: BUNDLE_BUBBLE.interiorMax + 5 }, (_, i) => `m${i}`);
     const nodes = Object.fromEntries(many.map((id, i) => [id, { lastActivity: i, path: `seq/${id}.png`, label: `${id}.png` }]));
     const picked = bundleInteriorIds({ kind: 'image', memberIds: many }, nodes);
-    expect(picked).toHaveLength(BUNDLE_BUBBLE.interiorMax);
-    // 가장 오래된 다섯이 빠지고, 남은 것은 원래 차례(번호 순)다.
-    expect(picked[0]).toBe('m5');
+    expect(picked).toHaveLength(many.length);
+    // 전체 구성은 원래 번호 순서다.
+    expect(picked[0]).toBe('m0');
     expect(picked[picked.length - 1]).toBe(`m${many.length - 1}`);
   });
 });
@@ -541,10 +542,10 @@ describe('묶음 안 구성 — 위성 상한으로 사라졌던 사용한 파�
     expect(out.map((b) => b.id)).toEqual(['f-1', 'f-2', 'f-3']);
   });
 
-  it('상한 `BUNDLE_BUBBLE.interiorMax` 를 넘으면 최근 것부터 그만큼', () => {
+  it('페이지 크기를 넘는 구성도 최근 순서로 모두 조회된다', () => {
     const all = Array.from({ length: BUNDLE_BUBBLE.interiorMax + 7 }, (_, i) => png(i + 1));
     const out = bundleInteriorMembers({ memberIds: [], folderId, fileKind: 'image' }, {}, { [folderId]: all });
-    expect(out).toHaveLength(BUNDLE_BUBBLE.interiorMax);
+    expect(out).toHaveLength(all.length);
     expect(out[0]?.id).toBe(`file-p${all.length}`);
   });
 
@@ -577,7 +578,7 @@ describe('묶음 안 구성 — 위성 상한으로 사라졌던 사용한 파�
     // 구성(위성 목록에 선 것)은 턴 밖이어도 그대로 선다 — 이미 보이던 최근 것이다.
     const view = { memberIds: ['file-s7'], folderId: 'folder-vib', fileKind: 'image' as const };
     const nodeMap = { 'file-s7': shot(7, 'f', false) };
-    const turnOnly = bundleInteriorMembers(view, nodeMap, children, satellites, { openTurnOnly: true });
+    const turnOnly = bundleInteriorMembers(view, nodeMap, children, satellites, { sessionPreviewOnly: true });
     expect(turnOnly.map((b) => b.id)).toEqual(['file-s7', 'file-s6', 'file-s5', 'file-s3']);
     // IDE 세션 지도(표시가 없는 재료)는 켜지 않는다 — 종전대로 다 줍는다.
     expect(bundleInteriorMembers(view, nodeMap, children, satellites)).toHaveLength(7);
@@ -681,44 +682,186 @@ describe('묶음 버블의 위성 — 다른 폴더 버블과 같은 규칙', ()
   });
 });
 
-describe('캔버스 묶음의 구성은 지금 턴의 것만 — 새 명령이 만든 묶음 안에 지난 턴 것이 남지 않는다', () => {
-  // 사진 속 경우 — `.vibisual` 위성 목록에 다른 에이전트의 지난 그림 셋 + 이 에이전트의 앞 명령 그림 하나 + 지금 명령 그림 둘.
-  const vib = folder('folder-vib', '.vibisual');
-  const shot = (n: number, sub: string, lastActivity: number, inOpenTurn: boolean): BubbleData =>
-    file(`file-${sub}-${n}`, `.vibisual/attachments/${sub}/${n}.png`, {
-      lastTool: 'Read', lastActivity, ...(inOpenTurn ? { inOpenTurn: true } : {}), folderNodeId: vib.id, folderKindCount: 2,
-    });
-  const past = [shot(1, 'other', 10, false), shot(2, 'other', 11, false), shot(3, 'other', 12, false), shot(4, 'prev', 20, false)];
-  const now = [shot(5, 'now', 31, true), shot(6, 'now', 30, true)];
-  const run = (members: BubbleData[], openTurnOnly: boolean): ReturnType<typeof applyConstellations> =>
-    applyConstellations({
-      radial: [vib],
-      satInfos: collectSatellites([vib], { [vib.id]: members }, undefined),
-      appHubs: [],
-      heat: undefined,
-      platform: 'win32',
-      openTurnOnly,
-    });
+describe('preview bundles ignore sessions on the canvas', () => {
+  const parent = folder('folder-assets', 'assets', { maxSatellites: 1, bundleMaxSatellites: { image: 3 } });
+  const shot = (id: string, sessions: string[], extra: Partial<BubbleData> = {}): BubbleData =>
+    file(id, `assets/${id}.png`, { previewSessionIds: sessions, inSessionPreview: true, folderNodeId: parent.id, ...extra });
+  const run = (members: BubbleData[]) => applyConstellations({
+    radial: [parent], satInfos: collectSatellites([parent], { [parent.id]: members }, undefined),
+    appHubs: [], heat: undefined, platform: 'win32',
+  });
+  const uniqueIds = (out: ReturnType<typeof applyConstellations>): boolean => {
+    const ids = [...out.radial.map((node) => node.id), ...out.satInfos.map((node) => node.bubble.id)];
+    return new Set(ids).size === ids.length;
+  };
 
-  it('구성 · 수 · 묶음 위성은 이번 명령의 둘뿐이고, 지난 그림은 낱자리로도 서지 않는다', () => {
-    const out = run([...past, ...now], true);
+  it('bundles one preview kind across sessions under one moon limit', () => {
+    const members = [shot('a1', ['session-a']), shot('a2', ['session-a']), shot('a3', ['session-a']),
+      shot('b1', ['session-b']), shot('b2', ['session-b']), shot('b3', ['session-b'])];
+    const out = run(members);
     const made = bundles(out);
     expect(made).toHaveLength(1);
-    const info = bundleInfoOf(made[0]!.bubble);
-    expect(info?.memberIds).toEqual(['file-now-5', 'file-now-6']); // 종전: 여섯 장 전부
-    expect(info?.count).toBe(2);
-    expect(out.satInfos.filter((s) => s.parentId === made[0]!.bubble.id).map((s) => s.bubble.id)).toEqual(['sat-file-now-5', 'sat-file-now-6']);
-    for (const p of past) expect(out.satInfos.some((s) => s.bubble.id === `sat-${p.id}`)).toBe(false);
+    const info = bundleInfoOf(made[0]!.bubble)!;
+    expect(info.sessionId).toBeUndefined();
+    expect(info.count).toBe(6);
+    expect([...info.memberIds].sort()).toEqual(members.map((m) => m.id).sort());
+    expect(out.satInfos.filter((m) => m.parentId === made[0]!.bubble.id)).toHaveLength(3);
+    expect(uniqueIds(out)).toBe(true);
   });
 
-  it('턴의 것이 하나도 없으면(확인했다) 묶음도 서지 않고 지난 그림도 내놓지 않는다', () => {
-    const out = run(past, true);
-    expect(bundles(out)).toHaveLength(0);
-    expect(out.satInfos.some((s) => s.bubble.label.endsWith('.png'))).toBe(false);
+  it('bundles two HTML previews used by different sessions or without a session record', () => {
+    const pages = [
+      file('forklift', 'assets/forklift.html', { previewSessionIds: [], inSessionPreview: true, folderNodeId: parent.id }),
+      file('quest', 'assets/quest.html', { previewSessionIds: ['session-a', 'session-b'], inSessionPreview: true, folderNodeId: parent.id }),
+    ];
+    const out = run(pages);
+    const made = bundles(out);
+    expect(made).toHaveLength(1);
+    const info = bundleInfoOf(made[0]!.bubble)!;
+    expect(info).toMatchObject({ kind: 'code', count: 2 });
+    expect(info.sessionId).toBeUndefined();
+    expect([...info.memberIds].sort()).toEqual(['forklift', 'quest']);
+    expect(out.satInfos.filter((s) => s.parentId === parent.id).map((s) => s.bubble.id)).toEqual([made[0]!.bubble.id]);
+    expect(uniqueIds(out)).toBe(true);
   });
 
-  it('스위치를 켜지 않은 화면(IDE 세션 지도)은 종전대로 구성 전부다', () => {
-    const out = run([...past, ...now], false);
-    expect(bundleInfoOf(bundles(out)[0]!.bubble)?.memberIds).toHaveLength(past.length + now.length);
+  it('bundles radial files across sessions without leaving session copies behind', () => {
+    const out = applyConstellations({ radial: [shot('shared', ['session-a', 'session-b']), shot('a', ['session-a']), shot('n', [])],
+      satInfos: [], appHubs: [], heat: undefined, platform: 'win32' });
+    const made = out.radial.filter((node) => node.bubbleType === 'bundle');
+    expect(made).toHaveLength(1);
+    expect(bundleInfoOf(made[0]!)).toMatchObject({ count: 3 });
+    expect(bundleInfoOf(made[0]!)?.sessionId).toBeUndefined();
+    expect(out.radial.some((node) => node.bubbleType === 'file')).toBe(false);
+    expect(uniqueIds(out)).toBe(true);
+  });
+
+  it('uses the server kind total, folder and kind setting on the canvas', () => {
+    const owner = { ...parent, bundleMaxSatellites: { image: 1, 'image:session-a': 3 } };
+    const members = [shot('a', ['session-a']), shot('b', ['session-b'])].map((n) => ({ ...n,
+      previewSessionCounts: { '': 900, 'session-a': 450, 'session-b': 450 },
+      previewSessionDirs: { '': 'assets/all', 'session-a': 'assets/a' } }));
+    const out = applyConstellations({ radial: [owner], satInfos: collectSatellites([owner], { [owner.id]: members }, undefined),
+      appHubs: [], heat: undefined, platform: 'win32' });
+    const made = bundles(out)[0]!;
+    expect(bundleInfoOf(made.bubble)).toMatchObject({ count: 900, folder: 'assets/all', maxSatellites: 1 });
+    expect(out.satInfos.filter((n) => n.parentId === made.bubble.id)).toHaveLength(1);
+  });
+
+  it('labels an IDE session map bundle with that session, its total and its setting', () => {
+    const owner = { ...parent, bundleMaxSatellites: { 'image:session-a': 1 } };
+    const members = [shot('a', ['session-a']), shot('b', ['session-a'])].map((n) => ({ ...n,
+      previewSessionCounts: { 'session-a': 900 }, previewSessionDirs: { 'session-a': 'assets/all' } }));
+    const out = applyConstellations({ radial: [owner], satInfos: collectSatellites([owner], { [owner.id]: members }, undefined),
+      appHubs: [], heat: undefined, platform: 'win32', bundleSessionId: 'session-a' });
+    const made = bundles(out)[0]!;
+    expect(bundleInfoOf(made.bubble)).toMatchObject({ sessionId: 'session-a', count: 900, folder: 'assets/all', maxSatellites: 1 });
+    expect(out.satInfos.filter((n) => n.parentId === made.bubble.id).map((n) => n.bubble.id))
+      .toEqual(['sat-a:preview-session:session-a']);
+  });
+
+  it('filters interior seed and expanded members by session and preview kind', () => {
+    const a = shot('a', ['session-a']);
+    const b = shot('b', ['session-b']);
+    const pdf = file('pdf', 'assets/readme.pdf', { previewSessionIds: ['session-a'], inSessionPreview: true });
+    const nodeMap = Object.fromEntries([a, b, pdf].map((n) => [n.id, n]));
+    expect(bundleInteriorMembers({ memberIds: ['a', 'b'], folderId: parent.id, fileKind: 'image', sessionId: 'session-a' },
+      nodeMap, { [parent.id]: [a, b, pdf] }, {}, { sessionPreviewOnly: true }).map((m) => m.id)).toEqual(['a']);
+    expect(bundleInteriorMembers({ memberIds: ['a', 'b'], folderId: parent.id, fileKind: 'image' },
+      nodeMap, { [parent.id]: [a, b, pdf] }, {}, { sessionPreviewOnly: true }).map((m) => m.id)).toEqual(['a', 'b']);
+  });
+
+  it('groups PDF and HTML previews separately without absorbing text documents', () => {
+    const docs = [file('p1', 'assets/1.pdf'), file('p2', 'assets/2.pdf'), file('h1', 'assets/1.html'),
+      file('h2', 'assets/2.htm'), file('md', 'assets/readme.md'), file('ts', 'assets/index.ts')];
+    const out = run(docs);
+    expect(bundles(out).map((b) => bundleInfoOf(b.bubble)?.kind).sort()).toEqual(['code', 'doc']);
+    expect(out.satInfos.find((m) => m.bubble.id === 'sat-md')?.parentId).toBe(parent.id);
+    expect(out.satInfos.find((m) => m.bubble.id === 'sat-ts')?.parentId).toBe(parent.id);
+  });
+
+  it('restores bundle moons from their saved positions', () => {
+    const members = [shot('a', ['session-a']), shot('b', ['session-b'])];
+    const saved = { 'sat-a': { x: 10, y: 20 }, 'sat-b': { x: 80, y: 90 } };
+    const out = applyConstellations({ radial: [parent], satInfos: collectSatellites([parent], { [parent.id]: members }, undefined),
+      appHubs: [], heat: undefined, platform: 'win32', satellitePositions: saved });
+    const made = bundles(out)[0]!;
+    for (const [id, position] of Object.entries(saved)) {
+      const moon = out.satInfos.find((m) => m.bubble.id === id);
+      expect(moon?.parentId).toBe(made.bubble.id);
+      expect(moon?.bubble.position).toEqual(position);
+    }
+  });
+
+  it('applies preview grouping under an app hub while retaining the owning folder settings', () => {
+    const owner = folder('assets', 'assets', { bundleMaxSatellites: { image: 1 } });
+    const members = [file('a', 'assets/a.png', { previewSessionIds: ['session-a'], folderNodeId: owner.id }),
+      file('b', 'assets/b.png', { previewSessionIds: ['session-b'], folderNodeId: owner.id })];
+    const hub = { id: 'app-image', label: 'Images', size: 200, linksHidden: false, results: members.map((f) => f.absolutePath!), parts: [], codeParts: [] };
+    const out = applyConstellations({ radial: [owner], satInfos: collectSatellites([owner], { [owner.id]: members }, undefined),
+      appHubs: [hub], heat: undefined, platform: 'win32' });
+    const made = bundles(out)[0]!;
+    expect(made.parentId).toBe(hub.id);
+    expect(bundleInfoOf(made.bubble)).toMatchObject({ count: 2, settingsPath: 'assets', folderId: owner.id, maxSatellites: 1 });
+    expect(bundleInfoOf(made.bubble)?.sessionId).toBeUndefined();
+    expect(out.satInfos.filter((n) => n.parentId === made.bubble.id)).toHaveLength(1);
+  });
+});
+
+describe('폴더 위성 — 문서는 낱자리, 같은 종류 미리보기는 묶음 하나, 묶음은 문서 칸을 쓰지 않는다', () => {
+  const vib = folder('folder-vib', '.vibisual');
+  /** 세션마다 따로 든 첨부 사진 — 서버가 그 폴더 전체로 센 수(`folderKindCount`)와 공통 폴더(`folderKindDir`)를 싣는다. */
+  const shot = (id: string, dir: string, session: string, at: number): BubbleData =>
+    file(id, `.vibisual/attachments/${dir}/${id}.png`, {
+      lastTool: 'Read', lastActivity: at, previewSessionIds: [session], inSessionPreview: true,
+      folderNodeId: vib.id, folderKindCount: 15, folderKindDir: '.vibisual/attachments',
+    });
+  const images = [
+    shot('4abc', 'custom-439/sub-khxg7', 'sub-khxg7', 60),
+    shot('521b', 'custom-439/sub-kkjmz', 'sub-kkjmz', 50),
+    shot('1f0c', 'custom-437/sub-kmutn', 'sub-kmutn', 40),
+    shot('bc71', 'custom-439/sub-km61z', 'sub-km61z', 70),
+    shot('3f1b', 'custom-439/sub-tyz7h', 'sub-tyz7h', 20),
+    shot('c67b', 'custom-439/sub-tyz7h', 'sub-tyz7h', 30),
+  ];
+  const logs = [
+    file('log-a', '.vibisual/reports/media-compute-video-tests-final.log', { lastTool: 'Read', lastActivity: 1 }),
+    file('log-b', '.vibisual/reports/media-compute-typecheck-final.log', { lastTool: 'Read', lastActivity: 2 }),
+  ];
+  const run = (members: BubbleData[]) => applyConstellations({
+    radial: [vib], satInfos: collectSatellites([vib], { [vib.id]: members }, undefined),
+    appHubs: [], heat: undefined, platform: 'win32',
+  });
+
+  it('세션·하위 폴더가 다 다른 사진도 묶음 하나로 접히고, 문서 둘은 그 곁에 낱자리로 남는다', () => {
+    const out = run([...logs, ...images]);
+    const made = bundles(out);
+    expect(made).toHaveLength(1);
+    const bundle = made[0]!;
+    expect(bundle.bubble.label).toBe('attachments');
+    const info = bundleInfoOf(bundle.bubble)!;
+    expect(info).toMatchObject({ kind: 'image', count: 15, folder: '.vibisual/attachments' });
+    expect(info.sessionId).toBeUndefined();
+    // 폴더를 바로 도는 것은 문서 둘 + 사진 묶음 하나 — 사진은 낱자리로 서지 않는다.
+    expect(out.satInfos.filter((s) => s.parentId === vib.id).map((s) => s.bubble.id).sort())
+      .toEqual([bundle.bubble.id, 'sat-log-a', 'sat-log-b'].sort());
+    // 묶음의 위성은 최근 둘(기본 상한) — 세션별 사본 id 가 아니다.
+    expect(out.satInfos.filter((s) => s.parentId === bundle.bubble.id).map((s) => s.bubble.id)).toEqual(['sat-bc71', 'sat-4abc']);
+    expect(out.satInfos.some((s) => s.bubble.id.includes(':preview-session:'))).toBe(false);
+  });
+
+  it('묶음은 폴더의 문서 칸을 쓰지 않는다 — 거느릴 수 = 문서 상한 + 묶음, 묶음의 위성은 제 상한 그대로', () => {
+    const out = run([...logs, ...images]);
+    const bundle = bundles(out)[0]!;
+    for (const s of out.satInfos.filter((m) => m.parentId === vib.id)) expect(s.parentSlots).toBe(DEFAULT_MAX_SATELLITES + 1);
+    for (const s of out.satInfos.filter((m) => m.parentId === bundle.bubble.id)) expect(s.parentSlots).toBe(BUNDLE_SATELLITE_MAX);
+  });
+
+  it('하나뿐인 미리보기도 문서 칸을 쓰지 않는다 · 미리보기가 없으면 거느릴 수는 문서 상한 그대로', () => {
+    const lone = run([...logs, images[0]!]);
+    expect(bundles(lone)).toHaveLength(0);
+    for (const s of lone.satInfos) expect(s.parentSlots).toBe(DEFAULT_MAX_SATELLITES + 1);
+    const docsOnly = run(logs);
+    for (const s of docsOnly.satInfos) expect(s.parentSlots).toBe(DEFAULT_MAX_SATELLITES);
   });
 });

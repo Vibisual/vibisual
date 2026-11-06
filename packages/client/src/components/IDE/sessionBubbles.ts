@@ -1,7 +1,6 @@
 /**
- * §5.5 #17-50 [버블] — 대화 칸의 도구 호출 → 이 세션만의 버블 모델(순수). 프로젝트 그래프를 빌리지 않고 그 칸의 스트림 이벤트만 읽는다
- * (캔버스 노드 모양으로 옮기는 것은 `sessionCanvasGraph.ts`). 판정은 캔버스와 같은 함수(셸 경로·명령 앱·웹 호스트·`pathKey`) — 두 벌이면 캔버스에 뜨는 파일이 여기선 안 뜬다.
- * 도구 호출 해석은 이벤트 객체별 `WeakMap` 캐시 — 매번 전량을 모아도 새 줄만 해석된다.
+ * §5.5 #17-50 — 세션 도구 호출과 대화에 내건 파일로 버블 모델을 만들고, 서버가 확인한 세션 미리보기 경로만 보충한다.
+ * 경로 보충은 호출 횟수·방향을 만들지 않는다. 호출 해석은 이벤트 객체별 WeakMap 캐시를 쓴다.
  */
 import {
   BASH_READ_PATH_LIMIT,
@@ -13,14 +12,17 @@ import {
   isAbsoluteShellPath,
   mergeCommandAppTarget,
   isPathWithin,
+  isPreviewBundleFile,
   isShellToolName,
   joinShellPath,
   normalizePathShape,
   pathKey,
+  presentedFilesIn,
   shellDialectOfTool,
   toNativeDriveShellPath,
   webHostFromUrl,
   type CommandAppTarget,
+  type LinkTarget,
   type PlatformName,
   type QueuedCommand,
   type SubAgent,
@@ -43,6 +45,8 @@ export type SessionTouchDirection = 'read' | 'write';
 
 /** 한 버블에 닿은 기록. 표시가 쓰는 사실만 든다. */
 export interface SessionTouch {
+  /** 세션 소유권만 복원됐고 도구 호출 기록은 아직 불러오지 않았다. */
+  historyOnly?: boolean;
   reads: number;
   writes: number;
   /** 처음 닿은 시각 — 궤도·위성 칸 순서(자리 고정)의 근거. */
@@ -153,6 +157,8 @@ export interface SessionBubbleInput {
   /** 그 칸의 프로젝트 루트 — 안팎 판정·상대 경로 풀기의 기준. 모르면 null(상대 경로는 버린다). */
   rootPath: string | null;
   platform: PlatformName;
+  /** 서버가 이 세션의 것으로 확인한 미리보기 경로. 호출 횟수·방향은 복원하지 않는다. */
+  previewPaths?: readonly string[];
 }
 
 // ─── 도구 호출 해석 ──────────────────────────────────────────────────────────
@@ -297,6 +303,25 @@ function parseCall(evt: SubAgentStreamEvent, rootPath: string | null, platform: 
   return EMPTY_CALL;
 }
 
+/** §5.25 (O) — 대화에 내건 파일에 붙이는 도구 이름. 캔버스(`routePresentedFiles`)와 같은 읽기다. */
+const PRESENTED_TOOL = 'Read';
+
+const NO_TARGETS: readonly LinkTarget[] = [];
+
+/** 이벤트 하나가 내건 파일 — 그림 보기 줄은 그 그림, AI 본문은 링크. 이벤트 객체에 매인다(지도는 글이 흐르는 동안 자주 다시 짓는다). */
+const presentedCache = new WeakMap<SubAgentStreamEvent, { platform: PlatformName; targets: readonly LinkTarget[] }>();
+
+function presentedOf(evt: SubAgentStreamEvent, platform: PlatformName): readonly LinkTarget[] {
+  if (evt.eventType !== 'text') return NO_TARGETS;
+  const hit = presentedCache.get(evt);
+  if (hit && hit.platform === platform) return hit.targets;
+  const targets = evt.imagePath
+    ? (isPreviewBundleFile(evt.imagePath) ? [{ path: evt.imagePath, relative: false }] : NO_TARGETS)
+    : presentedFilesIn(evt.content, platform);
+  presentedCache.set(evt, { platform, targets });
+  return targets;
+}
+
 /** 해석 결과는 이벤트 객체에 매인다 — 루트·플랫폼이 같을 때만 다시 쓴다. */
 const parseCache = new WeakMap<SubAgentStreamEvent, { ctx: string; call: ParsedCall }>();
 
@@ -350,6 +375,11 @@ function baseName(path: string): string {
   return shaped.split('/').filter(Boolean).pop() ?? shaped;
 }
 
+export function sessionPreviewFileOf(path: string, platform: PlatformName): SessionFileBubble {
+  return { ...newTouch(0, '', 'read', null), historyOnly: true, key: pathKey(path, platform), path,
+    name: baseName(path), folderKey: pathKey(parentPath(path), platform) };
+}
+
 function relativeTo(path: string, rootPath: string, platform: PlatformName): string {
   const root = normalizePathShape(rootPath);
   if (pathKey(path, platform) === pathKey(root, platform)) return '';
@@ -371,7 +401,7 @@ function pushRecent(list: string[], value: string, max: number): void {
 }
 
 /**
- * 스트림 → 세션 버블 모델. 도구 호출(`tool_use`)만 세고, 결과는 `toolUseId` 짝으로 끝남만 가린다(짝 id 없는 옛 줄은 끝난 것으로).
+ * 스트림 → 세션 버블 모델. 도구 호출(`tool_use`)과 대화에 내건 파일(§5.25 (O) — 읽기 한 번, 호출 수엔 안 든다)을 세고, 결과는 `toolUseId` 짝으로 끝남만 가린다(짝 id 없는 옛 줄은 끝난 것으로).
  * 중첩 서브에이전트의 호출(`nestedUnderToolUseId`)은 그 서브에이전트 버블을 거친 것으로. 정렬은 처음 닿은 순서(앞의 것은 자리를 지킨다).
  */
 export function buildSessionBubbles(input: SessionBubbleInput): SessionBubbleModel {
@@ -385,6 +415,38 @@ export function buildSessionBubbles(input: SessionBubbleInput): SessionBubbleMod
   const taskKeyByUseId = new Map<string, string>();
   let toolCalls = 0;
 
+  /** 파일·폴더 한 칸을 더한다 — 도구 호출과 내건 파일이 같은 길을 쓴다. 파일이면 그 열쇠를 돌려준다. */
+  const touchPath = (
+    t: ParsedTouch, at: number, tool: string, turnId: string | null, pending: boolean, viaTaskKey: string | null,
+  ): string | null => {
+    const folderPath = t.kind === 'file' ? parentPath(t.path) : t.path;
+    const folderKey = pathKey(folderPath, platform);
+    let folder = folders.get(folderKey);
+    if (!folder) {
+      const internal = rootPath !== null && isPathWithin(folderPath, rootPath, platform);
+      folder = {
+        ...newTouch(at, tool, t.direction, turnId), key: folderKey, path: folderPath, internal,
+        relPath: internal && rootPath ? relativeTo(folderPath, rootPath, platform) : null,
+        searches: 0, files: [],
+      };
+      folders.set(folderKey, folder);
+    }
+    addTouch(folder, at, tool, t.direction, turnId, pending, viaTaskKey);
+    if (t.kind === 'folder') {
+      if (t.search) folder.searches += 1;
+      return null;
+    }
+    const fileKey = pathKey(t.path, platform);
+    let file = files.get(fileKey);
+    if (!file) {
+      file = { ...newTouch(at, tool, t.direction, turnId), key: fileKey, path: t.path, name: baseName(t.path), folderKey };
+      files.set(fileKey, file);
+      folder.files.push(file);
+    }
+    addTouch(file, at, tool, t.direction, turnId, pending, viaTaskKey);
+    return fileKey;
+  };
+
   for (const stream of input.streams) {
     const anchors: TurnAnchor[] = dispatchedTurnAnchorsAsc(stream.commands);
     // 결과가 온 호출 id — 짝 판정은 id 로만 한다(FIFO 짝은 끝내 안 오는 호출 하나에 전부 밀린다).
@@ -392,7 +454,24 @@ export function buildSessionBubbles(input: SessionBubbleInput): SessionBubbleMod
     for (const evt of stream.events) {
       if (evt.eventType === 'tool_result' && evt.toolUseId) answered.add(evt.toolUseId);
     }
+    // 턴마다 만진 파일 — 내건 파일은 한 턴에 한 번, 그 턴에 도구로 이미 만진 파일은 다시 세지 않는다(캔버스와 같다).
+    const turnFiles = new Set<string>();
     for (const evt of stream.events) {
+      if (evt.eventType === 'text') {
+        const shown = presentedOf(evt, platform);
+        if (shown.length === 0) continue;
+        const turnId = turnOfEvent(evt, anchors);
+        const viaTaskKey = evt.nestedUnderToolUseId ? (taskKeyByUseId.get(evt.nestedUnderToolUseId) ?? null) : null;
+        for (const s of shown) {
+          const path = resolveSessionPath(s.path, rootPath, platform);
+          if (path === null) continue;
+          const seen = `${turnId ?? ''}\u0000${pathKey(path, platform)}`;
+          if (turnFiles.has(seen)) continue;
+          turnFiles.add(seen);
+          touchPath({ kind: 'file', path, direction: 'read', search: false }, evt.timestamp, PRESENTED_TOOL, turnId, false, viaTaskKey);
+        }
+        continue;
+      }
       if (evt.eventType !== 'tool_use') continue;
       toolCalls += 1;
       const call = parsedCallOf(evt, rootPath, platform);
@@ -416,31 +495,8 @@ export function buildSessionBubbles(input: SessionBubbleInput): SessionBubbleMod
       }
 
       for (const t of call.touches) {
-        const folderPath = t.kind === 'file' ? parentPath(t.path) : t.path;
-        const folderKey = pathKey(folderPath, platform);
-        let folder = folders.get(folderKey);
-        if (!folder) {
-          const internal = rootPath !== null && isPathWithin(folderPath, rootPath, platform);
-          folder = {
-            ...newTouch(at, tool, t.direction, turnId), key: folderKey, path: folderPath, internal,
-            relPath: internal && rootPath ? relativeTo(folderPath, rootPath, platform) : null,
-            searches: 0, files: [],
-          };
-          folders.set(folderKey, folder);
-        }
-        addTouch(folder, at, tool, t.direction, turnId, pending, viaTaskKey);
-        if (t.kind === 'folder') {
-          if (t.search) folder.searches += 1;
-          continue;
-        }
-        const fileKey = pathKey(t.path, platform);
-        let file = files.get(fileKey);
-        if (!file) {
-          file = { ...newTouch(at, tool, t.direction, turnId), key: fileKey, path: t.path, name: baseName(t.path), folderKey };
-          files.set(fileKey, file);
-          folder.files.push(file);
-        }
-        addTouch(file, at, tool, t.direction, turnId, pending, viaTaskKey);
+        const fileKey = touchPath(t, at, tool, turnId, pending, viaTaskKey);
+        if (fileKey !== null) turnFiles.add(`${turnId ?? ''}\u0000${fileKey}`);
       }
 
       if (call.web) {
@@ -473,6 +529,28 @@ export function buildSessionBubbles(input: SessionBubbleInput): SessionBubbleMod
         if (call.command) pushRecent(app.commands, clampCommand(call.command), SESSION_BUBBLE_KEEP.appCommands);
       }
     }
+  }
+
+  for (const previewPath of input.previewPaths ?? []) {
+    const path = resolveSessionPath(previewPath, rootPath, platform);
+    if (path === null || !isPreviewBundleFile(path)) continue;
+    const key = pathKey(path, platform);
+    if (files.has(key)) continue;
+    const folderPath = parentPath(path);
+    const folderKey = pathKey(folderPath, platform);
+    let folder = folders.get(folderKey);
+    if (!folder) {
+      const internal = rootPath !== null && isPathWithin(folderPath, rootPath, platform);
+      folder = {
+        ...newTouch(0, '', 'read', null), historyOnly: true, key: folderKey, path: folderPath, internal,
+        relPath: internal && rootPath ? relativeTo(folderPath, rootPath, platform) : null,
+        searches: 0, files: [],
+      };
+      folders.set(folderKey, folder);
+    }
+    const file = sessionPreviewFileOf(path, platform);
+    files.set(key, file);
+    folder.files.push(file);
   }
 
   const byFirst = <T extends SessionTouch>(a: T, b: T): number => a.firstAt - b.firstAt;

@@ -30,11 +30,12 @@ const done = (ts: number, toolUseId: string): SubAgentStreamEvent => ev(ts, 'too
 const cmd = (id: string, ts: number): QueuedCommand =>
   ({ id, text: `prompt ${id}`, timestamp: ts, subAgentId: S, status: 'completed', startedAt: ts }) as QueuedCommand;
 
-function build(events: SubAgentStreamEvent[], opts: { root?: string | null; platform?: 'win32' | 'linux' | 'darwin'; commands?: QueuedCommand[] } = {}): SessionBubbleModel {
+function build(events: SubAgentStreamEvent[], opts: { root?: string | null; platform?: 'win32' | 'linux' | 'darwin'; commands?: QueuedCommand[]; previewPaths?: readonly string[] } = {}): SessionBubbleModel {
   return buildSessionBubbles({
     streams: [{ events, commands: opts.commands ?? [] }],
     rootPath: opts.root === undefined ? ROOT : opts.root,
     platform: opts.platform ?? 'win32',
+    ...(opts.previewPaths ? { previewPaths: opts.previewPaths } : {}),
   });
 }
 
@@ -60,6 +61,16 @@ describe('§5.5 #17-50 (C) — 지도는 세션 하나', () => {
 });
 
 describe('§5.5 #17-50 — 파일·폴더', () => {
+  it('prefers loaded tool records over snapshot-only preview paths', () => {
+    const path = `${ROOT}/assets/a.png`;
+    const model = build([use(10, 'Read', { file_path: path })], { previewPaths: [path, `${ROOT}/assets/b.png`, `${ROOT}/assets/note.md`] });
+    expect([model.fileCount, model.readCount, model.writeCount]).toEqual([2, 1, 0]);
+    const files = model.folders[0]!.files;
+    expect(files.find((file) => file.name === 'a.png')?.historyOnly).toBeUndefined();
+    expect(files.find((file) => file.name === 'b.png')?.historyOnly).toBe(true);
+    expect(model.folders[0]?.historyOnly).toBeUndefined();
+  });
+
   it('파일은 직속 폴더 밑 위성이 되고, 프로젝트 안이면 상대 경로·내부 폴더다', () => {
     const m = build([
       use(10, 'Read', { file_path: 'C:\\work\\proj\\src\\a.ts' }),
@@ -332,5 +343,42 @@ describe('§5.5 #17-50 — 자리 고정 · 해석 캐시', () => {
     const b = { ...use(20, 'Task', { description: 'B' }, { toolUseId: 'same' }), subAgentId: 'sub-2' } as SubAgentStreamEvent;
     const m = buildSessionBubbles({ streams: [{ events: [a], commands: [] }, { events: [b], commands: [] }], rootPath: ROOT, platform: 'win32' });
     expect(m.tasks.map((t) => t.description)).toEqual(['A', 'B']);
+  });
+});
+
+describe('§5.25 (O) — 대화에 내건 파일도 지도의 버블이다', () => {
+  const fileNamed = (m: SessionBubbleModel, name: string) =>
+    m.folders.flatMap((f) => f.files).find((f) => f.name === name);
+
+  it('그림 보기 줄과 본문 링크는 읽기 한 번 — 도구 호출 수에는 안 든다', () => {
+    const m = build([
+      ev(10, 'text', { content: 'texture-sheet.png', imagePath: 'C:\\work\\proj\\.vibisual\\tmp\\texture-sheet.png', turnId: 'c1' }),
+      ev(20, 'text', { content: '[검수표](Docs/검수표.html) [코드](src/app.ts) `[예시](C:/x/inline.png)`', turnId: 'c1' }),
+    ]);
+    expect(m.toolCalls).toBe(0);
+    expect(fileNamed(m, 'texture-sheet.png')).toMatchObject({ reads: 1, writes: 0, lastTool: 'Read', lastDirection: 'read', turnId: 'c1' });
+    expect(fileNamed(m, '검수표.html')?.path).toBe(`${ROOT}/Docs/검수표.html`);
+    expect(fileNamed(m, 'app.ts')).toBeUndefined();
+    expect(fileNamed(m, 'inline.png')).toBeUndefined();
+  });
+
+  it('같은 턴에 같은 파일은 한 번 · 그 턴에 도구로 만진 결과물은 다시 세지 않는다 · 다음 턴은 다시', () => {
+    const sheet = `${ROOT}/out/sheet.png`;
+    const m = build([
+      use(10, 'Write', { file_path: `${ROOT}/out/report.html`, content: 'x' }, { turnId: 'c1' }),
+      ev(20, 'text', { content: `[보고서](${ROOT}/out/report.html) ![시트](${sheet})`, turnId: 'c1' }),
+      ev(21, 'text', { content: 'sheet.png', imagePath: sheet, turnId: 'c1' }),
+      ev(30, 'text', { content: `![시트](${sheet})`, turnId: 'c2' }),
+    ]);
+    expect(fileNamed(m, 'report.html')).toMatchObject({ reads: 0, writes: 1, lastDirection: 'write' });
+    expect(fileNamed(m, 'sheet.png')).toMatchObject({ reads: 2, turnId: 'c2' });
+  });
+
+  it('중첩 서브에이전트가 내건 파일은 그 서브에이전트를 거친다', () => {
+    const m = build([
+      use(10, 'Task', { description: 'render' }, { toolUseId: 'task-1' }),
+      ev(20, 'text', { content: `![결과](${ROOT}/renders/a.png)`, nestedUnderToolUseId: 'task-1' }),
+    ]);
+    expect(fileNamed(m, 'a.png')).toMatchObject({ direct: false, viaTaskKey: `task:${S}:task-1` });
   });
 });

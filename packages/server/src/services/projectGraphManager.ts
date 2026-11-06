@@ -1,11 +1,13 @@
 /**
  * ProjectGraphManager — 싱글턴 ProjectGraph 의 공개 API 그대로, 안에서 cwd 별 인스턴스로 라우팅하는 파사드.
- * TODO: task edges 를 ProjectGraph → Manager 레벨로 이동
  */
 
 import path from 'node:path';
 import fs from 'node:fs';
+import { satelliteSourceNodeId } from '@vibisual/shared';
 import type {
+  KindBundleKind,
+  BundleFilePage,
   BubbleData,
   GraphSnapshot,
   SpecReadingSettings,
@@ -86,9 +88,9 @@ import type {
   ExecutionMode,
   AgentProvider,
 } from '@vibisual/shared';
-import { DEFAULT_AUDIT_BOUNDARY, DEFAULT_UI_LOCALE, EXTERNAL_TOP_BUDGET_DEFAULT, GOAL_ACTION_MAX, ROOT_NODE_KEY_PREFIX } from '@vibisual/shared';
+import { DEFAULT_AUDIT_BOUNDARY, DEFAULT_UI_LOCALE, EXTERNAL_TOP_BUDGET_DEFAULT, EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT, normalizeExternalFolderMergeDepth, GOAL_ACTION_MAX, ROOT_NODE_KEY_PREFIX } from '@vibisual/shared';
 import { WEB_GROUP_OFF, normalizeWebGroupSettings, webFoldAgentId, type WebGroupSettings } from '@vibisual/shared';
-import type { GoalActionCard } from '@vibisual/shared';
+import type { GoalActionCard, SessionMessageLink } from '@vibisual/shared';
 import type { IframeTabVerdict } from '@vibisual/shared';
 // §9 슬라이스 스코프 — 규칙 전문은 `shared/src/sliceScope.ts` 머리말이 단독 소유한다.
 import {
@@ -100,7 +102,9 @@ import {
   type ScopableSliceKey,
   type SliceScopeGroup,
 } from '@vibisual/shared';
-import { ProjectGraph, resolveGitWorktreeParent, type ProcessResult } from './projectGraph.js';
+import { ProjectGraph, resolveGitWorktreeParent, type PresentedFileOwner, type ProcessResult } from './projectGraph.js';
+import type { FreshResurrectSource } from './compactDiff.js';
+import { applyTaskEdgeStatus, type TaskEdgeStatusOptions } from './taskEdgeStatus.js';
 import { isContextSourceOn } from './contextInventory.js';
 import { CONTEXT_SOURCE_IDS } from '@vibisual/shared';
 // §5.22 — 권한·감사 경계(승인 창구가 원장에 적을 때 쓰는 입력 모양).
@@ -112,7 +116,7 @@ import type { PathLock, PathLockTarget } from '@vibisual/shared';
 // §5.4 #36 (C) — 결과 전달 경로 판정(루트 안 · 상대 경로화). 플랫폼은 인자로 넘긴다.
 import { isAppBubbleId, projectRelativePath } from '@vibisual/shared';
 import { appStateAddOpenProject, loadAppState, publicAppState } from './appState.js';
-import { apiCreditService } from './apiCreditService.js';
+import { apiCreditService, openaiCreditService } from './apiCreditService.js';
 import { diagnosticService } from './diagnosticService.js';
 import { modelRegistryService } from './modelRegistryService.js';
 import { getEngineState } from './localEngineService.js';
@@ -424,6 +428,7 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
     claudeAuth: b.claudeAuth ?? a.claudeAuth,
     // §4 API 크레딧 — 글로벌 1건(설정·장부는 머신 단위).
     apiCredits: b.apiCredits ?? a.apiCredits,
+    openaiCredits: b.openaiCredits ?? a.openaiCredits,
     // §4 (첫 실행 설치 온보딩) — CLI 설치 판정도 글로벌 1건(설치는 기기 단위).
     claudeSetup: b.claudeSetup ?? a.claudeSetup,
     // §5.25 — 코덱스 상태 셋도 같은 규칙(글로벌 1건).
@@ -566,6 +571,16 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
       const bv = b.configTrim;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
+    // §5.1 #3-4 (A) — 세션 간 메시지는 **배열**이라 spread 로 합쳐지지 않는다. 시각순으로 잇고 id 로 겹침을 접는다.
+    //   빠뜨리면 프로젝트를 2개 이상 열었을 때만 선이 사라진다.
+    sessionMessages: (() => {
+      const av = a.sessionMessages;
+      const bv = b.sessionMessages;
+      if (!av && !bv) return undefined;
+      const byId = new Map<string, SessionMessageLink>();
+      for (const link of [...(av ?? []), ...(bv ?? [])]) byId.set(link.id, link);
+      return [...byId.values()].sort((x, y) => x.at - y.at || x.id.localeCompare(y.id));
     })(),
     // §5.5 #17-28 — 주입원 오버라이드는 층이 셋이라 한 겹 안쪽(`projects`/`agents`/`sessions`)까지 합친다.
     //   겉만 spread 하면 다중 프로젝트에서 한쪽의 껐던 설정이 사라진다. **층을 늘리면 여기도 늘린다.**
@@ -734,8 +749,8 @@ export class ProjectGraphManager {
   /** session_id → normalized cwd (세션 라우팅) */
   private sessionRouting = new Map<string, string>();
 
-  /** Manager 레벨 작업 흐름 엣지 (TaskEdge ID → TaskEdge)
-   *  TODO: ProjectGraph 내 taskEdges를 여기로 이동 */
+  /** 인스턴스가 하나도 없을 때만 쓰는 폴백 엣지 (TaskEdge ID → TaskEdge).
+   *  엣지 정본은 소스 에이전트의 인스턴스다 — 여기로 옮기면 프로젝트 체크포인트에 안 담겨 재시작 때 유실된다(§3.5, `createTaskEdge`). */
   private taskEdges = new Map<string, TaskEdge>();
 
   /** sessionLifecycle이 주입하는 스냅샷 보조 데이터 — getSnapshot에서 합침 */
@@ -892,6 +907,7 @@ export class ProjectGraphManager {
 
   /** §2.1 (B) — 최상위 외부 폴더 예산의 씨앗. 새로 서는 인스턴스가 이 값을 물려받는다. */
   private externalTopBudget: number = EXTERNAL_TOP_BUDGET_DEFAULT;
+  private externalFolderMergeDepth: number = EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT;
 
   /** §5.23 웹 버블 묶기 씨앗(새 인스턴스가 물려받는다). 기본은 **묶지 않음**, 앱이 부팅 때 저장값(없으면 `WEB_GROUP_DEFAULTS` — 켬)을 넣는다. */
   private webGroup: WebGroupSettings = { ...WEB_GROUP_OFF };
@@ -932,6 +948,18 @@ export class ProjectGraphManager {
     for (const inst of this.instances.values()) inst.setExternalTopBudget(budget);
   }
 
+  /** 외부 폴더 전용 통합 깊이를 현재 인스턴스와 이후 생성할 인스턴스에 함께 적용한다. */
+  setExternalFolderMergeDepth(depth: number): void {
+    this.externalFolderMergeDepth = normalizeExternalFolderMergeDepth(depth);
+    for (const inst of this.instances.values()) inst.setExternalFolderMergeDepth(this.externalFolderMergeDepth);
+  }
+
+  /** §2.1 #5 — 외부 폴더 버블이 속한 프로젝트 하나의 통합 깊이(`null` = 기본값으로). 노드 id 가 프로젝트를 정한다. */
+  setExternalFolderMergeDepthForNode(nodeId: string, depth: number | null): 'not-found' | 'unchanged' | 'changed' {
+    const inst = this.findInstanceByNodeId(nodeId);
+    return inst ? inst.setExternalFolderMergeDepthForNode(nodeId, depth) : 'not-found';
+  }
+
   /** §5.23 — 묶기 설정을 모든 인스턴스에 먹이고 씨앗으로 남긴다(나중에 hydrate 되는 탭만 호스트별 버블로 갈리지 않게). */
   setWebGroupSettings(settings: WebGroupSettings): void {
     this.webGroup = normalizeWebGroupSettings(settings);
@@ -956,6 +984,7 @@ export class ProjectGraphManager {
     // §2.1 (B) — 외부 폴더 예산도 같은 이유로 물려준다. 이 줄이 없으면 나중에 hydrate 되는
     //   프로젝트만 기본값(12)으로 돌아, 같은 앱 안에서 탭마다 화면 밀도가 달라진다.
     inst.setExternalTopBudget(this.externalTopBudget);
+    inst.setExternalFolderMergeDepth(this.externalFolderMergeDepth);
     // §5.23 — 웹 버블 묶기도 같은 이유로 물려준다.
     inst.setWebGroupSettings(this.webGroup);
     inst.setPoppedCommandsRef(this.poppedCommandsRef);
@@ -1575,13 +1604,24 @@ export class ProjectGraphManager {
     return this.findSessionHolder(sessionId)?.inst.findAgentIdBySession(sessionId) ?? null;
   }
 
-  setAgentStatus(sessionId: string, status: 'completed'): void {
+  setAgentStatus(sessionId: string, status: 'completed' | 'error'): void {
     const inst = this.getInstanceForSession(sessionId);
     if (inst) { inst.setAgentStatus(sessionId, status); return; }
     // fallback: 전체 탐색
     for (const i of this.instances.values()) {
       i.setAgentStatus(sessionId, status);
     }
+  }
+
+  /** §3.6 — 도구 없는 활동 재개를 버블 상태에 반영(`ProjectGraph.resumeAgentStatus`). 바뀌었으면 true. */
+  resumeAgentStatus(sessionId: string, from: 'any' | 'awaiting_permission'): boolean {
+    const inst = this.getInstanceForSession(sessionId);
+    if (inst) return inst.resumeAgentStatus(sessionId, from);
+    let changed = false;
+    for (const i of this.instances.values()) {
+      if (i.resumeAgentStatus(sessionId, from)) changed = true;
+    }
+    return changed;
   }
 
   /** §4 — Notification 서브타입 시각 신호(awaiting_permission). */
@@ -1616,6 +1656,13 @@ export class ProjectGraphManager {
     return inst ? inst.recordProviderFileEdit(sessionId, filePath, edit) : false;
   }
 
+  /** §5.25 (O) — 세션이 대화에 내건 파일을 그 세션의 버블을 가진 인스턴스에 세운다. 세운 파일 수. */
+  routePresentedFiles(owner: PresentedFileOwner, paths: readonly string[]): number {
+    if (paths.length === 0) return 0;
+    const inst = this.getInstanceForSession(owner.session_id) ?? this.findSessionHolder(owner.session_id)?.inst ?? null;
+    return inst ? inst.routePresentedFiles(owner, paths) : 0;
+  }
+
   /** §4 — PreCompact 카운터. */
   recordCompact(sessionId: string): void {
     const inst = this.getInstanceForSession(sessionId);
@@ -1630,13 +1677,12 @@ export class ProjectGraphManager {
     // fallback: 어디에도 매핑 안 되면 무시 (orphan session — 보통 발생 안 함)
   }
 
-  /** §4 — Claude.ai 한도 사용률 갱신(글로벌, statusline 외부 푸시). */
+  /**
+   * §4 — Claude.ai 한도 사용률 갱신(글로벌, statusLine·엔진 다리 푸시). 보고 한 번이 그때 있는 창의 전부라
+   * 덧쌓지 않고 통째로 바꾼다 — 창은 따로 빠질 수 있고(인증된 Ultra 는 5시간 창이 없다) 덧쌓으면 사라진 창이 남는다.
+   */
   setRateLimits(info: Partial<Omit<RateLimitInfo, 'updatedAt'>>): void {
-    this.globalRateLimits = {
-      ...this.globalRateLimits,
-      ...info,
-      updatedAt: Date.now(),
-    };
+    this.globalRateLimits = { ...info, updatedAt: Date.now() };
   }
 
   getRateLimits(): RateLimitInfo | undefined {
@@ -2531,37 +2577,39 @@ export class ProjectGraphManager {
     return false;
   }
 
-  updateBubblePositionsBatch(positions: Array<{ id: string; x: number; y: number }>): void {
-    // 각 위치를 올바른 인스턴스에 분배
-    // sat- 접두사는 어느 인스턴스에서든 처리 가능하므로 모든 인스턴스에 전달
-    // agentId/nodeId는 해당 인스턴스에만 전달
+  updateBubblePositionsBatch(positions: Array<{ id: string; x: number; y: number }>): string[] {
     if (this.instances.size === 1) {
-      // 빠른 경로: 인스턴스 하나
-      this.primaryInstance()?.updateBubblePositionsBatch(positions);
-      return;
+      const inst = this.primaryInstance();
+      return inst?.updateBubblePositionsBatch(positions) ? inst.getProjectNames() : [];
     }
-
-    // 인스턴스 복수: sat- 는 primary로, 나머지는 올바른 인스턴스로 라우팅
-    const satPositions = positions.filter((p) => p.id.startsWith('sat-'));
-    const nonSatPositions = positions.filter((p) => !p.id.startsWith('sat-'));
-
-    if (satPositions.length > 0) {
-      this.primaryInstance()?.updateBubblePositionsBatch(satPositions);
+    const grouped = new Map<ProjectGraph, typeof positions>();
+    for (const pos of positions) {
+      const satellite = pos.id.startsWith('sat-');
+      const nodeId = satelliteSourceNodeId(pos.id);
+      const foldAgentId = webFoldAgentId(nodeId);
+      const inst = (foldAgentId !== null ? this.findInstanceByAgentId(foldAgentId) : null)
+        ?? this.findInstanceByAgentId(nodeId) ?? this.findInstanceByNodeId(nodeId)
+        ?? (satellite ? [...this.instances.values()].find((candidate) => candidate.hasSatelliteId(nodeId)) : null)
+        // Display-only satellite groups have no graph entry. Preserve their
+        // existing primary-instance placement without moving real satellites
+        // away from the project whose checkpoint owns them.
+        ?? (satellite ? this.primaryInstance() : null);
+      if (!inst) continue;
+      const group = grouped.get(inst);
+      if (group) group.push(pos);
+      else grouped.set(inst, [pos]);
     }
-
-    for (const pos of nonSatPositions) {
-      // §5.23 접힌 웹 버블은 노드 장부에 없다 — 주인 에이전트가 사는 인스턴스로 보낸다.
-      const foldAgentId = webFoldAgentId(pos.id);
-      const inst =
-        (foldAgentId !== null ? this.findInstanceByAgentId(foldAgentId) : null)
-        ?? this.findInstanceByAgentId(pos.id) ?? this.findInstanceByNodeId(pos.id);
-      inst?.updateBubblePosition(pos.id, pos.x, pos.y);
+    const changedProjects = new Set<string>();
+    for (const [inst, group] of grouped) {
+      if (!inst.updateBubblePositionsBatch(group)) continue;
+      for (const name of inst.getProjectNames()) changedProjects.add(name);
     }
+    return [...changedProjects];
   }
 
   removeBubble(nodeId: string, opts: { force?: boolean; purgeTaskEdges?: boolean } = {}): void {
     // 클라이언트가 위성을 렌더할 때 ID 에 'sat-' prefix 를 붙이므로 strip 후 매칭.
-    const normalized = nodeId.startsWith('sat-') ? nodeId.slice(4) : nodeId;
+    const normalized = satelliteSourceNodeId(nodeId);
     // §5.23 접힌 웹 버블 — 노드 장부에 없는 id 라 아래 가드를 못 지난다. 주인 에이전트의 인스턴스에서
     //   지금 접혀 보이는 호스트들로 푼다(그 에이전트만 읽은 호스트는 지우고, 함께 읽은 호스트는 화살표만).
     const foldAgentId = webFoldAgentId(normalized);
@@ -2585,7 +2633,7 @@ export class ProjectGraphManager {
    * 성공하면 true(호출부는 removeBubble 대신 이걸 쓴다). 커스텀 에이전트가 아니면 false.
    */
   tryTrashCustomAgentByBubbleId(nodeId: string): boolean {
-    const normalized = nodeId.startsWith('sat-') ? nodeId.slice(4) : nodeId;
+    const normalized = satelliteSourceNodeId(nodeId);
     for (const inst of this.instances.values()) {
       if (inst.trashCustomAgentByBubbleId(normalized)) return true;
     }
@@ -2656,9 +2704,26 @@ export class ProjectGraphManager {
     return false;
   }
 
-  setFolderMaxSatellites(folderPath: string, max: number): boolean {
+  getBundleFiles(folderId: string, kind: KindBundleKind, sessionId?: string, page = 0, absolutePath?: string, folderAbsolutePath?: string): BundleFilePage | null {
+    const inst = absolutePath
+      ? this.instanceForNodePath('', absolutePath)
+      : this.findInstanceByNodeId(folderId);
+    return inst?.getBundleFiles(folderId, kind, sessionId, page, folderAbsolutePath) ?? null;
+  }
+
+  getBundleMembers(ids: readonly string[], kind: KindBundleKind, sessionId?: string, absolutePath?: string): BubbleData[] {
+    const inst = absolutePath
+      ? this.instanceForNodePath('', absolutePath)
+      : ids.length > 0 ? this.findInstanceByNodeId(ids[0]!) : null;
+    return inst?.getBundleMembers(ids, kind, sessionId) ?? [];
+  }
+
+  setFolderMaxSatellites(folderPath: string, max: number, kind?: KindBundleKind, sessionId?: string, absolutePath?: string): boolean {
+    const routed = this.instanceForNodePath(folderPath, absolutePath);
+    if (routed) return routed.setFolderMaxSatellites(folderPath, max, kind, sessionId);
+    if (absolutePath || folderPath === '') return false;
     for (const inst of this.instances.values()) {
-      const ok = inst.setFolderMaxSatellites(folderPath, max);
+      const ok = inst.setFolderMaxSatellites(folderPath, max, kind, sessionId);
       if (ok) return true;
     }
     return false;
@@ -3452,7 +3517,7 @@ export class ProjectGraphManager {
     }
 
     // §4 API 크레딧 — 설정·장부·지금 경로. 머신 단위 1건이고 키 본문은 없다(`getState` 가 끝 4자리만 싣는다).
-    snapshot = { ...snapshot, apiCredits: apiCreditService.getState() };
+    snapshot = { ...snapshot, apiCredits: apiCreditService.getState(), openaiCredits: openaiCreditService.getState() };
 
     // §4 — 글로벌 Claude 로그인 상태 주입(계정은 머신 단위).
     if (this.globalClaudeAuth) {
@@ -3682,8 +3747,8 @@ export class ProjectGraphManager {
     return total;
   }
 
-  // ─── Task Edge (Manager 레벨) ───
-  // TODO: ProjectGraph 내 task edges를 여기로 완전 이동
+  // ─── Task Edge (인스턴스 라우팅) ───
+  // 엣지는 소스 에이전트의 인스턴스에 둔다(§3.5 프로젝트 체크포인트). Manager 맵은 인스턴스가 없을 때의 폴백뿐이다.
 
   /** Task Edge 전체 스냅샷 */
   getTaskEdgesSnapshot(): Record<string, TaskEdge> {
@@ -3880,22 +3945,19 @@ export class ProjectGraphManager {
     return out;
   }
 
-  /** Task Edge 상태 변경 */
-  setTaskEdgeStatus(id: string, status: TaskEdgeStatus, result?: string, errorMessage?: string): void {
+  /** Task Edge 상태 변경 — 인스턴스·매니저 폴백이 같은 전이(`applyTaskEdgeStatus`)를 탄다. */
+  setTaskEdgeStatus(id: string, status: TaskEdgeStatus, result?: string, errorMessage?: string, options?: TaskEdgeStatusOptions): void {
     for (const inst of this.instances.values()) {
       const snap = inst.getTaskEdgesSnapshot();
       if (snap[id]) {
-        inst.setTaskEdgeStatus(id, status, result, errorMessage);
+        inst.setTaskEdgeStatus(id, status, result, errorMessage, options);
         return;
       }
     }
     // Manager 레벨
     const edge = this.taskEdges.get(id);
     if (!edge) return;
-    edge.status = status;
-    if (status === 'executing') edge.lastExecutedAt = Date.now();
-    if (result !== undefined) edge.lastResult = result;
-    if (errorMessage !== undefined) edge.errorMessage = errorMessage;
+    applyTaskEdgeStatus(edge, status, result, errorMessage, options);
   }
 
   /** auto-forward TaskEdge 조회 (Stop 훅 후 자동 실행용) */
@@ -4858,6 +4920,17 @@ export class ProjectGraphManager {
     return false;
   }
 
+  /** §5.26 (G) `fresh` — 작업셋(마커)을 아는 인스턴스가 먼저다. 기록 위치만 아는 답은 그것이 없을 때의 폴백. */
+  freshResurrectSource(sessionId: string): FreshResurrectSource | null {
+    let fallback: FreshResurrectSource | null = null;
+    for (const inst of this.instances.values()) {
+      const src = inst.freshResurrectSource(sessionId);
+      if (src?.workingSet) return src;
+      if (src && !fallback) fallback = src;
+    }
+    return fallback;
+  }
+
   /** §5.26 (G) — 되살리기 확인 걸기. 그 세션을 가진 인스턴스에서 멈춘다. */
   armResumeCheck(sessionId: string, now?: number): boolean {
     for (const inst of this.instances.values()) {
@@ -5338,6 +5411,15 @@ export class ProjectGraphManager {
       result.push(...inst.sweepIdleAgents(thresholdMs));
     }
     return result;
+  }
+
+  /** §5.1 #3-4 (A) — 선을 그리던 세션 간 메시지가 만료됐으면 참(스냅샷을 다시 밀 때다). */
+  sweepSessionMessages(now: number = Date.now()): boolean {
+    let changed = false;
+    for (const inst of this.instances.values()) {
+      if (inst.sweepSessionMessages(now)) changed = true;
+    }
+    return changed;
   }
 
   /**

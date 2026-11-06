@@ -1,20 +1,24 @@
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, FileFaceKind } from '@vibisual/shared';
-import { BUBBLE_STYLES, BUNDLE_BUBBLE, FILE_FACE, FILE_FACE_STYLES } from '@vibisual/shared';
+import { BUBBLE_STYLES, BUNDLE_BUBBLE, DEFAULT_MAX_SATELLITES, FILE_FACE, FILE_FACE_STYLES } from '@vibisual/shared';
 
 import { DARK_THEME_LOCK } from '../../theme/themeLock.js';
 import { bundleInfoOf, type ConstellationTag } from '../../utils/constellationView.js';
 import { BUNDLE_GLYPH_PATH } from './bundleGlyph.js';
 import { FileKindGlyph } from './fileFaceGlyphs.js';
+import { SatelliteMaxPopup } from '../Panel/SatelliteMaxPopup.js';
+import { useGraphStore } from '../../stores/graphStore.js';
+import { activeProjectRoot } from '../../utils/fileFaceView.js';
 
 /**
  * §2.2 · §5.1 #2-1 (B) — 묶음 버블. 같은 종류 파일들(같은 폴더의 같은 미디어 · 연속 번호)의 자리를 따로 세운다 — 중심 파일이 거느리면 폴더처럼 읽힌다.
  * 파일로 읽히지 않게: 미리보기 ❌ — 겹친 원 글리프 + 구성 수, 점선 테, 종류 배지, 원 아래 `영상 묶음 · 3`(모든 묶음이 같다).
  * 둘레엔 폴더처럼 최근 구성이 위성으로 선다(`bundleMoonsOf`) — 점선 궤도 ❌. 앱 작업 연속 번호는 앱 색 테(§5.1 #2-1 (F) ⑥).
  * 노드 타입은 `bubble`(물리·선·배치 한 벌), 더블클릭은 캔버스가 받아 안으로 들어간다.
- * 지우기·잠그기·고정·메뉴 ❌ — 지울 데이터가 없다(우클릭은 캔버스 메뉴로 새지 않게 여기서 멈춘다).
+ * 우클릭·편집 버튼은 이 세션 묶음의 위성 상한을 조절한다.
  */
 
 const HANDLE_STYLE: React.CSSProperties = {
@@ -37,6 +41,14 @@ export const BundleNode = memo(function BundleNode({ data }: NodeProps): React.J
   const { t } = useTranslation();
   const bubble = data as unknown as BubbleData & Record<string, unknown>;
   const info = bundleInfoOf(bubble);
+  const sessionLabel = useGraphStore((state) => {
+    if (!info?.sessionId) return undefined;
+    for (const sessions of Object.values(state.subAgents)) {
+      const session = sessions.find((s) => s.id === info.sessionId || s.sessionId === info.sessionId);
+      if (session) return session.label;
+    }
+    return info.sessionId;
+  });
   const size = BUNDLE_BUBBLE.size;
   const style = BUBBLE_STYLES.bundle;
   const work = (bubble['_constellation'] as ConstellationTag | undefined)?.work;
@@ -52,12 +64,29 @@ export const BundleNode = memo(function BundleNode({ data }: NodeProps): React.J
   const kindLabel = t(`canvas.bundle.kind.${kind}`);
   const line = t('canvas.bundle.line', { kind: kindLabel, count });
   const folder = info?.folder;
+  const [maxEditorAt, setMaxEditorAt] = useState<{ x: number; y: number } | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const canSetMax = info?.settingsPath !== undefined;
+  const openMax = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (canSetMax) setMaxEditorAt({ x: e.clientX, y: e.clientY });
+  }, [canSetMax]);
+  const commitMax = useCallback((max: number) => {
+    if (!info || info.settingsPath === undefined) return;
+    setSaveFailed(false);
+    void fetch('/api/satellite/max', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderPath: info.settingsPath, absolutePath: activeProjectRoot(useGraphStore.getState()) ?? info.settingsAbsolutePath, max, kind: info.kind, sessionId: info.sessionId }),
+    }).then((response) => { if (!response.ok) setSaveFailed(true); }).catch(() => setSaveFailed(true));
+  }, [info]);
 
   /** 툴팁 — 무엇의 묶음인지 · 연속 번호 · 그 폴더 · (앱 작업이면 그 작업) · 구성과 각자 묶인 이유 · 넘친 수 · 더블클릭 안내. */
   const title = useMemo(() => {
     const lines = [t('canvas.bundle.title', { name: bubble.label, kind: kindLabel, count })];
     if (isSequence) lines.push(t('canvas.bundle.sequence'));
     if (folder) lines.push(folder);
+    if (sessionLabel) lines.push(sessionLabel);
     if (work) lines.push(t('canvas.appWork.moon', { app: work.appName, role: t(`canvas.appWork.role.${work.role}`) }));
     const members = info?.members ?? [];
     for (const m of members) {
@@ -67,13 +96,8 @@ export const BundleNode = memo(function BundleNode({ data }: NodeProps): React.J
     if (more > 0) lines.push(t('canvas.appWork.more', { count: more }));
     lines.push(t('canvas.bundle.enterHint'));
     return lines.join('\n');
-  }, [t, bubble.label, kindLabel, count, info, work, isSequence, folder]);
+  }, [t, bubble.label, kindLabel, count, info, work, isSequence, folder, sessionLabel]);
 
-  // 우클릭은 메뉴가 없는 자리다 — 캔버스(빈 곳) 메뉴로 새지 않게 여기서 멈춘다.
-  const stopContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  }, []);
 
   const glyphPx = Math.round(size * 0.42);
   // 원의 45° 림 위 — 감싸는 사각형의 모서리에 두면 배지가 림에서 떨어져 허공에 뜬다(파일 얼굴 배지와 같은 규칙).
@@ -90,7 +114,7 @@ export const BundleNode = memo(function BundleNode({ data }: NodeProps): React.J
         className="bubble-body bubble-press absolute inset-0 flex flex-col items-center justify-center rounded-full"
         {...DARK_THEME_LOCK}
         data-bundle-source={info?.source ?? 'folder'}
-        onContextMenu={stopContextMenu}
+        onContextMenu={openMax}
         title={title}
         aria-label={`${bubble.label} · ${line}`}
         style={{
@@ -118,6 +142,25 @@ export const BundleNode = memo(function BundleNode({ data }: NodeProps): React.J
         <span className="mt-0.5 text-[12px] font-semibold leading-none tabular-nums text-white/85">{count}</span>
       </div>
 
+      {canSetMax && (
+        <button
+          type="button"
+          className="nodrag nopan absolute -right-2 -top-2 z-30 flex h-6 w-6 items-center justify-center rounded-full border border-violet-700 bg-gray-900 text-violet-300 opacity-0 hover:bg-gray-800 group-hover:opacity-100 focus:opacity-100 pointer-coarse:h-8 pointer-coarse:w-8 pointer-coarse:opacity-100"
+          onClick={openMax}
+          onDoubleClick={(e) => e.stopPropagation()}
+          title={t('panel.folderFileTree.bundleMaxTitle')}
+          aria-label={t('panel.folderFileTree.bundleMaxTitle')}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L9 17l-4 1 1-4Z" /></svg>
+        </button>
+      )}
+      {maxEditorAt && typeof document !== 'undefined' && createPortal(
+        <SatelliteMaxPopup value={info?.maxSatellites ?? DEFAULT_MAX_SATELLITES} screenX={maxEditorAt.x} screenY={maxEditorAt.y}
+          titleKey="panel.folderFileTree.bundleMaxTitle" onClose={() => setMaxEditorAt(null)} onCommit={commitMax} />,
+        document.body,
+      )}
+      {saveFailed && <p role="alert" className="absolute left-1/2 top-full z-40 mt-10 w-52 -translate-x-1/2 rounded border border-red-700 bg-gray-900 p-2 text-[12px] text-red-300">{t('panel.folderFileTree.maxSaveFailed')}</p>}
+
       {/* 테의 종류 배지 — 무엇의 묶음인지(중심 종류 · 연속 파일 종류). */}
       <span
         aria-hidden="true"
@@ -135,6 +178,7 @@ export const BundleNode = memo(function BundleNode({ data }: NodeProps): React.J
       >
         <span className="max-w-full truncate text-[12px] font-medium text-gray-200">{bubble.label}</span>
         <span className="max-w-full truncate text-[12px] text-gray-400">{line}</span>
+        {sessionLabel && <span className="max-w-full truncate text-[12px] text-indigo-300">{sessionLabel}</span>}
       </div>
     </div>
   );

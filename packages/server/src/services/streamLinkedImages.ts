@@ -1,21 +1,14 @@
-import type { SubAgentStreamEvent } from '@vibisual/shared';
-import { codexImageBasename, codexImagePathFromUrl, isCodexImageFile } from './codexStreamMap.js';
+import { localLinkTargets, type SubAgentStreamEvent } from '@vibisual/shared';
+import { codexImageBasename, isCodexImageFile } from './codexStreamMap.js';
 
 /** Only explicit local raster links in assistant prose; never tool output or code examples. */
 export function linkedImageEvents(event: SubAgentStreamEvent, platform: NodeJS.Platform): SubAgentStreamEvent[] {
   if (event.eventType !== 'text' || event.imagePath || typeof event.content !== 'string') return [];
-  const prose = event.content.replace(/(`{3,}|~{3,})[^\n]*\n[\s\S]*?\1/g, '').replace(/`[^`\n]*`/g, '');
-  const paths = new Set<string>();
-  // Angle destinations permit spaces; bare destinations permit balanced parentheses in filenames.
-  const links = /!?\[[^\]\n]*\]\(\s*(?:<([^>\n]+)>|((?:[^\s()]|\([^()]*\))+))(?:\s+"[^"\n]*")?\s*\)/g;
-  for (const match of prose.matchAll(links)) {
-    const raw = match[1] ?? match[2] ?? '';
-    if (!/^(?:file:\/\/\/|[A-Za-z]:[\\/]|\/(?!\/))/i.test(raw)) continue;
-    const filePath = codexImagePathFromUrl(raw, platform);
-    if (filePath.includes('\0') || !isCodexImageFile(filePath)) continue;
-    paths.add(filePath);
-  }
-  return [...paths].map((imagePath, i) => ({
+  // The image route opens absolute paths only; relative links stay links (they still become canvas bubbles).
+  const paths = localLinkTargets(event.content, platform)
+    .filter((target) => !target.relative && isCodexImageFile(target.path))
+    .map((target) => target.path);
+  return paths.map((imagePath, i) => ({
     ...event, id: `${event.id}:image:${i}`, content: codexImageBasename(imagePath), imagePath,
   }));
 }
