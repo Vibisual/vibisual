@@ -35,21 +35,27 @@ beforeEach(() => {
 });
 
 describe('usage popup resource integration', () => {
-  it('shows credits-only measurements with their timestamp and one management link', () => {
+  it('gives Codex the same credit pages as Claude: plan limits first, then personal and business credits', () => {
     const html = render();
-    expect(html).toContain('89 credits');
+    // §4 OpenAI 비즈니스 크레딧 — 코덱스 탭도 지갑마다 페이지. 클라우드 페이지는 Claude 판에만 있다.
+    for (const tab of ['Plan limits', 'Personal credits', 'Business credits']) expect(html).toContain(tab);
+    expect(html).not.toContain('Cloud credits');
     expect(html).toContain('Last updated ');
     expect(html).not.toContain('No usage data received yet');
-    expect(html.match(/<a /g)).toHaveLength(1);
+    // 관리하는 곳은 페이지 설명 칸이 말한다 — 바닥 링크는 없다.
+    expect(html).not.toContain('<a ');
     expect(html).toContain('https://chatgpt.com/codex/settings/usage');
+    expect(html).toContain(en.panel.usage.creditPages.openai.subscription.what);
+    // 개인 크레딧 금액은 자기 페이지에만 있다.
+    expect(html).not.toContain('89 credits');
     expect(html).not.toContain('$15.00');
   });
 
-  it('hides cached credits after logout while leaving the website entry available', () => {
+  it('asks to sign in after logout while leaving the website entry available', () => {
     mocks.state.codexAuth = { loggedIn: false, checkedAt: 2 };
     const html = render();
     expect(html).not.toContain('89 credits');
-    expect(html).toContain('Check on website');
+    expect(html).toContain(en.providers.signIn);
     expect(html).toContain('https://chatgpt.com/codex/settings/usage');
   });
 
@@ -66,5 +72,52 @@ describe('usage popup resource integration', () => {
     expect(local).toContain('Local hardware');
     expect(local).not.toContain('<a ');
     expect(local).not.toContain('Available extras');
+  });
+});
+
+describe('usage popup — Claude plan limits follow what the CLI reports', () => {
+  const NOW = Date.now();
+
+  it('draws no 5-hour row for a plan without one (verified Ultra) and names the plan', () => {
+    mocks.state.userDefaults = { engineChoice: { kind: 'claude' } };
+    mocks.state.claudeUsage = {
+      plan: 'Ultra',
+      limits: [
+        { kind: 'weekly_all', group: 'weekly', percent: 4, severity: 'normal', resetsAt: NOW + 72 * 3_600_000, isActive: true },
+        { kind: 'weekly_scoped', group: 'weekly', percent: 0, severity: 'normal', resetsAt: NOW + 73 * 3_600_000, isActive: false, scopeLabel: 'Fable' },
+      ],
+      source: 'cli',
+      fetchedAt: NOW,
+    };
+    const html = render();
+    expect(html).toContain('Ultra');
+    expect(html).not.toContain('>5-hour limit</span>');
+    expect(html).toContain('Weekly limit (all models)');
+    expect(html).toContain('Weekly limit (Fable)');
+    expect(html.match(/Resets /g)?.length).toBe(2);
+  });
+
+  it('keeps the 5-hour row when the CLI reports one', () => {
+    mocks.state.userDefaults = { engineChoice: { kind: 'claude' } };
+    mocks.state.claudeUsage = {
+      plan: 'Max',
+      limits: [
+        { kind: 'session', group: 'session', percent: 12, severity: 'normal', resetsAt: NOW + 3_600_000, isActive: true },
+        { kind: 'weekly_all', group: 'weekly', percent: 40, severity: 'normal', isActive: true },
+      ],
+      source: 'cli',
+      fetchedAt: NOW,
+    };
+    const html = render();
+    expect(html).toContain('>5-hour limit</span>');
+    expect(html).toContain('Weekly limit (all models)');
+  });
+
+  it('holds both places open only while nothing has been received yet', () => {
+    mocks.state.userDefaults = { engineChoice: { kind: 'claude' } };
+    mocks.state.claudeUsage = { limits: [], source: 'cli', fetchedAt: 0 };
+    const html = render();
+    expect(html).toContain('>5-hour limit</span>');
+    expect(html).toContain('Weekly limit (all models)');
   });
 });

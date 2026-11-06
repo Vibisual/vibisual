@@ -19,8 +19,8 @@ import type {
  * §4 — Claude 사용량 표시값 조립. **원천 둘 중 더 최근 것을 고른다.**
  * ① `claude -p "/usage"` probe(`claudeUsageProbe`) — 대화형 세션 없이 오는 1차 원천, 모델 0턴이라 과금 없음(실측). 5분 주기 + 부팅 직후 + 팝업 새로고침.
  * ② statusLine — 대화형 세션이 밀어 주는 값(`hooks/handler.mjs --statusline` → `POST /api/rate-limits` → `graphManager.rateLimits`). 세션이 떠 있으면 probe 보다 빨라 버리지 않고 최신성으로 겨룬다.
- * 네트워크로 직접 조회하지 않는다 — `.credentials.json` 의 OAuth 토큰으로 문서에 없는 `api/oauth/usage` 를 자동 호출하면 Anthropic 소비자 약관 §3(자동화 접속 금지)에 걸린다. statusLine 은 모델별 주간 한도(`weekly_scoped`)·사용 크레딧(`extra_usage`)을 주지 않는다.
- * 자격증명 파일은 플랜 표시명(`Max (20x)`)용 `subscriptionType`·`rateLimitTier` 두 값만 읽는다 — **accessToken 은 읽지도 싣지도 않고**, 쓰기는 절대 하지 않는다(토큰 갱신은 Claude Code 의 일).
+ * 네트워크로 직접 조회하지 않는다 — `.credentials.json` 의 OAuth 토큰으로 문서에 없는 `api/oauth/usage` 를 자동 호출하면 Anthropic 소비자 약관 §3(자동화 접속 금지)에 걸린다. statusLine 은 모델별 주간 한도(`weekly_scoped`)·사용 크레딧을 주지 않는다.
+ * 플랜 이름은 CLI 가 적어 둔 공식 표시명이 먼저다. 없을 때만 자격증명 파일의 `subscriptionType`·`rateLimitTier` 두 값을 읽는다 — **accessToken 은 읽지도 싣지도 않고**, 쓰기는 절대 하지 않는다(토큰 갱신은 Claude Code 의 일).
  */
 
 /** 플랜 표시명 재료 — 자격증명 파일에서 **토큰이 아닌** 두 값만 집는다. */
@@ -53,14 +53,19 @@ function readPlanHints(): PlanHints | null {
 }
 
 /**
- * 플랜 표시명 조립 — `subscriptionType='max'` + `rateLimitTier='default_claude_max_20x'`
- * → `"Max (20x)"`. 배수 표기가 없으면 타입만("Pro"). 알 수 없으면 undefined.
+ * 공식 표시명이 없을 때의 플랜 이름. Max 20x 는 Ultra 로 이름이 바뀌었고(공식 지원 문서) 자격증명은 옛 값
+ * `max` + `default_claude_max_20x` 를 그대로 들고 있다. 새 이름엔 배수가 없다("Max"·"Pro"). 알 수 없으면 undefined.
  */
 export function buildPlanLabel(subscriptionType?: string, rateLimitTier?: string): string | undefined {
-  if (!subscriptionType) return undefined;
-  const name = subscriptionType.charAt(0).toUpperCase() + subscriptionType.slice(1);
-  const multiplier = rateLimitTier?.match(/(\d+x)\b/i)?.[1];
-  return multiplier ? `${name} (${multiplier})` : name;
+  const type = subscriptionType?.trim().toLowerCase();
+  if (!type) return undefined;
+  if (type === 'max' && /(?:^|_)20x(?:_|$)/i.test(rateLimitTier ?? '')) return 'Ultra';
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+function planLabelFromCredentials(): string | undefined {
+  const hints = readPlanHints();
+  return buildPlanLabel(hints?.subscriptionType, hints?.rateLimitTier);
 }
 
 /** 사용률 → 심각도. 임계는 화면과 같은 shared 상수를 쓴다(자체 하드코딩 ❌). */
@@ -152,7 +157,10 @@ export function buildClaudeUsage(
   const limits: ClaudeUsageLimit[] = [];
   const cliAt = probe?.fetchedAt ?? 0;
 
-  const sessionPick = pickWindow(rate?.used5h, rate?.resetAt5h, rate?.updatedAt, probe?.session, cliAt);
+  // 5시간 창은 없는 플랜이 있다(인증된 Ultra). probe 가 더 최근이면 그 부재도 사실로 본다 — 섞어 고르면 옛 상태줄 값이 그 줄을 되살린다.
+  const sessionPick: PickedWindow | null = probe && cliAt >= (rate?.updatedAt ?? 0)
+    ? (probe.session ? { ...probe.session, fromCli: true } : null)
+    : pickWindow(rate?.used5h, rate?.resetAt5h, rate?.updatedAt, probe?.session, cliAt);
   const weeklyPick = pickWindow(rate?.used7d, rate?.resetAt7d, rate?.updatedAt, probe?.weekly, cliAt);
 
   const session = sessionPick ? toLimit('session', 'session', sessionPick.percent, sessionPick.resetsAt, now) : null;
@@ -160,14 +168,13 @@ export function buildClaudeUsage(
   const weekly = weeklyPick ? toLimit('weekly_all', 'weekly', weeklyPick.percent, weeklyPick.resetsAt, now) : null;
   if (weekly) limits.push(weekly);
 
-  // 모델별 주간 한도 — probe 출력에만 있는 표시명이 붙는다(§ claudeUsageProbe 주석).
+  // 모델별 주간 한도 — 표시명은 probe 에만 있다(§ claudeUsageProbe 주석).
   for (const row of probe?.scoped ?? []) {
-    const scoped = toLimit('weekly_scoped', 'weekly', row.percent, undefined, now);
-    if (scoped) limits.push({ ...scoped, scopeLabel: row.label });
+    const scoped = toLimit('weekly_scoped', 'weekly', row.percent, row.resetsAt, now);
+    if (scoped) limits.push({ ...scoped, scopeLabel: row.label, ...(row.isActive === false ? { isActive: false } : {}) });
   }
 
-  const hints = readPlanHints();
-  const plan = buildPlanLabel(hints?.subscriptionType, hints?.rateLimitTier);
+  const plan = probe?.planName ?? planLabelFromCredentials();
 
   const usedCli = Boolean(sessionPick?.fromCli || weeklyPick?.fromCli || (probe?.scoped.length ?? 0) > 0);
   const source: ClaudeUsageSource = usedCli ? 'cli' : 'statusline';

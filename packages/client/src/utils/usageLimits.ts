@@ -1,4 +1,4 @@
-import { USAGE_LIMIT_WARN_PCT, USAGE_LIMIT_DANGER_PCT } from '@vibisual/shared';
+import { USAGE_LIMIT_WARN_PCT, USAGE_LIMIT_DANGER_PCT, type ClaudeUsageLimit, type RateLimitInfo } from '@vibisual/shared';
 
 // SCENARIO.md §4 — Claude.ai 한도 표시 공용 헬퍼. 헤더 사용량 필(Layout/UsagePill)·사용량 팝업(Panel/UsagePopup)·DetailPanel 루트 게이지가
 // 같은 정규화·색 기준을 쓰도록 한 곳에 둔다(컴포넌트끼리 import 하면 순환이 생긴다).
@@ -24,4 +24,37 @@ export function usageBarToneClass(pct: number): string {
   if (pct >= USAGE_LIMIT_DANGER_PCT) return 'bg-red-500';
   if (pct >= USAGE_LIMIT_WARN_PCT) return 'bg-amber-500';
   return 'bg-emerald-500';
+}
+
+export function isSessionLimit(l: ClaudeUsageLimit): boolean {
+  return l.kind === 'session' || l.group === 'session';
+}
+
+/** 계정 전체 주간 한도(모든 모델). 모델별 줄(`scopeLabel`)은 그 모델만 막으므로 아니다. */
+export function isWeeklyAllLimit(l: ClaudeUsageLimit): boolean {
+  return l.kind === 'weekly_all' || (l.group === 'weekly' && !l.scopeLabel && l.kind !== 'weekly_scoped');
+}
+
+export interface PillLimit {
+  kind: 'fiveHour' | 'weekly';
+  percent: number;
+}
+
+/**
+ * 헤더 필이 보일 Claude 한도 — 5시간 한도가 있으면 그것, 없으면(인증된 Ultra) 주간(모든 모델).
+ * 서버가 조립한 표가 먼저이고, 표가 비었을 때만 statusLine 원본을 본다. 아무것도 없으면 null(`-`).
+ */
+export function pickClaudePillLimit(
+  limits: readonly ClaudeUsageLimit[] | undefined,
+  rateLimits: Pick<RateLimitInfo, 'used5h' | 'used7d'> | null | undefined,
+): PillLimit | null {
+  const list = limits ?? [];
+  const session = list.find(isSessionLimit);
+  if (session) return { kind: 'fiveHour', percent: session.percent };
+  const weekly = list.find(isWeeklyAllLimit);
+  if (weekly) return { kind: 'weekly', percent: weekly.percent };
+  if (list.length > 0) return null;
+  if (typeof rateLimits?.used5h === 'number') return { kind: 'fiveHour', percent: rateLimits.used5h };
+  if (typeof rateLimits?.used7d === 'number') return { kind: 'weekly', percent: rateLimits.used7d };
+  return null;
 }

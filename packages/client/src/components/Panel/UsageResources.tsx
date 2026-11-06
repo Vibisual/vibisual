@@ -44,6 +44,8 @@ export function UsageResources({ provider, codexUsage, claudeCredits }: {
   };
   const limit = claudeCredits?.monthlyLimit;
   const spent = claudeCredits?.usedCredits;
+  const prepaid = claudeCredits?.balance;
+  const autoReload = provider === 'claude' ? claudeCredits?.autoReload : undefined;
 
   return <section className="flex flex-col gap-3 border-t border-gray-700 px-4 py-3" aria-label={t('panel.usage.resourcesTitle')}>
     <h3 className="text-xs font-semibold text-gray-200">{t('panel.usage.resourcesTitle')}</h3>
@@ -57,7 +59,7 @@ export function UsageResources({ provider, codexUsage, claudeCredits }: {
         <ResourceValue label={t('panel.usage.creditsTitle')}>
           {claudeCredits ? t(claudeCredits.enabled ? 'panel.usage.creditsOn' : 'panel.usage.creditsOff') : unknown}
         </ResourceValue>
-        <ResourceValue label={t('panel.usage.prepaidBalance')}>{unknown}</ResourceValue>
+        <ResourceValue label={t('panel.usage.prepaidBalance')}>{knownAmount(prepaid) ? money(prepaid) : unknown}</ResourceValue>
         <ResourceValue label={t('panel.usage.monthlyBudget')}>{knownAmount(limit) ? money(limit) : unknown}</ResourceValue>
         {knownAmount(spent) && <ResourceValue label={t('panel.usage.creditsSpent')}>{money(spent)}</ResourceValue>}
         {knownAmount(limit) && knownAmount(spent) && <ResourceValue label={t('panel.usage.budgetRemaining')}>
@@ -65,7 +67,9 @@ export function UsageResources({ provider, codexUsage, claudeCredits }: {
         </ResourceValue>}
         <ResourceValue label={t('panel.usage.resetPasses')}>{unknown}</ResourceValue>
       </>}
-      <ResourceValue label={t('panel.usage.autoRecharge')}>{unknown}</ResourceValue>
+      <ResourceValue label={t('panel.usage.autoRecharge')}>
+        {autoReload === undefined ? unknown : t(autoReload ? 'panel.usage.creditsOn' : 'panel.usage.creditsOff')}
+      </ResourceValue>
     </dl>
     {provider === 'codex' && availablePasses.length > 0 && <ul className="flex flex-col gap-2">
       {availablePasses.map(pass => <li key={pass.id} className="rounded border border-gray-700 bg-gray-800/40 px-2.5 py-2 text-xs">

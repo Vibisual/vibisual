@@ -163,3 +163,75 @@ describe('비즈니스 페이지 — Console 이번 달 지출 그대로', () =>
     expect(html).toContain(ac.status.blocked);
   });
 });
+
+describe('OpenAI 판 — 코덱스도 같은 페이지 묶음(§4 OpenAI 비즈니스 크레딧)', () => {
+  const oc = en.panel.usage.openaiCredit;
+  const op = en.panel.usage.creditPages.openai;
+  /** React 가 글자를 내보내는 꼴 — 따옴표는 엔티티로 바뀐다. */
+  const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/'/g, '&#x27;').replace(/"/g, '&quot;');
+  const renderOpenai = (page: CreditPageKey, extra: Record<string, unknown> = {}): string =>
+    renderToStaticMarkup(createElement(CreditPages, { variant: 'options', vendor: 'openai', initialPage: page, ...extra }));
+  const openai = (patch: Record<string, unknown>): void => {
+    mocks.state.openaiCredits = { ...(mocks.state.openaiCredits as object), ...patch };
+  };
+
+  beforeEach(() => {
+    mocks.state.codexAuth = { loggedIn: true, checkedAt: 1, authMethod: 'chatgpt', account: 'me' };
+    mocks.state.openaiCredits = {
+      settings: SETTINGS, hasKey: false, encryptionAvailable: true, route: 'subscription', reason: 'no-key',
+      liveRuns: 0, subscriptionExhausted: false,
+      console: { status: 'no-key', refreshing: false, monthStart: MONTH },
+    };
+  });
+
+  it('지갑은 개인·비즈니스 둘 — 클라우드 페이지는 Claude 판에만, 구독 한도는 팝업에만', () => {
+    const html = renderOpenai('business');
+    for (const tab of ['Personal credits', 'Business credits']) expect(html).toContain(tab);
+    expect(html).not.toContain('Cloud credits');
+    expect(html).not.toContain('Plan limits');
+  });
+
+  it('개인 페이지는 ChatGPT 계정의 코덱스 크레딧만 — Platform 설정은 없다', () => {
+    const html = renderOpenai('personal', { codexUsage: { windows: [], fetchedAt: 1, credits: { hasCredits: true, unlimited: false, balance: '89' } } });
+    expect(html).toContain('89 credits');
+    expect(html).toContain(esc(op.personal.what));
+    expect(html).toContain('https://chatgpt.com/codex/settings/usage');
+    expect(html).not.toContain(oc.console.title);
+    expect(html).not.toContain('$15.00');
+  });
+
+  it('비즈니스 맨 위는 Platform 지출 — 관리자 키가 없으면 sk-admin 안내와 Platform 화면, Console 문구는 없다', () => {
+    const html = renderOpenai('business');
+    expect(html).toContain(oc.title);
+    expect(html).toContain(esc(oc.console.needKeyTitle));
+    expect(html).toContain(oc.console.createAdminKey);
+    expect(html).toContain('https://platform.openai.com/settings/organization/admin-keys');
+    expect(html).toContain('https://platform.openai.com/settings/organization/limits');
+    expect(html).toContain('https://platform.openai.com/api-keys');
+    expect(html).toContain(esc(op.business.what));
+    expect(html).not.toContain(ac.console.setupOrg);
+    expect(html).not.toContain('platform.claude.com');
+  });
+
+  it('읽은 지출을 그대로 — Claude 판 값과 섞이지 않는다', () => {
+    credits({ adminKey: { hint: '…AD01', scheme: 'os', readable: true, verified: 'ok' }, console: { status: 'ok', refreshing: false, monthStart: MONTH, spendUsd: 75.5, fetchedAt: 1 } });
+    openai({ adminKey: { hint: '…OA01', scheme: 'os', readable: true, verified: 'ok' }, console: { status: 'ok', refreshing: false, monthStart: MONTH, spendUsd: 12.75, fetchedAt: 1 } });
+    const html = renderOpenai('business');
+    expect(html).toContain('$12.75');
+    expect(html).not.toContain('$75.50');
+    expect(html).toContain('…OA01');
+    expect(html).toContain(oc.console.resetsOn.replace('{{date}}', 'November 1, 2026'));
+  });
+
+  it('다른 모델 제공자로 설정된 PC 는 그 이름과 함께 닫힘을, OpenAI 거절은 OpenAI 문장으로 말한다', () => {
+    openai({ hasKey: true, keyHint: '…TEST', keyScheme: 'os', keyVerified: 'ok', keyReadable: true, reason: 'cloud-provider', customProvider: 'azure' });
+    expect(renderOpenai('business')).toContain(oc.reason['cloud-provider'].replace('{{provider}}', 'azure'));
+    openai({ reason: 'blocked', block: { reason: 'balance-empty', at: 1, until: Date.UTC(2026, 9, 27, 4), detail: 'You exceeded your current quota' } });
+    const html = renderOpenai('business');
+    expect(html).toContain(esc(oc.block['balance-empty']));
+    expect(html).toContain('You exceeded your current quota');
+    expect(html).toContain(oc.reason.blocked);
+    expect(html).toContain(oc.status.blocked);
+    expect(html).not.toContain('Anthropic');
+  });
+});

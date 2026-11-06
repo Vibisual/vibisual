@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { clampUsagePct, usageTextToneClass, usageBarToneClass } from './usageLimits.js';
+import type { ClaudeUsageLimit } from '@vibisual/shared';
+import { clampUsagePct, pickClaudePillLimit, usageTextToneClass, usageBarToneClass } from './usageLimits.js';
 
 // §4 — "1% 가 100% 로 보이던" 회귀 방지. 값 1 은 "1%" 와 "100%" 어느 쪽으로도 읽혀 "0~1 이면 비율" 추측으로는 풀 수 없다 — 단위를 퍼센트로 고정한 규약을 못 박는다.
 
@@ -42,5 +43,30 @@ describe('사용률 색 임계', () => {
     expect(usageTextToneClass(89)).toContain('amber');
     expect(usageTextToneClass(90)).toContain('red');
     expect(usageBarToneClass(100)).toContain('red');
+  });
+});
+
+describe('pickClaudePillLimit — 헤더 필이 보일 한도', () => {
+  const row = (kind: string, group: string, percent: number, scopeLabel?: string): ClaudeUsageLimit =>
+    ({ kind, group, percent, severity: 'normal', isActive: true, ...(scopeLabel ? { scopeLabel } : {}) });
+
+  it('5시간 한도가 있으면 그것(Pro·Max)', () => {
+    expect(pickClaudePillLimit([row('session', 'session', 12), row('weekly_all', 'weekly', 80)], null))
+      .toEqual({ kind: 'fiveHour', percent: 12 });
+  });
+
+  it('5시간 한도가 없으면 주간(모든 모델) — 모델별 줄은 고르지 않는다(인증된 Ultra)', () => {
+    expect(pickClaudePillLimit([row('weekly_scoped', 'weekly', 95, 'Fable'), row('weekly_all', 'weekly', 4)], null))
+      .toEqual({ kind: 'weekly', percent: 4 });
+  });
+
+  it('서버 표가 있으면 옛 statusLine 5시간 값으로 되돌아가지 않는다', () => {
+    expect(pickClaudePillLimit([row('weekly_all', 'weekly', 4)], { used5h: 37 })).toEqual({ kind: 'weekly', percent: 4 });
+  });
+
+  it('서버 표가 비었을 때만 statusLine 원본 — 그것도 없으면 null(`-`)', () => {
+    expect(pickClaudePillLimit([], { used5h: 37, used7d: 3 })).toEqual({ kind: 'fiveHour', percent: 37 });
+    expect(pickClaudePillLimit(undefined, { used7d: 3 })).toEqual({ kind: 'weekly', percent: 3 });
+    expect(pickClaudePillLimit(undefined, null)).toBeNull();
   });
 });

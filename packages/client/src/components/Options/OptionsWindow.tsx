@@ -60,7 +60,7 @@ import { NumberStepper } from './NumberStepper.js';
 import { shortcutLabel } from '../../utils/platform.js';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog.js';
 import { AutoCompactConfirm, type AutoCompactConfirmKind } from '../Panel/AutoCompactConfirm.js';
-import { CreditPages } from '../Panel/CreditPages.js';
+import { CreditVendorPages } from '../Panel/CreditPages.js';
 
 const API_BASE = '';
 
@@ -1062,9 +1062,9 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
               <div className="flex flex-col gap-3">
                 <div>
                   <h4 className="text-sm font-semibold text-gray-200">{t('panel.options.categories.credits')}</h4>
-                  <p className="mt-1 text-[12px] leading-relaxed text-gray-500">{t('panel.options.creditsIntro')}</p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-gray-500">{t('panel.options.creditsIntroVendors')}</p>
                 </div>
-                <CreditPages variant="options" />
+                <CreditVendorPages />
               </div>
             )}
 
@@ -1179,7 +1179,7 @@ export function OptionsWindow({ open, onClose, initialCategory }: OptionsWindowP
               </div>
             )}
 
-            {category !== 'agent' && category !== 'version' && category !== 'appearance' && category !== 'theme' && category !== 'account' && category !== 'credits' && category !== 'keyboard' && category !== 'storage' && category !== 'advanced' && category !== 'notifications' && (
+            {category !== 'agent' && category !== 'project' && category !== 'version' && category !== 'appearance' && category !== 'theme' && category !== 'account' && category !== 'credits' && category !== 'keyboard' && category !== 'storage' && category !== 'advanced' && category !== 'notifications' && (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                 <svg className="h-10 w-10 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
@@ -1470,8 +1470,10 @@ function ManagedEngineInfo({ status, engineName, onChanged }: {
  * 스위치(`UserDefaults.codexAutoUpdate`, 미설정 = 켬) · [지금 업데이트](설치 창과 같은 `/api/codex-setup/install` —
  * 이미 쓸 수 있는 코덱스가 있으면 서버가 업데이트로 다룬다) · 진행 · 앱 전용 칸.
  */
-function CodexAutoUpdateSection({ setup, userSelected }: {
+function CodexAutoUpdateSection({ setup, managed, userSelected }: {
   setup: CodexSetupState;
+  /** 앱 전용 칸 — 탭이 `codexSetup` 과 설치본 목록 중 더 새로 확인한 쪽을 골라 넘긴다. */
+  managed: ManagedEngineStatus | undefined;
   /** 사용자가 다른 설치본을 보조로 골라 두었다 — 자동 업데이트는 그동안 앱 전용 사본을 받지 않는다(그 설치본은 그 주인의 것). */
   userSelected: boolean;
 }): React.JSX.Element {
@@ -1484,7 +1486,6 @@ function CodexAutoUpdateSection({ setup, userSelected }: {
 
   const enabled = userDefaults?.codexAutoUpdate?.enabled !== false;
   const running = progress != null && (progress.status === 'starting' || progress.status === 'running');
-  const managed = setup.managed;
   const behind = managed?.active && managed.latest ? semverLt(managed.active.version, managed.latest) : !managed?.active;
 
   const toggle = useCallback(async () => {
@@ -1757,15 +1758,8 @@ function AboutSection({ info, engineLink }: { info: ClaudeInstallsInfo; engineLi
   );
 }
 
-/** Codex 설치 단계별 상태 칸의 색 — 클로드 탭 "Latest" 칸과 같은 문법(초록 = 됐다, 주황 = 손볼 것). */
-const CODEX_STATUS_TONE = {
-  ok: { box: 'border-emerald-500/40 bg-emerald-500/5', label: 'text-emerald-400', value: 'text-emerald-300' },
-  warn: { box: 'border-amber-500/40 bg-amber-500/5', label: 'text-amber-400', value: 'text-amber-300' },
-  idle: { box: 'border-gray-800 bg-gray-950/70', label: 'text-gray-500', value: 'text-gray-200' },
-} as const;
-
 /**
- * §4 · §5.25 (D) — Codex 탭: 클로드 탭과 같은 자리를 `codexSetup` 사실로 채운다(새로 모으지 않는다). `codexSetup.managed` 로 자동 업데이트 칸이 서고,
+ * §4 · §5.25 (D) — Codex 탭: 클로드 탭과 같은 자리(현재 · 최신)를 `codexSetup` 과 앱 전용 칸의 공식 배포처 최신으로 채운다. `codexSetup.managed` 로 자동 업데이트 칸이 서고,
  * 설치본 고르기도 Claude 탭과 같다(기본 = 앱 전용, 다른 설치본은 보조 `UserDefaults.codexBinPath`). 탭에 들어올 때·[다시 검색] 때 다시 판정한다(앱 밖 설치·삭제).
  */
 /** 코덱스 실행본 출처 배지 — Claude 의 `SourceBadge` 와 같은 꼴(앱 전용 = 인디고 · 공식 독립 설치 = 초록 · PATH = 회색). */
@@ -1781,6 +1775,15 @@ function CodexSourceBadge({ source }: { source: string }): React.JSX.Element {
       {source === 'managed' ? t('panel.options.version.sourceManaged', { defaultValue: 'App-managed' }) : source}
     </span>
   );
+}
+
+/**
+ * 탭을 열 때 설치본 목록이 배포처 최신을 확인해 오는데, 같은 때 돈 `codexSetup` 재판정이 그보다 먼저 상태를 짜 WS 로 보내면
+ * 그쪽 최신이 비어 있다. 마지막 확인이 더 새 쪽을 쓴다(같으면 받는 중 여부가 살아 있는 `codexSetup` 쪽).
+ */
+function fresherManaged(live: ManagedEngineStatus | undefined, listed: ManagedEngineStatus | undefined): ManagedEngineStatus | undefined {
+  if (!live || !listed) return live ?? listed;
+  return (listed.checkedAt ?? -1) > (live.checkedAt ?? -1) ? listed : live;
 }
 
 function CodexVersionTab({ about }: { about: ClaudeInstallsInfo | null }): React.JSX.Element {
@@ -1835,23 +1838,29 @@ function CodexVersionTab({ about }: { about: ClaudeInstallsInfo | null }): React
   const onManaged = activeRow?.source === 'managed';
   // 앱 전용 판을 가리키는 옛 선택은 서버가 "기본"과 같이 본다 — 화면도 그렇게 읽는다.
   const isDefault = !installs?.overridePath || onManaged;
-  const managed = setup?.managed ?? installs?.managed;
+  const managed = fresherManaged(setup?.managed, installs?.managed);
   const pending = isDefault && !onManaged;
   const temporary = pending && !!setup?.binPath;
   const running = progress != null && (progress.status === 'starting' || progress.status === 'running');
   const lastProgressLine = progress?.output?.trim().split(/\r?\n/).filter(Boolean).pop();
 
+  // §4 (앱 전용 엔진) ⑨ — 최신은 공식 배포처 판이다(사용자가 고른 npm·독립 설치본도 같은 판 번호를 따른다).
+  //   비교는 클로드 탭과 같다: 앱 전용이 아직이면(임시) 곧 바뀔 것이라 뒤처짐을 말하지 않는다.
+  const latest = managed?.latest ?? null;
+  const outdated = isDefault
+    ? (onManaged && managed?.active ? semverLt(managed.active.version, latest) : false)
+    : semverLt(setup?.version ?? null, latest);
   const phase = setup?.phase ?? 'unknown';
-  const statusLabel = phase === 'ready'
-    ? t('panel.options.engines.installed', { defaultValue: 'Installed' })
+  // 설치가 끝나지 않은 단계는 최신 비교보다 먼저다 — 칸 아래 줄에 적는다.
+  const phaseNotice: { text: string; warn: boolean } | null = phase === 'ready'
+    ? null
     : phase === 'missing'
-      ? t('panel.options.engines.notInstalled', { defaultValue: 'Not installed' })
+      ? { text: t('panel.options.engines.notInstalled', { defaultValue: 'Not installed' }), warn: true }
       : phase === 'installing'
-        ? t('panel.codexSetup.installing', { defaultValue: 'Installing…' })
+        ? { text: t('panel.codexSetup.installing', { defaultValue: 'Installing…' }), warn: false }
         : phase === 'failed'
-          ? t('panel.codexSetup.installFailed', { defaultValue: 'Install failed' })
-          : t('panel.codexSetup.rechecking', { defaultValue: 'Checking…' });
-  const tone = CODEX_STATUS_TONE[phase === 'ready' ? 'ok' : phase === 'missing' || phase === 'failed' ? 'warn' : 'idle'];
+          ? { text: t('panel.codexSetup.installFailed', { defaultValue: 'Install failed' }), warn: true }
+          : { text: t('panel.codexSetup.rechecking', { defaultValue: 'Checking…' }), warn: false };
 
   return (
     <div className="flex flex-col gap-4">
@@ -1873,18 +1882,25 @@ function CodexVersionTab({ about }: { about: ClaudeInstallsInfo | null }): React
               <span className="text-[12px] uppercase tracking-wider text-gray-500">{t('panel.options.version.current', { defaultValue: 'Current' })}</span>
               <span className="font-mono text-base text-gray-200">{setup.version ?? '?'}</span>
             </div>
-            <div className={`flex flex-col gap-1 rounded border px-3 py-2 ${tone.box}`}>
-              <span className={`text-[12px] uppercase tracking-wider ${tone.label}`}>{t('panel.detailPanel.status', { defaultValue: 'Status' })}</span>
-              <span className={`text-base ${tone.value}`}>{statusLabel}</span>
+            <div className={`flex flex-col gap-1 rounded border px-3 py-2 ${outdated ? 'border-amber-500/40 bg-amber-500/5' : 'border-emerald-500/40 bg-emerald-500/5'}`}>
+              <span className={`text-[12px] uppercase tracking-wider ${outdated ? 'text-amber-400' : 'text-emerald-400'}`}>
+                {t('panel.options.version.managed.latest', { defaultValue: 'Latest (official)' })}
+              </span>
+              <span className={`font-mono text-base ${outdated ? 'text-amber-300' : 'text-emerald-300'}`}>{latest ?? '?'}</span>
             </div>
           </div>
-          {(activeRow || onManaged || temporary) && (
-            <div className="flex flex-wrap items-center gap-2 text-[12px] text-gray-400">
-              {activeRow && <CodexSourceBadge source={activeRow.source} />}
-              {onManaged && <DefaultChip />}
-              {temporary && <TemporaryChip />}
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2 text-[12px] text-gray-400">
+            {activeRow && <CodexSourceBadge source={activeRow.source} />}
+            {onManaged && <DefaultChip />}
+            {temporary && <TemporaryChip />}
+            {phaseNotice
+              ? <span className={phaseNotice.warn ? 'text-amber-300' : 'text-gray-500'}>{phaseNotice.text}</span>
+              : !temporary && (outdated
+                ? <span className="text-amber-300">{t('panel.options.version.updateAvailable', { defaultValue: 'Update available' })}</span>
+                : setup.version && latest
+                  ? <span className="text-emerald-300">{t('panel.options.version.upToDate', { defaultValue: 'Up to date' })}</span>
+                  : null)}
+          </div>
           {setup.binPath && <div className="break-all font-mono text-[12px] text-gray-600">{setup.binPath}</div>}
           {phase === 'failed' && setup.error && (
             <div className="rounded border border-red-500/40 bg-red-500/5 px-3 py-2 text-[12px] text-red-300">{setup.error}</div>
@@ -1916,7 +1932,7 @@ function CodexVersionTab({ about }: { about: ClaudeInstallsInfo | null }): React
       )}
 
       {/* §4 (앱 전용 엔진) — 코덱스도 앱이 판을 맡는다: 자동 업데이트 스위치 · [지금 업데이트] · 앱 전용 칸. */}
-      {setup && <CodexAutoUpdateSection setup={setup} userSelected={!isDefault} />}
+      {setup && <CodexAutoUpdateSection setup={setup} managed={managed} userSelected={!isDefault} />}
 
       {about && (
         <AboutSection

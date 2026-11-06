@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
-import { clampUsagePct, usageTextToneClass } from '../../utils/usageLimits.js';
+import { clampUsagePct, pickClaudePillLimit, usageTextToneClass } from '../../utils/usageLimits.js';
 import { useCodexUsage } from '../../hooks/useCodexUsage.js';
 import { UsagePopup } from '../Panel/UsagePopup.js';
 
-// §4 — 헤더 사용량 필: 현재 세션(5시간 창) 사용률. 원 안 숫자만, 폭 20px 고정, 색만 임계에 따라. 엔진 글리프 없음(툴팁·팝업이 말한다).
+// §4 — 헤더 사용량 필: 5시간 한도 사용률(없는 플랜은 주간 — `pickClaudePillLimit`). 원 안 숫자만, 폭 20px 고정, 색만 임계에 따라. 엔진 글리프 없음(툴팁·팝업이 말한다).
 // 값이 없어도 숨기지 않는다(수집기 입구) — dim 링 + `-`. 값은 서버가 `claude -p "/usage"`(0턴 = 과금 없음)로 주기적으로 받아, `-` 는 대개 "곧 들어온다"다.
 
 /** 사용률 링 + 원 안 숫자. 이모지·이미지 ❌ — 순수 SVG. */
@@ -60,28 +60,29 @@ export function UsagePill(): React.JSX.Element {
   const { usage: codexUsage } = useCodexUsage(main === 'codex' && codexLoggedIn, codexAuth);
   const claudeUsage = useGraphStore((s) => s.claudeUsage);
   const rateLimits = useGraphStore((s) => s.rateLimits);
-  // §4 API 크레딧 — 새 실행이 크레딧으로 나가는 중이면 주황 점, Anthropic 이 크레딧을 거절 중이면 빨강 점. 필 폭은 그대로다.
-  const creditOn = useGraphStore((s) => s.apiCredits?.settings.enabled === true);
-  const creditRoute = useGraphStore((s) => s.apiCredits?.route);
-  const creditBlocked = useGraphStore((s) => !!s.apiCredits?.block);
-  const creditDot = main !== 'claude' || !creditOn ? null : creditBlocked ? 'blocked' : creditRoute === 'credits' ? 'active' : null;
+  // §4 API 크레딧 — 새 실행이 크레딧으로 나가는 중이면 주황 점, 공급자가 크레딧을 거절 중이면 빨강 점. 필 폭은 그대로다.
+  //   메인 엔진의 지갑을 본다 — Claude 는 Console 판, 코덱스는 OpenAI 판.
+  const credits = useGraphStore((s) => main === 'claude' ? s.apiCredits : main === 'codex' ? s.openaiCredits : null);
+  const creditOn = credits?.settings.enabled === true;
+  const creditRoute = credits?.route;
+  const creditBlocked = !!credits?.block;
+  const creditDot = !creditOn ? null : creditBlocked ? 'blocked' : creditRoute === 'credits' ? 'active' : null;
   const [open, setOpen] = useState(false);
 
-  // §4 — 1차 = 서버 조립 세션 한도(`/usage` probe 와 statusLine 중 최근 것), 없으면 statusLine 원본 값.
-  const session = claudeUsage?.limits.find((l) => l.kind === 'session' || l.group === 'session');
-  const raw = main === 'claude' ? session?.percent ?? rateLimits?.used5h : main === 'codex' && codexLoggedIn ? (codexUsage?.windows.find(w => w.id === 'codex:primary') ?? codexUsage?.windows[0])?.usedPercent : undefined;
+  const claudeLimit = main === 'claude' ? pickClaudePillLimit(claudeUsage?.limits, rateLimits) : null;
+  const raw = main === 'claude' ? claudeLimit?.percent : main === 'codex' && codexLoggedIn ? (codexUsage?.windows.find(w => w.id === 'codex:primary') ?? codexUsage?.windows[0])?.usedPercent : undefined;
   const pct = typeof raw === 'number' ? clampUsagePct(raw) : null;
 
   const tone = pct === null ? 'text-gray-500' : usageTextToneClass(pct);
   // 값이 없을 때 "켜라"와 "기다리는 중"을 가른다 — 켜진 수집기에 "켜기"라고 하면 켜진 스위치를 다시 누르게 된다.
   const title = `${t(`providers.${main}`)} · ` + (main === 'local' ? t('providers.localUsage') : main === 'codex' ? (pct !== null ? `${Math.round(pct)}%` : t(codexLoggedIn ? 'providers.noUsage' : 'providers.signIn')) : pct !== null
-    ? t('header.usage.tooltip', { percent: Math.round(pct) })
+    ? t(claudeLimit?.kind === 'weekly' ? 'header.usage.tooltipWeekly' : 'header.usage.tooltip', { percent: Math.round(pct) })
     : claudeUsage?.error === 'cli-unavailable'
       ? t('header.usage.tooltipCliUnavailable')
       : claudeUsage?.error === 'awaiting-statusline'
         ? t('header.usage.tooltipWaiting')
         : t('header.usage.tooltipNoData'))
-    + (creditDot === 'active' ? ` · ${t('header.usage.creditActive')}` : creditDot === 'blocked' ? ` · ${t('header.usage.creditBlocked')}` : '');
+    + (creditDot === 'active' ? ` · ${t('header.usage.creditActive')}` : creditDot === 'blocked' ? ` · ${t(main === 'codex' ? 'header.usage.creditBlockedOpenai' : 'header.usage.creditBlocked')}` : '');
 
   return (
     <>

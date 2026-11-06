@@ -20,8 +20,13 @@ afterEach(() => {
 });
 
 describe('buildPlanLabel', () => {
-  it('subscriptionType 과 rateLimitTier 의 배수를 합쳐 표시명을 만든다', () => {
-    expect(buildPlanLabel('max', 'default_claude_max_20x')).toBe('Max (20x)');
+  it('옛 Max 20x 자격증명은 새 이름 Ultra 로 읽는다', () => {
+    expect(buildPlanLabel('max', 'default_claude_max_20x')).toBe('Ultra');
+  });
+
+  it('새 이름엔 배수가 없다 — Max 5x 는 Max', () => {
+    expect(buildPlanLabel('max', 'default_claude_max_5x')).toBe('Max');
+    expect(buildPlanLabel('ultra')).toBe('Ultra');
   });
 
   it('배수 표기가 없으면 타입만 쓴다', () => {
@@ -163,5 +168,39 @@ describe('buildClaudeUsage — probe 병합', () => {
 
   it('probe 는 아직인데 수집기가 켜져 있으면 기다리는 중으로 남는다', () => {
     expect(buildClaudeUsage(undefined, NOW, true, null).error).toBe('awaiting-statusline');
+  });
+});
+
+// 인증된 Ultra 는 5시간 한도가 없다 — 줄이 없어야 화면이 CLI 와 같고, 옛 값이 그 줄을 되살리면 필이 거짓말을 한다.
+describe('buildClaudeUsage — 5시간 한도가 없는 플랜', () => {
+  const ultraProbe = {
+    fetchedAt: NOW,
+    weekly: { percent: 4, resetsAt: NOW + 72 * HOUR },
+    scoped: [{ label: 'Fable', percent: 0, resetsAt: NOW + 73 * HOUR, isActive: false }],
+    listed: true,
+    planName: 'Ultra',
+  };
+
+  it('5시간 줄 없이 주간·모델별 줄만 — 모델별 줄은 초기화 시각을 단다', () => {
+    const info = buildClaudeUsage(undefined, NOW, false, ultraProbe);
+    expect(info.limits.map((l) => l.kind)).toEqual(['weekly_all', 'weekly_scoped']);
+    expect(info.limits[1]).toMatchObject({ scopeLabel: 'Fable', resetsAt: NOW + 73 * HOUR, isActive: false });
+    expect(info.error).toBeUndefined();
+  });
+
+  it('probe 가 더 최근이면 옛 상태줄의 5시간 값이 줄을 되살리지 않는다', () => {
+    const stale: RateLimitInfo = { used5h: 37, resetAt5h: NOW + HOUR, used7d: 3, updatedAt: NOW - 10 * 60_000 };
+    const info = buildClaudeUsage(stale, NOW, true, ultraProbe);
+    expect(info.limits.some((l) => l.kind === 'session')).toBe(false);
+  });
+
+  it('상태줄이 더 최근에 5시간 창을 말하면 그 줄은 선다(Pro·Max)', () => {
+    const fresh: RateLimitInfo = { used5h: 37, resetAt5h: NOW + HOUR, used7d: 3, updatedAt: NOW + 60_000 };
+    const info = buildClaudeUsage(fresh, NOW, true, ultraProbe);
+    expect(info.limits.find((l) => l.kind === 'session')?.percent).toBe(37);
+  });
+
+  it('플랜 이름은 probe 의 공식 표시명을 쓴다', () => {
+    expect(buildClaudeUsage(undefined, NOW, false, ultraProbe).plan).toBe('Ultra');
   });
 });

@@ -22,6 +22,8 @@ export function AccountTab(): React.JSX.Element {
   const claudeSetup = useGraphStore(s => s.claudeSetup);
   const setSetupGate = useGraphStore(s => s.setSetupGate);
   const claudeAuth = useGraphStore((s) => s.claudeAuth);
+  // 플랜 배지는 CLI 가 적어 둔 공식 이름(예: Ultra)이 먼저다 — `subscriptionType` 은 옛 값(`max`)을 그대로 들고 있다.
+  const claudePlan = useGraphStore((s) => s.claudeUsage?.plan);
   const applyClaudeAuth = useGraphStore((s) => s.applyClaudeAuth);
   const setLoginGate = useGraphStore((s) => s.setLoginGate);
 
@@ -66,7 +68,7 @@ export function AccountTab(): React.JSX.Element {
         loggedIn={claudeAuth?.loggedIn === true}
         unknown={!claudeAuth || !!claudeAuth.error}
         primary={claudeAuth?.email}
-        badge={claudeAuth?.subscriptionType}
+        badge={claudePlan ?? claudeAuth?.subscriptionType}
         rows={[
           [t('panel.options.account.email', { defaultValue: 'Email' }), claudeAuth?.email],
           [t('panel.options.account.org', { defaultValue: 'Organization' }), claudeAuth?.orgName],

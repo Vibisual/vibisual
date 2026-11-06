@@ -8,9 +8,21 @@ import {
 
 /** 사용량 게이지 — 두 탭이 함께 쓴다(복제하면 색 임계가 갈라진다). `undefined` 는 `--%` — 모르는 것과 0% 는 다르다. */
 
-/** 남은 시간 → "4시간 28분" / "12분". 초 단위는 버린다(1초마다 숫자가 튀지 않게 분 단위 표기). */
+/** 초기화 시계 시각 — 하루 안이면 시각만, 넘으면 날짜까지(CLI `/usage` 의 "resets Nov 10, 11:59pm" 과 같은 읽기). */
+export function formatResetClock(resetAt: number, now: number, locale: string): string {
+  const options: Intl.DateTimeFormatOptions = resetAt - now < 24 * 60 * 60 * 1000
+    ? { hour: 'numeric', minute: '2-digit' }
+    : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+  try {
+    return new Intl.DateTimeFormat(locale, options).format(resetAt);
+  } catch {
+    return new Date(resetAt).toLocaleString();
+  }
+}
+
+/** 남은 시간 → "4시간 28분" / "12분" 과 그 시계 시각. 초 단위는 버린다(1초마다 숫자가 튀지 않게 분 단위 표기). */
 function useCountdownLabel(resetAt: number | undefined, now: number | undefined): string | null {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   if (!resetAt || now === undefined) return null;
   const remainMs = resetAt - now;
   if (remainMs <= 0) return t('panel.usage.resettingNow');
@@ -23,7 +35,7 @@ function useCountdownLabel(resetAt: number | undefined, now: number | undefined)
     : hours > 0
       ? t('panel.usage.spanHm', { h: hours, m: minutes })
       : t('panel.usage.spanM', { m: minutes });
-  return t('panel.usage.resetsIn', { span });
+  return t('panel.usage.resetsAtIn', { time: formatResetClock(resetAt, now, i18n.language), span });
 }
 
 export function LimitGauge({

@@ -9,8 +9,8 @@ import { useCodexUsage, refreshCodexUsage } from '../../hooks/useCodexUsage.js';
 import { CostPill } from './CostPill.js';
 import { LimitGauge } from './LimitGauge.js';
 import { LocalResourceSection } from './LocalResourceSection.js';
-import { UsageManagement, UsageResources } from './UsageResources.js';
 import { CreditPages } from './CreditPages.js';
+import { isSessionLimit, isWeeklyAllLimit } from '../../utils/usageLimits.js';
 
 // SCENARIO.md §4 — 사용량 팝업. 원천은 `claude -p "/usage"` probe 와 statusLine 수집기 — 서버가 더 최근 것을 골라 준다(팝업은 고르지 않는다). OAuth 직접 조회 ❌(약관).
 
@@ -159,14 +159,8 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
   useEffect(() => { refresh(); }, [refresh]);
 
   const limits = claudeUsage?.limits ?? [];
-  const sessionLimit = useMemo(
-    () => limits.find((l) => l.kind === 'session' || l.group === 'session'),
-    [limits],
-  );
-  const weeklyAll = useMemo(
-    () => limits.find((l) => l.kind === 'weekly_all') ?? limits.find((l) => l.group === 'weekly' && !l.scopeLabel),
-    [limits],
-  );
+  const sessionLimit = useMemo(() => limits.find(isSessionLimit), [limits]);
+  const weeklyAll = useMemo(() => limits.find(isWeeklyAllLimit), [limits]);
   const scopedWeekly = useMemo(
     () => limits.filter((l): l is ClaudeUsageLimit & { scopeLabel: string } => Boolean(l.scopeLabel)),
     [limits],
@@ -174,6 +168,9 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
 
   // 직접 조회가 비면 statusLine 값으로 대체한다.
   const usingFallback = limits.length === 0;
+  // 값을 받은 뒤엔 CLI 가 보고한 줄만 — 인증된 Ultra 는 5시간 한도가 없어 그 줄이 없다. 아무것도 모를 때만 두 자리를 비워 둔다.
+  const showSession = usingFallback || sessionLimit !== undefined;
+  const showWeekly = usingFallback || weeklyAll !== undefined;
   const sessionPct = usingFallback ? rateLimits?.used5h : sessionLimit?.percent;
   const sessionReset = usingFallback ? rateLimits?.resetAt5h : sessionLimit?.resetsAt;
   const weeklyPct = usingFallback ? rateLimits?.used7d : weeklyAll?.percent;
@@ -312,7 +309,8 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
         <ScrollFade fill className="min-h-0 flex-1">
           {/* 올모델은 구독 한도가 아니라 **이 PC 의 자원**을 쓴다 — 그것이 이 탭의 사용량이다(§5.19 (F)). */}
           {engine === 'local' && <LocalResourceSection />}
-          {engine === 'codex' && <div className="flex flex-col gap-4 p-4">
+          {/* §4 OpenAI 비즈니스 크레딧 — 코덱스도 Claude 와 같은 페이지 묶음(구독 한도·개인·비즈니스). 구독 한도 페이지에 이 탭의 게이지가 들어간다. */}
+          {engine === 'codex' && <CreditPages variant="popup" vendor="openai" codexUsage={codexLoggedIn ? codex.usage : null} subscription={<div className="flex flex-col gap-4 py-3">
             {!codexLoggedIn ? <button type="button" className="text-left text-xs text-blue-400" onClick={() => { const state = useGraphStore.getState(); if (state.codexSetup?.phase === 'ready') state.setCodexLoginGate({ forced: true, dismissed: false }); else state.setCodexSetupGate({ forced: true, dismissed: false }); }}>{t('providers.signIn')}</button> : <>
               {codex.usage?.windows.map(window => <LimitGauge key={window.id} label={`${window.label} · ${window.windowDurationMins === 300 ? t('panel.usage.session5h') : window.windowDurationMins === 10080 ? t('panel.usage.weekly7d') : window.windowDurationMins ? t('providers.window', { minutes: window.windowDurationMins }) : window.id}`} used={window.usedPercent} resetAt={window.resetsAt} now={now} showRemaining />)}
               <div className="flex flex-col gap-1 text-xs" role="status" aria-live="polite">
@@ -327,27 +325,30 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
                 </p>
               </div>
             </>}
-          </div>}
-          {engine === 'codex' && <UsageResources provider="codex" codexUsage={codexLoggedIn ? codex.usage : null} />}
+          </div>} />}
           {/* §4 API 크레딧 — 구독 한도 페이지에 이 팝업의 게이지·수집기·토큰 합이 들어간다. */}
           {engine === 'claude' && <CreditPages variant="popup" subscription={<div className="-mx-4 flex flex-col">
           <div className="flex flex-col gap-4 px-4 py-3">
             {claudeUsage?.error && <ErrorNotice error={claudeUsage.error} />}
 
-            <LimitGauge
-              label={t('panel.usage.session5h')}
-              used={sessionPct}
-              resetAt={sessionReset}
-              now={now}
-              showRemaining
-            />
-            <LimitGauge
-              label={t('panel.usage.weekly7d')}
-              used={weeklyPct}
-              resetAt={weeklyReset}
-              now={now}
-              showRemaining
-            />
+            {showSession && (
+              <LimitGauge
+                label={t('panel.usage.fiveHourLimit')}
+                used={sessionPct}
+                resetAt={sessionReset}
+                now={now}
+                showRemaining
+              />
+            )}
+            {showWeekly && (
+              <LimitGauge
+                label={t('panel.usage.weeklyAll')}
+                used={weeklyPct}
+                resetAt={weeklyReset}
+                now={now}
+                showRemaining
+              />
+            )}
 
             {/* 모델별 주간 한도 — Claude 앱 /usage 의 모델 행과 같은 자리 */}
             {scopedWeekly.map((l) => (
@@ -403,8 +404,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
           </div>
           </div>} />}
         </ScrollFade>
-        {/* Claude 는 페이지마다 머리 칸이 관리하는 곳을 말한다(claude.ai·Console·클라우드가 서로 다르다) — 바닥 링크는 코덱스만. */}
-        {engine === 'codex' && <UsageManagement provider="codex" />}
+        {/* 관리하는 곳은 페이지마다 설명 칸이 말한다(claude.ai·Console·클라우드 / chatgpt.com·Platform 이 서로 다르다) — 바닥 링크는 두지 않는다. */}
 
         {/* §5.21 / §7.19 — 오늘 비용. 헤더에서 옮겨 온 자리이고, 스크롤 **밖** 바닥에 고정한다
             (아래로 내려야 보이는 입구는 없는 입구와 같다). 누르면 비용·토큰 지도가 이 위에 겹친다. */}

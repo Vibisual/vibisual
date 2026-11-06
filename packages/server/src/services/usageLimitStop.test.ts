@@ -274,3 +274,66 @@ describe('detectUsageLimitInText — 봉투 없는 결과 본문', () => {
     });
   });
 });
+
+/** §5.5 #17-47 (I) — 재료는 CLI 2.1.312 변경 기록("5-hour limit")과 공식 오류 문서(code.claude.com/docs/en/errors)의 원문. */
+describe('5시간 창의 새 이름과 공식 문서의 변형들', () => {
+  it('2.1.312 의 "5-hour limit" 도 세션 창이다 — 봉투 없는 결과 본문 그물까지', () => {
+    expect(matchUsageLimitNotice("You've hit your 5-hour limit · resets 3:45pm")).toBe('session');
+    expect(matchUsageLimitNotice("You've hit your five-hour limit · resets 3:45pm")).toBe('session');
+    expect(detectUsageLimitInText("You've hit your 5-hour limit · resets 3:45pm (Asia/Seoul)", NOW))
+      .toMatchObject({ kind: 'session', resetsLabel: '3:45pm (Asia/Seoul)' });
+  });
+
+  it('모델별 한도(Opus·Sonnet, 플랜의 Fable 주간)는 주간 창이다', () => {
+    expect(matchUsageLimitNotice("You've hit your Opus limit · resets 3:45pm")).toBe('weekly');
+    expect(matchUsageLimitNotice("You've hit your Sonnet limit · resets 3:45pm")).toBe('weekly');
+    expect(matchUsageLimitNotice("You've hit your Fable limit · resets Nov 11, 12am (Asia/Seoul)")).toBe('weekly');
+    expect(matchUsageLimitNotice("You've hit your Fable weekly limit · resets Mon 12:00am")).toBe('weekly');
+  });
+
+  it('주인이 붙은 지출·사용량 한도와 공유 예산 — 창은 꼬리가 말하고, 새 이름 꼬리도 읽는다', () => {
+    for (const text of [
+      "You've hit your individual spend limit · ask your admin for a higher limit",
+      "You've hit your org's monthly spend limit · visit https://claude.ai/admin-settings/usage to raise it",
+      "You've hit your team's shared budget · ask your admin to raise it at https://claude.ai/admin-settings/usage",
+      "You've hit your channel's monthly spend limit · an org owner or channel manager can raise it in the channel's Claude settings",
+      "You've hit your individual usage limit",
+    ]) expect(matchUsageLimitNotice(text)).toBe('usage');
+    expect(matchUsageLimitNotice(
+      "You've hit your monthly spend limit · raise it at https://claude.ai/settings/usage · your 5-hour limit resets 2:40pm (Asia/Seoul)",
+    )).toBe('session');
+    expect(matchUsageLimitNotice("You've hit your org's monthly spend limit · your weekly limit resets Mon 3am")).toBe('weekly');
+  });
+
+  it('옛 머리(`… limit reached`)도 같은 낱말을 받는다 — 사용 크레딧 동의 창이 답 없이 닫힌 Fable 통지', () => {
+    expect(matchUsageLimitNotice(
+      'Fable limit reached · continuing on Fable 5.1 uses usage credits, and the prompt to confirm went unanswered — nothing was sent · answer it where this session is running, or /model to change',
+    )).toBe('weekly');
+    expect(matchUsageLimitNotice('5-hour limit reached')).toBe('session');
+  });
+
+  it('넓힌 만큼 오탐이 늘지 않는다 — 경고·동의 안내·목록 밖 낱말·인용은 통지가 아니다', () => {
+    expect(matchUsageLimitNotice("You've used 85% of your 5-hour limit · resets 3:45pm")).toBeNull();
+    expect(matchUsageLimitNotice('Fable 5.1 now uses usage credits · the prompt to confirm went unanswered — nothing was sent')).toBeNull();
+    expect(matchUsageLimitNotice("You've hit your budget for this sprint")).toBeNull();
+    expect(matchUsageLimitNotice("You've hit your rate limit on the GitHub API")).toBeNull();
+    expect(matchUsageLimitNotice("You've hit your Copilot limit")).toBeNull();
+    expect(matchUsageLimitNotice("이 글은 You've hit your 5-hour limit 을 인용한다")).toBeNull();
+  });
+
+  it('봉투의 모델별 주간 창(`seven_day_<모델>`)도 주간 — 창 이름은 접두로 읽는다', () => {
+    expect(detectUsageLimitStop(
+      syntheticLine("You've hit your Opus limit · resets 3:45pm", { status: 'rejected', rateLimitType: 'seven_day_opus', resetsAt: 1_792_647_600 }),
+      NOW,
+    )).toMatchObject({ kind: 'weekly', resetsAt: 1_792_647_600_000 });
+    // 접두 규칙 고정용으로 지은 값 — 낱말을 몰라도 합성 + 거절이면 받고, 창은 접두가 말한다.
+    expect(detectUsageLimitStop(
+      syntheticLine('Something new · resets 9pm', { status: 'rejected', rateLimitType: 'five_hour_extended' }),
+      NOW,
+    )?.kind).toBe('session');
+    expect(detectUsageLimitStop(
+      syntheticLine('Something new · resets 9pm', { status: 'rejected', rateLimitType: 'overage' }),
+      NOW,
+    )?.kind).toBe('usage');
+  });
+});

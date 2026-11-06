@@ -113,6 +113,12 @@ function synchronizeAccount(): void {
   inflight = null;
 }
 
+/** 마지막으로 읽은 값(묻지 않는다). §4 OpenAI 비즈니스 크레딧의 구독 소진 판정이 매 턴 동기로 읽는다. 계정이 바뀌었으면 null. */
+export function peekCodexUsage(): ProviderUsage | null {
+  synchronizeAccount();
+  return cached;
+}
+
 export function readCodexUsage(): Promise<ProviderUsage> {
   synchronizeAccount();
   if (inflight) return inflight;

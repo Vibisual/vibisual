@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { ProviderUsage } from '@vibisual/shared';
 import en from '../../i18n/locales/en.json';
-import { LimitGauge } from './LimitGauge.js';
+import { formatResetClock, LimitGauge } from './LimitGauge.js';
 import { UsageManagement, UsageResources } from './UsageResources.js';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({
@@ -75,6 +75,19 @@ describe('usage resources', () => {
     expect(html).toContain('Remaining budget is a spending limit, not your prepaid balance.');
   });
 
+  it('shows a reported prepaid balance and auto-reload, and keeps unreported ones on the website', () => {
+    const reported = renderToStaticMarkup(createElement(UsageResources, {
+      provider: 'claude', claudeCredits: { enabled: true, balance: 8, autoReload: true, currency: 'USD' },
+    }));
+    expect(reported).toMatch(/Prepaid balance<\/dt><dd[^>]*>\$8\.00<\/dd>/);
+    expect(reported).toMatch(/Auto-recharge<\/dt><dd[^>]*>On<\/dd>/);
+    const unreported = renderToStaticMarkup(createElement(UsageResources, {
+      provider: 'claude', claudeCredits: { enabled: false, usedCredits: 0, currency: 'USD' },
+    }));
+    expect(unreported).toMatch(/Prepaid balance<\/dt><dd[^>]*>Check on website<\/dd>/);
+    expect(unreported).toMatch(/Auto-recharge<\/dt><dd[^>]*>Check on website<\/dd>/);
+  });
+
   it('does not infer a remaining budget from incomplete or invalid readings', () => {
     for (const usedCredits of [undefined, NaN, -1]) {
       const html = renderToStaticMarkup(createElement(UsageResources, {
@@ -105,6 +118,16 @@ describe('account allowance gauges', () => {
     expect(html).toContain('75% used');
     expect(html).toContain('25% remaining');
     expect(html).toContain('width:75%');
+  });
+
+  it('shows the reset as a clock time next to the countdown', () => {
+    const now = Date.UTC(2026, 10, 4, 0, 0, 0);
+    const soon = renderToStaticMarkup(createElement(LimitGauge, { label: '5-hour limit', used: 10, resetAt: now + 90 * 60_000, now, showRemaining: true }));
+    expect(soon).toContain(`Resets ${formatResetClock(now + 90 * 60_000, now, 'en')} · in 1h 30m`);
+    const later = renderToStaticMarkup(createElement(LimitGauge, { label: 'Weekly', used: 10, resetAt: now + 3 * 86_400_000, now, showRemaining: true }));
+    expect(later).toContain(`Resets ${formatResetClock(now + 3 * 86_400_000, now, 'en')} · in 3d 0h`);
+    expect(formatResetClock(now + 3 * 86_400_000, now, 'en')).toMatch(/Nov/);
+    expect(formatResetClock(now + 90 * 60_000, now, 'en')).not.toMatch(/Nov/);
   });
 
   it('keeps missing usage unknown and preserves hardware meter labels', () => {
