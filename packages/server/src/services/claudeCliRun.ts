@@ -1,5 +1,8 @@
-import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { claudeSpawnEnv, getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { resolveBinary } from './binLocator.js';
 import { logger } from '../logger.js';
 
 /**
@@ -64,14 +67,95 @@ export function buildCliInvocation(
   binPath: string,
   args: readonly string[],
   platform: NodeJS.Platform,
+  shim: CmdShimReader = defaultCmdShimReader,
 ): CliInvocation {
   const needsShell = platform === 'win32' && /\.(cmd|bat)$/i.test(binPath);
   if (!needsShell) return { file: binPath, args: [...args], shell: false };
+  // npm 전역 설치(`claude.cmd`·`codex.cmd`)는 셸 없이 그 안의 프로그램을 직접 띄운다 — cmd.exe 를 타면 개행 든 인자
+  //   (에이전트 규칙 `--append-system-prompt`)가 첫 줄에서 잘리고, 오래 사는 엔진 앞에 cmd.exe 가 하나 더 낀다.
+  const target = resolveCmdShimTarget(binPath, shim);
+  if (target) return { file: target.file, args: [...target.prefixArgs, ...args], shell: false };
   return {
     file: escapeCmdCommand(binPath),
     args: args.map(escapeCmdArgument),
     shell: true,
   };
+}
+
+/** `.cmd` 심을 읽어 풀 때 쓰는 입출력 — 순수 판정을 세 OS 에서 시험하려고 주입한다. */
+export interface CmdShimReader {
+  read(file: string): string | null;
+  isFile(file: string): boolean;
+  /** `%_prog%` 가 심 옆 `node.exe` 가 아닐 때 쓰는 Node. */
+  node(): string | null;
+}
+
+const defaultCmdShimReader: CmdShimReader = {
+  read(file) {
+    try {
+      const st = fs.statSync(file);
+      // 심은 수백 바이트다 — 큰 배치 파일은 우리가 아는 형태가 아니다.
+      return st.isFile() && st.size <= 16_384 ? fs.readFileSync(file, 'utf8') : null;
+    } catch {
+      return null;
+    }
+  },
+  isFile(file) {
+    try {
+      return fs.statSync(file).isFile();
+    } catch {
+      return false;
+    }
+  },
+  node: () => resolveBinary('node'),
+};
+
+/**
+ * Windows `.cmd` 심이 실제로 띄우는 프로그램. npm cmd-shim(`"%_prog%"  "%dp0%\node_modules\…\cli.js" %*`,
+ * 네이티브 대상은 `"%dp0%\…\x.exe" %*`)과 절대경로 한 줄 런처(`"C:\…\node.exe" "C:\…\x.mjs" %*`)만 푼다.
+ * 모르는 변수·없는 파일·토큰 셋 이상이면 null — 그때는 종전대로 셸을 탄다(추측으로 다른 프로그램을 띄우지 않는다).
+ */
+export function resolveCmdShimTarget(
+  shimPath: string,
+  shim: CmdShimReader,
+): { file: string; prefixArgs: string[] } | null {
+  const text = shim.read(shimPath);
+  if (!text) return null;
+  const line = text.split(/\r?\n/).reverse().find((l) => l.includes('%*'));
+  if (!line) return null;
+  const head = line.slice(0, line.indexOf('%*'));
+  const quoted = [...head.matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
+  if (quoted.length === 0 || quoted.length > 2) return null;
+  const dir = path.win32.dirname(path.win32.resolve(shimPath)) + path.win32.sep;
+  const tokens: string[] = [];
+  for (const raw of quoted) {
+    let value = raw.replace(/%~dp0/gi, dir).replace(/%dp0%/gi, dir);
+    if (/%_prog%/i.test(value)) {
+      const local = path.win32.join(dir, 'node.exe');
+      const node = shim.isFile(local) ? local : shim.node();
+      if (!node) return null;
+      value = value.replace(/%_prog%/gi, node);
+    }
+    if (value.includes('%')) return null;
+    const normalized = path.win32.normalize(value);
+    if (!path.win32.isAbsolute(normalized) || !shim.isFile(normalized)) return null;
+    tokens.push(normalized);
+  }
+  // 심이 다른 배치 파일을 부르면 풀어도 같은 문제가 남는다.
+  if (/\.(cmd|bat)$/i.test(tokens[0]!)) return null;
+  return { file: tokens[0]!, prefixArgs: tokens.slice(1) };
+}
+
+/**
+ * 엔진 실행본(claude·codex)을 오래 사는 자식으로 띄우는 공용 창구. 옵션의 `shell` 은 무시하고 실행 형태가 정한다.
+ * `spawn(bin, args, { shell: false })` 로 직접 부르면 Windows `.cmd` 심에서 Node 가 `EINVAL` 로 거절한다(CVE-2024-27980 이후).
+ */
+export function spawnEngineProcess(binPath: string, args: readonly string[], options: SpawnOptions): ChildProcess {
+  const invocation = buildCliInvocation(binPath, args, process.platform);
+  if (invocation.shell && args.some((a) => /[\r\n]/.test(a))) {
+    logger.warn('[engine-spawn] .cmd shim via cmd.exe — arguments containing newlines are cut at the first line');
+  }
+  return spawn(invocation.file, invocation.args, { ...options, shell: invocation.shell });
 }
 
 /** claude 하위명령 1회 실행 — 실패해도 throw 하지 않고 `failure` 로 알린다. */

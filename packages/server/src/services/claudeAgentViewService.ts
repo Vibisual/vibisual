@@ -3,7 +3,6 @@
  * BubbleData/SubAgent 는 만지지 않는다 — 호출자(subAgentManager / index.ts)가 결과를 자기 데이터에 적용한다.
  * `--bg` 는 `--session-id <uuid>` 를 거부하므로 sessionId 는 supervisor 가 할당한 것을 roster.json·state.json 에서 읽어 와야 한다.
  */
-import { spawn } from 'node:child_process';
 import { observeChildStreamErrors } from './childStreamErrors.js';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -11,6 +10,7 @@ import path from 'node:path';
 import type { AgentViewRosterEntry, AgentViewJobState } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { claudeSpawnEnv, getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { spawnEngineProcess } from './claudeCliRun.js';
 import { getClaudeVersionInfo } from './claudeVersionService.js';
 import { getSessionJsonlPath } from './sessionDiscovery.js';
 import { processGroupSpawnOptions } from './processTree.js';
@@ -168,10 +168,9 @@ export async function spawnBackground(
 
     const args = ['--bg', ...extraArgs];
 
-    const child = spawn(CLAUDE_BIN(), args, {
+    const child = spawnEngineProcess(CLAUDE_BIN(), args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      shell: false,
       // POSIX 한정 detached — `--bg` 런처는 금방 끝나도 뒤에 남는 워커는 오래 산다. 그룹을 떼어 두면 서버 프로세스 그룹에 가는 신호(터미널 Ctrl+C 등)에 워커가 휩쓸리지 않는다.
       // killTree 는 쓰지 않는다(정지 경로는 `claude stop <short>`). unref() 도 붙이지 않는다.
       ...processGroupSpawnOptions(),
@@ -302,9 +301,8 @@ function fireSubcommand(args: string[]): Promise<{ exitCode: number | null; stdo
   return new Promise((resolve) => {
     // detached 를 **일부러 안 붙인다** — `claude stop|rm <short>` 는 손자를 만들지 않고 즉시 끝나는
     //   하위명령이라 프로세스 그룹이 필요 없다(우리도 killTree 로 회수하지 않는다).
-    const child = spawn(CLAUDE_BIN(), args, {
+    const child = spawnEngineProcess(CLAUDE_BIN(), args, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: false,
       windowsHide: true,
       env: claudeSpawnEnv(),
     });

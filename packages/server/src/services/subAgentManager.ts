@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { linkedImageEvents } from './streamLinkedImages.js';
 import fs from 'node:fs';
@@ -75,6 +75,7 @@ import { readLastAssistantMessage, readLastAssistantEntry, readSessionTokenData,
 import type { LastAssistantEntry } from './sessionDiscovery.js';
 import * as streamBufferStore from './streamBufferStore.js';
 import { claudeSpawnEnv, getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { spawnEngineProcess } from './claudeCliRun.js';
 import { buildShellCommandLine, interactiveShellFamily } from './interactiveCommandLine.js';
 // §5.5 #17-2 — 턴 프롬프트 조립(슬래시 명령은 앞말 없이 원문 그대로). 순수 모듈 + 단위 테스트.
 import { composeTurnPrompt, isSlashCommandText } from './turnPrompt.js';
@@ -4966,10 +4967,10 @@ export class SubAgentManager {
     let retryForMissingBin = false;
 
     try {
-      const child = spawn(triedBin, args, {
+      // Windows `.cmd` 심(npm 전역 설치)은 셸 없이 풀어서 띄운다 — 직접 spawn 하면 Node 가 EINVAL 로 거절한다(`spawnEngineProcess`).
+      const child = spawnEngineProcess(triedBin, args, {
         cwd: parentCwd,
         stdio: ['pipe', 'pipe', 'pipe'], // stdin 으로 프롬프트를 쓴다.
-        shell: false,
         // POSIX 한정 detached — 그룹 리더가 아니면 `-pid` 킬이 ESRCH 로 단일 pid 킬이 되어 MCP 서버·node worker(손자)가 mac/linux 에 고아로 남는다.
         //   stdio 파이프엔 영향 없다. `unref()` 는 절대 붙이지 말 것.
         ...processGroupSpawnOptions(),

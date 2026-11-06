@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { promises as fsp } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -18,6 +17,7 @@ import {
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { claudeSpawnEnv, getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { spawnEngineProcess } from './claudeCliRun.js';
 import { killTree, processGroupSpawnOptions } from './processTree.js';
 
 const CLAUDE_BIN_PATH = (): string => getClaudeBin().binPath;
@@ -185,11 +185,9 @@ function callClaude(
 
     let stdout = '';
     let stderr = '';
-    // 보안: shell:false + 해석된 CLAUDE_BIN_PATH (runPatchAgent 와 동일 패턴).
-    // shell:true + 'claude' 는 win32 cmd.exe 가 args 를 재파싱해 sessionId/model 경유
-    // 셸 인젝션이 가능했음 — argv 형태로 차단.
-    const child = spawn(CLAUDE_BIN_PATH(), args, {
-      shell: false,
+    // 보안: 해석된 CLAUDE_BIN_PATH 를 argv 로 띄운다 — shell:true + 'claude' 는 win32 cmd.exe 가 args 를 재파싱해
+    //   sessionId/model 경유 셸 인젝션이 가능했다. `.cmd` 심만 `spawnEngineProcess` 가 풀거나 이스케이프해 셸을 탄다.
+    const child = spawnEngineProcess(CLAUDE_BIN_PATH(), args, {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd: opts.cwd,
@@ -502,8 +500,7 @@ function runPatchAgent(tmpdir: string, userPrompt: string, model: string): Promi
       '--model', model,
       promptArg,
     ];
-    const child = spawn(CLAUDE_BIN_PATH(), args, {
-      shell: false,
+    const child = spawnEngineProcess(CLAUDE_BIN_PATH(), args, {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd: tmpdir,

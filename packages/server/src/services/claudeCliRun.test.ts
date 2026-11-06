@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildCliInvocation } from './claudeCliRun.js';
+import { buildCliInvocation, resolveCmdShimTarget, type CmdShimReader } from './claudeCliRun.js';
 
 // 멀티플랫폼 규칙 — 분기 함수가 `platform` 을 인자로 받으므로 개발기 한 대에서 세 OS 를 다 잰다.
 
@@ -122,5 +122,86 @@ describe('buildCliInvocation — cmd 명령 주입 회귀', () => {
       if (idx >= 0) expect(arg.slice(idx - 2, idx)).toBe('^^');
     }
     expect(inv.args[3]).toBe('^^^"\\^^^"^^^"');
+  });
+});
+
+// npm cmd-shim 이 실제로 쓰는 본문(줄 끝 CRLF). 마지막 줄의 `%*` 앞 따옴표 토큰이 실행 대상이다.
+const NPM_NODE_SHIM = [
+  '@ECHO off', 'GOTO start', ':find_dp0', 'SET dp0=%~dp0', 'EXIT /b', ':start', 'SETLOCAL', 'CALL :find_dp0', '',
+  'IF EXIST "%dp0%\\node.exe" (', '  SET "_prog=%dp0%\\node.exe"', ') ELSE (', '  SET "_prog=node"',
+  '  SET PATHEXT=%PATHEXT:;.JS;=;%', ')', '',
+  'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js" %*',
+  '',
+].join('\r\n');
+
+function reader(files: Record<string, string | true>, node: string | null = 'C:\\Program Files\\nodejs\\node.exe'): CmdShimReader {
+  const key = (p: string) => p.toLowerCase();
+  const table = new Map(Object.entries(files).map(([k, v]) => [key(k), v]));
+  return {
+    read: (p) => {
+      const v = table.get(key(p));
+      return typeof v === 'string' ? v : null;
+    },
+    isFile: (p) => table.has(key(p)),
+    node: () => node,
+  };
+}
+
+describe('resolveCmdShimTarget — npm 전역 설치 .cmd 심을 셸 없이 푼다', () => {
+  const shim = 'D:\\npm-global\\claude.cmd';
+  const cli = 'D:\\npm-global\\node_modules\\@anthropic-ai\\claude-code\\cli.js';
+  const systemNode = 'C:\\Program Files\\nodejs\\node.exe';
+
+  it('%_prog% 는 PATH 의 node 로, %dp0% 는 심 폴더로 — node + 스크립트를 직접 띄운다', () => {
+    const r = reader({ [shim]: NPM_NODE_SHIM, [cli]: true, [systemNode]: true });
+    expect(resolveCmdShimTarget(shim, r)).toEqual({ file: systemNode, prefixArgs: [cli] });
+  });
+
+  it('심 옆에 node.exe 가 있으면 그것을 쓴다(npm 심이 고르는 순서와 같다)', () => {
+    const local = 'D:\\npm-global\\node.exe';
+    const r = reader({ [shim]: NPM_NODE_SHIM, [cli]: true, [local]: true });
+    expect(resolveCmdShimTarget(shim, r)?.file).toBe(local);
+  });
+
+  it('네이티브 대상(.exe)은 그 실행본을 바로 띄운다', () => {
+    const exe = 'D:\\npm-global\\node_modules\\@openai\\codex\\bin\\codex.exe';
+    const body = '@ECHO off\r\nSETLOCAL\r\n"%~dp0\\node_modules\\@openai\\codex\\bin\\codex.exe"   %*\r\n';
+    const r = reader({ [shim]: body, [exe]: true });
+    expect(resolveCmdShimTarget(shim, r)).toEqual({ file: exe, prefixArgs: [] });
+  });
+
+  it('절대경로 한 줄 런처도 푼다', () => {
+    const body = '@echo off\r\nsetlocal\r\n"C:\\n\\node.exe" "C:\\s\\fake-claude.mjs" %*\r\nexit /b %ERRORLEVEL%\r\n';
+    const r = reader({ [shim]: body, 'C:\\n\\node.exe': true, 'C:\\s\\fake-claude.mjs': true });
+    expect(resolveCmdShimTarget(shim, r)).toEqual({ file: 'C:\\n\\node.exe', prefixArgs: ['C:\\s\\fake-claude.mjs'] });
+  });
+
+  it.each([
+    ['모르는 변수', '"%SOMEWHERE%\\x.exe" %*\r\n', [] as string[], true],
+    ['대상 파일 없음', NPM_NODE_SHIM, [] as string[], true],
+    ['node 를 못 찾음', NPM_NODE_SHIM, ['cli'], false],
+    ['다른 배치 파일로 위임', '"C:\\a\\inner.cmd" %*\r\n', ['C:\\a\\inner.cmd'], true],
+    ['%* 줄 없음', '@echo off\r\nnode x.js\r\n', [] as string[], true],
+  ] as const)('%s 이면 풀지 않는다 — 종전 셸 경유로 남는다', (_name, body, present, hasNode) => {
+    const files: Record<string, string | true> = { [shim]: body };
+    for (const p of present) files[p === 'cli' ? cli : p] = true;
+    const r = reader(files, hasNode ? systemNode : null);
+    expect(resolveCmdShimTarget(shim, r)).toBeNull();
+    expect(buildCliInvocation(shim, ['-p', 'x'], 'win32', r).shell).toBe(true);
+  });
+
+  it('풀린 형태는 셸을 타지 않아 개행 든 인자(에이전트 규칙)가 한 글자도 바뀌지 않는다', () => {
+    const r = reader({ [shim]: NPM_NODE_SHIM, [cli]: true, [systemNode]: true });
+    const rules = 'line one\nline "two" & three';
+    const inv = buildCliInvocation(shim, ['--append-system-prompt', rules], 'win32', r);
+    expect(inv).toEqual({ file: systemNode, args: [cli, '--append-system-prompt', rules], shell: false });
+  });
+
+  it.each(['darwin', 'linux'] as const)('%s 에서는 심을 읽지도 않는다', (platform) => {
+    const r = reader({});
+    r.read = () => {
+      throw new Error('must not read on POSIX');
+    };
+    expect(buildCliInvocation('/usr/local/bin/claude', ['-p'], platform, r)).toEqual({ file: '/usr/local/bin/claude', args: ['-p'], shell: false });
   });
 });

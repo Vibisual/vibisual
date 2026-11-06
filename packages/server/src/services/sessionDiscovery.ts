@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execSync, spawn } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import {
   INITIAL_AGENT_COUNT, MAX_AGENT_EVENTS, getModelContextLimit,
   TOKEN_BYTES_RATIO, TOKEN_FIXED_CATEGORIES,
@@ -16,6 +16,7 @@ import type { AgentEvent, TodoItem, TurnTokenUsage, TokenCategoryEstimate, Sessi
 import { logger } from '../logger.js';
 import { dbgOnChange } from './debugLog.js';
 import { claudeSpawnEnv, getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { spawnEngineProcess } from './claudeCliRun.js';
 import { scanFileLines, scanWholeFileLines } from './jsonlChunkReader.js';
 import { stripTranscriptMarkdown, stripTranscriptTags } from './transcriptPlainText.js';
 import { registerEvictableCache } from './memoryMonitor.js';
@@ -319,13 +320,13 @@ export function isSessionInUse(sessionId: string, cwd: string, timeoutMs = 1500)
   const cmdLine = `${CLAUDE_BIN()} -p "x" --resume ${sessionId}`;
   logger.info(`[isSessionInUse] SPAWN sess=${shortId} cwd=${cwd} cmd=${cmdLine}`);
   return new Promise((resolve) => {
-    // 보안: shell:false + 해석된 CLAUDE_BIN — shell:true 면 win32 cmd.exe 가 sessionId 를 재파싱해 인젝션된다.
+    // 보안: 해석된 CLAUDE_BIN 을 argv 로 — shell:true 면 win32 cmd.exe 가 sessionId 를 재파싱해 인젝션된다(`.cmd` 심은 `spawnEngineProcess`).
     // POSIX 는 detached 여야 timeout kill 이 손자(MCP 서버 등)까지 회수한다(아니면 `kill(-pid)` 가 ESRCH).
-    const child = spawn(
+    const child = spawnEngineProcess(
       CLAUDE_BIN(),
       args,
       // §4 (앱 전용 엔진) ⑤ — 앱 전용 실행본이면 엔진 자체 갱신을 끈다.
-      { shell: false, windowsHide: true, cwd, ...processGroupSpawnOptions(), env: claudeSpawnEnv() },
+      { windowsHide: true, cwd, ...processGroupSpawnOptions(), env: claudeSpawnEnv() },
     );
     let buf = '';
     let settled = false;
@@ -354,8 +355,8 @@ export function isSessionInUse(sessionId: string, cwd: string, timeoutMs = 1500)
       buf += chunk.toString('utf8');
       if (/already in use/i.test(buf)) finish(true, 'regex-match');
     };
-    child.stderr.on('data', onData);
-    child.stdout.on('data', onData);
+    child.stderr?.on('data', onData);
+    child.stdout?.on('data', onData);
     child.on('error', (err) => {
       logger.warn(`[isSessionInUse] SPAWN ERROR sess=${shortId} err=${String(err)}`);
       noteClaudeSpawnFailure(err);

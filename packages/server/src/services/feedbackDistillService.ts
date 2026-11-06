@@ -2,9 +2,9 @@
  * §4 — 싫어요(+사유) 피드백을 one-shot `claude -p`(haiku)로 요약해 `AgentConfig.rules` 규칙 제안을 만든다. 스폰은 §5.7 sessionDiscovery 와 같다(shell:false, 트리 kill).
  * **제안만 반환** — 적용은 클라 확인 모달 승인 뒤 `PUT /api/agent-config/:agentId`(자동 append 금지 — 일회성 싫어요가 영구 규칙이 된다).
  */
-import { spawn } from 'child_process';
 import { AGENT_FEEDBACK_DISTILL_MAX, type AgentFeedback } from '@vibisual/shared';
 import { claudeSpawnEnv, getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { spawnEngineProcess } from './claudeCliRun.js';
 import { killTree, processGroupSpawnOptions } from './processTree.js';
 import { logger } from '../logger.js';
 
@@ -52,12 +52,11 @@ export function distillFeedbackToRules(feedbacks: AgentFeedback[]): Promise<stri
   return new Promise((resolve) => {
     let settled = false;
     let out = '';
-    // 보안: shell:false — 프롬프트는 argv 로 전달되어 셸 재파싱 없음(sessionDiscovery 선례).
-    const child = spawn(
+    // 보안: 프롬프트는 argv 로 전달되어 셸 재파싱 없음(sessionDiscovery 선례). `.cmd` 심은 `spawnEngineProcess` 가 푼다.
+    const child = spawnEngineProcess(
       CLAUDE_BIN(),
       ['-p', prompt, '--model', 'haiku', '--output-format', 'text'],
       {
-        shell: false,
         windowsHide: true,
         // POSIX 한정 detached — 아래 finish() 가 killTree 로 회수한다. 그룹 리더가 아니면 `-pid` 가
         //   ESRCH 로 실패해 haiku 세션이 띄운 손자(MCP 서버·worker)가 mac/linux 에서 남는다.
