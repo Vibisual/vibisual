@@ -13,6 +13,10 @@ const bundledFiles = (): string[] => [...new Set(BRANDS.flatMap((brand) => varia
 
 /** The attribution line each mark needs in NOTICE (which ships with every installer). */
 const ATTRIBUTION: Readonly<Record<CommandAppBrand, string>> = {
+  python: 'Python logo, Python Software Foundation',
+  node: 'Node.js logo, a trademark of the OpenJS Foundation',
+  go: 'Go gopher by Renee French',
+  rust: 'Rust logo, a trademark of the Rust Foundation',
   git: 'Git Logo by Jason Long',
   curl: 'curl symbol by the curl project',
   php: 'PHP logo by Colin Viebrock',
@@ -51,6 +55,12 @@ const ATTRIBUTION: Readonly<Record<CommandAppBrand, string>> = {
 
 describe('which commands get a bundled mark', () => {
   it.each([
+    ['python', 'python'], ['py.exe', 'python'], ['pyw.exe', 'python'], ['pythonw', 'python'],
+    ['python3', 'python'], ['/usr/bin/python3.12', 'python'], ['python3.13t', 'python'],
+    ['C:\\Users\\a\\AppData\\Local\\Programs\\Python\\Python313\\PYTHON.EXE', 'python'], // privacy-ok
+    ['C:/work/.venv/Scripts/pythonw.exe', 'python'],
+    ['node.exe', 'node'], ['/usr/bin/nodejs', 'node'], ['go', 'go'], ['cargo.exe', 'rust'],
+    ['rustc', 'rust'], ['rustdoc', 'rust'], ['rustup', 'rust'],
     ['C:\\Program Files\\Git\\cmd\\git.exe', 'git'], ['/usr/bin/git', 'git'], ['git', 'git'], ['GIT.EXE', 'git'],
     ['C:/Windows/System32/curl.exe', 'curl'], ['php', 'php'], ['ruby.exe', 'ruby'], ['irb', 'ruby'], ['/usr/bin/perl', 'perl'],
     ['yarn.cmd', 'yarn'], ['D:/tools/npm/pnpm.ps1', 'pnpm'], ['pnpx', 'pnpm'],
@@ -65,7 +75,8 @@ describe('which commands get a bundled mark', () => {
     expect(commandAppBrandOf(executable)).toBe(brand);
   });
 
-  it.each(['node', 'npm', 'npx', 'python3', 'cargo', 'docker', 'go', 'deno', 'tsc', 'eslint', 'jest', 'kubectl', 'terraform', 'gh',
+  it.each(['npm', 'npx', 'docker', 'deno', 'tsc', 'eslint', 'jest', 'kubectl', 'terraform', 'gh',
+    'python-tools', 'python3-config', 'pythonic', 'pyenv', 'py.test-helper',
     'C:/UE/Engine/Binaries/Win64/UnrealEditor.exe', 'git-lfs', 'godotx', 'lua5', 'luajit', 'bunyan', 'constructor', 'toString', ''])('"%s" keeps the icon read from its own executable', (executable) => {
     expect(commandAppBrandOf(executable)).toBeUndefined();
   });

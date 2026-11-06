@@ -13,13 +13,17 @@ reference or impose none. Licenses of third-party icon packs (simple-icons, devi
 the owner's own statements do. Attribution for the copies below is also in the repository `NOTICE`, which
 ships with every installer.
 
-**On a white disc**: Nx, Ollama, Lua and the GNU head are published as a black (or white-grounded) mark only,
+**On a white disc**: Nx, Ollama, Lua, Rust and the GNU head use a black (or white-grounded) mark,
 with no variant for dark backgrounds, and recolouring is not ours to do. On a dark background
 `CommandAppIcon` therefore places the unaltered file on a white disc (`plate` in
 `commandAppBrandIcons.ts`) — the same white it is published on.
 
-| File | Program (commands) | Source (fetched 2026-10-20 / 2026-10-28) | Copyright / license | Trademark basis |
+| File | Program (commands) | Source (fetched 2026-10-20 / 2026-10-28 / 2026-11-02) | Copyright / license | Trademark basis |
 |---|---|---|---|---|
+| `python.svg` | Python (`python`, `python3`, versioned interpreters, `pythonw`, `py`, `pyw`) | [Official two-snakes SVG](https://s3.dualstack.us-east-2.amazonaws.com/pythondotorg-assets/media/files/python-logo-only.svg), linked by <https://www.python.org/community/logos/>; original SHA-256 `baec8662a1461c2cacc326b54d2727cb2f1ce07ba02d00f5b826d035104f649f`. Only `viewBox` added to scale the original drawing. | Python Software Foundation; the official logo page permits the device on the same terms as the full logo. | [PSF policy](https://www.python.org/psf/trademarks/), "Uses that Never Require Approval" and "Unaltered Logos": nominative use to identify Python. `CommandAppIcon` accompanies the unchanged artwork with ™; attribution is in NOTICE. |
+| `node.svg` | Node.js (`node`, `nodejs`) | <https://nodejs.org/static/logos/nodejsHex.svg>, linked by <https://nodejs.org/en/about/branding>; SHA-256 `e4c8de546b2462ad9497679c55609701144ffacd8e18ac17a7f7f7b795de9fe7` (unmodified) | OpenJS Foundation and Node.js contributors; official branding download | Identifies the Node.js runtime, not Vibisual branding or endorsement. [OpenJS policy](https://trademark-policy.openjsf.org/); attribution in NOTICE. |
+| `go.svg` | Go (`go`) | [golang/website blue Gopher](https://github.com/golang/website/blob/b8d34bbe2d9e230cc70ce3e4272dc651f494a188/_content/images/gophers/blue.svg); SHA-256 `c328cbcb80b48bef454015a9e091d5543de8dad939fdd2600942ae985da8f2be` (unmodified) | Go gopher by Renee French, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), [official explanation](https://go.dev/blog/gopher) | Uses the openly licensed gopher, not the restricted Go wordmark. |
+| `rust.svg` | Rust toolchain (`rustc`, `rustdoc`, `rustup`, `cargo`) | [Rust official site](https://github.com/rust-lang/www.rust-lang.org/blob/cd45959fc9d547a990c08de064c168c090f5955c/static/images/rust-logo-blk.svg); original SHA-256 `6d6e0fd29e2015bec5ca9bdbdc11ede1e84fb792c560599b58e564346825a229`. Only `viewBox` added to scale the original drawing. | Rust Foundation, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Identifies the Rust toolchain; no endorsement. [Rust trademark policy](https://rustfoundation.org/policy/rust-trademark-policy/). White disc on dark backgrounds. |
 | `git.svg` | Git | <https://git-scm.com/images/logos/downloads/Git-Icon-1788C.svg> (unmodified) | Git Logo by Jason Long, [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) | Git Project trademark policy §2.2 permits the marks "to identify the Git software" (<https://git-scm.com/about/trademark>) |
 | `curl.svg`, `curl-white.svg` | curl | <https://curl.se/logo/curl-symbol.svg>, <https://curl.se/logo/curl-white-symbol.svg> (unmodified) | curl project: "You are free to use the images for purposes of showing your use of curl" (<https://curl.se/logo/>) | same page |
 | `php.svg` | PHP | <https://www.php.net/images/logos/new-php-logo.svg> (unmodified) | PHP logo by Colin Viebrock, [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) (<https://www.php.net/download-logos.php>) | released by php.net for reuse |
@@ -55,16 +59,17 @@ with no variant for dark backgrounds, and recolouring is not ours to do. On a da
 | `android-head.svg` | Android Debug Bridge (`adb`) | <https://developer.android.com/static/images/brand/android-head_flat.svg> (original SHA-256 `5f05dae657da9f31e5d4a09b7976f39881617f6b3e4d4562d9ee16295d250bdb`), **`viewBox` added** so it scales (drawing unchanged) | the Android robot, [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) with Google's attribution line (in NOTICE) | "Google retains all trademark rights to the Android robot"; the robot "can be reproduced and/or modified". The Android wordmark and typeface are not used. |
 | `emscripten.svg` | Emscripten (`emcc`, `em++`, `emcmake`, `emmake`, `emconfigure`) | `media/logo.svg` from [emscripten-core/emscripten@f6acdcc8](https://github.com/emscripten-core/emscripten/blob/f6acdcc86d6a754fdc71cc386eb42ef740e8ecee/media/logo.svg) (unmodified) | Copyright (c) 2010-2014 Emscripten authors, MIT (dual MIT / NCSA; MIT chosen) | no trademark policy published |
 
-## Marks deliberately not bundled
+## Marks not yet bundled
 
-Researched 2026-10-20 and 2026-10-28 from the owners' own pages. These commands show their executable's own
-icon where it has one (for example `node.exe` and `python.exe` on Windows), otherwise the generic terminal
-glyph:
+The remaining list records the earlier review (2026-10-20 and 2026-10-28); recheck the owner's current
+terms before adding each asset. It is not a permanent exclusion list. Python, Node.js, Go's gopher and
+Rust were added on 2026-11-02. Required accompanying trademark symbols can be rendered by
+`CommandAppBrandIcon.trademark` and are not a reason to exclude a logo. Remaining commands show their
+executable's icon where available, otherwise the generic terminal glyph:
 
-- **Node.js, npm, ESLint, Jest, webpack, Electron** — OpenJS Foundation policy and npm's logo policy allow the logos only with permission.
-- **Python, Jupyter, Kotlin** — the mark must always carry ™ / ® (or be followed by it at first mention), which an icon and a bare label cannot.
-- **Rust / Cargo** — the artwork is CC BY, but the trademark policy does not cover UI icons and asks to be contacted.
-- **Docker, Go, PostgreSQL** — logo use needs prior approval or forbids showing the logo next to other marks.
+- **npm, ESLint, Jest, webpack, Electron** — recheck their individual branding terms; npm has its own logo policy.
+- **Jupyter, Kotlin** — not yet bundled; review the artwork source and any accompanying trademark symbol.
+- **Docker, PostgreSQL** — prior review identified logo-use conditions; recheck the current policy for identification in a tool UI.
 - **TypeScript, Playwright, .NET, Azure CLI, winget** — Microsoft logos need an express license; the TypeScript branding page asks not to use its logos for an application.
 - **Kubernetes (kubectl), Helm, Podman, OpenTofu** — the Linux Foundation trademark policy permits a project logo only as a link to the project's home page.
 - **Gradle, Apache Maven / Ant, Bazel, Meson, LLVM / Clang, Scala / sbt, Swift, Unity, Unreal Engine** — logo use needs written permission (Unreal: no permission for third-party tools found).

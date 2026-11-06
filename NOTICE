@@ -62,6 +62,24 @@ packages/client/src/assets/command-app-icons/README.md
 Under Creative Commons, public-domain dedications or the owner's own
 permission:
 
+  - Python logo, Python Software Foundation. Used to identify Python under
+    https://www.python.org/community/logos/ and the PSF Trademark Usage Policy
+    (https://www.python.org/psf/trademarks/). The drawing is unchanged; a
+    viewBox was added for scaling, and the UI accompanies the logo with TM.
+    "Python" and the Python logos are trademarks or registered trademarks
+    of the Python Software Foundation, used by Vibisual with permission
+    from the Foundation under its published nominative-use policy.
+  - Node.js logo, a trademark of the OpenJS Foundation. Official hex artwork
+    from https://nodejs.org/en/about/branding, unmodified, used solely to
+    identify the Node.js runtime. No affiliation or endorsement is implied.
+    https://trademark-policy.openjsf.org/
+  - Go gopher by Renee French, licensed under CC BY 4.0
+    (https://creativecommons.org/licenses/by/4.0/). Unmodified.
+    https://go.dev/blog/gopher
+  - Rust logo, a trademark of the Rust Foundation, licensed under CC BY 4.0
+    (https://creativecommons.org/licenses/by/4.0/). A viewBox was added for
+    scaling; the drawing is unchanged. Rust and Cargo are trademarks of
+    the Rust Foundation. https://rustfoundation.org/policy/rust-trademark-policy/
   - Git Logo by Jason Long, licensed under CC BY 3.0
     (https://creativecommons.org/licenses/by/3.0/). Unmodified.
   - curl symbol by the curl project, used under its logo permission

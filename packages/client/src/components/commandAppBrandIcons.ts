@@ -11,8 +11,14 @@ export interface CommandAppBrandIcon {
   readonly dark: string;
   readonly light: string;
   readonly plate?: 'pad' | 'flush';
+  /** Accompanies the owner's unaltered artwork where its usage terms ask for a mark. */
+  readonly trademark?: '™' | '®';
 }
 
+const python = new URL('../assets/command-app-icons/python.svg', import.meta.url).href;
+const node = new URL('../assets/command-app-icons/node.svg', import.meta.url).href;
+const go = new URL('../assets/command-app-icons/go.svg', import.meta.url).href;
+const rust = new URL('../assets/command-app-icons/rust.svg', import.meta.url).href;
 const git = new URL('../assets/command-app-icons/git.svg', import.meta.url).href;
 const php = new URL('../assets/command-app-icons/php.svg', import.meta.url).href;
 const ruby = new URL('../assets/command-app-icons/ruby.png', import.meta.url).href;
@@ -45,6 +51,10 @@ const androidHead = new URL('../assets/command-app-icons/android-head.svg', impo
 const emscripten = new URL('../assets/command-app-icons/emscripten.svg', import.meta.url).href;
 
 export const COMMAND_APP_BRAND_ICONS: Readonly<Record<CommandAppBrand, CommandAppBrandIcon>> = {
+  python: { dark: python, light: python, trademark: '™' },
+  node: { dark: node, light: node },
+  go: { dark: go, light: go },
+  rust: { dark: rust, light: rust, plate: 'pad' },
   git: { dark: git, light: git },
   // curl publishes a white symbol for dark backgrounds and a navy one for light backgrounds.
   curl: {

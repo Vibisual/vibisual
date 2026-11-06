@@ -46,6 +46,33 @@ describe('command app icon visibility', () => {
 });
 
 describe('bundled marks for commands without an icon of their own', () => {
+  it.each(['python', 'py.exe', '/usr/bin/python3.12', 'C:/work/.venv/Scripts/python.exe'])(
+    'draws Python immediately even when the OS previously found no icon: %s', (executable) => {
+      vi.mocked(peekCommandAppIcon).mockReturnValue(null);
+      act(() => { renderer = create(<CommandAppIcon executable={executable} />); });
+      expect(sources()).toEqual([COMMAND_APP_BRAND_ICONS.python.dark]);
+      expect(renderer!.root.findAllByType('svg')).toHaveLength(0);
+      expect(renderer!.root.findAllByType('span').some((span) => span.children.includes('™'))).toBe(true);
+      expect(getCommandAppIcon).not.toHaveBeenCalled();
+      expect(peekCommandAppIcon).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps the Python mark when remounted and when changing to the light detail panel', () => {
+    act(() => { renderer = create(<CommandAppIcon executable="python3" />); });
+    act(() => { renderer!.unmount(); });
+    act(() => { renderer = create(<CommandAppIcon executable="python3" tone="light" />); });
+    expect(sources()).toEqual([COMMAND_APP_BRAND_ICONS.python.light]);
+    expect(getCommandAppIcon).not.toHaveBeenCalled();
+  });
+
+  it('removes the accompanying trademark if the Python image fails to load', () => {
+    act(() => { renderer = create(<CommandAppIcon executable="python" />); });
+    act(() => { renderer!.root.findByType('img').props.onError(); });
+    expect(renderer!.root.findAllByType('svg')).toHaveLength(1);
+    expect(renderer!.root.findAllByType('span').some((span) => span.children.includes('™'))).toBe(false);
+  });
+
   it('draws the official Git mark at once and never asks the desktop (git.exe carries no icon)', async () => {
     await act(async () => { renderer = create(<CommandAppIcon executable="C:/Program Files/Git/cmd/git.exe" />); });
     expect(sources()).toEqual([COMMAND_APP_BRAND_ICONS.git.dark]);

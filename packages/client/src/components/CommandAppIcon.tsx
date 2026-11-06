@@ -55,7 +55,7 @@ export const CommandAppIcon = memo(function CommandAppIcon({ executable, px = 24
   return (
     <span
       ref={ref}
-      className={`inline-flex shrink-0 items-center justify-center${plate ? ' overflow-hidden rounded-full bg-white' : ''}`}
+      className={`relative inline-flex shrink-0 items-center justify-center${plate ? ' overflow-hidden rounded-full bg-white' : ''}`}
       style={{ width: px, height: px }}
       aria-hidden="true"
       data-plate={plate}
@@ -78,6 +78,11 @@ export const CommandAppIcon = memo(function CommandAppIcon({ executable, px = 24
         <svg width={px} height={px} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
           <path d="M4 17l6-5-6-5m8 10h8" />
         </svg>
+      )}
+      {src === mark && src && entry?.trademark && (
+        <span className="absolute -right-1 top-0 leading-none" style={{ fontSize: Math.max(6, px / 4) }}>
+          {entry.trademark}
+        </span>
       )}
     </span>
   );

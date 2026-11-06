@@ -1,4 +1,4 @@
-import { NODE_MIN_SIZE, NODE_MAX_SIZE, FILE_MIN_SIZE, FILE_MAX_SIZE, IFRAME_BUBBLE_HEIGHT, FILE_FACE, FILE_SIZE_SCALE, BUNDLE_BUBBLE } from '@vibisual/shared';
+import { NODE_MIN_SIZE, NODE_MAX_SIZE, FILE_MIN_SIZE, FILE_MAX_SIZE, IFRAME_BUBBLE_HEIGHT, FILE_FACE, FILE_SIZE_SCALE, BUNDLE_BUBBLE, COMMAND_APP_SIZE } from '@vibisual/shared';
 import { fileFaceKindOf, heatRatio, heatSize, heatValueOf, isHeatBubbleType, isMediaFaceKind } from '@vibisual/shared';
 import type { BubbleData, HeatScale, ToolAxis } from '@vibisual/shared';
 
@@ -82,10 +82,72 @@ function calcUsageBubbleSize(bubble: BubbleData, range: { min: number; max: numb
   return Math.round(Math.max(FILE_FACE.mediaMinSize, BUNDLE_BUBBLE.interiorMaxSize * ratio));
 }
 
+/** 명령 앱 버블(`bash` + `commandApp`) — 지름을 활동량이 아니라 같은 화면의 앱끼리 견준 사용 횟수로 잰다. */
+function isCommandAppBubble(bubble: BubbleData): boolean {
+  return bubble.bubbleType === 'bash' && bubble.commandApp != null;
+}
+
+/** §5.1 「앱 버블 지름」 — 앱을 쓴 횟수. 서버는 그 앱이 든 명령마다 `activity` 를 올린다(IDE 세션 지도는 읽기+쓰기 수). 1 미만은 1. */
+function commandAppUsageOf(bubble: Pick<BubbleData, 'activity'>): number {
+  return Number.isFinite(bubble.activity) && bubble.activity > 1 ? bubble.activity : 1;
+}
+
+/**
+ * §2.3 · §5.1 「앱 버블 지름」 — 같은 화면의 명령 앱끼리 견줄 사용 횟수 범위를 싣는다(`_appUsageRange` — 표시 전용).
+ * 렌더·물리·선 끝점이 같은 자를 쓴다(`_localRange`·`_usageRange` 와 같은 규칙). 앱이 없으면 그대로 돌려준다.
+ */
+export function withCommandAppUsageRange(bubbles: BubbleData[]): BubbleData[] {
+  let min = Number.POSITIVE_INFINITY;
+  let max = 0;
+  for (const b of bubbles) {
+    if (!isCommandAppBubble(b)) continue;
+    const usage = commandAppUsageOf(b);
+    if (usage < min) min = usage;
+    if (usage > max) max = usage;
+  }
+  if (max === 0) return bubbles;
+  const range = stableSizeRange(min, max);
+  return bubbles.map((b) => (isCommandAppBubble(b) ? { ...b, _appUsageRange: range } as BubbleData : b));
+}
+
+/** 사본에 실린 앱 사용 횟수 범위 — 없으면(사본이 아닌 스토어 데이터) 혼자 선 앱으로 잰다. */
+function appUsageRangeOf(bubble: BubbleData): { min: number; max: number } | undefined {
+  const range = (bubble as unknown as Record<string, unknown>)['_appUsageRange'];
+  return range !== null && typeof range === 'object' ? range as { min: number; max: number } : undefined;
+}
+
+/**
+ * 같은 화면 범위 안에서 값이 설 자리(0~1) — **자릿수로** 읽는다(로그 눈금). 정비례면 큰 값 하나가 최대를 차지하고 나머지가 바닥에 눌린다.
+ * 눈금 폭에 하한(`minSpread` 배)을 걸어 좁게 갈린 무리는 가운데로 모은다. 하한이라 문턱에서 튀지 않고 이어진다(같은 값 → 정확히 가운데).
+ */
+function logSpreadRatio(value: number, range: { min: number; max: number }, minSpread: number): number {
+  const lo = Math.log1p(Math.max(0, range.min));
+  const hi = Math.log1p(Math.max(range.min, range.max));
+  const v = Math.log1p(Math.min(Math.max(value, range.min), range.max));
+  const span = Math.max(hi - lo, Math.log(minSpread));
+  return Math.min(1, Math.max(0, 0.5 + (v - (lo + hi) / 2) / span));
+}
+
+/** 활성 상태 부스트. §5.1 #3-2 — 1.22 로 올렸다가 되돌린 값이다. 임의로 키우지 마라. */
+const ACTIVE_SIZE_BOOST = 1.15;
+
+/** §5.1 「앱 버블 지름」 — `COMMAND_APP_SIZE` 안에서 사용 횟수의 자리. 작업 중 부스트도 앱 상한을 넘지 않는다. */
+function calcCommandAppSize(bubble: BubbleData): number {
+  const usage = commandAppUsageOf(bubble);
+  const range = appUsageRangeOf(bubble) ?? { min: usage, max: usage };
+  const ratio = logSpreadRatio(usage, range, COMMAND_APP_SIZE.minSpread);
+  let size = COMMAND_APP_SIZE.min + ratio * (COMMAND_APP_SIZE.max - COMMAND_APP_SIZE.min);
+  if (bubble.status === 'active') size = Math.min(size * ACTIVE_SIZE_BOOST, COMMAND_APP_SIZE.max);
+  return Math.round(size);
+}
+
 /** 활동량 기반 크기 계산을 위한 상한 */
 const MAX_EXPECTED_ACTIVITY = 50;
 
-/** 버블 지름 — 활동량 기반(활성이면 부스트), `NODE_MIN_SIZE`~`NODE_MAX_SIZE`. file 은 `fileSizeRange` 가 있으면 용량 기반 상대 크기. */
+/**
+ * 버블 지름 — 활동량 기반(활성이면 부스트), `NODE_MIN_SIZE`~`NODE_MAX_SIZE`. file 은 `fileSizeRange` 가 있으면 용량 기반 상대 크기,
+ * 명령 앱은 같은 화면의 앱끼리 견준 사용 횟수(`COMMAND_APP_SIZE`).
+ */
 export function calcBubbleSize(
   bubble: BubbleData,
   fileSizeRange?: { min: number; max: number },
@@ -105,6 +167,11 @@ export function calcBubbleSize(
   // §5.1 #2-1 (B) — 묶음 버블은 용량·활동과 무관한 고정 지름(무리의 중심이되 구성 파일을 덮지 않는다).
   if (bubble.bubbleType === 'bundle') {
     return BUNDLE_BUBBLE.size;
+  }
+
+  // §5.1 「앱 버블 지름」 — 명령 앱은 활동량 자가 아니라 같은 화면의 앱끼리 견준 사용 횟수(`_appUsageRange`).
+  if (isCommandAppBubble(bubble)) {
+    return calcCommandAppSize(bubble);
   }
 
   // file: 파일 용량 기반 상대 크기. §5.1 #2-1 — 미디어 얼굴은 하한을 둔다(히트맵이면 위에서 이미 히트가 이겼다).
@@ -133,9 +200,8 @@ export function calcBubbleSize(
 
   let size = NODE_MIN_SIZE + ratio * (NODE_MAX_SIZE - NODE_MIN_SIZE);
 
-  // 활성 상태 부스트(+15%). §5.1 #3-2 — 1.22 로 올렸다가 되돌린 값이다. 임의로 키우지 마라.
   if (bubble.status === 'active') {
-    size = Math.min(size * 1.15, NODE_MAX_SIZE);
+    size = Math.min(size * ACTIVE_SIZE_BOOST, NODE_MAX_SIZE);
   }
 
   // 에이전트는 기본적으로 더 크게
@@ -162,9 +228,7 @@ export function calcBubbleSize(
 
 /**
  * 파일 버블 크기 — 같은 화면에서 견주는 파일들 사이의 상대 용량.
- * §2.3 · §5.1 #2-1 (A) — 용량은 **자릿수로** 읽는다(로그 눈금). 정비례면 큰 파일 하나가 최대 지름을 차지하고 나머지가 바닥에 눌린다.
- * 눈금 폭에 하한(`FILE_SIZE_SCALE.minSpread` 배)을 걸어 좁게 갈린 무리는 가운데 지름으로 모은다 — 몇 바이트 차이가 지름 차이가 되지 않게.
- * 하한이라 문턱에서 튀지 않고 이어진다(같은 크기 → 정확히 가운데).
+ * §2.3 · §5.1 #2-1 (A) — 용량은 자릿수로 읽고(`logSpreadRatio`), 눈금 폭 하한 `FILE_SIZE_SCALE.minSpread` 배 — 몇 바이트 차이가 지름 차이가 되지 않게.
  */
 function calcFileBubbleSize(
   bubble: BubbleData,
@@ -177,11 +241,7 @@ function calcFileBubbleSize(
     return FILE_MIN_SIZE;
   }
 
-  const lo = Math.log1p(Math.max(0, range.min));
-  const hi = Math.log1p(Math.max(range.min, range.max));
-  const v = Math.log1p(Math.min(Math.max(fileSize, range.min), range.max));
-  const span = Math.max(hi - lo, Math.log(FILE_SIZE_SCALE.minSpread));
-  const ratio = Math.min(1, Math.max(0, 0.5 + (v - (lo + hi) / 2) / span));
+  const ratio = logSpreadRatio(fileSize, range, FILE_SIZE_SCALE.minSpread);
   return Math.round(FILE_MIN_SIZE + ratio * (FILE_MAX_SIZE - FILE_MIN_SIZE));
 }
 

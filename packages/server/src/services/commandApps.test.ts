@@ -6,6 +6,13 @@ const windows = { cwd: 'C:/Work/Game', platform: 'win32' } as const;
 const linux = { cwd: '/work/game', platform: 'linux' } as const;
 
 describe('command app detection', () => {
+  it.each(['python', 'python3', 'python3.12', 'python3.13t', 'pythonw', 'py', 'pyw'])(
+    'recognizes the Python interpreter alias %s consistently', (executable) => {
+      expect(detectCommandApps(`${executable} script.py`, windows))
+        .toEqual([expect.objectContaining({ name: 'Python', executable })]);
+    },
+  );
+
   it('keeps Windows paths intact and resolves an actual uproject argument', () => {
     const result = detectCommandApps(String.raw`& "C:\Program Files\Epic Games\UE_5.5\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Work\Game\Game.uproject" -run=ResavePackages`, windows);
     expect(result).toEqual([expect.objectContaining({
