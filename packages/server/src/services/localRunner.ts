@@ -32,6 +32,19 @@ import {
   LOCAL_ENGINE_PORT_BASE,
   LOCAL_MODEL_IDLE_UNLOAD_MS,
   LOCAL_MODEL_MAX_LOADED,
+  LOCAL_PREFILL_NOTICE_TOKENS,
+  LOCAL_TIDY_KEEP_RECENT_GROUPS,
+  LOCAL_TIDY_MASK_MIN_CHARS,
+  LOCAL_TOOL_OUTPUT_CAP_RATIO,
+  calibrateCharsPerToken,
+  localAssistEngineArgs,
+  localAssistEngineProfile,
+  localAssistIdleMs,
+  maskOldToolResults,
+  savedOutputPointer,
+  shouldTidyContext,
+  type LocalAssistOptions,
+  type LocalPlanState,
   type StreamEventType,
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
@@ -39,7 +52,12 @@ import { getEngineState, getEngineCandidates, truncatedImages } from './localEng
 import { processGroupSpawnOptions, terminateChildTree } from './processTree.js';
 import { readLocalArchitecture, readLocalGgufMeta, recordArchVerdict } from './localArchService.js';
 import { findModel, recordOutputCheck } from './localModelService.js';
-import { clipToolResult, runLocalTool, summarizeToolInput } from './localTools.js';
+import { clipHeadTail, clipToolResult, runLocalTool, summarizeToolInput } from './localTools.js';
+import { atomicWriteFileSync } from './statePersistence.js';
+import {
+  clearFullToolOutputs, clearKvFiles, kvFileName, localHostFacts, localKvDir, planGateRefusal,
+  restoreKvSlot, saveFullToolOutput, saveKvSlot,
+} from './localAssistRuntime.js';
 
 /** 스트림 조각을 이만큼 모으면 내보낸다 — 빠르게 뽑는 모델에서 이벤트 폭주를 막는다. */
 const STREAM_FLUSH_CHARS = 240;
@@ -80,6 +98,8 @@ export interface ChatDelta {
   promptTokens: number | null;
   /** 같은 자리에서 오는 **뱉은 토큰** 수(답 + 생각). 사용량 누적이 이 값을 먹는다. */
   completionTokens: number | null;
+  /** §5.19 (J) ①3 — `return_progress` 를 실은 요청의 프롬프트 처리 진행(엔진이 줄 때만). */
+  promptProgress: { total: number; cache: number; processed: number } | null;
 }
 
 /**
@@ -91,6 +111,7 @@ export function parseChatDelta(payload: string): ChatDelta | null {
   try {
     const j = JSON.parse(payload) as {
       usage?: { prompt_tokens?: number; completion_tokens?: number };
+      prompt_progress?: { total?: number; cache?: number; processed?: number };
       choices?: Array<{
         delta?: {
           content?: string;
@@ -120,6 +141,13 @@ export function parseChatDelta(payload: string): ChatDelta | null {
       toolCalls,
       promptTokens: typeof j.usage?.prompt_tokens === 'number' ? j.usage.prompt_tokens : null,
       completionTokens: typeof j.usage?.completion_tokens === 'number' ? j.usage.completion_tokens : null,
+      promptProgress: typeof j.prompt_progress?.total === 'number'
+        ? {
+          total: j.prompt_progress.total,
+          cache: typeof j.prompt_progress.cache === 'number' ? j.prompt_progress.cache : 0,
+          processed: typeof j.prompt_progress.processed === 'number' ? j.prompt_progress.processed : 0,
+        }
+        : null,
     };
   } catch {
     return null;
@@ -339,23 +367,65 @@ function historyPath(subAgentId: string): string {
   return path.join(historyDir(), `${safe}.json`);
 }
 
-function loadHistory(subAgentId: string): ChatMessage[] {
+/** §5.19 (J) — 세션 이력 파일 한 벌. 옛 판은 메시지 배열 그대로라 둘 다 읽는다. */
+interface LocalSessionFile {
+  messages: ChatMessage[];
+  /** §5.19 (J) ①2 — 이 대화에서 엔진이 센 값으로 잰 글자/토큰 비. */
+  charsPerToken?: number;
+  /** §5.19 (J) ④ — 계획 상태(항목은 계획 파일이 든다). `/clear` 에도 남는다 — 릴레이가 회차마다 비운다. */
+  plan?: { state: LocalPlanState; updatedAt: number };
+}
+
+const PLAN_STATES: readonly LocalPlanState[] = ['proposed', 'approved', 'running', 'done'];
+
+function loadSessionFile(subAgentId: string): LocalSessionFile {
   try {
-    const raw = fs.readFileSync(historyPath(subAgentId), 'utf8');
-    const j = JSON.parse(raw) as ChatMessage[];
-    return Array.isArray(j) ? j : [];
+    const j = JSON.parse(fs.readFileSync(historyPath(subAgentId), 'utf8')) as unknown;
+    if (Array.isArray(j)) return { messages: j as ChatMessage[] };
+    const o = j as Partial<LocalSessionFile> | null;
+    if (!o || !Array.isArray(o.messages)) return { messages: [] };
+    const out: LocalSessionFile = { messages: o.messages };
+    if (typeof o.charsPerToken === 'number' && o.charsPerToken > 0) out.charsPerToken = o.charsPerToken;
+    if (o.plan && PLAN_STATES.includes(o.plan.state)) out.plan = { state: o.plan.state, updatedAt: Number(o.plan.updatedAt) || 0 };
+    return out;
   } catch {
-    return [];
+    return { messages: [] };
   }
 }
 
-function saveHistory(subAgentId: string, messages: ChatMessage[]): void {
+function saveSessionFile(subAgentId: string, file: LocalSessionFile): void {
   try {
-    fs.mkdirSync(historyDir(), { recursive: true });
-    fs.writeFileSync(historyPath(subAgentId), JSON.stringify(messages), 'utf8');
+    // 덧붙일 것이 없으면 옛 모양(배열) 그대로 — 옛 판으로 되돌아가도 이력이 읽힌다.
+    const plain = file.charsPerToken === undefined && !file.plan;
+    atomicWriteFileSync(historyPath(subAgentId), JSON.stringify(plain ? file.messages : file));
   } catch (err) {
     logger.warn(`[localRunner] history save failed for ${subAgentId}`, err);
   }
+}
+
+function loadHistory(subAgentId: string): ChatMessage[] {
+  return loadSessionFile(subAgentId).messages;
+}
+
+/** 메시지를 갈아 끼운다 — 잰 비·계획 상태는 그대로 둔다(`charsPerToken` 을 주면 그 값으로). */
+function saveHistory(subAgentId: string, messages: ChatMessage[], charsPerToken?: number): void {
+  const cur = loadSessionFile(subAgentId);
+  const next: LocalSessionFile = { ...cur, messages };
+  if (charsPerToken !== undefined) next.charsPerToken = charsPerToken;
+  saveSessionFile(subAgentId, next);
+}
+
+/** §5.19 (J) ④ — 계획 상태 읽기/쓰기(계획 서비스가 부른다). `undefined` 를 쓰면 걷는다. */
+export function readLocalPlanState(subAgentId: string): LocalPlanState | undefined {
+  return loadSessionFile(subAgentId).plan?.state;
+}
+
+export function writeLocalPlanState(subAgentId: string, state: LocalPlanState | undefined): void {
+  const cur = loadSessionFile(subAgentId);
+  const next: LocalSessionFile = { ...cur };
+  if (state) next.plan = { state, updatedAt: Date.now() };
+  else delete next.plan;
+  saveSessionFile(subAgentId, next);
 }
 
 /** 세션을 지울 때 함께 지운다(버블이 사라졌는데 이력만 남을 이유가 없다). */
@@ -506,12 +576,13 @@ export function overflowDropChars(
   info: Pick<EngineErrorInfo, 'promptTokens' | 'contextTokens'>,
   historyChars: number,
   contextSize: number,
+  charsPerToken: number = LOCAL_CHARS_PER_TOKEN,
 ): number {
   const ctx = info.contextTokens ?? (contextSize > 0 ? contextSize : LOCAL_DEFAULT_CONTEXT_SIZE);
   const prompt = info.promptTokens;
   if (prompt !== undefined && prompt > 0 && ctx > 0) {
     const over = prompt - Math.floor(ctx * 0.9);
-    if (over > 0) return over * LOCAL_CHARS_PER_TOKEN;
+    if (over > 0) return Math.ceil(over * charsPerToken);
   }
   return Math.max(1, Math.floor(historyChars / 4));
 }
@@ -621,10 +692,12 @@ async function summarizeMessages(
   messages: readonly ChatMessage[],
   contextSize: number,
   signal?: AbortSignal,
+  charsPerToken: number = LOCAL_CHARS_PER_TOKEN,
+  instruction: string = COMPACT_PROMPT,
 ): Promise<string | null> {
   if (messages.length === 0) return null;
   // 접을 대상 자체가 창보다 크면 접기도 못 한다 — 뒤쪽(최근)을 남기고 잘라서 넣는다.
-  const room = Math.floor(contextSize * 0.5) * LOCAL_CHARS_PER_TOKEN;
+  const room = Math.floor(Math.floor(contextSize * 0.5) * charsPerToken);
   const kept = capHistoryForContext(messages, room);
   const transcript = kept
     .map((m) => {
@@ -637,7 +710,7 @@ async function summarizeMessages(
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        messages: [{ role: 'user', content: `${COMPACT_PROMPT}\n${transcript}` }],
+        messages: [{ role: 'user', content: `${instruction}\n${transcript}` }],
         stream: false,
         max_tokens: LOCAL_COMPACT_MAX_TOKENS,
       }),
@@ -662,13 +735,45 @@ export async function compactMessagesForRetry(
   keepFrom: number,
   contextSize: number,
   signal?: AbortSignal,
+  charsPerToken: number = LOCAL_CHARS_PER_TOKEN,
 ): Promise<ChatMessage[] | null> {
   const head = messages[0]?.role === 'system' ? 1 : 0;
   const limit = Math.max(head, Math.min(keepFrom, messages.length));
   if (limit - head < 2) return null; // 접을 만한 지난 이력이 없다
-  const summary = await summarizeMessages(port, messages.slice(head, limit), contextSize, signal);
+  const summary = await summarizeMessages(port, messages.slice(head, limit), contextSize, signal, charsPerToken);
   if (!summary) return null;
   return [...messages.slice(0, head), foldedMessage(summary, limit - head), ...messages.slice(limit)];
+}
+
+/** §5.19 (J) ② 인계 — 새 창에 넘길 메모를 쓰게 할 때의 말. 요약과 달리 "다음에 무엇을 하나"가 주인이다. */
+const HANDOFF_PROMPT = [
+  'Write a handoff note so that a fresh assistant with an empty context can finish the work below.',
+  'Use these headings: Goal (the user request, verbatim if short), Done so far, Files touched (paths),',
+  'Next steps (numbered, smallest first), Open questions. Keep paths and names exact. Under 350 words.',
+  '',
+  '--- conversation ---',
+].join('\n');
+
+/**
+ * §5.19 (J) ② `handoff` — 지난 이력과 이번 턴을 인계 메모 한 장으로 바꾼 새 대화. 못 쓰면 `null`(부르는 쪽이 가리기로 버틴다).
+ * 요약 위에 요약을 쌓지 않는다 — 새 대화는 메모 + 원래 요청 하나로 시작한다.
+ */
+export async function handoffMessages(
+  port: number,
+  messages: readonly ChatMessage[],
+  prompt: string,
+  contextSize: number,
+  signal?: AbortSignal,
+  charsPerToken: number = LOCAL_CHARS_PER_TOKEN,
+): Promise<ChatMessage[] | null> {
+  const head = messages[0]?.role === 'system' ? 1 : 0;
+  if (messages.length - head < 3) return null;
+  const note = await summarizeMessages(port, messages.slice(head), contextSize, signal, charsPerToken, HANDOFF_PROMPT);
+  if (!note) return null;
+  return [
+    ...messages.slice(0, head),
+    { role: 'user', content: `[handoff note — the earlier context was replaced by this note]\n${note.trim()}\n\n[the request to continue]\n${prompt}` },
+  ];
 }
 
 /**
@@ -681,7 +786,8 @@ export async function compactLocalSession(
   contextSize: number,
   instructions?: string,
 ): Promise<string> {
-  const history = loadHistory(subAgentId);
+  const session = loadSessionFile(subAgentId);
+  const history = session.messages;
   if (history.length < 2) return '[local] nothing to compact yet — this conversation is still short';
   const ac = new AbortController();
   running.set(subAgentId, ac);
@@ -694,7 +800,7 @@ export async function compactLocalSession(
     const source: ChatMessage[] = want
       ? [...history, { role: 'user', content: `When summarizing, pay special attention to: ${want}` }]
       : history;
-    const summary = await summarizeMessages(inst.port, source, inst.contextSize, ac.signal);
+    const summary = await summarizeMessages(inst.port, source, inst.contextSize, ac.signal, session.charsPerToken);
     ac.signal.throwIfAborted();
     if (!summary) return '[local] could not compact — the model did not produce a summary. Nothing was lost.';
     saveHistory(subAgentId, [foldedMessage(summary, history.length)]);
@@ -714,12 +820,13 @@ export async function compactLocalSession(
  */
 export function describeLocalContext(subAgentId: string, systemPrompt: string, contextSize: number): string {
   const ctx = contextSize > 0 ? contextSize : LOCAL_DEFAULT_CONTEXT_SIZE;
-  const history = loadHistory(subAgentId);
+  const session = loadSessionFile(subAgentId);
+  const history = session.messages;
   const sysChars = systemPrompt.length;
   const histChars = estimateMessageChars(history);
   const toolChars = JSON.stringify(LOCAL_TOOL_DEFS).length;
   const total = sysChars + histChars + toolChars;
-  const approxTokens = Math.round(total / LOCAL_CHARS_PER_TOKEN);
+  const approxTokens = Math.round(total / (session.charsPerToken ?? LOCAL_CHARS_PER_TOKEN));
   const pct = Math.round((approxTokens / ctx) * 100);
   return [
     `[local] context window ${String(ctx)} tokens · roughly ${String(approxTokens)} in use (~${String(pct)}%)`,
@@ -730,10 +837,17 @@ export function describeLocalContext(subAgentId: string, systemPrompt: string, c
   ].join('\n');
 }
 
-/** `/clear`. 이력을 지운다 — 지운 양을 말해 주지 않으면 사용자는 먹었는지 모른다. */
-export function clearLocalSession(subAgentId: string): string {
-  const had = loadHistory(subAgentId).length;
-  clearLocalHistory(subAgentId);
+/**
+ * `/clear`. 이력을 지운다 — 지운 양을 말해 주지 않으면 사용자는 먹었는지 모른다.
+ * 잰 비·계획 상태는 남긴다(§5.19 (J) — 릴레이가 회차마다 이 명령을 쏜다). 원문 보관·KV 파일은 함께 지운다.
+ */
+export function clearLocalSession(subAgentId: string, projectRoot?: string): string {
+  const session = loadSessionFile(subAgentId);
+  const had = session.messages.length;
+  if (session.plan || session.charsPerToken !== undefined) saveSessionFile(subAgentId, { ...session, messages: [] });
+  else clearLocalHistory(subAgentId);
+  if (projectRoot) void clearFullToolOutputs(projectRoot, subAgentId);
+  void clearKvFiles(subAgentId);
   return had > 0
     ? `[local] cleared ${String(had)} messages. This conversation starts fresh from the next prompt.`
     : '[local] this conversation was already empty';
@@ -760,6 +874,25 @@ interface LoadedModel {
   ready: Promise<void>;
   /** 지금 이 인스턴스를 쓰고 있는 턴 수 — 0 이 아니면 내리지 않는다. */
   busy: number;
+  /** §5.19 (J) — 뜰 때 실린 엔진 프로필(`localAssistEngineProfile`). 다른 프로필을 원하면 다시 띄운다. */
+  profile: string;
+  /** 유휴 해제까지(ms) — 이 인스턴스를 쓴 버블 중 가장 긴 값. */
+  idleMs: number;
+  /** `--slot-save-path` 로 떴는가(이어하기). */
+  slotSave: boolean;
+  /** 마지막으로 이 엔진에서 턴을 돈 세션 — 유휴 저장이 그 세션의 KV 를 남긴다. */
+  lastSubId?: string;
+  /** 뜬 뒤 아직 턴을 안 돌았다 — 이때만 KV 를 복원한다(돌고 난 뒤의 캐시가 더 새것이다). */
+  fresh: boolean;
+  /** KV 저장 중 — 같은 인스턴스를 두 번 내리지 않는다. */
+  saving?: boolean;
+}
+
+/** 이 엔진에 실린 마지막 세션의 KV 를 남긴다(이어하기). 실패는 조용히 넘긴다 — 다음 턴이 처음부터 읽으면 된다. */
+async function saveSlotBeforeUnload(m: LoadedModel): Promise<void> {
+  if (!m.slotSave || !m.lastSubId || !m.child || m.child.exitCode !== null) return;
+  const ok = await saveKvSlot(m.port, kvFileName(m.modelPath, m.contextSize, m.profile, m.lastSubId));
+  logger.info(`[localRunner] kv save for ${m.lastSubId} on ${m.modelId}: ${ok ? 'ok' : 'skipped'}`);
 }
 
 const loaded = new Map<string, LoadedModel>();
@@ -892,11 +1025,18 @@ export function unloadAllLocalModels(): void {
   for (const id of [...loaded.keys()]) unload(id);
 }
 
-// 유휴 언로드 — 30초마다 훑어 오래 안 쓴 인스턴스를 내린다.
+// 유휴 언로드 — 30초마다 훑어 오래 안 쓴 인스턴스를 내린다. 이어하기가 켜진 엔진은 내리기 전에 KV 를 남긴다.
 const idleTimer = setInterval(() => {
   const now = Date.now();
   for (const [id, m] of loaded) {
-    if (!m.preparing && m.busy === 0 && now - m.lastUsedAt > LOCAL_MODEL_IDLE_UNLOAD_MS) unload(id);
+    if (m.preparing || m.saving || m.busy > 0 || now - m.lastUsedAt <= m.idleMs) continue;
+    if (!m.slotSave) { unload(id); continue; }
+    m.saving = true;
+    void saveSlotBeforeUnload(m).finally(() => {
+      // 저장하는 사이에 누가 다시 물었으면 내리지 않는다.
+      if (loaded.get(id) === m && m.busy === 0) unload(id);
+      m.saving = false;
+    });
   }
 }, 30_000);
 if (typeof idleTimer.unref === 'function') idleTimer.unref();
@@ -914,7 +1054,21 @@ function isUnknownArgError(err: unknown): boolean {
 export interface EngineExtraFlag {
   id: string;
   flag: string;
-  value: (contextSize: number) => string;
+  value?: (contextSize: number) => string;
+  /** 인자 여러 개짜리 묶음(있으면 `flag`/`value` 대신 이것을 싣는다). */
+  args?: (contextSize: number) => string[];
+  /** §5.19 (J) 끝까지 돕기가 얹은 묶음 — 그 조합으로 못 뜨면 이것들만 빼고 다시 띄운다. */
+  assist?: true;
+}
+
+/** §5.19 (J) ② — 끝까지 돕기 엔진 묶음을 사다리 맨 앞에 올린다(가치가 가장 선택적이라 먼저 버려진다). */
+export function assistEngineExtras(assist: LocalAssistOptions | undefined): EngineExtraFlag[] {
+  return localAssistEngineArgs(assist, localHostFacts()).map((g) => ({
+    id: g.id,
+    flag: g.args[0] ?? g.id,
+    args: () => g.args,
+    assist: true as const,
+  }));
 }
 
 export const ENGINE_EXTRA_FLAGS: readonly EngineExtraFlag[] = [
@@ -938,7 +1092,10 @@ export function buildEngineArgs(
     '-c', String(contextSize),
     '-ngl', String(gpuLayers),
   ];
-  for (const e of extras) args.push(e.flag, e.value(contextSize));
+  for (const e of extras) {
+    if (e.args) args.push(...e.args(contextSize));
+    else args.push(e.flag, e.value?.(contextSize) ?? '');
+  }
   return args;
 }
 
@@ -950,8 +1107,10 @@ async function bootWithFlagFallback(
   boot: (gpuLayers: number | 'auto', extras: readonly EngineExtraFlag[]) => Promise<ChildProcess>,
   gpuLayers: number | 'auto',
   modelName: string,
+  initialExtras: readonly EngineExtraFlag[] = ENGINE_EXTRA_FLAGS,
+  onAssistDropped?: () => void,
 ): Promise<ChildProcess> {
-  let extras: readonly EngineExtraFlag[] = ENGINE_EXTRA_FLAGS;
+  let extras: readonly EngineExtraFlag[] = initialExtras;
   for (;;) {
     try {
       return await boot(gpuLayers, extras);
@@ -959,6 +1118,14 @@ async function bootWithFlagFallback(
       // Older builds accept numeric -ngl only. Keep optional flags for that retry.
       if (gpuLayers === 'auto' && /invalid|stoi|stoul|integer|number/i.test(String(err))) {
         gpuLayers = 999;
+        continue;
+      }
+      // §5.19 (J) — 끝까지 돕기 조합(예: 이 장치에서 안 되는 KV 양자화)으로 못 떴으면 그 묶음만 빼고 다시.
+      //   메모리 부족은 아래 사다리(창 줄이기)의 몫이라 여기서 삼키지 않는다.
+      if (!isUnknownArgError(err) && !isLocalMemoryError(err) && extras.some((e) => e.assist)) {
+        extras = extras.filter((e) => !e.assist);
+        logger.warn(`[localRunner] ${modelName} did not start with the assist engine options — retrying without them`, err);
+        onAssistDropped?.();
         continue;
       }
       if (!isUnknownArgError(err) || extras.length === 0) throw err;
@@ -975,22 +1142,83 @@ async function bootWithFlagFallback(
  * 모델을 올려 둔 인스턴스를 얻는다. 이미 있으면 쓰고, 상한을 넘으면 가장 오래 안 쓴 것을 내린다.
  * 엔진 자동 GPU 배치부터 CPU 실행본까지 차례로 시도한다. 준비 중이거나 사용 중인 모델은 빼앗지 않고 반납을 기다린다.
  */
-async function ensureLoaded(modelId: string, context: number, signal?: AbortSignal): Promise<LoadedModel> {
-  signal = signal ? AbortSignal.any([signal, poolLifetime.signal]) : poolLifetime.signal;
-  // Hold the lock through preparation and reserve busy before releasing it. Otherwise a
-  // second request can evict the just-loaded model before its first caller starts using it.
-  const before = loadLock;
-  let unlock: () => void = () => undefined;
-  loadLock = new Promise<void>((resolve) => { unlock = resolve; });
-  try {
-    await abortable(before, signal);
-    signal?.throwIfAborted();
-    const inst = await loadModel(modelId, normalizeLocalContext(context), signal);
-    inst.busy += 1;
-    return inst;
-  } finally {
-    // A canceled waiter must not release the next waiter ahead of the current owner.
-    void before.then(unlock);
+/** §5.19 (J) — 엔진을 띄울 때의 조건. 비우면(접기·출력 점검) 이미 뜬 것을 프로필과 무관하게 쓴다. */
+interface LoadOptions {
+  profile?: string;
+  extras?: readonly EngineExtraFlag[];
+  idleMs?: number;
+  slotSave?: boolean;
+  /** 다른 버블이 쓰는 엔진이 비기를 기다리게 됐을 때 한 번. */
+  onWait?: (holderModelId: string) => void;
+  /** 끝까지 돕기 묶음을 빼고서야 떴을 때 한 번. */
+  onAssistDropped?: () => void;
+}
+
+/** 쓰는 중인 엔진을 내려야 해서 기다려야 한다 — 준비 잠금을 쥔 채 기다리지 않으려고 던진다(§5.19 (J) ①7). */
+class WaitForModel extends Error {
+  constructor(readonly holder: string) {
+    super(`waiting for ${holder}`);
+  }
+}
+
+function matchesRequest(m: LoadedModel, requestedContext: number, profile: string | undefined): boolean {
+  return m.requestedContext === requestedContext && (profile === undefined || m.profile === profile);
+}
+
+function adoptLoadOptions(m: LoadedModel, opts: LoadOptions): void {
+  if (opts.idleMs !== undefined) m.idleMs = Math.max(m.idleMs, opts.idleMs);
+}
+
+async function ensureLoaded(
+  modelId: string,
+  context: number,
+  signal?: AbortSignal,
+  opts: LoadOptions = {},
+): Promise<LoadedModel> {
+  const live = signal ? AbortSignal.any([signal, poolLifetime.signal]) : poolLifetime.signal;
+  const requested = normalizeLocalContext(context);
+  let told = false;
+  for (;;) {
+    live.throwIfAborted();
+    // 이미 뜬 같은 엔진은 잠금 없이 쓴다 — 다른 모델의 준비를 기다리는 줄 뒤에 세우지 않는다.
+    const cur = loaded.get(modelId);
+    if (cur && matchesRequest(cur, requested, opts.profile)) {
+      if (cur.preparing) { await abortable(cur.ready, live); continue; }
+      cur.busy += 1;
+      cur.lastUsedAt = Date.now();
+      adoptLoadOptions(cur, opts);
+      return cur;
+    }
+    // Hold the lock through preparation and reserve busy before releasing it. Otherwise a
+    // second request can evict the just-loaded model before its first caller starts using it.
+    const before = loadLock;
+    let unlock: () => void = () => undefined;
+    loadLock = new Promise<void>((resolve) => { unlock = resolve; });
+    let waiter: Promise<void> | null = null;
+    let holder = '';
+    try {
+      await abortable(before, live);
+      live.throwIfAborted();
+      try {
+        const inst = await loadModel(modelId, requested, live, opts);
+        inst.busy += 1;
+        adoptLoadOptions(inst, opts);
+        return inst;
+      } catch (err) {
+        if (!(err instanceof WaitForModel)) throw err;
+        holder = err.holder;
+        // 깨우는 신호를 놓치지 않게 잠금을 놓기 **전에** 줄을 선다.
+        waiter = waitAvailable(live);
+      }
+    } finally {
+      // A canceled waiter must not release the next waiter ahead of the current owner.
+      void before.then(unlock);
+    }
+    if (!told) {
+      told = true;
+      opts.onWait?.(holder);
+    }
+    await waiter;
   }
 }
 
@@ -1004,21 +1232,32 @@ export function isLocalMemoryError(error: unknown): boolean {
   return /out of (?:device |host |gpu |system )?memory|insufficient memory|not enough memory|failed to allocate|cannot allocate|allocation failed|bad_alloc|VK_ERROR_OUT_OF_DEVICE_MEMORY|cudaMalloc/i.test(String(error));
 }
 
-async function loadModel(modelId: string, requestedContext: number, signal?: AbortSignal): Promise<LoadedModel> {
+async function loadModel(
+  modelId: string,
+  requestedContext: number,
+  signal?: AbortSignal,
+  opts: LoadOptions = {},
+): Promise<LoadedModel> {
   for (;;) {
     signal?.throwIfAborted();
     const cur = loaded.get(modelId);
-    if (cur && cur.requestedContext === requestedContext) {
+    if (cur && matchesRequest(cur, requestedContext, opts.profile)) {
       await cur.ready;
       cur.lastUsedAt = Date.now();
       return cur;
     }
-    if (cur && cur.busy > 0) { await waitAvailable(signal); continue; }
+    // 쓰는 중인 엔진을 내려야 한다 — 여기서 기다리지 않고 부른 쪽이 잠금을 놓고 기다린다.
+    if (cur && cur.busy > 0) throw new WaitForModel(modelId);
     if (cur) unload(cur.modelId);
     if (loaded.size < LOCAL_MODEL_MAX_LOADED) break;
     const victim = [...loaded.values()].filter((m) => m.busy === 0).sort((a, b) => a.lastUsedAt - b.lastUsedAt)[0];
-    if (victim) { unload(victim.modelId); continue; }
-    await waitAvailable(signal);
+    if (victim) {
+      // 이어하기가 켜진 엔진은 비켜 주기 전에 KV 를 남긴다 — 그 버블이 돌아오면 처음부터 읽지 않는다.
+      await saveSlotBeforeUnload(victim);
+      if (victim.busy === 0) unload(victim.modelId);
+      continue;
+    }
+    throw new WaitForModel([...loaded.keys()][0] ?? modelId);
   }
   const candidates = getEngineCandidates();
   if (candidates.length === 0) throw new Error('local engine is not installed');
@@ -1117,8 +1356,26 @@ async function loadModel(modelId: string, requestedContext: number, signal?: Abo
     lastUsedAt: Date.now(),
     ready,
     busy: 0,
+    profile: opts.profile ?? localAssistEngineProfile(undefined, false),
+    idleMs: opts.idleMs ?? LOCAL_MODEL_IDLE_UNLOAD_MS,
+    slotSave: opts.slotSave === true,
+    fresh: true,
   };
   loaded.set(modelId, placeholder);
+  // §5.19 (J) — 끝까지 돕기 묶음은 사다리 맨 앞(가장 먼저 버려진다). 이어하기는 KV 를 둘 폴더가 있어야 뜬다.
+  const slotExtras: EngineExtraFlag[] = [];
+  if (placeholder.slotSave) {
+    fs.mkdirSync(localKvDir(), { recursive: true });
+    slotExtras.push({ id: 'slot-save', flag: '--slot-save-path', value: () => localKvDir(), assist: true });
+  }
+  let bootExtras: EngineExtraFlag[] = [...(opts.extras ?? []), ...slotExtras, ...ENGINE_EXTRA_FLAGS];
+  const assistDropped = (): void => {
+    // 프로필은 요청값 그대로 둔다 — 바꾸면 다음 턴마다 "다르다"며 다시 띄우는 고리가 된다.
+    // 다음 백엔드 시도도 같은 묶음으로 다시 실패하지 않게 사다리에서 함께 뺀다.
+    bootExtras = bootExtras.filter((e) => !e.assist);
+    placeholder.slotSave = false;
+    opts.onAssistDropped?.();
+  };
 
   try {
     let child: ChildProcess | undefined;
@@ -1131,7 +1388,7 @@ async function loadModel(modelId: string, requestedContext: number, signal?: Abo
       for (const layers of attempts) {
         for (;;) {
           try {
-            child = await bootWithFlagFallback(boot, layers, model.name);
+            child = await bootWithFlagFallback(boot, layers, model.name, bootExtras, assistDropped);
             break;
           } catch (err) {
             signal?.throwIfAborted();
@@ -1246,6 +1503,10 @@ export interface LocalTurnArgs {
   onHookEvent?: (event: LocalHookToolEvent) => void;
   /** 턴이 끝나면 한 번. `error` 가 있으면 실패. `done` 은 성공으로 끝난 턴에만 싣는다. */
   onDone: (error?: string, done?: LocalTurnDoneInfo) => void;
+  /** §5.19 (J) — 끝까지 돕기 옵션(엔진 묶음·정리·출력 상한·이어하기). 없으면 종전 동작. */
+  assist?: LocalAssistOptions;
+  /** §5.19 (J) 계획 먼저 — 승인 전 턴이면 그 계획 파일(프로젝트 상대). 그 파일 밖의 쓰기·셸을 막는다. */
+  planGate?: { fileRel: string };
 }
 
 /**
@@ -1328,26 +1589,60 @@ export function runLocalTurn(args: LocalTurnArgs): void {
 
     // 이 턴에서 새로 쌓인 이력(도구 왕복 포함). 끝에 통째로 이어 붙인다.
     const turnMessages: ChatMessage[] = [{ role: 'user', content: prompt }];
+    const assist = args.assist;
+    // §5.19 (J) ①2 — 이 대화의 글자/토큰 비. 왕복마다 엔진이 센 값으로 다시 잰다(모르면 종전 3).
+    const storedRatio = loadSessionFile(subAgentId).charsPerToken;
+    let charsPerToken = storedRatio ?? LOCAL_CHARS_PER_TOKEN;
+    // 잰 적이 있을 때만 남긴다 — 짐작값(3)을 잰 값처럼 저장하면 다음 턴이 그것을 사실로 믿는다.
+    let ratioMeasured = storedRatio !== undefined;
+    // §5.19 (J) ② — 정리를 켠 세션은 **보낸 그대로** 남긴다(다음 턴의 앞부분이 이번 턴과 같아야 엔진 캐시가 산다).
+    const persistSent = (assist?.tidyAt ?? 0) > 0;
+    // 문맥을 넘기면 **잘라 낸 사본으로 갈아탄다**(§5.19 (D)) — 그래서 const 가 아니다.
+    let messages: ChatMessage[] = [];
     const persist = (): void => {
       // §5.19 (D) — 이력은 스스로 줄지 않는다. 예산 안으로 접어 두지 않으면 **다음 턴이 첫
       //   요청부터** 문맥을 넘긴 채로 출발한다(그 순간 그 버블은 무엇을 쳐도 400 이 된다).
-      const merged = [...loadHistory(subAgentId), ...turnMessages];
-      saveHistory(subAgentId, capHistoryForContext(merged, localHistoryBudget(contextSize)));
+      const merged = persistSent && messages.length > 0
+        ? messages.filter((m) => m.role !== 'system')
+        : [...loadHistory(subAgentId), ...turnMessages];
+      saveHistory(
+        subAgentId,
+        capHistoryForContext(merged, localHistoryBudget(contextSize, charsPerToken)),
+        ratioMeasured ? charsPerToken : undefined,
+      );
+    };
+    /** 이번 턴에 쌓인 한 줄 — 보낼 대화와 남길 이력 양쪽에(한쪽에만 남으면 짝 없는 도구 호출이 저장된다). */
+    const record = (m: ChatMessage): void => {
+      messages.push(m);
+      turnMessages.push(m);
     };
 
     try {
-      inst = await ensureLoaded(modelId, contextSize, ac.signal);
+      const slotSave = assist?.resume === true;
+      inst = await ensureLoaded(modelId, contextSize, ac.signal, {
+        profile: localAssistEngineProfile(assist, slotSave),
+        extras: assistEngineExtras(assist),
+        idleMs: localAssistIdleMs(assist),
+        slotSave,
+        onWait: (holder) => onEvent('system', `[local] waiting for the engine — ${holder} is still busy with another conversation. This turn starts as soon as it is free.`),
+        onAssistDropped: () => onEvent('system', '[local] the engine could not start with the assist engine options on this PC — running without them this time'),
+      });
       ac.signal.throwIfAborted();
       // 예산·게이지·절단이 전부 이 값을 먹는다 — 요청값이 아니라 **실제로 뜬 창**이 진실이다.
       contextSize = inst.contextSize;
       inst.lastUsedAt = Date.now();
+      // §5.19 (J) 이어하기 — 막 뜬 엔진에만 이 세션의 KV 를 되살린다(돌고 난 엔진의 캐시가 더 새것이다).
+      if (inst.fresh && inst.slotSave) {
+        const restored = await restoreKvSlot(inst.port, kvFileName(inst.modelPath, inst.contextSize, inst.profile, subAgentId));
+        if (restored) onEvent('system', '[local] restored this conversation from the saved cache — it does not have to be read again from the start');
+      }
+      inst.fresh = false;
+      inst.lastSubId = subAgentId;
 
       const history = loadHistory(subAgentId);
-      // 문맥을 넘기면 **잘라 낸 사본으로 갈아탄다**(§5.19 (D)) — 그래서 const 가 아니다.
-      let messages: ChatMessage[] = [];
       const sys = args.systemPrompt?.trim();
       if (sys) messages.push({ role: 'system', content: sys });
-      messages.push(...history, { role: 'user', content: prompt });
+      messages.push(...history, turnMessages[0]!);
 
       // 직전 왕복의 프롬프트 토큰 수. 답 예산과 문맥 게이지가 이 값을 쓴다(모르면 undefined).
       let lastPromptTokens: number | null = null;
@@ -1380,9 +1675,69 @@ export function runLocalTurn(args: LocalTurnArgs): void {
       let compacted = false;
       let finishReason: string | null = null;
       let hitMaxRounds = false;
+      // §5.19 (J) ② 정리 — 인계·요약은 턴에 한 번, 가리기 알림도 턴에 한 번(같은 줄이 화면을 채우지 않게).
+      let handedOff = false;
+      let summarizedForTidy = false;
+      let maskNoticed = false;
+      let stoppedToAsk = false;
+      const toolDefsChars = JSON.stringify(LOCAL_TOOL_DEFS).length;
+      const promptCharsNow = (): number => estimateMessageChars(messages) + (useTools ? toolDefsChars : 0);
 
       for (let round = 0; round < LOCAL_TOOL_MAX_ROUNDS; round += 1) {
         ac.signal.throwIfAborted();
+        // §5.19 (J) ② — 넘친 뒤(400)가 아니라 넘치기 **전에** 정리한다. 로컬은 거절 한 번이 프롬프트 전체 재계산이다.
+        if (assist?.tidyAt) {
+          const estimate = Math.ceil(promptCharsNow() / charsPerToken);
+          if (shouldTidyContext(estimate, contextSize, assist.tidyAt)) {
+            const pct = Math.round((estimate / contextSize) * 100);
+            const method = assist.tidyMethod ?? 'mask';
+            if (method === 'ask') {
+              onEvent('system', `[local] the context is about ${String(pct)}% full (${String(estimate)} of ${String(contextSize)} tokens). Nothing was lost — to keep going, send /compact to fold it, /clear to start fresh, or raise this bubble's context size.`);
+              stoppedToAsk = true;
+              break;
+            }
+            let tidied = false;
+            if (method === 'handoff' && !handedOff) {
+              handedOff = true;
+              const fresh = await handoffMessages(inst.port, messages, prompt, contextSize, ac.signal, charsPerToken);
+              ac.signal.throwIfAborted();
+              if (fresh) {
+                messages = fresh;
+                turnMessages.length = 0;
+                turnMessages.push(...fresh.filter((m) => m.role !== 'system'));
+                tidied = true;
+                onEvent('system', `[local] the context reached about ${String(pct)}% — handed the work off to a fresh context with a summary note`);
+              }
+            }
+            if (!tidied) {
+              const masked = maskOldToolResults(messages, LOCAL_TIDY_KEEP_RECENT_GROUPS, LOCAL_TIDY_MASK_MIN_CHARS);
+              if (masked.masked > 0) {
+                const swap = new Map<ChatMessage, ChatMessage>(messages.map((m, i) => [m, masked.messages[i] ?? m]));
+                messages = masked.messages;
+                const remapped = turnMessages.map((m) => swap.get(m) ?? m);
+                turnMessages.length = 0;
+                turnMessages.push(...remapped);
+                if (!maskNoticed) {
+                  maskNoticed = true;
+                  onEvent('system', `[local] the context reached about ${String(pct)}% — replaced ${String(masked.masked)} older tool outputs with short placeholders to keep going`);
+                }
+              }
+              if (method === 'summarize' && !summarizedForTidy
+                && shouldTidyContext(Math.ceil(promptCharsNow() / charsPerToken), contextSize, assist.tidyAt)) {
+                summarizedForTidy = true;
+                const folded = await compactMessagesForRetry(
+                  inst.port, messages, messages.length - turnMessages.length, contextSize, ac.signal, charsPerToken,
+                );
+                ac.signal.throwIfAborted();
+                if (folded && estimateMessageChars(folded) < estimateMessageChars(messages)) {
+                  const before = messages.length;
+                  messages = folded;
+                  onEvent('system', `[local] the context is still near its limit — folded the earlier ${String(before - folded.length + 1)} messages into a summary`);
+                }
+              }
+            }
+          }
+        }
         // 답 예산은 **왕복마다 다시 잡는다** — 도구 결과가 쌓여 프롬프트가 커진 만큼 답의 몫이
         //   줄어야 창 끝에 닿아 답이 잘리지 않는다(§5.19 (D) `localAnswerBudget`).
         const answerBudget = localAnswerBudget(contextSize, lastPromptTokens ?? undefined);
@@ -1391,7 +1746,11 @@ export function runLocalTurn(args: LocalTurnArgs): void {
           messages,
           stream: true,
           max_tokens: answerBudget,
+          // §5.19 (J) ①3 — 프롬프트를 읽는 동안 진행을 받는다(모르는 엔진은 이 칸을 무시한다).
+          return_progress: true,
         };
+        // 이번 요청이 실은 글자 수 — 엔진이 센 토큰 수와 견줘 이 대화의 비를 잰다.
+        const sentChars = promptCharsNow();
         // 이 요청의 프롬프트가 몇 토큰이었는지 받아 온다 — 문맥 게이지와 답 예산이 이걸 먹는다.
         if (askUsage) body['stream_options'] = { include_usage: true };
         if (typeof args.temperature === 'number') body['temperature'] = args.temperature;
@@ -1418,7 +1777,7 @@ export function runLocalTurn(args: LocalTurnArgs): void {
             // ⑥ **버리기 전에 접는다.** 덜어 내면 그 대화는 없던 일이 되지만, 접으면 줄어든 채로
             //   남아 "아까 말한 그거"에 답할 수 있다. 접기가 안 되면 아래 덜어 내기로 내려간다.
             if (!compacted) {
-              const folded = await compactMessagesForRetry(inst.port, messages, keepFrom, contextSize, ac.signal);
+              const folded = await compactMessagesForRetry(inst.port, messages, keepFrom, contextSize, ac.signal, charsPerToken);
               compacted = true;
               if (folded && estimateMessageChars(folded) < estimateMessageChars(messages)) {
                 const before = messages.length;
@@ -1433,7 +1792,7 @@ export function runLocalTurn(args: LocalTurnArgs): void {
             }
             const trimmed =
               trims < CONTEXT_TRIM_MAX_RETRIES
-                ? trimHistoryForRetry(messages, keepFrom, overflowDropChars(info, estimateMessageChars(messages), contextSize))
+                ? trimHistoryForRetry(messages, keepFrom, overflowDropChars(info, estimateMessageChars(messages), contextSize, charsPerToken))
                 : null;
             if (trimmed) {
               const freed = estimateMessageChars(messages) - estimateMessageChars(trimmed);
@@ -1495,6 +1854,8 @@ export function runLocalTurn(args: LocalTurnArgs): void {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buf = '';
+        // §5.19 (J) ①3 — "읽는 중" 은 왕복마다 한 번만(진행 줄이 여러 번 와도 화면엔 한 줄).
+        let progressShown = false;
         for (;;) {
           const { done, value } = await reader.read();
           // Abort can race with an already buffered chunk (including the final one).
@@ -1512,6 +1873,14 @@ export function runLocalTurn(args: LocalTurnArgs): void {
             if (payload === '[DONE]') continue;
             const delta = parseChatDelta(payload);
             if (!delta) continue; // 조각난 줄은 다음 청크에서 이어진다
+            if (delta.promptProgress && !progressShown) {
+              progressShown = true;
+              const fresh = delta.promptProgress.total - delta.promptProgress.cache;
+              // 짧은 것은 말하지 않는다 — 금방 끝나는 읽기까지 알리면 화면이 그 줄로 찬다.
+              if (fresh >= LOCAL_PREFILL_NOTICE_TOKENS) {
+                onEvent('system', `[local] reading the prompt — ${String(fresh)} new tokens (${String(delta.promptProgress.cache)} reused from cache). On a slower PC this takes a while; it is working, not stuck.`);
+              }
+            }
             stream.push('thinking', delta.thinking);
             if (delta.text) {
               roundText += delta.text;
@@ -1522,6 +1891,11 @@ export function runLocalTurn(args: LocalTurnArgs): void {
             if (delta.finishReason) finishReason = delta.finishReason;
             if (delta.promptTokens !== null) {
               lastPromptTokens = delta.promptTokens;
+              const measured = calibrateCharsPerToken(sentChars, delta.promptTokens);
+              if (measured !== null) {
+                charsPerToken = measured;
+                ratioMeasured = true;
+              }
               args.onUsage?.(delta.promptTokens, delta.completionTokens ?? 0, contextSize);
             }
           }
@@ -1546,6 +1920,8 @@ export function runLocalTurn(args: LocalTurnArgs): void {
           args.onToolEvent?.('tool_use', summarizeToolInput(toolName, toolInput), toolName, call.id);
 
           const repeated = repeatedCallNotice(repeatSeen, toolName, call.function.arguments);
+          // §5.19 (J) 계획 먼저 — 승인 전에는 계획 파일 밖의 쓰기·셸을 사람에게 묻기 전에 막는다.
+          const gateRefusal = args.planGate && root ? planGateRefusal(toolName, toolInput, root, args.planGate.fileRel) : null;
 
           // 훅 사전 이벤트 — 권한 판정 전에 낸다. 거절된 호출도 **시도된 일**이라 원장에 남아야
           //   하고, Bash 이력 엔트리도 여기서 만들어져야 사후 결과가 그 자리에 붙는다.
@@ -1567,6 +1943,8 @@ export function runLocalTurn(args: LocalTurnArgs): void {
           } else if (repeated) {
             // 같은 호출을 되풀이하는 중 — 실행도 승인 요청도 하지 않는다(사람을 같은 팝업으로 괴롭히지 않는다).
             resultBody = repeated;
+          } else if (gateRefusal) {
+            resultBody = gateRefusal;
           } else {
             const verdict = await (args.onToolRequest?.(toolName, toolInput)
               ?? Promise.resolve<LocalToolVerdict>({ allowed: false, reason: 'no permission broker' }));
@@ -1596,7 +1974,15 @@ export function runLocalTurn(args: LocalTurnArgs): void {
               toolIsError = outcome.isError;
               // 고정 상한(24,000자)은 16K 문맥의 절반을 한 번에 삼킨다 — 이 창이 감당할 몫으로
               //   한 번 더 접는다. 자른 사실은 `clipToolResult` 가 본문에 남긴다.
-              resultBody = clipToolResult(outcome.content, localToolResultBudget(contextSize));
+              // §5.19 (J) — 몫은 잰 글자/토큰 비와 출력 상한 옵션으로, 명령 출력은 앞·뒤를 남긴다(실패는 끝에 있다).
+              const budget = localToolResultBudget(contextSize, charsPerToken, LOCAL_TOOL_OUTPUT_CAP_RATIO[assist?.toolOutputCap ?? 'normal']);
+              resultBody = toolName === 'Bash' ? clipHeadTail(outcome.content, budget) : clipToolResult(outcome.content, budget);
+              // 잘린 원문은 프로젝트 안에 두고 그 경로를 적는다 — 보관본을 다시 읽은 결과는 또 보관하지 않는다.
+              const readingKept = toolName === 'Read' && /\.vibisual[\\/]local-outputs[\\/]/.test(String(toolInput['path'] ?? ''));
+              if (assist?.keepFullOutput && resultBody !== outcome.content && !readingKept) {
+                const kept = await saveFullToolOutput(root, subAgentId, outcome.content);
+                if (kept) resultBody = `${resultBody}\n${savedOutputPointer(kept)}`;
+              }
             }
           }
 
@@ -1618,7 +2004,7 @@ export function runLocalTurn(args: LocalTurnArgs): void {
       }
 
       ac.signal.throwIfAborted();
-      if (!assistant) {
+      if (!assistant && !stoppedToAsk) {
         // 답이 비었는데 조용히 "완료"로 끝내면 사용자는 **아무 일도 안 일어난 것**으로 본다.
         //   왜 비었는지를 말해 주는 것이 최소한이다.
         onEvent(
@@ -1629,9 +2015,12 @@ export function runLocalTurn(args: LocalTurnArgs): void {
         );
         // 도구만 돌고 말이 없던 턴이라도 **도구 왕복은 남긴다** — 다음 턴이 무엇을 했는지 알아야 한다.
         if (turnMessages.length > 1) persist();
+      } else if (!assistant) {
+        // §5.19 (J) 멈추고 묻기 — 정리하지 않고 끝냈다. 여기까지 한 왕복은 남긴다.
+        if (turnMessages.length > 1) persist();
       } else {
         // 빈 답을 이력에 남기면 다음 턴이 "아무 말도 안 한 나"를 문맥으로 물고 간다.
-        turnMessages.push({ role: 'assistant', content: assistant });
+        record({ role: 'assistant', content: assistant });
         persist();
       }
       onEvent('result', assistant);
@@ -1642,26 +2031,32 @@ export function runLocalTurn(args: LocalTurnArgs): void {
     } catch (err) {
       const aborted = ac.signal.aborted;
       stream.flush(); // 붙잡아 둔 마지막 조각까지 화면에 보낸 뒤에 끝맺는다
-      if (aborted) {
-        // 중지는 실패가 아니다 — 여기까지 나온 말과 **도구 왕복**을 이력에 남겨 다음 턴이 이어지게 한다.
-        // The remaining calls in the last round were never executed. Pair them with
-        // cancellation results so resume cannot inherit an incomplete tool round.
+      // The remaining calls in the last round were never executed. Pair them with
+      // a result so the next turn cannot inherit an incomplete tool round.
+      const closeOpenCalls = (reason: string): void => {
         let lastCalls = turnMessages.length - 1;
         while (lastCalls >= 0 && !turnMessages[lastCalls]?.tool_calls?.length) lastCalls -= 1;
-        if (lastCalls >= 0) {
-          const answered = new Set(turnMessages.slice(lastCalls + 1).map((message) => message.tool_call_id));
-          for (const call of turnMessages[lastCalls]!.tool_calls ?? []) {
-            if (!answered.has(call.id)) turnMessages.push({
-              role: 'tool', tool_call_id: call.id, content: 'tool cancelled by user before completion',
-            });
-          }
+        if (lastCalls < 0) return;
+        const answered = new Set(turnMessages.slice(lastCalls + 1).map((message) => message.tool_call_id));
+        for (const call of turnMessages[lastCalls]!.tool_calls ?? []) {
+          if (!answered.has(call.id)) record({ role: 'tool', tool_call_id: call.id, content: reason });
         }
-        if (assistant) turnMessages.push({ role: 'assistant', content: assistant });
+      };
+      if (aborted) {
+        // 중지는 실패가 아니다 — 여기까지 나온 말과 **도구 왕복**을 이력에 남겨 다음 턴이 이어지게 한다.
+        closeOpenCalls('tool cancelled by user before completion');
+        if (assistant) record({ role: 'assistant', content: assistant });
         if (turnMessages.length > 1) persist();
         onDone();
       } else {
         const msg = err instanceof Error ? err.message : String(err);
         logger.error(`[localRunner] turn failed for ${subAgentId}`, err);
+        // §5.19 (J) ①4 — 실패한 턴도 이미 한 일은 남긴다. 파일은 고쳤는데 대화가 그 일을 모르면 다음 턴이 같은 일을 다시 한다.
+        if (turnMessages.length > 1) {
+          closeOpenCalls(`tool not run — the turn failed: ${msg.slice(0, 300)}`);
+          if (assistant) record({ role: 'assistant', content: assistant });
+          persist();
+        }
         // ⚠ 여기서 `onEvent('error', msg)` 를 **직접 뱉지 않는다.** 실패 카드는 `onDone(error)` 를 받은 `failCommand` 가 `[local] 원문` 봉투로 한 장만 낸다.
         // 여기서 또 흘리면 ① 카드가 두 장 ② 봉투가 없어 클라가 CLI 종료로 폴백해 로컬 실패를 "Claude CLI 가 예기치 않게 종료"로 잘못 말한다.
         onDone(msg);

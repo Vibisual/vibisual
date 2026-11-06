@@ -17,11 +17,11 @@ function sse(delta: Record<string, unknown>, finish: string | null = null): stri
 // ─────────────────────────────────────────────────────────────
 describe('parseChatDelta — 생각과 본문을 모두 읽는다', () => {
   it('본문 델타를 읽는다', () => {
-    expect(parseChatDelta(sse({ content: '안녕' }))).toEqual({ text: '안녕', thinking: '', finishReason: null, toolCalls: [], promptTokens: null, completionTokens: null });
+    expect(parseChatDelta(sse({ content: '안녕' }))).toEqual({ text: '안녕', thinking: '', finishReason: null, toolCalls: [], promptTokens: null, completionTokens: null, promptProgress: null });
   });
 
   it('추론 델타를 읽는다 — 이걸 놓쳐서 빈 말풍선이 나왔다', () => {
-    expect(parseChatDelta(sse({ reasoning_content: '음…' }))).toEqual({ text: '', thinking: '음…', finishReason: null, toolCalls: [], promptTokens: null, completionTokens: null });
+    expect(parseChatDelta(sse({ reasoning_content: '음…' }))).toEqual({ text: '', thinking: '음…', finishReason: null, toolCalls: [], promptTokens: null, completionTokens: null, promptProgress: null });
   });
 
   it('한 줄에 둘 다 있어도 각자 자리로 간다', () => {
@@ -36,7 +36,7 @@ describe('parseChatDelta — 생각과 본문을 모두 읽는다', () => {
   });
 
   it('role 만 오는 첫 줄은 빈 델타로 읽는다(내용 없음이지 오류 아님)', () => {
-    expect(parseChatDelta(sse({ role: 'assistant', content: null }))).toEqual({ text: '', thinking: '', finishReason: null, toolCalls: [], promptTokens: null, completionTokens: null });
+    expect(parseChatDelta(sse({ role: 'assistant', content: null }))).toEqual({ text: '', thinking: '', finishReason: null, toolCalls: [], promptTokens: null, completionTokens: null, promptProgress: null });
   });
 
   it('조각난 줄은 null — 다음 청크에서 이어져야 한다', () => {

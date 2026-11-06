@@ -18,11 +18,14 @@ import {
   LOCAL_WEB_SEARCH_TIMEOUT_MS,
   LOCAL_TOOL_LIST_MAX_ENTRIES,
   LOCAL_TOOL_COMMAND_TIMEOUT_MS,
+  LOCAL_BASH_OUTPUT_HEAD_CHARS,
+  LOCAL_BASH_OUTPUT_TAIL_CHARS,
   detectLocalBashEscape,
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { augmentedEnv } from './binLocator.js';
 import { resolvePathWithLinks } from './pathValidator.js';
+import { processGroupSpawnOptions, terminateChildTree } from './processTree.js';
 
 /** 훑지 않는 폴더 — 여기까지 걸으면 목록·검색이 사실상 안 끝난다. */
 const SKIP_DIRS = new Set([
@@ -50,6 +53,41 @@ export function clipToolResult(text: string, max = LOCAL_TOOL_RESULT_MAX_CHARS):
   if (text.length <= max) return text;
   const dropped = text.length - max;
   return `${text.slice(0, max)}\n\n… [truncated ${String(dropped)} more characters]`;
+}
+
+/** §5.19 (J) ①5 — 앞·뒤를 남기고 가운데를 접는다. 명령 출력의 오류·요약은 대개 끝에 있어 앞만 남기면 실패를 못 본다. */
+export function clipHeadTail(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = Math.floor(max * 0.4);
+  const tail = max - head;
+  const omitted = text.length - head - tail;
+  return `${text.slice(0, head)}\n… [${String(omitted)} characters omitted] …\n${text.slice(text.length - tail)}`;
+}
+
+/** 흘러드는 출력을 앞 `headMax`·뒤 `tailMax` 글자만 메모리에 든다(끝없이 쌓이면 수 GB 출력이 앱 메모리를 먹는다). */
+export function createHeadTailBuffer(headMax: number, tailMax: number): { push(chunk: string): void; render(): string } {
+  let head = '';
+  let tail = '';
+  let omitted = 0;
+  return {
+    push(chunk) {
+      let rest = chunk;
+      if (head.length < headMax) {
+        const take = Math.min(headMax - head.length, rest.length);
+        head += rest.slice(0, take);
+        rest = rest.slice(take);
+      }
+      if (!rest) return;
+      tail += rest;
+      if (tail.length > tailMax) {
+        omitted += tail.length - tailMax;
+        tail = tail.slice(tail.length - tailMax);
+      }
+    },
+    render() {
+      return omitted > 0 ? `${head}\n… [${String(omitted)} characters omitted] …\n${tail}` : head + tail;
+    },
+  };
 }
 
 /**
@@ -83,8 +121,11 @@ function rel(root: string, abs: string): string {
 
 // ─── 파일 훑기 ───
 
-/** 루트 아래 파일을 걷는다. `SKIP_DIRS` 는 들어가지 않고, 상한을 넘으면 멈춘다. */
-function walkFiles(root: string, limit: number): string[] {
+/**
+ * 루트 아래 파일을 걷는다. `SKIP_DIRS` 는 들어가지 않고, 상한을 넘으면 멈춘다.
+ * 비동기로 걷는다 — 서버가 앱 메인 프로세스 안에서 돌아 동기 걷기 동안 창 전체가 굳는다(§5.19 (J) ①6).
+ */
+async function walkFiles(root: string, limit: number): Promise<string[]> {
   const out: string[] = [];
   const stack: string[] = [root];
   while (stack.length > 0 && out.length < limit) {
@@ -92,7 +133,7 @@ function walkFiles(root: string, limit: number): string[] {
     if (dir === undefined) break;
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      entries = await fsp.readdir(dir, { withFileTypes: true });
     } catch {
       continue; // 못 읽는 폴더는 건너뛴다 — 여기서 턴을 죽이지 않는다
     }
@@ -215,17 +256,17 @@ async function toolEdit(root: string, args: Record<string, unknown>): Promise<Lo
   return ok(`edited ${rel(root, abs)} (${String(count)} replacement${count > 1 ? 's' : ''})`);
 }
 
-function toolGlob(root: string, args: Record<string, unknown>): LocalToolOutcome {
+async function toolGlob(root: string, args: Record<string, unknown>): Promise<LocalToolOutcome> {
   const pattern = typeof args['pattern'] === 'string' ? args['pattern'] : '';
   if (!pattern) return fail('pattern is required');
   const re = globToRegExp(pattern);
-  const files = walkFiles(path.resolve(root), LOCAL_TOOL_LIST_MAX_ENTRIES * 8);
+  const files = await walkFiles(path.resolve(root), LOCAL_TOOL_LIST_MAX_ENTRIES * 8);
   const hits = files.map((f) => rel(root, f)).filter((r) => re.test(r)).slice(0, LOCAL_TOOL_LIST_MAX_ENTRIES);
   if (hits.length === 0) return ok(`no files match ${pattern}`);
   return ok(clipToolResult(hits.join('\n')));
 }
 
-function toolGrep(root: string, args: Record<string, unknown>): LocalToolOutcome {
+async function toolGrep(root: string, args: Record<string, unknown>): Promise<LocalToolOutcome> {
   const pattern = typeof args['pattern'] === 'string' ? args['pattern'] : '';
   if (!pattern) return fail('pattern is required');
   let re: RegExp;
@@ -235,14 +276,14 @@ function toolGrep(root: string, args: Record<string, unknown>): LocalToolOutcome
     return fail(`invalid regular expression: ${err instanceof Error ? err.message : String(err)}`);
   }
   const globRe = typeof args['glob'] === 'string' && args['glob'] ? globToRegExp(args['glob']) : null;
-  const files = walkFiles(path.resolve(root), LOCAL_TOOL_LIST_MAX_ENTRIES * 8);
+  const files = await walkFiles(path.resolve(root), LOCAL_TOOL_LIST_MAX_ENTRIES * 8);
   const out: string[] = [];
   for (const f of files) {
     const r = rel(root, f);
     if (globRe && !globRe.test(r)) continue;
     let text: string;
     try {
-      const buf = fs.readFileSync(f);
+      const buf = await fsp.readFile(f);
       if (buf.includes(0)) continue; // 이진 파일은 건너뛴다
       text = buf.subarray(0, LOCAL_TOOL_READ_MAX_BYTES).toString('utf8');
     } catch {
@@ -277,32 +318,37 @@ function toolBash(root: string, args: Record<string, unknown>, signal?: AbortSig
     const isWin = process.platform === 'win32';
     // §5.19 (H) — 보강된 PATH 를 물려준다(macOS 앱의 launchd 최소 PATH 로는 Homebrew 도구가 `command not found`).
     const env = augmentedEnv();
+    // 손자(테스트 러너·개발 서버)까지 끌 수 있게 묶어 띄운다 — `child.kill()` 은 셸만 죽이고 손자를 남긴다.
     const child = isWin
-      ? spawn(process.env['COMSPEC'] ?? 'cmd.exe', ['/d', '/s', '/c', command], { cwd: root, windowsHide: true, env })
-      : spawn('/bin/sh', ['-c', command], { cwd: root, env });
-    let out = '';
+      ? spawn(process.env['COMSPEC'] ?? 'cmd.exe', ['/d', '/s', '/c', command], { cwd: root, windowsHide: true, env, ...processGroupSpawnOptions() })
+      : spawn('/bin/sh', ['-c', command], { cwd: root, env, ...processGroupSpawnOptions() });
+    const out = createHeadTailBuffer(LOCAL_BASH_OUTPUT_HEAD_CHARS, LOCAL_BASH_OUTPUT_TAIL_CHARS);
     let done = false;
-    const finish = (body: string, isError: boolean): void => {
+    // 판정 줄(종료 코드·시간 초과·중지)은 맨 앞 — 뒤에 두면 긴 출력을 자를 때 함께 잘려 모델이 실패를 모른다.
+    const finish = (status: string | null, isError: boolean): void => {
       if (done) return;
       done = true;
       clearTimeout(timer);
-      resolve({ content: clipToolResult(body), isError });
+      const body = out.render().trim() || '(no output)';
+      resolve({ content: status ? `${status}\n${body}` : body, isError });
+    };
+    const stop = (): void => {
+      try { terminateChildTree(child); } catch { /* 이미 죽었으면 그만 */ }
     };
     const timer = setTimeout(() => {
-      try { child.kill(); } catch { /* 이미 죽었으면 그만 */ }
-      finish(`${out}\n[command timed out after ${String(LOCAL_TOOL_COMMAND_TIMEOUT_MS)}ms]`, true);
+      stop();
+      finish(`[command timed out after ${String(LOCAL_TOOL_COMMAND_TIMEOUT_MS)}ms]`, true);
     }, LOCAL_TOOL_COMMAND_TIMEOUT_MS);
     // [중지]는 도구 실행도 함께 끊는다 — 안 끊으면 멈춘 뒤에도 명령이 계속 돈다.
     signal?.addEventListener('abort', () => {
-      try { child.kill(); } catch { /* 이미 죽었으면 그만 */ }
-      finish(`${out}\n[stopped by user]`, true);
+      stop();
+      finish('[stopped by user]', true);
     }, { once: true });
-    child.stdout?.on('data', (d: Buffer) => { out += d.toString(); });
-    child.stderr?.on('data', (d: Buffer) => { out += d.toString(); });
-    child.on('error', (err) => finish(`cannot run command: ${err.message}`, true));
+    child.stdout?.on('data', (d: Buffer) => { out.push(d.toString()); });
+    child.stderr?.on('data', (d: Buffer) => { out.push(d.toString()); });
+    child.on('error', (err) => finish(`[cannot run command: ${err.message}]`, true));
     child.on('close', (code) => {
-      const body = out.trim() || '(no output)';
-      finish(code === 0 ? body : `${body}\n[exit code ${String(code)}]`, code !== 0);
+      finish(code === 0 ? null : `[exit code ${String(code)}]`, code !== 0);
     });
   });
 }
@@ -470,8 +516,8 @@ export async function runLocalTool(
       case 'Read': return await toolRead(root, args);
       case 'Write': return await toolWrite(root, args);
       case 'Edit': return await toolEdit(root, args);
-      case 'Glob': return toolGlob(root, args);
-      case 'Grep': return toolGrep(root, args);
+      case 'Glob': return await toolGlob(root, args);
+      case 'Grep': return await toolGrep(root, args);
       case 'Bash': return await toolBash(root, args, signal);
       case 'WebFetch': return await toolWebFetch(args, signal);
       case 'WebSearch': return await toolWebSearch(args, signal);
