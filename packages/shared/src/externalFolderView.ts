@@ -1,8 +1,10 @@
 /**
- * §2.1 — 외부 폴더 버블 표시 판정(승격 · 휘발 자리 접기 · 자리 이름). 경로 구조가 아니라 활동으로 접는다(경로로 접으면 홈 하나가 수십 곳을 활동 0 으로 삼킨다 — 실측).
+ * §2.1 — 외부 폴더 버블 표시 판정(경로 깊이 통합 · 승격 · 휘발 자리 접기 · 자리 이름).
  * 서버와 클라가 같은 답을 내야 한다(§2.1 #3). 순수 — 시각·플랫폼·홈·임시 디렉터리는 인자로 받는다(세 OS 단위 테스트).
  */
 import {
+  EXTERNAL_FOLDER_MERGE_DEPTH_BOUNDS,
+  EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT,
   EXTERNAL_PLACE_PATTERNS,
   EXTERNAL_PROMOTION_HALF_LIFE_MS,
   EXTERNAL_PROMOTION_PER_PARENT,
@@ -10,6 +12,31 @@ import {
   EXTERNAL_TOP_BUDGET_DEFAULT,
 } from './constants.js';
 import { normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
+
+/** 외부 폴더 전용 통합 깊이. 0은 끄기, 누락·잘못된 값은 기본 3단계. */
+export function normalizeExternalFolderMergeDepth(value: unknown): number {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) {
+    return EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT;
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n)) return EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT;
+  return Math.min(EXTERNAL_FOLDER_MERGE_DEPTH_BOUNDS.MAX,
+    Math.max(EXTERNAL_FOLDER_MERGE_DEPTH_BOUNDS.MIN, Math.floor(n)));
+}
+
+/**
+ * 절대경로 앞 N개 폴더로 만든 통합 키. 드라이브·POSIX 루트·UNC 서버/공유는 깊이에 세지 않는다.
+ * 짧은 경로는 그대로 둔다. 대소문자 비교는 호출자가 플랫폼의 pathKey로 정규화한다.
+ */
+export function externalFolderMergeTarget(absolutePath: string, depth: number): string {
+  const shaped = normalizePathShape(absolutePath);
+  const levels = normalizeExternalFolderMergeDepth(depth);
+  if (levels === 0) return shaped;
+  const segments = shaped.split('/');
+  const rootSegments = shaped.startsWith('//') ? 4
+    : shaped.startsWith('/') || /^[A-Za-z]:/.test(shaped) ? 1 : 0;
+  return segments.slice(0, rootSegments + levels).join('/') || shaped;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // (D) 사람이 읽는 이름

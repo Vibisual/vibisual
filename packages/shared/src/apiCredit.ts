@@ -181,6 +181,8 @@ export interface ApiCreditState {
   subscriptionResetsAt?: number;
   /** 이 PC 의 Claude Code 가 클라우드 제공자로 설정돼 있으면 그 이름(bedrock·vertex·foundry). 그때 크레딧 경로는 닫힌다. */
   cloudProvider?: ClaudeCloudProvider;
+  /** OpenAI 판 — 코덱스 설정이 고른 `model_provider` 가 `openai` 가 아니면 그 id. 그때 크레딧 경로는 닫힌다. */
+  customProvider?: string;
   /** 아직 유효한 Anthropic 거절. 풀렸으면 없다. */
   block?: ApiCreditConsoleBlock;
   /** Console 이번 달 지출. */
@@ -338,8 +340,8 @@ export interface CreditRouteInput {
   /** Anthropic 거절 기억(유효한 것만 넘겨도, 지난 것을 넘겨도 된다 — 여기서 다시 본다). */
   block?: ApiCreditConsoleBlock | null;
   subscriptionExhausted: boolean;
-  /** 클라우드 제공자로 설정된 PC 면 그 이름 — 크레딧 경로를 열지 않는다. */
-  cloudProvider?: ClaudeCloudProvider | null;
+  /** 클라우드·다른 모델 제공자로 설정된 PC 면 그 이름 — 크레딧 경로를 열지 않는다. */
+  cloudProvider?: string | null;
 }
 
 /**
@@ -380,8 +382,8 @@ export function readRegainAccessAt(text: string): number | undefined {
   return Number.isFinite(at) ? at : undefined;
 }
 
-/** 실패 문장에서 사람이 읽을 한 줄 — JSON 오류 본문이면 그 `message`, 아니면 마지막 줄. */
-function failureDetail(text: string): string {
+/** 실패 문장에서 사람이 읽을 한 줄 — JSON 오류 본문이면 그 `message`, 아니면 마지막 줄. OpenAI 판도 같은 규칙을 쓴다. */
+export function creditFailureDetail(text: string): string {
   const m = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text);
   const picked = m ? m[1]!.replace(/\\"/g, '"').replace(/\\n/g, ' ') : (text.trim().split('\n').filter((l) => l.trim()).pop() ?? '');
   return picked.trim().slice(0, 300);
@@ -398,14 +400,14 @@ export function detectConsoleRefusal(text: string | undefined, now: number): Api
   if (!text) return null;
   const s = text.slice(0, 4000);
   if (/credit balance (is )?too low/i.test(s)) {
-    return { reason: 'balance-empty', at: now, until: now + API_CREDIT_BALANCE_RECHECK_MS, detail: failureDetail(s) };
+    return { reason: 'balance-empty', at: now, until: now + API_CREDIT_BALANCE_RECHECK_MS, detail: creditFailureDetail(s) };
   }
   if (/reached your (?:specified )?(?:workspace )?API usage limits|enforced_spend_limit_reached/i.test(s)) {
     const regain = readRegainAccessAt(s);
-    return { reason: 'spend-limit', at: now, until: regain !== undefined && regain > now ? regain : utcNextMonthStart(now), detail: failureDetail(s) };
+    return { reason: 'spend-limit', at: now, until: regain !== undefined && regain > now ? regain : utcNextMonthStart(now), detail: creditFailureDetail(s) };
   }
   if (/invalid x-api-key|invalid api key|authentication_error|\b401\b.*(api key|unauthori[sz]ed)/i.test(s)) {
-    return { reason: 'key-invalid', at: now, detail: failureDetail(s) };
+    return { reason: 'key-invalid', at: now, detail: creditFailureDetail(s) };
   }
   return null;
 }
@@ -491,7 +493,10 @@ export function maskApiKey(key: string): string {
   return k.length >= 12 ? `…${k.slice(-4)}` : '…';
 }
 
-export type ApiKeyShapeProblem = 'empty' | 'not-anthropic' | 'admin-key' | 'oauth-token' | 'whitespace';
+export type ApiKeyShapeProblem = 'empty' | 'not-anthropic' | 'admin-key' | 'oauth-token' | 'whitespace' | 'not-openai' | 'not-admin-key';
+
+/** 크레딧 지갑의 주인. Claude 판(Console)과 OpenAI 판(Platform)은 설정·키·거절 기억을 따로 갖는다. */
+export type ApiCreditVendor = 'anthropic' | 'openai';
 
 /**
  * 붙여 넣은 값이 Console API 키 모양인가. 확인은 결국 `/v1/models` 가 하지만, 관리자 키·OAuth 토큰처럼

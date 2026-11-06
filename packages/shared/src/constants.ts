@@ -1,10 +1,11 @@
-import type { AgentProvider, AgentEngineKind, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, StreamDensity, PluginContributionKind, SessionGoalStep, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, TokenSaverSettings, TokenSaverPreset, BackgroundTaskProbeSettings, SessionLivenessProbeSettings, ProcessGuardSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, PermissionChoice, PermissionCancelReason, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo, SessionMemoLink, SessionMemoLinkKind, SessionMemoLinkTarget, ContextScopeLevel, TidyBand, TidySort, TidyGeometry, VisualKindSurface, AppThemeFamily, AppThemeShade, AppThemeToken, FileFaceKind, FileFaceFamily, WebGroupSettings, WebOpenTarget, WebKind } from './types.js';
+import type { AgentProvider, LocalAssistOptions, LocalAssistPreset, LocalToolOutputCap, AgentEngineKind, LocalEngineBackend,BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, OrchestraFormationBasis, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, StreamDensity, PluginContributionKind, SessionGoalStep, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, TokenSaverSettings, TokenSaverPreset, BackgroundTaskProbeSettings, SessionLivenessProbeSettings, ProcessGuardSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, PermissionChoice, PermissionCancelReason, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo, SessionMemoLink, SessionMemoLinkKind, SessionMemoLinkTarget, ContextScopeLevel, TidyBand, TidySort, TidyGeometry, VisualKindSurface, AppThemeFamily, AppThemeShade, AppThemeToken, FileFaceKind, FileFaceFamily, WebGroupSettings, WebOpenTarget, WebKind } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`pathCase.ts`).
 import { normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
 // §2.1 #3 쓰기 축 — Bash 줄의 `target`(어느 파일을 고쳤나)을 그래프와 **같은 추출기**에서 뽑는다.
 import { extractBashWritePaths, shellDialectOfTool } from './bashCommandPaths.js';
 import { normalizeCodexToolPolicy } from './codexToolPolicy.js';
+import { normalizeLocalAssist } from './localAssist.js';
 import { harnessBuilderPowershellBlocks } from './harnessBuilderApi.js';
 import { AGENT_AUTH_POSIX, agentPowershellRequest, type AgentRuleShell } from './agentRuleShell.js';
 
@@ -1144,6 +1145,15 @@ export const EXTERNAL_TOP_BUDGET_DEFAULT = 12;
 /** (B) 사용자가 옵션창에서 예산을 조절할 때의 허용 범위(클램프 경계). */
 export const EXTERNAL_TOP_BUDGET_BOUNDS = { MIN: 1, MAX: 40 } as const;
 
+/**
+ * 외부 폴더 경로의 앞쪽 N단계가 같으면 한 버블로 모은다. 드라이브·루트·UNC 공유명은 단계에 세지 않는다.
+ * 머신 기본값이다 — 프로젝트별 값(`ProjectCheckpoint.externalFolderMergeDepth`)이 있으면 그쪽이 이긴다(§2.1 #5).
+ */
+export const EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT = 2;
+
+/** `0`은 경로 깊이 통합 끄기. 내부 폴더에는 적용하지 않는다. */
+export const EXTERNAL_FOLDER_MERGE_DEPTH_BOUNDS = { MIN: 0, MAX: 20 } as const;
+
 /** (B) 한 부모에서 꺼낼 자식 수 — 없으면 같은 성격의 형제들이 예산을 다 먹어 접합 트리가 무너진다. 남은 예산은 다른 가지로 간다(여러 자리를 넓게). */
 export const EXTERNAL_PROMOTION_PER_PARENT = 3;
 
@@ -1395,6 +1405,18 @@ export const FILE_MAX_SIZE = 90;
 /** §2.3 · §5.1 #2-1 (A) — 파일 지름의 용량 눈금(로그). 정비례면 큰 파일 하나가 `FILE_MAX_SIZE` 를 먹고 나머지가 바닥에 눌린다(실측 57MB wav). */
 export const FILE_SIZE_SCALE = {
   /** 눈금 폭 하한(배) — 몇 바이트 차이가 지름 차이가 되지 않게(실측 184~186B 그림이 56~90px 로 갈렸다). */
+  minSpread: 16,
+} as const;
+
+/**
+ * §2.3 · §5.1 「앱 버블 지름」 — 명령 앱 지름. 같은 화면의 앱끼리 사용 횟수를 자릿수로 견준다.
+ * 활동량 자로 재면 명령마다 +1 되는 앱이 금방 `NODE_MAX_SIZE` 에 닿아 에이전트보다 커진다 — 상한은 그 2/3.
+ */
+export const COMMAND_APP_SIZE = {
+  /** 더 작으면 이름 글자·아이콘이 하한(7px·12px)에 닿아 원만 줄고 글자는 넘친다. */
+  min: 56,
+  max: Math.round((NODE_MAX_SIZE * 2) / 3),
+  /** 눈금 폭 하한(배) — 비슷하게 쓴 앱끼리 몇 번 차이가 지름 차이가 되지 않게(`FILE_SIZE_SCALE` 과 같은 뜻). */
   minSpread: 16,
 } as const;
 
@@ -2566,14 +2588,14 @@ export function isThinkingAlwaysOnModel(modelId: string | undefined | null, regi
 }
 
 /**
- * §4 (Fast 모드) — 설치본 CLI 판정을 옮겼다: capability `fast_mode` 거나 ID 에 `opus-4-8`/`opus-5` 가 있을 때만, 그 밖은 사유 없이 `off`(실측). 최종 판정은 CLI.
- * bare `'opus'` 는 true(CLI 가 latest 로 해소), 핀한 옛 판은 false, `[1m]` 은 그대로(실측).
+ * §4 (Fast 모드) — ID 에 `opus-5` 가 있을 때만(그 밖은 CLI 가 사유 없이 `off`, 실측). bare `'opus'` 는 true(CLI 가 latest 로 해소), `[1m]` 은 그대로.
+ * Opus 4.8 은 뺀다 — Fast 가 2026-10-30 폐지·11-30 제거되고 제거 뒤엔 그 요청이 오류로 끝나 표준으로 내려가지 않는다(CLI 2.1.316 변경 기록, §4 Fast 모드 (4)).
  */
 export function supportsFastMode(modelId: string | undefined | null): boolean {
   if (!modelId) return false;
   const id = modelId.toLowerCase();
   if (id === 'opus') return true;
-  return id.includes('opus-4-8') || id.includes('opus-5');
+  return id.includes('opus-5');
 }
 
 /** JSONL model ID → 패밀리(임의 패밀리 수용 — 새 패밀리 세션도 버블에 뜬다). 실패 시 undefined. */
@@ -2697,6 +2719,8 @@ export const MANAGED_ENGINE_ROLLBACK_MARK = '.vibisual-rolled-back';
 export const MANAGED_ENGINE_KEEP_VERSIONS = 2;
 /** 켜 둔 동안 새 판을 확인하는 간격(6시간). 켤 때 한 번은 따로 돈다. */
 export const MANAGED_ENGINE_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/** Version 탭을 열 때 최신 판을 다시 묻지 않는 시간 — 코덱스 배포처는 GitHub API(비인증 시간당 60회)라 탭을 들락여도 몇 번만 묻게. */
+export const MANAGED_ENGINE_LATEST_DISPLAY_TTL_MS = 5 * 60 * 1000;
 /** 플래그 점검 한 번의 상한 — 프롬프트 없이 인자 검증에서 끝나는 실행이라 정상은 몇 초다. */
 export const MANAGED_ENGINE_PROBE_TIMEOUT_MS = 20_000;
 /** 동시에 띄우는 점검 수 — 판 하나에 수십 번 띄우므로 한꺼번에 띄우지 않는다. */
@@ -2963,6 +2987,7 @@ export interface DisplayCommandLike {
   status?: string;
   subAgentId?: string | null;
   startedAt?: number;
+  dispatchMode?: string;
 }
 
 /**
@@ -2981,6 +3006,8 @@ export function silentPreCompactHeirs<T extends DisplayCommandLike>(list: readon
   if (runningSilent.size === 0) return heirs;
   for (const c of list) {
     if (c.silent || c.status !== 'queued' || typeof c.subAgentId !== 'string') continue;
+    // [작업에 반영]은 턴을 열지 않는다 — 앞에 남은 잠긴 기록(§5.5 #17-18 ⑬)이 압축을 물려받으면 진짜 다음 명령이 가려진다.
+    if (c.dispatchMode === 'steer') continue;
     if (!runningSilent.has(c.subAgentId)) continue;
     heirs.set(c, runningSilent.get(c.subAgentId));
     runningSilent.delete(c.subAgentId);
@@ -4037,6 +4064,18 @@ export const PIPELINE_TYPE_INFO: Record<PipelineType, {
     pros: ['Cost-optimized (cheap exploration)', 'Maximized implementation speed', 'Verification runs alongside implementation'],
     cons: ['Requires understanding both systems', 'Most configuration needed'],
   },
+  // §5.3 #11 — 넘기는 자리가 의존성이면 나누지 않는다. 구현 하나가 분석·구현·시험을 한 맥락에서, 검수 하나가 결과물만 본다.
+  'pipeline-single-writer': {
+    label: 'Pipeline: Single writer',
+    description: 'One implementer keeps the whole context; one read-only verifier checks the artifact',
+    pros: ['No context lost between dependent steps', 'Fewest handoffs', 'Independent check on the result'],
+    cons: ['No parallel implementation', 'One long context for big tasks'],
+  },
+};
+
+/** 파이프라인 타입별 자식 역할(생성 순서). 없는 타입은 종전 넷이다. */
+export const PIPELINE_CHILD_ROLES_BY_TYPE: Readonly<Partial<Record<PipelineType, readonly AgentRole[]>>> = {
+  'pipeline-single-writer': ['implementer', 'verifier'],
 };
 
 /** 파이프라인 내부 뷰 Parents 버블 특수 ID */
@@ -4108,6 +4147,36 @@ export const TASK_EDGE_TEMPLATES: TaskEdgeTemplate[] = [
     defaultPriority: 'normal',
     defaultCommandMode: 'tool-delegation',
     defaultDelegationPolicy: 'auto',
+  },
+  // §5.3 #10-6 (F) — 의존성 기준 편성의 짝 둘. 위 줄들(역할형)은 그대로 두고 끝에 더한다 — 오케스트라 지휘 규칙 표에는 `dependency` 일 때만 실린다.
+  {
+    id: 'maker-to-artifact-review',
+    label: 'Maker → Artifact review',
+    // 구현자의 서술은 넘기지 않는다 — 검수자가 같은 이야기를 믿고 같은 실수를 지나친다. 결과물만.
+    defaultCommand: 'Review the artifact independently: run the full build/tests yourself, add at least one invalid-input check, and report each command with its exit code. Do not edit files. First line: approve or REJECT: <reason>.',
+    sourceRole: 'implementer',
+    targetRole: 'verifier',
+    defaultForwardMode: 'auto',
+    defaultKind: 'artifact',
+    defaultMessageFormat: 'schema',
+    defaultMessageSchema: '{"changedFiles":["<path>"],"commandsToRun":["<command>"],"knownLimits":"<what is not done>"}',
+    defaultReturnFormat: 'both',
+    defaultPriority: 'high',
+    formationBasis: 'dependency',
+  },
+  {
+    id: 'research-short-return',
+    label: 'Hub → Research (short return)',
+    defaultCommand: 'Answer one research question only. Read-only. Return within 1,000-2,000 tokens: the answer first, then evidence as path:line or URL, then your confidence.',
+    sourceRole: null,
+    targetRole: 'explore',
+    defaultForwardMode: 'manual',
+    defaultKind: 'command',
+    defaultMessageFormat: 'schema',
+    defaultMessageSchema: '{"answer":"<one paragraph>","evidence":["<path:line or URL>"],"confidence":"high|medium|low"}',
+    defaultReturnFormat: 'summary',
+    defaultPriority: 'normal',
+    formationBasis: 'dependency',
   },
 ];
 
@@ -5327,6 +5396,21 @@ export const AUTO_AGENT_ROLE_POLICY: Record<AutoAgentRole, Partial<AgentConfig>>
       '- 전체 파일을 정독하지 말고 발췌만. 분석·평가 ❌ — 어디에 무엇이 있는지만.\n' +
       '- 출력: `file:line` 목록 + 한 줄 설명.',
   },
+  // §5.3 #10-6 (F) — 의존성 기준 편성의 검수자. 쓰기 도구가 없어 고칠 수 없다 — 결과물만 받아 독립으로 돌려 본다.
+  //   빌더 카탈로그 표에는 편성 기준이 `dependency` 일 때만 실린다(`serializeRoleCatalog`).
+  verifier: {
+    model: 'sonnet',
+    tools: ['Read', 'Grep', 'Glob', 'Bash'],
+    permissionMode: 'default',
+    effort: 'medium',
+    color: '#EF4444',
+    rules:
+      '# Role: Verifier (결과물 독립 검수 — 고치지 않는다)\n\n' +
+      '- 구현자의 설명보다 **결과물**(바뀐 파일·돌릴 명령)을 먼저 읽는다.\n' +
+      '- 빌드·타입체크·테스트를 **전체로 실제 실행**하고, 잘못된 입력 시험도 하나 이상 넣는다.\n' +
+      '- 돌린 명령과 종료 코드를 그대로 돌려준다. 파일 수정 ❌.\n' +
+      '- 결론은 첫 줄에 "approve" 또는 "REJECT: <reason>".',
+  },
 };
 
 /**
@@ -5345,6 +5429,7 @@ export const AUTO_AGENT_TEMPLATES: readonly AutoAgentTemplate[] = [
   { role: 'oracle', label: 'Oracle', description: 'Diagnoses architecture and hard bugs. Read-only.', config: AUTO_AGENT_ROLE_POLICY.oracle },
   { role: 'librarian', label: 'Librarian', description: 'Searches internal/external docs and references.', config: AUTO_AGENT_ROLE_POLICY.librarian },
   { role: 'explore', label: 'Explore', description: 'Fast read-only codebase exploration — reports locations.', config: AUTO_AGENT_ROLE_POLICY.explore },
+  { role: 'verifier', label: 'Verifier', description: 'Independently runs and checks the artifact. Read-only.', config: AUTO_AGENT_ROLE_POLICY.verifier },
 ];
 
 // §5.3 #10-2 하네스 빌더 에이전트
@@ -5362,9 +5447,13 @@ export const AUTO_AGENT_BUILDER_CONFIG: Partial<AgentConfig> = {
 /** 빌더 인터뷰 도구 — askQuestionsEnabled 면 builder tools 에 합친다. */
 export const AUTO_AGENT_BUILDER_INTERVIEW_TOOL = 'AskUserQuestion';
 
+/** §5.3 #10-6 (F) — 편성 기준이 `dependency` 일 때만 카탈로그에 싣는 역할(역할형 빌더 규칙 글자를 바꾸지 않게). */
+const DEPENDENCY_ONLY_ROLES: ReadonlySet<AutoAgentRole> = new Set<AutoAgentRole>(['verifier']);
+
 /** 역할 카탈로그를 빌더 프롬프트용 markdown 표 한 묶음으로 직렬화 (권고 참고, 강제 아님). */
-function serializeRoleCatalog(): string {
+function serializeRoleCatalog(basis: OrchestraFormationBasis = 'role'): string {
   return (Object.keys(AUTO_AGENT_ROLE_POLICY) as AutoAgentRole[])
+    .filter((role) => basis === 'dependency' || !DEPENDENCY_ONLY_ROLES.has(role))
     .map((role) => {
       const p = AUTO_AGENT_ROLE_POLICY[role];
       const tools = (p.tools ?? []).join(', ');
@@ -5389,9 +5478,22 @@ export const HARNESS_INTENT_GATE_ROWS: ReadonlyArray<{ intent: string; signal: s
   { intent: 'refactor', signal: '"리팩터링/정리/구조 개선"', shape: 'explore(현황) → architect(설계) → coder (→ reviewer — 사용자 지시에 따라)' },
 ];
 
-/** IntentGate 표의 본문 행(마크다운). 머리행·구분행은 부르는 쪽이 붙인다. */
-export function harnessIntentGateRowsMarkdown(): string {
-  return HARNESS_INTENT_GATE_ROWS.map((r) => `| ${r.intent} | ${r.signal} | ${r.shape} |`).join('\n');
+/**
+ * §5.3 #10-6 (F) — 의존성 기준 출발 형태. 넘기는 자리의 의존성으로 나눈다 — 앞 결과가 다음 입력인 일은 한 에이전트가 맡고(넘길 때마다 맥락이 샌다),
+ * 서로 독립인 일(가설·질문·렌즈)만 병렬로 연다. 역할형 표(`HARNESS_INTENT_GATE_ROWS`)는 그대로 두고 옆에 둔다.
+ */
+export const HARNESS_INTENT_GATE_ROWS_DEPENDENCY: ReadonlyArray<{ intent: string; signal: string; shape: string }> = [
+  { intent: 'quick-fix', signal: '파일/함수 지목 + 단순 수정', shape: '구현 하나(분석·시험까지 한 맥락) — 나누지 않는다' },
+  { intent: 'feature', signal: '새 기능·다중 단계', shape: '구현 하나(설계·구현·시험을 한 맥락) (→ 결과물 검수 verifier — 사용자 지시에 따라)' },
+  { intent: 'research', signal: '"조사/비교/알아봐"', shape: '서로 독립인 질문 갈래 N(읽기 전용, 짧은 반환) + 허브가 종합' },
+  { intent: 'debug', signal: '"안 돼/버그/원인"', shape: '가설 여럿을 읽기 전용으로 병렬 조사 → 한 명이 고친다(→ 결과물 검수 — 사용자 지시에 따라)' },
+  { intent: 'refactor', signal: '"리팩터링/정리/구조 개선"', shape: '구현 하나(현황 파악·설계·변경을 한 맥락) (→ 결과물 검수 verifier — 사용자 지시에 따라). 리뷰만 요청하면 렌즈(보안·성능·시험)별 병렬 리뷰' },
+];
+
+/** IntentGate 표의 본문 행(마크다운). 머리행·구분행은 부르는 쪽이 붙인다. 기준이 없으면 역할형(종전 글자 그대로). */
+export function harnessIntentGateRowsMarkdown(basis: OrchestraFormationBasis = 'role'): string {
+  const rows = basis === 'dependency' ? HARNESS_INTENT_GATE_ROWS_DEPENDENCY : HARNESS_INTENT_GATE_ROWS;
+  return rows.map((r) => `| ${r.intent} | ${r.signal} | ${r.shape} |`).join('\n');
 }
 
 export function buildHarnessBuilderRules(args: {
@@ -5402,10 +5504,13 @@ export function buildHarnessBuilderRules(args: {
   layoutRadius?: number;
   projectName: string | null;
   shell?: AgentRuleShell;
+  /** §5.3 #10-6 (F) — 그 프로젝트 오케스트라 설정의 편성 기준(없으면 역할형 — 종전 글자 그대로). */
+  formationBasis?: OrchestraFormationBasis;
 }): string {
   // `serverToken` 은 더 이상 본문에 굽지 않는다 — 빌더 curl 은 `$VIBISUAL_TOKEN`(env)을 읽는다.
   //   인자는 호출부 호환을 위해 남겨 두되 여기서 꺼내지 않는다(프롬프트에 토큰을 다시 넣지 마라).
   const { serverBase, centerX, centerY, projectName } = args;
+  const basis: OrchestraFormationBasis = args.formationBasis === 'dependency' ? 'dependency' : 'role';
   const radius = args.layoutRadius ?? AUTO_AGENT_LAYOUT_RADIUS;
   const projectField = projectName ? JSON.stringify(projectName) : 'null';
   const toolList = AVAILABLE_AGENT_TOOLS.join(', ');
@@ -5426,7 +5531,7 @@ export function buildHarnessBuilderRules(args: {
 하네스를 짓기 전에, 사용자 요청을 아래 한 유형으로 분류하고 그에 맞는 형태로 시작한다(고정은 아님, 출발점):
 | 의도 | 신호 | 권장 하네스 형태 |
 |---|---|---|
-${harnessIntentGateRowsMarkdown()}
+${harnessIntentGateRowsMarkdown(basis)}
 분류 결과를 짧게 밝힌 뒤 설계로 넘어간다.
 
 ## 작업 절차 (순서대로)
@@ -5530,7 +5635,7 @@ ${toolList}
 ## 역할 권고 카탈로그 (참고용 — 강제 아님, 필요에 따라 가감)
 | role | model | effort | permissionMode | tools |
 |---|---|---|---|---|
-${serializeRoleCatalog()}
+${serializeRoleCatalog(basis)}
 
 ## 배치 좌표
 - 캔버스 중심(당신=auto-agent 버블 위치) = (${Math.round(centerX)}, ${Math.round(centerY)}). 버블들을 이 점 주위 반지름 ${radius}px 안에 적당히 분산 배치(겹치지 않게).
@@ -5598,12 +5703,11 @@ function cardEnvRefsShort(shell: AgentRuleShell = 'posix'): { base: string; toke
 }
 
 /**
- * §5.5 #17-28 ⑧(f) — 카드 규약의 이유 문서(부팅 때 `~/.vibisual/rules/cards.md`). 프롬프트엔 결론과 경로만. 읽기를 강제하지 마라 —
- * 규약 세션의 94%가 카드를 써 거의 모두 읽게 되고, 읽은 것은 도구 결과로 재열람된다(실측 3,408 → 3,729 토큰).
+ * §5.5 #17-28 ⑧(f) — 선택적으로 읽는 근거 문서. 카드 실행에는 종류별 짧은 가이드를 쓴다.
  */
 export const CARD_RULES_DOCUMENT = `# Vibisual 규약 — 그 결론들이 왜 그렇게 정해졌는가
 
-프롬프트에는 결론만 실린다. 이 문서는 그 결론의 **근거**다. 판단이 애매할 때만 읽으면 된다.
+프롬프트에는 발동 조건을, 종류별 실행 문서에는 규칙을 싣는다. 이 문서는 그 규칙의 **근거**이며 판단이 애매할 때만 읽는다.
 
 ## 왜 "사용자가 할 일이 있을 때만" 작업 신고인가
 카드는 사용자가 긴 글을 다 읽지 않아도 "AI 가 한 일"과 "사용자가 할 일"을 색으로 가려 보라고 있는 장치다.
@@ -5631,25 +5735,27 @@ export const CARD_RULES_DOCUMENT = `# Vibisual 규약 — 그 결론들이 왜 �
 말이 발송 사실 보고인데("검수 카드로 정리해 보냈습니다"), 이미 화면에 뜬 카드를 다시 말할 뿐이라 정보량이
 0 이면서 카드마다 똑같이 반복돼 **마지막 본문 자리**를 잡아먹는다. (렌더 층도 같은 줄을 표시에서 뺀다.)
 
-## 왜 카드 뒤를 비우지 않고 "카드를 확인해 주세요." 한 문장으로 닫는가
+## 왜 접수 성공을 확인한 카드 뒤에만 고정 문장으로 닫는가
 예전 결론은 "덧붙일 맥락이 없으면 아무 말도 하지 말고 끝내라"였다. 그런데 Claude Code CLI 는 턴의 마지막
 응답에 보이는 글이 없으면 "[Your previous response had no visible output…]" 재촉을 넣고, 그 재촉을 받은
 모델은 보고를 처음부터 다시 쓴다(실측: 카드 턴의 절반 가까이 · 중앙값 780자 안팎). 그 글이 카드 아래에
-쌓여 카드가 한참 위로 밀리고, 사용자는 카드에 이미 있는 내용을 또 읽는다. 그래서 비우지 않는다 — 정해진
-한 문장으로 닫으면 재촉이 오지 않는다. 재촉이 오더라도 본문과 카드는 이미 사용자 눈앞에 있으니 보고를
-다시 쓰지 말고 그 한 문장만 쓴다. 이 문장도 정보량이 0 이라 렌더 층이 발송 보고와 함께 표시에서 뺀다 —
-화면은 본문 → 카드로 끝난다.
+쌓여 카드가 한참 위로 밀리고, 사용자는 카드에 이미 있는 내용을 또 읽는다. 그래서 **접수 성공을 확인한 경우에만**
+"카드를 확인해 주세요." 한 문장으로 닫는다. 성공 확인은 HTTP 2xx 응답의 \`ok:true\`와 카드 \`id\`,
+또는 해당 카드가 실제 화면에 표시된 것을 근거로 한다. 마커 인쇄나 도구 실행 성공만으로는 접수를 확인할 수 없다.
+실패·시간 초과·성공 여부 불명확 시에는 고정 문장과 목록 중복 금지를 적용하지 않는다. 완료 내용·남은 일·
+필요한 사용자 조치·질문·확인 방법을 일반 답변으로 전달한다. 카드가 없어도 결과를 이해할 수 있어야 한다.
+"no visible output" 재촉에도 같은 기준을 따른다. 성공한 카드 바로 뒤의 고정 문장만 렌더 층에서 숨긴다.
 
 ## 왜 카드에 담은 목록을 본문에 다시 쓰지 말라는가
 "한 일 / 사용자가 할 일 / 다음 단계" 같은 섹션을 본문에도 풀어 쓰면 사용자가 **같은 내용을 두 번 읽게
-된다**("중첩된다 / 버그 같다"고 느낀다). 본문은 카드에 안 담기는 짧은 근거·맥락만 1~2문장으로.
+된다**("중첩된다 / 버그 같다"고 느낀다). **접수 성공을 확인한 경우에만** 본문을 짧은 근거·맥락 1~2문장으로
+제한한다. 실패하거나 성공 여부를 확인하지 못하면 카드의 핵심 내용을 일반 답변에 담는다.
 
 ## \`learned\` · \`helpfulMemoryIds\` · \`staleMemoryIds\` 는 왜 있는가
-\`learned\` 는 다음 사람이 같은 자리에서 헤매지 않게 하는 교훈이고 Project Brain 기억 카드로 저장된다.
-브리핑으로 받은 카드 중 실제로 도움이 된 것은 \`helpfulMemoryIds\`, 지금 코드와 어긋난 것은
-\`staleMemoryIds\` 에 넣는다 — 그 1비트가 다음 사람이 낡은 기억에 속지 않게 한다. "확인 필요"로 표시돼 온
-카드가 지금 코드에도 맞았다면 \`helpfulMemoryIds\` 에 넣어라(시스템이 다시 유효로 되돌린다).
-\`staleMemoryIds\` 로 신고해도 **삭제되지 않는다**(표시만 바뀌고 반복되면 보관된다) — 안심하고 신고하라.
+\`learned\` 는 확인한 교훈이고, \`helpfulMemoryIds\`·\`staleMemoryIds\` 는 실제 제공받은 기억 ID에 대한
+참고 기록이다. 현재 이 필드들은 **신고 기록에만 보존**된다. 별도 기억 카드 저장고는 폐기되어 Project Brain
+기억 생성·랭킹 변경·유효성 복원·낡음 판정·삭제·보관 처리를 하지 않는다. ID를 제공받지 않았으면 생략하고
+추측해 만들지 마라. 교훈은 확실한 것만 최대 3개 적는다.
 
 ## 질문 카드의 \`prompts\` 는 어떻게 쓰는가
 사용자가 **그대로 보내면 되는 답**을 그가 1인칭으로 말하듯 적는다(예: "네, A1 계측 → 1차 → 측정 후 판단
@@ -5661,7 +5767,8 @@ export const CARD_RULES_DOCUMENT = `# Vibisual 규약 — 그 결론들이 왜 �
 의도·경험·취향처럼 사용자만 아는 것을 묻더라도 맥락(지시·코드·기록)에서 가장 그럴듯한 답을 초안으로
 써라 — 사용자는 가까운 것을 골라 고쳐 보낸다. 비밀번호·키 같은 **값 자체**만 지어내지 말고, 그 값을
 어떻게 줄지·없이 갈지를 답으로 준다. 카드의 직접 입력은 후보에 없는 답을 위한 예비 칸일 뿐이다.
-질문은 짧게, 조사 배경은 \`note\` 에 둔다. 질문은 비차단이다 — 지금 할 수 있는 일을 끝낸 뒤 묻는다.
+질문은 짧게, 조사 배경은 \`note\` 에 둔다. 답 없이도 할 수 있는 승인된 작업은 먼저 마치되,
+필요한 승인·입력에 의존하는 작업은 답을 받을 때까지 실행하지 않는다.
 
 ## 왜 "뻔한 질문"을 금지하는가 — 질문 카드가 작업을 멈춰 세운 사고
 질문 카드는 원래 **비차단**으로 설계됐는데, 실제로는 그 반대로 쓰였다. 원인 규명까지 끝낸 세션이
@@ -5676,15 +5783,15 @@ export const CARD_RULES_DOCUMENT = `# Vibisual 규약 — 그 결론들이 왜 �
 어디까지"도 마찬가지다 — 둘 다 그 증상의 **원인**이라고 네가 방금 판정했다면, 하나만 고치는 것은
 증상이 남는다는 뜻이라 사용자가 고를 만한 선택지가 아니다.
 
-**(2) 되돌릴 수 있는 것은 물을 값이 없다.** 물어서 얻는 것은 "틀린 쪽으로 간 작업"을 아끼는 것인데,
-코드 수정처럼 되돌리기 싼 일에서 그 값은 사용자를 30분 붙잡아 두는 값보다 훨씬 작다. 반대로
-삭제·배포·과금·외부 전송은 되돌릴 수 없으니 값이 크다 — **그래서 그쪽만 묻는다.** 갈림길에서 어느
-쪽을 골라도 큰 덩어리가 버려지는 경우(설계를 통째로 다시 짜야 하는 부류)도 같은 이유로 물을 값이 있다.
+**(2) 먼저 실행하는 판단은 이미 승인된 작업 범위 안에서만 한다.** 되돌릴 수 있다는 사실이 작업 범위를
+넓힐 권한은 아니다. 조사·검토만 요청받았다면 수정하지 않는다. 승인된 작업의 일상적인 구현 선택은 근거로
+정하되, 아직 승인되지 않은 삭제·배포·과금·외부 전송이나 어느 쪽이든 큰 작업을 버리는 갈림길은 먼저 묻는다.
+이미 받은 승인을 반복해서 요구하지 않는다.
 
-**(3) 물어도 멈추지는 마라.** 물을 값이 있다고 판단했더라도, 되돌릴 수 있는 쪽을 **네 판단으로 골라
-끝낸 다음** "이렇게 갔습니다, 다른 쪽이면 말씀해 주세요"로 묻는 것이 거의 항상 낫다. 사용자가 답할
-때쯤 일은 이미 끝나 있고, 답이 반대였어도 되돌리면 그만이다. 손을 완전히 놓아야 하는 것은 **막혔을
-때뿐이다** — 자격증명이 없다거나, 어느 쪽이든 골라 봤자 그 작업이 통째로 무의미해지는 경우.
+**(3) 질문과 독립적인 승인된 작업은 계속한다.** 필요한 승인·입력에 의존하는 작업은 답을 받을 때까지
+실행하지 않는다. 대신 답 없이도 완료할 수 있는 승인된 조사·준비·검증을 먼저 마친다. 되돌릴 수 있다는
+이유로 사용자의 결정을 대신하지 않는다. 독립적으로 할 수 있는 일이 없을 때만 막힌 이유와 필요한 답을
+알리고 기다린다.
 
 ## 검수 카드의 \`checkpoints\` 는 무엇인가
 사용자가 결과가 맞는지 **어떻게 확인하면 되는지**다(예: "그 버튼을 다시 눌러 정상 동작 확인").
@@ -5693,30 +5800,52 @@ export const CARD_RULES_DOCUMENT = `# Vibisual 규약 — 그 결론들이 왜 �
 ## 왜 도구를 쓰기 전에 의도를 먼저 말하는가
 실행 초반에 "무엇을 하려는지"가 화면에 없으면, 사용자는 잘못된 방향으로 가는 것을 보고도 **멈추게 할 수가
 없다**(하단 상태바가 보여 주던 것은 "실행 중 + 사용자가 친 프롬프트"뿐이었다). 사용자는 네가 파일을 읽기
-시작한 뒤에야 화면을 보는 일이 많다. 목표 목록을 **그 첫 말과 함께** 세우라는 것도 같은 이유다 — 화면에 뜨는
-계획이 곧 네가 실제로 들고 도는 계획이어야 "겉치레 미리보기"가 되지 않는다. 그래서 말한 계획과 실제로 하는
-일이 달라지면 안 된다.
+시작한 뒤에야 화면을 보는 일이 많다. 여러 단계라면 첫 말과 함께 계획을 설명한다. 목표 추적이 켜져 있고
+현재 세션에 목표 창 규약이 제공된 경우에만 그 규약에 따라 목표 목록도 작성한다. 말한 계획과 실제로 하는
+일이 달라지면 갱신한다.
 
-## 왜 목표 목록을 비워 두면 안 되는가
-목표 창이 비어 있으면 사용자 화면에는 **아무것도 안 뜬다** — 그건 이 세션이 무엇을 하는지 말하지 않는 것과
-같다. 그래서 **언제 적느냐가 무엇을 적느냐만큼 중요하다** — 일을 다 끝낸 뒤 마지막 답에 목록을 통째로 붙이면
-사용자는 도는 내내 빈 화면을 보다가 끝나고 나서야 계획을 읽는다(실측: 14분 세션에서 블록이 끝나기 37초 전에
-딱 한 번 왔고, 그 한 번에 6단계·5완료가 함께 들어왔다). 그 시점의 계획은 더 이상 멈출지 판단할 재료가 아니다.
-그러니 **도구를 쓰기 전 첫 답에서 세우고, 한 단계를 끝낼 때마다 그 자리에서 옮겨라.** 이 칸은 사용자가 채워 주는 자리가 아니라 네가 쓰는 자리다. 끝낸 항목을 \`done\` 으로 옮기는 순간 그
-줄에 취소선이 그어지고 퍼센트가 오르므로, **실제로 끝난 것만** \`done\` 으로 옮겨야 그 숫자가 뜻을 갖는다.
-\`steps\` 를 목록 전체로 보내는 이유는 본문이 같은 단계가 화면에서 같은 항목으로 이어지기 때문이다 —
-본문을 그대로 두고 \`status\` 만 옮기면 항목이 새로 생기지 않는다. 목표는 방향이고 사용자의 방금 명령은 지금
-할 일이라, 둘이 어긋나면 **명령이 이긴다**.
+## 목표 목록 안내는 언제 적용되는가
+**Vibisual 목표 추적이 켜져 있고 현재 세션에 목표 창 규약이 제공된 경우에만** 적용한다. 기본값은 꺼짐이며,
+꺼진 세션에서는 목표 블록이나 목표 API로 갱신하지 말고 일반 답변으로 계획과 진행을 설명한다.
+켜진 세션에서는 제공된 \`vibisual\` 코드블록 규약으로 도구 사용 전 첫 답에 목록을 세우고 단계가 끝날 때 갱신한다.
+목록은 통째로 보내되 단계 본문을 유지하고, 실제 완료만 \`[x]\`, 진행 중은 \`[~]\`, 대기는 \`[ ]\`로 표시한다.
+사용자의 최신 명령이 목표보다 우선하며, 상태 문의만으로 승인된 기존 작업을 지우지 않는다.
+작업 장부 도구는 실제 세션에 제공된 경우에만 사용한다. 엔진의 네이티브 목표·계획 도구와 Vibisual 목표가
+자동으로 연결된다고 가정하거나, 이 문서를 근거로 없는 도구를 호출하거나 목표 기능을 켜지 마라.
 
 ## 표시 전용이라는 말의 뜻
-카드 신고는 화면 표시만 바꾼다 — 실제 작업·판정 로직과 무관하고, 보내든 안 보내든 결과가 달라지지 않는다.
-그러니 실패(401·연결 거부)해도 무시하고 자연어 보고는 그대로 진행하라.
+작업·질문·검수 카드는 실제 작업 결과나 실행 권한을 바꾸지 않는 보고 기록이다. 화면 표시와 세션 복원을 위해
+저장되므로 "아무것도 저장하지 않는다"는 뜻이 아니다. 기억 관련 필드도 신고 기록에만 보존하며 별도 기억 생성·
+평가에는 사용하지 않는다. 절차 검토·판정 API는 실제 절차 상태를 바꾸므로 이 설명의 대상이 아니다.
+카드 전송 실패는 작업 결과를 취소하지 않지만 보고 전달에는 영향을 준다. 실패하거나 성공 여부가 불명확하면
+일반 답변으로 결과와 필요한 사용자 조치·질문·확인 방법을 전달한다.
 `;
 
 /** Final-report formatting must not become a reason to stop authorized work. */
 const AGENT_CARD_COMPLETION_BOUNDARY = '카드는 최종 보고 형식이지 작업 종료 조건이 아니다. 승인된 작업이 남아 있으면 카드 호출을 미루고 계속 수행하라. 아래의 짧은 본문·호출 뒤 종료 규칙은 최종 보고에만 적용하며, 중간 답변이나 작업 범위를 줄이지 않는다.';
 
-/** §5.5 #17-28 ⑧(a)(f) — 카드 공유 결론 한 벌(이유는 `CARD_RULES_DOCUMENT`). 결론이 하나라도 빠지면 실패다. */
+/** HTTP and terminal-marker reports share the same success/failure boundary. */
+const AGENT_CARD_DELIVERY_RULES = `- **접수 성공 확인 후에만** "카드를 확인해 주세요." 한 문장만 쓰고 끝낸다(사용자 언어로). 성공은 HTTP 2xx 응답의 \`ok:true\`와 카드 \`id\`, 또는 해당 카드의 실제 화면 표시로 확인한다. 도구 실행·마커 인쇄 성공만으로 접수 성공을 단정하지 마라.
+- **실패·시간 초과·성공 여부 불명확 시에는** 고정 종료 문장과 목록 중복 금지를 적용하지 마라. 완료 내용·남은 일·필요한 사용자 조치·질문·확인 방법을 **일반 답변으로 전달**하고, 없는 카드를 보라고 하지 마라.
+- 성공 확인 시에만 카드에 담은 목록을 본문에 다시 나열하지 마라. 본문은 1~2문장 결론만. 비워 두지 마라 — "no visible output" 재촉에도 같은 성공·실패 기준을 따른다. **"카드로 보냈습니다" 같은 발송 사실 보고 금지.**`;
+
+const AGENT_CARD_STORAGE_RULE = '작업·질문·검수 카드는 작업 결과나 실행 권한을 바꾸지 않는 보고 기록이며 화면 표시·세션 복원을 위해 저장된다. 기억 관련 필드는 신고 기록에만 보존되고 별도 기억 생성·평가에는 반영되지 않는다.';
+
+export function buildAgentCardRequest(args: Parameters<typeof buildAgentCardCommonRules>[0]): string {
+  const { serverBase, serverToken, agentId, subAgentId } = args;
+  const subField = subAgentId ? `"${subAgentId}"` : 'null';
+  const { base, tokenHdr } = cardEndpointRefs(serverBase, serverToken);
+  return args.shell === 'powershell'
+    ? agentPowershellRequest({ serverBase, endpoint: '/api/<엔드포인트>', body: JSON.stringify({ agentId, subAgentId: subAgentId ?? null }) })
+    : `\`\`\`bash
+curl -sS --fail-with-body -X POST "${base}/api/<엔드포인트>" ${tokenHdr} \\
+  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
+{"agentId":"${agentId}","subAgentId":${subField}, ...}
+JSON
+\`\`\``;
+}
+
+/** §5.5 #17-28 ⑧(a)(f) — 가이드를 준비할 수 없을 때의 전체 인라인 규약. */
 export function buildAgentCardCommonRules(args: {
   serverBase: string;
   serverToken: string;
@@ -5726,17 +5855,8 @@ export function buildAgentCardCommonRules(args: {
   docPath?: string;
   shell?: AgentRuleShell;
 }): string {
-  const { serverBase, serverToken, agentId, subAgentId, docPath } = args;
-  const subField = subAgentId ? `"${subAgentId}"` : 'null';
-  const { base, tokenHdr } = cardEndpointRefs(serverBase, serverToken);
-  const request = args.shell === 'powershell'
-    ? agentPowershellRequest({ serverBase, endpoint: '/api/<엔드포인트>', body: JSON.stringify({ agentId, subAgentId: subAgentId ?? null }) })
-    : `\`\`\`bash
-curl -s -X POST "${base}/api/<엔드포인트>" ${tokenHdr} \\
-  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
-{"agentId":"${agentId}","subAgentId":${subField}, ...}
-JSON
-\`\`\``;
+  const { docPath } = args;
+  const request = buildAgentCardRequest(args);
   const docLine = docPath ? `\n- 판단이 애매하면(보낼까 말까, 어느 카드인가) \`${docPath}\` 를 Read 하라 — 그 결론들의 근거가 있다.` : '';
   return `
 
@@ -5745,10 +5865,9 @@ ${AGENT_CARD_COMPLETION_BOUNDARY}
 아래 카드들은 같은 창구를 쓴다. 주소·토큰은 환경변수에 이미 있다. 해당 카드의 필드를 본문 JSON에 추가한다.
 ${request}
 - **본문(짧은 결론)을 먼저 쓰고, 그 보고의 맨 마지막 동작으로 1회 호출**한다. 작업 도중에 미리 보내지 마라.
-- 호출 뒤에는 **"카드를 확인해 주세요." 한 문장만** 쓰고 끝낸다(사용자 언어로). 비워 두지 마라 — "no visible output" 재촉이 와도 보고를 다시 쓰지 말고 그 한 문장만. **"카드로 보냈습니다" 같은 발송 사실 보고 금지.**
+${AGENT_CARD_DELIVERY_RULES}
 - **한 턴에 카드는 하나** — 작업 신고와 검수 요청은 둘 중 하나만.
-- **카드에 담은 목록을 본문에 다시 나열하지 마라.** 본문은 1~2문장 결론만.
-- 전부 **표시 전용** — 결과에 영향이 없다. 실패해도 무시하고 보고는 그대로 진행.${docLine}`;
+- ${AGENT_CARD_STORAGE_RULE}${docLine}`;
 }
 
 /** §4 · §5.5 #17-28 ⑧(f) — "작업 신고" 결론(이유는 `CARD_RULES_DOCUMENT`). */
@@ -5766,7 +5885,7 @@ export function buildAgentReportRules(_args: {
 ## \`POST ${base}/api/agent-report\` — 작업 신고 (색 구분 카드)
 **사용자가 직접 해야 할 일이 실제로 생긴 완료 보고에서만.** 단순 완료·일상 대화·질문 답변·조사 보고에는 보내지 마라.
 - \`did[]\` 내가 끝낸 일 · \`userActions[]\` 내가 대신 못 해 **사용자가 직접 해야 하는 일**(빌드 실행·에디터 조작·외부 승인 등) — **이게 비면 보내지 마라** · \`nextSteps[]\` 다음 차례(선택).
-- \`learned[]\` 이번에 배운 교훈·함정(확실한 것만 최대 3, 없으면 생략) · \`helpfulMemoryIds[]\` 도움된 브리핑 카드 id · \`staleMemoryIds[]\` 지금 코드와 어긋난 카드 id(삭제되지 않으니 확실한 것만 신고).
+- \`learned[]\` 확인한 교훈·함정(최대 3, 없으면 생략) · \`helpfulMemoryIds[]\` 도움된 기억 id · \`staleMemoryIds[]\` 코드와 어긋난 기억 id. ID는 실제 제공받은 경우만 적고 없으면 생략한다. 모두 신고 기록에만 보존되며 기억 생성·평가·삭제는 하지 않는다.
 - 인증 헤더: \`${tokenHdr}\``;
 }
 
@@ -5783,11 +5902,11 @@ export function buildAgentQuestionRules(_args: {
   return `
 
 ## \`POST ${base}/api/agent-questions\` — 질문 카드
-**멈춰 서야만 하는 질문일 때만.** 질문이 없으면 보내지 마라. 비차단 — 지금 할 수 있는 일을 끝낸 뒤 묻는다.
-- **먼저 답이 이미 나와 있는지 보라.** 사용자는 **문제를 해결하라고** 지시했다 — 그 지시 안에 이미 답이 있는 것을 되묻지 마라.
-- **묻지 말고 그냥 하라(뻔한 질문)**: "고칠까요/진행할까요"(이미 고치라고 했다) · "원인 두 곳 다 고칠까요, 하나만?"(**원인이면 다 고친다**) · "먼저 설계를 볼까요"(막히지 않았으면 그냥 한다) · 되돌릴 수 있는 판단 · 네가 근거로 정할 수 있는 것.
-- **물어도 되는 것**: 되돌리기 어렵거나 바깥에 나가는 일(삭제·배포·과금·외부 전송) · 어느 쪽을 골라도 **버려지는 작업이 큰** 갈림길 · 사용자만 아는 값(자격증명·의도).
-- **묻더라도 멈추지 마라** — 되돌릴 수 있는 쪽을 **네 판단으로 골라 끝낸 뒤**, 그 선택을 밝히고 "다른 쪽이면 말씀해 주세요"로 묻는다. 답을 기다리며 손을 놓는 것은 **막혔을 때뿐**이다.
+**멈춰 서야만 하는 질문일 때만.** 질문이 없으면 보내지 마라. 답 없이 할 수 있는 승인된 작업은 먼저 마친다.
+- **먼저 실제 요청과 승인 범위를 확인하라.** 그 지시 안에 이미 답이 있는 것을 되묻지 마라. 조사·검토만 요청했다면 수정하지 마라.
+- **이미 승인된 작업 범위 안에서만 먼저 실행**: "고칠까요/진행할까요"처럼 받은 승인을 되묻지 말고, 필요한 수정·검증과 되돌릴 수 있는 구현 선택은 근거로 정하라. 되돌릴 수 있다는 이유로 범위를 넓히지 마라.
+- **물어도 되는 것**: 아직 승인되지 않은 삭제·배포·과금·외부 전송 등 · 어느 쪽을 골라도 **버려지는 작업이 큰** 갈림길 · 사용자만 아는 값(자격증명·의도).
+- **질문과 독립적인 승인된 작업은 계속하라. 필요한 승인·입력에 의존하는 작업은 답을 받을 때까지 실행하지 마라.** 독립적으로 할 수 있는 일이 없을 때만 막힌 이유를 알리고 기다린다.
 - \`items[{question, header?, prompts[]}]\` — 질문은 짧게, 배경은 \`note\`. \`prompts\` 는 사용자가 골라 보낼 답을 1인칭으로 **질문마다 2~4개 — 비우지 마라**. 선택형은 실제 대안을 모두 포함하라(A/B 질문에 A만 금지). 의도를 물어도 그럴듯한 답을 초안으로, 비밀값은 지어내지 말고 주는 방법을 답으로.`;
 }
 
@@ -5809,23 +5928,23 @@ export function buildAgentReviewRules(_args: {
 }
 
 /**
- * §5.5 #17-12 — "의도 먼저" 지시문(동적 값 없음). 도구 전에 의도·계획을 말하게 해 중지 여부를 판단하게 한다(계획은 기존 `TodoWrite`).
+ * §5.5 #17-12 — "의도 먼저" 지시문. 목표 추적이 켜진 세션에서만 제공된 목표 규약을 따른다.
  * ⚠ 길이 상한을 고정하지 마라(§5.5 #17-12 ①-1) — "1~2문장"이면 긴 지시의 나머지 갈래를 조용히 버린다. 요구 개수에 비례하고, 안 할 항목도 적힌 채로.
  */
 export function buildAgentIntentFirstRules(goalEnabled: boolean): string {
   return `
 
 # 의도 먼저 말하기
-**도구를 쓰기 전에, 그 턴의 첫 말로 "내가 이해한 사용자 의도 + 지금부터 할 일"을 말하라.** 사용자는 네가 파일을 읽기 시작한 뒤에야 화면을 보는 일이 많다 — 그때 무엇을 하려는지가 없으면 잘못 가고 있어도 멈출 수가 없다.
-- **길이는 사용자가 말한 요구의 개수를 따라간다.** 요구가 하나면 1~2문장으로 끝내고, **여러 개면 요구마다 한 줄씩 빠짐없이 되짚어라.** 도드라진 것만 골라 짧게 줄이는 것이 가장 흔한 실패다 — 사용자가 적은 요구는 **하나도 빼지 마라.**
-- **모르겠는 항목·이번에 안 할 항목도 그 목록에 적어라**(\`?\` · "이번엔 안 함"). 말없이 빠뜨리면 사용자는 네가 못 알아들은 건지 줄여 말한 건지 알 수 없어 멈출지를 판단하지 못한다.
-${goalEnabled ? '- 여러 단계면 그 첫 말과 **함께** 아래 목표 창 블록으로 계획을 세워라(작업 장부 `TaskCreate`/`TaskUpdate` 를 써도 같은 목록으로 흐른다). **되짚은 요구가 그대로 단계가 된다.** 계획이 바뀌면 갱신하고, **말한 계획과 실제로 하는 일이 달라지면 안 된다.**' : '- 여러 단계면 첫 말과 함께 계획을 간단히 설명하라. 계획이 바뀌면 알리고, 말한 계획과 실제로 하는 일이 달라지면 안 된다.'}
+**도구를 쓰기 전에, 그 턴의 첫 말로 "내가 이해한 사용자 의도 + 지금부터 할 일"을 말하라.**
+- 길이는 사용자가 말한 요구의 개수를 따라간다. 하나면 1~2문장, 여러 개면 요구마다 한 줄씩 빠짐없이 되짚어라. 하나도 빼지 마라.
+- 모르겠는 항목·이번에 안 할 항목도 그 목록에 적어라(\`?\` · "이번엔 안 함").
+${goalEnabled ? '- 여러 단계면 그 첫 말과 **함께** 계획을 세워라. 이 세션에 아래 목표 창 규약이 제공된 경우에만 그 블록으로 갱신한다. 작업 장부 도구는 실제 제공된 경우만 사용한다. **되짚은 요구가 그대로 단계가 된다.** 계획이 바뀌면 갱신하고, **말한 계획과 실제로 하는 일이 달라지면 안 된다.**' : '- 여러 단계면 첫 말과 함께 계획을 간단히 설명하라. 계획이 바뀌면 알리고, 말한 계획과 실제로 하는 일이 달라지면 안 된다.'}
 - 한 줄로 끝나는 질문·일상 대화에서는 생략해도 된다.
 
 # 작업을 이어가는 기준
-- 실행을 맡긴 요청은 확인·원인 설명·계획 제시만으로 끝내지 마라. 이미 승인된 범위의 수정과 필요한 검증까지 수행하고, 실제로 끝난 일과 남은 일을 대조한 뒤 최종 보고하라. 조사·검토만 요청했다면 그 범위를 넘겨 수정하지 마라.
-- 진행 중인 작업에 대한 후속 질문·상태 문의·정정은 기존 요청의 취소가 아니다. 필요한 답을 짧게 전한 뒤 아직 승인된 일이 남아 있으면 같은 작업을 계속하라. 최신 메시지만 별도 질문으로 처리해 원래 요청을 버리지 마라.
-- 사용자가 명시적으로 중지하거나 범위를 바꾸면 즉시 따르고 목표·단계를 갱신하라. 사용자 입력·권한 없이는 진행할 수 없을 때는 막힌 이유와 필요한 입력을 밝히되, 독립적으로 할 수 있는 일은 먼저 마쳐라.`;
+- 실행을 맡긴 요청은 확인·원인 설명·계획 제시만으로 끝내지 마라. 이미 승인된 범위의 수정과 필요한 검증까지 수행하고 끝난 일·남은 일을 대조해 최종 보고하라. 조사·검토만 요청했다면 그 범위를 넘겨 수정하지 마라.
+- 후속 질문·상태 문의·정정은 기존 요청의 취소가 아니다. 짧게 답하고 승인된 남은 작업을 계속하라.
+- 명시적 중지·범위 변경은 즉시 따르고 계획을 갱신하라. 입력·권한으로 막히면 이유·필요한 답을 밝히고 독립적인 승인 작업은 먼저 마쳐라.`;
 }
 
 /** Compatibility form for callers that explicitly request goal instructions. */
@@ -6922,7 +7041,7 @@ export function buildSessionGoalProtocol(args: {
   return `
 
 # 목표 창
-사용자 화면에 이 세션의 목표와 진행 목록이 떠 있고, 매 턴 프롬프트 앞에 그 상태가 붙는다. **목록은 도구를 쓰기 전에 이 턴 첫 답에서 세우고, 단계를 끝낼 때마다 그 자리에서 옮겨라** — 다 끝내고 마지막에 한 번 적는 것은 적지 않은 것과 같다. 작업 장부(\`TaskCreate\`/\`TaskUpdate\`)를 써도 같은 목록으로 흐른다. 갱신은 답 안에 코드블록으로:
+사용자 화면에 이 세션의 목표와 진행 목록이 떠 있고, 매 턴 프롬프트 앞에 그 상태가 붙는다. **목록은 도구를 쓰기 전에 이 턴 첫 답에서 세우고, 단계를 끝낼 때마다 그 자리에서 옮겨라** — 다 끝내고 마지막에 한 번 적는 것은 적지 않은 것과 같다. 제공된 작업 장부(\`TaskCreate\`/\`TaskUpdate\`)를 써도 같은 목록으로 흐른다. 갱신은 답 안에 코드블록으로:
 \`\`\`vibisual
 goal: 한 문장 (바꿀 때만)
 - [x] 끝난 단계 @locate
@@ -6990,7 +7109,89 @@ export function buildAgentFeedbackBlock(feedbacks: AgentFeedback[]): string {
 export const VIBISUAL_CARD_SENTINEL = '::VIBISUAL-CARD::';
 
 /** §4 — CMD 에이전트 카드 신고 지시문(`prepareInteractiveRulesDir` 가 CLAUDE.md 에 붙인다). 보내는 조건은 curl 판본과 같게 유지한다. */
-export function buildCmdCardProtocolRules(): string {
+export const CMD_CARD_GUIDE_KINDS = ['report', 'questions', 'review', 'list', 'iframe'] as const;
+export type CmdCardGuideKind = typeof CMD_CARD_GUIDE_KINDS[number];
+
+function cmdCardKindRules(kind: CmdCardGuideKind): string {
+  const S = VIBISUAL_CARD_SENTINEL;
+  const rules: Record<CmdCardGuideKind, string> = {
+    report: `1) 작업 신고 — **사용자가 직접 해야 할 일(\`userActions\`: 빌드 실행·에디터 조작·외부 승인 등)이 실제로 생긴 완료**에서만.
+\`\`\`bash
+echo '${S}{"kind":"report","did":["완료한 일 1","완료한 일 2"],"userActions":["사용자가 직접 해야 할 일 1"],"nextSteps":["다음 단계 1"]}'
+\`\`\`
+- \`userActions\` 가 비면 보내지 마라. 접수 성공 확인 시에만 \`did\`/\`userActions\`/\`nextSteps\` 목록을 자연어 본문에 다시 나열하지 마라.`,
+    questions: `2) 사용자 질문 — 필요한 승인·사용자만 아는 값·의도로 막혔을 때만. 먼저 실행하는 판단은 이미 승인된 작업 범위 안에서만 한다. 질문과 독립적인 승인된 작업은 계속하되, 필요한 승인·입력에 의존하는 작업은 답을 받을 때까지 실행하지 마라. 질문은 짧게, 배경은 \`note\`. \`prompts\` 는 사용자가 골라 보낼 답을 1인칭으로 **질문마다 2~4개 — 비우지 마라**. 선택형은 실제 대안을 모두 포함하라(A/B 질문에 A만 금지). 의도를 물어도 그럴듯한 답을 초안으로, 비밀값은 지어내지 말고 주는 방법을 답으로.
+\`\`\`bash
+echo '${S}{"kind":"questions","items":[{"question":"여기서 배포는 테스트 환경인가요, 운영 환경인가요?","header":"대상 환경","prompts":["나는 테스트 환경을 뜻했어.","나는 운영 환경을 뜻했어."]}]}'
+\`\`\``,
+    review: `3) 검수 요청 — 사용자가 **지시한 작업(버그 수정·기능 변경 등)을 완료**해, 결과 검수가 필요한 보고에서만.
+\`\`\`bash
+echo '${S}{"kind":"review","instruction":"받은 지시 한 줄","changes":["무슨 동작을 이렇게 고쳤다 1"],"checkpoints":["사용자가 확인할 검수 포인트 1"]}'
+\`\`\`
+- \`changes\` 가 비면 보내지 마라.`,
+    list: `4) 번호 목록 — 답변에 **여러 항목의 번호/순서 목록**(나열·체크리스트·단계 목록)을 담을 때만. 번호는 IDE 가 매기니 항목 텍스트만.
+\`\`\`bash
+echo '${S}{"kind":"list","title":"플레이어에게 표시할 것","items":["크로스헤어","인벤토리 바","현장 위험도"]}'
+\`\`\`
+- \`items\` 가 비거나 1개면 보내지 마라.`,
+    iframe: `5) 서버 iframe — 사용자가 **브라우저로 열어볼 로컬 서버**(dev/정적/게임 프리뷰 등)를 띄웠을 때만. \`url\` 은 포트+경로 포함 정확한 주소. IDE 가 그 URL 로 프리뷰 버블을 띄운다.
+\`\`\`bash
+echo '${S}{"kind":"iframe","url":"http://127.0.0.1:8777/index.html"}'
+\`\`\`
+- 서버가 실제로 응답하는 걸 확인한 뒤 보내라(살아있는 서버만 버블이 뜬다). 같은 URL 재신고해도 중복 버블은 안 생긴다.
+- iframe은 카드 \`id\`를 반환하지 않는다. \`ok:true\`는 요청 접수이며 비동기 프리뷰 생성 완료를 뜻하지 않는다. 아래 카드용 고정 종료 문장 대신 일반 답변에 확인한 URL을 안내한다.`
+  };
+  return rules[kind];
+}
+
+function buildCmdCardGuideTriggers(guideDir: string): string {
+  return `
+
+# Vibisual CMD 카드
+카드는 최종 보고 형식이다. 승인된 작업·검증을 먼저 마친다. 질문과 독립적인 승인 작업은 계속하고, 답에 의존하는 작업은 기다린다.
+아래 조건이 생기면 **전송 전에** \`${guideDir}\`의 common.md와 <종류>.md를 한 번의 Read로 함께 읽고 따른다. 이미 읽은 규칙이 문맥에 남아 있으면 재사용하고, 유실되면 다시 읽는다. 다른 종류는 미리 읽지 마라.
+- \`report\`: 내가 대신 못 해 사용자가 직접 해야 할 일이 있는 완료 보고.
+- \`questions\`: 이미 승인된 일을 되묻지 말고, 사용자 승인·값·의도 없이는 진행할 수 없는 질문.
+- \`review\`: 지시한 수정·기능 변경을 끝내 결과 확인이 필요할 때. 직접 손댈 일이 있으면 report만.
+- \`list\`: 답변의 번호·순서 목록이 2개 이상일 때.
+- \`iframe\`: 브라우저로 열 로컬 서버를 띄우고 실제 응답을 확인했을 때.
+단순 완료·일상 대화·조사 답변만으로 report/review를 보내지 마라. 짧은 결론을 먼저 쓰고 보고의 마지막 동작으로 한 번만 보낸다. 한 턴에 카드는 하나다.
+전송은 환경변수 HTTP 우선, 없으면 \`${VIBISUAL_CARD_SENTINEL}\` 마커다. 가이드 읽기·전송 실패나 접수 미확인이면 결과·질문·확인 방법을 일반 답변으로 전달한다.`;
+}
+
+/** Field guides share one transport document so using another card does not repeat it. */
+export function buildCmdCardGuide(kind: CmdCardGuideKind): string {
+  return `# ${kind}
+HTTP: \`/api/agent-${kind}\` (common.md의 <엔드포인트> = agent-${kind}).
+${cmdCardKindRules(kind)}
+`;
+}
+
+export function buildCmdCardCommonGuide(): string {
+  return `# Vibisual CMD 카드 — 공통
+카드는 최종 보고 형식이지 작업 종료 조건이 아니다. 승인된 작업·검증을 먼저 마치고 중간 답변·작업 범위를 줄이지 마라.
+한 턴에 카드는 하나다. 직접 손댈 일이 있으면 작업 신고 우선이다. 짧은 결론 1~2문장을 먼저 쓰고 보고의 마지막 동작으로 1회 전송한다.
+카드는 작업 결과·실행 권한을 바꾸지 않으며 화면 표시·세션 복원을 위해 저장된다. 기억 관련 필드는 신고 기록에만 보존하며 별도 기억 생성·평가에 쓰지 않는다.
+
+## 전송 — HTTP 우선, 환경변수가 없을 때만 마커
+\`VIBISUAL_HOOK_TOKEN\`이 있으면 아래 HTTP 요청을 쓴다. 신원·주소·토큰은 현재 터미널 환경변수 그대로 사용한다. <엔드포인트>와 생략부(...)는 종류 문서의 값·필드로 교체하고, \`kind\`는 HTTP 본문에 넣지 않는다.
+\`\`\`bash
+curl -sS --fail-with-body -X POST "http://127.0.0.1:$VIBISUAL_HOOK_PORT/api/<엔드포인트>" \\
+  -H "x-vibisual-hook-token: $VIBISUAL_HOOK_TOKEN" -H 'Content-Type: application/json' --data-binary @- <<JSON
+{"agentId":"$VIBISUAL_AGENT_ID","subAgentId":"$VIBISUAL_SUB_AGENT_ID", ...}
+JSON
+\`\`\`
+\`VIBISUAL_HOOK_TOKEN\`이 없으면 종류 문서의 예시대로 stdout에 \`${VIBISUAL_CARD_SENTINEL}\`와 JSON을 한 줄로 인쇄한다(마커 바로 뒤 \`{\`, 개행 금지). HTTP와 마커를 함께 보내지 마라. 토큰 헤더가 없으면 401이며, 마커 인쇄나 도구 실행 성공만으로는 접수를 확인할 수 없다.
+다음 접수 확인·종료 규칙은 작업·질문·검수·번호 목록 카드에 적용한다(iframe 제외).
+- 접수 성공은 HTTP 2xx 응답의 \`ok:true\`와 카드 \`id\`, 또는 실제 화면 표시로 확인한다. 성공 확인 후에만 "카드를 확인해 주세요." 한 문장으로 끝낸다(사용자 언어). 목록 재나열·발송 사실 보고 금지. 본문을 비우지 마라.
+- 실패·시간 초과·성공 여부 불명확 시에는 고정 문장·중복 금지를 적용하지 말고 완료 내용·남은 일·필요한 사용자 조치·질문·확인 방법을 일반 답변으로 전달한다. "no visible output" 재촉에도 같다.
+iframe은 위 종료 규칙에서 제외한다. 종류 문서대로 일반 답변에 확인한 URL을 안내한다. 실패·미확인도 일반 답변으로 전달한다.
+`;
+}
+
+/** No guide directory means the complete inline protocol remains available. */
+export function buildCmdCardProtocolRules(guideDir?: string): string {
+  if (guideDir) return buildCmdCardGuideTriggers(guideDir);
   const S = VIBISUAL_CARD_SENTINEL;
   return `
 
@@ -7001,46 +7202,24 @@ ${AGENT_CARD_COMPLETION_BOUNDARY}
 **카드로 보여준다**(원문 마커 줄은 터미널에서 숨긴다 — 터미널 옆 카드 패널에 색 카드로 렌더) — curl·포트·토큰·agentId 가
 필요 없다. **반드시 JSON 은 한 줄**(개행 없이)이어야 하고, 마커 뒤에 곧바로 \`{\` 가 와야 한다.
 
-네 종류 모두 \`kind\` 로 구분한다(발생 조건은 아래를 지켜라 — 매번 보내면 카드가 도배돼 신호가 묻힌다):
+아래 종류는 \`kind\` 로 구분한다(발생 조건은 아래를 지켜라 — 매번 보내면 카드가 도배돼 신호가 묻힌다):
 
-1) 작업 신고 — **사용자가 직접 해야 할 일(\`userActions\`: 빌드 실행·에디터 조작·외부 승인 등)이 실제로 생긴 완료**에서만.
-\`\`\`bash
-echo '${S}{"kind":"report","did":["완료한 일 1","완료한 일 2"],"userActions":["사용자가 직접 해야 할 일 1"],"nextSteps":["다음 단계 1"]}'
-\`\`\`
-- \`userActions\` 가 비면 보내지 마라. \`did\`/\`userActions\`/\`nextSteps\` 목록을 자연어 본문에 다시 나열하지 마라(카드가 보여준다).
+${cmdCardKindRules('report')}
 
-2) 사용자 질문 — 사용자만 아는 값·의도로 막혔을 때만. 질문은 짧게, 배경은 \`note\`. \`prompts\` 는 사용자가 골라 보낼 답을 1인칭으로 **질문마다 2~4개 — 비우지 마라**. 선택형은 실제 대안을 모두 포함하라(A/B 질문에 A만 금지). 의도를 물어도 그럴듯한 답을 초안으로, 비밀값은 지어내지 말고 주는 방법을 답으로.
-\`\`\`bash
-echo '${S}{"kind":"questions","items":[{"question":"여기서 배포는 테스트 환경인가요, 운영 환경인가요?","header":"대상 환경","prompts":["나는 테스트 환경을 뜻했어.","나는 운영 환경을 뜻했어."]}]}'
-\`\`\`
+${cmdCardKindRules('questions')}
 
-3) 검수 요청 — 사용자가 **지시한 작업(버그 수정·기능 변경 등)을 완료**해, 결과 검수가 필요한 보고에서만.
-\`\`\`bash
-echo '${S}{"kind":"review","instruction":"받은 지시 한 줄","changes":["무슨 동작을 이렇게 고쳤다 1"],"checkpoints":["사용자가 확인할 검수 포인트 1"]}'
-\`\`\`
-- \`changes\` 가 비면 보내지 마라.
+${cmdCardKindRules('review')}
 
-4) 번호 목록 — 답변에 **여러 항목의 번호/순서 목록**(나열·체크리스트·단계 목록)을 담을 때만. 번호는 IDE 가 매기니 항목 텍스트만.
-\`\`\`bash
-echo '${S}{"kind":"list","title":"플레이어에게 표시할 것","items":["크로스헤어","인벤토리 바","현장 위험도"]}'
-\`\`\`
-- \`items\` 가 비거나 1개면 보내지 마라.
+${cmdCardKindRules('list')}
 
-5) 서버 iframe — 사용자가 **브라우저로 열어볼 로컬 서버**(dev/정적/게임 프리뷰 등)를 띄웠을 때만. \`url\` 은 포트+경로 포함 정확한 주소. IDE 가 그 URL 로 프리뷰 버블을 띄운다.
-\`\`\`bash
-echo '${S}{"kind":"iframe","url":"http://127.0.0.1:8777/index.html"}'
-\`\`\`
-- 서버가 실제로 응답하는 걸 확인한 뒤 보내라(살아있는 서버만 버블이 뜬다). 같은 URL 재신고해도 중복 버블은 안 생긴다.
+${cmdCardKindRules('iframe')}
 
-공통: **단순 완료·일상 대화·조사 답변 등 사용자 손이 필요 없는 보고에선 인쇄하지 마라.** 이 신고는 표시 전용이라
-보내든 안 보내든 실제 작업 결과엔 영향이 없다. 카드에 담은 목록을 자연어 본문에 헤딩·목록으로 다시 풀어 쓰지 마라.
+공통: **단순 완료·일상 대화·조사 답변 등 사용자 손이 필요 없는 보고에선 인쇄하지 마라.** ${AGENT_CARD_STORAGE_RULE}
 **인쇄 순서 — 자연어 설명(짧은 결론·근거)을 먼저 쓴 다음**, 그 보고의 **맨 마지막 동작**으로 1회 인쇄한다. 카드는
 **신고된 그 시각의 자리**에 앉으므로 설명보다 먼저 인쇄하면 **카드가 위, 그 카드를 설명하는 내용이 아래**로 뒤집힌다
-(읽는 순서는 늘 맥락 → 카드). 인쇄한 뒤에는 **"카드를 확인해 주세요." 한 문장만** 쓰고 끝내라(사용자 언어로) — 설명을
-더 붙이면 카드가 다시 중간에 낀다. **그렇다고 비워 두지도 마라**(§5.5 #17-18 ⑦-6) — 비우면 CLI 가 "no visible output"
-재촉을 넣고, 그 재촉에 보고를 처음부터 다시 쓰면 카드가 한참 위로 밀린다. 재촉이 와도 보고를 다시 쓰지 말고 그 한 문장만.
-**특히 "검수 카드로 보냈습니다" · "작업 신고 카드로 정리해 보냈습니다" 같은 발송 사실 보고를 쓰지 마라**(§5.5 #17-18 ⑦-5) —
-카드는 이미 화면에 떠 있어 그 한 줄은 아무것도 더 알려주지 않으면서 카드마다 똑같이 반복된다.
+(읽는 순서는 늘 맥락 → 카드).
+다음 접수 확인·종료 규칙은 작업·질문·검수·번호 목록 카드에 적용한다(iframe 제외).
+${AGENT_CARD_DELIVERY_RULES}
 
 ## 더 나은 경로 — 환경변수가 있으면 curl 로 보내라 (§4 CMD 업그레이드 ⑦)
 이 터미널에는 Vibisual 이 **loopback 신원**을 환경변수로 실어 준다. \`VIBISUAL_HOOK_TOKEN\` 이 있으면 위 마커 인쇄 대신
@@ -7048,14 +7227,14 @@ echo '${S}{"kind":"iframe","url":"http://127.0.0.1:8777/index.html"}'
 \`agentId\`/\`subAgentId\` 도 환경변수로 이미 정확하다). 발생 조건·순서 규칙은 위와 **완전히 동일**하다.
 
 \`\`\`bash
-curl -s -X POST "http://127.0.0.1:$VIBISUAL_HOOK_PORT/api/agent-report" \\
+curl -sS --fail-with-body -X POST "http://127.0.0.1:$VIBISUAL_HOOK_PORT/api/agent-report" \\
   -H "x-vibisual-hook-token: $VIBISUAL_HOOK_TOKEN" -H 'Content-Type: application/json' --data-binary @- <<JSON
 {"agentId":"$VIBISUAL_AGENT_ID","subAgentId":"$VIBISUAL_SUB_AGENT_ID","did":["완료한 일"],"userActions":["사용자가 할 일"]}
 JSON
 \`\`\`
 - 엔드포인트는 \`/api/agent-report\` · \`/api/agent-questions\` · \`/api/agent-review\` · \`/api/agent-list\` · \`/api/agent-iframe\` 다(본문 형식은 위 \`kind\` 별 JSON 에서 \`kind\` 만 뺀 것).
 - \`VIBISUAL_HOOK_TOKEN\` 이 **없으면**(구버전·모바일 브리지) 위의 \`${S}\` 마커 인쇄를 그대로 쓴다 — 둘 다 같은 카드를 띄운다.
-- 토큰 헤더가 없으면 401 이다. 실패해도 무시하고 자연어 보고는 그대로 진행하라(표시 전용).`;
+- 토큰 헤더가 없으면 401 이다. 실패·접수 미확인 시 위 기준대로 일반 답변으로 결과를 전달하라.`;
 }
 
 /** Auto Agent 기본 rules(덮어쓸 수 있다) — 직접 작업하지 않고 생성·디스패치·요약 수령만. */
@@ -8162,10 +8341,17 @@ export const LOCAL_CHARS_PER_TOKEN = 3;
  */
 export const LOCAL_TOOL_RESULT_CONTEXT_RATIO = 0.25;
 
-/** §5.19 (H) — 이 문맥에서 도구 결과 한 건에 허용할 글자. **판정은 여기 한 곳에서만.** */
-export function localToolResultBudget(contextSize: number): number {
+/**
+ * §5.19 (H) — 이 문맥에서 도구 결과 한 건에 허용할 글자. **판정은 여기 한 곳에서만.**
+ * §5.19 (J) — `charsPerToken` 은 그 대화에서 잰 비(없으면 3), `ratio` 는 출력 상한 옵션(없으면 창의 4분의 1).
+ */
+export function localToolResultBudget(
+  contextSize: number,
+  charsPerToken: number = LOCAL_CHARS_PER_TOKEN,
+  ratio: number = LOCAL_TOOL_RESULT_CONTEXT_RATIO,
+): number {
   const ctx = contextSize > 0 ? contextSize : LOCAL_DEFAULT_CONTEXT_SIZE;
-  const byContext = Math.floor(ctx * LOCAL_TOOL_RESULT_CONTEXT_RATIO * LOCAL_CHARS_PER_TOKEN);
+  const byContext = Math.floor(ctx * ratio * charsPerToken);
   return Math.max(2_000, Math.min(LOCAL_TOOL_RESULT_MAX_CHARS, byContext));
 }
 
@@ -8173,9 +8359,9 @@ export function localToolResultBudget(contextSize: number): number {
 export const LOCAL_HISTORY_CONTEXT_RATIO = 0.5;
 
 /** §5.19 (D) — 이 문맥에서 지난 이력에 허용할 글자. **판정은 여기 한 곳에서만.** */
-export function localHistoryBudget(contextSize: number): number {
+export function localHistoryBudget(contextSize: number, charsPerToken: number = LOCAL_CHARS_PER_TOKEN): number {
   const ctx = contextSize > 0 ? contextSize : LOCAL_DEFAULT_CONTEXT_SIZE;
-  return Math.max(4_000, Math.floor(ctx * LOCAL_HISTORY_CONTEXT_RATIO * LOCAL_CHARS_PER_TOKEN));
+  return Math.max(4_000, Math.floor(ctx * LOCAL_HISTORY_CONTEXT_RATIO * charsPerToken));
 }
 /**
  * §5.19 (H) — 같은 도구·같은 인자를 실제로 돌릴 횟수(작은 모델은 같은 호출을 되풀이한다).
@@ -8188,6 +8374,54 @@ export const LOCAL_COMPACT_MAX_TOKENS = 800;
 
 /** §5.19 (D) — KV 조각 재사용 최소 단위(llama.cpp 통용값). 이력 앞을 잘라 프리픽스가 바뀌어도 프롬프트 전체 재평가(로컬 수십 초)를 피한다. */
 export const LOCAL_ENGINE_CACHE_REUSE = 256;
+
+// ─── §5.19 (J) 끝까지 돕기 ───
+
+/** 새로 계산할 프롬프트 토큰이 이만큼이면 "읽는 중" 한 줄을 낸다 — 짧은 것까지 알리면 화면이 그 줄로 찬다. */
+export const LOCAL_PREFILL_NOTICE_TOKENS = 2048;
+/** 저사양 안전 모드의 RAM 프롬프트 캐시 상한(MiB) — 엔진 기본 8GiB 는 16GB PC 의 절반이다. */
+export const LOCAL_SAFE_CACHE_RAM_MAX_MIB = 1024;
+/** 원문 보관 파일을 세션마다 몇 개까지 남기나. */
+export const LOCAL_OUTPUT_KEEP_MAX = 20;
+/** KV 저장 파일을 몇 개까지 남기나 — 한 개가 수백 MB~수 GB 다. */
+export const LOCAL_KV_KEEP_MAX = 4;
+/** KV 저장·복원 요청의 시간 상한. */
+export const LOCAL_KV_SLOT_TIMEOUT_MS = 60_000;
+/** 릴레이 회차 상한 기본값과 위 끝. */
+export const LOCAL_RELAY_DEFAULT_MAX_ROUNDS = 30;
+export const LOCAL_RELAY_MAX_ROUNDS_LIMIT = 200;
+/** 릴레이 검증 명령의 글자 상한. */
+export const LOCAL_RELAY_VERIFY_COMMAND_MAX = 400;
+/** 계획 요약에 싣는 줄 수·한 줄 글자 수. */
+export const LOCAL_PLAN_ITEMS_MAX = 40;
+export const LOCAL_PLAN_ITEM_TEXT_MAX = 160;
+/** 정리할 때 그대로 두는 최근 도구 왕복 수. */
+export const LOCAL_TIDY_KEEP_RECENT_GROUPS = 2;
+/** 이보다 짧은 도구 결과는 가리지 않는다(자리표시가 더 길다). */
+export const LOCAL_TIDY_MASK_MIN_CHARS = 400;
+/** 정리 임계 선택지(%). */
+export const LOCAL_TIDY_AT_CHOICES = [70, 80, 90] as const;
+/** 유휴 해제 선택지(분). */
+export const LOCAL_KEEP_LOADED_CHOICES = [5, 15, 30, 60] as const;
+/** 도구 결과 한 건의 문맥 몫(창 대비). normal 은 종전 몫(`LOCAL_TOOL_RESULT_CONTEXT_RATIO`)과 같다. */
+export const LOCAL_TOOL_OUTPUT_CAP_RATIO: Readonly<Record<LocalToolOutputCap, number>> = { short: 0.1, normal: 0.25, long: 0.4 };
+/** 글자/토큰 비 클램프 — 한글 ≈1, 영문·코드 3~4. 엉뚱한 측정 한 번이 예산을 뒤집지 않게. */
+export const LOCAL_CHARS_PER_TOKEN_MIN = 0.8;
+export const LOCAL_CHARS_PER_TOKEN_MAX = 6;
+/** Bash 출력의 앞·뒤 몫(글자). 가운데를 접는다 — 오류는 대개 끝에 있다. */
+export const LOCAL_BASH_OUTPUT_HEAD_CHARS = 8_000;
+export const LOCAL_BASH_OUTPUT_TAIL_CHARS = 8_000;
+
+/** §5.19 (J) ③ — 프리셋이 채우는 칸. 칸을 한 번에 채울 뿐 모드가 아니다(`off` 는 전부 비운다). */
+export const LOCAL_ASSIST_PRESETS: Readonly<Record<Exclude<LocalAssistPreset, 'custom'>, LocalAssistOptions>> = {
+  off: {},
+  lowSpec: { kvCache: 'q8_0', moeOffload: 'cpu', lowSpecSafe: true, tidyAt: 70, tidyMethod: 'mask', toolOutputCap: 'short', keepFullOutput: true },
+  balanced: { kvCache: 'q8_0', moeOffload: 'auto', tidyAt: 80, tidyMethod: 'mask', toolOutputCap: 'normal', keepFullOutput: true },
+  longTask: {
+    kvCache: 'q8_0', tidyAt: 80, tidyMethod: 'handoff', toolOutputCap: 'normal', keepFullOutput: true,
+    planFirst: true, relay: true, resume: true, keepLoadedMinutes: 30,
+  },
+};
 /** 목록·검색이 한 번에 돌려줄 최대 항목 수. */
 export const LOCAL_TOOL_LIST_MAX_ENTRIES = 400;
 
@@ -8638,6 +8872,7 @@ export function normalizeAgentProvider(value: unknown): AgentProvider | undefine
     tokensIn?: unknown; tokensOut?: unknown; reasoningEffort?: unknown;
     webSearch?: unknown; networkAccess?: unknown; modelVerbosity?: unknown; codexTools?: unknown;
     reasoningSummary?: unknown; personality?: unknown; serviceTier?: unknown; autoCompactTokenLimit?: unknown;
+    assist?: unknown;
   };
   if (raw.kind !== 'local-llama' && raw.kind !== 'codex-cli') return undefined;
   const provider: AgentProvider = {
@@ -8676,6 +8911,11 @@ export function normalizeAgentProvider(value: unknown): AgentProvider | undefine
   if (typeof raw.contextLimit === 'number' && raw.contextLimit > 0) provider.contextLimit = raw.contextLimit;
   if (typeof raw.tokensIn === 'number' && raw.tokensIn >= 0) provider.tokensIn = raw.tokensIn;
   if (typeof raw.tokensOut === 'number' && raw.tokensOut >= 0) provider.tokensOut = raw.tokensOut;
+  // §5.19 (J) — 끝까지 돕기 옵션. 로컬 전용이라 코덱스 버블에 실려 와도 버린다.
+  if (raw.kind === 'local-llama') {
+    const assist = normalizeLocalAssist(raw.assist);
+    if (assist) provider.assist = assist;
+  }
   return provider;
 }
 
@@ -9266,8 +9506,8 @@ export const INSURANCE_OVERDUE_GROWTH_BYTES = 32 * 1024;
 /** §5.26 (E) — 복원 브리핑 블록 길이 상한. 넘치면 최근 것부터 남기고 접는다. */
 export const INSURANCE_BRIEF_MAX_CHARS = 1200;
 
-/** §5.26 (E) — 같은 파일이 이 횟수를 넘게 압축에서 떨어지면 Brain 후보로 올린다(자동 등록 ❌). */
-export const INSURANCE_LESSON_REPEAT = 3;
+/** §5.26 (G) `fresh` 부활 브리핑 상한 — 빈 문맥의 첫 턴이라 (E) 보다 넉넉하다(작업셋 전량). 넘치면 목록 줄을 뒤에서부터 덜고 기록 위치는 남긴다. */
+export const INSURANCE_FRESH_BRIEF_MAX_CHARS = 4000;
 
 /** §5.26 (G) — 이 크기를 넘는 트랜스크립트는 `--resume` 이 깨진다는 보고가 있다(#30302). */
 export const INSURANCE_RESUME_RISK_BYTES = 8 * 1024 * 1024;
@@ -10255,6 +10495,41 @@ export const ORCHESTRA_CONDUCTOR_TOOLS: readonly string[] = ['Bash', 'Read', 'Gr
 
 /** 지휘 턴에서 막는 도구 — 지휘자는 코드를 고치지 않는다(고치는 것은 멤버다). */
 export const ORCHESTRA_CONDUCTOR_DISALLOWED_TOOLS: readonly string[] = ['Write', 'Edit', 'NotebookEdit'];
+
+// ─── §5.3 #10-6 — 멀티에이전트 점검 ───
+
+/** 인계 사슬 한 줄의 지시·결과 앞머리(글자). 런과 함께 영속되므로 짧게. */
+export const ORCHESTRA_HOP_TEXT_MAX = 240;
+
+/** 런당 인계 사슬 줄 상한 — 넘치면 오래된 줄부터 버린다. */
+export const ORCHESTRA_RUN_HOPS_MAX = 24;
+
+/** 마지막 런 참가가 이만큼(일) 지난 멤버를 "오래 안 쓴 멤버"로 보인다(제안만). */
+export const ORCHESTRA_IDLE_MEMBER_DAYS = 14;
+
+/** 계획 신고 `splitBasis`(나눈 근거) 길이 상한(글자) — 넘으면 400. */
+export const ORCHESTRA_PLAN_SPLIT_BASIS_MAX = 300;
+
+/** 정리 제안 목록 상한(각각) — 화면이 그래프 크기를 따라 자라지 않게. */
+export const ORCHESTRA_SUGGESTIONS_MAX = 8;
+
+/** §5.1 #3-4 (A) — 그래프당 보관하는 최근 세션 간 메시지 수(저장 ❌). */
+export const SESSION_MESSAGE_LINKS_MAX = 20;
+
+/** 이 시간 안의 메시지만 캔버스에 선으로 그린다(서버가 `live` 를 찍는다). */
+export const SESSION_MESSAGE_LINK_LIVE_MS = 60_000;
+
+/** 메시지 첫 줄 앞머리 길이(글자). */
+export const SESSION_MESSAGE_PREVIEW_MAX = 120;
+
+/** §5.1 #3-4 (B) — 가장 최근 쓰기로부터 이 시간 안에 다른 에이전트가 같은 파일을 썼으면 겹침이다. */
+export const FILE_WRITE_OVERLAP_WINDOW_MS = 10 * 60_000;
+
+/** 파일당 기억하는 최근 쓴 이(에이전트) 수. */
+export const FILE_WRITE_OVERLAP_PER_FILE = 8;
+
+/** §5.5 #17-51 ⑤ — 중첩 서브에이전트 토큰 몫을 다시 받아 오는 간격(그 줄이 보이는 동안만). */
+export const SUBAGENT_TOKEN_SHARE_POLL_MS = 10_000;
 
 // ─── §5.3 #10-5 — 설정 덜어내기(Config Trim) ──────────────────────────────────
 // 왜 있는가: 켜 둔 자리의 턴만, `AgentConfig` 에서 이 모델/CLI 가 받지 않거나 기본값과 같거나

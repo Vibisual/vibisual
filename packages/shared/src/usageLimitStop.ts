@@ -1,6 +1,6 @@
 /**
  * 한도로 끊긴 턴을 알아본다. CLI 는 한도에서 실패하지 않고 합성 assistant 줄(`model: "<synthetic>"`, 토큰 0)을 적고 exit 0 한다 — 종료 코드만 보면 `completed` 로 봉인된다.
- * 알려진 문구: `hit your session|weekly limit`, 옛 `Claude AI usage limit reached|<epoch>`, 코덱스 error 줄(§5.25 (F)), `monthly spend limit … session limit resets …`(§5.5 #17-47 (H)).
+ * 알려진 문구(§5.5 #17-47 (A)(H)(I)): `hit your <창|모델|지갑> limit`(2.1.312 부터 5시간 창은 `5-hour`), 옛 `… limit reached`, 코덱스 error 줄(§5.25 (F)).
  * 판정은 여기 한 곳 — 스트림 경로가 셋(persistent·legacy stdout · agent-view JSONL)이다. 대화 본문에도 이 문장이 나오므로 넘겨짚지 않는다:
  * ① 원문이 통지로 시작하고 ② 합성 표식·한도 증거(`rate_limit`·429·`quotaLimits`)가 있거나 통지 길이의 짧은 한 줄이어야 한다.
  * 합성 표식과 `quotaLimits` 거절이 둘 다 있으면 ① 없이도 받는다(문구는 판마다 바뀌고, 합성 줄은 인용일 수 없다).
@@ -37,26 +37,47 @@ export const USAGE_LIMIT_RESET_LABEL_MAX = 40;
 /** 증거 없이 원문만으로 인정할 최대 길이. 합성 통지는 55자 안팎 — 이보다 긴 글이 그 문장으로 시작하면 통지를 인용한 글이다. */
 export const USAGE_LIMIT_NOTICE_MAX = 200;
 
-/**
- * `You've hit your session limit …` — 현행 CLI. 머리 낱말은 막힌 창(`session`·`weekly`·`usage`)이거나
- * 월 지출 한도(`monthly spend` — 추가 사용량까지 다 쓴 요금제, §5.5 #17-47 (H))다.
- */
-const LIMIT_HEAD_RE = /^(?:you(?:'|’)?ve\s+)?hit\s+your\s+(session|weekly|usage|(?:monthly\s+)?spend(?:ing)?)\s+limit\b/i;
+/** 창 낱말 — 5시간 창은 2.1.312 부터 `5-hour`(공식 변경 기록), 그 전은 `session`. */
+const WINDOW_WORDS = String.raw`session|5[-\s]?hour|five[-\s]?hour|weekly`;
 
-/** 월 지출 한도 통지의 꼬리 — `· your session limit resets 2:40pm` 이 실제로 막힌 창을 말한다. */
-const SPEND_WINDOW_TAIL_RE = /\byour\s+(session|weekly)\s+limit\s+resets\b/i;
+/** 모델 패밀리 한도(`Opus limit` — 공식 오류 문서). 플랜의 모델별 한도는 주간 창이다. 목록 밖 낱말은 넘겨짚지 않는다. */
+const FAMILY_WORDS = String.raw`fable|opus|sonnet|haiku|mythos`;
 
-/** `Claude AI usage limit reached|<epoch>` — 옛 CLI. */
-const LIMIT_REACHED_RE = /^(?:claude\s+(?:ai\s+)?)?(session|weekly|usage)\s+limit\s+reached\b/i;
+/** 지갑 — 주인·꾸밈이 붙은 지출/사용량 한도와 공유 예산(`team's shared budget` 등, 공식 오류 문서). 창은 꼬리가 말한다. */
+const WALLET = String.raw`(?:(?:individual|org(?:anization)?(?:'|’)s|team(?:'|’)s|channel(?:'|’)s)\s+)?`
+  + String.raw`(?:(?:monthly\s+)?spend(?:ing)?\s+limit|usage\s+limit|shared\s+budget)`;
+
+/** `You've hit your 5-hour limit …` — 현행 CLI. 셋 중 어느 갈래인지는 이름 붙은 묶음이 말한다. */
+const LIMIT_HEAD_RE = new RegExp(
+  String.raw`^(?:you(?:'|’)?ve\s+)?hit\s+your\s+`
+  + String.raw`(?:(?<window>${WINDOW_WORDS})\s+limit|(?<family>${FAMILY_WORDS})(?:\s+weekly)?\s+limit|${WALLET})\b`,
+  'i',
+);
+
+/** 지갑 통지의 꼬리 — `· your session limit resets 2:40pm` 이 실제로 막힌 창을 말한다. */
+const SPEND_WINDOW_TAIL_RE = new RegExp(String.raw`\byour\s+(${WINDOW_WORDS})\s+limit\s+resets\b`, 'i');
+
+/** 옛 `Claude AI usage limit reached|<epoch>` · 동의 창이 답 없이 닫힌 `Fable limit reached · …`. */
+const LIMIT_REACHED_RE = new RegExp(
+  String.raw`^(?:claude\s+(?:ai\s+)?)?(?:(?<window>${WINDOW_WORDS})|(?<family>${FAMILY_WORDS})(?:\s+weekly)?|usage)\s+limit\s+reached\b`,
+  'i',
+);
 
 /** `… · resets 10pm (Asia/Seoul)` 의 뒷부분. 꼬리의 `(error type …)` 진단문은 표기가 아니다. */
 const RESET_LABEL_RE = /\bresets\s+([^\n]+?)(?:\s*\(error\s+type[^\n]*)?$/i;
 
-/** `quotaLimits.rateLimitType` → 우리 낱말. 모르는 값은 창을 특정하지 않는다. */
-const RATE_LIMIT_TYPE_KIND: Record<string, UsageLimitKind> = {
-  five_hour: 'session',
-  seven_day: 'weekly',
-};
+/** 창 낱말 → 우리 낱말(`WINDOW_WORDS` 안에서만 부른다). */
+function windowKind(word: string): UsageLimitKind {
+  return /^weekly$/i.test(word.trim()) ? 'weekly' : 'session';
+}
+
+/** `quotaLimits.rateLimitType` → 우리 낱말. 모델별 주간 창(`seven_day_<모델>`)도 7일 창이라 접두로 읽는다. 모르는 값은 창을 특정하지 않는다. */
+function kindOfRateLimitType(type: string | undefined): UsageLimitKind | undefined {
+  if (!type) return undefined;
+  if (/^five_hour(?:_|$)/.test(type)) return 'session';
+  if (/^seven_day(?:_|$)/.test(type)) return 'weekly';
+  return undefined;
+}
 
 function clamp(text: string, max: number): string {
   const t = text.trim();
@@ -73,13 +94,13 @@ function toEpochMs(value: number): number | undefined {
 export function matchUsageLimitNotice(text: string): UsageLimitKind | null {
   const t = text.trim();
   if (t === '') return null;
-  const head = LIMIT_HEAD_RE.exec(t) ?? LIMIT_REACHED_RE.exec(t);
-  if (!head) return null;
-  const word = (head[1] ?? 'usage').toLowerCase();
-  if (word === 'session' || word === 'weekly' || word === 'usage') return word;
-  // 지출 한도는 창이 아니라 지갑이다 — 막힌 창은 꼬리가 말한다(없으면 창을 특정하지 않는다).
-  const tail = SPEND_WINDOW_TAIL_RE.exec(t)?.[1]?.toLowerCase();
-  return tail === 'session' || tail === 'weekly' ? tail : 'usage';
+  const groups = (LIMIT_HEAD_RE.exec(t) ?? LIMIT_REACHED_RE.exec(t))?.groups;
+  if (!groups) return null;
+  if (groups['window']) return windowKind(groups['window']);
+  if (groups['family']) return 'weekly';
+  // 지갑(지출·사용량 한도)은 창이 아니다 — 막힌 창은 꼬리가 말한다(없으면 창을 특정하지 않는다).
+  const tail = SPEND_WINDOW_TAIL_RE.exec(t)?.[1];
+  return tail ? windowKind(tail) : 'usage';
 }
 
 /** 원문에서 리셋 표기(`10pm (Asia/Seoul)`)를 떼어 낸다. 없으면 `undefined`. */
@@ -169,7 +190,7 @@ export function detectUsageLimitStop(line: unknown, now: number): UsageLimitStop
   // 증거가 없으면 **짧은 통지 한 줄**만 인정한다(위 detectUsageLimitInText 와 같은 관문).
   if (!synthetic && !rateLimited && text.trim().length > USAGE_LIMIT_NOTICE_MAX) return null;
 
-  const typed = quota ? RATE_LIMIT_TYPE_KIND[str(quota, 'rateLimitType') ?? ''] : undefined;
+  const typed = quota ? kindOfRateLimitType(str(quota, 'rateLimitType')) : undefined;
   const resetsAtRaw = quota && typeof quota['resetsAt'] === 'number'
     ? toEpochMs(quota['resetsAt'] as number)
     : undefined;

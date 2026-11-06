@@ -44,6 +44,8 @@ export type VoiceInputStatus =
 export type VoiceInputErrorCode =
   /** 이 환경에 음성 인식 자체가 없다. */
   | 'unsupported'
+  /** HTTP 원격 접속 등 브라우저가 마이크를 허용하지 않는 비보안 환경. */
+  | 'insecure-context'
   /** 마이크 사용이 거부됐다(브라우저 권한 또는 OS 개인정보 설정). */
   | 'permission'
   /** 마이크를 못 찾았거나 못 열었는데 원인을 더 좁히지 못했다(`no-device`·`device-busy` 를 뺀 나머지) — 화면은 권한·연결 둘 다 말한다. */

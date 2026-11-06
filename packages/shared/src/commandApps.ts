@@ -56,8 +56,8 @@ const APP_NAMES: Readonly<Record<string, string>> = {
   code: 'Visual Studio Code', cursor: 'Cursor', rider: 'Rider', devenv: 'Visual Studio',
   git: 'Git', node: 'Node.js', nodejs: 'Node.js', npm: 'npm', npx: 'npm', pnpm: 'pnpm', yarn: 'Yarn',
   bun: 'Bun', deno: 'Deno', dotnet: '.NET', java: 'Java', javac: 'Java', cargo: 'Cargo',
-  rustc: 'Rust', go: 'Go', cmake: 'CMake', ninja: 'Ninja', make: 'Make', msbuild: 'MSBuild',
-  docker: 'Docker', podman: 'Podman', curl: 'curl', wget: 'wget', python: 'Python', py: 'Python',
+  rustc: 'Rust', rustdoc: 'Rust', rustup: 'Rust', go: 'Go', cmake: 'CMake', ninja: 'Ninja', make: 'Make', msbuild: 'MSBuild',
+  docker: 'Docker', podman: 'Podman', curl: 'curl', wget: 'wget', python: 'Python', py: 'Python', pyw: 'Python',
   ruby: 'Ruby', perl: 'Perl', php: 'PHP', sqlite3: 'SQLite', psql: 'PostgreSQL',
   // Commands that gained a bundled mark (COMMAND_APP_BRANDS) are recognized by bare name too.
   bunx: 'Bun', vite: 'Vite', vitest: 'Vitest', esbuild: 'esbuild', prettier: 'Prettier', nx: 'Nx',
@@ -76,8 +76,10 @@ const APP_NAMES: Readonly<Record<string, string>> = {
 export type CommandAppBrand = 'git' | 'curl' | 'php' | 'ruby' | 'perl' | 'yarn' | 'pnpm' | 'godot'
   | 'bun' | 'vite' | 'vitest' | 'esbuild' | 'prettier' | 'nx' | 'uv' | 'ruff' | 'pdm' | 'pytest' | 'r' | 'zig'
   | 'ocaml' | 'lua' | 'composer' | 'stack' | 'erlang' | 'homebrew' | 'scoop' | 'chocolatey' | 'netlify'
-  | 'ollama' | 'nix' | 'wget' | 'adb' | 'emscripten';
+  | 'ollama' | 'nix' | 'wget' | 'adb' | 'emscripten' | 'python' | 'node' | 'go' | 'rust';
 const COMMAND_APP_BRANDS: Readonly<Record<string, CommandAppBrand>> = {
+  python: 'python', py: 'python', pyw: 'python',
+  node: 'node', nodejs: 'node', go: 'go', rustc: 'rust', rustdoc: 'rust', rustup: 'rust', cargo: 'rust',
   git: 'git', curl: 'curl', php: 'php', ruby: 'ruby', irb: 'ruby', perl: 'perl',
   yarn: 'yarn', pnpm: 'pnpm', pnpx: 'pnpm', godot: 'godot',
   bun: 'bun', bunx: 'bun', vite: 'vite', vitest: 'vitest', esbuild: 'esbuild', prettier: 'prettier', nx: 'nx',
@@ -90,11 +92,15 @@ const COMMAND_APP_BRANDS: Readonly<Record<string, CommandAppBrand>> = {
   emcc: 'emscripten', 'em++': 'emscripten', emcmake: 'emscripten', emmake: 'emscripten', emconfigure: 'emscripten',
 };
 
+// Windows windowed launchers and versioned/free-threaded interpreters name the same program.
+const PYTHON_EXECUTABLE = /^python(?:w|\d+(?:\.\d+)*(?:t|w)?)?$/;
+
 /** Bundled-mark key for an executable path or command name; undefined → ask the OS for its icon. */
 export function commandAppBrandOf(executable: string | undefined): CommandAppBrand | undefined {
   if (!executable || executable.length > COMMAND_ACTIVITY_LIMITS.pathChars) return undefined;
   const base = normalizeShellCommandName(executable).replace(/\.(?:com|ps1|sh)$/, '');
   if (Object.prototype.hasOwnProperty.call(COMMAND_APP_BRANDS, base)) return COMMAND_APP_BRANDS[base];
+  if (PYTHON_EXECUTABLE.test(base)) return 'python';
   if (/^luac?(?:5\d|5\.\d)$/.test(base)) return 'lua';
   return /^godot(?:\d+|_v\d[^\\/]*)$/.test(base) ? 'godot' : undefined;
 }
@@ -350,7 +356,7 @@ function identify(exe: string, args: readonly Token[], options: DetectOptions): 
   const unreal = /^(?:unrealeditor(?:-cmd)?|ue4editor(?:-cmd)?|unrealbuildtool)$/.test(base)
     || (/^(?:runuat|runubt|build)$/.test(base) && !!(engineRoot || projectPath))
     || !!(assembly && engineRoot);
-  const knownName = APP_NAMES[base] ?? (/^python(?:\d+(?:\.\d+)*)?$/.test(base) ? 'Python' : undefined)
+  const knownName = APP_NAMES[base] ?? (PYTHON_EXECUTABLE.test(base) ? 'Python' : undefined)
     ?? (/^godot(?:_v\d[^\\/]*)?$/.test(base) ? 'Godot' : undefined)
     ?? (/^luac?(?:5\d|5\.\d)$/.test(base) ? 'Lua' : undefined);
   // Only explicit executable/script filenames or recognized CLI names. Arbitrary

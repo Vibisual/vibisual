@@ -2,6 +2,7 @@
  * §5.3 #10-4 — 오케스트라 지휘 규칙(지휘 턴에 `appendSystemPrompt` 로 붙는다). 방안을 적용하라가 아니라 고르라고 한다 —
  * 지휘자가 요청마다 정하고 고른·건너뛴 이유를 계획 신고(`POST /api/orchestra/runs/:runId/plan`)로 남긴다.
  * 토큰은 본문에 굽지 않고 환경변수 `VIBISUAL_TOKEN` 을 읽는다(#10-2 와 같은 규약). 플랫폼은 인자 — 시험이 세 OS 의 글을 읽는다.
+ * §5.3 #10-6 — 규칙은 조각(판단·절차·분석)으로 짓는다. 전문 = 조각을 차례로 이은 것이고, 나눠 싣기를 켜면 판단 조각만 매 턴에 싣는다.
  */
 import {
   AGENT_CARD_ENV_BASE,
@@ -9,6 +10,7 @@ import {
   AUTO_AGENT_LAYOUT_RADIUS,
   ORCHESTRA_PLAN_NOTE_MAX,
   ORCHESTRA_PLAN_REASON_MAX,
+  ORCHESTRA_PLAN_SPLIT_BASIS_MAX,
   TASK_EDGE_TEMPLATES,
   harnessIntentGateRowsMarkdown,
 } from './constants.js';
@@ -16,6 +18,7 @@ import { ORCHESTRA_STRATEGIES, orchestraAnalysisMarkdown, type OrchestraKnob, ty
 import { findAgentToolTemplate } from './agentToolTemplates.js';
 import {
   orchestraAllowedStrategies,
+  resolveOrchestraFormationBasis,
   resolveOrchestraMaxMembers,
   resolveOrchestraMemberEngine,
   resolveOrchestraMemberIsolation,
@@ -23,7 +26,7 @@ import {
 } from './orchestraScope.js';
 import type { PlatformName } from './pathCase.js';
 import { agentRuleShell, agentPowershellHead, AGENT_AUTH_POSIX, type AgentRuleShell } from './agentRuleShell.js';
-import type { OrchestraSettings } from './types.js';
+import type { OrchestraFormationBasis, OrchestraSettings } from './types.js';
 
 /** 지휘자가 절차(①~⑥)를 돌리는 셸의 문법. */
 export type OrchestraConductorShell = AgentRuleShell;
@@ -160,14 +163,19 @@ function roleColorSection(): string[] {
  * ③ 엣지 역할 짝 프리셋(`TASK_EDGE_TEMPLATES` 그대로). 값까지 적는다 — 서버는 `templateId` 를 기록만 해서 id 만 보내면 `forwardMode`·
  * `returnFormat` 없는 기본 엣지가 된다. `generic` 은 뺀다(`defaultCommandMode` 가 `tool-delegation` 이라 멤버 도구를 위임 한 벌로 갈아 끼운다).
  */
-function edgePresetSection(): string[] {
-  const rows = TASK_EDGE_TEMPLATES.filter((tmpl) => tmpl.sourceRole !== null && tmpl.targetRole !== null);
+function edgePresetSection(basis: OrchestraFormationBasis): string[] {
+  // §5.3 #10-6 (F) — 의존성 기준 프리셋은 그 기준을 골랐을 때만 싣는다(역할형 규칙 글자 불변).
+  const rows = TASK_EDGE_TEMPLATES.filter((tmpl) => (tmpl.formationBasis === undefined
+    ? tmpl.sourceRole !== null && tmpl.targetRole !== null
+    : basis === tmpl.formationBasis));
+  const schemas = rows.filter((tmpl) => tmpl.formationBasis !== undefined && tmpl.defaultMessageSchema);
   return [
     '',
     '#### 역할 짝 프리셋 — 값을 그대로 옮겨 적는다',
     '| templateId | 쓰는 자리 | kind | forwardMode | messageFormat | returnFormat | priority |',
     '|---|---|---|---|---|---|---|',
     ...rows.map((tmpl) => `| \`${tmpl.id}\` | ${cell(tmpl.label)} | ${tmpl.defaultKind ?? 'command'} | ${tmpl.defaultForwardMode} | ${tmpl.defaultMessageFormat ?? 'free'} | ${tmpl.defaultReturnFormat ?? 'summary'} | ${tmpl.defaultPriority ?? 'normal'} |`),
+    ...schemas.map((tmpl) => `- \`${tmpl.id}\` 의 \`messageSchema\`: \`${tmpl.defaultMessageSchema}\` — 넘기는 쪽의 서술이 아니라 이 칸만 넘긴다.`),
     '- `templateId` 는 **기록만** 된다 — 서버가 나머지 칸을 대신 채우지 않는다. 고른 줄의 값을 같은 본문에 **함께** 적는다.',
     '- 위임 결과를 지휘자가 직접 기다리는 엣지는 `returnFormat` 을 `"both"` 로 올린다. 표의 `artifact` 는 받는 쪽이 산출물만 가져가는 자리다.',
     '- 목록에 없는 짝이면 `templateId` 를 빼고 칸을 직접 정한다. `"generic"` 은 쓰지 않는다 — 대상 멤버의 도구를 위임 한 벌로 갈아 끼운다.',
@@ -224,14 +232,32 @@ function memberEngineSection(settings: OrchestraSettings | null | undefined, con
       ? `  - 추론 강도는 \`${codexReasoning}\` 로 둔다(사용자 설정).`
       : '  - `reasoningEffort` 는 빼면 Codex 기본값이다. 깊은 판단이 필요한 역할에만 `"reasoningEffort":"high"` 를 더한다.',
     '  - Codex 멤버에 먹는 설정 칸은 `rules` 뿐이다(엣지 `returnFormat` 은 엣지 쪽). effort·maxTurns·토큰 상한·압축·설정 계층·MCP·스킬 칸은 Claude CLI 의 플래그·환경변수라 Codex 에는 효과가 없다 — Codex 멤버에 대고 그런 방안을 골랐다고 신고하지 않는다.',
+    // §5.3 #10-6 (E) — 중첩을 막는 칸(`subagentDepth`)이 Codex 에 없다. 멤버 안에서 또 퍼지면 토큰이 곱으로 는다.
+    '  - `subagentDepth` 도 Codex 에는 먹지 않는다 — 하위 에이전트가 필요 없는 일이면 그 멤버 `rules` 에 "하위 에이전트를 띄우지 않는다"를 넣는다.',
   ];
 
-  if (engine === 'claude') return ['멤버는 **Claude** 로 만든다(사용자 설정).', ...claude];
-  if (engine === 'codex') return ['멤버는 **Codex** 로 만든다(사용자 설정).', ...codex];
+  // §5.3 #10-6 (F) — [검수는 다른 엔진]. 같은 모델이 자기 결과를 검수하면 같은 맹점을 지나친다.
+  const crossReview = settings?.crossEngineReview === true ? crossEngineReviewLines(conductorEngine, readyEngines) : [];
+  if (engine === 'claude') return ['멤버는 **Claude** 로 만든다(사용자 설정).', ...claude, ...crossReview];
+  if (engine === 'codex') return ['멤버는 **Codex** 로 만든다(사용자 설정).', ...codex, ...crossReview];
   return [
     '멤버 엔진은 **아래 준비된 엔진 안에서 역할마다 당신이 고른다**(사용자 설정 `auto`). 고른 이유를 ④ 계획 신고의 `note` 에 한 줄로 적는다. 목록에 없는 엔진은 설치·로그인이 준비되지 않았으므로 만들거나 재사용하지 않는다.',
     ...(readyEngines === undefined || readyEngines.includes('claude') ? claude : []),
     ...(readyEngines === undefined || readyEngines.includes('codex') ? codex : []),
+    ...crossReview,
+  ];
+}
+
+/** §5.3 #10-6 (F) — 검증 멤버는 지휘자·구현과 다른 엔진으로. 다른 엔진이 준비되지 않았으면 그 사실을 말하고 같은 엔진으로 둔다. */
+function crossEngineReviewLines(conductorEngine: 'claude' | 'codex', readyEngines?: readonly ('claude' | 'codex')[]): string[] {
+  const other: 'claude' | 'codex' = conductorEngine === 'claude' ? 'codex' : 'claude';
+  const otherName = other === 'codex' ? 'Codex' : 'Claude';
+  if (readyEngines !== undefined && !readyEngines.includes(other)) {
+    return [`- **검수는 다른 엔진(사용자 설정)** — 다만 ${otherName} 가 지금 준비되지 않았다(설치·로그인). 검증 멤버도 같은 엔진으로 두고, \`note\` 에 "다른 엔진 검수를 못 했다"고 적는다.`];
+  }
+  return [
+    `- **검수는 다른 엔진(사용자 설정)** — 검증(critique) 멤버는 구현 멤버·당신과 다른 엔진(**${otherName}**)으로 만든다. 구현 멤버는 위 멤버 엔진 규칙 그대로다. 이 설정에서는 멤버 엔진 검사가 두 엔진을 다 받는다.`,
+    `- ${otherName} 검증 멤버의 본문은 위 ${otherName} 멤버 줄을 따른다(엔진마다 만드는 법이 다르다).`,
   ];
 }
 
@@ -246,11 +272,14 @@ const KICKOFF_TEXT_SAMPLE = [
   '<사용자 원문 요청 전문 — escape 불필요, 여러 줄 OK>',
   '---',
   '<(필요하면) 당신의 분담 지시>',
-  '당신은 이번 편성의 엔트리입니다. 하위 위임의 cmdId를 보관하고 모든 작업·검증·재작업의 끝난 결과를 회수한 뒤 통합 보고하세요. 접수·queued·executing·pending·대기 시간 초과는 완료가 아닙니다. 같은 일을 다시 위임하지 말고 같은 cmdId로 조회를 이어가세요. 사용자 직접 지시의 검증 요청·금지·작업 범위는 항상 따르세요. 변경 내용, 실제 검증 근거(실행하지 않았으면 "검증 미실행"), 남은 실패·차단을 분리해 보고하세요.',
+  '당신은 이번 편성의 엔트리입니다. 하위 위임의 cmdId를 보관하고 모든 작업·검증·재작업의 끝난 결과를 회수한 뒤 통합 보고하세요. 접수·queued·executing·pending·대기 시간 초과는 완료가 아닙니다. 같은 일을 다시 위임하지 말고 같은 cmdId로 조회를 이어가세요. 사용자 직접 지시의 검증 요청·금지·작업 범위는 항상 따르세요. 변경 내용, 실제 검증 근거(실행하지 않았으면 "검증 미실행"), 남은 실패·차단을 분리해 보고하세요. 하위 위임에도 위 원문 요청 전문을 함께 넘기세요(요약만 넘기면 정한 것이 샙니다).',
 ];
 /** ④ 계획 신고 예시. */
 const PLAN_BODY_SAMPLE =
-  '{"intent":"research","topology":"single","chosen":[{"id":"subagents","reason":"<한 줄>"}],"skipped":[{"id":"autoCompact","reason":"<한 줄>"}],"reusedAgentIds":[],"entryAgentId":"<ENTRY_ID>","note":"<사용자에게 남길 말>"}';
+  '{"intent":"research","topology":"single","chosen":[{"id":"subagents","reason":"<한 줄>"}],"skipped":[{"id":"autoCompact","reason":"<한 줄>"}],"reusedAgentIds":[],"entryAgentId":"<ENTRY_ID>","splitBasis":"<나눈 근거 한 줄 — 선택>","note":"<사용자에게 남길 말>"}';
+/** §5.3 #10-6 (G) — 한 번에 등록 예시(나눠 싣기를 켰을 때만 싣는다). `@이름` 은 이 본문 안에서만 쓰는 멤버 이름표다. */
+const FORMATION_BODY_SAMPLE =
+  '{"plan":{"intent":"feature","topology":"single","chosen":[],"entryAgentId":"@coder","splitBasis":"<한 줄>","note":"<사용자에게 남길 말>"},"members":[{"ref":"@coder","label":"Coder","color":"#f59e0b","config":{"model":"sonnet","rules":"# 역할: Coder\\n<맡길 일·보고 양식>"}}],"edges":[]}';
 
 /** 절차 조각이 받는 값 — 셸이 달라도 같다. */
 interface ProcedureValues {
@@ -275,6 +304,10 @@ interface ProcedureText {
   collect: string[];
   noWrite: string;
   oneBase: string;
+  /** §5.3 #10-6 (F) — 나눠 싣기: 조각 하나를 읽는 조각. */
+  rulesFetch: (part: 'procedure' | 'analysis') => string[];
+  /** §5.3 #10-6 (G) — 한 번에 등록. */
+  formation: string[];
 }
 
 /** Bash + curl — Claude 지휘자(세 OS, Windows 는 Git Bash)와 mac·linux 의 Codex 지휘자. */
@@ -334,6 +367,14 @@ function posixProcedure(v: ProcedureValues): ProcedureText {
     ],
     noWrite: '- 파일 쓰기·수정 ❌(Write·Edit·NotebookEdit, Bash 로 쓰는 것 포함).',
     oneBase: '- 모든 curl 의 베이스는 위 서버 베이스 하나다(이 주소만 앱 안 서버에 닿는다).',
+    rulesFetch: (part) => [
+      `curl -s "${base}/api/orchestra/runs/${v.runId}/rules?part=${part}" ${auth} \\`,
+      `  | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const o=JSON.parse(s);process.stdout.write(o.ok?o.text+'\\n':s+'\\n')})"`,
+    ],
+    formation: [
+      ...postJson(`/api/orchestra/runs/${v.runId}/formation`, FORMATION_BODY_SAMPLE),
+      show(`o.ok?'DISPATCH_EDGE_ID='+(o.dispatchEdgeId||'none')+' AGENT_IDS='+JSON.stringify(o.agentIds||{}):s`),
+    ],
   };
 }
 
@@ -417,11 +458,36 @@ function powershellProcedure(v: ProcedureValues): ProcedureText {
     ],
     noWrite: '- 파일 쓰기·수정 ❌(셸로 쓰는 것 포함 — `Set-Content`·`Out-File`·`>` 도 쓰기다).',
     oneBase: '- 모든 호출의 베이스는 위 `$B` 하나다(이 주소만 앱 안 서버에 닿는다).',
+    rulesFetch: (part) => [
+      ...head,
+      `$R = Send Get "$B/api/orchestra/runs/${v.runId}/rules?part=${part}"`,
+      'if ($R.ok) { $R.text } else { $R | ConvertTo-Json -Depth 32 }',
+    ],
+    formation: [
+      ...head,
+      "$Body = @'",
+      FORMATION_BODY_SAMPLE,
+      "'@",
+      `$R = ${send('Post', `$B/api/orchestra/runs/${v.runId}/formation`, json, '$Body')}`,
+      'if ($R.ok) { "DISPATCH_EDGE_ID=$($R.dispatchEdgeId) AGENT_IDS=$($R.agentIds | ConvertTo-Json -Compress)" } else { $R | ConvertTo-Json -Depth 32 }',
+    ],
   };
 }
 
-/** 지휘 턴에 붙는 규칙 전문. 서버 `processNextCommand` 가 오케스트라 명령일 때만 부른다. 같은 입력이면 같은 글이다(시간·난수를 읽지 않는다). */
-export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs): string {
+/** §5.3 #10-6 (F) — 규칙 조각의 갈래. `judgment` 는 매 지휘 턴에 싣고, 나머지는 나눠 싣기를 켜면 편성 뒤 GET 으로 읽는다. */
+export type OrchestraRulePart = 'judgment' | 'procedure' | 'analysis';
+
+/** 규칙 조각 하나 — 줄 묶음. 전문은 모든 조각의 줄을 차례로 `\n` 으로 이은 것이다. */
+export interface OrchestraRuleSection {
+  part: OrchestraRulePart;
+  lines: string[];
+}
+
+/**
+ * 지휘 턴 규칙을 조각으로 짓는다. 서버 `processNextCommand` 가 오케스트라 명령일 때만 부른다. 같은 입력이면 같은 글이다(시간·난수를 읽지 않는다).
+ * 조각의 차례·글자는 전문과 같다 — 나눠 싣기는 조각을 고를 뿐 글을 다시 쓰지 않는다(§5.3 #10-6 (F)).
+ */
+export function buildOrchestraConductorRuleParts(args: OrchestraConductorRulesArgs): OrchestraRuleSection[] {
   const { serverBase, projectName, runId, conductorAgentId, conductorSubAgentId, centerX, centerY, settings, existingMembers, existingEdges, conductorEngine, platform } = args;
   const projectField = projectName ? JSON.stringify(projectName) : 'null';
   const radius = AUTO_AGENT_LAYOUT_RADIUS;
@@ -433,6 +499,8 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
   const referenceOnly = ORCHESTRA_STRATEGIES.filter((s) => !s.apply.selectable);
   const userDisabled = ORCHESTRA_STRATEGIES.filter((s) => s.apply.selectable && disabled.has(s.id));
   const knobsInUse = [...new Set(allowed.flatMap((s) => s.apply.knobs))];
+  const basis = resolveOrchestraFormationBasis(settings);
+  const allowSelf = settings?.allowSelf === true;
   const values: ProcedureValues = {
     serverBase,
     runId,
@@ -449,7 +517,11 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
   const labelOf = new Map(existingMembers.map((m) => [m.id, m.label]));
   labelOf.set(conductorAgentId, '지휘자(당신)');
 
-  const out: string[] = [
+  const sections: OrchestraRuleSection[] = [];
+  const judgment = (lines: string[]) => sections.push({ part: 'judgment', lines });
+  const procedure = (lines: string[]) => sections.push({ part: 'procedure', lines });
+
+  judgment([
     `# 오케스트라 지휘 — 이번 요청 한 건 (런 \`${runId}\`)`,
     '',
     '이 턴에 한해 당신은 **지휘자**다. 사용자가 방금 보낸 요청의 편성을 고르고, 위임 결과와 검증을 회수해 **최종 답변까지 책임지는 것**이 이번 턴의 일이다.',
@@ -458,15 +530,23 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
       + (conductorEngine === 'codex' ? ' (Codex 엔진에서는 쓰기가 도구로 막혀 있지 않다 — 이 줄이 유일한 선이다.)' : ''),
     '- 아래 절감 방안을 **전부 적용하지 않는다.** 이 요청에 맞는 것만 고르고, 고른 이유와 건너뛴 이유를 계획 신고에 적는다. 하나도 고르지 않는 것도 올바른 답일 수 있다.',
     '- 편성하지 않는 것(`none`)도 올바른 선택이다. 작은 질문에 머릿수를 늘리는 것 자체가 아래 분석 1번이 말하는 낭비다 — 멤버마다 고정 비용이 붙는다.',
+    // §5.3 #10-6 (E) — 나누기 전에. 성패는 머릿수가 아니라 넘기는 자리의 의존성이 가른다.
+    '- **나누기 전에** — 앞 결과가 다음 입력인 일을 쪼개면 넘길 때마다 맥락이 샌다. 나누려는 이유가 문맥이 무거워서라면 편성보다 압축·새 세션을 `note` 로 권한다. 병렬은 꼼꼼하게(넓게 찾기) 하려는 것이지 빠르게 하려는 것이 아니다. 멤버를 늘리기 전에 지시문(`rules`)부터 고친다.',
     '- 계획 신고(④)는 **어떤 편성이든 킥오프 전에 꼭 한 번** 한다. 신고 없이 끝난 턴은 사용자 화면에 "신고 없음"으로 남는다.',
     '',
     '## 1. 먼저 고른다 (순서대로)',
     '1. **의도(intent)** — 아래 표에서 하나. 범위를 잡는 데 필요하면 Read·Grep·Glob 을 짧게 쓴다(깊은 조사는 멤버의 일이다).',
     '2. **편성(topology)** — 하나.',
     '   - `none` — 멤버 없이 당신이 직접 답한다. ④ 계획 신고만 하고 답한다.',
+    ...(allowSelf ? [
+      // §5.3 #10-6 (F) [직접 하기 허용] — 지휘 턴은 여전히 쓰지 못한다. 서버가 같은 세션에 평소 설정으로 다시 보낸다.
+      '   - `self` — 나누지 않고 **이 세션이 직접** 한다(사용자 설정 [직접 하기 허용]). ④ 계획 신고만 하고 "직접 진행하겠습니다" 한 줄로 이 턴을 끝낸다 — 서버가 같은 세션에 평소 설정(쓰기 도구 포함)으로 원래 요청을 다시 보내고, 그 턴에서 직접 고친다. 앞 결과가 다음 입력인 일(의존성이 많은 일)은 이것이 가장 덜 샌다.',
+    ] : []),
     '   - `single` — 멤버 하나에게 넘긴다.',
     '   - `pipeline` — 앞 결과가 다음 입력인 차례 작업. 멤버를 엣지로 잇고 첫 멤버에게 킥오프한다. 첫 멤버는 뒤 단계의 결과·검증까지 회수해 당신에게 통합 보고한다.',
     '   - `parallel` — 서로 **독립된** 일을 나눠 동시에 돌리고 허브 멤버 하나가 모은다. 허브에서 각 워커로 엣지를 깔고 허브에게 킥오프한다. 허브는 모든 워커의 결과·검증까지 회수해 당신에게 통합 보고한다. 독립이 아니면 고르지 않는다.',
+    // §5.3 #10-6 (E) — 병렬 워커는 서로를 못 본다. 각자 정한 것(이름·모양)이 합칠 때 부딪힌다.
+    '     - 고르면 모든 워커에게 **같은 공유 약속문**(맞출 이름·인터페이스·각자 맡은 파일)을 주고, 반환 양식에 `decisions`(각자 정한 것) 칸을 둔다. 허브는 합치기 전에 그 칸들을 대조한다.',
     `3. **방안(chosen·skipped)** — 아래 "고를 수 있는 방안"에서 이 요청에 맞는 것만, 각각 한 줄 이유(≤${ORCHESTRA_PLAN_REASON_MAX}자)와 함께. 관련이 있어 보였지만 고르지 않은 것은 \`skipped\` 에 이유와 함께 적는다(전부 적을 필요는 없다).`,
     `4. **멤버** — 아래 "기존 멤버"를 먼저 다시 쓴다. 새로 만드는 것은 이 런에서 최대 **${maxMembers}개**다.`,
     '',
@@ -474,9 +554,16 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     '| 의도 | 신호 | 출발 형태 |',
     '|---|---|---|',
     '| question | 설명·확인·짧은 질의, 파일 변경 없음 | none (직접 답) |',
-    harnessIntentGateRowsMarkdown(),
+    harnessIntentGateRowsMarkdown(basis),
     '형태는 출발점일 뿐이다 — 요청 규모에 비례하게 줄이거나 늘린다.',
+    ...(basis === 'dependency' ? [
+      // §5.3 #10-6 (F) — 의존성 기준. 넘기는 자리가 의존성이면 한 에이전트가 맡는다.
+      '- **편성 기준: 의존성(사용자 설정)** — 위 표는 넘기는 자리의 의존성으로 나눈 형태다. 앞 결과가 다음 입력인 일은 한 멤버가 끝까지 맡고(분석·구현·시험을 한 맥락에서), 서로 독립인 일(가설·질문·렌즈)만 병렬로 연다. 검수는 결과물만 받는 `verifier` 로 둔다(쓰기 도구 없음).',
+    ] : []),
     '',
+  ]);
+
+  procedure([
     proc.heading,
     ...proc.intro,
     '',
@@ -493,6 +580,8 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     '- 권한 축(`permissionMode`·`tools`·`disallowedTools`·`askTools`)은 PATCH 에 넣지 않는다 — 사용자만 바꾸는 칸이라 이 통로의 저장에서는 무시된다. 그 강도가 일에 안 맞으면 `note` 로 사용자에게 말한다.',
     '- 절감 설정은 **고른 방안이 가리키는 칸만** 바꾼다. 역할·아래 결과 회수 계약을 적는 `rules` 는 방안 선택과 무관하게 필요하다.',
     '- 엔트리(첫 멤버·허브)의 `rules` 에는 반드시 **모든 하위 위임 결과·검증·재작업을 회수한 뒤 통합 보고한다**고 넣는다. 접수 직후 끝내거나 일을 넘겼다는 말만 보고하지 않는다.',
+    // §5.3 #10-6 (E) — 요약 인계는 결정을 흘린다. 원문을 함께 넘긴다.
+    '- 엔트리의 `rules` 에는 **하위 위임에도 사용자 원문 요청을 함께 넘긴다**도 넣는다. 요약만 넘기면 원문에 있던 조건·금지가 중간에서 빠진다.',
     '',
     '### ③ 엣지 — `pipeline`·`parallel` 일 때',
     ...code(proc.edge),
@@ -505,11 +594,13 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     '- `maxReworkCount` 는 서버 상한 안에서만 줄일 수 있다. 검수자와 작업자가 서로에게 되돌려 보내며 맴도는 것을 끊는 칸이다.',
     '- 사용자 직접 지시의 검증 요청·금지·작업 범위는 항상 따른다.',
     '- **사용자가 이번 요청에서 검증(테스트·빌드·리뷰·브라우저 확인)을 요청했으면** 해당 범위의 검증 엣지를 최소 하나 깐다 — reviewer/tester → coder, `"kind":"critique","critiqueAuthority":"force-rework","forwardMode":"auto"`. 서버가 재작업 짝 엣지를 만들고, 재작업 횟수는 엣지마다 상한이 있다.',
+    // §5.3 #10-6 (E) — 검증 멤버의 기본 조항. 말이 아니라 실행 증거로 판정되게(§5.3 #10-3).
+    '- 검증 멤버의 `rules` 기본 조항: 전체를 **실제로** 돌린다 · 잘못된 입력 시험을 하나 이상 넣는다 · 돌린 명령과 종료 코드를 그대로 돌려준다 · 구현자의 설명보다 결과물(바뀐 파일·돌릴 명령)을 먼저 받는다.',
     '- 위임 결과를 기다리는 명령 엣지는 **`returnFormat:"both"`** 로 만든다. 서버가 반환 엣지를 함께 만들고, 받지 못한 결과를 실행 세션에 묶는다.',
     '- **넘기는 말의 양식(`messageFormat`).** `"schema"` 로 두고 `messageSchema` 에 받고 싶은 **칸 이름과 뜻**을 적으면 source 멤버가 그 양식으로 넘긴다. 줄글로 넘기면 받는 쪽이 무엇을 읽어야 할지 매번 새로 정한다 — 검증·재작업처럼 **같은 칸을 되풀이해 읽는** 엣지일수록 양식을 정해 둔다.',
     '- `messageSchema` 는 자유 텍스트다(JSON 본보기도, 항목 목록도 된다). 예: `{"changedFiles":["<경로>"],"testsRun":"<명령>","failures":[{"file":"<경로>","why":"<한 줄>"}],"notDone":"<남은 일>"}`. 빈 값이거나 `messageFormat:"free"` 면 양식을 강제하지 않는다.',
     '- 양식은 **엣지에 저장된다** — 그 엣지가 살아 있는 동안 계속 먹고, 엣지를 지우면 같이 사라진다. 받는 쪽 `rules` 에 같은 말을 또 적지 않는다.',
-    ...edgePresetSection(),
+    ...edgePresetSection(basis),
     '- **지휘자 → 엔트리 연결은 필수**다. ④ 계획 신고가 이 명령 엣지와 반환 엣지를 만들거나 재사용하므로 여기서 중복으로 만들지 않는다. 멤버끼리의 연결도 아래 "이미 있는 엣지"를 먼저 재사용한다.',
     '- 기존 연결은 사용자 산출물이다. 이번에 쓰지 않는다고 삭제하지 않는다. 예전 런의 엣지가 남아 있어도 현재 계획의 엔트리와 필요한 작업만 명시적으로 실행한다.',
     '',
@@ -517,7 +608,12 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     ...code(proc.plan),
     '- `intent`·`topology` 필수. `chosen`·`skipped` 는 `[{"id":"<방안 id>","reason":"<한 줄>"}]`.',
     `- \`reusedAgentIds\` = 이번에 다시 쓴 기존 멤버 id(새로 만든 멤버는 서버가 이미 안다). \`entryAgentId\` = 이제 킥오프할 멤버 id. \`note\`(≤${ORCHESTRA_PLAN_NOTE_MAX}자) = 사용자에게 남길 말 — 엔진을 고른 이유, 참고 전용 방안 권고, 권한이 일에 안 맞는다는 알림 등.`,
+    // §5.3 #10-6 (E) — 나눈 근거. 기록만 한다(비어도 거절 ❌).
+    `- \`splitBasis\`(선택, ≤${ORCHESTRA_PLAN_SPLIT_BASIS_MAX}자) = 나눈 근거 한 줄 — 서로 독립인가 · 같은 파일을 안 건드리나 · 넘길 결과가 무엇인가. 비워도 거절하지 않고 사용자 화면의 런 기록에 보인다.`,
     '- `none` 이면 `entryAgentId` 는 빼고 `reusedAgentIds` 는 빈 배열로 보낸다. 이때 연결도 킥오프도 결과 대기도 필요 없다.',
+    ...(allowSelf ? [
+      '- `self` 도 `entryAgentId` 는 빼고 `reusedAgentIds` 는 빈 배열이다. 검수를 붙이려면 `reviewAgentId`(이 프로젝트의 커스텀 에이전트 — 없으면 ① 로 먼저 만든다)를 넣는다 — 서버가 검수자 → 당신 critique 엣지를 잇고, 직접 한 턴이 끝나면 검수가 돈다. 신고 뒤 킥오프·결과 대기는 하지 않는다.',
+    ] : []),
     '- 편성이 있으면 응답의 `dispatchEdgeId` 를 보관한다. 서버가 지휘자 → 엔트리의 primary command 엣지(`returnFormat:"both"`)와 반환 엣지를 보장한다.',
     '- 계획 등록은 이번에 참여하는 멤버 사이의 기존 command 엣지도 `returnFormat:"both"` 로 보정한다. 기존 멤버·연결을 재사용해도 결과 회수 경로가 빠지지 않는다.',
     '- 400 이면 응답의 `error`·`ids` 를 보고 고쳐 다시 보낸다(예: `strategy-not-allowed` = 그 id 는 지금 고를 수 없다). 409 이면 오류 이유를 확인한다. 등록된 계획은 바꾸지 말고 기존 응답의 `dispatchEdgeId` 로 이어 간다.',
@@ -536,9 +632,15 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     '- `completed` 이고 `usageLimit`·`errorMessage` 가 없으면 결과를 읽고 요청 충족과 검증 근거를 확인한다. `error`·`cancelled`·한도 중단은 성공이 아니며, 회수한 오류와 아직 못 한 일을 분명히 보고한다.',
     '- 조회 실패·도구 대기 제한은 위임 종료가 아니다. 같은 cmdId 로 복구하고, 401/403/404 등으로 더 진행할 수 없으면 cmdId 와 차단 원인을 남긴다. 실패를 감추거나 같은 작업을 새로 실행하지 않는다.',
     '',
+  ]);
+
+  judgment([
     '## 3. 마무리',
     '- 편성했으면: **끝난 결과를 회수하기 전에는 턴을 완료하지 않는다.** 편성·접수 보고는 중간 안내일 뿐이다. 최종 답변에는 실제 변경/결과, 실제 수행한 검증(실행하지 않았으면 "검증 미실행"), 남은 실패·차단을 정리한다.',
+    // §5.3 #10-6 (E) — "됐다"는 말이 아니라 실제 변경을 본다. 시험 재실행은 사용자가 검증을 요청했을 때만(위 ③ 줄 그대로).
+    '- 최종 답 전에 멤버가 바꿨다는 파일이 **실제로 바뀌었는지** `git status --short`·`git diff --stat` 으로 한 번 확인한다(워크트리 멤버는 `git -C <그 워크트리 경로>`). 보고와 실제가 다르면 그 차이를 그대로 적는다. 시험을 다시 돌리는 것은 사용자가 검증을 요청했을 때만이다.',
     '- `none` 이면: 신고한 뒤 요청에 직접 답한다.',
+    ...(allowSelf ? ['- `self` 면: 신고한 뒤 "직접 진행하겠습니다" 한 줄로 이 턴을 끝낸다. 실제 작업은 서버가 다시 보낸 다음 턴이다.'] : []),
     '',
     '## 멤버가 태어날 때 받는 것 (사용자 스위치 — 바꿀 수 없다)',
     ...memberBirthSection(settings),
@@ -547,43 +649,46 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     ...memberEngineSection(settings, conductorEngine, args.readyEngines),
     '',
     `## 고를 수 있는 방안 (${allowed.length}개)`,
-  ];
+  ]);
 
   if (allowed.length === 0) {
-    out.push('사용자가 방안을 모두 꺼 두었다 — `chosen` 은 비워 신고한다.');
+    judgment(['사용자가 방안을 모두 꺼 두었다 — `chosen` 은 비워 신고한다.']);
   } else {
-    out.push(
+    judgment([
       '방안 id 의 # 는 아래 분석 원문 표의 # 와 같다. 원문의 몫·절감 수치는 한 세션의 실측과 그 추정이다 — 사용자에게 절감을 약속하지 않는다.',
       '',
       '| id | # | 만질 칸 | 멤버 지시문(rules)에 넣을 조항 | 편성 원칙 |',
       '|---|---|---|---|---|',
       ...allowed.map(strategyTableRow),
+    ]);
+    procedure([
       '',
       '### 칸 설명 (Claude 멤버 기준)',
       ...knobsInUse.map((k) => `- ${KNOB_GUIDE[k]}`),
-    );
+    ]);
   }
 
+  const tail: string[] = [];
   if (referenceOnly.length > 0) {
-    out.push(
+    tail.push(
       '',
       '### 참고 전용 — 고를 수 없다(`chosen` 에 담으면 400). 필요하면 `note` 로 사용자에게 권한다',
       ...referenceOnly.map((s) => `- \`${s.id}\`(${s.no}) — ${s.element.replace(/<br>/g, ' ')}`),
     );
   }
   if (userDisabled.length > 0) {
-    out.push(
+    tail.push(
       '',
       '### 사용자가 꺼 둔 방안 — 고를 수 없다(`chosen` 에 담으면 400)',
       userDisabled.map((s) => `\`${s.id}\`(${s.no})`).join(' · '),
     );
   }
 
-  out.push('', '## 다시 쓸 수 있는 멤버 (① 로 새로 만들기 전에 먼저 본다)');
+  tail.push('', '## 다시 쓸 수 있는 멤버 (① 로 새로 만들기 전에 먼저 본다)');
   if (existingMembers.length === 0) {
-    out.push('없음 — 필요하면 ① 로 새로 만든다.');
+    tail.push('없음 — 필요하면 ① 로 새로 만든다.');
   } else {
-    out.push(
+    tail.push(
       '| label | id | path | engine | model | 출처 |',
       '|---|---|---|---|---|---|',
       ...existingMembers.map((m) => `| ${cell(m.label)} | \`${m.id}\` | \`${m.path}\` | ${m.engine} | ${cell(m.model ?? '')} | ${m.own ? '내 이전 런' : '프로젝트'} |`),
@@ -596,7 +701,7 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
   if (existingEdges.length > 0) {
     // 후보가 프로젝트 전체로 넓어지면 이 표도 같이 넓어진다 — 규칙 길이가 그래프 크기를 따라가지 않게 자른다.
     const shown = existingEdges.slice(0, EDGE_TABLE_MAX);
-    out.push(
+    tail.push(
       '',
       '### 이미 있는 엣지',
       '| id | source → target | kind | 용도 |',
@@ -608,11 +713,11 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
       }),
     );
     if (existingEdges.length > shown.length) {
-      out.push(`- 그 밖에 ${existingEdges.length - shown.length}개가 더 있다 — 필요하면 \`GET /api/task-edges\` 로 전부 본다.`);
+      tail.push(`- 그 밖에 ${existingEdges.length - shown.length}개가 더 있다 — 필요하면 \`GET /api/task-edges\` 로 전부 본다.`);
     }
   }
 
-  out.push(
+  tail.push(
     '',
     '## 배치 좌표',
     `- 중심(당신의 버블) = (${cx}, ${cy}). 새 멤버는 이 점 주위 반지름 ${radius}px 안에 겹치지 않게 놓는다 — N개면 360/N 도 간격으로 \`x = ${cx} + ${radius}*cos(θ)\`, \`y = ${cy} - ${radius}*sin(θ)\`.`,
@@ -623,11 +728,59 @@ export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs):
     '- `orchestraRunId` 없이 멤버를 만들거나 계획 등록 없이 킥오프하지 않는다.',
     proc.oneBase,
     '',
-    '## 지난 분석 원문 (2026-09-16 토큰 감사 — 고치지 않은 원문)',
-    `방안 id ↔ 표의 #: ${ORCHESTRA_STRATEGIES.map((s) => `${s.id}=${s.no}`).join(' · ')}`,
-    '',
-    orchestraAnalysisMarkdown({ exclude: [...disabled] }),
   );
+  judgment(tail);
 
+  sections.push({
+    part: 'analysis',
+    lines: [
+      '## 지난 분석 원문 (2026-09-16 토큰 감사 — 고치지 않은 원문)',
+      `방안 id ↔ 표의 #: ${ORCHESTRA_STRATEGIES.map((s) => `${s.id}=${s.no}`).join(' · ')}`,
+      '',
+      orchestraAnalysisMarkdown({ exclude: [...disabled] }),
+    ],
+  });
+
+  return sections;
+}
+
+/** 조각 중 한 갈래만 차례로 이은 글(GET `/rules?part=` 가 돌려주는 그대로). */
+export function orchestraRulePartText(sections: readonly OrchestraRuleSection[], part: OrchestraRulePart): string {
+  return sections.filter((s) => s.part === part).flatMap((s) => s.lines).join('\n');
+}
+
+/** 지휘 턴에 붙는 규칙 전문 — 모든 조각을 차례로 이은 것. */
+export function buildOrchestraConductorRules(args: OrchestraConductorRulesArgs): string {
+  return buildOrchestraConductorRuleParts(args).flatMap((s) => s.lines).join('\n');
+}
+
+/**
+ * §5.3 #10-6 (F) [지휘 규칙 나눠 싣기] — 판단 조각만 싣고, 절차가 시작되던 자리에 "편성을 고른 뒤 읽어라" 안내(셸 두 벌)와
+ * 한 번에 등록 창구를 둔다. 절차·분석 조각의 글자는 전문과 같다 — GET 이 같은 함수로 짓는다.
+ */
+export function buildOrchestraConductorRulesSplit(args: OrchestraConductorRulesArgs): string {
+  const sections = buildOrchestraConductorRuleParts(args);
+  const proc = orchestraConductorShell(args.conductorEngine, args.platform) === 'powershell'
+    ? powershellProcedure({ serverBase: args.serverBase, runId: args.runId, conductorAgentId: args.conductorAgentId, conductorSubAgentId: args.conductorSubAgentId, createBody: '' })
+    : posixProcedure({ serverBase: args.serverBase, runId: args.runId, conductorAgentId: args.conductorAgentId, conductorSubAgentId: args.conductorSubAgentId, createBody: '' });
+  const code = (lines: string[]) => ['```' + proc.lang, ...lines, '```'];
+  const fetchBlock: string[] = [
+    '## 2. 절차는 편성을 고른 뒤에 읽는다 (사용자 설정 — 지휘 규칙 나눠 싣기)',
+    '- 이 턴에는 판단에 필요한 부분만 실려 있다. `none`(과 `self`)이면 아래 ④ 계획 신고 본문만 알면 되므로 절차를 읽지 않고 바로 신고해도 된다 — 본문 모양: `{"intent":"<의도>","topology":"none","chosen":[],"reusedAgentIds":[]}`(`POST /api/orchestra/runs/' + args.runId + '/plan`).',
+    '- 멤버를 만들고 잇는 편성이면 먼저 절차(①~⑥ 코드·엣지 프리셋·칸 설명)를 읽는다. 글자는 전문 규칙과 같다:',
+    ...code(proc.rulesFetch('procedure')),
+    '- 분석 원문(방안 표의 근거)이 필요하면 같은 방법으로 `part=analysis` 를 읽는다.',
+    '- **한 번에 등록** — 멤버 만들기·설정·엣지·계획 신고(①~④)를 한 번에 보낼 수도 있다. 서버가 같은 검사로 차례대로 하고 `dispatchEdgeId` 와 멤버 id 를 돌려준다(중간에 실패하면 어디까지 됐는지 돌려준다 — 이어서 손으로 한다). 그 뒤 ⑤ 킥오프·⑥ 회수는 절차대로다:',
+    ...code(proc.formation),
+    '- `members[].ref` 는 이 본문 안에서만 쓰는 이름표(`@이름`)다. `plan.entryAgentId`·`edges[].from`·`edges[].to` 에는 이름표나 기존 멤버 id 를 쓴다. 기존 멤버를 다시 쓰려면 `{"ref":"@이름","reuseAgentId":"<id>"}`. `config` 는 ② 와 같은 칸이다(권한 축 제외).',
+    '',
+  ];
+  const out: string[] = [];
+  let fetchPlaced = false;
+  for (const s of sections) {
+    if (s.part === 'judgment') { out.push(...s.lines); continue; }
+    if (s.part === 'procedure' && !fetchPlaced) { out.push(...fetchBlock); fetchPlaced = true; }
+  }
+  if (!fetchPlaced) out.push(...fetchBlock);
   return out.join('\n');
 }

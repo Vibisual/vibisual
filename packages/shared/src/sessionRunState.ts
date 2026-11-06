@@ -4,9 +4,29 @@
  * 입력은 전부 서버 값이고 여기선 조합만 한다(§3.1 — 상태를 만들거나 전이시키지 않는다).
  */
 
-import type { RunningSubagentTask, SubAgentStatus } from './types.js';
+import type { QueuedCommand, RunningSubagentTask, SubAgent, SubAgentStatus } from './types.js';
 
-/** 화면이 그리는 세션 상태 — 색·라벨은 이 6값에만 대응한다. */
+type QueueStateFields = Pick<QueuedCommand, 'status' | 'dispatchMode' | 'liveDelivery'>;
+
+/**
+ * §5.5 #17-18 ⑬ — 큐에 남았지만 다시 나가지 않는 [작업에 반영] 기록인가(전달 확인 불가로 잠김).
+ * 자동 재전송·변경·삭제를 막으려고 큐에 둘 뿐 낼 일이 아니다 — 이것을 "줄 섬"으로 세면 끝난 세션이 영영 대기·활성으로 남는다.
+ */
+export function isLockedLiveFollowUpRecord(command: QueueStateFields): boolean {
+  return command.status === 'queued' && command.dispatchMode === 'steer' && command.liveDelivery?.state === 'uncertain';
+}
+
+/** 아직 나갈(또는 나가는 중인) 줄 선 명령인가. 큐가 "낼 일"인지 물을 때 `status === 'queued'` 대신 이것을 쓴다. */
+export function isPendingQueuedCommand(command: QueueStateFields): boolean {
+  return command.status === 'queued' && !isLockedLiveFollowUpRecord(command);
+}
+
+/** 끝나지 않은 명령인가(도는 중 ∪ 나갈 차례를 기다림) — 같은 탭에 일을 겹쳐 쏘지 않는 직렬 잠금이 쓴다. */
+export function isUnfinishedQueuedCommand(command: QueueStateFields): boolean {
+  return command.status === 'executing' || isPendingQueuedCommand(command);
+}
+
+/** 화면이 그리는 세션 상태 — 색·라벨은 이 7값에만 대응한다. */
 export type SessionRunState =
   /** 지금 돌고 있다. */
   | 'running'
@@ -16,6 +36,8 @@ export type SessionRunState =
   | 'limited'
   /** 낼 일이 남았는데 안 나갔다(큐에 명령, 도는 것 없음). 없으면 "끝남"을 믿고 보낸 덧말이 큐에만 얹혀 사라진 것처럼 보인다. */
   | 'waiting'
+  /** 아직 아무 일도 하지 않았다(`isPristineSession`) — 끝난 것이 없으니 "끝남"이 아니다(§5.5 #17-10 ⑦). */
+  | 'fresh'
   /** 끝났고 사용자가 아직 확인하지 않았다(= 눈에 띄어야 한다). */
   | 'doneUnseen'
   /** 끝났고 확인까지 됐다(= 조용해야 한다). */
@@ -36,10 +58,15 @@ export interface SessionRunInputs {
    * (휴면 회수가 셸을 죽이고 `--resume` 은 못 살린다, §2.4). ⑮의 거울: 회수용 술어를 표시에 빌려 쓰지 마라.
    */
   backgroundShellCount: number;
-  /** 이 세션 소유의 `queued` 명령이 있는가 — "돌고 있다"가 아니라 "낼 일이 남았다". */
+  /** 이 세션 소유의 나갈 명령(`isPendingQueuedCommand`)이 있는가 — "돌고 있다"가 아니라 "낼 일이 남았다". */
   hasQueuedCommand: boolean;
   /** 사용자가 이 세션의 완료를 확인했는가(`acknowledgedSubAgents`). */
   acknowledged: boolean;
+  /**
+   * 이 세션이 아직 아무 일도 하지 않았는가(`isPristineSession`). 참이면 `acknowledged` 와 무관하게 `doneUnseen` 이 될 수 없다 —
+   * 확인 표식은 창(렌더러)마다 따로 든 사본이라, 빈 탭의 색을 거기에 맡기면 표식이 빠진 창에서 초록 "끝남"이 선다.
+   */
+  pristine: boolean;
   /**
    * 이 세션이 **한도로 끊긴 채 아직 다시 돌지 않았는가**(`SubAgent.usageLimit`).
    * 서버가 세우고 다음 명령이 나갈 때 서버가 걷는다 — 여기서 시간을 재거나 만료시키지 않는다(§3.1).
@@ -55,8 +82,19 @@ export const EMPTY_SESSION_RUN_INPUTS: SessionRunInputs = {
   backgroundShellCount: 0,
   hasQueuedCommand: false,
   acknowledged: false,
+  pristine: false,
   usageLimited: false,
 };
+
+/**
+ * §5.5 #17-10 ⑦ — 아직 아무 일도 하지 않은 세션인가: CLI 세션·명령·결과가 없고 활동 시각이 만든 시각에서 한 번도 밀리지 않았다.
+ * 마지막 조건이 CMD 탭을 가른다 — 훅·바이트 신호로만 돌아 명령·세션 id 를 남기지 않지만 활동마다 `lastActivityAt` 을 민다.
+ */
+export function isPristineSession(
+  sub: Pick<SubAgent, 'sessionId' | 'lastCommand' | 'lastResult' | 'createdAt' | 'lastActivityAt'>,
+): boolean {
+  return !sub.sessionId && !sub.lastCommand && !sub.lastResult && sub.lastActivityAt <= sub.createdAt;
+}
 
 /**
  * 지금 도는가 — [중지]·스피너의 유일한 근거: `subStatus === 'active'`(봉인 후 깨어나면 이것만 참) · `isSessionExecuting`(상태 모르는 세션의 dispatch)
@@ -150,13 +188,14 @@ export function resolveSessionLiveness(
 /**
  * 화면 상태 하나로 접는다. `error` 가 먼저 — 실패한 턴이 백단 자식 때문에 "도는 중"으로 세탁되면 안 된다(서버 `syncBgSubStatus` 원칙, 새 명령은 서버가 `active` 로 덮는다).
  * `limited` → `waiting` 순으로 `running` 다음·`doneUnseen` 앞(한도 사유가 더 구체적이다) — 끊긴 세션·큐가 남은 세션이 초록 "끝남"이 되면
- * 그걸 믿고 보낸 덧말이 조용히 줄만 선다.
+ * 그걸 믿고 보낸 덧말이 조용히 줄만 선다. `fresh` 는 그 다음 — 도는·줄 선 첫 명령은 이기고, 빈 탭은 확인 표식과 무관하게 초록이 되지 않는다.
  */
 export function resolveSessionRunState(inputs: SessionRunInputs): SessionRunState {
   if (inputs.subStatus === 'error') return 'error';
   if (isSessionRunning(inputs)) return 'running';
   if (inputs.usageLimited) return 'limited';
   if (isSessionWaiting(inputs)) return 'waiting';
+  if (inputs.pristine) return 'fresh';
   if (inputs.subStatus === 'idle' && !inputs.acknowledged) return 'doneUnseen';
   return 'done';
 }

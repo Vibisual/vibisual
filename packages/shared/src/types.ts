@@ -125,8 +125,9 @@ export interface RateLimitInfo {
  * `_vibisualPrevStatusLine` 에 보존하고 passthrough 실행한다(해제 시 원복).
  */
 /**
- * §4 — 화면용 Claude 사용량(`buildClaudeUsage` 가 `RateLimitInfo` 를 옮긴다). 수집기가 꺼지면 `error: 'no-credentials'`.
- * `GET /api/oauth/usage` 직접 호출 ❌ — 문서에 없는 엔드포인트라 약관에 걸린다(그래서 `weekly_scoped`·`extraCredits` 는 비어 있다).
+ * §4 — 화면용 Claude 사용량 한 줄. 원천은 `/usage` 뒤 CLI 가 적어 둔 로컬 캐시와 statusLine 뿐이다
+ * (`GET /api/oauth/usage` 직접 호출 ❌ — 문서에 없는 엔드포인트라 약관에 걸린다).
+ * 줄은 CLI 가 보고한 것만 있다 — 인증된 Ultra 처럼 5시간 한도가 없는 플랜에는 `session` 줄이 없다.
  */
 export interface ClaudeUsageLimit {
   /** session / weekly_all / weekly_scoped / seven_day_opus … (서버 원문 그대로) */
@@ -144,13 +145,17 @@ export interface ClaudeUsageLimit {
   isActive: boolean;
 }
 
-/** 사용 크레딧(플랜 한도 초과분 과금) 상태. */
+/** 사용 크레딧(플랜 한도 초과분 과금) 상태. 금액은 표시 단위이고, 모양을 확인하지 못한 칸은 비운다(0 으로 채우지 않는다). */
 export interface ClaudeUsageExtraCredits {
   enabled: boolean;
   /** 0~100 */
   utilization?: number;
   usedCredits?: number;
   monthlyLimit?: number;
+  /** 선불 잔액 */
+  balance?: number;
+  /** 잔액이 기준 아래로 내려가면 자동으로 사는가 */
+  autoReload?: boolean;
   currency?: string;
 }
 
@@ -173,7 +178,7 @@ export type ClaudeUsageError =
   | 'network';
 
 export interface ClaudeUsageInfo {
-  /** 예: "Max (20x)" — 자격증명의 subscriptionType + rateLimitTier 로 조립 */
+  /** 예: "Ultra" — CLI 가 적어 둔 공식 표시명(`oauthAccount.planDisplayName`), 없으면 자격증명 조합 */
   plan?: string;
   limits: ClaudeUsageLimit[];
   extraCredits?: ClaudeUsageExtraCredits;
@@ -517,6 +522,7 @@ export interface AgentLinkEntry {
   position?: { x: number; y: number };
   appWork?: Record<string, AppWorkMark>;
   maxSatellites?: number;
+  bundleMaxSatellites?: Record<string, number>;
   maxWebEntries?: number;
 }
 
@@ -1235,6 +1241,11 @@ export interface CompactMarker {
   subAgentId?: string;
   /** 훅 payload 원문. 자동압축이 실제로 도는지를 (F) 가 판정하는 유일한 사실 증거. */
   trigger: 'auto' | 'manual';
+  /**
+   * §7.23 `[지금 사본 뜨기]` 로 손으로 뜬 사본 — 압축이 아니다. 요약이 영영 안 오므로 (D) 대조·(E) 브리핑·(F) 기준선·실패 집계에서 뺀다.
+   * 빼지 않으면 몇 분 뒤 "요약 없음" 실패로 굳고 다음 턴에 "방금 압축됐다" 브리핑이 실린다.
+   */
+  snapshot?: true;
   transcriptPath: string;
   /** 압축 직전의 바이트 오프셋 — 이 뒤가 요약 구간이다. */
   transcriptBytes: number;
@@ -1445,8 +1456,8 @@ export type GitStatus =
       worktrees: GitWorktreeStatus[];
     };
 
-/** 파이프라인 에이전트 타입 — 실행 전략 */
-export type PipelineType = 'pipeline-subagent' | 'pipeline-teams' | 'pipeline-hybrid';
+/** 파이프라인 에이전트 타입 — 실행 전략. `pipeline-single-writer` = 구현 하나 + 검증 하나(§5.3 #11). */
+export type PipelineType = 'pipeline-subagent' | 'pipeline-teams' | 'pipeline-hybrid' | 'pipeline-single-writer';
 
 /** 파이프라인 자식 에이전트 역할 */
 export type AgentRole = 'explore' | 'architect' | 'implementer' | 'verifier';
@@ -1471,7 +1482,10 @@ export type TaskEdgeReturnFormat = 'artifact' | 'summary' | 'both';
 /** Task Edge 우선순위 — 동시 실행 시 순서 */
 export type TaskEdgePriority = 'low' | 'normal' | 'high';
 
-/** kind='critique' 만. intermediate(기본) 중간 milestone 마다 · final 완료 후 한 번. */
+/**
+ * kind='critique' 만. intermediate(기본) 중간 milestone 마다 · final 완료 후 한 번.
+ * ⚠ 지금 런타임은 intermediate 도 Stop 훅(완료) 때 한 번만 발사한다(§5.3 v1.56 한계) — 화면 툴팁이 그 사실을 적는다. 중간 발사를 만들면 툴팁도 함께 고친다.
+ */
 export type TaskEdgeCritiqueTiming = 'intermediate' | 'final';
 
 /** kind='critique' 만. force-rework 재작업 의무(maxReworkCount 초과 시 comment-only 강등 + 에스컬레이션) · comment-only 참고만. */
@@ -1579,6 +1593,10 @@ export interface TaskEdgeTemplate {
   defaultCommandMode?: TaskEdgeCommandMode;
   /** 없으면 TASK_EDGE_DEFAULTS.delegationPolicy. */
   defaultDelegationPolicy?: 'strict' | 'auto';
+  /** §5.3 #10-6 (F) — 이 프리셋을 지휘 규칙 표에 싣는 편성 기준. 없으면 늘 싣는다(종전 프리셋). */
+  formationBasis?: 'dependency';
+  /** `defaultMessageFormat: 'schema'` 일 때 채울 양식(받는 쪽이 읽을 칸). 없으면 비워 둔다(종전 프리셋). */
+  defaultMessageSchema?: string;
 }
 
 /** 파이프라인 자식 에이전트 설정 (constants.ts에서 config 테이블로 관리) */
@@ -1657,6 +1675,8 @@ export interface BubbleData {
   satelliteFileCount?: number;
   /** 폴더 위성 표시 상한(§7.5, 없으면 `DEFAULT_MAX_SATELLITES`). 넘으면 `registerSatellite` 가 오래된 것부터 뺀다. 노드째 영속. */
   maxSatellites?: number;
+  /** Preview bundle limits by kind and session; independent of the folder document limit. */
+  bundleMaxSatellites?: Record<string, number>;
   /** diff 무한 보관(§7.4). 없거나 false 면 `MAX_FILE_EDITS`(=20) 상한. `file` 만, 노드째 영속. */
   unlimitedFileEdits?: boolean;
   /**
@@ -1692,6 +1712,10 @@ export interface BubbleData {
   externalPlaceKey?: string;
   /** §2.1 (B) — 예산제 승격으로 최상위에 선 폴더인가(조상 접합에서 활동 점수로 나옴). 표시 전용 — 핀은 `preservePinned` 가 말한다. */
   externalPromoted?: boolean;
+  /** §2.1 #5 경로 깊이 통합 — 이 외부 폴더의 프로젝트에 지금 걸린 깊이(0=끔). 표시 전용 — 서버가 트리를 세울 때마다 다시 싣는다. */
+  externalMergeDepth?: number;
+  /** §2.1 #5 — 위 깊이가 프로젝트 전용 값인가(아니면 머신 기본값). 표시 전용. */
+  externalMergeDepthCustom?: boolean;
   /**
    * §5.23 웹 버블 묶기 — 묶인 버블이면 그 내역(`scope`). `AppState.webGroup` 이 낼 때만 `getSnapshot` 이 호스트 버블 대신 싣는다.
    * 표시 전용 — 기록(`domainEntries`)은 호스트 노드에 남는다.
@@ -1723,6 +1747,15 @@ export interface BubbleData {
    * 표시 전용, 체크포인트 ❌.
    */
   inOpenTurn?: boolean;
+  /** Preview file ownership: actual session/sub id → agent bubble id. Retained across turns. */
+  previewSessions?: Record<string, string>;
+  /** 미리보기 파일을 사용한 세션의 표시 범위. 스냅샷 사본에만 실린다. */
+  previewSessionIds?: string[];
+  previewSessionCounts?: Record<string, number>;
+  previewSessionDirs?: Record<string, string>;
+  inSessionPreview?: boolean;
+  /** §5.1 #3-4 (B) — 서로 다른 에이전트가 짧은 간격으로 이 파일을 썼다. 스냅샷 사본에만 실린다(체크포인트 ❌). */
+  writeOverlap?: FileWriteOverlap;
   /** §5.1 #2-1 (F) ① — 이 파일이 생긴 앱 작업(앱 노드 id → 표식 — 훅 귀속·되짚기·작업 폴더 훑기). 노드째 영속, 파일 노드만. */
   appWork?: Record<string, AppWorkMark>;
   /** fade 시작 시각 (completed → 60초 후 idle 전환) */
@@ -1877,6 +1910,31 @@ export interface BashEntry {
 }
 
 /** 파일 수정 기록 항목 (Edit 도구 호출 1회 = 1 엔트리) */
+/** §5.1 #3-4 (B) — 같은 파일을 서로 다른 에이전트가 짧은 간격으로 썼다(관찰만 — 막지 않는다). */
+export interface FileWriteOverlap {
+  /** 그 창 안에서 이 파일을 쓴 에이전트(버블) id — 먼저 쓴 순서. */
+  agentIds: string[];
+  firstAt: number;
+  lastAt: number;
+}
+
+/** §5.1 #3-4 (A) — 엔진 `SendMessage` 한 번(보낸 사실만 — 받았는지는 받는 세션 권한 모드가 정한다). */
+export interface SessionMessageLink {
+  id: string;
+  fromAgentId: string;
+  fromSubAgentId?: string;
+  /** 도구 입력 `to` 원문(` [ref]` 꼬리 포함). */
+  to: string;
+  /** 이 프로젝트에서 글자가 같은 버블을 찾았을 때만. 없으면 바깥 세션이다. */
+  toAgentId?: string;
+  /** 메시지 첫 줄 앞머리(`SESSION_MESSAGE_PREVIEW_MAX`). */
+  preview: string;
+  notifyWhenIdle?: boolean;
+  at: number;
+  /** 서버가 스냅샷을 지을 때 `SESSION_MESSAGE_LINK_LIVE_MS` 안이면 참 — 캔버스 선은 이것만 그린다. */
+  live?: boolean;
+}
+
 export interface FileEdit {
   id: string;
   /** 원본 절대 경로 (VS Code에서 열기용, forward slash) */
@@ -2072,6 +2130,8 @@ export interface SubAgent {
   lastCommand?: string;
   /** 마지막 실행 결과 요약 */
   lastResult?: string;
+  /** §5.19 (J) ④ — All Model 세션의 계획 요약(서버 판정). 계획이 없으면 생략. */
+  localPlan?: LocalPlanSummary;
   createdAt: number;
   lastActivityAt: number;
   /** 누적 입력 토큰 (모든 턴 합산, JSONL에서 읽음) */
@@ -2127,6 +2187,11 @@ export interface SubAgent {
    * 시간으로 만료시키지 마라 — 풀려도 세션은 끊긴 자리다. 그래서 체크포인트를 왕복해도 산다(지난 턴의 사실).
    */
   usageLimit?: UsageLimitStop;
+  /**
+   * §5.26 (G) `fresh` 부활 — 이 탭이 이어받은 끊긴 세션의 CLI UUID. 첫 명령 조립 때 그 세션의 금고 브리핑을 싣고 지운다.
+   * 체크포인트를 왕복한다 — 되살리자마자 앱을 껐다 켜도 첫 턴에 실려야 한다.
+   */
+  freshBriefFrom?: string;
 }
 
 /**
@@ -2398,8 +2463,16 @@ export interface LiveFollowUpMessage {
 
 /** Delivery is distinct from completing the requested work; uncertain inputs are never replayed automatically. */
 export interface LiveFollowUpDelivery {
-  state: 'sending' | 'unavailable' | 'uncertain';
+  /**
+   * §5.5 #17-18 ⑫ — `received`: the engine queued the input and applies it at its next step boundary
+   * (Claude). Locked like `sending`: a second send would enter the engine queue twice.
+   */
+  state: 'sending' | 'received' | 'unavailable' | 'uncertain';
   reason?: 'noActiveTurn' | 'unsupported' | 'turnScope' | 'deliveryRejected' | 'deliveryUnknown';
+  /** §5.5 #17-18 ⑥-6 — when `uncertain` was decided. The locked bubble stays there instead of trailing all later output. */
+  decidedAt?: number;
+  /** §5.5 #17-18 ⑫ — when the engine confirmed it queued the input. */
+  receivedAt?: number;
 }
 
 /**
@@ -2482,6 +2555,11 @@ export interface QueuedCommand {
   followUps?: LiveFollowUpMessage[];
   /** A queued steer input remains visible until delivery is acknowledged. */
   liveDelivery?: LiveFollowUpDelivery;
+  /**
+   * §5.5 #17-18 ⑬ — the turn this steer input was sent into and the engine message id (Claude `uuid`).
+   * Keys the transcript check that settles a locked `uncertain` record as delivered.
+   */
+  liveTarget?: { commandId: string; messageId?: string };
   /** Server-captured unfinished commands that preceded a new task. Later submissions never extend this wait. */
   waitForCommandIds?: string[];
   /** §5.5 #17-18 — 흡수된 덧말 수(배지). 0/undefined = 단독. */
@@ -2493,6 +2571,10 @@ export interface QueuedCommand {
   silent?: boolean;
   /** §5.3 #10-4 — 오케스트라 런(`OrchestraRun.runId`). 지휘 명령·킥오프(`?orchestraRunId=`)에 찍히고, 덧말 합치기의 경계다. */
   orchestraRunId?: string;
+  /** §5.3 #10-6 (F) — `self` 편성으로 서버가 같은 세션에 다시 넣은 원래 요청(표시용 표식). */
+  orchestraSelf?: true;
+  /** §5.3 #10-6 (A) — 토큰 절약 N축(동시 가동 상한) 때문에 나가지 못한 적이 있다(표시 전용). */
+  waitedOnConcurrency?: true;
   /** §5.13 (R-10) — 명령 한 건의 턴·시간 상한. 에이전트 상한과 겹치면 좁은 쪽, 끊을 수 있는 엔진만(`runLimitsApplied`), 비용 약속 ❌. */
   runLimits?: { maxTurns?: number; maxMinutes?: number };
   /** Optional app capability requirements for this command only. */
@@ -2561,6 +2643,8 @@ export interface SessionLoop {
   commitEachRound: boolean;
   /** §5.5 #17-11 ⑫(f) — 회차 본문 파일(프로젝트 상대, 고치면 다음 회차부터). 읽기 실패면 `command`. */
   commandFile?: string;
+  /** §5.19 (J) ② — 회차 경계에서 `progressFile` 의 체크리스트에 남은 항목이 0 이면 `done`(완료 판정을 모델 밖에서). */
+  stopWhenChecklistDone?: boolean;
   /** 진행 상태 (서버 판정). */
   status: SessionLoopStatus;
   /** 지금 도는 회차의 `QueuedCommand.id` — 완료 대조용(이 id 가 끝나야 다음 회차). */
@@ -3760,10 +3844,14 @@ export interface AppState {
   sessionProbe?: SessionLivenessProbeSettings;
   /** §4 API 크레딧 — 사용 설정·OS 보안 저장소로 암호화한 두 키(실행용·지출 읽기용)·Anthropic 거절 기억(머신 단위). 금액은 담지 않는다(Console 이 센다). 없으면 꺼짐(`API_CREDIT_DEFAULTS`). */
   apiCredits?: ApiCreditPersisted;
+  /** §4 OpenAI 비즈니스 크레딧 — 코덱스 판의 같은 칸(설정·감싼 두 키·OpenAI 거절 기억, 머신 단위). 없으면 꺼짐. */
+  openaiCredits?: ApiCreditPersisted;
   /** §5.3 #9-2 — 에이전트가 띄운 프로세스의 묶음·메모리 상한·정리(머신 단위). 없으면 `DEFAULT_PROCESS_GUARD_SETTINGS`(켬). */
   processGuard?: ProcessGuardSettings;
   /** §2.1 (B) — 최상위에 동시에 세울 외부 폴더 예산(머신 단위). 없으면 `EXTERNAL_TOP_BUDGET_DEFAULT`(=12). 핀은 세지 않는다. */
   externalTopBudget?: number;
+  /** 외부 폴더 전용 경로 통합 깊이(머신 단위). 없으면 3단계, 0이면 경로 깊이 통합 끄기. */
+  externalFolderMergeDepth?: number;
   /** §5.23 — 종전 "에이전트마다 웹 버블 하나로 접기". 읽기만 한다: `webGroup` 이 저장된 적 없고 이 값이 `true` 면 `webGroup.maxPerAgent = 1` 로 이주. 새로 쓰지 않는다. */
   webFoldPerAgent?: boolean;
   /**
@@ -4041,13 +4129,13 @@ export interface AgentReport {
   nextSteps?: string[];
   /** 자유 메모 / 헤드라인 (선택). */
   note?: string;
-  /** §5.10 — 이 작업에서 배운 것(확실한 것만, 최대 3개). 서버가 문장마다 `brainService.saveCard({type:'lesson', scope:'agent'})` 로 기억 카드에 저장한다. */
+  /** 이 작업에서 배운 것(확실한 것만, 최대 3개). 신고 카드에 표시·저장하며 별도 Brain 기억을 만들지는 않는다. */
   learned?: string[];
-  /** §5.10 — 브리핑으로 받은 카드 중 도움된 id(`[card-xxxx]` 그대로). 서버가 `brainService.markHelpful` 로 랭킹을 올린다. */
+  /** 과거 브리핑에서 도움된 기억 id. 호환용 신고 기록으로만 보존하며 기억의 랭킹·유효성은 바꾸지 않는다. */
   helpfulMemoryIds?: string[];
   /**
-   * §5.10 — `helpfulMemoryIds` 의 대칭: 지금 코드와 어긋나 낡은 카드 id. `brainService.markStale` → `needs-check`, 누적이 문턱을 넘으면 자동 보관(삭제 ❌).
-   * 확인 필요 카드가 helpful 로 오면 앵커를 현재 해시로 갱신하고 `ok` 로 되돌린다.
+   * 과거 브리핑 중 지금 코드와 어긋난 기억 id. 호환용 신고 기록으로만 보존하며
+   * 기억의 유효성·보관·삭제 상태를 바꾸지 않는다.
    */
   staleMemoryIds?: string[];
   /** 신고 시각 (서버 stamp, Date.now()). */
@@ -4316,6 +4404,8 @@ export interface GraphSnapshot {
   claudeUsage?: ClaudeUsageInfo;
   /** §4 API 크레딧 — 설정·경로·Anthropic 거절·Console 이번 달 지출(공식 cost_report 그대로). 머신 단위, 키 본문은 싣지 않는다. */
   apiCredits?: ApiCreditState;
+  /** §4 OpenAI 비즈니스 크레딧 — 코덱스 판의 설정·경로·OpenAI 거절·Platform 이번 달 지출(공식 Costs API 그대로). 키 본문은 싣지 않는다. */
+  openaiCredits?: ApiCreditState;
   /** §4 — `claude auth status` 결과(글로벌 1건, 런타임 캐시). 클라는 이것만 보고 로그인 팝업·옵션창 Account 를 정한다. */
   claudeAuth?: ClaudeAuthStatus;
 
@@ -4401,6 +4491,9 @@ export interface GraphSnapshot {
 
   /** §5.3 #10-4 — 오케스트라(projectName → 설정 + 최근 런). 설정·런 없는 프로젝트는 빠진다(= 기본·꺼짐). 런은 `ORCHESTRA_RUN_SNAPSHOT_MAX` 건만, 나머지는 체크포인트에. */
   orchestra?: Record<string, OrchestraSummary>;
+
+  /** §5.1 #3-4 (A) — 최근 세션 간 메시지(관찰 — 저장 ❌). 여러 프로젝트는 시각순으로 이어 붙인다. */
+  sessionMessages?: SessionMessageLink[];
 
   /** §5.3 #10-5 — 설정 덜어내기(projectName → 설정 + 최근 런). 없음 = 기본·꺼짐. 런은 `CONFIG_TRIM_RUN_SNAPSHOT_MAX` 건만, 나머지는 체크포인트에. */
   configTrim?: Record<string, ConfigTrimSummary>;
@@ -4761,8 +4854,14 @@ export type OrchestraStrategyId =
   | 'preamble'
   | 'other';
 
-/** 편성: `none` = 지휘자가 직접 답함(작은 질문에 머릿수는 낭비) · `single` = 멤버 하나 · `pipeline` = 차례로 잇는다(엣지로 앞 결과가 다음 입력) · `parallel` = 나눠 동시에, 한 멤버가 모은다. */
-export type OrchestraTopology = 'none' | 'single' | 'pipeline' | 'parallel';
+/**
+ * 편성: `none` = 지휘자가 직접 답함(작은 질문에 머릿수는 낭비) · `single` = 멤버 하나 · `pipeline` = 차례로 잇는다(엣지로 앞 결과가 다음 입력) · `parallel` = 나눠 동시에, 한 멤버가 모은다.
+ * `self` = 나누지 않고 같은 세션이 평소 설정으로 직접 한다(§5.3 #10-6 (F) — `allowSelf` 를 켰을 때만 고를 수 있다).
+ */
+export type OrchestraTopology = 'none' | 'single' | 'pipeline' | 'parallel' | 'self';
+
+/** §5.3 #10-6 (F) — 출발 형태를 무엇으로 고르나. `role` = 역할 사슬(종전 표) · `dependency` = 넘기는 자리의 의존성 기준. */
+export type OrchestraFormationBasis = 'role' | 'dependency';
 
 /** IntentGate 분류(§5.3 #10-2 표) + 편성 없이 답할 질문. */
 export type OrchestraIntent = 'question' | 'quick-fix' | 'feature' | 'research' | 'debug' | 'refactor';
@@ -4819,11 +4918,53 @@ export interface OrchestraSettings {
   memberToolTemplate?: string;
   /** 지휘자에게 주지 않는 방안 — 규칙에서 빠지고, 계획 신고에 담기면 400. */
   disabledStrategies?: OrchestraStrategyId[];
+  /** §5.3 #10-6 (F) [직접 하기 허용] — 켜면 편성 `self` 를 고를 수 있다. 없으면 꺼짐. */
+  allowSelf?: boolean;
+  /** §5.3 #10-6 (F) [검수는 다른 엔진] — 켜면 검증 멤버는 지휘자·구현과 다른 엔진으로. 없으면 꺼짐. */
+  crossEngineReview?: boolean;
+  /** §5.3 #10-6 (F) [편성 기준] — 없으면 `role`(종전 표). Auto Agent 빌더도 같은 칸을 읽는다. */
+  formationBasis?: OrchestraFormationBasis;
+  /** §5.3 #10-6 (F) [지휘 규칙 나눠 싣기] — 켜면 절차·분석 원문은 편성 뒤 loopback GET 으로 읽는다. 없으면 꺼짐. */
+  splitRules?: boolean;
   updatedAt?: number;
 }
 
 /** `conducting` 지휘 중 · `dispatched` 멤버에 넘기고 회수 대기 · `completed` 회수 후 최종 답 · `answered` 편성 없이 직접 답 · `unreported` 계획 신고 없이 끝남(성공으로 그리지 않는다) · `error` 실패. */
 export type OrchestraRunPhase = 'conducting' | 'dispatched' | 'completed' | 'answered' | 'unreported' | 'error';
+
+/** §5.3 #10-6 (A) — 인계 사슬 한 줄의 역할. 조율 토큰은 `conductor` + (`parallel` 이면) `entry` 다. */
+export type OrchestraRunHopRole = 'conductor' | 'self' | 'entry' | 'member' | 'review' | 'rework';
+
+/** §5.3 #10-6 (A) — 런에 귀속된 명령 하나가 끝난 기록. 글은 앞머리만(`ORCHESTRA_HOP_TEXT_MAX`). */
+export interface OrchestraRunHop {
+  commandId: string;
+  agentId: string;
+  role: OrchestraRunHopRole;
+  /** 받은 지시 앞머리. */
+  instruction: string;
+  /** 돌려준 결과 앞머리(없으면 비운다 — 빈 문자열은 "결과 없음"이라는 거짓이다). */
+  result?: string;
+  status: 'completed' | 'error';
+  inputTokens: number;
+  outputTokens: number;
+  /** 큐에 들어간 시각(`QueuedCommand.timestamp`). */
+  queuedAt: number;
+  /** 실제로 나간 시각(`QueuedCommand.startedAt`). */
+  startedAt?: number;
+  endedAt: number;
+  /** 토큰 절약 N축(동시 가동 상한) 때문에 나가지 못한 적이 있다. */
+  waitedOnConcurrency?: boolean;
+}
+
+/** §5.3 #10-6 (B) — 런 검수의 마지막 판정. `approve && passed > 0` 일 때만 화면이 "확인됨"이라 부른다. */
+export interface OrchestraRunVerification {
+  verdict: 'approve' | 'reject' | 'held';
+  /** 서버가 본 통과 증거(exitCode 0) 수. */
+  passed: number;
+  /** 실패 증거 수. */
+  failed: number;
+  at: number;
+}
 
 /** 지휘자가 고르거나 건너뛴 방안 하나와 그 이유. */
 export interface OrchestraPlanChoice {
@@ -4841,6 +4982,10 @@ export interface OrchestraPlan {
   entryAgentId?: string;
   /** 사용자에게 남기는 말(엔진을 auto 로 고른 이유·참고 전용 방안 권고 등). */
   note?: string;
+  /** §5.3 #10-6 (E) — 나눈 근거(독립인가·같은 파일인가·넘길 결과). 선택 — 비어도 거절하지 않는다. */
+  splitBasis?: string;
+  /** §5.3 #10-6 (F) — `self` 편성의 검수자(지휘 에이전트로 critique 엣지를 잇는다). */
+  reviewAgentId?: string;
 }
 
 /** 요청 1건 = 런 1개. 같은 에이전트에 새 요청을 넣어도 이전 런은 덮이지 않는다. */
@@ -4866,12 +5011,59 @@ export interface OrchestraRun {
   /** 지휘·킥오프·멤버의 엣지/오케스트라 명령 입력 토큰 합. */
   inputTokens: number;
   outputTokens: number;
+  /** §5.3 #10-6 (A) — 인계 사슬(오래된 것부터, `ORCHESTRA_RUN_HOPS_MAX`). 옛 런은 없다. */
+  hops?: OrchestraRunHop[];
+  /** §5.3 #10-6 (B) — 런 검수의 마지막 판정. 검수가 없었으면 없다. */
+  verification?: OrchestraRunVerification;
+  /** §5.3 #10-6 (F) — `self` 편성에서 서버가 같은 세션에 다시 넣은 명령. 이 명령이 끝나야 런이 닫힌다. */
+  selfCommandId?: string;
+}
+
+/** §5.3 #10-6 (C) — 의도 × 편성 성적표 한 줄. 계획 없이 끝난 런은 `intent:'unplanned'`. */
+export interface OrchestraScoreRow {
+  intent: OrchestraIntent | 'unplanned';
+  topology: OrchestraTopology | 'unplanned';
+  runs: number;
+  completed: number;
+  verified: number;
+  answered: number;
+  unreported: number;
+  error: number;
+  /** 끝난 런의 평균 토큰(입력+출력). */
+  avgTokens: number;
+  /** 끝난 런의 평균 소요(ms). 끝난 런이 없으면 없다. */
+  avgDurationMs?: number;
+}
+
+/** §5.3 #10-6 (D) — 합칠 후보: A→B 만으로 일을 넘겨받고 더 넘기지 않는 B. */
+export interface OrchestraFoldPair {
+  fromAgentId: string;
+  intoAgentId: string;
+  edgeId: string;
+  /** 둘이 함께 나온 런 수. */
+  runs: number;
+}
+
+/** §5.3 #10-6 (D) — 오래 안 쓴 멤버. */
+export interface OrchestraIdleMember {
+  agentId: string;
+  lastUsedAt: number;
+  runs: number;
+}
+
+export interface OrchestraSuggestions {
+  foldPairs: OrchestraFoldPair[];
+  idleMembers: OrchestraIdleMember[];
 }
 
 /** 스냅샷 한 프로젝트분 — 설정 + 최근 런(`ORCHESTRA_RUN_SNAPSHOT_MAX`). */
 export interface OrchestraSummary {
   settings: OrchestraSettings;
   runs: OrchestraRun[];
+  /** §5.3 #10-6 (C) — 런 전량에서 지은 파생값(저장 ❌). */
+  scorecard?: OrchestraScoreRow[];
+  /** §5.3 #10-6 (D) — 파생값(저장 ❌). 제안이 없으면 없다. */
+  suggestions?: OrchestraSuggestions;
 }
 
 // ─── §5.3 #10-5 — 설정 덜어내기(Config Trim) ──────────────────────────────────
@@ -5056,6 +5248,13 @@ export interface FolderFilePage {
   nextCursor: string | null;
   /** 이 겹의 전체 항목 수(무시 목록·숨김 폴더를 걸러 낸 뒤). */
   total: number;
+}
+
+/** One page of a session's preview files; the total is independent of satellite limits. */
+export interface BundleFilePage {
+  items: BubbleData[];
+  total: number;
+  page: number;
 }
 
 /** §5.5 #17-19 — IDE 탐색기 엔트리(한 겹). `FolderFileEntry` 와 달리 경로를 소문자로 뭉개지 않고 숨김도 담는다(디스크 그대로가 목적). */
@@ -5447,6 +5646,8 @@ export interface ProjectCheckpoint {
   /** 루트 캔버스에서 부모 버블이 못 나가는 바운딩 박스 반폭/반높이(LAYOUT_CENTER_X/Y 중심, 사용자가 핸들로 조절). 없으면 클라 기본값(1500/1100). ProjectCheckpoint 로만 영속(§3.2). */
   layoutBoundsHalfWidth?: number;
   layoutBoundsHalfHeight?: number;
+  /** §2.1 #5 — 이 프로젝트 외부 폴더의 경로 통합 깊이(0~20, 0=끔). 없으면 머신 기본값(AppState)을 따른다. */
+  externalFolderMergeDepth?: number;
   /** §5.3 #28 — 콘티(영속). 에이전트 삭제 때 cascade. */
   contis?: Record<string, Conti>;
 
@@ -5923,7 +6124,6 @@ export type PluginContributionKind =
   | 'restRoute'
   | 'wsMessage'
   | 'agentConfigField'
-  | 'brainCardKind'
   | 'bubbleType'
   | 'edgeKind';
 
@@ -6613,7 +6813,8 @@ export type AutoAgentRole =
   | 'deep-interviewer'
   | 'oracle'
   | 'librarian'
-  | 'explore';
+  | 'explore'
+  | 'verifier';
 
 /**
  * Auto Agent 가 선택할 수 있는 토폴로지 카탈로그.
@@ -6880,10 +7081,12 @@ export interface MobileAccessState {
   /** 수동 포트포워딩 시 공유기에서 이 LAN IP:포트(HTTPS)로 연결하도록 안내. */
   httpsPort: number | null;
   /**
-   * 외부 HTTPS 자체 서명 인증서의 SHA-256 지문(`AB:CD:…`). 외부 리스너가 없으면 null. userData 에 영속해 재시작해도 같다.
-   * 경고에 "계속"을 누르는 습관은 중간자 인증서도 넘긴다 — 대조할 값을 데스크톱에 띄워야 그 경고가 우리 것인지 가린다.
+    * 모바일 HTTPS CA 인증서의 SHA-256 지문(`AB:CD:…`). 리스너가 없으면 null. userData 에 영속해 재시작해도 같다.
+    * 휴대폰에 CA를 설치하고 신뢰하기 전에 이 값과 대조한다. 서버 인증서는 주소 변경·만료 시 같은 CA로 갱신한다.
    */
   certFingerprint: string | null;
+  /** Public CA download on the LAN HTTP bootstrap listener; compare certFingerprint before trusting. */
+  certificateUrl?: string | null;
   /**
    * 껐는데도 공유기에 남아 있을 수동 포워딩 규칙이 있는가. UPnP 매핑은 임대라 저절로 닫히지만 손으로 만든 규칙은 영원히 남아 그 포트를 잡는 프로그램이 노출된다.
    * 수동 안내를 띄운 적이 있으면 영속해 두고 외부를 끈 뒤 "규칙을 지우세요"를 남긴다 — 끄는 것만으로는 안 사라지고 사용자가 확인해야 사라진다.
@@ -7632,6 +7835,62 @@ export interface PageRegionCapture {
  */
 export type AgentProviderKind = 'local-llama' | 'codex-cli';
 
+/** §5.19 (J) ② — KV 캐시 자료형. f16 = 엔진 기본. 양자화 값은 `-fa on` 과 함께 실린다(V 양자화의 전제). */
+export type LocalKvCacheType = 'f16' | 'q8_0' | 'q4_0';
+/** §5.19 (J) ② — MoE 전문가 가중치 자리. auto = 엔진 배치 · cpu = `--cpu-moe`(밀집 모델엔 효과 없음). */
+export type LocalMoeOffload = 'auto' | 'cpu';
+/** §5.19 (J) ② — 정리 방식. 판정·순서는 `localAssist.ts`. */
+export type LocalTidyMethod = 'mask' | 'summarize' | 'handoff' | 'ask';
+/** §5.19 (J) ② — 도구 결과 한 건의 문맥 몫(창의 10/25/40%). */
+export type LocalToolOutputCap = 'short' | 'normal' | 'long';
+/** §5.19 (J) ③ — 마지막으로 누른 프리셋 이름(표시용). 칸을 따로 바꾸면 `custom`. */
+export type LocalAssistPreset = 'off' | 'lowSpec' | 'balanced' | 'longTask' | 'custom';
+
+/** §5.19 (J) ② — All Model 끝까지 돕기 옵션. 전부 optional — 비어 있으면 종전 동작과 같다. */
+export interface LocalAssistOptions {
+  preset?: LocalAssistPreset;
+  kvCache?: LocalKvCacheType;
+  moeOffload?: LocalMoeOffload;
+  lowSpecSafe?: boolean;
+  /** 보낼 프롬프트가 창의 몇 %면 정리하나. 0·미설정 = 정리하지 않는다. */
+  tidyAt?: number;
+  tidyMethod?: LocalTidyMethod;
+  toolOutputCap?: LocalToolOutputCap;
+  keepFullOutput?: boolean;
+  planFirst?: boolean;
+  relay?: boolean;
+  /** 릴레이 회차마다 모델이 돌려 볼 검증 명령(비면 없음). */
+  relayVerifyCommand?: string;
+  /** 릴레이 회차 상한. 미설정 = `LOCAL_RELAY_DEFAULT_MAX_ROUNDS`. */
+  relayMaxRounds?: number;
+  resume?: boolean;
+  /** 유휴 해제까지의 분. 미설정 = `LOCAL_MODEL_IDLE_UNLOAD_MS`. */
+  keepLoadedMinutes?: number;
+}
+
+/** §5.19 (J) ④ — 계획 상태. proposed = 써 두고 승인 대기 · approved = 승인(실행 전) · running = 릴레이가 도는 중 · done = 남은 항목 0. */
+export type LocalPlanState = 'proposed' | 'approved' | 'running' | 'done';
+
+/** §5.19 (J) ④ — 계획 체크리스트 한 줄. */
+export interface LocalPlanItem {
+  text: string;
+  /** 남은 일이 아니다(완료 `[x]` 또는 건너뜀 `[-]`). */
+  done: boolean;
+  /** `[-]` — 해 보고 못 한 항목. */
+  skipped?: true;
+}
+
+/** §5.19 (J) ④ — 서버가 계획 파일·세션 이력 파일로 판정해 `SubAgent.localPlan` 에 싣는 요약. */
+export interface LocalPlanSummary {
+  state: LocalPlanState;
+  /** 프로젝트 기준 상대 경로. */
+  file: string;
+  total: number;
+  done: number;
+  /** 앞에서부터 `LOCAL_PLAN_ITEMS_MAX` 줄. */
+  items: LocalPlanItem[];
+}
+
 /**
  * §5.19 (C) · §5.25 (B) — 프로바이더 설정. `AgentConfig` 안에 살아 체크포인트 영속은 그대로 따라온다.
  * 뜻이 같은 칸은 두 프로바이더가 한 벌로 쓰고 한쪽 전용 칸만 optional — 타입을 갈라 놓으면 `AgentConfig` 를 만지는 수십 곳이 유니온 좁히기를 해야 한다.
@@ -7687,6 +7946,8 @@ export interface AgentProvider {
   autoCompactTokenLimit?: number;
   /** App-enforced Codex tool permissions. Empty object resets to no extra restrictions. */
   codexTools?: import('./codexToolPolicy.js').CodexToolPolicy;
+  /** §5.19 (J) — All Model 끝까지 돕기 옵션(`local-llama` 만). */
+  assist?: LocalAssistOptions;
 }
 
 // §5.25 Codex — 같은 지도 위의 두 번째 엔진. 클로드 쪽(`ClaudeAuthStatus`·`ClaudeSetupState`)과 같은 모양이라 화면이 같은 컴포넌트 규칙으로 그린다.
@@ -7802,6 +8063,8 @@ export interface CodexConfigLayerValues {
    * 코덱스는 `-s workspace-write` 를 읽기 전용으로 내려 돌린다(0.159.2 실측). 적혀 있으면 우리는 손대지 않는다.
    */
   windowsSandbox?: string;
+  /** `model_provider` — 크레딧 경로 판정용. `openai` 가 아닌 제공자로 설정된 PC 에는 OpenAI 키 경로를 열지 않는다. */
+  modelProvider?: string;
 }
 
 /**

@@ -204,6 +204,7 @@ export type {
   ProjectMeta,
   FolderFileEntry,
   FolderFilePage,
+  BundleFilePage,
   WorkspaceEntry,
   WorkspaceDirListing,
   WorkspacePathKind,
@@ -306,6 +307,16 @@ export type {
   OrchestraPlan,
   OrchestraRun,
   OrchestraSummary,
+  OrchestraFormationBasis,
+  OrchestraRunHopRole,
+  OrchestraRunHop,
+  OrchestraRunVerification,
+  OrchestraScoreRow,
+  OrchestraFoldPair,
+  OrchestraIdleMember,
+  OrchestraSuggestions,
+  FileWriteOverlap,
+  SessionMessageLink,
   ConfigTrimScope,
   ConfigTrimRuleId,
   ConfigTrimReason,
@@ -409,6 +420,16 @@ export type {
   // §5.19 All Model — 로컬 LLM
   AgentProviderKind,
   AgentProvider,
+  // §5.19 (J) 끝까지 돕기
+  LocalKvCacheType,
+  LocalMoeOffload,
+  LocalTidyMethod,
+  LocalToolOutputCap,
+  LocalAssistPreset,
+  LocalAssistOptions,
+  LocalPlanState,
+  LocalPlanItem,
+  LocalPlanSummary,
   // §5.25 Codex — 두 번째 엔진
   AgentEngineKind,
   EngineChoice,
@@ -542,6 +563,7 @@ export {
   FILE_MIN_SIZE,
   FILE_MAX_SIZE,
   FILE_SIZE_SCALE,
+  COMMAND_APP_SIZE,
   BUNDLE_BUBBLE,
   HEAT_MIN_SIZE,
   HEAT_MAX_SIZE,
@@ -651,6 +673,8 @@ export {
   EXTERNAL_SUMMARY_CHIPS,
   EXTERNAL_TOP_BUDGET_DEFAULT,
   EXTERNAL_TOP_BUDGET_BOUNDS,
+  EXTERNAL_FOLDER_MERGE_DEPTH_DEFAULT,
+  EXTERNAL_FOLDER_MERGE_DEPTH_BOUNDS,
   EXTERNAL_PROMOTION_PER_PARENT,
   EXTERNAL_PROMOTION_HALF_LIFE_MS,
   EXTERNAL_FOLDER_MAX,
@@ -846,6 +870,7 @@ export {
   SERVER_LOG_RECENT_VIEW_LIMIT,
   PIPELINE_CHILD_CONFIGS,
   PIPELINE_TYPE_INFO,
+  PIPELINE_CHILD_ROLES_BY_TYPE,
   PIPELINE_PARENT_BUBBLE_ID,
   AVAILABLE_AGENT_MODELS,
   AVAILABLE_AGENT_MODEL_FULL_IDS,
@@ -872,6 +897,7 @@ export {
   MANAGED_ENGINE_ROLLBACK_MARK,
   MANAGED_ENGINE_KEEP_VERSIONS,
   MANAGED_ENGINE_UPDATE_INTERVAL_MS,
+  MANAGED_ENGINE_LATEST_DISPLAY_TTL_MS,
   MANAGED_ENGINE_PROBE_TIMEOUT_MS,
   MANAGED_ENGINE_PROBE_CONCURRENCY,
   MANAGED_ENGINE_DISK_HEADROOM_RATIO,
@@ -1073,6 +1099,7 @@ export {
   AUTO_AGENT_BUILDER_CONFIG,
   AUTO_AGENT_BUILDER_INTERVIEW_TOOL,
   HARNESS_INTENT_GATE_ROWS,
+  HARNESS_INTENT_GATE_ROWS_DEPENDENCY,
   harnessIntentGateRowsMarkdown,
   buildHarnessBuilderRules,
   ORCHESTRA_DEFAULT_MAX_MEMBERS,
@@ -1086,6 +1113,17 @@ export {
   ORCHESTRA_PLAN_NOTE_MAX,
   ORCHESTRA_CONDUCTOR_TOOLS,
   ORCHESTRA_CONDUCTOR_DISALLOWED_TOOLS,
+  ORCHESTRA_HOP_TEXT_MAX,
+  ORCHESTRA_RUN_HOPS_MAX,
+  ORCHESTRA_IDLE_MEMBER_DAYS,
+  ORCHESTRA_PLAN_SPLIT_BASIS_MAX,
+  ORCHESTRA_SUGGESTIONS_MAX,
+  SESSION_MESSAGE_LINKS_MAX,
+  SESSION_MESSAGE_LINK_LIVE_MS,
+  SESSION_MESSAGE_PREVIEW_MAX,
+  FILE_WRITE_OVERLAP_WINDOW_MS,
+  FILE_WRITE_OVERLAP_PER_FILE,
+  SUBAGENT_TOKEN_SHARE_POLL_MS,
   AGENT_REPORT_MAX_PER_AGENT,
   AGENT_INTENT_FIRST_RULES,
   buildAgentIntentFirstRules,
@@ -1265,7 +1303,7 @@ export {
   INSURANCE_OVERDUE_MS,
   INSURANCE_OVERDUE_GROWTH_BYTES,
   INSURANCE_BRIEF_MAX_CHARS,
-  INSURANCE_LESSON_REPEAT,
+  INSURANCE_FRESH_BRIEF_MAX_CHARS,
   INSURANCE_RESUME_RISK_BYTES,
   INSURANCE_RESUME_SHORTFALL_RATIO,
   INSURANCE_SNAPSHOT_MARKERS,
@@ -1398,6 +1436,26 @@ export {
   LOCAL_TOOL_REPEAT_LIMIT,
   LOCAL_COMPACT_MAX_TOKENS,
   LOCAL_ENGINE_CACHE_REUSE,
+  LOCAL_PREFILL_NOTICE_TOKENS,
+  LOCAL_SAFE_CACHE_RAM_MAX_MIB,
+  LOCAL_OUTPUT_KEEP_MAX,
+  LOCAL_KV_KEEP_MAX,
+  LOCAL_KV_SLOT_TIMEOUT_MS,
+  LOCAL_RELAY_DEFAULT_MAX_ROUNDS,
+  LOCAL_RELAY_MAX_ROUNDS_LIMIT,
+  LOCAL_RELAY_VERIFY_COMMAND_MAX,
+  LOCAL_PLAN_ITEMS_MAX,
+  LOCAL_PLAN_ITEM_TEXT_MAX,
+  LOCAL_TIDY_KEEP_RECENT_GROUPS,
+  LOCAL_TIDY_MASK_MIN_CHARS,
+  LOCAL_TIDY_AT_CHOICES,
+  LOCAL_KEEP_LOADED_CHOICES,
+  LOCAL_TOOL_OUTPUT_CAP_RATIO,
+  LOCAL_CHARS_PER_TOKEN_MIN,
+  LOCAL_CHARS_PER_TOKEN_MAX,
+  LOCAL_BASH_OUTPUT_HEAD_CHARS,
+  LOCAL_BASH_OUTPUT_TAIL_CHARS,
+  LOCAL_ASSIST_PRESETS,
   LOCAL_CHARS_PER_TOKEN,
   LOCAL_TOOL_RESULT_CONTEXT_RATIO,
   localToolResultBudget,
@@ -1836,10 +1894,14 @@ export {
   hasSessionWork,
   hasBackgroundShells,
   isBackgroundShellTask,
+  isPristineSession,
   resolveSessionRunState,
   sessionSilenceMs,
   resolveSessionLiveness,
   agentBadgeShare,
+  isLockedLiveFollowUpRecord,
+  isPendingQueuedCommand,
+  isUnfinishedQueuedCommand,
 } from './sessionRunState.js';
 
 // §2.4 (한도 정지) — "한도로 끊긴 턴"을 알아보는 판정 한 벌. 스트림 경로가 셋이라 여기 한 곳에 둔다.
@@ -2029,9 +2091,22 @@ export {
   settleStaleOrchestraRuns,
   validateOrchestraPlan,
   orchestraSummaryFingerprint,
+  // §5.3 #10-6 — 편성 기준·사슬·확인됨.
+  ORCHESTRA_FORMATION_BASES,
+  ORCHESTRA_HOP_ROLES,
+  resolveOrchestraFormationBasis,
+  normalizeOrchestraHop,
+  appendOrchestraHop,
+  isOrchestraRunVerified,
 } from './orchestraScope.js';
-export type { OrchestraMemberRef, OrchestraEdgeRef, OrchestraConductorRulesArgs, OrchestraConductorShell } from './orchestraRules.js';
-export { buildOrchestraConductorRules, orchestraConductorShell } from './orchestraRules.js';
+// §5.3 #10-6 — 런에서 짓는 파생값(사슬 역할·조율/작업 토큰·성적표·정리 제안). 저장하지 않는다.
+export type { OrchestraHopRoleInput, OrchestraTokenSplit, OrchestraSuggestionEdge } from './orchestraInsights.js';
+export { orchestraHopRole, orchestraTokenSplit, orchestraScorecard, orchestraSuggestions } from './orchestraInsights.js';
+// §5.5 #17-17 ㉓ — 끝낸 단계와 확인된 단계(표시 전용).
+export type { GoalStepVerification } from './goalStepVerification.js';
+export { goalStepVerification, isPassingVerification } from './goalStepVerification.js';
+export type { OrchestraMemberRef, OrchestraEdgeRef, OrchestraConductorRulesArgs, OrchestraConductorShell, OrchestraRulePart, OrchestraRuleSection } from './orchestraRules.js';
+export { buildOrchestraConductorRules, buildOrchestraConductorRuleParts, buildOrchestraConductorRulesSplit, orchestraRulePartText, orchestraConductorShell } from './orchestraRules.js';
 export type { OrchestraCliEngine, OrchestraPreparationAction, OrchestraPreparation, OrchestraReadiness } from './orchestraReadiness.js';
 // §5.3 #10-5 — 설정 덜어내기: 범위 3단(프로젝트·에이전트·세션) 판정 + 저장 계약. 서버·클라가 같은 함수를 부른다.
 export type {
@@ -2222,6 +2297,8 @@ export {
   externalPromotionScore,
   pickPromotedExternalFolders,
   normalizeExternalTopBudget,
+  normalizeExternalFolderMergeDepth,
+  externalFolderMergeTarget,
 } from './externalFolderView.js';
 
 // §2.1 #3 — 편집 계열 도구(`Edit`/`MultiEdit`/`Write`/`NotebookEdit`) 입력 모양을 아는 유일한 자리 — 클라에만 두면 서버 그래프가
@@ -2557,10 +2634,12 @@ export {
 
 export type { ProviderUsage, ProviderUsageWindow } from './providerUsage.js';
 export * from './codexToolPolicy.js';
+export * from './localAssist.js';
 export { parseCodexTransportNotice, readCodexTransportNotice } from './codexTransport.js';
 export { isCodexModelResumeNotice, isCodexSessionNotice, readCodexSessionNotice } from './codexSessionNotice.js';
 
 export * from './agentRuleShell.js';
+export * from './agentCardGuides.js';
 export { VERIFICATION_AUTOMATION } from './constants.js';
 export * from './verificationAutomation.js';
 
@@ -2681,6 +2760,7 @@ export {
 // §5.3 #9-2 — 자손 프로세스 보호의 판정(상한·압박·희생자·POSIX 소속·알림 한 줄).
 export * from './processGuardPolicy.js';
 export * from './apiCredit.js';
+export * from './openaiCredit.js';
 export * from './creation.js';
 export * from './agentCardTasks.js';
 export * from './vibi3dProduction.js';
@@ -2750,9 +2830,13 @@ export type {
   ConstellationMoon,
   ConstellationPlan,
 } from './constellation.js';
-export { planKindBundles, kindBundleNameOf, kindBundlePathShape, kindBundleCommonDir, kindBundleDirToken, keepSatelliteSeats } from './kindBundle.js';
+export { planKindBundles, kindBundleNameOf, kindBundlePathShape, kindBundleCommonDir, kindBundleDirToken, keepSatelliteSeats, previewBundleKindOf, isPreviewBundleFile, bundleSatelliteKey, isKindBundleKind, satelliteSourceNodeId } from './kindBundle.js';
 export type { KindBundle, KindBundleFileInput, KindBundleKind, KindBundleOptions } from './kindBundle.js';
+export { fileUrlToPath, localLinkTargets, presentedFilesIn, PresentedFileTracker, PRESENTED_SESSIONS_MAX, PRESENTED_SEEN_MAX, PRESENTED_LINE_MAX } from './presentedFiles.js';
+export type { LinkTarget, PresentedEventLike } from './presentedFiles.js';
 export { detectCommandApps, commandAppBrandOf, commandAppGroupKey, mergeCommandAppTarget, COMMAND_ACTIVITY_LIMITS } from './commandApps.js';
 export type { CommandAppBrand, CommandAppTarget } from './commandApps.js';
 export { FOLDER_CONTEXT_MENU_DEFAULT_ENABLED, isFolderContextMenuEnabled } from './folderContextMenu.js';
 export type { FolderContextMenuStatus, FolderContextMenuTarget } from './folderContextMenu.js';
+export { buildCmdCardGuide, buildCmdCardCommonGuide, CMD_CARD_GUIDE_KINDS } from './constants.js';
+export type { CmdCardGuideKind } from './constants.js';

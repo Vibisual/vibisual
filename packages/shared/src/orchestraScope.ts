@@ -4,9 +4,12 @@
  */
 import {
   ORCHESTRA_DEFAULT_MAX_MEMBERS,
+  ORCHESTRA_HOP_TEXT_MAX,
   ORCHESTRA_MAX_MEMBERS_LIMIT,
   ORCHESTRA_PLAN_NOTE_MAX,
   ORCHESTRA_PLAN_REASON_MAX,
+  ORCHESTRA_PLAN_SPLIT_BASIS_MAX,
+  ORCHESTRA_RUN_HOPS_MAX,
   ORCHESTRA_RUN_MAX_PER_PROJECT,
   ORCHESTRA_RUN_REQUEST_MAX,
   ORCHESTRA_RUN_SNAPSHOT_MAX,
@@ -17,13 +20,17 @@ import { ORCHESTRA_STRATEGIES, findOrchestraStrategy, isOrchestraStrategyId } fr
 import type { OrchestraStrategy } from './orchestraCatalog.js';
 import type {
   OrchestraConductorPermission,
+  OrchestraFormationBasis,
   OrchestraIntent,
   OrchestraMemberEngine,
   OrchestraMemberIsolation,
   OrchestraPlan,
   OrchestraPlanChoice,
   OrchestraRun,
+  OrchestraRunHop,
+  OrchestraRunHopRole,
   OrchestraRunPhase,
+  OrchestraRunVerification,
   OrchestraScope,
   OrchestraSettings,
   OrchestraStrategyId,
@@ -37,8 +44,20 @@ export const ORCHESTRA_SCOPE_ORDER: readonly OrchestraScope[] = ['project', 'age
 /** IntentGate 분류(#10-2 표) + 편성 없이 답할 질문. */
 export const ORCHESTRA_INTENTS: readonly OrchestraIntent[] = ['question', 'quick-fix', 'feature', 'research', 'debug', 'refactor'];
 
-/** 편성 넷 — `none` 은 편성하지 않고 지휘자가 직접 답한다. */
-export const ORCHESTRA_TOPOLOGIES: readonly OrchestraTopology[] = ['none', 'single', 'pipeline', 'parallel'];
+/**
+ * 편성 — `none` 은 편성하지 않고 지휘자가 직접 답한다. `self` 는 같은 세션이 평소 설정으로 직접 한다(§5.3 #10-6 (F) —
+ * 사용자가 `allowSelf` 를 켰을 때만 신고를 받는다. 이 목록은 모양 검사용이라 늘 넷 + `self` 다).
+ */
+export const ORCHESTRA_TOPOLOGIES: readonly OrchestraTopology[] = ['none', 'single', 'pipeline', 'parallel', 'self'];
+
+/** §5.3 #10-6 (F) — 편성 기준 둘. 없으면 `role`(종전 표). */
+export const ORCHESTRA_FORMATION_BASES: readonly OrchestraFormationBasis[] = ['role', 'dependency'];
+
+/** §5.3 #10-6 (F) — 사용자 스위치 셋(켬 = true, 끔 = 칸 없음). */
+const ORCHESTRA_FLAG_FIELDS = ['allowSelf', 'crossEngineReview', 'splitRules'] as const;
+
+/** §5.3 #10-6 (A) — 인계 사슬 역할 전부. */
+export const ORCHESTRA_HOP_ROLES: readonly OrchestraRunHopRole[] = ['conductor', 'self', 'entry', 'member', 'review', 'rework'];
 
 /** 멤버 엔진 셋 — `auto` 는 지휘자가 역할마다 고른다. */
 export const ORCHESTRA_MEMBER_ENGINES: readonly OrchestraMemberEngine[] = ['claude', 'codex', 'auto'];
@@ -180,6 +199,11 @@ export function resolveOrchestraMaxMembers(settings: OrchestraSettings | null | 
   return Math.min(ORCHESTRA_MAX_MEMBERS_LIMIT, Math.max(1, Math.round(v)));
 }
 
+/** §5.3 #10-6 (F) — 편성 기준. 없거나 모르는 값이면 `role`. Auto Agent 빌더도 이것을 읽는다. */
+export function resolveOrchestraFormationBasis(settings: OrchestraSettings | null | undefined): OrchestraFormationBasis {
+  return settings?.formationBasis === 'dependency' ? 'dependency' : 'role';
+}
+
 /** 지휘 턴 권한 — 없으면 `bypass`(#10-2 빌더와 같은 이유: loopback curl 을 스스로 친다). */
 export function resolveOrchestraConductorPermission(settings: OrchestraSettings | null | undefined): OrchestraConductorPermission {
   return settings?.conductorPermission === 'inherit' ? 'inherit' : 'bypass';
@@ -287,6 +311,9 @@ export function normalizeOrchestraSettings(input: unknown): OrchestraSettings {
   }
   const off = normalizeStrategyList(r.disabledStrategies);
   if (off) out.disabledStrategies = off;
+  // §5.3 #10-6 (F) — 켠 것만 남긴다(`false` 는 안 정한 것과 같다 — 칸을 늘리지 않는다).
+  for (const f of ORCHESTRA_FLAG_FIELDS) if (r[f] === true) out[f] = true;
+  if (r.formationBasis === 'dependency') out.formationBasis = 'dependency';
   if (typeof r.updatedAt === 'number' && Number.isFinite(r.updatedAt)) out.updatedAt = r.updatedAt;
   return out;
 }
@@ -360,6 +387,19 @@ export function applyOrchestraSettingsPatch(
         else delete next.disabledStrategies;
         break;
       }
+      // §5.3 #10-6 (F) — 켬은 `true`, 끔(`false`·`null`)은 칸을 지운다 — 꺼진 상태가 곧 종전 동작이다.
+      case 'allowSelf':
+      case 'crossEngineReview':
+      case 'splitRules':
+        if (clear(v) || v === false) { delete next[key]; break; }
+        if (v !== true) return { ok: false, field: key };
+        next[key] = true;
+        break;
+      case 'formationBasis':
+        if (clear(v) || v === 'role') { delete next.formationBasis; break; }
+        if (v !== 'dependency') return { ok: false, field: key };
+        next.formationBasis = 'dependency';
+        break;
       default:
         return { ok: false, field: key };
     }
@@ -423,7 +463,73 @@ function normalizePlan(v: unknown): OrchestraPlan | undefined {
   if (skipped.length > 0) plan.skipped = skipped;
   if (typeof p.entryAgentId === 'string' && p.entryAgentId !== '') plan.entryAgentId = p.entryAgentId;
   if (typeof p.note === 'string' && p.note !== '') plan.note = p.note.slice(0, ORCHESTRA_PLAN_NOTE_MAX);
+  if (typeof p.splitBasis === 'string' && p.splitBasis !== '') plan.splitBasis = p.splitBasis.slice(0, ORCHESTRA_PLAN_SPLIT_BASIS_MAX);
+  if (typeof p.reviewAgentId === 'string' && p.reviewAgentId !== '') plan.reviewAgentId = p.reviewAgentId;
   return plan;
+}
+
+function clipHopText(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const t = v.replace(/\s+/g, ' ').trim();
+  if (t === '') return undefined;
+  return t.length > ORCHESTRA_HOP_TEXT_MAX ? `${t.slice(0, ORCHESTRA_HOP_TEXT_MAX)}…` : t;
+}
+
+/** 인계 사슬 한 줄을 계약 안으로 접는다 — 필수 칸이 어긋나면 버린다. */
+export function normalizeOrchestraHop(input: unknown): OrchestraRunHop | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const h = input as Record<string, unknown>;
+  if (typeof h.commandId !== 'string' || h.commandId === '' || typeof h.agentId !== 'string' || h.agentId === '') return null;
+  if (!(ORCHESTRA_HOP_ROLES as readonly unknown[]).includes(h.role)) return null;
+  if (typeof h.queuedAt !== 'number' || !Number.isFinite(h.queuedAt)) return null;
+  if (typeof h.endedAt !== 'number' || !Number.isFinite(h.endedAt)) return null;
+  const hop: OrchestraRunHop = {
+    commandId: h.commandId,
+    agentId: h.agentId,
+    role: h.role as OrchestraRunHopRole,
+    instruction: clipHopText(h.instruction) ?? '',
+    status: h.status === 'error' ? 'error' : 'completed',
+    inputTokens: nonNegInt(h.inputTokens),
+    outputTokens: nonNegInt(h.outputTokens),
+    queuedAt: h.queuedAt,
+    endedAt: h.endedAt,
+  };
+  const result = clipHopText(h.result);
+  if (result !== undefined) hop.result = result;
+  if (typeof h.startedAt === 'number' && Number.isFinite(h.startedAt)) hop.startedAt = h.startedAt;
+  if (h.waitedOnConcurrency === true) hop.waitedOnConcurrency = true;
+  return hop;
+}
+
+/**
+ * 끝난 명령 하나로 사슬 한 줄을 더한다(글은 앞머리만). 같은 명령은 한 줄 — 이미 있으면 같은 배열을 돌려준다.
+ * 상한(`ORCHESTRA_RUN_HOPS_MAX`)을 넘으면 오래된 줄부터 버린다.
+ */
+export function appendOrchestraHop(
+  hops: readonly OrchestraRunHop[] | undefined,
+  hop: OrchestraRunHop,
+  max: number = ORCHESTRA_RUN_HOPS_MAX,
+): OrchestraRunHop[] {
+  const list = hops ?? [];
+  if (list.some((h) => h.commandId === hop.commandId)) return list as OrchestraRunHop[];
+  const normalized = normalizeOrchestraHop(hop);
+  if (!normalized) return list as OrchestraRunHop[];
+  const next = [...list, normalized];
+  return next.length > max ? next.slice(next.length - max) : next;
+}
+
+function normalizeVerification(v: unknown): OrchestraRunVerification | undefined {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const r = v as Record<string, unknown>;
+  if (r.verdict !== 'approve' && r.verdict !== 'reject' && r.verdict !== 'held') return undefined;
+  if (typeof r.at !== 'number' || !Number.isFinite(r.at)) return undefined;
+  return { verdict: r.verdict, passed: nonNegInt(r.passed), failed: nonNegInt(r.failed), at: r.at };
+}
+
+/** "확인됨" — 마지막 검수 판정이 승인이고 서버가 본 통과 증거가 하나 이상이다(§5.3 #10-3 와 같은 문턱). */
+export function isOrchestraRunVerified(run: Pick<OrchestraRun, 'verification'>): boolean {
+  const v = run.verification;
+  return v !== undefined && v.verdict === 'approve' && v.passed > 0;
 }
 
 /** 체크포인트에서 읽은 런 하나를 계약 안으로 접는다 — 필수 칸이 어긋나면 버린다(`null`). */
@@ -459,6 +565,13 @@ export function normalizeOrchestraRun(input: unknown): OrchestraRun | null {
   if (typeof r.endedAt === 'number' && Number.isFinite(r.endedAt)) run.endedAt = r.endedAt;
   const plan = normalizePlan(r.plan);
   if (plan) run.plan = plan;
+  if (Array.isArray(r.hops)) {
+    const hops = r.hops.map(normalizeOrchestraHop).filter((h): h is OrchestraRunHop => h !== null);
+    if (hops.length > 0) run.hops = hops.length > ORCHESTRA_RUN_HOPS_MAX ? hops.slice(hops.length - ORCHESTRA_RUN_HOPS_MAX) : hops;
+  }
+  const verification = normalizeVerification(r.verification);
+  if (verification) run.verification = verification;
+  if (typeof r.selfCommandId === 'string' && r.selfCommandId !== '') run.selfCommandId = r.selfCommandId;
   return run;
 }
 
@@ -506,6 +619,8 @@ export function validateOrchestraPlan(body: unknown, ctx: OrchestraPlanContext):
   const b = body as Record<string, unknown>;
   if (!(ORCHESTRA_INTENTS as readonly unknown[]).includes(b.intent)) return { ok: false, error: 'invalid-intent' };
   if (!(ORCHESTRA_TOPOLOGIES as readonly unknown[]).includes(b.topology)) return { ok: false, error: 'invalid-topology' };
+  // §5.3 #10-6 (F) — `self` 는 사용자가 [직접 하기 허용]을 켰을 때만. 꺼져 있으면 규칙에도 없는 편성이다.
+  if (b.topology === 'self' && ctx.settings.allowSelf !== true) return { ok: false, error: 'topology-not-allowed' };
 
   const readChoices = (v: unknown, field: string): OrchestraPlanChoice[] | OrchestraPlanValidation => {
     if (v === undefined) return [];
@@ -559,6 +674,20 @@ export function validateOrchestraPlan(body: unknown, ctx: OrchestraPlanContext):
     if (b.note.length > ORCHESTRA_PLAN_NOTE_MAX) return { ok: false, error: 'note-too-long' };
     if (b.note.trim() !== '') plan.note = b.note.trim();
   }
+  // §5.3 #10-6 (E) — 나눈 근거는 선택이다. 비어도 거절하지 않고, 모양만 본다(기록용).
+  if (b.splitBasis !== undefined && b.splitBasis !== null) {
+    if (typeof b.splitBasis !== 'string') return { ok: false, error: 'splitBasis-not-string' };
+    if (b.splitBasis.length > ORCHESTRA_PLAN_SPLIT_BASIS_MAX) return { ok: false, error: 'splitBasis-too-long' };
+    if (b.splitBasis.trim() !== '') plan.splitBasis = b.splitBasis.trim();
+  }
+  // §5.3 #10-6 (F) — 직접 하기의 검수자. 그 프로젝트의 커스텀 에이전트여야 하고(지휘자 자신 ❌), `self` 에서만 뜻이 있다.
+  if (b.reviewAgentId !== undefined && b.reviewAgentId !== null) {
+    if (b.topology !== 'self') return { ok: false, error: 'reviewAgentId-self-only' };
+    if (typeof b.reviewAgentId !== 'string' || !ctx.projectAgentIds.has(b.reviewAgentId)) {
+      return { ok: false, error: 'review-agent-not-in-project', ids: [String(b.reviewAgentId)] };
+    }
+    plan.reviewAgentId = b.reviewAgentId;
+  }
   // 편성 없이 답하는데 방안을 골랐다면 — 막지 않는다. 지휘자 자신의 턴에도 적용되는 방안(출력 줄이기 등)이 있다.
   return { ok: true, plan, reusedAgentIds: reused };
 }
@@ -570,7 +699,10 @@ export function validateOrchestraPlan(body: unknown, ctx: OrchestraPlanContext):
 export function orchestraSummaryFingerprint(summary: OrchestraSummary | undefined): string {
   if (!summary) return '';
   const runs = summary.runs
-    .map((r) => `${r.runId}:${r.phase}:${r.inputTokens}:${r.outputTokens}:${r.planAt ?? 0}:${r.endedAt ?? 0}:${r.memberAgentIds.length}`)
+    .map((r) => `${r.runId}:${r.phase}:${r.inputTokens}:${r.outputTokens}:${r.planAt ?? 0}:${r.endedAt ?? 0}:${r.memberAgentIds.length}`
+      + `:${r.hops?.length ?? 0}:${r.verification ? `${r.verification.verdict}${r.verification.passed}/${r.verification.at}` : ''}:${r.selfCommandId ?? ''}`)
     .join(',');
-  return `${summary.settings.updatedAt ?? 0}|${JSON.stringify(summary.settings.enabledAgents ?? {})}|${summary.settings.enabledProject ?? ''}|${runs}`;
+  // 파생값(성적표·제안)은 런·엣지에서 온다 — 런이 같아도 엣지가 바뀌면 달라지므로 그대로 싣는다(작은 표다).
+  const derived = `${JSON.stringify(summary.scorecard ?? [])}|${JSON.stringify(summary.suggestions ?? null)}`;
+  return `${summary.settings.updatedAt ?? 0}|${JSON.stringify(summary.settings.enabledAgents ?? {})}|${summary.settings.enabledProject ?? ''}|${runs}|${derived}`;
 }

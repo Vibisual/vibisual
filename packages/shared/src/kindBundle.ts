@@ -1,13 +1,7 @@
-/**
- * §5.1 #2-1 (B)(D) — 같은 종류 묶음 판정(순수). 한 무리(한 버블의 위성 · 한 화면의 원 둘레)에서 같은 미디어 종류가 `BUNDLE_BUBBLE.minMembers` 개
- * 이상이면 묶음 하나 — 하위 폴더 무관(폴더를 열쇠에 넣으면 흩어진 같은 종류가 낱자리로 선다). 묶음엔 그 종류만, 미디어 아닌 종류는 묶지 않는다.
- * 한 묶음은 `memberMax` 까지 — 넘친 오래된 구성은 `overflowIds` 로 서버 위성 상한이 뺀다. 묶음 안은 그 버블 아래 같은 종류 전부(범위 `folderNodeId`).
- * `dir` 은 이름일 뿐(`kindBundleCommonDir`). 비교는 `pathKey`(플랫폼 인자), 경로는 `EXTERNAL_NODE_KEY_MARK` 를 뗀 모양(서버 노드 키와 같은 자).
- * 서버(`keepSatelliteSeats`)·클라(묶음 버블·IDE 세션 지도)가 함께 부른다 — 두 벌이면 서버가 남긴 자리와 화면 묶음이 갈린다.
- */
+/** 같은 화면의 미리보기 파일을 유형별로 묶는다. 경로 비교는 플랫폼별 pathKey를 공유한다. */
 
 import { BUNDLE_BUBBLE, CONSTELLATION, EXTERNAL_NODE_KEY_MARK } from './constants.js';
-import { fileFaceKindOf, isMediaFaceKind } from './fileFace.js';
+import { fileFaceExtOf, fileFaceKindOf, isMediaFaceKind } from './fileFace.js';
 import { normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
 
 /** 판정할 파일 하나. `path` 는 노드 키(외부 표식 포함 가능)나 경로 — 한 무리의 파일끼리 같은 형식이면 된다. */
@@ -25,8 +19,36 @@ export interface KindBundleOptions {
   readonly includeRoot?: boolean;
 }
 
-/** 묶음이 되는 종류 — 앱이 여는 미디어 넷. */
-export type KindBundleKind = 'video' | 'image' | 'audio' | 'model';
+/** 묶음이 되는 미리보기 종류. */
+export type KindBundleKind = 'video' | 'image' | 'audio' | 'model' | 'doc' | 'code';
+
+export function isKindBundleKind(value: unknown): value is KindBundleKind {
+  return value === 'video' || value === 'image' || value === 'audio' || value === 'model' || value === 'doc' || value === 'code';
+}
+
+/** 일반 텍스트와 별도로 미리보기하는 파일만 묶음·위성 상한 예외를 공유한다. */
+export function previewBundleKindOf(filePath: string): KindBundleKind | null {
+  const face = fileFaceKindOf(filePath);
+  if (isMediaFaceKind(face)) return face;
+  const ext = fileFaceExtOf(filePath);
+  if (ext === '.pdf') return 'doc';
+  if (ext === '.html' || ext === '.htm') return 'code';
+  return null;
+}
+
+export function isPreviewBundleFile(filePath: string): boolean {
+  return previewBundleKindOf(filePath) !== null;
+}
+
+export function bundleSatelliteKey(kind: KindBundleKind, sessionId?: string): string {
+  return sessionId ? `${kind}:${sessionId}` : kind;
+}
+
+/** 세션별 표시 사본도 원본 파일의 선택·설정·삭제 경로를 공유한다. */
+export function satelliteSourceNodeId(id: string): string {
+  if (!id.startsWith('sat-')) return id;
+  return id.slice(4).split(':preview-session:', 1)[0]!;
+}
 
 /** 묶음 하나 — 한 무리의 한 미디어 종류. */
 export interface KindBundle {
@@ -116,8 +138,8 @@ export function planKindBundles(
     if (f.id === '' || f.path === '' || seen.has(f.id)) continue;
     seen.add(f.id);
     const shaped = kindBundlePathShape(f.path);
-    const face = fileFaceKindOf(shaped);
-    if (!isMediaFaceKind(face)) continue;
+    const face = previewBundleKindOf(shaped);
+    if (face === null) continue;
     // 폴더가 없는 자리(루트 바로 아래) — 루트를 묶으라 할 때만 묶는다.
     if (dirOf(shaped) === '' && opts.includeRoot !== true) continue;
     const kind = face as KindBundleKind;
@@ -143,40 +165,23 @@ export function planKindBundles(
   return out;
 }
 
-/**
- * §5.1 #2-1 (D) — 위성 상한은 자리 수다: 같은 종류 묶음은 한 자리(구성 `memberMax` 까지), 나머지는 파일 하나가 한 자리.
- * 최근 구성의 `lastActivity` 로 최근 자리부터 `cap` 개 — 남길 파일 id 를 돌려준다(차례는 부르는 쪽 입력 그대로).
- * 서버 `trimSatellites`(등록 차례)와 IDE 세션 지도(§5.5 #17-50, 마지막으로 닿은 시각)가 함께 부른다.
- */
+/** 일반 문서만 최근 cap개로 제한한다. 미리보기는 묶음 내부 전체 조회를 위해 모두 유지한다. */
 export function keepSatelliteSeats(
   files: readonly KindBundleFileInput[],
   cap: number,
-  opts: KindBundleOptions,
+  _opts: KindBundleOptions,
 ): Set<string> {
-  const keep = new Set(files.map((f) => f.id));
-  if (keep.size <= cap) return keep;
-  const unitOf = new Map<string, string>();
-  for (const bundle of planKindBundles(files, opts)) {
-    for (const id of bundle.overflowIds) keep.delete(id);
-    // 자리 열쇠 — 묶음은 경로가 될 수 없는 머리(NUL)를 달아 파일 id 와 겹치지 않게 한다.
-    for (const id of bundle.memberIds) unitOf.set(id, `\u0000${bundle.token}`);
-  }
-  if (keep.size <= cap) return keep;
+  const keep = new Set<string>();
   const latest = new Map<string, number>();
   for (const f of files) {
-    if (!keep.has(f.id)) continue;
-    const unit = unitOf.get(f.id) ?? f.id;
+    if (isPreviewBundleFile(f.path)) { keep.add(f.id); continue; }
     const at = f.lastActivity ?? 0;
-    const prev = latest.get(unit);
-    if (prev === undefined || at > prev) latest.set(unit, at);
+    const prev = latest.get(f.id);
+    if (prev === undefined || at > prev) latest.set(f.id, at);
   }
-  if (latest.size <= cap) return keep;
-  const kept = new Set(
-    [...latest.entries()]
+  const entries = latest.size <= cap ? latest.entries() : [...latest.entries()]
       .sort((a, b) => (b[1] - a[1]) || compareIds(a[0], b[0]))
-      .slice(0, Math.max(0, cap))
-      .map(([unit]) => unit),
-  );
-  for (const id of [...keep]) if (!kept.has(unitOf.get(id) ?? id)) keep.delete(id);
+      .slice(0, Math.max(0, cap));
+  for (const [id] of entries) keep.add(id);
   return keep;
 }
