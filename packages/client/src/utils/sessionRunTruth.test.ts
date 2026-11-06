@@ -1,7 +1,8 @@
 /**
  * "실행 중"이 거짓말하지 않는가 — §2.4 세션 생존 판정의 회귀 고정(판정이 여러 벌로 흩어지면 멈춘 일이 계속 "실행 중"으로 보인다).
  * (A) 표시 사본은 생존 판정에 안 쓴다 (B) 술어 한 벌 (C) 상태바도 같은 인자 (D) [중지] 응답이 화면에 닿는다 (E) 압축 물려받은 명령 = 실행 중 (G) 실행 축에 시간
- * (I) 좀비 `executing` 뒤 `queued` 덧말은 "대기" (J) 사전 압축(§5.3 #9-1 (P)) 뒤 명령은 입력 순간부터 (K) 백단 셸 띠 ❌(§5.5 #17-9 ⑰(c-1)) (L) 경과는 턴 시작부터.
+ * (I) 좀비 `executing` 뒤 `queued` 덧말은 "대기" (J) 사전 압축(§5.3 #9-1 (P)) 뒤 명령은 입력 순간부터 (K) 백단 셸 띠 ❌(§5.5 #17-9 ⑰(c-1)) (L) 경과는 턴 시작부터
+ * (M) 확인 불가로 잠긴 [작업에 반영] 기록은 대기가 아니다(§5.5 #17-18 ⑬).
  * jsdom 이 없어 판정은 순수 함수로, 배선은 import.meta.glob(?raw) 소스 스캔으로 고정한다(promptBubbleCollapse.test.ts 와 같은 방식).
  */
 import { describe, it, expect } from 'vitest';
@@ -10,6 +11,9 @@ import {
   SESSION_NO_RESPONSE_MS,
   displayCommands,
   hasSessionWork,
+  isLockedLiveFollowUpRecord,
+  isPendingQueuedCommand,
+  isUnfinishedQueuedCommand,
   isSessionRunning,
   isSessionExecuting,
   isSessionWaiting,
@@ -362,6 +366,59 @@ describe('(I) 라이브 1줄 — 대기는 "작업 중"이 아니다', () => {
     expect(src).toMatch(/waiting: sessionWaiting/);
     expect(src).toMatch(/sessionWaiting=\{sessionWaiting\}/);
     expect(src).toMatch(/MAIN_LIVE_LABEL_KEY/);
+  });
+});
+
+describe('(M) 확인 불가로 잠긴 [작업에 반영]은 줄 선 명령이 아니다 — §5.5 #17-18 ⑬', () => {
+  // 사고 재현: 턴은 끝나 세션은 idle 인데, 30초 수신 상한으로 잠긴 [작업에 반영] 기록 하나가 큐에 남았다.
+  const locked = cmd({
+    id: 'steer-locked', timestamp: 2_000, dispatchMode: 'steer',
+    liveDelivery: { state: 'uncertain', reason: 'deliveryUnknown', decidedAt: 32_000 },
+  });
+  const idle = sub({ status: 'idle' });
+
+  it('술어 셋 — 잠긴 기록만 빠지고, 아직 나갈 [작업에 반영]과 일반 명령은 그대로 센다', () => {
+    expect(isLockedLiveFollowUpRecord(locked)).toBe(true);
+    expect(isPendingQueuedCommand(locked)).toBe(false);
+    expect(isUnfinishedQueuedCommand(locked)).toBe(false);
+    for (const state of ['sending', 'received', 'unavailable'] as const) {
+      const live = cmd({ dispatchMode: 'steer', liveDelivery: { state } });
+      expect(isLockedLiveFollowUpRecord(live), state).toBe(false);
+      expect(isPendingQueuedCommand(live), state).toBe(true);
+    }
+    expect(isPendingQueuedCommand(cmd({ dispatchMode: 'steer' }))).toBe(true);
+    expect(isPendingQueuedCommand(cmd({}))).toBe(true);
+    expect(isUnfinishedQueuedCommand(cmd({ status: 'executing' }))).toBe(true);
+    expect(isUnfinishedQueuedCommand(cmd({ status: 'completed' }))).toBe(false);
+    // 큐를 떠난 명령에 같은 표식이 남아 있어도 잠긴 기록이 아니다(상태가 먼저다).
+    expect(isLockedLiveFollowUpRecord({ ...locked, status: 'completed' })).toBe(false);
+  });
+
+  it('잠긴 기록만 남은 세션은 대기가 아니라 끝남이다 — 도트·생존 축·낼 일 모두', () => {
+    const inputs = buildSessionRunInputs({ sub: idle, commands: [locked], runningTasks: [], acknowledged: false });
+    expect(inputs.hasQueuedCommand).toBe(false);
+    expect(isSessionWaiting(inputs)).toBe(false);
+    expect(hasSessionWork(inputs)).toBe(false);
+    expect(resolveSessionRunState(inputs)).toBe('doneUnseen');
+    expect(resolveSessionLiveness(inputs, 2_000, 2_000 + 70 * 60_000)).toBe('idle');
+    // 진짜로 줄 선 명령이 함께 있으면 종전대로 대기다.
+    const withQueued = buildSessionRunInputs({
+      sub: idle, commands: [locked, cmd({ id: 'next', timestamp: 3_000 })], runningTasks: [], acknowledged: false,
+    });
+    expect(resolveSessionRunState(withQueued)).toBe('waiting');
+  });
+
+  it('도트 재료(serializePendingSubIds)·턴 시계도 잠긴 기록을 세지 않는다', () => {
+    expect(serializePendingSubIds([locked])).toBe('');
+    expect(serializePendingSubIds([locked, cmd({ id: 'other', subAgentId: 'sub-B' })])).toBe('sub-B');
+    // 대기 시계는 잠긴 기록의 투입 시각부터 재지 않는다(그 시각부터 재면 "대기 중 1h 10m" 처럼 끝없이 자란다).
+    expect(sessionTurnStartedAt([locked], [], 'sub-A', true)).toBeNull();
+    expect(sessionTurnStartedAt([locked, cmd({ id: 'next', timestamp: 3_000 })], [], 'sub-A', true)).toBe(3_000);
+  });
+
+  it('스트림 추정(override 없음) — 잠긴 기록만 남으면 라이브 1줄이 서지 않는다', () => {
+    expect(buildBaseItems([], [locked]).thinkingLive).toBeNull();
+    expect(buildBaseItems([], [locked, cmd({ id: 'next', timestamp: 3_000 })]).thinkingLive?.mode).toBe('waiting');
   });
 });
 

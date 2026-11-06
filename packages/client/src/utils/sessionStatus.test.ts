@@ -5,6 +5,7 @@ import {
   isSessionExecuting,
   hasBackgroundShells,
   hasSessionWork,
+  isPristineSession,
   resolveSessionRunState,
   resolveSessionLiveness,
   SESSION_NO_RESPONSE_MS,
@@ -259,6 +260,59 @@ describe('sessionRunStateOf — 도트를 그리는 모든 화면의 공통 입�
   it('서버가 세운 한도 표식을 그대로 읽는다', () => {
     const s = sub({ status: 'idle', usageLimit: { kind: 'session', at: 1, message: 'x' } });
     expect(sessionRunStateOf(s, true)).toBe('limited');
+  });
+});
+
+/** §5.5 #17-10 ⑦ — 한 번도 돌지 않은 세션은 끝난 것이 아니다. 확인 표식은 창마다 따로라 빈 탭의 색을 거기에 맡기지 않는다. */
+describe('빈 세션(fresh) — 명령을 한 번도 받지 않은 탭은 "끝남"이 아니다', () => {
+  // 서버 `create()` 가 만든 그대로: CLI 세션·명령·결과 없음, 두 시각이 같다.
+  const pristine = (patch: Partial<SubAgent> = {}): SubAgent =>
+    sub({ id: 'sub-new', sessionId: '', createdAt: 1_000, lastActivityAt: 1_000, ...patch });
+
+  it('새로 만든 그대로일 때만 빈 세션이다 — 명령·결과·CLI 세션·활동 중 하나라도 있으면 아니다', () => {
+    expect(isPristineSession(pristine())).toBe(true);
+    expect(isPristineSession(pristine({ lastCommand: 'do it' }))).toBe(false);
+    expect(isPristineSession(pristine({ lastResult: 'done' }))).toBe(false);
+    expect(isPristineSession(pristine({ sessionId: 'cli-1' }))).toBe(false);
+    // CMD 탭은 명령·세션 id 를 남기지 않고 활동 시각만 민다 — 그것으로 "돈 탭"이 된다.
+    expect(isPristineSession(pristine({ lastActivityAt: 1_001 }))).toBe(false);
+  });
+
+  it('확인 표식이 없어도 초록 "끝남"이 아니다 — 회색 점·"대기" 낱말', () => {
+    expect(sessionRunStateOf(pristine(), false, false, false)).toBe('fresh');
+    expect(sessionRunStateOf(pristine(), true, false, false)).toBe('fresh');
+    expect(SESSION_STATUS_DOT.fresh).toBe(SESSION_STATUS_DOT.done);
+    expect(SESSION_STATUS_LABEL_KEY.fresh).toBe('panel.subAgent.status.idle');
+    expect(SESSION_STATUS_LABEL_KEY.fresh).not.toBe(SESSION_STATUS_LABEL_KEY.doneUnseen);
+  });
+
+  it('옆 세션이 끝나 초록이어도 빈 세션은 그대로다', () => {
+    const finished = sub({ id: 'sub-done', lastCommand: 'fix it', lastResult: 'fixed', lastActivityAt: 5_000 });
+    expect(sessionRunStateOf(finished, false, false, false)).toBe('doneUnseen');
+    expect(sessionRunStateOf(pristine(), false, false, false)).toBe('fresh');
+  });
+
+  it('첫 명령이 줄 서거나 돌기 시작하면 그 사실이 이긴다', () => {
+    expect(sessionRunStateOf(pristine(), false, false, /*hasQueuedCommand=*/true)).toBe('waiting');
+    expect(sessionRunStateOf(pristine({ status: 'active' }), false, false, false)).toBe('running');
+    expect(sessionRunStateOf(pristine(), false, /*hasBackgroundWork=*/true, false)).toBe('running');
+    expect(sessionRunStateOf(pristine({ status: 'error' }), false, false, false)).toBe('error');
+  });
+
+  it('한 번이라도 돌고 끝나면 종전 규칙 — 미확인은 초록, 확인은 회색', () => {
+    const ran = pristine({ lastCommand: 'do it', sessionId: 'cli-1', lastActivityAt: 2_000 });
+    expect(sessionRunStateOf(ran, false, false, false)).toBe('doneUnseen');
+    expect(sessionRunStateOf(ran, true, false, false)).toBe('done');
+    // CMD 탭(활동 시각만 밀림)도 종전대로 — 턴이 끝나면 초록이 사용자를 부른다.
+    expect(sessionRunStateOf(pristine({ lastActivityAt: 9_000 }), false, false, false)).toBe('doneUnseen');
+  });
+
+  it('buildSessionRunInputs 도 같은 판정을 싣는다 — 메인 탭은 빈 세션을 말하지 않는다', () => {
+    const built = buildSessionRunInputs({ sub: pristine(), commands: [], runningTasks: [], acknowledged: false });
+    expect(built.pristine).toBe(true);
+    expect(resolveSessionRunState(built)).toBe('fresh');
+    const main = buildSessionRunInputs({ sub: null, agentStatus: 'idle', commands: [], runningTasks: [], acknowledged: false });
+    expect(main.pristine).toBe(false);
   });
 });
 

@@ -1,3 +1,4 @@
+import { satelliteSourceNodeId } from '@vibisual/shared';
 import { memo, useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
@@ -386,6 +387,16 @@ export const BubbleNode = memo(function BubbleNode({
    * (`bubbleLockBadge` 캐시) 스냅샷이 흘러도 이 버블은 깨지 않는다.
    */
   const lockBadge = useGraphStore((s) => bubbleLockBadge(s.pathLocks, data));
+  /*
+   * §5.1 #3-4 (A) — 이 에이전트가 **받는 이를 모르는 세션**으로 보낸 살아 있는 메시지 수(선을 그을 끝이 없어 배지로 말한다).
+   * `live` 는 서버가 찍는다 — 여기서 시계를 보지 않는다(§3.1). 숫자 하나만 구독해 메시지가 와도 다른 버블은 다시 그리지 않는다.
+   */
+  const externalMessageCount = useGraphStore((s) => (data.bubbleType === 'agent'
+    ? s.sessionMessages.filter((l) => l.live === true && !l.toAgentId && l.fromAgentId === data.id).length
+    : 0));
+  const externalMessageTo = useGraphStore((s) => (data.bubbleType === 'agent'
+    ? s.sessionMessages.filter((l) => l.live === true && !l.toAgentId && l.fromAgentId === data.id).map((l) => l.to).join(', ')
+    : ''));
   // §5.10 — 휴지통 배지: 현재 프로젝트의 trashed 에이전트 수.
   //   store.agents 는 전 프로젝트 합본이라 여기서 세면 다른 프로젝트의 휴지통까지 합산된다(§3.5 프로젝트
   //   독립성 위반). 개수는 BubbleMap 이 프로젝트 필터를 거쳐 data.activity 로 실어 보낸다.
@@ -434,7 +445,9 @@ export const BubbleNode = memo(function BubbleNode({
   const range = localRange ?? globalRange;
   // §5.1 #2-1 — 미디어 얼굴·별자리 중심의 지름 하한도 `calcBubbleSize` 가 읽는다(경로·위성 수가 바뀌면 다시 잰다). (B) 묶음 안은 `_usageRange` 로 잰다.
   const usageRange = (data as Record<string, unknown>)['_usageRange'];
-  const size = useMemo(() => calcBubbleSize(data, range, heat), [data.activity, data.status, data.bubbleType, data.childCount, data.fileSize, data.readCount, data.writeCount, data.externalRollupReadCount, data.externalRollupWriteCount, data.absolutePath, data.path, range, heat, usageRange]); // eslint-disable-line react-hooks/exhaustive-deps
+  // §5.1 「앱 버블 지름」 — 명령 앱은 같은 화면의 앱끼리 견준 사용 횟수(`_appUsageRange`)로 잰다.
+  const appUsageRange = (data as Record<string, unknown>)['_appUsageRange'];
+  const size = useMemo(() => calcBubbleSize(data, range, heat), [data.activity, data.status, data.bubbleType, data.childCount, data.fileSize, data.readCount, data.writeCount, data.externalRollupReadCount, data.externalRollupWriteCount, data.absolutePath, data.path, range, heat, usageRange, appUsageRange, data.commandApp]); // eslint-disable-line react-hooks/exhaustive-deps
   // 단일 스케일 팩터 — 모든 텍스트/아이콘이 이 비율로 비례 축소/확대
   const ts = size / BUBBLE_TEXT_REF_SIZE;
   const isActive = data.status === 'active';
@@ -484,7 +497,7 @@ export const BubbleNode = memo(function BubbleNode({
 
   // 선택 링 — `selectIntentId`('sat-' 를 떼고 저장하므로 같게 비교). §9 — 판정 결과만 구독한다
   // (id 를 받으면 클릭마다 모든 버블이 다시 그려져 §5.4 #31 (K) 페이드 첫 프레임을 먹는다).
-  const selectRingId = data.id.startsWith('sat-') ? data.id.slice(4) : data.id;
+  const selectRingId = satelliteSourceNodeId(data.id);
   //   §5.5 #17-50 — 남의 판의 버블은 **그 판의 링만** 따른다. 가운데 에이전트처럼 캔버스와 같은 id 여도 캔버스에서 고른 것이
   //   여기 켜지지 않는다(구독도 하지 않는다 — 판의 링은 노드 데이터 표식이라 그 버블만 다시 그려진다).
   const canvasRing = useGraphStore((s) => host === null && s.selectIntentId !== null && s.selectIntentId === selectRingId);
@@ -703,7 +716,7 @@ export const BubbleNode = memo(function BubbleNode({
       return;
     }
     const rawId = data.id;
-    const id = rawId.startsWith('sat-') ? rawId.slice(4) : rawId;
+    const id = satelliteSourceNodeId(rawId);
     useGraphStore.getState().selectNode(id);
 
     // 확인 dismiss(§2.4) — 어느 상태가 대상인지는 `agentDismiss` 한 벌이 정한다.
@@ -733,7 +746,7 @@ export const BubbleNode = memo(function BubbleNode({
       // selectNode/setSelectIntent 는 'sat-' 프리픽스를 떼고 저장 → 링 비교 규칙과 같은 모양으로.
       const intentId = data.id === '__root_home__'
         ? store.currentFolderId
-        : (data.id.startsWith('sat-') ? data.id.slice(4) : data.id);
+        : (satelliteSourceNodeId(data.id));
       store.setSelectIntent(intentId);
     },
     ignore: (e) => {
@@ -1297,6 +1310,54 @@ export const BubbleNode = memo(function BubbleNode({
             : t('canvas.pathLock.badgeInherited', { path: lockBadge.target })}
         >
           <PathLockGlyph className="h-[62%] w-[62%]" strokeWidth={2.2} />
+        </span>
+      )}
+
+      {/* §5.1 #3-4 — 왼쪽 아래 표식 둘(관찰만 — 손짓을 가로채지 않는다). 메시지: 바깥 세션으로 보낸 것 · 겹침: 다른 에이전트도 짧은 간격으로 고친 파일. */}
+      {externalMessageCount > 0 && (
+        <span
+          data-session-message-badge={externalMessageCount}
+          className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full bg-gray-950/85 text-cyan-300 ring-1 ring-cyan-300/60"
+          style={{
+            bottom: Math.max(1, Math.round(4 * ts)),
+            left: Math.max(1, Math.round(4 * ts)),
+            width: Math.max(12, Math.round(18 * ts)),
+            height: Math.max(12, Math.round(18 * ts)),
+          }}
+          role="img"
+          aria-label={t('canvas.sessionMessage.externalBadge', { count: externalMessageCount, names: externalMessageTo })}
+          title={t('canvas.sessionMessage.externalBadge', { count: externalMessageCount, names: externalMessageTo })}
+        >
+          <svg className="h-[62%] w-[62%]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+          </svg>
+        </span>
+      )}
+      {data.writeOverlap && data.writeOverlap.agentIds.length > 1 && (
+        <span
+          data-write-overlap-badge={data.writeOverlap.agentIds.length}
+          className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full bg-gray-950/85 text-amber-300 ring-1 ring-amber-300/60"
+          style={{
+            bottom: Math.max(1, Math.round(4 * ts)),
+            left: Math.max(1, Math.round(4 * ts)),
+            width: Math.max(12, Math.round(18 * ts)),
+            height: Math.max(12, Math.round(18 * ts)),
+          }}
+          role="img"
+          aria-label={t('canvas.writeOverlap.badge', {
+            count: data.writeOverlap.agentIds.length,
+            minutes: Math.max(1, Math.round((data.writeOverlap.lastAt - data.writeOverlap.firstAt) / 60_000)),
+          })}
+          title={t('canvas.writeOverlap.badge', {
+            count: data.writeOverlap.agentIds.length,
+            minutes: Math.max(1, Math.round((data.writeOverlap.lastAt - data.writeOverlap.firstAt) / 60_000)),
+          })}
+        >
+          <svg className="h-[62%] w-[62%]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <rect x="8" y="8" width="14" height="14" rx="2" />
+            <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+          </svg>
         </span>
       )}
 

@@ -28,6 +28,11 @@ describe('selectionFocusIds', () => {
     expect(selectionFocusIds([bubble('sat-file'), bubble('other')], 'file', null)).toEqual(['sat-file']);
   });
 
+  it('maps session-specific preview copies to the same source selection', () => {
+    const ids = ['sat-file:preview-session:a', 'sat-file:preview-session:b'];
+    expect(selectionIdentityIds(ids.map((id) => bubble(id)), 'file', null)).toEqual(ids);
+  });
+
   it('폴더 내부 홈 버블은 현재 폴더의 선택을 이어받는다', () => {
     expect(selectionFocusIds([bubble('__root_home__'), bubble('child')], 'folder', 'folder'))
       .toEqual(['__root_home__']);

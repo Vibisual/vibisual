@@ -3,8 +3,10 @@ import type { Edge } from '@xyflow/react';
 import type { BubbleData, ActivityEdge, PipelineState } from '@vibisual/shared';
 import { BUBBLE_COLORS, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, PIPELINE_PARENT_BUBBLE_ID } from '@vibisual/shared';
 import { collectSatellites } from '../utils/satellite.js';
-import { withBundleUsageRange, withScreenFileRange } from '../utils/sizeCalc.js';
-import { packBundleInterior } from '../utils/bundleInteriorLayout.js';
+import { withBundleUsageRange, withCommandAppUsageRange, withScreenFileRange } from '../utils/sizeCalc.js';
+import { prepareBundleInterior } from '../utils/bundleInteriorLayout.js';
+import { useBundlePacking, type BundlePackingRequest } from './useBundlePacking.js';
+import { bundlePageWindow } from '../utils/bundlePages.js';
 import type { InteriorView } from '../stores/graphStore.js';
 import { applyConstellations, type ConstellationAppHubView } from '../utils/constellationView.js';
 import { clientPathPlatform } from '../utils/platform.js';
@@ -34,8 +36,10 @@ interface UseBubbleLayoutProps {
   appHubs?: readonly ConstellationAppHubView[];
   /** §5.1 #2-1 (B) — 최상위 파일 묶음(프로젝트 루트)의 이름 = 지금 탭의 프로젝트 이름. */
   rootLabel?: string | null;
-  /** §5.1 #2-1 (B) — 폴더 위성 묶음의 구성을 지금 턴의 것만으로(캔버스만 — IDE 세션 지도는 턴 표시가 없다). */
-  openTurnOnly?: boolean;
+  bundleFolder?: BubbleData;
+  fileNodes?: Readonly<Record<string, BubbleData>>;
+  /** §5.5 #17-50 — the IDE session map's session; the canvas leaves it unset so bundles ignore sessions. */
+  bundleSessionId?: string;
 }
 
 const NO_APP_HUBS: readonly ConstellationAppHubView[] = [];
@@ -49,6 +53,7 @@ const FOLDER_HOME_ID = '__root_home__';
 export const FOLDER_NAV_IDS: ReadonlySet<string> = new Set([FOLDER_BACK_ID, FOLDER_HOME_ID]);
 
 const NO_BUNDLED: ReadonlyMap<string, string> = new Map();
+const NO_RETAINED: ReadonlyMap<string, number> = new Map();
 
 /**
  * §5.1 #2-1 (B) — 위성이 된 직속 파일로 오던 선을 새 노드로 옮긴다(`dropWith` 면 그 노드와 위성 사이 선은 버린다).
@@ -59,6 +64,7 @@ export function remapConverted(
   converted: ReadonlyMap<string, string>,
   dropWith?: string,
   bundled: ReadonlyMap<string, string> = NO_BUNDLED,
+  retained: ReadonlyMap<string, number> = NO_RETAINED,
 ): Edge[] {
   if (converted.size === 0 && bundled.size === 0) return edges;
   const out: Edge[] = [];
@@ -74,7 +80,12 @@ export function remapConverted(
       continue;
     }
     if ((cs !== undefined || ct !== undefined) && dropWith !== undefined && (e.source === dropWith || e.target === dropWith)) continue;
-    const moved = { ...e, source: cs ?? bs ?? e.source, target: ct ?? bt ?? e.target };
+    const keepOriginal = (bs !== undefined && retained.has(e.source)) || (bt !== undefined && retained.has(e.target));
+    if (keepOriginal) out.push({
+      ...e, source: cs ?? e.source, target: ct ?? e.target,
+      data: { ...e.data, sourceRadius: retained.get(e.source) ?? e.data?.sourceRadius, targetRadius: retained.get(e.target) ?? e.data?.targetRadius },
+    });
+    const moved = { ...e, ...(keepOriginal ? { id: `${e.id}:bundle` } : {}), source: cs ?? bs ?? e.source, target: ct ?? bt ?? e.target };
     if (bs === undefined && bt === undefined) {
       out.push(moved);
       continue;
@@ -101,7 +112,9 @@ export function useBubbleLayout({
   residentBubbles = [],
   appHubs = NO_APP_HUBS,
   rootLabel = null,
-  openTurnOnly = false,
+  bundleFolder,
+  fileNodes,
+  bundleSessionId,
 }: UseBubbleLayoutProps): ViewData {
   // §5.24 — 히트맵이 켜져 있으면 배치도 렌더와 **같은 자**를 써야 한다(안 그러면 화살표가 빗나간다).
   const heat = useHeatScale();
@@ -121,11 +134,14 @@ export function useBubbleLayout({
       heat,
       platform: clientPathPlatform(),
       satellitePositions,
-      openTurnOnly,
       ...(rootLabel ? { rootLabel } : {}),
+      bundleFolder,
+      fileNodes,
+      bundleSessionId,
     });
     // §2.3 · §5.1 #2-1 (A) — 원 둘레에 선 파일은 같은 화면의 원 둘레 파일끼리 견준다(종전 — 프로젝트 전체 위성의 범위).
-    const radialFolders = withScreenFileRange(cv.radial);
+    //   §5.1 「앱 버블 지름」 — 명령 앱도 같은 화면의 앱끼리 사용 횟수로 견준다.
+    const radialFolders = withCommandAppUsageRange(withScreenFileRange(cv.radial));
     const satInfos = cv.satInfos;
 
     // §5.10 — 상주 버블(휴지통)은 폴더처럼 홈 주변을 공전(items)하되 물리 standalone.
@@ -138,6 +154,7 @@ export function useBubbleLayout({
     // 선 끝점 반경 폴백은 위성이 된 파일도 찾을 수 있게 위성 사본까지 함께 본다. 묶음에 든 파일은 그 묶음으로 잰다.
     const radiusPool = cv.converted.size > 0 ? [...allBubbles, ...satInfos.map((s) => s.bubble)] : allBubbles;
     const endOf = (id: string): string => cv.converted.get(id) ?? cv.bundled.get(id) ?? id;
+    const retained = new Map(radialFolders.filter((b) => cv.bundled.has(b.id)).map((b) => [b.id, findRadius(radiusPool, b.id, heat)]));
     const flowEdges = remapConverted(edges.map((e) => {
       const folder = radialFolders.find((f) => f.id === endOf(e.target))
         ?? radialFolders.find((f) => f.id === endOf(e.source));
@@ -151,7 +168,7 @@ export function useBubbleLayout({
         sourceRadius: findRadius(radiusPool, endOf(e.source), heat),
         targetRadius: findRadius(radiusPool, endOf(e.target), heat),
       });
-    }), cv.converted, undefined, cv.bundled);
+    }), cv.converted, undefined, cv.bundled, retained);
 
     const satFlowEdges = buildSatelliteEdges(satInfos);
 
@@ -161,7 +178,7 @@ export function useBubbleLayout({
       flowEdges: [...flowEdges, ...satFlowEdges],
       satInfos,
     };
-  }, [agents, folders, edges, satellites, satellitePositions, residentBubbles, heat, appHubs, rootLabel, openTurnOnly]);
+  }, [agents, folders, edges, satellites, satellitePositions, residentBubbles, heat, appHubs, rootLabel, bundleFolder, fileNodes, bundleSessionId]);
 }
 
 // ─── §5.10 기억/휴지통 내부 뷰 데이터 Hook ───
@@ -174,11 +191,20 @@ interface UseInteriorLayoutProps {
   trashedAgents: BubbleData[];
   /** bundle: 그 묶음의 구성 파일 노드(호출부가 `memberIds` 로 스토어에서 찾은 것 — 사라진 것은 빠져 있다). */
   bundleMembers?: BubbleData[];
+  bundlePage?: number;
 }
 
 /** §5.10 (J) 내부 뷰 — 휴지통(`← Back` + 버려진 에이전트 방사형)과 §5.1 #2-1 (B) 묶음 안. currentFolderId 계층과 독립인 interiorView 축. */
-export function useInteriorLayout({ view, trashedAgents, bundleMembers = NO_BUBBLES }: UseInteriorLayoutProps): ViewData {
+export function useInteriorLayout({ view, trashedAgents, bundleMembers = NO_BUBBLES, bundlePage = 0 }: UseInteriorLayoutProps): ViewData {
   const heat = useHeatScale();
+  const request = useMemo((): BundlePackingRequest | null => {
+    if (view?.kind !== 'bundle') return null;
+    const page = bundlePageWindow(bundleMembers.length, bundlePage);
+    const members = withBundleUsageRange(bundleMembers.slice(page.start, page.end));
+    const back: BubbleData = { id: '__interior_back__', label: '← Back', bubbleType: 'back', path: '', status: 'idle', activity: 1 };
+    return { members, back, plan: prepareBundleInterior(members, back, { x: LAYOUT_CENTER_X, y: LAYOUT_CENTER_Y }, heat) };
+  }, [view?.kind, bundleMembers, bundlePage, heat]);
+  const packed = useBundlePacking(request, view?.kind === 'bundle' ? `${view.bundleId}:${bundlePage}` : '');
   return useMemo(() => {
     if (!view) return EMPTY_VIEW_DATA;
     const cx = LAYOUT_CENTER_X;
@@ -196,10 +222,8 @@ export function useInteriorLayout({ view, trashedAgents, bundleMembers = NO_BUBB
     // §5.1 #2-1 (B) — 묶음 안: 구성 파일만 선다. 지름은 구성끼리 견준 사용 횟수(`_usageRange`), 자리는 많이 쓴 것이 가운데인 무리.
     // 파일의 선·위성은 바깥 화면의 것이라 긋지 않는다.
     if (view.kind === 'bundle') {
-      const members = withBundleUsageRange(bundleMembers);
-      const navBubbles = [backBubble];
-      const layout = packBundleInterior(members, backBubble, { x: cx, y: cy }, heat);
-      return { bubbles: [...navBubbles, ...members], layout, flowEdges: [], satInfos: [] };
+      if (!packed) return EMPTY_VIEW_DATA;
+      return { bubbles: [packed.request.back, ...packed.request.members], layout: packed.layout, flowEdges: [], satInfos: [] };
     }
 
     // 버려진 에이전트 버블 — ghost 톤은 BubbleNode 가 trashed 로 판단(여기선 원형 유지).
@@ -216,7 +240,7 @@ export function useInteriorLayout({ view, trashedAgents, bundleMembers = NO_BUBB
       flowEdges: [],
       satInfos: [],
     };
-  }, [view, trashedAgents, bundleMembers, heat]);
+  }, [view, trashedAgents, packed]);
 }
 
 // ─── 폴더 내부 뷰 데이터 Hook ───
@@ -232,8 +256,8 @@ interface UseFolderLayoutProps {
   agentEdges?: ActivityEdge[];
   satellites: Record<string, BubbleData[]>;
   satellitePositions?: Record<string, { x: number; y: number }>;
-  /** §5.1 #2-1 (B) — 폴더 위성 묶음의 구성을 지금 턴의 것만으로(캔버스만 — IDE 세션 지도는 턴 표시가 없다). */
-  openTurnOnly?: boolean;
+  /** Same as `UseBubbleLayoutProps.bundleSessionId`. */
+  bundleSessionId?: string;
 }
 
 export function useFolderLayout({
@@ -245,7 +269,7 @@ export function useFolderLayout({
   agentEdges = [],
   satellites,
   satellitePositions,
-  openTurnOnly = false,
+  bundleSessionId,
 }: UseFolderLayoutProps): ViewData {
   const heat = useHeatScale();
   return useMemo(() => {
@@ -305,7 +329,8 @@ export function useFolderLayout({
       heat,
       platform: clientPathPlatform(),
       satellitePositions,
-      openTurnOnly,
+      bundleFolder: folderData,
+      bundleSessionId,
     });
     // §2.3 · §5.1 #2-1 (A) — 직속 파일은 이 폴더 화면의 직속 파일끼리 견준다(종전 — 프로젝트 전체 위성의 범위).
     const radialChildren = withScreenFileRange(cv.radial);
@@ -316,6 +341,7 @@ export function useFolderLayout({
 
     // 폴더 → 직속 파일 선은 그 파일이 위성이 되면 버리고, 묶음에 든 파일의 선은 묶음으로 옮긴다(같은 끝점은 하나로).
     const endOf = (id: string): string => (id === folderId ? backBubble.id : cv.bundled.get(id) ?? id);
+    const retained = new Map(radialChildren.filter((b) => cv.bundled.has(b.id)).map((b) => [b.id, findRadius(allBubbles, b.id, heat)]));
     const flowEdges = remapConverted(innerEdges.map((e) => {
       const child = visibleChildren.find((i) => i.id === e.source) ?? visibleChildren.find((i) => i.id === e.target);
       return buildFlowEdge({
@@ -328,7 +354,7 @@ export function useFolderLayout({
         sourceRadius: findRadius(allBubbles, endOf(e.source), heat),
         targetRadius: findRadius(allBubbles, endOf(e.target), heat),
       });
-    }), cv.converted, backBubble.id, cv.bundled);
+    }), cv.converted, backBubble.id, cv.bundled, retained);
 
     // worktree 드릴다운: agent→자식 엣지도 그린다(innerEdges 만이면 옮긴 에이전트의 read/edit 엣지가 빠진다). 양 끝이 지금 그리는 버블에 있는 agentEdges 만, 중복 id 제외.
     const innerEdgeIds = new Set(flowEdges.map((fe) => fe.id));
@@ -345,7 +371,7 @@ export function useFolderLayout({
         color: '#64748b',
         sourceRadius: findRadius(allBubbles, cv.bundled.get(e.source) ?? e.source, heat),
         targetRadius: findRadius(allBubbles, cv.bundled.get(e.target) ?? e.target, heat),
-      })), cv.converted, undefined, cv.bundled);
+      })), cv.converted, undefined, cv.bundled, retained);
 
     const satFlowEdges = buildSatelliteEdges(satInfos);
 
@@ -355,7 +381,7 @@ export function useFolderLayout({
       flowEdges: [...flowEdges, ...agentFlowEdges, ...satFlowEdges],
       satInfos,
     };
-  }, [folderId, folderData, agents, children, innerEdges, agentEdges, satellites, satellitePositions, heat, openTurnOnly]);
+  }, [folderId, folderData, agents, children, innerEdges, agentEdges, satellites, satellitePositions, heat, bundleSessionId]);
 }
 
 // ─── 파이프라인 내부 뷰 데이터 Hook ───

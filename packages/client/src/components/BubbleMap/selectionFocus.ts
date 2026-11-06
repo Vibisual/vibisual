@@ -1,3 +1,4 @@
+import { satelliteSourceNodeId } from '@vibisual/shared';
 /** Display-only graph distances. Moving a linked group still uses linkedBubbles.ts. */
 export interface SelectionFocusNode {
   readonly id: string;
@@ -15,7 +16,7 @@ export interface SelectionFocusEdge {
 
 function selectionIdentity(node: SelectionFocusNode, currentFolderId: string | null): string | null {
   if (node.id === '__root_home__') return currentFolderId;
-  if (node.id.startsWith('sat-')) return node.id.slice(4);
+  if (node.id.startsWith('sat-')) return satelliteSourceNodeId(node.id);
   if (node.type === 'playPreviewNode' && node.id.endsWith('__preview')) {
     return node.id.slice(0, -'__preview'.length);
   }

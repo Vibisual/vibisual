@@ -61,8 +61,8 @@ function sortRow(sort: TidySort): ReactTestInstance {
   return sortRows().find((node) => node.props.title.startsWith(`canvas.tidy.sort.${sort} `))!;
 }
 
-function closePanels(): void {
-  act(() => useGraphStore.getState().closeCanvasControlPanels());
+function clickEmptyCanvas(): void {
+  act(() => useGraphStore.getState().dismissCanvasControls());
 }
 
 beforeEach(() => {
@@ -70,7 +70,7 @@ beforeEach(() => {
   useGraphStore.setState(initialState, true);
   useGraphStore.setState({
     activeProject: 'test-project', hydratingProjects: {}, hydrateProject,
-    heatmapMode: false, heatLegendOpen: false, heatAxis: 'read', heatCurve: 'linear',
+    heatmapMode: false, heatAxis: 'read', heatCurve: 'linear',
     readCountRange: { max: 100 }, writeCountRange: { max: 80 },
     readCountQuantiles: [], writeCountQuantiles: [], tidyPanelOpen: false, tidySort: 'status',
   });
@@ -87,7 +87,7 @@ afterEach(() => {
 });
 
 describe('CanvasControls dismissible panels', () => {
-  it('dismisses both panels without disabling heatmap or losing chosen axis, curve and sort', () => {
+  it('an empty canvas click turns heatmap off and closes both panels, keeping axis, curve and sort', () => {
     render();
     click(heatButton());
     click(button('tidy'));
@@ -96,30 +96,33 @@ describe('CanvasControls dismissible panels', () => {
     click(sortRow('recent'));
     expect(legend()).toHaveLength(1);
     expect(sortRows()).toHaveLength(5);
+    expect(heatButton().props['aria-label']).toBe('canvas.controls.heatmapOff');
     expect(onTidy).toHaveBeenCalledExactlyOnceWith('recent');
 
-    closePanels();
+    clickEmptyCanvas();
 
     expect(legend()).toHaveLength(0);
     expect(sortRows()).toHaveLength(0);
     expect(useGraphStore.getState()).toMatchObject({
-      heatmapMode: true, heatLegendOpen: false, heatAxis: 'write', heatCurve: 'cbrt',
+      heatmapMode: false, heatAxis: 'write', heatCurve: 'cbrt',
       tidyPanelOpen: false, tidySort: 'recent',
     });
-    expect(heatButton().props['aria-pressed']).toBe(true);
+    expect(heatButton().props['aria-label']).toBe('canvas.controls.heatmap');
+    expect(heatButton().props['aria-pressed']).toBe(false);
     expect(heatButton().props['aria-expanded']).toBe(false);
     expect(button('tidy').props['aria-expanded']).toBe(false);
     expect(onTidy).toHaveBeenCalledTimes(1);
   });
 
-  it('reopens a dismissed legend before toggling heatmap off, then enables both together', () => {
+  it('re-enables heatmap with its legend in one press after an empty canvas click', () => {
     render();
     click(heatButton());
     act(() => {
       useGraphStore.getState().setHeatAxis('write');
       useGraphStore.getState().setHeatCurve('log');
     });
-    closePanels();
+    clickEmptyCanvas();
+    expect(useGraphStore.getState().heatmapMode).toBe(false);
 
     click(heatButton());
     expect(legend()).toHaveLength(1);
@@ -129,14 +132,20 @@ describe('CanvasControls dismissible panels', () => {
 
     click(heatButton());
     expect(legend()).toHaveLength(0);
-    expect(useGraphStore.getState()).toMatchObject({ heatmapMode: false, heatLegendOpen: false });
+    expect(useGraphStore.getState().heatmapMode).toBe(false);
     expect(heatButton().props['aria-pressed']).toBe(false);
     expect(heatButton().props['aria-expanded']).toBe(false);
-
-    click(heatButton());
-    expect(legend()).toHaveLength(1);
-    expect(useGraphStore.getState()).toMatchObject({ heatmapMode: true, heatLegendOpen: true, heatAxis: 'write', heatCurve: 'log' });
     expect(onTidy).not.toHaveBeenCalled();
+  });
+
+  it('an empty canvas click with nothing open leaves the controls as they were', () => {
+    render();
+    clickEmptyCanvas();
+    expect(useGraphStore.getState()).toMatchObject({
+      heatmapMode: false, heatAxis: 'read', heatCurve: 'linear', tidyPanelOpen: false, tidySort: 'status',
+    });
+    expect(heatButton().props['aria-pressed']).toBe(false);
+    expect(legend()).toHaveLength(0);
   });
 
   it('reopens tidy with the selected criterion and runs only when a criterion is chosen', () => {
@@ -145,7 +154,7 @@ describe('CanvasControls dismissible panels', () => {
     expect(onTidy).not.toHaveBeenCalled();
     click(sortRow('heat'));
     expect(onTidy).toHaveBeenCalledExactlyOnceWith('heat');
-    closePanels();
+    clickEmptyCanvas();
 
     click(button('tidy'));
     expect(sortRows()).toHaveLength(5);
@@ -180,7 +189,7 @@ describe('CanvasControls dismissible panels', () => {
     expect(useProjectImmersionStore.getState().immersiveProject).toBe('test-project');
     expect(legend()).toHaveLength(1);
     expect(sortRows()).toHaveLength(5);
-    expect(useGraphStore.getState()).toMatchObject({ heatmapMode: true, heatLegendOpen: true, tidyPanelOpen: true });
+    expect(useGraphStore.getState()).toMatchObject({ heatmapMode: true, tidyPanelOpen: true });
     expect(button('zoomIn').props['aria-expanded']).toBeUndefined();
     expect(onTidy).not.toHaveBeenCalled();
   });

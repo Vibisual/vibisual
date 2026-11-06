@@ -4,14 +4,15 @@ import type { VerificationTarget, VerificationDemoStep, CommandReceipt } from '@
 import { useDebugSessions, pushBreakpointsToSession } from './debugSessions.js';
 import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, WebEntry, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, FinishedSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, ClosedTabEntry, CommentBox, CaptureBubble, DebugBreakpoint, AppBubble, PlayBubble, PlayRecipeCandidate, SpecDoc, LabRun, LabVariantConfig, ShelfBubble, ShelfItem, ShelfItemKind, ProjectCostMap, ProjectAuditLog, AuditBoundaryConfig, ProjectInsuranceLedger, Conti, ActiveContiWork, ContiRenderStatus, StoryboardPresetId, ToolDurationEntry, CompactCount, RateLimitInfo,
   ClaudeUsageInfo, ApiCreditState, ClaudeAuthStatus, ClaudeSetupState, ClaudeSetupProgress, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, LocalLlmState, LocalEngineProgress, LocalModelDownloadProgress, UserDefaults, AgentReport, AgentQuestions, AgentReview, ReviewRequest, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, AutoGoalSummary, PluginFactMap, VerificationRun, VerificationDemo, SpecReadingState, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal,
-  VisualKindCard, GoalActionCard, SessionGoalStatus, SessionGoalStepStatus, VoiceAsrState, VoiceAsrInstallProgress, CodexAuthStatus, CodexSetupState, CodexSetupProgress, CodexModelCatalog, CodexInventory, CodexReviewRun, CodexReviewMode, CodexHookState, EngineChoice, AgentEngineKind } from '@vibisual/shared';
+  VisualKindCard, GoalActionCard, SessionMessageLink, SessionGoalStatus, SessionGoalStepStatus, VoiceAsrState, VoiceAsrInstallProgress, CodexAuthStatus, CodexSetupState, CodexSetupProgress, CodexModelCatalog, CodexInventory, CodexReviewRun, CodexReviewMode, CodexHookState, EngineChoice, AgentEngineKind } from '@vibisual/shared';
 import type { StreamDensity, CommandDispatchMode, ProjectAgentCounts, SessionMemo, ToolAxis, HeatCurve, TidySort, SkillSharingEntry, SpanGrowth } from '@vibisual/shared';
 // §4 앱 테마 — 사용자 테마 폴더 목록(서버가 읽어 준다).
 import type { AppThemeCatalog, UserDefaultsPatch } from '@vibisual/shared';
+import type { LocalAssistOptions } from '@vibisual/shared';
 import { resolveBubbleSkin, resolveBubbleEdgeStyle, type BubbleSkin, type BubbleEdgeStyle } from '@vibisual/shared';
 // §5.4 #36 (H) — 연결 보기(보기 전환의 말).
 import type { FileFaceKind, LinkLens } from '@vibisual/shared';
-import { isReadOnlyHookAgent, providerForEngine, VERIFICATION_RUNS_MAX_PER_SESSION } from '@vibisual/shared';
+import { isPendingQueuedCommand, isReadOnlyHookAgent, providerForEngine, VERIFICATION_RUNS_MAX_PER_SESSION } from '@vibisual/shared';
 // §5.4 #36 (B) — 위성줄 목록 다듬기(서버 검증과 한 벌).
 import { APP_BUBBLE_PENDING_MS, LINK_VIEW, makeAppBubbleId, withLinkedAgent, withoutLinkedAgent } from '@vibisual/shared';
 // §5.24 — 히트 척도 곡선의 기본값과 분포 표본. 판정은 shared 한 곳이 소유한다(서버와 같은 함수).
@@ -33,7 +34,8 @@ import { clientPathKey, clientPathPlatform } from '../utils/platform.js';
 // §5.3 #12-3 — 자물쇠. 낙관 반영도 서버와 같은 규칙(shared `buildPathLock`)으로 짓는다.
 import { buildPathLock } from '@vibisual/shared';
 import type { PathLock, PathLockTarget } from '@vibisual/shared';
-import { permissionPromptSync, askQuestionPromptSync } from '../utils/pendingPromptSync.js';
+import { permissionPromptSync, askQuestionPromptSync, promptSendOutcome, type PromptSendError, type PromptSendOutcome } from '../utils/pendingPromptSync.js';
+import { restorePendingPrompts } from '../utils/pendingPrompts.js';
 import { registerPersistFlush } from '../utils/persistFlush.js';
 import { decodeSessionInputDrafts, encodeSessionInputDrafts } from './sessionInputDrafts.js';
 import { followIframeTabUrls } from '../utils/iframeTabFollow.js';
@@ -109,6 +111,8 @@ import { clearCapturePlaytest } from './capturePlaytest.js';
 import { resolveLocalEntry } from '../components/LocalModel/localModelEntry.js';
 import { localLlmResponseError, type LocalModelBindingResult } from '../components/LocalModel/localLlmApi.js';
 import { resolveCodexEntry } from '../components/Codex/codexModelEntry.js';
+import { resolveClaudeEntry, windowHostsSetupGates } from '../components/Auth/setupGateFlow.js';
+import { classifyProjectFolderResponse, type ProjectFolderOpenResult } from '../components/Auth/projectFolderGateFlow.js';
 import { codexModelCatalogClient } from './codexModelCatalogClient.js';
 import { codexInventoryClient, codexInventoryScopeKey } from './codexInventoryClient.js';
 import { cacheCodexInventory } from './codexInventoryCache.js';
@@ -130,8 +134,11 @@ export interface AgentSessionInputDraft {
   /** 서버가 실행 전에 거절한 요청의 재전송 안내. 입력을 고치면 걷고, 영속화하지 않는다. */
   sendError?: OrchestraPreparation;
   /** 전송 확인 실패는 자동 재전송하지 않는다. 사용자가 확인하고 다시 보낸다. */
-  sendFailure?: 'unconfirmed' | 'rejected' | 'local-images-unsupported';
+  sendFailure?: 'unconfirmed' | 'rejected' | 'local-images-unsupported' | 'attachments-missing';
 }
+
+/** 제출 전에 디스크에서 사라져 서버가 명령을 거절한 첨부의 `error` 값. 썸네일이 이 값을 보고 안내를 고른다. */
+export const MISSING_ATTACHMENT_ERROR = 'attachment-missing';
 
 /**
  * §5.5 #17-25 — 라이트박스가 연 이미지가 아직 안 보낸 입력창 첨부일 때 그 자리 — 주석본 저장이 이 항목을 교체한다(옛 파일은 지운다).
@@ -574,7 +581,7 @@ export interface IframeTab {
 // §5.5 #17-7 · #17-9 ③ — 'bookmarks'·'subagents'·'loop' 는 덮개가 아닌 사이드바 뷰 — 여닫는 상태가 슬롯의 activeView 라 창마다 독립.
 // 옛 뷰 id 는 `migrateIDEViewType` 이 옮긴다. §5.10 (P) — 'autoGoal'(화면 이름 「절차 감지」) 식별자는 바꾸지 마라
 // — REST(`/api/auto-goal/*`)·저장고(`.vibisual/skills`)·집행 축이 물려 있다. §5.3 #10-4 — 'orchestra' 칸은 절차 감지 뒤(§5.5 #16-1 (H)).
-export type IDEViewType = 'mcp' | 'hooks' | 'plugins' | 'files' | 'context' | 'skills' | 'goal' | 'autoGoal' | 'orchestra' | 'configTrim' | 'loop' | 'verify' | 'specReading' | 'debug' | 'bookmarks' | 'subagents';
+export type IDEViewType = 'mcp' | 'hooks' | 'plugins' | 'files' | 'context' | 'skills' | 'goal' | 'autoGoal' | 'orchestra' | 'configTrim' | 'loop' | 'verify' | 'specReading' | 'debug' | 'bookmarks' | 'subagents' | 'localAssist';
 
 /** §5.5 #17-28 · #17-31 — localStorage 에 남은 옛 뷰 id 를 지금 쓰는 것으로 옮긴다(모르는 값은 mcp). */
 export function migrateIDEViewType(v: unknown): IDEViewType {
@@ -589,7 +596,7 @@ export function migrateIDEViewType(v: unknown): IDEViewType {
   if (v === 'summary') return 'mcp';
   // §5.10 (P) — 'brain' 은 절차 감지로 — 되풀이 → 스킬 기능이 거기 있다('mcp' 로 떨구면 어디 갔는지 못 찾는다).
   if (v === 'brain') return 'autoGoal';
-  const known: IDEViewType[] = ['mcp', 'hooks', 'plugins', 'files', 'context', 'skills', 'goal', 'autoGoal', 'orchestra', 'configTrim', 'loop', 'verify', 'specReading', 'debug', 'bookmarks', 'subagents'];
+  const known: IDEViewType[] = ['mcp', 'hooks', 'plugins', 'files', 'context', 'skills', 'goal', 'autoGoal', 'orchestra', 'configTrim', 'loop', 'verify', 'specReading', 'debug', 'bookmarks', 'subagents', 'localAssist'];
   return known.includes(v as IDEViewType) ? (v as IDEViewType) : 'mcp';
 }
 
@@ -1394,8 +1401,13 @@ export type InteriorView =
       readonly label: string;
       /** 구성 파일 노드 id(상한 `BUNDLE_BUBBLE.interiorMax` — 최근 것부터). 범위가 도착하기 전에도 이것으로 먼저 선다. */
       readonly memberIds: readonly string[];
+      readonly sessionId?: string;
+      readonly totalCount?: number;
+      readonly source?: 'folder' | 'sequence';
       /** 구성 파일이 든 폴더의 노드 id — 같은 폴더 묶음만. 있으면 이 폴더를 범위로 선언하고 그 `children` 에서 같은 종류를 더 세운다. */
       readonly folderId?: string;
+      /** 세션 지도에만 있는 폴더의 정확한 조회 경로. 프로젝트 범위는 별도로 유지한다. */
+      readonly folderAbsolutePath?: string;
       /** 묶음의 종류 — 그 폴더의 `children` 에서 이 종류만 고른다. */
       readonly fileKind?: FileFaceKind;
     };
@@ -1420,6 +1432,8 @@ interface GraphState {
   satellitePositions: Record<string, { x: number; y: number }>;
   /** 전체 버블 O(1) 조회 (bubble ID → BubbleData) */
   nodeMap: Record<string, BubbleData>;
+  /** 서버에서 받은 현재 묶음 페이지. 화면을 벗어나면 비운다. */
+  bundlePageNodes: Record<string, BubbleData>;
   /** Bash 버블별 명령 히스토리 (bash bubble ID → 최신순 엔트리) */
   bashHistory: Record<string, BashEntry[]>;
   /** Bash 버블별 서버 목록 (bash bubble ID → 서버) */
@@ -1491,9 +1505,6 @@ interface GraphState {
   /** §5.24 — 읽기 히트맵 on/off(클라 전용 · 영속 ❌). 같은 데이터를 어떻게 그릴지의 선택이라 §3.1 금지에 해당하지 않는다. */
   heatmapMode: boolean;
   toggleHeatmapMode: () => void;
-  /** The legend can be dismissed without changing the heatmap view. */
-  heatLegendOpen: boolean;
-  openHeatLegend: () => void;
   /** §5.24 — 칠하는 축(`'read'`·`'write'` 횟수). `heatmapMode` 와 같은 칸(다시 켜면 읽기). 범례 토글이 바꾼다. */
   heatAxis: ToolAxis;
   setHeatAxis: (axis: ToolAxis) => void;
@@ -1504,8 +1515,8 @@ interface GraphState {
   tidyPanelOpen: boolean;
   toggleTidyPanel: () => void;
   closeTidyPanel: () => void;
-  /** Empty main-canvas clicks dismiss toolbar panels, keeping tool settings. */
-  closeCanvasControlPanels: () => void;
+  /** 빈 캔버스 클릭 — 열린 패널을 닫고 히트맵도 꺼 평소 화면으로 돌린다. 축·곡선·정리 기준은 남는다(§5.24). */
+  dismissCanvasControls: () => void;
   /** §5.4 #33 (I) — 마지막 정리 기준(기본 `status`, 클라 전용). 누르면 바로 정리가 돈다 — 적용 버튼 ❌(바로 다른 기준을 눌러 보게). */
   tidySort: TidySort;
   setTidySort: (sort: TidySort) => void;
@@ -1607,6 +1618,8 @@ interface GraphState {
   visualKinds: Record<string, VisualKindCard>;
   /** §5.5 #17-17 ⑫(a) — 무대 팔레트의 배운 행동(`useCount` 내림차순, 고정이 맨 앞). 서버가 센 것에서 파생 — 클라는 그리고 끌기만. */
   goalActions: GoalActionCard[];
+  /** §5.1 #3-4 (A) — 최근 세션 간 메시지(서버가 `live` 를 찍는다 — 클라는 시계를 보지 않는다). */
+  sessionMessages: SessionMessageLink[];
   /** §4 — 동적 모델 레지스트리 (서버 modelRegistryService 가 시드+/v1/models 머지 후 push). */
   modelRegistry: ModelRegistry | null;
   /** §5.19 — 로컬 LLM(엔진 설치 상태·받아 둔 모델·내려받기). 서버가 디스크를 읽어 싣는다. */
@@ -1636,6 +1649,9 @@ interface GraphState {
   /** §4 API 크레딧 — 설정·사용액·지금 경로(서버 판정). 키 본문은 안 온다(끝 4자리만). 바꾸는 손은 REST(`/api/api-credits/*`)뿐(§3.1). */
   apiCredits: ApiCreditState | null;
   applyApiCredits: (state: ApiCreditState | undefined) => void;
+  /** §4 OpenAI 비즈니스 크레딧 — 코덱스 판의 같은 값. 바꾸는 손은 REST(`/api/openai-credits/*`)뿐. */
+  openaiCredits: ApiCreditState | null;
+  applyOpenaiCredits: (state: ApiCreditState | undefined) => void;
   /** 로그인 상태 즉시 재조회(`POST /api/auth/status/refresh`). 서버 폴링이 10분이라, 방금 바뀐 것을 아는 자리는 이걸로 확인한다. 실패하면 `null`. */
   refreshClaudeAuth: () => Promise<ClaudeAuthStatus | null>;
   /** 사용자가 로그인 팝업을 "나중에"로 닫았는가 — 이 앱 실행 동안 다시 자동으로 뜨지 않게. */
@@ -1661,6 +1677,13 @@ interface GraphState {
   /** 게이트 강제 열기(상단 배너 클릭) / 닫기. */
   setupGateForced: boolean;
   setSetupGate: (state: { forced?: boolean; dismissed?: boolean }) => void;
+  /**
+   * §5.25 (C) — 클로드 버블을 열려다 설치·로그인 창으로 돌린 버블. 준비가 끝나면 `resumeClaudeEntry` 가 그 IDE 를 연다.
+   * 두 창 중 하나라도 [나중에] 로 닫으면 지운다(한참 뒤 다른 경로의 로그인이 엉뚱한 IDE 를 열지 않게). 비영속.
+   */
+  claudeEntryAgentId: string | null;
+  /** 설치·로그인 창이 다음 칸으로 넘길 때 부른다. 기다리는 버블이 없거나 지워졌으면 아무것도 안 한다. */
+  resumeClaudeEntry: () => void;
   /** [설치하기] — 서버가 공식 네이티브 인스톨러를 실행한다. 진행은 WS 로 온다. */
   installClaudeSetup: () => Promise<void>;
   /** 설치 판정 재조회(수동 설치한 뒤 [다시 확인]). */
@@ -1726,8 +1749,8 @@ interface GraphState {
   /** 게이트가 떠 있는 이유(창 첫 문장이 갈린다). `'onboarding'` = 순서상 이 칸 · `'create-blocked'` = 만들려다 막혔다(안내문이 그 사정을 말한다). */
   projectGateReason: 'onboarding' | 'create-blocked';
   setProjectGate: (state: { forced?: boolean; dismissed?: boolean; reason?: 'onboarding' | 'create-blocked' }) => void;
-  /** 폴더 선택(`POST /api/projects/open-folder`) — 창구는 이 하나뿐이다(File 메뉴·게이트가 각자 fetch 하면 고른 뒤 동작이 갈린다). 고르면 true. */
-  openProjectFolder: () => Promise<boolean>;
+  /** 폴더 선택(`POST /api/projects/open-folder`) — 창구는 이 하나뿐이다(File 메뉴·게이트가 각자 fetch 하면 고른 뒤 동작이 갈린다). 취소와 실패(원인 포함)를 갈라 돌려준다. */
+  openProjectFolder: () => Promise<ProjectFolderOpenResult>;
   /** 사용자가 연 프로젝트로 탭을 바꾸고 폴더 게이트를 닫는다 — [폴더 열기]와 OS 폴더 우클릭(§4)이 같은 동작을 한다. */
   activateOpenedProject: (name: string) => void;
   /** §4 — 진단 에러 로그 (글로벌 ring buffer, append 순). DebugPanel 에러 뷰어용. */
@@ -2313,6 +2336,10 @@ interface GraphState {
   bindLocalModel: (agentId: string, modelId: string, modelName: string) => Promise<LocalModelBindingResult>;
   /** §5.19 (D) — 대화 창 크기(토큰). 창이 넘칠 때 사용자가 쓸 수 있는 유일한 손잡이다. */
   setLocalContextSize: (agentId: string, contextSize: number) => void;
+  /** §5.19 (J) — 끝까지 돕기 옵션을 통째로 저장한다(설정 전체를 실어 보내는 같은 PUT). 실패하면 `false`. */
+  setLocalAssist: (agentId: string, assist: LocalAssistOptions) => Promise<boolean>;
+  /** §5.19 (J) ④ — 계획 승인·이어하기·새 계획·다시 맞추기. 서버가 판정하고 스냅샷으로 돌려준다. 실패하면 서버 사유. */
+  runLocalPlanAction: (agentId: string, subAgentId: string, action: 'approve' | 'resume' | 'reset' | 'refresh') => Promise<{ ok: boolean; error?: string }>;
   /** §5.3 #10-2 — Auto Agent 메타 버블 생성 */
   createAutoAgent: (canvasX: number, canvasY: number) => void;
   /** §5.3 #10-2 — Auto Agent 에게 자연어 메시지 → 서버 spawn + dispatch */
@@ -2760,6 +2787,7 @@ interface GraphState {
   applyVisualKinds: (kinds: Record<string, VisualKindCard> | undefined) => void;
   /** §5.5 #17-17 ⑫(a) — 스냅샷의 팔레트 반영. */
   applyGoalActions: (cards: GoalActionCard[] | undefined) => void;
+  applySessionMessages: (links: SessionMessageLink[] | undefined) => void;
   /** §5.5 #17-17 ⑪(c) - 종류 카드 고정/해제. 고정한 카드는 시들지 않는다. */
   /**
    * §5.5 #17-17 ⑪(i) - 한 단계의 종류만 바꾼다. `steps` 문과 갈라져 있다 - 그쪽은 목록을
@@ -2853,9 +2881,11 @@ interface GraphState {
   setPendingPermissions: (list: import('@vibisual/shared').PermissionRequest[]) => void;
   /**
    * 권한 카드의 답을 보낸다 — POST /api/permission-decide, §5.3 #12-1-B 답 넷(`choice`).
-   * 받았으면(또는 이미 풀린 카드면) `true`, "항상"을 서버가 거절해 카드가 되돌아왔으면 `false`.
+   * 받았으면(또는 이미 풀린 카드면) `true`. 서버가 받지 않았거나 받았는지 모르면 카드가 되돌아오고 `false`.
    */
   respondPermission: (requestId: string, choice: import('@vibisual/shared').PermissionChoice, reason?: string) => Promise<boolean>;
+  /** 보내지 못해 되돌아온 권한 카드의 안내와 적어 둔 거절 사유(requestId 별). 카드가 풀리면 함께 지운다. */
+  permissionSendFailures: Record<string, { error: PromptSendError; reason?: string }>;
 
   // §5.3 #12-2 — AskUserQuestion 카드 큐(IDE 인라인)
   /** 대기 중인 AskUserQuestion 요청 (requestId → AskUserQuestionRequest). IDE 안 인라인 카드. */
@@ -2866,8 +2896,13 @@ interface GraphState {
   removePendingAskQuestion: (requestId: string) => void;
   /** 서버 재연결 시 대기 요청 복구용 */
   setPendingAskQuestions: (list: import('@vibisual/shared').AskUserQuestionRequest[]) => void;
-  /** 사용자 Send 결정 — 서버 POST /api/ask-user-question/decide. answers 는 request.items 와 1:1. */
-  respondAskQuestion: (requestId: string, answers: import('@vibisual/shared').AskUserQuestionAnswer[]) => Promise<void>;
+  /**
+   * 사용자 Send 결정 — 서버 POST /api/ask-user-question/decide. answers 는 request.items 와 1:1.
+   * 받았으면(또는 이미 풀린 카드면) `true`. 아니면 카드가 고른 답과 함께 되돌아오고 `false`.
+   */
+  respondAskQuestion: (requestId: string, answers: import('@vibisual/shared').AskUserQuestionAnswer[]) => Promise<boolean>;
+  /** 보내지 못해 되돌아온 질문 카드의 안내와 고른 답(requestId 별). 카드가 풀리면 함께 지운다. */
+  askQuestionSendFailures: Record<string, { error: PromptSendError; answers: import('@vibisual/shared').AskUserQuestionAnswer[] }>;
 
   // §5.7 #23-1 — Claude Code 버전 체크 + 업데이트 게이트
   /** 현재 캐시된 버전 정보 — 첫 체크 전 null */
@@ -3012,6 +3047,34 @@ function sendHeldAgentFields(
 // §9 — 스냅샷 1건은 `set()` 을 36번 부른다(loadSnapshot 1 + apply* 35). zustand 는 호출마다
 //   구독자 전원의 선택자를 다시 돌리므로 그 36벌이 통째로 낭비였다(실측 5.01ms → 0.15ms, 33배).
 //   `batchStoreNotify()` 로 감싼 구간은 통지가 1회로 접힌다 — 상태는 종전대로 즉시 갱신된다.
+/** §5.3 #12-1 · #12-2 — 카드 답 POST. 응답을 못 받으면(통신 실패·응답 유실) status 없이 판정한다. */
+async function postPromptDecision(url: string, body: unknown): Promise<PromptSendOutcome> {
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return promptSendOutcome(res.status);
+  } catch {
+    return promptSendOutcome(null);
+  }
+}
+
+function withoutPromptFailure<T>(failures: Record<string, T>, requestId: string): Record<string, T> {
+  if (!(requestId in failures)) return failures;
+  const next = { ...failures };
+  delete next[requestId];
+  return next;
+}
+
+/** 서버 목록으로 갈아끼울 때 사라진 카드의 실패 안내도 걷는다. */
+function promptFailuresStillPending<T>(failures: Record<string, T>, pending: Record<string, unknown>): Record<string, T> {
+  const ids = Object.keys(failures);
+  if (ids.every((id) => id in pending)) return failures;
+  return Object.fromEntries(ids.filter((id) => id in pending).map((id) => [id, failures[id]!]));
+}
+
 export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, get) => ({
   projects: {},
   stubProjects: {},
@@ -3028,6 +3091,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   satellites: {},
   satellitePositions: {},
   nodeMap: {},
+  bundlePageNodes: {},
   bashHistory: {},
   runningServers: {},
   agentEvents: {},
@@ -3106,7 +3170,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       const busy = (s.runningSubagentTasks[agentId] ?? []).some((t) => t.subAgentId === sessionId);
       // §5.5 #17-18 (대기) — 도트를 그리는 그 재료 그대로. 줄 선 세션은 아래 조건에 걸리지
       //   않으므로(여운은 **걷히는 색**에만 있다) 결과적으로 자국을 남기지 않는다 — 맞는 동작이다.
-      const pending = (s.queuedCommands[agentId] ?? []).some((c) => c.status === 'queued' && c.subAgentId === sessionId);
+      const pending = (s.queuedCommands[agentId] ?? []).some((c) => isPendingQueuedCommand(c) && c.subAgentId === sessionId);
       // **확인하기 직전의 색**이라야 한다(`acknowledged: false`) — 이 손짓으로 걷힐 표식이
       //   바로 그 색이기 때문이다. 조용하지 않은 세션(도는 중·실패)은 확인해도 색이 바뀌지
       //   않으므로 남길 것이 없다 — 여운은 **걷히는 색**에만 있다.
@@ -3175,9 +3239,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     }),
   fileSizeRange: { min: 0, max: 0 },
   heatmapMode: false,
-  toggleHeatmapMode: () => set((state) => ({ heatmapMode: !state.heatmapMode, heatLegendOpen: !state.heatmapMode })),
-  heatLegendOpen: false,
-  openHeatLegend: () => set((state) => (state.heatmapMode && !state.heatLegendOpen ? { heatLegendOpen: true } : {})),
+  toggleHeatmapMode: () => set((state) => ({ heatmapMode: !state.heatmapMode })),
   heatAxis: 'read',
   setHeatAxis: (axis) => set((state) => (state.heatAxis === axis ? {} : { heatAxis: axis })),
   heatCurve: DEFAULT_HEAT_CURVE,
@@ -3186,8 +3248,8 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   tidyPanelOpen: false,
   toggleTidyPanel: () => set((state) => ({ tidyPanelOpen: !state.tidyPanelOpen })),
   closeTidyPanel: () => set((state) => (state.tidyPanelOpen ? { tidyPanelOpen: false } : {})),
-  closeCanvasControlPanels: () => set((state) => (
-    state.heatLegendOpen || state.tidyPanelOpen ? { heatLegendOpen: false, tidyPanelOpen: false } : {}
+  dismissCanvasControls: () => set((state) => (
+    state.heatmapMode || state.tidyPanelOpen ? { heatmapMode: false, tidyPanelOpen: false } : {}
   )),
   tidySort: DEFAULT_TIDY_SORT,
   setTidySort: (sort) => set((state) => (state.tidySort === sort ? {} : { tidySort: sort })),
@@ -3232,7 +3294,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       ?? { tempId: `retry:${serverPath}`, previewUrl: '', serverPath, uploading: false });
     const submittedSubExisted = !!draftSessionId && (get().subAgents[agentId] ?? []).some((sub) => sub.id === draftSessionId);
     pendingCommandAttachments.set(focusRequest, attachments ?? []);
-    const restoreSubmission = (failure: Pick<AgentSessionInputDraft, 'sendError' | 'sendFailure'>): boolean => {
+    const restoreSubmission = (failure: Pick<AgentSessionInputDraft, 'sendError' | 'sendFailure'>, missingAttachments: readonly string[] = []): boolean => {
       let retained = false;
       set((state) => {
         if (!state.agents.some((a) => a.id === agentId)
@@ -3245,13 +3307,17 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
         for (const a of submittedAttachments) {
           if (!restoredAttachments.some((v) => v.serverPath === a.serverPath)) restoredAttachments.push(a);
         }
+        // 서버가 사라졌다고 짚은 이미지는 오류로 표시해 남긴다 — 사용자가 빼거나 다시 붙인다(오류 첨부는 다음 전송에서 빠진다).
+        const missing = new Set(missingAttachments);
+        const markedAttachments = missing.size === 0 ? restoredAttachments : restoredAttachments.map((a) =>
+          missing.has(a.serverPath.split(/[/\\]/).pop() ?? '') ? { ...a, uploading: false, error: MISSING_ATTACHMENT_ERROR } : a);
         const attachmentPreviews = { ...state.attachmentPreviews };
         for (const a of submittedAttachments) {
           const basename = a.serverPath.split(/[/\\]/).pop() ?? '';
           if (a.previewUrl && attachmentPreviews[basename] === a.previewUrl) delete attachmentPreviews[basename];
         }
         const agentSessionInputs = { ...state.agentSessionInputs, [draftKey]: {
-          text: restoredText, attachments: restoredAttachments, ...failure,
+          text: restoredText, attachments: markedAttachments, ...failure,
         } };
         scheduleSaveSessionInputDrafts(agentSessionInputs);
         return { agentSessionInputs, attachmentPreviews };
@@ -3281,7 +3347,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
               : options?.appNodesOff ? { appNodesOff: true } : {}),
           }),
         });
-        const data = await r.json() as { command?: Partial<CommandReceipt>; error?: string; preparation?: OrchestraPreparation };
+        const data = await r.json() as { command?: Partial<CommandReceipt>; error?: string; preparation?: OrchestraPreparation; missing?: unknown };
         if (!r.ok && data?.error === 'orchestra-engine-not-ready' && data.preparation
           && (data.preparation.engine === 'claude' || data.preparation.engine === 'codex')
           && ['setup', 'login', 'refresh'].includes(data.preparation.action)) {
@@ -3291,6 +3357,11 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
             try { await get().prepareOrchestraEngine(preparation); }
             catch { /* 초안과 준비 오류는 보존된다. 입력의 다시 확인 손잡이로 재시도한다. */ }
           }
+          return null;
+        }
+        if (!r.ok && data?.error === 'attachments-missing') {
+          const missing = Array.isArray(data.missing) ? data.missing.filter((m): m is string => typeof m === 'string') : [];
+          restoreSubmission({ sendFailure: 'attachments-missing' }, missing);
           return null;
         }
         if (!r.ok) {
@@ -4657,6 +4728,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   sessionGoals: {},
   visualKinds: {},
   goalActions: [],
+  sessionMessages: [],
   modelRegistry: null,
   localLlm: null,
   voiceAsr: null,
@@ -4669,6 +4741,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   claudeUsage: null,
   claudeAuth: null,
   apiCredits: null,
+  openaiCredits: null,
   diagnosticLog: [],
   contiBoardOpen: null,
   imageLightbox: null,
@@ -5709,6 +5782,38 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       })
       .catch(() => undefined);
   },
+  setLocalAssist: async (agentId, assist) => {
+    const prev = get().agentConfigs[agentId];
+    if (prev?.provider?.kind !== 'local-llama') return false;
+    // 저장하는 순간의 최신값 위에 이 칸만 얹는다 — 창을 연 시점 사본이면 게이지·누적 토큰이 뒤로 간다.
+    const provider = { ...prev.provider, assist };
+    try {
+      const res = await fetch(`${API_BASE}/api/agent-config/${encodeURIComponent(agentId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...prev, provider }),
+      });
+      if (!res.ok) return false;
+      set((s) => ({
+        agentConfigs: { ...s.agentConfigs, [agentId]: { ...(s.agentConfigs[agentId] ?? prev), provider } },
+      }));
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  runLocalPlanAction: async (agentId, subAgentId, action) => {
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/local-assist/${encodeURIComponent(agentId)}/${encodeURIComponent(subAgentId)}/plan`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) },
+      );
+      const body = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      return res.ok && body.ok !== false ? { ok: true } : { ok: false, error: body.error ?? String(res.status) };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
   bindLocalModel: async (agentId, modelId, modelName) => {
     const prev = get().agentConfigs[agentId];
     if (!prev) return { ok: false, error: i18n.t('panel.options.tokenSaver.saveError') };
@@ -6092,6 +6197,21 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       }
       if (decision.kind === 'login') {
         now.setCodexLoginGate({ forced: true, dismissed: false });
+        return;
+      }
+    } else if (providerKind === undefined && !opts?.handoff && !opts?.redock) {
+      // §5.25 (C) — 클로드 버블도 눌렀을 때 판정한다(기본 엔진 무관). 앱이 돌리는 버블만 — 훅 버블은 바깥 CLI 의 기록이다.
+      //   창 이동(handoff·redock)은 진입이 아니고, 설치·로그인 창이 없는 별창에서 막으면 아무 창도 없이 IDE 만 안 열린다.
+      const now = get();
+      const entryAgent = now.nodeMap[agentId] ?? now.agents.find((a) => a.id === agentId);
+      const decision = !isReadOnlyHookAgent(entryAgent)
+        && windowHostsSetupGates(typeof window !== 'undefined' ? window.location.hash : '')
+        ? resolveClaudeEntry({ setup: now.claudeSetup, auth: now.claudeAuth })
+        : 'ide';
+      if (decision !== 'ide') {
+        set({ claudeEntryAgentId: agentId });
+        if (decision === 'setup') now.setSetupGate({ forced: true, dismissed: false });
+        else now.setLoginGate({ forced: true, dismissed: false });
         return;
       }
     }
@@ -7101,6 +7221,10 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     const next = structuralShare(s.apiCredits, state ?? null);
     return next === s.apiCredits ? {} : { apiCredits: next };
   }),
+  applyOpenaiCredits: (state) => set((s) => {
+    const next = structuralShare(s.openaiCredits, state ?? null);
+    return next === s.openaiCredits ? {} : { openaiCredits: next };
+  }),
   // §4 — 로그인 상태. 서버가 판정 전이면 필드가 없어 null 로 남고, 그동안 팝업은 뜨지 않는다.
   applyClaudeAuth: (auth) => set((s) => {
     if (!auth) return s.claudeAuth === null ? {} : { claudeAuth: null };
@@ -7126,7 +7250,19 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   setLoginGate: (state) => set((s) => ({
     loginGateForced: state.forced ?? s.loginGateForced,
     loginGateDismissed: state.dismissed ?? s.loginGateDismissed,
+    ...(state.dismissed === true ? { claudeEntryAgentId: null } : {}),
   })),
+
+  // §5.25 (C) — 준비 창으로 돌린 클로드 버블. 복귀 판정은 `openIDEOverlay` 가 다시 한다(아직 안 됐으면 창을 또 연다).
+  claudeEntryAgentId: null,
+  resumeClaudeEntry: () => {
+    const agentId = get().claudeEntryAgentId;
+    if (!agentId) return;
+    set({ claudeEntryAgentId: null });
+    const now = get();
+    if (!now.nodeMap[agentId] && !now.agents.some((a) => a.id === agentId)) return;
+    now.openIDEOverlay(agentId);
+  },
 
   // §4 (첫 실행 설치 온보딩) — CLI 설치 판정. 서버가 판정 전이면 null 이라 게이트는 뜨지 않는다.
   claudeSetup: null,
@@ -7148,6 +7284,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   setSetupGate: (state) => set((s) => ({
     setupGateForced: state.forced ?? s.setupGateForced,
     setupGateDismissed: state.dismissed ?? s.setupGateDismissed,
+    ...(state.dismissed === true ? { claudeEntryAgentId: null } : {}),
   })),
   installClaudeSetup: async () => {
     try {
@@ -7333,17 +7470,18 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     set({ projectGateForced: false, projectGateDismissed: false });
   },
   openProjectFolder: async () => {
+    let res: Response;
     try {
-      const res = await fetch(`${API_BASE}/api/projects/open-folder`, { method: 'POST' });
-      const data = await res.json() as { ok?: boolean; cancelled?: boolean; project?: { name: string }; displayName?: string };
-      if (!data.ok || !data.project) return false;
-      // 탭 표시명 — 같은 이름 폴더가 이미 열려 있으면 스냅샷은 `이름 (구분자)` 로 쓴다(원래 이름으로는 탭이 안 바뀐다).
-      get().activateOpenedProject(data.displayName || data.project.name);
-      return true;
-    } catch {
+      res = await fetch(`${API_BASE}/api/projects/open-folder`, { method: 'POST' });
+    } catch (error) {
       // 서버 연결 실패 — 게이트는 그대로 두어 사용자가 다시 시도할 수 있게 한다.
-      return false;
+      return { ok: false, cancelled: false, error: { kind: 'network', detail: error instanceof Error ? error.message : null } };
     }
+    const body: unknown = await res.json().catch(() => undefined);
+    const result = classifyProjectFolderResponse(res.status, body);
+    // 탭 표시명 — 같은 이름 폴더가 이미 열려 있으면 스냅샷은 `이름 (구분자)` 로 쓴다(원래 이름으로는 탭이 안 바뀐다).
+    if (result.ok) get().activateOpenedProject(result.name);
+    return result;
   },
   applySkillUsageCounts: (counts) => set((s) => ({ skillUsageCounts: structuralShare(s.skillUsageCounts, counts ?? {}) })),
   applyAutoAgentSummaries: (summaries) => set((s) => ({ autoAgentSummaries: structuralShare(s.autoAgentSummaries, summaries ?? {}) })),
@@ -7493,6 +7631,18 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   // §5.5 #17-17 — 서버가 매 스냅샷에 전량을 싣는다(삭제도 곧 사라짐으로 반영).
   applySessionGoals: (goals) => set((s) => ({ sessionGoals: structuralShare(s.sessionGoals, goals ?? {}) })),
   applyVisualKinds: (kinds) => set((s) => ({ visualKinds: structuralShare(s.visualKinds, kinds ?? {}) })),
+  applySessionMessages: (links) =>
+    set((s) => {
+      const next = links ?? [];
+      // 스냅샷마다 새 배열로 온다 — 같은 내용(id·live)이면 참조를 지켜 캔버스 엣지가 다시 지어지지 않게 한다.
+      if (
+        s.sessionMessages.length === next.length
+        && s.sessionMessages.every((l, i) => l.id === next[i]?.id && !!l.live === !!next[i]?.live && l.toAgentId === next[i]?.toAgentId)
+      ) {
+        return {};
+      }
+      return { sessionMessages: next };
+    }),
   applyGoalActions: (cards) =>
     set((s) => {
       const next = cards ?? [];
@@ -7755,6 +7905,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
 
   // §5.3 #12-1 — 권한 승인 스택
   pendingPermissions: {},
+  permissionSendFailures: {},
   addPendingPermission: (req) => {
     permissionPromptSync.changed(req.requestId);
     if (permissionPromptSync.deciding(req.requestId)) return;
@@ -7762,41 +7913,42 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   },
   removePendingPermission: (requestId) => set((s) => {
     permissionPromptSync.resolved(requestId);
-    if (!(requestId in s.pendingPermissions)) return s;
+    const permissionSendFailures = withoutPromptFailure(s.permissionSendFailures, requestId);
+    if (!(requestId in s.pendingPermissions)) {
+      return permissionSendFailures === s.permissionSendFailures ? s : { permissionSendFailures };
+    }
     const next = { ...s.pendingPermissions };
     delete next[requestId];
-    return { pendingPermissions: next };
+    return { pendingPermissions: next, permissionSendFailures };
   }),
-  setPendingPermissions: (list) => set(() => ({
-    pendingPermissions: Object.fromEntries(list.map((r) => [r.requestId, r])),
-  })),
+  setPendingPermissions: (list) => set((s) => {
+    const pendingPermissions = Object.fromEntries(list.map((r) => [r.requestId, r]));
+    return { pendingPermissions, permissionSendFailures: promptFailuresStillPending(s.permissionSendFailures, pendingPermissions) };
+  }),
   respondPermission: async (requestId, choice, reason) => {
     const request = get().pendingPermissions[requestId];
     if (!request || permissionPromptSync.deciding(requestId)) return true;
     // 낙관적 제거 — 서버 응답 오면 broadcast 도 removePendingPermission 호출하지만 noop.
     get().removePendingPermission(requestId);
     const decision = permissionPromptSync.decide(requestId);
-    try {
-      const res = await fetch(`${API_BASE}/api/permission-decide`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // `decision` 도 함께 싣는다 — 답 넷을 모르는 서버는 그 낱말로 한 번짜리를 받는다.
-        body: JSON.stringify({ requestId, decision: foldPermissionChoice(choice), choice, reason }),
-      });
-      // §5.3 #12-1-B — 400 은 서버가 "항상"을 못 받았다는 뜻이고 카드는 서버에 그대로 대기 중이다.
-      //   되돌려 놓지 않으면 사용자는 답했다고 믿는데 60초 뒤 타임아웃 정책으로 풀린다. 404 는 이미 풀린 카드다.
-      if (res.status === 400) {
-        if (permissionPromptSync.settled(requestId, decision)) get().addPendingPermission(request);
-        return false;
-      }
-    } catch {
-      // 서버 끊김 — 이미 제거했으니 다음 스냅샷/재연결 시 pending 재수신
-    } finally { permissionPromptSync.settled(requestId, decision); }
-    return true;
+    // `decision` 도 함께 싣는다 — 답 넷을 모르는 서버는 그 낱말로 한 번짜리를 받는다.
+    const outcome = await postPromptDecision(`${API_BASE}/api/permission-decide`, {
+      requestId, decision: foldPermissionChoice(choice), choice, reason,
+    });
+    // settled 가 false 면 그사이 WS 가 이 카드를 풀었다 — 실패였어도 되살리지 않는다. 404 도 이미 풀린 카드다.
+    if (!permissionPromptSync.settled(requestId, decision) || outcome === 'accepted' || outcome === 'gone') return true;
+    // §5.3 #12-1-B — 받지 않았거나(4xx — "항상" 거절 포함) 받았는지 모르면(5xx·무응답) 카드는 서버에 아직 대기 중일 수 있다.
+    //   되돌려 놓지 않으면 사용자는 거절했다고 믿는데 타임아웃 정책(기본 허용)으로 풀린다. 자동 재전송은 하지 않는다.
+    set((s) => ({ permissionSendFailures: { ...s.permissionSendFailures, [requestId]: { error: outcome, reason } } }));
+    get().addPendingPermission(request);
+    // 받았는지 모르면 서버 대기 목록과 대조해 이미 처리된 카드는 다시 걷는다.
+    if (outcome === 'unconfirmed') restorePendingPrompts();
+    return false;
   },
 
   // §5.3 #12-2 — AskUserQuestion 카드 큐
   pendingAskQuestions: {},
+  askQuestionSendFailures: {},
   addPendingAskQuestion: (req) => {
     askQuestionPromptSync.changed(req.requestId);
     if (askQuestionPromptSync.deciding(req.requestId)) return;
@@ -7804,27 +7956,30 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   },
   removePendingAskQuestion: (requestId) => set((s) => {
     askQuestionPromptSync.resolved(requestId);
-    if (!(requestId in s.pendingAskQuestions)) return s;
+    const askQuestionSendFailures = withoutPromptFailure(s.askQuestionSendFailures, requestId);
+    if (!(requestId in s.pendingAskQuestions)) {
+      return askQuestionSendFailures === s.askQuestionSendFailures ? s : { askQuestionSendFailures };
+    }
     const next = { ...s.pendingAskQuestions };
     delete next[requestId];
-    return { pendingAskQuestions: next };
+    return { pendingAskQuestions: next, askQuestionSendFailures };
   }),
-  setPendingAskQuestions: (list) => set(() => ({
-    pendingAskQuestions: Object.fromEntries(list.map((r) => [r.requestId, r])),
-  })),
+  setPendingAskQuestions: (list) => set((s) => {
+    const pendingAskQuestions = Object.fromEntries(list.map((r) => [r.requestId, r]));
+    return { pendingAskQuestions, askQuestionSendFailures: promptFailuresStillPending(s.askQuestionSendFailures, pendingAskQuestions) };
+  }),
   respondAskQuestion: async (requestId, answers) => {
-    if (!get().pendingAskQuestions[requestId] || askQuestionPromptSync.deciding(requestId)) return;
+    const request = get().pendingAskQuestions[requestId];
+    if (!request || askQuestionPromptSync.deciding(requestId)) return true;
     get().removePendingAskQuestion(requestId);
     const decision = askQuestionPromptSync.decide(requestId);
-    try {
-      await fetch(`${API_BASE}/api/ask-user-question/decide`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requestId, answers }),
-      });
-    } catch {
-      // 서버 끊김 — 다음 재연결 시 /api/ask-user-question/pending 복구
-    } finally { askQuestionPromptSync.settled(requestId, decision); }
+    const outcome = await postPromptDecision(`${API_BASE}/api/ask-user-question/decide`, { requestId, answers });
+    if (!askQuestionPromptSync.settled(requestId, decision) || outcome === 'accepted' || outcome === 'gone') return true;
+    // 권한 카드와 같은 규칙 — 고른 답과 함께 되돌리고, 받았는지 모르면 서버 대기 목록과 대조한다.
+    set((s) => ({ askQuestionSendFailures: { ...s.askQuestionSendFailures, [requestId]: { error: outcome, answers } } }));
+    get().addPendingAskQuestion(request);
+    if (outcome === 'unconfirmed') restorePendingPrompts();
+    return false;
   },
 
   // §5.7 #23-1 — Claude Code 버전 체크 게이트

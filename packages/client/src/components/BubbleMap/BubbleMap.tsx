@@ -1,3 +1,6 @@
+import { useBundleFiles } from '../../hooks/useBundleFiles.js';
+import { BundlePageControls } from './BundlePageControls.js';
+import { satelliteSourceNodeId } from '@vibisual/shared';
 import { useCallback, useEffect, useRef, useMemo, useState, memo } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -95,6 +98,7 @@ import { CanvasControls } from './CanvasControls.js';
 import { CANVAS_PROJECT_WATERMARK } from './constants.js';
 import { canvasViewKey } from './canvasViewMemory.js';
 import { useCanvasViewport } from './useCanvasViewport.js';
+import { PositionSaveGate } from './positionSaveGate.js';
 import { resolveCanvasLoadingState } from './canvasLoading.js';
 import { IDEPaneHost } from '../IDE/IDEPaneHost.js';
 import { ContiBoardPanel } from '../Panel/ContiBoardPanel.js';
@@ -394,6 +398,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   // Task Edge (에이전트 간 작업 흐름)
   const storeTaskEdges = useGraphStore((s) => s.taskEdges);
+  // §5.1 #3-4 (A) — 세션 간 메시지(서버가 `live` 를 찍는다). 같은 내용이면 스토어가 참조를 지켜 아래 sync 를 다시 돌리지 않는다.
+  const sessionMessages = useGraphStore((s) => s.sessionMessages);
   const taskEdgePreview = useGraphStore((s) => s.taskEdgePreview);
   const [taskEdgePopup, setTaskEdgePopup] = useState<{
     sourceAgentId: string;
@@ -1283,7 +1289,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   const handleCanvasPaneClick = useCallback(() => {
     handleCtxClose();
-    useGraphStore.getState().closeCanvasControlPanels();
+    useGraphStore.getState().dismissCanvasControls();
   }, [handleCtxClose]);
 
   // ─── 전체 위치 저장 (드래그 종료 / 물리 슬립 / 주기적 / 탭 전환) ───
@@ -1291,6 +1297,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   //   interiorView 를 콜백 deps 로 넣으면 물리 엔진 onSleep 콜백 신원까지 흔들려서 ref 로 읽는다.
   const interiorViewRef = useRef(interiorView);
   useEffect(() => { interiorViewRef.current = interiorView; }, [interiorView]);
+  const positionSaveGate = useMemo(() => new PositionSaveGate(), []);
 
   const buildPositionPayload = useCallback((): string | null => {
     // 휴지통 내부 뷰의 좌표는 임시 나열 배치다. 이걸 저장하면 버려진 에이전트의 원래 캔버스
@@ -1309,12 +1316,19 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const flushPositionsFetch = useCallback(() => {
     const body = buildPositionPayload();
     if (!body) return;
-    fetch(`/api/bubbles/positions`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    }).catch(() => {});
-  }, [buildPositionPayload]);
+    const ticket = positionSaveGate.begin(body);
+    if (ticket === null) return;
+    try {
+      void fetch(`/api/bubbles/positions`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      }).then(
+        (response) => positionSaveGate.settle(ticket, response.ok),
+        () => positionSaveGate.settle(ticket, false),
+      );
+    } catch { positionSaveGate.settle(ticket, false); }
+  }, [buildPositionPayload, positionSaveGate]);
 
   // 물리 대상 확장 — 사각 요소(메모·캡처·앱·플레이)도 물리 바디. store 노드라 이동은 `applyPhysicsMoves` 로 낙관 반영하고, 정착(슬립) 때 요소당 한 번 PATCH.
   const physicsKindById = useMemo(() => {
@@ -1746,8 +1760,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     agentEdges: filteredEdges,
     satellites: storeSatellites,
     satellitePositions,
-    // §5.1 #2-1 (B) — 캔버스의 폴더 위성 묶음은 지금 턴의 것만 담는다.
-    openTurnOnly: true,
+    // 폴더 위성은 서버가 확인한 세션 소유 범위를 따른다.
   });
 
   // §5.3 #28 — customMode='conti' 에이전트마다 conti 위성 합성(클릭 = `ContiHistoryDetail`, id prefix `conti-bubble-` · 더블클릭 = 최근 `ContiBoardPanel`).
@@ -1803,6 +1816,11 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   // §5.1 #2-1 (B) — 메인 캔버스의 앱 노드 중심(그 노드가 선언한 파일이 그 노드를 돈다). 앱 노드는 메인에만 그려진다.
   const constellationAppHubs = useConstellationAppHubs(currentFolderId === null && interiorView === null, appWorkPlan);
+  const previewRootFolder = useMemo<BubbleData | undefined>(() => {
+    if (!canvasProjectId) return undefined;
+    const root = filteredFolders.find((b) => b.bubbleType === 'root');
+    return { ...(root ?? { id: '__preview_root__', label: activeProject ?? '', bubbleType: 'root', status: 'idle', activity: 1 }), path: '', absolutePath: canvasProjectId };
+  }, [canvasProjectId, filteredFolders, activeProject]);
 
   // 메인 뷰 데이터
   const mainViewData = useBubbleLayout({
@@ -1815,22 +1833,29 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     appHubs: constellationAppHubs,
     // §5.1 #2-1 (B) — 최상위 파일 묶음(프로젝트 루트)의 이름. `activeProject` 는 표시명이다.
     rootLabel: activeProject,
-    // §5.1 #2-1 (B) — 캔버스의 폴더 위성 묶음은 지금 턴의 것만 담는다.
-    openTurnOnly: true,
+    bundleFolder: previewRootFolder,
+    fileNodes: nodeMap,
+    // 폴더 위성은 서버가 확인한 세션 소유 범위를 따른다.
   });
 
   // §5.1 #2-1 (B) — 묶음 안의 구성 파일. 들어온 순간의 id 로 찾고(사라진 것은 빠진다), 같은 폴더 묶음은 그 폴더 아래 모든 깊이의 같은 종류까지(`storeSatellites`).
-  // 구성 밖은 서버가 아직 확인 안 한 턴의 것으로 표시한 파일만(`openTurnOnly`).
+  // 구성 밖은 서버가 세션에서 사용한 것으로 표시한 파일만(`sessionPreviewOnly`).
   const bundleMembers = useMemo(() => {
     if (interiorView?.kind !== 'bundle') return NO_BUNDLE_MEMBERS;
-    return bundleInteriorMembers(interiorView, nodeMap, storeChildren, storeSatellites, { openTurnOnly: true });
+    return bundleInteriorMembers(interiorView, nodeMap, storeChildren, storeSatellites, { sessionPreviewOnly: true });
   }, [interiorView, nodeMap, storeChildren, storeSatellites]);
+
+  const [bundlePageState, setBundlePageState] = useState<{ id: string; page: number }>({ id: '', page: 0 });
+  const bundleViewId = interiorView?.kind === 'bundle' ? interiorView.bundleId : '';
+  const bundlePage = bundlePageState.id === bundleViewId ? bundlePageState.page : 0;
+  const bundleFiles = useBundleFiles(interiorView, bundlePage, canvasProjectId, bundleMembers);
 
   // §5.10 — 내부 뷰 데이터(휴지통: 버려진 에이전트 나열 · 묶음 안: 구성 파일).
   const interiorViewData = useInteriorLayout({
     view: interiorView,
     trashedAgents,
-    bundleMembers,
+    bundleMembers: bundleFiles.members,
+    bundlePage: bundleFiles.layoutPage,
   });
 
   // 파이프라인 내부 뷰 데이터
@@ -2105,6 +2130,35 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         }))
       : [];
 
+    // §5.1 #3-4 (A) — 세션끼리 건넨 말. 두 끝이 이 화면에 있는 살아 있는 링크만, 짝마다 한 줄(화살촉·명령 ❌ — Task Edge 와 다른 모양).
+    //   받는 이를 모르면 선을 긋지 않는다(보낸 버블의 편지 배지가 말한다).
+    const sessionMessageEdges: Edge[] = (currentFolderId === null && interiorView === null)
+      ? (() => {
+        const seen = new Set<string>();
+        const out: Edge[] = [];
+        for (const link of sessionMessages) {
+          if (link.live !== true || !link.toAgentId || link.toAgentId === link.fromAgentId) continue;
+          const key = `${link.fromAgentId}>${link.toAgentId}`;
+          if (seen.has(key)) continue;
+          if (!viewData.bubbles.some((n) => n.id === link.fromAgentId) || !viewData.bubbles.some((n) => n.id === link.toAgentId)) continue;
+          seen.add(key);
+          out.push({
+            id: `session-msg-${key}`,
+            source: link.fromAgentId,
+            target: link.toAgentId,
+            sourceHandle: 'src',
+            targetHandle: 'tgt',
+            selectable: false,
+            focusable: false,
+            deletable: false,
+            ariaLabel: link.preview,
+            style: { stroke: 'rgba(34, 211, 238, 0.6)', strokeWidth: 1.5, strokeDasharray: '2 5' },
+          });
+        }
+        return out;
+      })()
+      : [];
+
     // Task Edge → React Flow Edge 변환 (메인 뷰에서만 표시)
     // sourceRadius/targetRadius를 넣어야 TaskEdgeComponent가 원 둘레 교차점을 정확히 계산
     const agentRadiusById = new Map<string, number>();
@@ -2124,6 +2178,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           data: {
             taskEdgeId: te.id,
             status: merged.status,
+            // 실행 회차 — 배치가 중간 전이를 접어 status 가 같아도 새 실행을 펄스로 알아보게 한다.
+            lastExecutedAt: te.lastExecutedAt,
             command: merged.command,
             kind: merged.kind,
             bundleId: te.bundleId,
@@ -2140,11 +2196,11 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       })
       : [];
 
-    setEdges([...viewData.flowEdges, ...playOwnerEdges, ...taskFlowEdges]);
+    setEdges([...viewData.flowEdges, ...playOwnerEdges, ...sessionMessageEdges, ...taskFlowEdges]);
     // `angularOffsetById` 는 일부러 deps 에서 뺀다 — 드래그·물리 중 매 프레임 새 Map 이라, 넣으면 매 프레임 전체 노드가 재구축돼 BubbleNode memo 가 깨진다.
     // 각도 변화는 아래 별도 effect 가 맡는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewData, currentFolderId, interiorView, satellitePositions, setFlowNodes, setEdges, activeProject, canvasProjectId, canvasDataReady, viewKey, viewMemory, restoreViewport, cancelRestore, pauseAndReset, storeTaskEdges, parallelOffsetById, taskEdgePreview, allPlayBubbles]);
+  }, [viewData, currentFolderId, interiorView, satellitePositions, setFlowNodes, setEdges, activeProject, canvasProjectId, canvasDataReady, viewKey, viewMemory, restoreViewport, cancelRestore, pauseAndReset, storeTaskEdges, parallelOffsetById, taskEdgePreview, allPlayBubbles, sessionMessages]);
 
   // 위치 이동(드래그/물리 엔진)으로 angular offset 이 바뀌었을 때, 메인 sync 가 재실행되지 않아도
   // 기존 Task Edge 의 data.targetAngularOffset 만 패치 — 화살촉 분산이 실시간으로 따라간다.
@@ -2199,6 +2255,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           bundleId: node.id,
           label: data.label,
           memberIds,
+          totalCount: info.count,
+          source: info.source,
+          fileKind: info.kind,
+          ...(info.sessionId ? { sessionId: info.sessionId } : {}),
           ...(info.source === 'folder' && info.folderId !== undefined ? { folderId: info.folderId, fileKind: info.kind } : {}),
         });
       }
@@ -3448,12 +3508,11 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   // 예외가 visibilitychange 핸들러를 깨지 않게 try.
   const flushPositionsBeacon = useCallback(() => {
     const body = buildPositionPayload();
-    if (!body) return;
+    if (!body || !positionSaveGate.needsUnloadFlush(body)) return;
     const url = `/api/bubbles/positions`;
     try {
       if (location.protocol === 'http:' || location.protocol === 'https:') {
-        navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
-        return;
+        if (navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }))) return;
       }
     } catch { /* fall through to fetch */ }
     try {
@@ -3464,7 +3523,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         keepalive: true,
       }).catch(() => {});
     } catch { /* noop */ }
-  }, [buildPositionPayload]);
+  }, [buildPositionPayload, positionSaveGate]);
 
   useEffect(() => {
     const handleVisChange = (): void => { if (document.hidden) flushPositionsBeacon(); };
@@ -3534,7 +3593,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     }
     // 묶음에서 뺀 노드가 "지금 고른 하나"의 링을 들고 있었으면 링도 내린다(Ctrl/Cmd 클릭과 같은 규칙).
     if (turnOff) {
-      const ringId = p.id === '__root_home__' ? null : p.id.startsWith('sat-') ? p.id.slice(4)
+      const ringId = p.id === '__root_home__' ? null : p.id.startsWith('sat-') ? satelliteSourceNodeId(p.id)
         : p.id.endsWith('__preview') && node.type === 'playPreviewNode' ? playRecordId(p.id) : p.id;
       const g = useGraphStore.getState();
       if (ringId !== null && g.selectIntentId === ringId) g.setSelectIntent(null);
@@ -3611,6 +3670,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         <CaptureSnapGuides />
         {/* §5.4 #31 — 무리를 잡고 있는 동안만 뜨는 한 줄("몇 개가 함께 가는가"). */}
         <LinkFocusHint />
+        {interiorView?.kind === 'bundle' && (bundleFiles.loading || bundleFiles.failed) && <div role={bundleFiles.failed ? 'alert' : 'status'} className="absolute left-1/2 top-4 z-30 max-w-[calc(100%-2rem)] -translate-x-1/2 rounded bg-gray-900/95 px-3 py-2 text-[12px] text-gray-300">{bundleFiles.failed ? <button type="button" onClick={bundleFiles.retry}>{t('panel.folderList.retry')}</button> : t('panel.folderList.loadingMore', { loaded: bundleFiles.members.length, total: bundleFiles.total })}</div>}
+        {interiorView?.kind === 'bundle' && <BundlePageControls page={bundlePage} count={bundleFiles.total} onChange={(page) => setBundlePageState({ id: bundleViewId, page })} />}
         <CanvasControls
           onTidy={handleTidy}
           tidyBusy={tidying}

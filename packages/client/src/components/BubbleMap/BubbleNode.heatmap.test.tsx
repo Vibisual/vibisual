@@ -174,7 +174,7 @@ describe('BubbleNode heatmap paint', () => {
   });
 
   it('shows zero separately and aligns a continuous legend ramp with the node material colors', () => {
-    useGraphStore.setState({ heatmapMode: true, heatLegendOpen: true, readCountRange: { max: 600 } });
+    useGraphStore.setState({ heatmapMode: true, readCountRange: { max: 600 } });
     const scene = (readCount: number) => <>
       <BubbleNode id="heat-file" data={{ ...sample({ readCount }) }} />
       <CanvasControls onTidy={vi.fn()} tidyBusy={false} tidyDisabled={false} />

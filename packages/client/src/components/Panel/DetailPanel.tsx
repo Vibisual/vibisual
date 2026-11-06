@@ -23,6 +23,7 @@ import { AgentConfigPopup } from './AgentConfigPopup.js';
 import { localProviderOf, localToolVerdictOf } from '../LocalModel/localModelEntry.js';
 import { codexProviderOf } from '../Codex/codexModelEntry.js';
 import { FolderFileTree } from './FolderFileTree.js';
+import { ExternalMergeDepthRow } from './ExternalMergeDepthRow.js';
 import { WebEntryList } from './WebEntryList.js';
 import { WebFoldHostList } from './WebFoldHostList.js';
 import { webFoldTitle } from '../BubbleMap/webFoldTitle.js';
@@ -36,6 +37,7 @@ import { CAPTURE_BUBBLE_DEFAULTS } from '@vibisual/shared';
 import { AutoAgentPanel } from './AutoAgentPanel.js';
 import { GitStatusCard } from './GitStatusCard.js';
 import { AgentFeedbackSection } from './AgentFeedbackSection.js';
+import { SessionMessageList, FileWriteOverlapNote } from './SessionMessageList.js';
 import { PluginPanelSectionSlot } from '../../plugins/host.js';
 import { ContiHistoryDetail } from './ContiHistoryDetail.js';
 import { TASK_EDGE_STYLES } from '@vibisual/shared';
@@ -128,6 +130,7 @@ export function DetailPanel({
   const globalSelectedNodeId = useGraphStore((s) => s.selectedNodeId);
   const selectedNodeId = hosted ? hosted.node.id : globalSelectedNodeId;
   const nodeMap = useGraphStore((s) => s.nodeMap);
+  const bundlePageNodes = useGraphStore((s) => s.bundlePageNodes);
   // 남의 판의 버블이 캔버스 노드가 아니면 서버에 없는 id 다 — 서버 장부를 고치는 칸은 세우지 않는다.
   const canvasBacked = !hosted || nodeMap[hosted.node.id] !== undefined;
   const agents = useGraphStore((s) => s.agents);
@@ -139,7 +142,7 @@ export function DetailPanel({
   const currentFolderIdForRoot = useGraphStore((s) => s.currentFolderId);
   const rawNode = hosted
     ? (nodeMap[hosted.node.id] ?? hosted.node)
-    : selectedNodeId ? nodeMap[selectedNodeId] : undefined;
+    : selectedNodeId ? nodeMap[selectedNodeId] ?? bundlePageNodes[selectedNodeId] : undefined;
   // 폴더 내부에서 현재 폴더 자신이 선택된 경우 → root 타입으로 표시(캔버스 폴더 화면의 일 — 남의 판은 제 화면이 따로다)
   const node = !hosted && rawNode && currentFolderIdForRoot && selectedNodeId === currentFolderIdForRoot
     ? { ...rawNode, bubbleType: 'root' as const }
@@ -1214,6 +1217,9 @@ export function DetailPanel({
 
           {isAgent && <AgentFeedbackSection agentId={node.id} />}
 
+          {/* §5.1 #3-4 (A) — 세션끼리 건넨 말(관찰). 없으면 DOM 도 없다. */}
+          {isAgent && <SessionMessageList agentId={node.id} />}
+
           {/* §5.11 — 플러그인 섹션 슬롯(기여가 없으면 DOM 없음). 플러그인은 버블 id 로 서버를 부르므로 캔버스 노드만. */}
           {canvasBacked && (
             <PluginPanelSectionSlot
@@ -1284,6 +1290,15 @@ export function DetailPanel({
             />
           )}
 
+          {/* §7.5 — 외부 폴더: 경로 통합 깊이(바꾸면 이 프로젝트의 외부 폴더 전체에 걸린다) */}
+          {node.bubbleType === 'external_folder' && canvasBacked && (
+            <ExternalMergeDepthRow
+              nodeId={node.id}
+              depth={node.externalMergeDepth}
+              custom={node.externalMergeDepthCustom === true}
+            />
+          )}
+
           {/* Folder: 파일 트리 (위성 토글) */}
           {isFolder && !isRoot && canvasBacked && (
             <FolderFileTree
@@ -1330,6 +1345,7 @@ export function DetailPanel({
                 />
                 {t('panel.fileEdit.limitLabel', { count: MAX_FILE_EDITS })}
               </label>
+              {node.writeOverlap && node.writeOverlap.agentIds.length > 1 && <FileWriteOverlapNote overlap={node.writeOverlap} />}
               <FileEditList edits={fileEdits[node.id] ?? []} />
             </div>
           )}

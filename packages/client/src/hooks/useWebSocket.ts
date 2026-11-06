@@ -257,6 +257,8 @@ export function useWebSocket(
     store.applyClaudeAuth(snap.claudeAuth);
     // §4 API 크레딧 — 설정·장부·지금 경로(글로벌). 헤더 필의 점과 사용량 팝업·계정 탭이 이 값을 그린다.
     store.applyApiCredits(snap.apiCredits);
+    // §4 OpenAI 비즈니스 크레딧 — 코덱스 판(글로벌). 코덱스 탭의 크레딧 페이지와 헤더 필이 그린다.
+    store.applyOpenaiCredits(snap.openaiCredits);
     // §4 (첫 실행 설치 온보딩) — CLI 설치 판정(글로벌). 미설치면 ClaudeSetupGate 가 이 값을 보고 뜬다.
     store.applyClaudeSetup(snap.claudeSetup);
     // §5.25 — 코덱스 네 칸(설치·로그인·모델·훅). 클로드와 같은 자리에서 같은 모양으로 받는다.
@@ -293,6 +295,8 @@ export function useWebSocket(
     store.applySessionGoals(snap.sessionGoals);
     store.applyVisualKinds(snap.visualKinds);
     store.applyGoalActions(snap.goalActions);
+    // §5.1 #3-4 (A) — 세션 간 메시지(관찰). 캔버스 선은 서버가 찍은 `live` 만 그린다.
+    store.applySessionMessages(snap.sessionMessages);
     store.applyDiagnosticLog(snap.diagnosticLog);
     store.applyModelRegistry(snap.modelRegistry);
     // §5.19 — 로컬 LLM 상태(엔진·모델·내려받기). 스냅샷이 진실이고, 사이사이는 아래 진행 push 가 채운다.

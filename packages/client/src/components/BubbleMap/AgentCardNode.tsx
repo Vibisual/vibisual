@@ -324,6 +324,7 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
   const statusDetail = sessionDraft?.sendError
     ? t('ide.orchestra.readiness.retry', { engine: sessionDraft.sendError.engine === 'codex' ? 'Codex' : 'Claude Code' })
     : sendFailed ? t(sessionDraft?.sendFailure === 'local-images-unsupported' ? 'ide.mainArea.localImagesUnsupported'
+      : sessionDraft?.sendFailure === 'attachments-missing' ? 'ide.mainArea.attachmentsMissing'
       : sessionDraft?.sendFailure === 'unconfirmed' ? 'ide.mainArea.sendUnconfirmed' : 'ide.mainArea.sendRejected')
       : statusText;
   const statusColor = sending ? 'text-sky-300'

@@ -3,7 +3,7 @@
  * 상태 판정 자체는 `@vibisual/shared` 의 `resolveSessionRunState`(서버·클라 공용) — 이 파일은 그 결과를 어떤 색·낱말로 그릴지만 갖는다.
  */
 
-import { EMPTY_SESSION_RUN_INPUTS, isBackgroundShellTask, resolveSessionRunState } from '@vibisual/shared';
+import { EMPTY_SESSION_RUN_INPUTS, isBackgroundShellTask, isPendingQueuedCommand, isPristineSession, resolveSessionRunState } from '@vibisual/shared';
 import type {
   NodeStatus,
   QueuedCommand,
@@ -28,6 +28,8 @@ export const SESSION_STATUS_DOT_BG: Record<SessionRunState, string> = {
   //   있다"는 거짓말이고, 초록이면 사용자가 그 "끝남"을 믿고 덧말을 또 보낸다(이 축이 생긴 사고).
   //   주황(한도)과도 갈라야 한다 — 저쪽은 손대야 가고 이쪽은 앞이 비면 저절로 간다.
   waiting: 'bg-violet-400',
+  // §5.5 #17-10 ⑦ — 아직 아무 일도 안 했다. 확인함과 같은 회색("아무 일도 없다") — 새 색을 만들지 않는다.
+  fresh: 'bg-gray-500',
   // 끝났는데 아직 안 봤다 = 사용자를 부르는 색.
   doneUnseen: 'bg-emerald-400',
   // 확인까지 끝났다 = 배경으로 물러난다.
@@ -42,6 +44,7 @@ const SESSION_STATUS_DOT_PULSE: Record<SessionRunState, boolean> = {
   //   "보낸 말이 아직 안 나갔다"는 사실이 화면에서 통째로 사라진다.
   waiting: true,
   error: false,
+  fresh: false,
   doneUnseen: false,
   done: false,
 };
@@ -137,6 +140,8 @@ export const SESSION_STATUS_LABEL_KEY: Record<SessionRunState, string> = {
   // §5.5 #17-18 (대기) — "대기"는 기존 어휘로 못 덮는다. `idle`("대기")과 낱말이 겹쳐 보이지만
   //   그쪽은 **할 일이 없어 쉬는 것**이고 이쪽은 **할 일이 있는데 못 나간 것**이라 정반대다.
   waiting: 'panel.subAgent.status.waiting',
+  // §5.5 #17-10 ⑦ — 할 일이 없어 쉬는 것("대기"). 한 번도 돌지 않은 세션에 "완료"는 사실이 아니다.
+  fresh: 'panel.subAgent.status.idle',
   // 미확인이든 확인이든 사실은 "끝남" 하나다 — 그 차이는 색이 말한다.
   doneUnseen: 'panel.subAgent.status.done',
   done: 'panel.subAgent.status.done',
@@ -200,6 +205,7 @@ export function sessionRunStateOf(
     //   채로 남는다. 나갈 차례를 못 받고 있다는 사실은 `queued` 쪽이 이미 말한다.
     hasQueuedCommand,
     acknowledged,
+    pristine: isPristineSession(sub),
     // §2.4 (한도 정지) — 서버가 세워 둔 사실을 접기만 한다(여기서 만료·판정 ❌).
     usageLimited: sub.usageLimit !== undefined,
   });
@@ -214,7 +220,8 @@ export function serializePendingSubIds(commands: QueuedCommand[] | undefined): s
   if (!commands || commands.length === 0) return '';
   const ids = new Set<string>();
   for (const c of commands) {
-    if (c.status === 'queued' && c.subAgentId) ids.add(c.subAgentId);
+    // §5.5 #17-18 ⑬ — 확인 불가로 잠긴 [작업에 반영]은 기록이다. 세면 끝난 세션의 도트가 영영 보라로 남는다.
+    if (isPendingQueuedCommand(c) && c.subAgentId) ids.add(c.subAgentId);
   }
   return [...ids].sort().join(',');
 }
@@ -272,11 +279,13 @@ export function buildSessionRunInputs(src: SessionRunInputSources): SessionRunIn
       : src.agentStatus === 'awaiting_permission' ? 'active'
         : NODE_STATUS_AS_SUB_STATUS[src.agentStatus] ?? 'idle'),
     hasExecutingCommand: cmds.some((c) => c.status === 'executing' && owned(c)),
-    hasQueuedCommand: cmds.some((c) => c.status === 'queued' && owned(c)),
+    hasQueuedCommand: cmds.some((c) => isPendingQueuedCommand(c) && owned(c)),
     // 두 축을 **여기서 한 번** 가른다 — 호출부가 다시 origin 을 비교하지 않도록.
     runningAgentTaskCount: ownedTasks.filter((t) => !isBackgroundShellTask(t)).length,
     backgroundShellCount: ownedTasks.filter((t) => isBackgroundShellTask(t)).length,
     acknowledged: src.acknowledged,
+    // 메인 탭은 세션이 특정되지 않아 "빈 세션"을 말할 대상이 없다.
+    pristine: src.sub ? isPristineSession(src.sub) : false,
     // §2.4 (한도 정지) — 세션이 특정되지 않는 자리(메인 탭)는 한도를 말할 대상이 없다.
     usageLimited: src.sub?.usageLimit !== undefined,
   };

@@ -10,6 +10,8 @@ import {
   needsSnapshotRefresh,
   isTaskLedgerEvent,
   endsCompaction,
+  isFailedTurnEnd,
+  bubbleResumeFrom,
 } from './hookEventClass.js';
 import { HOOK_EVENTS } from './hookInstaller.js';
 
@@ -86,6 +88,31 @@ describe('스냅샷 갱신 대상', () => {
 
   it('FileChanged 는 일부러 뺀다(빈도가 가장 높고 IDE 감시자가 이미 맡는다)', () => {
     expect(needsSnapshotRefresh('FileChanged')).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+describe('턴 결과·재개 판정(버블 상태)', () => {
+  it('실패한 턴 종료는 StopFailure 하나다 — 정상 Stop·세션 끝은 완료다', () => {
+    expect(trueSet(isFailedTurnEnd)).toEqual(['StopFailure']);
+    for (const ev of trueSet(isFailedTurnEnd)) expect(isTurnEndEventName(ev), ev).toBe(true);
+  });
+
+  it('도구 없이 다시 도는 이벤트만 버블을 올린다 — 새 프롬프트는 어디서든, 대기 해제는 승인 대기에서만', () => {
+    expect(trueSet((ev) => bubbleResumeFrom(ev) === 'any')).toEqual(['UserPromptSubmit']);
+    expect(trueSet((ev) => bubbleResumeFrom(ev) === 'awaiting_permission')).toEqual(['ElicitationResult', 'PermissionDenied']);
+  });
+
+  it('유휴 세션에도 오는 활동은 버블을 깨우지 않는다', () => {
+    for (const ev of ['Notification', 'FileChanged', 'SessionStart', 'PostCompact', 'InstructionsLoaded', 'ConfigChange']) {
+      expect(bubbleResumeFrom(ev), ev).toBeNull();
+    }
+  });
+
+  it('버블을 올리는 이벤트는 전부 활동이다(종료류와 겹치지 않는다)', () => {
+    for (const ev of HOOK_EVENTS) {
+      if (bubbleResumeFrom(ev)) expect(marksActivity(ev), ev).toBe(true);
+    }
   });
 });
 

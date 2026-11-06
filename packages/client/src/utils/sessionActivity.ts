@@ -1,4 +1,4 @@
-import { SESSION_NO_RESPONSE_MS, isBackgroundShellTask, sessionSilenceMs } from '@vibisual/shared';
+import { SESSION_NO_RESPONSE_MS, isBackgroundShellTask, isPendingQueuedCommand, sessionSilenceMs } from '@vibisual/shared';
 import type { QueuedCommand, RunningSubagentTask, SubAgent, SubAgentStreamEvent } from '@vibisual/shared';
 
 /** Activity uses server timestamps, never the time a history page was downloaded. */
@@ -149,7 +149,8 @@ export function sessionTurnStartedAt(
   if (waiting) {
     let first = Infinity;
     for (const c of commands) {
-      if (c.status === 'queued' && mine(c) && usableAt(c.timestamp) && c.timestamp < first) first = c.timestamp;
+      // §5.5 #17-18 ⑬ — 확인 불가로 잠긴 기록은 줄 선 것이 아니다(세면 그 투입 시각부터 시계가 끝없이 간다).
+      if (isPendingQueuedCommand(c) && mine(c) && usableAt(c.timestamp) && c.timestamp < first) first = c.timestamp;
     }
     return first < Infinity ? first : null;
   }

@@ -2,6 +2,7 @@ import type { WSMessage, AgentStatus } from '@vibisual/shared';
 import { broadcast } from '../broadcastBus.js';
 import { graphManager } from './projectGraphManager.js';
 import { logger } from '../logger.js';
+import type { BubbleResumeFrom } from './hookEventClass.js';
 
 /** §9 — index.ts 의 디바운스 broadcastSnapshot 주입 지점. 미주입 시 즉시 송신 폴백. */
 let snapshotScheduler: (() => void) | null = null;
@@ -24,7 +25,7 @@ function broadcastSnapshot(): void {
 }
 
 /**
- * 상태: idle → active(훅 이벤트) → completed(Stop 훅·PID 사망, 빨강) → idle(60초 또는 클릭 dismiss, 연결 노드도 idle).
+ * 상태: idle → active(훅 이벤트) → completed(Stop 훅·PID 사망) 또는 error(StopFailure) → idle(completed 는 60초, 둘 다 클릭 dismiss, 연결 노드도 idle).
  * 시스템 단위 0↔1 전이는 micro-flap 보호 — turn 사이 잠깐 0 이 되는 정상 흐름이 "all completed → active" 로 새지 않게(에이전트별 빨강은 즉시).
  */
 export class AgentTracker {
@@ -36,28 +37,37 @@ export class AgentTracker {
   private pendingTarget: boolean | null = null;
   private static readonly STABILIZE_MS = 300;
 
-  markActive(sessionId: string): void {
+  /**
+   * 활동 신호. 이 집합은 시스템 단위 표시만 바꾼다 — `resumeFrom`(`bubbleResumeFrom`)이 있으면 도구 없이 일이 다시 도는 것이라
+   * 개별 버블도 올린다(도구 이벤트는 `touchAgent` 가 올린다).
+   */
+  markActive(sessionId: string, resumeFrom: BubbleResumeFrom | null = null): void {
     const wasEmpty = this.activeSessions.size === 0;
 
     this.activeSessions.add(sessionId);
+
+    if (resumeFrom && graphManager.resumeAgentStatus(sessionId, resumeFrom)) {
+      broadcastSnapshot();
+    }
 
     if (wasEmpty) {
       this.scheduleStatus(true);
     }
   }
 
-  /** Stop 훅 → 응답 완료. 즉시 completed (빨강), 새 이벤트 오면 active 복귀 */
-  markStop(sessionId: string): void {
+  /** Stop 훅 → 응답 완료. 즉시 completed, `failed`(StopFailure)면 같은 종료를 error 로 남긴다(§2.4). 새 이벤트 오면 active 복귀 */
+  markStop(sessionId: string, failed = false): void {
     this.activeSessions.delete(sessionId);
 
-    graphManager.setAgentStatus(sessionId, 'completed');
+    const status = failed ? 'error' : 'completed';
+    graphManager.setAgentStatus(sessionId, status);
     broadcastSnapshot();
 
     if (this.activeSessions.size === 0) {
       this.scheduleStatus(false);
     }
 
-    logger.info(`Agent stop → completed (session: ${sessionId})`);
+    logger.info(`Agent stop → ${status} (session: ${sessionId})`);
   }
 
   /** PID 사망 → completed (빨강) */

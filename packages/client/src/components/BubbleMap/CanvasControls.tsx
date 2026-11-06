@@ -396,9 +396,6 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
   //   어느 축(읽기/쓰기)을 보는지는 범례가 말하므로 여기 버튼 이름은 축 중립이다.
   const heatmapMode = useGraphStore((s) => s.heatmapMode);
   const toggleHeatmapMode = useGraphStore((s) => s.toggleHeatmapMode);
-  const heatLegendOpen = useGraphStore((s) => s.heatLegendOpen);
-  const openHeatLegend = useGraphStore((s) => s.openHeatLegend);
-  const showHeatLegend = heatmapMode && heatLegendOpen;
   // §5.4 #33 (I) — 정리 버튼은 곧장 돌지 않고 **기준 고르는 패널**을 연다. 실행은 패널이 건다.
   const tidyPanelOpen = useGraphStore((s) => s.tidyPanelOpen);
   const toggleTidyPanel = useGraphStore((s) => s.toggleTidyPanel);
@@ -421,12 +418,6 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
 
   const handleZoomIn = useCallback(() => { zoomIn(); }, [zoomIn]);
   const handleZoomOut = useCallback(() => { zoomOut(); }, [zoomOut]);
-  const handleHeatmap = useCallback(() => {
-    // Reopen a dismissed legend first. A second press with it visible keeps
-    // the existing heatmap off action available without resetting axis/curve.
-    if (heatmapMode && !heatLegendOpen) openHeatLegend();
-    else toggleHeatmapMode();
-  }, [heatmapMode, heatLegendOpen, openHeatLegend, toggleHeatmapMode]);
   const handleToggleImmersion = useCallback(() => {
     if (activeProject !== null) toggleImmersion(activeProject);
   }, [activeProject, toggleImmersion]);
@@ -459,9 +450,9 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
     <Panel position="bottom-left" className="!mb-12 !ml-3">
       {/* 이 무리는 위로 자란다 — 폰에선 단추 + 범례·패널이 캔버스 키를 넘으므로 화면 높이로 묶고, 패널부터 줄여 스크롤한다(`shrink-[1000]`). 단추 무리는 마지막까지 제 키를 지킨다. */}
       <div className="flex max-h-[calc(100dvh-8rem)] flex-col items-start gap-1.5">
-      {(showHeatLegend || tidyPanelOpen) && (
+      {(heatmapMode || tidyPanelOpen) && (
         <div className="flex min-h-0 shrink-[1000] flex-col items-start gap-1.5 overflow-y-auto overscroll-contain">
-          {showHeatLegend && <HeatLegend />}
+          {heatmapMode && <HeatLegend />}
           {/* §5.4 #33 (I) — 범례와 같은 자리(컨트롤 무리 바로 위). 둘 다 켜면 정리 패널이 더 가깝게
               선다 — 방금 누른 버튼 바로 옆에 열려야 그 버튼이 연 것으로 읽힌다. */}
           {tidyPanelOpen && <TidySortPanel disabled={tidyLocked} onPick={handlePickSort} />}
@@ -496,10 +487,10 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
           <TidyIcon />
         </CtrlButton>
         <CtrlButton
-          label={showHeatLegend ? t('canvas.controls.heatmapOff') : t('canvas.controls.heatmap')}
-          onClick={handleHeatmap}
+          label={heatmapMode ? t('canvas.controls.heatmapOff') : t('canvas.controls.heatmap')}
+          onClick={toggleHeatmapMode}
           active={heatmapMode}
-          expanded={showHeatLegend}
+          expanded={heatmapMode}
         >
           <HeatIcon />
         </CtrlButton>

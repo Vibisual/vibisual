@@ -419,6 +419,16 @@ describe('resolveAgentRunSummary — 그 색이 가리키는 세션(focusSession
     expect(summary.focusSessionId).toBeNull();
   });
 
+  // §5.5 #17-10 ⑦ — 한 번도 돌지 않은 세션은 줄을 초록으로 만들지 않고, 초록 줄이 짚는 세션도 아니다.
+  it('빈 세션은 초록을 만들지 않는다 — 끝난 세션이 있으면 더 최근인 빈 세션이 아니라 그것을 짚는다', () => {
+    const fresh = sub('s-fresh', 'a1', 'idle', { sessionId: '', createdAt: 100, lastActivityAt: 100 });
+    expect(resolveAgentRunSummary(agent('a1'), runSources({ subAgents: { a1: [fresh] } })).state).toBe('done');
+    const finished = sub('s-done', 'a1', 'idle', { lastCommand: 'x', lastActivityAt: 50 });
+    const summary = resolveAgentRunSummary(agent('a1'), runSources({ subAgents: { a1: [finished, fresh] } }));
+    expect(summary.state).toBe('doneUnseen');
+    expect(summary.focusSessionId).toBe('s-done');
+  });
+
   it('실패 뒤 남은 executing 기록은 실행중으로 되살리지 않고 실패한 세션을 짚는다', () => {
     const summary = resolveAgentRunSummary(agent('a1'), runSources({
       subAgents: { a1: [sub('s0', 'a1', 'error', { lastActivityAt: 3 })] },

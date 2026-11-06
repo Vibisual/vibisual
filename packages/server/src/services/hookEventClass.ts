@@ -23,6 +23,25 @@ export function isTurnEndEventName(eventName: string): boolean {
   return eventName === 'Stop' || eventName === 'StopFailure';
 }
 
+/** 실패로 끝난 턴. 종료 처리는 `Stop` 과 같고 버블·세션 도트만 `completed`/`idle` 이 아니라 `error` 로 남는다(§2.4). */
+export function isFailedTurnEnd(eventName: string): boolean {
+  return eventName === 'StopFailure';
+}
+
+/** `bubbleResumeFrom` 결과 — 어느 상태의 버블을 `active` 로 되돌리는가. */
+export type BubbleResumeFrom = 'any' | 'awaiting_permission';
+
+/**
+ * 도구 없이 일이 다시 도는 이벤트 — 버블을 `active` 로 되돌린다(도구 이벤트는 `touchAgent` 가 맡는다).
+ * 새 프롬프트는 어느 상태에서든, 대기 해제는 승인 대기에서만(늦게 온 해제가 끝난 턴을 되살리지 않게).
+ * `Notification`·`FileChanged` 등 나머지 활동은 넣지 않는다 — 유휴 세션에도 와서 끝난 버블을 깨운다.
+ */
+export function bubbleResumeFrom(eventName: string): BubbleResumeFrom | null {
+  if (eventName === 'UserPromptSubmit') return 'any';
+  if (eventName === 'ElicitationResult' || eventName === 'PermissionDenied') return 'awaiting_permission';
+  return null;
+}
+
 /** 종료류(턴·세션)와 `QUIESCENT_HOOK_EVENTS` 만 빼고 전부 활동이다 — CLI 가 이벤트를 늘려도 깨지지 않게(§3.6 "알 수 없는 이벤트"). */
 export function marksActivity(eventName: string): boolean {
   if (isTurnEndEventName(eventName)) return false;
@@ -37,7 +56,7 @@ export function raisesAwaitingInput(eventName: string): boolean {
 
 /**
  * 위 대기 표시를 **내리는** 이벤트. 답이 왔거나 거부로 끝났거나, 압축이 끝났거나.
- * 상태 자체는 `markActive` 가 이미 되돌리므로 여기서는 화면을 다시 밀어 주기만 하면 된다.
+ * 버블 상태는 `markActive`(`bubbleResumeFrom`)가 이미 되돌리므로 여기서는 화면을 다시 밀어 주기만 하면 된다.
  */
 export function clearsAwaitingInput(eventName: string): boolean {
   return eventName === 'PermissionDenied'
