@@ -181,9 +181,14 @@ APPDIR="$PWD/squashfs-root" ./squashfs-root/AppRun
 
 ### Build from source (contributors)
 
+Requires Node.js 20+, pnpm and Rust (rustup). CPU-intensive kernels compile to
+embedded WebAssembly; users of the packaged app do not need Rust installed.
+See [Rust compute](packages/compute/README.md) for the build and compatibility rules.
+
 ```bash
 git clone https://github.com/Vibisual/vibisual.git
 cd vibisual
+rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown
 pnpm install
 
 # Build every package, then launch the desktop app

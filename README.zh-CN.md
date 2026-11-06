@@ -162,6 +162,8 @@ APPDIR="$PWD/squashfs-root" ./squashfs-root/AppRun
 ```bash
 git clone https://github.com/Vibisual/vibisual.git
 cd vibisual
+# 需要 Node.js 20+、pnpm 和 rustup；打包应用的用户无需安装 Rust
+rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown
 pnpm install
 
 # 先构建所有包，再启动桌面应用

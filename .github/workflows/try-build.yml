@@ -90,6 +90,10 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      - name: Install Rust compute target
+        if: steps.gate.outputs.run == 'yes'
+        run: rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown
+
       - name: Install dependencies
         if: steps.gate.outputs.run == 'yes'
         run: pnpm install --frozen-lockfile

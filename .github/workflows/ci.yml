@@ -50,13 +50,16 @@ jobs:
       - name: Release notes classifier selftest
         run: node .github/scripts/release-notes.mjs --selftest
 
+      - name: Install Rust compute target
+        run: rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       # 이 패키지들은 dist 를 내야 다른 패키지가 타입을 본다. ⚠️ server 를 빠뜨리면 desktop/main 이 server 를 import 해
       # desktop typecheck 가 `Cannot find module '@vibisual/server'` 로 죽는다. 패키징은 release.yml 몫이다.
       - name: Build workspace packages
-        run: pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video --filter=@vibisual/audio --filter=@vibisual/server -r build
+        run: pnpm --filter=@vibisual/compute --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video --filter=@vibisual/audio --filter=@vibisual/server -r build
 
       - name: Typecheck
         run: pnpm typecheck
