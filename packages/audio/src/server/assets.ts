@@ -58,6 +58,18 @@ async function probe(source: BufferSource | FilePathSource): Promise<Pick<AudioA
   }
 }
 
+// mediabunny 의 dispose 는 파일 닫기를 기다리지 않아(`void close()`) Windows 가 바로 뒤 삭제를 거절할 수 있다 — 기다리며 다시 지운다.
+const STAGING_REMOVE_DELAYS_MS = [0, 50, 200, 500];
+
+async function removeStaging(file: string): Promise<void> {
+  for (const delay of STAGING_REMOVE_DELAYS_MS) {
+    if (delay > 0) await new Promise<void>((resolve) => { setTimeout(resolve, delay); });
+    try { fs.unlinkSync(file); return; } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    }
+  }
+}
+
 async function fileHash(file: string): Promise<string> {
   const hash = createHash('sha256');
   for await (const chunk of fs.createReadStream(file)) hash.update(chunk as Buffer);
@@ -137,7 +149,7 @@ export class AudioAssets {
       return this.register(root, digest, name, measured, (file) => fs.copyFileSync(temporary, file, fs.constants.COPYFILE_EXCL));
     } finally {
       // Only remove the uniquely generated staging file, never the original source.
-      try { fs.unlinkSync(temporary); } catch { /* Nothing was staged, or cleanup already completed. */ }
+      await removeStaging(temporary);
     }
   }
 

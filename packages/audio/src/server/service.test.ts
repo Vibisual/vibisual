@@ -143,7 +143,10 @@ describe('persisted audio editing and immutable assets', () => {
     expect(() => service.create(root, { id: '../escape' })).toThrow('Invalid audio document id');
     expect(() => service.create(root, { id: '__proto__' })).toThrow('Invalid audio document id');
     expect(() => service.project('closed')).toThrow('not open');
-    expect(fs.readdirSync(path.join(root, '.vibisual', 'audio', 'assets')).filter((entry) => entry.endsWith('.tmp'))).toEqual([]);
+    // Windows 는 지운 파일이 마지막 핸들이 닫힐 때까지 목록에 남을 수 있다 — 잠깐은 기다리되 끝내 남으면 실패.
+    await vi.waitFor(() => {
+      expect(fs.readdirSync(path.join(root, '.vibisual', 'audio', 'assets')).filter((entry) => entry.endsWith('.tmp'))).toEqual([]);
+    }, { timeout: 3000 });
   });
 
   it('does not follow a playlist disguised as an audio file', async () => {
