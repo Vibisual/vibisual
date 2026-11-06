@@ -6,6 +6,7 @@ import path from 'node:path';
 import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, AgentEngineKind, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
 import { appStateGetTokenSaver } from './appState.js';
+import { ensureCmdCardRulesDocs } from './cmdCardRulesDoc.js';
 import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, isToolDisallowed, readTurnStopSignal, resolveTurnStopReason, normalizeModelStopReason, type TurnStopSignal, type ModelStopReason, readCompactionSignal, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText, engineForProvider, USAGE_LIMIT_PROMOTABLE_ERROR_CODES, buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX, TURN_STREAM_STALL_MS, CODEX_MANAGED_TUI_ARGS } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed, hasLiveAgentTasks, countLiveShells,
@@ -47,7 +48,14 @@ import {
   type LocalHookToolEvent,
   type LocalToolVerdict,
   type LocalTurnDoneInfo,
+  readLocalPlanState,
 } from './localRunner.js';
+import {
+  afterPlanningTurn, approvePlan, isPlanningTurn, prepareNewPlan, refreshLocalPlan, type LocalPlanHooks,
+} from './localPlanService.js';
+import { localPlanRel } from './localAssistRuntime.js';
+import { planFirstInstruction } from '@vibisual/shared';
+import { isPendingQueuedCommand } from '@vibisual/shared';
 import { isCodexTurnRunning, runCodexTurn, stopCodexTurn, noteCodexTurnActivity } from './codexRunner.js';
 import { ClaudeLiveFollowUpChannel, type ClaudeLiveFollowUpInput } from './claudeLiveFollowUp.js';
 import { CODEX_PROGRESS_WAIT_MAX, isCodexAgentWait, type CodexProgressNotice } from './codexProgress.js';
@@ -74,7 +82,8 @@ import { resolveTurnResult, isAnswerlessTurnText } from './turnResult.js';
 import { isAgentViewEnabled, spawnBackground, stopSession, rmSession } from './claudeAgentViewService.js';
 import { attach as attachWatcher, detach as detachWatcher, resumeWatch as resumeAgentViewWatch } from './claudeAgentViewWatcher.js';
 import { killTree, terminateChildTree, forceCloseAfterExit, registerSpawnedPid, unregisterSpawnedPid, processGroupSpawnOptions } from './processTree.js';
-import { apiCreditService, withCreditKeyEnv, type ApiCreditRunEnd } from './apiCreditService.js';
+import { apiCreditService, openaiCreditService, withCreditKeyEnv, type ApiCreditRunEnd } from './apiCreditService.js';
+import type { CodexCreditRoute } from './codexCreditRoute.js';
 // 경로 대소문자 정책과 같은 자리의 호스트 플랫폼 — 스폰 env 의 키 이름 규칙(Windows 는 대소문자 무시)에 쓴다.
 import { HOST_PLATFORM } from './pathKey.js';
 import { processGuard } from './processGuard.js';
@@ -466,7 +475,7 @@ export function prepareInteractiveRulesDir(
     const enforcement = opts.enforcementBlock?.trim();
     if (enforcement) sections.push(enforcement);
     // 카드 신고 프로토콜(터미널 한 줄) — 항상 주입. claude 가 echo 한 줄로 IDE 카드를 띄울 수 있게.
-    sections.push(buildCmdCardProtocolRules().trim());
+    sections.push(buildCmdCardProtocolRules(ensureCmdCardRulesDocs()).trim());
     const body = `${sections.join('\n\n')}\n`;
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), body, 'utf-8');
     return dir;
@@ -986,6 +995,8 @@ export class SubAgentManager {
    * 앱이 정하므로, 셸·secrets.json 에 남은 키가 몰래 크레딧을 쓰지 않게(키가 구독 로그인보다 우선이다).
    */
   private stripCreditKeyEnv = new Set<string>();
+  /** §4 OpenAI 비즈니스 크레딧 — 지금 OpenAI 크레딧으로 도는 코덱스 턴(sub → 크레딧 실행 id + 그 명령). 코덱스는 매 턴 새 스폰이라 자식 대신 명령으로 묶는다. */
+  private codexCreditRuns = new Map<string, { runId: string; cmdId: string }>();
   /** §5.7 #23-2 — sub → 진행 중인 agent-view watcher(legacy `runningChildren` 의 짝). cancel/remove 때 `claude stop` + `detachWatcher`. */
   private runningAgentViewWatchers = new Map<string, { short: string; sessionId: string }>();
   /** 사용자가 stop() 호출로 명시 중지한 subagentId — close 핸들러에서 '유저 중지' vs '에러' 를 구분해
@@ -1067,6 +1078,8 @@ export class SubAgentManager {
   private localHostToolHandler: LocalHostToolHandler | null = null;
   /** §5.19 (H) — 도구 이벤트를 훅으로 흘리는 곳. 없으면 아무 데도 안 간다(종전 동작). */
   private localHookEmitter: LocalHookEmitter | null = null;
+  /** §5.19 (J) ④ — 계획 승인 뒤 릴레이 루프·실행 명령을 넣는 곳(서버 진입점이 쥔 큐·루프). 없으면 자동 승인을 하지 않는다. */
+  private localPlanHooks: LocalPlanHooks | null = null;
   /**
    * §5.25 (F) "쓴 내용도 남는다" — 앱 소유 사전 훅이 허락한 `apply_patch` 의 바뀐 덩어리(sub × 파일).
    * 그 파일의 `file_change` 완료가 꺼내 가고, 그 sub 의 턴이 시작될 때 비워진다.
@@ -1163,6 +1176,17 @@ export class SubAgentManager {
 
   setLocalHostToolHandler(handler: LocalHostToolHandler): void {
     this.localHostToolHandler = handler;
+  }
+
+  setLocalPlanHooks(hooks: LocalPlanHooks): void {
+    this.localPlanHooks = hooks;
+  }
+
+  /** §5.19 (J) ④ — 그 세션의 계획 요약을 파일·상태로 다시 맞추고, 바뀌었으면 방송한다. */
+  refreshLocalPlanFor(subAgentId: string, projectRoot: string): void {
+    const sub = this.index.get(subAgentId);
+    if (!sub || !projectRoot) return;
+    if (refreshLocalPlan(sub, projectRoot)) this.onSubStatusChange?.(sub.parentAgentId);
   }
 
   setProjectResolver(resolver: AgentProjectResolver): void {
@@ -1378,6 +1402,8 @@ export class SubAgentManager {
       id: makeEventId(),
       subAgentId: sub.id,
       parentAgentId: sub.parentAgentId,
+      // Finalizers may already have cleared the active turn; this failure still belongs to cmd.
+      turnId: cmd.id,
       timestamp: Date.now(),
       eventType: 'error',
       content: detail ? `${head} ${detail}` : head,
@@ -2759,7 +2785,8 @@ export class SubAgentManager {
           tail: summarizeTranscriptTail(tx.file),
           // 두 장부의 관측을 모두 싣는다. 같은 작업이 겹쳐도 '없다'는 오판을 막는 근거다.
           runningTaskCount: tasks.live.length + tasks.pending.length,
-          queuedCommandCount: queue.filter((c) => c.status === 'queued').length,
+          // §5.5 #17-18 ⑬ — 확인 불가로 잠긴 기록은 기다리는 일이 아니다(세면 "남은 명령이 있다"고 오판한다).
+          queuedCommandCount: queue.filter(isPendingQueuedCommand).length,
           processAlive: this.isSubRunning(sub.id),
           ...(engine ? { engine: engine.line } : {}),
           ...(engine?.toolInFlight ? { lastTool: engine.toolInFlight } : {}),
@@ -3527,6 +3554,36 @@ export class SubAgentManager {
   }
 
   /**
+   * §4 OpenAI 비즈니스 크레딧 — 코덱스 턴의 결제 경로. 판정은 Claude 판과 같은 shared `decideCreditRoute`(서비스만 OpenAI 판).
+   * 기능이 꺼져 있으면 undefined(아무것도 안 바꾼다). 크레딧이면 여기서 실행을 연다 — 코덱스 러너는 실패도 `onDone` 으로만 알리므로 닫는 곳은 턴 마감 한 곳이다.
+   */
+  private resolveCodexCreditRoute(sub: SubAgent, cmd: QueuedCommand): CodexCreditRoute | undefined {
+    this.settleCodexCreditRun(sub, undefined);
+    if (!openaiCreditService.isEnabled()) return undefined;
+    const decision = openaiCreditService.decide();
+    const key = decision.route === 'credits' ? openaiCreditService.keyForSpawn() : null;
+    if (!key) {
+      cmd.billingRoute = 'subscription';
+      if (decision.route === 'credits') logger.info(`SubAgent ${sub.id} cmd=${cmd.id} billing → subscription (stored OpenAI key is not readable on this machine)`);
+      else if (decision.reason === 'blocked') logger.info(`SubAgent ${sub.id} cmd=${cmd.id} billing → subscription (OpenAI refused credits recently)`);
+      return { route: 'subscription' };
+    }
+    cmd.billingRoute = 'credits';
+    this.codexCreditRuns.set(sub.id, { runId: openaiCreditService.beginRun(sub.id, cmd.id), cmdId: cmd.id });
+    logger.info(`SubAgent ${sub.id} cmd=${cmd.id} billing → OpenAI API credits (${decision.reason})`);
+    return { route: 'credits', key };
+  }
+
+  /** §4 OpenAI 비즈니스 크레딧 — 코덱스 크레딧 턴을 닫는다(한 번). 실패 문장에서 OpenAI 의 거절을 마지막으로 읽는다. */
+  private settleCodexCreditRun(sub: SubAgent, failureText: string | undefined): ApiCreditRunEnd | undefined {
+    const run = this.codexCreditRuns.get(sub.id);
+    if (!run) return undefined;
+    this.codexCreditRuns.delete(sub.id);
+    if (failureText) openaiCreditService.noteFailureText(run.runId, failureText);
+    return openaiCreditService.endRun(run.runId);
+  }
+
+  /**
    * §4 API 크레딧 — 스폰 env 마무리. 구독 경로로 정해진 스폰이면 키를 걷고, 크레딧 경로면 우리 키 하나만 남긴다
    * (Windows 의 다른 대소문자 이름까지 — `withCreditKeyEnv`). 기능이 꺼진 스폰은 손대지 않는다.
    */
@@ -3606,12 +3663,15 @@ export class SubAgentManager {
   }
 
   /** §2.4 — 결과 본문으로 한 번 더 본다(legacy·agent-view 는 스트림을 놓칠 수 있다). 짧은 통지 한 줄만 인정 — 통지를 인용한 긴 답까지 세면 멀쩡한 세션이 주황이 된다. */
-  private noteUsageLimitText(sub: SubAgent, text: string | undefined): void {
+  private noteUsageLimitText(sub: SubAgent, text: string | undefined, engine: 'claude' | 'codex' = 'claude'): void {
     if (!text || sub.usageLimit) return;
     const stop = detectUsageLimitInText(text, Date.now());
     if (!stop) return;
     sub.usageLimit = stop;
-    if (!this.creditRuns.has(sub.id)) apiCreditService.noteSubscriptionLimit(stop);
+    // §4 — 한도 통지는 그 엔진의 구독 얘기다. 코덱스 한도가 Claude 경로 판정에 섞이지 않게 엔진별 서비스로 보낸다.
+    if (engine === 'codex') {
+      if (!this.codexCreditRuns.has(sub.id)) openaiCreditService.noteSubscriptionLimit(stop);
+    } else if (!this.creditRuns.has(sub.id)) apiCreditService.noteSubscriptionLimit(stop);
     logger.warn(`SubAgent ${sub.id} stopped by ${stop.kind} limit (from turn result): ${stop.message ?? ''}`);
     this.onSubStatusChange?.(sub.parentAgentId);
   }
@@ -3711,11 +3771,11 @@ export class SubAgentManager {
   }
 
   /**
-   * §4 — CMD 세션 탭의 sub 상태를 hook 스트림으로 맞춘다(tool→active, Stop→idle). CMD hook 은 session_id 가 부모 버블로 바뀌므로
+   * §4 — CMD 세션 탭의 sub 상태를 hook 스트림으로 맞춘다(tool→active, Stop→idle, StopFailure→error). CMD hook 은 session_id 가 부모 버블로 바뀌므로
    * termId(`term:<agentId>:<subId>`) 끝의 sub.id 로 탭을 찾는다. `lastActivityAt` 도 밀어 idle sweep 의 거짓 강등을 막는다.
    * @returns 바뀌었으면 true(broadcast 판단용).
    */
-  markCmdSubActivity(termId: string, isStop: boolean): boolean {
+  markCmdSubActivity(termId: string, isStop: boolean, failed = false): boolean {
     const parsed = parseTermId(termId);
     if (!parsed) return false;
     const sub = this.index.get(parsed.sessionToken);
@@ -3726,9 +3786,10 @@ export class SubAgentManager {
     const prev = sub.status;
     sub.lastActivityAt = Date.now();
     if (isStop) {
-      // 턴 종료 — "완료, 미확인"(idle=녹색). 다음 활동 이벤트가 오면 다시 active.
+      // 턴 종료 — "완료, 미확인"(idle=녹색). 실패한 턴은 error(§2.4). 다음 활동 이벤트가 오면 다시 active.
       // error 는 그대로 보존(거짓 idle 세탁 금지).
-      if (sub.status === 'active') sub.status = 'idle';
+      if (failed) sub.status = 'error';
+      else if (sub.status === 'active') sub.status = 'idle';
     } else if (sub.status !== 'active') {
       sub.status = 'active';
     }
@@ -3897,14 +3958,16 @@ export class SubAgentManager {
     const id = preferredId && !this.isSubIdTaken(preferredId)
       ? preferredId
       : this.mintSubId();
+    // 두 시각은 한 값이어야 한다 — 어긋나면 빈 탭이 "움직인 탭"으로 읽혀 초록 "끝남"이 선다(`isPristineSession`, §5.5 #17-10 ⑦).
+    const now = Date.now();
     const sub: SubAgent = {
       id,
       sessionId: '', // 첫 실행 시 Claude가 세션 생성
       label: `Sub #${subCounter}`,
       parentAgentId,
       status: 'idle',
-      createdAt: Date.now(),
-      lastActivityAt: Date.now(),
+      createdAt: now,
+      lastActivityAt: now,
     };
 
     let list = this.registry.get(parentAgentId);
@@ -3929,6 +3992,26 @@ export class SubAgentManager {
     sub.lastActivityAt = Date.now();
     logger.info(`SubAgent ${sub.id} adopted dead session ${sessionId.slice(0, 8)} (§5.26 resurrect)`);
     return true;
+  }
+
+  /**
+   * §5.26 (G) `fresh` — 새 대화로 시작하되 첫 턴에 끊긴 세션의 금고 브리핑을 싣는다. `--resume` 을 쓰지 않으므로 `sessionId` 는 비워 둔다.
+   * 이미 한 턴이라도 돈 탭에는 걸지 않는다 — 첫 턴이 지난 대화에 "이어받았다"를 끼워 넣으면 거짓이 된다.
+   */
+  markFreshResurrect(subAgentId: string, sourceSessionId: string, label?: string): boolean {
+    const sub = this.index.get(subAgentId);
+    if (!sub || !sourceSessionId || sub.sessionId) return false;
+    sub.freshBriefFrom = sourceSessionId;
+    if (label?.trim()) sub.label = label.trim().slice(0, 120);
+    sub.lastActivityAt = Date.now();
+    logger.info(`SubAgent ${sub.id} starts fresh from dead session ${sourceSessionId.slice(0, 8)} (§5.26 resurrect)`);
+    return true;
+  }
+
+  /** §5.26 (G) — 브리핑을 실어 보낸 뒤 부른다. 한 번만 싣는다. */
+  clearFreshBrief(subAgentId: string): void {
+    const sub = this.index.get(subAgentId);
+    if (sub) delete sub.freshBriefFrom;
   }
 
   /** 탭 닫기 = 소프트 아카이브: 자식을 끊고 메모리에서 빼 archive 로 옮긴다. 디스크 스트림은 남긴다(restore 때 읽는다). */
@@ -4035,10 +4118,10 @@ export class SubAgentManager {
   }
 
   /** false = definitely unsent; rejection = delivery unconfirmed and must not be replayed. */
-  sendLiveFollowUp(subAgentId: string, input: ClaudeLiveFollowUpInput): Promise<boolean> {
+  sendLiveFollowUp(subAgentId: string, input: ClaudeLiveFollowUpInput, onReceived?: () => void): Promise<boolean> {
     if (!this.canSendLiveFollowUp(subAgentId)) return Promise.resolve(false);
     const child = this.runningChildren.get(subAgentId)!;
-    return this.claudeLiveFollowUps.get(child)!.send(input, this.index.get(subAgentId)!.sessionId);
+    return this.claudeLiveFollowUps.get(child)!.send(input, this.index.get(subAgentId)!.sessionId, onReceived);
   }
 
   /**
@@ -5451,9 +5534,19 @@ export class SubAgentManager {
       const userStopped = this.stoppedByUser.delete(sub.id);
       sub.lastActivityAt = Date.now();
       // §2.4 (한도 정지) — 코덱스는 한도를 `{"type":"error"}` 로 신고한다(§5.25 (F)). 실패 사유와
-      //   최종 본문 둘 다 통지 자리라 함께 본다.
-      this.noteUsageLimitText(sub, error ?? finalText);
-      if (error && !userStopped) {
+      //   최종 본문 둘 다 통지 자리라 함께 본다. 크레딧 턴의 통지는 구독 얘기가 아니다 — 닫기 전에 본다.
+      this.noteUsageLimitText(sub, error ?? finalText, 'codex');
+      // §4 OpenAI 비즈니스 크레딧 — OpenAI 가 거절했으면(잔액·한도) 알 수 없는 실패가 아니라 Platform 의 한도다. 키 거부는 종전대로 CLI 실패.
+      const credit = this.settleCodexCreditRun(sub, error);
+      const refusal = credit?.refusal && credit.refusal.reason !== 'key-invalid' ? credit.refusal : undefined;
+      if (refusal && !userStopped) {
+        sub.status = 'error';
+        cmd.status = 'error';
+        cmd.result = `[Stopped: API credits refused by OpenAI]${finalText ? `
+
+${finalText}` : ''}`;
+        this.failCommand(sub, cmd, { code: 'creditCap', detail: refusal.detail ?? refusal.reason });
+      } else if (error && !userStopped) {
         sub.status = 'error';
         cmd.status = 'error';
         this.failCommand(sub, cmd, { code: 'cli', detail: error });
@@ -5490,7 +5583,9 @@ ${finalText}` : ''}` : finalText;
     const bashBridge = createCodexBashBridge(`${sub.id}:${cmd.id}`, parentCwd);
 
     logger.info(`SubAgent ${sub.id} codex turn: model=${provider.modelId} "${cmd.text.slice(0, 50)}..."`);
+    const apiCredit = this.resolveCodexCreditRoute(sub, cmd);
     runCodexTurn({
+      ...(apiCredit ? { apiCredit } : {}),
       verificationConfig: opts?.verificationConfig,
       contextArgs: opts?.codexContextArgs,
       toolHook: opts?.codexToolHook,
@@ -5709,7 +5804,13 @@ ${finalText}` : ''}` : finalText;
     };
 
     // §5.19 (D) ① — 클로드 세션이 받는 것(규칙·지시문·목표·기억)을 로컬도 받는다. 순서(안정 → 가변)는 프리픽스 캐시 때문에 `buildLocalSystemPrompt` 가 정한다.
-    const systemPrompt = buildLocalSystemPrompt(contextSummary, livePreamble, config.rules);
+    const baseSystemPrompt = buildLocalSystemPrompt(contextSummary, livePreamble, config.rules);
+    // §5.19 (J) ④ — 계획 먼저·릴레이가 켜졌고 승인된 계획이 돌고 있지 않으면 이 턴은 계획을 세운다(가변부 맨 뒤에 지시 한 벌).
+    const assist = provider.assist;
+    const planRel = localPlanRel(sub.id);
+    const planning = !parseLocalSlash(cmd.text) && isPlanningTurn(assist, readLocalPlanState(sub.id));
+    if (planning) prepareNewPlan(parentCwd, sub.id);
+    const systemPrompt = planning ? `${baseSystemPrompt}\n\n${planFirstInstruction(planRel)}` : baseSystemPrompt;
 
     // 큐 적재 후 제공자를 바꾼 경우도 이미지를 조용히 빼고 실행하지 않는다.
     if (cmd.attachments?.length) {
@@ -5728,7 +5829,7 @@ ${finalText}` : ''}` : finalText;
     if (slash) {
       void (async (): Promise<void> => {
         let said: string;
-        if (slash.kind === 'clear') said = clearLocalSession(sub.id);
+        if (slash.kind === 'clear') said = clearLocalSession(sub.id, parentCwd);
         else if (slash.kind === 'context') said = describeLocalContext(sub.id, systemPrompt, provider.contextSize ?? 0);
         else if (slash.kind === 'compact') {
           said = await compactLocalSession(sub.id, provider.modelId, provider.contextSize ?? 0, slash.arg);
@@ -5871,8 +5972,28 @@ ${finalText}` : ''}` : finalText;
         if (!isRenderableLocalEvent(eventType)) return;
         emit(eventType, content);
       },
-      onDone: (error, done) => finish(error, finalText, done),
+      onDone: (error, done) => {
+        // §5.19 (J) ④ — 계획 턴을 성공으로 마쳤으면 계획을 판정한다(끝맺기 **전에** — 알림이 이 턴의 스트림에 실려야 한다).
+        let autoRelay = false;
+        if (planning && !error && !this.stoppedByUser.has(sub.id) && isCurrentTurn()) {
+          const planned = afterPlanningTurn(parentCwd, sub.id, finalText, assist);
+          emit('system', planned.notice);
+          // 계획 먼저 없이 릴레이만 켰으면 승인을 기다리지 않는다 — 계획이 서면 바로 돈다.
+          autoRelay = planned.state === 'proposed' && assist?.relay === true && !assist.planFirst;
+        }
+        refreshLocalPlan(sub, parentCwd);
+        finish(error, finalText, done);
+        // 릴레이는 이 턴을 끝맺은 **뒤에** 건다 — 끝맺기 전에는 이 명령이 아직 실행 중이라 루프의 첫 회차가 겹침 방지에 막힌다.
+        if (autoRelay && this.localPlanHooks) {
+          const started = approvePlan(sub.parentAgentId, sub.id, parentCwd, assist, this.localPlanHooks);
+          if (!started.ok) logger.warn(`[localPlan] relay did not start for ${sub.id}: ${started.error ?? 'unknown reason'}`);
+          refreshLocalPlan(sub, parentCwd);
+          this.onSubStatusChange?.(sub.parentAgentId);
+        }
+      },
     };
+    if (assist) args.assist = assist;
+    if (planning) args.planGate = { fileRel: planRel };
     if (provider.toolSupport) args.toolSupport = provider.toolSupport;
     if (systemPrompt) args.systemPrompt = systemPrompt;
     // §5.19 (H) — 목표창·질문 카드·계획 종료는 러너가 아니라 여기서 넘어간 처리기가 맡는다.

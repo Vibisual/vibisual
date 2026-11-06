@@ -27,7 +27,11 @@ import {
   ORCHESTRA_STRATEGIES,
   findOrchestraStrategy,
   isOrchestraRunSettled,
+  isOrchestraRunVerified,
   isOrchestraStrategyAllowed,
+  orchestraTokenSplit,
+  resolveOrchestraFormationBasis,
+  ORCHESTRA_FORMATION_BASES,
   listEffortLevels,
   listModelFamilies,
   orchestraScopeStates,
@@ -39,11 +43,14 @@ import type {
   CodexModelEntry,
   OrchestraPlanChoice,
   OrchestraRun,
+  OrchestraRunHop,
   OrchestraRunPhase,
   OrchestraScope,
+  OrchestraScoreRow,
   OrchestraSettings,
   OrchestraStrategy,
   OrchestraStrategyId,
+  OrchestraSuggestions,
 } from '@vibisual/shared';
 import { useGraphStore, selectPaneOrchestraSummary } from '../../stores/graphStore.js';
 import { useIDEPaneKey } from './idePane.js';
@@ -544,6 +551,60 @@ function ChoiceList({
   );
 }
 
+/**
+ * §5.3 #10-6 (B) — 검수 판정 배지. 런 단계는 그대로 두고 옆에 붙인다 — "결과를 받았다"와 "확인됐다"는 다른 말이다.
+ * 확인됨 = 마지막 검수가 승인 + 서버가 본 통과 증거 ≥ 1. 판정이 없고 끝났으면 "받음(검증 없음)".
+ */
+function verificationBadge(run: OrchestraRun): { key: string; tone: string } | null {
+  if (isOrchestraRunVerified(run)) return { key: 'verified', tone: 'bg-emerald-500/20 text-emerald-200' };
+  const v = run.verification;
+  if (v?.verdict === 'reject') return { key: 'rejected', tone: 'bg-rose-500/15 text-rose-300' };
+  if (v?.verdict === 'held') return { key: 'held', tone: 'bg-amber-500/15 text-amber-300' };
+  if (v?.verdict === 'approve') return { key: 'noEvidence', tone: 'bg-amber-500/15 text-amber-300' };
+  if (run.phase === 'completed') return { key: 'received', tone: 'bg-gray-700/60 text-gray-300' };
+  return null;
+}
+
+/** 인계 사슬 한 줄 — 역할 · 누가 · 받은 지시 · 돌려준 결과 · 토큰 · 기다린 시간. */
+function HopRow({
+  hop, nameOf, locale,
+}: {
+  hop: OrchestraRunHop;
+  nameOf: (id: string) => string;
+  locale: string;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const waitMs = hop.startedAt !== undefined ? Math.max(0, hop.startedAt - hop.queuedAt) : undefined;
+  return (
+    <li data-orchestra-hop={hop.commandId} className="flex min-w-0 flex-col gap-0.5 border-l border-gray-700 pl-1.5">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+        <span className="flex-shrink-0 rounded bg-gray-800 px-1 text-[12px] text-gray-300">{t(`ide.orchestra.hops.role.${hop.role}`)}</span>
+        <span className="min-w-0 flex-1 truncate text-[12px] text-gray-400" title={nameOf(hop.agentId)}>{nameOf(hop.agentId)}</span>
+        {hop.status === 'error' && <span className="flex-shrink-0 text-[12px] text-rose-300">{t('ide.orchestra.hops.failed')}</span>}
+        <span className="flex-shrink-0 text-[12px] tabular-nums text-gray-600">
+          {t('ide.orchestra.hops.tokens', { count: (hop.inputTokens + hop.outputTokens).toLocaleString(locale) })}
+        </span>
+      </div>
+      {hop.instruction && (
+        <p className="line-clamp-2 break-words text-[12px] leading-snug text-gray-500" title={hop.instruction}>
+          <span className="text-gray-600">{t('ide.orchestra.hops.instruction')} </span>{hop.instruction}
+        </p>
+      )}
+      {hop.result && (
+        <p className="line-clamp-2 break-words text-[12px] leading-snug text-gray-400" title={hop.result}>
+          <span className="text-gray-600">{t('ide.orchestra.hops.result')} </span>{hop.result}
+        </p>
+      )}
+      {(waitMs !== undefined && waitMs >= 1000) || hop.waitedOnConcurrency ? (
+        <p className="text-[12px] text-gray-600">
+          {waitMs !== undefined && waitMs >= 1000 && t('ide.orchestra.hops.waited', { seconds: Math.round(waitMs / 1000) })}
+          {hop.waitedOnConcurrency && <span className="text-amber-300/80"> {t('ide.orchestra.hops.concurrency')}</span>}
+        </p>
+      ) : null}
+    </li>
+  );
+}
+
 /** 런 한 줄 — 요청·의도·편성·고른 것/건너뛴 것과 이유·넘긴 곳·비용. 고른 이유가 보여야 지휘자의 선택을 믿는다. */
 const RunRow = memo(function RunRow({
   run, mine, nameOf, locale,
@@ -554,12 +615,16 @@ const RunRow = memo(function RunRow({
   locale: string;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const [hopsOpen, setHopsOpen] = useState(false);
   const plan = run.plan;
   const time = new Date(run.startedAt).toLocaleString(locale, {
     month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
   });
   const conductor = nameOf(run.agentId);
   const members = run.memberAgentIds.map(nameOf);
+  const badge = verificationBadge(run);
+  const hops = run.hops ?? [];
+  const split = hops.length > 0 ? orchestraTokenSplit(run) : null;
   return (
     <li
       data-orchestra-run={run.runId}
@@ -571,6 +636,17 @@ const RunRow = memo(function RunRow({
         <span className={`flex-shrink-0 rounded px-1 text-[12px] ${PHASE_TONE[run.phase]}`}>
           {t(`ide.orchestra.phase.${run.phase}`)}
         </span>
+        {badge && (
+          <span
+            data-orchestra-verification={badge.key}
+            className={`flex-shrink-0 rounded px-1 text-[12px] ${badge.tone}`}
+            title={run.verification
+              ? t('ide.orchestra.verification.detail', { passed: run.verification.passed, failed: run.verification.failed })
+              : t('ide.orchestra.verification.receivedHint')}
+          >
+            {t(`ide.orchestra.verification.${badge.key}`)}
+          </span>
+        )}
         <span className="min-w-0 flex-1 truncate text-[12px] text-gray-400" title={conductor}>{conductor}</span>
         <span className="flex-shrink-0 text-[12px] text-gray-500">{t(`ide.orchestra.engine.${run.engine}`)}</span>
         <span className="flex-shrink-0 text-[12px] tabular-nums text-gray-600">{time}</span>
@@ -602,6 +678,16 @@ const RunRow = memo(function RunRow({
               <span className="text-gray-500">{t('ide.orchestra.runs.note')} </span>{plan.note}
             </p>
           )}
+          {plan.splitBasis && (
+            <p data-orchestra-split-basis className="whitespace-pre-wrap break-words text-[12px] leading-snug text-gray-400">
+              <span className="text-gray-500">{t('ide.orchestra.runs.splitBasis')} </span>{plan.splitBasis}
+            </p>
+          )}
+          {plan.reviewAgentId && (
+            <p className="break-words text-[12px] text-gray-400">
+              {t('ide.orchestra.runs.reviewer', { name: nameOf(plan.reviewAgentId) })}
+            </p>
+          )}
         </>
       ) : run.phase !== 'conducting' ? (
         <p className="text-[12px] leading-snug text-gray-500">{t('ide.orchestra.runs.noPlan')}</p>
@@ -620,9 +706,159 @@ const RunRow = memo(function RunRow({
           output: run.outputTokens.toLocaleString(locale),
         })}
       </p>
+      {split && (
+        <p data-orchestra-token-split className="text-[12px] tabular-nums text-gray-500">
+          {t('ide.orchestra.runs.tokenSplit', {
+            coordination: split.coordination.toLocaleString(locale),
+            work: split.work.toLocaleString(locale),
+          })}
+          {split.recorded !== split.total && <span className="text-gray-600"> {t('ide.orchestra.runs.tokenSplitPartial')}</span>}
+        </p>
+      )}
+      {hops.length > 0 && (
+        <div className="flex min-w-0 flex-col gap-1">
+          <button
+            type="button"
+            data-orchestra-hops-toggle
+            aria-expanded={hopsOpen}
+            onClick={() => setHopsOpen((v) => !v)}
+            className="flex items-center gap-1 self-start rounded px-0.5 text-[12px] text-gray-400 hover:bg-gray-800"
+          >
+            <Chevron open={hopsOpen} />
+            {t('ide.orchestra.hops.title', { count: hops.length })}
+          </button>
+          {hopsOpen && (
+            <ol className="flex min-w-0 flex-col gap-1 pl-1">
+              {hops.map((h) => <HopRow key={h.commandId} hop={h} nameOf={nameOf} locale={locale} />)}
+            </ol>
+          )}
+        </div>
+      )}
     </li>
   );
 });
+
+/** §5.3 #10-6 (C) — 의도 × 편성 성적표. 서버가 런 전량으로 지은 표를 그대로 그린다(여기서 다시 세지 않는다). */
+function ScorecardTable({ rows, locale }: { rows: readonly OrchestraScoreRow[]; locale: string }): React.JSX.Element {
+  const { t } = useTranslation();
+  const label = (kind: 'intent' | 'topology', v: string) => (v === 'unplanned' ? t('ide.orchestra.scorecard.unplanned') : t(`ide.orchestra.${kind}.${v}`));
+  return (
+    <ul data-orchestra-scorecard className="flex min-w-0 flex-col gap-1">
+      {rows.map((r) => (
+        <li key={`${r.intent}:${r.topology}`} className="flex min-w-0 flex-col gap-0.5 rounded border-l-2 border-gray-700 px-1.5 py-0.5">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 flex-1 truncate text-[12px] text-gray-300">
+              {label('intent', r.intent)} · {r.topology === 'unplanned' ? '—' : label('topology', r.topology)}
+            </span>
+            <span className="flex-shrink-0 text-[12px] tabular-nums text-gray-500">{t('ide.orchestra.scorecard.runs', { count: r.runs })}</span>
+          </div>
+          <p className="text-[12px] tabular-nums text-gray-500">
+            {t('ide.orchestra.scorecard.outcome', {
+              completed: r.completed + r.answered,
+              verified: r.verified,
+              error: r.error,
+              unreported: r.unreported,
+            })}
+          </p>
+          <p className="text-[12px] tabular-nums text-gray-600">
+            {r.avgDurationMs !== undefined
+              ? t('ide.orchestra.scorecard.average', { tokens: r.avgTokens.toLocaleString(locale), seconds: Math.round(r.avgDurationMs / 1000) })
+              : t('ide.orchestra.scorecard.averageTokens', { tokens: r.avgTokens.toLocaleString(locale) })}
+          </p>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** §5.3 #10-6 (D)(H) — 정리 제안(목록만 — 자동 조치 ❌). 멤버 지시문을 프로젝트 스킬로 내보내는 손잡이를 함께 둔다. */
+function SuggestionList({
+  suggestions, nameOf, locale, rootPath,
+}: {
+  suggestions: OrchestraSuggestions;
+  nameOf: (id: string) => string;
+  locale: string;
+  rootPath: string | null;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const [exported, setExported] = useState<Record<string, string>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const exportSkill = useCallback((agentId: string) => {
+    if (!rootPath || busyId) return;
+    setBusyId(agentId);
+    void fetch('/api/orchestra/export-skill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectPath: rootPath, agentId }),
+    })
+      .then(async (r) => {
+        const res = (await r.json().catch(() => ({}))) as { ok?: boolean; name?: string; error?: string };
+        setExported((prev) => ({
+          ...prev,
+          [agentId]: r.ok && res.ok
+            ? t('ide.orchestra.suggestions.exported', { name: res.name ?? '' })
+            : t('ide.orchestra.suggestions.exportFailed', { reason: res.error ?? `HTTP ${r.status}` }),
+        }));
+      })
+      .catch((err: unknown) => {
+        setExported((prev) => ({ ...prev, [agentId]: t('ide.orchestra.suggestions.exportFailed', { reason: err instanceof Error ? err.message : String(err) }) }));
+      })
+      .finally(() => setBusyId(null));
+  }, [rootPath, busyId, t]);
+  const exportButton = (agentId: string) => (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <button
+        type="button"
+        data-orchestra-export-skill={agentId}
+        disabled={!rootPath || busyId !== null}
+        onClick={() => exportSkill(agentId)}
+        className="rounded border border-gray-700 px-1.5 py-0.5 text-[12px] text-gray-300 hover:bg-gray-800 disabled:opacity-40"
+      >
+        {t('ide.orchestra.suggestions.exportSkill')}
+      </button>
+      {exported[agentId] && <span className="min-w-0 break-words text-[12px] text-gray-500">{exported[agentId]}</span>}
+    </div>
+  );
+  return (
+    <div data-orchestra-suggestions className="flex min-w-0 flex-col gap-1.5">
+      {suggestions.foldPairs.length > 0 && (
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-[12px] text-gray-500">{t('ide.orchestra.suggestions.foldTitle')}</span>
+          <ul className="flex flex-col gap-1">
+            {suggestions.foldPairs.map((p) => (
+              <li key={p.edgeId} className="flex min-w-0 flex-col gap-0.5 rounded border-l-2 border-gray-700 px-1.5 py-0.5">
+                <p className="break-words text-[12px] text-gray-300">
+                  {t('ide.orchestra.suggestions.fold', { from: nameOf(p.fromAgentId), into: nameOf(p.intoAgentId), count: p.runs })}
+                </p>
+                {exportButton(p.fromAgentId)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {suggestions.idleMembers.length > 0 && (
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-[12px] text-gray-500">{t('ide.orchestra.suggestions.idleTitle')}</span>
+          <ul className="flex flex-col gap-1">
+            {suggestions.idleMembers.map((m) => (
+              <li key={m.agentId} className="flex min-w-0 flex-col gap-0.5 rounded border-l-2 border-gray-700 px-1.5 py-0.5">
+                <p className="break-words text-[12px] text-gray-300">
+                  {t('ide.orchestra.suggestions.idle', {
+                    name: nameOf(m.agentId),
+                    date: new Date(m.lastUsedAt).toLocaleDateString(locale),
+                    count: m.runs,
+                  })}
+                </p>
+                {exportButton(m.agentId)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <p className="px-0.5 text-[12px] leading-relaxed text-gray-600">{t('ide.orchestra.suggestions.note')}</p>
+    </div>
+  );
+}
 
 // ─── 뷰 ──────────────────────────────────────────────────────────────────────
 
@@ -639,6 +875,8 @@ export const IDEOrchestraView = memo(function IDEOrchestraView({
   const control = useOrchestraControl(rootPath, agentId, summary?.settings ?? null);
   const settings = control.settings;
   const runs = summary?.runs;
+  const scorecard = summary?.scorecard;
+  const suggestions = summary?.suggestions;
 
   // 지휘자 엔진은 **그 에이전트를 따른다**(SSOT — 턴마다 엔진을 바꾸면 세션이 끊긴다). 로컬이면 지휘하지 않는다.
   const providerKind = useGraphStore((s) => s.agentConfigs[agentId]?.provider?.kind);
@@ -726,9 +964,13 @@ export const IDEOrchestraView = memo(function IDEOrchestraView({
       ids.add(r.agentId);
       for (const m of r.memberAgentIds) ids.add(m);
       if (r.plan?.entryAgentId) ids.add(r.plan.entryAgentId);
+      if (r.plan?.reviewAgentId) ids.add(r.plan.reviewAgentId);
+      for (const h of r.hops ?? []) ids.add(h.agentId);
     }
+    for (const p of suggestions?.foldPairs ?? []) { ids.add(p.fromAgentId); ids.add(p.intoAgentId); }
+    for (const m of suggestions?.idleMembers ?? []) ids.add(m.agentId);
     return [...ids].sort().join('\n');
-  }, [sortedRuns, agentId]);
+  }, [sortedRuns, agentId, suggestions]);
   const namesJson = useGraphStore((s) => {
     const ids = new Set(nameIdsKey.split('\n'));
     const out: Record<string, string> = {};
@@ -1000,6 +1242,44 @@ export const IDEOrchestraView = memo(function IDEOrchestraView({
             <p className="px-0.5 text-[12px] leading-relaxed text-gray-600">{t('ide.orchestra.member.toolsHint')}</p>
           </Section>
 
+          {/* §5.3 #10-6 (F) — 새 길 넷. 전부 기본 꺼짐이고, 꺼 두면 지휘 규칙·흐름이 종전과 같다. */}
+          <Section title={t('ide.orchestra.newPaths.title')}>
+            <p className="px-0.5 text-[12px] leading-relaxed text-gray-500">{t('ide.orchestra.newPaths.about')}</p>
+            <ToggleRow
+              field="allowSelf"
+              label={t('ide.orchestra.field.allowSelf')}
+              hint={t('ide.orchestra.field.allowSelfHint')}
+              on={settings.allowSelf === true}
+              disabled={locked}
+              onToggle={() => control.patch({ allowSelf: settings.allowSelf === true ? null : true })}
+            />
+            <ToggleRow
+              field="crossEngineReview"
+              label={t('ide.orchestra.field.crossEngineReview')}
+              hint={t('ide.orchestra.field.crossEngineReviewHint')}
+              on={settings.crossEngineReview === true}
+              disabled={locked}
+              onToggle={() => control.patch({ crossEngineReview: settings.crossEngineReview === true ? null : true })}
+            />
+            <SettingSelect
+              field="formationBasis"
+              label={t('ide.orchestra.field.formationBasis')}
+              value={resolveOrchestraFormationBasis(settings)}
+              options={ORCHESTRA_FORMATION_BASES.map((b) => ({ value: b, label: t(`ide.orchestra.formationBasis.${b}`) }))}
+              disabled={locked}
+              onChange={(v) => control.patch({ formationBasis: v === 'dependency' ? 'dependency' : null })}
+            />
+            <p className="px-0.5 text-[12px] leading-relaxed text-gray-600">{t('ide.orchestra.field.formationBasisHint')}</p>
+            <ToggleRow
+              field="splitRules"
+              label={t('ide.orchestra.field.splitRules')}
+              hint={t('ide.orchestra.field.splitRulesHint')}
+              on={settings.splitRules === true}
+              disabled={locked}
+              onToggle={() => control.patch({ splitRules: settings.splitRules === true ? null : true })}
+            />
+          </Section>
+
           {/* 방안 표 — 원문 13행. 지휘자는 켜 둔 것 중에서 **그 요청에 맞는 것만** 고른다(전부 자동 적용 ❌). */}
           <Section
             title={t('ide.orchestra.strategies.title')}
@@ -1042,6 +1322,21 @@ export const IDEOrchestraView = memo(function IDEOrchestraView({
               </ul>
             )}
           </Section>
+
+          {/* §5.3 #10-6 (C) — 의도 × 편성 성적표(런 전량). 기본값을 바꿀지는 이 표를 보고 사용자가 정한다. */}
+          {scorecard && scorecard.length > 0 && (
+            <Section title={t('ide.orchestra.scorecard.title')}>
+              <p className="px-0.5 text-[12px] leading-relaxed text-gray-500">{t('ide.orchestra.scorecard.about')}</p>
+              <ScorecardTable rows={scorecard} locale={i18n.language} />
+            </Section>
+          )}
+
+          {/* §5.3 #10-6 (D) — 정리 제안(자동 조치 ❌). */}
+          {suggestions && (
+            <Section title={t('ide.orchestra.suggestions.title')}>
+              <SuggestionList suggestions={suggestions} nameOf={nameOf} locale={i18n.language} rootPath={rootPath} />
+            </Section>
+          )}
         </div>
       </ScrollFade>
     </div>

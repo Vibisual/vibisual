@@ -1,5 +1,5 @@
 import type { BubbleData, PipelineType, PipelineState, AgentRole } from '@vibisual/shared';
-import { PIPELINE_CHILD_CONFIGS } from '@vibisual/shared';
+import { PIPELINE_CHILD_CONFIGS, PIPELINE_CHILD_ROLES_BY_TYPE } from '@vibisual/shared';
 
 // ─── 유틸 ───
 
@@ -68,7 +68,8 @@ export class PipelineManager {
     const childBubbles: BubbleData[] = [];
     const childIds: string[] = [];
 
-    for (const role of CHILD_ROLES) {
+    // §5.3 #11 — 타입마다 자식 역할이 다를 수 있다(단일 작성자 = 구현 + 검증). 없는 타입은 종전 넷.
+    for (const role of PIPELINE_CHILD_ROLES_BY_TYPE[type] ?? CHILD_ROLES) {
       const cfg = PIPELINE_CHILD_CONFIGS[role];
       const childSessionId = `${parentSessionId}-${role}`;
       const childId = `agent-${hashString(childSessionId)}`;

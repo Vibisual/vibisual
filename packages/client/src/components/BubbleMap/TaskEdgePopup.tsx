@@ -402,6 +402,8 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
     setMaxReworkCount(tmpl.defaultMaxReworkCount ?? TASK_EDGE_DEFAULTS.maxReworkCount);
     setCommandMode(tmpl.defaultCommandMode ?? TASK_EDGE_DEFAULTS.commandMode);
     setDelegationPolicy(tmpl.defaultDelegationPolicy ?? TASK_EDGE_DEFAULTS.delegationPolicy);
+    // §5.3 #12 — 양식을 가진 프리셋(의존성 기준 둘)만 양식 칸을 채운다. 종전 프리셋은 양식 칸을 건드리지 않던 그대로다.
+    if (tmpl.defaultMessageSchema !== undefined) setMessageSchema(tmpl.defaultMessageSchema);
   }, [templates]);
 
   const handleSubmit = useCallback(() => {
@@ -488,6 +490,8 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
         <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
           {t('bubbleMap.taskEdgePopup.template')}
           <InfoIcon title={t('bubbleMap.taskEdgePopup.templateTooltip')} />
+          {/* §5.3 #12 — 엣지를 잇기 전 세 가지(넘기는 자리의 의존성이 성패를 가른다). */}
+          <InfoIcon title={t('bubbleMap.taskEdgePopup.splitCheckTooltip')} />
         </div>
         <select
           className="mb-3 w-full rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-xs text-gray-200 focus:border-blue-500 focus:outline-none"

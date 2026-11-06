@@ -19,6 +19,29 @@ export function ensureOrchestraMemberReturns(graph: OrchestraEdgeGraph, memberAg
   }
 }
 
+/** §5.3 #10-6 (F) — 직접 하기 검수 엣지를 만들 때 쓰는 그래프 창구(critique 칸만). */
+interface OrchestraReviewEdgeGraph {
+  getTaskEdgesSnapshot(): Record<string, TaskEdge>;
+  createTaskEdge(source: string, target: string, command: string, mode: 'auto', template: null,
+    options: { kind: 'critique'; critiqueAuthority: 'force-rework'; critiqueTiming: 'final' }): TaskEdge;
+}
+
+/** 직접 하기 검수의 지시문 — 검수자가 받는 일. 결과물만 보고 판정을 #10-3 양식으로 돌려준다. */
+export const ORCHESTRA_SELF_REVIEW_COMMAND =
+  'Review the change the conductor just made in this project. Run the build/tests yourself and report each command with its exit code. Do not edit files. First line: approve or REJECT: <reason>.';
+
+/**
+ * §5.3 #10-6 (F) — 검수자 → 지휘 에이전트 critique(force-rework) 엣지를 재사용하거나 만든다. 사용자가 이미 이은 critique 엣지가 있으면 그것을 쓴다
+ * (계약을 덮지 않는다). 엣지는 사용자 산출물이 되어 남는다 — 다음 직접 하기도 같은 엣지를 쓴다.
+ */
+export function ensureOrchestraReviewEdge(graph: OrchestraReviewEdgeGraph, reviewerAgentId: string, conductorAgentId: string): TaskEdge {
+  const existing = Object.values(graph.getTaskEdgesSnapshot()).find((edge) =>
+    edge.sourceAgentId === reviewerAgentId && edge.targetAgentId === conductorAgentId
+    && edge.kind === 'critique' && (edge.bundleRole ?? 'primary') === 'primary');
+  return existing ?? graph.createTaskEdge(reviewerAgentId, conductorAgentId, ORCHESTRA_SELF_REVIEW_COMMAND, 'auto', null,
+    { kind: 'critique', critiqueAuthority: 'force-rework', critiqueTiming: 'final' });
+}
+
 /** Reuse a real return-capable edge; never overwrite an unrelated user edge's contract. */
 export function ensureOrchestraEntryEdge(graph: OrchestraEdgeGraph, run: Pick<OrchestraRun, 'agentId'>, entryAgentId: string): TaskEdge {
   const existing = Object.values(graph.getTaskEdgesSnapshot()).find((edge) =>
@@ -62,7 +85,7 @@ export function orchestraCritiqueFirings(
   done: readonly QueuedCommand[],
   workerAgentId: string,
   lookup: {
-    findRun(runId: string): Pick<OrchestraRun, 'agentId'> | undefined;
+    findRun(runId: string): (Pick<OrchestraRun, 'agentId'> & Partial<Pick<OrchestraRun, 'plan' | 'selfCommandId'>>) | undefined;
     findEdge(edgeId: string | undefined): Pick<TaskEdge, 'kind' | 'bundleRole'> | undefined;
     isUserStopped(cmd: QueuedCommand): boolean;
   },
@@ -76,9 +99,12 @@ export function orchestraCritiqueFirings(
     const owner = lookup.findRun(runId);
     if (!owner) continue; // 사라진 런의 꼬리표엔 검수를 가질 주인이 없다.
     sawLiveRun = true;
-    // 감독 제 턴은 검수 대상이 아니고, 사용자가 멈춘 명령은 결과가 아니다.
-    if (owner.agentId === workerAgentId || lookup.isUserStopped(cmd)) continue;
     const edge = lookup.findEdge(cmd.edgeId);
+    // 감독 제 턴은 검수 대상이 아니고, 사용자가 멈춘 명령은 결과가 아니다.
+    // §5.3 #10-6 (F) — 단 직접 하기(`self`)에서는 감독 에이전트가 곧 작업자다: 다시 넣은 명령과 그 재작업은 작업으로 센다.
+    const selfWork = owner.plan?.topology === 'self'
+      && (cmd.id === owner.selfCommandId || edge?.bundleRole === 'auto-rework');
+    if ((owner.agentId === workerAgentId && !selfWork) || lookup.isUserStopped(cmd)) continue;
     if ((edge?.kind ?? 'command') === 'critique') continue; // 검수 응답 자체는 다시 검수하지 않는다.
     if (seen.has(runId)) continue;
     seen.add(runId);

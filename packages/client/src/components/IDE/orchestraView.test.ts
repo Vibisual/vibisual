@@ -85,7 +85,8 @@ describe('§5.3 #10-4 오케스트라 — 뷰가 지키는 것', () => {
     const src = viewSrc();
     expect(src, '뷰 파일이 없다').not.toBe('');
     const apis = new Set([...src.matchAll(/'(\/api\/[^'?]+)/g)].map((m) => m[1]));
-    expect([...apis].sort()).toEqual(['/api/orchestra/scope', '/api/orchestra/settings']);
+    // §5.3 #10-6 (H) — 설정 저장이 아니라 멤버 지시문을 스킬 파일로 내보내는 별도 동작이다(설정 칸을 바꾸지 않는다).
+    expect([...apis].sort()).toEqual(['/api/orchestra/export-skill', '/api/orchestra/scope', '/api/orchestra/settings']);
     // 전량 교체 PUT 을 쓰지 않는다 — 켬/끔 칸은 /scope 한 길이라 패치 타입에서 빠져 있어야 한다.
     expect(src).toMatch(/Exclude<keyof OrchestraSettings, 'enabledProject' \| 'enabledAgents' \| 'updatedAt'>/);
   });

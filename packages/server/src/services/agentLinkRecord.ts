@@ -145,6 +145,11 @@ function sanitizeEntry(raw: unknown): AgentLinkEntry | null {
     const n = finite(raw[field]);
     if (n !== undefined) out[field] = n;
   }
+  const bundleLimits = raw['bundleMaxSatellites'];
+  if (isRecord(bundleLimits)) {
+    out.bundleMaxSatellites = Object.fromEntries(Object.entries(bundleLimits)
+      .filter((entry): entry is [string, number] => finite(entry[1]) !== undefined));
+  }
   const pos = raw['position'];
   if (isRecord(pos)) {
     const x = finite(pos['x']);

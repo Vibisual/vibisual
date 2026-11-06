@@ -20,6 +20,7 @@ import {
   Position,
 } from '@xyflow/react';
 import {
+  goalStepVerification,
   resolveSkillPluginState,
   type AvailableSkill,
   type AutoGoalSkillSummary,
@@ -64,6 +65,8 @@ import { StageCanvasMenu, type StageMenuAnchor } from './StageCanvasMenu.js';
 type StepNodeData = {
   step: SessionGoalStep;
   kind?: VisualKindCard;
+  /** ㉓ — 이 단계를 끝낸 뒤 통과한 검증(#17-35)의 판정 시각. 없으면 "끝냄"만이다(자기 신고). */
+  verifiedAt?: number;
   selected: boolean;
   /** ⑰(a) — 앞 단계와 같은 행(첫 단계는 언제나 `false`). */
   parallel: boolean;
@@ -169,7 +172,7 @@ function pinBreakHandlers(
 /** ⑪(f)(n)·⑰(a) — 단계 노드. 종류 색 레인 + 옅은 밑칠 + 장면 워터마크로 훑기만 해도 일의 성격이 읽히게. 병렬 노드는 우상단 `∥`. */
 function StepNode({ data }: NodeProps): React.JSX.Element {
   const { t } = useTranslation();
-  const { step, kind, selected, parallel, onOpen, onBreakPin, onPinMenu } = data as unknown as StepNodeData;
+  const { step, kind, verifiedAt, selected, parallel, onOpen, onBreakPin, onPinMenu } = data as unknown as StepNodeData;
   const done = step.status === 'done';
   const running = step.status === 'in_progress';
   const low = step.confidence === 'low';
@@ -251,6 +254,20 @@ function StepNode({ data }: NodeProps): React.JSX.Element {
             {kind.label}
           </span>
         )}
+        {/* ㉓ — 끝낸 단계(자기 신고)와 확인된 단계를 가른다. 퍼센트는 바꾸지 않는다(표시 전용). */}
+        {done && verifiedAt !== undefined && (
+          <span
+            data-goal-step-verified={step.id}
+            className="flex items-center gap-1 truncate text-[12px] leading-tight text-emerald-300"
+            title={t('ide.goal.stepVerifiedHint', { time: new Date(verifiedAt).toLocaleTimeString() })}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3 flex-shrink-0" aria-hidden>
+              <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+              <path d="m9 12 2 2 4-4" />
+            </svg>
+            {t('ide.goal.stepVerified')}
+          </span>
+        )}
       </span>
       <Handle
         type="source"
@@ -315,6 +332,8 @@ export function IDEGoalMapView({
 }: IDEGoalMapViewProps): React.JSX.Element {
   const { t } = useTranslation();
   const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
+  // ㉓ — 이 세션 탭의 검증 기록(#17-35). 판정은 shared `goalStepVerification` 한 곳 — 여기서 다시 세지 않는다.
+  const sessionVerifications = useGraphStore((s) => (activeSessionId ? s.verificationRuns[activeSessionId] : undefined));
   const goal = useGraphStore((s) => (activeSessionId ? s.sessionGoals[activeSessionId] : undefined));
   const visualKinds = useGraphStore((s) => s.visualKinds);
   const setUserGoalSteps = useGraphStore((s) => s.setUserGoalSteps);
@@ -715,6 +734,7 @@ export function IDEGoalMapView({
       data: {
         step,
         kind: step.kind ? visualKinds[step.kind] : undefined,
+        verifiedAt: goalStepVerification(step, sessionVerifications)?.at,
         selected: step.id === selectedStepId,
         parallel: i > 0 && !!step.parallel,
         onOpen: onSelectStep,
@@ -725,7 +745,7 @@ export function IDEGoalMapView({
       // ⑭(d)·⑳ — 끌어서 **자리만** 바꾼다(차례는 핀에서 핀으로 꽂은 선이 정한다).
       draggable: true,
     })),
-    [steps, visualKinds, selectedStepId, onSelectStep, onBreakPin, onPinMenu],
+    [steps, visualKinds, sessionVerifications, selectedStepId, onSelectStep, onBreakPin, onPinMenu],
   );
 
   /** ⑳(f) — 끄는 동안 매 프레임 다시 지어지는 것은 이 한 겹뿐이다(자리 = 끌던 자리 → 저장 자리 → 파생 자리). */

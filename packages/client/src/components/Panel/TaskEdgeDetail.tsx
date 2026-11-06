@@ -200,7 +200,8 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
           </pre>
         </div>
       )}
-      {edge.errorMessage && (
+      {/* 지금 실패한 엣지만 — 옛 체크포인트엔 재시도 성공 뒤에도 지난 오류가 남아 있다. */}
+      {edge.status === 'error' && edge.errorMessage && (
         <div className="flex flex-col gap-1">
           <span className="text-xs text-red-400">{t('panel.taskEdgeDetail.errorLabel')}</span>
           <pre className="scrollbar-thin max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded border border-red-900/60 bg-red-950/30 px-2 py-1.5 font-mono text-xs text-red-200">

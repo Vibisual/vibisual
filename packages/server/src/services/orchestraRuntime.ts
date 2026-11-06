@@ -6,6 +6,8 @@ import {
   AUTO_AGENT_BUILDER_INTERVIEW_TOOL,
   ORCHESTRA_CONDUCTOR_DISALLOWED_TOOLS,
   ORCHESTRA_CONDUCTOR_TOOLS,
+  appendOrchestraHop,
+  orchestraHopRole,
   resolveOrchestraConductorPermission,
   resolveOrchestraMaxMembers,
   resolveOrchestraMemberEngine,
@@ -16,6 +18,7 @@ import type {
   AgentProviderKind,
   ExecutionMode,
   OrchestraRun,
+  OrchestraRunHop,
   OrchestraSettings,
   OrchestraPreparation,
   OrchestraReadiness,
@@ -173,6 +176,9 @@ export function settleConductorTurn(
     phase = 'error';
   } else if (phase === 'conducting') {
     phase = 'unreported';
+  } else if (phase === 'dispatched' && run.plan?.topology === 'self') {
+    // §5.3 #10-6 (F) — 직접 하기: 지휘 턴이 정상으로 끝난 것은 시작일 뿐이다. 서버가 다시 넣은 명령이 끝나야 닫는다(`settleSelfCommand`).
+    return run;
   } else if (phase === 'dispatched') {
     // 주인을 모르는 증거·다른 세션·이전 런의 결과로 이번 런을 성공시켜서는 안 된다.
     const relevant = cmd.subAgentId ? dispatchJobs.filter((job) =>
@@ -184,6 +190,89 @@ export function settleConductorTurn(
       && job.deliveredAt !== undefined && job.cancelRequestedAt === undefined) ? 'completed' : 'error';
   }
   return { ...run, phase, endedAt: now };
+}
+
+/**
+ * §5.3 #10-6 (F) — 직접 하기 명령(`run.selfCommandId`)이 끝나면 런을 닫는다. 사용자 중지·실패·정상이 아닌 멈춤은 `error`.
+ * 다른 명령·이미 닫힌 런은 그대로 돌려준다(첫 정산이 이긴다).
+ */
+export function settleSelfCommand(
+  run: OrchestraRun,
+  cmd: Pick<QueuedCommand, 'id' | 'status'> & Partial<Pick<QueuedCommand, 'stopReason' | 'result'>>,
+  now: number,
+): OrchestraRun {
+  if (run.selfCommandId === undefined || cmd.id !== run.selfCommandId || run.endedAt !== undefined) return run;
+  if (cmd.status !== 'completed' && cmd.status !== 'error') return run;
+  const failed = cmd.status === 'error'
+    || (cmd.stopReason !== undefined && cmd.stopReason !== 'end_turn')
+    || cmd.result?.startsWith(DISPATCH_USER_STOPPED_PREFIX) === true;
+  return { ...run, phase: failed ? 'error' : 'completed', endedAt: now };
+}
+
+/**
+ * §5.3 #10-6 (F) — 지휘 턴이 정상으로 끝났고 편성이 `self` 이며 아직 다시 넣지 않았으면, 같은 세션에 다시 넣을 차례다.
+ * 지휘 턴 정산(`settleConductorTurn`)이 런을 `dispatched` 그대로 둔 뒤에 부른다.
+ */
+export function shouldEnqueueSelfCommand(
+  run: Pick<OrchestraRun, 'commandId' | 'phase' | 'plan' | 'selfCommandId' | 'endedAt'>,
+  cmd: Pick<QueuedCommand, 'id' | 'status'>,
+): boolean {
+  return cmd.id === run.commandId && cmd.status === 'completed' && run.phase === 'dispatched'
+    && run.plan?.topology === 'self' && run.selfCommandId === undefined && run.endedAt === undefined;
+}
+
+/**
+ * §5.3 #10-6 (A) — 끝난 명령 하나로 사슬 한 줄을 짓는다(글 자르기·상한은 shared `appendOrchestraHop`).
+ * 역할은 shared `orchestraHopRole` 한 곳이 정한다. 명령 결과가 사용자 중지면 `error` 다.
+ */
+export function buildOrchestraHop(
+  run: Pick<OrchestraRun, 'commandId' | 'selfCommandId' | 'plan'>,
+  cmd: Pick<QueuedCommand, 'id' | 'text' | 'status' | 'timestamp'> & Partial<Pick<QueuedCommand, 'result' | 'inputTokens' | 'outputTokens' | 'startedAt' | 'stopReason' | 'waitedOnConcurrency'>>,
+  agentId: string,
+  edge: Pick<TaskEdge, 'kind' | 'bundleRole'> | null | undefined,
+  now: number,
+): OrchestraRunHop {
+  const failed = cmd.status === 'error'
+    || (cmd.stopReason !== undefined && cmd.stopReason !== 'end_turn')
+    || cmd.result?.startsWith(DISPATCH_USER_STOPPED_PREFIX) === true;
+  const hop: OrchestraRunHop = {
+    commandId: cmd.id,
+    agentId,
+    role: orchestraHopRole(run, { commandId: cmd.id, agentId, edge: edge ?? null }),
+    instruction: cmd.text,
+    status: failed ? 'error' : 'completed',
+    inputTokens: cmd.inputTokens ?? 0,
+    outputTokens: cmd.outputTokens ?? 0,
+    queuedAt: cmd.timestamp,
+    endedAt: now,
+  };
+  if (typeof cmd.result === 'string' && cmd.result.trim() !== '') hop.result = cmd.result;
+  if (typeof cmd.startedAt === 'number') hop.startedAt = cmd.startedAt;
+  if (cmd.waitedOnConcurrency === true) hop.waitedOnConcurrency = true;
+  return hop;
+}
+
+/** 런 사슬에 한 줄 더한 런 — 이미 있으면 같은 객체(저장 표식을 올리지 않게). */
+export function addOrchestraRunHop(run: OrchestraRun, hop: OrchestraRunHop): OrchestraRun {
+  const hops = appendOrchestraHop(run.hops, hop);
+  return hops === run.hops ? run : { ...run, hops };
+}
+
+/**
+ * §5.3 #10-6 (B) — 런 검수의 마지막 판정을 적는다. 통과·실패 수는 서버가 본 증거(`ok` = exitCode 0)로만 센다.
+ * 판정 이름은 #10-3 파서 그대로(`unknown` 은 `held` 로 접는다 — 승인이 아니다).
+ */
+export function recordOrchestraVerification(
+  run: OrchestraRun,
+  verdict: string,
+  attempts: readonly { exitCode?: number | null }[],
+  now: number,
+): OrchestraRun {
+  const v: 'approve' | 'reject' | 'held' = verdict === 'approve' ? 'approve' : verdict === 'reject' ? 'reject' : 'held';
+  // 통과는 종료 코드 0 뿐이다 — 검수자가 스스로 "통과"라고 적은 칸은 세지 않는다(#10-3 와 같은 문턱).
+  const passed = attempts.filter((a) => a.exitCode === 0).length;
+  const failed = attempts.length - passed;
+  return { ...run, verification: { verdict: v, passed, failed, at: now } };
 }
 
 /**
@@ -230,7 +319,8 @@ export function checkOrchestraPlanGraph(
   reusedAgentIds: readonly string[],
   edges: readonly Pick<TaskEdge, 'sourceAgentId' | 'targetAgentId' | 'kind' | 'bundleRole'>[],
 ): OrchestraCheck {
-  if (plan.topology === 'none') return { ok: true };
+  // `self` 는 멤버에게 넘기지 않는다 — 검수자는 서버가 지휘 에이전트로 잇는 critique 엣지 하나뿐이라 고립 검사가 없다.
+  if (plan.topology === 'none' || plan.topology === 'self') return { ok: true };
   const entry = plan.entryAgentId;
   if (!entry) return { ok: false, status: 400, error: 'orchestra-entry-required' };
   if (entry === run.agentId) return { ok: false, status: 400, error: 'orchestra-entry-conductor' };
@@ -287,13 +377,17 @@ export function checkOrchestraKickoff(run: OrchestraRun | undefined, i: Orchestr
   return { ok: true };
 }
 
-/** 멤버 엔진 설정과 새로 만들 멤버의 프로바이더가 맞는가. 로컬은 어느 설정에도 맞지 않는다. */
+/**
+ * 멤버 엔진 설정과 새로 만들 멤버의 프로바이더가 맞는가. 로컬은 어느 설정에도 맞지 않는다.
+ * §5.3 #10-6 (F) [검수는 다른 엔진] 이 켜져 있으면 두 엔진을 다 받는다(검증 멤버를 다른 엔진으로 만들 수 있어야 한다 — 준비 검사는 따로 돈다).
+ */
 export function orchestraMemberProviderAllowed(
   settings: OrchestraSettings | null | undefined,
   providerKind: AgentProviderKind | undefined,
   conductorEngine: OrchestraEngine = 'claude',
 ): boolean {
   if (providerKind === 'local-llama') return false;
+  if (settings?.crossEngineReview === true) return providerKind === undefined || providerKind === 'codex-cli';
   const engine = resolveOrchestraMemberEngine(settings, conductorEngine);
   if (engine === 'claude') return providerKind === undefined;
   if (engine === 'codex') return providerKind === 'codex-cli';
@@ -338,7 +432,12 @@ export function applyOrchestraPlan(
   now: number,
 ): OrchestraRun {
   const members = [...run.memberAgentIds];
-  const participating = plan.entryAgentId ? [...reusedAgentIds, plan.entryAgentId] : reusedAgentIds;
+  const participating = [
+    ...reusedAgentIds,
+    ...(plan.entryAgentId ? [plan.entryAgentId] : []),
+    // §5.3 #10-6 (F) — 직접 하기의 검수자도 이 런의 참가자다(토큰·사슬·정리 제안이 이 런으로 센다).
+    ...(plan.reviewAgentId ? [plan.reviewAgentId] : []),
+  ];
   for (const id of participating) if (id !== run.agentId && !members.includes(id)) members.push(id);
   return {
     ...run,

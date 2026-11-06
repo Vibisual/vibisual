@@ -10,7 +10,7 @@ import type {
   SubAgent,
   SubAgentStreamEvent,
 } from '@vibisual/shared';
-import { isReadOnlyHookAgent, hasSessionWork, isBackgroundShellTask, displayCommands } from '@vibisual/shared';
+import { isReadOnlyHookAgent, hasSessionWork, isBackgroundShellTask, displayCommands, isUnfinishedQueuedCommand, isPristineSession } from '@vibisual/shared';
 import type { SessionRunInputs } from '@vibisual/shared';
 import { NODE_STATUS_AS_SUB_STATUS } from '../../utils/sessionStatus.js';
 import { commandCenterHistoryText } from './commandCenterHistoryText.js';
@@ -217,7 +217,8 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
       if (!prev || r.createdAt > prev.createdAt) reportByKey.set(k, r);
     }
     for (const cmd of displayCommands(queuedCommands[agentId])) {
-      if (cmd.status !== 'queued' && cmd.status !== 'executing') continue;
+      // §5.5 #17-18 ⑬ — 확인 불가로 잠긴 [작업에 반영]은 잔량이 아니다(세면 끝난 세션이 "작업 중" 레인에 남는다).
+      if (!isUnfinishedQueuedCommand(cmd)) continue;
       const k = sessionKey(agentId, cmd.subAgentId);
       queuedByKey.set(k, (queuedByKey.get(k) ?? 0) + 1);
       // "잔량"(카드에 뜨는 수)과 "지금 나가 있는가"는 다른 질문이다 — 후자만 따로 센다.
@@ -263,6 +264,8 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
       acked: boolean;
       /** §2.4 (한도 정지) — 이 세션이 한도로 끊긴 채 다시 돌지 않았는가. 버블(메인 탭)에는 없는 축. */
       usageLimited: boolean;
+      /** §5.5 #17-10 ⑦ — 아직 아무 일도 안 한 세션인가(`isPristineSession`). 버블(메인 탭)에는 없는 축. */
+      pristine: boolean;
     }> = [
       {
         subAgentId: null,
@@ -277,6 +280,7 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
         contextMax: undefined,
         acked: true,
         usageLimited: false,
+        pristine: false,
       },
       ...subs.map((sub) => ({
         subAgentId: sub.id,
@@ -291,6 +295,7 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
         contextMax: sub.contextMax,
         acked: !!acknowledgedSubAgents[sub.id],
         usageLimited: sub.usageLimit !== undefined,
+        pristine: isPristineSession(sub),
       })),
     ];
 
@@ -313,6 +318,7 @@ export function buildCommandCenterItems(input: CommandCenterInput): CommandCente
         runningAgentTaskCount: runningTaskCount,
         backgroundShellCount,
         acknowledged: s.acked,
+        pristine: s.pristine,
         usageLimited: s.usageLimited,
       };
 

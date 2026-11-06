@@ -30,6 +30,35 @@ beforeEach(() => {
   subId = m.create(PARENT).id;
 });
 
+describe('terminal failure turn ownership', () => {
+  it('keeps the failed command owner after the active turn has been cleared', () => {
+    useProvider(CODEX);
+    const held = cmd('cmd-failed');
+    const currentTurnId = (m as unknown as { currentTurnId: Map<string, string> }).currentTurnId;
+    expect(currentTurnId.has(subId)).toBe(false);
+
+    m.markCommandError(subId, held, { code: 'cli', detail: 'Selected model is at capacity. Please try a different model.' });
+
+    expect(emitted.filter((e) => e.eventType === 'error')).toEqual([
+      expect.objectContaining({ turnId: held.id, subAgentId: subId, parentAgentId: PARENT }),
+    ]);
+  });
+
+  it('does not attribute a late failure to the next active command', () => {
+    useProvider(CODEX);
+    const held = cmd('cmd-failed');
+    const currentTurnId = (m as unknown as { currentTurnId: Map<string, string> }).currentTurnId;
+    currentTurnId.set(subId, 'cmd-next');
+
+    m.markCommandError(subId, held, { code: 'cli', detail: 'Selected model is at capacity. Please try a different model.' });
+
+    expect(emitted.filter((e) => e.eventType === 'error')).toEqual([
+      expect.objectContaining({ turnId: held.id, subAgentId: subId, parentAgentId: PARENT }),
+    ]);
+    expect(currentTurnId.get(subId)).toBe('cmd-next');
+  });
+});
+
 describe('사유에 실리는 엔진', () => {
   it('코덱스 버블의 실패는 코덱스 이름을 달고 나간다', () => {
     useProvider(CODEX);

@@ -60,6 +60,9 @@ export function CommandCenterCard({
   //   눌러도 아무 일이 없으므로 흐리게 두고 이유를 단다(입구를 지우는 것이 아니라 원래 못 쓰는 기능이다).
   const canJump = typeof window !== 'undefined' && !!window.api?.command?.revealInMain;
 
+  // §5.1 #3-4 (A) — 이 세션이 방금 다른 세션에 건넨 메시지 수(서버가 찍은 `live` 만 — 시계를 보지 않는다).
+  const sentMessages = useGraphStore((s) => s.sessionMessages.filter((l) => l.live === true && l.fromAgentId === item.agentId
+    && (!item.subAgentId || !l.fromSubAgentId || l.fromSubAgentId === item.subAgentId)).length);
   const tone = LANE_TONE[item.lane] ?? LANE_TONE['done']!;
   const ctx = contextLevel(item.contextUsed, item.contextMax);
   const waiting = waitingLevel(item.waitingSince, now);
@@ -219,6 +222,11 @@ export function CommandCenterCard({
             {item.runningTaskCount > 0 && (
               <span className="tabular-nums text-sky-300/80">
                 {t('commandCenter.running', { count: item.runningTaskCount })}
+              </span>
+            )}
+            {sentMessages > 0 && (
+              <span data-command-card-messages={sentMessages} className="tabular-nums text-cyan-300/80" title={t('commandCenter.sessionMessagesTip')}>
+                {t('commandCenter.sessionMessages', { count: sentMessages })}
               </span>
             )}
             {/* 백단 셸 — **끝난 세션에도 붙는다**(실행 축이 아니다). 그래서 회색이고 파랑이 아니다. */}

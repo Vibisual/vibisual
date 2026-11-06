@@ -17,6 +17,7 @@ import {
   buildHarnessBuilderRules,
   agentRuleShell,
   DEFAULT_AGENT_CONFIG,
+  resolveOrchestraFormationBasis,
 } from '@vibisual/shared';
 import type { ProjectGraphManager } from './projectGraphManager.js';
 
@@ -92,6 +93,9 @@ export class AutoAgentRuntime {
     const serverBase = this.deps.getServerBase();
     const serverToken = this.deps.getServerToken();
     const provider = this.deps.graphManager.getAgentConfig(autoBubble.id)?.provider;
+    // §5.3 #10-6 (F) — 편성 기준은 그 프로젝트 오케스트라 설정과 같은 칸이다(없으면 역할형 — 종전 규칙 글자 그대로).
+    const orchestraRoot = this.deps.graphManager.getOrchestraRootForAgent(autoBubble.id);
+    const formationBasis = resolveOrchestraFormationBasis(orchestraRoot ? this.deps.graphManager.getOrchestraSettings(orchestraRoot) : undefined);
     const rules = buildHarnessBuilderRules({
       shell: agentRuleShell(provider?.kind === 'codex-cli' ? 'codex' : 'claude', process.platform),
       serverBase,
@@ -100,6 +104,7 @@ export class AutoAgentRuntime {
       centerY: center.y,
       layoutRadius: AUTO_AGENT_LAYOUT_RADIUS,
       projectName,
+      formationBasis,
     });
     const tools = [...(AUTO_AGENT_BUILDER_CONFIG.tools ?? [])];
     if (askQuestionsEnabled && !tools.includes(AUTO_AGENT_BUILDER_INTERVIEW_TOOL)) {

@@ -2392,7 +2392,8 @@ export function AgentConfigPopup({
               </div>
               {/* §5.3 — 0 = 미지정(CLI 기본 3층). */}
               <div className="flex flex-col gap-1">
-                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.subagentDepth.label')}<InfoTip text={FIELD_TIPS.subagentDepth} />{diffDot('subagentDepth')}</label>
+                {/* §5.3 #10-6 (E) — 하위 에이전트를 늘리기 전 한 줄(두 번째 ⓘ — 종전 설명은 그대로). */}
+                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.subagentDepth.label')}<InfoTip text={FIELD_TIPS.subagentDepth} /><InfoTip text={t('panel.agentConfig.subagentDepth.splitHint')} />{diffDot('subagentDepth')}</label>
                 <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
                   <button type="button" onClick={() => setSubagentDepth((v) => Math.max(0, v - 1))} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200 pointer-coarse:w-9">
                     <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}><line x1="2" y1="6" x2="10" y2="6" /></svg>

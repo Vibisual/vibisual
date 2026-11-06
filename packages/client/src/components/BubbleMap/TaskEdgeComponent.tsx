@@ -88,6 +88,7 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
     ? edgeData['selectionFocusClassName'] : undefined;
   // 모양은 kind 로만 — status 는 펄스 트리거로만 쓴다.
   const status = (edgeData?.['status'] as TaskEdgeStatus) ?? 'idle';
+  const runAt = typeof edgeData?.['lastExecutedAt'] === 'number' ? edgeData['lastExecutedAt'] : undefined;
   const kind = (edgeData?.['kind'] as TaskEdgeKind | undefined) ?? TASK_EDGE_DEFAULTS.kind;
   const command = (edgeData?.['command'] as string) ?? '';
   const taskEdgeId = (edgeData?.['taskEdgeId'] as string) ?? '';
@@ -140,6 +141,8 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
   // auto-artifact 는 completed/error. 번들 쌍이 동시에 펄스하지 않는다.
   const [pulse, setPulse] = useState<{ event: EdgePulseEvent; key: number } | null>(null);
   const prevStatusRef = useRef<TaskEdgeStatus>(status);
+  // 마운트 시점 값으로 시작한다 — 첫 마운트·재마운트는 지난 회차를 다시 틀지 않는다.
+  const prevRunRef = useRef<number | undefined>(runAt);
   const pulseCounterRef = useRef(0);
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasBundle = Boolean(bundleId);
@@ -168,21 +171,27 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
 
   useEffect(() => {
     const prev = prevStatusRef.current;
+    const prevRun = prevRunRef.current;
     prevStatusRef.current = status;
-    if (prev === status) return;
+    prevRunRef.current = runAt;
+    // 회차가 바뀌었으면 스냅샷 배치가 executing 을 접어 먹었어도 새 실행이 있었다 — status 가 같아도 그 전이를 되짚는다.
+    const newRun = runAt !== undefined && runAt !== prevRun;
+    if (prev === status && !newRun) return;
     // 이전 상태와 무관하게 executing 진입이면 sending — 고착된 error 뒤 새 dispatch 도 잡아야 한다.
+    const pulseFor = (step: TaskEdgeStatus): EdgePulseEvent | null => {
+      if (isAutoArtifact) return step === 'completed' ? 'completed' : step === 'error' ? 'error' : null;
+      if (step === 'executing') return 'sending';
+      if (!hasBundle && step === 'completed') return 'completed';
+      if (!hasBundle && step === 'error') return 'error';
+      return null;
+    };
+    // 한 엣지엔 펄스가 하나뿐이라 접힌 전이 중 이 엣지 역할의 마지막 신호를 튼다.
+    const steps: TaskEdgeStatus[] = newRun && status !== 'executing' ? ['executing', status] : [status];
     let event: EdgePulseEvent | null = null;
-    if (isAutoArtifact) {
-      if (status === 'completed') event = 'completed';
-      else if (status === 'error') event = 'error';
-    } else {
-      if (status === 'executing') event = 'sending';
-      else if (!hasBundle && status === 'completed') event = 'completed';
-      else if (!hasBundle && status === 'error') event = 'error';
-    }
+    for (const step of steps) event = pulseFor(step) ?? event;
     if (!event) return;
     triggerPulse(event);
-  }, [status, isAutoArtifact, hasBundle, triggerPulse]);
+  }, [status, runAt, isAutoArtifact, hasBundle, triggerPulse]);
 
   // 자매 엣지(auto-artifact/rework)는 편집 불가 — 더블클릭 무시(primary 로 리디렉트 ❌).
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {

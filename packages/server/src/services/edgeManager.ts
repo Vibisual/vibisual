@@ -293,6 +293,40 @@ export class EdgeManager {
     this.invalidateGroupIndex();
   }
 
+  /**
+   * `fromId` 에 닿은 엣지를 `toId` 끝으로 **복제**한다(원본은 그대로 — 한 버블이 여러 버블로 갈라질 때, §2.1 #5).
+   * `keep(반대쪽 끝 id)` 가 거짓이면 건너뛴다. 같은 id 가 이미 있으면 `remapIds` 와 같은 규칙으로 합친다.
+   * @returns 복제한 엣지 수
+   */
+  copyEndpoint(fromId: string, toId: string, keep: (otherEnd: string) => boolean = () => true): number {
+    if (fromId === toId) return 0;
+    let copied = 0;
+    for (const [edgeId, edge] of [...this.edges]) {
+      const atSource = edge.source === fromId;
+      if (!atSource && edge.target !== fromId) continue;
+      const other = atSource ? edge.target : edge.source;
+      if (other === toId || !keep(other)) continue;
+      const group = this.groupMap.get(edgeId) ?? '';
+      const newGroup = group === fromId ? toId : group;
+      const source = atSource ? toId : edge.source;
+      const target = atSource ? edge.target : toId;
+      const direction = edgeId.endsWith('-read') ? 'read' : 'write';
+      // id 조립은 remapIds 와 같다 — read 는 source/target 이 뒤집혀 저장돼 있다.
+      const newEdgeId = `${newGroup}-${direction === 'read' ? target : source}-${direction === 'read' ? source : target}-${direction}`;
+      const prev = this.edges.get(newEdgeId);
+      const next = { ...edge, id: newEdgeId, source, target };
+      this.edges.set(newEdgeId, prev && prev.timestamp >= edge.timestamp
+        ? { ...prev, isActive: prev.isActive || edge.isActive }
+        : prev ? { ...next, isActive: prev.isActive || edge.isActive } : next);
+      this.groupMap.set(newEdgeId, newGroup);
+      const refs = this.agentRefs.get(edgeId);
+      if (refs && refs.size > 0) for (const ref of refs) this.addRef(newEdgeId, ref);
+      copied++;
+    }
+    if (copied > 0) this.invalidateGroupIndex();
+    return copied;
+  }
+
   /** 병합 복원 — 기존 데이터에 추가 (프로젝트별 체크포인트 병합용) */
   mergeFromSnapshot(data: EdgeSnapshot): void {
     for (const [k, v] of Object.entries(data.edges)) {

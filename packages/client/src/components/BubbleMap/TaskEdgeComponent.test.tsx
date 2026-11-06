@@ -94,3 +94,66 @@ describe('task edge pulse ownership', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+// §5.3 #12 — 스냅샷 배치가 completed→executing→completed 를 접으면 status 는 같고 실행 회차(`lastExecutedAt`)만 바뀐다.
+type EdgeRole = 'solo' | 'primary' | 'auto-artifact';
+function runProps(state: string, runAt: number, role: EdgeRole = 'solo'): EdgeProps {
+  const base = props(state, role === 'auto-artifact');
+  const bundle = role === 'primary' ? { bundleId: 'bundle', bundleRole: 'primary' } : {};
+  return { ...base, data: { ...base.data, ...bundle, lastExecutedAt: runAt } };
+}
+function mountRun(state: string, runAt: number, role: EdgeRole = 'solo'): void {
+  act(() => { renderer = create(createElement(TaskEdgeComponent, runProps(state, runAt, role))); });
+}
+function run(state: string, runAt: number, role: EdgeRole = 'solo'): void {
+  act(() => renderer.update(createElement(TaskEdgeComponent, runProps(state, runAt, role))));
+}
+
+describe('task edge run marker', () => {
+  it.each([
+    ['solo', 'completed', 'completed'],
+    ['solo', 'error', 'error'],
+    ['primary', 'completed', 'sending'],
+    ['auto-artifact', 'completed', 'completed'],
+  ] as const)('pulses a folded repeat run on a %s edge ending %s', (role, outcome, pulse) => {
+    mountRun(outcome, 1, role);
+    run(outcome, 2, role);
+    expect(pulses()).toEqual([`bubbleMap.taskEdge.pulse.${pulse}`]);
+  });
+
+  it('does not replay a past run on first mount or remount', () => {
+    mountRun('completed', 5);
+    expect(pulses()).toEqual([]);
+    act(() => renderer.unmount());
+    mountRun('completed', 5);
+    expect(pulses()).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not pulse when neither status nor run changed', () => {
+    mountRun('completed', 1);
+    run('completed', 1);
+    expect(pulses()).toEqual([]);
+  });
+
+  it('keeps the full lifetime when a new folded run lands on a live pulse', () => {
+    mountRun('completed', 1);
+    run('completed', 2);
+    tick(4000);
+    run('completed', 3);
+    tick(300); // The previous completion timer used to remove this new pulse here.
+    expect(pulses()).toEqual(['bubbleMap.taskEdge.pulse.completed']);
+    tick(3999);
+    expect(pulses()).toHaveLength(1);
+    tick(1);
+    expect(pulses()).toEqual([]);
+  });
+
+  it('a separate executing batch still pulses sending once, then the result', () => {
+    mountRun('completed', 1);
+    run('executing', 2);
+    expect(pulses()).toEqual(['bubbleMap.taskEdge.pulse.sending']);
+    run('completed', 2);
+    expect(pulses()).toEqual(['bubbleMap.taskEdge.pulse.completed']);
+  });
+});
