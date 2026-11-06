@@ -124,7 +124,7 @@ async function start() {
   expect(base.status).toBe('executing');
   const options = { getQueue: () => queue, canSend: isCodexAppServerTurnRunning,
     send: (id: string, input: { text: string; attachments?: string[] }) => steerCodexAppServerTurn(id, { text: input.text, images: input.attachments }),
-    onChange, onSettled };
+    onChange, onReceived: () => {}, onSettled };
   const followUp = (text: string, attachments?: string[]): QueuedCommand => {
     const command: QueuedCommand = { id: `follow-${++serial}`, text, timestamp: Date.now(), subAgentId: sub.id,
       status: 'queued', dispatchMode: 'steer', ...(attachments ? { attachments } : {}) };

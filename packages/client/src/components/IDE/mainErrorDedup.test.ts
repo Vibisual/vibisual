@@ -39,4 +39,12 @@ describe('main transcript provider failures', () => {
     const entries = buildEntries([saved], [sub('S')], {}, null, [], formatError);
     expect(entries.find((entry) => entry.id === 'cmderr-a')).toMatchObject({ error: saved.error, text: `Failure: ${DETAIL}` });
   });
+
+  it.each([null, 'S'])('coalesces historical terminal errors without command anchors in view %s', (selected) => {
+    const events = [event('raw', DETAIL), { ...event('typed', `[cli@codex] ${DETAIL}`), turnId: undefined }];
+    const entries = buildEntries([], [sub('S')], { S: events }, selected, [], formatError);
+    expect(entries.filter((entry) => entry.type === 'error')).toEqual([
+      expect.objectContaining({ id: 'raw', error: { code: 'cli', engine: 'codex', detail: DETAIL } }),
+    ]);
+  });
 });

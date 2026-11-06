@@ -15,7 +15,7 @@ export interface ProviderErrorGuidance {
 // spawn failure, or tool error containing the same words is not a provider response.
 const PROVIDER_ERROR_CODES = new Set(['unknown', 'cli', 'exit', 'agentView', 'usageLimit']);
 
-function responseOf(detail: string): { message: string; code: string } {
+export function parseProviderErrorResponse(detail: string): { message: string; code: string; structured: boolean } {
   const plain = detail.replace(/^(?:API\s+)?Error:\s*/i, '').trim();
   // Both CLIs can prefix a JSON response with a status, e.g. `API Error: 529 {...}`.
   const json = plain.replace(/^(?:HTTP\s+)?\d{3}\s*[-:]?\s*/, '');
@@ -29,17 +29,18 @@ function responseOf(detail: string): { message: string; code: string } {
         return {
           message: typeof inner.message === 'string' ? inner.message.trim() : plain,
           code: typeof inner.code === 'string' ? inner.code : typeof inner.type === 'string' ? inner.type : '',
+          structured: true,
         };
       }
     } catch { /* Keep unrecognized payloads intact for the ordinary error display. */ }
   }
-  return { message: json, code: json };
+  return { message: json, code: json, structured: false };
 }
 
 /** Display-only classification: never changes command status, retries, or account limits. */
 export function providerErrorGuidance(error: CommandError): ProviderErrorGuidance | undefined {
   if (!PROVIDER_ERROR_CODES.has(error.code) || error.engine === 'local') return undefined;
-  const { message, code } = responseOf(error.detail?.trim() ?? '');
+  const { message, code } = parseProviderErrorResponse(error.detail?.trim() ?? '');
   let kind: ProviderErrorKind | undefined;
   if (error.code === 'usageLimit' || matchUsageLimitNotice(message)) {
     kind = 'usageLimit';

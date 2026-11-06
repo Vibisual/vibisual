@@ -87,6 +87,7 @@ function setup({ processing = true, soft = true, held = false, stopped = true, o
       getAgentConfig: () => ({ provider: { kind: 'codex-cli' } }),
       getOrchestraRootForAgent: () => orchestra ? process.cwd() : null,
       recordSkillUsageFromCommandText: vi.fn(),
+      invalidateCommandSnapshot: vi.fn(),
     },
     DEFAULT_COMMAND_DISPATCH_MODE, normalizeCommandDispatchMode, normalizeRunLimits,
     normalizeExecutionRequirements, normalizeAppNodeIds,

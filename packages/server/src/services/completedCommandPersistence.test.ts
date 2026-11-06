@@ -73,25 +73,35 @@ describe('§3.2.3 — 완료 명령(사용자 말풍선)은 저장·복원된다
     const { graph, projectName, queues } = makeGraph();
     const sending: QueuedCommand = { ...cmd('sending', 'Reflect this in the current task'), status: 'queued',
       dispatchMode: 'steer', liveDelivery: { state: 'sending' }, attachments: ['design.png'] };
+    // §5.5 #17-18 ⑫ — queued in the old process only; whether it ran is unknown.
+    const received: QueuedCommand = { ...cmd('received', 'Queued by the engine'), status: 'queued',
+      dispatchMode: 'steer', liveDelivery: { state: 'received', receivedAt: 5 } };
     const unavailable: QueuedCommand = { ...cmd('unavailable', 'Keep this input'), status: 'queued',
       dispatchMode: 'steer', liveDelivery: { state: 'unavailable', reason: 'noActiveTurn' } };
     const uncertain: QueuedCommand = { ...cmd('uncertain', 'Already unknown'), status: 'queued',
       dispatchMode: 'steer', liveDelivery: { state: 'uncertain', reason: 'deliveryUnknown' } };
     const waiting: QueuedCommand = { ...cmd('waiting', 'Wait for the previous delivery'), status: 'queued', dispatchMode: 'steer' };
     const ordinary: QueuedCommand = { ...cmd('ordinary', 'Run later'), status: 'queued' };
-    queues.set(SESSION, [sending, unavailable, uncertain, waiting, ordinary]);
+    queues.set(SESSION, [sending, unavailable, uncertain, waiting, ordinary, received]);
     const cp = JSON.parse(JSON.stringify(graph.toProjectCheckpoint(projectName)!));
     const revived = new ProjectGraph();
     const revivedQueues = new Map<string, QueuedCommand[]>();
     revived.setCommandQueuesRef(revivedQueues);
     revived.setCompletedCommandArchiveRef(new Map());
+    const restoredFrom = Date.now();
     revived[restore](cp);
+    const restoredTo = Date.now();
 
     expect(revivedQueues.get(SESSION)).toEqual([
-      { ...sending, liveDelivery: { state: 'uncertain', reason: 'deliveryUnknown' } },
+      { ...sending, liveDelivery: { state: 'uncertain', reason: 'deliveryUnknown', decidedAt: expect.any(Number) } },
       unavailable, uncertain,
       { ...waiting, liveDelivery: { state: 'unavailable', reason: 'noActiveTurn' } }, ordinary,
+      { ...received, liveDelivery: { state: 'uncertain', reason: 'deliveryUnknown', decidedAt: expect.any(Number) } },
     ]);
+    // §5.5 #17-18 ⑥-6 — 복원이 정한 확인 불가는 그 시각에 선다(옛 출력 끝 = 끄기 전 꼬리 자리). 이미 확인 불가였던 것은 그대로.
+    const decidedAt = revivedQueues.get(SESSION)![0]!.liveDelivery!.decidedAt!;
+    expect(decidedAt).toBeGreaterThanOrEqual(restoredFrom);
+    expect(decidedAt).toBeLessThanOrEqual(restoredTo);
     expect(cp.commandQueues[SESSION][0].liveDelivery).toEqual({ state: 'sending' });
     expect(sending.liveDelivery).toEqual({ state: 'sending' });
     expect(cp.commandQueues[SESSION][3].liveDelivery).toBeUndefined();
@@ -130,6 +140,7 @@ describe('§3.2.3 — 완료 명령(사용자 말풍선)은 저장·복원된다
       canSend: () => true,
       send: () => acknowledgement,
       onChange: () => manager.invalidateCommandSnapshot(SESSION),
+      onReceived: () => {},
       onSettled: finish,
     });
     try {

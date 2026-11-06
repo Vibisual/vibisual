@@ -28,13 +28,15 @@ function render(command: PromptCommandState): ReactTestRenderer {
 }
 
 describe('live follow-up message bubble', () => {
-  it.each(['waiting', 'sending', 'delivered', 'unavailable', 'uncertain'] as const)('shows the full multiline body and explicit %s state without expanding', (state) => {
+  it.each(['waiting', 'sending', 'received', 'delivered', 'unavailable', 'uncertain'] as const)('shows the full multiline body and explicit %s state without expanding', (state) => {
     const command = state === 'delivered' ? { ...queued(state), status: 'completed' as const, commandId: undefined } : queued(state);
     const html = renderToStaticMarkup(<CollapsiblePrompt prompt={prompt} command={command} submittedAt={1700000000000} />);
     expect(html).toContain('두 번째 줄의 요구사항도 유지합니다.');
     expect(html).toContain('마지막 요구사항도 기본으로 보입니다.');
     expect(html).toContain(ko.ide.mainArea.liveDelivery[state]);
     expect(html).toContain('role="status"');
+    // §5.5 #17-18 ⑫ — received says the engine has it and applies it at its next step.
+    if (state === 'received') expect(html).toContain(ko.ide.mainArea.liveDelivery.hint.received);
     if (state === 'delivered') {
       expect(html).toContain(ko.ide.mainArea.liveDelivery.hint.delivered);
       expect(html).not.toContain('aria-pressed');
@@ -42,7 +44,7 @@ describe('live follow-up message bubble', () => {
     }
   });
 
-  it.each(['sending', 'uncertain'] as const)('locks all mode and delete controls for %s while retaining copy', (state) => {
+  it.each(['sending', 'received', 'uncertain'] as const)('locks all mode and delete controls for %s while retaining copy', (state) => {
     const tree = render(queued(state));
     const modes = tree.root.findAllByType('button').filter((button) => 'aria-pressed' in button.props);
     expect(modes).toHaveLength(4);

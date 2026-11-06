@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { describe, expect, it, vi } from 'vitest';
 import { normalizeAppNodeIds, type QueuedCommand } from '@vibisual/shared';
-import { findReferencedCommandAttachment } from './commandAttachmentOwnership.js';
+import { findReferencedCommandAttachment, resolveCommandAttachments } from './commandAttachmentOwnership.js';
 import { normalizeRunLimits } from './commandRunLimits.js';
 import { normalizeExecutionRequirements } from './commandExecutionRequirements.js';
 
@@ -43,6 +43,7 @@ function setup(engine: 'claude' | 'codex' | 'local') {
     getOrchestraRootForAgent: vi.fn(() => null),
     getAgentCwd: vi.fn(() => cwd),
     recordSkillUsageFromCommandText: vi.fn(),
+    invalidateCommandSnapshot: vi.fn(),
   };
   const subAgentManager = {
     getSub: vi.fn(() => ({ id: subId, agentId })),
@@ -58,7 +59,7 @@ function setup(engine: 'claude' | 'codex' | 'local') {
     normalizeCommandDispatchMode: () => 'merge', normalizeRunLimits, normalizeExecutionRequirements,
     normalizeAppNodeIds,
     graphManager, subAgentManager, commandQueues, fs: fileOps, path,
-    completedCommandArchive: new Map<string, QueuedCommand[]>(), findReferencedCommandAttachment,
+    completedCommandArchive: new Map<string, QueuedCommand[]>(), findReferencedCommandAttachment, resolveCommandAttachments,
     hasForeignSubAgent: () => false, isReadOnlyHookAgent: () => false,
     LOOPBACK_INGRESS_HEADER: 'test-loopback', LOOPBACK_INGRESS_VALUE: '1',
     orchestraEngineOf: () => engine,
@@ -88,6 +89,20 @@ describe('local image rejection precedes /api/commands side effects', () => {
     expect(h.fileOps.renameSync).not.toHaveBeenCalled();
     expect(h.commandQueues.size).toBe(0);
     expect(h.graphManager.recordSkillUsageFromCommandText).not.toHaveBeenCalled();
+    expect(h.processNextCommand).not.toHaveBeenCalled();
+    expect(h.broadcastSnapshot).not.toHaveBeenCalled();
+  });
+
+  it.each(['claude', 'codex'] as const)('refuses a %s command whose image vanished before session creation or queueing', (engine) => {
+    const h = setup(engine);
+    h.fileOps.existsSync.mockReturnValue(false);
+    h.post({ text: 'Describe this image', attachments: [h.image] });
+    expect(h.res.status).toHaveBeenCalledExactlyOnceWith(400);
+    expect(h.res.json).toHaveBeenCalledExactlyOnceWith({ error: 'attachments-missing', missing: ['image.png'] });
+    expect(h.subAgentManager.create).not.toHaveBeenCalled();
+    expect(h.fileOps.mkdirSync).not.toHaveBeenCalled();
+    expect(h.fileOps.renameSync).not.toHaveBeenCalled();
+    expect(h.commandQueues.size).toBe(0);
     expect(h.processNextCommand).not.toHaveBeenCalled();
     expect(h.broadcastSnapshot).not.toHaveBeenCalled();
   });

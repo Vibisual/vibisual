@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { QueuedCommand } from '@vibisual/shared';
-import { isLiveFollowUpLocked, isLiveFollowUpPending, trySendLiveFollowUp, type LiveFollowUpOptions } from './liveFollowUp.js';
+import {
+  findLiveFollowUpBase, isLiveFollowUpLocked, isLiveFollowUpPending, settleLockedLiveFollowUp, trySendLiveFollowUp, type LiveFollowUpOptions,
+} from './liveFollowUp.js';
 
 let sequence = 0;
 function command(partial: Partial<QueuedCommand> = {}): QueuedCommand {
@@ -30,6 +32,7 @@ function harness(initialQueue: QueuedCommand[]) {
     canSend: vi.fn(() => true),
     send: vi.fn<LiveFollowUpOptions['send']>(() => acknowledgement.promise),
     onChange: vi.fn(),
+    onReceived: vi.fn(),
     onSettled: vi.fn(() => settled.resolve()),
   };
   outstanding.push(async () => {
@@ -59,7 +62,7 @@ describe('live follow-up delivery', () => {
     expect(queue).toEqual([base, other, incoming]);
     expect(h.options.send).toHaveBeenCalledExactlyOnceWith('session-a', expect.objectContaining({
       id: incoming.id, text: incoming.text, attachments: ['addition.png'],
-    }));
+    }), expect.any(Function));
 
     h.acknowledgement.resolve(true);
     await h.settled;
@@ -107,11 +110,13 @@ describe('live follow-up delivery', () => {
     const queue = [base, incoming];
     const h = harness(queue);
     expect(trySendLiveFollowUp(incoming, h.options)).toBe(true);
+    // §5.5 #17-18 ⑥-6 — 확인 불가가 정해진 시각을 남긴다. 잠긴 말풍선은 투입 시각이 아니라 거기에 선다.
+    vi.spyOn(Date, 'now').mockReturnValue(9_000);
     h.acknowledgement.reject(new Error(message));
     await h.settled;
     expect(base).toEqual(original);
     expect(queue).toEqual([base, incoming]);
-    expect(incoming).toMatchObject({ status: 'queued', attachments: ['keep.png'], liveDelivery: { state: 'uncertain', reason: 'deliveryUnknown' } });
+    expect(incoming).toMatchObject({ status: 'queued', attachments: ['keep.png'], liveDelivery: { state: 'uncertain', reason: 'deliveryUnknown', decidedAt: 9_000 } });
     expect(incoming.error).toBeUndefined();
     expect(isLiveFollowUpPending(incoming.id)).toBe(false);
     expect(isLiveFollowUpLocked(incoming)).toBe(true);
@@ -119,7 +124,7 @@ describe('live follow-up delivery', () => {
     expect(h.options.send).toHaveBeenCalledOnce();
   });
 
-  it.each(['sending', 'uncertain'] as const)('does not replay a persisted %s marker without a runtime reservation', (state) => {
+  it.each(['sending', 'received', 'uncertain'] as const)('does not replay a persisted %s marker without a runtime reservation', (state) => {
     const base = command({ status: 'executing' });
     const incoming = command({ liveDelivery: { state } });
     const h = harness([base, incoming]);
@@ -127,6 +132,69 @@ describe('live follow-up delivery', () => {
     expect(isLiveFollowUpLocked(incoming)).toBe(true);
     expect(trySendLiveFollowUp(incoming, h.options)).toBe(true);
     expect(h.options.send).not.toHaveBeenCalled();
+  });
+
+  it('frees the session once the engine queued an input, while that input stays locked until dequeued (§5.5 #17-18 ⑫)', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(700);
+    const base = command({ status: 'executing' });
+    const first = command();
+    const second = command();
+    const third = command();
+    const queue = [base, first, second, third];
+    const acks = [deferred<boolean>(), deferred<boolean>()];
+    let sends = 0;
+    const options = {
+      getQueue: () => queue,
+      canSend: () => true,
+      send: vi.fn<LiveFollowUpOptions['send']>(() => acks[sends++]!.promise),
+      onChange: vi.fn(),
+      onReceived: vi.fn(),
+      onSettled: vi.fn(),
+    };
+    outstanding.push(async () => {
+      for (const ack of acks) ack.resolve(false);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    });
+
+    expect(trySendLiveFollowUp(first, options)).toBe(true);
+    expect(trySendLiveFollowUp(second, options)).toBe(true);
+    expect(second.liveDelivery).toBeUndefined();
+
+    const received = options.send.mock.calls[0]![2];
+    received();
+    received();
+    expect(first.liveDelivery).toEqual({ state: 'received', receivedAt: 700 });
+    expect(isLiveFollowUpLocked(first)).toBe(true);
+    expect(isLiveFollowUpPending(first.id)).toBe(true);
+    expect(options.onReceived).toHaveBeenCalledOnce();
+    expect(options.onSettled).not.toHaveBeenCalled();
+
+    expect(trySendLiveFollowUp(second, options)).toBe(true);
+    expect(second.liveDelivery).toEqual({ state: 'sending' });
+    // Dequeuing `first` must not free the session that `second` now holds.
+    acks[0]!.resolve(true);
+    await vi.waitFor(() => expect(options.onSettled).toHaveBeenCalledOnce());
+    expect(trySendLiveFollowUp(third, options)).toBe(true);
+    expect(third.liveDelivery).toBeUndefined();
+    expect(options.send).toHaveBeenCalledTimes(2);
+
+    acks[1]!.resolve(true);
+    await vi.waitFor(() => expect(options.onSettled).toHaveBeenCalledTimes(2));
+    expect(base.followUps?.map((message) => message.id)).toEqual([first.id, second.id]);
+    expect(queue).toEqual([base, third]);
+  });
+
+  it('ignores a receipt that arrives after the delivery was already settled', async () => {
+    const base = command({ status: 'executing' });
+    const incoming = command();
+    const h = harness([base, incoming]);
+    expect(trySendLiveFollowUp(incoming, h.options)).toBe(true);
+    const received = h.options.send.mock.calls[0]![2];
+    h.acknowledgement.reject(new Error('unknown'));
+    await h.settled;
+    received();
+    expect(incoming.liveDelivery).toMatchObject({ state: 'uncertain', reason: 'deliveryUnknown' });
+    expect(h.options.onReceived).not.toHaveBeenCalled();
   });
 
   it('keeps a definite rejection visible and editable without repeatedly attempting delivery', async () => {
@@ -304,5 +372,84 @@ describe('live follow-up delivery', () => {
     h.replaceQueue(undefined);
     expect(trySendLiveFollowUp(command(), h.options)).toBe(false);
     expect(h.options.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('locked live follow-up records (§5.5 #17-18 ⑬)', () => {
+  it('keeps the turn and engine message id as the transcript key, and sends that id', async () => {
+    const base = command({ status: 'executing' });
+    const incoming = command();
+    const h = harness([base, incoming]);
+    expect(trySendLiveFollowUp(incoming, h.options)).toBe(true);
+    const sent = h.options.send.mock.calls[0]![1];
+    expect(incoming.liveTarget).toEqual({ commandId: base.id, messageId: sent.messageId });
+    expect(sent.messageId).toMatch(/^[0-9a-f-]{36}$/);
+    h.acknowledgement.reject(new Error('Acknowledgement timeout'));
+    await h.settled;
+    // The key survives the uncertain decision — it is what the transcript check matches on.
+    expect(incoming.liveTarget?.messageId).toBe(sent.messageId);
+  });
+
+  it('drops the key on a definite rejection (nothing reached the engine)', async () => {
+    const base = command({ status: 'executing' });
+    const incoming = command();
+    const h = harness([base, incoming]);
+    expect(trySendLiveFollowUp(incoming, h.options)).toBe(true);
+    h.acknowledgement.resolve(false);
+    await h.settled;
+    expect(incoming.liveTarget).toBeUndefined();
+  });
+
+  it('finds the keyed turn in the queue or history, and never guesses when a keyed turn is gone', () => {
+    const earlier = command({ status: 'completed', dispatchMode: 'merge', startedAt: 5 });
+    const keyedBase = command({ status: 'completed', dispatchMode: 'merge', startedAt: 10 });
+    const record = command({ timestamp: 20, liveTarget: { commandId: keyedBase.id } });
+    expect(findLiveFollowUpBase(record, [earlier, keyedBase, record])).toBe(keyedBase);
+    const orphan = command({ timestamp: 20, liveTarget: { commandId: 'removed-turn' } });
+    expect(findLiveFollowUpBase(orphan, [earlier, keyedBase])).toBeNull();
+  });
+
+  it('for legacy records, picks the latest command of the same session dispatched at or before the input', () => {
+    const turn = (partial: Partial<QueuedCommand>): QueuedCommand => command({ status: 'completed', dispatchMode: 'merge', ...partial });
+    const first = turn({ startedAt: 5 });
+    const running = turn({ startedAt: 10 });
+    const later = turn({ startedAt: 30 });
+    const otherSession = turn({ startedAt: 15, subAgentId: 'session-b' });
+    const silent = turn({ startedAt: 18, silent: true });
+    const otherInput = command({ status: 'completed', startedAt: 19 });
+    const waiting = turn({ status: 'queued', dispatchMode: 'wait', timestamp: 12 });
+    const record = command({ timestamp: 20 });
+    expect(findLiveFollowUpBase(record, [first, running, later, otherSession, silent, otherInput, waiting, record])).toBe(running);
+    expect(findLiveFollowUpBase(command({ timestamp: 1 }), [first, running])).toBeNull();
+  });
+
+  it('moves a locked record into its turn as a delivered message and out of the queue', () => {
+    const base = command({ status: 'completed', startedAt: 10, followUps: [{ id: 'kept', text: 'kept', timestamp: 1, deliveredAt: 2 }] });
+    const record = command({
+      text: 'Use the second layout instead', timestamp: 20, attachments: ['note.png'],
+      liveDelivery: { state: 'uncertain', reason: 'deliveryUnknown', decidedAt: 50 }, liveTarget: { commandId: base.id, messageId: 'm-1' },
+    });
+    const next = command({ dispatchMode: 'wait', timestamp: 60 });
+    const queue = [record, next];
+    expect(settleLockedLiveFollowUp(queue, record, base, 107)).toBe(true);
+    expect(queue).toEqual([next]);
+    expect(base.followUps).toEqual([
+      { id: 'kept', text: 'kept', timestamp: 1, deliveredAt: 2 },
+      { id: record.id, text: 'Use the second layout instead', timestamp: 20, deliveredAt: 107, attachments: ['note.png'] },
+    ]);
+    // Not in the queue any more — a second settlement is a no-op.
+    expect(settleLockedLiveFollowUp(queue, record, base, 200)).toBe(false);
+    expect(base.followUps).toHaveLength(2);
+  });
+
+  it('refuses to move anything that is not a locked record', () => {
+    const base = command({ status: 'executing' });
+    for (const state of [undefined, 'sending', 'received', 'unavailable'] as const) {
+      const pending = command(state ? { liveDelivery: { state } } : {});
+      const queue = [base, pending];
+      expect(settleLockedLiveFollowUp(queue, pending, base, 1), String(state)).toBe(false);
+      expect(queue).toEqual([base, pending]);
+    }
+    expect(base.followUps).toBeUndefined();
   });
 });

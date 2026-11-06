@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { ChildProcess } from 'node:child_process';
 
-export interface ClaudeLiveFollowUpInput { id: string; text: string; attachments?: readonly string[] }
+/** `messageId` = the stream-json `uuid` to write; the caller keeps it to match Claude's transcript later (§5.5 #17-18 ⑬). */
+export interface ClaudeLiveFollowUpInput { id: string; text: string; attachments?: readonly string[]; messageId?: string }
 
 interface Delivery {
   uuid: string;
@@ -9,12 +10,19 @@ interface Delivery {
   promise: Promise<boolean>;
   resolve: (accepted: boolean) => void;
   reject: (error: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  /** Bounds only the wait for receipt (and the post-result wait); a received input waits for its step boundary. */
+  timer: ReturnType<typeof setTimeout> | undefined;
   settled: boolean;
+  received: boolean;
+  onReceived?: () => void;
 }
+
+const RECEIPT_TIMEOUT = 'Claude follow-up acknowledgement timed out; delivery is unknown';
 
 /**
  * Claude streaming input: `next` waits for tool calls without interrupting; UUID replay confirms receipt, not compliance.
+ * §5.5 #17-18 ⑫ — receipt is two-stage: `command_lifecycle` `queued` is written at once, while the replay and
+ * `started` only come when Claude dequeues it at the next step boundary (measured on CLI 2.1.318).
  * https://code.claude.com/docs/en/agent-sdk/typescript#sdkusermessage
  * https://code.claude.com/docs/en/cli-reference
  */
@@ -50,21 +58,21 @@ export class ClaudeLiveFollowUpChannel {
     ++this.resultVersion;
   }
 
-  send(input: ClaudeLiveFollowUpInput, sessionId: string): Promise<boolean> {
+  /** `onReceived` fires once Claude has queued the input; the promise settles when it is dequeued into the work. */
+  send(input: ClaudeLiveFollowUpInput, sessionId: string, onReceived?: () => void): Promise<boolean> {
     const existing = this.deliveries.get(input.id);
     if (existing) return existing.promise;
     const stdin = this.child.stdin;
     if (!this.canSend || !stdin || stdin.destroyed || stdin.writableEnded || !stdin.writable
       || this.child.exitCode != null || this.child.signalCode != null) return Promise.resolve(false);
-    const uuid = randomUUID();
+    const uuid = input.messageId ?? randomUUID();
     let resolve!: Delivery['resolve'];
     let reject!: Delivery['reject'];
     const promise = new Promise<boolean>((yes, no) => { resolve = yes; reject = no; });
     const delivery: Delivery = {
-      uuid, sessionId, promise, resolve, reject, settled: false,
-      timer: setTimeout(() => this.reject(delivery, 'Claude follow-up acknowledgement timed out; delivery is unknown'), this.timeoutMs),
+      uuid, sessionId, promise, resolve, reject, timer: undefined, settled: false, received: false, ...(onReceived ? { onReceived } : {}),
     };
-    delivery.timer.unref?.();
+    this.bound(delivery, RECEIPT_TIMEOUT);
     this.deliveries.set(input.id, delivery);
     this.byUuid.set(uuid, delivery);
     this.activeDeliveries.add(delivery);
@@ -84,14 +92,26 @@ export class ClaudeLiveFollowUpChannel {
     return promise;
   }
 
-  /** Only our own main-session replay is internal transport bookkeeping. */
+  /** Only our own main-session replay or command lifecycle line is internal transport bookkeeping. */
   acknowledge(message: Record<string, unknown>): boolean {
+    if (message.type === 'command_lifecycle') return this.noteLifecycle(message);
     if (message.type !== 'user' || message.isReplay !== true || message.parent_tool_use_id != null
       || typeof message.uuid !== 'string') return false;
     const delivery = this.byUuid.get(message.uuid);
     if (!delivery) return false;
     if (typeof message.session_id === 'string' && message.session_id !== delivery.sessionId) return false;
     this.accept(delivery);
+    return true;
+  }
+
+  private noteLifecycle(message: Record<string, unknown>): boolean {
+    if (typeof message.command_uuid !== 'string') return false;
+    const delivery = this.byUuid.get(message.command_uuid);
+    if (!delivery) return false;
+    if (typeof message.session_id === 'string' && message.session_id !== delivery.sessionId) return false;
+    if (message.state === 'queued') this.receive(delivery);
+    else if (message.state === 'started' || message.state === 'completed') this.accept(delivery);
+    // Other states settle through replay, interruption, process exit or the post-result bound.
     return true;
   }
 
@@ -117,6 +137,10 @@ export class ClaudeLiveFollowUpChannel {
     if (typeof message.queued_turn_count === 'number' && message.queued_turn_count > 0) return true;
     const pending = [...this.activeDeliveries].filter((delivery) => !delivery.settled);
     if (pending.length > 0) {
+      // No queued work is reported, so a received input that never started must not hold finalization forever.
+      for (const delivery of pending) {
+        if (!delivery.timer) this.bound(delivery, 'Claude ended the turn without starting a received follow-up; delivery is unknown');
+      }
       void Promise.allSettled(pending.map((delivery) => delivery.promise)).then((results) => {
         // A replay after this result means the result predates receipt. Wait for
         // Claude's subsequent result; otherwise this could dispatch a new app turn.
@@ -143,6 +167,19 @@ export class ClaudeLiveFollowUpChannel {
   cancelPending(reason: string): void {
     ++this.resultVersion;
     for (const delivery of this.activeDeliveries) this.reject(delivery, reason);
+  }
+
+  private bound(delivery: Delivery, reason: string): void {
+    delivery.timer = setTimeout(() => this.reject(delivery, reason), this.timeoutMs);
+    delivery.timer.unref?.();
+  }
+
+  private receive(delivery: Delivery): void {
+    if (delivery.settled || delivery.received) return;
+    delivery.received = true;
+    clearTimeout(delivery.timer);
+    delivery.timer = undefined;
+    delivery.onReceived?.();
   }
 
   private accept(delivery: Delivery): void {

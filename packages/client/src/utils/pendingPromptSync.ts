@@ -35,3 +35,20 @@ class PendingPromptSync {
 
 export const permissionPromptSync = new PendingPromptSync();
 export const askQuestionPromptSync = new PendingPromptSync();
+
+/**
+ * §5.3 #12-1 · #12-2 — 카드 답 POST 의 결과. status 가 null 이면 응답을 못 받았다(통신 실패·응답 유실).
+ * 404 는 이미 풀린 카드(되살리지 않는다), 그 밖의 4xx 는 서버가 받지 않았다, 5xx·무응답은 받았는지 모른다(서버 대기 목록과 대조).
+ */
+export type PromptSendOutcome = 'accepted' | 'gone' | 'rejected' | 'unconfirmed';
+
+export function promptSendOutcome(status: number | null): PromptSendOutcome {
+  if (status === null) return 'unconfirmed';
+  if (status >= 200 && status < 300) return 'accepted';
+  if (status === 404) return 'gone';
+  if (status >= 400 && status < 500) return 'rejected';
+  return 'unconfirmed';
+}
+
+/** 되돌아온 카드가 안내할 실패 종류. */
+export type PromptSendError = Extract<PromptSendOutcome, 'rejected' | 'unconfirmed'>;

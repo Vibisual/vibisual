@@ -5,6 +5,7 @@ import en from '../../i18n/locales/en.json';
 import ko from '../../i18n/locales/ko.json';
 import { CommandErrorNotice } from './CommandErrorNotice.js';
 import { parseStreamErrorContent } from './commandError.js';
+import { buildBaseItems } from './streamItems.js';
 
 let locale: 'ko' | 'en' = 'ko';
 vi.mock('react-i18next', () => ({
@@ -16,6 +17,27 @@ vi.mock('react-i18next', () => ({
 }));
 
 describe('provider notices', () => {
+  it.each(['plain', 'json'])('renders one capacity notice with official links for a restored %s/terminal pair', (format) => {
+    locale = 'ko';
+    const content = 'Selected model is at capacity. Please try a different model.';
+    const rawContent = format === 'json' ? JSON.stringify({ type: 'error', request_id: 'request-1', error: {
+      type: 'model_capacity_exceeded', message: content,
+    } }) : content;
+    const common = { parentAgentId: 'P', subAgentId: 'S', eventType: 'error' as const };
+    const { items } = buildBaseItems([
+      { ...common, id: 'raw', timestamp: 1, turnId: 'a', content: rawContent },
+      { ...common, id: 'terminal', timestamp: 2, content: `[cli@codex] ${content}` },
+    ], []);
+    const html = renderToStaticMarkup(<>{items.map((item) => item.kind === 'error'
+      ? <CommandErrorNotice key={item.id} error={parseStreamErrorContent(item.content)} /> : null)}</>);
+    expect(html.split(ko.ide.providerNotice.capacity.title)).toHaveLength(2);
+    expect(html.match(/<details/g)).toHaveLength(1);
+    expect(html).toContain(content);
+    expect(html).toContain('href="https://status.openai.com/"');
+    expect(html).toContain(ko.ide.providerNotice.documentation);
+    if (format === 'json') expect(html).toContain('request-1');
+  });
+
   it.each(['ko', 'en'] as const)('shows the reported model error with a ChatGPT billing link in %s', (language) => {
     locale = language;
     const content = JSON.stringify({ type: 'error', status: 400, error: {

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { QueuedCommand, SubAgentStreamEvent } from '@vibisual/shared';
 import { buildBaseItems, IncrementalStreamParser, type StreamError } from './streamItems.js';
+import { describeCommandError, parseStreamErrorContent } from './commandError.js';
 
 const DETAIL = 'Selected model is at capacity. Please try a different model.';
+const RESPONSE = JSON.stringify({ type: 'error', status: 503, error: { type: 'model_capacity_exceeded', message: DETAIL } });
 const command = (id = 'a', timestamp = 1): QueuedCommand => ({
   id, text: `work ${id}`, status: 'executing', timestamp, startedAt: timestamp, subAgentId: 'S',
 });
@@ -43,6 +45,96 @@ describe('duplicate provider errors', () => {
     const events = [event(1, detail), event(2, `[usageLimit@codex] ${detail}`), event(3, detail)];
     assertPrefixes(events);
     expect(errors(events)).toEqual([{ kind: 'error', id: 'e1', timestamp: 11, content: events[1]!.content }]);
+  });
+
+  it.each(['a', undefined])('retains the original JSON diagnostic and terminal links with turn stamp %s', (turnId) => {
+    const raw = event(1, RESPONSE);
+    const terminal = event(2, `[cli@codex] ${DETAIL}`, { turnId });
+    const events = [raw, terminal];
+    assertPrefixes(events, []);
+    const rows = errors(events, []);
+    expect(rows).toEqual([
+      { kind: 'error', id: raw.id, timestamp: raw.timestamp, content: `[cli@codex] ${RESPONSE}` },
+    ]);
+    const description = describeCommandError(parseStreamErrorContent(rows[0]!.content));
+    expect(description.detail).toBe(RESPONSE);
+    expect(description.guidance?.links.map((link) => new URL(link.href).hostname))
+      .toEqual(['developers.openai.com', 'status.openai.com']);
+    expect(raw.content).toBe(RESPONSE);
+    expect(terminal.content).toBe(`[cli@codex] ${DETAIL}`);
+  });
+
+  it('keeps the terminal envelope when the full JSON diagnostic arrives later', () => {
+    const events = [event(1, `[cli@codex] ${DETAIL}`), event(2, RESPONSE), event(3, DETAIL)];
+    assertPrefixes(events);
+    expect(errors(events)).toEqual([
+      { kind: 'error', id: 'e1', timestamp: 11, content: `[cli@codex] ${RESPONSE}` },
+    ]);
+  });
+
+  it('preserves distinct JSON payloads and an ambiguous terminal message', () => {
+    const otherResponse = JSON.stringify({ ...JSON.parse(RESPONSE), request_id: 'another-request' });
+    const events = [event(1, RESPONSE), event(2, otherResponse), event(3, `[cli@codex] ${DETAIL}`)];
+    assertPrefixes(events);
+    expect(errors(events).map((row) => row.content)).toEqual(events.map((item) => item.content));
+    expect(errors([event(1, RESPONSE), event(2, `[cli@codex] ${otherResponse}`)])).toHaveLength(2);
+  });
+
+  it('does not merge unrecognized JSON errors, raw-only variants, or merely the same guidance kind', () => {
+    for (const [raw, terminal] of [
+      [JSON.stringify({ error: { message: 'Unrecognized failure' } }), '[cli@codex] Unrecognized failure'],
+      [RESPONSE, DETAIL],
+      [RESPONSE, '[cli@codex] Selected model is at capacity. Retry tomorrow.'],
+    ]) {
+      const events = [event(1, raw!), event(2, terminal!)];
+      assertPrefixes(events);
+      expect(errors(events)).toHaveLength(2);
+    }
+  });
+
+  it('does not merge JSON and plain errors across engines or owners', () => {
+    for (const scope of [{ turnId: 'b' }, { subAgentId: 'other' }, { parentAgentId: 'other' }, { nestedUnderToolUseId: 'nested' }]) {
+      const events = [event(1, RESPONSE), event(2, `[cli@codex] ${DETAIL}`, scope)];
+      assertPrefixes(events);
+      expect(errors(events)).toHaveLength(2);
+    }
+    const events = [event(1, `[cli@codex] ${RESPONSE}`), event(2, `[cli@claude] ${DETAIL}`)];
+    assertPrefixes(events);
+    expect(errors(events)).toHaveLength(2);
+  });
+
+  it('coalesces a legacy terminal error missing its turn stamp when command history is absent', () => {
+    // failCommand used to run after currentTurnId was cleared. Restored streams may
+    // outlive their command anchors, leaving just the raw event with a turn stamp.
+    const events = [event(1, DETAIL), event(2, `[cli@codex] ${DETAIL}`, { turnId: undefined })];
+    assertPrefixes(events, []);
+    expect(errors(events, [])).toEqual([
+      { kind: 'error', id: 'e1', timestamp: 11, content: events[1]!.content },
+    ]);
+    expect(events[1]!.turnId).toBeUndefined();
+  });
+
+  it.each([
+    { eventType: 'text' as const, content: 'Resumed work' },
+    { eventType: 'thinking' as const, content: 'Thinking' },
+    { eventType: 'system' as const, content: '[status] running' },
+    { eventType: 'error' as const, content: 'Another failure' },
+  ])('keeps an unowned terminal error after intervening activity: %j', (intervening) => {
+    const events = [event(1, DETAIL), event(2, intervening.content, intervening), event(3, `[cli@codex] ${DETAIL}`, { turnId: undefined })];
+    assertPrefixes(events, []);
+    expect(errors(events, []).filter((item) => item.content.includes(DETAIL))).toHaveLength(2);
+  });
+
+  it('does not guess legacy terminal ownership across sessions, nested tasks, or command boundaries', () => {
+    for (const scope of [{ subAgentId: 'other' }, { parentAgentId: 'other' }, { nestedUnderToolUseId: 'nested' }]) {
+      const events = [event(1, DETAIL), event(2, `[cli@codex] ${DETAIL}`, { turnId: undefined, ...scope })];
+      assertPrefixes(events, []);
+      expect(errors(events, [])).toHaveLength(2);
+    }
+    const events = [event(1, DETAIL), event(2, `[cli@codex] ${DETAIL}`, { turnId: undefined })];
+    const commands = [command('a'), command('b', 12)];
+    assertPrefixes(events, commands);
+    expect(errors(events, commands)).toHaveLength(2);
   });
 
   it.each([

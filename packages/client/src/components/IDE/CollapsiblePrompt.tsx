@@ -289,7 +289,8 @@ export function CollapsiblePrompt({ prompt, command, submittedAt }: {
         <span className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] font-semibold ${tone.badge}`}>
           <DispatchModeIcon mode="steer" />
           {t('ide.mainArea.dispatchMode.steer')} ·
-          {command.liveDelivery.state === 'sending' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />}
+          {(command.liveDelivery.state === 'sending' || command.liveDelivery.state === 'received')
+            && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />}
           {t(`ide.mainArea.liveDelivery.${command.liveDelivery.state}`)}
         </span>
       ) : command?.status === 'queued' && (

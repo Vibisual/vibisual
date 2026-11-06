@@ -61,7 +61,7 @@ function harness(engine: 'codex' | 'claude' = 'codex') {
     steerCodexAppServerTurn: vi.fn((_id: string, _input: { text: string; images?: string[] }) => send()),
     subAgentManager: {
       canSendLiveFollowUp: vi.fn((id: string) => available && engine === 'claude' && id === subAgentId),
-      sendLiveFollowUp: vi.fn((_id: string, _input: { id: string; text: string; attachments?: string[] }) => send()),
+      sendLiveFollowUp: vi.fn((_id: string, _input: { id: string; text: string; attachments?: string[] }, _onReceived?: () => void) => send()),
     },
     graphManager: { invalidateCommandSnapshot: vi.fn((_id: string) => { changes.push('invalidate'); }) },
     scheduleCheckpoint: vi.fn(() => { changes.push('checkpoint'); }),
@@ -102,9 +102,12 @@ describe('production live follow-up routing', () => {
       expect(h.subAgentManager.sendLiveFollowUp).not.toHaveBeenCalled();
     } else {
       expect(h.subAgentManager.canSendLiveFollowUp).toHaveBeenCalledWith(h.subAgentId);
+      // §5.5 #17-18 ⑬ — the message id written to Claude is the transcript key kept on the command.
+      expect(h.incoming.liveTarget).toEqual({ commandId: h.base.id, messageId: expect.any(String) });
       expect(h.subAgentManager.sendLiveFollowUp).toHaveBeenCalledExactlyOnceWith(h.subAgentId, {
         id: h.incoming.id, text: h.incoming.text, timestamp: 10, attachments: ['addition.png'],
-      });
+        messageId: h.incoming.liveTarget?.messageId,
+      }, expect.any(Function));
       expect(h.steerCodexAppServerTurn).not.toHaveBeenCalled();
     }
     expect(h.changes).toEqual(['invalidate', 'checkpoint', 'broadcast']);
@@ -164,6 +167,31 @@ describe('production live follow-up routing', () => {
     expect(h.processNextCommand.mock.calls).toEqual([[h.sessionId], [h.sessionId], [h.sessionId]]);
   });
 
+  it('sends the next Claude input as soon as Claude queued the previous one (§5.5 #17-18 ⑫)', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(700);
+    const h = harness('claude');
+    const received = h.command('received', { liveDelivery: { state: 'received', receivedAt: 1 } });
+    const next = h.command('next');
+    h.queue.push(received, next);
+
+    expect(h.deliver()).toBe(true);
+    expect(next.liveDelivery).toBeUndefined();
+    const onReceived = h.subAgentManager.sendLiveFollowUp.mock.calls[0]![2]!;
+    onReceived();
+    expect(h.incoming.liveDelivery).toEqual({ state: 'received', receivedAt: 700 });
+    expect(isLiveFollowUpLocked(h.incoming)).toBe(true);
+    expect(next.liveDelivery).toEqual({ state: 'sending' });
+    expect(received.liveDelivery).toEqual({ state: 'received', receivedAt: 1 });
+    expect(h.subAgentManager.sendLiveFollowUp).toHaveBeenCalledTimes(2);
+    expect(h.processNextCommand).not.toHaveBeenCalled();
+
+    h.acknowledgements[0]!.resolve(true);
+    h.acknowledgements[1]!.resolve(true);
+    await flush();
+    expect(h.base.followUps?.map((input) => input.id)).toEqual([h.incoming.id, next.id]);
+    expect(h.queue).toEqual([h.base, received]);
+  });
+
   it('continues past a synchronous scope rejection and delivers the following eligible input', async () => {
     const h = harness();
     const rejected = h.command('requires-another-app', { appNodeIds: ['different-app'] });
@@ -211,10 +239,12 @@ describe('production live follow-up routing', () => {
     const next = h.command('next');
     h.queue.push(next);
     h.deliver();
+    const rejectedAt = Date.now();
     h.acknowledgements[0]!.reject(new Error('Acknowledgement connection closed'));
     await flush();
 
-    expect(h.incoming.liveDelivery).toEqual({ state: 'uncertain', reason: 'deliveryUnknown' });
+    expect(h.incoming.liveDelivery).toEqual({ state: 'uncertain', reason: 'deliveryUnknown', decidedAt: expect.any(Number) });
+    expect(h.incoming.liveDelivery!.decidedAt).toBeGreaterThanOrEqual(rejectedAt);
     expect(isLiveFollowUpLocked(h.incoming)).toBe(true);
     expect(h.queue).toContain(h.incoming);
     expect(h.base.followUps).toBeUndefined();

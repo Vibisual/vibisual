@@ -50,6 +50,13 @@ describe('sessionsNeedingKick', () => {
     expect(got.sort()).toEqual(['stuck1', 'stuck2']);
   });
 
+  it('확인 불가로 잠긴 [작업에 반영] 기록만 남은 큐는 밀지 않는다(§5.5 #17-18 ⑬) — 다시 나가지 않는 기록이다', () => {
+    const locked = cmd({ id: 'steer', dispatchMode: 'steer', liveDelivery: { state: 'uncertain', reason: 'deliveryUnknown', decidedAt: 1 } });
+    expect(sessionsNeedingKick(queues({ s1: [locked] }))).toEqual([]);
+    // 같은 세션에 진짜 대기 명령이 있으면 종전대로 민다.
+    expect(sessionsNeedingKick(queues({ s1: [locked, cmd({ id: 'q' })] }))).toEqual(['s1']);
+  });
+
   it('부작용이 없다 — 같은 큐를 두 번 물어도 같은 답이고 큐는 그대로다', () => {
     const q = [cmd({ id: 'q' })];
     const m = queues({ s1: q });

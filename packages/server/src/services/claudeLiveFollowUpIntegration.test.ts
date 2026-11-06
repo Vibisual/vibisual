@@ -117,6 +117,33 @@ describe('Claude live follow-up manager wiring', () => {
     expect(run.manager.canSendLiveFollowUp(run.sub.id)).toBe(false);
   });
 
+  // §5.5 #17-18 ⑫ — input sent during a long thought is dequeued well after the 30 s receipt bound.
+  it('confirms receipt from the queued lifecycle line and delivers when Claude dequeues it minutes later', async () => {
+    const run = setup();
+    const onReceived = vi.fn();
+    const outcome = vi.fn();
+    const delivered = run.manager.sendLiveFollowUp(run.sub.id, run.input, onReceived);
+    void delivered.then(() => outcome('delivered'), () => outcome('unknown'));
+    const uuid = run.child.messages.at(-1)?.uuid;
+    run.child.send({ type: 'command_lifecycle', command_uuid: uuid, state: 'queued', uuid: 'line-1', session_id: run.sub.sessionId });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onReceived).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(107_000);
+    expect(outcome).not.toHaveBeenCalled();
+    expect(run.onComplete).not.toHaveBeenCalled();
+    expect(run.base.status).toBe('executing');
+
+    run.replay();
+    run.child.send({ type: 'command_lifecycle', command_uuid: uuid, state: 'started', uuid: 'line-2', session_id: run.sub.sessionId });
+    await expect(delivered).resolves.toBe(true);
+    run.child.model('Applying the additional condition');
+    run.child.send({ type: 'result', subtype: 'success', result: 'Applied', queued_turn_count: 0, user_message_uuids: [uuid] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run.onComplete).toHaveBeenCalledOnce();
+    expect(run.base).toMatchObject({ status: 'completed', result: 'Applied' });
+  });
+
   it('keeps the active app command across a result emitted before the live input was received', async () => {
     const run = setup();
     const delivered = run.manager.sendLiveFollowUp(run.sub.id, run.input);

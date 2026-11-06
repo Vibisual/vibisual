@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizeAppNodeIds, type QueuedCommand } from '@vibisual/shared';
-import { findReferencedCommandAttachment } from './commandAttachmentOwnership.js';
+import { findReferencedCommandAttachment, resolveCommandAttachments } from './commandAttachmentOwnership.js';
 import { normalizeRunLimits } from './commandRunLimits.js';
 import { normalizeExecutionRequirements } from './commandExecutionRequirements.js';
 
@@ -49,12 +49,13 @@ function setup() {
   const commandQueues = new Map<string, QueuedCommand[]>();
   const completedCommandArchive = new Map<string, QueuedCommand[]>();
   const scope = {
-    fs, path, commandQueues, completedCommandArchive, findReferencedCommandAttachment,
+    fs, path, commandQueues, completedCommandArchive, findReferencedCommandAttachment, resolveCommandAttachments,
     logger: { warn: vi.fn() },
     graphManager: {
       getAgentCwd: () => root, findAgentIdBySession: () => 'agent-fixture',
       getAgentBySession: () => ({ customCreated: true }), getAgentConfig: () => ({}),
       getOrchestraRootForAgent: () => null, recordSkillUsageFromCommandText: vi.fn(),
+      invalidateCommandSnapshot: vi.fn(),
     },
     subAgentManager: { getSub: () => ({ agentId: 'agent-fixture' }) },
     DEFAULT_COMMAND_DISPATCH_MODE: 'merge', normalizeCommandDispatchMode: () => 'merge', normalizeRunLimits, normalizeExecutionRequirements,
@@ -75,13 +76,14 @@ function setup() {
     });
   }
   const post = (file = image, subAgentId = 'sub-first') => call(postCode, { text: 'Describe image', subAgentId, attachments: [file] });
+  const postFiles = (files: string[]) => call(postCode, { text: 'Describe images', subAgentId: 'sub-first', attachments: files });
   const remove = (file = image) => call(deleteCode, { filePath: file });
   const queued = () => commandQueues.get(sessionId) ?? [];
   function complete(): void {
     completedCommandArchive.set(sessionId, queued().map((command) => ({ ...command, status: 'completed' })));
     commandQueues.delete(sessionId);
   }
-  return { sessionId, dir, image, commandQueues, completedCommandArchive, post, remove, queued, complete };
+  return { sessionId, dir, image, commandQueues, completedCommandArchive, post, postFiles, remove, queued, complete };
 }
 
 describe('submitted images survive response loss and draft cleanup', () => {
@@ -171,12 +173,27 @@ describe('submitted images survive response loss and draft cleanup', () => {
     const first = h.queued()[0]!;
     h.commandQueues.delete(h.sessionId);
     h.commandQueues.set('other-session', [first]);
-    await h.post(h.image, 'sub-second');
-    expect(h.queued()[0]?.attachments).toBeUndefined();
+    expect(await h.post(h.image, 'sub-second')).toEqual({
+      status: 400, body: { error: 'attachments-missing', missing: [path.basename(h.image)] },
+    });
+    expect(h.queued()).toEqual([]);
     const outside = path.join(root, 'outside.png');
     fs.writeFileSync(outside, 'outside');
+    expect(await h.post(outside, 'sub-second')).toEqual({ status: 400, body: { error: 'attachments-missing', missing: ['outside.png'] } });
     expect((await h.remove(outside)).status).toBe(403);
     expect(fs.existsSync(outside)).toBe(true);
+  });
+
+  it('refuses the whole command when one of several images vanished, leaving the rest unmoved', async () => {
+    const h = setup();
+    const kept = path.join(h.dir, '0b8f3f5e-8a43-4f5b-9b0e-1f7e0d6c2a11.png');
+    fs.writeFileSync(kept, 'second image');
+    fs.unlinkSync(h.image);
+    const reply = await h.postFiles([kept, h.image]);
+    expect(reply).toEqual({ status: 400, body: { error: 'attachments-missing', missing: [path.basename(h.image)] } });
+    expect(h.queued()).toEqual([]);
+    expect(fs.readFileSync(kept, 'utf8')).toBe('second image');
+    expect(fs.existsSync(path.join(h.dir, 'sub-first'))).toBe(false);
   });
 
   it('does not guess when an original upload matches conflicting command paths', () => {

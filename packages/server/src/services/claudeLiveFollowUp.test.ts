@@ -25,7 +25,9 @@ function setup() {
   const channel = new ClaudeLiveFollowUpChannel(child as unknown as ChildProcess, 100);
   const replay = () => ({ type: 'user', uuid: child.messages.at(-1)?.uuid,
     session_id: 'session-1', parent_tool_use_id: null, isReplay: true });
-  return { child, channel, replay };
+  const lifecycle = (state: string) => ({ type: 'command_lifecycle', command_uuid: child.messages.at(-1)?.uuid,
+    state, uuid: 'lifecycle-line', session_id: 'session-1' });
+  return { child, channel, replay, lifecycle };
 }
 
 describe('Claude live follow-up delivery', () => {
@@ -135,5 +137,70 @@ describe('Claude live follow-up delivery', () => {
     channel.beginTurn();
     expect(channel.hasDeliveries).toBe(false);
     expect(channel.deferResult({ type: 'result' }, stale)).toBe(false);
+  });
+
+  // §5.5 #17-18 ⑫ — CLI 2.1.318: `queued` is written at once, replay/`started` only at the next step boundary.
+  it('treats the queued lifecycle line as receipt and waits past the receipt bound for the step boundary', async () => {
+    const { channel, lifecycle } = setup();
+    const onReceived = vi.fn();
+    const outcome = vi.fn();
+    const pending = channel.send(input, 'session-1', onReceived);
+    void pending.then(() => outcome('delivered'), () => outcome('unknown'));
+    expect(channel.acknowledge({ ...lifecycle('queued'), command_uuid: 'another-message' })).toBe(false);
+    expect(channel.acknowledge({ ...lifecycle('queued'), session_id: 'another-session' })).toBe(false);
+    expect(onReceived).not.toHaveBeenCalled();
+    expect(channel.acknowledge(lifecycle('queued'))).toBe(true);
+    expect(channel.acknowledge(lifecycle('queued'))).toBe(true);
+    expect(onReceived).toHaveBeenCalledOnce();
+    // A long tool run or thought: far beyond the 100 ms receipt bound.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(channel.acknowledge(lifecycle('some-future-state'))).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(outcome).not.toHaveBeenCalled();
+    expect(channel.acknowledge(lifecycle('started'))).toBe(true);
+    await expect(pending).resolves.toBe(true);
+    expect(outcome).toHaveBeenCalledExactlyOnceWith('delivered');
+  });
+
+  it.each(['replay', 'completed'] as const)('accepts a received input on its %s as well', async (signal) => {
+    const { channel, lifecycle, replay } = setup();
+    const pending = channel.send(input, 'session-1');
+    channel.acknowledge(lifecycle('queued'));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(channel.acknowledge(signal === 'replay' ? replay() : lifecycle('completed'))).toBe(true);
+    await expect(pending).resolves.toBe(true);
+  });
+
+  it('keeps holding a received input while the result reports queued work, without a bound', async () => {
+    const { channel, lifecycle, replay } = setup();
+    const pending = channel.send(input, 'session-1');
+    channel.acknowledge(lifecycle('queued'));
+    const stale = vi.fn();
+    expect(channel.deferResult({ type: 'result', queued_turn_count: 1 }, stale)).toBe(true);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(stale).not.toHaveBeenCalled();
+    channel.acknowledge(replay());
+    await expect(pending).resolves.toBe(true);
+  });
+
+  it('bounds a received input again once a result reports no queued work, and records it before finalizing', async () => {
+    const { channel, lifecycle } = setup();
+    const order: string[] = [];
+    const pending = channel.send(input, 'session-1').catch((error: Error) => { order.push('unconfirmed'); return error.message; });
+    channel.acknowledge(lifecycle('queued'));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(order).toEqual([]);
+    channel.deferResult({ type: 'result', queued_turn_count: 0 }, () => order.push('finalized'));
+    await vi.advanceTimersByTimeAsync(102);
+    await expect(pending).resolves.toContain('delivery is unknown');
+    expect(order).toEqual(['unconfirmed', 'finalized']);
+  });
+
+  it('still reports an interrupted received input as unknown', async () => {
+    const { channel, lifecycle } = setup();
+    const pending = channel.send(input, 'session-1');
+    channel.acknowledge(lifecycle('queued'));
+    channel.cancelPending('Claude was interrupted before follow-up acknowledgement');
+    await expect(pending).rejects.toThrow('interrupted');
   });
 });

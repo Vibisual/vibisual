@@ -10,9 +10,12 @@ export function followUpDeliveryOf(command: Pick<QueuedCommand, 'dispatchMode' |
   return command.liveDelivery ?? { state: 'waiting' };
 }
 
-/** Unknown delivery must not offer a second send or erase the only visible record. */
+/**
+ * Unknown delivery must not offer a second send or erase the only visible record.
+ * `received` is already in the engine queue (§5.5 #17-18 ⑫) — a second send would apply it twice.
+ */
 export function isFollowUpDeliveryLocked(delivery: FollowUpDeliveryDisplay | undefined): boolean {
-  return delivery?.state === 'sending' || delivery?.state === 'uncertain';
+  return delivery?.state === 'sending' || delivery?.state === 'received' || delivery?.state === 'uncertain';
 }
 
 export function sameFollowUpDelivery(a: FollowUpDeliveryDisplay | undefined, b: FollowUpDeliveryDisplay | undefined): boolean {
