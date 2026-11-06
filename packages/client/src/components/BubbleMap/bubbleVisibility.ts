@@ -5,7 +5,12 @@ import { isBundleNodeId } from '../../utils/constellationView.js';
 
 type AgentVisibility = Pick<BubbleData, 'id' | 'bubbleType' | 'bubblesHidden'>;
 type ActivityLink = Pick<Edge, 'id' | 'source' | 'target' | 'type'>;
-type Satellite = Pick<BubbleData, 'id' | 'bubbleType'>;
+type Satellite = Pick<BubbleData, 'id' | 'bubbleType' | 'activeAgentIds' | 'ownerAgentIds'>;
+
+interface OwnerInfo {
+  readonly active: readonly string[];
+  readonly owners: readonly string[];
+}
 
 const ACTIVITY_BUBBLE_TYPES: ReadonlySet<BubbleType> = new Set([
   'internal_folder', 'external_folder', 'file', 'domain', 'bash', 'ghost', 'iframe', 'conti', 'auto',
@@ -13,12 +18,24 @@ const ACTIVITY_BUBBLE_TYPES: ReadonlySet<BubbleType> = new Set([
   'bundle',
 ]);
 const NO_HIDDEN_BUBBLES: ReadonlySet<string> = new Set();
+const NO_IDS: readonly string[] = [];
+
+function idsOf(value: unknown): readonly string[] {
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : NO_IDS;
+}
+
+function sameSet(a: ReadonlySet<string> | undefined, b: ReadonlySet<string>): boolean {
+  if (a === undefined) return b.size === 0;
+  if (a.size !== b.size) return false;
+  for (const id of a) if (!b.has(id)) return false;
+  return true;
+}
 
 /**
- * Only activity bubbles owned exclusively by agents with `bubblesHidden` are hidden.
- * Ownership runs from agents to activity endpoints, then from parents to satellites.
- * It never passes through another agent, navigation bubble, or user-created app node.
- * Raw satellite refs matter: the layout deduplicates shared files to their first parent.
+ * §5.4 #36 (H) ①-1 — a bubble hides only when it has a connected agent and every connected agent hides bubbles.
+ * Connected = agents whose line reaches it; otherwise its own owners among the agents connected to its parents;
+ * otherwise (bundles, junctions) the parents' agents. A parent never lends its agents to a child that names its own.
+ * Ownership never passes through another agent, navigation bubble, or user-created app node.
  */
 export function hiddenActivityBubbleIds(
   nodes: readonly Node[],
@@ -29,34 +46,68 @@ export function hiddenActivityBubbleIds(
   eligibleTypes: ReadonlySet<BubbleType> = ACTIVITY_BUBBLE_TYPES,
 ): ReadonlySet<string> {
   const hiddenAgents = new Set<string>();
-  const shownAgents = new Set<string>();
+  const knownAgents = new Set<string>();
   for (const agent of agents) {
     if (agent.bubbleType !== 'agent') continue;
-    (agent.bubblesHidden === true ? hiddenAgents : shownAgents).add(agent.id);
+    knownAgents.add(agent.id);
+    if (agent.bubblesHidden === true) hiddenAgents.add(agent.id);
   }
   if (hiddenAgents.size === 0) return NO_HIDDEN_BUBBLES;
 
-  const eligible = new Set<string>();
+  // A drawn satellite (`sat-X`) is the same bubble as its raw entry `X` — the layout keeps only the first parent's copy.
+  const alias = new Map<string, string>();
+  for (const list of Object.values(satellites)) {
+    for (const satellite of list) alias.set(`sat-${satellite.id}`, satellite.id);
+  }
+  const key = (id: string): string => alias.get(id) ?? id;
+
+  const eligible: string[] = [];
   const protectedIds = new Set<string>();
+  const ownerInfo = new Map<string, OwnerInfo>();
+  const noteOwners = (id: string, data: { activeAgentIds?: unknown; ownerAgentIds?: unknown }): void => {
+    const at = key(id);
+    const prev = ownerInfo.get(at);
+    const active = idsOf(data.activeAgentIds);
+    const owners = idsOf(data.ownerAgentIds);
+    ownerInfo.set(at, prev === undefined ? { active, owners } : {
+      active: [...new Set([...prev.active, ...active])],
+      owners: [...new Set([...prev.owners, ...owners])],
+    });
+  };
   for (const node of nodes) {
-    if (node.type === 'bubble' && eligibleTypes.has(node.data.bubbleType as BubbleType)
-      && node.data.customCreated !== true) eligible.add(node.id);
-    else protectedIds.add(node.id);
+    const type = node.data.bubbleType as BubbleType;
+    if (node.type === 'bubble' && (ACTIVITY_BUBBLE_TYPES.has(type) || eligibleTypes.has(type))
+      && node.data.customCreated !== true) {
+      noteOwners(node.id, node.data);
+      if (eligibleTypes.has(type)) eligible.push(node.id);
+    } else protectedIds.add(node.id);
   }
 
+  const lines = new Map<string, Set<string>>();
+  const parents = new Map<string, Set<string>>();
   const children = new Map<string, Set<string>>();
-  const relate = (parentId: string, childId: string): void => {
-    if (protectedIds.has(childId) || parentId === childId) return;
-    const list = children.get(parentId) ?? new Set<string>();
-    list.add(childId);
-    children.set(parentId, list);
+  const add = (map: Map<string, Set<string>>, at: string, value: string): void => {
+    const set = map.get(at);
+    if (set) set.add(value);
+    else map.set(at, new Set([value]));
   };
-  const isAgent = (id: string): boolean => hiddenAgents.has(id) || shownAgents.has(id);
+  const relate = (parentId: string, childId: string): void => {
+    if (protectedIds.has(childId)) return;
+    const child = key(childId);
+    if (knownAgents.has(parentId)) {
+      add(lines, child, parentId);
+      return;
+    }
+    const parent = key(parentId);
+    if (protectedIds.has(parentId) || parent === child) return;
+    add(parents, child, parent);
+    add(children, parent, child);
+  };
   for (const edge of edges) {
     if (!isActivityEdge(edge)) continue;
-    // Read and write edges have opposite directions; both express the same owner.
-    if (isAgent(edge.source)) relate(edge.source, edge.target);
-    if (isAgent(edge.target)) relate(edge.target, edge.source);
+    // Read and write edges have opposite directions; both express the same line.
+    if (knownAgents.has(edge.source)) relate(edge.source, edge.target);
+    if (knownAgents.has(edge.target)) relate(edge.target, edge.source);
     // Includes synthetic satellites (for example conti) absent from store.satellites.
     if (edge.id.startsWith('sat-edge-')) {
       if (edge.source.startsWith('sat-')) relate(edge.target, edge.source);
@@ -73,41 +124,59 @@ export function hiddenActivityBubbleIds(
     for (const satellite of list) {
       if (!ACTIVITY_BUBBLE_TYPES.has(satellite.bubbleType)) continue;
       relate(parentId, satellite.id);
-      relate(satellite.id, `sat-${satellite.id}`);
+      noteOwners(satellite.id, satellite);
     }
   }
   for (const node of nodes) {
-    if (!eligible.has(node.id)) continue;
+    if (protectedIds.has(node.id)) continue;
     if (typeof node.parentId === 'string') relate(node.parentId, node.id);
     if (typeof node.data.parentId === 'string') relate(node.data.parentId, node.id);
-    // A shared active file can carry an owner not represented by its deduplicated edge.
-    const owners = node.data.activeAgentIds;
-    if (Array.isArray(owners)) {
-      for (const owner of owners) {
-        if (typeof owner !== 'string') continue;
-        if (!hiddenAgents.has(owner)) shownAgents.add(owner);
-        relate(owner, node.id);
-      }
+  }
+
+  const connected = new Map<string, ReadonlySet<string>>();
+  const connectedOf = (id: string): ReadonlySet<string> => {
+    const info = ownerInfo.get(id);
+    const active = info?.active ?? NO_IDS;
+    const line = lines.get(id);
+    if (line) return active.length === 0 ? line : new Set([...line, ...active]);
+    const inherited = new Set<string>();
+    for (const parent of parents.get(id) ?? []) {
+      for (const agentId of connected.get(parent) ?? []) inherited.add(agentId);
+    }
+    // Owner records outlive lines (§2.4), so only owners still connected through a parent count.
+    const own = new Set(active);
+    for (const agentId of info?.owners ?? NO_IDS) if (inherited.has(agentId)) own.add(agentId);
+    return own.size > 0 ? own : inherited;
+  };
+  const queue = [...new Set([...lines.keys(), ...ownerInfo.keys(), ...parents.keys()])];
+  const pending = new Set(queue);
+  // A child's own owners can narrow it once its parent resolves, so cycles get a bounded number of revisits.
+  const limit = (queue.length + 1) * 16;
+  for (let i = 0; i < queue.length && i < limit; i += 1) {
+    const id = queue[i]!;
+    pending.delete(id);
+    const next = connectedOf(id);
+    if (sameSet(connected.get(id), next)) continue;
+    connected.set(id, next);
+    for (const child of children.get(id) ?? []) {
+      if (pending.has(child)) continue;
+      pending.add(child);
+      queue.push(child);
     }
   }
 
-  const descendantsOf = (owners: ReadonlySet<string>): Set<string> => {
-    const reached = new Set(owners);
-    const queue = [...owners];
-    for (let i = 0; i < queue.length; i += 1) {
-      for (const child of children.get(queue[i]!) ?? []) {
-        if (reached.has(child)) continue;
-        reached.add(child);
-        queue.push(child);
-      }
-    }
-    return reached;
-  };
-  const hiddenOwned = descendantsOf(hiddenAgents);
-  const shownOwned = descendantsOf(shownAgents);
   const hidden = new Set<string>();
   for (const id of eligible) {
-    if (hiddenOwned.has(id) && !shownOwned.has(id)) hidden.add(id);
+    const agentIds = connected.get(key(id));
+    if (agentIds === undefined || agentIds.size === 0) continue;
+    let allHidden = true;
+    for (const agentId of agentIds) {
+      if (!hiddenAgents.has(agentId)) {
+        allHidden = false;
+        break;
+      }
+    }
+    if (allHidden) hidden.add(id);
   }
   return hidden.size === 0 ? NO_HIDDEN_BUBBLES : hidden;
 }

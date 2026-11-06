@@ -2443,7 +2443,11 @@
         "docEmpty": "Video kosong — minta bantuan AI yang terhubung atau buka editor",
         "playExport": "Putar render terakhir",
         "docUnreadable": "Dokumen tidak dapat dibaca — buka editor",
-        "docVersion": "v{{version}}"
+        "docVersion": "v{{version}}",
+        "unseenChange": "Ada perubahan baru sejak terakhir Anda melihat",
+        "whenAi": "AI · {{when}}",
+        "holdPrevious": "Tahan untuk melihat kondisi sebelum proses AI terakhir",
+        "holdBadge": "Sebelum proses AI"
       },
       "installApp": "Pasang aplikasi",
       "installHint": "Klik dua kali untuk memasang.",
@@ -8625,7 +8629,13 @@
       "proposal": "Usulan {{index}}: {{title}}",
       "proposalUntitled": "Usulan {{index}}",
       "pictures_one": "{{count}} gambar",
-      "pictures_other": "{{count}} gambar"
+      "pictures_other": "{{count}} gambar",
+      "partsChip": "Bagian {{count}}",
+      "pastChip": "Hasil sebelumnya {{count}}",
+      "foldShow": "Klik untuk menampilkan",
+      "foldHide": "Klik untuk melipat",
+      "changed": "Diubah pada proses AI terakhir",
+      "focusHint": "Klik untuk menampilkannya di node · klik dua kali untuk membuka."
     },
     "appWork": {
       "moon": "Hasil kerja {{app}} · {{role}}",

@@ -1,6 +1,16 @@
+import { docHasCompositions, type VideoDoc } from '@vibisual/video';
 import type { StageWarmOptions } from '@vibisual/video/render';
 
 import { studioBudget, type DeviceHints } from './studioBudget.js';
+
+/**
+ * §5.13 (T-4)(T-7) — 미리보기를 DOM 무대(`useStagePreview`)로 세워야 하는 문서인가: 코드 컴포지션 · 3D 모델 · 편집 원본이 있는 그림은
+ * canvas2d 가 그리지 못한다. 스튜디오 미리보기와 캔버스 노드 재생(§5.4 #36 (J) ⑦)이 같은 판정을 쓴다.
+ */
+export function docNeedsStage(doc: VideoDoc): boolean {
+  return docHasCompositions(doc) || doc.tracks.some((track) => track.items.some((item) =>
+    item.kind === 'model' || (item.kind === 'image' && !!doc.assets[item.assetId ?? '']?.creationSource)));
+}
 
 /**
  * Browser hints are coarse: unknown devices use the bounded middle tier. Export is unaffected.

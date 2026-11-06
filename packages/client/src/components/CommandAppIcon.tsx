@@ -80,7 +80,7 @@ export const CommandAppIcon = memo(function CommandAppIcon({ executable, px = 24
         </svg>
       )}
       {src === mark && src && entry?.trademark && (
-        <span className="absolute -right-1 top-0 leading-none" style={{ fontSize: Math.max(6, px / 4) }}>
+        <span className="absolute -right-1 top-0 leading-none" style={{ fontSize: Math.max(12, px / 4) }}>
           {entry.trademark}
         </span>
       )}

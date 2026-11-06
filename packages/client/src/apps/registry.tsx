@@ -95,6 +95,30 @@ export interface AppCanvasFaceProps {
   readonly thumb: AppThumbnail | null;
   /** 정지 미리보기를 굽는 중인가. */
   readonly thumbLoading: boolean;
+  /**
+   * §5.4 #36 (J) ① — 결과 칸 비율(가로/세로)을 알린다. 코어가 노드에 적고(`AppBubble.stageAspect`) 그 비율로 화면을 짓는다. `null` 은 지운다.
+   * 같은 값을 여러 번 불러도 된다(코어가 다를 때만 적는다).
+   */
+  readonly onStageAspect?: ((aspect: number | null) => void) | undefined;
+  /** §5.4 #36 (J) ⑥ — 머리줄에 실을 것(앱 화면이 비추는 문서의 제목 · 바뀐 것 열쇠). `null` 이면 걷는다. */
+  readonly onHeader?: ((header: AppFaceHeader | null) => void) | undefined;
+  /** §5.4 #36 (J) ⑤ — 구슬 줄에서 한 번 누른 것(`AppLinkedItem.stageFocus`). `seq` 가 바뀔 때마다 새 요청이다. */
+  readonly stageFocus?: AppStageFocus | null | undefined;
+}
+
+/**
+ * §5.4 #36 (J) ⑥ — 앱 화면이 머리줄에 싣는 것. `title` 은 노드 이름 자리(사용자가 지은 이름이 먼저), `changeKey` 가 바뀌면 안 본 변경 —
+ * 처음 알린 열쇠와 포인터를 올리거나 고를 때의 열쇠는 본 것으로 코어가 센다.
+ */
+export interface AppFaceHeader {
+  readonly title?: string | undefined;
+  readonly changeKey?: string | undefined;
+}
+
+/** §5.4 #36 (J) ⑤ — 구슬 줄에서 고른 것을 그 노드 화면에 보이라는 요청(`itemId` = `AppLinkedItem.id`). */
+export interface AppStageFocus {
+  readonly itemId: string;
+  readonly seq: number;
 }
 
 /** §5.4 #36 (G) — 앱 위성 화면의 안쪽 그림. 늦은 로더로만 온다(안 보이면 안 내려온다). */
@@ -176,7 +200,18 @@ export interface AppLinkedItem {
   readonly pictureCount?: number | undefined;
   /** 번호 구슬이 무엇을 세는가 — 없으면 장면. 만드는 단계(3D) · 고르기 전 제안(그림)은 툴팁이 그 말로 부른다. */
   readonly numbered?: 'step' | 'proposal' | undefined;
+  /** §5.4 #36 (J) ⑤ — 길이(`durationSec`)에 비례한 알약으로 그린다(폭 한도 `APP_LINKED_ITEMS.pill*`). */
+  readonly pill?: boolean | undefined;
+  /** 구슬 안에 바로 그릴 그림 주소(앱이 이미 가진 data·blob URL). 있으면 `file` 로 굽지 않는다. */
+  readonly image?: string | undefined;
+  /** 마지막 바퀴가 바꾼 것 — 작은 앱 색 점. */
+  readonly changed?: boolean | undefined;
+  /** 한 번 누르면 그 노드 화면이 이것을 보인다(코어가 앱 화면의 `stageFocus` 로 넘긴다). 더블클릭은 그대로 편집기. */
+  readonly stageFocus?: boolean | undefined;
 }
+
+/** §5.4 #36 (J) ⑤ — 칩 하나로 접어 둘 묶음: `part` = 앱이 낸 소재 묶음 · `past` = 코어의 지난 결과(`AppBubble.pastFiles`). */
+export type AppLinkedFoldGroup = 'part' | 'past';
 
 /** 구슬 줄을 읽을 때 받는 것. */
 export interface AppLinkedItemsRequest {
@@ -194,6 +229,8 @@ export interface AppLinkedItemsRequest {
 export interface AppLinkedItemsSnapshot {
   readonly key: string;
   readonly items: readonly AppLinkedItem[];
+  /** §5.4 #36 (J) ⑤ — 칩(「소재 N」·「지난 결과 N」)으로 접어 둘 묶음. 누르면 펼친다(휘발). 선언하지 않으면 종전대로 다 편다. */
+  readonly fold?: readonly AppLinkedFoldGroup[] | undefined;
 }
 
 export type AppLinkedItemsReader = (req: AppLinkedItemsRequest) => Promise<AppLinkedItemsSnapshot | null>;

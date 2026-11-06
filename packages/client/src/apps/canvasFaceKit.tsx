@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { formatMediaDuration, wavePath } from './appThumbnails.js';
 import type { AppThumbnail } from './registry.js';
@@ -20,8 +20,8 @@ export function isFaceControlTarget(target: EventTarget | null | undefined): boo
   return target.closest('.nodrag') !== null && target.closest(RESIZE_EDGE_SELECTOR) === null;
 }
 
-/** 조작줄 높이(px) — 앱이 결과 자리 높이를 셀 때 쓴다. 아래 `FaceBar` 의 `h-6` 과 같은 값. */
-export const FACE_BAR_HEIGHT = 24;
+/** 조작줄 높이(px) — 앱이 결과 자리 높이를 셀 때 쓴다. 아래 `FaceBar` 의 `h-6` 과 같은 값(정본은 `screenChrome.ts`). */
+export { FACE_BAR_HEIGHT } from './screenChrome.js';
 
 /** 재생 시계 — `0:00` · `1:05` · `1:02:03`. 지난 시간은 내림(아직 안 지난 초를 먼저 보이지 않는다). */
 export function formatPlayClock(seconds: number): string {
@@ -127,6 +127,9 @@ export function FaceSeek({
   label,
   accent,
   onSeek,
+  onSeekEnd,
+  marks,
+  renderHover,
 }: {
   /** 0~1. */
   value: number;
@@ -134,15 +137,27 @@ export function FaceSeek({
   label: string;
   accent: string;
   onSeek: (fraction: number) => void;
+  /** 끌기를 놓았다(누른 손을 뗐다) — 재생 중 끌기를 마치고 이어 틀 때. */
+  onSeekEnd?: (() => void) | undefined;
+  /** 막대 위 눈금(0~1 — 장면 경계 등). */
+  marks?: readonly number[] | undefined;
+  /** 포인터를 올린 자리(0~1)의 말풍선 — 마우스·펜만(터치엔 hover 가 없다). 막대 위에 선다. */
+  renderHover?: ((fraction: number) => ReactNode) | undefined;
 }): React.JSX.Element {
   const trackRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
+  const [hover, setHover] = useState<number | null>(null);
   const fractionAt = (clientX: number): number => {
     const rect = trackRef.current?.getBoundingClientRect();
     if (!rect || rect.width <= 0) return 0;
     return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
   };
   const pct = `${Math.round(Math.min(1, Math.max(0, value)) * 1000) / 10}%`;
+  const endDrag = (): void => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    onSeekEnd?.();
+  };
   return (
     <div
       ref={trackRef}
@@ -162,23 +177,38 @@ export function FaceSeek({
         onSeek(fractionAt(e.clientX));
       }}
       onPointerMove={(e) => {
+        if (renderHover && e.pointerType !== 'touch' && disabled !== true) setHover(fractionAt(e.clientX));
         if (!draggingRef.current) return;
         onSeek(fractionAt(e.clientX));
       }}
+      onPointerLeave={() => setHover(null)}
       onPointerUp={(e) => {
-        draggingRef.current = false;
         if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+        endDrag();
       }}
       onPointerCancel={() => {
-        draggingRef.current = false;
+        setHover(null);
+        endDrag();
       }}
       onDoubleClick={(e) => e.stopPropagation()}
     >
       <div className="relative h-[3px] w-full bg-white/15">
         <div className="absolute inset-y-0 left-0" style={{ width: pct, background: accent }} />
+        {(marks ?? []).map((m) => (
+          // 장면 경계 눈금 — 막대를 끊어 보이는 틈(어두운 1px).
+          <div key={m} className="absolute inset-y-0 w-px bg-black/80" style={{ left: `${Math.round(Math.min(1, Math.max(0, m)) * 1000) / 10}%` }} />
+        ))}
         {/* 손잡이 — 네모 막대 하나(둥근 공 ❌). */}
         <div className="absolute top-1/2 h-2.5 w-[3px] -translate-x-1/2 -translate-y-1/2 bg-white" style={{ left: pct }} />
       </div>
+      {hover !== null && renderHover ? (
+        <div
+          className="pointer-events-none absolute bottom-full mb-1.5 -translate-x-1/2"
+          style={{ left: `${Math.round(Math.min(0.92, Math.max(0.08, hover)) * 1000) / 10}%` }}
+        >
+          {renderHover(hover)}
+        </div>
+      ) : null}
     </div>
   );
 }

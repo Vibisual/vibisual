@@ -130,6 +130,11 @@ function refresh(appId: string, req: AppLinkedItemsRequest, key: string): void {
 
 /** `appId`·`req` 중 하나라도 없으면 묻지 않고 빈 목록. 구독은 열쇠 하나 — 판본이 바뀔 때만 그 노드가 다시 그려진다. */
 export function useAppLinkedItems(appId: string | null, req: AppLinkedItemsRequest | null): readonly AppLinkedItem[] {
+  return useAppLinkedSnapshot(appId, req)?.items ?? EMPTY;
+}
+
+/** §5.4 #36 (J) ⑤ — 읽은 결과 통째(구슬 + 앱이 선언한 접기). 아직 못 읽었으면 `null`. 묻는 주기·기억은 `useAppLinkedItems` 와 같다. */
+export function useAppLinkedSnapshot(appId: string | null, req: AppLinkedItemsRequest | null): AppLinkedItemsSnapshot | null {
   const key = appId !== null && req !== null ? linkedItemsKey(appId, req) : null;
   const reqRef = useRef(req);
   reqRef.current = req;
@@ -147,10 +152,10 @@ export function useAppLinkedItems(appId: string | null, req: AppLinkedItemsReque
     [key],
   );
   const getSnapshot = useCallback(
-    (): readonly AppLinkedItem[] => (key !== null ? entries.get(key)?.snap?.items ?? EMPTY : EMPTY),
+    (): AppLinkedItemsSnapshot | null => (key !== null ? entries.get(key)?.snap ?? null : null),
     [key],
   );
-  const items = useSyncExternalStore(subscribe, getSnapshot);
+  const snap = useSyncExternalStore(subscribe, getSnapshot);
 
   useEffect(() => {
     if (key === null || appId === null) return undefined;
@@ -165,7 +170,7 @@ export function useAppLinkedItems(appId: string | null, req: AppLinkedItemsReque
     return () => clearInterval(timer);
   }, [key, appId]);
 
-  return items;
+  return snap;
 }
 
 /** 이 파일의 미리보기를 굽는 앱 — 그 확장자를 받고(`outputs ?? opens`) `thumbnail` 이 있는 첫 앱. 없으면 `null`(아이콘). 코어는 확장자 표를 들지 않는다(§5.13 (R-1)). */

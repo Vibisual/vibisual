@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { APP_NODE_RESIZE } from '@vibisual/shared';
+import { APP_CANVAS_FACE, APP_NODE_RESIZE } from '@vibisual/shared';
 import { ProjectGraph } from './projectGraph.js';
 import { mergeSnapshots } from './projectGraphManager.js';
 
@@ -277,6 +277,34 @@ describe('AppBubble — 크기 조절(sizedForm)', () => {
     expect(graph.getAppBubble(b.id)).toMatchObject({ width: 80, height: 50 });
     graph.updateAppBubble(b.id, { width: 99_999, height: 99_999 });
     expect(graph.getAppBubble(b.id)).toMatchObject({ width: APP_NODE_RESIZE.maxWidth, height: APP_NODE_RESIZE.maxHeight });
+  });
+
+  it('§5.4 #36 (J) ① 결과 칸 비율 — 유한한 양수만 받아 상·하한으로 자르고, null 은 지우고, 그 밖은 칸을 건드리지 않는다', () => {
+    const { graph, projectName } = makeGraph();
+    const b = graph.createAppBubble({ projectName, appId: 'vibistudio', x: 0, y: 0 });
+    graph.updateAppBubble(b.id, { stageAspect: 9 / 16 });
+    expect(graph.getAppBubble(b.id)?.stageAspect).toBeCloseTo(9 / 16);
+    for (const bad of ['1.7', -1, 0, Number.NaN, Number.POSITIVE_INFINITY, true]) {
+      graph.updateAppBubble(b.id, { stageAspect: bad } as unknown as Record<string, never>);
+      expect(graph.getAppBubble(b.id)?.stageAspect).toBeCloseTo(9 / 16);
+    }
+    graph.updateAppBubble(b.id, { x: 5 }); // 부분 페이로드 — 비율 칸은 그대로
+    expect(graph.getAppBubble(b.id)?.stageAspect).toBeCloseTo(9 / 16);
+    graph.updateAppBubble(b.id, { stageAspect: 100 });
+    expect(graph.getAppBubble(b.id)?.stageAspect).toBe(APP_CANVAS_FACE.stageAspectMax);
+    graph.updateAppBubble(b.id, { stageAspect: 0.01 });
+    expect(graph.getAppBubble(b.id)?.stageAspect).toBe(APP_CANVAS_FACE.stageAspectMin);
+    graph.updateAppBubble(b.id, { stageAspect: null } as unknown as Record<string, never>);
+    expect(graph.getAppBubble(b.id)?.stageAspect).toBeUndefined();
+  });
+
+  it('결과 칸 비율도 체크포인트 왕복에 남는다', () => {
+    const { graph, projectName } = makeGraph();
+    const b = graph.createAppBubble({ projectName, appId: 'vibistudio', x: 0, y: 0 });
+    graph.updateAppBubble(b.id, { stageAspect: 1 });
+    const fresh = new ProjectGraph();
+    fresh.restoreFromCheckpoint(graph.toProjectCheckpoint(projectName));
+    expect(fresh.getAppBubble(b.id)?.stageAspect).toBe(1);
   });
 
   it('정한 형태는 체크포인트 왕복에 남는다(앱 버블은 객체째 영속)', () => {

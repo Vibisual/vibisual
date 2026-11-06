@@ -688,6 +688,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           linkedAgentIds: b.linkedAgentIds,
           // §5.4 #36 (G) — 지금 형태에서 사용자가 정한 크기인가(우클릭 [기본 크기로] 를 띄울지).
           userSized: hasUserSize(b),
+          // §5.4 #36 (J) ① — 결과 칸 비율(크기 조절이 지킨다).
+          stageAspect: b.stageAspect,
           // §5.4 #36 (H) — 이 노드에서 연결선·구슬 줄을 감췄나(①) · 지난 결과(③ 구슬 줄의 마지막 묶음).
           linksHidden: b.linksHidden,
           pastFiles: b.pastFiles,

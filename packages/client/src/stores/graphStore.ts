@@ -1922,6 +1922,8 @@ interface GraphState {
   ) => Promise<void>;
   /** §5.4 #36 (G) — [기본 크기로]: `sizedForm` 을 걷고 `at` 이 있으면 옮긴다. 화면 먼저, `PATCH {sizedForm: null, x, y}` 가 뒤따른다. */
   resetAppBubbleSize: (id: string, at: { x: number; y: number } | null) => void;
+  /** §5.4 #36 (J) ① — 결과 칸 비율(`null` = 지움). `at` = 가운데를 지키는 새 좌상단. 화면 먼저, `PATCH {stageAspect, x, y}` 한 번. */
+  setAppBubbleStageAspect: (id: string, aspect: number | null, at: { x: number; y: number } | null) => void;
   /** §5.4 #36 (A) — 커스텀 에이전트 형태(말풍선 ↔ 버블). 화면 먼저, `PATCH /api/bubble/:id/form` 이 뒤따른다. 대상 판정은 부르는 쪽이 `canUseAgentCard` 로. */
   setAgentForm: (agentId: string, form: 'card' | 'bubble') => void;
   /**
@@ -3830,6 +3832,21 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sizedForm: null, ...(at ? { x: at.x, y: at.y } : {}) }),
+    }).catch(() => undefined);
+  },
+  setAppBubbleStageAspect: (id, aspect, at) => {
+    const move = at ? { x: at.x, y: at.y } : {};
+    set((s) => ({
+      appBubbles: s.appBubbles.map((b) => {
+        if (b.id !== id) return b;
+        const { stageAspect: _old, ...rest } = b;
+        return { ...rest, ...move, ...(aspect === null ? {} : { stageAspect: aspect }) };
+      }),
+    }));
+    void fetch(`${API_BASE}/api/app-bubbles/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stageAspect: aspect, ...move }),
     }).catch(() => undefined);
   },
   // §5.4 #36 (A) — 형태는 버블의 데이터 칸이다(`agents` 배열). 바꾼 버블만 새 객체로 — 나머지는 참조 그대로.

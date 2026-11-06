@@ -7602,6 +7602,15 @@ export const APP_CANVAS_FACE = {
   copiedFlashMs: 1400,
   /** §5.13 (R-10) — 편집 원본을 비추는 노드가 원본 머리(판 번호)만 묻는 간격(ms). 본문은 판이 바뀔 때만 읽는다. */
   sourcePollMs: 5000,
+  /** §5.4 #36 (J) ① — 결과 칸 비율을 알린 화면의 기본 결과 칸 면적(캔버스 px², 16:9 기준 240×135). 머리줄·조작줄은 따로 더한다. */
+  stageArea: 240 * 135,
+  /** 결과 칸 비율(가로/세로)의 하·상한 — 서버도 이 값으로 자른다. */
+  stageAspectMin: 0.25,
+  stageAspectMax: 4,
+  /** 비율 차이가 이 안이면 같은 것으로 본다(다시 적지 않는다). */
+  stageAspectEpsilon: 0.005,
+  /** §5.4 #36 (J) ② — 장면이 없는 문서를 처음 훑을 때 판본마다 굽는 정지 화면 수. */
+  scrubStills: 6,
 } as const;
 
 /** §5.4 #36 (H) ② — "연결된 것 위주" 보기에서 에이전트 활동 선을 흐리는 배율. 지우지 않는다("만"이 아니다). #31 강조 배율과 곱해진다. */
@@ -7642,6 +7651,10 @@ export const APP_LINKED_ITEMS = {
   cacheMax: 64,
   /** 구슬을 꿴 실의 불투명도. */
   threadOpacity: 0.35,
+  /** §5.4 #36 (J) ⑤ — 장면 알약 폭 = 길이(초) × `pillPxPerSec`, 하·상한 안. 높이는 `beadSize`. */
+  pillPxPerSec: 6,
+  pillMinWidth: 30,
+  pillMaxWidth: 72,
 } as const;
 
 // §5.5 #17-20 디버그·실행 런처

@@ -4,7 +4,6 @@ import { APP_CANVAS_FACE } from '@vibisual/shared';
 
 import type { AppCanvasFaceProps } from '../../apps/registry.js';
 import { useMediaBlobUrl } from '../../apps/useMediaBlobUrl.js';
-import { formatMediaDuration } from '../../apps/appThumbnails.js';
 import {
   FACE_BAR_HEIGHT,
   FACE_CONTROL,
@@ -24,22 +23,24 @@ import {
   quantizePlayTime,
   useFrameLoop,
 } from '../../apps/canvasFaceKit.js';
-import { useGraphStore } from '../../stores/graphStore.js';
-import { fetchStillImage, readDocVersion, type DocVersion } from './videoApi.js';
-import { STUDIO_APP_ID } from './studioAppId.js';
-import { onAppEvent } from '../../apps/appEvents.js';
-import { runWhenIdle } from './studioIdle.js';
-import { GLOW_ONCE_MS, ensureStudioMotion } from './studioMotion.js';
+import { VideoGlanceFace } from './VideoGlanceFace.js';
+import { claimCanvasPlayback } from './canvasPlayback.js';
 
-/** §5.13 (L) — 묶인 작업 문서가 있으면 문서 모드(한 장 + 길이·판본, 렌더본이 있으면 [▶]), 없으면 결과 파일을 바로 튼다. */
+/**
+ * §5.13 (L) · §5.4 #36 (J) — 묶인 작업 문서가 있으면 훑어보기 화면(`VideoGlanceFace` — 렌더본이 있으면 [렌더본]으로 종전 결과 재생),
+ * 없으면 결과 파일을 바로 튼다. 문서가 바뀌면 화면을 통째로 새로 세운다(훑기·직전 판·재생 상태는 휘발).
+ */
 export function VideoCanvasFace(props: AppCanvasFaceProps): React.JSX.Element {
   const [showExport, setShowExport] = useState(false);
   const { t } = useTranslation();
   const hasExport = props.file !== '';
-  if (props.workRef && !(showExport && hasExport)) {
-    return <VideoDocFace {...props} workRef={props.workRef} onPlayExport={hasExport ? () => setShowExport(true) : undefined} />;
+  const { workRef, onHeader } = props;
+  // 결과 파일만 담긴 노드는 머리줄에 문서 제목을 싣지 않는다(코어가 사용자 제목 → 파일 이름 → 앱 이름으로).
+  useEffect(() => { if (!workRef) onHeader?.(null); }, [workRef, onHeader]);
+  if (workRef && !(showExport && hasExport)) {
+    return <VideoGlanceFace key={workRef} {...props} workRef={workRef} onShowRender={hasExport ? () => setShowExport(true) : undefined} />;
   }
-  if (props.workRef && showExport) {
+  if (workRef && showExport) {
     return (
       <>
         <VideoFileFace {...props} />
@@ -57,188 +58,6 @@ export function VideoCanvasFace(props: AppCanvasFaceProps): React.JSX.Element {
     );
   }
   return <VideoFileFace {...props} />;
-}
-
-/** 판본만 묻는 간격(ms), 보이는 노드만. §5.13 (Y) 40-7 ② — 주 신호는 서버 앱 알림이고 이건 소켓이 끊겼을 때의 안전망. */
-const DOC_POLL_MS = 15_000;
-/** 판본이 바뀐 뒤 이만큼 잠잠하면 포스터를 새로 찍는다(ms) — 에이전트가 연달아 고치는 동안 매번 찍지 않게. */
-const POSTER_SETTLE_MS = 1200;
-/** 찍어 둔 포스터 기억 — 판본마다 한 장, 상한을 넘으면 오래된 것부터 버린다(화면 밖에서 돌아와도 바로 보인다). */
-const POSTER_CACHE_MAX = 32;
-const posterCache = new Map<string, string>();
-
-function rememberPoster(key: string, image: string): void {
-  posterCache.delete(key);
-  posterCache.set(key, image);
-  while (posterCache.size > POSTER_CACHE_MAX) {
-    const oldest = posterCache.keys().next().value;
-    if (oldest === undefined) break;
-    posterCache.delete(oldest);
-  }
-}
-
-/** 포스터 시각 — 영상의 첫 프레임은 검은 화면·등장 전인 일이 흔하다. 길이의 35% 지점(마지막 프레임 앞까지). */
-function posterTime(duration: number): number {
-  if (!(duration > 0)) return 0;
-  return Math.max(0, Math.min(duration * 0.35, duration - 1 / 30));
-}
-
-/** 이 앱의 id — 이 문서를 가리키는 노드를 고를 때 쓴다(레지스트리 항목과 같은 값). */
-const APP_ID = 'vibistudio';
-/**
- * §5.13 (V) 37-1 — 열린 바퀴를 "일하는 중"으로 믿는 상한(ms). 에이전트가 끝 보고 없이 쉬면 바퀴는 열린 채 남으므로, 마지막
- * 소식이 이보다 오래면 위성을 걷는다(이어진 에이전트가 아직 도는 중이면 그것이 먼저 말한다).
- */
-const ACTIVITY_FRESH_MS = 10 * 60_000;
-
-/**
- * §5.13 (V) 37-1 — 이 문서를 가리키는 노드에 이어진 에이전트가 도는가. 이어진 에이전트가 하나도 없으면 `null`(모른다 —
- * 바퀴 소식만으로 판정한다).
- */
-function useLinkedAgentActive(projectName: string, docId: string): boolean | null {
-  return useGraphStore((s) => {
-    const ids = new Set<string>();
-    for (const b of s.appBubbles ?? []) {
-      if (b.appId === APP_ID && b.ref === docId && (projectName === '' || b.projectName === projectName)) {
-        for (const id of b.linkedAgentIds ?? []) ids.add(id);
-      }
-    }
-    if (ids.size === 0) return null;
-    return (s.agents ?? []).some((a) => ids.has(a.id) && a.status === 'active');
-  });
-}
-
-/** §5.13 (V) 37-1 — AI 가 만지는 동안 노드 모서리에 위성이 돌고 끝나면 한 번 빛난다(장면 구슬과 같은 표시). 색은 레지스트리 앱 색(`glow`) 하나. */
-function WorkingSatellite({ working, glow }: { readonly working: boolean; readonly glow: string }): React.JSX.Element | null {
-  const { t } = useTranslation();
-  const [flash, setFlash] = useState(false);
-  const was = useRef(working);
-  useEffect(() => { ensureStudioMotion(); }, []);
-  useEffect(() => {
-    if (was.current && !working) {
-      setFlash(true);
-      const timer = setTimeout(() => setFlash(false), GLOW_ONCE_MS);
-      was.current = working;
-      return () => clearTimeout(timer);
-    }
-    was.current = working;
-    return undefined;
-  }, [working]);
-  const accent = { '--vs-accent': glow } as React.CSSProperties;
-  if (working) {
-    return (
-      <span className="pointer-events-none absolute right-1.5 top-1.5 h-5 w-5 animate-[vs-orbit_2.4s_linear_infinite]" style={accent}
-        role="status" aria-label={t('panel.videoStudio.strip.working')}>
-        <span className="absolute left-1/2 top-0 h-1.5 w-1.5 -translate-x-1/2 rounded-full" style={{ backgroundColor: glow, boxShadow: `0 0 6px ${glow}` }} />
-      </span>
-    );
-  }
-  if (flash) {
-    return <span className="pointer-events-none absolute inset-0 animate-[vs-glow-once_900ms_ease-out] rounded-[inherit]" style={accent} aria-hidden="true" />;
-  }
-  return null;
-}
-
-function VideoDocFace({
-  projectId,
-  projectName,
-  workRef,
-  width,
-  height,
-  glow,
-  icon,
-  onPlayExport,
-}: AppCanvasFaceProps & { workRef: string; onPlayExport?: (() => void) | undefined }): React.JSX.Element {
-  const { t } = useTranslation();
-  const project = projectName && projectName !== '' ? projectName : projectId;
-  const [info, setInfo] = useState<DocVersion | null>(null);
-  const [poster, setPoster] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    const tick = async (): Promise<void> => {
-      try {
-        const next = await readDocVersion(project, workRef);
-        if (!active) return;
-        setFailed(false);
-        // 지금 하는 일(바퀴)이 바뀌어도 다시 그린다 — 위성이 그것을 보인다(§5.13 (V) 37-1).
-        setInfo((prev) => (prev && prev.version === next.version && prev.updatedAt === next.updatedAt && prev.title === next.title
-          && JSON.stringify(prev.activity ?? null) === JSON.stringify(next.activity ?? null) ? prev : next));
-      } catch {
-        if (active) setFailed(true);
-      }
-    };
-    void tick();
-    const timer = setInterval(() => void tick(), DOC_POLL_MS);
-    const offEvent = onAppEvent(STUDIO_APP_ID, (event) => { if (event.key === workRef) void tick(); });
-    return () => { active = false; clearInterval(timer); offEvent(); };
-  }, [project, workRef]);
-
-  useEffect(() => {
-    if (!info) return;
-    if (!(info.duration > 0)) { setPoster(null); return; }
-    const key = JSON.stringify([project, workRef, info.version]);
-    const cached = posterCache.get(key);
-    if (cached) { setPoster(cached); return; }
-    let active = true;
-    const abort = new AbortController();
-    // §5.13 (Y) 40-7 ④ · 40-10 ④ — 잠잠해지기를 기다린 뒤(디바운스 유지), 같은 창의 스튜디오가 재생·끌기·입력 중이면 쉬었다가 찍는다.
-    void runWhenIdle(async () => {
-      try {
-        // 최종 렌더와 같은 경로(숨은 일꾼 창)로 한 장 — 코드 컴포지션도 그대로 보인다.
-        const image = await fetchStillImage(project, workRef, posterTime(info.duration));
-        rememberPoster(key, image);
-        if (active) setPoster(image);
-      } catch {
-        // 못 찍었으면 아이콘으로 남는다 — 다음 판본이 다시 찍는다.
-      }
-    }, { delayMs: POSTER_SETTLE_MS, signal: abort.signal }).catch(() => undefined);
-    return () => { active = false; abort.abort(); };
-  }, [info, project, workRef]);
-
-  const stageHeight = Math.max(1, height - FACE_BAR_HEIGHT);
-  const empty = info !== null && !(info.duration > 0);
-  const agentActive = useLinkedAgentActive(projectName ?? '', workRef);
-  const activity = info?.activity ?? null;
-  const passOpen = activity?.status === 'open' && Date.now() - activity.at < ACTIVITY_FRESH_MS;
-  const working = agentActive === null ? passOpen : agentActive && activity?.status === 'open';
-  return (
-    <FaceFrame>
-      <FaceStage className="bg-black">
-        <WorkingSatellite working={working} glow={glow} />
-        {poster ? (
-          <img src={poster} alt="" draggable={false} className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain" />
-        ) : empty ? (
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 px-2 text-center">
-            <span className="opacity-70 [&>svg]:h-5 [&>svg]:w-5" style={{ color: glow }}>{icon}</span>
-            <span className="text-[12px] leading-tight text-white/55">{t('panel.apps.canvas.docEmpty', { defaultValue: 'Empty video — ask the linked AI or open the editor' })}</span>
-          </div>
-        ) : (
-          <FaceStill thumb={null} loading={!failed} glow={glow} icon={icon} width={width} height={stageHeight} />
-        )}
-      </FaceStage>
-      <FaceBar>
-        {onPlayExport ? (
-          <FaceButton label={t('panel.apps.canvas.playExport', { defaultValue: 'Play the last render' })} onClick={onPlayExport}>
-            <PlayGlyph />
-          </FaceButton>
-        ) : null}
-        <FaceNote title={info?.title}>
-          {failed && !info
-            ? t('panel.apps.canvas.docUnreadable', { defaultValue: 'Could not read the document — open the editor' })
-            : info
-              ? `${info.title}${info.duration > 0 ? ` · ${formatMediaDuration(info.duration)}` : ''}`
-              : ''}
-        </FaceNote>
-        {info ? (
-          <span className="shrink-0 whitespace-nowrap px-1 text-[12px] leading-none tabular-nums text-white/45">
-            {t('panel.apps.canvas.docVersion', { defaultValue: 'v{{version}}', version: info.version })}
-          </span>
-        ) : null}
-      </FaceBar>
-    </FaceFrame>
-  );
 }
 
 /**
@@ -270,6 +89,20 @@ function VideoFileFace({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   /** 받는 중에 누른 [재생] — 영상이 서면 이어서 튼다. */
   const wantPlayRef = useRef(false);
+  /** §5.4 #36 (J) ⑦ — 캔버스에서 동시에 도는 영상은 하나: 틀 때 자리를 잡고, 다른 노드가 잡으면 멈춘다. */
+  const releasePlayback = useRef<(() => void) | null>(null);
+  const holdPlayback = useCallback((): void => {
+    releasePlayback.current?.();
+    releasePlayback.current = claimCanvasPlayback(() => {
+      releasePlayback.current = null;
+      videoRef.current?.pause();
+    });
+  }, []);
+  const dropPlayback = useCallback((): void => {
+    releasePlayback.current?.();
+    releasePlayback.current = null;
+  }, []);
+  useEffect(() => dropPlayback, [dropPlayback]);
 
   // 다른 결과가 오면(파일·버전) 처음으로 — 받은 URL 은 훅이 되돌린다.
   useEffect(() => {
@@ -354,10 +187,11 @@ function VideoFileFace({
               const d = e.currentTarget.duration;
               if (Number.isFinite(d)) setDuration(d);
             }}
-            onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
+            onPlay={() => { setPlaying(true); holdPlayback(); }}
+            onPause={() => { setPlaying(false); dropPlayback(); }}
             onEnded={(e) => {
               setPlaying(false);
+              dropPlayback();
               setTime(quantizePlayTime(e.currentTarget.currentTime));
             }}
             onSeeked={(e) => setTime(quantizePlayTime(e.currentTarget.currentTime))}

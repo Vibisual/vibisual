@@ -1,14 +1,17 @@
-import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react';
 import type { AppBubblePastFile } from '@vibisual/shared';
 import { fileFaceKindOf, previewLaneOf } from '@vibisual/shared';
 
-import type { AppBubbleShape } from '../../apps/registry.js';
+import type { AppBubbleShape, AppFaceHeader, AppLinkedItem, AppStageFocus } from '../../apps/registry.js';
 import { getInternalApp } from '../../apps/registry.js';
 import { openAppWindow } from '../../apps/appWindows.js';
 import { prefetchAppShell } from '../../apps/prefetchAppShell.js';
-import { appNodeResizeBounds, resetSizeMove, type AppNodeForm } from '../../apps/appNodeForm.js';
+import { appNodeResizeBounds, aspectLockedResize, normalizeStageAspect, resetSizeMove, type AppNodeForm, type NodeRect } from '../../apps/appNodeForm.js';
+import { SCREEN_BORDER, SCREEN_HEADER_HEIGHT } from '../../apps/screenChrome.js';
+import { markFaceSeen, reportFaceHeader, useFaceHeader } from '../../apps/appFaceHeader.js';
+import { useStageAspectReporter } from '../../apps/appStageAspect.js';
 import { thumbBakeBox, thumbPixelSize, useSteadyThumbnail } from '../../apps/appThumbnails.js';
 import { useAppCanvasFace } from '../../apps/appCanvasFaces.js';
 import { FACE_CONTROL, isFaceControlTarget } from '../../apps/canvasFaceKit.js';
@@ -22,7 +25,7 @@ import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
 import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
 import { appNodeLabel } from './agentCard.js';
 import { AppScreenFace } from './AppScreenFace.js';
-import { useAppLinkedItems } from '../../apps/appLinkedItems.js';
+import { useAppLinkedSnapshot } from '../../apps/appLinkedItems.js';
 import { appNodeShowsLinkedItems } from './linkView.js';
 import { AppLinkedSatellites } from './AppLinkedSatellites.js';
 import { AppWorkOrbit } from './AppWorkOrbit.js';
@@ -30,6 +33,7 @@ import type { AppWorkOrbitInfo } from './appWorkFold.js';
 
 /** §5.4 #36 (H) ③ — 지난 결과가 없을 때 한 객체를 돌려 써서, 구슬 줄 memo 가 매 그리기마다 깨지지 않게. */
 const EMPTY_PAST: readonly AppBubblePastFile[] = [];
+const EMPTY_ITEMS: readonly AppLinkedItem[] = [];
 
 /** §5.4 #36 (B) — 위성줄용 숨은 손잡이(가운데). 자리는 안 쓰이지만 React Flow 는 손잡이 없는 노드에 선을 잇지 않는다. */
 const LINK_HANDLE_STYLE: React.CSSProperties = {
@@ -43,11 +47,6 @@ const LINK_HANDLE_STYLE: React.CSSProperties = {
   minHeight: 0,
   pointerEvents: 'none',
 };
-
-/** §5.4 #36 (G) — 화면의 머리줄 높이(px). 아래 머리줄의 `h-[22px]` 와 같은 값 — 결과 자리 높이를 셀 때 뺀다. */
-const SCREEN_HEADER_HEIGHT = 22;
-/** 화면 테두리 두께(px) — 좌우·위아래로 한 번씩 빠진다. */
-const SCREEN_BORDER = 1;
 
 /** 필름 앱 화면 머리줄 위 가장자리의 네모 구멍 한 줄 — "영상" 신호(§5.4 #36 (G) — 둥근 구멍 ❌, 위아래 띠 두 줄 ❌). */
 const SPROCKET_ROW = 'repeating-linear-gradient(90deg, rgba(255,255,255,0.5) 0 3px, transparent 3px 8px)';
@@ -83,6 +82,8 @@ export interface AppBubbleNodeData extends Record<string, unknown> {
   pastFiles?: readonly AppBubblePastFile[] | undefined;
   /** §5.1 #2-1 (F) ⑤⑧ — 앱 작업 보기의 초점 노드면 작업 궤도(위성 수 · 넘침). 그리는 사본에만 실린 표시 값이다. */
   appWorkOrbit?: AppWorkOrbitInfo | undefined;
+  /** §5.4 #36 (J) ① — 결과 칸 비율(앱 화면이 알린 값). 있으면 크기 조절이 이 비율을 지킨다. */
+  stageAspect?: number | undefined;
 }
 
 interface MenuPos {
@@ -234,7 +235,14 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   const [resizing, setResizing] = useState(false);
   /** 크기가 실제로 바뀌는 중인가 — 첫 변화(`handleResize`)에서 켜고 끝(`handleResizeEnd`)에서 끈다. */
   const resizingRef = useRef(false);
-  const bounds = appNodeResizeBounds(form);
+  const bounds = useMemo(() => appNodeResizeBounds(form), [form]);
+  /** §5.4 #36 (J) ① — 결과 칸 비율이 있는 화면은 크기 조절이 그 비율을 지킨다(기준은 누르기 직전의 자리·크기). */
+  const stageAspect = form === 'screen' ? normalizeStageAspect(data.stageAspect) : null;
+  const resizeStart = useRef<NodeRect | null>(null);
+  const lockRect = useCallback((p: NodeRect): NodeRect => {
+    const start = resizeStart.current;
+    return stageAspect !== null && start ? aspectLockedResize(start, p, stageAspect, bounds) : p;
+  }, [stageAspect, bounds]);
   /**
    * 락은 크기가 실제로 바뀔 때 건다 — 크기 그대로인 누름(테두리 클릭)엔 `onResizeEnd` 가 안 와, `onResizeStart` 에서 걸면 락이 영영 남는다
    * (스냅샷 ❌ · 손잡이가 켜진 채). 바뀌기 시작한 누름은 선택 손짓에서 접는다.
@@ -243,26 +251,32 @@ export const AppBubbleNode = memo(function AppBubbleNode({
     (_evt, p) => {
       if (!resizingRef.current) {
         resizingRef.current = true;
+        // 아직 store 는 누르기 전의 자리다 — 첫 변화에서 기준을 잡는다(`onResizeStart` 는 위 이유로 쓰지 않는다).
+        const before = useGraphStore.getState().appBubbles.find((b) => b.id === data.appBubbleId);
+        resizeStart.current = { x: before?.x ?? p.x, y: before?.y ?? p.y, width: data.width, height: data.height };
         gesture.cancelPress();
         setAppBubbleDragLock(data.appBubbleId, true);
         setResizing(true);
       }
-      patchAppBubbleLocal(data.appBubbleId, { x: p.x, y: p.y, width: p.width, height: p.height, sizedForm: form });
+      const r = lockRect(p);
+      patchAppBubbleLocal(data.appBubbleId, { x: r.x, y: r.y, width: r.width, height: r.height, sizedForm: form });
     },
-    [gesture, setAppBubbleDragLock, patchAppBubbleLocal, data.appBubbleId, form],
+    [gesture, setAppBubbleDragLock, patchAppBubbleLocal, lockRect, data.appBubbleId, data.width, data.height, form],
   );
   const handleResizeEnd = useCallback<NonNullable<React.ComponentProps<typeof NodeResizer>['onResizeEnd']>>(
     (_evt, p) => {
       resizingRef.current = false;
       setResizing(false);
+      const r = lockRect(p);
+      resizeStart.current = null;
       const id = data.appBubbleId;
       void (async () => {
-        await commitAppBubbleSize(id, { x: p.x, y: p.y, width: p.width, height: p.height }, form);
+        await commitAppBubbleSize(id, { x: r.x, y: r.y, width: r.width, height: r.height }, form);
         // 저장 직후 도착하는 스냅샷이 방금 정한 크기를 덮지 않도록 잠깐 더 잠근다(§5.13).
         setTimeout(() => setAppBubbleDragLock(id, false), 300);
       })();
     },
-    [commitAppBubbleSize, setAppBubbleDragLock, data.appBubbleId, form],
+    [commitAppBubbleSize, setAppBubbleDragLock, lockRect, data.appBubbleId, form],
   );
 
   /**
@@ -308,8 +322,23 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   const linkedReq = isScreen && showLinked && projectPath !== undefined && (hasFile || hasRef)
     ? { projectId: projectPath, projectName: data.projectName, ref: data.refKey, file: data.file }
     : null;
-  const linkedItems = useAppLinkedItems(linkedReq !== null && app?.linkedItems !== undefined ? data.appId : null, linkedReq);
+  const linkedSnap = useAppLinkedSnapshot(linkedReq !== null && app?.linkedItems !== undefined ? data.appId : null, linkedReq);
+  const linkedItems = linkedSnap?.items ?? EMPTY_ITEMS;
   const pastFiles = isScreen && showLinked ? (data.pastFiles ?? EMPTY_PAST) : EMPTY_PAST;
+
+  /**
+   * §5.4 #36 (J) — 앱 화면과 주고받는 것(코어는 앱 이름을 모른다): ① 결과 칸 비율 · ⑥ 머리줄(제목 · 바뀐 것 열쇠 — 포인터를 올리거나 고르면 본 것)
+   * · ⑤ 구슬 줄에서 한 번 누른 것(화면이 그것을 보인다).
+   */
+  const reportStageAspect = useStageAspectReporter(data.appBubbleId);
+  const reportHeader = useCallback((header: AppFaceHeader | null): void => reportFaceHeader(data.appBubbleId, header), [data.appBubbleId]);
+  const faceHeader = useFaceHeader(data.appBubbleId);
+  const markSeen = useCallback((): void => markFaceSeen(data.appBubbleId), [data.appBubbleId]);
+  useEffect(() => { if (isSelected && faceHeader.unseen) markSeen(); }, [isSelected, faceHeader.unseen, markSeen]);
+  const [stageFocus, setStageFocus] = useState<AppStageFocus | null>(null);
+  const focusItem = useCallback((itemId: string): void => {
+    setStageFocus((prev) => ({ itemId, seq: (prev?.seq ?? 0) + 1 }));
+  }, []);
 
   /** 더블클릭 — 그 앱의 앱 안 창을 연다(§5.13 (S-1)), 선택 ❌. 조작 자리를 빨리 두 번 누른 것은 건너뛴다(§5.4 #36 (G)). */
   const handleDoubleClick = useCallback(
@@ -471,7 +500,12 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   // 이름은 번역, 없으면 레지스트리의 제품 이름 — `id` 로 떨어뜨리면 로케일이 빈 언어에서 소문자 식별자가 찍힌다.
   const appName = t(app.nameKey, { defaultValue: app.name });
   // §5.4 #36 (C) — 사용자 제목 → 담긴 결과 파일 이름 → 앱 이름(말풍선의 위성 칩과 같은 규칙 한 벌).
-  const label = appNodeLabel({ title: data.title, file: data.file }, appName);
+  //   (J) ⑥ 화면이면 사용자 제목 다음에 앱 화면이 알린 제목(문서 제목)이 온다 — 앱 이름은 아이콘의 툴팁·접근성 이름으로.
+  //   앱 화면이 지금 그려질 때만 믿는다(화면이 없는 동안 남은 옛 제목·점이 보이지 않게).
+  const faceShown = isScreen && resultProject !== undefined && Face !== null;
+  const label = faceShown && !data.title?.trim() && faceHeader.title !== null
+    ? faceHeader.title
+    : appNodeLabel({ title: data.title, file: data.file }, appName);
 
   /** §5.13 (M) — 모양은 앱이 정한다. 코어는 원을 그리지 않는다(에이전트 버블이 원이라 앱까지 원이면 가려낼 수 없다). */
   const shape: AppBubbleShape = app.bubbleShape ?? 'plate';
@@ -530,7 +564,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
         {resizer}
         <div
           {...gesture.handlers}
-          onPointerEnter={prefetchSoon}
+          onPointerEnter={() => { prefetchSoon(); markSeen(); }}
           onPointerDownCapture={handlePressCapture}
           onDoubleClick={handleDoubleClick}
           onContextMenu={handleContextMenu}
@@ -547,10 +581,20 @@ export const AppBubbleNode = memo(function AppBubbleNode({
             {isFilm ? (
               <div className="pointer-events-none absolute inset-x-1 top-0 h-[3px] opacity-60" style={{ background: SPROCKET_ROW }} />
             ) : null}
-            <span className="flex shrink-0 opacity-90 [&>svg]:h-3 [&>svg]:w-3" style={{ color: app.glow }}>
+            <span role="img" aria-label={appName} title={appName} className="flex shrink-0 opacity-90 [&>svg]:h-3 [&>svg]:w-3" style={{ color: app.glow }}>
               <Icon />
             </span>
-            <span className="min-w-0 flex-1 truncate text-[12px] font-semibold leading-none text-white/90">{label}</span>
+            <span title={label} className="min-w-0 flex-1 truncate text-[12px] font-semibold leading-none text-white/90">{label}</span>
+            {faceShown && faceHeader.unseen ? (
+              // §5.4 #36 (J) ③ — 안 본 변경(포인터를 올리거나 고르면 사라진다).
+              <span
+                role="img"
+                aria-label={t('panel.apps.canvas.unseenChange')}
+                title={t('panel.apps.canvas.unseenChange')}
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ background: app.glow, boxShadow: `0 0 4px ${app.glow}` }}
+              />
+            ) : null}
             {isPinned ? <PinGlyph className="h-3 w-3 shrink-0 text-white/70" /> : null}
             <button
               type="button"
@@ -589,6 +633,9 @@ export const AppBubbleNode = memo(function AppBubbleNode({
                 icon={<Icon />}
                 thumb={thumb}
                 thumbLoading={thumbState.status === 'loading'}
+                onStageAspect={reportStageAspect}
+                onHeader={reportHeader}
+                stageFocus={stageFocus}
               />
             ) : (
               <AppScreenFace
@@ -610,6 +657,8 @@ export const AppBubbleNode = memo(function AppBubbleNode({
         {showLinked && (linkedItems.length > 0 || pastFiles.length > 0) ? (
           <AppLinkedSatellites
             items={linkedItems}
+            fold={linkedSnap?.fold}
+            onFocusItem={Face ? focusItem : undefined}
             pastFiles={pastFiles}
             nodeWidth={data.width}
             nodeHeight={data.height}

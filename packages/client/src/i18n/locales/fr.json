@@ -2443,7 +2443,11 @@
         "docEmpty": "Vidéo vide — demandez à l'IA liée ou ouvrez l'éditeur",
         "playExport": "Lire le dernier rendu",
         "docUnreadable": "Impossible de lire le document — ouvrez l'éditeur",
-        "docVersion": "v{{version}}"
+        "docVersion": "v{{version}}",
+        "unseenChange": "Nouvelles modifications depuis votre dernier passage",
+        "whenAi": "IA · {{when}}",
+        "holdPrevious": "Maintenir pour voir cet instant avant la dernière passe de l'IA",
+        "holdBadge": "Avant la passe de l'IA"
       },
       "installApp": "Installer l'application",
       "installHint": "Double-cliquez pour installer.",
@@ -8625,7 +8629,13 @@
       "proposal": "Proposition {{index}} : {{title}}",
       "proposalUntitled": "Proposition {{index}}",
       "pictures_one": "{{count}} image",
-      "pictures_other": "{{count}} images"
+      "pictures_other": "{{count}} images",
+      "partsChip": "Éléments {{count}}",
+      "pastChip": "Résultats précédents {{count}}",
+      "foldShow": "Cliquer pour les afficher",
+      "foldHide": "Cliquer pour les replier",
+      "changed": "Modifié lors de la dernière passe de l'IA",
+      "focusHint": "Cliquer pour l'afficher sur le nœud · double-clic pour l'ouvrir."
     },
     "appWork": {
       "moon": "Fichiers créés pour {{app}} · {{role}}",

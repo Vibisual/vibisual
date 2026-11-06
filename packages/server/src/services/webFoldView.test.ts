@@ -446,8 +446,8 @@ describe('§5.23 묶기 — 구성원에서 모으는 규칙', () => {
 
   it('척도는 합이 아니라 최댓값 — 합하면 접힌 버블 하나가 척도를 넘어 색이 포화된다(§5.24)', () => {
     const topFolders = [
-      host('h1', 'a.com', { activity: 4, readCount: 10, writeCount: 1, activeAgentIds: ['agent-a'] }),
-      host('h2', 'b.com', { activity: 9, readCount: 3, activeAgentIds: ['agent-a', 'agent-x'] }),
+      host('h1', 'a.com', { activity: 4, readCount: 10, writeCount: 1, activeAgentIds: ['agent-a'], ownerAgentIds: ['agent-a'] }),
+      host('h2', 'b.com', { activity: 9, readCount: 3, activeAgentIds: ['agent-a', 'agent-x'], ownerAgentIds: ['agent-a', 'agent-y'] }),
     ];
     const edges = [read('h1', 'agent-a', T0), read('h2', 'agent-a', T0)];
     const fold = groupWebBubbles(input(topFolders, edges, ['agent-a']), ONE).topFolders[0]!;
@@ -455,6 +455,8 @@ describe('§5.23 묶기 — 구성원에서 모으는 규칙', () => {
     expect(fold.readCount).toBe(10);
     expect(fold.writeCount).toBe(1);
     expect([...(fold.activeAgentIds ?? [])].sort()).toEqual(['agent-a', 'agent-x']);
+    // §5.4 #36 (H) ①-1 — 버블 숨기기가 접힌 버블의 소유자를 구성원 합집합으로 본다.
+    expect([...(fold.ownerAgentIds ?? [])].sort()).toEqual(['agent-a', 'agent-y']);
   });
 
   it('자리는 사용자가 옮겨 둔 자리가 이기고, 없으면 최신 구성원의 자리를 물려받는다', () => {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CHAPTER_THUMB_CACHE_BYTES, chapterThumbWants, type ResolvedTimeline, type VideoDoc } from '@vibisual/video';
+import { CHAPTER_THUMB_CACHE_BYTES, chapterThumbWants, type ChapterThumbWant, type ResolvedTimeline, type VideoDoc } from '@vibisual/video';
 
 import { fetchChapterThumbs } from './videoApi.js';
 import { runWhenIdle } from './studioIdle.js';
@@ -39,20 +39,52 @@ function recall(key: string): string | undefined {
 const askedDisk = new Set<string>();
 const ASKED_DISK_MAX = 4000;
 
+/** 기억이 찼다는 신호 — 같은 창의 다른 화면(§5.4 #36 (J) 캔버스 노드의 훑어보기·장면 알약)이 받은 그림을 바로 쓰게. */
+const filledListeners = new Set<() => void>();
+
+export function subscribeChapterThumbs(listener: () => void): () => void {
+  filledListeners.add(listener);
+  return () => { filledListeners.delete(listener); };
+}
+
+/** 묻지 않고 기억된 그림만(장면 id → 그림, 없으면 `null`). 캔버스 구슬 줄 읽기처럼 훅 밖에서 빌린다. */
+export function peekChapterThumbs(wants: readonly ChapterThumbWant[]): Readonly<Record<string, string | null>> {
+  const out: Record<string, string | null> = {};
+  for (const w of wants) out[w.chapterId] = recall(w.key) || null;
+  return out;
+}
+
+/** 그 열쇠를 굽다 못 구웠는가(물어본 적 없음·굽는 중과 가른다 — 캔버스 포스터가 종전 정지 화면으로 물러날 때를 안다). */
+export function chapterThumbFailed(key: string): boolean {
+  return cache.get(key) === '';
+}
+
 export function useChapterThumbs(
   project: string,
   doc: VideoDoc | null,
   timeline: ResolvedTimeline | null,
   opts: { readonly active?: boolean } = {},
 ): Readonly<Record<string, string | null>> {
+  const wants = useMemo(() => (doc && timeline ? chapterThumbWants(doc, timeline) : []), [doc, timeline]);
+  return useChapterThumbsFor(project, doc?.id ?? '', wants, opts);
+}
+
+/** `useChapterThumbs` 의 몸통 — 열쇠(`chapterThumbWants`)를 이미 가진 화면(§5.4 #36 (J) 훑어보기)은 이것을 부른다(열쇠를 두 번 짓지 않게). */
+export function useChapterThumbsFor(
+  project: string,
+  docId: string,
+  wants: readonly ChapterThumbWant[],
+  opts: { readonly active?: boolean; readonly follow?: boolean } = {},
+): Readonly<Record<string, string | null>> {
   const active = opts.active !== false;
   const [kick, setKick] = useState(0);
   const busy = useRef(false);
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
-  const docId = doc?.id ?? '';
-
-  const wants = useMemo(() => (doc && timeline ? chapterThumbWants(doc, timeline) : []), [doc, timeline]);
+  // 다시 켤 때 되살린다 — StrictMode 의 시험 언마운트 뒤에 꺼진 채로 남으면 기억이 차도 다시 그리지 않는다.
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  // `follow` — 다른 화면이 채운 그림도 바로 받는다(캔버스 노드). 스튜디오는 켜지 않는다 — 재생 중 다시 그려지지 않게(§5.13 (Y) 40-5).
+  const follow = opts.follow === true;
+  useEffect(() => (follow ? subscribeChapterThumbs(() => { if (mounted.current) setKick((k) => k + 1); }) : undefined), [follow]);
 
   useEffect(() => {
     if (busy.current || project === '' || docId === '') return;
@@ -80,6 +112,7 @@ export function useChapterThumbs(
         }
         busy.current = false;
         if (mounted.current) setKick((k) => k + 1);
+        for (const listener of [...filledListeners]) listener();
       });
   }, [wants, project, docId, active, kick]);
 

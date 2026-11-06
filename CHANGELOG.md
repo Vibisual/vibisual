@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-06
+
+### Added
+- **Glance at a video from its canvas node.** A video node linked to a document fits its frame to the video, shows the document title in its header and lets you scrub through it with a scene strip along the bottom edge. It opens at the part that changed, marks changes you have not looked at yet, and holding a button shows the same moment before the last AI pass. Videos play right on the canvas without rendering first, one at a time — starting another stops the previous one.
+- **Spec board, agent lab and script shelf are available without debug mode** from the canvas menu, and their existing items appear as bubbles.
+- **Multi-agent teams.** Orchestra can form a team, export it as a skill and show hand-off chains, sign-offs and messages passed between sessions. Task edges show their status on the line and in the detail panel, and goal stages show when they were last verified. Working directly, review by another engine, dependency-based formation and splitting rules across agents are available and start switched off.
+- **Codex can use OpenAI business credits.** The Codex tab has the same subscription, personal-credit and business-credit pages as Claude. When the subscription is blocked, runs can continue on an OpenAI Platform API key, and that key's spend is shown.
+- **Files the AI shows in a conversation appear on the canvas.** Images and documents it presents — including relative links in its reply — become bubbles of that session.
+- **Microphone settings** for choosing the input device and recognition method, and dictation from a phone can use the desktop's speech recognition.
+- **Python, Node.js, Go and Rust command apps show their official marks.**
+
+### Changed
+- **External folder bubbles merge by path depth** — 2 levels by default, 0 to turn it off. Change it in Options or per project in the external folder detail window; each file can still be opened from the merged bubble.
+- **Session previews fold into bundles by session and kind**, and previews of the same kind written by different sessions share one bundle on the canvas.
+- **Command app bubbles compare usage on a log scale** with the other apps on the same screen and stay between 56 and 120 px.
+- **Image nodes: [Edit] is a quick edit inside the viewer**, and [Layer edit] creates the layered original. A quick edit can be handed over to layer editing.
+- **Codex runs through its native app server**, and engine setup explains what to do when an engine is missing or needs a restart.
+- **Usage follows the plan limits reported by Claude Code**, including Ultra plans; the 5-hour row appears only when it is reported.
+- **Local assist (All Model) carries runs through planning, tool calls and streamed replies**, with its own IDE view, grouped options and a plan box.
+- **Clicking empty canvas also turns off the heatmap and closes the tidy panel**, returning to the normal map.
+- **The prompt rail starts collapsed on phones and narrow panes** and folds again after you jump or act on the conversation. Long URLs and code wrap instead of widening the view.
+- **Hiding a bubble is decided per bubble**: it hides only when every agent linked to it is hidden, so satellites of a shared folder no longer stay behind with their parent.
+- **Layout, image pixels, procedural materials and video frames are processed in background workers**, keeping the interface responsive during heavy work.
+- **Installation consent is kept across reinstalls and updates** while the licence version stays the same.
+- **The privacy policy describes the website's visitor counter** — what the page stores in your browser, what the counter service receives and the limits of its duplicate prevention.
+
+### Fixed
+- **Engines installed through npm on Windows start their first command.** Newer Node versions refused to launch the npm `.cmd` shim directly.
+- **A failed reinstall download keeps the existing app.** On Linux the new AppImage is verified before replacing the old one, and a silent Windows install starts the app when it finishes.
+- **Messages sent to a running task are confirmed even during long thinking or tool runs**, an unconfirmed message no longer leaves the session waiting, unsent text is restored and missing attachments are refused.
+- **A restore briefing stays with its own session** — a sibling tab's first prompt no longer carries another session's briefing, "Take a copy now" works from session tabs, and a fresh resume receives the full saved briefing.
+- **A session that never received a command is no longer shown as finished**, and a turn that ends with a failure is shown as an error.
+- **Question card drafts are kept**, and a permission card that cannot be sent comes back with the reason you wrote.
+- **Script shelf fields no longer rewind what you type**, and a newly added row opens for editing.
+- **Spec board cards that were deleted or moved to the trash can be made again**, and "Update card" changes only the spec section of the card's rules.
+- **Full-screen panels start below the header** so their close button is always reachable.
+
+### Removed
+- **Fast mode is no longer offered for Opus 4.8**, which Claude Code is retiring; choosing it would end in an error rather than falling back to standard speed.
+
 ## [0.2.6] - 2026-11-02
 
 ### Added
@@ -812,7 +852,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.7...HEAD
+[0.2.7]: https://github.com/Vibisual/vibisual/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/Vibisual/vibisual/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/Vibisual/vibisual/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/Vibisual/vibisual/compare/v0.2.3...v0.2.4

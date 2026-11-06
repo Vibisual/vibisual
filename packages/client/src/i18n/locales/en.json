@@ -2443,7 +2443,11 @@
         "docEmpty": "Empty video — ask the linked AI or open the editor",
         "playExport": "Play the last render",
         "docUnreadable": "Could not read the document — open the editor",
-        "docVersion": "v{{version}}"
+        "docVersion": "v{{version}}",
+        "unseenChange": "New changes since you last looked",
+        "whenAi": "AI · {{when}}",
+        "holdPrevious": "Hold to see this moment before the last AI pass",
+        "holdBadge": "Before the AI pass"
       },
       "installApp": "Install app",
       "installHint": "Double-click to install.",
@@ -8625,7 +8629,13 @@
       "proposal": "Proposal {{index}}: {{title}}",
       "proposalUntitled": "Proposal {{index}}",
       "pictures_one": "{{count}} picture",
-      "pictures_other": "{{count}} pictures"
+      "pictures_other": "{{count}} pictures",
+      "partsChip": "Parts {{count}}",
+      "pastChip": "Earlier results {{count}}",
+      "foldShow": "Click to show them",
+      "foldHide": "Click to fold them",
+      "changed": "Changed in the last AI pass",
+      "focusHint": "Click to show it on the node · double-click to open."
     },
     "appWork": {
       "moon": "{{app}} work · {{role}}",

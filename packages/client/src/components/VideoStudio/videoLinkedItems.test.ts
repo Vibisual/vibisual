@@ -3,7 +3,8 @@ import { createEmptyDoc, type VideoAsset, type VideoChapter, type VideoDoc } fro
 import { activeFocusOf, projectRelativeAssetPath, videoDocLinkedItems } from './videoLinkedItems.js';
 
 /**
- * §5.4 #36 (H) ③ — 영상 노드의 "연결된 것": 장면(시간 순 번호 · 단계 · AI 가 만지는 것) → 소재(코드가 먼저).
+ * §5.4 #36 (J) ⑤ — 영상 노드의 "연결된 것": 장면 알약(시간 순 · 단계 · 대표 프레임 · 바뀐 장면 · AI 가 만지는 것 · 한 번 누르면 화면에)
+ * → 소재(눈에 보이는 것이 먼저, 움직임 코드는 맨 뒤).
  */
 
 function chapter(id: string, extra: Partial<VideoChapter> = {}): VideoChapter {
@@ -21,7 +22,7 @@ function doc(chapters: VideoChapter[], assets: VideoAsset[]): VideoDoc {
   return { ...base, chapters, assets: Object.fromEntries(assets.map((a) => [a.id, a])) };
 }
 
-describe('§5.4 #36 (H) ③ 영상 — 장면', () => {
+describe('§5.4 #36 (J) ⑤ 영상 — 장면 알약', () => {
   it('문서 순서가 곧 번호이고, 단계는 테의 말로 옮긴다', () => {
     const items = videoDocLinkedItems(doc([
       chapter('intro', { status: 'done' }),
@@ -39,23 +40,37 @@ describe('§5.4 #36 (H) ③ 영상 — 장면', () => {
     expect(items[0]?.durationSec).toBe(3);
   });
 
-  it('AI 가 지금 만지는 장면만 숨 쉰다', () => {
-    const items = videoDocLinkedItems(doc([chapter('a'), chapter('b')], []), 'b');
-    expect(items.map((i) => i.active === true)).toEqual([false, true]);
+  it('장면은 알약이고 한 번 누르면 노드 화면에 간다', () => {
+    const [item] = videoDocLinkedItems(doc([chapter('a')], []));
+    expect(item).toMatchObject({ pill: true, stageFocus: true });
+  });
+
+  it('AI 가 지금 만지는 장면만 숨 쉬고, 마지막 바퀴가 바꾼 장면만 점이 찍힌다', () => {
+    const items = videoDocLinkedItems(doc([chapter('a'), chapter('b'), chapter('c')], []), { focus: 'b', changed: new Set(['c']) });
+    expect(items.map((i) => i.active === true)).toEqual([false, true, false]);
+    expect(items.map((i) => i.changed === true)).toEqual([false, false, true]);
+  });
+
+  it('대표 프레임은 기억에 있는 것만, 보이는 알약 수까지만 싣는다', () => {
+    const items = videoDocLinkedItems(
+      doc([chapter('a'), chapter('b'), chapter('c')], []),
+      { thumbs: { a: 'data:image/webp;base64,AAA', b: null, c: 'data:image/webp;base64,CCC' }, imageLimit: 2 },
+    );
+    expect(items.map((i) => i.image)).toEqual(['data:image/webp;base64,AAA', undefined, undefined]);
   });
 });
 
-describe('§5.4 #36 (H) ③ 영상 — 소재', () => {
-  it('코드(컴포지션)가 먼저, 그다음 그림·영상·소리·글꼴', () => {
+describe('§5.4 #36 (J) ⑤ 영상 — 소재', () => {
+  it('눈에 보이는 것이 먼저, 그다음 소리·글꼴, 움직임 코드는 맨 뒤', () => {
     const items = videoDocLinkedItems(doc([], [
+      asset('c', 'composition', 'compositions/intro/index.html'),
       asset('f', 'font', 'fonts/a.ttf'),
       asset('s', 'audio', 'audio/bgm.mp3'),
       asset('i', 'image', 'img/logo.png'),
-      asset('c', 'composition', 'compositions/intro/index.html'),
       asset('v', 'video', 'clips/a.mp4'),
     ]));
-    expect(items.map((i) => i.kind)).toEqual(['code', 'image', 'video', 'audio', 'font']);
-    expect(items.every((i) => i.group === 'part')).toBe(true);
+    expect(items.map((i) => i.kind)).toEqual(['image', 'video', 'audio', 'font', 'code']);
+    expect(items.every((i) => i.group === 'part' && i.pill !== true && i.stageFocus !== true)).toBe(true);
   });
 
   it('이름은 파일 이름, 미리보기 경로는 프로젝트 안 상대 경로일 때만', () => {

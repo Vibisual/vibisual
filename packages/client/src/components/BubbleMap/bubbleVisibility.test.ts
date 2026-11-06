@@ -48,6 +48,41 @@ describe('activity bubble visibility', () => {
       .toEqual(['folder', 'sat-file']);
   });
 
+  // §5.4 #36 (H) ①-1 — 연결은 버블마다 판정한다. 공유 폴더를 다른 에이전트가 보여 줘도 숨긴 에이전트만 만진 위성은 숨는다.
+  it('hides a satellite only the hidden agent touched even while another agent keeps the shared folder', () => {
+    const nodes = [node('folder', 'internal_folder'), node('domain', 'domain'),
+      node('sat-mine', 'file', { data: { bubbleType: 'file', activeAgentIds: ['a'] } }),
+      node('sat-both', 'file', { data: { bubbleType: 'file', activeAgentIds: ['a', 'b'] } }),
+      node('sat-plain', 'file')];
+    const edges = [edge('a', 'folder'), edge('folder', 'b'), edge('a', 'domain'),
+      edge('folder', 'sat-mine', { id: 'sat-edge-mine' }), edge('folder', 'sat-both', { id: 'sat-edge-both' }),
+      edge('folder', 'sat-plain', { id: 'sat-edge-plain' })];
+    expect([...hiddenActivityBubbleIds(nodes, edges, [agent('a', true), agent('b')])].sort())
+      .toEqual(['domain', 'sat-mine']);
+    expect([...hiddenActivityBubbleIds(nodes, edges, [agent('a', true), agent('b', true)])].sort())
+      .toEqual(['domain', 'folder', 'sat-both', 'sat-mine', 'sat-plain']);
+  });
+
+  it('counts owner records of agents that are no longer active while their line reaches the parent', () => {
+    const done = { id: 'done', bubbleType: 'file' as const, ownerAgentIds: ['a'] };
+    const shared = { id: 'shared', bubbleType: 'file' as const, ownerAgentIds: ['a', 'b'] };
+    const nodes = [node('folder', 'internal_folder'),
+      node('sat-done', 'file', { data: { ...done } }), node('sat-shared', 'file', { data: { ...shared } })];
+    const edges = [edge('a', 'folder'), edge('folder', 'b'),
+      edge('folder', 'sat-done', { id: 'sat-edge-done' }), edge('folder', 'sat-shared', { id: 'sat-edge-shared' })];
+    expect([...hiddenActivityBubbleIds(nodes, edges, [agent('a', true), agent('b')], { folder: [done, shared] })])
+      .toEqual(['sat-done']);
+  });
+
+  it('ignores owner records of agents whose line no longer reaches the bubble', () => {
+    const old = { id: 'old', bubbleType: 'file' as const, ownerAgentIds: ['a', 'x'] };
+    const nodes = [node('folder', 'internal_folder', { data: { bubbleType: 'internal_folder', ownerAgentIds: ['a', 'x'] } }),
+      node('sat-old', 'file', { data: { ...old } })];
+    const edges = [edge('a', 'folder'), edge('folder', 'sat-old', { id: 'sat-edge-old' })];
+    expect([...hiddenActivityBubbleIds(nodes, edges, [agent('a', true), agent('x')], { folder: [old] })].sort())
+      .toEqual(['folder', 'sat-old']);
+  });
+
   it('uses all raw satellite owners even after the layout retained only one satellite edge', () => {
     const nodes = [node('sat-file', 'file')];
     const edges = [edge('a', 'sat-file', { id: 'sat-edge-file' })];

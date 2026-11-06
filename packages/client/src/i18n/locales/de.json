@@ -2443,7 +2443,11 @@
         "docEmpty": "Leeres Video — die verknüpfte KI fragen oder den Editor öffnen",
         "playExport": "Letztes Rendering abspielen",
         "docUnreadable": "Das Dokument konnte nicht gelesen werden — den Editor öffnen",
-        "docVersion": "v{{version}}"
+        "docVersion": "v{{version}}",
+        "unseenChange": "Neue Änderungen seit deinem letzten Blick",
+        "whenAi": "KI · {{when}}",
+        "holdPrevious": "Gedrückt halten, um den Stand vor dem letzten KI-Durchgang zu sehen",
+        "holdBadge": "Vor dem KI-Durchgang"
       },
       "installApp": "App installieren",
       "installHint": "Doppelklick zum Installieren.",
@@ -8625,7 +8629,13 @@
       "proposal": "Vorschlag {{index}}: {{title}}",
       "proposalUntitled": "Vorschlag {{index}}",
       "pictures_one": "{{count}} Bild",
-      "pictures_other": "{{count}} Bilder"
+      "pictures_other": "{{count}} Bilder",
+      "partsChip": "Teile {{count}}",
+      "pastChip": "Frühere Ergebnisse {{count}}",
+      "foldShow": "Klicken zum Anzeigen",
+      "foldHide": "Klicken zum Einklappen",
+      "changed": "Im letzten KI-Durchgang geändert",
+      "focusHint": "Klicken, um es im Node anzuzeigen · Doppelklick zum Öffnen."
     },
     "appWork": {
       "moon": "Arbeitsdateien für {{app}} · {{role}}",

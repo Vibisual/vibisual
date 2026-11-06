@@ -2443,7 +2443,11 @@
         "docEmpty": "Vídeo vazio — peça à IA vinculada ou abra o editor",
         "playExport": "Reproduzir a última renderização",
         "docUnreadable": "Não foi possível ler o documento — abra o editor",
-        "docVersion": "v{{version}}"
+        "docVersion": "v{{version}}",
+        "unseenChange": "Novas alterações desde a sua última visualização",
+        "whenAi": "IA · {{when}}",
+        "holdPrevious": "Mantenha pressionado para ver este momento antes da última passada da IA",
+        "holdBadge": "Antes da passada da IA"
       },
       "installApp": "Instalar aplicativo",
       "installHint": "Clique duas vezes para instalar.",
@@ -8625,7 +8629,13 @@
       "proposal": "Proposta {{index}}: {{title}}",
       "proposalUntitled": "Proposta {{index}}",
       "pictures_one": "{{count}} imagem",
-      "pictures_other": "{{count}} imagens"
+      "pictures_other": "{{count}} imagens",
+      "partsChip": "Partes {{count}}",
+      "pastChip": "Resultados anteriores {{count}}",
+      "foldShow": "Clique para exibi-los",
+      "foldHide": "Clique para recolhê-los",
+      "changed": "Alterado na última passada da IA",
+      "focusHint": "Clique para exibir no nó · clique duplo para abrir."
     },
     "appWork": {
       "moon": "Trabalho em {{app}} · {{role}}",

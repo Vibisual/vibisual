@@ -2443,7 +2443,11 @@
         "docEmpty": "빈 영상입니다 — 연결된 AI에게 요청하거나 에디터를 여세요",
         "playExport": "마지막 렌더 재생",
         "docUnreadable": "문서를 읽지 못했습니다 — 에디터를 여세요",
-        "docVersion": "v{{version}}"
+        "docVersion": "v{{version}}",
+        "unseenChange": "마지막으로 본 뒤 새로 바뀐 내용이 있습니다",
+        "whenAi": "AI · {{when}}",
+        "holdPrevious": "누르고 있으면 마지막 AI 작업 직전 모습을 볼 수 있습니다",
+        "holdBadge": "AI 작업 전"
       },
       "installApp": "앱 설치",
       "installHint": "더블클릭하면 설치합니다.",
@@ -8625,7 +8629,13 @@
       "proposal": "제안 {{index}}: {{title}}",
       "proposalUntitled": "제안 {{index}}",
       "pictures_one": "그림 {{count}}장",
-      "pictures_other": "그림 {{count}}장"
+      "pictures_other": "그림 {{count}}장",
+      "partsChip": "소재 {{count}}",
+      "pastChip": "지난 결과 {{count}}",
+      "foldShow": "클릭해서 펼치기",
+      "foldHide": "클릭해서 접기",
+      "changed": "마지막 AI 작업에서 변경됨",
+      "focusHint": "클릭하면 노드에서 표시 · 더블클릭하면 열기"
     },
     "appWork": {
       "moon": "{{app}} 작업물 · {{role}}",

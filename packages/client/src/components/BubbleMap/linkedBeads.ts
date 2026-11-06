@@ -3,7 +3,9 @@
  * 빈 묶음이 아니면 적어도 하나씩(지난 결과가 밀려 사라지지 않게), 묶음 경계는 `groupGap` 만큼 더 띄운다.
  */
 
-import { APP_LINKED_ITEMS } from '@vibisual/shared';
+import { APP_LINKED_ITEMS, type AppBubblePastFile } from '@vibisual/shared';
+
+import type { AppLinkedFoldGroup, AppLinkedItem } from '../../apps/registry.js';
 
 export interface BeadSlot<T> {
   readonly item: T;
@@ -88,4 +90,61 @@ export function layoutBeadRow<T>(groups: readonly (readonly T[])[], opts: BeadRo
   }
   const width = slots.length === 0 && moreX === null ? 0 : cursor - opts.gap - half;
   return { slots, more, moreX, width };
+}
+
+/** §5.4 #36 (J) ⑤ — 장면 알약 폭(캔버스 px): 길이에 비례, 한도 안. 길이를 모르면 하한. */
+export function pillWidth(durationSec: number | undefined): number {
+  const d = typeof durationSec === 'number' && Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0;
+  return Math.min(APP_LINKED_ITEMS.pillMaxWidth, Math.max(APP_LINKED_ITEMS.pillMinWidth, Math.round(d * APP_LINKED_ITEMS.pillPxPerSec)));
+}
+
+/** §5.4 #36 (J) ⑤ — 접는 줄의 한 묶음. `chip` 은 접힌 묶음의 칩(펼쳤는지), `more` 는 그 묶음 안의 `+N`. */
+export interface GlanceRowGroup {
+  readonly group: 'scene' | AppLinkedFoldGroup;
+  readonly chip: { readonly expanded: boolean } | null;
+  readonly items: readonly AppLinkedItem[];
+  readonly past: readonly AppBubblePastFile[];
+  /** 그 묶음의 전체 수(칩 숫자). */
+  readonly total: number;
+  readonly more: number;
+}
+
+/**
+ * §5.4 #36 (J) ⑤ — 접는 줄 묶음(순수): 장면 → 소재 → 지난 결과. 앱이 접으라고 한 묶음은 칩 하나이고 펼치면 칩 뒤에 구슬이 선다.
+ * 묶음마다 `max` 개까지, 넘친 수는 그 묶음 끝의 `+N` 이다(접힌 묶음에는 `+N` 이 없다 — 칩이 수를 말한다). 빈 묶음은 없다.
+ */
+export function glanceRowGroups(
+  items: readonly AppLinkedItem[],
+  pastFiles: readonly AppBubblePastFile[],
+  fold: readonly AppLinkedFoldGroup[],
+  open: ReadonlySet<AppLinkedFoldGroup>,
+  max: number,
+): GlanceRowGroup[] {
+  const cap = Math.max(1, Math.floor(max));
+  const out: GlanceRowGroup[] = [];
+  const scenes = items.filter((i) => i.group === 'scene');
+  if (scenes.length > 0) {
+    const shown = scenes.slice(0, cap);
+    out.push({ group: 'scene', chip: null, items: shown, past: [], total: scenes.length, more: scenes.length - shown.length });
+  }
+  const parts = items.filter((i) => i.group === 'part');
+  if (parts.length > 0) {
+    const folded = fold.includes('part');
+    const visible = !folded || open.has('part');
+    const shown = visible ? parts.slice(0, cap) : [];
+    out.push({
+      group: 'part', chip: folded ? { expanded: open.has('part') } : null, items: shown, past: [],
+      total: parts.length, more: visible ? parts.length - shown.length : 0,
+    });
+  }
+  if (pastFiles.length > 0) {
+    const folded = fold.includes('past');
+    const visible = !folded || open.has('past');
+    const shown = visible ? pastFiles.slice(0, cap) : [];
+    out.push({
+      group: 'past', chip: folded ? { expanded: open.has('past') } : null, items: [], past: shown,
+      total: pastFiles.length, more: visible ? pastFiles.length - shown.length : 0,
+    });
+  }
+  return out;
 }

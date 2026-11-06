@@ -327,6 +327,7 @@ function buildFoldNode(
   let readCount = 0;
   let writeCount = 0;
   const activeAgentIds = new Set<string>();
+  const ownerAgentIds = new Set<string>();
   const hosts: WebFoldHost[] = [];
   for (const m of members) {
     if (m.status === 'active') anyActive = true;
@@ -336,6 +337,7 @@ function buildFoldNode(
     readCount = Math.max(readCount, m.readCount ?? 0);
     writeCount = Math.max(writeCount, m.writeCount ?? 0);
     for (const id of m.activeAgentIds ?? []) activeAgentIds.add(id);
+    for (const id of m.ownerAgentIds ?? []) ownerAgentIds.add(id);
     hosts.push({
       id: m.id,
       host: m.label,
@@ -369,6 +371,7 @@ function buildFoldNode(
   if (readCount > 0) fold.readCount = readCount;
   if (writeCount > 0) fold.writeCount = writeCount;
   if (activeAgentIds.size > 0) fold.activeAgentIds = [...activeAgentIds];
+  if (ownerAgentIds.size > 0) fold.ownerAgentIds = [...ownerAgentIds];
   if (!anyActive && latest.fadeStartedAt !== undefined) fold.fadeStartedAt = latest.fadeStartedAt;
   if (position) fold.position = position;
   return fold;

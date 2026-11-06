@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { APP_NODE_RESIZE } from '@vibisual/shared';
+import { APP_CANVAS_FACE, APP_NODE_RESIZE } from '@vibisual/shared';
 
 import {
   appNodeForm,
   appNodeResizeBounds,
   appNodeSize,
+  aspectLockedResize,
   centerKeepingMove,
   formChangeMove,
   hasUserSize,
+  normalizeStageAspect,
   resetSizeMove,
+  sameStageAspect,
+  stageAspectMove,
+  stageFitSize,
 } from './appNodeForm.js';
+import { SCREEN_CHROME } from './screenChrome.js';
 
 /** §5.4 #36 (F) — 형태는 파생이고 그리는 쪽·옮기는 쪽(가운데 지키기)이 한 판정을 쓴다(두 벌이면 한쪽 판정으로만 커진다). */
 const APP = { defaultSize: { width: 80, height: 50 }, screenSize: { width: 208, height: 130 } } as const;
@@ -102,5 +108,114 @@ describe('§5.4 #36 (G) 크기 조절', () => {
     expect(hasUserSize({ ...sized, sizedForm: 'nameplate' })).toBe(false);
     expect(resetSizeMove(APP, { ...sized, sizedForm: 'nameplate' })).toBeNull();
     expect(resetSizeMove(undefined, sized)).toBeNull();
+  });
+});
+
+/** §5.4 #36 (J) ① — 결과 칸 비율 = 문서 판형. 결과 칸 면적은 `stageArea`, 머리줄·조작줄·테두리는 비율 밖이다. */
+describe('§5.4 #36 (J) ① 판형 맞춤', () => {
+  const screen = appNodeResizeBounds('screen');
+  const stageOf = (s: { width: number; height: number }): { w: number; h: number } => ({
+    w: s.width - SCREEN_CHROME.width,
+    h: s.height - SCREEN_CHROME.height,
+  });
+
+  it('16:9 의 기본 크기는 결과 칸 240×135 + 머리줄·조작줄', () => {
+    const size = stageFitSize(16 / 9, screen);
+    expect(stageOf(size)).toEqual({ w: 240, h: 135 });
+    expect(size).toEqual({ width: 240 + SCREEN_CHROME.width, height: 135 + SCREEN_CHROME.height });
+  });
+
+  it('비율이 달라도 결과 칸 면적은 같다(한도 안이면) — 1:1 은 180×180', () => {
+    const size = stageFitSize(1, screen);
+    expect(stageOf(size)).toEqual({ w: 180, h: 180 });
+    expect(stageOf(size).w * stageOf(size).h).toBe(APP_CANVAS_FACE.stageArea);
+  });
+
+  it('하한 폭에 걸리면 폭을 하한에 두고 비율로 높이를 계산한다(9:16)', () => {
+    const size = stageFitSize(9 / 16, screen);
+    expect(size.width).toBe(screen.minWidth);
+    const stage = stageOf(size);
+    expect(stage.w / stage.h).toBeCloseTo(9 / 16, 2);
+  });
+
+  it('상한에 걸리면 그 변을 상한에 두고 맞은편을 다시 계산한다', () => {
+    const tall = stageFitSize(0.25, screen, APP_NODE_RESIZE.maxWidth);
+    expect(tall.height).toBe(screen.maxHeight);
+    expect(stageOf(tall).w / stageOf(tall).h).toBeCloseTo(0.25, 2);
+    const wide = stageFitSize(4, screen, 99_999);
+    expect(wide.width).toBe(screen.maxWidth);
+    expect(stageOf(wide).w / stageOf(wide).h).toBeCloseTo(4, 1); // 정수 px 로 반올림한 만큼만 어긋난다
+  });
+
+  it('비율이 있는 화면은 그 비율로 짓고, 정한 크기는 폭만 지킨다 — 명패는 비율을 보지 않는다', () => {
+    expect(appNodeSize(APP, 'screen', { width: 1, height: 1, stageAspect: 16 / 9 })).toEqual(stageFitSize(16 / 9, screen));
+    const sized = appNodeSize(APP, 'screen', { width: 402, height: 999, sizedForm: 'screen', stageAspect: 16 / 9 });
+    expect(sized.width).toBe(402);
+    expect(stageOf(sized)).toEqual({ w: 400, h: 225 });
+    expect(appNodeSize(APP, 'nameplate', { width: 1, height: 1, stageAspect: 16 / 9 })).toEqual(APP.defaultSize);
+    // 못 쓰는 비율은 없는 것과 같다 — 종전 선언 크기.
+    expect(appNodeSize(APP, 'screen', { width: 1, height: 1, stageAspect: Number.NaN })).toEqual(APP.screenSize);
+  });
+
+  it('비율은 상·하한으로 자르고, 아주 가까운 두 비율은 같은 것으로 본다', () => {
+    expect(normalizeStageAspect(100)).toBe(APP_CANVAS_FACE.stageAspectMax);
+    expect(normalizeStageAspect(0.001)).toBe(APP_CANVAS_FACE.stageAspectMin);
+    expect(normalizeStageAspect(-1)).toBeNull();
+    expect(normalizeStageAspect('1')).toBeNull();
+    expect(sameStageAspect(16 / 9, 16 / 9 + APP_CANVAS_FACE.stageAspectEpsilon / 2)).toBe(true);
+    expect(sameStageAspect(16 / 9, 9 / 16)).toBe(false);
+    expect(sameStageAspect(undefined, null)).toBe(true);
+    expect(sameStageAspect(1, undefined)).toBe(false);
+  });
+
+  it('비율이 바뀌면 가운데를 지킨다(크기가 그대로면 옮기지 않는다)', () => {
+    const b = { x: 100, y: 100, width: 208, height: 130, ref: 'doc-1' };
+    const at = stageAspectMove(APP, b, 9 / 16);
+    const to = stageFitSize(9 / 16, screen);
+    expect(at).toEqual({ x: 100 + (208 - to.width) / 2, y: 100 + (130 - to.height) / 2 });
+    const settled = { ...b, ...at!, stageAspect: 9 / 16 };
+    expect(stageAspectMove(APP, settled, 9 / 16)).toBeNull();
+    // 명패에서는 비율이 크기를 바꾸지 않는다.
+    expect(stageAspectMove(APP, { x: 0, y: 0, width: 80, height: 50 }, 9 / 16)).toBeNull();
+  });
+});
+
+/** §5.4 #36 (J) ① — 크기 조절은 폭에서 높이를 계산해 결과 칸 비율을 지킨다(손잡이가 옮긴 변의 맞은편은 그대로). */
+describe('§5.4 #36 (J) ① 비율을 지키는 크기 조절', () => {
+  const screen = appNodeResizeBounds('screen');
+  const aspect = 16 / 9;
+  const start = { x: 0, y: 0, ...stageFitSize(aspect, screen) };
+  const stageRatio = (r: { width: number; height: number }): number =>
+    (r.width - SCREEN_CHROME.width) / (r.height - SCREEN_CHROME.height);
+
+  it('오른쪽 변을 끌면 폭에서 높이를 — 위·왼쪽은 그대로', () => {
+    const out = aspectLockedResize(start, { ...start, width: 402 }, aspect, screen);
+    expect(out).toMatchObject({ x: 0, y: 0, width: 402 });
+    expect(stageRatio(out)).toBeCloseTo(aspect, 2);
+  });
+
+  it('아래 변만 끌면 높이에서 폭을', () => {
+    const out = aspectLockedResize(start, { ...start, height: 273 }, aspect, screen);
+    expect(out.x).toBe(0);
+    expect(out.y).toBe(0);
+    expect(out.height).toBe(273);
+    expect(stageRatio(out)).toBeCloseTo(aspect, 2);
+  });
+
+  it('왼쪽 위 모서리는 오른쪽 아래 가장자리를 지킨다', () => {
+    const proposed = { x: -100, y: -40, width: start.width + 100, height: start.height + 40 };
+    const out = aspectLockedResize(start, proposed, aspect, screen);
+    expect(out.x + out.width).toBe(start.x + start.width);
+    expect(out.y + out.height).toBe(start.y + start.height);
+    expect(stageRatio(out)).toBeCloseTo(aspect, 2);
+  });
+
+  it('한도 밖으로 끌어도 한도 안이다', () => {
+    const tiny = aspectLockedResize(start, { ...start, width: 10 }, aspect, screen);
+    expect(tiny.width).toBeGreaterThanOrEqual(screen.minWidth);
+    expect(tiny.height).toBeGreaterThanOrEqual(screen.minHeight);
+    const huge = aspectLockedResize(start, { ...start, width: 99_999 }, aspect, screen);
+    expect(huge.width).toBeLessThanOrEqual(screen.maxWidth);
+    expect(huge.height).toBeLessThanOrEqual(screen.maxHeight);
   });
 });

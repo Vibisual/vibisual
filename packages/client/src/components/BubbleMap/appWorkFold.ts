@@ -20,7 +20,7 @@ const NONE: ReadonlySet<string> = new Set();
 
 type AgentVisibility = Pick<BubbleData, 'id' | 'bubbleType' | 'bubblesHidden'>;
 type ActivityLink = Pick<Edge, 'id' | 'source' | 'target' | 'type'>;
-type Satellite = Pick<BubbleData, 'id' | 'bubbleType'>;
+type Satellite = Pick<BubbleData, 'id' | 'bubbleType' | 'activeAgentIds' | 'ownerAgentIds'>;
 
 export interface AppWorkFold {
   /** 표시에서 숨길 노드 id. */

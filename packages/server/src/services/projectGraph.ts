@@ -129,7 +129,7 @@ import { buildPathLock, mergePathLocks, normalizePathLocks, PATH_LOCK_MAX_PER_PR
 // §5.4 #36 — 위성줄 목록 다듬기(서버 검증과 클라 낙관 반영이 한 벌).
 import { makeAppBubbleId, pushPastFile, sanitizeLinkedAgentIds } from '@vibisual/shared';
 // §5.4 #36 (G) — 앱 노드 크기 상한(클라 손잡이와 같은 값으로 자른다).
-import { APP_BUBBLE_REF_MAX, APP_NODE_RESIZE } from '@vibisual/shared';
+import { APP_BUBBLE_REF_MAX, APP_CANVAS_FACE, APP_NODE_RESIZE } from '@vibisual/shared';
 import type { PathLock, PathLockTarget } from '@vibisual/shared';
 // §5.26 — 컨텍스트 보험 원장 타입.
 import type {
@@ -5843,9 +5843,14 @@ export class ProjectGraph {
     const activeIds: string[] = [];
     if (refs && refs.size > 0) {
       const live = this.activeAgentIdSet();
+      const known = this.ownerAgentIdSet();
+      const ownerIds: string[] = [];
       for (const agentId of refs) {
         if (live.has(agentId)) activeIds.push(agentId);
+        if (known.has(agentId)) ownerIds.push(agentId);
       }
+      // 버블 숨기기는 활동 중이 아닌(완료·유휴) 소유자도 센다 — `activeAgentIds` 만으로는 완료된 에이전트의 위성을 가르지 못한다.
+      if (ownerIds.length > 0) enriched.ownerAgentIds = ownerIds;
     }
     if (activeIds.length > 0) {
       enriched.activeAgentIds = activeIds;
@@ -13369,20 +13374,30 @@ export class ProjectGraph {
    * `active` 에이전트 id(휴지통 제외) — 스냅샷 한 벌 동안만 재사용(노드마다 세면 곱으로 는다).
    * ⚠ `mutationVersion` 만 믿지 마라 — 훅 경로 일부는 판을 안 올려 전이를 놓친다. `ACTIVE_AGENT_MEMO_MS` 벽시계 상한을 같이 건다.
    */
-  private activeAgentIdMemo: { version: number; at: number; ids: Set<string> } | null = null;
+  private activeAgentIdMemo: { version: number; at: number; ids: Set<string>; known: Set<string> } | null = null;
 
-  private activeAgentIdSet(): Set<string> {
+  private agentIdMemo(): { ids: Set<string>; known: Set<string> } {
     const now = Date.now();
     const memo = this.activeAgentIdMemo;
-    if (memo && memo.version === this.mutationVersion && now - memo.at < ACTIVE_AGENT_MEMO_MS) {
-      return memo.ids;
-    }
+    if (memo && memo.version === this.mutationVersion && now - memo.at < ACTIVE_AGENT_MEMO_MS) return memo;
     const ids = new Set<string>();
+    const known = new Set<string>();
     for (const agent of this.agents.values()) {
-      if (agent.status === 'active' && !agent.trashed) ids.add(agent.id);
+      if (agent.trashed) continue;
+      known.add(agent.id);
+      if (agent.status === 'active') ids.add(agent.id);
     }
-    this.activeAgentIdMemo = { version: this.mutationVersion, at: now, ids };
-    return ids;
+    this.activeAgentIdMemo = { version: this.mutationVersion, at: now, ids, known };
+    return this.activeAgentIdMemo;
+  }
+
+  private activeAgentIdSet(): Set<string> {
+    return this.agentIdMemo().ids;
+  }
+
+  /** 휴지통 밖에 지금 있는 에이전트 id(상태 무관) — 소유 기록의 옛 id 를 걸러 `ownerAgentIds` 로 싣는다(§5.4 #36 (H) ①-1). */
+  private ownerAgentIdSet(): Set<string> {
+    return this.agentIdMemo().known;
   }
 
   /** §5.1 #2-1 (B) — 턴이 열려 있을 수 있는 에이전트 id. 상태는 보지 않는다 — 턴은 확인 때 닫히므로(§2.4) `completed`·유휴여도 열려 있다. */
@@ -15443,6 +15458,13 @@ export class ProjectGraph {
     const rawSized = (updates as Record<string, unknown>)['sizedForm'];
     if (rawSized === 'nameplate' || rawSized === 'screen') bubble.sizedForm = rawSized;
     else if (rawSized === null || rawSized === '') delete bubble.sizedForm;
+    // §5.4 #36 (J) ① — 결과 칸 비율. 유한한 양수만 받아 상·하한으로 자르고 `null` 은 지운다. 그 밖은 칸을 건드리지 않는다.
+    const rawAspect = (updates as Record<string, unknown>)['stageAspect'];
+    if (typeof rawAspect === 'number' && Number.isFinite(rawAspect) && rawAspect > 0) {
+      bubble.stageAspect = Math.min(APP_CANVAS_FACE.stageAspectMax, Math.max(APP_CANVAS_FACE.stageAspectMin, rawAspect));
+    } else if (rawAspect === null) {
+      delete bubble.stageAspect;
+    }
     if (updates.title !== undefined) bubble.title = updates.title;
     // §5.13 (L) — 노드가 가리키는 앱 작업 문서. 앱이 해석하는 열쇠라 뜻은 모르지만, 글자열이 아니면 받지 않는다
     //   (손으로 보낸 PATCH 가 객체·숫자를 적어 앱 창을 깨지 않게). 빈 글자는 지운다.

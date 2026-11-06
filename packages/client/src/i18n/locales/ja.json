@@ -2443,7 +2443,11 @@
         "docEmpty": "動画が空です — リンクされたAIに依頼するか、エディタを開いてください",
         "playExport": "最新のレンダリングを再生",
         "docUnreadable": "文書を読み込めませんでした — エディタを開いてください",
-        "docVersion": "v{{version}}"
+        "docVersion": "v{{version}}",
+        "unseenChange": "前回確認後の新しい変更",
+        "whenAi": "AI · {{when}}",
+        "holdPrevious": "長押しで直前のAI作業前の状態を表示",
+        "holdBadge": "AI作業前"
       },
       "installApp": "アプリをインストール",
       "installHint": "ダブルクリックでインストールします。",
@@ -8625,7 +8629,13 @@
       "proposal": "提案{{index}}: {{title}}",
       "proposalUntitled": "提案{{index}}",
       "pictures_one": "{{count}}枚の画像",
-      "pictures_other": "{{count}}枚の画像"
+      "pictures_other": "{{count}}枚の画像",
+      "partsChip": "パーツ {{count}}",
+      "pastChip": "過去の結果 {{count}}",
+      "foldShow": "クリックで表示",
+      "foldHide": "クリックで折りたたむ",
+      "changed": "直近のAI作業で変更",
+      "focusHint": "クリックでノード上に表示 · ダブルクリックで開く"
     },
     "appWork": {
       "moon": "{{app}}の作業ファイル · {{role}}",

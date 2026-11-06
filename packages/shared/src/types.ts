@@ -476,6 +476,11 @@ export interface AppBubble {
    * (정한 적 없는 버블의 치수는 생성 때 값일 뿐). 형태가 바뀌어도 남고 [기본 크기로] 가 지운다.
    */
   sizedForm?: 'nameplate' | 'screen';
+  /**
+   * §5.4 #36 (J) ① — 결과 칸(머리줄·조작줄을 뺀 자리)의 가로/세로. 앱 화면이 알리고 코어가 바뀔 때만 적는다 — 있으면 화면 크기를
+   * 이 비율로 짓는다(`APP_CANVAS_FACE.stageArea`). 없으면 앱 선언 크기.
+   */
+  stageAspect?: number;
   /** §5.4 #36 (H) ① — 위성줄·구슬 줄을 감췄다(연결·결과 전달은 그대로). 없거나 false 면 보인다. */
   linksHidden?: boolean;
   /**
@@ -1764,6 +1769,8 @@ export interface BubbleData {
   summary?: string;
   /** 이 노드에 연결된 활성 에이전트 ID 목록 (파일/폴더용, 디테일 패널에서 표시) */
   activeAgentIds?: string[];
+  /** 이 노드를 만진 에이전트 전부(상태 무관 · 휴지통 제외). 스냅샷 사본에만 실린다(체크포인트 ❌) — 버블 숨기기 판정용(§5.4 #36 (H) ①-1). */
+  ownerAgentIds?: string[];
   /** 사용자가 지정한 화면 위치 (드래그 후 서버에 저장) */
   position?: { x: number; y: number };
   /** 절대 경로 (파일/폴더 버블용, 디테일 패널 표시 + 클릭 열기) */

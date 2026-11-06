@@ -2443,7 +2443,11 @@
         "docEmpty": "空视频 — 可让已连接的 AI 来制作，或打开编辑器",
         "playExport": "播放最近一次渲染",
         "docUnreadable": "无法读取文档 — 请打开编辑器",
-        "docVersion": "v{{version}}"
+        "docVersion": "v{{version}}",
+        "unseenChange": "自上次查看后有新变更",
+        "whenAi": "AI · {{when}}",
+        "holdPrevious": "按住可查看上一次 AI 处理前的状态",
+        "holdBadge": "AI 处理前"
       },
       "installApp": "安装应用",
       "installHint": "双击安装。",
@@ -8625,7 +8629,13 @@
       "proposal": "方案 {{index}}：{{title}}",
       "proposalUntitled": "方案 {{index}}",
       "pictures_one": "{{count}} 张图片",
-      "pictures_other": "{{count}} 张图片"
+      "pictures_other": "{{count}} 张图片",
+      "partsChip": "素材 {{count}}",
+      "pastChip": "历史结果 {{count}}",
+      "foldShow": "点击展开",
+      "foldHide": "点击折叠",
+      "changed": "上次 AI 处理中已更改",
+      "focusHint": "点击在节点上显示 · 双击打开"
     },
     "appWork": {
       "moon": "{{app}} 的工作文件 · {{role}}",

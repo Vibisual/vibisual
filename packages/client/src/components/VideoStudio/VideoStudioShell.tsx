@@ -5,7 +5,6 @@ import {
   VIDEO_RECIPES,
   createEmptyDoc,
   deriveChapterOps,
-  docHasCompositions,
   formatOfSize,
   hitTest,
   resolveTimeline,
@@ -26,8 +25,9 @@ import { appTimingAt } from '../../apps/appTiming.js';
 import { useIdleSettle } from './useIdleSettle.js';
 import { logStudioMemory, markStudio, notePreviewWait, noteStreamCold, noteStreamPlan, noteStreamReanchor, reportStudioFirstFrame, startStudioPerfSession, type StudioPerfSession } from './studioPerf.js';
 import { createPreviewQueue } from './previewQueue.js';
-import { previewFrameMode, SCRUB_SETTLE_MS } from './previewPolicy.js';
-import { noteStudioInput, runWhenIdle, setStudioBusy } from './studioIdle.js';
+import { docNeedsStage } from './previewPolicy.js';
+import { previewFrameLag, usePreviewDrawLoop } from './previewDrawLoop.js';
+import { noteStudioInput, runWhenIdle } from './studioIdle.js';
 import { retainStudioAudioMemory } from './studioMedia.js';
 import { VideoStudioView } from './VideoStudioView.js';
 import { useVideoEdits } from './useVideoEdits.js';
@@ -238,7 +238,7 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
   // ─── 미리보기 ───
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageHostRef = useRef<HTMLDivElement>(null);
-  const hasCompositions = useMemo(() => (previewDoc ? (docHasCompositions(previewDoc) || previewDoc.tracks.some(track => track.items.some(item => item.kind === 'model' || (item.kind === 'image' && !!previewDoc.assets[item.assetId ?? '']?.creationSource)))) : false), [previewDoc]);
+  const hasCompositions = useMemo(() => (previewDoc ? docNeedsStage(previewDoc) : false), [previewDoc]);
   const lastStageNotice = useRef('');
   const stagePreview = useStagePreview({
     enabled: hasCompositions && !released, project: projectName, doc: previewDoc, media: renderer.media, host: stageHostRef,
@@ -277,57 +277,22 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
   // 40-9 — 그림이 시계보다 뒤처진 정도: 그리는 중일 때만, 마지막으로 그린 시각과의 차(처음 한 장 전에는 모른다 — 0).
   const stageDrawnAt = stagePreview.drawnAt;
   const stageBusy = stagePreview.busy;
-  frameLag.current = (at: number): number => {
-    const queue = hasCompositions ? { drawnAt: stageDrawnAt, busy: stageBusy } : canvasQueue.current;
-    if (!queue || !queue.busy()) return 0;
-    const drawnAt = queue.drawnAt();
-    return drawnAt === null ? 0 : Math.max(0, at - drawnAt);
-  };
+  frameLag.current = (at: number): number => previewFrameLag(hasCompositions ? { drawnAt: stageDrawnAt, busy: stageBusy } : canvasQueue.current, at);
   const clock = playback.clock;
-  const playingRef = useRef(playback.playing);
-  playingRef.current = playback.playing;
   const previewMedia = renderer.media;
   // §5.13 (Z) 41-2 — 재생 박자를 무대에 건다(컴포지션 스스로 재생 · 합성기 예약). 멈추면 무대가 그 자리를 정확한 한 장으로.
-  const stageSyncPlay = stagePreview.syncPlay;
-  const playbackTiming = playback.timing;
-  useEffect(() => {
-    if (!hasCompositions || !playback.playing) stageSyncPlay(null);
-  }, [hasCompositions, playback.playing, stageSyncPlay]);
-  useEffect(() => {
-    if (!previewDoc) return undefined;
-    // §5.13 (Y) 40-3 ③ — 재생 중이면 순서대로, 멈춘 채 연달아 옮기면(끌기) 가까운 키프레임 먼저, 손을 멈추면 정확한 한 장으로 다시.
-    let lastMoveAt = -Infinity;
-    let settle: ReturnType<typeof setTimeout> | null = null;
-    let scrubbing = false;
-    const endScrub = (): void => { if (scrubbing) { scrubbing = false; setStudioBusy('scrubbing', false); } };
-    const draw = (): void => {
-      // §5.13 (Z) 41-2 — 그리기 전에 재생 기준을 맞춘다(재생 중이면 무대의 seek 는 배치만 하고 바로 끝난다).
-      if (hasCompositions) stageSyncPlay(playingRef.current ? playbackTiming() : null);
-      void requestDraw(clock.get()).catch((error) => toastsRef.current.error(error));
-    };
-    const onMove = (): void => {
-      const now = performance.now();
-      const mode = previewFrameMode({ playing: playingRef.current, sinceLastMoveMs: now - lastMoveAt });
-      lastMoveAt = now;
-      previewMedia?.setFrameMode(mode);
-      if (mode === 'scrub') {
-        // 40-10 ④ — 끄는 동안 배경 일이 쉰다.
-        if (!scrubbing) { scrubbing = true; setStudioBusy('scrubbing', true); }
-        if (settle !== null) clearTimeout(settle);
-        settle = setTimeout(() => {
-          settle = null;
-          endScrub();
-          previewMedia?.setFrameMode(playingRef.current ? 'play' : 'exact');
-          draw();
-        }, SCRUB_SETTLE_MS);
-      }
-      draw();
-    };
-    previewMedia?.setFrameMode(playingRef.current ? 'play' : 'exact');
-    draw();
-    const off = clock.subscribe(onMove);
-    return () => { off(); if (settle !== null) clearTimeout(settle); endScrub(); };
-  }, [previewDoc, requestDraw, clock, drawPreview, released, previewMedia, hasCompositions, stageSyncPlay, playbackTiming]);
+  usePreviewDrawLoop({
+    enabled: Boolean(previewDoc),
+    clock,
+    playing: playback.playing,
+    stage: hasCompositions,
+    syncPlay: stagePreview.syncPlay,
+    timing: playback.timing,
+    requestDraw,
+    media: previewMedia,
+    onError: (error) => toastsRef.current.error(error),
+    redraw: [previewDoc, drawPreview, released],
+  });
   const previewReady = hasCompositions ? stagePreview.ready : canvasReady;
   useEffect(() => {
     if (!previewReady) return;
