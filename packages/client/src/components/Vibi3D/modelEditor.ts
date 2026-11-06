@@ -22,6 +22,7 @@ import { applyModelMascot } from './modelMascot.js';
 import { markPreparedInstalled } from './modelPreparedGraphics.js';
 import { readModelCamera, readModelShots, readActiveModelShot } from './modelCamera.js';
 import { syncModelGraphicSource } from './modelGraphicSources.js';
+import { collectMaterialGeneration } from './modelProceduralTextures.js';
 
 type ColoredMaterial = THREE.Material & { color: THREE.Color };
 type MappedMaterial = THREE.Material & { map: THREE.Texture | null; opacity: number; alphaMap?: THREE.Texture | null };
@@ -119,6 +120,7 @@ export class ModelEditor {
   }
 
   get revision(): number { return this.currentRevision; }
+  get isApplying(): boolean { return this.applying; }
   get selectedId(): string | null { return this.currentSelectedId; }
   get canUndo(): boolean { return this.undoStack.length > 0; }
   get canRedo(): boolean { return this.redoStack.length > 0; }
@@ -337,8 +339,11 @@ export class ModelEditor {
     try {
       options.assertActive?.();
       for (;;) {
-        const step = transaction.next();
+        const generated = collectMaterialGeneration(() => transaction.next());
+        const step = generated.value;
         if (step.done) return step.value;
+        await generated.ready;
+        options.assertActive?.();
         if (step.value === 1 || performance.now() - lastYield >= 16) {
           await options.onProgress?.(step.value);
           await new Promise<void>(resolve => setTimeout(resolve, 0));

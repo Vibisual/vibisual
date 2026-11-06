@@ -7,6 +7,8 @@ import { bakeSignTexture } from './signCanvas.js';
 import { SignParts } from './signParts.js';
 import { refreshModelMetricUvs } from './modelMetricUvs.js';
 import { loadSignFont } from './signFonts.js';
+import { collectMaterialGeneration } from './modelProceduralTextures.js';
+import { disposeModel } from './modelIO.js';
 
 export interface SignPreparation {
   font?: SignFont; sourceTexture?: THREE.Texture;
@@ -15,7 +17,9 @@ export interface SignPreparation {
 }
 export async function prepareModelSign(recipe: Vibi3DSignRecipe, id: string, options: SignPreparation = {}): Promise<THREE.Group> {
   const font = options.font ?? (recipe.text?.trim() || !recipe.source ? await loadSignFont(recipe.font, recipe.weight) : undefined);
-  return buildModelSign(recipe, id, { ...options, font });
+  const generated = collectMaterialGeneration(() => buildModelSign(recipe, id, { ...options, font }));
+  try { await generated.ready; return generated.value; }
+  catch (error) { disposeModel(generated.value); throw error; }
 }
 export function defaultSignRecipe(kind: Vibi3DSignKind = 'fascia'): Vibi3DSignRecipe {
   return { kind, text: '모퉁이 상점', font: 'sans', weight: 400, color: '#21424a', background: kind === 'window' || kind === 'channel' ? false : '#f5f1e8',

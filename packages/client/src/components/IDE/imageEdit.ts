@@ -1,5 +1,7 @@
 // §5.5 #17-25 ⑦ — 자르기·알파 빼기 계산(natural 픽셀). `PixelBuffer`(RGBA 8bit·행 우선)를 받아 새 버퍼를 낸다(스택·캐시가 입력을 붙든다). 캔버스 함수는 맨 아래 "브라우저 전용" 절에만.
 
+import { imageColorDistances, imageColorKey, imageFlattenAlpha, imageHasTransparency, imageTrimBounds } from '@vibisual/compute';
+
 import {
   composeLayers,
   drawAnnotations,
@@ -313,16 +315,7 @@ export function rgbDistance(a: Rgb, b: Rgb): number {
 
 /** 모든 픽셀의 `color` 까지 거리. 같은 색으로 오차만 바꿔 여러 번 뺄 때(슬라이더) 한 번만 잰다. */
 export function colorDistances(buf: PixelBuffer, color: Rgb): Uint8Array {
-  const n = buf.width * buf.height;
-  const out = new Uint8Array(n);
-  const d = buf.data;
-  for (let p = 0, i = 0; p < n; p++, i += 4) {
-    const dr = Math.abs((d[i] ?? 0) - color.r);
-    const dg = Math.abs((d[i + 1] ?? 0) - color.g);
-    const db = Math.abs((d[i + 2] ?? 0) - color.b);
-    out[p] = dr > dg ? (dr > db ? dr : db) : dg > db ? dg : db;
-  }
-  return out;
+  return imageColorDistances(buf, color);
 }
 
 /** 오차 % → 0..255. */
@@ -358,76 +351,7 @@ export interface ColorKeyResult {
 
 /** [색 빼기] — 오차 안은 투명, 바로 바깥 한 줄 띠만 거리 비례 반투명(번지면 옅은 그림자 면이 통째로 반투명). 투명 픽셀은 번짐이 지나가는 길이다(원형 자르기 귀퉁이에서도 배경에 닿게). */
 export function colorKey(buf: PixelBuffer, opts: ColorKeyOptions): ColorKeyResult {
-  const { width, height } = buf;
-  const n = width * height;
-  const src = buf.data;
-  const out = new Uint8ClampedArray(src);
-  const tol = clampNum(Math.round(opts.tolerance), 0, 255);
-  const feather = Math.max(0, Math.round(opts.feather ?? defaultFeather(tol)));
-  const band = tol + feather;
-  const dist = opts.distances && opts.distances.length === n ? opts.distances : colorDistances(buf, opts.color);
-  // 0 = 그대로 · 1 = 완전 투명(오차 안, 또는 이미 투명한 길) · 2 = 경계 띠(알파 비례 감소)
-  const mark = new Uint8Array(n);
-  const passable = (p: number): boolean => (src[p * 4 + 3] ?? 0) === 0 || (dist[p] ?? 255) <= tol;
-  const inBand = (p: number): boolean => (src[p * 4 + 3] ?? 0) > 0 && (dist[p] ?? 255) <= band;
-
-  if (opts.contiguous) {
-    const queue = new Int32Array(n);
-    let head = 0;
-    let tail = 0;
-    const visit = (q: number): void => {
-      if (mark[q] === 1) return;
-      if (passable(q)) {
-        mark[q] = 1;
-        queue[tail++] = q;
-      } else if (mark[q] === 0 && inBand(q)) {
-        mark[q] = 2;
-      }
-    };
-    for (const seed of opts.seeds ?? []) {
-      const x = Math.floor(seed.x);
-      const y = Math.floor(seed.y);
-      if (x < 0 || y < 0 || x >= width || y >= height) continue;
-      visit(y * width + x);
-    }
-    while (head < tail) {
-      const p = queue[head++] ?? 0;
-      const x = p % width;
-      if (x > 0) visit(p - 1);
-      if (x < width - 1) visit(p + 1);
-      if (p >= width) visit(p - width);
-      if (p + width < n) visit(p + width);
-    }
-  } else {
-    for (let p = 0; p < n; p++) if (passable(p)) mark[p] = 1;
-    for (let p = 0; p < n; p++) {
-      if (mark[p] !== 0 || !inBand(p)) continue;
-      const x = p % width;
-      if (
-        (x > 0 && mark[p - 1] === 1) ||
-        (x < width - 1 && mark[p + 1] === 1) ||
-        (p >= width && mark[p - width] === 1) ||
-        (p + width < n && mark[p + width] === 1)
-      ) {
-        mark[p] = 2;
-      }
-    }
-  }
-
-  let changed = 0;
-  for (let p = 0; p < n; p++) {
-    const m = mark[p];
-    if (!m) continue;
-    const ai = p * 4 + 3;
-    const a = src[ai] ?? 0;
-    if (a === 0) continue;
-    const next = m === 1 ? 0 : Math.round((a * ((dist[p] ?? 255) - tol)) / (feather + 1));
-    if (next < a) {
-      out[ai] = next;
-      changed++;
-    }
-  }
-  return { buffer: { width, height, data: out }, changed };
+  return imageColorKey(buf, opts);
 }
 
 export interface CornerSample {
@@ -488,59 +412,17 @@ export function dominantCorner(
  * 그림 전체가 배경이면 null.
  */
 export function trimBounds(buf: PixelBuffer, tolerance: number = TRIM_TOLERANCE): Box | null {
-  const ref = dominantCorner(buf, tolerance);
-  if (!ref) return null;
-  const { width: w, height: h, data } = buf;
-  const isBg = (x: number, y: number): boolean => {
-    const i = (y * w + x) * 4;
-    const a = data[i + 3] ?? 0;
-    if (ref.transparent) return a <= ALPHA_FLOOR;
-    if (Math.abs(a - ref.alpha) > tolerance) return false;
-    return (
-      Math.abs((data[i] ?? 0) - ref.color.r) <= tolerance &&
-      Math.abs((data[i + 1] ?? 0) - ref.color.g) <= tolerance &&
-      Math.abs((data[i + 2] ?? 0) - ref.color.b) <= tolerance
-    );
-  };
-  const rowIsBg = (y: number): boolean => {
-    for (let x = 0; x < w; x++) if (!isBg(x, y)) return false;
-    return true;
-  };
-  const colIsBg = (x: number, y0: number, y1: number): boolean => {
-    for (let y = y0; y <= y1; y++) if (!isBg(x, y)) return false;
-    return true;
-  };
-  let top = 0;
-  while (top < h && rowIsBg(top)) top++;
-  if (top === h) return null;
-  let bottom = h - 1;
-  while (bottom > top && rowIsBg(bottom)) bottom--;
-  let left = 0;
-  while (left < w - 1 && colIsBg(left, top, bottom)) left++;
-  let right = w - 1;
-  while (right > left && colIsBg(right, top, bottom)) right--;
-  return { x: left, y: top, w: right - left + 1, h: bottom - top + 1 };
+  const reference = dominantCorner(buf, tolerance);
+  return reference ? imageTrimBounds(buf, reference, tolerance) : null;
 }
 
 /** [투명 채우기] — 반투명·투명 픽셀을 `bg` 위에 얹은 색으로 메워 알파를 없앤다(알파 합성). */
 export function flattenAlpha(buf: PixelBuffer, bg: Rgb): PixelBuffer {
-  const out = new Uint8ClampedArray(buf.data);
-  for (let i = 0; i < out.length; i += 4) {
-    const alpha = out[i + 3] ?? 255;
-    if (alpha === 255) continue;
-    const a = alpha / 255;
-    out[i] = Math.round((out[i] ?? 0) * a + bg.r * (1 - a));
-    out[i + 1] = Math.round((out[i + 1] ?? 0) * a + bg.g * (1 - a));
-    out[i + 2] = Math.round((out[i + 2] ?? 0) * a + bg.b * (1 - a));
-    out[i + 3] = 255;
-  }
-  return { width: buf.width, height: buf.height, data: out };
+  return imageFlattenAlpha(buf, bg);
 }
 
 export function hasTransparency(buf: PixelBuffer): boolean {
-  const d = buf.data;
-  for (let i = 3; i < d.length; i += 4) if ((d[i] ?? 255) < 255) return true;
-  return false;
+  return imageHasTransparency(buf);
 }
 
 export function parseHexColor(hex: string): Rgb | null {

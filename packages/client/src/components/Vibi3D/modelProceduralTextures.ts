@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import type { Vibi3DMaterial, Vibi3DMaterialMapSlot, Vibi3DMaterialMapSource } from '@vibisual/shared';
 import { generateMaterialMaps, materialPresetProperties, type GeneratedMaterialMaps } from './proceduralMaterialPixels.js';
 import { creationIntentId } from '../Creation/creationApi.js';
+import { generateMaterialMapsAsync } from './proceduralMaterialWorkerClient.js';
 
 type Source = Extract<Vibi3DMaterialMapSource, { kind: 'procedural' }>;
 type Textures = Partial<Record<Vibi3DMaterialMapSlot, THREE.Texture>>;
-export type MaterialPixelCache = Map<string, { pixels: GeneratedMaterialMaps; textures: Textures }>;
+export type MaterialPixelCache = Map<string, { pixels: GeneratedMaterialMaps; textures: Textures; bytes?: number; pending?: Promise<void>; clones?: WeakRef<THREE.Texture>[] }>;
 type PixelEntry = MaterialPixelCache extends Map<string, infer T> ? T : never;
 const SHARED_PIXEL_BYTES = 64 * 1024 * 1024;
 const sharedPixels: MaterialPixelCache = new Map();
@@ -14,6 +15,44 @@ const liveSources = new WeakMap<THREE.Source<unknown>, PixelEntry>();
 const livePixels = new Map<string, WeakRef<PixelEntry>>();
 const collectedPixels = new FinalizationRegistry<string>(key => { if (!livePixels.get(key)?.deref()) livePixels.delete(key); });
 let sharedBytes = 0;
+interface GenerationBatch { pending: Set<Promise<void>>; active: boolean }
+let generationBatch: GenerationBatch | undefined;
+
+/** Scope only synchronous scene construction; callers await before rendering or committing history. */
+export function collectMaterialGeneration<T>(create: () => T): { value: T; ready: Promise<void> } {
+  // Node authoring/tests have no browser UI thread; browser failures must still reject through the worker path.
+  if (typeof window === 'undefined' && typeof Worker === 'undefined') return { value: create(), ready: Promise.resolve() };
+  const previous = generationBatch, batch: GenerationBatch = { pending: new Set(), active: true }; generationBatch = batch;
+  try {
+    const value = create();
+    const ready = Promise.allSettled(batch.pending).then(results => {
+      const failed = results.find(result => result.status === 'rejected');
+      if (failed?.status === 'rejected') { batch.active = false; throw failed.reason; }
+    });
+    return { value, ready };
+  } catch (error) { batch.active = false; throw error; }
+  finally { generationBatch = previous; }
+}
+
+/** Dependent atlas work returns an installer so a failed synchronous transaction cannot receive a late mutation. */
+export function deferMaterialGeneration(compute: () => Promise<() => void>, settled: () => void = () => undefined): boolean {
+  const batch = generationBatch; if (!batch) return false;
+  const pending = Promise.all([...batch.pending]).then(async () => {
+    if (!batch.active) return;
+    const install = await compute(); if (batch.active) install();
+  }).finally(settled);
+  batch.pending.add(pending); void pending.catch(() => undefined); return true;
+}
+
+function slotPixels(entry: PixelEntry, slot: Vibi3DMaterialMapSlot, source: Source) {
+  const pixels = slot === 'normalMap' || slot === 'roughnessMap' || slot === 'aoMap' ? entry.pixels[slot] : entry.pixels.map;
+  if (slot !== 'metalnessMap' && slot !== 'alphaMap') return pixels;
+  const value = slot === 'alphaMap' ? 255 : Math.round((source.params?.metalness ?? materialPresetProperties(source.preset).metalness ?? 0) * 255);
+  const data = new Uint8Array(pixels.width * pixels.height * 4);
+  // Native bulk fill copies one RGBA word without a JavaScript pixel loop.
+  new Uint32Array(data.buffer).fill(new Uint32Array(new Uint8Array([value, value, value, 255]).buffer)[0]!);
+  return { ...pixels, data };
+}
 
 export function proceduralTexture(texture: THREE.Texture | null): boolean { return texture?.userData['vibi3dProceduralVersion'] === 2; }
 
@@ -25,27 +64,45 @@ export function cachedMaterialTexture(cache: MaterialPixelCache, slot: Vibi3DMat
     Object.entries(source.params ?? {}).sort(([a], [b]) => a.localeCompare(b))]);
   let entry = cache.get(key) ?? sharedPixels.get(key) ?? livePixels.get(key)?.deref();
   if (!entry) {
-    entry = { pixels: generateMaterialMaps(source.preset, { ...source, resolution, tileSize }), textures: {} };
+    const options = { ...source, resolution, tileSize };
+    const placeholder = { width: 1, height: 1, data: new Uint8Array([255, 255, 255, 255]) };
+    entry = { pixels: generationBatch ? { map: placeholder, normalMap: placeholder, roughnessMap: placeholder, aoMap: placeholder }
+      : generateMaterialMaps(source.preset, options), textures: {}, bytes: resolution * resolution * 16 };
+    if (generationBatch) {
+      const target = entry;
+      target.pending = generateMaterialMapsAsync(source.preset, options).then(pixels => {
+        target.pixels = pixels;
+        for (const [name, texture] of Object.entries(target.textures)) {
+          texture.source.data = slotPixels(target, name as Vibi3DMaterialMapSlot, source); texture.needsUpdate = true;
+        }
+        for (const weak of target.clones ?? []) { const clone = weak.deref(); if (clone) clone.needsUpdate = true; }
+        delete target.pending; delete target.clones;
+      }, error => {
+        if (sharedPixels.get(key) === target) { sharedPixels.delete(key); sharedBytes -= target.bytes!; }
+        if (livePixels.get(key)?.deref() === target) livePixels.delete(key);
+        throw error;
+      });
+      // Construction can throw before its transaction starts awaiting the collected jobs.
+      void target.pending.catch(() => undefined);
+    }
     livePixels.set(key, new WeakRef(entry)); collectedPixels.register(entry, key);
-    const bytes = Object.values(entry.pixels).reduce((sum, map) => sum + map.data.byteLength, 0);
+    const bytes = entry.bytes!;
     while (sharedBytes + bytes > SHARED_PIXEL_BYTES && sharedPixels.size) {
       const oldest = sharedPixels.keys().next().value!; const removed = sharedPixels.get(oldest)!;
-      sharedBytes -= Object.values(removed.pixels).reduce((sum, map) => sum + map.data.byteLength, 0); sharedPixels.delete(oldest);
+      sharedBytes -= removed.bytes ?? Object.values(removed.pixels).reduce((sum, map) => sum + map.data.byteLength, 0); sharedPixels.delete(oldest);
     }
     sharedPixels.set(key, entry); sharedBytes += bytes;
   }
   if (sharedPixels.has(key)) { sharedPixels.delete(key); sharedPixels.set(key, entry); }
   cache.set(key, entry);
+  if (entry.pending) {
+    if (!generationBatch) throw new Error('material-generation-pending');
+    generationBatch.pending.add(entry.pending);
+  }
   let texture = entry.textures[slot];
   if (!texture) {
-    const pixels = slot === 'normalMap' || slot === 'roughnessMap' || slot === 'aoMap' ? entry.pixels[slot] : entry.pixels.map;
-    let data = pixels.data;
-    if (slot === 'metalnessMap' || slot === 'alphaMap') {
-      data = new Uint8Array(pixels.width * pixels.height * 4);
-      const value = slot === 'alphaMap' ? 255 : Math.round((source.params?.metalness ?? materialPresetProperties(source.preset).metalness ?? 0) * 255);
-      for (let n = 0; n < data.length; n += 4) { data[n] = data[n + 1] = data[n + 2] = value; data[n + 3] = 255; }
-    }
-    texture = new THREE.DataTexture(data, pixels.width, pixels.height, THREE.RGBAFormat, THREE.UnsignedByteType);
+    const pixels = slotPixels(entry, slot, source);
+    texture = new THREE.DataTexture(pixels.data, pixels.width, pixels.height, THREE.RGBAFormat, THREE.UnsignedByteType);
     texture.source.uuid = creationIntentId('procedural-pixels-v2', key, slot);
     liveSources.set(texture.source, entry);
     texture.generateMipmaps = true; texture.minFilter = THREE.LinearMipmapLinearFilter; texture.magFilter = THREE.LinearFilter;
@@ -53,7 +110,9 @@ export function cachedMaterialTexture(cache: MaterialPixelCache, slot: Vibi3DMat
     if (slot === 'map' && source.preset === 'glass' && source.params?.fakeInterior) texture.userData['vibi3dInteriorMap'] = true;
     texture.needsUpdate = true; entry.textures[slot] = texture;
   }
-  return texture.clone();
+  const clone = texture.clone();
+  if (entry.pending) (entry.clones ??= []).push(new WeakRef(clone));
+  return clone;
 }
 
 export function configureMaterialTexture(texture: THREE.Texture, slot: Vibi3DMaterialMapSlot, values: Vibi3DMaterial): void {

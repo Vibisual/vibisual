@@ -9,6 +9,7 @@ import { OFFSCREEN_MAX_EDGE } from '../constants.js';
 import { RED_PIXEL_PNG_BASE64, bitmapOrderOf, type BitmapOrder, type RawFrame } from '../render/rawFrame.js';
 import type { AppMainHost } from '../host.js';
 import { growWindowToContent } from './windowSize.js';
+import { frameArrayBuffer } from './frameBuffer.js';
 
 /** 렌더 화면이 준비될 때까지 기다리는 최대 시간(ms). 넘으면 이 백엔드를 못 쓴다고 본다. */
 const READY_TIMEOUT_MS = 20_000;
@@ -289,8 +290,8 @@ export async function captureOffscreenAt(t: number, session?: string, format?: '
   if (order) {
     const size = image.getSize();
     const bitmap = image.toBitmap();
-    // Buffer 를 그대로 보내면 구조적 복제에서 Uint8Array 로 바뀐다 — ArrayBuffer 로 통일.
-    const data = bitmap.buffer.slice(bitmap.byteOffset, bitmap.byteOffset + bitmap.byteLength) as ArrayBuffer;
+    // toBitmap() owns a copy; only pooled/subarray backing stores need another exact-size copy for IPC.
+    const data = frameArrayBuffer(bitmap);
     return { kind: 'raw', width: size.width, height: size.height, order, premultiplied: true, data };
   }
   return image.toPNG();

@@ -4,6 +4,7 @@
  * 바이트 순서는 플랫폼마다 다를 수 있어("platform-dependent") main 이 1×1 빨간 점으로 판정해 싣는다(`order`) — 가정하지 않고 인자로 받아 둘 다 시험한다.
  */
 
+import { straightRgbaBytes } from '@vibisual/compute';
 import type { Ctx2D } from './canvas2d.js';
 
 export type BitmapOrder = 'bgra' | 'rgba';
@@ -45,31 +46,10 @@ export function isRawFrame(v: unknown): v is RawFrame {
 }
 
 /**
- * 날 비트맵 → 곧은 알파 RGBA(순수). `order` 가 `bgra` 면 빨강·파랑을 바꾸고, 미리 곱한 알파면 풀어 준다(알파 0 은 검은 투명).
+ * 날 비트맵 → 곧은 알파 RGBA(Rust). `order` 가 `bgra` 면 빨강·파랑을 바꾸고, 미리 곱한 알파면 풀어 준다(알파 0 은 검은 투명).
  */
 export function rawToStraightRgba(data: ArrayLike<number>, order: BitmapOrder, premultiplied: boolean): Uint8ClampedArray<ArrayBuffer> {
-  const n = data.length - (data.length % 4);
-  const out = new Uint8ClampedArray(new ArrayBuffer(n));
-  const swap = order === 'bgra';
-  for (let i = 0; i < n; i += 4) {
-    const a = data[i + 3] ?? 0;
-    let r = (swap ? data[i + 2] : data[i]) ?? 0;
-    let g = data[i + 1] ?? 0;
-    let b = (swap ? data[i] : data[i + 2]) ?? 0;
-    if (premultiplied) {
-      if (a === 0) { r = 0; g = 0; b = 0; }
-      else if (a < 255) {
-        r = Math.min(255, Math.round((r * 255) / a));
-        g = Math.min(255, Math.round((g * 255) / a));
-        b = Math.min(255, Math.round((b * 255) / a));
-      }
-    }
-    out[i] = r;
-    out[i + 1] = g;
-    out[i + 2] = b;
-    out[i + 3] = a;
-  }
-  return out;
+  return straightRgbaBytes(data, order, premultiplied);
 }
 
 /**

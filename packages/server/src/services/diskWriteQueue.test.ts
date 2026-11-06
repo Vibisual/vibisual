@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach } from 'vitest';
+import { describe, expect, it, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -59,6 +59,46 @@ describe('diskWriteQueue — 동기 쓰기(기본 경로)', () => {
     const dir = makeTmpDir();
     expect(isAsyncDiskWriteEnabled()).toBe(false);
     expect(queueAtomicWrite(path.join(dir, 'x.json'), '{}')).toBe(false);
+  });
+});
+
+describe('diskWriteQueue — 쓰기 실패에도 이전 파일 보존', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+  const previous = '{"port":4800,"token":"previous"}';
+
+  it('내용을 반쯤 쓰다 실패하면 원본은 그대로이고 반쪽 tmp 는 남지 않는다', () => {
+    const dir = makeTmpDir();
+    const target = path.join(dir, 'hook-listener.json');
+    fs.writeFileSync(target, previous);
+    vi.spyOn(fs, 'writeFileSync').mockImplementation((fd) => {
+      fs.writeSync(fd as number, '{"port":');
+      throw Object.assign(new Error('no space left on device'), { code: 'ENOSPC' });
+    });
+    expect(() => writeFileAtomicSyncRaw(target, '{"port":5000,"token":"next"}')).toThrow(/no space/);
+    expect(fs.readFileSync(target, 'utf8')).toBe(previous);
+    expect(fs.readdirSync(dir)).toEqual(['hook-listener.json']);
+  });
+
+  it('rename 이 실패하면 원본은 그대로이고 tmp 는 치운다', () => {
+    const dir = makeTmpDir();
+    const target = path.join(dir, 'hook-listener.json');
+    fs.writeFileSync(target, previous);
+    vi.spyOn(fs, 'renameSync').mockImplementation(() => {
+      throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
+    });
+    expect(() => writeFileAtomicSyncRaw(target, '{"port":5000,"token":"next"}')).toThrow(/not permitted/);
+    expect(fs.readFileSync(target, 'utf8')).toBe(previous);
+    expect(fs.readdirSync(dir)).toEqual(['hook-listener.json']);
+  });
+
+  it.skipIf(process.platform === 'win32')('mode 를 주면 남아 있던 넓은 권한의 tmp 를 거쳐도 결과 파일은 그 권한이다', () => {
+    const dir = makeTmpDir();
+    const target = path.join(dir, 'hook-listener.json');
+    fs.writeFileSync(`${target}.tmp`, 'stale', { mode: 0o644 });
+    fs.chmodSync(`${target}.tmp`, 0o644);
+    writeFileAtomicSyncRaw(target, previous, '.tmp', 0o600);
+    expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+    expect(fs.readFileSync(target, 'utf8')).toBe(previous);
   });
 });
 

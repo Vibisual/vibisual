@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { VIBI3D_MATERIAL_PRESETS, type Vibi3DMaterial, type Vibi3DMaterialParams, type Vibi3DMaterialPreset, type Vibi3DNode } from '@vibisual/shared';
 import { ColorField } from '../Creation/ColorField.js';
 import { NumberField } from '../Creation/NumberField.js';
-import { generateMaterialMaps, materialPresetDefaults } from './proceduralMaterialPixels.js';
+import { materialPresetDefaults } from './proceduralMaterialPixels.js';
+import { generateMaterialMapsAsync } from './proceduralMaterialWorkerClient.js';
 import { useInspectorPicker } from '../../hooks/useInspectorPicker.js';
 import type { AuthoringCommand } from './Vibi3DAuthoring.js';
 
@@ -19,13 +20,16 @@ function TilePreview({ material, label, node }: { material: Vibi3DMaterial; labe
     text: `${node.name || node.id} · ${material.preset ?? ''}`,
     clipboard: JSON.stringify({ app: 'vibi3d', nodeId: node.id, name: node.name, material }),
   }]);
-  const pixels = useMemo(() => material.preset ? generateMaterialMaps(material.preset, { seed: material.seed, wear: material.wear, params: material.params, size: 64 }).map : null,
-    [material.preset, material.seed, material.wear, material.params]);
   useEffect(() => {
-    const context = canvas.current?.getContext('2d'); if (!context || !pixels) return;
-    const image = context.createImageData(pixels.width, pixels.height); image.data.set(pixels.data); context.putImageData(image, 0, 0);
-  }, [pixels]);
-  return pixels ? <canvas ref={canvas} width={pixels.width} height={pixels.height} role="img" aria-label={label}
+    const abort = new AbortController();
+    const context = canvas.current?.getContext('2d'); if (!context || !material.preset) return;
+    void generateMaterialMapsAsync(material.preset, { seed: material.seed, wear: material.wear, params: material.params, size: 64 }, abort.signal).then(({ map }) => {
+      if (abort.signal.aborted) return;
+      const image = context.createImageData(map.width, map.height); image.data.set(map.data); context.putImageData(image, 0, 0);
+    }).catch(() => { if (!abort.signal.aborted) context.clearRect(0, 0, 64, 64); });
+    return () => abort.abort();
+  }, [material.preset, material.seed, material.wear, material.params]);
+  return material.preset ? <canvas ref={canvas} width={64} height={64} role="img" aria-label={label}
     className="aspect-square w-full rounded border border-vb-code-border" /> : null;
 }
 
@@ -38,7 +42,9 @@ export function Vibi3DMaterialPanel({ node, disabled, onCommand, onTexture, text
   const material = node?.material; const locked = disabled || !!node?.locked;
   const defaults = material?.preset ? materialPresetDefaults(material.preset) : undefined;
   const apply = (value: Vibi3DMaterial, phase?: 'preview' | 'commit', scope = ''): void => {
-    if (!node || !material || locked) return;
+    // An already-open colour picker may finish while its worker preview disables controls.
+    // The shell accepts only the same in-flight gesture; unrelated busy edits stay rejected.
+    if (!node || !material || node.locked || (disabled && !phase)) return;
     onCommand({ type: 'material', id: node.id, material: value }, phase ? { merge: merge(`material:${node.id}:${scope}`, phase) } : undefined);
   };
   const number = (key: string, value: number, min: number, max: number, commit: (value: number) => void): React.JSX.Element =>

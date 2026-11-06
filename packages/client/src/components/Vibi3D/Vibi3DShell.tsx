@@ -79,6 +79,10 @@ export function Vibi3DShell({ params }: AppShellProps): React.JSX.Element {
   const humanEditsRef = useRef(false);
   const humanBaselineRef = useRef({ saved: false, persisted: false });
   const applyingAgentRef = useRef(false);
+  const preparedEditRef = useRef<{
+    editor: ModelEditor; scope: string; merge?: string; materialId?: string;
+    pending: { command: Vibi3DCommand; options?: ModelApplyOptions } | null;
+  } | null>(null);
   const ownerId = useRef(vibi3DOwnerId()).current;
   const [sourceDoc, setSourceDoc] = useState<CreationDoc | null>(null);
   const hosted = !!params['appWindowId'] || params['appWindowHosted'] === '1';
@@ -169,7 +173,7 @@ export function Vibi3DShell({ params }: AppShellProps): React.JSX.Element {
   queueDraftRef.current = (actor, force = false): void => {
     const agent = agentRef.current;
     const editor = actor === 'human' ? editorRef.current : agent?.editor;
-    if (!draftReadyRef.current || !editor || !draftKeyRef.current) return;
+    if (!draftReadyRef.current || !editor || editor.isApplying || !draftKeyRef.current) return;
     const doc = actor === 'human' ? sourceDocRef.current : agent?.document;
     const signature = JSON.stringify([draftKeyRef.current, editor.sessionId, editor.revision, doc?.id, doc?.revision]);
     if (!force && lastDraftRef.current[actor] === signature) return;
@@ -206,6 +210,9 @@ export function Vibi3DShell({ params }: AppShellProps): React.JSX.Element {
     if (rendererRef.current && sceneRef.current && cameraRef.current) {
       const mount = mountRef.current, renderer = rendererRef.current, camera = cameraRef.current;
       const agentView = viewActorRef.current === 'agent' && !!agentRef.current;
+      const editor = agentView ? agentRef.current!.editor : editorRef.current;
+      // Worker-generated maps become visible together, after the transaction commits.
+      if (editor?.isApplying) return;
       const viewed = agentView ? agentRef.current!.editor.snapshot() : snapshotRef.current;
       if (mount?.clientWidth && mount.clientHeight) {
         const view = viewed?.camera, size = vibi3dViewSize(mount.clientWidth, mount.clientHeight, view?.aspect);
@@ -220,6 +227,13 @@ export function Vibi3DShell({ params }: AppShellProps): React.JSX.Element {
       }
       const scene = agentView ? agentSceneRef.current : sceneRef.current;
       if (!scene) return;
+      if (!agentView && actionRef.current && editor) {
+        editor.object.traverse((child) => {
+          if (child instanceof THREE.PerspectiveCamera && child.userData['vibi3dViewCamera']) {
+            child.getWorldPosition(camera.position); child.getWorldQuaternion(camera.quaternion);
+          }
+        });
+      }
       scene.background = sceneRef.current.background;
       renderStudioView(scene, rendererRef.current, cameraRef.current, {
         object: agentView ? agentRef.current!.editor.object : editorRef.current?.object ?? null, mode: scene.overrideMaterial ? 'wire' : 'lit',
@@ -290,34 +304,54 @@ export function Vibi3DShell({ params }: AppShellProps): React.JSX.Element {
     if (commands.some((command) => command.type === 'camera' || command.type === 'cameraMotion') || previousCamera !== JSON.stringify(next.camera)) applySavedView();
     return next;
   }, [stopPlayback, sync, applySavedView, beginHumanEdit]);
-  const applyRef = useRef(apply); applyRef.current = apply;
   const userCommand = useCallback((command: Vibi3DCommand, options?: ModelApplyOptions): void => {
     if (needsPreparedVibi3DCommands([command])) {
+      const active = preparedEditRef.current;
+      // Native colour pickers can deliver the final change while a preview bake is pending.
+      // Keep only the latest value of that same gesture, preserving its single undo step.
+      if (active && busyRef.current && !quiescingRef.current && !sourceConflictRef.current
+        && active.editor === editorRef.current && active.scope === routeScopeRef.current
+        && command.type === 'material' && active.materialId === command.id
+        && options?.merge && active.merge === options.merge) {
+        active.pending = { command: structuredClone(command), options }; return;
+      }
       void (async () => {
         const editor = editorRef.current, document = sourceDocRef.current, scope = routeScopeRef.current;
         if (!editor || busyRef.current || dragRef.current || sourceConflictRef.current || quiescingRef.current || viewActorRef.current !== 'human') throw new CreationUiError('model-busy');
-        stopPlayback(); const revision = editor.revision; busyRef.current = true; setBusy(true);
-        let prepared: Awaited<ReturnType<typeof prepareVibi3DCommands>> | undefined;
+        stopPlayback(); busyRef.current = true; setBusy(true);
+        const edit = { editor, scope, merge: options?.merge, materialId: command.type === 'material' ? command.id : undefined,
+          pending: { command, options } as { command: Vibi3DCommand; options?: ModelApplyOptions } | null };
+        preparedEditRef.current = edit;
         try {
-          prepared = await prepareVibi3DCommands(root, document, [command], crypto.randomUUID(), editor.object,
-            modelTextureReferences(editor.object, document?.links ?? []));
           const assertActive = (): void => {
             if (!mounted.current || routeScopeRef.current !== scope || editorRef.current !== editor || sourceConflictRef.current) throw new CreationUiError('scene-changed');
           };
-          assertActive();
-          const started = beginHumanEdit(editor);
-          try { await editor.applyAsync(prepared.commands, revision, { ...options, ...prepared, assertActive }); }
-          finally {
-            if (started && !editor.hasHumanEdits) editor.discardHumanEdits();
-            humanEditsRef.current = editor.hasHumanEdits;
+          while (edit.pending) {
+            const next = edit.pending; edit.pending = null;
+            const revision = editor.revision;
+            const prepared = await prepareVibi3DCommands(root, document, [next.command], crypto.randomUUID(), editor.object,
+              modelTextureReferences(editor.object, document?.links ?? []));
+            try {
+              assertActive();
+              const started = beginHumanEdit(editor);
+              try { await editor.applyAsync(prepared.commands, revision, { ...next.options, ...prepared, assertActive }); }
+              finally {
+                if (started && !editor.hasHumanEdits) editor.discardHumanEdits();
+                humanEditsRef.current = editor.hasHumanEdits;
+              }
+              setError(''); setNotice(''); sync();
+            } finally { prepared.dispose(); }
           }
-          setError(''); setNotice(''); sync();
-        } finally { prepared?.dispose(); busyRef.current = false; if (mounted.current) setBusy(false); }
+        } finally {
+          if (preparedEditRef.current === edit) preparedEditRef.current = null;
+          busyRef.current = false; if (mounted.current) setBusy(false);
+        }
       })().catch(err => { if (mounted.current) setError(errorText(err)); });
       return;
     }
     try { apply([command], undefined, options); } catch (err) { setError(errorText(err)); }
   }, [apply, errorText, root, stopPlayback, sync, beginHumanEdit]);
+  const userCommandRef = useRef(userCommand); userCommandRef.current = userCommand;
   const frameModel = useCallback((): void => {
     const object = (viewActorRef.current === 'agent' ? agentRef.current?.editor : editorRef.current)?.object;
     const camera = cameraRef.current; const controls = controlsRef.current;
@@ -349,6 +383,9 @@ export function Vibi3DShell({ params }: AppShellProps): React.JSX.Element {
     const lights = createStudioLights(); scene.add(lights.ambient, lights.key);
     applyStudioEnvironment(scene, renderer, 1);
     const box = new THREE.BoxHelper(new THREE.Object3D(), 0xa78bfa); box.visible = false; scene.add(box);
+    let needsDraw = true;
+    const invalidate = (): void => { needsDraw = true; };
+    controls.addEventListener('change', invalidate); transform.addEventListener('change', invalidate);
     sceneRef.current = scene; cameraRef.current = camera; rendererRef.current = renderer; controlsRef.current = controls;
     transformRef.current = transform; gridRef.current = grid; boxRef.current = box; lightsRef.current = lights;
     // A lost context comes back empty: three re-uploads the scene, the prefiltered environment is made again.
@@ -360,16 +397,17 @@ export function Vibi3DShell({ params }: AppShellProps): React.JSX.Element {
     };
     renderer.domElement.addEventListener('webglcontextlost', lost); renderer.domElement.addEventListener('webglcontextrestored', restored);
     transform.addEventListener('mouseDown', () => {
-      const object = transform.object; if (!object || quiescingRef.current || viewActorRef.current !== 'human') return;
+      const object = transform.object; if (!object || busyRef.current || quiescingRef.current || viewActorRef.current !== 'human') return;
       dragRef.current = { object, position: object.position.clone(), rotation: object.rotation.clone(), scale: object.scale.clone() }; controls.enabled = false;
     });
     transform.addEventListener('mouseUp', () => {
       const start = dragRef.current; dragRef.current = null; controls.enabled = true; if (!start) return;
       const id = editorRef.current?.getId(start.object);
-      const command: Vibi3DCommand = { type: 'update', id: id ?? '', position: start.object.position.toArray(), rotation: degrees(start.object), scale: start.object.scale.toArray() };
+      const command: Vibi3DCommand = { type: 'update', id: id ?? '', position: start.object.position.toArray(), rotation: degrees(start.object),
+        ...(start.object.scale.equals(start.scale) ? {} : { scale: start.object.scale.toArray() }) };
       // Restore the start before committing: one drag, one undo, one revision.
       start.object.position.copy(start.position); start.object.rotation.copy(start.rotation); start.object.scale.copy(start.scale); start.object.updateMatrixWorld(true);
-      if (id) { try { applyRef.current([command]); } catch (err) { setError(errorText(err)); } }
+      if (id) userCommandRef.current(command);
     });
     const raycaster = new THREE.Raycaster(); let pointerStart = { x: 0, y: 0, gizmo: false };
     const down = (event: PointerEvent): void => { pointerStart = { x: event.clientX, y: event.clientY, gizmo: transform.axis !== null }; };
@@ -397,26 +435,27 @@ export function Vibi3DShell({ params }: AppShellProps): React.JSX.Element {
       camera.aspect = width / height; camera.updateProjectionMatrix(); render();
     };
     const observer = new ResizeObserver(resize); observer.observe(mount); resize();
-    let raf = 0; let previous = performance.now(); let lastReadout = 0;
+    let raf = 0; let previous = performance.now(); let lastReadout = 0; let wasVisible = false;
     const tick = (now: number): void => {
       raf = requestAnimationFrame(tick);
       // Agent commands render explicitly in sync()/capture(); hidden views need no continuous GPU draw.
-      if (!shownRef.current || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) { previous = now; return; }
-      if (playingRef.current && mixerRef.current) {
+      if (!shownRef.current || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) { previous = now; wasVisible = false; return; }
+      const animating = playingRef.current && mixerRef.current !== null;
+      if (animating && mixerRef.current) {
         mixerRef.current.update(Math.min((now - previous) / 1000, 0.1)); playTimeRef.current = actionRef.current?.time ?? 0;
         if (now - lastReadout > 100) { lastReadout = now; setPlayTime(playTimeRef.current); }
       }
       previous = now; controls.update();
-      if (actionRef.current && editorRef.current) {
-        editorRef.current.object.traverse((child) => {
-          if (child instanceof THREE.PerspectiveCamera && child.userData['vibi3dViewCamera']) { child.getWorldPosition(camera.position); child.getWorldQuaternion(camera.quaternion); }
-        });
-      }
+      const draw = needsDraw || animating || transform.dragging || !wasVisible || mirror.needsFrame();
+      wasVisible = true;
+      if (!draw) return;
+      needsDraw = false;
       if (box.visible) box.update(); render();
     };
     raf = requestAnimationFrame(tick);
     return () => {
       mirror.dispose(); if (mirrorRef.current === mirror) mirrorRef.current = null;
+      controls.removeEventListener('change', invalidate); transform.removeEventListener('change', invalidate);
       mounted.current = false; loadSequence.current += 1; cancelAnimationFrame(raf); observer.disconnect(); controls.dispose(); transform.dispose();
       autosave.cancelScheduled();
       renderer.domElement.removeEventListener('pointerdown', down); renderer.domElement.removeEventListener('pointerup', up); unpick();
@@ -579,14 +618,14 @@ export function Vibi3DShell({ params }: AppShellProps): React.JSX.Element {
     }
     void load(async () => openModelDocument(root, await readModelDocument(root, current.id)), '', true, draftKeyRef.current, false);
   }, [head, busy, root, load, t]);
-  useEffect(() => { transformRef.current?.setMode(mode); }, [mode]);
-  useEffect(() => { if (gridRef.current) gridRef.current.visible = showGrid; }, [showGrid]);
-  useEffect(() => { if (sceneRef.current) sceneRef.current.background = new THREE.Color(BACKGROUNDS[bg]); }, [bg]);
+  useEffect(() => { transformRef.current?.setMode(mode); render(); }, [mode, render]);
+  useEffect(() => { if (gridRef.current) gridRef.current.visible = showGrid; render(); }, [showGrid, render]);
+  useEffect(() => { if (sceneRef.current) sceneRef.current.background = new THREE.Color(BACKGROUNDS[bg]); render(); }, [bg, render]);
   useEffect(() => { if (controlsRef.current) { controlsRef.current.autoRotate = spin; controlsRef.current.autoRotateSpeed = 1.2; } }, [spin]);
   useEffect(() => {
     const scene = sceneRef.current;
-    if (scene) { scene.overrideMaterial?.dispose(); scene.overrideMaterial = wireframe ? new THREE.MeshBasicMaterial({ color: 0xb9c2d0, wireframe: true }) : null; }
-  }, [wireframe]);
+    if (scene) { scene.overrideMaterial?.dispose(); scene.overrideMaterial = wireframe ? new THREE.MeshBasicMaterial({ color: 0xb9c2d0, wireframe: true }) : null; render(); }
+  }, [wireframe, render]);
   useEffect(() => { if (transformRef.current) transformRef.current.enabled = !busy && !quiescing && viewActor === 'human' && !actionRef.current; }, [busy, quiescing, viewActor, playing, playTime]);
   const observe = useCallback((): Vibi3DSnapshot | null => {
     if (!agentRef.current || agentBusyRef.current || loadingRef.current) return null;
@@ -1123,7 +1162,7 @@ export function Vibi3DShell({ params }: AppShellProps): React.JSX.Element {
         onChange={(event) => {
           const mixer = mixerRef.current; const clip = clips[clipIndex]; if (!mixer || !clip) return;
           if (!actionRef.current) actionRef.current = mixer.clipAction(clip).play(); playingRef.current = false; setPlaying(false);
-          const time = Number(event.target.value); actionRef.current.time = time; mixer.update(0); playTimeRef.current = time; setPlayTime(time); transformRef.current?.detach();
+          const time = Number(event.target.value); actionRef.current.time = time; mixer.update(0); playTimeRef.current = time; setPlayTime(time); transformRef.current?.detach(); render();
         }} />
       <span className="whitespace-nowrap tabular-nums text-gray-400">{playTime.toFixed(1)} / {duration.toFixed(1)}s</span>
     </div>}

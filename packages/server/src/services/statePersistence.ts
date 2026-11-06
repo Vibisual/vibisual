@@ -50,7 +50,7 @@ const ACTIVITY_FILENAME = 'activity.json';
 // §3.2.1 손실 방지: 원자적 쓰기 + 다세대 백업 + 복구
 
 /** 원자적 쓰기 — `.tmp` 에 쓰고 fsync 후 rename(같은 디렉토리 안에서 원자적). 도중 종료·전원 손실에도 반파되지 않는다(§3.2.1-1). 디렉토리 fsync 는 되는 플랫폼에서만. */
-export function atomicWriteFileSync(filePath: string, data: string): void {
+export function atomicWriteFileSync(filePath: string, data: string, mode?: number): void {
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     // 최종 방어선: 죽은 워크트리(`.git` 없음) 안엔 mkdir 하지 않는다 — 지운 워크트리 폴더가 되살아나는 지점이다(가드를 뚫은 배경 쓰기까지 막는다).
@@ -61,7 +61,7 @@ export function atomicWriteFileSync(filePath: string, data: string): void {
   }
   // 쓰기 절차(tmp → fsync → rename → 디렉토리 fsync)의 **유일한 구현**은 diskWriteQueue 에 있다.
   // 여기(가드) 와 워커(성능) 가 같은 절차를 두 벌로 들고 있다가 어긋나는 것을 막기 위함이다.
-  writeFileAtomicSyncRaw(filePath, data);
+  writeFileAtomicSyncRaw(filePath, data, '.tmp', mode);
 }
 
 /**
@@ -1030,6 +1030,15 @@ export class SaveScheduler {
    * 같을 때만이라 debounce 와 달리 유실 창이 없다.
    */
   private lastWritten = new Map<string, string>();
+  private failedProjects = new Map<string, string>();
+
+  /** Unchanged position uploads still retry writes previously refused/failed.
+   * Queued disk failures already retain their payload; failed synchronous saves
+   * need a fresh checkpoint from the owning project. */
+  retryFailedWrites(): string[] {
+    retryFailedDiskWrites();
+    return [...new Set(this.failedProjects.values())];
+  }
 
   /** 단일 프로젝트 체크포인트 저장 */
   forceCheckpoint(checkpoint: ProjectCheckpoint): void {
@@ -1038,6 +1047,10 @@ export class SaveScheduler {
 
   /** 여러 프로젝트 체크포인트 일괄 저장 */
   forceCheckpointAll(checkpoints: ProjectCheckpoint[]): void {
+    for (const cp of checkpoints) {
+      const key = cp.project?.path ?? cp.project?.name ?? '';
+      if (key) this.failedProjects.set(key, cp.project.name);
+    }
     for (const cp of checkpoints) {
       this.writeIfChanged(cp);
     }
@@ -1050,9 +1063,14 @@ export class SaveScheduler {
     // 큐 접수 뒤의 비동기 실패는 저장 지문과 별개다. 내용 불변이어도 미저장분은 재시도한다.
     retryFailedDiskWrites();
     const key = cp.project?.path ?? cp.project?.name ?? '';
+    if (key) this.failedProjects.set(key, cp.project.name);
     // §3.2.2 — 골격과 이력을 나눠 **각자** 변경 감지한다. 둘은 바뀌는 시점이 달라서,
     // 한쪽만 바뀐 저장에서 다른 쪽의 백업 회전 + 원자적 쓰기를 통째로 아낀다.
     const { core, activity } = splitCheckpointForDisk(cp);
+    // Measured native exception (2026-11-03): the same nine real projects took
+    // ~137ms here with V8 JSON/native SHA-1 vs ~200ms with a Rust Wasm visitor.
+    // JS↔Wasm per-value traffic outweighed its compute gains. Keep the native
+    // codecs and avoid this work entirely for unchanged/unrelated projects.
     const coreJson = JSON.stringify(core);
     const activityJson = JSON.stringify(activity);
     // §3.2.4 — 비교는 지문으로. 직렬화 결과 자체를 들고 있으면 프로젝트마다 수십 MB 가 상주한다.
@@ -1062,12 +1080,16 @@ export class SaveScheduler {
     const activityFp = contentFingerprint(activityJson);
     const coreChanged = !key || this.lastWritten.get(key) !== coreFp;
     const activityChanged = !key || this.lastWrittenActivity.get(key) !== activityFp;
-    if (!coreChanged && !activityChanged) return; // 양쪽 다 불변 — 디스크 쓰기 스킵
+    if (!coreChanged && !activityChanged) {
+      this.failedProjects.delete(key);
+      return; // 양쪽 다 불변 — 디스크 쓰기 스킵
+    }
     // 직렬화를 넘겨 재직렬화를 피한다.
     const accepted = writeCheckpoint(cp, coreJson, { skipCore: !coreChanged, activityJson });
     // 실패/가드 거부를 저장 완료로 기억하면 같은 내용의 다음 autosave가 영원히 생략된다.
     if (key) {
       if (accepted) {
+        this.failedProjects.delete(key);
         if (coreChanged) this.lastWritten.set(key, coreFp);
         this.lastWrittenActivity.set(key, activityFp);
       } else {

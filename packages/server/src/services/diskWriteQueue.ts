@@ -92,17 +92,28 @@ const stats = { queued: 0, written: 0, failed: 0, syncFallback: 0, flushedSync: 
 /**
  * 원자적 쓰기의 유일한 동기 구현 — `statePersistence.atomicWriteFileSync`(가드 담당)와 큐의 폴백·종료 flush 가 모두 이것을 쓴다(절차가 두 벌로 갈라지지 않게).
  * @param tmpSuffix 임시 파일 접미사. 워커와 동시에 같은 파일을 쓸 수 있는 종료 flush 는 다른 접미사로 tmp 충돌을 피한다.
+ * @param mode 비밀(토큰) 파일용 권한. 남은 옛 tmp 는 open 의 mode 가 안 먹으므로 내용을 쓰기 전에 fchmod 로 좁힌다.
  */
-export function writeFileAtomicSyncRaw(filePath: string, data: string, tmpSuffix = '.tmp'): void {
+export function writeFileAtomicSyncRaw(filePath: string, data: string, tmpSuffix = '.tmp', mode?: number): void {
   const tmp = `${filePath}${tmpSuffix}`;
-  const fd = fs.openSync(tmp, 'w');
+  const fd = fs.openSync(tmp, 'w', mode ?? 0o666);
+  let replaced = false;
   try {
-    fs.writeFileSync(fd, data, 'utf8');
-    try { fs.fsyncSync(fd); } catch { /* 일부 FS 는 fsync 미지원 — best effort */ }
+    try {
+      if (mode !== undefined) {
+        try { fs.fchmodSync(fd, mode); } catch { /* 권한을 다루지 않는 FS */ }
+      }
+      fs.writeFileSync(fd, data, 'utf8');
+      try { fs.fsyncSync(fd); } catch { /* 일부 FS 는 fsync 미지원 — best effort */ }
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, filePath);
+    replaced = true;
   } finally {
-    fs.closeSync(fd);
+    // 실패하면 원본은 그대로다. 반쯤 쓴 tmp 만 치운다.
+    if (!replaced) { try { fs.unlinkSync(tmp); } catch { /* 이미 없음 */ } }
   }
-  fs.renameSync(tmp, filePath);
   // 디렉토리 엔트리(rename 메타데이터)도 디스크 도달 강제 — 전원 손실 시 옛 파일 부활 방지.
   try {
     const dfd = fs.openSync(path.dirname(filePath), 'r');

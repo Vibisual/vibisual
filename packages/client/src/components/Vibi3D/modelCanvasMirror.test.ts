@@ -36,6 +36,28 @@ afterEach(() => {
 });
 
 describe('same-window model canvas mirror', () => {
+  it('requests one trailing frame for an idle edited scene and a new subscriber', () => {
+    const pub = publisher(); pub.publish(a, source);
+    expect(pub.needsFrame()).toBe(false);
+    const off = subscribe(a);
+    expect(pub.needsFrame()).toBe(true);
+    pub.publish(a, source);
+    expect(pub.needsFrame()).toBe(false);
+    now = 100; pub.publish(a, source);
+    expect(pub.needsFrame()).toBe(false);
+    now = 500;
+    expect(pub.needsFrame()).toBe(true);
+    pub.publish(a, source);
+    now = 2000;
+    expect(pub.needsFrame()).toBe(false);
+    off(); subscribe(a);
+    expect(pub.needsFrame()).toBe(true);
+    pub.publish(a, source);
+    expect(pub.needsFrame()).toBe(false);
+    pub.dispose();
+    expect(pub.needsFrame()).toBe(false);
+  });
+
   it('isolates project, document and file identities while accepting equivalent path shapes', () => {
     expect(modelCanvasMirrorKey(a)).toBe(modelCanvasMirrorKey({ ...a, projectId: 'C:\\project' }));
     expect(modelCanvasMirrorKey(a)).not.toBe(modelCanvasMirrorKey({ ...a, projectId: 'C:/other' }));

@@ -16,6 +16,7 @@ import { useAppWindowsStore } from '../../apps/appWindows.js';
 import { getAppDialog } from '../../utils/appDialog.js';
 import { flushAllDurable, releaseDurableFlushes } from '../../utils/persistFlush.js';
 import { ModelDraftApiError } from './modelDraftApi.js';
+import { ModelEditor } from './modelEditor.js';
 
 const mocks = vi.hoisted(() => ({
   local: vi.fn(), workspace: vi.fn(), export: vi.fn(), dispose: vi.fn(), write: vi.fn(),
@@ -74,10 +75,10 @@ vi.mock('three', async (original) => {
   } };
 });
 vi.mock('three/examples/jsm/controls/OrbitControls.js', async () => {
-  const { Vector3 } = await import('three');
-  return { OrbitControls: class {
+  const { Vector3, EventDispatcher } = await import('three');
+  return { OrbitControls: class extends EventDispatcher {
     target = new Vector3(); enabled = true; update = vi.fn(); dispose = vi.fn(); camera: unknown;
-    constructor(camera: unknown) { mocks.controls = this; this.camera = camera; }
+    constructor(camera: unknown) { super(); mocks.controls = this; this.camera = camera; }
   } };
 });
 vi.mock('three/examples/jsm/controls/TransformControls.js', async () => {
@@ -141,6 +142,114 @@ afterEach(async () => {
 });
 
 describe('Vibi3D shell edit flow', () => {
+  it('keeps a settled scene idle and redraws controls, gizmos and display changes', async () => {
+    act(() => mount()); await open(fixture());
+    const at = performance.now();
+    act(() => mocks.tick!(at)); mocks.renderScene.mockClear();
+    for (let i = 1; i <= 120; i++) act(() => mocks.tick!(at + i * 16));
+    expect(mocks.renderScene).not.toHaveBeenCalled();
+    const controls = mocks.controls as { dispatchEvent(event: { type: string }): void };
+    act(() => { controls.dispatchEvent({ type: 'change' }); mocks.tick!(at + 2000); });
+    expect(mocks.renderScene).toHaveBeenCalledTimes(1);
+    act(() => mocks.tick!(at + 2016));
+    expect(mocks.renderScene).toHaveBeenCalledTimes(1);
+    const transform = mocks.transform as { dispatchEvent(event: { type: string }): void };
+    act(() => { transform.dispatchEvent({ type: 'change' }); mocks.tick!(at + 2032); });
+    expect(mocks.renderScene).toHaveBeenCalledTimes(2);
+    act(() => button('panel.vibi3d.grid').props.onClick());
+    expect(mocks.renderScene).toHaveBeenCalledTimes(3);
+  });
+
+  it('redraws once when a hidden scene becomes visible again', async () => {
+    const visibility = { visibilityState: 'hidden' };
+    vi.stubGlobal('document', visibility);
+    act(() => mount()); await open(fixture());
+    mocks.renderScene.mockClear();
+    act(() => mocks.tick!(performance.now()));
+    expect(mocks.renderScene).not.toHaveBeenCalled();
+    visibility.visibilityState = 'visible';
+    act(() => mocks.tick!(performance.now() + 16));
+    expect(mocks.renderScene).toHaveBeenCalledTimes(1);
+    act(() => mocks.tick!(performance.now() + 32));
+    expect(mocks.renderScene).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws every paused seek immediately, including its animated camera', async () => {
+    act(() => mount());
+    const model = fixture('animated.glb', true);
+    const viewCamera = new THREE.PerspectiveCamera(); viewCamera.name = 'ShotCamera';
+    viewCamera.userData['vibi3dViewCamera'] = true; model.object.add(viewCamera);
+    model.clips[0]!.tracks.push(new THREE.VectorKeyframeTrack('ShotCamera.position', [0, 1], [0, 1, 5, 4, 1, 5]));
+    await open(model); act(() => mocks.tick!(performance.now())); mocks.renderScene.mockClear();
+    const seek = renderer!.root.findByProps({ 'aria-label': 'Animation time' });
+    const camera = (mocks.controls as { camera: THREE.PerspectiveCamera }).camera;
+    for (const time of [0.25, 0.75]) {
+      act(() => seek.props.onChange({ target: { value: String(time) } }));
+      expect(model.object.getObjectByName('Cube')!.position.x).toBeCloseTo(time * 10);
+      expect(camera.position.x).toBeCloseTo(time * 4);
+    }
+    // Direct command/seek rendering also works before the next animation frame.
+    expect(mocks.renderScene).toHaveBeenCalledTimes(2);
+  });
+
+  it('retains the last frame while a material transaction has unfinished worker maps', async () => {
+    act(() => mount()); await open(fixture());
+    act(() => mocks.tick!(performance.now())); mocks.renderScene.mockClear();
+    const applying = vi.spyOn(ModelEditor.prototype, 'isApplying', 'get').mockReturnValue(true);
+    try {
+      act(() => button('panel.vibi3d.grid').props.onClick());
+      const controls = mocks.controls as { dispatchEvent(event: { type: string }): void };
+      act(() => { controls.dispatchEvent({ type: 'change' }); mocks.tick!(performance.now() + 16); });
+      expect(mocks.renderScene).not.toHaveBeenCalled();
+      applying.mockReturnValue(false);
+      act(() => button('panel.vibi3d.grid').props.onClick());
+      expect(mocks.renderScene).toHaveBeenCalledTimes(1);
+    } finally { applying.mockRestore(); }
+  });
+
+  it('keeps the last colour of an in-flight material gesture and undoes it once', async () => {
+    act(() => mount()); const model = fixture(); await open(model);
+    const cube = model.object.getObjectByName('Cube') as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+    const id = String(cube.userData['vibi3dId']);
+    const before = cube.material.color.getHexString(); const gate = deferred<void>();
+    const original = ModelEditor.prototype.applyAsync;
+    let calls = 0;
+    const applying = vi.spyOn(ModelEditor.prototype, 'applyAsync').mockImplementation(async function (this: ModelEditor, commands, revision, options) {
+      if (++calls === 1) await gate.promise;
+      return original.call(this, commands, revision, options);
+    });
+    try {
+      await act(async () => inspector().onCommand({ type: 'material', id, material: { color: '#ff0000' } }, { merge: 'picker-gesture' }));
+      act(() => {
+        inspector().onCommand({ type: 'material', id, material: { color: '#0000ff' } }, { merge: 'picker-gesture' });
+        inspector().onCommand({ type: 'material', id, material: { color: '#00ff00' } }, { merge: 'picker-gesture' });
+      });
+      await act(async () => {
+        gate.resolve();
+        await vi.waitFor(() => expect(inspector().snapshot.revision).toBe(2));
+      });
+      expect(calls).toBe(2); expect(cube.material.color.getHexString()).toBe('00ff00');
+      act(() => button('Undo').props.onClick());
+      expect(cube.material.color.getHexString()).toBe(before);
+      expect(inspector().snapshot.canUndo).toBe(false);
+    } finally { gate.resolve(); applying.mockRestore(); }
+  });
+
+  it('commits gizmo scaling through async preparation while keeping one undo step', async () => {
+    act(() => mount()); await act(async () => button('Try a cube').props.onClick());
+    const transform = mocks.transform as { object: THREE.Object3D; dispatchEvent(event: { type: string }): void };
+    const applying = vi.spyOn(ModelEditor.prototype, 'applyAsync');
+    try {
+      act(() => { transform.dispatchEvent({ type: 'mouseDown' }); transform.object.scale.set(2, 3, 4); transform.dispatchEvent({ type: 'mouseUp' }); });
+      await act(async () => { await vi.waitFor(() => expect(inspector().snapshot.revision).toBe(1)); });
+      expect(applying).toHaveBeenCalledTimes(1);
+      expect(transform.object.scale.toArray()).toEqual([2, 3, 4]);
+      act(() => button('Undo').props.onClick());
+      expect(transform.object.scale.toArray()).toEqual([1, 1, 1]);
+      expect(inspector().snapshot.canUndo).toBe(false);
+    } finally { applying.mockRestore(); }
+  });
+
   it('rejects simultaneous AI edits while explicitly applying the draft to its source', async () => {
     const model = fixture(); const doc = { schemaVersion: 1, id: 'product', appId: 'vibi3d', title: 'Product', revision: 3,
       payload: serializeModelSource(model.object, model.clips), links: [], parameters: {}, lockedPaths: [], createdAt: 1, updatedAt: 1, label: '', author: 'user' };

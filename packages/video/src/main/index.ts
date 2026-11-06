@@ -11,6 +11,7 @@ import {
 } from './offscreen.js';
 import { closeWorker, ensureWorker } from './worker.js';
 import { capturePageImage } from './pageCapture.js';
+import { frameArrayBuffer } from './frameBuffer.js';
 import { downloadLibrary } from './libsDownload.js';
 import { disposeExportHost, exportDone, openExport, openExportFolder, pickExportFolder, revealExport, setKeepAwake } from './exportHost.js';
 
@@ -70,7 +71,7 @@ export const vibistudioApp: VideoMainModule = {
         const shot = await captureOffscreenAt(p.t, p.session, p.format);
         // §5.13 (W) 38-1 — 날 비트맵은 그대로(이미 ArrayBuffer). PNG 는 Buffer 를 ArrayBuffer 로(구조적 복제에서 모양을 지키게).
         if (!Buffer.isBuffer(shot)) return shot;
-        return shot.buffer.slice(shot.byteOffset, shot.byteOffset + shot.byteLength) as ArrayBuffer;
+        return frameArrayBuffer(shot);
       }
       // §5.13 (V) 37-9 — 프레임 검수: 마지막으로 찍은 시각의 컴포지션 글자 상자(읽기 전용).
       case 'offscreen:inspect': {

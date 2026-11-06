@@ -3,6 +3,7 @@ import type { Node } from '@xyflow/react';
 import { LAYOUT_BOUNDS_DEFAULT, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_ORBIT_GAP } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
 import { isCanvasCovered, subscribeCanvasCovered } from '../stores/canvasVisibility.js';
+import { frozenSatelliteIds } from './physicsFrozen.js';
 import {
   MAGNET_GAP,
   collidable,
@@ -531,29 +532,7 @@ export function usePhysicsLayout(
     const carriers = all.filter((b) => b.carryIds != null && b.carryIds.length > 0 && b.movable && !b.dragging);
 
     // 복귀 길이 막힌 위성은 이번 프레임 완전 정지(평형점에서 떨지 않게). 막힘 = 다른 버블이 부모와 최소거리로 붙어 있고 · sat 과 parent 사이에 끼고 · sat 과 충돌권 안. 비키면 다음 프레임에 잇는다.
-    const frozenSatIds = new Set<string>();
-    for (const sat of satellites) {
-      if (sat.dragging) continue;
-      const parent = bodies.get(sat.parentId!);
-      if (!parent) continue;
-      const sx = sat.x - parent.x;
-      const sy = sat.y - parent.y;
-      const satToParent = Math.sqrt(sx * sx + sy * sy) || 1;
-      for (const b of all) {
-        if (b === sat || b === parent) continue;
-        const bpx = b.x - parent.x;
-        const bpy = b.y - parent.y;
-        const bpDist = Math.sqrt(bpx * bpx + bpy * bpy) || 0.1;
-        const bpMin = parent.radius + extentOf(b) + MAGNET_GAP;
-        if (bpDist > bpMin + 1) continue;
-        if (bpDist >= satToParent) continue;
-        const sbx = b.x - sat.x;
-        const sby = b.y - sat.y;
-        const sbDist = Math.sqrt(sbx * sbx + sby * sby) || 0.1;
-        const sbMin = sat.radius + extentOf(b) + MAGNET_GAP;
-        if (sbDist <= sbMin + 6) { frozenSatIds.add(sat.id); break; }
-      }
-    }
+    const frozenSatIds = frozenSatelliteIds(all);
 
     // §5.1 #2-2 (K) — 부모가 벽으로 밀려 스프링 목표가 상자 밖을 가리키면 거리는 지킨 채 상자 안 각도로 돌린다(앱 작업 위성은 각도가 곧 역할이라 제외).
     const box = layoutBox();

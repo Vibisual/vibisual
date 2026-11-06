@@ -62,6 +62,7 @@ export function subscribeModelCanvasMirror(key: string | null, listener: Listene
 
 export interface ModelCanvasMirrorPublisher {
   publish: (target: ModelCanvasMirrorTarget | null, canvas: HTMLCanvasElement) => void;
+  needsFrame: () => boolean;
   clear: () => void;
   dispose: () => void;
 }
@@ -73,9 +74,10 @@ export function createModelCanvasMirrorPublisher(): ModelCanvasMirrorPublisher {
   let lastCapture = -Infinity;
   let scratch: HTMLCanvasElement | null = null;
   let disposed = false;
+  let pending = false;
   const clear = (): void => {
     const previous = key;
-    key = null; lastCapture = -Infinity;
+    key = null; lastCapture = -Infinity; pending = false;
     if (previous !== null && frames.get(previous)?.owner === owner) {
       frames.delete(previous); notify(previous);
     }
@@ -84,6 +86,9 @@ export function createModelCanvasMirrorPublisher(): ModelCanvasMirrorPublisher {
   return {
     clear,
     dispose: () => { disposed = true; clear(); },
+    // Redraw once after throttling or a new subscriber, even when the scene is idle.
+    needsFrame: () => !disposed && key !== null && !!listeners.get(key)?.size
+      && (pending || !frames.has(key)) && performance.now() - lastCapture >= MODEL_MIRROR_INTERVAL_MS,
     publish: (target, canvas) => {
       if (disposed) return;
       const nextKey = modelCanvasMirrorKey(target);
@@ -91,12 +96,12 @@ export function createModelCanvasMirrorPublisher(): ModelCanvasMirrorPublisher {
       if (key === null) return;
       if (!listeners.get(key)?.size) {
         if (scratch) { scratch.width = 0; scratch.height = 0; scratch = null; }
-        lastCapture = -Infinity;
+        lastCapture = -Infinity; pending = false;
         return;
       }
       const now = performance.now();
-      if (now - lastCapture < MODEL_MIRROR_INTERVAL_MS) return;
-      lastCapture = now;
+      if (now - lastCapture < MODEL_MIRROR_INTERVAL_MS) { pending = true; return; }
+      lastCapture = now; pending = false;
       if (typeof document === 'undefined' || !canvas.width || !canvas.height) return;
       try {
         scratch ??= document.createElement('canvas');

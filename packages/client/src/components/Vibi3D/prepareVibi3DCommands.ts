@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { validateVibi3DSignRecipe, type CreationDoc, type CreationLink, type Vibi3DCommand, type Vibi3DSignRecipe } from '@vibisual/shared';
+import { validateVibi3DSignRecipe, validateVibi3DArchitectureCommand, validateVibi3DKitCommand, type CreationDoc, type CreationLink, type Vibi3DCommand, type Vibi3DSignRecipe } from '@vibisual/shared';
 import { creationIntentId } from '../Creation/creationApi.js';
 import { CreationUiError } from '../Creation/creationErrors.js';
 import { disposeModel } from './modelIO.js';
@@ -8,9 +8,11 @@ import { hasExternalMaterialSources, prepareMaterialSources } from './modelMater
 import { isPreparedInstalled } from './modelPreparedGraphics.js';
 
 export function needsPreparedVibi3DCommands(commands: readonly Vibi3DCommand[]): boolean {
-  return commands.some(command => ['sign', 'decal', 'mascot'].includes(command.type)) || hasExternalMaterialSources(commands);
+  return commands.some(command => ['sign', 'decal', 'mascot', 'material', 'create', 'geometry'].includes(command.type)
+    || command.type === 'update' && !!command.scale
+    || !!validateVibi3DArchitectureCommand(command) || !!validateVibi3DKitCommand(command)) || hasExternalMaterialSources(commands);
 }
-/** Prepare fonts and immutable images outside the atomic edit; command order supplies intermediate sign recipes. */
+/** Resolve fonts/images and select the async transaction for Rust material/atlas work; preserve command order. */
 export async function prepareVibi3DCommands(projectId: string, document: CreationDoc | null, input: readonly Vibi3DCommand[],
   commandId: string, object: THREE.Object3D, links: CreationLink[] = document?.links ?? []) {
   const commands = structuredClone(input) as Vibi3DCommand[];
