@@ -28,7 +28,8 @@ afterEach(() => {
   vi.restoreAllMocks();
   if (originalHome === undefined) delete process.env['VIBISUAL_HOME'];
   else process.env['VIBISUAL_HOME'] = originalHome;
-  fs.rmSync(home, { recursive: true, force: true });
+  // Windows: 그래프가 아직 쥔 파일이 지우기 대기로 남아 ENOTEMPTY 가 날 수 있다 — 정리 실패는 시험과 무관.
+  try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
 describe('외부 폴더 통합 깊이 설정', () => {

@@ -438,7 +438,8 @@ describe('멤버 지시문 → 프로젝트 스킬', () => {
   });
 
   it('프로젝트 스킬 자리에 새로 쓰고, 같은 이름이 있으면 덮지 않는다', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vib-skill-'));
+    // macOS 의 tmpdir 은 `/var → /private/var` 링크 아래라, 풀지 않으면 링크 조상을 거절하는 가드에 걸린다.
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vib-skill-')));
     try {
       const first = exportMemberSkill({ projectCwd: root, provider: 'claude', label: 'Reviewer', rules: '# r', platform: process.platform as NodeJS.Platform as never, home: root });
       expect(first.ok && first.path).toBe(path.join(root, '.claude', 'skills', 'Reviewer', 'SKILL.md'));

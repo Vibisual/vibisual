@@ -18,7 +18,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  fs.rmSync(root, { recursive: true, force: true });
+  // Windows: 그래프가 아직 쥔 파일이 지우기 대기로 남아 ENOTEMPTY 가 날 수 있다 — 정리 실패는 시험과 무관.
+  try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
 function touch(file: string, session = 'native-session', subId?: string): void {
@@ -175,7 +176,7 @@ describe('session preview ownership', () => {
       expect(files()).toEqual([]);
       expect(graph.getSnapshot().topFolders.some((node) => node.bubbleType === 'external_folder')).toBe(false);
     } finally {
-      fs.rmSync(outside, { recursive: true, force: true });
+      try { fs.rmSync(outside, { recursive: true, force: true }); } catch { /* best effort — afterEach 와 같은 이유 */ }
     }
   });
 
@@ -191,7 +192,7 @@ describe('session preview ownership', () => {
       });
       expect(files().map((node) => node.label).sort()).toEqual(['first.png', 'one.ts', 'second.pdf', 'third.png', 'two.md']);
     } finally {
-      fs.rmSync(outside, { recursive: true, force: true });
+      try { fs.rmSync(outside, { recursive: true, force: true }); } catch { /* best effort — afterEach 와 같은 이유 */ }
     }
   });
 

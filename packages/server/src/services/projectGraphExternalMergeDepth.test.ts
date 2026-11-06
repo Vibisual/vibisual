@@ -20,7 +20,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-  fs.rmSync(projectRoot, { recursive: true, force: true });
+  // Windows: 그래프가 아직 쥔 파일이 지우기 대기로 남아 ENOTEMPTY 가 날 수 있다 — 정리 실패는 시험과 무관.
+  try { fs.rmSync(projectRoot, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
 function makeGraph(): ProjectGraph {
