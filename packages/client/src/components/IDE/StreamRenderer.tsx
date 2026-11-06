@@ -61,6 +61,7 @@ import { useStreamToggle, streamToggleProps } from './streamToggle.js';
 import {
   nestedContinuationIds, nestedAgentLabels, nestedAgentTone, nestedAgentShortId, sameIdSet, sameLabelMap,
 } from './nestedSubagentRuns.js';
+import { matchSubagentTokenShares, useSubagentStatusRows } from './subagentTokenShare.js';
 import { streamItemFindText, findTextMatches } from './streamSearch.js';
 import {
   STREAM_DIFF_AUTO_EXPAND_MAX_LINES,
@@ -962,6 +963,8 @@ interface NestedCtx {
   label: string;
   continued: ReadonlySet<string>;
   names: ReadonlyMap<string, string>;
+  /** §5.5 #17-51 ⑤ — 머리표 끝에 붙일 토큰 몫 글(맞춘 것만). */
+  tokens: ReadonlyMap<string, string>;
 }
 
 /** 이 항목을 낳은 중첩 서브에이전트(바깥 Task 호출 id). 미설정 = 이 세션 자신. */
@@ -975,10 +978,11 @@ function nestedOwnerOf(item: StreamDisplayItem): string | undefined {
  * §4 (스트림 3종 ①) — `--forward-subagent-text` 로 섞여 오는 자식(Task) 말을 세로선 + 갈래 표식으로 감싼다(안 감싸면 누구 말인지 사라진다).
  * §5.5 #17-51 — 색·짧은 id 는 서브에이전트마다 다르고, 같은 서브에이전트가 이어지면 머리표 없이 세로선만 잇는다.
  */
-function NestedFrame({ owner, label, name, continued, children }: {
+function NestedFrame({ owner, label, name, tokens, continued, children }: {
   owner: string;
   label: string;
   name: string | undefined;
+  tokens?: string | undefined;
   continued: boolean;
   children: React.ReactNode;
 }): React.JSX.Element {
@@ -1005,6 +1009,7 @@ function NestedFrame({ owner, label, name, continued, children }: {
           <span className="shrink-0 font-medium">{label}</span>
           <span className={`shrink-0 rounded px-1 font-mono ${tone.chip}`}>#{nestedAgentShortId(owner)}</span>
           {name && <span className="min-w-0 truncate text-gray-400">{name}</span>}
+          {tokens && <span data-nested-subagent-tokens className="shrink-0 tabular-nums text-gray-500">{tokens}</span>}
         </div>
       )}
       {children}
@@ -1057,7 +1062,7 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
   const nestedUnder = nestedOwnerOf(item);
   if (nestedUnder) {
     inner = (
-      <NestedFrame owner={nestedUnder} label={nested.label} name={nested.names.get(nestedUnder)} continued={nested.continued.has(item.id)}>
+      <NestedFrame owner={nestedUnder} label={nested.label} name={nested.names.get(nestedUnder)} tokens={nested.tokens.get(nestedUnder)} continued={nested.continued.has(item.id)}>
         {inner}
       </NestedFrame>
     );
@@ -1211,9 +1216,28 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
     if (!sameLabelMap(nestedNamesRef.current, next)) nestedNamesRef.current = next;
     return nestedNamesRef.current;
   }, [events, nestedOwners]);
+  // §5.5 #17-51 ⑤ — 서브에이전트 토큰 몫. 이 세션(대화형 CLI 의 세션 id)에 수집기 틱이 있고 이름이 글자째 맞을 때만 적는다.
+  const statusSessionId = useGraphStore((s) => {
+    if (!agentId) return undefined;
+    const sub = subAgentId ? (s.subAgents[agentId] ?? []).find((x) => x.id === subAgentId) : undefined;
+    return sub?.sessionId || s.agents.find((a) => a.id === agentId)?.path;
+  });
+  const statusRows = useSubagentStatusRows(statusSessionId, nestedOwners.size > 0);
+  const nestedTokensRef = useRef<Map<string, string>>(new Map());
+  const nestedTokens = useMemo(() => {
+    const shares = matchSubagentTokenShares(nestedNames, statusRows);
+    const next = new Map<string, string>();
+    for (const [owner, share] of shares) {
+      next.set(owner, share.percent !== undefined
+        ? t('ide.streamRenderer.nestedSubagentTokens', { tokens: share.tokens.toLocaleString(), percent: share.percent })
+        : t('ide.streamRenderer.nestedSubagentTokensOnly', { tokens: share.tokens.toLocaleString() }));
+    }
+    if (!sameLabelMap(nestedTokensRef.current, next)) nestedTokensRef.current = next;
+    return nestedTokensRef.current;
+  }, [nestedNames, statusRows, t]);
   const nestedCtx = useMemo<NestedCtx>(
-    () => ({ label: nestedLabel, continued: nestedContinued, names: nestedNames }),
-    [nestedLabel, nestedContinued, nestedNames],
+    () => ({ label: nestedLabel, continued: nestedContinued, names: nestedNames, tokens: nestedTokens }),
+    [nestedLabel, nestedContinued, nestedNames, nestedTokens],
   );
   // IDE 본문 텍스트 줌 — 각 항목 래퍼에 zoom 적용(아래 renderStreamItem). 변경 시 itemContent 정체성이
   //   바뀌어 Virtuoso 가 전 항목을 재측정 → 새 배율로 정착(줌 조작은 드물어 비용 무관).

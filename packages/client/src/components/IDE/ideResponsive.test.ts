@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { IDE_EDITOR_WIDTH } from '@vibisual/shared';
-import { IDE_BODY, IDE_PIECE_FOLD, diffStacked, dockGrowthOnClose, dragEditorWidth, editorGrowth, findBarStacked, ideSidebarWidth, resolveIDEBodyLayout, terminalRailOverlays, type IDEBodyInput } from './ideResponsive.js';
+import { IDE_BODY, IDE_PIECE_FOLD, diffStacked, dockGrowthOnClose, dragEditorWidth, editorGrowth, findBarStacked, ideSidebarWidth, promptRailCompact, resolveIDEBodyLayout, terminalRailOverlays, type IDEBodyInput } from './ideResponsive.js';
 
 /** 창 안 반응형 회귀 — 어떤 창 폭에서도 대화가 하한 아래로 찌부러지지 않는다(깨지면 글자가 세로로 서고 상태바가 넘친다). */
 
@@ -44,6 +44,15 @@ describe('조각 접기 — 저마다 받은 칸 폭으로 묻는다', () => {
     expect(diffStacked(900)).toBe(false);
     expect(diffStacked(IDE_PIECE_FOLD.DIFF_STACK_W)).toBe(false);
     expect(diffStacked(340)).toBe(true);
+  });
+
+  it('folds prompt navigation below a 640px conversation pane', () => {
+    expect(promptRailCompact(0)).toBe(false);
+    expect(promptRailCompact(-1)).toBe(false);
+    expect(promptRailCompact(360)).toBe(true);
+    expect(promptRailCompact(639)).toBe(true);
+    expect(promptRailCompact(640)).toBe(false);
+    expect(promptRailCompact(1200)).toBe(false);
   });
 
   it('카드 레일 — 레일을 세우고도 터미널에 대화 하한이 남는 칸에서만 옆에 선다', () => {

@@ -110,6 +110,15 @@ function glyphOf(view: IDEViewType): React.JSX.Element | null {
       );
     case 'bookmarks':
       return <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />;
+    // §5.19 (J) 끝까지 돕기 — 구명 튜브(lucide life-buoy 톤). 루프(되풀이 화살표)·목표(과녁)와 겹치지 않게 대각선 띠 넷.
+    case 'localAssist':
+      return (
+        <>
+          <circle cx="12" cy="12" r="10" />
+          <circle cx="12" cy="12" r="4" />
+          <path d="m4.93 4.93 4.24 4.24M14.83 9.17l4.24-4.24M14.83 14.83l4.24 4.24M9.17 14.83l-4.24 4.24" />
+        </>
+      );
     default:
       return null;
   }

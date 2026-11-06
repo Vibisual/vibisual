@@ -2171,15 +2171,17 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     // §5.5 #17-29 — 훅 버블은 읽기 전용. 손잡이(탭 `+`)는 이미 숨겼지만, 낙관적 탭을 먼저 그려 두고
     //   POST 가 403 으로 튕기면 유령 탭이 남으므로 여기서도 끊는다(서버가 권위, 화면은 앞서가지 않는다).
     if (!isCustom) return;
-    const id = `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const now = Date.now();
+    const id = `sub-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    // 두 시각은 한 값 — 어긋나면 빈 탭이 "움직인 탭"으로 읽힌다(`isPristineSession`, §5.5 #17-10 ⑦).
     const optimisticSub: SubAgent = {
       id,
       sessionId: '',
       label: '...',
       parentAgentId: agentId,
       status: 'idle',
-      createdAt: Date.now(),
-      lastActivityAt: Date.now(),
+      createdAt: now,
+      lastActivityAt: now,
     };
     useGraphStore.getState().optimisticRestoreSubAgent(agentId, optimisticSub);
     setSession(id);

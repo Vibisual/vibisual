@@ -13,8 +13,9 @@ import type {
   TodoItem,
   CommandDispatchMode,
   CommandError,
+  LiveFollowUpMessage,
 } from '@vibisual/shared';
-import { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype, extractStageBlocks, readCodexTransportNotice, readCodexSessionNotice } from '@vibisual/shared';
+import { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype, extractStageBlocks, readCodexTransportNotice, readCodexSessionNotice, isPendingQueuedCommand, isUnfinishedQueuedCommand } from '@vibisual/shared';
 import { parseSystemSubtype } from './SystemNode.js';
 import { shouldTraceThinking, type ThinkRun } from './turnSteps.js';
 import { TransportRecoveryAccumulator, sameTransportRecovery, type StreamTransportRecovery } from './streamTransportRecovery.js';
@@ -366,9 +367,26 @@ export function hasDispatched(cmd: QueuedCommand): boolean {
 
 /** §5.5 #17-18 ⑥ — 말풍선이 설 자리: 안 나간 `queued` 는 꼬리, 그 외는 나간 시각(`startedAt` — 턴 경계선), `startedAt` 없는 옛 명령은 큐 투입 시각. */
 export function commandAnchorTs(cmd: QueuedCommand): number {
-  if (cmd.dispatchMode === 'steer') return cmd.timestamp;
+  if (cmd.dispatchMode === 'steer') return steerAnchorTs(cmd);
   if (!hasDispatched(cmd)) return PENDING_COMMAND_TS;
   return cmd.startedAt ?? cmd.timestamp;
+}
+
+/**
+ * §5.5 #17-18 ⑥-6 — 큐에 남은 [작업에 반영] 입력의 자리. 전달이 정해지기 전엔 꼬리, 확인 불가로 잠긴 것은 그렇게 정해진 시각.
+ * 투입 시각에 앉히면 오래 기다린 만큼 그 사이 출력 위로 튄다. 받아 간 입력은 큐를 떠나 `followUpAnchorTs` 로 선다.
+ */
+function steerAnchorTs(cmd: QueuedCommand): number {
+  // 큐 밖으로 봉합된 것(조용한 압축을 물려받은 명령 등)은 꼬리에 두면 보관된 뒤에도 맨 아래에 붙박인다.
+  if (cmd.status !== 'queued') return cmd.startedAt ?? cmd.timestamp;
+  const delivery = cmd.liveDelivery;
+  if (delivery?.state === 'uncertain') return delivery.decidedAt ?? cmd.timestamp;
+  return PENDING_COMMAND_TS;
+}
+
+/** §5.5 #17-18 ⑥-6 — 엔진이 받아 간 입력은 받은 시각에 선다(그 뒤 출력이 아래로 쌓인다). 보낸 시각 표기는 `timestamp` 그대로. */
+export function followUpAnchorTs(message: LiveFollowUpMessage): number {
+  return Number.isFinite(message.deliveredAt) ? message.deliveredAt : message.timestamp;
 }
 
 /**
@@ -390,8 +408,12 @@ function messageBreaksAsc(commands: readonly QueuedCommand[] | undefined): numbe
   const out = dispatchedAnchorsAsc(commands);
   for (const command of commands ?? []) {
     if (command.silent) continue;
-    if (command.dispatchMode === 'steer') out.push(command.timestamp);
-    for (const message of command.followUps ?? []) out.push(message.timestamp);
+    if (command.dispatchMode === 'steer') {
+      // §5.5 #17-18 ⑥-6 — 꼬리에 선 입력은 아직 대화에 들어가지 않았다 — 문단을 끊지 않는다.
+      const at = commandAnchorTs(command);
+      if (at !== PENDING_COMMAND_TS) out.push(at);
+    }
+    for (const message of command.followUps ?? []) out.push(followUpAnchorTs(message));
   }
   return out.sort((a, b) => a - b);
 }
@@ -542,7 +564,7 @@ function buildCommandItems(commands: readonly QueuedCommand[] | undefined, cover
       for (const message of cmd.followUps ?? []) {
         items.push({
           kind: 'command', id: `cmd-${message.id}`, prompt: message.text,
-          result: '', status: 'completed', timestamp: message.timestamp,
+          result: '', status: 'completed', timestamp: followUpAnchorTs(message),
           submittedAt: message.timestamp, attachments: message.attachments,
           dispatchMode: 'steer', isFollowUp: true, liveDelivery: { state: 'delivered' },
         });
@@ -570,7 +592,8 @@ function buildCommandItems(commands: readonly QueuedCommand[] | undefined, cover
  */
 function computeAgentBusy(commands: readonly QueuedCommand[] | undefined, override?: boolean): boolean {
   if (override !== undefined) return override;
-  return !!commands && commands.some((c) => c.status === 'executing' || c.status === 'queued');
+  // §5.5 #17-18 ⑬ — 확인 불가로 잠긴 [작업에 반영]은 기록이라 작동 근거가 아니다.
+  return !!commands && commands.some(isUnfinishedQueuedCommand);
 }
 
 /**
@@ -580,7 +603,7 @@ function computeAgentBusy(commands: readonly QueuedCommand[] | undefined, overri
 function computeAgentWaiting(commands: readonly QueuedCommand[] | undefined, override?: boolean): boolean {
   if (override !== undefined) return override;
   if (!commands) return false;
-  return !commands.some((c) => c.status === 'executing') && commands.some((c) => c.status === 'queued');
+  return !commands.some((c) => c.status === 'executing') && commands.some(isPendingQueuedCommand);
 }
 
 /**
@@ -848,7 +871,7 @@ export function buildBaseItems(
     // §5.5 #17-12 ③ — 실패 사유는 시스템 잡음으로 섞지 않고 전용 항목으로(증분 파서와 같은 규약).
     if (evt.eventType === 'error') {
       const makeError = (event: SubAgentStreamEvent): StreamError => ({ kind: 'error', id: event.id, content: event.content, timestamp: event.timestamp });
-      if (!errors.consume(evt, turnId, items, makeError)) items.push(makeError(evt));
+      if (!errors.consume(evt, turnId, items, makeError, events[i - 1])) items.push(makeError(evt));
       i++;
       continue;
     }
@@ -1354,7 +1377,7 @@ export class IncrementalStreamParser {
     }
   }
 
-  private processOne(rawEvent: SubAgentStreamEvent): void {
+  private processOne(rawEvent: SubAgentStreamEvent, previousEvent?: SubAgentStreamEvent): void {
     const evt = codexNoticeDisplayEvent(rawEvent);
     // §5.5 #17-12 ③-3 — 숨김 판정보다 먼저, 모든 줄을 커버리지에 보탠다(전체 재구축 `turnCoverageOf` 와 같은 범위).
     coverTurn(this.coverage, evt, this.turnAnchors);
@@ -1458,7 +1481,7 @@ export class IncrementalStreamParser {
     // §5.5 #17-12 ③ — buildBaseItems 와 동일 규약(등가성 테스트가 이 대칭을 못박는다).
     if (type === 'error') {
       const makeError = (event: SubAgentStreamEvent): StreamError => ({ kind: 'error', id: event.id, content: event.content, timestamp: event.timestamp });
-      if (!this.errors.consume(evt, turnId, this.items, makeError)) this.items.push(makeError(evt));
+      if (!this.errors.consume(evt, turnId, this.items, makeError, previousEvent)) this.items.push(makeError(evt));
       return;
     }
 
@@ -1499,7 +1522,7 @@ export class IncrementalStreamParser {
     }
     // (canAppend 이면 cmdKey/agentBusy/sortedCmdTs 는 이미 이전과 동일 — 그대로 둔다)
 
-    for (let k = this.consumed; k < events.length; k++) this.processOne(events[k]!);
+    for (let k = this.consumed; k < events.length; k++) this.processOne(events[k]!, events[k - 1]);
     this.consumed = events.length;
     this.lastId = events.length ? events[events.length - 1]!.id : null;
 

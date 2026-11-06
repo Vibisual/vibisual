@@ -941,6 +941,12 @@ body.vib-titlebar-drag .app-drag * {
   margin-inline: auto;
 }
 
+/* 확대해도 긴 URL·파일명·인라인 코드가 본문 폭을 넘지 않게 한다.
+ * pre의 공백 보존과 코드·표 래퍼의 자체 스크롤은 그대로 따른다. */
+.ide-md {
+  overflow-wrap: anywhere;
+}
+
 .ide-stream > *,
 .ide-md > * {
   grid-column: 2;

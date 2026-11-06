@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { applyVisibleOrder, isOrchestraRunSettled, resolveOrchestraEnabled, resolveConfigTrimEnabled } from '@vibisual/shared';
+import { applyVisibleOrder, isOrchestraRunSettled, resolveOrchestraEnabled, resolveConfigTrimEnabled, isLocalAssistActive } from '@vibisual/shared';
 import {
   useGraphStore, countProjectBookmarks, selectActiveAutoGoalSummary,
   selectPaneOrchestraSummary, selectPaneConfigTrimSummary,
@@ -90,6 +90,15 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   const activeLoop = useGraphStore((s) => (activeSessionId ? s.sessionLoops[activeSessionId] : undefined));
   const loopRunning = !!activeLoop?.enabled;
+
+  // §5.19 (J) — 끝까지 돕기 칸. 원시값만 구독한다(설정·세션 배열은 스냅샷마다 새 객체).
+  const assistOn = useGraphStore((s) => (agentId ? isLocalAssistActive(s.agentConfigs[agentId]?.provider?.assist) : false));
+  const planProgress = useGraphStore((s) => {
+    if (!agentId || !activeSessionId) return null;
+    const plan = s.subAgents[agentId]?.find((su) => su.id === activeSessionId)?.localPlan;
+    return plan && plan.total > 0 ? `${String(plan.done)}/${String(plan.total)}` : null;
+  });
+  const relayRunning = !!(activeLoop?.enabled && activeLoop.stopWhenChecklistDone);
   const loopBadge = activeLoop
     ? (activeLoop.mode === 'count' ? `${activeLoop.completed}/${activeLoop.total ?? 0}` : `${activeLoop.completed}`)
     : null;
@@ -292,8 +301,10 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
       if (configTrimLast > 0) return `${nameOf(view)} — ${t('ide.configTrim.activity.trimmed', { count: configTrimLast })}`;
       if (configTrimOn) return `${nameOf(view)} — ${t('ide.configTrim.activity.on')}`;
     }
+    // §5.19 (J) — 아래 숫자가 계획 진행임을 툴팁이 말한다.
+    if (view === 'localAssist' && planProgress) return `${nameOf(view)} — ${t('ide.localAssist.activity.progress', { progress: planProgress })}`;
     return nameOf(view);
-  }, [goalTitle, nameOf, autoGoalSkills, orchestraOn, orchestraConducting, configTrimOn, configTrimLast, t]);
+  }, [goalTitle, nameOf, autoGoalSkills, orchestraOn, orchestraConducting, configTrimOn, configTrimLast, planProgress, t]);
 
   /** 그 칸이 지금 무엇을 말하는가(배지·점등). 항목마다 재료가 달라 여기 한 곳에서 갈린다. */
   const stateOf = useCallback((view: IDEViewType): ActivityState => {
@@ -376,13 +387,16 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
       case 'bookmarks':
         // 보관 개수는 상태가 아니라 **양**이다 — 재촉할 일이 아니므로 색은 켜지 않는다.
         return { badge: bookmarkCount > 0 ? clampCount(bookmarkCount) : null, tone: null, blink: false, dot: null };
+      case 'localAssist':
+        // 숫자 = 그 탭의 계획 진행, 색 = 옵션이 하나라도 켜짐, 반짝임 = 릴레이가 도는 중.
+        return { badge: planProgress, tone: assistOn ? 'text-teal-400' : null, blink: relayRunning, dot: null };
       default:
         return NEUTRAL;
     }
   }, [
     goalInd, hookFiring, runningRuns, loopBadge, loopRunning, verifyRunning, verifyDotTone,
     reading, runningCount, bookmarkCount, autoGoalSkills, autoGoalBrewing, orchestraOn, orchestraConducting,
-    configTrimOn, configTrimLast,
+    configTrimOn, configTrimLast, planProgress, assistOn, relayRunning,
   ]);
 
   /* ─── 꾹 눌러 자리 옮기기 — 손에 붙어 따라오고, 지나는 칸이 밀린다 ─── */

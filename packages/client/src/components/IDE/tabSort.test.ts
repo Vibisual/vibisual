@@ -31,6 +31,13 @@ describe('sortTabOrder — 실행 상태', () => {
   it('오른쪽 기준 — 실행중이 맨 뒤(오른쪽 끝)', () => {
     expect(sortTabOrder(list, 'running', 'right')).toEqual(['done', 'unseen', 'err', 'run']);
   });
+
+  // §5.5 #17-10 ⑦ — 한 번도 돌지 않은 탭은 끝난 탭보다도 뒤("비활성화" 자리).
+  it('빈 탭은 확인한 완료보다도 기준에서 멀다', () => {
+    const withFresh = [facts({ id: 'fresh', runState: 'fresh' }), ...list];
+    expect(sortTabOrder(withFresh, 'running', 'left')).toEqual(['run', 'err', 'unseen', 'done', 'fresh']);
+    expect(sortTabOrder(withFresh, 'running', 'right')).toEqual(['fresh', 'done', 'unseen', 'err', 'run']);
+  });
 });
 
 describe('sortTabOrder — 최신순(마지막 활동)', () => {

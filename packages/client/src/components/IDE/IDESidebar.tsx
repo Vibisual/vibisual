@@ -13,6 +13,7 @@ import { useSkillSharing } from './useSkillSharing.js';
 import { IDESkillProviderTabs, skillSharingCount, useSkillProviderTab } from './IDESkillProviderTabs.js';
 import { usesCodexPane } from './ideProviderViews.js';
 import { IDELoopView } from './IDELoopView.js';
+import { IDELocalAssistView } from './IDELocalAssistView.js';
 import { IDEVerifyView } from './IDEVerifyView.js';
 import { IDEReadingView } from './IDEReadingView.js';
 import { IDEExplorerView } from './IDEExplorerView.js';
@@ -761,6 +762,8 @@ const VIEW_MAP: Record<IDEViewType, React.FC<{ agentId: string }>> = {
   bookmarks: IDEBookmarkView,
   // §5.5 #17-9 ③ — 실행 중 서브에이전트.
   subagents: IDERunningSubagentsView,
+  // §5.19 (J) — All Model 끝까지 돕기(로컬 버블에만 서는 칸).
+  localAssist: IDELocalAssistView,
 };
 
 /** §5.25 (M) — 코덱스 버블이면 갈아 끼우는 칸. 활동바가 코덱스에게도 여는 칸이라 내용도 코덱스 것이어야 한다(클로드 목록은 이 대화에 안 실린다). 엔진 무관한 뷰는 위 표를 쓴다(두 벌 ❌). */
@@ -793,7 +796,7 @@ export const IDESidebar = memo(function IDESidebar({ agentId }: IDESidebarProps)
     <div className={`flex min-h-0 flex-shrink-0 flex-col border-r border-gray-700 ${
       sidebarDrawer
         ? 'absolute inset-y-0 left-12 z-40 w-64 max-w-[calc(100%-5rem)] bg-gray-900 shadow-2xl shadow-black/60'
-        : `${activeView === 'context' ? 'w-72' : 'w-52'} bg-gray-900/50`
+        : `${activeView === 'context' || activeView === 'localAssist' ? 'w-72' : 'w-52'} bg-gray-900/50`
     }`}>
       <View agentId={agentId} />
     </div>

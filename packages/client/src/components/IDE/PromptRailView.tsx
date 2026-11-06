@@ -1,12 +1,14 @@
 /**
- * §5.5 #17-48 — 내 입력 레일: 알약 하나에 [맨 위]·[이전]·입력 점 트랙·[다음]·[맨 아래로]. [맨 아래로]는 늘 서 있다가 바닥에서 멀어지면 켜진다(나타났다 사라지면 출렁인다).
+ * §5.5 #17-48 — 내 입력 레일. 좁은 대화 칸에서는 탐색할 때만 펼친다.
  * 판정·배치는 `promptRail.ts`. 레일로 옮긴 입력을 붙들었다가 사용자가 스크롤러를 직접 만지면 놓는다.
  */
-import { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { visualClientRect } from '../../utils/inspector.js';
+import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import { formatPromptStamp } from './promptStamp.js';
+import { usePromptRailDisclosure } from './usePromptRailDisclosure.js';
 import {
   EMPTY_PROMPT_RAIL_PLACE,
   nearestPromptMarker,
@@ -43,10 +45,10 @@ type HoverSource = { source: 'track'; index: number } | { source: 'prev' } | { s
 
 /** 알약 — 반투명 유리 한 덩어리. 낮은 창에서 줄어들 때 넘치지 않게 가장자리를 자른다(그래서 빛은 안쪽으로 둔다). */
 const RAIL_CAPSULE_CLASS =
-  'pointer-events-auto flex min-h-0 flex-shrink flex-col items-center gap-0.5 overflow-hidden rounded-full border border-white/[0.08] bg-gray-900/80 p-0.5 shadow-lg shadow-black/40 backdrop-blur-md';
+  'pointer-events-auto min-h-0 flex-shrink items-center gap-0.5 overflow-hidden border border-white/[0.08] bg-gray-900/80 p-0.5 shadow-lg shadow-black/40 backdrop-blur-md';
 
 const RAIL_BUTTON_CLASS =
-  'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full transition-[color,background-color,box-shadow] duration-150 disabled:cursor-default disabled:opacity-30 pointer-coarse:h-8 pointer-coarse:w-8';
+  'flex flex-shrink-0 items-center justify-center rounded-full transition-[color,background-color,box-shadow] duration-150 disabled:cursor-default disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400';
 /** 평소 — 옅은 글리프, 올리면 밝아진다. */
 const RAIL_BUTTON_IDLE_CLASS =
   'text-gray-400 hover:bg-white/10 hover:text-white disabled:hover:bg-transparent disabled:hover:text-gray-400';
@@ -54,9 +56,9 @@ const RAIL_BUTTON_IDLE_CLASS =
 const RAIL_BUTTON_LIT_CLASS =
   'bg-blue-400/20 text-blue-200 ring-1 ring-inset ring-blue-400/40 shadow-[inset_0_0_6px] shadow-blue-400/40 hover:bg-blue-400/30 hover:text-white';
 
-/** 입력 점 — 트랙 위 자리는 `top` 으로 받고, 가로 가운데·세로 가운데를 점의 중심에 맞춘다. */
+/** 입력 점의 중심을 트랙의 순번 위치에 맞춘다. */
 const DOT_CLASS =
-  'pointer-events-none absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-[width,height,background-color,box-shadow] duration-150';
+  'pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full transition-[width,height,background-color,box-shadow] duration-150';
 /** 지금 보고 있는 턴 — 강조색으로 조금 크게, 은은한 빛. */
 const DOT_CURRENT_CLASS = 'z-[2] h-[7px] w-[7px] bg-blue-400 shadow-[0_0_8px_2px] shadow-blue-400/60';
 const DOT_CURRENT_HOVER_CLASS = 'z-[2] h-2 w-2 bg-blue-300 shadow-[0_0_10px_3px] shadow-blue-400/70';
@@ -79,11 +81,12 @@ const RailButton = forwardRef<HTMLButtonElement, {
   disabled: boolean;
   /** 강조색으로 켠다 — 지금 누를 만한 버튼([맨 아래로]: 아래에 볼 것이 남았다). */
   lit?: boolean;
+  compact?: boolean;
   onClick: () => void;
-  onPointerEnter?: () => void;
+  onPointerEnter?: (event: React.PointerEvent<HTMLButtonElement>) => void;
   onPointerLeave?: () => void;
   children: React.ReactNode;
-}>(function RailButton({ label, title, disabled, lit = false, onClick, onPointerEnter, onPointerLeave, children }, ref) {
+}>(function RailButton({ label, title, disabled, lit = false, compact = false, onClick, onPointerEnter, onPointerLeave, children }, ref) {
   return (
     <button
       ref={ref}
@@ -94,7 +97,7 @@ const RailButton = forwardRef<HTMLButtonElement, {
       title={title}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
-      className={`${RAIL_BUTTON_CLASS} ${lit && !disabled ? RAIL_BUTTON_LIT_CLASS : RAIL_BUTTON_IDLE_CLASS}`}
+      className={`${RAIL_BUTTON_CLASS} ${compact ? 'h-10 w-10' : 'h-6 w-6 pointer-coarse:h-8 pointer-coarse:w-8'} ${lit && !disabled ? RAIL_BUTTON_LIT_CLASS : RAIL_BUTTON_IDLE_CLASS}`}
     >
       <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         {children}
@@ -119,12 +122,30 @@ export function PromptRail({
   const [hover, setHover] = useState<HoverSource | null>(null);
   // 레일로 옮겨 붙든 입력(id) — 사용자가 스크롤러를 만지면 놓는다(§5.5 #17-48 (B) ②).
   const heldIdRef = useRef<string | null>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const controlsId = useId();
+  const { compact, expanded, toggle, close } = usePromptRailDisclosure(hostRef, railRef, scrollEl);
+  const navigationVisible = !compact || expanded;
   const trackRef = useRef<HTMLDivElement>(null);
+  const topBtnRef = useRef<HTMLButtonElement>(null);
   const prevBtnRef = useRef<HTMLButtonElement>(null);
   const nextBtnRef = useRef<HTMLButtonElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const [popupPos, setPopupPos] = useState<{ left: number; top: number } | null>(null);
+
+  useLayoutEffect(() => { setHover(null); }, [compact, expanded]);
+  useLayoutEffect(() => {
+    if (!expanded) return;
+    const first = [topBtnRef.current, prevBtnRef.current, nextBtnRef.current].find((button) => button && !button.disabled);
+    first?.focus({ preventScroll: true });
+  }, [expanded]);
+  const closeTools = useCallback((): void => {
+    setHover(null);
+    close();
+    if (compact && expanded) toggleRef.current?.focus({ preventScroll: true });
+  }, [close, compact, expanded]);
 
   const ordById = useMemo(() => new Map(prompts.map((p, i) => [p.id, i] as const)), [prompts]);
 
@@ -203,25 +224,31 @@ export function PromptRail({
     // 측정을 기다리지 않고 곧장 그 자리로 그린다 — 붙든 자리가 측정보다 먼저다.
     const next = resolvePromptRailPlace({ count: prompts.length, owner: index, anchored: true, lastVisible: -1, atBottom: false, held: index });
     setPlace((p) => (samePromptRailPlace(p, next) ? p : next));
-  }, [prompts, onJumpToPrompt]);
+    closeTools();
+  }, [prompts, onJumpToPrompt, closeTools]);
 
   const goTop = useCallback((): void => {
     heldIdRef.current = null;
     onJumpToTop();
-  }, [onJumpToTop]);
+    closeTools();
+  }, [onJumpToTop, closeTools]);
 
   const goBottom = useCallback((): void => {
     heldIdRef.current = null;
     onJumpToBottom();
-  }, [onJumpToBottom]);
+    closeTools();
+  }, [onJumpToBottom, closeTools]);
 
-  /** 트랙 위 포인터 높이 → 가장 가까운 점. 점이 빽빽해도 1px 를 겨눌 필요가 없다. */
-  const markerAt = useCallback((clientY: number): number => {
+  /** 트랙 위 포인터 → 가장 가까운 점. */
+  const markerAt = useCallback((clientX: number, clientY: number): number => {
     const el = trackRef.current;
     if (!el || count === 0) return -1;
     const r = visualClientRect(el);
-    return nearestPromptMarker(r.height > 0 ? (clientY - r.top) / r.height : 0.5, count);
-  }, [count]);
+    const ratio = compact
+      ? (r.width > 0 ? (clientX - r.left) / r.width : 0.5)
+      : (r.height > 0 ? (clientY - r.top) / r.height : 0.5);
+    return nearestPromptMarker(ratio, count);
+  }, [count, compact]);
 
   const hoverIndex = hover === null
     ? null
@@ -247,7 +274,7 @@ export function PromptRail({
       const track = trackRef.current;
       if (!track) return;
       const r = visualClientRect(track);
-      centerY = r.top + promptMarkerRatio(hoverIndex, count) * r.height;
+      centerY = r.top + (compact ? 0.5 : promptMarkerRatio(hoverIndex, count)) * r.height;
     } else {
       const btn = hover.source === 'prev' ? prevBtnRef.current : nextBtnRef.current;
       if (!btn) return;
@@ -260,34 +287,44 @@ export function PromptRail({
       { width, height },
       { width: window.innerWidth, height: window.innerHeight },
     ));
-  }, [hover, hoverEntry, hoverIndex, count, preview, stamp]);
+  }, [hover, hoverEntry, hoverIndex, count, preview, stamp, compact]);
 
   const trackPx = promptRailTrackPx(count);
   const dense = promptRailDense(count, trackPx);
   const line = promptRailLine(count, place.current);
 
   return (
-    <div className="pointer-events-none absolute bottom-3 right-3 top-12 z-20 flex flex-col items-center justify-end">
+    <div
+      ref={hostRef}
+      className={`pointer-events-none absolute inset-x-0 bottom-3 z-20 flex flex-col items-end justify-end px-3 ${compact ? 'top-0' : 'top-12'}`}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || !expanded || isComposingKeyEvent(event.nativeEvent ?? event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeTools();
+      }}
+    >
       {(count > 0 || showJumpBottom) && (
         <div
           ref={railRef}
           role={count > 0 ? 'group' : undefined}
           aria-label={count > 0 ? t('ide.mainArea.promptRail') : undefined}
-          className={RAIL_CAPSULE_CLASS}
+          className={`${RAIL_CAPSULE_CLASS} ${compact && expanded ? 'grid grid-cols-5 rounded-2xl' : `flex rounded-full ${compact ? 'flex-row' : 'flex-col'}`}`}
         >
-          {count > 0 && (
-            <>
-              <RailButton label={t('ide.mainArea.jumpToTop')} title={t('ide.mainArea.jumpToTop')} disabled={atTop} onClick={goTop}>
+          {count > 0 && navigationVisible && (
+            <div id={controlsId} className={compact ? 'contents' : 'flex min-h-0 flex-shrink flex-col items-center gap-0.5'}>
+              <RailButton ref={topBtnRef} compact={compact} label={t('ide.mainArea.jumpToTop')} title={t('ide.mainArea.jumpToTop')} disabled={atTop} onClick={goTop}>
                 <path d="M5 3h14" />
                 <path d="m18 13-6-6-6 6" />
                 <path d="M12 7v14" />
               </RailButton>
               <RailButton
                 ref={prevBtnRef}
+                compact={compact}
                 label={t('ide.mainArea.promptPrev')}
                 disabled={place.prev === null}
                 onClick={() => { if (place.prev !== null) jumpTo(place.prev); }}
-                onPointerEnter={() => setHover({ source: 'prev' })}
+                onPointerEnter={(event) => { if (event.pointerType !== 'touch') setHover({ source: 'prev' }); }}
                 onPointerLeave={() => setHover(null)}
               >
                 <path d="m18 15-6-6-6 6" />
@@ -296,16 +333,17 @@ export function PromptRail({
               <div
                 ref={trackRef}
                 aria-hidden="true"
-                className="relative min-h-[24px] w-full flex-shrink cursor-pointer"
-                style={{ height: trackPx }}
+                className={`relative w-full cursor-pointer ${compact ? 'col-span-5 row-start-1 h-8' : 'min-h-[24px] flex-shrink'}`}
+                style={compact ? undefined : { height: trackPx }}
                 onPointerMove={(e) => {
-                  const index = markerAt(e.clientY);
+                  if (e.pointerType === 'touch') return;
+                  const index = markerAt(e.clientX, e.clientY);
                   if (index < 0) return;
                   setHover((h) => (h?.source === 'track' && h.index === index ? h : { source: 'track', index }));
                 }}
                 onPointerLeave={() => setHover(null)}
                 onClick={(e) => {
-                  const index = markerAt(e.clientY);
+                  const index = markerAt(e.clientX, e.clientY);
                   if (index >= 0) jumpTo(index);
                 }}
               >
@@ -313,14 +351,14 @@ export function PromptRail({
                   <>
                     {/* 첫 점과 마지막 점을 잇는 옅은 선 */}
                     <span
-                      className="pointer-events-none absolute left-1/2 w-px -translate-x-1/2 bg-white/10"
-                      style={{ top: `${line.insetPct}%`, bottom: `${line.insetPct}%` }}
+                      className={`pointer-events-none absolute bg-white/10 ${compact ? 'top-1/2 h-px -translate-y-1/2' : 'left-1/2 w-px -translate-x-1/2'}`}
+                      style={compact ? { left: `${line.insetPct}%`, right: `${line.insetPct}%` } : { top: `${line.insetPct}%`, bottom: `${line.insetPct}%` }}
                     />
                     {/* 첫 점에서 지금 턴까지 차오른 선 — 위는 옅게, 지금 자리로 갈수록 밝게 */}
                     {line.fillPct > 0 && (
                       <span
-                        className="pointer-events-none absolute left-1/2 w-0.5 -translate-x-1/2 rounded-full bg-linear-to-b from-blue-400/10 to-blue-400/70 transition-[height] duration-200"
-                        style={{ top: `${line.insetPct}%`, height: `${line.fillPct}%` }}
+                        className={`pointer-events-none absolute rounded-full from-blue-400/10 to-blue-400/70 duration-200 ${compact ? 'top-1/2 h-0.5 -translate-y-1/2 bg-linear-to-r transition-[width]' : 'left-1/2 w-0.5 -translate-x-1/2 bg-linear-to-b transition-[height]'}`}
+                        style={compact ? { left: `${line.insetPct}%`, width: `${line.fillPct}%` } : { top: `${line.insetPct}%`, height: `${line.fillPct}%` }}
                       />
                     )}
                   </>
@@ -328,26 +366,27 @@ export function PromptRail({
                 {prompts.map((p, i) => (
                   <span
                     key={p.id}
-                    className={`${DOT_CLASS} ${dotClass(i === place.current, hover?.source === 'track' && hover.index === i, dense)}`}
-                    style={{ top: `${promptMarkerRatio(i, count) * 100}%` }}
+                    className={`${DOT_CLASS} ${compact ? 'top-1/2' : 'left-1/2'} ${dotClass(i === place.current, hover?.source === 'track' && hover.index === i, dense)}`}
+                    style={compact ? { left: `${promptMarkerRatio(i, count) * 100}%` } : { top: `${promptMarkerRatio(i, count) * 100}%` }}
                   />
                 ))}
               </div>
               <RailButton
                 ref={nextBtnRef}
+                compact={compact}
                 label={t('ide.mainArea.promptNext')}
                 disabled={place.next === null}
                 onClick={() => { if (place.next !== null) jumpTo(place.next); }}
-                onPointerEnter={() => setHover({ source: 'next' })}
+                onPointerEnter={(event) => { if (event.pointerType !== 'touch') setHover({ source: 'next' }); }}
                 onPointerLeave={() => setHover(null)}
               >
                 <path d="m6 9 6 6 6-6" />
               </RailButton>
-            </>
+            </div>
           )}
-          {/* §5.5 "맨 아래로" — 알약 아래 끝에 늘 선다. 종전 조건(showJumpBottom)이면 켜지고, 아니면 흐리게 눌리지 않는다.
-              클릭 시 추종 재무장 + 바닥으로. 글리프는 [맨 위]와 짝(선으로 가는 아래 화살표). */}
-          <RailButton
+          {/* 접힌 상태에서도 바닥 이동은 한 번에 누를 수 있다. */}
+          {(navigationVisible || showJumpBottom) && <RailButton
+            compact={compact}
             label={t('ide.mainArea.jumpToBottom')}
             title={t('ide.mainArea.jumpToBottom')}
             disabled={!showJumpBottom}
@@ -357,14 +396,31 @@ export function PromptRail({
             <path d="M12 3v14" />
             <path d="m6 11 6 6 6-6" />
             <path d="M5 21h14" />
-          </RailButton>
+          </RailButton>}
+          {compact && count > 0 && (
+            <button
+              ref={toggleRef}
+              type="button"
+              aria-label={t('ide.mainArea.promptRail')}
+              aria-expanded={expanded}
+              aria-controls={navigationVisible ? controlsId : undefined}
+              title={expanded ? t('common.close') : t('ide.mainArea.promptRail')}
+              className={`${RAIL_BUTTON_CLASS} ${RAIL_BUTTON_IDLE_CLASS} h-10 ${expanded ? 'w-10' : 'max-w-40 gap-1.5 px-3 text-[12px]'}`}
+              onClick={toggle}
+            >
+              <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {expanded ? <path d="m6 6 12 12M6 18 18 6" /> : <><path d="M9 6h12M9 12h12M9 18h12" /><path d="M3 6h.01M3 12h.01M3 18h.01" /></>}
+              </svg>
+              {!expanded && <span className="truncate">{t('ide.mainArea.promptRail')}</span>}
+            </button>
+          )}
         </div>
       )}
-      {hoverEntry && hoverIndex !== null && createPortal(
+      {navigationVisible && hoverEntry && hoverIndex !== null && createPortal(
         <div
           ref={popupRef}
           role="tooltip"
-          className="pointer-events-none fixed z-[9999] w-max max-w-[360px] rounded-md border border-white/[0.08] bg-vb-raised px-2.5 py-1.5 text-[12px] leading-snug text-gray-100 shadow-lg shadow-black/50"
+          className="pointer-events-none fixed z-[9999] w-max max-w-[min(360px,calc(100vw-1rem))] rounded-md border border-white/[0.08] bg-vb-raised px-2.5 py-1.5 text-[12px] leading-snug text-gray-100 shadow-lg shadow-black/50"
           style={{
             left: popupPos?.left ?? 0,
             top: popupPos?.top ?? 0,

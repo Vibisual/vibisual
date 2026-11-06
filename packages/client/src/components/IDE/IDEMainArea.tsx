@@ -13,7 +13,7 @@ import { decideEnterKey, enterCancelsDefault } from '../../utils/inputEnterKey.j
 import { boundedTextSelection, replaceTextRange, restoreInputSelection } from '../../utils/textInputSelection.js';
 import { speechRunPositions, NO_SPEECH_RUNS, type SpeechRunPos } from './streamDensity.js';
 import type { TodoItem } from '@vibisual/shared';
-import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, isInvisibleStreamText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, cardPlacementTs, isCardSenderCandidate, codexNoticeDisplayEvent, type TurnCoverage, type CardSenderCall, type SentCardKind } from './streamItems.js';
+import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, followUpAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, isInvisibleStreamText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, cardPlacementTs, isCardSenderCandidate, codexNoticeDisplayEvent, type TurnCoverage, type CardSenderCall, type SentCardKind } from './streamItems.js';
 import { foldTaskChips } from './taskChips.js';
 import { describeCommandError, parseStreamErrorContent, joinCommandErrorLine } from './commandError.js';
 import { CommandErrorNotice } from './CommandErrorNotice.js';
@@ -22,12 +22,14 @@ import { turnResultText, turnStopLabelKey } from './turnStopLabel.js';
 import { TurnStopNotice } from './TurnStopNotice.js';
 import { PlanBlock } from './PlanBlock.js';
 import { toolPreview } from './toolPreview.js';
-import { useGraphStore, agentSessionInputKey, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useGraphStore, agentSessionInputKey, selectIDEOverlay, MISSING_ATTACHMENT_ERROR } from '../../stores/graphStore.js';
 import { useIDEPaneValue } from './idePane.js';
 // §5.5 #17-34 — 창 안 분할. 칸 컨텍스트가 있으면 이 본문은 그 칸의 세션을 그리고, 창 단위 단축키는
 //   초점 칸만 받는다(컨텍스트 밖 = 분할 없음 = 종전 동작 그대로).
 import { useSplitCellFocused, useSplitCellSession } from './splitCellContext.js';
 import { lightboxHostMatches, useImageLightboxHostSpot, useImageLightboxOrigin } from './imageLightboxOrigin.js';
+import { lightboxLayerOpener } from './imageLightboxLayers.js';
+import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 import type { AgentSessionInputAttachment, EditorFollowMark } from '../../stores/graphStore.js';
 import { useAvailableSkills, type SkillInfo, type BuiltinCommandInfo } from '../../hooks/useAvailableSkills.js';
 import { builtinSlashDescription } from './slashBuiltinDesc.js';
@@ -89,7 +91,9 @@ import { MicSettingsPopup } from './MicSettingsPopup.js';
 import { shortcutLabel } from '../../utils/platform.js';
 import { liveLineActivityAt, liveLineMode, type LiveLineMode } from '../../utils/sessionActivity.js';
 import { buildSessionRunInputs } from '../../utils/sessionStatus.js';
-import { turnOfEvent, type StreamSystem } from './streamItems.js';
+import { type StreamSystem } from './streamItems.js';
+import { mainEntryRunEnds, mainStreamTurnIds, orderMainEntries } from './mainStreamCompute.js';
+import { MainStreamProjectionCache } from './mainStreamProjectionCache.js';
 import { TransportRecoveryAccumulator, type StreamTransportRecovery } from './streamTransportRecovery.js';
 import { TransportRecoveryLine } from './TransportRecoveryLine.js';
 import { ProcessGuardLine } from './ProcessGuardLine.js';
@@ -445,8 +449,10 @@ export function buildEntries(
   // Recovery follows original command states, not displayCommands' promoted queued copies.
   originalCommands: QueuedCommand[] = commands,
   runningTasks?: RunningSubagentTask[],
+  projectionCache?: MainStreamProjectionCache<TerminalEntry>,
 ): TerminalEntry[] {
   const entries: TerminalEntry[] = [];
+  projectionCache?.retain(new Set(Object.keys(streams)));
   const subLabelMap = new Map(subAgents.map((s) => [s.id, s.label]));
   const stoppedTurns = new Map<string, { start: number; end: number; labelKey: string }>();
   const eventSortTimestamps = new Map<string, number>();
@@ -459,9 +465,10 @@ export function buildEntries(
   for (const [subId, sessionCommands] of commandsBySession) {
     const anchors = dispatchedTurnAnchorsAsc(sessionCommands);
     const events = subId ? streams[subId] ?? [] : [];
+    const eventTurns = mainStreamTurnIds(events, anchors);
     const lastEventAt = new Map<string, number>();
-    for (const evt of events) {
-      const turnId = turnOfEvent(evt, anchors);
+    for (const [index, evt] of events.entries()) {
+      const turnId = eventTurns[index];
       if (turnId) lastEventAt.set(turnId, Math.max(lastEventAt.get(turnId) ?? -Infinity, evt.timestamp));
     }
     for (const cmd of sessionCommands) {
@@ -475,8 +482,8 @@ export function buildEntries(
       const end = Math.min(last + 0.5, next === undefined ? Infinity : next - 0.5);
       stoppedTurns.set(cmd.id, { start, end, labelKey });
     }
-    for (const evt of events) {
-      const turnId = turnOfEvent(evt, anchors);
+    for (const [index, evt] of events.entries()) {
+      const turnId = eventTurns[index];
       const stopped = turnId ? stoppedTurns.get(turnId) : undefined;
       if (!stopped) continue;
       const sortTimestamp = Math.max(stopped.start, Math.min(evt.timestamp, stopped.end));
@@ -491,6 +498,15 @@ export function buildEntries(
   const pushStreamEntries = (events: SubAgentStreamEvent[], subId: string, label?: string): void => {
     const sessionCommands = originalCommands.filter((cmd) => cmd.subAgentId === subId);
     const anchors = dispatchedTurnAnchorsAsc(sessionCommands);
+    const sub = subAgents.find((candidate) => candidate.id === subId);
+    const running = sub !== undefined && isSessionRunning(buildSessionRunInputs({
+      sub, commands: originalCommands, runningTasks, acknowledged: false,
+    }));
+    const cacheInput = { events, anchors, commands: sessionCommands, running, label, formatError };
+    const cached = projectionCache?.get(subId, cacheInput);
+    if (cached) { for (const row of cached) entries.push(row); return; }
+    const streamEntries: TerminalEntry[] = [];
+    const eventTurns = mainStreamTurnIds(events, anchors);
     const recovery = new TransportRecoveryAccumulator();
     const errors = new StreamErrorAccumulator();
     const recoveryRows: StreamSystem[] = [];
@@ -506,32 +522,30 @@ export function buildEntries(
       ...(evt.eventType === 'error' ? { error: parseStreamErrorContent(evt.content) } : {}),
       ...(evt.imagePath ? { imageSubAgentId: subId } : {}),
     });
-    for (const rawEvent of events) {
+    for (const [index, rawEvent] of events.entries()) {
       const evt = codexNoticeDisplayEvent(rawEvent);
       if (evt.eventType === 'result' && !turnResultText(evt.content)) continue;
       // Thinking is evidence of resumed work even though its raw body is hidden below.
-      if (recovery.consume(evt, turnOfEvent(evt, anchors), recoveryRows)) continue;
+      if (recovery.consume(evt, eventTurns[index] ?? null, recoveryRows)) continue;
       if (isThinkingActivity(evt) || isHiddenSystemEvent(evt)) continue;
-      if (!errors.consume(evt, turnOfEvent(evt, anchors), entries, makeStreamEntry)) entries.push(makeStreamEntry(evt));
+      if (!errors.consume(evt, eventTurns[index] ?? null, streamEntries, makeStreamEntry, events[index - 1])) streamEntries.push(makeStreamEntry(evt));
     }
-    const sub = subAgents.find((candidate) => candidate.id === subId);
-    const running = sub !== undefined && isSessionRunning(buildSessionRunInputs({
-      sub, commands: originalCommands, runningTasks, acknowledged: false,
-    }));
     recovery.projectStopped(recoveryRows, sessionCommands, running);
     for (const row of recoveryRows) {
-      entries.push({
+      streamEntries.push({
         id: row.id, type: 'system', text: row.content, timestamp: row.timestamp,
         sessionLabel: label, transportRecovery: row.transportRecovery,
       });
     }
-    pushThinkTraces(events, subId, label);
+    pushThinkTraces(events, subId, label, streamEntries);
+    projectionCache?.set(subId, cacheInput, streamEntries);
+    for (const row of streamEntries) entries.push(row);
   };
 
   /** §5.5 #17-39 — 사고 런 → 단계 자국. 판정은 Sub 탭과 같은 `collectThinkRuns`(펄스·숨김 system 제외) — 탭마다 자국 수가 달라지지 않게. */
-  const pushThinkTraces = (events: SubAgentStreamEvent[], subId: string, label?: string): void => {
+  const pushThinkTraces = (events: SubAgentStreamEvent[], subId: string, label: string | undefined, target: TerminalEntry[]): void => {
     for (const run of collectThinkRuns(events, (e) => isThinkingPulse(e) || isHiddenSystemEvent(e))) {
-      entries.push({
+      target.push({
         id: `step-${run.firstId}`,
         type: 'step',
         text: '',
@@ -598,8 +612,9 @@ export function buildEntries(
     });
     for (const message of cmd.followUps ?? []) {
       entries.push({
+        // §5.5 #17-18 ⑥-6 — Sub 탭과 같은 자리(엔진이 받은 시각).
         id: `cmd-${message.id}`, type: 'command', text: message.text,
-        timestamp: message.timestamp, submittedAt: message.timestamp,
+        timestamp: followUpAnchorTs(message), submittedAt: message.timestamp,
         attachments: message.attachments, sessionLabel, isFollowUp: true,
         command: { status: 'completed', dispatchMode: 'steer', liveDelivery: { state: 'delivered' } },
       });
@@ -673,25 +688,29 @@ export function buildEntries(
     });
   }
 
-  for (const entry of entries) {
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i]!;
     const sortTimestamp = eventSortTimestamps.get(entry.id);
-    if (sortTimestamp !== undefined) entry.sortTimestamp = sortTimestamp;
+    // Cached session rows are shared, so a stop-boundary overlay is always a new object.
+    if (sortTimestamp !== undefined) entries[i] = { ...entry, sortTimestamp };
   }
-  const boundaryRank = (entry: TerminalEntry): number => entry.type === 'command' ? -1 : entry.type === 'turnstop' ? 1 : 0;
-  entries.sort((a, b) => (a.sortTimestamp ?? a.timestamp) - (b.sortTimestamp ?? b.timestamp)
-    || boundaryRank(a) - boundaryRank(b) || a.timestamp - b.timestamp);
+  const ordered = orderMainEntries(entries);
+  const runEnds = mainEntryRunEnds(ordered);
 
   // 같은 세션의 연속 text 는 한 말풍선으로 합친다(델타 조각 — StreamRenderer textBuf 와 같다). 세션이 다르거나 비-text 가 끼면 끊는다.
   const coalesced: TerminalEntry[] = [];
-  for (const e of entries) {
-    const prev = coalesced[coalesced.length - 1];
-    if (e.type === 'text' && prev && prev.type === 'text' && prev.sessionLabel === e.sessionLabel) {
-      prev.text += e.text;
-      // §5.5 #17-39 — 합쳐진 말풍선의 끝 시각(작성 자국의 "걸린 시간"). Sub 탭 textBuf.lastTs 와 같은 값.
-      prev.endedAt = e.timestamp;
-    } else {
-      coalesced.push(e.type === 'text' ? { ...e, endedAt: e.timestamp } : e); // text 는 합치기 대상이라 사본(원본 불변)
+  for (let i = 0; i < ordered.length;) {
+    const entry = ordered[i]!;
+    if (entry.type !== 'text') { coalesced.push(entry); i++; continue; }
+    const end = runEnds[i]!;
+    const merged = { ...entry, endedAt: entry.timestamp };
+    for (let j = i + 1; j < end; j++) {
+      merged.text += ordered[j]!.text;
+      // §5.5 #17-39 — 마지막 델타의 실제 시각. 정렬키로 바꾸지 않는다.
+      merged.endedAt = ordered[j]!.timestamp;
     }
+    coalesced.push(merged);
+    i = end;
   }
   return coalesced;
 }
@@ -796,6 +815,7 @@ export function applyMainDensity(items: TerminalItem[], density: StreamDensity):
 
 export function groupEntries(flat: TerminalEntry[]): TerminalItem[] {
   const items: TerminalItem[] = [];
+  const runEnds = mainEntryRunEnds(flat);
   let i = 0;
 
   while (i < flat.length) {
@@ -807,8 +827,7 @@ export function groupEntries(flat: TerminalEntry[]): TerminalItem[] {
     if (cur.type === 'tool_use' && cur.toolName === PLAN_TOOL_NAME) {
       const todos = parsePlanTodos(cur.text);
       if (todos) {
-        let j = i + 1;
-        while (j < flat.length && flat[j]!.type === 'tool_result') j++;
+        const j = runEnds[i]!;
         items.push({ kind: 'plan', id: `plan-${cur.id}`, todos, timestamp: cur.timestamp, sortTimestamp: cur.sortTimestamp });
         i = j;
         continue;
@@ -817,12 +836,8 @@ export function groupEntries(flat: TerminalEntry[]): TerminalItem[] {
 
     // tool_use → 뒤따르는 tool_result(들)까지 그룹 (단독 tool_use도 감쌈 → 활성 표시)
     if (cur.type === 'tool_use') {
-      const children: TerminalEntry[] = [cur];
-      let j = i + 1;
-      while (j < flat.length && flat[j]!.type === 'tool_result') {
-        children.push(flat[j]!);
-        j++;
-      }
+      const j = runEnds[i]!;
+      const children = flat.slice(i, j);
       const hasResult = children.length > 1;
       items.push({
         kind: 'group',
@@ -1915,6 +1930,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
         hintKey={micSettings.hintKey}
         blocked={micBlocked}
         noDevice={micNoDevice}
+        insecureContext={voice.error === 'insecure-context'}
         onOpenSettings={handleOpenMicSettings}
         onClose={() => { setMicPopupOpen(false); }}
         denoise={voiceDenoise}
@@ -2070,7 +2086,8 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
             <div
               key={a.tempId}
               className="group relative h-12 w-12 flex-shrink-0 overflow-hidden rounded border border-gray-700 bg-gray-800"
-              title={a.error ?? (a.uploading ? t('panel.commandQueue.uploading') : t('panel.commandQueue.attached'))}
+              title={a.error === MISSING_ATTACHMENT_ERROR ? t('ide.mainArea.attachmentMissing')
+                : a.error ?? (a.uploading ? t('panel.commandQueue.uploading') : t('panel.commandQueue.attached'))}
             >
               <img
                 src={attachmentPreviewUrl(a) || undefined}
@@ -2121,6 +2138,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
         <div role="alert" className="mb-1 text-[12px] leading-relaxed text-amber-400">
           {t(localImagesUnsupported || sessionDraft?.sendFailure === 'local-images-unsupported'
             ? 'ide.mainArea.localImagesUnsupported'
+            : sessionDraft?.sendFailure === 'attachments-missing' ? 'ide.mainArea.attachmentsMissing'
             : sessionDraft?.sendFailure === 'rejected' ? 'ide.mainArea.sendRejected' : 'ide.mainArea.sendUnconfirmed')}
         </div>
       )}
@@ -2861,11 +2879,14 @@ ${t('ide.mainArea.scrollPrompt')}` : t('ide.mainArea.scrollPrompt')}
 // 첨부 이미지 라이트박스 — 전역 imageLightbox 를 body 로 portal 만 한다(어느 썸네일이든). 주석 도구·저장은 ImageLightboxView(§5.5 #17-25).
 /** §5.5 #17-27 ⑳ — 파일 창도 같은 호스트를 쓴다(붙일 입력창이 없어 `canAttach=false` — 덮어쓰기·내려받기만). */
 export function ImageLightboxHost({ agentId, activeSessionId, canAttach, zIndex }: ImageLightboxHostProps): React.JSX.Element | null {
+  const { t } = useTranslation();
   const lightbox = useGraphStore((s) => s.imageLightbox);
   const close = useGraphStore((s) => s.closeImageLightbox);
+  const projectRoot = useIDEProjectRoot();
   // 호스트는 대화 본문마다 있다 — **연 자리의 것만** 그린다(창·분할 칸 수만큼 겹쳐 뜨고 [저장]이 남의 입력창으로 가던 것).
   const spot = useImageLightboxHostSpot();
   if (!lightbox || !lightboxHostMatches(lightbox.origin, spot)) return null;
+  const openLayers = lightboxLayerOpener(lightbox, projectRoot, t('panel.apps.vibimage.editor.importedImage'));
   return createPortal(
     <ImageLightboxView
       // 이미지가 바뀌면 주석·도구 상태를 새로 시작한다(다음 이미지에 앞 그림이 남아 있으면 안 된다).
@@ -2875,6 +2896,7 @@ export function ImageLightboxHost({ agentId, activeSessionId, canAttach, zIndex 
       activeSessionId={activeSessionId}
       canAttach={canAttach}
       {...(zIndex !== undefined ? { zIndex } : {})}
+      {...(openLayers ? { onOpenLayers: openLayers } : {})}
       onClose={() => close(lightbox)}
     />,
     document.body,
@@ -3059,6 +3081,8 @@ export const IDEMainArea = memo(function IDEMainArea({
     const onTouchStart = (e: TouchEvent): void => {
       if (e.touches.length !== 2) return;
       if (isInsideSessionBubbles(e.target)) return; // §5.5 #17-50 — 버블 지도 위 두 손가락은 지도 배율이다.
+      // 시작부터 앱이 핀치를 맡는다. 이동 때만 취소하면 모바일 브라우저가 먼저 페이지 전체를 확대할 수 있다.
+      e.preventDefault();
       pinching = true;
       pinchStartDist = touchDist(e.touches);
       pinchStartZoom = useGraphStore.getState().ideTextZoom;
@@ -3081,7 +3105,7 @@ export const IDEMainArea = memo(function IDEMainArea({
         setIdeTextZoom(nearestIdeTextZoomLadder(useGraphStore.getState().ideTextZoom));
       }
     };
-    el.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
+    el.addEventListener('touchstart', onTouchStart, { passive: false, capture: true });
     el.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
     el.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
     el.addEventListener('touchcancel', onTouchEnd, { passive: true, capture: true });
@@ -3385,14 +3409,13 @@ export const IDEMainArea = memo(function IDEMainArea({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId, activeStreamEvents, subAgents, mainStreamVersion]);
 
-  const items = useMemo(() => {
+  const streamProjectionCache = useMemo(() => new MainStreamProjectionCache<TerminalEntry>(), []);
+  const groupedTranscript = useMemo(() => {
     // [perf-snapshot] 계측 — 콘솔에서 `__VIBI_PERF__ = true`. 메인 탭(activeSessionId===null)은 증분 파서가
     // 없어 매 스냅샷마다 전 세션 이벤트를 재파싱·정렬한다. 이 비용이 스냅샷 비용과 겹치는지 확인.
     const _PERF = !!(globalThis as unknown as { __VIBI_PERF__?: boolean }).__VIBI_PERF__;
     const _t0 = _PERF ? performance.now() : 0;
-    const flat = buildEntries(commands, subAgents, streams, activeSessionId, agentEvents, formatError, originalCommands, runningTasks);
-    // §2.4 — `hasSessionWork`(원본 큐 + 세션 필터)만 본다. `commands.some(...)` 로 되돌리지 마라 — 표시용 사본에 세션 필터도 없어 남의 좀비 명령이 이 탭을 "작업 중"으로 칠한다.
-    const agentBusy = sessionHasWork;
+    const flat = buildEntries(commands, subAgents, streams, activeSessionId, agentEvents, formatError, originalCommands, runningTasks, streamProjectionCache);
     const grouped = applyMainDensity(groupEntries(flat), density);
     if (_PERF && activeSessionId === null) {
       const _t1 = performance.now();
@@ -3403,7 +3426,15 @@ export const IDEMainArea = memo(function IDEMainArea({
         `[perf-snapshot] mainTab buildEntries+group=${(_t1 - _t0).toFixed(1)}ms events=${_n} subs=${subAgents.length}`,
       );
     }
+    return grouped;
+  }, [commands, subAgents, streams, activeSessionId, agentEvents, density, formatError, originalCommands, runningTasks, streamProjectionCache]);
 
+  // 활동 시계·라이브 라벨만 바뀌면 이미 계산한 본문을 재사용한다. 라이브 줄은 사본에 붙여
+  // 위 memo의 결과를 변경하지 않는다(다음 재계산에서 줄이 중복되지 않게).
+  const items = useMemo(() => {
+    const grouped = groupedTranscript.slice();
+    // §2.4 — 실행 판정은 표시용 commands가 아니라 기존 sessionHasWork 그대로다.
+    const agentBusy = sessionHasWork;
     // §5.5 #17-24 ②⑦ — 라이브 1줄은 작동 중 늘 `작업 중`(최근 이벤트로 켜고 끄거나 `생각 중`을 고르지 않는다 — 턴 시계와 붙으면 멈춘 듯 읽힌다).
     if (agentBusy) {
       // 가장 최근 이벤트는 각 스트림 배열의 마지막 원소만 본다(도착 순 append — O(세션 수)).
@@ -3428,7 +3459,7 @@ export const IDEMainArea = memo(function IDEMainArea({
       });
     }
     return grouped;
-  }, [commands, subAgents, streams, activeSessionId, agentEvents, density, formatError, originalCommands, runningTasks, sessionHasWork, sessionWaiting, sessionLastActivityAt, sessionHiddenTurn, sessionTurnStartedAt, sessionCompactingSince, sessionWaitingForAgentsSince]);
+  }, [groupedTranscript, streams, sessionHasWork, sessionWaiting, sessionLastActivityAt, sessionHiddenTurn, sessionTurnStartedAt, sessionCompactingSince, sessionWaitingForAgentsSince]);
 
   // §5.3 #12-2 — AskUserQuestion 카드. 메인 탭: 이 에이전트의 모든 sub 질문 시간순, sub 탭: 그 sub 의 질문만.
   const pendingAskQuestions = useGraphStore((s) => s.pendingAskQuestions);
@@ -4179,6 +4210,8 @@ export const IDEMainArea = memo(function IDEMainArea({
         onClick={handleAckClick}
         onContextMenu={handleContextMenu}
         className="relative flex min-h-0 flex-1 flex-col bg-gray-950"
+        // 손가락 스크롤은 유지하고 페이지 자체의 핀치 확대만 막는다. 지도는 자체 제스처를 쓴다.
+        style={bubbleOn ? undefined : { touchAction: 'pan-x pan-y' }}
       >
         {bubbleOn ? (
           /* §5.5 #17-50 — 대화 칸 자리에 이 세션만의 버블 지도. 대화에만 사는 덧판(메모 판·배율 배지·검색바·놓친 카드·

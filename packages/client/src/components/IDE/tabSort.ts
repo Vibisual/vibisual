@@ -28,7 +28,7 @@ export function normalizeTabSortAnchor(value: unknown): TabSortAnchor {
 
 /**
  * 실행 상태 우선순위(작을수록 기준 쪽). `limited` 는 한도로 멈춘 탭(끝 아님, §2.4) · `error` 는 조용한 완료에 묻히지 않게 실행중 바로 다음 ·
- * `waiting` 은 보낸 말이 아직 안 나갔으니 완료 더미 위 · `doneUnseen` 초록 도트 · `done` 확인까지 끝난 회색 도트.
+ * `waiting` 은 보낸 말이 아직 안 나갔으니 완료 더미 위 · `doneUnseen` 초록 도트 · `done` 확인까지 끝난 회색 도트 · `fresh` 아직 아무것도 안 한 탭.
  */
 const RUN_STATE_RANK: Record<SessionRunState, number> = {
   running: 0,
@@ -41,6 +41,8 @@ const RUN_STATE_RANK: Record<SessionRunState, number> = {
   waiting: 3,
   doneUnseen: 4,
   done: 5,
+  // §5.5 #17-10 ⑦ — 한 번도 돌지 않은 탭은 끝난 탭 뒤("비활성화" 자리).
+  fresh: 6,
 };
 
 /** 탭 하나를 줄 세우는 데 필요한 사실 전부 — DOM·store 를 모르는 값만 받는다. */

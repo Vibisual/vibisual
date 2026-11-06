@@ -37,6 +37,8 @@ export const IDE_ACTIVITY_ITEMS: readonly IDEActivityItem[] = [
   { view: 'configTrim', labelKey: 'ide.activityBar.configTrim', accent: 'border-rose-400', defaultHidden: true },
   // §5.5 #17-11 — 세션 반복 실행(루프).
   { view: 'loop', labelKey: 'ide.activityBar.loop', accent: 'border-amber-400', defaultHidden: true },
+  // §5.19 (J) — All Model 끝까지 돕기(로컬 버블에만 선다 — `ideProviderViews`). 릴레이가 루프를 타므로 루프 바로 뒤.
+  { view: 'localAssist', labelKey: 'ide.activityBar.localAssist', accent: 'border-teal-400' },
   // §5.5 #17-20 — 디버그·실행 런처.
   { view: 'debug', labelKey: 'ide.activityBar.debug', accent: 'border-emerald-400' },
   // §5.5 #17-35 — 검증. 바로 옆에 정독이 선다(만든 것이 도는가 ↔ 기획대로 만들었는가).

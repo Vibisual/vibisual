@@ -18,8 +18,11 @@ const CONDUCTING_VIEWS: readonly IDEViewType[] = ['orchestra'];
 /** §5.3 #10-5 — 턴 사본 설정 덜어내기 칸(클로드·코덱스만). 판단이 그 CLI·모델 원장에 매여 가로채기가 claude|codex 에서만 걸린다(로컬은 덜 것이 없다). */
 const TURN_CONFIG_VIEWS: readonly IDEViewType[] = ['configTrim'];
 
-/** All Model(로컬 LLM) 버블 — 중립 항목만(§5.19 (G)). 로컬엔 MCP·스킬·플러그인·훅·주입원이 없다. */
-export const LOCAL_PROVIDER_VIEWS: readonly IDEViewType[] = NEUTRAL_VIEWS;
+/** §5.19 (J) — All Model 에만 있는 칸(끝까지 돕기). 클로드·코덱스 버블엔 세우지 않는다 — 그 엔진의 턴은 이 옵션을 읽지 않는다. */
+export const LOCAL_ONLY_VIEWS: readonly IDEViewType[] = ['localAssist'];
+
+/** All Model(로컬 LLM) 버블 — 중립 항목 + 로컬 전용(§5.19 (G)(J)). 로컬엔 MCP·스킬·플러그인·훅·주입원이 없다. */
+export const LOCAL_PROVIDER_VIEWS: readonly IDEViewType[] = [...NEUTRAL_VIEWS, ...LOCAL_ONLY_VIEWS];
 
 /**
  * 코덱스 버블 — 중립 + 코덱스 실물 다섯(§5.25 (M)): MCP `codex mcp list --json` · 스킬 `~/.codex/skills/<이름>/` · 플러그인 `codex plugin list --json` · 훅 `~/.codex/hooks.json` · 컨텍스트 `AGENTS.md`.
@@ -40,6 +43,8 @@ export function viewsForProviderKind(kind: string | undefined): readonly IDEView
 
 /** 이 항목이 지금 에이전트에게 뜻이 있는가. 프로바이더가 없으면(=클로드) 종전 그대로 전부 보인다. */
 export function isViewAllowedForProvider(view: IDEViewType, providerKind: string | undefined): boolean {
+  // 클로드 버블(`null` = 전부)에도 로컬 전용 칸은 서지 않는다.
+  if (LOCAL_ONLY_VIEWS.includes(view) && providerKind !== 'local-llama') return false;
   const allowed = viewsForProviderKind(providerKind);
   return allowed === null || allowed.includes(view);
 }

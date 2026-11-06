@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { IDEViewType } from '../../stores/graphStore.js';
 import {
-  LOCAL_PROVIDER_VIEWS, CODEX_PROVIDER_VIEWS, viewsForProviderKind,
+  LOCAL_PROVIDER_VIEWS, LOCAL_ONLY_VIEWS, CODEX_PROVIDER_VIEWS, viewsForProviderKind,
   fallbackViewForProvider, isViewAllowedForProvider, providerBadgeOf, usesCodexPane,
 } from './ideProviderViews.js';
 
@@ -21,10 +21,12 @@ const CODEX_HAS_TOO: IDEViewType[] = ['mcp', 'context', 'skills', 'hooks', 'plug
 const CONDUCTING: IDEViewType[] = ['orchestra'];
 /** §5.3 #10-5 — 덜어낼지 판단이 엔진 CLI·모델 원장에 매여 로컬엔 안 걸리는 우리 기능(화면 공용). */
 const TURN_CONFIG: IDEViewType[] = ['configTrim'];
+/** §5.19 (J) — 로컬 목록 중 어느 엔진에도 중립이 아닌 칸을 뺀 나머지(두 엔진에 똑같이 서야 하는 것). */
+const LOCAL_NEUTRAL: IDEViewType[] = LOCAL_PROVIDER_VIEWS.filter((v) => !LOCAL_ONLY_VIEWS.includes(v));
 
 describe('§5.19 (G) · §5.25 (M) 엔진별 활동바', () => {
   it('클로드 버블은 종전 그대로 전부 보인다', () => {
-    for (const v of [...CLAUDE_ONLY, ...CODEX_HAS_TOO, ...CONDUCTING, ...TURN_CONFIG, ...LOCAL_PROVIDER_VIEWS]) {
+    for (const v of [...CLAUDE_ONLY, ...CODEX_HAS_TOO, ...CONDUCTING, ...TURN_CONFIG, ...LOCAL_NEUTRAL]) {
       expect(isViewAllowedForProvider(v, CLAUDE)).toBe(true);
     }
     expect(viewsForProviderKind(CLAUDE)).toBeNull();
@@ -35,7 +37,7 @@ describe('§5.19 (G) · §5.25 (M) 엔진별 활동바', () => {
       expect(isViewAllowedForProvider(v, LOCAL)).toBe(false);
     }
     // §5.10 (P) — `autoGoal`(절차 감지)이 `goal` 에서 갈라져 나와 여기도 한 칸 늘었다.
-    expect([...LOCAL_PROVIDER_VIEWS].sort()).toEqual(['autoGoal', 'bookmarks', 'debug', 'files', 'goal', 'loop']);
+    expect([...LOCAL_PROVIDER_VIEWS].sort()).toEqual(['autoGoal', 'bookmarks', 'debug', 'files', 'goal', 'localAssist', 'loop']);
   });
 
   it('코덱스 버블에는 다섯이 **되살아난다** — 코덱스에 실제로 있는 기능이다', () => {
@@ -72,16 +74,23 @@ describe('§5.19 (G) · §5.25 (M) 엔진별 활동바', () => {
   });
 
   it('중립 항목은 두 엔진에 똑같이 남는다', () => {
-    for (const v of LOCAL_PROVIDER_VIEWS) {
+    for (const v of LOCAL_NEUTRAL) {
       expect(isViewAllowedForProvider(v, LOCAL)).toBe(true);
       expect(isViewAllowedForProvider(v, CODEX)).toBe(true);
     }
   });
 
+  it('끝까지 돕기 칸은 All Model 에만 선다 — 클로드·코덱스 턴은 그 옵션을 읽지 않는다 (§5.19 (J))', () => {
+    expect(isViewAllowedForProvider('localAssist', LOCAL)).toBe(true);
+    expect(isViewAllowedForProvider('localAssist', CLAUDE)).toBe(false);
+    expect(isViewAllowedForProvider('localAssist', CODEX)).toBe(false);
+    expect(fallbackViewForProvider('localAssist', CODEX)).toBe('files');
+  });
+
   it('코덱스 목록은 로컬 목록을 **품는다**(중립 항목이 한쪽에서만 빠지지 않게)', () => {
-    for (const v of LOCAL_PROVIDER_VIEWS) expect(CODEX_PROVIDER_VIEWS).toContain(v);
+    for (const v of LOCAL_NEUTRAL) expect(CODEX_PROVIDER_VIEWS).toContain(v);
     expect(CODEX_PROVIDER_VIEWS.length)
-      .toBe(LOCAL_PROVIDER_VIEWS.length + CODEX_HAS_TOO.length + CONDUCTING.length + TURN_CONFIG.length);
+      .toBe(LOCAL_NEUTRAL.length + CODEX_HAS_TOO.length + CONDUCTING.length + TURN_CONFIG.length);
   });
 
   it('없는 뷰가 열려 있으면 파일로 떨어뜨린다(빈 사이드바 ❌)', () => {

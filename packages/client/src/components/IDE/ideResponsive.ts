@@ -36,7 +36,13 @@ export const IDE_PIECE_FOLD = {
   DIFF_STACK_W: 480,
   /** CMD 카드 레일(§4)의 펼친 폭 — `IDETerminalCardRail` 의 `w-[360px]` 와 짝이다. */
   TERMINAL_RAIL_W: 360,
+  /** 입력 탐색 레일을 접어 대화 오른쪽을 비울 폭. */
+  PROMPT_RAIL_FOLD_W: 640,
 } as const;
+
+export function promptRailCompact(width: number): boolean {
+  return width > 0 && width < IDE_PIECE_FOLD.PROMPT_RAIL_FOLD_W;
+}
 
 /** 찾기 막대가 두 줄로 쌓이는가 — 막대 **자기 폭**으로 묻는다. */
 export function findBarStacked(barWidth: number): boolean {
