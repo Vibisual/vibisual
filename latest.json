@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Vibisual/vibisual",
-  "collectionStartedAt": "2026-11-07T10:17:31.199Z",
-  "observedAt": "2026-11-07T10:17:32.358Z",
+  "collectionStartedAt": "2026-11-08T10:28:21.767Z",
+  "observedAt": "2026-11-08T10:28:23.082Z",
   "source": {
     "provider": "GitHub REST API",
     "apiVersion": "2022-11-28",
@@ -28,14 +28,14 @@
   },
   "totals": {
     "publicReleases": 33,
-    "allAssetDownloads": 1726,
-    "packageDownloads": 385,
+    "allAssetDownloads": 1737,
+    "packageDownloads": 390,
     "packagesByPlatform": {
-      "windows": 113,
-      "macos": 151,
-      "linux": 121
+      "windows": 114,
+      "macos": 153,
+      "linux": 123
     },
-    "updateMetadataDownloads": 1165,
+    "updateMetadataDownloads": 1171,
     "blockmapDownloads": 158,
     "otherAssetDownloads": 18
   },
@@ -64,7 +64,7 @@
         {
           "id": 718290759,
           "name": "latest.yml",
-          "download_count": 6,
+          "download_count": 12,
           "created_at": "2026-11-06T19:26:15Z",
           "updated_at": "2026-11-06T19:26:15Z"
         },
@@ -92,7 +92,7 @@
         {
           "id": 718290513,
           "name": "Vibisual-0.2.7-arm64.dmg",
-          "download_count": 1,
+          "download_count": 2,
           "created_at": "2026-11-06T19:26:09Z",
           "updated_at": "2026-11-06T19:26:20Z"
         },
@@ -120,7 +120,7 @@
         {
           "id": 718290417,
           "name": "Vibisual-0.2.7-setup.exe",
-          "download_count": 3,
+          "download_count": 4,
           "created_at": "2026-11-06T19:26:07Z",
           "updated_at": "2026-11-06T19:26:14Z"
         },
@@ -141,7 +141,7 @@
         {
           "id": 718312265,
           "name": "Vibisual-0.2.7.dmg",
-          "download_count": 1,
+          "download_count": 2,
           "created_at": "2026-11-06T19:33:35Z",
           "updated_at": "2026-11-06T19:33:45Z"
         },
@@ -155,14 +155,14 @@
         {
           "id": 718295437,
           "name": "vibisual-0.2.7.x86_64.rpm",
-          "download_count": 1,
+          "download_count": 2,
           "created_at": "2026-11-06T19:28:00Z",
           "updated_at": "2026-11-06T19:28:05Z"
         },
         {
           "id": 718288738,
           "name": "vibisual_0.2.7_amd64.deb",
-          "download_count": 1,
+          "download_count": 2,
           "created_at": "2026-11-06T19:25:37Z",
           "updated_at": "2026-11-06T19:25:40Z"
         }
