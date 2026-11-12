@@ -1,0 +1,3050 @@
+{
+  "schemaVersion": 1,
+  "repository": "Vibisual/vibisual",
+  "collectionStartedAt": "2026-11-12T11:20:52.689Z",
+  "observedAt": "2026-11-12T11:20:54.170Z",
+  "source": {
+    "provider": "GitHub REST API",
+    "apiVersion": "2022-11-28",
+    "releasesUrl": "https://api.github.com/repos/Vibisual/vibisual/releases?per_page=100",
+    "pages": 1,
+    "publicReleasesOnly": true
+  },
+  "definitions": {
+    "downloads": "Cumulative release-asset download counts reported by GitHub, not unique people or completed installations. Includes updates, repeats, automation and CI; no baseline deductions.",
+    "packageDownloads": "EXE/MSI, DMG/PKG/mac ZIP, AppImage/DEB/RPM/Snap asset download counts; same file classification as traction.csv downloads_total.",
+    "updateMetadataDownloads": "YML/YAML asset downloads. Repeated update checks and automation are included; not a lower bound on active installations.",
+    "audience": "Verified installations and active users are not measured. Null means unavailable, not zero."
+  },
+  "audience": {
+    "verifiedInstallations": null,
+    "activeUsers": null
+  },
+  "repositoryCounters": {
+    "stars": 1,
+    "forks": 1,
+    "watchers": 0,
+    "openIssues": 0
+  },
+  "totals": {
+    "publicReleases": 33,
+    "allAssetDownloads": 1771,
+    "packageDownloads": 391,
+    "packagesByPlatform": {
+      "windows": 114,
+      "macos": 153,
+      "linux": 124
+    },
+    "updateMetadataDownloads": 1204,
+    "blockmapDownloads": 158,
+    "otherAssetDownloads": 18
+  },
+  "releases": [
+    {
+      "id": 436900017,
+      "tag_name": "v0.2.7",
+      "prerelease": false,
+      "created_at": "2026-11-06T19:20:20Z",
+      "published_at": "2026-11-06T19:44:28Z",
+      "assets": [
+        {
+          "id": 718295699,
+          "name": "latest-linux.yml",
+          "download_count": 3,
+          "created_at": "2026-11-06T19:28:05Z",
+          "updated_at": "2026-11-06T19:28:05Z"
+        },
+        {
+          "id": 718312935,
+          "name": "latest-mac.yml",
+          "download_count": 1,
+          "created_at": "2026-11-06T19:33:47Z",
+          "updated_at": "2026-11-06T19:33:48Z"
+        },
+        {
+          "id": 718290759,
+          "name": "latest.yml",
+          "download_count": 43,
+          "created_at": "2026-11-06T19:26:15Z",
+          "updated_at": "2026-11-06T19:26:15Z"
+        },
+        {
+          "id": 718318685,
+          "name": "SHA256SUMS.txt",
+          "download_count": 1,
+          "created_at": "2026-11-06T19:35:44Z",
+          "updated_at": "2026-11-06T19:35:44Z"
+        },
+        {
+          "id": 718292221,
+          "name": "Vibisual-0.2.7-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-11-06T19:26:52Z",
+          "updated_at": "2026-11-06T19:27:06Z"
+        },
+        {
+          "id": 718292219,
+          "name": "Vibisual-0.2.7-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-11-06T19:26:52Z",
+          "updated_at": "2026-11-06T19:26:52Z"
+        },
+        {
+          "id": 718290513,
+          "name": "Vibisual-0.2.7-arm64.dmg",
+          "download_count": 2,
+          "created_at": "2026-11-06T19:26:09Z",
+          "updated_at": "2026-11-06T19:26:20Z"
+        },
+        {
+          "id": 718290512,
+          "name": "Vibisual-0.2.7-arm64.dmg.blockmap",
+          "download_count": 2,
+          "created_at": "2026-11-06T19:26:09Z",
+          "updated_at": "2026-11-06T19:26:10Z"
+        },
+        {
+          "id": 718310419,
+          "name": "Vibisual-0.2.7-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-11-06T19:33:00Z",
+          "updated_at": "2026-11-06T19:33:15Z"
+        },
+        {
+          "id": 718310420,
+          "name": "Vibisual-0.2.7-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-11-06T19:33:00Z",
+          "updated_at": "2026-11-06T19:33:00Z"
+        },
+        {
+          "id": 718290417,
+          "name": "Vibisual-0.2.7-setup.exe",
+          "download_count": 4,
+          "created_at": "2026-11-06T19:26:07Z",
+          "updated_at": "2026-11-06T19:26:14Z"
+        },
+        {
+          "id": 718290418,
+          "name": "Vibisual-0.2.7-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-11-06T19:26:07Z",
+          "updated_at": "2026-11-06T19:26:07Z"
+        },
+        {
+          "id": 718282576,
+          "name": "Vibisual-0.2.7.AppImage",
+          "download_count": 2,
+          "created_at": "2026-11-06T19:23:26Z",
+          "updated_at": "2026-11-06T19:23:31Z"
+        },
+        {
+          "id": 718312265,
+          "name": "Vibisual-0.2.7.dmg",
+          "download_count": 2,
+          "created_at": "2026-11-06T19:33:35Z",
+          "updated_at": "2026-11-06T19:33:45Z"
+        },
+        {
+          "id": 718312264,
+          "name": "Vibisual-0.2.7.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-11-06T19:33:35Z",
+          "updated_at": "2026-11-06T19:33:35Z"
+        },
+        {
+          "id": 718295437,
+          "name": "vibisual-0.2.7.x86_64.rpm",
+          "download_count": 2,
+          "created_at": "2026-11-06T19:28:00Z",
+          "updated_at": "2026-11-06T19:28:05Z"
+        },
+        {
+          "id": 718288738,
+          "name": "vibisual_0.2.7_amd64.deb",
+          "download_count": 2,
+          "created_at": "2026-11-06T19:25:37Z",
+          "updated_at": "2026-11-06T19:25:40Z"
+        }
+      ]
+    },
+    {
+      "id": 431110752,
+      "tag_name": "v0.2.6",
+      "prerelease": false,
+      "created_at": "2026-11-02T05:46:32Z",
+      "published_at": "2026-11-02T06:17:48Z",
+      "assets": [
+        {
+          "id": 700685562,
+          "name": "latest-linux.yml",
+          "download_count": 5,
+          "created_at": "2026-11-02T05:54:07Z",
+          "updated_at": "2026-11-02T05:54:08Z"
+        },
+        {
+          "id": 700714707,
+          "name": "latest-mac.yml",
+          "download_count": 5,
+          "created_at": "2026-11-02T06:08:03Z",
+          "updated_at": "2026-11-02T06:08:03Z"
+        },
+        {
+          "id": 700681298,
+          "name": "latest.yml",
+          "download_count": 37,
+          "created_at": "2026-11-02T05:52:02Z",
+          "updated_at": "2026-11-02T05:52:02Z"
+        },
+        {
+          "id": 700717714,
+          "name": "SHA256SUMS.txt",
+          "download_count": 3,
+          "created_at": "2026-11-02T06:09:32Z",
+          "updated_at": "2026-11-02T06:09:32Z"
+        },
+        {
+          "id": 700675966,
+          "name": "Vibisual-0.2.6-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-11-02T05:49:27Z",
+          "updated_at": "2026-11-02T05:49:37Z"
+        },
+        {
+          "id": 700675953,
+          "name": "Vibisual-0.2.6-arm64-mac.zip.blockmap",
+          "download_count": 2,
+          "created_at": "2026-11-02T05:49:27Z",
+          "updated_at": "2026-11-02T05:49:27Z"
+        },
+        {
+          "id": 700675456,
+          "name": "Vibisual-0.2.6-arm64.dmg",
+          "download_count": 2,
+          "created_at": "2026-11-02T05:49:13Z",
+          "updated_at": "2026-11-02T05:49:22Z"
+        },
+        {
+          "id": 700675457,
+          "name": "Vibisual-0.2.6-arm64.dmg.blockmap",
+          "download_count": 2,
+          "created_at": "2026-11-02T05:49:13Z",
+          "updated_at": "2026-11-02T05:49:13Z"
+        },
+        {
+          "id": 700687448,
+          "name": "Vibisual-0.2.6-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-11-02T05:54:56Z",
+          "updated_at": "2026-11-02T05:55:17Z"
+        },
+        {
+          "id": 700687449,
+          "name": "Vibisual-0.2.6-mac.zip.blockmap",
+          "download_count": 2,
+          "created_at": "2026-11-02T05:54:56Z",
+          "updated_at": "2026-11-02T05:54:57Z"
+        },
+        {
+          "id": 700681142,
+          "name": "Vibisual-0.2.6-setup.exe",
+          "download_count": 4,
+          "created_at": "2026-11-02T05:51:56Z",
+          "updated_at": "2026-11-02T05:52:02Z"
+        },
+        {
+          "id": 700681143,
+          "name": "Vibisual-0.2.6-setup.exe.blockmap",
+          "download_count": 3,
+          "created_at": "2026-11-02T05:51:56Z",
+          "updated_at": "2026-11-02T05:51:57Z"
+        },
+        {
+          "id": 700675565,
+          "name": "Vibisual-0.2.6.AppImage",
+          "download_count": 2,
+          "created_at": "2026-11-02T05:49:16Z",
+          "updated_at": "2026-11-02T05:49:22Z"
+        },
+        {
+          "id": 700714403,
+          "name": "Vibisual-0.2.6.dmg",
+          "download_count": 2,
+          "created_at": "2026-11-02T06:07:53Z",
+          "updated_at": "2026-11-02T06:08:01Z"
+        },
+        {
+          "id": 700714404,
+          "name": "Vibisual-0.2.6.dmg.blockmap",
+          "download_count": 3,
+          "created_at": "2026-11-02T06:07:53Z",
+          "updated_at": "2026-11-02T06:07:53Z"
+        },
+        {
+          "id": 700685355,
+          "name": "vibisual-0.2.6.x86_64.rpm",
+          "download_count": 2,
+          "created_at": "2026-11-02T05:54:01Z",
+          "updated_at": "2026-11-02T05:54:07Z"
+        },
+        {
+          "id": 700680153,
+          "name": "vibisual_0.2.6_amd64.deb",
+          "download_count": 2,
+          "created_at": "2026-11-02T05:51:23Z",
+          "updated_at": "2026-11-02T05:51:29Z"
+        }
+      ]
+    },
+    {
+      "id": 426450164,
+      "tag_name": "v0.2.5",
+      "prerelease": false,
+      "created_at": "2026-10-28T09:08:42Z",
+      "published_at": "2026-10-28T09:39:31Z",
+      "assets": [
+        {
+          "id": 684446564,
+          "name": "latest-linux.yml",
+          "download_count": 4,
+          "created_at": "2026-10-28T09:14:35Z",
+          "updated_at": "2026-10-28T09:14:35Z"
+        },
+        {
+          "id": 684485986,
+          "name": "latest-mac.yml",
+          "download_count": 4,
+          "created_at": "2026-10-28T09:31:15Z",
+          "updated_at": "2026-10-28T09:31:15Z"
+        },
+        {
+          "id": 684445661,
+          "name": "latest.yml",
+          "download_count": 33,
+          "created_at": "2026-10-28T09:14:14Z",
+          "updated_at": "2026-10-28T09:14:14Z"
+        },
+        {
+          "id": 684489414,
+          "name": "SHA256SUMS.txt",
+          "download_count": 2,
+          "created_at": "2026-10-28T09:32:40Z",
+          "updated_at": "2026-10-28T09:32:40Z"
+        },
+        {
+          "id": 684442412,
+          "name": "Vibisual-0.2.5-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-10-28T09:12:47Z",
+          "updated_at": "2026-10-28T09:12:58Z"
+        },
+        {
+          "id": 684442410,
+          "name": "Vibisual-0.2.5-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-28T09:12:47Z",
+          "updated_at": "2026-10-28T09:12:47Z"
+        },
+        {
+          "id": 684441298,
+          "name": "Vibisual-0.2.5-arm64.dmg",
+          "download_count": 1,
+          "created_at": "2026-10-28T09:12:18Z",
+          "updated_at": "2026-10-28T09:12:28Z"
+        },
+        {
+          "id": 684441299,
+          "name": "Vibisual-0.2.5-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-28T09:12:18Z",
+          "updated_at": "2026-10-28T09:12:18Z"
+        },
+        {
+          "id": 684461560,
+          "name": "Vibisual-0.2.5-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-10-28T09:20:51Z",
+          "updated_at": "2026-10-28T09:21:03Z"
+        },
+        {
+          "id": 684461561,
+          "name": "Vibisual-0.2.5-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-28T09:20:51Z",
+          "updated_at": "2026-10-28T09:20:52Z"
+        },
+        {
+          "id": 684445283,
+          "name": "Vibisual-0.2.5-setup.exe",
+          "download_count": 2,
+          "created_at": "2026-10-28T09:14:05Z",
+          "updated_at": "2026-10-28T09:14:14Z"
+        },
+        {
+          "id": 684445282,
+          "name": "Vibisual-0.2.5-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-10-28T09:14:05Z",
+          "updated_at": "2026-10-28T09:14:05Z"
+        },
+        {
+          "id": 684437725,
+          "name": "Vibisual-0.2.5.AppImage",
+          "download_count": 1,
+          "created_at": "2026-10-28T09:10:51Z",
+          "updated_at": "2026-10-28T09:10:58Z"
+        },
+        {
+          "id": 684485587,
+          "name": "Vibisual-0.2.5.dmg",
+          "download_count": 1,
+          "created_at": "2026-10-28T09:31:03Z",
+          "updated_at": "2026-10-28T09:31:13Z"
+        },
+        {
+          "id": 684485585,
+          "name": "Vibisual-0.2.5.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-28T09:31:03Z",
+          "updated_at": "2026-10-28T09:31:04Z"
+        },
+        {
+          "id": 684446323,
+          "name": "vibisual-0.2.5.x86_64.rpm",
+          "download_count": 1,
+          "created_at": "2026-10-28T09:14:28Z",
+          "updated_at": "2026-10-28T09:14:34Z"
+        },
+        {
+          "id": 684441996,
+          "name": "vibisual_0.2.5_amd64.deb",
+          "download_count": 1,
+          "created_at": "2026-10-28T09:12:37Z",
+          "updated_at": "2026-10-28T09:12:44Z"
+        }
+      ]
+    },
+    {
+      "id": 417990340,
+      "tag_name": "v0.2.4",
+      "prerelease": false,
+      "created_at": "2026-10-20T05:39:46Z",
+      "published_at": "2026-10-20T06:05:33Z",
+      "assets": [
+        {
+          "id": 658400209,
+          "name": "latest-linux.yml",
+          "download_count": 4,
+          "created_at": "2026-10-20T05:45:35Z",
+          "updated_at": "2026-10-20T05:45:35Z"
+        },
+        {
+          "id": 658417782,
+          "name": "latest-mac.yml",
+          "download_count": 5,
+          "created_at": "2026-10-20T05:55:20Z",
+          "updated_at": "2026-10-20T05:55:20Z"
+        },
+        {
+          "id": 658400859,
+          "name": "latest.yml",
+          "download_count": 55,
+          "created_at": "2026-10-20T05:45:52Z",
+          "updated_at": "2026-10-20T05:45:53Z"
+        },
+        {
+          "id": 658420083,
+          "name": "SHA256SUMS.txt",
+          "download_count": 2,
+          "created_at": "2026-10-20T05:56:36Z",
+          "updated_at": "2026-10-20T05:56:36Z"
+        },
+        {
+          "id": 658397496,
+          "name": "Vibisual-0.2.4-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-10-20T05:44:10Z",
+          "updated_at": "2026-10-20T05:44:22Z"
+        },
+        {
+          "id": 658397486,
+          "name": "Vibisual-0.2.4-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-20T05:44:09Z",
+          "updated_at": "2026-10-20T05:44:10Z"
+        },
+        {
+          "id": 658396252,
+          "name": "Vibisual-0.2.4-arm64.dmg",
+          "download_count": 1,
+          "created_at": "2026-10-20T05:43:31Z",
+          "updated_at": "2026-10-20T05:43:41Z"
+        },
+        {
+          "id": 658396246,
+          "name": "Vibisual-0.2.4-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-20T05:43:30Z",
+          "updated_at": "2026-10-20T05:43:30Z"
+        },
+        {
+          "id": 658409592,
+          "name": "Vibisual-0.2.4-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-10-20T05:50:35Z",
+          "updated_at": "2026-10-20T05:50:49Z"
+        },
+        {
+          "id": 658409585,
+          "name": "Vibisual-0.2.4-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-20T05:50:35Z",
+          "updated_at": "2026-10-20T05:50:36Z"
+        },
+        {
+          "id": 658400482,
+          "name": "Vibisual-0.2.4-setup.exe",
+          "download_count": 13,
+          "created_at": "2026-10-20T05:45:43Z",
+          "updated_at": "2026-10-20T05:45:51Z"
+        },
+        {
+          "id": 658400496,
+          "name": "Vibisual-0.2.4-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-10-20T05:45:43Z",
+          "updated_at": "2026-10-20T05:45:43Z"
+        },
+        {
+          "id": 658393476,
+          "name": "Vibisual-0.2.4.AppImage",
+          "download_count": 1,
+          "created_at": "2026-10-20T05:41:53Z",
+          "updated_at": "2026-10-20T05:42:04Z"
+        },
+        {
+          "id": 658417469,
+          "name": "Vibisual-0.2.4.dmg",
+          "download_count": 1,
+          "created_at": "2026-10-20T05:55:07Z",
+          "updated_at": "2026-10-20T05:55:18Z"
+        },
+        {
+          "id": 658417461,
+          "name": "Vibisual-0.2.4.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-20T05:55:07Z",
+          "updated_at": "2026-10-20T05:55:07Z"
+        },
+        {
+          "id": 658400049,
+          "name": "vibisual-0.2.4.x86_64.rpm",
+          "download_count": 1,
+          "created_at": "2026-10-20T05:45:28Z",
+          "updated_at": "2026-10-20T05:45:33Z"
+        },
+        {
+          "id": 658396445,
+          "name": "vibisual_0.2.4_amd64.deb",
+          "download_count": 1,
+          "created_at": "2026-10-20T05:43:38Z",
+          "updated_at": "2026-10-20T05:43:44Z"
+        }
+      ]
+    },
+    {
+      "id": 403153060,
+      "tag_name": "v0.2.3",
+      "prerelease": false,
+      "created_at": "2026-10-04T18:33:25Z",
+      "published_at": "2026-10-04T19:01:54Z",
+      "assets": [
+        {
+          "id": 610398380,
+          "name": "latest-linux.yml",
+          "download_count": 8,
+          "created_at": "2026-10-04T18:39:10Z",
+          "updated_at": "2026-10-04T18:39:11Z"
+        },
+        {
+          "id": 610431338,
+          "name": "latest-mac.yml",
+          "download_count": 6,
+          "created_at": "2026-10-04T18:56:40Z",
+          "updated_at": "2026-10-04T18:56:40Z"
+        },
+        {
+          "id": 610395412,
+          "name": "latest.yml",
+          "download_count": 93,
+          "created_at": "2026-10-04T18:37:51Z",
+          "updated_at": "2026-10-04T18:37:51Z"
+        },
+        {
+          "id": 610434450,
+          "name": "SHA256SUMS.txt",
+          "download_count": 2,
+          "created_at": "2026-10-04T18:58:13Z",
+          "updated_at": "2026-10-04T18:58:13Z"
+        },
+        {
+          "id": 610393009,
+          "name": "Vibisual-0.2.3-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-10-04T18:36:46Z",
+          "updated_at": "2026-10-04T18:36:55Z"
+        },
+        {
+          "id": 610393007,
+          "name": "Vibisual-0.2.3-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-04T18:36:46Z",
+          "updated_at": "2026-10-04T18:36:47Z"
+        },
+        {
+          "id": 610392125,
+          "name": "Vibisual-0.2.3-arm64.dmg",
+          "download_count": 2,
+          "created_at": "2026-10-04T18:36:25Z",
+          "updated_at": "2026-10-04T18:36:34Z"
+        },
+        {
+          "id": 610392130,
+          "name": "Vibisual-0.2.3-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-04T18:36:25Z",
+          "updated_at": "2026-10-04T18:36:26Z"
+        },
+        {
+          "id": 610405731,
+          "name": "Vibisual-0.2.3-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-10-04T18:42:32Z",
+          "updated_at": "2026-10-04T18:42:44Z"
+        },
+        {
+          "id": 610405732,
+          "name": "Vibisual-0.2.3-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-04T18:42:32Z",
+          "updated_at": "2026-10-04T18:42:32Z"
+        },
+        {
+          "id": 610395044,
+          "name": "Vibisual-0.2.3-setup.exe",
+          "download_count": 3,
+          "created_at": "2026-10-04T18:37:43Z",
+          "updated_at": "2026-10-04T18:37:50Z"
+        },
+        {
+          "id": 610395039,
+          "name": "Vibisual-0.2.3-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-10-04T18:37:43Z",
+          "updated_at": "2026-10-04T18:37:43Z"
+        },
+        {
+          "id": 610390558,
+          "name": "Vibisual-0.2.3.AppImage",
+          "download_count": 1,
+          "created_at": "2026-10-04T18:35:46Z",
+          "updated_at": "2026-10-04T18:35:52Z"
+        },
+        {
+          "id": 610430905,
+          "name": "Vibisual-0.2.3.dmg",
+          "download_count": 2,
+          "created_at": "2026-10-04T18:56:30Z",
+          "updated_at": "2026-10-04T18:56:38Z"
+        },
+        {
+          "id": 610430903,
+          "name": "Vibisual-0.2.3.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-04T18:56:30Z",
+          "updated_at": "2026-10-04T18:56:30Z"
+        },
+        {
+          "id": 610398202,
+          "name": "vibisual-0.2.3.x86_64.rpm",
+          "download_count": 2,
+          "created_at": "2026-10-04T18:39:03Z",
+          "updated_at": "2026-10-04T18:39:10Z"
+        },
+        {
+          "id": 610394033,
+          "name": "vibisual_0.2.3_amd64.deb",
+          "download_count": 2,
+          "created_at": "2026-10-04T18:37:18Z",
+          "updated_at": "2026-10-04T18:37:23Z"
+        }
+      ]
+    },
+    {
+      "id": 400870816,
+      "tag_name": "v0.2.2",
+      "prerelease": false,
+      "created_at": "2026-10-01T10:43:13Z",
+      "published_at": "2026-10-01T11:00:07Z",
+      "assets": [
+        {
+          "id": 603038143,
+          "name": "latest-linux.yml",
+          "download_count": 3,
+          "created_at": "2026-10-01T10:49:23Z",
+          "updated_at": "2026-10-01T10:49:23Z"
+        },
+        {
+          "id": 603050347,
+          "name": "latest-mac.yml",
+          "download_count": 4,
+          "created_at": "2026-10-01T10:54:26Z",
+          "updated_at": "2026-10-01T10:54:26Z"
+        },
+        {
+          "id": 603033091,
+          "name": "latest.yml",
+          "download_count": 22,
+          "created_at": "2026-10-01T10:46:36Z",
+          "updated_at": "2026-10-01T10:46:36Z"
+        },
+        {
+          "id": 603053059,
+          "name": "SHA256SUMS.txt",
+          "download_count": 2,
+          "created_at": "2026-10-01T10:55:58Z",
+          "updated_at": "2026-10-01T10:55:59Z"
+        },
+        {
+          "id": 603035515,
+          "name": "Vibisual-0.2.2-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-10-01T10:48:04Z",
+          "updated_at": "2026-10-01T10:48:11Z"
+        },
+        {
+          "id": 603035516,
+          "name": "Vibisual-0.2.2-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-01T10:48:05Z",
+          "updated_at": "2026-10-01T10:48:05Z"
+        },
+        {
+          "id": 603034472,
+          "name": "Vibisual-0.2.2-arm64.dmg",
+          "download_count": 1,
+          "created_at": "2026-10-01T10:47:29Z",
+          "updated_at": "2026-10-01T10:47:38Z"
+        },
+        {
+          "id": 603034473,
+          "name": "Vibisual-0.2.2-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-01T10:47:29Z",
+          "updated_at": "2026-10-01T10:47:29Z"
+        },
+        {
+          "id": 603046075,
+          "name": "Vibisual-0.2.2-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-10-01T10:52:39Z",
+          "updated_at": "2026-10-01T10:52:52Z"
+        },
+        {
+          "id": 603046077,
+          "name": "Vibisual-0.2.2-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-01T10:52:39Z",
+          "updated_at": "2026-10-01T10:52:40Z"
+        },
+        {
+          "id": 603032853,
+          "name": "Vibisual-0.2.2-setup.exe",
+          "download_count": 2,
+          "created_at": "2026-10-01T10:46:30Z",
+          "updated_at": "2026-10-01T10:46:35Z"
+        },
+        {
+          "id": 603032856,
+          "name": "Vibisual-0.2.2-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-10-01T10:46:30Z",
+          "updated_at": "2026-10-01T10:46:30Z"
+        },
+        {
+          "id": 603031016,
+          "name": "Vibisual-0.2.2.AppImage",
+          "download_count": 1,
+          "created_at": "2026-10-01T10:45:30Z",
+          "updated_at": "2026-10-01T10:45:36Z"
+        },
+        {
+          "id": 603050023,
+          "name": "Vibisual-0.2.2.dmg",
+          "download_count": 1,
+          "created_at": "2026-10-01T10:54:16Z",
+          "updated_at": "2026-10-01T10:54:24Z"
+        },
+        {
+          "id": 603050022,
+          "name": "Vibisual-0.2.2.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-10-01T10:54:16Z",
+          "updated_at": "2026-10-01T10:54:16Z"
+        },
+        {
+          "id": 603037842,
+          "name": "vibisual-0.2.2.x86_64.rpm",
+          "download_count": 1,
+          "created_at": "2026-10-01T10:49:15Z",
+          "updated_at": "2026-10-01T10:49:22Z"
+        },
+        {
+          "id": 603034142,
+          "name": "vibisual_0.2.2_amd64.deb",
+          "download_count": 1,
+          "created_at": "2026-10-01T10:47:17Z",
+          "updated_at": "2026-10-01T10:47:22Z"
+        }
+      ]
+    },
+    {
+      "id": 394388934,
+      "tag_name": "v0.2.1",
+      "prerelease": false,
+      "created_at": "2026-09-23T07:21:56Z",
+      "published_at": "2026-09-23T07:46:33Z",
+      "assets": [
+        {
+          "id": 583232868,
+          "name": "latest-linux.yml",
+          "download_count": 2,
+          "created_at": "2026-09-23T07:27:22Z",
+          "updated_at": "2026-09-23T07:27:22Z"
+        },
+        {
+          "id": 583256344,
+          "name": "latest-mac.yml",
+          "download_count": 3,
+          "created_at": "2026-09-23T07:40:44Z",
+          "updated_at": "2026-09-23T07:40:44Z"
+        },
+        {
+          "id": 583230852,
+          "name": "latest.yml",
+          "download_count": 44,
+          "created_at": "2026-09-23T07:26:09Z",
+          "updated_at": "2026-09-23T07:26:09Z"
+        },
+        {
+          "id": 583258844,
+          "name": "SHA256SUMS.txt",
+          "download_count": 1,
+          "created_at": "2026-09-23T07:42:07Z",
+          "updated_at": "2026-09-23T07:42:08Z"
+        },
+        {
+          "id": 583229958,
+          "name": "Vibisual-0.2.1-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-09-23T07:25:33Z",
+          "updated_at": "2026-09-23T07:25:49Z"
+        },
+        {
+          "id": 583229957,
+          "name": "Vibisual-0.2.1-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-23T07:25:33Z",
+          "updated_at": "2026-09-23T07:25:33Z"
+        },
+        {
+          "id": 583229378,
+          "name": "Vibisual-0.2.1-arm64.dmg",
+          "download_count": 1,
+          "created_at": "2026-09-23T07:25:13Z",
+          "updated_at": "2026-09-23T07:25:21Z"
+        },
+        {
+          "id": 583229379,
+          "name": "Vibisual-0.2.1-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-23T07:25:13Z",
+          "updated_at": "2026-09-23T07:25:13Z"
+        },
+        {
+          "id": 583237851,
+          "name": "Vibisual-0.2.1-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-09-23T07:30:27Z",
+          "updated_at": "2026-09-23T07:30:36Z"
+        },
+        {
+          "id": 583237849,
+          "name": "Vibisual-0.2.1-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-23T07:30:26Z",
+          "updated_at": "2026-09-23T07:30:27Z"
+        },
+        {
+          "id": 583230714,
+          "name": "Vibisual-0.2.1-setup.exe",
+          "download_count": 5,
+          "created_at": "2026-09-23T07:26:05Z",
+          "updated_at": "2026-09-23T07:26:09Z"
+        },
+        {
+          "id": 583230715,
+          "name": "Vibisual-0.2.1-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-09-23T07:26:05Z",
+          "updated_at": "2026-09-23T07:26:05Z"
+        },
+        {
+          "id": 583228051,
+          "name": "Vibisual-0.2.1.AppImage",
+          "download_count": 1,
+          "created_at": "2026-09-23T07:24:18Z",
+          "updated_at": "2026-09-23T07:24:24Z"
+        },
+        {
+          "id": 583256061,
+          "name": "Vibisual-0.2.1.dmg",
+          "download_count": 1,
+          "created_at": "2026-09-23T07:40:32Z",
+          "updated_at": "2026-09-23T07:40:42Z"
+        },
+        {
+          "id": 583256060,
+          "name": "Vibisual-0.2.1.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-23T07:40:32Z",
+          "updated_at": "2026-09-23T07:40:33Z"
+        },
+        {
+          "id": 583232671,
+          "name": "vibisual-0.2.1.x86_64.rpm",
+          "download_count": 1,
+          "created_at": "2026-09-23T07:27:16Z",
+          "updated_at": "2026-09-23T07:27:21Z"
+        },
+        {
+          "id": 583230279,
+          "name": "vibisual_0.2.1_amd64.deb",
+          "download_count": 1,
+          "created_at": "2026-09-23T07:25:46Z",
+          "updated_at": "2026-09-23T07:25:51Z"
+        }
+      ]
+    },
+    {
+      "id": 393017565,
+      "tag_name": "v0.2.0",
+      "prerelease": false,
+      "created_at": "2026-09-21T14:12:22Z",
+      "published_at": "2026-09-21T14:31:28Z",
+      "assets": [
+        {
+          "id": 579185985,
+          "name": "latest-linux.yml",
+          "download_count": 2,
+          "created_at": "2026-09-21T14:18:06Z",
+          "updated_at": "2026-09-21T14:18:06Z"
+        },
+        {
+          "id": 579198327,
+          "name": "latest-mac.yml",
+          "download_count": 3,
+          "created_at": "2026-09-21T14:25:56Z",
+          "updated_at": "2026-09-21T14:25:56Z"
+        },
+        {
+          "id": 579183869,
+          "name": "latest.yml",
+          "download_count": 14,
+          "created_at": "2026-09-21T14:16:39Z",
+          "updated_at": "2026-09-21T14:16:40Z"
+        },
+        {
+          "id": 579201022,
+          "name": "SHA256SUMS.txt",
+          "download_count": 1,
+          "created_at": "2026-09-21T14:27:26Z",
+          "updated_at": "2026-09-21T14:27:27Z"
+        },
+        {
+          "id": 579184759,
+          "name": "Vibisual-0.2.0-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-09-21T14:17:21Z",
+          "updated_at": "2026-09-21T14:17:29Z"
+        },
+        {
+          "id": 579184760,
+          "name": "Vibisual-0.2.0-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-21T14:17:21Z",
+          "updated_at": "2026-09-21T14:17:21Z"
+        },
+        {
+          "id": 579185333,
+          "name": "Vibisual-0.2.0-arm64.dmg",
+          "download_count": 2,
+          "created_at": "2026-09-21T14:17:44Z",
+          "updated_at": "2026-09-21T14:17:52Z"
+        },
+        {
+          "id": 579185332,
+          "name": "Vibisual-0.2.0-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-21T14:17:44Z",
+          "updated_at": "2026-09-21T14:17:45Z"
+        },
+        {
+          "id": 579190071,
+          "name": "Vibisual-0.2.0-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-09-21T14:20:54Z",
+          "updated_at": "2026-09-21T14:21:05Z"
+        },
+        {
+          "id": 579190072,
+          "name": "Vibisual-0.2.0-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-21T14:20:54Z",
+          "updated_at": "2026-09-21T14:20:54Z"
+        },
+        {
+          "id": 579183671,
+          "name": "Vibisual-0.2.0-setup.exe",
+          "download_count": 3,
+          "created_at": "2026-09-21T14:16:32Z",
+          "updated_at": "2026-09-21T14:16:39Z"
+        },
+        {
+          "id": 579183668,
+          "name": "Vibisual-0.2.0-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-09-21T14:16:32Z",
+          "updated_at": "2026-09-21T14:16:32Z"
+        },
+        {
+          "id": 579181140,
+          "name": "Vibisual-0.2.0.AppImage",
+          "download_count": 1,
+          "created_at": "2026-09-21T14:14:48Z",
+          "updated_at": "2026-09-21T14:14:55Z"
+        },
+        {
+          "id": 579198003,
+          "name": "Vibisual-0.2.0.dmg",
+          "download_count": 2,
+          "created_at": "2026-09-21T14:25:43Z",
+          "updated_at": "2026-09-21T14:25:54Z"
+        },
+        {
+          "id": 579198004,
+          "name": "Vibisual-0.2.0.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-21T14:25:43Z",
+          "updated_at": "2026-09-21T14:25:43Z"
+        },
+        {
+          "id": 579185806,
+          "name": "vibisual-0.2.0.x86_64.rpm",
+          "download_count": 2,
+          "created_at": "2026-09-21T14:17:59Z",
+          "updated_at": "2026-09-21T14:18:06Z"
+        },
+        {
+          "id": 579183543,
+          "name": "vibisual_0.2.0_amd64.deb",
+          "download_count": 1,
+          "created_at": "2026-09-21T14:16:27Z",
+          "updated_at": "2026-09-21T14:16:33Z"
+        }
+      ]
+    },
+    {
+      "id": 387805599,
+      "tag_name": "v0.1.25",
+      "prerelease": false,
+      "created_at": "2026-09-13T05:47:30Z",
+      "published_at": "2026-09-13T05:58:05Z",
+      "assets": [
+        {
+          "id": 560667432,
+          "name": "latest-linux.yml",
+          "download_count": 16,
+          "created_at": "2026-09-13T05:52:59Z",
+          "updated_at": "2026-09-13T05:52:59Z"
+        },
+        {
+          "id": 560667824,
+          "name": "latest-mac.yml",
+          "download_count": 30,
+          "created_at": "2026-09-13T05:53:20Z",
+          "updated_at": "2026-09-13T05:53:20Z"
+        },
+        {
+          "id": 560664897,
+          "name": "latest.yml",
+          "download_count": 55,
+          "created_at": "2026-09-13T05:50:51Z",
+          "updated_at": "2026-09-13T05:50:51Z"
+        },
+        {
+          "id": 560668814,
+          "name": "SHA256SUMS.txt",
+          "download_count": 1,
+          "created_at": "2026-09-13T05:54:12Z",
+          "updated_at": "2026-09-13T05:54:13Z"
+        },
+        {
+          "id": 560665374,
+          "name": "Vibisual-0.1.25-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-09-13T05:51:18Z",
+          "updated_at": "2026-09-13T05:51:26Z"
+        },
+        {
+          "id": 560665375,
+          "name": "Vibisual-0.1.25-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-13T05:51:18Z",
+          "updated_at": "2026-09-13T05:51:18Z"
+        },
+        {
+          "id": 560665763,
+          "name": "Vibisual-0.1.25-arm64.dmg",
+          "download_count": 2,
+          "created_at": "2026-09-13T05:51:33Z",
+          "updated_at": "2026-09-13T05:51:42Z"
+        },
+        {
+          "id": 560665765,
+          "name": "Vibisual-0.1.25-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-13T05:51:33Z",
+          "updated_at": "2026-09-13T05:51:33Z"
+        },
+        {
+          "id": 560667587,
+          "name": "Vibisual-0.1.25-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-09-13T05:53:08Z",
+          "updated_at": "2026-09-13T05:53:18Z"
+        },
+        {
+          "id": 560667589,
+          "name": "Vibisual-0.1.25-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-13T05:53:08Z",
+          "updated_at": "2026-09-13T05:53:09Z"
+        },
+        {
+          "id": 560664706,
+          "name": "Vibisual-0.1.25-setup.exe",
+          "download_count": 3,
+          "created_at": "2026-09-13T05:50:42Z",
+          "updated_at": "2026-09-13T05:50:51Z"
+        },
+        {
+          "id": 560664703,
+          "name": "Vibisual-0.1.25-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-09-13T05:50:42Z",
+          "updated_at": "2026-09-13T05:50:42Z"
+        },
+        {
+          "id": 560663268,
+          "name": "Vibisual-0.1.25.AppImage",
+          "download_count": 2,
+          "created_at": "2026-09-13T05:49:43Z",
+          "updated_at": "2026-09-13T05:49:49Z"
+        },
+        {
+          "id": 560666927,
+          "name": "Vibisual-0.1.25.dmg",
+          "download_count": 2,
+          "created_at": "2026-09-13T05:52:29Z",
+          "updated_at": "2026-09-13T05:52:38Z"
+        },
+        {
+          "id": 560666928,
+          "name": "Vibisual-0.1.25.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-13T05:52:29Z",
+          "updated_at": "2026-09-13T05:52:29Z"
+        },
+        {
+          "id": 560667325,
+          "name": "vibisual-0.1.25.x86_64.rpm",
+          "download_count": 2,
+          "created_at": "2026-09-13T05:52:52Z",
+          "updated_at": "2026-09-13T05:52:58Z"
+        },
+        {
+          "id": 560665222,
+          "name": "vibisual_0.1.25_amd64.deb",
+          "download_count": 2,
+          "created_at": "2026-09-13T05:51:11Z",
+          "updated_at": "2026-09-13T05:51:17Z"
+        }
+      ]
+    },
+    {
+      "id": 387794216,
+      "tag_name": "v0.1.24",
+      "prerelease": false,
+      "created_at": "2026-09-13T04:44:05Z",
+      "published_at": "2026-09-13T05:03:56Z",
+      "assets": [
+        {
+          "id": 560579953,
+          "name": "latest-linux.yml",
+          "download_count": 7,
+          "created_at": "2026-09-13T04:49:23Z",
+          "updated_at": "2026-09-13T04:49:24Z"
+        },
+        {
+          "id": 560582112,
+          "name": "latest-mac.yml",
+          "download_count": 12,
+          "created_at": "2026-09-13T04:51:00Z",
+          "updated_at": "2026-09-13T04:51:00Z"
+        },
+        {
+          "id": 560594833,
+          "name": "latest.yml",
+          "download_count": 5,
+          "created_at": "2026-09-13T04:59:23Z",
+          "updated_at": "2026-09-13T04:59:23Z"
+        },
+        {
+          "id": 560596642,
+          "name": "SHA256SUMS.txt",
+          "download_count": 1,
+          "created_at": "2026-09-13T05:00:36Z",
+          "updated_at": "2026-09-13T05:00:36Z"
+        },
+        {
+          "id": 560576626,
+          "name": "Vibisual-0.1.24-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-09-13T04:47:06Z",
+          "updated_at": "2026-09-13T04:47:14Z"
+        },
+        {
+          "id": 560576625,
+          "name": "Vibisual-0.1.24-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-13T04:47:06Z",
+          "updated_at": "2026-09-13T04:47:06Z"
+        },
+        {
+          "id": 560576108,
+          "name": "Vibisual-0.1.24-arm64.dmg",
+          "download_count": 2,
+          "created_at": "2026-09-13T04:46:43Z",
+          "updated_at": "2026-09-13T04:46:50Z"
+        },
+        {
+          "id": 560576110,
+          "name": "Vibisual-0.1.24-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-13T04:46:43Z",
+          "updated_at": "2026-09-13T04:46:43Z"
+        },
+        {
+          "id": 560581898,
+          "name": "Vibisual-0.1.24-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-09-13T04:50:48Z",
+          "updated_at": "2026-09-13T04:50:58Z"
+        },
+        {
+          "id": 560581896,
+          "name": "Vibisual-0.1.24-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-13T04:50:48Z",
+          "updated_at": "2026-09-13T04:50:49Z"
+        },
+        {
+          "id": 560594626,
+          "name": "Vibisual-0.1.24-setup.exe",
+          "download_count": 2,
+          "created_at": "2026-09-13T04:59:15Z",
+          "updated_at": "2026-09-13T04:59:21Z"
+        },
+        {
+          "id": 560594632,
+          "name": "Vibisual-0.1.24-setup.exe.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-13T04:59:15Z",
+          "updated_at": "2026-09-13T04:59:15Z"
+        },
+        {
+          "id": 560575496,
+          "name": "Vibisual-0.1.24.AppImage",
+          "download_count": 2,
+          "created_at": "2026-09-13T04:46:20Z",
+          "updated_at": "2026-09-13T04:46:27Z"
+        },
+        {
+          "id": 560580780,
+          "name": "Vibisual-0.1.24.dmg",
+          "download_count": 2,
+          "created_at": "2026-09-13T04:50:00Z",
+          "updated_at": "2026-09-13T04:50:09Z"
+        },
+        {
+          "id": 560580782,
+          "name": "Vibisual-0.1.24.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-13T04:50:00Z",
+          "updated_at": "2026-09-13T04:50:00Z"
+        },
+        {
+          "id": 560579786,
+          "name": "vibisual-0.1.24.x86_64.rpm",
+          "download_count": 2,
+          "created_at": "2026-09-13T04:49:17Z",
+          "updated_at": "2026-09-13T04:49:23Z"
+        },
+        {
+          "id": 560577591,
+          "name": "vibisual_0.1.24_amd64.deb",
+          "download_count": 2,
+          "created_at": "2026-09-13T04:47:46Z",
+          "updated_at": "2026-09-13T04:47:53Z"
+        }
+      ]
+    },
+    {
+      "id": 387761559,
+      "tag_name": "v0.1.23",
+      "prerelease": false,
+      "created_at": "2026-09-13T01:44:27Z",
+      "published_at": "2026-09-13T02:33:21Z",
+      "assets": [
+        {
+          "id": 560345440,
+          "name": "latest-linux.yml",
+          "download_count": 5,
+          "created_at": "2026-09-13T01:50:11Z",
+          "updated_at": "2026-09-13T01:50:11Z"
+        },
+        {
+          "id": 560358575,
+          "name": "latest-mac.yml",
+          "download_count": 7,
+          "created_at": "2026-09-13T02:00:26Z",
+          "updated_at": "2026-09-13T02:00:26Z"
+        },
+        {
+          "id": 560343219,
+          "name": "latest.yml",
+          "download_count": 4,
+          "created_at": "2026-09-13T01:48:28Z",
+          "updated_at": "2026-09-13T01:48:28Z"
+        },
+        {
+          "id": 560360054,
+          "name": "SHA256SUMS.txt",
+          "download_count": 2,
+          "created_at": "2026-09-13T02:01:44Z",
+          "updated_at": "2026-09-13T02:01:44Z"
+        },
+        {
+          "id": 560343453,
+          "name": "Vibisual-0.1.23-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-09-13T01:48:39Z",
+          "updated_at": "2026-09-13T01:48:47Z"
+        },
+        {
+          "id": 560343454,
+          "name": "Vibisual-0.1.23-arm64-mac.zip.blockmap",
+          "download_count": 2,
+          "created_at": "2026-09-13T01:48:39Z",
+          "updated_at": "2026-09-13T01:48:39Z"
+        },
+        {
+          "id": 560342788,
+          "name": "Vibisual-0.1.23-arm64.dmg",
+          "download_count": 2,
+          "created_at": "2026-09-13T01:48:07Z",
+          "updated_at": "2026-09-13T01:48:15Z"
+        },
+        {
+          "id": 560342787,
+          "name": "Vibisual-0.1.23-arm64.dmg.blockmap",
+          "download_count": 2,
+          "created_at": "2026-09-13T01:48:07Z",
+          "updated_at": "2026-09-13T01:48:07Z"
+        },
+        {
+          "id": 560346783,
+          "name": "Vibisual-0.1.23-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-09-13T01:51:14Z",
+          "updated_at": "2026-09-13T01:51:23Z"
+        },
+        {
+          "id": 560346782,
+          "name": "Vibisual-0.1.23-mac.zip.blockmap",
+          "download_count": 2,
+          "created_at": "2026-09-13T01:51:14Z",
+          "updated_at": "2026-09-13T01:51:14Z"
+        },
+        {
+          "id": 560343096,
+          "name": "Vibisual-0.1.23-setup.exe",
+          "download_count": 4,
+          "created_at": "2026-09-13T01:48:21Z",
+          "updated_at": "2026-09-13T01:48:28Z"
+        },
+        {
+          "id": 560343095,
+          "name": "Vibisual-0.1.23-setup.exe.blockmap",
+          "download_count": 3,
+          "created_at": "2026-09-13T01:48:21Z",
+          "updated_at": "2026-09-13T01:48:21Z"
+        },
+        {
+          "id": 560341004,
+          "name": "Vibisual-0.1.23.AppImage",
+          "download_count": 2,
+          "created_at": "2026-09-13T01:46:38Z",
+          "updated_at": "2026-09-13T01:46:45Z"
+        },
+        {
+          "id": 560358348,
+          "name": "Vibisual-0.1.23.dmg",
+          "download_count": 2,
+          "created_at": "2026-09-13T02:00:17Z",
+          "updated_at": "2026-09-13T02:00:25Z"
+        },
+        {
+          "id": 560358350,
+          "name": "Vibisual-0.1.23.dmg.blockmap",
+          "download_count": 2,
+          "created_at": "2026-09-13T02:00:17Z",
+          "updated_at": "2026-09-13T02:00:17Z"
+        },
+        {
+          "id": 560345301,
+          "name": "vibisual-0.1.23.x86_64.rpm",
+          "download_count": 2,
+          "created_at": "2026-09-13T01:50:05Z",
+          "updated_at": "2026-09-13T01:50:11Z"
+        },
+        {
+          "id": 560343179,
+          "name": "vibisual_0.1.23_amd64.deb",
+          "download_count": 2,
+          "created_at": "2026-09-13T01:48:26Z",
+          "updated_at": "2026-09-13T01:48:32Z"
+        }
+      ]
+    },
+    {
+      "id": 382636213,
+      "tag_name": "v0.1.22",
+      "prerelease": false,
+      "created_at": "2026-09-04T10:17:34Z",
+      "published_at": "2026-09-04T11:06:43Z",
+      "assets": [
+        {
+          "id": 544163602,
+          "name": "latest-linux.yml",
+          "download_count": 4,
+          "created_at": "2026-09-04T10:23:39Z",
+          "updated_at": "2026-09-04T10:23:39Z"
+        },
+        {
+          "id": 544184638,
+          "name": "latest-mac.yml",
+          "download_count": 5,
+          "created_at": "2026-09-04T10:40:20Z",
+          "updated_at": "2026-09-04T10:40:20Z"
+        },
+        {
+          "id": 544161419,
+          "name": "latest.yml",
+          "download_count": 66,
+          "created_at": "2026-09-04T10:21:26Z",
+          "updated_at": "2026-09-04T10:21:26Z"
+        },
+        {
+          "id": 544161964,
+          "name": "Vibisual-0.1.22-arm64-mac.zip",
+          "download_count": 2,
+          "created_at": "2026-09-04T10:21:53Z",
+          "updated_at": "2026-09-04T10:22:02Z"
+        },
+        {
+          "id": 544161965,
+          "name": "Vibisual-0.1.22-arm64-mac.zip.blockmap",
+          "download_count": 2,
+          "created_at": "2026-09-04T10:21:53Z",
+          "updated_at": "2026-09-04T10:21:53Z"
+        },
+        {
+          "id": 544162332,
+          "name": "Vibisual-0.1.22-arm64.dmg",
+          "download_count": 5,
+          "created_at": "2026-09-04T10:22:18Z",
+          "updated_at": "2026-09-04T10:22:26Z"
+        },
+        {
+          "id": 544162333,
+          "name": "Vibisual-0.1.22-arm64.dmg.blockmap",
+          "download_count": 2,
+          "created_at": "2026-09-04T10:22:18Z",
+          "updated_at": "2026-09-04T10:22:18Z"
+        },
+        {
+          "id": 544165744,
+          "name": "Vibisual-0.1.22-mac.zip",
+          "download_count": 2,
+          "created_at": "2026-09-04T10:25:19Z",
+          "updated_at": "2026-09-04T10:25:40Z"
+        },
+        {
+          "id": 544165738,
+          "name": "Vibisual-0.1.22-mac.zip.blockmap",
+          "download_count": 2,
+          "created_at": "2026-09-04T10:25:19Z",
+          "updated_at": "2026-09-04T10:25:20Z"
+        },
+        {
+          "id": 544161313,
+          "name": "Vibisual-0.1.22-setup.exe",
+          "download_count": 6,
+          "created_at": "2026-09-04T10:21:21Z",
+          "updated_at": "2026-09-04T10:21:26Z"
+        },
+        {
+          "id": 544161314,
+          "name": "Vibisual-0.1.22-setup.exe.blockmap",
+          "download_count": 3,
+          "created_at": "2026-09-04T10:21:21Z",
+          "updated_at": "2026-09-04T10:21:21Z"
+        },
+        {
+          "id": 544159875,
+          "name": "Vibisual-0.1.22.AppImage",
+          "download_count": 4,
+          "created_at": "2026-09-04T10:19:43Z",
+          "updated_at": "2026-09-04T10:19:47Z"
+        },
+        {
+          "id": 544184518,
+          "name": "Vibisual-0.1.22.dmg",
+          "download_count": 4,
+          "created_at": "2026-09-04T10:40:10Z",
+          "updated_at": "2026-09-04T10:40:18Z"
+        },
+        {
+          "id": 544184519,
+          "name": "Vibisual-0.1.22.dmg.blockmap",
+          "download_count": 2,
+          "created_at": "2026-09-04T10:40:10Z",
+          "updated_at": "2026-09-04T10:40:10Z"
+        },
+        {
+          "id": 544163551,
+          "name": "vibisual-0.1.22.x86_64.rpm",
+          "download_count": 3,
+          "created_at": "2026-09-04T10:23:35Z",
+          "updated_at": "2026-09-04T10:23:39Z"
+        },
+        {
+          "id": 544161588,
+          "name": "vibisual_0.1.22_amd64.deb",
+          "download_count": 4,
+          "created_at": "2026-09-04T10:21:34Z",
+          "updated_at": "2026-09-04T10:21:38Z"
+        }
+      ]
+    },
+    {
+      "id": 380904635,
+      "tag_name": "v0.1.20",
+      "prerelease": false,
+      "created_at": "2026-09-02T00:26:14Z",
+      "published_at": "2026-09-02T00:45:39Z",
+      "assets": [
+        {
+          "id": 540372393,
+          "name": "latest-linux.yml",
+          "download_count": 2,
+          "created_at": "2026-09-02T00:31:35Z",
+          "updated_at": "2026-09-02T00:31:36Z"
+        },
+        {
+          "id": 540378007,
+          "name": "latest-mac.yml",
+          "download_count": 5,
+          "created_at": "2026-09-02T00:36:04Z",
+          "updated_at": "2026-09-02T00:36:04Z"
+        },
+        {
+          "id": 540370363,
+          "name": "latest.yml",
+          "download_count": 15,
+          "created_at": "2026-09-02T00:30:05Z",
+          "updated_at": "2026-09-02T00:30:06Z"
+        },
+        {
+          "id": 540370246,
+          "name": "Vibisual-0.1.20-arm64-mac.zip",
+          "download_count": 2,
+          "created_at": "2026-09-02T00:30:01Z",
+          "updated_at": "2026-09-02T00:30:08Z"
+        },
+        {
+          "id": 540370245,
+          "name": "Vibisual-0.1.20-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-02T00:30:01Z",
+          "updated_at": "2026-09-02T00:30:01Z"
+        },
+        {
+          "id": 540369827,
+          "name": "Vibisual-0.1.20-arm64.dmg",
+          "download_count": 6,
+          "created_at": "2026-09-02T00:29:42Z",
+          "updated_at": "2026-09-02T00:29:50Z"
+        },
+        {
+          "id": 540369826,
+          "name": "Vibisual-0.1.20-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-02T00:29:42Z",
+          "updated_at": "2026-09-02T00:29:42Z"
+        },
+        {
+          "id": 540373534,
+          "name": "Vibisual-0.1.20-mac.zip",
+          "download_count": 2,
+          "created_at": "2026-09-02T00:32:14Z",
+          "updated_at": "2026-09-02T00:32:23Z"
+        },
+        {
+          "id": 540373533,
+          "name": "Vibisual-0.1.20-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-02T00:32:14Z",
+          "updated_at": "2026-09-02T00:32:15Z"
+        },
+        {
+          "id": 540370189,
+          "name": "Vibisual-0.1.20-setup.exe",
+          "download_count": 5,
+          "created_at": "2026-09-02T00:29:58Z",
+          "updated_at": "2026-09-02T00:30:05Z"
+        },
+        {
+          "id": 540370188,
+          "name": "Vibisual-0.1.20-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-09-02T00:29:58Z",
+          "updated_at": "2026-09-02T00:29:58Z"
+        },
+        {
+          "id": 540367469,
+          "name": "Vibisual-0.1.20.AppImage",
+          "download_count": 2,
+          "created_at": "2026-09-02T00:28:09Z",
+          "updated_at": "2026-09-02T00:28:16Z"
+        },
+        {
+          "id": 540377702,
+          "name": "Vibisual-0.1.20.dmg",
+          "download_count": 4,
+          "created_at": "2026-09-02T00:35:47Z",
+          "updated_at": "2026-09-02T00:36:02Z"
+        },
+        {
+          "id": 540377701,
+          "name": "Vibisual-0.1.20.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-02T00:35:47Z",
+          "updated_at": "2026-09-02T00:35:47Z"
+        },
+        {
+          "id": 540372185,
+          "name": "vibisual-0.1.20.x86_64.rpm",
+          "download_count": 3,
+          "created_at": "2026-09-02T00:31:30Z",
+          "updated_at": "2026-09-02T00:31:35Z"
+        },
+        {
+          "id": 540369903,
+          "name": "vibisual_0.1.20_amd64.deb",
+          "download_count": 5,
+          "created_at": "2026-09-02T00:29:45Z",
+          "updated_at": "2026-09-02T00:29:50Z"
+        }
+      ]
+    },
+    {
+      "id": 380593795,
+      "tag_name": "v0.1.19",
+      "prerelease": false,
+      "created_at": "2026-09-01T14:47:49Z",
+      "published_at": "2026-09-01T14:49:45Z",
+      "assets": [
+        {
+          "id": 539701144,
+          "name": "latest-linux.yml",
+          "download_count": 4,
+          "created_at": "2026-09-01T14:53:04Z",
+          "updated_at": "2026-09-01T14:53:05Z"
+        },
+        {
+          "id": 539710966,
+          "name": "latest-mac.yml",
+          "download_count": 7,
+          "created_at": "2026-09-01T15:00:27Z",
+          "updated_at": "2026-09-01T15:00:28Z"
+        },
+        {
+          "id": 539698351,
+          "name": "latest.yml",
+          "download_count": 6,
+          "created_at": "2026-09-01T14:50:52Z",
+          "updated_at": "2026-09-01T14:50:52Z"
+        },
+        {
+          "id": 539698853,
+          "name": "Vibisual-0.1.19-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-09-01T14:51:14Z",
+          "updated_at": "2026-09-01T14:51:48Z"
+        },
+        {
+          "id": 539698852,
+          "name": "Vibisual-0.1.19-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-01T14:51:14Z",
+          "updated_at": "2026-09-01T14:51:14Z"
+        },
+        {
+          "id": 539698300,
+          "name": "Vibisual-0.1.19-arm64.dmg",
+          "download_count": 3,
+          "created_at": "2026-09-01T14:50:50Z",
+          "updated_at": "2026-09-01T14:50:57Z"
+        },
+        {
+          "id": 539698299,
+          "name": "Vibisual-0.1.19-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-01T14:50:50Z",
+          "updated_at": "2026-09-01T14:50:50Z"
+        },
+        {
+          "id": 539704374,
+          "name": "Vibisual-0.1.19-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-09-01T14:55:47Z",
+          "updated_at": "2026-09-01T14:55:55Z"
+        },
+        {
+          "id": 539704373,
+          "name": "Vibisual-0.1.19-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-01T14:55:47Z",
+          "updated_at": "2026-09-01T14:55:47Z"
+        },
+        {
+          "id": 539698227,
+          "name": "Vibisual-0.1.19-setup.exe",
+          "download_count": 7,
+          "created_at": "2026-09-01T14:50:45Z",
+          "updated_at": "2026-09-01T14:50:52Z"
+        },
+        {
+          "id": 539698226,
+          "name": "Vibisual-0.1.19-setup.exe.blockmap",
+          "download_count": 3,
+          "created_at": "2026-09-01T14:50:45Z",
+          "updated_at": "2026-09-01T14:50:46Z"
+        },
+        {
+          "id": 539697100,
+          "name": "Vibisual-0.1.19.AppImage",
+          "download_count": 2,
+          "created_at": "2026-09-01T14:49:46Z",
+          "updated_at": "2026-09-01T14:49:51Z"
+        },
+        {
+          "id": 539710644,
+          "name": "Vibisual-0.1.19.dmg",
+          "download_count": 2,
+          "created_at": "2026-09-01T15:00:15Z",
+          "updated_at": "2026-09-01T15:00:25Z"
+        },
+        {
+          "id": 539710646,
+          "name": "Vibisual-0.1.19.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-01T15:00:15Z",
+          "updated_at": "2026-09-01T15:00:15Z"
+        },
+        {
+          "id": 539701051,
+          "name": "vibisual-0.1.19.x86_64.rpm",
+          "download_count": 1,
+          "created_at": "2026-09-01T14:53:00Z",
+          "updated_at": "2026-09-01T14:53:04Z"
+        },
+        {
+          "id": 539699087,
+          "name": "vibisual_0.1.19_amd64.deb",
+          "download_count": 3,
+          "created_at": "2026-09-01T14:51:22Z",
+          "updated_at": "2026-09-01T14:51:26Z"
+        }
+      ]
+    },
+    {
+      "id": 380306717,
+      "tag_name": "v0.1.18",
+      "prerelease": false,
+      "created_at": "2026-09-01T07:52:28Z",
+      "published_at": "2026-09-01T07:54:20Z",
+      "assets": [
+        {
+          "id": 539206285,
+          "name": "latest-linux.yml",
+          "download_count": 2,
+          "created_at": "2026-09-01T07:57:46Z",
+          "updated_at": "2026-09-01T07:57:47Z"
+        },
+        {
+          "id": 539225261,
+          "name": "latest-mac.yml",
+          "download_count": 3,
+          "created_at": "2026-09-01T08:15:14Z",
+          "updated_at": "2026-09-01T08:15:15Z"
+        },
+        {
+          "id": 539204677,
+          "name": "latest.yml",
+          "download_count": 5,
+          "created_at": "2026-09-01T07:56:06Z",
+          "updated_at": "2026-09-01T07:56:07Z"
+        },
+        {
+          "id": 539204235,
+          "name": "Vibisual-0.1.18-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-09-01T07:55:45Z",
+          "updated_at": "2026-09-01T07:55:52Z"
+        },
+        {
+          "id": 539204236,
+          "name": "Vibisual-0.1.18-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-01T07:55:45Z",
+          "updated_at": "2026-09-01T07:55:45Z"
+        },
+        {
+          "id": 539203757,
+          "name": "Vibisual-0.1.18-arm64.dmg",
+          "download_count": 5,
+          "created_at": "2026-09-01T07:55:14Z",
+          "updated_at": "2026-09-01T07:55:22Z"
+        },
+        {
+          "id": 539203756,
+          "name": "Vibisual-0.1.18-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-01T07:55:14Z",
+          "updated_at": "2026-09-01T07:55:14Z"
+        },
+        {
+          "id": 539208695,
+          "name": "Vibisual-0.1.18-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-09-01T07:59:54Z",
+          "updated_at": "2026-09-01T08:00:12Z"
+        },
+        {
+          "id": 539208697,
+          "name": "Vibisual-0.1.18-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-01T07:59:54Z",
+          "updated_at": "2026-09-01T07:59:55Z"
+        },
+        {
+          "id": 539204533,
+          "name": "Vibisual-0.1.18-setup.exe",
+          "download_count": 5,
+          "created_at": "2026-09-01T07:55:59Z",
+          "updated_at": "2026-09-01T07:56:06Z"
+        },
+        {
+          "id": 539204534,
+          "name": "Vibisual-0.1.18-setup.exe.blockmap",
+          "download_count": 3,
+          "created_at": "2026-09-01T07:55:59Z",
+          "updated_at": "2026-09-01T07:56:00Z"
+        },
+        {
+          "id": 539202857,
+          "name": "Vibisual-0.1.18.AppImage",
+          "download_count": 3,
+          "created_at": "2026-09-01T07:54:20Z",
+          "updated_at": "2026-09-01T07:54:25Z"
+        },
+        {
+          "id": 539225063,
+          "name": "Vibisual-0.1.18.dmg",
+          "download_count": 3,
+          "created_at": "2026-09-01T08:15:03Z",
+          "updated_at": "2026-09-01T08:15:12Z"
+        },
+        {
+          "id": 539225062,
+          "name": "Vibisual-0.1.18.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-09-01T08:15:03Z",
+          "updated_at": "2026-09-01T08:15:03Z"
+        },
+        {
+          "id": 539206194,
+          "name": "vibisual-0.1.18.x86_64.rpm",
+          "download_count": 1,
+          "created_at": "2026-09-01T07:57:41Z",
+          "updated_at": "2026-09-01T07:57:46Z"
+        },
+        {
+          "id": 539204459,
+          "name": "vibisual_0.1.18_amd64.deb",
+          "download_count": 3,
+          "created_at": "2026-09-01T07:55:56Z",
+          "updated_at": "2026-09-01T07:55:59Z"
+        }
+      ]
+    },
+    {
+      "id": 380124350,
+      "tag_name": "v0.1.17",
+      "prerelease": false,
+      "created_at": "2026-08-31T23:45:39Z",
+      "published_at": "2026-08-31T23:47:38Z",
+      "assets": [
+        {
+          "id": 538672382,
+          "name": "latest-linux.yml",
+          "download_count": 2,
+          "created_at": "2026-08-31T23:50:47Z",
+          "updated_at": "2026-08-31T23:50:48Z"
+        },
+        {
+          "id": 538679045,
+          "name": "latest-mac.yml",
+          "download_count": 3,
+          "created_at": "2026-08-31T23:59:40Z",
+          "updated_at": "2026-08-31T23:59:40Z"
+        },
+        {
+          "id": 538671378,
+          "name": "latest.yml",
+          "download_count": 4,
+          "created_at": "2026-08-31T23:49:20Z",
+          "updated_at": "2026-08-31T23:49:20Z"
+        },
+        {
+          "id": 538670664,
+          "name": "Vibisual-0.1.17-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-08-31T23:48:23Z",
+          "updated_at": "2026-08-31T23:48:31Z"
+        },
+        {
+          "id": 538670665,
+          "name": "Vibisual-0.1.17-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-31T23:48:23Z",
+          "updated_at": "2026-08-31T23:48:23Z"
+        },
+        {
+          "id": 538670458,
+          "name": "Vibisual-0.1.17-arm64.dmg",
+          "download_count": 3,
+          "created_at": "2026-08-31T23:48:04Z",
+          "updated_at": "2026-08-31T23:48:12Z"
+        },
+        {
+          "id": 538670457,
+          "name": "Vibisual-0.1.17-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-31T23:48:04Z",
+          "updated_at": "2026-08-31T23:48:04Z"
+        },
+        {
+          "id": 538673059,
+          "name": "Vibisual-0.1.17-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-08-31T23:51:50Z",
+          "updated_at": "2026-08-31T23:52:00Z"
+        },
+        {
+          "id": 538673058,
+          "name": "Vibisual-0.1.17-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-31T23:51:50Z",
+          "updated_at": "2026-08-31T23:51:50Z"
+        },
+        {
+          "id": 538671325,
+          "name": "Vibisual-0.1.17-setup.exe",
+          "download_count": 3,
+          "created_at": "2026-08-31T23:49:13Z",
+          "updated_at": "2026-08-31T23:49:20Z"
+        },
+        {
+          "id": 538671324,
+          "name": "Vibisual-0.1.17-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-08-31T23:49:13Z",
+          "updated_at": "2026-08-31T23:49:13Z"
+        },
+        {
+          "id": 538670124,
+          "name": "Vibisual-0.1.17.AppImage",
+          "download_count": 2,
+          "created_at": "2026-08-31T23:47:38Z",
+          "updated_at": "2026-08-31T23:47:45Z"
+        },
+        {
+          "id": 538678954,
+          "name": "Vibisual-0.1.17.dmg",
+          "download_count": 2,
+          "created_at": "2026-08-31T23:59:30Z",
+          "updated_at": "2026-08-31T23:59:38Z"
+        },
+        {
+          "id": 538678956,
+          "name": "Vibisual-0.1.17.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-31T23:59:30Z",
+          "updated_at": "2026-08-31T23:59:30Z"
+        },
+        {
+          "id": 538672265,
+          "name": "vibisual-0.1.17.x86_64.rpm",
+          "download_count": 1,
+          "created_at": "2026-08-31T23:50:41Z",
+          "updated_at": "2026-08-31T23:50:47Z"
+        },
+        {
+          "id": 538671209,
+          "name": "vibisual_0.1.17_amd64.deb",
+          "download_count": 2,
+          "created_at": "2026-08-31T23:48:59Z",
+          "updated_at": "2026-08-31T23:49:05Z"
+        }
+      ]
+    },
+    {
+      "id": 379612323,
+      "tag_name": "v0.1.16",
+      "prerelease": false,
+      "created_at": "2026-08-31T08:38:28Z",
+      "published_at": "2026-08-31T08:40:20Z",
+      "assets": [
+        {
+          "id": 537706005,
+          "name": "latest-linux.yml",
+          "download_count": 2,
+          "created_at": "2026-08-31T08:43:27Z",
+          "updated_at": "2026-08-31T08:43:28Z"
+        },
+        {
+          "id": 537709694,
+          "name": "latest-mac.yml",
+          "download_count": 3,
+          "created_at": "2026-08-31T08:46:13Z",
+          "updated_at": "2026-08-31T08:46:13Z"
+        },
+        {
+          "id": 537703657,
+          "name": "latest.yml",
+          "download_count": 6,
+          "created_at": "2026-08-31T08:41:37Z",
+          "updated_at": "2026-08-31T08:41:37Z"
+        },
+        {
+          "id": 537703063,
+          "name": "Vibisual-0.1.16-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-08-31T08:41:04Z",
+          "updated_at": "2026-08-31T08:41:13Z"
+        },
+        {
+          "id": 537703060,
+          "name": "Vibisual-0.1.16-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-31T08:41:04Z",
+          "updated_at": "2026-08-31T08:41:05Z"
+        },
+        {
+          "id": 537702982,
+          "name": "Vibisual-0.1.16-arm64.dmg",
+          "download_count": 3,
+          "created_at": "2026-08-31T08:40:59Z",
+          "updated_at": "2026-08-31T08:41:06Z"
+        },
+        {
+          "id": 537702980,
+          "name": "Vibisual-0.1.16-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-31T08:40:59Z",
+          "updated_at": "2026-08-31T08:40:59Z"
+        },
+        {
+          "id": 537709383,
+          "name": "Vibisual-0.1.16-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-08-31T08:45:59Z",
+          "updated_at": "2026-08-31T08:46:11Z"
+        },
+        {
+          "id": 537709382,
+          "name": "Vibisual-0.1.16-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-31T08:45:59Z",
+          "updated_at": "2026-08-31T08:46:00Z"
+        },
+        {
+          "id": 537703518,
+          "name": "Vibisual-0.1.16-setup.exe",
+          "download_count": 3,
+          "created_at": "2026-08-31T08:41:29Z",
+          "updated_at": "2026-08-31T08:41:37Z"
+        },
+        {
+          "id": 537703519,
+          "name": "Vibisual-0.1.16-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-08-31T08:41:29Z",
+          "updated_at": "2026-08-31T08:41:29Z"
+        },
+        {
+          "id": 537702339,
+          "name": "Vibisual-0.1.16.AppImage",
+          "download_count": 2,
+          "created_at": "2026-08-31T08:40:21Z",
+          "updated_at": "2026-08-31T08:40:26Z"
+        },
+        {
+          "id": 537707789,
+          "name": "Vibisual-0.1.16.dmg",
+          "download_count": 2,
+          "created_at": "2026-08-31T08:44:51Z",
+          "updated_at": "2026-08-31T08:45:04Z"
+        },
+        {
+          "id": 537707788,
+          "name": "Vibisual-0.1.16.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-31T08:44:51Z",
+          "updated_at": "2026-08-31T08:44:51Z"
+        },
+        {
+          "id": 537705897,
+          "name": "vibisual-0.1.16.x86_64.rpm",
+          "download_count": 1,
+          "created_at": "2026-08-31T08:43:23Z",
+          "updated_at": "2026-08-31T08:43:27Z"
+        },
+        {
+          "id": 537703847,
+          "name": "vibisual_0.1.16_amd64.deb",
+          "download_count": 2,
+          "created_at": "2026-08-31T08:41:49Z",
+          "updated_at": "2026-08-31T08:41:53Z"
+        }
+      ]
+    },
+    {
+      "id": 379594108,
+      "tag_name": "v0.1.15",
+      "prerelease": false,
+      "created_at": "2026-08-31T08:02:41Z",
+      "published_at": "2026-08-31T08:04:35Z",
+      "assets": [
+        {
+          "id": 537668915,
+          "name": "latest-linux.yml",
+          "download_count": 2,
+          "created_at": "2026-08-31T08:08:22Z",
+          "updated_at": "2026-08-31T08:08:22Z"
+        },
+        {
+          "id": 537667045,
+          "name": "latest.yml",
+          "download_count": 1,
+          "created_at": "2026-08-31T08:06:25Z",
+          "updated_at": "2026-08-31T08:06:25Z"
+        },
+        {
+          "id": 537666944,
+          "name": "Vibisual-0.1.15-setup.exe",
+          "download_count": 2,
+          "created_at": "2026-08-31T08:06:18Z",
+          "updated_at": "2026-08-31T08:06:24Z"
+        },
+        {
+          "id": 537666945,
+          "name": "Vibisual-0.1.15-setup.exe.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-31T08:06:18Z",
+          "updated_at": "2026-08-31T08:06:19Z"
+        },
+        {
+          "id": 537664776,
+          "name": "Vibisual-0.1.15.AppImage",
+          "download_count": 2,
+          "created_at": "2026-08-31T08:04:36Z",
+          "updated_at": "2026-08-31T08:04:40Z"
+        },
+        {
+          "id": 537668857,
+          "name": "vibisual-0.1.15.x86_64.rpm",
+          "download_count": 1,
+          "created_at": "2026-08-31T08:08:18Z",
+          "updated_at": "2026-08-31T08:08:21Z"
+        },
+        {
+          "id": 537666903,
+          "name": "vibisual_0.1.15_amd64.deb",
+          "download_count": 2,
+          "created_at": "2026-08-31T08:06:15Z",
+          "updated_at": "2026-08-31T08:06:19Z"
+        }
+      ]
+    },
+    {
+      "id": 377584372,
+      "tag_name": "v0.1.14",
+      "prerelease": false,
+      "created_at": "2026-08-27T05:30:42Z",
+      "published_at": "2026-08-27T05:34:05Z",
+      "assets": [
+        {
+          "id": 531798917,
+          "name": "latest-linux.yml",
+          "download_count": 11,
+          "created_at": "2026-08-27T05:34:10Z",
+          "updated_at": "2026-08-27T05:34:11Z"
+        },
+        {
+          "id": 531808204,
+          "name": "latest-mac.yml",
+          "download_count": 24,
+          "created_at": "2026-08-27T05:44:55Z",
+          "updated_at": "2026-08-27T05:44:56Z"
+        },
+        {
+          "id": 531800344,
+          "name": "latest.yml",
+          "download_count": 21,
+          "created_at": "2026-08-27T05:35:43Z",
+          "updated_at": "2026-08-27T05:35:43Z"
+        },
+        {
+          "id": 531800176,
+          "name": "Vibisual-0.1.14-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-08-27T05:35:31Z",
+          "updated_at": "2026-08-27T05:35:37Z"
+        },
+        {
+          "id": 531800175,
+          "name": "Vibisual-0.1.14-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-27T05:35:31Z",
+          "updated_at": "2026-08-27T05:35:31Z"
+        },
+        {
+          "id": 531799730,
+          "name": "Vibisual-0.1.14-arm64.dmg",
+          "download_count": 15,
+          "created_at": "2026-08-27T05:35:04Z",
+          "updated_at": "2026-08-27T05:35:12Z"
+        },
+        {
+          "id": 531799729,
+          "name": "Vibisual-0.1.14-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-27T05:35:04Z",
+          "updated_at": "2026-08-27T05:35:04Z"
+        },
+        {
+          "id": 531803577,
+          "name": "Vibisual-0.1.14-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-08-27T05:39:47Z",
+          "updated_at": "2026-08-27T05:39:55Z"
+        },
+        {
+          "id": 531803576,
+          "name": "Vibisual-0.1.14-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-27T05:39:47Z",
+          "updated_at": "2026-08-27T05:39:47Z"
+        },
+        {
+          "id": 531800233,
+          "name": "Vibisual-0.1.14-setup.exe",
+          "download_count": 10,
+          "created_at": "2026-08-27T05:35:35Z",
+          "updated_at": "2026-08-27T05:35:42Z"
+        },
+        {
+          "id": 531800231,
+          "name": "Vibisual-0.1.14-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-08-27T05:35:35Z",
+          "updated_at": "2026-08-27T05:35:35Z"
+        },
+        {
+          "id": 531798880,
+          "name": "Vibisual-0.1.14.AppImage",
+          "download_count": 9,
+          "created_at": "2026-08-27T05:34:06Z",
+          "updated_at": "2026-08-27T05:34:10Z"
+        },
+        {
+          "id": 531808108,
+          "name": "Vibisual-0.1.14.dmg",
+          "download_count": 10,
+          "created_at": "2026-08-27T05:44:46Z",
+          "updated_at": "2026-08-27T05:44:54Z"
+        },
+        {
+          "id": 531808109,
+          "name": "Vibisual-0.1.14.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-27T05:44:46Z",
+          "updated_at": "2026-08-27T05:44:46Z"
+        }
+      ]
+    },
+    {
+      "id": 377541606,
+      "tag_name": "v0.1.13",
+      "prerelease": false,
+      "created_at": "2026-08-27T03:04:30Z",
+      "published_at": "2026-08-27T03:06:31Z",
+      "assets": [
+        {
+          "id": 531668087,
+          "name": "latest-linux.yml",
+          "download_count": 1,
+          "created_at": "2026-08-27T03:06:38Z",
+          "updated_at": "2026-08-27T03:06:38Z"
+        },
+        {
+          "id": 531680744,
+          "name": "latest-mac.yml",
+          "download_count": 1,
+          "created_at": "2026-08-27T03:22:56Z",
+          "updated_at": "2026-08-27T03:22:57Z"
+        },
+        {
+          "id": 531671095,
+          "name": "latest.yml",
+          "download_count": 3,
+          "created_at": "2026-08-27T03:10:38Z",
+          "updated_at": "2026-08-27T03:10:38Z"
+        },
+        {
+          "id": 531669244,
+          "name": "Vibisual-0.1.13-arm64-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-08-27T03:07:55Z",
+          "updated_at": "2026-08-27T03:08:01Z"
+        },
+        {
+          "id": 531669243,
+          "name": "Vibisual-0.1.13-arm64-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-27T03:07:55Z",
+          "updated_at": "2026-08-27T03:07:55Z"
+        },
+        {
+          "id": 531669061,
+          "name": "Vibisual-0.1.13-arm64.dmg",
+          "download_count": 1,
+          "created_at": "2026-08-27T03:07:36Z",
+          "updated_at": "2026-08-27T03:07:43Z"
+        },
+        {
+          "id": 531669062,
+          "name": "Vibisual-0.1.13-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-27T03:07:36Z",
+          "updated_at": "2026-08-27T03:07:36Z"
+        },
+        {
+          "id": 531671473,
+          "name": "Vibisual-0.1.13-mac.zip",
+          "download_count": 1,
+          "created_at": "2026-08-27T03:11:10Z",
+          "updated_at": "2026-08-27T03:11:17Z"
+        },
+        {
+          "id": 531671472,
+          "name": "Vibisual-0.1.13-mac.zip.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-27T03:11:10Z",
+          "updated_at": "2026-08-27T03:11:10Z"
+        },
+        {
+          "id": 531670992,
+          "name": "Vibisual-0.1.13-setup.exe",
+          "download_count": 2,
+          "created_at": "2026-08-27T03:10:32Z",
+          "updated_at": "2026-08-27T03:10:38Z"
+        },
+        {
+          "id": 531669619,
+          "name": "Vibisual-0.1.13-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-08-27T03:08:28Z",
+          "updated_at": "2026-08-27T03:08:28Z"
+        },
+        {
+          "id": 531668002,
+          "name": "Vibisual-0.1.13.AppImage",
+          "download_count": 1,
+          "created_at": "2026-08-27T03:06:32Z",
+          "updated_at": "2026-08-27T03:06:38Z"
+        },
+        {
+          "id": 531680607,
+          "name": "Vibisual-0.1.13.dmg",
+          "download_count": 1,
+          "created_at": "2026-08-27T03:22:46Z",
+          "updated_at": "2026-08-27T03:22:55Z"
+        },
+        {
+          "id": 531680606,
+          "name": "Vibisual-0.1.13.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-27T03:22:46Z",
+          "updated_at": "2026-08-27T03:22:46Z"
+        }
+      ]
+    },
+    {
+      "id": 376948066,
+      "tag_name": "v0.1.12",
+      "prerelease": false,
+      "created_at": "2026-08-26T07:25:29Z",
+      "published_at": "2026-08-26T07:28:25Z",
+      "assets": [
+        {
+          "id": 530446797,
+          "name": "latest-linux.yml",
+          "download_count": 2,
+          "created_at": "2026-08-26T07:28:31Z",
+          "updated_at": "2026-08-26T07:28:31Z"
+        },
+        {
+          "id": 530448205,
+          "name": "latest-mac.yml",
+          "download_count": 2,
+          "created_at": "2026-08-26T07:29:38Z",
+          "updated_at": "2026-08-26T07:29:39Z"
+        },
+        {
+          "id": 530448907,
+          "name": "latest.yml",
+          "download_count": 7,
+          "created_at": "2026-08-26T07:30:19Z",
+          "updated_at": "2026-08-26T07:30:20Z"
+        },
+        {
+          "id": 530448008,
+          "name": "Vibisual-0.1.12-arm64.dmg",
+          "download_count": 2,
+          "created_at": "2026-08-26T07:29:30Z",
+          "updated_at": "2026-08-26T07:29:38Z"
+        },
+        {
+          "id": 530448007,
+          "name": "Vibisual-0.1.12-arm64.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-26T07:29:30Z",
+          "updated_at": "2026-08-26T07:29:30Z"
+        },
+        {
+          "id": 530448740,
+          "name": "Vibisual-0.1.12-setup.exe",
+          "download_count": 3,
+          "created_at": "2026-08-26T07:30:10Z",
+          "updated_at": "2026-08-26T07:30:19Z"
+        },
+        {
+          "id": 530448741,
+          "name": "Vibisual-0.1.12-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-08-26T07:30:10Z",
+          "updated_at": "2026-08-26T07:30:11Z"
+        },
+        {
+          "id": 530446728,
+          "name": "Vibisual-0.1.12.AppImage",
+          "download_count": 1,
+          "created_at": "2026-08-26T07:28:26Z",
+          "updated_at": "2026-08-26T07:28:31Z"
+        }
+      ]
+    },
+    {
+      "id": 373559765,
+      "tag_name": "v0.1.11",
+      "prerelease": false,
+      "created_at": "2026-08-20T07:34:07Z",
+      "published_at": "2026-08-20T07:40:07Z",
+      "assets": [
+        {
+          "id": 521925372,
+          "name": "latest-linux.yml",
+          "download_count": 2,
+          "created_at": "2026-08-20T07:40:15Z",
+          "updated_at": "2026-08-20T07:40:15Z"
+        },
+        {
+          "id": 521926151,
+          "name": "latest-mac.yml",
+          "download_count": 1,
+          "created_at": "2026-08-20T07:41:15Z",
+          "updated_at": "2026-08-20T07:41:15Z"
+        },
+        {
+          "id": 521927344,
+          "name": "latest.yml",
+          "download_count": 30,
+          "created_at": "2026-08-20T07:42:41Z",
+          "updated_at": "2026-08-20T07:42:41Z"
+        },
+        {
+          "id": 521925930,
+          "name": "Vibisual-0.1.11-arm64.dmg",
+          "download_count": 2,
+          "created_at": "2026-08-20T07:40:58Z",
+          "updated_at": "2026-08-20T07:41:03Z"
+        },
+        {
+          "id": 521925931,
+          "name": "Vibisual-0.1.11-arm64.dmg.blockmap",
+          "download_count": 2,
+          "created_at": "2026-08-20T07:40:58Z",
+          "updated_at": "2026-08-20T07:40:58Z"
+        },
+        {
+          "id": 521927261,
+          "name": "Vibisual-0.1.11-setup.exe",
+          "download_count": 3,
+          "created_at": "2026-08-20T07:42:33Z",
+          "updated_at": "2026-08-20T07:42:40Z"
+        },
+        {
+          "id": 521927260,
+          "name": "Vibisual-0.1.11-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-08-20T07:42:33Z",
+          "updated_at": "2026-08-20T07:42:34Z"
+        },
+        {
+          "id": 521925271,
+          "name": "Vibisual-0.1.11.AppImage",
+          "download_count": 3,
+          "created_at": "2026-08-20T07:40:07Z",
+          "updated_at": "2026-08-20T07:40:15Z"
+        },
+        {
+          "id": 521926089,
+          "name": "Vibisual-0.1.11.dmg",
+          "download_count": 2,
+          "created_at": "2026-08-20T07:41:10Z",
+          "updated_at": "2026-08-20T07:41:15Z"
+        },
+        {
+          "id": 521926090,
+          "name": "Vibisual-0.1.11.dmg.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-20T07:41:10Z",
+          "updated_at": "2026-08-20T07:41:10Z"
+        }
+      ]
+    },
+    {
+      "id": 372877321,
+      "tag_name": "v0.1.10",
+      "prerelease": false,
+      "created_at": "2026-08-19T07:48:39Z",
+      "published_at": "2026-08-19T07:51:57Z",
+      "assets": [
+        {
+          "id": 520562197,
+          "name": "latest-linux.yml",
+          "download_count": 1,
+          "created_at": "2026-08-19T07:58:39Z",
+          "updated_at": "2026-08-19T07:58:39Z"
+        },
+        {
+          "id": 520564542,
+          "name": "latest.yml",
+          "download_count": 8,
+          "created_at": "2026-08-19T08:00:46Z",
+          "updated_at": "2026-08-19T08:00:46Z"
+        },
+        {
+          "id": 520564403,
+          "name": "Vibisual-0.1.10-setup.exe",
+          "download_count": 2,
+          "created_at": "2026-08-19T08:00:36Z",
+          "updated_at": "2026-08-19T08:00:44Z"
+        },
+        {
+          "id": 520564412,
+          "name": "Vibisual-0.1.10-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-08-19T08:00:36Z",
+          "updated_at": "2026-08-19T08:00:36Z"
+        },
+        {
+          "id": 520562012,
+          "name": "Vibisual-0.1.10.AppImage",
+          "download_count": 1,
+          "created_at": "2026-08-19T07:58:28Z",
+          "updated_at": "2026-08-19T07:58:37Z"
+        }
+      ]
+    },
+    {
+      "id": 372167245,
+      "tag_name": "v0.1.9",
+      "prerelease": false,
+      "created_at": "2026-08-18T07:35:18Z",
+      "published_at": "2026-08-18T07:39:16Z",
+      "assets": [
+        {
+          "id": 519114078,
+          "name": "latest-linux.yml",
+          "download_count": 1,
+          "created_at": "2026-08-18T07:39:24Z",
+          "updated_at": "2026-08-18T07:39:24Z"
+        },
+        {
+          "id": 519115954,
+          "name": "latest.yml",
+          "download_count": 7,
+          "created_at": "2026-08-18T07:41:22Z",
+          "updated_at": "2026-08-18T07:41:22Z"
+        },
+        {
+          "id": 519115852,
+          "name": "Vibisual-0.1.9-setup.exe",
+          "download_count": 2,
+          "created_at": "2026-08-18T07:41:13Z",
+          "updated_at": "2026-08-18T07:41:22Z"
+        },
+        {
+          "id": 519115851,
+          "name": "Vibisual-0.1.9-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-08-18T07:41:13Z",
+          "updated_at": "2026-08-18T07:41:13Z"
+        },
+        {
+          "id": 519113969,
+          "name": "Vibisual-0.1.9.AppImage",
+          "download_count": 1,
+          "created_at": "2026-08-18T07:39:16Z",
+          "updated_at": "2026-08-18T07:39:23Z"
+        }
+      ]
+    },
+    {
+      "id": 363953863,
+      "tag_name": "v0.1.8",
+      "prerelease": false,
+      "created_at": "2026-08-03T01:54:36Z",
+      "published_at": "2026-08-03T02:10:34Z",
+      "assets": [
+        {
+          "id": 499493501,
+          "name": "latest-linux.yml",
+          "download_count": 1,
+          "created_at": "2026-08-03T02:10:41Z",
+          "updated_at": "2026-08-03T02:10:41Z"
+        },
+        {
+          "id": 499494351,
+          "name": "latest.yml",
+          "download_count": 80,
+          "created_at": "2026-08-03T02:11:53Z",
+          "updated_at": "2026-08-03T02:11:53Z"
+        },
+        {
+          "id": 499494319,
+          "name": "Vibisual-0.1.8-setup.exe",
+          "download_count": 2,
+          "created_at": "2026-08-03T02:11:49Z",
+          "updated_at": "2026-08-03T02:11:53Z"
+        },
+        {
+          "id": 499494320,
+          "name": "Vibisual-0.1.8-setup.exe.blockmap",
+          "download_count": 1,
+          "created_at": "2026-08-03T02:11:49Z",
+          "updated_at": "2026-08-03T02:11:50Z"
+        },
+        {
+          "id": 499493438,
+          "name": "Vibisual-0.1.8.AppImage",
+          "download_count": 1,
+          "created_at": "2026-08-03T02:10:35Z",
+          "updated_at": "2026-08-03T02:10:40Z"
+        }
+      ]
+    },
+    {
+      "id": 350770590,
+      "tag_name": "v0.1.7",
+      "prerelease": false,
+      "created_at": "2026-07-08T07:40:23Z",
+      "published_at": "2026-07-08T07:43:29Z",
+      "assets": [
+        {
+          "id": 470033551,
+          "name": "latest-linux.yml",
+          "download_count": 1,
+          "created_at": "2026-07-08T07:43:34Z",
+          "updated_at": "2026-07-08T07:43:34Z"
+        },
+        {
+          "id": 470034982,
+          "name": "latest.yml",
+          "download_count": 119,
+          "created_at": "2026-07-08T07:44:43Z",
+          "updated_at": "2026-07-08T07:44:43Z"
+        },
+        {
+          "id": 470034923,
+          "name": "Vibisual-0.1.7-setup.exe",
+          "download_count": 3,
+          "created_at": "2026-07-08T07:44:39Z",
+          "updated_at": "2026-07-08T07:44:42Z"
+        },
+        {
+          "id": 470034922,
+          "name": "Vibisual-0.1.7-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-07-08T07:44:39Z",
+          "updated_at": "2026-07-08T07:44:39Z"
+        },
+        {
+          "id": 470033462,
+          "name": "Vibisual-0.1.7.AppImage",
+          "download_count": 1,
+          "created_at": "2026-07-08T07:43:29Z",
+          "updated_at": "2026-07-08T07:43:33Z"
+        }
+      ]
+    },
+    {
+      "id": 348371977,
+      "tag_name": "v0.1.6",
+      "prerelease": false,
+      "created_at": "2026-07-03T01:49:10Z",
+      "published_at": "2026-07-03T01:50:32Z",
+      "assets": [
+        {
+          "id": 464916663,
+          "name": "latest-linux.yml",
+          "download_count": 1,
+          "created_at": "2026-07-03T01:50:36Z",
+          "updated_at": "2026-07-03T01:50:36Z"
+        },
+        {
+          "id": 464918041,
+          "name": "latest.yml",
+          "download_count": 31,
+          "created_at": "2026-07-03T01:51:56Z",
+          "updated_at": "2026-07-03T01:51:56Z"
+        },
+        {
+          "id": 464917993,
+          "name": "Vibisual-0.1.6-setup.exe",
+          "download_count": 2,
+          "created_at": "2026-07-03T01:51:52Z",
+          "updated_at": "2026-07-03T01:51:55Z"
+        },
+        {
+          "id": 464917994,
+          "name": "Vibisual-0.1.6-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-07-03T01:51:52Z",
+          "updated_at": "2026-07-03T01:51:52Z"
+        },
+        {
+          "id": 464916618,
+          "name": "Vibisual-0.1.6.AppImage",
+          "download_count": 1,
+          "created_at": "2026-07-03T01:50:32Z",
+          "updated_at": "2026-07-03T01:50:36Z"
+        }
+      ]
+    },
+    {
+      "id": 347883656,
+      "tag_name": "v0.1.5",
+      "prerelease": false,
+      "created_at": "2026-07-02T07:16:40Z",
+      "published_at": "2026-07-02T07:18:09Z",
+      "assets": [
+        {
+          "id": 464058760,
+          "name": "latest-linux.yml",
+          "download_count": 1,
+          "created_at": "2026-07-02T07:18:13Z",
+          "updated_at": "2026-07-02T07:18:13Z"
+        },
+        {
+          "id": 464059338,
+          "name": "latest.yml",
+          "download_count": 7,
+          "created_at": "2026-07-02T07:19:17Z",
+          "updated_at": "2026-07-02T07:19:17Z"
+        },
+        {
+          "id": 464059290,
+          "name": "Vibisual-0.1.5-setup.exe",
+          "download_count": 2,
+          "created_at": "2026-07-02T07:19:13Z",
+          "updated_at": "2026-07-02T07:19:17Z"
+        },
+        {
+          "id": 464059289,
+          "name": "Vibisual-0.1.5-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-07-02T07:19:13Z",
+          "updated_at": "2026-07-02T07:19:14Z"
+        },
+        {
+          "id": 464058729,
+          "name": "Vibisual-0.1.5.AppImage",
+          "download_count": 1,
+          "created_at": "2026-07-02T07:18:09Z",
+          "updated_at": "2026-07-02T07:18:12Z"
+        }
+      ]
+    },
+    {
+      "id": 337593931,
+      "tag_name": "v0.1.4",
+      "prerelease": false,
+      "created_at": "2026-06-11T00:20:19Z",
+      "published_at": "2026-06-11T00:21:25Z",
+      "assets": [
+        {
+          "id": 444189025,
+          "name": "latest-linux.yml",
+          "download_count": 1,
+          "created_at": "2026-06-11T00:21:30Z",
+          "updated_at": "2026-06-11T00:21:30Z"
+        },
+        {
+          "id": 444189811,
+          "name": "latest.yml",
+          "download_count": 89,
+          "created_at": "2026-06-11T00:22:40Z",
+          "updated_at": "2026-06-11T00:22:40Z"
+        },
+        {
+          "id": 444189746,
+          "name": "Vibisual-0.1.4-setup.exe",
+          "download_count": 1,
+          "created_at": "2026-06-11T00:22:36Z",
+          "updated_at": "2026-06-11T00:22:40Z"
+        },
+        {
+          "id": 444189747,
+          "name": "Vibisual-0.1.4-setup.exe.blockmap",
+          "download_count": 1,
+          "created_at": "2026-06-11T00:22:36Z",
+          "updated_at": "2026-06-11T00:22:37Z"
+        },
+        {
+          "id": 444188993,
+          "name": "Vibisual-0.1.4.AppImage",
+          "download_count": 1,
+          "created_at": "2026-06-11T00:21:26Z",
+          "updated_at": "2026-06-11T00:21:30Z"
+        }
+      ]
+    },
+    {
+      "id": 334100866,
+      "tag_name": "v0.1.3",
+      "prerelease": false,
+      "created_at": "2026-06-04T03:02:14Z",
+      "published_at": "2026-06-04T03:03:21Z",
+      "assets": [
+        {
+          "id": 437873204,
+          "name": "latest-linux.yml",
+          "download_count": 1,
+          "created_at": "2026-06-04T03:03:25Z",
+          "updated_at": "2026-06-04T03:03:25Z"
+        },
+        {
+          "id": 437874379,
+          "name": "latest.yml",
+          "download_count": 32,
+          "created_at": "2026-06-04T03:05:27Z",
+          "updated_at": "2026-06-04T03:05:27Z"
+        },
+        {
+          "id": 437874345,
+          "name": "Vibisual-0.1.3-setup.exe",
+          "download_count": 2,
+          "created_at": "2026-06-04T03:05:22Z",
+          "updated_at": "2026-06-04T03:05:26Z"
+        },
+        {
+          "id": 437874347,
+          "name": "Vibisual-0.1.3-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-06-04T03:05:22Z",
+          "updated_at": "2026-06-04T03:05:22Z"
+        },
+        {
+          "id": 437873167,
+          "name": "Vibisual-0.1.3.AppImage",
+          "download_count": 1,
+          "created_at": "2026-06-04T03:03:21Z",
+          "updated_at": "2026-06-04T03:03:25Z"
+        }
+      ]
+    },
+    {
+      "id": 332851272,
+      "tag_name": "v0.1.2",
+      "prerelease": false,
+      "created_at": "2026-06-02T01:35:31Z",
+      "published_at": "2026-06-02T01:36:39Z",
+      "assets": [
+        {
+          "id": 435778953,
+          "name": "latest-linux.yml",
+          "download_count": 1,
+          "created_at": "2026-06-02T01:36:43Z",
+          "updated_at": "2026-06-02T01:36:44Z"
+        },
+        {
+          "id": 435779470,
+          "name": "latest.yml",
+          "download_count": 14,
+          "created_at": "2026-06-02T01:37:32Z",
+          "updated_at": "2026-06-02T01:37:33Z"
+        },
+        {
+          "id": 435779435,
+          "name": "Vibisual-0.1.2-setup.exe",
+          "download_count": 2,
+          "created_at": "2026-06-02T01:37:27Z",
+          "updated_at": "2026-06-02T01:37:32Z"
+        },
+        {
+          "id": 435779436,
+          "name": "Vibisual-0.1.2-setup.exe.blockmap",
+          "download_count": 2,
+          "created_at": "2026-06-02T01:37:27Z",
+          "updated_at": "2026-06-02T01:37:27Z"
+        },
+        {
+          "id": 435778914,
+          "name": "Vibisual-0.1.2.AppImage",
+          "download_count": 1,
+          "created_at": "2026-06-02T01:36:39Z",
+          "updated_at": "2026-06-02T01:36:43Z"
+        }
+      ]
+    },
+    {
+      "id": 331341818,
+      "tag_name": "v0.1.1",
+      "prerelease": false,
+      "created_at": "2026-05-29T07:11:06Z",
+      "published_at": "2026-05-29T07:12:10Z",
+      "assets": [
+        {
+          "id": 432807696,
+          "name": "latest-linux.yml",
+          "download_count": 1,
+          "created_at": "2026-05-29T07:12:15Z",
+          "updated_at": "2026-05-29T07:12:16Z"
+        },
+        {
+          "id": 432808448,
+          "name": "latest.yml",
+          "download_count": 11,
+          "created_at": "2026-05-29T07:13:20Z",
+          "updated_at": "2026-05-29T07:13:21Z"
+        },
+        {
+          "id": 432808426,
+          "name": "Vibisual-0.1.1-setup.exe",
+          "download_count": 1,
+          "created_at": "2026-05-29T07:13:17Z",
+          "updated_at": "2026-05-29T07:13:20Z"
+        },
+        {
+          "id": 432808425,
+          "name": "Vibisual-0.1.1-setup.exe.blockmap",
+          "download_count": 1,
+          "created_at": "2026-05-29T07:13:17Z",
+          "updated_at": "2026-05-29T07:13:17Z"
+        },
+        {
+          "id": 432807581,
+          "name": "Vibisual-0.1.1.AppImage",
+          "download_count": 1,
+          "created_at": "2026-05-29T07:12:11Z",
+          "updated_at": "2026-05-29T07:12:15Z"
+        }
+      ]
+    },
+    {
+      "id": 329276828,
+      "tag_name": "v0.1.0",
+      "prerelease": false,
+      "created_at": "2026-05-26T07:58:00Z",
+      "published_at": "2026-05-26T08:08:18Z",
+      "assets": [
+        {
+          "id": 431081383,
+          "name": "Vibisual-0.1.0-setup.exe",
+          "download_count": 1,
+          "created_at": "2026-05-27T12:29:29Z",
+          "updated_at": "2026-05-27T12:29:41Z"
+        }
+      ]
+    }
+  ]
+}
