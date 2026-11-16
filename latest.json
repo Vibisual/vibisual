@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Vibisual/vibisual",
-  "collectionStartedAt": "2026-11-15T10:59:49.498Z",
-  "observedAt": "2026-11-15T10:59:50.752Z",
+  "collectionStartedAt": "2026-11-16T11:28:38.265Z",
+  "observedAt": "2026-11-16T11:28:39.277Z",
   "source": {
     "provider": "GitHub REST API",
     "apiVersion": "2022-11-28",
@@ -28,14 +28,14 @@
   },
   "totals": {
     "publicReleases": 33,
-    "allAssetDownloads": 1788,
-    "packageDownloads": 392,
+    "allAssetDownloads": 1798,
+    "packageDownloads": 393,
     "packagesByPlatform": {
       "windows": 114,
       "macos": 153,
-      "linux": 125
+      "linux": 126
     },
-    "updateMetadataDownloads": 1220,
+    "updateMetadataDownloads": 1229,
     "blockmapDownloads": 158,
     "otherAssetDownloads": 18
   },
@@ -64,7 +64,7 @@
         {
           "id": 718290759,
           "name": "latest.yml",
-          "download_count": 59,
+          "download_count": 68,
           "created_at": "2026-11-06T19:26:15Z",
           "updated_at": "2026-11-06T19:26:15Z"
         },
@@ -162,7 +162,7 @@
         {
           "id": 718288738,
           "name": "vibisual_0.2.7_amd64.deb",
-          "download_count": 3,
+          "download_count": 4,
           "created_at": "2026-11-06T19:25:37Z",
           "updated_at": "2026-11-06T19:25:40Z"
         }
