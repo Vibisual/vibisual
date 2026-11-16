@@ -61,7 +61,10 @@ jobs:
       - name: Build workspace packages
         run: pnpm --filter=@vibisual/compute --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video --filter=@vibisual/audio --filter=@vibisual/memo --filter=@vibisual/server -r build
 
+      # client tsc 가 macOS 러너의 Node 기본 힙 한도에 닿아 죽었다(Reached heap limit) — 한도를 올린다.
       - name: Typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: pnpm typecheck
 
       - name: Test

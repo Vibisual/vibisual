@@ -526,7 +526,7 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { 
               ...common,
               backend: made.backend,
               store: opts.segments,
-              engine: navigator.userAgent,
+              engine: typeof navigator !== 'undefined' ? navigator.userAgent : '',
               // (E-5) ④ — 낮은 해상도로 찍힌 구간은 보관하지 않는다(다른 화면에서 온전한 조각과 섞이지 않게).
               canStore: () => ratioOf(made.backend) >= CAPTURE_RATIO_WARN,
             });

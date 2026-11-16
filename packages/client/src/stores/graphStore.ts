@@ -59,6 +59,7 @@ import {
   DEFAULT_READING_SETTINGS, DEFAULT_IDE_STREAM_DENSITY, DEFAULT_IDE_TEXT_ZOOM, normalizeReadingSettings,
 } from '../components/IDE/reading/readingModel.js';
 import { recordCommandHistory, dropSessionCommandHistory } from '../components/IDE/commandHistory.js';
+import { useRecentlyClosedSessionsStore } from './recentlyClosedSessionsStore.js';
 import { insertEventInTurnOrder } from '../components/IDE/turnOrder.js';
 import { hasRecentEventId, mergeDeepWindow, spliceMissingInServerOrder } from '../components/IDE/streamGapFill.js';
 import {
@@ -3121,6 +3122,8 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       // §5.5 #17-23 ③ — 세션이 지워지면 그 세션의 명령 히스토리도 함께 지운다.
       //   세션 제거의 단일 창구(탭바·세션 요약·지휘통제실이 모두 이 액션을 지난다)라 여기 한 곳이면 된다.
       dropSessionCommandHistory(agentId, subAgentId);
+      // §5.5 #17-52 — 「이전 세션」 목록이 방금 닫은 것을 앞에 세운다.
+      useRecentlyClosedSessionsStore.getState().noteClosed(agentId, subAgentId);
       const nextRestores = { ...s.pendingSubAgentRestores };
       delete nextRestores[subAgentId];
       return {
@@ -3130,6 +3133,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     }),
   optimisticRestoreSubAgent: (agentId, subAgent) =>
     set((s) => {
+      useRecentlyClosedSessionsStore.getState().forget(agentId, [subAgent.id]);
       const nextRemovals = { ...s.pendingSubAgentRemovals };
       delete nextRemovals[subAgent.id];
       return {

@@ -54,6 +54,8 @@ function Harness(): null { handle = useVideoRenderer('project', doc, { previewAc
 beforeEach(() => {
   // 시험 환경(Node)에는 창이 없다 — 오프스크린 다리는 "앱 통로 없음"으로 물러난다.
   vi.stubGlobal('window', {});
+  // Node 20 에는 전역 navigator 가 없다 — 판마다 같은 값으로 세운다.
+  vi.stubGlobal('navigator', { userAgent: 'test-agent', hardwareConcurrency: 4 });
   mocks.backends.length = 0;
   mocks.renderDoc.mockReset().mockResolvedValue(RESULT);
   mocks.segmented.mockReset().mockResolvedValue({ ...RESULT, reusedFrames: 60, segments: { total: 2, reused: 1 } });
@@ -69,7 +71,7 @@ describe('render — 구간 캐시로 가는 길', () => {
     expect(mocks.renderDoc).not.toHaveBeenCalled();
     const options = mocks.segmented.mock.calls[0]![0] as { store: SegmentStore; engine: string; backend: { id: string }; doc: VideoDoc };
     expect(options.store).toBe(store);
-    expect(options.engine).toBe(navigator.userAgent);
+    expect(options.engine).toBe('test-agent');
     expect(options.backend.id).toBe('canvas2d');
     expect(options.doc).toBe(doc);
     expect(outcome.segments).toEqual({ total: 2, reused: 1 });

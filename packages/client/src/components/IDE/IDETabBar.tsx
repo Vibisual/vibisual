@@ -4,6 +4,11 @@ import { useTranslation } from 'react-i18next';
 import { collectCmdPaneIds, cmdPaneTermId } from '@vibisual/shared';
 import type { SubAgent, SubAgentHistoryItem } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay, isIDESplitMenuSameTab } from '../../stores/graphStore.js';
+import {
+  orderRecentlyClosedFirst,
+  selectRecentlyClosed,
+  useRecentlyClosedSessionsStore,
+} from '../../stores/recentlyClosedSessionsStore.js';
 import { useIDEPaneValue, useIDEPaneActions } from './idePane.js';
 import { TabContextMenu } from '../Layout/TabContextMenu.js';
 import { HoverTooltip } from '../Layout/HoverTooltip.js';
@@ -967,6 +972,28 @@ function HistoryButton(): React.JSX.Element | null {
     if (open) load();
   }, [open, load]);
 
+  // §5.5 #17-52 — 방금 닫은 세션을 앞에 세운다. 표시는 팝업이 닫힐 때, 실제로 그려졌던 줄만 푼다.
+  const recentIds = useRecentlyClosedSessionsStore(selectRecentlyClosed(agentId));
+  const recentSet = useMemo(() => new Set(recentIds), [recentIds]);
+  const ordered = useMemo(
+    () => (items ? orderRecentlyClosedFirst(items, recentIds) : null),
+    [items, recentIds],
+  );
+  const shownRecentRef = useRef<string[]>([]);
+  useEffect(() => {
+    if (!open || loading || error || !ordered) return;
+    const shown = ordered.filter((it) => recentSet.has(it.subAgentId)).map((it) => it.subAgentId);
+    if (shown.length > 0) shownRecentRef.current = shown;
+  }, [open, loading, error, ordered, recentSet]);
+  useEffect(() => {
+    if (!open || !agentId) return;
+    return () => {
+      const seen = shownRecentRef.current;
+      shownRecentRef.current = [];
+      useRecentlyClosedSessionsStore.getState().forget(agentId, seen);
+    };
+  }, [open, agentId]);
+
   // 통합 앱 — restore 도 optimistic. 히스토리 항목에 stub 데이터가 다 있으므로
   // store 에 즉시 추가 + setSession 동기 호출. fetch 는 fire-and-forget (서버가 같은 id 로 archive→registry 이동).
   const handleRestore = useCallback((item: SubAgentHistoryItem) => {
@@ -1039,14 +1066,18 @@ function HistoryButton(): React.JSX.Element | null {
               {!loading && !error && items && items.length === 0 && (
                 <p className="p-4 text-center text-xs text-gray-500">{t('ide.tabbar.noClosedSessions')}</p>
               )}
-              {!loading && items && items.length > 0 && (
+              {!loading && ordered && ordered.length > 0 && (
                 <ul className="flex flex-col gap-1">
-                  {items.map((it) => (
+                  {ordered.map((it) => (
                     <li key={it.subAgentId}>
                       <button
                         type="button"
                         onClick={() => handleRestore(it)}
-                        className="flex w-full items-center gap-3 rounded border border-gray-700/50 bg-gray-800/40 px-3 py-2 text-left transition-colors hover:border-blue-500/50 hover:bg-gray-700/60"
+                        className={`flex w-full items-center gap-3 rounded border px-3 py-2 text-left transition-colors hover:border-blue-500/50 hover:bg-gray-700/60 ${
+                          recentSet.has(it.subAgentId)
+                            ? 'border-amber-400/40 bg-amber-400/10'
+                            : 'border-gray-700/50 bg-gray-800/40'
+                        }`}
                       >
                         <div className="min-w-0 flex-1">
                           <span className="block truncate text-xs font-medium text-gray-200">{it.label}</span>

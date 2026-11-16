@@ -55,7 +55,7 @@ describe('local uploads on regenerable graphics', () => {
     editor.apply({ type: 'update', id: 'sign', position: [2, 0, 0] }, 0);
     expect(() => editor.applyTexture(editor.getId(target)!, new THREE.Texture(), 0, 'upload.png', false, source)).toThrow('model-changed');
     expect(target.material.map).toBe(oldMap); expect(sign.userData['vibi3dSignRecipe'].source.docId).toBe('old-art');
-  });
+  }, 20_000); // 큰 텍스처를 두 번 직렬화한다 — Windows CI 러너에서 6초를 넘긴 적이 있다.
 
   it('keeps ordinary imported textures off the blob preparation path and rejects oversized graphic sources', async () => {
     const root = new THREE.Group(), mesh = new THREE.Mesh(); root.add(mesh);
