@@ -5,7 +5,7 @@
 /** 한 판올림이 도달해야 하는 네 갈래. 순서는 사람이 읽는 순서(빠른 것부터)다. */
 export const PLATFORMS = [
   { key: 'win', smokeLabel: 'win-x64 (nsis)', script: 'release:win', runner: 'windows-latest' },
-  { key: 'linux', smokeLabel: 'linux-x64 (AppImage)', script: 'release:linux', runner: 'ubuntu-latest' },
+  { key: 'linux', smokeLabel: 'linux-x64 (AppImage)', script: 'release:linux', runner: 'ubuntu-24.04' },
   { key: 'mac-arm64', smokeLabel: 'mac-arm64 (dmg)', script: 'release:mac:arm64', runner: 'macos-latest' },
   { key: 'mac-x64', smokeLabel: 'mac-x64 (dmg)', script: 'release:mac:x64', runner: 'macos-15-intel' },
 ];

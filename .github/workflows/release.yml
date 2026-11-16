@@ -88,10 +88,14 @@ jobs:
           - os: macos-15-intel      # Intel (x64)
             script: release:mac:x64
             artifact: installer-mac-x64
-          - os: ubuntu-latest
+          # 24.04 고정 — ubuntu-latest 가 26.04 로 넘어가자 electron-builder 의 fpm 1.9.3 이 새 rpmbuild 에서 rpm 을 못 지었다.
+          - os: ubuntu-24.04
             script: release:linux
             artifact: installer-linux-x64
     runs-on: ${{ matrix.os }}
+    # client 번들(electron-vite)이 mac 러너의 Node 기본 힙 한도에서 죽었다(heap out of memory) — 한도를 올린다.
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
     # continue-on-error 를 걸지 않는다 — fail-fast: false 라 mac 이 넘어져도 win/linux 발행은 끝나고 런만 빨갛게 남는다.
     steps:
       - name: Checkout
