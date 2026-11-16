@@ -19,12 +19,31 @@ export interface StudioKeyEvent {
   preventDefault(): void;
 }
 
-/** 입력 중이면 스튜디오 단축키는 비켜 선다(글자를 치는 키를 가로채지 않는다). */
-const TYPING_SELECTOR = 'input,textarea,select,[contenteditable="true"]';
+/** 글자를 치는 칸·선택 상자(§5.13 37-24 (D-3)) — 글자 없는 `input` 은 아래 표가 뺀다. */
+export const TEXT_ENTRY_SELECTOR = 'textarea,select,[contenteditable="true"]';
+const NON_TEXT_INPUT_TYPES: ReadonlySet<string> = new Set(['range', 'checkbox', 'radio', 'button', 'submit', 'reset', 'color', 'file', 'image']);
+/** 값을 방향키로 고르는 컨트롤과 그 키 — 키보드로 간 슬라이더·라디오의 조절을 뺏지 않는다. */
+const VALUE_KEY_INPUT_TYPES: ReadonlySet<string> = new Set(['range', 'radio']);
+const VALUE_KEYS: ReadonlySet<string> = new Set(['arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'home', 'end', 'pageup', 'pagedown']);
 
-function isTyping(target: unknown): boolean {
-  const el = target as { closest?: (selector: string) => unknown } | null;
-  return typeof el?.closest === 'function' && el.closest(TYPING_SELECTOR) !== null;
+type Closest = { closest?: (selector: string) => unknown } | null;
+
+/** 글자를 받는 칸 안인가. */
+export function isTextEntry(target: unknown): boolean {
+  const el = target as Closest;
+  if (typeof el?.closest !== 'function') return false;
+  if (el.closest(TEXT_ENTRY_SELECTOR) !== null) return true;
+  const input = el.closest('input') as { type?: string } | null;
+  return input !== null && !NON_TEXT_INPUT_TYPES.has(input.type ?? '');
+}
+
+/** 입력 중이면 스튜디오 단축키는 비켜 선다(글자를 치는 키 · 슬라이더의 값 키를 가로채지 않는다). */
+function isTyping(target: unknown, key: string): boolean {
+  if (isTextEntry(target)) return true;
+  if (!VALUE_KEYS.has(key)) return false;
+  const el = target as Closest;
+  const input = typeof el?.closest === 'function' ? el.closest('input') as { type?: string } | null : null;
+  return input !== null && VALUE_KEY_INPUT_TYPES.has(input.type ?? '');
 }
 
 function bindingMatches(b: StudioKeyBinding, key: string, mod: boolean, e: Pick<StudioKeyEvent, 'shiftKey' | 'altKey'>): boolean {
@@ -44,8 +63,8 @@ export function isCommandKey(e: Pick<StudioKeyEvent, 'key' | 'ctrlKey' | 'metaKe
 /** 이 키가 부를 명령과 그 키(없으면 null). 순수 — 실행하지 않는다. */
 export function findStudioKeyCommand(e: StudioKeyEvent, c: StudioCommandContext, table: readonly StudioCommand[] = STUDIO_COMMANDS): { readonly command: StudioCommand; readonly binding: StudioKeyBinding } | null {
   if (e.defaultPrevented || e.nativeEvent.isComposing) return null;
-  if (c.paletteOpen || isTyping(e.target)) return null;
   const key = e.key.toLowerCase();
+  if (c.paletteOpen || isTyping(e.target, key)) return null;
   const mod = e.ctrlKey || e.metaKey;
   for (const command of table) {
     const binding = command.keys?.find((b) => bindingMatches(b, key, mod, e));

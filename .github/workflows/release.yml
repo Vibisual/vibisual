@@ -115,8 +115,10 @@ jobs:
       - name: Install Rust compute target
         run: rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown
 
+      # 빌드 결과 캐시를 끈다 — pnpm 은 컴파일한 네이티브 모듈을 glibc 판을 가리지 않고 캐시해, ubuntu 26.04 에서 지은
+      # node-pty(glibc 2.42 요구)가 24.04 릴리스 빌드에 실려 deb 설치본에서 터미널이 안 떴다. 러너에서 다시 컴파일한다.
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --config.side-effects-cache=false
 
       # rpm 타깃은 러너에 `rpmbuild` 가 있어야 한다(deb 는 기본 탑재) — 없으면 rpm 만이 아니라 잡 전체가 죽는다.
       - name: Install Linux packaging tools

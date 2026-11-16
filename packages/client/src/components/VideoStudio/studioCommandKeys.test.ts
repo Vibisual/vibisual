@@ -115,6 +115,29 @@ describe('명령 등록부 — 공통 문턱', () => {
     }
   });
 
+  /** 그 종류의 `input` 에 초점이 있는 듯 답하는 흉내 대상. */
+  const inputTarget = (type: string) => ({ closest: (selector: string) => (selector === 'input' ? { type } : null) });
+  const pressOn = (key: string, type: string): { log: string[]; swallowed: boolean } => {
+    const log: string[] = [];
+    const event = { ...keyEvent(key), target: inputTarget(type), swallowed: false };
+    event.preventDefault = () => { event.swallowed = true; };
+    dispatchStudioKey(event, recordedActions(log));
+    return { log, swallowed: event.swallowed };
+  };
+
+  it.each(['range', 'checkbox', 'radio', 'button', 'color', 'file'])('글자 없는 입력(%s)에 초점이 있어도 재생 키는 먹고 삼킨다 (37-24 (D-3))', (type) => {
+    expect(pressOn(' ', type)).toEqual({ log: ['togglePlay'], swallowed: true });
+  });
+
+  it.each(['text', 'number', 'search', ''])('글자 칸(%j)에서는 먹지 않는다', (type) => {
+    expect(pressOn(' ', type)).toEqual({ log: [], swallowed: false });
+  });
+
+  it('슬라이더·라디오의 값 키는 그 컨트롤 몫이고, 체크 칸에서는 방향키가 먹는다', () => {
+    for (const type of ['range', 'radio']) for (const key of ['ArrowLeft', 'ArrowRight', 'Home', 'End']) expect(pressOn(key, type), `${type} ${key}`).toEqual({ log: [], swallowed: false });
+    expect(pressOn('ArrowLeft', 'checkbox').log).toHaveLength(1);
+  });
+
   it('한글 조합 중에는 어떤 키도 먹지 않는다 — 조합을 확정하는 키가 명령을 부르지 않는다', () => {
     for (const [key, init] of LIVE) {
       const r = tryKey(key, { ...init, composing: true });

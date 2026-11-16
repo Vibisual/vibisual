@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { studioOwnsKey, type KeyScopeNode, type StudioKeyScope } from './useStudioWindowKeys.js';
+import { releasesFocus, studioOwnsKey, type KeyScopeNode, type StudioKeyScope } from './useStudioWindowKeys.js';
 
 const node = (...inside: unknown[]): KeyScopeNode => ({ contains: (other: unknown) => inside.includes(other) });
 
@@ -17,6 +17,37 @@ const frame = node(IN_ROOT, IN_SLOT, MAXIMIZE);
 function scope(over: Partial<StudioKeyScope>): StudioKeyScope {
   return { key: ' ', target: MAXIMIZE, root, frame, slot, unfocused: false, active: true, hosted: false, fullscreen: false, ...over };
 }
+
+describe('누른 컨트롤의 초점 돌려주기 (§5.13 37-24 (D-2))', () => {
+  /** 조상에 그 꼬리표들이 있는 듯 답하는 흉내 요소(`input` 은 종류를 함께 준다). */
+  const el = (tags: readonly string[], type?: string) => ({
+    closest: (selector: string) => (selector.split(',').some((s) => tags.includes(s)) ? { type } : null),
+  });
+
+  it('포인터로 누른 단추·슬라이더·체크 칸은 돌려준다', () => {
+    expect(releasesFocus(el(['button']), 'pointer')).toBe(true);
+    expect(releasesFocus(el(['input'], 'range'), 'pointer')).toBe(true);
+    expect(releasesFocus(el(['input'], 'checkbox'), 'pointer')).toBe(true);
+  });
+
+  it('글자 칸은 돌려주지 않는다', () => {
+    expect(releasesFocus(el(['input'], 'text'), 'pointer')).toBe(false);
+    expect(releasesFocus(el(['textarea']), 'pointer')).toBe(false);
+    expect(releasesFocus(el(['[contenteditable="true"]']), 'pointer')).toBe(false);
+  });
+
+  it('선택 상자는 값을 고른 뒤에만 돌려준다 — 펼친 동안에는 초점이 있어야 한다', () => {
+    expect(releasesFocus(el(['select']), 'pointer')).toBe(false);
+    expect(releasesFocus(el(['select']), 'change')).toBe(true);
+  });
+
+  it('대화상자·메뉴·목록 안과 컨트롤이 아닌 곳은 건드리지 않는다', () => {
+    for (const keep of ['[role="dialog"]', '[role="menu"]', '[role="listbox"]']) expect(releasesFocus(el(['button', keep]), 'pointer'), keep).toBe(false);
+    expect(releasesFocus(el(['select', '[role="dialog"]']), 'change')).toBe(false);
+    expect(releasesFocus(el(['div']), 'pointer')).toBe(false);
+    expect(releasesFocus(null, 'pointer')).toBe(false);
+  });
+});
 
 describe('창 수준 스튜디오 키 (§5.13 37-24 (D))', () => {
   it('창 틀 단추에 초점이 있어도 받는다', () => {
