@@ -91,6 +91,7 @@ import { installPluginSkill } from '../../hooks/useAvailableSkills.js';
 import type { AvailableSkill } from '@vibisual/shared';
 // §5.5 #17-33 ⑦ — 스킬 상태 태그. 사이드바·`/` 자동완성과 **같은 판정·같은 그림**을 쓴다.
 import { resolveSkillPluginState, skillLoadsNow } from '@vibisual/shared';
+import { RECENT_USE_RING, normalizeRecentUseRingCount } from '@vibisual/shared';
 import { SkillStateTag } from '../SkillStateTag.js';
 import { clientPathPlatform } from '../../utils/platform.js';
 
@@ -159,7 +160,7 @@ function HoverTip({ text, children, className }: {
       {show && createPortal(
         <div
           ref={tipRef}
-          className={`pointer-events-none fixed z-[9999] max-w-56 -translate-x-1/2 rounded border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-[12px] leading-snug text-gray-300 shadow-lg ${pos.below ? '' : '-translate-y-full'}`}
+          className={`pointer-events-none fixed z-tooltip max-w-56 -translate-x-1/2 rounded border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-[12px] leading-snug text-gray-300 shadow-lg ${pos.below ? '' : '-translate-y-full'}`}
           style={{ left: pos.x, top: pos.y }}
         >
           {text}
@@ -297,7 +298,7 @@ function CustomSelect({ value, onChange, options, disabled, compact, ariaLabel }
         </svg>
       </button>
       {open && createPortal(
-        <div ref={panelRef} className="fixed z-[9999] max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...pos, maxWidth: ddWidth(340) }}>
+        <div ref={panelRef} className="fixed z-menu max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...pos, maxWidth: ddWidth(340) }}>
           {options.map((opt) => (
             <button
               key={opt.value}
@@ -638,6 +639,7 @@ export function AgentConfigPopup({
     rules: t('panel.agentConfig.fieldTips.rules'),
     tools: t('panel.agentConfig.fieldTips.tools'),
     maxTurns: t('panel.agentConfig.fieldTips.maxTurns'),
+    recentUseRings: t('panel.agentConfig.fieldTips.recentUseRings', { count: RECENT_USE_RING.defaultCount }),
     maxBudgetUsd: t('panel.agentConfig.fieldTips.maxBudgetUsd'),
     isolation: t('panel.agentConfig.fieldTips.isolation'),
     memory: t('panel.agentConfig.fieldTips.memory'),
@@ -669,6 +671,8 @@ export function AgentConfigPopup({
   const [skills, setSkills] = useState<string[]>([...base.skills]);
   const [color, setColor] = useState(base.color ?? currentColor);
   const [maxTurns, setMaxTurns] = useState(base.maxTurns ?? 3000);
+  // §5.1 #3-5 — 캔버스 최근 사용 링 개수(0 = 끔). 미설정은 기본 개수로 보인다.
+  const [recentUseRings, setRecentUseRings] = useState(() => normalizeRecentUseRingCount(base.recentUseRings));
   // §4 — API 비용 상한($). 0 = 무제한(기본), 양수면 헤드리스 스폰에 `--max-budget-usd`.
   const [maxBudgetUsd, setMaxBudgetUsd] = useState(base.maxBudgetUsd ?? 0);
   const [isolation, setIsolation] = useState(base.isolation ?? 'none');
@@ -1135,6 +1139,8 @@ export function AgentConfigPopup({
     // §4 (설정 3층) — 미설정을 `undefined` 로 담지 않는다. `JSON.stringify` 가 키를 버려 `sparsifyAgentConfig` 비교에 못 오르면 위층이 켠 축을 여기서 끌 수 없다.
     // 그 축의 미설정 표기(0 · '' · [] · false · 'none' · 'default' · 'allow')를 명시로 보낸다 — 기본값과 같고 이번에 안 바꾼 칸이면 서버가 버린다.
     maxTurns: maxTurns > 0 ? maxTurns : 0,
+    // §5.1 #3-5 — 0 은 끔이라 그대로 보낸다(기본 개수와 같고 안 바꿨으면 서버가 버린다).
+    recentUseRings,
     // §4 — 0 = 무제한. 위층 상한을 되돌리려면 0 이 건너가야 한다.
     maxBudgetUsd: maxBudgetUsd > 0 ? maxBudgetUsd : 0,
     isolation,
@@ -1203,7 +1209,7 @@ export function AgentConfigPopup({
     // §5.19 (G) — 프로바이더는 저장 순간의 스토어 값 위에 만진 칸만 얹는다. 로컬·코덱스가 아니면 안 보낸다(서버가 유지).
     provider: isLocal ? buildLocalProvider() : isCodex ? buildCodexProvider() : undefined,
   }), [
-    model, tools, permissionMode, permissionTimeoutPolicy, skills, color, maxTurns, maxBudgetUsd, isolation, effort,
+    model, tools, permissionMode, permissionTimeoutPolicy, skills, color, maxTurns, recentUseRings, maxBudgetUsd, isolation, effort,
     memory, subagentDepth,
     isOpus, effortEnabled, disallowedTools, askTools, rules, customMode,
     contextWindow, presetId, modelVersion, mcpServers,
@@ -1327,6 +1333,7 @@ export function AgentConfigPopup({
     autoCompactPct: t('panel.agentConfig.tokenSaver.compactPct'),
     disableNonEssentialModelCalls: t('panel.agentConfig.tokenSaver.noExtraCalls'),
     skills: t('panel.agentConfig.defaultSkills'),
+    recentUseRings: t('panel.agentConfig.recentUseRings.label'),
   }), [t]);
   /** hover 에 띄울 **기본값 자체**. "다르다"만 알려 주면 무엇으로 되돌려야 할지 알 수 없다. */
   const defaultValueText = useCallback((field: AgentConfigComparedField): string => {
@@ -1352,6 +1359,10 @@ export function AgentConfigPopup({
         const ms = normalizeBashTimeoutMs(raw)
           ?? (field === 'bashDefaultTimeoutMs' ? BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT : BASH_MAX_TIMEOUT_MS_CLI_DEFAULT);
         return t('ide.stepTrace.sec', { sec: ms / 1000 });
+      }
+      case 'recentUseRings': {
+        const count = normalizeRecentUseRingCount(raw);
+        return count === 0 ? off : String(count);
       }
       case 'subagentDepth':
         return t('panel.agentConfig.subagentDepth.layers', { count: normalizeSubagentDepth(raw) ?? SUBAGENT_DEPTH_CLI_DEFAULT });
@@ -1684,7 +1695,7 @@ export function AgentConfigPopup({
 
     return createPortal(
       <div
-        className={`fixed inset-0 z-50 ${
+        className={`fixed inset-0 z-dialog-over ${
           narrowViewport
             ? 'flex items-end bg-black/60'
             : placement ? 'bg-black/20' : 'flex items-end justify-center bg-black/20 pb-12'
@@ -1800,7 +1811,7 @@ export function AgentConfigPopup({
 
   // §5.5 #17-1 — body 포털. 부모 z-index 층에 갇히면 `z-50` 이어도 IDE 창 뒤로 깔린다 — 설정창은 늘 맨 위.
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" {...backdrop}>
+    <div className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60" {...backdrop}>
       <div className="flex max-h-[80dvh] w-[420px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
         {/* Header */}
         <div className="flex items-center justify-between gap-2 border-b border-gray-700 px-4 py-3">
@@ -2293,7 +2304,7 @@ export function AgentConfigPopup({
               <div className="relative">
                 <button ref={toolPicker.btnRef} type="button" onClick={toolPicker.toggle} disabled={availableToAdd.length === 0} className="rounded border border-dashed border-gray-600 px-2.5 py-1 text-xs text-gray-500 hover:border-blue-500 hover:text-blue-400 disabled:opacity-30 pointer-coarse:min-h-9">{t('panel.agentConfig.tools.addTool')}</button>
                 {toolPicker.open && createPortal(
-                  <div ref={toolPicker.panelRef} className="fixed z-[9999] max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...toolPicker.pos, maxWidth: ddWidth(320) }}>
+                  <div ref={toolPicker.panelRef} className="fixed z-menu max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...toolPicker.pos, maxWidth: ddWidth(320) }}>
                     {availableToAdd.map((t) => (
                       <button key={t} type="button" onClick={() => { setTools((p) => [...p, t]); toolPicker.close(); }} className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-blue-500/15">
                         <span className="text-xs font-medium text-gray-200">{t}</span>
@@ -2345,7 +2356,7 @@ export function AgentConfigPopup({
                   {t('panel.agentConfig.disallowedTools.addTool', { defaultValue: '+ Block tool' })}
                 </button>
                 {denyPicker.open && createPortal(
-                  <div ref={denyPicker.panelRef} className="fixed z-[9999] max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...denyPicker.pos, maxWidth: ddWidth(320) }}>
+                  <div ref={denyPicker.panelRef} className="fixed z-menu max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...denyPicker.pos, maxWidth: ddWidth(320) }}>
                     {AVAILABLE_AGENT_TOOLS.filter((tool) => !disallowedTools.includes(tool)).map((tool) => (
                       <button
                         key={tool}
@@ -2862,7 +2873,7 @@ export function AgentConfigPopup({
                 <button ref={skillPicker.btnRef} type="button" onClick={skillPicker.toggle} disabled={availableSkills.filter((s) => !skills.includes(s.name)).length === 0} className="rounded border border-dashed border-gray-600 px-2.5 py-1 text-xs text-gray-500 hover:border-emerald-500 hover:text-emerald-400 disabled:opacity-30 pointer-coarse:min-h-9">{t('panel.agentConfig.addSkill')}</button>
                 {/* 'left' 배치 — 왼쪽에 자리가 없으면(폰 폭) 계산이 버튼 아래로 내린다. 최소 폭은 그 판정과 같은 상수다. */}
                 {skillPicker.open && createPortal(
-                  <div ref={skillPicker.panelRef} className="fixed z-[9999] max-h-80 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...skillPicker.pos, minWidth: ddWidth(DD_LEFT_MIN_WIDTH), maxWidth: ddWidth(360) }}>
+                  <div ref={skillPicker.panelRef} className="fixed z-menu max-h-80 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl scrollbar-thin" style={{ ...skillPicker.pos, minWidth: ddWidth(DD_LEFT_MIN_WIDTH), maxWidth: ddWidth(360) }}>
                     {/* Project Skills */}
                     {availableSkills.some((s) => s.source === 'project' && !skills.includes(s.name)) && (
                       <>
@@ -2925,6 +2936,23 @@ export function AgentConfigPopup({
               )}
             </div>
 
+            {/* §5.1 #3-5 — 최근 사용 링 개수. 캔버스 표시 축이라 엔진 종류와 무관하게 늘 보인다. */}
+            <div className="flex flex-col gap-1.5">
+              <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.recentUseRings.label')}<InfoTip text={FIELD_TIPS.recentUseRings} />{diffDot('recentUseRings')}</label>
+              <div className="flex items-center gap-2">
+                <div className="flex w-32 items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
+                  <button type="button" aria-label={t('panel.agentConfig.recentUseRings.fewer')} onClick={() => setRecentUseRings((v) => normalizeRecentUseRingCount(v - 1))} disabled={recentUseRings <= RECENT_USE_RING.countMin} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200 disabled:opacity-40 pointer-coarse:w-9">
+                    <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}><line x1="2" y1="6" x2="10" y2="6" /></svg>
+                  </button>
+                  <input type="number" min={RECENT_USE_RING.countMin} max={RECENT_USE_RING.countMax} value={recentUseRings} aria-label={t('panel.agentConfig.recentUseRings.label')} onChange={(e) => setRecentUseRings(normalizeRecentUseRingCount(Number(e.target.value)))} className="w-full min-w-0 flex-1 border-x border-gray-700 bg-transparent px-2 py-1.5 text-center text-sm text-gray-200 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
+                  <button type="button" aria-label={t('panel.agentConfig.recentUseRings.more')} onClick={() => setRecentUseRings((v) => normalizeRecentUseRingCount(v + 1))} disabled={recentUseRings >= RECENT_USE_RING.countMax} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200 disabled:opacity-40 pointer-coarse:w-9">
+                    <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}><line x1="2" y1="6" x2="10" y2="6" /><line x1="6" y1="2" x2="6" y2="10" /></svg>
+                  </button>
+                </div>
+                <span className="min-w-0 text-xs text-gray-500">{recentUseRings === 0 ? t('panel.agentConfig.recentUseRings.off') : t('panel.agentConfig.recentUseRings.hint')}</span>
+              </div>
+            </div>
+
           </div>
         </ScrollFade>
 
@@ -2962,7 +2990,7 @@ export function AgentConfigPopup({
 
       {/* Rules 편집기 오버레이 — 좌 본문 + 우 히스토리(§5.3 #28 (K)). */}
       {showRulesEditor && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70" {...rulesBackdrop}>
+        <div className="fixed inset-0 z-dialog-over flex items-center justify-center bg-black/70" {...rulesBackdrop}>
           <div className="flex h-[82dvh] max-h-[92dvh] w-[960px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
             <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
               <h3 className="text-sm font-bold text-gray-100">{t('panel.agentConfig.agentRules')}</h3>

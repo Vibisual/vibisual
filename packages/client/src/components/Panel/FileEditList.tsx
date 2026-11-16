@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { FileEdit } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { LayerRoot } from '../Layout/LayerRoot.js';
 
 interface FileEditListProps {
   edits: FileEdit[];
@@ -79,8 +80,8 @@ function EditDetailPopup({ edit, onClose }: EditDetailPopupProps): React.JSX.Ele
   const backdrop = useBackdropDismiss(onClose);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+    <LayerRoot
+      className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60 backdrop-blur-sm"
       {...backdrop}
     >
       <div
@@ -149,7 +150,7 @@ function EditDetailPopup({ edit, onClose }: EditDetailPopupProps): React.JSX.Ele
           </div>
         </ScrollFade>
       </div>
-    </div>
+    </LayerRoot>
   );
 }
 

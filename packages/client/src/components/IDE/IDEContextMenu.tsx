@@ -4,6 +4,7 @@ import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import type { CommandId } from '@vibisual/shared';
 import { IDEContextMenuPanel } from './IDEContextMenuPanel.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 /**
  * IDEContextMenu.tsx — §5.5 #17-3 / #17-27 ⑨ IDE 공용 우클릭 메뉴(한 벌이어야 넘침 보정·닫기 규약이 안 어긋난다).
@@ -38,24 +39,25 @@ export interface ContextMenuItem {
   separatorBefore?: boolean;
 }
 
-/** 기본 z-index. 모달 위에서 열릴 때는 호출부가 그 창보다 높은 값을 준다. */
-const DEFAULT_Z = 9999;
+/** 기본 z-index — 메뉴 층은 창·모달·게이트 전부보다 위라(§4 겹침 층 표) 호출부가 따로 올릴 일이 없다. */
+const DEFAULT_Z = Z_LAYER.MENU;
 
 interface IDEContextMenuProps {
   x: number;
   y: number;
   items: ContextMenuItem[];
   /**
-   * 겹침 순서. **모달 위의 메뉴는 반드시 줘야 한다** — 기본값은 IDE 안(9999) 기준이라
-   * 로그인 창(100_600) 같은 상위 레이어에서는 메뉴가 창 **뒤로** 숨는다(= 우클릭 무반응으로 보인다).
+   * 겹침 순서. 기본값(메뉴 층)보다 더 위여야 하는 드문 경우에만 준다.
    */
   zIndex?: number;
   /** 밀도. `compact` = 항목 한둘인 작은 메뉴(§5.4 #34). 여백·최소폭·칩만 줄이고 글자는 12px 그대로(§9). */
   density?: 'default' | 'compact';
+  /** Portaled field actions must not close the editor that owns their input. */
+  textFieldMenu?: boolean;
   onClose: () => void;
 }
 
-export function IDEContextMenu({ x, y, items, zIndex, density = 'default', onClose }: IDEContextMenuProps): React.JSX.Element {
+export function IDEContextMenu({ x, y, items, zIndex, density = 'default', textFieldMenu = false, onClose }: IDEContextMenuProps): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   // 하위 패널도 이 DOM 트리 안에 있어, 안에서 시작한 제스처는 메뉴를 닫지 않는다.
   useOutsidePressDismiss({ onDismiss: onClose, refs: [ref] });
@@ -84,6 +86,7 @@ export function IDEContextMenu({ x, y, items, zIndex, density = 'default', onClo
   return createPortal(
     <div
       ref={ref}
+      data-text-field-menu={textFieldMenu ? '' : undefined}
       onContextMenu={(e) => e.preventDefault()}
       // 입력칸의 blur 확정/선택 범위를 지킨다. 클릭 자체는 정상 전달된다.
       onMouseDown={(e) => e.preventDefault()}

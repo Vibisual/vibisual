@@ -172,6 +172,31 @@ describe('③ handler.mjs — 서버의 ask 를 클로드 규격으로 돌려준
   });
 });
 
+describe('§5.4 #36 (C) handler.mjs — 연결 강제 답을 클로드 규격으로', () => {
+  it('app-link 거부는 서버 문구를 그대로 쓴다(누가 누른 척하지 않는다)', async () => {
+    const { base } = await fakeServer((url) => (url === '/api/permission-check'
+      ? { ok: true, decision: 'deny', reason: 'app-link', message: 'Vibisual blocked this and did NOT run it (detected: ffmpeg).' }
+      : {}));
+    const stdout = await run(handlerPath, ['--server', base, '--token', 'tok'], preToolUse(), cleanEnv());
+    expect(JSON.parse(stdout.split('\n')[0]!).hookSpecificOutput).toEqual({
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: 'Vibisual blocked this and did NOT run it (detected: ffmpeg).',
+    });
+  });
+
+  it('허용 답에 실린 안내를 additionalContext 로 넘기고, 없으면 칸을 만들지 않는다', async () => {
+    const withContext = await fakeServer(() => ({ ok: true, decision: 'allow', reason: 'bypass', additionalContext: 'linked to a node' }));
+    const first = await run(handlerPath, ['--server', withContext.base, '--token', 'tok'], preToolUse(), cleanEnv());
+    expect(JSON.parse(first.split('\n')[0]!).hookSpecificOutput).toEqual({
+      hookEventName: 'PreToolUse', permissionDecision: 'allow', additionalContext: 'linked to a node',
+    });
+    const plain = await fakeServer(() => ({ ok: true, decision: 'allow', reason: 'bypass' }));
+    const second = await run(handlerPath, ['--server', plain.base, '--token', 'tok'], preToolUse(), cleanEnv());
+    expect(JSON.parse(second.split('\n')[0]!).hookSpecificOutput).toEqual({ hookEventName: 'PreToolUse', permissionDecision: 'allow' });
+  });
+});
+
 describe('③ codex-edges.mjs — 앱 소유 훅의 자물쇠 거부', () => {
   it('locked 거부는 서버 문구를 그대로 싣는다', async () => {
     const { base } = await fakeServer(() => ({ ok: true, decision: 'deny', reason: 'locked', message: 'PERMISSION POLICY: DENY. "x" is locked' }));

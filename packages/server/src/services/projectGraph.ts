@@ -14,6 +14,9 @@ import type { BundleFilePage } from '@vibisual/shared';
 import { APP_WORK, commandAppNodeIds, extractBashScanAnchors, sameAppWork, withAppWorkMark, isPendingQueuedCommand } from '@vibisual/shared';
 import { FileMentionScanner } from './fileMentionScanner.js';
 import { followsActivityBubbleLifecycle } from './activityBubbleLifecycle.js';
+// §5.1 #3-5 — 에이전트별 최근 사용 순서(링 크기). 표시 전용 관찰이라 저장하지 않는다.
+import { RecentUseLedger } from './recentUseLedger.js';
+import { isRecentUseBubble, normalizeRecentUseRingCount, type RecentUseMark } from '@vibisual/shared';
 import { capAgentLinkEntries, planLinkReplay, sanitizeAgentLinkRecords, type LinkReplayOp } from './agentLinkRecord.js';
 import type {
   AgentLinkEntry,
@@ -127,7 +130,7 @@ import type { AuditBoundaryConfig, AuditDecisionSource, ProjectAuditLog } from '
 // §5.3 #12-3 — 자물쇠. 검증·합치기는 shared 한 벌(서버 복원과 identity 보충이 같은 규칙을 쓴다).
 import { buildPathLock, mergePathLocks, normalizePathLocks, PATH_LOCK_MAX_PER_PROJECT } from '@vibisual/shared';
 // §5.4 #36 — 위성줄 목록 다듬기(서버 검증과 클라 낙관 반영이 한 벌).
-import { makeAppBubbleId, pushPastFile, sanitizeLinkedAgentIds } from '@vibisual/shared';
+import { makeAppBubbleId, pushPastFile, sanitizeLinkedAgentIds, fileFaceKindOf, previewLaneOf, projectRelativePath, withWorkPreview, type PreviewLane } from '@vibisual/shared';
 // §5.4 #36 (G) — 앱 노드 크기 상한(클라 손잡이와 같은 값으로 자른다).
 import { APP_BUBBLE_REF_MAX, APP_CANVAS_FACE, APP_NODE_RESIZE } from '@vibisual/shared';
 import type { PathLock, PathLockTarget } from '@vibisual/shared';
@@ -183,6 +186,7 @@ import type { SessionMessageLink, FileWriteOverlap } from '@vibisual/shared';
 import { normalizeConfigTrimSettings, normalizeConfigTrimRuns, configTrimRunsForSnapshot, appendConfigTrimRun } from '@vibisual/shared';
 import type { ConfigTrimSettings, ConfigTrimRun, ConfigTrimSummary } from '@vibisual/shared';
 // §5.5 #17-36 — 스티키 메모 상한/정화(디스크·REST 에서 온 값을 그대로 믿지 않는다).
+import { reconcileCanvasMemoOwnership } from './canvasMemos.js';
 import { sanitizeSessionMemos } from '@vibisual/shared';
 // §7.11 — 루프백 주소 판정·추출(감지 폴백이 background 셸 밖의 서버도 회수하는 자리).
 import {
@@ -1332,6 +1336,9 @@ export class ProjectGraph {
    * 확인(캔버스 dismiss·IDE 세션 확인) 때 비운다. 소유 기록으로 대신하지 마라 — 캔버스 확인에서만 걷혀 묶음에 며칠치가 남는다. 체크포인트에 실린다.
    */
   private agentTurnNodes = new Map<string, Set<string>>();
+  /** §5.1 #3-5 — 에이전트별 최근 사용 순서. `addAgentRef` 가 적고, 링 순위는 `recentUseRanks` 가 판마다 한 번 낸다. 체크포인트 ❌. */
+  private recentUse = new RecentUseLedger();
+  private recentUseMemo: { version: number; at: number; ranks: Map<string, { limit: number; rankOf: Map<string, number> }> } | null = null;
   /** 사람이 친 문장(`UserPromptSubmit`)으로 연 턴이 아직 끝나지(`Stop`) 않은 에이전트 — 턴 도중 끼어든 문장이 장부를 비우지 않게. */
   private promptTurnAgents = new Set<string>();
   /** 노드별 소속 프로젝트 이름 (node key → projectName). ProjectInfo.path로 경로 해석 */
@@ -1429,6 +1436,8 @@ export class ProjectGraph {
   private agentLinkRecords = new Map<string, AgentLinkRecord>();
   /** §5.5 #17-36 — 메인 탭(세션 미선택) 스티키 메모. 세션 탭 메모는 `SubAgent.memos` 에 있다. 영속(ProjectCheckpoint.agentMemos), 열린 장수에만 상한. */
   private agentMemos = new VersionedMap<string, SessionMemo[]>();
+  private canvasMemos = new VersionedMap<string, SessionMemo[]>();
+  private deletedCanvasMemos = new Map<string, string[]>();
   /** §4 — 에이전트 질문 카드(질문 + 제안 프롬프트). 영속(ProjectCheckpoint.agentQuestions), 캡 = AGENT_QUESTIONS_MAX_PER_AGENT. */
   private agentQuestions = new VersionedMap<string, AgentQuestions[]>();
   /** §4 — 에이전트 검수 요청 카드(changes/checkpoints). 영속(ProjectCheckpoint.agentReviews), 캡 = AGENT_REVIEWS_MAX_PER_AGENT. */
@@ -1552,6 +1561,9 @@ export class ProjectGraph {
    */
   private appWorkAnchors = new Map<string, { commandId: string | null; since: number; anchors: Set<string> }>();
   private appWorkScanTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** §5.4 #36 (L) — 결과 없는 화면의 작업 폴더 감시(앱 노드마다 · 런타임 전용 — 재시작 뒤엔 다음 앱 작업부터 다시 모은다). */
+  private workPreviewWatch = new Map<string, { anchors: string[]; since: number; touchedAt: number }>();
+  private workPreviewScanning = false;
   /** §5.14 — 플레이 버블(이 프로젝트를 켜는 버튼 + 확정된 실행 레시피). */
   private playBubbles = new Map<string, PlayBubble>();
   /** §5.15 — 스펙 보드(요구사항 본문 + 수용 기준 + 거기서 나온 작업 카드 연결). */
@@ -2175,6 +2187,9 @@ export class ProjectGraph {
       : undefined;
     const overrides = sparsifyAgentConfig(config, resolveAgentDefaults(userDefaultsService.get(), engine, this.root, HOST_PLATFORM), baseline);
     this.agentConfigOverrides.set(agentId, overrides);
+    // §5.1 #3-5 — 링 개수도 이 설정이 정한다. 같은 판의 스냅샷 캐시가 옛 순위를 내지 않게 판을 올린다.
+    this.recentUseMemo = null;
+    this.bumpMutationVersion();
     // "손댔다"의 판정도 저장분에서 나온다.
     if (hasAgentConfigOverrides(overrides)) this.manuallyConfigured.add(agentId);
     else this.manuallyConfigured.delete(agentId);
@@ -2268,6 +2283,7 @@ export class ProjectGraph {
       if (agent) {
         for (const [, refs] of this.nodeAgentRefs) refs.delete(agent.id);
         this.agentTurnNodes.delete(agent.id);
+        this.recentUse.forgetAgent(agent.id);
         this.promptTurnAgents.delete(agent.id);
         // persistSatellites 노드도 nodes에서 제거 (프로젝트 teardown — §3.5,
         // 핀 보존 안 함: 프로젝트가 사라지면 고아 노드를 남기지 않는다)
@@ -2829,7 +2845,30 @@ export class ProjectGraph {
     return true;
   }
 
-  /** §5.5 #17-36 — 이 에이전트 메인 탭의 메모 목록(없으면 빈 배열). */
+  /** 영구 삭제는 복구용 저장본에서도 되살리지 않는다. */
+  markCanvasMemoDeleted(project: string, id: string): void {
+    this.deletedCanvasMemos.set(project, [...new Set([...this.getDeletedCanvasMemoIds(project), id])]);
+    this.bumpMutationVersion();
+  }
+
+  getDeletedCanvasMemoIds(project: string): string[] {
+    return this.deletedCanvasMemos.get(project) ?? [];
+  }
+
+  getCanvasMemos(project: string): SessionMemo[] {
+    return this.canvasMemos.get(project) ?? [];
+  }
+
+  setCanvasMemos(project: string, memos: SessionMemo[]): void {
+    // 빈 배열도 삭제 결과다. identity의 이전 판본이 지운 메모를 되살리지 않게 보존한다.
+    this.canvasMemos.set(project, memos);
+    this.bumpMutationVersion();
+  }
+
+  getCanvasMemosRecord(): Record<string, SessionMemo[]> {
+    return this.memoSlice('canvasMemos', this.canvasMemos, () => Object.fromEntries(this.canvasMemos));
+  }
+
   getAgentMemos(agentId: string): SessionMemo[] {
     return this.agentMemos.get(agentId) ?? [];
   }
@@ -5289,8 +5328,13 @@ export class ProjectGraph {
       ...(opts.script ? { script: true } : {}),
     });
     if (!sameAppWork(node.appWork, next)) node.appWork = next;
+    // §5.4 #36 (L) — 스크립트 출력은 아직 쓰는 중일 수 있어 잠잠해진 뒤 감시(`scanWorkPreviews`)가 적는다.
+    if (opts.write && !opts.script) for (const id of work.nodeIds) this.noteWorkPreview(id, abs, Date.now());
     const slash = abs.lastIndexOf('/');
-    if (slash > 0) this.noteAppWorkAnchor(payload.session_id, work, abs.slice(0, slash));
+    if (slash > 0) {
+      this.noteAppWorkAnchor(payload.session_id, work, abs.slice(0, slash));
+      this.noteWorkPreviewAnchor(work, abs.slice(0, slash));
+    }
     return node;
   }
 
@@ -5310,7 +5354,6 @@ export class ProjectGraph {
    * (이어 도는 명령을 한 번에) **비동기로** 훑는다. 실패·중단은 아무 일도 없다(판단이 서지 않으면 묶지 않는다).
    */
   private scheduleAppWorkScan(agent: BubbleData, payload: HookEventPayload, work: AppWorkContext): void {
-    if (work.since <= 0) return; // 언제부터 생긴 파일인지 모르면 훑지 않는다.
     const command = typeof payload.tool_input?.['command'] === 'string' ? payload.tool_input['command'] : '';
     // §5.1 #1-1 (C) — 명령 글의 상대 경로는 그 명령이 시작될 때의 폴더 기준이다(세션의 첫 폴더 ❌).
     const cwd = this.shellStartCwdFor(payload);
@@ -5326,8 +5369,11 @@ export class ProjectGraph {
     for (const raw of anchors) {
       const norm = normalize(raw);
       const abs = isAbsoluteNormalized(norm) ? norm : cwd ? resolveRelative(cwd, norm) : null;
-      if (abs) this.noteAppWorkAnchor(payload.session_id, work, abs);
+      if (!abs) continue;
+      this.noteWorkPreviewAnchor(work, abs);
+      if (work.since > 0) this.noteAppWorkAnchor(payload.session_id, work, abs);
     }
+    if (work.since <= 0) return; // 언제부터 생긴 파일인지 모르면 훑지 않는다.
     const key = `${payload.session_id}\u0000${work.subId}`;
     const prev = this.appWorkScanTimers.get(key);
     if (prev) clearTimeout(prev);
@@ -5430,6 +5476,129 @@ export class ProjectGraph {
       this.asyncChangeCallback?.();
       logger.debug(`[app-work] script outputs: ${found.length} file(s) under ${folders.length} folder(s)`);
     }
+  }
+
+  // ─── §5.4 #36 (L) 작업 중 미리보기 ───
+
+  /** 결과도 문서도 없는 노드만 대상이다 — 있으면 화면이 미리보기를 쓰지 않는다. */
+  private workPreviewTarget(id: string): { bubble: AppBubble; root: string } | null {
+    const bubble = this.appBubbles.get(id);
+    if (!bubble || bubble.file || bubble.ref) return null;
+    const root = this.getProjectByName(bubble.projectName)?.path;
+    return root ? { bubble, root } : null;
+  }
+
+  /** 프로젝트 안 미디어 파일이면 그 노드의 미리보기로 적는다. 바뀌었으면 true. */
+  private noteWorkPreview(nodeId: string, abs: string, at: number): boolean {
+    const kind = previewLaneOf(fileFaceKindOf(abs));
+    const target = this.workPreviewTarget(nodeId);
+    if (!kind || !target) return false;
+    const rel = projectRelativePath(target.root, abs, HOST_PLATFORM);
+    if (!rel) return false;
+    const next = withWorkPreview(target.bubble.workPreviews, kind, rel, at);
+    if (!next || next === target.bubble.workPreviews) return false;
+    target.bubble.workPreviews = next;
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  /** 감시할 자리를 모은다. (F) ③ 의 기준 자리는 명령이 바뀌면 비워지지만, 턴 뒤의 렌더까지 따라가야 하므로 노드마다 따로 둔다. */
+  private noteWorkPreviewAnchor(work: AppWorkContext, absPath: string): void {
+    const now = Date.now();
+    const key = pathKey(absPath);
+    for (const id of work.nodeIds) {
+      const target = this.workPreviewTarget(id);
+      if (!target || !projectRelativePath(target.root, absPath, HOST_PLATFORM)) continue;
+      const entry = this.workPreviewWatch.get(id) ?? { anchors: [], since: work.since > 0 ? work.since : now, touchedAt: now };
+      entry.touchedAt = now;
+      entry.anchors = [...entry.anchors.filter((a) => pathKey(a) !== key), absPath].slice(-APP_WORK.previewAnchorMax);
+      this.workPreviewWatch.set(id, entry);
+    }
+  }
+
+  private clearWorkPreview(bubble: AppBubble): void {
+    delete bubble.workPreviews;
+    this.workPreviewWatch.delete(bubble.id);
+  }
+
+  /** 세션 스윕이 부른다 — 결과 없는 노드의 작업 폴더에서 종류마다 가장 새 미디어를 적는다. 버블·꼬리표는 건드리지 않는다. */
+  async scanWorkPreviews(now: number = Date.now()): Promise<boolean> {
+    if (this.workPreviewScanning || this.workPreviewWatch.size === 0) return false;
+    this.workPreviewScanning = true;
+    let changed = false;
+    try {
+      for (const [id, watch] of this.workPreviewWatch) {
+        const target = this.workPreviewTarget(id);
+        if (!target || now - watch.touchedAt > APP_WORK.previewWatchMs) {
+          this.workPreviewWatch.delete(id);
+          continue;
+        }
+        const newest = await this.findNewestWorkMedia(target.root, watch, now);
+        for (const { abs, mtime } of newest.values()) {
+          if (this.noteWorkPreview(id, abs, mtime)) changed = true;
+        }
+      }
+    } catch (err) {
+      logger.debug('[work-preview] scan failed', err);
+    } finally {
+      this.workPreviewScanning = false;
+    }
+    if (changed) this.asyncChangeCallback?.();
+    return changed;
+  }
+
+  /** 최근 기준 자리부터 훑어 종류마다 가장 새 파일을 찾는다. 작업 시작 전 파일과 아직 쓰는 중인 파일은 뺀다. 비동기 · 항목 수 상한. */
+  private async findNewestWorkMedia(
+    root: string,
+    watch: { readonly anchors: readonly string[]; readonly since: number },
+    now: number,
+  ): Promise<Map<PreviewLane, { abs: string; mtime: number }>> {
+    const best = new Map<PreviewLane, { abs: string; mtime: number }>();
+    const skip = new Set(APP_WORK.scanSkipDirs);
+    const seen = new Set<string>();
+    let budget = APP_WORK.previewScanEntryMax;
+    const walk = async (dir: string, depth: number): Promise<void> => {
+      const dirKey = pathKey(dir);
+      if (seen.has(dirKey)) return;
+      seen.add(dirKey);
+      let entries: fs.Dirent[];
+      try {
+        entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        if (budget <= 0) return;
+        budget -= 1;
+        const child = `${dir.replace(/\/+$/, '')}/${e.name}`;
+        if (e.isDirectory()) {
+          if (depth < APP_WORK.scanDepthMax && !skip.has(e.name) && !e.name.startsWith('.')) await walk(child, depth + 1);
+          continue;
+        }
+        const kind = e.isFile() ? previewLaneOf(fileFaceKindOf(e.name)) : null;
+        if (!kind) continue;
+        try {
+          const { mtimeMs } = await fs.promises.stat(child);
+          if (mtimeMs < watch.since || now - mtimeMs < APP_WORK.previewSettleMs) continue;
+          if (mtimeMs > (best.get(kind)?.mtime ?? 0)) best.set(kind, { abs: child, mtime: Math.round(mtimeMs) });
+        } catch {
+          /* 그 사이 사라졌다 */
+        }
+      }
+    };
+    for (const anchor of [...watch.anchors].reverse()) {
+      if (budget <= 0) break;
+      let dir: string;
+      try {
+        const st = await fs.promises.stat(anchor);
+        dir = normalize(st.isDirectory() ? anchor : path.dirname(anchor));
+      } catch {
+        continue;
+      }
+      // 프로젝트 루트는 기준 자리가 아니다(`cd <루트>` 하나로 저장소 전체를 훑지 않게 — (F) ③ 과 같다).
+      if (projectRelativePath(root, dir, HOST_PLATFORM)) await walk(dir, 0);
+    }
+    return best;
   }
 
   /**
@@ -5854,6 +6023,8 @@ export class ProjectGraph {
     }
     if (activeIds.length > 0) {
       enriched.activeAgentIds = activeIds;
+      const recentUse = this.recentUseMarks(nodePath, activeIds);
+      if (recentUse) enriched.recentUse = recentUse;
       return enriched;
     }
 
@@ -6299,6 +6470,7 @@ export class ProjectGraph {
       autoAgentRuns: this.getAutoAgentRunsRecord(),
       agentReports: this.getAgentReportsRecord(),
       agentMemos: this.getAgentMemosRecord(),
+      canvasMemos: this.getCanvasMemosRecord(),
       agentQuestions: this.getAgentQuestionsRecord(),
       agentReviews: this.getAgentReviewsRecord(),
       agentLists: this.getAgentListsRecord(),
@@ -6570,6 +6742,7 @@ export class ProjectGraph {
       // §5.4 #36 (H) ①-2 — 마지막으로 걷힌 연결(메모리 포맷).
       agentLinkRecords: this.agentLinkRecords.size > 0 ? Object.fromEntries(this.agentLinkRecords) : undefined,
       agentMemos: this.getAgentMemosRecord(),
+      canvasMemos: this.getCanvasMemosRecord(),
       agentQuestions: this.getAgentQuestionsRecord(),
       agentReviews: this.getAgentReviewsRecord(),
       agentLists: this.getAgentListsRecord(),
@@ -7071,6 +7244,8 @@ export class ProjectGraph {
       })(),
       // §5.5 #17-36 — 메인 탭 스티키 메모: 이 프로젝트 소속 에이전트분만 필터해 영속(agentReports 와 동형).
       //   사용자가 손으로 쓴 글이라 복구 불가 자산이다 — 여기 빠뜨리면 껐다 켜면 사라진다.
+      canvasMemos: { [projectName]: [...this.getCanvasMemos(projectName)] },
+      deletedCanvasMemoIds: this.getDeletedCanvasMemoIds(projectName),
       agentMemos: (() => {
         const out: Record<string, SessionMemo[]> = {};
         for (const [agentId, memos] of this.agentMemos) {
@@ -7162,6 +7337,9 @@ export class ProjectGraph {
 
   /** 프로젝트별 체크포인트를 기존 상태에 병합 (복원 시 여러 프로젝트 합치기) */
   mergeFromCheckpoint(cp: ProjectCheckpoint): void {
+    cp.deletedCanvasMemoIds = [...new Set([...this.getDeletedCanvasMemoIds(cp.project.name), ...(cp.deletedCanvasMemoIds ?? [])])];
+    this.deletedCanvasMemos.set(cp.project.name, cp.deletedCanvasMemoIds);
+    reconcileCanvasMemoOwnership(cp);
     this.bumpMutationVersion();
     // 카운터: 최대값 유지
     this.agentCounter = Math.max(this.agentCounter, cp.graph.agentCounter);
@@ -7347,6 +7525,11 @@ export class ProjectGraph {
 
 // §5.5 #17-36 — 메인 탭 메모 병합 (agentId 키). 같은 에이전트가 이미 있으면 **기존 것을 살리고**
     //   저쪽에만 있는 id 만 얹는다(사용자가 쓴 글이라 덮어쓰지 않는다). 장수 상한은 그대로 지킨다.
+    if (cp.canvasMemos) {
+      for (const [project, memos] of Object.entries(cp.canvasMemos)) {
+        if (!this.canvasMemos.has(project)) this.canvasMemos.set(project, sanitizeSessionMemos(memos).filter((m) => m.canvas));
+      }
+    }
     if (cp.agentMemos) {
       for (const [agentId, memos] of Object.entries(cp.agentMemos)) {
         const clean = sanitizeSessionMemos(memos);
@@ -7837,6 +8020,9 @@ export class ProjectGraph {
 
   /** v2 체크포인트에서 복원 */
   restoreFromCheckpoint(cp: ProjectCheckpoint): void {
+    this.deletedCanvasMemos.clear();
+    this.deletedCanvasMemos.set(cp.project.name, cp.deletedCanvasMemoIds ?? []);
+    reconcileCanvasMemoOwnership(cp);
     this.bumpMutationVersion();
     this.root = normalize(cp.project.path);
     this.seq = cp.seq;
@@ -8187,7 +8373,13 @@ export class ProjectGraph {
 
 // §5.5 #17-36 — 메인 탭 스티키 메모 복원. 디스크에서 온 값이라 정화해서 넣는다
     //   (옛 포맷·손상 값이 그대로 화면 좌표로 나가지 않게).
+    this.canvasMemos.clear();
     this.agentMemos.clear();
+    if (cp.canvasMemos) {
+      for (const [project, memos] of Object.entries(cp.canvasMemos)) {
+        if (!this.canvasMemos.has(project)) this.canvasMemos.set(project, sanitizeSessionMemos(memos).filter((m) => m.canvas));
+      }
+    }
     if (cp.agentMemos) {
       for (const [agentId, memos] of Object.entries(cp.agentMemos)) {
         const clean = sanitizeSessionMemos(memos);
@@ -10238,6 +10430,7 @@ export class ProjectGraph {
     // node→agent 역참조 제거
     for (const [, refs] of this.nodeAgentRefs) refs.delete(agent.id);
     this.agentTurnNodes.delete(agent.id);
+    this.recentUse.forgetAgent(agent.id);
     this.promptTurnAgents.delete(agent.id);
 
     this.dropAgentSatellites(agent, `removeAgent session=${sessionId.slice(0, 8)}`);
@@ -13161,11 +13354,16 @@ export class ProjectGraph {
     return { agent };
   }
 
-  /** 노드에 에이전트 참조 추가 (활성 에이전트 추적) */
-  private addAgentRef(nodePath: string, agentId: string): void {
+  /**
+   * 노드에 에이전트 참조 추가 (활성 에이전트 추적). `inheritFrom` 은 합치기·접합처럼 자손의 참조를 옮겨 다는 자리 —
+   * 새 쓰임이 아니라 그 자손의 최근 사용 순서를 물려받는다(§5.1 #3-5).
+   */
+  private addAgentRef(nodePath: string, agentId: string, inheritFrom?: string): void {
     let refs = this.nodeAgentRefs.get(nodePath);
     if (!refs) { refs = new Set(); this.nodeAgentRefs.set(nodePath, refs); }
     refs.add(agentId);
+    if (inheritFrom === undefined) this.recentUse.touch(agentId, nodePath, Date.now());
+    else this.recentUse.inherit(agentId, inheritFrom, nodePath);
     // §5.1 #2-1 (B) — 같은 자리에서 이번 턴 장부에도 적는다(소유 기록이 붙는 길은 이 한 곳이다).
     let turn = this.agentTurnNodes.get(agentId);
     if (!turn) { turn = new Set(); this.agentTurnNodes.set(agentId, turn); }
@@ -13395,6 +13593,41 @@ export class ProjectGraph {
     return this.agentIdMemo().ids;
   }
 
+  /** §5.1 #3-5 — 일하는 에이전트마다 최근 사용 링 순위(경로 → 순위). 설정 개수가 0 이면 그 에이전트는 빠진다. */
+  private recentUseRanks(): Map<string, { limit: number; rankOf: Map<string, number> }> {
+    const now = Date.now();
+    const memo = this.recentUseMemo;
+    if (memo && memo.version === this.mutationVersion && now - memo.at < ACTIVE_AGENT_MEMO_MS) return memo.ranks;
+    const ranks = new Map<string, { limit: number; rankOf: Map<string, number> }>();
+    const isLive = (path: string): boolean => {
+      const node = this.nodes.get(path);
+      return !!node && isRecentUseBubble(node);
+    };
+    for (const agentId of this.activeAgentIdSet()) {
+      const config = this.getAgentConfig(agentId) ?? this.currentAgentDefaults();
+      const limit = normalizeRecentUseRingCount(config.recentUseRings);
+      if (limit <= 0) continue;
+      const rankOf = this.recentUse.ranks(agentId, limit, isLive);
+      if (rankOf.size > 0) ranks.set(agentId, { limit, rankOf });
+    }
+    this.recentUseMemo = { version: this.mutationVersion, at: now, ranks };
+    return ranks;
+  }
+
+  /** 이 버블이 든 최근 사용 목록(가까운 순위부터). 없으면 undefined — 일하는 에이전트가 있어도 개수 밖이면 링이 없다. */
+  private recentUseMarks(nodePath: string, activeIds: readonly string[]): RecentUseMark[] | undefined {
+    const node = this.nodes.get(nodePath);
+    if (!node || !isRecentUseBubble(node)) return undefined;
+    const ranks = this.recentUseRanks();
+    let marks: RecentUseMark[] | undefined;
+    for (const agentId of activeIds) {
+      const entry = ranks.get(agentId);
+      const rank = entry?.rankOf.get(nodePath);
+      if (entry && rank !== undefined) (marks ??= []).push({ agentId, rank, limit: entry.limit });
+    }
+    return marks?.sort((a, b) => a.rank / a.limit - b.rank / b.limit);
+  }
+
   /** 휴지통 밖에 지금 있는 에이전트 id(상태 무관) — 소유 기록의 옛 id 를 걸러 `ownerAgentIds` 로 싣는다(§5.4 #36 (H) ①-1). */
   private ownerAgentIdSet(): Set<string> {
     return this.agentIdMemo().known;
@@ -13497,6 +13730,7 @@ export class ProjectGraph {
     if (options.forget) {
       // 영구히 사라지는 에이전트 — 그 턴 장부도 함께 버린다(§5.1 #2-1 (B)).
       this.agentTurnNodes.delete(agentId);
+      this.recentUse.forgetAgent(agentId);
       this.promptTurnAgents.delete(agentId);
     }
     for (const [nodePath, refs] of this.nodeAgentRefs) {
@@ -13815,7 +14049,7 @@ export class ProjectGraph {
         if (node.pinned) keep.node.pinned = true;
         if (node.unlimitedCommandHistory) keep.node.unlimitedCommandHistory = true;
         if (node.status === 'active') keep.node.status = 'active';
-        for (const agentId of this.nodeAgentRefs.get(key) ?? []) this.addAgentRef(keep.key, agentId);
+        for (const agentId of this.nodeAgentRefs.get(key) ?? []) this.addAgentRef(keep.key, agentId, key);
         idMap.set(node.id, keep.node.id);
         keyMap.set(key, keep.key);
         this.nodes.delete(key);
@@ -14433,7 +14667,7 @@ export class ProjectGraph {
             if (!touched) {
               const childProject = this.nodeProjectNames.get(childKey);
               if (childProject && !this.nodeProjectNames.has(key)) this.nodeProjectNames.set(key, childProject);
-              for (const agentId of this.nodeAgentRefs.get(childKey) ?? []) this.addAgentRef(key, agentId);
+              for (const agentId of this.nodeAgentRefs.get(childKey) ?? []) this.addAgentRef(key, agentId, childKey);
             }
             const childNode = this.nodes.get(childKey);
             if (node && childNode) {
@@ -15472,7 +15706,10 @@ export class ProjectGraph {
     if (typeof rawRef === 'string') {
       const ref = rawRef.trim().slice(0, APP_BUBBLE_REF_MAX);
       if (ref === '') delete bubble.ref;
-      else bubble.ref = ref;
+      else {
+        bubble.ref = ref;
+        this.clearWorkPreview(bubble);
+      }
     } else if (rawRef === null) {
       delete bubble.ref;
     }
@@ -15515,6 +15752,7 @@ export class ProjectGraph {
     if (past.length > 0) bubble.pastFiles = past;
     else delete bubble.pastFiles;
     bubble.file = relPath;
+    this.clearWorkPreview(bubble);
     if (typeof modifiedAt === 'number' && Number.isFinite(modifiedAt)) bubble.fileAt = modifiedAt;
     else delete bubble.fileAt;
     this.bumpMutationVersion();
@@ -15543,10 +15781,11 @@ export class ProjectGraph {
   /**
    * §5.4 #36 (H) — 연결 보기: `hidden` 연결선 · `lens` 보기(기본 "연결된 것 위주" ↔ "작업 파일") · `bubblesHidden` 주변 버블. 표시 계층만 바꾼다.
    * 대상은 에이전트 버블 전부(아니면 `not-eligible`). 준 칸만 바꾸고(부분 페이로드가 다른 칸을 지우지 않게) 기본값은 칸을 지운다.
+   * `dedicatedHidden` — §5.4 #36 (K) 전용 버블에서 체크를 푼 종류(호출부가 `normalizeDedicatedHidden` 로 고른 값).
    */
   setAgentLinkView(
     nodeId: string,
-    patch: { hidden?: boolean; bubblesHidden?: boolean; lens?: 'linked' | 'files' },
+    patch: { hidden?: boolean; bubblesHidden?: boolean; lens?: 'linked' | 'files'; dedicatedHidden?: string[] },
   ): { ok: true; linksHidden: boolean; linkLens: 'linked' | 'files' } | { ok: false; reason: 'not-found' | 'not-eligible' } {
     let agent: BubbleData | undefined;
     for (const a of this.agents.values()) {
@@ -15560,6 +15799,10 @@ export class ProjectGraph {
     else if (patch.bubblesHidden === false) delete agent.bubblesHidden;
     if (patch.lens === 'files') agent.linkLens = 'files';
     else if (patch.lens === 'linked') delete agent.linkLens;
+    if (patch.dedicatedHidden !== undefined) {
+      if (patch.dedicatedHidden.length > 0) agent.dedicatedHidden = patch.dedicatedHidden;
+      else delete agent.dedicatedHidden;
+    }
     this.bumpMutationVersion();
     return { ok: true, linksHidden: agent.linksHidden === true, linkLens: agent.linkLens === 'files' ? 'files' : 'linked' };
   }
@@ -15569,7 +15812,10 @@ export class ProjectGraph {
     const bubble = this.appBubbles.get(id);
     if (bubble?.preservePinned === true) return false;
     const removed = this.appBubbles.delete(id);
-    if (removed) this.bumpMutationVersion();
+    if (removed) {
+      this.workPreviewWatch.delete(id);
+      this.bumpMutationVersion();
+    }
     return removed;
   }
 
@@ -15579,6 +15825,15 @@ export class ProjectGraph {
 
   getAppBubbles(): AppBubble[] {
     return [...this.appBubbles.values()];
+  }
+
+  /** §5.4 #36 (C) — 이 sub 가 지금 도는 명령이 고른 앱 노드(도는 명령이 없으면 null). 연결 강제가 칩을 끈 명령을 가른다. */
+  getExecutingAppScope(subId: string): { appNodeIds: string[]; off: boolean } | null {
+    for (const queue of this.commandQueuesRef.values()) {
+      const executing = queue.find((c) => c.subAgentId === subId && c.status === 'executing');
+      if (executing) return { appNodeIds: commandAppNodeIds(executing), off: executing.appNodesOff === true };
+    }
+    return null;
   }
 
   /** 기존 ID 그대로 수용 (체크포인트 복원/머지용). */

@@ -1,6 +1,6 @@
 {
   "name": "@vibisual/desktop",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
@@ -34,6 +34,7 @@
     "@runonflux/nat-upnp": "^1.0.2",
     "@vibisual/client": "workspace:*",
     "@vibisual/compute": "workspace:*",
+    "@vibisual/memo": "workspace:*",
     "@vibisual/plugins": "workspace:*",
     "@vibisual/server": "workspace:*",
     "@vibisual/shared": "workspace:*",

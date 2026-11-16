@@ -4,10 +4,13 @@ import { useTranslation } from 'react-i18next';
 import type { BubbleData } from '@vibisual/shared';
 import { AGENT_CARD, BUBBLE_STYLES, LINK_FOCUS, clipNameList } from '@vibisual/shared';
 import type { AppWorkFoldedBadge } from './appWorkFold.js';
+import { DedicatedHubNode } from './DedicatedHubNode.js';
+import { isDedicatedHubNodeId } from '../../utils/dedicatedBubbleInfo.js';
 import { BundleNode } from './BundleNode.js';
 import { useGraphStore, selectIDEActiveSessionForAgent, agentSessionInputKey } from '../../stores/graphStore.js';
 import { useLinkRole, useLinkFocusStore, promoteLinkGrab, releaseLinkGrab } from '../../stores/linkFocus.js';
 import { useRefLinkDragStore } from '../../stores/refLinkDrag.js';
+import { useAgentCardTuckStore } from '../../stores/agentCardTuck.js';
 import { getInternalApp, appOutputExtensions } from '../../apps/registry.js';
 import { IME_ENTER_OWNER, isComposingKeyEvent } from '../../utils/inputComposition.js';
 import { useEnterSubmit } from '../../hooks/useEnterSubmit.js';
@@ -373,9 +376,21 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
 
   const canSend = !sending && !reserving && !pendingTask && !destinationChoice && draft.trim().length > 0;
 
+  // §5.4 #36 (A) — 글자가 `작업 중`일 때만 말풍선이 원 안으로 들어간다. 실패·전송 과정을 보여 줘야 하거나 손대는 중(쓰던 글·새 작업·도착지)이면 밖에 둔다.
+  const tucked = running && !sendFailed && !sending && !reserving && !pendingTask && !taskMode
+    && destinationChoice === null && !(typing && draft.trim().length > 0);
+  // 선은 말풍선이 덮고 있을 때 옮긴다 — 들어갈 땐 바로, 나올 땐 다 자란 뒤. 먼저 물러나면 선과 말풍선 사이가 벌어져 보인다.
+  useEffect(() => {
+    const { setTucked } = useAgentCardTuckStore.getState();
+    if (tucked) { setTucked(id, true); return undefined; }
+    const timer = setTimeout(() => setTucked(id, false), AGENT_CARD.tuckMs);
+    return () => clearTimeout(timer);
+  }, [id, tucked]);
+  useEffect(() => () => useAgentCardTuckStore.getState().setTucked(id, false), [id]);
+
   return (
     <div
-      className={`group relative ${isDespawning ? 'bubble-despawn' : ''}`}
+      className={`group relative ${tucked ? 'agent-card-tucked' : ''} ${isDespawning ? 'bubble-despawn' : ''}`}
       style={{
         width: AGENT_CARD.width,
         height: AGENT_CARD.height,
@@ -390,7 +405,7 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
 
       {/* 말풍선 + 꼬리 — 원 쪽(오른쪽 가운데)에서 왼쪽으로 펴진다(바꾼 그 순간에만). */}
       <div
-        className={`absolute left-0 top-0 ${morph ? 'agent-balloon-unfold' : ''}`}
+        className={`agent-balloon-tuck absolute left-0 top-0 ${morph ? 'agent-balloon-unfold' : ''} ${tucked ? 'agent-balloon-tucked' : ''}`}
         style={{ width: AGENT_CARD.balloonWidth, height: AGENT_CARD.height }}
       >
         {/* 말풍선 — 끌기 손잡이(`.bubble-body`)이자 입력 자리. */}
@@ -413,7 +428,7 @@ export const AgentCardNode = memo(function AgentCardNode({ id, data, selected }:
             aria-atomic="true"
             aria-busy={busy}
             title={statusDetail}
-            className={`flex shrink-0 items-center gap-1.5 border-b border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[12px] font-medium leading-4 ${statusColor}`}
+            className={`agent-balloon-status flex shrink-0 items-center gap-1.5 border-b border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[12px] font-medium leading-4 ${statusColor}`}
           >
             {busy ? (
               // 진행 표시는 동작 줄이기에서도 멈추지 않고 더 천천히 회전한다.
@@ -706,7 +721,7 @@ export const CanvasBubbleNode = memo(function CanvasBubbleNode(props: NodeProps)
   const mainView = useGraphStore((s) => isMainCanvasView(s));
   const hosted = useBubbleHost() !== null;
   // §5.1 #2-1 (B) — 묶음 버블(화면 전용)은 따로 그린다 — 파일 얼굴을 쓰면 다시 그 파일로 읽힌다.
-  if (data.bubbleType === 'bundle') return <BundleNode {...props} />;
+  if (data.bubbleType === 'bundle') return isDedicatedHubNodeId(props.id) ? <DedicatedHubNode {...props} /> : <BundleNode {...props} />;
   if (mainView && !hosted && isAgentCardForm(data) && data['_overlayMode'] !== true) {
     return <AgentCardNode {...(props as CardNodeProps)} />;
   }

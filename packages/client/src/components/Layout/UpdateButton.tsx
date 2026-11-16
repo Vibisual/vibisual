@@ -4,12 +4,13 @@ import { useTranslation } from 'react-i18next';
 import { readUpdateDelivery } from '@vibisual/shared';
 import { useAppUpdate } from '../../hooks/useAppUpdate.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 // §4 — 자동 업데이트 버튼(useAppUpdate phase): available·downloading 은 pill, downloaded 는 버튼 → 확인 모달 → install()(미저장 손실 경고, §3.2.1), 나머지는 숨김.
 // ⚠️ self-install(무서명 macOS)도 같은 흐름 — 받고 바꾸는 주체만 main 의 `macSelfInstall` 이다. 그 error(해시·아키텍처·마운트·쓰기 권한)는 `errorCode` 와 와서
 // 버튼이 릴리스 페이지를 여는 복구 손잡이가 되고, auto-install 의 error 는 숨긴다(electron-updater 가 재시도). 판정은 shared readUpdateDelivery.
 
-const CONFIRM_Z = 100_500;
+const CONFIRM_Z = Z_LAYER.GATE;
 
 function DownloadIcon({ className }: { className?: string }): React.JSX.Element {
   return (

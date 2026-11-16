@@ -41,14 +41,23 @@ import { useStudioAgent } from './useStudioAgent.js';
 import { useStudioHistory } from './useStudioHistory.js';
 import { useStudioEditing } from './useStudioEditing.js';
 import { useStudioRender } from './useStudioRender.js';
-import { useStudioKeys } from './useStudioKeys.js';
+import { useStudioKeys, type StudioKeyActions } from './useStudioKeys.js';
+import { useStudioWindowKeys } from './useStudioWindowKeys.js';
+import { usePreviewFullscreen } from './usePreviewFullscreen.js';
+import { useStudioPalette } from './useStudioPalette.js';
+import { StudioPalette } from './StudioPalette.js';
+import { buildPaletteState } from './studioPaletteState.js';
 import { usePassChange } from './usePassChange.js';
+import { useSceneReview } from './useSceneReview.js';
+import { useNextAsks } from './useNextAsks.js';
 import { useStudioStart } from './useStudioStart.js';
 import { useStudioComposer } from './useStudioComposer.js';
 import { useLocalProps } from './useLocalProps.js';
+import { useLocalTransform } from './useLocalTransform.js';
 import { useStudioNotes } from './useStudioNotes.js';
 import { useChapterThumbs } from './useChapterThumbs.js';
 import { usePreviewInteraction } from './usePreviewInteraction.js';
+import { useStudioCodeLink } from './useStudioCodeLink.js';
 import { useStudioParts } from './useStudioParts.js';
 import { useMotionReview } from './useMotionReview.js';
 import { buildStudioExtras } from './studioExtras.js';
@@ -147,7 +156,9 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
   resetEditsRef.current = edits.reset;
   // §5.13 (V) 37-5 — 값 손잡이: 화면은 덮어쓰기를 입힌 사본(previewDoc)을 본다. 저장은 뒤에서 묶어 한 번.
   const localProps = useLocalProps(doc, edits.applyOps);
-  const previewDoc = localProps.previewDoc;
+  // §5.13 (V) 37-21 — 미리보기에서 끄는 동안의 배치도 같은 사본 위에 얹는다(놓을 때 한 번 저장).
+  const localTransform = useLocalTransform(localProps.previewDoc, edits.applyOps);
+  const previewDoc = localTransform.previewDoc;
   const timeline = useMemo(() => (previewDoc ? resolveTimeline(previewDoc) : null), [previewDoc]);
 
   const [released, setReleased] = useState(false);
@@ -198,6 +209,8 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
   useEffect(() => (released ? undefined : retainStudioAudioMemory()), [released]);
 
   const [ui, setUi] = useState<StudioUiState>(INITIAL_UI);
+  // §5.13 (V) 37-22 — 명령 팔레트(단축키로만 연다 — 화면에 새 단추 ❌).
+  const palette = useStudioPalette();
 
   const editing = useStudioEditing({
     projectName, projectRoot, doc, setDoc: studio.setDoc, playhead: playback.playhead, readPlayhead: playback.clock.get, selectedItemId, setSelectedItemId,
@@ -213,6 +226,15 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
   const history = useStudioHistory(projectName, doc?.id ?? '', studio.reloadTick, toasts.error);
   const passChange = usePassChange(projectName, doc, studio.activity, history.passes);
   const notes = useStudioNotes(projectName, doc?.id ?? '', studio.reloadTick, toasts.error);
+  // §5.13 (V) 37-23 — 장면 단위 받기·되돌리기와 '다음에 시킬 말'.
+  const sceneReview = useSceneReview({
+    project: projectName, doc, passChange, setDoc: studio.setDoc, refreshHistory: history.refresh,
+    onError: toasts.error, onInfo: toasts.info, onSuccess: toasts.success,
+  });
+  const nextAsks = useNextAsks({
+    t, project: projectName, doc, playhead: playback.playhead, playing: playback.playing, paused: ui.aiCollapsed || !visible,
+    passChange, openNotes: notes.open.length,
+  });
   // 렌더가 끝난 순간에만 묻는다 — 구독하면 캔버스의 노드가 움직일 때마다 스튜디오 전체가 다시 그려진다(39-7).
   const boundBubbles = useCallback((docId: string) => (useGraphStore.getState().appBubbles ?? []).filter((b) =>
     b.appId === APP_ID && b.projectName === projectName && (b.ref === docId || b.id === bubbleId)), [projectName, bubbleId]);
@@ -238,6 +260,9 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
   // ─── 미리보기 ───
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageHostRef = useRef<HTMLDivElement>(null);
+  // §5.13 (V) 37-24 (D)(E) — 스튜디오 뿌리: 창 수준 키의 경계이자 전체 화면으로 띄우는 요소.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const fullscreen = usePreviewFullscreen(rootRef);
   const hasCompositions = useMemo(() => (previewDoc ? docNeedsStage(previewDoc) : false), [previewDoc]);
   const lastStageNotice = useRef('');
   const stagePreview = useStagePreview({
@@ -257,8 +282,10 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
   // 39-3 — 캔버스 미리보기의 첫 그림이 섰는가(무대 미리보기는 `stagePreview.ready`). 문서를 갈아타면 다시 기다린다.
   const [canvasReady, setCanvasReady] = useState(false);
   const canvasQueue = useRef<ReturnType<typeof createPreviewQueue> | null>(null);
+  // 첫 그림을 다시 기다리는 것은 문서를 갈아탈 때뿐이다 — 값·배치를 고칠 때마다 내리면 그리는 사이 포스터가 끼어 깜빡인다(37-5·37-21).
+  const canvasDocId = previewDoc?.id ?? '';
+  useEffect(() => { setCanvasReady(false); }, [canvasDocId, released, renderer.media]);
   useEffect(() => {
-    setCanvasReady(false);
     const queue = createPreviewQueue(async (at) => {
       const canvas = canvasRef.current;
       if (!canvas || released || !previewDoc || !renderer.media) return false;
@@ -345,9 +372,9 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
   const pickRef = useRef({ previewDoc, timeline, playhead: playback.playhead, media: renderer.media, stage: hasCompositions });
   pickRef.current = { previewDoc, timeline, playhead: playback.playhead, media: renderer.media, stage: hasCompositions };
   const stagePickAt = stagePreview.pickAt;
-  const pickAt = useCallback(async (x: number, y: number): Promise<StagePick | null> => {
+  const pickAt = useCallback(async (x: number, y: number, options?: { readonly source?: boolean }): Promise<StagePick | null> => {
     const cur = pickRef.current;
-    if (cur.stage) return stagePickAt(x, y);
+    if (cur.stage) return stagePickAt(x, y, options);
     if (!cur.previewDoc || !cur.timeline || !cur.media) return null;
     // 캔버스 미리보기 — 기본 씬은 칠한 자리로 고르고 그 안의 글자(제목·부제·목록 줄)까지 그리기와 같은 계산으로 답한다.
     const measure = previewTextMeasure();
@@ -362,6 +389,15 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
     return element ? { op: hit.op, element, rect: element.rect } : { op: hit.op, rect: hit.rect };
   }, [stagePickAt, clock]);
 
+  // §5.13 (V) 37-20 — 화면 요소 ↔ 코드 줄(읽기 전용 코드 칸 — 레일 '코드'). 집으면 다른 서랍을 밀어내지 않고 연다(칩을 누르면 늘 연다).
+  const codeLink = useStudioCodeLink({
+    projectName, projectRoot, doc, open: ui.drawer === 'code', selectedItemId,
+    // 무대가 없는 문서(컴포지션 소재는 있으나 놓인 아이템이 없다)는 기다릴 그림이 없다 — 물으면 '화면에 없음' 으로 답한다.
+    playhead: playback.playhead, playing: playback.playing || playback.preparing, ready: !hasCompositions || previewReady,
+    locateSource: stagePreview.locateSource,
+    onReveal: (force) => setUi((u) => (u.drawer === 'code' || (!force && u.drawer !== null) ? u : { ...u, drawer: 'code' })),
+  });
+
   // §5.13 (V) 37-6·37-7 — 미리보기 손짓(가리키기·메모·제자리 고치기).
   const interaction = usePreviewInteraction({
     projectName,
@@ -374,12 +410,24 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
     selectedItemId,
     setSelectedItemId,
     pickAt,
+    sourceLine: (hit, pick, reveal, wait) => codeLink.resolvePick(hit.op.resolved.item.assetId, pick.element?.source, reveal, wait),
+    extraRings: codeLink.rings,
     addPointed: composer.addPointed,
     pointed: composer.pointed,
     notes: notes.notes,
     addNote: notes.add,
     onSetProp: localProps.setProp,
     onNoteAdded: () => setUi((u) => ({ ...u, drawer: 'notes' })),
+    // §5.13 (V) 37-21 — 끌기는 멈춘 화면에서만(재생 중에는 손잡이도 없다). 저장 한 번이 도는 사이(`edits.busy`)에는 끄지 않는다 —
+    //   놓은 직후마다 손잡이가 깜빡이지 않게. 그사이 놓은 끌기는 저장이 한 번 다시 해 본다.
+    drag: {
+      enabled: !playback.playing && !playback.preparing && !editing.importing && !render.busy,
+      layout: localTransform,
+      holdProps: localProps.hold,
+      revertProps: localProps.revertProps,
+      settle: () => stagePreview.seek(clock.get()),
+      reopen: stagePreview.reopen,
+    },
   });
 
   // 판 기록을 열면 그때까지의 AI 판은 본 것으로 친다(머리줄 숫자).
@@ -429,15 +477,22 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
     void edits.applyOps(ops);
   }, [doc, savedTimeline, t, toasts, edits]);
 
-  const studioKeys = useStudioKeys({
+  // §5.13 (V) 37-22 — 키 판정과 팔레트가 같은 등록부(`studioCommands.ts`)를 이 동작 묶음으로 읽는다.
+  const keyActions: StudioKeyActions = {
+    openPalette: palette.openPalette, paletteOpen: palette.open,
     disabled, hasMedia: playback.duration > 0, canSplit: editing.canSplit,
     undo: () => void edits.undo(), redo: () => void edits.redo(), duplicate: editing.duplicate, remove: editing.remove, split: editing.split,
     togglePlay: playback.togglePlay, step: (n) => playback.seek(playback.clock.get() + n / playback.fps), toggleLoop: playback.toggleLoop,
     toggleSafe: () => setUi((u) => ({ ...u, safeArea: !u.safeArea })), toggleZoom: () => setUi((u) => ({ ...u, zoom: u.zoom === 'fit' ? 'actual' : 'fit' })),
+    // §5.13 (V) 37-24 — 맨 방향키 건너뛰기 · `Alt+Enter` 전체 화면(API 가 없으면 공급하지 않는다).
+    skip: (direction) => playback.seek(playback.clock.get() + direction * ui.skipSeconds),
+    ...(fullscreen.supported ? { toggleFullscreen: fullscreen.toggle } : {}),
     setInteraction: (mode) => setUi((u) => ({ ...u, interaction: u.interaction === mode ? 'none' : mode })),
     toggleMute: () => setUi((u) => ({ ...u, muted: !u.muted })),
+    nudge: interaction.nudge,
     escape: () => {
       if (ui.exportDialog) { setUi((u) => ({ ...u, exportDialog: null })); return true; }
+      if (interaction.escapeDrag()) return true;
       if (interaction.noteDraft) { interaction.cancelNote(); return true; }
       if (ui.strip || ui.compareOpen || ui.interaction !== 'none' || ui.chapterMenu || ui.seamMenu || ui.markerMenu) {
         setUi((u) => ({ ...u, strip: null, compareOpen: false, interaction: 'none', chapterMenu: null, seamMenu: null, markerMenu: null }));
@@ -445,9 +500,13 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
       }
       return false;
     },
-  });
+  };
+  const studioKeys = useStudioKeys(keyActions);
   // §5.13 (Y) 40-10 ④ — 스튜디오 안에서 키를 누르는 동안(입력·단축키) 배경 일이 잠깐 쉰다.
   const onKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>): void => { noteStudioInput(); studioKeys(event); }, [studioKeys]);
+  // §5.13 (V) 37-24 (D) — 초점이 창 틀 단추에 있거나 아무 데도 없어도 이 창의 키는 같은 등록부로 받는다.
+  //   단독 OS 창(본창 밖)은 창 전체가 이 스튜디오다 — `hosted` 는 그 창에서도 참이라 `inMainWindow` 로 가른다.
+  useStudioWindowKeys(rootRef, keyActions, inMainWindow, noteStudioInput);
 
   // ─── 3라운드 — 부품 서랍(37-11) · 모션 검수(37-9) · 구슬 메뉴·이음매·스타일·가져오기 ───
   const parts = useStudioParts({
@@ -531,18 +590,37 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
 
   const view = buildStudioViewProps({
     t, accent, hosted, inMainWindow, chrome, projectName, projectId: projectRoot, doc, previewDoc, timeline, studio, playback, edits, editing,
-    agent, conversation, onDisplayScale, history, passChange, render, start, composer, notes, interaction, thumbs, poster, previewReady,
+    agent, conversation, onDisplayScale, history, passChange, sceneReview, nextAsks, render, start, composer, notes, interaction, thumbs, poster, previewReady,
     previewCold: hasCompositions && stagePreview.cold, posterAt, setProp: localProps.setProp,
     ui, setUi, selectedItemId, setSelectedItemId, toasts, canvasRef, stageHostRef,
-    previewMode: hasCompositions ? 'stage' : 'canvas', disabled, onKeyDown,
+    previewMode: hasCompositions ? 'stage' : 'canvas', disabled, onKeyDown, rootRef, fullscreen,
     format: doc ? formatOfSize(doc.size) : null, recipes: VIDEO_RECIPES,
-    onApprovePlan: approvePlan, onHandNotes: handNotes, onDeriveChapters: deriveChapters, extras,
+    onApprovePlan: approvePlan, onHandNotes: handNotes, onDeriveChapters: deriveChapters, extras, codeLink,
   });
+  // §5.13 (V) 37-22 (D) — 팔레트는 화면 손잡이(머리줄·레일·조작 줄·내보내기 판)와 같은 함수를 부른다.
+  const paletteContext = palette.open ? {
+    ...keyActions,
+    palette: buildPaletteState({
+      view, ui, setUi, hasDoc: !!doc, playing: playback.playing || playback.preparing, loop: playback.loop, hasSelection: selectedItemId !== null,
+      escapable: !!ui.exportDialog || !!interaction.noteDraft || !!ui.strip || ui.compareOpen || ui.interaction !== 'none' || !!ui.chapterMenu || !!ui.seamMenu || !!ui.markerMenu,
+      canExport, hasCaptions: hasCaptionCues, exporter, openExport,
+      checkpoint: () => { void history.checkpoint().then(() => toasts.success('panel.videoStudio.toast.checkpoint')); },
+    }),
+  } : null;
   return (
     <StudioAccentContext.Provider value={accent}>
       {/* 39-1 — 단독 창만 자기 소켓을 연다(앱 안 창은 캔버스 셸의 소켓이 같은 스토어를 채운다). */}
       {!inMainWindow ? <StudioConnection projectName={matched?.[0] ?? null} /> : null}
-      <VideoStudioView {...view} />
+      {/* 늘 같은 모양으로 감싼다 — 팔레트를 여닫을 때 떠 있는 판(내보내기 창 등)이 다시 만들어지지 않게. */}
+      <VideoStudioView {...view} overlays={(
+        <>
+          {view.overlays}
+          {paletteContext ? (
+            <StudioPalette context={paletteContext} recent={palette.recent} onClose={palette.close}
+              onRun={(id, arg) => palette.run(paletteContext, id, arg)} />
+          ) : null}
+        </>
+      )} />
     </StudioAccentContext.Provider>
   );
 }

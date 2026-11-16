@@ -10,6 +10,7 @@ import { runEnterKey } from '../../hooks/useEnterSubmit.js';
 import { IME_ENTER_OWNER } from '../../utils/inputComposition.js';
 import { followUpDeliveryOf, isFollowUpDeliveryLocked } from '../IDE/followUpDelivery.js';
 import { FollowUpDeliveryNotice } from '../IDE/FollowUpDeliveryNotice.js';
+import { LayerRoot } from '../Layout/LayerRoot.js';
 
 const EMPTY_COMMANDS: QueuedCommand[] = [];
 const API_BASE = '';
@@ -229,8 +230,8 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
   const backdrop = useBackdropDismiss(onClose);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+    <LayerRoot
+      className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60 backdrop-blur-sm"
       {...backdrop}
     >
       {/* 화면보다 길어지면(세션이 많을 때) 창이 화면 밖으로 자라지 않고 안에서 구른다. */}
@@ -387,7 +388,7 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
           </div>
         )}
       </div>
-    </div>
+    </LayerRoot>
   );
 }
 

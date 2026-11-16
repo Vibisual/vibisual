@@ -937,7 +937,7 @@ export function TabBar(): React.JSX.Element | null {
           ref={tabDrag.ghostRef}
           data-tab-floating-hint="1"
           aria-hidden
-          className="pointer-events-none fixed left-0 top-0 z-[9999] will-change-transform"
+          className="pointer-events-none fixed left-0 top-0 z-drag will-change-transform"
         >
           {detachGhost ? (
             detachGhost.kind === 'inapp' && (
@@ -977,7 +977,7 @@ export function TabBar(): React.JSX.Element | null {
       {/* §5.4 #14-1 (H) 빠르게 놓은 손 — 끌기는 끝났지만 main 의 선이 아직 안 그려졌다. 그 선이 설 때까지
           놓은 자리에 앱 안 선을 세워 둔다(손에 든 칸과 함께 사라지면 놓은 자리가 잠깐 빈다 — (H-7) ②). */}
       {settledOutline && createPortal(
-        <div aria-hidden className="pointer-events-none fixed left-0 top-0 z-[9999]">
+        <div aria-hidden className="pointer-events-none fixed left-0 top-0 z-drag">
           <TabDetachOutline frame={settledOutline.frame} offset={settledOutline.at} label={settledOutline.label} hint={settledOutline.hint} />
         </div>,
         document.body,
@@ -1221,7 +1221,7 @@ export function TabBar(): React.JSX.Element | null {
           도는 게 없으면 이 자리는 아예 만들어지지 않고 탭이 즉시 닫힌다. */}
       {pendingClose && createPortal(
         <div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60"
+          className="fixed inset-0 z-dialog-over flex items-center justify-center bg-black/60"
           {...closeBackdrop}
         >
           <div className="mx-4 w-[clamp(20rem,38vw,32rem)] max-w-[calc(100vw-2rem)] rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">

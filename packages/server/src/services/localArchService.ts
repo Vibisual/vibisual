@@ -85,6 +85,8 @@ export interface GgufMeta {
    * 이 값을 쓴다 — 설정 창이 빈 온도 칸에 "지금 쓰이는 값"을 적는 두 번째 근거다.
    */
   samplingTemp: number | null;
+  /** MoE 구조의 전문가 수(`<arch>.expert_count`). 없으면 `null` — 일반 모델이다. */
+  expertCount: number | null;
 }
 
 /**
@@ -92,7 +94,7 @@ export interface GgufMeta {
  * 값 종류는 GGUF 규약 그대로 — 문자열/배열/숫자를 건너뛰며 앞에서부터 읽는다.
  */
 export function parseGgufMeta(buf: Buffer): GgufMeta {
-  const out: GgufMeta = { architecture: null, contextLength: null, samplingTemp: null };
+  const out: GgufMeta = { architecture: null, contextLength: null, samplingTemp: null, expertCount: null };
   try {
     if (buf.length < 24 || buf.toString('latin1', 0, 4) !== 'GGUF') return out;
     let p = 4;
@@ -154,13 +156,14 @@ export function parseGgufMeta(buf: Buffer): GgufMeta {
         const value = num(type);
         // 키는 `<arch>.context_length` 라 구조 이름을 몰라도 꼬리로 알아본다.
         if (key.endsWith('.context_length') && value !== null && value > 0) out.contextLength = value;
+        if (key.endsWith('.expert_count') && value !== null && value > 0) out.expertCount = value;
         // float32 로 적혀 0.7 이 0.699999988 로 읽힌다 — 사람이 적은 자릿수로 되돌린다.
         if (key === 'general.sampling.temp' && value !== null && Number.isFinite(value) && value >= 0) {
           out.samplingTemp = Number(value.toFixed(4));
         }
       }
-      // 셋 다 찾았으면 더 볼 것이 없다 — 머리 64KB 를 끝까지 훑지 않는다.
-      if (out.architecture !== null && out.contextLength !== null && out.samplingTemp !== null) return out;
+      // 넷 다 찾았으면 더 볼 것이 없다 — 머리 64KB 를 끝까지 훑지 않는다.
+      if (out.architecture !== null && out.contextLength !== null && out.samplingTemp !== null && out.expertCount !== null) return out;
       if (p > buf.length) return out;
     }
     return out;
@@ -183,7 +186,7 @@ export function readLocalGgufMeta(file: string): GgufMeta {
     const read = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
     return parseGgufMeta(buf.subarray(0, read));
   } catch {
-    return { architecture: null, contextLength: null, samplingTemp: null };
+    return { architecture: null, contextLength: null, samplingTemp: null, expertCount: null };
   } finally {
     if (fd !== null) {
       try {

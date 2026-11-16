@@ -605,7 +605,7 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
         <div
           ref={drag.ghostRef}
           aria-hidden
-          className="pointer-events-none fixed left-0 top-0 z-[200] will-change-transform"
+          className="pointer-events-none fixed left-0 top-0 z-drag will-change-transform"
         >
           <div
             // 치수는 흉내 내지 않고 **재서 물려받는다**(§5.4 #14-2 (F-2)) — 종전 `h-10 w-10` 은

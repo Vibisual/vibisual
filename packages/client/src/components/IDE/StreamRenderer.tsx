@@ -11,7 +11,6 @@ import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
 import type { SubAgentStreamEvent, QueuedCommand, CommandError, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
 import { isStageBlockLang } from '@vibisual/shared';
-import type { WorkspaceOpenPlan } from '@vibisual/shared';
 import { SystemNode, parseSystemSubtype, parseSystemTaskInfo } from './SystemNode.js';
 import { useAttachmentThumbs } from './attachmentThumb.js';
 import { ThinkingLiveLine, StepTraceLine, WriteTraceLine } from './ThinkingIndicator.js';
@@ -34,10 +33,8 @@ import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 import { useIDEPaneActions } from './idePane.js';
 import { parseStreamPathCandidate } from './streamPathLinks.js';
 import { parseLinkHrefCandidate, isWebLinkHref, streamUrlTransform, withLinkLabelLines } from './streamLinkHref.js';
-import { formatLineRef, type EditorLineRange } from './editorLineRange.js';
 import { usePathLinkRails, useWebLinkRails } from './usePathLinkRails.js';
-import type { MenuText } from './editorContextMenu.js';
-import { getInternalApp } from '../../apps/registry.js';
+import { PathLinkHandle, isPathLinkLive } from './PathLinkHandle.js';
 import { toolPreview } from './toolPreview.js';
 import {
   mergeCardsIntoItems, IncrementalStreamParser,
@@ -73,6 +70,7 @@ import { lastPassedIndex, owningCommandId } from './streamViewedCommand.js';
 import { measureViewportItems, probePromptPlace, samePromptOutline, settleItemAtTop, PROMPT_JUMP_TOP_GAP, type PromptProbe, type PromptRailEntry } from './promptRail.js';
 import { olderHistoryBoundary, reachesHistoryBoundary, requestOlderStreamHistory } from './streamHistory.js';
 import { readingItemAttrs } from './reading/readingModel.js';
+import { MarkdownTable } from './MarkdownTable.js';
 
 // ─── 타입 ───
 
@@ -202,6 +200,7 @@ function CodeBlock({ children, className, ...rest }: React.HTMLAttributes<HTMLPr
       </InCodeBlock.Provider>
       <button
         type="button"
+        data-clipboard-ignore=""
         onClick={onCopy}
         title={copied ? t('ide.streamRenderer.copied') : t('ide.streamRenderer.copy')}
         aria-label={copied ? t('ide.streamRenderer.copied') : t('ide.streamRenderer.copy')}
@@ -234,97 +233,11 @@ function CodeBlock({ children, className, ...rest }: React.HTMLAttributes<HTMLPr
  *  props 로는 못 내려간다(`InCodeBlock` 과 같은 규약). */
 const StreamOwnerAgentId = createContext<string | undefined>(undefined);
 
-/** ⑬ (f) — 손잡이 앞 글리프: 어디서 열리는지를 그림 하나로(인라인 코드·링크 공용). `plan === null` 은 루트 밖(⑬ (d)). */
-const PathLinkGlyph = memo(function PathLinkGlyph({ plan }: { plan: WorkspaceOpenPlan | null }): React.JSX.Element {
-  const app = plan?.action === 'app' && plan.appId !== undefined ? getInternalApp(plan.appId) : undefined;
-
-  if (plan === null) {
-    // 루트 밖은 갈래가 하나라 아이콘도 하나 — 폴더에서 나가는 화살표(우리 창이 아니라 탐색기에서 열린다)
-    return (
-      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h4a2 2 0 0 1 2 2v2" />
-        <path d="M5 19a2 2 0 0 1-2-2V7" />
-        <path d="M14 19h7v-7" />
-        <path d="M21 12l-7 7" />
-      </svg>
-    );
-  }
-  if (plan.action === 'run') {
-    // run — 재생 삼각형(누르면 열리는 것이 아니라 **돈다**는 뜻)
-    return (
-      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M6 4l14 8-14 8z" />
-      </svg>
-    );
-  }
-  if (plan.action === 'app' && app) {
-    // 내부 앱 — **그 앱의 아이콘**을 그대로 쓴다(코어가 앱마다 그림을 들지 않는다, §5.13 (P)).
-    //   앱 아이콘은 목록용 치수(h-4)라 인라인 글자 옆에서는 크다 — 이 자리에서만 줄인다.
-    return (
-      <span className="mr-[3px] inline-flex align-[-0.15em] opacity-80 [&>svg]:h-3 [&>svg]:w-3" aria-hidden="true">
-        <app.icon />
-      </span>
-    );
-  }
-  if (plan.action === 'external') {
-    // external — 상자 밖으로 나가는 화살표(우리 창이 아니라 바깥에서 열린다)
-    return (
-      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M15 3h6v6" />
-        <path d="M10 14 21 3" />
-        <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
-      </svg>
-    );
-  }
-  if (plan.action === 'folder') {
-    // folder
-    return (
-      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-      </svg>
-    );
-  }
-  // file — 모서리 접힌 문서(편집창·그림·PDF 는 전부 우리 창에서 열린다)
-  return (
-    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-      <path d="M14 3v5h5" />
-    </svg>
-  );
-});
-
-/** ⑬ (f) — 툴팁은 "전체 경로 + 벌어질 일"(여는 곳이 갈리면 말도 갈린다). ⑬ (g) — 줄 범위가 있으면 경로 뒤에 `:806-807` 까지 적는다. */
-function pathLinkTitle(plan: WorkspaceOpenPlan, absPath: string, t: MenuText, lines: EditorLineRange | null): string {
-  const app = plan.action === 'app' && plan.appId !== undefined ? getInternalApp(plan.appId) : undefined;
-  switch (plan.action) {
-    case 'run':
-      return t('ide.streamRenderer.pathLink.runProgram', { path: absPath });
-    case 'app':
-      return t('ide.streamRenderer.pathLink.openApp', { app: app?.name ?? plan.appId, path: absPath });
-    case 'external':
-      return t('ide.streamRenderer.pathLink.openExternal', { path: absPath });
-    case 'folder':
-      return t('ide.streamRenderer.pathLink.openFolder', { path: absPath });
-    default:
-      // 줄은 텍스트 편집창에서만 뜻이 있다(그림·PDF 는 줄을 버린다 — `openWorkspaceTarget` 과 같은 판정).
-      return t('ide.streamRenderer.pathLink.openFile', { path: plan.action === 'editor' ? formatLineRef(absPath, lines) : absPath });
-  }
-}
-
-/** ⑬ (f) — 루트 **밖** 툴팁. 파일이면 그 파일이 **든 폴더**가 열린다는 것까지 누르기 전에 말한다 —
- *  문서가 열릴 것으로 기대하고 눌렀다가 탐색기가 뜨면 그건 고장으로 읽힌다. */
-function outsidePathLinkTitle(kind: string, absPath: string, t: MenuText): string {
-  return kind === 'directory'
-    ? t('ide.streamRenderer.pathLink.revealOutsideFolder', { path: absPath })
-    : t('ide.streamRenderer.pathLink.revealOutsideFile', { path: absPath });
-}
-
 /**
  * 본문 링크(밑줄 + sky). §5.5 #17-27 ⑬ (k) — 목적지가 디스크 경로면 `MarkdownCode` 와 같은 훅·우클릭 메뉴로 연다 — `window.open` 이면
  * 오리진이 `file://`(§3.7)라 `file:///…` 가 `ALLOWED_EXTERNAL_SCHEMES` 밖이 되어 안 열린다. 웹·메일은 바깥 브라우저 + 내 기계 서버면 프리뷰 버블(§7.11).
  */
 const MarkdownLink = memo(function MarkdownLink({ href, children }: React.AnchorHTMLAttributes<HTMLAnchorElement>): React.JSX.Element {
-  const { t } = useTranslation();
   const ownerAgentId = useContext(StreamOwnerAgentId);
   const rootPath = useIDEProjectRoot();
 
@@ -344,30 +257,8 @@ const MarkdownLink = memo(function MarkdownLink({ href, children }: React.Anchor
   // 손잡이가 된 링크는 `<a href>` 가 아니라 버튼이다(`MarkdownCode` 와 같은 규약). 주소를 남겨 두면
   //   가운데 클릭이 `file://` 이동으로 새어 종전의 그 안내 띠를 다시 띄운다 — 주소 집어가기는 (j) 의
   //   [경로 복사]가 대신한다.
-  if (path.linkedOutside) {
-    const outsideTitle = outsidePathLinkTitle(path.linkedOutside.kind, path.linkedOutside.absPath, t);
-    return (
-      <>
-        <button type="button" onClick={path.onReveal} onContextMenu={path.onContextMenu} title={outsideTitle} aria-label={outsideTitle} className="ide-path-link break-all">
-          <PathLinkGlyph plan={null} />
-          {children}
-        </button>
-        {path.menu}
-      </>
-    );
-  }
-
-  if (path.linked && path.plan) {
-    const title = pathLinkTitle(path.plan, path.linked.absPath, t, candidate?.lines ?? null);
-    return (
-      <>
-        <button type="button" onClick={path.onOpen} onContextMenu={path.onContextMenu} title={title} aria-label={title} className="ide-path-link break-all">
-          <PathLinkGlyph plan={path.plan} />
-          {children}
-        </button>
-        {path.menu}
-      </>
-    );
+  if (isPathLinkLive(path)) {
+    return <PathLinkHandle rails={path} lines={candidate?.lines ?? null} className="break-all">{children}</PathLinkHandle>;
   }
 
   // 경로가 아니거나 디스크에 없는 주소 — 여는 동작은 종전 그대로, 우클릭만 링크 메뉴다((k) ④).
@@ -398,7 +289,6 @@ function inlineCodeText(children: React.ReactNode): string | null {
  * `parseStreamPathCandidate` 를 통과한 후보만 서버에 묻고(경로당 한 번, 모듈 캐시) 그 전·없음이면 평범한 인라인 코드.
  */
 const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTMLAttributes<HTMLElement>): React.JSX.Element {
-  const { t } = useTranslation();
   const inBlock = useContext(InCodeBlock);
   const rootPath = useIDEProjectRoot();
 
@@ -409,34 +299,15 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
   );
   // ⑬ (k) ③ — 판정·열기·우클릭 메뉴는 링크(`MarkdownLink`)와 **같은 훅 하나**를 쓴다. 두 자리가
   //   어긋나면 같은 파일이 적힌 모양(백틱이냐 링크냐)에 따라 다르게 열리는 화면이 된다.
-  const { linked, linkedOutside, plan, onOpen, onReveal, onContextMenu, menu: pathMenu } = usePathLinkRails(candidate, rootPath);
+  const rails = usePathLinkRails(candidate, rootPath);
 
-  if (linkedOutside) {
-    const outsideTitle = outsidePathLinkTitle(linkedOutside.kind, linkedOutside.absPath, t);
-    return (
-      <code {...rest}>
-        <button type="button" onClick={onReveal} onContextMenu={onContextMenu} title={outsideTitle} aria-label={outsideTitle} className="ide-path-link">
-          <PathLinkGlyph plan={null} />
-          {children}
-        </button>
-        {pathMenu}
-      </code>
-    );
-  }
-
-  if (!linked || !plan) return <code {...rest}>{children}</code>;
-
-  const title = pathLinkTitle(plan, linked.absPath, t, candidate?.lines ?? null);
+  if (!isPathLinkLive(rails)) return <code {...rest}>{children}</code>;
 
   return (
     // 칩(배경·모노폰트)은 `<code>` 가 그대로 유지하고, 그 안의 버튼만 링크 색·밑줄을 얻는다 —
     // "코드처럼 보이던 그 조각이 이제 눌린다" 가 한눈에 읽히게(⑬ (f)).
     <code {...rest}>
-      <button type="button" onClick={onOpen} onContextMenu={onContextMenu} title={title} aria-label={title} className="ide-path-link">
-        <PathLinkGlyph plan={plan} />
-        {children}
-      </button>
-      {pathMenu}
+      <PathLinkHandle rails={rails} lines={candidate?.lines ?? null}>{children}</PathLinkHandle>
     </code>
   );
 });
@@ -451,7 +322,7 @@ const MarkdownOrderedList = memo(function MarkdownOrderedList(
   const items = Children.toArray(children).filter(isValidElement) as React.ReactElement<{ children?: React.ReactNode }>[];
   const first = typeof start === 'number' && Number.isFinite(start) ? start : 1;
   return (
-    <ol className="my-1 space-y-0.5">
+    <ol start={first} className="my-1 space-y-0.5">
       {items.map((item, i) => (
         <li key={i} className="flex items-start gap-2">
           <span className="min-w-[1.5rem] flex-shrink-0 select-none text-right font-medium tabular-nums text-teal-300/70">
@@ -463,18 +334,6 @@ const MarkdownOrderedList = memo(function MarkdownOrderedList(
     </ol>
   );
 });
-
-/**
- * 마크다운 표 — 칸보다 넓으면 감싼 상자 안에서 가로 스크롤(표 자체는 `width:100%` 그대로 — `display:block` 이면 넓은 칸에서 표가 줄어든다).
- * 상자가 `.ide-md` 그리드의 직접 자식이라 `.ide-breakout` 표식도 여기 붙는다.
- */
-function MarkdownTable({ children, ...rest }: React.TableHTMLAttributes<HTMLTableElement>): React.JSX.Element {
-  return (
-    <div className="ide-breakout scrollbar-thin overflow-x-auto">
-      <table {...rest}>{children}</table>
-    </div>
-  );
-}
 
 const mdComponents: Components = { pre: CodeBlock, a: MarkdownLink, code: MarkdownCode, ol: MarkdownOrderedList, table: MarkdownTable };
 

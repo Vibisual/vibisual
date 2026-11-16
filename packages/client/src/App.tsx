@@ -210,7 +210,7 @@ export function App(): React.JSX.Element {
       <ClaudeVersionGate />
       {/* §4 (첫 실행 설치 온보딩) — 설치 게이트. 로그인보다 **앞** 단계라 z-index 도 위다
           (CLI 가 없으면 로그인 자체가 불가능하다). 로그인과 같은 이유로 메인 창에만 마운트. */}
-      {/* §5.25 (C) — 첫 진입 엔진 선택. 설치보다 **앞선 질문**이라 z-index 도 위다(100_800).
+      {/* §5.25 (C) — 첫 진입 엔진 선택. 설치보다 **앞선 질문**이라 z-index 도 위다(`Z_LAYER.GATE_ENGINE`).
           기본값만 정하고 나머지 둘을 잠그지 않는다 — 셋 다 병행해 쓸 수 있다. */}
       <EngineChooserGate />
       <ClaudeSetupGate />

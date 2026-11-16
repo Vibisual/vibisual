@@ -2,7 +2,7 @@
  * §5.13 (T-2) — 컴포지션 런타임 심과 CSP 조립(순수, 문자열만). 서버가 `<head>` 맨 앞에 넣어(T-3) 컴포지션이 시계·난수를 만지기 전에 규칙이 선다.
  * seek 는 타임라인 객체(`__vibi.timelines`·`__timelines`) → `__vibi.seek(t)` → `document.getAnimations()` 를 전부 건다. 가상 시계는 렌더러 시각을 듣고 프레임 콜백은 고정 60Hz(30fps 문서가 절반 속도가 되지 않게), `Math.random` 은 문서 시드.
  * 소리 API 는 성공한 척한다(로드 때 `new AudioContext()` 가 흔해 던지면 그림까지 멈춘다). `ready` 는 다 그린 뒤에만 — 캡처는 글꼴·디코딩·진짜 프레임 둘(멈춘 창이면 150ms 상한), 미리보기는 자원·그리기 함수만 기다린다.
- * 받은 메시지(`props`·`pick`·`inspect`·`scan`·`play`·`pause`)를 코드로 실행하는 길은 없다. (Z) 41-1 포트는 부모 창 것만 받는다 — 창 간 postMessage 는 앱 본체 UI 스레드를 거쳐 거기가 멈추면 멎는다.
+ * 받은 메시지(`props`·`pick`·`inspect`·`locate`·`scan`·`play`·`pause`)를 코드로 실행하는 길은 없다. (Z) 41-1 포트는 부모 창 것만 받는다 — 창 간 postMessage 는 앱 본체 UI 스레드를 거쳐 거기가 멈추면 멎는다.
  * ⚠ `COMPOSITION_RUNTIME_JS` 를 함수 `toString()` 으로 만들지 않는다(번들러 도우미 `__name` 등이 끼어 iframe 에서 죽는다). 안에 백틱·`${`·역슬래시 ❌(템플릿 문자열).
  */
 
@@ -180,8 +180,26 @@ export const COMPOSITION_RUNTIME_JS = `(function (init) {
         }
         bound++;
       }
+      /* §5.13 (V) 37-21 — an element that declares its box as values follows them (CSS variable or onProps): a drag must not reopen the frame. */
+      var boxed = document.querySelectorAll(BOX_SELECTOR);
+      for (var j = 0; j < boxed.length; j++) {
+        var names = boxNames(boxed[j]);
+        if (names && (own.call(values, names.x || '') || own.call(values, names.y || '') || own.call(values, names.w || '') || own.call(values, names.h || ''))) bound++;
+      }
     } catch (e) { report(e); }
     return bound;
+  }
+  /* §5.13 (V) 37-21 — data-vibi-prop-x|y|w|h name the number values that hold an element's left/top/width/height (composition px). Read only. */
+  var BOX_ATTRS = { x: 'data-vibi-prop-x', y: 'data-vibi-prop-y', w: 'data-vibi-prop-w', h: 'data-vibi-prop-h' };
+  var BOX_SELECTOR = '[data-vibi-prop-x],[data-vibi-prop-y],[data-vibi-prop-w],[data-vibi-prop-h]';
+  function boxNames(el) {
+    var out = null;
+    for (var k in BOX_ATTRS) {
+      if (!own.call(BOX_ATTRS, k)) continue;
+      var v = el.getAttribute(BOX_ATTRS[k]);
+      if (typeof v === 'string' && v !== '' && v.length <= 64) { out = out || {}; out[k] = v; }
+    }
+    return out;
   }
 
   /* ---- the __vibi object (props are the document's data for this item) ---- */
@@ -485,8 +503,151 @@ export const COMPOSITION_RUNTIME_JS = `(function (init) {
     var bound = typeof el.closest === 'function' ? el.closest('[' + PROP_ATTR + ']') : null;
     var text = '';
     try { text = String(el.innerText || el.textContent || '').trim().slice(0, 200); } catch (e) { text = ''; }
-    post({ __vibi: 'picked', seq: d.seq, path: cssPath(el), tag: el.tagName.toLowerCase(), text: text,
-      prop: bound ? bound.getAttribute(PROP_ATTR) : null, rect: rectOf(el) });
+    var answer = { __vibi: 'picked', seq: d.seq, path: cssPath(el), tag: el.tagName.toLowerCase(), text: text,
+      prop: bound ? bound.getAttribute(PROP_ATTR) : null, rect: rectOf(el) };
+    if (d.src === true) { try { answer.src = sourceRefs(el); } catch (e) { /* no anchor: the stage answers without a line */ } }
+    try {
+      var boxEl = typeof el.closest === 'function' ? el.closest(BOX_SELECTOR) : null;
+      var declared = boxEl ? boxNames(boxEl) : null;
+      if (declared) { declared.path = cssPath(boxEl); declared.rect = rectOf(boxEl); answer.box = declared; }
+    } catch (e) { /* no declared box: the element is not draggable */ }
+    post(answer);
+  }
+  /*
+   * §5.13 (V) 37-20 — read-only source anchors. The served document carries no line markers, so the stage matches an
+   * element to the HTML source by its position among same-tag elements in document order (n of "of"), checked against
+   * id, class and attribute names. "same" = how many same-tag elements share that id and class. Nothing here changes the DOM.
+   */
+  var REF_TEXT_MAX = 200;
+  var REF_MAX_UP = 8;
+  var LOCATE_MAX_TARGETS = 16;
+  var LOCATE_MAX_RECTS = 24;
+  function tagOf(el) { return String(el.localName || el.tagName || '').toLowerCase(); }
+  function idOf(el) { return String(el.id || '').slice(0, REF_TEXT_MAX); }
+  function classOf(el) {
+    var out = '';
+    try { out = el.classList ? Array.prototype.join.call(el.classList, ' ') : ''; } catch (e) { out = ''; }
+    return out.slice(0, REF_TEXT_MAX);
+  }
+  /* attribute names other than id/class/style, lowercased, joined like sourceMap.ts joinAttrNames (a name that does not fit is dropped whole) */
+  function attrNames(el) {
+    var out = '';
+    try {
+      var list = el.attributes || [];
+      var seen = {};
+      for (var i = 0; i < list.length; i++) {
+        var name = String(list[i].name || '').toLowerCase();
+        if (name === '' || name === 'id' || name === 'class' || name === 'style' || own.call(seen, name)) continue;
+        seen[name] = 1;
+        var next = out === '' ? name : out + ' ' + name;
+        if (next.length > REF_TEXT_MAX) break;
+        out = next;
+      }
+    } catch (e) { /* no attributes */ }
+    return out;
+  }
+  function words(text) { return String(text || '').split(' ').filter(function (w) { return w !== ''; }); }
+  function covers(have, want) {
+    var h = words(have);
+    var w = words(want);
+    for (var i = 0; i < w.length; i++) if (h.indexOf(w[i]) < 0) return false;
+    return true;
+  }
+  function sameWords(a, b) { return covers(a, b) && covers(b, a); }
+  /*
+   * Is the element at a source tag's position that tag? Same rule as sourceMap.ts fitsPosition - change both together
+   * (sourceRuntime.test.ts checks the two directions against each other).
+   */
+  function byPosition(el, tg) {
+    var cls = classOf(el);
+    var srcCls = String(tg.cls || '');
+    if (idOf(el) !== String(tg.id || '') || !covers(cls, srcCls) || !covers(attrNames(el), tg.attrs)) return false;
+    if (sameWords(cls, srcCls)) return true;
+    if (!Array.isArray(tg.alt)) return false;
+    for (var i = 0; i < tg.alt.length; i++) if (sameWords(tg.alt[i], cls)) return false;
+    return true;
+  }
+  function sourceRefs(el) {
+    var chain = [];
+    for (var node = el; node && node.nodeType === 1 && chain.length <= REF_MAX_UP; node = node.parentElement) {
+      if (node === document.documentElement || node === document.body) break;
+      chain.push({ el: node, tag: tagOf(node), id: idOf(node), cls: classOf(node), attrs: attrNames(node), n: -1, of: 0, same: 0 });
+    }
+    var all = document.getElementsByTagName('*');
+    for (var i = 0; i < all.length; i++) {
+      var cur = all[i];
+      var name = tagOf(cur);
+      for (var k = 0; k < chain.length; k++) {
+        var r = chain[k];
+        if (r.tag !== name) continue;
+        if (cur === r.el) r.n = r.of;
+        r.of++;
+        if (idOf(cur) === r.id && classOf(cur) === r.cls) r.same++;
+      }
+    }
+    var refs = [];
+    for (var j = 0; j < chain.length; j++) {
+      var c = chain[j];
+      refs.push({ tag: c.tag, n: c.n, of: c.of, id: c.id, cls: c.cls, attrs: c.attrs, same: c.same });
+    }
+    return { self: refs[0], up: refs.slice(1) };
+  }
+  /* an element counts as "on screen now" when it has a box inside the frame and nothing hides it (display, visibility, opacity) */
+  function shownRect(el) {
+    var box = rectOf(el);
+    if (!(box.width > 0) || !(box.height > 0)) return null;
+    var w = window.innerWidth || 0;
+    var h = window.innerHeight || 0;
+    if (w > 0 && h > 0 && (box.x >= w || box.y >= h || box.x + box.width <= 0 || box.y + box.height <= 0)) return null;
+    try {
+      if (typeof el.checkVisibility === 'function') {
+        if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return null;
+      } else {
+        var cs = window.getComputedStyle(el);
+        if (cs.visibility === 'hidden' || cs.display === 'none' || Number(cs.opacity) === 0) return null;
+      }
+    } catch (e) { /* keep the box */ }
+    return box;
+  }
+  function onLocate(d) {
+    var targets = Array.isArray(d.targets) ? d.targets.slice(0, LOCATE_MAX_TARGETS) : [];
+    /* after the seeks already queued: the answer describes the frame the stage asked for last */
+    chain = chain.then(function () {
+      var total = 0;
+      var rects = [];
+      try {
+        var all = document.getElementsByTagName('*');
+        var seen = [];
+        for (var k = 0; k < targets.length; k++) {
+          var tg = targets[k];
+          if (!tg || typeof tg !== 'object') continue;
+          var tag = String(tg.tag || '').toLowerCase();
+          var id = String(tg.id || '');
+          var cls = String(tg.cls || '');
+          var list = [];
+          for (var i = 0; i < all.length; i++) if (tagOf(all[i]) === tag) list.push(all[i]);
+          /* every element whose own source line is this tag's (the pick rule read backwards): by position, then by a one-of-a-kind id/class */
+          var found = [];
+          var n = Number(tg.n);
+          if (tg.of === list.length && n >= 0 && n < list.length && byPosition(list[n], tg)) found.push(list[n]);
+          if (tg.sig === true) {
+            var shaped = [];
+            for (var j = 0; j < list.length; j++) if (idOf(list[j]) === id && classOf(list[j]) === cls) shaped.push(list[j]);
+            /* of -1 = stamped from a template: every copy is that line */
+            if (shaped.length === 1 || tg.of === -1) for (var s = 0; s < shaped.length; s++) if (found.indexOf(shaped[s]) < 0) found.push(shaped[s]);
+          }
+          for (var f = 0; f < found.length; f++) {
+            if (seen.indexOf(found[f]) >= 0) continue;
+            seen.push(found[f]);
+            total++;
+            if (rects.length >= LOCATE_MAX_RECTS) continue;
+            var box = shownRect(found[f]);
+            if (box) rects.push(box);
+          }
+        }
+      } catch (e) { report(e); }
+      post({ __vibi: 'located', seq: d.seq, total: total, rects: rects });
+    });
   }
   /* §5.13 (V) 37-9 — read-only inspection: visible text boxes (for the motion review). */
   function onInspect(d) {
@@ -591,6 +752,7 @@ export const COMPOSITION_RUNTIME_JS = `(function (init) {
     if (d.__vibi === 'scan') { stopPlay(); onScan(d); return; }
     if (d.__vibi === 'pick') { onPick(d); return; }
     if (d.__vibi === 'inspect') { onInspect(d); return; }
+    if (d.__vibi === 'locate') { onLocate(d); return; }
     if (d.__vibi !== 'seek') return;
     stopPlay();
     var t = Number(d.t);
@@ -607,7 +769,12 @@ export const COMPOSITION_RUNTIME_JS = `(function (init) {
   }
 
   /* ---- lifecycle ---- */
-  window.addEventListener('error', function (e) { report(e.error || e.message); });
+  /* Chromium raises this window error (no Error object) when ResizeObserver callbacks resize again within a frame — a spec notice, not a crash. */
+  var RO_LOOP = /ResizeObserver loop (completed with undelivered notifications|limit exceeded)/i;
+  window.addEventListener('error', function (e) {
+    if (!e.error && RO_LOOP.test(String(e.message || ''))) return;
+    report(e.error || e.message);
+  });
   window.addEventListener('unhandledrejection', function (e) { report(e.reason); });
   document.addEventListener('securitypolicyviolation', function (e) {
     post({ __vibi: 'blocked', url: String(e.blockedURI || ''), directive: String(e.violatedDirective || '') });

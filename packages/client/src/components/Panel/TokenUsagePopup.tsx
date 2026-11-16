@@ -5,6 +5,7 @@ import { TOKEN_SUBAGENT_FETCH_CONCURRENCY } from '@vibisual/shared';
 import { mapWithConcurrency } from '../../utils/tokenFanout.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { LayerRoot } from '../Layout/LayerRoot.js';
 
 const API_BASE = '';
 
@@ -378,8 +379,8 @@ export const TokenUsagePopup = memo(function TokenUsagePopup({
   const backdrop = useBackdropDismiss(onClose);
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+    <LayerRoot
+      className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60 backdrop-blur-sm"
       {...backdrop}
     >
       <div
@@ -443,6 +444,6 @@ export const TokenUsagePopup = memo(function TokenUsagePopup({
           )}
         </ScrollFade>
       </div>
-    </div>
+    </LayerRoot>
   );
 });

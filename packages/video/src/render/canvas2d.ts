@@ -2,6 +2,7 @@
 
 import type { DrawOp } from './drawList.js';
 import { buildDrawList } from './drawList.js';
+import { transitionBlurFilter } from './transitions.js';
 import { captionWordSpans, wantsWordHighlight, type CaptionWordSpan } from './captionWords.js';
 import type { BackendProbe, RenderBackend, RenderBackendCapabilities, RenderSurface } from './backend.js';
 import { RENDER_BACKEND_CAPABILITIES } from './backend.js';
@@ -271,6 +272,11 @@ export class Canvas2DBackend implements RenderBackend {
       ctx.rect(op.clip.x, op.clip.y, op.clip.width, op.clip.height);
       ctx.clip();
     }
+    if (op.clipCircle) {
+      ctx.beginPath();
+      ctx.arc(op.clipCircle.cx, op.clipCircle.cy, Math.max(0, op.clipCircle.r), 0, Math.PI * 2);
+      ctx.clip();
+    }
     // 회전은 사각형 가운데를 축으로 — 사람이 기대하는 방향.
     const cx = transform.x + transform.width / 2;
     const cy = transform.y + transform.height / 2;
@@ -279,7 +285,9 @@ export class Canvas2DBackend implements RenderBackend {
     if (transform.scale !== 1) ctx.scale(transform.scale, transform.scale);
     ctx.translate(-transform.width / 2, -transform.height / 2);
     // §5.13 (W) 38-5 — DOM 무대와 같은 필터 문자열(이펙트는 그리기 목록이 접었다).
-    if (op.filter) ctx.filter = op.filter;
+    //   전환의 흐림(37-8 (B))은 그 뒤에 붙인다 — DOM 무대는 안쪽 그림의 필터 위 상자에 건다(같은 순서).
+    const filter = [op.filter ?? '', transitionBlurFilter(op.blur)].filter((f) => f !== '').join(' ');
+    if (filter !== '') ctx.filter = filter;
 
     try {
       switch (op.kind) {

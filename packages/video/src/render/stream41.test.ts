@@ -320,3 +320,21 @@ describe('§5.13 (Z) 41-2·41-5 재생 중 무대', () => {
     expect(oldFrame.parent?.parent ?? null).toBeNull();
   });
 });
+
+describe('§5.13 (V) 37-21 (H) 값을 따르지 않은 컴포지션 — 놓은 뒤 한 번 다시 열기', () => {
+  it('그 아이템의 프레임만 지금 값을 실어 다시 연다 · 없는 아이템·재생 중이면 하지 않는다', async () => {
+    const s = stage(doc([{ ...comp('a', 0), props: { cardX: 280 } }]));
+    // 첫 프레임은 뜨기 전에 다시 열리므로 그 seek 는 거절된다(무대 줄이 받아 넘긴다).
+    void s.seek(0).catch(() => undefined);
+    await flush();
+    expect(iframes()).toHaveLength(1);
+    expect(s.reopen('missing')).toBe(false);
+    expect(iframes()).toHaveLength(1);
+    expect(s.reopen('a')).toBe(true);
+    expect(iframes()).toHaveLength(2);
+    expect(iframes()[1]!.src).toContain('props=');
+    s.play({ t: 0, perfMs: 0 });
+    expect(s.reopen('a')).toBe(false);
+    expect(iframes()).toHaveLength(2);
+  });
+});

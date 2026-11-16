@@ -1,10 +1,11 @@
 /** §5.13 (E) 그리기 목록 — "시각 t 에 무엇을 어디에"를 순수 함수 하나로(백엔드 셋에 흩어지면 같은 문서가 방식마다 달라진다). 씬을 재실행하지 않고 목록만 뽑는다. */
 
-import type { CaptionCue, ResolvedChapter, ResolvedItem, ResolvedTimeline, VideoDoc, VideoItemKind, VideoKeyframe, VideoTransform } from '../types.js';
+import type { CaptionCue, ChapterTransition, ResolvedChapter, ResolvedItem, ResolvedTimeline, VideoDoc, VideoItemKind, VideoKeyframe, VideoTransform } from '../types.js';
 import { chapterIdOf, chapterMap, isUnpickedVariant } from '../chapters.js';
 import { sampleKeyframes } from '../keyframes.js';
 import { effectsToFilter } from './effects.js';
-import { flashAlpha, intersectRect, transitionEffect, type TransitionRect } from './transitions.js';
+import { DEFAULT_DOC_STYLE } from '../style.js';
+import { curtainOffset, flashAlpha, intersectRect, transitionEffect, type TransitionCircle, type TransitionRect } from './transitions.js';
 
 /** 기본값이 채워진 배치. 백엔드는 이 값만 보고 그린다. */
 export interface ResolvedTransform {
@@ -34,7 +35,11 @@ export interface DrawOp {
   readonly cues: readonly CaptionCue[];
   /** §5.13 (V) 37-8 — 전환이 잘라 보이게 한 사각형(문서 픽셀). 이 밖은 그리지 않는다. */
   readonly clip?: TransitionRect;
-  /** §5.13 (V) 37-8 — 문서에 없는 덧그림(빛 번짐). 고르기·가리키기 대상이 아니다. */
+  /** §5.13 (V) 37-8 (B) — 전환이 잘라 보이게 한 원(문서 픽셀). 이 밖은 그리지 않는다. */
+  readonly clipCircle?: TransitionCircle;
+  /** §5.13 (V) 37-8 (B) — 전환이 얹은 흐림 반경(문서 픽셀). 아이템 이펙트(`filter`) 뒤에 상자 전체에 걸린다. */
+  readonly blur?: number;
+  /** §5.13 (V) 37-8 — 문서에 없는 덧그림(빛 번짐·가림막). 고르기·가리키기 대상이 아니다. */
   readonly synthetic?: true;
   /** §5.13 (W) 38-5 — 이펙트를 접은 CSS 필터 문자열(DOM `filter` · canvas `ctx.filter` 가 같은 값을 쓴다). 없으면 그대로. */
   readonly filter?: string;
@@ -77,22 +82,23 @@ function withStyleDefaults(resolved: ResolvedItem, style: VideoDoc['style']): Re
  * 시각 t 에 이 장면이 전환 구간에 있으면 그 효과(들어옴/나감). 장면 밖·전환 없음이면 null.
  * 들어오는 전환은 장면 시작부터 겹침 길이까지, 나가는 전환은 **다음 장면**의 들어오는 겹침 구간이다.
  */
-function chapterTransitionAt(chapters: readonly ResolvedChapter[], index: number, t: number): { kind: NonNullable<ResolvedChapter['chapter']['transition']>['kind']; phase: 'in' | 'out'; p: number } | null {
+function chapterTransitionAt(chapters: readonly ResolvedChapter[], index: number, t: number): { kind: ChapterTransition['kind']; direction: ChapterTransition['direction']; phase: 'in' | 'out'; p: number } | null {
   const c = chapters[index];
   if (!c) return null;
   const tin = c.chapter.transition;
   if (tin && tin.kind !== 'cut' && c.overlapIn > 0 && t >= c.start && t < c.start + c.overlapIn) {
-    return { kind: tin.kind, phase: 'in', p: (t - c.start) / c.overlapIn };
+    return { kind: tin.kind, direction: tin.direction, phase: 'in', p: (t - c.start) / c.overlapIn };
   }
   const n = chapters[index + 1];
   const tout = n?.chapter.transition;
   if (n && tout && tout.kind !== 'cut' && n.overlapIn > 0 && t >= n.start && t < n.start + n.overlapIn) {
-    return { kind: tout.kind, phase: 'out', p: (t - n.start) / n.overlapIn };
+    return { kind: tout.kind, direction: tout.direction, phase: 'out', p: (t - n.start) / n.overlapIn };
   }
   return null;
 }
 
-function resolveTransform(size: VideoDoc['size'], t?: VideoTransform): ResolvedTransform {
+/** 아이템에 적힌 배치에 기본값(화면 전체·배율 1)을 채운다 — 키프레임·전환을 얹기 전의 값. */
+export function resolveTransform(size: VideoDoc['size'], t?: VideoTransform): ResolvedTransform {
   return {
     x: t?.x ?? 0,
     y: t?.y ?? 0,
@@ -158,14 +164,18 @@ export function buildDrawList(doc: VideoDoc, timeline: ResolvedTimeline, t: numb
 
     let transform = withKeyframes(resolveTransform(doc.size, resolved.item.transform), resolved.item.keyframes, localTime);
     let clip: TransitionRect | undefined;
+    let clipCircle: TransitionCircle | undefined;
+    let blur = 0;
     const chapterId = chapterIdOf(resolved.item);
     const index = chapterId !== undefined ? chapterIndex.get(chapterId) : undefined;
     const active = index !== undefined ? chapterTransitionAt(timeline.chapters, index, t) : null;
     if (active) {
-      const fx = transitionEffect(active.kind, active.phase, active.p, doc.size);
+      const fx = transitionEffect(active.kind, active.phase, active.p, doc.size, active.direction);
       if (fx.opacity <= 0) continue;
       transform = { ...transform, x: transform.x + fx.dx, y: transform.y + fx.dy, scale: transform.scale * fx.scale, opacity: transform.opacity * fx.opacity };
       if (fx.clip) clip = intersectRect(fx.clip, full);
+      if (fx.circle) clipCircle = fx.circle;
+      blur = fx.blur;
     }
 
     // §5.13 (W) 38-5 — 이펙트는 아이템 단위로 한 번 접는다(세 백엔드가 같은 문자열을 쓴다).
@@ -181,6 +191,8 @@ export function buildDrawList(doc: VideoDoc, timeline: ResolvedTimeline, t: numb
       resolved: withStyleDefaults(resolved, doc.style),
       cues,
       ...(clip ? { clip } : {}),
+      ...(clipCircle ? { clipCircle } : {}),
+      ...(blur > 0 ? { blur } : {}),
       ...(fx.filter !== '' ? { filter: fx.filter } : {}),
       ...(fx.vignette > 0 ? { vignette: fx.vignette } : {}),
     });
@@ -189,21 +201,26 @@ export function buildDrawList(doc: VideoDoc, timeline: ResolvedTimeline, t: numb
   // 같은 깊이면 타임라인 정렬(시작 시각) 순서를 유지한다 — 안정 정렬.
   ops.sort((a, b) => a.z - b.z);
 
-  // §5.13 (V) 37-8 — 빛 번짐: 그 전환 구간 동안 맨 위에 흰 덧그림 하나(가운데에서 가장 밝다).
-  const top = ops.reduce((m, op) => Math.max(m, op.z), 0) + 1;
+  // §5.13 (V) 37-8 — 덧그림: 그 전환 구간 동안 맨 위에 사각형 하나. 빛 번짐은 흰빛이 가운데에서 가장 밝고, 가림막은 스타일 강조색 막이 화면을 훑는다.
+  //   z 는 트랙 수(어느 아이템보다 위)로 고정한다 — 보이는 것에 따라 바뀌면 예약 재생 중 화면 스레드가 막힌 순간 새 장면과 같은 z 가 돼 그 아래로 깔린다(41-3).
+  const top = Math.max(doc.tracks.length, ops.reduce((m, op) => Math.max(m, op.z), 0) + 1);
   for (const c of timeline.chapters) {
     const tr = c.chapter.transition;
-    if (!tr || tr.kind !== 'flash' || c.overlapIn <= 0 || t < c.start || t >= c.start + c.overlapIn) continue;
+    if (!tr || (tr.kind !== 'flash' && tr.kind !== 'curtain') || c.overlapIn <= 0 || t < c.start || t >= c.start + c.overlapIn) continue;
     const p = (t - c.start) / c.overlapIn;
-    const id = `__transition-flash-${c.id}`;
-    const item = { id, kind: 'shape' as const, at: c.start, duration: c.overlapIn, props: { shape: 'rect', fill: FLASH_FILL } };
+    const id = `__transition-${tr.kind}-${c.id}`;
+    const curtain = tr.kind === 'curtain';
+    const fill = curtain ? doc.style?.accent ?? DEFAULT_DOC_STYLE.accent : FLASH_FILL;
+    const item = { id, kind: 'shape' as const, at: c.start, duration: c.overlapIn, props: { shape: 'rect', fill } };
+    const whole = resolveTransform(doc.size, undefined);
+    const off = curtain ? curtainOffset(p, doc.size, tr.direction) : null;
     ops.push({
       itemId: id,
       kind: 'shape',
       z: top,
       localTime: t - c.start,
       progress: p,
-      transform: { ...resolveTransform(doc.size, undefined), opacity: flashAlpha(p) },
+      transform: off ? { ...whole, x: off.dx, y: off.dy } : { ...whole, opacity: flashAlpha(p) },
       sourceTime: t - c.start,
       resolved: { id, trackId: '__transition', trackKind: 'visual', kind: 'shape', start: c.start, end: c.start + c.overlapIn, duration: c.overlapIn, item },
       cues: [],

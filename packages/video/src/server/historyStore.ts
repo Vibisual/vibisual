@@ -11,10 +11,11 @@ import { isPathWithin } from '@vibisual/shared';
 
 import {
   HISTORY_REQUEST_MAX_CHARS,
+  PASS_FOCUSES_MAX,
   VIDEO_HISTORY_DIR,
 } from '../constants.js';
 import { isSafeHistoryId } from '../history.js';
-import type { HistoryEntry, HistoryIndex, PassRecord, PassReport, PassesFile } from '../history.js';
+import type { HistoryEntry, HistoryIndex, PassRecord, PassReport, PassesFile, SceneDecision } from '../history.js';
 import type { VideoDoc } from '../types.js';
 import { compositionFolderAbs, listCompositionWebFiles } from './composition.js';
 
@@ -30,6 +31,11 @@ export interface HistoryHost {
 
 export interface FilesManifest {
   readonly files: Readonly<Record<string, string>>;
+  /**
+   * 그때의 수정 시각(ms, 반올림). 되돌릴 때 함께 돌려놓는다 — 컴포지션 지문이 크기·수정 시각이라, 안 그러면 내용이 같아도
+   * 소재가 바뀐 것으로 남는다(§5.13 (V) 37-23 (H)). 옛 판에는 없다.
+   */
+  readonly mtimes?: Readonly<Record<string, number>>;
   /** 상한 때문에 빠진 파일이 있었나. */
   readonly partial?: boolean;
 }
@@ -100,9 +106,15 @@ export class VideoHistoryStore {
     return path.join(this.dir(projectPath, docId), 'blobs', sha);
   }
 
+  /** 그 내용 덩어리가 남아 있나(되돌릴 수 있는 파일인가). */
+  hasBlob(blobFile: string): boolean {
+    return fs.existsSync(blobFile);
+  }
+
   /** 그 문서가 가리키는 컴포지션 폴더의 웹 파일을 내용 주소로 남기고 목록을 돌려준다. */
   private snapshotFiles(projectPath: string, doc: VideoDoc): FilesManifest {
     const files: Record<string, string> = {};
+    const mtimes: Record<string, number> = {};
     let total = 0;
     let partial = false;
     const seenFolders = new Set<string>();
@@ -115,11 +127,13 @@ export class VideoHistoryStore {
       for (const rel of listCompositionWebFiles(folder)) {
         const abs = path.join(folder, rel);
         let bytes: Buffer;
+        let mtime: number;
         try {
           const st = fs.statSync(abs);
           if (st.size > SNAPSHOT_FILE_MAX_BYTES || total + st.size > SNAPSHOT_TOTAL_MAX_BYTES) { partial = true; continue; }
           bytes = fs.readFileSync(abs);
           total += st.size;
+          mtime = Math.round(st.mtimeMs);
         } catch {
           continue;
         }
@@ -129,13 +143,14 @@ export class VideoHistoryStore {
         try {
           writeBlobOnce(blob, bytes);
           files[`${folderRel}/${rel}`] = sha;
+          mtimes[`${folderRel}/${rel}`] = mtime;
         } catch (err) {
           partial = true;
           this.host().warn(`[video] 판 기록 파일을 남기지 못했습니다(${rel}): ${String(err)}`);
         }
       }
     }
-    return partial ? { files, partial } : { files };
+    return partial ? { files, mtimes, partial } : { files, mtimes };
   }
 
   /** 판 하나를 남긴다 — 문서·컴포지션 파일·목록 줄. */
@@ -205,14 +220,23 @@ export class VideoHistoryStore {
 
   /**
    * 그 판의 컴포지션 파일을 작업 폴더에 되돌려 쓴다 — 내용이 다른 것만. 지금 있는데 그 판에 없던 파일은 지우지 않는다
-   * (사람이 따로 둔 파일을 지우는 되돌리기는 없다). 돌려준 수는 다시 쓴 파일 수.
+   * (사람이 따로 둔 파일을 지우는 되돌리기는 없다). 돌려준 수는 다시 쓴 파일 수. `only` 를 주면 그 경로만(장면 하나의 폴더 — 37-23).
    */
-  restoreFiles(projectPath: string, docId: string, revId: string): number {
+  restoreFiles(projectPath: string, docId: string, revId: string, only?: (rel: string) => boolean): number {
     const manifest = this.readManifest(projectPath, docId, revId);
     if (!manifest) return 0;
     const root = path.resolve(projectPath);
     let written = 0;
+    // 수정 시각까지 그 판의 것으로 — 내용만 같고 시각이 다르면 컴포지션 지문이 달라 소재가 바뀐 것으로 남는다.
+    const settle = (target: string, rel: string): void => {
+      const mtime = manifest.mtimes?.[rel];
+      if (typeof mtime !== 'number') return;
+      try {
+        if (Math.round(fs.statSync(target).mtimeMs) !== mtime) fs.utimesSync(target, new Date(), new Date(mtime));
+      } catch { /* 시각을 못 돌려도 내용은 돌아갔다 */ }
+    };
     for (const [rel, sha] of Object.entries(manifest.files)) {
+      if (only && !only(rel)) continue;
       const target = path.resolve(root, rel);
       if (!isPathWithin(target, root, process.platform)) continue;
       const blob = this.blobPath(projectPath, docId, sha);
@@ -220,13 +244,14 @@ export class VideoHistoryStore {
       try {
         if (fs.existsSync(target)) {
           const now = crypto.createHash('sha256').update(fs.readFileSync(target)).digest('hex');
-          if (now === sha) continue;
+          if (now === sha) { settle(target, rel); continue; }
         }
         fs.mkdirSync(path.dirname(target), { recursive: true });
         const bytes = fs.readFileSync(blob);
         const tmp = `${target}.${process.pid}.restore.tmp`;
         fs.writeFileSync(tmp, bytes);
         fs.renameSync(tmp, target);
+        settle(target, rel);
         written += 1;
       } catch (err) {
         this.host().warn(`[video] 판의 파일을 되돌리지 못했습니다(${rel}): ${String(err)}`);
@@ -270,8 +295,23 @@ export class VideoHistoryStore {
       ...(prev ?? { id: passId, startedAt: Date.now(), startVersion, ...(startRev ? { startRev } : {}), status: 'open' as const, versions: [] }),
       versions: [...(prev?.versions ?? []), version].slice(-500),
       ...(focus ? { focus } : prev?.focus ? { focus: prev.focus } : {}),
+      // 37-23 — 만진 장면을 전부 남긴다(`focus` 는 마지막 하나뿐이라 장면별 대화를 묶을 수 없다).
+      ...(focus && !prev?.focuses?.includes(focus) ? { focuses: [...(prev?.focuses ?? []), focus].slice(-PASS_FOCUSES_MAX) } : {}),
       lastPatchAt: Date.now(),
     }));
+  }
+
+  /**
+   * §5.13 (V) 37-23 — 장면 하나에 내린 결정을 적거나(`decision`) 지운다(null). 없는 바퀴면 null — 결정만으로 바퀴를 만들지 않는다.
+   */
+  decideScene(projectPath: string, docId: string, passId: string, chapterId: string, decision: SceneDecision | null): PassRecord | null {
+    if (!this.findPass(projectPath, docId, passId)) return null;
+    return this.upsertPass(projectPath, docId, passId, (prev) => {
+      const { decided: before, ...rest } = prev as PassRecord;
+      const { [chapterId]: _dropped, ...others } = before ?? {};
+      const decided = decision ? { ...others, [chapterId]: decision } : others;
+      return Object.keys(decided).length > 0 ? { ...rest, decided } : rest;
+    });
   }
 
   /** 바퀴를 닫는다(끝 보고). */

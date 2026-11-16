@@ -526,6 +526,19 @@ async function encodeBody(body: BodyInit | null | undefined): Promise<EncodedBod
   return encoded;
 }
 
+/**
+ * 바이너리 본문의 형식 머리. 호출부가 직접 정한 형식이 이긴다 — Blob 의 형식(`image/png`)으로 덮으면
+ * `application/octet-stream` 만 읽는 raw 라우트가 본문을 못 읽는다. multipart 만 boundary 때문에 인코딩 시점 값을 쓴다.
+ * 바꿀 것이 없으면 null.
+ */
+export function bodyContentType(headers: Record<string, string> | undefined, encoded: string | undefined): Record<string, string> | null {
+  if (!encoded) return null;
+  const declared = Object.keys(headers ?? {}).filter((key) => key.toLowerCase() === 'content-type');
+  if (declared.length > 0 && !encoded.toLowerCase().startsWith('multipart/')) return null;
+  const rest = Object.fromEntries(Object.entries(headers ?? {}).filter(([key]) => !declared.includes(key)));
+  return { ...rest, 'content-type': encoded };
+}
+
 function headersToRecord(h: HeadersInit | undefined): Record<string, string> | undefined {
   if (!h) return undefined;
   const out: Record<string, string> = {};
@@ -577,11 +590,8 @@ function installFetchPatch(api: PackagedApi): void {
     if (encoded) {
       wireInit.body = encoded.body;
       if (encoded.bodyEncoding) wireInit.bodyEncoding = encoded.bodyEncoding;
-      // 바이너리 본문(특히 multipart)의 Content-Type 은 boundary 를 담으므로 인코딩 시점
-      // 값으로 덮어쓴다. FormData 호출부는 Content-Type 을 직접 지정하면 안 되므로 충돌 없음.
-      if (encoded.contentType) {
-        wireInit.headers = { ...(wireInit.headers ?? {}), 'content-type': encoded.contentType };
-      }
+      const contentType = bodyContentType(wireInit.headers, encoded.contentType);
+      if (contentType) wireInit.headers = contentType;
     }
 
     const wire = await api.request(url, wireInit);

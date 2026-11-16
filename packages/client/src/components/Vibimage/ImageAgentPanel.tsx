@@ -51,7 +51,7 @@ export function ImageAgentPanel({ root, selected, doc, busy, onSave, onAgent }: 
   const blocked = !agentId || !request.trim() || sending || busy || running || connection !== 'connected';
   const status = sending ? 'sending' : sendFailed || deliveryError ? 'deliveryFailed' : command?.status === 'error' ? 'taskFailed'
     : running ? 'working' : submitted ? 'reviewHint' : 'agentHint';
-  return <section className="shrink-0 border-t border-white/10 p-3 text-xs">
+  return <section className="shrink-0 border-t border-gray-800 bg-gray-900 px-3 py-2 text-xs">
     {standalone && <ImageAgentConnection />}
     <form className="flex flex-wrap items-center gap-2" onSubmit={(event) => {
       event.preventDefault(); if (blocked) return;
@@ -64,18 +64,18 @@ export function ImageAgentPanel({ root, selected, doc, busy, onSave, onAgent }: 
         void useGraphStore.getState().addCommand(agentId, prompt, null, undefined, { runLimits: CREATION_QUALITY_LIMITS[quality] });
       }).catch(() => { setDeliveryError(true); }).finally(() => setSending(false));
     }}>
-      <select aria-label={key('agent')} className="max-w-40 rounded bg-gray-900 p-2" value={agentId} onChange={(event) => { setChosen(event.target.value); onAgent(event.target.value); }}>
+      <select aria-label={key('agent')} className="h-8 max-w-40 rounded-md border border-gray-800 bg-gray-950 px-1.5 text-gray-100 outline-none focus:border-blue-500 pointer-coarse:h-10" value={agentId} onChange={(event) => { setChosen(event.target.value); onAgent(event.target.value); }}>
         {!eligible.length && <option value="">{key('noAgent')}</option>}{eligible.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}
       </select>
-      <input className="min-w-36 flex-1 rounded border border-white/15 bg-gray-900 p-2" aria-label={key('request')} placeholder={key('request')} value={request}
+      <input className="h-8 min-w-36 flex-1 rounded-md border border-gray-800 bg-gray-950 px-2 text-gray-100 outline-none focus:border-blue-500 pointer-coarse:h-10" aria-label={key('request')} placeholder={key('request')} value={request}
         maxLength={8000} onChange={(e) => setRequest(e.target.value)} />
-      <select className="rounded bg-gray-900 p-2" aria-label={key('quality')} value={quality} onChange={(e) => setQuality(e.target.value as 'draft' | 'refine')}>
+      <select className="h-8 rounded-md border border-gray-800 bg-gray-950 px-1.5 text-gray-100 outline-none focus:border-blue-500 pointer-coarse:h-10" aria-label={key('quality')} value={quality} onChange={(e) => setQuality(e.target.value as 'draft' | 'refine')}>
         <option value="draft">{key('draft')}</option><option value="refine">{key('refine')}</option>
       </select>
       <CreationAgentSettings agentId={agentId} />
-      <button className="rounded bg-amber-200/20 px-3 py-2 disabled:opacity-40" disabled={blocked}>{key('ask')}</button>
+      <button className="h-8 rounded-md bg-blue-600 px-3 font-medium text-white hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-500 pointer-coarse:h-10" disabled={blocked}>{key('ask')}</button>
     </form>
-    <p role="status" className="mt-2 text-gray-400">{key(status)}</p>
+    <p role="status" className="mt-1.5 text-gray-500">{key(status)}</p>
     {submitted && <CreationRunStatus agentId={submitted.agentId} command={command} />}
   </section>;
 }

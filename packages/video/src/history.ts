@@ -30,6 +30,8 @@ export interface HistoryEntry {
   readonly restoredFrom?: string;
   /** 렌더한 판이면 결과 파일(프로젝트 기준). */
   readonly render?: { readonly file: string; readonly jobId: string };
+  /** §5.13 (V) 37-23 — 장면 하나만 되돌린 판이면 그 장면. */
+  readonly chapterId?: string;
   /** 정지 화면이 구워져 있나(`<id>.png`). */
   readonly hasStill?: boolean;
 }
@@ -68,7 +70,19 @@ export interface PassRecord {
   readonly versions: readonly number[];
   /** 마지막으로 만진 장면(패치 본문 `focus`). */
   readonly focus?: string;
+  /** §5.13 (V) 37-23 — 이 바퀴가 만진 장면 전부(패치 본문 `focus` 가 들어온 순서, 겹치지 않게). 장면별 대화가 이것으로 묶는다. */
+  readonly focuses?: readonly string[];
+  /** §5.13 (V) 37-23 — 장면마다 사람이 내린 결정. 지문이 지금 문서와 다르면 낡은 결정이다(화면이 버린다). */
+  readonly decided?: Readonly<Record<string, SceneDecision>>;
   readonly lastPatchAt?: number;
+}
+
+/** §5.13 (V) 37-23 — 장면 하나에 내린 결정: 받았다 · 그 장면만 되돌렸다. */
+export interface SceneDecision {
+  readonly how: 'kept' | 'restored';
+  /** 결정한 때의 장면 내용 지문(`sceneSignature`). */
+  readonly signature: string;
+  readonly at: number;
 }
 
 export interface PassesFile {

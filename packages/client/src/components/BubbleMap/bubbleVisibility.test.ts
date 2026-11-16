@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Edge, Node } from '@xyflow/react';
 import type { BubbleData, BubbleType } from '@vibisual/shared';
-import { applyBubbleVisibilityToEdges, applyBubbleVisibilityToNodes, hiddenActivityBubbleIds } from './bubbleVisibility.js';
+import { applyBubbleVisibilityToEdges, applyBubbleVisibilityToNodes, canvasHiddenBubbleIds, hiddenActivityBubbleIds } from './bubbleVisibility.js';
 
 function node(id: string, bubbleType: BubbleType, extra: Partial<Node> = {}): Node {
   return { id, type: 'bubble', position: { x: 12, y: 34 }, data: { bubbleType }, ...extra };
@@ -14,6 +14,50 @@ function edge(source: string, target: string, extra: Partial<Edge> = {}): Edge {
 }
 
 describe('activity bubble visibility', () => {
+  it('defaults to hiding all activity bubbles, including shared and disconnected bubbles', () => {
+    const nodes = [node('a', 'agent'), node('folder', 'internal_folder'), node('external', 'external_folder'),
+      node('sat-file', 'file'), node('bundle', 'bundle'), node('sat-dedicated', 'bundle'), node('domain', 'domain'),
+      node('orphan', 'file'), node('root', 'root'), node('back', 'back'), node('worktree', 'worktree'),
+      node('app', 'video', { type: 'appNode' }),
+      node('manual', 'iframe', { data: { bubbleType: 'iframe', customCreated: true } })];
+    const edges = [edge('a', 'folder'), edge('folder', 'b'), edge('folder', 'sat-file', { id: 'sat-edge-file' })];
+    const agents = [agent('a'), agent('b')];
+    expect([...canvasHiddenBubbleIds(nodes, edges, agents)].sort()).toEqual(
+      ['bundle', 'domain', 'external', 'folder', 'orphan', 'sat-dedicated', 'sat-file'],
+    );
+    expect(agents.every((a) => a.bubblesHidden === false)).toBe(true);
+  });
+
+  it('applies per-agent hiding only when the canvas switch is on and preserves it across toggles', () => {
+    const nodes = [node('private', 'file'), node('shared', 'internal_folder'), node('orphan', 'file')];
+    const edges = [edge('a', 'private'), edge('a', 'shared'), edge('shared', 'b')];
+    const agents = [agent('a', true), agent('b')];
+    expect([...canvasHiddenBubbleIds(nodes, edges, agents, {}, true)]).toEqual(['private']);
+    expect([...canvasHiddenBubbleIds(nodes, edges, agents, {}, false)].sort()).toEqual(['orphan', 'private', 'shared']);
+    expect([...canvasHiddenBubbleIds(nodes, edges, agents, {}, true)]).toEqual(['private']);
+    expect(agents).toEqual([agent('a', true), agent('b')]);
+  });
+
+  it('keeps global hiding in force after an agent shows its bubbles, then restores source flags and connections', () => {
+    const nodes = [node('a', 'agent'), node('folder', 'internal_folder', { selected: true }),
+      node('sat-file', 'file'), node('already-hidden', 'file', { hidden: true }), node('root', 'root')];
+    const edges = [edge('a', 'folder', { selected: true }),
+      edge('folder', 'sat-file', { id: 'sat-edge-file' }), edge('a', 'root', { type: 'taskEdge' })];
+    const hidden = canvasHiddenBubbleIds(nodes, edges, [agent('a')]);
+    const shownNodes = applyBubbleVisibilityToNodes(nodes, hidden);
+    const shownEdges = applyBubbleVisibilityToEdges(edges, hidden);
+    expect(shownNodes.find((n) => n.id === 'folder')).toMatchObject({ hidden: true, selected: false });
+    expect(shownEdges.slice(0, 2).every((e) => e.hidden)).toBe(true);
+    expect(shownEdges[2]).toBe(edges[2]);
+    const visible = canvasHiddenBubbleIds(nodes, edges, [agent('a')], {}, true);
+    expect(applyBubbleVisibilityToNodes(nodes, visible)).toBe(nodes);
+    expect(applyBubbleVisibilityToEdges(edges, visible)).toBe(edges);
+    expect(nodes[1]).toMatchObject({ selected: true });
+    expect(nodes[1]?.hidden).toBeUndefined();
+    expect(nodes[3]?.hidden).toBe(true);
+    expect(edges[0]).toMatchObject({ source: 'a', target: 'folder', selected: true });
+  });
+
   // §5.1 #2-1 (B) — 묶음 버블(화면 전용)과 그 구성은 한 무리로 숨는다. 원 둘레의 묶음에는 활동선이 닿지 않는다
   //   (에이전트 선은 중심 파일로 옮겨 간다) — 구성에서 거슬러 이어 빈 묶음이 홀로 남지 않게.
   it('hides a bundle bubble together with its members, whether it sits on a folder or on the ring', () => {

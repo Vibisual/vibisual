@@ -4,6 +4,7 @@ import { placeHoverTooltip, TOOLTIP_EDGE_MARGIN } from './hoverTooltipPlacement.
 import type { CommandId } from '@vibisual/shared';
 // §6 — 툴팁의 단축키 표시는 레지스트리에서 나온다(문구에 키를 적지 않는다).
 import { KeyHint } from '../Shortcuts/KeyHint.js';
+import { overlayRoot } from '../../utils/overlayRoot.js';
 
 interface HoverTooltipProps {
   /** 표시할 풀 텍스트(= 잘리기 전 전체 라벨). */
@@ -99,7 +100,7 @@ export function HoverTooltip({
         createPortal(
           <div
             ref={boxRef}
-            className="pointer-events-none fixed z-[9999] whitespace-pre-wrap break-words rounded-md border border-white/[0.08] bg-vb-raised px-2 py-1 text-[12px] font-medium leading-snug text-gray-100 shadow-lg shadow-black/50"
+            className="pointer-events-none fixed z-tooltip whitespace-pre-wrap break-words rounded-md border border-white/[0.08] bg-vb-raised px-2 py-1 text-[12px] font-medium leading-snug text-gray-100 shadow-lg shadow-black/50"
             style={{
               left: pos?.left ?? 0,
               top: pos?.top ?? 0,
@@ -121,7 +122,8 @@ export function HoverTooltip({
               </span>
             )}
           </div>,
-          document.body,
+          // 전체 화면 중에는 그 요소 안에 세운다(밖은 그려지지 않는다).
+          overlayRoot(),
         )}
     </span>
   );

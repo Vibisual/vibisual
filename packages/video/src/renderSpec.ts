@@ -1,7 +1,7 @@
 /** §5.13 (AA) 42-2·42-4 — 렌더 일감의 모양(순수): `RenderSpec`(일꾼이 읽는다) · `RenderOutputSpec`(서버가 읽는다). 설정에서 지어지고 서버·일꾼·화면이 같은 거르개를 쓴다. */
 
-import { EXPORT_MIN_RANGE_S } from './constants.js';
-import { normalizeExportSettings, type ExportAfter, type ExportCaptions, type ExportConflict, type ExportFormat, type ExportQuality, type ExportSettings } from './exportSettings.js';
+import { EXPORT_MIN_RANGE_S, EXPORT_THUMBNAIL_AT_MAX_S } from './constants.js';
+import { normalizeExportSettings, type ExportAfter, type ExportCaptions, type ExportConflict, type ExportExtras, type ExportFormat, type ExportQuality, type ExportSettings } from './exportSettings.js';
 import { exportText, record } from './exportValues.js';
 import type { VideoDoc } from './types.js';
 
@@ -38,6 +38,12 @@ export interface RenderOutputSpec {
   readonly index: number | null;
   /** 끝난 뒤 OS 알림 글 — 거는 화면이 사용자 언어로 짓는다(앱 main 몫은 번역을 모른다 — 42-7). */
   readonly notice: { readonly done: string; readonly failed: string } | null;
+  /** §5.13 (AA) 42-13 — 함께 낼 딸림 파일(걸 때의 선택 — 대기·예약·다시 렌더에도 그대로). */
+  readonly extras: ExportExtras;
+  /** 썸네일 시각(문서 시각, 초). null = 서버가 대표 시각을 고른다. */
+  readonly thumbnailAt: number | null;
+  /** 제목이 빈 장면의 이름틀(`{n}` = 순번) — 거는 화면이 사용자 언어로 짓는다. */
+  readonly chapterLabel: string | null;
 }
 
 /** 트랙·아이템 id 모양(문서 id 와 같은 규칙보다 넓게 — 에이전트가 지은 id 도 받는다). */
@@ -83,6 +89,7 @@ export function normalizeRenderOutput(raw: unknown): RenderOutputSpec {
   const done = exportText(notice['done']);
   const failed = exportText(notice['failed']);
   const index = r['index'];
+  const thumbnailAt = r['thumbnailAt'];
   return {
     dir: base.outputDir,
     fileName: base.fileName,
@@ -92,6 +99,9 @@ export function normalizeRenderOutput(raw: unknown): RenderOutputSpec {
     scene: exportText(r['scene']),
     index: typeof index === 'number' && Number.isInteger(index) && index >= 0 && index < 10_000 ? index : null,
     notice: done !== null && failed !== null ? { done, failed } : null,
+    extras: base.extras,
+    thumbnailAt: typeof thumbnailAt === 'number' && Number.isFinite(thumbnailAt) && thumbnailAt >= 0 && thumbnailAt <= EXPORT_THUMBNAIL_AT_MAX_S ? thumbnailAt : null,
+    chapterLabel: exportText(r['chapterLabel']),
   };
 }
 

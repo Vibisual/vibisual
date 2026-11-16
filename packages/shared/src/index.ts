@@ -25,6 +25,8 @@ export type {
   CaptureSourceInfo,
   AppBubble,
   AppBubblePastFile,
+  AppBubbleWorkPreview,
+  AppBubbleWorkPreviews,
   LinkLens,
   AgentLinkEntry,
   AgentLinkRecord,
@@ -565,6 +567,8 @@ export {
   FILE_SIZE_SCALE,
   COMMAND_APP_SIZE,
   BUNDLE_BUBBLE,
+  DEDICATED_BUBBLE,
+  normalizeDedicatedHidden,
   HEAT_MIN_SIZE,
   HEAT_MAX_SIZE,
   HEATMAP_RAMP,
@@ -768,6 +772,7 @@ export {
   FILE_FACE_EXTENSIONS,
   FILE_FACE_BASE_FAMILY,
   FILE_FACE_FAMILY_EXTENSIONS,
+  APP_LINK_GATE,
   APP_WORK,
   PREVIEW_POLICY,
   IMAGE_VIEW,
@@ -873,6 +878,8 @@ export {
   PIPELINE_CHILD_ROLES_BY_TYPE,
   PIPELINE_PARENT_BUBBLE_ID,
   AVAILABLE_AGENT_MODELS,
+  CLI_NATIVE_MODEL_ALIASES_FALLBACK,
+  listNativeModelAliases,
   AVAILABLE_AGENT_MODEL_FULL_IDS,
   AVAILABLE_AGENT_MODEL_IDS,
   isOpusModel,
@@ -1418,6 +1425,8 @@ export {
   LOCAL_MODEL_OVERHEAD_RATIO,
   LOCAL_MODEL_OVERHEAD_BYTES,
   LOCAL_MODEL_RAM_USABLE_RATIO,
+  LOCAL_MODEL_SHARED_VRAM_RATIO,
+  LOCAL_FIT_RETRY_MARGINS_MIB,
   classifyModelFit,
   LOCAL_DEFAULT_CONTEXT_SIZE,
   LOCAL_CONTEXT_MIN,
@@ -1535,6 +1544,10 @@ export {
   MOBILE_QR_MAX_USES,
   MOBILE_QR_PATH,
   MOBILE_QR_PARAM,
+  MOBILE_CONTENT_PATH,
+  MOBILE_CONTENT_BASE_HEADER,
+  MOBILE_RANGE_CHUNK_BYTES,
+  isMobileContentBase,
   MOBILE_VPN_ADAPTERS,
   MOBILE_VIRTUAL_ADAPTERS,
   CHAT_PAIR_TICKET_TTL_MS,
@@ -1601,6 +1614,12 @@ export {
   SPEC_ITEM_PATTERN_DEFAULT,
   SPEC_RESPLIT_DEPTH_MAX,
   SPEC_ITEM_LABEL_MAX,
+  SPEC_ITEM_MATCH_MAX,
+  SPEC_REQUIRED_TOKEN_BUDGET,
+  SPEC_REQUIRED_PATH_RESERVE,
+  SPEC_MENTION_EXTENSIONS,
+  SPEC_UNIT_MENTION_MAX,
+  SPEC_MENTION_DF_RATIO,
   SPEC_TITLE_MIN_HITS,
   SPEC_TITLE_STOPWORDS,
   SPEC_RARE_TITLE_HIT_WEIGHT,
@@ -1651,6 +1670,7 @@ export {
   AUTO_GOAL_COMPLETION_MAX,
   AUTO_GOAL_REVIEW_QUEUE_MAX,
   AUTO_GOAL_ACTIVE_QUEUE_MAX,
+  AUTO_GOAL_RELEVANCE_MIN,
   AUTO_GOAL_STALE_REVIEW_MS,
   AUTO_GOAL_REFRESH_MS,
   AUTO_GOAL_DISMISSED_MAX,
@@ -2313,6 +2333,19 @@ export {
   parseApplyPatch,
 } from './editToolInput.js';
 
+// §5.1 #3-5 — 최근 사용 링(순위 싣기·설정 칸·링 크기가 같은 판정을 본다).
+export type { RecentUseMark } from './types.js';
+export { RECENT_USE_RING } from './constants.js';
+export {
+  normalizeRecentUseRingCount,
+  isRecentUseBubble,
+  recentUseStrength,
+  recentUseRingStrength,
+  recentUseRingLook,
+  recentUseFocus,
+  RECENT_USE_OTHER_AGENT,
+} from './recentUse.js';
+
 // §4 — 개별 에이전트 설정이 설정 창의 전역 기본값과 어디서 갈라지는지. "미설정"의 표기가 필드마다
 // 달라서(effort:'default' · isolation:'none' · maxTurns:0 · forwardSubagentText:undefined=켬)
 // 접힘 규칙을 화면이 아니라 한 곳에 둔다.
@@ -2678,6 +2711,8 @@ export {
   findPathLockCover,
   findToolLockHits,
 } from './pathLock.js';
+export type { AppAgentLink, AppLinkNode, AppLinkTarget, AppToolInvocation, AppToolRule } from './appToolGate.js';
+export { findAppToolScriptEvidence, readAppToolInvocation, scriptLocalImports, stripScriptComments } from './appToolGate.js';
 // §5.4 #36 — 전환과 연결(에이전트 말풍선 · 위성줄). 서버 검증과 클라 낙관 반영이 한 벌을 쓴다.
 export { AGENT_CARD, APP_BUBBLE_LINK_MAX, APP_BUBBLE_PENDING_MS, APP_BUBBLE_REF_MAX, APP_SHELL_SKELETON, APP_THUMB, REDUCED_MOTION_LOOP_SLOWDOWN, REF_BLOOM, REF_LINK_STYLE } from './constants.js';
 // §5.4 #36 (G) — 앱 노드 크기 조절 한도와 캔버스 조작 한도. 서버(PATCH 자르기)와 클라(손잡이·재생)가 한 벌을 쓴다.
@@ -2796,6 +2831,8 @@ export {
   fileSequenceOf,
   sequenceLabel,
   clipNameList,
+  withWorkPreview,
+  pickWorkPreview,
 } from './appWork.js';
 export type { AppWorkMarkOptions, FileSequence } from './appWork.js';
 // §5.1 #2-1 (G) — 미리보기 성능 기준(파일 · 화면 · 한눈).

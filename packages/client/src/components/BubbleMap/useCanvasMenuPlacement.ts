@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type RefObject } from 'react';
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import {
   MENU_VIEWPORT_MARGIN,
   placeCanvasMenu,
@@ -30,6 +30,7 @@ export function useCanvasMenuPlacement(
   submenuRef: RefObject<HTMLDivElement>,
 ): SubmenuSide {
   const [side, setSide] = useState<SubmenuSide>('right');
+  const sideRef = useRef<SubmenuSide>('right');
 
   // Run after every commit: gated/translated rows can move inside a capped list.
   useLayoutEffect(() => {
@@ -60,7 +61,11 @@ export function useCanvasMenuPlacement(
       child.style.maxHeight = `${placement.maxHeight}px`;
       child.style.left = `${placement.left}px`;
       child.style.top = `${placement.top}px`;
-      setSide((previous) => previous === placement.side ? previous : placement.side);
+      // Skip the setter when unchanged: this effect has no deps, and a same-value setState can still
+      // re-render once the side left 'right' (narrow phones), re-running the effect until React #185.
+      if (sideRef.current === placement.side) return;
+      sideRef.current = placement.side;
+      setSide(placement.side);
     };
 
     update();

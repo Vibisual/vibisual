@@ -55,6 +55,21 @@ export async function canvasMenu(p: Page, at: { x: number; y: number }, row: Reg
   return item;
 }
 
+/** How many rows match on the canvas menu. The capture row is always there, so a zero is not a menu still opening. */
+export async function canvasMenuRowCount(p: Page, at: { x: number; y: number }, row: RegExp): Promise<number> {
+  await p.locator('main .react-flow__pane').click({ button: 'right', position: at });
+  await visible(p.locator('button').filter({ hasText: /^Screen \/ Program Capture/ }).first());
+  const count = await p.locator('button').filter({ hasText: row }).count();
+  await p.keyboard.press('Escape');
+  return count;
+}
+
+/** Debug mode starts off on every launch; the canvas hotkey ignores text fields, so press from the empty canvas. */
+export async function toggleDebugMode(p: Page, at: { x: number; y: number }): Promise<void> {
+  await p.locator('main .react-flow__pane').click({ position: at });
+  await p.keyboard.press('Backquote');
+}
+
 /** Right-click empty canvas → engine submenu → "Create … Agent". Returns the new bubble's id and label. */
 export async function createAgent(p: Page, engine: 'Claude' | 'Codex', at: { x: number; y: number }): Promise<{ id: string; label: string }> {
   const nodes = p.locator('.react-flow__node[data-id^="agent-"]');

@@ -68,10 +68,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mount(items: ContextMenuItem[], x = 100, y = 100): ReturnType<typeof vi.fn> {
+function mount(items: ContextMenuItem[], x = 100, y = 100, textFieldMenu = false): ReturnType<typeof vi.fn> {
   const onClose = vi.fn();
   act(() => {
-    view = create(<IDEContextMenu x={x} y={y} items={items} onClose={onClose} density="compact" />, {
+    view = create(<IDEContextMenu x={x} y={y} items={items} onClose={onClose} density="compact" textFieldMenu={textFieldMenu} />, {
       createNodeMock: (element) => {
         const props = element.props as { id?: string; role?: string; disabled?: boolean };
         const id = props.id ?? (props.role === 'menu' ? 'root-menu' : 'boundary');
@@ -117,6 +117,14 @@ function hideMenu(): { items: ContextMenuItem[]; parent: ReturnType<typeof vi.fn
 }
 
 describe('IDEContextMenu nested items', () => {
+  it('marks only field action menus as part of the originating text editor', () => {
+    mount(hideMenu().items);
+    expect(view!.root.findAllByProps({ 'data-text-field-menu': '' })).toHaveLength(0);
+    act(() => view!.unmount());
+    mount(hideMenu().items, 100, 100, true);
+    expect(view!.root.findAllByProps({ 'data-text-field-menu': '' })).toHaveLength(1);
+  });
+
   it('opens by hover or click without executing the parent, and closes only after a leaf action', () => {
     const menu = hideMenu();
     const onClose = mount(menu.items);

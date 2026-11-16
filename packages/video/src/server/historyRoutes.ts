@@ -67,7 +67,7 @@ function list(raw: unknown): string[] {
 }
 
 /** 판 정지 화면의 기본 시각 — 길이의 35%(첫 프레임은 등장 전인 일이 흔하다 — 노드 포스터와 같은 규칙). */
-function posterTime(doc: VideoDoc): number {
+export function posterTime(doc: VideoDoc): number {
   const duration = resolveTimeline(doc).duration;
   if (!(duration > 0)) return 0;
   return Math.max(0, Math.min(duration * 0.35, duration - 1 / Math.max(1, doc.fps)));

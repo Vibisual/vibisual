@@ -132,6 +132,18 @@ export function itemWindowSpan(item: ResolvedItem, playDuration: number, winStar
   return { when: s - winStart, from: trimStart + (s - item.start), duration: e - s };
 }
 
+/**
+ * §5.13 (AA) 42-11 — 구간 `[start, end)` 에 소리를 낼 아이템(문서에 있는 소재)이 하나라도 있는가. 창 단위로 섞는 렌더가 소리 트랙을
+ * 세울지 정한다(`mixAudio` 가 `null` 을 내는 첫 조건과 같다 — 못 읽는 소재는 섞을 때 경고로 알린다).
+ */
+export function hasAudioInRange(doc: VideoDoc, timeline: ResolvedTimeline, range?: { readonly start: number; readonly end: number } | null): boolean {
+  if (timeline.duration <= 0) return false;
+  const winStart = Math.max(0, range?.start ?? 0);
+  const winEnd = Math.min(timeline.duration, range?.end ?? timeline.duration);
+  if (winEnd - winStart <= 1e-6) return false;
+  return audioItemsAt(doc, timeline).some((it) => it.end > winStart && it.start < winEnd && it.item.assetId !== undefined && doc.assets[it.item.assetId] !== undefined);
+}
+
 /** 오디오 아이템이 없으면 `null` — 무음 트랙도 만들지 않는다(빈 오디오 트랙은 일부 재생기에서 문제를 만든다). */
 export async function mixAudio(opts: MixAudioOptions): Promise<AudioBuffer | null> {
   opts.signal?.throwIfAborted();

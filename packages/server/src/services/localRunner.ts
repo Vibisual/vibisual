@@ -16,6 +16,7 @@ import {
   LOCAL_CHARS_PER_TOKEN,
   LOCAL_DEFAULT_CONTEXT_SIZE,
   LOCAL_CONTEXT_MIN,
+  LOCAL_FIT_RETRY_MARGINS_MIB,
   LOCAL_CONTEXT_MAX,
   localAnswerBudget,
   localHistoryBudget,
@@ -1076,6 +1077,12 @@ export const ENGINE_EXTRA_FLAGS: readonly EngineExtraFlag[] = [
   { id: 'thinking-cap', flag: '--reasoning-budget', value: (ctx) => String(localThinkingBudget(ctx)) },
 ];
 
+/** §5.19 (D) — 자동 배치가 남길 VRAM 여유를 `step` 단계만큼 넓힌다(0 = 엔진 기본). 맨 앞에 붙여 모르는 판이면 가장 먼저 빠지게 한다. */
+function withFitMargin(extras: readonly EngineExtraFlag[], step: number): readonly EngineExtraFlag[] {
+  const mib = step > 0 ? LOCAL_FIT_RETRY_MARGINS_MIB[step - 1] : undefined;
+  return mib === undefined ? extras : [{ id: 'fit-target', flag: '--fit-target', value: () => String(mib) }, ...extras];
+}
+
 /** 이 조합으로 엔진을 띄울 때의 인자. **인자를 만드는 곳은 여기 한 곳뿐이다.** */
 export function buildEngineArgs(
   modelPath: string,
@@ -1152,6 +1159,8 @@ interface LoadOptions {
   onWait?: (holderModelId: string) => void;
   /** 끝까지 돕기 묶음을 빼고서야 떴을 때 한 번. */
   onAssistDropped?: () => void;
+  /** `--cpu-moe` 로는 메모리가 모자라 자동 배치로 돌렸을 때 한 번. */
+  onMoeDropped?: () => void;
 }
 
 /** 쓰는 중인 엔진을 내려야 해서 기다려야 한다 — 준비 잠금을 쥔 채 기다리지 않으려고 던진다(§5.19 (J) ①7). */
@@ -1277,7 +1286,8 @@ async function loadModel(
   }
 
   // 학습 문맥보다 크게 잡아 봐야 엔진이 깎는다 — 우리가 먼저 깎아 두면 화면 숫자가 사실이 된다.
-  const trained = readLocalGgufMeta(model.path).contextLength;
+  const meta = readLocalGgufMeta(model.path);
+  const trained = meta.contextLength;
   let contextSize = trained && trained > 0 ? Math.min(requestedContext, trained) : requestedContext;
   if (contextSize !== requestedContext) {
     logger.info(`[localRunner] ${model.name} trained context is ${String(trained ?? 0)} — using it instead of ${String(requestedContext)}`);
@@ -1368,7 +1378,9 @@ async function loadModel(
     fs.mkdirSync(localKvDir(), { recursive: true });
     slotExtras.push({ id: 'slot-save', flag: '--slot-save-path', value: () => localKvDir(), assist: true });
   }
-  let bootExtras: EngineExtraFlag[] = [...(opts.extras ?? []), ...slotExtras, ...ENGINE_EXTRA_FLAGS];
+  // `--cpu-moe` 는 엔진 자동 배치를 끈다(`tensor_buft_overrides already set by user`) — 전문가 가중치가 없는 모델은 층 분할만 잃는다.
+  const requestedExtras = (opts.extras ?? []).filter((e) => e.id !== 'cpu-moe' || (meta.expertCount ?? 0) > 0);
+  let bootExtras: EngineExtraFlag[] = [...requestedExtras, ...slotExtras, ...ENGINE_EXTRA_FLAGS];
   const assistDropped = (): void => {
     // 프로필은 요청값 그대로 둔다 — 바꾸면 다음 턴마다 "다르다"며 다시 띄우는 고리가 된다.
     // 다음 백엔드 시도도 같은 묶음으로 다시 실패하지 않게 사다리에서 함께 뺀다.
@@ -1382,21 +1394,40 @@ async function loadModel(
     let lastError: unknown;
     // Modern llama.cpp adjusts GPU offload to the device. Older builds fall back to
     // numeric -ngl in bootWithFlagFallback; CPU uses its own installed executable.
+    const initialContext = contextSize;
     for (const candidate of candidates) {
       serverBin = candidate.serverBin;
       const attempts: Array<number | 'auto'> = candidate.backend === 'cpu' ? [0] : ['auto', 0];
       for (const layers of attempts) {
+        // 앞 단계가 깎은 문맥을 물려받지 않는다 — 층이 달라지면 메모리 사정이 다르다.
+        contextSize = initialContext;
+        let marginStep = 0;
         for (;;) {
           try {
-            child = await bootWithFlagFallback(boot, layers, model.name, bootExtras, assistDropped);
+            child = await bootWithFlagFallback(boot, layers, model.name, withFitMargin(bootExtras, marginStep), assistDropped);
             break;
           } catch (err) {
             signal?.throwIfAborted();
             lastError = err;
-            if (isLocalMemoryError(err) && contextSize > LOCAL_CONTEXT_MIN) {
-              contextSize = Math.max(LOCAL_CONTEXT_MIN, Math.floor(contextSize / 2));
-              logger.warn(`[localRunner] memory pressure — retrying ${model.name} with context ${String(contextSize)}`);
-              continue;
+            if (isLocalMemoryError(err)) {
+              if (layers === 'auto' && bootExtras.some((e) => e.id === 'cpu-moe')) {
+                // 자동 배치를 꺼 둔 탓일 수 있다 — 엔진은 VRAM 이 모자라면 전문가 가중치를 메모리로 먼저 내린다.
+                bootExtras = bootExtras.filter((e) => e.id !== 'cpu-moe');
+                logger.warn(`[localRunner] ${model.name} did not fit with --cpu-moe — retrying with automatic placement`);
+                opts.onMoeDropped?.();
+                continue;
+              }
+              // 문맥은 사용자가 고른 값이고 층은 엔진이 다시 나눌 수 있다 — 층부터 줄인다.
+              if (layers === 'auto' && marginStep < LOCAL_FIT_RETRY_MARGINS_MIB.length) {
+                marginStep += 1;
+                logger.warn(`[localRunner] memory pressure — retrying ${model.name} with a larger GPU margin (step ${String(marginStep)})`);
+                continue;
+              }
+              if (contextSize > LOCAL_CONTEXT_MIN) {
+                contextSize = Math.max(LOCAL_CONTEXT_MIN, Math.floor(contextSize / 2));
+                logger.warn(`[localRunner] memory pressure — retrying ${model.name} with context ${String(contextSize)}`);
+                continue;
+              }
             }
             logger.warn(`[localRunner] ${candidate.backend} ngl=${String(layers)} failed for ${model.name}`, err);
             break;
@@ -1626,6 +1657,7 @@ export function runLocalTurn(args: LocalTurnArgs): void {
         slotSave,
         onWait: (holder) => onEvent('system', `[local] waiting for the engine — ${holder} is still busy with another conversation. This turn starts as soon as it is free.`),
         onAssistDropped: () => onEvent('system', '[local] the engine could not start with the assist engine options on this PC — running without them this time'),
+        onMoeDropped: () => onEvent('system', '[local] the model did not fit with MoE experts kept on the CPU — letting the engine place it automatically this time'),
       });
       ac.signal.throwIfAborted();
       // 예산·게이지·절단이 전부 이 값을 먹는다 — 요청값이 아니라 **실제로 뜬 창**이 진실이다.

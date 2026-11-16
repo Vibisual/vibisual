@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { STREAM_COMPACT_LIST_PREVIEW, type AgentList } from '@vibisual/shared';
 import { CardLiveBadge, useCompactCards } from './AgentCardParts.js';
 import { useStreamToggle } from './streamToggle.js';
+import { CardPathText } from './CardPathText.js';
 
 interface AgentListCardProps {
   list: AgentList;
@@ -56,12 +57,12 @@ export const AgentListCard = memo(function AgentListCard({ list, live }: AgentLi
 
       <div className="px-3 py-2">
         {(!compact || expanded) && list.note && (
-          <p className="mb-2 text-[13px] leading-relaxed text-gray-300">{list.note}</p>
+          <p className="mb-2 text-[13px] leading-relaxed text-gray-300"><CardPathText text={list.note} /></p>
         )}
 
         {/* 목록 제목 / 머리말 */}
         {list.title && (
-          <div className="mb-1.5 text-[13px] font-medium leading-relaxed text-gray-200">{list.title}</div>
+          <div className="mb-1.5 text-[13px] font-medium leading-relaxed text-gray-200"><CardPathText text={list.title} /></div>
         )}
 
         {/* 번호 목록 — 번호 열 고정폭(우측정렬·tabular-nums) + 본문 행잉 인덴트. */}
@@ -71,7 +72,7 @@ export const AgentListCard = memo(function AgentListCard({ list, live }: AgentLi
               <span className="min-w-[1.5rem] flex-shrink-0 select-none text-right font-medium tabular-nums text-teal-300/70">
                 {i + 1}.
               </span>
-              <span className="min-w-0 flex-1 break-words">{item}</span>
+              <span className="min-w-0 flex-1 break-words"><CardPathText text={item} /></span>
             </li>
           ))}
         </ol>

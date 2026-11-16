@@ -6,10 +6,12 @@
 import type { VideoAsset, VideoDoc } from '../types.js';
 import type { MediaProvider } from './canvas2d.js';
 import { buildDrawList, type DrawOp } from './drawList.js';
+import { circleInBox, transitionBlurFilter } from './transitions.js';
 import { MODEL_RENDERER_UNAVAILABLE, fadeFactor, pickMediaElement } from './canvas2d.js';
 import type { DomStage } from './htmlInCanvas.js';
 import type { ResolvedTimeline } from '../types.js';
-import { CompositionFrame, type CompositionFrameEvent, type CompositionPlay, type FrameRect, type InspectedText, type PickedElement } from './compositionFrame.js';
+import { CompositionFrame, type CompositionFrameEvent, type CompositionPlay, type FrameRect, type InspectedText, type PickedBox, type PickedElement } from './compositionFrame.js';
+import type { SourceTarget } from '../composition/sourceMap.js';
 import { hitTest } from './hitTest.js';
 import { scenePropText } from './sceneParts.js';
 import { captionWordSpans, wantsWordHighlight } from './captionWords.js';
@@ -33,11 +35,20 @@ export interface StagePick {
   readonly op: DrawOp;
   readonly rect: FrameRect;
   readonly element?: PickedElement;
+  /** §5.13 (V) 37-21 — 위치·크기를 값으로 선언한 요소(사각형은 문서 픽셀 · `scale` = 값 1 이 문서에서 몇 픽셀인가). */
+  readonly box?: PickedBox;
 }
 
 /** §5.13 (V) 37-9 — 컴포지션 안의 보이는 글자 상자(사각형은 문서 픽셀). */
 export interface StageText extends InspectedText {
   readonly itemId: string;
+}
+
+/** §5.13 (V) 37-20 — 원본의 한 줄이 지금 무대에서 선 자리(아이템마다 — 사각형은 문서 픽셀 · 보이는 것만). */
+export interface StageLocated {
+  readonly itemId: string;
+  readonly total: number;
+  readonly rects: readonly FrameRect[];
 }
 
 /** 값(props)을 주소에 실을 때의 상한(글자) — 넘으면 싣지 않는다(디스크의 값이 쓰인다). */
@@ -470,6 +481,21 @@ export class HtmlSceneStage implements DomStage {
     this.setCold(false);
   }
 
+  /**
+   * §5.13 (V) 37-21 (H) — 그 컴포지션 아이템의 프레임을 지금 문서 값으로 한 번 다시 연다(값을 선언만 하고 따르지 않아 데이터 메시지로는
+   * 그림이 바뀌지 않았을 때). 다음 `seek` 이 새 프레임을 그 시각으로 맞춘다. 재생 중이거나 그 프레임이 없으면 false.
+   */
+  reopen(itemId: string): boolean {
+    const slot = this.slots.get(itemId);
+    const frame = slot?.frame;
+    const resolved = this.timeline.items.find((r) => r.id === itemId);
+    if (this.disposed || this.playClock || !slot?.src || !frame || !resolved) return false;
+    const props = resolved.item.props ?? {};
+    slot.propsKey = stableJson(props);
+    frame.reload(withPropsOverride(slot.src, props));
+    return true;
+  }
+
   /** §5.13 (Z) 41-2 — 재생 중인가(스스로 재생·합성기 예약이 걸려 있는가). */
   get playing(): boolean {
     return this.playClock !== null;
@@ -671,6 +697,7 @@ export class HtmlSceneStage implements DomStage {
     set('height', `${item.base.height}px`);
     w.style.zIndex = String(op.z);
     if (w.style.clipPath !== '') w.style.clipPath = '';
+    if (w.style.filter !== '') w.style.filter = '';
     this.applyEffects(slot, op);
     if (slot.animPlan !== plan) this.animateSlot(slot, item, plan);
   }
@@ -974,9 +1001,16 @@ export class HtmlSceneStage implements DomStage {
       const right = Math.max(0, transform.x + transform.width - (op.clip.x + op.clip.width));
       const bottom = Math.max(0, transform.y + transform.height - (op.clip.y + op.clip.height));
       w.style.clipPath = `inset(${top}px ${right}px ${bottom}px ${left}px)`;
+    } else if (op.clipCircle) {
+      // 37-8 (B) — clip-path 는 상자의 회전·배율 앞에 걸린다: 문서 픽셀의 원을 상자 안 좌표로 되돌려 적는다.
+      const c = circleInBox(op.clipCircle, transform);
+      w.style.clipPath = `circle(${Math.max(0, c.r)}px at ${c.cx}px ${c.cy}px)`;
     } else if (w.style.clipPath !== '') {
       w.style.clipPath = '';
     }
+    // 37-8 (B) — 전환의 흐림은 상자에(안쪽 그림의 이펙트 필터 위 — canvas 와 같은 순서).
+    const blur = transitionBlurFilter(op.blur);
+    if (w.style.filter !== blur) w.style.filter = blur;
     this.applyEffects(slot, op);
   }
 
@@ -1314,7 +1348,7 @@ export class HtmlSceneStage implements DomStage {
    * §5.13 (V) 37-6 — 마지막으로 맞춘 시각의 그림에서 문서 픽셀 (x, y) 아래 맨 위의 것. 컴포지션이면 샌드박스에 읽기 전용으로
    * 그 자리 요소를 묻는다(답이 없으면 아이템 단위).
    */
-  async pickAt(x: number, y: number): Promise<StagePick | null> {
+  async pickAt(x: number, y: number, options?: { readonly source?: boolean }): Promise<StagePick | null> {
     const hit = hitTest(this.doc, this.timeline, this.lastT, x, y);
     if (!hit) return null;
     const slot = this.slots.get(hit.op.itemId);
@@ -1323,9 +1357,13 @@ export class HtmlSceneStage implements DomStage {
     if (element) return { op: hit.op, element, rect: element.rect };
     if (hit.op.kind === 'composition' && slot?.frame) {
       const box = hit.op.transform;
-      const element = await slot.frame.pick(x - box.x, y - box.y);
-      if (element) {
-        return { op: hit.op, element, rect: { x: box.x + element.rect.x, y: box.y + element.rect.y, width: element.rect.width, height: element.rect.height } };
+      const picked = await slot.frame.pick(x - box.x, y - box.y, options);
+      if (picked) {
+        const declared = picked.box;
+        return {
+          op: hit.op, element: picked, rect: { x: box.x + picked.rect.x, y: box.y + picked.rect.y, width: picked.rect.width, height: picked.rect.height },
+          ...(declared ? { box: { ...declared, rect: { ...declared.rect, x: box.x + declared.rect.x, y: box.y + declared.rect.y } } } : {}),
+        };
       }
     }
     if (hit.op.kind === 'scene' && slot) {
@@ -1380,6 +1418,26 @@ export class HtmlSceneStage implements DomStage {
       for (const text of await frame.inspect()) {
         out.push({ ...text, itemId: op.itemId, rect: { x: op.transform.x + text.rect.x, y: op.transform.y + text.rect.y, width: text.rect.width, height: text.rect.height } });
       }
+    }
+    return out;
+  }
+
+  /**
+   * §5.13 (V) 37-20 — 마지막으로 맞춘 시각에 그려진 컴포지션 가운데 `match` 인 것들에게 원본의 그 요소가 어디 있는지 묻는다(읽기 전용).
+   * 그 시각에 그려지지 않은 아이템은 답에 없다(화면에 없는 것이다).
+   */
+  async locateSource(match: (op: DrawOp) => boolean, targets: readonly SourceTarget[]): Promise<StageLocated[]> {
+    const ops = buildDrawList(this.doc, this.timeline, this.lastT).filter((op) => op.kind === 'composition' && match(op));
+    const out: StageLocated[] = [];
+    for (const op of ops) {
+      const frame = this.slots.get(op.itemId)?.frame;
+      if (!frame) continue;
+      const found = await frame.locate(targets);
+      out.push({
+        itemId: op.itemId,
+        total: found.total,
+        rects: found.rects.map((r) => ({ x: op.transform.x + r.x, y: op.transform.y + r.y, width: r.width, height: r.height })),
+      });
     }
     return out;
   }

@@ -81,7 +81,7 @@ export function InlinePromptPopup({
     <div
       ref={boxRef}
       data-popup="conti-prompt"
-      className="fixed z-[60] w-[300px] max-w-[calc(100vw-1rem)] rounded-lg border border-blue-700/60 bg-gray-900 p-3 shadow-2xl shadow-blue-500/30"
+      className="fixed z-menu w-[300px] max-w-[calc(100vw-1rem)] rounded-lg border border-blue-700/60 bg-gray-900 p-3 shadow-2xl shadow-blue-500/30"
       style={{ left, top }}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}

@@ -6,6 +6,7 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { alertDialog, confirmDialog } from '../../utils/appDialog.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { buildMergeConflictPrompt } from './mergeConflictPrompt.js';
+import { LayerRoot } from '../Layout/LayerRoot.js';
 
 interface GitError {
   title: string;
@@ -740,8 +741,8 @@ function GitErrorModal({
   const backdrop = useBackdropDismiss(onClose);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+    <LayerRoot
+      className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60"
       {...backdrop}
     >
       {/* 하한 22rem(352px)은 360px 폰에서 화면 끝에 닿는다 — 화면 폭에서 여백만큼은 늘 남기고, 낮으면 안에서 구른다. */}
@@ -793,7 +794,7 @@ function GitErrorModal({
           </div>
         </div>
       </div>
-    </div>
+    </LayerRoot>
   );
 }
 

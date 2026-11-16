@@ -28,7 +28,33 @@ export interface ImageLayer {
   fit?: 'contain' | 'cover';
   /** Provenance only. The renderer uses source, whose bytes are snapshotted on import. */
   sourceOriginal?: string;
+  // Optional editor fields (§5.13 (R-9) 레이어 편집기 ⑥) — absent means the drawing older sources already had.
+  /** Degrees, clockwise, around the box centre. */
+  rotation?: number;
+  flipX?: boolean;
+  flipY?: boolean;
+  blend?: ImageBlendMode;
+  /** Outline of a shape or text; drawn only when `strokeWidth` > 0. */
+  stroke?: string;
+  strokeWidth?: number;
+  /** Corner radius of a rectangle. */
+  radius?: number;
+  shadow?: ImageShadow;
+  fontWeight?: number;
+  italic?: boolean;
+  /** Multiple of the font size between baselines. */
+  lineHeight?: number;
+  /** Extra px between characters. */
+  letterSpacing?: number;
 }
+
+export interface ImageShadow { color: string; opacity: number; x: number; y: number; blur: number }
+/** CSS `mix-blend-mode` values — SVG, PNG (rasterized SVG) and the stage draw them the same way. */
+export const IMAGE_BLEND_MODES = [
+  'normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn',
+  'hard-light', 'soft-light', 'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity',
+] as const;
+export type ImageBlendMode = typeof IMAGE_BLEND_MODES[number];
 
 export interface ImageDocument {
   format: 'vibimage';
@@ -61,6 +87,7 @@ function validLayer(layer: unknown, ids: Set<string>): boolean {
     || (layer.width as number) <= 0 || (layer.height as number) <= 0
     || (layer.opacity as number) < 0 || (layer.opacity as number) > 1) return false;
   if (layer.fit !== undefined && layer.fit !== 'contain' && layer.fit !== 'cover') return false;
+  if (!validEditorFields(layer)) return false;
   if (layer.kind === 'text') {
     return typeof layer.text === 'string' && layer.text.length <= 20_000
       && number(layer.fontSize) && layer.fontSize > 0 && layer.fontSize <= IMAGE_LIMITS.maxSize
@@ -68,6 +95,20 @@ function validLayer(layer: unknown, ids: Set<string>): boolean {
   }
   if (layer.kind === 'shape') return layer.shape === 'rect' || layer.shape === 'ellipse';
   return typeof layer.source === 'string' && safeImageSource(layer.source);
+}
+
+const optional = (v: unknown, ok: (v: unknown) => boolean): boolean => v === undefined || ok(v);
+const between = (min: number, max: number) => (v: unknown): boolean => number(v) && v >= min && v <= max;
+const flag = (v: unknown): boolean => typeof v === 'boolean';
+function validShadow(v: unknown): boolean {
+  return object(v) && color(v.color) && between(0, 1)(v.opacity) && between(-8192, 8192)(v.x) && between(-8192, 8192)(v.y) && between(0, 1000)(v.blur);
+}
+function validEditorFields(layer: Record<string, unknown>): boolean {
+  return optional(layer.rotation, between(-360, 360)) && optional(layer.flipX, flag) && optional(layer.flipY, flag)
+    && optional(layer.blend, (v) => (IMAGE_BLEND_MODES as readonly unknown[]).includes(v))
+    && optional(layer.stroke, color) && optional(layer.strokeWidth, between(0, 1000)) && optional(layer.radius, between(0, 8192))
+    && optional(layer.shadow, validShadow) && optional(layer.fontWeight, (v) => number(v) && Number.isInteger(v) && v >= 100 && v <= 900)
+    && optional(layer.italic, flag) && optional(layer.lineHeight, between(0.5, 5)) && optional(layer.letterSpacing, between(-1000, 1000));
 }
 
 /** Validate loaded/agent data before rendering; never execute source strings as code. */
@@ -148,22 +189,30 @@ export function imageVariant(doc: ImageDocument, width: number, height: number, 
     const y = (layer.y + layer.height / 2) / doc.height * height - h / 2;
     return { x: Math.max(margin, Math.min(width - margin - w, x)), y: Math.max(margin, Math.min(height - margin - h, y)) };
   };
+  // Outlines, corners and shadows grow with the layer, or a 4K variant would get hairline strokes and faint shadows.
+  const effects = (layer: ImageLayer, k: number): Partial<ImageLayer> => ({
+    ...(layer.strokeWidth === undefined ? {} : { strokeWidth: layer.strokeWidth * k }),
+    ...(layer.radius === undefined ? {} : { radius: layer.radius * k }),
+    ...(layer.shadow ? { shadow: { ...layer.shadow, x: layer.shadow.x * k, y: layer.shadow.y * k, blur: layer.shadow.blur * k } } : {}),
+  });
   return {
     ...doc, width, height, style: { ...doc.style, margin },
     layers: doc.layers.map((layer) => {
-      if (isFullBleed(doc, layer)) return { ...layer, x: 0, y: 0, width, height, ...(layer.kind === 'image' ? { fit: 'cover' as const } : {}) };
+      if (isFullBleed(doc, layer)) return { ...layer, ...effects(layer, factor), x: 0, y: 0, width, height, ...(layer.kind === 'image' ? { fit: 'cover' as const } : {}) };
       if (layer.kind === 'text') {
         const fontSize = Math.max(1, (layer.fontSize ?? 64) * factor);
         const share = Math.min(1, layer.width / oldSafeWidth);
         const w = Math.min(safeWidth, Math.max(fontSize * 2, share * safeWidth));
-        const lines = wrapTextToWidth(layer.text ?? '', w, imageFont(fontSize, layer.fontFamily ?? doc.style.fontFamily), measure);
-        const h = Math.min(safeHeight, Math.max(layer.height * factor, lines.length * fontSize * IMAGE_LINE_HEIGHT + fontSize * 0.3));
-        return { ...layer, ...place(layer, w, h), width: w, height: h, fontSize };
+        const scaled = { ...layer, fontSize, letterSpacing: layer.letterSpacing === undefined ? undefined : layer.letterSpacing * factor };
+        const lines = wrapTextToWidth(layer.text ?? '', w, imageLayerFont(scaled, doc.style.fontFamily), imageLayerMeasure(scaled, measure));
+        const h = Math.min(safeHeight, Math.max(layer.height * factor, lines.length * fontSize * (layer.lineHeight ?? IMAGE_LINE_HEIGHT) + fontSize * 0.3));
+        return { ...layer, ...effects(layer, factor), ...place(layer, w, h), width: w, height: h, fontSize,
+          ...(layer.letterSpacing === undefined ? {} : { letterSpacing: scaled.letterSpacing }) };
       }
       const scale = Math.min(factor, safeWidth / layer.width, safeHeight / layer.height);
       const w = layer.width * scale;
       const h = layer.height * scale;
-      return { ...layer, ...place(layer, w, h), width: w, height: h };
+      return { ...layer, ...effects(layer, scale), ...place(layer, w, h), width: w, height: h };
     }),
   };
 }
@@ -179,4 +228,14 @@ export function imageLayerPointer(id: string): string {
 }
 export function imageLockedPaths(doc: ImageDocument): string[] {
   return doc.layers.flatMap((layer) => layer.locked ? [imageLayerPointer(layer.id)] : []);
+}
+
+/** The canvas font string of a text layer — weight and italic change widths, so measuring and drawing share it. */
+export function imageLayerFont(layer: Pick<ImageLayer, 'fontSize' | 'fontFamily' | 'fontWeight' | 'italic'>, fallbackFamily: string): string {
+  return imageFont(layer.fontSize ?? 64, layer.fontFamily || fallbackFamily, { weight: layer.fontWeight, italic: layer.italic });
+}
+/** Letter spacing adds after every character (SVG `letter-spacing` does the same), so wrapping sees the real width. */
+export function imageLayerMeasure(layer: Pick<ImageLayer, 'letterSpacing'>, measure: TextMeasure): TextMeasure {
+  const spacing = layer.letterSpacing ?? 0;
+  return spacing ? (text, font) => measure(text, font) + spacing * Array.from(text).length : measure;
 }

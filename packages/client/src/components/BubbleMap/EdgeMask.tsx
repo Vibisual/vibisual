@@ -1,6 +1,7 @@
 import { useLayoutEffect } from 'react';
 import { useNodes } from '@xyflow/react';
 import { useHeatScale } from '../../hooks/useHeatScale.js';
+import { useAgentCardTuckStore } from '../../stores/agentCardTuck.js';
 import { edgeMaskCircles } from './edgeMaskGeometry.js';
 import { publishOccluders, useOccluderInstance } from './edgeOccluders.js';
 
@@ -15,12 +16,13 @@ export function EdgeMask(): null {
   const instance = useOccluderInstance();
   // §5.24 — 실측(`node.measured`)이 아직 없는 프레임의 폴백도 렌더와 **같은 자**를 써야 한다.
   const heat = useHeatScale();
+  const tucked = useAgentCardTuckStore((state) => state.tucked);
 
   // 레이아웃 단계에서 게시한다 — 선이 이 원을 받아 다시 잘리는 일이 같은 커밋 안에서 끝나야
   // 처음 그려지는 한 프레임에 버블 너머로 선이 비치지 않는다.
   useLayoutEffect(() => {
-    publishOccluders(instance, edgeMaskCircles(nodes.filter((node) => !node.hidden), heat));
-  }, [nodes, heat, instance]);
+    publishOccluders(instance, edgeMaskCircles(nodes.filter((node) => !node.hidden), heat, tucked));
+  }, [nodes, heat, instance, tucked]);
 
   useLayoutEffect(() => () => publishOccluders(instance, []), [instance]);
 

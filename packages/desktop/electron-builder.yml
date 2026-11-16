@@ -28,6 +28,8 @@ extraResources:
     to: PRIVACY.md
   - from: build/license
     to: legal
+  - from: ../memo/node_modules/fflate/LICENSE
+    to: legal/fflate.LICENSE
 
 # No asar — with the pnpm symlink layout, asarUnpack matching left better_sqlite3.node inside the asar (dlopen
 # unfriendly) and dropped sqlite-vec's platform DLL. Plain files let the child Node process dlopen natives directly.

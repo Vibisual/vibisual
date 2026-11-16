@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { ExternalOpenFailure } from '@vibisual/shared';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 /**
  * §3.7 — 바깥 브라우저 열기 실패 안내(폴백 ❌). `window.open` → `setWindowOpenHandler` → `shell.openExternal` 길은 실패를 말하지 않는다
@@ -9,9 +10,9 @@ import type { ExternalOpenFailure } from '@vibisual/shared';
  * 부팅 지점(main.tsx)에서 한 번만 마운트한다 — shell 안이면 별창·오버레이·지휘통제실·내부 앱 창에서 죽는다.
  */
 
-// 온보딩 게이트 중 가장 위(ClaudeSetupGate 100_700)보다도 위 — 그 창들 **안의** 링크가
+// 온보딩 게이트 중 가장 위(엔진 선택)보다도 위 — 그 창들 **안의** 링크가
 // 실패하는 경우가 정확히 우리가 고치려는 그 상황이라, 그 아래에 깔리면 보이지 않는다.
-const Z = 100_800;
+const Z = Z_LAYER.GATE_NOTICE;
 
 /** 안내는 스스로 사라지지 않는다 — 주소를 읽고 복사할 시간이 필요하다. */
 export function ExternalOpenNotice(): React.ReactElement | null {

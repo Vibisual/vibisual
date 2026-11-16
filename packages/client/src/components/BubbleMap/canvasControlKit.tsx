@@ -175,7 +175,7 @@ export function CtrlButton({ label, title = label, onClick, active, expanded, di
       {rect && createPortal(
         <span
           role="tooltip"
-          className="pointer-events-none fixed z-[70] max-w-[calc(100vw-16px)] -translate-y-1/2 truncate whitespace-nowrap rounded-md border border-white/10 bg-gray-900/95 px-2 py-1 text-[12px] text-gray-100 shadow-lg shadow-black/40"
+          className="pointer-events-none fixed z-tooltip max-w-[calc(100vw-16px)] -translate-y-1/2 truncate whitespace-nowrap rounded-md border border-white/10 bg-gray-900/95 px-2 py-1 text-[12px] text-gray-100 shadow-lg shadow-black/40"
           style={placeLeft
             ? { right: window.innerWidth - rect.left + HOLD_LABEL_GAP, top: rect.top + rect.height / 2 }
             : { left: rect.right + HOLD_LABEL_GAP, top: rect.top + rect.height / 2 }}

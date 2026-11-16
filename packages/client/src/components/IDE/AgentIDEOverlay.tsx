@@ -2246,7 +2246,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     // 첫 최대화는 헤더 아래, 몰입 상태에서는 헤더가 비운 영역까지 채운다.
     windowClass += fillsWindow ? ' fixed inset-0' : ' fixed left-0 right-0 top-9 bottom-0';
   } else if (isModal) {
-    // §4 — 폰에선 모달 대신 풀스크린. inset-0 이면 타이틀바(닫기)가 Header(h-9, z-[100]) 밑에 깔리므로 top-9 부터.
+    // §4 — 폰에선 모달 대신 풀스크린. inset-0 이면 타이틀바(닫기)가 Header(h-9, `z-header`) 밑에 깔리므로 top-9 부터.
     windowClass += ' h-[80vh] w-[80vw] rounded-lg border max-md:fixed max-md:left-0 max-md:right-0 max-md:top-9 max-md:bottom-0 max-md:h-auto max-md:w-auto max-md:rounded-none max-md:border-0';
   } else if (isDocked && storeDockSide) {
     windowClass += ` fixed ${DOCK_BORDER_CLASS[storeDockSide]}`;
@@ -2282,11 +2282,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   // fullWindow 는 백드롭 없음(창 전체가 IDE) — 백드롭 클릭 닫기도 자연 소멸(닫기=Esc/X).
   const useBackdrop = isModal && !fullWindow;
   const outerClass = fullWindow
-    ? 'fixed inset-0 z-50'
+    ? 'fixed inset-0 z-ide'
     : isModal
       // §4 — backdrop-blur ❌: modal 아래 React Flow 는 이미 hidden 이라 블러할 것이 없고 매 프레임 전면 재합성 비용만 남는다. 불투명에 가까운 스크림으로 대신한다.
-      ? 'fixed inset-0 z-50 flex items-center justify-center bg-gray-950/95'
-      : 'fixed inset-0 z-50 pointer-events-none';
+      ? 'fixed inset-0 z-ide flex items-center justify-center bg-gray-950/95'
+      : 'fixed inset-0 z-ide pointer-events-none';
 
   return (
     <IDEBodyLayoutContext.Provider value={bodyLayoutValue}>

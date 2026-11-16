@@ -5,6 +5,7 @@ import { FeedbackButtons } from './FeedbackButtons.js';
 import { CardSection, CardDetails, CardHoverControls, CardLiveBadge, CompactCardLine, compactSummary, useCompactCards } from './AgentCardParts.js';
 import { ReviewIcon, InstructionIcon, ChangeIcon, VerifyIcon } from './AgentReviewCard.js';
 import { useStreamToggle } from './streamToggle.js';
+import { CardPathText } from './CardPathText.js';
 
 interface AgentReportCardProps {
   report: AgentReport;
@@ -103,12 +104,12 @@ function parseNumberedNote(note: string): NumberedNote | null {
 function NoteBody({ note }: { note: string }): React.JSX.Element {
   const parsed = parseNumberedNote(note);
   if (!parsed) {
-    return <p className="mb-2 text-[13px] leading-relaxed text-gray-300">{note}</p>;
+    return <p className="mb-2 text-[13px] leading-relaxed text-gray-300"><CardPathText text={note} /></p>;
   }
   return (
     <div className="mb-2">
       {parsed.intro && (
-        <p className="mb-1.5 text-[13px] leading-relaxed text-gray-300">{parsed.intro}</p>
+        <p className="mb-1.5 text-[13px] leading-relaxed text-gray-300"><CardPathText text={parsed.intro} /></p>
       )}
       <ol className="space-y-0.5">
         {parsed.items.map((it, i) => (
@@ -116,7 +117,7 @@ function NoteBody({ note }: { note: string }): React.JSX.Element {
             <span className="min-w-[1.5rem] flex-shrink-0 select-none text-right font-medium tabular-nums text-gray-500">
               {it.num}.
             </span>
-            <span className="min-w-0 flex-1 break-words">{it.text}</span>
+            <span className="min-w-0 flex-1 break-words"><CardPathText text={it.text} /></span>
           </li>
         ))}
       </ol>

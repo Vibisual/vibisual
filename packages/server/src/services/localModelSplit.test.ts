@@ -186,4 +186,27 @@ describe('classifyModelFit — 이 PC 에서 어떻게 돌지', () => {
     // 여유가 정확히 파일 크기와 같으면, 문맥 캐시가 들어갈 자리가 없다.
     expect(classifyModelFit(24 * 1e9, gpu)).not.toBe('gpu');
   });
+
+  describe('split — VRAM 을 넘으면 GPU 와 메모리에 나눠 올린다', () => {
+    const dedicated = { ...gpu, dedicatedVram: true };
+
+    it('VRAM 안이면 여전히 gpu', () => {
+      expect(classifyModelFit(16 * 1e9, dedicated)).toBe('gpu');
+    });
+
+    it('전용 VRAM 이면 VRAM + 메모리 가용분까지 split, 그 위는 too-big', () => {
+      expect(classifyModelFit(30 * 1e9, dedicated)).toBe('split');
+      expect(classifyModelFit(56 * 1e9, dedicated)).toBe('split');
+      expect(classifyModelFit(57 * 1e9, dedicated)).toBe('too-big');
+    });
+
+    it('전용인지 모르면 더하지 않는다 — 종전 판정 그대로', () => {
+      expect(classifyModelFit(30 * 1e9, { ...gpu, dedicatedVram: false })).toBe('ram');
+      expect(classifyModelFit(56 * 1e9, gpu)).toBe('too-big');
+    });
+
+    it('가속 장치가 없으면 split 이라 하지 않는다', () => {
+      expect(classifyModelFit(1 * 1e9, { ...noGpu, dedicatedVram: true })).toBe('ram');
+    });
+  });
 });

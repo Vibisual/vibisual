@@ -12,7 +12,7 @@ export function assetUrl(project: string, relPath: string): string {
 
 /**
  * 이 주소가 끝이 열린 구간을 끊을 수 있는 진짜 스트림인가. 패키지 앱에서 `/api…` 상대 주소는 IPC 로 떨어져 응답을 통째로
- * 싣는다 — 그때 호출부가 구간을 묶어 보내야 한다(`boundedRangeFetch`). 웹·모바일의 상대 주소는 진짜 HTTP 라 끊긴다.
+ * 싣는다 — 그때 호출부가 구간을 묶어 보내야 한다(`boundedRangeFetch`). 웹·모바일의 상대 주소는 진짜 HTTP 다(모바일 리스너는 끝 열린 구간을 스스로 묶는다).
  */
 export function isStreamingAssetUrl(url: string): boolean {
   return !isPackagedDesktop() || url.startsWith('vibproxy://');

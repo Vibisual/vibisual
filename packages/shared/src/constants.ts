@@ -1420,6 +1420,22 @@ export const COMMAND_APP_SIZE = {
   minSpread: 16,
 } as const;
 
+/** §5.4 #36 (K) — 말풍선 전용 버블(화면 전용). */
+export const DEDICATED_BUBBLE = {
+  /** 지름(px) — 종류 묶음(`BUNDLE_BUBBLE.size`)보다 커야 사슬의 위쪽으로 읽힌다. */
+  size: 84,
+  /** `BubbleData.dedicatedHidden` 항목 상한 — 프로필 수 × 종류 수보다 넉넉하게. */
+  hiddenMax: 128,
+  /** 체크 항목 한 칸(`<프로필>:<종류>`)의 모양. 저장값이라 서버·클라가 같은 식을 쓴다. */
+  hiddenEntryPattern: /^[a-z0-9_-]{1,40}:[a-z0-9_-]{1,40}$/,
+} as const;
+
+/** §5.4 #36 (K) — 저장할 수 있는 모양으로 고른다(잘못된 칸은 버리고, 정렬·중복 제거·상한). 스냅샷과 비교하는 값이라 항상 같은 순서여야 한다. */
+export function normalizeDedicatedHidden(value: readonly unknown[]): string[] {
+  const entries = value.filter((v): v is string => typeof v === 'string' && DEDICATED_BUBBLE.hiddenEntryPattern.test(v));
+  return [...new Set(entries)].sort().slice(0, DEDICATED_BUBBLE.hiddenMax);
+}
+
 /** §2.2 · §5.1 #2-1 (B) — 묶음 버블(화면 전용): 한 버블 위성 무리의 같은 미디어 종류(하위 폴더 무관). 파일은 묶음의 부모로 서지 않고, 묶음엔 그 종류만 든다. */
 export const BUNDLE_BUBBLE = {
   /** 지름(px) — 파일 범위의 가운데보다 조금 커서 무리의 중심으로 읽히되 구성 파일을 덮지 않는다. 용량·활동과 무관하게 고정. */
@@ -1491,10 +1507,11 @@ export const IFRAME_BUBBLE_HEIGHT = 90;
 
 /**
  * 풀ID → 컨텍스트 한도 시드. 같은 패밀리도 값이 갈려(Sonnet 4.6 1M · 4.5 200K) 아는 ID 는 여기 적는다 — 패밀리 디폴트는 처음 보는 ID 폴백일 뿐.
- * 출처: 공개 모델 개요표 Context window 행(확인 2026-09-02, Sonnet 5.5·Haiku 5.5 는 2026-10-15). 키가 있으면 `/v1/models` 의 `max_input_tokens` 가 덮는다.
+ * 출처: 공개 모델 개요표 Context window 행(확인 2026-09-02, Sonnet 5.5·Haiku 5.5 는 2026-10-15, Fable 5.2 는 2026-11-10). 키가 있으면 `/v1/models` 의 `max_input_tokens` 가 덮는다.
  */
 export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   // 1M 세대 — 4.6 이후는 1M 이 표준가에 포함된다(장문 프리미엄 ❌). Haiku 5.5 만 예외로 길이 구간 요금이다(`MODEL_PRICING`).
+  'claude-fable-5-2': 1_000_000,
   'claude-fable-5-1': 1_000_000,
   'claude-fable-5': 1_000_000,
   'claude-opus-5-5': 1_000_000,
@@ -2046,6 +2063,15 @@ export const CONSTELLATION = {
   mentionMax: 32,
 } as const;
 
+/** §5.4 #36 (C) 연결 강제의 상한 — 도구 호출을 붙잡는 자리라 스크립트 추적을 묶는다. */
+export const APP_LINK_GATE = {
+  scriptMaxChars: 256 * 1024,
+  scriptFollowDepth: 3,
+  scriptFollowFiles: 16,
+  scriptFollowProbes: 64,
+  pointedSessionsMax: 512,
+} as const;
+
 /**
  * §5.1 #2-1 (F) · §5.4 #36 (I) — **앱 작업물**(앱과 연결해 한 일의 파일)의 수치. 귀속은 서버(`appWork` 꼬리표),
  * 보기는 클라(`appWorkView.ts`)가 하고 둘 다 이 표를 본다.
@@ -2065,6 +2091,14 @@ export const APP_WORK = {
   scanDepthMax: 3,
   /** (F) ③ — 명령 글에서 폴더 후보로 보는 경로 낱말 수 상한. */
   scanCommandPathMax: 4,
+  /** §5.4 #36 (L) — 마지막 앱 작업 뒤 결과 없는 화면의 작업 폴더를 지켜보는 시간(긴 렌더·음성 생성을 덮는다). */
+  previewWatchMs: 3 * 60 * 60_000,
+  /** §5.4 #36 (L) — 이만큼 안 바뀐 파일만 고른다(쓰는 중인 미완성 파일은 풀리지 않는다). */
+  previewSettleMs: 5_000,
+  /** §5.4 #36 (L) — 노드 한 번의 감시가 보는 폴더 항목 수 상한. */
+  previewScanEntryMax: 4_000,
+  /** §5.4 #36 (L) — 노드가 기억하는 기준 자리 수(최근 것이 남는다). */
+  previewAnchorMax: 16,
   /** (F) ③ — 훑지 않는 폴더 이름(정확히 같은 이름 · 대소문자 그대로). */
   scanSkipDirs: [
     '.git', 'node_modules', '.vibisual', '__pycache__', '.venv', 'venv', '.next', '.turbo', '.cache', '.idea', '.vscode',
@@ -2079,6 +2113,11 @@ export const APP_WORK = {
   ringWidth: 2,
   /** (F) ⑦⑧ · (I) — 툴팁에 적는 이름 목록 상한(넘치면 "…외 N"). */
   tooltipNameMax: 12,
+  /**
+   * §5.1 #2-1 (F) — 앱 노드가 파일 위성을 거느리는가. false 면 앱 연결이 에이전트의 파일·폴더 표시를 바꾸지 않는다
+   * (앱 노드 별자리·앱 작업 보기·파일 선 흐림·보기 전환이 함께 꺼진다). 서버 `appWork` 꼬리표는 그대로 쌓인다.
+   */
+  nodeHoldsFiles: false,
 } as const;
 
 /**
@@ -2256,7 +2295,7 @@ export const PHYSICS_SLEEP_FRAMES = 15;
 // §4 — `MODEL_PRICING` 은 시드(폴백), 런타임 SSOT 는 `ModelRegistry`. 조회는 `getModelPricing` 로.
 
 /**
- * 단가 한 벌 — 캐시 값은 입력가에서 파생(쓰기 ×1.25, 읽기 ×0.1). 예외 `cacheReadMultiplier`: Fable 5.1·Mythos 5.1 0.025×, Opus 5.5·Sonnet 5.5 0.05×.
+ * 단가 한 벌 — 캐시 값은 입력가에서 파생(쓰기 ×1.25, 읽기 ×0.1). 예외 `cacheReadMultiplier`: Fable/Mythos 5.1·5.2 0.025×, Opus 5.5·Sonnet 5.5 0.05×.
  * `longPrompt` 캐시도 같은 배수, 부동소수 꼬리는 6자리에서 끊는다.
  */
 function makePricing(
@@ -2281,10 +2320,11 @@ function makePricing(
 const HAIKU_5_5_PRICING: ModelPricing = makePricing(0.1, 0.5, 0.1, { aboveTokens: 100_000, input: 0.5, output: 2.5 });
 
 /**
- * 풀ID → 가격 시드. 같은 패밀리도 값이 갈려(Sonnet 5 $2/$10 · 4.6 $3/$15) 아는 ID 는 여기 적는다. 출처: 공개 가격표 Model pricing(확인 2026-09-02, Sonnet 5.5·Haiku 5.5 는 2026-10-15).
+ * 풀ID → 가격 시드. 같은 패밀리도 값이 갈려(Sonnet 5 $2/$10 · 4.6 $3/$15) 아는 ID 는 여기 적는다. 출처: 공개 가격표 Model pricing(확인 2026-09-02, Sonnet 5.5·Haiku 5.5 는 2026-10-15, Fable 5.2 는 2026-11-10).
  * 은퇴 모델도 남긴다 — 지난 세션 JSONL 의 ID 로 조회된다. 순서: 레지스트리 → 시드 → 패밀리 → `DEFAULT_PRICING`.
  */
 export const MODEL_PRICING: Record<string, ModelPricing> = {
+  'claude-fable-5-2': makePricing(8, 40, 0.025), // 캐시 읽기만 0.025× — 가격표 각주 1(확인 2026-11-10). 5.1 보다 싸졌다.
   'claude-fable-5-1': makePricing(10, 50, 0.025),
   'claude-fable-5': makePricing(10, 50),
   'claude-opus-5-5': makePricing(4, 20, 0.05), // 캐시 읽기만 0.05× — 가격표 각주 2(확인 2026-10-01)
@@ -2327,7 +2367,7 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   'gpt-5': { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
 };
 
-/** 모르는 모델의 최종 폴백 = 현행 최고가 티어(Fable $10/$50 — 은퇴 모델 단가는 현행보다 비싸 부풀린다). 캐시 읽기는 표준 0.1×(할인 배수면 과소계상). */
+/** 모르는 모델의 최종 폴백 = 아직 팔리는 모델 중 최고가 티어(Fable 5.1 $10/$50 — Fable 5.2 는 $8/$40 으로 내렸다. 은퇴 모델 단가는 현행보다 비싸 부풀린다). 캐시 읽기는 표준 0.1×(할인 배수면 과소계상). */
 export const DEFAULT_PRICING: ModelPricing = makePricing(10, 50);
 
 /**
@@ -2335,8 +2375,8 @@ export const DEFAULT_PRICING: ModelPricing = makePricing(10, 50);
  * fable/mythos 도 채운다 — 빠지면 `DEFAULT_*` 로 떨어져 컨텍스트가 5배 과소로 잡힌다.
  */
 export const MODEL_FAMILY_DEFAULTS: Record<KnownModelFamily, { contextWindow: number; pricing: ModelPricing }> = {
-  fable:  { contextWindow: 1_000_000, pricing: makePricing(10, 50, 0.025) },
-  mythos: { contextWindow: 1_000_000, pricing: makePricing(10, 50, 0.025) },
+  fable:  { contextWindow: 1_000_000, pricing: makePricing(8, 40, 0.025) }, // Fable 5.2(확인 2026-11-10)
+  mythos: { contextWindow: 1_000_000, pricing: makePricing(8, 40, 0.025) }, // Mythos 5.2 — Fable 5.2 와 같은 단가
   opus:   { contextWindow: 1_000_000, pricing: makePricing(4, 20, 0.05) },
   sonnet: { contextWindow: 1_000_000, pricing: makePricing(2, 10, 0.05) },
   haiku:  { contextWindow: 1_000_000, pricing: HAIKU_5_5_PRICING },
@@ -2471,11 +2511,27 @@ export const AVAILABLE_AGENT_MODELS: readonly string[] = [
 ];
 
 /**
+ * §4 (상태바 모델 칸 ③⑤) — 설치본 `--help` 를 못 읽었을 때 "CLI 가 bare 별칭을 스스로 latest 로 해소한다"고 믿는 최소 집합.
+ * 도움말은 예시("e.g.")라 전부를 적지 않으므로 파싱 결과에 늘 합친다. 밖의 별칭은 레지스트리 latest 풀ID 로 치환된다 — 옛 판 CLI 가 모르는 별칭을 bare 로 받으면 opus 로 조용히 떨어졌다.
+ */
+export const CLI_NATIVE_MODEL_ALIASES_FALLBACK: readonly string[] = ['opus', 'sonnet', 'haiku'];
+
+/** §4 (상태바 모델 칸 ③⑤) — 지금 설치본이 bare 로 받는 별칭 = 폴백 셋 ∪ 레지스트리가 `--help` 에서 읽은 것. 서버 `buildConfigArgs` 가 치환 여부를 가른다. */
+export function listNativeModelAliases(registry?: ModelRegistry | null): readonly string[] {
+  const scanned = registry?.nativeModelAliases;
+  if (!scanned || scanned.length === 0) return CLI_NATIVE_MODEL_ALIASES_FALLBACK;
+  const out = [...CLI_NATIVE_MODEL_ALIASES_FALLBACK];
+  for (const alias of scanned) if (!out.includes(alias)) out.push(alias);
+  return out;
+}
+
+/**
  * 버전 드롭다운 풀ID 시드 — 출처는 공개 문서(모델 개요표·Claude Code 모델 설정 문서). 실행본 스캔 ❌(약관 §3 역설계 금지). 비면 패밀리 목록·드롭다운이 빈다.
  * 키가 있으면 `/v1/models` 가 덮고, 없으면 여기가 전부라 새 모델이 나오면 갱신한다(날짜형 변형 ❌).
- * ⚠ alias 해소에도 쓰인다 — CLI 가 모르는 bare alias(fable 등)는 `subAgentManager` 가 여기 latest 로 바꾼다. 뒤처지면 최신을 골라도 구모델이 뜬다.
+ * ⚠ alias 해소에도 쓰인다 — 설치본 도움말이 적지 않은 별칭(`listNativeModelAliases` 밖)은 `subAgentManager` 가 여기 latest 로 바꾼다. 그 경로에선 뒤처지면 최신을 골라도 구모델이 뜬다.
  */
 export const AVAILABLE_AGENT_MODEL_FULL_IDS: readonly string[] = [
+  'claude-fable-5-2',
   'claude-fable-5-1',
   'claude-fable-5',
   'claude-opus-5-5',
@@ -2559,10 +2615,11 @@ export function isThinkingEnabled(value: boolean | undefined): boolean {
 }
 
 /**
- * §4 — 사고를 끌 수 없는 모델(공개 문서 근거 있는 ID 만): 개요표 "Adaptive (always on)" 인 Opus 5.5·Fable 5.1 과 Fable 5. API 가 `thinking: disabled` 를 400 으로 거부한다(확인 2026-10-15).
+ * §4 — 사고를 끌 수 없는 모델(공개 문서 근거 있는 ID 만): 개요표 "Adaptive (always on)" 인 Opus 5.5·Fable 5.2·Fable 5.1 과 Fable 5. API 가 `thinking: disabled` 를 400 으로 거부한다(확인 2026-10-15, Fable 5.2 는 2026-11-10).
  * 끌 수 있는 Sonnet 5.5(`between_tools`)·근거 없는 Haiku 5.5 는 넣지 않는다 — 모르는 것을 잠그지 않는다.
  */
 export const THINKING_ALWAYS_ON_MODEL_IDS: readonly string[] = [
+  'claude-fable-5-2',
   'claude-fable-5-1',
   'claude-fable-5',
   'claude-opus-5-5',
@@ -3058,8 +3115,9 @@ export function displayCommands<T extends DisplayCommandLike>(list: readonly T[]
 }
 
 /**
- * §4 — `agentCanCompact` 에이전트에게 매 턴 싣는 창구 안내. `SlashCommand` 도구는 헤드리스에 안 나와(실측 2.1.247) 서버에 신고하고,
+ * §4 — `agentCanCompact` 에이전트에게 싣는 창구 안내. `SlashCommand` 도구는 헤드리스에 안 나와(실측 2.1.247) 서버에 신고하고,
  * 서버가 다음 명령 바로 앞에서 접는다(§5.3 #9-1 (P)). 토큰·주소는 스폰 env 에 있어 여기에 박지 않는다.
+ * 세션 내내 같은 글이어야 한다 — 우리가 띄운 세션에는 시스템 프롬프트로 한 벌만 나간다(§5.5 #17-28 ⑧(c)). 턴마다 바뀌는 값을 넣으면 캐시 접두가 깨진다.
  */
 export function buildAgentSelfCompactRule(agentId: string, subAgentId: string, shell: AgentRuleShell = 'posix'): string {
   const request = shell === 'powershell'
@@ -5079,13 +5137,22 @@ export function sanitizeSessionMemo(input: unknown): SessionMemo | null {
   const groupId = closedAt === undefined && /^[\w-]{1,64}$/.test(rawGroup) ? rawGroup : '';
   // ⑫ 링크는 **잘린 뒤의 본문**을 기준으로 거른다 — 상한 밖으로 밀려난 글자에 걸린 링크는 갈 글자가 없다.
   const links = sanitizeMemoLinks(n['links'], text.length);
+  const home = n['canvas'];
+  const c = home && typeof home === 'object' ? home as Record<string, unknown> : null;
+  const canvas = c && typeof c['agentId'] === 'string' && c['agentId'].length > 0 && c['agentId'].length <= 256
+    && (c['subAgentId'] === null || (typeof c['subAgentId'] === 'string' && c['subAgentId'].length > 0 && c['subAgentId'].length <= 256))
+    ? { agentId: c['agentId'], subAgentId: c['subAgentId'],
+      x: clampNumber(c['x'], 0, SESSION_MEMO.MAX_COORD, 0), y: clampNumber(c['y'], 0, SESSION_MEMO.MAX_COORD, 0),
+      folderId: typeof c['folderId'] === 'string' && c['folderId'].length <= 1024 ? c['folderId'] : null }
+    : undefined;
   const now = Date.now();
   const createdAt = clampNumber(n['createdAt'], 0, Number.MAX_SAFE_INTEGER, now);
   return {
     id,
     text,
-    x: clampNumber(n['x'], 0, SESSION_MEMO.MAX_COORD, 0),
-    y: clampNumber(n['y'], 0, SESSION_MEMO.MAX_COORD, 0),
+    x: clampNumber(n['x'], canvas ? -SESSION_MEMO.MAX_COORD : 0, SESSION_MEMO.MAX_COORD, 0),
+    y: clampNumber(n['y'], canvas ? -SESSION_MEMO.MAX_COORD : 0, SESSION_MEMO.MAX_COORD, 0),
+    ...(canvas ? { canvas } : {}),
     w: clampNumber(n['w'], SESSION_MEMO.MIN_W, SESSION_MEMO.MAX_W, SESSION_MEMO.DEFAULT_W),
     h: clampNumber(n['h'], SESSION_MEMO.MIN_H, SESSION_MEMO.MAX_H, SESSION_MEMO.DEFAULT_H),
     color,
@@ -7300,6 +7367,22 @@ export const MOBILE_QR_PATH = '/mobile/qr';
 /** QR 딥링크의 토큰 쿼리 파라미터 이름. */
 export const MOBILE_QR_PARAM = 't';
 
+/** §5.13 (T-3) — 샌드박스 프레임의 하위 요청이 타는 권한 경로 앞머리: `<앞머리>/<권한>/api/app/<앱>/content/…`. */
+export const MOBILE_CONTENT_PATH = '/mobile/content';
+
+/** §5.13 (T-3) — 리스너가 코어에 넘기는 권한 경로 앞머리. 코어가 CSP 와 문서에 적으므로 바깥에서 온 같은 머리는 리스너가 지운다. */
+export const MOBILE_CONTENT_BASE_HEADER = 'x-vibisual-content-base';
+
+/** 리스너의 재디스패치는 응답을 통째로 모은다 — 끝이 열린 구간은 이만큼으로 묶는다(소리 8초 조각이 한 번에 들어오는 크기). */
+export const MOBILE_RANGE_CHUNK_BYTES = 4 * 1024 * 1024;
+
+const MOBILE_CONTENT_BASE_RE = /^\/mobile\/content\/[A-Za-z0-9_-]{43}$/;
+
+/** 권한 경로 앞머리의 모양인가(코어가 문서에 적기 전에 본다). */
+export function isMobileContentBase(value: string): boolean {
+  return MOBILE_CONTENT_BASE_RE.test(value);
+}
+
 // ─── §4 (판올림 번호 발급 대기) 접속 주소의 정체 ──────────────────────────────
 
 /**
@@ -7465,6 +7548,8 @@ export const AGENT_CARD = {
   spawnStackGap: 16,
   /** 말풍선이 원 쪽에서 펴지는 시간(ms). `prefers-reduced-motion` 이면 0. */
   morphMs: 240,
+  /** `작업 중` 말풍선이 원 안으로 들어가고 나오는 시간(ms). `index.css` 의 `.agent-balloon-tuck` 과 같은 값. */
+  tuckMs: 260,
 } as const;
 
 /** §5.4 #36 (B) — 앱 노드 하나가 참조할 수 있는 에이전트 수 상한. */
@@ -8270,16 +8355,23 @@ export const LOCAL_MODEL_OVERHEAD_RATIO = 1.2;
 export const LOCAL_MODEL_OVERHEAD_BYTES = 1_500_000_000;
 /** 시스템 메모리는 다 쓸 수 없다 — OS·앱이 쓸 몫을 남긴다. */
 export const LOCAL_MODEL_RAM_USABLE_RATIO = 0.7;
+/** §5.19 (E) — 장치 총량이 시스템 메모리의 이 비율 이상이면 내장 GPU 일 수 있어 VRAM 을 더하지 않는다(엔진 장치 목록은 통합 여부를 주지 않는다). */
+export const LOCAL_MODEL_SHARED_VRAM_RATIO = 0.45;
+/** §5.19 (D) — 메모리 부족 재시도에서 자동 배치(`--fit-target`)가 남길 VRAM 여유(MiB, 엔진 기본 1024). 문맥을 깎기 전에 층부터 줄인다. */
+export const LOCAL_FIT_RETRY_MARGINS_MIB: readonly number[] = [2048, 4096];
 
 /** §5.19 (E) — 판정 규칙은 여기 한 곳(서버와 화면이 같은 답). 잴 수 없으면 `unknown` — 넘겨짚어 "돌아갑니다"라 하지 않는다. */
 export function classifyModelFit(
   sizeBytes: number,
-  hardware?: { vramFreeBytes: number; totalRamBytes: number; measuredAt: number } | null,
-): 'gpu' | 'ram' | 'too-big' | 'unknown' {
+  hardware?: { vramFreeBytes: number; totalRamBytes: number; measuredAt: number; dedicatedVram?: boolean } | null,
+): 'gpu' | 'split' | 'ram' | 'too-big' | 'unknown' {
   if (!hardware || hardware.measuredAt === 0 || sizeBytes <= 0) return 'unknown';
   const need = sizeBytes * LOCAL_MODEL_OVERHEAD_RATIO + LOCAL_MODEL_OVERHEAD_BYTES;
   if (hardware.vramFreeBytes > 0 && need <= hardware.vramFreeBytes) return 'gpu';
-  if (hardware.totalRamBytes > 0 && need <= hardware.totalRamBytes * LOCAL_MODEL_RAM_USABLE_RATIO) return 'ram';
+  const usableRam = hardware.totalRamBytes * LOCAL_MODEL_RAM_USABLE_RATIO;
+  // 층 분할은 엔진이 하지만 `--fit` 은 시스템 메모리를 무제한으로 가정한다 — RAM 상한은 여기서 말해야 한다.
+  if (hardware.dedicatedVram === true && hardware.vramFreeBytes > 0 && usableRam > 0 && need <= hardware.vramFreeBytes + usableRam) return 'split';
+  if (hardware.totalRamBytes > 0 && need <= usableRam) return 'ram';
   return 'too-big';
 }
 
@@ -8428,7 +8520,7 @@ export const LOCAL_BASH_OUTPUT_TAIL_CHARS = 8_000;
 /** §5.19 (J) ③ — 프리셋이 채우는 칸. 칸을 한 번에 채울 뿐 모드가 아니다(`off` 는 전부 비운다). */
 export const LOCAL_ASSIST_PRESETS: Readonly<Record<Exclude<LocalAssistPreset, 'custom'>, LocalAssistOptions>> = {
   off: {},
-  lowSpec: { kvCache: 'q8_0', moeOffload: 'cpu', lowSpecSafe: true, tidyAt: 70, tidyMethod: 'mask', toolOutputCap: 'short', keepFullOutput: true },
+  lowSpec: { kvCache: 'q8_0', moeOffload: 'auto', lowSpecSafe: true, tidyAt: 70, tidyMethod: 'mask', toolOutputCap: 'short', keepFullOutput: true },
   balanced: { kvCache: 'q8_0', moeOffload: 'auto', tidyAt: 80, tidyMethod: 'mask', toolOutputCap: 'normal', keepFullOutput: true },
   longTask: {
     kvCache: 'q8_0', tidyAt: 80, tidyMethod: 'handoff', toolOutputCap: 'normal', keepFullOutput: true,
@@ -10253,6 +10345,26 @@ export const SPEC_REQUIREMENT_MARKERS: readonly string[] = [
 /** 한 턴 필수 절 상한(§5.5 #17-28 — 전집 요구는 실패한다). 넘치면 요구사항 수가 많은 절부터 자르고 잘린 사실을 프롬프트·화면에 적는다. */
 export const SPEC_REQUIRED_MAX = 8;
 
+/**
+ * 한 턴 필수 절의 토큰 합 상한 — 개수 상한만으로는 큰 절 몇이 한 턴을 다 먹는다(실측: 8절에 6만~9만 토큰).
+ * 큰 절(`oversized`)은 좁혀 여는 것이라 `SPEC_UNIT_TOKEN_MAX` 로 센다. 첫 절은 넘어도 싣는다.
+ */
+export const SPEC_REQUIRED_TOKEN_BUDGET = 12_000;
+
+/** 프롬프트 축이 자리를 다 채워도 경로 축(건드린 파일을 적어 둔 절) 몫으로 남기는 자리 수. 상한이 작으면 그 1/4 까지만. */
+export const SPEC_REQUIRED_PATH_RESERVE = 2;
+
+/** 절 본문에서 "코드 파일 언급"으로 세는 확장자 — 건드린 파일을 그 파일을 적어 둔 절에 잇는 재료. */
+export const SPEC_MENTION_EXTENSIONS: readonly string[] = [
+  'tsx', 'ts', 'jsx', 'js', 'mjs', 'cjs', 'rs', 'py', 'go', 'java', 'kt', 'swift', 'cs', 'cpp', 'vue', 'svelte',
+];
+
+/** 절 하나가 드는 코드 파일 언급 수 상한(§3.2.4 — 절 수천 개가 색인에 선다). */
+export const SPEC_UNIT_MENTION_MAX = 32;
+
+/** 이 비율보다 많은 절이 적은 파일 이름(`index`·`types` 류)은 절을 못 가려 경로 축에서 뺀다. `SPEC_RARE_TITLE_MIN_UNITS` 미만 색인은 안 센다. */
+export const SPEC_MENTION_DF_RATIO = 0.05;
+
 /** 색인 절 수 상한 — 넘으면 최근 수정 순으로 자르고 `truncated`. 절은 얕은 객체라 4,000개도 싸고 전선엔 개수만 실린다. */
 export const SPEC_UNIT_MAX = 4000;
 
@@ -10274,6 +10386,12 @@ export const SPEC_RESPLIT_DEPTH_MAX = 4;
  * (실측: 40자일 때 `정독` 이 `정` 으로 잘려 그 절을 못 찾았다).
  */
 export const SPEC_ITEM_LABEL_MAX = 60;
+
+/**
+ * 항목 표지를 찾기 글(`SpecUnit.matchText`)로 쓰는 길이 상한. 본문까지 한 줄에 적힌 항목은 줄 전체가 표지가 돼
+ * 어떤 프롬프트에도 걸린다(실측: 6만 자 한 줄이 서로 다른 요청 열 중 일곱에 섰다). 제목은 앞머리에 있다.
+ */
+export const SPEC_ITEM_MATCH_MAX = 240;
 
 /**
  * 제목 겹침 문턱(점수). 개수가 아니라 무게를 센다 — 접착제 0 · 드문 낱말 `SPEC_RARE_TITLE_HIT_WEIGHT` · 나머지 1
@@ -10428,6 +10546,11 @@ export const AUTO_GOAL_COMPLETION_MAX = 16;
 export const AUTO_GOAL_REVIEW_QUEUE_MAX = 6;
 /** 한 턴에 실을 검토 통과 절차 수 — 검토 대기와 합쳐 한 턴의 주입 총량이 된다. */
 export const AUTO_GOAL_ACTIVE_QUEUE_MAX = 8;
+/**
+ * 절차를 턴에 싣는 최소 관련도(`autoGoalRelevanceScore`) = 낱말 하나가 통째로 겹친 값. 조사·어미 두 글자 짝("하고"·"으로") 둘이 우연히 겹친 2점은 못 넘는다.
+ * 올리지 마라 — 4 면 낱말 하나(3)·활용형만 다른 같은 말(짝 셋 = 3)이 빠진다. 근거 파일 이름(5)은 혼자서 넘는다.
+ */
+export const AUTO_GOAL_RELEVANCE_MIN = 3;
 /** 승인 뒤 이만큼 안 쓰인 절차는 걷을 후보로 규약문에 적는다(§5.10 (R)ⓒ — 지우지 않는다). 30일 = 릴리스·점검 같은 절차가 한 번은 돌아올 길이. */
 export const AUTO_GOAL_STALE_REVIEW_MS = 30 * 24 * 60 * 60 * 1000;
 export const AUTO_GOAL_REFRESH_MS = 15_000;
@@ -10668,3 +10791,34 @@ export const APP_THEME_TOKEN_SPECS: Readonly<Record<AppThemeToken, { readonly de
   'terminal.brightCyan': { default: '#94e2d5' },
   'terminal.brightWhite': { default: '#a6adc8' },
 };
+
+/**
+ * §5.1 #3-5 — 최근 사용 링. 일하는 에이전트가 최근에 쓴 버블 N개만 작업 파동을 두르고, 가까운 순위일수록 멀리·밝게 번진다.
+ * 번짐은 버블 지름과 무관한 px 이다 — 지름에 비례하면 큰 폴더의 오래된 쓰임이 작은 파일의 방금 쓰임보다 커 보인다.
+ * `alphaMax` 0.4 는 §5.1 #3-2 의 시작 불투명도 그대로다(올리지 마라). 시간 값은 CSS 변수로 건너가 `index.css` 가 이 표를 따른다.
+ */
+export const RECENT_USE_RING = {
+  /** 에이전트가 정하지 않았을 때의 개수. */
+  defaultCount: 5,
+  /** 설정 칸 범위. 0 = 이 에이전트는 링을 두르지 않는다. */
+  countMin: 0,
+  countMax: 12,
+  /** 가장 최근 / 가장 오래된 순위가 원 밖으로 번지는 거리(캔버스 px). */
+  reachMaxPx: 36,
+  reachMinPx: 8,
+  /** 순위 → 번짐 곡선 지수. 1 보다 크면 앞 순위끼리의 차이가 더 벌어진다. */
+  reachCurve: 1.35,
+  /** 파동 시작 불투명도(가장 최근 / 가장 오래된). */
+  alphaMax: 0.4,
+  alphaMin: 0.14,
+  /** 파동 한 번(ms). 종전 `animate-pulse-ring` 과 같다. */
+  pulseMs: 1500,
+  /** 순위가 바뀔 때 번짐·밝기가 새 값으로 옮겨 가는 시간(ms). 도중에 또 바뀌면 그 자리에서 이어 간다. */
+  resizeMs: 720,
+  /** 목록에서 빠질 때 사라지는 시간(ms). 이 안에 다시 쓰이면 꺼지지 않고 그 자리에서 다시 커진다. */
+  fadeOutMs: 900,
+  /** 같은 에이전트의 접촉이 이 간격(ms) 안에 이어지면 한 번의 쓰임이다 — 파일과 그 조상 폴더가 같은 순위를 받는다. */
+  sameUseMs: 40,
+  /** 에이전트마다 기억하는 접촉 경로 수 상한(오래된 것부터 버린다). 개수 상한보다 넉넉해야 순위가 비지 않는다. */
+  ledgerMax: 256,
+} as const;

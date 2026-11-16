@@ -10,6 +10,7 @@ import {
 } from '../../stores/mediaConvert.js';
 import { openWorkspaceTarget } from './openWorkspaceTarget.js';
 import { mediaFileName } from '../../utils/workspaceMedia.js';
+import { LayerRoot } from '../Layout/LayerRoot.js';
 
 /** §5.13 (R-8) (f) — 못 읽는 영상·소리 팝업. 받는 것은 변환기라 "코덱"이라 쓰지 않는다(Chromium 은 시스템 코덱을 안 쓴다). [연결 프로그램으로 열기]는 늘 있다. */
 
@@ -178,7 +179,7 @@ export const MediaConvertDialog = memo(function MediaConvertDialog(): React.JSX.
 
   return (
     // 키 작은 화면(가로로 든 폰)에서는 상자 안에서 스크롤한다 — 아래 단추 줄이 화면 밖으로 밀리지 않게.
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-6 max-md:p-3">
+    <LayerRoot className="fixed inset-0 z-overlay flex items-center justify-center bg-black/60 p-6 max-md:p-3">
       <div className="scrollbar-thin max-h-full w-full max-w-md overflow-y-auto rounded-xl border border-gray-700 bg-gray-900 p-5 shadow-2xl shadow-black/50">
         <div className="mb-3 flex items-start gap-3">
           <span className="mt-0.5 text-sky-300">
@@ -258,6 +259,6 @@ export const MediaConvertDialog = memo(function MediaConvertDialog(): React.JSX.
           <p className="mt-2 text-right text-[12px] text-gray-600">ffmpeg {tools.version}</p>
         )}
       </div>
-    </div>
+    </LayerRoot>
   );
 });

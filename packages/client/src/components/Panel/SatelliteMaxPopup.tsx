@@ -87,7 +87,7 @@ export function SatelliteMaxPopup({
     <div
       ref={ref}
       data-popup="satellite-max"
-      className="fixed z-[60] w-[190px] rounded-lg border border-violet-700/60 bg-gray-900 p-3 shadow-2xl shadow-violet-500/30 pointer-coarse:w-[220px]"
+      className="fixed z-menu w-[190px] rounded-lg border border-violet-700/60 bg-gray-900 p-3 shadow-2xl shadow-violet-500/30 pointer-coarse:w-[220px]"
       style={{ left, top }}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}

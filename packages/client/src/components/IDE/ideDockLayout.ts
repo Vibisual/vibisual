@@ -8,9 +8,10 @@ import {
   isWindowPulledFullyOut,
   pullOutGhostDecision,
 } from '../../hooks/floatingWindowGeom.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 /** IDE 창 겹침 층의 바닥(창마다 한 칸씩, 40~45). ⚠ 모달 층(z-50 — 설정창·확인 대화상자·컨텍스트 메뉴)보다 아래여야 한다(아니면 설정창이 창 뒤에 깔린다). */
-export const IDE_PANE_Z_BASE = 40;
+export const IDE_PANE_Z_BASE = Z_LAYER.IDE_PANE;
 
 /**
  * 한 프로젝트에 동시에 띄울 수 있는 IDE 창 수.

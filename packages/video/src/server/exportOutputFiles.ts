@@ -1,10 +1,16 @@
-/** Output names belong to the video and its optional subtitle together (§5.13 42-2). */
+/** Output names belong to the video and its companion files together (§5.13 42-2 · 42-13). */
 import fs from 'node:fs';
 import path from 'node:path';
+import { EXPORT_COMPANION_SUFFIX } from '../constants.js';
 import { numberedName } from '../exportNames.js';
 
+/** A sibling that shares the video's stem — built with `path` only, never by joining separators as text. */
+export function companionPath(videoPath: string, suffix: string): string {
+  return path.join(path.dirname(videoPath), `${path.basename(videoPath, path.extname(videoPath))}${suffix}`);
+}
+
 export function subtitlePath(videoPath: string): string {
-  return path.join(path.dirname(videoPath), `${path.basename(videoPath, path.extname(videoPath))}.srt`);
+  return companionPath(videoPath, EXPORT_COMPANION_SUFFIX.subtitles);
 }
 
 function isFileExists(error: unknown): boolean {
@@ -35,21 +41,22 @@ export async function writeNewFile(file: string, bytes: Uint8Array | string): Pr
 }
 
 /**
- * Reserve by creating the files, not by checking existence — video formats can race on the same .srt; on collision remove only
- * this attempt's new files and try the next pair.
+ * Reserve by creating the files, not by checking existence — video formats can race on the same companion name; on collision
+ * remove only this attempt's new files and try the next number for the whole set. `create` gets 0 for the video and
+ * `i + 1` for `suffixes[i]`.
  */
-export async function placeNumberedPair(
-  dir: string, base: string, ext: string, hasSubtitle: boolean,
-  create: (file: string, subtitle: boolean) => Promise<void>,
+export async function placeNumberedSet(
+  dir: string, base: string, ext: string, suffixes: readonly string[],
+  create: (file: string, index: number) => Promise<void>,
 ): Promise<string> {
   for (let number = 1; ; number += 1) {
     const target = path.join(dir, `${numberedName(base, number)}.${ext}`);
-    const files = hasSubtitle ? [target, subtitlePath(target)] : [target];
+    const files = [target, ...suffixes.map((suffix) => companionPath(target, suffix))];
     if (files.some((file) => fs.existsSync(file))) continue;
     const created: string[] = [];
     try {
       for (const [index, file] of files.entries()) {
-        await create(file, index > 0);
+        await create(file, index);
         created.push(file);
       }
       return target;
@@ -58,4 +65,11 @@ export async function placeNumberedPair(
       if (!isFileExists(error)) throw error;
     }
   }
+}
+
+export function placeNumberedPair(
+  dir: string, base: string, ext: string, hasSubtitle: boolean,
+  create: (file: string, subtitle: boolean) => Promise<void>,
+): Promise<string> {
+  return placeNumberedSet(dir, base, ext, hasSubtitle ? [EXPORT_COMPANION_SUFFIX.subtitles] : [], (file, index) => create(file, index > 0));
 }

@@ -128,7 +128,7 @@ export function RefLinkBloom({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[60]"
+      className="fixed inset-0 z-dialog"
       onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onWheel={() => onClose()}
       onContextMenu={(e) => { e.preventDefault(); onClose(); }}

@@ -9,6 +9,7 @@ import { EngineIcon } from '../Engine/engineIcons.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
 import { isCodexSetupGateOpen, shouldSummonCodexLogin } from './codexGateFlow.js';
 import { hasProjectFolder } from '../Auth/projectFolderGateFlow.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 /**
  * §5.25 (D) — 코덱스 CLI 설치 게이트 + 배너. `ClaudeSetupGate` 와 같은 규약(권장형 · 서버가 실행하는 명령 그대로 · 끝나면 로그인 창을 부른다).
@@ -16,7 +17,7 @@ import { hasProjectFolder } from '../Auth/projectFolderGateFlow.js';
  * **완료 유지 타이머 deps 는 `justCompleted` 하나뿐** — `shouldOpen` 을 넣으면 cleanup 이 방금 건 타이머를 지워 "준비 완료"에서 멈춘다.
  */
 
-const Z = 100_700;
+const Z = Z_LAYER.GATE_SETUP;
 
 export function CodexSetupGate(): React.JSX.Element | null {
   const { t } = useTranslation();

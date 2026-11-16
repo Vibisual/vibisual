@@ -1,6 +1,7 @@
 import type { TextFieldMenuHandlers } from './textFieldContextMenu.js';
 import { afterInputComposition, isInputComposing } from '../utils/inputComposition.js';
 import { boundedTextSelection, replaceTextRange, restoreInputSelection } from '../utils/textInputSelection.js';
+import { dispatchTextFieldPaste, plainClipboardText, readTextFieldClipboard } from './textFieldClipboard.js';
 
 export type TextFieldElement = HTMLInputElement | HTMLTextAreaElement;
 
@@ -129,10 +130,16 @@ export function createTextFieldActions(el: TextFieldElement, sel: FieldSelection
           else apply();
         };
         try {
-          const read = navigator.clipboard?.readText?.();
+          const read = readTextFieldClipboard(el);
           if (!read) { fallback(); return; }
           void read.then((clip): void => {
-            if (clip && current()) replaceFieldSelection(el, selection, clip);
+            const apply = (): void => {
+              if (!current() || isInputComposing(el) || dispatchTextFieldPaste(el, clip)) return;
+              const text = plainClipboardText(clip);
+              if (text && current()) replaceFieldSelection(el, selection, text);
+            };
+            if (isInputComposing(el)) afterInputComposition(el, apply);
+            else apply();
           }).catch(fallback);
         } catch { fallback(); }
       });

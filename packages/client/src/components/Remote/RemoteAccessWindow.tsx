@@ -122,7 +122,7 @@ export function RemoteAccessWindow({ open, onClose }: RemoteAccessWindowProps): 
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60" {...backdrop}>
+    <div className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60" {...backdrop}>
       <div
         className="flex h-[640px] max-h-[92dvh] w-[860px] max-w-[94vw] flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0"
         onMouseDown={(e) => e.stopPropagation()}

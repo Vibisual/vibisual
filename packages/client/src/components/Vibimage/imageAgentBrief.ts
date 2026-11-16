@@ -28,6 +28,10 @@ export function imageAgentPrompt(doc: ImageSourceDoc, projectId: string, request
     'Each layer: {id,kind:"text"|"shape"|"image",name,x,y,width,height,fill:"#rrggbb",opacity:0..1,locked:boolean,visible:boolean,anchor:"start"|"center"|"end"}.',
     'text additionally has {text,fontSize,fontFamily,align:"left"|"center"|"right"}; the app wraps text with real font widths inside the layer width'
       + ' (words for spaced scripts, characters for Korean/Chinese/Japanese). shape has {shape:"rect"|"ellipse"}.',
+    'Optional on any layer (omit for none): rotation (degrees clockwise around the box centre, -360..360), flipX/flipY:boolean,'
+      + ' blend (CSS mix-blend-mode: normal|multiply|screen|overlay|darken|lighten|color-dodge|color-burn|hard-light|soft-light|difference|exclusion|hue|saturation|color|luminosity),'
+      + ' stroke:"#rrggbb" with strokeWidth>0 (shape outline or text outline), shadow:{color:"#rrggbb",opacity:0..1,x,y,blur}. rect shapes may set radius.'
+      + ' text may set fontWeight (100..900), italic:boolean, lineHeight (multiple of fontSize, default 1.2) and letterSpacing (px); wrapping uses them.',
     'image has {source, fit?:"contain"|"cover"}. source is "vibi-blob:<sha256>.<ext>" (stored picture — keep it unchanged),'
       + ' a data:image/... URL for a NEW picture (the server stores it as a blob), or a project-relative path. Preserve stable ids.'
       + ' The layer array is back to front. Coordinates and dimensions are output pixels.',

@@ -174,9 +174,9 @@ export function SpecBoardPanel(): React.JSX.Element | null {
 
   if (!openId || !doc) return null;
 
-  // 헤더(h-9, z-[100])가 늘 위에 있어 inset-0 이면 머리줄의 닫기가 그 밑에 깔린다 — top-9 부터(AgentIDEOverlay 와 같다).
+  // 헤더(h-9, `z-header`)가 늘 위에 있어 inset-0 이면 머리줄의 닫기가 그 밑에 깔린다 — top-9 부터(AgentIDEOverlay 와 같다).
   return (
-    <div className="fixed inset-x-0 bottom-0 top-9 z-[55] flex flex-col bg-gray-950/95 backdrop-blur-sm">
+    <div className="fixed inset-x-0 bottom-0 top-9 z-board flex flex-col bg-gray-950/95 backdrop-blur-sm">
       {/* 헤더 — 제목 인라인 편집 + 개정 번호 + 닫기 */}
       <div className="flex shrink-0 items-center gap-3 border-b border-gray-800 px-4 py-3 max-md:gap-2 max-md:px-3">
         <span className="rounded bg-teal-900/60 px-2 py-1 text-[12px] font-semibold uppercase tracking-wide text-teal-200">

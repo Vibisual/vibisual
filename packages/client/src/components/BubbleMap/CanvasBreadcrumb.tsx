@@ -2,6 +2,7 @@ import type { BubbleData } from '@vibisual/shared';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { PROJECT_FOLDER_NODE_ID } from '../../utils/projectFolderView.js';
 
 /** 깊은 쪽부터 늘 펼쳐 두는 조각 수. 앞쪽은 `…` 로 접고 조각마다 폭 상한(`justify-center` 줄이 양쪽 화면 밖으로 나가지 않게). */
 const CRUMB_TAIL = 3;
@@ -60,6 +61,12 @@ export function CanvasBreadcrumb(): React.JSX.Element | null {
       label: t('trash.trashBubbleLabel', { defaultValue: '휴지통' }),
       interior: true,
     });
+  }
+  // §5.1 #2-3 — 프로젝트 폴더 안(그 안에서 들어간 묶음이면 그 앞 조각). 누르면 묶음에서 그 폴더 안으로 돌아온다(`exitInterior`).
+  const projectFolder = interiorView?.kind === 'projectFolder' ? interiorView
+    : interiorView?.kind === 'bundle' ? interiorView.parent : undefined;
+  if (projectFolder) {
+    breadcrumbs.push({ id: PROJECT_FOLDER_NODE_ID, label: projectFolder.label, interior: true });
   }
   // §5.1 #2-1 (B) — 묶음 안. 묶음은 폴더 계층과 무관한 자리라 휴지통처럼 맨 끝에 붙는다.
   if (interiorView?.kind === 'bundle') {

@@ -364,6 +364,15 @@ describe('겹침 — 덮은 쪽이 배지를 단다', () => {
     expect(stackedUnderCounts(list).get('b')).toBe(1);
   });
 
+  it('캔버스 줌은 위치만 바꾸고 겹침 크기는 화면 픽셀로 센다', () => {
+    const list = [at('a', 0, 0), at('b', 200, 0)];
+    expect(stackedUnderCounts(list, 2).get('b')).toBe(0);
+    expect(raiseNextUnder(list, 'b', 2)).toBe(list);
+    const distant = [at('a', 0, 0), at('b', 400, 0)];
+    expect(stackedUnderCounts(distant, 0.5).get('b')).toBe(1);
+    expect(raiseNextUnder(distant, 'b', 0.5).map((m) => m.id)).toEqual(['b', 'a']);
+  });
+
   it('접은 장은 제목줄 높이만 차지한다 — 펼침 높이로 재면 없는 겹침을 신고한다', () => {
     const list = [at('a', 0, 100), at('b', 0, 0, { collapsed: true })];
     // 접힌 b(28px)는 y=100 의 a 제목줄에 닿지 않는다.

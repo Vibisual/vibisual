@@ -21,6 +21,15 @@ export interface StudioChatLine {
   readonly at: number;
   /** 내 말이면 명령 상태(queued·executing·completed·error). */
   readonly status?: string;
+  /** §5.13 (V) 37-23 (I) — 그 말이 속한 바퀴: 내 말은 문맥 블록의 `Pass:` 줄, AI 말은 바로 앞 내 말의 것. 스튜디오 밖에서 한 말은 없다. */
+  readonly passId?: string;
+}
+
+const PASS_LINE = /^- Pass: (\S+) /m;
+
+/** 명령 글의 문맥 블록에서 바퀴 id 를 읽는다(`studioAgentMessage` 가 쓰는 줄 그대로). */
+export function passIdOfPrompt(prompt: string): string | undefined {
+  return PASS_LINE.exec(prompt)?.[1];
 }
 
 /** 패널에 보이는 마지막 줄 수 — 전체는 IDE 에서. */
@@ -37,12 +46,14 @@ function toLines(events: SubAgentStreamEvent[], commands: readonly QueuedCommand
     .filter((item) => item.kind === 'command' || item.kind === 'text')
     .sort((a, b) => sortKey(a) - sortKey(b) || (a.kind === 'command' ? -1 : 0) - (b.kind === 'command' ? -1 : 0) || a.timestamp - b.timestamp);
   const lines: StudioChatLine[] = [];
+  let passId: string | undefined;
   for (const item of ordered) {
     if (item.kind === 'command') {
+      passId = passIdOfPrompt(item.prompt);
       const text = stripStudioContext(item.prompt).trim();
-      if (text !== '') lines.push({ id: item.id, who: 'me', text, at: item.submittedAt ?? item.timestamp, status: item.status });
+      if (text !== '') lines.push({ id: item.id, who: 'me', text, at: item.submittedAt ?? item.timestamp, status: item.status, ...(passId ? { passId } : {}) });
     } else if (item.kind === 'text' && item.content.trim() !== '') {
-      lines.push({ id: item.id, who: 'ai', text: item.content.trim(), at: item.timestamp });
+      lines.push({ id: item.id, who: 'ai', text: item.content.trim(), at: item.timestamp, ...(passId ? { passId } : {}) });
     }
   }
   return { lines, busy: built.agentBusy };
@@ -62,22 +73,33 @@ function firstAtOrAfter(events: readonly SubAgentStreamEvent[], ts: number): num
 
 /**
  * 마지막 `max` 줄(순수). 턴 경계(명령이 나간 시각)에서 잘라 꼬리만 조립하고, 줄이 모자라면 턴을 두 배씩 늘린다. 나가지 않은(대기)
- * 명령은 늘 싣는다(꼬리에 서는 말풍선이다).
+ * 명령은 늘 싣는다(꼬리에 서는 말풍선이다). `keep` 을 주면 거른 **뒤에** 센다(37-23 (I) 장면별 대화).
  */
-export function studioChatTail(events: readonly SubAgentStreamEvent[], commands: readonly QueuedCommand[], max = CHAT_LINES_MAX): { lines: StudioChatLine[]; busy: boolean } {
+export function studioChatTail(
+  events: readonly SubAgentStreamEvent[], commands: readonly QueuedCommand[], max = CHAT_LINES_MAX, keep?: (line: StudioChatLine) => boolean,
+): { lines: StudioChatLine[]; busy: boolean } {
+  const pick = (lines: StudioChatLine[]): StudioChatLine[] => (keep ? lines.filter(keep) : lines);
   const dispatched = commands.filter(hasDispatched).sort((a, b) => commandAnchorTs(a) - commandAnchorTs(b));
   const pending = commands.filter((c) => !hasDispatched(c));
   for (let turns = 2; turns < dispatched.length; turns *= 2) {
     const kept = dispatched.slice(-turns);
     const from = firstAtOrAfter(events, commandAnchorTs(kept[0]!));
     const tail = toLines(events.slice(from), [...kept, ...pending]);
-    if (tail.lines.length >= max) return { lines: tail.lines.slice(-max), busy: tail.busy };
+    const shown = pick(tail.lines);
+    if (shown.length >= max) return { lines: shown.slice(-max), busy: tail.busy };
   }
   const full = toLines([...events], commands);
-  return { lines: full.lines.slice(-max), busy: full.busy };
+  return { lines: pick(full.lines).slice(-max), busy: full.busy };
 }
 
-export function useStudioConversation(agentId: string | null, sessionId: string | null): { readonly lines: readonly StudioChatLine[]; readonly busy: boolean } {
+/** 장면별 대화 거르개 — 그 장면을 만진 바퀴들의 말만. 바퀴 표식이 없는 말은 '전체'에만 선다. */
+export function scenePassFilter(passIds: ReadonlySet<string> | null): ((line: StudioChatLine) => boolean) | undefined {
+  return passIds ? (line) => line.passId !== undefined && passIds.has(line.passId) : undefined;
+}
+
+export function useStudioConversation(
+  agentId: string | null, sessionId: string | null, scenePasses: ReadonlySet<string> | null = null,
+): { readonly lines: readonly StudioChatLine[]; readonly busy: boolean } {
   const liveEvents = useGraphStore((s) => (sessionId ? s.subAgentStreams?.[sessionId] : undefined)) ?? EMPTY_EVENTS;
   const queued = useGraphStore((s) => (agentId ? s.queuedCommands?.[agentId] : undefined)) ?? EMPTY_COMMANDS;
   const completed = useGraphStore((s) => (agentId ? s.completedCommands?.[agentId] : undefined)) ?? EMPTY_COMMANDS;
@@ -104,6 +126,6 @@ export function useStudioConversation(agentId: string | null, sessionId: string 
   return useMemo(() => {
     if (!agentId || !sessionId) return { lines: [], busy: false };
     const commands = [...queued, ...completed].filter((c) => c.subAgentId === sessionId);
-    return studioChatTail(events, commands);
-  }, [agentId, sessionId, events, queued, completed]);
+    return studioChatTail(events, commands, CHAT_LINES_MAX, scenePassFilter(scenePasses));
+  }, [agentId, sessionId, events, queued, completed, scenePasses]);
 }

@@ -8,7 +8,7 @@ import { isAppBubbleId } from './canvasLink.js';
 import { APP_WORK } from './constants.js';
 import { fileBaseName, fileFaceExtOf, fileFaceKindOf, isMediaFaceKind } from './fileFace.js';
 import { normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
-import type { AppWorkMark, AppWorkRole, FileFaceKind, QueuedCommand } from './types.js';
+import type { AppBubbleWorkPreview, AppBubbleWorkPreviews, AppWorkMark, AppWorkRole, FileFaceKind, QueuedCommand } from './types.js';
 
 /** 본문에서 앱 노드 id 를 찾는 낱말 — 앞뒤가 id 글자가 아니어야 한다(`xapp-…` · `app-1-2-3` 의 일부 ❌). */
 const APP_NODE_ID_IN_TEXT = /(?<![a-z0-9-])app-[a-z0-9]{1,16}-[a-z0-9]{1,16}(?![a-z0-9-])/g;
@@ -233,4 +233,35 @@ export function sequenceLabel(seq: Pick<FileSequence, 'prefix' | 'digits' | 'ext
 export function clipNameList(names: readonly string[], max: number = APP_WORK.tooltipNameMax): { shown: string[]; more: number } {
   const shown = names.slice(0, Math.max(0, max));
   return { shown, more: Math.max(0, names.length - shown.length) };
+}
+
+// ─── §5.4 #36 (L) 작업 중 미리보기 ───
+
+const WORK_PREVIEW_VISUAL_KINDS = ['image', 'video', 'model'] as const;
+
+/** 그 종류의 최근 한 건을 고친 새 기록. 더 새롭지 않으면 같은 객체를 돌려준다(저장 판본을 헛올리지 않게). */
+export function withWorkPreview(
+  previews: AppBubbleWorkPreviews | undefined,
+  kind: keyof AppBubbleWorkPreviews,
+  file: string,
+  at: number,
+): AppBubbleWorkPreviews | undefined {
+  const prev = previews?.[kind];
+  if (prev && at <= prev.at) return previews;
+  return { ...previews, [kind]: { file, at } };
+}
+
+/** 화면이 비출 한 건 — 그림·영상·3D 중 가장 새 것, 없으면 소리. 소리 앱은 소리가 먼저다(화면이 파형이라 그림이 밀어내면 안 된다). */
+export function pickWorkPreview(
+  previews: AppBubbleWorkPreviews | undefined,
+  appKind: FileFaceKind | null,
+): AppBubbleWorkPreview | null {
+  if (!previews) return null;
+  if (appKind === 'audio' && previews.audio) return previews.audio;
+  let best: AppBubbleWorkPreview | null = null;
+  for (const kind of WORK_PREVIEW_VISUAL_KINDS) {
+    const entry = previews[kind];
+    if (entry && (!best || entry.at > best.at)) best = entry;
+  }
+  return best ?? previews.audio ?? null;
 }

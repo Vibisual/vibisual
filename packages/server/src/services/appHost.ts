@@ -3,7 +3,7 @@
  * 첫 요청 때 늦게 불러온다(§5.13 (H)). 앱은 코어를 import 하지 않는다 — `AppServerHost` 가 유일한 접촉면(§5.13 (P) 도킹 계약).
  */
 import type { Express, RequestHandler, Router } from 'express';
-import { APP_API_PREFIX, LOOPBACK_REQUEST_MAX_BYTES, type AppEventPayload, type CreationValue, type CreationLink } from '@vibisual/shared';
+import { APP_API_PREFIX, LOOPBACK_REQUEST_MAX_BYTES, type AppAgentLink, type AppEventPayload, type CreationValue, type CreationLink } from '@vibisual/shared';
 import { Router as makeRouter, json } from 'express';
 import type { CreationStore } from './creationStore.js';
 
@@ -12,6 +12,7 @@ import { logger } from '../logger.js';
 import { graphManager } from './projectGraphManager.js';
 import { atomicWriteFileSync } from './statePersistence.js';
 import { resolveWorkspacePath } from './workspaceExplorer.js';
+import { userDefaultsService } from './userDefaultsService.js';
 
 /**
  * §5.13 (T-11) ① — 서버 몫이 같은 앱의 main 몫을 부르는 함수(한 프로세스 §3.7 — 소켓·IPC 없음). 데스크톱 main 이 부팅 때 `setAppMainInvoker` 로 주입한다.
@@ -44,6 +45,11 @@ function makeHost(appId: string): {
   invokeMain(action: string, payload?: unknown): Promise<unknown>;
   notify(event: Omit<AppEventPayload, 'appId'>): void;
   getCreationStore(): Promise<CreationStore>;
+  textTaskStatus(provider?: string): Promise<import('./appTextTask.js').AppTextTaskStatus>;
+  runTextTask(prompt: string, provider?: string): Promise<import('./appTextTask.js').AppTextTaskResult>;
+  resolveAppContext(project: string, itemId: string): { kind: 'project' | 'app'; id: string; label: string; excerpt: string } | null;
+  getAppAIEnabled(): boolean;
+  setAppAIEnabled(enabled: boolean): Promise<void>;
   syncCreationSource(
     project: string,
     input: { key: string; appId: string; title: string; payload?: CreationValue; links: CreationLink[] },
@@ -51,6 +57,18 @@ function makeHost(appId: string): {
 } {
   return {
     getCreationStore: sharedCreationStore,
+    getAppAIEnabled: () => userDefaultsService.get().internalAppSettings?.[appId]?.aiEnabled !== false,
+    setAppAIEnabled: async (enabled) => { await userDefaultsService.update({ internalAppSettings: { [appId]: { aiEnabled: enabled } } }); },
+    textTaskStatus: async (provider) => (await import('./appTextTask.js')).textTaskStatus(provider),
+    runTextTask: async (prompt, provider) => (await import('./appTextTask.js')).runTextTask(prompt, provider),
+    resolveAppContext: (project, itemId) => {
+      const info = Object.values(graphManager.getProjects()).find(entry => entry.path === project);
+      if (!info) return null;
+      if (itemId === project) return { kind: 'project', id: project, label: info.name, excerpt: '' };
+      const bubble = graphManager.getAppBubble(itemId);
+      if (!bubble || graphManager.getProjectByName(bubble.projectName)?.path !== project) return null;
+      return { kind: 'app', id: bubble.id, label: bubble.title || bubble.appId, excerpt: '' };
+    },
     // §5.13 (Y) 40-7 ② — 앱 서버 몫의 알림을 기존 방송 한 줄로 나른다(새 통로 ❌). 코어는 뜻을 모른다 — 앱 id 만 붙인다.
     notify: (event) => {
       const payload: AppEventPayload = { ...event, appId };
@@ -84,6 +102,8 @@ interface ServerAppEntry {
   readonly apiPrefix: string;
   /** Parse before the server's small default JSON parser; declared by each app, not in core branches. */
   readonly jsonLimit?: string | number;
+  /** §5.4 #36 (C) — 서버 몫이 `agentLink` 를 낸다. 안 낸 앱을 도구 판정 때문에 메모리에 올리지 않게 미리 적는다. */
+  readonly hasAgentLink?: boolean;
   /** 앱의 서버 몫. **호출 전까지 로드되지 않는다.** */
   readonly load: () => Promise<LoadedAppModule>;
 }
@@ -97,9 +117,18 @@ interface LoadedAppModule {
    * 프로젝트 밖·없는 파일이면 null. 운반(구간·흘려 보내기)은 코어가 한다 — 앱은 "어느 파일인가"만 답한다.
    */
   resolveMedia?: (host: AppHost, query: URLSearchParams) => string | null | Promise<string | null>;
+  /** §5.4 #36 (C) — 이 앱 노드에 이어진 세션을 앱 안에 묶는 선언. */
+  agentLink?: AppAgentLink<AppHost>;
 }
 
 const SERVER_APPS: readonly ServerAppEntry[] = [
+  {
+    id: 'memo', apiPrefix: `${APP_API_PREFIX}/memo`, jsonLimit: '512kb',
+    load: async () => {
+      const mod = await import('@vibisual/memo/server');
+      return { mountRoutes: mod.mountMemoRoutes, resolveMedia: mod.resolveMemoMedia };
+    },
+  },
   {
     id: 'creation',
     apiPrefix: `${APP_API_PREFIX}/creation`,
@@ -120,9 +149,10 @@ const SERVER_APPS: readonly ServerAppEntry[] = [
     apiPrefix: `${APP_API_PREFIX}/vibistudio`,
     // §5.13 (Y) 40-7 ⑥ — 장면 대표 프레임 보고(data URL JSON)가 기본 상한(100KB)에 걸려 413 이 났다(장면 9개 안팎부터).
     jsonLimit: '16mb',
+    hasAgentLink: true,
     load: async () => {
       const mod = await import('@vibisual/video/server');
-      return { mountRoutes: mod.mountVideoRoutes, resolveMedia: mod.resolveVideoMedia };
+      return { mountRoutes: mod.mountVideoRoutes, resolveMedia: mod.resolveVideoMedia, agentLink: mod.videoAgentLink };
     },
   },
   {
@@ -185,6 +215,14 @@ export async function resolveAppMediaFile(appId: string, query: URLSearchParams)
     logger.warn(`[apps] ${appId} 미디어 해석 실패: ${String(err)}`);
     return null;
   }
+}
+
+/** §5.4 #36 (C) — 이 앱의 연결 강제 선언. 선언하지 않은 앱은 불러오지 않고 null. */
+export async function resolveAppAgentLink(appId: string): Promise<{ link: AppAgentLink<unknown>; host: unknown } | null> {
+  const entry = SERVER_APPS.find((e) => e.id === appId);
+  if (!entry?.hasAgentLink) return null;
+  const app = await loadApp(entry);
+  return app.mod.agentLink ? { link: app.mod.agentLink, host: app.host } : null;
 }
 
 export function mountAppRoutes(app: Express): void {

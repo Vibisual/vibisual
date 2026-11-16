@@ -11,6 +11,7 @@ vi.mock('@vibisual/video/render', () => ({
     element = { style: {} };
     seek = vi.fn((at: number) => mocks.seek(at));
     setDoc = vi.fn();
+    reopen = vi.fn((itemId: string) => itemId === 'c1');
     dispose = vi.fn();
     playingFlag = false;
     play = vi.fn(() => { this.playingFlag = true; });
@@ -22,7 +23,7 @@ vi.mock('@vibisual/video/render', () => ({
 vi.mock('./compositionUrl.js', () => ({ makeCompositionSrc: () => () => null }));
 
 type Props = Parameters<typeof useStagePreview>[0];
-interface FakeStage { seek: ReturnType<typeof vi.fn>; setDoc: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; play: ReturnType<typeof vi.fn>; stopPlay: ReturnType<typeof vi.fn> }
+interface FakeStage { seek: ReturnType<typeof vi.fn>; setDoc: ReturnType<typeof vi.fn>; reopen: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; play: ReturnType<typeof vi.fn>; stopPlay: ReturnType<typeof vi.fn> }
 let handle: ReturnType<typeof useStagePreview>;
 let view: ReactTestRenderer | undefined;
 function Harness(props: Props): null { handle = useStagePreview(props); return null; }
@@ -44,6 +45,20 @@ beforeEach(() => { mocks.create.mockClear(); mocks.seek.mockReset().mockResolved
 afterEach(() => { act(() => view?.unmount()); view = undefined; });
 
 describe('stage preview lifecycle', () => {
+  it('reopens one composition frame and redraws the same time even though it was already drawn (37-21 (H))', async () => {
+    await act(async () => mount(props()));
+    await act(async () => { await handle.seek(3); });
+    const before = stage(0).seek.mock.calls.length;
+    let ok = false;
+    await act(async () => { ok = await handle.reopen('c1'); });
+    expect(ok).toBe(true);
+    expect(stage(0).reopen).toHaveBeenCalledWith('c1');
+    expect(stage(0).seek.mock.calls.slice(before)).toEqual([[3]]);
+    await act(async () => { ok = await handle.reopen('missing'); });
+    expect(ok).toBe(false);
+    expect(stage(0).seek.mock.calls.slice(before)).toEqual([[3]]);
+  });
+
   it.each(['document', 'project'] as const)('starts at zero after a %s boundary instead of loading the previous position', async boundary => {
     const value = props();
     await act(async () => mount(value));

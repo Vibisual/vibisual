@@ -12,12 +12,14 @@ import type {
   LibRequest,
   NoteStatus,
   PassRecord,
+  PatchFix,
   StyleCandidates,
   VideoAsset,
   VideoDoc,
+  VideoDocOp,
   VideoNote,
 } from '@vibisual/video';
-import { readJsonResponse } from './videoApi.js';
+import { readJsonResponse, VersionConflictError } from './videoApi.js';
 
 const BASE = '/api/app/vibistudio';
 
@@ -89,6 +91,65 @@ export async function readPasses(project: string, docId: string): Promise<{ pass
 /** 스튜디오가 요청마다 만드는 바퀴 id(파일 이름에 쓸 수 있는 모양). */
 export function newPassId(): string {
   return `pass-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// ─── §5.13 (V) 37-23 장면 단위 받기·되돌리기 ───
+
+/** 장면 되돌리기의 컴포지션 파일 계획(서버 `SceneFilePlan` 과 같은 모양 — 쓰지 않는다). */
+export interface SceneFilePlan {
+  readonly folders: readonly string[];
+  readonly changed: number;
+  readonly shared: readonly string[];
+  readonly sharedChanged: number;
+  readonly extra: number;
+  readonly missing: number;
+  readonly partial: boolean;
+  readonly noSnapshot: boolean;
+}
+
+export async function readSceneFilePlan(project: string, docId: string, revId: string, chapterId: string): Promise<SceneFilePlan> {
+  const res = await fetch(`${docPath(docId, `/history/${encodeURIComponent(revId)}/scene/${encodeURIComponent(chapterId)}/files`)}?${q(project)}`);
+  return (await readJsonResponse<{ plan: SceneFilePlan }>(res)).plan;
+}
+
+/** patch 미리 검사 결과 — 상태 코드와 상관없이 `fix[]` 를 돌려준다(아무것도 쓰지 않는다). */
+export interface PatchCheckResult {
+  readonly ok: boolean;
+  readonly conflict: boolean;
+  readonly fix: readonly PatchFix[];
+}
+
+export async function checkPatch(project: string, docId: string, baseVersion: number, ops: readonly VideoDocOp[]): Promise<PatchCheckResult> {
+  const res = await fetch(docPath(docId, '/patch/check'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, baseVersion, ops }),
+  });
+  let body: { ok?: boolean; fix?: PatchFix[]; error?: string };
+  try { body = await res.json() as typeof body; } catch { body = {}; }
+  if (res.status === 404 || res.status >= 500) throw new Error(body.error ?? `HTTP ${res.status}`);
+  return { ok: res.ok && body.ok !== false, conflict: res.status === 409, fix: body.fix ?? [] };
+}
+
+/** 그 장면만 바퀴 시작 판으로 — 서버가 연산을 다시 계산한다. 그 사이 문서가 바뀌었으면 `VersionConflictError`. */
+export async function restoreScene(
+  project: string, docId: string, revId: string, chapterId: string, baseVersion: number,
+): Promise<{ doc: VideoDoc; entry?: HistoryEntry; filesRestored: number; plan: SceneFilePlan; pass?: PassRecord }> {
+  const res = await fetch(docPath(docId, `/history/${encodeURIComponent(revId)}/scene-restore`), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, chapterId, baseVersion }),
+  });
+  if (res.status === 409) throw new VersionConflictError();
+  return readJsonResponse(res);
+}
+
+/** 장면을 받았다고 적거나(`keep` — 본 그 내용의 지문과 함께) 결정을 지운다(`reopen`). 그 사이 장면이 바뀌었으면 `VersionConflictError`. */
+export async function decideScene(
+  project: string, docId: string, passId: string, chapterId: string, decision: 'keep' | 'reopen', signature?: string,
+): Promise<PassRecord> {
+  const res = await fetch(docPath(docId, `/pass/${encodeURIComponent(passId)}/scene`), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project, chapterId, decision, ...(signature ? { signature } : {}) }),
+  });
+  if (res.status === 409) throw new VersionConflictError();
+  return (await readJsonResponse<{ pass: PassRecord }>(res)).pass;
 }
 
 // ─── §5.13 (V) 37-7 메모 핀 ───

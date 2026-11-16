@@ -71,6 +71,7 @@ export function useStudioExport(d: {
       range: { start: 0, end: timeline?.duration ?? 0 },
       sceneIds: [],
       mutedTracks: [],
+      thumbnailAt: null,
     };
   }, []);
 
@@ -93,6 +94,8 @@ export function useStudioExport(d: {
     if (plan.entries.length === 0) { ref.current.onInfo('panel.videoStudio.export.nothing'); return 0; }
     const fileName = batchFileName(settings.fileName, plan.entries);
     const notice = { done: t('panel.videoStudio.export.notice.done'), failed: t('panel.videoStudio.export.notice.failed') };
+    // 42-13 (D) — 제목 없는 장면의 이름틀은 사용자 언어로 지어 싣는다(서버는 번역을 모른다).
+    const chapterLabel = t('panel.videoStudio.strip.chapterN', { n: '{n}' });
     const derived = new Map<string, string>();
     let made = 0;
     let derivedAny = false;
@@ -119,6 +122,8 @@ export function useStudioExport(d: {
           output: {
             dir: settings.outputDir, fileName, conflict: settings.conflict, after: settings.after, keepAwake: settings.keepAwake,
             scene: entry.scene, index: plan.entries.length > 1 ? entry.index : null, notice,
+            // 고른 시각은 지금 문서의 시각이다 — 다른 문서·파생 판형은 서버가 그 문서의 대표 시각으로 찍는다(42-13 (C)).
+            extras: settings.extras, thumbnailAt: entry.doc.id === doc.id && !entry.derived ? target.thumbnailAt : null, chapterLabel,
           },
           label: labelOf(entry),
           ...(mode === 'queue' ? { schedule: { hold: true } } : mode === 'schedule' && at !== undefined ? { schedule: { at } } : {}),

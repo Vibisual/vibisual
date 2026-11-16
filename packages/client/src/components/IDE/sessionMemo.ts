@@ -15,6 +15,9 @@ import { shiftMemoLinks } from './memoLinks.js';
 
 /** 메모가 놓이는 판의 크기(px). */
 export interface MemoBounds {
+  unbounded?: boolean;
+  /** 월드 위치 → 화면 위치 배율. 카드 크기는 화면 px다. */
+  scale?: number;
   w: number;
   h: number;
 }
@@ -47,6 +50,7 @@ export function newMemoId(now: number = Date.now(), rand: () => number = Math.ra
  * 새 배열이 생겨 서버로 헛 저장이 나가는 것을 막는다.
  */
 export function clampMemoRect(memo: SessionMemo, bounds: MemoBounds): SessionMemo {
+  if (bounds.unbounded) return memo;
   const boardW = Math.max(SESSION_MEMO.MIN_W, Math.round(bounds.w));
   const boardH = Math.max(SESSION_MEMO.MIN_H, Math.round(bounds.h));
   const w = clamp(memo.w, SESSION_MEMO.MIN_W, Math.min(SESSION_MEMO.MAX_W, boardW));
@@ -416,12 +420,15 @@ export function rectsOverlap(a: MemoRect, b: MemoRect): boolean {
 }
 
 /** `top` 이 `bottom` 의 제목줄을 가리는가 — 겹침 기준은 넓이가 아니라 제목줄(메모가 거기 있다는 사실을 잃는 것이 문제다. 모서리 스침까지 세면 배지가 소음). */
-export function hidesMemoHeader(top: SessionMemo, bottom: SessionMemo): boolean {
-  return rectsOverlap(memoShownRect(top), memoHeaderRect(bottom));
+export function hidesMemoHeader(top: SessionMemo, bottom: SessionMemo, scale: number = 1): boolean {
+  const shown = memoShownRect(top);
+  const header = memoHeaderRect(bottom);
+  return rectsOverlap({ ...shown, x: shown.x * scale, y: shown.y * scale },
+    { ...header, x: header.x * scale, y: header.y * scale });
 }
 
 /** 각 장이 깔아 이름을 가린 장수. 배지는 덮은 쪽이 단다 — 덮인 쪽은 가려져 hover·클릭이 닿지 않는다. */
-export function stackedUnderCounts(memos: SessionMemo[]): Map<string, number> {
+export function stackedUnderCounts(memos: SessionMemo[], scale: number = 1): Map<string, number> {
   const anchors = memoCardAnchors(memos);
   const out = new Map<string, number>();
   for (let i = 0; i < anchors.length; i += 1) {
@@ -430,7 +437,7 @@ export function stackedUnderCounts(memos: SessionMemo[]): Map<string, number> {
     let n = 0;
     for (let j = 0; j < i; j += 1) {
       const bottom = anchors[j];
-      if (bottom && hidesMemoHeader(top, bottom)) n += 1;
+      if (bottom && hidesMemoHeader(top, bottom, scale)) n += 1;
     }
     out.set(top.id, n);
   }
@@ -455,13 +462,13 @@ export function hasHiddenMemoHeaders(memos: SessionMemo[]): boolean {
  * 이 장이 덮고 있는 것 중 **바로 밑장**을 맨 앞으로. 한 번 누를 때마다 한 겹씩 벗겨 내는 열람이라,
  * 쌓아 둔 뭉치를 흩지 않고도 안쪽을 볼 수 있다(자리 이동 ❌ — 순서만 바뀐다).
  */
-export function raiseNextUnder(memos: SessionMemo[], id: string): SessionMemo[] {
+export function raiseNextUnder(memos: SessionMemo[], id: string, scale: number = 1): SessionMemo[] {
   const idx = memos.findIndex((m) => m.id === id);
   const top = idx >= 0 ? memos[idx] : undefined;
   if (!top) return memos;
   for (let j = idx - 1; j >= 0; j -= 1) {
     const bottom = memos[j];
-    if (bottom && hidesMemoHeader(top, bottom)) return raiseMemo(memos, bottom.id);
+    if (bottom && hidesMemoHeader(top, bottom, scale)) return raiseMemo(memos, bottom.id);
   }
   return memos;
 }

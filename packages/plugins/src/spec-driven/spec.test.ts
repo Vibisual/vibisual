@@ -5,6 +5,7 @@ import {
   SPEC_DOC_FILE_MAX,
   SPEC_ITEM_LABEL_MAX,
   SPEC_RARE_TITLE_MIN_UNITS,
+  SPEC_REQUIRED_TOKEN_BUDGET,
   SPEC_UNIT_TOKEN_MAX,
   estimateTokens,
 } from '../sdk/index.js';
@@ -980,5 +981,136 @@ describe('라우팅 무게 — 잘린 표지 · 접착제 · 드문 낱말의 �
       expect(block, promptText).toContain('`cat`');
       expect(block, promptText).toContain('열람으로 안 쳐 준다');
     }
+  });
+});
+
+describe('커지는 기획 — 한 턴에 읽는 양은 그대로다', () => {
+  const idx = (units: SpecUnit[]): SpecIndex => ({
+    units,
+    docCount: 1,
+    truncated: false,
+    roots: ['docs'],
+    builtAt: 0,
+    skippedDocs: [],
+    skippedCount: 0,
+    excludedCount: 0,
+  });
+  const u = (id: string, title: string, over: Partial<SpecUnit> = {}): SpecUnit => ({
+    id,
+    title,
+    file: 'docs/기획/화면.md',
+    startLine: 1,
+    endLine: 2,
+    chars: 10,
+    requirementCount: 1,
+    tokens: 100,
+    ...over,
+  });
+
+  it('본문까지 한 줄에 적힌 항목은 앞머리만 찾기 글이 된다 — 줄 전체가 표지면 어떤 프롬프트에도 걸린다', () => {
+    const body = `${'배지는 주황으로 켠다. '.repeat(40)}맨끝낱말 하나.`;
+    const filler = Array.from({ length: 40 }, (_, i) => `${i + 20}. 채움 항목 ${i} — ${'설명 문장이다. '.repeat(30)}`);
+    const text = ['# 화면', '', `1. 창 분할 규약 — 탭을 끌어 붙인다. ${body}`, ...filler].join('\n');
+    const units = splitUnits('docs/기획/화면.md', text);
+    const target = units.find((x) => (x.matchText ?? x.title).includes('창 분할'));
+    expect(target).toBeDefined();
+    expect((target?.matchText ?? '').length).toBeLessThan(300);
+    expect(target?.matchText ?? '').not.toContain('맨끝낱말');
+  });
+
+  it('상한을 넘는 표는 행에서 갈리고, 조각은 첫 칸을 이름으로 든다', () => {
+    const row = (name: string): string => `| ${name} | ${'이 기능은 세 운영체제에서 같은 길로 흐른다. '.repeat(60)} |`;
+    const text = ['# 등록부', '', '| 기능 | 비고 |', '|---|---|', row('경로 키 정규화'), row('자동 업데이트'), row('음성 받아쓰기')].join('\n');
+    const units = splitUnits('docs/등록부.md', text);
+    expect(units.length).toBeGreaterThan(1);
+    expect(units.some((x) => x.title.includes('자동 업데이트'))).toBe(true);
+    // 머리·구분 줄은 첫 자료 행에 붙는다 — 따로 서면 머리 한 줄짜리 조각이 오탐으로 걸린다.
+    expect(units[0]?.startLine).toBeLessThanOrEqual(3);
+  });
+
+  it('빈 줄 없이 이어진 긴 문단은 줄에서 갈린다 — 줄 하나가 상한을 넘을 때만 큰 절이다', () => {
+    const line = '저장은 원자적으로 쓴다. '.repeat(60);
+    const text = ['# 저장', '', ...Array.from({ length: 8 }, () => line)].join('\n');
+    const units = splitUnits('docs/저장.md', text);
+    expect(units.length).toBeGreaterThan(1);
+    expect(units.every((x) => !x.oversized)).toBe(true);
+    for (const x of units) expect(x.tokens ?? 0).toBeLessThanOrEqual(SPEC_UNIT_TOKEN_MAX);
+  });
+
+  it('본문이 이름으로 적은 코드 파일을 절에 달아 둔다', () => {
+    const text = ['# 절차', '', '목록은 `autoGoalService.ts` 가 짓고 `packages/server/src/index.ts` 가 싣는다.'].join('\n');
+    const [unit] = splitUnits('docs/절차.md', text);
+    expect(unit?.mentions).toContain('autogoalservice');
+    expect(unit?.mentions).toContain('index');
+  });
+
+  it('건드린 파일을 적어 둔 절이 경로 축으로 걸린다 — 제목에 그 이름이 없어도', () => {
+    const index = idx([
+      u('a', '5.10 자동 목표 › (R) 목록은 관련도 순위로 고른다', { mentions: ['autogoalservice'] }),
+      u('b', '5.1 버블맵 › 3. 파일 버블의 색'),
+    ]);
+    const req = routeRequiredUnits(index, makeCtx({ touchedPaths: ['packages/server/src/services/autoGoalService.ts'] }), normalizeSpecSettings({}));
+    expect(req.map((r) => r.unitId)).toEqual(['a']);
+    expect(req[0]?.via).toBe('path');
+  });
+
+  it('프롬프트가 코드 파일을 이름으로 부르면 그 파일을 적어 둔 절이 걸린다', () => {
+    const index = idx([u('a', '5.10 자동 목표 › (R) 목록 고르기', { mentions: ['autogoalservice'] }), u('b', '5.1 버블맵 › 3. 색')]);
+    const req = routeRequiredUnits(index, makeCtx({ promptText: 'autoGoalService.ts 좀 정리해줘' }), normalizeSpecSettings({}));
+    expect(req.map((r) => r.unitId)).toEqual(['a']);
+  });
+
+  it('온 절에 적힌 파일 이름은 절을 못 가린다 — 흔한 이름으로는 지목하지 않는다', () => {
+    const many = Array.from({ length: SPEC_RARE_TITLE_MIN_UNITS + 20 }, (_, i) => u(`m${i}`, `9. 절 ${i}`, { mentions: ['constants'] }));
+    const req = routeRequiredUnits(idx(many), makeCtx({ touchedPaths: ['packages/shared/src/constants.ts'] }), normalizeSpecSettings({}));
+    expect(req).toEqual([]);
+  });
+
+  it('필수 절의 토큰 합에 상한이 있다 — 개수만 세면 큰 절 몇이 한 턴을 다 먹는다', () => {
+    const big = Array.from({ length: 8 }, (_, i) => u(`REQ-${i}`, `REQ-${i} 데미지 공식 ${i}`, { tokens: SPEC_UNIT_TOKEN_MAX }));
+    const req = routeRequiredUnits(idx(big), makeCtx({ promptText: big.map((x) => x.id).join(' ') }), normalizeSpecSettings({}));
+    const sum = req.reduce((a, r) => a + (r.tokens ?? 0), 0);
+    expect(req.length).toBeGreaterThan(0);
+    expect(req.length).toBeLessThan(8);
+    expect(sum).toBeLessThanOrEqual(SPEC_REQUIRED_TOKEN_BUDGET);
+  });
+
+  it('토큰 상한을 넘는 절 하나뿐이어도 그 절은 싣는다 — 아무것도 안 싣는 것이 더 나쁘다', () => {
+    const one = [u('REQ-1', 'REQ-1 데미지 공식', { tokens: SPEC_REQUIRED_TOKEN_BUDGET * 2 })];
+    const req = routeRequiredUnits(idx(one), makeCtx({ promptText: 'REQ-1 고쳐줘' }), normalizeSpecSettings({}));
+    expect(req.map((r) => r.unitId)).toEqual(['REQ-1']);
+  });
+
+  it('프롬프트 축이 자리를 다 채워도 건드린 파일을 적어 둔 절은 빠지지 않는다', () => {
+    const prompt = Array.from({ length: 12 }, (_, i) => u(`REQ-${i}`, `REQ-${i} 데미지 공식 ${i}`));
+    const mentioned = u('doc', '5.6 저장 › 19. 체크포인트 쓰기', { mentions: ['statepersistence'] });
+    const ctx = makeCtx({
+      promptText: prompt.map((x) => x.id).join(' '),
+      touchedPaths: ['packages/server/src/services/statePersistence.ts'],
+    });
+    const req = routeRequiredUnits(idx([...prompt, mentioned]), ctx, normalizeSpecSettings({}));
+    expect(req).toHaveLength(8);
+    expect(req.map((r) => r.unitId)).toContain('doc');
+  });
+
+  it('경로 축 몫은 사용자가 적은 매핑을 밀어내지 않는다', () => {
+    const routed = Array.from({ length: 8 }, (_, i) => u(`REQ-${i}`, `REQ-${i} 규약`));
+    const mentioned = u('doc', '5.6 저장 › 19. 쓰기', { mentions: ['damage'] });
+    const settings = normalizeSpecSettings({ routes: [{ glob: 'src/combat/**', specs: routed.map((x) => x.id) }] });
+    const req = routeRequiredUnits(idx([...routed, mentioned]), makeCtx({ touchedPaths: ['src/combat/damage.ts'] }), settings);
+    expect(req.every((r) => r.via === 'route')).toBe(true);
+  });
+
+  it('제외 glob 에 걸린 문서는 색인하지 않는다 — 생성된 목차는 기획이 아니다', () => {
+    const files: Record<string, string> = { 'docs/기획/전투.md': BATTLE, 'docs/기획/TOC.md': '# 목차\n\n데미지 공식 사거리 인벤토리.' };
+    const ctx = makeCtx({
+      readFile: (p) => files[p] ?? null,
+      listFiles: (dir) => (dir === 'docs' ? Object.keys(files) : []),
+    });
+    const settings = normalizeSpecSettings({ exclude: ['docs/**/TOC.md'] });
+    expect(settings.exclude).toEqual(['docs/**/TOC.md']);
+    const index = buildSpecIndex(ctx, settings);
+    expect(index.units.some((x) => x.file.endsWith('TOC.md'))).toBe(false);
+    expect(index.excludedCount).toBe(1);
   });
 });

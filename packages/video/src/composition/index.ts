@@ -30,7 +30,10 @@ export {
 export type { CompositionRuntimeInit, CompositionRuntimeStyle } from './runtime.js';
 export { compositionSkeleton } from './skeleton.js';
 export type { CompositionSkeletonArgs } from './skeleton.js';
-export { COMPOSITION_GUIDE, MOTION_CRAFT_GUIDE, VIBISTUDIO_AGENT_GUIDE, compositionGuideFor } from './guide.js';
+export {
+  COMPOSITION_GUIDE, MOTION_CRAFT_GUIDE, VIBISTUDIO_AGENT_GUIDE, VIBISTUDIO_GUIDE_TOPICS, compositionGuideFor, fullGuideFor, guideTopicFor,
+} from './guide.js';
+export type { GuideTopic } from './guide.js';
 // §5.13 (T-10)(V) 37-11 — HTML 한 장 들여오기(바깥 참조 찾기·바꿔 쓰기 — 순수).
 export { absoluteUrl, cssExternalRefs, ensureDurationMeta, findExternalRefs, rewriteUrls, vendorFileName } from './externalRefs.js';
 export type { ExternalRef, ExternalRefKind } from './externalRefs.js';
@@ -40,3 +43,6 @@ export type { CueScanError, SettledCues } from './cues.js';
 // §5.13 (V) 37-2 — 시작 화면 레시피(에이전트가 읽는 요청 확장 — 영문 정본).
 export { VIDEO_RECIPES, findRecipe } from './recipes.js';
 export type { RecipeMaterial, VideoRecipe } from './recipes.js';
+// §5.13 (V) 37-20 — 화면 요소 ↔ 원본 HTML 줄(시작 태그 훑기·맞추기 — 순수).
+export { normalizeClass, parsePickedSource, scanSourceTags, sourceLineOf, sourceTargetsAtLine } from './sourceMap.js';
+export type { LineTargets, PickedSource, SourceIndex, SourceLine, SourceRef, SourceTag, SourceTarget } from './sourceMap.js';

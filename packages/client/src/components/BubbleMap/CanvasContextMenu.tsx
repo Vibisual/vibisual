@@ -59,7 +59,7 @@ const MENU_ROW_CLASS =
 const MENU_ROW_OPEN_CLASS = `${MENU_ROW_CLASS} bg-gray-800`;
 
 // Reserve the scrollbar before measuring so height limits cannot widen the popup afterward.
-const SUBMENU_CLASS = 'fixed z-10 w-max overflow-y-auto overscroll-contain [scrollbar-gutter:stable] rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40 [&_button>div]:min-w-0';
+const SUBMENU_CLASS = 'fixed z-menu w-max overflow-y-auto overscroll-contain [scrollbar-gutter:stable] rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40 [&_button>div]:min-w-0';
 const SUBMENU_ARROW_PATH = {
   right: 'm9 18 6-6-6-6',
   left: 'm15 18-6-6 6-6',
@@ -214,7 +214,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 w-max [overflow-wrap:anywhere] [&_button>div]:min-w-0"
+      className="fixed z-menu w-max [overflow-wrap:anywhere] [&_button>div]:min-w-0"
       style={{ left: x, top: y, maxWidth: 'calc(100vw - 16px)' }}
       onMouseDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
@@ -441,7 +441,9 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
         </button>
         )}
 
-        {mainView && (
+        {/* 노출 게이트 — 스펙 보드·에이전트 랩·스크립트 선반은 기획이 덜 끝나 §7.7 디버그 모드에서만 낸다(§5.15·§5.18·§5.20).
+            사용자의 허락 없이 이 숨김을 풀지 말 것. 이미 놓인 버블도 BubbleMap 의 같은 게이트로 숨는다. */}
+        {debugMode && mainView && (
           <>
           {/* §5.15 — 스펙 보드 (요구사항 → 수용 기준 → 작업 카드, teal 톤). */}
           <button

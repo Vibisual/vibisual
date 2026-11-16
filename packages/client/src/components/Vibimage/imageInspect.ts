@@ -27,7 +27,12 @@ export function imageStageFit(doc: Pick<ImageDocument, 'width' | 'height'>, box:
   return { scale, x: (box.width - doc.width * scale) / 2, y: (box.height - doc.height * scale) / 2 };
 }
 
-function contains(layer: ImageLayer, x: number, y: number): boolean {
+function contains(layer: ImageLayer, px: number, py: number): boolean {
+  // Rotated (and flipped) boxes: test the point in the box's own frame — flips are symmetric around the centre.
+  const angle = -((layer.rotation ?? 0) * Math.PI) / 180;
+  const cx = layer.x + layer.width / 2; const cy = layer.y + layer.height / 2;
+  const x = angle ? cx + (px - cx) * Math.cos(angle) - (py - cy) * Math.sin(angle) : px;
+  const y = angle ? cy + (px - cx) * Math.sin(angle) + (py - cy) * Math.cos(angle) : py;
   if (layer.kind === 'shape' && layer.shape === 'ellipse') {
     const rx = layer.width / 2; const ry = layer.height / 2;
     if (rx <= 0 || ry <= 0) return false;
@@ -84,9 +89,13 @@ function describeLayer(doc: ImageDocument, layer: ImageLayer, x: number, y: numb
  * 편집기 무대 — 맨 위 레이어 → 그림 판(문서 전체). 판 밖(맞춤 여백)이면 빈 답 — 무대가 그대로 DOM 으로 집힌다.
  * 상자는 판 안의 보이는 픽셀이다(레이어가 문서 밖으로 나가 있으면 보이는 만큼만).
  */
-export function imageStageLevels(doc: ImageDocument, ctx: ImageInspectContext, labels: { readonly canvas: string }, at: InspectorPickPoint): InspectorPickLevels {
+export function imageStageLevels(
+  doc: ImageDocument, ctx: ImageInspectContext, labels: { readonly canvas: string }, at: InspectorPickPoint,
+  /** 확대·이동한 작업판이면 그 배치(판 상자 px) — 없으면 판 가운데 맞춤. */
+  view?: { readonly scale: number; readonly x: number; readonly y: number },
+): InspectorPickLevels {
   if (doc.width <= 0 || doc.height <= 0 || at.width <= 0 || at.height <= 0) return [];
-  const fit = imageStageFit(doc, at);
+  const fit = view ?? imageStageFit(doc, at);
   const x = (at.x - fit.x) / fit.scale;
   const y = (at.y - fit.y) / fit.scale;
   if (x < 0 || y < 0 || x > doc.width || y > doc.height) return [];

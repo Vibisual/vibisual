@@ -8,6 +8,7 @@ import {
   type VoiceAsrState,
 } from '@vibisual/shared';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { LayerRoot } from '../Layout/LayerRoot.js';
 
 /**
  * §5.5 #17-38 ⑬ 마이크를 처음 누르면 뜨는 준비 창. §5.19 (B) — 끝나면 스스로 물러나 하려던 말하기가 이어진다("다시 눌러 주세요" ❌).
@@ -81,8 +82,8 @@ export function VoiceInstallDialog(props: VoiceInstallDialogProps): JSX.Element 
   })();
 
   return (
-    <div
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4"
+    <LayerRoot
+      className="fixed inset-0 z-overlay flex items-center justify-center bg-black/60 p-4"
       {...backdrop}
     >
       <div className="w-full max-w-lg rounded-xl border border-gray-700 bg-gray-900 shadow-2xl">
@@ -185,6 +186,6 @@ export function VoiceInstallDialog(props: VoiceInstallDialogProps): JSX.Element 
           )}
         </div>
       </div>
-    </div>
+    </LayerRoot>
   );
 }

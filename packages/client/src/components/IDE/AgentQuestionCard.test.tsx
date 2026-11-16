@@ -7,6 +7,7 @@ import { resetQuestionCardState } from './questionCardState.js';
 const mocks = vi.hoisted(() => ({ addCommand: vi.fn(), writeText: vi.fn(async () => {}), focus: vi.fn() }));
 const translate = (key: string, opts?: { n?: number }): string => opts?.n === undefined ? key : `${key}:${opts.n}`;
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: translate }) }));
+vi.mock('./CardPathText.js', () => ({ CardPathText: ({ text }: { text: string }) => text }));
 vi.mock('../../stores/graphStore.js', () => ({
   useGraphStore: (select: (state: { addCommand: typeof mocks.addCommand }) => unknown) => select(mocks),
 }));

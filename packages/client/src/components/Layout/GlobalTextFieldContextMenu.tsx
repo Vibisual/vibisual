@@ -12,6 +12,7 @@ import {
   type FieldSelection,
   type TextFieldElement,
 } from '../../hooks/textFieldActions.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 /**
  * 앱의 모든 입력칸 우클릭 메뉴 — Electron 패키지 빌드에는 기본 메뉴가 없다(인증 코드 칸처럼 붙여넣기뿐인 칸이 막힌다).
@@ -19,8 +20,8 @@ import {
  * 마운트는 부팅 지점(`main.tsx`) 한 곳 — shell 안이면 별창·오버레이·지휘통제실·내부 앱 창에서 죽는다.
  */
 
-/** 앱의 어떤 창보다 위(현재 최고는 설치 게이트 100_700) — 낮으면 모달 뒤로 숨어 우클릭 무반응으로 보인다. */
-const GLOBAL_TEXT_MENU_Z = 1_000_000;
+/** 앱의 어떤 창·게이트보다 위 — 낮으면 모달 뒤로 숨어 우클릭 무반응으로 보인다. */
+const GLOBAL_TEXT_MENU_Z = Z_LAYER.MENU;
 
 /**
  * 자기 우클릭 메뉴가 있는 자리(전역은 손대지 않는다).
@@ -91,6 +92,7 @@ export function GlobalTextFieldContextMenu(): React.JSX.Element | null {
       y={open.y}
       items={items}
       zIndex={GLOBAL_TEXT_MENU_Z}
+      textFieldMenu
       onClose={close}
     />
   );

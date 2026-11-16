@@ -119,10 +119,12 @@ function LocalModelSetup(): React.JSX.Element | null {
     const label =
       fit === 'gpu'
         ? t('localModel.fitGpu', { defaultValue: 'GPU 로 빠르게' })
-        : fit === 'ram'
-          ? t('localModel.fitRam', { defaultValue: '메모리로 느리게' })
-          : t('localModel.fitTooBig', { defaultValue: '이 PC 로는 무리' });
-    const tone = fit === 'gpu' ? 'text-emerald-400' : fit === 'ram' ? 'text-amber-400' : 'text-red-400';
+        : fit === 'split'
+          ? t('localModel.fitSplit', { defaultValue: 'GPU+메모리 분할' })
+          : fit === 'ram'
+            ? t('localModel.fitRam', { defaultValue: '메모리로 느리게' })
+            : t('localModel.fitTooBig', { defaultValue: '이 PC 로는 무리' });
+    const tone = fit === 'gpu' ? 'text-emerald-400' : fit === 'split' ? 'text-lime-400' : fit === 'ram' ? 'text-amber-400' : 'text-red-400';
     return <span className={`shrink-0 text-xs ${tone}`}>{label}</span>;
   };
 
@@ -273,7 +275,7 @@ function LocalModelSetup(): React.JSX.Element | null {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60"
+      className="fixed inset-0 z-dialog-over flex items-center justify-center bg-black/60"
       {...backdrop}
     >
       {/* §4 — 폰에서는 옵션 창과 같은 전체 시트(680px 상자는 360px 화면에서 잘린다). */}

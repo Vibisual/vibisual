@@ -872,10 +872,10 @@ export const IDETabBar = memo(function IDETabBar({
         />
       )}
 
-      {/* 동작 중 세션 닫기 확인 팝업 — 대상에 active 세션이 있을 때만. IDE 모달 위(z-[70])로 body 포털. */}
+      {/* 동작 중 세션 닫기 확인 팝업 — 대상에 active 세션이 있을 때만. IDE 모달 위(`z-dialog-over`)로 body 포털. */}
       {pendingClose && createPortal(
         <div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60"
+          className="fixed inset-0 z-dialog-over flex items-center justify-center bg-black/60"
           {...confirmBackdrop}
         >
           <div className="mx-4 w-[clamp(20rem,34vw,28rem)] max-w-[calc(100vw-2rem)] rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
@@ -922,7 +922,7 @@ export const IDETabBar = memo(function IDETabBar({
         <div
           ref={dragApi.ghostRef}
           aria-hidden
-          className="pointer-events-none fixed left-0 top-0 z-[200] will-change-transform"
+          className="pointer-events-none fixed left-0 top-0 z-drag will-change-transform"
           /* 집는 순간 원본 치수를 그대로 입는다 — 탭 폭은 라벨·닫기·글리프가 함께 정해 클래스 흉내로는 크기가 튄다. */
           style={dragApi.dragSize ?? undefined}
         >
@@ -1012,7 +1012,7 @@ function HistoryButton(): React.JSX.Element | null {
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60 backdrop-blur-sm"
           {...backdrop}
         >
           <div

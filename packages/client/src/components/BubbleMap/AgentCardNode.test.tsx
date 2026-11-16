@@ -2,8 +2,10 @@ import { createElement, type ComponentProps } from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BubbleData, CommandReceipt, QueuedCommand, SubAgent } from '@vibisual/shared';
-import { DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
+import { AGENT_CARD, DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
 import { agentSessionInputKey, useGraphStore } from '../../stores/graphStore.js';
+import { useAgentCardTuckStore } from '../../stores/agentCardTuck.js';
+import indexCss from 'virtual:vibisual-css-source/index';
 import { AgentCardNode } from './AgentCardNode.js';
 import { composeLinkedBriefs } from './linkedNodeBriefs.js';
 import type { LinkedOutputNode } from './agentCard.js';
@@ -87,6 +89,12 @@ function expectStatus(key: string, busy: boolean): void {
   expect(statusLine().props['aria-live']).toBe('polite');
   expect(statusLine().props['aria-busy']).toBe(busy);
 }
+function balloonTucked(): boolean {
+  const layer = renderer!.root.find((node) => node.type === 'div'
+    && typeof node.props.className === 'string' && node.props.className.includes('agent-balloon-tuck'));
+  return layer.props.className.includes('agent-balloon-tucked');
+}
+function edgesSeeTucked(): boolean { return useAgentCardTuckStore.getState().tucked.has(agent.id); }
 function type(text: string): void {
   act(() => field().props.onChange({ target: { value: text } }));
 }
@@ -121,6 +129,83 @@ afterEach(() => {
   renderer = undefined;
   useGraphStore.setState(initialState, true);
   vi.useRealTimers();
+});
+
+describe('AgentCardNode balloon tuck while working', () => {
+  it('tucks only while the status reads as working and comes back for every other state', () => {
+    mount();
+    expect(balloonTucked()).toBe(false);
+    updateStatus('active');
+    expect(balloonTucked()).toBe(true);
+    // The status line stays mounted so assistive tech still hears the change.
+    expectStatus('canvas.agentCard.status.active', true);
+    updateStatus('awaiting_permission');
+    expect(balloonTucked()).toBe(false);
+    updateStatus('active');
+    expect(balloonTucked()).toBe(true);
+    updateStatus('completed');
+    expect(balloonTucked()).toBe(false);
+  });
+
+  it('does not tuck for queued-only work', () => {
+    useGraphStore.setState({ queuedCommands: { [agent.id]: [command('queued')] } });
+    mount();
+    expectStatus('panel.subAgent.status.waiting', false);
+    expect(balloonTucked()).toBe(false);
+  });
+
+  it('keeps an unsent draft under the typing hand and tucks once focus leaves', () => {
+    mount();
+    act(() => field().props.onFocus());
+    type('Still typing');
+    updateStatus('active');
+    expect(balloonTucked()).toBe(false);
+    act(() => field().props.onBlur());
+    expect(balloonTucked()).toBe(true);
+    expect(field().props.value).toBe('Still typing');
+  });
+
+  it('tucks after a send even though the field still holds focus', async () => {
+    mount();
+    act(() => field().props.onFocus());
+    type('Run this');
+    await act(async () => clickSend());
+    expect(field().props.value).toBe('');
+    updateStatus('active');
+    expect(balloonTucked()).toBe(true);
+  });
+
+  it('stays out while a restored send failure needs attention', () => {
+    useGraphStore.setState({ agentSessionInputs: { [inputKey]: { text: 'Retry this', attachments: [], sendFailure: 'rejected' } } });
+    mount('active');
+    expect(balloonTucked()).toBe(false);
+  });
+
+  it('moves line ends to the disc at once but returns them only after the balloon has regrown', () => {
+    mount('active');
+    expect(edgesSeeTucked()).toBe(true);
+    updateStatus('completed');
+    expect(edgesSeeTucked()).toBe(true);
+    act(() => { vi.advanceTimersByTime(AGENT_CARD.tuckMs - 1); });
+    expect(edgesSeeTucked()).toBe(true);
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(edgesSeeTucked()).toBe(false);
+  });
+
+  it('keeps the stylesheet in step with the shared geometry and timing', () => {
+    expect(indexCss).toContain(`transform ${AGENT_CARD.tuckMs / 1000}s`);
+    expect(indexCss).toContain(`translateX(${AGENT_CARD.balloonGap + AGENT_CARD.discSize / 2}px) scale(0)`);
+    // A forwards fill on the unfold would pin transform and silently disable the tuck transition.
+    expect(indexCss).toMatch(/animation: agent-balloon-unfold [^;]*\bbackwards;/);
+  });
+
+  it('forgets the tuck when the card unmounts so an off-screen card cannot pin its lines', () => {
+    mount('active');
+    expect(edgesSeeTucked()).toBe(true);
+    act(() => renderer!.unmount());
+    renderer = undefined;
+    expect(edgesSeeTucked()).toBe(false);
+  });
 });
 
 describe('AgentCardNode visible execution feedback', () => {

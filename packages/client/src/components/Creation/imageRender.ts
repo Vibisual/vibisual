@@ -1,12 +1,11 @@
 import { bytesBase64, parseCreationBlobRef } from '@vibisual/shared';
 import { fetchWorkspaceMediaBlob } from '../../utils/workspaceMedia.js';
 import { creationBlobObject } from './creationBlobs.js';
-import type { ImageDocument, ImageLayer } from './imageSource.js';
+import { imageLayerFont, imageLayerMeasure, type ImageDocument, type ImageLayer } from './imageSource.js';
 import {
   IMAGE_LINE_HEIGHT,
   defaultTextMeasure,
   ensureImageFonts,
-  imageFont,
   imageFontStack,
   resetImageTextMeasure,
   wrapTextToWidth,
@@ -26,40 +25,86 @@ export function svgEscape(v: string | number): string {
 }
 
 export function wrapImageText(layer: ImageLayer, measure: TextMeasure = defaultTextMeasure(), fallbackFamily = 'sans-serif'): string[] {
-  const size = layer.fontSize ?? 64;
-  return wrapTextToWidth(layer.text ?? '', layer.width, imageFont(size, layer.fontFamily || fallbackFamily), measure);
+  return wrapTextToWidth(layer.text ?? '', layer.width, imageLayerFont(layer, fallbackFamily), imageLayerMeasure(layer, measure));
 }
 
 function textLayer(doc: ImageDocument, layer: ImageLayer, base: string, box: string, measure: TextMeasure): string {
   const size = layer.fontSize ?? 64;
+  const step = size * (layer.lineHeight ?? IMAGE_LINE_HEIGHT);
   const x = layer.align === 'center' ? layer.x + layer.width / 2 : layer.align === 'right' ? layer.x + layer.width : layer.x;
   const anchor = layer.align === 'center' ? 'middle' : layer.align === 'right' ? 'end' : 'start';
   const lines = wrapImageText(layer, measure, doc.style.fontFamily)
-    .map((line, i) => `<tspan x="${x}" y="${layer.y + size + i * size * IMAGE_LINE_HEIGHT}">${svgEscape(line)}</tspan>`).join('');
+    .map((line, i) => `<tspan x="${x}" y="${layer.y + size + i * step}">${svgEscape(line)}</tspan>`).join('');
   const family = svgEscape(imageFontStack(layer.fontFamily || doc.style.fontFamily));
+  const style = (layer.fontWeight && layer.fontWeight !== 400 ? ` font-weight="${layer.fontWeight}"` : '')
+    + (layer.italic ? ' font-style="italic"' : '') + (layer.letterSpacing ? ` letter-spacing="${layer.letterSpacing}"` : '')
+    // The outline sits behind the fill so thick outlines do not eat the letters.
+    + (stroked(layer) ? `${strokeAttrs(layer)} paint-order="stroke" stroke-linejoin="round"` : '');
   return `<g ${base}><rect ${box} fill="transparent"/><text xml:space="preserve" style="white-space:pre" fill="${svgEscape(layer.fill)}"`
-    + ` font-family="${family}" font-size="${size}" text-anchor="${anchor}">${lines}</text></g>`;
+    + ` font-family="${family}" font-size="${size}" text-anchor="${anchor}"${style}>${lines}</text></g>`;
+}
+
+const stroked = (layer: ImageLayer): boolean => !!layer.stroke && (layer.strokeWidth ?? 0) > 0;
+const strokeAttrs = (layer: ImageLayer): string => stroked(layer) ? ` stroke="${svgEscape(layer.stroke!)}" stroke-width="${layer.strokeWidth}"` : '';
+/** Filter ids live in the page DOM on the stage — only safe characters, prefixed so they never meet app ids. */
+export function imageShadowId(layer: Pick<ImageLayer, 'id'>, scope = ''): string {
+  return `vbi-shadow-${scope}${layer.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+}
+/** Rotation and flips turn around the box centre; one attribute so hit testing and drawing agree. */
+export function imageLayerTransform(layer: Pick<ImageLayer, 'x' | 'y' | 'width' | 'height' | 'rotation' | 'flipX' | 'flipY'>): string {
+  const rotation = layer.rotation ?? 0;
+  if (!rotation && !layer.flipX && !layer.flipY) return '';
+  const cx = layer.x + layer.width / 2;
+  const cy = layer.y + layer.height / 2;
+  const scale = layer.flipX || layer.flipY ? ` scale(${layer.flipX ? -1 : 1} ${layer.flipY ? -1 : 1})` : '';
+  return `translate(${cx} ${cy})${rotation ? ` rotate(${rotation})` : ''}${scale} translate(${-cx} ${-cy})`;
+}
+
+function layerShape(doc: ImageDocument, layer: ImageLayer, base: string, sources: Record<string, string>, measure: TextMeasure): string {
+  const box = `x="${layer.x}" y="${layer.y}" width="${layer.width}" height="${layer.height}"`;
+  if (layer.kind === 'shape') {
+    if (layer.shape === 'ellipse') {
+      return `<ellipse ${base} cx="${layer.x + layer.width / 2}" cy="${layer.y + layer.height / 2}" rx="${layer.width / 2}" ry="${layer.height / 2}"`
+        + ` fill="${svgEscape(layer.fill)}"${strokeAttrs(layer)}/>`;
+    }
+    const radius = Math.min(layer.radius ?? 0, layer.width / 2, layer.height / 2);
+    return `<rect ${base} ${box}${radius > 0 ? ` rx="${radius}" ry="${radius}"` : ''} fill="${svgEscape(layer.fill)}"${strokeAttrs(layer)}/>`;
+  }
+  if (layer.kind === 'image') {
+    const source = sources[layer.source ?? ''] ?? (layer.source?.startsWith('data:image/') ? layer.source : '');
+    const ratio = layer.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet';
+    // Both href forms: SVG 2 readers use href, older SVG 1.1 tools only understand xlink:href.
+    return source
+      ? `<image ${base} ${box} href="${svgEscape(source)}" xlink:href="${svgEscape(source)}" preserveAspectRatio="${ratio}"/>`
+      : `<rect ${base} ${box} fill="none" stroke="#999999" stroke-dasharray="8 8"/>`;
+  }
+  return textLayer(doc, layer, base, box, measure);
+}
+
+/**
+ * One layer — the stage draws layer by layer with this, the exports join the same strings (`imageSvgBody`), so the
+ * screen and the files never differ. Hidden layers draw nothing.
+ */
+export function imageSvgLayer(
+  doc: ImageDocument, layer: ImageLayer, sources: Record<string, string> = {}, measure: TextMeasure = defaultTextMeasure(),
+  /** 한 페이지에 무대가 둘(시안 비교)이면 filter id 가 겹쳐 한쪽 그림자를 빌려 그린다 — 무대마다 접두를 준다. 파일 출력은 비운다. */
+  idScope = '',
+): string {
+  if (!layer.visible) return '';
+  const transform = imageLayerTransform(layer);
+  const blend = layer.blend && layer.blend !== 'normal' ? ` style="mix-blend-mode:${layer.blend}"` : '';
+  const shadow = layer.shadow;
+  const filter = shadow ? ` filter="url(#${imageShadowId(layer, idScope)})"` : '';
+  const base = `data-layer-id="${svgEscape(layer.id)}" opacity="${layer.opacity}"${transform ? ` transform="${transform}"` : ''}${blend}${filter}`;
+  const defs = shadow
+    ? `<filter id="${imageShadowId(layer, idScope)}" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">`
+      + `<feDropShadow dx="${shadow.x}" dy="${shadow.y}" stdDeviation="${shadow.blur / 2}" flood-color="${svgEscape(shadow.color)}" flood-opacity="${shadow.opacity}"/></filter>`
+    : '';
+  return defs + layerShape(doc, layer, base, sources, measure);
 }
 
 export function imageSvgBody(doc: ImageDocument, sources: Record<string, string> = {}, measure: TextMeasure = defaultTextMeasure()): string {
-  const layers = doc.layers.filter((layer) => layer.visible).map((layer) => {
-    const base = `data-layer-id="${svgEscape(layer.id)}" opacity="${layer.opacity}"`;
-    const box = `x="${layer.x}" y="${layer.y}" width="${layer.width}" height="${layer.height}"`;
-    if (layer.kind === 'shape') {
-      return layer.shape === 'ellipse'
-        ? `<ellipse ${base} cx="${layer.x + layer.width / 2}" cy="${layer.y + layer.height / 2}" rx="${layer.width / 2}" ry="${layer.height / 2}" fill="${svgEscape(layer.fill)}"/>`
-        : `<rect ${base} ${box} fill="${svgEscape(layer.fill)}"/>`;
-    }
-    if (layer.kind === 'image') {
-      const source = sources[layer.source ?? ''] ?? (layer.source?.startsWith('data:image/') ? layer.source : '');
-      const ratio = layer.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet';
-      // Both href forms: SVG 2 readers use href, older SVG 1.1 tools only understand xlink:href.
-      return source
-        ? `<image ${base} ${box} href="${svgEscape(source)}" xlink:href="${svgEscape(source)}" preserveAspectRatio="${ratio}"/>`
-        : `<rect ${base} ${box} fill="none" stroke="#999999" stroke-dasharray="8 8"/>`;
-    }
-    return textLayer(doc, layer, base, box, measure);
-  }).join('');
+  const layers = doc.layers.map((layer) => imageSvgLayer(doc, layer, sources, measure)).join('');
   return `<rect width="${doc.width}" height="${doc.height}" fill="${svgEscape(doc.background)}"/>${layers}`;
 }
 
@@ -139,7 +184,7 @@ export async function resolveImageSources(doc: ImageDocument, root: string): Pro
 
 export function imageTextFonts(doc: ImageDocument): { text: string; font: string }[] {
   return doc.layers.filter((layer) => layer.kind === 'text' && layer.visible)
-    .map((layer) => ({ text: layer.text ?? '', font: imageFont(layer.fontSize ?? 64, layer.fontFamily || doc.style.fontFamily) }));
+    .map((layer) => ({ text: layer.text ?? '', font: imageLayerFont(layer, doc.style.fontFamily) }));
 }
 
 export interface ImageRenderDeps {

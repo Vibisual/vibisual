@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-11-16
+
+### Added
+- **Memo app.** A memo bubble in the app menu offers quick capture, autosave, links to the work it belongs to, search, attachments, AI tidy-up and questions on a selection that keep the original text, per-memo AI exclusion, version restore and export. The window has list, document and AI panes with date groups, search highlights and tag filters.
+- **One-view memo editing.** Memos always show their formatted look and only the block you click opens as source. Writing tools include checkboxes, tables (size picker, cell navigation, tab-separated paste), moving lines, `/` quick insert, strikethrough and links.
+- **Memo attachments up to 2 GiB**, uploaded in chunks and kept as files, with small previews, video and audio playback and detaching. Images open in the shared image editor.
+- **Tables and selections copied from the IDE keep their structure** when pasted into a memo.
+- **Session memos can be dragged onto the canvas**, return to their session while it is alive, become a bubble when closed (double-click to reopen) and have a button to copy the whole tab.
+- **Video editor:** a command palette (Ctrl/Cmd+K), dragging and resizing items in the preview, a read-only code view that links screen elements to code lines, a thumbnail document gallery, per-scene "keep" and "revert this scene", new transitions and ready-made parts (title card, quote, mockup frame, before/after, step progress, end card), and seconds-based skipping, full screen and zoom/pan in the preview.
+- **Exports can include a thumbnail, a chapter list and SRT subtitles** next to the video, numbered together.
+- **The image layer editor uses a full editing layout** — toolbar, zoomable work area, resize and rotate handles, snap guides, layer and property panels — with rotation, flipping, blending, borders, rounded corners, shadows and text weight/spacing.
+- **An app screen with no result yet previews the linked agent's latest work.**
+- **A toggle shows or hides all activity bubbles** on the main canvas, in place of the zoom buttons.
+- **A recent-use ring** marks the bubbles a working agent used most recently (5 by default, set per agent).
+- **File paths in cards can be opened like paths in the reply**, and the context menu can open them in an outside editor or player.
+- **When slash commands are turned off, the warning has a button** that opens the context sources view.
+
+### Changed
+- **Spec board, agent lab and script shelf are debug-mode only again**, and their bubbles are hidden with them.
+- **Partial video rendering reuses unchanged sections**, so changing one scene of a long document re-renders in seconds instead of re-encoding everything.
+- **Video and audio exports no longer have a 128 MB limit** and are written in pieces.
+- **Linking an app node is enforced by the server**: rendering video outside the app is refused while it is linked, with a one-line hint on the first tool call.
+- **App nodes no longer gather file satellites**; files and folders follow the agent's usual rules.
+- **Two or more project root files fold into one project folder bubble.**
+- **A working agent's speech bubble tucks into its circle** and comes back out when it finishes.
+- **The linked items row opens as a hover panel** with bundle switching, pages of six and keyboard/touch access.
+- **Local models that do not fit in video memory** lower GPU layers before context, with a new GPU+memory split tier.
+- **A conclusion written after a card moves above the card.**
+- **Compaction guidance and procedures are sent once per conversation**, and only highly relevant procedures are included.
+- **On Windows, agents' external headless Chrome captures are refused** with a pointer to the video editor's frame and still tools.
+- **Menus, tooltips, dialogs and windows follow one stacking order.**
+
+### Fixed
+- **Fable 5.2 appears in the model list.**
+- **Sandboxed compositions load their files on phones.**
+- **Resizing an app screen no longer jumps** when the drag crosses its starting width.
+- **Drag-selecting text stays inside the area where it started**, and dragging from headers or toolbars no longer selects.
+- **Opening and closing a memo block keeps your place**, long source opens fully, and typing at a new last line or in multi-line quotes no longer shifts or merges lines.
+
 ## [0.2.7] - 2026-11-06
 
 ### Added
@@ -852,7 +891,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.7...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.2.8...HEAD
+[0.2.8]: https://github.com/Vibisual/vibisual/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/Vibisual/vibisual/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/Vibisual/vibisual/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/Vibisual/vibisual/compare/v0.2.4...v0.2.5

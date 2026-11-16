@@ -6,7 +6,7 @@ import { useAnyOnboardingGateOpen } from '../../stores/onboardingGates.js';
 
 /**
  * 헤더 언어 전환기의 자리(§4) — 온보딩 백드롭(`fixed inset-0`)이 헤더를 덮어 안 눌리는 동안 같은 전환기를 `document.body` 로 빼 원래 좌표에 그린다.
- * z-index 만 올리면 헤더 `relative z-[100]` 쌓임 맥락에 갇혀 100_500 대 창을 못 넘는다. 원래 자리는 `invisible` 로 남겨 폭을 지킨다(겹침·크기 일치).
+ * z-index 만 올리면 헤더(`z-header`) 쌓임 맥락에 갇혀 게이트 층을 못 넘는다. 원래 자리는 `invisible` 로 남겨 폭을 지킨다(겹침·크기 일치).
  */
 export function HeaderLanguageSlot(): React.JSX.Element {
   const gated = useAnyOnboardingGateOpen();

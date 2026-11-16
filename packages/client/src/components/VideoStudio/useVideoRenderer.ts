@@ -12,7 +12,7 @@ import {
   cueScanLength,
   docHasCompositions,
   docTextBoxesAt,
-  encodeWav,
+  encodePcm16,
   resolveTimeline,
   scaledSize,
   stableHash,
@@ -25,6 +25,8 @@ import {
   type ResolvedTimeline,
   type VideoAsset,
   type VideoDoc,
+  WAV_HEADER_BYTES,
+  wavHeader,
 } from '@vibisual/video';
 // 여기서 던지는 오류 문구는 호출부가 `String(err)` 로 **화면에 그대로** 찍는다. 모듈 수준 함수
 // (`makeOffscreenBridge`)에서도 골라야 해서 훅이 아니라 i18n 인스턴스를 직접 쓴다(useWebSocket 선례).
@@ -39,11 +41,21 @@ import {
   audioLevelAt,
   autoReview,
   captureSessionCount,
+  audioTotalFrames,
+  audioWindowPlan,
+  fitAudioBuffer,
+  hasAudioInRange,
   mixAudio,
+  RENDER_AUDIO_CHANNELS,
+  RENDER_AUDIO_SAMPLE_RATE,
+  canHashSegments,
   renderDoc,
+  renderDocSegmented,
+  SegmentJoinError,
   selectRenderBackend,
   withBuiltinScenes,
   type AssetBytesLoader,
+  type AudioWindowSource,
   type BackendProbe,
   type BackendSelection,
   type CapturedFrame,
@@ -53,8 +65,11 @@ import {
   type OffscreenOpenResult,
   type OffscreenText,
   type OutputContainer,
+  type OutputSink,
   type RenderBackend,
   type RenderProgress,
+  type RenderResult,
+  type SegmentStore,
 } from '@vibisual/video/render';
 import { VIDEO_CAPTURE_SESSIONS } from '@vibisual/video';
 
@@ -63,13 +78,18 @@ import { createStudioMedia, studioAudioLoader } from './studioMedia.js';
 import { studioBudget } from './studioBudget.js';
 
 export interface RenderOutcome {
-  readonly bytes: Uint8Array;
+  /** 메모리로 만든 결과. `sink` 로 흘려 보냈으면 null(§5.13 (AA) 42-11). */
+  readonly bytes: Uint8Array | null;
+  /** 결과 파일 크기(바이트). */
+  readonly size: number;
   readonly selection: BackendSelection | null;
   /** 소리를 실제로 실었는가. 무음으로 나갔다면 호출부가 알려야 한다. */
   readonly hasAudio: boolean;
   readonly warnings: readonly string[];
   /** §5.13 (W) 38-3 — 결과 그릇(mp4 · 투명 배경이면 webm). §5.13 (AA) 42-1 — 소리만이면 wav. */
   readonly container: OutputContainer | 'wav';
+  /** §5.13 (E-7) — 구간 길로 구웠을 때: 구간 수와 다시 쓴 구간 수. */
+  readonly segments?: { readonly total: number; readonly reused: number };
 }
 
 /** §5.13 (AA) 42 — 렌더 한 번의 그리는 방법(없는 칸은 종전 그대로). */
@@ -90,6 +110,43 @@ export interface RenderCallOptions {
   readonly audioOnly?: boolean;
   /** 프레임 사이 관문(일시정지). */
   readonly gate?: () => Promise<void>;
+  /** §5.13 (AA) 42-11 — 결과를 나오는 대로 흘려 보낼 곳(없으면 메모리로 모은다). */
+  readonly sink?: OutputSink;
+  /** §5.13 (E) — 렌더 구간 캐시. 주면 2초 구간마다 굽고 안 바뀐 구간은 다시 쓴다(없으면 종전 한 인코더 렌더 — (E-5) ①). */
+  readonly segments?: SegmentStore;
+}
+
+/** §5.13 (AA) 42-11 — 소리만(WAV): 머리 44바이트를 먼저 쓰고 창마다 PCM 을 잇는다(전체를 한 버퍼로 ❌). */
+async function renderWav(
+  source: AudioWindowSource, duration: number, range: ExportRange | null,
+  sink: OutputSink | null, signal: AbortSignal | undefined, warnings: string[],
+): Promise<RenderOutcome> {
+  const sr = source.sampleRate;
+  const start = Math.max(0, range?.start ?? 0);
+  const end = Math.min(duration, range?.end ?? duration);
+  const total = audioTotalFrames(end - start, sr);
+  const parts: Uint8Array[] = [];
+  const emit = async (bytes: Uint8Array, position: number): Promise<void> => {
+    if (sink) await sink.write(bytes, position);
+    else parts.push(bytes);
+  };
+  await emit(wavHeader(total, source.channels, sr), 0);
+  let position = WAV_HEADER_BYTES;
+  for (const w of audioWindowPlan(total, sr)) {
+    signal?.throwIfAborted();
+    const length = w.to - w.from;
+    const mixed = fitAudioBuffer(await source.mix({ start: start + w.from / sr, end: start + w.to / sr }), length, source.channels, sr);
+    const pcm = encodePcm16(Array.from({ length: mixed.numberOfChannels }, (_, c) => mixed.getChannelData(c)), length, source.channels);
+    await emit(pcm, position);
+    position += pcm.byteLength;
+  }
+  let bytes: Uint8Array | null = null;
+  if (!sink) {
+    bytes = new Uint8Array(position);
+    let at = 0;
+    for (const part of parts) { bytes.set(part, at); at += part.byteLength; }
+  }
+  return { bytes, size: position, selection: null, hasAudio: true, warnings, container: 'wav' };
 }
 
 export interface RendererHandle {
@@ -418,57 +475,87 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { 
       const range = opts.range ?? null;
 
       const warnings: string[] = [];
-      // 소리를 먼저 섞는다 — 프레임과 달리 구간 단위라 렌더 루프 밖에서 한 번에 만든다. 쓰는 구간의 조각만 푼다(40-2 ②).
+      // §5.13 (AA) 42-11 — 소리는 창마다 섞는다(문서 전체를 한 버퍼로 ❌ — 길이에 비례해 메모리를 잡는다). 쓰는 구간의 조각만 푼다(40-2 ②).
       // §5.13 (AA) 42-3·42-4 — 내보내기 음소거면 섞지 않는다(소리 트랙 없는 영상) · 구간 렌더면 그 구간만(0 표본 = 구간 시작).
-      let audio: AudioBuffer | null = null;
-      if (opts.audio !== false || opts.audioOnly === true) {
-        const audioMedia = createStudioMedia(project, doc.assets);
-        try {
-          audio = await mixAudio({
-            doc,
-            timeline,
-            loader: studioAudioLoader(project, audioMedia),
-            onWarn: (m) => warnings.push(m),
-            ...(range ? { range } : {}),
+      const wantAudio = (opts.audio !== false || opts.audioOnly === true) && hasAudioInRange(doc, timeline, range);
+      const audioMedia = wantAudio ? createStudioMedia(project, doc.assets) : null;
+      try {
+        const loader = audioMedia ? studioAudioLoader(project, audioMedia) : null;
+        const audioStream: AudioWindowSource | null = loader ? {
+          sampleRate: RENDER_AUDIO_SAMPLE_RATE,
+          channels: RENDER_AUDIO_CHANNELS,
+          mix: (window) => mixAudio({
+            doc, timeline, loader, range: window,
+            sampleRate: RENDER_AUDIO_SAMPLE_RATE, channels: RENDER_AUDIO_CHANNELS,
+            onWarn: (m) => { if (!warnings.includes(m)) warnings.push(m); },
             ...(opts.signal ? { signal: opts.signal } : {}),
-          });
-        } finally {
-          audioMedia.dispose();
+          }),
+        } : null;
+
+        // §5.13 (AA) 42-1 — 소리만(WAV 그릇 — 프레임을 그리지 않는다).
+        if (opts.audioOnly === true) {
+          if (!audioStream) throw new Error(i18n.t('panel.videoStudio.export.noSoundToExport'));
+          return await renderWav(audioStream, timeline.duration, range, opts.sink ?? null, opts.signal, warnings);
         }
+
+        const made = await makeBackend(doc, transparent);
+        if (!made) throw new Error(i18n.t('panel.videoStudio.errNoRenderBackend'));
+
+        const common = {
+          doc,
+          timeline,
+          audioStream,
+          ...(opts.sink ? { sink: opts.sink } : {}),
+          ...(transparent ? { alpha: true } : {}),
+          ...(opts.container ? { container: opts.container } : {}),
+          ...(opts.quality ? { quality: { video: opts.quality, audio: opts.quality } } : {}),
+          ...(opts.scale !== undefined && opts.scale !== 1 ? { outputSize: scaledSize(doc.size, opts.scale) } : {}),
+          ...(opts.fps ? { fps: opts.fps } : {}),
+          ...(range ? { range } : {}),
+          ...(opts.gate ? { gate: opts.gate } : {}),
+          ...(opts.onProgress === undefined ? {} : { onProgress: opts.onProgress }),
+          ...(opts.signal === undefined ? {} : { signal: opts.signal }),
+        };
+        const ratioOf = (backend: RenderBackend): number => (backend as { captureRatio?: () => number }).captureRatio?.() ?? 1;
+
+        let used = made;
+        let result: RenderResult;
+        if (opts.segments && canHashSegments()) {
+          try {
+            result = await renderDocSegmented({
+              ...common,
+              backend: made.backend,
+              store: opts.segments,
+              engine: navigator.userAgent,
+              // (E-5) ④ — 낮은 해상도로 찍힌 구간은 보관하지 않는다(다른 화면에서 온전한 조각과 섞이지 않게).
+              canStore: () => ratioOf(made.backend) >= CAPTURE_RATIO_WARN,
+            });
+          } catch (err) {
+            // (E-5) ③ — 구간을 이을 수 없는 기기: 올린 것을 버리고 한 인코더로 처음부터 굽는다(버릴 길이 없으면 그대로 실패).
+            if (!(err instanceof SegmentJoinError) || (opts.sink && !opts.sink.reset)) throw err;
+            await opts.sink?.reset?.();
+            const again = await makeBackend(doc, transparent);
+            if (!again) throw new Error(i18n.t('panel.videoStudio.errNoRenderBackend'));
+            used = again;
+            result = await renderDoc({ ...common, backend: again.backend });
+            warnings.push(i18n.t('panel.videoStudio.segmentsFallback'));
+          }
+        } else {
+          result = await renderDoc({ ...common, backend: made.backend });
+        }
+
+        // §5.13 (W) 38-1 — 창을 문서 크기로 못 키운 기기면 찍힌 해상도가 모자란다 — 조용히 흐려지지 않게 알린다.
+        const ratio = ratioOf(used.backend);
+        if (ratio < CAPTURE_RATIO_WARN) warnings.push(i18n.t('panel.videoStudio.lowResolution', { percent: Math.round(ratio * 100) }));
+
+        const hasAudio = audioStream !== null && result.codecs.audio !== null;
+        return {
+          bytes: result.bytes, size: result.size, selection: used.selection, hasAudio, warnings, container: result.container,
+          ...(result.segments ? { segments: result.segments } : {}),
+        };
+      } finally {
+        audioMedia?.dispose();
       }
-
-      // §5.13 (AA) 42-1 — 소리만(WAV 그릇 — 프레임을 그리지 않는다).
-      if (opts.audioOnly === true) {
-        const mixed = audio;
-        if (!mixed) throw new Error(i18n.t('panel.videoStudio.export.noSoundToExport'));
-        const channels = Array.from({ length: mixed.numberOfChannels }, (_, i) => mixed.getChannelData(i));
-        return { bytes: encodeWav(channels, mixed.sampleRate), selection: null, hasAudio: true, warnings, container: 'wav' };
-      }
-
-      const made = await makeBackend(doc, transparent);
-      if (!made) throw new Error(i18n.t('panel.videoStudio.errNoRenderBackend'));
-
-      const result = await renderDoc({
-        doc,
-        timeline,
-        backend: made.backend,
-        audio,
-        ...(transparent ? { alpha: true } : {}),
-        ...(opts.container ? { container: opts.container } : {}),
-        ...(opts.quality ? { quality: { video: opts.quality, audio: opts.quality } } : {}),
-        ...(opts.scale !== undefined && opts.scale !== 1 ? { outputSize: scaledSize(doc.size, opts.scale) } : {}),
-        ...(opts.fps ? { fps: opts.fps } : {}),
-        ...(range ? { range } : {}),
-        ...(opts.gate ? { gate: opts.gate } : {}),
-        ...(opts.onProgress === undefined ? {} : { onProgress: opts.onProgress }),
-        ...(opts.signal === undefined ? {} : { signal: opts.signal }),
-      });
-
-      // §5.13 (W) 38-1 — 창을 문서 크기로 못 키운 기기면 찍힌 해상도가 모자란다 — 조용히 흐려지지 않게 알린다.
-      const ratio = (made.backend as { captureRatio?: () => number }).captureRatio?.() ?? 1;
-      if (ratio < CAPTURE_RATIO_WARN) warnings.push(i18n.t('panel.videoStudio.lowResolution', { percent: Math.round(ratio * 100) }));
-
-      return { bytes: result.bytes, selection: made.selection, hasAudio: audio !== null, warnings, container: result.container };
     },
     [doc, timeline, project, makeBackend],
   );
@@ -575,7 +662,8 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null, opts: { 
             await backend.drawFrame(t);
             const ctx = backend.canvas?.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null | undefined;
             if (!ctx) throw new Error(i18n.t('panel.videoStudio.errNoRenderBackend'));
-            const inner = (await backend.inspectTexts()).map((x): ProbeText => ({ itemId: x.itemId, text: x.text, rect: x.rect, color: x.color, fontSize: x.fontSize }));
+            // §5.13 (G) — CSS 경로도 싣는다(배치 요약이 안쪽 요소의 이름으로 쓴다 — 검수 판정은 보지 않는다).
+            const inner = (await backend.inspectTexts()).map((x): ProbeText => ({ itemId: x.itemId, text: x.text, rect: x.rect, color: x.color, fontSize: x.fontSize, ...(x.path ? { path: x.path } : {}) }));
             out.push(measure(ctx.getImageData(0, 0, W, H), t, inner));
           }
         } finally {

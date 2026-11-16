@@ -327,7 +327,7 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
   return (
     <div
       ref={popRef}
-      className="fixed z-50 overflow-y-auto overscroll-contain rounded-lg border border-gray-700 bg-gray-900 p-3 shadow-2xl"
+      className="fixed z-menu overflow-y-auto overscroll-contain rounded-lg border border-gray-700 bg-gray-900 p-3 shadow-2xl"
       style={{ left, top, width: POP_W, maxHeight }}
       role="dialog"
       aria-label={t('panel.commentBox.colorPicker', 'Color picker')}

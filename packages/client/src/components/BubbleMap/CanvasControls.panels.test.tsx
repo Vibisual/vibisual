@@ -30,11 +30,12 @@ vi.mock('../../apps/registry.js', () => ({
 const initialState = useGraphStore.getState();
 const initialKeymap = useKeymapStore.getState();
 const onTidy = vi.fn<(sort: TidySort) => void>();
+const onToggleActivityBubbles = vi.fn();
 const hydrateProject = vi.fn().mockResolvedValue(undefined);
 let renderer: ReactTestRenderer | undefined;
 
 function render(): void {
-  act(() => { renderer = create(<CanvasControls onTidy={onTidy} tidyBusy={false} tidyDisabled={false} />); });
+  act(() => { renderer = create(<CanvasControls activityBubblesVisible={false} onToggleActivityBubbles={onToggleActivityBubbles} onTidy={onTidy} tidyBusy={false} tidyDisabled={false} />); });
 }
 
 function button(label: string): ReactTestInstance {
@@ -174,14 +175,13 @@ describe('CanvasControls dismissible panels', () => {
     render();
     click(heatButton());
     click(button('tidy'));
-    click(button('zoomIn'));
-    click(button('zoomOut'));
+    const visibility = renderer!.root.findByProps({ 'aria-label': 'canvas.bubbleMenu.showBubbles' });
+    click(visibility);
     click(button('refresh'));
     click(button('lock'));
     click(button('immersiveMode'));
 
-    expect(flow.zoomIn).toHaveBeenCalledTimes(1);
-    expect(flow.zoomOut).toHaveBeenCalledTimes(1);
+    expect(onToggleActivityBubbles).toHaveBeenCalledTimes(1);
     expect(hydrateProject).toHaveBeenCalledExactlyOnceWith('test-project');
     expect(flow.setState).toHaveBeenCalledExactlyOnceWith({
       nodesDraggable: false, nodesConnectable: false, elementsSelectable: false,
@@ -190,7 +190,7 @@ describe('CanvasControls dismissible panels', () => {
     expect(legend()).toHaveLength(1);
     expect(sortRows()).toHaveLength(5);
     expect(useGraphStore.getState()).toMatchObject({ heatmapMode: true, tidyPanelOpen: true });
-    expect(button('zoomIn').props['aria-expanded']).toBeUndefined();
+    expect(visibility.props['aria-expanded']).toBeUndefined();
     expect(onTidy).not.toHaveBeenCalled();
   });
 });

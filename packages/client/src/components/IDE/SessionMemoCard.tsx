@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { SESSION_MEMO, SESSION_MEMO_PALETTE, normalizeMemoName, type SessionMemo } from '@vibisual/shared';
 import { CommentBoxColorPopover } from '../Panel/CommentBoxColorPopover.js';
-import { hasMemoName, memoAlpha, memoSurface, memoTitle, moveMemo, resizeMemo, type MemoBounds, type MemoPatch } from './sessionMemo.js';
+import { hasMemoName, memoAlpha, memoSurface, memoTitle, moveMemo, resizeMemo, type MemoBounds, type MemoPatch, type MemoRect } from './sessionMemo.js';
+import { CANVAS_MEMO_DRAG, type CanvasMemoDestination, type CanvasMemoExit } from './canvasMemoTransfer.js';
 import { useAppThemeTokenHex } from '../../theme/useAppTheme.js';
 import { pickReadableTextColor } from '../../utils/commentBoxStyle.js';
 import { readFieldSelection, type FieldSelection } from '../../hooks/textFieldActions.js';
@@ -14,6 +15,8 @@ import type { MemoLinkHost } from './useMemoLinkHost.js';
 import { visibleMemoLinkAnchor, type MemoLinkAnchor } from './memoLinkGeometry.js';
 import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import { SessionMemoHistory } from './SessionMemoHistory.js';
+import { SessionMemoCopyButton } from './SessionMemoCopyButton.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 /**
  * §5.5 #17-36 — 스티키 메모 한 장(어두운 유리판, 색 × `alpha` + `backdrop-filter`; 글자색은 알파를 섞은 실제 색 — `memoSurface`).
@@ -44,6 +47,10 @@ const LIGHT_PROBE = '#FFFFFF';
 interface SessionMemoCardProps {
   /** 지금 보이는 장(= 활성 탭). 자리·크기·색은 이 장의 것이다. */
   memo: SessionMemo;
+  interactionDisabled?: boolean;
+  onCanvasTarget?: (pointer: { x: number; y: number }, position: { x: number; y: number }, exit?: CanvasMemoExit) => CanvasMemoDestination | null;
+  onCanvasDrop?: (id: string, wholeCard: boolean, pointer: { x: number; y: number }, position: { x: number; y: number }, exit?: CanvasMemoExit) => boolean;
+  onCardMenu?: (id: string, at: { x: number; y: number }) => void;
   /** 이 카드의 탭들(순서 = 탭 순서). 혼자면 `[memo]` 한 장이라 탭 줄을 그리지 않는다. */
   tabs: SessionMemo[];
   /** 메모가 놓인 판의 크기 — 이동·리사이즈 한계. */
@@ -113,7 +120,7 @@ const DROP_OUTLINE = '2px solid #38BDF8';
 const DROP_HIT_STEP = 4;
 
 function SessionMemoCardImpl({
-  memo, tabs, bounds, zIndex, stackedUnder, autoFocus,
+  memo, tabs, bounds, zIndex, stackedUnder, autoFocus, onCanvasTarget, onCanvasDrop, onCardMenu, interactionDisabled = false,
   onPatch, onRaise, onRaiseUnder, onDelete, onActivateTab, onMerge, onDetach,
   closedMemos, onRestore, restoreDisabled,
   linkHost, pickRange, onTextMenu, onLinkFollow, onLinkRepick, onLinkRemove,
@@ -154,6 +161,12 @@ function SessionMemoCardImpl({
     kind: 'move' | 'resize' | 'tab';
     px: number;
     py: number;
+    offsetX?: number;
+    offsetY?: number;
+    originLeft?: number;
+    originTop?: number;
+    ideBounds?: MemoRect;
+    ideBackdrop?: HTMLElement;
     start: { x: number; y: number; w: number; h: number };
     /** `tab` 일 때 끌고 있는 장. */
     tabId?: string;
@@ -441,8 +454,9 @@ function SessionMemoCardImpl({
   const onTitleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    startRename();
-  }, [startRename]);
+    if (onCardMenu) onCardMenu(memoRef.current.id, { x: e.clientX, y: e.clientY });
+    else startRename();
+  }, [startRename, onCardMenu]);
 
   const onNameKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     // 한글·일본어 조합 중의 Enter 는 "글자를 확정"이지 "이름을 확정"이 아니다.
@@ -473,6 +487,7 @@ function SessionMemoCardImpl({
     const id = header.dataset['memoDropId'] ?? '';
     const card = header.closest('[data-session-memo]');
     if (!id || !(card instanceof HTMLElement) || card === self) return null;
+    if (card.closest('[data-session-memo-layer]') !== self?.closest('[data-session-memo-layer]')) return null;
     return { id, el: card };
   }, []);
 
@@ -499,15 +514,14 @@ function SessionMemoCardImpl({
   }, [dropTargetAt, paintDrop]);
 
   /** 탭을 뽑아 끌 때 커서를 따라다니는 윤곽 — 어디에 놓이는지 미리 보여 준다. */
-  const showGhost = useCallback((x: number, y: number, label: string) => {
+  const showGhost = useCallback((x: number, y: number, label: string, ready = false) => {
     const g = gestureRef.current;
     if (!g) return;
     if (!g.ghost) {
       const el = document.createElement('div');
       el.style.cssText = [
-        'position:fixed', 'pointer-events:none', 'z-index:2147483000',
-        'border:2px dashed #38BDF8', 'border-radius:8px',
-        'background:rgba(56,189,248,0.10)', 'color:#E0F2FE',
+        'position:fixed', 'pointer-events:none', `z-index:${Z_LAYER.DRAG_GHOST}`,
+        'border:2px dashed', 'border-radius:8px',
         'font-size:12px', 'padding:4px 8px', 'overflow:hidden',
         'white-space:nowrap', 'text-overflow:ellipsis',
       ].join(';');
@@ -521,6 +535,9 @@ function SessionMemoCardImpl({
     g.ghost.style.left = `${x}px`;
     g.ghost.style.top = `${y}px`;
     g.ghost.style.display = '';
+    g.ghost.style.borderColor = ready ? CANVAS_MEMO_DRAG.READY_BORDER : CANVAS_MEMO_DRAG.PREVIEW_BORDER;
+    g.ghost.style.background = ready ? CANVAS_MEMO_DRAG.READY_BACKGROUND : CANVAS_MEMO_DRAG.PREVIEW_BACKGROUND;
+    g.ghost.style.color = ready ? CANVAS_MEMO_DRAG.READY_TEXT : CANVAS_MEMO_DRAG.PREVIEW_TEXT;
   }, []);
 
   const hideGhost = useCallback((remove: boolean) => {
@@ -536,7 +553,32 @@ function SessionMemoCardImpl({
     if (!el) return null;
     const r = el.getBoundingClientRect();
     const m = memoRef.current;
-    return { left: r.left - m.x, top: r.top - m.y };
+    const scale = boundsRef.current.scale ?? 1;
+    const g = gestureRef.current;
+    return { left: g?.originLeft ?? r.left - m.x * scale, top: g?.originTop ?? r.top - m.y * scale };
+  }, []);
+
+  const readIDEFrame = useCallback((): { ideBounds?: MemoRect; ideBackdrop?: HTMLElement } => {
+    const frame = rootRef.current?.closest<HTMLElement>('[data-ide-overlay]');
+    if (!frame) return {};
+    const rect = frame.getBoundingClientRect();
+    return { ideBounds: { x: rect.left, y: rect.top, w: rect.width, h: rect.height }, ideBackdrop: frame.parentElement ?? undefined };
+  }, []);
+
+  const canvasDragAt = useCallback((x: number, y: number): {
+    pointer: { x: number; y: number };
+    position: { x: number; y: number };
+    exit: CanvasMemoExit;
+  } | null => {
+    const g = gestureRef.current;
+    if (!g || g.kind === 'resize') return null;
+    const m = memoRef.current;
+    const position = { x: x - (g.offsetX ?? 20), y: y - (g.offsetY ?? SESSION_MEMO.HEADER_H / 2) };
+    return { pointer: { x, y }, position, exit: {
+      card: { ...position, w: m.w, h: m.collapsed ? SESSION_MEMO.HEADER_H : m.h },
+      bounds: g.ideBounds ?? { x: g.originLeft ?? 0, y: g.originTop ?? 0, w: boundsRef.current.w, h: boundsRef.current.h },
+      ...(g.ideBackdrop ? { backdrop: g.ideBackdrop } : {}),
+    } };
   }, []);
 
   const beginGesture = useCallback((e: React.PointerEvent<HTMLElement>, kind: 'move' | 'resize') => {
@@ -547,13 +589,23 @@ function SessionMemoCardImpl({
     e.stopPropagation();
     const m = memoRef.current;
     onRaise(m.id);
-    gestureRef.current = { kind, px: e.clientX, py: e.clientY, start: { x: m.x, y: m.y, w: m.w, h: m.h } };
+    const rect = rootRef.current?.getBoundingClientRect();
+    const scale = boundsRef.current.scale ?? 1;
+    gestureRef.current = {
+      kind, px: e.clientX, py: e.clientY,
+      offsetX: e.clientX - (rect?.left ?? e.clientX),
+      offsetY: e.clientY - (rect?.top ?? e.clientY),
+      originLeft: (rect?.left ?? 0) - m.x * scale,
+      originTop: (rect?.top ?? 0) - m.y * scale,
+      ...readIDEFrame(),
+      start: { x: m.x, y: m.y, w: m.w, h: m.h },
+    };
     setGesturing(true);
     e.currentTarget.setPointerCapture(e.pointerId);
     const el = rootRef.current;
     // 합성기에 "이 축이 곧 움직인다"를 미리 알린다 — 첫 프레임의 승격 비용을 없앤다.
     if (el) el.style.willChange = kind === 'move' ? 'transform' : 'width, height';
-  }, [onRaise]);
+  }, [onRaise, readIDEFrame]);
 
   /** 탭 하나를 누름 — 눌렀는지 끌었는지는 손을 떼 봐야 안다(`TAB_DRAG_THRESHOLD`). */
   const beginTabGesture = useCallback((e: React.PointerEvent<HTMLElement>, tabId: string, tabLabel: string) => {
@@ -562,64 +614,88 @@ function SessionMemoCardImpl({
     e.stopPropagation();
     const m = memoRef.current;
     onRaise(m.id);
+    const rect = rootRef.current?.getBoundingClientRect();
+    const scale = boundsRef.current.scale ?? 1;
     gestureRef.current = {
+      originLeft: (rect?.left ?? 0) - m.x * scale, originTop: (rect?.top ?? 0) - m.y * scale,
       kind: 'tab', px: e.clientX, py: e.clientY,
+      ...readIDEFrame(),
       start: { x: m.x, y: m.y, w: m.w, h: m.h },
       tabId, tabLabel, moved: false,
     };
     setGesturing(true);
     e.currentTarget.setPointerCapture(e.pointerId);
-  }, [onRaise]);
+  }, [onRaise, readIDEFrame]);
 
   const moveGesture = useCallback((e: React.PointerEvent<HTMLElement>) => {
     const g = gestureRef.current;
     const el = rootRef.current;
     if (!g || !el) return;
     const m = memoRef.current;
+    const scale = boundsRef.current.scale ?? 1;
     const dx = e.clientX - g.px;
     const dy = e.clientY - g.py;
+    if (g.kind === 'tab' && !g.moved && Math.abs(dx) < TAB_DRAG_THRESHOLD && Math.abs(dy) < TAB_DRAG_THRESHOLD) return;
+    const hit = g.kind === 'resize' ? null : refreshDrop(e.clientX, e.clientY);
+    const drag = onCanvasDrop ? canvasDragAt(e.clientX, e.clientY) : null;
+    const ready = !!(drag && !hit && onCanvasTarget?.(drag.pointer, drag.position, drag.exit));
+    el.style.outline = ready ? CANVAS_MEMO_DRAG.READY_OUTLINE : '';
     if (g.kind === 'move') {
-      const next = moveMemo(m, g.start, dx, dy, boundsRef.current);
+      const next = moveMemo(m, g.start, dx / scale, dy / scale, boundsRef.current);
       // React 가 그린 좌표는 그대로 두고 그 위에서만 민다 — 커밋 때 이 한 줄만 지우면 원위치다.
-      el.style.transform = `translate3d(${next.x - m.x}px, ${next.y - m.y}px, 0)`;
-      // 다른 카드의 제목줄 위면 "여기에 합친다"를 두른다.
-      refreshDrop(e.clientX, e.clientY);
+      el.style.transform = `translate3d(${(next.x - m.x) * scale}px, ${(next.y - m.y) * scale}px, 0)`;
+      if (drag && !hit && (drag.exit.card.x < drag.exit.bounds.x || drag.exit.card.y < drag.exit.bounds.y
+        || drag.exit.card.x + drag.exit.card.w > drag.exit.bounds.x + drag.exit.bounds.w
+        || drag.exit.card.y + drag.exit.card.h > drag.exit.bounds.y + drag.exit.bounds.h)) {
+        showGhost(drag.position.x, drag.position.y, memoTitle(m, t('ide.memo.title')), ready);
+      } else hideGhost(false);
     } else if (g.kind === 'tab') {
-      if (!g.moved && Math.abs(dx) < TAB_DRAG_THRESHOLD && Math.abs(dy) < TAB_DRAG_THRESHOLD) return;
       g.moved = true;
-      const hit = refreshDrop(e.clientX, e.clientY);
       // 합칠 자리를 가리키고 있으면 테두리가 말해 주므로 윤곽은 접는다(둘이 동시에 뜨면 시끄럽다).
       if (hit) hideGhost(false);
-      else showGhost(e.clientX - 20, e.clientY - SESSION_MEMO.HEADER_H / 2, g.tabLabel ?? '');
+      else showGhost(e.clientX - 20, e.clientY - SESSION_MEMO.HEADER_H / 2, g.tabLabel ?? '', ready);
     } else {
       const next = resizeMemo(m, g.start, dx, dy, boundsRef.current);
       el.style.width = `${next.w}px`;
       el.style.height = `${next.h}px`;
     }
-  }, [refreshDrop, showGhost, hideGhost]);
+  }, [refreshDrop, showGhost, hideGhost, canvasDragAt, onCanvasTarget, onCanvasDrop, t]);
 
   const endGesture = useCallback((e: React.PointerEvent<HTMLElement>) => {
     const g = gestureRef.current;
     const el = rootRef.current;
     if (!g) return;
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
     const m = memoRef.current;
+    const scale = boundsRef.current.scale ?? 1;
     const dx = e.clientX - g.px;
     const dy = e.clientY - g.py;
     const drop = g.kind === 'resize' ? null : dropTargetAt(e.clientX, e.clientY);
+    const drag = canvasDragAt(e.clientX, e.clientY);
     paintDrop(null);
     hideGhost(true);
     gestureRef.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
     setGesturing(false);
-    if (el) el.style.willChange = '';
+    if (el) { el.style.willChange = ''; el.style.outline = ''; }
 
+    if (e.type === 'pointercancel' || e.type === 'lostpointercapture') {
+      if (el) {
+        el.style.transform = '';
+        el.style.width = `${m.w}px`;
+        el.style.height = `${m.collapsed ? SESSION_MEMO.HEADER_H : m.h}px`;
+      }
+      return;
+    }
+    const transferred = !drop && drag && (Math.abs(dx) >= TAB_DRAG_THRESHOLD || Math.abs(dy) >= TAB_DRAG_THRESHOLD)
+      && onCanvasDrop?.(g.tabId ?? m.id, g.kind === 'move', drag.pointer, drag.position, drag.exit);
+    if (transferred) { if (el) el.style.transform = ''; return; }
     if (g.kind === 'move') {
       // transform 은 React 가 모르는 값이라 우리가 지운다(안 지우면 커밋된 좌표에 델타가 또 얹힌다).
       if (el) el.style.transform = '';
       // 다른 카드의 제목줄 위에서 놓았으면 **이동이 아니라 합침**이다 — 자리는 받는 쪽이 정하므로
       //   좌표 커밋을 함께 보내지 않는다(두 번 저장하면 합친 카드가 잠깐 엉뚱한 자리로 튄다).
       if (drop) { onMerge(m.id, drop.id, true); return; }
-      const next = moveMemo(m, g.start, dx, dy, boundsRef.current);
+      const next = moveMemo(m, g.start, dx / scale, dy / scale, boundsRef.current);
       onPatch(m.id, { x: next.x, y: next.y }, 'now');
       return;
     }
@@ -630,15 +706,15 @@ function SessionMemoCardImpl({
       const origin = boardOrigin();
       if (!origin) return;
       onDetach(tabId, {
-        x: e.clientX - origin.left - 20,
-        y: e.clientY - origin.top - SESSION_MEMO.HEADER_H / 2,
+        x: (e.clientX - origin.left - 20) / scale,
+        y: (e.clientY - origin.top - SESSION_MEMO.HEADER_H / 2) / scale,
       });
       return;
     }
     // width·height 는 React 가 소유한다 — 아래 커밋 렌더가 같은 값으로 덮어쓴다.
     const next = resizeMemo(m, g.start, dx, dy, boundsRef.current);
     onPatch(m.id, { w: next.w, h: next.h }, 'now');
-  }, [onPatch, onMerge, onDetach, onActivateTab, dropTargetAt, paintDrop, hideGhost, boardOrigin]);
+  }, [onPatch, onMerge, onDetach, onActivateTab, dropTargetAt, paintDrop, hideGhost, boardOrigin, canvasDragAt, onCanvasDrop]);
 
   // 카드가 사라지는 순간에도 몸 밖에 만들어 둔 것은 우리가 치운다(고아 노드·남은 테두리 ❌).
   useEffect(() => () => {
@@ -675,10 +751,10 @@ function SessionMemoCardImpl({
     // 포커스가 ring 이 아니라 outline 인 이유: ring(box-shadow)은 인라인 `boxShadow` 에 덮인다.
     <div
       ref={rootRef}
-      className="pointer-events-auto absolute flex flex-col overflow-hidden rounded-lg focus-within:[outline:1px_solid_#38BDF8AA] focus-within:[outline-offset:-1px]"
+      className="pointer-events-auto absolute flex flex-col overflow-hidden nodrag nopan rounded-lg nowheel focus-within:[outline:1px_solid_#38BDF8AA] focus-within:[outline-offset:-1px]"
       style={{
-        left: memo.x,
-        top: memo.y,
+        left: memo.x * (bounds.scale ?? 1),
+        top: memo.y * (bounds.scale ?? 1),
         width: memo.w,
         height: collapsed ? SESSION_MEMO.HEADER_H : memo.h,
         background: surface.background,
@@ -702,6 +778,8 @@ function SessionMemoCardImpl({
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setFocusWithin(true)}
       onBlur={() => setFocusWithin(false)}
+      onContextMenu={onCardMenu ? (e) => { e.preventDefault(); e.stopPropagation(); onCardMenu(memo.id, { x: e.clientX, y: e.clientY }); } : undefined}
+      aria-busy={interactionDisabled}
       data-session-memo={memo.id}
     >
       <div
@@ -749,7 +827,7 @@ function SessionMemoCardImpl({
                     onPointerCancel={(e) => { e.stopPropagation(); endGesture(e); }}
                     onLostPointerCapture={(e) => { e.stopPropagation(); endGesture(e); }}
                     onDoubleClick={(e) => { e.preventDefault(); e.stopPropagation(); if (on) startRename(); }}
-                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (on) startRename(); }}
+                    onContextMenu={(e) => { if (on) onTitleContextMenu(e); else { e.preventDefault(); e.stopPropagation(); } }}
                     className={`flex min-w-0 max-w-[9rem] flex-shrink-0 items-center gap-1 rounded px-1.5 text-[12px] leading-none transition-opacity ${on ? 'opacity-100' : 'opacity-55 hover:opacity-85'}`}
                     style={on ? { background: surface.hairline } : undefined}
                   >
@@ -773,6 +851,7 @@ function SessionMemoCardImpl({
           //   `maxLength` 는 저장 상한과 같은 값이라, 화면에서 못 치는 글자가 서버에서 잘리는 일이 없다.
           <input
             ref={nameRef}
+            readOnly={interactionDisabled}
             type="text"
             value={nameDraft}
             maxLength={SESSION_MEMO.NAME_MAX}
@@ -873,6 +952,7 @@ function SessionMemoCardImpl({
             )}
             <textarea
               ref={textRef}
+              readOnly={interactionDisabled}
               value={memo.text}
               aria-label={t('ide.memo.title')}
               maxLength={SESSION_MEMO.TEXT_MAX}
@@ -892,6 +972,9 @@ function SessionMemoCardImpl({
               onContextMenu={onTextContextMenu}
               className="absolute inset-0 h-full w-full resize-none bg-transparent px-2.5 py-2 text-[13px] leading-relaxed outline-none placeholder:opacity-40"
             />
+          </div>
+          <div className="flex shrink-0 justify-end pb-1 pl-2 pr-5">
+            <SessionMemoCopyButton key={memo.id} text={memo.text} />
           </div>
           <div
             // 마우스 전용 손잡이 — 키보드로는 닿을 수 없으므로 보조기술에는 감춘다.

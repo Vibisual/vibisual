@@ -5,6 +5,7 @@ import { SUPPORTED_UI_LOCALES, LOCALE_META } from '@vibisual/shared';
 import type { UiLocale } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 /**
  * §4 첫 실행 온보딩 — 백드롭에 가린 헤더 대신 온보딩 창 머리에 얹을 때, 카드 `overflow-hidden` 에 안 잘리게 `portalMenu` 로 목록만 body 에 띄운다.
@@ -17,7 +18,7 @@ interface LanguageSwitcherProps {
   menuZIndex?: number;
 }
 
-export function LanguageSwitcher({ portalMenu = false, menuZIndex = 100_800 }: LanguageSwitcherProps = {}): React.JSX.Element {
+export function LanguageSwitcher({ portalMenu = false, menuZIndex = Z_LAYER.MENU }: LanguageSwitcherProps = {}): React.JSX.Element {
   const { t } = useTranslation();
   const uiLocale = useGraphStore((s) => s.uiLocale);
   const setUiLocale = useGraphStore((s) => s.setUiLocale);

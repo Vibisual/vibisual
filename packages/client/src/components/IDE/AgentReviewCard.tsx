@@ -6,6 +6,7 @@ import { CardSection, CardDetails, CardHoverControls, CardLiveBadge, CompactCard
 import { useStreamToggle } from './streamToggle.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { ReviewLaneSection } from './ReviewLaneSection.js';
+import { CardPathText } from './CardPathText.js';
 
 interface AgentReviewCardProps {
   review: AgentReview;
@@ -108,7 +109,7 @@ export const AgentReviewCard = memo(function AgentReviewCard({ review, live }: A
       <div className="px-3 py-2">
         {/* §5.5 #17-21 ④ — 간결에서는 본문 note 를 접는다(사용자가 직접 펼쳤으면 그대로). */}
         {(!compact || expanded) && review.note && (
-          <p className="mb-2 text-[13px] leading-relaxed text-gray-300">{review.note}</p>
+          <p className="mb-2 text-[13px] leading-relaxed text-gray-300"><CardPathText text={review.note} /></p>
         )}
 
         {/* 검수 포인트 — violet 강조 패널 (행동 구획: 항상 노출) */}

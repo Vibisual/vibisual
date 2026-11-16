@@ -40,12 +40,16 @@ export interface WorkspaceExplorerApi {
   expandDir: (relPath: string) => void;
 }
 
-/** 절대 경로로 파일을 에디터에서 연다 — 기존 열기 경로 재사용(새 열기 레일 ❌). */
-export function openFileByPath(absolutePath: string, nodePath: string): void {
+/**
+ * 절대 경로로 파일을 에디터에서 연다 — 기존 열기 경로 재사용(새 열기 레일 ❌). `line`(1부터)을 주면 그 줄에서 연다 — 줄 인자를 받는
+ * 에디터만 따르고(서버 `editorLauncher` 의 에디터 표) OS 기본 앱 폴백은 파일만 연다.
+ */
+export function openFileByPath(absolutePath: string, nodePath: string, line?: number): void {
+  const at = typeof line === 'number' && Number.isSafeInteger(line) && line > 0 ? { line } : {};
   void fetch('/api/open-node-file', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nodePath, absolutePath }),
+    body: JSON.stringify({ nodePath, absolutePath, ...at }),
   }).catch(() => { /* 열기 실패는 화면을 막지 않는다 */ });
 }
 
@@ -58,10 +62,10 @@ export function openFolderByPath(absolutePath: string, nodePath: string): void {
   }).catch(() => { /* 열기 실패는 화면을 막지 않는다 */ });
 }
 
-/** 루트 기준 상대 경로로 파일을 연다(트리 행에서 사용). */
-export function openWorkspaceFile(rootPath: string, relPath: string): void {
+/** 루트 기준 상대 경로로 파일을 연다(트리 행에서 사용). `line` 을 주면 그 줄에서. */
+export function openWorkspaceFile(rootPath: string, relPath: string, line?: number): void {
   const base = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
-  openFileByPath(`${base}/${relPath}`, relPath);
+  openFileByPath(`${base}/${relPath}`, relPath, line);
 }
 
 /** 루트 기준 상대 경로를 절대 경로로 — 열기·복사 손잡이가 쓰는 것과 같은 조립. */

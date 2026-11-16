@@ -28,11 +28,17 @@ export type LinkViewHolds = Readonly<Record<string, LinkViewHold>>;
 /** 아무것도 붙들지 않는다 — 한 객체를 돌려 써서 무변화 비교가 참조로 끝나게. */
 export const NO_LINK_VIEW_HOLDS: LinkViewHolds = {};
 
+/** 스냅샷은 매번 새 배열을 싣는다 — 배열 칸(§5.4 #36 (K) 체크 목록)은 내용으로 잰다. */
+function sameHeldValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
 /** 이 객체가 누른 값을 이미 싣고 있나. 칸이 없는 것은 `undefined` 와 같다. */
 export function carriesHeldFields(item: object, want: HeldFields): boolean {
   const record = item as Record<string, unknown>;
   for (const [key, value] of Object.entries(want)) {
-    if (record[key] !== value) return false;
+    if (!sameHeldValue(record[key], value)) return false;
   }
   return true;
 }

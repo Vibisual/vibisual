@@ -362,11 +362,15 @@ function bootRuntime(init: Partial<CompositionRuntimeInit> = {}, manualPaint = f
   const dispatch = (event: unknown): void => {
     for (const fn of listeners.get('message') ?? []) fn(event);
   };
+  const emit = (type: string, event: unknown): void => {
+    for (const fn of listeners.get(type) ?? []) fn(event);
+  };
   return {
     animations,
     messages,
     waitFor,
     dispatch,
+    emit,
     paints,
     paint(): void {
       const batch = [...paints.values()];
@@ -522,5 +526,14 @@ describe('§5.13 (T-2) 런타임 심 — 시각은 렌더러가 정한다', () =
     b.run("window.__vibi.seek = function () { throw new Error('boom'); };");
     expect((await b.seek(1, 1)).__vibi).toBe('ready');
     expect(b.messages.some((m) => m.__vibi === 'error' && String(m.message).includes('boom'))).toBe(true);
+  });
+
+  it('ResizeObserver 루프 알림은 오류로 올리지 않고, 진짜 window 오류는 그대로 올린다', () => {
+    const b = bootRuntime();
+    b.emit('error', { message: 'ResizeObserver loop completed with undelivered notifications.', error: null });
+    b.emit('error', { message: 'ResizeObserver loop limit exceeded', error: null });
+    expect(b.messages.some((m) => m.__vibi === 'error')).toBe(false);
+    b.emit('error', { message: 'Uncaught TypeError: x is undefined', error: null });
+    expect(b.messages.some((m) => m.__vibi === 'error' && String(m.message).includes('x is undefined'))).toBe(true);
   });
 });

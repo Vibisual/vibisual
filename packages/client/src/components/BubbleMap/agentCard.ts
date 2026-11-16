@@ -174,6 +174,12 @@ export function agentCardDiscCenter(): { x: number; y: number } {
   };
 }
 
+/** 말풍선이 원 안에 들어가 있는 동안의 노드 중심 — 상자는 그대로라(물리) 선 끝점·가림 원이 상자 가운데 대신 이 점을 본다. */
+export function tuckedCardCenter(nodeX: number, nodeY: number): { x: number; y: number } {
+  const disc = agentCardDiscCenter();
+  return { x: nodeX + disc.x, y: nodeY + disc.y };
+}
+
 /** 궤도 위 한 각(도, 화면 좌표 — 0 = 오른쪽, 음수 = 위)의 자리 — 원 중심 기준 오프셋. */
 export function orbitPoint(angleDeg: number, radius: number = AGENT_CARD.orbitRadius): { x: number; y: number } {
   const a = (angleDeg * Math.PI) / 180;

@@ -1,5 +1,5 @@
 // §4 (동적 모델 레지스트리) — 단가·컨텍스트 표 시험: 고를 수 있는 모델이 값을 모르는 일이 없을 것(빠지면 오류 없이 폴백값이 뜬다 — fable 때 비용 1.5배·컨텍스트 1/5).
-// 출처: Anthropic 공개 문서 `platform.claude.com/docs/en/about-claude/pricing`·`…/models/overview`(확인 2026-09-02). 깨지면 문서를 먼저 다시 보고 표를 고친다.
+// 출처: Anthropic 공개 문서 `platform.claude.com/docs/en/about-claude/pricing`·`…/models/overview`(확인 2026-09-02, Fable 5.2 는 2026-11-10). 깨지면 문서를 먼저 다시 보고 표를 고친다.
 
 import { describe, it, expect } from 'vitest';
 import type { ModelRegistry } from '@vibisual/shared';
@@ -56,6 +56,7 @@ describe('모델 테이블 — 고를 수 있는 것은 값도 안다', () => {
 describe('모델 테이블 — 공개 가격표 대조', () => {
   // [풀ID, 입력, 출력, 캐시읽기, 캐시쓰기, 컨텍스트]
   const TABLE: ReadonlyArray<readonly [string, number, number, number, number, number]> = [
+    ['claude-fable-5-2', 8, 40, 0.2, 10, 1_000_000], // 캐시 읽기만 0.025× (확인 2026-11-10) — 5.1 보다 싸졌다
     ['claude-fable-5-1', 10, 50, 0.25, 12.5, 1_000_000], // 캐시 읽기만 0.025× (이 세대 전용)
     ['claude-fable-5', 10, 50, 1, 12.5, 1_000_000],
     ['claude-opus-5-5', 4, 20, 0.2, 5, 1_000_000], // 캐시 읽기만 0.05× (Opus 5.5 전용)
@@ -84,7 +85,7 @@ describe('모델 테이블 — 공개 가격표 대조', () => {
     for (const [id, p] of Object.entries(MODEL_PRICING)) {
       if (!id.startsWith('claude-')) continue;
       expect(p.cacheWrite, `${id} 캐시쓰기 = 입력가 × 1.25`).toBe(round(p.input * 1.25));
-      // 표준은 0.1×, Fable/Mythos 5.1 세대는 0.025×, Opus 5.5·Sonnet 5.5 는 0.05×(가격표 각주).
+      // 표준은 0.1×, Fable/Mythos 5.1·5.2 세대는 0.025×, Opus 5.5·Sonnet 5.5 는 0.05×(가격표 각주).
       expect([round(p.input * 0.1), round(p.input * 0.05), round(p.input * 0.025)], `${id} 캐시읽기 배수`).toContain(p.cacheRead);
       // 장문 구간도 같은 규칙으로 파생한다 — 구간마다 손으로 옮겨 적으면 한쪽만 틀어진다.
       const long = p.longPrompt;
@@ -192,8 +193,9 @@ describe('모델 테이블 — 폴백', () => {
   });
 
   it('알려진 패밀리의 처음 보는 판올림은 그 패밀리 latest 단가로 떨어진다', () => {
-    // 시드에 없는 미래 ID — 패밀리 디폴트가 받는다.
-    expect(getModelPricing('claude-fable-9').input).toBe(10);
+    // 시드에 없는 미래 ID — 패밀리 디폴트가 받는다(fable 디폴트 = Fable 5.2 $8/$40, 2026-11-10).
+    expect(getModelPricing('claude-fable-9')).toEqual(MODEL_PRICING['claude-fable-5-2']);
+    expect(getModelPricing('claude-fable-9').input).toBe(8);
     expect(getModelContextLimit('claude-fable-9')).toBe(1_000_000);
     expect(getModelPricing('claude-opus-9')).toEqual(MODEL_PRICING['claude-opus-5-5']);
     expect(getModelPricing('claude-sonnet-9')).toEqual(MODEL_PRICING['claude-sonnet-5-5']);
@@ -235,10 +237,11 @@ describe('alias 는 그 패밀리의 진짜 최신을 가리킨다', () => {
       })[0];
   }
 
-  it('fable 최신 시드는 claude-fable-5-1 이다', () => {
-    // 여기가 뒤처지면 CLI 가 bare `fable` 을 모르는 탓에 subAgentManager 가 치환하는 대상이
-    // 구세대가 되어, 사용자는 최신을 골랐는데 조용히 구모델이 뜬다.
-    expect(newestSeedOf('fable')).toBe('claude-fable-5-1');
+  it('fable 최신 시드는 claude-fable-5-2 이다', () => {
+    // 설치본 도움말이 fable 을 적지 않는 기계에서는 subAgentManager 가 이 값으로 치환한다 — 여기가 뒤처지면
+    // 그 기계의 사용자는 최신을 골랐는데 조용히 구모델이 뜬다(도움말이 적는 기계는 bare 로 넘겨 CLI 가 정한다).
+    expect(newestSeedOf('fable')).toBe('claude-fable-5-2');
+    expect(parseModelSemver('claude-fable-5-2')).toEqual([5, 2]);
     expect(parseModelSemver('claude-fable-5-1')).toEqual([5, 1]);
     expect(parseModelSemver('claude-fable-5')).toEqual([5, 0]);
   });
@@ -351,8 +354,9 @@ describe('시드 ↔ API 머지', () => {
     ]);
     const e = merged.find((x) => x.id === 'claude-fable-9');
     expect(e?.contextWindow).toBe(2_000_000);
-    // 가격은 시드에 없으니 조회 시점에 패밀리 디폴트가 받는다.
-    expect(getModelPricing('claude-fable-9').input).toBe(10);
+    // 가격은 시드에 없으니 조회 시점에 패밀리 디폴트(= fable 시드 최신 Fable 5.2)가 받는다.
+    expect(getModelPricing('claude-fable-9')).toEqual(MODEL_FAMILY_DEFAULTS.fable.pricing);
+    expect(getModelPricing('claude-fable-9').input).toBe(8);
   });
 });
 

@@ -1,6 +1,7 @@
 import type { Node } from '@xyflow/react';
 import { describe, expect, it } from 'vitest';
-import { IFRAME_BUBBLE_HEIGHT } from '@vibisual/shared';
+import { AGENT_CARD, IFRAME_BUBBLE_HEIGHT } from '@vibisual/shared';
+import { agentCardDiscCenter } from './agentCard.js';
 import { edgeMaskCircles } from './edgeMaskGeometry.js';
 
 const bubble = (id: string, x: number, y: number, size = 80): Node => ({
@@ -14,5 +15,19 @@ describe('edge occluder circles (§5.4 #31 (K))', () => {
     expect(measured).toEqual({ id: 'agent', cx: 40, cy: 40, r: 36 });
     const half = IFRAME_BUBBLE_HEIGHT / 2;
     expect(fallback).toEqual({ id: 'preview', cx: 10 + half, cy: 20 + half, r: half - 4 });
+  });
+
+  it('occludes only the disc of a card whose balloon is tucked, leaving the vacated area open', () => {
+    const card: Node = {
+      id: 'card', type: 'bubble', position: { x: 100, y: 50 }, data: { id: 'card', bubbleType: 'agent' },
+      measured: { width: AGENT_CARD.width, height: AGENT_CARD.height },
+    };
+    const disc = agentCardDiscCenter();
+    expect(edgeMaskCircles([card], undefined, new Set(['card']))).toEqual([
+      { id: 'card', cx: 100 + disc.x, cy: 50 + disc.y, r: AGENT_CARD.discSize / 2 - 4 },
+    ]);
+    expect(edgeMaskCircles([card], undefined)[0]).toEqual({
+      id: 'card', cx: 100 + AGENT_CARD.width / 2, cy: 50 + AGENT_CARD.height / 2, r: AGENT_CARD.height / 2 - 4,
+    });
   });
 });

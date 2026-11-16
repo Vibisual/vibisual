@@ -279,6 +279,7 @@ export function useWebSocket(
     store.applyFinishedSubagentTasks(snap.finishedSubagentTasks);
     store.applyAgentReports(snap.agentReports);
     store.applyAgentMemos(snap.agentMemos);
+    store.applyCanvasMemos(snap.canvasMemos);
     // §5.23 — 도메인 버블 웹 이력
     store.applyDomainEntries(snap.domainEntries);
     store.applyAgentQuestions(snap.agentQuestions);

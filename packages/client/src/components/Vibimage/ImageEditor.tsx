@@ -1,21 +1,25 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AppShellProps } from '../../apps/registry.js';
 import { updateAppWindowTarget, useAppWindowTarget, useAppWindowTransferGuard } from '../../apps/appWindowLifecycle.js';
 import { useAppWindowCloseGuard } from '../../apps/appWindowCloseGuard.js';
+import { useAppBoxTier } from '../../hooks/useBoxTier.js';
 import { confirmDialog } from '../../utils/appDialog.js';
-import { shortcutLabel } from '../../utils/platform.js';
 import { fetchWorkspaceMediaBlob } from '../../utils/workspaceMedia.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { SourceConnections } from '../Creation/SourceConnections.js';
 import { creationErrorText } from '../Creation/creationErrors.js';
-import { IMAGE_LIMITS, applyImageStyle, imageId, isImageDocument, newImageLayer, type ImageDocument } from '../Creation/imageSource.js';
+import { IMAGE_LIMITS, applyImageStyle, isImageDocument, newImageLayer, patchImageLayer, type ImageDocument } from '../Creation/imageSource.js';
 import { loadImage } from '../Creation/imageRender.js';
 import { useImageDocument } from './useImageDocument.js';
 import { useImageExport } from './useImageExport.js';
 import { ImageToolbar } from './ImageToolbar.js';
+import { ImageToolRail } from './ImageToolRail.js';
 import { ImageStage } from './ImageStage.js';
+import { ImageStatusBar } from './ImageStatusBar.js';
 import { ImageInspector } from './ImageInspector.js';
+import { ImageLayersPanel } from './ImageLayersPanel.js';
+import { ImageEditorDock } from './ImageEditorDock.js';
 import { ImageAgentPanel } from './ImageAgentPanel.js';
 import { ImagePhotoTools } from './ImagePhotoTools.js';
 import { ImageReview } from './ImageReview.js';
@@ -26,11 +30,13 @@ import { imageLabelKey } from './imageLabels.js';
 import { latestImageCandidate } from './imagePresentation.js';
 import type { LayerEditPicture } from './layerEditHandoff.js';
 import { VibimageChromeBar } from './VibimageChromeBar.js';
-
-/** Typing in a field owns its keys (its own undo, its own delete). */
-function typingTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && (target.matches('input,textarea,select') || target.isContentEditable);
-}
+import { arrangeLayers, duplicateLayers, moveLayers, removeLayers, type ArrangeMode } from './imageArrange.js';
+import type { Box, Point } from './imageGeometry.js';
+import type { DrawTool, EditorTool } from './editorTools.js';
+import { editorKeyHandlers } from './editorShortcuts.js';
+import { createCursorStore } from './editorCursor.js';
+import { useEditorViewport } from './useEditorViewport.js';
+import { EditorIcon } from './editorIcons.js';
 
 /** Adds a picture as one image layer of the latest draft; an empty canvas takes the picture's size. */
 function withPicture(doc: ImageDocument, image: HTMLImageElement, name: string, source: string, original?: string): { doc: ImageDocument; id: string } {
@@ -55,11 +61,22 @@ export function ImageEditor({ params, onShowPicture, picture }: AppShellProps & 
   if (initial.current.root !== root) initial.current = { root, id: params['imageId'] ?? params['ref'] ?? '', file };
   const state = useImageDocument(root, initial.current.id);
   const output = useImageExport(root, state.save);
-  const [selected, setSelected] = useState(''); const [agentId, setAgentId] = useState('');
+  const narrow = useAppBoxTier() === 'narrow';
+  const viewport = useEditorViewport(state.draft, narrow);
+  const cursor = useMemo(() => createCursorStore(), []);
+  const [picked, setPicked] = useState<string[]>([]); const [agentId, setAgentId] = useState('');
+  const [tool, setTool] = useState<EditorTool>('move'); const [panning, setPanning] = useState(false);
+  const [editingText, setEditingText] = useState<string | null>(null);
+  const freshText = useRef('');
   const [reviewChoice, setReviewChoice] = useState<{ scope: string; id: string; latestId: string } | null>(null);
   const [tools, setTools] = useState<{ doc: ImageDocument; selected: string } | null>(null);
   const [importError, setImportError] = useState(''); const [importBusy, setImportBusy] = useState(false);
+  const [closedPaths, setClosedPaths] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
   const busy = state.busy || output.busy || importBusy || !!tools;
+  // 고른 레이어가 원본에서 사라지면(되돌리기·채택·다른 원본) 선택에서도 빠진다.
+  const selection = useMemo(() => picked.filter((id) => state.draft.layers.some((layer) => layer.id === id)), [picked, state.draft.layers]);
+  const selected = selection[selection.length - 1] ?? '';
   const scope = `${root}\u0000${state.doc?.id ?? ''}`;
   const latest = latestImageCandidate(state.candidates, state.doc?.revision);
   const choice = reviewChoice?.scope === scope ? reviewChoice : null;
@@ -71,7 +88,7 @@ export function ImageEditor({ params, onShowPicture, picture }: AppShellProps & 
   const reviewTarget = `${scope}\u0000${summary?.id ?? ''}`;
   const activeReview = useRef(reviewTarget); activeReview.current = reviewTarget;
   const setReviewId = (id: string): void => { setReviewChoice({ scope, id, latestId: latest?.id ?? '' }); };
-  const edit = (next: ImageDocument, group?: string): void => { if (!busy) state.change(next, group); };
+  const edit = (next: ImageDocument, group?: string): void => { if (!busy && next !== state.draft) state.change(next, group); };
   const current = useRef(state); current.current = state;
   const hosted = !!params['appWindowId'] || params['appWindowHosted'] === '1';
   useAppWindowTarget(params, state.doc ? { ref: state.doc.id, file: initial.current.file || undefined } : null);
@@ -92,6 +109,13 @@ export function ImageEditor({ params, onShowPicture, picture }: AppShellProps & 
     return accepted && current.current.draft === snapshot.draft && current.current.doc?.id === snapshot.doc?.id;
   };
   useAppWindowCloseGuard(params, confirmDiscard);
+  useEffect(() => {
+    // 창이 초점을 잃으면 Space 를 뗀 줄 모른다 — 손 도구에 갇히지 않게 푼다.
+    if (typeof window === 'undefined') return undefined;
+    const release = (): void => setPanning(false);
+    window.addEventListener('blur', release);
+    return () => window.removeEventListener('blur', release);
+  }, []);
 
   /** The picture stays inline in the draft; it reaches the disk only when the source is saved (as a blob). */
   const importRaster = useCallback(async (blob: Blob, name: string, original?: string): Promise<void> => {
@@ -100,7 +124,7 @@ export function ImageEditor({ params, onShowPicture, picture }: AppShellProps & 
     if (image.naturalWidth < 1 || image.naturalHeight < 1) throw new Error('image-source-invalid');
     // Applied to the draft as it is NOW — an edit made while the picture decoded is kept, the picture is not dropped.
     const next = withPicture(current.current.draft, image, name, source, original);
-    current.current.change(next.doc); setSelected(next.id);
+    current.current.change(next.doc); setPicked([next.id]);
   }, []);
   const seed = useRef(picture ?? null);
   useEffect(() => {
@@ -125,77 +149,107 @@ export function ImageEditor({ params, onShowPicture, picture }: AppShellProps & 
       if (incoming.name.endsWith('.json')) {
         const value: unknown = JSON.parse(await incoming.text());
         if (!isImageDocument(value)) throw new Error('invalidSource');
-        state.change(value); setSelected('');
+        state.change(value); setPicked([]);
       } else await importRaster(incoming, incoming.name);
     } catch (failure) {
       const reason = failure instanceof Error && (failure.message === 'largeImage' || failure.message === 'invalidSource') ? failure.message : '';
       setImportError(reason ? key(reason) : creationErrorText(t, failure));
     } finally { setImportBusy(false); }
   };
-  const add = (kind: 'text' | 'shape'): void => {
-    const layer = newImageLayer(state.draft, kind, key(kind)); state.change({ ...state.draft, layers: [...state.draft.layers, layer] }); setSelected(layer.id);
+  const add = (kind: 'text' | 'shape', shape: 'rect' | 'ellipse' = 'rect'): void => {
+    if (busy) return;
+    const layer = { ...newImageLayer(state.draft, kind, key(kind === 'text' ? 'text' : shape === 'ellipse' ? 'ellipse' : 'rectangle')), ...(kind === 'shape' ? { shape } : {}) };
+    state.change({ ...state.draft, layers: [...state.draft.layers, layer] }); setPicked([layer.id]);
   };
-  const layer = state.draft.layers.find((item) => item.id === selected);
+  /** 그리기 도구 — 끈 상자 그대로, 클릭이면 기본 크기. 글자는 만든 즉시 그 자리 편집으로 들어간다. */
+  const draw = (kind: DrawTool, box: Box | null, at: Point): void => {
+    setTool('move');
+    if (busy) return;
+    const doc = state.draft;
+    const text = kind === 'text';
+    const base = newImageLayer(doc, text ? 'text' : 'shape', key(text ? 'text' : kind === 'ellipse' ? 'ellipse' : 'rectangle'));
+    const fontSize = text ? Math.max(8, Math.min(base.fontSize ?? 64, box ? box.height / 1.25 : Infinity)) : undefined;
+    const area = box ?? (text
+      ? { x: at.x, y: at.y, width: Math.max(200, Math.min(600, doc.width - at.x)), height: (fontSize ?? 64) * 1.5 }
+      : { x: at.x - 100, y: at.y - 100, width: 200, height: 200 });
+    const layer = {
+      ...base, x: area.x, y: area.y, width: Math.max(text ? 24 : 1, area.width), height: Math.max(1, area.height),
+      ...(text ? { fontSize } : { shape: kind === 'ellipse' ? 'ellipse' as const : 'rect' as const }),
+    };
+    state.change({ ...doc, layers: [...doc.layers, layer] }); setPicked([layer.id]);
+    if (text) { freshText.current = layer.id; setEditingText(layer.id); }
+  };
+  const endText = (): void => {
+    const id = editingText; setEditingText(null);
+    const fresh = freshText.current === id; freshText.current = '';
+    const layer = current.current.draft.layers.find((item) => item.id === id);
+    // 글자 도구로 막 만든 레이어를 비운 채 나오면 걷는다 — 있던 글자 레이어는 비워도 남긴다.
+    if (fresh && layer && !(layer.text ?? '').trim() && !layer.locked) current.current.change(removeLayers(current.current.draft, [layer.id]), `text:${layer.id}`);
+    current.current.endEdit();
+  };
   const duplicate = (): void => {
-    if (!layer || layer.locked || busy) return;
-    const copy = { ...layer, id: imageId(), x: layer.x + 20, y: layer.y + 20 };
-    state.change({ ...state.draft, layers: [...state.draft.layers, copy] }); setSelected(copy.id);
+    if (busy) return;
+    const result = duplicateLayers(state.draft, selection, 20);
+    if (result.ids.length) { state.change(result.doc); setPicked(result.ids); }
   };
-  const remove = (): void => {
-    if (!layer || layer.locked || busy) return;
-    state.change({ ...state.draft, layers: state.draft.layers.filter((item) => item.id !== layer.id) }); setSelected('');
-  };
+  const remove = (): void => { if (!busy) { edit(removeLayers(state.draft, selection)); setPicked(selection.filter((id) => state.draft.layers.find((l) => l.id === id)?.locked)); } };
+  const arrange = (mode: ArrangeMode): void => edit(arrangeLayers(state.draft, selection, mode));
+  const keys = editorKeyHandlers({
+    reviewing: !!summary, hasSelection: selection.length > 0, tool, setTool, setPanning, viewport,
+    undo: () => { void state.undo(); }, redo: () => { void state.redo(); }, save: () => { void state.save(); },
+    remove, duplicate, arrange, selectAll: () => setPicked(state.draft.layers.map((layer) => layer.id)), clearSelection: () => setPicked([]),
+    nudge: (dx, dy) => edit(moveLayers(state.draft, selection, dx, dy), `nudge:${selection.join(',')}`), endNudge: state.endEdit,
+    editText: () => {
+      const layer = selection.length === 1 ? state.draft.layers.find((item) => item.id === selected) : undefined;
+      if (layer?.kind !== 'text' || layer.locked || busy) return false;
+      setEditingText(layer.id); return true;
+    },
+  });
   const stale = state.candidates.filter((item) => item.baseRevision !== state.doc?.revision).length;
   const error = importError || (output.error ? creationErrorText(t, new Error(output.error)) : '') || (state.error ? creationErrorText(t, new Error(state.error)) : '');
   const backToPicture = async (): Promise<void> => { if (await confirmDiscard()) onShowPicture?.(); };
-  return <div className="relative flex h-full min-h-0 flex-col bg-gray-950 text-gray-100" data-shortcut-scope="dialog" onKeyDown={(event) => {
-    if (typingTarget(event.target)) return;
-    const mod = event.ctrlKey || event.metaKey;
-    const name = event.key.toLowerCase();
-    if (summary) {
-      // A proposal is being inspected, not the editable source behind it.
-      if ((mod && ['s', 'z', 'y'].includes(name)) || event.key === 'Delete' || event.key === 'Backspace') {
-        event.preventDefault(); event.stopPropagation();
-      }
-      return;
-    }
-    if (mod && name === 'z') { event.preventDefault(); event.stopPropagation(); void (event.shiftKey ? state.redo() : state.undo()); }
-    else if (mod && name === 'y') { event.preventDefault(); event.stopPropagation(); void state.redo(); }
-    else if (mod && name === 's') { event.preventDefault(); event.stopPropagation(); void state.save(); }
-    else if (!mod && (event.key === 'Delete' || event.key === 'Backspace') && layer) { event.preventDefault(); remove(); }
-  }}>
+  const status = busy ? 'working' : !state.doc || state.dirty ? 'unsaved' : 'saved';
+  const pathsKey = output.paths.join('\u0000');
+  const openTools = (): void => setTools({ doc: state.draft, selected });
+  // 뿌리가 초점을 받는다(tabIndex -1) — 판·레이어 줄처럼 초점 없는 곳을 눌러도 키가 이 편집기로 온다.
+  return <div className="relative flex h-full min-h-0 flex-col bg-gray-950 text-gray-100 outline-none" tabIndex={-1} data-shortcut-scope="dialog"
+    onKeyDown={keys.onKeyDown} onKeyUp={keys.onKeyUp}>
     <VibimageChromeBar hosted={hosted} title={state.title.trim() || null}>{(dragRegion) => <>
-      <span className={`${dragRegion ? 'app-drag-label ' : ''}min-w-0 max-w-[40%] shrink-0 truncate text-[13px] font-semibold text-slate-100`}>{state.title.trim() || 'Vibimage'}</span>
-      {summary ? <span className={`${dragRegion ? 'app-drag-label ' : ''}min-w-0 truncate text-[12px] text-amber-200`} title={summary.label}>{key('compare')} · {summary.label}</span>
-        : <span className={`${dragRegion ? 'app-drag-label ' : ''}min-w-0 truncate text-[12px] tabular-nums text-slate-400`}>
-          {state.draft.width} × {state.draft.height} · {key(state.draft.background === 'transparent' ? 'transparent' : 'opaque')}
-          {' · '}{key(busy ? 'working' : !state.doc || state.dirty ? 'unsaved' : 'saved')}
-          {state.doc ? ` · ${t('panel.creation.revisionShort', { revision: state.doc.revision })}` : ''}
+      <span className={`${dragRegion ? 'app-drag-label ' : ''}min-w-0 max-w-[40%] shrink-0 truncate text-[13px] font-semibold text-gray-100`}>{state.title.trim() || 'Vibimage'}</span>
+      {summary ? <span className={`${dragRegion ? 'app-drag-label ' : ''}min-w-0 truncate text-xs text-amber-200`} title={summary.label}>{key('compare')} · {summary.label}</span>
+        : <span className={`${dragRegion ? 'app-drag-label ' : ''}flex min-w-0 items-center gap-2 text-xs tabular-nums text-gray-400`}>
+          <span className="shrink-0">{state.draft.width} × {state.draft.height}</span>
+          <span className="shrink-0 truncate box-narrow:hidden">{key(state.draft.background === 'transparent' ? 'transparent' : 'opaque')}</span>
+          {state.doc && <span className="shrink-0 box-narrow:hidden">{t('panel.creation.revisionShort', { revision: state.doc.revision })}</span>}
+          <span className={`flex min-w-0 items-center gap-1 ${status === 'saved' ? 'text-emerald-300' : status === 'working' ? 'text-blue-300' : 'text-amber-300'}`}>
+            <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${status === 'saved' ? 'bg-emerald-400' : status === 'working' ? 'animate-pulse bg-blue-400' : 'bg-amber-400'}`} />
+            <span className="truncate">{key(status)}</span>
+          </span>
         </span>}
     </>}</VibimageChromeBar>
     {!summary && <ImageToolbar title={state.title} onTitle={(value) => { if (!busy) state.setTitle(value); }} docs={state.docs} id={state.doc?.id ?? ''} dirty={state.dirty} busy={busy}
       canUndo={state.canUndo} canRedo={state.canRedo} onOpen={(id) => { if (id) void state.open(id); }} onNew={state.fresh}
       onSave={() => { void state.save(); }} onUndo={() => { void state.undo(); }} onRedo={() => { void state.redo(); }}
-      onAdd={add} onImport={(incoming) => { void importFile(incoming); }} onExport={(kind, variants) => { void output.run(kind, variants); }}
-      onTools={() => setTools({ doc: state.draft, selected })} onOriginal={onShowPicture ? backToPicture : undefined} />}
-    {!summary && <ImageSourcePicker root={root} doc={state.doc} disabled={busy || state.dirty} styleDisabled={busy} onDoc={state.receive}
-      onStyle={(style, toLayers) => edit(toLayers ? applyImageStyle(state.draft, style) : { ...state.draft, style })} />}
-    {state.failedDocs.length > 0 && <p role="alert" className="break-words bg-amber-950/40 px-3 py-1.5 text-xs text-amber-200">{t('panel.creation.unreadableSources', { count: state.failedDocs.length })}</p>}
-    {error && <p role="alert" className="break-words bg-amber-950/50 px-3 py-2 text-xs text-amber-200">{error}</p>}
-    {state.remote && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-amber-950/50 px-3 py-2 text-xs"><span className="min-w-0 break-words">{key('conflict')}</span>
-      <button type="button" className="pointer-coarse:py-2" onClick={() => { void state.copy(); }}>{key('keepCopy')}</button><button type="button" className="pointer-coarse:py-2" onClick={state.useRemote}>{key('loadLatest')}</button></div>}
-    {!!state.candidates.length && !summary && <div className="flex flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2 text-xs">
-      {state.candidates.map((item) => <span key={item.id} className="flex min-w-0 max-w-full items-center gap-1 rounded bg-amber-200/10">
-        <button type="button" className="min-w-0 break-words px-3 py-1.5 text-left pointer-coarse:py-2" onClick={() => setReviewId(item.id)}>{key('compare')} · {item.label}</button>
-        <button type="button" className="shrink-0 px-2 py-1.5 text-gray-400 hover:text-gray-100 pointer-coarse:py-2" aria-label={key('discard')} title={key('discard')}
+      onAdd={add} onImport={() => fileInput.current?.click()} onExport={(kind, variants) => { void output.run(kind, variants); }}
+      onTools={openTools} onOriginal={onShowPicture ? backToPicture : undefined} />}
+    <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/bmp,application/json,.vibimage.json" className="hidden"
+      onChange={(e) => { const incoming = e.target.files?.[0]; if (incoming) void importFile(incoming); e.target.value = ''; }} />
+    {state.failedDocs.length > 0 && <p role="alert" className="break-words border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-200">{t('panel.creation.unreadableSources', { count: state.failedDocs.length })}</p>}
+    {error && <p role="alert" className="break-words border-b border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">{error}</p>}
+    {state.remote && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100"><span className="min-w-0 break-words">{key('conflict')}</span>
+      <button type="button" className="rounded-md bg-gray-800 px-2.5 py-1 hover:bg-gray-700 pointer-coarse:py-2" onClick={() => { void state.copy(); }}>{key('keepCopy')}</button>
+      <button type="button" className="rounded-md bg-gray-800 px-2.5 py-1 hover:bg-gray-700 pointer-coarse:py-2" onClick={state.useRemote}>{key('loadLatest')}</button></div>}
+    {!!state.candidates.length && !summary && <div className="flex flex-wrap items-center gap-1.5 border-b border-gray-800 bg-gray-900 px-2 py-1.5 text-xs">
+      <EditorIcon name="sparkles" className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+      {state.candidates.map((item) => <span key={item.id} className="flex min-w-0 max-w-full items-center rounded-md border border-amber-400/30 bg-amber-400/10 text-amber-100">
+        <button type="button" className="min-w-0 break-words px-2.5 py-1 text-left hover:text-white pointer-coarse:py-2" onClick={() => setReviewId(item.id)}>{key('compare')} · {item.label}</button>
+        <button type="button" className="shrink-0 px-1.5 py-1 text-amber-200/70 hover:text-white pointer-coarse:py-2" aria-label={key('discard')} title={key('discard')}
           onClick={() => { void state.discard(item.id); }}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true">
-            <path d="M18 6 6 18M6 6l12 12" />
-          </svg>
+          <EditorIcon name="close" className="h-3.5 w-3.5" />
         </button>
       </span>)}
-      {stale > 0 && <button type="button" className="rounded bg-white/5 px-3 py-1.5 pointer-coarse:py-2" onClick={() => { void state.cleanup('stale'); }}>{key('cleanupStale')}</button>}
-        <button type="button" className="rounded bg-white/5 px-3 py-1.5 pointer-coarse:py-2" onClick={async () => { if (await confirmDialog(key('confirmCleanupAll'), { tone: 'danger' })) await state.cleanup('all'); }}>{key('cleanupAll')}</button>
+      {stale > 0 && <button type="button" className="rounded-md px-2.5 py-1 text-gray-300 hover:bg-gray-800 pointer-coarse:py-2" onClick={() => { void state.cleanup('stale'); }}>{key('cleanupStale')}</button>}
+      <button type="button" className="rounded-md px-2.5 py-1 text-gray-300 hover:bg-gray-800 pointer-coarse:py-2" onClick={async () => { if (await confirmDialog(key('confirmCleanupAll'), { tone: 'danger' })) await state.cleanup('all'); }}>{key('cleanupAll')}</button>
     </div>}
     {summary && state.doc ? <ImageReview root={root} source={state.doc} summary={summary} readCandidate={state.readCandidate} disabled={busy || state.dirty}
       onAccept={() => state.accept(summary)} onDiscard={() => state.discard(summary.id)}
@@ -205,60 +259,56 @@ export function ImageEditor({ params, onShowPicture, picture }: AppShellProps & 
         return moved;
       }}
       onClose={() => setReviewId('')} /> :
-      <div className="flex min-h-40 flex-1 box-compact:grid box-compact:grid-cols-[11rem_minmax(0,1fr)] box-compact:grid-rows-[minmax(10rem,1fr)_fit-content(40%)] box-compact:overflow-y-auto box-narrow:grid-cols-[9rem_minmax(0,1fr)]">
-        {/* 넓은 창은 [레이어 목록 | 무대 | 속성] 한 줄. 창 폭이 좁으면(box-compact) 속성이 무대 아래 전폭으로, 폰 폭(box-narrow)이면
-            무대가 전폭을 갖고 목록·속성이 그 아래에 나란히 선다. 아래 줄은 본문 높이의 40% 까지만 쓰고 칸마다 스크롤한다 — 무대
-            하한(10rem)도 못 지키는 낮은 창이면 본문이 통째로 스크롤한다(어느 칸도 잘리지 않게). */}
-        <aside className="flex w-44 shrink-0 flex-col gap-2 border-r border-white/10 p-2 text-xs box-compact:min-h-0 box-compact:w-auto box-narrow:row-[2] box-narrow:overflow-y-auto box-narrow:border-t">
-          <button type="button" className="p-2 text-left text-gray-400" onClick={() => setSelected('')}>{key('canvas')}</button>
-          {/* 폰 폭의 목록 칸은 낮아서 목록만 따로 스크롤하면 한 줄도 안 남는다 — 칸 전체가 한 번에 스크롤한다. */}
-          <ScrollFade fill className="box-narrow:shrink-0">{[...state.draft.layers].reverse().map((item) => <button type="button" key={item.id}
-            className={`mb-1 flex w-full items-center gap-2 rounded p-2 text-left ${selected === item.id ? 'bg-amber-200/20' : 'bg-white/5'}`} onClick={() => setSelected(item.id)}>
-            <span className="min-w-0 flex-1 truncate">{item.name}</span>
-            {item.locked && <svg role="img" aria-label={key('locked')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
-              <title>{key('locked')}</title><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V6a4 4 0 0 1 8 0v4" />
-            </svg>}
-          </button>)}</ScrollFade>
-          <button type="button" disabled={!layer || layer.locked || busy} className="rounded bg-white/5 p-2 disabled:opacity-35" onClick={duplicate}>{key('duplicate')}</button>
-          <button type="button" disabled={!layer || layer.locked || busy} className="rounded bg-white/5 p-2 disabled:opacity-35" title={shortcutLabel('Delete')} onClick={remove}>
-            {key('delete')}
-          </button>
-        </aside>
-        <ImageStage root={root} doc={state.draft} selected={selected} onSelect={setSelected} onChange={(next) => edit(next)}
-          className="box-narrow:col-[1/3]"
-          inspect={{ projectId: root, source: state.doc ? { id: state.doc.id, revision: state.doc.revision, title: state.doc.title } : null, unsaved: state.dirty }} />
-        <ImageInspector doc={state.draft} selected={selected} onChange={edit} onEndEdit={state.endEdit}
-          className="box-compact:col-span-2 box-compact:min-h-0 box-compact:w-auto box-compact:border-l-0 box-compact:border-t box-narrow:col-[2/3] box-narrow:row-[2]"
-          origin={(id) => imageLayerOrigin(state.doc?.links ?? [], id)} />
+      <div className="flex min-h-0 flex-1 box-narrow:flex-col">
+        <ImageToolRail tool={tool} onTool={setTool} onPlaceImage={() => fileInput.current?.click()} disabled={busy} />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <ImageStage root={root} doc={state.draft} selection={selection} onSelect={setPicked} onChange={(next) => edit(next)}
+            tool={panning ? 'hand' : tool} onDraw={draw} viewport={viewport} cursor={cursor}
+            editingText={editingText} onEditText={(id) => { if (id) setEditingText(id); else endText(); }}
+            onTextChange={(id, text) => edit(patchImageLayer(state.draft, id, { text }), `text:${id}`)}
+            inspect={{ projectId: root, source: state.doc ? { id: state.doc.id, revision: state.doc.revision, title: state.doc.title } : null, unsaved: state.dirty }} />
+          <ImageStatusBar doc={state.draft} selection={selection} viewport={viewport} cursor={cursor} />
+        </div>
+        <ImageEditorDock narrow={narrow} layerCount={state.draft.layers.length} linkCount={state.doc?.links.length ?? 0}
+          properties={<ImageInspector doc={state.draft} selection={selection} onChange={edit} onEndEdit={state.endEdit}
+            origin={(id) => imageLayerOrigin(state.doc?.links ?? [], id)} onTools={openTools} onArrange={arrange} onDuplicate={duplicate} onRemove={remove} />}
+          layers={<ImageLayersPanel doc={state.draft} selection={selection} busy={busy} onSelect={setPicked} onChange={(next) => edit(next)}
+            onDuplicate={duplicate} onRemove={remove} onArrange={arrange} />}
+          sources={state.doc ? <ScrollFade fill>
+            <ImageSourcePicker root={root} doc={state.doc} disabled={busy || state.dirty} styleDisabled={busy} onDoc={state.receive}
+              onStyle={(style, toLayers) => edit(toLayers ? applyImageStyle(state.draft, style) : { ...state.draft, style })} />
+            <SourceConnections projectId={root} doc={state.doc} disabled={busy || state.dirty}
+              onDoc={(next) => { if (isImageDocument(next.payload)) state.receive({ ...next, payload: next.payload }); }}
+              onUpdateLink={async (link, revision) => {
+                const doc = current.current.doc;
+                if (!doc) return false;
+                const next = await updateLinkedImage(root, doc, link, revision);
+                if (next) state.receive(next);
+                return !!next;
+              }} />
+          </ScrollFade> : null} />
       </div>}
-    {/* 아래 묶음(내보낸 경로 · 원본 연결 · AI 요청)은 높이 상한 안에서 스크롤한다 — 짧은 창에서 이 묶음이 무대를 밀어내거나 창
-        밖으로 잘리지 않게. 늘 같은 자리에 그려 비교 중에도 요청 칸이 다시 마운트되지 않는다. */}
-    <div className="scrollbar-thin max-h-[50%] min-h-0 overflow-y-auto box-compact:max-h-[40%]">
-      {!summary && !!output.paths.length && <div className="border-t border-white/10 px-3 py-2 text-xs text-emerald-200">{output.paths.map((path) => <p key={path} className="break-all">{path}</p>)}</div>}
-      {!summary && state.doc && <SourceConnections projectId={root} doc={state.doc} disabled={busy || state.dirty}
-        onDoc={(next) => { if (isImageDocument(next.payload)) state.receive({ ...next, payload: next.payload }); }}
-        onUpdateLink={async (link, revision) => {
-          const doc = current.current.doc;
-          if (!doc) return false;
-          const next = await updateLinkedImage(root, doc, link, revision);
-          if (next) state.receive(next);
-          return !!next;
-        }} />}
-      {/* Keep the request draft and standalone window's agent connection alive while reviewing. */}
-      <div hidden={!!summary} className="shrink-0">
-        <ImageAgentPanel root={root} selected={selected} doc={state.doc} busy={busy || !!summary} onSave={state.save} onAgent={setAgentId} />
-      </div>
+    {!summary && !!output.paths.length && closedPaths !== pathsKey && <div role="status" className="flex shrink-0 items-start gap-2 border-t border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-200">
+      <EditorIcon name="download" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <div className="min-w-0 flex-1">{output.paths.map((path) => <p key={path} className="break-all">{path}</p>)}</div>
+      <button type="button" aria-label={key('dismiss')} title={key('dismiss')} className="shrink-0 rounded p-0.5 hover:bg-emerald-500/20" onClick={() => setClosedPaths(pathsKey)}>
+        <EditorIcon name="close" className="h-3.5 w-3.5" />
+      </button>
+    </div>}
+    {/* Keep the request draft and standalone window's agent connection alive while reviewing. */}
+    <div hidden={!!summary} className="shrink-0">
+      <ImageAgentPanel root={root} selected={selected} doc={state.doc} busy={busy || !!summary} onSave={state.save} onAgent={setAgentId} />
     </div>
     {tools && <ImagePhotoTools root={root} doc={tools.doc} selected={tools.selected} agentId={agentId} onApply={(id, source) => {
-      const latest = current.current.draft;
+      const latestDraft = current.current.draft;
       const before = tools.doc.layers.find((item) => item.id === id);
-      const now = latest.layers.find((item) => item.id === id);
+      const now = latestDraft.layers.find((item) => item.id === id);
       // The layer changed while its picture was being edited: keep both by refusing to overwrite silently.
       if (!before || !now || JSON.stringify({ ...now, source: '' }) !== JSON.stringify({ ...before, source: '' }) || now.source !== before.source) {
         setImportError(key('conflict')); return;
       }
       const linked = current.current.doc?.links.some((item) => item.targets.includes(id));
-      state.change({ ...latest, layers: latest.layers.map((item) => item.id === id && !item.locked ? { ...item, source, locked: linked || item.locked } : item) });
+      state.change({ ...latestDraft, layers: latestDraft.layers.map((item) => item.id === id && !item.locked ? { ...item, source, locked: linked || item.locked } : item) });
     }} onClose={() => setTools(null)} />}
   </div>;
 }

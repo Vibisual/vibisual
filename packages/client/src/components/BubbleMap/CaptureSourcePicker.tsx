@@ -82,7 +82,7 @@ export function CaptureSourcePicker({ open, onClose, onPick }: CaptureSourcePick
   );
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" {...backdrop}>
+    <div className="fixed inset-0 z-overlay flex items-center justify-center bg-black/60 backdrop-blur-sm" {...backdrop}>
       {/* 높이는 주소창이 오가도 맞는 `dvh` 로(폰). 제목이 긴 언어에서도 두 단추는 줄지 않고 제목이 잘린다. */}
       <div
         className="flex max-h-[82dvh] w-[720px] max-w-[94vw] flex-col rounded-xl border border-white/[0.08] bg-gray-900/95 p-5 shadow-2xl"

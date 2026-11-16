@@ -94,7 +94,8 @@ describe('(3) screen, SVG and PNG break lines the same way', () => {
   });
   it('the screen draws with the same function as the exports', () => {
     const stage = Object.values(import.meta.glob('../Vibimage/ImageStage.tsx', { query: '?raw', import: 'default', eager: true }))[0] as string;
-    expect(stage).toContain('imageSvgBody(');
+    // The stage draws layer by layer with the function `imageSvgBody` joins for the exports.
+    expect(stage).toContain('imageSvgLayer(');
     expect(stage).not.toMatch(/0\.62/);
   });
 });

@@ -743,7 +743,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
       {menu && createPortal(
         <div
           ref={menuRef}
-          className="scrollbar-thin fixed z-[1000] min-w-[min(200px,calc(100vw-16px))] overflow-y-auto rounded-md border border-gray-700 bg-gray-900 py-1 shadow-2xl"
+          className="scrollbar-thin fixed z-menu min-w-[min(200px,calc(100vw-16px))] overflow-y-auto rounded-md border border-gray-700 bg-gray-900 py-1 shadow-2xl"
           style={{ left: menu.x, top: menu.y }}
         >
           <TerminalMenuItem label={t('ide.terminal.copy')} cmd="terminal.copyOrPass" disabled={!hasSelection()} onClick={() => { copySelection(); setMenu(null); }} />

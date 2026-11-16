@@ -36,6 +36,7 @@ import {
   type InsuranceSessionScope,
   type InsuranceTab,
 } from '../../utils/insuranceView.js';
+import { LayerRoot } from '../Layout/LayerRoot.js';
 
 // SCENARIO.md §5.26 / §7.23 — 컨텍스트 보험 팝업(압축 이력·요약 누락·파일 사본·부활 한 창). 서버 값을 그대로 그리고 판정은 `utils/insuranceView.ts`.
 
@@ -196,7 +197,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
   }, [reload, agentId]);
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm" {...backdrop}>
+    <LayerRoot className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60 backdrop-blur-sm" {...backdrop}>
       <div
         className="mx-4 flex max-h-[80dvh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
@@ -419,7 +420,7 @@ export function ContextInsurancePopup({ onClose, agentId, scope }: ContextInsura
           </div>
         )}
       </div>
-    </div>
+    </LayerRoot>
   );
 }
 

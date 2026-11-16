@@ -1,7 +1,9 @@
+import { Z_LAYER } from '../../theme/zLayers.js';
+
 // 헤더 언어 전환기를 온보딩 창 위로 띄울지의 순수 판정(렌더는 HeaderLanguageSlot.tsx) — 백드롭이 헤더를 덮는 동안 같은 좌표로 다시 그린다(§4).
 
-/** 띄운 전환기의 z — 온보딩 창들(설치 100_700 · 로그인 100_600 · 폴더/버전 100_500)보다 위여야 한다. */
-export const LIFTED_LANGUAGE_Z = 100_900;
+/** 띄운 전환기의 z — 온보딩 게이트 전부보다 위여야 한다. */
+export const LIFTED_LANGUAGE_Z = Z_LAYER.GATE_LANGUAGE;
 
 /** 띄운 전환기의 언어 목록 z — 자기 버튼보다 위(목록은 body 로 빠진다). */
 export const LIFTED_LANGUAGE_MENU_Z = LIFTED_LANGUAGE_Z + 50;

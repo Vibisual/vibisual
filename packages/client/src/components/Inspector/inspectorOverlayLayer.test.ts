@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 /**
  * §5.4 #15 (D) — Alt 인스펙터 덮개가 모든 층 위인지: 소스의 모든 z-index 숫자가 덮개보다 낮은지 센다.
@@ -18,9 +19,9 @@ function overlayZ(): number {
   return m?.[1] ? Number(m[1]) : NaN;
 }
 
-/** 소스에 적힌 z-index 숫자들 — Tailwind `z-[N]`, `zIndex: N`, `…_Z = N` / `…Z_BASE = N` 꼴 상수. */
+/** 소스에 적힌 z-index 숫자들 — 겹침 층 표(`Z_LAYER`) + Tailwind `z-[N]`, `zIndex: N`, `…_Z = N` / `…Z_BASE = N` 꼴 상수. */
 function zLiterals(): Array<{ file: string; value: number }> {
-  const out: Array<{ file: string; value: number }> = [];
+  const out: Array<{ file: string; value: number }> = Object.entries(Z_LAYER).map(([name, value]) => ({ file: `Z_LAYER.${name}`, value }));
   const patterns = [/\bz-\[(\d[\d_]*)\]/g, /\bzIndex:\s*(\d[\d_]*)/g, /\b[A-Z][A-Z0-9_]*Z(?:_BASE)?\s*=\s*(\d[\d_]*)/g];
   for (const [file, text] of Object.entries(sources)) {
     if (/[.]test[.]tsx?$/.test(file) || isOverlayFile(file)) continue;

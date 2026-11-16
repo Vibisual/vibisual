@@ -4,16 +4,16 @@ import {
   JOB_HEARTBEAT_MS,
   RENDER_CONTROL_POLL_MS,
   STRIP_MAX_EDGE,
-  VIDEO_TRANSFER_MAX_BYTES,
   chapterFrameDoc,
   withMutedTracks,
   withoutCaptions,
   type VideoDoc,
 } from '@vibisual/video';
-import { claimJob, completeRenderJob, completeStillJob, getJob, readDoc, reportJob, type VideoJob, type VideoJobLane } from './videoApi.js';
+import { claimJob, completeStillJob, getJob, openRenderOutputStream, openSegmentStore, readDoc, reportJob, type VideoJob, type VideoJobLane } from './videoApi.js';
 import { useVideoRenderer } from './useVideoRenderer.js';
 import { readHistoryDoc } from './studioApi.js';
 import { composeStripGrid, stripColumns } from './stripGrid.js';
+import { composeCompare } from './compareImage.js';
 
 const JOB_POLL_MS = 1200;
 
@@ -26,12 +26,13 @@ export interface JobWorkerOptions {
   /** 이 줄만 집는다. 없으면 아무 일감이나(종전 동작). */
   readonly lane?: VideoJobLane;
   /** 일감을 처리하기 전에 문서를 손본다(빠진 실측값 채우기 등). 실패하면 원래 문서로 간다. */
-  readonly prepare?: (project: string, doc: VideoDoc) => Promise<VideoDoc>;
+  /** `readOnly` — 배경 일감: 문서를 고치지 않는다. */
+  readonly prepare?: (project: string, doc: VideoDoc, readOnly: boolean) => Promise<VideoDoc>;
 }
 
 export function useVideoJobWorker(project: string | undefined, pending: MutableRefObject<number>,
   onProgress: (value: number | null) => void, onStatus: (message: string) => void,
-  onDownload: (value: { url: string; name: string; docId: string }) => void,
+  onDownload: (value: { result: string; name: string; docId: string }) => void,
   options: JobWorkerOptions = {}) {
   const { t } = useTranslation();
   const [work, setWork] = useState<{ project: string; job: VideoJob; doc: VideoDoc } | null>(null);
@@ -59,16 +60,27 @@ export function useVideoJobWorker(project: string | undefined, pending: MutableR
         claimed = lane === undefined ? await claimJob(project) : await claimJob(project, lane);
         if (!claimed) { busy.current = false; return; }
         if (!active) { await reportJob(claimed.id, { status: 'queued' }); busy.current = false; return; }
+        // §5.13 (G) — 전후 비교는 이미 찍은 두 장을 붙이기만 한다(문서·무대 없이 이 자리에서 끝낸다).
+        if (claimed.kind === 'compare') {
+          pending.current += 1;
+          try {
+            await completeStillJob(claimed.id, await composeCompare(claimed.images ?? [], claimed.labels ?? []));
+          } finally {
+            pending.current -= 1;
+            busy.current = false;
+          }
+          return;
+        }
         const jobProject = project ?? claimed.projectPath;
         // §5.13 (V) 37-3 — 판 일감은 그 판의 문서로 그린다(지금 문서를 손보는 준비 단계도 건너뛴다 — 옛 판을 고치지 않는다).
         let doc = claimed.revId
           ? await readHistoryDoc(jobProject, claimed.docId, claimed.revId)
-          : (await readDoc(jobProject, claimed.docId)).doc;
+          : (await (claimed.background === true ? readDoc(jobProject, claimed.docId, true) : readDoc(jobProject, claimed.docId))).doc;
         if (!active) {
           await reportJob(claimed.id, { status: 'queued' }); busy.current = false; return;
         }
         const prepare = optionsRef.current.prepare;
-        if (prepare && !claimed.revId) doc = await prepare(jobProject, doc).catch(() => doc);
+        if (prepare && !claimed.revId) doc = await prepare(jobProject, doc, claimed.background === true).catch(() => doc);
         // §5.13 (V) 37-15 — 자막 따로 내기: 자막 트랙을 숨긴 사본으로 그린다(문서는 그대로). (AA) 42-1 — 자막 빼기도 같은 사본.
         if (claimed.kind === 'render' && claimed.hideCaptions === true) doc = withoutCaptions(doc);
         // §5.13 (AA) 42-3 — 이 렌더에서만 소리를 뺄 트랙(문서는 그대로).
@@ -179,10 +191,15 @@ export function useVideoJobWorker(project: string | undefined, pending: MutableR
             }).catch(() => undefined);
           }, RENDER_CONTROL_POLL_MS);
           const spec = work.job.spec;
+          // §5.13 (AA) 42-11 — 결과는 나오는 대로 서버로(메모리 한 덩어리 ❌). 끝맺지 않으면 서버가 임시 파일을 걷는다.
+          const output = openRenderOutputStream(work.job.id);
           let result: Awaited<ReturnType<typeof renderer.render>>;
           try {
             result = await renderer.render({
               signal: controller.signal,
+              sink: output,
+              // §5.13 (E) — 안 바뀐 2초 구간은 다시 쓴다(소리만 렌더는 영상이 없어 대상이 아니다 — (E-5) ⑤).
+              ...(spec?.format === 'wav' ? {} : { segments: openSegmentStore(work.project, work.doc.id) }),
               gate,
               ...(work.job.transparent === true ? { transparent: true } : {}),
               ...(spec ? {
@@ -214,23 +231,19 @@ export function useVideoJobWorker(project: string | undefined, pending: MutableR
             controller.signal.removeEventListener('abort', open);
           }
           if (!active) throw new Error('Studio worker closed.');
-          // §5.13 (AA) 42-11 — 일꾼 → 서버 전달 상한을 넘으면 올리기 전에 사람 말로(서버가 413 으로 끊기 전에).
-          if (result.bytes.length > VIDEO_TRANSFER_MAX_BYTES) {
-            throw new Error(t('panel.videoStudio.export.tooLarge', { size: Math.round(result.bytes.length / (1024 * 1024)), max: Math.round(VIDEO_TRANSFER_MAX_BYTES / (1024 * 1024)) }));
-          }
           const warnings = [...result.warnings];
           // §5.13 (AA) 42-3 — 사람이 소리를 뺀 렌더는 "소리 없음" 이 경고가 아니다.
           if (!result.hasAudio && spec?.audio !== false) warnings.push(t('panel.videoStudio.noAudio'));
           if (result.selection?.downgraded) warnings.push(t('panel.videoStudio.downgraded', { id: result.selection.chosen }));
+          // §5.13 (E-7) — 다시 쓴 구간이 있으면 결과 알림에 한 줄.
+          if (result.segments && result.segments.reused > 0) warnings.push(t('panel.videoStudio.segmentsReused', { reused: result.segments.reused, total: result.segments.total }));
           const note = warnings.join(' · ');
           await reports;
           if (!active) throw new Error('Studio worker closed.');
-          await completeRenderJob(work.job.id, result.bytes, note);
+          const done = await output.commit(result.size, note);
           if (showResult()) {
-            // §5.13 (W) 38-3 — 투명 배경이면 WebM. §5.13 (AA) 42-1 — 소리만이면 WAV.
-            const ext = result.container;
-            const type = ext === 'wav' ? 'audio/wav' : `video/${ext}`;
-            callbacks.current.onDownload({ url: URL.createObjectURL(new Blob([new Uint8Array(result.bytes)], { type })), name: `${work.doc.title || work.doc.id}.${ext}`, docId: work.doc.id });
+            // §5.13 (W) 38-3 — 투명 배경이면 WebM. §5.13 (AA) 42-1 — 소리만이면 WAV. 받기는 서버에 놓인 결과 파일에서 한다(바이트를 다시 들지 않는다).
+            if (done?.result) callbacks.current.onDownload({ result: done.result, name: `${work.doc.title || work.doc.id}.${result.container}`, docId: work.doc.id });
             callbacks.current.onStatus(note);
           }
         }

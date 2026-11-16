@@ -7,13 +7,14 @@ import { LanguageSwitcher } from '../Layout/LanguageSwitcher.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
 import { isEngineChooserOpen, handoffForEngine } from './engineChoiceFlow.js';
 import { EngineIcon } from './engineIcons.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 /**
  * §5.25 (C) — 첫 진입 엔진 선택 관문. 고른 엔진은 새 에이전트의 **기본값**일 뿐 자물쇠가 아니다(나머지도 쓸 수 있다고 한 줄로 적는다).
- * z-index 는 설치 게이트(100_700)보다 위 — 엔진 선택이 설치보다 앞선 질문이다.
+ * z-index 는 설치 게이트보다 위 — 엔진 선택이 설치보다 앞선 질문이다.
  */
 
-const Z = 100_800;
+const Z = Z_LAYER.GATE_ENGINE;
 
 interface EngineOption {
   kind: AgentEngineKind;

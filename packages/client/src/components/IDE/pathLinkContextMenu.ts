@@ -8,6 +8,27 @@ import type { MenuText } from './editorContextMenu.js';
  * (`open-node-folder` · `reveal-path` · 내장 편집창 페이지 · `open-external`).
  */
 
+/** 바깥으로 여는 길. `editor` 는 앱 밖 편집기(`/api/open-node-file`), `default-app` 은 OS 연결 프로그램(`/api/open-external`). */
+export type PathLinkExternalRoute = 'editor' | 'default-app';
+
+/**
+ * ⑬ (l) ② — 왼쪽 클릭 말고 바깥으로 여는 길(없으면 null). **코드에 연결 프로그램을 주지 않는다** — Windows 에서 `.js`·`.vbs` 의 연결 프로그램은 곧 실행이다((j)①).
+ * 실행 갈래는 여는 일이 곧 실행이고, 연결 프로그램 갈래는 왼쪽 클릭이 이미 그 길이다.
+ */
+export function pathLinkExternalRoute(plan: WorkspaceOpenPlan): PathLinkExternalRoute | null {
+  switch (plan.action) {
+    case 'editor':
+      return 'editor';
+    case 'image':
+    case 'pdf':
+    case 'app':
+    case 'convert':
+      return 'default-app';
+    default:
+      return null;
+  }
+}
+
 /** 루트 **안** 경로가 아는 상태. */
 export interface PathLinkMenuState {
   kind: 'file' | 'directory';
@@ -18,6 +39,8 @@ export interface PathLinkMenuState {
    * HTML 은 그 자리를 웹(내부)이 대신한다(왼쪽 클릭이 여는 곳이 바로 그 페이지다 — 같은 항목 두 줄 ❌).
    */
   openLabel: string;
+  /** HTML 이 아닌 파일의 바깥 열기(`pathLinkExternalRoute`). HTML 은 웹(외부)이 그 자리다. */
+  externalRoute: PathLinkExternalRoute | null;
 }
 
 export interface PathLinkMenuHandlers {
@@ -27,6 +50,10 @@ export interface PathLinkMenuHandlers {
   openPage: () => void;
   /** 웹(외부) — OS 연결 프로그램(= `.html` 의 기본 브라우저). */
   openBrowser: () => void;
+  /** 앱 밖 편집기로 연다(탐색기 ↗ 와 같은 길 — 실행되지 않는다). */
+  openExternalEditor: () => void;
+  /** OS 연결 프로그램으로 연다(실행될 수 없는 종류만 — `pathLinkExternalRoute`). */
+  openDefaultApp: () => void;
   /** 시스템 탐색기 — 파일이면 그 파일이 든 폴더, 폴더면 자기 자신. */
   reveal: () => void;
   /** 절대 경로 복사(편집창 탭·탐색기 `경로 복사`와 같은 값). */
@@ -56,10 +83,7 @@ export function pathLinkOpenLabel(plan: WorkspaceOpenPlan, appName: string | und
   }
 }
 
-/**
- * (a) 루트 안 — 여는 것 → 위치 → 집어가기. `open-external` 은 HTML 에만(연결 프로그램이 브라우저다) — 아무 파일에나 두면 Windows 에서
- * `.js`·`.vbs` 의 연결 프로그램(스크립트 호스트)이 파일을 실행한다. 실행은 ⑬ (h) 판정을 거친 것만.
- */
+/** (a) 루트 안 — 안에서 열기 → 바깥에서 열기 → 위치 → 집어가기. 바깥 길은 `pathLinkExternalRoute` 가 정한다. 실행은 ⑬ (h) 판정을 거친 것만. */
 export function buildPathLinkMenuItems(
   state: PathLinkMenuState,
   h: PathLinkMenuHandlers,
@@ -75,6 +99,11 @@ export function buildPathLinkMenuItems(
       items.push({ id: 'openBrowser', label: t('ide.streamRenderer.pathLink.menu.openBrowser'), onClick: h.openBrowser });
     } else {
       items.push({ id: 'open', label: state.openLabel, onClick: h.open });
+      if (state.externalRoute === 'editor') {
+        items.push({ id: 'openExternalEditor', label: t('ide.explorer.ctx.openExternal'), onClick: h.openExternalEditor });
+      } else if (state.externalRoute === 'default-app') {
+        items.push({ id: 'openDefaultApp', label: t('panel.mediaConvert.openExternal'), onClick: h.openDefaultApp });
+      }
     }
     items.push({
       id: 'reveal',

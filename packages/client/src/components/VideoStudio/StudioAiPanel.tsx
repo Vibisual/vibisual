@@ -31,10 +31,23 @@ export interface StudioAiPanelProps {
    */
   readonly conversation?: { readonly agentId: string | null; readonly sessionId: string | null };
   readonly changeCard: ReactNode | null;
+  /** §5.13 (V) 37-23 (I) — 장면별 대화 거르개(저장하지 않고 묶어 보기만). 장면이 없는 문서면 null. */
+  readonly sceneChat?: StudioSceneChat | null;
+  /** 37-23 (K) — 카드의 [이 바퀴 되돌리기]와 같은 함수(팔레트가 이 자리에서 읽는다). 패널은 그리지 않는다. */
+  readonly onUndoPass?: (() => void) | null;
   /** 아래 입력창 위에 붙는 일(예: [고칠 점 n개 맡기기], Codex 그림 허용). */
   readonly actions: ReactNode | null;
   readonly composer: StudioComposerProps;
   readonly onOpenIde: (() => void) | null;
+}
+
+export interface StudioSceneChat {
+  /** 고른 장면(null = 전체). */
+  readonly value: string | null;
+  readonly options: readonly { readonly chapterId: string; readonly label: string }[];
+  readonly onChange: (chapterId: string | null) => void;
+  /** 고른 장면을 만진 바퀴 id 들(전체면 null). */
+  readonly passIds: ReadonlySet<string> | null;
 }
 
 const ENGINES: readonly VideoEngineKind[] = ['claude', 'codex'];
@@ -59,7 +72,7 @@ const StudioChatLines = memo(function StudioChatLines({ lines }: { readonly line
 /** §5.13 (Y) 40-5 ③ — 값이 같으면 다시 그리지 않는다(손잡이는 늘 최신을 부른다 — `studioMemo.ts`). */
 export const StudioAiPanel = memoLatest(function StudioAiPanel(props: StudioAiPanelProps): React.JSX.Element {
   const { t } = useTranslation();
-  const convo = useStudioConversation(props.conversation?.agentId ?? null, props.conversation?.sessionId ?? null);
+  const convo = useStudioConversation(props.conversation?.agentId ?? null, props.conversation?.sessionId ?? null, props.sceneChat?.passIds ?? null);
   const lines = props.lines ?? convo.lines;
   const p = { ...props, lines, running: props.running || (props.lines === undefined && convo.busy) };
   // 새 말이 오면 맨 아래로(사람이 위를 읽는 중이어도 새 말 한 줄 단위로만 — 렌더마다 끌어내리지 않는다).
@@ -126,9 +139,21 @@ export const StudioAiPanel = memoLatest(function StudioAiPanel(props: StudioAiPa
       </header>
       {p.valueCard}
       {/* 폰 폭에서 아래로 쌓인 AI 칸은 키가 작다 — 대화가 값 카드·입력창에 밀려 0 이 되지 않게 하한(값 카드 쪽이 양보한다). */}
+      {p.sceneChat && p.sceneChat.options.length > 0 ? (
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-white/10 px-3 py-1.5 text-[12px] text-slate-400">
+          <StudioIcon name="chat" className="h-3.5 w-3.5 shrink-0" />
+          <label className="sr-only" htmlFor="vs-scene-chat">{t('panel.videoStudio.sceneReview.chatFilter')}</label>
+          <select id="vs-scene-chat" value={p.sceneChat.value ?? ''} onChange={(e) => p.sceneChat?.onChange(e.target.value === '' ? null : e.target.value)}
+            className="min-w-0 flex-1 truncate rounded-md border border-white/10 bg-transparent px-1.5 py-0.5 text-[12px] text-slate-200 hover:bg-white/[0.06] pointer-coarse:py-2">
+            <option value="" className="bg-vb-card">{t('panel.videoStudio.sceneReview.chatAll')}</option>
+            {p.sceneChat.options.map((o) => <option key={o.chapterId} value={o.chapterId} className="bg-vb-card">{o.label}</option>)}
+          </select>
+        </div>
+      ) : null}
       <ScrollFade fill className="flex-1 box-narrow:min-h-16">
         <div className="flex flex-col gap-2.5 p-3">
-          {p.lines.length === 0 && !p.changeCard ? (
+          {p.lines.length === 0 && p.sceneChat?.value ? <p className="py-4 text-center text-[12px] text-slate-500">{t('panel.videoStudio.sceneReview.chatEmpty')}</p> : null}
+          {p.lines.length === 0 && !p.changeCard && !p.sceneChat?.value ? (
             <div className="flex flex-col items-center gap-3 py-8 text-center">
               <StudioSteps step={0} compact />
               <p className="max-w-60 text-[13px] leading-relaxed text-slate-500">{t('panel.videoStudio.ai.empty')}</p>

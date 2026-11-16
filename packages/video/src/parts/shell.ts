@@ -44,6 +44,8 @@ const HELPERS = [
   'function easeInOut(p) { p = clamp(p, 0, 1); return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2; }',
   'function easeBack(p) { p = clamp(p, 0, 1); var c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2); }',
   'function P(name, fallback) { var v = vibi.props && vibi.props[name]; return v === undefined || v === null || v === "" ? fallback : v; }',
+  // 비워 둘 수 있는 글자 — P 는 빈 값을 기본값으로 되돌리므로, 지우면 숨는 자리는 이것으로 읽는다.
+  'function OPT(name, fallback) { var v = vibi.props && vibi.props[name]; return v === undefined || v === null ? fallback : String(v); }',
   'function N(name, fallback) { var v = Number(P(name, fallback)); return isFinite(v) ? v : fallback; }',
   'function LIST(name, fallback) { var v = P(name, fallback); if (Array.isArray(v)) return v.map(String); return String(v).split(/[,\\n]/).map(function (s) { return s.trim(); }).filter(function (s) { return s !== ""; }); }',
   'function NUMS(name, fallback) { return LIST(name, fallback).map(function (s) { var n = Number(s); return isFinite(n) ? n : 0; }); }',

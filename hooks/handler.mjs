@@ -202,6 +202,9 @@ async function checkPermission(payload) {
         // §5.3 #12-1-B — 이 에이전트의 금지 목록(disallowedTools)에 있는 도구. 팝업은 뜨지 않았다.
         : data.reason === 'disallowed'
         ? 'PERMISSION POLICY: DENY. This tool is on this agent\'s disallowed-tools list in Vibisual, so it was blocked WITHOUT asking the user. Do not retry this tool; use a different approach, or tell the user it must be removed from the disallowed list in the agent settings.'
+        // §5.4 #36 (C) — 앱 노드에 이어진 세션의 연결 강제. 어디로 가야 하는지는 서버가 문구에 싣는다.
+        : data.reason === 'app-link' && typeof data.message === 'string' && data.message
+        ? data.message
         // §5.3 #12-3 — 자물쇠 거부(묻지 않는 모드 · ask 를 못 쓰는 엔진). 어느 경로가 잠겼는지는 서버가 문구에 싣는다.
         : data.reason === 'locked'
         ? (typeof data.message === 'string' && data.message
@@ -227,6 +230,8 @@ async function checkPermission(payload) {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'allow',
+          // §5.4 #36 (C) — 연결된 앱 안내. 세션당 한 번만 온다.
+          ...(typeof data.additionalContext === 'string' && data.additionalContext ? { additionalContext: data.additionalContext } : {}),
         },
       };
     }

@@ -3,11 +3,17 @@
  * `<iframe sandbox="allow-scripts">` — `allow-same-origin` 이 없어 부모 문서·`window.api`·저장소·쿠키에 못 닿고, `allow` 를 비워 카메라·마이크·클립보드·전체 화면이 없다. 메시지는 그 iframe 의 `contentWindow` 에서 온 것만·모양이 맞을 때만 받고, 메시지로 무엇을 실행하지 않는다.
  * seek 는 그 `seq` 의 `ready`(다 그린 뒤)를 기다리고, 상한을 넘기면 어느 시각에서 멈췄는지 말한다. `forward` 컴포지션은 뒤로 못 가 지난 시각이면 새로 열어 0초부터 흘린다.
  * (Z) 41-1 포트를 쓰는 이유: 창 간 `window.postMessage` 는 앱 본체 UI 스레드(서버가 함께 돈다)를 거쳐 거기가 멈추면 미리보기가 멎는다(41 실측). 포트를 모르는 런타임은 창 메시지 그대로.
- * (V) 읽기 전용 `pick`→`picked`·`inspect`→`inspected`·`props`→`props-applied{live}`, 표지 `cue` 는 `onEvent` 로 올린다.
+ * (V) 읽기 전용 `pick`→`picked`·`inspect`→`inspected`·`locate`→`located`(37-20)·`props`→`props-applied{live}`, 표지 `cue` 는 `onEvent` 로 올린다.
  */
 
 import { COMPOSITION_LOAD_TIMEOUT_MS, COMPOSITION_SEEK_TIMEOUT_MS } from '../constants.js';
+import { parsePickedSource, type PickedSource, type SourceTarget } from '../composition/sourceMap.js';
 import type { CompositionSeekMode } from '../types.js';
+
+/** Chromium's ResizeObserver loop notice is a spec notification, not a composition failure — documents served before the runtime filter still send it. */
+export function isResizeObserverLoopNotice(message: string): boolean {
+  return /ResizeObserver loop (completed with undelivered notifications|limit exceeded)/i.test(message);
+}
 
 export interface CompositionFrameOptions {
   /** 컴포지션 문서 주소(내주는 쪽이 심을 넣어 준다). */
@@ -87,6 +93,30 @@ export interface PickedElement {
   readonly rect: FrameRect;
   /** §5.13 (V) 37-6 — 그 글자의 크기(문서 픽셀). 알면 제자리 고치기 칸이 같은 크기로 선다(기본 씬이 싣는다). */
   readonly fontSize?: number;
+  /** §5.13 (V) 37-20 — 원본 줄을 찾는 자리(청했을 때만 — 컴포지션 DOM 요소). 이름이 아니다(이름은 `path`). */
+  readonly source?: PickedSource;
+  /** §5.13 (V) 37-21 — 가장 가까운 "위치·크기를 값으로 선언한" 요소(없으면 끌 수 없다). */
+  readonly box?: PickedBox;
+}
+
+/**
+ * §5.13 (V) 37-21 — `data-vibi-prop-x|y|w|h` 가 가리키는 값 이름(선언 그대로 — `number` 로 선언됐는지는 화면이 본다)과 그 요소의
+ * 사각형(**상자** 좌표). `scale` = 컴포지션 1픽셀이 상자에서 몇 픽셀인가(값 1 = 그만큼).
+ */
+export interface PickedBox {
+  readonly x?: string;
+  readonly y?: string;
+  readonly w?: string;
+  readonly h?: string;
+  readonly path: string;
+  readonly rect: FrameRect;
+  readonly scale: number;
+}
+
+/** §5.13 (V) 37-20 — 원본의 그 줄이 지금 화면에서 어디인가(사각형은 상자 좌표 · 보이는 것만). `total` = 찾은 요소 수(안 보이는 것 포함). */
+export interface LocatedElements {
+  readonly total: number;
+  readonly rects: readonly FrameRect[];
 }
 
 /** §5.13 (V) 37-9 — 보이는 글자 상자 하나(사각형은 상자 좌표). */
@@ -100,6 +130,8 @@ export interface InspectedText {
 
 /** 읽기 전용 쌍의 대기 상한(ms) — 답이 없으면 비어 있는 답으로 물러난다(가리키기는 아이템 단위로). */
 const ASK_TIMEOUT_MS = 1500;
+/** §5.13 (V) 37-20 — 한 번에 받는 테 상자 수(런타임도 같은 수에서 멈춘다). */
+const LOCATE_MAX_RECTS = 24;
 
 interface Pending {
   readonly resolve: () => void;
@@ -113,10 +145,10 @@ type RuntimeMessage =
   | { readonly __vibi: 'played'; readonly t?: unknown; readonly mode?: unknown }
   | { readonly __vibi: 'error'; readonly message?: unknown; readonly t?: unknown }
   | { readonly __vibi: 'blocked'; readonly url?: unknown; readonly directive?: unknown }
-  | { readonly __vibi: 'picked' | 'inspected' | 'props-applied' | 'scanned' | 'paused'; readonly seq?: unknown; readonly [key: string]: unknown }
+  | { readonly __vibi: 'picked' | 'inspected' | 'located' | 'props-applied' | 'scanned' | 'paused'; readonly seq?: unknown; readonly [key: string]: unknown }
   | { readonly __vibi: 'cue'; readonly name?: unknown; readonly t?: unknown };
 
-const RUNTIME_TAGS = new Set(['loaded', 'ready', 'played', 'error', 'blocked', 'picked', 'inspected', 'props-applied', 'scanned', 'paused', 'cue']);
+const RUNTIME_TAGS = new Set(['loaded', 'ready', 'played', 'error', 'blocked', 'picked', 'inspected', 'located', 'props-applied', 'scanned', 'paused', 'cue']);
 
 function isRuntimeMessage(value: unknown): value is RuntimeMessage {
   if (!value || typeof value !== 'object') return false;
@@ -134,6 +166,25 @@ function asRect(raw: unknown): FrameRect | null {
 
 function asText(raw: unknown, max: number): string {
   return typeof raw === 'string' ? raw.slice(0, max) : '';
+}
+
+/** 값 이름 — `vibi-props` 의 이름 규칙(`meta.ts` `PROP_NAME`)과 같은 모양만 받는다. */
+const BOX_PROP_NAME = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
+
+/** 심이 읽어 준 상자 선언(설계 좌표) — 이름이 하나도 없거나 사각형이 틀리면 null. */
+export function parsePickedBox(raw: unknown): Omit<PickedBox, 'scale'> | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const rect = asRect(r['rect']);
+  const path = asText(r['path'], 400);
+  if (!rect || path === '') return null;
+  const name = (k: string): string | undefined => (typeof r[k] === 'string' && BOX_PROP_NAME.test(r[k] as string) ? (r[k] as string) : undefined);
+  const x = name('x');
+  const y = name('y');
+  const w = name('w');
+  const h = name('h');
+  if (!x && !y && !w && !h) return null;
+  return { path, rect, ...(x ? { x } : {}), ...(y ? { y } : {}), ...(w ? { w } : {}), ...(h ? { h } : {}) };
 }
 
 export class CompositionFrame {
@@ -344,6 +395,7 @@ export class CompositionFrame {
         this.markPainted();
         return;
       case 'error': {
+        if (typeof data.message === 'string' && isResizeObserverLoopNotice(data.message)) return;
         const message = `${this.opts.label}: ${typeof data.message === 'string' ? data.message : 'error'}`;
         const t = typeof data.t === 'number' && Number.isFinite(data.t) ? data.t : undefined;
         this.opts.onEvent?.(t === undefined ? { kind: 'error', message } : { kind: 'error', message, t });
@@ -364,6 +416,7 @@ export class CompositionFrame {
       }
       case 'picked':
       case 'inspected':
+      case 'located':
       case 'props-applied':
       case 'scanned':
       case 'paused': {
@@ -521,11 +574,11 @@ export class CompositionFrame {
     return { x: this.fit.left + r.x * s, y: this.fit.top + r.y * s, width: r.width * s, height: r.height * s };
   }
 
-  /** §5.13 (V) 37-6 — 상자 좌표 (x, y) 아래 요소(읽기 전용). 답이 없거나 빈 자리면 null. */
-  async pick(x: number, y: number): Promise<PickedElement | null> {
+  /** §5.13 (V) 37-6 — 상자 좌표 (x, y) 아래 요소(읽기 전용). 답이 없거나 빈 자리면 null. `source` 면 원본 줄을 찾는 자리도 묻는다(37-20). */
+  async pick(x: number, y: number, options?: { readonly source?: boolean }): Promise<PickedElement | null> {
     try { await this.loaded; } catch { return null; }
     const design = this.toDesign(x, y);
-    const data = await this.ask({ __vibi: 'pick', x: design.x, y: design.y });
+    const data = await this.ask({ __vibi: 'pick', x: design.x, y: design.y, ...(options?.source === true ? { src: true } : {}) });
     const rect = asRect(data?.['rect']);
     const path = asText(data?.['path'], 400);
     if (!data || !rect || path === '') return null;
@@ -536,8 +589,29 @@ export class CompositionFrame {
     try {
       if (rawProperties && typeof rawProperties === 'object' && !Array.isArray(rawProperties) && JSON.stringify(rawProperties).length <= 8000) properties = rawProperties as Record<string, unknown>;
     } catch { /* A custom picker must return JSON; ignore cyclic/unsupported properties. */ }
+    const source = parsePickedSource(data['src']);
+    const declared = parsePickedBox(data['box']);
+    const box: PickedBox | null = declared && this.fit.scale > 0 ? { ...declared, rect: this.toBox(declared.rect), scale: this.fit.scale } : null;
     return { path, tag: asText(data['tag'], 40), text: asText(data['text'], 200), prop: typeof data['prop'] === 'string' ? data['prop'] : null, rect: this.toBox(rect),
-      ...(objectId ? { objectId } : {}), ...(adapter ? { adapter } : {}), ...(properties ? { properties } : {}) };
+      ...(objectId ? { objectId } : {}), ...(adapter ? { adapter } : {}), ...(properties ? { properties } : {}), ...(source ? { source } : {}), ...(box ? { box } : {}) };
+  }
+
+  /** §5.13 (V) 37-20 — 원본의 그 요소들이 지금 그림에서 어디인가(읽기 전용). 답이 없으면 찾지 못한 것으로 본다. */
+  async locate(targets: readonly SourceTarget[]): Promise<LocatedElements> {
+    const none: LocatedElements = { total: 0, rects: [] };
+    if (targets.length === 0) return none;
+    try { await this.loaded; } catch { return none; }
+    const data = await this.ask({ __vibi: 'locate', targets });
+    if (!data) return none;
+    const total = typeof data['total'] === 'number' && Number.isFinite(data['total']) ? Math.max(0, Math.trunc(data['total'])) : 0;
+    const rects: FrameRect[] = [];
+    if (Array.isArray(data['rects'])) {
+      for (const raw of data['rects'].slice(0, LOCATE_MAX_RECTS)) {
+        const rect = asRect(raw);
+        if (rect) rects.push(this.toBox(rect));
+      }
+    }
+    return { total: Math.max(total, rects.length), rects };
   }
 
   /** §5.13 (V) 37-9 — 지금 보이는 글자 상자들(읽기 전용). */

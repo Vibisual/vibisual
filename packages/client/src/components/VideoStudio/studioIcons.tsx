@@ -14,9 +14,19 @@ export type StudioIconName =
   // §5.13 (W) 38-4·38-5 — 강조 줌 · 천천히 밀기 · 색·효과.
   | 'zoomIn' | 'push' | 'palette'
   // §5.13 (AA) 42 — 소리 · 대기열 · 예약 · 멈춤 · 순서 · 다시 · 설정 · 폴더 열기.
-  | 'volume' | 'volumeOff' | 'queue' | 'clock' | 'stop' | 'arrowUp' | 'arrowDown' | 'retry' | 'sliders' | 'folderOpen';
+  | 'volume' | 'volumeOff' | 'queue' | 'clock' | 'stop' | 'arrowUp' | 'arrowDown' | 'arrowLeft' | 'arrowRight' | 'retry' | 'sliders' | 'folderOpen'
+  // 문서 갤러리 — 검색 · 이름 바꾸기.
+  | 'search' | 'pencil'
+  // §5.13 (V) 37-23 — 장면 대화.
+  | 'chat'
+  // §5.13 (V) 37-24 — 건너뛰기 · 전체 화면.
+  | 'skipBack' | 'skipForward' | 'fullscreen' | 'fullscreenExit';
 
 const PATHS: Readonly<Record<StudioIconName, ReactNode>> = {
+  skipBack: <><path d="m11 19-9-7 9-7z" /><path d="m22 19-9-7 9-7z" /></>,
+  skipForward: <><path d="m13 19 9-7-9-7z" /><path d="m2 19 9-7-9-7z" /></>,
+  fullscreen: <><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" /></>,
+  fullscreenExit: <><path d="M8 3v3a2 2 0 0 1-2 2H3" /><path d="M21 8h-3a2 2 0 0 1-2-2V3" /><path d="M3 16h3a2 2 0 0 1 2 2v3" /><path d="M16 21v-3a2 2 0 0 1 2-2h3" /></>,
   play: <path d="M7 5.5v13l11-6.5z" />,
   pause: <><path d="M8 5v14" /><path d="M16 5v14" /></>,
   prev: <><path d="M6 5v14" /><path d="m18 6-8 6 8 6z" /></>,
@@ -49,6 +59,7 @@ const PATHS: Readonly<Record<StudioIconName, ReactNode>> = {
   precision: <><path d="M3 7h18" /><path d="M3 12h18" /><path d="M3 17h18" /><rect x="6" y="5" width="6" height="4" rx="1" /><rect x="11" y="15" width="7" height="4" rx="1" /></>,
   plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
   check: <path d="M20 6 9 17l-5-5" />,
+  chat: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
   compare: <><rect x="3" y="4" width="8" height="16" rx="1.5" /><rect x="13" y="4" width="8" height="16" rx="1.5" /></>,
   restore: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></>,
   warn: <><path d="M12 3 2 20h20z" /><path d="M12 10v4" /><path d="M12 17h.01" /></>,
@@ -86,9 +97,13 @@ const PATHS: Readonly<Record<StudioIconName, ReactNode>> = {
   stop: <rect x="6" y="6" width="12" height="12" rx="1.5" />,
   arrowUp: <><path d="m6 11 6-6 6 6" /><path d="M12 5v14" /></>,
   arrowDown: <><path d="m6 13 6 6 6-6" /><path d="M12 19V5" /></>,
+  arrowLeft: <><path d="m11 6-6 6 6 6" /><path d="M5 12h14" /></>,
+  arrowRight: <><path d="m13 6 6 6-6 6" /><path d="M19 12H5" /></>,
   retry: <><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></>,
   sliders: <><path d="M4 6h10" /><path d="M18 6h2" /><circle cx="16" cy="6" r="2" /><path d="M4 12h4" /><path d="M12 12h8" /><circle cx="10" cy="12" r="2" /><path d="M4 18h12" /><circle cx="18" cy="18" r="2" /></>,
   folderOpen: <><path d="M4 20h14l3-8H7l-3 8z" /><path d="M4 20V5a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v3" /></>,
+  search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.6-3.6" /></>,
+  pencil: <><path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z" /><path d="m15 5 4 4" /></>,
 };
 
 export function StudioIcon({ name, className }: { readonly name: StudioIconName; readonly className?: string }): React.JSX.Element {

@@ -2,12 +2,15 @@ import { Suspense, type Dispatch, type ReactNode, type SetStateAction, type Muta
 import type { TFunction } from 'i18next';
 import {
   TRANSITION_DEFAULT_SECONDS,
+  TRANSITION_KINDS,
   buildMergeChapterOps,
   buildRemoveChapterOps,
   buildSplitChapterOps,
   strongBeatsInDoc,
+  transitionHasDirection,
   type DocStyle,
   type ResolvedTimeline,
+  type TransitionDirection,
   type TransitionKind,
   type VideoDoc,
   type VideoDocOp,
@@ -118,7 +121,7 @@ export function buildStudioExtras(x: StudioExtrasInputs): StudioExtras {
         chapter={seamChapter}
         fps={doc.fps}
         canSnap={beats.length > 0}
-        onSet={(kind: TransitionKind, duration: number) => x.applyOps([{ op: 'updateChapter', chapterId: seamChapter.id, patch: { transition: { kind, duration: kind === 'cut' ? 0 : duration } } }])}
+        onSet={(kind: TransitionKind, duration: number, direction?: TransitionDirection) => x.applyOps([{ op: 'updateChapter', chapterId: seamChapter.id, patch: { transition: { kind, duration: kind === 'cut' ? 0 : duration, ...(direction ? { direction } : {}) } } }])}
         onSnap={() => snapSeam(seamChapter.id)}
         onClose={() => setUi((u) => ({ ...u, seamMenu: null }))}
       />,
@@ -178,11 +181,13 @@ export function buildStudioExtras(x: StudioExtrasInputs): StudioExtras {
         const chapter = chapterAt(at);
         void x.parts.use(partId, { t: at, chapterId: chapter?.id ?? null, chapterStart: chapter?.start ?? 0 });
       },
-      transitions: (['dissolve', 'push', 'zoom', 'flash', 'wipe'] as const).map((kind) => ({ kind })),
+      transitions: TRANSITION_KINDS.filter((kind) => kind !== 'cut').map((kind) => ({ kind })),
       onTransition: (kind) => {
         if (!seamChapterForParts) return;
         const duration = seamChapterForParts.chapter.transition?.duration && seamChapterForParts.chapter.transition.duration > 0 ? seamChapterForParts.chapter.transition.duration : TRANSITION_DEFAULT_SECONDS;
-        x.applyOps([{ op: 'updateChapter', chapterId: seamChapterForParts.id, patch: { transition: { kind: kind as TransitionKind, duration } } }]);
+        // 방향이 있는 전환끼리 바꿀 때는 이음매에서 고른 쪽을 지킨다.
+        const direction = transitionHasDirection(kind as TransitionKind) ? seamChapterForParts.chapter.transition?.direction : undefined;
+        x.applyOps([{ op: 'updateChapter', chapterId: seamChapterForParts.id, patch: { transition: { kind: kind as TransitionKind, duration, ...(direction ? { direction } : {}) } } }]);
       },
       seamReady: seamChapterForParts !== null,
     },

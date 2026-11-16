@@ -14,8 +14,9 @@ import { EngineIcon } from '../Engine/engineIcons.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
 import { isCodexLoginGateOpen } from './codexGateFlow.js';
 import { useCodexLoginSession } from './useCodexLoginSession.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
-const Z = 100_600;
+const Z = Z_LAYER.GATE_LOGIN;
 
 /**
  * §5.25 (E) — 코덱스 로그인 창. `LoginWindow`(클로드)와 같은 조각(`codex login status`·임베디드 PTY·`scanLoginOutput`) — 새 레일·스캐너 ❌.

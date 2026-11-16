@@ -20,6 +20,20 @@ const ACTIVITY_BUBBLE_TYPES: ReadonlySet<BubbleType> = new Set([
 const NO_HIDDEN_BUBBLES: ReadonlySet<string> = new Set();
 const NO_IDS: readonly string[] = [];
 
+/** The canvas switch takes priority over per-agent visibility without changing the saved settings. */
+export function canvasHiddenBubbleIds(
+  nodes: readonly Node[],
+  edges: readonly ActivityLink[],
+  agents: readonly AgentVisibility[],
+  satellites: Readonly<Record<string, readonly Satellite[]>> = {},
+  activityBubblesVisible = false,
+): ReadonlySet<string> {
+  if (activityBubblesVisible) return hiddenActivityBubbleIds(nodes, edges, agents, satellites);
+  return new Set(nodes.filter((node) => node.type === 'bubble'
+    && ACTIVITY_BUBBLE_TYPES.has(node.data.bubbleType as BubbleType)
+    && node.data.customCreated !== true).map((node) => node.id));
+}
+
 function idsOf(value: unknown): readonly string[] {
   return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : NO_IDS;
 }

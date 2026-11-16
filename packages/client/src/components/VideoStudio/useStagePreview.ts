@@ -3,7 +3,8 @@ import {
   resolveTimeline,
   type VideoDoc,
 } from '@vibisual/video';
-import { HtmlSceneStage, STAGE_WARM_LONG_FRAMES, adaptWarm, type CompositionFrameEvent, type MediaProvider, type StagePick, type StageText } from '@vibisual/video/render';
+import type { SourceTarget } from '@vibisual/video';
+import { HtmlSceneStage, STAGE_WARM_LONG_FRAMES, adaptWarm, type CompositionFrameEvent, type MediaProvider, type StageLocated, type StagePick, type StageText } from '@vibisual/video/render';
 
 import { makeCompositionSrc } from './compositionUrl.js';
 import { createPreviewQueue } from './previewQueue.js';
@@ -23,7 +24,12 @@ export interface StagePreview {
    * §5.13 (V) 37-6 — 문서 픽셀 (x, y) 아래 맨 위의 것. 컴포지션이면 샌드박스에 읽기 전용으로 그 자리 요소를 묻는다(1.5초 상한 —
    * 답이 없으면 아이템 단위). 무대가 없으면 null.
    */
-  readonly pickAt: (x: number, y: number) => Promise<StagePick | null>;
+  readonly pickAt: (x: number, y: number, options?: { readonly source?: boolean }) => Promise<StagePick | null>;
+  /**
+   * §5.13 (V) 37-20 — 원본의 그 요소들이 지금 무대에서 선 자리(그 소재를 쓰는 아이템마다 — 문서 픽셀). 마지막으로 청한 시각이 그려진 뒤에
+   * 묻는다. 그 시각에 그 컴포지션이 화면에 없으면 빈 목록, 무대가 없으면 null.
+   */
+  readonly locateSource: (assetId: string, targets: readonly SourceTarget[]) => Promise<StageLocated[] | null>;
   /** §5.13 (V) 37-9 — 지금 시각에 컴포지션들 안에서 보이는 글자 상자(문서 픽셀). */
   readonly inspectTexts: () => Promise<StageText[]>;
   /** §5.13 (X) 39-3 — 지금 무대의 첫 그림이 섰는가(새로 세운 직후·무대가 없으면 false). */
@@ -38,6 +44,11 @@ export interface StagePreview {
   readonly syncPlay: (timing: PlaybackTiming | null) => void;
   /** §5.13 (Z) 41-5 ② — 재생 중 보여야 할 컴포지션이 아직 첫 그림을 못 냈는가(그동안 화면이 가벼운 판을 깐다). */
   readonly cold: boolean;
+  /**
+   * §5.13 (V) 37-21 (H) — 그 컴포지션 아이템의 프레임을 지금 값으로 한 번 다시 열고 마지막 시각을 다시 그린다(값을 선언만 하고 따르지
+   * 않아 미리보기가 낡았을 때). 그 프레임이 없으면 false.
+   */
+  readonly reopen: (itemId: string) => Promise<boolean>;
 }
 
 /** §5.13 (Z) 41-6 — 흘려 트는 재생의 계측 손잡이(셸이 넘긴다 — 이 훅은 계측 모듈을 직접 부르지 않는다). */
@@ -198,11 +209,28 @@ export function useStagePreview(opts: {
     void seek(lastWanted.current).catch(() => undefined);
   }, [doc, fit, seek]);
 
-  const pickAt = useCallback(async (x: number, y: number): Promise<StagePick | null> => {
+  const reopen = useCallback((itemId: string): Promise<boolean> => {
+    const stage = stageRef.current;
+    if (!stage || !stage.reopen(itemId)) return Promise.resolve(false);
+    // 같은 시각이라도 다시 그린다(새 프레임은 다음 seek 가 맞춘다).
+    queueRef.current?.invalidate();
+    return seek(lastWanted.current);
+  }, [seek]);
+
+  const pickAt = useCallback(async (x: number, y: number, options?: { readonly source?: boolean }): Promise<StagePick | null> => {
     const stage = stageRef.current;
     if (!stage) return null;
-    try { return await stage.pickAt(x, y); } catch { return null; }
+    try { return await stage.pickAt(x, y, options); } catch { return null; }
   }, []);
+
+  const locateSource = useCallback(async (assetId: string, targets: readonly SourceTarget[]): Promise<StageLocated[] | null> => {
+    if (!stageRef.current) return null;
+    // 방금 옮긴 재생 머리의 그림이 선 뒤에 묻는다(같은 시각이면 다시 그리지 않는다).
+    await seek(lastWanted.current).catch(() => false);
+    const stage = stageRef.current;
+    if (!stage) return null;
+    try { return await stage.locateSource((op) => op.resolved.item.assetId === assetId, targets); } catch { return []; }
+  }, [seek]);
 
   const inspectTexts = useCallback(async (): Promise<StageText[]> => {
     const stage = stageRef.current;
@@ -236,5 +264,5 @@ export function useStagePreview(opts: {
     stage.play({ t: timing.t, perfMs: timing.perfMs });
   }, [seek]);
 
-  return { seek, pickAt, inspectTexts, ready, drawnAt, busy, syncPlay, cold };
+  return { seek, pickAt, locateSource, inspectTexts, ready, drawnAt, busy, syncPlay, cold, reopen };
 }

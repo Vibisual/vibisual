@@ -134,6 +134,16 @@ export function parsePropsDecl(html: string): PropsDeclParse {
   return { found: true, decl, errors };
 }
 
+/** §5.13 (V) 37-21 — 요소가 위치·크기로 가리킨 값 이름들(`data-vibi-prop-x|y|w|h` — 나온 순서, 겹침 포함). */
+export function boxPropNames(html: string): string[] {
+  const names: string[] = [];
+  for (const m of html.matchAll(/\bdata-vibi-prop-[xywh]\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi)) {
+    const name = (m[1] ?? m[2] ?? m[3] ?? '').trim();
+    if (name !== '') names.push(name);
+  }
+  return names;
+}
+
 /**
  * 문서 안의 **로컬** 스크립트·스타일 참조(`<script src>`·`<link rel=stylesheet href>`) — 결정성 검사가 함께 훑을 파일들.
  * 바깥 주소(`http:`·`https:`·`//`)·`data:` 는 돌려주지 않는다(그것은 검사가 따로 오류로 잡는다).

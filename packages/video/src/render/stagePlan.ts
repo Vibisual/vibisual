@@ -1,7 +1,8 @@
 /**
  * §5.13 (Z) 41-3 — 합성기 예약(순수 — 시험이 고정한다). 앞 `horizonS` 초를 프레임마다 `buildDrawList` 로 뽑아 상자별 Web Animations 키프레임으로
- * 만든다 — 합성기가 돌려 화면 스레드가 막혀도 컷·전환이 제때 난다. 합성기는 `transform`·`opacity` 만 돌리므로 크기가 바뀌거나 clip(`wipe`)이
- * 걸린 상자는 `plannable:false`(화면 스레드가 맞춘다). 자리는 `base` 에 고정하고 움직임은 `translate` 로 적는다.
+ * 만든다 — 합성기가 돌려 화면 스레드가 막혀도 컷·전환이 제때 난다. 합성기는 `transform`·`opacity` 만 돌리므로 크기가 바뀌거나 clip(`wipe`·`iris`)·
+ * 흐림(`blur` — 픽셀을 옮기는 필터는 합성기 애니메이션이 못 된다)이 걸린 상자는 `plannable:false`(화면 스레드가 맞춘다). 자리는 `base` 에 고정하고
+ * 움직임은 `translate` 로 적는다.
  */
 import type { ResolvedTimeline, VideoDoc } from '../types.js';
 import { buildDrawList, type DrawOp } from './drawList.js';
@@ -27,7 +28,7 @@ export interface StagePlanItem {
   readonly lastIndex: number;
   /** 예약 동안 상자의 기준 자리·크기(left·top·width·height 로 쓴다). */
   readonly base: { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
-  /** 합성기가 돌릴 수 있는가 — 크기가 그대로이고 잘라 보이기가 없을 때만. */
+  /** 합성기가 돌릴 수 있는가 — 크기가 그대로이고 잘라 보이기·흐림이 없을 때만. */
   readonly plannable: boolean;
   /** 프레임마다의 값(`times` 와 같은 길이). */
   readonly frames: readonly (StagePlanFrame | null)[];
@@ -75,7 +76,7 @@ export function planStage(doc: VideoDoc, timeline: ResolvedTimeline, from: numbe
     let plannable = true;
     const frames = entry.ops.map((op): StagePlanFrame | null => {
       if (!op) return null;
-      if (op.clip || Math.abs(op.transform.width - base.width) > EPS || Math.abs(op.transform.height - base.height) > EPS) plannable = false;
+      if (op.clip || op.clipCircle || (op.blur ?? 0) > 0 || Math.abs(op.transform.width - base.width) > EPS || Math.abs(op.transform.height - base.height) > EPS) plannable = false;
       return { opacity: planOpacity(op), dx: op.transform.x - base.x, dy: op.transform.y - base.y, rotation: op.transform.rotation, scale: op.transform.scale };
     });
     items.set(id, { id, kind: entry.first.kind, firstIndex: entry.firstIndex, first: entry.first, lastIndex: entry.lastIndex, base, plannable, frames });

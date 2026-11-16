@@ -10,6 +10,11 @@ export interface ComposerChip {
   readonly id: string;
   readonly icon: StudioIconName;
   readonly label: string;
+  /** 라벨 뒤에 붙는 짧은 덧말(§5.13 (V) 37-20 — 가리킨 것의 `파일:줄`). */
+  readonly detail?: string | undefined;
+  readonly title?: string | undefined;
+  /** 주면 칩 몸통이 단추가 된다(코드 칸을 그 줄에서 연다). */
+  readonly onOpen?: (() => void) | undefined;
   readonly onRemove?: (() => void) | undefined;
 }
 
@@ -47,7 +52,12 @@ export function StudioComposer(p: StudioComposerProps): React.JSX.Element {
           {p.chips.map((c) => (
             <span key={c.id} className="flex max-w-full items-center gap-1 rounded-full border border-white/15 bg-white/[0.05] py-0.5 pl-2 pr-1 text-[12px] text-slate-200">
               <StudioIcon name={c.icon} className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <span className="truncate">{c.label}</span>
+              {c.onOpen ? (
+                <button type="button" onClick={c.onOpen} title={c.title} className="flex min-w-0 items-baseline gap-1 rounded-full text-left hover:text-slate-50 pointer-coarse:py-1">
+                  <span className="truncate">{c.label}</span>
+                  {c.detail ? <span className="shrink-0 font-mono text-[12px] tabular-nums text-slate-400 underline decoration-white/20 underline-offset-2">{c.detail}</span> : null}
+                </button>
+              ) : <span className="truncate" title={c.title}>{c.label}</span>}
               {c.onRemove ? (
                 <button type="button" onClick={c.onRemove} aria-label={t('panel.videoStudio.removeNamed', { name: c.label })}
                   className="shrink-0 rounded-full p-0.5 text-slate-500 hover:bg-white/10 hover:text-slate-100 pointer-coarse:p-1.5"><StudioIcon name="close" className="h-3 w-3" /></button>

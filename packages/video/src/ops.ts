@@ -16,7 +16,7 @@ import type {
 } from './types.js';
 
 /** 연산 하나가 실패한 이유. 성공이면 새 문서를 돌려준다. */
-type OpOutcome = { ok: true; doc: VideoDoc } | { ok: false; message: string };
+export type OpOutcome = { ok: true; doc: VideoDoc } | { ok: false; message: string };
 
 function findTrackIndex(doc: VideoDoc, trackId: string): number {
   return doc.tracks.findIndex((t) => t.id === trackId);
@@ -258,6 +258,15 @@ export function requiredSchemaVersion(doc: VideoDoc): number {
   return need;
 }
 
+/** 연산 하나(원본 불변). 모양이 틀린 op(필드 빠짐 등)도 던지지 않고 이유로 돌려준다 — 미리 검사가 op 마다 대 볼 때도 쓴다. */
+export function applyDocOp(doc: VideoDoc, op: VideoDocOp): OpOutcome {
+  try {
+    return applyOp(doc, op);
+  } catch (err) {
+    return { ok: false, message: `op 모양이 틀렸습니다: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
 /** 성공하면 `version` +1 된 새 문서(원본 불변 — 되돌리기·비교가 공짜). 스키마 판은 새 기능을 쓰면 따라 오르고 내리지 않는다. */
 export function applyPatch(doc: VideoDoc, patch: VideoDocPatch, now = Date.now()): VideoDocPatchResult {
   if (patch.baseVersion !== doc.version) {
@@ -268,7 +277,7 @@ export function applyPatch(doc: VideoDoc, patch: VideoDocPatch, now = Date.now()
   for (let i = 0; i < patch.ops.length; i += 1) {
     const op = patch.ops[i];
     if (!op) continue;
-    const outcome = applyOp(next, op);
+    const outcome = applyDocOp(next, op);
     if (!outcome.ok) {
       // 부분 적용을 남기지 않는다 — 여기서 그냥 돌아가면 `next` 는 버려진다.
       return { ok: false, reason: 'invalid-op', opIndex: i, message: outcome.message };

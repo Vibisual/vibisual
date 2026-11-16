@@ -1,5 +1,5 @@
 /**
- * §5.13 (V) 37-11 — 부품 서랍의 순수 층 배럴: 우리가 쓴 부품 아홉(HTML 생성기)과 공통 뼈대.
+ * §5.13 (V) 37-11 — 부품 서랍의 순수 층 배럴: 우리가 쓴 부품 열다섯(HTML 생성기)과 공통 뼈대.
  */
 export { VIDEO_PARTS, findPart } from './library.js';
 export type { PartCategory, VideoPartDef } from './library.js';

@@ -104,7 +104,7 @@ interface ImageLightboxViewProps {
   /** 입력창이 있는 뷰인가(읽기 전용 Hook 메인 탭이면 false → [내려받기]만). */
   canAttach: boolean;
   onClose: () => void;
-  /** §5.5 #17-27 ⑳ — 겹침 높이(기본 `z-[9999]`). 파일 창 위에서 연 팝업은 그 창보다 한 칸 위여야 한다(아니면 뒤에 깔린다). */
+  /** §5.5 #17-27 ⑳ — 겹침 높이(기본 `z-lightbox`). 파일 창 위에서 연 팝업은 그 창보다 한 칸 위여야 한다(아니면 뒤에 깔린다). */
   zIndex?: number;
   /**
    * §5.13 (R-10) — 편집 결과를 **부른 쪽에 돌려준다**(파일도 첨부도 아니다). 편집 원본 앱이 그 그림을 자기 문서에
@@ -1047,7 +1047,7 @@ export function ImageLightboxView({
       {...backdrop}
       ref={rootRef}
       tabIndex={-1}
-      className="vibi-image-lightbox fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-3 bg-black/80 p-6 pt-14 outline-none"
+      className="vibi-image-lightbox fixed inset-0 z-lightbox flex flex-col items-center justify-center gap-3 bg-black/80 p-6 pt-14 outline-none"
       style={zIndex !== undefined ? { zIndex } : undefined}
       role="dialog"
       aria-modal="true"

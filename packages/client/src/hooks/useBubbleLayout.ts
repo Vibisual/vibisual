@@ -9,7 +9,9 @@ import { useBundlePacking, type BundlePackingRequest } from './useBundlePacking.
 import { bundlePageWindow } from '../utils/bundlePages.js';
 import type { InteriorView } from '../stores/graphStore.js';
 import { applyConstellations, type ConstellationAppHubView } from '../utils/constellationView.js';
+import { collapseProjectFolderEdges, groupProjectFolder } from '../utils/projectFolderView.js';
 import { clientPathPlatform } from '../utils/platform.js';
+import { dedicatedSatInfos, type DedicatedPlan } from '../utils/dedicatedBubbleView.js';
 import { useHeatScale } from './useHeatScale.js';
 import {
   radialLayout,
@@ -40,6 +42,10 @@ interface UseBubbleLayoutProps {
   fileNodes?: Readonly<Record<string, BubbleData>>;
   /** §5.5 #17-50 — the IDE session map's session; the canvas leaves it unset so bundles ignore sessions. */
   bundleSessionId?: string;
+  /** §5.1 #2-3 — 메인 캔버스만: 루트 구성이 둘 이상이면 이 폴더 버블 하나로 접는다(`projectFolderBubbleOf`). */
+  projectFolder?: BubbleData | null;
+  /** §5.4 #36 (K) — 메인 캔버스만: 접힌 뒤의 `folders`·`edges` 를 넘기고, 전용 버블 무리는 위성으로 얹는다. */
+  dedicatedPlan?: DedicatedPlan | null;
 }
 
 const NO_APP_HUBS: readonly ConstellationAppHubView[] = [];
@@ -115,6 +121,8 @@ export function useBubbleLayout({
   bundleFolder,
   fileNodes,
   bundleSessionId,
+  projectFolder = null,
+  dedicatedPlan = null,
 }: UseBubbleLayoutProps): ViewData {
   // §5.24 — 히트맵이 켜져 있으면 배치도 렌더와 **같은 자**를 써야 한다(안 그러면 화살표가 빗나간다).
   const heat = useHeatScale();
@@ -139,10 +147,26 @@ export function useBubbleLayout({
       fileNodes,
       bundleSessionId,
     });
+    // §5.1 #2-3 — 앱 노드·묶음이 가져가고 남은 루트 구성이 둘 이상이면 프로젝트 폴더 하나로 접는다.
+    const pf = projectFolder
+      ? groupProjectFolder({
+        folder: projectFolder,
+        radial: cv.radial,
+        satInfos: cv.satInfos,
+        bundled: cv.bundled,
+        radialBefore: folders,
+        heat,
+        satellitePositions,
+      })
+      : null;
     // §2.3 · §5.1 #2-1 (A) — 원 둘레에 선 파일은 같은 화면의 원 둘레 파일끼리 견준다(종전 — 프로젝트 전체 위성의 범위).
     //   §5.1 「앱 버블 지름」 — 명령 앱도 같은 화면의 앱끼리 사용 횟수로 견준다.
-    const radialFolders = withCommandAppUsageRange(withScreenFileRange(cv.radial));
-    const satInfos = cv.satInfos;
+    const radialFolders = withCommandAppUsageRange(withScreenFileRange(pf?.radial ?? cv.radial));
+    const baseSatInfos = pf?.satInfos ?? cv.satInfos;
+    // §5.4 #36 (K) — 전용 버블은 말풍선의 위성 자리다. 이미 선 위성과 id 가 겹치면 건너뛴다(다른 형태의 에이전트가 보여 주는 파일).
+    const satInfos = dedicatedPlan && dedicatedPlan.hubs.length > 0
+      ? [...baseSatInfos, ...dedicatedSatInfos(dedicatedPlan, { agents, heat, taken: new Set(baseSatInfos.map((s) => s.bubble.id)) })]
+      : baseSatInfos;
 
     // §5.10 — 상주 버블(휴지통)은 폴더처럼 홈 주변을 공전(items)하되 물리 standalone.
     const foldersWithResident = [...radialFolders, ...residentBubbles];
@@ -155,7 +179,11 @@ export function useBubbleLayout({
     const radiusPool = cv.converted.size > 0 ? [...allBubbles, ...satInfos.map((s) => s.bubble)] : allBubbles;
     const endOf = (id: string): string => cv.converted.get(id) ?? cv.bundled.get(id) ?? id;
     const retained = new Map(radialFolders.filter((b) => cv.bundled.has(b.id)).map((b) => [b.id, findRadius(radiusPool, b.id, heat)]));
-    const flowEdges = remapConverted(edges.map((e) => {
+    const pfEnd = pf && projectFolder
+      ? (id: string): string => (pf.memberOf.has(cv.bundled.get(id) ?? id) ? projectFolder.id : id)
+      : null;
+    const sourceEdges = pfEnd && projectFolder ? collapseProjectFolderEdges(edges, pfEnd, projectFolder.id) : edges;
+    const flowEdges = remapConverted(sourceEdges.map((e) => {
       const folder = radialFolders.find((f) => f.id === endOf(e.target))
         ?? radialFolders.find((f) => f.id === endOf(e.source));
       return buildFlowEdge({
@@ -178,7 +206,7 @@ export function useBubbleLayout({
       flowEdges: [...flowEdges, ...satFlowEdges],
       satInfos,
     };
-  }, [agents, folders, edges, satellites, satellitePositions, residentBubbles, heat, appHubs, rootLabel, bundleFolder, fileNodes, bundleSessionId]);
+  }, [agents, folders, edges, satellites, satellitePositions, residentBubbles, heat, appHubs, rootLabel, bundleFolder, fileNodes, bundleSessionId, projectFolder, dedicatedPlan]);
 }
 
 // ─── §5.10 기억/휴지통 내부 뷰 데이터 Hook ───
@@ -206,7 +234,8 @@ export function useInteriorLayout({ view, trashedAgents, bundleMembers = NO_BUBB
   }, [view?.kind, bundleMembers, bundlePage, heat]);
   const packed = useBundlePacking(request, view?.kind === 'bundle' ? `${view.bundleId}:${bundlePage}` : '');
   return useMemo(() => {
-    if (!view) return EMPTY_VIEW_DATA;
+    // §5.1 #2-3 — 프로젝트 폴더 안은 폴더 화면(`useFolderLayout`)이 그린다.
+    if (!view || view.kind === 'projectFolder') return EMPTY_VIEW_DATA;
     const cx = LAYOUT_CENTER_X;
     const cy = LAYOUT_CENTER_Y;
 
@@ -258,6 +287,10 @@ interface UseFolderLayoutProps {
   satellitePositions?: Record<string, { x: number; y: number }>;
   /** Same as `UseBubbleLayoutProps.bundleSessionId`. */
   bundleSessionId?: string;
+  /** §5.1 #2-3 — 프로젝트 폴더 안: 묶음 설정·범위는 메인 루트 묶음과 같은 루트를 쓴다(가상 폴더 id 를 서버에 넘기지 않는다). */
+  bundleFolder?: BubbleData;
+  /** §5.1 #2-3 — 프로젝트 폴더 안: 루트 묶음 이름 = 프로젝트 이름. */
+  rootLabel?: string | null;
 }
 
 export function useFolderLayout({
@@ -270,6 +303,8 @@ export function useFolderLayout({
   satellites,
   satellitePositions,
   bundleSessionId,
+  bundleFolder,
+  rootLabel = null,
 }: UseFolderLayoutProps): ViewData {
   const heat = useHeatScale();
   return useMemo(() => {
@@ -329,7 +364,8 @@ export function useFolderLayout({
       heat,
       platform: clientPathPlatform(),
       satellitePositions,
-      bundleFolder: folderData,
+      bundleFolder: bundleFolder ?? folderData,
+      ...(rootLabel ? { rootLabel } : {}),
       bundleSessionId,
     });
     // §2.3 · §5.1 #2-1 (A) — 직속 파일은 이 폴더 화면의 직속 파일끼리 견준다(종전 — 프로젝트 전체 위성의 범위).
@@ -381,7 +417,7 @@ export function useFolderLayout({
       flowEdges: [...flowEdges, ...agentFlowEdges, ...satFlowEdges],
       satInfos,
     };
-  }, [folderId, folderData, agents, children, innerEdges, agentEdges, satellites, satellitePositions, heat, bundleSessionId]);
+  }, [folderId, folderData, agents, children, innerEdges, agentEdges, satellites, satellitePositions, heat, bundleSessionId, bundleFolder, rootLabel]);
 }
 
 // ─── 파이프라인 내부 뷰 데이터 Hook ───

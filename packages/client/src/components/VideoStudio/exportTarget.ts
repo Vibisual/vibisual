@@ -14,6 +14,8 @@ export interface ExportTarget {
   readonly sceneIds: readonly string[];
   /** 이 렌더에서만 소리를 뺄 트랙(지금 문서와 그 파생 문서). */
   readonly mutedTracks: readonly string[];
+  /** §5.13 42-13 (C) 썸네일 시각(지금 문서 시각, 초) — 설정 창은 연 순간의 재생 머리. null = 서버가 대표 시각을 고른다. */
+  readonly thumbnailAt: number | null;
 }
 
 /** 지금 · 대기열에(멈춘 채) · 예약. */

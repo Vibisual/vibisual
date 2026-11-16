@@ -103,7 +103,17 @@ describe('parseGgufMeta — 구조와 학습 문맥을 한 번에', () => {
       ['general.architecture', 8, 'qwen3'],
       ['qwen3.context_length', 4, 32768],
     ]);
-    expect(parseGgufMeta(buf)).toEqual({ architecture: 'qwen3', contextLength: 32768, samplingTemp: null });
+    expect(parseGgufMeta(buf)).toEqual({ architecture: 'qwen3', contextLength: 32768, samplingTemp: null, expertCount: null });
+  });
+
+  it('MoE 구조면 전문가 수를 읽고, 앞의 세 칸을 다 찾았어도 뒤에 적힌 것을 놓치지 않는다', () => {
+    const buf = gguf([
+      ['general.architecture', 8, 'qwen3moe'],
+      ['general.sampling.temp', 6, 0.7],
+      ['qwen3moe.context_length', 4, 32768],
+      ['qwen3moe.expert_count', 4, 128],
+    ]);
+    expect(parseGgufMeta(buf).expertCount).toBe(128);
   });
 
   it('64비트로 적힌 문맥 길이도 읽는다', () => {
@@ -129,6 +139,7 @@ describe('parseGgufMeta — 구조와 학습 문맥을 한 번에', () => {
       architecture: null,
       contextLength: null,
       samplingTemp: null,
+      expertCount: null,
     });
   });
 
@@ -138,7 +149,7 @@ describe('parseGgufMeta — 구조와 학습 문맥을 한 번에', () => {
       ['general.sampling.temp', 6, 0.7],
       ['qwen3.context_length', 4, 32768],
     ]);
-    expect(parseGgufMeta(f32)).toEqual({ architecture: 'qwen3', contextLength: 32768, samplingTemp: 0.7 });
+    expect(parseGgufMeta(f32)).toEqual({ architecture: 'qwen3', contextLength: 32768, samplingTemp: 0.7, expertCount: null });
     expect(parseGgufMeta(gguf([['general.sampling.temp', 12, 0.6]])).samplingTemp).toBe(0.6);
   });
 

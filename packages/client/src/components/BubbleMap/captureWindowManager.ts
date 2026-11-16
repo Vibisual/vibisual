@@ -2,9 +2,10 @@
 // 순수 스택은 window 바인딩과 분리해 시험한다.
 
 import { selectShellImmersive, useProjectImmersionStore } from '../../stores/projectImmersion.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
-/** 캡처 창 base z — 앱 UI(수십~수백)·IDE 오버레이(z-50)보다 확실히 위, 32-bit 상한 여유. */
-const CAPTURE_WINDOW_Z_BASE = 1_000_000;
+/** 앱 안 창 스택의 바닥(§4 겹침 층 표) — 화면보다 위, 모달·메뉴보다 아래. */
+const CAPTURE_WINDOW_Z_BASE = Z_LAYER.WINDOW;
 /** 계단식 초기 위치 오프셋 — 새 창이 정확히 겹치지 않게 순환. */
 const CASCADE_STEPS = 6;
 const CASCADE_PX = 32;

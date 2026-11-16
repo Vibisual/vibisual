@@ -1,7 +1,9 @@
 import { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData } from '@vibisual/shared';
+import { APP_WORK } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { isProjectFolderNodeId } from '../../utils/projectFolderView.js';
 import { PathLockGlyph } from '../PathLockGlyph.js';
 import { groupUnlockByProject, planBubbleLock } from './bubbleLockAction.js';
 import { canUseAgentCard, isAgentCardForm } from './agentCard.js';
@@ -297,7 +299,8 @@ export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, textField, 
   const lockPlan = useMemo(() => {
     const bubbles = nodes
       .filter((n) => n.type === 'bubble')
-      .map((n) => ({ id: n.id, data: (n.data as BubbleData | undefined) ?? nodeMap[n.id] }));
+      // §5.1 #2-3 — 프로젝트 폴더 버블은 경로가 프로젝트 루트라 잠그면 프로젝트 전체가 잠긴다 — 잠글 수 없는 자리로 센다.
+      .map((n) => ({ id: n.id, data: isProjectFolderNodeId(n.id) ? null : (n.data as BubbleData | undefined) ?? nodeMap[n.id] }));
     return planBubbleLock(bubbles, pathLocks);
   }, [nodes, nodeMap, pathLocks]);
 
@@ -465,7 +468,7 @@ export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, textField, 
   }, [onAgentForm, soleBubbleId, mainView, soleExecutionMode, nodes, nodeMap, t]);
 
   /**
-   * §5.4 #36 (H) — [숨기기] 하위 메뉴(버블·연결선 표시). 앱이 이어진 에이전트면 [버블 전부 보기] ↔ [앱 관련 버블만 보기] + ①-2 [연결된 버블 ▸].
+   * §5.4 #36 (H) — [숨기기] 하위 메뉴(버블·연결선 표시) + ①-2 [연결된 버블 ▸]. `APP_WORK.nodeHoldsFiles` 가 켜져 있고 앱이 이어진 에이전트면 [버블 전부 보기] ↔ [앱 관련 버블만 보기] 도.
    * 혼자 고른 에이전트만, 휴지통 안 ❌. 상태는 연 순간의 노드 데이터, 판정은 `linkView.ts`, 저장은 store 한 경로.
    */
   const soleHasAppLinks = useGraphStore((s) => (soleBubbleId ? agentHasAppLinks(s.appBubbles, soleBubbleId, s.activeProject) : false));
@@ -496,7 +499,7 @@ export function BubbleContextMenu({ nodes, edges, x, y, onAgentForm, textField, 
         onClick: () => useGraphStore.getState().setAgentLinkView(agentId, { hidden: !hidden }),
       }],
     }];
-    if (soleHasAppLinks) {
+    if (APP_WORK.nodeHoldsFiles && soleHasAppLinks) {
       const lens = effectiveLinkLens(data, true);
       const to = lens === 'linked' ? 'files' : 'linked';
       out.push({

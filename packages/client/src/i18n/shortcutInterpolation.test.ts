@@ -47,6 +47,10 @@ const SHORTCUT_STRINGS: ReadonlyArray<{ key: string; vars: readonly string[]; ev
   { key: 'ide.memo.link.followTitle', vars: ['shortcut'], everyLocale: true },
   // §5.5 #17 — 명령 입력칸 x 의 되돌리기 안내. 표기는 `shortcutLabel('Ctrl+Z')` 가 넣는다.
   { key: 'ide.mainArea.inputClearUndoHint', vars: ['shortcut'], everyLocale: true },
+  // §5.13 37-21 — 미리보기 손잡이 툴팁. 세 키 모두 `shortcutLabel()` 이 넣는다(비율 고정 · 스냅 끄기 · 방향키 옮기기).
+  { key: 'panel.videoStudio.preview.dragHint', vars: ['lock', 'free', 'nudge'], everyLocale: true },
+  // §5.13 37-22 — 명령 팔레트 발치 안내. 고르기·실행·닫기 키를 `shortcutLabel()` 이 넣는다.
+  { key: 'panel.videoStudio.palette.footer', vars: ['move', 'run', 'close'], everyLocale: true },
   // en 에만 있고 나머지는 en 으로 폴백하는 키 — 있는 로케일에서만 검사한다.
   { key: 'panel.options.advanced.terminalScrollbackDesc', vars: ['shortcut'], everyLocale: false },
   // 창 배치 힌트 두 개는 en·ko 에만 있다. 변수 이름이 컴포넌트와 어긋나면 화면에 `{{max}}` 가

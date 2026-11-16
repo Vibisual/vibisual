@@ -95,7 +95,7 @@ export const AgentFeedbackSection = memo(function AgentFeedbackSection({ agentId
 
       {/* 승인 모달 — 제안 미리보기(수정 가능) + 취소/추가. 승인 전엔 절대 rules 미변경. */}
       {proposal !== null && createPortal(
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-6 max-md:p-3">
+        <div className="fixed inset-0 z-overlay flex items-center justify-center bg-black/60 p-6 max-md:p-3">
           <div className="flex max-h-[80dvh] w-[520px] max-w-full flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl">
             <div className="border-b border-gray-800 px-4 py-3">
               <h3 className="text-[13px] font-semibold text-gray-100">{t('panel.feedback.proposalTitle')}</h3>

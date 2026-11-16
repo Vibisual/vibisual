@@ -4,6 +4,7 @@ import type { AgentQuestions } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useScrollReveal } from '../../hooks/useScrollReveal.js';
 import { CardLiveBadge } from './AgentCardParts.js';
+import { CardPathText } from './CardPathText.js';
 import { useCardSelectionCopy } from './cardSelection.js';
 import { promptOverlayReserve, PROMPT_RESERVE_FALLBACK_PX } from './promptOverlayReserve.js';
 import { QUESTION_ANSWER_MAX_LENGTH, useQuestionCardState } from './questionCardState.js';
@@ -498,7 +499,7 @@ const QuestionItem = memo(function QuestionItem({
             <div className="text-[12px] font-semibold uppercase tracking-wide text-sky-400/80">{item.header}</div>
           )}
           <p className="whitespace-pre-wrap break-words text-[13px] font-medium leading-relaxed text-gray-100">
-            {item.question}
+            <CardPathText text={item.question} />
           </p>
         </div>
         <QuestionCopyButton getText={getOwnText} />
@@ -668,7 +669,7 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
 
       <div className="px-3 py-2">
         {questions.note && (
-          <p className="mb-2 text-[13px] leading-relaxed text-gray-300">{questions.note}</p>
+          <p className="mb-2 text-[13px] leading-relaxed text-gray-300"><CardPathText text={questions.note} /></p>
         )}
 
         <ul className="flex flex-col gap-3">

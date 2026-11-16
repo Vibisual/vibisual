@@ -16,9 +16,10 @@ import { PathLockGlyph } from '../PathLockGlyph.js';
 import { shortcutLabel } from '../../utils/platform.js';
 import { isImeConsumedKey } from '../../utils/inputComposition.js';
 import { decideEnterKey } from '../../utils/inputEnterKey.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 /** §5.3 #12-1 — 스택 모달 간 z-index 시작값. */
-const BASE_Z = 100_000;
+const BASE_Z = Z_LAYER.PERMISSION;
 /** 스택 카드 cascading offset — 뒤 카드일수록 위·우측으로 밀려 꼬리만 보이게. */
 const STACK_OFFSET_Y = 14;
 const STACK_OFFSET_X = 10;

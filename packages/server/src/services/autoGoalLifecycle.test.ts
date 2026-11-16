@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { AUTO_GOAL_ASSESSMENT_TTL_MS, AUTO_GOAL_EVIDENCE_FILE_BYTES, AUTO_GOAL_STALE_REVIEW_MS, type AutoGoalCandidate } from '@vibisual/shared';
+import { AUTO_GOAL_ASSESSMENT_TTL_MS, AUTO_GOAL_EVIDENCE_FILE_BYTES, AUTO_GOAL_RELEVANCE_MIN, AUTO_GOAL_STALE_REVIEW_MS, type AutoGoalCandidate } from '@vibisual/shared';
 import {
   assessAutoGoalSkill, recordAutoGoalOutcome, reviewAutoGoalSkill, requestAutoGoalReview, approveAutoGoalSkill,
   autoGoalRevision, AutoGoalLifecycleError, dropAutoGoalAssessments,
@@ -384,5 +384,55 @@ describe('autonomous procedure operation', () => {
     expect(() => approveAutoGoalSkill(root, { skillId: 'bare', revision: current('bare').revision! }, user))
       .toThrow(/dependency files/);
     expect(current('bare').status).not.toBe('active');
+  });
+});
+
+/*
+ * §5.10 (R)ⓑ — 관련도 문턱. 조사·어미의 두 글자 짝("는데"·"하고"·"으로"·"는지")은 무관한 글끼리도 겹친다.
+ * 그 둘이 겹친 2점으로 실으면 기획 문서의 토큰 낭비를 묻는 턴에 마이크 진단·릴리스 노트·서브에이전트 절차가 따라 나온다.
+ */
+describe('relevance bar', () => {
+  const procedure = (id: string, name: string, description: string, files?: string): void => write(
+    `.vibisual/skills/${id}/SKILL.md`,
+    ['---', `name: ${name}`, `description: ${description}`, `id: ${id}`, ...(files ? [`files: ${files}`] : []), '---', 'Instructions'].join('\n'),
+  );
+  const unrelated = '기획 문서가 수만 토큰이나 되는데 매 턴 통째로 읽는 것이 토큰 낭비인지 확인하고, 어디서 새는지 줄이는 쪽으로 정리해 줘';
+  beforeEach(() => {
+    procedure('mic', 'Windows 마이크 장치 상태 진단', '마이크가 연결돼 있는데 앱이 인식하지 못할 때 실제 연결 상태를 확인하기 위해');
+    procedure('release', '릴리스 노트 자동화 구축', '새 릴리스를 배포할 때 다운로드 페이지를 자동으로 생성하고 싶을 때',
+      '.github/scripts/release-notes.mjs, .github/workflows/release.yml');
+    procedure('alive', '서브에이전트 생존 상태 확인', '서브에이전트가 끝났는지 아직 일하는 중인지 불명확할 때 증거로 판단하려면',
+      'packages/shared/src/sessionRunState.ts');
+  });
+
+  it('does not list procedures that share only coincidental particle pairs with the task', () => {
+    for (const id of ['mic', 'release', 'alive']) {
+      const score = autoGoalRelevanceScore(current(id), unrelated);
+      // 0 이 아니다 — 문턱 없이 "0 보다 크면 싣는다"였다면 이 점수로 셋 다 실린다.
+      expect(score, id).toBeGreaterThan(0);
+      expect(score, id).toBeLessThan(AUTO_GOAL_RELEVANCE_MIN);
+      expect(autoGoalSkillRelevant(current(id), unrelated), id).toBe(false);
+    }
+    expect(buildAutoGoalPromptBlock(root, ON, {}, unrelated)).toBeUndefined();
+  });
+
+  it('still lists on one whole shared word, an evidence file name, or an inflected form of the same word', () => {
+    const byWord = buildAutoGoalPromptBlock(root, ON, {}, '마이크 입력이 안 잡혀');
+    expect(byWord).toContain('Windows 마이크 장치 상태 진단');
+    expect(byWord).not.toContain('릴리스 노트 자동화 구축');
+    // 낱말로는 하나도 안 겹치고 근거 파일 이름만 닿는다.
+    const byFile = 'sessionRunState 판정을 고쳐 줘';
+    expect(autoGoalRelevanceScore(current('alive'), byFile)).toBe(5);
+    expect(buildAutoGoalPromptBlock(root, ON, {}, byFile)).toContain('서브에이전트 생존 상태 확인');
+    expect(buildAutoGoalPromptBlock(root, ON, {}, 'release-notes 스크립트를 고쳐 줘')).toContain('릴리스 노트 자동화 구축');
+    // 조사만 다른 같은 낱말 — 통째로는 안 겹쳐도 두 글자 짝 셋이 문턱에 닿는다(문턱을 4 로 올리면 여기서 빠진다).
+    const inflected = { ...current('mic'), name: '플랫폼별 경로 처리', description: '운영체제 경로 오류' };
+    expect(autoGoalRelevanceScore(inflected, '플랫폼별로 경로를 고쳐줘')).toBe(AUTO_GOAL_RELEVANCE_MIN);
+    expect(autoGoalSkillRelevant(inflected, '플랫폼별로 경로를 고쳐줘')).toBe(true);
+  });
+
+  it('lists everything listable when no task text is given', () => {
+    const all = buildAutoGoalPromptBlock(root, ON, {});
+    for (const name of ['Windows 마이크 장치 상태 진단', '릴리스 노트 자동화 구축', '서브에이전트 생존 상태 확인']) expect(all).toContain(name);
   });
 });

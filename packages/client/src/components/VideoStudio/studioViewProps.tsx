@@ -20,6 +20,8 @@ import type { StudioPlayback } from './useStudioPlayback.js';
 import type { StudioAgent } from './useStudioAgent.js';
 import type { StudioHistory } from './useStudioHistory.js';
 import type { PassChange } from './usePassChange.js';
+import type { SceneReview } from './useSceneReview.js';
+import { sceneChatOf } from './sceneChat.js';
 import type { StudioRender } from './useStudioRender.js';
 import type { StudioStartState } from './useStudioStart.js';
 import type { StudioComposerState } from './useStudioComposer.js';
@@ -27,6 +29,7 @@ import type { StudioEditing } from './useStudioEditing.js';
 import type { StudioToasts } from './useStudioToasts.js';
 import type { StudioNotes } from './useStudioNotes.js';
 import type { PreviewInteraction } from './usePreviewInteraction.js';
+import type { StudioCodeLink } from './useStudioCodeLink.js';
 import type { RailDrawer } from './StudioRail.js';
 import type { ComposerChip } from './StudioComposer.js';
 import { MediaDrawer } from './MediaDrawer.js';
@@ -34,6 +37,8 @@ import { PartsDrawer } from './PartsDrawer.js';
 import { NotesDrawer } from './NotesDrawer.js';
 import { StudioChangeCard } from './StudioChangeCard.js';
 import { formatDuration } from './exportLabels.js';
+import { SKIP_SECONDS } from './skipSeconds.js';
+import type { PreviewFullscreen } from './usePreviewFullscreen.js';
 import { StudioSteps } from './StudioSteps.js';
 import { LazyFrameStripViewer, LazyHistoryCompare } from './studioPanels.js';
 import { PlanCards } from './PlanCards.js';
@@ -41,7 +46,8 @@ import { ValueCard } from './ValueCard.js';
 import { StudioIcon } from './studioIcons.js';
 import { formatClock } from './PreviewControls.js';
 import { itemKindKey } from './kindLabels.js';
-import { stripPickClipboard } from './studioAgentMessage.js';
+import { pointedFileText, stripPickClipboard } from './studioAgentMessage.js';
+import { shortPath } from './codeLinkSource.js';
 
 /**
  * §5.13 (V) 37-1 — 스튜디오 상태 → 화면 부품 props 조립(셸을 묶기 전용으로 두려고 떼었다). 무엇이 어느 칸에 서는지가 이 파일 한
@@ -53,7 +59,8 @@ export interface StudioUiState {
   readonly historyOpen: boolean;
   readonly precisionOpen: boolean;
   readonly safeArea: boolean;
-  readonly zoom: 'fit' | 'actual';
+  /** `free` = 휠·끌기로 정한 자유 보기(37-24 (F)). */
+  readonly zoom: 'fit' | 'actual' | 'free';
   readonly interaction: 'none' | 'point' | 'note';
   readonly compare: readonly string[];
   readonly compareOpen: boolean;
@@ -72,12 +79,16 @@ export interface StudioUiState {
   /** §5.13 (AA) 42-3 — 미리보기 음소거·크기(창 세션 동안만 — §3.2). */
   readonly muted: boolean;
   readonly volume: number;
+  /** §5.13 (V) 37-23 (I) — 장면별 대화로 고른 장면(null = 전체 · 창 세션 동안만 — §3.2). */
+  readonly sceneChat: string | null;
+  /** §5.13 (V) 37-24 (B) — 건너뛰기 간격(초 · 창 세션 동안만 — §3.2). */
+  readonly skipSeconds: number;
 }
 
 export const INITIAL_UI: StudioUiState = {
   drawer: null, aiCollapsed: false, historyOpen: false, precisionOpen: false, safeArea: false, zoom: 'fit', interaction: 'none',
   compare: [], compareOpen: false, strip: null, historySeen: 0, editorFor: null, chapterMenu: null, seamMenu: null, markerMenu: null,
-  planCollapsed: false, exportDialog: null, muted: false, volume: 1,
+  planCollapsed: false, exportDialog: null, muted: false, volume: 1, sceneChat: null, skipSeconds: SKIP_SECONDS.initial,
 };
 
 /** 3·4 라운드가 채우는 자리(장면 메뉴·전환·검수·부품·스타일·대본·비트·내보내기). 없으면 그 칸이 서지 않는다. */
@@ -119,6 +130,10 @@ export interface StudioViewInputs {
   readonly onDisplayScale?: (scale: number) => void;
   readonly history: StudioHistory;
   readonly passChange: PassChange;
+  /** §5.13 (V) 37-23 — 장면 단위 받기·되돌리기. */
+  readonly sceneReview?: SceneReview | null;
+  /** §5.13 (V) 37-23 (J) — 입력창 위 '다음에 시킬 말' 칩(코드로 뽑은 것). 없으면 바퀴 보고의 제안만. */
+  readonly nextAsks?: readonly string[];
   readonly render: StudioRender;
   readonly start: StudioStartState;
   readonly composer: StudioComposerState;
@@ -146,6 +161,9 @@ export interface StudioViewInputs {
   readonly previewMode: 'canvas' | 'stage';
   readonly disabled: boolean;
   readonly onKeyDown: KeyboardEventHandler<HTMLDivElement>;
+  /** §5.13 (V) 37-24 (D)(E) — 스튜디오 뿌리(창 수준 키 · 전체 화면의 대상)와 전체 화면 상태. */
+  readonly rootRef?: RefObject<HTMLDivElement>;
+  readonly fullscreen?: PreviewFullscreen;
   readonly format: VideoFormatId | null;
   readonly recipes: readonly VideoRecipe[];
   /** 기획 카드 [이대로 만들기]. */
@@ -155,6 +173,8 @@ export interface StudioViewInputs {
   /** 장면 구슬 줄 자리의 [장면으로 나누기]. */
   readonly onDeriveChapters: () => void;
   readonly extras: StudioExtras;
+  /** §5.13 (V) 37-20 — 화면 요소 ↔ 코드 줄(없는 형태에서는 코드 칸이 서지 않는다). */
+  readonly codeLink?: StudioCodeLink | undefined;
 }
 
 /** §5.13 (AA) 42-8 — 내보내기 단추 툴팁(도는 렌더의 진행·남은 시간 · 멈춤 · 기다리는 수). */
@@ -198,10 +218,28 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
   const prepareElsewhere = !a.inMainWindow;
   const setInteraction = (mode: StudioUiState['interaction']): void => setUi((u) => ({ ...u, interaction: mode }));
   const applyOps = (ops: readonly VideoDocOp[]): void => { if (ops.length > 0) void a.edits.applyOps(ops); };
+  const passStartRev = a.passChange.pass?.startRev;
+  const undoPass = passStartRev ? (): void => {
+    void a.history.restore(passStartRev).then((restored) => { a.studio.setDoc(restored); a.toasts.success('panel.videoStudio.toast.passUndone'); }).catch(a.toasts.error);
+  } : null;
+  const sceneChat = sceneChatOf(t, chapters, a.history.passes, ui.sceneChat, (chapterId) => setUi((u) => ({ ...u, sceneChat: chapterId })));
   const activeNote = a.interaction.activeNoteId ? a.notes.notes.find((n) => n.id === a.interaction.activeNoteId) : undefined;
 
   const chips: ComposerChip[] = [
-    ...a.composer.pointed.map((p, i): ComposerChip => ({ id: `pointed-${i}`, icon: 'point', label: p.text ? `“${p.text.slice(0, 24)}”` : t('panel.videoStudio.ai.pointedChip', { kind: t(itemKindKey(p.kind)) }), onRemove: () => a.composer.removePointed(i) })),
+    ...a.composer.pointed.map((p, i): ComposerChip => {
+      // 37-20 — 원본 줄을 찾았으면 칩에 `파일:줄` 을 붙이고, 누르면 코드 칸이 그 줄에서 열린다.
+      const file = p.file;
+      const line = p.line;
+      const linked = a.codeLink && file && line ? { file, line } : null;
+      return {
+        id: `pointed-${i}`, icon: 'point', label: p.text ? `“${p.text.slice(0, 24)}”` : t('panel.videoStudio.ai.pointedChip', { kind: t(itemKindKey(p.kind)) }), onRemove: () => a.composer.removePointed(i),
+        ...(linked ? {
+          detail: `${shortPath(pointedFileText({ file: linked.file }))}:${linked.line}`,
+          title: p.lineExact === false ? t('panel.videoStudio.code.chipInside', { where: pointedFileText({ file: linked.file }), line: linked.line }) : t('panel.videoStudio.code.chipLine', { where: pointedFileText(p) }),
+          onOpen: () => a.codeLink?.revealLine(linked.file, linked.line, p.lineExact !== false),
+        } : {}),
+      };
+    }),
     ...(activeNote && activeNote.status !== 'closed' ? [{ id: `note-${activeNote.id}`, icon: 'note' as const, label: t('panel.videoStudio.notes.pinTitle', { n: activeNote.n }), onRemove: () => a.interaction.setActiveNoteId(null) }] : []),
     ...a.composer.assets.map(({ asset, label }): ComposerChip => ({ id: asset.id, icon: 'attach', label, onRemove: () => a.composer.removeAsset(asset.id) })),
     ...(doc && a.composer.useTime ? [{ id: 'time', icon: 'history' as const, label: t('panel.videoStudio.ai.timeChip', { time: formatClock(playback.playhead) }), onRemove: () => a.composer.setUseTime(false) }] : []),
@@ -294,6 +332,12 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
       title: doc?.title ?? null,
       onRename: a.editing.rename,
       docs: a.studio.docs,
+      project: a.projectName,
+      onRefreshDocs: a.studio.refreshDocs,
+      onDocDeleted: (id) => {
+        if (id === doc?.id) { a.studio.closeDoc(); setUi((u) => ({ ...u, historyOpen: false, precisionOpen: false, drawer: null })); }
+        void a.studio.refreshDocs();
+      },
       currentDocId: doc?.id ?? null,
       onOpenDoc: (id) => { void a.studio.openDoc(id); },
       onNewDoc: () => { a.studio.closeDoc(); setUi((u) => ({ ...u, historyOpen: false, precisionOpen: false, drawer: null })); },
@@ -322,16 +366,29 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
       open: ui.drawer,
       onOpen: (drawer) => setUi((u) => ({ ...u, drawer })),
       hasTranscript: hasCaptions,
+      hasCode: (a.codeLink?.assets.length ?? 0) > 0,
       openNotes,
       drawer: railDrawer,
     },
+    // §5.13 (V) 37-20 — 읽기 전용 코드 칸(레일 '코드'가 켜져 있고 코드 컴포지션이 있을 때).
+    code: startMode || !doc || ui.drawer !== 'code' || !a.codeLink || a.codeLink.assets.length === 0 ? null : {
+      assets: a.codeLink.assets, assetId: a.codeLink.assetId, path: a.codeLink.path, status: a.codeLink.status,
+      text: a.codeLink.source?.text ?? null, files: a.codeLink.source?.files ?? [], lineCount: a.codeLink.source?.lineCount ?? 0,
+      truncated: a.codeLink.source?.truncated ?? false, linked: a.codeLink.linked, focus: a.codeLink.focus, locate: a.codeLink.locate,
+      onSelectAsset: a.codeLink.selectAsset, onSelectFile: a.codeLink.selectFile, onSelectLine: a.codeLink.selectLine,
+      onOpenEditor: a.codeLink.openInEditor, onClose: () => setUi((u) => (u.drawer === 'code' ? { ...u, drawer: null } : u)),
+    },
     preview: startMode || !doc || !view ? null : {
       doc: view, mode: a.previewMode, canvasRef: a.canvasRef, stageHostRef: a.stageHostRef, zoom: ui.zoom, safeArea: ui.safeArea, interaction: ui.interaction,
+      // §5.13 (V) 37-24 (F) — 휠·끌기로 자유 보기에 들어선다(맞춤 단추·`F` 가 되돌린다).
+      onFreeView: () => setUi((u) => (u.zoom === 'free' ? u : { ...u, zoom: 'free' })),
       poster: a.poster, ready: a.previewReady,
       ...(a.previewCold !== undefined ? { cold: a.previewCold } : {}),
       ...(a.posterAt ? { posterAt: a.posterAt } : {}),
       rings: a.interaction.rings, pins: a.interaction.pins, edit: a.interaction.edit,
       clock: playback.clock, playhead: playback.playhead, overlaysAt: a.interaction.overlaysAt,
+      // §5.13 (V) 37-21 — 끌기 손짓(재생 중·가리키기·메모 모드에서는 null).
+      drag: a.interaction.drag,
       ...(a.onDisplayScale ? { onDisplayScale: a.onDisplayScale } : {}),
       inspect: a.interaction.inspect,
       onHover: a.interaction.onHover,
@@ -368,6 +425,11 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
       muted: ui.muted, volume: ui.volume,
       onMute: () => setUi((u) => ({ ...u, muted: !u.muted })),
       onVolume: (volume) => setUi((u) => ({ ...u, volume, muted: volume === 0 ? u.muted : false })),
+      // §5.13 (V) 37-24 — 건너뛰기(간격만큼 · 문서 길이 안으로 묶인다)와 전체 화면.
+      skipSeconds: ui.skipSeconds,
+      onSkip: (direction) => playback.seek(playback.clock.get() + direction * ui.skipSeconds),
+      onSkipSeconds: (skipSeconds) => setUi((u) => ({ ...u, skipSeconds })),
+      ...(a.fullscreen?.supported ? { fullscreen: a.fullscreen.active, onFullscreen: a.fullscreen.toggle } : {}),
     },
     strip: startMode || !doc ? null : {
       duration: playback.duration, playhead: playback.playhead, clock: playback.clock,
@@ -439,8 +501,12 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
       agentName: agent.agent?.label ?? null, running: agent.agent?.running ?? false, activityText,
       valueCard,
       conversation: a.conversation,
+      sceneChat,
+      onUndoPass: undoPass,
       changeCard: (a.passChange.lines.length > 0 || a.passChange.report) ? (
         <StudioChangeCard lines={a.passChange.lines} report={a.passChange.report} open={a.passChange.open}
+          scenes={a.passChange.scenes} decided={a.passChange.decided} review={a.passChange.pass?.startRev ? a.sceneReview ?? null : null}
+          sceneFilter={sceneChat?.value ?? null} onSceneChat={(chapterId) => setUi((u) => ({ ...u, sceneChat: chapterId }))}
           onJump={(target) => {
             if (target.itemId) {
               a.setSelectedItemId(target.itemId);
@@ -451,15 +517,11 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
               if (c) playback.seek(c.start);
             }
           }}
-          onUndoPass={a.passChange.pass?.startRev ? () => {
-            const rev = a.passChange.pass?.startRev;
-            if (!rev) return;
-            void a.history.restore(rev).then((restored) => { a.studio.setDoc(restored); a.toasts.success('panel.videoStudio.toast.passUndone'); }).catch(a.toasts.error);
-          } : null} />
+          onUndoPass={undoPass} />
       ) : null,
       actions: aiActions,
       composer: {
-        text: a.composer.text, onText: a.composer.setText, chips, suggestions: a.passChange.report?.suggestions ?? [],
+        text: a.composer.text, onText: a.composer.setText, chips, suggestions: a.nextAsks ?? a.passChange.report?.suggestions ?? [],
         onAttach: (files) => { void a.composer.attach(files); }, onSend: (live) => { void a.composer.send(live); },
         canSend: !agent.sending && (a.composer.text.trim() !== '' || a.composer.assets.length > 0 || a.composer.pointed.length > 0) && agent.preparation[agent.engine] === null,
         busy: agent.sending || a.composer.attaching, disabled: false, placeholder: t('panel.videoStudio.ai.placeholder'),
@@ -511,5 +573,7 @@ export function buildStudioViewProps(a: StudioViewInputs): VideoStudioViewProps 
     toasts: a.toasts.toasts,
     onDismissToast: a.toasts.dismiss,
     onKeyDown: a.onKeyDown,
+    ...(a.rootRef ? { rootRef: a.rootRef } : {}),
+    fullscreen: a.fullscreen?.active === true,
   };
 }

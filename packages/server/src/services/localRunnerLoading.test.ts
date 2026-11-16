@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   findModel: vi.fn(),
   output: vi.fn(),
   architecture: vi.fn(),
+  meta: vi.fn(),
   terminate: vi.fn(),
   tool: vi.fn(),
 }));
@@ -36,7 +37,7 @@ vi.mock('./localEngineService.js', () => ({
 }));
 vi.mock('./localArchService.js', () => ({
   readLocalArchitecture: () => 'test-family',
-  readLocalGgufMeta: () => ({}),
+  readLocalGgufMeta: mocks.meta,
   recordArchVerdict: mocks.architecture,
 }));
 vi.mock('./localModelService.js', () => ({ findModel: mocks.findModel, recordOutputCheck: mocks.output }));
@@ -128,6 +129,7 @@ beforeEach(() => {
   }));
   mocks.output.mockReset();
   mocks.architecture.mockReset();
+  mocks.meta.mockReset().mockReturnValue({});
   mocks.tool.mockReset().mockResolvedValue({ content: 'written', isError: false });
   mocks.terminate.mockReset().mockImplementation((child: FakeChild) => {
     if (child.exitCode === null) exitChild(child, 0);
@@ -438,6 +440,68 @@ describe('local model loading — 실제 공개 진입점의 자원 소유권', 
     expect(children.map((child) => child.args[child.args.indexOf('-c') + 1])).toEqual(['8192', '4096']);
     expect(children.every((child) => child.bin === '/engine/cpu/llama-server')).toBe(true);
     expect(loadedModelContext('model')).toBe(4096);
+  });
+
+  describe('§5.19 (D) 메모리 부족 사다리 — VRAM 을 넘는 모델', () => {
+    const argOf = (child: FakeChild, flag: string): string | undefined => {
+      const at = child.args.indexOf(flag);
+      return at < 0 ? undefined : child.args[at + 1];
+    };
+
+    /** 앞에서 `count` 번째까지의 자식은 메모리 부족으로 죽는다. */
+    function oomFirst(count: number): void {
+      mocks.candidates.mockReturnValue([{ backend: 'vulkan', serverBin: '/engine/vulkan/llama-server' }]);
+      mocks.spawn.mockImplementation((bin: string, args: string[]) => {
+        const child = makeChild(bin, args);
+        if (children.length <= count) {
+          queueMicrotask(() => {
+            child.stderr.emit('data', Buffer.from('failed to allocate buffer: out of memory'));
+            exitChild(child, 1);
+          });
+        }
+        return child;
+      });
+    }
+
+    it('문맥은 그대로 두고 자동 배치의 VRAM 여유부터 넓힌다', async () => {
+      oomFirst(2);
+      const turn = startTurn('oom-fit', 'model', 8192);
+      await turn.finished;
+      expect(turn.done.mock.calls[0]?.[0]).toBeUndefined();
+      expect(children.map((c) => argOf(c, '--fit-target'))).toEqual([undefined, '2048', '4096']);
+      expect(children.map((c) => argOf(c, '-c'))).toEqual(['8192', '8192', '8192']);
+      expect(loadedModelContext('model')).toBe(8192);
+    });
+
+    it('여유를 다 넓혀도 안 되면 문맥을 줄이고, GPU 층 0 단계로 넘어갈 때 문맥을 되돌린다', async () => {
+      oomFirst(4);
+      const turn = startTurn('oom-ladder', 'model', 4096);
+      await turn.finished;
+      expect(turn.done.mock.calls[0]?.[0]).toBeUndefined();
+      expect(children.map((c) => argOf(c, '-c'))).toEqual(['4096', '4096', '4096', '2048', '4096']);
+      expect(children.map((c) => argOf(c, '-ngl'))).toEqual(['auto', 'auto', 'auto', 'auto', '0']);
+      expect(children.map((c) => argOf(c, '--fit-target'))).toEqual([undefined, '2048', '4096', '4096', undefined]);
+      expect(loadedModelContext('model')).toBe(4096);
+    });
+
+    it('일반 모델에는 --cpu-moe 를 싣지 않는다 — 자동 배치가 꺼지면 층 분할을 잃는다', async () => {
+      const turn = startTurn('plain-model', 'model', 4096, { assist: { moeOffload: 'cpu' } });
+      await turn.finished;
+      expect(children[0]?.args).not.toContain('--cpu-moe');
+    });
+
+    it('MoE 모델에는 싣고, 메모리가 부족하면 그 플래그만 빼고 자동 배치로 다시 띄운다', async () => {
+      mocks.meta.mockReturnValue({ expertCount: 128 });
+      oomFirst(1);
+      const onEvent = vi.fn<LocalTurnArgs['onEvent']>();
+      const turn = startTurn('moe-model', 'model', 4096, { assist: { moeOffload: 'cpu', kvCache: 'q8_0' }, onEvent });
+      await turn.finished;
+      expect(children[0]?.args).toContain('--cpu-moe');
+      expect(children[1]?.args).not.toContain('--cpu-moe');
+      expect(children[1]?.args).toContain('-ctk');
+      expect(children[1]?.args).not.toContain('--fit-target');
+      expect(onEvent.mock.calls.some(([kind, text]) => kind === 'system' && String(text).includes('MoE experts'))).toBe(true);
+    });
   });
 
   it('같은 모델의 문맥 설정을 바꾸면 다음 턴부터 새 크기로 다시 띄운다', async () => {

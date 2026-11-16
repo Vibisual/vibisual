@@ -977,6 +977,57 @@ export function dropCardEchoTexts(items: StreamItemFull[]): StreamItemFull[] {
   return out ?? items;
 }
 
+/** §5.5 #17-18 ⑦-8 — 카드 뒤를 훑을 때 항목의 역할. `stop` 을 만나면 더 따라가지 않는다(바닥 붙박이 방지). */
+export type CardSettleRole = 'card' | 'text' | 'skip' | 'stop';
+
+/**
+ * §5.5 #17-18 ⑦-8 — 카드를 보낸 **뒤** 이어 쓴 본문은 카드 위로 올리고 카드는 그 본문 아래에 선다.
+ * 본문·`skip`(자국·시스템 줄)만 이어지는 동안만 따라간다 — 도구·명령·다른 카드를 만나면 멈춘다.
+ * `sameOwner` 가 있으면 같은 주인의 본문만 넘는다(메인 탭은 세션이 섞인다). 옮길 게 없으면 입력 배열 그대로.
+ */
+export function settleCardsBelowTrailingText<T>(
+  items: T[],
+  roleOf: (item: T) => CardSettleRole,
+  sameOwner?: (card: T, text: T) => boolean,
+): T[] {
+  let out: T[] | null = null;
+  let i = 0;
+  while (i < items.length) {
+    if (roleOf(items[i]!) !== 'card') {
+      if (out) out.push(items[i]!);
+      i += 1;
+      continue;
+    }
+    let k = i;
+    while (k < items.length && roleOf(items[k]!) === 'card') k += 1;
+    let lastText = -1;
+    for (let j = k; j < items.length; j++) {
+      const role = roleOf(items[j]!);
+      if (role === 'skip') continue;
+      if (role === 'text' && (!sameOwner || sameOwner(items[i]!, items[j]!))) { lastText = j; continue; }
+      break;
+    }
+    if (lastText < 0) {
+      if (out) for (let c = i; c < k; c++) out.push(items[c]!);
+      i = k;
+      continue;
+    }
+    if (!out) out = items.slice(0, i);
+    for (let t = k; t <= lastText; t++) out.push(items[t]!);
+    for (let c = i; c < k; c++) out.push(items[c]!);
+    i = lastText + 1;
+  }
+  return out ?? items;
+}
+
+/** Sub 탭 항목의 역할(⑦-8). 목표 창 블록뿐인 본문은 화면에 없으니 건너뛴다. */
+function subCardSettleRole(it: StreamItemFull): CardSettleRole {
+  if (CARD_ECHO_HOST_KINDS.has(it.kind)) return 'card';
+  if (it.kind === 'text') return isInvisibleStreamText(it.content) ? 'skip' : 'text';
+  if (it.kind === 'step' || it.kind === 'system') return 'skip';
+  return 'stop';
+}
+
 /** §5.5 #17-18 ⑥-1·⑥-5 — 꼬리로 뺄 말풍선인가. `status` 가 아니라 앵커 값으로 본다 — `commandAnchorTs` 와 어긋나지 않게(재개 대기 명령은 제자리). */
 export function isPendingCommandItem(item: StreamItemFull): item is StreamCommand {
   return item.kind === 'command' && item.timestamp === PENDING_COMMAND_TS;
@@ -1171,7 +1222,8 @@ export function mergeCardsIntoItems(
 
   // §5.5 #17-18 ⑦-5 — 카드 바로 뒤에 붙는 "~카드로 보냈습니다" 한 줄은 화면에서 뺀다(카드가 이미 하는 말).
   //   정렬 **뒤**에 걷는 이유: "바로 앞이 카드"라는 자리 조건은 시간순으로 놓인 뒤에야 성립한다.
-  const visible = dropCardEchoTexts(items);
+  // ⑦-8 — 그다음 카드 뒤에 이어 쓴 결론을 카드 위로(걷은 뒤라야 발송 보고 한 줄이 카드 위로 올라오지 않는다).
+  const visible = settleCardsBelowTrailingText(dropCardEchoTexts(items), subCardSettleRole);
 
   // 라이브 1줄 — 정렬에 참여시키지 않고 항상 맨 끝.
   // §5.5 #17-15 — 활성 thinking 블록이 인디케이터를 겸하던 중복 회피는 사라졌다(블록 자체가 없다).

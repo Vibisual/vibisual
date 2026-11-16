@@ -29,7 +29,7 @@ export function UnsavedChangesDialog({ open, onKeepEditing, onDiscard }: Unsaved
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60" {...backdrop}>
+    <div className="fixed inset-0 z-dialog-over flex items-center justify-center bg-black/60" {...backdrop}>
       <div className="w-[clamp(20rem,32vw,26rem)] overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
         <div className="flex items-center gap-2 border-b border-gray-800 px-5 py-3">
           <svg className="h-4 w-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

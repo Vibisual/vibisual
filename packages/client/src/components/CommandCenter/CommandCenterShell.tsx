@@ -232,7 +232,7 @@ function CommandCenterTitleBar({
         {pickerOpen && (
           <div
             ref={pickerListRef}
-            className="fixed z-40 max-h-[60vh] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-md border border-white/10 bg-gray-900 py-1 shadow-lg shadow-black/60"
+            className="fixed z-menu max-h-[60vh] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-md border border-white/10 bg-gray-900 py-1 shadow-lg shadow-black/60"
           >
             <button
               type="button"

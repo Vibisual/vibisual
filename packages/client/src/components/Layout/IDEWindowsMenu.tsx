@@ -30,7 +30,7 @@ import {
 } from '../../utils/sessionStatus.js';
 import { resolveAgentRunSummary, type AgentRunSummary } from './headerAgentCounts.js';
 
-// §5.5 #17-1 — 도크가 화면을 채워도 늘 닿는 헤더(`z-[100]`)에 새 창·에이전트 설정 입구를 모은다. 목록은 캔버스와 같은 `selectCanvasAgentBubbles`.
+// §5.5 #17-1 — 도크가 화면을 채워도 늘 닿는 헤더(`z-header`)에 새 창·에이전트 설정 입구를 모은다. 목록은 캔버스와 같은 `selectCanvasAgentBubbles`.
 // 입구는 하나 — 에이전트 배지가 트리거이고 지휘통제실은 맨 아래 항목(§5.12 (A) ②). 배지가 없어도 버블 잃은 창이 남으면 창 아이콘 트리거가 선다(닫을 자리).
 
 const EMPTY_AGENTS: BubbleData[] = [];
@@ -341,7 +341,7 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
         // 자리(left/top)는 위 `useAnchoredMenuPlacement` 가 잰다 — DOM 은 여기 남아 바깥 누름 판정이 그대로다.
         <div
           ref={dropdownRef}
-          className="fixed z-50 max-h-[70vh] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-white/[0.08] bg-gray-900/95 p-1 shadow-2xl backdrop-blur-xl scrollbar-thin"
+          className="fixed z-menu max-h-[70vh] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-white/[0.08] bg-gray-900/95 p-1 shadow-2xl backdrop-blur-xl scrollbar-thin"
         >
           <div className="px-2 py-1 text-[12px] font-semibold uppercase tracking-wide text-gray-500">
             {t('header.ideWindows.sectionTitle')}

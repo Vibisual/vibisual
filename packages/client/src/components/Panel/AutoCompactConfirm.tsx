@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AUTOCOMPACT_COST_SAMPLE } from '@vibisual/shared';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { LayerRoot } from '../Layout/LayerRoot.js';
 
 /**
  * §4 — 압축을 켜기 전 확인. `/compact` 는 별도 모델 호출이라 접을 때마다 토큰을 쓴다 — 기본 꺼짐(`DEFAULT_AUTOCOMPACT`).
@@ -53,8 +54,8 @@ export function AutoCompactConfirm({
   const isSelf = kind === 'agentSelf';
 
   return (
-    <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4"
+    <LayerRoot
+      className="fixed inset-0 z-dialog-over flex items-center justify-center bg-black/60 p-4"
       // `stopPropagation` 을 먼저 — 뒤 창의 백드롭까지 같은 클릭으로 닫히지 않게. 닫기 판정은 `useBackdropDismiss`(카드 안에서 시작한 드래그 ❌).
       onMouseDown={(e) => { e.stopPropagation(); backdrop.onMouseDown(e); }}
       onClick={(e) => { e.stopPropagation(); backdrop.onClick(e); }}
@@ -139,6 +140,6 @@ export function AutoCompactConfirm({
           </button>
         </div>
       </div>
-    </div>
+    </LayerRoot>
   );
 }

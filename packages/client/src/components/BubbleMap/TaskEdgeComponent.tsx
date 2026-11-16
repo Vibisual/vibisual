@@ -2,14 +2,15 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BaseEdge, EdgeLabelRenderer, useInternalNode, type EdgeProps, type InternalNode } from '@xyflow/react';
 import type { TaskEdgeStatus, TaskEdgeKind } from '@vibisual/shared';
-import { TASK_EDGE_STYLES, TASK_EDGE_KIND_STYLES, TASK_EDGE_DEFAULTS, LINK_FOCUS, resolveBubbleEdgeStyle } from '@vibisual/shared';
+import { AGENT_CARD, TASK_EDGE_STYLES, TASK_EDGE_KIND_STYLES, TASK_EDGE_DEFAULTS, LINK_FOCUS, resolveBubbleEdgeStyle } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useAgentCardTucked } from '../../stores/agentCardTuck.js';
 import { useLinkEdgeRole, useLinkFocusPhase } from '../../stores/linkFocus.js';
 import { linkFocusEdgeStyle } from './linkedBubbles.js';
 import { computeTaskEdgePath, readRadiusFromData } from './taskEdgePath.js';
 import { clipCurvePath } from './edgeOcclusion.js';
 import { useEdgeOccluders } from './edgeOccluders.js';
-import { isRectNode, nodeBorderDistance } from './agentCard.js';
+import { isRectNode, nodeBorderDistance, tuckedCardCenter } from './agentCard.js';
 import { bubbleEdgeAppearance, bubbleEdgeMarkerStyle } from './bubbleEdgeAppearance.js';
 
 /** §5.4 #36 (A) — 끝 노드가 말풍선이면 그 방향 실루엣까지 거리, 아니면 null. 원 반지름으로 재면 위임 화살이 말풍선 안에 묻힌다. */
@@ -18,6 +19,13 @@ function rectReach(node: InternalNode | undefined, nx: number, ny: number): numb
   const h = node?.measured?.height;
   if (typeof w !== 'number' || typeof h !== 'number' || !isRectNode(w, h)) return null;
   return nodeBorderDistance(w, h, nx, ny);
+}
+
+/** §5.4 #36 (A) — 말풍선이 원 안에 들어가 있으면 이 끝은 원 중심이다(핸들은 상자 가운데, 지금은 빈 자리). 아니면 null. */
+function tuckedEnd(node: InternalNode | undefined, tucked: boolean): { x: number; y: number } | null {
+  if (!tucked || !node) return null;
+  const { x, y } = node.internals.positionAbsolute;
+  return tuckedCardCenter(x, y);
 }
 
 /** path 를 따라 3회 날아가는 펄스 아이콘의 종류. */
@@ -97,13 +105,19 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
   // §5.4 #36 (A) — 끝이 말풍선이면 반지름 대신 그 방향의 실루엣까지 거리(버블이면 data 의 반지름 그대로).
   const sourceNode = useInternalNode(source);
   const targetNode = useInternalNode(target);
-  const centerDx = targetX - sourceX;
-  const centerDy = targetY - sourceY;
+  const sourceEnd = tuckedEnd(sourceNode, useAgentCardTucked(source));
+  const targetEnd = tuckedEnd(targetNode, useAgentCardTucked(target));
+  const fromX = sourceEnd?.x ?? sourceX;
+  const fromY = sourceEnd?.y ?? sourceY;
+  const toX = targetEnd?.x ?? targetX;
+  const toY = targetEnd?.y ?? targetY;
+  const centerDx = toX - fromX;
+  const centerDy = toY - fromY;
   const centerDist = Math.sqrt(centerDx * centerDx + centerDy * centerDy) || 1;
-  const sourceRadius = rectReach(sourceNode, centerDx / centerDist, centerDy / centerDist)
-    ?? readRadiusFromData(edgeData, 'sourceRadius');
-  const targetRadius = rectReach(targetNode, -centerDx / centerDist, -centerDy / centerDist)
-    ?? readRadiusFromData(edgeData, 'targetRadius');
+  const sourceRadius = sourceEnd ? AGENT_CARD.orbitRadius
+    : rectReach(sourceNode, centerDx / centerDist, centerDy / centerDist) ?? readRadiusFromData(edgeData, 'sourceRadius');
+  const targetRadius = targetEnd ? AGENT_CARD.orbitRadius
+    : rectReach(targetNode, -centerDx / centerDist, -centerDy / centerDist) ?? readRadiusFromData(edgeData, 'targetRadius');
   // 같은 source/target 쌍의 평행 엣지 분산 오프셋 (BubbleMap 에서 주입)
   const parallelOffset = typeof edgeData?.['parallelOffset'] === 'number'
     ? (edgeData['parallelOffset'] as number)
@@ -122,7 +136,7 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
   const iconColor = lineColor;
 
   const { path, curve, labelX, labelY } = computeTaskEdgePath({
-    sourceX, sourceY, targetX, targetY, sourceRadius, targetRadius,
+    sourceX: fromX, sourceY: fromY, targetX: toX, targetY: toY, sourceRadius, targetRadius,
     offset: parallelOffset,
     targetAngularOffset,
   });

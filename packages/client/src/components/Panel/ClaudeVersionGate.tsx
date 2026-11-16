@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
-const Z = 100_500;
+const Z = Z_LAYER.GATE;
 
 const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code';
 

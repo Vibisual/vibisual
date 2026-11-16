@@ -1,11 +1,11 @@
-// Agent Lab and Script Shelf on a new profile, outside debug mode: both are on the canvas menu, open their panels,
-// a shelf shell row runs in the project on every OS, edits survive closing the panel, and both come back after a restart.
+// Agent Lab and Script Shelf on a new profile, which only debug mode exposes: both are on the canvas menu there, open
+// their panels, a shelf shell row runs in the project on every OS, edits survive closing the panel, and both come back after a restart.
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ElectronApplication, Page } from 'playwright-core';
 import { createSandbox, launch, mainWindow, quit, waitForReveal, type Sandbox } from './harness';
-import { bubble, canvasMenu, firstRunToProject, until, visible } from './flows';
+import { bubble, canvasMenu, canvasMenuRowCount, firstRunToProject, toggleDebugMode, until, visible } from './flows';
 
 const s: Sandbox = createSandbox('first-command.json');
 const artifacts = process.env.VIBISUAL_E2E_ARTIFACTS ? path.join(path.resolve(process.env.VIBISUAL_E2E_ARTIFACTS), 'lab-shelf') : path.join(s.root, 'artifacts');
@@ -43,25 +43,24 @@ const LAB_AT = { x: 160, y: 140 };
 const shelfAt = async (p: Page) => ({ x: (await p.locator('main .react-flow__pane').boundingBox())!.width - 300, y: 140 });
 const labTask = (p: Page) => p.getByPlaceholder(/^Write the job once/);
 const shelfPanel = (p: Page) => p.locator('div.fixed').filter({ has: p.getByRole('button', { name: '+ Shell command' }) }).first();
-/** The play bubble stays debug-only, so its absence on the same menu proves these runs are outside debug mode. */
-const playRow = (p: Page) => p.locator('button').filter({ hasText: /^Play bubble/ });
 
 async function createFromMenu(p: Page, at: { x: number; y: number }, row: RegExp, nodeClass: string): Promise<string> {
   const item = await canvasMenu(p, at, row);
-  expect(await playRow(p).count()).toBe(0);
   const before = await p.locator(nodeClass).count();
   await item.click();
   await until(`${nodeClass} appears`, async () => (await p.locator(nodeClass).count()) > before, 20_000);
   return (await p.locator(nodeClass).last().getAttribute('data-id'))!;
 }
 
-describe('agent lab and script shelf without debug mode', () => {
-  it('lab: on the canvas menu, makes a bubble, and its panel keeps the task', async () => {
+describe('agent lab and script shelf in debug mode', () => {
+  it('lab: on the canvas menu only in debug mode, makes a bubble, and its panel keeps the task', async () => {
     app = await launch(s);
     page = await mainWindow(app);
     expect(['ready', 'settle-cap']).toContain(await waitForReveal(s));
     await firstRunToProject(app, page, s);
     const p = page;
+    expect(await canvasMenuRowCount(p, LAB_AT, /^(Agent Lab|Script shelf)/)).toBe(0);
+    await toggleDebugMode(p, LAB_AT);
     labId = await createFromMenu(p, LAB_AT, /^Agent Lab/, '.react-flow__node-labNode');
     // Canvas bubbles keep gliding (physics), so Playwright's stability wait never settles — press where it is now.
     await bubble(p, labId).dblclick({ force: true });
@@ -104,15 +103,20 @@ describe('agent lab and script shelf without debug mode', () => {
     await snapshot('03-shelf-canvas');
   });
 
-  it('relaunch: both bubbles come back outside debug mode, with what was typed', async () => {
+  it('relaunch: both bubbles come back in debug mode with what was typed, and hide again outside it', async () => {
     await quit(app!);
     app = await launch(s);
     page = await mainWindow(app);
     expect(['ready', 'settle-cap']).toContain(await waitForReveal(s));
     const p = page;
     await visible(p.locator(`[data-tab-key="p:${path.basename(s.project)}"]`), 30_000);
+    await toggleDebugMode(p, LAB_AT);
     await visible(bubble(p, labId), 30_000);
     await visible(bubble(p, shelfId).getByText(SHELF_LABEL, { exact: true }), 30_000);
+    await p.keyboard.press('Backquote');
+    await until('placed bubbles hide outside debug mode', async () => (await bubble(p, labId).count()) === 0 && (await bubble(p, shelfId).count()) === 0, 10_000);
+    await p.keyboard.press('Backquote');
+    await visible(bubble(p, labId), 10_000);
     await bubble(p, labId).dblclick({ force: true });
     await visible(labTask(p));
     expect(await labTask(p).inputValue()).toBe(LAB_TASK);

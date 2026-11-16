@@ -7,8 +7,8 @@ import { VIDEO_MAX_ITEMS, VIDEO_SCHEMA_VERSION } from './constants.js';
 import { validVideoRequirements } from './requestReview.js';
 import type { TimeAnchor, VideoDoc, VideoItemKind, VideoTrackKind } from './types.js';
 
-const TRACK_KINDS: readonly VideoTrackKind[] = ['visual', 'audio', 'caption'];
-const ITEM_KINDS: readonly VideoItemKind[] = [
+export const TRACK_KINDS: readonly VideoTrackKind[] = ['visual', 'audio', 'caption'];
+export const ITEM_KINDS: readonly VideoItemKind[] = [
   'scene',
   'footage',
   'image',
@@ -37,7 +37,7 @@ function isFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
-function isTimeAnchor(v: unknown): v is TimeAnchor {
+export function isTimeAnchor(v: unknown): v is TimeAnchor {
   if (isFiniteNumber(v)) return true;
   if (!isRecord(v)) return false;
   const hasAfter = isNonEmptyString(v['after']);
@@ -52,8 +52,9 @@ function isTimeAnchor(v: unknown): v is TimeAnchor {
   return offset === undefined || isFiniteNumber(offset);
 }
 
-const CHAPTER_STATUSES = ['plan', 'approved', 'building', 'done'];
-const TRANSITION_KINDS = ['cut', 'dissolve', 'push', 'zoom', 'flash', 'wipe'];
+export const CHAPTER_STATUSES = ['plan', 'approved', 'building', 'done'];
+export const TRANSITION_KINDS = ['cut', 'dissolve', 'push', 'zoom', 'flash', 'wipe', 'iris', 'blur', 'curtain'];
+export const TRANSITION_DIRECTIONS = ['left', 'right', 'up', 'down'];
 
 /** §5.13 (V) 37-4 — 장면 층의 모양. 없으면(옛 문서) 그대로 통과. */
 function validateChapters(value: unknown, errors: string[]): void {
@@ -82,6 +83,8 @@ function validateChapters(value: unknown, errors: string[]): void {
     const tr = chapter['transition'];
     if (tr !== undefined && (!isRecord(tr) || !TRANSITION_KINDS.includes(String(tr['kind'])) || !isFiniteNumber(tr['duration']))) {
       errors.push(`${where} 의 transition 이 { kind, duration } 형태가 아닙니다.`);
+    } else if (isRecord(tr) && tr['direction'] !== undefined && !TRANSITION_DIRECTIONS.includes(String(tr['direction']))) {
+      errors.push(`${where} 의 transition.direction '${String(tr['direction'])}' 는 알 수 없는 값입니다.`);
     }
     const variants = chapter['variants'];
     if (variants !== undefined && (!Array.isArray(variants) || variants.some((v) => !isRecord(v) || !isNonEmptyString(v['id'])))) {
@@ -96,7 +99,7 @@ function validateChapters(value: unknown, errors: string[]): void {
 }
 
 const KEYFRAME_NUMBERS = ['dx', 'dy', 'scale', 'rotation', 'opacity'];
-const KEYFRAME_EASES = ['linear', 'in', 'out', 'inOut', 'hold'];
+export const KEYFRAME_EASES = ['linear', 'in', 'out', 'inOut', 'hold'];
 
 /** §5.13 (W) 38-4·38-5 — 키프레임·이펙트의 모양(값의 범위는 렌더가 자른다). 틀린 곳마다 한 줄. */
 function validateItemMotion(item: Record<string, unknown>, where: string, errors: string[]): void {

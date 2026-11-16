@@ -60,10 +60,10 @@ describe('mergeCardsIntoItems — 카드는 자기를 보낸 도구 줄 아래�
 
   it('클로드: 도구 시작 줄이 이미 카드 앞이면 순서는 그대로다', () => {
     const out = mergeCardsIntoItems(
-      base([text('t0', '결론', 80), tool('x1', 90, REVIEW_CURL, okBody('rv1')), text('t1', '다음 턴 본문', 200)]),
+      base([text('t0', '결론', 80), tool('x1', 90, REVIEW_CURL, okBody('rv1')), tool('x2', 200, 'ls')]),
       undefined, undefined, undefined, [review('rv1', 100)], undefined, undefined,
     );
-    expect(ids(out)).toEqual(['t0', 'x1', 'review-rv1', 't1']);
+    expect(ids(out)).toEqual(['t0', 'x1', 'review-rv1', 'x2']);
   });
 
   it('옮겨도 카드의 시각은 그대로다(표시 순서만 바뀐다)', () => {

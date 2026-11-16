@@ -1,8 +1,8 @@
-Vibisual
+Vibisual — Visual Development Environment for AI coding agents
 Copyright 2026 길근오
 
 This product includes software developed by the Vibisual project
-(https://github.com/Vibisual/vibisual).
+(https://vibisual.pro, https://github.com/Vibisual/vibisual).
 
 ------------------------------------------------------------------------
 Authorship Notice
@@ -46,6 +46,10 @@ For trademark licensing inquiries, contact the copyright holder (길근오).
 ------------------------------------------------------------------------
 Third-Party Notices
 ------------------------------------------------------------------------
+
+fflate 0.8.3 is distributed under the MIT License.
+Copyright (c) 2026 Arjun Barrett. The complete license is included in
+resources/legal/fflate.LICENSE in packaged builds.
 
 This software incorporates open-source components. See the LICENSE
 files distributed with the respective dependencies for their terms.

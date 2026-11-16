@@ -9,6 +9,9 @@ import { shortcutLabel } from '../../utils/platform.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
 import { resolveAnchorIdFromSelection } from './bookmarkScroll.js';
 import { SessionMemoCard, type MemoSaveWhen, type MemoTextMenuRequest } from './SessionMemoCard.js';
+import { useCanvasMemoReturnAvailable } from './useCanvasMemoReturnAvailable.js';
+import { CanvasMemoBubble } from './CanvasMemoBubble.js';
+import { canvasMemoDestination, postCanvasMemo, type CanvasMemoDestination, type CanvasMemoExit } from './canvasMemoTransfer.js';
 import { SessionMemoHistory } from './SessionMemoHistory.js';
 import { MEMO_LINK_POPUP_Z } from './MemoLinkBubble.js';
 import { MemoLinkFileEditor, MemoLinkUrlEditor } from './MemoLinkEditors.js';
@@ -71,6 +74,8 @@ const PICK_MISS_MS = 1800;
 
 interface SessionMemoLayerProps {
   agentId: string;
+  canvas?: { project: string; folderId: string | null; scale: number };
+  canvasLinkHost?: (memo: SessionMemo) => MemoLinkHost | null;
   /** 세션 탭이면 그 sub id, 메인 탭이면 null. */
   sessionId: string | null;
   /** 메모가 놓이는 판 — 좌표는 이 요소의 좌상단 기준이다. */
@@ -128,16 +133,21 @@ function isControl(el: Element): boolean {
 }
 
 function SessionMemoLayerImpl({
-  agentId, sessionId, containerRef, spawnAt, onSpawnConsumed, spreadRequest, onSpreadConsumed, linkHost = null,
+  agentId, sessionId, containerRef, spawnAt, onSpawnConsumed, spreadRequest, onSpreadConsumed, linkHost = null, canvas, canvasLinkHost,
 }: SessionMemoLayerProps): React.JSX.Element {
   const { t } = useTranslation();
   const serverMemos = useGraphStore((s) => (
-    sessionId
+    canvas ? s.canvasMemos[canvas.project] : sessionId
       ? s.subAgents[agentId]?.find((x) => x.id === sessionId)?.memos
       : s.agentMemos[agentId]
   ));
 
   /** 낙관 표시 — null 이면 서버 값을 그대로 본다. */
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const [cardMenu, setCardMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const writeVersion = useRef(0);
   const [draft, setDraft] = useState<SessionMemo[] | null>(null);
   /** 마지막으로 서버가 확인해 준 목록의 직렬화본. 이 값과 같아지면 낙관 표시를 놓아준다. */
   const pushedRef = useRef<string | null>(null);
@@ -147,6 +157,7 @@ function SessionMemoLayerImpl({
 
   // ⑫ 링크 — 메뉴·창·고르기 모드.
   const [linkMenu, setLinkMenu] = useState<LinkMenuState | null>(null);
+  const returnAvailable = useCanvasMemoReturnAvailable(canvas?.project ?? null, cardMenu?.id ?? linkMenu?.memoId ?? null);
   const [linkEditor, setLinkEditor] = useState<LinkEditorState | null>(null);
   const [pick, setPick] = useState<PickState | null>(null);
   const pickRef = useRef(pick);
@@ -164,12 +175,12 @@ function SessionMemoLayerImpl({
   memosRef.current = memos;
   const closedMemosRef = useRef(EMPTY_MEMOS);
   const closedMemos = useMemo(() => {
-    const next = closedSessionMemos(memos);
+    const next = closedSessionMemos(memos).filter((m) => !canvas || m.canvas?.folderId === canvas.folderId);
     const prev = closedMemosRef.current;
     if (next.length === prev.length && next.every((m, i) => m === prev[i])) return prev;
     closedMemosRef.current = next;
     return next;
-  }, [memos]);
+  }, [memos, canvas?.folderId]);
   const serverJson = useMemo(() => JSON.stringify(serverMemos ?? []), [serverMemos]);
 
   // 서버가 우리가 올린 그 값이 되면 낙관 표시를 놓아준다(= 다른 창의 변경도 그때부터 따라간다).
@@ -186,7 +197,11 @@ function SessionMemoLayerImpl({
     setLinkMenu(null);
     setLinkEditor(null);
     setPick(null);
-  }, [agentId, sessionId]);
+    setCardMenu(null);
+    setSaveFailed(false);
+    writeVersion.current++;
+    busyRef.current = false; setBusy(false);
+  }, [agentId, sessionId, canvas?.project]);
 
   // 판 크기 추적 — 창을 좁히면 메모를 판 안으로 되돌려 그린다.
   //   ⚠ 값이 같으면 **상태를 갈지 않는다**. contentRect 는 소수라 리사이즈 중 같은 픽셀에서도
@@ -212,7 +227,16 @@ function SessionMemoLayerImpl({
 
   const push = useCallback((next: SessionMemo[], immediate: boolean) => {
     if (pushTimer.current) clearTimeout(pushTimer.current);
+    const version = ++writeVersion.current;
     const send = (): void => {
+      if (canvas) {
+        void postCanvasMemo('save', { project: canvas.project, memos: next }).then((saved) => {
+          if (version !== writeVersion.current) return;
+          setSaveFailed(saved === null);
+          if (saved) pushedRef.current = JSON.stringify(saved);
+        });
+        return;
+      }
       void fetch('/api/session-memos', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -221,15 +245,16 @@ function SessionMemoLayerImpl({
         .then((r) => r.json() as Promise<{ ok?: boolean; memos?: SessionMemo[] }>)
         // 서버가 정화한 판본을 기준으로 삼는다 — 우리가 보낸 원본과 한 글자라도 다르면
         //   비교가 영영 안 맞아 낙관 표시를 놓아주지 못한다.
-        .then((data) => { if (data?.memos) pushedRef.current = JSON.stringify(data.memos); })
+        .then((data) => { if (version === writeVersion.current && data?.memos) pushedRef.current = JSON.stringify(data.memos); })
         .catch(() => { pushedRef.current = null; /* 실패 — 낙관 표시를 계속 들고 있는다 */ });
     };
     if (immediate) send();
     else pushTimer.current = setTimeout(send, PUSH_DEBOUNCE_MS);
-  }, [agentId, sessionId]);
+  }, [agentId, sessionId, canvas?.project]);
 
   /** 화면을 먼저 바꾸고(낙관) 저장을 예약한다. `immediate` 면 지금 올린다. */
   const commit = useCallback((next: SessionMemo[], immediate = false) => {
+    if (busyRef.current) return;
     memosRef.current = next;
     setDraft(next);
     // 새 편집이 들어왔으므로 직전 확인 표식은 무효 — 한 박자 전 값과 같아진 순간 되감기는 것을 막는다.
@@ -239,10 +264,13 @@ function SessionMemoLayerImpl({
 
   // 화면 편집은 열린 장만 넘긴다. 보관 중인 장은 모든 저장에 함께 실어 지워지지 않게 한다.
   const apply = useCallback((next: SessionMemo[], immediate = false) => {
-    commit([...next, ...memosRef.current.filter((m) => m.closedAt !== undefined)], immediate);
-  }, [commit]);
+    commit([...next, ...memosRef.current.filter((m) => m.closedAt !== undefined || (canvas && m.canvas?.folderId !== canvas.folderId))], immediate);
+  }, [commit, canvas?.folderId]);
 
-  const shown = useMemo(() => clampMemos(openSessionMemos(memos), bounds), [memos, bounds]);
+  const cardBounds = useMemo<MemoBounds>(() => canvas
+    ? { w: SESSION_MEMO.MAX_COORD, h: SESSION_MEMO.MAX_COORD, unbounded: true, scale: canvas.scale }
+    : bounds, [bounds, canvas?.scale, canvas?.project]);
+  const shown = useMemo(() => clampMemos(openSessionMemos(memos).filter((m) => !canvas || m.canvas?.folderId === canvas.folderId), cardBounds), [memos, cardBounds, canvas?.folderId]);
   // 핸들러가 의존성 없이 현재 목록을 읽는 창구 — 이것이 카드 `memo()` 를 살린다(위 ⚠ 참고).
   const shownRef = useRef(shown);
   shownRef.current = shown;
@@ -285,9 +313,9 @@ function SessionMemoLayerImpl({
   /** 겹침 배지 — 이 장이 덮고 있는 것 중 바로 밑장을 위로. 자리는 그대로, 순서만 바뀐다. */
   const handleRaiseUnder = useCallback((id: string) => {
     const cur = shownRef.current;
-    const next = raiseNextUnder(cur, id);
+    const next = raiseNextUnder(cur, id, canvas?.scale);
     if (next !== cur) apply(next, true);
-  }, [apply]);
+  }, [apply, canvas?.scale]);
 
   // [겹친 메모 펼치기] — 판 크기를 아는 곳이 여기뿐이라 이 층이 수행한다.
   //   목록을 의존성에 넣지 않는 이유는 생성(spawnAt)과 같다 — 스냅샷마다 재실행되면 안 된다.
@@ -302,7 +330,7 @@ function SessionMemoLayerImpl({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spreadRequest]);
 
-  const underCounts = useMemo(() => stackedUnderCounts(shown), [shown]);
+  const underCounts = useMemo(() => stackedUnderCounts(shown, canvas?.scale), [shown, canvas?.scale]);
 
   /** 합쳐진 것끼리 묶어 **카드 목록**으로 — 화면은 장이 아니라 카드를 그린다. */
   const cards = useMemo(() => memoCards(shown), [shown]);
@@ -325,9 +353,9 @@ function SessionMemoLayerImpl({
     const el = containerRef.current;
     if (!el) return; // 판을 모르면 어디에 놓을지도 모른다 — 엉뚱한 자리로 떨어뜨리지 않는다.
     const cur = shownRef.current;
-    const next = detachMemo(cur, id, at, { w: el.clientWidth, h: el.clientHeight });
+    const next = detachMemo(cur, id, at, cardBounds);
     if (next !== cur) apply(next, true);
-  }, [apply, containerRef]);
+  }, [apply, containerRef, cardBounds]);
 
   const handleDelete = useCallback((id: string) => {
     const cur = memosRef.current;
@@ -346,11 +374,84 @@ function SessionMemoLayerImpl({
     const el = containerRef.current;
     if (!el) return;
     const cur = memosRef.current;
-    const next = restoreMemo(cur, id, { w: el.clientWidth, h: el.clientHeight });
+    const next = restoreMemo(cur, id, cardBounds);
     if (next === cur) return;
     setAutoFocusId(id);
     commit(next, true);
-  }, [commit, containerRef]);
+  }, [commit, containerRef, cardBounds]);
+
+  const findCanvasDestination = useCallback((pointer: { x: number; y: number }, position: { x: number; y: number }, exit?: CanvasMemoExit): CanvasMemoDestination | null => {
+    if (canvas) return null;
+    const destination = canvasMemoDestination(pointer, position, exit);
+    const project = useGraphStore.getState().agentProjects[agentId];
+    return destination?.project === project ? destination : null;
+  }, [canvas?.project, agentId]);
+
+  const handleCanvasDrop = useCallback((id: string, wholeCard: boolean, pointer: { x: number; y: number }, position: { x: number; y: number }, exit?: CanvasMemoExit): boolean => {
+    if (canvas) return false;
+    if (busyRef.current) return true;
+    const destination = findCanvasDestination(pointer, position, exit);
+    if (!destination) return false;
+    const moving = shownRef.current.find((m) => m.id === id);
+    if (!moving) return false;
+    // 좁은 세션에서 화면에 맞춰진 크기도 함께 옮긴다. 다른 장의 저장 크기는 유지한다.
+    const transferMemos = memosRef.current.map((m) => {
+      if (m.id !== id && !(wholeCard && moving.groupId && m.groupId === moving.groupId)) return m;
+      const next = { ...m, w: moving.w, h: moving.h };
+      // 탭 한 장의 표시 크기가 서버의 묶음 정화에서 남은 장으로 전파되지 않게 한다.
+      if (!wholeCard) { delete next.groupId; delete next.groupActive; }
+      return next;
+    });
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    const version = ++writeVersion.current;
+    busyRef.current = true; setBusy(true);
+    void postCanvasMemo('move', { agentId, subAgentId: sessionId, memoId: id, wholeCard,
+      memos: transferMemos, x: destination.x, y: destination.y, folderId: destination.folderId }).then((remaining) => {
+      if (version !== writeVersion.current) return;
+      busyRef.current = false; setBusy(false);
+      setSaveFailed(remaining === null);
+      if (!remaining) return;
+      memosRef.current = remaining;
+      pushedRef.current = JSON.stringify(remaining);
+      setDraft(remaining);
+    });
+    return true;
+  }, [canvas?.project, agentId, sessionId, findCanvasDestination]);
+
+  const handleCardMenu = useCallback((id: string, at: { x: number; y: number }): void => setCardMenu({ id, ...at }), []);
+  const canvasAction = useCallback((action: 'return' | 'delete', id: string): void => {
+    if (!canvas || busyRef.current) return;
+    busyRef.current = true; setBusy(true);
+    setCardMenu(null);
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    const version = ++writeVersion.current;
+    void (async (): Promise<void> => {
+      const saved = await postCanvasMemo('save', { project: canvas.project, memos: memosRef.current });
+      const next = saved && await postCanvasMemo(action, { project: canvas.project, memoId: id });
+      if (version !== writeVersion.current) return;
+      busyRef.current = false; setBusy(false);
+      setSaveFailed(!next);
+      if (next) { memosRef.current = next; pushedRef.current = JSON.stringify(next); setDraft(next); }
+    })();
+  }, [canvas?.project]);
+  const deleteBubble = useCallback((id: string): void => canvasAction('delete', id), [canvasAction]);
+  const moveBubble = useCallback((id: string, x: number, y: number): void => {
+    commit(patchMemo(memosRef.current, id, { x, y }), true);
+  }, [commit]);
+  const canvasMenuItems = useCallback((id: string): ContextMenuItem[] => {
+    const memo = memosRef.current.find((m) => m.id === id);
+    const home = memo?.canvas;
+    if (!home) return [];
+    const store = useGraphStore.getState();
+    const canReturn = returnAvailable ?? (store.agents.some((a) => a.id === home.agentId && !a.trashed)
+      && (!home.subAgentId || store.subAgents[home.agentId]?.some((sub) => sub.id === home.subAgentId)));
+    return [
+      ...(canReturn ? [{ label: t('ide.memo.returnToSession'), onClick: () => canvasAction('return', id) }] : []),
+      memo?.closedAt !== undefined
+        ? { label: t('ide.memo.deleteForever'), onClick: () => deleteBubble(id) }
+        : { label: t('ide.memo.close'), onClick: () => handleDelete(id) },
+    ];
+  }, [canvasAction, deleteBubble, handleDelete, returnAvailable, t]);
 
   // ─── ⑫ 링크 ───
 
@@ -412,8 +513,9 @@ function SessionMemoLayerImpl({
    * 대화로 갔으면 그 자리의 글이 골라져 있는데 캐럿이 메모에 남아 있으면 이어 친 글자가 메모로 간다.
    */
   const handleLinkFollow = useCallback(async (id: string, linkId: string): Promise<boolean> => {
-    const host = hostRef.current;
-    const link = shownRef.current.find((m) => m.id === id)?.links?.find((l) => l.id === linkId);
+    const memo = shownRef.current.find((m) => m.id === id);
+    const host = memo && canvasLinkHost ? canvasLinkHost(memo) : hostRef.current;
+    const link = memo?.links?.find((l) => l.id === linkId);
     if (!host || !link) return false;
     let ok = false;
     try {
@@ -427,7 +529,7 @@ function SessionMemoLayerImpl({
       if (active instanceof HTMLTextAreaElement && active.closest('[data-session-memo]')) active.blur();
     }
     return ok;
-  }, []);
+  }, [canvasLinkHost]);
 
   const closeLinkMenu = useCallback(() => setLinkMenu(null), []);
   const closeLinkEditor = useCallback(() => setLinkEditor(null), []);
@@ -466,14 +568,14 @@ function SessionMemoLayerImpl({
     if (!linkMenu) return [];
     const memo = shownRef.current.find((m) => m.id === linkMenu.memoId);
     if (!memo) return [];
-    const host = hostRef.current;
+    const host = canvasLinkHost ? canvasLinkHost(memo) : hostRef.current;
     const at = { x: linkMenu.x, y: linkMenu.y };
     const kindItems = (range: TextRange, linkId?: string): ContextMenuItem[] => (host
       ? buildMemoLinkKindItems(
         { prompts: host.prompts(), sessions: host.sessions(), formatTime: host.formatTime },
         kindHandlers(memo, range, linkId, at),
         t,
-      )
+      ).filter((item) => !canvas || item.id !== 'link-kind-stream')
       : []);
 
     if (linkMenu.kind === 'repick') {
@@ -487,7 +589,8 @@ function SessionMemoLayerImpl({
       createTextFieldActions(el, sel),
       t,
     );
-    if (!host) return textItems;
+    const canvasItems = canvas ? canvasMenuItems(memo.id) : [];
+    if (!host) return [...textItems, ...canvasItems];
     const start = sel.start ?? 0;
     const end = sel.end ?? start;
     const link = linkForMenu(memo.links, memo.text, start, end) ?? null;
@@ -507,8 +610,8 @@ function SessionMemoLayerImpl({
       },
       t,
     );
-    return [...textItems, ...linkItems];
-  }, [linkMenu, t, kindHandlers, handleLinkFollow, handleLinkRemove]);
+    return [...textItems, ...linkItems, ...canvasItems];
+  }, [linkMenu, t, kindHandlers, handleLinkFollow, handleLinkRemove, canvas?.project, canvasMenuItems, canvasLinkHost]);
 
   // 고르기 모드 중에 그 장의 본문이 바뀌면(옆에서 쳤다) 걸릴 범위도 따라 옮긴다 — 점선이 엉뚱한 글자에 남지 않게.
   //   장이 사라졌거나 그 글자가 지워졌으면 모드를 접는다.
@@ -639,8 +742,12 @@ function SessionMemoLayerImpl({
         <SessionMemoCard
           key={card.key}
           memo={card.active}
+          interactionDisabled={busy}
           tabs={card.members}
-          bounds={bounds}
+          bounds={cardBounds}
+          onCanvasTarget={canvas ? undefined : findCanvasDestination}
+          onCanvasDrop={canvas ? undefined : handleCanvasDrop}
+          onCardMenu={canvas ? handleCardMenu : undefined}
           zIndex={card.zIndex}
           stackedUnder={underCounts.get(card.active.id) ?? 0}
           autoFocus={card.active.id === autoFocusId}
@@ -648,13 +755,13 @@ function SessionMemoLayerImpl({
           onRaise={handleRaise}
           onRaiseUnder={handleRaiseUnder}
           onDelete={handleDelete}
-          closedMemos={closedMemos}
+          closedMemos={canvas ? undefined : closedMemos}
           onRestore={handleRestore}
           restoreDisabled={!canAddMemo(shown)}
           onActivateTab={handleActivateTab}
           onMerge={handleMerge}
           onDetach={handleDetach}
-          linkHost={linkHost}
+          linkHost={canvasLinkHost ? canvasLinkHost(card.active) : linkHost}
           pickRange={card.active.id === pickMemoId ? pickRange : null}
           onTextMenu={handleTextMenu}
           onLinkFollow={handleLinkFollow}
@@ -663,7 +770,18 @@ function SessionMemoLayerImpl({
         />
       ))}
 
-      {cards.length === 0 && closedMemos.length > 0 && (
+      {canvas && closedMemos.map((memo) => (
+        <CanvasMemoBubble key={memo.id} memo={memo} disabled={busy} scale={canvas.scale} onMove={moveBubble}
+          onRestore={handleRestore} onDelete={deleteBubble} onMenu={handleCardMenu} />
+      ))}
+      {canvas && cardMenu && <IDEContextMenu x={cardMenu.x} y={cardMenu.y} items={canvasMenuItems(cardMenu.id)}
+        onClose={() => setCardMenu(null)} zIndex={MEMO_LINK_POPUP_Z} />}
+      {saveFailed && <div role="alert" className="pointer-events-auto fixed bottom-4 left-1/2 rounded border border-rose-400 bg-gray-900 px-3 py-2 text-[12px] text-rose-200">
+        {t('ide.memo.canvasSaveFailed')}
+        <button type="button" className="ml-2 underline" onClick={() => push(memosRef.current, true)}>{t('common.appError.retry')}</button>
+        <button type="button" className="ml-2 underline" onClick={() => setSaveFailed(false)}>{t('common.close')}</button>
+      </div>}
+      {!canvas && cards.length === 0 && closedMemos.length > 0 && (
         <div className="pointer-events-auto absolute right-2 top-2 rounded-md border border-gray-600/60 bg-gray-900/95 px-2 py-1 text-gray-200 shadow-lg" data-memo-history="">
           <SessionMemoHistory closedMemos={closedMemos} onRestore={handleRestore} showLabel />
         </div>
@@ -729,7 +847,8 @@ function SessionMemoLayerImpl({
         <MemoLinkFileEditor
           x={linkEditor.x}
           y={linkEditor.y}
-          rootPath={linkHost?.rootPath() ?? null}
+          rootPath={(canvasLinkHost && memos.find((m) => m.id === linkEditor.memoId)
+          ? canvasLinkHost(memos.find((m) => m.id === linkEditor.memoId)!) : linkHost)?.rootPath() ?? null}
           initial={linkEditor.initial}
           onApply={(target) => {
             setLinkEditor(null);

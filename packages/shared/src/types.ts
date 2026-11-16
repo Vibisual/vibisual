@@ -488,6 +488,8 @@ export interface AppBubble {
    * 노드 아래 구슬 줄에 뜬다.
    */
   pastFiles?: AppBubblePastFile[];
+  /** §5.4 #36 (L) — 아직 결과가 없는 화면이 비출 작업물. 파일 버블은 TTL 로 걷히므로 노드가 직접 기억하고, 결과·문서가 묶이면 지운다. */
+  workPreviews?: AppBubbleWorkPreviews;
 }
 
 /** §5.4 #36 (H) ③ — 지난 결과 한 건. `at` 은 그때의 결과 버전(그 파일의 수정 시각, ms — 모르면 없다). */
@@ -495,6 +497,15 @@ export interface AppBubblePastFile {
   file: string;
   at?: number;
 }
+
+/** §5.4 #36 (L) — 작업 중 미리보기 한 건. `file` 은 프로젝트 루트 기준 상대 경로, `at` 은 판본(ms). */
+export interface AppBubbleWorkPreview {
+  file: string;
+  at: number;
+}
+
+/** §5.4 #36 (L) — 미디어 종류마다 가장 최근 한 건(어느 것을 비출지는 `pickWorkPreview`). */
+export type AppBubbleWorkPreviews = Partial<Record<'image' | 'video' | 'audio' | 'model', AppBubbleWorkPreview>>;
 
 /** §5.4 #36 (H) ② — 연결 버블 보기('linked' 기본 · 'files'). 저장값은 `'files'` 뿐(`BubbleData.linkLens`) — 이 유니온은 판정·창구 사이 말이다. */
 export type LinkLens = 'linked' | 'files';
@@ -1769,6 +1780,11 @@ export interface BubbleData {
   summary?: string;
   /** 이 노드에 연결된 활성 에이전트 ID 목록 (파일/폴더용, 디테일 패널에서 표시) */
   activeAgentIds?: string[];
+  /**
+   * §5.1 #3-5 — 지금 일하는 에이전트별 최근 사용 순위(그 에이전트가 정한 개수 안에 든 것만, 가까운 순위부터).
+   * 스냅샷 사본에만 실린다(체크포인트 ❌) — 링 크기만 정하고 상태는 바꾸지 않는다.
+   */
+  recentUse?: RecentUseMark[];
   /** 이 노드를 만진 에이전트 전부(상태 무관 · 휴지통 제외). 스냅샷 사본에만 실린다(체크포인트 ❌) — 버블 숨기기 판정용(§5.4 #36 (H) ①-1). */
   ownerAgentIds?: string[];
   /** 사용자가 지정한 화면 위치 (드래그 후 서버에 저장) */
@@ -1805,6 +1821,8 @@ export interface BubbleData {
   agentForm?: 'card';
   /** 연결된 파일·위성 버블만 감춘다(연결·작업 기록은 그대로). 서버 소유, 노드째 영속. */
   bubblesHidden?: boolean;
+  /** §5.4 #36 (K) — 전용 버블에서 체크를 푼 종류(`<프로필>:<종류>`, 정렬·중복 없음). 표시만 바꾼다. 없으면 전부 보인다. 서버 소유, 노드째 영속, identity ❌. */
+  dedicatedHidden?: string[];
   /** §5.4 #36 (H) ① — 이 에이전트의 연결선을 감췄다(표시만 — 엣지·`linkedAgentIds`·결과 전달은 그대로). 서버 소유, 노드째 영속, identity ❌. */
   linksHidden?: boolean;
   /** §5.4 #36 (H) ② — `'files'` = 작업 파일 위주(활동 선 또렷·구슬 줄 접음), 없으면 연결된 것 위주. 앱 노드가 안 이어진 에이전트엔 뜻이 없다. */
@@ -1884,6 +1902,13 @@ export interface AgentEvent {
   queuedAt?: number;
   /** 해당 턴에서 TodoWrite로 업데이트한 할일 목록 (마지막 TodoWrite 기준) */
   todos?: TodoItem[];
+}
+
+/** §5.1 #3-5 — 한 에이전트의 최근 사용 목록에서 이 버블의 자리. `rank` 0 이 가장 최근, `limit` 은 그 에이전트가 정한 개수. */
+export interface RecentUseMark {
+  agentId: string;
+  rank: number;
+  limit: number;
 }
 
 /** 에이전트 ↔ 폴더 상호작용 엣지 */
@@ -2080,7 +2105,7 @@ export interface SessionMemoLink {
 
 /**
  * §5.5 #17-36 — 스티키 메모. 세션 탭의 소지품이라 `SubAgent` 안에 산다(닫기·아카이브엔 보존, 최종 삭제 때 함께).
- * 메인 탭 메모만 `ProjectGraph.agentMemos`. 좌표는 스트림 본문 좌상단(px), 스크롤과 무관.
+ * 메인 탭은 `agentMemos`, 캔버스로 옮긴 장은 프로젝트의 `canvasMemos`에 산다.
  */
 export interface SessionMemo {
   /** 메모 고유 id (예: `memo-lz3k9-a1b2`). 낙관 표시를 위해 클라이언트가 발급한다. */
@@ -2089,7 +2114,7 @@ export interface SessionMemo {
   text: string;
   /** 이름(없으면 본문 첫 줄 → 라벨 — 지우는 것이 곧 자동 제목). `SESSION_MEMO.NAME_MAX` 까지, 비면 필드를 남기지 않는다. */
   name?: string;
-  /** 컨테이너 좌상단 기준 위치(px). */
+  /** 세션 판 기준 위치(px). canvas가 있으면 부호 있는 캔버스 월드 좌표. */
   x: number;
   y: number;
   /** 크기(px). `SESSION_MEMO.MIN_*` ~ `MAX_*` 로 clamp 된다. */
@@ -2101,7 +2126,7 @@ export interface SessionMemo {
   alpha?: number;
   /** 제목줄만 남기고 접은 상태. */
   collapsed?: boolean;
-  /** 닫은 시각(ms). 있으면 화면 대신 이 세션의 다시 열기 목록에 보관하며, 세션 최종 삭제 때 함께 지운다. */
+  /** 닫은 시각(ms). 세션에서는 다시 열기 목록, 캔버스에서는 메모 버블로 남는다. */
   closedAt?: number;
   /**
    * 합쳐진 묶음 이름표(같은 값 = 한 카드, 제목줄이 탭 줄). `MemoGroup` 레코드를 따로 두지 마라 — 마지막 장이 빠지면 빈 묶음이 체크포인트에 남는다.
@@ -2115,6 +2140,14 @@ export interface SessionMemo {
   groupActive?: boolean;
   /** §5.5 #17-36 ⑫ — 본문 링크(오프셋 — 편집만큼 옮긴다, `memoLinks.ts`). 시작 순·겹침 없음, 비면 필드 ❌. 묶음에서도 장마다 따로. */
   links?: SessionMemoLink[];
+  /** 캔버스 소유 메모의 복귀 주소. 세션이 사라져도 메모는 프로젝트에 남는다. */
+  canvas?: {
+    agentId: string;
+    subAgentId: string | null;
+    x: number;
+    y: number;
+    folderId: string | null;
+  };
   createdAt: number;
   updatedAt: number;
 }
@@ -4458,6 +4491,7 @@ export interface GraphSnapshot {
 
   /** §5.5 #17-36 — 세션을 고르지 않은 메인 탭의 스티키 메모(agentId 키). 세션 탭 메모는 `subAgents[].memos` 에 있다. 에이전트 제거 때 함께 정리(`removeAgent`). */
   agentMemos?: Record<string, SessionMemo[]>;
+  canvasMemos?: Record<string, SessionMemo[]>;
 
   /** §4 — 질문 카드(agentId → 최신순 append, `POST /api/agent-questions`). 없으면 빈 맵. */
   agentQuestions?: Record<string, AgentQuestions[]>;
@@ -4551,6 +4585,8 @@ export interface SpecUnit {
   tokens?: number;
   /** 항목·문단으로 다시 잘라도 `SPEC_UNIT_TOKEN_MAX` 를 넘는 절 — 통째 Read 대신 Grep 으로 좁혀 열라고 시킨다. */
   oversized?: boolean;
+  /** 본문이 이름으로 적은 코드 파일(확장자 뗀 소문자 이름, `SPEC_UNIT_MENTION_MAX` 개까지) — 건드린 파일을 이 절에 잇는 경로 축의 재료. */
+  mentions?: string[];
 }
 
 /** 이 프로젝트의 기획 절 전집 — "다 봐야 할 목록"의 닫힌 집합. */
@@ -4688,6 +4724,8 @@ export interface SpecReadingSettings {
   maxRequired?: number;
   stopRetries?: number;
   routes?: SpecReadingRoute[];
+  /** 뿌리 안에 있어도 색인하지 않는 문서 glob — 생성된 목차·역인덱스처럼 기획이 아닌 것. 절로 세면 제목 낱말이 겹쳐 진짜 절을 밀어낸다. */
+  exclude?: string[];
   /** 사용자가 면제한 절 id — 에이전트는 여기에 손댈 수 없다. */
   waived?: string[];
   /** §5.5 #17-44 ⑧ — 프로젝트 층 스위치(없으면 꺼짐). 판정은 `resolveSpecReadingEnabled` 하나로 — 직접 읽는 판정을 따로 만들면 화면과 집행이 갈린다. */
@@ -5207,6 +5245,7 @@ export interface GraphSnapshotDeltas {
   bashHistory?: KeyedSliceDelta<BashEntry[]>;
   agentReports?: KeyedSliceDelta<AgentReport[]>;
   agentMemos?: KeyedSliceDelta<SessionMemo[]>;
+  canvasMemos?: KeyedSliceDelta<SessionMemo[]>;
   agentQuestions?: KeyedSliceDelta<AgentQuestions[]>;
   agentReviews?: KeyedSliceDelta<AgentReview[]>;
   agentLists?: KeyedSliceDelta<AgentList[]>;
@@ -5675,6 +5714,8 @@ export interface ProjectCheckpoint {
 
   /** §5.5 #17-36 — 메인 탭 스티키 메모(영속). 사용자가 쓴 글이라 복구 불가 자산이다. */
   agentMemos?: Record<string, SessionMemo[]>;
+  canvasMemos?: Record<string, SessionMemo[]>;
+  deletedCanvasMemoIds?: string[];
 
   /** §4 — 질문 카드(영속). */
   agentQuestions?: Record<string, AgentQuestions[]>;
@@ -5779,6 +5820,8 @@ export interface ProjectIdentity {
   pinnedGoalActions?: string[];
   /** §5.5 #17-36 — 메인 탭 스티키 메모(정체성). 세션 탭 메모는 세션(`subAgents`)의 소지품이라 여기 없다. 없으면 빈 맵. */
   agentMemos?: Record<string, SessionMemo[]>;
+  canvasMemos?: Record<string, SessionMemo[]>;
+  deletedCanvasMemoIds?: string[];
   /** §5.3 #12-3 — 사용자가 건 자물쇠(정체성 — 잃으면 AI 가 그대로 연다). 복원 보충은 id 합집합이라 어긋나도 잠긴 쪽으로 남는다. */
   pathLocks?: PathLock[];
   /** §3.2.1-3 — 명시 삭제한 커스텀 에이전트 sessionId 묘비. shrink guard 가 정상 삭제와 복원 실패(미기록 소멸)를 가르고, `mergeIdentityIntoCheckpoint` 는 이 id 를 되살리지 않는다(유령 부활 차단). */
@@ -6063,6 +6106,8 @@ export interface UserDefaults {
   engineChoice?: EngineChoice;
   /** §5.13 (N) — 설치된 내부 앱 id(무거워 기본 번들에 없는 독립 앱). 앱마다 필드를 두면 `UserDefaults` 가 같이 자라 목록 하나로 받는다(`enabledPlugins` 와 같은 모양). 설치는 기기에 매여 전역 1건. */
   installedApps?: string[];
+  /** Machine-wide controls for internal apps; each app updates only its own entry. */
+  internalAppSettings?: Record<string, { aiEnabled?: boolean }>;
   /* §5.10 — `brainByProject` 는 걷었다. 자동 목표 켬/끔은 체크포인트 `autoGoalSettings`(3층)가 든다 — 사는 곳·층수가 달라 옛 값을 옮겨 읽지 않는다. */
   /**
    * @deprecated v4.46 에서 `installedApps` 로 일반화됐다. 읽기 전용 하위호환 —
@@ -6243,6 +6288,11 @@ export interface ModelRegistry {
    * 파싱 실패면 undefined → `listEffortLevels` 가 `AVAILABLE_EFFORT_LEVELS` 로 폴백. `model_registry_updated` 로 함께 간다(별도 메시지 ❌).
    */
   effortLevels?: string[];
+  /**
+   * §4 (상태바 모델 칸 ③⑤) — 설치된 `claude` 가 bare 로 받아 스스로 latest 로 해소하는 `--model` 별칭. 같은 `--help` 의 `--model` 설명에 인용된 예(2.1.300: `'fable', 'opus', or 'sonnet'`)를 읽는다.
+   * 도움말은 예시라 전부가 아니다 — 읽는 쪽은 `listNativeModelAliases(registry)` 로 폴백 셋과 합친다. 파싱 실패면 undefined(폴백 셋만 = 밖의 별칭은 치환).
+   */
+  nativeModelAliases?: string[];
 }
 
 /**
@@ -6442,6 +6492,11 @@ export interface AgentConfig {  /** 사용 모델 (예: "sonnet", "opus", "haiku
    * ⚠ probe 에서 관측되지 않았다(서버 측 게이팅 추정) — 수신 쪽은 payload 모양을 단정하지 않는다.
    */
   promptSuggestions?: boolean;
+  /**
+   * §5.1 #3-5 — 이 에이전트의 최근 사용 링 개수(0 = 끔, `RECENT_USE_RING.countMax` 까지). undefined = `RECENT_USE_RING.defaultCount`.
+   * 캔버스 표시 축이라 CLI 로 나가지 않는다 — 판정 `normalizeRecentUseRingCount`.
+   */
+  recentUseRings?: number;
 }
 
 /** §4 — 커스텀 에이전트 실행(스폰) 모드. 'headless' = `claude -p` 백그라운드 스폰, 'interactive-terminal' = IDE 임베디드 PTY REPL. */
@@ -8391,16 +8446,19 @@ export interface LocalHardwareInfo {
   cpuUsagePercent: number;
   /** 장치 목록을 잰 시각. 엔진을 깔기 전에는 잴 수 없으므로 0 이면 "가속 장치는 아직 모름". */
   measuredAt: number;
+  /** §5.19 (E) — `vramFreeBytes` 의 장치 메모리가 시스템 메모리와 따로라고 볼 수 있는가. 아니거나 없으면 둘을 더하지 않는다. */
+  dedicatedVram?: boolean;
 }
 
 /**
  * 모델 하나가 이 PC 에서 어떻게 돌지.
  * - `gpu`: 통째로 가속 장치에 올라간다 — 빠르다.
+ * - `split`: 가속 장치에 다 안 들어가 시스템 메모리에 나눠 올라간다 — 넘친 만큼 느려진다.
  * - `ram`: GPU 에는 안 들어가지만 시스템 메모리로는 돌아간다 — 느리다.
  * - `too-big`: 이 PC 로는 무리다.
  * - `unknown`: 아직 잴 수 없다(엔진 미설치 등). **모르면 모른다고 한다.**
  */
-export type LocalModelFit = 'gpu' | 'ram' | 'too-big' | 'unknown';
+export type LocalModelFit = 'gpu' | 'split' | 'ram' | 'too-big' | 'unknown';
 
 /** §5.19 (E) — 카탈로그 정렬 축: `downloads` 받은 수 · `likes` 하트 수 · `trending` 요즘 뜨는 순(갓 나온 모델이 먼저) · `recent` 최근 갱신. */
 export type LocalModelCatalogSort = 'downloads' | 'likes' | 'trending' | 'recent';

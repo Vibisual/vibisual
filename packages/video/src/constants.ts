@@ -45,8 +45,26 @@ export const STILL_MAX_EDGE = 640;
 /** 한 문서가 가질 수 있는 아이템 수 상한. 넘으면 문서가 깨졌다고 본다. */
 export const VIDEO_MAX_ITEMS = 5000;
 
-/** 렌더 캐시 보관 상한(개). 넘으면 오래된 것부터 버린다. */
-export const RENDER_CACHE_MAX_ENTRIES = 2000;
+// ─── §5.13 (E) 구간 캐시 ───
+
+/** 구간 조각 자리(`.vibisual/` 아래 — 그 밑에 문서 id 폴더). */
+export const VIDEO_SEGMENT_CACHE_DIR = `${VIDEO_CACHE_DIR}/segments`;
+/** 구간 길이(초) = 키프레임 간격 하나. 줄이면 다시 굽는 범위가 좁아지고 인코더를 더 자주 세운다. */
+export const RENDER_SEGMENT_SECONDS = 2;
+/** 렌더러·인코딩 라이브러리(그리는 법·패킷 모양)를 바꾸면 올린다 — 옛 조각이 새 렌더에 섞이지 않게. */
+export const RENDER_SEGMENT_CACHE_VERSION = 1;
+/** 구간 열쇠 모양(SHA-256 16진수) — 파일 이름으로 쓰므로 서버가 이것만 받는다. */
+export const RENDER_SEGMENT_KEY_RE = /^[0-9a-f]{64}$/;
+/** 조각 하나의 상한. 2초 구간은 고화질 4K 도 수 MB 다 — 넘으면 깨진 것으로 본다. */
+export const RENDER_SEGMENT_MAX_BYTES = 64 * 1024 * 1024;
+/** 프로젝트 하나의 조각 합계 상한(§3.2.3) — 1080p 고화질 약 30분 치. 넘으면 오래 안 쓴 것부터 지운다. */
+export const RENDER_SEGMENT_CACHE_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+/** 정리할 때 상한의 이 비율까지 내린다(쓸 때마다 한 조각씩 지우며 맴돌지 않게). */
+export const RENDER_SEGMENT_CACHE_PRUNE_RATIO = 0.9;
+/** 이만큼 안 쓴 조각은 상한과 무관하게 지운다(일). */
+export const RENDER_SEGMENT_CACHE_MAX_AGE_DAYS = 30;
+/** 조각을 이만큼 쓸 때마다 정리를 한 번 건다(바이트). */
+export const RENDER_SEGMENT_PRUNE_EVERY_BYTES = 128 * 1024 * 1024;
 
 // ─── §5.13 (Q) 콘티 → 타임라인 ───
 
@@ -73,6 +91,12 @@ export const COMPOSITION_SEEK_TIMEOUT_MS = 10_000;
 
 /** 컴포지션 문서가 처음 뜨기를 기다리는 상한(ms). */
 export const COMPOSITION_LOAD_TIMEOUT_MS = 15_000;
+
+/**
+ * 숨은 렌더 창에 한 프레임을 맞추라고 main 이 기다리는 상한(ms). 안쪽 상한(첫 로드 + 한 장)보다 길어야 한다 — 짧으면 바깥이 먼저 끊어
+ * 어느 아이템이 멈췄는지가 가려진다(§5.13 (T-3) 준비 확정).
+ */
+export const OFFSCREEN_FRAME_TIMEOUT_MS = COMPOSITION_LOAD_TIMEOUT_MS + COMPOSITION_SEEK_TIMEOUT_MS + 5_000;
 
 /** 가상 시계의 0초가 가리키는 날짜(2026-01-01T00:00:00Z) — `Date.now()` 도 문서마다 같은 값을 낸다(결정성). */
 export const COMPOSITION_CLOCK_EPOCH = 1_767_225_600_000;
@@ -145,10 +169,11 @@ export const EXPORT_MIN_RANGE_S = 0.05;
 /** §5.13 (AA) 42-1 — 고를 수 있는 프레임 수 범위. */
 export const EXPORT_FPS_MIN = 1;
 export const EXPORT_FPS_MAX = 120;
-/**
- * §5.13 (U)(AA) 42-11 — 일꾼 ↔ 서버가 한 번에 주고받는 바이트 상한(소재 가져오기·렌더 결과). 넘는 렌더 결과는 일꾼이 올리기 전에
- * 사람 말로 알린다(서버가 413 으로 끊기 전에).
- */
+/** §5.13 (AA) 42-13 — 딸림 파일의 꼬리(영상 줄기 뒤). 가장 긴 것도 줄기 상한과 합쳐 세 OS 의 이름 상한(255바이트) 안이다. */
+export const EXPORT_COMPANION_SUFFIX = { thumbnail: '.png', chapters: '.chapters.txt', subtitles: '.srt' } as const;
+/** §5.13 (AA) 42-13 — 일감에 싣는 썸네일 시각의 상한(초) — 터무니없는 값을 거른다(실제 자리는 문서 길이로 다시 묶는다). */
+export const EXPORT_THUMBNAIL_AT_MAX_S = 24 * 60 * 60;
+/** §5.13 (U)(AA) 42-11 — 바이너리 요청 한 건의 상한. 렌더 결과는 여러 요청으로 보낼 수 있다. */
 export const VIDEO_TRANSFER_MAX_BYTES = 128 * 1024 * 1024;
 
 // ─── §5.13 (V) 스튜디오 개편 ───
@@ -170,6 +195,8 @@ export const HISTORY_REQUEST_MAX_CHARS = 600;
 export const PASS_SUMMARY_MAX_CHARS = 2000;
 export const PASS_LIST_MAX_ITEMS = 12;
 export const PASS_LIST_ITEM_MAX_CHARS = 400;
+/** §5.13 (V) 37-23 — 한 바퀴가 만진 장면 목록(`focuses`) 상한 — 넘으면 오래된 것부터 버린다. */
+export const PASS_FOCUSES_MAX = 200;
 
 /** §5.13 (V) 37-15 — 판형 셋. 출력 프리셋(쇼츠·가로·정사각)도 이 표를 쓴다. */
 export const VIDEO_FORMATS = {
@@ -191,10 +218,42 @@ export const REVIEW_TIMEOUT_MS = 150_000;
 /** §5.13 (V) 37-9 — 프레임 검수 표본 수 상한. */
 export const REVIEW_MAX_SAMPLES = 24;
 
+// ─── §5.13 (G) 스스로 판정할 재료 셋 — 전후 비교 · 배치 요약 · 검수 점수 ───
+
+/** 전후 비교를 붙이는 일감(이미 찍은 두 장 → 한 장)을 기다리는 상한(ms). */
+export const COMPARE_TIMEOUT_MS = 30_000;
+/** 배치 요약 글의 줄·글자 상한 — 요소가 수백 개여도 응답이 문맥을 태우지 않게. */
+export const LAYOUT_MAX_LINES = 80;
+export const LAYOUT_MAX_CHARS = 8_000;
+/** 배치 요약 한 요소에 싣는 글자 수 상한. */
+export const LAYOUT_TEXT_MAX_CHARS = 80;
+/** 검수 점수 = max(0, 100 − Σ 가중치×개수). 빈 화면이 가장 무겁고, 정보성(무음·비트)이 가장 가볍다. */
+export const REVIEW_SCORE_WEIGHTS = {
+  blank: 10,
+  'caption-clip': 4,
+  'text-overlap': 4,
+  'low-contrast': 3,
+  'safe-area': 3,
+  'read-time': 2,
+  'off-beat': 1,
+  silence: 1,
+} as const;
+export const REVIEW_SCORE_MAX = 100;
+/** 검수 점수 응답의 결과·사라진 결과 목록 상한과 `trend` 판 수 상한. */
+export const REVIEW_SCORE_FINDINGS_MAX = 100;
+export const REVIEW_SCORE_RESOLVED_MAX = 50;
+export const REVIEW_SCORE_TREND_MAX = 30;
+
 /** §5.13 (V) 37-8 — 전환 길이 범위(초)와 기본값. */
 export const TRANSITION_MIN_SECONDS = 0.2;
 export const TRANSITION_MAX_SECONDS = 1.5;
 export const TRANSITION_DEFAULT_SECONDS = 0.5;
+/**
+ * §5.13 (V) 37-8 (B) — 흐림 녹아들기의 가장 센 흐림: 짧은 변의 이 비율, 상한 px(문서 픽셀). 상한은 성능 lint `perf-blur-shadow` 가 잡는 40px 아래 —
+ * 흐림은 합성기 애니메이션이 못 돼(픽셀을 옮긴다) 프레임마다 화면 스레드가 쓰므로 반경이 곧 비용이다.
+ */
+export const TRANSITION_BLUR_RATIO = 0.02;
+export const TRANSITION_BLUR_MAX_PX = 32;
 
 /**
  * §5.13 (W) 38-2 — 렌더가 나눠 쓰는 숨은 캡처 창 수(상한). 실제 수는 논리 코어 절반을 넘지 않는다 — 창 하나가 렌더러

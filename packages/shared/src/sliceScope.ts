@@ -93,6 +93,7 @@ export const ALWAYS_SHIPPED_SLICES = {
     '독자는 UsagePopup 안(CostPill·CostMapPopup)뿐이지만 그 팝업의 열림이 UsagePill 의 **컴포넌트 지역 상태**라 ' +
     '스토어에서 읽을 수 없다 — 확증 못 한 것은 스코프 대상에서 뺀다(안전 기본값)',
   agentFeedbacks: 'DetailPanel 의 AgentFeedbackSection(캔버스 패널)이 읽는다 — IDE 전용이 아니다',
+  canvasMemos: '캔버스 메모의 편집과 이동이 서버에 되돌아가는 영속 데이터',
   agentMemos:
     '독자는 IDE 안(IDEMainArea·SessionMemoLayer)뿐이라 뺄 수 있어 보이지만, **클라가 이 슬라이스를 ' +
     '서버에 되돌려 쓴다** — `PUT /api/session-memos` 는 스토어의 목록 **전량**을 그대로 덮는다. ' +

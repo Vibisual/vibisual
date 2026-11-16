@@ -94,11 +94,14 @@ export interface CueIssue {
   readonly message?: string;
 }
 
+/** 소재 종류 — 타입과 고칠 방법의 허용 값이 이 한 목록에서 나온다. §5.13 (T-1) `composition` = 프로젝트 안 HTML 파일 하나. */
+export const VIDEO_ASSET_KINDS = ['audio', 'video', 'image', 'font', 'composition', 'model'] as const;
+export type VideoAssetKind = (typeof VIDEO_ASSET_KINDS)[number];
+
 /** 소재 한 건. 실측값(길이·크기)은 파일을 실제로 읽은 뒤에만 채워진다. */
 export interface VideoAsset {
   readonly id: string;
-  /** §5.13 (T-1) — `composition` = 프로젝트 안 HTML 파일 하나(그 파일이 있는 폴더가 컴포지션 폴더). */
-  readonly kind: 'audio' | 'video' | 'image' | 'font' | 'composition' | 'model';
+  readonly kind: VideoAssetKind;
   /** Immutable editable source revision from the project creation catalog. */
   readonly creationSource?: { readonly id: string; readonly revision: number; readonly appId: string };
   readonly source: VideoAssetSource;
@@ -142,12 +145,17 @@ export interface VideoAsset {
 export type ChapterStatus = 'plan' | 'approved' | 'building' | 'done';
 
 /** §5.13 (V) 37-8 — 장면 사이 전환(우리가 쓴 것). `cut` 은 겹치지 않는다. */
-export type TransitionKind = 'cut' | 'dissolve' | 'push' | 'zoom' | 'flash' | 'wipe';
+export type TransitionKind = 'cut' | 'dissolve' | 'push' | 'zoom' | 'flash' | 'wipe' | 'iris' | 'blur' | 'curtain';
+
+/** §5.13 (V) 37-8 (A) — 전환이 움직이는 쪽. 밀기·닦아내기·가림막 닦기만 읽는다(나머지는 무시). */
+export type TransitionDirection = 'left' | 'right' | 'up' | 'down';
 
 export interface ChapterTransition {
   readonly kind: TransitionKind;
   /** 초 — 앞 장면과 이만큼 겹친다. */
   readonly duration: number;
+  /** 없으면 종전 그대로 — 밀기 `left`, 닦아내기·가림막 닦기 `right`. */
+  readonly direction?: TransitionDirection;
 }
 
 /** §5.13 (V) 37-14 — 엔진. */
@@ -447,6 +455,75 @@ export type VideoDocOp =
 export interface VideoDocPatch {
   readonly baseVersion: number;
   readonly ops: readonly VideoDocOp[];
+}
+
+/**
+ * §5.13 (G) 묶음 op 의 아이템 한 줄. 장면 묶음에서는 `chapterId` 와 `at:{ chapter, offset }` 이 저절로 붙는다(직접 준 `at` 은 그대로).
+ */
+export interface VideoBundleItem {
+  readonly trackId: string;
+  readonly item: Omit<VideoItem, 'at'> & { readonly at?: TimeAnchor };
+  /** 장면 시작부터의 초. */
+  readonly offset?: number;
+  readonly beforeItemId?: string;
+}
+
+/**
+ * §5.13 (G) 묶음 op — 늘 함께 보내던 기존 op 몇 개를 한 op 로. 안에서 기존 op 로 풀린다. 새 id 는 전부 호출자가 정한다(순번 참조 ❌).
+ * `addScene` = addChapter → setAsset* → addItem* · `fillChapter` = updateChapter(늘, status 없으면 빈 patch) → setAsset* → addItem* ·
+ * `placeAsset` = updateChapter(chapterId 가 있을 때만, 빈 patch) → setAsset → addItem.
+ */
+export type VideoDocBundleOp =
+  | {
+      readonly op: 'addScene';
+      readonly chapter: VideoChapter;
+      readonly beforeChapterId?: string;
+      readonly assets?: readonly VideoAsset[];
+      readonly items?: readonly VideoBundleItem[];
+    }
+  | {
+      readonly op: 'fillChapter';
+      readonly chapterId: string;
+      readonly status?: ChapterStatus;
+      readonly assets?: readonly VideoAsset[];
+      readonly items?: readonly VideoBundleItem[];
+    }
+  | {
+      readonly op: 'placeAsset';
+      readonly asset: VideoAsset;
+      readonly trackId: string;
+      readonly item: Omit<VideoItem, 'at' | 'assetId'> & { readonly at?: TimeAnchor; readonly assetId?: string };
+      readonly chapterId?: string;
+      readonly offset?: number;
+      readonly beforeItemId?: string;
+    };
+
+/** patch 본문의 op 한 개 — 기존 op 또는 묶음 op. */
+export type VideoPatchOp = VideoDocOp | VideoDocBundleOp;
+
+/**
+ * §5.13 (G) 고칠 방법 한 줄 — 기계가 읽는 모양. 409·invalid-op·진단 응답에 `fix[]` 로 더해진다(기존 필드는 그대로).
+ * `opIndex` = 요청 순번(묶음 하나 = 하나) · `part` = 묶음이 풀린 몇 번째 op · `field` = op 안 경로 · `diagnostic` = `diagnostics` 순번.
+ */
+export interface PatchFix {
+  readonly code: string;
+  readonly level: 'error' | 'warn';
+  /** 영문 한 줄 — 어떻게 고치나. */
+  readonly hint: string;
+  readonly opIndex?: number;
+  readonly part?: number;
+  readonly op?: string;
+  readonly field?: string;
+  readonly got?: string | number | boolean | null;
+  /** 허용 값 또는 지금 있는 id(상한까지). 잘렸으면 `allowedTotal` 이 전체 수. */
+  readonly allowed?: readonly (string | number)[];
+  readonly allowedTotal?: number;
+  readonly currentVersion?: number;
+  readonly itemId?: string;
+  readonly chapterId?: string;
+  readonly diagnostic?: number;
+  /** 이 patch 가 새로 낳은 진단. */
+  readonly introduced?: boolean;
 }
 
 /** 패치 결과. 실패해도 예외를 던지지 않고 이유를 돌려준다. */

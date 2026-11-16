@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { LayerRoot } from '../Layout/LayerRoot.js';
 
 const API_BASE = '';
 
@@ -127,8 +128,8 @@ export const WorktreeDeleteDialog = memo(function WorktreeDeleteDialog(): React.
   if (!target) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+    <LayerRoot
+      className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60"
       {...backdrop}
     >
       {/* 하한 22rem(352px)은 360px 폰에서 화면 끝에 닿는다 — 화면 폭에서 여백만큼은 늘 남기고, 낮으면 안에서 구른다. */}
@@ -308,6 +309,6 @@ export const WorktreeDeleteDialog = memo(function WorktreeDeleteDialog(): React.
           </div>
         )}
       </div>
-    </div>
+    </LayerRoot>
   );
 });

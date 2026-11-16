@@ -9,6 +9,7 @@ import { SERVER_LOG_CLIENT_BUFFER_MAX, SERVER_LOG_RECENT_VIEW_LIMIT } from '@vib
 import { useGraphStore } from '../../stores/graphStore.js';
 import { serverLogEvents } from '../../bubble-map/api/serverLogEvents.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { LayerRoot } from '../Layout/LayerRoot.js';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -255,8 +256,8 @@ export const ServerLogPopup = memo(function ServerLogPopup({
   const backdrop = useBackdropDismiss(onClose);
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+    <LayerRoot
+      className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60 backdrop-blur-sm"
       {...backdrop}
     >
       <div
@@ -419,6 +420,6 @@ export const ServerLogPopup = memo(function ServerLogPopup({
           })}
         </div>
       </div>
-    </div>
+    </LayerRoot>
   );
 });

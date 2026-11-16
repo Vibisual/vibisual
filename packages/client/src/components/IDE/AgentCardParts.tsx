@@ -2,6 +2,7 @@ import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { STREAM_COMPACT_SUMMARY_CHARS } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { CardPathText } from './CardPathText.js';
 
 /** §5.5 #17-12 — 신고·검수 카드 공용 조각: 행동 구획만 기본 노출, 나머지는 [자세히]로. */
 
@@ -32,7 +33,7 @@ export const CardSection = memo(function CardSection({
         {items.map((item, i) => (
           <li key={i} className={`flex items-start gap-1.5 text-[13px] leading-relaxed ${textClass}`}>
             <span className={glyphClass}>{icon}</span>
-            <span className="min-w-0 flex-1 break-words">{item}</span>
+            <span className="min-w-0 flex-1 break-words"><CardPathText text={item} /></span>
           </li>
         ))}
       </ul>

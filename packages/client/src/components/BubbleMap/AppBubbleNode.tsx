@@ -1,14 +1,14 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react';
-import type { AppBubblePastFile } from '@vibisual/shared';
-import { fileFaceKindOf, previewLaneOf } from '@vibisual/shared';
+import type { AppBubblePastFile, AppBubbleWorkPreviews } from '@vibisual/shared';
+import { appKindOfExtensions, fileBaseName, fileFaceKindOf, pickWorkPreview, previewLaneOf } from '@vibisual/shared';
 
 import type { AppBubbleShape, AppFaceHeader, AppLinkedItem, AppStageFocus } from '../../apps/registry.js';
-import { getInternalApp } from '../../apps/registry.js';
+import { appOutputExtensions, getInternalApp } from '../../apps/registry.js';
 import { openAppWindow } from '../../apps/appWindows.js';
 import { prefetchAppShell } from '../../apps/prefetchAppShell.js';
-import { appNodeResizeBounds, aspectLockedResize, normalizeStageAspect, resetSizeMove, type AppNodeForm, type NodeRect } from '../../apps/appNodeForm.js';
+import { appNodeResizeBounds, aspectLockedResize, normalizeStageAspect, resetSizeMove, type AppNodeForm, type AppNodeResizeAxis, type NodeRect } from '../../apps/appNodeForm.js';
 import { SCREEN_BORDER, SCREEN_HEADER_HEIGHT } from '../../apps/screenChrome.js';
 import { markFaceSeen, reportFaceHeader, useFaceHeader } from '../../apps/appFaceHeader.js';
 import { useStageAspectReporter } from '../../apps/appStageAspect.js';
@@ -25,9 +25,10 @@ import { useCanvasNodeSelection } from './useCanvasNodeSelection.js';
 import { openGroupMenuIfGrouped } from './BubbleContextMenu.js';
 import { appNodeLabel } from './agentCard.js';
 import { AppScreenFace } from './AppScreenFace.js';
-import { useAppLinkedSnapshot } from '../../apps/appLinkedItems.js';
+import { thumbnailAppFor, useAppLinkedSnapshot } from '../../apps/appLinkedItems.js';
 import { appNodeShowsLinkedItems } from './linkView.js';
 import { AppLinkedSatellites } from './AppLinkedSatellites.js';
+import { AppLinkedHoverSurface } from './AppLinkedHoverSurface.js';
 import { AppWorkOrbit } from './AppWorkOrbit.js';
 import type { AppWorkOrbitInfo } from './appWorkFold.js';
 
@@ -80,6 +81,8 @@ export interface AppBubbleNodeData extends Record<string, unknown> {
   linksHidden?: boolean | undefined;
   /** §5.4 #36 (H) ③ — 지난 결과(결과 전달로 바뀌기 전 파일들, 최근 것부터). 구슬 줄의 마지막 묶음이 된다. */
   pastFiles?: readonly AppBubblePastFile[] | undefined;
+  /** §5.4 #36 (L) — 아직 결과가 없는 화면이 비출 작업물(서버가 적는다). */
+  workPreviews?: AppBubbleWorkPreviews | undefined;
   /** §5.1 #2-1 (F) ⑤⑧ — 앱 작업 보기의 초점 노드면 작업 궤도(위성 수 · 넘침). 그리는 사본에만 실린 표시 값이다. */
   appWorkOrbit?: AppWorkOrbitInfo | undefined;
   /** §5.4 #36 (J) ① — 결과 칸 비율(앱 화면이 알린 값). 있으면 크기 조절이 이 비율을 지킨다. */
@@ -238,10 +241,10 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   const bounds = useMemo(() => appNodeResizeBounds(form), [form]);
   /** §5.4 #36 (J) ① — 결과 칸 비율이 있는 화면은 크기 조절이 그 비율을 지킨다(기준은 누르기 직전의 자리·크기). */
   const stageAspect = form === 'screen' ? normalizeStageAspect(data.stageAspect) : null;
-  const resizeStart = useRef<NodeRect | null>(null);
+  const resizeStart = useRef<(NodeRect & { axis: AppNodeResizeAxis }) | null>(null);
   const lockRect = useCallback((p: NodeRect): NodeRect => {
     const start = resizeStart.current;
-    return stageAspect !== null && start ? aspectLockedResize(start, p, stageAspect, bounds) : p;
+    return stageAspect !== null && start ? aspectLockedResize(start, p, stageAspect, bounds, start.axis) : p;
   }, [stageAspect, bounds]);
   /**
    * 락은 크기가 실제로 바뀔 때 건다 — 크기 그대로인 누름(테두리 클릭)엔 `onResizeEnd` 가 안 와, `onResizeStart` 에서 걸면 락이 영영 남는다
@@ -253,7 +256,10 @@ export const AppBubbleNode = memo(function AppBubbleNode({
         resizingRef.current = true;
         // 아직 store 는 누르기 전의 자리다 — 첫 변화에서 기준을 잡는다(`onResizeStart` 는 위 이유로 쓰지 않는다).
         const before = useGraphStore.getState().appBubbles.find((b) => b.id === data.appBubbleId);
-        resizeStart.current = { x: before?.x ?? p.x, y: before?.y ?? p.y, width: data.width, height: data.height };
+        resizeStart.current = {
+          x: before?.x ?? p.x, y: before?.y ?? p.y, width: data.width, height: data.height,
+          axis: p.width !== data.width ? 'width' : 'height',
+        };
         gesture.cancelPress();
         setAppBubbleDragLock(data.appBubbleId, true);
         setResizing(true);
@@ -295,14 +301,22 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   // 결과를 비출 화면이면 그 프로젝트 루트(아니면 undefined) — 미리보기·안쪽 조작이 같은 판정을 쓴다.
   const resultProject = isScreen && (hasFile || hasRefFace) ? projectPath : undefined;
   const resultFile = data.file ?? '';
-  // 코어가 굽는 정지 미리보기는 **결과 파일**의 것이다 — 문서 모드는 앱이 스스로 비춘다.
-  // §5.1 #2-1 (G) ④ — 결과 파일의 종류로 굽는 줄을 가른다(영상·소리·3D 는 한 번에 하나). 화면은 한 화면 속 상한 밖이다.
-  const resultLane = hasFile ? previewLaneOf(fileFaceKindOf(resultFile)) ?? undefined : undefined;
+  // §5.4 #36 (L) — 결과도 문서 화면도 없으면 이어진 에이전트의 최근 작업물을 비춘다. 그 파일을 굽는 앱은 이 노드의 앱과 다를 수 있다(영상 노드의 그림).
+  const workPreview = isScreen && !hasFile && !hasRefFace && projectPath !== undefined
+    ? pickWorkPreview(data.workPreviews, appKindOfExtensions(appOutputExtensions(app)))
+    : null;
+  const stillFile = hasFile ? resultFile : workPreview?.file ?? '';
+  const stillProject = hasFile ? resultProject : workPreview ? projectPath : undefined;
+  const stillApp = hasFile ? data.appId : workPreview ? thumbnailAppFor(workPreview.file) : null;
+  const stillVersion = hasFile ? data.fileAt ?? 0 : workPreview?.at ?? 0;
+  // 코어가 굽는 정지 미리보기는 **결과 파일·작업물**의 것이다 — 문서 모드는 앱이 스스로 비춘다.
+  // §5.1 #2-1 (G) ④ — 파일 종류로 굽는 줄을 가른다(영상·소리·3D 는 한 번에 하나). 화면은 한 화면 속 상한 밖이다.
+  const stillLane = stillFile !== '' ? previewLaneOf(fileFaceKindOf(stillFile)) ?? undefined : undefined;
   const thumbState = useSteadyThumbnail(
-    resultProject !== undefined && hasFile
+    stillProject !== undefined && stillApp !== null
       ? {
-        appId: data.appId, projectId: resultProject, file: resultFile, version: data.fileAt ?? 0,
-        width: thumbPx.width, height: thumbPx.height, ...(resultLane ? { lane: resultLane } : {}),
+        appId: stillApp, projectId: stillProject, file: stillFile, version: stillVersion,
+        width: thumbPx.width, height: thumbPx.height, ...(stillLane ? { lane: stillLane } : {}),
       }
       : null,
   );
@@ -559,6 +573,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
     };
     return (
       <>
+        <AppLinkedHoverSurface>
         {/* §5.1 #2-1 (F) ⑤⑧ — 작업 위성이 앉는 위쪽 반원 궤도 · 넘친 작업물 점(앱 작업 보기에서만). 화면 뒤에 깔린다. */}
         {data.appWorkOrbit ? <AppWorkOrbit orbit={data.appWorkOrbit} width={data.width} height={data.height} /> : null}
         {resizer}
@@ -643,12 +658,13 @@ export const AppBubbleNode = memo(function AppBubbleNode({
                 height={bodyHeight}
                 glow={app.glow}
                 icon={<Icon />}
-                hasFile={hasFile}
+                hasFile={hasFile || workPreview !== null}
                 working={working}
                 thumb={thumb}
                 thumbLoading={thumbState.status === 'loading'}
                 emptyText={t('panel.apps.screenEmpty', { defaultValue: '결과가 여기 뜹니다' })}
                 workingText={t('panel.apps.screenWorking', { defaultValue: '만드는 중…' })}
+                workCaption={workPreview ? { label: t('panel.apps.screenWorkPreview'), name: fileBaseName(workPreview.file), title: workPreview.file } : undefined}
               />
             )}
           </div>
@@ -671,6 +687,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
             onContextMenu={handleContextMenu}
           />
         ) : null}
+        </AppLinkedHoverSurface>
         {menuPortal}
       </>
     );

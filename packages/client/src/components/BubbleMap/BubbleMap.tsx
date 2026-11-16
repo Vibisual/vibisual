@@ -1,3 +1,4 @@
+import { CanvasMemoLayer } from './CanvasMemoLayer.js';
 import { useBundleFiles } from '../../hooks/useBundleFiles.js';
 import { BundlePageControls } from './BundlePageControls.js';
 import { satelliteSourceNodeId } from '@vibisual/shared';
@@ -19,11 +20,14 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { EdgeTypes } from '@xyflow/react';
-import type { BubbleData, BubbleType, CommentBox, CaptureBubble, CaptureSourceInfo, TidySort } from '@vibisual/shared';
+import type { ActivityEdge, BubbleData, BubbleType, CommentBox, CaptureBubble, CaptureSourceInfo, TidySort } from '@vibisual/shared';
 import { TIDY_LAYOUT, heatValueOf, tidyGeometryOf, LAYOUT_BOUNDS_DEFAULT, NODE_MIN_SIZE, EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_ORBIT_GAP, SATELLITE_TYPES, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP, SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH, LAB_BUBBLE_DEFAULT_HEIGHT, LAB_BUBBLE_DEFAULT_WIDTH, SHELF_BUBBLE_DEFAULT_HEIGHT, SHELF_BUBBLE_DEFAULT_WIDTH } from '@vibisual/shared';
 // §5.4 #36 (A) — `bubble` 노드는 형태만 갈라 그린다(커스텀 에이전트의 말풍선 ↔ 원형 버블).
 import { CanvasBubbleNode, noteAgentFormChange } from './AgentCardNode.js';
 import { bundleInfoOf, bundleInteriorIds, bundleInteriorMembers, isBundleNodeId } from '../../utils/constellationView.js';
+import { isProjectFolderNodeId, projectFolderBubbleOf, projectFolderInteriorEdges } from '../../utils/projectFolderView.js';
+import { isDedicatedHubNodeId } from '../../utils/dedicatedBubbleInfo.js';
+import { dedicatedHubPanels, dedicatedHubSourcesOf, planDedicatedHubs } from '../../utils/dedicatedBubbleView.js';
 import { interiorViewKeyOf } from './canvasViewMemory.js';
 import { archivedCardTaskNodes, loadCardTasks, useCardTaskStore } from './agentCardTaskState.js';
 // §5.4 #36 (B) — 위성줄(에이전트 → 그 에이전트를 참조하는 앱 노드)과 궤도 위성 끌기 · 꽃잎 고르기.
@@ -33,11 +37,11 @@ import { RefLinkBloom, type RefBloomItem } from './RefLinkBloom.js';
 import { useRefLinkDragStore, type RefLinkDrag, type RefLinkTarget } from '../../stores/refLinkDrag.js';
 import { agentCardDiscCenter, isAgentCardForm, refLinkPairs, refLinkPairsKey, viewportShiftToShow, type OrbitOrigin } from './agentCard.js';
 import { applyLinkViewToEdges, linkViewKey, linkViewSets } from './linkView.js';
-import { applyBubbleVisibilityToEdges, applyBubbleVisibilityToNodes, hiddenActivityBubbleIds } from './bubbleVisibility.js';
+import { applyBubbleVisibilityToEdges, applyBubbleVisibilityToNodes, canvasHiddenBubbleIds } from './bubbleVisibility.js';
 import { appWorkFoldOf, decorateAppWorkNodes } from './appWorkFold.js';
 import { useAppWorkPlan } from './useAppWorkPlan.js';
 import { previewBudget } from '../../apps/previewBudget.js';
-import { AGENT_CARD, REF_BLOOM } from '@vibisual/shared';
+import { AGENT_CARD, APP_WORK, REF_BLOOM } from '@vibisual/shared';
 // §5.4 #34 — 삭제 규칙 두 손(Delete 키 · 버블 우클릭 메뉴)이 나눠 쓰는 판정·메뉴.
 import {
   bubbleDeleteAction,
@@ -142,6 +146,9 @@ import { useTranslation } from 'react-i18next';
 
 /** §5.1 #2-1 (B) — 묶음 안이 아닐 때의 빈 구성(참조 고정). */
 const NO_BUNDLE_MEMBERS: BubbleData[] = [];
+/** §5.1 #2-3 — 프로젝트 폴더 안이 아닐 때의 빈 입력(참조 고정 — 폴더 배치 memo 가 매 렌더 다시 돌지 않게). */
+const NO_ACTIVITY_EDGES: ActivityEdge[] = [];
+const NO_SATELLITE_MAP: Record<string, BubbleData[]> = {};
 const nodeTypes: NodeTypes = { bubble: CanvasBubbleNode, commentBox: CommentBoxNode, captureNode: CaptureNode, appNode: AppBubbleNode, playNode: PlayNode, playPreviewNode: PlayPreviewNode, specNode: SpecNode, labNode: LabNode, shelfNode: ShelfNode };
 
 /** §5.14 — 프리뷰 노드 id(`<recordId>__preview`) → 레코드 id. 드래그·락·PATCH 는 늘 레코드 id 로(레코드 하나가 노드 둘이다). */
@@ -327,6 +334,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const rfContainerRef = useRef<HTMLDivElement>(null);
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [activityBubblesVisible, setActivityBubblesVisible] = useState(false);
+  const toggleActivityBubbles = useCallback(() => setActivityBubblesVisible((visible) => !visible), []);
 
   // 배치 저장용 — 물리 엔진이 setFlowNodes로 업데이트한 최신 위치를 항상 참조
   const flowNodesRef = useRef<Node[]>([]);
@@ -693,6 +702,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           // §5.4 #36 (H) — 이 노드에서 연결선·구슬 줄을 감췄나(①) · 지난 결과(③ 구슬 줄의 마지막 묶음).
           linksHidden: b.linksHidden,
           pastFiles: b.pastFiles,
+          // §5.4 #36 (L) — 아직 결과가 없는 화면이 비출 작업물.
+          workPreviews: b.workPreviews,
           width: size.width,
           height: size.height,
         },
@@ -805,6 +816,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const allSpecDocs = useGraphStore((s) => s.specDocs);
   const selectedSpecDocId = useGraphStore((s) => s.selectedSpecDocId);
   const specNodes = useMemo<Node[]>(() => {
+    // 노출 게이트 — 메뉴와 같은 §7.7 디버그 모드 전용(레코드·서버는 그대로). 사용자의 허락 없이 이 숨김을 풀지 말 것.
+    if (!debugMode) return [];
     if (currentFolderId !== null || interiorView !== null) return [];
     const scoped = activeProject ? allSpecDocs.filter((d) => d.projectName === activeProject) : allSpecDocs;
     return scoped.map((d) => ({
@@ -829,12 +842,14 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       draggable: true,
       deletable: false,
     } as Node));
-  }, [allSpecDocs, storeNodeSelection, activeProject, currentFolderId, interiorView]);
+  }, [allSpecDocs, storeNodeSelection, activeProject, currentFolderId, interiorView, debugMode]);
 
   // ── §5.18 에이전트 랩 — 표지 한 장. 메인 뷰·현재 프로젝트만(스펙 보드와 같은 규칙) ──
   const allLabRuns = useGraphStore((s) => s.labRuns);
   const selectedLabRunId = useGraphStore((s) => s.selectedLabRunId);
   const labNodes = useMemo<Node[]>(() => {
+    // 노출 게이트 — 메뉴와 같은 §7.7 디버그 모드 전용(레코드·서버는 그대로). 사용자의 허락 없이 이 숨김을 풀지 말 것.
+    if (!debugMode) return [];
     if (currentFolderId !== null || interiorView !== null) return [];
     const scoped = activeProject ? allLabRuns.filter((r) => r.projectName === activeProject) : allLabRuns;
     return scoped.map((r) => ({
@@ -860,12 +875,14 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       draggable: true,
       deletable: false,
     } as Node));
-  }, [allLabRuns, storeNodeSelection, activeProject, currentFolderId, interiorView]);
+  }, [allLabRuns, storeNodeSelection, activeProject, currentFolderId, interiorView, debugMode]);
 
   // ── §5.20 스크립트 선반 — 선반 그 자체. 메인 뷰·현재 프로젝트만(랩과 같은 규칙) ──
   const allShelfBubbles = useGraphStore((s) => s.shelfBubbles);
   const selectedShelfBubbleId = useGraphStore((s) => s.selectedShelfBubbleId);
   const shelfNodes = useMemo<Node[]>(() => {
+    // 노출 게이트 — 메뉴와 같은 §7.7 디버그 모드 전용(레코드·서버는 그대로). 사용자의 허락 없이 이 숨김을 풀지 말 것.
+    if (!debugMode) return [];
     if (currentFolderId !== null || interiorView !== null) return [];
     const scoped = activeProject ? allShelfBubbles.filter((b) => b.projectName === activeProject) : allShelfBubbles;
     return scoped.map((b) => ({
@@ -889,12 +906,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       draggable: true,
       deletable: false,
     } as Node));
-  }, [allShelfBubbles, storeNodeSelection, activeProject, currentFolderId, interiorView]);
+  }, [allShelfBubbles, storeNodeSelection, activeProject, currentFolderId, interiorView, debugMode]);
 
   // §5.4 #36 (I) — 앱 작업 보기: 앱을 이은 에이전트는(잇는 순간부터) 그 앱의 작업물·결과만 앱 노드 둘레에 두고 나머지 활동 버블을 접는다.
-  //   판정은 순수 모듈(`appWorkView.ts` · `appWorkFold.ts`) — 메인 뷰에서만(앱 노드는 메인에만 그려진다).
+  //   판정은 순수 모듈(`appWorkView.ts` · `appWorkFold.ts`) — 메인 뷰에서만(앱 노드는 메인에만 그려진다). `APP_WORK.nodeHoldsFiles` 가 꺼져 있으면 빈 판정이다.
   const appWorkPlan = useAppWorkPlan({
-    enabled: currentFolderId === null && interiorView === null,
+    enabled: APP_WORK.nodeHoldsFiles && currentFolderId === null && interiorView === null,
     agents,
     folders: filteredFolders,
     satellites: storeSatellites,
@@ -907,10 +924,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   // Hide only at the rendering boundary; layout, physics, and source connections retain every node.
   const hiddenBubbleIdsNow = useMemo(() => {
-    const explicit = hiddenActivityBubbleIds(flowNodes, [...storeEdges, ...edges], allAgents, storeSatellites);
+    const explicit = canvasHiddenBubbleIds(flowNodes, [...storeEdges, ...edges], allAgents, storeSatellites, activityBubblesVisible);
     if (appWorkFold.hidden.size === 0) return explicit;
     return new Set([...explicit, ...appWorkFold.hidden]);
-  }, [flowNodes, storeEdges, edges, allAgents, storeSatellites, appWorkFold]);
+  }, [flowNodes, storeEdges, edges, allAgents, storeSatellites, appWorkFold, activityBubblesVisible]);
   const hiddenBubbleKey = JSON.stringify([...hiddenBubbleIdsNow].sort());
   const hiddenBubbleIds = useMemo(() => hiddenBubbleIdsNow, [hiddenBubbleKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const hiddenBubbleIdsRef = useRef(hiddenBubbleIds);
@@ -1302,8 +1319,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     const nodes = flowNodesRef.current;
     if (nodes.length === 0) return null;
     const positions = nodes
-      // §5.1 #2-1 (B) — 묶음 버블은 화면이 짓는 자리(서버 노드가 아니다) — 저장하지 않는다.
-      .filter((n) => (n.position.x !== 0 || n.position.y !== 0) && !isBundleNodeId(n.id))
+      // §5.1 #2-1 (B) · #2-3 — 묶음·프로젝트 폴더 버블은 화면이 짓는 자리(서버 노드가 아니다) — 저장하지 않는다.
+      .filter((n) => (n.position.x !== 0 || n.position.y !== 0) && !isBundleNodeId(n.id) && !isProjectFolderNodeId(n.id))
       .map((n) => ({ id: n.id, x: n.position.x, y: n.position.y }));
     if (positions.length === 0) return null;
     return JSON.stringify({ positions });
@@ -1506,7 +1523,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   /** §5.4 #36 (H) — 연결 보기 판정 재료(① 감춘 에이전트 · ② 흐릴 에이전트, `linkView.ts`). 지문이 바뀔 때만 새로 — 앱 노드를 끄는 매 프레임 선 목록을 다시 짓지 않게. */
   const linkSetsNow = useMemo(
-    () => linkViewSets(agents, allAppBubbles, activeProject),
+    () => linkViewSets(agents, APP_WORK.nodeHoldsFiles ? allAppBubbles : [], activeProject),
     [agents, allAppBubbles, activeProject],
   );
   const linkSetsKey = linkViewKey(linkSetsNow);
@@ -1811,18 +1828,56 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, [activeProject, trashedAgents.length, t]);
 
   // §5.1 #2-1 (B) — 메인 캔버스의 앱 노드 중심(그 노드가 선언한 파일이 그 노드를 돈다). 앱 노드는 메인에만 그려진다.
-  const constellationAppHubs = useConstellationAppHubs(currentFolderId === null && interiorView === null, appWorkPlan);
+  const constellationAppHubs = useConstellationAppHubs(APP_WORK.nodeHoldsFiles && currentFolderId === null && interiorView === null, appWorkPlan);
   const previewRootFolder = useMemo<BubbleData | undefined>(() => {
     if (!canvasProjectId) return undefined;
     const root = filteredFolders.find((b) => b.bubbleType === 'root');
     return { ...(root ?? { id: '__preview_root__', label: activeProject ?? '', bubbleType: 'root', status: 'idle', activity: 1 }), path: '', absolutePath: canvasProjectId };
   }, [canvasProjectId, filteredFolders, activeProject]);
 
-  // 메인 뷰 데이터
-  const mainViewData = useBubbleLayout({
+  // §5.1 #2-3 — 프로젝트 폴더 버블. 메인의 최상위 파일(프로젝트 루트) 전부로 수·활동을 재고, 접을지는 배치가 정한다(남은 루트 구성 둘 이상).
+  const projectRootFiles = useMemo(() => filteredFolders.filter((b) => b.bubbleType === 'file'), [filteredFolders]);
+  const projectFolderBubble = useMemo(() => projectFolderBubbleOf({
+    label: activeProject ?? '',
+    absolutePath: canvasProjectId,
+    root: filteredFolders.find((b) => b.bubbleType === 'root'),
+    files: projectRootFiles,
+  }), [activeProject, canvasProjectId, filteredFolders, projectRootFiles]);
+  const projectFolderInnerEdges = useMemo(() => projectFolderInteriorEdges(projectRootFiles), [projectRootFiles]);
+  const inProjectFolder = interiorView?.kind === 'projectFolder';
+  const projectFolderViewData = useFolderLayout({
+    folderId: projectFolderBubble?.id ?? '',
+    folderData: projectFolderBubble ?? undefined,
+    agents,
+    children: inProjectFolder ? projectRootFiles : NO_BUNDLE_MEMBERS,
+    innerEdges: inProjectFolder ? projectFolderInnerEdges : NO_ACTIVITY_EDGES,
+    satellites: NO_SATELLITE_MAP,
+    satellitePositions,
+    // 안의 루트 묶음은 메인의 루트 묶음과 같은 자리다 — 설정·묶음 안 범위가 가상 폴더 id 로 서버에 가지 않는다.
+    bundleFolder: previewRootFolder,
+    rootLabel: activeProject,
+  });
+
+  // §5.4 #36 (K) — 말풍선 에이전트의 활동 버블을 전용 버블 아래로 접는다(화면 전용 — 기본 버블로 돌아가면 이 판정이 빠진다).
+  const dedicatedPlan = useMemo(() => planDedicatedHubs({
     agents,
     folders: filteredFolders,
     edges: filteredEdges,
+    satellites: mergedSatellites,
+    hubSourcesOf: (agentId) => dedicatedHubSourcesOf(agentId, storedAppBubbles, activeProject, getInternalApp),
+    label: (key) => t(key),
+  }), [agents, filteredFolders, filteredEdges, mergedSatellites, storedAppBubbles, activeProject, t]);
+  const dedicatedPanelsJson = useMemo(() => JSON.stringify(dedicatedHubPanels(dedicatedPlan)), [dedicatedPlan]);
+  useEffect(() => {
+    useGraphStore.getState().setDedicatedHubs(JSON.parse(dedicatedPanelsJson) as ReturnType<typeof dedicatedHubPanels>);
+  }, [dedicatedPanelsJson]);
+
+  // 메인 뷰 데이터
+  const mainViewData = useBubbleLayout({
+    agents,
+    folders: dedicatedPlan.folders as BubbleData[],
+    edges: dedicatedPlan.edges as ActivityEdge[],
+    dedicatedPlan,
     satellites: mergedSatellites,
     satellitePositions,
     residentBubbles,
@@ -1831,6 +1886,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     rootLabel: activeProject,
     bundleFolder: previewRootFolder,
     fileNodes: nodeMap,
+    projectFolder: projectFolderBubble,
     // 폴더 위성은 서버가 확인한 세션 소유 범위를 따른다.
   });
 
@@ -1866,7 +1922,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   /** 뷰 데이터 선택 — §5.10 기억/휴지통 내부(최우선) vs 파이프라인 내부 vs 폴더 내부 vs 메인 */
   const viewData = interiorView !== null
-    ? interiorViewData
+    ? (inProjectFolder ? projectFolderViewData : interiorViewData)
     : currentFolderId !== null
       ? (isPipelineView ? pipelineViewData : folderViewData)
       : mainViewData;
@@ -2084,8 +2140,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
             type: 'bubble' as const,
             position: pos,
             dragHandle: '.bubble-body',
-            // §5.1 #2-1 (B) — 묶음 버블은 고르지 않는다(지울·잠글 데이터가 없는 자리 — 고른 묶음·묶음 메뉴에 들지 않게).
-            ...(b.bubbleType === 'bundle' ? { selectable: false } : {}),
+            // §5.1 #2-1 (B) — 묶음 버블은 고르지 않는다(지울·잠글 데이터가 없는 자리 — 고른 묶음·묶음 메뉴에 들지 않게). §5.4 #36 (K) 전용 버블만 체크 목록이 있어 고른다.
+            ...(b.bubbleType === 'bundle' && !isDedicatedHubNodeId(b.id) ? { selectable: false } : {}),
             data: b.id.startsWith('sat-') ? { ...b, position: pos } : { ...b },
           };
         });
@@ -2256,13 +2312,26 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           fileKind: info.kind,
           ...(info.sessionId ? { sessionId: info.sessionId } : {}),
           ...(info.source === 'folder' && info.folderId !== undefined ? { folderId: info.folderId, fileKind: info.kind } : {}),
+          // §5.1 #2-3 — 프로젝트 폴더 안에서 들어가면 나올 때 그 폴더 안으로 돌아간다.
+          ...(store.interiorView?.kind === 'projectFolder' ? { parent: store.interiorView } : {}),
         });
       }
       return;
     }
     // §5.10 — trashed 커스텀 에이전트는 IDE 사용 불가(휴지통 내부). 좌더블클릭 무시.
     if (data.bubbleType === 'agent' && data.trashed) { return; }
-    if (data.id === '__root_back__') { store.goBack(); return; }
+    // §5.1 #2-3 — 프로젝트 폴더 안의 `← Back` 은 폴더 계층이 아니라 내부 뷰에서 나온다.
+    if (data.id === '__root_back__') {
+      if (store.interiorView?.kind === 'projectFolder') store.exitInterior();
+      else store.goBack();
+      return;
+    }
+    // §5.1 #2-3 — 프로젝트 폴더 더블클릭 = 루트 파일 전부가 서는 폴더 안(폴더 버블과 같은 화면 · 영속 ❌).
+    if (isProjectFolderNodeId(data.id)) {
+      rememberHere();
+      store.enterInterior({ kind: 'projectFolder', label: data.label });
+      return;
+    }
     if (data.id === '__root_home__') {
       store.goToMain();
       return;
@@ -2406,7 +2475,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     const finalChildNodeIds: string[] = [];
     for (const id of spatialInside) {
       // §5.1 #2-1 (B) — 묶음 버블은 화면이 짓는 자리라 멤버로 싣지 않는다(구성 파일의 부모 판정에는 남는다).
-      if (isBundleNodeId(id)) continue;
+      if (isBundleNodeId(id) || isProjectFolderNodeId(id)) continue;
       const pid = parentByChildId.get(id);
       if (pid) {
         if (!spatialInside.has(pid)) continue; // 위성: 부모가 박스 안에 없음 → 제외
@@ -3367,6 +3436,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   // window 리스너로 되돌리지 마라 — IDE·팝업 안의 지우기가 캔버스 버블을 휴지통으로 보낸다(2026-09-11 실측).
   const handleDelete = useCallback((e: KeyboardEvent): boolean | void => {
     const target = e.target as HTMLElement | null;
+    if (target?.closest?.('[data-canvas-memo-bubble]')) return false;
     // 아래 둘은 스코프로 갈리지 않는다 — 같은 `canvas` 스코프 안에 있으면서 자기 키를 쓰는
     //   자리라, "이번엔 내 것이 아니다"(`false`)로 넘겨 원래 가던 곳으로 흘려보낸다.
     if (target?.closest?.('[data-capture-control="on"]')) return false; // §5.9 제어 중 캡처 버블
@@ -3650,6 +3720,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         // `vibisual-canvas` — 이 캔버스만의 고르기 표시(끄는 상자의 결·묶음 상자 숨김, `index.css`).
         className={`vibisual-canvas bg-vb-canvas ${covered ? 'vibisual-canvas-idle' : ''}`}
       >
+        <CanvasMemoLayer />
         <EdgeMask />
         {/* §5.4 #31 (K) — 첫 선택이 코로나 필터를 처음 그리느라 멈칫하지 않게, 보일 때 한 번 미리 그린다. */}
         <CoronaWarmup hidden={covered} />
@@ -3669,6 +3740,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         {interiorView?.kind === 'bundle' && (bundleFiles.loading || bundleFiles.failed) && <div role={bundleFiles.failed ? 'alert' : 'status'} className="absolute left-1/2 top-4 z-30 max-w-[calc(100%-2rem)] -translate-x-1/2 rounded bg-gray-900/95 px-3 py-2 text-[12px] text-gray-300">{bundleFiles.failed ? <button type="button" onClick={bundleFiles.retry}>{t('panel.folderList.retry')}</button> : t('panel.folderList.loadingMore', { loaded: bundleFiles.members.length, total: bundleFiles.total })}</div>}
         {interiorView?.kind === 'bundle' && <BundlePageControls page={bundlePage} count={bundleFiles.total} onChange={(page) => setBundlePageState({ id: bundleViewId, page })} />}
         <CanvasControls
+          activityBubblesVisible={activityBubblesVisible}
+          onToggleActivityBubbles={toggleActivityBubbles}
           onTidy={handleTidy}
           tidyBusy={tidying}
           tidyDisabled={interiorView !== null}
@@ -3734,10 +3807,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       <TaskEdgeDragPreview rfRef={rfRef} rfContainerRef={rfContainerRef} flowNodes={flowNodes} />
       {/* §5.4 #36 (B) — 궤도 위성에서 끄는 위성줄 미리보기(같은 그리기 조각·곡선 함수 — 놓는 순간 모양이 튀지 않게). */}
       <RefLinkDragPreview />
-      {/* §5.4 #29 — 캔버스 클립보드/북마크 토스트. IDE 오버레이(z-50) 위로 보이게 body 포털 + fixed z-[70](§5.4 #30). */}
+      {/* §5.4 #29 — 캔버스 클립보드/북마크 토스트. 어느 층 위에서도 보이게 body 포털 + `z-toast`(§5.4 #30). */}
       {canvasToast && createPortal(
         <div
-          className={`pointer-events-none fixed left-1/2 top-14 z-[70] -translate-x-1/2 rounded-md border px-3 py-1.5 text-xs font-medium shadow-lg ${
+          className={`pointer-events-none fixed left-1/2 top-14 z-toast -translate-x-1/2 rounded-md border px-3 py-1.5 text-xs font-medium shadow-lg ${
             canvasToast.kind === 'success'
               ? 'border-emerald-700 bg-emerald-900/90 text-emerald-200'
               : 'border-rose-700 bg-rose-900/90 text-rose-200'

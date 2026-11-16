@@ -480,7 +480,7 @@ export const StageCanvasMenu = memo(function StageCanvasMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 w-64 max-w-[calc(100vw-16px)]"
+      className="fixed z-menu w-64 max-w-[calc(100vw-16px)]"
       style={{ left, top }}
       onMouseDown={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { AskUserQuestionRequest } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { compileAnswer, draftFromAnswer, emptyStepDraft, type StepDraft } from './askQuestionDraft.js';
+import { CardPathText } from './CardPathText.js';
 
 interface AskQuestionCardProps {
   request: AskUserQuestionRequest;
@@ -179,7 +180,7 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
           options 4개 + 긴 description + multi-step 누적 시에도 Send 버튼이 화면 안에 머무름. */}
       <div className="scrollbar-thin flex max-h-[50vh] flex-col gap-2 overflow-y-auto px-3 py-3">
         <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-gray-200">
-          {current.question}
+          <CardPathText text={current.question} />
         </p>
 
         <div className="mt-1 flex flex-col gap-1">

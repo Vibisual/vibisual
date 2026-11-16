@@ -14,9 +14,10 @@ export function VideoWorkerShell(_props: AppShellProps): React.JSX.Element {
   const pending = useRef(0);
   const lastBusyAt = useRef(Date.now());
 
-  const prepare = useCallback(async (project: string, doc: VideoDoc): Promise<VideoDoc> => {
+  const prepare = useCallback(async (project: string, doc: VideoDoc, readOnly: boolean): Promise<VideoDoc> => {
     // 일감마다 한 번 불린다 — 쉬는 시계를 여기서 다시 감는다(짧은 스틸은 5초 틱 사이에 끝나 버린다).
     lastBusyAt.current = Date.now();
+    if (readOnly) return doc;
     const missing = assetsNeedingMeasurement(doc);
     if (missing.length === 0) return doc;
     const ops = buildMeasurementOps(doc, await measureAssets(project, missing));

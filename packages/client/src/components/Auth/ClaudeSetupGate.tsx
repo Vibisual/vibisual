@@ -8,14 +8,15 @@ import { isSetupGateOpen, shouldSummonLogin } from './setupGateFlow.js';
 import { hasProjectFolder } from './projectFolderGateFlow.js';
 import { LanguageSwitcher } from '../Layout/LanguageSwitcher.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 /**
  * §4 (첫 실행 설치 온보딩) — CLI 설치 게이트 + 배너. CLI 없음을 알리는 유일한 자리다(`LoginWindow` 는 `error` 면, `ClaudeVersionGate` 는 `current=null` 이면 안 뜬다).
- * 권장형(차단 ❌ — [나중에] 면 배너가 남는다) · z-index 는 `LoginWindow`(100_600) 위 · `ready` 면 성공 표시 후 로그인으로 넘긴다([계속]·바깥 클릭도)
+ * 권장형(차단 ❌ — [나중에] 면 배너가 남는다) · z-index 는 `LoginWindow` 위 · `ready` 면 성공 표시 후 로그인으로 넘긴다([계속]·바깥 클릭도)
  * · 수동 명령 + 공식 문서는 늘 보인다. ⚠ 판정은 `setupGateFlow.ts` 에 — `useEffect` deps 에 얽히면 "준비 완료" 타이머가 자기를 지워 멈춘다.
  */
 
-const Z = 100_700;
+const Z = Z_LAYER.GATE_SETUP;
 
 export function ClaudeSetupGate(): React.JSX.Element | null {
   const { t } = useTranslation();

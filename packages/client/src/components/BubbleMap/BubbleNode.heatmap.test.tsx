@@ -177,7 +177,7 @@ describe('BubbleNode heatmap paint', () => {
     useGraphStore.setState({ heatmapMode: true, readCountRange: { max: 600 } });
     const scene = (readCount: number) => <>
       <BubbleNode id="heat-file" data={{ ...sample({ readCount }) }} />
-      <CanvasControls onTidy={vi.fn()} tidyBusy={false} tidyDisabled={false} />
+      <CanvasControls activityBubblesVisible={false} onToggleActivityBubbles={vi.fn()} onTidy={vi.fn()} tidyBusy={false} tidyDisabled={false} />
     </>;
     act(() => { renderer = create(scene(0)); });
     const zeroSwatch = renderer!.root.find((node) => node.type === 'span'

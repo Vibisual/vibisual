@@ -197,9 +197,9 @@ export function ShelfPanel(): React.JSX.Element | null {
 
   const atLimit = shelf.items.length >= SHELF_MAX_ITEMS;
 
-  // 헤더(h-9, z-[100])가 늘 위에 있어 inset-0 이면 머리줄의 닫기가 그 밑에 깔린다 — top-9 부터(AgentIDEOverlay 와 같다).
+  // 헤더(h-9, `z-header`)가 늘 위에 있어 inset-0 이면 머리줄의 닫기가 그 밑에 깔린다 — top-9 부터(AgentIDEOverlay 와 같다).
   return (
-    <div className="fixed inset-x-0 bottom-0 top-9 z-[55] flex flex-col bg-gray-950/95 backdrop-blur-sm">
+    <div className="fixed inset-x-0 bottom-0 top-9 z-board flex flex-col bg-gray-950/95 backdrop-blur-sm">
       {/* 헤더 — 제목 인라인 편집 + 항목 수 + 내보내기/가져오기 + 닫기.
           폰 폭에서는 항목 수·내보내기·가져오기 묶음을 둘째 줄로 내린다 — 한 줄이면 고정 폭 단추들이
           화면을 넘어 [닫기]가 화면 밖으로 밀려났다(폰에는 Esc 도 없다). */}

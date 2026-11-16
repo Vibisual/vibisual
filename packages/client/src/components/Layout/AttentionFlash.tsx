@@ -15,7 +15,7 @@ export function AttentionFlash({ seq, onDone, className = '' }: {
       key={seq}
       aria-hidden
       onAnimationEnd={onDone}
-      className={`animate-overlay-attention pointer-events-none fixed inset-0 z-[200] border-2 border-sky-300/80 bg-sky-300/10 shadow-[0_0_28px_rgba(125,211,252,0.35)_inset] ${className}`}
+      className={`animate-overlay-attention pointer-events-none fixed inset-0 z-overlay border-2 border-sky-300/80 bg-sky-300/10 shadow-[0_0_28px_rgba(125,211,252,0.35)_inset] ${className}`}
     />
   );
 }

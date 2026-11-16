@@ -1,4 +1,4 @@
-// Spec board on a new profile, outside debug mode: requirements → acceptance criteria → chained task cards.
+// Spec board on a new profile, which only debug mode exposes: requirements → acceptance criteria → chained task cards.
 // Also pins what deleting a card means: the item becomes card-less again, re-making it restores the chain, and a
 // spec change can be put into an existing card without replacing the agent.
 import fs from 'node:fs';
@@ -6,7 +6,7 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ElectronApplication, Locator, Page } from 'playwright-core';
 import { createSandbox, launch, mainWindow, waitForReveal, type Sandbox } from './harness';
-import { api, bubble, canvasMenu, firstRunToProject, until, visible } from './flows';
+import { api, bubble, canvasMenu, canvasMenuRowCount, firstRunToProject, toggleDebugMode, until, visible } from './flows';
 
 const s: Sandbox = createSandbox('first-command.json');
 const artifacts = process.env.VIBISUAL_E2E_ARTIFACTS ? path.join(path.resolve(process.env.VIBISUAL_E2E_ARTIFACTS), 'spec-board') : path.join(s.root, 'artifacts');
@@ -61,12 +61,14 @@ async function generateButton(p: Page, count: number): Promise<Locator> {
   return b;
 }
 
-describe('spec board without debug mode', () => {
-  it('is on the canvas menu and makes a spec bubble', async () => {
+describe('spec board in debug mode', () => {
+  it('is on the canvas menu only in debug mode and makes a spec bubble', async () => {
     app = await launch(s);
     page = await mainWindow(app);
     expect(['ready', 'settle-cap']).toContain(await waitForReveal(s));
     await firstRunToProject(app, page, s);
+    expect(await canvasMenuRowCount(page, { x: 160, y: 140 }, /^Spec Board/)).toBe(0);
+    await toggleDebugMode(page, { x: 160, y: 140 });
     const before = await page.locator('.react-flow__node-specNode').count();
     await (await canvasMenu(page, { x: 160, y: 140 }, /^Spec Board/)).click();
     await until('spec bubble appears', async () => (await page!.locator('.react-flow__node-specNode').count()) > before, 20_000);

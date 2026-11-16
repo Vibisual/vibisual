@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { WebEntry } from '@vibisual/shared';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { LayerRoot } from '../Layout/LayerRoot.js';
 
 interface Props {
   entry: WebEntry;
@@ -56,7 +57,7 @@ export function WebEntryDetailPopup({ entry, host, onClose, onDelete }: Props): 
   }, []);
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60" {...backdrop}>
+    <LayerRoot className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60" {...backdrop}>
       <div className="mx-4 flex max-h-[80dvh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50">
         {/* ① 헤더 — 무엇을(종류) · 어디서(호스트) · 언제(전체 시각) */}
         <div className="flex items-center gap-2 border-b border-gray-700 px-4 py-2.5">
@@ -215,7 +216,7 @@ export function WebEntryDetailPopup({ entry, host, onClose, onDelete }: Props): 
           </button>
         </div>
       </div>
-    </div>
+    </LayerRoot>
   );
 }
 

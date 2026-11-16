@@ -71,7 +71,7 @@ export function CanvasNodeMenu({ x, y, minWidthClass, onClose, children }: Canva
   return createPortal(
     <div
       ref={ref}
-      className={`fixed z-[60] ${minWidthClass} max-h-[calc(100dvh-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40`}
+      className={`fixed z-menu ${minWidthClass} max-h-[calc(100dvh-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40`}
       style={{ left: x, top: y }}
       onMouseDown={(e) => e.stopPropagation()}
     >

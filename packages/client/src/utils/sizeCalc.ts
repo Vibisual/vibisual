@@ -1,6 +1,8 @@
 import { NODE_MIN_SIZE, NODE_MAX_SIZE, FILE_MIN_SIZE, FILE_MAX_SIZE, IFRAME_BUBBLE_HEIGHT, FILE_FACE, FILE_SIZE_SCALE, BUNDLE_BUBBLE, COMMAND_APP_SIZE } from '@vibisual/shared';
 import { fileFaceKindOf, heatRatio, heatSize, heatValueOf, isHeatBubbleType, isMediaFaceKind } from '@vibisual/shared';
 import type { BubbleData, HeatScale, ToolAxis } from '@vibisual/shared';
+import { DEDICATED_BUBBLE } from '@vibisual/shared';
+import { isDedicatedHubNodeId } from './dedicatedBubbleInfo.js';
 
 /**
  * §5.1 #2-1 (A) — 파일 얼굴의 지름 하한. 미디어는 그림이 읽혀야 한다(`mediaMinSize`). 판정 경로는 얼굴과 같다(절대경로 → 노드 키 → 이름).
@@ -166,7 +168,7 @@ export function calcBubbleSize(
 
   // §5.1 #2-1 (B) — 묶음 버블은 용량·활동과 무관한 고정 지름(무리의 중심이되 구성 파일을 덮지 않는다).
   if (bubble.bubbleType === 'bundle') {
-    return BUNDLE_BUBBLE.size;
+    return isDedicatedHubNodeId(bubble.id) ? DEDICATED_BUBBLE.size : BUNDLE_BUBBLE.size;
   }
 
   // §5.1 「앱 버블 지름」 — 명령 앱은 활동량 자가 아니라 같은 화면의 앱끼리 견준 사용 횟수(`_appUsageRange`).

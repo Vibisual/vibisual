@@ -148,7 +148,7 @@ function KeyCaptureBox({ cmd, anchor, capture, onClose }: KeyCaptureBoxProps): R
     <div
       ref={boxRef}
       data-shortcut-scope="dialog"
-      className="fixed z-[200] max-h-[calc(100dvh-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 p-3 shadow-2xl"
+      className="fixed z-menu max-h-[calc(100dvh-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 p-3 shadow-2xl"
       style={{ left, top, width: BOX_WIDTH }}
     >
       <div className="mb-2 truncate text-xs font-semibold text-gray-200">{nameOf(cmd)}</div>

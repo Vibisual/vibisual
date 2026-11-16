@@ -16,8 +16,9 @@ import { LanguageSwitcher } from '../Layout/LanguageSwitcher.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
 import { claudeGatesMayAutoOpen } from '../Engine/engineChoiceFlow.js';
 import { buildClaudeLoginCommand, claudeLoginPlatform, isClaudeLoginEmailValid } from './claudeLoginCommand.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
-const Z = 100_600; // ClaudeVersionGate(100_500) 보다 위 — 로그인이 안 되면 버전 갱신도 의미가 없다.
+const Z = Z_LAYER.GATE_LOGIN; // ClaudeVersionGate 보다 위 — 로그인이 안 되면 버전 갱신도 의미가 없다.
 
 /**
  * §4 — 앱 안 로그인 팝업: 상태는 서버 `claude auth status`(스냅샷 `claudeAuth`), 실행은 임베디드 PTY(§5.5 #17-20 ④ 런처 갈래)로 `claude auth login`.

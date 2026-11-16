@@ -325,7 +325,7 @@ export const TabContextMenu = memo(function TabContextMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-50"
+      className="fixed z-menu"
       style={{ left, top }}
       onMouseDown={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
@@ -376,7 +376,7 @@ export const TabContextMenu = memo(function TabContextMenu({
       {flyout && hasClosed && (
         <div
           ref={flyoutRef}
-          className="fixed z-50 max-w-[calc(100vw-1rem)]"
+          className="fixed z-menu max-w-[calc(100vw-1rem)]"
           style={{ left: flyout.left, top: flyout.top, width: SUB_W }}
           onMouseEnter={keepFlyout}
           onMouseLeave={scheduleCloseFlyout}

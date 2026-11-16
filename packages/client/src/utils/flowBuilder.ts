@@ -10,6 +10,7 @@ import {
   WEB_ORBIT_TYPES,
 } from '@vibisual/shared';
 import { calcBubbleSize } from './sizeCalc.js';
+import { isDedicatedHubNodeId } from './dedicatedBubbleInfo.js';
 import type { EdgeInput, SatelliteInfo } from './satellite.js';
 
 // ─── 공통 엣지 빌더 (config 기반) ───
@@ -156,8 +157,8 @@ export function toFlowNodes(
     type: 'bubble' as const,
     position: positions.get(b.id) ?? layout?.get(b.id) ?? b.position ?? { x: 0, y: 0 },
     dragHandle: '.bubble-body',
-    // §5.1 #2-1 (B) — 묶음 버블은 고르지 않는다(지울·잠글 데이터가 없는 자리).
-    ...(b.bubbleType === 'bundle' ? { selectable: false } : {}),
+    // §5.1 #2-1 (B) — 묶음 버블은 고르지 않는다(지울·잠글 데이터가 없는 자리). §5.4 #36 (K) 전용 버블만 체크 목록이 있어 고른다.
+    ...(b.bubbleType === 'bundle' && !isDedicatedHubNodeId(b.id) ? { selectable: false } : {}),
     data: { ...b },
   }));
 }

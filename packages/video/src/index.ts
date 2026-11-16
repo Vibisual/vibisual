@@ -4,6 +4,11 @@ export * from './types.js';
 export * from './constants.js';
 export { resolveTimeline, activeItems, itemsAt, cutPoints, secondsToFrame, frameToSeconds } from './resolveTimeline.js';
 export { applyPatch, createEmptyDoc } from './ops.js';
+// §5.13 (G) — patch 미리 검사·고칠 방법·묶음 op(순수).
+export { expandPatchOps } from './patchBundles.js';
+export type { ExpandedPatch, ExpandResult, PatchOpOrigin } from './patchBundles.js';
+export { BASE_OP_NAMES, BUNDLE_OP_NAMES, checkOpShape } from './patchShape.js';
+export { bodyFix, diagnosticFixes, docUnreadableFix, isSafeFix, simulateOps, versionConflictFix } from './patchFix.js';
 export { hashItem, hashDocShape, stableHash } from './hashItem.js';
 export { validateDoc } from './validateDoc.js';
 export type { ValidateResult } from './validateDoc.js';
@@ -68,6 +73,8 @@ export {
 } from './chapters.js';
 // §5.13 (X) 39-4 — 장면 대표 프레임의 열쇠·찍을 자리(서버 디스크 기억과 화면 기억이 같은 열쇠를 쓴다 — 순수).
 export { CHAPTER_THUMB_AT, CHAPTER_THUMB_KEY_VERSION, chapterThumbWants, type ChapterThumbWant } from './chapterThumbs.js';
+// §5.13 (V) 37-1 — 문서 갤러리 포스터의 열쇠·찍을 자리(대표 프레임 길을 다시 쓴다 — 순수).
+export { DOC_POSTER_AT, DOC_POSTER_KEY_VERSION, docPosterTime, docPosterWant, type DocPosterWant } from './docPoster.js';
 export { requiredSchemaVersion } from './ops.js';
 // §5.13 (V) 37-13 — 대본으로 편집(문장 목록·잘라 낼 구간·자르기 연산 — 순수).
 export { buildCutOps, buildTranscript, keptSegments, mapCutTime, mergeCutRanges, sentenceCutRanges } from './transcript.js';
@@ -77,9 +84,11 @@ export { coverBox, deriveFormatDoc, derivedDocId } from './derive.js';
 export { buildSrt, srtTime, withoutCaptions } from './srt.js';
 // §5.13 (AA) 42 — 내보내기 편의(설정·일감 모양·파일 이름·계획 — 순수).
 export {
+  DEFAULT_EXPORT_EXTRAS,
   DEFAULT_EXPORT_SETTINGS,
   EXPORT_CAPTIONS,
   EXPORT_CONFLICTS,
+  EXPORT_EXTRA_KINDS,
   EXPORT_FORMATS,
   EXPORT_FPS_CHOICES,
   EXPORT_QUALITIES,
@@ -88,6 +97,7 @@ export {
   exportFps,
   exportText,
   isSafePresetId,
+  normalizeExportExtras,
   normalizeExportSettings,
   normalizeExportSettingsFile,
 } from './exportSettings.js';
@@ -97,12 +107,16 @@ export type {
   ExportAfter,
   ExportCaptions,
   ExportConflict,
+  ExportExtras,
   ExportFormat,
   ExportPreset,
   ExportQuality,
   ExportSettings,
   ExportSettingsFile,
 } from './exportSettings.js';
+// §5.13 (AA) 42-13 — 함께 내기(챕터 목록·썸네일 시각 — 순수).
+export { COMPANION_NOTES, buildChapterList, chapterClock, chapterListEntries, thumbnailTime, wantsSubtitleFile } from './exportExtras.js';
+export type { ChapterListEntry, CompanionKind, CompanionNote } from './exportExtras.js';
 export { RENDER_NAME_TOKENS, buildRenderFileName, firstFreeName, numberedName, sanitizeFileName, utf8Bytes } from './exportNames.js';
 export type { RenderNameContext } from './exportNames.js';
 export { audibleTracks, batchFileName, planExportJobs, renderFramePlan, renderTiming, withMutedTracks } from './exportPlan.js';
@@ -119,7 +133,11 @@ export type {
   PassRecord,
   PassReport,
   PassesFile,
+  SceneDecision,
 } from './history.js';
+// §5.13 (V) 37-23 — 장면 단위 받기·되돌리기(순수).
+export { passTouchesScene, sceneChanges, sceneCompositionPaths, sceneDecisionOf, sceneRestoreOps, sceneSignature } from './sceneChange.js';
+export type { SceneChange, SceneChangeSet, SceneChangeState } from './sceneChange.js';
 export { SAFE_AREAS, VIDEO_FORMAT_IDS, formatOfSize, formatRatioLabel, safeAreaRect } from './formats.js';
 // §5.13 (T-6)(V) 37-11 — 가져오기 목록 모양·라이선스 찾기·주입 태그(순수).
 export { LIB_DOWNLOAD_MAX_BYTES, PACK_VENDOR_MAX_FILES, detectLicense, libFormatOf, libInjection, safeLibName } from './libs.js';
@@ -128,7 +146,7 @@ export type { LibFormat, LibItem, LibKind, LibRequest, LibsFile, LibVendored } f
 export { VIDEO_PARTS, findPart, partHtml } from './parts/index.js';
 export type { PartCategory, SavedPart, SavedPartItem, VideoPartDef } from './parts/index.js';
 // §5.13 (V) 37-8 — 전환 표(세 백엔드가 같은 것을 쓴다).
-export { TRANSITION_KINDS, transitionEffect, flashAlpha, easeInOutCubic } from './render/transitions.js';
+export { TRANSITION_DIRECTIONS, TRANSITION_KINDS, transitionDirection, transitionEffect, transitionHasDirection, flashAlpha, easeInOutCubic } from './render/transitions.js';
 // §5.13 (V) 37-10 — 스타일 카드(후보 → 제안 — 순수).
 export { DEFAULT_DOC_STYLE, hexToHsl, isCssColor, normalizeHex, suggestStyle } from './style.js';
 export type { ColorCandidate, FontCandidate, LogoCandidate, StyleCandidates, StyleFile } from './style.js';
@@ -169,9 +187,9 @@ export type { CaptionFileFormat, TimedWord } from './captions.js';
 // §5.13 (W) 38-7 — 기획 단계 정지 화면(그 컴포지션 하나짜리 문서).
 export { CHAPTER_FRAME_ITEM_ID, chapterFrameDoc, chapterFrameTime } from './chapters.js';
 
-export { buildDrawList, audioItemsAt, captionTextAt } from './render/drawList.js';
+export { buildDrawList, audioItemsAt, captionTextAt, resolveTransform } from './render/drawList.js';
 // §5.13 (V) 37-6 — 화면의 한 점 아래 무엇이 있나(순수).
-export { hitTest, opBounds, opRect, textBounds } from './render/hitTest.js';
+export { hitTest, opBounds, opBox, opRect, textBounds } from './render/hitTest.js';
 export type { HitRect, HitResult, HitTestOptions } from './render/hitTest.js';
 // §5.13 (V) 37-6 — 기본 씬 안쪽(제목·부제·목록 줄 …) — 가리키기·메모·Alt 인스펙터가 같은 답을 쓴다(순수).
 export {
@@ -215,6 +233,11 @@ export {
   strongBeatsInDoc,
 } from './review/motionReview.js';
 export type { FrameProbe, MotionCode, MotionFinding, ProbeText } from './review/motionReview.js';
+// §5.13 (G) — 스스로 판정할 재료: 배치 요약(글) · 검수 점수(숫자·늘어난/줄어든 문제).
+export { compositionsAt, summarizeLayout } from './review/layoutSummary.js';
+export type { LayoutBox, LayoutElement, LayoutFlagCounts, LayoutInput, LayoutSummary } from './review/layoutSummary.js';
+export { REVIEW_SCORE_CODES, REVIEW_SCORE_FORMULA, compareFindings, scoreFindings } from './review/reviewScore.js';
+export type { ReviewCodeCount, ReviewComparison, ReviewScore, ReviewScoreDelta, ReviewScoreWeights, ScoredFinding } from './review/reviewScore.js';
 export {
   REQUEST_CHECK_FRAME_BUDGET, checkVideoRequirements, videoBaseline, videoItemSignature,
   type VideoBaseline, type VideoCheckOptions, type VideoCheckReason, type VideoRequirement, type VideoRequirementResult,

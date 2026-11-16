@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import type { LocalEngineState } from '@vibisual/shared';
 import { getEngineCandidates, getEngineState } from './localEngineService.js';
-import { getLocalHardware, invalidateLocalHardware, peekLocalHardware } from './localHardwareService.js';
+import { getLocalHardware, hasDedicatedVram, invalidateLocalHardware, peekLocalHardware } from './localHardwareService.js';
 
 vi.mock('node:child_process', () => ({ spawn: vi.fn() }));
 vi.mock('./localEngineService.js', () => ({ getEngineState: vi.fn(), getEngineCandidates: vi.fn() }));
@@ -40,6 +40,35 @@ afterEach(() => {
   invalidateLocalHardware();
   vi.useRealTimers();
   vi.clearAllMocks();
+});
+
+describe('hasDedicatedVram — VRAM 을 시스템 메모리에 더해도 되는가', () => {
+  const GIB = 1024 ** 3;
+  const device = (name: string, totalGib: number, freeGib = totalGib): { name: string; totalBytes: number; freeBytes: number } => ({
+    name, totalBytes: totalGib * GIB, freeBytes: freeGib * GIB,
+  });
+
+  it('Windows·Linux 의 전용 장치(CUDA·Vulkan)는 더한다', () => {
+    expect(hasDedicatedVram([device('CUDA0: NVIDIA GeForce RTX 4090', 24)], 64 * GIB)).toBe(true);
+    expect(hasDedicatedVram([device('Vulkan0: AMD Radeon RX 7900', 16)], 64 * GIB)).toBe(true);
+  });
+
+  it('macOS Metal 은 통합 메모리라 더하지 않는다', () => {
+    expect(hasDedicatedVram([device('MTL0: Apple M2 Max', 8)], 64 * GIB)).toBe(false);
+    expect(hasDedicatedVram([device('Metal: Apple M1', 8)], 64 * GIB)).toBe(false);
+  });
+
+  it('총량이 시스템 메모리에 견줘 크면 내장 GPU 일 수 있어 더하지 않는다', () => {
+    expect(hasDedicatedVram([device('Vulkan0: Integrated GPU', 8)], 16 * GIB)).toBe(false);
+  });
+
+  it('장치가 없으면 더할 것이 없다', () => {
+    expect(hasDedicatedVram([], 64 * GIB)).toBe(false);
+  });
+
+  it('여럿이면 여유가 가장 큰 장치로 판정한다 — vramFreeBytes 가 그 장치의 값이다', () => {
+    expect(hasDedicatedVram([device('Vulkan0: Integrated GPU', 32, 1), device('Vulkan1: Discrete GPU', 12, 12)], 64 * GIB)).toBe(true);
+  });
 });
 
 function answer(index: number, output: string, code: number | null = 0): void {

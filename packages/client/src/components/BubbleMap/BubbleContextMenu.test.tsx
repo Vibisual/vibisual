@@ -74,11 +74,11 @@ describe('bubble visibility submenu', () => {
     expect(setAgentLinkView).toHaveBeenLastCalledWith('agent-menu', { hidden: false });
   });
 
-  it('keeps the view lens outside the hide submenu when an app is linked', () => {
+  it('offers no view lens when an app is linked because app nodes hold no file satellites', () => {
     useGraphStore.setState({ appBubbles: [{ id: 'app', appId: 'video', projectName: 'project', linkedAgentIds: ['agent-menu'], x: 0, y: 0, width: 208, height: 130, createdAt: 1 }] });
     const items = mount(agent());
     expect(items[0]?.children).toHaveLength(2);
-    expect(items[1]?.id).toBe('bubble-lens-files');
+    expect(items.some((item) => item.id?.startsWith('bubble-lens'))).toBe(false);
   });
 
   it('does not offer single-agent visibility actions for a grouped selection', () => {
@@ -106,7 +106,7 @@ describe('linked bubbles submenu', () => {
 
     useGraphStore.setState({ appBubbles: [{ id: 'app', appId: 'video', projectName: 'project', linkedAgentIds: ['agent-menu'], x: 0, y: 0, width: 208, height: 130, createdAt: 1 }] });
     act(() => renderer?.unmount());
-    expect(mount(agent()).map((i) => i.id).slice(0, 3)).toEqual(['bubble-visibility', 'bubble-lens-files', 'bubble-linked']);
+    expect(mount(agent()).map((i) => i.id).slice(0, 2)).toEqual(['bubble-visibility', 'bubble-linked']);
   });
 
   it('pins, and the same row unpins once pinned — the note says whether it clears now', () => {

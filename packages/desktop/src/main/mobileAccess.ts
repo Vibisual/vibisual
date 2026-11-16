@@ -13,6 +13,7 @@ import { ensureMobileTls, mobileHttpsRedirect, type MobileTls } from './mobileTl
 import { createMobileSocketSender, createMobileWebSocketServer, retainTransportErrors } from './mobileSocketSafety';
 import { createMobileVoiceBridge, MOBILE_VOICE_SOCKET_PATH, type MobileVoiceBridge } from './mobileVoiceBridge';
 import { mobileTerminalEnv } from './mobileTerminalEnv';
+import { boundOpenRange, contentCapabilityRedirect, resolveContentCapability, type ContentCapability } from './mobileRequestRewrite';
 import { inject, type DispatchFunc } from 'light-my-request';
 import { type WebSocketServer, WebSocket } from 'ws';
 import { Client as NatUpnpClient } from '@runonflux/nat-upnp';
@@ -24,6 +25,9 @@ import {
   MOBILE_PAIR_MAX_ATTEMPTS,
   MOBILE_SESSION_MAX,
   MOBILE_SESSION_COOKIE,
+  MOBILE_CONTENT_PATH,
+  MOBILE_CONTENT_BASE_HEADER,
+  MOBILE_RANGE_CHUNK_BYTES,
   MOBILE_EXTERNAL_PAIR_CODE_LENGTH,
   MOBILE_PAIR_BAN_MS,
   MOBILE_UPNP_LEASE_S,
@@ -336,8 +340,12 @@ function parseCookies(header: string | undefined): Record<string, string> {
   return out;
 }
 
+function sessionTokenOf(req: IncomingMessage): string | undefined {
+  return parseCookies(req.headers.cookie)[MOBILE_SESSION_COOKIE];
+}
+
 function isAuthedRequest(req: IncomingMessage): boolean {
-  const token = parseCookies(req.headers.cookie)[MOBILE_SESSION_COOKIE];
+  const token = sessionTokenOf(req);
   if (!token) return false;
   const candidate = Buffer.from(token);
   return persisted.sessions.some((s) => {
@@ -675,7 +683,7 @@ function serveStatic(pathname: string, res: ServerResponse, acceptsGzip: boolean
 
 // ─── API 재디스패치 ──────────────────────────────────────────────────────────
 
-function dispatchToExpress(req: IncomingMessage, res: ServerResponse): void {
+function dispatchToExpress(req: IncomingMessage, res: ServerResponse, capability?: ContentCapability): void {
   const expressApp = expressAppRef;
   if (!expressApp) { res.statusCode = 503; res.end('server core not ready'); return; }
   const chunks: Buffer[] = [];
@@ -684,9 +692,13 @@ function dispatchToExpress(req: IncomingMessage, res: ServerResponse): void {
   req.on('end', () => {
     const headers = { ...req.headers } as Record<string, string | string[]>;
     delete headers['cookie']; // 세션 쿠키는 이 리스너 인증용 — 코어에 흘리지 않는다.
+    delete headers[MOBILE_CONTENT_BASE_HEADER]; // 코어가 이 값을 CSP 와 문서에 적는다 — 바깥에서 지어 보내지 못하게.
+    if (capability) headers[MOBILE_CONTENT_BASE_HEADER] = capability.base;
+    // inject 는 응답을 통째로 모은다 — 안 묶으면 끝 열린 구간마다 파일 끝까지 메모리에 올린다.
+    if (typeof headers['range'] === 'string') headers['range'] = boundOpenRange(headers['range'], MOBILE_RANGE_CHUNK_BYTES);
     void inject(expressApp as unknown as DispatchFunc, {
       method: (req.method ?? 'GET') as 'GET',
-      url: req.url ?? '/',
+      url: capability?.url ?? req.url ?? '/',
       headers,
       payload: chunks.length > 0 ? Buffer.concat(chunks) : undefined,
     }).then((injected) => {
@@ -745,6 +757,18 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
     handleQrRedeem(req, res);
     return;
   }
+  // §5.13 (T-3) — 샌드박스 프레임의 하위 요청에는 쿠키가 없다. 권한 경로만 쿠키 검사 앞에서 받는다.
+  if (pathname === MOBILE_CONTENT_PATH || pathname.startsWith(`${MOBILE_CONTENT_PATH}/`)) {
+    const capability = req.method === 'GET' || req.method === 'HEAD'
+      ? resolveContentCapability(req.url ?? '', persisted.sessions)
+      : null;
+    if (capability) { dispatchToExpress(req, res, capability); return; }
+    res.statusCode = 404;
+    res.setHeader('cache-control', 'no-store');
+    res.end();
+    req.resume();
+    return;
+  }
   if (!isAuthedRequest(req)) {
     if (req.method === 'GET' || req.method === 'HEAD') {
       // §4 — QR 로 세션을 발급받고도 미인증으로 돌아왔다면 쿠키가 저장되지 않은 것이다.
@@ -762,6 +786,14 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
   // §4 — 인증된 채로 `?paired=1` 이 남아 있으면 표식을 떼고 깨끗한 `/` 로 보낸다.
   if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/' && query.get('paired') === '1') {
     redirectTo(res, '/');
+    req.resume();
+    return;
+  }
+  const contentTarget = req.method === 'GET' || req.method === 'HEAD'
+    ? contentCapabilityRedirect(req.url ?? '', sessionTokenOf(req) ?? '')
+    : null;
+  if (contentTarget) {
+    redirectTo(res, contentTarget);
     req.resume();
     return;
   }

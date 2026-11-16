@@ -1,46 +1,69 @@
-import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CreationDocSummary } from '@vibisual/shared';
+import { useScrollReveal } from '../../hooks/useScrollReveal.js';
 import { IMAGE_RATIOS } from '../Creation/imageSource.js';
 import { shortcutLabel } from '../../utils/platform.js';
+import { EditorButton, EditorDivider, EditorMenuButton } from './editorControls.js';
+import { EditorIcon } from './editorIcons.js';
 import { imageLabelKey } from './imageLabels.js';
 
 interface ImageToolbarProps {
   title: string; onTitle: (value: string) => void; docs: CreationDocSummary[]; id: string;
   busy: boolean; dirty: boolean; canUndo: boolean; canRedo: boolean;
   onOpen: (id: string) => void; onNew: () => void; onSave: () => void; onUndo: () => void; onRedo: () => void;
-  onAdd: (kind: 'text' | 'shape') => void; onImport: (file: File) => void; onExport: (kind: 'png' | 'svg', variants: boolean) => void;
+  onAdd: (kind: 'text' | 'shape', shape?: 'rect' | 'ellipse') => void;
+  /** 그림·원본 파일 고르기를 연다. */
+  onImport: () => void;
+  onExport: (kind: 'png' | 'svg', variants: boolean) => void;
   onTools: () => void;
+  /** 사진 도구는 그림 레이어(또는 판 전체)에만 — 글자·도형만 고른 동안은 끈다. */
+  toolsDisabled?: boolean;
   /** Back to the picture this source was made from (R-9 viewer); absent when there is none. */
   onOriginal?: () => void;
 }
 /** The derived formats, as the user will receive them. */
 export const IMAGE_VARIANT_SIZES = Object.values(IMAGE_RATIOS).map(([w, h]) => `${w}×${h}`).join(' · ');
 
+/**
+ * §5.13 (R-9) 레이어 편집기 ① — 명령 막대. 원본(열기·제목·새로) | 저장·되돌리기 | 넣기·가져오기·내보내기 | 사진 도구·원본 보기.
+ * 좁으면 한 줄 그대로 가로로 굴러간다 — 단추는 하나도 빼지 않는다.
+ */
 export function ImageToolbar(props: ImageToolbarProps): React.JSX.Element {
   const { t } = useTranslation(); const key = (label: string): string => t(imageLabelKey(label));
-  const fileInput = useRef<HTMLInputElement>(null);
-  const button = (label: string, action: () => void, disabled = props.busy, title?: string): React.JSX.Element =>
-    <button type="button" title={title} className="shrink-0 whitespace-nowrap rounded bg-white/5 px-2 py-1.5 hover:bg-white/10 disabled:opacity-35 pointer-coarse:py-2" onClick={action} disabled={disabled}>{key(label)}</button>;
-  // 폰 폭(box-narrow)에서는 여러 줄로 접히며 무대를 밀어내지 않게 한 줄 가로 스크롤로 — 단추는 하나도 빼지 않는다.
-  return <div className="scrollbar-thin flex shrink-0 flex-wrap items-center gap-1.5 border-b border-white/10 px-3 py-2 text-xs box-narrow:flex-nowrap box-narrow:overflow-x-auto">
-    <select className="max-w-40 shrink-0 rounded bg-gray-900 p-1.5 pointer-coarse:p-2" aria-label={key('open')} value={props.id} disabled={props.busy || props.dirty} onChange={(e) => props.onOpen(e.target.value)}>
-      <option value="">{key('open')}</option>{props.docs.map((doc) => <option value={doc.id} key={doc.id}>{doc.title || doc.id}</option>)}
-    </select>
-    <input className="w-36 shrink-0 rounded border border-white/10 bg-gray-900 px-2 py-1.5 box-narrow:w-28 pointer-coarse:py-2" aria-label={key('title')} value={props.title} placeholder={key('title')}
-      onChange={(e) => props.onTitle(e.target.value)} />
-    {button('new', props.onNew, props.busy || props.dirty)}
-    {button('save', props.onSave, props.busy, shortcutLabel('Ctrl+S'))}
-    {button('undo', props.onUndo, props.busy || !props.canUndo, shortcutLabel('Ctrl+Z'))}
-    {button('redo', props.onRedo, props.busy || !props.canRedo, shortcutLabel('Ctrl+Shift+Z'))}
-    {button('addText', () => props.onAdd('text'))}{button('addShape', () => props.onAdd('shape'))}{button('import', () => fileInput.current?.click())}
-    <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/bmp,application/json,.vibimage.json" className="hidden"
-      onChange={(e) => { const file = e.target.files?.[0]; if (file) props.onImport(file); e.target.value = ''; }} />
-    {button('png', () => props.onExport('png', false))}{button('svg', () => props.onExport('svg', false))}
-    {button('variants', () => props.onExport('png', true), props.busy, IMAGE_VARIANT_SIZES)}
-    {button('variantsSvg', () => props.onExport('svg', true), props.busy, IMAGE_VARIANT_SIZES)}
-    {/* 안내 글이라 폰 폭에서만 접는다 — 같은 크기 목록은 파생 단추의 title 에도 있다. */}
-    <span className="text-gray-500 box-narrow:hidden">{t('panel.apps.vibimage.editor.variantSizes', { sizes: IMAGE_VARIANT_SIZES })}</span>
-    {button('photoTools', props.onTools)}{props.onOriginal && button('original', props.onOriginal)}
+  const scrollReveal = useScrollReveal();
+  return <div role="toolbar" aria-label={key('commands')} {...scrollReveal}
+    className="scrollbar-thin flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-gray-800 bg-gray-900 px-2 text-xs">
+    <label className="flex h-8 shrink-0 items-center gap-1 rounded-md pl-1.5 text-gray-400 hover:bg-gray-800 focus-within:bg-gray-800" title={key('open')}>
+      <EditorIcon name="open" />
+      <select className="h-full max-w-36 cursor-pointer bg-transparent pr-1 text-xs text-gray-200 outline-none disabled:cursor-not-allowed disabled:text-gray-600 box-narrow:max-w-24"
+        aria-label={key('open')} value={props.id} disabled={props.busy || props.dirty} onChange={(e) => props.onOpen(e.target.value)}>
+        <option value="">{key('open')}</option>{props.docs.map((doc) => <option value={doc.id} key={doc.id}>{doc.title || doc.id}</option>)}
+      </select>
+    </label>
+    <input className="h-8 w-44 shrink-0 rounded-md border border-transparent bg-transparent px-2 text-[13px] font-medium text-gray-100 outline-none hover:border-gray-700 focus:border-blue-500 focus:bg-gray-950 box-compact:w-32 box-narrow:w-24"
+      aria-label={key('title')} value={props.title} placeholder={key('title')} onChange={(e) => props.onTitle(e.target.value)} />
+    <EditorButton icon="newFile" label={key('new')} disabled={props.busy || props.dirty} onClick={props.onNew} />
+    <EditorDivider />
+    <EditorButton icon="save" label={key('save')} shortcut={shortcutLabel('Ctrl+S')} dot={props.dirty} disabled={props.busy} onClick={props.onSave} />
+    <EditorButton icon="undo" label={key('undo')} shortcut={shortcutLabel('Ctrl+Z')} disabled={props.busy || !props.canUndo} onClick={props.onUndo} />
+    <EditorButton icon="redo" label={key('redo')} shortcut={shortcutLabel('Ctrl+Shift+Z')} disabled={props.busy || !props.canRedo} onClick={props.onRedo} />
+    <EditorDivider />
+    <EditorMenuButton icon="plus" label={key('insert')} disabled={props.busy} items={[
+      { id: 'text', icon: 'text', label: key('addText'), hint: 'T', onSelect: () => props.onAdd('text') },
+      { id: 'rect', icon: 'rect', label: key('addRect'), hint: 'R', onSelect: () => props.onAdd('shape', 'rect') },
+      { id: 'ellipse', icon: 'ellipse', label: key('addEllipse'), hint: 'O', onSelect: () => props.onAdd('shape', 'ellipse') },
+      { id: 'image', icon: 'imagePlus', label: key('placeImage'), onSelect: props.onImport },
+    ]} />
+    <EditorButton icon="upload" label={key('import')} disabled={props.busy} onClick={props.onImport} />
+    <EditorMenuButton icon="download" label={key('export')} disabled={props.busy} items={[
+      { id: 'png', icon: 'image', label: key('png'), hint: 'PNG', onSelect: () => props.onExport('png', false) },
+      { id: 'svg', icon: 'image', label: key('svg'), hint: 'SVG', onSelect: () => props.onExport('svg', false) },
+      { id: 'variants', icon: 'frame', label: key('variants'), hint: IMAGE_VARIANT_SIZES, onSelect: () => props.onExport('png', true) },
+      { id: 'variantsSvg', icon: 'frame', label: key('variantsSvg'), hint: IMAGE_VARIANT_SIZES, onSelect: () => props.onExport('svg', true) },
+    ]} />
+    <EditorDivider />
+    <EditorButton icon="wand" label={key('photoTools')} text={key('photoToolsShort')} className="box-compact:w-8 box-compact:px-0" textClassName="box-compact:hidden"
+      disabled={props.busy || props.toolsDisabled} onClick={props.onTools} />
+    {props.onOriginal && <EditorButton icon="image" label={key('original')} disabled={props.busy} onClick={props.onOriginal} />}
   </div>;
 }

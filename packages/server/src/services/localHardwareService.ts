@@ -8,6 +8,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { LOCAL_MODEL_SHARED_VRAM_RATIO } from '@vibisual/shared';
 import type { LocalDeviceInfo, LocalHardwareInfo } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { getEngineCandidates, getEngineState } from './localEngineService.js';
@@ -63,6 +64,16 @@ export function parseDevices(output: string): LocalDeviceInfo[] {
     if (device) out.push(device);
   }
   return out;
+}
+
+/**
+ * §5.19 (E) — 가장 여유가 큰 장치의 메모리를 시스템 메모리에 더해도 되는가. Metal 은 통합 메모리이고,
+ * 총량이 시스템 메모리에 견줘 큰 장치는 내장 GPU 일 수 있다. 장치 목록이 통합 여부를 주지 않으므로 모르면 더하지 않는다.
+ */
+export function hasDedicatedVram(devices: readonly LocalDeviceInfo[], totalRamBytes: number): boolean {
+  const best = devices.reduce<LocalDeviceInfo | null>((top, d) => (!top || d.freeBytes > top.freeBytes ? d : top), null);
+  if (!best || best.totalBytes <= 0 || /^(?:MTL|Metal)/i.test(best.name)) return false;
+  return best.totalBytes < totalRamBytes * LOCAL_MODEL_SHARED_VRAM_RATIO;
 }
 
 /**
@@ -191,11 +202,13 @@ async function probeDevices(primaryBin: string): Promise<LocalDeviceInfo[]> {
  */
 function withMemory(devices: LocalDeviceInfo[], measuredAt: number): LocalHardwareInfo {
   const vramFreeBytes = devices.reduce((max, d) => Math.max(max, d.freeBytes), 0);
+  const totalRamBytes = os.totalmem();
   const cpu = sampleCpuNow();
   return {
     devices,
     vramFreeBytes,
-    totalRamBytes: os.totalmem(),
+    dedicatedVram: hasDedicatedVram(devices, totalRamBytes),
+    totalRamBytes,
     freeRamBytes: os.freemem(),
     cpuModel: cpu.model,
     cpuCores: cpu.cores,

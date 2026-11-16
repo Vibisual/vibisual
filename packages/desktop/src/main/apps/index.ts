@@ -37,6 +37,7 @@ interface MainAppEntry {
 }
 
 const MAIN_APPS: readonly MainAppEntry[] = [
+  { id: 'memo', window: (params) => ({ title: 'Vibisual — Memo', width: 820, height: 680, minWidth: 360, minHeight: 400, hash: simpleAppWindowHash('memo', params) }) },
   { id: 'vibistudio', load: () => import('@vibisual/video/main') },
   {
     id: 'vibisound',

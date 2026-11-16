@@ -189,32 +189,52 @@ describe('§5.4 #36 (J) ① 비율을 지키는 크기 조절', () => {
     (r.width - SCREEN_CHROME.width) / (r.height - SCREEN_CHROME.height);
 
   it('오른쪽 변을 끌면 폭에서 높이를 — 위·왼쪽은 그대로', () => {
-    const out = aspectLockedResize(start, { ...start, width: 402 }, aspect, screen);
+    const out = aspectLockedResize(start, { ...start, width: 402 }, aspect, screen, 'width');
     expect(out).toMatchObject({ x: 0, y: 0, width: 402 });
     expect(stageRatio(out)).toBeCloseTo(aspect, 2);
   });
 
   it('아래 변만 끌면 높이에서 폭을', () => {
-    const out = aspectLockedResize(start, { ...start, height: 273 }, aspect, screen);
+    const out = aspectLockedResize(start, { ...start, height: 273 }, aspect, screen, 'height');
     expect(out.x).toBe(0);
     expect(out.y).toBe(0);
     expect(out.height).toBe(273);
     expect(stageRatio(out)).toBeCloseTo(aspect, 2);
   });
 
+  it('가로로 시작한 드래그가 시작 폭을 지나도 세로 이동량으로 튀지 않는다', () => {
+    const samples = [
+      { ...start, width: start.width + 1, height: start.height + 40 },
+      { ...start, width: start.width, height: start.height + 60 },
+      { ...start, width: start.width - 1, height: start.height + 80 },
+    ];
+    const widths = samples.map((p) => aspectLockedResize(start, p, aspect, screen, 'width').width);
+    expect(widths).toEqual([start.width + 1, start.width, start.width - 1]);
+  });
+
+  it('세로로 시작한 드래그는 가로 떨림에도 높이를 계속 따른다', () => {
+    const samples = [
+      { ...start, height: start.height + 40 },
+      { ...start, width: start.width + 1, height: start.height + 60 },
+      { ...start, height: start.height + 80 },
+    ];
+    const heights = samples.map((p) => aspectLockedResize(start, p, aspect, screen, 'height').height);
+    expect(heights).toEqual(samples.map((p) => p.height));
+  });
+
   it('왼쪽 위 모서리는 오른쪽 아래 가장자리를 지킨다', () => {
     const proposed = { x: -100, y: -40, width: start.width + 100, height: start.height + 40 };
-    const out = aspectLockedResize(start, proposed, aspect, screen);
+    const out = aspectLockedResize(start, proposed, aspect, screen, 'width');
     expect(out.x + out.width).toBe(start.x + start.width);
     expect(out.y + out.height).toBe(start.y + start.height);
     expect(stageRatio(out)).toBeCloseTo(aspect, 2);
   });
 
   it('한도 밖으로 끌어도 한도 안이다', () => {
-    const tiny = aspectLockedResize(start, { ...start, width: 10 }, aspect, screen);
+    const tiny = aspectLockedResize(start, { ...start, width: 10 }, aspect, screen, 'width');
     expect(tiny.width).toBeGreaterThanOrEqual(screen.minWidth);
     expect(tiny.height).toBeGreaterThanOrEqual(screen.minHeight);
-    const huge = aspectLockedResize(start, { ...start, width: 99_999 }, aspect, screen);
+    const huge = aspectLockedResize(start, { ...start, width: 99_999 }, aspect, screen, 'width');
     expect(huge.width).toBeLessThanOrEqual(screen.maxWidth);
     expect(huge.height).toBeLessThanOrEqual(screen.maxHeight);
   });

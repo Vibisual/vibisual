@@ -5,7 +5,7 @@
 
 import type { CompositionLintEntry, CompositionSeekMode } from '../types.js';
 import { unsupportedEngineFeatures } from './engineFeatures.js';
-import { parseCompositionMeta, parsePropsDecl } from './meta.js';
+import { boxPropNames, parseCompositionMeta, parsePropsDecl } from './meta.js';
 
 export interface ScanOptions {
   /**
@@ -187,6 +187,17 @@ export function scanComposition(sources: CompositionSources, options: ScanOption
       level: 'info',
       code: 'no-props-decl',
       message: 'No <script type="application/json" id="vibi-props">. Declare every value a person may want to change (text, numbers, colors, fonts, images, timing) so Vibistudio can show editing controls.',
+    });
+  }
+
+  // §5.13 (V) 37-21 — 상자 선언이 가리키는 값이 `number` 로 선언돼 있지 않으면 미리보기에 손잡이가 서지 않는다(그 이유를 알린다).
+  const numbers = new Set(props.decl.filter((d) => d.type === 'number').map((d) => d.name));
+  const unknownBox = [...new Set(boxPropNames(sources.html))].filter((name) => !numbers.has(name));
+  if (unknownBox.length > 0) {
+    lint.push({
+      level: 'warn',
+      code: 'box-prop-unknown',
+      message: `data-vibi-prop-x/y/w/h name values that are not declared as "type": "number" in vibi-props: ${unknownBox.slice(0, 8).join(', ')}. Those elements cannot be dragged in the preview until the values are declared.`,
     });
   }
 

@@ -1,4 +1,6 @@
 import { agentRuleShell, isShellToolName, isKindBundleKind, BUNDLE_BUBBLE, PresentedFileTracker, presentedFilesIn } from '@vibisual/shared';
+import { normalizeRecentUseRingCount } from '@vibisual/shared';
+import { normalizeDedicatedHidden } from '@vibisual/shared';
 import { peekCodexUsage, readCodexUsage } from './services/codexUsageService.js';
 import express from 'express';
 import cors from 'cors';
@@ -20,7 +22,8 @@ import { engineForProvider, isLockedLiveFollowUpRecord, isPendingQueuedCommand, 
 // §4 (첫 실행 온보딩) ③ — 폴더를 고르기 전 생성 요청을 서버도 같은 코드로 거절한다.
 import { NO_PROJECT_FOLDER_ERROR } from '@vibisual/shared';
 // §4 (CMD 터미널 업그레이드) — pane 트리 정합 + 임베디드 PTY 제어(⑤⑥).
-import { sanitizeCmdPaneTree, CMD_CLI_KINDS, sanitizeSessionMemos } from '@vibisual/shared';
+import { registerCanvasMemoRoutes } from './services/canvasMemoRoutes.js';
+import { sanitizeCmdPaneTree, CMD_CLI_KINDS, sanitizeSessionMemos, repairMemoGroups } from '@vibisual/shared';
 import type { CmdTerminalSignal, CmdCliKind, AgentDefinition } from '@vibisual/shared';
 import { readCmdTerminal, sendCmdTerminal, waitCmdTerminal, getCmdTerminalController } from './services/cmdTerminalController.js';
 // §7.10 — 워크트리 삭제 직전 회수(그 안에서 돌던 프로세스·에이전트).
@@ -160,9 +163,11 @@ import {
   getAutoGoalState,
   listAutoGoalSkills,
   readAutoGoalSkillBody,
-  buildAutoGoalPromptBlock,
 } from './services/autoGoalService.js';
-import { buildAutoGoalAgentProtocol } from './services/autoGoalAgentProtocol.js';
+import {
+  AutoGoalSentLists, EMPTY_AUTO_GOAL_TURN_PARTS, buildAutoGoalTurnParts, dropsConversationHistory, type AutoGoalTurnParts,
+} from './services/autoGoalTurnContext.js';
+import { isSlashCommandText } from './services/turnPrompt.js';
 import { mountAutoGoalLifecycleRoutes } from './services/autoGoalLifecycleRoutes.js';
 import { buildAutoGoalHookContext } from './services/autoGoalHookContext.js';
 // §5.3 #10-4 오케스트라(지휘 모드) — 켬/끔 2층 · 세부 설정 · 지휘 규칙은 shared, 판정은 orchestraRuntime.
@@ -262,7 +267,8 @@ import {
   getSubagentStatusLine,
   listSubagentStatusLines,
 } from './services/subagentStatusLineService.js';
-import { mountAppBodyParsers, mountAppRoutes } from './services/appHost.js';
+import { mountAppBodyParsers, mountAppRoutes, resolveAppAgentLink } from './services/appHost.js';
+import { AppLinkGate } from './services/appLinkGate.js';
 import { mountHookIngressBodyParser } from './services/hookIngressBody.js';
 import { sessionMemoBodyParser } from './services/sessionMemoBodyParser.js';
 import { distillFeedbackToRules } from './services/feedbackDistillService.js';
@@ -353,6 +359,7 @@ import {
   endsCompaction,
   needsSnapshotRefresh,
   isTaskLedgerEvent,
+  modelIdsFromHookBody,
 } from './services/hookEventClass.js';
 import { readUsageCollectorStatus } from './services/statusLineInstaller.js';
 import { keepVibisualHooksInPlace, setCodexHooksEnabled, setUsageCollectorEnabled } from './services/hookLifetime.js';
@@ -822,6 +829,7 @@ export async function runServer(): Promise<RunServerHandle> {
   app.use('/api/app/vibi3d', express.json({ limit: '8mb' }));
   mountAppBodyParsers(app);
   app.use('/api/session-memos', sessionMemoBodyParser);
+  app.use('/api/canvas-memos', sessionMemoBodyParser);
   // §3.7 「훅 입구의 본문 상한」 — 훅 본문은 CLI 가 도구 내용을 통째로 싣는다. 전역 파서의 기본 100KB 가 큰 파일을
   //   고친 신고를 413 으로 버렸다(3주 2,100건). 문이 받은 크기를 그대로 받도록 전역 파서보다 **앞에** 건다.
   mountHookIngressBodyParser(app);
@@ -1272,6 +1280,10 @@ export async function runServer(): Promise<RunServerHandle> {
        * - `PreModelSwitch`·`PostModelSwitch`·`WorktreeCreate`·`WorktreeRemove`·`ConfigChange`·`CwdChanged`·`DirectoryAdded`·`SessionEnd` — 버블 내용이 바뀌어 재방송(없으면 다음 도구 호출까지 옛 값).
        * - `MessageDisplay`·`PostToolBatch`·`UserPromptExpansion`·`Setup`·`FileChanged` — 표시 없음(빈도는 `hookEventClass` 주석).
        */
+      // §4 (상태바 모델 칸 ③⑤) — 세션 시작·모델 전환 훅이 실어 온 모델 ID 를 레지스트리가 배운다(이 PC 의 모든 세션 · 대화록 관측과 같은 창구라 정규화도 같다).
+      for (const modelId of modelIdsFromHookBody(body as unknown as Record<string, unknown>)) {
+        modelRegistryService.noteObservedModel(modelId);
+      }
       if (raisesAwaitingInput(body.hook_event_name)) {
         graphManager.setAgentNotificationStatus(body.session_id, 'awaiting_permission');
         broadcastSnapshot();
@@ -2673,10 +2685,11 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /** POST /api/open-node-file — 노드 키로 파일 열기 (에디터).
-   *  client가 absolutePath를 함께 보내면 그걸 우선 사용 — 프로젝트 컨텍스트 소실로 타 프로젝트 파일이 열리는 것 방지. */
+   *  client가 absolutePath를 함께 보내면 그걸 우선 사용 — 프로젝트 컨텍스트 소실로 타 프로젝트 파일이 열리는 것 방지.
+   *  `line`(1부터, 선택)을 주면 그 줄에서 연다 — `openFile` 이 에디터별 인자로 바꾼다(기본 앱 폴백은 파일만). */
   app.post('/api/open-node-file', (req, res) => {
     try {
-      const { nodePath, absolutePath } = req.body as { nodePath?: string; absolutePath?: string | null };
+      const { nodePath, absolutePath, line } = req.body as { nodePath?: string; absolutePath?: string | null; line?: unknown };
       if (typeof nodePath !== 'string') {
         res.status(400).json({ error: 'nodePath required' });
         return;
@@ -2698,7 +2711,8 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
 
-      openFile(resolved);
+      // 줄은 양의 정수만 받는다(그 밖은 종전처럼 첫 줄) — 인자는 문자열 조립이 아니라 `openFile` 의 숫자 자리로 간다.
+      openFile(resolved, typeof line === 'number' && Number.isSafeInteger(line) && line > 0 ? line : 1);
       res.json({ ok: true });
     } catch (err) {
       logger.error('POST /api/open-node-file failed', err);
@@ -3066,6 +3080,13 @@ export async function runServer(): Promise<RunServerHandle> {
      * 정독 블록이 이 턴에 실릴 때만 비어 있지 않고, 주입원 창의 `plugin:spec-driven` 스위치를 따른다.
      */
     specSystemRules: string;
+    /**
+     * §5.5 #17-28 ⑧(c) — 안 변하는 규칙을 시스템 프롬프트로 가를 수 있는 세션인가(우리가 띄운 Claude 세션뿐).
+     * 훅으로 붙은 세션은 그 통로가 없고, 코덱스·로컬 러너는 매 턴 컨텍스트를 새로 조립해 이력에 쌓이지 않는다.
+     */
+    rulesInSystem: boolean;
+    /** §5.10 — 절차 주입의 두 절반(턴 메시지 · 시스템 프롬프트). 표는 합쳐 한 줄로 잰다. */
+    autoGoalParts: AutoGoalTurnParts;
 
     /**
      * §5.26 (E) — 이번 턴 복원 브리핑이 실렸다면 그 마커. **여기서 못 박지 않는다** —
@@ -3079,6 +3100,7 @@ export async function runServer(): Promise<RunServerHandle> {
     const { agent, cwd, agentConfig, subAgentId } = input;
     const parts: MeasuredPart[] = [];
     const projectRoot = graphManager.getProjectPathForAgent(agent.id) ?? cwd;
+    const rulesInSystem = Boolean(agent.customCreated) && !agentConfig?.provider;
 
     parts.push({
       id: CONTEXT_SOURCE_IDS.skillsPrefix,
@@ -3094,6 +3116,7 @@ export async function runServer(): Promise<RunServerHandle> {
     // §4 (CLI 사양 추종) — 에이전트 자율 압축 창구. 켠 에이전트에게만 실리므로 끄면 바이트 0.
     //   `subAgentId` 가 없는 경로(첫 스폰 전 등)에서는 신고할 대상이 없으니 안내도 넣지 않는다
     //   — 부를 수 없는 창구를 알려 주는 것은 없는 손잡이를 그리는 것과 같다.
+    //   세션 내내 같은 글이라 `rulesInSystem` 세션에서는 호출부가 시스템 프롬프트로 보낸다.
     if (agentConfig?.provider?.kind !== 'codex-cli') parts.push({
       id: CONTEXT_SOURCE_IDS.compactSelf,
       text: (agentConfig?.agentCanCompact === true && subAgentId)
@@ -3215,26 +3238,28 @@ export async function runServer(): Promise<RunServerHandle> {
     parts.push({ id: CONTEXT_SOURCE_IDS.goal, text: goalText });
 
     /*
-     * §5.10 — 자동 목표: 이 프로젝트에서 되풀이해 온 절차 목록(이름과 한 줄 설명뿐). 꺼져 있으면 `undefined` 라 한 글자도 안 실린다.
+     * §5.10 — 자동 목표: 이 프로젝트에서 되풀이해 온 절차 목록(이름과 한 줄 설명뿐). 꺼져 있으면 두 절반 다 비어 한 글자도 안 실린다.
      * 켬 판정은 shared 순수 함수 `resolveAutoGoalEnabled` 하나가 갖는다 — 화면과 집행이 같은 답을 봐야 한다.
+     * 같은 목록을 이번 턴에 또 실을지는 여기서 정하지 않는다(부작용 없음) — 호출부가 `autoGoalSentLists` 로 정한다.
      */
     // 같은 프로젝트 뿌리를 본다 — 절차는 프로젝트의 것이고, 뿌리가 갈리면 옆 프로젝트의 절차가 실린다.
     const autoGoalRoot = projectRoot;
+    let autoGoalParts = EMPTY_AUTO_GOAL_TURN_PARTS;
     if (autoGoalRoot) {
       try {
-        const procedureSessionId = subAgentId ?? graphManager.findSessionByAgentId(agent.id);
-        const block = buildAutoGoalPromptBlock(
-          autoGoalRoot,
-          graphManager.getAutoGoalSettings(autoGoalRoot),
-          { agentId: agent.id, subAgentId: procedureSessionId },
-          input.commandText,
-        );
-        if (block) parts.push({
+        autoGoalParts = buildAutoGoalTurnParts({
+          root: autoGoalRoot,
+          settings: graphManager.getAutoGoalSettings(autoGoalRoot),
+          agentId: agent.id,
+          sessionId: subAgentId ?? graphManager.findSessionByAgentId(agent.id),
+          task: input.commandText,
+          ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
+          rulesInSystem,
+        });
+        // 목록이 빈 턴에도 규약은 시스템 프롬프트에 서 있다 — 줄을 세워 둬야 표에서 끌 수 있다.
+        if (autoGoalParts.turn || autoGoalParts.system) parts.push({
           id: CONTEXT_SOURCE_IDS.autoGoalSkills,
-          text: procedureSessionId ? `${block}\n\n${buildAutoGoalAgentProtocol({
-            root: autoGoalRoot, agentId: agent.id, subAgentId: procedureSessionId,
-            ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
-          })}` : block,
+          text: autoGoalParts.turn + autoGoalParts.system,
           defaultEnabled: true,
         });
       } catch (e) {
@@ -3250,7 +3275,7 @@ export async function runServer(): Promise<RunServerHandle> {
     }
 
     return {
-      parts, projectRoot, goalParts, specSystemRules,
+      parts, projectRoot, goalParts, specSystemRules, rulesInSystem, autoGoalParts,
       ...(recoveryMarker ? { recoveryMarker } : {}),
       ...(freshBriefSubAgentId ? { freshBriefSubAgentId } : {}),
     };
@@ -3271,6 +3296,8 @@ export async function runServer(): Promise<RunServerHandle> {
   const staggerTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** (P) sub 별 "마지막 압축 이후 턴 수". 압축이 큐에 들어가는 순간 0 으로 돌아간다. */
   const turnsSinceCompact = new Map<string, number>();
+  /** §5.10 — sub 별 "마지막으로 실어 보낸 절차 목록"의 지문. 같은 목록은 대화에 한 번만 둔다(압축·비우기 뒤에는 다시 싣는다). */
+  const autoGoalSentLists = new AutoGoalSentLists();
 
   /** (N) 지금 턴을 처리 중인 세션 수. 사람이 치는 CMD(PTY) 세션은 세지 않는다 — 세면 터미널 하나 열어 둔 것만으로 에이전트가 굶는다(§2.4 `cmdDrivenSubs` 제외와 같은 판단). */
   function countRunningTurns(): number {
@@ -3736,7 +3763,14 @@ export async function runServer(): Promise<RunServerHandle> {
       // §5.11 — 정독 규칙 줄은 목표 규약과 같은 자리로 간다. 주입원 창에서 그 카드를 껐으면 규칙도 함께 빠진다
       //   (블록은 목록만 싣도록 이미 조립됐으므로, 여기서 빠뜨리면 규칙이 어디에도 없다 — 둘은 한 벌이다).
       const specRulesBlock = pluginsOn && take(`${CONTEXT_PLUGIN_ID_PREFIX}${SPEC_DRIVEN_ID}`) ? assembled.specSystemRules : '';
-      const appendSystemPrompt = intentBlock + goalProtocolBlock + specRulesBlock;
+      // §4 자율 압축 안내 · §5.10 절차 규약도 같은 자리로 간다(`rulesInSystem` 세션만). 표에서 끈 줄은 두 절반이 함께 빠진다.
+      //   턴마다 달라지는 값을 여기 얹지 마라 — 자식이 다시 뜰 때마다(`--resume`) 이 글이 다시 실려, 한 글자만 달라도 대화 전체의 캐시 접두가 깨진다.
+      const compactSelfRule = take(CONTEXT_SOURCE_IDS.compactSelf);
+      const compactSelfTurn = assembled.rulesInSystem ? '' : compactSelfRule;
+      const autoGoalOn = !!take(CONTEXT_SOURCE_IDS.autoGoalSkills);
+      const autoGoalTurn = autoGoalOn && assembled.autoGoalParts.turn ? `\n\n${assembled.autoGoalParts.turn}` : '';
+      const systemRulesBlock = (assembled.rulesInSystem ? compactSelfRule : '') + (autoGoalOn ? assembled.autoGoalParts.system : '');
+      const appendSystemPrompt = intentBlock + goalProtocolBlock + specRulesBlock + systemRulesBlock;
       // §5.3 #10-4 — 오케스트라 지휘 턴이면 **이 턴만** 설정을 덮어쓰고 편성 규칙을 시스템 프롬프트 뒤에 붙인다.
       //   저장된 설정은 그대로다(다음 턴은 평소대로). 권한 창구가 같은 설정으로 판정하도록 턴 동안 표에 올린다.
       const conductor = prepareConductorTurn(agent, next, effectiveConfig ?? DEFAULT_AGENT_CONFIG, stripSet);
@@ -3774,14 +3808,18 @@ export async function runServer(): Promise<RunServerHandle> {
       //   실패 사유에 적힌 cmdId 로 다음 턴이 다시 dispatch 하지 않고 이어 받는다. 코덱스는 codexEdgeConfig 로 간다.
       const undeliveredForTurn = next.subAgentId ? pendingDispatchResultsFor(next.subAgentId) : [];
       const undeliveredBlock = agentConfig?.provider?.kind === 'codex-cli' ? '' : undeliveredDispatchResultInstructions(undeliveredForTurn);
-      const additionalContext = take(CONTEXT_SOURCE_IDS.compactSelf) + take(CONTEXT_SOURCE_IDS.autoGoalSkills);
-      const dispatchContext = contextSummary + cardsRules + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + additionalContext;
+      // §5.10 — 같은 절차 목록은 대화에 한 번만 둔다(이어지는 턴의 앞말에서만 뺀다). 턴 메시지가 이력에 쌓이는 `rulesInSystem` 세션에만 해당한다.
+      //   첫 스폰 컨텍스트에는 늘 전부 싣는다 — 새로 여는 대화(새 탭·부활·세션 초기화)에는 앞선 사본이 없다.
+      const listSubId = assembled.rulesInSystem ? next.subAgentId : null;
+      if (next.subAgentId && dropsConversationHistory(next.text ?? '')) autoGoalSentLists.forget(next.subAgentId);
+      const autoGoalRepeat = !!listSubId && !!autoGoalTurn && autoGoalSentLists.isRepeat(listSubId, assembled.autoGoalParts.listKey, next.id);
+      const dispatchContext = contextSummary + cardsRules + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + compactSelfTurn + autoGoalTurn;
 
       // live preamble 은 resume 경로에서도 매 턴 앞에 붙는다 — 엣지가 생기거나 바뀌면 세션 재시작 없이 바로 알도록 edgesBlock 을 여기 싣는다.
       // 커스텀 에이전트면 customParent=true → execute 가 --bg 를 우회한다.
       // §5.11 — 집행 블록도 여기 싣는다: `contextSummary` 는 첫 스폰에만 쓰여 안 넣으면 이어지는 턴엔 한 글자도 안 실린다.
       //   첫 스폰 경로는 preamble 을 쓰지 않아 중복되지 않는다(`execute` 가 sessionId 유무로 갈라 쓴다).
-      const livePreamble = edgesBlock + pluginBlock + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + additionalContext;
+      const livePreamble = edgesBlock + pluginBlock + goalBlock + recoveryBlock + statusGrantBlock + undeliveredBlock + compactSelfTurn + (autoGoalRepeat ? '' : autoGoalTurn);
       // §5.5 #17-28 — `control: 'spawn'` 으로 끈 줄(CLAUDE.md·자동 기억·스킬 등)은 CLI 인자·환경변수로
       //   나간다. 헤드리스는 매 턴 새 프로세스라 다음 프롬프트부터 그대로 먹는다.
       const codexTurn = turnConfig?.provider?.kind === 'codex-cli';
@@ -3864,6 +3902,11 @@ export async function runServer(): Promise<RunServerHandle> {
       }
       // §5.26 (G) `fresh` — 첫 턴이 나갔으면 실렸든(주입원을 껐든) 표식을 걷는다. 다음 턴엔 이미 이 대화의 문맥이 있다.
       if (assembled.freshBriefSubAgentId) subAgentManager.clearFreshBrief(assembled.freshBriefSubAgentId);
+      // §5.10 — 목록 지문도 **실어 보낸 뒤에** 적는다(조립에서 적으면 주입원 표를 여는 것만으로 다음 턴 목록이 빠진다).
+      //   슬래시 턴은 원문만 나가 앞말이 실리지 않았으므로 적지 않는다.
+      if (listSubId && autoGoalTurn && !autoGoalRepeat && !isSlashCommandText(next.text ?? '')) {
+        autoGoalSentLists.commit(listSubId, assembled.autoGoalParts.listKey, next.id);
+      }
       // §5.3 #9-1 (O) — **실어 보낸 뒤에** 시계를 돌린다. 조립 중에 찍으면 게이트에 막혀 못 나간
       //   명령까지 시차를 소비해, 다음 차례가 이유 없이 한 칸 더 기다린다.
       if (freshSpawn) lastFreshSpawnAt = Date.now();
@@ -8801,6 +8844,8 @@ export async function runServer(): Promise<RunServerHandle> {
         maxThinkingTokens: typeof body.maxThinkingTokens === 'number' ? Math.max(0, Math.floor(body.maxThinkingTokens)) : undefined,
         autoCompactPct: typeof body.autoCompactPct === 'number' ? Math.max(0, Math.min(100, Math.floor(body.autoCompactPct))) : undefined,
         disableNonEssentialModelCalls: typeof body.disableNonEssentialModelCalls === 'boolean' ? body.disableNonEssentialModelCalls : undefined,
+        // §5.1 #3-5 — 최근 사용 링 개수(0 = 끔). 캔버스 표시 축이라 스폰 인자에는 안 닿는다.
+        recentUseRings: typeof body.recentUseRings === 'number' ? normalizeRecentUseRingCount(body.recentUseRings) : undefined,
         betas: Array.isArray(body.betas)
           ? body.betas.filter((b): b is string => typeof b === 'string' && b.trim().length > 0).map((b) => b.trim())
           : undefined,
@@ -8928,6 +8973,18 @@ export async function runServer(): Promise<RunServerHandle> {
 
   // §5.25 (H) — 코덱스 재시도·승인 요청이 앞 카드의 답을 잇는 짧은 기억(2분). 서버 수명 동안 한 벌.
   const codexApprovalMemory = new CodexApprovalMemory();
+  // §5.4 #36 (C) — 앱 노드에 이어진 세션을 그 앱 안에 묶는 판정기. 훅·코덱스·로컬 창구가 한 벌을 쓴다.
+  const appLinkGate = new AppLinkGate({
+    linkedNodes: (agentId) => graphManager.getLinkedAppBubbles(agentId),
+    commandScope: (agentId, subAgentId) => graphManager.getExecutingAppScope(agentId, subAgentId),
+    resolveLink: resolveAppAgentLink,
+    bindRef: (nodeId, ref) => {
+      const bound = graphManager.setAppBubbleRef(nodeId, ref);
+      if (bound) { broadcastSnapshot(); saveCheckpoint(); }
+      return bound;
+    },
+    warn: (message) => logger.warn(message),
+  });
   app.post('/api/permission-check', async (req, res) => {
     try {
       interface Body {
@@ -9021,6 +9078,26 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       /*
+       * §5.4 #36 (C) — 앱 노드에 이었으면 입력 경로·권한 모드와 무관하게 그 앱을 쓰게 한다. 코덱스 승인 요청은 앞 PreToolUse 가 이미 봤고,
+       * 전역 코덱스 훅은 앱 훅이 따로 온다. 안내 한 줄은 허용 답에만 얹는다(반환 지점이 많아 응답 한 곳에서).
+       */
+      const appLinkSkipped = codexEvent === 'PermissionRequest' || (!codexEvent && config.provider?.kind === 'codex-cli');
+      const appLink = appLinkSkipped ? {} : await appLinkGate.check({
+        agentId,
+        subAgentId: typeof body.subAgentId === 'string' && body.subAgentId ? body.subAgentId : undefined,
+        toolName,
+        toolInput,
+        cwd: body.cwd ?? null,
+      });
+      if (appLink.additionalContext && !codexEvent) {
+        const additionalContext = appLink.additionalContext;
+        const sendJson = res.json.bind(res);
+        res.json = ((payload: unknown) => sendJson(
+          (payload as { decision?: unknown } | null)?.decision === 'allow' ? { ...(payload as object), additionalContext } : payload,
+        )) as typeof res.json;
+      }
+
+      /*
        * §5.25 (H) — 코덱스 버블의 권한 모드·감사 경계.
        * 주인은 앱이 턴마다 싣는 권한 훅(`codex-edges.mjs permission`)이다. 전역 코덱스 훅(§5.25 (I), `handler.mjs`)도 여기 오므로 그쪽은 비켜 선다 — 안 비키면 승인 카드가 두 장 뜬다(`codex-app-hook` 은 handler.mjs 가 개입하지 않는 통과 사유).
        * 판정은 `planCodexPermission` 한 곳. 모드는 코덱스 샌드박스·승인 정책이 집행하고, 카드는 샌드박스 밖을 물을 때(PermissionRequest)만 뜬다.
@@ -9082,6 +9159,11 @@ export async function runServer(): Promise<RunServerHandle> {
         const noteCodexDecision = (decision: 'allow' | 'deny', source: AuditDecisionSource, reason?: string): void => {
           if (codexEntryId) graphManager.recordAuditDecision(codexProject, codexEntryId, decision, source, reason);
         };
+        if (appLink.deny) {
+          noteCodexDecision('deny', 'policy', 'app-link');
+          res.json({ ok: true, decision: 'deny', reason: 'app-link', message: appLink.deny });
+          return;
+        }
         if (plan.kind === 'allow') {
           if ('policy' in plan && plan.policy) noteCodexDecision('allow', 'policy', plan.policy);
           noteAllowedPatch();
@@ -9202,6 +9284,11 @@ export async function runServer(): Promise<RunServerHandle> {
       if (isToolDisallowed(config.disallowedTools, toolName)) {
         noteAuditDecision('deny', 'policy', 'disallowed');
         res.json({ ok: true, decision: 'deny', reason: 'disallowed' });
+        return;
+      }
+      if (appLink.deny) {
+        noteAuditDecision('deny', 'policy', 'app-link');
+        res.json({ ok: true, decision: 'deny', reason: 'app-link', message: appLink.deny });
         return;
       }
 
@@ -10544,6 +10631,8 @@ export async function runServer(): Promise<RunServerHandle> {
    * `subAgentId` 가 오면 그 세션의 소지품(`SubAgent.memos`, 세션과 함께 사라짐), 없으면 메인 탭 → `ProjectGraph.agentMemos`.
    * 신뢰할 수 없는 입력이라 `sanitizeSessionMemos` 로 거른다(장수·크기·색·좌표 상한).
    */
+  registerCanvasMemoRoutes(app, () => { broadcastSnapshot(); saveCheckpoint(); });
+
   app.put('/api/session-memos', (req, res) => {
     try {
       const body = (req.body ?? {}) as { agentId?: unknown; subAgentId?: unknown; memos?: unknown };
@@ -10555,10 +10644,13 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(400).json({ ok: false, error: 'agentId or subAgentId required' });
         return;
       }
-      const memos = sanitizeSessionMemos(body.memos);
+      const project = graphManager.getAgentProjectName(agentId);
+      const canvasIds = new Set([...(project ? graphManager.getCanvasMemos(project) : []).map((m) => m.id),
+        ...(project ? graphManager.getDeletedCanvasMemoIds(project) : [])]);
+      const memos = repairMemoGroups(sanitizeSessionMemos(body.memos).filter((m) => !m.canvas && !canvasIds.has(m.id)));
       let changed = false;
       if (subAgentId) {
-        if (!subAgentManager.getSub(subAgentId)) {
+        if (!subAgentManager.getSub(subAgentId) || subAgentManager.getSub(subAgentId)?.parentAgentId !== agentId) {
           res.status(404).json({ ok: false, error: 'session not found' });
           return;
         }
@@ -11079,19 +11171,20 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /**
    * PATCH /api/bubble/:nodeId/link-view — §5.4 #36 (H) 에이전트의 연결 보기.
-   * `{hidden?: boolean, bubblesHidden?: boolean, lens?: 'linked'|'files'}` — 준 칸만 바꾼다. 유효한 칸이 없으면 400,
+   * `{hidden?: boolean, bubblesHidden?: boolean, lens?: 'linked'|'files', dedicatedHidden?: string[]}` — 준 칸만 바꾼다. 유효한 칸이 없으면 400,
    * 에이전트가 아니면 409, 없으면 404. 표시 형태라 에이전트 노드째 체크포인트에 실린다(`/form` 과 같다).
    */
   app.patch('/api/bubble/:nodeId/link-view', (req, res) => {
     try {
       const { nodeId } = req.params;
-      const body = (req.body ?? {}) as { hidden?: unknown; bubblesHidden?: unknown; lens?: unknown };
-      const patch: { hidden?: boolean; bubblesHidden?: boolean; lens?: 'linked' | 'files' } = {};
+      const body = (req.body ?? {}) as { hidden?: unknown; bubblesHidden?: unknown; lens?: unknown; dedicatedHidden?: unknown };
+      const patch: { hidden?: boolean; bubblesHidden?: boolean; lens?: 'linked' | 'files'; dedicatedHidden?: string[] } = {};
       if (typeof body.hidden === 'boolean') patch.hidden = body.hidden;
       if (typeof body.bubblesHidden === 'boolean') patch.bubblesHidden = body.bubblesHidden;
       if (body.lens === 'linked' || body.lens === 'files') patch.lens = body.lens;
-      if (!nodeId || (patch.hidden === undefined && patch.bubblesHidden === undefined && patch.lens === undefined)) {
-        res.status(400).json({ error: 'nodeId and hidden(boolean), bubblesHidden(boolean) or lens(linked|files) required' });
+      if (Array.isArray(body.dedicatedHidden)) patch.dedicatedHidden = normalizeDedicatedHidden(body.dedicatedHidden);
+      if (!nodeId || (patch.hidden === undefined && patch.bubblesHidden === undefined && patch.lens === undefined && patch.dedicatedHidden === undefined)) {
+        res.status(400).json({ error: 'nodeId and hidden(boolean), bubblesHidden(boolean), lens(linked|files) or dedicatedHidden(string[]) required' });
         return;
       }
       const result = graphManager.setAgentLinkView(nodeId, patch);
@@ -18531,6 +18624,7 @@ export async function runServer(): Promise<RunServerHandle> {
   // §5.3 #12-1-B — 로컬 도구 판정이 턴 도중에 저장된 "항상" 답(못 쓰는 목록·확인 목록)을 읽는 자리.
   subAgentManager.setAgentConfigResolver((parentAgentId) => graphManager.getAgentConfig(parentAgentId));
   // §5.3 #12-3 — 로컬 도구 판정도 훅 경로와 같은 판정기·같은 자물쇠(열려 있는 모든 프로젝트)를 본다.
+  subAgentManager.setAppLinkChecker((q) => appLinkGate.check(q));
   subAgentManager.setPathLockResolver((toolName, toolInput, cwd) => (
     findToolLockHitsOnHost(toolName, toolInput, cwd, graphManager.getAllPathLocks())
   ));
@@ -18558,7 +18652,10 @@ export async function runServer(): Promise<RunServerHandle> {
   const lastSubStatusFingerprint = new Map<string, string>();
   subAgentManager.setOnSubStatusChange((parentAgentId) => {
     const bubbleChanged = graphManager.recomputeCustomAgentStatus(parentAgentId);
-    const fingerprint = subAgentManager.getAllSubs(parentAgentId)
+    const subs = subAgentManager.getAllSubs(parentAgentId);
+    // §5.10 — 접히는 세션은 앞서 실은 절차 목록을 요약에 잃는다. 턴 도중 CLI 가 스스로 접는 압축은 이 표식(스트림·`PreCompact`)으로만 안다.
+    for (const s of subs) if (s.compactingSince !== undefined) autoGoalSentLists.forget(s.id);
+    const fingerprint = subs
       // §5.5 #17-24 ⑥ — 압축 중 표식도 화면을 민다(상태는 그대로 active 라 빠지면 라이브 1줄이 모른다).
       .map((s) => `${s.id}:${s.status}:${s.compactingSince ?? ''}`)
       .join('|');
@@ -19239,6 +19336,9 @@ export async function runServer(): Promise<RunServerHandle> {
       //   깔리기 전에 CLI 가 설정을 읽으면 그 세션은 훅이 0건이라 캔버스에 한 획도 안 남는다.
       //   부팅 1회로는 그 뒤에 생긴 세션이 전부 새어 나가므로 이 스윕에 얹는다(새 타이머 ❌).
       installHooksIntoNewCoworkHomesIfReady();
+
+      // §5.4 #36 (L) — 턴이 끝난 뒤의 렌더·음성 생성은 훅이 없으므로 이 스윕이 결과 없는 앱 화면을 채운다(새 타이머 ❌).
+      graphManager.scanWorkPreviews();
 
       // 제목 미확정 에이전트 재조회 (JSONL 생성 대기)
       if (graphManager.hasPendingTitles()) {

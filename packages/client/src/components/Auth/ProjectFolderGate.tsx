@@ -12,14 +12,15 @@ import {
 } from './projectFolderGateFlow.js';
 import { LanguageSwitcher } from '../Layout/LanguageSwitcher.js';
 import { useOnboardingGate } from '../../stores/onboardingGates.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 /**
  * §4 (온보딩) ③ — 프로젝트 폴더 게이트 + 배너(마지막 칸). 폴더 없이 에이전트를 만들면 서버가 `process.cwd()`(Finder 로 띄운 mac 앱은 `/`)를 임시 프로젝트로
- * 잡아 빈 탭과 루트에 매인 에이전트가 생긴다. `ClaudeSetupGate` 와 같은 결: 권장형 · z-index 는 `LoginWindow`(100_600) 아래
+ * 잡아 빈 탭과 루트에 매인 에이전트가 생긴다. `ClaudeSetupGate` 와 같은 결: 권장형 · z-index 는 `LoginWindow` 아래
  * · `reason==='create-blocked'` 면 첫 문장이 그 사정을 말한다(안 적히면 "누른 게 안 먹었다") · 폴더가 생기면 닫힌다. 판정은 `projectFolderGateFlow.ts`(렌더 없이 시험).
  */
 
-const Z = 100_500; // LoginWindow(100_600) 보다 아래 — 폴더는 로그인 다음 칸이다.
+const Z = Z_LAYER.GATE; // LoginWindow 보다 아래 — 폴더는 로그인 다음 칸이다.
 
 export function ProjectFolderGate(): React.JSX.Element | null {
   const { t } = useTranslation();

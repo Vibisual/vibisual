@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { LayerRoot } from '../Layout/LayerRoot.js';
 
 /** 목록에 이름을 몇 개까지 펼칠지 — 나머지는 "외 N개" 로 접는다. */
 const NAME_PREVIEW_MAX = 8;
@@ -39,8 +40,8 @@ export const TrashPurgeDialog = memo(function TrashPurgeDialog(): React.JSX.Elem
   const names = ids.map((id) => nodeMap[id]?.label ?? id);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+    <LayerRoot
+      className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60"
       {...backdrop}
     >
       {/* 하한 20rem(320px)은 폰 폭에서 화면 양끝에 닿는다 — 화면 폭에서 여백만큼은 늘 남긴다. */}
@@ -89,6 +90,6 @@ export const TrashPurgeDialog = memo(function TrashPurgeDialog(): React.JSX.Elem
           </div>
         </div>
       </div>
-    </div>
+    </LayerRoot>
   );
 });

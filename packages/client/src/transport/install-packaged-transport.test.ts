@@ -137,3 +137,15 @@ describe('packaged IPC WebSocket handshake', () => {
     expect(h.api.connect).not.toHaveBeenCalled();
   });
 });
+
+describe('packaged fetch body content type', () => {
+  it('keeps the type the caller declared for a binary body and only overrides it for multipart', async () => {
+    await harness();
+    const { bodyContentType } = await import('./install-packaged-transport.js');
+    expect(bodyContentType({ 'Content-Type': 'application/octet-stream' }, 'image/png')).toBeNull();
+    expect(bodyContentType(undefined, 'image/png')).toEqual({ 'content-type': 'image/png' });
+    expect(bodyContentType({ Accept: 'application/json', 'Content-Type': 'multipart/form-data' }, 'multipart/form-data; boundary=x'))
+      .toEqual({ Accept: 'application/json', 'content-type': 'multipart/form-data; boundary=x' });
+    expect(bodyContentType({ 'Content-Type': 'application/octet-stream' }, undefined)).toBeNull();
+  });
+});

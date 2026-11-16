@@ -82,7 +82,7 @@ export interface BundleMember {
  */
 export interface BundleInfo {
   /** 무엇이 묶었나 — 같은 하위 폴더의 같은 종류(`planKindBundles`) · 연속 번호((F) ⑦). */
-  readonly source: 'folder' | 'sequence';
+  readonly source: 'folder' | 'sequence' | 'dedicated';
   /** 구성의 종류 — 작은 줄 `영상 묶음` 과 테의 배지. 묶음에는 이 종류만 든다. */
   readonly kind: FileFaceKind;
   /** 같은 종류 묶음의 구성이 함께 든 가장 가까운 폴더(외부 표식을 뗀 경로) — 툴팁이 말한다. 연속 번호는 없다. */
@@ -123,7 +123,7 @@ export function bundleInfoOf(bubble: Pick<BubbleData, 'bubbleType'>): BundleInfo
 /** 같은 내용의 구성은 같은 객체 — 꼬리표와 같은 이유(노드 data 얕은 비교). */
 const BUNDLE_CACHE_MAX = 256;
 const bundleCache = new Map<string, BundleInfo>();
-function stableBundle(info: BundleInfo): BundleInfo {
+export function stableBundle(info: BundleInfo): BundleInfo {
   const key = JSON.stringify(info);
   const hit = bundleCache.get(key);
   if (hit) return hit;
@@ -263,7 +263,7 @@ const NO_TAKEN: ReadonlySet<string> = new Set();
  * 더블클릭도 다른 파일 버블과 같다(`fileFaceOpenPlan` — 그 파일을 앱 안에서 열고, 묶음 안·폴더로 들어가지 않는다).
  * `taken` 은 그 화면에 이미 선 위성 id — 그 id 의 구성은 건너뛰고 다음 것을 세운다.
  */
-function bundleMoonsOf(
+export function bundleMoonsOf(
   bundleId: string,
   sources: readonly BundleMoonSource[],
   heat: HeatScale | undefined,
@@ -776,9 +776,11 @@ function bundleSatellite(s: SatelliteInfo, bundle: BubbleData, from: BubbleData)
 
 /** 묶음의 미리보기 종류만 남긴다. 전체 구성은 보존하고 화면 배치가 페이지를 자른다. */
 export function bundleInteriorIds(
-  info: Pick<BundleInfo, 'memberIds' | 'kind'>,
+  info: Pick<BundleInfo, 'memberIds' | 'kind'> & Partial<Pick<BundleInfo, 'source'>>,
   nodes: Readonly<Record<string, Pick<BubbleData, 'lastActivity' | 'path' | 'absolutePath' | 'label'> | undefined>>,
 ): string[] {
+  // §5.4 #36 (K) — 전용 버블의 종류 묶음은 미리보기 종류가 아니라 앱 표로 묶였다(대본의 .md 도 든다).
+  if (info.source === 'dedicated') return [...info.memberIds];
   const ids = info.memberIds.filter((id) => {
     const node = nodes[id];
     return node === undefined || previewBundleKindOf(node.absolutePath || node.path || node.label) === info.kind;

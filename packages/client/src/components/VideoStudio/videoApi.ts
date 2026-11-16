@@ -8,6 +8,8 @@ export type { DocEnvelope } from '../Creation/videoDocumentApi.js';
  */
 
 import type {
+  CompanionKind,
+  CompanionNote,
   CompositionLintEntry,
   CompositionPropDecl,
   CompositionSeekMode,
@@ -22,6 +24,7 @@ import type {
 // React 밖에서 문구를 고르는 통로 — `hooks/useWebSocket.ts` 와 같은 방식이다. 여기서 던지는
 // 오류는 `<pre>{error}</pre>` 로 **그대로 화면에 찍히므로** 사용자의 언어여야 한다.
 import i18n from '../../i18n/index.js';
+import type { SegmentStore } from '@vibisual/video/render';
 
 
 
@@ -33,6 +36,8 @@ export interface DocSummary {
   /** §5.13 (AA) 42-4 — 문서 크기(판형). 옛 서버면 없다. */
   readonly width?: number;
   readonly height?: number;
+  /** 문서 갤러리 — 해소한 타임라인 길이(초). 옛 서버면 없다. */
+  readonly duration?: number;
 }
 
 export type VideoJobStatus = 'queued' | 'running' | 'done' | 'error' | 'canceled';
@@ -41,9 +46,12 @@ export interface VideoJob {
   readonly id: string;
   /**
    * §5.13 (V) 37-9 — `review` = 프레임 검수 표본. §5.13 (T-8) — `cues` = 표지 모으기(렌더 줄). §5.13 (X) 39-4 — `stills` = 여러
-   * 시각을 한 무대에서 차례로 찍은 그림 목록(JSON).
+   * 시각을 한 무대에서 차례로 찍은 그림 목록(JSON). §5.13 (G) — `compare` = 이미 찍은 두 장을 나란히 한 장으로.
    */
-  readonly kind: 'render' | 'still' | 'strip' | 'review' | 'cues' | 'stills';
+  readonly kind: 'render' | 'still' | 'strip' | 'review' | 'cues' | 'stills' | 'compare';
+  /** §5.13 (G) `compare` — 붙일 두 그림(전·후 data URL)과 칸 위 글자. */
+  readonly images?: readonly string[];
+  readonly labels?: readonly string[];
   readonly projectPath: string;
   readonly docId: string;
   readonly status: VideoJobStatus;
@@ -64,6 +72,8 @@ export interface VideoJob {
   readonly waitingFor?: 'cues';
   /** §5.13 (V) 37-15 — 자막 따로 내기(자막 트랙을 숨기고 렌더). */
   readonly hideCaptions?: boolean;
+  /** 문서 갤러리 포스터처럼 기다려도 되는 배경 일감 — 일꾼은 문서를 저장 없이 읽고 고치지 않는다. */
+  readonly background?: boolean;
   /** §5.13 (T-8) — 표지를 다시 모으지 못해 예전 표지 시각으로 그렸다. */
   readonly cuesFailed?: boolean;
   /** §5.13 (W) 38-3 — 투명 배경 렌더(WebM + 알파). */
@@ -90,6 +100,9 @@ export interface VideoJob {
   readonly label?: string;
   readonly exported?: string;
   readonly exportNote?: { readonly code: 'export-failed' | 'overwrite-fallback'; readonly detail?: string };
+  /** §5.13 42-13 — 함께 낸 딸림 파일(사용자가 보는 자리) · 켰지만 나오지 않은 까닭. */
+  readonly companions?: Partial<Record<CompanionKind, string>>;
+  readonly companionNotes?: readonly CompanionNote[];
   readonly delivered?: boolean;
   readonly createdAt?: number;
 }
@@ -184,8 +197,48 @@ export async function listDocs(project: string): Promise<DocSummary[]> {
   return body.docs;
 }
 
-export async function readDoc(project: string, docId: string): Promise<DocEnvelope> {
-  const res = await fetch(`/api/app/vibistudio/doc/${encodeURIComponent(docId)}?project=${encodeURIComponent(project)}`);
+/** 문서 갤러리 포스터 한 장 — `render=false` 는 디스크에 있는 것만, `true` 는 없으면 한 장만 배경으로 굽는다(서버 `posterRoutes.ts`). */
+export interface DocPosterResult {
+  readonly state: 'hit' | 'baked' | 'missing' | 'failed' | 'empty';
+  readonly image: string | null;
+}
+
+export async function fetchDocPoster(project: string, docId: string, render: boolean): Promise<DocPosterResult> {
+  const q = `project=${encodeURIComponent(project)}${render ? '&render=1' : ''}`;
+  const res = await fetch(`/api/app/vibistudio/doc/${encodeURIComponent(docId)}/poster?${q}`);
+  const body = await json<{ state?: DocPosterResult['state']; image?: string | null }>(res);
+  return { state: body.state ?? 'missing', image: typeof body.image === 'string' ? body.image : null };
+}
+
+/** 복제 — 요청마다 새 `requestId` 라 누를 때마다 새 문서다(같은 id 로 다시 보내면 서버가 처음 것을 돌려준다). */
+export async function copyDoc(project: string, docId: string, title: string): Promise<VideoDoc> {
+  const requestId = `gallery-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const res = await fetch(`/api/app/vibistudio/doc/${encodeURIComponent(docId)}/copy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project, title, requestId }),
+  });
+  return (await json<{ doc: VideoDoc }>(res)).doc;
+}
+
+/** 내보내기 대기열에 그 문서의 일감이 남아 서버가 삭제를 거절했다(409). */
+export class DocInUseError extends Error {
+  constructor() {
+    super('doc-in-use');
+    this.name = 'DocInUseError';
+  }
+}
+
+/** 삭제(사람 전용 — 서버가 문서를 옆으로 치운다). 이미 없는 문서는 조용히 끝난다. */
+export async function deleteDoc(project: string, docId: string): Promise<void> {
+  const res = await fetch(`/api/app/vibistudio/doc/${encodeURIComponent(docId)}?project=${encodeURIComponent(project)}`, { method: 'DELETE' });
+  if (res.status === 409) throw new DocInUseError();
+  await json<{ ok: boolean }>(res);
+}
+
+/** `peek` — 서버가 컴포지션 탐침·저장을 하지 않고 디스크의 문서 그대로 돌려준다(배경 일감용). */
+export async function readDoc(project: string, docId: string, peek = false): Promise<DocEnvelope> {
+  const res = await fetch(`/api/app/vibistudio/doc/${encodeURIComponent(docId)}?project=${encodeURIComponent(project)}${peek ? '&peek=1' : ''}`);
   return json<DocEnvelope>(res);
 }
 
@@ -322,6 +375,23 @@ export async function fetchStripImage(project: string, docId: string, itemId: st
   return { image: body.image, times: body.times ?? [] };
 }
 
+/** §5.13 (V) 37-20 — 읽기 전용 코드 보기의 원본 한 장(경로는 프로젝트 기준 `/` 구분). `files` = 그 컴포지션 폴더의 글 파일들(HTML 먼저). */
+export interface CompositionSourceEnvelope {
+  readonly path: string;
+  readonly text: string;
+  readonly bytes: number;
+  readonly truncated: boolean;
+  readonly contentHash: string | null;
+  readonly files: readonly string[];
+}
+
+/** 쓰는 길은 없다 — 고치는 것은 바깥 에디터·에이전트다. `file` 을 주지 않으면 그 소재의 HTML. */
+export async function readCompositionSource(project: string, docId: string, assetId: string, file?: string): Promise<CompositionSourceEnvelope> {
+  const q = `project=${encodeURIComponent(project)}&assetId=${encodeURIComponent(assetId)}${file ? `&file=${encodeURIComponent(file)}` : ''}`;
+  const res = await fetch(`/api/app/vibistudio/doc/${encodeURIComponent(docId)}/source?${q}`);
+  return json<CompositionSourceEnvelope>(res);
+}
+
 /** §5.13 (T-5) — 기본 자리에 컴포지션 뼈대를 만들고(문서를 주면 소재까지 올린다) 경로·소재 id 를 돌려받는다. */
 export async function createComposition(
   project: string,
@@ -394,14 +464,96 @@ export async function reportJob(
 
 
 
-/** Binary output avoids the server's small JSON body limit and base64 expansion. */
+// The packaged app encodes each IPC request as text. Bound each request's temporary buffers.
+const RENDER_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
+
 export async function completeRenderJob(jobId: string, bytes: Uint8Array, note: string): Promise<void> {
   await reportJob(jobId, { note });
-  const res = await fetch(`/api/app/vibistudio/job/${encodeURIComponent(jobId)}/output`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' },
-    body: new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' }),
+  const url = `/api/app/vibistudio/job/${encodeURIComponent(jobId)}/output`;
+  const total = bytes.byteLength;
+  const chunked = total > RENDER_UPLOAD_CHUNK_BYTES;
+  let start = 0;
+  do {
+    const end = Math.min(start + RENDER_UPLOAD_CHUNK_BYTES, total);
+    const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' };
+    if (chunked) headers['Content-Range'] = `bytes ${start}-${end - 1}/${total}`;
+    const res = await fetch(url, {
+      method: 'PUT', headers,
+      body: new Blob([new Uint8Array(bytes.subarray(start, end))], { type: 'application/octet-stream' }),
+    });
+    await json(res);
+    start = end;
+  } while (start < total);
+}
+
+/**
+ * §5.13 (AA) 42-11 — 렌더 결과를 나오는 대로 올리는 통로. 조각마다 그 바이트 위치로 쓴다(`bytes S-E/*`) — 인코더가 머리 상자를
+ * 되돌아가 고쳐 쓰기 때문이다. 다 쓰면 `commit(전체 크기)` 로 끝맺어야 결과 파일이 된다(안 하면 서버가 임시 파일을 걷는다).
+ */
+export function openRenderOutputStream(jobId: string): {
+  write(data: Uint8Array, position: number): Promise<void>;
+  /** §5.13 (E-5) ③ — 올리던 결과를 버린다(구간을 이을 수 없어 처음부터 다시 굽기 전). */
+  reset(): Promise<void>;
+  commit(total: number, note: string): Promise<VideoJob | null>;
+} {
+  const base = `/api/app/vibistudio/job/${encodeURIComponent(jobId)}/output`;
+  return {
+    async write(data, position) {
+      for (let offset = 0; offset < data.byteLength; offset += RENDER_UPLOAD_CHUNK_BYTES) {
+        const part = data.subarray(offset, Math.min(data.byteLength, offset + RENDER_UPLOAD_CHUNK_BYTES));
+        const start = position + offset;
+        const res = await fetch(base, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/octet-stream', 'Content-Range': `bytes ${start}-${start + part.byteLength - 1}/*` },
+          body: new Blob([new Uint8Array(part)], { type: 'application/octet-stream' }),
+        });
+        await json(res);
+      }
+    },
+    async reset() {
+      await json(await fetch(base, { method: 'DELETE' }));
+    },
+    async commit(total, note) {
+      await reportJob(jobId, { note });
+      const res = await fetch(`${base}/commit`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ total }),
+      });
+      return (await json<{ job?: VideoJob | null }>(res)).job ?? null;
+    },
+  };
+}
+
+/**
+ * §5.13 (E-7)(E-9) — 렌더 구간 캐시(일꾼 전용 길). 조각은 프로젝트 폴더의 캐시 자리에 있고, 상한·정리는 서버가 한다.
+ * 읽기 실패·없음은 null(그 구간을 다시 굽는다) — 캐시는 최적화라 렌더를 멈추지 않는다.
+ */
+export function openSegmentStore(project: string, docId: string): SegmentStore {
+  const base = `/api/app/vibistudio/doc/${encodeURIComponent(docId)}/render-cache`;
+  const q = `?project=${encodeURIComponent(project)}`;
+  const post = (path: string, body: object): Promise<Response> => fetch(`${base}/${path}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, ...body }),
   });
-  await json(res);
+  return {
+    async env() {
+      const got = await json<{ files?: Record<string, string>; shared?: string }>(await post('env', {}));
+      return { files: got.files ?? {}, shared: got.shared ?? '' };
+    },
+    async has(keys) {
+      if (keys.length === 0) return new Set();
+      return new Set((await json<{ have?: string[] }>(await post('query', { keys }))).have ?? []);
+    },
+    async get(key) {
+      const res = await fetch(`${base}/${key}${q}`);
+      return res.ok ? new Uint8Array(await res.arrayBuffer()) : null;
+    },
+    async put(key, bytes) {
+      const res = await fetch(`${base}/${key}${q}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' },
+        body: new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' }),
+      });
+      await json(res);
+    },
+  };
 }
 
 export async function completeStillJob(jobId: string, image: string): Promise<void> {

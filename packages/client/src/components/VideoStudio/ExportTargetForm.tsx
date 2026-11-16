@@ -6,7 +6,7 @@ import { ExportCheck, ExportField, Segmented, SmallButton } from './exportContro
 import { formatClock } from './PreviewControls.js';
 import type { ExportTarget } from './exportTarget.js';
 
-/** §5.13 (AA) 42-3·42-4 — 내보내기 "무엇을"(대상·범위·판형·소리). 구간·장면·트랙은 그 렌더 한 번의 값이라 저장하지 않는다. */
+/** §5.13 (AA) 42-3·42-4·42-13 — 내보내기 "무엇을"(대상·범위·판형·소리·함께 내기). 구간·장면·트랙은 그 렌더 한 번의 값이라 저장하지 않는다. */
 export interface ExportTargetFormProps {
   readonly target: ExportTarget;
   readonly onTarget: (next: ExportTarget) => void;
@@ -20,6 +20,8 @@ export interface ExportTargetFormProps {
   readonly duration: number;
   readonly fps: number;
   readonly readPlayhead: () => number;
+  /** 지금 문서에 자막 큐가 있는가 — 없으면 자막 파일이 나오지 않는다고 미리 말한다(42-13 (F)). */
+  readonly hasCaptions: boolean;
 }
 
 /** 초 칸 — 치는 동안의 글자(`1.`)를 그대로 두고, 읽히는 값만 바로 넘긴다(손을 떼면 프레임에 맞춘 값으로 돌아온다). */
@@ -53,6 +55,10 @@ export function ExportTargetForm(p: ExportTargetFormProps): React.JSX.Element {
   const toggle = <T,>(list: readonly T[], value: T, on: boolean): T[] => (on ? [...list.filter((x) => x !== value), value] : list.filter((x) => x !== value));
   const sceneName = (c: ExportTargetFormProps['chapters'][number]): string => c.title.trim() || t('panel.videoStudio.strip.chapterN', { n: c.index + 1 });
   const audioOff = p.settings.format !== 'wav' && !p.settings.audio;
+  const extras = p.settings.extras;
+  // 42-13 (E) — [따로 내기]는 늘 SRT 를 함께 낸다(같은 파일 하나) — 그때는 켜진 채 잠근다.
+  const subtitlesLocked = p.settings.captions === 'separate';
+  const setExtra = (kind: keyof ExportSettings['extras'], on: boolean): void => p.onSettings({ extras: { ...extras, [kind]: on } });
 
   return (
     <div className="flex flex-col gap-4">
@@ -140,6 +146,32 @@ export function ExportTargetForm(p: ExportTargetFormProps): React.JSX.Element {
             ))}
           </div>
         ) : <span className="text-[12px] text-slate-500">{t('panel.videoStudio.export.target.noSound')}</span>}
+      </ExportField>
+
+      <ExportField label={t('panel.videoStudio.export.extras.title')} hint={t('panel.videoStudio.export.extras.hint')}>
+        <div className="flex flex-col gap-1">
+          <ExportCheck checked={extras.thumbnail} onChange={(on) => setExtra('thumbnail', on)}>{t('panel.videoStudio.export.extras.thumbnail')}</ExportCheck>
+          {extras.thumbnail ? (
+            <div className="flex flex-col gap-1 pl-5">
+              <span className="flex flex-wrap items-center gap-1 text-[12px] text-slate-300">
+                <span className="text-slate-500">{t('panel.videoStudio.export.extras.thumbnailAt')}</span>
+                <SecondsInput value={tg.thumbnailAt ?? 0} max={p.duration} step={step} label={t('panel.videoStudio.export.extras.thumbnailAt')}
+                  onCommit={(v) => set({ thumbnailAt: snap(v) })} />
+                <SmallButton onClick={() => set({ thumbnailAt: snap(p.readPlayhead()) })} title={t('panel.videoStudio.export.target.fromPlayhead')}>
+                  {t('panel.videoStudio.export.target.fromPlayhead')}
+                </SmallButton>
+                <span className="tabular-nums text-slate-500">{formatClock(tg.thumbnailAt ?? 0)}</span>
+              </span>
+              <span className="text-[12px] text-slate-500">{t('panel.videoStudio.export.extras.thumbnailNote')}</span>
+            </div>
+          ) : null}
+          <ExportCheck checked={extras.chapters} onChange={(on) => setExtra('chapters', on)}>{t('panel.videoStudio.export.extras.chapters')}</ExportCheck>
+          {extras.chapters && p.chapters.length === 0 ? <span className="pl-5 text-[12px] text-amber-300">{t('panel.videoStudio.export.extras.noChapters')}</span> : null}
+          <ExportCheck checked={extras.subtitles || subtitlesLocked} disabled={subtitlesLocked} onChange={(on) => setExtra('subtitles', on)}>{t('panel.videoStudio.export.extras.subtitles')}</ExportCheck>
+          {subtitlesLocked ? (
+            <span className="pl-5 text-[12px] text-slate-500">{t('panel.videoStudio.export.extras.subtitlesLocked', { mode: t('panel.videoStudio.export.captions_separate') })}</span>
+          ) : extras.subtitles && !p.hasCaptions ? <span className="pl-5 text-[12px] text-amber-300">{t('panel.videoStudio.export.extras.noCaptions')}</span> : null}
+        </div>
       </ExportField>
     </div>
   );

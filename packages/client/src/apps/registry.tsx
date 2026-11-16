@@ -4,7 +4,8 @@
  * §5.13 (H) — 설치 단계는 없다. "안 쓰면 비용이 없다"는 늦은 로더가 지킨다(안 부르면 청크가 안 내려온다).
  */
 
-import type { ComponentType, JSX, ReactNode } from 'react';
+import { IMAGE_DEDICATED_PROFILE, MODEL_DEDICATED_PROFILE, SOUND_DEDICATED_PROFILE, VIDEO_DEDICATED_PROFILE, type DedicatedProfile } from './dedicatedProfiles.js';
+import { useEffect, type ComponentType, type JSX, type ReactNode } from 'react';
 import type { CommandExecutionRequirements, Conti, ContiRenderStatus, CreationRunLimits, StoryboardPreset, UserDefaults, WorkspaceOpenAppClaim } from '@vibisual/shared';
 import type { AppThumbnailSkip } from './thumbnailSkip.js';
 
@@ -291,6 +292,8 @@ export interface InternalApp {
   readonly taskDocument?: () => Promise<AppTaskDocumentBuilder>;
   /** §5.13 (V) 37-1·37-17 — 편집 화면(`main`)이 앱 테마를 따른다. 없으면 `DARK_THEME_LOCK`. 렌더·일꾼 화면은 늘 묶인다(그림은 테마가 아니다). */
   readonly followsTheme?: boolean;
+  /** §5.4 #36 (K) — 말풍선의 전용 버블에 무엇이 어떤 종류로 붙는가. 없으면 일반 전용 버블. */
+  readonly dedicated?: DedicatedProfile;
   /** §5.4 #36 (H) ③ — 노드 아래 구슬 줄(장면·소재 등)을 읽는 늦은 로더 — 노드가 화면에 있을 때만 청크. 없으면 코어의 "지난 결과"(`AppBubble.pastFiles`)만 뜬다. */
   readonly linkedItems?: () => Promise<AppLinkedItemsReader>;
 }
@@ -407,7 +410,53 @@ async function openAppOsWindow(appId: string, refKey: string, args: AppOpenArgs)
 /** 등록된 내부 앱 — 새 앱은 항목 하나면 Apps 창·우클릭 메뉴·버블·창 열기·파일 열기가 따라온다. */
 export const INTERNAL_APPS: readonly InternalApp[] = [
   {
+    id: 'memo', nameKey: 'panel.apps.memo.name', name: 'Memo', descKey: 'panel.apps.memo.desc',
+    color: '#33332B', glow: '#D3D0A7',
+    icon: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 shrink-0"><path d="M14 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V10Z" /><path d="M14 3v7h7M7 14h10M7 18h7" /></svg>,
+    defaultSize: { width: 80, height: 50 }, screenSize: { width: 240, height: 170 }, refKey: 'memoId', followsTheme: true,
+    canvasFace: async () => (await import('@vibisual/memo/canvas')).MemoCanvasFace,
+    faceShowsRef: true,
+    shells: { main: async () => {
+      const [{ createMemoShell }, { ScrollFade }, lifecycle, close, durable, windows, graph, { MemoMarkdown }, platform, packaged, { MemoImageEditor }] = await Promise.all([
+        import('@vibisual/memo/client'), import('../components/ScrollFade.js'), import('./appWindowLifecycle.js'),
+        import('./appWindowCloseGuard.js'), import('../utils/persistFlush.js'), import('./appWindows.js'), import('../stores/graphStore.js'),
+        import('./MemoMarkdown.js'), import('../utils/platform.js'), import('../transport/packaged.js'), import('./MemoImageEditor.js'),
+      ]);
+      return createMemoShell({
+        Scroll: ScrollFade, Markdown: MemoMarkdown, ImageEditor: MemoImageEditor, shortcutLabel: platform.shortcutLabel,
+        // §5.13 (Y) 40-1 — 패키지 앱에서 상대 주소는 IPC 로 떨어져 응답을 통째로 싣는다. 미디어 갈래 절대 주소로 흘려 받는다.
+        mediaUrl: path => (packaged.isPackagedDesktop() ? `vibproxy://proxy${path}` : path),
+        useAIEnabled: () => graph.useGraphStore(state => state.userDefaults?.internalAppSettings?.['memo']?.aiEnabled !== false),
+        useLifecycle: (params, noteId, flush) => {
+          lifecycle.useAppWindowTarget(params, noteId ? { ref: noteId } : null);
+          lifecycle.useAppWindowTransferGuard(params, flush);
+          close.useAppWindowCloseGuard(params, flush);
+          useEffect(() => durable.registerDurableFlush(flush), [params['appWindowId'], noteId]);
+        },
+        contexts: (project) => {
+          const state = graph.useGraphStore.getState();
+          const info = Object.values(state.projects).find(entry => entry.path === project);
+          return [{ kind: 'project' as const, id: project, label: info?.name ?? project, excerpt: '' },
+            ...state.appBubbles.filter(bubble => state.projects[bubble.projectName]?.path === project && bubble.appId !== 'memo')
+              .map(bubble => ({ kind: 'app' as const, id: bubble.id, label: bubble.title || getInternalApp(bubble.appId)?.name || bubble.appId, excerpt: '' }))];
+        },
+        openContext: (project, context) => {
+          const state = graph.useGraphStore.getState();
+          const info = Object.values(state.projects).find(entry => entry.path === project);
+          if (!info) return;
+          state.setActiveProject(info.name);
+          if (context.kind === 'app') {
+            const bubble = state.appBubbles.find(item => item.id === context.id && state.projects[item.projectName]?.path === project);
+            if (bubble) windows.openAppWindow({ appId: bubble.appId, projectId: project, bubbleId: bubble.id, ref: bubble.ref, file: bubble.file });
+          }
+        },
+      });
+    } },
+    open: async (args) => openAppOsWindow('memo', 'memoId', args),
+  },
+  {
     id: 'vibistudio',
+    dedicated: VIDEO_DEDICATED_PROFILE,
     nameKey: 'panel.apps.vibistudio.name',
     name: 'Vibistudio',
     descKey: 'panel.apps.vibistudio.desc',
@@ -458,6 +507,7 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
   },
   {
     id: 'vibisound',
+    dedicated: SOUND_DEDICATED_PROFILE,
     nameKey: 'panel.apps.vibisound.name',
     name: 'Vibisound',
     descKey: 'panel.apps.vibisound.desc',
@@ -486,6 +536,7 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
   },
   {
     id: 'vibi3d',
+    dedicated: MODEL_DEDICATED_PROFILE,
     nameKey: 'panel.apps.vibi3d.name',
     name: 'Vibi3D',
     descKey: 'panel.apps.vibi3d.desc',
@@ -514,6 +565,7 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
   {
     // §5.13 (R-9) — 이미지. 캔버스 참조 노드(§5.4 #36)의 네 번째 갈래.
     id: 'vibimage',
+    dedicated: IMAGE_DEDICATED_PROFILE,
     nameKey: 'panel.apps.vibimage.name',
     name: 'Vibimage',
     descKey: 'panel.apps.vibimage.desc',

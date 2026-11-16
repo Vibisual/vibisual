@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useAppBoxTier } from '../../hooks/useBoxTier.js';
 import { shortcutLabel } from '../../utils/platform.js';
 import { StudioIconButton } from './StudioIconButton.js';
+import { SkipSecondsControl } from './SkipSecondsControl.js';
+import { formatSkipSeconds } from './skipSeconds.js';
 import { usePlayheadValue, type PlayheadClock } from './playheadClock.js';
 
 /** §5.13 (V) 37-1 — 미리보기 조작 줄(아이콘 + 툴팁 단축키, 시간은 `tabular-nums`). 좁으면 접히고, `box-narrow` 에선 총길이를 걷고 [정밀 편집]은 아이콘만. */
@@ -15,7 +17,7 @@ export interface PreviewControlsProps {
   readonly duration: number;
   readonly loop: boolean;
   readonly safeArea: boolean;
-  readonly zoom: 'fit' | 'actual';
+  readonly zoom: 'fit' | 'actual' | 'free';
   readonly interaction: 'none' | 'point' | 'note';
   readonly precisionOpen: boolean;
   readonly disabled: boolean;
@@ -31,6 +33,13 @@ export interface PreviewControlsProps {
   readonly volume?: number;
   readonly onMute?: () => void;
   readonly onVolume?: (volume: number) => void;
+  /** §5.13 (V) 37-24 (A)(B) — 건너뛰기(`←`/`→`)와 그 간격(초). 주지 않으면 단추·칸이 서지 않는다. */
+  readonly skipSeconds?: number;
+  readonly onSkip?: (direction: -1 | 1) => void;
+  readonly onSkipSeconds?: (seconds: number) => void;
+  /** §5.13 (V) 37-24 (E) — 전체 화면(`Alt+Enter`). 주지 않으면(API 없음) 단추가 서지 않는다. */
+  readonly fullscreen?: boolean;
+  readonly onFullscreen?: () => void;
 }
 
 /** `00:12.04` — 분:초.백분의일초. */
@@ -51,12 +60,19 @@ export function PreviewControls(p: PreviewControlsProps): React.JSX.Element {
   const empty = p.duration <= 0;
   // 등급이 바뀔 때만 다시 그린다(폭을 재서 들고 있지 않는다) — 단추 안 글자는 이 부품 밖이라 CSS 변형으로 못 걷는다.
   const narrow = useAppBoxTier() === 'narrow';
+  const onSkip = p.onSkip;
+  const skipText = formatSkipSeconds(p.skipSeconds ?? 0);
+  // 건너뛰기가 서면 맨 방향키는 건너뛰기 몫이다 — 프레임은 `,`/`.`(Shift+방향키 10프레임은 그대로).
+  const frameHint = (comma: string, arrow: string): string => (onSkip ? `${k(comma)} · ${k(`Shift+${arrow}`)}` : `${k(arrow)} · ${k(`Shift+${arrow}`)}`);
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-1 px-1">
-      <StudioIconButton icon="prev" label={t('panel.videoStudio.preview.prevFrame')} hint={`${k('Left')} · ${k('Shift+Left')}`} disabled={empty} onClick={() => p.onStep(-1)} />
+      {onSkip ? <StudioIconButton icon="skipBack" label={t('panel.videoStudio.preview.skipBack', { seconds: skipText })} hint={k('Left')} disabled={empty} onClick={() => onSkip(-1)} /> : null}
+      <StudioIconButton icon="prev" label={t('panel.videoStudio.preview.prevFrame')} hint={frameHint(',', 'Left')} disabled={empty} onClick={() => p.onStep(-1)} />
       <StudioIconButton icon={p.playing || p.preparing ? 'pause' : 'play'} label={p.playing || p.preparing ? t('panel.videoStudio.pause') : t('panel.videoStudio.play')} hint={k('Space')} disabled={empty || p.disabled} onPress={p.onPlay} onClick={p.onPlay} />
       {p.preparing ? <span role="status" className="shrink-0 text-[12px] text-slate-400">{t('panel.videoStudio.preview.preparing')}</span> : null}
-      <StudioIconButton icon="next" label={t('panel.videoStudio.preview.nextFrame')} hint={`${k('Right')} · ${k('Shift+Right')}`} disabled={empty} onClick={() => p.onStep(1)} />
+      <StudioIconButton icon="next" label={t('panel.videoStudio.preview.nextFrame')} hint={frameHint('.', 'Right')} disabled={empty} onClick={() => p.onStep(1)} />
+      {onSkip ? <StudioIconButton icon="skipForward" label={t('panel.videoStudio.preview.skipForward', { seconds: skipText })} hint={k('Right')} disabled={empty} onClick={() => onSkip(1)} /> : null}
+      {onSkip && p.onSkipSeconds && p.skipSeconds !== undefined ? <SkipSecondsControl seconds={p.skipSeconds} onChange={p.onSkipSeconds} /> : null}
       <span className="mx-2 shrink-0 text-[13px] tabular-nums text-slate-300 box-narrow:mx-1">
         <ClockText clock={p.clock} playhead={p.playhead} duration={p.duration} />
       </span>
@@ -73,7 +89,11 @@ export function PreviewControls(p: PreviewControlsProps): React.JSX.Element {
       ) : null}
       <span className="mx-1 h-4 border-l border-white/10 box-narrow:hidden" aria-hidden="true" />
       <StudioIconButton icon="safe" label={t('panel.videoStudio.preview.safeArea')} hint={k('G')} active={p.safeArea} onClick={p.onSafeArea} />
-      <StudioIconButton icon="fit" label={p.zoom === 'fit' ? t('panel.videoStudio.preview.actualSize') : t('panel.videoStudio.preview.fit')} hint={k('F')} active={p.zoom === 'actual'} onClick={p.onZoom} />
+      <StudioIconButton icon="fit" label={p.zoom === 'fit' ? t('panel.videoStudio.preview.actualSize') : t('panel.videoStudio.preview.fit')} hint={k('F')} active={p.zoom !== 'fit'} onClick={p.onZoom} />
+      {p.onFullscreen ? (
+        <StudioIconButton icon={p.fullscreen ? 'fullscreenExit' : 'fullscreen'} hint={k('Alt+Enter')} active={p.fullscreen === true}
+          label={p.fullscreen ? t('panel.videoStudio.preview.exitFullscreen') : t('panel.videoStudio.preview.fullscreen')} onClick={p.onFullscreen} />
+      ) : null}
       <StudioIconButton icon="point" label={t('panel.videoStudio.preview.point')} hint={k('P')} active={p.interaction === 'point'}
         onClick={() => p.onInteraction(p.interaction === 'point' ? 'none' : 'point')} />
       <StudioIconButton icon="note" label={t('panel.videoStudio.preview.note')} hint={k('N')} active={p.interaction === 'note'}

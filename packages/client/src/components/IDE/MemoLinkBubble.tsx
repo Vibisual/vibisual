@@ -8,11 +8,12 @@ import { memoLinkTargetText } from './memoLinks.js';
 import { isComposingKeyEvent } from '../../utils/inputComposition.js';
 import type { MemoLinkHost } from './useMemoLinkHost.js';
 import { followVisibleViewport, placeBelowAnchor, visibleViewport } from './popupPlacement.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 /** §5.5 #17-36 ⑫ — 링크 상자. 본문 클릭은 캐럿이라 따라가기는 [이동]·Ctrl/Cmd+클릭뿐. 입력칸 초점을 뺏지 않고, 카드의 overflow·transform 에 갇히지 않게 body 로 포털한다. */
 
 /** 링크 상자·링크 창의 층 — 전역 글자 메뉴(`GlobalTextFieldContextMenu`)와 같은 높이. 모달 위에서도 떠야 한다. */
-export const MEMO_LINK_POPUP_Z = 1_000_000;
+export const MEMO_LINK_POPUP_Z = Z_LAYER.MENU;
 
 /** 종류 이름 키 — 글자 그대로 적어 둔다(키를 이어 붙여 만들면 번역 검사가 그 키를 못 본다). */
 export const MEMO_LINK_KIND_NAME_KEY: Record<SessionMemoLinkKind, string> = {

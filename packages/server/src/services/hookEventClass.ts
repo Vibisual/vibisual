@@ -92,3 +92,25 @@ export function needsSnapshotRefresh(eventName: string): boolean {
 export function isTaskLedgerEvent(eventName: string): boolean {
   return eventName === 'TaskCreated' || eventName === 'TaskCompleted';
 }
+
+/** §4 (상태바 모델 칸 ③⑤) — 모델 ID 를 실어 오는 훅. 공식 훅 문서: `SessionStart` 는 `model`(항상 실리진 않는다), 전환 둘은 `from_model`/`to_model`. */
+const MODEL_BEARING_HOOK_EVENTS: ReadonlySet<string> = new Set(['SessionStart', 'PreModelSwitch', 'PostModelSwitch']);
+const MODEL_FIELDS = ['model', 'to_model', 'from_model'] as const;
+
+/**
+ * §4 (상태바 모델 칸 ③⑤) — 훅 본문에서 모델 ID 후보를 모은다. 전역 훅이라 이 PC 의 모든 Claude Code 세션이 보내므로, 앱이 그 모델을 띄우기 전에 목록이 배운다.
+ * 별칭(`opus`)·표시명은 받는 쪽 정규화(`normalizeObservedModelId`)가 거른다 — 여기서는 문자열(또는 `{ id }`)만 뽑는다. 세 이벤트 밖에서는 빈 배열(훅은 빈도가 높다).
+ */
+export function modelIdsFromHookBody(body: Record<string, unknown>): string[] {
+  if (!MODEL_BEARING_HOOK_EVENTS.has(String(body['hook_event_name']))) return [];
+  const out: string[] = [];
+  for (const key of MODEL_FIELDS) {
+    const raw = body[key];
+    const value = typeof raw === 'string'
+      ? raw
+      : (raw && typeof raw === 'object' && typeof (raw as { id?: unknown }).id === 'string' ? (raw as { id: string }).id : '');
+    const id = value.trim();
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return out;
+}

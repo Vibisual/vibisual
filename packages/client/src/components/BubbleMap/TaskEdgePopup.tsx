@@ -16,6 +16,7 @@ import type {
 import { TASK_EDGE_TEMPLATES, TASK_EDGE_KIND_STYLES, TASK_EDGE_DEFAULTS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useBackdropDismiss, useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { LayerRoot } from '../Layout/LayerRoot.js';
 
 interface TaskEdgePopupProps {
   sourceAgentId: string;
@@ -117,7 +118,7 @@ function InfoIcon({ title }: { title: string }): React.JSX.Element {
       {rect && (
         <div
           role="tooltip"
-          className="pointer-events-none fixed z-[60] w-64 rounded border border-gray-600 bg-gray-950 px-2 py-1.5 text-[12px] leading-snug text-gray-200 shadow-xl"
+          className="pointer-events-none fixed z-tooltip w-64 rounded border border-gray-600 bg-gray-950 px-2 py-1.5 text-[12px] leading-snug text-gray-200 shadow-xl"
           style={{
             left: Math.max(8, Math.min(window.innerWidth - 264, rect.left + rect.width / 2 - 128)),
             top: rect.top - 6,
@@ -456,7 +457,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
   const targetLabel = agents.find((a) => a.id === targetAgentId)?.label ?? 'Agent';
 
   return (
-    <div className="fixed inset-0 z-50" {...backdrop}>
+    <LayerRoot className="fixed inset-0 z-dialog" {...backdrop}>
       {/* 폰 폭(360px)에서는 `w-96` 이 화면보다 넓어 오른쪽 36px 와 주 버튼이 잘렸다 — 폭은 화면에서 양옆 여백을 뺀
           만큼까지만, 높이는 주소창이 오가도 맞는 `dvh` 로 잡는다(자리 잡기는 실제로 잰 폭을 쓴다). */}
       <div
@@ -1024,8 +1025,8 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
 
       {/* Schema 편집 서브 팝업 — 메인 backdrop 으로 버블링을 끊고, 자체 닫기는 누른 곳·뗀 곳 둘 다 backdrop 일 때만(선택 드래그가 거기서 끝나도 안 닫히게). */}
       {schemaEditOpen && (
-        <div
-          className="fixed inset-0 z-[65] flex items-center justify-center bg-black/40"
+        <LayerRoot
+          className="fixed inset-0 z-dialog-over flex items-center justify-center bg-black/40"
           onMouseDown={(e) => { e.stopPropagation(); schemaBackdrop.onMouseDown(e); }}
           onClick={(e) => { e.stopPropagation(); schemaBackdrop.onClick(e); }}
         >
@@ -1088,14 +1089,14 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
               </button>
             </div>
           </div>
-        </div>
+        </LayerRoot>
       )}
 
       {/* Shared tooltip layer — rendered above the popup via fixed positioning. */}
       {hoverTip && (
         <div
           role="tooltip"
-          className="pointer-events-none fixed z-[60] w-64 rounded border border-gray-600 bg-gray-950 px-2 py-1.5 text-[12px] leading-snug text-gray-200 shadow-xl"
+          className="pointer-events-none fixed z-tooltip w-64 rounded border border-gray-600 bg-gray-950 px-2 py-1.5 text-[12px] leading-snug text-gray-200 shadow-xl"
           style={{
             left: Math.max(8, Math.min(window.innerWidth - 264, hoverTip.rect.left + hoverTip.rect.width / 2 - 128)),
             top: hoverTip.rect.top - 6,
@@ -1105,6 +1106,6 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
           {hoverTip.text}
         </div>
       )}
-    </div>
+    </LayerRoot>
   );
 }

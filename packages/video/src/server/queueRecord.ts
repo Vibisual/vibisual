@@ -2,6 +2,8 @@
  * §5.13 (AA) 42-6 — 렌더 대기열의 **파일 기록** ↔ 일감(껐다 켠 뒤 되살리기). 판정 규칙은 `renderQueue.ts`, 파일 읽고 쓰기는 `exportStore.ts`.
  */
 
+import { EXPORT_EXTRA_KINDS } from '../exportSettings.js';
+import { COMPANION_NOTES, type CompanionKind } from '../exportExtras.js';
 import { normalizeRenderOutput, normalizeRenderSpec } from '../renderSpec.js';
 import { isTerminalStatus, type QueueJob, type QueueStatus } from './renderQueue.js';
 
@@ -68,6 +70,20 @@ export function fromQueueRecord(raw: unknown, projectPath: string, now: number):
       const detail = str((exportNote as Record<string, unknown>)['detail'], 500);
       job.exportNote = detail ? { code, detail } : { code };
     }
+  }
+  // §5.13 (AA) 42-13 — 함께 나온 딸림 파일의 자리와 나오지 않은 까닭(끝난 줄의 기록).
+  const companionsRaw = r['companions'];
+  if (companionsRaw && typeof companionsRaw === 'object') {
+    const companions: Partial<Record<CompanionKind, string>> = {};
+    for (const kind of EXPORT_EXTRA_KINDS) {
+      const file = str((companionsRaw as Record<string, unknown>)[kind]);
+      if (file) companions[kind] = file;
+    }
+    if (Object.keys(companions).length > 0) job.companions = companions;
+  }
+  if (Array.isArray(r['companionNotes'])) {
+    const notes = COMPANION_NOTES.filter((code) => (r['companionNotes'] as unknown[]).includes(code));
+    if (notes.length > 0) job.companionNotes = notes;
   }
   if (isTerminalStatus(job.status)) return job;
   // 아직 안 끝난 것 — 돌던 것은 처음부터 다시 줄에 선다(반쯤 그린 파일은 이어 그릴 수 없다).

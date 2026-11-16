@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Panel, useReactFlow, useStore, useStoreApi } from '@xyflow/react';
+import { Panel, useStore, useStoreApi } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile';
 import {
@@ -23,9 +23,15 @@ import {
   Glyph,
   CtrlButton,
   CtrlPanel,
-  PlusIcon,
-  MinusIcon,
 } from './canvasControlKit.js';
+
+const ActivityBubblesIcon = (): React.JSX.Element => (
+  <Glyph>
+    <circle cx="7.5" cy="7.5" r="5.5" fill="currentColor" />
+    <circle cx="18.5" cy="6.5" r="3.5" fill="currentColor" />
+    <circle cx="16.5" cy="18" r="5" fill="currentColor" />
+  </Glyph>
+);
 
 const LockIcon = (): React.JSX.Element => (
   <Glyph>
@@ -364,6 +370,8 @@ function TidySortPanel({ disabled, onPick }: {
 }
 
 interface CanvasControlsProps {
+  activityBubblesVisible: boolean;
+  onToggleActivityBubbles: () => void;
   /** §5.4 #33 — 버블 정리. 계산·이동은 캔버스(`BubbleMap`)가 쥐고 여기는 손잡이만 낸다((I) 기준을 함께 넘긴다). */
   onTidy: (sort: TidySort) => void;
   /** 정리 이동이 가는 중 — 연달아 눌러 애니메이션이 겹치지 않게 잠근다. */
@@ -373,13 +381,12 @@ interface CanvasControlsProps {
 }
 
 /**
- * 캔버스 좌하단 줌/프로젝트 몰입/잠금 컨트롤.
+ * 캔버스 좌하단 활동 버블 표시/프로젝트 몰입/잠금 컨트롤.
  * React Flow 기본 <Controls> 를 대체 — 프로젝트 디자인(다크 + blue 액센트)에 맞춘
  * 고대비 플로팅 패널. 상호작용 토글은 공식 Controls 와 동일하게 store 를 갱신한다.
  */
-export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControlsProps): React.JSX.Element {
+export function CanvasControls({ activityBubblesVisible, onToggleActivityBubbles, onTidy, tidyBusy, tidyDisabled }: CanvasControlsProps): React.JSX.Element {
   const { t } = useTranslation();
-  const { zoomIn, zoomOut } = useReactFlow();
   const store = useStoreApi();
   const isNarrow = useIsNarrowViewport();
   const isInteractive = useStore(
@@ -416,8 +423,6 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
   // 캔버스가 잠겼으면 정리도 걸지 않는다(잠금 = 버블이 안 움직인다는 약속). 막는 건 실행이지 패널이 아니다 — 열어 볼 수 있고 이유는 패널 안 한 줄이 말한다.
   const tidyLocked = tidyDisabled || tidyBusy || !isInteractive;
 
-  const handleZoomIn = useCallback(() => { zoomIn(); }, [zoomIn]);
-  const handleZoomOut = useCallback(() => { zoomOut(); }, [zoomOut]);
   const handleToggleImmersion = useCallback(() => {
     if (activeProject !== null) toggleImmersion(activeProject);
   }, [activeProject, toggleImmersion]);
@@ -460,11 +465,12 @@ export function CanvasControls({ onTidy, tidyBusy, tidyDisabled }: CanvasControl
       )}
       <div className="flex min-h-0 flex-col overflow-y-auto overscroll-contain rounded-lg">
       <CtrlPanel>
-        <CtrlButton label={t('canvas.controls.zoomIn')} onClick={handleZoomIn}>
-          <PlusIcon />
-        </CtrlButton>
-        <CtrlButton label={t('canvas.controls.zoomOut')} onClick={handleZoomOut}>
-          <MinusIcon />
+        <CtrlButton
+          label={t(activityBubblesVisible ? 'canvas.bubbleMenu.hideBubbles' : 'canvas.bubbleMenu.showBubbles')}
+          onClick={onToggleActivityBubbles}
+          active={activityBubblesVisible}
+        >
+          <ActivityBubblesIcon />
         </CtrlButton>
         <CtrlButton
           label={immersionLabel}

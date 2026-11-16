@@ -97,7 +97,7 @@ export function TaskEdgeDragPreview({ rfRef, rfContainerRef, flowNodes }: TaskEd
 
   return (
     <svg
-      className="pointer-events-none fixed inset-0 z-40"
+      className="pointer-events-none fixed inset-0 z-canvas-drag"
       style={{ width: '100vw', height: '100vh' }}
     >
       <defs>

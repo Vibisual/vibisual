@@ -5,6 +5,7 @@ import { MAX_BASH_HISTORY } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import type { CommandHistoryRow } from './commandAppHistory.js';
+import { LayerRoot } from '../Layout/LayerRoot.js';
 
 /** §5.1 · §7.3 — `마지막 N개만 유지`(파일 버블과 같은 규칙). 끄면 남은 기록 전부(보관 상한은 서버 축). */
 export interface CommandHistoryLimitControl {
@@ -57,8 +58,8 @@ function BashDetailPopup({ entry, onClose }: BashDetailPopupProps): React.JSX.El
   const backdrop = useBackdropDismiss(onClose);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+    <LayerRoot
+      className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60 backdrop-blur-sm"
       {...backdrop}
     >
       <div
@@ -132,7 +133,7 @@ function BashDetailPopup({ entry, onClose }: BashDetailPopupProps): React.JSX.El
           </div>
         </ScrollFade>
       </div>
-    </div>
+    </LayerRoot>
   );
 }
 

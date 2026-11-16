@@ -470,6 +470,7 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
     })(),
 // §5.5 #17-36 — 메인 탭 스티키 메모 (agentId 1차 키 → 단순 spread 안전, b 우선).
     //   여기 빠지면 **프로젝트를 2개 이상 열었을 때만** 메모가 사라진다(단일 프로젝트 테스트로는 안 잡힌다).
+    canvasMemos: { ...(a.canvasMemos ?? {}), ...(b.canvasMemos ?? {}) },
     agentMemos: (() => {
       const av = a.agentMemos;
       const bv = b.agentMemos;
@@ -2067,6 +2068,22 @@ export class ProjectGraphManager {
   }
 
   /** §5.5 #17-36 — 메인 탭 메모 조회(없으면 빈 배열). */
+  markCanvasMemoDeleted(project: string, id: string): void {
+    this.getInstanceByName(project)?.markCanvasMemoDeleted(project, id);
+  }
+
+  getDeletedCanvasMemoIds(project: string): string[] {
+    return this.getInstanceByName(project)?.getDeletedCanvasMemoIds(project) ?? [];
+  }
+
+  getCanvasMemos(project: string): import('@vibisual/shared').SessionMemo[] {
+    return this.getInstanceByName(project)?.getCanvasMemos(project) ?? [];
+  }
+
+  setCanvasMemos(project: string, memos: import('@vibisual/shared').SessionMemo[]): void {
+    this.getInstanceByName(project)?.setCanvasMemos(project, memos);
+  }
+
   getAgentMemos(agentId: string): import('@vibisual/shared').SessionMemo[] {
     const inst = this.findInstanceByAgentId(agentId) ?? this.primaryInstance();
     return inst ? inst.getAgentMemos(agentId) : [];
@@ -2947,6 +2964,11 @@ export class ProjectGraphManager {
       if (inst.scanAllProjects()) seeded = true;
     }
     return seeded;
+  }
+
+  /** §5.4 #36 (L) — 결과 없는 앱 화면의 작업 폴더를 살핀다. 기다리지 않고, 바뀌면 각 인스턴스가 저장·방송을 부른다. */
+  scanWorkPreviews(): void {
+    for (const inst of this.instances.values()) void inst.scanWorkPreviews();
   }
 
   // ─── 집계 스냅샷 ───
@@ -4315,7 +4337,7 @@ export class ProjectGraphManager {
   /** §5.4 #36 (H) — 에이전트의 연결 보기(주변 버블·선 켜고 끄기 · 보기 전환). 그 에이전트를 가진 인스턴스를 찾아 맡긴다. */
   setAgentLinkView(
     nodeId: string,
-    patch: { hidden?: boolean; bubblesHidden?: boolean; lens?: 'linked' | 'files' },
+    patch: { hidden?: boolean; bubblesHidden?: boolean; lens?: 'linked' | 'files'; dedicatedHidden?: string[] },
   ): { ok: true; linksHidden: boolean; linkLens: 'linked' | 'files' } | { ok: false; reason: 'not-found' | 'not-eligible' } {
     let notEligible = false;
     for (const inst of this.instances.values()) {
@@ -4851,6 +4873,15 @@ export class ProjectGraphManager {
     }
     const result = owner.inst.updatePathLocks(owner.rawName, lock, unlock);
     return { ...result, projectName: owner.rawName };
+  }
+
+  /** §5.4 #36 (C) — 이 에이전트에 이어진 앱 노드(그 에이전트의 프로젝트 안에서만 — §3.5). */
+  getLinkedAppBubbles(agentId: string): AppBubble[] {
+    return this.instanceForAgent(agentId)?.getAppBubbles().filter((b) => (b.linkedAgentIds ?? []).includes(agentId)) ?? [];
+  }
+
+  getExecutingAppScope(agentId: string, subId: string): { appNodeIds: string[]; off: boolean } | null {
+    return this.instanceForAgent(agentId)?.getExecutingAppScope(subId) ?? null;
   }
 
   /** agentId 를 든 인스턴스(감사 원장이 그 인스턴스 안에 있으므로 되짚기용). */

@@ -128,7 +128,7 @@ export function Header({
     // 우측 `pr-36`(144px)은 Windows·Linux titleBarOverlay 컨트롤 자리 — packaged Electron 에서만(웹·모바일·mac 은 낭비).
     // macOS 좌측 `pl-20`(80px, 2026-08-26 조사): 신호등(trafficLightPosition{x:12,y:11})이 약 78px 를 차지해, 없으면 File 메뉴(유일한 입구)를 덮는다.
     <header
-      className={`app-drag relative z-[100] flex h-9 items-stretch bg-vb-titlebar ${
+      className={`app-drag relative z-header flex h-9 items-stretch bg-vb-titlebar ${
         isPackagedDesktop()
           ? isMac()
             ? 'pl-20 pr-1'
@@ -194,7 +194,7 @@ export function Header({
           {/* §5.22 — 오늘 위험 호출 수. 사용량 필 오른쪽에 붙어 클릭하면 감사 타임라인(§7.20)을 연다. */}
           <AuditPill />
 
-          {/* §5.5 #17-1 · §5.12 (A) — 배지가 [창과 버블] 메뉴 트리거다. 도크가 캔버스를 덮어도 헤더(z-[100])는 안 가려지므로
+          {/* §5.5 #17-1 · §5.12 (A) — 배지가 [창과 버블] 메뉴 트리거다. 도크가 캔버스를 덮어도 헤더(`z-header`)는 안 가려지므로
              새 창·에이전트 설정·지휘통제실 입구를 여기 모은다. */}
           <IDEWindowsMenu
             badgeState={badgeVisible ? dotState : null}

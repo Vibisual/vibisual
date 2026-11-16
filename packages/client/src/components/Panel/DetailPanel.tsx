@@ -43,6 +43,9 @@ import { ContiHistoryDetail } from './ContiHistoryDetail.js';
 import { TASK_EDGE_STYLES } from '@vibisual/shared';
 import { clampUsagePct, usageBarToneClass } from '../../utils/usageLimits.js';
 import { formatSince } from '../../formatSince.js';
+import { isProjectFolderNodeId } from '../../utils/projectFolderView.js';
+import { isDedicatedHubNodeId } from '../../utils/dedicatedBubbleInfo.js';
+import { DedicatedHubSection } from './DedicatedHubSection.js';
 
 /**
  * §5.5 #17-50 — 남의 판(IDE 세션 지도)이 고른 버블. 캔버스 전역 선택 대신 이것을 그 판 안 오른쪽에 그린다.
@@ -140,9 +143,17 @@ export function DetailPanel({
   const fileEdits = useGraphStore((s) => s.fileEdits);
   const domainEntries = useGraphStore((s) => s.domainEntries);
   const currentFolderIdForRoot = useGraphStore((s) => s.currentFolderId);
+  // §5.1 #2-3 — 프로젝트 폴더 버블은 화면이 짓는 자리다. 고르면 그 탭의 루트 노드 패널(루트 파일 목록·Git)을 띄운다.
+  const projectFolderRoot = useGraphStore((s) => (!hosted && isProjectFolderNodeId(s.selectedNodeId)
+    ? s.topFolders.find((f) => f.bubbleType === 'root' && (!s.activeProject || s.nodeProjects[f.id] === s.activeProject))
+    : undefined));
+  // §5.4 #36 (K) — 전용 버블도 화면이 짓는 자리다. 서버 노드가 없어 체크 목록과 이름만 띄운다.
+  const dedicatedHub = useGraphStore((s) => (!hosted && isDedicatedHubNodeId(s.selectedNodeId)
+    ? s.dedicatedHubs.find((h) => h.hubId === s.selectedNodeId)
+    : undefined));
   const rawNode = hosted
     ? (nodeMap[hosted.node.id] ?? hosted.node)
-    : selectedNodeId ? nodeMap[selectedNodeId] ?? bundlePageNodes[selectedNodeId] : undefined;
+    : selectedNodeId ? nodeMap[selectedNodeId] ?? bundlePageNodes[selectedNodeId] ?? projectFolderRoot ?? dedicatedHub?.bubble : undefined;
   // 폴더 내부에서 현재 폴더 자신이 선택된 경우 → root 타입으로 표시(캔버스 폴더 화면의 일 — 남의 판은 제 화면이 따로다)
   const node = !hosted && rawNode && currentFolderIdForRoot && selectedNodeId === currentFolderIdForRoot
     ? { ...rawNode, bubbleType: 'root' as const }
@@ -424,6 +435,7 @@ export function DetailPanel({
     && canvasBacked
     && node.bubbleType !== 'root'
     && node.bubbleType !== 'back'
+    && !isDedicatedHubNodeId(node.id)
     && !node.webFold;
   const handleTogglePreservePin = useCallback(() => {
     if (!node) return;
@@ -836,6 +848,7 @@ export function DetailPanel({
       <ScrollFade fill className="flex-1">
         <div className="flex flex-col gap-4 p-4">
           {hosted?.extra}
+          {dedicatedHub && <DedicatedHubSection hub={dedicatedHub} />}
           {node.bubbleType === 'auto' && <AutoAgentPanel node={node} />}
 
           {/* Path */}
@@ -1221,7 +1234,7 @@ export function DetailPanel({
           {isAgent && <SessionMessageList agentId={node.id} />}
 
           {/* §5.11 — 플러그인 섹션 슬롯(기여가 없으면 DOM 없음). 플러그인은 버블 id 로 서버를 부르므로 캔버스 노드만. */}
-          {canvasBacked && (
+          {canvasBacked && !dedicatedHub && (
             <PluginPanelSectionSlot
               bubbleId={node.id}
               bubbleType={node.bubbleType}

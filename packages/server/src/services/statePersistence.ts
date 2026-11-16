@@ -23,6 +23,7 @@ import {
   LEGACY_ROOT_NODE_KEY,
   mergePathLocks,
 } from '@vibisual/shared';
+import { reconcileCanvasMemoOwnership } from './canvasMemos.js';
 import { logger } from '../logger.js';
 import {
   writeFileAtomicSyncRaw,
@@ -248,6 +249,8 @@ function deriveIdentity(cp: ProjectCheckpoint): ProjectIdentity {
     pinnedGoalActions: cp.pinnedGoalActions ?? [],
     // §5.5 #17-36 — 메인 탭 스티키 메모도 사람이 쓴 글이다(세션 탭 메모는 세션과 함께 산다).
     agentMemos: cp.agentMemos ?? {},
+    canvasMemos: cp.canvasMemos ?? {},
+    deletedCanvasMemoIds: cp.deletedCanvasMemoIds ?? [],
     // §5.3 #12-3 — 자물쇠는 사용자가 손으로 건 보호다. 잃으면 AI 가 그대로 연다(정체성).
     ...(cp.pathLocks && cp.pathLocks.length > 0 ? { pathLocks: cp.pathLocks } : {}),
     deletedSessionIds: cp.deletedCustomAgentIds ?? [],
@@ -911,6 +914,10 @@ function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIde
   }
   // §5.5 #17-36 agentMemos 보충 — 에이전트 키가 없으면 통째로, 있으면 memo id 기준 합집합.
   //   사용자가 쓴 글이라 "이미 있으니 건너뛴다"로 한 장이라도 흘리지 않는다.
+  // 소유권 이동과 영구 삭제는 합집합으로 복원하면 되살아난다. 더 최근의 전량 판본을 쓴다.
+  if (identity.canvasMemos && (cp.canvasMemos === undefined || identity.savedAt >= cp.savedAt)) {
+    cp.canvasMemos = identity.canvasMemos;
+  }
   if (identity.agentMemos && Object.keys(identity.agentMemos).length > 0) {
     cp.agentMemos = cp.agentMemos ?? {};
     for (const [agentId, memos] of Object.entries(identity.agentMemos)) {
@@ -920,6 +927,8 @@ function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIde
       cp.agentMemos[agentId] = [...existing, ...memos.filter((m) => !seen.has(m.id))];
     }
   }
+  cp.deletedCanvasMemoIds = [...new Set([...(cp.deletedCanvasMemoIds ?? []), ...(identity.deletedCanvasMemoIds ?? [])])];
+  reconcileCanvasMemoOwnership(cp);
   // §5.3 #12-3 자물쇠 보충 — id 기준 합집합. 어긋나도 **잠긴 쪽으로** 남는다(사라진 자물쇠는 AI 가
   //   그대로 열고, 되살아난 자물쇠는 카드 한 장으로 끝난다). 검증·id 재계산은 복원(`normalizePathLocks`)이 한다.
   if (identity.pathLocks && identity.pathLocks.length > 0) {
@@ -999,6 +1008,8 @@ function buildCheckpointSkeletonFromIdentity(identity: ProjectIdentity): Project
     shelfBubbles: [...(identity.shelfBubbles ?? [])],
     contis: { ...identity.contis },
     agentMemos: { ...(identity.agentMemos ?? {}) },
+    canvasMemos: { ...(identity.canvasMemos ?? {}) },
+    deletedCanvasMemoIds: identity.deletedCanvasMemoIds ?? [],
     // §5.3 #12-3 — 체크포인트가 죽어도 자물쇠는 identity 에서 선다(조용히 열리지 않게).
     ...(identity.pathLocks && identity.pathLocks.length > 0 ? { pathLocks: [...identity.pathLocks] } : {}),
     deletedCustomAgentIds: identity.deletedSessionIds ?? [],

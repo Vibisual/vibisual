@@ -4,8 +4,11 @@ import { useTranslation } from 'react-i18next';
 import { StudioIconButton } from './StudioIconButton.js';
 import { StudioIcon, type StudioIconName } from './studioIcons.js';
 
-/** §5.13 (V) 37-1 — 아이콘 레일(48px) + 서랍 하나씩(160ms). 대본은 자막이 있을 때만. 다시 누르면 닫힌다. */
-export type RailDrawer = 'media' | 'parts' | 'style' | 'notes' | 'transcript';
+/**
+ * §5.13 (V) 37-1 — 아이콘 레일(48px) + 서랍 하나씩(160ms). 대본은 자막이 있을 때만, 코드는 코드 컴포지션이 있을 때만. 다시 누르면 닫힌다.
+ * 코드(37-20)는 이 옆 서랍이 아니라 가운데 칸 안에 선다 — 레일은 켜고 끄기만 한다(`drawer` 는 비어 온다).
+ */
+export type RailDrawer = 'media' | 'parts' | 'style' | 'notes' | 'transcript' | 'code';
 
 const ITEMS: ReadonlyArray<{ readonly id: RailDrawer; readonly icon: StudioIconName }> = [
   { id: 'media', icon: 'media' },
@@ -13,6 +16,7 @@ const ITEMS: ReadonlyArray<{ readonly id: RailDrawer; readonly icon: StudioIconN
   { id: 'style', icon: 'style' },
   { id: 'notes', icon: 'notes' },
   { id: 'transcript', icon: 'transcript' },
+  { id: 'code', icon: 'code' },
 ];
 
 export interface StudioRailProps {
@@ -20,6 +24,8 @@ export interface StudioRailProps {
   readonly onOpen: (drawer: RailDrawer | null) => void;
   /** 자막이 없으면 대본 칸은 서지 않는다. */
   readonly hasTranscript: boolean;
+  /** 코드 컴포지션이 없으면 코드 칸은 서지 않는다(37-20). */
+  readonly hasCode?: boolean | undefined;
   /** 메모 서랍 위 숫자(열린 메모 수). */
   readonly openNotes: number;
   readonly drawer: ReactNode | null;
@@ -30,7 +36,7 @@ export function StudioRail(p: StudioRailProps): React.JSX.Element {
   return (
     <>
       <nav className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-white/10 bg-vb-card py-2" aria-label={t('panel.videoStudio.rail.label')}>
-        {ITEMS.filter((it) => it.id !== 'transcript' || p.hasTranscript).map((it) => (
+        {ITEMS.filter((it) => (it.id !== 'transcript' || p.hasTranscript) && (it.id !== 'code' || p.hasCode === true)).map((it) => (
           <div key={it.id} className="relative">
             <StudioIconButton icon={it.icon} label={t(`panel.videoStudio.rail.${it.id}`)} active={p.open === it.id}
               onClick={() => p.onOpen(p.open === it.id ? null : it.id)} />

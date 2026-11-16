@@ -143,6 +143,12 @@ const LABEL_REFERENCES: readonly LabelReference[] = [
     forbidden: ['Context sources'],
   },
   {
+    // §5.5 #17-2 (b-1) — 위 경고줄의 버튼. 여는 뷰의 이름을 활동바 칸 라벨에서 받아 적는다.
+    key: 'ide.mainArea.slashDisabledOpenContext',
+    slots: { contextSources: 'ide.activityBar.context' },
+    forbidden: ['Context sources'],
+  },
+  {
     // §4 (Thinking on/off) — 확장 사고를 꺼 뒀을 때 상태바에 뜨는 칸의 도움말. 다시 켜는 자리를
     // **세 곳** 부른다(체크 칸 이름 · 에이전트 설정창 · 옵션창 Agent 기본값 탭) — 넷 다 우리가
     // 번역하는 우리 라벨이라, 하나라도 글자로 박으면 그 로케일에서만 없는 이름을 찾아가게 된다.

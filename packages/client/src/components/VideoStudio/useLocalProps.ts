@@ -27,26 +27,48 @@ export interface LocalProps {
   readonly setProp: (itemId: string, key: string, value: unknown) => void;
   /** 지금 기다리는 저장을 바로 한다(문서를 떠나기 전 등). */
   readonly flush: () => void;
+  /**
+   * §5.13 (V) 37-21 (H) — 미리보기에서 끄는 동안 저장을 붙든다(`true`). 놓으면(`false`) 평소처럼 잠잠해진 뒤 한 번 저장한다 —
+   * 끌다 잠깐 멈춰도 판본이 둘로 갈리지 않게.
+   */
+  readonly hold: (on: boolean) => void;
+  /**
+   * 끌기 취소 — 그 열쇠들을 붙들기 시작한 때(`hold(true)`)의 덮어쓰기로 되돌린다. 그때 저장을 기다리던 값은 남아 저장되고,
+   * 그때 없던 열쇠는 걷혀 문서 값으로 돌아간다(붙들지 않았으면 걷기만).
+   */
+  readonly revertProps: (itemId: string, keys: readonly string[]) => void;
   readonly pending: boolean;
 }
 
 export function useLocalProps(doc: VideoDoc | null, applyOps: (ops: readonly VideoDocOp[]) => Promise<boolean>): LocalProps {
-  const [overrides, setOverrides] = useState<Readonly<Record<string, Patch>>>({});
+  const [overrides, setOverridesState] = useState<Readonly<Record<string, Patch>>>({});
+  // 렌더를 기다리지 않고 늘 최신 — 붙들기 시작 순간의 덮어쓰기를 떠 두어야 한다(같은 손짓 안의 setProp 뒤에도 맞게).
   const overridesRef = useRef(overrides);
-  overridesRef.current = overrides;
+  const setOverrides = useCallback((next: Readonly<Record<string, Patch>> | ((prev: Readonly<Record<string, Patch>>) => Readonly<Record<string, Patch>>)): void => {
+    const value = typeof next === 'function' ? next(overridesRef.current) : next;
+    if (value === overridesRef.current) return;
+    overridesRef.current = value;
+    setOverridesState(value);
+  }, []);
   const docRef = useRef(doc);
   docRef.current = doc;
   const applyRef = useRef(applyOps);
   applyRef.current = applyOps;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retries = useRef(0);
+  const held = useRef(false);
+  /** 붙들기 시작 순간의 덮어쓰기 — 취소가 되돌아갈 자리(붙들지 않았으면 null). */
+  const heldFrom = useRef<Readonly<Record<string, Patch>> | null>(null);
+  /** 걷힌 뒤(언마운트)에는 저장을 새로 걸지 않는다 — 끌기 정리가 그때 `hold(false)` 를 불러도 판본이 생기지 않게. */
+  const alive = useRef(true);
   const docId = doc?.id ?? '';
 
   // 다른 문서로 가면 덮어쓰기를 버린다(그 문서의 것이 아니다).
   useEffect(() => {
     setOverrides({});
+    heldFrom.current = null;
     if (timer.current) { clearTimeout(timer.current); timer.current = null; }
-  }, [docId]);
+  }, [docId, setOverrides]);
 
   // 문서가 이미 그 값을 가지면(저장됐다·에이전트가 같은 값을 적었다) 그 열쇠를 걷는다.
   useEffect(() => {
@@ -67,7 +89,7 @@ export function useLocalProps(doc: VideoDoc | null, applyOps: (ops: readonly Vid
       }
       return changed ? next : prev;
     });
-  }, [doc]);
+  }, [doc, setOverrides]);
 
   const save = useCallback((): void => {
     timer.current = null;
@@ -96,23 +118,50 @@ export function useLocalProps(doc: VideoDoc | null, applyOps: (ops: readonly Vid
       retries.current = 0;
       setOverrides({});
     });
-  }, []);
+  }, [setOverrides]);
 
   const schedule = useCallback((): void => {
-    if (timer.current) clearTimeout(timer.current);
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    if (held.current || !alive.current) return;
     timer.current = setTimeout(save, SAVE_DELAY_MS);
   }, [save]);
 
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
+  }, []);
 
   const setProp = useCallback((itemId: string, key: string, value: unknown): void => {
     setOverrides((prev) => ({ ...prev, [itemId]: { ...(prev[itemId] ?? {}), [key]: value } }));
     schedule();
-  }, [schedule]);
+  }, [schedule, setOverrides]);
 
   const flush = useCallback((): void => {
     if (timer.current) { clearTimeout(timer.current); save(); }
   }, [save]);
+
+  const hold = useCallback((on: boolean): void => {
+    if (on && !held.current) heldFrom.current = overridesRef.current;
+    if (!on) heldFrom.current = null;
+    held.current = on;
+    schedule();
+  }, [schedule]);
+
+  const revertProps = useCallback((itemId: string, keys: readonly string[]): void => {
+    const before = heldFrom.current?.[itemId] ?? {};
+    const item = findItem(docRef.current, itemId);
+    setOverrides((prev) => {
+      const patch = prev[itemId] ?? {};
+      const left: Record<string, unknown> = Object.fromEntries(Object.entries(patch).filter(([key]) => !keys.includes(key)));
+      // 그때 기다리던 값은 되살린다 — 문서가 이미 그 값이면 덮어쓸 것이 없다.
+      for (const key of keys) {
+        if (item && key in before && !sameValue(item.props?.[key], before[key])) left[key] = before[key];
+      }
+      if (sameValue(left, patch)) return prev;
+      const { [itemId]: _dropped, ...rest } = prev;
+      return Object.keys(left).length > 0 ? { ...rest, [itemId]: left } : rest;
+    });
+  }, [setOverrides]);
 
   const previewDoc = useMemo<VideoDoc | null>(() => {
     if (!doc) return null;
@@ -130,5 +179,5 @@ export function useLocalProps(doc: VideoDoc | null, applyOps: (ops: readonly Vid
     };
   }, [doc, overrides]);
 
-  return { previewDoc, setProp, flush, pending: Object.keys(overrides).length > 0 };
+  return { previewDoc, setProp, flush, hold, revertProps, pending: Object.keys(overrides).length > 0 };
 }

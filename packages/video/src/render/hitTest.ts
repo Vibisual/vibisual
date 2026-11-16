@@ -52,13 +52,17 @@ export function textBounds(op: DrawOp): HitRect {
   return { x, y: box.y + (box.height - height) / 2, width, height };
 }
 
-/** 그 아이템의 상자 — 배치 + 크기 배율(가운데 기준). 회전은 무시한다(가리키기에는 충분하다). */
-export function opRect(op: DrawOp): HitRect {
-  if (op.kind === 'text') return textBounds(op);
+/** 배치 상자 — `transform` + 크기 배율(가운데 기준), 회전 전. 글자 아이템도 어림 글자 상자가 아니라 이 상자다(37-21 손잡이 틀). */
+export function opBox(op: DrawOp): HitRect {
   const t = op.transform;
   const w = t.width * t.scale;
   const h = t.height * t.scale;
   return { x: t.x + (t.width - w) / 2, y: t.y + (t.height - h) / 2, width: w, height: h };
+}
+
+/** 그 아이템이 차지하는 상자 — 글자는 어림 글자 상자, 그 밖은 배치 상자. 회전은 무시한다(가리키기에는 충분하다). */
+export function opRect(op: DrawOp): HitRect {
+  return op.kind === 'text' ? textBounds(op) : opBox(op);
 }
 
 /**

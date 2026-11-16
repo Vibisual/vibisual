@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { exitImmersionLayer, selectShellImmersive, useProjectImmersionStore } from '../../stores/projectImmersion.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 function ExitControl(): React.JSX.Element {
   const { t } = useTranslation();
@@ -22,7 +23,7 @@ function ExitControl(): React.JSX.Element {
 
   return <div ref={region} data-immersive-exit-control="" data-revealed={revealed}
     className="app-nodrag fixed left-1/2 top-0 flex w-48 -translate-x-1/2 justify-center"
-    style={{ zIndex: 1_900_000_000, height: revealed ? 80 : 12, touchAction: 'manipulation' }}
+    style={{ zIndex: Z_LAYER.IMMERSIVE_EXIT, height: revealed ? 80 : 12, touchAction: 'manipulation' }}
     onPointerEnter={(event) => { if (event.pointerType !== 'touch') setHovered(true); }}
     onPointerLeave={() => setHovered(false)}
     onPointerDown={(event) => {

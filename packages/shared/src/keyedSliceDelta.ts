@@ -57,6 +57,7 @@ export const DELTA_SLICE_KEYS = [
   'bashHistory',
   'agentReports',
   'agentMemos',
+  'canvasMemos',
   'agentQuestions',
   'agentReviews',
   'agentLists',

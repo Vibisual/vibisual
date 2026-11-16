@@ -4,12 +4,13 @@
  * 그래서 "어떤 플래그가 나가는가"를 못 박고, 마지막 검사는 낼 수 있는 플래그를 명시 목록으로 고정한다 — 새 플래그는 설치본 확인 뒤 목록과 함께 고친다.
  * `buildConfigArgs` 는 내부 함수라 헤드리스·CMD 가 공유하는 공개 입구 `buildInteractiveClaudeArgs` 로 관찰한다.
  */
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AgentConfig } from '@vibisual/shared';
-import { DEFAULT_AGENT_CONFIG, AVAILABLE_AUTOCOMPACT_VALUES, AVAILABLE_PERMISSION_MODES, toCliPermissionMode, AVAILABLE_AGENT_TOOLS, CLI_BUILTIN_TOOLS, LEGACY_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN, supportsEffortSelection, supportsFastMode } from '@vibisual/shared';
+import { DEFAULT_AGENT_CONFIG, AVAILABLE_AUTOCOMPACT_VALUES, AVAILABLE_PERMISSION_MODES, toCliPermissionMode, AVAILABLE_AGENT_TOOLS, CLI_BUILTIN_TOOLS, LEGACY_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN, supportsEffortSelection, supportsFastMode, resolveAliasToLatest } from '@vibisual/shared';
+import { modelRegistryService } from './modelRegistryService.js';
 
 // Fast 모드·자기 기억은 `--settings` **파일**로 나간다 — 사용자 홈(`~/.vibisual`)에 쓰지 않도록
 // `os.homedir()` 만 임시 폴더로 돌린다(다른 테스트가 실제 app-state 를 더럽혔던 선례를 반복하지 않는다).
@@ -492,5 +493,42 @@ describe('Effort 칸 — 클로드 네 패밀리에 열리고, 고른 값은 모
       expect(args[i + 1]).toBe('max');
       expect(buildInteractiveClaudeArgs(cfg({ model, effort: 'default' }))).not.toContain('--effort');
     }
+  });
+});
+
+// §4 (상태바 모델 칸 ③⑤) — 별칭 치환은 설치본이 아는 만큼만. 2.1.300 도움말은 `--model` 예로 fable 을 적는데 종전 치환 셋이 fable 을
+// 시드 최신 풀ID 로 바꿔 CLI 가 자기 최신(Fable 5.2)을 고를 기회가 없었다 — 대화록에 옛 판만 남아 관측 경로도 배우지 못했다.
+describe('모델 별칭 — CLI 가 아는 별칭은 bare 로, 모르는 별칭만 레지스트리 latest 로', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const withAliases = (nativeModelAliases: string[] | undefined) => {
+    const real = modelRegistryService.getRegistry();
+    vi.spyOn(modelRegistryService, 'getRegistry').mockReturnValue({ ...real, nativeModelAliases });
+    return real;
+  };
+
+  it('도움말이 fable 을 적었으면 `--model fable` 그대로 나간다 — CLI 가 자기 latest 로 해소한다', () => {
+    withAliases(['fable', 'opus', 'sonnet']);
+    expect(valueOf(buildInteractiveClaudeArgs(cfg({ model: 'fable' })), '--model')).toBe('fable');
+  });
+
+  it('도움말을 못 읽었으면(폴백 셋) fable 은 레지스트리 latest 풀ID 로 치환된다 — 모르는 별칭을 bare 로 받은 옛 판은 opus 로 떨어졌다', () => {
+    const real = withAliases(undefined);
+    const v = valueOf(buildInteractiveClaudeArgs(cfg({ model: 'fable' })), '--model');
+    expect(v).toMatch(/^claude-fable-\d/);
+    expect(v).toBe(resolveAliasToLatest('fable', real));
+  });
+
+  it('폴백 셋(opus·sonnet·haiku)은 도움말과 무관하게 bare 다', () => {
+    withAliases(undefined);
+    expect(valueOf(buildInteractiveClaudeArgs(cfg({ model: 'sonnet' })), '--model')).toBe('sonnet');
+    expect(valueOf(buildInteractiveClaudeArgs(cfg({ model: 'haiku' })), '--model')).toBe('haiku');
+    // opus 는 1M 기본이라 `[1m]` 이 붙되 별칭은 그대로다.
+    expect(valueOf(buildInteractiveClaudeArgs(cfg({ model: 'opus' })), '--model')).toMatch(/^opus/);
+  });
+
+  it('핀(modelVersion)은 별칭 판정보다 앞선다', () => {
+    withAliases(['fable', 'opus', 'sonnet']);
+    expect(valueOf(buildInteractiveClaudeArgs(cfg({ model: 'fable', modelVersion: 'claude-fable-5-1' })), '--model')).toBe('claude-fable-5-1');
   });
 });

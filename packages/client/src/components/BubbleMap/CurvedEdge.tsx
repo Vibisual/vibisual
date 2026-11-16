@@ -1,12 +1,13 @@
 import { useMemo } from 'react';
 import { BaseEdge, useInternalNode, type EdgeProps, type InternalNode } from '@xyflow/react';
-import { LINK_FOCUS, resolveBubbleEdgeStyle } from '@vibisual/shared';
+import { AGENT_CARD, LINK_FOCUS, resolveBubbleEdgeStyle } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useAgentCardTucked } from '../../stores/agentCardTuck.js';
 import { useLinkEdgeRole, useLinkFocusPhase } from '../../stores/linkFocus.js';
 import { linkFocusEdgeStyle } from './linkedBubbles.js';
 import { clipCurvePath, type CubicCurve } from './edgeOcclusion.js';
 import { useEdgeOccluders } from './edgeOccluders.js';
-import { nodeBorderDistance } from './agentCard.js';
+import { nodeBorderDistance, tuckedCardCenter } from './agentCard.js';
 import { bubbleEdgeAppearance, bubbleEdgeMarkerStyle } from './bubbleEdgeAppearance.js';
 
 /** edge ID → 안정적인 -1.0~1.0 난수 */
@@ -30,12 +31,17 @@ const DEFAULT_RADIUS = 45;
 interface Circle { cx: number; cy: number; r: number; w?: number; h?: number }
 
 /** 노드의 실측 지오메트리에서 원 중심·반지름. 실측 없으면 null → 폴백. */
-function circleFromNode(node: InternalNode | undefined): Circle | null {
+function circleFromNode(node: InternalNode | undefined, tucked: boolean): Circle | null {
   if (!node) return null;
   const w = node.measured?.width;
   const h = node.measured?.height;
   if (typeof w !== 'number' || typeof h !== 'number' || w <= 0 || h <= 0) return null;
   const { x, y } = node.internals.positionAbsolute;
+  if (tucked) {
+    // §5.4 #36 (A) — 말풍선이 원 안에 들어가 있으면 남은 모양은 궤도 원이다(w·h 를 안 실어 반지름으로 끊는다).
+    const center = tuckedCardCenter(x, y);
+    return { cx: center.x, cy: center.y, r: AGENT_CARD.orbitRadius };
+  }
   // 버블 박스는 정사각형(width===height)이지만 안전하게 작은 변 기준 반지름.
   return { cx: x + w / 2, cy: y + h / 2, r: Math.min(w, h) / 2, w, h };
 }
@@ -75,6 +81,8 @@ export function CurvedEdge({
   // 실측 지오메트리(있으면 진실). 없으면 핸들 좌표 + data 반지름으로 폴백.
   const sourceNode = useInternalNode(source);
   const targetNode = useInternalNode(target);
+  const sourceTucked = useAgentCardTucked(source);
+  const targetTucked = useAgentCardTucked(target);
 
   // §5.4 #31 연결 무리 강조 — 무리 밖 선은 물러나고 안쪽 선은 굵고 또렷해진다.
   //   구독은 **판정 한 글자**라(무리 객체 ❌) 자기 자리가 바뀔 때만 이 엣지가 깨어난다.
@@ -99,9 +107,9 @@ export function CurvedEdge({
 
   const srcR = (data as Record<string, unknown> | undefined)?.['sourceRadius'];
   const tgtR = (data as Record<string, unknown> | undefined)?.['targetRadius'];
-  const srcCircle = circleFromNode(sourceNode)
+  const srcCircle = circleFromNode(sourceNode, sourceTucked)
     ?? { cx: sourceX, cy: sourceY, r: typeof srcR === 'number' ? srcR : DEFAULT_RADIUS };
-  const tgtCircle = circleFromNode(targetNode)
+  const tgtCircle = circleFromNode(targetNode, targetTucked)
     ?? { cx: targetX, cy: targetY, r: typeof tgtR === 'number' ? tgtR : DEFAULT_RADIUS };
 
   const sourceCX = srcCircle.cx;

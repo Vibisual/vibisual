@@ -6,9 +6,9 @@ import type { StreamPathCandidate } from './streamPathLinks.js';
 import type { ResolvedExternalPath, ResolvedWorkspacePath } from './useWorkspacePathKind.js';
 import { revealExternalPath, useExternalPathKind, useWorkspacePathKind } from './useWorkspacePathKind.js';
 import { openExternally, openWorkspaceTarget, planWorkspaceOpen } from './openWorkspaceTarget.js';
-import { openFolderByPath } from './useWorkspaceExplorer.js';
+import { openFileByPath, openFolderByPath } from './useWorkspaceExplorer.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
-import { buildOutsidePathLinkMenuItems, buildPathLinkMenuItems, buildWebLinkMenuItems, pathLinkOpenLabel } from './pathLinkContextMenu.js';
+import { buildOutsidePathLinkMenuItems, buildPathLinkMenuItems, buildWebLinkMenuItems, pathLinkExternalRoute, pathLinkOpenLabel } from './pathLinkContextMenu.js';
 import { requestHtmlPageView } from './htmlViewRequest.js';
 import { editorFileFromAbsPath } from './editorModel.js';
 import { useIDEPaneKey } from './idePane.js';
@@ -176,6 +176,7 @@ export function usePathLinkRails(candidate: StreamPathCandidate | null, rootPath
         kind: linked.kind === 'directory' ? 'directory' : 'file',
         isHtml: isWorkspaceHtmlPath(relPath),
         openLabel: pathLinkOpenLabel(plan, app?.name, t),
+        externalRoute: pathLinkExternalRoute(plan),
       },
       {
         open: () => {
@@ -194,6 +195,8 @@ export function usePathLinkRails(candidate: StreamPathCandidate | null, rootPath
           requestHtmlPageView(file.relPath);
         },
         openBrowser: () => { void openExternally(absPath); },
+        openExternalEditor: () => openFileByPath(absPath, relPath),
+        openDefaultApp: () => { void openExternally(absPath); },
         // 파일을 주면 서버(`openFolder`)가 상위 폴더에서 그 파일을 선택한다 — 탐색기와 같은 창구(⑩).
         reveal: () => openFolderByPath(absPath, relPath),
         copyPath: () => copyText(absPath),

@@ -8,6 +8,7 @@ import type {
   BufferTarget,
   CanvasSource,
   Output,
+  StreamTargetChunk,
   AudioCodec,
   Quality,
   VideoCodec,
@@ -25,6 +26,20 @@ const AUDIO_CODEC_PREFERENCE: readonly AudioCodec[] = ['aac', 'opus'];
 const ALPHA_VIDEO_CODEC_PREFERENCE: readonly VideoCodec[] = ['vp9', 'vp8'];
 const WEBM_AUDIO_CODEC_PREFERENCE: readonly AudioCodec[] = ['opus'];
 
+/**
+ * §5.13 (AA) 42-11 — 결과 조각을 받는 곳(바이트 위치 그대로 — 머리 상자를 되돌아가 고쳐 쓰기도 한다). 약속이 풀릴 때까지 인코더가 기다린다(배압).
+ * 주면 결과를 메모리 한 덩어리에 모으지 않는다(버퍼를 두 배로 키우다 할당에 실패한다).
+ */
+export interface OutputSink {
+  write(data: Uint8Array, position: number): Promise<void>;
+  /** §5.13 (E-5) ③ — 지금까지 쓴 것을 버린다(처음부터 다시 굽기 전). 없으면 다시 굽지 못한다. */
+  reset?(): Promise<void>;
+}
+
+/** 흘려 보내는 조각 크기 · 동시에 떠 있는 조각 수 — 메모리 상한은 대략 둘의 곱이다. */
+export const RENDER_STREAM_CHUNK_BYTES = 8 * 1024 * 1024;
+export const RENDER_STREAM_INFLIGHT = 2;
+
 /** 출력 그릇 — 보통은 mp4, 투명 배경이면 webm. */
 export type OutputContainer = 'mp4' | 'webm';
 
@@ -39,7 +54,7 @@ export interface EncodeQuality {
 export const ENCODE_QUALITY_HIGH: EncodeQuality = { video: 'high', audio: 'high' };
 export const ENCODE_QUALITY_DRAFT: EncodeQuality = { video: 'medium', audio: 'medium' };
 
-function qualityOf(mb: typeof import('mediabunny'), level: EncodeQualityLevel): Quality {
+export function qualityOf(mb: typeof import('mediabunny'), level: EncodeQualityLevel): Quality {
   switch (level) {
     case 'very-low': return mb.QUALITY_VERY_LOW;
     case 'low': return mb.QUALITY_LOW;
@@ -92,6 +107,29 @@ export async function pickCodecs(width: number, height: number, withAudio: boole
   return { video, audio };
 }
 
+/**
+ * 그릇과 받는 곳 한 벌. 한 인코더 렌더와 구간 잇기((E-3))가 같은 설정의 파일을 내게 한 곳에서 만든다.
+ * 흘려 보낼 때 mp4 머리(moov)는 끝에 — 앞에 두는 방식('in-memory')은 전체를 메모리에 든다.
+ */
+export function openOutput(
+  mb: typeof import('mediabunny'), container: OutputContainer, sink: OutputSink | null, onWritten: (end: number) => void,
+): Output {
+  let target: InstanceType<typeof mb.BufferTarget> | InstanceType<typeof mb.StreamTarget>;
+  if (sink) {
+    const writable = new WritableStream<StreamTargetChunk>({
+      write: async (chunk) => {
+        await sink.write(chunk.data, chunk.position);
+        onWritten(chunk.position + chunk.data.byteLength);
+      },
+    }, new CountQueuingStrategy({ highWaterMark: RENDER_STREAM_INFLIGHT }));
+    target = new mb.StreamTarget(writable, { chunked: true, chunkSize: RENDER_STREAM_CHUNK_BYTES });
+  } else {
+    target = new mb.BufferTarget();
+  }
+  const format = container === 'webm' ? new mb.WebMOutputFormat() : new mb.Mp4OutputFormat(sink ? { fastStart: false } : {});
+  return new mb.Output({ format, target });
+}
+
 export interface VideoEncoderOptions {
   readonly width: number;
   readonly height: number;
@@ -105,6 +143,8 @@ export interface VideoEncoderOptions {
   readonly alpha?: boolean;
   /** §5.13 (AA) 42-1 — 그릇(없으면 mp4 · 투명이면 늘 webm). */
   readonly container?: OutputContainer;
+  /** §5.13 (AA) 42-11 — 결과를 흘려 보낼 곳. 없으면 메모리 버퍼(작은 결과·시험용). */
+  readonly sink?: OutputSink | null;
 }
 
 /** `start()` → `addFrame(t)`… → (선택) `addAudio` → `finish()`. `addFrame` 의 약속을 반드시 기다린다 — 안 기다리면 인코더가 밀릴 때 메모리가 끝없이 는다. */
@@ -114,11 +154,17 @@ export class VideoEncoder {
   private audioSource: AudioBufferSource | null = null;
   private codecs: PickedCodecs = { video: null, audio: null };
   private finished = false;
+  private written = 0;
 
   constructor(private readonly opts: VideoEncoderOptions) {}
 
   get pickedCodecs(): PickedCodecs {
     return this.codecs;
+  }
+
+  /** 흘려 보낸 결과의 크기(바이트 — 가장 먼 끝). 메모리 버퍼면 `finish` 뒤의 길이. */
+  get bytesWritten(): number {
+    return this.written;
   }
 
   /** 이 출력의 그릇(mp4 · 투명이면 webm). */
@@ -142,7 +188,7 @@ export class VideoEncoder {
     }
 
     const mb = await loadMediabunny();
-    const output = new mb.Output({ format: container === 'webm' ? new mb.WebMOutputFormat() : new mb.Mp4OutputFormat(), target: new mb.BufferTarget() });
+    const output = openOutput(mb, container, this.opts.sink ?? null, (end) => { this.written = Math.max(this.written, end); });
 
     const videoSource = new mb.CanvasSource(canvas, {
       codec: this.codecs.video,
@@ -177,8 +223,8 @@ export class VideoEncoder {
     await source.add(buffer);
   }
 
-  /** 마무리하고 파일 바이트를 돌려준다. */
-  async finish(): Promise<Uint8Array> {
+  /** 마무리하고 파일 바이트를 돌려준다. 흘려 보냈으면 null(크기는 `bytesWritten`). */
+  async finish(): Promise<Uint8Array | null> {
     const output = this.output;
     if (!output) throw new Error('start 를 먼저 부르세요.');
     this.videoSource?.close();
@@ -186,9 +232,14 @@ export class VideoEncoder {
     await output.finalize();
     this.finished = true;
 
+    if (this.opts.sink) {
+      if (this.written === 0) throw new Error('인코딩 결과가 비어 있습니다.');
+      return null;
+    }
     const target = output.target as BufferTarget;
     const buffer = target.buffer;
     if (!buffer) throw new Error('인코딩 결과가 비어 있습니다.');
+    this.written = buffer.byteLength;
     return new Uint8Array(buffer);
   }
 

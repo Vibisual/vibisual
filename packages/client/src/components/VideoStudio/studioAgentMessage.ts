@@ -25,6 +25,12 @@ export interface StudioPointed {
   /** 기본 씬이면 그 씬 이름(`title` · `bulletList` …) — 어느 그리기 함수의 글자인지 에이전트가 안다. */
   readonly scene?: string | undefined;
   readonly file?: string | undefined;
+  /**
+   * §5.13 (V) 37-20 — 그 요소가 적힌 컴포지션 HTML 의 줄(1부터). 찾았을 때만 싣는다 — 모르면 비운다(지어내지 않는다).
+   * `lineExact` 가 false 면 요소 자신의 줄이 아니라 그것을 런타임에 만든 자리(품은 원본 요소)의 줄이다.
+   */
+  readonly line?: number | undefined;
+  readonly lineExact?: boolean | undefined;
   readonly path?: string | undefined;
   readonly text?: string | undefined;
   readonly prop?: string | null | undefined;
@@ -81,12 +87,25 @@ function quote(s: string, max = 160): string {
 }
 
 /**
+ * §5.13 (V) 37-20 — `<프로젝트 기준 경로>:<줄>`(`/` 구분 — 세 OS 에서 같은 모양). 줄을 모르면 경로만, 조상 줄이면 그렇다고 말한다
+ * (그 줄이 요소 자신이라고 읽히지 않게).
+ */
+export function pointedFileText(p: Pick<StudioPointed, 'file' | 'line' | 'lineExact'>): string {
+  const file = (p.file ?? '').replace(/\\/g, '/');
+  const line = typeof p.line === 'number' && Number.isInteger(p.line) && p.line > 0 ? p.line : null;
+  if (line === null) return file;
+  return p.lineExact === false
+    ? `${file} (no source line of its own — created at runtime inside the element at line ${line})`
+    : `${file}:${line}`;
+}
+
+/**
  * §5.13 (V) 37-6 — 가리킨 것 한 줄(에이전트가 읽는 데이터). 가리키기 칩의 문맥 블록과 Alt 인스펙터 복사(§5.4 #15 (C))가 **같은
  * 말**을 쓴다 — 두 벌이면 한쪽만 고쳐져 같은 것을 두 가지로 말하게 된다.
  */
 export function describePointed(p: StudioPointed): string {
   const parts = [`item "${p.itemId}" (${p.kind}${p.scene ? ` "${p.scene}"` : ''}) at ${seconds(p.t)}`];
-  if (p.file) parts.push(`file ${p.file}`);
+  if (p.file) parts.push(`file ${pointedFileText(p)}`);
   if (p.path) parts.push(`element ${quote(p.path, 200)}`);
   if (p.objectId) parts.push(`object id ${quote(p.objectId)}, adapter ${p.adapter ?? 'custom'}`);
   if (p.bounds) {

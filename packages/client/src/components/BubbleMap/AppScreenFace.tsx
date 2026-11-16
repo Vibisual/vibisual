@@ -18,6 +18,8 @@ export interface AppScreenFaceProps {
   readonly thumbLoading: boolean;
   readonly emptyText: string;
   readonly workingText: string;
+  /** §5.4 #36 (L) — 비추는 것이 결과가 아니라 작업 중 파일이면 아래 띠로 밝힌다. */
+  readonly workCaption?: { readonly label: string; readonly name: string; readonly title: string } | undefined;
 }
 
 export function AppScreenFace({
@@ -31,9 +33,20 @@ export function AppScreenFace({
   thumbLoading,
   emptyText,
   workingText,
+  workCaption,
 }: AppScreenFaceProps): React.JSX.Element {
   if (hasFile) {
-    return <FaceStill thumb={thumb} loading={thumbLoading} glow={glow} icon={icon} width={width} height={height} />;
+    return (
+      <>
+        <FaceStill thumb={thumb} loading={thumbLoading} glow={glow} icon={icon} width={width} height={height} />
+        {workCaption ? (
+          <div title={workCaption.title} className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-black/70 px-1.5 py-0.5 text-[12px] leading-4">
+            <span className="shrink-0 font-medium text-white/85">{workCaption.label}</span>
+            <span className="min-w-0 truncate text-white/55">{workCaption.name}</span>
+          </div>
+        ) : null}
+      </>
+    );
   }
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 px-3 text-center">

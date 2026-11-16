@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { renderTiming } from '@vibisual/video';
+import { EXPORT_EXTRA_KINDS, renderTiming, type CompanionNote } from '@vibisual/video';
 
 import { StudioIcon, type StudioIconName } from './studioIcons.js';
 import { fileNameOf, formatDuration, formatWhen } from './exportLabels.js';
@@ -32,6 +32,11 @@ function RowButton({ icon, label, onClick, disabled }: { readonly icon: StudioIc
     </button>
   );
 }
+
+/** 까닭 코드 → 번역 키 꼬리(42-13 (F)). */
+const COMPANION_NOTE_KEY: Readonly<Record<CompanionNote, string>> = {
+  'thumbnail-failed': 'note_thumbnailFailed', 'chapters-empty': 'note_chaptersEmpty', 'subtitles-empty': 'note_subtitlesEmpty',
+};
 
 function statusIcon(job: VideoJob): StudioIconName {
   if (job.status === 'running') return job.paused ? 'pause' : 'export';
@@ -144,6 +149,19 @@ export function RenderQueueList(p: RenderQueueListProps): React.JSX.Element {
               </div>
             ) : null}
             <p className={`truncate text-[12px] tabular-nums box-narrow:whitespace-normal box-narrow:break-words pointer-coarse:whitespace-normal pointer-coarse:break-words ${job.status === 'error' ? 'text-rose-300' : 'text-slate-400'}`} title={statusText(job)}>{statusText(job)}</p>
+            {(() => {
+              // 42-13 — 걸 때의 선택(대기 중)·나온 파일(끝남)을 이름으로 적는다.
+              if (job.status === 'done') {
+                const names = EXPORT_EXTRA_KINDS.map((k) => job.companions?.[k]).filter((f): f is string => !!f).map(fileNameOf);
+                return names.length > 0 ? <p className="break-words text-[12px] text-slate-500">{t('panel.videoStudio.export.extras.made', { names: names.join(', ') })}</p> : null;
+              }
+              if (p.compact || (job.status !== 'queued' && job.status !== 'running')) return null;
+              const on = EXPORT_EXTRA_KINDS.filter((k) => job.output?.extras?.[k] === true || (k === 'subtitles' && job.spec?.captions === 'separate'));
+              return on.length > 0 ? <p className="break-words text-[12px] text-slate-500">{t('panel.videoStudio.export.extras.withEach', { list: on.map((k) => t(`panel.videoStudio.export.extras.${k}`)).join(', ') })}</p> : null;
+            })()}
+            {job.status === 'done' ? (job.companionNotes ?? []).map((code) => (
+              <p key={code} className="break-words text-[12px] text-amber-300">{t(`panel.videoStudio.export.extras.${COMPANION_NOTE_KEY[code]}`)}</p>
+            )) : null}
             {job.exportNote ? (
               <p className="break-words text-[12px] text-amber-300" title={job.exportNote.detail}>{t(`panel.videoStudio.export.note_${job.exportNote.code === 'export-failed' ? 'exportFailed' : 'overwriteFallback'}`)}</p>
             ) : null}

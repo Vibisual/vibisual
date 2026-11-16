@@ -5,7 +5,7 @@
  */
 import { BrowserWindow, nativeImage } from 'electron';
 
-import { OFFSCREEN_MAX_EDGE } from '../constants.js';
+import { OFFSCREEN_FRAME_TIMEOUT_MS, OFFSCREEN_MAX_EDGE } from '../constants.js';
 import { RED_PIXEL_PNG_BASE64, bitmapOrderOf, type BitmapOrder, type RawFrame } from '../render/rawFrame.js';
 import type { AppMainHost } from '../host.js';
 import { growWindowToContent } from './windowSize.js';
@@ -17,8 +17,8 @@ const READY_TIMEOUT_MS = 20_000;
 export const OFFSCREEN_IDLE_TTL_MS = 60_000;
 /** 쉬게 둘 창 수의 상한(배경 종류마다) — 렌더러가 기기 예산으로 더 줄여 청한다(`keep`). */
 export const OFFSCREEN_IDLE_MAX = 1;
-/** 한 프레임을 그리고 찍는 데 허용하는 최대 시간(ms). */
-const FRAME_TIMEOUT_MS = 15_000;
+/** 한 프레임을 그리고 찍는 데 허용하는 최대 시간(ms) — 컴포지션 로드·seek 상한의 합보다 길다. */
+const FRAME_TIMEOUT_MS = OFFSCREEN_FRAME_TIMEOUT_MS;
 
 interface OffscreenSession {
   window: BrowserWindow;
@@ -271,7 +271,7 @@ export async function captureOffscreenAt(t: number, session?: string, format?: '
   await withTimeout(
     current.window.webContents.executeJavaScript(`window.__vibiRenderSeek(${JSON.stringify(t)})`),
     FRAME_TIMEOUT_MS,
-    '프레임 준비',
+    `${t.toFixed(2)}초 프레임 준비`,
   );
 
   // 맞춤 배율이면 무대가 그만큼 줄어 서 있다 — 그 칸만 찍는다.

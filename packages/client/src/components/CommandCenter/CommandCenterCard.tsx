@@ -300,7 +300,7 @@ export function CommandCenterCard({
               // 자리(left/top)는 `useAnchoredMenuPlacement` 가 잰다 — 아래가 모자라면 단추 위로 뒤집힌다.
               <div
                 ref={menuBoxRef}
-                className="fixed z-20 max-h-[calc(100dvh-1rem)] w-48 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-md border border-white/10 bg-gray-900 py-1 shadow-lg shadow-black/60"
+                className="fixed z-menu max-h-[calc(100dvh-1rem)] w-48 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-md border border-white/10 bg-gray-900 py-1 shadow-lg shadow-black/60"
               >
                 {item.unacknowledged && (
                   <MenuItem onClick={handleDismiss} label={t('commandCenter.actionDismiss')} />

@@ -40,6 +40,18 @@ const SHARED: Readonly<Record<string, string>> = {
   save: 'panel.vibi3d.authoring.saveSource',
   quality: 'panel.vibi3d.review.stage',
   draft: 'panel.vibi3d.review.draft',
+  tools: 'panel.agentConfig.tools.label',
+  dismiss: 'ide.unseenCards.dismiss',
+  propertiesPanel: 'panel.vibi3d.properties',
+  export: 'panel.videoStudio.header.export',
+  transform: 'panel.videoStudio.editor.transform',
+  fill: 'panel.apps.canvas.fill',
+  strokeWidth: 'panel.videoStudio.editor.props.strokeWidth',
+  radius: 'panel.videoStudio.editor.props.radius',
+  fontWeight: 'panel.videoStudio.editor.props.fontWeight',
+  letterSpacing: 'ide.reading.letterSpacing',
+  blendSaturation: 'panel.videoStudio.effects.saturation',
+  blendColor: 'panel.videoStudio.editor.props.color',
 };
 export function imageLabelKey(label: string): string {
   return SHARED[label] ?? `panel.apps.vibimage.editor.${label}`;

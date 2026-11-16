@@ -1,5 +1,6 @@
 /**
  * §5.13 (E)(F) 렌더 오케스트레이션 — 중단이 필수다(분 단위 작업을 멈출 수 없으면 사용자가 앱을 강제 종료한다).
+ * (AA) 42-11 — `sink` 로 결과를 흘려 보내고 `audioStream` 으로 소리를 창마다 프레임과 나란히 넣는다(메모리가 길이에 비례하지 않게).
  * (AA) 42-4·42-5 — `range`(프레임 시각 = 문서 시각, 파일 시각은 0 부터)·`fps`·`outputSize`(줄여 넣는다)·`gate`(프레임 사이 일시정지). 계획은 `renderFramePlan`.
  */
 
@@ -9,19 +10,13 @@ import { resolveTimeline } from '../resolveTimeline.js';
 import type { ResolvedTimeline, VideoDoc } from '../types.js';
 import type { RenderBackend } from './backend.js';
 import { isPlannedBackend } from './capturePool.js';
-import { frameSignature } from './frameSignature.js';
-import { VideoEncoder, type EncodeQuality, type OutputContainer, type PickedCodecs } from './encode.js';
-
-/** 그려 둔 프레임을 보관하는 곳. 메모리든 디스크든 호스트가 정한다. */
-export interface FrameCache {
-  get(signature: string): Promise<ImageBitmap | null>;
-  set(signature: string, bitmap: ImageBitmap): Promise<void>;
-}
+import { VideoEncoder, type EncodeQuality, type OutputContainer, type OutputSink, type PickedCodecs } from './encode.js';
+import { createAudioFeed, type AudioWindowSource } from './audioWindows.js';
 
 export interface RenderProgress {
   readonly frame: number;
   readonly totalFrames: number;
-  /** 캐시로 건너뛴 프레임 수. 부분 렌더가 실제로 먹었는지 보여 준다. */
+  /** 구간 캐시((E))로 건너뛴 프레임 수. 부분 렌더가 실제로 먹었는지 보여 준다. */
   readonly reusedFrames: number;
   readonly t: number;
 }
@@ -34,7 +29,10 @@ export interface RenderDocOptions {
   readonly quality?: EncodeQuality;
   /** 섞어 넣을 소리. 없으면 무음 영상. 구간 렌더면 그 구간의 소리(0 표본 = 구간 시작). */
   readonly audio?: AudioBuffer | null;
-  readonly cache?: FrameCache | null;
+  /** §5.13 (AA) 42-11 — 창마다 섞어 줄 소리(`audio` 대신). 있으면 소리 트랙을 세운다. */
+  readonly audioStream?: AudioWindowSource | null;
+  /** §5.13 (AA) 42-11 — 결과를 흘려 보낼 곳. 있으면 `bytes` 는 null 이다. */
+  readonly sink?: OutputSink | null;
   readonly signal?: AbortSignal;
   readonly onProgress?: (p: RenderProgress) => void;
   /** §5.13 (W) 38-3 — 투명 배경(WebM + 알파). 백엔드도 알파를 지켜 그려야 한다. */
@@ -52,13 +50,18 @@ export interface RenderDocOptions {
 }
 
 export interface RenderResult {
-  readonly bytes: Uint8Array;
+  /** 메모리 버퍼로 만든 결과. 흘려 보냈으면 null. */
+  readonly bytes: Uint8Array | null;
+  /** 결과 파일 크기(바이트). */
+  readonly size: number;
   readonly frames: number;
   readonly reusedFrames: number;
   readonly durationSec: number;
   readonly codecs: PickedCodecs;
   /** §5.13 (W) 38-3 — 결과 그릇(mp4 · 투명이면 webm). */
   readonly container: OutputContainer;
+  /** §5.13 (E-7) — 구간 길로 구웠을 때만: 구간 수와 다시 쓴 구간 수. */
+  readonly segments?: { readonly total: number; readonly reused: number };
 }
 
 export class RenderCanceledError extends Error {
@@ -68,14 +71,14 @@ export class RenderCanceledError extends Error {
   }
 }
 
-function ctx2d(canvas: HTMLCanvasElement | OffscreenCanvas): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D {
+export function ctx2d(canvas: HTMLCanvasElement | OffscreenCanvas): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D {
   const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
   if (!ctx) throw new Error('2D 컨텍스트를 얻지 못했습니다.');
   return ctx;
 }
 
 /** §5.13 (AA) 42-1 — 줄여 넣을 판(출력 크기가 문서와 다를 때만). */
-function scaledSurface(size: { readonly width: number; readonly height: number }): HTMLCanvasElement | OffscreenCanvas {
+export function scaledSurface(size: { readonly width: number; readonly height: number }): HTMLCanvasElement | OffscreenCanvas {
   if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(size.width, size.height);
   const canvas = document.createElement('canvas');
   canvas.width = size.width;
@@ -105,18 +108,20 @@ export async function renderDoc(opts: RenderDocOptions): Promise<RenderResult> {
     fps,
     canvas: surface,
     ...(opts.quality === undefined ? {} : { quality: opts.quality }),
-    withAudio: opts.audio != null,
+    withAudio: opts.audio != null || opts.audioStream != null,
     ...(opts.alpha === true ? { alpha: true } : {}),
     ...(opts.container === undefined ? {} : { container: opts.container }),
+    ...(opts.sink ? { sink: opts.sink } : {}),
   });
 
   await encoder.start();
+  // 소리 트랙이 실제로 섰을 때만 먹인다(이 기기에 소리 코덱이 없으면 영상만).
+  const audioFeed = opts.audioStream && !opts.audio && encoder.pickedCodecs.audio !== null
+    ? createAudioFeed(opts.audioStream, plan.start, plan.end, (buffer) => encoder.addAudio(buffer))
+    : null;
 
-  const cache = opts.cache ?? null;
-  const paint = cache ? ctx2d(canvas) : null;
-  let reused = 0;
-  // §5.13 (W) 38-2 — 나눠 찍는 백엔드에 프레임 시각을 미리 알린다(캐시가 건너뛸 프레임까지 찍지 않게 캐시 없는 렌더만).
-  if (!cache && isPlannedBackend(backend)) {
+  // §5.13 (W) 38-2 — 나눠 찍는 백엔드에 프레임 시각을 미리 알린다.
+  if (isPlannedBackend(backend)) {
     const times: number[] = [];
     for (let i = 0; i < frames; i += 1) times.push(plan.start + i / fps);
     backend.plan(times);
@@ -136,30 +141,12 @@ export async function renderDoc(opts: RenderDocOptions): Promise<RenderResult> {
       const t = plan.start + i / fps;
       const at = i / fps;
 
-      let painted = false;
-      if (cache && paint) {
-        const sig = frameSignature(doc, timeline, t, fps);
-        const hit = await cache.get(sig);
-        if (hit) {
-          paint.clearRect(0, 0, doc.size.width, doc.size.height);
-          paint.drawImage(hit, 0, 0);
-          hit.close();
-          reused += 1;
-          painted = true;
-        } else {
-          await backend.drawFrame(t);
-          // 그린 김에 보관해 둔다 — 다음 렌더에서 이 프레임은 공짜가 된다.
-          try {
-            const bitmap = await createImageBitmap(canvas);
-            await cache.set(sig, bitmap);
-          } catch {
-            // 캐시는 최적화일 뿐이라 실패해도 렌더는 계속한다.
-          }
-          painted = true;
-        }
+      await backend.drawFrame(t);
+      // 이 프레임 시각을 덮는 소리 창을 먼저 — 그릇이 영상 조각을 붙잡아 두지 않게.
+      if (audioFeed) {
+        await audioFeed.ensureThrough(at);
+        if (aborted()) throw new RenderCanceledError();
       }
-
-      if (!painted) await backend.drawFrame(t);
 
       if (out && surfaceCtx) {
         // 투명 배경도 지키게 비우고 그린다(줄이는 판이 지난 프레임을 남기지 않게).
@@ -168,16 +155,18 @@ export async function renderDoc(opts: RenderDocOptions): Promise<RenderResult> {
       }
 
       await encoder.addFrame(at);
-      opts.onProgress?.({ frame: i + 1, totalFrames: frames, reusedFrames: reused, t });
+      opts.onProgress?.({ frame: i + 1, totalFrames: frames, reusedFrames: 0, t });
     }
 
     if (opts.audio) await encoder.addAudio(opts.audio);
+    if (audioFeed) await audioFeed.finish();
 
     const bytes = await encoder.finish();
     return {
       bytes,
+      size: encoder.bytesWritten,
       frames,
-      reusedFrames: reused,
+      reusedFrames: 0,
       durationSec: plan.end - plan.start,
       codecs: encoder.pickedCodecs,
       container: encoder.container,

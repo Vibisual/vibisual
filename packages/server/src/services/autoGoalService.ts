@@ -11,6 +11,7 @@ import {
   AUTO_GOAL_SKILL_BUDGET,
   AUTO_GOAL_REVIEW_QUEUE_MAX,
   AUTO_GOAL_ACTIVE_QUEUE_MAX,
+  AUTO_GOAL_RELEVANCE_MIN,
   AUTO_GOAL_STALE_REVIEW_MS,
   autoGoalSkillBody,
   autoGoalSkillDescription,
@@ -281,46 +282,84 @@ export function getAutoGoalState(
   };
 }
 
-/** 프롬프트엔 스킬 이름과 한 줄 설명만 싣는다(§5.10 밀어넣기 ❌ 색인 ⭕) — 에이전트가 필요할 때 파일을 연다. 꺼지면 `undefined`. */
+/** 목록 블록의 제목 — 규약이 시스템 프롬프트에 따로 설 때 이 이름으로 목록을 가리킨다. */
+export const AUTO_GOAL_LIST_HEADING = '# 이 프로젝트에서 되풀이해 온 절차 (절차 감지)';
+
+/** 목록 머리의 규칙 줄. 안 변하는 글이라 시스템 프롬프트 통로가 있는 세션에서는 그쪽에 한 벌만 선다(`rulesInSystem`). */
+export const AUTO_GOAL_LIST_RULE_LINES: readonly string[] = [
+  '현재 사용자 지시가 우선이다. 관련 절차만 읽고 적용 조건을 확인하라. 반복 관찰은 검토 통과나 완료 증거가 아니다.',
+  '사용자 직접 지시의 검증 요청·금지·작업 범위는 항상 따른다.',
+  '실행 전 사전 판정을 받고, 서버가 같은 작업·판본·입력과 완료 출력을 확인해 skip을 반환한 경우에만 완료 결과를 재사용할 수 있다.',
+  '이 턴에 이미 읽은 근거로 판정할 수 있는 절차가 있으면 판정 1건을 남긴다 — 사용자 요청을 기다리지 않는다.',
+];
+
+export interface AutoGoalPromptContext {
+  /** 이번 턴에 실을 목록 블록 — 꺼졌거나 이 작업과 닿는 절차가 없으면 없다. */
+  block?: string;
+  /** 순서를 뺀 목록의 내용(블록과 함께 선다). 블록은 관련도 순이라 같은 절차들도 턴마다 자리가 바뀐다 — "이미 보낸 목록인가"는 이것으로 견준다. */
+  listKey?: string;
+  /** 실을 수 있는 절차가 프로젝트에 하나라도 있는가. 작업 본문과 무관해 턴마다 흔들리지 않는다 — 시스템 프롬프트 규약의 게이트. */
+  listable: boolean;
+}
+
+/** 프롬프트엔 스킬 이름과 한 줄 설명만 싣는다(§5.10 밀어넣기 ❌ 색인 ⭕) — 에이전트가 필요할 때 파일을 연다. 디스크는 한 번만 읽는다. */
+export function buildAutoGoalPromptContext(
+  root: string,
+  settings: AutoGoalSettings | undefined,
+  ids: { agentId?: string | null; subAgentId?: string | null },
+  task?: string,
+  options?: { rulesInSystem?: boolean },
+): AutoGoalPromptContext {
+  if (!resolveAutoGoalEnabled(settings, ids)) return { listable: false };
+  const now = Date.now();
+  const all = listAutoGoalSkills(root);
+  const reviewable = (s: AutoGoalSkillSummary): boolean => s.status === 'candidate' || s.status === 'needs-review';
+  const listable = all.some((s) => s.status === 'active' || reviewable(s));
+  const scored = all
+    .map((skill) => ({ skill, score: task === undefined ? AUTO_GOAL_RELEVANCE_MIN : autoGoalRelevanceScore(skill, task) }))
+    .filter((entry) => entry.score >= AUTO_GOAL_RELEVANCE_MIN);
+  /* §5.10 (R)ⓑ — 앞에서 자르지 않고 관련도 순위로 고른다(앞에서 자르면 지금 만지는 파일의 절차가 빠진다). 문턱 아래는 이미 걸렀고, 동점은 `listAutoGoalSkills` 순서(안정 정렬). */
+  const rank = (a: { score: number }, b: { score: number }): number => b.score - a.score;
+  const pick = (want: (s: AutoGoalSkillSummary) => boolean, max: number): AutoGoalSkillSummary[] =>
+    scored.filter((e) => want(e.skill)).sort(rank).slice(0, max).map((e) => e.skill);
+  const active = pick((s) => s.status === 'active', AUTO_GOAL_ACTIVE_QUEUE_MAX);
+  const review = pick(reviewable, AUTO_GOAL_REVIEW_QUEUE_MAX);
+  if (active.length === 0 && review.length === 0) return { listable };
+  const lines: string[] = [];
+  lines.push(AUTO_GOAL_LIST_HEADING);
+  lines.push('');
+  if (!options?.rulesInSystem) {
+    lines.push(...AUTO_GOAL_LIST_RULE_LINES);
+    lines.push('');
+  }
+  const entries: string[] = [];
+  for (const [label, skills] of [['검토 통과 — 적용 조건 확인 후 사용', active], ['검토 대기 — 실행 지침이 아님', review]] as const) {
+    if (skills.length === 0) continue;
+    lines.push(`## ${label}`);
+    for (const s of skills) {
+      const entry = [
+        `- **${s.name}** — ${escapeScalar(s.description).slice(0, 240)}`,
+        `  id=${s.id} revision=${s.revision} · \`${s.path}\``,
+      ];
+      if (s.applicability) entry.push(`  적용 조건: ${escapeScalar(s.applicability).slice(0, 400)}`);
+      if (s.status !== 'active' && s.reason) entry.push(`  검토 사유: ${escapeScalar(s.reason).slice(0, 240)}`);
+      const hint = autoGoalRetireHint(root, s, now, active);
+      if (hint) entry.push(`  걷을 후보: ${hint}`);
+      lines.push(...entry);
+      entries.push(`${label}\n${entry.join('\n')}`);
+    }
+  }
+  return { block: lines.join('\n'), listKey: entries.sort().join('\n'), listable };
+}
+
+/** 목록 블록만 필요한 호출부용(훅으로 붙은 세션·시험). 꺼졌거나 닿는 절차가 없으면 `undefined`. */
 export function buildAutoGoalPromptBlock(
   root: string,
   settings: AutoGoalSettings | undefined,
   ids: { agentId?: string | null; subAgentId?: string | null },
   task?: string,
 ): string | undefined {
-  if (!resolveAutoGoalEnabled(settings, ids)) return undefined;
-  const now = Date.now();
-  const scored = listAutoGoalSkills(root)
-    .map((skill) => ({ skill, score: task === undefined ? 1 : autoGoalRelevanceScore(skill, task) }))
-    .filter((entry) => entry.score > 0);
-  /* §5.10 (R)ⓑ — 앞에서 자르지 않고 관련도 순위로 고른다(앞에서 자르면 지금 만지는 파일의 절차가 빠진다). 점수 0 은 이미 걸렀고, 동점은 `listAutoGoalSkills` 순서(안정 정렬). */
-  const rank = (a: { score: number }, b: { score: number }): number => b.score - a.score;
-  const pick = (want: (s: AutoGoalSkillSummary) => boolean, max: number): AutoGoalSkillSummary[] =>
-    scored.filter((e) => want(e.skill)).sort(rank).slice(0, max).map((e) => e.skill);
-  const active = pick((s) => s.status === 'active', AUTO_GOAL_ACTIVE_QUEUE_MAX);
-  const review = pick((s) => s.status === 'candidate' || s.status === 'needs-review', AUTO_GOAL_REVIEW_QUEUE_MAX);
-  if (active.length === 0 && review.length === 0) return undefined;
-  const lines: string[] = [];
-  lines.push('# 이 프로젝트에서 되풀이해 온 절차 (절차 감지)');
-  lines.push('');
-  lines.push('현재 사용자 지시가 우선이다. 관련 절차만 읽고 적용 조건을 확인하라. 반복 관찰은 검토 통과나 완료 증거가 아니다.');
-  lines.push('사용자 직접 지시의 검증 요청·금지·작업 범위는 항상 따른다.');
-  lines.push('실행 전 사전 판정을 받고, 서버가 같은 작업·판본·입력과 완료 출력을 확인해 skip을 반환한 경우에만 완료 결과를 재사용할 수 있다.');
-  lines.push('이 턴에 이미 읽은 근거로 판정할 수 있는 절차가 있으면 판정 1건을 남긴다 — 사용자 요청을 기다리지 않는다.');
-  lines.push('');
-  for (const [label, skills] of [['검토 통과 — 적용 조건 확인 후 사용', active], ['검토 대기 — 실행 지침이 아님', review]] as const) {
-    if (skills.length === 0) continue;
-    lines.push(`## ${label}`);
-    for (const s of skills) {
-      lines.push(`- **${s.name}** — ${escapeScalar(s.description).slice(0, 240)}`);
-      lines.push(`  id=${s.id} revision=${s.revision} · \`${s.path}\``);
-      if (s.applicability) lines.push(`  적용 조건: ${escapeScalar(s.applicability).slice(0, 400)}`);
-      if (s.status !== 'active' && s.reason) lines.push(`  검토 사유: ${escapeScalar(s.reason).slice(0, 240)}`);
-      const hint = autoGoalRetireHint(root, s, now, active);
-      if (hint) lines.push(`  걷을 후보: ${hint}`);
-    }
-  }
-  return lines.join('\n');
+  return buildAutoGoalPromptContext(root, settings, ids, task).block;
 }
 
 /** §5.10 (R)ⓒ — 걷어야 할 한 줄 사유(없으면 `undefined`). 서버는 걷지 않는다 — 판단은 에이전트, 상태 변경은 `/api/auto-goal/review` 한 창구(§5.10 (Q)). */
@@ -352,12 +391,12 @@ function autoGoalEvidenceExists(root: string, relative: string): boolean {
 
 /** Conservative lexical routing keeps unrelated old project work out of the agent's task. */
 export function autoGoalSkillRelevant(skill: AutoGoalSkillSummary, task: string): boolean {
-  return autoGoalRelevanceScore(skill, task) > 0;
+  return autoGoalRelevanceScore(skill, task) >= AUTO_GOAL_RELEVANCE_MIN;
 }
 
 /**
- * 작업과의 가까움(0 = 무관, 싣지 않는다 · `autoGoalSkillRelevant` = 점수 > 0). 점수여야 자리가 모자랄 때 지금 만지는 파일의 절차를 남길 수 있다(§5.10 (R)ⓑ).
- * 가중치: 겹친 낱말 3 · 한글 두 글자 짝 1 · 근거 파일 이름 5(가장 강한 신호).
+ * 작업과의 가까움. `AUTO_GOAL_RELEVANCE_MIN` 아래는 싣지 않는다(`autoGoalSkillRelevant`). 점수여야 자리가 모자랄 때 지금 만지는 파일의 절차를 남길 수 있다(§5.10 (R)ⓑ).
+ * 가중치: 겹친 낱말 3 · 한글 두 글자 짝 1(둘 이상 겹칠 때만 센다) · 근거 파일 이름 5(가장 강한 신호).
  */
 export function autoGoalRelevanceScore(skill: AutoGoalSkillSummary, task: string): number {
   const ignored = new Set(['this', 'that', 'with', 'from', 'what', 'when', 'please', 'project', 'agent', 'procedure',

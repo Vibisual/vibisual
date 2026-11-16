@@ -13,7 +13,7 @@ import { decideEnterKey, enterCancelsDefault } from '../../utils/inputEnterKey.j
 import { boundedTextSelection, replaceTextRange, restoreInputSelection } from '../../utils/textInputSelection.js';
 import { speechRunPositions, NO_SPEECH_RUNS, type SpeechRunPos } from './streamDensity.js';
 import type { TodoItem } from '@vibisual/shared';
-import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, followUpAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, isInvisibleStreamText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, cardPlacementTs, isCardSenderCandidate, codexNoticeDisplayEvent, type TurnCoverage, type CardSenderCall, type SentCardKind } from './streamItems.js';
+import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, followUpAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText, isInvisibleStreamText, turnCoverageOf, dispatchedTurnAnchorsAsc, emptyTurnCoverage, cardPlacementTs, isCardSenderCandidate, codexNoticeDisplayEvent, settleCardsBelowTrailingText, type CardSettleRole, type TurnCoverage, type CardSenderCall, type SentCardKind } from './streamItems.js';
 import { foldTaskChips } from './taskChips.js';
 import { describeCommandError, parseStreamErrorContent, joinCommandErrorLine } from './commandError.js';
 import { CommandErrorNotice } from './CommandErrorNotice.js';
@@ -23,7 +23,8 @@ import { TurnStopNotice } from './TurnStopNotice.js';
 import { PlanBlock } from './PlanBlock.js';
 import { toolPreview } from './toolPreview.js';
 import { useGraphStore, agentSessionInputKey, selectIDEOverlay, MISSING_ATTACHMENT_ERROR } from '../../stores/graphStore.js';
-import { useIDEPaneValue } from './idePane.js';
+import { useIDEPaneActions, useIDEPaneValue } from './idePane.js';
+import { useIDEBodyLayout } from './ideBodyLayoutContext.js';
 // §5.5 #17-34 — 창 안 분할. 칸 컨텍스트가 있으면 이 본문은 그 칸의 세션을 그리고, 창 단위 단축키는
 //   초점 칸만 받는다(컨텍스트 밖 = 분할 없음 = 종전 동작 그대로).
 import { useSplitCellFocused, useSplitCellSession } from './splitCellContext.js';
@@ -40,6 +41,7 @@ import { clearFieldText } from '../../hooks/textFieldActions.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
 import { openWebSearch } from './webSearchUrl.js';
 import { StreamRenderer, StreamEndGap, type StreamRendererHandle } from './StreamRenderer.js';
+import { copyStreamSelection, streamSelectionClipboard, writeStreamClipboard, type StreamClipboard } from './streamClipboard.js';
 import { StreamImageThumb } from './StreamImageThumb.js';
 import { useAttachmentThumbs } from './attachmentThumb.js';
 import { providerBadgeOf } from './ideProviderViews.js';
@@ -377,6 +379,28 @@ function dropCardEchoNodes(nodes: MainTimelineNode[]): MainTimelineNode[] {
     if (out) out.push(n);
   }
   return out ?? nodes;
+}
+
+/** §5.5 #17-18 ⑦-8 메인 탭 판 — 노드의 역할. 도구 묶음·도구 줄은 멈춤, 자국·시스템·라이브 1줄은 건너뜀. */
+function mainCardSettleRole(n: MainTimelineNode): CardSettleRole {
+  if (MAIN_ECHO_CARD_TYPES.has(n.t)) return 'card';
+  if (n.t !== 'item') return 'stop';
+  const it = n.item;
+  if (it.kind === 'thinking-live') return 'skip';
+  if (it.kind !== undefined) return 'stop';
+  if (it.type === 'text') return isInvisibleStreamText(it.text) ? 'skip' : 'text';
+  return it.type === 'system' || it.type === 'step' ? 'skip' : 'stop';
+}
+
+/** 같은 세션의 본문만 카드가 넘는다 — 세션을 모르는 카드·줄은 옮기지 않는다. */
+function sameMainCardOwner(card: MainTimelineNode, text: MainTimelineNode): boolean {
+  if (text.t !== 'item' || text.item.kind !== undefined || !text.item.subAgentId) return false;
+  const sub = card.t === 'report' ? card.report.subAgentId
+    : card.t === 'question' ? card.questions.subAgentId
+    : card.t === 'review' ? card.review.subAgentId
+    : card.t === 'list' ? card.list.subAgentId
+    : undefined;
+  return sub !== undefined && sub === text.item.subAgentId;
 }
 
 // §5.5 #17-18 ⑦-7 — 카드 발신 도구 후보(메인 탭 판). 판정은 Sub 탭과 같은 `cardPlacementTs`, 후보 자리는 그 도구가 든 묶음(카드는 묶음 아래).
@@ -1429,6 +1453,15 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
   // §5.5 #17-2 / #17-4 — 슬래시 자동완성(`useAvailableSkills` 모듈 캐시, 이 에이전트 프로젝트의 스킬만) + CLI 내장 명령(드롭다운 전용).
   const slashProjectName = useGraphStore((s) => s.agentProjects[agentId]);
   const { skills: availableSkills, builtins: builtinCommands, loaded: skillsLoaded, slashCommandsEnabled } = useAvailableSkills(slashProjectName, agentId);
+  // §5.5 #17-2 (b-1) — 경고줄의 버튼. 활동바가 뷰를 펴는 문법 그대로(접혀 있으면 펴고, 서랍이면 서랍까지).
+  const { setActiveView: setPaneView, toggleSidebar: togglePaneSidebar } = useIDEPaneActions();
+  const paneSidebarCollapsed = useIDEPaneValue((o) => o.sidebarCollapsed);
+  const { sidebarDrawer: paneSidebarDrawer, setNavOpen: setPaneNavOpen } = useIDEBodyLayout();
+  const openContextSources = useCallback((): void => {
+    setPaneView('context');
+    if (paneSidebarCollapsed) togglePaneSidebar();
+    if (paneSidebarDrawer) setPaneNavOpen(true);
+  }, [setPaneView, paneSidebarCollapsed, togglePaneSidebar, paneSidebarDrawer, setPaneNavOpen]);
   const [slashIndex, setSlashIndex] = useState(0);
   const slashListRef = useRef<HTMLDivElement>(null);
   // 방향키 이동일 때만 활성 항목 스크롤 추종 — hover 로 인한 setSlashIndex 까지 추종하면
@@ -1978,7 +2011,7 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
               항목마다 배지를 달면 개별 축(터미널 전용·미설치)의 배지가 묻히므로 머리에 한 줄만 세우고,
               끄는 자리를 가리킨다. 목록 자체는 걸러내지 않는다 — 켠 뒤에 무엇을 얻는지 보여야 한다. */}
           {!slashCommandsEnabled && (
-            <div className="sticky top-0 z-10 flex items-start gap-1.5 border-b border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[12px] leading-snug text-amber-300/90">
+            <div className="sticky top-0 z-10 flex flex-wrap items-start gap-1.5 border-b border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[12px] leading-snug text-amber-300/90">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -1993,7 +2026,29 @@ export function TerminalInput({ agentId, activeSessionId }: TerminalInputProps):
                 <path d="M12 9v4" />
                 <path d="M12 17h.01" />
               </svg>
-              <span>{t('ide.mainArea.slashDisabledByContext', { contextSources: t('ide.activityBar.context') })}</span>
+              <span className="min-w-0 flex-1 basis-48">{t('ide.mainArea.slashDisabledByContext', { contextSources: t('ide.activityBar.context') })}</span>
+              {/* §5.5 #17-2 (b-1) — mousedown 을 막아 입력칸 초점(= 이 드롭다운)을 잃지 않는다. */}
+              <button
+                type="button"
+                onMouseDown={(ev) => ev.preventDefault()}
+                onClick={openContextSources}
+                className="ml-auto inline-flex flex-shrink-0 items-center gap-1 rounded border border-amber-400/40 bg-amber-500/15 px-2 py-0.5 text-[12px] font-medium text-amber-200 transition-colors hover:bg-amber-500/25 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-300"
+              >
+                <span>{t('ide.mainArea.slashDisabledOpenContext', { contextSources: t('ide.activityBar.context') })}</span>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-3.5 w-3.5 flex-shrink-0"
+                  aria-hidden="true"
+                >
+                  <path d="M5 12h14" />
+                  <path d="m12 5 7 7-7 7" />
+                </svg>
+              </button>
             </div>
           )}
           {slashState.matched.length === 0 ? (
@@ -3194,7 +3249,7 @@ export const IDEMainArea = memo(function IDEMainArea({
   }, [bubbleOn, setScrollNode]);
 
   // §5.5 #17-3 — 우클릭 컨텍스트 메뉴. anchorId = 선택 출처 항목(§17-7 북마크 이동용).
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; selection: string; anchorId?: string } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; selection: string; clipboard?: StreamClipboard; anchorId?: string } | null>(null);
   // §5.5 #17-36 — 우클릭 메뉴가 찍은 스티키 메모 생성 지점(화면 좌표). 판(SessionMemoLayer)이 소비하고 비운다.
   const [memoSpawn, setMemoSpawn] = useState<{ x: number; y: number } | null>(null);
   // 이 화면(세션 탭 또는 메인 탭)에 붙은 메모 장수 — 상한에 닿으면 메뉴 항목을 흐린다.
@@ -3278,7 +3333,8 @@ export const IDEMainArea = memo(function IDEMainArea({
     // 선택이 시작된 출처 항목 id 를 지금(선택 살아있을 때) 캡처 — 메뉴 클릭 후엔 선택이 풀릴 수 있다.
     const anchorId = resolveAnchorIdFromSelection();
     e.preventDefault();
-    setCtxMenu({ x: e.clientX, y: e.clientY, selection: sel, anchorId });
+    const clipboard = ideBodyRef.current ? streamSelectionClipboard(ideBodyRef.current, window.getSelection()) : null;
+    setCtxMenu({ x: e.clientX, y: e.clientY, selection: sel, clipboard: clipboard ?? undefined, anchorId });
   }, []);
 
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
@@ -3294,12 +3350,10 @@ export const IDEMainArea = memo(function IDEMainArea({
     return [
       {
         label: t('ide.mainArea.ctxCopy'),
-        disabled: !hasSel,
+        disabled: !hasSel && !ctxMenu?.clipboard,
         disabledTitle: selectionRequired,
         onClick: () => {
-          if (typeof navigator !== 'undefined' && navigator.clipboard) {
-            navigator.clipboard.writeText(sel).catch(() => {});
-          }
+          void writeStreamClipboard(ctxMenu?.clipboard ?? { text: sel }).catch(() => {});
         },
       },
       {
@@ -3582,7 +3636,8 @@ export const IDEMainArea = memo(function IDEMainArea({
     merged.sort((a, b) => a.ts - b.ts);
     // §5.5 #17-18 ⑦-5 — 카드 바로 뒤에 붙는 "~카드로 보냈습니다" 한 줄은 화면에서 뺀다(카드가 이미 하는 말).
     //   정렬 **뒤**에 걷는다: "바로 앞이 카드"라는 자리 조건은 시간순으로 놓인 뒤에야 성립한다.
-    const nodes = dropCardEchoNodes(merged.map((m) => m.node));
+    //   ⑦-8 — 그다음 카드 뒤에 같은 세션이 이어 쓴 결론을 카드 위로(Sub 탭과 같은 함수).
+    const nodes = settleCardsBelowTrailingText(dropCardEchoNodes(merged.map((m) => m.node)), mainCardSettleRole, sameMainCardOwner);
     // §5.5 #17-39 ⑩ — 간결에서 이어 붙은 사고 자국을 주인별 한 줄로(Sub 탭과 같은 함수). 카드가 **여기서야**
     //   타임라인에 합류하므로 합치기도 이 뒤에 돌린다 — `applyMainDensity` 안에서 돌리면 카드를 사이에 둔
     //   자국까지 한 줄로 합쳐져 같은 대화가 탭에 따라 다르게 접힌다.
@@ -4208,6 +4263,7 @@ export const IDEMainArea = memo(function IDEMainArea({
         ref={ideBodyRef}
         data-ide-text-viewport=""
         onClick={handleAckClick}
+        onCopy={copyStreamSelection}
         onContextMenu={handleContextMenu}
         className="relative flex min-h-0 flex-1 flex-col bg-gray-950"
         // 손가락 스크롤은 유지하고 페이지 자체의 핀치 확대만 막는다. 지도는 자체 제스처를 쓴다.

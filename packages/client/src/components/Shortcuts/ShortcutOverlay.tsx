@@ -71,7 +71,7 @@ export function ShortcutOverlay(): React.JSX.Element | null {
   return createPortal(
     <div
       data-shortcut-scope="dialog"
-      className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60"
+      className="fixed inset-0 z-overlay flex items-center justify-center bg-black/60"
       {...backdrop}
     >
       <div className="flex max-h-[80dvh] w-[720px] max-w-[94vw] flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-2xl">

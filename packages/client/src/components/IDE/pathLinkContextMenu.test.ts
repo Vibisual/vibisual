@@ -4,11 +4,12 @@ import {
   buildOutsidePathLinkMenuItems,
   buildPathLinkMenuItems,
   buildWebLinkMenuItems,
+  pathLinkExternalRoute,
   pathLinkOpenLabel,
   type PathLinkMenuHandlers,
 } from './pathLinkContextMenu.js';
 
-/** §5.5 #17-27 ⑬ (j) — 경로 링크 우클릭 메뉴: HTML 은 웹 두 줄로 시작 · HTML 아닌 파일엔 연결 프로그램 ❌ · 루트 밖은 탐색기·복사뿐(웹 줄은 흐리게) · 각 항목이 제 손잡이. */
+/** §5.5 #17-27 ⑬ (j)(l) — 경로 링크 우클릭 메뉴: HTML 은 웹 두 줄로 시작 · 바깥 열기는 코드=앱 밖 편집기/미디어=연결 프로그램 · 루트 밖은 탐색기·복사뿐(웹 줄은 흐리게) · 각 항목이 제 손잡이. */
 
 /** 키를 그대로 돌려주는 t — 라벨이 어느 키에서 왔는지 그대로 확인한다. */
 const t = (key: string, opts?: Record<string, unknown>): string => (opts ? `${key}:${JSON.stringify(opts)}` : key);
@@ -16,9 +17,16 @@ const t = (key: string, opts?: Record<string, unknown>): string => (opts ? `${ke
 function handlers(): PathLinkMenuHandlers {
   return {
     open: vi.fn(), openPage: vi.fn(), openBrowser: vi.fn(),
+    openExternalEditor: vi.fn(), openDefaultApp: vi.fn(),
     reveal: vi.fn(), copyPath: vi.fn(), copyRelativePath: vi.fn(),
   };
 }
+
+const HTML_FILE = { kind: 'file', isHtml: true, openLabel: 'OPEN', externalRoute: 'editor' } as const;
+const CODE_FILE = { kind: 'file', isHtml: false, openLabel: 'OPEN', externalRoute: 'editor' } as const;
+const MEDIA_FILE = { kind: 'file', isHtml: false, openLabel: 'OPEN', externalRoute: 'default-app' } as const;
+const PLAIN_FILE = { kind: 'file', isHtml: false, openLabel: 'OPEN', externalRoute: null } as const;
+const FOLDER = { kind: 'directory', isHtml: false, openLabel: 'OPEN', externalRoute: null } as const;
 
 const ids = (items: ContextMenuItem[]): string[] => items.map((i) => i.id ?? '');
 
@@ -30,27 +38,39 @@ function find(items: ContextMenuItem[], id: string): ContextMenuItem {
 
 describe('buildPathLinkMenuItems — 루트 안', () => {
   it('HTML — 웹(내부)·웹(외부)로 시작하고, 왼쪽 클릭과 같은 여는 줄은 따로 서지 않는다', () => {
-    const items = buildPathLinkMenuItems({ kind: 'file', isHtml: true, openLabel: 'OPEN' }, handlers(), t);
+    const items = buildPathLinkMenuItems(HTML_FILE, handlers(), t);
     expect(ids(items)).toEqual(['openPage', 'openBrowser', 'reveal', 'copyPath', 'copyRelativePath']);
     expect(find(items, 'openPage').label).toBe('ide.streamRenderer.pathLink.menu.openPage');
     expect(find(items, 'openBrowser').label).toBe('ide.streamRenderer.pathLink.menu.openBrowser');
     expect(find(items, 'reveal').label).toBe('ide.streamRenderer.pathLink.menu.revealFile');
   });
 
-  it('HTML 이 아닌 파일 — 여는 줄은 호출부가 준 이름 하나, 연결 프로그램·웹 항목은 없다', () => {
-    const items = buildPathLinkMenuItems({ kind: 'file', isHtml: false, openLabel: 'OPEN' }, handlers(), t);
-    expect(ids(items)).toEqual(['open', 'reveal', 'copyPath', 'copyRelativePath']);
+  it('코드·글 파일 — 안에서 열기 다음에 앱 밖 편집기, 연결 프로그램 줄은 없다', () => {
+    const items = buildPathLinkMenuItems(CODE_FILE, handlers(), t);
+    expect(ids(items)).toEqual(['open', 'openExternalEditor', 'reveal', 'copyPath', 'copyRelativePath']);
     expect(find(items, 'open').label).toBe('OPEN');
+    expect(find(items, 'openExternalEditor').label).toBe('ide.explorer.ctx.openExternal');
+  });
+
+  it('그림·미디어 파일 — 안에서 열기 다음에 연결 프로그램', () => {
+    const items = buildPathLinkMenuItems(MEDIA_FILE, handlers(), t);
+    expect(ids(items)).toEqual(['open', 'openDefaultApp', 'reveal', 'copyPath', 'copyRelativePath']);
+    expect(find(items, 'openDefaultApp').label).toBe('panel.mediaConvert.openExternal');
+  });
+
+  it('바깥 길이 없는 파일(실행·연결 프로그램 갈래) — 여는 줄 하나뿐', () => {
+    const items = buildPathLinkMenuItems(PLAIN_FILE, handlers(), t);
+    expect(ids(items)).toEqual(['open', 'reveal', 'copyPath', 'copyRelativePath']);
   });
 
   it('폴더 — 여는 줄이 곧 탐색기라 "폴더 열기" 한 줄, 파일 위치 열기는 없다', () => {
-    const items = buildPathLinkMenuItems({ kind: 'directory', isHtml: false, openLabel: 'OPEN' }, handlers(), t);
+    const items = buildPathLinkMenuItems(FOLDER, handlers(), t);
     expect(ids(items)).toEqual(['reveal', 'copyPath', 'copyRelativePath']);
     expect(find(items, 'reveal').label).toBe('ide.explorer.ctx.revealFolder');
   });
 
   it('묶음 사이에 구분선 — 여는 것 | 위치 | 복사', () => {
-    const items = buildPathLinkMenuItems({ kind: 'file', isHtml: true, openLabel: 'OPEN' }, handlers(), t);
+    const items = buildPathLinkMenuItems(HTML_FILE, handlers(), t);
     expect(find(items, 'openPage').separatorBefore).toBeFalsy();
     expect(find(items, 'reveal').separatorBefore).toBe(true);
     expect(find(items, 'copyPath').separatorBefore).toBe(true);
@@ -59,7 +79,7 @@ describe('buildPathLinkMenuItems — 루트 안', () => {
 
   it('각 항목은 제 손잡이를 부른다', () => {
     const h = handlers();
-    const items = buildPathLinkMenuItems({ kind: 'file', isHtml: true, openLabel: 'OPEN' }, h, t);
+    const items = buildPathLinkMenuItems(HTML_FILE, h, t);
     for (const it of items) it.onClick();
     expect(h.openPage).toHaveBeenCalledTimes(1);
     expect(h.openBrowser).toHaveBeenCalledTimes(1);
@@ -69,9 +89,35 @@ describe('buildPathLinkMenuItems — 루트 안', () => {
     expect(h.open).not.toHaveBeenCalled();
 
     const h2 = handlers();
-    for (const it of buildPathLinkMenuItems({ kind: 'file', isHtml: false, openLabel: 'OPEN' }, h2, t)) it.onClick();
+    for (const it of buildPathLinkMenuItems(CODE_FILE, h2, t)) it.onClick();
     expect(h2.open).toHaveBeenCalledTimes(1);
+    expect(h2.openExternalEditor).toHaveBeenCalledTimes(1);
     expect(h2.openBrowser).not.toHaveBeenCalled();
+    expect(h2.openDefaultApp).not.toHaveBeenCalled();
+
+    const h3 = handlers();
+    for (const it of buildPathLinkMenuItems(MEDIA_FILE, h3, t)) it.onClick();
+    expect(h3.openDefaultApp).toHaveBeenCalledTimes(1);
+    expect(h3.openExternalEditor).not.toHaveBeenCalled();
+  });
+});
+
+describe('pathLinkExternalRoute — 바깥으로 여는 길', () => {
+  it('코드·글은 앱 밖 편집기 — 연결 프로그램이 스크립트를 실행하는 길을 열지 않는다', () => {
+    expect(pathLinkExternalRoute({ action: 'editor' })).toBe('editor');
+  });
+
+  it('실행될 수 없는 종류만 연결 프로그램', () => {
+    expect(pathLinkExternalRoute({ action: 'image' })).toBe('default-app');
+    expect(pathLinkExternalRoute({ action: 'pdf' })).toBe('default-app');
+    expect(pathLinkExternalRoute({ action: 'app', appId: 'x' })).toBe('default-app');
+    expect(pathLinkExternalRoute({ action: 'convert', convertTo: 'video' })).toBe('default-app');
+  });
+
+  it('실행·연결 프로그램·폴더 갈래는 바깥 줄이 없다', () => {
+    expect(pathLinkExternalRoute({ action: 'run' })).toBeNull();
+    expect(pathLinkExternalRoute({ action: 'external' })).toBeNull();
+    expect(pathLinkExternalRoute({ action: 'folder' })).toBeNull();
   });
 });
 

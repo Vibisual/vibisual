@@ -37,6 +37,8 @@ export interface ProbeText {
   readonly fontSize?: number;
   /** 그 상자 아래 프레임의 평균 밝기(0~1, 상대 휘도) — 일꾼이 잰다. */
   readonly bgLuminance?: number;
+  /** 컴포지션 안 글자면 그 요소의 CSS 경로(무대 `inspect`) — 배치 요약이 이름으로 쓴다. */
+  readonly path?: string;
 }
 
 /** 일꾼이 찍은 표본 하나. */
@@ -58,11 +60,11 @@ const SILENCE_MIN_SEC = 1.0;
 /** 비트 어긋남 문턱(초). */
 const BEAT_TOLERANCE_SEC = 0.12;
 /** 낮은 대비 문턱(WCAG 대비비). */
-const CONTRAST_MIN = 3;
+export const CONTRAST_MIN = 3;
 /** 자막이 넘는다고 볼 줄 수. */
 const CAPTION_MAX_LINES = 2;
-/** 겹침으로 볼 비율(작은 상자 넓이 대비). */
-const OVERLAP_RATIO = 0.2;
+/** 겹침으로 볼 비율(작은 상자 넓이 대비) — 배치 요약도 같은 문턱. */
+export const OVERLAP_RATIO = 0.2;
 
 const CJK = /[ᄀ-ᇿ぀-ヿ㄰-㆏㐀-䶿一-鿿가-힯豈-﫿]/g;
 
@@ -87,7 +89,8 @@ const SCENE_TEXT_KEYS: Readonly<Record<string, readonly string[]>> = {
   codeBlock: ['lines'],
 };
 
-function textOf(item: ResolvedItem['item']): string {
+/** 그 아이템이 화면에 그리는 글(글자·기본 씬 값). */
+export function textOf(item: ResolvedItem['item']): string {
   const props = item.props ?? {};
   const keys = item.kind === 'text' ? ['text'] : item.kind === 'scene' ? SCENE_TEXT_KEYS[item.sceneId ?? ''] ?? [] : [];
   return keys.map((k) => {
@@ -104,7 +107,7 @@ function inside(r: HitRect, area: { left: number; top: number; right: number; bo
   return r.x >= area.left * w - 0.5 && r.y >= area.top * h - 0.5 && r.x + r.width <= area.right * w + 0.5 && r.y + r.height <= area.bottom * h + 0.5;
 }
 
-function overlapArea(a: HitRect, b: HitRect): number {
+export function overlapArea(a: HitRect, b: HitRect): number {
   const w = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
   const h = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
   return w > 0 && h > 0 ? w * h : 0;
@@ -151,7 +154,7 @@ function gaps(intervals: readonly [number, number][], from: number, to: number, 
 }
 
 /** 그 시각의 그릴 것 중 문서 글자 상자(글자 아이템·자막 띠). */
-function docTextBoxes(doc: VideoDoc, ops: readonly DrawOp[]): ProbeText[] {
+export function docTextBoxes(doc: VideoDoc, ops: readonly DrawOp[]): ProbeText[] {
   const out: ProbeText[] = [];
   for (const op of ops) {
     if (op.synthetic) continue;

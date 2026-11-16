@@ -1,0 +1,16 @@
+{
+  "name": "@vibisual/memo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./server": { "types": "./dist/server/routes.d.ts", "default": "./dist/server/routes.js" },
+    "./client": { "types": "./dist/client/MemoShell.d.ts", "default": "./dist/client/MemoShell.js" },
+    "./canvas": { "types": "./dist/client/MemoCanvasFace.d.ts", "default": "./dist/client/MemoCanvasFace.js" }
+  },
+  "scripts": { "build": "tsc", "typecheck": "tsc --noEmit", "test": "vitest run" },
+  "dependencies": { "@vibisual/shared": "workspace:*", "express": "^4.21.0", "fflate": "0.8.3", "react": "^18.3.1", "react-i18next": "^17.0.4" },
+  "devDependencies": { "@types/express": "^5.0.6", "@types/node": "^20.19.39", "@types/react": "^18.3.12", "light-my-request": "^6.6.0", "typescript": "^5.7.0", "vitest": "^4.1.9" }
+}

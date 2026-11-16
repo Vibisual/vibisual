@@ -66,6 +66,16 @@ function projectEngineConfigKey(map: NonNullable<UserDefaults['projectEngineConf
 const STORE_DIR = path.join(os.homedir(), '.vibisual');
 const STORE_FILE = path.join(STORE_DIR, 'user-defaults.json');
 
+export function mergeInternalAppSettings(previous: UserDefaults['internalAppSettings'], patch: UserDefaults['internalAppSettings']): UserDefaults['internalAppSettings'] {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return previous;
+  const next = { ...previous };
+  for (const [id, value] of Object.entries(patch)) {
+    if (!/^[a-z][a-z0-9-]{0,63}$/.test(id) || !value || typeof value !== 'object' || typeof value.aiEnabled !== 'boolean') continue;
+    next[id] = { ...next[id], aiEnabled: value.aiEnabled };
+  }
+  return next;
+}
+
 class UserDefaultsService {
   private defaults: UserDefaults;
   private writes: Promise<unknown> = Promise.resolve();
@@ -123,6 +133,7 @@ class UserDefaultsService {
       enabledPluginsByProject: patch.enabledPluginsByProject !== undefined
         ? { ...(prev.enabledPluginsByProject ?? {}), ...patch.enabledPluginsByProject }
         : prev.enabledPluginsByProject,
+      internalAppSettings: mergeInternalAppSettings(prev.internalAppSettings, patch.internalAppSettings),
       // §4 (설정 3층) — 목록을 새로 저장하면 **그 자리에서 세대 도장을 찍는다.** 안 찍으면
       //   다음 부팅의 백필이 "고를 기회가 없어서 빠진 것"으로 오인해 방금 끈 도구를 되살린다
       //   (에이전트 오버라이드에서 `sparsifyAgentConfig` 가 하는 것과 같은 규칙).

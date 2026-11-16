@@ -1,5 +1,6 @@
 /** §5.13 (AA) 42-5·42-6 — 렌더 대기열 판정(일감 객체만 본다 — 예약·멈춤·순서·되살리기를 시계·파일 없이 시험으로 고정하려고). */
 
+import type { CompanionKind, CompanionNote } from '../exportExtras.js';
 import type { RenderOutputSpec, RenderSpec } from '../renderSpec.js';
 
 export type QueueStatus = 'queued' | 'running' | 'done' | 'error' | 'canceled';
@@ -41,6 +42,8 @@ export interface QueueJob {
   result?: string;
   exported?: string;
   exportNote?: { code: 'export-failed' | 'overwrite-fallback'; detail?: string };
+  companions?: Partial<Record<CompanionKind, string>>;
+  companionNotes?: readonly CompanionNote[];
   error?: string;
   note?: string;
   delivered?: boolean;

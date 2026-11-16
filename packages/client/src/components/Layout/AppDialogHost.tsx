@@ -7,6 +7,7 @@ import {
   answerAppDialog, getAppDialog, setAppDialogKeyboardHandler, subscribeAppDialog,
   type AppDialogRequest,
 } from '../../utils/appDialog.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
 
 function AppDialog({ request }: { request: AppDialogRequest }): React.JSX.Element {
   const { t } = useTranslation();
@@ -55,7 +56,7 @@ function AppDialog({ request }: { request: AppDialogRequest }): React.JSX.Elemen
   }, [request.id]);
 
   return <div className="app-nodrag fixed inset-0 flex items-center justify-center bg-black/60 p-4"
-    style={{ zIndex: 2_000_000_000 }} data-shortcut-scope="dialog" {...backdrop}>
+    style={{ zIndex: Z_LAYER.APP_DIALOG }} data-shortcut-scope="dialog" {...backdrop}>
     <div ref={panel} role={request.kind === 'prompt' ? 'dialog' : 'alertdialog'} aria-modal="true"
       aria-labelledby={titleId} aria-describedby={messageId}
       className="max-h-full w-full max-w-md overflow-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">

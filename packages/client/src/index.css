@@ -4,6 +4,7 @@
 /* §5.11 — 플러그인(`packages/plugins`) 클래스도 스캔한다. Tailwind v4 는 node_modules(워크스페이스 심링크)를 안 훑어, 이 줄이 없으면
    빌드는 성공하고 플러그인 UI 클래스만 조용히 빠진다(실측). 경로는 이 CSS 기준 — 새 플러그인도 이 아래라 추가 등록이 필요 없다. */
 @source "../../plugins/src/**/*.{ts,tsx}";
+@source "../../memo/src/**/*.{ts,tsx}";
 
 /* 상자 폭 변형 — 뷰포트가 아니라 그 상자(앱 창·별창)의 폭으로 접는다. `hooks/useBoxTier.ts` 가 `data-box` 토큰을 달고 자손은
    `box-compact:`(1024px 미만) · `box-narrow:`(640px 미만, compact 겸함) · `box-wide:`(1600px 이상)로 읽는다. 기준 숫자는 `utils/boxTier.ts` 한 곳.
@@ -21,6 +22,21 @@
      OS 글꼴은 동봉본이 실리기 전에만 쓰인다(Consolas/Menlo 는 재배포 불가). Noto 세 벌은 고정폭이 아니라 맨 끝 — 앞이 못 그리는 글자만.
      ⚠ `utils/terminalFont.ts` `TERMINAL_FONT_STACK` 과 글자 그대로 같아야 한다(xterm 은 CSS 변수를 못 받는다, `i18n/localeFontCoverage.test.ts` 대조). */
   --font-mono: 'JetBrains Mono', 'Nanum Gothic Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans Devanagari', monospace;
+  /* §4 겹침 층 표 — `z-dialog` 같은 이름표. ⚠ 정본은 `theme/zLayers.ts` `Z_LAYER`(`zLayers.test.ts` 가 대조) — 값은 거기서 바꾼다. */
+  --z-index-canvas-drag: 30;
+  --z-index-ide: 50;
+  --z-index-board: 55;
+  --z-index-dialog: 100000000;
+  --z-index-dialog-over: 100001000;
+  --z-index-usage: 100002000;
+  --z-index-usage-over: 100003000;
+  --z-index-header: 150000000;
+  --z-index-overlay: 160000000;
+  --z-index-lightbox: 160001000;
+  --z-index-menu: 1000000000;
+  --z-index-toast: 1000001000;
+  --z-index-tooltip: 1000002000;
+  --z-index-drag: 1000003000;
 }
 
 /* §4 앱 테마 — 최초 기본 테마(Graphite)의 팔레트·의미 토큰. 고른 테마는 `AppThemeHost` 가 `<html>` 에 같은 이름 변수를 실어 덮는다.
@@ -231,7 +247,7 @@ body.vib-titlebar-drag .app-drag * {
   transition: none;
 }
 
-/* §5.1 #3-2 — 활성 신호는 이 링 두 겹이 전부다. 시작 불투명도 `0.4` 를 올리거나 광륜·궤도 아크를 얹지 마라(넣었다 되돌린 값이다). */
+/* §5.1 #3-2 — 활성 신호는 이 링 두 겹이 전부다(에이전트가 쓰는 버블은 같은 모양의 #3-5 최근 사용 링). 시작 불투명도 `0.4` 를 올리거나 광륜·궤도 아크를 얹지 마라(넣었다 되돌린 값이다). */
 @keyframes pulse-ring {
   0% {
     transform: scale(1);
@@ -273,6 +289,54 @@ body.vib-titlebar-drag .app-drag * {
 
 @utility animate-pulse-ring {
   animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* §5.1 #3-5 — 최근 사용 링. 번짐(px)·밝기는 등록한 변수라 순위가 바뀌면 끊기지 않고 지금 값에서 새 값으로 옮겨 가고,
+ * 파동은 그와 따로 돈다(다시 시작하지 않는다). 시간·크기 값은 shared `RECENT_USE_RING` 이 인라인 변수로 넘긴다.
+ * 클래스 이름에 `animate-` 를 두어 캔버스가 가려지거나 창이 숨으면 위 LOD 규칙이 함께 멈춘다. */
+@property --ru-reach {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+@property --ru-alpha {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+@property --ru-p {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+@keyframes recent-use-pulse {
+  from { --ru-p: 0; }
+  to { --ru-p: 1; }
+}
+
+.recent-use-rings {
+  transition:
+    --ru-reach var(--ru-resize-ms) cubic-bezier(0.22, 1, 0.36, 1),
+    --ru-alpha var(--ru-resize-ms) cubic-bezier(0.22, 1, 0.36, 1);
+}
+.recent-use-rings[data-leaving] {
+  transition:
+    --ru-reach var(--ru-fade-ms) cubic-bezier(0.4, 0, 1, 1),
+    --ru-alpha var(--ru-fade-ms) cubic-bezier(0.4, 0, 1, 1);
+}
+
+.animate-recent-use-ring {
+  animation: recent-use-pulse var(--ru-pulse-ms) cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  transform: scale(calc(1 + var(--ru-p) * var(--ru-reach) * 2 / var(--ru-size)));
+  opacity: calc((1 - var(--ru-p)) * var(--ru-alpha));
+}
+
+/* 움직임 줄이기 — 멈추지 않고 `REDUCED_MOTION_LOOP_SLOWDOWN` 배 느리게(값은 인라인 변수로 함께 온다). */
+@media (prefers-reduced-motion: reduce) {
+  .animate-recent-use-ring {
+    animation-duration: var(--ru-pulse-reduced-ms);
+  }
 }
 
 /* §7.6 GitStatusCard — root 버블 새로고침 sweep(conic-gradient 회전). 완료되면 즉시 뗀다. */
@@ -576,7 +640,41 @@ body.vib-titlebar-drag .app-drag * {
 
 .agent-balloon-unfold {
   transform-origin: right center;
-  animation: agent-balloon-unfold 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+  /* `both` 로 되돌리지 마라 — 끝난 뒤에도 transform·opacity 를 묶어 아래 `.agent-balloon-tuck` 전이가 듣지 않는다. */
+  animation: agent-balloon-unfold 0.24s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* §5.4 #36 (A) — `작업 중`이면 말풍선이 원 중심으로 쏙 들어가고 끝나면 튀어나온다. 도중에 상태가 뒤집혀도 그 자리에서 되돌도록 transition 이다.
+ * 시간 = shared `AGENT_CARD.tuckMs`(260ms), 50px = 말풍선 끝에서 원 중심까지(`balloonGap + discSize / 2`). */
+.agent-balloon-tuck {
+  transform-origin: right center;
+  transition:
+    transform 0.26s cubic-bezier(0.34, 1.45, 0.64, 1),
+    opacity 0.1s ease-out;
+}
+
+.agent-balloon-tucked {
+  opacity: 0;
+  transform: translateX(50px) scale(0);
+  visibility: hidden;
+  transition:
+    transform 0.26s cubic-bezier(0.55, -0.15, 0.8, 0.2),
+    opacity 0.1s ease-in 0.16s,
+    visibility 0s linear 0.26s;
+}
+
+/* 부모의 opacity·scale 로 안 보이지만 숨김에서 빼야 읽기 프로그램에 상태 변화가 계속 전해진다. */
+.agent-balloon-tucked .agent-balloon-status {
+  visibility: visible;
+}
+
+/* 들어간 자리는 빈 캔버스다 — 노드 상자는 통과시키고(RF 가 인라인 `pointer-events: all` 을 줘서 !important) 원·이름·위성만 손을 받는다. */
+.react-flow__node:has(> .agent-card-tucked) {
+  pointer-events: none !important;
+}
+
+.agent-card-tucked > :not(.agent-balloon-tuck):not(.pointer-events-none) {
+  pointer-events: auto;
 }
 
 /* 에이전트가 도는 동안 궤도(점선 원 + 이어진 앱 점)가 천천히 돈다. **감싼 div 를 돌린다** — SVG transform 회전은
@@ -623,6 +721,7 @@ body.vib-titlebar-drag .app-drag * {
 
 @media (prefers-reduced-motion: reduce) {
   .agent-balloon-unfold { animation: none; }
+  .agent-balloon-tuck, .agent-balloon-tucked { transition: none; }
   /* 궤도·구슬은 끄지 않고 느리게 돈다 — 멈추면 일하는 에이전트가 쉬는 것과 똑같아진다(Windows 는 애니메이션 효과를 끄면 이 설정이 된다).
    * 값 = shared `AGENT_CARD.orbitSpinReducedMs` · `REF_LINK_STYLE.flowReducedMs`(`REDUCED_MOTION_LOOP_SLOWDOWN` 배). */
   .agent-orbit-spin { animation-duration: 21s; }
@@ -1079,7 +1178,7 @@ body.vib-titlebar-drag .app-drag * {
 
 /* §5.5 #17-27 ⑬ — 본문의 경로가 여는 손잡이(파일 → 내장 편집창 / 폴더 → 시스템 탐색기). 칩 배경은 위 규칙 그대로, 안의 버튼만
  * 본문 링크(MarkdownLink)의 색·밑줄을 얻어 눌린다는 것을 알린다. `inline-flex` 로 바꾸지 마라 — 긴 경로가 줄바꿈되지 않는다. */
-.ide-md .ide-path-link {
+:is(.ide-md, .ide-card-path) .ide-path-link {
   display: inline;
   /* §4 앱 테마 — 팔레트 sky 를 따른다(라이트에서는 뒤집힌 사다리라 진한 하늘색이 된다). */
   color: var(--color-sky-300);
@@ -1090,12 +1189,12 @@ body.vib-titlebar-drag .app-drag * {
   font: inherit;
 }
 
-.ide-md .ide-path-link:hover {
+:is(.ide-md, .ide-card-path) .ide-path-link:hover {
   color: var(--color-sky-200);
   text-decoration-color: var(--color-sky-200);
 }
 
-.ide-md .ide-path-link > svg {
+:is(.ide-md, .ide-card-path) .ide-path-link > svg {
   display: inline-block;
   vertical-align: -0.15em;
   margin-right: 3px;

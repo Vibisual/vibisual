@@ -29,6 +29,24 @@ export const EXPORT_SCALES: readonly number[] = [1, 0.75, 0.5];
 /** 프레임 수 고르기(없으면 문서대로). */
 export const EXPORT_FPS_CHOICES: readonly number[] = [24, 25, 30, 60];
 
+/** §5.13 (AA) 42-13 — 영상과 함께 내는 딸림 파일(같은 줄기·같은 자리). 썸네일 시각은 그 렌더 한 번의 값이라 여기 없다. */
+export interface ExportExtras {
+  /** 고른 시각의 정지 화면 한 장(`.png`). */
+  readonly thumbnail: boolean;
+  /** 장면 제목과 시작 시각(`.chapters.txt`). */
+  readonly chapters: boolean;
+  /** 문서의 자막 트랙(`.srt`) — 자막 굽기·빼기와 다른 축. */
+  readonly subtitles: boolean;
+}
+export const EXPORT_EXTRA_KINDS: readonly (keyof ExportExtras)[] = ['thumbnail', 'chapters', 'subtitles'];
+export const DEFAULT_EXPORT_EXTRAS: ExportExtras = { thumbnail: false, chapters: false, subtitles: false };
+
+export function normalizeExportExtras(raw: unknown): ExportExtras {
+  const r = record(raw);
+  const d = DEFAULT_EXPORT_EXTRAS;
+  return { thumbnail: bool(r['thumbnail'], d.thumbnail), chapters: bool(r['chapters'], d.chapters), subtitles: bool(r['subtitles'], d.subtitles) };
+}
+
 /** 끝난 뒤 — 폴더에서 보이기 · OS 알림 · 캔버스 노드에 담기(§5.13 (L) 종전 동작). */
 export interface ExportAfter {
   readonly reveal: boolean;
@@ -53,6 +71,7 @@ export interface ExportSettings {
   readonly after: ExportAfter;
   /** 렌더가 도는 동안 OS 절전을 막는다. */
   readonly keepAwake: boolean;
+  readonly extras: ExportExtras;
 }
 
 export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
@@ -67,6 +86,7 @@ export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
   conflict: 'number',
   after: { reveal: false, notify: true, deliver: true },
   keepAwake: true,
+  extras: DEFAULT_EXPORT_EXTRAS,
 };
 
 /** 이름 붙여 저장한 설정 한 벌(내 프리셋). */
@@ -104,6 +124,7 @@ export function normalizeExportSettings(raw: unknown): ExportSettings {
       deliver: bool(after['deliver'], d.after.deliver),
     },
     keepAwake: bool(r['keepAwake'], d.keepAwake),
+    extras: normalizeExportExtras(r['extras']),
   };
 }
 

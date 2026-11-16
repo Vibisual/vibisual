@@ -16,9 +16,12 @@ export function frameSignature(doc: VideoDoc, timeline: ResolvedTimeline, t: num
     const cueKey = op.cues.length === 0 ? '' : op.cues.map((c) => `${c.start}:${c.text}`).join('|');
     // §5.13 (V) 37-8 — 전환 구간이면 효과가 얹힌 배치·잘라 보이기가 그림을 바꾼다(같은 지역 프레임이라도 다른 그림).
     const tr = op.transform;
+    // 잘라 보이기는 세로로도 움직인다(방향 있는 닦아내기) — 사각형 넷을 다 넣는다. 원·흐림은 있을 때만 붙여 그 밖의 지문은 그대로 둔다.
+    const cut = op.clip ? `${op.clip.x.toFixed(1)},${op.clip.y.toFixed(1)},${op.clip.width.toFixed(1)},${op.clip.height.toFixed(1)}` : '';
+    const extra = `${op.clipCircle ? `|o${op.clipCircle.cx.toFixed(1)},${op.clipCircle.cy.toFixed(1)},${op.clipCircle.r.toFixed(1)}` : ''}${op.blur ? `|b${op.blur.toFixed(1)}` : ''}`;
     const fxKey = op.clip || op.synthetic
-      ? `${tr.x.toFixed(2)},${tr.y.toFixed(2)},${tr.scale.toFixed(4)},${tr.opacity.toFixed(4)}|${op.clip ? `${op.clip.x.toFixed(1)},${op.clip.width.toFixed(1)}` : ''}`
-      : `${tr.x.toFixed(2)},${tr.y.toFixed(2)},${tr.scale.toFixed(4)},${tr.opacity.toFixed(4)}`;
+      ? `${tr.x.toFixed(2)},${tr.y.toFixed(2)},${tr.scale.toFixed(4)},${tr.opacity.toFixed(4)}|${cut}${extra}`
+      : `${tr.x.toFixed(2)},${tr.y.toFixed(2)},${tr.scale.toFixed(4)},${tr.opacity.toFixed(4)}${extra}`;
     return `${op.z}:${op.itemId}:${itemHash}:${localFrame}:${cueKey}:${fxKey}`;
   });
 

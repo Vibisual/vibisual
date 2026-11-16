@@ -52,7 +52,8 @@ const SCHEDULE_CHIPS_MIN: readonly number[] = [30, 60, 180];
 export function ExportDialog(p: ExportDialogProps): React.JSX.Element {
   const { t } = useTranslation();
   const backdrop = useBackdropDismiss(p.onClose);
-  const [target, setTarget] = useState<ExportTarget>(p.initialTarget);
+  // 42-13 (C) — 썸네일 시각의 기본은 창을 연 순간의 재생 머리.
+  const [target, setTarget] = useState<ExportTarget>(() => ({ ...p.initialTarget, thumbnailAt: p.initialTarget.thumbnailAt ?? p.readPlayhead() }));
   const [scheduling, setScheduling] = useState(false);
   const [when, setWhen] = useState(() => toLocalInput(Date.now() + 60 * 60_000));
   const [busy, setBusy] = useState(false);
@@ -115,7 +116,7 @@ export function ExportDialog(p: ExportDialogProps): React.JSX.Element {
                   <h3 className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">{t('panel.videoStudio.export.whatTitle')}</h3>
                   <ExportTargetForm target={target} onTarget={setTarget} settings={p.settings} onSettings={p.onSettings}
                     currentDocId={p.doc.id} currentFormat={p.doc.format} docs={[{ id: p.doc.id, title: p.doc.title }, ...p.docs.filter((d) => d.id !== p.doc.id)]}
-                    chapters={p.chapters} tracks={p.tracks} duration={p.doc.duration} fps={p.doc.fps} readPlayhead={p.readPlayhead} />
+                    chapters={p.chapters} tracks={p.tracks} duration={p.doc.duration} fps={p.doc.fps} readPlayhead={p.readPlayhead} hasCaptions={p.hasCaptions} />
                 </section>
                 <section aria-label={t('panel.videoStudio.export.howTitle')} className="flex flex-col gap-2">
                   <h3 className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">{t('panel.videoStudio.export.howTitle')}</h3>

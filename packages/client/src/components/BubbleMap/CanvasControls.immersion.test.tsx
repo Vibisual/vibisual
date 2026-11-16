@@ -32,7 +32,7 @@ vi.mock('../../stores/graphStore.js', async () => {
 let renderer: ReactTestRenderer | undefined;
 
 function render(): void {
-  act(() => { renderer = create(<CanvasControls onTidy={vi.fn()} tidyBusy={false} tidyDisabled={false} />); });
+  act(() => { renderer = create(<CanvasControls activityBubblesVisible={false} onToggleActivityBubbles={vi.fn()} onTidy={vi.fn()} tidyBusy={false} tidyDisabled={false} />); });
 }
 
 function button(label: string): ReactTestInstance {

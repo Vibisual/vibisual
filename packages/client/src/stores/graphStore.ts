@@ -1,4 +1,5 @@
 import { create, type StoreApi } from 'zustand';
+import type { DedicatedHubPanel } from '../utils/dedicatedBubbleView.js';
 import type { VerificationTarget, VerificationDemoStep, CommandReceipt } from '@vibisual/shared';
 // §5.5 #17-20 ⑩ — 중단점을 켜고 끄면 붙어 있는 세션에도 바로 밀어 넣는다(단방향: graphStore → debugSessions).
 import { useDebugSessions, pushBreakpointsToSession } from './debugSessions.js';
@@ -1393,6 +1394,8 @@ function findSessionId(agents: BubbleData[], agentId: string): string | null {
  */
 export type InteriorView =
   | { readonly kind: 'trash' }
+  /** §5.1 #2-3 — 프로젝트 폴더 안(메인의 루트 파일 전부). 서버 폴더가 아니라 폴더 스코프를 선언하지 않는다. */
+  | { readonly kind: 'projectFolder'; readonly label: string }
   | {
       readonly kind: 'bundle';
       /** 들어온 묶음 버블의 노드 id — 화면 위치 기억을 묶음마다 가르는 열쇠. */
@@ -1403,13 +1406,15 @@ export type InteriorView =
       readonly memberIds: readonly string[];
       readonly sessionId?: string;
       readonly totalCount?: number;
-      readonly source?: 'folder' | 'sequence';
+      readonly source?: 'folder' | 'sequence' | 'dedicated';
       /** 구성 파일이 든 폴더의 노드 id — 같은 폴더 묶음만. 있으면 이 폴더를 범위로 선언하고 그 `children` 에서 같은 종류를 더 세운다. */
       readonly folderId?: string;
       /** 세션 지도에만 있는 폴더의 정확한 조회 경로. 프로젝트 범위는 별도로 유지한다. */
       readonly folderAbsolutePath?: string;
       /** 묶음의 종류 — 그 폴더의 `children` 에서 이 종류만 고른다. */
       readonly fileKind?: FileFaceKind;
+      /** §5.1 #2-3 — 프로젝트 폴더 안에서 들어왔으면 그 화면. `← Back` 은 여기로 돌아간다. */
+      readonly parent?: { readonly kind: 'projectFolder'; readonly label: string };
     };
 
 interface GraphState {
@@ -1594,6 +1599,7 @@ interface GraphState {
   agentReports: Record<string, AgentReport[]>;
   /** §5.5 #17-36 — 메인 탭 스티키 메모(agentId → SessionMemo[]). 세션 탭 메모는 `subAgents[].memos` 로 온다. 서버 SSOT — 가공 없이 그린다. */
   agentMemos: Record<string, SessionMemo[]>;
+  canvasMemos: Record<string, SessionMemo[]>;
   /** §4 — 에이전트 질문 카드 (agentId → AgentQuestions[]). IDE 질문 카드. */
   agentQuestions: Record<string, AgentQuestions[]>;
   /** §4 — 에이전트 검수 요청 카드 (agentId → AgentReview[]). IDE 검수 카드. */
@@ -1930,7 +1936,10 @@ interface GraphState {
    * §5.4 #36 (H) — 연결 보기(`hidden` ① · `bubblesHidden` ①-1 · `lens` ②, 준 칸만). 화면 먼저, `PATCH /api/bubble/:id/link-view` 가 뒤따른다.
    * 누른 칸은 `agentLinkViewHolds` 가 붙든다 — PATCH 전에 떠난 스냅샷이 되돌리지 않게, 실패하면 곧바로 서버 값으로.
    */
-  setAgentLinkView: (agentId: string, patch: { hidden?: boolean; bubblesHidden?: boolean; lens?: LinkLens }) => void;
+  setAgentLinkView: (agentId: string, patch: { hidden?: boolean; bubblesHidden?: boolean; lens?: LinkLens; dedicatedHidden?: string[] }) => void;
+  /** §5.4 #36 (K) — 지금 캔버스의 전용 버블 체크 목록(화면이 짓는 파생값 — 영속 ❌). 디테일창이 읽는다. */
+  dedicatedHubs: readonly DedicatedHubPanel[];
+  setDedicatedHubs: (hubs: readonly DedicatedHubPanel[]) => void;
   /**
    * §5.4 #36 (H) ①-2 — 연결된 버블 고정: 그동안 확인 클릭·자동 유휴·5분 TTL 이 연결을 걷지 않는다. 화면 먼저(`linksPinned`), `PATCH /api/bubble/:id/link-pin` 이 뒤따른다.
    * 풀 때 실행 중이 아니면 서버가 그 자리에서 걷는다.
@@ -2700,6 +2709,7 @@ interface GraphState {
   applyAgentReports: (reports: Record<string, AgentReport[]> | undefined) => void;
   /** §5.5 #17-36 — graph_snapshot 의 메인 탭 스티키 메모 반영. */
   applyAgentMemos: (memos: Record<string, SessionMemo[]> | undefined) => void;
+  applyCanvasMemos: (memos: Record<string, SessionMemo[]> | undefined) => void;
   /** §5.23 — graph_snapshot 의 도메인 버블 웹 이력 반영. */
   applyDomainEntries: (entries: Record<string, WebEntry[]> | undefined) => void;
   /** §4 — graph_snapshot 의 에이전트 질문 카드 반영. */
@@ -3872,13 +3882,16 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   },
   // §5.4 #36 (H) — 연결 보기도 버블의 데이터 칸(`agents` 배열)이라 서버와 같은 모양으로 적는다(기본값은 칸을 지운다 — 다르면 한 번 더 그려진다).
   // 누른 칸은 붙든다 — 늦게 온 옛 스냅샷이 되돌리면 #31 (K) 초점이 깜빡인다. 적기와 덧씌우기는 같은 함수다.
+  dedicatedHubs: [],
+  setDedicatedHubs: (hubs) => set({ dedicatedHubs: hubs }),
   agentLinkViewHolds: NO_LINK_VIEW_HOLDS,
   setAgentLinkView: (agentId, patch) => {
-    if (patch.hidden === undefined && patch.bubblesHidden === undefined && patch.lens === undefined) return;
+    if (patch.hidden === undefined && patch.bubblesHidden === undefined && patch.lens === undefined && patch.dedicatedHidden === undefined) return;
     const want: Record<string, unknown> = {};
     if (patch.hidden !== undefined) want['linksHidden'] = patch.hidden ? true : undefined;
     if (patch.bubblesHidden !== undefined) want['bubblesHidden'] = patch.bubblesHidden ? true : undefined;
     if (patch.lens !== undefined) want['linkLens'] = patch.lens === 'files' ? 'files' : undefined;
+    if (patch.dedicatedHidden !== undefined) want['dedicatedHidden'] = patch.dedicatedHidden.length > 0 ? patch.dedicatedHidden : undefined;
     sendHeldAgentFields(set, get, agentId, want, `${API_BASE}/api/bubble/${encodeURIComponent(agentId)}/link-view`, patch);
   },
   // §5.4 #36 (H) ①-2 — 고정도 버블의 데이터 칸이다. 누른 칸은 연결 보기와 같은 붙들기로 지킨다. 풀 때 실행 중이 아니면
@@ -4733,6 +4746,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   finishedSubagentTasks: {},
   agentReports: {},
   agentMemos: {},
+  canvasMemos: {},
   agentQuestions: {},
   agentReviews: {},
   reviewRequests: [],
@@ -5717,7 +5731,12 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   enterInterior: (view) => {
     set({ interiorView: view, selectedNodeId: null, selectIntentId: null });
   },
-  exitInterior: () => set({ interiorView: null, selectedNodeId: null, selectIntentId: null }),
+  // §5.1 #2-3 — 프로젝트 폴더 안에서 들어간 묶음은 나오면 그 폴더 안으로 돌아간다.
+  exitInterior: () => set((state) => ({
+    interiorView: state.interiorView?.kind === 'bundle' ? state.interiorView.parent ?? null : null,
+    selectedNodeId: null,
+    selectIntentId: null,
+  })),
   openGuide: (category) => set({ guideCategory: category ?? 'start' }),
   closeGuide: () => set({ guideCategory: null }),
   openOptions: (category) => set({ optionsCategory: category ?? 'agent' }),
@@ -7513,6 +7532,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
   })),
   applyAgentReports: (reports) => set((s) => ({ agentReports: structuralShare(s.agentReports, reports ?? {}) })),
   // §5.5 #17-36 — **구조적 공유를 태운다**(갈아끼우면 스냅샷마다 `agentMemos[agentId]` 가 새 배열이라 메모 화면이 초당 수십 번 리렌더).
+  applyCanvasMemos: (memos) => set((s) => ({ canvasMemos: structuralShare(s.canvasMemos, memos ?? {}) })),
   applyAgentMemos: (memos) => set((s) => ({ agentMemos: structuralShare(s.agentMemos, memos ?? {}) })),
   // §5.23 — `applyAgentMemos` 와 같은 이유로 **구조적 공유를 태운다.** 그냥 갈아끼우면
   //   내용이 한 글자도 안 바뀐 스냅샷마다 `domainEntries[nodeId]` 가 새 배열이 되어

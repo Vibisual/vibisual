@@ -8,6 +8,7 @@ import { externalPlaceHint, formatHeatCount, heatColor, heatRatio, heatValueOf, 
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { useHeatScale } from '../../hooks/useHeatScale.js';
 import { useGraphStore, selectIDEActiveSessionForAgent, selectSpecStaleTitle } from '../../stores/graphStore.js';
+import { PROJECT_FOLDER_NODE_ID } from '../../utils/projectFolderView.js';
 import { isAgentDormant } from '../../utils/sessionStatus.js';
 // §5.4 #34 — 우클릭 메뉴는 캔버스가 그린다(원형 버블 안에서 그리면 잘린다). 여기서는 요청만 낸다.
 import { BUBBLE_MENU_EVENT, type BubbleMenuRequest } from './BubbleContextMenu.js';
@@ -38,6 +39,7 @@ import { SunCorona } from './SunCorona.js';
 import { BubbleStatusEffects } from './BubbleStatusEffects.js';
 import { bubbleAgentStyle, bubbleStatusRingClass } from './bubbleStatus.js';
 import { resolveBubbleSkin } from '@vibisual/shared';
+import { isRecentUseBubble, recentUseFocus, recentUseRingStrength } from '@vibisual/shared';
 import { DARK_THEME_LOCK } from '../../theme/themeLock.js';
 import { bubbleSurface } from './bubbleSurface.js';
 import { BubbleSurfaceDetail } from './BubbleSurfaceDetail.js';
@@ -323,6 +325,11 @@ function interiorTargetFor(data: BubbleData): RightDblTarget | null {
 
 // ─── 컴포넌트 ───
 
+/** 폴더 안 `Root→` 가 가리키는 폴더 — 실제 폴더 안이면 그 폴더, §5.1 #2-3 프로젝트 폴더 안이면 그 버블. */
+function homeFolderIdOf(state: { currentFolderId: string | null; interiorView: { readonly kind: string } | null }): string | null {
+  return state.currentFolderId ?? (state.interiorView?.kind === 'projectFolder' ? PROJECT_FOLDER_NODE_ID : null);
+}
+
 export const BubbleNode = memo(function BubbleNode({
   data,
   id: nodeId,
@@ -463,6 +470,13 @@ export const BubbleNode = memo(function BubbleNode({
   // 남의 판엔 캔버스 묶음·숨김 표식도 없고, 고르기·우클릭은 그 판에 알린다(`bubbleHost.ts`).
   const host = useBubbleHost();
   const overlayMode = (data as Record<string, unknown>)['_overlayMode'] === true || host !== null;
+  // §5.1 #3-5 — 최근 사용 링. 함께 쓴 버블은 가장 가까운 순위 하나로, 캔버스에서 에이전트를 고르면 그 에이전트의 순위만 본다.
+  //   고른 것이 이 버블을 쓴 에이전트인지는 순위가 있는 버블만 묻는다(나머지 버블은 고를 때마다 다시 그리지 않는다).
+  const recentUseManaged = isRecentUseBubble(data);
+  const recentUseFocusId = useGraphStore((s) => (recentUseManaged && !overlayMode
+    ? recentUseFocus(s.selectIntentId, data.recentUse, (id) => s.agents.some((a) => a.id === id))
+    : null));
+  const recentUseStrength = recentUseManaged ? recentUseRingStrength(data.recentUse, recentUseFocusId) : 0;
   const isBack = data.id === '__root_back__';
   // 더블클릭으로 동작이 있는 버블 — handleNodeDoubleClick(BubbleMap)과 1:1.
   // 이 버블들만 단일선택을 SELECT_DEFER_MS 만큼 늦춘다(나머지는 즉시 선택 유지).
@@ -711,7 +725,7 @@ export const BubbleNode = memo(function BubbleNode({
     if (host) { host.select(nodeId); return; }
     canvasSelection.replace();
     if (data.id === '__root_home__') {
-      const folderId = useGraphStore.getState().currentFolderId;
+      const folderId = homeFolderIdOf(useGraphStore.getState());
       if (folderId) useGraphStore.getState().selectNode(folderId);
       return;
     }
@@ -745,7 +759,7 @@ export const BubbleNode = memo(function BubbleNode({
       if (!active) { store.setSelectIntent(null); return; }
       // selectNode/setSelectIntent 는 'sat-' 프리픽스를 떼고 저장 → 링 비교 규칙과 같은 모양으로.
       const intentId = data.id === '__root_home__'
-        ? store.currentFolderId
+        ? homeFolderIdOf(store)
         : (satelliteSourceNodeId(data.id));
       store.setSelectIntent(intentId);
     },
@@ -1499,8 +1513,8 @@ export const BubbleNode = memo(function BubbleNode({
         <FileFaceRim face={face} thumb={faceThumb} size={size} ts={ts} label={displayLabel} />
       ) : null}
 
-      {/* 버블·말풍선 원이 같은 작업 파동과 완료·실패 후광을 쓴다. */}
-      <BubbleStatusEffects status={data.status} glow={style.glow} />
+      {/* 버블·말풍선 원이 같은 작업 파동과 완료·실패 후광을 쓴다. 에이전트가 쓰는 버블은 최근 사용 링(§5.1 #3-5). */}
+      <BubbleStatusEffects status={data.status} glow={style.glow} recentUse={recentUseManaged ? { strength: recentUseStrength, size } : undefined} />
 
       {/* §7.6 root 버블: git 상태 보조 이펙트 (refresh sweep + dirty dot) */}
       {isRoot && gitRefreshing && (

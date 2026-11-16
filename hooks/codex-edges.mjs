@@ -288,6 +288,8 @@ if (mode === 'gate') {
     : data.reason === 'not-managed'
     ? 'PERMISSION POLICY: DENY. Vibisual could not find the agent that owns this Codex turn, so no one could be asked. This tool was blocked and NOT executed. Tell the user the permission check could not reach its agent.'
     // §5.3 #12-3 — 자물쇠 거부(묻지 않는 모드 · 관할 밖). 어느 경로가 잠겼는지는 서버가 문구에 싣는다.
+    : data.reason === 'app-link' && typeof data.message === 'string' && data.message
+    ? data.message
     : data.reason === 'locked'
     ? (typeof data.message === 'string' && data.message
       ? data.message

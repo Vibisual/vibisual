@@ -38,23 +38,27 @@ export function ImageSourcePicker({ root, doc, disabled, styleDisabled, onDoc, o
       if (current(id) && isImageDocument(full.payload)) onStyle({ ...full.payload.style }, toLayers);
     }).catch((failure: unknown) => { if (current(id)) setError(creationErrorText(t, failure)); }).finally(() => { if (current(id)) setBusy(false); });
   };
-  return <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2 text-xs">
-    <select className="min-w-0 max-w-52 rounded bg-gray-900 p-1.5 pointer-coarse:p-2" aria-label={key('source')} value={source?.id ?? ''} onChange={(e) => setChosen(e.target.value)}>
+  // 오른쪽 패널(§5.13 (R-9) 레이어 편집기 ①) 폭에 맞춰 세로로 쌓는다.
+  return <div className="flex shrink-0 flex-col gap-1.5 border-b border-gray-800 px-3 py-2.5 text-xs">
+    <span className="font-semibold text-gray-400">{key('source')}</span>
+    <select className="h-8 w-full min-w-0 rounded-md border border-gray-800 bg-gray-950 px-1.5 text-gray-100 outline-none focus:border-blue-500 pointer-coarse:h-10" aria-label={key('source')} value={source?.id ?? ''} onChange={(e) => setChosen(e.target.value)}>
       {!sources.length && <option value="">{key('source')}</option>}
       {sources.map((item) => <option value={item.id} key={item.id}>
         {t('panel.creation.sourceOption', { title: item.title || item.id, app: creationAppLabel(t, item.appId), revision: item.revision })}
       </option>)}
     </select>
-    <button type="button" className="rounded bg-white/5 p-1.5 pointer-coarse:p-2" onClick={() => setRefresh((n) => n + 1)}>{key('sourceRefresh')}</button>
-    <button type="button" className="rounded bg-white/5 p-1.5 disabled:opacity-35 pointer-coarse:p-2" disabled={disabled || busy || !doc || !source} onClick={() => {
+    <div className="grid grid-cols-2 gap-1.5">
+    <button type="button" className="h-8 rounded-md border border-gray-800 bg-gray-950 px-2 text-left text-xs text-gray-200 hover:bg-gray-800 disabled:opacity-40 disabled:hover:bg-transparent pointer-coarse:h-10" onClick={() => setRefresh((n) => n + 1)}>{key('sourceRefresh')}</button>
+    <button type="button" className="h-8 rounded-md border border-gray-800 bg-gray-950 px-2 text-left text-xs text-gray-200 hover:bg-gray-800 disabled:opacity-40 disabled:hover:bg-transparent pointer-coarse:h-10" disabled={disabled || busy || !doc || !source} onClick={() => {
       if (!doc || !source) return; setBusy(true); setError('');
       void addLinkedImage(root, doc, source).then((next) => { if (current(doc.id)) onDoc(next); })
         .catch((failure: unknown) => { if (current(doc.id)) setError(creationErrorText(t, failure)); }).finally(() => { if (current(doc.id)) setBusy(false); });
     }}>{key(busy ? 'working' : 'importSource')}</button>
     {source?.appId === 'vibimage' && <>
-      <button type="button" className="rounded bg-white/5 p-1.5 disabled:opacity-35 pointer-coarse:p-2" disabled={styleDisabled || busy} onClick={() => takeStyle(false)}>{key('useSourceStyle')}</button>
-      <button type="button" className="rounded bg-white/5 p-1.5 disabled:opacity-35 pointer-coarse:p-2" disabled={styleDisabled || busy} onClick={() => takeStyle(true)}>{key('useSourceStyleLayers')}</button>
+      <button type="button" className="h-8 rounded-md border border-gray-800 bg-gray-950 px-2 text-left text-xs text-gray-200 hover:bg-gray-800 disabled:opacity-40 disabled:hover:bg-transparent pointer-coarse:h-10" disabled={styleDisabled || busy} onClick={() => takeStyle(false)}>{key('useSourceStyle')}</button>
+      <button type="button" className="h-8 rounded-md border border-gray-800 bg-gray-950 px-2 text-left text-xs text-gray-200 hover:bg-gray-800 disabled:opacity-40 disabled:hover:bg-transparent pointer-coarse:h-10" disabled={styleDisabled || busy} onClick={() => takeStyle(true)}>{key('useSourceStyleLayers')}</button>
     </>}
+    </div>
     {error && <span role="alert" className="min-w-0 break-words text-amber-200">{error}</span>}
   </div>;
 }

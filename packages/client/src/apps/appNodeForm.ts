@@ -23,6 +23,8 @@ export interface NodeRect extends NodeSize {
   readonly y: number;
 }
 
+export type AppNodeResizeAxis = 'width' | 'height';
+
 export interface AppNodeResizeBounds {
   readonly minWidth: number;
   readonly minHeight: number;
@@ -112,13 +114,12 @@ export function appNodeSize(
 }
 
 /**
- * §5.4 #36 (J) ① — 크기 조절을 결과 칸 비율에 묶는다: 폭이 바뀌었으면 폭에서 높이를, 높이만 바뀌었으면 높이에서 폭을 계산하고,
+ * §5.4 #36 (J) ① — 계산 축은 드래그마다 고정한다. 매 표본에서 고르면 시작 폭을 지날 때 기준이 뒤집혀 크기가 튄다.
  * 손잡이가 옮긴 변의 맞은편을 지킨다(왼쪽·위 손잡이면 오른쪽·아래 가장자리가 그대로). `start` 는 누르기 직전의 자리·크기.
  */
-export function aspectLockedResize(start: NodeRect, proposed: NodeRect, aspect: number, bounds: AppNodeResizeBounds): NodeRect {
+export function aspectLockedResize(start: NodeRect, proposed: NodeRect, aspect: number, bounds: AppNodeResizeBounds, axis: AppNodeResizeAxis): NodeRect {
   const a = normalizeStageAspect(aspect) ?? 1;
-  const widthDriven = proposed.width !== start.width;
-  const driverWidth = widthDriven
+  const driverWidth = axis === 'width'
     ? proposed.width
     : (proposed.height - SCREEN_CHROME.height) * a + SCREEN_CHROME.width;
   const size = stageFitSize(a, bounds, driverWidth);

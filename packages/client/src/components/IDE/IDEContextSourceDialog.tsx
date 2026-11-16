@@ -144,7 +144,7 @@ export function IDEContextSourceDialog({
   const language = preview?.filePath ? languageFromPath(preview.filePath) : 'markdown';
 
   return createPortal(
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" {...backdrop}>
+    <div className="fixed inset-0 z-overlay flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" {...backdrop}>
       <div
         className="flex h-[80vh] w-[980px] max-w-[96vw] flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-gray-900/95 shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}

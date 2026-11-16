@@ -10,6 +10,7 @@ import type { FrameStripViewerProps } from './FrameStripViewer.js';
 import type { VideoSourcesDrawer } from './VideoSourcesDrawer.js';
 import type { VideoRequestReview } from './VideoRequestReview.js';
 import type { ExportDialogProps } from './ExportDialog.js';
+import type { StudioCodeViewProps } from './StudioCodeView.js';
 
 /**
  * §5.13 (X) 39-2 — 처음엔 **닫혀 있는 판은 첫 청크 밖**에 둔다(정밀 편집 · 판 기록 · 판 비교 · 두 엔진 비교 · 스타일 서랍 ·
@@ -42,6 +43,8 @@ const sources = lazyPanel<Parameters<typeof VideoSourcesDrawer>[0]>(async () => 
 const requestReview = lazyPanel<Parameters<typeof VideoRequestReview>[0]>(async () => (await import('./VideoRequestReview.js')).VideoRequestReview);
 /** §5.13 (AA) 42-8 — 내보내기 설정 창(열 때만 — 첫 청크 밖). */
 const exportDialog = lazyPanel<ExportDialogProps>(async () => (await import('./ExportDialog.js')).ExportDialog);
+/** §5.13 (V) 37-20 — 읽기 전용 코드 칸(레일 '코드'를 열 때만). */
+const codeView = lazyPanel<StudioCodeViewProps>(async () => (await import('./StudioCodeView.js')).StudioCodeView);
 
 export const LazyPrecisionSheet = precision.Component;
 export const LazyHistoryPanel = history.Component;
@@ -53,8 +56,9 @@ export const LazyFrameStripViewer = frameStrip.Component;
 export const LazyVideoSourcesDrawer = sources.Component;
 export const LazyVideoRequestReview = requestReview.Component;
 export const LazyExportDialog = exportDialog.Component;
+export const LazyStudioCodeView = codeView.Component;
 
-const ALL: readonly LazyPanel<never>[] = [precision, history, historyCompare, variantCompare, styleDrawer, libraries, frameStrip, sources, requestReview, exportDialog] as unknown as readonly LazyPanel<never>[];
+const ALL: readonly LazyPanel<never>[] = [precision, history, historyCompare, variantCompare, styleDrawer, libraries, frameStrip, sources, requestReview, exportDialog, codeView] as unknown as readonly LazyPanel<never>[];
 
 /** 닫힌 판을 전부 미리 받는다(한 번 받은 것은 모듈 캐시라 다시 안 받는다). 실패는 조용히 — 실제로 열 때 다시 받는다. */
 export function preloadStudioPanels(): void {

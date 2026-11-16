@@ -5,17 +5,26 @@ import { VIDEO_FORMAT_IDS, formatRatioLabel, type VideoFormatId } from '@vibisua
 import { useAppBoxTier } from '../../hooks/useBoxTier.js';
 import { StudioIcon } from './studioIcons.js';
 import { StudioPopover, PopoverItem } from './StudioPopover.js';
+import { DocGallery } from './DocGallery.js';
+import { galleryLayout } from './docGalleryModel.js';
 import type { DocSummary } from './videoApi.js';
 import { memoLatest } from './studioMemo.js';
 
 /**
  * §5.13 (V) 37-1 — 스튜디오 머리줄. `AppChrome` 자리가 있으면 거기 그려 크롬이 한 줄이 된다(입력·단추는 창 끌기 판정이 비켜 준다).
  * 포털되면 `data-box` 밖이라 `box-*` 가 안 닿는다 — 등급을 `useAppBoxTier` 로 읽는다. 폰 폭은 아이콘만, 제목은 0 폭까지 줄지 않게.
+ * 문서 메뉴(▾)는 손잡이 하나 그대로이고 열리는 판이 문서 갤러리다(`DocGallery.tsx` — 검색·포스터·복제·이름·삭제).
  */
 export interface StudioHeaderProps {
   readonly title: string | null;
   readonly onRename: (title: string) => void;
   readonly docs: readonly DocSummary[];
+  /** 갤러리가 포스터를 청하고 문서를 복제·삭제하는 프로젝트. */
+  readonly project: string;
+  /** 갤러리가 열릴 때·복제 뒤에 목록을 새로 읽는다. */
+  readonly onRefreshDocs: () => Promise<void>;
+  /** 갤러리에서 문서를 지웠다(열린 문서였으면 닫는 것은 셸의 몫). */
+  readonly onDocDeleted: (id: string) => void;
   readonly currentDocId: string | null;
   readonly onOpenDoc: (id: string) => void;
   readonly onNewDoc: () => void;
@@ -58,7 +67,8 @@ function StudioHeaderView(p: StudioHeaderProps): React.JSX.Element {
     if (next !== '' && next !== p.title) p.onRename(next);
   };
   const progress = p.exportProgress;
-  const narrow = useAppBoxTier() === 'narrow';
+  const tier = useAppBoxTier();
+  const narrow = tier === 'narrow';
   const historyLabel = t('panel.videoStudio.header.history');
   const exportLabel = t('panel.videoStudio.header.export');
   // 좁으면 제목이 다른 손잡이에 밀려 0 폭이 되지 않게 바닥을 둔다(넓으면 종전대로 줄 수 있다 — 짧은 제목의 칸이 늘지 않게).
@@ -129,14 +139,11 @@ function StudioHeaderView(p: StudioHeaderProps): React.JSX.Element {
         </span>
       </button>
 
-      <StudioPopover anchor={docsRef} open={menu === 'docs'} onClose={close} label={t('panel.videoStudio.header.docs')} className="w-64">
-        <PopoverItem onClick={() => { close(); p.onNewDoc(); }}>
-          <span className="flex items-center gap-2"><StudioIcon name="plus" />{t('panel.videoStudio.header.newDoc')}</span>
-        </PopoverItem>
-        {p.docs.length > 0 ? <p className="px-2.5 pb-1 pt-2 text-[12px] font-semibold text-slate-500">{t('panel.videoStudio.header.recent')}</p> : null}
-        {p.docs.slice(0, 12).map((d) => (
-          <PopoverItem key={d.id} active={d.id === p.currentDocId} onClick={() => { close(); p.onOpenDoc(d.id); }}>{d.title || d.id}</PopoverItem>
-        ))}
+      <StudioPopover anchor={docsRef} open={menu === 'docs'} onClose={close} label={t('panel.videoStudio.header.docs')} className={galleryLayout(tier).panelClass}>
+        {menu === 'docs' ? (
+          <DocGallery project={p.project} docs={p.docs} currentDocId={p.currentDocId} locked={p.disabled} onClose={close}
+            onOpenDoc={p.onOpenDoc} onNewDoc={p.onNewDoc} onRenameCurrent={p.onRename} onRefreshDocs={p.onRefreshDocs} onDocDeleted={p.onDocDeleted} />
+        ) : null}
       </StudioPopover>
       <StudioPopover anchor={formatRef} open={menu === 'format'} onClose={close} label={t('panel.videoStudio.header.format')} className="w-56">
         {VIDEO_FORMAT_IDS.map((id) => (

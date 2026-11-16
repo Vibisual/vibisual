@@ -2,8 +2,9 @@
  * §4 — 동적 모델 레지스트리: 시드 → (`ANTHROPIC_API_KEY` 가 있으면) `/v1/models` 머지 → 패밀리별 latest.
  * 캐시 `~/.vibisual/model-registry.json`(TTL 안이면 페치 생략). SDK 없이 raw `fetch`. 키가 없으면 sourceMix='seed-only'(시드+관측).
  * §4 (상태바 모델 칸 ③) — 목록은 저절로 최신이어야 한다(출처는 법적 안전선 안만 — HTML 긁기·실행본 문자열 ❌):
- * `refreshIfDue()` 20초 스윕 · `refreshNow()` 모델 창 열 때 · `noteObservedModel()` 대화록 관측.
- * 콜사이트: `getSnapshot()` · `buildConfigArgs()`(alias 해소) · `readContextInfo()`(관측) · `GET /api/models`·`POST /api/models/refresh`.
+ * `refreshIfDue()` 20초 스윕 · `refreshNow()` 모델 창 열 때 · `noteObservedModel()` 대화록·훅 관측.
+ * §4 (상태바 모델 칸 ③⑤) — `claude --help` 한 번에서 `--effort` 등급과 `--model` 네이티브 별칭을 함께 읽어 레지스트리에 싣는다(치환 여부는 `buildConfigArgs` 가 `listNativeModelAliases` 로 가른다).
+ * 콜사이트: `getSnapshot()` · `buildConfigArgs()`(alias 해소) · `readContextInfo()`·훅 라우트(관측) · `GET /api/models`·`POST /api/models/refresh`.
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -32,6 +33,14 @@ import {
   mergeProbedEffortLevels,
   planEffortProbeCandidates,
 } from './effortLevelProbe.js';
+import { parseNativeModelAliasesFromHelp } from './modelAliasProbe.js';
+
+/** `claude --help` 한 번에서 함께 읽는 두 값. 못 읽은 쪽은 undefined(클라·스폰이 폴백). */
+interface CliHelpScan {
+  effortLevels: string[] | undefined;
+  nativeAliases: string[] | undefined;
+}
+const EMPTY_HELP_SCAN: CliHelpScan = { effortLevels: undefined, nativeAliases: undefined };
 
 /** §4 — 패밀리 화이트리스트가 없어 `/v1/models` 의 비모델 id 가 가짜 패밀리로 새지 않게 거르는 이름('code' 는 CLI 패키지명). */
 const NON_MODEL_FAMILIES = new Set<string>(['code', 'cli', 'agent']);
@@ -197,7 +206,12 @@ class ModelRegistryService {
    */
   private cliEffortLevels: string[] | undefined;
   /**
-   * §4 (상태바 모델 칸 ③) — 강도 등급을 긁을 때의 실행본 정체(경로 + 수정 시각). 스윕·창 열기가
+   * §4 (상태바 모델 칸 ③⑤) — 같은 `--help` 의 `--model` 설명이 인용한 별칭(2.1.300: fable·opus·sonnet). undefined = 못 읽음 → `listNativeModelAliases` 가 폴백 셋만 쓴다.
+   * 여기 든 별칭은 `buildConfigArgs` 가 bare 로 넘긴다 — CLI 가 자기 latest 로 해소해야 대화록에 진짜 판이 찍히고 관측이 그것을 배운다.
+   */
+  private cliNativeAliases: string[] | undefined;
+  /**
+   * §4 (상태바 모델 칸 ③) — 도움말을 긁을 때의 실행본 정체(경로 + 수정 시각). 스윕·창 열기가
    * 이 값과 지금 실행본을 대조해 **바뀌었을 때만** `--help` 를 다시 띄운다(확장 자동 갱신 대응).
    */
   private effortBinIdentity: string | null = null;
@@ -234,33 +248,40 @@ class ModelRegistryService {
     };
   }
 
-  /** §4 — `claude --help` 에서 `--effort` 등급을 파싱한다(하드코딩 없음). 실패면 undefined → 클라가 `AVAILABLE_EFFORT_LEVELS` 로 폴백. */
-  private async scanEffortLevelsFromCli(): Promise<string[] | undefined> {
+  /**
+   * §4 — `claude --help` 한 번에서 `--effort` 등급과 `--model` 네이티브 별칭을 파싱한다(하드코딩 없음, 자식은 한 번만 띄운다).
+   * 못 읽은 쪽은 undefined → 등급은 클라가 `AVAILABLE_EFFORT_LEVELS` 로, 별칭은 스폰이 폴백 셋으로.
+   */
+  private async scanCliHelp(): Promise<CliHelpScan> {
     let binPath: string | undefined;
     try {
       binPath = getClaudeBin()?.binPath;
     } catch { /* PATH 미발견 */ }
-    if (!binPath) return undefined;
+    if (!binPath) return EMPTY_HELP_SCAN;
 
     const help = await this.runCliCapture(binPath, ['--help']);
+    if (!help) return EMPTY_HELP_SCAN;
 
-    if (!help) return undefined;
+    // §4 (상태바 모델 칸 ③⑤) — 설치본이 bare 로 받는 별칭. 치환 여부를 가르는 유일한 실측이다.
+    const aliases = parseNativeModelAliasesFromHelp(help);
+    const nativeAliases = aliases.length > 0 ? aliases : undefined;
+
     const m = EFFORT_HELP_RE.exec(help);
-    if (!m?.[1]) return undefined;
+    if (!m?.[1]) return { effortLevels: undefined, nativeAliases };
     const levels = m[1]
       .split(',')
       .map((s) => s.trim().toLowerCase())
       .filter((s) => /^[a-z][a-z0-9-]*$/.test(s) && s !== 'default');
     // 중복 제거, 최소 1개 이상일 때만 채택.
     const uniq = [...new Set(levels)];
-    if (uniq.length === 0) return undefined;
+    if (uniq.length === 0) return { effortLevels: undefined, nativeAliases };
 
     // §4 — 도움말은 CLI 가 받는 값을 **전부 적어 두지 않는다**(`ultracode` 가 그 자리). 도움말 밖
     //   후보만 실측으로 찔러 받아들여지는 것을 뒤에 붙인다. 도움말이 이미 적은 값은 안 찌른다.
     const extra = await this.probeExtraEffortLevels(binPath, uniq);
     const merged = mergeProbedEffortLevels(uniq, extra);
-    logger.info(`[modelRegistry] cli effort levels: ${merged.join(', ')} (help=${uniq.length}, probed=${extra.length})`);
-    return merged;
+    logger.info(`[modelRegistry] cli effort levels: ${merged.join(', ')} (help=${uniq.length}, probed=${extra.length}); native model aliases: ${nativeAliases?.join(', ') ?? 'none'}`);
+    return { effortLevels: merged, nativeAliases };
   }
 
   /**
@@ -336,17 +357,21 @@ class ModelRegistryService {
     }
   }
 
-  /** 강도 등급을 다시 긁고, 그때의 실행본 정체를 기억한다. 등급이 바뀌었으면 true. */
-  private async rescanEffortLevels(identity?: string): Promise<boolean> {
-    const before = JSON.stringify(this.cliEffortLevels ?? null);
+  /** 도움말(강도 등급 · 네이티브 별칭)을 다시 긁고, 그때의 실행본 정체를 기억한다. 둘 중 하나라도 바뀌었으면 true. */
+  private async rescanCliHelp(identity?: string): Promise<boolean> {
+    const snapshot = (): string => JSON.stringify([this.cliEffortLevels ?? null, this.cliNativeAliases ?? null]);
+    const before = snapshot();
     try {
-      this.cliEffortLevels = await this.scanEffortLevelsFromCli();
+      const scanned = await this.scanCliHelp();
+      this.cliEffortLevels = scanned.effortLevels;
+      this.cliNativeAliases = scanned.nativeAliases;
     } catch (err) {
-      logger.warn(`[modelRegistry] effort --help scan failed: ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(`[modelRegistry] cli --help scan failed: ${err instanceof Error ? err.message : String(err)}`);
       this.cliEffortLevels = undefined;
+      this.cliNativeAliases = undefined;
     }
     this.effortBinIdentity = identity ?? await this.currentBinIdentity();
-    return JSON.stringify(this.cliEffortLevels ?? null) !== before;
+    return snapshot() !== before;
   }
 
   /** `claude-<family>-A[-B]` 의 (A,B), minor 없으면 0 — shared `parseModelSemver` 에 맡긴다(클라와 같은 규칙). */
@@ -411,9 +436,9 @@ class ModelRegistryService {
   }
 
   private async refreshIfStaleCore(): Promise<void> {
-    // §4 — effort 등급은 CLI(`claude --help`)에서 동적 파싱(하드코딩 폐기). 실패 시 undefined→클라 폴백.
+    // §4 — effort 등급·네이티브 별칭은 CLI(`claude --help`)에서 동적 파싱(하드코딩 폐기). 실패 시 undefined→클라·스폰 폴백.
     // `--help` 는 CLI 가 공개한 인터페이스라 그대로 둔다(실행본을 뜯어 읽던 모델 raw scan 과 다르다).
-    await this.rescanEffortLevels();
+    await this.rescanCliHelp();
 
     // 캐시에서 API 결과만 추출 (시드 entry 는 매 부팅 재생성)
     let cachedApiEntries: ModelRegistryEntry[] = [];
@@ -522,8 +547,8 @@ class ModelRegistryService {
 
     const identity = await this.currentBinIdentity();
     if (identity !== this.effortBinIdentity) {
-      logger.info(`[modelRegistry] claude binary changed (${this.effortBinIdentity ?? 'none'} -> ${identity || 'none'}) — rescanning effort levels`);
-      if (await this.rescanEffortLevels(identity)) changed = true;
+      logger.info(`[modelRegistry] claude binary changed (${this.effortBinIdentity ?? 'none'} -> ${identity || 'none'}) — rescanning --help (effort levels · native model aliases)`);
+      if (await this.rescanCliHelp(identity)) changed = true;
     }
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -626,8 +651,9 @@ class ModelRegistryService {
       updatedAt: Date.now(),
       ...(this.checkedAt > 0 ? { checkedAt: this.checkedAt } : {}),
       sourceMix,
-      // §4 — CLI --help 에서 파싱한 effort 등급을 registry 에 실어 같은 WS/REST 경로로 전파.
+      // §4 — CLI --help 에서 파싱한 effort 등급·네이티브 별칭을 registry 에 실어 같은 WS/REST 경로로 전파.
       effortLevels: this.cliEffortLevels,
+      nativeModelAliases: this.cliNativeAliases,
     };
   }
 

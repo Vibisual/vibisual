@@ -2,12 +2,14 @@ import { useContext, useLayoutEffect, useRef, useState, type CSSProperties, type
 import { createPortal } from 'react-dom';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { StudioAccentContext } from './studioMotion.js';
+import { Z_LAYER } from '../../theme/zLayers.js';
+import { overlayRoot } from '../../utils/overlayRoot.js';
 
 /**
  * §5.13 (V) — 스튜디오 떠 있는 판. 문서 몸으로 포털한다(앱 안 창 머리줄의 흐림이 쌓임 맥락을 만들어 안에선 잘린다). z 는 앱 창(백만 단위) 위.
  * 바깥 누름·Esc 로 닫되 판 안에서 시작한 손짓은 닫지 못한다(§6, `useOutsidePressDismiss`).
  */
-export const STUDIO_POPOVER_Z = 2_100_000_000;
+export const STUDIO_POPOVER_Z = Z_LAYER.STUDIO_POPOVER;
 
 export interface StudioPopoverProps {
   readonly anchor: RefObject<HTMLElement | null>;
@@ -68,7 +70,8 @@ export function StudioPopover(p: StudioPopoverProps): React.JSX.Element | null {
     >
       {p.children}
     </div>,
-    document.body,
+    // 전체 화면 중에는 그 요소 안에 세운다(밖은 그려지지 않는다 — 37-24 (E)).
+    overlayRoot(),
   );
 }
 

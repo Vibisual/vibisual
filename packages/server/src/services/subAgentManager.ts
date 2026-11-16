@@ -7,7 +7,7 @@ import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, AgentEngineKind, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
 import { appStateGetTokenSaver } from './appState.js';
 import { ensureCmdCardRulesDocs } from './cmdCardRulesDoc.js';
-import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, isToolDisallowed, readTurnStopSignal, resolveTurnStopReason, normalizeModelStopReason, type TurnStopSignal, type ModelStopReason, readCompactionSignal, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText, engineForProvider, USAGE_LIMIT_PROMOTABLE_ERROR_CODES, buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX, TURN_STREAM_STALL_MS, CODEX_MANAGED_TUI_ARGS } from '@vibisual/shared';
+import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, listNativeModelAliases, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, capSetSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, shouldAskForTool, isToolDisallowed, readTurnStopSignal, resolveTurnStopReason, normalizeModelStopReason, type TurnStopSignal, type ModelStopReason, readCompactionSignal, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings, detectUsageLimitStop, detectUsageLimitInText, engineForProvider, USAGE_LIMIT_PROMOTABLE_ERROR_CODES, buildTokenSaverEnv, STREAM_HISTORY_PAGE_EVENTS, STREAM_HISTORY_PAGE_MAX, TURN_STREAM_STALL_MS, CODEX_MANAGED_TUI_ARGS } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed, hasLiveAgentTasks, countLiveShells,
   listDisplayableLiveTasks, hasLiveTasks, turnIdOfLiveTask, takeOrphanLiveTasks, LIVE_TASK_ORPHAN_GRACE_MS,
@@ -128,6 +128,15 @@ export type LocalHookEmitter = (
   event: LocalHookToolEvent,
 ) => void;
 
+/** §5.4 #36 (C) — 앱 노드에 이어진 세션의 도구 판정. 훅 경로와 같은 판정기를 `index.ts` 가 주입한다. */
+export type AppLinkChecker = (q: {
+  agentId: string;
+  subAgentId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  cwd: string | null;
+}) => Promise<{ deny?: string }>;
+
 export type LocalHostToolHandler = (
   ctx: { agentId: string; subAgentId: string; agentLabel: string; config: AgentConfig },
   toolName: string,
@@ -156,9 +165,6 @@ function deriveTabTitle(text: string): string {
   return title;
 }
 
-/** §4 — CLI `--model` 이 bare alias 로 latest 해소하는 패밀리. 밖의 패밀리(fable 등)를 bare 로 넘기면 opus 로 조용히 폴백된다 — 레지스트리 풀ID 로 바꿀 것. */
-const CLI_NATIVE_ALIASES = new Set<string>(['opus', 'sonnet', 'haiku']);
-
 /** AgentConfig → claude CLI 인자(`buildConfigArgs`). 기본값과 같은 항목은 넘기지 않는다 — 권한 모드·도구는 예외로 항상 명시. */
 /** 스폰 맥락 — 기억 폴더를 프로젝트 아래에 잡을 이름·루트(§5.3). */
 interface ConfigArgsContext {
@@ -182,9 +188,11 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
   if (config.model) {
     const pinned = config.modelVersion?.trim();
     let base = pinned || config.model;
-    // §4 — 핀도 native alias 도 아니면 레지스트리 latest 풀ID 로 바꾼다(fable → claude-fable-5). 레지스트리에 없으면 bare 그대로(CLI 가 에러).
-    if (!pinned && !CLI_NATIVE_ALIASES.has(base)) {
-      const resolved = resolveAliasToLatest(base, modelRegistryService.getRegistry());
+    // §4 (상태바 모델 칸 ③⑤) — 설치본이 bare 로 받는 별칭(`--help` 실측 ∪ 폴백 셋)은 그대로 넘긴다 — CLI 가 자기 latest 로 해소해야 대화록에 진짜 판이 찍히고 목록이 그것을 배운다.
+    //   도움말이 적지 않은 별칭만 레지스트리 latest 풀ID 로 바꾼다(옛 판 CLI 가 모르는 별칭을 bare 로 받으면 opus 로 조용히 떨어졌다). 레지스트리에도 없으면 bare 그대로(CLI 가 에러).
+    const registry = modelRegistryService.getRegistry();
+    if (!pinned && !listNativeModelAliases(registry).includes(base)) {
+      const resolved = resolveAliasToLatest(base, registry);
       if (resolved) base = resolved;
     }
     let modelArg = base;
@@ -1067,6 +1075,7 @@ export class SubAgentManager {
   private agentConfigResolver: AgentConfigResolver | null = null;
   /** §5.3 #12-3 — 로컬 도구 판정이 보는 자물쇠. 없으면 자물쇠를 보지 않는다(주입 전 단위 테스트 등). */
   private pathLockResolver: PathLockResolver | null = null;
+  private appLinkChecker: AppLinkChecker | null = null;
   /** sub → 스트림을 마지막으로 읽은 폴더(`findStreamDirFor` ②). `streamDiskStamps` 와 달리 회수·탭 닫기에서 지우지 않는다 — 소속을 잃었을 때의 실마리다. */
   private lastKnownStreamDirs = new Map<string, string>();
   /** 부모 → sub-streams 폴더를 마지막으로 짚은 자리. 같은 부모는 한 폴더라 파일이 아직 없는 새 세션도 소속 해석이 끊긴 동안 여기로 쓴다. 지우지 않는다. */
@@ -1200,6 +1209,10 @@ export class SubAgentManager {
 
   setPathLockResolver(resolver: PathLockResolver): void {
     this.pathLockResolver = resolver;
+  }
+
+  setAppLinkChecker(checker: AppLinkChecker): void {
+    this.appLinkChecker = checker;
   }
 
   /** 소속을 잃은 세션의 스트림 폴더를 되찾을 때 훑을 후보 목록(§5.5 — 아래 `findStreamDirFor`). */
@@ -5861,6 +5874,11 @@ ${finalText}` : ''}` : finalText;
       // 못 쓰는 목록은 모드 단축보다 먼저 본다 — 훅 경로(`/api/permission-check`)와 같은 순수 함수다.
       if (isToolDisallowed(disallowedTools, toolName)) {
         return { allowed: false, reason: `${toolName} is on this agent's disallowed-tools list, so it was blocked without asking the user` };
+      }
+      // 판정기가 없으면 기다리지 않는다 — 빈 await 도 한 박자 밀려 카드가 늦게 선다.
+      if (this.appLinkChecker) {
+        const appLink = await this.appLinkChecker({ agentId: sub.parentAgentId, subAgentId: sub.id, toolName, toolInput, cwd: parentCwd });
+        if (appLink.deny) return { allowed: false, reason: appLink.deny };
       }
       /*
        * §5.3 #12-3 — 자물쇠는 모드 판정보다 먼저다(훅 경로와 같은 순서 · 같은 판정기). 묻지 않는 모드는

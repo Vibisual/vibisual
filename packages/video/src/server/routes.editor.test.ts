@@ -65,6 +65,36 @@ describe('Studio media and render routes', () => {
     expect(fs.readFileSync(saved!.result!)).toEqual(Buffer.from(bytes));
     expect((await fetch(`${base}/job/${job.id}/output`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes })).status).toBe(409);
   });
+  it('streams positional render output, accepts header patches and publishes only on commit', async () => {
+    const job = videoService.enqueueRender(root, 'streamed-render');
+    videoService.updateJob(job.id, { status: 'running' });
+    const put = (bytes: Uint8Array, start: number): Promise<Response> => fetch(`${base}/job/${job.id}/output`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/octet-stream', 'Content-Range': `bytes ${start}-${start + bytes.length - 1}/*` }, body: bytes,
+    });
+    const commit = (total: number): Promise<Response> => fetch(`${base}/job/${job.id}/output/commit`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ total }),
+    });
+    expect((await put(new Uint8Array([1, 1, 1, 1]), 0)).status).toBe(200);
+    expect((await put(new Uint8Array([2, 2, 2, 2]), 4)).status).toBe(200);
+    expect((await put(new Uint8Array([9]), 20)).status).toBe(409);
+    expect((await put(new Uint8Array([7, 7]), 1)).status).toBe(200);
+    expect(videoService.getJob(job.id)?.status).toBe('running');
+    expect((await commit(8)).status).toBe(200);
+    const saved = videoService.getJob(job.id);
+    expect(saved?.status).toBe('done');
+    expect([...fs.readFileSync(saved!.result!)]).toEqual([1, 7, 7, 1, 2, 2, 2, 2]);
+    expect(fs.readdirSync(path.dirname(saved!.result!)).filter((name) => name.endsWith('.part'))).toEqual([]);
+  });
+  it('rejects a streamed commit whose size does not match and removes the partial file', async () => {
+    const job = videoService.enqueueRender(root, 'short-stream');
+    videoService.updateJob(job.id, { status: 'running' });
+    await fetch(`${base}/job/${job.id}/output`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream', 'Content-Range': 'bytes 0-2/*' }, body: new Uint8Array([1, 2, 3]) });
+    const res = await fetch(`${base}/job/${job.id}/output/commit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ total: 4 }) });
+    expect(res.status).toBe(409);
+    expect(videoService.getJob(job.id)?.status).toBe('running');
+    const outDir = path.join(root, '.vibisual', 'video', 'out');
+    expect(fs.existsSync(outDir) ? fs.readdirSync(outDir).filter((name) => name.endsWith('.part')) : []).toEqual([]);
+  });
   it('resolves a pending still with large PNG bytes without JSON upload', async () => {
     const pending = videoService.requestStill(root, 'still', 1);
     const claimed = videoService.claimNext(root)!;

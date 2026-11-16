@@ -6,6 +6,7 @@
 import type { AgentConfig, AgentDefinition, AgentEngineKind, AgentProvider, UserDefaults } from './types.js';
 import { AGENT_TOOLS_BACKFILL_GEN, DEFAULT_AGENT_CONFIG, backfillAgentTools, buildAgentsFlagJson, engineForProvider, providerForEngine } from './constants.js';
 import { normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
+import { normalizeRecentUseRingCount } from './recentUse.js';
 
 /**
  * 비교에서 빼는 축 — 버블마다 다른 게 정상인 정체성(`provider`·`executionMode`·`cliKind`)과 다른 화면이 채우는 값(`mcpServers`·`rulesHistory`·`presetId`).
@@ -78,6 +79,8 @@ export const AGENT_CONFIG_COMPARED_FIELDS = [
   'autoCompactPct',
   'disableNonEssentialModelCalls',
   'skills',
+  // §5.1 #3-5 — 캔버스 표시 축(CLI 로 안 나간다). 0 이 "끔"이라 숫자 일반 규칙(0 = 미설정)에 맡기지 않는다.
+  'recentUseRings',
 ] as const;
 
 export type AgentConfigComparedField = (typeof AGENT_CONFIG_COMPARED_FIELDS)[number];
@@ -176,6 +179,9 @@ export function normalizeAgentFieldForCompare(field: AgentConfigComparedField | 
     case 'thinking':
       return value === false ? 'off' : '';
     // 칸이 0 을 표현하지 못한다(위 상수 주석).
+    // §5.1 #3-5 — 미설정은 기본 개수와 같은 뜻이고 0 은 끔이다(숫자 일반 규칙이면 0 이 미설정으로 접혀 저장되지 않는다).
+    case 'recentUseRings':
+      return String(normalizeRecentUseRingCount(value));
     case 'maxTurns': {
       const n = typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : AGENT_MAX_TURNS_UI_FALLBACK;
       return String(n);

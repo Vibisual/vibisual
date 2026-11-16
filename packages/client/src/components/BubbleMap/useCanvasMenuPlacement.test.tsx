@@ -207,4 +207,19 @@ describe('useCanvasMenuPlacement', () => {
     dispatch(h.list, 'scroll');
     expect(h.menu.getBoundingClientRect).not.toHaveBeenCalled();
   });
+
+  it('settles on a narrow phone where the submenu drops below instead of re-rendering forever', () => {
+    Object.assign(viewport, { width: 390, height: 844 });
+    Object.assign(browser, { innerWidth: 390, innerHeight: 844 });
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const h = mount(150, 200);
+    expect(h.side).toBe('below');
+    const settled = h.beforePaint.length;
+    // The real loop (React #185) needs a concurrent browser root; this pins the narrow-phone path it ran on.
+    for (let i = 0; i < 5; i += 1) h.update({ x: 150, y: 200, open: 'codex' });
+    expect(h.side).toBe('below');
+    expect(h.beforePaint.length - settled).toBe(5);
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
 });

@@ -26,11 +26,16 @@ import {
   SPEC_INDEX_SKIPPED_LIST_MAX,
   SPEC_INDEX_TTL_MS,
   SPEC_ITEM_LABEL_MAX,
+  SPEC_ITEM_MATCH_MAX,
   SPEC_ITEM_PATTERN_DEFAULT,
+  SPEC_MENTION_DF_RATIO,
+  SPEC_MENTION_EXTENSIONS,
   SPEC_RARE_TITLE_MIN_UNITS,
   SPEC_RARE_TITLE_DF_RATIO,
   SPEC_RARE_TITLE_HIT_WEIGHT,
   SPEC_REQUIRED_MAX,
+  SPEC_REQUIRED_PATH_RESERVE,
+  SPEC_REQUIRED_TOKEN_BUDGET,
   SPEC_REQUIREMENT_MARKERS,
   SPEC_RESPLIT_DEPTH_MAX,
   SPEC_SETTINGS_FILE,
@@ -40,6 +45,7 @@ import {
   SPEC_TITLE_MIN_HITS,
   SPEC_TITLE_STOPWORDS,
   SPEC_UNIT_MAX,
+  SPEC_UNIT_MENTION_MAX,
   SPEC_UNIT_TOKEN_MAX,
   normalizeScopeMap,
   resolveSpecReadingEnabled,
@@ -83,6 +89,16 @@ const TOKEN_MIN_CHARS = 2;
 /** 경로 축(건드린 파일 이름)이 쓰는 최소 길이. 짧으면 `ide`·`api` 처럼 온 제목에 걸린다. */
 const PATH_TOKEN_MIN_CHARS = 4;
 
+/** 본문이 이름으로 적은 코드 파일 하나의 점수 — 제목 낱말 하나(1)보다 크다(파일을 적어 둔 절이 그 파일의 기획이다). */
+const MENTION_HIT_SCORE = 5;
+
+/** 같은 파일을 적은 절끼리 프롬프트와 겹친 낱말 수로 가르는 소수 자리 — 정수 점수의 순서는 못 뒤집는다(`PROMPT_TIE_MAX` 까지). */
+const PROMPT_TIE_STEP = 0.1;
+const PROMPT_TIE_MAX = 5;
+
+/** 문단 조각의 제목에 붙는 표지·번호(`› 행 이름 (3/12)`)가 먹는 토큰 몫. */
+const PACK_TITLE_SLACK = 64;
+
 /** 헤딩 슬러그 길이 상한 — id 는 사람이 프롬프트에 되받아 적을 수 있어야 한다. */
 const SLUG_MAX_CHARS = 60;
 
@@ -97,6 +113,13 @@ const ITEM_RE = new RegExp(SPEC_ITEM_PATTERN_DEFAULT);
 
 /** 색인에서 빼는 파일 이름 꼴 — 상수표의 정규식을 한 번만 컴파일한다(소문자 basename 에 대고 검사). */
 const SKIP_FILE_RE = new RegExp(SPEC_DOC_SKIP_FILE_PATTERN);
+
+/** 코드 파일 이름 — 본문에서 찾는 꼴(이름 부분만 잡는다)과 낱말 하나가 코드 파일인지 보는 꼴. 확장자는 상수표 하나에서만 온다. */
+const MENTION_RE = new RegExp(`([0-9A-Za-z_][0-9A-Za-z_.-]*)\\.(?:${SPEC_MENTION_EXTENSIONS.join('|')})(?![0-9A-Za-z_])`, 'g');
+const CODE_FILE_RE = new RegExp(`\\.(?:${SPEC_MENTION_EXTENSIONS.join('|')})$`, 'i');
+
+/** 표의 구분 줄(`|---|:--:|`). */
+const TABLE_SEP_RE = /^\s*\|?\s*:?-{2,}:?\s*(?:\||$)/;
 
 /** 프롬프트 낱말 끝의 한국어 조사(「정독이」가 「정독」에 맞게) — 설정이 아니라 언어 표다. 긴 것부터 견주고, 남는 쪽이 낱말 최소 길이 이상일 때만 뗀다. */
 const KO_PARTICLES: readonly string[] = [
@@ -187,6 +210,8 @@ export function normalizeSpecSettings(input: Partial<SpecReadingSettings>): Spec
         .filter((r) => r.glob !== '' && r.specs.length > 0)
     : [];
   if (routes.length > 0) out.routes = routes;
+  const exclude = strings(input.exclude).map(shapePath).filter((g) => g !== '');
+  if (exclude.length > 0) out.exclude = exclude;
   const waived = strings(input.waived);
   if (waived.length > 0) out.waived = waived;
   // §5.5 #17-44 ⑧ — 켬/끔 3층. **여기서 떨어뜨리면 전량 교체 PUT 한 번에 켜 둔 것이 통째로 꺼진다**
@@ -262,7 +287,7 @@ export function splitUnits(file: string, text: string, idPattern?: string): Spec
     if (body.trim() !== '') {
       units.push(...resplitUnit(makeUnit(rel, rel.split('/').pop() ?? rel, from + 1, lines.length, body, idRe), lines, idRe));
     }
-    return dedupeIds(units);
+    return dedupeIds(units).map((u) => withMentions(u, lines));
   }
 
   for (let k = 0; k < heads.length; k++) {
@@ -275,7 +300,32 @@ export function splitUnits(file: string, text: string, idPattern?: string): Spec
     if (unit.chars === 0 && unit.requirementCount === 0) continue;
     units.push(...resplitUnit(unit, lines, idRe));
   }
-  return dedupeIds(units);
+  return dedupeIds(units).map((u) => withMentions(u, lines));
+}
+
+/** 다 자른 뒤의 절에만 단다 — 자르기 전 부모에 달면 같은 글을 깊이마다 다시 훑는다. */
+function withMentions(unit: SpecUnit, lines: string[]): SpecUnit {
+  const found = mentionsIn(lines.slice(unit.startLine - 1, unit.endLine).join('\n'));
+  return found.length > 0 ? { ...unit, mentions: found } : unit;
+}
+
+/** 본문이 적은 코드 파일 이름들. 소문자로 접는 것은 경로 키가 아니라 이름 판정이다(경로 축이 건드린 파일 이름을 접는 것과 같은 자). */
+function mentionsIn(text: string): string[] {
+  const out = new Set<string>();
+  MENTION_RE.lastIndex = 0;
+  for (let m = MENTION_RE.exec(text); m && out.size < SPEC_UNIT_MENTION_MAX; m = MENTION_RE.exec(text)) {
+    const stem = (m[1] ?? '').toLowerCase();
+    if (stem.length >= PATH_TOKEN_MIN_CHARS) out.add(stem);
+  }
+  return [...out];
+}
+
+/** 낱말·경로가 코드 파일이면 그 이름(확장자 뗀 소문자), 아니면 null. */
+function codeStem(nameOrPath: string): string | null {
+  const base = nameOrPath.split('/').pop() ?? '';
+  if (!CODE_FILE_RE.test(base)) return null;
+  const stem = base.replace(/\.[^.]+$/, '').toLowerCase();
+  return stem.length >= PATH_TOKEN_MIN_CHARS ? stem : null;
 }
 
 function makeUnit(
@@ -369,7 +419,7 @@ function resplitUnit(
             body,
             idRe,
             `${unit.id}/${slugify(shown)}`,
-            `${parentMatch}${TITLE_CHAIN_SEP}${s.label}`,
+            `${parentMatch}${TITLE_CHAIN_SEP}${clipMatch(s.label)}`,
           );
         out.push(...resplitUnit(sub, lines, idRe, depth + 1, s.own + 1));
       }
@@ -417,14 +467,22 @@ function clipLabel(label: string): string {
   return (at > 0 ? head.slice(0, at) : head).trim();
 }
 
+/** 찾기용 표지 — 본문까지 한 줄에 적힌 항목은 앞머리(`SPEC_ITEM_MATCH_MAX`)만 쓴다. 그 안에 드는 표지는 그대로라 꼬리 낱말이 남는다. */
+function clipMatch(label: string): string {
+  if (label.length <= SPEC_ITEM_MATCH_MAX) return label;
+  const head = label.slice(0, SPEC_ITEM_MATCH_MAX);
+  const at = head.lastIndexOf(' ');
+  return (at > 0 ? head.slice(0, at) : head).trim();
+}
+
 /** 마크다운 헤딩 줄인가 — `splitUnits` 가 절을 여는 판정과 같은 꼴(들여쓰기 3칸까지). */
 function isHeadingLine(raw: string): boolean {
   return /^ {0,3}#{1,6}\s+\S/.test(raw);
 }
 
 /**
- * 항목이 없는 긴 절을 **문단**으로 묶는다. 문단 하나가 상한을 넘으면 그 조각은 `oversized` 다 —
- * 억지로 문장 가운데를 자르면 인용·열람 구간이 문장과 어긋나므로 자르지 않고 표시만 한다.
+ * 항목이 없는 긴 절을 **문단**으로 묶는다. 문단 하나가 상한을 넘으면 **줄**에서 다시 가른다(열람 구간·인용은 줄 단위라 어긋나지 않는다).
+ * 줄 하나가 상한을 넘을 때만 `oversized` 다 — 문장 가운데를 억지로 자르지는 않는다.
  */
 function packParagraphs(unit: SpecUnit, lines: string[]): SpecUnit[] {
   // 여는 줄이 헤딩이면 문단이 아니다 — 문단으로 세면 "헤딩 한 줄짜리 (1/n)" 조각이 생기고, 문단이 하나뿐인 절도
@@ -451,35 +509,78 @@ function packParagraphs(unit: SpecUnit, lines: string[]): SpecUnit[] {
       paras.push(cur);
     }
   }
-  if (paras.length <= 1) return [{ ...unit, oversized: true }];
-  const chunks: { from: number; to: number; tokens: number }[] = [];
+  // 빈 줄 없이 이어진 긴 글(표·줄바꿈만 한 긴 항목)은 통째로 문단 하나다 — 상한을 넘으면 줄에서 다시 가른다. 표는 행 이름을 표지로 든다.
+  const parts: { from: number; to: number; cell?: string }[] = [];
   for (const p of paras) {
+    const over = p.to > p.from && estimateTokens(lines.slice(p.from - 1, p.to).join('\n')) > SPEC_UNIT_TOKEN_MAX;
+    const rows = over ? tableRows(lines, p) : null;
+    if (rows) parts.push(...rows);
+    else if (over) for (let n = p.from; n <= p.to; n++) parts.push({ from: n, to: n });
+    else parts.push(p);
+  }
+  if (parts.length <= 1) return [{ ...unit, oversized: true }];
+  // 조각 제목(부모 제목 + 표지·번호) 몫을 남기고 묶는다 — 꽉 채우면 제목만큼 넘쳐 멀쩡한 조각이 큰 절로 표시된다.
+  const room = Math.max(1, SPEC_UNIT_TOKEN_MAX - estimateTokens(unit.title) - PACK_TITLE_SLACK);
+  const chunks: { from: number; to: number; tokens: number; cells: string[] }[] = [];
+  for (const p of parts) {
     const tokens = estimateTokens(lines.slice(p.from - 1, p.to).join('\n'));
     const last = chunks[chunks.length - 1];
-    if (last && last.tokens + tokens <= SPEC_UNIT_TOKEN_MAX) {
+    if (last && last.tokens + tokens <= room) {
       last.to = p.to;
       last.tokens += tokens;
+      if (p.cell) last.cells.push(p.cell);
     } else if (chunks.length === 0 && headLine !== null) {
       // 첫 조각은 헤딩 줄부터 — 헤딩의 토큰도 함께 센다.
-      chunks.push({ from: headLine, to: p.to, tokens: tokens + estimateTokens(lines[headLine - 1] ?? '') });
-    } else chunks.push({ from: p.from, to: p.to, tokens });
+      chunks.push({ from: headLine, to: p.to, tokens: tokens + estimateTokens(lines[headLine - 1] ?? ''), cells: p.cell ? [p.cell] : [] });
+    } else chunks.push({ from: p.from, to: p.to, tokens, cells: p.cell ? [p.cell] : [] });
   }
   if (chunks.length <= 1) return [{ ...unit, oversized: true }];
+  const parentMatch = unit.matchText ?? unit.title;
   return chunks.map((c, i) => {
     const body = lines.slice(c.from - 1, c.to).join('\n');
+    const part = `(${i + 1}/${chunks.length})`;
+    // 표 행 조각은 첫 칸이 그 행의 이름이다 — 번호만 달면 조각끼리 제목이 같아 낱말로 못 가린다.
+    const label = c.cells.join(' · ');
     // 문단 조각에서는 id 토큰을 찾지 않는다 — 조각 안의 `REQ-…` 언급이 조각의 id 가 되면 같은 절이 여러 id 로 갈린다.
     const sub = makeUnit(
       unit.file,
-      `${unit.title} (${i + 1}/${chunks.length})`,
+      label === '' ? `${unit.title} ${part}` : `${unit.title}${TITLE_CHAIN_SEP}${clipLabel(label)} ${part}`,
       c.from,
       c.to,
       body,
       null,
       `${unit.id}/p${i + 1}`,
-      `${unit.matchText ?? unit.title} (${i + 1}/${chunks.length})`,
+      label === '' ? `${parentMatch} ${part}` : `${parentMatch}${TITLE_CHAIN_SEP}${clipMatch(label)} ${part}`,
     );
     return (sub.tokens ?? 0) > SPEC_UNIT_TOKEN_MAX ? { ...sub, oversized: true } : sub;
   });
+}
+
+/** 표 문단을 자료 행으로 — 머리·구분 줄은 다음 자료 행에 붙인다(따로 세우면 머리 한 줄짜리 조각이 선다). 표가 아니거나 자료 행이 하나뿐이면 null. */
+function tableRows(lines: string[], p: { from: number; to: number }): { from: number; to: number; cell: string }[] | null {
+  const out: { from: number; to: number; cell: string }[] = [];
+  let pending: number | null = null;
+  for (let n = p.from; n <= p.to; n++) {
+    const raw = lines[n - 1] ?? '';
+    if (!raw.trimStart().startsWith('|')) return null;
+    const isSep = TABLE_SEP_RE.test(raw);
+    const isHead = !isSep && n < p.to && TABLE_SEP_RE.test(lines[n] ?? '');
+    if (isSep || isHead) {
+      if (pending === null) pending = n;
+      continue;
+    }
+    out.push({ from: pending ?? n, to: n, cell: firstCell(raw) });
+    pending = null;
+  }
+  const last = out[out.length - 1];
+  if (last && pending !== null) last.to = p.to;
+  return out.length > 1 ? out : null;
+}
+
+/** 행의 첫 칸(굵게·코드 표식은 걷는다). */
+function firstCell(raw: string): string {
+  const cell = raw.split('|').map((c) => c.trim()).find((c) => c !== '') ?? '';
+  return cell.replace(/[*`_]/g, '').replace(/\s+/g, ' ').trim();
 }
 
 function firstMatch(re: RegExp, text: string): string | null {
@@ -546,7 +647,7 @@ export function buildSpecIndex(ctx: PluginPromptContext, settings: SpecReadingSe
         const key = pathKey(rel, platform);
         if (seen.has(key)) continue; // `docs` 와 `docs/scenario` 가 겹쳐도 한 번만 센다
         seen.add(key);
-        if (isExcludedDoc(rel)) {
+        if (isExcludedDoc(rel) || (settings.exclude ?? []).some((g) => matchGlob(g, rel, platform))) {
           excludedCount++;
           continue;
         }
@@ -634,6 +735,7 @@ function cacheKey(ctx: PluginPromptContext, settings: SpecReadingSettings): stri
   return [
     pathKey(ctx.projectPath, platform),
     (settings.roots ?? []).join(','),
+    (settings.exclude ?? []).join(','),
     settings.idPattern ?? '',
   ].join('|');
 }
@@ -702,6 +804,63 @@ interface Hit {
   unit: SpecUnit;
   via: SpecRequiredEntry['via'];
   score: number;
+  /** 건드린 파일을 본문이 이름으로 적어 둔 절 — 경로 축 몫(`SPEC_REQUIRED_PATH_RESERVE`)은 이것에만 준다(제목에 스친 파일 이름은 추측이다). */
+  mention: boolean;
+}
+
+/** 파일 이름별 "그 이름을 적어 둔 절 수" — 색인 하나에 한 번만 센다(매 턴 다시 세면 느리다). */
+const mentionDfCache = new WeakMap<SpecIndex, Map<string, number>>();
+
+function mentionDfOf(index: SpecIndex): Map<string, number> {
+  const hit = mentionDfCache.get(index);
+  if (hit) return hit;
+  const df = new Map<string, number>();
+  for (const unit of index.units) for (const m of unit.mentions ?? []) df.set(m, (df.get(m) ?? 0) + 1);
+  mentionDfCache.set(index, df);
+  return df;
+}
+
+/**
+ * 순위대로 담되 개수·토큰 두 상한 안에서. 안 들어가는 절은 건너뛰고 더 작은 다음 절을 본다(첫 절은 넘어도 싣는다).
+ * 프롬프트 축이 자리를 다 채우면 건드린 파일을 적어 둔 절이 영영 안 서므로 그 몫을 남긴다 — 사용자가 적은 매핑(`route`)은 밀지 않는다.
+ */
+function pickRequired(ranked: Hit[], max: number): Hit[] {
+  const cost = (h: Hit): number => (h.unit.oversized ? SPEC_UNIT_TOKEN_MAX : h.unit.tokens ?? 0);
+  const picked: Hit[] = [];
+  let used = 0;
+  for (const h of ranked) {
+    if (picked.length >= max) break;
+    if (picked.length > 0 && used + cost(h) > SPEC_REQUIRED_TOKEN_BUDGET) continue;
+    picked.push(h);
+    used += cost(h);
+  }
+  const reserve = Math.min(SPEC_REQUIRED_PATH_RESERVE, Math.floor(max / 4));
+  let seated = picked.filter((h) => h.mention).length;
+  for (const h of ranked) {
+    if (seated >= reserve) break;
+    if (!h.mention || picked.includes(h)) continue;
+    if (picked.length < max && used + cost(h) <= SPEC_REQUIRED_TOKEN_BUDGET) {
+      picked.push(h);
+      used += cost(h);
+      seated++;
+      continue;
+    }
+    let at = -1;
+    for (let i = picked.length - 1; i >= 0; i--) {
+      const p = picked[i];
+      if (p && p.via === 'prompt' && !p.mention) {
+        at = i;
+        break;
+      }
+    }
+    const out = at >= 0 ? picked[at] : undefined;
+    if (!out || used - cost(out) + cost(h) > SPEC_REQUIRED_TOKEN_BUDGET) continue;
+    picked.splice(at, 1);
+    picked.push(h);
+    used += cost(h) - cost(out);
+    seated++;
+  }
+  return picked.sort((a, b) => ranked.indexOf(a) - ranked.indexOf(b));
 }
 
 /**
@@ -715,11 +874,12 @@ export function routeRequiredUnits(
 ): SpecRequiredEntry[] {
   const platform = specPlatform(ctx);
   const best = new Map<string, Hit>();
-  const offer = (unit: SpecUnit, via: SpecRequiredEntry['via'], score: number): void => {
+  const offer = (unit: SpecUnit, via: SpecRequiredEntry['via'], score: number, mention = false): void => {
     if (score <= 0) return;
     const ranked = VIA_WEIGHT[via] * VIA_STEP + score;
     const cur = best.get(unit.id);
-    if (!cur || ranked > cur.score) best.set(unit.id, { unit, via, score: ranked });
+    if (!cur || ranked > cur.score) best.set(unit.id, { unit, via, score: ranked, mention: mention || (cur?.mention ?? false) });
+    else if (mention) cur.mention = true;
   };
 
   // (1) 명시 매핑 — 사용자가 적은 것이 가장 정확하다.
@@ -754,33 +914,69 @@ export function routeRequiredUnits(
     return weight;
   };
 
-  // (2) 이번 턴 프롬프트 — 무슨 일을 하려는지는 파일에 없다.
-  const promptTokens = new Set(tokenize(ctx.promptText ?? '').map((t) => t.toLowerCase()));
+  // 코드 파일 이름이 절을 가리키는가 — 흔한 이름(`index`·`types`)은 온 절에 적혀 있어 못 가린다. 작은 색인은 모집단이 없어 세지 않는다.
+  const mentionDf = mentionDfOf(index);
+  const mentionMax = index.units.length >= SPEC_RARE_TITLE_MIN_UNITS
+    ? Math.max(1, Math.floor(index.units.length * SPEC_MENTION_DF_RATIO))
+    : Number.POSITIVE_INFINITY;
+  const pointing = (stem: string): boolean => {
+    const df = mentionDf.get(stem) ?? 0;
+    return df > 0 && df <= mentionMax;
+  };
+  const mentionHits = (unit: SpecUnit, stems: ReadonlySet<string>): number => {
+    if (stems.size === 0 || !unit.mentions) return 0;
+    let n = 0;
+    for (const m of unit.mentions) if (stems.has(m)) n++;
+    return n;
+  };
+
+  // (2) 이번 턴 프롬프트 — 무슨 일을 하려는지는 파일에 없다. 코드 파일을 이름으로 부르면 그 파일을 적어 둔 절도 걸린다.
+  const promptWords = tokenize(ctx.promptText ?? '');
+  const promptTokens = new Set(promptWords.map((t) => t.toLowerCase()));
+  const promptStems = new Set<string>();
+  for (const t of promptWords) {
+    const stem = codeStem(t);
+    if (stem && pointing(stem)) promptStems.add(stem);
+  }
   if (promptTokens.size > 0) {
-    for (const unit of index.units) offer(unit, 'prompt', scoreUnit(unit, promptTokens, platform, 'prompt', weightOf));
+    for (const unit of index.units) {
+      const named = mentionHits(unit, promptStems);
+      offer(unit, 'prompt', scoreUnit(unit, promptTokens, platform, 'prompt', weightOf) + named * MENTION_HIT_SCORE, named > 0);
+    }
   }
 
-  // (3) 건드린 파일 이름 — 가장 약한 추측이라 긴 이름만 본다.
+  // (3) 건드린 파일 — 본문이 그 파일을 이름으로 적어 둔 절이 먼저, 제목에 이름이 스친 절은 가장 약한 추측이라 긴 이름만 본다.
   const pathTokens = new Set<string>();
+  const pathStems = new Set<string>();
   for (const p of touched) {
     const stem = (p.split('/').pop() ?? '').replace(/\.[^.]+$/, '').toLowerCase();
     if (stem.length >= PATH_TOKEN_MIN_CHARS) pathTokens.add(stem);
+    const code = codeStem(p);
+    if (code && pointing(code)) pathStems.add(code);
   }
   if (pathTokens.size > 0) {
-    for (const unit of index.units) offer(unit, 'path', scoreUnit(unit, pathTokens, platform, 'path', weightOf));
+    for (const unit of index.units) {
+      const hits = mentionHits(unit, pathStems);
+      // 같은 파일을 적은 절이 여럿이면 이번 프롬프트와 낱말이 겹치는 쪽이 먼저다.
+      let tie = 0;
+      if (hits > 0) {
+        const title = matchTextOf(unit);
+        for (const t of promptTokens) if (tie < PROMPT_TIE_MAX && weightOf(t) > 0 && titleHas(title, t, false)) tie++;
+      }
+      offer(unit, 'path', scoreUnit(unit, pathTokens, platform, 'path', weightOf) + hits * MENTION_HIT_SCORE + tie * PROMPT_TIE_STEP, hits > 0);
+    }
   }
 
   const max = clamp(settings.maxRequired ?? SPEC_REQUIRED_MAX, 1, SPEC_REQUIRED_MAX);
   const waived = new Set(settings.waived ?? []);
-  return [...best.values()]
-    .sort(
-      (a, b) =>
-        b.score - a.score ||
-        b.unit.requirementCount - a.unit.requirementCount ||
-        a.unit.file.localeCompare(b.unit.file) ||
-        a.unit.startLine - b.unit.startLine,
-    )
-    .slice(0, max)
+  const ranked = [...best.values()].sort(
+    (a, b) =>
+      b.score - a.score ||
+      b.unit.requirementCount - a.unit.requirementCount ||
+      a.unit.file.localeCompare(b.unit.file) ||
+      a.unit.startLine - b.unit.startLine,
+  );
+  return pickRequired(ranked, max)
     .map(({ unit, via }) => ({
       unitId: unit.id,
       title: unit.title,

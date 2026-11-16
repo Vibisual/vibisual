@@ -25,8 +25,9 @@ export function imageFontStack(family: string): string {
   const tail = generic.length ? generic : ['sans-serif'];
   return [...named.map(quoteFamily), ...fallbacks.map(quoteFamily), ...tail].join(', ');
 }
-export function imageFont(size: number, family: string): string {
-  return `${size}px ${imageFontStack(family)}`;
+export function imageFont(size: number, family: string, style: { weight?: number; italic?: boolean } = {}): string {
+  const weight = style.weight && style.weight !== 400 ? `${style.weight} ` : '';
+  return `${style.italic ? 'italic ' : ''}${weight}${size}px ${imageFontStack(family)}`;
 }
 
 const CJK = /[ᄀ-ᇿ⺀-⿟぀-ヿ㄀-ㄯ㄰-㆏ㆠ-ㇿ㈀-㋿㐀-䶿一-鿿ꥠ-꥿가-힯ힰ-퟿豈-﫿＀-￯]/u;
