@@ -131,13 +131,13 @@ describe('SaveScheduler retries failed writes without requiring another edit', (
     await vi.waitFor(() => {
       expect(getDiskWriteQueueStats().failed).toBeGreaterThan(failures);
       expect(getDiskWriteQueueStats().pending).toBe(1);
-    });
+    }, { timeout: 15_000 }); // 대기열은 전역이다 — 느린 Windows 러너에선 앞 시험의 쓰기가 1초 안에 다 안 빠졌다.
 
     fs.rmdirSync(target);
     scheduler.forceCheckpoint(cp);
-    await vi.waitFor(() => expect(getDiskWriteQueueStats().pending).toBe(0));
+    await vi.waitFor(() => expect(getDiskWriteQueueStats().pending).toBe(0), { timeout: 15_000 });
     expect(loadCheckpointByMeta(metaFor(cp))?.graph.agents).toEqual(cp.graph.agents);
-  });
+  }, 40_000);
 
   it('retries the same checkpoint after a temporary core write failure', () => {
     const cp = checkpoint();

@@ -69,7 +69,7 @@ mv() {
   const child = spawnSync(shell, [shellPath(script)], {
     env: { ...process.env, FIXTURE_ROOT: shellPath(root), FIXTURE_TARGET: shellPath(target),
       FIXTURE_MOUNT: shellPath(mounted), FIXTURE_FAILURE: failure, TMPDIR: shellPath(path.join(root, 'tmp')) },
-    encoding: 'utf8', timeout: 10_000, windowsHide: true,
+    encoding: 'utf8', timeout: 60_000, windowsHide: true, // 전체 시험과 함께 돌면 Windows 의 bash 기동이 10초를 넘었다.
   });
   expect(child.error, child.stdout + child.stderr).toBeUndefined();
   return { child, root, target, applications };
