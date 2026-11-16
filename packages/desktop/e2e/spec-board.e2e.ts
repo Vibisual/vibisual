@@ -47,13 +47,14 @@ const rulesOf = async (p: Page, agentId: string): Promise<string> => {
   const res = await api<any>(p, 'GET', `/api/agent-config/${agentId}`);
   return String(res?.config?.rules ?? res?.data?.rules ?? res?.rules ?? '');
 };
-const agentIds = (p: Page) => p.locator('main .react-flow__node[data-id^="agent-"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-id')!));
-/** Card bubbles shorten long labels in the middle, so new cards are found by id difference, not by text. */
-async function newAgents(p: Page, before: readonly string[], count: number): Promise<string[]> {
-  return until(`${count} new card(s)`, async () => {
-    const fresh = (await agentIds(p)).filter((id) => !before.includes(id));
-    return fresh.length >= count ? fresh : null;
-  }, 20_000);
+/** New cards are found through their chain edge, not the DOM: the canvas culls off-screen bubbles, and on a narrow
+ *  window (debug panel open) freshly made cards can land outside the view. */
+const edgeEntries = async (p: Page) => {
+  const res = await api<{ data: Record<string, { sourceAgentId: string; targetAgentId: string }> }>(p, 'GET', '/api/task-edges');
+  return Object.entries(res.data ?? {});
+};
+async function newEdge(p: Page, before: readonly string[], what: string, match: (e: { sourceAgentId: string; targetAgentId: string }) => boolean = () => true) {
+  return until(what, async () => (await edgeEntries(p)).find(([id, e]) => !before.includes(id) && match(e))?.[1] ?? null, 20_000);
 }
 async function generateButton(p: Page, count: number): Promise<Locator> {
   const b = panel(p).getByRole('button', { name: `Create task cards (${count})` });
@@ -91,12 +92,12 @@ describe('spec board in debug mode', () => {
       await input.press('Enter');
       await visible(panel(p).getByText(text));
     }
-    const before = await agentIds(p);
+    const before = (await edgeEntries(p)).map(([id]) => id);
     await (await generateButton(p, 2)).click();
-    const [a, b] = await newAgents(p, before, 2);
     // The chain runs in item order, so the edge direction tells which card is item 1.
-    await until('one chain edge between the two cards', async () => (await edgesBetween(p, a!, b!)) + (await edgesBetween(p, b!, a!)) === 1, 10_000);
-    cards = (await edgesBetween(p, a!, b!)) === 1 ? [a!, b!] : [b!, a!];
+    const chain = await newEdge(p, before, 'chain edge between the two new cards');
+    cards = [chain.sourceAgentId, chain.targetAgentId];
+    expect(await edgesBetween(p, cards[1]!, cards[0]!)).toBe(0);
     expect(await rulesOf(p, cards[0]!)).toContain(CRITERIA[0]);
     expect(await rulesOf(p, cards[1]!)).toContain(CRITERIA[1]);
     await snapshot('02-cards');
@@ -110,11 +111,11 @@ describe('spec board in debug mode', () => {
     await until('card 1 left the canvas', async () => (await bubble(p, cards[0]!).count()) === 0, 10_000);
     // Canvas bubbles keep gliding (physics), so Playwright's stability wait never settles — press where it is now.
     await bubble(p, specId).dblclick({ force: true });
-    const before = await agentIds(p);
+    const before = (await edgeEntries(p)).map(([id]) => id);
     await (await generateButton(p, 1)).click();
-    const [fresh] = await newAgents(p, before, 1);
-    expect(await rulesOf(p, fresh!)).toContain(CRITERIA[0]);
-    await until('chain edge new card → card2', async () => (await edgesBetween(p, fresh!, cards[1]!)) === 1, 10_000);
+    const remade = await newEdge(p, before, 'chain edge new card → card2', (e) => e.targetAgentId === cards[1] && e.sourceAgentId !== cards[0]);
+    const fresh = remade.sourceAgentId;
+    expect(await rulesOf(p, fresh)).toContain(CRITERIA[0]);
     cards = [fresh, cards[1]!];
     await snapshot('03-remade');
   });
