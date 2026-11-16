@@ -30,6 +30,8 @@ import { useEditorLineCommands } from './useEditorLineCommands.js';
 /** 두 층 공유 글자 배치(여기만 고친다). `[tab-size:4]` 는 `EDITOR_TAB_SIZE` 와 같아야 한다(브라우저 기본 8 은 탭 들여쓰기를 두 배로 벌린다). */
 const LAYER_TEXT = 'font-mono text-[13px] leading-[19px] [tab-size:4]';
 const LAYER_PAD = 'px-3 py-2';
+/** §5.5 #17-27 ⑲ (i) — 접을 때 두 층이 쓰는 줄바꿈 규칙. 한쪽만 다르면 접히는 자리가 갈려 캐럿과 글자가 어긋난다. */
+const LAYER_WRAP = 'whitespace-pre-wrap break-words';
 /**
  * §5.5 #17-27 ⑪ — 줄 번호로 스크롤 위치를 계산할 때 쓰는 치수. **위 두 상수와 같은 값**이어야 한다
  * (`leading-[19px]` / `py-2` = 8px). 어긋나면 스크롤이 매 줄 조금씩 밀린다.
@@ -69,6 +71,8 @@ interface CodeEditorProps {
   text: string;
   /** 강조에 쓸 언어 id (`languageFromPath` 결과) */
   language: string;
+  /** §5.5 #17-27 ⑲ (i) — 긴 줄을 편집창 너비에서 접는다(문서). 기본은 접지 않는다(코드). */
+  wrap?: boolean;
   readOnly: boolean;
   onChange: (next: string) => void;
   onSave: () => void;
@@ -242,6 +246,7 @@ const CodeLineRow = memo(
 export const CodeEditor = memo(function CodeEditor({
   text,
   language,
+  wrap = false,
   readOnly,
   onChange,
   onSave,
@@ -265,6 +270,9 @@ export const CodeEditor = memo(function CodeEditor({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const preRef = useRef<HTMLPreElement>(null);
+  /** ⑲ (i) 접힌 동안 `<pre>` 의 줄마다 잰 높이 — 줄 번호 칸이 같은 키로 따라간다. 접지 않으면 null(행간 고정). */
+  const [rowHeights, setRowHeights] = useState<readonly number[] | null>(null);
   /** 프로그램이 바꾼 본문의 커서 위치 — 값이 반영된 **뒤에** 넣어야 커서가 끝으로 튀지 않는다. */
   const pendingSelection = useRef<{ start: number; end: number; value: string } | null>(null);
   const [caretLine, setCaretLine] = useState(1);
@@ -305,6 +313,39 @@ export const CodeEditor = memo(function CodeEditor({
     el.setSelectionRange(range.start, range.end);
   }, [text]);
 
+  // ⑲ (i) 몇 행으로 접혔는지는 브라우저만 안다 — 그린 뒤에 재고, 창 폭이 바뀌면(ResizeObserver) 다시 잰다.
+  useLayoutEffect(() => {
+    const pre = preRef.current;
+    if (!wrap || !pre?.children) {
+      setRowHeights(null);
+      return;
+    }
+    const measure = (): void => {
+      const next = Array.from(pre.children, (row) => (row as HTMLElement).offsetHeight);
+      setRowHeights((prev) => (prev && prev.length === next.length && prev.every((h, i) => h === next[i]) ? prev : next));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(pre);
+    return () => observer.disconnect();
+  }, [wrap, lines]);
+
+  // 줄 번호 칸의 키가 정해진 뒤에 세로 자리를 다시 맞춘다 — 그 전에 넣은 scrollTop 은 짧은 칸에서 잘린다.
+  useLayoutEffect(() => {
+    const gutter = gutterRef.current;
+    const scroller = scrollRef.current;
+    if (rowHeights && gutter && scroller) gutter.scrollTop = scroller.scrollTop;
+  }, [rowHeights]);
+
+  /** 그 줄(1-based)의 세로 자리. 접힌 동안은 실제 줄 상자를, 아니면 줄 번호 × 행간을 쓴다. */
+  const lineBox = useCallback((line: number): { top: number; bottom: number } => {
+    const row = wrap ? (preRef.current?.children?.[line - 1] as HTMLElement | undefined) : undefined;
+    if (row) return { top: row.offsetTop, bottom: row.offsetTop + row.offsetHeight };
+    const top = LAYER_PAD_TOP_PX + (line - 1) * LINE_HEIGHT_PX;
+    return { top, bottom: top + LINE_HEIGHT_PX };
+  }, [wrap]);
+
   /** 줄 번호는 본문과 같은 스크롤을 따라야 한다 — 세로만 옮긴다(가로는 본문만 움직인다). */
   const handleScroll = useCallback((): void => {
     const gutter = gutterRef.current;
@@ -335,12 +376,12 @@ export const CodeEditor = memo(function CodeEditor({
     lastFollowToken.current = followToken;
     // 캐럿이 먼저다 — 혹시 선택을 옮기며 브라우저가 스크롤을 건드려도 바로 아래 스크롤이 자리를 정한다.
     if (followFocus) placeCaretAtLine(followRange.start);
-    const top = LAYER_PAD_TOP_PX + (followRange.start - 1) * LINE_HEIGHT_PX;
+    const { top } = lineBox(followRange.start);
     const target = Math.max(0, top - Math.max(48, Math.round(scroller.clientHeight / 3)));
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     scroller.scrollTo({ top: target, behavior: reduceMotion ? 'auto' : 'smooth' });
     // 줄 번호 칸은 부드러운 스크롤이 만드는 scroll 이벤트를 타고 따라온다(handleScroll).
-  }, [followToken, followRange, followFocus, placeCaretAtLine]);
+  }, [followToken, followRange, followFocus, placeCaretAtLine, lineBox]);
 
   const updateCaretLine = useCallback((): void => {
     const el = textareaRef.current;
@@ -355,19 +396,20 @@ export const CodeEditor = memo(function CodeEditor({
   const revealLine = useCallback((line: number, mode: 'center' | 'nearest'): void => {
     const scroller = scrollRef.current;
     if (!scroller) return;
-    const top = LAYER_PAD_TOP_PX + (line - 1) * LINE_HEIGHT_PX;
-    const bottom = top + LINE_HEIGHT_PX;
+    const { top, bottom } = lineBox(line);
     const viewTop = scroller.scrollTop;
     const viewBottom = viewTop + scroller.clientHeight;
     if (top >= viewTop && bottom <= viewBottom) return;
     if (mode === 'nearest') {
+      // ⑲ (i) 접힌 줄이 화면보다 길면 어느 끝에 맞춰도 캐럿을 놓친다 — 걸쳐 보이는 동안은 브라우저의 캐럿 따라가기에 맡긴다.
+      if (bottom - top > scroller.clientHeight && top < viewBottom && bottom > viewTop) return;
       scroller.scrollTop = top < viewTop
         ? Math.max(0, top - LAYER_PAD_TOP_PX)
         : bottom - scroller.clientHeight + LAYER_PAD_TOP_PX;
       return;
     }
     scroller.scrollTop = Math.max(0, top - Math.max(48, Math.round(scroller.clientHeight / 3)));
-  }, []);
+  }, [lineBox]);
 
   /**
    * §5.5 #17-27 ⑲ — 계산한 편집을 **되돌리기가 이어지게** 넣는다. 바뀐 한 군데만 골라 `insertText` 한 번으로
@@ -595,8 +637,11 @@ export const CodeEditor = memo(function CodeEditor({
                 onClick={onToggleBreakpoint ? () => onToggleBreakpoint(lineNo) : undefined}
                 onContextMenu={(e) => handleGutterContextMenu(e, lineNo)}
                 title={onToggleBreakpoint ? toggleBreakpointTitle : undefined}
+                // ⑲ (i) 잰 값이라 클래스로 적을 수 없다 — 접힌 본문 줄과 같은 키. 번호는 첫 행에 선다(items-start).
+                style={rowHeights ? { height: rowHeights[i] } : undefined}
                 className={[
-                  'relative flex items-center justify-end gap-1 pr-1',
+                  'relative flex justify-end gap-1 pr-1',
+                  rowHeights ? 'items-start' : 'items-center',
                   onToggleBreakpoint ? 'cursor-pointer hover:bg-gray-800/60' : '',
                   // ⑬ (g) — 칠한 줄은 번호 칸도 같은 sky 로 물들어 본문과 한 줄 띠로 이어진다(정지 줄이 이긴다).
                   isStopped
@@ -609,14 +654,14 @@ export const CodeEditor = memo(function CodeEditor({
                 ].join(' ')}
               >
                 {hasBreakpoint && (
-                  <span className="absolute left-1 h-2 w-2 rounded-full bg-rose-500" aria-hidden />
+                  <span className={`absolute left-1 h-2 w-2 rounded-full bg-rose-500 ${rowHeights ? 'top-[5.5px]' : ''}`} aria-hidden />
                 )}
                 {/* §5.5 #17-27 ⑪ (h) ④ — 잔상 막대. 강조가 꺼진 뒤에도 다음 편집까지 이 줄에 남는다. */}
                 {isRecent && (
                   <span className="absolute right-0 top-0 h-full w-[2px] bg-blue-400/70" aria-hidden />
                 )}
                 {isStopped && !hasBreakpoint && (
-                  <span className="absolute left-1 text-[12px] leading-none text-amber-300" aria-hidden>
+                  <span className={`absolute left-1 text-[12px] leading-none text-amber-300 ${rowHeights ? 'top-[3.5px]' : ''}`} aria-hidden>
                     &#9656;
                   </span>
                 )}
@@ -631,10 +676,10 @@ export const CodeEditor = memo(function CodeEditor({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="scrollbar-thin relative min-w-0 flex-1 overflow-auto"
+        className={`scrollbar-thin relative min-w-0 flex-1 ${wrap ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto'}`}
       >
-        <div className="relative min-h-full w-max min-w-full">
-          <pre aria-hidden className={`${LAYER_TEXT} ${LAYER_PAD} m-0 whitespace-pre`}>
+        <div className={`relative min-h-full ${wrap ? 'w-full' : 'w-max min-w-full'}`}>
+          <pre ref={preRef} aria-hidden className={`${LAYER_TEXT} ${LAYER_PAD} m-0 ${wrap ? LAYER_WRAP : 'whitespace-pre'}`}>
             {lines.map((line, i) => {
               const lineNo = i + 1;
               const isFollowed = !!followRange && lineNo >= followRange.start && lineNo <= followRange.end;
@@ -658,7 +703,7 @@ export const CodeEditor = memo(function CodeEditor({
             value={text}
             readOnly={readOnly}
             spellCheck={false}
-            wrap="off"
+            wrap={wrap ? 'soft' : 'off'}
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
@@ -672,7 +717,7 @@ export const CodeEditor = memo(function CodeEditor({
             data-text-menu="own"
             // ⑲ Enter 는 이 칸이 맡는다(들여쓰기 잇기) — 한글 조합을 끝낸 첫 Enter 가 전역 조합 가드에 막히지 않게.
             {...IME_ENTER_OWNER}
-            className={`${LAYER_TEXT} ${LAYER_PAD} absolute inset-0 h-full w-full resize-none overflow-hidden whitespace-pre border-0 bg-transparent text-transparent caret-gray-100 outline-none selection:bg-blue-500/30`}
+            className={`${LAYER_TEXT} ${LAYER_PAD} absolute inset-0 h-full w-full resize-none overflow-hidden ${wrap ? LAYER_WRAP : 'whitespace-pre'} border-0 bg-transparent text-transparent caret-gray-100 outline-none selection:bg-blue-500/30`}
           />
         </div>
       </div>

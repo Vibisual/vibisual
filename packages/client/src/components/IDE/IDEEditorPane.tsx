@@ -6,7 +6,7 @@ import { useGraphStore, selectIDEOverlay, workspaceImageFileKey } from '../../st
 import { useImageLightboxOrigin } from './imageLightboxOrigin.js';
 import { useIDEPaneValue, useIDEPaneProjectName, useIDEPaneActions, useIDEPaneKey } from './idePane.js';
 import { CodeEditor, type EditorViewState, type FollowRange } from './CodeEditor.js';
-import { languageFromPath } from './codeLanguages.js';
+import { languageFromPath, wrapsByDefault } from './codeLanguages.js';
 import { FOLLOW_SKIP_KEYS, findEditedLineRange, followSessionKey } from './editorFollow.js';
 import { clampLineRange, countTextLines } from './editorLineRange.js';
 import { isDirty, splitPathTail, tabLabels } from './editorModel.js';
@@ -1141,6 +1141,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ runOutput }: {
           viewStateRef={editorViewStateRef}
           text={doc.draft}
           language={language}
+          wrap={wrapsByDefault(language)}
           readOnly={readOnly}
           onChange={handleChange}
           onSave={() => handleSave()}

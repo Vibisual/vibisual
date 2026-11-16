@@ -307,3 +307,8 @@ export function languageFromPath(filePath: string): string {
 export function languageSpec(id: string): LanguageSpec {
   return LANGUAGES[id] ?? LANGUAGES['plain']!;
 }
+
+/** §5.5 #17-27 ⑲ (i) — 긴 줄을 편집창 너비에서 접는 언어인가. 문단이 한 줄인 문서만 — 코드는 들여쓰기 모양이 무너진다. */
+export function wrapsByDefault(id: string): boolean {
+  return languageSpec(id).mode === 'markdown';
+}

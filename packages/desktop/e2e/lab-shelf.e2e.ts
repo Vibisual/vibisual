@@ -5,7 +5,7 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ElectronApplication, Page } from 'playwright-core';
 import { createSandbox, launch, mainWindow, quit, waitForReveal, type Sandbox } from './harness';
-import { bubble, canvasMenu, canvasMenuRowCount, firstRunToProject, toggleDebugMode, until, visible } from './flows';
+import { bubble, canvasMenu, canvasMenuRowCount, emptyCanvasPoint, firstRunToProject, toggleDebugMode, until, visible } from './flows';
 
 const s: Sandbox = createSandbox('first-command.json');
 const artifacts = process.env.VIBISUAL_E2E_ARTIFACTS ? path.join(path.resolve(process.env.VIBISUAL_E2E_ARTIFACTS), 'lab-shelf') : path.join(s.root, 'artifacts');
@@ -40,7 +40,7 @@ afterAll(async () => {
 });
 
 const LAB_AT = { x: 160, y: 140 };
-const shelfAt = async (p: Page) => ({ x: (await p.locator('main .react-flow__pane').boundingBox())!.width - 300, y: 140 });
+const shelfAt = (p: Page) => emptyCanvasPoint(p);
 const labTask = (p: Page) => p.getByPlaceholder(/^Write the job once/);
 const shelfPanel = (p: Page) => p.locator('div.fixed').filter({ has: p.getByRole('button', { name: '+ Shell command' }) }).first();
 

@@ -20,7 +20,23 @@ export async function until<T>(what: string, fn: () => T | Promise<T>, timeoutMs
 }
 
 export const visible = (l: Locator, timeout = 20_000) => l.first().waitFor({ state: 'visible', timeout });
-export const bubble = (p: Page, id: string) => p.locator(`.react-flow__node[data-id="${id}"]`);
+// Main canvas only — the debug panel draws its own mini canvas with the same node ids, outside `main`.
+export const bubble = (p: Page, id: string) => p.locator(`main .react-flow__node[data-id="${id}"]`);
+
+/** A point (relative to the canvas pane) where the pane itself is on top, scanning right to left. Fixed spots land on
+ *  bubbles when the window is narrow (the debug panel takes 320px), and a right-click there opens the bubble menu. */
+export async function emptyCanvasPoint(p: Page): Promise<{ x: number; y: number }> {
+  return p.locator('main .react-flow__pane').evaluate((pane) => {
+    const r = pane.getBoundingClientRect();
+    for (let fx = 0.9; fx >= 0.1; fx -= 0.1) {
+      for (let fy = 0.2; fy <= 0.9; fy += 0.1) {
+        const x = Math.round(r.width * fx), y = Math.round(r.height * fy);
+        if (document.elementFromPoint(r.left + x, r.top + y) === pane) return { x, y };
+      }
+    }
+    throw new Error('no empty canvas point');
+  });
+}
 export const isActive = async (node: Locator) => (await node.locator('.animate-pulse-ring').count()) > 0;
 export const isCompleted = async (node: Locator) => (await node.locator('.bubble-body.border-cyan-400').count()) > 0
   || (await node.locator('[data-agent-card-status="completed"]').count()) > 0;

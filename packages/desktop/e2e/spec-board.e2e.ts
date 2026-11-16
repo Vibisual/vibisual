@@ -47,7 +47,7 @@ const rulesOf = async (p: Page, agentId: string): Promise<string> => {
   const res = await api<any>(p, 'GET', `/api/agent-config/${agentId}`);
   return String(res?.config?.rules ?? res?.data?.rules ?? res?.rules ?? '');
 };
-const agentIds = (p: Page) => p.locator('.react-flow__node[data-id^="agent-"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-id')!));
+const agentIds = (p: Page) => p.locator('main .react-flow__node[data-id^="agent-"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-id')!));
 /** Card bubbles shorten long labels in the middle, so new cards are found by id difference, not by text. */
 async function newAgents(p: Page, before: readonly string[], count: number): Promise<string[]> {
   return until(`${count} new card(s)`, async () => {

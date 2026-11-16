@@ -220,6 +220,11 @@ export function useEditorFind(deps: EditorFindDeps): EditorFindApi {
     if (left < scroller.scrollLeft + REVEAL_MARGIN_PX || right > scroller.scrollLeft + scroller.clientWidth - REVEAL_MARGIN_PX) {
       scroller.scrollLeft = Math.max(0, left - Math.round(scroller.clientWidth / 3));
     }
+    // ⑲ (i) 접힌 줄에서는 찾은 자리가 그 줄의 아래 행에 있다 — 줄 머리만 보이게 한 스크롤로는 화면 밖일 수 있다.
+    const top = mark.offsetTop;
+    if (top < scroller.scrollTop || top + mark.offsetHeight > scroller.scrollTop + scroller.clientHeight) {
+      scroller.scrollTop = Math.max(0, top - Math.round(scroller.clientHeight / 3));
+    }
   });
 
   // 초점 요청 — 입력칸이 그려진 뒤에 준다.
