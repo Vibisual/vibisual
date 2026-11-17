@@ -94,9 +94,9 @@ fix it on the spot instead of switching to another app.
 
 ## Watch the full walkthrough
 
-[![Vibisual — one task, two agents: the full walkthrough](docs/media/walkthrough-poster.jpg)](https://vibisual.pro/blog/walkthrough/)
+[![Vibisual — one task, two agents: the full walkthrough](docs/media/walkthrough.gif)](https://vibisual.pro/blog/walkthrough/)
 
-▶ [Watch the walkthrough (1:41)](https://vibisual.pro/blog/walkthrough/) — one task, done by a Claude agent and a Codex agent · [video file](https://github.com/Vibisual/vibisual/releases/download/v0.2.8/vibisual-walkthrough.mp4)
+▶ [Watch it with sound (1:41)](https://vibisual.pro/blog/walkthrough/) — one task, done by a Claude agent and a Codex agent
 
 ## Quick Start
 

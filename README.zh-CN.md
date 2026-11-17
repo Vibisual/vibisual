@@ -79,9 +79,9 @@ Claude Code 的 hook 事件 —— 包括 `PreToolUse`、`PostToolUse`、`UserPr
 
 ## 完整演示
 
-[![Vibisual —— 一个任务，两个代理：完整演示](docs/media/walkthrough-poster.jpg)](https://vibisual.pro/blog/walkthrough/?lang=zh-CN)
+[![Vibisual —— 一个任务，两个代理：完整演示](docs/media/walkthrough.gif)](https://vibisual.pro/blog/walkthrough/?lang=zh-CN)
 
-▶ [观看完整演示（1:41）](https://vibisual.pro/blog/walkthrough/) —— 一个任务，由 Claude 代理和 Codex 代理完成 · [视频文件](https://github.com/Vibisual/vibisual/releases/download/v0.2.8/vibisual-walkthrough.mp4)
+▶ [观看带声音的完整版（1:41）](https://vibisual.pro/blog/walkthrough/) —— 一个任务，由 Claude 代理和 Codex 代理完成
 
 ## 快速开始
 
