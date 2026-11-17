@@ -6,11 +6,14 @@
 
 </div>
 
-<img src="docs/media/demo.gif" alt="Vibisual demo — hooks streaming into the bubble map, sub-agents configured visually" width="100%" />
+<img src="docs/media/demo.gif" alt="Vibisual demo — files an agent reads and edits appear as bubbles on the map, then the heatmap colours them by activity" width="100%" />
 
 <div align="center">
 
 Design your agent team on a canvas, watch them work, and edit right there.
+
+A free, open-source desktop app (GUI) for Claude Code and Codex: a live visualizer
+for multi-agent and sub-agent runs, with write approvals, a built-in editor and a usage dashboard.
 
 *See your AI agents think.*
 
@@ -91,9 +94,9 @@ fix it on the spot instead of switching to another app.
 
 ## Watch the full walkthrough
 
-[![Vibisual — full walkthrough on YouTube](https://img.youtube.com/vi/asJ_Z-75uqc/maxresdefault.jpg)](https://youtu.be/asJ_Z-75uqc)
+[![Vibisual — one task, two agents: the full walkthrough](docs/media/walkthrough-poster.jpg)](https://vibisual.pro/blog/walkthrough/)
 
-▶ [Watch on YouTube — 2-minute walkthrough](https://youtu.be/asJ_Z-75uqc)
+▶ [Watch the walkthrough (1:41)](https://vibisual.pro/blog/walkthrough/) — one task, done by a Claude agent and a Codex agent · [video file](https://github.com/Vibisual/vibisual/releases/download/v0.2.8/vibisual-walkthrough.mp4)
 
 ## Quick Start
 

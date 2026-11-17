@@ -6,11 +6,14 @@
 
 </div>
 
-<img src="docs/media/demo.gif" alt="Vibisual 演示 —— hook 事件流入气泡地图，子代理以可视化方式配置" width="100%" />
+<img src="docs/media/demo.gif" alt="Vibisual 演示 —— 代理读取和修改的文件以气泡形式出现在地图上，热力图按活动量着色" width="100%" />
 
 <div align="center">
 
 在画布上设计你的代理团队，看着它们工作，并就地修改。
+
+免费、开源的 Claude Code 与 Codex 桌面应用（GUI）：实时可视化多代理与子代理的运行，
+带写入审批、内置编辑器和用量面板。
 
 *See your AI agents think.*
 
@@ -76,9 +79,9 @@ Claude Code 的 hook 事件 —— 包括 `PreToolUse`、`PostToolUse`、`UserPr
 
 ## 完整演示
 
-[![Vibisual —— YouTube 完整演示](https://img.youtube.com/vi/asJ_Z-75uqc/maxresdefault.jpg)](https://youtu.be/asJ_Z-75uqc)
+[![Vibisual —— 一个任务，两个代理：完整演示](docs/media/walkthrough-poster.jpg)](https://vibisual.pro/blog/walkthrough/?lang=zh-CN)
 
-▶ [在 YouTube 上观看 —— 2 分钟演示](https://youtu.be/asJ_Z-75uqc)
+▶ [观看完整演示（1:41）](https://vibisual.pro/blog/walkthrough/) —— 一个任务，由 Claude 代理和 Codex 代理完成 · [视频文件](https://github.com/Vibisual/vibisual/releases/download/v0.2.8/vibisual-walkthrough.mp4)
 
 ## 快速开始
 
